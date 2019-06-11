@@ -8,6 +8,18 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_wri);
 
+#define WRI_STG_METAFILE  0x88
+#define WRI_STG_BITMAP    0xe3
+#define WRI_STG_OLE       0xe4
+
+struct picctx_struct {
+	unsigned int mm; // WRI_STG_*
+	i64 cbHeader;
+	i64 cbSize;
+	unsigned int ole_objectType;
+	i64 ole_dwDataSize;
+};
+
 struct text_styles_struct {
 	u8 tab_style;
 };
@@ -100,71 +112,6 @@ static int do_header(deark *c, lctx *d, i64 pos)
 	return 1;
 }
 
-static void do_picture_metafile(deark *c, lctx *d, struct para_info *pinfo)
-{
-	i64 pos = pinfo->thisparapos;
-	i64 cbHeader, cbSize;
-
-	cbHeader = de_getu16le(pos+30);
-	de_dbg(c, "cbHeader: %d", (int)cbHeader);
-
-	cbSize = de_getu32le(pos+32);
-	de_dbg(c, "cbSize: %d", (int)cbSize);
-
-	if(cbHeader+cbSize <= pinfo->thisparalen) {
-		dbuf_create_file_from_slice(c->infile, pos+cbHeader, cbSize, "wmf", NULL, 0);
-	}
-}
-
-// TODO: Consolidate this with ole1:do_static_bitmap()?
-static void do_picture_bitmap(deark *c, lctx *d, struct para_info *pinfo)
-{
-	i64 pos1 = pinfo->thisparapos;
-	i64 pos;
-	i64 cbHeader, cbSize;
-	i64 bmWidth, bmHeight;
-	i64 bmPlanes;
-	i64 bmBitsPixel;
-	i64 rowspan;
-
-	pos = pos1;
-	pos += 16;
-	pos += 2;
-	bmWidth = de_getu16le_p(&pos); // pos1+16+2
-	bmHeight = de_getu16le_p(&pos); // pos1+16+4
-	de_dbg_dimensions(c, bmWidth, bmHeight);
-
-	rowspan = de_getu16le_p(&pos); // pos1+16+6
-	de_dbg(c, "bytes/row: %d", (int)rowspan);
-
-	bmPlanes = (i64)de_getbyte_p(&pos);
-	de_dbg(c, "planes: %d", (int)bmPlanes);
-
-	bmBitsPixel = (i64)de_getbyte_p(&pos); // pos1+16+9
-	de_dbg(c, "bmBitsPixel: %d", (int)bmBitsPixel);
-
-	pos += 4;
-
-	cbHeader = de_getu16le_p(&pos); // pos1+30
-	de_dbg(c, "cbHeader: %d", (int)cbHeader);
-
-	cbSize = de_getu32le_p(&pos); // pos1+32
-	de_dbg(c, "cbSize: %d", (int)cbSize);
-
-	if(bmBitsPixel!=1 || bmPlanes!=1) {
-		de_err(c, "This type of bitmap is not supported (bmBitsPixel=%d, planes=%d)",
-			(int)bmBitsPixel, (int)bmPlanes);
-		goto done;
-	}
-
-	pos = pos1 + cbHeader;
-
-	de_convert_and_write_image_bilevel(c->infile, pos, bmWidth, bmHeight, rowspan, 0, NULL, 0);
-
-done:
-	;
-}
-
 static const char *get_objecttype1_name(unsigned int t)
 {
 	const char *name;
@@ -177,41 +124,134 @@ static const char *get_objecttype1_name(unsigned int t)
 	return name;
 }
 
+// Read the usually-40-byte picture header.
+// The header has 3 variants (metafile, bitmap, OLE), which have some common
+// fields, and some different fields. So, this function is kind of ugly.
+static void do_picture_header(deark *c, lctx *d, struct para_info *pinfo,
+	struct picctx_struct *picctx)
+{
+	i64 pos1 = pinfo->thisparapos;
+	i64 pos = pos1;
+	i64 n1, n2;
+
+	// (The initial "mm" / "storage type" field has already been read.)
+
+	if(picctx->mm==WRI_STG_METAFILE) {
+		pos = pos1+2;
+		n1 = de_getu16le_p(&pos);
+		n2 = de_getu16le_p(&pos);
+		de_dbg(c, "xExt,yExt: %d"DE_CHAR_TIMES"%d twips", (int)n1, (int)n2);
+	}
+
+	if(picctx->mm==WRI_STG_OLE) {
+		// This field seems important, but we don't use it, because the OLE
+		// FormatID field is sufficient.
+		picctx->ole_objectType = (unsigned int)de_getu16le(pos1+6);
+		de_dbg(c, "objectType: %u (%s)", picctx->ole_objectType,
+			get_objecttype1_name(picctx->ole_objectType));
+	}
+
+	pos = pos1+8;
+	n1 = de_getu16le_p(&pos);
+	de_dbg(c, "dxaOffset: %d twips", (int)n1);
+	n1 = de_getu16le_p(&pos);
+	n2 = de_getu16le_p(&pos);
+	de_dbg(c, "dxaSize,dyaSize: %d"DE_CHAR_TIMES"%d twips", (int)n1, (int)n2);
+
+	if(picctx->mm==WRI_STG_BITMAP) {
+		de_dbg(c, "[DDB header at %"I64_FMT"]", pos1+16);
+	}
+
+	if(picctx->mm==WRI_STG_OLE) {
+		picctx->ole_dwDataSize = de_getu32le(pos1+16);
+		de_dbg(c, "dwDataSize: %d", (int)picctx->ole_dwDataSize);
+		n1 = de_getu32le(pos1+24);
+		de_dbg(c, "dwObjNum: 0x%08x", (unsigned int)n1);
+	}
+
+	picctx->cbHeader = de_getu16le(pos1+30);
+	de_dbg(c, "header size: %d", (int)picctx->cbHeader);
+
+	if(picctx->mm==WRI_STG_METAFILE || picctx->mm==WRI_STG_BITMAP) {
+		picctx->cbSize = de_getu32le(pos1+32);
+		de_dbg(c, "data size: %d", (int)picctx->cbSize);
+	}
+
+	pos = pos1+36;
+	n1 = de_getu16le_p(&pos);
+	n2 = de_getu16le_p(&pos);
+	de_dbg(c, "scaling factor x,y: %d,%d", (int)n1, (int)n2);
+}
+
+static void do_picture_metafile(deark *c, lctx *d, struct para_info *pinfo,
+	struct picctx_struct *picctx)
+{
+	i64 pos = pinfo->thisparapos;
+
+	if(picctx->cbHeader+picctx->cbSize > pinfo->thisparalen) goto done;
+	de_dbg(c, "metafile data at %"I64_FMT, pos+picctx->cbHeader);
+	dbuf_create_file_from_slice(c->infile, pos+picctx->cbHeader, picctx->cbSize,
+		"wmf", NULL, 0);
+done:
+	;
+}
+
+static void do_picture_bitmap(deark *c, lctx *d, struct para_info *pinfo,
+	struct picctx_struct *picctx)
+{
+	i64 hdrpos, bitspos;
+	i64 bitssize;
+	dbuf *tmpf = NULL;
+
+	if(picctx->cbHeader + picctx->cbSize > pinfo->thisparalen) goto done;
+	hdrpos = pinfo->thisparapos + 16;
+	bitspos = pinfo->thisparapos + picctx->cbHeader;
+	bitssize = picctx->cbSize;
+	de_dbg(c, "processing DDB, header at %"I64_FMT", pixels at %"I64_FMT,
+		hdrpos, bitspos);
+
+	// Most commonly, the DDB bits immediately follow the header. But in this
+	// format, they are separated, with some non-DDB data in between.
+	// We'll construct a temporary DDB, in which they are contiguous, to pass
+	// to the ddb module.
+	tmpf = dbuf_create_membuf(c, 14+bitssize, 0);
+	dbuf_copy(c->infile, hdrpos, 14, tmpf);
+	dbuf_copy(c->infile, bitspos, bitssize, tmpf);
+
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice2(c, "ddb", "N", tmpf, 0, tmpf->len);
+	de_dbg_indent(c, -1);
+
+done:
+	dbuf_close(tmpf);
+}
+
 static const char *get_picture_storage_type_name(unsigned int t)
 {
 	const char *name;
 	switch(t) {
-	case 0x88: name="metafile"; break;
-	case 0xe3: name="bitmap"; break;
-	case 0xe4: name="OLE object"; break;
+	case WRI_STG_METAFILE: name="metafile"; break;
+	case WRI_STG_BITMAP: name="bitmap"; break;
+	case WRI_STG_OLE: name="OLE object"; break;
 	default: name="?"; break;
 	}
 	return name;
 }
 
-static void do_picture_ole(deark *c, lctx *d, struct para_info *pinfo)
+static void do_picture_ole(deark *c, lctx *d, struct para_info *pinfo,
+	struct picctx_struct *picctx)
 {
-	unsigned int objectType;
-	i64 cbHeader, dwDataSize;
 	i64 pos = pinfo->thisparapos;
 	i64 ole_len;
 	de_module_params *mparams = NULL;
 
-	objectType = (unsigned int)de_getu16le(pos+6);
-	de_dbg(c, "objectType: %u (%s)", objectType, get_objecttype1_name(objectType));
-
-	dwDataSize = de_getu32le(pos+16);
-	de_dbg(c, "dwDataSize: %d", (int)dwDataSize);
-
-	cbHeader = de_getu16le(pos+30);
-	de_dbg(c, "cbHeader: %d", (int)cbHeader);
-	pos += cbHeader;
+	pos += picctx->cbHeader;
 
 	mparams = de_malloc(c, sizeof(de_module_params));
 	mparams->in_params.codes = "W";
 	mparams->in_params.input_encoding = d->input_encoding;
 
-	ole_len = de_min_int(dwDataSize, pinfo->thisparapos+pinfo->thisparalen-pos);
+	ole_len = de_min_int(picctx->ole_dwDataSize, pinfo->thisparapos+pinfo->thisparalen-pos);
 	de_dbg(c, "OLE1 data at %"I64_FMT", len=%"I64_FMT, pos, ole_len);
 	de_dbg_indent(c, 1);
 	de_run_module_by_id_on_slice(c, "ole1", mparams, c->infile, pos, ole_len);
@@ -227,29 +267,32 @@ static int get_next_output_file_id(deark *c)
 
 static void do_picture(deark *c, lctx *d, struct para_info *pinfo)
 {
-	unsigned int mm;
 	int orig_file_count, curr_file_count;
+	struct picctx_struct *picctx = NULL;
 	i64 pos = pinfo->thisparapos;
 
+	picctx = de_malloc(c, sizeof(struct picctx_struct));
 	if(pinfo->thisparalen<2) goto done;
-	mm = (unsigned int)de_getu16le(pos);
-	de_dbg(c, "picture storage type: 0x%04x (%s)", mm,
-		get_picture_storage_type_name(mm));
+	picctx->mm = (unsigned int)de_getu16le(pos);
+	de_dbg(c, "picture storage type: 0x%04x (%s)", picctx->mm,
+		get_picture_storage_type_name(picctx->mm));
 
 	orig_file_count = get_next_output_file_id(c);
 
-	switch(mm) {
-	case 0x88:
-		do_picture_metafile(c, d, pinfo);
+	do_picture_header(c, d, pinfo, picctx);
+
+	switch(picctx->mm) {
+	case WRI_STG_METAFILE:
+		do_picture_metafile(c, d, pinfo, picctx);
 		break;
-	case 0xe3:
-		do_picture_bitmap(c, d, pinfo);
+	case WRI_STG_BITMAP:
+		do_picture_bitmap(c, d, pinfo, picctx);
 		break;
-	case 0xe4:
-		do_picture_ole(c, d, pinfo);
+	case WRI_STG_OLE:
+		do_picture_ole(c, d, pinfo, picctx);
 		break;
 	default:
-		de_err(c, "Picture storage type 0x%04x not supported", mm);
+		de_err(c, "Picture storage type 0x%04x not supported", picctx->mm);
 	}
 
 	if(d->html_outf) {
@@ -282,7 +325,7 @@ static void do_picture(deark *c, lctx *d, struct para_info *pinfo)
 	}
 
 done:
-	;
+	de_free(c, picctx);
 }
 
 static void ensure_in_para(deark *c, lctx *d, struct para_info *pinfo)
