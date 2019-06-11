@@ -8,6 +8,11 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_cardfile);
 
+struct page_ctx {
+	i64 datapos;
+	de_ucstring *name;
+};
+
 typedef struct localctx_struct {
 #define DE_CRDFMT_MGC 1
 #define DE_CRDFMT_RRG 2
@@ -37,102 +42,125 @@ static void do_dbg_text_data(deark *c, lctx *d, i64 text_pos, i64 text_len)
 	ucstring_destroy(s);
 }
 
-static void do_card_index(deark *c, lctx *d, i64 cardnum, i64 pos)
+static void do_bitmap_mgc(deark *c, lctx *d, struct page_ctx *pg)
 {
-	i64 datapos;
-	i64 bitmap_len;
 	i64 w, h;
 	i64 src_rowspan;
-	i64 text_len;
-	i64 text_pos;
 	de_bitmap *img = NULL;
 	de_finfo *fi_bitmap = NULL;
-	de_finfo *fi_text = NULL;
-	const char *cardtype;
-	de_ucstring *name = NULL;
-	int saved_indent_level;
-
-	de_dbg_indent_save(c, &saved_indent_level);
-
-	datapos = de_getu32le(pos+6);
-	de_dbg(c, "card #%d at %d, dpos=%d", (int)cardnum, (int)pos, (int)datapos);
-	de_dbg_indent(c, 1);
-
-	if(datapos>=c->infile->len) goto done;
-	bitmap_len = de_getu16le(datapos);
-	de_dbg(c, "bitmap length: %d", (int)bitmap_len);
-
-	if(bitmap_len==0) {
-		text_len = de_getu16le(datapos+2);
-		text_pos = datapos+4;
-	}
-	else {
-		text_len = de_getu16le(datapos + 10 + bitmap_len);
-		text_pos = datapos + 10 + bitmap_len +2;
-	}
-	de_dbg(c, "text length: %d", (int)text_len);
-
-	if(bitmap_len==0 && text_len==0) {
-		cardtype = "empty";
-	}
-	else if(bitmap_len==0) {
-		cardtype = "text-only";
-	}
-	else if(text_len==0) {
-		cardtype = "graphics-only";
-	}
-	else {
-		cardtype = "graphics+text";
-	}
-	de_dbg(c, "card type: %s", cardtype);
-
-	if(bitmap_len==0 && text_len==0) {
-		goto done;
-	}
-
-	name = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos+11, 40, name, DE_CONVFLAG_STOP_AT_NUL,
-		d->input_encoding);
-	de_dbg(c, "name: \"%s\"", ucstring_getpsz(name));
-
-	// Text
-
-	if(text_len!=0) {
-		if(c->extract_level>=2) {
-			fi_text = de_finfo_create(c);
-			if(c->filenames_from_file)
-				de_finfo_set_name_from_ucstring(c, fi_text, name, 0);
-
-			do_extract_text_data(c, d, fi_text, text_pos, text_len);
-		}
-		else {
-			do_dbg_text_data(c, d, text_pos, text_len);
-		}
-	}
-
-	// Bitmap
-
-	if(bitmap_len==0) goto done;
 
 	fi_bitmap = de_finfo_create(c);
 	if(c->filenames_from_file)
-		de_finfo_set_name_from_ucstring(c, fi_bitmap, name, 0);
+		de_finfo_set_name_from_ucstring(c, fi_bitmap, pg->name, 0);
 
-	w = de_getu16le(datapos+2);
-	h = de_getu16le(datapos+4);
+	w = de_getu16le(pg->datapos+2);
+	h = de_getu16le(pg->datapos+4);
 	de_dbg(c, "bitmap dimensions: %d"DE_CHAR_TIMES"%d", (int)w, (int)h);
 
 	img = de_bitmap_create(c, w, h, 1);
 	src_rowspan = ((w+15)/16)*2;
 
-	de_convert_and_write_image_bilevel(c->infile, datapos+10,
+	de_convert_and_write_image_bilevel(c->infile, pg->datapos+10,
 		w, h, src_rowspan, 0, fi_bitmap, 0);
 
-done:
-	ucstring_destroy(name);
 	de_bitmap_destroy(img);
 	de_finfo_destroy(c, fi_bitmap);
+}
+
+static void do_text_mgc(deark *c, lctx *d, struct page_ctx *pg,
+	i64 text_pos, i64 text_len)
+{
+	de_finfo *fi_text = NULL;
+
+	if(text_len<1) goto done;
+
+	if(c->extract_level>=2) {
+		fi_text = de_finfo_create(c);
+		if(c->filenames_from_file)
+			de_finfo_set_name_from_ucstring(c, fi_text, pg->name, 0);
+
+		do_extract_text_data(c, d, fi_text, text_pos, text_len);
+	}
+	else {
+		do_dbg_text_data(c, d, text_pos, text_len);
+	}
+
+done:
 	de_finfo_destroy(c, fi_text);
+}
+
+static void do_carddata_mgc(deark *c, lctx *d, struct page_ctx *pg)
+{
+	i64 bitmap_len;
+	i64 text_len;
+	i64 text_pos;
+
+	// Bitmap
+
+	bitmap_len = de_getu16le(pg->datapos);
+	de_dbg(c, "bitmap length: %d", (int)bitmap_len);
+
+	if(bitmap_len!=0) {
+		do_bitmap_mgc(c, d, pg);
+	}
+
+	// Text
+
+	if(bitmap_len==0) {
+		text_len = de_getu16le(pg->datapos+2);
+		text_pos = pg->datapos+4;
+	}
+	else {
+		text_len = de_getu16le(pg->datapos + 10 + bitmap_len);
+		text_pos = pg->datapos + 10 + bitmap_len +2;
+	}
+	de_dbg(c, "text length: %d", (int)text_len);
+
+	if(text_len!=0) {
+		do_text_mgc(c, d, pg, text_pos, text_len);
+	}
+}
+
+// Process a card, given the offset of its index
+static void do_card(deark *c, lctx *d, i64 cardnum, i64 pos)
+{
+	int saved_indent_level;
+	struct page_ctx *pg = NULL;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	pg = de_malloc(c, sizeof(struct page_ctx));
+	de_dbg(c, "card #%d", (int)cardnum);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "index at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
+	pg->datapos = de_getu32le(pos+6);
+	de_dbg(c, "datapos: %"I64_FMT, pg->datapos);
+	if(pg->datapos>=c->infile->len) goto done;
+
+	pg->name = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos+11, 40, pg->name, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "index text: \"%s\"", ucstring_getpsz_d(pg->name));
+
+	de_dbg_indent(c, -1);
+
+	de_dbg(c, "data at %"I64_FMT, pg->datapos);
+	de_dbg_indent(c, 1);
+
+	if(d->fmt==DE_CRDFMT_RRG) {
+		de_dbg(c, "[RRG format not supported]");
+		goto done;
+	}
+	else {
+		do_carddata_mgc(c, d, pg);
+	}
+
+done:
+	if(pg) {
+		ucstring_destroy(pg->name);
+		de_free(c, pg);
+	}
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -154,24 +182,26 @@ static void de_run_cardfile(deark *c, de_module_params *mparams)
 	b = de_getbyte(pos);
 	if(b=='R') d->fmt=DE_CRDFMT_RRG;
 	else d->fmt=DE_CRDFMT_MGC;
-
-	if(d->fmt==DE_CRDFMT_RRG) {
-		de_err(c, "CardFile RRG format is not supported");
-		goto done;
-	}
-
 	pos+=3;
 
-	d->numcards = de_getu16le(pos);
+	de_declare_fmtf(c, "CardFile%s", (d->fmt==DE_CRDFMT_RRG ? ", with objects" : ""));
+
+	if(d->fmt==DE_CRDFMT_RRG) {
+		de_warn(c, "CardFile RRG format is not fully supported");
+	}
+
+	if(d->fmt==DE_CRDFMT_RRG) {
+		pos += 4; // Last object's ID
+	}
+
+	d->numcards = de_getu16le_p(&pos);
 	de_dbg(c, "number of cards: %d", (int)d->numcards);
-	pos+=2;
 
 	for(n=0; n<d->numcards; n++) {
-		do_card_index(c, d, n, pos);
+		do_card(c, d, n, pos);
 		pos+=52;
 	}
 
-done:
 	de_free(c, d);
 }
 
