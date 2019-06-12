@@ -51,6 +51,7 @@ static int do_ole_object_presentation(deark *c, lctx *d,
 	i64 pos = pos1;
 	i64 stringlen;
 	struct de_stringreaderdata *classname_srd = NULL;
+	struct de_stringreaderdata *clipfmtname_srd = NULL;
 	const char *name;
 	int retval = 0;
 
@@ -86,9 +87,46 @@ static int do_ole_object_presentation(deark *c, lctx *d,
 		goto done; // FIXME, calculate length
 	}
 	else {
-		de_warn(c, "Static OLE picture type \"%s\" is not supported",
-			ucstring_getpsz(classname_srd->str));
-		goto done;
+		u32 clipfmt;
+		i64 clp_data_size;
+		u8 buf[16];
+
+		// This is a GenericPresentationObject, a.k.a. clipboard format,
+		// either a StandardClipboardFormatPresentationObject
+		// or a RegisteredClipboardFormatPresentationObject.
+		clipfmt = (u32)de_getu32le_p(&pos);
+		de_dbg(c, "clipboard fmt: %u", (unsigned int)clipfmt);
+
+		if(clipfmt==0) {
+			stringlen = de_getu32le_p(&pos);
+			clipfmtname_srd = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
+				d->input_encoding);
+			de_dbg(c, "clipboard fmt name: \"%s\"", ucstring_getpsz(clipfmtname_srd->str));
+			pos += stringlen;
+		}
+
+		clp_data_size = de_getu32le_p(&pos);
+		de_dbg(c, "clipboard data size: %"I64_FMT, clp_data_size);
+
+		de_read(buf, pos, de_min_int((i64)sizeof(buf), clp_data_size));
+
+		if(clipfmtname_srd) {
+			if(!de_strcmp(classname_srd->sz, "PBrush") &&
+				buf[0]=='B' && buf[1]=='M')
+			{
+				dbuf_create_file_from_slice(c->infile, pos, clp_data_size, "bmp", NULL, 0);
+			}
+			else {
+				de_warn(c, "OLE clipboard type (\"%s\"/\"%s\") is not supported",
+					ucstring_getpsz(classname_srd->str),
+					ucstring_getpsz(clipfmtname_srd->str));
+			}
+		}
+		else {
+			de_warn(c, "OLE clipboard type %u is not supported", (unsigned int)clipfmt);
+		}
+
+		pos += clp_data_size;
 	}
 
 	*bytes_consumed = pos-pos1;
@@ -96,6 +134,7 @@ static int do_ole_object_presentation(deark *c, lctx *d,
 
 done:
 	de_destroy_stringreaderdata(c, classname_srd);
+	de_destroy_stringreaderdata(c, clipfmtname_srd);
 	return retval;
 }
 
@@ -203,6 +242,63 @@ static void extract_unknown_ole_obj(deark *c, lctx *d, i64 pos, i64 len,
 static int do_ole_object(deark *c, lctx *d, i64 pos1, i64 len, int exact_size_known,
 	int is_presentation, i64 *bytes_consumed);
 
+static int do_ole_object_linked(deark *c, lctx *d,
+	i64 pos1, i64 len, int exact_size_known, i64 *bytes_consumed)
+{
+	i64 pos = pos1;
+	i64 stringlen;
+	i64 bytes_consumed2 = 0;
+	int ret;
+	struct de_stringreaderdata *classname_srd = NULL;
+	struct de_stringreaderdata *topicname_srd = NULL;
+	struct de_stringreaderdata *itemname_srd = NULL;
+	struct de_stringreaderdata *networkname_srd = NULL;
+	int retval = 0;
+
+	stringlen = de_getu32le_p(&pos);
+	classname_srd = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "embedded ClassName: \"%s\"", ucstring_getpsz(classname_srd->str));
+	pos += stringlen;
+
+	stringlen = de_getu32le_p(&pos);
+	topicname_srd = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "TopicName/filename: \"%s\"", ucstring_getpsz(topicname_srd->str));
+	pos += stringlen;
+
+	stringlen = de_getu32le_p(&pos);
+	itemname_srd = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "ItemName/params: \"%s\"", ucstring_getpsz(itemname_srd->str));
+	pos += stringlen;
+
+	stringlen = de_getu32le_p(&pos);
+	networkname_srd = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "NetworkName: \"%s\"", ucstring_getpsz(networkname_srd->str));
+	pos += stringlen;
+
+	pos += 4; // reserved
+	pos += 4; // LinkUpdateOption
+
+	// Nested "presentation" object
+	ret = do_ole_object(c, d, pos, pos1+len-pos, exact_size_known, 1,
+		&bytes_consumed2);
+	if(!ret) goto done;
+	pos += bytes_consumed2;
+
+	*bytes_consumed = pos-pos1;
+	retval = 1;
+
+done:
+	de_destroy_stringreaderdata(c, classname_srd);
+	de_destroy_stringreaderdata(c, topicname_srd);
+	de_destroy_stringreaderdata(c, itemname_srd);
+	de_destroy_stringreaderdata(c, networkname_srd);
+	return retval;
+}
+
 // pos1 points to the first field after FormatID (classname/typename)
 static int do_ole_object_embedded(deark *c, lctx *d,
 	i64 pos1, i64 len, int exact_size_known, i64 *bytes_consumed)
@@ -221,8 +317,8 @@ static int do_ole_object_embedded(deark *c, lctx *d,
 	struct de_stringreaderdata *itemname_srd = NULL;
 	int retval = 0;
 
-	// Note: If we ever support "linked" objects, the code for reading these
-	// first 3 string fields would have to be shared with that.
+	// TODO: This code (for the next 3 fields) is duplicated in the function for
+	// "linked" objects.
 
 	stringlen = de_getu32le_p(&pos);
 	classname_srd = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
@@ -340,7 +436,12 @@ static int do_ole_object(deark *c, lctx *d, i64 pos1, i64 len, int exact_size_kn
 	de_dbg(c, "FormatID: %u (%s)", formatID, get_FormatID_name(formatID));
 
 	nbytesleft = pos1+len-pos;
-	if(formatID==2 && !is_presentation) {
+	if(formatID==1 && !is_presentation) {
+		ret = do_ole_object_linked(c, d, pos, nbytesleft, exact_size_known, &bytes_consumed2);
+		if(!ret) goto done;
+		pos += bytes_consumed2;
+	}
+	else if(formatID==2 && !is_presentation) {
 		ret = do_ole_object_embedded(c, d, pos, nbytesleft, exact_size_known, &bytes_consumed2);
 		if(!ret) goto done;
 		pos += bytes_consumed2;
