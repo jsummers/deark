@@ -99,9 +99,12 @@ Deark -- Information about supported formats
 * Calamus Raster Graphic (module="crg") (experimental)
 
 * Cardfile (module="cardfile")
-  - Partial support. MGC format only.
+  - Supports MGC and RRG formats.
   - Extracts bitmaps.
   - Extracts text (use -a).
+  - Extracts OLE objects.
+  Options
+   -opt ole1:extractall - Extract unidentified OLE objects
 
 * CorelDRAW CDR, old "WL" format (module="cdr_wl") (experimental)
   - Extracts preview image.

@@ -9,6 +9,7 @@
 DE_DECLARE_MODULE(de_module_cardfile);
 
 struct page_ctx {
+	i64 cardnum;
 	i64 datapos;
 	de_ucstring *name;
 };
@@ -67,7 +68,7 @@ static void do_bitmap_mgc(deark *c, lctx *d, struct page_ctx *pg)
 	de_finfo_destroy(c, fi_bitmap);
 }
 
-static void do_text_mgc(deark *c, lctx *d, struct page_ctx *pg,
+static void do_text_mgc_or_rrg(deark *c, lctx *d, struct page_ctx *pg,
 	i64 text_pos, i64 text_len)
 {
 	de_finfo *fi_text = NULL;
@@ -117,8 +118,94 @@ static void do_carddata_mgc(deark *c, lctx *d, struct page_ctx *pg)
 	de_dbg(c, "text length: %d", (int)text_len);
 
 	if(text_len!=0) {
-		do_text_mgc(c, d, pg, text_pos, text_len);
+		do_text_mgc_or_rrg(c, d, pg, text_pos, text_len);
 	}
+}
+
+static int do_object_rrg(deark *c, lctx *d, struct page_ctx *pg, i64 pos1,
+	i64 *bytes_consumed)
+{
+	de_module_params *mparams = NULL;
+	i64 pos = pos1;
+	i64 n1, n2, n3, n4;
+	int retval = 0;
+
+	n1 = de_getu32le_p(&pos);
+	de_dbg(c, "object ID: 0x%08x", (unsigned int)n1);
+
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->in_params.codes = "U";
+	mparams->in_params.input_encoding = d->input_encoding;
+
+	// TODO: Make the output filenames contain the index text
+	de_dbg(c, "OLE1 data at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice(c, "ole1", mparams, c->infile, pos,
+		c->infile->len-pos);
+	de_dbg_indent(c, -1);
+
+	// Unfortunately, there is no direct way to figure out the OLE object size,
+	// and we need it to find the card's text (and to know whether it has text).
+	// The ole1 module will try to tell us the size, but this feature needs more
+	// work, and is difficult to test.
+
+	if(mparams->out_params.flags & 0x1) {
+		pos += mparams->out_params.int64_1;
+	}
+	else {
+		// ole1 module failed to figure out the object size
+		goto done;
+	}
+	de_dbg(c, "[OLE object ends at %"I64_FMT"]", pos);
+
+	n1 = de_getu16le_p(&pos);
+	n2 = de_getu16le_p(&pos);
+	de_dbg(c, "char width,height: %d,%d", (int)n1, (int)n2);
+
+	n1 = de_geti16le_p(&pos);
+	n2 = de_geti16le_p(&pos);
+	n3 = de_getu16le_p(&pos);
+	n4 = de_getu16le_p(&pos);
+	de_dbg(c, "rect: %d,%d,%d,%d", (int)n1, (int)n2, (int)n3, (int)n4);
+
+	n1 = de_getu16le_p(&pos);
+	de_dbg(c, "object type: %d", (int)n1);
+
+	*bytes_consumed = pos - pos1;
+	retval = 1;
+done:
+	de_free(c, mparams);
+	return retval;
+}
+
+static void do_carddata_rrg(deark *c, lctx *d, struct page_ctx *pg)
+{
+	unsigned int flags;
+	int ret;
+	i64 text_len;
+	i64 pos = pg->datapos;
+
+	flags = (unsigned int)de_getu16le_p(&pos);
+	de_dbg(c, "flags: %u", flags);
+	if(flags) {
+		i64 bytes_consumed = 0;
+		ret = do_object_rrg(c, d, pg, pos, &bytes_consumed);
+		if(!ret || bytes_consumed<1) {
+			de_warn(c, "card #%d: Failed to parse OLE object; any text on this card "
+				"cannot be processed.", (int)pg->cardnum);
+			goto done;
+		}
+		pos += bytes_consumed;
+	}
+
+	text_len = de_getu16le_p(&pos);
+	de_dbg(c, "text length: %d", (int)text_len);
+	if(text_len!=0) {
+		do_text_mgc_or_rrg(c, d, pg, pos, text_len);
+	}
+
+done:
+	;
 }
 
 // Process a card, given the offset of its index
@@ -130,7 +217,8 @@ static void do_card(deark *c, lctx *d, i64 cardnum, i64 pos)
 	de_dbg_indent_save(c, &saved_indent_level);
 
 	pg = de_malloc(c, sizeof(struct page_ctx));
-	de_dbg(c, "card #%d", (int)cardnum);
+	pg->cardnum = cardnum;
+	de_dbg(c, "card #%d", (int)pg->cardnum);
 	de_dbg_indent(c, 1);
 	de_dbg(c, "index at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
@@ -149,8 +237,7 @@ static void do_card(deark *c, lctx *d, i64 cardnum, i64 pos)
 	de_dbg_indent(c, 1);
 
 	if(d->fmt==DE_CRDFMT_RRG) {
-		de_dbg(c, "[RRG format not supported]");
-		goto done;
+		do_carddata_rrg(c, d, pg);
 	}
 	else {
 		do_carddata_mgc(c, d, pg);
@@ -164,10 +251,19 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+static int detect_crd_fmt(deark *c)
+{
+	u8 buf[4];
+	de_read(buf, 0, 4);
+
+	if(!de_memcmp(buf, "MGC", 3)) return DE_CRDFMT_MGC;
+	if(!de_memcmp(buf, "RRG", 3)) return DE_CRDFMT_RRG;
+	return 0;
+}
+
 static void de_run_cardfile(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	u8 b;
 	i64 pos;
 	i64 n;
 
@@ -179,16 +275,16 @@ static void de_run_cardfile(deark *c, de_module_params *mparams)
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 
 	pos = 0;
-	b = de_getbyte(pos);
-	if(b=='R') d->fmt=DE_CRDFMT_RRG;
-	else d->fmt=DE_CRDFMT_MGC;
+	d->fmt = detect_crd_fmt(c);
+	// TODO: The is reportedly also a Unicode version of this format.
+	// Signature is probably "DKO".
+	if(d->fmt!=DE_CRDFMT_MGC && d->fmt!=DE_CRDFMT_RRG) {
+		de_err(c, "This is not a known/supported CardFile format");
+		goto done;
+	}
 	pos+=3;
 
 	de_declare_fmtf(c, "CardFile%s", (d->fmt==DE_CRDFMT_RRG ? ", with objects" : ""));
-
-	if(d->fmt==DE_CRDFMT_RRG) {
-		de_warn(c, "CardFile RRG format is not fully supported");
-	}
 
 	if(d->fmt==DE_CRDFMT_RRG) {
 		pos += 4; // Last object's ID
@@ -202,16 +298,18 @@ static void de_run_cardfile(deark *c, de_module_params *mparams)
 		pos+=52;
 	}
 
+done:
 	de_free(c, d);
 }
 
 static int de_identify_cardfile(deark *c)
 {
-	u8 buf[4];
-	de_read(buf, 0, 4);
+	int fmt;
 
-	if(!de_memcmp(buf, "MGC", 3)) return 80;
-	if(!de_memcmp(buf, "RRG", 3)) return 80;
+	fmt = detect_crd_fmt(c);
+	if(fmt==DE_CRDFMT_MGC || fmt==DE_CRDFMT_RRG) {
+		return 80;
+	}
 	return 0;
 }
 

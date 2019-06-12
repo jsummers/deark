@@ -248,7 +248,6 @@ static void do_picture_ole(deark *c, lctx *d, struct para_info *pinfo,
 	pos += picctx->cbHeader;
 
 	mparams = de_malloc(c, sizeof(de_module_params));
-	mparams->in_params.codes = "W";
 	mparams->in_params.input_encoding = d->input_encoding;
 
 	ole_len = de_min_int(picctx->ole_dwDataSize, pinfo->thisparapos+pinfo->thisparalen-pos);

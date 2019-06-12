@@ -11,7 +11,6 @@ DE_DECLARE_MODULE(de_module_ole1);
 typedef struct localctx_struct {
 	int input_encoding;
 	int extract_all;
-	int wri_format;
 } lctx;
 
 static const char *get_FormatID_name(unsigned int t)
@@ -21,7 +20,7 @@ static const char *get_FormatID_name(unsigned int t)
 	case 0: name="none"; break;
 	case 1: name="linked"; break;
 	case 2: name="embedded"; break;
-	case 3: name="static/presentation"; break;
+	case 3: name="static"; break;
 	case 5: name="presentation"; break;
 	default: name="?"; break;
 	}
@@ -47,12 +46,13 @@ static void do_static_bitmap(deark *c, lctx *d, i64 pos1)
 // Presentation object, or WRI-static-"OLE" object.
 // pos1 points to the first field after FormatID (classname/typename)
 static int do_ole_object_presentation(deark *c, lctx *d,
-	i64 pos1, i64 len, unsigned int formatID)
+	i64 pos1, i64 len, unsigned int formatID, i64 *bytes_consumed)
 {
 	i64 pos = pos1;
 	i64 stringlen;
 	struct de_stringreaderdata *classname_srd = NULL;
 	const char *name;
+	int retval = 0;
 
 	name = (formatID==3)?"static":"presentation";
 	stringlen = de_getu32le_p(&pos);
@@ -70,6 +70,7 @@ static int do_ole_object_presentation(deark *c, lctx *d,
 		de_run_module_by_id_on_slice(c, "dib", NULL, c->infile, pos,
 			pos1+len-pos);
 		de_dbg_indent(c, -1);
+		goto done; // FIXME, calculate length
 	}
 	else if(!de_strcmp(classname_srd->sz, "METAFILEPICT")) {
 		i64 dlen;
@@ -78,17 +79,24 @@ static int do_ole_object_presentation(deark *c, lctx *d,
 		de_dbg(c, "metafile size: %d", (int)dlen); // Includes "mfp", apparently
 		pos += 8; // "mfp" struct
 		dbuf_create_file_from_slice(c->infile, pos, dlen-8, "wmf", NULL, 0);
+		pos += dlen-8;
 	}
 	else if(!de_strcmp(classname_srd->sz, "BITMAP")) {
 		do_static_bitmap(c, d, pos);
+		goto done; // FIXME, calculate length
 	}
 	else {
 		de_warn(c, "Static OLE picture type \"%s\" is not supported",
 			ucstring_getpsz(classname_srd->str));
+		goto done;
 	}
 
+	*bytes_consumed = pos-pos1;
+	retval = 1;
+
+done:
 	de_destroy_stringreaderdata(c, classname_srd);
-	return 0;
+	return retval;
 }
 
 // Note: This function is based on reverse engineering, and may not be correct.
@@ -192,16 +200,18 @@ static void extract_unknown_ole_obj(deark *c, lctx *d, i64 pos, i64 len,
 	de_finfo_destroy(c, fi);
 }
 
-static void do_ole_object(deark *c, lctx *d, i64 pos1, i64 len,
-	int is_presentation);
+static int do_ole_object(deark *c, lctx *d, i64 pos1, i64 len, int exact_size_known,
+	int is_presentation, i64 *bytes_consumed);
 
 // pos1 points to the first field after FormatID (classname/typename)
 static int do_ole_object_embedded(deark *c, lctx *d,
-	i64 pos1, i64 len)
+	i64 pos1, i64 len, int exact_size_known, i64 *bytes_consumed)
 {
 	i64 pos = pos1;
 	i64 stringlen;
 	i64 data_len;
+	i64 bytes_consumed2 = 0;
+	int ret;
 	int recognized = 0;
 	const char *ext = NULL;
 	int handled = 0;
@@ -209,6 +219,7 @@ static int do_ole_object_embedded(deark *c, lctx *d,
 	struct de_stringreaderdata *classname_srd = NULL;
 	struct de_stringreaderdata *topicname_srd = NULL;
 	struct de_stringreaderdata *itemname_srd = NULL;
+	int retval = 0;
 
 	// Note: If we ever support "linked" objects, the code for reading these
 	// first 3 string fields would have to be shared with that.
@@ -290,26 +301,36 @@ static int do_ole_object_embedded(deark *c, lctx *d,
 
 	pos += data_len;
 	// Nested "presentation" object
-	do_ole_object(c, d, pos, pos1+len-pos, 1);
+	ret = do_ole_object(c, d, pos, pos1+len-pos, exact_size_known, 1,
+		&bytes_consumed2);
+	if(!ret) goto done;
+	pos += bytes_consumed2;
 
+	*bytes_consumed = pos-pos1;
+	retval = 1;
+done:
 	de_destroy_stringreaderdata(c, classname_srd);
 	de_destroy_stringreaderdata(c, topicname_srd);
 	de_destroy_stringreaderdata(c, itemname_srd);
-	return 1;
+	return retval;
 }
 
-static void do_ole_object(deark *c, lctx *d, i64 pos1, i64 len,
-	int is_presentation)
+static int do_ole_object(deark *c, lctx *d, i64 pos1, i64 len, int exact_size_known,
+	int is_presentation, i64 *bytes_consumed)
 {
 	int saved_indent_level;
 	i64 pos = pos1;
 	i64 nbytesleft;
+	i64 bytes_consumed2;
+	int ret;
 	unsigned int n;
 	unsigned int formatID;
+	int retval = 0;
 
 	if(len<8) goto done;
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "OLE object at %"I64_FMT", len=%"I64_FMT, pos1, len);
+	de_dbg(c, "OLE object at %"I64_FMT", len%s%"I64_FMT, pos1,
+		(exact_size_known?"=":DE_CHAR_LEQ), len);
 	de_dbg_indent(c, 1);
 
 	n = (unsigned int)de_getu32le_p(&pos);
@@ -320,39 +341,68 @@ static void do_ole_object(deark *c, lctx *d, i64 pos1, i64 len,
 
 	nbytesleft = pos1+len-pos;
 	if(formatID==2 && !is_presentation) {
-		do_ole_object_embedded(c, d, pos, nbytesleft);
+		ret = do_ole_object_embedded(c, d, pos, nbytesleft, exact_size_known, &bytes_consumed2);
+		if(!ret) goto done;
+		pos += bytes_consumed2;
 	}
-	else if(formatID==3 && d->wri_format) {
-		do_ole_object_presentation(c, d, pos, nbytesleft, formatID);
+	else if(formatID==3) {
+		ret = do_ole_object_presentation(c, d, pos, nbytesleft, formatID, &bytes_consumed2);
+		if(!ret) goto done;
+		pos += bytes_consumed2;
 	}
 	else if(formatID==5 && is_presentation) {
-		do_ole_object_presentation(c, d, pos, nbytesleft, formatID);
+		ret = do_ole_object_presentation(c, d, pos, nbytesleft, formatID, &bytes_consumed2);
+		if(!ret) goto done;
+		pos += bytes_consumed2;
 	}
 	else if(formatID==0 && is_presentation) {
 		;
 	}
 	else {
 		de_dbg(c, "[unsupported OLE FormatID]");
+		goto done;
 	}
+
+	*bytes_consumed = pos-pos1;
+	retval = 1;
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
 }
-
-
 
 static void de_run_ole1(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	i64 bytes_consumed = 0;
+	int ret;
+	int u_flag;
+
+	if(mparams) {
+		mparams->out_params.flags = 0;
+	}
 
 	d = de_malloc(c, sizeof(lctx));
 
 	d->input_encoding = de_get_input_encoding(c, mparams, DE_ENCODING_WINDOWS1252);
-	d->wri_format = de_havemodcode(c, mparams, 'W');
+	// Use the "U" code if the exact size of the object is unknown. This will
+	// improve the debug messages.
+	u_flag = de_havemodcode(c, mparams, 'U');
 	d->extract_all = de_get_ext_option_bool(c, "ole1:extractall",
 		((c->extract_level>=2)?1:0));
 
-	do_ole_object(c, d, 0, c->infile->len, 0);
+	ret = do_ole_object(c, d, 0, c->infile->len, (u_flag?0:1),
+		0, &bytes_consumed);
+	if(ret) {
+		if(mparams) {
+			mparams->out_params.flags |= 0x1;
+			mparams->out_params.int64_1 = bytes_consumed;
+		}
+		de_dbg3(c, "ole1: calculated size=%"I64_FMT, bytes_consumed);
+	}
+	else {
+		de_dbg3(c, "ole1: failed to calculate object size");
+	}
 
 	de_free(c, d);
 }
