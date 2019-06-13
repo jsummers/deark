@@ -17,8 +17,11 @@ struct page_ctx {
 typedef struct localctx_struct {
 #define DE_CRDFMT_MGC 1
 #define DE_CRDFMT_RRG 2
+#define DE_CRDFMT_DKO 3
 	int fmt;
-	int input_encoding;
+	int crd_encoding;
+	int ole_encoding;
+	const char *signature;
 	i64 numcards;
 } lctx;
 
@@ -38,7 +41,7 @@ static void do_dbg_text_data(deark *c, lctx *d, i64 text_pos, i64 text_len)
 
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, text_pos, text_len, DE_DBG_MAX_STRLEN, s,
-		0, d->input_encoding);
+		0, d->crd_encoding);
 	de_dbg(c, "text: \"%s\"", ucstring_getpsz_d(s));
 	ucstring_destroy(s);
 }
@@ -68,7 +71,7 @@ static void do_bitmap_mgc(deark *c, lctx *d, struct page_ctx *pg)
 	de_finfo_destroy(c, fi_bitmap);
 }
 
-static void do_text_mgc_or_rrg(deark *c, lctx *d, struct page_ctx *pg,
+static void do_text(deark *c, lctx *d, struct page_ctx *pg,
 	i64 text_pos, i64 text_len)
 {
 	de_finfo *fi_text = NULL;
@@ -118,7 +121,7 @@ static void do_carddata_mgc(deark *c, lctx *d, struct page_ctx *pg)
 	de_dbg(c, "text length: %d", (int)text_len);
 
 	if(text_len!=0) {
-		do_text_mgc_or_rrg(c, d, pg, text_pos, text_len);
+		do_text(c, d, pg, text_pos, text_len);
 	}
 }
 
@@ -135,7 +138,7 @@ static int do_object_rrg(deark *c, lctx *d, struct page_ctx *pg, i64 pos1,
 
 	mparams = de_malloc(c, sizeof(de_module_params));
 	mparams->in_params.codes = "U";
-	mparams->in_params.input_encoding = d->input_encoding;
+	mparams->in_params.input_encoding = d->ole_encoding;
 
 	// TODO: Make the output filenames contain the index text
 	de_dbg(c, "OLE1 data at %"I64_FMT, pos);
@@ -201,7 +204,7 @@ static void do_carddata_rrg(deark *c, lctx *d, struct page_ctx *pg)
 	text_len = de_getu16le_p(&pos);
 	de_dbg(c, "text length: %d", (int)text_len);
 	if(text_len!=0) {
-		do_text_mgc_or_rrg(c, d, pg, pos, text_len);
+		do_text(c, d, pg, pos, text_len);
 	}
 
 done:
@@ -227,8 +230,15 @@ static void do_card(deark *c, lctx *d, i64 cardnum, i64 pos)
 	if(pg->datapos>=c->infile->len) goto done;
 
 	pg->name = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos+11, 40, pg->name, DE_CONVFLAG_STOP_AT_NUL,
-		d->input_encoding);
+	if(d->crd_encoding==DE_ENCODING_UTF16LE) {
+		dbuf_read_to_ucstring(c->infile, pos+11, 40, pg->name, 0,
+			d->crd_encoding);
+		ucstring_truncate_at_NUL(pg->name);
+	}
+	else {
+		dbuf_read_to_ucstring(c->infile, pos+11, 40, pg->name, DE_CONVFLAG_STOP_AT_NUL,
+			d->crd_encoding);
+	}
 	de_dbg(c, "index text: \"%s\"", ucstring_getpsz_d(pg->name));
 
 	de_dbg_indent(c, -1);
@@ -258,6 +268,7 @@ static int detect_crd_fmt(deark *c)
 
 	if(!de_memcmp(buf, "MGC", 3)) return DE_CRDFMT_MGC;
 	if(!de_memcmp(buf, "RRG", 3)) return DE_CRDFMT_RRG;
+	if(!de_memcmp(buf, "DKO", 3)) return DE_CRDFMT_DKO;
 	return 0;
 }
 
@@ -269,22 +280,42 @@ static void de_run_cardfile(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	// Microsoft's (old) Cardfile format documentation says that text is in "low
-	// ASCII format", but that seems doubtful on the face of it, and indeed I have
-	// seen files where it is not.
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
-
 	pos = 0;
 	d->fmt = detect_crd_fmt(c);
-	// TODO: The is reportedly also a Unicode version of this format.
-	// Signature is probably "DKO".
-	if(d->fmt!=DE_CRDFMT_MGC && d->fmt!=DE_CRDFMT_RRG) {
+	if(d->fmt==DE_CRDFMT_MGC) {
+		d->signature = "MGC";
+		de_declare_fmt(c, "CardFile");
+	}
+	else if(d->fmt==DE_CRDFMT_RRG) {
+		d->signature = "RRG";
+		de_declare_fmt(c, "CardFile, with objects");
+	}
+	else if(d->fmt==DE_CRDFMT_DKO) {
+		d->signature = "DKO";
+		de_declare_fmt(c, "CardFile, Unicode");
+	}
+	else {
 		de_err(c, "This is not a known/supported CardFile format");
 		goto done;
 	}
+	de_dbg(c, "signature: %s", d->signature);
 	pos+=3;
 
-	de_declare_fmtf(c, "CardFile%s", (d->fmt==DE_CRDFMT_RRG ? ", with objects" : ""));
+	if(d->fmt==DE_CRDFMT_DKO) {
+		// TODO: Samples needed
+		de_warn(c, "Unicode Cardfile files might not be supported correctly");
+	}
+
+	// Microsoft's (old) Cardfile format documentation says that text is in "low
+	// ASCII format", but that seems doubtful on the face of it, and indeed I have
+	// seen files where it is not.
+	d->ole_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
+	if(d->fmt==DE_CRDFMT_DKO) {
+		d->crd_encoding = DE_ENCODING_UTF16LE;
+	}
+	else {
+		d->crd_encoding = d->ole_encoding;
+	}
 
 	if(d->fmt==DE_CRDFMT_RRG) {
 		pos += 4; // Last object's ID
@@ -307,7 +338,7 @@ static int de_identify_cardfile(deark *c)
 	int fmt;
 
 	fmt = detect_crd_fmt(c);
-	if(fmt==DE_CRDFMT_MGC || fmt==DE_CRDFMT_RRG) {
+	if(fmt!=0) {
 		return 80;
 	}
 	return 0;
