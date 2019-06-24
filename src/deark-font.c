@@ -110,13 +110,32 @@ void de_font_paint_character_idx(deark *c, de_bitmap *img,
 	if(ch->height > font->nominal_height) return;
 
 	// Paint a "canvas" for the char, if needed.
-	if(!(flags&DE_PAINTFLAG_TRNSBKGD)) {
+
+	// If the "extraspace" feature is used, paint an additional canvas of
+	// a different color.
+	if(!(flags&DE_PAINTFLAG_TRNSBKGD) && (ch->extraspace_l || ch->extraspace_r)) {
 		i64 canvas_x, canvas_y;
 		i64 canvas_w, canvas_h;
 
 		canvas_x = xpos;
 		canvas_y = ypos+ch->v_offset;
 		canvas_w = ch->extraspace_l + ch->width + ch->extraspace_r;
+		canvas_h = ch->height;
+		// (We don't need to support both the "extraspace" and the VGA9COL
+		// feature at the same time.)
+
+		de_bitmap_rect(img, canvas_x, canvas_y,
+			canvas_w, canvas_h, DE_MAKE_RGB(192,255,192), 0);
+	}
+
+	// Paint the canvas for the main part of the character.
+	if(!(flags&DE_PAINTFLAG_TRNSBKGD)) {
+		i64 canvas_x, canvas_y;
+		i64 canvas_w, canvas_h;
+
+		canvas_x = xpos + ch->extraspace_l;
+		canvas_y = ypos+ch->v_offset;
+		canvas_w = ch->width;
 		if((flags&DE_PAINTFLAG_VGA9COL) && ch->width==8) {
 			canvas_w++;
 		}
@@ -508,10 +527,10 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 	img_height = row_info[last_valid_row].display_pos +
 		img_vpixelsperchar -1 + img_bottommargin;
 
-	img = de_bitmap_create(c, img_width, img_height, 1);
+	img = de_bitmap_create(c, img_width, img_height, 3);
 
 	// Clear the image
-	de_bitmap_rect(img, 0, 0, img->width, img->height, DE_MAKE_GRAY(128), 0);
+	de_bitmap_rect(img, 0, 0, img->width, img->height, DE_MAKE_RGB(32,32,144), 0);
 
 	// Draw/clear the cell backgrounds
 	for(j=0; j<num_table_rows_total; j++) {
