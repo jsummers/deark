@@ -31,35 +31,23 @@ void de_destroy_bitmap_font(deark *c, struct de_bitmap_font *font)
 	de_free(c, font);
 }
 
-// Paint a character at the given index in the given font, to the given bitmap.
-void de_font_paint_character_idx(deark *c, de_bitmap *img,
-	struct de_bitmap_font *font, i64 char_idx,
-	i64 xpos, i64 ypos, u32 fgcol, u32 bgcol,
-	unsigned int flags)
+static void paint_character_internal(deark *c, de_bitmap *img,
+	struct de_bitmap_font_char *ch,
+	i64 xpos, i64 ypos, u32 fgcol, unsigned int flags)
 {
 	i64 i, j;
-	i64 i_src; // -1 = No source position
-	i64 j_src;
-	u8 x;
-	int fg;
-	u32 clr;
-	struct de_bitmap_font_char *ch;
 	i64 num_x_pixels_to_paint;
 	int vga9col_flag = 0;
 
-	if(char_idx<0 || char_idx>=font->num_chars) return;
-	ch = &font->char_array[char_idx];
-	if(!is_valid_char(ch)) return;
-	if(ch->width > font->nominal_width) return;
-	if(ch->height > font->nominal_height) return;
-
-	num_x_pixels_to_paint = (i64)ch->extraspace_l + (i64)ch->width + (i64)ch->extraspace_r;
+	num_x_pixels_to_paint = (i64)ch->width;
 	if((flags&DE_PAINTFLAG_VGA9COL) && ch->width==8) {
 		vga9col_flag = 1;
 		num_x_pixels_to_paint = 9;
 	}
 
 	for(j=0; j<ch->height; j++) {
+		i64 j_src;
+
 		j_src = j;
 		if(flags&DE_PAINTFLAG_TOPHALF) {
 			j_src = j/2;
@@ -69,6 +57,10 @@ void de_font_paint_character_idx(deark *c, de_bitmap *img,
 		}
 
 		for(i=0; i<num_x_pixels_to_paint; i++) {
+			i64 i_src; // -1 = No source position
+			int is_fg = 0;
+			u8 x;
+
 			i_src = i;
 			if(flags&DE_PAINTFLAG_LEFTHALF) {
 				i_src = i/2;
@@ -87,22 +79,55 @@ void de_font_paint_character_idx(deark *c, de_bitmap *img,
 				}
 			}
 
-			i_src -= (i64)ch->extraspace_l;
-
 			if(i_src>=0 && i_src<ch->width) {
 				x = ch->bitmap[j_src*ch->rowspan + i_src/8];
-				fg = (x & (1<<(7-i_src%8))) ? 1 : 0;
-			}
-			else {
-				fg = 0;
+				if(x & (1<<(7-i_src%8))) {
+					is_fg = 1;
+				}
 			}
 
-			if(fg || !(flags&DE_PAINTFLAG_TRNSBKGD)) {
-				clr = fg ? fgcol : bgcol;
-				de_bitmap_setpixel_rgba(img, xpos+i, ypos+ch->v_offset+j, clr);
+			if(is_fg) {
+				u32 clr = fgcol;
+
+				de_bitmap_setpixel_rgba(img, xpos+i, ypos+j, clr);
 			}
 		}
 	}
+}
+
+// Paint a character at the given index in the given font, to the given bitmap.
+void de_font_paint_character_idx(deark *c, de_bitmap *img,
+	struct de_bitmap_font *font, i64 char_idx,
+	i64 xpos, i64 ypos, u32 fgcol, u32 bgcol,
+	unsigned int flags)
+{
+	struct de_bitmap_font_char *ch;
+
+	if(char_idx<0 || char_idx>=font->num_chars) return;
+	ch = &font->char_array[char_idx];
+	if(!is_valid_char(ch)) return;
+	if(ch->width > font->nominal_width) return;
+	if(ch->height > font->nominal_height) return;
+
+	// Paint a "canvas" for the char, if needed.
+	if(!(flags&DE_PAINTFLAG_TRNSBKGD)) {
+		i64 canvas_x, canvas_y;
+		i64 canvas_w, canvas_h;
+
+		canvas_x = xpos;
+		canvas_y = ypos+ch->v_offset;
+		canvas_w = ch->extraspace_l + ch->width + ch->extraspace_r;
+		if((flags&DE_PAINTFLAG_VGA9COL) && ch->width==8) {
+			canvas_w++;
+		}
+		canvas_h = ch->height;
+
+		de_bitmap_rect(img, canvas_x, canvas_y,
+			canvas_w, canvas_h, bgcol, 0);
+	}
+
+	paint_character_internal(c, img, ch,
+		ch->extraspace_l + xpos, ch->v_offset + ypos, fgcol, flags);
 }
 
 // Given a codepoint, returns the character index in the font.
@@ -486,11 +511,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 	img = de_bitmap_create(c, img_width, img_height, 1);
 
 	// Clear the image
-	for(j=0; j<img->height; j++) {
-		for(i=0; i<img->width; i++) {
-			de_bitmap_setpixel_gray(img, i, j, 128);
-		}
-	}
+	de_bitmap_rect(img, 0, 0, img->width, img->height, DE_MAKE_GRAY(128), 0);
 
 	// Draw/clear the cell backgrounds
 	for(j=0; j<num_table_rows_total; j++) {
