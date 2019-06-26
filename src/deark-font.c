@@ -385,6 +385,17 @@ struct col_info_struct {
 	i64 display_pos;
 };
 
+static void checkerboard_bkgd(de_bitmap *img, i64 xpos, i64 ypos, i64 w, i64 h)
+{
+	i64 ii, jj;
+
+	for(jj=0; jj<h; jj++) {
+		for(ii=0; ii<w; ii++) {
+			de_bitmap_setpixel_gray(img, xpos+ii, ypos+jj, (ii/2+jj/2)%2 ? 176 : 192);
+		}
+	}
+}
+
 void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_finfo *fi,
 	unsigned int createflags)
 {
@@ -538,14 +549,10 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 		ypos = row_info[j].display_pos;
 
 		for(i=0; i<chars_per_row; i++) {
-			i64 ii, jj;
-
 			xpos = col_info[i].display_pos;
-			for(jj=0; jj<img_vpixelsperchar-1; jj++) {
-				for(ii=0; ii<col_info[i].display_width; ii++) {
-					de_bitmap_setpixel_gray(img, xpos+ii, ypos+jj, (ii/2+jj/2)%2 ? 176 : 192);
-				}
-			}
+			de_bitmap_rect(img, xpos, ypos,
+				col_info[i].display_width, img_vpixelsperchar-1,
+				DE_MAKE_RGB(112,112,160), 0);
 		}
 	}
 
@@ -594,6 +601,9 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 
 		xpos = col_info[colnum].display_pos;
 		ypos = row_info[rownum].display_pos;
+
+		checkerboard_bkgd(img, xpos, ypos,
+			col_info[colnum].display_width, img_vpixelsperchar-1);
 
 		de_font_paint_character_idx(c, img, fctx->font, k, xpos, ypos,
 			DE_STOCKCOLOR_BLACK, DE_STOCKCOLOR_WHITE, 0);
