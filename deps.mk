@@ -128,6 +128,8 @@ $(OBJDIR)/modules/makichan.o: modules/makichan.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/mbk.o: modules/mbk.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/megapaint.o: modules/megapaint.c src/deark-config.h \
+ src/deark-private.h src/deark.h
 $(OBJDIR)/modules/misc.o: modules/misc.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/mp3.o: modules/mp3.c src/deark-config.h \

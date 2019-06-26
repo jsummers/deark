@@ -754,6 +754,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\megapaint.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\misc.c"
 				>
 			</File>
