@@ -532,6 +532,7 @@ Deark -- Information about supported formats
   arbitrarily places at code point 256, or U+2002 (EN SPACE).
 
 * GEM bitmap font (module="gemfont") (experimental)
+  - Autodetection may not always work. May need "-m gemfont".
 
 * GRASP font (module="graspfont") (experimental)
   .set/.fnt; may be found inside GRASP .gl files.
