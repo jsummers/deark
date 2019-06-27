@@ -172,6 +172,15 @@ static void do_read_raster(deark *c, lctx *d, struct page_ctx *pg)
 	ch = &d->font->char_array[char_idx];
 	ch->width = pg->w;
 	ch->height = pg->h;
+	if(pg->hoff<0 && (pg->hoff >= -128)) {
+		// Not sure if this is the right way to handle horizontal spacing, but
+		// it looks about right. (At least in a relative way. With some fonts,
+		// the glyphs definitely would have to be rendered closer together than
+		// our presentation would imply.)
+		// Some characters have positive ->hoff values, but we don't have any
+		// way to deal with that.
+		ch->extraspace_l = (i16)-pg->hoff;
+	}
 
 	// The vertical offset will be normalized later, once we know the offsets
 	// of all the characters.
@@ -223,12 +232,15 @@ static void do_read_raster(deark *c, lctx *d, struct page_ctx *pg)
 
 		if(v==14) {
 			next_num_is_repeat_count = 1;
-			de_dbg2(c, "[%.1f] n=%d; repeat_count=...", initial_abs_nybble_pos,
-				(int)v);
+			if(c->debug_level>=3) {
+				de_dbg3(c, "[%.1f] n=%d; repeat_count=...", initial_abs_nybble_pos, (int)v);
+			}
 			continue;
 		}
 		else if(v==15) { // v==15: repeat count = 1
-			de_dbg2(c, "[%.1f] n=%d; repeat_count=1", initial_abs_nybble_pos, (int)v);
+			if(c->debug_level>=3) {
+				de_dbg3(c, "[%.1f] n=%d; repeat_count=1", initial_abs_nybble_pos, (int)v);
+			}
 			repeat_count = 1;
 			continue;
 		}
@@ -248,7 +260,9 @@ static void do_read_raster(deark *c, lctx *d, struct page_ctx *pg)
 		}
 
 		if(next_num_is_repeat_count) {
-			de_dbg2(c, "[%.1f] ...%d", initial_abs_nybble_pos, (int)number);
+			if(c->debug_level>=3) {
+				de_dbg3(c, "[%.1f] ...%d", initial_abs_nybble_pos, (int)number);
+			}
 			repeat_count = number;
 			next_num_is_repeat_count = 0;
 			continue;
@@ -260,8 +274,10 @@ static void do_read_raster(deark *c, lctx *d, struct page_ctx *pg)
 
 		run_count = number;
 
-		de_dbg2(c, "[%.1f] n=%d; run_count=%d %s", initial_abs_nybble_pos,
-			(int)v, (int)run_count, parity?"B":"W");
+		if(c->debug_level>=3) {
+			de_dbg3(c, "[%.1f] n=%d; run_count=%d %s", initial_abs_nybble_pos,
+				(int)v, (int)run_count, parity?"B":"W");
+		}
 
 		for(k=0; k<run_count; k++) {
 			pg->pixelcount++;
