@@ -700,6 +700,10 @@ Deark -- Information about supported formats
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
 
+* Byte frequency analysis (module="bytefreq")
+  Print a table showing how many times each byte value occurs.
+  - You must use "-m bytefreq".
+
 * C64 BASIC (module="basic-c64") (experimental)
   - Detokenize C64 BASIC programs
 

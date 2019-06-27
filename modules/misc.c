@@ -13,6 +13,7 @@ DE_DECLARE_MODULE(de_module_null);
 DE_DECLARE_MODULE(de_module_cp437);
 DE_DECLARE_MODULE(de_module_crc);
 DE_DECLARE_MODULE(de_module_hexdump);
+DE_DECLARE_MODULE(de_module_bytefreq);
 DE_DECLARE_MODULE(de_module_zlib);
 DE_DECLARE_MODULE(de_module_hpicn);
 DE_DECLARE_MODULE(de_module_xpuzzle);
@@ -207,6 +208,111 @@ void de_module_hexdump(deark *c, struct deark_module_info *mi)
 	mi->id = "hexdump";
 	mi->desc = "Print a hex dump";
 	mi->run_fn = de_run_hexdump;
+	mi->flags |= DE_MODFLAG_NOEXTRACT;
+}
+
+// **************************************************************************
+// bytefreq
+// Prints a summary of how many times each byte value occurs.
+// **************************************************************************
+
+struct bytefreqentry {
+	i64 count;
+#define DE_BYTEFREQ_NUMLOC 3
+	i64 locations[DE_BYTEFREQ_NUMLOC];
+};
+
+struct bytefreqctx_struct {
+	struct bytefreqentry e[256];
+};
+
+static int bytefreq_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
+	i64 buf_len)
+{
+	i64 k;
+	struct bytefreqctx_struct *bfctx = (struct bytefreqctx_struct*)brctx->userdata;
+
+	for(k=0; k<buf_len; k++) {
+		struct bytefreqentry *bf = &bfctx->e[(unsigned int)buf[k]];
+
+		// Save the location of the first few occurrences of this byte value.
+		if(bf->count<DE_BYTEFREQ_NUMLOC) {
+			bf->locations[bf->count] = brctx->offset + k;
+		}
+		bf->count++;
+	}
+	return 1;
+}
+
+static void de_run_bytefreq(deark *c, de_module_params *mparams)
+{
+	struct bytefreqctx_struct *bfctx = NULL;
+	de_ucstring *s = NULL;
+	unsigned int k;
+	int input_encoding;
+
+	bfctx = de_malloc(c, sizeof(struct bytefreqctx_struct));
+	input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
+	if(input_encoding==DE_ENCODING_UTF8) {
+		input_encoding=DE_ENCODING_ASCII;
+	}
+
+	dbuf_buffered_read(c->infile, 0, c->infile->len, bytefreq_cbfn, (void*)bfctx);
+
+	de_msg(c, "====Byte==== ===Count=== ==Locations==");
+	s = ucstring_create(c);
+	for(k=0; k<256; k++) {
+		i32 ch;
+		int cflag;
+		unsigned int z;
+		struct bytefreqentry *bf = &bfctx->e[k];
+
+		if(bf->count==0) continue;
+		ucstring_empty(s);
+
+		ucstring_printf(s, DE_ENCODING_LATIN1, "%3u 0x%02x ", k, k);
+
+		ch = de_char_to_unicode(c, (i32)k, input_encoding);
+		if(ch==DE_CODEPOINT_INVALID) {
+			cflag = 0;
+		}
+		else {
+			cflag = de_is_printable_uchar(ch);
+		}
+
+		if(cflag) {
+			ucstring_append_sz(s, "'", DE_ENCODING_LATIN1);
+			ucstring_append_char(s, ch);
+			ucstring_append_sz(s, "'", DE_ENCODING_LATIN1);
+		}
+		else {
+			ucstring_append_sz(s, "   ", DE_ENCODING_LATIN1);
+		}
+
+		ucstring_printf(s, DE_ENCODING_LATIN1, " %11"I64_FMT" ", bf->count);
+
+		for(z=0; z<DE_BYTEFREQ_NUMLOC && z<bf->count; z++) {
+			ucstring_printf(s, DE_ENCODING_LATIN1, "%"I64_FMT, bf->locations[z]);
+			if(z<bf->count-1) {
+				ucstring_append_sz(s, ",", DE_ENCODING_LATIN1);
+			}
+		}
+		if(bf->count>DE_BYTEFREQ_NUMLOC) {
+			ucstring_append_sz(s, "...", DE_ENCODING_LATIN1);
+		}
+
+		de_msg(c, "%s", ucstring_getpsz(s));
+	}
+	de_msg(c, "      Total: %11"I64_FMT, c->infile->len);
+	ucstring_destroy(s);
+	de_free(c, bfctx);
+}
+
+void de_module_bytefreq(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "bytefreq";
+	mi->desc = "Print a byte frequence analysis";
+	mi->run_fn = de_run_bytefreq;
 	mi->flags |= DE_MODFLAG_NOEXTRACT;
 }
 

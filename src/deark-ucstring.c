@@ -251,8 +251,6 @@ void ucstring_write_as_utf8(deark *c, de_ucstring *s, dbuf *outf, int add_bom_if
 	}
 }
 
-static int is_printable_uchar(i32 ch);
-
 // Note: This function is similar to de_finfo_set_name_from_ucstring().
 // Maybe they should be consolidated.
 // TODO: Should we remove the 'encoding' param, and always assume UTF-8?
@@ -287,7 +285,7 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len,
 		if(flags & DE_CONVFLAG_MAKE_PRINTABLE) {
 			// TODO: This is slightly inefficient, because we're overwriting the
 			// conversion we already did.
-			if(!is_printable_uchar(ch)) {
+			if(!de_is_printable_uchar(ch)) {
 				if(ch==0x0a) {
 					de_snprintf((char*)charcodebuf, sizeof(charcodebuf),
 						"%s\\n%s", sc1, sc2);
@@ -335,7 +333,7 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len,
 // and noncharacters.
 // It would be good to also ban incorrectly-used "combining" and other context-
 // sensitive characters, but that's too difficult.
-static int is_printable_uchar(i32 ch)
+int de_is_printable_uchar(i32 ch)
 {
 	struct pr_range { i32 n1, n2; };
 	static const struct pr_range ranges[] = {
