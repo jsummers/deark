@@ -3,13 +3,16 @@
 // See the file COPYING for terms of use.
 
 // MP3, and other MPEG audio
+// APE tag
 
 #include <deark-config.h>
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_mpegaudio);
+DE_DECLARE_MODULE(de_module_apetag);
 
 typedef struct mp3ctx_struct {
+	int has_id3v2;
 	// Settings are for the current frame.
 	unsigned int version_id, layer_desc, has_crc;
 	unsigned int bitrate_idx, samprate_idx;
@@ -29,6 +32,11 @@ struct ape_tag_header_footer {
 	i64 items_size;
 	int has_header;
 };
+
+static int is_apetag_sig_at(dbuf *f, i64 pos)
+{
+	return !dbuf_memcmp(f, pos, "APETAGEX", 8);
+}
 
 static const char *get_ape_item_type_name(unsigned int t)
 {
@@ -173,6 +181,11 @@ static int do_ape_tag_header_or_footer(deark *c, struct ape_tag_header_footer *a
 	i64 pos1, int is_footer)
 {
 	int retval = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "APE tag %s at %"I64_FMT, (is_footer?"footer":"header"), pos1);
+	de_dbg_indent(c, 1);
 
 	ah->ape_ver = (u32)de_getu32le(pos1+8);
 	de_dbg(c, "version: %u", (unsigned int)ah->ape_ver);
@@ -205,39 +218,97 @@ static int do_ape_tag_header_or_footer(deark *c, struct ape_tag_header_footer *a
 	}
 	retval = 1;
 done:
+	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
 
-static int do_ape_tag(deark *c, i64 endpos, i64 *ape_tag_bytes_consumed)
+static int do_ape_tag_internal(deark *c, i64 endpos, i64 *ape_tag_bytes_consumed)
 {
 	struct ape_tag_header_footer *af = NULL;
-	int saved_indent_level;
+	i64 footer_startpos = endpos - 32;
 	int retval = 0;
 
-	i64 footer_startpos;
-
-	de_dbg_indent_save(c, &saved_indent_level);
-	*ape_tag_bytes_consumed = 0;
-
-	footer_startpos = endpos-32;
-	if(dbuf_memcmp(c->infile, footer_startpos, "APETAGEX", 8))
+	if(!is_apetag_sig_at(c->infile, footer_startpos)) {
+		de_warn(c, "Expected APE tag footer not found at %"I64_FMT, footer_startpos);
 		goto done;
-
+	}
 	af = de_malloc(c, sizeof(struct ape_tag_header_footer));
-
-	de_dbg(c, "APE tag found, ending at %"I64_FMT, endpos);
-
-	de_dbg_indent(c, 1);
 	if(!do_ape_tag_header_or_footer(c, af, footer_startpos, 1)) goto done;
 	*ape_tag_bytes_consumed = af->tag_size_total;
 
 	do_ape_item_list(c, af, af->items_startpos, af->tag_size_raw - 32);
 
-	de_dbg_indent(c, -1);
 	retval = 1;
-
 done:
 	de_free(c, af);
+	return retval;
+}
+
+static void de_run_apetag(deark *c, de_module_params *mparams)
+{
+	i64 endpos;
+	i64 bytes_consumed = 0;
+
+	// The calling module should provide a slice that starts at the beginning
+	// of the file, and ends at the end of the APE tag (which is often, but
+	// not always, the end of the file).
+	// This does not very flexible, but it can be improved if need be.
+
+	// If we successfully process an APE tag, we set the
+	// 0x1 bit of mparams->out_params.flags, and set
+	// mparams->out_params.int64_1 to the total size of the APE tag.
+
+	endpos = c->infile->len;
+
+	if(!do_ape_tag_internal(c, endpos, &bytes_consumed)) goto done;
+	if(mparams) {
+		mparams->out_params.flags = 0x1;
+		mparams->out_params.int64_1 = bytes_consumed;
+	}
+done:
+	;
+}
+
+void de_module_apetag(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "apetag";
+	mi->desc = "APE tag";
+	mi->run_fn = de_run_apetag;
+	mi->identify_fn = NULL;
+	mi->flags |= DE_MODFLAG_HIDDEN;
+}
+
+static int do_ape_tag_if_exists(deark *c, i64 endpos, i64 *ape_tag_bytes_consumed)
+{
+	i64 footer_startpos;
+	de_module_params *mparams = NULL;
+	int saved_indent_level;
+	int retval = 0;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	*ape_tag_bytes_consumed = 0;
+
+	footer_startpos = endpos-32;
+	if(!is_apetag_sig_at(c->infile, footer_startpos)) {
+		goto done;
+	}
+
+	de_dbg(c, "APE tag found, ending at %"I64_FMT, endpos);
+	de_dbg_indent(c, 1);
+	mparams = de_malloc(c, sizeof(de_module_params));
+	de_run_module_by_id_on_slice(c, "apetag", mparams, c->infile, 0, endpos);
+	if(mparams->out_params.flags & 0x1) {
+		// apetag module told us the size of the APE tag data.
+		*ape_tag_bytes_consumed = mparams->out_params.int64_1;
+	}
+	else {
+		goto done;
+	}
+	de_dbg_indent(c, -1);
+
+	retval = 1;
+done:
+	de_free(c, mparams);
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
@@ -395,6 +466,14 @@ static void do_mp3_frame(deark *c, mp3ctx *d, i64 pos1, i64 len)
 		int ret;
 		i64 num_bytes_to_skip = 0;
 		de_info(c, "Note: MP3/MPA frame header not found at %"I64_FMT". Scanning for frame header.", pos);
+		if(d->frame_count==0 && c->module_disposition==DE_MODDISP_AUTODETECT &&
+			d->has_id3v2)
+		{
+			// Format was presumably autodetected solely based on the existence
+			// of ID3v2 data.
+			de_warn(c, "This might not be an MPEG audio file. It might be an unrecognized "
+				"audio format.");
+		}
 		ret = find_mp3_frame_header(c, d, pos1, len, &num_bytes_to_skip);
 		if(!ret) {
 			de_err(c, "MP3/MPA frame header not found");
@@ -455,7 +534,6 @@ done:
 
 static void do_mp3_data(deark *c, mp3ctx *d, i64 pos1, i64 len)
 {
-
 	de_dbg(c, "MP3/MPA data at %"I64_FMT", len=%"I64_FMT, pos1, len);
 	de_dbg_indent(c, 1);
 	do_mp3_frame(c, d, pos1, len);
@@ -477,6 +555,7 @@ static void de_run_mpegaudio(deark *c, de_module_params *mparams)
 	endpos = c->infile->len;
 
 	de_fmtutil_handle_id3(c, c->infile, &id3i, 0);
+	d->has_id3v2 = id3i.has_id3v2;
 	pos = id3i.main_start;
 	endpos = id3i.main_end;
 
@@ -487,7 +566,7 @@ static void de_run_mpegaudio(deark *c, de_module_params *mparams)
 		}
 	}
 
-	do_ape_tag(c, endpos, &ape_tag_len);
+	do_ape_tag_if_exists(c, endpos, &ape_tag_len);
 	endpos -= ape_tag_len;
 
 	do_mp3_data(c, d, pos, endpos-pos);
