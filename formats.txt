@@ -782,6 +782,9 @@ Deark -- Information about supported formats
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
 
+* Monkey's Audio (.ape) (module="monkeys_audio")
+  - Minimal support. Decodes APE tag metadata.
+
 * MP3 / MPEG audio (module="mpegaudio" or "mp3")
   - Not all files can be autodetected.
   - Mainly for ID3 and APE metadata. The audio data is not converted.

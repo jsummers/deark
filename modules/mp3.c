@@ -4,12 +4,14 @@
 
 // MP3, and other MPEG audio
 // APE tag
+// Monkey's Audio (.ape)
 
 #include <deark-config.h>
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_mpegaudio);
 DE_DECLARE_MODULE(de_module_apetag);
+DE_DECLARE_MODULE(de_module_monkeys_audio);
 
 typedef struct mp3ctx_struct {
 	int has_id3v2;
@@ -657,4 +659,45 @@ void de_module_mpegaudio(deark *c, struct deark_module_info *mi)
 	mi->desc = "MP3 / MPEG audio";
 	mi->run_fn = de_run_mpegaudio;
 	mi->identify_fn = de_identify_mpegaudio;
+}
+
+//// Monkey's Audio
+
+static void de_run_monkeys_audio(deark *c, de_module_params *mparams)
+{
+	i64 endpos = c->infile->len;
+
+	if(is_apetag_sig_at(c->infile, endpos-32)) {
+		de_dbg(c, "APE tag found, ending at %"I64_FMT, endpos);
+		de_dbg_indent(c, 1);
+		de_run_module_by_id_on_slice2(c, "apetag", NULL, c->infile, 0, endpos);
+		de_dbg_indent(c, -1);
+	}
+}
+
+static int ma_is_known_cmpr(unsigned int n)
+{
+	if(n<1000 || n>5000) return 0;
+	if(n%1000) return 0;
+	return 1;
+}
+
+static int de_identify_monkeys_audio(deark *c)
+{
+	unsigned int n;
+
+	if(dbuf_memcmp(c->infile, 0, "MAC ", 4)) return 0;
+	n = (unsigned int)de_getu16le(6);
+	if(ma_is_known_cmpr(n)) return 100;
+	n = (unsigned int)de_getu16le(52);
+	if(ma_is_known_cmpr(n)) return 100;
+	return 0;
+}
+
+void de_module_monkeys_audio(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "monkeys_audio";
+	mi->desc = "Monkey's Audio (.ape)";
+	mi->run_fn = de_run_monkeys_audio;
+	mi->identify_fn = de_identify_monkeys_audio;
 }
