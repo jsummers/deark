@@ -562,13 +562,21 @@ static void de_run_riff(deark *c, de_module_params *mparams)
 
 static int de_identify_riff(deark *c)
 {
-	if(!dbuf_memcmp(c->infile, 0, "RIFF", 4))
-		return 50;
-	if(!dbuf_memcmp(c->infile, 0, "XFIR", 4))
-		return 50;
-	if(!dbuf_memcmp(c->infile, 0, "RIFX", 4))
-		return 50;
-	return 0;
+	u8 buf[4];
+	int has_sig;
+	i64 dlen;
+
+	de_read(buf, 0, 4);
+	has_sig = (!de_memcmp(buf, "RIFF", 4)) ||
+		(!de_memcmp(buf, "XFIR", 4)) ||
+		(!de_memcmp(buf, "RIFX", 4));
+	if(!has_sig) return 0;
+
+	dlen = de_getu32le(4);
+	// This check screens out .AMV format, for example.
+	if(dlen==0 && c->infile->len!=8) return 0;
+
+	return 50;
 }
 
 void de_module_riff(deark *c, struct deark_module_info *mi)
