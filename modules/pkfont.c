@@ -8,6 +8,12 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_pkfont);
 
+#define PK_XXX1 240
+#define PK_XXX2 241
+#define PK_XXX3 242
+#define PK_XXX4 243
+#define PK_YYY  244
+
 struct page_ctx {
 	i32 cc;
 	int w, h;
@@ -402,11 +408,11 @@ static const char *get_flagbyte_name(u8 flagbyte)
 {
 	if(flagbyte<240) return "character descriptor";
 	switch(flagbyte) {
-	case 240: return "special xxx1";
-	case 241: return "special xxx2";
-	case 242: return "special xxx3";
-	case 243: return "special xxx4";
-	case 244: return "special yyy";
+	case PK_XXX1: return "special xxx1";
+	case PK_XXX2: return "special xxx2";
+	case PK_XXX3: return "special xxx3";
+	case PK_XXX4: return "special xxx4";
+	case PK_YYY: return "special yyy";
 	case 245: return "postamble";
 	case 246: return "no-op";
 	case 247: return "preamble";
@@ -466,14 +472,33 @@ static void de_run_pkfont(deark *c, de_module_params *mparams)
 		bytesused = 0;
 
 		if(flagbyte >= 240) {
+			i64 dpos = 0;
+			i64 dlen = 0;
+
 			switch(flagbyte) {
-			case 240:
-				bytesused = 2 + (i64)de_getbyte(pos+1);
+			case PK_XXX1:
+				dlen = (i64)de_getbyte(pos+1);
+				dpos = pos + 2;
+				bytesused = 2 + dlen;
 				break;
-			//case 241: // TODO
-			//case 242: // TODO
-			//case 243: // TODO
-			case 244:
+			case PK_XXX2:
+				dlen = de_getu16be(pos+1);
+				dpos = pos + 3;
+				bytesused = 3 + dlen;
+				break;
+			case PK_XXX3:
+				dlen = dbuf_getint_ext(c->infile, pos+1, 3, 0, 0);
+				dpos = pos + 4;
+				bytesused = 4 + dlen;
+				break;
+			case PK_XXX4:
+				dlen = de_getu32be(pos+1);
+				dpos = pos + 5;
+				bytesused = 5 + dlen;
+				break;
+			case PK_YYY:
+				dlen = 4;
+				dpos = pos + 1;
 				bytesused = 5;
 				break;
 			case 245: // postamble
@@ -487,6 +512,12 @@ static void de_run_pkfont(deark *c, de_module_params *mparams)
 			default:
 				de_err(c, "Unsupported command: %d at %d", (int)flagbyte, (int)pos);
 				goto done;
+			}
+
+			if(dlen>0 && flagbyte>=240 && flagbyte<=244) {
+				de_dbg_indent(c, 1);
+				de_dbg_hexdump(c, c->infile, dpos, dlen, 256, NULL, 0x1);
+				de_dbg_indent(c, -1);
 			}
 		}
 		else {
