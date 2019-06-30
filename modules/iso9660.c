@@ -64,6 +64,7 @@ typedef struct localctx_struct {
 	int rr_encoding;
 	u8 names_to_lowercase;
 	u8 vol_desc_sector_forced;
+	u8 dirsize_hack;
 	i64 vol_desc_sector_to_use;
 	i64 secsize;
 	i64 primary_vol_desc_count;
@@ -787,7 +788,8 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 	de_dbg(c, "ext attrib rec len: %u", (unsigned int)dr->len_ext_attr_rec);
 
 	dr->extent_blk = getu32bbo_p(c->infile, &pos);
-	de_dbg(c, "loc. of extent: block #%u", (unsigned int)dr->extent_blk);
+	de_dbg(c, "loc. of extent: %"I64_FMT" (block #%u)", sector_dpos(d, dr->extent_blk),
+		(unsigned int)dr->extent_blk);
 	dr->data_len = getu32bbo_p(c->infile, &pos);
 	de_dbg(c, "data length: %u", (unsigned int)dr->data_len);
 
@@ -920,11 +922,18 @@ static void do_directory(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level
 	struct dir_record *dr = NULL;
 	i64 pos = pos1;
 	int saved_indent_level;
+	int idx = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	if(pos1<=0) goto done;
 
-	de_dbg(c, "directory at %"I64_FMT, pos1);
+	if(d->dirsize_hack) {
+		// I have a volume for which the high bits of the dir-length fields
+		// are corrupted.
+		len &= 0x00ffffffLL;
+	}
+
+	de_dbg(c, "directory at %"I64_FMT", len=%"I64_FMT, pos1, len);
 	de_dbg_indent(c, 1);
 
 	if(!de_inthashtable_add_item(c, d->dirs_seen, pos1, NULL)) {
@@ -935,6 +944,11 @@ static void do_directory(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level
 	if(nesting_level>32) {
 		de_err(c, "Maximum directory nesting level exceeded");
 		goto done;
+	}
+
+	if(pos1+len > c->infile->len) {
+		de_warn(c, "Directory at %"I64_FMT" goes beyond end of file (size=%"I64_FMT")",
+			pos1, len);
 	}
 
 	while(1) {
@@ -954,7 +968,8 @@ static void do_directory(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level
 			if(pos >= c->infile->len) break;
 		}
 
-		de_dbg(c, "directory record at %"I64_FMT" (for directory@%"I64_FMT")", pos, pos1);
+		de_dbg(c, "file/dir record at %"I64_FMT" (item[%d] in dir@%"I64_FMT")", pos,
+			idx, pos1);
 		dr = de_malloc(c, sizeof(struct dir_record));
 		de_dbg_indent(c, 1);
 		ret = do_directory_record(c, d, pos, dr, nesting_level);
@@ -965,6 +980,7 @@ static void do_directory(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level
 		pos += dr->len_dir_rec; // + ext_len??
 		free_dir_record(c, dr);
 		dr = NULL;
+		idx++;
 	}
 
 done:
@@ -1251,7 +1267,7 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 		goto done;
 	}
 
-	de_dbg(c, "volume descriptor at %"I64_FMT" (sector %d)", pos, (int)secnum);
+	de_dbg(c, "volume descriptor at %"I64_FMT" (sector %d)", pos1, (int)secnum);
 	de_dbg_indent(c, 1);
 
 	de_dbg(c, "type: %u", (unsigned int)dtype);
@@ -1311,6 +1327,10 @@ static void de_run_iso9660(deark *c, de_module_params *mparams)
 
 	if(de_get_ext_option_bool(c, "iso9660:tolower", 0)) {
 		d->names_to_lowercase = 1;
+	}
+
+	if(de_get_ext_option_bool(c, "iso9660:dirsizehack", 0)) {
+		d->dirsize_hack = 1;
 	}
 
 	s = de_get_ext_option(c, "iso9660:voldesc");
