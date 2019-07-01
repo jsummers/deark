@@ -874,6 +874,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\rm.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\rodraw.c"
 				>
 			</File>

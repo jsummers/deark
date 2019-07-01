@@ -188,6 +188,8 @@ $(OBJDIR)/modules/qtif.o: modules/qtif.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/riff.o: modules/riff.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/rm.o: modules/rm.c src/deark-config.h \
+ src/deark-private.h src/deark.h
 $(OBJDIR)/modules/rodraw.o: modules/rodraw.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/rosprite.o: modules/rosprite.c src/deark-config.h \
