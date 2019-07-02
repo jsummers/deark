@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_hfs);
 
 #define CDRTYPE_DIR   1
@@ -337,54 +338,70 @@ static void read_timestamp_fields(deark *c, lctx *d, i64 pos1,
 }
 
 static void do_extract_dir(deark *c, lctx *d, struct nodedata *nd,
-	struct recorddata *rd, de_finfo *fi)
+	struct recorddata *rd,  struct de_advfile *advf)
 {
 	i64 pos = rd->datapos;
-	dbuf *outf = NULL;
 
 	pos += 2; // common fields, already read
 	pos += 2; // dirFlags
 	pos += 2; // dirVal
 	pos += 4; // dirDirID
 
-	read_timestamp_fields(c, d, pos, fi, NULL);
+	read_timestamp_fields(c, d, pos, advf->mainfork.fi, NULL);
 	pos += 12;
 
-	fi->is_directory = 1;
+	advf->mainfork.fi->is_directory = 1;
+	advf->mainfork.fork_exists = 1;
+	advf->mainfork.fork_len = 0;
 
-	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
-	dbuf_close(outf);
+	// Note that we don't have to set a callback function for 0-length "files".
+	de_advfile_run(advf);
 }
 
-struct fork_data {
+struct fork_info {
+	u8 is_rsrc;
+	u8 fork_exists;
+	u8 extract_error_flag;
 	i64 first_alloc_blk;
 	i64 logical_eof;
 	i64 physical_eof;
 	struct ExtDescriptor ExtRec[3];
 };
 
-static void do_extract_fork(deark *c, lctx *d, struct recorddata *rd,
-	struct fork_data *fkd, de_finfo *fi, int is_rsrc)
-{
-	i64 dlen;
-	i64 len_avail;
-	i64 nbytes_still_to_write;
-	size_t k;
-	dbuf *outf = NULL;
+struct extract_ctx {
+	lctx *d;
+	struct recorddata *rd;
+	struct fork_info *fki_data;
+	struct fork_info *fki_rsrc;
+};
 
-	dlen = fkd->logical_eof;
-	len_avail = d->drAlBlkSiz * (fkd->ExtRec[0].num_alloc_blks +
-		fkd->ExtRec[1].num_alloc_blks + fkd->ExtRec[2].num_alloc_blks);
-	if(dlen > len_avail) {
+// Figure out whether we think we can extract the fork.
+static void do_extract_fork_init(deark *c, lctx *d, struct recorddata *rd,
+	struct fork_info *fki)
+{
+	i64 len_avail;
+
+	len_avail = d->drAlBlkSiz * (fki->ExtRec[0].num_alloc_blks +
+		fki->ExtRec[1].num_alloc_blks + fki->ExtRec[2].num_alloc_blks);
+	if(fki->logical_eof > len_avail) {
 		// TODO: Need to be able to read the Extents Overflow tree.
 		de_err(c, "%s: Files with more than 3 fragments are not supported",
 			ucstring_getpsz(rd->name));
+		fki->extract_error_flag = 1;
 		goto done;
 	}
 
-	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
+done:
+	;
+}
 
-	nbytes_still_to_write = dlen;
+static void do_extract_fork_run(deark *c, lctx *d, struct recorddata *rd,
+	struct fork_info *fki, dbuf *outf)
+{
+	i64 nbytes_still_to_write;
+	size_t k;
+
+	nbytes_still_to_write = fki->logical_eof;
 
 	for(k=0; k<3; k++) {
 		i64 fragment_dpos;
@@ -392,8 +409,8 @@ static void do_extract_fork(deark *c, lctx *d, struct recorddata *rd,
 
 		if(nbytes_still_to_write<=0) break;
 
-		fragment_dpos = allocation_blk_dpos(d, fkd->ExtRec[k].first_alloc_blk);
-		nbytes_to_write_this_time = d->drAlBlkSiz * fkd->ExtRec[k].num_alloc_blks;
+		fragment_dpos = allocation_blk_dpos(d, fki->ExtRec[k].first_alloc_blk);
+		nbytes_to_write_this_time = d->drAlBlkSiz * fki->ExtRec[k].num_alloc_blks;
 		if(nbytes_to_write_this_time > nbytes_still_to_write) {
 			nbytes_to_write_this_time = nbytes_still_to_write;
 		}
@@ -409,7 +426,7 @@ static void do_extract_fork(deark *c, lctx *d, struct recorddata *rd,
 	}
 
 done:
-	dbuf_close(outf);
+	;
 }
 
 static void read_finder_info(deark *c, lctx *d, i64 pos1)
@@ -426,13 +443,34 @@ static void read_finder_info(deark *c, lctx *d, i64 pos1)
 	pos += 4;
 }
 
+static int my_advfile_cbfn(deark *c, struct de_advfile *advf,
+	struct de_advfile_cbparams *afp)
+{
+	struct extract_ctx *ectx = (struct extract_ctx*)advf->userdata;
+
+	if(afp->whattodo == DE_ADVFILE_WRITEMAIN) {
+		do_extract_fork_run(c, ectx->d, ectx->rd, ectx->fki_data, afp->outf);
+	}
+	else if(afp->whattodo == DE_ADVFILE_WRITERSRC) {
+		do_extract_fork_run(c, ectx->d, ectx->rd, ectx->fki_rsrc, afp->outf);
+	}
+
+	return 1;
+}
+
 static void do_extract_file(deark *c, lctx *d, struct nodedata *nd,
-	struct recorddata *rd, de_finfo *fi_data, de_finfo *fi_rsrc)
+	struct recorddata *rd, struct de_advfile *advf)
 {
 	i64 pos = rd->datapos;
 	i64 n;
-	struct fork_data fkd_data;
-	struct fork_data fkd_rsrc;
+	struct extract_ctx *ectx = NULL;
+
+	ectx = de_malloc(c, sizeof(struct extract_ctx));
+	ectx->d = d;
+	ectx->rd = rd;
+	ectx->fki_data = de_malloc(c, sizeof(struct fork_info));
+	ectx->fki_rsrc = de_malloc(c, sizeof(struct fork_info));
+	ectx->fki_rsrc->is_rsrc = 1;
 
 	pos += 2; // common fields, already read
 
@@ -447,21 +485,21 @@ static void do_extract_file(deark *c, lctx *d, struct nodedata *nd,
 
 	pos += 4; // filFlNum, file id
 
-	fkd_data.first_alloc_blk = de_getu16be_p(&pos);
-	de_dbg(c, "data fork first alloc blk: %d", (int)fkd_data.first_alloc_blk);
-	fkd_data.logical_eof = de_getu32be_p(&pos);
-	de_dbg(c, "data fork logical eof: %d", (int)fkd_data.logical_eof);
-	fkd_data.physical_eof = de_getu32be_p(&pos);
-	de_dbg(c, "data fork physical eof: %d", (int)fkd_data.physical_eof);
+	ectx->fki_data->first_alloc_blk = de_getu16be_p(&pos);
+	de_dbg(c, "data fork first alloc blk: %d", (int)ectx->fki_data->first_alloc_blk);
+	ectx->fki_data->logical_eof = de_getu32be_p(&pos);
+	de_dbg(c, "data fork logical eof: %d", (int)ectx->fki_data->logical_eof);
+	ectx->fki_data->physical_eof = de_getu32be_p(&pos);
+	de_dbg(c, "data fork physical eof: %d", (int)ectx->fki_data->physical_eof);
 
-	fkd_rsrc.first_alloc_blk = de_getu16be_p(&pos);
-	de_dbg(c, "rsrc fork first alloc blk: %d", (int)fkd_rsrc.first_alloc_blk);
-	fkd_rsrc.logical_eof = de_getu32be_p(&pos);
-	de_dbg(c, "rsrc fork logical eof: %d", (int)fkd_rsrc.logical_eof);
-	fkd_rsrc.physical_eof = de_getu32be_p(&pos);
-	de_dbg(c, "rsrc fork physical eof: %d", (int)fkd_rsrc.physical_eof);
+	ectx->fki_rsrc->first_alloc_blk = de_getu16be_p(&pos);
+	de_dbg(c, "rsrc fork first alloc blk: %d", (int)ectx->fki_rsrc->first_alloc_blk);
+	ectx->fki_rsrc->logical_eof = de_getu32be_p(&pos);
+	de_dbg(c, "rsrc fork logical eof: %d", (int)ectx->fki_rsrc->logical_eof);
+	ectx->fki_rsrc->physical_eof = de_getu32be_p(&pos);
+	de_dbg(c, "rsrc fork physical eof: %d", (int)ectx->fki_rsrc->physical_eof);
 
-	read_timestamp_fields(c, d, pos, fi_data, fi_rsrc);
+	read_timestamp_fields(c, d, pos, advf->mainfork.fi, advf->rsrcfork.fi);
 	pos += 12;
 
 	pos += 16; // filFndrInfo sizeof(FXInfo)
@@ -469,64 +507,75 @@ static void do_extract_file(deark *c, lctx *d, struct nodedata *nd,
 	n = de_getu16be_p(&pos);
 	de_dbg(c, "filClpSize: %d", (int)n);
 
-	read_ExtDataRecs(c, d, pos, fkd_data.ExtRec, 3, "filExtRec");
+	read_ExtDataRecs(c, d, pos, ectx->fki_data->ExtRec, 3, "filExtRec");
 	pos += 12;
-	read_ExtDataRecs(c, d, pos, fkd_rsrc.ExtRec, 3, "filRExtRec");
+	read_ExtDataRecs(c, d, pos, ectx->fki_rsrc->ExtRec, 3, "filRExtRec");
 	pos += 12;
 
-	if(fkd_data.logical_eof>0 || fkd_rsrc.logical_eof==0) {
-		do_extract_fork(c, d, rd, &fkd_data, fi_data, 0);
+	ectx->fki_rsrc->fork_exists = (ectx->fki_rsrc->logical_eof>0);
+	ectx->fki_data->fork_exists = (ectx->fki_data->logical_eof>0 || !ectx->fki_rsrc->fork_exists);
+
+	if(ectx->fki_data->fork_exists) {
+		do_extract_fork_init(c, d, rd, ectx->fki_data);
+		if(!ectx->fki_data->extract_error_flag) {
+			advf->mainfork.fork_len = ectx->fki_data->logical_eof;
+			advf->mainfork.fork_exists = 1;
+		}
 	}
-	if(fkd_rsrc.logical_eof>0) {
-		do_extract_fork(c, d, rd, &fkd_rsrc, fi_rsrc, 1);
+	if(ectx->fki_rsrc->fork_exists) {
+		do_extract_fork_init(c, d, rd, ectx->fki_rsrc);
+		if(!ectx->fki_rsrc->extract_error_flag) {
+			advf->rsrcfork.fork_len = ectx->fki_rsrc->logical_eof;
+			advf->rsrcfork.fork_exists = 1;
+		}
 	}
+
+	advf->userdata = (void*)ectx;
+	advf->writefork_cbfn = my_advfile_cbfn;
+
+	de_advfile_run(advf);
+
+	de_free(c, ectx->fki_data);
+	de_free(c, ectx->fki_rsrc);
+	de_free(c, ectx);
 }
 
 static void do_leaf_node_record_extract_item(deark *c, lctx *d, struct nodedata *nd,
 	struct recorddata *rd)
 {
-	de_ucstring *fullpath = NULL;
-	de_finfo *fi_data = NULL;
-	de_finfo *fi_rsrc = NULL;
+	struct de_advfile *advf = NULL;
 	i64 oldlen;
 
-	fi_data = de_finfo_create(c);
-	fi_data->original_filename_flag = 1;
-	fi_rsrc = de_finfo_create(c);
-	fi_rsrc->original_filename_flag = 1;
-
-	fullpath = ucstring_create(c);
+	advf = de_advfile_create(c);
+	advf->mainfork.fi->original_filename_flag = 1;
+	advf->rsrcfork.fi->original_filename_flag = 1;
 
 	// TODO: This is not very efficient. Maybe we should at least cache the
 	// previous file's path, since it's usually the same.
-	get_full_path_from_dirid(c, d, rd->ParID, fullpath, 0);
+	get_full_path_from_dirid(c, d, rd->ParID, advf->filename, 0);
 
-	de_dbg(c, "path: \"%s\"", ucstring_getpsz_d(fullpath));
-	oldlen = fullpath->len;
+	de_dbg(c, "path: \"%s\"", ucstring_getpsz_d(advf->filename));
+	oldlen = advf->filename->len;
 	if(ucstring_isnonempty(rd->name)) {
-		ucstring_append_ucstring(fullpath, rd->name);
+		ucstring_append_ucstring(advf->filename, rd->name);
 	}
 	else {
-		ucstring_append_sz(fullpath, "_", DE_ENCODING_LATIN1);
+		ucstring_append_sz(advf->filename, "_", DE_ENCODING_LATIN1);
 	}
 
-	squash_slashes(fullpath, oldlen);
-	de_finfo_set_name_from_ucstring(c, fi_data, fullpath, DE_SNFLAG_FULLPATH);
-	if(rd->cdrType==CDRTYPE_FILE) {
-		ucstring_append_sz(fullpath, ".rsrc", DE_ENCODING_LATIN1);
-		de_finfo_set_name_from_ucstring(c, fi_rsrc, fullpath, DE_SNFLAG_FULLPATH);
-	}
+	squash_slashes(advf->filename, oldlen);
+
+	advf->mainfork.snflags = DE_SNFLAG_FULLPATH;
+	advf->rsrcfork.snflags = DE_SNFLAG_FULLPATH;
 
 	if(rd->cdrType==CDRTYPE_DIR) {
-		do_extract_dir(c, d, nd, rd, fi_data);
+		do_extract_dir(c, d, nd, rd, advf);
 	}
 	else if(rd->cdrType==CDRTYPE_FILE) {
-		do_extract_file(c, d, nd, rd, fi_data, fi_rsrc);
+		do_extract_file(c, d, nd, rd, advf);
 	}
 
-	ucstring_destroy(fullpath);
-	de_finfo_destroy(c, fi_data);
-	de_finfo_destroy(c, fi_rsrc);
+	de_advfile_destroy(advf);
 }
 
 static void do_leaf_node_record(deark *c, lctx *d, struct nodedata *nd, i64 idx, int pass)

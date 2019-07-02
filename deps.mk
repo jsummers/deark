@@ -89,7 +89,7 @@ $(OBJDIR)/modules/grob.o: modules/grob.c src/deark-config.h \
 $(OBJDIR)/modules/gzip.o: modules/gzip.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/hfs.o: modules/hfs.c src/deark-config.h \
- src/deark-private.h src/deark.h
+ src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/hlp.o: modules/hlp.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/iccprofile.o: modules/iccprofile.c src/deark-config.h \

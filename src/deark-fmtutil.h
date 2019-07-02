@@ -243,3 +243,37 @@ struct de_id3info {
 };
 void de_fmtutil_handle_id3(deark *c, dbuf *f, struct de_id3info *id3i,
 	unsigned int flags);
+
+struct de_advfile;
+
+struct de_advfile_cbparams {
+#define DE_ADVFILE_WRITEMAIN 1
+#define DE_ADVFILE_WRITERSRC 2
+	int whattodo;
+	dbuf *outf;
+};
+
+typedef int (*de_advfile_cbfn)(deark *c, struct de_advfile *advf,
+	struct de_advfile_cbparams *afp);
+
+struct de_advfile_forkinfo {
+	u8 fork_exists;
+	i64 fork_len;
+	de_finfo *fi; // Note: do not set the name; use de_advfile.filename.
+	unsigned int snflags; // flags for de_finfo_set_name*
+	unsigned int createflags;
+};
+
+struct de_advfile {
+	deark *c;
+	void *userdata;
+	struct de_advfile_forkinfo mainfork;
+	struct de_advfile_forkinfo rsrcfork;
+	de_advfile_cbfn writefork_cbfn;
+	de_ucstring *filename;
+	// TODO: type code, creator code
+};
+
+struct de_advfile *de_advfile_create(deark *c);
+void de_advfile_destroy(struct de_advfile *advf);
+void de_advfile_run(struct de_advfile *advf);

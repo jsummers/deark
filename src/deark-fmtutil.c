@@ -1615,3 +1615,97 @@ void de_fmtutil_handle_id3(deark *c, dbuf *f, struct de_id3info *id3i,
 		id3i->main_end = id3v1pos;
 	}
 }
+
+// advfile is a uniform way to handle multi-fork files (e.g. classic Mac files
+// with a resource fork), and files with platform-specific metadata that we
+// might want to do something special with (e.g. Mac type/creator codes).
+// It is essentially a wrapper around dbuf/finfo.
+
+// de_advfile_create creates a new object.
+// Then, before calling de_advfile_run, caller must:
+//  - Set advf->filename if possible, e.g. using ucstring_append_*().
+//  - Set advf->snflags, if needed.
+//  - Set advf->createflags, if needed (unlikely to be).
+//  - Set advf->mainfork.fork_exists, if there is a main fork.
+//  - Set advf->mainfork.fork_len, if there is a main fork. advfile cannot be
+//    used if the fork lengths are not known in advance.
+//  - Set advf->rsrcfork.fork_exists, if there is an rsrc fork.
+//  - Set advf->rsrcfork.fork_len, if there is an rsrc fork.
+//  - If appropriate, set other fields in both advf->mainfork.fi and
+//    advf->rsrcfork.fi:
+//     - ->mod_time
+//     - ->original_filename_flag
+//     - ->is_directory
+//     - (and maybe others)
+struct de_advfile *de_advfile_create(deark *c)
+{
+	struct de_advfile *advf = NULL;
+
+	advf = de_malloc(c, sizeof(struct de_advfile));
+	advf->c = c;
+	advf->filename = ucstring_create(c);
+	advf->mainfork.fi = de_finfo_create(c);
+	advf->rsrcfork.fi = de_finfo_create(c);
+	return advf;
+}
+
+void de_advfile_destroy(struct de_advfile *advf)
+{
+	deark *c;
+
+	if(!advf) return;
+	c = advf->c;
+	ucstring_destroy(advf->filename);
+	de_finfo_destroy(c, advf->mainfork.fi);
+	de_finfo_destroy(c, advf->rsrcfork.fi);
+	de_free(c, advf);
+}
+
+static void setup_rsrc_finfo(struct de_advfile *advf)
+{
+	deark *c = advf->c;
+	de_ucstring *fname_rsrc = NULL;
+
+	fname_rsrc = ucstring_create(c);
+	ucstring_append_ucstring(fname_rsrc, advf->filename);
+	if(fname_rsrc->len<1) {
+		ucstring_append_sz(fname_rsrc, "_", DE_ENCODING_LATIN1);
+	}
+	ucstring_append_sz(fname_rsrc, ".rsrc", DE_ENCODING_LATIN1);
+	de_finfo_set_name_from_ucstring(c, advf->rsrcfork.fi, fname_rsrc, advf->rsrcfork.snflags);
+
+	ucstring_destroy(fname_rsrc);
+}
+
+void de_advfile_run(struct de_advfile *advf)
+{
+	deark *c = advf->c;
+	struct de_advfile_cbparams *afp_main = NULL;
+	struct de_advfile_cbparams *afp_rsrc = NULL;
+
+	if(advf->mainfork.fork_exists) {
+		afp_main = de_malloc(c, sizeof(struct de_advfile_cbparams));
+		afp_main->whattodo = DE_ADVFILE_WRITEMAIN;
+		de_finfo_set_name_from_ucstring(c, advf->mainfork.fi, advf->filename, advf->mainfork.snflags);
+		afp_main->outf = dbuf_create_output_file(c, NULL, advf->mainfork.fi, advf->mainfork.createflags);
+		if(advf->writefork_cbfn) {
+			advf->writefork_cbfn(advf->c, advf, afp_main);
+		}
+		dbuf_close(afp_main->outf);
+		afp_main->outf = NULL;
+	}
+	if(advf->rsrcfork.fork_exists && advf->rsrcfork.fork_len>0) {
+		afp_rsrc = de_malloc(c, sizeof(struct de_advfile_cbparams));
+		setup_rsrc_finfo(advf);
+		afp_rsrc->whattodo = DE_ADVFILE_WRITERSRC;
+		afp_rsrc->outf = dbuf_create_output_file(c, NULL, advf->rsrcfork.fi, advf->rsrcfork.createflags);
+		if(advf->writefork_cbfn) {
+			advf->writefork_cbfn(advf->c, advf, afp_rsrc);
+		}
+		dbuf_close(afp_rsrc->outf);
+		afp_rsrc->outf = NULL;
+	}
+
+	de_free(c, afp_main);
+	de_free(c, afp_rsrc);
+}
