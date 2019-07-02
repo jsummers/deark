@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VER=1.5.0
+VER=1.5.1
 
 if [ ! -f formats.txt ]
 then
@@ -45,7 +45,7 @@ mkdir $D/x64
 cp -p Release64/deark.exe $D/x64/
 
 echo "Writing deark-${VER}.tar.gz"
-tar --directory .build-tmp -c --owner=root --group=root -O deark-$VER | gzip -9 > deark-${VER}.tar.gz
+tar --directory .build-tmp -c --owner=root:0 --group=root:0 -O deark-$VER | gzip -9 > deark-${VER}.tar.gz
 
 rm -rf .build-tmp
 
