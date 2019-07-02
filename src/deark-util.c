@@ -156,7 +156,7 @@ static void de_puts_advanced(deark *c, unsigned int flags, const char *s)
 	}
 
 	// Unset highlight, if it somehow got left on.
-	if(hlmode) {
+	if(hlmode && c->specialmsgfn) {
 		c->specialmsgfn(c, flags, DE_MSGCODE_UNHL, 0);
 	}
 
