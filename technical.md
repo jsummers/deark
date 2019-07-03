@@ -219,8 +219,9 @@ For example:
 
     $ sudo cp deark /usr/local/bin/
 
-For Microsoft Windows, the project files in proj/vs2008 should work for Visual
-Studio 2008 and later. Alternatively, you can use Cygwin.
+For Microsoft Windows, the project files in proj/vs2019 should work for
+sufficiently new versions of Micrsoft Visual Studio. Alternatively, you can use
+Cygwin.
 
 ## Developer notes ##
 
