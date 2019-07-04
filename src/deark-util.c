@@ -886,6 +886,14 @@ i64 de_pad_to_4(i64 x)
 	return ((x+3)/4)*4;
 }
 
+// Returns x^2.
+// Valid for x=0 to 62. If x is invalid, returns 1 (=2^0).
+i64 de_pow2(i64 x)
+{
+	if(x<0 || x>62) return 1;
+	return (i64)1 << (unsigned int)x;
+}
+
 i64 de_pad_to_n(i64 x, i64 n)
 {
 	i64 r;

@@ -64,7 +64,7 @@ static int do_header(deark *c, lctx *d, i64 pos1)
 	de_dbg(c, "bits/pixel: %d", (int)d->globalimg.bpp);
 
 	if(d->globalimg.palmode && d->globalimg.bpp>=1 && d->globalimg.bpp<=8) {
-		d->globalimg.num_pal_entries = (i64)(1U<<((unsigned int)d->globalimg.bpp));
+		d->globalimg.num_pal_entries = de_pow2(d->globalimg.bpp);
 	}
 
 	pos += 2;
@@ -139,7 +139,7 @@ static void do_bitmap(deark *c, lctx *d, i64 pos1)
 	}
 
 	if(ii.palmode && ii.bpp>=1 && ii.bpp<=8) {
-		ii.num_pal_entries = (i64)(1U<<((unsigned int)ii.bpp));
+		ii.num_pal_entries = de_pow2(ii.bpp);
 	}
 
 	pos += 2;

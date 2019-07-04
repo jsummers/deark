@@ -812,10 +812,10 @@ void de_convert_image_rgb(dbuf *f, i64 fpos,
 
 i64 de_min_int(i64 n1, i64 n2);
 i64 de_max_int(i64 n1, i64 n2);
-
 i64 de_pad_to_2(i64 x);
 i64 de_pad_to_4(i64 x);
 i64 de_pad_to_n(i64 x, i64 n);
+i64 de_pow2(i64 x);
 
 // Calculate the number of bits required to store n symbols.
 // Intended to be used with bitmap graphics.

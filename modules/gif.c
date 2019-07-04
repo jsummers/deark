@@ -354,7 +354,7 @@ static int do_read_screen_descriptor(deark *c, lctx *d, i64 pos)
 
 	if(d->has_global_color_table) {
 		global_color_table_size_code = (unsigned int)(packed_fields&0x07);
-		d->global_color_table_size = (i64)(1<<(global_color_table_size_code+1));
+		d->global_color_table_size = de_pow2(global_color_table_size_code+1);
 		de_dbg(c, "global color table size: %u (%d colors)",
 			global_color_table_size_code, (int)d->global_color_table_size);
 	}
@@ -938,7 +938,7 @@ static void do_read_image_descriptor(deark *c, lctx *d, struct gif_image_data *g
 
 	if(gi->has_local_color_table) {
 		local_color_table_size_code = (unsigned int)(packed_fields&0x07);
-		gi->local_color_table_size = (i64)(1<<(local_color_table_size_code+1));
+		gi->local_color_table_size = de_pow2(local_color_table_size_code+1);
 		de_dbg(c, "local color table size: %u (%d colors)",
 			local_color_table_size_code, (int)gi->local_color_table_size);
 	}

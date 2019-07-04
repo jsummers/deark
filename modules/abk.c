@@ -165,7 +165,7 @@ static void do_read_sprite_palette(deark *c, lctx *d, struct amosbank *bk)
 	de_dbg(c, "palette at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	colors_used = (i64)(1<<bk->max_planes);
+	colors_used = de_pow2(bk->max_planes);
 
 	for(k=0; k<32; k++) {
 		n = (unsigned int)dbuf_getu16be(bk->f, pos+k*2);

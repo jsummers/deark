@@ -142,7 +142,7 @@ static int do_image_info(deark *c, lctx *d, i64 pos, i64 len)
 
 	d->gfore = (i64)de_getbyte(pos+22);
 	de_dbg(c, "foreground color bits: %d", (int)d->gfore);
-	d->max_sample_value = (i64)(1 << (unsigned int)d->gfore) -1;
+	d->max_sample_value = de_pow2(d->gfore) -1;
 
 	d->num_pal_bits[0] = (i64)de_getbyte(pos+25);
 	d->num_pal_bits[1] = (i64)de_getbyte(pos+26);

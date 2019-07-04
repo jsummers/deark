@@ -114,11 +114,11 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, i64 pos,
 
 	if(bi->bitcount>=1 && bi->bitcount<=8) {
 		if(bi->pal_entries==0) {
-			bi->pal_entries = (i64)(1<<(unsigned int)bi->bitcount);
+			bi->pal_entries = de_pow2(bi->bitcount);
 		}
 		// I think the NumColors field (in icons) is supposed to be the maximum number of
 		// colors implied by the bit depth, not the number of colors in the palette.
-		bi->num_colors = (i64)(1<<(unsigned int)bi->bitcount);
+		bi->num_colors = de_pow2(bi->bitcount);
 	}
 	else {
 		// An arbitrary value. All that matters is that it's >=256.

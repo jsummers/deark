@@ -296,7 +296,7 @@ static int do_header(deark *c, lctx *d)
 	}
 
 	sector_shift = de_getu16le(pos+30); // aka ssz
-	d->sec_size = (i64)(1<<(unsigned int)sector_shift);
+	d->sec_size = de_pow2(sector_shift);
 	de_dbg(c, "sector size: 2^%d (%d bytes)", (int)sector_shift,
 		(int)d->sec_size);
 	if(d->sec_size!=512 && d->sec_size!=4096) {
@@ -305,7 +305,7 @@ static int do_header(deark *c, lctx *d)
 	}
 
 	mini_sector_shift = de_getu16le(pos+32); // aka sssz
-	d->mini_sector_size = (i64)(1<<(unsigned int)mini_sector_shift);
+	d->mini_sector_size = de_pow2(mini_sector_shift);
 	de_dbg(c, "mini sector size: 2^%d (%d bytes)", (int)mini_sector_shift,
 		(int)d->mini_sector_size);
 	if(d->mini_sector_size!=64) {

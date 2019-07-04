@@ -245,7 +245,7 @@ static void read_palette_ximg(deark *c, lctx *d)
 	pal_entries_in_file = (d->header_size_in_bytes-22)/3;
 	if(pal_entries_in_file<1) return;
 	if(d->nplanes<=8)
-		pal_entries_to_read = (i64)(1<<((unsigned int)d->nplanes));
+		pal_entries_to_read = de_pow2(d->nplanes);
 	else
 		pal_entries_to_read = 0;
 	if(pal_entries_to_read>pal_entries_in_file)
