@@ -423,8 +423,8 @@ static int do_ole_object(deark *c, lctx *d, i64 pos1, i64 len, int exact_size_kn
 	unsigned int formatID;
 	int retval = 0;
 
-	if(len<8) goto done;
 	de_dbg_indent_save(c, &saved_indent_level);
+	if(len<8) goto done;
 	de_dbg(c, "OLE object at %"I64_FMT", len%s%"I64_FMT, pos1,
 		(exact_size_known?"=":DE_CHAR_LEQ), len);
 	de_dbg_indent(c, 1);
