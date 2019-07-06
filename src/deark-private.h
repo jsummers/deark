@@ -415,10 +415,6 @@ char *de_strchr(const char *s, int c);
 #endif
 #define de_strtod   strtod
 
-void de_vsnprintf(char *buf, size_t buflen, const char *fmt, va_list ap);
-void de_snprintf(char *buf, size_t buflen, const char *fmt, ...)
-  de_gnuc_attribute ((format (printf, 3, 4)));
-
 // de_dbg*, de_msg, de_warn, de_err: The output is a single line, to which a
 // standard prefix like "Warning: " may be added. A newline will be added
 // automatically.

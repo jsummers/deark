@@ -13,7 +13,14 @@
 #include <io.h> // for _setmode
 #endif
 
+enum color_method_enum {
+	CM_NOCOLOR=0,
+	CM_ANSI,
+	CM_WINCONSOLE
+};
+
 struct cmdctx {
+	deark *c;
 	struct de_platform_data *plctx;
 	const char *input_filename;
 	int error_flag;
@@ -42,9 +49,21 @@ struct cmdctx {
 	int to_ascii;
 	int to_oem;
 	int use_color_req;
-	int color_method; // 0=no color, 1=ANSI codes, 2=Windows console commands
+	enum color_method_enum color_method;
 	char msgbuf[1000];
 };
+
+// Low-level print function
+static void emit_sz(struct cmdctx *cc, const char *sz)
+{
+#ifdef DE_WINDOWS
+	if(cc->use_fwputs) {
+		de_utf8_to_utf16_to_FILE(cc->c, sz, cc->msgs_FILE);
+		return;
+	}
+#endif
+	fputs(sz, cc->msgs_FILE);
+}
 
 static void show_version(deark *c, int verbose)
 {
@@ -122,25 +141,25 @@ static void initialize_output_stream(struct cmdctx *cc)
 		cc->have_windows_console = de_winconsole_is_console(cc->plctx);
 		if(cc->have_windows_console && !cc->to_ascii && !cc->to_oem) {
 			cc->use_fwputs = 1;
-			_setmode(_fileno(cc->msgs_FILE), _O_U16TEXT);
+			(void)_setmode(_fileno(cc->msgs_FILE), _O_U16TEXT);
 		}
 		if(cc->use_color_req) {
 			if(cc->have_windows_console) {
 				if(de_record_current_windows_attributes(cc->plctx)) {
-					cc->color_method = 2;
+					cc->color_method = CM_WINCONSOLE;
 				}
 			}
 			else {
-				cc->color_method = 1;
+				cc->color_method = CM_ANSI;
 			}
 		}
 #else
-		cc->color_method = cc->use_color_req ? 1 : 0;
+		cc->color_method = cc->use_color_req ? CM_ANSI : CM_NOCOLOR;
 #endif
 
-		if(cc->color_method==1) {
+		if(cc->color_method==CM_ANSI) {
 			// If using ANSI codes, start by resetting all attributes
-			fputs("\x1b[0m", cc->msgs_FILE);
+			emit_sz(cc, "\x1b[0m");
 		}
 
 		cc->have_initialized_output_stream = 1;
@@ -152,14 +171,14 @@ static void our_specialmsgfn(deark *c, unsigned int flags, unsigned int code,
 	struct cmdctx *cc;
 
 	cc = de_get_userdata(c);
-	if(!cc->color_method) return;
+	if(cc->color_method==CM_NOCOLOR) return;
 
 	if(!cc->have_initialized_output_stream) {
 		initialize_output_stream(cc);
 	}
 
 #ifdef DE_WINDOWS
-	if(cc->have_windows_console) {
+	if(cc->color_method==CM_WINCONSOLE) {
 		if(code==DE_MSGCODE_HL) {
 			de_windows_highlight(cc->plctx, 1);
 		}
@@ -178,9 +197,6 @@ static void our_specialmsgfn(deark *c, unsigned int flags, unsigned int code,
 		}
 		return;
 	}
-	else if(cc->use_fwputs) {
-		return; // Shouldn't be possible
-	}
 #endif
 
 	// TODO: Maybe move the DE_COLOR_* macros to deark.h.
@@ -188,15 +204,17 @@ static void our_specialmsgfn(deark *c, unsigned int flags, unsigned int code,
 #define X_DE_COLOR_G(x)  (unsigned int)(((x)>>8)&0xff)
 #define X_DE_COLOR_B(x)  (unsigned int)((x)&0xff)
 	if(code==DE_MSGCODE_HL) {
-		fputs("\x1b[7m", cc->msgs_FILE);
+		emit_sz(cc, "\x1b[7m");
 	}
 	else if(code==DE_MSGCODE_UNHL) {
-		fputs("\x1b[27m", cc->msgs_FILE);
+		emit_sz(cc, "\x1b[27m");
 	}
 	else if(code==DE_MSGCODE_RGBSAMPLE) {
-		// Print two spaces with their background color set to the requested color.
-		fprintf(cc->msgs_FILE, "\x1b[48;2;%u;%u;%um  \x1b[0m",
+		char buf[64];
+
+		de_snprintf(buf, sizeof(buf), "\x1b[48;2;%u;%u;%um  \x1b[0m",
 			X_DE_COLOR_R(param1), X_DE_COLOR_G(param1), X_DE_COLOR_B(param1));
+		emit_sz(cc, buf);
 	}
 }
 
@@ -234,16 +252,7 @@ static void our_msgfn(deark *c, unsigned int flags, const char *s1)
 		s = s1;
 	}
 
-#ifdef DE_WINDOWS
-	if(cc->use_fwputs) {
-		de_utf8_to_utf16_to_FILE(c, s, cc->msgs_FILE);
-	}
-	else {
-		fputs(s, cc->msgs_FILE);
-	}
-#else
-	fputs(s, cc->msgs_FILE);
-#endif
+	emit_sz(cc, s);
 }
 
 static void our_fatalerrorfn(deark *c)
@@ -685,9 +694,10 @@ static void main2(int argc, char **argv)
 	deark *c = NULL;
 	struct cmdctx *cc = NULL;
 
-	cc = de_malloc(NULL, sizeof(struct cmdctx));
-
 	c = de_create();
+	cc = de_malloc(c, sizeof(struct cmdctx));
+	cc->c = c;
+
 	de_set_userdata(c, (void*)cc);
 	de_set_fatalerror_callback(c, our_fatalerrorfn);
 	de_set_messages_callback(c, our_msgfn);
@@ -719,10 +729,10 @@ static void main2(int argc, char **argv)
 
 #ifdef DE_WINDOWS
 	if(cc->to_stdout) {
-		_setmode(_fileno(stdout), _O_BINARY);
+		(void)_setmode(_fileno(stdout), _O_BINARY);
 	}
 	if(cc->from_stdin) {
-		_setmode(_fileno(stdin), _O_BINARY);
+		(void)_setmode(_fileno(stdin), _O_BINARY);
 	}
 #endif
 
@@ -730,10 +740,8 @@ static void main2(int argc, char **argv)
 
 done:
 	de_platformdata_destroy(c, cc->plctx);
-	cc->plctx = NULL;
+	de_free(c, cc);
 	de_destroy(c);
-
-	de_free(NULL, cc);
 }
 
 #ifdef DE_WINDOWS
