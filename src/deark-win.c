@@ -25,6 +25,7 @@
 // Windows-specific contextual data, mainly for console settings.
 struct de_platform_data {
 	HANDLE msgs_HANDLE;
+	int msgs_HANDLE_is_console;
 	WORD orig_console_attribs;
 };
 
@@ -58,6 +59,18 @@ void de_utf8_to_oem(deark *c, const char *src, char *dst, size_t dstlen)
 
 	srcW = de_utf8_to_utf16_strdup(c, src);
 
+	// FIXME: An issue is that WideCharToMultiByte translates some printable
+	// Unicode characters to OEM graphics characters below 0x20. For example, for
+	// CP437, U+000A (LINE FEED) and U+25D9 (INVERSE WHITE CIRCLE) are both
+	// translated to 0x0a.
+	// The printf-like functions we will use on the translated string interpret
+	// bytes below 0x20 as ASCII control characters, so U+25D9 will end up being
+	// misinterpreted as a newline.
+	// I am not sure what to do about this. It might be possible to change the
+	// mode that printf uses, but we at least need newlines to work.
+	// Ideally, we should probably redesign some things so that de_utf8_to_oem()
+	// is not used with strings that contain newlines. But that's a lot of work
+	// for an obscure feature.
 	ret = WideCharToMultiByte(CP_OEMCP, 0, srcW, -1, dst, (int)dstlen, NULL, NULL);
 	if(ret<1) {
 		dst[0]='\0';
@@ -336,31 +349,66 @@ void de_platformdata_destroy(deark *c, struct de_platform_data *plctx)
 // n: 1=stdout, 2=stderr
 void de_winconsole_init_handle(struct de_platform_data *plctx, int n)
 {
+	DWORD consolemode=0;
+	BOOL b;
+
 	plctx->msgs_HANDLE = GetStdHandle((n==2)?STD_ERROR_HANDLE:STD_OUTPUT_HANDLE);
+
+	b = GetConsoleMode(plctx->msgs_HANDLE, &consolemode);
+	plctx->msgs_HANDLE_is_console = b ? 1 : 0;
 }
 
 // Does plctx->msgs_HANDLE seem to be a Windows console?
 int de_winconsole_is_console(struct de_platform_data *plctx)
 {
-	DWORD consolemode=0;
-	BOOL n;
-
-	n=GetConsoleMode(plctx->msgs_HANDLE, &consolemode);
-	return n ? 1 : 0;
+	return plctx->msgs_HANDLE_is_console;
 }
 
 // Save current attribs to plctx.
 // Returns 1 on success.
-int de_record_current_windows_attributes(struct de_platform_data *plctx)
+void de_winconsole_record_current_attributes(struct de_platform_data *plctx)
 {
 	CONSOLE_SCREEN_BUFFER_INFO csbi;
-	if(!GetConsoleScreenBufferInfo(plctx->msgs_HANDLE, &csbi))
-		return 0;
-	plctx->orig_console_attribs = csbi.wAttributes;
+
+	if(GetConsoleScreenBufferInfo(plctx->msgs_HANDLE, &csbi)) {
+		plctx->orig_console_attribs = csbi.wAttributes;
+	}
+	else {
+		plctx->orig_console_attribs = 7;
+	}
+}
+
+int de_winconsole_enable_ansi(struct de_platform_data *plctx)
+{
+	BOOL b;
+	DWORD oldmode = 0;
+
+	if(!plctx->msgs_HANDLE_is_console) return 1;
+
+	b = GetConsoleMode(plctx->msgs_HANDLE, &oldmode);
+	if(!b) return 0;
+	if(oldmode & ENABLE_VIRTUAL_TERMINAL_PROCESSING) return 1; // Already enabled
+
+	// The ENABLE_VIRTUAL_TERMINAL_PROCESSING mode is what enables interpretation
+	// of ANSI escape codes.
+
+	// Note: This mode seems to be specific to the console window, not to specific
+	// I/O handle that we pass to SetConsoleMode.
+	// I.e. if both stderr and stdout refer to the console, it doesn't matter which
+	// one we use here.
+	// And if we write an ANSI code to stderr, it could also affect stdout.
+	// That's not what we want, but it shouldn't cause much of a problem for us.
+
+	// Note: This mode seems to get reset automatically when the process ends.
+	// It doesn't affect future processes that run in the same console.
+	// So we don't have to try to set it back when we're done.
+
+	b = SetConsoleMode(plctx->msgs_HANDLE, oldmode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+	if(!b) return 0;
 	return 1;
 }
 
-void de_windows_highlight(struct de_platform_data *plctx, int x)
+void de_winconsole_highlight(struct de_platform_data *plctx, int x)
 {
 	if(x) {
 		SetConsoleTextAttribute(plctx->msgs_HANDLE,

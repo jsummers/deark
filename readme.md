@@ -214,12 +214,19 @@ Command-line options:
    Print technical and debugging information. -d2 and -d3 are more verbose.
 -dprefix &lt;msg>
    Start each line printed by -d with this prefix. Default is "DEBUG: ".
+-colormode &lt;none|auto|ansi|ansi24|winconsole>
+   Control whether Deark uses color and similar features in its debug output.
+   Currently, this is mainly used to highlight unprintable characters, and
+   preview color palettes (usually requires -d2).
+   none: No color (default).
+   ansi: Use ANSI codes, but not the less-standard ones for 24-bit color.
+   ansi24: Use ANSI codes, including codes for 24-bit color. Works on most
+     Linux terminals, and on sufficiently new versions of Windows 10.
+   winconsole: Use Windows console commands. Works on all versions of Windows,
+     but does not support 24-bit color.
+   auto: Request color. Let Deark decide how to do it.
 -color
-   Allow the use of color and similar features in the debug output. This is
-   done using ANSI escape sequences, or Windows console commands.
-   This feature is experimental. Currently, it is limited to highlighting
-   unprintable characters, and previewing most color palettes (usually
-   requires -d2). The latter does not work on a Windows console.
+   Same as "-colormode auto".
 -enc &lt;ascii|oem>
    Set the encoding of the messages that are printed to the console. This does
    not affect the extracted data files.

@@ -15,7 +15,9 @@
 
 enum color_method_enum {
 	CM_NOCOLOR=0,
+	CM_AUTOCOLOR,
 	CM_ANSI,
+	CM_ANSI24,
 	CM_WINCONSOLE
 };
 
@@ -48,7 +50,7 @@ struct cmdctx {
 	int from_stdin;
 	int to_ascii;
 	int to_oem;
-	int use_color_req;
+	enum color_method_enum color_method_req;
 	enum color_method_enum color_method;
 	char msgbuf[1000];
 };
@@ -126,43 +128,83 @@ static void print_modules(deark *c)
 
 static void initialize_output_stream(struct cmdctx *cc)
 {
-		if(cc->msgs_to_stderr) {
-			cc->msgs_FILE = stderr;
-		}
-		else {
-			cc->msgs_FILE = stdout;
-		}
-
 #ifdef DE_WINDOWS
-		// If appropriate, call _setmode so that Unicode output to the console
-		// works correctly (provided we use Unicode functions like fputws()).
-
-		de_winconsole_init_handle(cc->plctx, cc->msgs_to_stderr ? 2 : 1);
-		cc->have_windows_console = de_winconsole_is_console(cc->plctx);
-		if(cc->have_windows_console && !cc->to_ascii && !cc->to_oem) {
-			cc->use_fwputs = 1;
-			(void)_setmode(_fileno(cc->msgs_FILE), _O_U16TEXT);
-		}
-		if(cc->use_color_req) {
-			if(cc->have_windows_console) {
-				if(de_record_current_windows_attributes(cc->plctx)) {
-					cc->color_method = CM_WINCONSOLE;
-				}
-			}
-			else {
-				cc->color_method = CM_ANSI;
-			}
-		}
-#else
-		cc->color_method = cc->use_color_req ? CM_ANSI : CM_NOCOLOR;
+	int ansi_is_enabled = 0;
 #endif
 
-		if(cc->color_method==CM_ANSI) {
-			// If using ANSI codes, start by resetting all attributes
-			emit_sz(cc, "\x1b[0m");
-		}
+	if(cc->msgs_to_stderr) {
+		cc->msgs_FILE = stderr;
+	}
+	else {
+		cc->msgs_FILE = stdout;
+	}
 
-		cc->have_initialized_output_stream = 1;
+	cc->color_method = CM_NOCOLOR; // start with default
+
+#ifdef DE_WINDOWS
+	de_winconsole_init_handle(cc->plctx, cc->msgs_to_stderr ? 2 : 1);
+	cc->have_windows_console = de_winconsole_is_console(cc->plctx);
+
+	// If appropriate, call _setmode so that Unicode output to the console
+	// works correctly (provided we use Unicode functions like fputws()).
+	if(cc->have_windows_console && !cc->to_ascii && !cc->to_oem) {
+		cc->use_fwputs = 1;
+		(void)_setmode(_fileno(cc->msgs_FILE), _O_U16TEXT);
+	}
+
+	switch(cc->color_method_req) {
+	case CM_AUTOCOLOR:
+		if(cc->have_windows_console) {
+			// TODO: Try to detect if ANSI24 will work.
+			cc->color_method = CM_WINCONSOLE;
+		}
+		else {
+			cc->color_method = CM_ANSI24;
+		}
+		break;
+	case CM_WINCONSOLE:
+		if(cc->have_windows_console) {
+			cc->color_method = CM_WINCONSOLE;
+		}
+		break;
+	case CM_ANSI:
+		cc->color_method = CM_ANSI;
+		break;
+	case CM_ANSI24:
+		cc->color_method = CM_ANSI24;
+		break;
+	default:
+		; // leave at CM_NOCOLOR
+	}
+
+	if(cc->color_method==CM_WINCONSOLE) {
+		de_winconsole_record_current_attributes(cc->plctx);
+	}
+
+	if((cc->color_method==CM_ANSI || cc->color_method==CM_ANSI24) && !ansi_is_enabled) {
+		de_winconsole_enable_ansi(cc->plctx);
+	}
+
+#else
+	switch(cc->color_method_req) {
+	case CM_NOCOLOR:
+	case CM_WINCONSOLE:
+		cc->color_method = CM_NOCOLOR;
+		break;
+	case CM_ANSI:
+		cc->color_method = CM_ANSI;
+		break;
+	default:
+		cc->color_method = CM_ANSI24;
+	}
+#endif
+
+	if(cc->color_method==CM_ANSI || cc->color_method==CM_ANSI24) {
+		// If using ANSI codes, start by resetting all attributes
+		emit_sz(cc, "\x1b[0m");
+	}
+
+	cc->have_initialized_output_stream = 1;
 }
 
 static void our_specialmsgfn(deark *c, unsigned int flags, unsigned int code,
@@ -180,19 +222,14 @@ static void our_specialmsgfn(deark *c, unsigned int flags, unsigned int code,
 #ifdef DE_WINDOWS
 	if(cc->color_method==CM_WINCONSOLE) {
 		if(code==DE_MSGCODE_HL) {
-			de_windows_highlight(cc->plctx, 1);
+			de_winconsole_highlight(cc->plctx, 1);
 		}
 		else if(code==DE_MSGCODE_UNHL) {
-			de_windows_highlight(cc->plctx, 0);
+			de_winconsole_highlight(cc->plctx, 0);
 		}
 		else if(code==DE_MSGCODE_RGBSAMPLE) {
-			// TODO: Traditional Windows console only supports 16 colors,
-			// so there's no good solution here. We could approximate the
-			// color somehow, I guess. Though that is complicated, as I think
-			// the color palette can be user-defined, and different editions of
-			// Windows have different default color schemes.
-			// As of 2016-10, Microsoft says they've added truecolor console
-			// support to Windows 10, so we should investigate that.
+			// There's no way to get 24-bit color using Windows console
+			// commands. Have to use ANSI24 instead.
 			;
 		}
 		return;
@@ -209,7 +246,7 @@ static void our_specialmsgfn(deark *c, unsigned int flags, unsigned int code,
 	else if(code==DE_MSGCODE_UNHL) {
 		emit_sz(cc, "\x1b[27m");
 	}
-	else if(code==DE_MSGCODE_RGBSAMPLE) {
+	else if(code==DE_MSGCODE_RGBSAMPLE && cc->color_method==CM_ANSI24) {
 		char buf[64];
 
 		de_snprintf(buf, sizeof(buf), "\x1b[48;2;%u;%u;%um  \x1b[0m",
@@ -314,7 +351,8 @@ enum opt_id_enum {
  DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES,
  DE_OPT_MAXFILESIZE, DE_OPT_MAXTOTALSIZE, DE_OPT_MAXIMGDIM,
  DE_OPT_PRINTMODULES, DE_OPT_DPREFIX, DE_OPT_EXTRLIST,
- DE_OPT_ONLYMODS, DE_OPT_DISABLEMODS, DE_OPT_ONLYDETECT, DE_OPT_NODETECT
+ DE_OPT_ONLYMODS, DE_OPT_DISABLEMODS, DE_OPT_ONLYDETECT, DE_OPT_NODETECT,
+ DE_OPT_COLORMODE
 };
 
 struct opt_struct {
@@ -381,6 +419,7 @@ struct opt_struct option_array[] = {
 	{ "disablemods",  DE_OPT_DISABLEMODS,  1 },
 	{ "onlydetect",   DE_OPT_ONLYDETECT,   1 },
 	{ "nodetect",     DE_OPT_NODETECT,     1 },
+	{ "colormode",    DE_OPT_COLORMODE,    1 },
 	{ NULL,           DE_OPT_NULL,         0 }
 };
 
@@ -404,6 +443,30 @@ static void send_msgs_to_stderr(deark *c, struct cmdctx *cc)
 #ifdef DE_WINDOWS
 	cc->have_windows_console = 0;
 #endif
+}
+
+static void colormode_opt(struct cmdctx *cc, const char *modestr)
+{
+	if(!strcmp(modestr, "auto")) {
+		cc->color_method_req = CM_AUTOCOLOR;
+	}
+	else if(!strcmp(modestr, "ansi")) {
+		cc->color_method_req = CM_ANSI;
+	}
+	else if(!strcmp(modestr, "ansi24")) {
+		cc->color_method_req = CM_ANSI24;
+	}
+	else if(!strcmp(modestr, "winconsole")) {
+		cc->color_method_req = CM_WINCONSOLE;
+	}
+	else  if(!strcmp(modestr, "none")) {
+		cc->color_method_req = CM_NOCOLOR;
+	}
+	else {
+		de_printf(cc->c, DE_MSGTYPE_MESSAGE, "Invalid colormode: %s\n", modestr);
+		cc->error_flag = 1;
+		return;
+	}
 }
 
 static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
@@ -528,7 +591,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				cc->from_stdin = 1;
 				break;
 			case DE_OPT_COLOR:
-				cc->use_color_req = 1;
+				colormode_opt(cc, "auto");
 				break;
 			case DE_OPT_K:
 				cc->option_k_level = 1;
@@ -620,6 +683,10 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_NODETECT:
 				de_set_disable_moddetect(c, argv[i+1], 0);
+				break;
+			case DE_OPT_COLORMODE:
+				colormode_opt(cc, argv[i+1]);
+				if(cc->error_flag) return;
 				break;
 			default:
 				de_printf(c, DE_MSGTYPE_MESSAGE, "Unrecognized option: %s\n", argv[i]);
