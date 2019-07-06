@@ -93,14 +93,18 @@ void de_set_extrlist_filename(deark *c, const char *fn);
 void de_set_disable_mods(deark *c, const char *s, int invert);
 void de_set_disable_moddetect(deark *c, const char *s, int invert);
 
+struct de_platform_data;
+struct de_platform_data *de_platformdata_create(deark *c);
+void de_platformdata_destroy(deark *c, struct de_platform_data *plctx);
+
 #ifdef DE_WINDOWS
 void de_utf8_to_oem(deark *c, const char *src, char *dst, size_t dstlen);
 char **de_convert_args_to_utf8(int argc, wchar_t **argvW);
 void de_free_utf8_args(int argc, char **argv);
 wchar_t *de_utf8_to_utf16_strdup(deark *c, const char *src);
 void de_utf8_to_utf16_to_FILE(deark *c, const char *src, FILE *f);
-void *de_winconsole_get_handle(int n);
-int de_winconsole_is_console(void *h1);
-int de_get_current_windows_attributes(void *handle, unsigned int *attrs);
-void de_windows_highlight(void *handle1, unsigned int orig_attr, int x);
+void de_winconsole_init_handle(struct de_platform_data *plctx, int n);
+int de_winconsole_is_console(struct de_platform_data *plctx);
+int de_record_current_windows_attributes(struct de_platform_data *plctx);
+void de_windows_highlight(struct de_platform_data *plctx, int x);
 #endif

@@ -22,6 +22,12 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+// Windows-specific contextual data, mainly for console settings.
+struct de_platform_data {
+	HANDLE msgs_HANDLE;
+	WORD orig_console_attribs;
+};
+
 void de_vsnprintf(char *buf, size_t buflen, const char *fmt, va_list ap)
 {
 	_vsnprintf_s(buf, buflen, _TRUNCATE, fmt, ap);
@@ -312,42 +318,58 @@ void de_free_utf8_args(int argc, char **argv)
 	de_free(NULL, argv);
 }
 
-// Return an output HANDLE that can be passed to other winconsole functions.
-// n: 1=stdout, 2=stderr
-void *de_winconsole_get_handle(int n)
+struct de_platform_data *de_platformdata_create(deark *c)
 {
-	return (void*)GetStdHandle((n==2)?STD_ERROR_HANDLE:STD_OUTPUT_HANDLE);
+	struct de_platform_data *plctx;
+
+	plctx = de_malloc(c, sizeof(struct de_platform_data));
+	return plctx;
 }
 
-// Does the given HANDLE (cast to void*) seem to be a Windows console?
-int de_winconsole_is_console(void *h1)
+void de_platformdata_destroy(deark *c, struct de_platform_data *plctx)
+{
+	if(!plctx) return;
+	de_free(c, plctx);
+}
+
+// Set the plctx->msgs_HANDLE field, for later use.
+// n: 1=stdout, 2=stderr
+void de_winconsole_init_handle(struct de_platform_data *plctx, int n)
+{
+	plctx->msgs_HANDLE = GetStdHandle((n==2)?STD_ERROR_HANDLE:STD_OUTPUT_HANDLE);
+}
+
+// Does plctx->msgs_HANDLE seem to be a Windows console?
+int de_winconsole_is_console(struct de_platform_data *plctx)
 {
 	DWORD consolemode=0;
 	BOOL n;
 
-	n=GetConsoleMode((HANDLE)h1, &consolemode);
+	n=GetConsoleMode(plctx->msgs_HANDLE, &consolemode);
 	return n ? 1 : 0;
 }
 
-int de_get_current_windows_attributes(void *handle, unsigned int *attrs)
+// Save current attribs to plctx.
+// Returns 1 on success.
+int de_record_current_windows_attributes(struct de_platform_data *plctx)
 {
 	CONSOLE_SCREEN_BUFFER_INFO csbi;
-	if(!GetConsoleScreenBufferInfo((HANDLE)handle, &csbi))
+	if(!GetConsoleScreenBufferInfo(plctx->msgs_HANDLE, &csbi))
 		return 0;
-	*attrs = (unsigned int)csbi.wAttributes;
+	plctx->orig_console_attribs = csbi.wAttributes;
 	return 1;
 }
 
-void de_windows_highlight(void *handle1, unsigned int orig_attr, int x)
+void de_windows_highlight(struct de_platform_data *plctx, int x)
 {
 	if(x) {
-		SetConsoleTextAttribute((void*)handle1,
-			(orig_attr&0xff00) |
-			((orig_attr&0x000fU)<<4) |
-			((orig_attr&0x00f0U)>>4) );
+		SetConsoleTextAttribute(plctx->msgs_HANDLE,
+			(plctx->orig_console_attribs&0xff00) |
+			((plctx->orig_console_attribs&0x000f)<<4) |
+			((plctx->orig_console_attribs&0x00f0)>>4) );
 	}
 	else {
-		SetConsoleTextAttribute((void*)handle1, (WORD)orig_attr);
+		SetConsoleTextAttribute(plctx->msgs_HANDLE, plctx->orig_console_attribs);
 	}
 }
 

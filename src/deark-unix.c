@@ -23,6 +23,11 @@
 #include <utime.h>
 #include <errno.h>
 
+// Unix-specific contextual data, not currently used.
+struct de_platform_data {
+	int reserved;
+};
+
 void de_vsnprintf(char *buf, size_t buflen, const char *fmt, va_list ap)
 {
 	vsnprintf(buf,buflen,fmt,ap);
@@ -256,6 +261,20 @@ void de_current_time_to_timestamp(struct de_timestamp *ts)
 void de_exitprocess(void)
 {
 	exit(1);
+}
+
+struct de_platform_data *de_platformdata_create(deark *c)
+{
+	struct de_platform_data *plctx;
+
+	plctx = de_malloc(c, sizeof(struct de_platform_data));
+	return plctx;
+}
+
+void de_platformdata_destroy(deark *c, struct de_platform_data *plctx)
+{
+	if(!plctx) return;
+	de_free(c, plctx);
 }
 
 #endif // DE_UNIX

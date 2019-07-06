@@ -14,6 +14,7 @@
 #endif
 
 struct cmdctx {
+	struct de_platform_data *plctx;
 	const char *input_filename;
 	int error_flag;
 	int show_usage_message;
@@ -27,10 +28,8 @@ struct cmdctx {
 
 	FILE *msgs_FILE; // Where to print (error, etc.) messages
 #ifdef DE_WINDOWS
-	void *msgs_HANDLE;
 	int have_windows_console; // Is msgs_FILE a console?
 	int use_fwputs;
-	unsigned int orig_console_attribs;
 #endif
 
 	const char *base_output_filename;
@@ -119,15 +118,15 @@ static void initialize_output_stream(struct cmdctx *cc)
 		// If appropriate, call _setmode so that Unicode output to the console
 		// works correctly (provided we use Unicode functions like fputws()).
 
-		cc->msgs_HANDLE = de_winconsole_get_handle(cc->msgs_to_stderr ? 2 : 1);
-		cc->have_windows_console = de_winconsole_is_console(cc->msgs_HANDLE);
+		de_winconsole_init_handle(cc->plctx, cc->msgs_to_stderr ? 2 : 1);
+		cc->have_windows_console = de_winconsole_is_console(cc->plctx);
 		if(cc->have_windows_console && !cc->to_ascii && !cc->to_oem) {
 			cc->use_fwputs = 1;
 			_setmode(_fileno(cc->msgs_FILE), _O_U16TEXT);
 		}
 		if(cc->use_color_req) {
 			if(cc->have_windows_console) {
-				if(de_get_current_windows_attributes(cc->msgs_HANDLE, &cc->orig_console_attribs)) {
+				if(de_record_current_windows_attributes(cc->plctx)) {
 					cc->color_method = 2;
 				}
 			}
@@ -162,10 +161,10 @@ static void our_specialmsgfn(deark *c, unsigned int flags, unsigned int code,
 #ifdef DE_WINDOWS
 	if(cc->have_windows_console) {
 		if(code==DE_MSGCODE_HL) {
-			de_windows_highlight(cc->msgs_HANDLE, cc->orig_console_attribs, 1);
+			de_windows_highlight(cc->plctx, 1);
 		}
 		else if(code==DE_MSGCODE_UNHL) {
-			de_windows_highlight(cc->msgs_HANDLE, cc->orig_console_attribs, 0);
+			de_windows_highlight(cc->plctx, 0);
 		}
 		else if(code==DE_MSGCODE_RGBSAMPLE) {
 			// TODO: Traditional Windows console only supports 16 colors,
@@ -693,6 +692,7 @@ static void main2(int argc, char **argv)
 	de_set_fatalerror_callback(c, our_fatalerrorfn);
 	de_set_messages_callback(c, our_msgfn);
 	de_set_special_messages_callback(c, our_specialmsgfn);
+	cc->plctx = de_platformdata_create(c);
 
 	if(argc<2) { // Empty command line
 		show_help(c);
@@ -729,6 +729,8 @@ static void main2(int argc, char **argv)
 	de_run(c);
 
 done:
+	de_platformdata_destroy(c, cc->plctx);
+	cc->plctx = NULL;
 	de_destroy(c);
 
 	de_free(NULL, cc);
