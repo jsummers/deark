@@ -27,6 +27,7 @@ struct de_platform_data {
 	HANDLE msgs_HANDLE;
 	int msgs_HANDLE_is_console;
 	WORD orig_console_attribs;
+	WORD inverse_console_attribs;
 };
 
 void de_vsnprintf(char *buf, size_t buflen, const char *fmt, va_list ap)
@@ -374,8 +375,31 @@ void de_winconsole_record_current_attributes(struct de_platform_data *plctx)
 		plctx->orig_console_attribs = csbi.wAttributes;
 	}
 	else {
-		plctx->orig_console_attribs = 7;
+		plctx->orig_console_attribs = 0x0007;
 	}
+
+	plctx->inverse_console_attribs =
+		(plctx->orig_console_attribs&0xff00) |
+		((plctx->orig_console_attribs&0x000f)<<4) |
+		((plctx->orig_console_attribs&0x00f0)>>4);
+}
+
+// If we think this computer supports 24-bit color ANSI, enable it (if needed)
+// and return 1.
+// Otherwise return 0.
+int de_winconsole_try_enable_ansi24(struct de_platform_data *plctx)
+{
+	// Note: Maybe we should check for Windows 10 (e.g. using
+	// IsWindows10OrGreater()) before calling SetConsoleMode(), but maybe that's
+	// just be a waste of time. Also, IsWindows10OrGreater() is fragile because
+	// it requires a .manifest file with certain properties.
+
+	// TODO: This is not correct. AFAIK, there is a range of Windows 10 builds
+	// that support ANSI codes, but do not support 24-bit color ANSI.
+	// I don't know a *good* way to detect 24-bit color support.
+	// Querying the Windows build number is possible, but requires some hackery,
+	// because Microsoft *really* does not want applications to do that.
+	return de_winconsole_enable_ansi(plctx);
 }
 
 int de_winconsole_enable_ansi(struct de_platform_data *plctx)
@@ -411,10 +435,7 @@ int de_winconsole_enable_ansi(struct de_platform_data *plctx)
 void de_winconsole_highlight(struct de_platform_data *plctx, int x)
 {
 	if(x) {
-		SetConsoleTextAttribute(plctx->msgs_HANDLE,
-			(plctx->orig_console_attribs&0xff00) |
-			((plctx->orig_console_attribs&0x000f)<<4) |
-			((plctx->orig_console_attribs&0x00f0)>>4) );
+		SetConsoleTextAttribute(plctx->msgs_HANDLE, plctx->inverse_console_attribs);
 	}
 	else {
 		SetConsoleTextAttribute(plctx->msgs_HANDLE, plctx->orig_console_attribs);

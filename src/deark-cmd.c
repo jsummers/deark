@@ -155,8 +155,13 @@ static void initialize_output_stream(struct cmdctx *cc)
 	switch(cc->color_method_req) {
 	case CM_AUTOCOLOR:
 		if(cc->have_windows_console) {
-			// TODO: Try to detect if ANSI24 will work.
-			cc->color_method = CM_WINCONSOLE;
+			if(de_winconsole_try_enable_ansi24(cc->plctx)) {
+				cc->color_method = CM_ANSI24;
+				ansi_is_enabled = 1;
+			}
+			else {
+				cc->color_method = CM_WINCONSOLE;
+			}
 		}
 		else {
 			cc->color_method = CM_ANSI24;
