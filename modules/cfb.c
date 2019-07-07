@@ -186,7 +186,13 @@ static void copy_normal_stream_to_dbuf(deark *c, lctx *d, i64 first_sec_id,
 	i64 bytes_left_to_copy;
 	i64 bytes_left_to_skip;
 
-	if(stream_size<=0 || stream_size>c->infile->len) return;
+	if(stream_size<=0) return;
+	if(stream_startpos+stream_size > c->infile->len) {
+		// This is a not-too-strict emergency brake. If the file has been
+		// truncated, we might still be able to process some of the data
+		// that is there.
+		stream_size = c->infile->len - stream_startpos;
+	}
 
 	bytes_left_to_copy = stream_size;
 	bytes_left_to_skip = stream_startpos;
@@ -798,18 +804,15 @@ struct officeartctx {
 	i64 container_endpos; // valid if (is_container)
 };
 
-static int do_OfficeArtStream_record(deark *c, lctx *d, struct officeartctx *oactx,
-	struct dir_entry_info *dei)
+static int do_OfficeArtStream_record(deark *c, struct officeartctx *oactx,
+	dbuf *inf)
 {
 	unsigned int rectype;
 	unsigned int recinstance;
 	unsigned int recver;
 	unsigned int n;
 	i64 reclen;
-	i64 pos = 0; // relative to the beginning of firstpart
-	i64 nbytes_to_copy;
 	i64 extra_bytes = 0;
-	dbuf *firstpart = NULL;
 	dbuf *outf = NULL;
 	const char *ext = "bin";
 	int has_metafileHeader = 0;
@@ -820,6 +823,7 @@ static int do_OfficeArtStream_record(deark *c, lctx *d, struct officeartctx *oac
 	int is_blip = 0;
 	int saved_indent_level;
 	i64 pos1 = oactx->record_pos;
+	i64 pos = pos1;
 
 	oactx->record_bytes_consumed = 0;
 	oactx->is_container = 0;
@@ -827,31 +831,25 @@ static int do_OfficeArtStream_record(deark *c, lctx *d, struct officeartctx *oac
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	firstpart = dbuf_create_membuf(c, 128, 0x1);
-
-	nbytes_to_copy = 128;
-	if(pos1+128 > dei->stream_size) nbytes_to_copy = dei->stream_size - pos1;
-	copy_any_stream_to_dbuf(c, d, dei, pos1, nbytes_to_copy, firstpart);
-
-	n = (unsigned int)dbuf_getu16le_p(firstpart, &pos);
+	n = (unsigned int)dbuf_getu16le_p(inf, &pos);
 	recver = n&0x0f;
 	if(recver==0x0f) oactx->is_container = 1;
 	recinstance = n>>4;
 
-	rectype = (unsigned int)dbuf_getu16le_p(firstpart, &pos);
+	rectype = (unsigned int)dbuf_getu16le_p(inf, &pos);
 	if((rectype&0xf000)!=0xf000) {
 		// Assume this is the end of data, not necessarily an error.
 		goto done;
 	}
 
-	reclen = dbuf_getu32le_p(firstpart, &pos);
+	reclen = dbuf_getu32le_p(inf, &pos);
 
 	de_dbg(c, "record at [%"I64_FMT"], ver=0x%x, inst=0x%03x, type=0x%04x (%s), dlen=%"I64_FMT,
 		pos1, recver, recinstance,
 		rectype, get_officeart_rectype_name(rectype), reclen);
 	de_dbg_indent(c, 1);
 
-	if(pos1 + pos + reclen > dei->stream_size) goto done;
+	if(pos + reclen > inf->len) goto done;
 	if(oactx->is_container) {
 		// A container is described as *being* its header record. It does have
 		// a recLen, but it should be safe to ignore it if all we care about is
@@ -860,7 +858,7 @@ static int do_OfficeArtStream_record(deark *c, lctx *d, struct officeartctx *oac
 		oactx->container_endpos = oactx->record_pos + 8 + reclen;
 	}
 	else {
-		oactx->record_bytes_consumed = pos + reclen;
+		oactx->record_bytes_consumed = (pos-pos1) + reclen;
 	}
 	retval = 1;
 
@@ -916,7 +914,7 @@ static int do_OfficeArtStream_record(deark *c, lctx *d, struct officeartctx *oac
 
 	if(has_metafileHeader) {
 		// metafileHeader starts at pos+extra_bytes-34
-		u8 cmpr = dbuf_getbyte(firstpart, pos+extra_bytes-2);
+		u8 cmpr = dbuf_getbyte(inf, pos+extra_bytes-2);
 		// 0=DEFLATE, 0xfe=NONE
 		de_dbg(c, "compression type: %u", (unsigned int)cmpr);
 		has_zlib_cmpr = (cmpr==0);
@@ -925,11 +923,7 @@ static int do_OfficeArtStream_record(deark *c, lctx *d, struct officeartctx *oac
 	pos += extra_bytes;
 
 	if(is_dib) {
-		dbuf *raw_stream;
-		raw_stream = dbuf_create_membuf(c, 0, 0);
-		copy_any_stream_to_dbuf(c, d, dei, pos1+pos, reclen-extra_bytes, raw_stream);
-		de_run_module_by_id_on_slice2(c, "dib", "X", raw_stream, 0, raw_stream->len);
-		dbuf_close(raw_stream);
+		de_run_module_by_id_on_slice2(c, "dib", "X", inf, pos, reclen-extra_bytes);
 		goto done;
 	}
 
@@ -939,41 +933,36 @@ static int do_OfficeArtStream_record(deark *c, lctx *d, struct officeartctx *oac
 	}
 
 	if(has_zlib_cmpr) {
-		dbuf *raw_stream;
-		raw_stream = dbuf_create_membuf(c, 0, 0);
-		copy_any_stream_to_dbuf(c, d, dei, pos1+pos, reclen-extra_bytes, raw_stream);
-		de_decompress_deflate(raw_stream, 0, raw_stream->len, outf, 0, NULL,
-			DE_DEFLATEFLAG_ISZLIB);
-		de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", raw_stream->len,
-			outf->len);
-		dbuf_close(raw_stream);
+		i64 cmprlen;
+
+		cmprlen = reclen-extra_bytes;
+		de_decompress_deflate(inf, pos, cmprlen, outf, 0, NULL, DE_DEFLATEFLAG_ISZLIB);
+		de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", cmprlen, outf->len);
 	}
 	else {
-		copy_any_stream_to_dbuf(c, d, dei, pos1+pos, reclen-extra_bytes, outf);
+		dbuf_copy(inf, pos, reclen-extra_bytes, outf);
 	}
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
 	dbuf_close(outf);
-	dbuf_close(firstpart);
 	return retval;
 }
 
 // Refer to Microsoft's "[MS-ODRAW]" document.
-static void do_OfficeArtStream(deark *c, lctx *d, struct dir_entry_info *dei)
+static void do_OfficeArtStream_internal(deark *c, dbuf *inf)
 {
 	struct officeartctx * oactx = NULL;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	oactx = de_malloc(c, sizeof(struct officeartctx));
-	de_dbg(c, "OfficeArt stream, len=%"I64_FMT, dei->stream_size);
 
 	oactx->record_pos = 0;
 	while(1) {
 		i64 ret;
 
-		if(oactx->record_pos >= dei->stream_size-8) break;
+		if(oactx->record_pos >= inf->len-8) break;
 
 		// Have we reached the end of any containers?
 		while(oactx->container_end_stackptr>0 &&
@@ -983,7 +972,7 @@ static void do_OfficeArtStream(deark *c, lctx *d, struct dir_entry_info *dei)
 			de_dbg_indent(c, -1);
 		}
 
-		ret = do_OfficeArtStream_record(c, d, oactx, dei);
+		ret = do_OfficeArtStream_record(c, oactx, inf);
 		if(!ret || oactx->record_bytes_consumed<=0) break;
 
 		oactx->record_pos += oactx->record_bytes_consumed;
@@ -997,6 +986,20 @@ static void do_OfficeArtStream(deark *c, lctx *d, struct dir_entry_info *dei)
 
 	de_free(c, oactx);
 	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_OfficeArtStream(deark *c, lctx *d, struct dir_entry_info *dei)
+{
+	dbuf *tmpstream = NULL;
+
+	de_dbg(c, "OfficeArt stream, len=%"I64_FMT, dei->stream_size);
+	tmpstream = dbuf_create_membuf(c, dei->stream_size, 0x1);
+	copy_any_stream_to_dbuf(c, d, dei, 0, dei->stream_size, tmpstream);
+	if(tmpstream->len < dei->stream_size) {
+		de_warn(c, "OfficeArt stream might have been truncated");
+	}
+	do_OfficeArtStream_internal(c, tmpstream);
+	dbuf_close(tmpstream);
 }
 
 static void do_Corel_simple_image(deark *c, lctx *d, struct dir_entry_info *dei,
