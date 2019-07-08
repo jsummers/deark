@@ -825,7 +825,7 @@ struct de_stringreaderdata *dbuf_read_string(dbuf *f, i64 pos,
 
 	if(flags&DE_CONVFLAG_WANT_UTF8) {
 		srd->sz_utf8_strlen = (size_t)ucstring_count_utf8_bytes(srd->str);
-		srd->sz_utf8 = de_malloc(c, srd->sz_utf8_strlen + 1);
+		srd->sz_utf8 = de_malloc(c, (i64)srd->sz_utf8_strlen + 1);
 		ucstring_to_sz(srd->str, srd->sz_utf8, srd->sz_utf8_strlen + 1, 0, DE_ENCODING_UTF8);
 	}
 
@@ -1796,8 +1796,8 @@ static void reverse_fourcc(u8 *buf, int nbytes)
 	for(k=0; k<((size_t)nbytes)/2; k++) {
 		u8 tmpc;
 		tmpc = buf[k];
-		buf[k] = buf[nbytes-1-k];
-		buf[nbytes-1-k] = tmpc;
+		buf[k] = buf[(size_t)nbytes-1-k];
+		buf[(size_t)nbytes-1-k] = tmpc;
 	}
 }
 

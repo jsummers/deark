@@ -119,7 +119,7 @@ void de_font_paint_character_idx(deark *c, de_bitmap *img,
 
 		canvas_x = xpos;
 		canvas_y = ypos+ch->v_offset;
-		canvas_w = ch->extraspace_l + ch->width + ch->extraspace_r;
+		canvas_w = (i64)ch->extraspace_l + (i64)ch->width + (i64)ch->extraspace_r;
 		canvas_h = ch->height;
 		// (We don't need to support both the "extraspace" and the VGA9COL
 		// feature at the same time.)
@@ -463,15 +463,15 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 
 	// TODO: Clean up these margin calculations, and make it more general.
 	if(fctx->render_as_unicode) {
-		img_leftmargin = dfont->nominal_width * 5 + 6;
+		img_leftmargin = (i64)dfont->nominal_width * 5 + 6;
 	}
 	else {
 		if(fctx->max_codepoint >= 1000)
-			img_leftmargin = dfont->nominal_width * 5 + 6;
+			img_leftmargin = (i64)dfont->nominal_width * 5 + 6;
 		else
-			img_leftmargin = dfont->nominal_width * 3 + 6;
+			img_leftmargin = (i64)dfont->nominal_width * 3 + 6;
 	}
-	img_topmargin = dfont->nominal_height + 6;
+	img_topmargin = (i64)dfont->nominal_height + 6;
 	img_rightmargin = 1;
 	img_bottommargin = 1;
 
@@ -499,15 +499,15 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 		row_info[rownum].is_visible = 1;
 
 		// Track the maximum width of any character in this character's column.
-		char_display_width = (i64)(fctx->font->char_array[k].width +
-				(int)fctx->font->char_array[k].extraspace_l +
-				(int)fctx->font->char_array[k].extraspace_r);
+		char_display_width = (i64)fctx->font->char_array[k].width +
+				(i64)fctx->font->char_array[k].extraspace_l +
+				(i64)fctx->font->char_array[k].extraspace_r;
 		if(char_display_width > col_info[colnum].display_width) {
 			col_info[colnum].display_width = char_display_width;
 		}
 	}
 
-	img_vpixelsperchar = fctx->font->nominal_height + 1;
+	img_vpixelsperchar = (i64)fctx->font->nominal_height + 1;
 
 	// Figure out how many rows are used, and where to draw them.
 	num_table_rows_to_display = 0;

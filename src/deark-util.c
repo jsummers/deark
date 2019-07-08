@@ -100,7 +100,7 @@ static void de_puts_advanced(deark *c, unsigned int flags, const char *s)
 	u32 param1 = 0;
 
 	s_len = de_strlen(s);
-	tmps = de_malloc(c, s_len+1);
+	tmps = de_malloc(c, (i64)s_len+1);
 
 	// Search for characters that enable/disable highlighting,
 	// and split the string at them.

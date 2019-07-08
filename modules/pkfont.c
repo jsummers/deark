@@ -153,7 +153,7 @@ static void do_read_raster(deark *c, lctx *d, struct page_ctx *pg)
 		(int)pg->raster_pos, (int)pg->raster_len);
 	de_dbg_indent(c, 1);
 
-	expected_num_pixels = pg->w * pg->h;
+	expected_num_pixels = (i64)pg->w * (i64)pg->h;
 	if(expected_num_pixels<1) {
 		de_dbg(c, "ignoring zero-size character (cc=%d) at %d",
 			(int)pg->cc, (int)pg->raster_pos);
@@ -359,7 +359,7 @@ static int do_char_descr(deark *c, lctx *d, i64 pos, i64 *bytesused)
 
 	if(char_preamble_format==CHAR_PREAMBLE_FORMAT_SHORT) {
 		pl = (i64)de_getbyte(pos+1);
-		pl |= (flagbyte&0x03)<<8;
+		pl |= ((i64)(flagbyte&0x03))<<8;
 		pg->cc = (i32)de_getbyte(pos+2);
 		tfm_offs = 3;
 		pg->tfm = do_getu24be(c->infile, pos+tfm_offs);
@@ -372,7 +372,7 @@ static int do_char_descr(deark *c, lctx *d, i64 pos, i64 *bytesused)
 	}
 	else if(char_preamble_format==CHAR_PREAMBLE_FORMAT_EXT_SHORT) {
 		pl = de_getu16be(pos+1);
-		pl |= (flagbyte&0x03)<<16;
+		pl |= ((i64)(flagbyte&0x03))<<16;
 		pg->cc = (i32)de_getbyte(pos+3);
 		tfm_offs = 4;
 		pg->tfm = do_getu24be(c->infile, pos+tfm_offs);

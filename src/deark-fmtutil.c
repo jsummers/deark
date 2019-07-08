@@ -921,9 +921,9 @@ void de_fmtutil_read_atari_palette(deark *c, dbuf *f, i64 pos,
  */
 static unsigned int spectrum512_FindIndex(i64 x, unsigned int c)
 {
-	int x1;
+	i64 x1;
 
-	x1 = 10 * c;
+	x1 = 10 * (i64)c;
 
 	if (c & 1)  /* If c is odd */
 		x1 = x1 - 5;

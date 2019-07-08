@@ -132,7 +132,7 @@ static void prepare_mtime_exthdr(deark *c, struct tar_md *md)
 	// Max length for this item is around 29, so we allow 2 bytes for the
 	// length field.
 	// E.g. "28 mtime=1222333444.5555555\n"
-	md->extdata_nbytes_needed += 2 + 1 + 5 + 1 + de_strlen(md->mtime_exthdr) + 1;
+	md->extdata_nbytes_needed += 2 + 1 + 5 + 1 + (i64)de_strlen(md->mtime_exthdr) + 1;
 }
 
 // f is type DBUF_TYPE_ODBUF, in the process of being created.
@@ -178,7 +178,7 @@ void de_tar_start_member_file(deark *c, dbuf *f)
 	md->namelen = de_strlen(f->name);
 	if(md->is_dir) {
 		// Append a '/' to directory names
-		md->filename = de_malloc(c, md->namelen+2);
+		md->filename = de_malloc(c, (i64)md->namelen+2);
 		de_snprintf(md->filename, md->namelen+2, "%s/", f->name);
 		md->namelen = de_strlen(md->filename);
 	}
@@ -198,7 +198,7 @@ void de_tar_start_member_file(deark *c, dbuf *f)
 	if(md->need_exthdr_path) {
 		// Likely an overestimate: up to 6 bytes for the item size,
 		// 4 for the "path" string, 3 for field separators.
-		md->extdata_nbytes_needed += md->namelen + 13;
+		md->extdata_nbytes_needed += (i64)md->namelen + 13;
 	}
 
 	prepare_mtime_exthdr(c, md);
@@ -390,7 +390,7 @@ static void add_exthdr_item(deark *c, struct tar_ctx *tctx,
 	i64 item_len = 0;
 	char *tmps = NULL;
 
-	len1 = de_strlen(name) + de_strlen(val) + 3;
+	len1 = (i64)de_strlen(name) + (i64)de_strlen(val) + 3;
 	// This size of the size field depends on itself. Ugh.
 	if(len1<=8) item_len = len1+1;
 	else if(len1<=97) item_len = len1+2;

@@ -667,7 +667,7 @@ static void handler_cHRM(deark *c, lctx *d, struct handler_params *hp)
 
 	if(hp->dlen<32) return;
 	for(i=0; i<8; i++) {
-		n[i] = de_getu32be(hp->dpos+4*i);
+		n[i] = de_getu32be(hp->dpos+4*(i64)i);
 		nd[i] = ((double)n[i])/100000.0;
 	}
 	de_dbg(c, "white point: (%1.5f, %1.5f)", nd[0], nd[1]);

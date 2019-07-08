@@ -108,7 +108,7 @@ static int wmf_handler_BITBLT_STRETCHBLT_DIBBITBLT(deark *c, lctx *d, struct dec
 	i64 Width, Height;
 	i64 YDest, XDest;
 
-	has_src_bitmap = (dp->recsize_words != ((dp->recfunc>>8)+3));
+	has_src_bitmap = (dp->recsize_words != ((i64)(dp->recfunc>>8)+3));
 	de_dbg(c, "has src bitmap: %d", has_src_bitmap);
 	if(!has_src_bitmap) goto done;
 
@@ -403,7 +403,7 @@ static int wmf_handler_DIBSTRETCHBLT_STRETCHDIB(deark *c, lctx *d, struct decode
 	int has_src_bitmap = 1;
 
 	if(dp->rectype==0x41) { // DIBSTRETCHBLT
-		has_src_bitmap = (dp->recsize_words != ((dp->recfunc>>8)+3));
+		has_src_bitmap = (dp->recsize_words != ((i64)(dp->recfunc>>8)+3));
 		de_dbg(c, "has src bitmap: %d", has_src_bitmap);
 	}
 

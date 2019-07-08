@@ -452,7 +452,7 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 
 	trns_color = de_getbyte(pos);
 	de_dbg(c, "transparent color: 0x%02x", (int)trns_color);
-	num_colors = 1+(int)de_getbyte(pos+1);
+	num_colors = 1+(i64)de_getbyte(pos+1);
 	de_dbg(c, "number of colors: %d", (int)num_colors);
 	flags = de_getbyte(pos+2);
 	has_trns = (flags & 0x01)?1:0;

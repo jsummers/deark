@@ -141,7 +141,7 @@ static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, const mz_uint
 	de_zeromem(pComp, sizeof(tdefl_compressor));
 
 	out_buf.m_expandable = MZ_TRUE;
-	out_buf.m_capacity = 16+MZ_MAX(64, (1+bpl)*pei->height);
+	out_buf.m_capacity = 16+(size_t)MZ_MAX(64, (1+bpl)*pei->height);
 	out_buf.m_pBuf = MZ_MALLOC(out_buf.m_capacity);
 	if (!out_buf.m_pBuf) { goto done; }
 
@@ -701,7 +701,7 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 
 		// Append a "/" to the name
 		nlen = de_strlen(f->name);
-		name2 = de_malloc(c, nlen+2);
+		name2 = de_malloc(c, (i64)nlen+2);
 		de_snprintf(name2, nlen+2, "%s/", f->name);
 
 		mz_zip_writer_add_mem(zzz->pZip, name2, f->membuf_buf, 0,

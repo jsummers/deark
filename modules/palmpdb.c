@@ -817,53 +817,48 @@ static void do_pqa_app_info_block(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	u32 sig;
 	u32 ux;
+	i64 n;
 	de_ucstring *s = NULL;
 	i64 pos = pos1;
 
-	sig = (u32)de_getu32be(pos);
+	de_dbg(c, "hello");
+	sig = (u32)de_getu32be_p(&pos);
 	if(sig!=CODE_lnch) return; // Apparently not a PQA appinfo block
 	de_dbg(c, "PQA sig: 0x%08x", (unsigned int)sig);
-	pos += 4;
 
-	ux = (u32)de_getu16be(pos);
+	ux = (u32)de_getu16be_p(&pos);
 	de_dbg(c, "hdrVersion: 0x%04x", (unsigned int)ux);
-	pos += 2;
-	ux = (u32)de_getu16be(pos);
+	ux = (u32)de_getu16be_p(&pos);
 	de_dbg(c, "encVersion: 0x%04x", (unsigned int)ux);
-	pos += 2;
 
 	s = ucstring_create(c);
 
-	ux = (u32)de_getu16be(pos);
-	pos += 2;
-	dbuf_read_to_ucstring_n(c->infile, pos, ux*2, DE_DBG_MAX_STRLEN, s,
+	n = de_getu16be_p(&pos);
+	dbuf_read_to_ucstring_n(c->infile, pos, n*2, DE_DBG_MAX_STRLEN, s,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
 	de_dbg(c, "verStr: \"%s\"", ucstring_getpsz(s));
 	ucstring_empty(s);
-	pos += 2*ux;
+	pos += 2*n;
 
-	ux = (u32)de_getu16be(pos);
-	pos += 2;
-	dbuf_read_to_ucstring_n(c->infile, pos, ux*2, DE_DBG_MAX_STRLEN, s,
+	n = de_getu16be_p(&pos);
+	dbuf_read_to_ucstring_n(c->infile, pos, n*2, DE_DBG_MAX_STRLEN, s,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
 	de_dbg(c, "pqaTitle: \"%s\"", ucstring_getpsz(s));
 	ucstring_empty(s);
-	pos += 2*ux;
+	pos += 2*n;
 
 	de_dbg(c, "icon");
 	de_dbg_indent(c, 1);
-	ux = (u32)de_getu16be(pos); // iconWords (length prefix)
-	pos += 2;
-	extract_item(c, d, pos, 2*ux, "icon.palm", NULL, DE_CREATEFLAG_IS_AUX, 1);
-	pos += 2*ux;
+	n = de_getu16be_p(&pos); // iconWords (length prefix)
+	extract_item(c, d, pos, 2*n, "icon.palm", NULL, DE_CREATEFLAG_IS_AUX, 1);
+	pos += 2*n;
 	de_dbg_indent(c, -1);
 
 	de_dbg(c, "smIcon");
 	de_dbg_indent(c, 1);
-	ux = (u32)de_getu16be(pos); // smIconWords
-	pos += 2;
-	extract_item(c, d, pos, 2*ux, "smicon.palm", NULL, DE_CREATEFLAG_IS_AUX, 1);
-	pos += 2*ux;
+	n = de_getu16be_p(&pos); // smIconWords
+	extract_item(c, d, pos, 2*n, "smicon.palm", NULL, DE_CREATEFLAG_IS_AUX, 1);
+	pos += 2*n;
 	de_dbg_indent(c, -1);
 
 	ucstring_destroy(s);
