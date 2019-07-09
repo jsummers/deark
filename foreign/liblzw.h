@@ -232,7 +232,7 @@ resetbuf:
 		}
 
 		lzw->inbits = (int)( ((lzw->rsize > 0) ? (lzw->insize - lzw->insize%lzw->n_bits)<<3 :
-		               (lzw->insize<<3) - (lzw->n_bits-1)) );
+		               (lzw->insize<<3) - ((size_t)lzw->n_bits-1)) );
 
 		while (lzw->inbits > lzw->posbits) {
 			if (lzw->free_ent > lzw->maxcode) {

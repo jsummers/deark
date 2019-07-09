@@ -577,7 +577,8 @@ static void init_fltpt_decoder(deark *c)
 	char b = 0;
 
 	c->can_decode_fltpt = 0;
-	if(sizeof(float)!=4 || sizeof(double)!=8) return;
+	if(sizeof(float)!=4) return;
+	if(sizeof(double)!=8) return;
 	c->can_decode_fltpt = 1;
 
 	de_memcpy(&b, &x, 1);

@@ -771,7 +771,7 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 				set_i_arr(lx, BMAX+1, 1+ h, j);               /* set table size in stack */
 
 				/* allocate and link in new table */
-				q = de_malloc(pG->c, (z + 1)*sizeof(struct huft));
+				q = de_mallocarray(pG->c, (i64)z + 1, sizeof(struct huft));
 				for(tmpn=0; tmpn<(z + 1); tmpn++) {
 					q[tmpn].num_alloc = z + 1 - tmpn;
 				}

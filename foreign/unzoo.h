@@ -416,8 +416,8 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 	// Now that we know the timezone, finish reporting the mod time, and set
 	// ze->fi->mod_time.
 	timestamp_offset = 0;
-	if      ( ze->timzon < 127 )  timestamp_offset = 15*60*(ze->timzon      );
-	else if ( 127 < ze->timzon )  timestamp_offset = 15*60*(ze->timzon - 256);
+	if      ( ze->timzon < 127 )  timestamp_offset = 15*60*((i64)ze->timzon      );
+	else if ( 127 < ze->timzon )  timestamp_offset = 15*60*((i64)ze->timzon - 256);
 
 	de_dos_datetime_to_timestamp(&ze->fi->mod_time, ze->datdos, ze->timdos);
 	de_timestamp_to_string(&ze->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
@@ -744,7 +744,7 @@ static int MakeTablLzh (struct unzooctx *uz, struct entryctx *ze,
 		if ((len = lookuptbl->Len[ch]) == 0) continue;
 		if (len <= lookuptbl->tablebits) {
 			for ( i = 0; i < weight[len]; i++ ) {
-				if(i+start[len] < lookuptbl->ncodes)
+				if((size_t)i+(size_t)start[len] < lookuptbl->ncodes)
 					lookuptbl->Tab[i+start[len]] = ch;
 			}
 		}
@@ -1062,7 +1062,7 @@ static void init_lzh_lookuptable(deark *c, struct lzh_lookuptable *lookuptbl,
 	lookuptbl->tablebits = tablebits;
 	lookuptbl->ncodes = ((size_t)1)<<lookuptbl->tablebits;
 	lookuptbl->nlengths = nlengths;
-	lookuptbl->Tab = de_malloc(c, lookuptbl->ncodes * sizeof(u16));
+	lookuptbl->Tab = de_mallocarray(c, (i64)lookuptbl->ncodes, sizeof(u16));
 	lookuptbl->Len = de_malloc(c, lookuptbl->nlengths);
 }
 
