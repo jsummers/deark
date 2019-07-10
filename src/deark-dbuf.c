@@ -961,11 +961,34 @@ dbuf *dbuf_create_unmanaged_file(deark *c, const char *fname, int overwrite_mode
 	return f;
 }
 
-dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
+static void sanitize_ext(const char *ext1, char *ext, size_t extlen)
+{
+	size_t k;
+
+	de_strlcpy(ext, ext1, extlen);
+	// This part of the filename should come from Deark, and should only
+	// use a limited set of characters. Just to be sure:
+	for(k=0; ext[k]; k++) {
+		if((ext[k]>='0' && ext[k]<='9') ||
+			(ext[k]>='A' && ext[k]<='Z') ||
+			(ext[k]>='a' && ext[k]<='z') ||
+			ext[k]=='.' || ext[k]=='_' || ext[k]=='-' || ext[k]=='+')
+		{
+			;
+		}
+		else {
+			ext[k] = '_';
+		}
+	}
+}
+
+dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 	unsigned int createflags)
 {
 	char nbuf[500];
 	char msgbuf[200];
+	char ext[128];
+	int have_ext;
 	dbuf *f;
 	const char *basefn;
 	int file_index;
@@ -973,7 +996,16 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	char *name_from_finfo = NULL;
 	i64 name_from_finfo_len = 0;
 
-	if(ext && fi && fi->original_filename_flag) {
+	if(ext1) {
+		have_ext = 1;
+		sanitize_ext(ext1, ext, sizeof(ext));
+	}
+	else {
+		have_ext = 0;
+		ext[0] = '\0';
+	}
+
+	if(have_ext && fi && fi->original_filename_flag) {
 		de_dbg(c, "[internal warning: Incorrect use of create_output_file]");
 	}
 
@@ -1039,10 +1071,10 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	else {
 		char fn_suffix[256];
 
-		if(ext && name_from_finfo) {
+		if(have_ext && name_from_finfo) {
 			de_snprintf(fn_suffix, sizeof(fn_suffix), "%s.%s", name_from_finfo, ext);
 		}
-		else if(ext) {
+		else if(have_ext) {
 			de_strlcpy(fn_suffix, ext, sizeof(fn_suffix));
 		}
 		else if(is_directory && name_from_finfo) {

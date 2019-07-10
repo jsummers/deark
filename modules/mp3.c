@@ -73,6 +73,8 @@ static int do_ape_binary_item(deark *c, struct ape_tag_header_footer *ah,
 	struct de_stringreaderdata *name = NULL;
 	i64 nbytes_to_scan;
 	i64 img_pos, img_len;
+	de_finfo *fi = NULL;
+	char *ext = NULL;
 	int retval = 0;
 
 	if(de_strncasecmp(key->sz, "cover art", 9)) {
@@ -88,11 +90,27 @@ static int do_ape_binary_item(deark *c, struct ape_tag_header_footer *ah,
 	img_pos = pos + name->bytes_consumed;
 	img_len = len - name->bytes_consumed;
 	if(len < 16) goto done;
-	dbuf_create_file_from_slice(c->infile, img_pos, img_len, name->sz,
-		NULL, DE_CREATEFLAG_IS_AUX);
+
+	fi = de_finfo_create(c);
+	if(c->filenames_from_file) {
+		de_finfo_set_name_from_ucstring(c, fi, name->str, 0);
+	}
+	else {
+		u8 sig[2];
+
+		de_finfo_set_name_from_sz(c, fi, "cover_art", 0, DE_ENCODING_LATIN1);
+
+		de_read(sig, img_pos, 2);
+		if(sig[0]==0x89 && sig[1]==0x50) ext="png";
+		else if(sig[0]==0xff && sig[1]==0xd8) ext="jpg";
+		else ext="bin";
+	}
+	dbuf_create_file_from_slice(c->infile, img_pos, img_len, ext,
+		fi, DE_CREATEFLAG_IS_AUX);
 	retval = 1;
 
 done:
+	de_finfo_destroy(c, fi);
 	de_destroy_stringreaderdata(c, name);
 	return retval;
 }
