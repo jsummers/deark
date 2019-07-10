@@ -1966,6 +1966,15 @@ done:
 	return retval;
 }
 
+static void do_afcp_segment(deark *c, struct file_ctx *fctx, i64 endpos)
+{
+	de_dbg(c, "AFCP segment found at end of file");
+
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice(c, "afcp", NULL, c->infile, 0, endpos);
+	de_dbg_indent(c, -1);
+}
+
 static void do_jpeg_internal(deark *c, struct file_ctx *fctx)
 {
 	i64 pos;
@@ -1992,6 +2001,20 @@ static void do_jpeg_internal(deark *c, struct file_ctx *fctx)
 	if(c->module_nesting_level>1) goto done;
 	extra_bytes_at_eof = c->infile->len - pos;
 	if(extra_bytes_at_eof<4) goto done;
+
+	if(extra_bytes_at_eof>=24) {
+		u8 tbuf[12];
+
+		de_read(tbuf, c->infile->len-12, sizeof(tbuf));
+		if(tbuf[0]=='A' && tbuf[1]=='X' && tbuf[2]=='S' &&
+			(tbuf[3]=='!' || tbuf[3]=='*'))
+		{
+			// TODO: Report AFCP in the summary line. (...which has already been
+			// printed, so some redesign is needed.)
+			do_afcp_segment(c, fctx, c->infile->len);
+			goto done;
+		}
+	}
 
 	nbytes_to_scan = extra_bytes_at_eof;
 	if(nbytes_to_scan>512) nbytes_to_scan=512;
