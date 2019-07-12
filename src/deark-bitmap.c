@@ -206,7 +206,7 @@ void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi,
 	if(optimg) de_bitmap_destroy(optimg);
 }
 
-// "token" - A (UTf-8) filename component, like "output.000.<token>.png".
+// "token" - A (UTF-8) filename component, like "output.000.<token>.png".
 //   It can be NULL.
 void de_bitmap_write_to_file(de_bitmap *img, const char *token,
 	unsigned int createflags)

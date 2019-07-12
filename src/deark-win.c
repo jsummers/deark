@@ -416,7 +416,7 @@ int de_winconsole_enable_ansi(struct de_platform_data *plctx)
 	// The ENABLE_VIRTUAL_TERMINAL_PROCESSING mode is what enables interpretation
 	// of ANSI escape codes.
 
-	// Note: This mode seems to be specific to the console window, not to specific
+	// Note: This mode seems to be specific to the console window, not to the specific
 	// I/O handle that we pass to SetConsoleMode.
 	// I.e. if both stderr and stdout refer to the console, it doesn't matter which
 	// one we use here.

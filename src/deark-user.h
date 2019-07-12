@@ -13,8 +13,6 @@ void de_destroy(deark *c);
 
 void de_register_modules(deark *c);
 
-void de_exitprocess(void);
-
 #define DE_INPUTSTYLE_FILE    0
 #define DE_INPUTSTYLE_STDIN   1
 void de_set_input_style(deark *c, int x);

@@ -641,7 +641,7 @@ void de_fatalerror(deark *c)
 	if(c && c->fatalerrorfn) {
 		c->fatalerrorfn(c);
 	}
-	exit(1);
+	de_exitprocess();
 }
 
 // TODO: Make de_malloc use de_mallocarray internally, instead of vice versa.
