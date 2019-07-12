@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VER=1.5.1
+VER=1.5.2
 
 if [ ! -f formats.txt ]
 then
@@ -30,8 +30,8 @@ mkdir $D/scripts
 cp -p scripts/*.sh scripts/*.pl $D/scripts/
 
 mkdir $D/proj
-mkdir $D/proj/vs2008
-cp -p proj/vs2008/*.sln proj/vs2008/*.vcproj $D/proj/vs2008/
+mkdir $D/proj/vs2019
+cp -p proj/vs2019/*.sln proj/vs2019/*.vcxproj proj/vs2019/*.vcxproj.filters $D/proj/vs2019/
 
 mkdir $D/obj
 mkdir $D/obj/src
