@@ -77,8 +77,10 @@ typedef struct localctx_struct {
 #define DE_PNGFMT_MNG 3
 	int fmt;
 	int is_CgBI;
+	u8 check_crcs;
 	u8 color_type;
 	const char *fmt_name;
+	struct de_crcobj *crco;
 } lctx;
 
 struct text_chunk_ctx {
@@ -100,6 +102,7 @@ struct text_chunk_ctx {
 
 struct chunk_type_info_struct;
 struct handler_params;
+struct chunk_ctx;
 
 typedef void (*chunk_handler_fn)(deark *c, lctx *d, struct handler_params *hp);
 
@@ -112,11 +115,19 @@ struct chunk_type_info_struct {
 	chunk_handler_fn handler_fn;
 };
 
+// TODO: Merge this with chunk_ctx?
 struct handler_params {
 	i64 dpos;
 	i64 dlen;
-	const struct de_fourcc *chunk4cc;
 	const struct chunk_type_info_struct *cti;
+	struct de_fourcc chunk4cc;
+};
+
+struct chunk_ctx {
+	struct handler_params hp;
+	i64 pos;
+	u32 crc_reported;
+	u32 crc_calc;
 };
 
 static void handler_hexdump(deark *c, lctx *d, struct handler_params *hp)
@@ -379,16 +390,16 @@ static void handler_text(deark *c, lctx *d, struct handler_params *hp)
 	pos += 1;
 
 	// Compression flag
-	if(hp->chunk4cc->id==CODE_iTXt) {
+	if(hp->chunk4cc.id==CODE_iTXt) {
 		is_compressed = (int)de_getbyte(pos++);
 		de_dbg(c, "compression flag: %d", (int)is_compressed);
 	}
-	else if(hp->chunk4cc->id==CODE_zTXt) {
+	else if(hp->chunk4cc.id==CODE_zTXt) {
 		is_compressed = 1;
 	}
 
 	// Compression method
-	if(hp->chunk4cc->id==CODE_zTXt || hp->chunk4cc->id==CODE_iTXt) {
+	if(hp->chunk4cc.id==CODE_zTXt || hp->chunk4cc.id==CODE_iTXt) {
 		u8 cmpr_method;
 		cmpr_method = de_getbyte(pos++);
 		if(is_compressed && cmpr_method!=0) {
@@ -397,7 +408,7 @@ static void handler_text(deark *c, lctx *d, struct handler_params *hp)
 		}
 	}
 
-	if(hp->chunk4cc->id==CODE_iTXt) {
+	if(hp->chunk4cc.id==CODE_iTXt) {
 		// Language tag
 		ret = do_text_field(c, d, &tcc, FIELD_LANG, pos, endpos-pos,
 			1, 0, DE_ENCODING_ASCII, &field_bytes_consumed);
@@ -413,7 +424,7 @@ static void handler_text(deark *c, lctx *d, struct handler_params *hp)
 		pos += 1;
 	}
 
-	if(hp->chunk4cc->id==CODE_iTXt)
+	if(hp->chunk4cc.id==CODE_iTXt)
 		encoding = DE_ENCODING_UTF8;
 	else
 		encoding = DE_ENCODING_LATIN1;
@@ -849,6 +860,24 @@ static void handler_fdAT(deark *c, lctx *d, struct handler_params *hp)
 	do_APNG_seqno(c, d, hp->dpos);
 }
 
+static void do_check_chunk_crc(deark *c, lctx *d, struct chunk_ctx *cctx, int suppress_idat_dbg)
+{
+	if(d->crco) {
+		de_crcobj_reset(d->crco);
+	}
+	else {
+		d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	}
+
+	// Don't include Length field, start with Type field
+	de_crcobj_addslice(d->crco, c->infile, cctx->pos + 4, cctx->hp.dlen + 4);
+
+	cctx->crc_calc = de_crcobj_getval(d->crco);
+	if(!suppress_idat_dbg) {
+		de_dbg(c, "crc32 (calculated): 0x%08x", (unsigned int)cctx->crc_calc);
+	}
+}
+
 static const struct chunk_type_info_struct chunk_type_info_arr[] = {
 	{ CODE_CgBI, 0x00ff, NULL, handler_CgBI },
 	{ CODE_IDAT, 0x00ff, NULL, NULL },
@@ -944,6 +973,7 @@ static void de_run_png(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
+	d->check_crcs = (u8)de_get_ext_option_bool(c, "png:checkcrc", 1);
 	de_dbg(c, "signature at %d", 0);
 	de_dbg_indent(c, 1);
 	d->fmt = do_identify_png_internal(c);
@@ -961,30 +991,29 @@ static void de_run_png(deark *c, de_module_params *mparams)
 
 	pos = 8;
 	while(pos < c->infile->len) {
-		struct de_fourcc chunk4cc;
-		struct handler_params hp;
-		u32 crc;
+		struct chunk_ctx cctx;
 		char nbuf[80];
 
-		de_zeromem(&hp, sizeof(struct handler_params));
+		de_zeromem(&cctx, sizeof(struct chunk_ctx));
 
-		hp.dlen = de_getu32be(pos);
-		if(pos + 8 + hp.dlen + 4 > c->infile->len) break;
-		dbuf_read_fourcc(c->infile, pos+4, &chunk4cc, 4, 0x0);
+		cctx.pos = pos;
+		cctx.hp.dlen = de_getu32be(pos);
+		if(pos + 8 + cctx.hp.dlen + 4 > c->infile->len) break;
+		dbuf_read_fourcc(c->infile, pos+4, &cctx.hp.chunk4cc, 4, 0x0);
 
-		hp.cti = get_chunk_type_info(chunk4cc.id);
+		cctx.hp.cti = get_chunk_type_info(cctx.hp.chunk4cc.id);
 
-		if(chunk4cc.id==CODE_IDAT && suppress_idat_dbg) {
+		if(cctx.hp.chunk4cc.id==CODE_IDAT && suppress_idat_dbg) {
 			;
 		}
-		else if(chunk4cc.id==CODE_IDAT && prev_chunk_id==CODE_IDAT && c->debug_level<2) {
+		else if(cctx.hp.chunk4cc.id==CODE_IDAT && prev_chunk_id==CODE_IDAT && c->debug_level<2) {
 			de_dbg(c, "(more IDAT chunks follow)");
 			suppress_idat_dbg = 1;
 		}
 		else {
-			if(hp.cti) {
-				if(hp.cti->name) {
-					de_snprintf(nbuf, sizeof(nbuf), " (%s)", hp.cti->name);
+			if(cctx.hp.cti) {
+				if(cctx.hp.cti->name) {
+					de_snprintf(nbuf, sizeof(nbuf), " (%s)", cctx.hp.cti->name);
 				}
 				else {
 					de_strlcpy(nbuf, "", sizeof(nbuf));
@@ -995,40 +1024,53 @@ static void de_run_png(deark *c, de_module_params *mparams)
 			}
 
 			de_dbg(c, "chunk '%s'%s at %d dpos=%d dlen=%d",
-				chunk4cc.id_dbgstr, nbuf,
-				(int)pos, (int)(pos+8), (int)hp.dlen);
-			if(chunk4cc.id!=CODE_IDAT) suppress_idat_dbg = 0;
+				cctx.hp.chunk4cc.id_dbgstr, nbuf,
+				(int)pos, (int)(pos+8), (int)cctx.hp.dlen);
+			if(cctx.hp.chunk4cc.id!=CODE_IDAT) suppress_idat_dbg = 0;
 		}
 
 		pos += 8;
 
 		de_dbg_indent(c, 1);
 
-		hp.dpos = pos;
-		hp.chunk4cc = &chunk4cc;
+		cctx.hp.dpos = pos;
 
-		if(hp.cti) {
-			if(hp.cti->handler_fn) {
-				hp.cti->handler_fn(c, d, &hp);
+		if(cctx.hp.cti) {
+			if(cctx.hp.cti->handler_fn) {
+				cctx.hp.cti->handler_fn(c, d, &cctx.hp);
 			}
 		}
 		else {
 			if(c->debug_level>=2) {
-				handler_hexdump(c, d, &hp);
+				handler_hexdump(c, d, &cctx.hp);
 			}
 		}
-		pos += hp.dlen;
+		pos += cctx.hp.dlen;
 
-		crc = (u32)de_getu32be(pos);
-		de_dbg2(c, "crc32 (reported): 0x%08x", (unsigned int)crc);
+		if(d->check_crcs) {
+			do_check_chunk_crc(c, d, &cctx, suppress_idat_dbg);
+		}
+
+		cctx.crc_reported = (u32)de_getu32be(pos);
+		if(!suppress_idat_dbg) {
+			de_dbg(c, "crc32 (reported): 0x%08x", (unsigned int)cctx.crc_reported);
+		}
 		pos += 4;
+		if(d->check_crcs && (cctx.crc_reported != cctx.crc_calc)) {
+			de_warn(c, "CRC-32 check failed for chunk at %"I64_FMT" "
+				"(reported=0x%08x, calculated=0x%08x)", cctx.pos,
+				(unsigned int)cctx.crc_reported, (unsigned int)cctx.crc_calc);
+		}
 
 		de_dbg_indent(c, -1);
 
-		prev_chunk_id = chunk4cc.id;
+		prev_chunk_id = cctx.hp.chunk4cc.id;
 	}
 
-	de_free(c, d);
+	if(d) {
+		de_crcobj_destroy(d->crco);
+		de_free(c, d);
+	}
 }
 
 static int de_identify_png(deark *c)
