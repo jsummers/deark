@@ -863,6 +863,7 @@ static const char *get_id3v2_frame_name(id3v2ctx *d, u32 id)
 		{0x57434dU, 0x57434f4dU, "Commercial information"},
 		{0x54434dU, 0x54434f4dU, "Composer"},
 		{0x545033U, 0x54504533U, "Conductor"},
+		{0x545431U, 0x54495431U, "Content group description"},
 		{0x54434fU, 0x54434f4eU, "Content type"},
 		{0x544352U, 0x54434f50U, "Copyright message"},
 		{0x544441U, 0x54444154U, "Date"},
@@ -881,7 +882,7 @@ static const char *get_id3v2_frame_name(id3v2ctx *d, u32 id)
 		{0x544f54U, 0x544f414cU, "Original album/movie/show title"},
 		{0x544f41U, 0x544f5045U, "Original artist/performer"},
 		{0x544f4cU, 0x544f4c59U, "Original lyricist"},
-		{0,         0x54504f53U, "Part of a set"}, // TPOS
+		{0x545041U, 0x54504f53U, "Part of a set"}, // TPA,TPOS
 		{CODE_POP,  CODE_POPM,   "Popularimeter"},
 		{0,         CODE_PRIV,   "Private frame"},
 		{0x545042U, 0x54505542U, "Publisher"},

@@ -1193,6 +1193,7 @@ static void de_run_anim(deark *c, de_module_params *mparams)
 	struct de_iffctx *ictx = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+	de_declare_fmt(c, "ANIM");
 
 	ictx = de_malloc(c, sizeof(struct de_iffctx));
 	ictx->userdata = (void*)d;
