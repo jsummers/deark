@@ -95,6 +95,7 @@ struct tagnuminfo {
 	// 0x0800=tags for Multi-Picture Format (.MPO) extensions
 	// 0x1000=tags for Nikon MakerNote
 	// 0x2000=tags for Apple iOS MakerNote
+	// 0x4000=Panasonic RAW/RW2
 	unsigned int flags;
 
 	const char *tagname;
@@ -1524,6 +1525,12 @@ static void handler_dngprivatedata(deark *c, lctx *d, const struct taginfo *tg, 
 	de_destroy_stringreaderdata(c, srd);
 }
 
+static void handler_panasonicjpg(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	dbuf_create_file_from_slice(c->infile, tg->val_offset, tg->total_size,
+		"thumb.jpg", NULL, DE_CREATEFLAG_IS_AUX);
+}
+
 static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 254, 0x00, "NewSubfileType", NULL, valdec_newsubfiletype },
 	{ 255, 0x00, "OldSubfileType", NULL, valdec_oldsubfiletype },
@@ -2107,7 +2114,43 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 0xb, 0x2001, "BurstUUID", NULL, NULL },
 	{ 0xe, 0x2001, "Orientation?", NULL, NULL },
 	{ 0x11, 0x2001, "ContentIdentifier", NULL, NULL },
-	{ 0x15, 0x2001, "ImageUniqueID", NULL, NULL }
+	{ 0x15, 0x2001, "ImageUniqueID", NULL, NULL },
+
+	{ 0x1, 0x4001, "PanasonicRawVersion", NULL, NULL },
+	{ 0x2, 0x4001, "SensorWidth", NULL, NULL },
+	{ 0x3, 0x4001, "SensorHeight", NULL, NULL },
+	{ 0x4, 0x4001, "SensorTopBorder", NULL, NULL },
+	{ 0x5, 0x4001, "SensorLeftBorder", NULL, NULL },
+	{ 0x6, 0x4001, "SensorBottomBorder", NULL, NULL },
+	{ 0x7, 0x4001, "SensorRightBorder", NULL, NULL },
+	{ 0x8, 0x4001, "SamplesPerPixel", NULL, NULL },
+	{ 0x9, 0x4001, "CFAPattern", NULL, NULL },
+	{ 0xa, 0x4001, "BitsPerSample", NULL, NULL },
+	{ 0xb, 0x4001, "Compression", NULL, NULL },
+	{ 0xe, 0x4001, "LinearityLimitRed", NULL, NULL },
+	{ 0xf, 0x4001, "LinearityLimitGreen", NULL, NULL },
+	{ 0x10, 0x4001, "LinearityLimitBlue", NULL, NULL },
+	{ 0x11, 0x4001, "RedBalance", NULL, NULL },
+	{ 0x12, 0x4001, "BlueBalance", NULL, NULL },
+	{ 0x13, 0x4001, "WBInfo", NULL, NULL },
+	{ 0x17, 0x4001, "ISO", NULL, NULL },
+	{ 0x18, 0x4001, "HighISOMultiplierRed", NULL, NULL },
+	{ 0x19, 0x4001, "HighISOMultiplierGreen", NULL, NULL },
+	{ 0x1a, 0x4001, "HighISOMultiplierBlue", NULL, NULL },
+	{ 0x1b, 0x4001, "NoiseReductionParams", NULL, NULL },
+	{ 0x1c, 0x4001, "BlackLevelRed", NULL, NULL },
+	{ 0x1d, 0x4001, "BlackLevelGreen", NULL, NULL },
+	{ 0x1e, 0x4001, "BlackLevelBlue", NULL, NULL },
+	{ 0x24, 0x4001, "WBRedLevel", NULL, NULL },
+	{ 0x25, 0x4001, "WBGreenLevel", NULL, NULL },
+	{ 0x26, 0x4001, "WBBlueLevel", NULL, NULL },
+	{ 0x27, 0x4001, "WBInfo2", NULL, NULL },
+	{ 0x2d, 0x4001, "RawFormat", NULL, NULL },
+	{ 0x2e, 0x4009, "JpgFromRaw", handler_panasonicjpg, NULL },
+	{ 0x2f, 0x4001, "CropTop", NULL, NULL },
+	{ 0x30, 0x4001, "CropLeft", NULL, NULL },
+	{ 0x31, 0x4001, "CropBottom", NULL, NULL },
+	{ 0x32, 0x4001, "CropRight", NULL, NULL }
 };
 
 static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni,
@@ -2295,7 +2338,7 @@ static const struct tagnuminfo *find_tagnuminfo(int tagnum, int filefmt, int ifd
 		}
 		else if(tagnuminfo_arr[i].flags&0x01) {
 			// A special tag not allowed above
-			if(filefmt==DE_TIFFFMT_JPEGXR && tagnuminfo_arr[i].flags&0x0400) {
+			if(filefmt==DE_TIFFFMT_JPEGXR && (tagnuminfo_arr[i].flags&0x0400)) {
 				// Allow all JPEG XR tags in normal JPEG XR IFDs.
 				// Maybe we should disallow TIFF tags that are not known to be
 				// allowed in JPEG XR files, but I suspect a lot of random TIFF
@@ -2303,10 +2346,15 @@ static const struct tagnuminfo *find_tagnuminfo(int tagnum, int filefmt, int ifd
 				// any conflicts.
 				;
 			}
-			else if(filefmt==DE_TIFFFMT_MPEXT && tagnuminfo_arr[i].flags&0x0800) {
+			else if(filefmt==DE_TIFFFMT_MPEXT && (tagnuminfo_arr[i].flags&0x0800)) {
 				;
 			}
-			else if(filefmt==DE_TIFFFMT_NIKONMN && tagnuminfo_arr[i].flags&0x1000) {
+			else if(filefmt==DE_TIFFFMT_NIKONMN && (tagnuminfo_arr[i].flags&0x1000)) {
+				;
+			}
+			else if(filefmt==DE_TIFFFMT_PANASONIC && (tagnuminfo_arr[i].flags&0x4000) &&
+				ifdtype==IFDTYPE_NORMAL)
+			{
 				;
 			}
 			else {
@@ -2445,13 +2493,6 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 		de_dbg_indent(c, 1);
 
 		switch(tg.tagnum) {
-		case 46:
-			if(d->fmt==DE_TIFFFMT_PANASONIC) {
-				// Some Panasonic RAW files have a JPEG file in tag 46.
-				dbuf_create_file_from_slice(c->infile, tg.val_offset, tg.total_size, "thumb.jpg", NULL, DE_CREATEFLAG_IS_AUX);
-			}
-			break;
-
 		case TAG_JPEGINTERCHANGEFORMAT:
 			if(tg.valcount<1) break;
 			read_tag_value_as_int64(c, d, &tg, 0, &jpegoffset);
