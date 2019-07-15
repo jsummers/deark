@@ -17,8 +17,14 @@ struct pict_rect {
 	i64 t, l, b, r;
 };
 
+struct detection_info {
+	int file_version;
+	int has_fileheader;
+};
+
 typedef struct localctx_struct {
-	int version; // 2 if file is known to be v2, 1 otherwise.
+	struct detection_info dti;
+	int version; // 1 or 2: The version mode that the parser is currently using
 	int is_extended_v2;
 	int decode_qtif;
 	dbuf *iccprofile_file;
@@ -1060,30 +1066,89 @@ done:
 	;
 }
 
-static void do_report_version(deark *c, lctx *d)
+// mode: 0=called from de_identify..., 1=called from de_run...
+static void do_detect_version(deark *c, struct detection_info *dti, int mode)
 {
-	if(!dbuf_memcmp(c->infile, 522, "\x00\x11\x02\xff\x0c\x00", 6)) {
-		de_declare_fmt(c, "PICT v2");
+	static const u8 v1pattern[2] = { 0x11, 0x01 };
+	static const u8 v2pattern[6] = { 0x00, 0x11, 0x02, 0xff, 0x0c, 0x00 };
+	u8 buf[6];
+	int v1_nohdr = 0;
+	int v2_nohdr = 0;
+	int v1_hdr = 0;
+	int v2_hdr = 0;
+
+	dti->file_version = 0;
+	dti->has_fileheader = 0;
+
+	de_read(buf, 522, sizeof(buf));
+	if(!de_memcmp(buf, v2pattern, 6)) {
+		v2_hdr = 1;
 	}
-	else if(!dbuf_memcmp(c->infile, 522, "\x11\x01", 2)) {
-		de_declare_fmt(c, "PICT v1");
+	else if(!de_memcmp(buf, v1pattern, 2)) {
+		v1_hdr = 1;
+	}
+	else {
+		de_read(buf, 10, sizeof(buf));
+		if(!de_memcmp(buf, v2pattern, 6)) {
+			v2_nohdr = 1;
+		}
+		else if(!de_memcmp(buf, v1pattern, 2)) {
+			v1_nohdr = 1;
+		}
+	}
+
+	if(!v1_hdr && !v2_hdr && !v1_nohdr && !v2_nohdr) {
+		return;
+	}
+
+	if(v2_hdr) {
+		dti->file_version = 2;
+		dti->has_fileheader = 1;
+		return;
+	}
+	else if(v2_nohdr) {
+		dti->file_version = 2;
+		return;
+	}
+
+	if(mode==0) {
+		// For v1, check that the file ends as expected
+		if(de_getbyte(c->infile->len-1) != 0xff) {
+			return;
+		}
+	}
+
+	if(v1_hdr) {
+		dti->file_version = 1;
+		dti->has_fileheader = 1;
+		return;
+	}
+	else if(v1_nohdr) {
+		dti->file_version = 1;
+		return;
 	}
 }
 
 static void de_run_pict(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	i64 pos;
+	i64 pos = 0;
 	i64 picsize;
 	struct pict_rect framerect;
 
 	d = de_malloc(c, sizeof(lctx));
 
-	do_report_version(c, d);
+	do_detect_version(c, &d->dti, 1);
+	if(d->dti.file_version>0) {
+		de_declare_fmtf(c, "PICT v%d%s", d->dti.file_version,
+			d->dti.has_fileheader?"":", without file header");
+	}
 
 	d->version = 1;
 
-	pos = 512;
+	if(d->dti.has_fileheader) {
+		pos += 512;
+	}
 
 	picsize = de_getu16be(pos);
 	de_dbg(c, "picSize: %d", (int)picsize);
@@ -1099,12 +1164,16 @@ static void de_run_pict(deark *c, de_module_params *mparams)
 
 static int de_identify_pict(deark *c)
 {
-	u8 buf[6];
+	struct detection_info dti;
 
-	if(c->infile->len<528) return 0;
-	de_read(buf, 522, sizeof(buf));
-	if(!de_memcmp(buf, "\x11\x01", 2)) return 5; // v1
-	if(!de_memcmp(buf, "\x00\x11\x02\xff\x0c\x00", 2)) return 85; // v2
+	do_detect_version(c, &dti, 0);
+	if(dti.file_version==2) {
+		return 85;
+	}
+	else if(dti.file_version==1) {
+		if(dti.has_fileheader) return 25;
+		return 15;
+	}
 	return 0;
 }
 
