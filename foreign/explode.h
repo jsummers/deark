@@ -24,26 +24,27 @@ typedef u32   ulg;    /*  predefined on some systems) & match zip  */
                       /* at least 8K for zip's implode method */
                       /* (at least 32K for zip's deflate method) */
 
-struct hmain_struct {
-	uch e;                /* number of extra bits or operation */
-	uch b;                /* number of bits in this code or subcode */
+#define HUFT_ARRAY_OFFSET 0
 
-	ush n;            /* literal, length base, or distance base */
-	struct huft *t;   /* pointer to next level of table */
-};
-
-struct izi_htable;
+struct huftarray;
 
 struct huft {
-	struct hmain_struct hmain;
-	// # of remaining items in this array, starting with this one and
-	// including this one.
-	unsigned int num_alloc;
+	uch e;                /* number of extra bits or operation */
+	uch b;                /* number of bits in this code or subcode */
+	ush n;            /* literal, length base, or distance base */
+	struct huftarray *t_arr;   /* pointer to next level of table */
+};
+
+struct huftarray {
+	unsigned int num_alloc_h;
+	struct huft *h;
+	struct huftarray *next_array;
 };
 
 struct izi_htable {
-	struct huft *t;
+	struct huftarray *first_array;
 	int b; /* bits for this table */
+	const char *tblname;
 };
 
 struct izi_htables {
@@ -57,7 +58,6 @@ struct izi_htables {
 typedef struct Globals {
 	i64 csize;           /* used by decompr. (NEXTBYTE): must be signed */
 	i64 ucsize;          /* used by unReduce(), explode() */
-	uch Slide[WSIZE];
 	ush lrec_general_purpose_bit_flag;
 	deark *c;
 	dbuf *inf;
@@ -65,13 +65,14 @@ typedef struct Globals {
 	i64 inf_endpos;
 	dbuf *outf;
 	int dumptrees;
+	uch Slide[WSIZE];
 } Uz_Globs;  /* end of struct Globals */
 
 //========================= globals.h end =========================
 
 typedef ush (*izi_len_or_dist_getter)(unsigned int i);
 
-static void huft_free(Uz_Globs *pG, struct huft *t, const char *name);
+static void huft_free(Uz_Globs *pG, struct izi_htable *tbl);
 static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n,
 	unsigned s, izi_len_or_dist_getter d_fn, izi_len_or_dist_getter e_fn,
 	struct izi_htable *tbl);
@@ -307,12 +308,20 @@ static int get_tree(Uz_Globs *pG, unsigned *l, unsigned n)
 	return k != n ? IZI_ERR4 : IZI_OK;                /* should have read n of them */
 }
 
-static struct huft *huft_plus_offset(struct huft *h1, ulg offset)
+static struct huft *huftarr_plus_offset(struct huftarray *ha, ulg offset)
 {
-	if(h1->num_alloc < offset+1) {
+	ulg real_offset;
+
+	real_offset = HUFT_ARRAY_OFFSET+offset;
+	if(real_offset >= ha->num_alloc_h) {
 		return NULL;
 	}
-	return h1 + offset;
+	return &(ha->h[real_offset]);
+}
+
+static struct huft *follow_huft_ptr(struct huft *h1, ulg offset)
+{
+	return huftarr_plus_offset(h1->t_arr, offset);
 }
 
 // tb, tl, td: literal, length, and distance tables
@@ -343,26 +352,25 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
 		if (b & 1) {                /* then literal--decode it */
 			DUMPBITS(1);
 			s--;
-			if(tbls->b.t) {
+			if(tbls->b.first_array) {
 				NEEDBITS((unsigned)tbls->b.b);    /* get coded literal */
-				t = huft_plus_offset(tbls->b.t, ((~(unsigned)b) & mb));
+				t = huftarr_plus_offset(tbls->b.first_array, ((~(unsigned)b) & mb));
 				if(!t) goto done;
-				e = t->hmain.e;
+				e = t->e;
 				if (e > 16) {
 					do {
 						if (e == 99)
 							return 1;
-						DUMPBITS(t->hmain.b);
+						DUMPBITS(t->b);
 						e -= 16;
 						NEEDBITS(e);
-						t = huft_plus_offset(t->hmain.t,
-							((~(unsigned)b) & izi_get_mask_bits(e)));
+						t = follow_huft_ptr(t, ((~(unsigned)b) & izi_get_mask_bits(e)));
 						if(!t) goto done;
-						e = t->hmain.e;
+						e = t->e;
 					} while (e > 16);
 				}
-				DUMPBITS(t->hmain.b);
-				pG->Slide[w++] = (uch)t->hmain.n;
+				DUMPBITS(t->b);
+				pG->Slide[w++] = (uch)t->n;
 			}
 			else {
 				NEEDBITS(8);
@@ -372,7 +380,7 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
 				izi_flush(pG, pG->Slide, (ulg)w);
 				w = u = 0;
 			}
-			if(!tbls->b.t) {
+			if(!tbls->b.first_array) {
 				DUMPBITS(8);
 			}
 		}
@@ -391,41 +399,41 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
 			}
 
 			NEEDBITS((unsigned)tbls->d.b);    /* get coded distance high bits */
-			t = huft_plus_offset(tbls->d.t, ((~(unsigned)b) & md));
+			t = huftarr_plus_offset(tbls->d.first_array, ((~(unsigned)b) & md));
 			if(!t) goto done;
-			e = t->hmain.e;
+			e = t->e;
 			if (e > 16) {
 				do {
 					if (e == 99)
 						return 1;
-					DUMPBITS(t->hmain.b);
+					DUMPBITS(t->b);
 					e -= 16;
 					NEEDBITS(e);
-					t = huft_plus_offset(t->hmain.t, ((~(unsigned)b) & izi_get_mask_bits(e)));
+					t = follow_huft_ptr(t, ((~(unsigned)b) & izi_get_mask_bits(e)));
 					if(!t) goto done;
-					e = t->hmain.e;
+					e = t->e;
 				} while (e > 16);
 			}
-			DUMPBITS(t->hmain.b);
-			d = w - d - t->hmain.n;       /* construct offset */
+			DUMPBITS(t->b);
+			d = w - d - t->n;       /* construct offset */
 			NEEDBITS((unsigned)tbls->l.b);    /* get coded length */
-			t = huft_plus_offset(tbls->l.t, ((~(unsigned)b) & ml));
+			t = huftarr_plus_offset(tbls->l.first_array, ((~(unsigned)b) & ml));
 			if(!t) goto done;
-			e = t->hmain.e;
+			e = t->e;
 			if (e > 16) {
 				do {
 					if (e == 99)
 						return 1;
-					DUMPBITS(t->hmain.b);
+					DUMPBITS(t->b);
 					e -= 16;
 					NEEDBITS(e);
-					t = huft_plus_offset(t->hmain.t, ((~(unsigned)b) & izi_get_mask_bits(e)));
+					t = follow_huft_ptr(t, ((~(unsigned)b) & izi_get_mask_bits(e)));
 					if(!t) goto done;
-					e = t->hmain.e;
+					e = t->e;
 				} while (e > 16);
 			}
-			DUMPBITS(t->hmain.b);
-			n = t->hmain.n;
+			DUMPBITS(t->b);
+			n = t->n;
 			if (e) {                  /* get length extra bits */
 				NEEDBITS(8);
 				n += (unsigned)b & 0xff;
@@ -490,6 +498,9 @@ static int explode(Uz_Globs *pG)
 	unsigned l[256];      /* bit lengths for codes */
 
 	de_zeromem(&tbls, sizeof(struct izi_htables));
+	tbls.b.tblname = "B";
+	tbls.l.tblname = "L";
+	tbls.d.tblname = "D";
 
 	/* Tune base table sizes.  Note: I thought that to truly optimize speed,
 	   I would have to select different bl, bd, and bb values for different
@@ -501,15 +512,18 @@ static int explode(Uz_Globs *pG)
 
 	/* With literal tree--minimum match length is 3 */
 	if (pG->lrec_general_purpose_bit_flag & 4) {
+		de_dbg3(pG->c, "table B");
 		tbls.b.b = 9;                     /* base table size for literals */
 		if ((r = get_tree(pG, l, 256)) != IZI_OK)
 			goto done;
 		if ((r = huft_build(pG, l, 256, 256, NULL, NULL, &tbls.b)) != IZI_OK)
 			goto done;
+		de_dbg3(pG->c, "table L");
 		if ((r = get_tree(pG, l, 64)) != IZI_OK)
 			goto done;
 		if ((r = huft_build(pG, l, 64, 0, izi_get_cplen3, izi_get_extra, &tbls.l)) != IZI_OK)
 			goto done;
+		de_dbg3(pG->c, "table D");
 		if ((r = get_tree(pG, l, 64)) != IZI_OK)
 			goto done;
 		if (pG->lrec_general_purpose_bit_flag & 2) {    /* true if 8K */
@@ -524,30 +538,32 @@ static int explode(Uz_Globs *pG)
 		}
 	}
 	else {  /* No literal tree--minimum match length is 2 */
+		de_dbg3(pG->c, "table L");
 		if ((r = get_tree(pG, l, 64)) != IZI_OK)
 			goto done;
 		if ((r = huft_build(pG, l, 64, 0, izi_get_cplen2, izi_get_extra, &tbls.l)) != IZI_OK)
 			goto done;
+		de_dbg3(pG->c, "table D");
 		if ((r = get_tree(pG, l, 64)) != IZI_OK)
 			goto done;
 		if (pG->lrec_general_purpose_bit_flag & 2) {    /* true if 8K */
 			if ((r = huft_build(pG, l, 64, 0, izi_get_cpdist8, izi_get_extra, &tbls.d)) != IZI_OK)
 				goto done;
-			tbls.b.t = NULL;
+			tbls.b.first_array = NULL;
 			r = explode_internal(pG, 8, &tbls);
 		}
 		else {                                      /* else 4K */
 			if ((r = huft_build(pG, l, 64, 0, izi_get_cpdist4, izi_get_extra, &tbls.d)) != IZI_OK)
 				goto done;
-			tbls.b.t = NULL;
+			tbls.b.first_array = NULL;
 			r = explode_internal(pG, 4, &tbls);
 		}
 	}
 
 done:
-	huft_free(pG, tbls.d.t, "d");
-	huft_free(pG, tbls.l.t, "l");
-	huft_free(pG, tbls.b.t, "b");
+	huft_free(pG, &tbls.d);
+	huft_free(pG, &tbls.l);
+	huft_free(pG, &tbls.b);
 	return (int)r;
 }
 
@@ -560,51 +576,47 @@ done:
 
 //========================= inflate.c begin =========================
 
-#define DE_DUMPTREES 1
-#if DE_DUMPTREES
 static void huft_dump1(Uz_Globs *pG, struct huft *t, unsigned int idx)
 {
-	de_dbg(pG->c, "[%u:%p] e=%u b=%u n=%u alloc=%u t=%p",
-		idx, (void*)t, (unsigned int)t->hmain.e, (unsigned int)t->hmain.b,
-		(unsigned int)t->hmain.n, t->num_alloc,
-		(void*)t->hmain.t);
+	de_dbg(pG->c, "[%u:%p] e=%u b=%u n=%u t=%p",
+		idx, (void*)t, (unsigned int)t->e, (unsigned int)t->b,
+		(unsigned int)t->n, (void*)t->t_arr);
 }
 
-static void huft_dump(Uz_Globs *pG, struct huft *t, const char *name)
+static void huft_dump(Uz_Globs *pG, struct izi_htable *tbl, const char *name)
 {
 	deark *c = pG->c;
-	struct huft *p = t;
+	struct huftarray *t = tbl->first_array;
+	struct huftarray *p = t;
 
-	de_dbg(c, "huffman [%s] table list %p", name, (void*)t);
+	de_dbg(c, "huffman [%s] table %p", name, (void*)p);
 
 	de_dbg_indent(c, 1);
+
 	while(1) {
-		struct huft *q;
+		struct huftarray *q;
 		unsigned int k;
 
 		if(!p) {
-			de_dbg(c, "table ref: NULL");
+			de_dbg(c, "table arr: NULL");
 			break;
 		}
-		de_dbg(c, "table ref: %p", (void*)p);
+		de_dbg(c, "table arr: %p, h[]=%p", (void*)p, (void*)p->h);
 
-		p--;
-		q = p->hmain.t;
+		q = p->next_array;
 
 		de_dbg_indent(c, 1);
-		de_dbg(c, "count=%u, next=%p", p->num_alloc, (void*)q);
-		for(k=0; k<p->num_alloc; k++) {
-			huft_dump1(pG, &p[k], k);
+		de_dbg(c, "count=%u", p->num_alloc_h);
+		for(k=0; k<p->num_alloc_h; k++) {
+			huft_dump1(pG, &p->h[k], k);
 		}
 		de_dbg_indent(c, -1);
-
 
 		p = q;
 	}
 
 	de_dbg_indent(c, -1);
 }
-#endif
 
 /* inflate.c -- put in the public domain by Mark Adler
    version c16b, 29 March 1998 */
@@ -645,21 +657,20 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 	int lx[BMAX+1];               /* memory for l[-1..BMAX-1] */
 	                              /* &lx[1] = stack of bits per table */
 	struct huft *q;      /* points to current table */
-	struct hmain_struct r;        /* table entry for structure assignment */
-	struct huft *u[BMAX];         /* table stack */
+	struct huft r;        /* table entry for structure assignment */
+	struct huftarray *u[BMAX];  /* table stack */
 	unsigned v[N_MAX];            /* values in order of bit length */
 	int w;               /* bits before this table == (l * h) */
 	unsigned x[BMAX+1];           /* bit offsets, then code stack */
 	int y;                        /* number of dummy codes added */
 	unsigned z;                   /* number of entries in current table */
-	unsigned int tmpn;
 	unsigned int c_idx;
 	unsigned int v_idx;
 	unsigned int x_idx;
 	int retval = IZI_ERR2;
-	struct huft **loc_of_prev_next_ptr = &tbl->t;
+	struct huftarray **loc_of_prev_next_ha_ptr = &tbl->first_array;
 
-	*loc_of_prev_next_ptr = NULL;
+	*loc_of_prev_next_ha_ptr = NULL;
 	if(n>256) goto done;
 
 	/* Generate counts for each bit length */
@@ -744,6 +755,8 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 			/* here i is the Huffman code of length k bits for value *p */
 			/* make tables up to required level */
 			while (k > w + get_i_arr(lx, BMAX+1, 1+ h)) {
+				struct huftarray *ha;
+
 				w += get_i_arr(lx, BMAX+1, 1+ h);            /* add bits already decoded */
 				h++;
 
@@ -771,32 +784,34 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 				set_i_arr(lx, BMAX+1, 1+ h, j);               /* set table size in stack */
 
 				/* allocate and link in new table */
-				q = de_mallocarray(pG->c, (i64)z + 1, sizeof(struct huft));
-				for(tmpn=0; tmpn<(z + 1); tmpn++) {
-					q[tmpn].num_alloc = z + 1 - tmpn;
-				}
-				*loc_of_prev_next_ptr = q + 1;             /* link to list for huft_free() */
-				loc_of_prev_next_ptr = &(q->hmain.t);
-				*loc_of_prev_next_ptr = NULL;
-				++q;
+				ha = de_malloc(pG->c, sizeof(struct huftarray));
+				ha->h = de_mallocarray(pG->c, (i64)z + HUFT_ARRAY_OFFSET, sizeof(struct huft));
+				ha->num_alloc_h = z + HUFT_ARRAY_OFFSET;
+				q = ha->h;
+				de_dbg3(pG->c, "malloc'd %p", (void*)q);
+				de_dbg3(pG->c, "malloc'd huftarray %p", (void*)ha);
+				*loc_of_prev_next_ha_ptr = ha;             /* link to list for huft_free() */
+				loc_of_prev_next_ha_ptr = &ha->next_array;
+				*loc_of_prev_next_ha_ptr = NULL;
+				q += HUFT_ARRAY_OFFSET;
 				if(h<0 || h>=BMAX) goto done;
-				u[h] = q;             /* table starts after link */
+				u[h] = ha;
 
 				/* connect to last table, if there is one */
 				if (h) {
-					de_zeromem(&r, sizeof(struct hmain_struct));
+					de_zeromem(&r, sizeof(struct huft));
 					set_u_arr(x, BMAX+1, h, i);             /* save pattern for backing up */
 					r.b = (uch)get_i_arr(lx, BMAX+1, 1+ h-1);    /* bits to dump before this table */
 					r.e = (uch)(16 + j);  /* bits in this table */
-					r.t = q;            /* pointer to this table */
+					r.t_arr = ha;            /* pointer to this table */
 					j = (i & ((1 << w) - 1)) >> (w - get_i_arr(lx, BMAX+1, 1+ h-1));
 					if((h-1 < 0) || (h-1 >= BMAX)) goto done;
-					u[h-1][j].hmain = r;        /* connect to last table */
+					u[h-1]->h[HUFT_ARRAY_OFFSET+j] = r;        /* connect to last table */
 				}
 			}
 
 			/* set up table entry in r */
-			de_zeromem(&r, sizeof(struct hmain_struct));
+			de_zeromem(&r, sizeof(struct huft));
 			r.b = (uch)(k - w);
 			if (v_idx >= n) {
 				r.e = 99;               /* out of values--invalid code */
@@ -815,7 +830,7 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 			/* fill code-like entries with r */
 			f = 1 << (k - w);
 			for (j = i >> w; j < z; j += f) {
-				q[j].hmain = r;
+				q[j] = r;
 			}
 
 			/* backwards increment the k-bit code i */
@@ -849,21 +864,21 @@ done:
    list of the tables it made, with the links in a dummy first entry of
    each table. */
 // t: table to free
-static void huft_free(Uz_Globs *pG, struct huft *t, const char *name)
+static void huft_free(Uz_Globs *pG, struct izi_htable *tbl)
 {
-	struct huft *p, *q;
+	struct huftarray *p, *q;
 
-#if DE_DUMPTREES
 	if(pG->dumptrees) {
-		huft_dump(pG, t, name);
+		huft_dump(pG, tbl, tbl->tblname);
 	}
-#endif
 
-	/* Go through linked list, freeing from the malloced (t[-1]) address. */
-	p = t;
-	while (p != NULL) {
-		--p;
-		q = p->hmain.t;
+	p = tbl->first_array;
+	while(p) {
+		q = p->next_array;
+
+		de_dbg3(pG->c, "freeing h[] %p", (void*)p->h);
+		de_free(pG->c, p->h);
+		de_dbg3(pG->c, "freeing huftarray %p", (void*)p);
 		de_free(pG->c, p);
 		p = q;
 	}
