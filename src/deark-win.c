@@ -22,6 +22,10 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
+#define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+#endif
+
 // Windows-specific contextual data, mainly for console settings.
 struct de_platform_data {
 	HANDLE msgs_HANDLE;
