@@ -522,11 +522,16 @@ static int explode(Uz_Globs *pG)
 	unsigned r = 1;           /* return codes */
 	struct izi_htables tbls;
 	unsigned l[256];      /* bit lengths for codes */
+	int has_literal_tree;
+	int has_8k_window;
 
 	de_zeromem(&tbls, sizeof(struct izi_htables));
 	tbls.b.tblname = "B";
 	tbls.l.tblname = "L";
 	tbls.d.tblname = "D";
+
+	has_8k_window = (pG->lrec_general_purpose_bit_flag & 2) ? 1 : 0;
+	has_literal_tree = (pG->lrec_general_purpose_bit_flag & 4) ? 1 : 0;
 
 	/* Tune base table sizes.  Note: I thought that to truly optimize speed,
 	   I would have to select different bl, bd, and bb values for different
@@ -536,55 +541,37 @@ static int explode(Uz_Globs *pG)
 	tbls.l.b = 7;
 	tbls.d.b = pG->csize > 200000L ? 8 : 7;
 
-	/* With literal tree--minimum match length is 3 */
-	if (pG->lrec_general_purpose_bit_flag & 4) {
+	if (has_literal_tree) { /* With literal tree--minimum match length is 3 */
 		de_dbg3(pG->c, "table B");
 		tbls.b.b = 9;                     /* base table size for literals */
 		if ((r = get_tree(pG, l, 256)) != IZI_OK)
 			goto done;
 		if ((r = huft_build(pG, l, 256, 256, NULL, NULL, &tbls.b)) != IZI_OK)
 			goto done;
-		de_dbg3(pG->c, "table L");
-		if ((r = get_tree(pG, l, 64)) != IZI_OK)
-			goto done;
-		if ((r = huft_build(pG, l, 64, 0, izi_get_cplen3, izi_get_extra, &tbls.l)) != IZI_OK)
-			goto done;
-		de_dbg3(pG->c, "table D");
-		if ((r = get_tree(pG, l, 64)) != IZI_OK)
-			goto done;
-		if (pG->lrec_general_purpose_bit_flag & 2) {    /* true if 8K */
-			if ((r = huft_build(pG, l, 64, 0, izi_get_cpdist8, izi_get_extra, &tbls.d)) != IZI_OK)
-				goto done;
-			r = explode_internal(pG, 8, &tbls);
-		}
-		else {                                      /* else 4K */
-			if ((r = huft_build(pG, l, 64, 0, izi_get_cpdist4, izi_get_extra, &tbls.d)) != IZI_OK)
-				goto done;
-			r = explode_internal(pG, 4, &tbls);
-		}
 	}
 	else {  /* No literal tree--minimum match length is 2 */
-		de_dbg3(pG->c, "table L");
-		if ((r = get_tree(pG, l, 64)) != IZI_OK)
-			goto done;
-		if ((r = huft_build(pG, l, 64, 0, izi_get_cplen2, izi_get_extra, &tbls.l)) != IZI_OK)
-			goto done;
-		de_dbg3(pG->c, "table D");
-		if ((r = get_tree(pG, l, 64)) != IZI_OK)
-			goto done;
-		if (pG->lrec_general_purpose_bit_flag & 2) {    /* true if 8K */
-			if ((r = huft_build(pG, l, 64, 0, izi_get_cpdist8, izi_get_extra, &tbls.d)) != IZI_OK)
-				goto done;
-			tbls.b.first_array = NULL;
-			r = explode_internal(pG, 8, &tbls);
-		}
-		else {                                      /* else 4K */
-			if ((r = huft_build(pG, l, 64, 0, izi_get_cpdist4, izi_get_extra, &tbls.d)) != IZI_OK)
-				goto done;
-			tbls.b.first_array = NULL;
-			r = explode_internal(pG, 4, &tbls);
-		}
+		tbls.b.first_array = NULL;
 	}
+
+	de_dbg3(pG->c, "table L");
+	if ((r = get_tree(pG, l, 64)) != IZI_OK)
+		goto done;
+	if ((r = huft_build(pG, l, 64, 0, (has_literal_tree ? izi_get_cplen3 : izi_get_cplen2),
+		izi_get_extra, &tbls.l)) != IZI_OK)
+	{
+		goto done;
+	}
+
+	de_dbg3(pG->c, "table D");
+	if ((r = get_tree(pG, l, 64)) != IZI_OK)
+		goto done;
+	if ((r = huft_build(pG, l, 64, 0, (has_8k_window ? izi_get_cpdist8 : izi_get_cpdist4),
+		izi_get_extra, &tbls.d)) != IZI_OK)
+	{
+		goto done;
+	}
+
+	r = explode_internal(pG, (has_8k_window ? 8 : 4), &tbls);
 
 done:
 	huft_free(pG, &tbls.d);
