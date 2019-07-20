@@ -17,6 +17,9 @@
       <UniqueIdentifier>{a9e4bdc3-910a-46cc-a692-cb576c2bfd36}</UniqueIdentifier>
       <Extensions>c</Extensions>
     </Filter>
+    <Filter Include="Foreign Code">
+      <UniqueIdentifier>{5bcb6fc7-e9a5-41ff-832a-55920c3ff319}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\src\deark-bitmap.c">
@@ -463,25 +466,25 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\foreign\explode.h">
-      <Filter>Header Files</Filter>
+      <Filter>Foreign Code</Filter>
     </ClInclude>
     <ClInclude Include="..\..\foreign\liblzw.h">
-      <Filter>Header Files</Filter>
+      <Filter>Foreign Code</Filter>
     </ClInclude>
     <ClInclude Include="..\..\foreign\miniz.h">
-      <Filter>Header Files</Filter>
+      <Filter>Foreign Code</Filter>
     </ClInclude>
     <ClInclude Include="..\..\foreign\uncompface.h">
-      <Filter>Header Files</Filter>
+      <Filter>Foreign Code</Filter>
     </ClInclude>
     <ClInclude Include="..\..\foreign\unsit.h">
-      <Filter>Header Files</Filter>
+      <Filter>Foreign Code</Filter>
     </ClInclude>
     <ClInclude Include="..\..\foreign\unzoo.h">
-      <Filter>Header Files</Filter>
+      <Filter>Foreign Code</Filter>
     </ClInclude>
     <ClInclude Include="..\..\foreign\zoo-lzd.h">
-      <Filter>Header Files</Filter>
+      <Filter>Foreign Code</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
