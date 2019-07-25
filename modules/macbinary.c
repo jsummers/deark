@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_macbinary);
 
 typedef struct localctx_struct {
@@ -20,6 +21,18 @@ typedef struct localctx_struct {
 	struct de_timestamp create_time;
 	struct de_timestamp mod_time;
 } lctx;
+
+struct fork_info {
+	u8 is_rsrc;
+	u8 extract_error_flag;
+	i64 pos;
+};
+
+struct extract_ctx {
+	lctx *d;
+	struct fork_info fki_data;
+	struct fork_info fki_rsrc;
+};
 
 static const char *fork_name(int is_rsrc, int capitalize)
 {
@@ -173,68 +186,101 @@ done:
 	;
 }
 
-static void do_extract_one_file(deark *c, lctx *d, i64 pos, i64 len,
-	int is_rsrc)
+// If a fork is going to be extracted, call this to set up some things.
+// Caller must first set advfki->fork_len, among other things.
+// Sets fki->extract_error_flag if there was a problem that would prevent the
+// fork from being extracted.
+static void do_prepare_one_fork(deark *c, lctx *d, struct de_advfile_forkinfo *advfki,
+	struct fork_info *fki)
 {
-	de_finfo *fi = NULL;
-	const char *ext = NULL;
+	de_dbg(c, "%s fork at %"I64_FMT", len=%"I64_FMT, fork_name(fki->is_rsrc, 0),
+		fki->pos, advfki->fork_len);
 
-	de_dbg(c, "%s fork at %"I64_FMT", len=%"I64_FMT, fork_name(is_rsrc, 0),
-		pos, len);
-
-	if(pos+len>c->infile->len) {
+	if(fki->pos+advfki->fork_len>c->infile->len) {
 		de_err(c, "%s fork at %"I64_FMT" goes beyond end of file.",
-			fork_name(is_rsrc, 1), pos);
-		if(pos+len>c->infile->len+1024) {
+			fork_name(fki->is_rsrc, 1), fki->pos);
+		if(fki->pos+advfki->fork_len > c->infile->len+1024) {
+			fki->extract_error_flag = 1;
 			goto done;
 		}
 	}
-	fi = de_finfo_create(c);
 
 	if(d->mod_time.is_valid) {
-		fi->mod_time = d->mod_time; // struct copy
+		advfki->fi->mod_time = d->mod_time;
 	}
-
-	if(is_rsrc) {
-		de_finfo_set_name_from_ucstring(c, fi, d->filename, 0);
-		ext = "rsrc";
-	}
-	else {
-		if(d->filename) {
-			de_finfo_set_name_from_ucstring(c, fi, d->filename, 0);
-			fi->original_filename_flag = 1;
-		}
-		else {
-			ext = "data";
-		}
-	}
-
-	dbuf_create_file_from_slice(c->infile, pos, len, ext, fi, 0x0);
 
 done:
-	de_finfo_destroy(c, fi);
+	;
+}
+
+static int my_advfile_cbfn(deark *c, struct de_advfile *advf,
+	struct de_advfile_cbparams *afp)
+{
+	struct extract_ctx *ectx = (struct extract_ctx*)advf->userdata;
+
+	if(afp->whattodo == DE_ADVFILE_WRITEMAIN) {
+		dbuf_copy(c->infile, ectx->fki_data.pos, advf->mainfork.fork_len, afp->outf);
+	}
+	else if(afp->whattodo == DE_ADVFILE_WRITERSRC) {
+		dbuf_copy(c->infile, ectx->fki_rsrc.pos, advf->rsrcfork.fork_len, afp->outf);
+	}
+	return 1;
 }
 
 static void run_macbinary_internal(deark *c, lctx *d)
 {
 	i64 pos = 128;
+	struct de_advfile *advf = NULL;
+	struct extract_ctx *ectx = NULL;
+
+	ectx = de_malloc(c, sizeof(struct extract_ctx));
+	advf = de_advfile_create(c);
 
 	do_header(c, d);
+	if(ucstring_isnonempty(d->filename)) {
+		ucstring_append_ucstring(advf->filename, d->filename);
+		advf->mainfork.fi->original_filename_flag = 1;
+		advf->rsrcfork.fi->original_filename_flag = 1;
+	}
 
 	if(d->dflen>0) {
 		d->dfpos = pos;
+		ectx->fki_data.pos = d->dfpos;
+		advf->mainfork.fork_len = d->dflen;
+
 		if(d->extract_files) {
-			do_extract_one_file(c, d, d->dfpos, d->dflen, 0);
+			do_prepare_one_fork(c, d, &advf->mainfork, &ectx->fki_data);
+			if(!ectx->fki_data.extract_error_flag) {
+				advf->mainfork.fork_exists = 1;
+			}
 		}
+
 		pos += de_pad_to_n(d->dflen, 128);
 	}
 
 	if(d->rflen>0) {
 		d->rfpos = pos;
+
+		ectx->fki_rsrc.is_rsrc = 1;
+		ectx->fki_rsrc.pos = d->rfpos;
+		advf->rsrcfork.fork_len = d->rflen;
+
 		if(d->extract_files) {
-			do_extract_one_file(c, d, pos, d->rflen, 1);
+			do_prepare_one_fork(c, d, &advf->rsrcfork, &ectx->fki_rsrc);
+			if(!ectx->fki_rsrc.extract_error_flag) {
+				advf->rsrcfork.fork_exists = 1;
+			}
 		}
 	}
+
+	if(d->extract_files) {
+		advf->userdata = (void*)ectx;
+		advf->writefork_cbfn = my_advfile_cbfn;
+		de_advfile_run(advf);
+	}
+
+	de_advfile_destroy(advf);
+	de_free(c, ectx);
 }
 
 static void de_run_macbinary(deark *c, de_module_params *mparams)
