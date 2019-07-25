@@ -336,18 +336,18 @@ void de_free_utf8_args(int argc, char **argv)
 	de_free(NULL, argv);
 }
 
-struct de_platform_data *de_platformdata_create(deark *c)
+struct de_platform_data *de_platformdata_create(void)
 {
 	struct de_platform_data *plctx;
 
-	plctx = de_malloc(c, sizeof(struct de_platform_data));
+	plctx = de_malloc(NULL, sizeof(struct de_platform_data));
 	return plctx;
 }
 
-void de_platformdata_destroy(deark *c, struct de_platform_data *plctx)
+void de_platformdata_destroy(struct de_platform_data *plctx)
 {
 	if(!plctx) return;
-	de_free(c, plctx);
+	de_free(NULL, plctx);
 }
 
 // Set the plctx->msgs_HANDLE field, for later use.

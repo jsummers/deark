@@ -92,8 +92,8 @@ void de_set_disable_mods(deark *c, const char *s, int invert);
 void de_set_disable_moddetect(deark *c, const char *s, int invert);
 
 struct de_platform_data;
-struct de_platform_data *de_platformdata_create(deark *c);
-void de_platformdata_destroy(deark *c, struct de_platform_data *plctx);
+struct de_platform_data *de_platformdata_create(void);
+void de_platformdata_destroy(struct de_platform_data *plctx);
 
 #ifdef DE_WINDOWS
 void de_utf8_to_oem(deark *c, const char *src, char *dst, size_t dstlen);

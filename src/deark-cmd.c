@@ -766,15 +766,15 @@ static void main2(int argc, char **argv)
 	deark *c = NULL;
 	struct cmdctx *cc = NULL;
 
+	cc = de_malloc(NULL, sizeof(struct cmdctx));
 	c = de_create();
-	cc = de_malloc(c, sizeof(struct cmdctx));
 	cc->c = c;
 
 	de_set_userdata(c, (void*)cc);
 	de_set_fatalerror_callback(c, our_fatalerrorfn);
 	de_set_messages_callback(c, our_msgfn);
 	de_set_special_messages_callback(c, our_specialmsgfn);
-	cc->plctx = de_platformdata_create(c);
+	cc->plctx = de_platformdata_create();
 
 	if(argc<2) { // Empty command line
 		show_help(c);
@@ -811,9 +811,10 @@ static void main2(int argc, char **argv)
 	de_run(c);
 
 done:
-	de_platformdata_destroy(c, cc->plctx);
-	de_free(c, cc);
 	de_destroy(c);
+	de_platformdata_destroy(cc->plctx);
+	cc->plctx = NULL;
+	de_free(NULL, cc);
 }
 
 #ifdef DE_WINDOWS
