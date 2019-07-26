@@ -562,6 +562,9 @@ Deark -- Information about supported formats
 * AppleDouble Header file (module="appledouble")
   These files usually have names beginning with "._".
   - Extract resource fork.
+  Options
+   -opt appledouble:extractrsrc=0 - Instead of extracting the resource fork,
+     attempt to decode it.
 
 * Apple Partition Map (module="apm") (experimental)
 

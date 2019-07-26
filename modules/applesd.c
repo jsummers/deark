@@ -12,6 +12,7 @@ DE_DECLARE_MODULE(de_module_appledouble);
 
 typedef struct localctx_struct {
 	u32 version;
+	int extract_rsrc;
 	struct de_timestamp modtime;
 	de_ucstring *real_name;
 } lctx;
@@ -41,7 +42,11 @@ static void read_pascal_string(deark *c, lctx *d, de_ucstring *s, i64 pos, i64 l
 
 	if(len<1) goto done;
 	slen = (i64)de_getbyte(pos);
-	if(slen<1 || slen > (len-1)) goto done;
+	if(slen<1) goto done;
+	if(slen>(len-1)) {
+		de_warn(c, "Oversize string (need %d bytes, have %d)", (int)(1+slen), (int)len);
+		goto done;
+	}
 	dbuf_read_to_ucstring(c->infile, pos+1, slen, s, 0, DE_ENCODING_MACROMAN);
 done:
 	;
@@ -52,6 +57,10 @@ static void handler_string(deark *c, lctx *d, struct entry_struct *e)
 	de_ucstring *s = NULL;
 
 	s = ucstring_create(c);
+
+	// TODO: What is the format of the "Real name" and "Comment" fields?
+	// The spec does not seem to say.
+
 	read_pascal_string(c, d, s, e->offset, e->length);
 	de_dbg(c, "%s: \"%s\"", e->eid->name, ucstring_getpsz_d(s));
 
@@ -244,7 +253,7 @@ static void handler_data(deark *c, lctx *d, struct entry_struct *e)
 	de_finfo_destroy(c, fi);
 }
 
-static void handler_rsrc(deark *c, lctx *d, struct entry_struct *e)
+static void do_extract_rsrc(deark *c, lctx *d, struct entry_struct *e)
 {
 	de_finfo *fi = NULL;
 	de_ucstring *fname = NULL;
@@ -271,6 +280,25 @@ static void handler_rsrc(deark *c, lctx *d, struct entry_struct *e)
 done:
 	de_finfo_destroy(c, fi);
 	ucstring_destroy(fname);
+}
+
+static void do_decode_rsrc(deark *c, lctx *d, struct entry_struct *e)
+{
+	de_dbg(c, "decoding as resource format");
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice2(c, "macrsrc", NULL, c->infile,
+		e->offset, e->length);
+	de_dbg_indent(c, -1);
+}
+
+static void handler_rsrc(deark *c, lctx *d, struct entry_struct *e)
+{
+	if(d->extract_rsrc) {
+		do_extract_rsrc(c, d, e);
+	}
+	else {
+		do_decode_rsrc(c, d, e);
+	}
 }
 
 static const struct entry_id_struct entry_id_arr[] = {
@@ -344,7 +372,10 @@ static void de_run_sd_internal(deark *c, lctx *d)
 	pos += 4; // signature
 	d->version = (u32)de_getu32be_p(&pos);
 	de_dbg(c, "version: 0x%08x", (unsigned int)d->version);
-	pos += 16; // filler
+
+	// For v1, this field is "Home file system" (TODO: Decode this.)
+	// For v2, it is unused.
+	pos += 16;
 
 	nentries = de_getu16be_p(&pos);
 	de_dbg(c, "number of entries: %d", (int)nentries);
@@ -381,6 +412,7 @@ static void de_run_appledouble(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->extract_rsrc = de_get_ext_option_bool(c, "appledouble:extractrsrc", 1);
 	de_run_sd_internal(c, d);
 	de_free(c, d);
 }
@@ -405,6 +437,7 @@ static void de_run_applesingle(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->extract_rsrc = 1;
 	de_run_sd_internal(c, d);
 	de_free(c, d);
 }
