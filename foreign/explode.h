@@ -65,17 +65,23 @@ struct ui6a_htables {
 struct ui6a_ctx_struct;
 typedef struct ui6a_ctx_struct ui6a_ctx;
 
+typedef int (*ui6a_cb_readbyte_type)(ui6a_ctx *ui6a);
+typedef void (*ui6a_cb_flush_type)(ui6a_ctx *ui6a, uch *rawbuf, ulg size);
 typedef void (*ui6a_cb_post_read_trees_type)(ui6a_ctx *ui6a, struct ui6a_htables *tbls);
 
 struct ui6a_ctx_struct {
+	void *userdata;
 	i64 csize;           /* used by decompr. (UI6A_NEXTBYTE): must be signed */
 	i64 ucsize;          /* used by unReduce(), explode() */
 	ush lrec_general_purpose_bit_flag;
-	void *userdata;
-	dbuf *inf;
-	i64 inf_curpos;
-	i64 inf_endpos;
-	dbuf *outf;
+
+	// Originally:
+	/* refill inbuf and return a byte if available, else EOF */
+	// Currently, we don't bother with ui6a->inbuf, though that would be more
+	// efficient. The UI6A_NEXTBYTE macro has been modified to not use inbuf.
+	ui6a_cb_readbyte_type cb_readbyte;
+
+	ui6a_cb_flush_type cb_flush;
 	ui6a_cb_post_read_trees_type cb_post_read_trees;
 	uch Slide[UI6A_WSIZE];
 };
@@ -89,32 +95,11 @@ static int ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n,
 	unsigned s, ui6a_len_or_dist_getter d_fn, ui6a_len_or_dist_getter e_fn,
 	struct ui6a_htable *tbl);
 
-#define UI6A_NEXTBYTE  ui6a_readbyte(ui6a)
+#define UI6A_NEXTBYTE  (ui6a->cb_readbyte(ui6a))
 
 //========================= unzpriv.h end =========================
 
 //========================= unzip.h end =========================
-
-//========================= fileio.c begin =========================
-
-static void ui6a_flush(ui6a_ctx *ui6a, uch *rawbuf, ulg size)
-{
-	dbuf_write(ui6a->outf, rawbuf, size);
-}
-
-// Originally:
-/* refill inbuf and return a byte if available, else EOF */
-// Currently, we don't bother with ui6a->inbuf, though that would be more
-// efficient. The UI6A_NEXTBYTE macro has been modified to not use inbuf.
-static int ui6a_readbyte(ui6a_ctx *ui6a)
-{
-	if(ui6a->inf_curpos >= ui6a->inf_endpos) {
-		return EOF;
-	}
-	return (int)dbuf_getbyte(ui6a->inf, ui6a->inf_curpos++);
-}
-
-//========================= fileio.c end =========================
 
 //========================= consts.h begin =========================
 
@@ -397,7 +382,7 @@ static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 				ui6a->Slide[w++] = (uch)b;
 			}
 			if (w == UI6A_WSIZE) {
-				ui6a_flush(ui6a, ui6a->Slide, (ulg)w);
+				ui6a->cb_flush(ui6a, ui6a->Slide, (ulg)w);
 				w = u = 0;
 			}
 			if(!tbls->b.first_array) {
@@ -490,7 +475,7 @@ static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 					}
 				}
 				if (w == UI6A_WSIZE) {
-					ui6a_flush(ui6a, ui6a->Slide, (ulg)w);
+					ui6a->cb_flush(ui6a, ui6a->Slide, (ulg)w);
 					w = u = 0;
 				}
 			} while (n);
@@ -498,7 +483,7 @@ static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 	}
 
 	/* flush out ui6a->Slide */
-	ui6a_flush(ui6a, ui6a->Slide, (ulg)w);
+	ui6a->cb_flush(ui6a, ui6a->Slide, (ulg)w);
 done:
 	return 0;
 }

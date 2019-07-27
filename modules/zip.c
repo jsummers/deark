@@ -90,6 +90,10 @@ static int is_compression_method_supported(lctx *d, int cmpr_method)
 
 struct zipexpl_userdata_type {
 	deark *c;
+	dbuf *inf;
+	i64 inf_curpos;
+	i64 inf_endpos;
+	dbuf *outf;
 	int dumptrees;
 };
 
@@ -147,6 +151,23 @@ static void zipexpl_huft_dump(struct zipexpl_userdata_type *zu, struct ui6a_htab
 	de_dbg_indent(c, -1);
 }
 
+static int my_zipexpl_readbyte(ui6a_ctx *ui6a)
+{
+	struct zipexpl_userdata_type *zu = (struct zipexpl_userdata_type *)ui6a->userdata;
+
+	if(zu->inf_curpos >= zu->inf_endpos) {
+		return EOF;
+	}
+	return (int)dbuf_getbyte(zu->inf, zu->inf_curpos++);
+}
+
+static void my_zipexpl_flush(ui6a_ctx *ui6a, uch *rawbuf, ulg size)
+{
+	struct zipexpl_userdata_type *zu = (struct zipexpl_userdata_type *)ui6a->userdata;
+
+	dbuf_write(zu->outf, rawbuf, size);
+}
+
 static void my_zipexpl_cb_post_read_trees(ui6a_ctx *ui6a, struct ui6a_htables *tbls)
 {
 	struct zipexpl_userdata_type *zu = (struct zipexpl_userdata_type *)ui6a->userdata;
@@ -169,6 +190,10 @@ static int do_decompress_implode(deark *c, lctx *d, struct member_data *md,
 	de_zeromem(&zu, sizeof(struct zipexpl_userdata_type));
 	zu.c = c;
 	zu.dumptrees = de_get_ext_option_bool(c, "zip:dumptrees", 0);
+	zu.inf = inf;
+	zu.inf_curpos = inf_pos;
+	zu.inf_endpos = inf_pos + inf_size;
+	zu.outf = outf;
 
 	ui6a = ui6a_create((void*)&zu);
 	if(!ui6a) goto done;
@@ -177,10 +202,8 @@ static int do_decompress_implode(deark *c, lctx *d, struct member_data *md,
 	ui6a->csize = inf_size;
 	ui6a->lrec_general_purpose_bit_flag = md->local_dir_entry_data.bit_flags;
 
-	ui6a->inf = inf;
-	ui6a->inf_curpos = inf_pos;
-	ui6a->inf_endpos = inf_pos + inf_size;
-	ui6a->outf = outf;
+	ui6a->cb_readbyte = my_zipexpl_readbyte;
+	ui6a->cb_flush =  my_zipexpl_flush;
 	ui6a->cb_post_read_trees = my_zipexpl_cb_post_read_trees;
 
 	ui6a_explode(ui6a);
