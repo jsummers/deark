@@ -6,6 +6,13 @@
 // your option, be distributed under the same terms as the main Deark software.
 // -JS
 
+#ifndef UI6A_CALLOC
+#define UI6A_CALLOC(u, nmemb, size) calloc(nmemb, size)
+#endif
+#ifndef UI6A_FREE
+#define UI6A_FREE(u, ptr) free(ptr)
+#endif
+
 //========================= unzip.h begin =========================
 
 typedef unsigned char   uch;    /* code assumes unsigned bytes; these type-  */
@@ -65,7 +72,6 @@ struct ui6a_Globals {
 	i64 ucsize;          /* used by unReduce(), explode() */
 	ush lrec_general_purpose_bit_flag;
 	void *userdata;
-	deark *c;
 	dbuf *inf;
 	i64 inf_curpos;
 	i64 inf_endpos;
@@ -239,16 +245,6 @@ static ush izi_get_cpdist8(unsigned int i)
 #define NEEDBITS(n) do {while(k<(n)){b|=((ulg)NEXTBYTE)<<k;k+=8;}} while(0)
 #define DUMPBITS(n) do {b>>=(n);k-=(n);} while(0)
 
-static void izi_fatal(Uz_Globs *pG)
-{
-	deark *c;
-
-	if(pG) c = pG->c;
-	else c = NULL;
-	de_err(c, "zip/implode internal error");
-	de_fatalerror(c);
-}
-
 struct iarray {
 	size_t count;
 	int *data;
@@ -281,18 +277,14 @@ static void iarray_setval(struct iarray *a, size_t idx, int val)
 {
 	if(idx<a->count) {
 		a->data[idx] = val;
-		return;
 	}
-	izi_fatal(a->pG);
 }
 
 static void uarray_setval(struct uarray *a, size_t idx, unsigned int val)
 {
 	if(idx<a->count) {
 		a->data[idx] = val;
-		return;
 	}
-	izi_fatal(a->pG);
 }
 
 static int iarray_getval(struct iarray *a, size_t idx)
@@ -300,7 +292,6 @@ static int iarray_getval(struct iarray *a, size_t idx)
 	if(idx<a->count) {
 		return a->data[idx];
 	}
-	izi_fatal(a->pG);
 	return 0;
 }
 
@@ -309,7 +300,6 @@ static unsigned int uarray_getval(struct uarray *a, size_t idx)
 	if(idx<a->count) {
 		return a->data[idx];
 	}
-	izi_fatal(a->pG);
 	return 0;
 }
 
@@ -548,7 +538,6 @@ static int explode(Uz_Globs *pG)
 	tbls.d.b = pG->csize > 200000L ? 8 : 7;
 
 	if (has_literal_tree) { /* With literal tree--minimum match length is 3 */
-		de_dbg3(pG->c, "table B");
 		tbls.b.b = 9;                     /* base table size for literals */
 		if ((r = get_tree(pG, l, 256)) != IZI_OK)
 			goto done;
@@ -559,7 +548,6 @@ static int explode(Uz_Globs *pG)
 		tbls.b.first_array = NULL;
 	}
 
-	de_dbg3(pG->c, "table L");
 	if ((r = get_tree(pG, l, 64)) != IZI_OK)
 		goto done;
 	if ((r = huft_build(pG, l, 64, 0, (has_literal_tree ? izi_get_cplen3 : izi_get_cplen2),
@@ -568,7 +556,6 @@ static int explode(Uz_Globs *pG)
 		goto done;
 	}
 
-	de_dbg3(pG->c, "table D");
 	if ((r = get_tree(pG, l, 64)) != IZI_OK)
 		goto done;
 	if ((r = huft_build(pG, l, 64, 0, (has_8k_window ? izi_get_cpdist8 : izi_get_cpdist4),
@@ -772,12 +759,19 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 				iarray_setval(&lx_arr, 1+ (size_t)h, j);               /* set table size in stack */
 
 				/* allocate and link in new table */
-				ha = de_malloc(pG->c, sizeof(struct huftarray));
-				ha->h = de_mallocarray(pG->c, (i64)z + HUFT_ARRAY_OFFSET, sizeof(struct huft));
+				ha = UI6A_CALLOC(pG->userdata, 1, sizeof(struct huftarray));
+				if(!ha) {
+					retval = IZI_ERR3;
+					goto done;
+				}
+				ha->h = UI6A_CALLOC(pG->userdata, (size_t)((i64)z + HUFT_ARRAY_OFFSET), sizeof(struct huft));
+				if(!ha->h) {
+					UI6A_FREE(pG->userdata, ha);
+					retval = IZI_ERR3;
+					goto done;
+				}
 				ha->num_alloc_h = z + HUFT_ARRAY_OFFSET;
 				q = ha->h;
-				de_dbg3(pG->c, "malloc'd %p", (void*)q);
-				de_dbg3(pG->c, "malloc'd huftarray %p", (void*)ha);
 				*loc_of_prev_next_ha_ptr = ha;             /* link to list for huft_free() */
 				loc_of_prev_next_ha_ptr = &ha->next_array;
 				*loc_of_prev_next_ha_ptr = NULL;
@@ -860,10 +854,8 @@ static void huft_free(Uz_Globs *pG, struct izi_htable *tbl)
 	while(p) {
 		q = p->next_array;
 
-		de_dbg3(pG->c, "freeing h[] %p", (void*)p->h);
-		de_free(pG->c, p->h);
-		de_dbg3(pG->c, "freeing huftarray %p", (void*)p);
-		de_free(pG->c, p);
+		UI6A_FREE(pG->userdata, p->h);
+		UI6A_FREE(pG->userdata, p);
 		p = q;
 	}
 }
@@ -872,9 +864,10 @@ static void huft_free(Uz_Globs *pG, struct izi_htable *tbl)
 
 //========================= globals.c begin =========================
 
-static Uz_Globs *globalsCtor(deark *c, void *userdata)
+static Uz_Globs *globalsCtor(void *userdata)
 {
-	Uz_Globs *pG = de_malloc(c, sizeof(Uz_Globs));
+	Uz_Globs *pG = UI6A_CALLOC(userdata, 1, sizeof(Uz_Globs));
+	if(!pG) return NULL;
 	pG->userdata = userdata;
 	return pG;
 }
@@ -882,10 +875,7 @@ static Uz_Globs *globalsCtor(deark *c, void *userdata)
 // New function, replaces the DESTROYGLOBALS() macro
 static void globalsDtor(Uz_Globs *pG)
 {
-	deark *c;
-	if(!pG) return;
-	c = pG->c;
-	de_free(c, pG);
+	UI6A_FREE(pG->userdata, pG);
 }
 
 //========================= globals.c end =========================

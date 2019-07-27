@@ -8,6 +8,10 @@
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 
+static void *zipexpl_calloc(void *userdata, size_t nmemb, size_t size);
+static void zipexpl_free(void *userdata, void *ptr);
+#define UI6A_CALLOC zipexpl_calloc
+#define UI6A_FREE zipexpl_free
 #include "../foreign/explode.h"
 
 DE_DECLARE_MODULE(de_module_zip);
@@ -89,16 +93,28 @@ struct zipexpl_userdata_type {
 	int dumptrees;
 };
 
-static void zipexpl_huft_dump1(Uz_Globs *pG, struct huft *t, unsigned int idx)
+static void *zipexpl_calloc(void *userdata, size_t nmemb, size_t size)
 {
-	de_dbg(pG->c, "[%u:%p] e=%u b=%u n=%u t=%p",
+	deark *c = ((struct zipexpl_userdata_type *)userdata)->c;
+	return de_mallocarray(c, (i64)nmemb, size);
+}
+
+static void zipexpl_free(void *userdata, void *ptr)
+{
+	deark *c = ((struct zipexpl_userdata_type *)userdata)->c;
+	de_free(c, ptr);
+}
+
+static void zipexpl_huft_dump1(struct zipexpl_userdata_type *zu, struct huft *t, unsigned int idx)
+{
+	de_dbg(zu->c, "[%u:%p] e=%u b=%u n=%u t=%p",
 		idx, (void*)t, (unsigned int)t->e, (unsigned int)t->b,
 		(unsigned int)t->n, (void*)t->t_arr);
 }
 
-static void zipexpl_huft_dump(Uz_Globs *pG, struct izi_htable *tbl)
+static void zipexpl_huft_dump(struct zipexpl_userdata_type *zu, struct izi_htable *tbl)
 {
-	deark *c = pG->c;
+	deark *c = zu->c;
 	struct huftarray *t = tbl->first_array;
 	struct huftarray *p = t;
 
@@ -121,7 +137,7 @@ static void zipexpl_huft_dump(Uz_Globs *pG, struct izi_htable *tbl)
 		de_dbg_indent(c, 1);
 		de_dbg(c, "count=%u", p->num_alloc_h);
 		for(k=0; k<p->num_alloc_h; k++) {
-			zipexpl_huft_dump1(pG, &p->h[k], k);
+			zipexpl_huft_dump1(zu, &p->h[k], k);
 		}
 		de_dbg_indent(c, -1);
 
@@ -136,9 +152,9 @@ static void my_zipexpl_cb_post_read_trees(Uz_Globs *pG, struct izi_htables *tbls
 	struct zipexpl_userdata_type *zu = (struct zipexpl_userdata_type *)pG->userdata;
 
 	if(zu->dumptrees) {
-		zipexpl_huft_dump(pG, &tbls->d);
-		zipexpl_huft_dump(pG, &tbls->l);
-		zipexpl_huft_dump(pG, &tbls->b);
+		zipexpl_huft_dump(zu, &tbls->d);
+		zipexpl_huft_dump(zu, &tbls->l);
+		zipexpl_huft_dump(zu, &tbls->b);
 	}
 }
 
@@ -147,15 +163,16 @@ static int do_decompress_implode(deark *c, lctx *d, struct member_data *md,
 {
 	Uz_Globs *pG = NULL;
 	struct zipexpl_userdata_type zu;
+	int retval = 0;
 
-	if(!md) return 0;
+	if(!md) goto done;
 	de_zeromem(&zu, sizeof(struct zipexpl_userdata_type));
 	zu.c = c;
 	zu.dumptrees = de_get_ext_option_bool(c, "zip:dumptrees", 0);
 
-	pG = globalsCtor(c, (void*)&zu);
+	pG = globalsCtor((void*)&zu);
+	if(!pG) goto done;
 
-	pG->c = c;
 	pG->ucsize = md->uncmpr_size;
 	pG->csize = inf_size;
 	pG->lrec_general_purpose_bit_flag = md->local_dir_entry_data.bit_flags;
@@ -169,8 +186,12 @@ static int do_decompress_implode(deark *c, lctx *d, struct member_data *md,
 	explode(pG);
 	// TODO: How is failure reported?
 
-	globalsDtor(pG);
-	return 1;
+	retval = 1;
+done:
+	if(pG) {
+		globalsDtor(pG);
+	}
+	return retval;
 }
 
 static int do_decompress_deflate(deark *c, lctx *d,
