@@ -6,18 +6,32 @@
 // your option, be distributed under the same terms as the main Deark software.
 // -JS
 
+#ifndef UI6A_UINT8
+#define UI6A_UINT8   unsigned char
+#endif
+#ifndef UI6A_UINT16
+#define UI6A_UINT16  uint16_t
+#endif
+#ifndef UI6A_UINT32
+#define UI6A_UINT32  uint32_t
+#endif
+#ifndef UI6A_INT64
+#define UI6A_INT64   int64_t
+#endif
 #ifndef UI6A_CALLOC
 #define UI6A_CALLOC(u, nmemb, size) calloc(nmemb, size)
 #endif
 #ifndef UI6A_FREE
 #define UI6A_FREE(u, ptr) free(ptr)
 #endif
+#ifndef UI6A_MEMCPY
+#define UI6A_MEMCPY memcpy
+#endif
+#ifndef UI6A_ZEROMEM
+#define UI6A_ZEROMEM(ptr, size) memset((ptr), 0, (size))
+#endif
 
 //========================= unzip.h begin =========================
-
-typedef unsigned char   uch;    /* code assumes unsigned bytes; these type-  */
-typedef u16   ush;    /*  defs replace byte/UWORD/ULONG (which are */
-typedef u32   ulg;    /*  predefined on some systems) & match zip  */
 
 #define UI6A_OK   0
 #define UI6A_ERR1 1
@@ -25,20 +39,20 @@ typedef u32   ulg;    /*  predefined on some systems) & match zip  */
 #define UI6A_ERR3 3
 #define UI6A_ERR4 4
 
+#define UI6A_ARRAYSIZE(x)  (sizeof(x)/sizeof((x)[0]))
+
 //========================= unzpriv.h begin =========================
 
 #define UI6A_WSIZE 0x8000  /* window size--must be a power of two, and */
                       /* at least 8K for zip's implode method */
                       /* (at least 32K for zip's deflate method) */
 
-#define HUFT_ARRAY_OFFSET 0
-
 struct ui6a_huftarray;
 
 struct ui6a_huft {
-	uch e;                /* number of extra bits or operation */
-	uch b;                /* number of bits in this code or subcode */
-	ush n;            /* literal, length base, or distance base */
+	UI6A_UINT8 e;                /* number of extra bits or operation */
+	UI6A_UINT8 b;                /* number of bits in this code or subcode */
+	UI6A_UINT16 n;            /* literal, length base, or distance base */
 	struct ui6a_huftarray *t_arr;   /* pointer to next level of table */
 };
 
@@ -66,14 +80,14 @@ struct ui6a_ctx_struct;
 typedef struct ui6a_ctx_struct ui6a_ctx;
 
 typedef int (*ui6a_cb_readbyte_type)(ui6a_ctx *ui6a);
-typedef void (*ui6a_cb_flush_type)(ui6a_ctx *ui6a, uch *rawbuf, ulg size);
+typedef void (*ui6a_cb_flush_type)(ui6a_ctx *ui6a, UI6A_UINT8 *rawbuf, UI6A_UINT32 size);
 typedef void (*ui6a_cb_post_read_trees_type)(ui6a_ctx *ui6a, struct ui6a_htables *tbls);
 
 struct ui6a_ctx_struct {
 	void *userdata;
-	i64 csize;           /* used by decompr. (UI6A_NEXTBYTE): must be signed */
-	i64 ucsize;          /* used by unReduce(), explode() */
-	ush lrec_general_purpose_bit_flag;
+	UI6A_INT64 csize;           /* used by decompr. (UI6A_NEXTBYTE): must be signed */
+	UI6A_INT64 ucsize;          /* used by unReduce(), explode() */
+	UI6A_UINT16 lrec_general_purpose_bit_flag;
 
 	// Originally:
 	/* refill inbuf and return a byte if available, else EOF */
@@ -83,12 +97,12 @@ struct ui6a_ctx_struct {
 
 	ui6a_cb_flush_type cb_flush;
 	ui6a_cb_post_read_trees_type cb_post_read_trees;
-	uch Slide[UI6A_WSIZE];
+	UI6A_UINT8 Slide[UI6A_WSIZE];
 };
 
 //========================= globals.h end =========================
 
-typedef ush (*ui6a_len_or_dist_getter)(unsigned int i);
+typedef UI6A_UINT16 (*ui6a_len_or_dist_getter)(unsigned int i);
 
 static void ui6a_huft_free(ui6a_ctx *ui6a, struct ui6a_htable *tbl);
 static int ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n,
@@ -103,10 +117,10 @@ static int ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n,
 
 //========================= consts.h begin =========================
 
-static ush ui6a_get_mask_bits(unsigned int n)
+static UI6A_UINT16 ui6a_get_mask_bits(unsigned int n)
 {
 	if(n>=17) return 0;
-	return (ush)(0xffffU >> (16-n));
+	return (UI6A_UINT16)(0xffffU >> (16-n));
 }
 
 //========================= consts.h end =========================
@@ -175,38 +189,38 @@ static ush ui6a_get_mask_bits(unsigned int n)
    buffer of inflate is used, and it works just as well to always have
    a 32K circular buffer, so the index is anded with 0x7fff.  This is
    done to allow the window to also be used as the output buffer. */
-/* This must be supplied in an external module useable like "uch slide[8192];"
-   or "uch *slide;", where the latter would be malloc'ed.  In unzip, slide[]
+/* This must be supplied in an external module useable like "UI6A_UINT8 slide[8192];"
+   or "UI6A_UINT8 *slide;", where the latter would be malloc'ed.  In unzip, slide[]
    is actually a 32K area for use by inflate, which uses a 32K sliding window.
  */
 
 
 /* (virtual) Tables for length and distance */
 
-static ush ui6a_get_cplen2(unsigned int i)
+static UI6A_UINT16 ui6a_get_cplen2(unsigned int i)
 {
 	if(i>=64) return 0;
 	return i+2;
 }
 
-static ush ui6a_get_cplen3(unsigned int i)
+static UI6A_UINT16 ui6a_get_cplen3(unsigned int i)
 {
 	if(i>=64) return 0;
 	return i+3;
 }
 
-static ush ui6a_get_extra(unsigned int i)
+static UI6A_UINT16 ui6a_get_extra(unsigned int i)
 {
 	return (i==63) ? 8 : 0;
 }
 
-static ush ui6a_get_cpdist4(unsigned int i)
+static UI6A_UINT16 ui6a_get_cpdist4(unsigned int i)
 {
 	if(i>=64) return 0;
 	return 1 + i*64;
 }
 
-static ush ui6a_get_cpdist8(unsigned int i)
+static UI6A_UINT16 ui6a_get_cpdist8(unsigned int i)
 {
 	if(i>=64) return 0;
 	return 1 + i*128;
@@ -225,7 +239,7 @@ static ush ui6a_get_cpdist8(unsigned int i)
    variables for speed.
  */
 
-#define UI6A_NEEDBITS(n) do {while(k<(n)){b|=((ulg)UI6A_NEXTBYTE)<<k;k+=8;}} while(0)
+#define UI6A_NEEDBITS(n) do {while(k<(n)){b|=((UI6A_UINT32)UI6A_NEXTBYTE)<<k;k+=8;}} while(0)
 #define UI6A_DUMPBITS(n) do {b>>=(n);k-=(n);} while(0)
 
 struct ui6a_iarray {
@@ -242,7 +256,7 @@ struct ui6a_uarray {
 
 static void ui6a_iarray_init(ui6a_ctx *ui6a, struct ui6a_iarray *a, int *data, size_t count)
 {
-	de_zeromem(data, count * sizeof(int));
+	UI6A_ZEROMEM(data, count * sizeof(int));
 	a->data = data;
 	a->count = count;
 	a->ui6a = ui6a;
@@ -250,7 +264,7 @@ static void ui6a_iarray_init(ui6a_ctx *ui6a, struct ui6a_iarray *a, int *data, s
 
 static void ui6a_uarray_init(ui6a_ctx *ui6a, struct ui6a_uarray *a, unsigned int *data, size_t count)
 {
-	de_zeromem(data, count * sizeof(unsigned int));
+	UI6A_ZEROMEM(data, count * sizeof(unsigned int));
 	a->data = data;
 	a->count = count;
 	a->ui6a = ui6a;
@@ -313,18 +327,15 @@ static int ui6a_get_tree(ui6a_ctx *ui6a, unsigned *l, unsigned n)
 	return k != n ? UI6A_ERR4 : UI6A_OK;                /* should have read n of them */
 }
 
-static struct ui6a_huft *ui6a_huftarr_plus_offset(struct ui6a_huftarray *ha, ulg offset)
+static struct ui6a_huft *ui6a_huftarr_plus_offset(struct ui6a_huftarray *ha, UI6A_UINT32 offset)
 {
-	ulg real_offset;
-
-	real_offset = HUFT_ARRAY_OFFSET+offset;
-	if(real_offset >= ha->num_alloc_h) {
+	if(offset >= ha->num_alloc_h) {
 		return NULL;
 	}
-	return &(ha->h[real_offset]);
+	return &(ha->h[offset]);
 }
 
-static struct ui6a_huft *ui6a_follow_huft_ptr(struct ui6a_huft *h1, ulg offset)
+static struct ui6a_huft *ui6a_follow_huft_ptr(struct ui6a_huft *h1, UI6A_UINT32 offset)
 {
 	return ui6a_huftarr_plus_offset(h1->t_arr, offset);
 }
@@ -335,13 +346,13 @@ static struct ui6a_huft *ui6a_follow_huft_ptr(struct ui6a_huft *h1, ulg offset)
 static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 	struct ui6a_htables *tbls)
 {
-	i64 s;               /* bytes to decompress */
+	UI6A_INT64 s;               /* bytes to decompress */
 	unsigned e;  /* table entry flag/number of extra bits */
 	unsigned n, d;        /* length and index for copy */
 	unsigned w;           /* current window position */
 	struct ui6a_huft *t;       /* pointer to table entry */
 	unsigned mb, ml, md;  /* masks for bb, bl, and bd bits */
-	ulg b;       /* bit buffer */
+	UI6A_UINT32 b;       /* bit buffer */
 	unsigned k;  /* number of bits in bit buffer */
 	unsigned u;           /* true if unflushed */
 
@@ -375,14 +386,14 @@ static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 					} while (e > 16);
 				}
 				UI6A_DUMPBITS(t->b);
-				ui6a->Slide[w++] = (uch)t->n;
+				ui6a->Slide[w++] = (UI6A_UINT8)t->n;
 			}
 			else {
 				UI6A_NEEDBITS(8);
-				ui6a->Slide[w++] = (uch)b;
+				ui6a->Slide[w++] = (UI6A_UINT8)b;
 			}
 			if (w == UI6A_WSIZE) {
-				ui6a->cb_flush(ui6a, ui6a->Slide, (ulg)w);
+				ui6a->cb_flush(ui6a, ui6a->Slide, (UI6A_UINT32)w);
 				w = u = 0;
 			}
 			if(!tbls->b.first_array) {
@@ -454,7 +465,7 @@ static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 				n -= e;
 				if (u && w <= d) {
 					if(w+e > UI6A_WSIZE) goto done;
-					de_zeromem(&ui6a->Slide[w], e);
+					UI6A_ZEROMEM(&ui6a->Slide[w], e);
 					w += e;
 					d += e;
 				}
@@ -462,7 +473,7 @@ static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 					if (w - d >= e) {     /* (this test assumes unsigned comparison) */
 						if(w+e > UI6A_WSIZE) goto done;
 						if(d+e > UI6A_WSIZE) goto done;
-						de_memcpy(&ui6a->Slide[w], &ui6a->Slide[d], e);
+						UI6A_MEMCPY(&ui6a->Slide[w], &ui6a->Slide[d], e);
 						w += e;
 						d += e;
 					}
@@ -475,7 +486,7 @@ static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 					}
 				}
 				if (w == UI6A_WSIZE) {
-					ui6a->cb_flush(ui6a, ui6a->Slide, (ulg)w);
+					ui6a->cb_flush(ui6a, ui6a->Slide, (UI6A_UINT32)w);
 					w = u = 0;
 				}
 			} while (n);
@@ -483,7 +494,7 @@ static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 	}
 
 	/* flush out ui6a->Slide */
-	ui6a->cb_flush(ui6a, ui6a->Slide, (ulg)w);
+	ui6a->cb_flush(ui6a, ui6a->Slide, (UI6A_UINT32)w);
 done:
 	return 0;
 }
@@ -504,7 +515,7 @@ static int ui6a_explode(ui6a_ctx *ui6a)
 	int has_literal_tree;
 	int has_8k_window;
 
-	de_zeromem(&tbls, sizeof(struct ui6a_htables));
+	UI6A_ZEROMEM(&tbls, sizeof(struct ui6a_htables));
 	tbls.b.tblname = "B";
 	tbls.l.tblname = "L";
 	tbls.d.tblname = "D";
@@ -572,7 +583,7 @@ done:
    version c16b, 29 March 1998 */
 
 
-/* If UI6A_BMAX needs to be larger than 16, then h and x[] should be ulg. */
+/* If UI6A_BMAX needs to be larger than 16, then h and x[] should be UI6A_UINT32. */
 #define UI6A_BMAX 16         /* maximum bit length of any code (16 for explode) */
 #define UI6A_N_MAX 288       /* maximum number of codes in any set */
 
@@ -628,7 +639,7 @@ static int ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsign
 
 	/* Generate counts for each bit length */
 	el = UI6A_BMAX; /* set length of EOB code, if any */
-	ui6a_uarray_init(ui6a, &c_arr, c_data, DE_ITEMS_IN_ARRAY(c_data));
+	ui6a_uarray_init(ui6a, &c_arr, c_data, UI6A_ARRAYSIZE(c_data));
 
 	for(i=0; i<n; i++) {
 		if(b[i] >= UI6A_BMAX+1) goto done;
@@ -670,7 +681,7 @@ static int ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsign
 
 	/* Generate starting offsets into the value table for each length */
 	j = 0;
-	ui6a_uarray_init(ui6a, &x_arr, x_data, DE_ITEMS_IN_ARRAY(x_data));
+	ui6a_uarray_init(ui6a, &x_arr, x_data, UI6A_ARRAYSIZE(x_data));
 	ui6a_uarray_setval(&x_arr, 1, 0);
 	c_idx = 1;
 	x_idx = 2;
@@ -682,7 +693,7 @@ static int ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsign
 	}
 
 	/* Make a table of values in order of bit lengths */
-	ui6a_uarray_init(ui6a, &v_arr, v_data, DE_ITEMS_IN_ARRAY(v_data));
+	ui6a_uarray_init(ui6a, &v_arr, v_data, UI6A_ARRAYSIZE(v_data));
 	for(i=0; i<n; i++) {
 		j = b[i];
 		if (j != 0) {
@@ -697,7 +708,7 @@ static int ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsign
 	ui6a_uarray_setval(&x_arr, 0, 0);
 	v_idx = 0;                    /* grab values in bit order */
 	h = -1;                       /* no tables yet--level -1 */
-	ui6a_iarray_init(ui6a, &lx_arr, lx_data, DE_ITEMS_IN_ARRAY(lx_data));
+	ui6a_iarray_init(ui6a, &lx_arr, lx_data, UI6A_ARRAYSIZE(lx_data));
 	ui6a_iarray_setval(&lx_arr, 0, 0);                    /* no bits decoded yet */
 	w = 0;
 	u[0] = NULL;                  /* just to keep compilers happy */
@@ -745,47 +756,46 @@ static int ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsign
 					retval = UI6A_ERR3;
 					goto done;
 				}
-				ha->h = UI6A_CALLOC(ui6a->userdata, (size_t)((i64)z + HUFT_ARRAY_OFFSET), sizeof(struct ui6a_huft));
+				ha->h = UI6A_CALLOC(ui6a->userdata, (size_t)z, sizeof(struct ui6a_huft));
 				if(!ha->h) {
 					UI6A_FREE(ui6a->userdata, ha);
 					retval = UI6A_ERR3;
 					goto done;
 				}
-				ha->num_alloc_h = z + HUFT_ARRAY_OFFSET;
+				ha->num_alloc_h = z;
 				q = ha->h;
 				*loc_of_prev_next_ha_ptr = ha;             /* link to list for ui6a_huft_free() */
 				loc_of_prev_next_ha_ptr = &ha->next_array;
 				*loc_of_prev_next_ha_ptr = NULL;
-				q += HUFT_ARRAY_OFFSET;
 				if(h<0 || h>=UI6A_BMAX) goto done;
 				u[h] = ha;
 
 				/* connect to last table, if there is one */
 				if (h) {
-					de_zeromem(&r, sizeof(struct ui6a_huft));
+					UI6A_ZEROMEM(&r, sizeof(struct ui6a_huft));
 					ui6a_uarray_setval(&x_arr, h, i);             /* save pattern for backing up */
-					r.b = (uch)ui6a_iarray_getval(&lx_arr, 1+ (size_t)h-1);    /* bits to dump before this table */
-					r.e = (uch)(16 + j);  /* bits in this table */
+					r.b = (UI6A_UINT8)ui6a_iarray_getval(&lx_arr, 1+ (size_t)h-1);    /* bits to dump before this table */
+					r.e = (UI6A_UINT8)(16 + j);  /* bits in this table */
 					r.t_arr = ha;            /* pointer to this table */
 					j = (i & ((1 << w) - 1)) >> (w - ui6a_iarray_getval(&lx_arr, 1+ (size_t)h-1));
 					if((h-1 < 0) || (h-1 >= UI6A_BMAX)) goto done;
-					u[h-1]->h[HUFT_ARRAY_OFFSET+j] = r;        /* connect to last table */
+					u[h-1]->h[j] = r;        /* connect to last table */
 				}
 			}
 
 			/* set up table entry in r */
-			de_zeromem(&r, sizeof(struct ui6a_huft));
-			r.b = (uch)(k - w);
+			UI6A_ZEROMEM(&r, sizeof(struct ui6a_huft));
+			r.b = (UI6A_UINT8)(k - w);
 			if (v_idx >= n) {
 				r.e = 99;               /* out of values--invalid code */
 			}
 			else if (ui6a_uarray_getval(&v_arr, v_idx) < s) {
-				r.e = (uch)(ui6a_uarray_getval(&v_arr, v_idx) < 256 ? 16 : 15);  /* 256 is end-of-block code */
-				r.n = (ush)ui6a_uarray_getval(&v_arr, v_idx);                /* simple code is just the value */
+				r.e = (UI6A_UINT8)(ui6a_uarray_getval(&v_arr, v_idx) < 256 ? 16 : 15);  /* 256 is end-of-block code */
+				r.n = (UI6A_UINT16)ui6a_uarray_getval(&v_arr, v_idx);                /* simple code is just the value */
 				v_idx++;
 			}
 			else {
-				r.e = (uch)e_fn(ui6a_uarray_getval(&v_arr, v_idx) - s);   /* non-simple--look up in lists */
+				r.e = (UI6A_UINT8)e_fn(ui6a_uarray_getval(&v_arr, v_idx) - s);   /* non-simple--look up in lists */
 				r.n = d_fn(ui6a_uarray_getval(&v_arr, v_idx) - s);
 				v_idx++;
 			}

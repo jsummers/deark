@@ -8,10 +8,16 @@
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 
+#define UI6A_UINT8     u8
+#define UI6A_UINT16    u16
+#define UI6A_UINT32    u32
+#define UI6A_INT64     i64
+#define UI6A_ZEROMEM   de_zeromem
+#define UI6A_MEMCPY    de_memcpy
+#define UI6A_CALLOC    zipexpl_calloc
+#define UI6A_FREE      zipexpl_free
 static void *zipexpl_calloc(void *userdata, size_t nmemb, size_t size);
 static void zipexpl_free(void *userdata, void *ptr);
-#define UI6A_CALLOC zipexpl_calloc
-#define UI6A_FREE zipexpl_free
 #include "../foreign/explode.h"
 
 DE_DECLARE_MODULE(de_module_zip);
@@ -161,11 +167,11 @@ static int my_zipexpl_readbyte(ui6a_ctx *ui6a)
 	return (int)dbuf_getbyte(zu->inf, zu->inf_curpos++);
 }
 
-static void my_zipexpl_flush(ui6a_ctx *ui6a, uch *rawbuf, ulg size)
+static void my_zipexpl_flush(ui6a_ctx *ui6a, UI6A_UINT8 *rawbuf, UI6A_UINT32 size)
 {
 	struct zipexpl_userdata_type *zu = (struct zipexpl_userdata_type *)ui6a->userdata;
 
-	dbuf_write(zu->outf, rawbuf, size);
+	dbuf_write(zu->outf, rawbuf, (i64)size);
 }
 
 static void my_zipexpl_cb_post_read_trees(ui6a_ctx *ui6a, struct ui6a_htables *tbls)
