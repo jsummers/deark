@@ -62,12 +62,12 @@ struct ui6a_htables {
 
 //========================= globals.h begin =========================
 
-struct ui6a_Globals;
-typedef struct ui6a_Globals Uz_Globs;
+struct ui6a_ctx_struct;
+typedef struct ui6a_ctx_struct ui6a_ctx;
 
-typedef void (*ui6a_cb_post_read_trees_type)(Uz_Globs *pG, struct ui6a_htables *tbls);
+typedef void (*ui6a_cb_post_read_trees_type)(ui6a_ctx *ui6a, struct ui6a_htables *tbls);
 
-struct ui6a_Globals {
+struct ui6a_ctx_struct {
 	i64 csize;           /* used by decompr. (UI6A_NEXTBYTE): must be signed */
 	i64 ucsize;          /* used by unReduce(), explode() */
 	ush lrec_general_purpose_bit_flag;
@@ -78,18 +78,18 @@ struct ui6a_Globals {
 	dbuf *outf;
 	ui6a_cb_post_read_trees_type cb_post_read_trees;
 	uch Slide[UI6A_WSIZE];
-};  /* end of struct ui6a_Globals */
+};
 
 //========================= globals.h end =========================
 
 typedef ush (*ui6a_len_or_dist_getter)(unsigned int i);
 
-static void huft_free(Uz_Globs *pG, struct ui6a_htable *tbl);
-static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n,
+static void ui6a_huft_free(ui6a_ctx *ui6a, struct ui6a_htable *tbl);
+static int ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n,
 	unsigned s, ui6a_len_or_dist_getter d_fn, ui6a_len_or_dist_getter e_fn,
 	struct ui6a_htable *tbl);
 
-#define UI6A_NEXTBYTE  ui6a_readbyte(pG)
+#define UI6A_NEXTBYTE  ui6a_readbyte(ui6a)
 
 //========================= unzpriv.h end =========================
 
@@ -97,21 +97,21 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n,
 
 //========================= fileio.c begin =========================
 
-static void ui6a_flush(Uz_Globs *pG, uch *rawbuf, ulg size)
+static void ui6a_flush(ui6a_ctx *ui6a, uch *rawbuf, ulg size)
 {
-	dbuf_write(pG->outf, rawbuf, size);
+	dbuf_write(ui6a->outf, rawbuf, size);
 }
 
 // Originally:
 /* refill inbuf and return a byte if available, else EOF */
-// Currently, we don't bother with pG->inbuf, though that would be more
+// Currently, we don't bother with ui6a->inbuf, though that would be more
 // efficient. The UI6A_NEXTBYTE macro has been modified to not use inbuf.
-static int ui6a_readbyte(Uz_Globs *pG)
+static int ui6a_readbyte(ui6a_ctx *ui6a)
 {
-	if(pG->inf_curpos >= pG->inf_endpos) {
+	if(ui6a->inf_curpos >= ui6a->inf_endpos) {
 		return EOF;
 	}
-	return (int)dbuf_getbyte(pG->inf, pG->inf_curpos++);
+	return (int)dbuf_getbyte(ui6a->inf, ui6a->inf_curpos++);
 }
 
 //========================= fileio.c end =========================
@@ -178,9 +178,8 @@ static ush ui6a_get_mask_bits(unsigned int n)
    values is preceded (redundantly) with a byte indicating how many bytes are
    in the code description that follows, in the range 1..256.
 
-   The codes themselves are decoded using tables made by huft_build() from
-   the bit lengths.  That routine and its comments are in the inflate.c
-   module.
+   The codes themselves are decoded using tables made by ui6a_huft_build() from
+   the bit lengths.
  */
 
 
@@ -247,29 +246,29 @@ static ush ui6a_get_cpdist8(unsigned int i)
 struct ui6a_iarray {
 	size_t count;
 	int *data;
-	Uz_Globs *pG;
+	ui6a_ctx *ui6a;
 };
 
 struct ui6a_uarray {
 	size_t count;
 	unsigned int *data;
-	Uz_Globs *pG;
+	ui6a_ctx *ui6a;
 };
 
-static void ui6a_iarray_init(Uz_Globs *pG, struct ui6a_iarray *a, int *data, size_t count)
+static void ui6a_iarray_init(ui6a_ctx *ui6a, struct ui6a_iarray *a, int *data, size_t count)
 {
 	de_zeromem(data, count * sizeof(int));
 	a->data = data;
 	a->count = count;
-	a->pG = pG;
+	a->ui6a = ui6a;
 }
 
-static void ui6a_uarray_init(Uz_Globs *pG, struct ui6a_uarray *a, unsigned int *data, size_t count)
+static void ui6a_uarray_init(ui6a_ctx *ui6a, struct ui6a_uarray *a, unsigned int *data, size_t count)
 {
 	de_zeromem(data, count * sizeof(unsigned int));
 	a->data = data;
 	a->count = count;
-	a->pG = pG;
+	a->ui6a = ui6a;
 }
 
 static void ui6a_iarray_setval(struct ui6a_iarray *a, size_t idx, int val)
@@ -307,7 +306,7 @@ static unsigned int ui6a_uarray_getval(struct ui6a_uarray *a, size_t idx)
    Otherwise zero is returned. */
 // l: bit lengths
 // n: number expected
-static int ui6a_get_tree(Uz_Globs *pG, unsigned *l, unsigned n)
+static int ui6a_get_tree(ui6a_ctx *ui6a, unsigned *l, unsigned n)
 {
 	unsigned i;           /* bytes remaining in list */
 	unsigned k;           /* lengths entered */
@@ -329,7 +328,7 @@ static int ui6a_get_tree(Uz_Globs *pG, unsigned *l, unsigned n)
 	return k != n ? UI6A_ERR4 : UI6A_OK;                /* should have read n of them */
 }
 
-static struct ui6a_huft *huftarr_plus_offset(struct ui6a_huftarray *ha, ulg offset)
+static struct ui6a_huft *ui6a_huftarr_plus_offset(struct ui6a_huftarray *ha, ulg offset)
 {
 	ulg real_offset;
 
@@ -340,15 +339,15 @@ static struct ui6a_huft *huftarr_plus_offset(struct ui6a_huftarray *ha, ulg offs
 	return &(ha->h[real_offset]);
 }
 
-static struct ui6a_huft *follow_huft_ptr(struct ui6a_huft *h1, ulg offset)
+static struct ui6a_huft *ui6a_follow_huft_ptr(struct ui6a_huft *h1, ulg offset)
 {
-	return huftarr_plus_offset(h1->t_arr, offset);
+	return ui6a_huftarr_plus_offset(h1->t_arr, offset);
 }
 
 // tb, tl, td: literal, length, and distance tables
 //  Uses literals if tbls->b.t!=NULL.
 // bb, bl, bd: number of bits decoded by those
-static int explode_internal(Uz_Globs *pG, unsigned window_k,
+static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 	struct ui6a_htables *tbls)
 {
 	i64 s;               /* bytes to decompress */
@@ -367,7 +366,7 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
 	mb = ui6a_get_mask_bits(tbls->b.b);           /* precompute masks for speed */
 	ml = ui6a_get_mask_bits(tbls->l.b);
 	md = ui6a_get_mask_bits(tbls->d.b);
-	s = pG->ucsize;
+	s = ui6a->ucsize;
 	while (s > 0) {               /* do until ucsize bytes uncompressed */
 		UI6A_NEEDBITS(1);
 		if (b & 1) {                /* then literal--decode it */
@@ -375,7 +374,7 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
 			s--;
 			if(tbls->b.first_array) {
 				UI6A_NEEDBITS((unsigned)tbls->b.b);    /* get coded literal */
-				t = huftarr_plus_offset(tbls->b.first_array, ((~(unsigned)b) & mb));
+				t = ui6a_huftarr_plus_offset(tbls->b.first_array, ((~(unsigned)b) & mb));
 				if(!t) goto done;
 				e = t->e;
 				if (e > 16) {
@@ -385,20 +384,20 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
 						UI6A_DUMPBITS(t->b);
 						e -= 16;
 						UI6A_NEEDBITS(e);
-						t = follow_huft_ptr(t, ((~(unsigned)b) & ui6a_get_mask_bits(e)));
+						t = ui6a_follow_huft_ptr(t, ((~(unsigned)b) & ui6a_get_mask_bits(e)));
 						if(!t) goto done;
 						e = t->e;
 					} while (e > 16);
 				}
 				UI6A_DUMPBITS(t->b);
-				pG->Slide[w++] = (uch)t->n;
+				ui6a->Slide[w++] = (uch)t->n;
 			}
 			else {
 				UI6A_NEEDBITS(8);
-				pG->Slide[w++] = (uch)b;
+				ui6a->Slide[w++] = (uch)b;
 			}
 			if (w == UI6A_WSIZE) {
-				ui6a_flush(pG, pG->Slide, (ulg)w);
+				ui6a_flush(ui6a, ui6a->Slide, (ulg)w);
 				w = u = 0;
 			}
 			if(!tbls->b.first_array) {
@@ -420,7 +419,7 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
 			}
 
 			UI6A_NEEDBITS((unsigned)tbls->d.b);    /* get coded distance high bits */
-			t = huftarr_plus_offset(tbls->d.first_array, ((~(unsigned)b) & md));
+			t = ui6a_huftarr_plus_offset(tbls->d.first_array, ((~(unsigned)b) & md));
 			if(!t) goto done;
 			e = t->e;
 			if (e > 16) {
@@ -430,7 +429,7 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
 					UI6A_DUMPBITS(t->b);
 					e -= 16;
 					UI6A_NEEDBITS(e);
-					t = follow_huft_ptr(t, ((~(unsigned)b) & ui6a_get_mask_bits(e)));
+					t = ui6a_follow_huft_ptr(t, ((~(unsigned)b) & ui6a_get_mask_bits(e)));
 					if(!t) goto done;
 					e = t->e;
 				} while (e > 16);
@@ -438,7 +437,7 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
 			UI6A_DUMPBITS(t->b);
 			d = w - d - t->n;       /* construct offset */
 			UI6A_NEEDBITS((unsigned)tbls->l.b);    /* get coded length */
-			t = huftarr_plus_offset(tbls->l.first_array, ((~(unsigned)b) & ml));
+			t = ui6a_huftarr_plus_offset(tbls->l.first_array, ((~(unsigned)b) & ml));
 			if(!t) goto done;
 			e = t->e;
 			if (e > 16) {
@@ -448,7 +447,7 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
 					UI6A_DUMPBITS(t->b);
 					e -= 16;
 					UI6A_NEEDBITS(e);
-					t = follow_huft_ptr(t, ((~(unsigned)b) & ui6a_get_mask_bits(e)));
+					t = ui6a_follow_huft_ptr(t, ((~(unsigned)b) & ui6a_get_mask_bits(e)));
 					if(!t) goto done;
 					e = t->e;
 				} while (e > 16);
@@ -470,7 +469,7 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
 				n -= e;
 				if (u && w <= d) {
 					if(w+e > UI6A_WSIZE) goto done;
-					de_zeromem(&pG->Slide[w], e);
+					de_zeromem(&ui6a->Slide[w], e);
 					w += e;
 					d += e;
 				}
@@ -478,7 +477,7 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
 					if (w - d >= e) {     /* (this test assumes unsigned comparison) */
 						if(w+e > UI6A_WSIZE) goto done;
 						if(d+e > UI6A_WSIZE) goto done;
-						de_memcpy(&pG->Slide[w], &pG->Slide[d], e);
+						de_memcpy(&ui6a->Slide[w], &ui6a->Slide[d], e);
 						w += e;
 						d += e;
 					}
@@ -486,20 +485,20 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
 						do {
 							if(w >= UI6A_WSIZE) goto done;
 							if(d >= UI6A_WSIZE) goto done;
-							pG->Slide[w++] = pG->Slide[d++];
+							ui6a->Slide[w++] = ui6a->Slide[d++];
 						} while (--e);
 					}
 				}
 				if (w == UI6A_WSIZE) {
-					ui6a_flush(pG, pG->Slide, (ulg)w);
+					ui6a_flush(ui6a, ui6a->Slide, (ulg)w);
 					w = u = 0;
 				}
 			} while (n);
 		}
 	}
 
-	/* flush out pG->Slide */
-	ui6a_flush(pG, pG->Slide, (ulg)w);
+	/* flush out ui6a->Slide */
+	ui6a_flush(ui6a, ui6a->Slide, (ulg)w);
 done:
 	return 0;
 }
@@ -507,12 +506,12 @@ done:
 /* Explode an imploded compressed stream.  Based on the general purpose
    bit flag, decide on coded or uncoded literals, and an 8K or 4K sliding
    window.  Construct the literal (if any), length, and distance codes and
-   the tables needed to decode them (using huft_build() from inflate.c),
+   the tables needed to decode them (using ui6a_huft_build(),
    and call the appropriate routine for the type of data in the remainder
    of the stream.  The four routines are nearly identical, differing only
    in whether the literal is decoded or simply read in, and in how many
    bits are read in, uncoded, for the low distance bits. */
-static int explode(Uz_Globs *pG)
+static int ui6a_explode(ui6a_ctx *ui6a)
 {
 	unsigned r = 1;           /* return codes */
 	struct ui6a_htables tbls;
@@ -525,8 +524,8 @@ static int explode(Uz_Globs *pG)
 	tbls.l.tblname = "L";
 	tbls.d.tblname = "D";
 
-	has_8k_window = (pG->lrec_general_purpose_bit_flag & 2) ? 1 : 0;
-	has_literal_tree = (pG->lrec_general_purpose_bit_flag & 4) ? 1 : 0;
+	has_8k_window = (ui6a->lrec_general_purpose_bit_flag & 2) ? 1 : 0;
+	has_literal_tree = (ui6a->lrec_general_purpose_bit_flag & 4) ? 1 : 0;
 
 	/* Tune base table sizes.  Note: I thought that to truly optimize speed,
 	   I would have to select different bl, bd, and bb values for different
@@ -534,45 +533,45 @@ static int explode(Uz_Globs *pG)
 	   7, 7, and 9 worked best over a very wide range of sizes, except that
 	   bd = 8 worked marginally better for large compressed sizes. */
 	tbls.l.b = 7;
-	tbls.d.b = pG->csize > 200000L ? 8 : 7;
+	tbls.d.b = ui6a->csize > 200000L ? 8 : 7;
 
 	if (has_literal_tree) { /* With literal tree--minimum match length is 3 */
 		tbls.b.b = 9;                     /* base table size for literals */
-		if ((r = ui6a_get_tree(pG, l, 256)) != UI6A_OK)
+		if ((r = ui6a_get_tree(ui6a, l, 256)) != UI6A_OK)
 			goto done;
-		if ((r = huft_build(pG, l, 256, 256, NULL, NULL, &tbls.b)) != UI6A_OK)
+		if ((r = ui6a_huft_build(ui6a, l, 256, 256, NULL, NULL, &tbls.b)) != UI6A_OK)
 			goto done;
 	}
 	else {  /* No literal tree--minimum match length is 2 */
 		tbls.b.first_array = NULL;
 	}
 
-	if ((r = ui6a_get_tree(pG, l, 64)) != UI6A_OK)
+	if ((r = ui6a_get_tree(ui6a, l, 64)) != UI6A_OK)
 		goto done;
-	if ((r = huft_build(pG, l, 64, 0, (has_literal_tree ? ui6a_get_cplen3 : ui6a_get_cplen2),
+	if ((r = ui6a_huft_build(ui6a, l, 64, 0, (has_literal_tree ? ui6a_get_cplen3 : ui6a_get_cplen2),
 		ui6a_get_extra, &tbls.l)) != UI6A_OK)
 	{
 		goto done;
 	}
 
-	if ((r = ui6a_get_tree(pG, l, 64)) != UI6A_OK)
+	if ((r = ui6a_get_tree(ui6a, l, 64)) != UI6A_OK)
 		goto done;
-	if ((r = huft_build(pG, l, 64, 0, (has_8k_window ? ui6a_get_cpdist8 : ui6a_get_cpdist4),
+	if ((r = ui6a_huft_build(ui6a, l, 64, 0, (has_8k_window ? ui6a_get_cpdist8 : ui6a_get_cpdist4),
 		ui6a_get_extra, &tbls.d)) != UI6A_OK)
 	{
 		goto done;
 	}
 
-	if(pG->cb_post_read_trees) {
-		pG->cb_post_read_trees(pG, &tbls);
+	if(ui6a->cb_post_read_trees) {
+		ui6a->cb_post_read_trees(ui6a, &tbls);
 	}
 
-	r = explode_internal(pG, (has_8k_window ? 8 : 4), &tbls);
+	r = ui6a_explode_internal(ui6a, (has_8k_window ? 8 : 4), &tbls);
 
 done:
-	huft_free(pG, &tbls.d);
-	huft_free(pG, &tbls.l);
-	huft_free(pG, &tbls.b);
+	ui6a_huft_free(ui6a, &tbls.d);
+	ui6a_huft_free(ui6a, &tbls.l);
+	ui6a_huft_free(ui6a, &tbls.b);
 	return (int)r;
 }
 
@@ -607,7 +606,7 @@ done:
 // e: list of extra bits for non-simple codes
 // tbl->t: result: starting table
 // tbl->b: maximum lookup bits, returns actual
-static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
+static int ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsigned s,
 	ui6a_len_or_dist_getter d_fn, ui6a_len_or_dist_getter e_fn,
 	struct ui6a_htable *tbl)
 {
@@ -644,7 +643,7 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 
 	/* Generate counts for each bit length */
 	el = UI6A_BMAX; /* set length of EOB code, if any */
-	ui6a_uarray_init(pG, &c_arr, c_data, DE_ITEMS_IN_ARRAY(c_data));
+	ui6a_uarray_init(ui6a, &c_arr, c_data, DE_ITEMS_IN_ARRAY(c_data));
 
 	for(i=0; i<n; i++) {
 		if(b[i] >= UI6A_BMAX+1) goto done;
@@ -686,7 +685,7 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 
 	/* Generate starting offsets into the value table for each length */
 	j = 0;
-	ui6a_uarray_init(pG, &x_arr, x_data, DE_ITEMS_IN_ARRAY(x_data));
+	ui6a_uarray_init(ui6a, &x_arr, x_data, DE_ITEMS_IN_ARRAY(x_data));
 	ui6a_uarray_setval(&x_arr, 1, 0);
 	c_idx = 1;
 	x_idx = 2;
@@ -698,7 +697,7 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 	}
 
 	/* Make a table of values in order of bit lengths */
-	ui6a_uarray_init(pG, &v_arr, v_data, DE_ITEMS_IN_ARRAY(v_data));
+	ui6a_uarray_init(ui6a, &v_arr, v_data, DE_ITEMS_IN_ARRAY(v_data));
 	for(i=0; i<n; i++) {
 		j = b[i];
 		if (j != 0) {
@@ -713,7 +712,7 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 	ui6a_uarray_setval(&x_arr, 0, 0);
 	v_idx = 0;                    /* grab values in bit order */
 	h = -1;                       /* no tables yet--level -1 */
-	ui6a_iarray_init(pG, &lx_arr, lx_data, DE_ITEMS_IN_ARRAY(lx_data));
+	ui6a_iarray_init(ui6a, &lx_arr, lx_data, DE_ITEMS_IN_ARRAY(lx_data));
 	ui6a_iarray_setval(&lx_arr, 0, 0);                    /* no bits decoded yet */
 	w = 0;
 	u[0] = NULL;                  /* just to keep compilers happy */
@@ -756,20 +755,20 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 				ui6a_iarray_setval(&lx_arr, 1+ (size_t)h, j);               /* set table size in stack */
 
 				/* allocate and link in new table */
-				ha = UI6A_CALLOC(pG->userdata, 1, sizeof(struct ui6a_huftarray));
+				ha = UI6A_CALLOC(ui6a->userdata, 1, sizeof(struct ui6a_huftarray));
 				if(!ha) {
 					retval = UI6A_ERR3;
 					goto done;
 				}
-				ha->h = UI6A_CALLOC(pG->userdata, (size_t)((i64)z + HUFT_ARRAY_OFFSET), sizeof(struct ui6a_huft));
+				ha->h = UI6A_CALLOC(ui6a->userdata, (size_t)((i64)z + HUFT_ARRAY_OFFSET), sizeof(struct ui6a_huft));
 				if(!ha->h) {
-					UI6A_FREE(pG->userdata, ha);
+					UI6A_FREE(ui6a->userdata, ha);
 					retval = UI6A_ERR3;
 					goto done;
 				}
 				ha->num_alloc_h = z + HUFT_ARRAY_OFFSET;
 				q = ha->h;
-				*loc_of_prev_next_ha_ptr = ha;             /* link to list for huft_free() */
+				*loc_of_prev_next_ha_ptr = ha;             /* link to list for ui6a_huft_free() */
 				loc_of_prev_next_ha_ptr = &ha->next_array;
 				*loc_of_prev_next_ha_ptr = NULL;
 				q += HUFT_ARRAY_OFFSET;
@@ -839,11 +838,11 @@ done:
 	return retval;
 }
 
-/* Free the malloc'ed tables built by huft_build(), which makes a linked
+/* Free the malloc'ed tables built by ui6a_huft_build(), which makes a linked
    list of the tables it made, with the links in a dummy first entry of
    each table. */
 // t: table to free
-static void huft_free(Uz_Globs *pG, struct ui6a_htable *tbl)
+static void ui6a_huft_free(ui6a_ctx *ui6a, struct ui6a_htable *tbl)
 {
 	struct ui6a_huftarray *p, *q;
 
@@ -851,8 +850,8 @@ static void huft_free(Uz_Globs *pG, struct ui6a_htable *tbl)
 	while(p) {
 		q = p->next_array;
 
-		UI6A_FREE(pG->userdata, p->h);
-		UI6A_FREE(pG->userdata, p);
+		UI6A_FREE(ui6a->userdata, p->h);
+		UI6A_FREE(ui6a->userdata, p);
 		p = q;
 	}
 }
@@ -861,18 +860,17 @@ static void huft_free(Uz_Globs *pG, struct ui6a_htable *tbl)
 
 //========================= globals.c begin =========================
 
-static Uz_Globs *globalsCtor(void *userdata)
+static ui6a_ctx *ui6a_create(void *userdata)
 {
-	Uz_Globs *pG = UI6A_CALLOC(userdata, 1, sizeof(Uz_Globs));
-	if(!pG) return NULL;
-	pG->userdata = userdata;
-	return pG;
+	ui6a_ctx *ui6a = UI6A_CALLOC(userdata, 1, sizeof(ui6a_ctx));
+	if(!ui6a) return NULL;
+	ui6a->userdata = userdata;
+	return ui6a;
 }
 
-// New function, replaces the DESTROYGLOBALS() macro
-static void globalsDtor(Uz_Globs *pG)
+static void ui6a_destroy(ui6a_ctx *ui6a)
 {
-	UI6A_FREE(pG->userdata, pG);
+	UI6A_FREE(ui6a->userdata, ui6a);
 }
 
 //========================= globals.c end =========================

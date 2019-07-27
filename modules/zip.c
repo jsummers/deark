@@ -147,9 +147,9 @@ static void zipexpl_huft_dump(struct zipexpl_userdata_type *zu, struct ui6a_htab
 	de_dbg_indent(c, -1);
 }
 
-static void my_zipexpl_cb_post_read_trees(Uz_Globs *pG, struct ui6a_htables *tbls)
+static void my_zipexpl_cb_post_read_trees(ui6a_ctx *ui6a, struct ui6a_htables *tbls)
 {
-	struct zipexpl_userdata_type *zu = (struct zipexpl_userdata_type *)pG->userdata;
+	struct zipexpl_userdata_type *zu = (struct zipexpl_userdata_type *)ui6a->userdata;
 
 	if(zu->dumptrees) {
 		zipexpl_huft_dump(zu, &tbls->d);
@@ -161,7 +161,7 @@ static void my_zipexpl_cb_post_read_trees(Uz_Globs *pG, struct ui6a_htables *tbl
 static int do_decompress_implode(deark *c, lctx *d, struct member_data *md,
 	dbuf *inf, i64 inf_pos, i64 inf_size, dbuf *outf)
 {
-	Uz_Globs *pG = NULL;
+	ui6a_ctx *ui6a = NULL;
 	struct zipexpl_userdata_type zu;
 	int retval = 0;
 
@@ -170,26 +170,26 @@ static int do_decompress_implode(deark *c, lctx *d, struct member_data *md,
 	zu.c = c;
 	zu.dumptrees = de_get_ext_option_bool(c, "zip:dumptrees", 0);
 
-	pG = globalsCtor((void*)&zu);
-	if(!pG) goto done;
+	ui6a = ui6a_create((void*)&zu);
+	if(!ui6a) goto done;
 
-	pG->ucsize = md->uncmpr_size;
-	pG->csize = inf_size;
-	pG->lrec_general_purpose_bit_flag = md->local_dir_entry_data.bit_flags;
+	ui6a->ucsize = md->uncmpr_size;
+	ui6a->csize = inf_size;
+	ui6a->lrec_general_purpose_bit_flag = md->local_dir_entry_data.bit_flags;
 
-	pG->inf = inf;
-	pG->inf_curpos = inf_pos;
-	pG->inf_endpos = inf_pos + inf_size;
-	pG->outf = outf;
-	pG->cb_post_read_trees = my_zipexpl_cb_post_read_trees;
+	ui6a->inf = inf;
+	ui6a->inf_curpos = inf_pos;
+	ui6a->inf_endpos = inf_pos + inf_size;
+	ui6a->outf = outf;
+	ui6a->cb_post_read_trees = my_zipexpl_cb_post_read_trees;
 
-	explode(pG);
+	ui6a_explode(ui6a);
 	// TODO: How is failure reported?
 
 	retval = 1;
 done:
-	if(pG) {
-		globalsDtor(pG);
+	if(ui6a) {
+		ui6a_destroy(ui6a);
 	}
 	return retval;
 }
