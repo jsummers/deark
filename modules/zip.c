@@ -84,13 +84,76 @@ static int is_compression_method_supported(lctx *d, int cmpr_method)
 	return 0;
 }
 
+struct zipexpl_userdata_type {
+	deark *c;
+	int dumptrees;
+};
+
+static void zipexpl_huft_dump1(Uz_Globs *pG, struct huft *t, unsigned int idx)
+{
+	de_dbg(pG->c, "[%u:%p] e=%u b=%u n=%u t=%p",
+		idx, (void*)t, (unsigned int)t->e, (unsigned int)t->b,
+		(unsigned int)t->n, (void*)t->t_arr);
+}
+
+static void zipexpl_huft_dump(Uz_Globs *pG, struct izi_htable *tbl)
+{
+	deark *c = pG->c;
+	struct huftarray *t = tbl->first_array;
+	struct huftarray *p = t;
+
+	de_dbg(c, "huffman [%s] table %p", tbl->tblname, (void*)p);
+
+	de_dbg_indent(c, 1);
+
+	while(1) {
+		struct huftarray *q;
+		unsigned int k;
+
+		if(!p) {
+			de_dbg(c, "table arr: NULL");
+			break;
+		}
+		de_dbg(c, "table arr: %p, h[]=%p", (void*)p, (void*)p->h);
+
+		q = p->next_array;
+
+		de_dbg_indent(c, 1);
+		de_dbg(c, "count=%u", p->num_alloc_h);
+		for(k=0; k<p->num_alloc_h; k++) {
+			zipexpl_huft_dump1(pG, &p->h[k], k);
+		}
+		de_dbg_indent(c, -1);
+
+		p = q;
+	}
+
+	de_dbg_indent(c, -1);
+}
+
+static void my_zipexpl_cb_post_read_trees(Uz_Globs *pG, struct izi_htables *tbls)
+{
+	struct zipexpl_userdata_type *zu = (struct zipexpl_userdata_type *)pG->userdata;
+
+	if(zu->dumptrees) {
+		zipexpl_huft_dump(pG, &tbls->d);
+		zipexpl_huft_dump(pG, &tbls->l);
+		zipexpl_huft_dump(pG, &tbls->b);
+	}
+}
+
 static int do_decompress_implode(deark *c, lctx *d, struct member_data *md,
 	dbuf *inf, i64 inf_pos, i64 inf_size, dbuf *outf)
 {
 	Uz_Globs *pG = NULL;
+	struct zipexpl_userdata_type zu;
 
 	if(!md) return 0;
-	pG = globalsCtor(c);
+	de_zeromem(&zu, sizeof(struct zipexpl_userdata_type));
+	zu.c = c;
+	zu.dumptrees = de_get_ext_option_bool(c, "zip:dumptrees", 0);
+
+	pG = globalsCtor(c, (void*)&zu);
 
 	pG->c = c;
 	pG->ucsize = md->uncmpr_size;
@@ -101,7 +164,7 @@ static int do_decompress_implode(deark *c, lctx *d, struct member_data *md,
 	pG->inf_curpos = inf_pos;
 	pG->inf_endpos = inf_pos + inf_size;
 	pG->outf = outf;
-	pG->dumptrees = de_get_ext_option_bool(c, "zip:dumptrees", 0);
+	pG->cb_post_read_trees = my_zipexpl_cb_post_read_trees;
 
 	explode(pG);
 	// TODO: How is failure reported?

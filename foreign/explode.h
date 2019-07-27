@@ -55,18 +55,24 @@ struct izi_htables {
 
 //========================= globals.h begin =========================
 
-typedef struct Globals {
+struct ui6a_Globals;
+typedef struct ui6a_Globals Uz_Globs;
+
+typedef void (*ui6a_cb_post_read_trees_type)(Uz_Globs *pG, struct izi_htables *tbls);
+
+struct ui6a_Globals {
 	i64 csize;           /* used by decompr. (NEXTBYTE): must be signed */
 	i64 ucsize;          /* used by unReduce(), explode() */
 	ush lrec_general_purpose_bit_flag;
+	void *userdata;
 	deark *c;
 	dbuf *inf;
 	i64 inf_curpos;
 	i64 inf_endpos;
 	dbuf *outf;
-	int dumptrees;
+	ui6a_cb_post_read_trees_type cb_post_read_trees;
 	uch Slide[WSIZE];
-} Uz_Globs;  /* end of struct Globals */
+};  /* end of struct ui6a_Globals */
 
 //========================= globals.h end =========================
 
@@ -571,6 +577,10 @@ static int explode(Uz_Globs *pG)
 		goto done;
 	}
 
+	if(pG->cb_post_read_trees) {
+		pG->cb_post_read_trees(pG, &tbls);
+	}
+
 	r = explode_internal(pG, (has_8k_window ? 8 : 4), &tbls);
 
 done:
@@ -588,48 +598,6 @@ done:
 //========================= explode.c end =========================
 
 //========================= inflate.c begin =========================
-
-static void huft_dump1(Uz_Globs *pG, struct huft *t, unsigned int idx)
-{
-	de_dbg(pG->c, "[%u:%p] e=%u b=%u n=%u t=%p",
-		idx, (void*)t, (unsigned int)t->e, (unsigned int)t->b,
-		(unsigned int)t->n, (void*)t->t_arr);
-}
-
-static void huft_dump(Uz_Globs *pG, struct izi_htable *tbl, const char *name)
-{
-	deark *c = pG->c;
-	struct huftarray *t = tbl->first_array;
-	struct huftarray *p = t;
-
-	de_dbg(c, "huffman [%s] table %p", name, (void*)p);
-
-	de_dbg_indent(c, 1);
-
-	while(1) {
-		struct huftarray *q;
-		unsigned int k;
-
-		if(!p) {
-			de_dbg(c, "table arr: NULL");
-			break;
-		}
-		de_dbg(c, "table arr: %p, h[]=%p", (void*)p, (void*)p->h);
-
-		q = p->next_array;
-
-		de_dbg_indent(c, 1);
-		de_dbg(c, "count=%u", p->num_alloc_h);
-		for(k=0; k<p->num_alloc_h; k++) {
-			huft_dump1(pG, &p->h[k], k);
-		}
-		de_dbg_indent(c, -1);
-
-		p = q;
-	}
-
-	de_dbg_indent(c, -1);
-}
 
 /* inflate.c -- put in the public domain by Mark Adler
    version c16b, 29 March 1998 */
@@ -888,10 +856,6 @@ static void huft_free(Uz_Globs *pG, struct izi_htable *tbl)
 {
 	struct huftarray *p, *q;
 
-	if(pG->dumptrees) {
-		huft_dump(pG, tbl, tbl->tblname);
-	}
-
 	p = tbl->first_array;
 	while(p) {
 		q = p->next_array;
@@ -908,9 +872,10 @@ static void huft_free(Uz_Globs *pG, struct izi_htable *tbl)
 
 //========================= globals.c begin =========================
 
-static Uz_Globs *globalsCtor(deark *c)
+static Uz_Globs *globalsCtor(deark *c, void *userdata)
 {
 	Uz_Globs *pG = de_malloc(c, sizeof(Uz_Globs));
+	pG->userdata = userdata;
 	return pG;
 }
 
