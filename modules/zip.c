@@ -105,25 +105,25 @@ static void zipexpl_free(void *userdata, void *ptr)
 	de_free(c, ptr);
 }
 
-static void zipexpl_huft_dump1(struct zipexpl_userdata_type *zu, struct huft *t, unsigned int idx)
+static void zipexpl_huft_dump1(struct zipexpl_userdata_type *zu, struct ui6a_huft *t, unsigned int idx)
 {
 	de_dbg(zu->c, "[%u:%p] e=%u b=%u n=%u t=%p",
 		idx, (void*)t, (unsigned int)t->e, (unsigned int)t->b,
 		(unsigned int)t->n, (void*)t->t_arr);
 }
 
-static void zipexpl_huft_dump(struct zipexpl_userdata_type *zu, struct izi_htable *tbl)
+static void zipexpl_huft_dump(struct zipexpl_userdata_type *zu, struct ui6a_htable *tbl)
 {
 	deark *c = zu->c;
-	struct huftarray *t = tbl->first_array;
-	struct huftarray *p = t;
+	struct ui6a_huftarray *t = tbl->first_array;
+	struct ui6a_huftarray *p = t;
 
 	de_dbg(c, "huffman [%s] table %p", tbl->tblname, (void*)p);
 
 	de_dbg_indent(c, 1);
 
 	while(1) {
-		struct huftarray *q;
+		struct ui6a_huftarray *q;
 		unsigned int k;
 
 		if(!p) {
@@ -147,7 +147,7 @@ static void zipexpl_huft_dump(struct zipexpl_userdata_type *zu, struct izi_htabl
 	de_dbg_indent(c, -1);
 }
 
-static void my_zipexpl_cb_post_read_trees(Uz_Globs *pG, struct izi_htables *tbls)
+static void my_zipexpl_cb_post_read_trees(Uz_Globs *pG, struct ui6a_htables *tbls)
 {
 	struct zipexpl_userdata_type *zu = (struct zipexpl_userdata_type *)pG->userdata;
 
