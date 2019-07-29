@@ -15,11 +15,11 @@
 #ifndef UI6A_UINT32
 #define UI6A_UINT32  uint32_t
 #endif
-#ifndef UI6A_INT64
-#define UI6A_INT64   int64_t
+#ifndef UI6A_OFF_T
+#define UI6A_OFF_T   off_t
 #endif
 #ifndef UI6A_CALLOC
-#define UI6A_CALLOC(u, nmemb, size) calloc(nmemb, size)
+#define UI6A_CALLOC(u, nmemb, size) calloc((nmemb), (size))
 #endif
 #ifndef UI6A_FREE
 #define UI6A_FREE(u, ptr) free(ptr)
@@ -79,25 +79,37 @@ struct ui6a_htables {
 struct ui6a_ctx_struct;
 typedef struct ui6a_ctx_struct ui6a_ctx;
 
-typedef int (*ui6a_cb_readbyte_type)(ui6a_ctx *ui6a);
-typedef void (*ui6a_cb_flush_type)(ui6a_ctx *ui6a, UI6A_UINT8 *rawbuf, UI6A_UINT32 size);
+typedef int (*ui6a_cb_read_type)(ui6a_ctx *ui6a, UI6A_UINT8 *buf, size_t size);
+typedef int (*ui6a_cb_write_type)(ui6a_ctx *ui6a, const UI6A_UINT8 *buf, size_t size);
 typedef void (*ui6a_cb_post_read_trees_type)(ui6a_ctx *ui6a, struct ui6a_htables *tbls);
 
 struct ui6a_ctx_struct {
 	void *userdata;
-	UI6A_INT64 csize;           /* used by decompr. (UI6A_NEXTBYTE): must be signed */
-	UI6A_INT64 ucsize;          /* used by unReduce(), explode() */
-	UI6A_UINT16 lrec_general_purpose_bit_flag;
+	UI6A_OFF_T csize;  // compressed size
+	UI6A_OFF_T ucsize; // reported uncompressed size
+#define UI6A_FLAG_4KDICT 0x0000
+#define UI6A_FLAG_8KDICT 0x0002
+#define UI6A_FLAG_2TREES 0x0000
+#define UI6A_FLAG_3TREES 0x0004
+	UI6A_UINT16 bit_flags;
 
-	// Originally:
-	/* refill inbuf and return a byte if available, else EOF */
-	// Currently, we don't bother with ui6a->inbuf, though that would be more
-	// efficient. The UI6A_NEXTBYTE macro has been modified to not use inbuf.
-	ui6a_cb_readbyte_type cb_readbyte;
-
-	ui6a_cb_flush_type cb_flush;
+	// cb_read must supply all the bytes requested. Return 1 if ok, 0 on failure.
+	ui6a_cb_read_type cb_read;
+	// cb_write must consume all the the bytes supplied. Return 1 if ok, 0 on failure.
+	ui6a_cb_write_type cb_write;
 	ui6a_cb_post_read_trees_type cb_post_read_trees;
+
+	UI6A_UINT8 flag_error;
+	UI6A_UINT8 flag_unexpected_eof;
+	UI6A_UINT8 flag_read_failed;
+	UI6A_UINT8 flag_write_failed;
+
+	UI6A_OFF_T cmpr_nbytes_read;
+	size_t inbuf_nbytes_consumed;
+	size_t inbuf_nbytes_total;
+
 	UI6A_UINT8 Slide[UI6A_WSIZE];
+	UI6A_UINT8 inbuf[4096];
 };
 
 //========================= globals.h end =========================
@@ -109,7 +121,7 @@ static int ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n,
 	unsigned s, ui6a_len_or_dist_getter d_fn, ui6a_len_or_dist_getter e_fn,
 	struct ui6a_htable *tbl);
 
-#define UI6A_NEXTBYTE  (ui6a->cb_readbyte(ui6a))
+#define UI6A_NEXTBYTE  (ui6a_nextbyte(ui6a))
 
 //========================= unzpriv.h end =========================
 
@@ -124,6 +136,66 @@ static UI6A_UINT16 ui6a_get_mask_bits(unsigned int n)
 }
 
 //========================= consts.h end =========================
+
+static int ui6a_nextbyte(ui6a_ctx *ui6a)
+{
+	int ret;
+	size_t nbytes_to_read;
+	UI6A_UINT8 ch = 0xff;
+
+	if(ui6a->flag_error) {
+		goto done;
+	}
+
+	if(ui6a->inbuf_nbytes_consumed < ui6a->inbuf_nbytes_total) {
+		// Next byte is available in inbuf.
+		ch = ui6a->inbuf[ui6a->inbuf_nbytes_consumed++];
+		goto done;
+	}
+
+	// No more bytes in inbuf ...
+	ui6a->inbuf_nbytes_consumed = 0;
+	ui6a->inbuf_nbytes_total = 0;
+
+	if(ui6a->cmpr_nbytes_read >= ui6a->csize) {
+		// ... and there are no more to read.
+		ui6a->flag_error = 1;
+		ui6a->flag_unexpected_eof = 1;
+		goto done;
+	}
+
+	// ... but we can read more.
+	if(ui6a->csize - ui6a->cmpr_nbytes_read < (UI6A_OFF_T)sizeof(ui6a->inbuf)) {
+		nbytes_to_read = (size_t)(ui6a->csize - ui6a->cmpr_nbytes_read);
+	}
+	else {
+		nbytes_to_read = sizeof(ui6a->inbuf);
+	}
+
+	ret = ui6a->cb_read(ui6a, ui6a->inbuf, nbytes_to_read);
+	if(!ret) {
+		ui6a->flag_error = 1;
+		ui6a->flag_read_failed = 1;
+		goto done;
+	}
+	ui6a->inbuf_nbytes_total = nbytes_to_read;
+	ui6a->cmpr_nbytes_read += (UI6A_OFF_T)nbytes_to_read;
+	ch = ui6a->inbuf[ui6a->inbuf_nbytes_consumed++];
+
+done:
+	return (int)ch;
+}
+
+static void ui6a_flush(ui6a_ctx *ui6a, const UI6A_UINT8 *rawbuf, size_t size)
+{
+	int ret;
+
+	ret = ui6a->cb_write(ui6a, rawbuf, size);
+	if(!ret) {
+		ui6a->flag_error = 1;
+		ui6a->flag_write_failed = 1;
+	}
+}
 
 //========================= explode.c begin =========================
 
@@ -346,7 +418,7 @@ static struct ui6a_huft *ui6a_follow_huft_ptr(struct ui6a_huft *h1, UI6A_UINT32 
 static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 	struct ui6a_htables *tbls)
 {
-	UI6A_INT64 s;               /* bytes to decompress */
+	UI6A_OFF_T s;               /* bytes to decompress */
 	unsigned e;  /* table entry flag/number of extra bits */
 	unsigned n, d;        /* length and index for copy */
 	unsigned w;           /* current window position */
@@ -364,6 +436,9 @@ static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 	md = ui6a_get_mask_bits(tbls->d.b);
 	s = ui6a->ucsize;
 	while (s > 0) {               /* do until ucsize bytes uncompressed */
+		if(ui6a->flag_error) {
+			goto done;
+		}
 		UI6A_NEEDBITS(1);
 		if (b & 1) {                /* then literal--decode it */
 			UI6A_DUMPBITS(1);
@@ -393,7 +468,7 @@ static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 				ui6a->Slide[w++] = (UI6A_UINT8)b;
 			}
 			if (w == UI6A_WSIZE) {
-				ui6a->cb_flush(ui6a, ui6a->Slide, (UI6A_UINT32)w);
+				ui6a_flush(ui6a, ui6a->Slide, (size_t)w);
 				w = u = 0;
 			}
 			if(!tbls->b.first_array) {
@@ -486,7 +561,7 @@ static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 					}
 				}
 				if (w == UI6A_WSIZE) {
-					ui6a->cb_flush(ui6a, ui6a->Slide, (UI6A_UINT32)w);
+					ui6a_flush(ui6a, ui6a->Slide, (UI6A_UINT32)w);
 					w = u = 0;
 				}
 			} while (n);
@@ -494,7 +569,7 @@ static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 	}
 
 	/* flush out ui6a->Slide */
-	ui6a->cb_flush(ui6a, ui6a->Slide, (UI6A_UINT32)w);
+	ui6a_flush(ui6a, ui6a->Slide, (UI6A_UINT32)w);
 done:
 	return 0;
 }
@@ -520,8 +595,8 @@ static int ui6a_explode(ui6a_ctx *ui6a)
 	tbls.l.tblname = "L";
 	tbls.d.tblname = "D";
 
-	has_8k_window = (ui6a->lrec_general_purpose_bit_flag & 2) ? 1 : 0;
-	has_literal_tree = (ui6a->lrec_general_purpose_bit_flag & 4) ? 1 : 0;
+	has_8k_window = (ui6a->bit_flags & UI6A_FLAG_8KDICT) ? 1 : 0;
+	has_literal_tree = (ui6a->bit_flags & UI6A_FLAG_3TREES) ? 1 : 0;
 
 	/* Tune base table sizes.  Note: I thought that to truly optimize speed,
 	   I would have to select different bl, bd, and bb values for different
@@ -858,6 +933,7 @@ static void ui6a_huft_free(ui6a_ctx *ui6a, struct ui6a_htable *tbl)
 static ui6a_ctx *ui6a_create(void *userdata)
 {
 	ui6a_ctx *ui6a = UI6A_CALLOC(userdata, 1, sizeof(ui6a_ctx));
+
 	if(!ui6a) return NULL;
 	ui6a->userdata = userdata;
 	return ui6a;
@@ -865,6 +941,7 @@ static ui6a_ctx *ui6a_create(void *userdata)
 
 static void ui6a_destroy(ui6a_ctx *ui6a)
 {
+	if(!ui6a) return;
 	UI6A_FREE(ui6a->userdata, ui6a);
 }
 

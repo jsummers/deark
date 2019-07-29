@@ -11,7 +11,7 @@
 #define UI6A_UINT8     u8
 #define UI6A_UINT16    u16
 #define UI6A_UINT32    u32
-#define UI6A_INT64     i64
+#define UI6A_OFF_T     i64
 #define UI6A_ZEROMEM   de_zeromem
 #define UI6A_MEMCPY    de_memcpy
 #define UI6A_CALLOC    zipexpl_calloc
@@ -98,7 +98,6 @@ struct zipexpl_userdata_type {
 	deark *c;
 	dbuf *inf;
 	i64 inf_curpos;
-	i64 inf_endpos;
 	dbuf *outf;
 	int dumptrees;
 };
@@ -106,12 +105,14 @@ struct zipexpl_userdata_type {
 static void *zipexpl_calloc(void *userdata, size_t nmemb, size_t size)
 {
 	deark *c = ((struct zipexpl_userdata_type *)userdata)->c;
+
 	return de_mallocarray(c, (i64)nmemb, size);
 }
 
 static void zipexpl_free(void *userdata, void *ptr)
 {
 	deark *c = ((struct zipexpl_userdata_type *)userdata)->c;
+
 	de_free(c, ptr);
 }
 
@@ -157,21 +158,21 @@ static void zipexpl_huft_dump(struct zipexpl_userdata_type *zu, struct ui6a_htab
 	de_dbg_indent(c, -1);
 }
 
-static int my_zipexpl_readbyte(ui6a_ctx *ui6a)
+static int my_zipexpl_read(ui6a_ctx *ui6a, UI6A_UINT8 *buf, size_t size)
 {
 	struct zipexpl_userdata_type *zu = (struct zipexpl_userdata_type *)ui6a->userdata;
 
-	if(zu->inf_curpos >= zu->inf_endpos) {
-		return EOF;
-	}
-	return (int)dbuf_getbyte(zu->inf, zu->inf_curpos++);
+	dbuf_read(zu->inf, buf, zu->inf_curpos, (i64)size);
+	zu->inf_curpos += size;
+	return 1;
 }
 
-static void my_zipexpl_flush(ui6a_ctx *ui6a, UI6A_UINT8 *rawbuf, UI6A_UINT32 size)
+static int my_zipexpl_write(ui6a_ctx *ui6a, const UI6A_UINT8 *buf, size_t size)
 {
 	struct zipexpl_userdata_type *zu = (struct zipexpl_userdata_type *)ui6a->userdata;
 
-	dbuf_write(zu->outf, rawbuf, (i64)size);
+	dbuf_write(zu->outf, buf, (i64)size);
+	return 1;
 }
 
 static void my_zipexpl_cb_post_read_trees(ui6a_ctx *ui6a, struct ui6a_htables *tbls)
@@ -198,18 +199,17 @@ static int do_decompress_implode(deark *c, lctx *d, struct member_data *md,
 	zu.dumptrees = de_get_ext_option_bool(c, "zip:dumptrees", 0);
 	zu.inf = inf;
 	zu.inf_curpos = inf_pos;
-	zu.inf_endpos = inf_pos + inf_size;
 	zu.outf = outf;
 
 	ui6a = ui6a_create((void*)&zu);
 	if(!ui6a) goto done;
 
-	ui6a->ucsize = md->uncmpr_size;
 	ui6a->csize = inf_size;
-	ui6a->lrec_general_purpose_bit_flag = md->local_dir_entry_data.bit_flags;
+	ui6a->ucsize = md->uncmpr_size;
+	ui6a->bit_flags = md->local_dir_entry_data.bit_flags;
 
-	ui6a->cb_readbyte = my_zipexpl_readbyte;
-	ui6a->cb_flush =  my_zipexpl_flush;
+	ui6a->cb_read = my_zipexpl_read;
+	ui6a->cb_write =  my_zipexpl_write;
 	ui6a->cb_post_read_trees = my_zipexpl_cb_post_read_trees;
 
 	ui6a_explode(ui6a);
@@ -217,9 +217,7 @@ static int do_decompress_implode(deark *c, lctx *d, struct member_data *md,
 
 	retval = 1;
 done:
-	if(ui6a) {
-		ui6a_destroy(ui6a);
-	}
+	ui6a_destroy(ui6a);
 	return retval;
 }
 
