@@ -31,13 +31,22 @@
 #define UI6A_ZEROMEM(ptr, size) memset((ptr), 0, (size))
 #endif
 
-//========================= unzip.h begin =========================
+#ifndef UI6A_API
+#define UI6A_API(t) static t
+#endif
 
-#define UI6A_OK   0
-#define UI6A_ERR1 1
-#define UI6A_ERR2 2
-#define UI6A_ERR3 3
-#define UI6A_ERR4 4
+#define UI6A_ERRCODE_OK              0
+#define UI6A_ERRCODE_GENERIC_ERROR   1
+#define UI6A_ERRCODE_BAD_CDATA       2
+#define UI6A_ERRCODE_MALLOC_FAILED   3
+#define UI6A_ERRCODE_READ_FAILED     6
+#define UI6A_ERRCODE_WRITE_FAILED    7
+#define UI6A_ERRCODE_INSUFFICIENT_CDATA  8
+
+#define UI6A_FLAG_4KDICT 0x0000
+#define UI6A_FLAG_8KDICT 0x0002
+#define UI6A_FLAG_2TREES 0x0000
+#define UI6A_FLAG_3TREES 0x0004
 
 #define UI6A_ARRAYSIZE(x)  (sizeof(x)/sizeof((x)[0]))
 
@@ -87,11 +96,7 @@ struct ui6a_ctx_struct {
 	void *userdata;
 	UI6A_OFF_T csize;  // compressed size
 	UI6A_OFF_T ucsize; // reported uncompressed size
-#define UI6A_FLAG_4KDICT 0x0000
-#define UI6A_FLAG_8KDICT 0x0002
-#define UI6A_FLAG_2TREES 0x0000
-#define UI6A_FLAG_3TREES 0x0004
-	UI6A_UINT16 bit_flags;
+	UI6A_UINT16 bit_flags; // Sum of UI6A_FLAG_* values
 
 	// cb_read must supply all the bytes requested. Return 1 if ok, 0 on failure.
 	ui6a_cb_read_type cb_read;
@@ -99,15 +104,13 @@ struct ui6a_ctx_struct {
 	ui6a_cb_write_type cb_write;
 	ui6a_cb_post_read_trees_type cb_post_read_trees;
 
-	UI6A_UINT8 flag_error;
-	UI6A_UINT8 flag_unexpected_eof;
-	UI6A_UINT8 flag_read_failed;
-	UI6A_UINT8 flag_write_failed;
+	int error_code; // UI6A_ERRCODE_*
+	UI6A_OFF_T uncmpr_nbytes_written;
+	UI6A_OFF_T cmpr_nbytes_consumed;
 
 	UI6A_OFF_T cmpr_nbytes_read;
 	size_t inbuf_nbytes_consumed;
 	size_t inbuf_nbytes_total;
-
 	UI6A_UINT8 Slide[UI6A_WSIZE];
 	UI6A_UINT8 inbuf[4096];
 };
@@ -117,7 +120,7 @@ struct ui6a_ctx_struct {
 typedef UI6A_UINT16 (*ui6a_len_or_dist_getter)(unsigned int i);
 
 static void ui6a_huft_free(ui6a_ctx *ui6a, struct ui6a_htable *tbl);
-static int ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n,
+static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n,
 	unsigned s, ui6a_len_or_dist_getter d_fn, ui6a_len_or_dist_getter e_fn,
 	struct ui6a_htable *tbl);
 
@@ -125,7 +128,13 @@ static int ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n,
 
 //========================= unzpriv.h end =========================
 
-//========================= unzip.h end =========================
+static void ui6a_set_error(ui6a_ctx *ui6a, int error_code)
+{
+	// Only record the first error.
+	if (ui6a->error_code == UI6A_ERRCODE_OK) {
+		ui6a->error_code = error_code;
+	}
+}
 
 //========================= consts.h begin =========================
 
@@ -143,13 +152,14 @@ static int ui6a_nextbyte(ui6a_ctx *ui6a)
 	size_t nbytes_to_read;
 	UI6A_UINT8 ch = 0xff;
 
-	if(ui6a->flag_error) {
+	if (ui6a->error_code != UI6A_ERRCODE_OK) {
 		goto done;
 	}
 
 	if(ui6a->inbuf_nbytes_consumed < ui6a->inbuf_nbytes_total) {
 		// Next byte is available in inbuf.
 		ch = ui6a->inbuf[ui6a->inbuf_nbytes_consumed++];
+		ui6a->cmpr_nbytes_consumed++;
 		goto done;
 	}
 
@@ -157,10 +167,15 @@ static int ui6a_nextbyte(ui6a_ctx *ui6a)
 	ui6a->inbuf_nbytes_consumed = 0;
 	ui6a->inbuf_nbytes_total = 0;
 
-	if(ui6a->cmpr_nbytes_read >= ui6a->csize) {
+	if (ui6a->cmpr_nbytes_consumed >= ui6a->csize) {
 		// ... and there are no more to read.
-		ui6a->flag_error = 1;
-		ui6a->flag_unexpected_eof = 1;
+		if (ui6a->cmpr_nbytes_consumed == ui6a->csize) {
+			// Allow reading one byte too many, before calling it an error.
+			ui6a->cmpr_nbytes_consumed++;
+		}
+		else {
+			ui6a_set_error(ui6a, UI6A_ERRCODE_INSUFFICIENT_CDATA);
+		}
 		goto done;
 	}
 
@@ -174,13 +189,13 @@ static int ui6a_nextbyte(ui6a_ctx *ui6a)
 
 	ret = ui6a->cb_read(ui6a, ui6a->inbuf, nbytes_to_read);
 	if(!ret) {
-		ui6a->flag_error = 1;
-		ui6a->flag_read_failed = 1;
+		ui6a_set_error(ui6a, UI6A_ERRCODE_READ_FAILED);
 		goto done;
 	}
 	ui6a->inbuf_nbytes_total = nbytes_to_read;
 	ui6a->cmpr_nbytes_read += (UI6A_OFF_T)nbytes_to_read;
 	ch = ui6a->inbuf[ui6a->inbuf_nbytes_consumed++];
+	ui6a->cmpr_nbytes_consumed++;
 
 done:
 	return (int)ch;
@@ -189,12 +204,20 @@ done:
 static void ui6a_flush(ui6a_ctx *ui6a, const UI6A_UINT8 *rawbuf, size_t size)
 {
 	int ret;
+	size_t nbytes_to_write = size;
 
-	ret = ui6a->cb_write(ui6a, rawbuf, size);
-	if(!ret) {
-		ui6a->flag_error = 1;
-		ui6a->flag_write_failed = 1;
+	if (size<1) return;
+	if (ui6a->uncmpr_nbytes_written >= ui6a->ucsize) return;
+	if (ui6a->uncmpr_nbytes_written + (UI6A_OFF_T)nbytes_to_write > ui6a->ucsize) {
+		// Not sure it's possible to get here, but just to be defensive...
+		nbytes_to_write = (size_t)(ui6a->ucsize - ui6a->uncmpr_nbytes_written);
 	}
+
+	ret = ui6a->cb_write(ui6a, rawbuf, nbytes_to_write);
+	if(!ret) {
+		ui6a_set_error(ui6a, UI6A_ERRCODE_WRITE_FAILED);
+	}
+	ui6a->uncmpr_nbytes_written += (UI6A_OFF_T)size;
 }
 
 //========================= explode.c begin =========================
@@ -373,11 +396,10 @@ static unsigned int ui6a_uarray_getval(struct ui6a_uarray *a, size_t idx)
 }
 
 /* Get the bit lengths for a code representation from the compressed
-   stream.  If ui6a_get_tree() returns 4, then there is an error in the data.
-   Otherwise zero is returned. */
+   stream.  On error, sets ui6a->error_code. */
 // l: bit lengths
 // n: number expected
-static int ui6a_get_tree(ui6a_ctx *ui6a, unsigned *l, unsigned n)
+static void ui6a_get_tree(ui6a_ctx *ui6a, unsigned *l, unsigned n)
 {
 	unsigned i;           /* bytes remaining in list */
 	unsigned k;           /* lengths entered */
@@ -390,13 +412,18 @@ static int ui6a_get_tree(ui6a_ctx *ui6a, unsigned *l, unsigned n)
 	do {
 		b = ((j = UI6A_NEXTBYTE) & 0xf) + 1;     /* bits in code (1..16) */
 		j = ((j & 0xf0) >> 4) + 1;          /* codes with those bits (1..16) */
-		if (k + j > n)
-			return UI6A_ERR4;                         /* don't overflow l[] */
+		if (k + j > n) {
+			ui6a_set_error(ui6a, UI6A_ERRCODE_BAD_CDATA);
+			return;                         /* don't overflow l[] */
+		}
 		do {
 			l[k++] = b;
 		} while (--j);
 	} while (--i);
-	return k != n ? UI6A_ERR4 : UI6A_OK;                /* should have read n of them */
+
+	if (k != n) {                /* should have read n of them */
+		ui6a_set_error(ui6a, UI6A_ERRCODE_BAD_CDATA);
+	}
 }
 
 static struct ui6a_huft *ui6a_huftarr_plus_offset(struct ui6a_huftarray *ha, UI6A_UINT32 offset)
@@ -415,7 +442,7 @@ static struct ui6a_huft *ui6a_follow_huft_ptr(struct ui6a_huft *h1, UI6A_UINT32 
 // tb, tl, td: literal, length, and distance tables
 //  Uses literals if tbls->b.t!=NULL.
 // bb, bl, bd: number of bits decoded by those
-static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
+static void ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 	struct ui6a_htables *tbls)
 {
 	UI6A_OFF_T s;               /* bytes to decompress */
@@ -427,6 +454,7 @@ static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 	UI6A_UINT32 b;       /* bit buffer */
 	unsigned k;  /* number of bits in bit buffer */
 	unsigned u;           /* true if unflushed */
+	int ok = 0;
 
 	/* explode the coded data */
 	b = k = w = 0;                /* initialize bit buffer, window */
@@ -436,7 +464,7 @@ static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 	md = ui6a_get_mask_bits(tbls->d.b);
 	s = ui6a->ucsize;
 	while (s > 0) {               /* do until ucsize bytes uncompressed */
-		if(ui6a->flag_error) {
+		if (ui6a->error_code != UI6A_ERRCODE_OK) {
 			goto done;
 		}
 		UI6A_NEEDBITS(1);
@@ -451,7 +479,7 @@ static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 				if (e > 16) {
 					do {
 						if (e == 99)
-							return 1;
+							goto done;
 						UI6A_DUMPBITS(t->b);
 						e -= 16;
 						UI6A_NEEDBITS(e);
@@ -496,7 +524,7 @@ static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 			if (e > 16) {
 				do {
 					if (e == 99)
-						return 1;
+						goto done;
 					UI6A_DUMPBITS(t->b);
 					e -= 16;
 					UI6A_NEEDBITS(e);
@@ -514,7 +542,7 @@ static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 			if (e > 16) {
 				do {
 					if (e == 99)
-						return 1;
+						goto done;
 					UI6A_DUMPBITS(t->b);
 					e -= 16;
 					UI6A_NEEDBITS(e);
@@ -532,7 +560,7 @@ static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 			}
 
 			/* do the copy */
-			s -= n;
+			s -= (UI6A_OFF_T)n;
 			do {
 				d &= (UI6A_WSIZE-1);
 				e = UI6A_WSIZE - (d > w ? d : w);
@@ -570,8 +598,17 @@ static int ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 
 	/* flush out ui6a->Slide */
 	ui6a_flush(ui6a, ui6a->Slide, (UI6A_UINT32)w);
+	ok = 1;
+
 done:
-	return 0;
+	if (!ok) {
+		ui6a_set_error(ui6a, UI6A_ERRCODE_GENERIC_ERROR);
+	}
+
+	if (ui6a->cmpr_nbytes_consumed > ui6a->csize) {
+		// Don't claim we read more bytes than available.
+		ui6a->cmpr_nbytes_consumed = ui6a->csize;
+	}
 }
 
 /* Explode an imploded compressed stream.  Based on the general purpose
@@ -582,9 +619,8 @@ done:
    of the stream.  The four routines are nearly identical, differing only
    in whether the literal is decoded or simply read in, and in how many
    bits are read in, uncoded, for the low distance bits. */
-static int ui6a_explode(ui6a_ctx *ui6a)
+UI6A_API(void) ui6a_explode(ui6a_ctx *ui6a)
 {
-	unsigned r = 1;           /* return codes */
 	struct ui6a_htables tbls;
 	unsigned l[256];      /* bit lengths for codes */
 	int has_literal_tree;
@@ -608,42 +644,37 @@ static int ui6a_explode(ui6a_ctx *ui6a)
 
 	if (has_literal_tree) { /* With literal tree--minimum match length is 3 */
 		tbls.b.b = 9;                     /* base table size for literals */
-		if ((r = ui6a_get_tree(ui6a, l, 256)) != UI6A_OK)
-			goto done;
-		if ((r = ui6a_huft_build(ui6a, l, 256, 256, NULL, NULL, &tbls.b)) != UI6A_OK)
-			goto done;
+		ui6a_get_tree(ui6a, l, 256);
+		if (ui6a->error_code != UI6A_ERRCODE_OK) goto done;
+		ui6a_huft_build(ui6a, l, 256, 256, NULL, NULL, &tbls.b);
+		if (ui6a->error_code != UI6A_ERRCODE_OK) goto done;
 	}
 	else {  /* No literal tree--minimum match length is 2 */
 		tbls.b.first_array = NULL;
 	}
 
-	if ((r = ui6a_get_tree(ui6a, l, 64)) != UI6A_OK)
-		goto done;
-	if ((r = ui6a_huft_build(ui6a, l, 64, 0, (has_literal_tree ? ui6a_get_cplen3 : ui6a_get_cplen2),
-		ui6a_get_extra, &tbls.l)) != UI6A_OK)
-	{
-		goto done;
-	}
+	ui6a_get_tree(ui6a, l, 64);
+	if (ui6a->error_code != UI6A_ERRCODE_OK) goto done;
+	ui6a_huft_build(ui6a, l, 64, 0, (has_literal_tree ? ui6a_get_cplen3 : ui6a_get_cplen2),
+		ui6a_get_extra, &tbls.l);
+	if (ui6a->error_code != UI6A_ERRCODE_OK) goto done;
 
-	if ((r = ui6a_get_tree(ui6a, l, 64)) != UI6A_OK)
-		goto done;
-	if ((r = ui6a_huft_build(ui6a, l, 64, 0, (has_8k_window ? ui6a_get_cpdist8 : ui6a_get_cpdist4),
-		ui6a_get_extra, &tbls.d)) != UI6A_OK)
-	{
-		goto done;
-	}
+	ui6a_get_tree(ui6a, l, 64);
+	if (ui6a->error_code != UI6A_ERRCODE_OK) goto done;
+	ui6a_huft_build(ui6a, l, 64, 0, (has_8k_window ? ui6a_get_cpdist8 : ui6a_get_cpdist4),
+		ui6a_get_extra, &tbls.d);
+	if (ui6a->error_code != UI6A_ERRCODE_OK) goto done;
 
 	if(ui6a->cb_post_read_trees) {
 		ui6a->cb_post_read_trees(ui6a, &tbls);
 	}
 
-	r = ui6a_explode_internal(ui6a, (has_8k_window ? 8 : 4), &tbls);
+	ui6a_explode_internal(ui6a, (has_8k_window ? 8 : 4), &tbls);
 
 done:
 	ui6a_huft_free(ui6a, &tbls.d);
 	ui6a_huft_free(ui6a, &tbls.l);
 	ui6a_huft_free(ui6a, &tbls.b);
-	return (int)r;
 }
 
 #undef UI6A_NEXTBYTE
@@ -663,10 +694,14 @@ done:
 #define UI6A_N_MAX 288       /* maximum number of codes in any set */
 
 /* Given a list of code lengths and a maximum table size, make a set of
-   tables to decode that set of codes.  Return zero on success, one if
+   tables to decode that set of codes.
+   On error, sets ui6a->error_code. (Tables might still be created.)
+
+   [Old behavior: Return zero on success, one if
    the given code set is incomplete (the tables are still built in this
    case), two if the input is invalid (all zero length codes or an
-   oversubscribed set of lengths), and three if not enough memory.
+   oversubscribed set of lengths), and three if not enough memory.]
+
    The code with value 256 is special, and the tables are constructed
    so that no bits beyond that code are fetched when that code is
    decoded. */
@@ -677,7 +712,7 @@ done:
 // e: list of extra bits for non-simple codes
 // tbl->t: result: starting table
 // tbl->b: maximum lookup bits, returns actual
-static int ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsigned s,
+static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsigned s,
 	ui6a_len_or_dist_getter d_fn, ui6a_len_or_dist_getter e_fn,
 	struct ui6a_htable *tbl)
 {
@@ -706,7 +741,6 @@ static int ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsign
 	unsigned int c_idx;
 	unsigned int v_idx;
 	unsigned int x_idx;
-	int retval = UI6A_ERR2;
 	struct ui6a_huftarray **loc_of_prev_next_ha_ptr = &tbl->first_array;
 
 	*loc_of_prev_next_ha_ptr = NULL;
@@ -724,7 +758,7 @@ static int ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsign
 
 	if (ui6a_uarray_getval(&c_arr, 0) == n) {              /* null input--all zero length codes */
 		tbl->b = 0;
-		return UI6A_OK;
+		return;
 	}
 
 	/* Find minimum and maximum length, bound *m by those */
@@ -746,12 +780,16 @@ static int ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsign
 	/* Adjust last length count to fill out codes, if needed */
 	for (y = 1 << j; j < i; j++, y <<= 1) {
 		y -= ui6a_uarray_getval(&c_arr, j);
-		if (y < 0)
-			return UI6A_ERR2;                 /* bad input: more codes than bits */
+		if (y < 0) {
+			ui6a_set_error(ui6a, UI6A_ERRCODE_BAD_CDATA);
+			return;                 /* bad input: more codes than bits */
+		}
 	}
 	y -= ui6a_uarray_getval(&c_arr, i);
-	if (y < 0)
-		return UI6A_ERR2;
+	if (y < 0) {
+		ui6a_set_error(ui6a, UI6A_ERRCODE_BAD_CDATA);
+		return;
+	}
 	ui6a_uarray_setval(&c_arr, i, ui6a_uarray_getval(&c_arr, i) + y);
 
 	/* Generate starting offsets into the value table for each length */
@@ -828,13 +866,13 @@ static int ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsign
 				/* allocate and link in new table */
 				ha = UI6A_CALLOC(ui6a->userdata, 1, sizeof(struct ui6a_huftarray));
 				if(!ha) {
-					retval = UI6A_ERR3;
+					ui6a_set_error(ui6a, UI6A_ERRCODE_MALLOC_FAILED);
 					goto done;
 				}
 				ha->h = UI6A_CALLOC(ui6a->userdata, (size_t)z, sizeof(struct ui6a_huft));
 				if(!ha->h) {
 					UI6A_FREE(ui6a->userdata, ha);
-					retval = UI6A_ERR3;
+					ui6a_set_error(ui6a, UI6A_ERRCODE_MALLOC_FAILED);
 					goto done;
 				}
 				ha->num_alloc_h = z;
@@ -899,19 +937,16 @@ static int ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsign
 	tbl->b = ui6a_iarray_getval(&lx_arr, 1+ 0);
 
 	/* Return true (1) if we were given an incomplete table */
-	if(y != 0 && g != 1)
-		retval = UI6A_ERR1;
-	else
-		retval = UI6A_OK;
+	if (y != 0 && g != 1) {
+		ui6a_set_error(ui6a, UI6A_ERRCODE_GENERIC_ERROR);
+	}
 
 done:
-	return retval;
+	return;
 }
 
 /* Free the malloc'ed tables built by ui6a_huft_build(), which makes a linked
-   list of the tables it made, with the links in a dummy first entry of
-   each table. */
-// t: table to free
+   list of the tables it made. */
 static void ui6a_huft_free(ui6a_ctx *ui6a, struct ui6a_htable *tbl)
 {
 	struct ui6a_huftarray *p, *q;
@@ -930,7 +965,7 @@ static void ui6a_huft_free(ui6a_ctx *ui6a, struct ui6a_htable *tbl)
 
 //========================= globals.c begin =========================
 
-static ui6a_ctx *ui6a_create(void *userdata)
+UI6A_API(ui6a_ctx*) ui6a_create(void *userdata)
 {
 	ui6a_ctx *ui6a = UI6A_CALLOC(userdata, 1, sizeof(ui6a_ctx));
 
@@ -939,7 +974,7 @@ static ui6a_ctx *ui6a_create(void *userdata)
 	return ui6a;
 }
 
-static void ui6a_destroy(ui6a_ctx *ui6a)
+UI6A_API(void) ui6a_destroy(ui6a_ctx *ui6a)
 {
 	if(!ui6a) return;
 	UI6A_FREE(ui6a->userdata, ui6a);

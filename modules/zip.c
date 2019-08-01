@@ -213,9 +213,16 @@ static int do_decompress_implode(deark *c, lctx *d, struct member_data *md,
 	ui6a->cb_post_read_trees = my_zipexpl_cb_post_read_trees;
 
 	ui6a_explode(ui6a);
-	// TODO: How is failure reported?
+	if(ui6a->error_code == UI6A_ERRCODE_OK) {
+		if(ui6a->cmpr_nbytes_consumed < ui6a->csize) {
+			de_warn(c, "Implode decompression may have failed (did not use all compressed data)");
+		}
+		retval = 1;
+	}
+	else {
+		de_err(c, "Implode decompression failed (code %d)", ui6a->error_code);
+	}
 
-	retval = 1;
 done:
 	ui6a_destroy(ui6a);
 	return retval;
