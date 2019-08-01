@@ -12,9 +12,11 @@ DE_DECLARE_MODULE(de_module_appledouble);
 
 typedef struct localctx_struct {
 	u32 version;
+	int is_appledouble;
 	int extract_rsrc;
-	struct de_timestamp modtime;
-	de_ucstring *real_name;
+	struct de_advfile *advf;
+	i64 rsrc_fork_pos;
+	i64 data_fork_pos;
 } lctx;
 
 struct entry_id_struct;
@@ -64,8 +66,11 @@ static void handler_string(deark *c, lctx *d, struct entry_struct *e)
 	read_pascal_string(c, d, s, e->offset, e->length);
 	de_dbg(c, "%s: \"%s\"", e->eid->name, ucstring_getpsz_d(s));
 
-	if(e->id==3 && !d->real_name && s->len>0) { // id 3 = real name
-		d->real_name = ucstring_clone(s);
+	if(e->id==3 && s->len>0) { // id 3 = real name
+		ucstring_empty(d->advf->filename);
+		ucstring_append_ucstring(d->advf->filename, s);
+		d->advf->mainfork.fi->original_filename_flag = 1;
+		d->advf->rsrcfork.fi->original_filename_flag = 1;
 	}
 
 	ucstring_destroy(s);
@@ -87,7 +92,8 @@ static void do_one_date(deark *c, lctx *d, i64 pos, const char *name,
 		// that and the Unix time epoch.
 		de_unix_time_to_timestamp(dt + ((365*30 + 7)*86400), &ts, 0x1);
 		if(is_modtime) {
-			d->modtime = ts; // struct copy
+			d->advf->mainfork.fi->mod_time = ts;
+			d->advf->rsrcfork.fi->mod_time = ts;
 		}
 		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
 	}
@@ -232,25 +238,13 @@ static void handler_finder(deark *c, lctx *d, struct entry_struct *e)
 
 static void handler_data(deark *c, lctx *d, struct entry_struct *e)
 {
-	de_finfo *fi = NULL;
-
-	fi = de_finfo_create(c);
-	if(d->modtime.is_valid) {
-		fi->mod_time = d->modtime; // struct copy
+	if(d->is_appledouble) {
+		de_warn(c, "AppleDouble header files should not have a data fork.");
 	}
 
-	if(d->real_name) {
-		de_finfo_set_name_from_ucstring(c, fi, d->real_name, 0);
-		fi->original_filename_flag = 1;
-	}
-	else {
-		de_finfo_set_name_from_sz(c, fi, "data", 0, DE_ENCODING_LATIN1);
-	}
-
-	dbuf_create_file_from_slice(c->infile, e->offset, e->length,
-		NULL, fi, 0x0);
-
-	de_finfo_destroy(c, fi);
+	d->advf->mainfork.fork_exists = 1;
+	d->data_fork_pos = e->offset;
+	d->advf->mainfork.fork_len = e->length;
 }
 
 static void do_extract_rsrc(deark *c, lctx *d, struct entry_struct *e)
@@ -260,22 +254,9 @@ static void do_extract_rsrc(deark *c, lctx *d, struct entry_struct *e)
 
 	if(e->length<1) goto done;
 
-	fi = de_finfo_create(c);
-	if(d->modtime.is_valid) {
-		fi->mod_time = d->modtime; // struct copy
-	}
-
-	if(d->real_name) {
-		fname = ucstring_clone(d->real_name);
-		ucstring_append_sz(fname, ".rsrc", DE_ENCODING_LATIN1);
-		de_finfo_set_name_from_ucstring(c, fi, fname, 0);
-	}
-	else {
-		de_finfo_set_name_from_sz(c, fi, "rsrc", 0, DE_ENCODING_LATIN1);
-	}
-
-	dbuf_create_file_from_slice(c->infile, e->offset, e->length,
-		NULL, fi, 0x0);
+	d->advf->rsrcfork.fork_exists = 1;
+	d->rsrc_fork_pos = e->offset;
+	d->advf->rsrcfork.fork_len = e->length;
 
 done:
 	de_finfo_destroy(c, fi);
@@ -360,14 +341,31 @@ done:
 	;
 }
 
+static int my_advfile_cbfn(deark *c, struct de_advfile *advf,
+	struct de_advfile_cbparams *afp)
+{
+	lctx *d = (lctx*)advf->userdata;
+
+	if(afp->whattodo == DE_ADVFILE_WRITEMAIN) {
+		dbuf_copy(c->infile, d->data_fork_pos, advf->mainfork.fork_len, afp->outf);
+	}
+	else if(afp->whattodo == DE_ADVFILE_WRITERSRC) {
+		dbuf_copy(c->infile, d->rsrc_fork_pos, advf->rsrcfork.fork_len, afp->outf);
+	}
+	return 1;
+}
+
 static void de_run_sd_internal(deark *c, lctx *d)
 {
 	i64 pos = 0;
 	i64 nentries;
 	i64 k;
-	int pass;
 	i64 entry_descriptors_pos;
-	int *entry_pass = NULL;
+
+	d->advf = de_advfile_create(c);
+	d->advf->userdata = (void*)d;
+	d->advf->writefork_cbfn = my_advfile_cbfn;
+	ucstring_append_sz(d->advf->filename, "bin", DE_ENCODING_LATIN1);
 
 	pos += 4; // signature
 	d->version = (u32)de_getu32be_p(&pos);
@@ -382,29 +380,17 @@ static void de_run_sd_internal(deark *c, lctx *d)
 
 	entry_descriptors_pos = pos;
 
-	entry_pass = de_mallocarray(c, nentries, sizeof(int));
 	for(k=0; k<nentries; k++) {
-		unsigned int e_id;
-		// Make sure we read the metadata before we extract the files.
-		e_id = (unsigned int)de_getu32be(entry_descriptors_pos+12*k);
-		if(e_id==1 || e_id==2) entry_pass[k] = 2;
-		else entry_pass[k] = 1;
+		if(pos+12>c->infile->len) break;
+		de_dbg(c, "entry[%u]", (unsigned int)k);
+		de_dbg_indent(c, 1);
+		do_sd_entry(c, d, (unsigned int)k, entry_descriptors_pos+12*k);
+		de_dbg_indent(c, -1);
 	}
 
-	for(pass=1; pass<=2; pass++) {
-		for(k=0; k<nentries; k++) {
-			if(entry_pass[k]==pass) {
-				if(pos+12>c->infile->len) break;
-				de_dbg(c, "entry[%u]", (unsigned int)k);
-				de_dbg_indent(c, 1);
-				do_sd_entry(c, d, (unsigned int)k, entry_descriptors_pos+12*k);
-				de_dbg_indent(c, -1);
-			}
-		}
-	}
+	de_advfile_run(d->advf);
 
-	de_free(c, entry_pass);
-	de_free(c, d->real_name);
+	de_advfile_destroy(d->advf);
 }
 
 static void de_run_appledouble(deark *c, de_module_params *mparams)
@@ -412,6 +398,7 @@ static void de_run_appledouble(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->is_appledouble = 1;
 	d->extract_rsrc = de_get_ext_option_bool(c, "appledouble:extractrsrc", 1);
 	de_run_sd_internal(c, d);
 	de_free(c, d);
@@ -437,6 +424,7 @@ static void de_run_applesingle(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->is_appledouble = 0;
 	d->extract_rsrc = 1;
 	de_run_sd_internal(c, d);
 	de_free(c, d);
