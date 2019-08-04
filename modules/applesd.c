@@ -69,8 +69,7 @@ static void handler_string(deark *c, lctx *d, struct entry_struct *e)
 	if(e->id==3 && s->len>0) { // id 3 = real name
 		ucstring_empty(d->advf->filename);
 		ucstring_append_ucstring(d->advf->filename, s);
-		d->advf->mainfork.fi->original_filename_flag = 1;
-		d->advf->rsrcfork.fi->original_filename_flag = 1;
+		d->advf->original_filename_flag = 1;
 	}
 
 	ucstring_destroy(s);
@@ -93,7 +92,6 @@ static void do_one_date(deark *c, lctx *d, i64 pos, const char *name,
 		de_unix_time_to_timestamp(dt + ((365*30 + 7)*86400), &ts, 0x1);
 		if(is_modtime) {
 			d->advf->mainfork.fi->mod_time = ts;
-			d->advf->rsrcfork.fi->mod_time = ts;
 		}
 		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
 	}

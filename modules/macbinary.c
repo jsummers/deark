@@ -205,10 +205,6 @@ static void do_prepare_one_fork(deark *c, lctx *d, struct de_advfile_forkinfo *a
 		}
 	}
 
-	if(d->mod_time.is_valid) {
-		advfki->fi->mod_time = d->mod_time;
-	}
-
 done:
 	;
 }
@@ -239,9 +235,9 @@ static void run_macbinary_internal(deark *c, lctx *d)
 	do_header(c, d);
 	if(ucstring_isnonempty(d->filename)) {
 		ucstring_append_ucstring(advf->filename, d->filename);
-		advf->mainfork.fi->original_filename_flag = 1;
-		advf->rsrcfork.fi->original_filename_flag = 1;
+		advf->original_filename_flag = 1;
 	}
+	advf->mainfork.fi->mod_time = d->mod_time;
 
 	if(d->dflen>0) {
 		d->dfpos = pos;

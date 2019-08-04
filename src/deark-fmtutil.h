@@ -271,6 +271,7 @@ struct de_advfile {
 	struct de_advfile_forkinfo rsrcfork;
 	de_advfile_cbfn writefork_cbfn;
 	de_ucstring *filename;
+	u8 original_filename_flag;
 	u8 no_applesingle;
 	u8 no_appledouble;
 	// TODO: type code, creator code

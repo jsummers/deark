@@ -82,7 +82,7 @@ static i64 node_dpos(lctx *d, i64 nodenum)
 }
 
 static void read_one_timestamp(deark *c, lctx *d, i64 pos, de_finfo *fi1,
-	de_finfo *fi2, const char *name)
+	const char *name)
 {
 	i64 ts_raw;
 	struct de_timestamp ts;
@@ -98,9 +98,6 @@ static void read_one_timestamp(deark *c, lctx *d, i64 pos, de_finfo *fi1,
 
 		if(fi1) {
 			fi1->mod_time = ts;
-		}
-		if(fi2) {
-			fi2->mod_time = ts;
 		}
 	}
 	else {
@@ -135,9 +132,9 @@ static int do_master_directory_blocks(deark *c, lctx *d, i64 blknum)
 	de_dbg_indent(c, 1);
 
 	pos += 2; // signature
-	read_one_timestamp(c, d, pos, NULL, NULL, "vol. create date");
+	read_one_timestamp(c, d, pos, NULL, "vol. create date");
 	pos += 4;
-	read_one_timestamp(c, d, pos, NULL, NULL, "vol. last mod date");
+	read_one_timestamp(c, d, pos, NULL, "vol. last mod date");
 	pos += 4;
 	pos += 2; // attribs
 
@@ -325,15 +322,15 @@ done:
 	;
 }
 static void read_timestamp_fields(deark *c, lctx *d, i64 pos1,
-	de_finfo *fi1, de_finfo *fi2)
+	de_finfo *fi1)
 {
 	i64 pos = pos1;
 
-	read_one_timestamp(c, d, pos, NULL, NULL, "create date");
+	read_one_timestamp(c, d, pos, NULL, "create date");
 	pos += 4;
-	read_one_timestamp(c, d, pos, fi1, fi2, "mod date");
+	read_one_timestamp(c, d, pos, fi1, "mod date");
 	pos += 4;
-	read_one_timestamp(c, d, pos, NULL, NULL, "backup date");
+	read_one_timestamp(c, d, pos, NULL, "backup date");
 	pos += 4;
 }
 
@@ -347,7 +344,7 @@ static void do_extract_dir(deark *c, lctx *d, struct nodedata *nd,
 	pos += 2; // dirVal
 	pos += 4; // dirDirID
 
-	read_timestamp_fields(c, d, pos, advf->mainfork.fi, NULL);
+	read_timestamp_fields(c, d, pos, advf->mainfork.fi);
 	pos += 12;
 
 	advf->mainfork.fi->is_directory = 1;
@@ -499,7 +496,7 @@ static void do_extract_file(deark *c, lctx *d, struct nodedata *nd,
 	ectx->fki_rsrc->physical_eof = de_getu32be_p(&pos);
 	de_dbg(c, "rsrc fork physical eof: %d", (int)ectx->fki_rsrc->physical_eof);
 
-	read_timestamp_fields(c, d, pos, advf->mainfork.fi, advf->rsrcfork.fi);
+	read_timestamp_fields(c, d, pos, advf->mainfork.fi);
 	pos += 12;
 
 	pos += 16; // filFndrInfo sizeof(FXInfo)
@@ -547,8 +544,7 @@ static void do_leaf_node_record_extract_item(deark *c, lctx *d, struct nodedata 
 	i64 oldlen;
 
 	advf = de_advfile_create(c);
-	advf->mainfork.fi->original_filename_flag = 1;
-	advf->rsrcfork.fi->original_filename_flag = 1;
+	advf->original_filename_flag = 1;
 
 	// TODO: This is not very efficient. Maybe we should at least cache the
 	// previous file's path, since it's usually the same.

@@ -1624,6 +1624,7 @@ void de_fmtutil_handle_id3(deark *c, dbuf *f, struct de_id3info *id3i,
 // de_advfile_create creates a new object.
 // Then, before calling de_advfile_run, caller must:
 //  - Set advf->filename if possible, e.g. using ucstring_append_*().
+//  - Set advf->original_filename_flag, if appropriate.
 //  - Set advf->snflags, if needed.
 //  - Set advf->createflags, if needed (unlikely to be).
 //  - Set advf->mainfork.fork_exists, if there is a main fork.
@@ -1631,12 +1632,11 @@ void de_fmtutil_handle_id3(deark *c, dbuf *f, struct de_id3info *id3i,
 //    used if the fork lengths are not known in advance.
 //  - Set advf->rsrcfork.fork_exists, if there is an rsrc fork.
 //  - Set advf->rsrcfork.fork_len, if there is an rsrc fork.
-//  - If appropriate, set other fields in both advf->mainfork.fi and
-//    advf->rsrcfork.fi:
-//     - ->mod_time
-//     - ->original_filename_flag
-//     - ->is_directory
-//     - (and maybe others)
+//  - Set advf->mainfork.mod_time, if known, even if there is no main fork. Mac
+//    files do not use advf->rsrcfork.mod_time.
+//  - If appropriate, set other fields potentially advf->mainfork.fi and/or
+//    advf->rsrcfork.fi, such as ->is_directory. But verify that they work
+//    as expected.
 struct de_advfile *de_advfile_create(deark *c)
 {
 	struct de_advfile *advf = NULL;
@@ -1673,6 +1673,7 @@ static void setup_rsrc_finfo(struct de_advfile *advf)
 	}
 	ucstring_append_sz(fname_rsrc, ".rsrc", DE_ENCODING_LATIN1);
 	de_finfo_set_name_from_ucstring(c, advf->rsrcfork.fi, fname_rsrc, advf->rsrcfork.snflags);
+	advf->rsrcfork.fi->original_filename_flag = advf->original_filename_flag;
 
 	ucstring_destroy(fname_rsrc);
 }
@@ -1688,6 +1689,7 @@ static void de_advfile_run_rawfiles(deark *c, struct de_advfile *advf, int is_ap
 		afp_main = de_malloc(c, sizeof(struct de_advfile_cbparams));
 		afp_main->whattodo = DE_ADVFILE_WRITEMAIN;
 		de_finfo_set_name_from_ucstring(c, advf->mainfork.fi, advf->filename, advf->mainfork.snflags);
+		advf->mainfork.fi->original_filename_flag = advf->original_filename_flag;
 		afp_main->outf = dbuf_create_output_file(c, NULL, advf->mainfork.fi, advf->mainfork.createflags);
 		if(advf->writefork_cbfn) {
 			advf->writefork_cbfn(c, advf, afp_main);
@@ -1699,6 +1701,7 @@ static void de_advfile_run_rawfiles(deark *c, struct de_advfile *advf, int is_ap
 		afp_rsrc = de_malloc(c, sizeof(struct de_advfile_cbparams));
 		setup_rsrc_finfo(advf);
 		afp_rsrc->whattodo = DE_ADVFILE_WRITERSRC;
+		advf->rsrcfork.fi->mod_time = advf->mainfork.fi->mod_time;
 		afp_rsrc->outf = dbuf_create_output_file(c, NULL, advf->rsrcfork.fi, advf->rsrcfork.createflags);
 		if(advf->writefork_cbfn) {
 			advf->writefork_cbfn(c, advf, afp_rsrc);
@@ -1743,6 +1746,7 @@ static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_app
 		ucstring_append_sz(fname, ".as", DE_ENCODING_LATIN1);
 	}
 	de_finfo_set_name_from_ucstring(c, advf->mainfork.fi, fname, advf->mainfork.snflags);
+	advf->mainfork.fi->original_filename_flag = advf->original_filename_flag;
 	outf = dbuf_create_output_file(c, NULL, advf->mainfork.fi, advf->mainfork.createflags);
 
 	if(is_appledouble) { // signature
