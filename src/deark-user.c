@@ -348,7 +348,7 @@ void de_run(deark *c)
 	if(keepdirentries_opt<0) {
 		// By default, only keep dir entries if there is some way that
 		// files can be present in such a subdir.
-		c->keep_dir_entries = (
+		c->keep_dir_entries = (u8)(
 			(c->output_style==DE_OUTPUTSTYLE_ARCHIVE) &&
 			c->allow_subdirs &&
 			(!c->base_output_filename));
@@ -696,22 +696,22 @@ void de_set_warnings(deark *c, int x)
 
 void de_set_write_bom(deark *c, int x)
 {
-	c->write_bom = x;
+	c->write_bom = (u8)x;
 }
 
 void de_set_write_density(deark *c, int x)
 {
-	c->write_density = x;
+	c->write_density = (u8)x;
 }
 
 void de_set_ascii_html(deark *c, int x)
 {
-	c->ascii_html = x;
+	c->ascii_html = (u8)x;
 }
 
 void de_set_filenames_from_file(deark *c, int x)
 {
-	c->filenames_from_file = x;
+	c->filenames_from_file = (u8)x;
 }
 
 // DE_OVERWRITEMODE_DEFAULT =

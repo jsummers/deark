@@ -1677,9 +1677,10 @@ static void setup_rsrc_finfo(struct de_advfile *advf)
 	ucstring_destroy(fname_rsrc);
 }
 
-void de_advfile_run(struct de_advfile *advf)
+// If is_appledouble is set, do not write the resource fork (it will be handled
+// in another way).
+static void de_advfile_run_rawfiles(deark *c, struct de_advfile *advf, int is_appledouble)
 {
-	deark *c = advf->c;
 	struct de_advfile_cbparams *afp_main = NULL;
 	struct de_advfile_cbparams *afp_rsrc = NULL;
 
@@ -1689,18 +1690,18 @@ void de_advfile_run(struct de_advfile *advf)
 		de_finfo_set_name_from_ucstring(c, advf->mainfork.fi, advf->filename, advf->mainfork.snflags);
 		afp_main->outf = dbuf_create_output_file(c, NULL, advf->mainfork.fi, advf->mainfork.createflags);
 		if(advf->writefork_cbfn) {
-			advf->writefork_cbfn(advf->c, advf, afp_main);
+			advf->writefork_cbfn(c, advf, afp_main);
 		}
 		dbuf_close(afp_main->outf);
 		afp_main->outf = NULL;
 	}
-	if(advf->rsrcfork.fork_exists && advf->rsrcfork.fork_len>0) {
+	if(!is_appledouble && advf->rsrcfork.fork_exists && advf->rsrcfork.fork_len>0) {
 		afp_rsrc = de_malloc(c, sizeof(struct de_advfile_cbparams));
 		setup_rsrc_finfo(advf);
 		afp_rsrc->whattodo = DE_ADVFILE_WRITERSRC;
 		afp_rsrc->outf = dbuf_create_output_file(c, NULL, advf->rsrcfork.fi, advf->rsrcfork.createflags);
 		if(advf->writefork_cbfn) {
-			advf->writefork_cbfn(advf->c, advf, afp_rsrc);
+			advf->writefork_cbfn(c, advf, afp_rsrc);
 		}
 		dbuf_close(afp_rsrc->outf);
 		afp_rsrc->outf = NULL;
@@ -1708,4 +1709,151 @@ void de_advfile_run(struct de_advfile *advf)
 
 	de_free(c, afp_main);
 	de_free(c, afp_rsrc);
+}
+
+struct applesd_entry {
+	unsigned int id;
+	i64 offset;
+	i64 len;
+};
+
+// If is_appledouble is set, do not write the data fork (it will be handled
+// in another way).
+static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_appledouble)
+{
+	de_ucstring *fname = NULL;
+	struct de_advfile_cbparams *afp_main = NULL;
+	struct de_advfile_cbparams *afp_rsrc = NULL;
+	dbuf *outf = NULL;
+	i64 cur_data_pos;
+	size_t num_entries = 0;
+	size_t k;
+	struct applesd_entry entry_info[16];
+
+	fname = ucstring_create(c);
+	ucstring_append_ucstring(fname, advf->filename);
+	if(fname->len<1) {
+		ucstring_append_sz(fname, "_", DE_ENCODING_LATIN1);
+	}
+	if(is_appledouble) {
+		// TODO: Consider using "._" prefix when writing to ZIP/tar
+		ucstring_append_sz(fname, ".adf", DE_ENCODING_LATIN1);
+	}
+	else {
+		ucstring_append_sz(fname, ".as", DE_ENCODING_LATIN1);
+	}
+	de_finfo_set_name_from_ucstring(c, advf->mainfork.fi, fname, advf->mainfork.snflags);
+	outf = dbuf_create_output_file(c, NULL, advf->mainfork.fi, advf->mainfork.createflags);
+
+	if(is_appledouble) { // signature
+		dbuf_writeu32be(outf, 0x00051607U);
+	}
+	else {
+		dbuf_writeu32be(outf, 0x00051600U);
+	}
+	dbuf_writeu32be(outf, 0x00020000U); // version
+	dbuf_write_zeroes(outf, 16); // filler
+
+	// Decide what entries we will write, and in what order, and their data length.
+	if(advf->rsrcfork.fork_exists) {
+		entry_info[num_entries].id = 2;
+		entry_info[num_entries].len = advf->rsrcfork.fork_len;
+		num_entries++;
+	};
+	if(advf->mainfork.fork_exists && !is_appledouble) {
+		entry_info[num_entries].id = 1;
+		entry_info[num_entries].len = advf->mainfork.fork_len;
+		num_entries++;
+	};
+
+	dbuf_writeu16be(outf, (i64)num_entries);
+
+	// Figure out where the each data element will be written.
+	cur_data_pos = 26 + 12*(i64)num_entries;
+	for(k=0; k<num_entries; k++) {
+		entry_info[k].offset = cur_data_pos;
+		cur_data_pos += entry_info[k].len;
+	};
+
+	// Write the element table
+	for(k=0; k<num_entries; k++) {
+		dbuf_writeu32be(outf, (i64)entry_info[k].id);
+		if(entry_info[k].offset>0xffffffffLL || entry_info[k].len>0xffffffffLL) {
+			de_err(c, "File too large to write to AppleSingle/AppleDouble format");
+			goto done;
+		}
+		dbuf_writeu32be(outf, entry_info[k].offset);
+		dbuf_writeu32be(outf, entry_info[k].len);
+	}
+
+	// Write the elements' data
+	for(k=0; k<num_entries; k++) {
+		if(entry_info[k].id==1) { // Data Fork
+			afp_main = de_malloc(c, sizeof(struct de_advfile_cbparams));
+			afp_main->whattodo = DE_ADVFILE_WRITEMAIN;
+			afp_main->outf = outf;
+			if(advf->writefork_cbfn) {
+				advf->writefork_cbfn(c, advf, afp_main);
+			}
+		}
+		else if(entry_info[k].id==2) {
+			afp_rsrc = de_malloc(c, sizeof(struct de_advfile_cbparams));
+			afp_rsrc->whattodo = DE_ADVFILE_WRITERSRC;
+			afp_rsrc->outf = outf;
+			if(advf->writefork_cbfn) {
+				advf->writefork_cbfn(c, advf, afp_rsrc);
+			}
+		}
+
+		// In case something went wrong, try to make sure we're at the expected
+		// file position.
+		// Note: This might not compensate for all failures, as dbuf_truncate
+		// might not be fully implemented for this output type.
+		dbuf_truncate(outf, entry_info[k].offset + entry_info[k].len);
+	}
+
+done:
+	dbuf_close(outf);
+	de_free(c, afp_main);
+	de_free(c, afp_rsrc);
+	ucstring_destroy(fname);
+}
+
+void de_advfile_run(struct de_advfile *advf)
+{
+	deark *c = advf->c;
+	int is_mac_file;
+
+	is_mac_file = (advf->rsrcfork.fork_exists && advf->rsrcfork.fork_len>0);
+
+	if(is_mac_file && !c->macformat_known) {
+		const char *mfmt;
+
+		c->macformat_known = 1;
+		c->macformat = 0; // default raw format
+		mfmt = de_get_ext_option(c, "macformat");
+		if(mfmt) {
+			if(!de_strcmp(mfmt, "as")) {
+				if(!advf->no_applesingle) {
+					c->macformat = 1; // AppleSingle
+				}
+			}
+			else if(!de_strcmp(mfmt, "ad")) {
+				if(!advf->no_appledouble) {
+					c->macformat = 2; // AppleDouble
+				}
+			}
+		}
+	}
+
+	if(is_mac_file && c->macformat==1) { // AppleSingle
+		de_advfile_run_applesd(c, advf, 0);
+	}
+	else if(is_mac_file && c->macformat==2) { // AppleDouble
+		de_advfile_run_rawfiles(c, advf, 1); // For the main fork
+		de_advfile_run_applesd(c, advf, 1); // For the data fork
+	}
+	else {
+		de_advfile_run_rawfiles(c, advf, 0);
+	}
 }

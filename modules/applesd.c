@@ -364,6 +364,14 @@ static void de_run_sd_internal(deark *c, lctx *d)
 
 	d->advf = de_advfile_create(c);
 	d->advf->userdata = (void*)d;
+	if(d->is_appledouble) {
+		// Don't want to go around in circles.
+		d->advf->no_applesingle = 1;
+		d->advf->no_appledouble = 1;
+	}
+	else {
+		d->advf->no_applesingle = 1;
+	}
 	d->advf->writefork_cbfn = my_advfile_cbfn;
 	ucstring_append_sz(d->advf->filename, "bin", DE_ENCODING_LATIN1);
 
