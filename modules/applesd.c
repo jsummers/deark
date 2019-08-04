@@ -362,14 +362,6 @@ static void de_run_sd_internal(deark *c, lctx *d)
 
 	d->advf = de_advfile_create(c);
 	d->advf->userdata = (void*)d;
-	if(d->is_appledouble) {
-		// Don't want to go around in circles.
-		d->advf->no_applesingle = 1;
-		d->advf->no_appledouble = 1;
-	}
-	else {
-		d->advf->no_applesingle = 1;
-	}
 	d->advf->writefork_cbfn = my_advfile_cbfn;
 	ucstring_append_sz(d->advf->filename, "bin", DE_ENCODING_LATIN1);
 
@@ -392,6 +384,16 @@ static void de_run_sd_internal(deark *c, lctx *d)
 		de_dbg_indent(c, 1);
 		do_sd_entry(c, d, (unsigned int)k, entry_descriptors_pos+12*k);
 		de_dbg_indent(c, -1);
+	}
+
+	// There's no good reason to ever "convert" to AppleSingle. (We don't
+	// have a way to combine forks that start out in separate files.)
+	d->advf->no_applesingle = 1;
+
+	if(!d->advf->mainfork.fork_exists || !d->advf->rsrcfork.fork_exists) {
+		// If either fork does not exist, don't do anything fancy.
+		// (If both exist, we allow conversion to AppleDouble.)
+		d->advf->no_appledouble = 1;
 	}
 
 	de_advfile_run(d->advf);

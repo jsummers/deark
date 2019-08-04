@@ -1621,6 +1621,16 @@ void de_fmtutil_handle_id3(deark *c, dbuf *f, struct de_id3info *id3i,
 // might want to do something special with (e.g. Mac type/creator codes).
 // It is essentially a wrapper around dbuf/finfo.
 
+static void writei32be(dbuf *f, i64 n)
+{
+	if(n<0) {
+		dbuf_writeu32be(f, n+0x100000000LL);
+	}
+	else {
+		dbuf_writeu32be(f, n);
+	}
+}
+
 // de_advfile_create creates a new object.
 // Then, before calling de_advfile_run, caller must:
 //  - Set advf->filename if possible, e.g. using ucstring_append_*().
@@ -1658,7 +1668,28 @@ void de_advfile_destroy(struct de_advfile *advf)
 	ucstring_destroy(advf->filename);
 	de_finfo_destroy(c, advf->mainfork.fi);
 	de_finfo_destroy(c, advf->rsrcfork.fi);
+	de_free(c, advf->orig_filename);
 	de_free(c, advf);
+}
+
+// Set the original filename, as an array of bytes of indeterminate encoding
+// (most likely MacRoman). We can't necessarily decode this filename correctly,
+// but we can copy it unchanged to AppleSingle/AppleDouble's "Real Name" field.
+void de_advfile_set_orig_filename(struct de_advfile *advf, const u8 *fn, i64 fnlen)
+{
+	deark *c = advf->c;
+
+	if(advf->orig_filename) {
+		de_free(c, advf->orig_filename);
+		advf->orig_filename = NULL;
+	}
+
+	if(fnlen<1) return;
+	advf->orig_filename_len = fnlen;
+	if(advf->orig_filename_len>255)
+		advf->orig_filename_len = 255;
+	advf->orig_filename = de_malloc(c, advf->orig_filename_len);
+	de_memcpy(advf->orig_filename, fn, advf->orig_filename_len);
 }
 
 static void setup_rsrc_finfo(struct de_advfile *advf)
@@ -1720,6 +1751,24 @@ struct applesd_entry {
 	i64 len;
 };
 
+#define SDID_DATAFORK 1
+#define SDID_RESOURCEFORK 2
+#define SDID_REALNAME 3
+#define SDID_FILEDATES 8
+
+#define INVALID_APPLESD_DATE ((i64)(-0x80000000LL))
+
+static i64 timestamp_to_applesd_date(deark *c, struct de_timestamp *ts)
+{
+	i64 t;
+
+	if(!ts->is_valid) return INVALID_APPLESD_DATE;
+	t = de_timestamp_to_unix_time(ts);
+	t -= (365*30 + 7)*86400;
+	if(t>0x7fffffffLL || t<-0x7fffffffLL) return INVALID_APPLESD_DATE;
+	return t;
+}
+
 // If is_appledouble is set, do not write the data fork (it will be handled
 // in another way).
 static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_appledouble)
@@ -1759,13 +1808,23 @@ static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_app
 	dbuf_write_zeroes(outf, 16); // filler
 
 	// Decide what entries we will write, and in what order, and their data length.
+	if(advf->orig_filename) {
+		entry_info[num_entries].id = SDID_REALNAME;
+		entry_info[num_entries].len = 1 + advf->orig_filename_len + 1;
+		num_entries++;
+	}
+	if(advf->mainfork.fi->mod_time.is_valid) {
+		entry_info[num_entries].id = SDID_FILEDATES;
+		entry_info[num_entries].len = 16;
+		num_entries++;
+	}
 	if(advf->rsrcfork.fork_exists) {
-		entry_info[num_entries].id = 2;
+		entry_info[num_entries].id = SDID_RESOURCEFORK;
 		entry_info[num_entries].len = advf->rsrcfork.fork_len;
 		num_entries++;
 	};
 	if(advf->mainfork.fork_exists && !is_appledouble) {
-		entry_info[num_entries].id = 1;
+		entry_info[num_entries].id = SDID_DATAFORK;
 		entry_info[num_entries].len = advf->mainfork.fork_len;
 		num_entries++;
 	};
@@ -1792,21 +1851,48 @@ static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_app
 
 	// Write the elements' data
 	for(k=0; k<num_entries; k++) {
-		if(entry_info[k].id==1) { // Data Fork
+		switch(entry_info[k].id) {
+		case SDID_DATAFORK:
 			afp_main = de_malloc(c, sizeof(struct de_advfile_cbparams));
 			afp_main->whattodo = DE_ADVFILE_WRITEMAIN;
 			afp_main->outf = outf;
 			if(advf->writefork_cbfn) {
 				advf->writefork_cbfn(c, advf, afp_main);
 			}
-		}
-		else if(entry_info[k].id==2) {
+			break;
+
+		case SDID_RESOURCEFORK:
 			afp_rsrc = de_malloc(c, sizeof(struct de_advfile_cbparams));
 			afp_rsrc->whattodo = DE_ADVFILE_WRITERSRC;
 			afp_rsrc->outf = outf;
 			if(advf->writefork_cbfn) {
 				advf->writefork_cbfn(c, advf, afp_rsrc);
 			}
+			break;
+
+		case SDID_REALNAME:
+			// The format of the Real Name field seems to be wholly undocumented,
+			// even beyond the unspecified encoding. It might even depend on the
+			// originating filesystem type.
+			// In practice, different files have different data structures here.
+			// An example is a "Pascal string", followed by padding so that the
+			// entry's length is 32.
+			// The format I'm going with is a Pascal string, followed by a
+			// pointless NUL byte that is not included in the string's length
+			// field, but that is included in the Real Name entry's length.
+			dbuf_writebyte(outf, (u8)advf->orig_filename_len);
+			dbuf_write(outf, advf->orig_filename, advf->orig_filename_len);
+			dbuf_writebyte(outf, (u8)0);
+			break;
+
+		case SDID_FILEDATES:
+			// We could try to maintain dates other than the modification date, but
+			// Deark doesn't generally care about them.
+			writei32be(outf, INVALID_APPLESD_DATE); // creation
+			writei32be(outf, timestamp_to_applesd_date(c, &advf->mainfork.fi->mod_time));
+			writei32be(outf, INVALID_APPLESD_DATE); // backup
+			writei32be(outf, INVALID_APPLESD_DATE); // access
+			break;
 		}
 
 		// In case something went wrong, try to make sure we're at the expected

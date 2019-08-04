@@ -17,7 +17,7 @@ typedef struct localctx_struct {
 	int is_v23;
 	i64 dfpos, rfpos;
 	i64 dflen, rflen;
-	de_ucstring *filename;
+	struct de_stringreaderdata *filename_srd;
 	struct de_timestamp create_time;
 	struct de_timestamp mod_time;
 } lctx;
@@ -76,11 +76,10 @@ static void do_header(deark *c, lctx *d)
 	if(namelen>=1 && namelen<=63) {
 		// Required to be 1-63 by MacBinary II spec.
 		// Original spec has no written requirements.
-		d->filename = ucstring_create(c);
 		// Not supposed to be NUL terminated, but such files exist.
-		dbuf_read_to_ucstring(c->infile, pos, namelen, d->filename,
+		d->filename_srd = dbuf_read_string(c->infile, pos, namelen, namelen,
 			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_MACROMAN);
-		de_dbg(c, "filename: \"%s\"", ucstring_getpsz(d->filename));
+		de_dbg(c, "filename: \"%s\"", ucstring_getpsz(d->filename_srd->str));
 	}
 	else {
 		de_warn(c, "Bad MacBinary filename length (%d)", (int)namelen);
@@ -233,9 +232,13 @@ static void run_macbinary_internal(deark *c, lctx *d)
 	advf = de_advfile_create(c);
 
 	do_header(c, d);
-	if(ucstring_isnonempty(d->filename)) {
-		ucstring_append_ucstring(advf->filename, d->filename);
+	if(d->filename_srd && ucstring_isnonempty(d->filename_srd->str)) {
+		ucstring_append_ucstring(advf->filename, d->filename_srd->str);
 		advf->original_filename_flag = 1;
+	}
+	if(d->filename_srd) {
+		de_advfile_set_orig_filename(advf, (const u8*)d->filename_srd->sz,
+			(i64)de_strlen(d->filename_srd->sz));
 	}
 	advf->mainfork.fi->mod_time = d->mod_time;
 
@@ -301,14 +304,14 @@ static void de_run_macbinary(deark *c, de_module_params *mparams)
 			mparams->out_params.fi->mod_time = d->mod_time;
 
 			// If caller created .fi->name_other, copy the filename to it.
-			if(d->filename && d->filename->len>0 && mparams->out_params.fi->name_other) {
-				ucstring_append_ucstring(mparams->out_params.fi->name_other, d->filename);
+			if(d->filename_srd && d->filename_srd->str->len>0 && mparams->out_params.fi->name_other) {
+				ucstring_append_ucstring(mparams->out_params.fi->name_other, d->filename_srd->str);
 			}
 		}
 	}
 
 	if(d) {
-		ucstring_destroy(d->filename);
+		de_destroy_stringreaderdata(c, d->filename_srd);
 		de_free(c, d);
 	}
 }

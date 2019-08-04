@@ -275,8 +275,11 @@ struct de_advfile {
 	u8 no_applesingle;
 	u8 no_appledouble;
 	// TODO: type code, creator code
+	i64 orig_filename_len;
+	u8 *orig_filename;
 };
 
 struct de_advfile *de_advfile_create(deark *c);
 void de_advfile_destroy(struct de_advfile *advf);
+void de_advfile_set_orig_filename(struct de_advfile *advf, const u8 *fn, i64 fnlen);
 void de_advfile_run(struct de_advfile *advf);
