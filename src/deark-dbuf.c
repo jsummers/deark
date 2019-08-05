@@ -756,6 +756,8 @@ void dbuf_copy_at(dbuf *inf, i64 input_offset, i64 input_len,
 // UTF-8 version of ->str. This is mainly useful if the original string was
 // UTF-16. sz_utf8 is not "printable" -- use ucstring_get_printable_sz_n(str) for
 // that.
+// ->sz_strlen will equal strlen(->sz) if DE_CONVFLAG_STOP_AT_NUL is set, or
+// the supplied value of max_bytes_to_(scan|keep) if not.
 // Recognized flags:
 //   - DE_CONVFLAG_STOP_AT_NUL
 //   - DE_CONVFLAG_WANT_UTF8
@@ -770,15 +772,18 @@ struct de_stringreaderdata *dbuf_read_string(dbuf *f, i64 pos,
 	int ret;
 	i64 bytes_avail_to_read;
 	i64 bytes_to_malloc;
-	i64 x_strlen;
+	i64 x_strlen = 0;
 
 	srd = de_malloc(c, sizeof(struct de_stringreaderdata));
 	srd->str = ucstring_create(c);
+	if(max_bytes_to_scan<0) max_bytes_to_scan = 0;
+	if(max_bytes_to_keep<0) max_bytes_to_keep = 0;
 
 	bytes_avail_to_read = max_bytes_to_scan;
 	if(bytes_avail_to_read > f->len-pos) {
 		bytes_avail_to_read = f->len-pos;
 	}
+	if(bytes_avail_to_read<0) bytes_avail_to_read = 0;
 
 	srd->bytes_consumed = bytes_avail_to_read; // default
 
@@ -840,6 +845,7 @@ done:
 		srd->sz_utf8 = de_malloc(c, 1);
 		srd->sz_utf8_strlen = 0;
 	}
+	srd->sz_strlen = (size_t)x_strlen;
 	return srd;
 }
 

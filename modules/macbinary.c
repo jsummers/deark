@@ -238,7 +238,7 @@ static void run_macbinary_internal(deark *c, lctx *d)
 	}
 	if(d->filename_srd) {
 		de_advfile_set_orig_filename(advf, (const u8*)d->filename_srd->sz,
-			(i64)de_strlen(d->filename_srd->sz));
+			(i64)d->filename_srd->sz_strlen);
 	}
 	advf->mainfork.fi->mod_time = d->mod_time;
 

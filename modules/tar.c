@@ -700,7 +700,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 		}
 		else if(pmd->linkname) {
 			dbuf_write(outf, (const u8*)pmd->linkname->sz,
-				(i64)de_strlen(pmd->linkname->sz));
+				(i64)pmd->linkname->sz_strlen);
 			goto done;
 		}
 	}

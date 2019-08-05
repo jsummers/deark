@@ -665,6 +665,7 @@ struct de_stringreaderdata {
    i64 bytes_consumed;
 
    char *sz; // Stores some or all of the bytes read. Always NUL terminated.
+   size_t sz_strlen;
    de_ucstring *str; // Unicode version of ->sz
    char *sz_utf8; // UTF-8 version of ->str (+ NUL terminator) (optional)
    size_t sz_utf8_strlen;

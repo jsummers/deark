@@ -532,7 +532,7 @@ static void do_extract_file(deark *c, lctx *d, struct nodedata *nd,
 
 	if(rd->name_srd) {
 		de_advfile_set_orig_filename(advf, (const u8*)rd->name_srd->sz,
-			(i64)de_strlen(rd->name_srd->sz));
+			(i64)rd->name_srd->sz_strlen);
 	}
 
 	de_advfile_run(advf);
