@@ -78,7 +78,25 @@ static i64 allocation_blk_dpos(lctx *d, i64 ablknum)
 
 static i64 node_dpos(lctx *d, i64 nodenum)
 {
-	return allocation_blk_dpos(d, d->drCTExtRec[0].first_alloc_blk) + 512 * nodenum;
+	i64 n;
+
+	// If the catalog were contiguous, this would be the offset we want, from the
+	// start of the catalog.
+	n = 512 * nodenum;
+
+	if(n < d->drCTExtRec[0].num_alloc_blks * d->drAlBlkSiz) {
+		// It's in the first extent.
+		return allocation_blk_dpos(d, d->drCTExtRec[0].first_alloc_blk) + n;
+	}
+	// Not in first extent. Account for its size, and try the second extent.
+	n -= d->drCTExtRec[0].num_alloc_blks * d->drAlBlkSiz;
+	if(n < d->drCTExtRec[1].num_alloc_blks * d->drAlBlkSiz) {
+		// It's in the second extent.
+		return allocation_blk_dpos(d, d->drCTExtRec[1].first_alloc_blk) + n;
+	}
+	// Not in second extent. Account for its size, and assume it's in the third extent.
+	n -= d->drCTExtRec[1].num_alloc_blks * d->drAlBlkSiz;
+	return allocation_blk_dpos(d, d->drCTExtRec[2].first_alloc_blk) + n;
 }
 
 static void read_one_timestamp(deark *c, lctx *d, i64 pos, de_finfo *fi1,
@@ -124,6 +142,7 @@ static int do_master_directory_blocks(deark *c, lctx *d, i64 blknum)
 {
 	i64 pos;
 	i64 nlen;
+	i64 catalog_num_alloc_blocks;
 	de_ucstring *s = NULL;
 	int retval = 0;
 
@@ -184,9 +203,12 @@ static int do_master_directory_blocks(deark *c, lctx *d, i64 blknum)
 	read_ExtDataRecs(c, d, pos, d->drCTExtRec, 3, "drCTExtRec");
 	pos += 12;
 
-	if(d->drCTFlSize > d->drCTExtRec[0].num_alloc_blks * d->drAlBlkSiz) {
+	catalog_num_alloc_blocks = d->drCTExtRec[0].num_alloc_blks +
+		d->drCTExtRec[1].num_alloc_blks + d->drCTExtRec[2].num_alloc_blks;
+
+	if(d->drCTFlSize > catalog_num_alloc_blocks * d->drAlBlkSiz) {
 		// TODO: Support this
-		de_err(c, "Fragmented catalog, not supported");
+		de_err(c, "Catalog has more than 3 fragments, not supported");
 		goto done;
 	}
 
@@ -782,7 +804,7 @@ static int do_catalog(deark *c, lctx *d)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	pos = allocation_blk_dpos(d, d->drCTExtRec[0].first_alloc_blk);
-	de_dbg(c, "catalog at %"I64_FMT, pos);
+	de_dbg(c, "catalog (first extent at %"I64_FMT")", pos);
 
 	hdr_node = de_malloc(c, sizeof(struct nodedata));
 	hdr_node->expecting_header = 1;
