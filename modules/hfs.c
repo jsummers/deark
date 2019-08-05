@@ -29,7 +29,7 @@ struct recorddata {
 	i64 datapos;
 	int cdrType;
 	u32 ParID;
-	de_ucstring *name;
+	struct de_stringreaderdata *name_srd;
 };
 
 struct nodedata {
@@ -287,7 +287,7 @@ static void do_leaf_node_record_directory_pass1(deark *c, lctx *d, struct nodeda
 	dirID = (u32)de_getu32be_p(&pos);
 	de_dbg(c, "dirDirID: %u", (unsigned int)dirID);
 
-	dirid_item->name = ucstring_clone(rd->name);
+	dirid_item->name = ucstring_clone(rd->name_srd->str);
 	squash_slashes(dirid_item->name, 0);
 	dirid_item->ParID = rd->ParID;
 
@@ -383,7 +383,7 @@ static void do_extract_fork_init(deark *c, lctx *d, struct recorddata *rd,
 	if(fki->logical_eof > len_avail) {
 		// TODO: Need to be able to read the Extents Overflow tree.
 		de_err(c, "%s: Files with more than 3 fragments are not supported",
-			ucstring_getpsz(rd->name));
+			rd->name_srd?ucstring_getpsz(rd->name_srd->str):"");
 		fki->extract_error_flag = 1;
 		goto done;
 	}
@@ -530,6 +530,11 @@ static void do_extract_file(deark *c, lctx *d, struct nodedata *nd,
 	advf->userdata = (void*)ectx;
 	advf->writefork_cbfn = my_advfile_cbfn;
 
+	if(rd->name_srd) {
+		de_advfile_set_orig_filename(advf, (const u8*)rd->name_srd->sz,
+			(i64)de_strlen(rd->name_srd->sz));
+	}
+
 	de_advfile_run(advf);
 
 	de_free(c, ectx->fki_data);
@@ -552,8 +557,8 @@ static void do_leaf_node_record_extract_item(deark *c, lctx *d, struct nodedata 
 
 	de_dbg(c, "path: \"%s\"", ucstring_getpsz_d(advf->filename));
 	oldlen = advf->filename->len;
-	if(ucstring_isnonempty(rd->name)) {
-		ucstring_append_ucstring(advf->filename, rd->name);
+	if(rd->name_srd && ucstring_isnonempty(rd->name_srd->str)) {
+		ucstring_append_ucstring(advf->filename, rd->name_srd->str);
 	}
 	else {
 		ucstring_append_sz(advf->filename, "_", DE_ENCODING_LATIN1);
@@ -622,9 +627,8 @@ static void do_leaf_node_record(deark *c, lctx *d, struct nodedata *nd, i64 idx,
 
 	nlen = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "name len: %d", (int)nlen);
-	rd->name = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos, nlen, rd->name, 0, d->input_encoding);
-	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(rd->name));
+	rd->name_srd = dbuf_read_string(c->infile, pos, nlen, nlen, 0, d->input_encoding);
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(rd->name_srd->str));
 
 	// == Catalog File Data Record
 
@@ -647,7 +651,7 @@ static void do_leaf_node_record(deark *c, lctx *d, struct nodedata *nd, i64 idx,
 done:
 	de_dbg_indent(c, -1);
 	if(rd) {
-		ucstring_destroy(rd->name);
+		de_destroy_stringreaderdata(c, rd->name_srd);
 		de_free(c, rd);
 	}
 }

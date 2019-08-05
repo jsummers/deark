@@ -1634,7 +1634,8 @@ static void writei32be(dbuf *f, i64 n)
 // de_advfile_create creates a new object.
 // Then, before calling de_advfile_run, caller must:
 //  - Set advf->filename if possible, e.g. using ucstring_append_*().
-//  - Set advf->original_filename_flag, if appropriate.
+//  - Set advf->original_filename_flag, if appropriate. Note that this annotates the
+//    ->filename field, and is not related to de_advfile_set_orig_filename().
 //  - Set advf->snflags, if needed.
 //  - Set advf->createflags, if needed (unlikely to be).
 //  - Set advf->mainfork.fork_exists, if there is a main fork.

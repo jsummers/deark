@@ -13,6 +13,7 @@ DE_DECLARE_MODULE(de_module_appledouble);
 typedef struct localctx_struct {
 	u32 version;
 	int is_appledouble;
+	int input_encoding;
 	int extract_rsrc;
 	struct de_advfile *advf;
 	i64 rsrc_fork_pos;
@@ -37,42 +38,47 @@ struct entry_id_struct {
 	handler_fn_type hfn;
 };
 
+// Allocates a new de_stringreaderdata. Caller is responsible for destroying.
 // len = the total number of bytes available
-static void read_pascal_string(deark *c, lctx *d, de_ucstring *s, i64 pos, i64 len)
+static struct de_stringreaderdata *read_pascal_string(deark *c, lctx *d, i64 pos, i64 len)
 {
+	struct de_stringreaderdata *srd;
 	i64 slen;
 
-	if(len<1) goto done;
-	slen = (i64)de_getbyte(pos);
-	if(slen<1) goto done;
-	if(slen>(len-1)) {
-		de_warn(c, "Oversize string (need %d bytes, have %d)", (int)(1+slen), (int)len);
-		goto done;
+	if(len>=1) {
+		slen = (i64)de_getbyte(pos);
+		de_dbg(c, "string len: %u", (unsigned int)slen);
 	}
-	dbuf_read_to_ucstring(c->infile, pos+1, slen, s, 0, DE_ENCODING_MACROMAN);
-done:
-	;
+	else {
+		slen = 0;
+	}
+
+	if(slen>(len-1) && slen>0) {
+		de_warn(c, "Oversize string (need %d bytes, have %d)", (int)(1+slen), (int)len);
+		slen = 0;
+	}
+	srd = dbuf_read_string(c->infile, pos+1, slen, slen, 0, d->input_encoding);
+	return srd;
 }
 
 static void handler_string(deark *c, lctx *d, struct entry_struct *e)
 {
-	de_ucstring *s = NULL;
-
-	s = ucstring_create(c);
+	struct de_stringreaderdata *srd = NULL;
 
 	// TODO: What is the format of the "Real name" and "Comment" fields?
 	// The spec does not seem to say.
 
-	read_pascal_string(c, d, s, e->offset, e->length);
-	de_dbg(c, "%s: \"%s\"", e->eid->name, ucstring_getpsz_d(s));
+	srd = read_pascal_string(c, d, e->offset, e->length);
+	de_dbg(c, "%s: \"%s\"", e->eid->name, ucstring_getpsz_d(srd->str));
 
-	if(e->id==3 && s->len>0) { // id 3 = real name
+	if(e->id==3 && srd->str->len>0) { // id 3 = real name
 		ucstring_empty(d->advf->filename);
-		ucstring_append_ucstring(d->advf->filename, s);
+		ucstring_append_ucstring(d->advf->filename, srd->str);
 		d->advf->original_filename_flag = 1;
+		de_advfile_set_orig_filename(d->advf, (const u8*)srd->sz, (i64)de_strlen(srd->sz));
 	}
 
-	ucstring_destroy(s);
+	de_destroy_stringreaderdata(c, srd);
 }
 
 static void do_one_date(deark *c, lctx *d, i64 pos, const char *name,
@@ -359,6 +365,8 @@ static void de_run_sd_internal(deark *c, lctx *d)
 	i64 nentries;
 	i64 k;
 	i64 entry_descriptors_pos;
+
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_MACROMAN);
 
 	d->advf = de_advfile_create(c);
 	d->advf->userdata = (void*)d;
