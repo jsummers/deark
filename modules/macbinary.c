@@ -42,7 +42,7 @@ static const char *fork_name(int is_rsrc, int capitalize)
 	return capitalize?"Data":"data";
 }
 
-static void do_header(deark *c, lctx *d)
+static void do_header(deark *c, lctx *d, struct de_advfile *advf)
 {
 	u8 b;
 	u8 fflags;
@@ -91,9 +91,13 @@ static void do_header(deark *c, lctx *d)
 
 	dbuf_read_fourcc(c->infile, pos, &type4cc, 4, 0x0);
 	de_dbg(c, "type: '%s'", type4cc.id_dbgstr);
+	de_memcpy(advf->typecode, type4cc.bytes, 4);
+	advf->has_typecode = 1;
 	pos += 4;
 	dbuf_read_fourcc(c->infile, pos, &creator4cc, 4, 0x0);
 	de_dbg(c, "creator: '%s'", creator4cc.id_dbgstr);
+	de_memcpy(advf->creatorcode, creator4cc.bytes, 4);
+	advf->has_creatorcode = 1;
 	pos += 4;
 
 	fflags = de_getbyte_p(&pos);
@@ -231,7 +235,7 @@ static void run_macbinary_internal(deark *c, lctx *d)
 	ectx = de_malloc(c, sizeof(struct extract_ctx));
 	advf = de_advfile_create(c);
 
-	do_header(c, d);
+	do_header(c, d, advf);
 	if(d->filename_srd && ucstring_isnonempty(d->filename_srd->str)) {
 		ucstring_append_ucstring(advf->filename, d->filename_srd->str);
 		advf->original_filename_flag = 1;
