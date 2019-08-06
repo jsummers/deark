@@ -559,17 +559,14 @@ Deark -- Information about supported formats
 * AmBs (AMOS "Banks" aggregate format) (module="abk")
   - Extract AmSp, AmIc, AmBk files.
 
-* AppleDouble Header file (module="appledouble")
-  These files usually have names beginning with "._".
-  - Extract resource fork.
-  Options
-   -opt appledouble:extractrsrc=0 - Instead of extracting the resource fork,
-     attempt to decode it.
-
 * Apple Partition Map (module="apm") (experimental)
 
-* AppleSingle (module="applesingle")
+* AppleSingle/AppleDouble (module="applesd")
+  AppleDouble files often have names beginning with "._".
   - Extract data and resource forks.
+  Options
+   -opt applesd:extractrsrc=0 - Instead of extracting the resource fork,
+     attempt to decode it.
 
 * ar (.a archive/library format) (module="ar") (experimental/incomplete)
   - Supports System V long filenames

@@ -2,13 +2,12 @@
 // Copyright (C) 2018 Jason Summers
 // See the file COPYING for terms of use.
 
-// AppleDouble, etc.
+// AppleSingle and AppleDouble
 
 #include <deark-config.h>
 #include <deark-private.h>
 #include <deark-fmtutil.h>
-DE_DECLARE_MODULE(de_module_applesingle);
-DE_DECLARE_MODULE(de_module_appledouble);
+DE_DECLARE_MODULE(de_module_applesd);
 
 typedef struct localctx_struct {
 	u32 version;
@@ -366,6 +365,13 @@ static void de_run_sd_internal(deark *c, lctx *d)
 	i64 k;
 	i64 entry_descriptors_pos;
 
+	if(d->is_appledouble) {
+		de_declare_fmt(c, "AppleDouble header file");
+	}
+	else {
+		de_declare_fmt(c, "AppleSingle");
+	}
+
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_MACROMAN);
 
 	d->advf = de_advfile_create(c);
@@ -409,54 +415,36 @@ static void de_run_sd_internal(deark *c, lctx *d)
 	de_advfile_destroy(d->advf);
 }
 
-static void de_run_appledouble(deark *c, de_module_params *mparams)
+static void de_run_applesd(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
-	d->is_appledouble = 1;
-	d->extract_rsrc = de_get_ext_option_bool(c, "appledouble:extractrsrc", 1);
+	if(de_getbyte(3)==0x00)
+		d->is_appledouble = 0;
+	else
+		d->is_appledouble = 1;
+	d->extract_rsrc = de_get_ext_option_bool(c, "applesd:extractrsrc", 1);
 	de_run_sd_internal(c, d);
 	de_free(c, d);
 }
 
-static int de_identify_appledouble(deark *c)
+static int de_identify_applesd(deark *c)
 {
-	if(!dbuf_memcmp(c->infile, 0, "\x00\x05\x16\x07", 4))
-		return 100;
+	i64 n;
+
+	n = de_getu32be(0);
+	if(n==0x00051607) return 100; // AppleDouble
+	if(n==0x00051600) return 100; // AppleSingle
 	return 0;
 }
 
-void de_module_appledouble(deark *c, struct deark_module_info *mi)
+void de_module_applesd(deark *c, struct deark_module_info *mi)
 {
-	mi->id = "appledouble";
-	mi->desc = "AppleDouble Header file";
-	mi->run_fn = de_run_appledouble;
-	mi->identify_fn = de_identify_appledouble;
-}
-
-static void de_run_applesingle(deark *c, de_module_params *mparams)
-{
-	lctx *d = NULL;
-
-	d = de_malloc(c, sizeof(lctx));
-	d->is_appledouble = 0;
-	d->extract_rsrc = 1;
-	de_run_sd_internal(c, d);
-	de_free(c, d);
-}
-
-static int de_identify_applesingle(deark *c)
-{
-	if(!dbuf_memcmp(c->infile, 0, "\x00\x05\x16\x00", 4))
-		return 100;
-	return 0;
-}
-
-void de_module_applesingle(deark *c, struct deark_module_info *mi)
-{
-	mi->id = "applesingle";
-	mi->desc = "AppleSingle";
-	mi->run_fn = de_run_applesingle;
-	mi->identify_fn = de_identify_applesingle;
+	mi->id = "applesd";
+	mi->id_alias[0] = "applesingle";
+	mi->id_alias[1] = "appledouble";
+	mi->desc = "AppleSingle/AppleDouble";
+	mi->run_fn = de_run_applesd;
+	mi->identify_fn = de_identify_applesd;
 }
