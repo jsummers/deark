@@ -260,6 +260,8 @@ struct de_advfile_forkinfo {
 	u8 fork_exists;
 	i64 fork_len;
 	de_finfo *fi; // Note: do not set the name; use de_advfile.filename.
+	void *userdata; // dbuf::userdata
+	de_writecallback_fn writecallback_fn; // dbuf::writecallback_fn
 };
 
 struct de_advfile {

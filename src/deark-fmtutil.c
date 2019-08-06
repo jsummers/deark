@@ -1688,10 +1688,16 @@ void de_advfile_set_orig_filename(struct de_advfile *advf, const u8 *fn, i64 fnl
 
 	if(fnlen<1) return;
 	advf->orig_filename_len = fnlen;
-	if(advf->orig_filename_len>255)
-		advf->orig_filename_len = 255;
+	if(advf->orig_filename_len>1024)
+		advf->orig_filename_len = 1024;
 	advf->orig_filename = de_malloc(c, advf->orig_filename_len);
 	de_memcpy(advf->orig_filename, fn, advf->orig_filename_len);
+
+	if(advf->orig_filename[0]<32) {
+		// This is to ensure that our applesd module won't incorrectly guess that
+		// this is a Pascal string.
+		advf->orig_filename[0] = '_';
+	}
 }
 
 static void setup_rsrc_finfo(struct de_advfile *advf)
@@ -1730,6 +1736,8 @@ static void de_advfile_run_rawfiles(deark *c, struct de_advfile *advf, int is_ap
 		de_finfo_set_name_from_ucstring(c, advf->mainfork.fi, advf->filename, advf->snflags);
 		advf->mainfork.fi->original_filename_flag = advf->original_filename_flag;
 		afp_main->outf = dbuf_create_output_file(c, NULL, advf->mainfork.fi, advf->createflags);
+		afp_main->outf->userdata = advf->mainfork.userdata;
+		afp_main->outf->writecallback_fn = advf->mainfork.writecallback_fn;
 		if(advf->writefork_cbfn && advf->mainfork.fork_len>0) {
 			advf->writefork_cbfn(c, advf, afp_main);
 		}
@@ -1740,8 +1748,11 @@ static void de_advfile_run_rawfiles(deark *c, struct de_advfile *advf, int is_ap
 		afp_rsrc = de_malloc(c, sizeof(struct de_advfile_cbparams));
 		setup_rsrc_finfo(advf);
 		afp_rsrc->whattodo = DE_ADVFILE_WRITERSRC;
+		// Note: It is intentional to use mainfork in the next line.
 		advf->rsrcfork.fi->mod_time = advf->mainfork.fi->mod_time;
 		afp_rsrc->outf = dbuf_create_output_file(c, NULL, advf->rsrcfork.fi, advf->createflags);
+		afp_rsrc->outf->userdata = advf->rsrcfork.userdata;
+		afp_rsrc->outf->writecallback_fn = advf->rsrcfork.writecallback_fn;
 		if(advf->writefork_cbfn) {
 			advf->writefork_cbfn(c, advf, afp_rsrc);
 		}
@@ -1882,19 +1893,27 @@ static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_app
 		case SDID_DATAFORK:
 			afp_main = de_malloc(c, sizeof(struct de_advfile_cbparams));
 			afp_main->whattodo = DE_ADVFILE_WRITEMAIN;
+			outf->userdata = advf->mainfork.userdata;
+			outf->writecallback_fn = advf->mainfork.writecallback_fn;
 			afp_main->outf = outf;
 			if(advf->writefork_cbfn && advf->mainfork.fork_len>0) {
 				advf->writefork_cbfn(c, advf, afp_main);
 			}
+			outf->userdata = NULL;
+			outf->writecallback_fn = NULL;
 			break;
 
 		case SDID_RESOURCEFORK:
 			afp_rsrc = de_malloc(c, sizeof(struct de_advfile_cbparams));
 			afp_rsrc->whattodo = DE_ADVFILE_WRITERSRC;
+			outf->userdata = advf->rsrcfork.userdata;
+			outf->writecallback_fn = advf->rsrcfork.writecallback_fn;
 			afp_rsrc->outf = outf;
 			if(advf->writefork_cbfn && advf->rsrcfork.fork_len>0) {
 				advf->writefork_cbfn(c, advf, afp_rsrc);
 			}
+			outf->userdata = NULL;
+			outf->writecallback_fn = NULL;
 			break;
 
 		case SDID_REALNAME:

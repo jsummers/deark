@@ -1269,6 +1269,8 @@ void dbuf_write(dbuf *f, const u8 *m, i64 len)
 	}
 
 	if(f->writecallback_fn) {
+		// Note that the callback function can be changed at any time, so if we
+		// ever decide to buffer these calls, precautions will be needed.
 		f->writecallback_fn(f, m, len);
 	}
 

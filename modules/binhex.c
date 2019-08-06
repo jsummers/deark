@@ -9,10 +9,21 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_binhex);
 
+struct binhex_forkinfo {
+	i64 pos; // position in d->decompressed
+	i64 len;
+	u32 crc_reported;
+	struct de_crcobj *crco;
+	const char *forkname;
+};
+
 typedef struct localctx_struct {
+	int input_encoding;
 	dbuf *decoded;
 	dbuf *decompressed;
-	struct de_crcobj *crco;
+	struct de_advfile *advf;
+	struct binhex_forkinfo fki_data;
+	struct binhex_forkinfo fki_rsrc;
 } lctx;
 
 // Returns 0-63 if successful, 255 for invalid character.
@@ -89,86 +100,84 @@ static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
 	de_crcobj_addbuf(crco, buf, buf_len);
 }
 
-// Returns 0 on fatal error.
-static int do_extract_one_file(deark *c, lctx *d, dbuf *inf, i64 pos,
-	i64 len, de_finfo *fi, const char *forkname)
+static int my_advfile_cbfn(deark *c, struct de_advfile *advf,
+	struct de_advfile_cbparams *afp)
 {
-	u32 crc_reported;
-	u32 crc_calc;
-	dbuf *outf = NULL;
+	lctx *d = (lctx*)advf->userdata;
 
-	if(len==0) return 1;
-	if(len<0) return 0;
-	if(pos+len > inf->len) {
-		de_err(c, "%s fork goes beyond end of file", forkname);
-		return 0;
+	if(afp->whattodo == DE_ADVFILE_WRITEMAIN) {
+		dbuf_copy(d->decompressed, d->fki_data.pos, advf->mainfork.fork_len, afp->outf);
 	}
-
-	outf = dbuf_create_output_file(c, NULL, fi, 0);
-
-	outf->writecallback_fn = our_writecallback;
-	outf->userdata = (void*)d->crco;
-	de_crcobj_reset(d->crco);
-
-	dbuf_copy(inf, pos, len, outf);
-
-	dbuf_close(outf);
-
-	// Here, the BinHex spec says we should feed two 0x00 bytes to the CRC
-	// calculation, to account for the CRC field itself. However, if I do
-	// that, none of files I've tested have the correct CRC. If I don't,
-	// all of them have the correct CRC.
-	//de_crcobj_addbuf(d->crco, (const u8*)"\0\0", 2);
-
-	crc_reported = (u32)dbuf_getu16be(inf, pos+len);
-	de_dbg(c, "%s fork crc (reported): 0x%04x", forkname,
-		(unsigned int)crc_reported);
-
-	crc_calc = de_crcobj_getval(d->crco);
-	de_dbg(c, "%s fork crc (calculated): 0x%04x", forkname,
-		(unsigned int)crc_calc);
-
-	if(crc_calc != crc_reported) {
-		de_err(c, "CRC check failed for %s fork", forkname);
+	else if(afp->whattodo == DE_ADVFILE_WRITERSRC) {
+		dbuf_copy(d->decompressed, d->fki_rsrc.pos, advf->rsrcfork.fork_len, afp->outf);
 	}
 
 	return 1;
 }
 
-static void do_extract_files(deark *c, lctx *d)
+// Returns 0 if there is a serious error with this fork.
+static int do_pre_extract_fork(deark *c, lctx *d, dbuf *inf, struct binhex_forkinfo *fki,
+	struct de_advfile_forkinfo *advfki)
+{
+	fki->crc_reported = (u32)dbuf_getu16be(inf, fki->pos + fki->len);
+	de_dbg(c, "%s fork crc (reported): 0x%04x", fki->forkname,
+		(unsigned int)fki->crc_reported);
+
+	advfki->writecallback_fn = our_writecallback;
+	advfki->userdata = (void*)fki->crco;
+
+	if((fki->pos + fki->len > inf->len) && fki->len!=0) {
+		de_err(c, "%s fork goes beyond end of file", fki->forkname);
+		fki->len = 0;
+		return 0;
+	}
+	return 1;
+}
+
+static void do_post_extract_fork(deark *c, lctx *d, struct binhex_forkinfo *fki)
+{
+	u32 crc_calc;
+
+	// Here, the BinHex spec says we should feed two 0x00 bytes to the CRC
+	// calculation, to account for the CRC field itself. However, if I do
+	// that, none of files I've tested have the correct CRC. If I don't,
+	// all of them have the correct CRC.
+	//de_crcobj_addbuf(fki->crco, (const u8*)"\0\0", 2);
+
+	crc_calc = de_crcobj_getval(fki->crco);
+	de_dbg(c, "%s fork crc (calculated): 0x%04x", fki->forkname,
+		(unsigned int)crc_calc);
+	if(crc_calc != fki->crc_reported) {
+		de_err(c, "CRC check failed for %s fork", fki->forkname);
+	}
+}
+
+static void do_extract_forks(deark *c, lctx *d)
 {
 	i64 name_len;
-	dbuf *f;
-	de_finfo *fi_r = NULL;
-	de_finfo *fi_d = NULL;
+	dbuf *inf;
 	i64 pos;
-	i64 dlen, rlen;
 	u32 hc; // Header CRC
-	de_ucstring *fname = NULL;
+	struct de_stringreaderdata *fname = NULL;
 
-	f = d->decompressed;
+	inf = d->decompressed;
 	pos = 0;
 
 	// Read the header
 
-	name_len = (i64)dbuf_getbyte(f, pos);
+	name_len = (i64)dbuf_getbyte(inf, pos);
 	pos+=1;
 	de_dbg(c, "name len: %d", (int)name_len);
 
-	fi_r = de_finfo_create(c);
-	fi_d = de_finfo_create(c);
 	if(name_len > 0) {
-		fname = ucstring_create(c);
-		dbuf_read_to_ucstring(f, pos, name_len, fname, 0, DE_ENCODING_MACROMAN);
-		de_dbg(c, "name: \"%s\"", ucstring_getpsz(fname));
-		de_finfo_set_name_from_ucstring(c, fi_d, fname, 0);
-		fi_d->original_filename_flag = 1;
-		ucstring_append_sz(fname, ".rsrc", DE_ENCODING_LATIN1);
-		de_finfo_set_name_from_ucstring(c, fi_r, fname, 0);
+		fname = dbuf_read_string(inf, pos, name_len, name_len, 0, d->input_encoding);
+		ucstring_append_ucstring(d->advf->filename, fname->str);
+		d->advf->original_filename_flag = 1;
+		de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(fname->str));
+		de_advfile_set_orig_filename(d->advf, (const u8*)fname->sz, fname->sz_strlen);
 	}
 	else {
-		de_finfo_set_name_from_sz(c, fi_r, "rsrc", 0, DE_ENCODING_LATIN1);
-		de_finfo_set_name_from_sz(c, fi_d, "data", 0, DE_ENCODING_LATIN1);
+		ucstring_append_sz(d->advf->filename, "bin", DE_ENCODING_LATIN1);
 	}
 
 	pos+=name_len;
@@ -176,34 +185,55 @@ static void do_extract_files(deark *c, lctx *d)
 
 	// The next (& last) 20 bytes of the header have predictable positions.
 
-	dlen = dbuf_getu32be(f, pos+10);
-	rlen = dbuf_getu32be(f, pos+14);
-	hc = (u32)dbuf_getu16be(f, pos+18);
+	d->fki_data.len = dbuf_getu32be(inf, pos+10);
+	d->fki_rsrc.len = dbuf_getu32be(inf, pos+14);
+	hc = (u32)dbuf_getu16be(inf, pos+18);
 
-	de_dbg(c, "data fork len: %d", (int)dlen);
-	de_dbg(c, "resource fork len: %d", (int)rlen);
+	de_dbg(c, "data fork len: %d", (int)d->fki_data.len);
+	de_dbg(c, "resource fork len: %d", (int)d->fki_rsrc.len);
 	de_dbg(c, "header crc (reported): 0x%04x", (unsigned int)hc);
-
 	// TODO: Verify header CRC
 
 	pos+=20;
 
-	// Data fork
+	d->fki_data.forkname = "data";
+	d->fki_rsrc.forkname = "rsrc";
 
-	if(!do_extract_one_file(c, d, f, pos, dlen, fi_d, "data")) goto done;
-	pos += dlen;
+	// Walk through the file, and record some offsets
+	d->fki_data.pos = pos;
+	pos += d->fki_data.len;
 	pos += 2; // for the CRC
 
-	// Resource fork
+	d->fki_rsrc.pos = pos;
+	// [d->fki_rsrc.len bytes here]
+	// [2 bytes here, for the CRC]
 
-	if(!do_extract_one_file(c, d, f, pos, rlen, fi_r, "resource")) goto done;
-	pos += rlen;
-	pos += 2; // for the CRC
+	d->fki_data.crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
+	d->fki_rsrc.crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
+
+	if(!do_pre_extract_fork(c, d, inf, &d->fki_data, &d->advf->mainfork)) {
+		goto done;
+	}
+	(void)do_pre_extract_fork(c, d, inf, &d->fki_rsrc, &d->advf->rsrcfork);
+
+	d->advf->mainfork.fork_exists = (d->fki_data.len > 0);
+	d->advf->mainfork.fork_len = d->fki_data.len;
+	d->advf->rsrcfork.fork_exists = (d->fki_rsrc.len > 0);
+	d->advf->rsrcfork.fork_len = d->fki_rsrc.len;
+	d->advf->userdata = (void*)d;
+	d->advf->writefork_cbfn = my_advfile_cbfn;
+
+	de_advfile_run(d->advf);
+
+	do_post_extract_fork(c, d, &d->fki_data);
+	do_post_extract_fork(c, d, &d->fki_rsrc);
 
 done:
-	de_finfo_destroy(c, fi_r);
-	de_finfo_destroy(c, fi_d);
-	ucstring_destroy(fname);
+	de_destroy_stringreaderdata(c, fname);
+	de_crcobj_destroy(d->fki_data.crco);
+	d->fki_data.crco = NULL;
+	de_crcobj_destroy(d->fki_rsrc.crco);
+	d->fki_rsrc.crco = NULL;
 }
 
 static void do_binhex(deark *c, lctx *d, i64 pos)
@@ -223,17 +253,17 @@ static void do_binhex(deark *c, lctx *d, i64 pos)
 	if(!ret) goto done;
 	de_dbg(c, "size after decompression: %d", (int)d->decompressed->len);
 
-	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
+	d->advf = de_advfile_create(c);
 
-	do_extract_files(c, d);
+	do_extract_forks(c, d);
 
 done:
+	de_advfile_destroy(d->advf);
+	d->advf = NULL;
 	dbuf_close(d->decompressed);
 	d->decompressed = NULL;
 	dbuf_close(d->decoded);
 	d->decoded = NULL;
-	de_crcobj_destroy(d->crco);
-	d->crco = NULL;
 }
 
 static int find_start(deark *c, i64 *foundpos)
@@ -288,6 +318,7 @@ static void de_run_binhex(deark *c, de_module_params *mparams)
 	int ret;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_MACROMAN);
 
 	ret = find_start(c, &pos);
 	if(!ret) {
