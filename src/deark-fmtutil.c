@@ -1821,12 +1821,12 @@ static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_app
 
 	if(advf->orig_filename) {
 		entry_info[num_entries].id = SDID_REALNAME;
-		entry_info[num_entries].len = 1 + advf->orig_filename_len + 1;
+		entry_info[num_entries].len = advf->orig_filename_len;
 		num_entries++;
 	}
 
 	entry_info[num_entries].id = SDID_COMMENT;
-	entry_info[num_entries].len = 1 + (i64)comment_strlen;
+	entry_info[num_entries].len = (i64)comment_strlen;
 	num_entries++;
 
 	if(advf->mainfork.fi->mod_time.is_valid) {
@@ -1892,22 +1892,12 @@ static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_app
 			break;
 
 		case SDID_REALNAME:
-			// The format of the Real Name field seems to be wholly undocumented,
-			// even beyond the unspecified encoding. It might even depend on the
-			// originating filesystem type.
-			// In practice, different files have different data structures here.
-			// An example is a "Pascal string", followed by padding so that the
-			// entry's length is 32.
-			// The format I'm going with is a Pascal string, followed by a
-			// pointless NUL byte that is not included in the string's length
-			// field, but that is included in the Real Name entry's length.
-			dbuf_writebyte(outf, (u8)advf->orig_filename_len);
+			// If you think this code might be wrong, first review the comments
+			// in applesd.c regarding Pascal strings.
 			dbuf_write(outf, advf->orig_filename, advf->orig_filename_len);
-			dbuf_writebyte(outf, (u8)0);
 			break;
 
 		case SDID_COMMENT:
-			dbuf_writebyte(outf, (u8)comment_strlen);
 			dbuf_write(outf, (const u8*)commentstr, (i64)comment_strlen);
 			break;
 

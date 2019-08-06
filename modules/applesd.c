@@ -37,37 +37,57 @@ struct entry_id_struct {
 	handler_fn_type hfn;
 };
 
-// Allocates a new de_stringreaderdata. Caller is responsible for destroying.
-// len = the total number of bytes available
-static struct de_stringreaderdata *read_pascal_string(deark *c, lctx *d, i64 pos, i64 len)
+// I'm about 60% sure that the standard elements that are presumably strings
+// were intended to be raw ASCII-like characters. Too bad they didn't mention
+// that in the spec. It's common to find files that contain "Pascal" strings,
+// where the first byte is the length of the (rest of the) string.
+// It's also common for string elements (whether Pascal or not) to have extra
+// NUL bytes at the end of them, for no apparent reason.
+static int is_pascal_string(deark *c, lctx *d, struct entry_struct *e, u8 firstbyte)
 {
-	struct de_stringreaderdata *srd;
-	i64 slen;
+	if(e->length<1) return 0;
 
-	if(len>=1) {
-		slen = (i64)de_getbyte(pos);
-		de_dbg(c, "string len: %u", (unsigned int)slen);
-	}
-	else {
-		slen = 0;
-	}
+	// Assume this field won't be larger than any Pascal string could need.
+	if(e->length > 256) return 0;
 
-	if(slen>(len-1) && slen>0) {
-		de_warn(c, "Oversize string (need %d bytes, have %d)", (int)(1+slen), (int)len);
-		slen = 0;
-	}
-	srd = dbuf_read_string(c->infile, pos+1, slen, slen, 0, d->input_encoding);
-	return srd;
+	if(1+(i64)firstbyte > e->length) return 0; // A Pascal string wouldn't fit.
+
+	// This could be wrong, if a non-Pascal string starts with a nonprintable char.
+	if(firstbyte<32) return 1;
+
+	// At this point, we could do more heuristics, such as testing whether the
+	// non-NUL bytes stop exactly where they should for a Pascal string.
+	// But perfection is impossible.
+	// For now, just assume it's not a Pascal string. Worst case, the decoded
+	// string will have a garbage character prepended.
+	// TODO: Maybe add a user option.
+	return 0;
 }
 
 static void handler_string(deark *c, lctx *d, struct entry_struct *e)
 {
 	struct de_stringreaderdata *srd = NULL;
+	u8 firstbyte;
 
-	// TODO: What is the format of the "Real name" and "Comment" fields?
-	// The spec does not seem to say.
+	if(e->length<1) goto done;
 
-	srd = read_pascal_string(c, d, e->offset, e->length);
+	firstbyte = de_getbyte(e->offset);
+
+	if(firstbyte==0x00) {
+		de_dbg(c, "string is apparently empty");
+		goto done;
+	}
+	else if(is_pascal_string(c, d, e, firstbyte)) {
+		i64 slen = (i64)firstbyte;
+
+		de_dbg(c, "guessing this is a Pascal string, len: %u", (unsigned int)slen);
+		srd = dbuf_read_string(c->infile, e->offset+1, slen, slen, 0, d->input_encoding);
+	}
+	else {
+		srd = dbuf_read_string(c->infile, e->offset, e->length, 1024,
+			DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+	}
+
 	de_dbg(c, "%s: \"%s\"", e->eid->name, ucstring_getpsz_d(srd->str));
 
 	if(e->id==3 && srd->str->len>0) { // id 3 = real name
@@ -77,6 +97,7 @@ static void handler_string(deark *c, lctx *d, struct entry_struct *e)
 		de_advfile_set_orig_filename(d->advf, (const u8*)srd->sz, (i64)srd->sz_strlen);
 	}
 
+done:
 	de_destroy_stringreaderdata(c, srd);
 }
 
@@ -297,7 +318,7 @@ static const struct entry_id_struct entry_id_arr[] = {
 	{10, "Macintosh file info", NULL},
 	{11, "ProDOS file info", NULL},
 	{12, "MS-DOS file info", NULL},
-	{13, "short name", NULL},
+	{13, "short name", handler_string},
 	{14, "AFP file info", NULL},
 	{15, "directory ID", NULL}
 };
