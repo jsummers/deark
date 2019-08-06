@@ -1705,26 +1705,32 @@ static void setup_rsrc_finfo(struct de_advfile *advf)
 		ucstring_append_sz(fname_rsrc, "_", DE_ENCODING_LATIN1);
 	}
 	ucstring_append_sz(fname_rsrc, ".rsrc", DE_ENCODING_LATIN1);
-	de_finfo_set_name_from_ucstring(c, advf->rsrcfork.fi, fname_rsrc, advf->rsrcfork.snflags);
+	de_finfo_set_name_from_ucstring(c, advf->rsrcfork.fi, fname_rsrc, advf->snflags);
 	advf->rsrcfork.fi->original_filename_flag = advf->original_filename_flag;
 
 	ucstring_destroy(fname_rsrc);
 }
 
 // If is_appledouble is set, do not write the resource fork (it will be handled
-// in another way).
+// in another way), and *always* write a main fork (even if we have to write a
+// 0-length file). Our theory is that it's never appropriate to write an
+// AppleDouble header file by itself -- it should always have a companion data
+// file.
 static void de_advfile_run_rawfiles(deark *c, struct de_advfile *advf, int is_appledouble)
 {
 	struct de_advfile_cbparams *afp_main = NULL;
 	struct de_advfile_cbparams *afp_rsrc = NULL;
 
-	if(advf->mainfork.fork_exists) {
+	if(advf->mainfork.fork_exists || is_appledouble) {
+		if(!advf->mainfork.fork_exists) {
+			advf->mainfork.fork_len = 0;
+		}
 		afp_main = de_malloc(c, sizeof(struct de_advfile_cbparams));
 		afp_main->whattodo = DE_ADVFILE_WRITEMAIN;
-		de_finfo_set_name_from_ucstring(c, advf->mainfork.fi, advf->filename, advf->mainfork.snflags);
+		de_finfo_set_name_from_ucstring(c, advf->mainfork.fi, advf->filename, advf->snflags);
 		advf->mainfork.fi->original_filename_flag = advf->original_filename_flag;
-		afp_main->outf = dbuf_create_output_file(c, NULL, advf->mainfork.fi, advf->mainfork.createflags);
-		if(advf->writefork_cbfn) {
+		afp_main->outf = dbuf_create_output_file(c, NULL, advf->mainfork.fi, advf->createflags);
+		if(advf->writefork_cbfn && advf->mainfork.fork_len>0) {
 			advf->writefork_cbfn(c, advf, afp_main);
 		}
 		dbuf_close(afp_main->outf);
@@ -1735,7 +1741,7 @@ static void de_advfile_run_rawfiles(deark *c, struct de_advfile *advf, int is_ap
 		setup_rsrc_finfo(advf);
 		afp_rsrc->whattodo = DE_ADVFILE_WRITERSRC;
 		advf->rsrcfork.fi->mod_time = advf->mainfork.fi->mod_time;
-		afp_rsrc->outf = dbuf_create_output_file(c, NULL, advf->rsrcfork.fi, advf->rsrcfork.createflags);
+		afp_rsrc->outf = dbuf_create_output_file(c, NULL, advf->rsrcfork.fi, advf->createflags);
 		if(advf->writefork_cbfn) {
 			advf->writefork_cbfn(c, advf, afp_rsrc);
 		}
@@ -1800,9 +1806,9 @@ static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_app
 	else {
 		ucstring_append_sz(fname, ".as", DE_ENCODING_LATIN1);
 	}
-	de_finfo_set_name_from_ucstring(c, advf->mainfork.fi, fname, advf->mainfork.snflags);
+	de_finfo_set_name_from_ucstring(c, advf->mainfork.fi, fname, advf->snflags);
 	advf->mainfork.fi->original_filename_flag = advf->original_filename_flag;
-	outf = dbuf_create_output_file(c, NULL, advf->mainfork.fi, advf->mainfork.createflags);
+	outf = dbuf_create_output_file(c, NULL, advf->mainfork.fi, advf->createflags);
 
 	if(is_appledouble) { // signature
 		dbuf_writeu32be(outf, 0x00051607U);
@@ -1877,7 +1883,7 @@ static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_app
 			afp_main = de_malloc(c, sizeof(struct de_advfile_cbparams));
 			afp_main->whattodo = DE_ADVFILE_WRITEMAIN;
 			afp_main->outf = outf;
-			if(advf->writefork_cbfn) {
+			if(advf->writefork_cbfn && advf->mainfork.fork_len>0) {
 				advf->writefork_cbfn(c, advf, afp_main);
 			}
 			break;
@@ -1886,7 +1892,7 @@ static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_app
 			afp_rsrc = de_malloc(c, sizeof(struct de_advfile_cbparams));
 			afp_rsrc->whattodo = DE_ADVFILE_WRITERSRC;
 			afp_rsrc->outf = outf;
-			if(advf->writefork_cbfn) {
+			if(advf->writefork_cbfn && advf->rsrcfork.fork_len>0) {
 				advf->writefork_cbfn(c, advf, afp_rsrc);
 			}
 			break;
@@ -1968,8 +1974,8 @@ void de_advfile_run(struct de_advfile *advf)
 		de_advfile_run_applesd(c, advf, 0);
 	}
 	else if(is_mac_file && c->macformat==2) { // AppleDouble
-		de_advfile_run_rawfiles(c, advf, 1); // For the main fork
-		de_advfile_run_applesd(c, advf, 1); // For the data fork
+		de_advfile_run_rawfiles(c, advf, 1); // For the data/main fork
+		de_advfile_run_applesd(c, advf, 1); // For the rsrc fork
 	}
 	else {
 		de_advfile_run_rawfiles(c, advf, 0);

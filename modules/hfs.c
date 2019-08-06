@@ -588,8 +588,7 @@ static void do_leaf_node_record_extract_item(deark *c, lctx *d, struct nodedata 
 
 	squash_slashes(advf->filename, oldlen);
 
-	advf->mainfork.snflags = DE_SNFLAG_FULLPATH;
-	advf->rsrcfork.snflags = DE_SNFLAG_FULLPATH;
+	advf->snflags = DE_SNFLAG_FULLPATH;
 
 	if(rd->cdrType==CDRTYPE_DIR) {
 		do_extract_dir(c, d, nd, rd, advf);
