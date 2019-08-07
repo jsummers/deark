@@ -45,7 +45,8 @@ static const char *fork_name(int is_rsrc, int capitalize)
 static void do_header(deark *c, lctx *d, struct de_advfile *advf)
 {
 	u8 b;
-	u8 fflags;
+	u8 fflags_lobyte = 0;
+	u8 fflags_hibyte = 0;
 	i64 namelen;
 	i64 pos = 0;
 	i64 n, n2;
@@ -100,8 +101,8 @@ static void do_header(deark *c, lctx *d, struct de_advfile *advf)
 	advf->has_creatorcode = 1;
 	pos += 4;
 
-	fflags = de_getbyte_p(&pos);
-	de_dbg(c, "finder flags: 0x%02x", (unsigned int)fflags);
+	fflags_hibyte = de_getbyte_p(&pos);
+	de_dbg(c, "finder flags: 0x%02x__", (unsigned int)fflags_hibyte);
 
 	pos++;
 
@@ -150,9 +151,11 @@ static void do_header(deark *c, lctx *d, struct de_advfile *advf)
 	pos += 2; // length of Get Info comment
 
 	if(d->is_v23) {
-		b = de_getbyte(pos);
-		de_dbg(c, "finder flags, bits 0-7: 0x%02x", (unsigned int)b);
+		fflags_lobyte = de_getbyte(pos);
+		de_dbg(c, "finder flags, bits 0-7: 0x__%02x", (unsigned int)fflags_lobyte);
 	}
+	advf->has_finderflags = 1;
+	advf->finderflags = (u16)((((unsigned int)fflags_hibyte)<<8) | fflags_lobyte);
 	pos += 1;
 
 	pos += 14; // unused

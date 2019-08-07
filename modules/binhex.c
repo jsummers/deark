@@ -159,6 +159,8 @@ static void do_extract_forks(deark *c, lctx *d)
 	i64 pos;
 	u32 hc; // Header CRC
 	struct de_stringreaderdata *fname = NULL;
+	struct de_fourcc filetype;
+	struct de_fourcc creator;
 
 	inf = d->decompressed;
 	pos = 0;
@@ -183,18 +185,29 @@ static void do_extract_forks(deark *c, lctx *d)
 	pos+=name_len;
 	pos+=1; // Skip the 0x00 byte after the name.
 
-	// The next (& last) 20 bytes of the header have predictable positions.
+	dbuf_read_fourcc(inf, pos, &filetype, 4, 0x0);
+	de_dbg(c, "filetype: '%s'", filetype.id_dbgstr);
+	de_memcpy(d->advf->typecode, filetype.bytes, 4);
+	d->advf->has_typecode = 1;
+	pos += 4;
+	dbuf_read_fourcc(inf, pos, &creator, 4, 0x0);
+	de_dbg(c, "creator: '%s'", creator.id_dbgstr);
+	de_memcpy(d->advf->creatorcode, creator.bytes, 4);
+	d->advf->has_creatorcode = 1;
+	pos += 4;
 
-	d->fki_data.len = dbuf_getu32be(inf, pos+10);
-	d->fki_rsrc.len = dbuf_getu32be(inf, pos+14);
-	hc = (u32)dbuf_getu16be(inf, pos+18);
+	d->advf->finderflags = (u16)dbuf_getu16be_p(inf, &pos);
+	d->advf->has_finderflags = 1;
+	de_dbg(c, "flags: 0x%04x", (unsigned int)d->advf->finderflags);
 
+	d->fki_data.len = dbuf_getu32be_p(inf, &pos);
 	de_dbg(c, "data fork len: %d", (int)d->fki_data.len);
+	d->fki_rsrc.len = dbuf_getu32be_p(inf, &pos);
 	de_dbg(c, "resource fork len: %d", (int)d->fki_rsrc.len);
+
+	hc = (u32)dbuf_getu16be_p(inf, &pos);
 	de_dbg(c, "header crc (reported): 0x%04x", (unsigned int)hc);
 	// TODO: Verify header CRC
-
-	pos+=20;
 
 	d->fki_data.forkname = "data";
 	d->fki_rsrc.forkname = "rsrc";

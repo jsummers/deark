@@ -278,6 +278,8 @@ struct de_advfile {
 	u8 no_appledouble;
 	u8 has_typecode;
 	u8 has_creatorcode;
+	u8 has_finderflags;
+	u16 finderflags;
 	i64 orig_filename_len;
 	u8 *orig_filename;
 	u8 typecode[4];

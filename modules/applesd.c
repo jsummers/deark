@@ -139,12 +139,24 @@ static void do_finder_orig(deark *c, lctx *d, struct entry_struct *e)
 	struct de_fourcc filetype;
 	struct de_fourcc creator;
 
+	// TODO: This entry has a different format if this is an AppleDouble file
+	// whose companion data "file" is a directory. But I don't know the proper
+	// way to tell if that is the case.
+
 	dbuf_read_fourcc(c->infile, pos, &filetype, 4, 0x0);
 	de_dbg(c, "filetype: '%s'", filetype.id_dbgstr);
+	de_memcpy(d->advf->typecode, filetype.bytes, 4);
+	d->advf->has_typecode = 1;
 	pos += 4;
 	dbuf_read_fourcc(c->infile, pos, &creator, 4, 0x0);
 	de_dbg(c, "creator: '%s'", creator.id_dbgstr);
+	de_memcpy(d->advf->creatorcode, creator.bytes, 4);
+	d->advf->has_creatorcode = 1;
 	pos += 4;
+
+	d->advf->finderflags = (u16)dbuf_getu16be_p(c->infile, &pos);
+	d->advf->has_finderflags = 1;
+	de_dbg(c, "flags: 0x%04x", (unsigned int)d->advf->finderflags);
 }
 
 static void do_xattr_entry(deark *c, lctx *d, struct de_stringreaderdata *name,

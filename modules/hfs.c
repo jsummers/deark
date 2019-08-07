@@ -448,18 +448,28 @@ done:
 	;
 }
 
-static void read_finder_info(deark *c, lctx *d, i64 pos1)
+static void read_finder_info(deark *c, lctx *d, struct de_advfile *advf, i64 pos1)
 {
 	i64 pos = pos1;
+	unsigned int flags;
 	struct de_fourcc filetype;
 	struct de_fourcc creator;
 
 	dbuf_read_fourcc(c->infile, pos, &filetype, 4, 0x0);
 	de_dbg(c, "filetype: '%s'", filetype.id_dbgstr);
+	de_memcpy(advf->typecode, filetype.bytes, 4);
+	advf->has_typecode = 1;
 	pos += 4;
 	dbuf_read_fourcc(c->infile, pos, &creator, 4, 0x0);
 	de_dbg(c, "creator: '%s'", creator.id_dbgstr);
+	de_memcpy(advf->creatorcode, creator.bytes, 4);
+	advf->has_creatorcode = 1;
 	pos += 4;
+
+	flags = (unsigned int)de_getu16be(pos);
+	de_dbg(c, "finder flags: 0x%04x", flags);
+	advf->finderflags = (u16)flags;
+	advf->has_finderflags = 1;
 }
 
 static int my_advfile_cbfn(deark *c, struct de_advfile *advf,
@@ -499,7 +509,7 @@ static void do_extract_file(deark *c, lctx *d, struct nodedata *nd,
 	n = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "filTyp: %d", (int)n);
 
-	read_finder_info(c, d, pos);
+	read_finder_info(c, d, advf, pos);
 	pos += 16; // filUsrWds, Finder info
 
 	pos += 4; // filFlNum, file id

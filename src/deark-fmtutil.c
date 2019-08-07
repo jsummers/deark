@@ -1851,7 +1851,9 @@ static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_app
 		entry_info[num_entries].len = 16;
 		num_entries++;
 	}
-	if((advf->has_typecode || advf->has_creatorcode) && !advf->mainfork.fi->is_directory) {
+	if((advf->has_typecode || advf->has_creatorcode || advf->has_finderflags) &&
+		!advf->mainfork.fi->is_directory)
+	{
 		entry_info[num_entries].id = SDID_FINDERINFO;
 		entry_info[num_entries].len = 32;
 		num_entries++;
@@ -1944,7 +1946,8 @@ static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_app
 				dbuf_write(outf, advf->creatorcode, 4);
 			else
 				dbuf_write_zeroes(outf, 4);
-			dbuf_write_zeroes(outf, 8 + 16);
+			dbuf_writeu16be(outf, advf->has_finderflags?((i64)advf->finderflags):0);
+			dbuf_write_zeroes(outf, 6 + 16);
 			break;
 		}
 
