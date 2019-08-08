@@ -30,13 +30,15 @@ struct fork_data {
 	i64 unc_len;
 	i64 cmpr_pos;
 	i64 cmpr_len;
+	const char *forkname;
 	const struct cmpr_meth_info *cmi;
 };
 
 struct member_data {
 	u8 is_folder;
 	unsigned int finder_flags;
-	de_ucstring *fname;
+	struct de_advfile *advf;
+	struct de_stringreaderdata *fname;
 	de_ucstring *full_fname;
 	struct de_fourcc filetype;
 	struct de_fourcc creator;
@@ -48,12 +50,14 @@ struct member_data {
 
 typedef struct localctx_struct {
 	int file_fmt; // 1=old, 2=new
+	int input_encoding;
 	int nmembers;
 	int subdir_level;
 	u8 ver;
 	i64 archive_size;
 	struct de_strarray *curpath;
-	struct de_crcobj *crco;
+	struct de_crcobj *crco_rfork;
+	struct de_crcobj *crco_dfork;
 } lctx;
 
 typedef int (*decompressor_fn)(deark *c, lctx *d, struct member_data *md,
@@ -204,20 +208,25 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 
 	fnlen = (i64)de_getbyte_p(&pos);
 	if(fnlen>63) fnlen=63;
-	md->fname = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos, fnlen, md->fname, 0, DE_ENCODING_MACROMAN);
-	de_dbg(c, "filename: \"%s\"", ucstring_getpsz(md->fname));
+	md->fname = dbuf_read_string(c->infile, pos, fnlen, fnlen, 0, d->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz(md->fname->str));
 	pos += 63;
 
 	dbuf_read_fourcc(c->infile, pos, &md->filetype, 4, 0x0);
 	de_dbg(c, "filetype: '%s'", md->filetype.id_dbgstr);
+	de_memcpy(md->advf->typecode, md->filetype.bytes, 4);
+	md->advf->has_typecode = 1;
 	pos += 4;
 	dbuf_read_fourcc(c->infile, pos, &md->creator, 4, 0x0);
 	de_dbg(c, "creator: '%s'", md->creator.id_dbgstr);
+	de_memcpy(md->advf->creatorcode, md->creator.bytes, 4);
+	md->advf->has_creatorcode = 1;
 	pos += 4;
 
 	md->finder_flags = (unsigned int)de_getu16be_p(&pos);
 	de_dbg(c, "finder flags: 0x%04x", md->finder_flags);
+	md->advf->finderflags = (u16)md->finder_flags;
+	md->advf->has_finderflags = 1;
 
 	n = de_getu32be_p(&pos);
 	de_mac_time_to_timestamp(n, &md->create_time);
@@ -228,6 +237,7 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	de_mac_time_to_timestamp(n, &md->mod_time);
 	de_timestamp_to_string(&md->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %"I64_FMT" (%s)", n, timestamp_buf);
+	md->advf->mainfork.fi->mod_time = md->mod_time;
 
 	md->rfork.unc_len = de_getu32be_p(&pos);
 	md->dfork.unc_len = de_getu32be_p(&pos);
@@ -261,14 +271,20 @@ static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
 	de_crcobj_addbuf(crco, buf, buf_len);
 }
 
-static void do_decompress_fork(deark *c, lctx *d, struct member_data *md,
+// Sets md->advf->*fork.fork_exists, according to whether we think we
+// can decompress the fork.
+static void do_pre_decompress_fork(deark *c, lctx *d, struct member_data *md,
 	struct fork_data *frk)
 {
-	dbuf *outf = NULL;
-	de_finfo *fi = NULL;
-	de_ucstring *final_fname = NULL;
-	int ret;
-	u32 crc_calc;
+	struct de_advfile_forkinfo *advfki;
+	int ok = 0;
+
+	if(frk->is_rsrc_fork) {
+		advfki = &md->advf->rsrcfork;
+	}
+	else {
+		advfki = &md->advf->mainfork;
+	}
 
 	if(!frk->is_a_file) {
 		goto done;
@@ -288,8 +304,9 @@ static void do_decompress_fork(deark *c, lctx *d, struct member_data *md,
 	}
 
 	if(!frk->cmi->decompressor) {
-		de_err(c, "Unsupported compression method: %u (%s)", (unsigned int)frk->cmpr_meth,
-			frk->cmi->name);
+		de_err(c, "%s %s fork: Unsupported compression method: %u (%s)",
+			ucstring_getpsz_d(md->full_fname), frk->forkname,
+			(unsigned int)frk->cmpr_meth, frk->cmi->name);
 		goto done;
 	}
 
@@ -298,39 +315,58 @@ static void do_decompress_fork(deark *c, lctx *d, struct member_data *md,
 		goto done;
 	}
 
-	fi = de_finfo_create(c);
+	ok = 1;
 
-	final_fname = ucstring_clone(md->full_fname);
+	advfki->writecallback_fn = our_writecallback;
 	if(frk->is_rsrc_fork) {
-		ucstring_append_sz(final_fname, ".rsrc", DE_ENCODING_LATIN1);
+		advfki->userdata = (void*)d->crco_rfork;
+		de_crcobj_reset(d->crco_rfork);
 	}
-	de_finfo_set_name_from_ucstring(c, fi, final_fname, DE_SNFLAG_FULLPATH);
-	fi->original_filename_flag = 1;
-	fi->mod_time = md->mod_time;
+	else {
+		advfki->userdata = (void*)d->crco_dfork;
+		de_crcobj_reset(d->crco_dfork);
+	}
 
-	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
+done:
+	advfki->fork_exists = (ok)?1:0;
+}
 
-	outf->writecallback_fn = our_writecallback;
-	outf->userdata = (void*)d->crco;
-	de_crcobj_reset(d->crco);
+static void do_main_decompress_fork(deark *c, lctx *d, struct member_data *md,
+	struct fork_data *frk, dbuf *outf)
+{
+	int ret;
 
-	ret = frk->cmi->decompressor(c, d, md, frk, outf);
-	if(!ret) {
-		de_err(c, "Decompression failed for file %s", ucstring_getpsz_d(final_fname));
+	if(!frk || !frk->cmi || !frk->cmi->decompressor) {
 		goto done;
 	}
 
-	crc_calc = de_crcobj_getval(d->crco);
-	de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)crc_calc);
-	if(crc_calc != frk->crc) {
-		de_err(c, "CRC check failed for file %s", ucstring_getpsz_d(final_fname));
+	ret = frk->cmi->decompressor(c, d, md, frk, outf);
+	if(!ret) {
+		de_err(c, "Decompression failed for file %s %s fork", ucstring_getpsz_d(md->full_fname),
+			frk->forkname);
 		goto done;
 	}
 
 done:
-	if(outf) dbuf_close(outf);
-	if(fi) de_finfo_destroy(c, fi);
-	if(final_fname) ucstring_destroy(final_fname);
+	;
+}
+
+static void do_post_decompress_fork(deark *c, lctx *d, struct member_data *md,
+	struct fork_data *frk)
+{
+	u32 crc_calc;
+
+	if(frk->is_rsrc_fork) {
+		crc_calc = de_crcobj_getval(d->crco_rfork);
+	}
+	else {
+		crc_calc = de_crcobj_getval(d->crco_dfork);
+	}
+	de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)crc_calc);
+	if(crc_calc != frk->crc) {
+		de_err(c, "CRC check failed for file %s %s fork", ucstring_getpsz_d(md->full_fname),
+			frk->forkname);
+	}
 }
 
 static void do_extract_folder(deark *c, lctx *d, struct member_data *md)
@@ -350,6 +386,25 @@ done:
 	de_finfo_destroy(c, fi);
 }
 
+struct advfudata {
+	lctx *d;
+	struct member_data *md;
+};
+
+static int my_advfile_cbfn(deark *c, struct de_advfile *advf,
+	struct de_advfile_cbparams *afp)
+{
+	struct advfudata *u = (struct advfudata*)advf->userdata;
+
+	if(afp->whattodo == DE_ADVFILE_WRITEMAIN) {
+		do_main_decompress_fork(c, u->d, u->md, &u->md->dfork, afp->outf);
+	}
+	else if(afp->whattodo == DE_ADVFILE_WRITERSRC) {
+		do_main_decompress_fork(c, u->d, u->md, &u->md->rfork, afp->outf);
+	}
+
+	return 1;
+}
 
 // Returns:
 //  0 if the member could not be parsed sufficiently to determine its size
@@ -359,6 +414,7 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	i64 pos = pos1;
 	struct member_data *md = NULL;
 	int saved_indent_level;
+	struct advfudata u;
 	int retval = 0;
 
 	*bytes_consumed = 0;
@@ -366,9 +422,14 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 
 	md = de_malloc(c, sizeof(struct member_data));
 	md->rfork.is_rsrc_fork = 1;
+	md->dfork.forkname = "data";
+	md->rfork.forkname = "resource";
 
 	de_dbg(c, "member at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
+
+	md->advf = de_advfile_create(c);
+
 	if(!do_member_header(c, d, md, pos)) goto done;
 
 	*bytes_consumed = 112;
@@ -397,12 +458,16 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 
 	md->full_fname = ucstring_create(c);
 	de_strarray_make_path(d->curpath, md->full_fname, 0);
-	ucstring_append_ucstring(md->full_fname, md->fname);
+	ucstring_append_ucstring(md->full_fname, md->fname->str);
 	de_dbg(c, "full name: \"%s\"", ucstring_getpsz_d(md->full_fname));
+	ucstring_append_ucstring(md->advf->filename, md->full_fname);
+	md->advf->original_filename_flag = 1;
+	md->advf->snflags = DE_SNFLAG_FULLPATH;
+	de_advfile_set_orig_filename(md->advf, (const u8*)md->fname->sz, md->fname->sz_strlen);
 
 	if(md->is_folder) {
 		d->subdir_level++;
-		de_strarray_push(d->curpath, md->fname);
+		de_strarray_push(d->curpath, md->fname->str);
 		do_extract_folder(c, d, md);
 		goto done;
 	}
@@ -412,8 +477,9 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	if(md->rfork.cmpr_len>0) {
 		de_dbg(c, "rsrc fork data at %"I64_FMT", len=%"I64_FMT,
 			pos, md->rfork.cmpr_len);
+		md->advf->rsrcfork.fork_len = md->rfork.unc_len;
 		de_dbg_indent(c, 1);
-		do_decompress_fork(c, d, md, &md->rfork);
+		do_pre_decompress_fork(c, d, md, &md->rfork);
 		de_dbg_indent(c, -1);
 		pos += md->rfork.cmpr_len;
 	}
@@ -423,16 +489,31 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	if(md->dfork.cmpr_len>0) {
 		de_dbg(c, "data fork data at %"I64_FMT", len=%"I64_FMT,
 			pos, md->dfork.cmpr_len);
+		md->advf->mainfork.fork_len = md->dfork.unc_len;
 		de_dbg_indent(c, 1);
-		do_decompress_fork(c, d, md, &md->dfork);
+		do_pre_decompress_fork(c, d, md, &md->dfork);
 		de_dbg_indent(c, -1);
 		pos += md->dfork.cmpr_len;
 	}
 
+	u.d = d;
+	u.md = md;
+	md->advf->userdata = (void*)&u;
+	md->advf->writefork_cbfn = my_advfile_cbfn;
+	de_advfile_run(md->advf);
+
+	if(md->advf->rsrcfork.fork_exists) {
+		do_post_decompress_fork(c, d, md, &md->rfork);
+	}
+	if(md->advf->mainfork.fork_exists) {
+		do_post_decompress_fork(c, d, md, &md->dfork);
+	}
+
 done:
 	if(md) {
-		ucstring_destroy(md->fname);
+		de_destroy_stringreaderdata(c, md->fname);
 		ucstring_destroy(md->full_fname);
+		de_advfile_destroy(md->advf);
 		de_free(c, md);
 	}
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -491,6 +572,7 @@ static void de_run_stuffit(deark *c, de_module_params *mparams)
 	i64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_MACROMAN);
 
 	if(!dbuf_memcmp(c->infile, 0, "SIT!", 4)) {
 		d->file_fmt = 1;
@@ -510,13 +592,15 @@ static void de_run_stuffit(deark *c, de_module_params *mparams)
 	pos += 22;
 
 	d->curpath = de_strarray_create(c);
-	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
+	d->crco_rfork = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
+	d->crco_dfork = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 
 	do_sequence_of_members(c, d, pos);
 
 done:
 	if(d) {
-		de_crcobj_destroy(d->crco);
+		de_crcobj_destroy(d->crco_rfork);
+		de_crcobj_destroy(d->crco_dfork);
 		de_strarray_destroy(d->curpath);
 		de_free(c, d);
 	}
