@@ -1677,7 +1677,7 @@ void de_advfile_destroy(struct de_advfile *advf)
 // encoding (most likely MacRoman).
 // We can't necessarily decode this filename correctly, but we can copy it
 // unchanged to AppleSingle/AppleDouble's "Real Name" field.
-void de_advfile_set_orig_filename(struct de_advfile *advf, const u8 *fn, i64 fnlen)
+void de_advfile_set_orig_filename(struct de_advfile *advf, const char *fn, size_t fnlen)
 {
 	deark *c = advf->c;
 
@@ -1838,7 +1838,7 @@ static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_app
 
 	if(advf->orig_filename) {
 		entry_info[num_entries].id = SDID_REALNAME;
-		entry_info[num_entries].len = advf->orig_filename_len;
+		entry_info[num_entries].len = (i64)advf->orig_filename_len;
 		num_entries++;
 	}
 
@@ -1921,7 +1921,7 @@ static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_app
 		case SDID_REALNAME:
 			// If you think this code might be wrong, first review the comments
 			// in applesd.c regarding Pascal strings.
-			dbuf_write(outf, advf->orig_filename, advf->orig_filename_len);
+			dbuf_write(outf, advf->orig_filename, (i64)advf->orig_filename_len);
 			break;
 
 		case SDID_COMMENT:

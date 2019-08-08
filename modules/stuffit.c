@@ -463,7 +463,7 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	ucstring_append_ucstring(md->advf->filename, md->full_fname);
 	md->advf->original_filename_flag = 1;
 	md->advf->snflags = DE_SNFLAG_FULLPATH;
-	de_advfile_set_orig_filename(md->advf, (const u8*)md->fname->sz, md->fname->sz_strlen);
+	de_advfile_set_orig_filename(md->advf, md->fname->sz, md->fname->sz_strlen);
 
 	if(md->is_folder) {
 		d->subdir_level++;

@@ -94,7 +94,7 @@ static void handler_string(deark *c, lctx *d, struct entry_struct *e)
 		ucstring_empty(d->advf->filename);
 		ucstring_append_ucstring(d->advf->filename, srd->str);
 		d->advf->original_filename_flag = 1;
-		de_advfile_set_orig_filename(d->advf, (const u8*)srd->sz, (i64)srd->sz_strlen);
+		de_advfile_set_orig_filename(d->advf, srd->sz, srd->sz_strlen);
 	}
 
 done:

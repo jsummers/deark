@@ -280,7 +280,7 @@ struct de_advfile {
 	u8 has_creatorcode;
 	u8 has_finderflags;
 	u16 finderflags;
-	i64 orig_filename_len;
+	size_t orig_filename_len;
 	u8 *orig_filename;
 	u8 typecode[4];
 	u8 creatorcode[4];
@@ -288,5 +288,5 @@ struct de_advfile {
 
 struct de_advfile *de_advfile_create(deark *c);
 void de_advfile_destroy(struct de_advfile *advf);
-void de_advfile_set_orig_filename(struct de_advfile *advf, const u8 *fn, i64 fnlen);
+void de_advfile_set_orig_filename(struct de_advfile *advf, const char *fn, size_t fnlen);
 void de_advfile_run(struct de_advfile *advf);

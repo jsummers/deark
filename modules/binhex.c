@@ -176,7 +176,7 @@ static void do_extract_forks(deark *c, lctx *d)
 		ucstring_append_ucstring(d->advf->filename, fname->str);
 		d->advf->original_filename_flag = 1;
 		de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(fname->str));
-		de_advfile_set_orig_filename(d->advf, (const u8*)fname->sz, fname->sz_strlen);
+		de_advfile_set_orig_filename(d->advf, fname->sz, fname->sz_strlen);
 	}
 	else {
 		ucstring_append_sz(d->advf->filename, "bin", DE_ENCODING_LATIN1);
