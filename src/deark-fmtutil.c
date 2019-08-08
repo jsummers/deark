@@ -1969,6 +1969,7 @@ void de_advfile_run(struct de_advfile *advf)
 {
 	deark *c = advf->c;
 	int is_mac_file;
+	int fmt;
 
 	is_mac_file = (advf->rsrcfork.fork_exists && advf->rsrcfork.fork_len>0);
 
@@ -1976,26 +1977,32 @@ void de_advfile_run(struct de_advfile *advf)
 		const char *mfmt;
 
 		c->macformat_known = 1;
-		c->macformat = 0; // default raw format
-		mfmt = de_get_ext_option(c, "macformat");
+		c->macformat = 2; // default=AppleDouble
+
+		// [I know there is a module named "macrsrc", so this could lead to confusion,
+		// but I can't think of a better name.]
+		mfmt = de_get_ext_option(c, "macrsrc");
 		if(mfmt) {
-			if(!de_strcmp(mfmt, "as")) {
-				if(!advf->no_applesingle) {
-					c->macformat = 1; // AppleSingle
-				}
+			if(!de_strcmp(mfmt, "raw")) {
+				c->macformat = 0; // Raw resource file
+			}
+			else if(!de_strcmp(mfmt, "as")) {
+				c->macformat = 1; // AppleSingle
 			}
 			else if(!de_strcmp(mfmt, "ad")) {
-				if(!advf->no_appledouble) {
-					c->macformat = 2; // AppleDouble
-				}
+				c->macformat = 2; // AppleDouble
 			}
 		}
 	}
 
-	if(is_mac_file && c->macformat==1) { // AppleSingle
+	fmt = c->macformat; // Default to the default Mac format.
+	if(fmt==1 && advf->no_applesingle) fmt = 2;
+	if(fmt==2 && advf->no_appledouble) fmt = 0;
+
+	if(is_mac_file && fmt==1) { // AppleSingle
 		de_advfile_run_applesd(c, advf, 0);
 	}
-	else if(is_mac_file && c->macformat==2) { // AppleDouble
+	else if(is_mac_file && fmt==2) { // AppleDouble
 		de_advfile_run_rawfiles(c, advf, 1); // For the data/main fork
 		de_advfile_run_applesd(c, advf, 1); // For the rsrc fork
 	}

@@ -563,10 +563,12 @@ Deark -- Information about supported formats
 
 * AppleSingle/AppleDouble (module="applesd")
   AppleDouble files often have names beginning with "._".
-  - Extract data and resource forks.
+  - Extract data fork.
+  - Extract (default for AppleSingle) or decode (default for AppleDouble)
+    resource fork.
   Options
-   -opt applesd:extractrsrc=0 - Instead of extracting the resource fork,
-     attempt to decode it.
+   -opt applesd:extractrsrc=<0|1> - Specify whether the resource fork is
+     decoded (0), or extracted (1).
 
 * ar (.a archive/library format) (module="ar") (experimental/incomplete)
   - Supports System V long filenames

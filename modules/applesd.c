@@ -457,7 +457,9 @@ static void de_run_applesd(deark *c, de_module_params *mparams)
 		d->is_appledouble = 0;
 	else
 		d->is_appledouble = 1;
-	d->extract_rsrc = de_get_ext_option_bool(c, "applesd:extractrsrc", 1);
+	// AppleDouble default = decode resource fork
+	// AppleSingle default = extract resource fork
+	d->extract_rsrc = de_get_ext_option_bool(c, "applesd:extractrsrc", d->is_appledouble?0:1);
 	de_run_sd_internal(c, d);
 	de_free(c, d);
 }

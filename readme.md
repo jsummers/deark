@@ -193,6 +193,14 @@ Command-line options:
     -opt atari:palbits=&lt;9|12|15>
        For some Atari image formats, the number of significant bits per
        palette color. The default is to autodetect.
+    -opt macrsrc=<raw|as|ad>
+       The preferred way to extract Macintosh resource forks, and data files
+       associated with a non-empty resource fork.
+        raw = Write the raw resource fork to a separate .rsrc file.
+        ad = Put the resource fork in an AppleDouble container (default).
+        as = Put both forks in an AppleSingle container.
+       For input files already in AppleDouble or AppleSingle format, see the
+       formats.txt file for more information.
 -h, -?, -help:
    Print the help message.
    Use with -m to get help for a specific module. Use with a filename to get

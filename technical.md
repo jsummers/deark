@@ -182,6 +182,23 @@ good *file* format to use, so Deark wraps them in a minimal TIFF-based
 container. You can reprocess this container file with Deark, and it may decode
 the data (use -d), or extract the raw data to a file.
 
+## AppleDouble format ##
+
+In most cases, Deark writes Macintosh resource forks to AppleDouble format. It
+considers this to be its preferred format for resource forks. You have to use
+an option, if you want it to write the fork in raw form.
+
+It give AppleDouble output files an ".adf" file extension. Although this is one
+of the conventions suggested in the AppleDouble specification, it is not
+commonly used. The other naming conventions don't play well with Deark's naming
+conventions.
+
+Another problem is that, because Deark gives each output file a unique prefix
+like "output.NNN", the AppleDouble file and its associated data fork will not
+have the same base filename, further reducing the chance that other systems
+will treat them as a unit. There's no good fix for this, though you may be able
+to avoid it by using the -zip option.
+
 ## I've never heard of that format! ##
 
 For the identities of the formats supported by Deark, see
