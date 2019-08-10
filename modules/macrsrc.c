@@ -26,6 +26,7 @@ typedef struct localctx_struct {
 	i64 nameListOffset_abs;
 	dbuf *icns_stream;
 	dbuf *psrc_stream;
+	const char *errmsgprefix;
 } lctx;
 
 struct rsrctypeinfo {
@@ -391,7 +392,8 @@ static void do_map(deark *c, lctx *d, i64 map_offs, i64 map_size)
 
 	n = de_getu32be(map_offs+4);
 	if(n!=map_offs) {
-		de_err(c, "Resource map section not found, expected to be at %d", (int)map_offs);
+		de_err(c, "%sResource map section not found, expected to be at %d",
+			d->errmsgprefix, (int)map_offs);
 		return;
 	}
 
@@ -414,7 +416,7 @@ static void do_map(deark *c, lctx *d, i64 map_offs, i64 map_size)
 	d->nameListOffset_abs = map_offs + nameListOffset_rel;
 
 	if(typeListOffset_rel<28) {
-		de_err(c, "Invalid typeListOffset");
+		de_err(c, "%sInvalid typeListOffset", d->errmsgprefix);
 		goto done;
 	}
 
@@ -430,9 +432,20 @@ static void de_run_macrsrc(deark *c, de_module_params *mparams)
 	i64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
+	if(c->module_disposition==DE_MODDISP_INTERNAL) {
+		d->errmsgprefix = "[Resource format] ";
+	}
+	else {
+		d->errmsgprefix = "";
+	}
 
 	if(de_get_ext_option(c, "macrsrc:extractraw")) {
 		d->extract_raw = 1;
+	}
+
+	if(c->infile->len<16) {
+		de_err(c, "%sFile too small to be a valid Resource file", d->errmsgprefix);
+		goto done;
 	}
 
 	pos = 0;
@@ -443,6 +456,8 @@ static void de_run_macrsrc(deark *c, de_module_params *mparams)
 	de_dbg(c, "data: pos=%"I64_FMT", len=%"I64_FMT, d->data_offs, d->data_size);
 	de_dbg(c, "map: pos=%"I64_FMT", len=%"I64_FMT, d->map_offs, d->map_size);
 	do_map(c, d, d->map_offs, d->map_size);
+
+done:
 	finalize_icns_stream(c, d);
 	finalize_psrc_stream(c, d);
 	de_free(c, d);

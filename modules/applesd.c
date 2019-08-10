@@ -301,6 +301,7 @@ done:
 
 static void do_decode_rsrc(deark *c, lctx *d, struct entry_struct *e)
 {
+	if(e->length<1) return;
 	de_dbg(c, "decoding as resource format");
 	de_dbg_indent(c, 1);
 	de_run_module_by_id_on_slice2(c, "macrsrc", NULL, c->infile,
