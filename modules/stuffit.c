@@ -212,21 +212,29 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz(md->fname->str));
 	pos += 63;
 
-	dbuf_read_fourcc(c->infile, pos, &md->filetype, 4, 0x0);
-	de_dbg(c, "filetype: '%s'", md->filetype.id_dbgstr);
-	de_memcpy(md->advf->typecode, md->filetype.bytes, 4);
-	md->advf->has_typecode = 1;
-	pos += 4;
-	dbuf_read_fourcc(c->infile, pos, &md->creator, 4, 0x0);
-	de_dbg(c, "creator: '%s'", md->creator.id_dbgstr);
-	de_memcpy(md->advf->creatorcode, md->creator.bytes, 4);
-	md->advf->has_creatorcode = 1;
-	pos += 4;
+	if(md->dfork.is_a_file || md->rfork.is_a_file) {
+		dbuf_read_fourcc(c->infile, pos, &md->filetype, 4, 0x0);
+		de_dbg(c, "filetype: '%s'", md->filetype.id_dbgstr);
+		de_memcpy(md->advf->typecode, md->filetype.bytes, 4);
+		md->advf->has_typecode = 1;
+		pos += 4;
+		dbuf_read_fourcc(c->infile, pos, &md->creator, 4, 0x0);
+		de_dbg(c, "creator: '%s'", md->creator.id_dbgstr);
+		de_memcpy(md->advf->creatorcode, md->creator.bytes, 4);
+		md->advf->has_creatorcode = 1;
+		pos += 4;
 
-	md->finder_flags = (unsigned int)de_getu16be_p(&pos);
-	de_dbg(c, "finder flags: 0x%04x", md->finder_flags);
-	md->advf->finderflags = (u16)md->finder_flags;
-	md->advf->has_finderflags = 1;
+		md->finder_flags = (unsigned int)de_getu16be_p(&pos);
+		de_dbg(c, "finder flags: 0x%04x", md->finder_flags);
+		md->advf->finderflags = (u16)md->finder_flags;
+		md->advf->has_finderflags = 1;
+	}
+	else {
+		// Don't know if these fields mean anything for folders.
+		// Possibly they're the first 10 bytes of DInfo (Finder Info for
+		// folders), though that seems a little odd.
+		pos += 10;
+	}
 
 	n = de_getu32be_p(&pos);
 	de_mac_time_to_timestamp(n, &md->create_time);
