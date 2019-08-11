@@ -265,6 +265,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 
 	charctx = de_create_charctx(c, 0);
 	charctx->prefer_image_output = 1;
+	de_char_decide_output_format(c, charctx);
 
 	de_fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
 	if(sdd.has_SAUCE) {
@@ -285,10 +286,6 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	d->width_in_chars = de_getu16le(5);
 	d->height_in_chars = de_getu16le(7);
 	d->font_height = (i64)de_getbyte(9);
-	if(d->font_height<1 || d->font_height>32) {
-		de_err(c, "Invalid font height: %d", (int)d->font_height);
-		goto done;
-	}
 
 	flags = de_getbyte(10);
 	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d characters", (int)d->width_in_chars, (int)d->height_in_chars);
@@ -305,6 +302,10 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	de_dbg(c, " non-blink mode: %d", (int)d->nonblink);
 	de_dbg(c, " 512 character mode: %d", (int)d->has_512chars);
 
+	if(d->has_font && (d->font_height<1 || d->font_height>32)) {
+		de_err(c, "Invalid font height: %d", (int)d->font_height);
+		goto done;
+	}
 	pos = 11;
 
 	if(d->has_palette) {
@@ -346,12 +347,20 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	else {
 		// Use default font
 
-		// FIXME: We probably shouldn't give up if font_height!=16, at
-		// least if the output format is HTML.
-		if(d->has_512chars || d->font_height!=16) {
+		if(d->has_512chars) {
 			de_err(c, "This type of XBIN file is not supported.");
 			goto done;
 		}
+
+		if(d->font_height==0) {
+			// Not really legal, but we'll let it mean "default".
+		}
+		else if(d->font_height!=16) {
+			if(charctx->outfmt==1) { // image output
+				de_warn(c, "Incompatible font height (%d), using 16 instead.", (int)d->font_height);
+			}
+		}
+		d->font_height = 16;
 	}
 
 	de_dbg(c, "image data at %d", (int)pos);
