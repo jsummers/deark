@@ -263,7 +263,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	charctx = de_malloc(c, sizeof(struct de_char_context));
+	charctx = de_create_charctx(c, 0);
 	charctx->prefer_image_output = 1;
 
 	de_fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
@@ -367,7 +367,8 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 
 done:
 	dbuf_close(unc_data);
-	de_free_charctx(c, charctx);
+	de_free_charctx_screens(c, charctx);
+	de_destroy_charctx(c, charctx);
 	de_fmtutil_free_SAUCE(c, si);
 	free_lctx(c, d);
 }

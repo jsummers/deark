@@ -1083,6 +1083,8 @@ struct de_char_context {
 	u8 prefer_9col_mode;
 	u8 no_density;
 	u8 suppress_custom_font_warning;
+	u8 outfmt_known;
+	int outfmt;
 	i64 nscreens;
 	struct de_char_screen **screens; // Array of [nscreens] screens
 	u32 pal[16];
@@ -1096,7 +1098,10 @@ struct de_char_context {
 };
 
 void de_char_output_to_file(deark *c, struct de_char_context *charctx);
-
+struct de_char_context *de_create_charctx(deark *c, unsigned int flags);
+void de_char_decide_output_format(deark *c, struct de_char_context *charctx);
+void de_destroy_charctx(deark *c, struct de_char_context *charctx);
+void de_free_charctx_screens(deark *c, struct de_char_context *charctx);
 void de_free_charctx(deark *c, struct de_char_context *charctx);
 
 ///////////////////////////////////////////

@@ -35,29 +35,57 @@ struct charextractx {
 	struct screen_stats *scrstats; // pointer to array of struct screen_stats
 };
 
-// Frees a charctx struct that has been allocated in a particular way.
-// Does not free charctx->font.
-// Does not free the ucstring fields.
-void de_free_charctx(deark *c, struct de_char_context *charctx)
+struct de_char_context *de_create_charctx(deark *c, unsigned int flags)
+{
+	struct de_char_context *charctx;
+
+	charctx = de_malloc(c, sizeof(struct de_char_context));
+	return charctx;
+}
+
+// Free the ->screens data, assuming it has been allocated in a particular way.
+void de_free_charctx_screens(deark *c, struct de_char_context *charctx)
 {
 	i64 pgnum;
 	i64 j;
 
-	if(charctx) {
-		if(charctx->screens) {
-			for(pgnum=0; pgnum<charctx->nscreens; pgnum++) {
-				if(charctx->screens[pgnum]) {
-					if(charctx->screens[pgnum]->cell_rows) {
-						for(j=0; j<charctx->screens[pgnum]->height; j++) {
-							de_free(c, charctx->screens[pgnum]->cell_rows[j]);
-						}
-						de_free(c, charctx->screens[pgnum]->cell_rows);
-					}
-					de_free(c, charctx->screens[pgnum]);
+	if(!charctx || !charctx->screens) return;
+
+	for(pgnum=0; pgnum<charctx->nscreens; pgnum++) {
+		if(charctx->screens[pgnum]) {
+			if(charctx->screens[pgnum]->cell_rows) {
+				for(j=0; j<charctx->screens[pgnum]->height; j++) {
+					de_free(c, charctx->screens[pgnum]->cell_rows[j]);
 				}
+				de_free(c, charctx->screens[pgnum]->cell_rows);
 			}
-			de_free(c, charctx->screens);
+			de_free(c, charctx->screens[pgnum]);
 		}
+	}
+	de_free(c, charctx->screens);
+	charctx->screens = NULL;
+}
+
+// Frees a charctx struct.
+// Does not free charctx->font.
+// Does not free the ucstring fields.
+void de_destroy_charctx(deark *c, struct de_char_context *charctx)
+{
+	if(!charctx) return;
+
+	if(charctx->screens) {
+		de_err(c, "internal: charctx");
+		de_fatalerror(c);
+	}
+	de_free(c, charctx);
+}
+
+// Deprecated in favor of de_free_charctx_screens() (if applicable),
+// followed by de_destroy_charctx().
+void de_free_charctx(deark *c, struct de_char_context *charctx)
+{
+	if(charctx) {
+		de_free_charctx_screens(c, charctx);
 		de_free(c, charctx);
 	}
 }
@@ -785,28 +813,38 @@ static void de_char_output_to_image_files(deark *c, struct de_char_context *char
 	}
 }
 
+// Sets charctx->outfmt
+void de_char_decide_output_format(deark *c, struct de_char_context *charctx)
+{
+	const char *s;
+
+	if(charctx->outfmt_known) return;
+	charctx->outfmt_known = 1;
+
+	if(charctx->prefer_image_output)
+		charctx->outfmt = 1;
+
+	s = de_get_ext_option(c, "char:output");
+	if(s) {
+		if(!de_strcmp(s, "html")) {
+			charctx->outfmt = 0;
+		}
+		else if(!de_strcmp(s, "image")) {
+			charctx->outfmt = 1;
+		}
+	}
+}
+
 void de_char_output_to_file(deark *c, struct de_char_context *charctx)
 {
 	i64 i;
-	int outfmt = 0;
 	const char *s;
 	int n;
 	struct charextractx *ectx = NULL;
 
 	ectx = de_malloc(c, sizeof(struct charextractx));
 
-	if(charctx->prefer_image_output)
-		outfmt = 1;
-
-	s = de_get_ext_option(c, "char:output");
-	if(s) {
-		if(!de_strcmp(s, "html")) {
-			outfmt = 0;
-		}
-		else if(!de_strcmp(s, "image")) {
-			outfmt = 1;
-		}
-	}
+	de_char_decide_output_format(c, charctx);
 
 	if(charctx->prefer_9col_mode) {
 		ectx->vga_9col_mode = 1;
@@ -829,7 +867,7 @@ void de_char_output_to_file(deark *c, struct de_char_context *charctx)
 		do_prescan_screen(c, charctx, ectx, i);
 	}
 
-	switch(outfmt) {
+	switch(charctx->outfmt) {
 	case 1:
 		de_char_output_to_image_files(c, charctx, ectx);
 		break;
