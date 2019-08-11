@@ -52,7 +52,7 @@
 
 //========================= unzpriv.h begin =========================
 
-#define UI6A_WSIZE 0x8000  /* window size--must be a power of two, and */
+#define UI6A_WSIZE 0x2000  /* window size--must be a power of two, and */
                       /* at least 8K for zip's implode method */
                       /* (at least 32K for zip's deflate method) */
 
@@ -280,14 +280,10 @@ static void ui6a_flush(ui6a_ctx *ui6a, const UI6A_UINT8 *rawbuf, size_t size)
 /* The implode algorithm uses a sliding 4K or 8K byte window on the
    uncompressed stream to find repeated byte strings.  This is implemented
    here as a circular buffer.  The index is updated simply by incrementing
-   and then and'ing with 0x0fff (4K-1) or 0x1fff (8K-1).  Here, the 32K
-   buffer of inflate is used, and it works just as well to always have
+   and then and'ing with 0x0fff (4K-1) or 0x1fff (8K-1).
+   [... It] works just as well to always have
    a 32K circular buffer, so the index is anded with 0x7fff.  This is
    done to allow the window to also be used as the output buffer. */
-/* This must be supplied in an external module useable like "UI6A_UINT8 slide[8192];"
-   or "UI6A_UINT8 *slide;", where the latter would be malloc'ed.  In unzip, slide[]
-   is actually a 32K area for use by inflate, which uses a 32K sliding window.
- */
 
 
 /* (virtual) Tables for length and distance */
