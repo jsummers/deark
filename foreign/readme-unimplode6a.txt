@@ -1,5 +1,5 @@
-The code in explode.h was derived from portions of the Info-ZIP UnZip software,
-version 5.4, 1998-11-28.
+The code in unimplode6a.h was derived from portions of the Info-ZIP UnZip
+software, version 5.4, 1998-11-28.
 
 This package is typically found in a file named "unzip540.tar.gz" or
 "unzip540.zip", for example at

@@ -68,7 +68,6 @@
    a 32K circular buffer, so the index is anded with 0x7fff.  This is
    done to allow the window to also be used as the output buffer. */
 
-
 /* inflate.c -- put in the public domain by Mark Adler
    version c16b, 29 March 1998 */
 

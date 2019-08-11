@@ -465,9 +465,6 @@
     <ClInclude Include="..\..\src\deark.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\foreign\explode.h">
-      <Filter>Foreign Code</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\foreign\liblzw.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>
@@ -484,6 +481,9 @@
       <Filter>Foreign Code</Filter>
     </ClInclude>
     <ClInclude Include="..\..\foreign\zoo-lzd.h">
+      <Filter>Foreign Code</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\foreign\unimplode6a.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>
   </ItemGroup>

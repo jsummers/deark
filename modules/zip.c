@@ -18,7 +18,7 @@
 #define UI6A_FREE      zipexpl_free
 static void *zipexpl_calloc(void *userdata, size_t nmemb, size_t size);
 static void zipexpl_free(void *userdata, void *ptr);
-#include "../foreign/explode.h"
+#include "../foreign/unimplode6a.h"
 
 DE_DECLARE_MODULE(de_module_zip);
 
