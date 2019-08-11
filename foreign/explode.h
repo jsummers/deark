@@ -1,10 +1,78 @@
 // ZIP type 6 "implode" decompression.
-// Based on Mark Adler's public domain code from Info-ZIP UnZip v5.4.
+// Based on Mark Adler's public domain code from Info-ZIP UnZip v5.4
+// (mainly from explode.c and inflate.c).
 // See the file readme-explode.txt for more information.
 // The code has been heavily modified for Deark (2019-03).
-// This file (explode.h) is hereby left in the public domain; or it may, at
+// This file (unimplode6a.h) is hereby left in the public domain; or it may, at
 // your option, be distributed under the same terms as the main Deark software.
 // -JS
+
+// Selected comments from original explode.c and inflate.c:
+
+/* explode.c -- put in the public domain by Mark Adler
+   version c15, 6 July 1996 */
+
+/* You can do whatever you like with this source file, though I would
+   prefer that if you modify it and redistribute it that you include
+   comments to that effect with your name and the date.  Thank you.
+   [...]
+ */
+
+/*
+   Explode imploded (PKZIP method 6 compressed) data.  This compression
+   method searches for as much of the current string of bytes (up to a length
+   of ~320) in the previous 4K or 8K bytes.  If it doesn't find any matches
+   (of at least length 2 or 3), it codes the next byte.  Otherwise, it codes
+   the length of the matched string and its distance backwards from the
+   current position.  Single bytes ("literals") are preceded by a one (a
+   single bit) and are either uncoded (the eight bits go directly into the
+   compressed stream for a total of nine bits) or Huffman coded with a
+   supplied literal code tree.  If literals are coded, then the minimum match
+   length is three, otherwise it is two.
+
+   There are therefore four kinds of imploded streams: 8K search with coded
+   literals (min match = 3), 4K search with coded literals (min match = 3),
+   8K with uncoded literals (min match = 2), and 4K with uncoded literals
+   (min match = 2).  The kind of stream is identified in two bits of a
+   general purpose bit flag that is outside of the compressed stream.
+
+   Distance-length pairs for matched strings are preceded by a zero bit (to
+   distinguish them from literals) and are always coded.  The distance comes
+   first and is either the low six (4K) or low seven (8K) bits of the
+   distance (uncoded), followed by the high six bits of the distance coded.
+   Then the length is six bits coded (0..63 + min match length), and if the
+   maximum such length is coded, then it's followed by another eight bits
+   (uncoded) to be added to the coded length.  This gives a match length
+   range of 2..320 or 3..321 bytes.
+
+   The literal, length, and distance codes are all represented in a slightly
+   compressed form themselves.  What is sent are the lengths of the codes for
+   each value, which is sufficient to construct the codes.  Each byte of the
+   code representation is the code length (the low four bits representing
+   1..16), and the number of values sequentially with that length (the high
+   four bits also representing 1..16).  There are 256 literal code values (if
+   literals are coded), 64 length code values, and 64 distance code values,
+   in that order at the beginning of the compressed stream.  Each set of code
+   values is preceded (redundantly) with a byte indicating how many bytes are
+   in the code description that follows, in the range 1..256.
+
+   The codes themselves are decoded using tables made by ui6a_huft_build() from
+   the bit lengths.
+ */
+
+/* The implode algorithm uses a sliding 4K or 8K byte window on the
+   uncompressed stream to find repeated byte strings.  This is implemented
+   here as a circular buffer.  The index is updated simply by incrementing
+   and then and'ing with 0x0fff (4K-1) or 0x1fff (8K-1).
+   [... It] works just as well to always have
+   a 32K circular buffer, so the index is anded with 0x7fff.  This is
+   done to allow the window to also be used as the output buffer. */
+
+
+/* inflate.c -- put in the public domain by Mark Adler
+   version c16b, 29 March 1998 */
+
+#define UI6A_VERSION 20000000
 
 #ifndef UI6A_UINT8
 #define UI6A_UINT8   unsigned char
@@ -50,11 +118,8 @@
 
 #define UI6A_ARRAYSIZE(x)  (sizeof(x)/sizeof((x)[0]))
 
-//========================= unzpriv.h begin =========================
-
 #define UI6A_WSIZE 0x2000  /* window size--must be a power of two, and */
                       /* at least 8K for zip's implode method */
-                      /* (at least 32K for zip's deflate method) */
 
 struct ui6a_huftarray;
 
@@ -83,8 +148,6 @@ struct ui6a_htables {
 	struct ui6a_htable d; /* distance code table */
 };
 
-//========================= globals.h begin =========================
-
 struct ui6a_ctx_struct;
 typedef struct ui6a_ctx_struct ui6a_ctx;
 
@@ -102,7 +165,7 @@ struct ui6a_ctx_struct {
 	ui6a_cb_read_type cb_read;
 	// cb_write must consume all the the bytes supplied. Return 1 if ok, 0 on failure.
 	ui6a_cb_write_type cb_write;
-	ui6a_cb_post_read_trees_type cb_post_read_trees;
+	ui6a_cb_post_read_trees_type cb_post_read_trees; // Optional hook
 
 	int error_code; // UI6A_ERRCODE_*
 	UI6A_OFF_T uncmpr_nbytes_written;
@@ -115,18 +178,12 @@ struct ui6a_ctx_struct {
 	UI6A_UINT8 inbuf[4096];
 };
 
-//========================= globals.h end =========================
-
 typedef UI6A_UINT16 (*ui6a_len_or_dist_getter)(unsigned int i);
 
 static void ui6a_huft_free(ui6a_ctx *ui6a, struct ui6a_htable *tbl);
 static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n,
 	unsigned s, ui6a_len_or_dist_getter d_fn, ui6a_len_or_dist_getter e_fn,
 	struct ui6a_htable *tbl);
-
-#define UI6A_NEXTBYTE  (ui6a_nextbyte(ui6a))
-
-//========================= unzpriv.h end =========================
 
 static void ui6a_set_error(ui6a_ctx *ui6a, int error_code)
 {
@@ -136,15 +193,11 @@ static void ui6a_set_error(ui6a_ctx *ui6a, int error_code)
 	}
 }
 
-//========================= consts.h begin =========================
-
 static UI6A_UINT16 ui6a_get_mask_bits(unsigned int n)
 {
 	if(n>=17) return 0;
 	return (UI6A_UINT16)(0xffffU >> (16-n));
 }
-
-//========================= consts.h end =========================
 
 static int ui6a_nextbyte(ui6a_ctx *ui6a)
 {
@@ -220,72 +273,6 @@ static void ui6a_flush(ui6a_ctx *ui6a, const UI6A_UINT8 *rawbuf, size_t size)
 	ui6a->uncmpr_nbytes_written += (UI6A_OFF_T)size;
 }
 
-//========================= explode.c begin =========================
-
-/* explode.c -- put in the public domain by Mark Adler
-   version c15, 6 July 1996 */
-
-
-/* You can do whatever you like with this source file, though I would
-   prefer that if you modify it and redistribute it that you include
-   comments to that effect with your name and the date.  Thank you.
-
-   [...]
- */
-
-
-/*
-   Explode imploded (PKZIP method 6 compressed) data.  This compression
-   method searches for as much of the current string of bytes (up to a length
-   of ~320) in the previous 4K or 8K bytes.  If it doesn't find any matches
-   (of at least length 2 or 3), it codes the next byte.  Otherwise, it codes
-   the length of the matched string and its distance backwards from the
-   current position.  Single bytes ("literals") are preceded by a one (a
-   single bit) and are either uncoded (the eight bits go directly into the
-   compressed stream for a total of nine bits) or Huffman coded with a
-   supplied literal code tree.  If literals are coded, then the minimum match
-   length is three, otherwise it is two.
-
-   There are therefore four kinds of imploded streams: 8K search with coded
-   literals (min match = 3), 4K search with coded literals (min match = 3),
-   8K with uncoded literals (min match = 2), and 4K with uncoded literals
-   (min match = 2).  The kind of stream is identified in two bits of a
-   general purpose bit flag that is outside of the compressed stream.
-
-   Distance-length pairs for matched strings are preceded by a zero bit (to
-   distinguish them from literals) and are always coded.  The distance comes
-   first and is either the low six (4K) or low seven (8K) bits of the
-   distance (uncoded), followed by the high six bits of the distance coded.
-   Then the length is six bits coded (0..63 + min match length), and if the
-   maximum such length is coded, then it's followed by another eight bits
-   (uncoded) to be added to the coded length.  This gives a match length
-   range of 2..320 or 3..321 bytes.
-
-   The literal, length, and distance codes are all represented in a slightly
-   compressed form themselves.  What is sent are the lengths of the codes for
-   each value, which is sufficient to construct the codes.  Each byte of the
-   code representation is the code length (the low four bits representing
-   1..16), and the number of values sequentially with that length (the high
-   four bits also representing 1..16).  There are 256 literal code values (if
-   literals are coded), 64 length code values, and 64 distance code values,
-   in that order at the beginning of the compressed stream.  Each set of code
-   values is preceded (redundantly) with a byte indicating how many bytes are
-   in the code description that follows, in the range 1..256.
-
-   The codes themselves are decoded using tables made by ui6a_huft_build() from
-   the bit lengths.
- */
-
-
-/* The implode algorithm uses a sliding 4K or 8K byte window on the
-   uncompressed stream to find repeated byte strings.  This is implemented
-   here as a circular buffer.  The index is updated simply by incrementing
-   and then and'ing with 0x0fff (4K-1) or 0x1fff (8K-1).
-   [... It] works just as well to always have
-   a 32K circular buffer, so the index is anded with 0x7fff.  This is
-   done to allow the window to also be used as the output buffer. */
-
-
 /* (virtual) Tables for length and distance */
 
 static UI6A_UINT16 ui6a_get_cplen2(unsigned int i)
@@ -316,22 +303,6 @@ static UI6A_UINT16 ui6a_get_cpdist8(unsigned int i)
 	if(i>=64) return 0;
 	return 1 + i*128;
 }
-
-/* Macros for inflate() bit peeking and grabbing.
-   The usage is:
-
-        UI6A_NEEDBITS(j);
-        x = b & mask_bits[j];
-        UI6A_DUMPBITS(j);
-
-   where UI6A_NEEDBITS makes sure that b has at least j bits in it, and
-   UI6A_DUMPBITS removes the bits from b.  The macros use the variable k
-   for the number of bits in b.  Normally, b and k are register
-   variables for speed.
- */
-
-#define UI6A_NEEDBITS(n) do {while(k<(n)){b|=((UI6A_UINT32)UI6A_NEXTBYTE)<<k;k+=8;}} while(0)
-#define UI6A_DUMPBITS(n) do {b>>=(n);k-=(n);} while(0)
 
 struct ui6a_iarray {
 	size_t count;
@@ -403,10 +374,10 @@ static void ui6a_get_tree(ui6a_ctx *ui6a, unsigned *l, unsigned n)
 	unsigned b;           /* bit length for those codes */
 
 	/* get bit lengths */
-	i = UI6A_NEXTBYTE + 1;                     /* length/count pairs to read */
+	i = ui6a_nextbyte(ui6a) + 1;                     /* length/count pairs to read */
 	k = 0;                                /* next code */
 	do {
-		b = ((j = UI6A_NEXTBYTE) & 0xf) + 1;     /* bits in code (1..16) */
+		b = ((j = ui6a_nextbyte(ui6a)) & 0xf) + 1;     /* bits in code (1..16) */
 		j = ((j & 0xf0) >> 4) + 1;          /* codes with those bits (1..16) */
 		if (k + j > n) {
 			ui6a_set_error(ui6a, UI6A_ERRCODE_BAD_CDATA);
@@ -434,6 +405,20 @@ static struct ui6a_huft *ui6a_follow_huft_ptr(struct ui6a_huft *h1, UI6A_UINT32 
 {
 	return ui6a_huftarr_plus_offset(h1->t_arr, offset);
 }
+
+/* Macros for bit peeking and grabbing.
+   The usage is:
+
+        UI6A_NEEDBITS(j);
+        x = b & mask_bits[j];
+        UI6A_DUMPBITS(j);
+
+   where UI6A_NEEDBITS makes sure that b has at least j bits in it, and
+   UI6A_DUMPBITS removes the bits from b.  The macros use the variable k
+   for the number of bits in b.
+ */
+#define UI6A_NEEDBITS(n) do {while(k<(n)){b|=((UI6A_UINT32)ui6a_nextbyte(ui6a))<<k;k+=8;}} while(0)
+#define UI6A_DUMPBITS(n) do {b>>=(n);k-=(n);} while(0)
 
 // tb, tl, td: literal, length, and distance tables
 //  Uses literals if tbls->b.t!=NULL.
@@ -607,6 +592,9 @@ done:
 	}
 }
 
+#undef UI6A_NEEDBITS
+#undef UI6A_DUMPBITS
+
 /* Explode an imploded compressed stream.  Based on the general purpose
    bit flag, decide on coded or uncoded literals, and an 8K or 4K sliding
    window.  Construct the literal (if any), length, and distance codes and
@@ -673,19 +661,6 @@ done:
 	ui6a_huft_free(ui6a, &tbls.b);
 }
 
-#undef UI6A_NEXTBYTE
-#undef UI6A_NEEDBITS
-#undef UI6A_DUMPBITS
-
-//========================= explode.c end =========================
-
-//========================= inflate.c begin =========================
-
-/* inflate.c -- put in the public domain by Mark Adler
-   version c16b, 29 March 1998 */
-
-
-/* If UI6A_BMAX needs to be larger than 16, then h and x[] should be UI6A_UINT32. */
 #define UI6A_BMAX 16         /* maximum bit length of any code (16 for explode) */
 #define UI6A_N_MAX 288       /* maximum number of codes in any set */
 
@@ -957,10 +932,6 @@ static void ui6a_huft_free(ui6a_ctx *ui6a, struct ui6a_htable *tbl)
 	}
 }
 
-//========================= inflate.c end =========================
-
-//========================= globals.c begin =========================
-
 UI6A_API(ui6a_ctx*) ui6a_create(void *userdata)
 {
 	ui6a_ctx *ui6a = UI6A_CALLOC(userdata, 1, sizeof(ui6a_ctx));
@@ -975,5 +946,3 @@ UI6A_API(void) ui6a_destroy(ui6a_ctx *ui6a)
 	if(!ui6a) return;
 	UI6A_FREE(ui6a->userdata, ui6a);
 }
-
-//========================= globals.c end =========================
