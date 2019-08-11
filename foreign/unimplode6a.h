@@ -86,7 +86,7 @@
 #define UI6A_OFF_T   off_t
 #endif
 #ifndef UI6A_CALLOC
-#define UI6A_CALLOC(u, nmemb, size) calloc((nmemb), (size))
+#define UI6A_CALLOC(u, nmemb, size, ty) (ty)calloc((nmemb), (size))
 #endif
 #ifndef UI6A_FREE
 #define UI6A_FREE(u, ptr) free(ptr)
@@ -99,7 +99,7 @@
 #endif
 
 #ifndef UI6A_API
-#define UI6A_API(t) static t
+#define UI6A_API(ty) static ty
 #endif
 
 #define UI6A_ERRCODE_OK              0
@@ -597,7 +597,7 @@ done:
 /* Explode an imploded compressed stream.  Based on the general purpose
    bit flag, decide on coded or uncoded literals, and an 8K or 4K sliding
    window.  Construct the literal (if any), length, and distance codes and
-   the tables needed to decode them (using ui6a_huft_build(),
+   the tables needed to decode them (using ui6a_huft_build()),
    and call the appropriate routine for the type of data in the remainder
    of the stream.  The four routines are nearly identical, differing only
    in whether the literal is decoded or simply read in, and in how many
@@ -623,7 +623,7 @@ UI6A_API(void) ui6a_explode(ui6a_ctx *ui6a)
 	   7, 7, and 9 worked best over a very wide range of sizes, except that
 	   bd = 8 worked marginally better for large compressed sizes. */
 	tbls.l.b = 7;
-	tbls.d.b = ui6a->csize > 200000L ? 8 : 7;
+	tbls.d.b = ui6a->csize > 200000 ? 8 : 7;
 
 	if (has_literal_tree) { /* With literal tree--minimum match length is 3 */
 		tbls.b.b = 9;                     /* base table size for literals */
@@ -667,11 +667,6 @@ done:
    tables to decode that set of codes.
    On error, sets ui6a->error_code. (Tables might still be created.)
 
-   [Old behavior: Return zero on success, one if
-   the given code set is incomplete (the tables are still built in this
-   case), two if the input is invalid (all zero length codes or an
-   oversubscribed set of lengths), and three if not enough memory.]
-
    The code with value 256 is special, and the tables are constructed
    so that no bits beyond that code are fetched when that code is
    decoded. */
@@ -711,9 +706,8 @@ static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsig
 	unsigned int c_idx;
 	unsigned int v_idx;
 	unsigned int x_idx;
-	struct ui6a_huftarray **loc_of_prev_next_ha_ptr = &tbl->first_array;
+	struct ui6a_huftarray *prev_array = NULL;
 
-	*loc_of_prev_next_ha_ptr = NULL;
 	if(n>256) goto done;
 
 	/* Generate counts for each bit length */
@@ -834,12 +828,12 @@ static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsig
 				ui6a_iarray_setval(&lx_arr, 1+ (size_t)h, j);               /* set table size in stack */
 
 				/* allocate and link in new table */
-				ha = UI6A_CALLOC(ui6a->userdata, 1, sizeof(struct ui6a_huftarray));
+				ha = UI6A_CALLOC(ui6a->userdata, 1, sizeof(struct ui6a_huftarray), struct ui6a_huftarray*);
 				if(!ha) {
 					ui6a_set_error(ui6a, UI6A_ERRCODE_MALLOC_FAILED);
 					goto done;
 				}
-				ha->h = UI6A_CALLOC(ui6a->userdata, (size_t)z, sizeof(struct ui6a_huft));
+				ha->h = UI6A_CALLOC(ui6a->userdata, (size_t)z, sizeof(struct ui6a_huft), struct ui6a_huft*);
 				if(!ha->h) {
 					UI6A_FREE(ui6a->userdata, ha);
 					ui6a_set_error(ui6a, UI6A_ERRCODE_MALLOC_FAILED);
@@ -847,9 +841,17 @@ static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsig
 				}
 				ha->num_alloc_h = z;
 				q = ha->h;
-				*loc_of_prev_next_ha_ptr = ha;             /* link to list for ui6a_huft_free() */
-				loc_of_prev_next_ha_ptr = &ha->next_array;
-				*loc_of_prev_next_ha_ptr = NULL;
+
+				/* link to list for ui6a_huft_free() */
+				if(prev_array) {
+					prev_array->next_array = ha;
+				}
+				else {
+					tbl->first_array = ha;
+				}
+				ha->next_array = NULL;
+				prev_array = ha;
+
 				if(h<0 || h>=UI6A_BMAX) goto done;
 				u[h] = ha;
 
@@ -906,7 +908,7 @@ static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsig
 	/* return actual size of base table */
 	tbl->b = ui6a_iarray_getval(&lx_arr, 1+ 0);
 
-	/* Return true (1) if we were given an incomplete table */
+	/* Check if we were given an incomplete table */
 	if (y != 0 && g != 1) {
 		ui6a_set_error(ui6a, UI6A_ERRCODE_GENERIC_ERROR);
 	}
@@ -933,7 +935,7 @@ static void ui6a_huft_free(ui6a_ctx *ui6a, struct ui6a_htable *tbl)
 
 UI6A_API(ui6a_ctx*) ui6a_create(void *userdata)
 {
-	ui6a_ctx *ui6a = UI6A_CALLOC(userdata, 1, sizeof(ui6a_ctx));
+	ui6a_ctx *ui6a = UI6A_CALLOC(userdata, 1, sizeof(ui6a_ctx), ui6a_ctx *);
 
 	if(!ui6a) return NULL;
 	ui6a->userdata = userdata;
