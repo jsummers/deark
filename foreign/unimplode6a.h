@@ -242,10 +242,17 @@ struct ui6a_ctx_struct {
 
 typedef UI6A_UINT16 (*ui6a_len_or_dist_getter)(unsigned int i);
 
-static void ui6a_huft_free(ui6a_ctx *ui6a, struct ui6a_htable *tbl);
-static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n,
-	unsigned s, ui6a_len_or_dist_getter d_fn, ui6a_len_or_dist_getter e_fn,
-	struct ui6a_htable *tbl);
+struct ui6a_iarray {
+	size_t count;
+	int *data;
+	ui6a_ctx *ui6a;
+};
+
+struct ui6a_uarray {
+	size_t count;
+	unsigned int *data;
+	ui6a_ctx *ui6a;
+};
 
 static void ui6a_set_error(ui6a_ctx *ui6a, int error_code)
 {
@@ -366,18 +373,6 @@ static UI6A_UINT16 ui6a_get_cpdist8(unsigned int i)
 	return 1 + i*128;
 }
 
-struct ui6a_iarray {
-	size_t count;
-	int *data;
-	ui6a_ctx *ui6a;
-};
-
-struct ui6a_uarray {
-	size_t count;
-	unsigned int *data;
-	ui6a_ctx *ui6a;
-};
-
 static void ui6a_iarray_init(ui6a_ctx *ui6a, struct ui6a_iarray *a, int *data, size_t count)
 {
 	UI6A_ZEROMEM(data, count * sizeof(int));
@@ -452,6 +447,282 @@ static void ui6a_get_tree(ui6a_ctx *ui6a, unsigned *l, unsigned n)
 
 	if (k != n) {                /* should have read n of them */
 		ui6a_set_error(ui6a, UI6A_ERRCODE_BAD_CDATA);
+	}
+}
+
+#define UI6A_BMAX 16         /* maximum bit length of any code (16 for explode) */
+#define UI6A_N_MAX 288       /* maximum number of codes in any set */
+
+/* Given a list of code lengths and a maximum table size, make a set of
+   tables to decode that set of codes.
+   On error, sets ui6a->error_code. (Tables might still be created.)
+
+   The code with value 256 is special, and the tables are constructed
+   so that no bits beyond that code are fetched when that code is
+   decoded. */
+// b: code lengths in bits (all assumed <= UI6A_BMAX)
+// n: number of codes (assumed <= UI6A_N_MAX)
+// s: number of simple-valued codes (0..s-1)
+// d: list of base values for non-simple codes
+// e: list of extra bits for non-simple codes
+// tbl->t: result: starting table
+// tbl->b: maximum lookup bits, returns actual
+static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsigned s,
+	ui6a_len_or_dist_getter d_fn, ui6a_len_or_dist_getter e_fn,
+	struct ui6a_htable *tbl)
+{
+	unsigned a;                   /* counter for codes of length k */
+	struct ui6a_uarray c_arr;           /* bit length count table */
+	unsigned c_data[UI6A_BMAX+1];
+	unsigned el;                  /* length of EOB code (value 256) */
+	unsigned f;                   /* i repeats in table every f entries */
+	int g;                        /* maximum code length */
+	int h;                        /* table level */
+	unsigned i;          /* counter, current code */
+	unsigned j;          /* counter */
+	int k;               /* number of bits in current code */
+	struct ui6a_iarray lx_arr;         /* memory for l[-1..UI6A_BMAX-1] */
+	int lx_data[UI6A_BMAX+1];          /* &lx[1] = stack of bits per table */
+	struct ui6a_huft *q;      /* points to current table */
+	struct ui6a_huft r;        /* table entry for structure assignment */
+	struct ui6a_huftarray *u[UI6A_BMAX];  /* table stack */
+	struct ui6a_uarray v_arr;            /* values in order of bit length */
+	unsigned v_data[UI6A_N_MAX];
+	int w;               /* bits before this table == (l * h) */
+	struct ui6a_uarray x_arr;           /* bit offsets, then code stack */
+	unsigned x_data[UI6A_BMAX+1];
+	int y;                        /* number of dummy codes added */
+	unsigned z;                   /* number of entries in current table */
+	unsigned int c_idx;
+	unsigned int v_idx;
+	unsigned int x_idx;
+	struct ui6a_huftarray *prev_array = NULL;
+
+	if(n>256) goto done;
+
+	/* Generate counts for each bit length */
+	el = UI6A_BMAX; /* set length of EOB code, if any */
+	ui6a_uarray_init(ui6a, &c_arr, c_data, UI6A_ARRAYSIZE(c_data));
+
+	for(i=0; i<n; i++) {
+		if(b[i] >= UI6A_BMAX+1) goto done;
+		/* assume all entries <= UI6A_BMAX */
+		ui6a_uarray_setval(&c_arr, b[i], ui6a_uarray_getval(&c_arr, b[i])+1);
+	}
+
+	if (ui6a_uarray_getval(&c_arr, 0) == n) {              /* null input--all zero length codes */
+		tbl->b = 0;
+		return;
+	}
+
+	/* Find minimum and maximum length, bound *m by those */
+	for (j = 1; j <= UI6A_BMAX; j++) {
+		if (ui6a_uarray_getval(&c_arr, j))
+			break;
+	}
+	k = j;                        /* minimum code length */
+	if ((unsigned)tbl->b < j)
+		tbl->b = j;
+	for (i = UI6A_BMAX; i; i--) {
+		if (ui6a_uarray_getval(&c_arr, i))
+			break;
+	}
+	g = i;                        /* maximum code length */
+	if ((unsigned)tbl->b > i)
+		tbl->b = i;
+
+	/* Adjust last length count to fill out codes, if needed */
+	for (y = 1 << j; j < i; j++, y <<= 1) {
+		y -= ui6a_uarray_getval(&c_arr, j);
+		if (y < 0) {
+			ui6a_set_error(ui6a, UI6A_ERRCODE_BAD_CDATA);
+			return;                 /* bad input: more codes than bits */
+		}
+	}
+	y -= ui6a_uarray_getval(&c_arr, i);
+	if (y < 0) {
+		ui6a_set_error(ui6a, UI6A_ERRCODE_BAD_CDATA);
+		return;
+	}
+	ui6a_uarray_setval(&c_arr, i, ui6a_uarray_getval(&c_arr, i) + y);
+
+	/* Generate starting offsets into the value table for each length */
+	j = 0;
+	ui6a_uarray_init(ui6a, &x_arr, x_data, UI6A_ARRAYSIZE(x_data));
+	ui6a_uarray_setval(&x_arr, 1, 0);
+	c_idx = 1;
+	x_idx = 2;
+	while (--i) {                 /* note that i == g from above */
+		j += ui6a_uarray_getval(&c_arr, c_idx);
+		c_idx++;
+		ui6a_uarray_setval(&x_arr, x_idx, j);
+		x_idx++;
+	}
+
+	/* Make a table of values in order of bit lengths */
+	ui6a_uarray_init(ui6a, &v_arr, v_data, UI6A_ARRAYSIZE(v_data));
+	for(i=0; i<n; i++) {
+		j = b[i];
+		if (j != 0) {
+			ui6a_uarray_setval(&v_arr, ui6a_uarray_getval(&x_arr, j), i);
+			ui6a_uarray_setval(&x_arr, j, ui6a_uarray_getval(&x_arr, j) + 1);
+		}
+	}
+	n = ui6a_uarray_getval(&x_arr, g);                     /* set n to length of v */
+
+	/* Generate the Huffman codes and for each, make the table entries */
+	i = 0;                        /* first Huffman code is zero */
+	ui6a_uarray_setval(&x_arr, 0, 0);
+	v_idx = 0;                    /* grab values in bit order */
+	h = -1;                       /* no tables yet--level -1 */
+	ui6a_iarray_init(ui6a, &lx_arr, lx_data, UI6A_ARRAYSIZE(lx_data));
+	ui6a_iarray_setval(&lx_arr, 0, 0);                    /* no bits decoded yet */
+	w = 0;
+	u[0] = NULL;                  /* just to keep compilers happy */
+	q = NULL;                     /* ditto */
+	z = 0;                        /* ditto */
+
+	/* go through the bit lengths (k already is bits in shortest code) */
+	for (; k <= g; k++) {
+		a = ui6a_uarray_getval(&c_arr, k);
+		while (a--) {
+			/* here i is the Huffman code of length k bits for value *p */
+			/* make tables up to required level */
+			while (k > w + ui6a_iarray_getval(&lx_arr, 1+ (size_t)h)) {
+				struct ui6a_huftarray *ha;
+
+				w += ui6a_iarray_getval(&lx_arr, 1+ (size_t)h);            /* add bits already decoded */
+				h++;
+
+				/* compute minimum size table less than or equal to *m bits */
+				z = g - w;
+				z = (z > (unsigned)tbl->b) ? ((unsigned)tbl->b) : z;        /* upper limit */
+				j = k - w;
+				f = 1 << j;
+				if (f > a + 1) {   /* try a k-w bit table */
+				                   /* too few codes for k-w bit table */
+					f -= a + 1;           /* deduct codes from patterns left */
+
+					c_idx = k;
+					while (++j < z) {     /* try smaller tables up to z bits */
+						c_idx++;
+						f <<= 1;
+						if (f <= ui6a_uarray_getval(&c_arr, c_idx))
+							break;            /* enough codes to use up j bits */
+						f -= ui6a_uarray_getval(&c_arr, c_idx);        /* else deduct codes from patterns */
+					}
+				}
+				if ((unsigned)w + j > el && (unsigned)w < el)
+					j = el - w;           /* make EOB code end at table */
+				z = 1 << j;             /* table entries for j-bit table */
+				ui6a_iarray_setval(&lx_arr, 1+ (size_t)h, j);               /* set table size in stack */
+
+				/* allocate and link in new table */
+				ha = UI6A_CALLOC(ui6a->userdata, 1, sizeof(struct ui6a_huftarray), struct ui6a_huftarray*);
+				if(!ha) {
+					ui6a_set_error(ui6a, UI6A_ERRCODE_MALLOC_FAILED);
+					goto done;
+				}
+				ha->h = UI6A_CALLOC(ui6a->userdata, (size_t)z, sizeof(struct ui6a_huft), struct ui6a_huft*);
+				if(!ha->h) {
+					UI6A_FREE(ui6a->userdata, ha);
+					ui6a_set_error(ui6a, UI6A_ERRCODE_MALLOC_FAILED);
+					goto done;
+				}
+				ha->num_alloc_h = z;
+				q = ha->h;
+
+				/* link to list for ui6a_huft_free() */
+				if(prev_array) {
+					prev_array->next_array = ha;
+				}
+				else {
+					tbl->first_array = ha;
+				}
+				ha->next_array = NULL;
+				prev_array = ha;
+
+				if(h<0 || h>=UI6A_BMAX) goto done;
+				u[h] = ha;
+
+				/* connect to last table, if there is one */
+				if (h) {
+					UI6A_ZEROMEM(&r, sizeof(struct ui6a_huft));
+					ui6a_uarray_setval(&x_arr, h, i);             /* save pattern for backing up */
+					r.b = (UI6A_UINT8)ui6a_iarray_getval(&lx_arr, 1+ (size_t)h-1);    /* bits to dump before this table */
+					r.e = (UI6A_UINT8)(16 + j);  /* bits in this table */
+					r.t_arr = ha;            /* pointer to this table */
+					j = (i & ((1 << w) - 1)) >> (w - ui6a_iarray_getval(&lx_arr, 1+ (size_t)h-1));
+					if((h-1 < 0) || (h-1 >= UI6A_BMAX)) goto done;
+					u[h-1]->h[j] = r;        /* connect to last table */
+				}
+			}
+
+			/* set up table entry in r */
+			UI6A_ZEROMEM(&r, sizeof(struct ui6a_huft));
+			r.b = (UI6A_UINT8)(k - w);
+			if (v_idx >= n) {
+				r.e = 99;               /* out of values--invalid code */
+			}
+			else if (ui6a_uarray_getval(&v_arr, v_idx) < s) {
+				r.e = (UI6A_UINT8)(ui6a_uarray_getval(&v_arr, v_idx) < 256 ? 16 : 15);  /* 256 is end-of-block code */
+				r.n = (UI6A_UINT16)ui6a_uarray_getval(&v_arr, v_idx);                /* simple code is just the value */
+				v_idx++;
+			}
+			else {
+				r.e = (UI6A_UINT8)e_fn(ui6a_uarray_getval(&v_arr, v_idx) - s);   /* non-simple--look up in lists */
+				r.n = d_fn(ui6a_uarray_getval(&v_arr, v_idx) - s);
+				v_idx++;
+			}
+
+			/* fill code-like entries with r */
+			f = 1 << (k - w);
+			for (j = i >> w; j < z; j += f) {
+				q[j] = r;
+			}
+
+			/* backwards increment the k-bit code i */
+			for (j = 1 << (k - 1); i & j; j >>= 1) {
+				i ^= j;
+			}
+			i ^= j;
+
+			/* backup over finished tables */
+			while ((i & ((1 << w) - 1)) != ui6a_uarray_getval(&x_arr, h)) {
+				--h;
+				w -= ui6a_iarray_getval(&lx_arr, 1+ (size_t)h);            /* don't need to update q */
+			}
+		}
+	}
+
+	/* return actual size of base table */
+	tbl->b = ui6a_iarray_getval(&lx_arr, 1+ 0);
+
+	/* Check if we were given an incomplete table */
+	if (y != 0 && g != 1) {
+		ui6a_set_error(ui6a, UI6A_ERRCODE_GENERIC_ERROR);
+	}
+
+done:
+	return;
+}
+
+#undef UI6A_BMAX
+#undef UI6A_N_MAX
+
+/* Free the malloc'ed tables built by ui6a_huft_build(), which makes a linked
+   list of the tables it made. */
+static void ui6a_huft_free(ui6a_ctx *ui6a, struct ui6a_htable *tbl)
+{
+	struct ui6a_huftarray *p, *q;
+
+	p = tbl->first_array;
+	while(p) {
+		q = p->next_array;
+
+		UI6A_FREE(ui6a->userdata, p->h);
+		UI6A_FREE(ui6a->userdata, p);
+		p = q;
 	}
 }
 
@@ -721,279 +992,6 @@ done:
 	ui6a_huft_free(ui6a, &tbls.d);
 	ui6a_huft_free(ui6a, &tbls.l);
 	ui6a_huft_free(ui6a, &tbls.b);
-}
-
-#define UI6A_BMAX 16         /* maximum bit length of any code (16 for explode) */
-#define UI6A_N_MAX 288       /* maximum number of codes in any set */
-
-/* Given a list of code lengths and a maximum table size, make a set of
-   tables to decode that set of codes.
-   On error, sets ui6a->error_code. (Tables might still be created.)
-
-   The code with value 256 is special, and the tables are constructed
-   so that no bits beyond that code are fetched when that code is
-   decoded. */
-// b: code lengths in bits (all assumed <= UI6A_BMAX)
-// n: number of codes (assumed <= UI6A_N_MAX)
-// s: number of simple-valued codes (0..s-1)
-// d: list of base values for non-simple codes
-// e: list of extra bits for non-simple codes
-// tbl->t: result: starting table
-// tbl->b: maximum lookup bits, returns actual
-static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsigned s,
-	ui6a_len_or_dist_getter d_fn, ui6a_len_or_dist_getter e_fn,
-	struct ui6a_htable *tbl)
-{
-	unsigned a;                   /* counter for codes of length k */
-	struct ui6a_uarray c_arr;           /* bit length count table */
-	unsigned c_data[UI6A_BMAX+1];
-	unsigned el;                  /* length of EOB code (value 256) */
-	unsigned f;                   /* i repeats in table every f entries */
-	int g;                        /* maximum code length */
-	int h;                        /* table level */
-	unsigned i;          /* counter, current code */
-	unsigned j;          /* counter */
-	int k;               /* number of bits in current code */
-	struct ui6a_iarray lx_arr;         /* memory for l[-1..UI6A_BMAX-1] */
-	int lx_data[UI6A_BMAX+1];          /* &lx[1] = stack of bits per table */
-	struct ui6a_huft *q;      /* points to current table */
-	struct ui6a_huft r;        /* table entry for structure assignment */
-	struct ui6a_huftarray *u[UI6A_BMAX];  /* table stack */
-	struct ui6a_uarray v_arr;            /* values in order of bit length */
-	unsigned v_data[UI6A_N_MAX];
-	int w;               /* bits before this table == (l * h) */
-	struct ui6a_uarray x_arr;           /* bit offsets, then code stack */
-	unsigned x_data[UI6A_BMAX+1];
-	int y;                        /* number of dummy codes added */
-	unsigned z;                   /* number of entries in current table */
-	unsigned int c_idx;
-	unsigned int v_idx;
-	unsigned int x_idx;
-	struct ui6a_huftarray *prev_array = NULL;
-
-	if(n>256) goto done;
-
-	/* Generate counts for each bit length */
-	el = UI6A_BMAX; /* set length of EOB code, if any */
-	ui6a_uarray_init(ui6a, &c_arr, c_data, UI6A_ARRAYSIZE(c_data));
-
-	for(i=0; i<n; i++) {
-		if(b[i] >= UI6A_BMAX+1) goto done;
-		/* assume all entries <= UI6A_BMAX */
-		ui6a_uarray_setval(&c_arr, b[i], ui6a_uarray_getval(&c_arr, b[i])+1);
-	}
-
-	if (ui6a_uarray_getval(&c_arr, 0) == n) {              /* null input--all zero length codes */
-		tbl->b = 0;
-		return;
-	}
-
-	/* Find minimum and maximum length, bound *m by those */
-	for (j = 1; j <= UI6A_BMAX; j++) {
-		if (ui6a_uarray_getval(&c_arr, j))
-			break;
-	}
-	k = j;                        /* minimum code length */
-	if ((unsigned)tbl->b < j)
-		tbl->b = j;
-	for (i = UI6A_BMAX; i; i--) {
-		if (ui6a_uarray_getval(&c_arr, i))
-			break;
-	}
-	g = i;                        /* maximum code length */
-	if ((unsigned)tbl->b > i)
-		tbl->b = i;
-
-	/* Adjust last length count to fill out codes, if needed */
-	for (y = 1 << j; j < i; j++, y <<= 1) {
-		y -= ui6a_uarray_getval(&c_arr, j);
-		if (y < 0) {
-			ui6a_set_error(ui6a, UI6A_ERRCODE_BAD_CDATA);
-			return;                 /* bad input: more codes than bits */
-		}
-	}
-	y -= ui6a_uarray_getval(&c_arr, i);
-	if (y < 0) {
-		ui6a_set_error(ui6a, UI6A_ERRCODE_BAD_CDATA);
-		return;
-	}
-	ui6a_uarray_setval(&c_arr, i, ui6a_uarray_getval(&c_arr, i) + y);
-
-	/* Generate starting offsets into the value table for each length */
-	j = 0;
-	ui6a_uarray_init(ui6a, &x_arr, x_data, UI6A_ARRAYSIZE(x_data));
-	ui6a_uarray_setval(&x_arr, 1, 0);
-	c_idx = 1;
-	x_idx = 2;
-	while (--i) {                 /* note that i == g from above */
-		j += ui6a_uarray_getval(&c_arr, c_idx);
-		c_idx++;
-		ui6a_uarray_setval(&x_arr, x_idx, j);
-		x_idx++;
-	}
-
-	/* Make a table of values in order of bit lengths */
-	ui6a_uarray_init(ui6a, &v_arr, v_data, UI6A_ARRAYSIZE(v_data));
-	for(i=0; i<n; i++) {
-		j = b[i];
-		if (j != 0) {
-			ui6a_uarray_setval(&v_arr, ui6a_uarray_getval(&x_arr, j), i);
-			ui6a_uarray_setval(&x_arr, j, ui6a_uarray_getval(&x_arr, j) + 1);
-		}
-	}
-	n = ui6a_uarray_getval(&x_arr, g);                     /* set n to length of v */
-
-	/* Generate the Huffman codes and for each, make the table entries */
-	i = 0;                        /* first Huffman code is zero */
-	ui6a_uarray_setval(&x_arr, 0, 0);
-	v_idx = 0;                    /* grab values in bit order */
-	h = -1;                       /* no tables yet--level -1 */
-	ui6a_iarray_init(ui6a, &lx_arr, lx_data, UI6A_ARRAYSIZE(lx_data));
-	ui6a_iarray_setval(&lx_arr, 0, 0);                    /* no bits decoded yet */
-	w = 0;
-	u[0] = NULL;                  /* just to keep compilers happy */
-	q = NULL;                     /* ditto */
-	z = 0;                        /* ditto */
-
-	/* go through the bit lengths (k already is bits in shortest code) */
-	for (; k <= g; k++) {
-		a = ui6a_uarray_getval(&c_arr, k);
-		while (a--) {
-			/* here i is the Huffman code of length k bits for value *p */
-			/* make tables up to required level */
-			while (k > w + ui6a_iarray_getval(&lx_arr, 1+ (size_t)h)) {
-				struct ui6a_huftarray *ha;
-
-				w += ui6a_iarray_getval(&lx_arr, 1+ (size_t)h);            /* add bits already decoded */
-				h++;
-
-				/* compute minimum size table less than or equal to *m bits */
-				z = g - w;
-				z = (z > (unsigned)tbl->b) ? ((unsigned)tbl->b) : z;        /* upper limit */
-				j = k - w;
-				f = 1 << j;
-				if (f > a + 1) {   /* try a k-w bit table */
-				                   /* too few codes for k-w bit table */
-					f -= a + 1;           /* deduct codes from patterns left */
-
-					c_idx = k;
-					while (++j < z) {     /* try smaller tables up to z bits */
-						c_idx++;
-						f <<= 1;
-						if (f <= ui6a_uarray_getval(&c_arr, c_idx))
-							break;            /* enough codes to use up j bits */
-						f -= ui6a_uarray_getval(&c_arr, c_idx);        /* else deduct codes from patterns */
-					}
-				}
-				if ((unsigned)w + j > el && (unsigned)w < el)
-					j = el - w;           /* make EOB code end at table */
-				z = 1 << j;             /* table entries for j-bit table */
-				ui6a_iarray_setval(&lx_arr, 1+ (size_t)h, j);               /* set table size in stack */
-
-				/* allocate and link in new table */
-				ha = UI6A_CALLOC(ui6a->userdata, 1, sizeof(struct ui6a_huftarray), struct ui6a_huftarray*);
-				if(!ha) {
-					ui6a_set_error(ui6a, UI6A_ERRCODE_MALLOC_FAILED);
-					goto done;
-				}
-				ha->h = UI6A_CALLOC(ui6a->userdata, (size_t)z, sizeof(struct ui6a_huft), struct ui6a_huft*);
-				if(!ha->h) {
-					UI6A_FREE(ui6a->userdata, ha);
-					ui6a_set_error(ui6a, UI6A_ERRCODE_MALLOC_FAILED);
-					goto done;
-				}
-				ha->num_alloc_h = z;
-				q = ha->h;
-
-				/* link to list for ui6a_huft_free() */
-				if(prev_array) {
-					prev_array->next_array = ha;
-				}
-				else {
-					tbl->first_array = ha;
-				}
-				ha->next_array = NULL;
-				prev_array = ha;
-
-				if(h<0 || h>=UI6A_BMAX) goto done;
-				u[h] = ha;
-
-				/* connect to last table, if there is one */
-				if (h) {
-					UI6A_ZEROMEM(&r, sizeof(struct ui6a_huft));
-					ui6a_uarray_setval(&x_arr, h, i);             /* save pattern for backing up */
-					r.b = (UI6A_UINT8)ui6a_iarray_getval(&lx_arr, 1+ (size_t)h-1);    /* bits to dump before this table */
-					r.e = (UI6A_UINT8)(16 + j);  /* bits in this table */
-					r.t_arr = ha;            /* pointer to this table */
-					j = (i & ((1 << w) - 1)) >> (w - ui6a_iarray_getval(&lx_arr, 1+ (size_t)h-1));
-					if((h-1 < 0) || (h-1 >= UI6A_BMAX)) goto done;
-					u[h-1]->h[j] = r;        /* connect to last table */
-				}
-			}
-
-			/* set up table entry in r */
-			UI6A_ZEROMEM(&r, sizeof(struct ui6a_huft));
-			r.b = (UI6A_UINT8)(k - w);
-			if (v_idx >= n) {
-				r.e = 99;               /* out of values--invalid code */
-			}
-			else if (ui6a_uarray_getval(&v_arr, v_idx) < s) {
-				r.e = (UI6A_UINT8)(ui6a_uarray_getval(&v_arr, v_idx) < 256 ? 16 : 15);  /* 256 is end-of-block code */
-				r.n = (UI6A_UINT16)ui6a_uarray_getval(&v_arr, v_idx);                /* simple code is just the value */
-				v_idx++;
-			}
-			else {
-				r.e = (UI6A_UINT8)e_fn(ui6a_uarray_getval(&v_arr, v_idx) - s);   /* non-simple--look up in lists */
-				r.n = d_fn(ui6a_uarray_getval(&v_arr, v_idx) - s);
-				v_idx++;
-			}
-
-			/* fill code-like entries with r */
-			f = 1 << (k - w);
-			for (j = i >> w; j < z; j += f) {
-				q[j] = r;
-			}
-
-			/* backwards increment the k-bit code i */
-			for (j = 1 << (k - 1); i & j; j >>= 1) {
-				i ^= j;
-			}
-			i ^= j;
-
-			/* backup over finished tables */
-			while ((i & ((1 << w) - 1)) != ui6a_uarray_getval(&x_arr, h)) {
-				--h;
-				w -= ui6a_iarray_getval(&lx_arr, 1+ (size_t)h);            /* don't need to update q */
-			}
-		}
-	}
-
-	/* return actual size of base table */
-	tbl->b = ui6a_iarray_getval(&lx_arr, 1+ 0);
-
-	/* Check if we were given an incomplete table */
-	if (y != 0 && g != 1) {
-		ui6a_set_error(ui6a, UI6A_ERRCODE_GENERIC_ERROR);
-	}
-
-done:
-	return;
-}
-
-/* Free the malloc'ed tables built by ui6a_huft_build(), which makes a linked
-   list of the tables it made. */
-static void ui6a_huft_free(ui6a_ctx *ui6a, struct ui6a_htable *tbl)
-{
-	struct ui6a_huftarray *p, *q;
-
-	p = tbl->first_array;
-	while(p) {
-		q = p->next_array;
-
-		UI6A_FREE(ui6a->userdata, p->h);
-		UI6A_FREE(ui6a->userdata, p);
-		p = q;
-	}
 }
 
 UI6A_API(ui6a_ctx*) ui6a_create(void *userdata)
