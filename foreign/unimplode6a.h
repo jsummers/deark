@@ -213,26 +213,29 @@ struct ui6a_htables {
 struct ui6a_ctx_struct;
 typedef struct ui6a_ctx_struct ui6a_ctx;
 
-typedef int (*ui6a_cb_read_type)(ui6a_ctx *ui6a, UI6A_UINT8 *buf, size_t size);
-typedef int (*ui6a_cb_write_type)(ui6a_ctx *ui6a, const UI6A_UINT8 *buf, size_t size);
+typedef size_t (*ui6a_cb_read_type)(ui6a_ctx *ui6a, UI6A_UINT8 *buf, size_t size);
+typedef size_t (*ui6a_cb_write_type)(ui6a_ctx *ui6a, const UI6A_UINT8 *buf, size_t size);
 typedef void (*ui6a_cb_post_read_trees_type)(ui6a_ctx *ui6a, struct ui6a_htables *tbls);
 
 struct ui6a_ctx_struct {
+	// Fields the user can set:
 	void *userdata;
-	UI6A_OFF_T csize;  // compressed size
-	UI6A_OFF_T ucsize; // reported uncompressed size
+	UI6A_OFF_T cmpr_size;  // compressed size
+	UI6A_OFF_T uncmpr_size; // reported uncompressed size
 	UI6A_UINT16 bit_flags; // Sum of UI6A_FLAG_* values
-
-	// cb_read must supply all the bytes requested. Return 1 if ok, 0 on failure.
+	// cb_read must supply all of the bytes requested. Returning any other number
+	// is considered a failure.
 	ui6a_cb_read_type cb_read;
-	// cb_write must consume all the the bytes supplied. Return 1 if ok, 0 on failure.
+	// cb_write must consume all of the bytes supplied.
 	ui6a_cb_write_type cb_write;
 	ui6a_cb_post_read_trees_type cb_post_read_trees; // Optional hook
 
+	// Fields the user can read:
 	int error_code; // UI6A_ERRCODE_*
 	UI6A_OFF_T uncmpr_nbytes_written;
 	UI6A_OFF_T cmpr_nbytes_consumed;
 
+	// Fields private to the library:
 	UI6A_OFF_T cmpr_nbytes_read;
 	size_t inbuf_nbytes_consumed;
 	size_t inbuf_nbytes_total;
@@ -270,7 +273,7 @@ static UI6A_UINT16 ui6a_get_mask_bits(unsigned int n)
 
 static int ui6a_nextbyte(ui6a_ctx *ui6a)
 {
-	int ret;
+	size_t ret;
 	size_t nbytes_to_read;
 	UI6A_UINT8 ch = 0xff;
 
@@ -289,9 +292,9 @@ static int ui6a_nextbyte(ui6a_ctx *ui6a)
 	ui6a->inbuf_nbytes_consumed = 0;
 	ui6a->inbuf_nbytes_total = 0;
 
-	if (ui6a->cmpr_nbytes_consumed >= ui6a->csize) {
+	if (ui6a->cmpr_nbytes_consumed >= ui6a->cmpr_size) {
 		// ... and there are no more to read.
-		if (ui6a->cmpr_nbytes_consumed == ui6a->csize) {
+		if (ui6a->cmpr_nbytes_consumed == ui6a->cmpr_size) {
 			// Allow reading one byte too many, before calling it an error.
 			ui6a->cmpr_nbytes_consumed++;
 		}
@@ -302,15 +305,15 @@ static int ui6a_nextbyte(ui6a_ctx *ui6a)
 	}
 
 	// ... but we can read more.
-	if(ui6a->csize - ui6a->cmpr_nbytes_read < (UI6A_OFF_T)sizeof(ui6a->inbuf)) {
-		nbytes_to_read = (size_t)(ui6a->csize - ui6a->cmpr_nbytes_read);
+	if(ui6a->cmpr_size - ui6a->cmpr_nbytes_read < (UI6A_OFF_T)sizeof(ui6a->inbuf)) {
+		nbytes_to_read = (size_t)(ui6a->cmpr_size - ui6a->cmpr_nbytes_read);
 	}
 	else {
 		nbytes_to_read = sizeof(ui6a->inbuf);
 	}
 
 	ret = ui6a->cb_read(ui6a, ui6a->inbuf, nbytes_to_read);
-	if(!ret) {
+	if(ret != nbytes_to_read) {
 		ui6a_set_error(ui6a, UI6A_ERRCODE_READ_FAILED);
 		goto done;
 	}
@@ -325,18 +328,17 @@ done:
 
 static void ui6a_flush(ui6a_ctx *ui6a, const UI6A_UINT8 *rawbuf, size_t size)
 {
-	int ret;
+	size_t ret;
 	size_t nbytes_to_write = size;
 
 	if (size<1) return;
-	if (ui6a->uncmpr_nbytes_written >= ui6a->ucsize) return;
-	if (ui6a->uncmpr_nbytes_written + (UI6A_OFF_T)nbytes_to_write > ui6a->ucsize) {
-		// Not sure it's possible to get here, but just to be defensive...
-		nbytes_to_write = (size_t)(ui6a->ucsize - ui6a->uncmpr_nbytes_written);
+	if (ui6a->uncmpr_nbytes_written >= ui6a->uncmpr_size) return;
+	if (ui6a->uncmpr_nbytes_written + (UI6A_OFF_T)nbytes_to_write > ui6a->uncmpr_size) {
+		nbytes_to_write = (size_t)(ui6a->uncmpr_size - ui6a->uncmpr_nbytes_written);
 	}
 
 	ret = ui6a->cb_write(ui6a, rawbuf, nbytes_to_write);
-	if(!ret) {
+	if(ret != nbytes_to_write) {
 		ui6a_set_error(ui6a, UI6A_ERRCODE_WRITE_FAILED);
 	}
 	ui6a->uncmpr_nbytes_written += (UI6A_OFF_T)size;
@@ -776,7 +778,7 @@ static void ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
 	mb = ui6a_get_mask_bits(tbls->b.b);           /* precompute masks for speed */
 	ml = ui6a_get_mask_bits(tbls->l.b);
 	md = ui6a_get_mask_bits(tbls->d.b);
-	s = ui6a->ucsize;
+	s = ui6a->uncmpr_size;
 	while (s > 0) {               /* do until ucsize bytes uncompressed */
 		if (ui6a->error_code != UI6A_ERRCODE_OK) {
 			goto done;
@@ -919,9 +921,9 @@ done:
 		ui6a_set_error(ui6a, UI6A_ERRCODE_GENERIC_ERROR);
 	}
 
-	if (ui6a->cmpr_nbytes_consumed > ui6a->csize) {
+	if (ui6a->cmpr_nbytes_consumed > ui6a->cmpr_size) {
 		// Don't claim we read more bytes than available.
-		ui6a->cmpr_nbytes_consumed = ui6a->csize;
+		ui6a->cmpr_nbytes_consumed = ui6a->cmpr_size;
 	}
 }
 
@@ -951,13 +953,13 @@ UI6A_API(void) ui6a_explode(ui6a_ctx *ui6a)
 	has_8k_window = (ui6a->bit_flags & UI6A_FLAG_8KDICT) ? 1 : 0;
 	has_literal_tree = (ui6a->bit_flags & UI6A_FLAG_3TREES) ? 1 : 0;
 
-	/* Tune base table sizes.  Note: I thought that to truly optimize speed,
-	   I would have to select different bl, bd, and bb values for different
-	   compressed file sizes.  I was surprised to find out that the values of
-	   7, 7, and 9 worked best over a very wide range of sizes, except that
-	   bd = 8 worked marginally better for large compressed sizes. */
+	/* Tune base table sizes. [...] */
+	// Note: The tbls.*.b values were optimized for best speed under conditions
+	// that are presumably no longer relevant.
+	// I'm leaving them as they are, though, because I don't know what to
+	// change them to.
 	tbls.l.b = 7;
-	tbls.d.b = ui6a->csize > 200000 ? 8 : 7;
+	tbls.d.b = ui6a->cmpr_size > 200000 ? 8 : 7;
 
 	if (has_literal_tree) { /* With literal tree--minimum match length is 3 */
 		tbls.b.b = 9;                     /* base table size for literals */

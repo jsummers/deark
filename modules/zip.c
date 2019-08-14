@@ -158,21 +158,21 @@ static void zipexpl_huft_dump(struct zipexpl_userdata_type *zu, struct ui6a_htab
 	de_dbg_indent(c, -1);
 }
 
-static int my_zipexpl_read(ui6a_ctx *ui6a, UI6A_UINT8 *buf, size_t size)
+static size_t my_zipexpl_read(ui6a_ctx *ui6a, UI6A_UINT8 *buf, size_t size)
 {
 	struct zipexpl_userdata_type *zu = (struct zipexpl_userdata_type *)ui6a->userdata;
 
 	dbuf_read(zu->inf, buf, zu->inf_curpos, (i64)size);
 	zu->inf_curpos += size;
-	return 1;
+	return size;
 }
 
-static int my_zipexpl_write(ui6a_ctx *ui6a, const UI6A_UINT8 *buf, size_t size)
+static size_t my_zipexpl_write(ui6a_ctx *ui6a, const UI6A_UINT8 *buf, size_t size)
 {
 	struct zipexpl_userdata_type *zu = (struct zipexpl_userdata_type *)ui6a->userdata;
 
 	dbuf_write(zu->outf, buf, (i64)size);
-	return 1;
+	return size;
 }
 
 static void my_zipexpl_cb_post_read_trees(ui6a_ctx *ui6a, struct ui6a_htables *tbls)
@@ -204,8 +204,8 @@ static int do_decompress_implode(deark *c, lctx *d, struct member_data *md,
 	ui6a = ui6a_create((void*)&zu);
 	if(!ui6a) goto done;
 
-	ui6a->csize = inf_size;
-	ui6a->ucsize = md->uncmpr_size;
+	ui6a->cmpr_size = inf_size;
+	ui6a->uncmpr_size = md->uncmpr_size;
 	ui6a->bit_flags = md->local_dir_entry_data.bit_flags;
 
 	ui6a->cb_read = my_zipexpl_read;
@@ -214,7 +214,7 @@ static int do_decompress_implode(deark *c, lctx *d, struct member_data *md,
 
 	ui6a_explode(ui6a);
 	if(ui6a->error_code == UI6A_ERRCODE_OK) {
-		if(ui6a->cmpr_nbytes_consumed < ui6a->csize) {
+		if(ui6a->cmpr_nbytes_consumed < ui6a->cmpr_size) {
 			de_warn(c, "Implode decompression may have failed (did not use all compressed data)");
 		}
 		retval = 1;
