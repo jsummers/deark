@@ -30,7 +30,7 @@ struct phys_member_data {
 	de_ucstring *prefix;
 };
 
-// A struct to collect various exended attributes from a logical member
+// A struct to collect various extended attributes for a logical member
 // (or for global attributes).
 struct extattr_data {
 	de_ucstring *alt_name;
@@ -241,13 +241,13 @@ static int read_phys_member_header(deark *c, lctx *d,
 
 	if((pmd->fmt==TARFMT_POSIX || pmd->fmt==TARFMT_STAR) && (de_getbyte(pos)!=0)) {
 		// This field might only be 131 bytes, instead of 155. Let's hope that
-		// that it's NUL terminated in that case.
+		// it's NUL terminated in that case.
 		pmd->prefix = ucstring_create(c);
 		dbuf_read_to_ucstring(c->infile, pos, 155, pmd->prefix,
 			DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
 		de_dbg(c, "prefix: \"%s\"", ucstring_getpsz_d(pmd->prefix));
 	}
-	pos += 131; // first 133 bytes of prefix, or all of prefix
+	pos += 131; // first 131 bytes of prefix, or all of prefix
 	pos += 12; // next 12 bytes of prefix, or atime
 	pos += 12; // last 12 bytes of prefix, or ctime
 
@@ -336,7 +336,7 @@ static void do_exthdr_mtime(deark *c, lctx *d, struct phys_member_data *pmd,
 
 	if(ehi->val_len<1) return;
 
-	// TODO: There is probably roundoff error here than there needs to be.
+	// TODO: There is probably more roundoff error here than there needs to be.
 	val_dbl = de_strtod(ehi->value->sz, NULL);
 	if(val_dbl > 0.0) {
 		val_int = (i64)val_dbl;
@@ -590,7 +590,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	if(!pmd) goto done;
 
 	// At this point, pmd is the main physical member for this logical file.
-	// Any other pmd's have been discarded, other than extended attributes
+	// Any other 'pmd's have been discarded, other than extended attributes
 	// that were recorded in ea.
 
 	if(ea->has_alt_size) {
