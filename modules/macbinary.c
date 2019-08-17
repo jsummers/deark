@@ -45,8 +45,6 @@ static const char *fork_name(int is_rsrc, int capitalize)
 static void do_header(deark *c, lctx *d, struct de_advfile *advf)
 {
 	u8 b;
-	u8 fflags_lobyte = 0;
-	u8 fflags_hibyte = 0;
 	i64 namelen;
 	i64 pos = 0;
 	i64 n, n2;
@@ -101,10 +99,19 @@ static void do_header(deark *c, lctx *d, struct de_advfile *advf)
 	advf->has_creatorcode = 1;
 	pos += 4;
 
-	fflags_hibyte = de_getbyte_p(&pos);
-	de_dbg(c, "finder flags: 0x%02x__", (unsigned int)fflags_hibyte);
+	advf->has_finderflags = 1;
+	if(d->is_v23) {
+		u8 fflags_hibyte;
 
-	pos++;
+		fflags_hibyte = de_getbyte_p(&pos);
+		de_dbg(c, "finder flags (high byte): 0x%02x__", (unsigned int)fflags_hibyte);
+		pos++;
+		advf->finderflags = (u16)fflags_hibyte << 8;
+	}
+	else {
+		advf->finderflags = (u16)de_getu16be_p(&pos);
+		de_dbg(c, "finder flags: 0x%04x", (unsigned int)advf->finderflags);
+	}
 
 	n = de_geti16be_p(&pos);
 	n2 = de_geti16be_p(&pos);
@@ -151,11 +158,12 @@ static void do_header(deark *c, lctx *d, struct de_advfile *advf)
 	pos += 2; // length of Get Info comment
 
 	if(d->is_v23) {
+		u8 fflags_lobyte;
+
 		fflags_lobyte = de_getbyte(pos);
-		de_dbg(c, "finder flags, bits 0-7: 0x__%02x", (unsigned int)fflags_lobyte);
+		de_dbg(c, "finder flags (low byte): 0x__%02x", (unsigned int)fflags_lobyte);
+		advf->finderflags |= (u16)fflags_lobyte;
 	}
-	advf->has_finderflags = 1;
-	advf->finderflags = (u16)((((unsigned int)fflags_hibyte)<<8) | fflags_lobyte);
 	pos += 1;
 
 	pos += 14; // unused
