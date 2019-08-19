@@ -2,7 +2,7 @@
 // for general use. ***
 
 // Unimplode6a: A single-header-file library for decompressing ZIP method 6
-// ("implode") compression
+// ("Implode/Explode") compression
 //
 // This file, normally named unimplode6a.h, hereinafter referred to as "this
 // file" or "this software", is an independent software library.
@@ -12,9 +12,12 @@
 // It has been heavily modified by Jason Summers.
 // UnZip 5.4 is typically found in a file named "unzip540.tar.gz" or
 // "unzip540.zip".
+//
+// For an overview of how to use this software, see the sample code at the end
+// of this file.
 
 /*
-==============================================================================
+================================ TERMS OF USE ================================
 These terms of use apply only to this file, and not to any other files that
 might appear alongside it.
 
@@ -758,7 +761,7 @@ static struct ui6a_huft *ui6a_follow_huft_ptr(struct ui6a_huft *h1, UI6A_UINT32 
 // tb, tl, td: literal, length, and distance tables
 //  Uses literals if tbls->b.t!=NULL.
 // bb, bl, bd: number of bits decoded by those
-static void ui6a_explode_internal(ui6a_ctx *ui6a, unsigned window_k,
+static void ui6a_unimplode_internal(ui6a_ctx *ui6a, unsigned window_k,
 	struct ui6a_htables *tbls)
 {
 	UI6A_OFF_T s;               /* bytes to decompress */
@@ -938,7 +941,7 @@ done:
    of the stream.  The four routines are nearly identical, differing only
    in whether the literal is decoded or simply read in, and in how many
    bits are read in, uncoded, for the low distance bits. */
-UI6A_API(void) ui6a_explode(ui6a_ctx *ui6a)
+UI6A_API(void) ui6a_unimplode(ui6a_ctx *ui6a)
 {
 	struct ui6a_htables tbls;
 	unsigned l[256];      /* bit lengths for codes */
@@ -988,7 +991,7 @@ UI6A_API(void) ui6a_explode(ui6a_ctx *ui6a)
 		ui6a->cb_post_read_trees(ui6a, &tbls);
 	}
 
-	ui6a_explode_internal(ui6a, (has_8k_window ? 8 : 4), &tbls);
+	ui6a_unimplode_internal(ui6a, (has_8k_window ? 8 : 4), &tbls);
 
 done:
 	ui6a_huft_free(ui6a, &tbls.d);
@@ -1010,3 +1013,79 @@ UI6A_API(void) ui6a_destroy(ui6a_ctx *ui6a)
 	if(!ui6a) return;
 	UI6A_FREE(ui6a->userdata, ui6a);
 }
+
+#if 0 // Sample code
+
+#include <stdio.h>
+
+// Include headers to define some symbols the library needs
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include <stdint.h>
+
+// (Here, you could configure some things, by defining macros like
+// UI6A_CALLOC.)
+
+// The library is expected to be used by just one of your .c/.cpp files. There
+// are no provisions to make it convenient to use from multiple files.
+#include "unimplode6a.h"
+
+// Define a custom struct for context data used by callbacks
+struct uctxtype {
+	FILE *infile;
+	FILE *outfile;
+};
+
+// Implement your read and write callbacks
+static size_t my_read(ui6a_ctx *ui6a, UI6A_UINT8 *buf, size_t size)
+{
+	struct uctxtype *uctx = (struct uctxtype*)ui6a->userdata;
+	return (size_t)fread(buf, 1, size, uctx->infile);
+}
+
+static size_t my_write(ui6a_ctx *ui6a, const UI6A_UINT8 *buf, size_t size)
+{
+	struct uctxtype *uctx = (struct uctxtype*)ui6a->userdata;
+	return (size_t)fwrite(buf, 1, size, uctx->outfile);
+}
+
+// A example function that uses the library.
+// infile: The ZIP file. Seek to the start of compressed data before calling
+//   function.
+// outfile: The file to write uncompressed data to.
+// cmpr_size, uncmpr_size: Compressed and uncompressed file sizes, from the
+//   ZIP file directory data.
+// bit_flags: The ZIP "general purpose bit flag" field.
+static void ui6ademo(FILE *infile, FILE *outfile,
+	off_t cmpr_size, off_t uncmpr_size, uint16_t bit_flags)
+{
+	ui6a_ctx *ui6a = NULL;
+	struct uctxtype uctx;
+
+	// Prepare your context data
+	uctx.infile = infile;
+	uctx.outfile = outfile;
+
+	// Initialize the library
+	ui6a = ui6a_create((void*)&uctx);
+	if(!ui6a) return;
+
+	// Set some required fields
+	ui6a->cmpr_size = cmpr_size;
+	ui6a->uncmpr_size = uncmpr_size;
+	ui6a->bit_flags = bit_flags;
+	ui6a->cb_read = my_read;
+	ui6a->cb_write = my_write;
+
+	// Do the decompression
+	ui6a_unimplode(ui6a);
+	if(ui6a->error_code != UI6A_ERRCODE_OK) {
+		printf("Decompression failed (code %d)\n", ui6a->error_code);
+	}
+
+	// Clean up
+	ui6a_destroy(ui6a);
+}
+
+#endif // End of sample code
