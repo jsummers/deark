@@ -1,20 +1,30 @@
 // *** Pre-release version. This file is used by Deark, but is not yet ready
 // for general use. ***
 
-// Unimplode6a: A single-header-file library for decompressing ZIP method 6
-// ("Implode/Explode") compression
+// Unimplode6a: A single-header-file C/C++ library for decompressing ZIP
+// method 6 ("Implode/Explode") compression
 //
 // This file, normally named unimplode6a.h, hereinafter referred to as "this
 // file" or "this software", is an independent software library.
 //
+// CREDITS:
 // This software was originally derived from Mark Adler's public domain code
-// from Info-ZIP UnZip v5.4 (the files explode.c and inflate.c).
-// It has been heavily modified by Jason Summers.
-// UnZip 5.4 is typically found in a file named "unzip540.tar.gz" or
-// "unzip540.zip".
+// from Info-ZIP UnZip v5.4 (the files explode.c and inflate.c). (UnZip 5.4 is
+// typically found in a file named "unzip540.tar.gz" or "unzip540.zip".)
+// It has been heavily modified by Jason Summers. Changes include:
+// * Librarification.
+// * Code modernization.
+// * Simplified some data structures.
+// * Less pointer chasing; more bounds checking. (This is not meant to imply
+//   that the original code has any bugs.)
+// * Various de-optimizations and other changes and that will make performance
+//   worse. But it shouldn't matter much, on modern computers.
 //
 // For an overview of how to use this software, see the sample code at the end
 // of this file.
+//
+// More information might be found at:
+// * <https://entropymine.com/oldunzip/>
 
 /*
 ================================ TERMS OF USE ================================
@@ -183,16 +193,16 @@ For more information, please refer to <http://unlicense.org/>
 
 #define UI6A_ARRAYSIZE(x)  (sizeof(x)/sizeof((x)[0]))
 
-#define UI6A_WSIZE 0x2000  /* window size--must be a power of two, and */
-                      /* at least 8K for zip's implode method */
+#define UI6A_WSIZE 0x2000 /* window size--must be a power of two, and */
+                          /* at least 8K for zip's implode method */
 
 struct ui6a_huftarray;
 
 struct ui6a_huft {
-	UI6A_UINT8 e;                /* number of extra bits or operation */
-	UI6A_UINT8 b;                /* number of bits in this code or subcode */
-	UI6A_UINT16 n;            /* literal, length base, or distance base */
-	struct ui6a_huftarray *t_arr;   /* pointer to next level of table */
+	UI6A_UINT8 e;  /* number of extra bits or operation */
+	UI6A_UINT8 b;  /* number of bits in this code or subcode */
+	UI6A_UINT16 n; /* literal, length base, or distance base */
+	struct ui6a_huftarray *t_arr; /* pointer to next level of table */
 };
 
 struct ui6a_huftarray {
@@ -223,7 +233,7 @@ typedef void (*ui6a_cb_post_read_trees_type)(ui6a_ctx *ui6a, struct ui6a_htables
 struct ui6a_ctx_struct {
 	// Fields the user can set:
 	void *userdata;
-	UI6A_OFF_T cmpr_size;  // compressed size
+	UI6A_OFF_T cmpr_size; // compressed size
 	UI6A_OFF_T uncmpr_size; // reported uncompressed size
 	UI6A_UINT16 bit_flags; // Sum of UI6A_FLAG_* values
 	// cb_read must supply all of the bytes requested. Returning any other number
@@ -430,33 +440,33 @@ static unsigned int ui6a_uarray_getval(struct ui6a_uarray *a, size_t idx)
 // n: number expected
 static void ui6a_get_tree(ui6a_ctx *ui6a, unsigned *l, unsigned n)
 {
-	unsigned i;           /* bytes remaining in list */
-	unsigned k;           /* lengths entered */
-	unsigned j;           /* number of codes */
-	unsigned b;           /* bit length for those codes */
+	unsigned i; /* bytes remaining in list */
+	unsigned k; /* lengths entered */
+	unsigned j; /* number of codes */
+	unsigned b; /* bit length for those codes */
 
 	/* get bit lengths */
-	i = ui6a_nextbyte(ui6a) + 1;                     /* length/count pairs to read */
-	k = 0;                                /* next code */
+	i = ui6a_nextbyte(ui6a) + 1; /* length/count pairs to read */
+	k = 0; /* next code */
 	do {
-		b = ((j = ui6a_nextbyte(ui6a)) & 0xf) + 1;     /* bits in code (1..16) */
-		j = ((j & 0xf0) >> 4) + 1;          /* codes with those bits (1..16) */
+		b = ((j = ui6a_nextbyte(ui6a)) & 0xf) + 1; /* bits in code (1..16) */
+		j = ((j & 0xf0) >> 4) + 1; /* codes with those bits (1..16) */
 		if (k + j > n) {
 			ui6a_set_error(ui6a, UI6A_ERRCODE_BAD_CDATA);
-			return;                         /* don't overflow l[] */
+			return; /* don't overflow l[] */
 		}
 		do {
 			l[k++] = b;
 		} while (--j);
 	} while (--i);
 
-	if (k != n) {                /* should have read n of them */
+	if (k != n) { /* should have read n of them */
 		ui6a_set_error(ui6a, UI6A_ERRCODE_BAD_CDATA);
 	}
 }
 
-#define UI6A_BMAX 16         /* maximum bit length of any code (16 for explode) */
-#define UI6A_N_MAX 288       /* maximum number of codes in any set */
+#define UI6A_BMAX 16   /* maximum bit length of any code (16 for explode) */
+#define UI6A_N_MAX 288 /* maximum number of codes in any set */
 
 /* Given a list of code lengths and a maximum table size, make a set of
    tables to decode that set of codes.
@@ -468,36 +478,36 @@ static void ui6a_get_tree(ui6a_ctx *ui6a, unsigned *l, unsigned n)
 // b: code lengths in bits (all assumed <= UI6A_BMAX)
 // n: number of codes (assumed <= UI6A_N_MAX)
 // s: number of simple-valued codes (0..s-1)
-// d: list of base values for non-simple codes
-// e: list of extra bits for non-simple codes
+// d_fn: (function supplying the) list of base values for non-simple codes
+// e_fn: (function supplying the) list of extra bits for non-simple codes
 // tbl->t: result: starting table
 // tbl->b: maximum lookup bits, returns actual
 static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsigned s,
 	ui6a_len_or_dist_getter d_fn, ui6a_len_or_dist_getter e_fn,
 	struct ui6a_htable *tbl)
 {
-	unsigned a;                   /* counter for codes of length k */
-	struct ui6a_uarray c_arr;           /* bit length count table */
+	unsigned a;               /* counter for codes of length k */
+	struct ui6a_uarray c_arr; /* bit length count table */
 	unsigned c_data[UI6A_BMAX+1];
-	unsigned el;                  /* length of EOB code (value 256) */
-	unsigned f;                   /* i repeats in table every f entries */
-	int g;                        /* maximum code length */
-	int h;                        /* table level */
-	unsigned i;          /* counter, current code */
-	unsigned j;          /* counter */
-	int k;               /* number of bits in current code */
-	struct ui6a_iarray lx_arr;         /* memory for l[-1..UI6A_BMAX-1] */
-	int lx_data[UI6A_BMAX+1];          /* &lx[1] = stack of bits per table */
+	unsigned el;              /* length of EOB code (value 256) */
+	unsigned f;               /* i repeats in table every f entries */
+	int g;                    /* maximum code length */
+	int h;                    /* table level */
+	unsigned i;               /* counter, current code */
+	unsigned j;               /* counter */
+	int k;                    /* number of bits in current code */
+	struct ui6a_iarray lx_arr;
+	int lx_data[UI6A_BMAX+1]; /* &lx_data[1] = stack of bits per table */
 	struct ui6a_huft *q;      /* points to current table */
-	struct ui6a_huft r;        /* table entry for structure assignment */
-	struct ui6a_huftarray *u[UI6A_BMAX];  /* table stack */
-	struct ui6a_uarray v_arr;            /* values in order of bit length */
+	struct ui6a_huft r;       /* table entry for structure assignment */
+	struct ui6a_huftarray *u[UI6A_BMAX]; /* table stack */
+	struct ui6a_uarray v_arr; /* values in order of bit length */
 	unsigned v_data[UI6A_N_MAX];
-	int w;               /* bits before this table == (l * h) */
-	struct ui6a_uarray x_arr;           /* bit offsets, then code stack */
+	int w;                    /* bits before this table */
+	struct ui6a_uarray x_arr; /* bit offsets, then code stack */
 	unsigned x_data[UI6A_BMAX+1];
-	int y;                        /* number of dummy codes added */
-	unsigned z;                   /* number of entries in current table */
+	int y;                    /* number of dummy codes added */
+	unsigned z;               /* number of entries in current table */
 	unsigned int c_idx;
 	unsigned int v_idx;
 	unsigned int x_idx;
@@ -515,7 +525,7 @@ static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsig
 		ui6a_uarray_setval(&c_arr, b[i], ui6a_uarray_getval(&c_arr, b[i])+1);
 	}
 
-	if (ui6a_uarray_getval(&c_arr, 0) == n) {              /* null input--all zero length codes */
+	if (ui6a_uarray_getval(&c_arr, 0) == n) { /* null input--all zero length codes */
 		tbl->b = 0;
 		return;
 	}
@@ -525,14 +535,14 @@ static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsig
 		if (ui6a_uarray_getval(&c_arr, j))
 			break;
 	}
-	k = j;                        /* minimum code length */
+	k = j; /* minimum code length */
 	if ((unsigned)tbl->b < j)
 		tbl->b = j;
 	for (i = UI6A_BMAX; i; i--) {
 		if (ui6a_uarray_getval(&c_arr, i))
 			break;
 	}
-	g = i;                        /* maximum code length */
+	g = i; /* maximum code length */
 	if ((unsigned)tbl->b > i)
 		tbl->b = i;
 
@@ -541,7 +551,7 @@ static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsig
 		y -= ui6a_uarray_getval(&c_arr, j);
 		if (y < 0) {
 			ui6a_set_error(ui6a, UI6A_ERRCODE_BAD_CDATA);
-			return;                 /* bad input: more codes than bits */
+			return; /* bad input: more codes than bits */
 		}
 	}
 	y -= ui6a_uarray_getval(&c_arr, i);
@@ -557,7 +567,7 @@ static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsig
 	ui6a_uarray_setval(&x_arr, 1, 0);
 	c_idx = 1;
 	x_idx = 2;
-	while (--i) {                 /* note that i == g from above */
+	while (--i) { /* note that i == g from above */
 		j += ui6a_uarray_getval(&c_arr, c_idx);
 		c_idx++;
 		ui6a_uarray_setval(&x_arr, x_idx, j);
@@ -573,7 +583,7 @@ static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsig
 			ui6a_uarray_setval(&x_arr, j, ui6a_uarray_getval(&x_arr, j) + 1);
 		}
 	}
-	n = ui6a_uarray_getval(&x_arr, g);                     /* set n to length of v */
+	n = ui6a_uarray_getval(&x_arr, g); /* set n to length of v */
 
 	/* Generate the Huffman codes and for each, make the table entries */
 	i = 0;                        /* first Huffman code is zero */
@@ -581,7 +591,7 @@ static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsig
 	v_idx = 0;                    /* grab values in bit order */
 	h = -1;                       /* no tables yet--level -1 */
 	ui6a_iarray_init(ui6a, &lx_arr, lx_data, UI6A_ARRAYSIZE(lx_data));
-	ui6a_iarray_setval(&lx_arr, 0, 0);                    /* no bits decoded yet */
+	ui6a_iarray_setval(&lx_arr, 0, 0); /* no bits decoded yet */
 	w = 0;
 	u[0] = NULL;                  /* just to keep compilers happy */
 	q = NULL;                     /* ditto */
@@ -596,31 +606,31 @@ static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsig
 			while (k > w + ui6a_iarray_getval(&lx_arr, 1+ (size_t)h)) {
 				struct ui6a_huftarray *ha;
 
-				w += ui6a_iarray_getval(&lx_arr, 1+ (size_t)h);            /* add bits already decoded */
+				w += ui6a_iarray_getval(&lx_arr, 1+ (size_t)h); /* add bits already decoded */
 				h++;
 
 				/* compute minimum size table less than or equal to *m bits */
 				z = g - w;
-				z = (z > (unsigned)tbl->b) ? ((unsigned)tbl->b) : z;        /* upper limit */
+				z = (z > (unsigned)tbl->b) ? ((unsigned)tbl->b) : z; /* upper limit */
 				j = k - w;
 				f = 1 << j;
-				if (f > a + 1) {   /* try a k-w bit table */
-				                   /* too few codes for k-w bit table */
-					f -= a + 1;           /* deduct codes from patterns left */
+				if (f > a + 1) { /* try a k-w bit table */
+				                 /* too few codes for k-w bit table */
+					f -= a + 1; /* deduct codes from patterns left */
 
 					c_idx = k;
-					while (++j < z) {     /* try smaller tables up to z bits */
+					while (++j < z) { /* try smaller tables up to z bits */
 						c_idx++;
 						f <<= 1;
 						if (f <= ui6a_uarray_getval(&c_arr, c_idx))
-							break;            /* enough codes to use up j bits */
-						f -= ui6a_uarray_getval(&c_arr, c_idx);        /* else deduct codes from patterns */
+							break; /* enough codes to use up j bits */
+						f -= ui6a_uarray_getval(&c_arr, c_idx); /* else deduct codes from patterns */
 					}
 				}
 				if ((unsigned)w + j > el && (unsigned)w < el)
-					j = el - w;           /* make EOB code end at table */
-				z = 1 << j;             /* table entries for j-bit table */
-				ui6a_iarray_setval(&lx_arr, 1+ (size_t)h, j);               /* set table size in stack */
+					j = el - w; /* make EOB code end at table */
+				z = 1 << j; /* table entries for j-bit table */
+				ui6a_iarray_setval(&lx_arr, 1+ (size_t)h, j); /* set table size in stack */
 
 				/* allocate and link in new table */
 				ha = UI6A_CALLOC(ui6a->userdata, 1, sizeof(struct ui6a_huftarray), struct ui6a_huftarray*);
@@ -653,13 +663,14 @@ static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsig
 				/* connect to last table, if there is one */
 				if (h) {
 					UI6A_ZEROMEM(&r, sizeof(struct ui6a_huft));
-					ui6a_uarray_setval(&x_arr, h, i);             /* save pattern for backing up */
-					r.b = (UI6A_UINT8)ui6a_iarray_getval(&lx_arr, 1+ (size_t)h-1);    /* bits to dump before this table */
-					r.e = (UI6A_UINT8)(16 + j);  /* bits in this table */
-					r.t_arr = ha;            /* pointer to this table */
+					ui6a_uarray_setval(&x_arr, h, i); /* save pattern for backing up */
+					/* bits to dump before this table */
+					r.b = (UI6A_UINT8)ui6a_iarray_getval(&lx_arr, 1+ (size_t)h-1);
+					r.e = (UI6A_UINT8)(16 + j); /* bits in this table */
+					r.t_arr = ha;  /* pointer to this table */
 					j = (i & ((1 << w) - 1)) >> (w - ui6a_iarray_getval(&lx_arr, 1+ (size_t)h-1));
 					if((h-1 < 0) || (h-1 >= UI6A_BMAX)) goto done;
-					u[h-1]->h[j] = r;        /* connect to last table */
+					u[h-1]->h[j] = r; /* connect to last table */
 				}
 			}
 
@@ -667,15 +678,18 @@ static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsig
 			UI6A_ZEROMEM(&r, sizeof(struct ui6a_huft));
 			r.b = (UI6A_UINT8)(k - w);
 			if (v_idx >= n) {
-				r.e = 99;               /* out of values--invalid code */
+				r.e = 99;  /* out of values--invalid code */
 			}
 			else if (ui6a_uarray_getval(&v_arr, v_idx) < s) {
-				r.e = (UI6A_UINT8)(ui6a_uarray_getval(&v_arr, v_idx) < 256 ? 16 : 15);  /* 256 is end-of-block code */
-				r.n = (UI6A_UINT16)ui6a_uarray_getval(&v_arr, v_idx);                /* simple code is just the value */
+				/* 256 is end-of-block code */
+				r.e = (UI6A_UINT8)(ui6a_uarray_getval(&v_arr, v_idx) < 256 ? 16 : 15);
+				/* simple code is just the value */
+				r.n = (UI6A_UINT16)ui6a_uarray_getval(&v_arr, v_idx);
 				v_idx++;
 			}
 			else {
-				r.e = (UI6A_UINT8)e_fn(ui6a_uarray_getval(&v_arr, v_idx) - s);   /* non-simple--look up in lists */
+				/* non-simple--look up in lists */
+				r.e = (UI6A_UINT8)e_fn(ui6a_uarray_getval(&v_arr, v_idx) - s);
 				r.n = d_fn(ui6a_uarray_getval(&v_arr, v_idx) - s);
 				v_idx++;
 			}
@@ -695,7 +709,7 @@ static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsig
 			/* backup over finished tables */
 			while ((i & ((1 << w) - 1)) != ui6a_uarray_getval(&x_arr, h)) {
 				--h;
-				w -= ui6a_iarray_getval(&lx_arr, 1+ (size_t)h);            /* don't need to update q */
+				w -= ui6a_iarray_getval(&lx_arr, 1+ (size_t)h); /* don't need to update q */
 			}
 		}
 	}
@@ -719,12 +733,13 @@ done:
    list of the tables it made. */
 static void ui6a_huft_free(ui6a_ctx *ui6a, struct ui6a_htable *tbl)
 {
-	struct ui6a_huftarray *p, *q;
+	struct ui6a_huftarray *p;
 
 	p = tbl->first_array;
 	while(p) {
-		q = p->next_array;
+		struct ui6a_huftarray *q;
 
+		q = p->next_array;
 		UI6A_FREE(ui6a->userdata, p->h);
 		UI6A_FREE(ui6a->userdata, p);
 		p = q;
@@ -764,34 +779,34 @@ static struct ui6a_huft *ui6a_follow_huft_ptr(struct ui6a_huft *h1, UI6A_UINT32 
 static void ui6a_unimplode_internal(ui6a_ctx *ui6a, unsigned window_k,
 	struct ui6a_htables *tbls)
 {
-	UI6A_OFF_T s;               /* bytes to decompress */
-	unsigned e;  /* table entry flag/number of extra bits */
+	UI6A_OFF_T s;         /* bytes to decompress */
+	unsigned e;           /* table entry flag/number of extra bits */
 	unsigned n, d;        /* length and index for copy */
 	unsigned w;           /* current window position */
-	struct ui6a_huft *t;       /* pointer to table entry */
+	struct ui6a_huft *t;  /* pointer to table entry */
 	unsigned mb, ml, md;  /* masks for bb, bl, and bd bits */
-	UI6A_UINT32 b;       /* bit buffer */
-	unsigned k;  /* number of bits in bit buffer */
+	UI6A_UINT32 b;        /* bit buffer */
+	unsigned k;           /* number of bits in bit buffer */
 	unsigned u;           /* true if unflushed */
 	int ok = 0;
 
 	/* explode the coded data */
-	b = k = w = 0;                /* initialize bit buffer, window */
-	u = 1;                        /* buffer unflushed */
-	mb = ui6a_get_mask_bits(tbls->b.b);           /* precompute masks for speed */
+	b = k = w = 0; /* initialize bit buffer, window */
+	u = 1; /* buffer unflushed */
+	mb = ui6a_get_mask_bits(tbls->b.b); /* precompute masks */
 	ml = ui6a_get_mask_bits(tbls->l.b);
 	md = ui6a_get_mask_bits(tbls->d.b);
 	s = ui6a->uncmpr_size;
-	while (s > 0) {               /* do until ucsize bytes uncompressed */
+	while (s > 0) { /* do until uncmpr_size bytes uncompressed */
 		if (ui6a->error_code != UI6A_ERRCODE_OK) {
 			goto done;
 		}
 		UI6A_NEEDBITS(1);
-		if (b & 1) {                /* then literal--decode it */
+		if (b & 1) { /* then literal--decode it */
 			UI6A_DUMPBITS(1);
 			s--;
 			if(tbls->b.first_array) {
-				UI6A_NEEDBITS((unsigned)tbls->b.b);    /* get coded literal */
+				UI6A_NEEDBITS((unsigned)tbls->b.b); /* get coded literal */
 				t = ui6a_huftarr_plus_offset(tbls->b.first_array, ((~(unsigned)b) & mb));
 				if(!t) goto done;
 				e = t->e;
@@ -822,21 +837,21 @@ static void ui6a_unimplode_internal(ui6a_ctx *ui6a, unsigned window_k,
 				UI6A_DUMPBITS(8);
 			}
 		}
-		else {                      /* else distance/length */
+		else { /* else distance/length */
 			UI6A_DUMPBITS(1);
 
 			if(window_k==8) {
-				UI6A_NEEDBITS(7);               /* get distance low bits */
+				UI6A_NEEDBITS(7); /* get distance low bits */
 				d = (unsigned)b & 0x7f;
 				UI6A_DUMPBITS(7);
 			}
 			else {
-				UI6A_NEEDBITS(6);               /* get distance low bits */
+				UI6A_NEEDBITS(6); /* get distance low bits */
 				d = (unsigned)b & 0x3f;
 				UI6A_DUMPBITS(6);
 			}
 
-			UI6A_NEEDBITS((unsigned)tbls->d.b);    /* get coded distance high bits */
+			UI6A_NEEDBITS((unsigned)tbls->d.b); /* get coded distance high bits */
 			t = ui6a_huftarr_plus_offset(tbls->d.first_array, ((~(unsigned)b) & md));
 			if(!t) goto done;
 			e = t->e;
@@ -853,8 +868,8 @@ static void ui6a_unimplode_internal(ui6a_ctx *ui6a, unsigned window_k,
 				} while (e > 16);
 			}
 			UI6A_DUMPBITS(t->b);
-			d = w - d - t->n;       /* construct offset */
-			UI6A_NEEDBITS((unsigned)tbls->l.b);    /* get coded length */
+			d = w - d - t->n; /* construct offset */
+			UI6A_NEEDBITS((unsigned)tbls->l.b); /* get coded length */
 			t = ui6a_huftarr_plus_offset(tbls->l.first_array, ((~(unsigned)b) & ml));
 			if(!t) goto done;
 			e = t->e;
@@ -872,7 +887,7 @@ static void ui6a_unimplode_internal(ui6a_ctx *ui6a, unsigned window_k,
 			}
 			UI6A_DUMPBITS(t->b);
 			n = t->n;
-			if (e) {                  /* get length extra bits */
+			if (e) { /* get length extra bits */
 				UI6A_NEEDBITS(8);
 				n += (unsigned)b & 0xff;
 				UI6A_DUMPBITS(8);
@@ -892,14 +907,14 @@ static void ui6a_unimplode_internal(ui6a_ctx *ui6a, unsigned window_k,
 					d += e;
 				}
 				else {
-					if (w - d >= e) {     /* (this test assumes unsigned comparison) */
+					if (w - d >= e) { /* (this test assumes unsigned comparison) */
 						if(w+e > UI6A_WSIZE) goto done;
 						if(d+e > UI6A_WSIZE) goto done;
 						UI6A_MEMCPY(&ui6a->Slide[w], &ui6a->Slide[d], e);
 						w += e;
 						d += e;
 					}
-					else {                 /* do it slow to avoid memcpy() overlap */
+					else { /* do it slow to avoid memcpy() overlap */
 						do {
 							if(w >= UI6A_WSIZE) goto done;
 							if(d >= UI6A_WSIZE) goto done;
@@ -937,10 +952,7 @@ done:
    bit flag, decide on coded or uncoded literals, and an 8K or 4K sliding
    window.  Construct the literal (if any), length, and distance codes and
    the tables needed to decode them (using ui6a_huft_build()),
-   and call the appropriate routine for the type of data in the remainder
-   of the stream.  The four routines are nearly identical, differing only
-   in whether the literal is decoded or simply read in, and in how many
-   bits are read in, uncoded, for the low distance bits. */
+   and call [ui6a_unimplode_internal() to do the real work]. */
 UI6A_API(void) ui6a_unimplode(ui6a_ctx *ui6a)
 {
 	struct ui6a_htables tbls;
@@ -965,13 +977,13 @@ UI6A_API(void) ui6a_unimplode(ui6a_ctx *ui6a)
 	tbls.d.b = ui6a->cmpr_size > 200000 ? 8 : 7;
 
 	if (has_literal_tree) { /* With literal tree--minimum match length is 3 */
-		tbls.b.b = 9;                     /* base table size for literals */
+		tbls.b.b = 9; /* base table size for literals */
 		ui6a_get_tree(ui6a, l, 256);
 		if (ui6a->error_code != UI6A_ERRCODE_OK) goto done;
 		ui6a_huft_build(ui6a, l, 256, 256, NULL, NULL, &tbls.b);
 		if (ui6a->error_code != UI6A_ERRCODE_OK) goto done;
 	}
-	else {  /* No literal tree--minimum match length is 2 */
+	else { /* No literal tree--minimum match length is 2 */
 		tbls.b.first_array = NULL;
 	}
 
@@ -1025,11 +1037,14 @@ UI6A_API(void) ui6a_destroy(ui6a_ctx *ui6a)
 #include <stdint.h>
 
 // (Here, you could configure some things, by defining macros like
-// UI6A_CALLOC.)
+// UI6A_CALLOC. If you do, you might not need all the headers listed above.)
 
 // The library is expected to be used by just one of your .c/.cpp files. There
 // are no provisions to make it convenient to use from multiple files.
 #include "unimplode6a.h"
+
+#endif
+#ifdef UI6A_SAMPLE_CODE
 
 // Define a custom struct for context data used by callbacks
 struct uctxtype {
@@ -1052,13 +1067,14 @@ static size_t my_write(ui6a_ctx *ui6a, const UI6A_UINT8 *buf, size_t size)
 
 // A example function that uses the library.
 // infile: The ZIP file. Seek to the start of compressed data before calling
-//   function.
+//   this function.
 // outfile: The file to write uncompressed data to.
 // cmpr_size, uncmpr_size: Compressed and uncompressed file sizes, from the
 //   ZIP file directory data.
-// bit_flags: The ZIP "general purpose bit flag" field.
+// bit_flags: The ZIP "general purpose bit flag" field (or can be
+//   (UI6A_FLAG_*KDICT | UI6A_FLAG_*TREES)).
 static void ui6ademo(FILE *infile, FILE *outfile,
-	off_t cmpr_size, off_t uncmpr_size, uint16_t bit_flags)
+	UI6A_OFF_T cmpr_size, UI6A_OFF_T uncmpr_size, UI6A_UINT16 bit_flags)
 {
 	ui6a_ctx *ui6a = NULL;
 	struct uctxtype uctx;
