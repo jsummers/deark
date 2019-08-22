@@ -1,11 +1,9 @@
-// *** Pre-release version. This file is used by Deark, but is not yet ready
-// for general use. ***
-
 // Unimplode6a: A single-header-file C/C++ library for decompressing ZIP
 // method 6 ("Implode/Explode") compression
 //
 // This file, normally named unimplode6a.h, hereinafter referred to as "this
-// file" or "this software", is an independent software library.
+// file" or "this software", is an independent software library. It is okay to
+// distribute this file by itself.
 //
 // CREDITS:
 // This software was originally derived from Mark Adler's public domain code
@@ -20,8 +18,8 @@
 // * Various de-optimizations and other changes and that will make performance
 //   worse. But it shouldn't matter much, on modern computers.
 //
-// For an overview of how to use this software, see the sample code at the end
-// of this file.
+// For an overview of how to use this software, see the example code at the
+// end of this file.
 //
 // More information might be found at:
 // * <https://entropymine.com/oldunzip/>
@@ -132,7 +130,7 @@ For more information, please refer to <http://unlicense.org/>
    values is preceded (redundantly) with a byte indicating how many bytes are
    in the code description that follows, in the range 1..256.
 
-   The codes themselves are decoded using tables made by ui6a_huft_build() from
+   The codes themselves are decoded using tables made by [ui6a_]huft_build() from
    the bit lengths.
  */
 
@@ -140,14 +138,14 @@ For more information, please refer to <http://unlicense.org/>
    uncompressed stream to find repeated byte strings.  This is implemented
    here as a circular buffer.  The index is updated simply by incrementing
    and then and'ing with 0x0fff (4K-1) or 0x1fff (8K-1).
-   [... It] works just as well to always have
+   [... It would work] just as well to always have
    a 32K circular buffer, so the index is anded with 0x7fff.  This is
    done to allow the window to also be used as the output buffer. */
 
 /* inflate.c -- put in the public domain by Mark Adler
    version c16b, 29 March 1998 */
 
-#define UI6A_VERSION 20000000
+#define UI6A_VERSION 20190823
 
 #ifndef UI6A_UINT8
 #define UI6A_UINT8   unsigned char
@@ -1026,7 +1024,7 @@ UI6A_API(void) ui6a_destroy(ui6a_ctx *ui6a)
 	UI6A_FREE(ui6a->userdata, ui6a);
 }
 
-#if 0 // Sample code
+#if 0 // Example code
 
 #include <stdio.h>
 
@@ -1044,7 +1042,7 @@ UI6A_API(void) ui6a_destroy(ui6a_ctx *ui6a)
 #include "unimplode6a.h"
 
 #endif
-#ifdef UI6A_SAMPLE_CODE
+#ifdef UI6A_TESTING_EXAMPLE_CODE
 
 // Define a custom struct for context data used by callbacks
 struct uctxtype {
@@ -1073,7 +1071,7 @@ static size_t my_write(ui6a_ctx *ui6a, const UI6A_UINT8 *buf, size_t size)
 //   ZIP file directory data.
 // bit_flags: The ZIP "general purpose bit flag" field (or can be
 //   (UI6A_FLAG_*KDICT | UI6A_FLAG_*TREES)).
-static void ui6ademo(FILE *infile, FILE *outfile,
+static void ui6a_example_code(FILE *infile, FILE *outfile,
 	UI6A_OFF_T cmpr_size, UI6A_OFF_T uncmpr_size, UI6A_UINT16 bit_flags)
 {
 	ui6a_ctx *ui6a = NULL;
@@ -1104,4 +1102,4 @@ static void ui6ademo(FILE *infile, FILE *outfile,
 	ui6a_destroy(ui6a);
 }
 
-#endif // End of sample code
+#endif // End of example code
