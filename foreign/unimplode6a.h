@@ -23,6 +23,7 @@
 //
 // More information might be found at:
 // * <https://entropymine.com/oldunzip/>
+// * <https://github.com/jsummers/oldunzip>
 
 /*
 ================================ TERMS OF USE ================================
@@ -145,7 +146,7 @@ For more information, please refer to <http://unlicense.org/>
 /* inflate.c -- put in the public domain by Mark Adler
    version c16b, 29 March 1998 */
 
-#define UI6A_VERSION 20190823
+#define UI6A_VERSION 20190824
 
 #ifndef UI6A_UINT8
 #define UI6A_UINT8   unsigned char
