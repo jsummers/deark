@@ -665,7 +665,7 @@ Deark -- Information about supported formats
   - Some metadata is parsed, but the disk contents are not extracted or listed.
 
 * ZIP (module="zip")
-  - Supports "stored", "deflate", and "implode" compression.
+  - Compression types supported: "stored", "deflate", "implode", "reduce".
   - Extract main ZIP file comment (use -a).
   - Extract comments for individual files (use -a).
 

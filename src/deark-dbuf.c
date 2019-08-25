@@ -92,6 +92,21 @@ void dbuf_read(dbuf *f, u8 *buf, i64 pos, i64 len)
 
 	c = f->c;
 
+	if(pos < 0) {
+		if((-pos) >= len) {
+			// All requested bytes are before the beginning of the file
+			de_zeromem(buf, (size_t)len);
+			return;
+		}
+		// Some requested bytes are before the beginning of the file.
+		// Zero out the ones that are:
+		de_zeromem(buf, (size_t)(-pos));
+		// And adjust the parameters:
+		buf += (-pos);
+		len -= (-pos);
+		pos = 0;
+	}
+
 	bytes_to_read = len;
 	if(pos >= f->len) {
 		bytes_to_read = 0;
