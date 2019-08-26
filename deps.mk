@@ -16,6 +16,8 @@ $(OBJDIR)/modules/applesd.o: modules/applesd.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/ar.o: modules/ar.c src/deark-config.h \
  src/deark-private.h src/deark.h
+$(OBJDIR)/modules/arc.o: modules/arc.c src/deark-config.h \
+ src/deark-private.h src/deark.h
 $(OBJDIR)/modules/arcfs.o: modules/arcfs.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/asf.o: modules/asf.c src/deark-config.h \

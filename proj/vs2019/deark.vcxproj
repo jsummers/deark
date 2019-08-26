@@ -176,6 +176,7 @@
     <ClCompile Include="..\..\modules\apple2-dsk.c" />
     <ClCompile Include="..\..\modules\applesd.c" />
     <ClCompile Include="..\..\modules\ar.c" />
+    <ClCompile Include="..\..\modules\arc.c" />
     <ClCompile Include="..\..\modules\arcfs.c" />
     <ClCompile Include="..\..\modules\asf.c" />
     <ClCompile Include="..\..\modules\atari-dsk.c" />
