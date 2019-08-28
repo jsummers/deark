@@ -100,11 +100,14 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	int retval = 0;
 	int saved_indent_level;
 	i64 pos = pos1;
+	i64 mod_time_raw, mod_date_raw;
 	u8 magic;
 	u8 cmpr_meth;
 	struct member_data *md = NULL;
 	dbuf *outf = NULL;
 	de_finfo *fi = NULL;
+	struct de_timestamp tmp_timestamp;
+	char timestamp_buf[64];
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	magic = de_getbyte_p(&pos);
@@ -121,6 +124,9 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	cmpr_meth = de_getbyte_p(&pos);
 	if(cmpr_meth == 0) {
 		de_dbg(c, "eof marker at %"I64_FMT, pos1);
+		if((pos < c->infile->len) && !d->has_comments) {
+			de_dbg(c, "extra bytes at eof: %"I64_FMT, (c->infile->len-pos));
+		}
 		goto done;
 	}
 
@@ -152,7 +158,14 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 
 	md->cmpr_size = de_getu32le_p(&pos);
 	de_dbg(c, "cmpr size: %"I64_FMT, md->cmpr_size);
-	pos += 4; // date/time
+
+	mod_date_raw = de_getu16le_p(&pos);
+	mod_time_raw = de_getu16le_p(&pos);
+	de_dos_datetime_to_timestamp(&tmp_timestamp, mod_date_raw, mod_time_raw);
+	tmp_timestamp.tzcode = DE_TZCODE_LOCAL;
+	de_timestamp_to_string(&tmp_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "timestamp: %s", timestamp_buf);
+
 	md->crc_reported = (u32)de_getu16le_p(&pos);
 	de_dbg(c, "crc (reported): 0x%04x", (unsigned int)md->crc_reported);
 	if(md->cmpr_meth == 1) {
@@ -175,6 +188,7 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	}
 
 	fi = de_finfo_create(c);
+	fi->mod_time = tmp_timestamp;
 	de_finfo_set_name_from_ucstring(c, fi, md->fn, 0);
 	fi->original_filename_flag = 1;
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
@@ -306,6 +320,7 @@ static int de_identify_arc(deark *c)
 	if(de_getbyte(0) != 0x1a) return 0;
 	cmpr_meth = de_getbyte(1);
 	// TODO: We might be able to parse some files with cmpr_meth>9.
+	// Note: If 0x82, 0x82, 0x88, or 0xff, this may be Spark format.
 	if(cmpr_meth<1 || cmpr_meth>9) return 0;
 
 	for(k=0; k<DE_ITEMS_IN_ARRAY(exts); k++) {
@@ -335,5 +350,4 @@ void de_module_arc(deark *c, struct deark_module_info *mi)
 	mi->desc = "ARC compressed archive";
 	mi->run_fn = de_run_arc;
 	mi->identify_fn = de_identify_arc;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }
