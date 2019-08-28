@@ -231,6 +231,9 @@ static void do_comments(deark *c, lctx *d)
 	if(de_getu32be(sig_pos) != 0x504baa55) {
 		return;
 	}
+	// TODO: False positives are possible here. Ideally, we'd pre-scan the
+	// whole file, to make sure the comments occur after the end of the
+	// main part of the archive.
 	d->has_comments = 1;
 
 	de_dbg(c, "PKARC/PKPAK comment block found");
@@ -308,20 +311,21 @@ static void de_run_arc(deark *c, de_module_params *mparams)
 	}
 }
 
-// TODO: Better identification
 static int de_identify_arc(deark *c)
 {
 	static const char *exts[] = {"arc", "ark", "pak", "spk"};
 	int has_ext = 0;
 	int ends_with_trailer = 0;
+	int ends_with_comments = 0;
+	int starts_with_trailer = 0;
 	size_t k;
 	u8 cmpr_meth;
 
 	if(de_getbyte(0) != 0x1a) return 0;
 	cmpr_meth = de_getbyte(1);
-	// TODO: We might be able to parse some files with cmpr_meth>9.
-	// Note: If 0x82, 0x82, 0x88, or 0xff, this may be Spark format.
-	if(cmpr_meth<1 || cmpr_meth>9) return 0;
+	// Note: If 0x82, 0x83, 0x88, or 0xff, this may be Spark format.
+	if(cmpr_meth>9) return 0;
+	if(cmpr_meth==0) starts_with_trailer = 1;
 
 	for(k=0; k<DE_ITEMS_IN_ARRAY(exts); k++) {
 		if(de_input_file_has_ext(c, exts[k])) {
@@ -330,16 +334,25 @@ static int de_identify_arc(deark *c)
 		}
 	}
 
-	if(de_getu16be(c->infile->len-2) == 0x1a00) {
-		ends_with_trailer = 1;
-	}
-	else if(de_getu32be(c->infile->len-8) == 0x504baa55) {
-		// PKARC trailer, for files with comments
-		ends_with_trailer = 1;
+	if(starts_with_trailer && c->infile->len==2) {
+		if(has_ext) return 15; // Empty archive, 2-byte file
+		return 0;
 	}
 
-	if(has_ext && ends_with_trailer) return 90;
-	if(ends_with_trailer) return 25;
+	if((!starts_with_trailer) && (de_getu16be(c->infile->len-2) == 0x1a00)) {
+		ends_with_trailer = 1;
+	}
+	if(de_getu32be(c->infile->len-8) == 0x504baa55) {
+		// PKARC trailer, for files with comments
+		ends_with_comments = 1;
+	}
+
+	if(starts_with_trailer) {
+		if(ends_with_comments) return 25;
+		else return 0;
+	}
+	if(has_ext && (ends_with_trailer || ends_with_comments)) return 90;
+	if(ends_with_trailer || ends_with_comments) return 25;
 	if(has_ext) return 15;
 	return 0;
 }
