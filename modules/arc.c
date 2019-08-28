@@ -34,7 +34,11 @@ struct member_data {
 
 struct localctx_struct {
 	int input_encoding;
-	int member_count;
+	i64 member_count;
+	int has_comments;
+	int has_file_comments;
+	i64 num_file_comments;
+	i64 file_comments_pos;
 	struct de_crcobj *crco;
 };
 
@@ -83,6 +87,12 @@ static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
 	de_crcobj_addbuf(crco, buf, buf_len);
 }
 
+static void read_one_comment(deark *c, lctx *d, i64 pos, de_ucstring *s)
+{
+	dbuf_read_to_ucstring(c->infile, pos, 32, s, 0, d->input_encoding);
+	ucstring_strip_trailing_spaces(s);
+}
+
 // Returns 1 if we parsed this member successfully, and it's not the
 // EOF marker.
 static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
@@ -121,6 +131,15 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 
 	de_dbg(c, "member at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
+
+	if(d->has_file_comments && (d->member_count < d->num_file_comments)) {
+		de_ucstring *comment;
+
+		comment = ucstring_create(c);
+		read_one_comment(c, d, d->file_comments_pos + d->member_count*32, comment);
+		de_dbg(c, "file comment: \"%s\"", ucstring_getpsz_d(comment));
+		ucstring_destroy(comment);
+	}
 
 	md->cmi = get_cmpr_meth_info(md->cmpr_meth);
 	de_dbg(c, "cmpr method: %u (%s)", (unsigned int)md->cmpr_meth,
@@ -186,6 +205,67 @@ done:
 	return retval;
 }
 
+static void do_comments(deark *c, lctx *d)
+{
+	i64 sig_pos;
+	i64 comments_descr_pos;
+	int has_archive_comment = 0;
+	de_ucstring *s = NULL;
+	u8 dscr[4];
+
+	sig_pos = c->infile->len-8;
+	if(de_getu32be(sig_pos) != 0x504baa55) {
+		return;
+	}
+	d->has_comments = 1;
+
+	de_dbg(c, "PKARC/PKPAK comment block found");
+	de_dbg_indent(c, 1);
+	// Note: This logic is based on reverse engineering, and could be wrong.
+	comments_descr_pos = de_getu32le(c->infile->len-4);
+	de_dbg(c, "descriptor pos: %"I64_FMT, comments_descr_pos);
+	if(comments_descr_pos >= sig_pos) goto done;
+
+	de_read(dscr, comments_descr_pos, 4);
+	if(dscr[0]==0x20 && dscr[1]==0x20 && dscr[2]==0x20 && dscr[3]==0x00) {
+		d->has_file_comments = 0;
+		has_archive_comment = 1;
+	}
+	else if(dscr[0]==0x01 && dscr[3]==0x20) {
+		d->has_file_comments = 1;
+		has_archive_comment = 0;
+	}
+	else if(dscr[0]==0x01 && dscr[3]==0x00) {
+		d->has_file_comments = 1;
+		has_archive_comment = 1;
+	}
+	else {
+		de_dbg(c, "[unrecognized comments descriptor]");
+	}
+
+	if(d->has_file_comments) {
+		d->file_comments_pos = comments_descr_pos + 32;
+		if(sig_pos - d->file_comments_pos < 32) {
+			d->has_file_comments = 0;
+		}
+	}
+
+	if(has_archive_comment) {
+		s = ucstring_create(c);
+		read_one_comment(c, d, comments_descr_pos-32, s);
+		de_dbg(c, "archive comment: \"%s\"", ucstring_getpsz_d(s));
+	}
+
+	if(d->has_file_comments) {
+		d->num_file_comments = (sig_pos - d->file_comments_pos)/32;
+		de_dbg(c, "apparent number of file comments: %d", (int)d->num_file_comments);
+	}
+
+done:
+	ucstring_destroy(s);
+	de_dbg_indent(c, -1);
+}
+
 static void de_run_arc(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -194,6 +274,8 @@ static void de_run_arc(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437_G);
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
+
+	do_comments(c, d);
 
 	while(1) {
 		int ret;
