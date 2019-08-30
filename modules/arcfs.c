@@ -133,7 +133,7 @@ done:
 	return retval;
 }
 
-static int do_compressed(deark *c, lctx *d, struct arcfs_member_data *md, dbuf *outf,
+static int do_arcfs_compressed(deark *c, lctx *d, struct arcfs_member_data *md, dbuf *outf,
 	int limit_size_flag)
 {
 	u8 lzwmode;
@@ -145,7 +145,7 @@ static int do_compressed(deark *c, lctx *d, struct arcfs_member_data *md, dbuf *
 	return retval;
 }
 
-static int do_crunched(deark *c, lctx *d, struct arcfs_member_data *md, dbuf *outf)
+static int do_arcfs_crunched(deark *c, lctx *d, struct arcfs_member_data *md, dbuf *outf)
 {
 	dbuf *tmpf = NULL;
 	int ret1, ret2;
@@ -159,7 +159,7 @@ static int do_crunched(deark *c, lctx *d, struct arcfs_member_data *md, dbuf *ou
 	// TODO: We should at least set a size limit on tmpf, but it's not clear what
 	// the limit should be.
 	tmpf = dbuf_create_membuf(c, 0, 0);
-	ret1 = do_compressed(c, d, md, tmpf, 0);
+	ret1 = do_arcfs_compressed(c, d, md, tmpf, 0);
 	de_dbg2(c, "size after intermediate decompression: %d", (int)tmpf->len);
 
 	ret2 = de_fmtutil_decompress_rle90(tmpf, 0, tmpf->len, outf, 1, md->orig_len, 0);
@@ -223,13 +223,13 @@ static void do_arcfs_extract_member_file(deark *c, lctx *d, struct arcfs_member_
 			outf, 1, md->orig_len, 0);
 	}
 	else if(md->cmpr_method==0xff) {
-		ret = do_compressed(c, d, md, outf, 1);
+		ret = do_arcfs_compressed(c, d, md, outf, 1);
 		if(!ret) {
 			goto done;
 		}
 	}
 	else if(md->cmpr_method==0x88) {
-		ret = do_crunched(c, d, md, outf);
+		ret = do_arcfs_crunched(c, d, md, outf);
 		if(!ret) {
 			goto done;
 		}
@@ -482,6 +482,125 @@ typedef struct sparkctx_struct {
 	struct de_strarray *curpath;
 } spkctx;
 
+struct riscos_dcmpr_params {
+	dbuf *inf;
+	dbuf *outf;
+	i64 cmpr_pos;
+	i64 cmpr_len;
+	i64 uncmpr_len_expected;
+	u8 cmpr_meth;
+	const char *cmpr_meth_name;
+};
+
+static int is_spark_cmpr_meth_supported(deark *c, spkctx *d, u8 n)
+{
+	if(n==0x82) return 1;
+	return 0;
+}
+
+// fname = a filename to use in error messages
+static int do_riscos_extract_file(deark *c, struct riscos_dcmpr_params *dcmpr, de_ucstring *fname)
+{
+	int retval = 0;
+
+	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT,
+		dcmpr->cmpr_pos, dcmpr->cmpr_len);
+
+	if(dcmpr->cmpr_pos + dcmpr->cmpr_len > dcmpr->inf->len) {
+		de_err(c, "%s: Data goes beyond end of file", ucstring_getpsz_d(fname));
+		goto done;
+	}
+
+	if(dcmpr->cmpr_meth==0x82) { // stored
+		dbuf_copy(dcmpr->inf, dcmpr->cmpr_pos, dcmpr->cmpr_len, dcmpr->outf);
+	}
+	else {
+		de_err(c, "%s: Extraction not implemented", ucstring_getpsz_d(fname));
+		goto done;
+	}
+
+	retval = 1;
+
+done:
+	return retval;
+}
+
+static void spark_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
+{
+	struct de_crcobj *crco = (struct de_crcobj*)f->userdata;
+	de_crcobj_addbuf(crco, buf, buf_len);
+}
+
+static void do_spark_extract_member_file(deark *c, spkctx *d, struct spark_member_data *md,
+	de_finfo *fi, i64 pos)
+{
+	de_ucstring *fullfn = NULL;
+	dbuf *outf = NULL;
+	struct riscos_dcmpr_params *dcmpr = NULL;
+	int ret;
+	u32 crc_calc;
+
+	fullfn = ucstring_create(c);
+	de_strarray_make_path(d->curpath, fullfn, DE_MPFLAG_NOTRAILINGSLASH);
+	if(d->append_type && md->rfa.file_type_known) {
+		ucstring_printf(fullfn, DE_ENCODING_LATIN1, ",%03X", md->rfa.file_type);
+	}
+	de_finfo_set_name_from_ucstring(c, fi, fullfn, DE_SNFLAG_FULLPATH);
+
+	if(!is_spark_cmpr_meth_supported(c, d, md->cmpr_meth)) {
+		de_err(c, "%s: Compression type 0x%02x (%s) is not supported.",
+			ucstring_getpsz_d(md->fn), (unsigned int)md->cmpr_meth, md->cmpr_meth_name);
+		goto done;
+	}
+
+	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
+
+	outf->writecallback_fn = spark_writecallback;
+	outf->userdata = (void*)d->crco;
+	de_crcobj_reset(d->crco);
+
+	dcmpr = de_malloc(c, sizeof(struct riscos_dcmpr_params));
+	dcmpr->cmpr_meth = md->cmpr_meth;
+	dcmpr->cmpr_meth_name = md->cmpr_meth_name;
+	dcmpr->inf = c->infile;
+	dcmpr->outf = outf;
+	dcmpr->cmpr_pos = pos;
+	dcmpr->cmpr_len = md->cmpr_size;
+	dcmpr->uncmpr_len_expected = md->orig_size;
+
+	ret = do_riscos_extract_file(c, dcmpr, md->fn);
+	if(!ret) goto done;
+
+	crc_calc = de_crcobj_getval(d->crco);
+	de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)crc_calc);
+	if(crc_calc != md->crc_reported) {
+		de_err(c, "%s: CRC check failed", ucstring_getpsz_d(md->fn));
+	}
+
+done:
+	dbuf_close(outf);
+	ucstring_destroy(fullfn);
+	de_free(c, dcmpr);
+}
+
+// "Extract" a directory entry
+static void do_spark_extract_member_dir(deark *c, spkctx *d, struct spark_member_data *md,
+	de_finfo *fi)
+{
+	dbuf *outf = NULL;
+	de_ucstring *fullfn = NULL;
+
+	fullfn = ucstring_create(c);
+	de_strarray_make_path(d->curpath, fullfn, DE_MPFLAG_NOTRAILINGSLASH);
+
+	fi->is_directory = 1;
+	de_finfo_set_name_from_ucstring(c, fi, fullfn, DE_SNFLAG_FULLPATH);
+
+	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
+	dbuf_close(outf);
+	ucstring_destroy(fullfn);
+}
+
 // Note: This shares a lot of code with ARC.
 // Returns 1 if we can and should continue after this member.
 static int do_spark_member(deark *c, spkctx *d, i64 pos1, i64 *bytes_consumed)
@@ -491,7 +610,9 @@ static int do_spark_member(deark *c, spkctx *d, i64 pos1, i64 *bytes_consumed)
 	int retval = 0;
 	i64 pos = pos1;
 	i64 mod_time_raw, mod_date_raw;
+	de_finfo *fi = NULL;
 	struct spark_member_data *md = NULL;
+	int need_curpath_pop = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "member at %"I64_FMT, pos1);
@@ -523,7 +644,7 @@ static int do_spark_member(deark *c, spkctx *d, i64 pos1, i64 *bytes_consumed)
 	if(md->cmpr_meth==0x80) { // end of dir marker
 		*bytes_consumed = 2;
 
-		if(d->level<1) { // actually, end of file
+		if(d->level<1) { // actually, end of the whole archive
 			goto done;
 		}
 
@@ -564,24 +685,49 @@ static int do_spark_member(deark *c, spkctx *d, i64 pos1, i64 *bytes_consumed)
 	do_riscos_read_attribs_field(c, &md->rfa, pos, 0);
 	pos += 4;
 
+	de_strarray_push(d->curpath, md->fn);
+
 	md->is_dir = (md->rfa.file_type_known && (md->rfa.file_type==0xddc));
 	if(md->is_dir) {
+		d->level++;
 		md->orig_size = 0;
 		md->cmpr_size = 0;
+	}
+	else {
+		need_curpath_pop = 1;
 	}
 	de_dbg(c, "is directory: %d", md->is_dir);
 
 	*bytes_consumed = pos + md->cmpr_size - pos1;
 	retval = 1;
 
-	// ...
+	// Extract...
+	fi = de_finfo_create(c);
+	fi->original_filename_flag = 1;
+
+	if(md->rfa.mod_time.is_valid) {
+		fi->mod_time = md->rfa.mod_time;
+	}
+	else if(md->arc_timestamp.is_valid) {
+		fi->mod_time = md->arc_timestamp;
+	}
 
 	if(md->is_dir) {
-		de_strarray_push(d->curpath, md->fn);
-		d->level++;
+		fi->is_directory = 1;
+	}
+
+	if(md->is_dir) {
+		do_spark_extract_member_dir(c, d, md, fi);
+	}
+	else {
+		do_spark_extract_member_file(c, d, md, fi, pos);
 	}
 
 done:
+	if(need_curpath_pop) {
+		de_strarray_pop(d->curpath);
+	}
+	if(fi) de_finfo_destroy(c, fi);
 	if(md) {
 		ucstring_destroy(md->fn);
 		de_free(c, md);
