@@ -3,12 +3,14 @@
 // See the file COPYING for terms of use.
 
 // ArcFS
+// Spark
 // Squash
 
 #include <deark-config.h>
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_arcfs);
+DE_DECLARE_MODULE(de_module_spark);
 DE_DECLARE_MODULE(de_module_squash);
 
 struct de_riscos_file_attrs {
@@ -454,6 +456,208 @@ void de_module_arcfs(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_arcfs;
 	mi->identify_fn = de_identify_arcfs;
 	mi->help_fn = de_help_arcfs;
+}
+
+///////////////////////////////////////////////////////////////////////////
+// Spark
+
+struct spark_member_data {
+	struct de_riscos_file_attrs rfa;
+	int is_dir;
+	u8 cmpr_meth;
+	i64 orig_size;
+	i64 cmpr_size;
+	u32 crc_reported;
+	const char *cmpr_meth_name;
+	de_ucstring *fn;
+	struct de_timestamp arc_timestamp;
+};
+
+typedef struct sparkctx_struct {
+	int input_encoding;
+	int append_type;
+	i64 nmembers;
+	int level; // subdirectory nesting level
+	struct de_crcobj *crco;
+	struct de_strarray *curpath;
+} spkctx;
+
+// Note: This shares a lot of code with ARC.
+// Returns 1 if we can and should continue after this member.
+static int do_spark_member(deark *c, spkctx *d, i64 pos1, i64 *bytes_consumed)
+{
+	u8 magic;
+	int saved_indent_level;
+	int retval = 0;
+	i64 pos = pos1;
+	i64 mod_time_raw, mod_date_raw;
+	struct spark_member_data *md = NULL;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "member at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	md = de_malloc(c, sizeof(struct spark_member_data));
+	magic = de_getbyte_p(&pos);
+	if(magic != 0x1a) {
+		if(d->nmembers==0) {
+			de_err(c, "Not a Spark file");
+		}
+		else {
+			de_err(c, "Failed to find Spark member at %"I64_FMT", stopping", pos1);
+		}
+		goto done;
+	}
+
+	md->cmpr_meth = de_getbyte_p(&pos);
+	if(md->cmpr_meth>=0x81) {
+		md->cmpr_meth_name = get_info_byte_name(md->cmpr_meth);
+	}
+	else if(md->cmpr_meth==0x80) {
+		md->cmpr_meth_name = "end of dir marker";
+	}
+	else {
+		md->cmpr_meth_name = "?";
+	}
+	de_dbg(c, "cmpr meth: 0x%02x (%s)", (unsigned int)md->cmpr_meth, md->cmpr_meth_name);
+
+	if(md->cmpr_meth==0x80) { // end of dir marker
+		*bytes_consumed = 2;
+
+		if(d->level<1) { // actually, end of file
+			goto done;
+		}
+
+		d->level--;
+		de_strarray_pop(d->curpath);
+		retval = 1;
+		goto done;
+	}
+
+	md->fn = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, 13, md->fn, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->fn));
+	pos += 13;
+
+	md->cmpr_size = de_getu32le_p(&pos);
+	de_dbg(c, "cmpr size: %"I64_FMT, md->cmpr_size);
+
+	mod_date_raw = de_getu16le_p(&pos);
+	mod_time_raw = de_getu16le_p(&pos);
+	de_dos_datetime_to_timestamp(&md->arc_timestamp, mod_date_raw, mod_time_raw);
+	md->arc_timestamp.tzcode = DE_TZCODE_LOCAL;
+	dbg_timestamp(c, &md->arc_timestamp, "timestamp (ARC)");
+
+	md->crc_reported = (u32)de_getu16le_p(&pos);
+	de_dbg(c, "crc (reported): 0x%04x", (unsigned int)md->crc_reported);
+	if((md->cmpr_meth & 0x7f)==0x01) {
+		md->orig_size = md->cmpr_size;
+	}
+	else {
+		md->orig_size = de_getu32le_p(&pos);
+		de_dbg(c, "orig size: %"I64_FMT, md->orig_size);
+	}
+
+	do_riscos_read_load_exec(c, &md->rfa, pos);
+	pos += 8;
+
+	do_riscos_read_attribs_field(c, &md->rfa, pos, 0);
+	pos += 4;
+
+	md->is_dir = (md->rfa.file_type_known && (md->rfa.file_type==0xddc));
+	if(md->is_dir) {
+		md->orig_size = 0;
+		md->cmpr_size = 0;
+	}
+	de_dbg(c, "is directory: %d", md->is_dir);
+
+	*bytes_consumed = pos + md->cmpr_size - pos1;
+	retval = 1;
+
+	// ...
+
+	if(md->is_dir) {
+		de_strarray_push(d->curpath, md->fn);
+		d->level++;
+	}
+
+done:
+	if(md) {
+		ucstring_destroy(md->fn);
+		de_free(c, md);
+	}
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static void de_run_spark(deark *c, de_module_params *mparams)
+{
+	spkctx *d = NULL;
+	i64 pos = 0;
+
+	d = de_malloc(c, sizeof(spkctx));
+	d->input_encoding = DE_ENCODING_RISCOS;
+	d->append_type = de_get_ext_option_bool(c, "spark:appendtype", 0);
+	d->curpath = de_strarray_create(c);
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
+
+	while(1) {
+		int ret;
+		i64 bytes_consumed = 0;
+
+		if(pos >= c->infile->len) break;
+		ret = do_spark_member(c, d, pos, &bytes_consumed);
+		if(!ret || (bytes_consumed<1)) break;
+		pos += bytes_consumed;
+		d->nmembers++;
+	}
+
+	if(d) {
+		de_crcobj_destroy(d->crco);
+		de_strarray_destroy(d->curpath);
+		de_free(c, d);
+	}
+}
+
+static int de_identify_spark(deark *c)
+{
+	u8 b;
+	u32 load_addr;
+	int ldaddrcheck = 0;
+	int has_trailer = 0;
+
+	if(de_getbyte(0) != 0x1a) return 0;
+	b = de_getbyte(1);
+	if(b==0x82 || b==0x83 || b==0x84 || b==0x85 ||
+		b==0x86 || b==0x88 || b==0x89 || b==0xff)
+	{
+		;
+	}
+	else {
+		return 0;
+	}
+
+	load_addr = (u32)de_getu32le(29);
+	if((load_addr & 0xfff00000) == 0xfff00000) {
+		ldaddrcheck = 1;
+	}
+
+	if(de_getu16be(c->infile->len-2) == 0x1a80) {
+		has_trailer = 1;
+	}
+
+	if(has_trailer && ldaddrcheck) return 85;
+	if(ldaddrcheck) return 30;
+	if(has_trailer) return 10;
+	return 0;
+}
+
+void de_module_spark(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "spark";
+	mi->desc = "Spark archive";
+	mi->run_fn = de_run_spark;
+	mi->identify_fn = de_identify_spark;
 }
 
 ///////////////////////////////////////////////////////////////////////////
