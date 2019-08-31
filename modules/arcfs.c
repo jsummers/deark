@@ -489,15 +489,16 @@ struct riscos_dcmpr_params {
 	dbuf *outf;
 	i64 cmpr_pos;
 	i64 cmpr_len;
-	i64 uncmpr_len_expected;
-	u8 cmpr_meth;
-	const char *cmpr_meth_name;
+	u8 uncmpr_len_known;
+	i64 uncmpr_len;
 };
 
 static int is_spark_cmpr_meth_supported(deark *c, spkctx *d, u8 n)
 {
-	if(n==0x82) return 1;
-	if(n==0xff) return 1;
+	switch(n) {
+	case 0x82: case 0x83: case 0x88: case 0xff:
+		return 1;
+	}
 	return 0;
 }
 
@@ -515,7 +516,7 @@ static int do_dcmpr_compressed(deark *c, struct riscos_dcmpr_params *dcmpr, de_u
 	de_dbg(c, "lzw maxbits: %u", (unsigned int)lzwmaxbits);
 
 	retval = de_decompress_liblzw(dcmpr->inf, dcmpr->cmpr_pos+1, dcmpr->cmpr_len-1,
-		dcmpr->outf, 1, dcmpr->uncmpr_len_expected, 0x0, 0x80|lzwmaxbits);
+		dcmpr->outf, (dcmpr->uncmpr_len_known?1:0), dcmpr->uncmpr_len, 0x0, 0x80|lzwmaxbits);
 
 done:
 	if(!retval) {
@@ -524,30 +525,86 @@ done:
 	return retval;
 }
 
+static int do_dcmpr_packed(deark *c, struct riscos_dcmpr_params *dcmpr, de_ucstring *fname)
+{
+	int ret;
+
+	ret = de_fmtutil_decompress_rle90(dcmpr->inf, dcmpr->cmpr_pos, dcmpr->cmpr_len,
+		dcmpr->outf, (dcmpr->uncmpr_len_known?1:0), dcmpr->uncmpr_len, 0);
+	return ret;
+}
+
+static int do_dcmpr_crunched(deark *c, struct riscos_dcmpr_params *dcmpr, de_ucstring *fname)
+{
+	dbuf *tmpf = NULL;
+	int ret1, ret2;
+	int retval = 0;
+	struct riscos_dcmpr_params part1params;
+	struct riscos_dcmpr_params part2params;
+
+	de_zeromem(&part1params, sizeof(struct riscos_dcmpr_params));
+	de_zeromem(&part2params, sizeof(struct riscos_dcmpr_params));
+
+	// "Crunched" means "packed", then "compressed".
+	// So we have to "uncompress", then "unpack".
+	tmpf = dbuf_create_membuf(c, 0, 0);
+
+	part1params.inf = dcmpr->inf;
+	part1params.cmpr_pos = dcmpr->cmpr_pos;
+	part1params.cmpr_len = dcmpr->cmpr_len;
+	part1params.outf = tmpf;
+	part1params.uncmpr_len_known = 0;
+	part1params.uncmpr_len = 0;
+	ret1 = do_dcmpr_compressed(c, &part1params, fname);
+	de_dbg2(c, "size after intermediate decompression: %"I64_FMT, tmpf->len);
+
+	part2params.inf = tmpf;
+	part2params.cmpr_pos = 0;
+	part2params.cmpr_len = tmpf->len;
+	part2params.outf = dcmpr->outf;
+	part2params.uncmpr_len_known = dcmpr->uncmpr_len_known;
+	part2params.uncmpr_len= dcmpr->uncmpr_len;
+	ret2 = do_dcmpr_packed(c, &part2params, fname);
+
+	if(!ret1 || !ret2) goto done;
+	retval = 1;
+
+done:
+	dbuf_close(tmpf);
+	return retval;
+}
+
 // fname = a filename to use in error messages
-static int do_riscos_extract_file(deark *c, struct riscos_dcmpr_params *dcmpr, de_ucstring *fname)
+static int do_riscos_extract_file(deark *c, struct riscos_dcmpr_params *dcmpr,
+	u8 cmpr_meth, de_ucstring *fname)
 {
 	int retval = 0;
-
-	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT,
-		dcmpr->cmpr_pos, dcmpr->cmpr_len);
 
 	if(dcmpr->cmpr_pos + dcmpr->cmpr_len > dcmpr->inf->len) {
 		de_err(c, "%s: Data goes beyond end of file", ucstring_getpsz_d(fname));
 		goto done;
 	}
 
-	if(dcmpr->cmpr_meth==0x82) { // stored
+	if(cmpr_meth==0x82) { // stored
 		dbuf_copy(dcmpr->inf, dcmpr->cmpr_pos, dcmpr->cmpr_len, dcmpr->outf);
 	}
-	else if(dcmpr->cmpr_meth==0xff) {
+	else if(cmpr_meth==0x83) {
+		if(!do_dcmpr_packed(c, dcmpr, fname)) {
+			goto done;
+		}
+	}
+	else if(cmpr_meth==0x88) {
+		if(!do_dcmpr_crunched(c, dcmpr, fname)) {
+			goto done;
+		}
+	}
+	else if(cmpr_meth==0xff) {
 		if(!do_dcmpr_compressed(c, dcmpr, fname)) {
 			goto done;
 		}
 	}
 	else {
-		de_err(c, "%s: Extraction not implemented", ucstring_getpsz_d(fname));
-		goto done;
+		goto done; // Should be impossible
 	}
 
 	retval = 1;
@@ -579,6 +636,8 @@ static void do_spark_extract_member_file(deark *c, spkctx *d, struct spark_membe
 	}
 	de_finfo_set_name_from_ucstring(c, fi, fullfn, DE_SNFLAG_FULLPATH);
 
+	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, pos, md->cmpr_size);
+
 	if(!is_spark_cmpr_meth_supported(c, d, md->cmpr_meth)) {
 		de_err(c, "%s: Compression type 0x%02x (%s) is not supported.",
 			ucstring_getpsz_d(md->fn), (unsigned int)md->cmpr_meth, md->cmpr_meth_name);
@@ -592,15 +651,14 @@ static void do_spark_extract_member_file(deark *c, spkctx *d, struct spark_membe
 	de_crcobj_reset(d->crco);
 
 	dcmpr = de_malloc(c, sizeof(struct riscos_dcmpr_params));
-	dcmpr->cmpr_meth = md->cmpr_meth;
-	dcmpr->cmpr_meth_name = md->cmpr_meth_name;
 	dcmpr->inf = c->infile;
 	dcmpr->outf = outf;
 	dcmpr->cmpr_pos = pos;
 	dcmpr->cmpr_len = md->cmpr_size;
-	dcmpr->uncmpr_len_expected = md->orig_size;
+	dcmpr->uncmpr_len_known = 1;
+	dcmpr->uncmpr_len = md->orig_size;
 
-	ret = do_riscos_extract_file(c, dcmpr, md->fn);
+	ret = do_riscos_extract_file(c, dcmpr, md->cmpr_meth, md->fn);
 	if(!ret) goto done;
 
 	crc_calc = de_crcobj_getval(d->crco);
