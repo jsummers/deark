@@ -495,7 +495,31 @@ struct riscos_dcmpr_params {
 static int is_spark_cmpr_meth_supported(deark *c, spkctx *d, u8 n)
 {
 	if(n==0x82) return 1;
+	if(n==0xff) return 1;
 	return 0;
+}
+
+static int do_dcmpr_compressed(deark *c, struct riscos_dcmpr_params *dcmpr, de_ucstring *fname)
+{
+	int retval = 0;
+	u8 lzwmaxbits;
+
+	// Note: This is Spark-specific.
+	if(dcmpr->cmpr_len < 1) {
+		goto done;
+	}
+
+	lzwmaxbits = dbuf_getbyte(dcmpr->inf, dcmpr->cmpr_pos);
+	de_dbg(c, "lzw maxbits: %u", (unsigned int)lzwmaxbits);
+
+	retval = de_decompress_liblzw(dcmpr->inf, dcmpr->cmpr_pos+1, dcmpr->cmpr_len-1,
+		dcmpr->outf, 1, dcmpr->uncmpr_len_expected, 0x0, 0x80|lzwmaxbits);
+
+done:
+	if(!retval) {
+		de_err(c, "%s: 'compressed' decompression failed", ucstring_getpsz_d(fname));
+	}
+	return retval;
 }
 
 // fname = a filename to use in error messages
@@ -513,6 +537,11 @@ static int do_riscos_extract_file(deark *c, struct riscos_dcmpr_params *dcmpr, d
 
 	if(dcmpr->cmpr_meth==0x82) { // stored
 		dbuf_copy(dcmpr->inf, dcmpr->cmpr_pos, dcmpr->cmpr_len, dcmpr->outf);
+	}
+	else if(dcmpr->cmpr_meth==0xff) {
+		if(!do_dcmpr_compressed(c, dcmpr, fname)) {
+			goto done;
+		}
 	}
 	else {
 		de_err(c, "%s: Extraction not implemented", ucstring_getpsz_d(fname));
