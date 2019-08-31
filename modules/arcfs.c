@@ -465,6 +465,7 @@ struct spark_member_data {
 	struct de_riscos_file_attrs rfa;
 	int is_dir;
 	u8 cmpr_meth;
+	u8 cmpr_meth_masked;
 	i64 orig_size;
 	i64 cmpr_size;
 	u32 crc_reported;
@@ -476,6 +477,7 @@ struct spark_member_data {
 typedef struct sparkctx_struct {
 	int input_encoding;
 	int append_type;
+	int recurse_subdirs;
 	i64 nmembers;
 	int level; // subdirectory nesting level
 	struct de_crcobj *crco;
@@ -566,6 +568,7 @@ static void do_spark_extract_member_file(deark *c, spkctx *d, struct spark_membe
 	de_ucstring *fullfn = NULL;
 	dbuf *outf = NULL;
 	struct riscos_dcmpr_params *dcmpr = NULL;
+	int ignore_failed_crc = 0;
 	int ret;
 	u32 crc_calc;
 
@@ -602,7 +605,12 @@ static void do_spark_extract_member_file(deark *c, spkctx *d, struct spark_membe
 
 	crc_calc = de_crcobj_getval(d->crco);
 	de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)crc_calc);
-	if(crc_calc != md->crc_reported) {
+	if(md->crc_reported==0 && !d->recurse_subdirs && md->rfa.file_type_known &&
+		md->rfa.file_type==0xddc && md->cmpr_meth==0x82)
+	{
+		ignore_failed_crc = 1;
+	}
+	if((crc_calc!=md->crc_reported) && !ignore_failed_crc) {
 		de_err(c, "%s: CRC check failed", ucstring_getpsz_d(md->fn));
 	}
 
@@ -659,10 +667,11 @@ static int do_spark_member(deark *c, spkctx *d, i64 pos1, i64 *bytes_consumed)
 	}
 
 	md->cmpr_meth = de_getbyte_p(&pos);
+	md->cmpr_meth_masked = md->cmpr_meth & 0x7f;
 	if(md->cmpr_meth>=0x81) {
 		md->cmpr_meth_name = get_info_byte_name(md->cmpr_meth);
 	}
-	else if(md->cmpr_meth==0x80) {
+	else if(md->cmpr_meth_masked==0x00) {
 		md->cmpr_meth_name = "end of dir marker";
 	}
 	else {
@@ -670,7 +679,7 @@ static int do_spark_member(deark *c, spkctx *d, i64 pos1, i64 *bytes_consumed)
 	}
 	de_dbg(c, "cmpr meth: 0x%02x (%s)", (unsigned int)md->cmpr_meth, md->cmpr_meth_name);
 
-	if(md->cmpr_meth==0x80) { // end of dir marker
+	if(md->cmpr_meth_masked==0x00) { // end of dir marker
 		*bytes_consumed = 2;
 
 		if(d->level<1) { // actually, end of the whole archive
@@ -700,7 +709,7 @@ static int do_spark_member(deark *c, spkctx *d, i64 pos1, i64 *bytes_consumed)
 
 	md->crc_reported = (u32)de_getu16le_p(&pos);
 	de_dbg(c, "crc (reported): 0x%04x", (unsigned int)md->crc_reported);
-	if((md->cmpr_meth & 0x7f)==0x01) {
+	if((md->cmpr_meth_masked)==0x01) {
 		md->orig_size = md->cmpr_size;
 	}
 	else {
@@ -716,8 +725,14 @@ static int do_spark_member(deark *c, spkctx *d, i64 pos1, i64 *bytes_consumed)
 
 	de_strarray_push(d->curpath, md->fn);
 
-	md->is_dir = (md->rfa.file_type_known && (md->rfa.file_type==0xddc));
+	// TODO: Is it possible to distinguish between a subdirectory, and a Spark
+	// member file that should always be extracted? Does a nonzero CRC mean
+	// we should not recurse?
+	md->is_dir = (d->recurse_subdirs && md->rfa.file_type_known &&
+		(md->rfa.file_type==0xddc) && md->cmpr_meth==0x82);
 	if(md->is_dir) {
+		// TODO: It would probably be more robust to use the reported length
+		// to find the end of the subdirectory.
 		d->level++;
 		md->orig_size = 0;
 		md->cmpr_size = 0;
@@ -725,7 +740,9 @@ static int do_spark_member(deark *c, spkctx *d, i64 pos1, i64 *bytes_consumed)
 	else {
 		need_curpath_pop = 1;
 	}
-	de_dbg(c, "is directory: %d", md->is_dir);
+	if(d->recurse_subdirs) {
+		de_dbg(c, "is directory: %d", md->is_dir);
+	}
 
 	*bytes_consumed = pos + md->cmpr_size - pos1;
 	retval = 1;
@@ -772,6 +789,7 @@ static void de_run_spark(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(spkctx));
 	d->input_encoding = DE_ENCODING_RISCOS;
+	d->recurse_subdirs = de_get_ext_option_bool(c, "spark:recurse", 1);
 	d->append_type = de_get_ext_option_bool(c, "spark:appendtype", 0);
 	d->curpath = de_strarray_create(c);
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
@@ -802,11 +820,12 @@ static int de_identify_spark(deark *c)
 	int has_trailer = 0;
 
 	if(de_getbyte(0) != 0x1a) return 0;
-	b = de_getbyte(1);
-	if(b==0x82 || b==0x83 || b==0x84 || b==0x85 ||
-		b==0x86 || b==0x88 || b==0x89 || b==0xff)
-	{
+	b = de_getbyte(1); // compression method
+	if(b==0x82 || b==0x83 || b==0x88 || b==0x89 || b==0xff) {
 		;
+	}
+	else if(b==0x81 || b==0x84 || b==0x85 || b==0x86) {
+		; // TODO: Verify that these are possible in Spark.
 	}
 	else {
 		return 0;
@@ -827,12 +846,19 @@ static int de_identify_spark(deark *c)
 	return 0;
 }
 
+static void de_help_spark(deark *c)
+{
+	de_msg(c, "-opt spark:appendtype : Append the file type to the filename");
+	de_msg(c, "-opt spark:recurse=0 : Extract subdirs as Spark files");
+}
+
 void de_module_spark(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "spark";
 	mi->desc = "Spark archive";
 	mi->run_fn = de_run_spark;
 	mi->identify_fn = de_identify_spark;
+	mi->help_fn = de_help_spark;
 }
 
 ///////////////////////////////////////////////////////////////////////////
