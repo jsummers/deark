@@ -33,10 +33,13 @@
 #define HBITS   17			/* 50% occupancy */
 #define HSIZE   (1<<HBITS)
 
+struct de_liblzwctx;
+typedef size_t (*liblzw_cb_read_type)(struct de_liblzwctx *lzw, u8 *buf, size_t size);
+
 struct de_liblzwctx {
+	void *userdata;
 	deark *c;
-	dbuf *inf;
-	i64 inf_fpos;
+	liblzw_cb_read_type cb_read;
 	int arcfs_mode;
 
 	int eof;
@@ -95,12 +98,13 @@ static void liblzw_set_coded_error(struct de_liblzwctx *lzw, int code)
 	liblzw_set_errorf(lzw, "LZW decompression error (%d)", code);
 }
 
-static struct de_liblzwctx *de_liblzw_create(deark *c)
+static struct de_liblzwctx *de_liblzw_create(deark *c, void *userdata)
 {
 	struct de_liblzwctx *lzw = NULL;
 
 	lzw = de_malloc(c, sizeof(struct de_liblzwctx));
 	lzw->c = c;
+	lzw->userdata = userdata;
 	return lzw;
 }
 
@@ -113,19 +117,17 @@ static void de_liblzw_destroy(struct de_liblzwctx *lzw)
 }
 
 /*
- * Open LZW file
+ * Initialize decompression, read header if needed
  */
-static int de_liblzw_dbufopen(struct de_liblzwctx *lzw, dbuf *inf, unsigned int flags, u8 lzwmode)
+static int de_liblzw_init(struct de_liblzwctx *lzw, unsigned int flags, u8 lzwmode)
 {
-	i64 inf_fpos = 0;
 	int has_header;
 
 	has_header = (flags&0x1)?1:0;
-
 	if(has_header) {
 		unsigned char buf[3];
 
-		if (dbuf_standard_read(inf, buf, 3, &inf_fpos) != 3) {
+		if (lzw->cb_read(lzw, buf, 3) != 3) {
 			liblzw_set_errorf(lzw, "Not in compress format");
 			goto err_out;
 		}
@@ -137,10 +139,7 @@ static int de_liblzw_dbufopen(struct de_liblzwctx *lzw, dbuf *inf, unsigned int 
 		lzwmode = buf[2];
 	}
 
-	lzw->inf = inf;
-	lzw->inf_fpos = inf_fpos;
 	lzw->arcfs_mode = (flags&0x2)?1:0;
-
 	lzw->eof = 0;
 	lzw->inbuf = de_malloc(lzw->c, sizeof(unsigned char) * IN_BUFSIZE);
 	lzw->outbuf = de_malloc(lzw->c, sizeof(unsigned char) * OUT_BUFSIZE);
@@ -239,7 +238,7 @@ resetbuf:
 		}
 
 		if (lzw->insize < IN_BUFSIZE-BUFSIZE) {
-			lzw->rsize = dbuf_standard_read(lzw->inf, inbuf+lzw->insize, BUFSIZE, &lzw->inf_fpos);
+			lzw->rsize = lzw->cb_read(lzw, inbuf+lzw->insize, BUFSIZE);
 			lzw->insize += (size_t)lzw->rsize;
 		}
 
