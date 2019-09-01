@@ -54,6 +54,9 @@ struct de_liblzwctx {
 
 	int n_bits, posbits, inbits, bitmask, finchar;
 	i32 maxcode, oldcode, incode, code, free_ent;
+
+	int errcode;
+	char errmsg[80];
 };
 
 /******************************************/
@@ -70,6 +73,27 @@ struct de_liblzwctx {
 #define MAXCODE(n)   (1L << (n))
 #define FIRST        257					/* first free entry */
 #define CLEAR        256					/* table clear output code */
+
+
+static void liblzw_set_errorf(struct de_liblzwctx *lzw, const char *fmt, ...)
+  de_gnuc_attribute ((format (printf, 2, 3)));
+
+static void liblzw_set_errorf(struct de_liblzwctx *lzw, const char *fmt, ...)
+{
+	va_list ap;
+
+	if(lzw->errcode != 0) return; // Only record the first error
+	lzw->errcode = 1;
+
+	va_start(ap, fmt);
+	de_vsnprintf(lzw->errmsg, sizeof(lzw->errmsg), fmt, ap);
+	va_end(ap);
+}
+
+static void liblzw_set_coded_error(struct de_liblzwctx *lzw, int code)
+{
+	liblzw_set_errorf(lzw, "LZW decompression error (%d)", code);
+}
 
 static struct de_liblzwctx *de_liblzw_create(deark *c)
 {
@@ -102,12 +126,12 @@ static int de_liblzw_dbufopen(struct de_liblzwctx *lzw, dbuf *inf, unsigned int 
 		unsigned char buf[3];
 
 		if (dbuf_standard_read(inf, buf, 3, &inf_fpos) != 3) {
-			de_err(inf->c, "Not in compress format");
+			liblzw_set_errorf(lzw, "Not in compress format");
 			goto err_out;
 		}
 
 		if (buf[0] != LZW_MAGIC_1 || buf[1] != LZW_MAGIC_2 || buf[2] & 0x60) {
-			de_err(inf->c, "Not in compress format");
+			liblzw_set_errorf(lzw, "Not in compress format");
 			goto err_out;
 		}
 		lzwmode = buf[2];
@@ -146,7 +170,7 @@ static int de_liblzw_dbufopen(struct de_liblzwctx *lzw, dbuf *inf, unsigned int 
 		lzw->htab[lzw->code] = lzw->code;
 
 	if (lzw->maxbits > BITS) {
-		de_err(lzw->c, "Unsupported number of bits (%d)", lzw->maxbits);
+		liblzw_set_errorf(lzw, "Unsupported number of bits (%d)", lzw->maxbits);
 		goto err_out_free;
 	}
 
@@ -241,7 +265,7 @@ resetbuf:
 
 			if (lzw->oldcode == -1) {
 				if (lzw->code >= 256) {
-					de_err(lzw->c, "LZW decompression error");
+					liblzw_set_coded_error(lzw, 1);
 					return -1;
 				}
 				outbuf[lzw->outpos++] = lzw->finchar = lzw->oldcode = lzw->code;
@@ -264,7 +288,7 @@ resetbuf:
 			/* Special case for KwKwK string.*/
 			if (lzw->code >= lzw->free_ent) {
 				if ((lzw->code > lzw->free_ent) && !lzw->arcfs_mode) {
-					de_err(lzw->c, "LZW decompression error");
+					liblzw_set_coded_error(lzw, 2);
 					return -1;
 				}
 
@@ -275,7 +299,7 @@ resetbuf:
 			/* Generate output characters in reverse order */
 			while (lzw->code >= 256) {
 				if(lzw->stackp==(unsigned char*)&lzw->htab[0]) {
-					de_err(lzw->c, "LZW decompression error");
+					liblzw_set_coded_error(lzw, 3);
 					return -1;
 				}
 				*--lzw->stackp = (unsigned char)lzw->htab[lzw->code];
@@ -283,7 +307,7 @@ resetbuf:
 			}
 
 			if(lzw->stackp==(unsigned char*)&lzw->htab[0]) {
-				de_err(lzw->c, "LZW decompression error");
+				liblzw_set_coded_error(lzw, 4);
 				return -1;
 			}
 			*--lzw->stackp = (lzw->finchar = lzw->htab[lzw->code]);

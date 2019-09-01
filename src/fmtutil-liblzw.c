@@ -55,7 +55,12 @@ int de_fmtutil_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
 	retval = 1;
 
 done:
-	if(lzw) de_liblzw_destroy(lzw);
+	if(lzw) {
+		if(lzw->errcode) {
+			de_err(c, "[liblzw] %s", lzw->errmsg);
+		}
+		de_liblzw_destroy(lzw);
+	}
 	dbuf_close(inf);
 	return retval;
 }
