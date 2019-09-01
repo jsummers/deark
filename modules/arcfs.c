@@ -13,18 +13,6 @@ DE_DECLARE_MODULE(de_module_arcfs);
 DE_DECLARE_MODULE(de_module_spark);
 DE_DECLARE_MODULE(de_module_squash);
 
-struct de_dfilter_in_params {
-	dbuf *f;
-	i64 pos;
-	i64 len;
-};
-
-struct de_dfilter_out_params {
-	dbuf *f;
-	u8 len_known;
-	i64 expected_len;
-};
-
 struct de_riscos_file_attrs {
 	u8 file_type_known;
 	u32 load_addr, exec_addr;
@@ -150,10 +138,31 @@ static int do_arcfs_compressed(deark *c, lctx *d, struct arcfs_member_data *md, 
 {
 	u8 lzwmode;
 	int retval = 0;
+	struct de_dfilter_results dres;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+
+	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
+	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
+	de_dfilter_results_clear(c, &dres);
+
+	dcmpri.f = c->infile;
+	dcmpri.pos = md->file_data_offs_abs;
+	dcmpri.len =  md->cmpr_len;
+	dcmpro.f = outf;
+	dcmpro.len_known = limit_size_flag?1:0;
+	dcmpro.expected_len = md->orig_len;
 
 	lzwmode = (u8)(md->rfa.lzwmaxbits | 0x80);
-	retval = de_fmtutil_decompress_liblzw(c->infile, md->file_data_offs_abs, md->cmpr_len,
-		outf, limit_size_flag, md->orig_len, DE_LIBLZWFLAG_ARCFSMODE, lzwmode);
+	de_fmtutil_decompress_liblzw_ex(c, &dcmpri, &dcmpro, &dres,
+		DE_LIBLZWFLAG_ARCFSMODE, lzwmode);
+
+	if(dres.errcode==0) {
+		retval = 1;
+	}
+	if(dres.errcode!=0) {
+		de_err(c, "%s", dres.errmsg);
+	}
 	return retval;
 }
 
@@ -511,6 +520,11 @@ static int do_dcmpr_compressed(deark *c, struct de_dfilter_in_params *dcmpri,
 {
 	int retval = 0;
 	u8 lzwmaxbits;
+	struct de_dfilter_results dres;
+	struct de_dfilter_in_params tmpiparams;
+
+	de_zeromem(&tmpiparams, sizeof(struct de_dfilter_in_params));
+	de_dfilter_results_clear(c, &dres);
 
 	// Note: This is Spark-specific.
 	if(dcmpri->len < 1) {
@@ -520,12 +534,17 @@ static int do_dcmpr_compressed(deark *c, struct de_dfilter_in_params *dcmpri,
 	lzwmaxbits = dbuf_getbyte(dcmpri->f, dcmpri->pos);
 	de_dbg(c, "lzw maxbits: %u", (unsigned int)lzwmaxbits);
 
-	retval = de_fmtutil_decompress_liblzw(dcmpri->f, dcmpri->pos+1, dcmpri->len-1,
-		dcmpro->f, (dcmpro->len_known?1:0), dcmpro->expected_len, 0x0, 0x80|lzwmaxbits);
+	tmpiparams.f = dcmpri->f;
+	tmpiparams.pos = dcmpri->pos + 1;
+	tmpiparams.len = dcmpri->len - 1;
+
+	de_fmtutil_decompress_liblzw_ex(c, &tmpiparams, dcmpro, &dres, 0x0, 0x80|lzwmaxbits);
+	retval = (dres.errcode==0);
 
 done:
 	if(!retval) {
-		de_err(c, "%s: 'compressed' decompression failed", ucstring_getpsz_d(fname));
+		de_err(c, "%s: 'compressed' decompression failed: %s", ucstring_getpsz_d(fname),
+			dres.errmsg);
 	}
 	return retval;
 }
@@ -927,9 +946,7 @@ void de_module_spark(deark *c, struct deark_module_info *mi)
 // Squash
 
 typedef struct sqctx_struct {
-	i64 cmpr_data_pos;
 	i64 orig_len;
-	i64 cmpr_len;
 	struct de_riscos_file_attrs rfa;
 } sqctx;
 
@@ -949,21 +966,23 @@ static void do_squash_header(deark *c, sqctx *d, i64 pos1)
 	de_dbg_indent(c, -1);
 }
 
-static void de_run_squash(deark *c, de_module_params *mparams)
+static void do_squash_main(deark *c, sqctx *d)
 {
-	sqctx *d = NULL;
 	dbuf *outf = NULL;
 	de_finfo *fi = NULL;
 	de_ucstring *fn = NULL;
-	int ret;
+	struct de_dfilter_results dres;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
 
-	d = de_malloc(c, sizeof(sqctx));
+	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
+	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
+	de_dfilter_results_clear(c, &dres);
 
-	do_squash_header(c, d, 0);
-
-	d->cmpr_data_pos = 20;
-	d->cmpr_len = c->infile->len - d->cmpr_data_pos;
-	de_dbg(c, "compressed data at %"I64_FMT, d->cmpr_data_pos);
+	dcmpri.f = c->infile;
+	dcmpri.pos = 20;
+	dcmpri.len = c->infile->len - dcmpri.pos;
+	de_dbg(c, "compressed data at %"I64_FMT, dcmpri.pos);
 
 	fi = de_finfo_create(c);
 
@@ -979,11 +998,15 @@ static void de_run_squash(deark *c, de_module_params *mparams)
 	}
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
+	dcmpro.f = outf;
+	dcmpro.len_known = 0;
 
-	ret = de_fmtutil_decompress_liblzw(c->infile, d->cmpr_data_pos, d->cmpr_len,
-		outf, 1, d->orig_len, DE_LIBLZWFLAG_HAS3BYTEHEADER, 0);
+	de_fmtutil_decompress_liblzw_ex(c, &dcmpri, &dcmpro, &dres, DE_LIBLZWFLAG_HAS3BYTEHEADER, 0);
 
-	if(!ret) goto done;
+	if(dres.errcode) {
+		de_err(c, "%s", dres.errmsg);
+		goto done;
+	}
 
 	if(outf->len != d->orig_len) {
 		de_err(c, "Decompression failed, expected size %"I64_FMT
@@ -995,6 +1018,17 @@ done:
 	dbuf_close(outf);
 	de_finfo_destroy(c, fi);
 	ucstring_destroy(fn);
+}
+
+static void de_run_squash(deark *c, de_module_params *mparams)
+{
+	sqctx *d = NULL;
+
+	d = de_malloc(c, sizeof(sqctx));
+
+	do_squash_header(c, d, 0);
+	do_squash_main(c, d);
+
 	de_free(c, d);
 }
 

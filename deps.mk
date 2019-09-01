@@ -280,6 +280,8 @@ $(OBJDIR)/src/deark-user.o: src/deark-user.c src/deark-config.h \
 $(OBJDIR)/src/deark-util.o: src/deark-util.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/src/deark-win.o: src/deark-win.c src/deark-config.h
+$(OBJDIR)/src/fmtutil-cmpr.o: src/fmtutil-cmpr.c src/deark-config.h \
+ src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/src/fmtutil-liblzw.o: src/fmtutil-liblzw.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h \
  src/../foreign/liblzw.h

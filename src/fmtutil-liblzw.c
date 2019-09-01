@@ -34,8 +34,8 @@ static size_t my_liblzw_read(struct de_liblzwctx *lzw, u8 *buf, size_t size)
 //  DE_LIBLZWFLAG_HAS3BYTEHEADER = has "compress" style header
 //  DE_LIBLZWFLAG_ARCFSMODE = arcfs mode
 // lzwmode: Like compress format. Used if there's no header.
-int de_fmtutil_decompress_liblzw(dbuf *inf, i64 pos1, i64 len,
-	dbuf *outf, unsigned int has_maxlen, i64 max_out_len,
+void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags, u8 lzwmode)
 {
 	u8 buf[1024];
@@ -44,14 +44,13 @@ int de_fmtutil_decompress_liblzw(dbuf *inf, i64 pos1, i64 len,
 	i64 nbytes_still_to_write;
 	int retval = 0;
 	int ret;
-	deark *c = inf->c;
 	struct liblzw_userdata_type lu;
 
-	lu.inf = inf;
-	lu.inf_pos = pos1;
-	lu.inf_endpos = pos1 + len;
-	if(lu.inf_endpos > inf->len) {
-		lu.inf_endpos = inf->len;
+	lu.inf = dcmpri->f;
+	lu.inf_pos = dcmpri->pos;
+	lu.inf_endpos = dcmpri->pos + dcmpri->len;
+	if(lu.inf_endpos > dcmpri->f->len) {
+		lu.inf_endpos = dcmpri->f->len;
 	}
 	if(lu.inf_pos > lu.inf_endpos) {
 		lu.inf_pos = lu.inf_endpos;
@@ -63,22 +62,22 @@ int de_fmtutil_decompress_liblzw(dbuf *inf, i64 pos1, i64 len,
 	ret = de_liblzw_init(lzw, flags, lzwmode);
 	if(!ret) goto done;
 
-	nbytes_still_to_write = has_maxlen ? max_out_len : 0;
+	nbytes_still_to_write = dcmpro->len_known ? dcmpro->expected_len : 0;
 
 	while(1) {
-		if(has_maxlen && (nbytes_still_to_write<1)) break;
+		if(dcmpro->len_known && (nbytes_still_to_write<1)) break;
 		n = de_liblzw_read(lzw, buf, sizeof(buf));
 		if(n<0) {
 			goto done;
 		}
 		if(n<1) break;
 
-		if(has_maxlen && (n > nbytes_still_to_write)) {
+		if(dcmpro->len_known && (n > nbytes_still_to_write)) {
 			// Make sure we don't write more bytes than expected.
 			n = nbytes_still_to_write;
 		}
 
-		dbuf_write(outf, buf, n);
+		dbuf_write(dcmpro->f, buf, n);
 		nbytes_still_to_write -= n;
 	}
 	retval = 1;
@@ -86,10 +85,40 @@ int de_fmtutil_decompress_liblzw(dbuf *inf, i64 pos1, i64 len,
 done:
 	if(lzw) {
 		if(lzw->errcode) {
-			de_err(c, "[liblzw] %s", lzw->errmsg);
+			de_dfilter_set_errorf(c, dres, "[liblzw] %s", lzw->errmsg);
 		}
 		de_liblzw_destroy(lzw);
 	}
+	if(!retval) {
+		// In case we somehow got here without recording an error
+		de_dfilter_set_generic_error(c, dres);
+	}
+}
 
-	return retval;
+// Old API, semi-deprecated
+int de_fmtutil_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
+	dbuf *outf, unsigned int has_maxlen, i64 max_out_len,
+	unsigned int flags, u8 lzwmode)
+{
+	struct de_dfilter_results dres;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	deark *c = inf1->c;
+
+	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
+	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
+	de_dfilter_results_clear(c, &dres);
+
+	dcmpri.f = c->infile;
+	dcmpri.pos = pos1;
+	dcmpri.len = len;
+	dcmpro.f = outf;
+	dcmpro.len_known = (u8)has_maxlen;
+	dcmpro.expected_len = max_out_len;
+	de_fmtutil_decompress_liblzw_ex(c, &dcmpri, &dcmpro, &dres, flags, lzwmode);
+	if(dres.errcode!=0) {
+		de_err(c, "%s", dres.errmsg);
+		return 0;
+	}
+	return 1;
 }

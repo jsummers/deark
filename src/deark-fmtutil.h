@@ -2,6 +2,23 @@
 // Copyright (C) 2016 Jason Summers
 // See the file COPYING for terms of use.
 
+struct de_dfilter_in_params {
+	dbuf *f;
+	i64 pos;
+	i64 len;
+};
+
+struct de_dfilter_out_params {
+	dbuf *f;
+	u8 len_known;
+	i64 expected_len;
+};
+
+struct de_dfilter_results {
+	int errcode;
+	char errmsg[80];
+};
+
 struct de_bmpinfo {
 #define DE_BMPINFO_FMT_BMP 0
 #define DE_BMPINFO_FMT_PNG 1
@@ -69,6 +86,9 @@ int de_fmtutil_decompress_rle90(dbuf *inf, i64 pos1, i64 len,
 
 #define DE_LIBLZWFLAG_HAS3BYTEHEADER  0x1
 #define DE_LIBLZWFLAG_ARCFSMODE       0x2
+void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	unsigned int flags, u8 lzwmode);
 int de_fmtutil_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
 	dbuf *outf, unsigned int has_maxlen, i64 max_out_len,
 	unsigned int flags, u8 lzwmode);
@@ -296,3 +316,9 @@ struct de_advfile *de_advfile_create(deark *c);
 void de_advfile_destroy(struct de_advfile *advf);
 void de_advfile_set_orig_filename(struct de_advfile *advf, const char *fn, size_t fnlen);
 void de_advfile_run(struct de_advfile *advf);
+
+void de_dfilter_set_errorf(deark *c, struct de_dfilter_results *dres,
+	const char *fmt, ...)
+  de_gnuc_attribute ((format (printf, 3, 4)));
+void de_dfilter_set_generic_error(deark *c, struct de_dfilter_results *dres);
+void de_dfilter_results_clear(deark *c, struct de_dfilter_results *dres);
