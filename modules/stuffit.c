@@ -91,7 +91,7 @@ static int do_decompr_lzw(deark *c, lctx *d, struct member_data *md,
 
 	// TODO: What are the right lzw settings?
 	lzwmode = (u8)(14 | 0x80);
-	retval = de_decompress_liblzw(c->infile, frk->cmpr_pos, frk->cmpr_len, outf,
+	retval = de_fmtutil_decompress_liblzw(c->infile, frk->cmpr_pos, frk->cmpr_len, outf,
 		1, frk->unc_len, 0x0, lzwmode);
 	return retval;
 }

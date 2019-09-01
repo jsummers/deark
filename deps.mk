@@ -281,6 +281,7 @@ $(OBJDIR)/src/deark-util.o: src/deark-util.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/src/deark-win.o: src/deark-win.c src/deark-config.h
 $(OBJDIR)/src/fmtutil-liblzw.o: src/fmtutil-liblzw.c src/deark-config.h \
- src/deark-private.h src/deark.h src/../foreign/liblzw.h
+ src/deark-private.h src/deark.h src/deark-fmtutil.h \
+ src/../foreign/liblzw.h
 $(OBJDIR)/src/fmtutil.o: src/fmtutil.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h

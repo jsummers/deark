@@ -7,13 +7,14 @@
 #define DE_NOT_IN_MODULE
 #include "deark-config.h"
 #include "deark-private.h"
+#include "deark-fmtutil.h"
 #include "../foreign/liblzw.h"
 
 // dflags:
 //  0x1 = has "compress" style header
 //  0x2 = arcfs mode
 // lzwmode: Like compress format. Used if there's no header.
-int de_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
+int de_fmtutil_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
 	dbuf *outf, unsigned int has_maxlen, i64 max_out_len,
 	unsigned int dflags, u8 lzwmode)
 {

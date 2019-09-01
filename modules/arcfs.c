@@ -140,7 +140,7 @@ static int do_arcfs_compressed(deark *c, lctx *d, struct arcfs_member_data *md, 
 	int retval = 0;
 
 	lzwmode = (u8)(md->rfa.lzwmaxbits | 0x80);
-	retval = de_decompress_liblzw(c->infile, md->file_data_offs_abs, md->cmpr_len,
+	retval = de_fmtutil_decompress_liblzw(c->infile, md->file_data_offs_abs, md->cmpr_len,
 		outf, limit_size_flag, md->orig_len, 0x2, lzwmode);
 	return retval;
 }
@@ -515,7 +515,7 @@ static int do_dcmpr_compressed(deark *c, struct riscos_dcmpr_params *dcmpr, de_u
 	lzwmaxbits = dbuf_getbyte(dcmpr->inf, dcmpr->cmpr_pos);
 	de_dbg(c, "lzw maxbits: %u", (unsigned int)lzwmaxbits);
 
-	retval = de_decompress_liblzw(dcmpr->inf, dcmpr->cmpr_pos+1, dcmpr->cmpr_len-1,
+	retval = de_fmtutil_decompress_liblzw(dcmpr->inf, dcmpr->cmpr_pos+1, dcmpr->cmpr_len-1,
 		dcmpr->outf, (dcmpr->uncmpr_len_known?1:0), dcmpr->uncmpr_len, 0x0, 0x80|lzwmaxbits);
 
 done:
@@ -976,7 +976,7 @@ static void de_run_squash(deark *c, de_module_params *mparams)
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
 
-	ret = de_decompress_liblzw(c->infile, d->cmpr_data_pos, d->cmpr_len,
+	ret = de_fmtutil_decompress_liblzw(c->infile, d->cmpr_data_pos, d->cmpr_len,
 		outf, 1, d->orig_len, 0x1, 0);
 
 	if(!ret) goto done;

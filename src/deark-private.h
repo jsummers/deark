@@ -511,12 +511,6 @@ u32 de_crc32_continue(u32 prev_crc, const void *buf, i64 buf_len);
 
 ///////////////////////////////////////////
 
-int de_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
-	dbuf *outf, unsigned int has_maxlen, i64 max_out_len,
-	unsigned int dflags, u8 lzwmode);
-
-///////////////////////////////////////////
-
 i64 de_geti8_direct(const u8 *m);
 i64 de_getu16be_direct(const u8 *m);
 i64 de_getu16le_direct(const u8 *m);
