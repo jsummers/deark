@@ -24,12 +24,15 @@ int de_fmtutil_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
 	struct de_liblzwctx *lzw = NULL;
 	i64 nbytes_still_to_write;
 	int retval = 0;
+	int ret;
+	deark *c = inf1->c;
 
 	// TODO: We shouldn't really need a subfile here.
 	inf = dbuf_open_input_subfile(inf1, pos1, len);
 
-	lzw = de_liblzw_dbufopen(inf, flags, lzwmode);
-	if(!lzw) goto done;
+	lzw = de_liblzw_create(c);
+	ret = de_liblzw_dbufopen(lzw, inf, flags, lzwmode);
+	if(!ret) goto done;
 
 	nbytes_still_to_write = has_maxlen ? max_out_len : 0;
 
@@ -52,7 +55,7 @@ int de_fmtutil_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
 	retval = 1;
 
 done:
-	if(lzw) de_liblzw_close(lzw);
+	if(lzw) de_liblzw_destroy(lzw);
 	dbuf_close(inf);
 	return retval;
 }
