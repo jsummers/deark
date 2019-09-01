@@ -47,7 +47,6 @@ struct de_liblzwctx {
 	size_t insize, outpos;
 	i64 rsize;
 
-	unsigned char flags;
 	int maxbits, block_mode;
 
 	u32 htab[HSIZE];
@@ -119,9 +118,8 @@ static struct de_liblzwctx *de_liblzw_dbufopen(dbuf *inf, unsigned int dflags, u
 	ret->outpos = 0;
 	ret->rsize = 0;
 
-	ret->flags = lzwmode;
-	ret->maxbits = ret->flags & 0x1f;    /* Mask for 'number of compresssion bits' */
-	ret->block_mode = ret->flags & 0x80;
+	ret->maxbits = lzwmode & 0x1f;    /* Mask for 'number of compression bits' */
+	ret->block_mode = lzwmode & 0x80;
 
 	ret->n_bits = INIT_BITS;
 	ret->maxcode = MAXCODE(INIT_BITS) - 1;

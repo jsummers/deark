@@ -67,9 +67,11 @@ int de_fmtutil_uncompress_packbits16(dbuf *f, i64 pos1, i64 len,
 int de_fmtutil_decompress_rle90(dbuf *inf, i64 pos1, i64 len,
 	dbuf *outf, unsigned int has_maxlen, i64 max_out_len, unsigned int flags);
 
+#define DE_LIBLZWFLAG_HAS3BYTEHEADER  0x1
+#define DE_LIBLZWFLAG_ARCFSMODE       0x2
 int de_fmtutil_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
 	dbuf *outf, unsigned int has_maxlen, i64 max_out_len,
-	unsigned int dflags, u8 lzwmode);
+	unsigned int flags, u8 lzwmode);
 
 struct de_SAUCE_info {
 	int is_valid;

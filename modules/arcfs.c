@@ -141,7 +141,7 @@ static int do_arcfs_compressed(deark *c, lctx *d, struct arcfs_member_data *md, 
 
 	lzwmode = (u8)(md->rfa.lzwmaxbits | 0x80);
 	retval = de_fmtutil_decompress_liblzw(c->infile, md->file_data_offs_abs, md->cmpr_len,
-		outf, limit_size_flag, md->orig_len, 0x2, lzwmode);
+		outf, limit_size_flag, md->orig_len, DE_LIBLZWFLAG_ARCFSMODE, lzwmode);
 	return retval;
 }
 
@@ -977,7 +977,7 @@ static void de_run_squash(deark *c, de_module_params *mparams)
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
 
 	ret = de_fmtutil_decompress_liblzw(c->infile, d->cmpr_data_pos, d->cmpr_len,
-		outf, 1, d->orig_len, 0x1, 0);
+		outf, 1, d->orig_len, DE_LIBLZWFLAG_HAS3BYTEHEADER, 0);
 
 	if(!ret) goto done;
 

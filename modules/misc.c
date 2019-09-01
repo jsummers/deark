@@ -2032,7 +2032,8 @@ static void de_run_compress(deark *c, de_module_params *mparams)
 	dbuf *f = NULL;
 
 	f = dbuf_create_output_file(c, "bin", NULL, 0);
-	de_fmtutil_decompress_liblzw(c->infile, 0, c->infile->len, f, 0, 0, 0x1, 0);
+	de_fmtutil_decompress_liblzw(c->infile, 0, c->infile->len, f, 0, 0,
+		DE_LIBLZWFLAG_HAS3BYTEHEADER, 0);
 	dbuf_close(f);
 }
 

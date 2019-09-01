@@ -16,7 +16,7 @@
 // lzwmode: Like compress format. Used if there's no header.
 int de_fmtutil_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
 	dbuf *outf, unsigned int has_maxlen, i64 max_out_len,
-	unsigned int dflags, u8 lzwmode)
+	unsigned int flags, u8 lzwmode)
 {
 	u8 buf[1024];
 	i64 n;
@@ -28,7 +28,7 @@ int de_fmtutil_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
 	// TODO: We shouldn't really need a subfile here.
 	inf = dbuf_open_input_subfile(inf1, pos1, len);
 
-	lzw = de_liblzw_dbufopen(inf, dflags, lzwmode);
+	lzw = de_liblzw_dbufopen(inf, flags, lzwmode);
 	if(!lzw) goto done;
 
 	nbytes_still_to_write = has_maxlen ? max_out_len : 0;
