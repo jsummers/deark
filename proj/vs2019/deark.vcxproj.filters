@@ -37,13 +37,7 @@
     <ClCompile Include="..\..\src\deark-dbuf.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\deark-fmtutil.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\src\deark-font.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\deark-liblzw.c">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\..\src\deark-miniz.c">
@@ -447,6 +441,12 @@
     </ClCompile>
     <ClCompile Include="..\..\modules\arc.c">
       <Filter>Modules</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\fmtutil.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\fmtutil-liblzw.c">
+      <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
