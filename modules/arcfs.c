@@ -133,46 +133,29 @@ done:
 	return retval;
 }
 
-static int do_arcfs_compressed(deark *c, lctx *d, struct arcfs_member_data *md, dbuf *outf,
-	int limit_size_flag)
+static void do_arcfs_compressed(deark *c, lctx *d, struct arcfs_member_data *md,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
 {
 	u8 lzwmode;
-	int retval = 0;
-	struct de_dfilter_results dres;
-	struct de_dfilter_in_params dcmpri;
-	struct de_dfilter_out_params dcmpro;
-
-	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
-	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
-	de_dfilter_results_clear(c, &dres);
-
-	dcmpri.f = c->infile;
-	dcmpri.pos = md->file_data_offs_abs;
-	dcmpri.len =  md->cmpr_len;
-	dcmpro.f = outf;
-	dcmpro.len_known = limit_size_flag?1:0;
-	dcmpro.expected_len = md->orig_len;
 
 	lzwmode = (u8)(md->rfa.lzwmaxbits | 0x80);
-	de_fmtutil_decompress_liblzw_ex(c, &dcmpri, &dcmpro, &dres,
+	de_fmtutil_decompress_liblzw_ex(c, dcmpri, dcmpro, dres,
 		DE_LIBLZWFLAG_ARCFSMODE, lzwmode);
-
-	if(dres.errcode==0) {
-		retval = 1;
-	}
-	if(dres.errcode!=0) {
-		de_err(c, "%s", dres.errmsg);
-	}
-	return retval;
 }
 
-static int do_arcfs_crunched(deark *c, lctx *d, struct arcfs_member_data *md, dbuf *outf)
+static void do_arcfs_crunched(deark *c, lctx *d, struct arcfs_member_data *md,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
 {
 	dbuf *tmpf = NULL;
-	int ret1, ret2;
-	int retval = 0;
+	struct de_dfilter_out_params tmpoparams;
+	struct de_dfilter_in_params tmpiparams;
 
-	// "Crunched" apparently means "packed", then "compressed".
+	de_zeromem(&tmpoparams, sizeof(struct de_dfilter_out_params));
+	de_zeromem(&tmpiparams, sizeof(struct de_dfilter_in_params));
+
+	// "Crunched" means "packed", then "compressed".
 	// So we have to "uncompress", then "unpack".
 
 	// TODO: It would be better to unpack the bytes in a streaming fashion, instead
@@ -180,17 +163,21 @@ static int do_arcfs_crunched(deark *c, lctx *d, struct arcfs_member_data *md, db
 	// TODO: We should at least set a size limit on tmpf, but it's not clear what
 	// the limit should be.
 	tmpf = dbuf_create_membuf(c, 0, 0);
-	ret1 = do_arcfs_compressed(c, d, md, tmpf, 0);
-	de_dbg2(c, "size after intermediate decompression: %d", (int)tmpf->len);
+	tmpoparams.f = tmpf;
+	tmpoparams.len_known = 0;
+	do_arcfs_compressed(c, d, md, dcmpri, &tmpoparams, dres);
+	if(dres->errcode) goto done;
 
-	ret2 = de_fmtutil_decompress_rle90(tmpf, 0, tmpf->len, outf, 1, md->orig_len, 0);
-	if(!ret1 || !ret2) goto done;
+	de_dbg2(c, "size after intermediate decompression: %"I64_FMT, tmpf->len);
 
-	retval = 1;
+	tmpiparams.f = tmpf;
+	tmpiparams.pos = 0;
+	tmpiparams.len = tmpf->len;
+
+	de_fmtutil_decompress_rle90_ex(c, &tmpiparams, dcmpro, dres, 0);
 
 done:
 	dbuf_close(tmpf);
-	return retval;
 }
 
 static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
@@ -204,9 +191,15 @@ static void do_arcfs_extract_member_file(deark *c, lctx *d, struct arcfs_member_
 {
 	dbuf *outf = NULL;
 	u32 crc_calc;
-	int ret;
 	de_ucstring *fullfn = NULL;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	int have_dres = 0;
 
+	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
+	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
+	de_dfilter_results_clear(c, &dres);
 	if(md->file_data_offs_abs + md->cmpr_len > c->infile->len) goto done;
 
 	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT,
@@ -236,28 +229,37 @@ static void do_arcfs_extract_member_file(deark *c, lctx *d, struct arcfs_member_
 	outf->userdata = (void*)d->crco;
 	de_crcobj_reset(d->crco);
 
+	dcmpri.f = c->infile;
+	dcmpri.pos = md->file_data_offs_abs;
+	dcmpri.len = md->cmpr_len;
+	dcmpro.f = outf;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = md->orig_len;
+
 	if(md->cmpr_method==0x82) { // stored
 		dbuf_copy(c->infile, md->file_data_offs_abs, md->cmpr_len, outf);
 	}
 	else if(md->cmpr_method==0x83) {
-		de_fmtutil_decompress_rle90(c->infile, md->file_data_offs_abs, md->cmpr_len,
-			outf, 1, md->orig_len, 0);
+		de_fmtutil_decompress_rle90_ex(c, &dcmpri, &dcmpro, &dres, 0);
+		have_dres = 1;
 	}
 	else if(md->cmpr_method==0xff) {
-		ret = do_arcfs_compressed(c, d, md, outf, 1);
-		if(!ret) {
-			goto done;
-		}
+		do_arcfs_compressed(c, d, md, &dcmpri, &dcmpro, &dres);
+		have_dres = 1;
 	}
 	else if(md->cmpr_method==0x88) {
-		ret = do_arcfs_crunched(c, d, md, outf);
-		if(!ret) {
-			goto done;
-		}
+		do_arcfs_crunched(c, d, md, &dcmpri, &dcmpro, &dres);
+		have_dres = 1;
+	}
+
+	if(have_dres && dres.errcode!=0) {
+		de_err(c, "%s: Decompression failed: %s",
+			ucstring_getpsz_d(md->fn), dres.errmsg);
+		goto done;
 	}
 
 	if(outf->len != md->orig_len) {
-		de_err(c, "Decompression failed for file %s, expected size %"I64_FMT
+		de_err(c, "%s: Decompression failed: Expected size %"I64_FMT
 			", got %"I64_FMT, ucstring_getpsz_d(md->fn), md->orig_len, outf->len);
 		goto done;
 	}
