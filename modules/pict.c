@@ -515,10 +515,10 @@ static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, i64 pos)
 			dbuf_copy(c->infile, pos, bytecount, unc_pixels);
 		}
 		else if(bi->packing_type==3 && bi->pixelsize==16) {
-			de_fmtutil_uncompress_packbits16(c->infile, pos, bytecount, unc_pixels, NULL);
+			de_fmtutil_decompress_packbits16(c->infile, pos, bytecount, unc_pixels, NULL);
 		}
 		else {
-			de_fmtutil_uncompress_packbits(c->infile, pos, bytecount, unc_pixels, NULL);
+			de_fmtutil_decompress_packbits(c->infile, pos, bytecount, unc_pixels, NULL);
 		}
 
 		// Make sure the data decompressed to the right number of bytes.

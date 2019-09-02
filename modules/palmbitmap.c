@@ -134,10 +134,10 @@ static int do_decompress_packbits_compression(deark *c, lctx *d, struct page_ctx
 	int ret;
 
 	if(pg->bitsperpixel==16) {
-		ret = de_fmtutil_uncompress_packbits16(c->infile, pos1, len, unc_pixels, NULL);
+		ret = de_fmtutil_decompress_packbits16(c->infile, pos1, len, unc_pixels, NULL);
 	}
 	else {
-		ret = de_fmtutil_uncompress_packbits(c->infile, pos1, len, unc_pixels, NULL);
+		ret = de_fmtutil_decompress_packbits(c->infile, pos1, len, unc_pixels, NULL);
 	}
 	return ret;
 }

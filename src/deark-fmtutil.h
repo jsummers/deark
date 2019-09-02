@@ -16,6 +16,8 @@ struct de_dfilter_out_params {
 
 struct de_dfilter_results {
 	int errcode;
+	u8 bytes_consumed_valid;
+	i64 bytes_consumed;
 	char errmsg[80];
 };
 
@@ -77,9 +79,11 @@ void de_fmtutil_handle_photoshop_rsrc(deark *c, dbuf *f, i64 pos, i64 len,
 void de_fmtutil_handle_plist(deark *c, dbuf *f, i64 pos, i64 len,
 	de_finfo *fi, unsigned int flags);
 
-int de_fmtutil_uncompress_packbits(dbuf *f, i64 pos1, i64 len,
+void de_fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
+int de_fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
 	dbuf *unc_pixels, i64 *cmpr_bytes_consumed);
-int de_fmtutil_uncompress_packbits16(dbuf *f, i64 pos1, i64 len,
+int de_fmtutil_decompress_packbits16(dbuf *f, i64 pos1, i64 len,
 	dbuf *unc_pixels, i64 *cmpr_bytes_consumed);
 void de_fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,

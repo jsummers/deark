@@ -82,7 +82,7 @@ static int do_uncompress_image(deark *c, lctx *d, i64 pos1, dbuf *unc_pixels)
 	for(j=0; j<d->h; j++) {
 		bytes_in_this_line = de_getu16le(pos);
 		pos += 2;
-		ret = de_fmtutil_uncompress_packbits(c->infile, pos, bytes_in_this_line,
+		ret = de_fmtutil_decompress_packbits(c->infile, pos, bytes_in_this_line,
 			unc_pixels, NULL);
 		if(!ret) return 0;
 		pos += bytes_in_this_line;
