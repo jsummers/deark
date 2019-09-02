@@ -1864,3 +1864,48 @@ void de_advfile_run(struct de_advfile *advf)
 		de_advfile_run_rawfiles(c, advf, 0);
 	}
 }
+
+static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *name)
+{
+	char timestamp_buf[64];
+
+	de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "%s: %s", name, timestamp_buf);
+}
+
+void de_fmtutil_riscos_read_load_exec(deark *c, dbuf *f, struct de_riscos_file_attrs *rfa, i64 pos1)
+{
+	i64 pos = pos1;
+
+	rfa->load_addr = (u32)dbuf_getu32le_p(f, &pos);
+	rfa->exec_addr = (u32)dbuf_getu32le_p(f, &pos);
+	de_dbg(c, "load/exec addrs: 0x%08x, 0x%08x", (unsigned int)rfa->load_addr,
+		(unsigned int)rfa->exec_addr);
+	de_dbg_indent(c, 1);
+	if((rfa->load_addr&0xfff00000U)==0xfff00000U) {
+		rfa->file_type = (unsigned int)((rfa->load_addr&0xfff00)>>8);
+		rfa->file_type_known = 1;
+		de_dbg(c, "file type: %03X", rfa->file_type);
+
+		de_riscos_loadexec_to_timestamp(rfa->load_addr, rfa->exec_addr, &rfa->mod_time);
+		dbg_timestamp(c, &rfa->mod_time, "timestamp");
+	}
+	de_dbg_indent(c, -1);
+}
+
+void de_fmtutil_riscos_read_attribs_field(deark *c, dbuf *f, struct de_riscos_file_attrs *rfa,
+	i64 pos, unsigned int flags)
+{
+	rfa->attribs = (u32)dbuf_getu32le(f, pos);
+	de_dbg(c, "attribs: 0x%08x", (unsigned int)rfa->attribs);
+	de_dbg_indent(c, 1);
+	rfa->crc_from_attribs = rfa->attribs>>16;
+	if(flags & DE_RISCOS_FLAG_HAS_CRC) {
+		de_dbg(c, "crc (reported): 0x%04x", (unsigned int)rfa->crc_from_attribs);
+	}
+	if(flags & DE_RISCOS_FLAG_HAS_LZWMAXBITS) {
+		rfa->lzwmaxbits = (unsigned int)((rfa->attribs&0xff00)>>8);
+		de_dbg(c, "lzw maxbits: %u", rfa->lzwmaxbits);
+	}
+	de_dbg_indent(c, -1);
+}

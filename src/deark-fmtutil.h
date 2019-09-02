@@ -330,3 +330,19 @@ void de_dfilter_set_errorf(deark *c, struct de_dfilter_results *dres, const char
   de_gnuc_attribute ((format (printf, 4, 5)));
 void de_dfilter_set_generic_error(deark *c, struct de_dfilter_results *dres, const char *modname);
 void de_dfilter_results_clear(deark *c, struct de_dfilter_results *dres);
+
+struct de_riscos_file_attrs {
+	u8 file_type_known;
+	u32 load_addr, exec_addr;
+	u32 attribs;
+	unsigned int file_type;
+	unsigned int lzwmaxbits;
+	u32 crc_from_attribs;
+	struct de_timestamp mod_time;
+};
+
+void de_fmtutil_riscos_read_load_exec(deark *c, dbuf *f, struct de_riscos_file_attrs *rfa, i64 pos1);
+#define DE_RISCOS_FLAG_HAS_CRC          0x1
+#define DE_RISCOS_FLAG_HAS_LZWMAXBITS   0x2
+void de_fmtutil_riscos_read_attribs_field(deark *c, dbuf *f, struct de_riscos_file_attrs *rfa,
+	i64 pos, unsigned int flags);
