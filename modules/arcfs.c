@@ -502,7 +502,8 @@ typedef struct sparkctx_struct {
 	int input_encoding;
 	int append_type;
 	int recurse_subdirs;
-	i64 nmembers;
+	i64 nmembers;  // Counts all members, including nested members
+#define MAX_SPARK_NESTING_LEVEL 24
 	int level; // subdirectory nesting level
 	struct de_crcobj *crco;
 	struct de_strarray *curpath;
@@ -693,6 +694,8 @@ static void do_spark_extract_member_dir(deark *c, spkctx *d, struct spark_member
 	ucstring_destroy(fullfn);
 }
 
+static void do_spark_sequence_of_members(deark *c, spkctx *d, i64 pos1, i64 len);
+
 // Note: This shares a lot of code with ARC.
 // Returns 1 if we can and should continue after this member.
 static int do_spark_member(deark *c, spkctx *d, i64 pos1, i64 *bytes_consumed)
@@ -716,7 +719,7 @@ static int do_spark_member(deark *c, spkctx *d, i64 pos1, i64 *bytes_consumed)
 			de_err(c, "Not a Spark file");
 		}
 		else {
-			de_err(c, "Failed to find Spark member at %"I64_FMT", stopping", pos1);
+			de_err(c, "Failed to find Spark member at %"I64_FMT, pos1);
 		}
 		goto done;
 	}
@@ -736,14 +739,6 @@ static int do_spark_member(deark *c, spkctx *d, i64 pos1, i64 *bytes_consumed)
 
 	if(md->cmpr_meth_masked==0x00) { // end of dir marker
 		*bytes_consumed = 2;
-
-		if(d->level<1) { // actually, end of the whole archive
-			goto done;
-		}
-
-		d->level--;
-		de_strarray_pop(d->curpath);
-		retval = 1;
 		goto done;
 	}
 
@@ -779,22 +774,14 @@ static int do_spark_member(deark *c, spkctx *d, i64 pos1, i64 *bytes_consumed)
 	pos += 4;
 
 	de_strarray_push(d->curpath, md->fn);
+	need_curpath_pop = 1;
 
 	// TODO: Is it possible to distinguish between a subdirectory, and a Spark
 	// member file that should always be extracted? Does a nonzero CRC mean
 	// we should not recurse?
 	md->is_dir = (d->recurse_subdirs && md->rfa.file_type_known &&
 		(md->rfa.file_type==0xddc) && md->cmpr_meth==0x82);
-	if(md->is_dir) {
-		// TODO: It would probably be more robust to use the reported length
-		// to find the end of the subdirectory.
-		d->level++;
-		md->orig_size = 0;
-		md->cmpr_size = 0;
-	}
-	else {
-		need_curpath_pop = 1;
-	}
+
 	if(d->recurse_subdirs) {
 		de_dbg(c, "is directory: %d", md->is_dir);
 	}
@@ -819,6 +806,18 @@ static int do_spark_member(deark *c, spkctx *d, i64 pos1, i64 *bytes_consumed)
 
 	if(md->is_dir) {
 		do_spark_extract_member_dir(c, d, md, fi);
+
+		// Nested Spark archives (which double as subdirectories) have both a known
+		// length (md->cmpr_size), and an end-of-archive marker. So there are two
+		// ways to parse them:
+		// 1) Recursively, meaning we trust the md->cmpr_size field (or maybe we should
+		//    use orig_size instead?).
+		// 2) As a flat sequence of members, meaning we trust that a nested archive
+		//    will not have extra data after the end-of-archive marker.
+		// Here, we use the recursive method.
+		d->level++;
+		do_spark_sequence_of_members(c, d, pos, md->cmpr_size);
+		d->level--;
 	}
 	else {
 		do_spark_extract_member_file(c, d, md, fi, pos);
@@ -837,10 +836,35 @@ done:
 	return retval;
 }
 
+static void do_spark_sequence_of_members(deark *c, spkctx *d, i64 pos1, i64 len)
+{
+	i64 pos = pos1;
+
+	if(d->level >= MAX_SPARK_NESTING_LEVEL) {
+		de_err(c, "Max subdir nesting level exceeded");
+		return;
+	}
+
+	de_dbg(c, "archive at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	while(1) {
+		int ret;
+		i64 bytes_consumed = 0;
+
+		if(pos >= pos1+len) break;
+		ret = do_spark_member(c, d, pos, &bytes_consumed);
+		if(!ret || (bytes_consumed<1)) break;
+		pos += bytes_consumed;
+		d->nmembers++;
+	}
+
+	de_dbg_indent(c, -1);
+}
+
 static void de_run_spark(deark *c, de_module_params *mparams)
 {
 	spkctx *d = NULL;
-	i64 pos = 0;
 
 	d = de_malloc(c, sizeof(spkctx));
 	d->input_encoding = DE_ENCODING_RISCOS;
@@ -849,16 +873,7 @@ static void de_run_spark(deark *c, de_module_params *mparams)
 	d->curpath = de_strarray_create(c);
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 
-	while(1) {
-		int ret;
-		i64 bytes_consumed = 0;
-
-		if(pos >= c->infile->len) break;
-		ret = do_spark_member(c, d, pos, &bytes_consumed);
-		if(!ret || (bytes_consumed<1)) break;
-		pos += bytes_consumed;
-		d->nmembers++;
-	}
+	do_spark_sequence_of_members(c, d, 0, c->infile->len);
 
 	if(d) {
 		de_crcobj_destroy(d->crco);
