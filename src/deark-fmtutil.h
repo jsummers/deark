@@ -81,11 +81,15 @@ int de_fmtutil_uncompress_packbits(dbuf *f, i64 pos1, i64 len,
 	dbuf *unc_pixels, i64 *cmpr_bytes_consumed);
 int de_fmtutil_uncompress_packbits16(dbuf *f, i64 pos1, i64 len,
 	dbuf *unc_pixels, i64 *cmpr_bytes_consumed);
+void de_fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	unsigned int flags);
 int de_fmtutil_decompress_rle90(dbuf *inf, i64 pos1, i64 len,
 	dbuf *outf, unsigned int has_maxlen, i64 max_out_len, unsigned int flags);
 
 #define DE_LIBLZWFLAG_HAS3BYTEHEADER  0x1
 #define DE_LIBLZWFLAG_ARCFSMODE       0x2
+#define DE_LIBLZWFLAG_HASSPARKHEADER  0x4
 void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags, u8 lzwmode);
@@ -317,8 +321,8 @@ void de_advfile_destroy(struct de_advfile *advf);
 void de_advfile_set_orig_filename(struct de_advfile *advf, const char *fn, size_t fnlen);
 void de_advfile_run(struct de_advfile *advf);
 
-void de_dfilter_set_errorf(deark *c, struct de_dfilter_results *dres,
+void de_dfilter_set_errorf(deark *c, struct de_dfilter_results *dres, const char *modname,
 	const char *fmt, ...)
-  de_gnuc_attribute ((format (printf, 3, 4)));
-void de_dfilter_set_generic_error(deark *c, struct de_dfilter_results *dres);
+  de_gnuc_attribute ((format (printf, 4, 5)));
+void de_dfilter_set_generic_error(deark *c, struct de_dfilter_results *dres, const char *modname);
 void de_dfilter_results_clear(deark *c, struct de_dfilter_results *dres);

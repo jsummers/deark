@@ -16,7 +16,7 @@ void de_dfilter_results_clear(deark *c, struct de_dfilter_results *dres)
 	de_strlcpy(dres->errmsg, "Unspecified error", sizeof(dres->errmsg));
 }
 
-void de_dfilter_set_errorf(deark *c, struct de_dfilter_results *dres,
+void de_dfilter_set_errorf(deark *c, struct de_dfilter_results *dres, const char *modname,
 	const char *fmt, ...)
 {
 	va_list ap;
@@ -25,14 +25,22 @@ void de_dfilter_set_errorf(deark *c, struct de_dfilter_results *dres,
 	dres->errcode = 1;
 
 	va_start(ap, fmt);
-	de_vsnprintf(dres->errmsg, sizeof(dres->errmsg), fmt, ap);
+	if(modname) {
+		char tmpbuf[80];
+
+		de_vsnprintf(tmpbuf, sizeof(tmpbuf), fmt, ap);
+		de_snprintf(dres->errmsg, sizeof(dres->errmsg), "[%s] %s", modname, tmpbuf);
+	}
+	else {
+		de_vsnprintf(dres->errmsg, sizeof(dres->errmsg), fmt, ap);
+	}
 	va_end(ap);
 }
 
-void de_dfilter_set_generic_error(deark *c, struct de_dfilter_results *dres)
+void de_dfilter_set_generic_error(deark *c, struct de_dfilter_results *dres, const char *modname)
 {
 	if(dres->errcode != 0) return;
-	de_dfilter_set_errorf(c, dres, "Unspecified error");
+	de_dfilter_set_errorf(c, dres, modname, "Unspecified error");
 }
 
 // Returns 0 on failure (currently impossible).
@@ -121,8 +129,24 @@ int de_fmtutil_uncompress_packbits16(dbuf *f, i64 pos1, i64 len,
 	return 1;
 }
 
+void de_fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	unsigned int flags)
+{
+	int ret;
+
+	ret = de_fmtutil_decompress_rle90(dcmpri->f, dcmpri->pos, dcmpri->len,
+		dcmpro->f, (unsigned int)dcmpro->len_known, dcmpro->expected_len,
+		flags);
+
+	if(!ret) {
+		de_dfilter_set_generic_error(c, dres, "rle90");
+	}
+}
+
 // RLE algorithm occasionally called "RLE90". Variants of this are used by
 // BinHex, ARC, StuffIt, and others.
+// TODO: Make de_fmtutil_decompress_rle90_ex the main function.
 int de_fmtutil_decompress_rle90(dbuf *inf, i64 pos1, i64 len,
 	dbuf *outf, unsigned int has_maxlen, i64 max_out_len, unsigned int flags)
 {

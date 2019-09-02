@@ -519,29 +519,12 @@ static int do_dcmpr_compressed(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, de_ucstring *fname)
 {
 	int retval = 0;
-	u8 lzwmaxbits;
 	struct de_dfilter_results dres;
-	struct de_dfilter_in_params tmpiparams;
 
-	de_zeromem(&tmpiparams, sizeof(struct de_dfilter_in_params));
 	de_dfilter_results_clear(c, &dres);
-
-	// Note: This is Spark-specific.
-	if(dcmpri->len < 1) {
-		goto done;
-	}
-
-	lzwmaxbits = dbuf_getbyte(dcmpri->f, dcmpri->pos);
-	de_dbg(c, "lzw maxbits: %u", (unsigned int)lzwmaxbits);
-
-	tmpiparams.f = dcmpri->f;
-	tmpiparams.pos = dcmpri->pos + 1;
-	tmpiparams.len = dcmpri->len - 1;
-
-	de_fmtutil_decompress_liblzw_ex(c, &tmpiparams, dcmpro, &dres, 0x0, 0x80|lzwmaxbits);
+	de_fmtutil_decompress_liblzw_ex(c, dcmpri, dcmpro, &dres, DE_LIBLZWFLAG_HASSPARKHEADER, 0);
 	retval = (dres.errcode==0);
 
-done:
 	if(!retval) {
 		de_err(c, "%s: 'compressed' decompression failed: %s", ucstring_getpsz_d(fname),
 			dres.errmsg);
@@ -552,11 +535,16 @@ done:
 static int do_dcmpr_packed(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, de_ucstring *fname)
 {
-	int ret;
+	struct de_dfilter_results dres;
 
-	ret = de_fmtutil_decompress_rle90(dcmpri->f, dcmpri->pos, dcmpri->len,
-		dcmpro->f, (dcmpro->len_known?1:0), dcmpro->expected_len, 0);
-	return ret;
+	de_dfilter_results_clear(c, &dres);
+	de_fmtutil_decompress_rle90_ex(c, dcmpri, dcmpro, &dres, 0);
+	if(dres.errcode) {
+		de_err(c, "%s: 'packed' decompression failed: %s", ucstring_getpsz_d(fname),
+			dres.errmsg);
+		return 0;
+	}
+	return 1;
 }
 
 static int do_dcmpr_crunched(deark *c, struct de_dfilter_in_params *dcmpri,
@@ -649,7 +637,9 @@ static void do_spark_extract_member_file(deark *c, spkctx *d, struct spark_membe
 	int ignore_failed_crc = 0;
 	int ret;
 	u32 crc_calc;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	fullfn = ucstring_create(c);
 	de_strarray_make_path(d->curpath, fullfn, DE_MPFLAG_NOTRAILINGSLASH);
 	if(d->append_type && md->rfa.file_type_known) {
@@ -658,6 +648,7 @@ static void do_spark_extract_member_file(deark *c, spkctx *d, struct spark_membe
 	de_finfo_set_name_from_ucstring(c, fi, fullfn, DE_SNFLAG_FULLPATH);
 
 	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, pos, md->cmpr_size);
+	de_dbg_indent(c, 1);
 
 	if(!is_spark_cmpr_meth_supported(c, d, md->cmpr_meth)) {
 		de_err(c, "%s: Compression type 0x%02x (%s) is not supported.",
@@ -699,6 +690,7 @@ done:
 	ucstring_destroy(fullfn);
 	de_free(c, dcmpri);
 	de_free(c, dcmpro);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 // "Extract" a directory entry
@@ -974,7 +966,9 @@ static void do_squash_main(deark *c, sqctx *d)
 	struct de_dfilter_results dres;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
 	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
 	de_dfilter_results_clear(c, &dres);
@@ -983,6 +977,7 @@ static void do_squash_main(deark *c, sqctx *d)
 	dcmpri.pos = 20;
 	dcmpri.len = c->infile->len - dcmpri.pos;
 	de_dbg(c, "compressed data at %"I64_FMT, dcmpri.pos);
+	de_dbg_indent(c, 1);
 
 	fi = de_finfo_create(c);
 
@@ -1018,6 +1013,7 @@ done:
 	dbuf_close(outf);
 	de_finfo_destroy(c, fi);
 	ucstring_destroy(fn);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void de_run_squash(deark *c, de_module_params *mparams)

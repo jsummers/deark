@@ -45,6 +45,7 @@ void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmp
 	int retval = 0;
 	int ret;
 	struct liblzw_userdata_type lu;
+	const char *modname = "liblzw";
 
 	lu.inf = dcmpri->f;
 	lu.inf_pos = dcmpri->pos;
@@ -54,6 +55,37 @@ void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmp
 	}
 	if(lu.inf_pos > lu.inf_endpos) {
 		lu.inf_pos = lu.inf_endpos;
+	}
+
+	if(flags & DE_LIBLZWFLAG_HAS3BYTEHEADER) {
+		if(lu.inf_endpos - lu.inf_pos < 3) {
+			de_dfilter_set_errorf(c, dres, modname, "Not in compress format");
+			goto done;
+		}
+
+		dbuf_read(lu.inf, buf, lu.inf_pos, 3);
+		lu.inf_pos += 3;
+
+		if (buf[0] != LZW_MAGIC_1 || buf[1] != LZW_MAGIC_2 || (buf[2] & 0x60)) {
+			de_dfilter_set_errorf(c, dres, modname, "Not in compress format");
+			goto done;
+		}
+		lzwmode = buf[2];
+		de_dbg(c, "lzw mode: 0x%02x", (unsigned int)lzwmode);
+		flags -= DE_LIBLZWFLAG_HAS3BYTEHEADER;
+	}
+	else if(flags & DE_LIBLZWFLAG_HASSPARKHEADER) {
+		if(lu.inf_endpos - lu.inf_pos < 1) {
+			de_dfilter_set_generic_error(c, dres, modname);
+			goto done;
+		}
+
+		buf[0] = dbuf_getbyte(lu.inf, lu.inf_pos);
+		lu.inf_pos += 1;
+
+		de_dbg(c, "lzw maxbits: %u", (unsigned int)buf[0]);
+		lzwmode = 0x80 | buf[0];
+		flags -= DE_LIBLZWFLAG_HASSPARKHEADER;
 	}
 
 	lzw = de_liblzw_create(c, (void*)&lu);
@@ -85,13 +117,13 @@ void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmp
 done:
 	if(lzw) {
 		if(lzw->errcode) {
-			de_dfilter_set_errorf(c, dres, "[liblzw] %s", lzw->errmsg);
+			de_dfilter_set_errorf(c, dres, modname, "%s", lzw->errmsg);
 		}
 		de_liblzw_destroy(lzw);
 	}
 	if(!retval) {
 		// In case we somehow got here without recording an error
-		de_dfilter_set_generic_error(c, dres);
+		de_dfilter_set_generic_error(c, dres, modname);
 	}
 }
 

@@ -117,39 +117,16 @@ static void de_liblzw_destroy(struct de_liblzwctx *lzw)
 }
 
 /*
- * Initialize decompression, read header if needed
+ * Initialize decompression
  */
 static int de_liblzw_init(struct de_liblzwctx *lzw, unsigned int flags, u8 lzwmode)
 {
-	int has_header;
-
-	has_header = (flags&0x1)?1:0;
-	if(has_header) {
-		unsigned char buf[3];
-
-		if (lzw->cb_read(lzw, buf, 3) != 3) {
-			liblzw_set_errorf(lzw, "Not in compress format");
-			goto err_out;
-		}
-
-		if (buf[0] != LZW_MAGIC_1 || buf[1] != LZW_MAGIC_2 || buf[2] & 0x60) {
-			liblzw_set_errorf(lzw, "Not in compress format");
-			goto err_out;
-		}
-		lzwmode = buf[2];
-	}
-
 	lzw->arcfs_mode = (flags&0x2)?1:0;
 	lzw->eof = 0;
 	lzw->inbuf = de_malloc(lzw->c, sizeof(unsigned char) * IN_BUFSIZE);
 	lzw->outbuf = de_malloc(lzw->c, sizeof(unsigned char) * OUT_BUFSIZE);
 	lzw->stackp = NULL;
-	if(has_header) {
-		lzw->insize = 3; /* we read three bytes above */
-	}
-	else {
-		lzw->insize = 0;
-	}
+	lzw->insize = 0;
 	lzw->outpos = 0;
 	lzw->rsize = 0;
 
@@ -174,9 +151,6 @@ static int de_liblzw_init(struct de_liblzwctx *lzw, unsigned int flags, u8 lzwmo
 	}
 
 	return 1;
-
-err_out:
-	return 0;
 
 err_out_free:
 	return 0;
