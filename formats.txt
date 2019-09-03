@@ -552,6 +552,9 @@ Deark -- Information about supported formats
 
 === Compression, archive, installer, disk image modules ===
 
+* ARC archive (module="arc")
+  - Limited support.
+
 * ArcFS (module="arcfs")
   Options
    -opt arcfs:appendtype - Append the file type to the filename
