@@ -122,8 +122,14 @@ struct unreducectx_type {
 	int state;
 	u8 var_V;
 	i64 var_Len;
-	dbuf *tmpoutf;
+	dbuf *outf;
+	i64 uncmpr_nbytes; // (Number of output bytes decoded, not necessarily flushed.)
+
 	struct unreduce_follower_item followers[256];
+
+	i64 circbuf_pos;
+#define UNREDUCE_CIRCBUF_SIZE 4096 // Must be at least 4096
+	u8 circbuf[UNREDUCE_CIRCBUF_SIZE];
 };
 
 static void unreduce_set_error(struct unreducectx_type *rdctx, int error_code)
@@ -228,33 +234,52 @@ static u8 unreduce_part1_getnextbyte(struct unreducectx_type *rdctx)
 	return outbyte;
 }
 
-static void unreduce_copy_prev_bytes(struct unreducectx_type *rdctx, i64 nbytes_to_look_back,
-	i64 nbytes_to_copy)
+// Write the bytes in the circular buffer, up to the current position.
+// Does not change the state of the buffer.
+// This must only be called just before setting the buffer pos to 0,
+// or at the end of input.
+static void unreduce_flush(struct unreducectx_type *rdctx)
 {
-	i64 srcpos;
-	u8 lz77buf[385]; // = 127 + 255 + 3
+	if(rdctx->circbuf_pos<1) return;
+	dbuf_write(rdctx->outf, rdctx->circbuf, rdctx->circbuf_pos);
+}
 
+static void unreduce_emit_byte(struct unreducectx_type *rdctx, u8 x)
+{
+	rdctx->circbuf[rdctx->circbuf_pos++] = x;
+	if(rdctx->circbuf_pos >= UNREDUCE_CIRCBUF_SIZE) {
+		unreduce_flush(rdctx);
+		rdctx->circbuf_pos = 0;
+	}
+	rdctx->uncmpr_nbytes++;
+}
+
+static void unreduce_emit_copy_of_prev_bytes(struct unreducectx_type *rdctx,
+	i64 nbytes_to_look_back, i64 nbytes)
+{
+	i64 i;
+	i64 src_pos;
+
+	// Maximum possible is (255>>4)*255 + 255 + 1 = 4096
 	if(nbytes_to_look_back<0 || nbytes_to_look_back>4096) {
 		unreduce_set_error(rdctx, UNREDUCE_ERRCODE_GENERIC_ERROR);
-		goto done;
+		return;
 	}
-	if(nbytes_to_copy<0 || nbytes_to_copy>385) {
-		unreduce_set_error(rdctx, UNREDUCE_ERRCODE_GENERIC_ERROR);
-		goto done;
-	}
-	if(nbytes_to_copy > nbytes_to_look_back) {
+	// Maximum possible is 255 + 127 + 3 = 385
+	if(nbytes<0 || nbytes>nbytes_to_look_back) {
 		unreduce_set_error(rdctx, UNREDUCE_ERRCODE_BAD_CDATA);
-		goto done;
+		return;
 	}
 
-	srcpos = rdctx->tmpoutf->len - nbytes_to_look_back;
-	// Currently, dbuf_copy() isn't certified for copying from and to the
-	// same dbuf. So we use an intermediate buffer.
-	dbuf_read(rdctx->tmpoutf, lz77buf, srcpos, nbytes_to_copy);
-	dbuf_write(rdctx->tmpoutf, lz77buf, nbytes_to_copy);
+	src_pos = (rdctx->circbuf_pos + UNREDUCE_CIRCBUF_SIZE - nbytes_to_look_back) %
+		UNREDUCE_CIRCBUF_SIZE;
 
-done:
-	;
+	for(i=0; i<nbytes; i++) {
+		unreduce_emit_byte(rdctx, rdctx->circbuf[src_pos++]);
+		if(src_pos >= UNREDUCE_CIRCBUF_SIZE) {
+			src_pos = 0;
+		}
+	}
 }
 
 // Process one byte of output from part 1.
@@ -269,7 +294,7 @@ static void unreduce_part2(struct unreducectx_type *rdctx, u8 var_C)
 			rdctx->state = 1;
 		}
 		else {
-			dbuf_writebyte(rdctx->tmpoutf, var_C);
+			unreduce_emit_byte(rdctx, var_C);
 		}
 		break;
 
@@ -280,7 +305,7 @@ static void unreduce_part2(struct unreducectx_type *rdctx, u8 var_C)
 			rdctx->state = (rdctx->var_Len==(i64)(0xff>>rdctx->cmpr_factor)) ? 2 : 3; // F()
 		}
 		else {
-			dbuf_writebyte(rdctx->tmpoutf, 144);
+			unreduce_emit_byte(rdctx, 144);
 			rdctx->state = 0;
 		}
 		break;
@@ -293,7 +318,7 @@ static void unreduce_part2(struct unreducectx_type *rdctx, u8 var_C)
 	case 3:
 		nbytes_to_look_back = (i64)(rdctx->var_V>>(8-rdctx->cmpr_factor)) * 256 + (i64)var_C + 1; // D()
 		nbytes_to_copy = rdctx->var_Len + 3;
-		unreduce_copy_prev_bytes(rdctx, nbytes_to_look_back, nbytes_to_copy);
+		unreduce_emit_copy_of_prev_bytes(rdctx, nbytes_to_look_back, nbytes_to_copy);
 		rdctx->state = 0;
 		break;
 	}
@@ -326,7 +351,7 @@ static void unreduce_run(struct unreducectx_type *rdctx)
 		u8 outbyte;
 
 		if(rdctx->error_code) goto done;
-		if(rdctx->tmpoutf->len >= rdctx->uncmpr_size) break; // Have enough output data
+		if(rdctx->uncmpr_nbytes >= rdctx->uncmpr_size) break; // Have enough output data
 
 		outbyte = unreduce_part1_getnextbyte(rdctx);
 		if(rdctx->error_code) goto done;
@@ -337,13 +362,13 @@ static void unreduce_run(struct unreducectx_type *rdctx)
 	}
 
 done:
-	;
+	unreduce_flush(rdctx);
 }
 
 // TODO: The plan is to move the Reduce decompression to an independent
 // library, but for a first draft it's easier to use Deark's infrastructure.
 static int do_decompress_reduce(deark *c, lctx *d, struct member_data *md,
-	dbuf *inf, i64 inf_pos1, i64 inf_size, dbuf *real_outf, int cmpr_method)
+	dbuf *inf, i64 inf_pos1, i64 inf_size, dbuf *outf, int cmpr_method)
 {
 	int retval = 0;
 	struct unreducectx_type *rdctx = NULL;
@@ -356,18 +381,9 @@ static int do_decompress_reduce(deark *c, lctx *d, struct member_data *md,
 	rdctx->inf = inf;
 	rdctx->inf_pos = inf_pos1;
 	rdctx->inf_endpos = inf_pos1 + inf_size;
+	rdctx->outf = outf;
 	rdctx->uncmpr_size = md->uncmpr_size;
 	rdctx->cmpr_factor = cmpr_method - 1;
-
-	if(rdctx->uncmpr_size > DE_MAX_SANE_OBJECT_SIZE) {
-		de_err(c, "Large reduced files are not supported");
-		goto done;
-	}
-
-	// Write the output to a temporary membuf, so we can read back what we've
-	// written.
-	// TODO: Use a fixed-size sliding or circular buffer instead.
-	rdctx->tmpoutf = dbuf_create_membuf(c, md->uncmpr_size, 0x1);
 
 	unreduce_run(rdctx);
 
@@ -378,10 +394,6 @@ done:
 	if(rdctx) {
 		if(rdctx->error_code) {
 			de_err(c, "Reduce decompression failed (code %d)", rdctx->error_code);
-		}
-		if(rdctx->tmpoutf) {
-			dbuf_copy(rdctx->tmpoutf, 0, rdctx->tmpoutf->len, real_outf);
-			dbuf_close(rdctx->tmpoutf);
 		}
 		unreduce_destroy(rdctx);
 	}
