@@ -72,9 +72,12 @@ void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmp
 		}
 		lzwmode = buf[2];
 		de_dbg(c, "lzw mode: 0x%02x", (unsigned int)lzwmode);
+		de_dbg_indent(c, 1);
+		de_dbg(c, "lzw maxbits: %u", (unsigned int)(lzwmode & 0x1f));
+		de_dbg_indent(c, -1);
 		flags -= DE_LIBLZWFLAG_HAS3BYTEHEADER;
 	}
-	else if(flags & DE_LIBLZWFLAG_HASSPARKHEADER) {
+	else if(flags & DE_LIBLZWFLAG_HAS1BYTEHEADER) {
 		if(lu.inf_endpos - lu.inf_pos < 1) {
 			de_dfilter_set_generic_error(c, dres, modname);
 			goto done;
@@ -85,7 +88,7 @@ void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmp
 
 		de_dbg(c, "lzw maxbits: %u", (unsigned int)buf[0]);
 		lzwmode = 0x80 | buf[0];
-		flags -= DE_LIBLZWFLAG_HASSPARKHEADER;
+		flags -= DE_LIBLZWFLAG_HAS1BYTEHEADER;
 	}
 
 	lzw = de_liblzw_create(c, (void*)&lu);

@@ -72,7 +72,14 @@ static void decompressor_spark_compressed(deark *c, lctx *d, struct member_data 
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	de_fmtutil_decompress_liblzw_ex(c, dcmpri, dcmpro, dres, DE_LIBLZWFLAG_HASSPARKHEADER, 0);
+	de_fmtutil_decompress_liblzw_ex(c, dcmpri, dcmpro, dres, DE_LIBLZWFLAG_HAS1BYTEHEADER, 0);
+}
+
+static void decompressor_squashed(deark *c, lctx *d, struct member_data *md,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	de_fmtutil_decompress_liblzw_ex(c, dcmpri, dcmpro, dres, 0, 0x80|13);
 }
 
 static void decompressor_packed(deark *c, lctx *d, struct member_data *md,
@@ -123,13 +130,13 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 0x06, 0x1, "crunched6 (RLE + static LZW)", NULL },
 	{ 0x07, 0x1, "crunched7 (SEA internal)", NULL },
 	{ 0x08, 0x1, "Crunched8 (RLE + dynamic LZW)", decompressor_crunched8 },
-	{ 0x09, 0x1, "squashed (dynamic LZW)", NULL },
+	{ 0x09, 0x1, "squashed (dynamic LZW)", decompressor_squashed },
 	{ 0x80, 0x2, "end of archive marker", NULL },
 	{ 0x81, 0x2, "stored (old format)", decompressor_stored },
 	{ 0x82, 0x2, "stored", decompressor_stored },
 	{ 0x83, 0x2, "packed (RLE)", decompressor_packed },
 	{ 0x88, 0x2, "crunched", decompressor_crunched8 },
-	{ 0x89, 0x2, "squashed", NULL },
+	{ 0x89, 0x2, "squashed", decompressor_squashed },
 	{ 0xff, 0x2, "compressed", decompressor_spark_compressed }
 };
 

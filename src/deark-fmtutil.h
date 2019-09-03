@@ -93,7 +93,7 @@ int de_fmtutil_decompress_rle90(dbuf *inf, i64 pos1, i64 len,
 
 #define DE_LIBLZWFLAG_HAS3BYTEHEADER  0x1
 #define DE_LIBLZWFLAG_ARCFSMODE       0x2
-#define DE_LIBLZWFLAG_HASSPARKHEADER  0x4
+#define DE_LIBLZWFLAG_HAS1BYTEHEADER  0x4
 void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags, u8 lzwmode);

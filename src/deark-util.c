@@ -1226,6 +1226,11 @@ void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
 {
 	i64 yr, mo, da, hr, mi, se;
 
+	if(ddate==0) {
+		de_zeromem(ts, sizeof(struct de_timestamp));
+		ts->is_valid = 0;
+		return;
+	}
 	yr = 1980+((ddate&0xfe00)>>9);
 	mo = (ddate&0x01e0)>>5;
 	da = (ddate&0x001f);
@@ -1289,8 +1294,7 @@ i64 de_timestamp_to_FILETIME(const struct de_timestamp *ts)
 
 // [Adapted from Eric Raymond's public domain my_timegm().]
 // Convert a time (as individual fields) to a de_timestamp.
-// Since de_timestamp currently uses time_t format internally,
-// this is basically a UTC version of mktime().
+// This is basically a UTC version of mktime().
 // yr = full year
 // mo = month: 1=Jan, ... 12=Dec
 // da = day of month: 1=1, ... 31=31
