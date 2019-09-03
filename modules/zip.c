@@ -103,8 +103,14 @@ struct unreduce_follower_item {
 
 struct unreducectx_type {
 	deark *c;
+	void *userdata;
 	int cmpr_factor;
-	int error_flag;
+#define UNREDUCE_ERRCODE_OK             0
+#define UNREDUCE_ERRCODE_GENERIC_ERROR  1
+#define UNREDUCE_ERRCODE_BAD_CDATA      2
+#define UNREDUCE_ERRCODE_INSUFFICIENT_CDATA 3
+	int error_code;
+	i64 uncmpr_size;
 
 	dbuf *inf;
 	i64 inf_pos; // Next byte to read from inf
@@ -118,8 +124,15 @@ struct unreducectx_type {
 	i64 var_Len;
 	dbuf *tmpoutf;
 	struct unreduce_follower_item followers[256];
-	u8 lz77buf[385]; // = 127 + 255 + 3
 };
+
+static void unreduce_set_error(struct unreducectx_type *rdctx, int error_code)
+{
+	// Only record the first error.
+	if (rdctx->error_code==0) {
+		rdctx->error_code = error_code;
+	}
+}
 
 static u8 unreduce_bitreader_getbits(struct unreducectx_type *rdctx, unsigned int nbits)
 {
@@ -131,7 +144,7 @@ static u8 unreduce_bitreader_getbits(struct unreducectx_type *rdctx, unsigned in
 		u8 b;
 
 		if(rdctx->inf_pos >= rdctx->inf_endpos) {
-			rdctx->error_flag = 1; // Unexpected end of compressed data
+			unreduce_set_error(rdctx, UNREDUCE_ERRCODE_INSUFFICIENT_CDATA);
 			return 0;
 		}
 		b = dbuf_getbyte_p(rdctx->inf, &rdctx->inf_pos);
@@ -167,10 +180,9 @@ static void unreduce_part1_readfollowersets(struct unreducectx_type *rdctx)
 		f_i = &rdctx->followers[k];
 
 		f_i->count = (unsigned int)unreduce_bitreader_getbits(rdctx, 6);
-		if(rdctx->error_flag) goto done;
+		if(rdctx->error_code) goto done;
 		if(f_i->count>32) {
-			de_err(rdctx->c, "unreduce: Count must be <=32, is %u", f_i->count);
-			rdctx->error_flag = 1;
+			unreduce_set_error(rdctx, UNREDUCE_ERRCODE_BAD_CDATA);
 			goto done;
 		}
 
@@ -180,7 +192,7 @@ static void unreduce_part1_readfollowersets(struct unreducectx_type *rdctx)
 
 		for(z=0; z<f_i->count; z++) {
 			f_i->values[z] = unreduce_bitreader_getbits(rdctx, 8);
-			if(rdctx->error_flag) goto done;
+			if(rdctx->error_code) goto done;
 		}
 	}
 done:
@@ -216,10 +228,38 @@ static u8 unreduce_part1_getnextbyte(struct unreducectx_type *rdctx)
 	return outbyte;
 }
 
+static void unreduce_copy_prev_bytes(struct unreducectx_type *rdctx, i64 nbytes_to_look_back,
+	i64 nbytes_to_copy)
+{
+	i64 srcpos;
+	u8 lz77buf[385]; // = 127 + 255 + 3
+
+	if(nbytes_to_look_back<0 || nbytes_to_look_back>4096) {
+		unreduce_set_error(rdctx, UNREDUCE_ERRCODE_GENERIC_ERROR);
+		goto done;
+	}
+	if(nbytes_to_copy<0 || nbytes_to_copy>385) {
+		unreduce_set_error(rdctx, UNREDUCE_ERRCODE_GENERIC_ERROR);
+		goto done;
+	}
+	if(nbytes_to_copy > nbytes_to_look_back) {
+		unreduce_set_error(rdctx, UNREDUCE_ERRCODE_BAD_CDATA);
+		goto done;
+	}
+
+	srcpos = rdctx->tmpoutf->len - nbytes_to_look_back;
+	// Currently, dbuf_copy() isn't certified for copying from and to the
+	// same dbuf. So we use an intermediate buffer.
+	dbuf_read(rdctx->tmpoutf, lz77buf, srcpos, nbytes_to_copy);
+	dbuf_write(rdctx->tmpoutf, lz77buf, nbytes_to_copy);
+
+done:
+	;
+}
+
 // Process one byte of output from part 1.
 static void unreduce_part2(struct unreducectx_type *rdctx, u8 var_C)
 {
-	i64 srcpos;
 	i64 nbytes_to_look_back;
 	i64 nbytes_to_copy;
 
@@ -252,16 +292,48 @@ static void unreduce_part2(struct unreducectx_type *rdctx, u8 var_C)
 
 	case 3:
 		nbytes_to_look_back = (i64)(rdctx->var_V>>(8-rdctx->cmpr_factor)) * 256 + (i64)var_C + 1; // D()
-		if(nbytes_to_look_back<0 || nbytes_to_look_back>4096) goto done; // Should be impossible
-		srcpos = rdctx->tmpoutf->len - nbytes_to_look_back;
 		nbytes_to_copy = rdctx->var_Len + 3;
-		if(nbytes_to_copy<0 || nbytes_to_copy>(i64)sizeof(rdctx->lz77buf)) goto done; // Should be impossible
-		// Currently, dbuf_copy() isn't certified for copying from and to the
-		// same dbuf. So we use an intermediate buffer.
-		dbuf_read(rdctx->tmpoutf, rdctx->lz77buf, srcpos, nbytes_to_copy);
-		dbuf_write(rdctx->tmpoutf, rdctx->lz77buf, nbytes_to_copy);
+		unreduce_copy_prev_bytes(rdctx, nbytes_to_look_back, nbytes_to_copy);
 		rdctx->state = 0;
 		break;
+	}
+}
+
+static struct unreducectx_type *unreduce_create(deark *c, void *userdata)
+{
+	struct unreducectx_type *rdctx = NULL;
+
+	rdctx = de_malloc(c, sizeof(struct unreducectx_type));
+	rdctx->c = c;
+	rdctx->userdata = userdata;
+	return rdctx;
+}
+
+static void unreduce_destroy(struct unreducectx_type *rdctx)
+{
+	de_free(rdctx->c, rdctx);
+}
+
+static void unreduce_run(struct unreducectx_type *rdctx)
+{
+	// Part 1 is undoing the "probabilistic" compression.
+	// It starts with a header, then we'll decompress 1 byte at a time.
+	unreduce_part1_readfollowersets(rdctx);
+	if(rdctx->error_code) goto done;
+	de_dbg2(rdctx->c, "finished reading follower sets, pos=%"I64_FMT, rdctx->inf_pos);
+
+	while(1) {
+		u8 outbyte;
+
+		if(rdctx->error_code) goto done;
+		if(rdctx->tmpoutf->len >= rdctx->uncmpr_size) break; // Have enough output data
+
+		outbyte = unreduce_part1_getnextbyte(rdctx);
+		if(rdctx->error_code) goto done;
+
+		// Part 2 is undoing "compress repeated byte sequences" --
+		// apparently a kind of LZ77.
+		unreduce_part2(rdctx, outbyte);
 	}
 
 done:
@@ -278,14 +350,16 @@ static int do_decompress_reduce(deark *c, lctx *d, struct member_data *md,
 
 	if(cmpr_method<2 || cmpr_method>5) goto done;
 
-	rdctx = de_malloc(c, sizeof(struct unreducectx_type));
-	rdctx->c = c;
+	rdctx = unreduce_create(c, NULL);
+	if(!rdctx) goto done;
+
 	rdctx->inf = inf;
 	rdctx->inf_pos = inf_pos1;
 	rdctx->inf_endpos = inf_pos1 + inf_size;
+	rdctx->uncmpr_size = md->uncmpr_size;
 	rdctx->cmpr_factor = cmpr_method - 1;
 
-	if(md->uncmpr_size > DE_MAX_SANE_OBJECT_SIZE) {
+	if(rdctx->uncmpr_size > DE_MAX_SANE_OBJECT_SIZE) {
 		de_err(c, "Large reduced files are not supported");
 		goto done;
 	}
@@ -295,36 +369,21 @@ static int do_decompress_reduce(deark *c, lctx *d, struct member_data *md,
 	// TODO: Use a fixed-size sliding or circular buffer instead.
 	rdctx->tmpoutf = dbuf_create_membuf(c, md->uncmpr_size, 0x1);
 
-	// Part 1 is undoing the "probabilistic" compression.
-	// It starts with a header, then we'll decompress 1 byte at a time.
-	unreduce_part1_readfollowersets(rdctx);
-	if(rdctx->error_flag) goto done;
-	de_dbg2(c, "finished reading follower sets, pos=%"I64_FMT, rdctx->inf_pos);
+	unreduce_run(rdctx);
 
-	while(1) {
-		u8 outbyte;
-
-		if(rdctx->error_flag) goto done;
-		if(rdctx->tmpoutf->len >= md->uncmpr_size) break; // Have enough output data
-
-		outbyte = unreduce_part1_getnextbyte(rdctx);
-		if(rdctx->error_flag) goto done;
-
-		// Part 2 is undoing "compress repeated byte sequences" --
-		// apparently a kind of LZ77.
-		unreduce_part2(rdctx, outbyte);
-	}
-
-	if(rdctx->error_flag==0)
+	if(rdctx->error_code==0)
 		retval = 1;
 
 done:
 	if(rdctx) {
+		if(rdctx->error_code) {
+			de_err(c, "Reduce decompression failed (code %d)", rdctx->error_code);
+		}
 		if(rdctx->tmpoutf) {
 			dbuf_copy(rdctx->tmpoutf, 0, rdctx->tmpoutf->len, real_outf);
 			dbuf_close(rdctx->tmpoutf);
 		}
-		de_free(c, rdctx);
+		unreduce_destroy(rdctx);
 	}
 	return retval;
 }
