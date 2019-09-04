@@ -104,26 +104,26 @@ struct my_unr_udatatype {
 	dbuf *outf;
 };
 
-static size_t my_unr_read(struct unreducectx_type *rdctx, OZUR_UINT8 *buf, size_t size)
+static size_t my_unr_read(ozur_ctx *ozur, OZUR_UINT8 *buf, size_t size)
 {
-	struct my_unr_udatatype *uctx = (struct my_unr_udatatype*)rdctx->userdata;
+	struct my_unr_udatatype *uctx = (struct my_unr_udatatype*)ozur->userdata;
 
 	dbuf_read(uctx->inf, buf, uctx->inf_curpos, (i64)size);
 	uctx->inf_curpos += (i64)size;
 	return size;
 }
 
-static size_t my_unr_write(struct unreducectx_type *rdctx, const OZUR_UINT8 *buf, size_t size)
+static size_t my_unr_write(ozur_ctx *ozur, const OZUR_UINT8 *buf, size_t size)
 {
-	struct my_unr_udatatype *uctx = (struct my_unr_udatatype*)rdctx->userdata;
+	struct my_unr_udatatype *uctx = (struct my_unr_udatatype*)ozur->userdata;
 
 	dbuf_write(uctx->outf, buf, (i64)size);
 	return size;
 }
 
-static void my_unr_post_follower_sets_hook(struct unreducectx_type *rdctx)
+static void my_unr_post_follower_sets_hook(ozur_ctx *ozur)
 {
-	struct my_unr_udatatype *uctx = (struct my_unr_udatatype*)rdctx->userdata;
+	struct my_unr_udatatype *uctx = (struct my_unr_udatatype*)ozur->userdata;
 	de_dbg2(uctx->c, "finished reading follower sets, pos=%"I64_FMT, uctx->inf_curpos);
 }
 
@@ -133,7 +133,7 @@ static int do_decompress_reduce(deark *c, lctx *d, struct member_data *md,
 	dbuf *inf, i64 inf_pos1, i64 inf_size, dbuf *outf, int cmpr_method)
 {
 	int retval = 0;
-	struct unreducectx_type *rdctx = NULL;
+	ozur_ctx *ozur = NULL;
 	struct my_unr_udatatype uctx;
 
 	if(cmpr_method<2 || cmpr_method>5) goto done;
@@ -145,27 +145,27 @@ static int do_decompress_reduce(deark *c, lctx *d, struct member_data *md,
 	uctx.inf_endpos = inf_pos1 + inf_size;
 	uctx.outf = outf;
 
-	rdctx = de_malloc(c, sizeof(struct unreducectx_type));
-	rdctx->userdata = (void*)&uctx;
-	rdctx->cb_read = my_unr_read;
-	rdctx->cb_write = my_unr_write;
-	rdctx->cb_post_follower_sets = my_unr_post_follower_sets_hook;
+	ozur = de_malloc(c, sizeof(ozur_ctx));
+	ozur->userdata = (void*)&uctx;
+	ozur->cb_read = my_unr_read;
+	ozur->cb_write = my_unr_write;
+	ozur->cb_post_follower_sets = my_unr_post_follower_sets_hook;
 
-	rdctx->cmpr_size = inf_size;
-	rdctx->uncmpr_size = md->uncmpr_size;
-	rdctx->cmpr_factor = cmpr_method - 1;
+	ozur->cmpr_size = inf_size;
+	ozur->uncmpr_size = md->uncmpr_size;
+	ozur->cmpr_factor = cmpr_method - 1;
 
-	unreduce_run(rdctx);
+	unreduce_run(ozur);
 
-	if(rdctx->error_code==0)
+	if(ozur->error_code==0)
 		retval = 1;
 
 done:
-	if(rdctx) {
-		if(rdctx->error_code) {
-			de_err(c, "Reduce decompression failed (code %d)", rdctx->error_code);
+	if(ozur) {
+		if(ozur->error_code) {
+			de_err(c, "Reduce decompression failed (code %d)", ozur->error_code);
 		}
-		de_free(c, rdctx);
+		de_free(c, ozur);
 	}
 	return retval;
 }
