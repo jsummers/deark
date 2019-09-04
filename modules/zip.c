@@ -104,7 +104,7 @@ struct my_unr_udatatype {
 	dbuf *outf;
 };
 
-static size_t my_unr_read(struct unreducectx_type *rdctx, u8 *buf, size_t size)
+static size_t my_unr_read(struct unreducectx_type *rdctx, OZUR_UINT8 *buf, size_t size)
 {
 	struct my_unr_udatatype *uctx = (struct my_unr_udatatype*)rdctx->userdata;
 
@@ -113,7 +113,7 @@ static size_t my_unr_read(struct unreducectx_type *rdctx, u8 *buf, size_t size)
 	return size;
 }
 
-static size_t my_unr_write(struct unreducectx_type *rdctx, const u8 *buf, size_t size)
+static size_t my_unr_write(struct unreducectx_type *rdctx, const OZUR_UINT8 *buf, size_t size)
 {
 	struct my_unr_udatatype *uctx = (struct my_unr_udatatype*)rdctx->userdata;
 
@@ -124,7 +124,7 @@ static size_t my_unr_write(struct unreducectx_type *rdctx, const u8 *buf, size_t
 static void my_unr_post_follower_sets_hook(struct unreducectx_type *rdctx)
 {
 	struct my_unr_udatatype *uctx = (struct my_unr_udatatype*)rdctx->userdata;
-	de_dbg2(uctx->c, "finished reading follower sets, pos=%"I64_FMT, (i64)uctx->inf_curpos);
+	de_dbg2(uctx->c, "finished reading follower sets, pos=%"I64_FMT, uctx->inf_curpos);
 }
 
 // TODO: The plan is to move the Reduce decompression to an independent

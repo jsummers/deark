@@ -4,6 +4,16 @@
 // Copyright (C) 2019 Jason Summers
 // See Deark's main COPYING file for terms of use.
 
+#define OZUR_UINT8    u8
+#define OZUR_OFF_T    i64
+
+#define UNREDUCE_ERRCODE_OK             0
+#define UNREDUCE_ERRCODE_GENERIC_ERROR  1
+#define UNREDUCE_ERRCODE_BAD_CDATA      2
+#define UNREDUCE_ERRCODE_READ_FAILED    6
+#define UNREDUCE_ERRCODE_WRITE_FAILED   7
+#define UNREDUCE_ERRCODE_INSUFFICIENT_CDATA 8
+
 struct unreduce_follower_item {
 	unsigned int count; // N - 0<=count<=32
 	unsigned int nbits; // B(N) - Valid if count>0
@@ -11,41 +21,36 @@ struct unreduce_follower_item {
 };
 
 struct unreducectx_type;
-typedef size_t (*unr_cb_read_type)(struct unreducectx_type *rdctx, u8 *buf, size_t size);
-typedef size_t (*unr_cb_write_type)(struct unreducectx_type *rdctx, const u8 *buf, size_t size);
+typedef size_t (*unr_cb_read_type)(struct unreducectx_type *rdctx, OZUR_UINT8 *buf, size_t size);
+typedef size_t (*unr_cb_write_type)(struct unreducectx_type *rdctx, const OZUR_UINT8 *buf, size_t size);
 typedef void (*unr_cb_post_follower_sets_type)(struct unreducectx_type *rdctx);
 
 struct unreducectx_type {
 	void *userdata;
 	int cmpr_factor;
-#define UNREDUCE_ERRCODE_OK             0
-#define UNREDUCE_ERRCODE_GENERIC_ERROR  1
-#define UNREDUCE_ERRCODE_BAD_CDATA      2
-#define UNREDUCE_ERRCODE_READ_FAILED    6
-#define UNREDUCE_ERRCODE_WRITE_FAILED   7
-#define UNREDUCE_ERRCODE_INSUFFICIENT_CDATA 8
-	int error_code;
-	i64 uncmpr_size;
+	OZUR_OFF_T cmpr_size;
+	OZUR_OFF_T uncmpr_size;
 	unr_cb_read_type cb_read;
 	unr_cb_write_type cb_write;
 	unr_cb_post_follower_sets_type cb_post_follower_sets; // Optional hook
 
-	i64 cmpr_size;
+	int error_code;
+	OZUR_OFF_T uncmpr_nbytes_emitted; // (Number of output bytes decoded, not necessarily flushed.)
+	OZUR_OFF_T uncmpr_nbytes_written;
+	OZUR_OFF_T cmpr_nbytes_consumed;
+
 	unsigned int bitreader_buf;
 	unsigned int bitreader_nbits_in_buf;
-
-	u8 last_char;
 	int state;
-	u8 var_V;
-	i64 var_Len;
-	i64 uncmpr_nbytes_emitted; // (Number of output bytes decoded, not necessarily flushed.)
-	i64 cmpr_nbytes_consumed;
+	unsigned int var_Len;
+	OZUR_UINT8 last_char;
+	OZUR_UINT8 var_V;
 
 	struct unreduce_follower_item followers[256];
 
-	i64 circbuf_pos;
+	size_t circbuf_pos;
 #define UNREDUCE_CIRCBUF_SIZE 4096 // Must be at least 4096
-	u8 circbuf[UNREDUCE_CIRCBUF_SIZE];
+	OZUR_UINT8 circbuf[UNREDUCE_CIRCBUF_SIZE];
 };
 
 static void unreduce_set_error(struct unreducectx_type *rdctx, int error_code)
@@ -56,9 +61,9 @@ static void unreduce_set_error(struct unreducectx_type *rdctx, int error_code)
 	}
 }
 
-static u8 unr_nextbyte(struct unreducectx_type *rdctx)
+static OZUR_UINT8 unr_nextbyte(struct unreducectx_type *rdctx)
 {
-	u8 buf[1];
+	OZUR_UINT8 buf[1];
 	size_t ret;
 
 	if(rdctx->error_code) return 0;
@@ -75,14 +80,14 @@ static u8 unr_nextbyte(struct unreducectx_type *rdctx)
 	return buf[0];
 }
 
-static u8 unreduce_bitreader_getbits(struct unreducectx_type *rdctx, unsigned int nbits)
+static OZUR_UINT8 unreduce_bitreader_getbits(struct unreducectx_type *rdctx, unsigned int nbits)
 {
-	u8 n;
+	OZUR_UINT8 n;
 
 	if(nbits<1 || nbits>8) return 0;
 
 	if(rdctx->bitreader_nbits_in_buf < nbits) {
-		u8 b;
+		OZUR_UINT8 b;
 
 		b = unr_nextbyte(rdctx);
 		if(rdctx->error_code) return 0;
@@ -90,7 +95,7 @@ static u8 unreduce_bitreader_getbits(struct unreducectx_type *rdctx, unsigned in
 		rdctx->bitreader_nbits_in_buf += 8;
 	}
 
-	n = (u8)(rdctx->bitreader_buf & (0xff >> (8-nbits)));
+	n = (OZUR_UINT8)(rdctx->bitreader_buf & (0xff >> (8-nbits)));
 	rdctx->bitreader_buf >>= nbits;
 	rdctx->bitreader_nbits_in_buf -= nbits;
 	return n;
@@ -137,9 +142,9 @@ done:
 	;
 }
 
-static u8 unreduce_part1_getnextbyte(struct unreducectx_type *rdctx)
+static OZUR_UINT8 unreduce_part1_getnextbyte(struct unreducectx_type *rdctx)
 {
-	u8 outbyte = 0;
+	OZUR_UINT8 outbyte = 0;
 	struct unreduce_follower_item *f_i;
 
 	f_i = &rdctx->followers[(unsigned int)rdctx->last_char];
@@ -148,7 +153,7 @@ static u8 unreduce_part1_getnextbyte(struct unreducectx_type *rdctx)
 		outbyte = unreduce_bitreader_getbits(rdctx, 8);
 	}
 	else { // Follower set not empty
-		u8 bitval;
+		OZUR_UINT8 bitval;
 
 		bitval = unreduce_bitreader_getbits(rdctx, 1);
 		if(bitval) {
@@ -176,15 +181,17 @@ static void unreduce_flush(struct unreducectx_type *rdctx)
 	size_t n;
 
 	if(rdctx->error_code) return;
-	if(rdctx->circbuf_pos<1) return;
-	n = (size_t)rdctx->circbuf_pos;
+	n = rdctx->circbuf_pos;
+	if(n<1 || n>UNREDUCE_CIRCBUF_SIZE) return;
 	ret = rdctx->cb_write(rdctx, rdctx->circbuf, n);
 	if(ret != n) {
 		unreduce_set_error(rdctx, UNREDUCE_ERRCODE_WRITE_FAILED);
+		return;
 	}
+	rdctx->uncmpr_nbytes_written += (OZUR_OFF_T)ret;
 }
 
-static void unreduce_emit_byte(struct unreducectx_type *rdctx, u8 x)
+static void unreduce_emit_byte(struct unreducectx_type *rdctx, OZUR_UINT8 x)
 {
 	rdctx->circbuf[rdctx->circbuf_pos++] = x;
 	if(rdctx->circbuf_pos >= UNREDUCE_CIRCBUF_SIZE) {
@@ -195,18 +202,18 @@ static void unreduce_emit_byte(struct unreducectx_type *rdctx, u8 x)
 }
 
 static void unreduce_emit_copy_of_prev_bytes(struct unreducectx_type *rdctx,
-	i64 nbytes_to_look_back, i64 nbytes)
+	size_t nbytes_to_look_back, size_t nbytes)
 {
-	i64 i;
-	i64 src_pos;
+	size_t i;
+	size_t src_pos;
 
 	// Maximum possible is (255>>4)*255 + 255 + 1 = 4096
-	if(nbytes_to_look_back<0 || nbytes_to_look_back>4096) {
+	if(nbytes_to_look_back>4096) {
 		unreduce_set_error(rdctx, UNREDUCE_ERRCODE_GENERIC_ERROR);
 		return;
 	}
 	// Maximum possible is 255 + 127 + 3 = 385
-	if(nbytes<0 || nbytes>nbytes_to_look_back) {
+	if(nbytes>nbytes_to_look_back) {
 		unreduce_set_error(rdctx, UNREDUCE_ERRCODE_BAD_CDATA);
 		return;
 	}
@@ -223,10 +230,10 @@ static void unreduce_emit_copy_of_prev_bytes(struct unreducectx_type *rdctx,
 }
 
 // Process one byte of output from part 1.
-static void unreduce_part2(struct unreducectx_type *rdctx, u8 var_C)
+static void unreduce_part2(struct unreducectx_type *rdctx, OZUR_UINT8 var_C)
 {
-	i64 nbytes_to_look_back;
-	i64 nbytes_to_copy;
+	size_t nbytes_to_look_back;
+	size_t nbytes_to_copy;
 
 	switch(rdctx->state) {
 	case 0:
@@ -241,8 +248,8 @@ static void unreduce_part2(struct unreducectx_type *rdctx, u8 var_C)
 	case 1:
 		if(var_C) {
 			rdctx->var_V = var_C;
-			rdctx->var_Len = (i64)(rdctx->var_V & (0xff>>rdctx->cmpr_factor));
-			rdctx->state = (rdctx->var_Len==(i64)(0xff>>rdctx->cmpr_factor)) ? 2 : 3; // F()
+			rdctx->var_Len = (unsigned int)(rdctx->var_V & (0xff>>rdctx->cmpr_factor));
+			rdctx->state = (rdctx->var_Len==(unsigned int)(0xff>>rdctx->cmpr_factor)) ? 2 : 3; // F()
 		}
 		else {
 			unreduce_emit_byte(rdctx, 144);
@@ -251,13 +258,13 @@ static void unreduce_part2(struct unreducectx_type *rdctx, u8 var_C)
 		break;
 
 	case 2:
-		rdctx->var_Len += (i64)var_C;
+		rdctx->var_Len += (unsigned int)var_C;
 		rdctx->state = 3;
 		break;
 
 	case 3:
-		nbytes_to_look_back = (i64)(rdctx->var_V>>(8-rdctx->cmpr_factor)) * 256 + (i64)var_C + 1; // D()
-		nbytes_to_copy = rdctx->var_Len + 3;
+		nbytes_to_look_back = (size_t)(rdctx->var_V>>(8-rdctx->cmpr_factor)) * 256 + (size_t)var_C + 1; // D()
+		nbytes_to_copy = (size_t)rdctx->var_Len + 3;
 		unreduce_emit_copy_of_prev_bytes(rdctx, nbytes_to_look_back, nbytes_to_copy);
 		rdctx->state = 0;
 		break;
@@ -276,7 +283,7 @@ static void unreduce_run(struct unreducectx_type *rdctx)
 	}
 
 	while(1) {
-		u8 outbyte;
+		OZUR_UINT8 outbyte;
 
 		if(rdctx->error_code) goto done;
 		if(rdctx->uncmpr_nbytes_emitted >= rdctx->uncmpr_size) break; // Have enough output data
