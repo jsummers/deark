@@ -23,7 +23,7 @@ typedef void (*decompressor_fn)(deark *c, lctx *d, struct member_data *md,
 
 struct cmpr_meth_info {
 	u8 cmpr_meth;
-	unsigned int flags; // 0x1=valid in ARC. 0x2=valid in Spark.
+	unsigned int flags;
 	const char *name;
 	decompressor_fn decompressor;
 };
@@ -120,36 +120,42 @@ done:
 	dbuf_close(tmpf);
 }
 
+// Flags:
+//  0x01 = valid in ARC
+//  0x02 = valid in Spark
+//  0x80 = assume high bit of cmpr_meth is set for Spark format
 static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
-	{ 0x00, 0x3, "end of archive marker", NULL },
-	{ 0x01, 0x1, "stored (old format)", decompressor_stored },
-	{ 0x02, 0x1, "stored", decompressor_stored },
-	{ 0x03, 0x1, "packed (RLE)", decompressor_packed },
-	{ 0x04, 0x1, "squeezed (Huffman)", NULL },
-	{ 0x05, 0x1, "crunched5 (static LZW)", NULL },
-	{ 0x06, 0x1, "crunched6 (RLE + static LZW)", NULL },
-	{ 0x07, 0x1, "crunched7 (SEA internal)", NULL },
-	{ 0x08, 0x1, "Crunched8 (RLE + dynamic LZW)", decompressor_crunched8 },
-	{ 0x09, 0x1, "squashed (dynamic LZW)", decompressor_squashed },
-	{ 0x80, 0x2, "end of archive marker", NULL },
-	{ 0x81, 0x2, "stored (old format)", decompressor_stored },
-	{ 0x82, 0x2, "stored", decompressor_stored },
-	{ 0x83, 0x2, "packed (RLE)", decompressor_packed },
-	{ 0x88, 0x2, "crunched", decompressor_crunched8 },
-	{ 0x89, 0x2, "squashed", decompressor_squashed },
-	{ 0xff, 0x2, "compressed", decompressor_spark_compressed }
+	{ 0x00, 0x03, "end of archive marker", NULL },
+	{ 0x01, 0x83, "stored (old format)", decompressor_stored },
+	{ 0x02, 0x83, "stored", decompressor_stored },
+	{ 0x03, 0x83, "packed (RLE)", decompressor_packed },
+	{ 0x04, 0x83, "squeezed (RLE + Huffman)", NULL },
+	{ 0x05, 0x83, "crunched5 (static LZW)", NULL },
+	{ 0x06, 0x83, "crunched6 (RLE + static LZW)", NULL },
+	{ 0x07, 0x83, "crunched7 (ARC 4.6)", NULL },
+	{ 0x08, 0x83, "crunched8 (RLE + dynamic LZW)", decompressor_crunched8 },
+	{ 0x09, 0x83, "squashed (dynamic LZW)", decompressor_squashed },
+	{ 0x80, 0x02, "end of archive marker", NULL },
+	{ 0xff, 0x02, "compressed", decompressor_spark_compressed }
 };
 
-static const struct cmpr_meth_info *get_cmpr_meth_info(int fmt, u8 cmpr_meth)
+static const struct cmpr_meth_info *get_cmpr_meth_info(lctx *d, u8 cmpr_meth)
 {
 	size_t k;
 	const struct cmpr_meth_info *p;
 
 	for(k=0; k<DE_ITEMS_IN_ARRAY(cmpr_meth_info_arr); k++) {
+		u8 meth_adjusted;
+
 		p = &cmpr_meth_info_arr[k];
-		if(p->cmpr_meth != cmpr_meth) continue;
-		if(fmt==FMT_ARC && (p->flags & 0x1)) return p;
-		if(fmt==FMT_SPARK && (p->flags & 0x2)) return p;
+		if(d->fmt==FMT_ARC && !(p->flags & 0x1)) continue;
+		if(d->fmt==FMT_SPARK && !(p->flags & 0x2)) continue;
+		meth_adjusted = p->cmpr_meth;
+		if(d->fmt==FMT_SPARK && (p->flags & 0x80)) {
+			meth_adjusted |= 0x80;
+		}
+		if(meth_adjusted != cmpr_meth) continue;
+		return p;
 	}
 	return NULL;
 }
@@ -397,7 +403,7 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed, int *is_e
 	md->cmpr_meth = de_getbyte_p(&pos);
 	md->cmpr_meth_masked = md->cmpr_meth & 0x7f;
 
-	md->cmi = get_cmpr_meth_info(d->fmt, md->cmpr_meth);
+	md->cmi = get_cmpr_meth_info(d, md->cmpr_meth);
 	if(md->cmi && md->cmi->name) {
 		md->cmpr_meth_name = md->cmi->name;
 	}
