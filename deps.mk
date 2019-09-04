@@ -249,7 +249,7 @@ $(OBJDIR)/modules/xfer.o: modules/xfer.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/zip.o: modules/zip.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h \
- modules/../foreign/unimplode6a.h
+ modules/../foreign/unimplode6a.h modules/../foreign/ozunreduce.h
 $(OBJDIR)/modules/zoo.o: modules/zoo.c src/deark-config.h \
  src/deark-private.h src/deark.h modules/../foreign/unzoo.h \
  modules/../foreign/zoo-lzd.h

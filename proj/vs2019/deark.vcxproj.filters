@@ -492,6 +492,9 @@
     <ClInclude Include="..\..\foreign\unimplode6a.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\foreign\ozunreduce.h">
+      <Filter>Foreign Code</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\..\src\deark.rc">
