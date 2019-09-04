@@ -19,6 +19,8 @@
 static void *zipexpl_calloc(void *userdata, size_t nmemb, size_t size);
 static void zipexpl_free(void *userdata, void *ptr);
 #include "../foreign/unimplode6a.h"
+#define OZUR_UINT8     u8
+#define OZUR_OFF_T     i64
 #include "../foreign/ozunreduce.h"
 
 DE_DECLARE_MODULE(de_module_zip);
@@ -128,8 +130,6 @@ static void my_ozur_post_follower_sets_hook(ozur_ctx *ozur)
 	de_dbg2(uctx->c, "finished reading follower sets, pos=%"I64_FMT, uctx->inf_curpos);
 }
 
-// TODO: The plan is to move the Reduce decompression to an independent
-// library, but for a first draft it's easier to use Deark's infrastructure.
 static int do_decompress_reduce(deark *c, lctx *d, struct member_data *md,
 	dbuf *inf, i64 inf_pos1, i64 inf_size, dbuf *outf, int cmpr_method)
 {

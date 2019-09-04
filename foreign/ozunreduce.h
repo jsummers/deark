@@ -4,8 +4,17 @@
 // Copyright (C) 2019 Jason Summers
 // See Deark's main COPYING file for terms of use.
 
-#define OZUR_UINT8    u8
-#define OZUR_OFF_T    i64
+#ifndef OZUR_UINT8
+#define OZUR_UINT8   unsigned char
+#endif
+
+#ifndef OZUR_OFF_T
+#define OZUR_OFF_T   off_t
+#endif
+
+#ifndef OZUR_API
+#define OZUR_API(ty) static ty
+#endif
 
 #define OZUR_ERRCODE_OK             0
 #define OZUR_ERRCODE_GENERIC_ERROR  1
@@ -306,8 +315,15 @@ static void ozur_part2(ozur_ctx *ozur, OZUR_UINT8 var_C)
 	}
 }
 
-static void ozur_run(ozur_ctx *ozur)
+OZUR_API(void) ozur_run(ozur_ctx *ozur)
 {
+	if(ozur->cmpr_factor<1 || ozur->cmpr_factor>4 ||
+		!ozur->cb_read || !ozur->cb_write)
+	{
+		ozur_set_error(ozur, OZUR_ERRCODE_GENERIC_ERROR);
+		goto done;
+	}
+
 	// Part 1 is undoing the "probabilistic" compression.
 	// It starts with a header, then we'll decompress 1 byte at a time.
 	ozur_part1_readfollowersets(ozur);
