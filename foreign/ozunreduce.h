@@ -26,6 +26,7 @@ typedef size_t (*unr_cb_write_type)(struct unreducectx_type *rdctx, const OZUR_U
 typedef void (*unr_cb_post_follower_sets_type)(struct unreducectx_type *rdctx);
 
 struct unreducectx_type {
+	// Fields the user can or must set:
 	void *userdata;
 	int cmpr_factor;
 	OZUR_OFF_T cmpr_size;
@@ -34,23 +35,28 @@ struct unreducectx_type {
 	unr_cb_write_type cb_write;
 	unr_cb_post_follower_sets_type cb_post_follower_sets; // Optional hook
 
+	// Fields the user can read:
 	int error_code;
-	OZUR_OFF_T uncmpr_nbytes_emitted; // (Number of output bytes decoded, not necessarily flushed.)
 	OZUR_OFF_T uncmpr_nbytes_written;
 	OZUR_OFF_T cmpr_nbytes_consumed;
 
+	// Fields private to the library:
+	OZUR_OFF_T cmpr_nbytes_read; // (Number of bytes read, not necessarily consumed.)
+	OZUR_OFF_T uncmpr_nbytes_emitted; // (Number of output bytes decoded, not necessarily flushed.)
 	unsigned int bitreader_buf;
 	unsigned int bitreader_nbits_in_buf;
 	int state;
 	unsigned int var_Len;
 	OZUR_UINT8 last_char;
 	OZUR_UINT8 var_V;
-
 	struct unreduce_follower_item followers[256];
-
 	size_t circbuf_pos;
 #define UNREDUCE_CIRCBUF_SIZE 4096 // Must be at least 4096
 	OZUR_UINT8 circbuf[UNREDUCE_CIRCBUF_SIZE];
+	size_t inbuf_nbytes_consumed;
+	size_t inbuf_nbytes_total;
+#define UNREDUCE_INBUF_SIZE 1024
+	OZUR_UINT8 inbuf[UNREDUCE_INBUF_SIZE];
 };
 
 static void unreduce_set_error(struct unreducectx_type *rdctx, int error_code)
@@ -61,23 +67,51 @@ static void unreduce_set_error(struct unreducectx_type *rdctx, int error_code)
 	}
 }
 
+static void ozur_refill_inbuf(struct unreducectx_type *rdctx)
+{
+	size_t ret;
+	size_t nbytes_to_read;
+
+	rdctx->inbuf_nbytes_total = 0;
+	rdctx->inbuf_nbytes_consumed = 0;
+
+	nbytes_to_read = UNREDUCE_INBUF_SIZE;
+	if((rdctx->cmpr_size - rdctx->cmpr_nbytes_read) > UNREDUCE_INBUF_SIZE) {
+		nbytes_to_read = UNREDUCE_INBUF_SIZE;
+	}
+	else {
+		nbytes_to_read = (size_t)(rdctx->cmpr_size - rdctx->cmpr_nbytes_read);
+	}
+	if(nbytes_to_read<1 || nbytes_to_read>UNREDUCE_INBUF_SIZE) return;
+
+	ret = rdctx->cb_read(rdctx, rdctx->inbuf, nbytes_to_read);
+	if(ret != nbytes_to_read) {
+		unreduce_set_error(rdctx, UNREDUCE_ERRCODE_READ_FAILED);
+		return;
+	}
+	rdctx->inbuf_nbytes_total = nbytes_to_read;
+}
+
 static OZUR_UINT8 unr_nextbyte(struct unreducectx_type *rdctx)
 {
-	OZUR_UINT8 buf[1];
-	size_t ret;
+	OZUR_UINT8 x;
 
 	if(rdctx->error_code) return 0;
+
 	if(rdctx->cmpr_nbytes_consumed >= rdctx->cmpr_size) {
 		unreduce_set_error(rdctx, UNREDUCE_ERRCODE_INSUFFICIENT_CDATA);
 		return 0;
 	}
-	ret = rdctx->cb_read(rdctx, buf, 1);
-	if(ret != 1) {
-		unreduce_set_error(rdctx, UNREDUCE_ERRCODE_READ_FAILED);
-		return 0;
+	// Another byte should be available, somewhere.
+	if(rdctx->inbuf_nbytes_consumed >= rdctx->inbuf_nbytes_total) {
+		// No bytes left in inbuf. Refill it.
+		ozur_refill_inbuf(rdctx);
+		if(rdctx->inbuf_nbytes_total<1) return 0;
 	}
+
+	x = rdctx->inbuf[rdctx->inbuf_nbytes_consumed++];
 	rdctx->cmpr_nbytes_consumed++;
-	return buf[0];
+	return x;
 }
 
 static OZUR_UINT8 unreduce_bitreader_getbits(struct unreducectx_type *rdctx, unsigned int nbits)
