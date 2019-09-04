@@ -101,6 +101,10 @@ struct unreduce_follower_item {
 	u8 values[32]; // S - First 'count' values are valid
 };
 
+struct unreducectx_type;
+typedef size_t (*unr_cb_read_type)(struct unreducectx_type *rdctx, u8 *buf, size_t size);
+typedef void (*unr_cb_post_follower_sets_type)(struct unreducectx_type *rdctx);
+
 struct unreducectx_type {
 	deark *c;
 	void *userdata;
@@ -109,12 +113,13 @@ struct unreducectx_type {
 #define UNREDUCE_ERRCODE_GENERIC_ERROR  1
 #define UNREDUCE_ERRCODE_BAD_CDATA      2
 #define UNREDUCE_ERRCODE_INSUFFICIENT_CDATA 3
+#define UNREDUCE_ERRCODE_READ_FAILED    6
 	int error_code;
 	i64 uncmpr_size;
+	unr_cb_read_type cb_read;
+	unr_cb_post_follower_sets_type cb_post_follower_sets; // Optional hook
 
-	dbuf *inf;
-	i64 inf_pos; // Next byte to read from inf
-	i64 inf_endpos;
+	i64 cmpr_size;
 	unsigned int bitreader_buf;
 	unsigned int bitreader_nbits_in_buf;
 
@@ -124,6 +129,7 @@ struct unreducectx_type {
 	i64 var_Len;
 	dbuf *outf;
 	i64 uncmpr_nbytes; // (Number of output bytes decoded, not necessarily flushed.)
+	i64 cmpr_nbytes_consumed;
 
 	struct unreduce_follower_item followers[256];
 
@@ -140,6 +146,25 @@ static void unreduce_set_error(struct unreducectx_type *rdctx, int error_code)
 	}
 }
 
+static u8 unr_nextbyte(struct unreducectx_type *rdctx)
+{
+	u8 buf[1];
+	size_t ret;
+
+	if(rdctx->error_code) return 0;
+	if(rdctx->cmpr_nbytes_consumed >= rdctx->cmpr_size) {
+		unreduce_set_error(rdctx, UNREDUCE_ERRCODE_INSUFFICIENT_CDATA);
+		return 0;
+	}
+	ret = rdctx->cb_read(rdctx, buf, 1);
+	if(ret != 1) {
+		unreduce_set_error(rdctx, UNREDUCE_ERRCODE_READ_FAILED);
+		return 0;
+	}
+	rdctx->cmpr_nbytes_consumed++;
+	return buf[0];
+}
+
 static u8 unreduce_bitreader_getbits(struct unreducectx_type *rdctx, unsigned int nbits)
 {
 	u8 n;
@@ -149,11 +174,8 @@ static u8 unreduce_bitreader_getbits(struct unreducectx_type *rdctx, unsigned in
 	if(rdctx->bitreader_nbits_in_buf < nbits) {
 		u8 b;
 
-		if(rdctx->inf_pos >= rdctx->inf_endpos) {
-			unreduce_set_error(rdctx, UNREDUCE_ERRCODE_INSUFFICIENT_CDATA);
-			return 0;
-		}
-		b = dbuf_getbyte_p(rdctx->inf, &rdctx->inf_pos);
+		b = unr_nextbyte(rdctx);
+		if(rdctx->error_code) return 0;
 		rdctx->bitreader_buf |= ((unsigned int)b)<<rdctx->bitreader_nbits_in_buf;
 		rdctx->bitreader_nbits_in_buf += 8;
 	}
@@ -324,28 +346,16 @@ static void unreduce_part2(struct unreducectx_type *rdctx, u8 var_C)
 	}
 }
 
-static struct unreducectx_type *unreduce_create(deark *c, void *userdata)
-{
-	struct unreducectx_type *rdctx = NULL;
-
-	rdctx = de_malloc(c, sizeof(struct unreducectx_type));
-	rdctx->c = c;
-	rdctx->userdata = userdata;
-	return rdctx;
-}
-
-static void unreduce_destroy(struct unreducectx_type *rdctx)
-{
-	de_free(rdctx->c, rdctx);
-}
-
 static void unreduce_run(struct unreducectx_type *rdctx)
 {
 	// Part 1 is undoing the "probabilistic" compression.
 	// It starts with a header, then we'll decompress 1 byte at a time.
 	unreduce_part1_readfollowersets(rdctx);
 	if(rdctx->error_code) goto done;
-	de_dbg2(rdctx->c, "finished reading follower sets, pos=%"I64_FMT, rdctx->inf_pos);
+
+	if(rdctx->cb_post_follower_sets) {
+		rdctx->cb_post_follower_sets(rdctx);
+	}
 
 	while(1) {
 		u8 outbyte;
@@ -365,6 +375,28 @@ done:
 	unreduce_flush(rdctx);
 }
 
+struct my_unr_udatatype {
+	deark *c;
+	dbuf *inf;
+	i64 inf_curpos;
+	i64 inf_endpos;
+};
+
+static size_t my_unr_read(struct unreducectx_type *rdctx, u8 *buf, size_t size)
+{
+	struct my_unr_udatatype *uctx = (struct my_unr_udatatype*)rdctx->userdata;
+
+	dbuf_read(uctx->inf, buf, uctx->inf_curpos, (i64)size);
+	uctx->inf_curpos += (i64)size;
+	return size;
+}
+
+static void my_unr_post_follower_sets_hook(struct unreducectx_type *rdctx)
+{
+	struct my_unr_udatatype *uctx = (struct my_unr_udatatype*)rdctx->userdata;
+	de_dbg2(uctx->c, "finished reading follower sets, pos=%"I64_FMT, (i64)uctx->inf_curpos);
+}
+
 // TODO: The plan is to move the Reduce decompression to an independent
 // library, but for a first draft it's easier to use Deark's infrastructure.
 static int do_decompress_reduce(deark *c, lctx *d, struct member_data *md,
@@ -372,15 +404,23 @@ static int do_decompress_reduce(deark *c, lctx *d, struct member_data *md,
 {
 	int retval = 0;
 	struct unreducectx_type *rdctx = NULL;
+	struct my_unr_udatatype uctx;
 
 	if(cmpr_method<2 || cmpr_method>5) goto done;
 
-	rdctx = unreduce_create(c, NULL);
-	if(!rdctx) goto done;
+	de_zeromem(&uctx, sizeof(struct my_unr_udatatype));
+	uctx.c = c;
+	uctx.inf = inf;
+	uctx.inf_curpos = inf_pos1;
+	uctx.inf_endpos = inf_pos1 + inf_size;
 
-	rdctx->inf = inf;
-	rdctx->inf_pos = inf_pos1;
-	rdctx->inf_endpos = inf_pos1 + inf_size;
+	rdctx = de_malloc(c, sizeof(struct unreducectx_type));
+	rdctx->c = c;
+	rdctx->userdata = (void*)&uctx;
+	rdctx->cb_read = my_unr_read;
+	rdctx->cb_post_follower_sets = my_unr_post_follower_sets_hook;
+
+	rdctx->cmpr_size = inf_size;
 	rdctx->outf = outf;
 	rdctx->uncmpr_size = md->uncmpr_size;
 	rdctx->cmpr_factor = cmpr_method - 1;
@@ -395,7 +435,7 @@ done:
 		if(rdctx->error_code) {
 			de_err(c, "Reduce decompression failed (code %d)", rdctx->error_code);
 		}
-		unreduce_destroy(rdctx);
+		de_free(c, rdctx);
 	}
 	return retval;
 }
