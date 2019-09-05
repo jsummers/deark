@@ -98,34 +98,43 @@ static int is_compression_method_supported(lctx *d, int cmpr_method)
 	return 0;
 }
 
-struct my_ozur_udatatype {
+// Struct for userdata, shared by Implode and Reduce decoders
+struct ozXX_udatatype {
 	deark *c;
 	dbuf *inf;
 	i64 inf_curpos;
-	i64 inf_endpos;
 	dbuf *outf;
+	int dumptrees;
 };
 
-static size_t my_ozur_read(ozur_ctx *ozur, OZUR_UINT8 *buf, size_t size)
+// Used by Implode and Reduce decoders
+static size_t ozXX_read(struct ozXX_udatatype *uctx, u8 *buf, size_t size)
 {
-	struct my_ozur_udatatype *uctx = (struct my_ozur_udatatype*)ozur->userdata;
-
 	dbuf_read(uctx->inf, buf, uctx->inf_curpos, (i64)size);
 	uctx->inf_curpos += (i64)size;
 	return size;
 }
 
-static size_t my_ozur_write(ozur_ctx *ozur, const OZUR_UINT8 *buf, size_t size)
+// Used by Implode and Reduce decoders
+static size_t ozXX_write(struct ozXX_udatatype *uctx, const u8 *buf, size_t size)
 {
-	struct my_ozur_udatatype *uctx = (struct my_ozur_udatatype*)ozur->userdata;
-
 	dbuf_write(uctx->outf, buf, (i64)size);
 	return size;
 }
 
+static size_t my_ozur_read(ozur_ctx *ozur, OZUR_UINT8 *buf, size_t size)
+{
+	return ozXX_read((struct ozXX_udatatype*)ozur->userdata, buf, size);
+}
+
+static size_t my_ozur_write(ozur_ctx *ozur, const OZUR_UINT8 *buf, size_t size)
+{
+	return ozXX_write((struct ozXX_udatatype*)ozur->userdata, buf, size);
+}
+
 static void my_ozur_post_follower_sets_hook(ozur_ctx *ozur)
 {
-	struct my_ozur_udatatype *uctx = (struct my_ozur_udatatype*)ozur->userdata;
+	struct ozXX_udatatype *uctx = (struct ozXX_udatatype*)ozur->userdata;
 
 	de_dbg2(uctx->c, "finished reading follower sets, pos=%"I64_FMT, uctx->inf_curpos);
 }
@@ -135,15 +144,14 @@ static int do_decompress_reduce(deark *c, lctx *d, struct member_data *md,
 {
 	int retval = 0;
 	ozur_ctx *ozur = NULL;
-	struct my_ozur_udatatype uctx;
+	struct ozXX_udatatype uctx;
 
 	if(cmpr_method<2 || cmpr_method>5) goto done;
 
-	de_zeromem(&uctx, sizeof(struct my_ozur_udatatype));
+	de_zeromem(&uctx, sizeof(struct ozXX_udatatype));
 	uctx.c = c;
 	uctx.inf = inf;
 	uctx.inf_curpos = inf_pos1;
-	uctx.inf_endpos = inf_pos1 + inf_size;
 	uctx.outf = outf;
 
 	ozur = de_malloc(c, sizeof(ozur_ctx));
@@ -171,36 +179,28 @@ done:
 	return retval;
 }
 
-struct zipexpl_userdata_type {
-	deark *c;
-	dbuf *inf;
-	i64 inf_curpos;
-	dbuf *outf;
-	int dumptrees;
-};
-
 static void *zipexpl_calloc(void *userdata, size_t nmemb, size_t size)
 {
-	deark *c = ((struct zipexpl_userdata_type *)userdata)->c;
+	deark *c = ((struct ozXX_udatatype *)userdata)->c;
 
 	return de_mallocarray(c, (i64)nmemb, size);
 }
 
 static void zipexpl_free(void *userdata, void *ptr)
 {
-	deark *c = ((struct zipexpl_userdata_type *)userdata)->c;
+	deark *c = ((struct ozXX_udatatype *)userdata)->c;
 
 	de_free(c, ptr);
 }
 
-static void zipexpl_huft_dump1(struct zipexpl_userdata_type *zu, struct ui6a_huft *t, unsigned int idx)
+static void zipexpl_huft_dump1(struct ozXX_udatatype *zu, struct ui6a_huft *t, unsigned int idx)
 {
 	de_dbg(zu->c, "[%u:%p] e=%u b=%u n=%u t=%p",
 		idx, (void*)t, (unsigned int)t->e, (unsigned int)t->b,
 		(unsigned int)t->n, (void*)t->t_arr);
 }
 
-static void zipexpl_huft_dump(struct zipexpl_userdata_type *zu, struct ui6a_htable *tbl)
+static void zipexpl_huft_dump(struct ozXX_udatatype *zu, struct ui6a_htable *tbl)
 {
 	deark *c = zu->c;
 	struct ui6a_huftarray *t = tbl->first_array;
@@ -237,24 +237,17 @@ static void zipexpl_huft_dump(struct zipexpl_userdata_type *zu, struct ui6a_htab
 
 static size_t my_zipexpl_read(ui6a_ctx *ui6a, UI6A_UINT8 *buf, size_t size)
 {
-	struct zipexpl_userdata_type *zu = (struct zipexpl_userdata_type *)ui6a->userdata;
-
-	dbuf_read(zu->inf, buf, zu->inf_curpos, (i64)size);
-	zu->inf_curpos += size;
-	return size;
+	return ozXX_read((struct ozXX_udatatype*)ui6a->userdata, buf, size);
 }
 
 static size_t my_zipexpl_write(ui6a_ctx *ui6a, const UI6A_UINT8 *buf, size_t size)
 {
-	struct zipexpl_userdata_type *zu = (struct zipexpl_userdata_type *)ui6a->userdata;
-
-	dbuf_write(zu->outf, buf, (i64)size);
-	return size;
+	return ozXX_write((struct ozXX_udatatype *)ui6a->userdata, buf, size);
 }
 
 static void my_zipexpl_cb_post_read_trees(ui6a_ctx *ui6a, struct ui6a_htables *tbls)
 {
-	struct zipexpl_userdata_type *zu = (struct zipexpl_userdata_type *)ui6a->userdata;
+	struct ozXX_udatatype *zu = (struct ozXX_udatatype *)ui6a->userdata;
 
 	if(zu->dumptrees) {
 		zipexpl_huft_dump(zu, &tbls->d);
@@ -267,11 +260,11 @@ static int do_decompress_implode(deark *c, lctx *d, struct member_data *md,
 	dbuf *inf, i64 inf_pos, i64 inf_size, dbuf *outf)
 {
 	ui6a_ctx *ui6a = NULL;
-	struct zipexpl_userdata_type zu;
+	struct ozXX_udatatype zu;
 	int retval = 0;
 
 	if(!md) goto done;
-	de_zeromem(&zu, sizeof(struct zipexpl_userdata_type));
+	de_zeromem(&zu, sizeof(struct ozXX_udatatype));
 	zu.c = c;
 	zu.dumptrees = de_get_ext_option_bool(c, "zip:dumptrees", 0);
 	zu.inf = inf;
