@@ -27,9 +27,15 @@ DE_DECLARE_MODULE(de_module_zip);
 
 struct localctx_struct;
 typedef struct localctx_struct lctx;
-struct member_data;
 
-typedef void (*decompressor_fn)(deark *c, lctx *d, struct member_data *md,
+struct compression_params {
+	// ZIP-specific params (not in de_dfilter_*_params) that may be needed to
+	// to decompress something.
+	int cmpr_meth;
+	unsigned int bit_flags;
+};
+
+typedef void (*decompressor_fn)(deark *c, lctx *d, struct compression_params *cparams,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres);
 
@@ -153,20 +159,23 @@ static void my_ozur_post_follower_sets_hook(ozur_ctx *ozur)
 	de_dbg2(uctx->c, "finished reading follower sets, pos=%"I64_FMT, uctx->inf_curpos);
 }
 
-static int do_decompress_reduce(deark *c, lctx *d, struct member_data *md,
-	dbuf *inf, i64 inf_pos1, i64 inf_size, dbuf *outf, int cmpr_meth)
+static void do_decompress_reduce(deark *c, lctx *d, struct compression_params *cparams,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
 {
 	int retval = 0;
 	ozur_ctx *ozur = NULL;
 	struct ozXX_udatatype uctx;
+	static const char *modname = "unreduce";
 
-	if(cmpr_meth<2 || cmpr_meth>5) goto done;
+	if(cparams->cmpr_meth<2 || cparams->cmpr_meth>5) goto done;
+	if(!dcmpro->len_known) goto done;
 
 	de_zeromem(&uctx, sizeof(struct ozXX_udatatype));
 	uctx.c = c;
-	uctx.inf = inf;
-	uctx.inf_curpos = inf_pos1;
-	uctx.outf = outf;
+	uctx.inf = dcmpri->f;
+	uctx.inf_curpos = dcmpri->pos;
+	uctx.outf = dcmpro->f;
 
 	ozur = de_malloc(c, sizeof(ozur_ctx));
 	ozur->userdata = (void*)&uctx;
@@ -174,23 +183,25 @@ static int do_decompress_reduce(deark *c, lctx *d, struct member_data *md,
 	ozur->cb_write = my_ozur_write;
 	ozur->cb_post_follower_sets = my_ozur_post_follower_sets_hook;
 
-	ozur->cmpr_size = inf_size;
-	ozur->uncmpr_size = md->uncmpr_size;
-	ozur->cmpr_factor = cmpr_meth - 1;
+	ozur->cmpr_size = dcmpri->len;
+	ozur->uncmpr_size = dcmpro->expected_len;
+	ozur->cmpr_factor = cparams->cmpr_meth - 1;
 
 	ozur_run(ozur);
 
-	if(ozur->error_code==0)
+	if(ozur->error_code) {
+		de_dfilter_set_errorf(c, dres, modname, "Decompression failed (code %d)",
+			ozur->error_code);
+	}
+	else {
 		retval = 1;
+	}
 
 done:
-	if(ozur) {
-		if(ozur->error_code) {
-			de_err(c, "Reduce decompression failed (code %d)", ozur->error_code);
-		}
-		de_free(c, ozur);
+	de_free(c, ozur);
+	if(retval==0 && !dres->errcode) {
+		de_dfilter_set_generic_error(c, dres, modname);
 	}
-	return retval;
 }
 
 static void *zipexpl_calloc(void *userdata, size_t nmemb, size_t size)
@@ -270,14 +281,14 @@ static void my_zipexpl_cb_post_read_trees(ui6a_ctx *ui6a, struct ui6a_htables *t
 	}
 }
 
-static int do_decompress_implode(deark *c, lctx *d, struct member_data *md,
-	dbuf *inf, i64 inf_pos, i64 inf_size, dbuf *outf)
+static int do_decompress_implode(deark *c, lctx *d,
+	dbuf *inf, i64 inf_pos, i64 inf_size,
+	dbuf *outf, i64 uncmpr_size, unsigned int bit_flags)
 {
 	ui6a_ctx *ui6a = NULL;
 	struct ozXX_udatatype zu;
 	int retval = 0;
 
-	if(!md) goto done;
 	de_zeromem(&zu, sizeof(struct ozXX_udatatype));
 	zu.c = c;
 	zu.dumptrees = de_get_ext_option_bool(c, "zip:dumptrees", 0);
@@ -289,8 +300,8 @@ static int do_decompress_implode(deark *c, lctx *d, struct member_data *md,
 	if(!ui6a) goto done;
 
 	ui6a->cmpr_size = inf_size;
-	ui6a->uncmpr_size = md->uncmpr_size;
-	ui6a->bit_flags = md->local_dir_entry_data.bit_flags;
+	ui6a->uncmpr_size = uncmpr_size;
+	ui6a->bit_flags = bit_flags;
 
 	ui6a->cb_read = my_zipexpl_read;
 	ui6a->cb_write =  my_zipexpl_write;
@@ -327,10 +338,10 @@ static int do_decompress_deflate(deark *c, lctx *d,
 static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 0, 0x01, "stored", NULL },
 	{ 1, 0x00, "shrink", NULL },
-	{ 2, 0x01, "reduce, CF=1", NULL },
-	{ 3, 0x01, "reduce, CF=2", NULL },
-	{ 4, 0x01, "reduce, CF=3", NULL },
-	{ 5, 0x01, "reduce, CF=4", NULL },
+	{ 2, 0x01, "reduce, CF=1", do_decompress_reduce },
+	{ 3, 0x01, "reduce, CF=2", do_decompress_reduce },
+	{ 4, 0x01, "reduce, CF=3", do_decompress_reduce },
+	{ 5, 0x01, "reduce, CF=4", do_decompress_reduce },
 	{ 6, 0x01, "implode", NULL },
 	{ 8, 0x01, "deflate", NULL },
 	{ 9, 0x00, "deflate64", NULL },
@@ -362,28 +373,53 @@ static const struct cmpr_meth_info *get_cmpr_meth_info(int cmpr_meth)
 
 // Decompress some data from inf, using the given ZIP compression method,
 // and append it to outf.
-// 'md' is allowed to be NULL in some cases.
-static int do_decompress_data(deark *c, lctx *d, struct member_data *md,
+// On failure, prints an error and returns 0.
+// Returns 1 on apparent success.
+static int do_decompress_data(deark *c, lctx *d,
 	dbuf *inf, i64 inf_pos, i64 inf_size,
-	dbuf *outf, i64 maxuncmprsize, int cmpr_method)
+	dbuf *outf, i64 maxuncmprsize,
+	int cmpr_meth, const struct cmpr_meth_info *cmi, unsigned int bit_flags)
 {
 	int retval = 0;
 	int ret;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	struct compression_params cparams;
 
-	switch(cmpr_method) {
+	de_zeromem(&cparams, sizeof(struct compression_params));
+	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
+	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
+	de_dfilter_results_clear(c, &dres);
+	cparams.cmpr_meth = cmpr_meth;
+	cparams.bit_flags = bit_flags;
+	dcmpri.f = inf;
+	dcmpri.pos = inf_pos;
+	dcmpri.len = inf_size;
+	dcmpro.f = outf;
+	dcmpro.expected_len = maxuncmprsize;
+	dcmpro.len_known = 1;
+
+	// If a decompressor in standard form is available, use it.
+	if(cmi && cmi->decompressor) {
+		cmi->decompressor(c, d, &cparams, &dcmpri, &dcmpro, &dres);
+		if(dres.errcode) {
+			de_err(c, "%s", dres.errmsg);
+		}
+		else {
+			retval = 1;
+		}
+		goto done;
+	}
+
+	// Other decompressors:
+	switch(cmpr_meth) {
 	case 0: // uncompressed
 		dbuf_copy(inf, inf_pos, inf_size, outf);
 		retval = 1;
 		break;
-	case 2: case 3: case 4: case 5:
-		if(!md) goto done;
-		ret = do_decompress_reduce(c, d, md, inf, inf_pos, inf_size, outf, cmpr_method);
-		if(!ret) goto done;
-		retval = 1;
-		break;
 	case 6: // implode
-		if(!md) goto done;
-		ret = do_decompress_implode(c, d, md, inf, inf_pos, inf_size, outf);
+		ret = do_decompress_implode(c, d, inf, inf_pos, inf_size, outf, maxuncmprsize, bit_flags);
 		if(!ret) goto done;
 		retval = 1;
 		break;
@@ -392,6 +428,9 @@ static int do_decompress_data(deark *c, lctx *d, struct member_data *md,
 		if(!ret) goto done;
 		retval = 1;
 		break;
+	default:
+		// (Not really supposed to get here.)
+		de_err(c, "Unsupported compression method");
 	}
 
 done:
@@ -840,8 +879,8 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 
 	// Decompress and decode the Finder attribute data
 	attr_data = dbuf_create_membuf(c, ulen, 0x1);
-	ret = do_decompress_data(c, d, NULL, c->infile, pos, cmpr_attr_size,
-		attr_data, 65536, cmpr_meth);
+	ret = do_decompress_data(c, d, c->infile, pos, cmpr_attr_size,
+		attr_data, 65536, cmpr_meth, cmi, 0);
 	if(!ret) {
 		de_warn(c, "Failed to decompress finder attribute data");
 		goto done;
@@ -1127,8 +1166,8 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	md->crco = d->crco;
 	de_crcobj_reset(md->crco);
 
-	ret = do_decompress_data(c, d, md, c->infile, md->file_data_pos, md->cmpr_size,
-		outf, md->uncmpr_size, ldd->cmpr_meth);
+	ret = do_decompress_data(c, d, c->infile, md->file_data_pos, md->cmpr_size,
+		outf, md->uncmpr_size, ldd->cmpr_meth, ldd->cmi, ldd->bit_flags);
 	if(!ret) goto done;
 
 	crc_calculated = de_crcobj_getval(md->crco);
