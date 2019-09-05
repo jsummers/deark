@@ -25,11 +25,27 @@ static void zipexpl_free(void *userdata, void *ptr);
 
 DE_DECLARE_MODULE(de_module_zip);
 
+struct localctx_struct;
+typedef struct localctx_struct lctx;
+struct member_data;
+
+typedef void (*decompressor_fn)(deark *c, lctx *d, struct member_data *md,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres);
+
+struct cmpr_meth_info {
+	int cmpr_meth;
+	unsigned int flags;
+	const char *name;
+	decompressor_fn decompressor;
+};
+
 struct dir_entry_data {
 	unsigned int ver_needed;
 	unsigned int ver_needed_hi, ver_needed_lo;
 	i64 cmpr_size, uncmpr_size;
-	int cmpr_method;
+	int cmpr_meth;
+	const struct cmpr_meth_info *cmi;
 	unsigned int bit_flags;
 	u32 crc_reported;
 	i64 main_fname_pos;
@@ -71,8 +87,7 @@ struct extra_item_info_struct {
 	int is_central;
 };
 
-typedef struct localctx_struct {
-	u8 support_implode;
+struct localctx_struct {
 	i64 end_of_central_dir_pos;
 	i64 central_dir_num_entries;
 	i64 central_dir_byte_size;
@@ -85,16 +100,15 @@ typedef struct localctx_struct {
 	int used_offset_discrepancy;
 	int is_zip64;
 	struct de_crcobj *crco;
-} lctx;
+};
 
 typedef void (*extrafield_decoder_fn)(deark *c, lctx *d,
 	struct extra_item_info_struct *eii);
 
-static int is_compression_method_supported(lctx *d, int cmpr_method)
+static int is_compression_method_supported(lctx *d, const struct cmpr_meth_info *cmi)
 {
-	if(cmpr_method==0 || cmpr_method==8) return 1;
-	if(cmpr_method==6 && d->support_implode) return 1;
-	if(cmpr_method>=2 && cmpr_method<=5) return 1;
+	if(!cmi) return 0;
+	if(cmi->flags & 0x1) return 1;
 	return 0;
 }
 
@@ -140,13 +154,13 @@ static void my_ozur_post_follower_sets_hook(ozur_ctx *ozur)
 }
 
 static int do_decompress_reduce(deark *c, lctx *d, struct member_data *md,
-	dbuf *inf, i64 inf_pos1, i64 inf_size, dbuf *outf, int cmpr_method)
+	dbuf *inf, i64 inf_pos1, i64 inf_size, dbuf *outf, int cmpr_meth)
 {
 	int retval = 0;
 	ozur_ctx *ozur = NULL;
 	struct ozXX_udatatype uctx;
 
-	if(cmpr_method<2 || cmpr_method>5) goto done;
+	if(cmpr_meth<2 || cmpr_meth>5) goto done;
 
 	de_zeromem(&uctx, sizeof(struct ozXX_udatatype));
 	uctx.c = c;
@@ -162,7 +176,7 @@ static int do_decompress_reduce(deark *c, lctx *d, struct member_data *md,
 
 	ozur->cmpr_size = inf_size;
 	ozur->uncmpr_size = md->uncmpr_size;
-	ozur->cmpr_factor = cmpr_method - 1;
+	ozur->cmpr_factor = cmpr_meth - 1;
 
 	ozur_run(ozur);
 
@@ -308,6 +322,42 @@ static int do_decompress_deflate(deark *c, lctx *d,
 	ret = de_decompress_deflate(inf, inf_pos, inf_size, outf, maxuncmprsize,
 		&bytes_consumed, DE_DEFLATEFLAG_USEMAXUNCMPRSIZE);
 	return ret;
+}
+
+static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
+	{ 0, 0x01, "stored", NULL },
+	{ 1, 0x00, "shrink", NULL },
+	{ 2, 0x01, "reduce, CF=1", NULL },
+	{ 3, 0x01, "reduce, CF=2", NULL },
+	{ 4, 0x01, "reduce, CF=3", NULL },
+	{ 5, 0x01, "reduce, CF=4", NULL },
+	{ 6, 0x01, "implode", NULL },
+	{ 8, 0x01, "deflate", NULL },
+	{ 9, 0x00, "deflate64", NULL },
+	{ 10, 0x00, "PKWARE DCL implode", NULL },
+	{ 12, 0x00, "bzip2", NULL },
+	{ 14, 0x00, "LZMA", NULL },
+	{ 16, 0x00, "IBM z/OS CMPSC ", NULL },
+	{ 18, 0x00, "IBM TERSE (new)", NULL },
+	{ 19, 0x00, "IBM LZ77 z Architecture", NULL },
+	{ 94, 0x00, "MP3", NULL },
+	{ 95, 0x00, "XZ", NULL },
+	{ 96, 0x00, "JPEG", NULL },
+	{ 97, 0x00, "WavPack", NULL },
+	{ 98, 0x00, "PPMd", NULL },
+	{ 99, 0x00, "AES", NULL }
+};
+
+static const struct cmpr_meth_info *get_cmpr_meth_info(int cmpr_meth)
+{
+	size_t k;
+
+	for(k=0; k<DE_ITEMS_IN_ARRAY(cmpr_meth_info_arr); k++) {
+		if(cmpr_meth_info_arr[k].cmpr_meth == cmpr_meth) {
+			return &cmpr_meth_info_arr[k];
+		}
+	}
+	return NULL;
 }
 
 // Decompress some data from inf, using the given ZIP compression method,
@@ -721,7 +771,8 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	i64 ulen;
 	i64 cmpr_attr_size;
 	unsigned int flags;
-	unsigned int cmprtype;
+	int cmpr_meth;
+	const struct cmpr_meth_info *cmi = NULL;
 	unsigned int crc_reported;
 	struct de_fourcc filetype;
 	struct de_fourcc creator;
@@ -763,12 +814,13 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	if(eii->is_central) goto done;
 
 	if(flags&0x0004) { // Uncompressed attribute data
-		cmprtype = 0;
+		cmpr_meth = 0;
 		crc_reported = 0;
 	}
 	else {
-		cmprtype = (unsigned int)de_getu16le_p(&pos);
-		de_dbg(c, "finder attr. cmpr. method: %d", (int)cmprtype);
+		cmpr_meth = (int)de_getu16le_p(&pos);
+		cmi = get_cmpr_meth_info(cmpr_meth);
+		de_dbg(c, "finder attr. cmpr. method: %d (%s)", cmpr_meth, (cmi ? cmi->name : "?"));
 
 		crc_reported = (unsigned int)de_getu32le_p(&pos);
 		de_dbg(c, "finder attr. data crc (reported): 0x%08x", crc_reported);
@@ -779,14 +831,17 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	de_dbg(c, "cmpr. finder attr. size: %d", (int)cmpr_attr_size);
 	if(ulen<1 || ulen>1000000) goto done;
 
-	if(!is_compression_method_supported(d, cmprtype)) {
-		de_warn(c, "Finder attribute data: Unsupported compression method: %d", (int)cmprtype);
+	// Type 6 (implode) compression won't work here, because it needs
+	// additional parameters seemingly not provided by the Finder attr data.
+	if(cmpr_meth==6 || !is_compression_method_supported(d, cmi)) {
+		de_warn(c, "Finder attribute data: Unsupported compression method: %d (%s)",
+			cmpr_meth, (cmi ? cmi->name : "?"));
 	}
 
 	// Decompress and decode the Finder attribute data
 	attr_data = dbuf_create_membuf(c, ulen, 0x1);
 	ret = do_decompress_data(c, d, NULL, c->infile, pos, cmpr_attr_size,
-		attr_data, 65536, cmprtype);
+		attr_data, 65536, cmpr_meth);
 	if(!ret) {
 		de_warn(c, "Failed to decompress finder attribute data");
 		goto done;
@@ -1021,9 +1076,9 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		goto done;
 	}
 
-	if(!is_compression_method_supported(d, ldd->cmpr_method)) {
-		de_err(c, "Unsupported compression method: %d",
-			(int)ldd->cmpr_method);
+	if(!is_compression_method_supported(d, ldd->cmi)) {
+		de_err(c, "Unsupported compression method: %d (%s)",
+			ldd->cmpr_meth, (ldd->cmi ? ldd->cmi->name : "?"));
 		goto done;
 	}
 
@@ -1073,7 +1128,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	de_crcobj_reset(md->crco);
 
 	ret = do_decompress_data(c, d, md, c->infile, md->file_data_pos, md->cmpr_size,
-		outf, md->uncmpr_size, ldd->cmpr_method);
+		outf, md->uncmpr_size, ldd->cmpr_meth);
 	if(!ret) goto done;
 
 	crc_calculated = de_crcobj_getval(md->crco);
@@ -1103,35 +1158,6 @@ static const char *get_platform_name(unsigned int ver_hi)
 		return pltf_names[ver_hi];
 	if(ver_hi==30) return "AtheOS/Syllable";
 	return "?";
-}
-
-static const char *get_cmpr_meth_name(int n)
-{
-	const char *s = "?";
-	switch(n) {
-	case 0: s="uncompressed"; break;
-	case 1: s="shrink"; break;
-	case 2: s="reduce, CF=1"; break;
-	case 3: s="reduce, CF=2"; break;
-	case 4: s="reduce, CF=3"; break;
-	case 5: s="reduce, CF=4"; break;
-	case 6: s="implode"; break;
-	case 8: s="deflate"; break;
-	case 9: s="deflate64"; break;
-	case 10: s="PKWARE DCL implode"; break;
-	case 12: s="bzip2"; break;
-	case 14: s="LZMA"; break;
-	case 16: s="IBM z/OS CMPSC "; break;
-	case 18: s="IBM TERSE (new)"; break;
-	case 19: s="IBM LZ77 z Architecture"; break;
-	case 94: s="MP3"; break;
-	case 95: s="XZ"; break;
-	case 96: s="JPEG"; break;
-	case 97: s="WavPack"; break;
-	case 98: s="PPMd"; break;
-	case 99: s="AES"; break;
-	}
-	return s;
 }
 
 // Look at the attributes, and set some other fields based on them.
@@ -1203,7 +1229,7 @@ static void describe_general_purpose_bit_flags(deark *c, struct dir_entry_data *
 		bf -= 0x0001;
 	}
 
-	if(dd->cmpr_method==6) { // implode
+	if(dd->cmpr_meth==6) { // implode
 		if(bf & 0x0002) {
 			name = "8K";
 			bf -= 0x0002;
@@ -1223,7 +1249,7 @@ static void describe_general_purpose_bit_flags(deark *c, struct dir_entry_data *
 		ucstring_append_flags_itemf(s, "%s trees", name);
 	}
 
-	if(dd->cmpr_method==8 || dd->cmpr_method==9) { // deflate flags
+	if(dd->cmpr_meth==8 || dd->cmpr_meth==9) { // deflate flags
 		unsigned int code;
 
 		code = (bf & 0x0006)>>1;
@@ -1333,15 +1359,16 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 		(unsigned int)(dd->ver_needed_lo/10), (unsigned int)(dd->ver_needed_lo%10));
 
 	dd->bit_flags = (unsigned int)de_getu16le_p(&pos);
-	dd->cmpr_method = (int)de_getu16le_p(&pos);
+	dd->cmpr_meth = (int)de_getu16le_p(&pos);
+	dd->cmi = get_cmpr_meth_info(dd->cmpr_meth);
 
 	utf8_flag = (dd->bit_flags & 0x800)?1:0;
 	ucstring_empty(descr);
 	describe_general_purpose_bit_flags(c, dd, descr);
 	de_dbg(c, "flags: 0x%04x (%s)", dd->bit_flags, ucstring_getpsz(descr));
 
-	de_dbg(c, "cmpr method: %d (%s)", dd->cmpr_method,
-		get_cmpr_meth_name(dd->cmpr_method));
+	de_dbg(c, "cmpr method: %d (%s)", dd->cmpr_meth,
+		(dd->cmi ? dd->cmi->name : "?"));
 
 	mod_time_raw = de_getu16le_p(&pos);
 	mod_date_raw = de_getu16le_p(&pos);
@@ -1702,7 +1729,6 @@ static void de_run_zip(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
-	d->support_implode = 1;
 
 	if(!de_fmtutil_find_zip_eocd(c, c->infile, &d->end_of_central_dir_pos)) {
 		de_err(c, "Not a ZIP file");
