@@ -113,8 +113,7 @@ typedef void (*extrafield_decoder_fn)(deark *c, lctx *d,
 
 static int is_compression_method_supported(lctx *d, const struct cmpr_meth_info *cmi)
 {
-	if(!cmi) return 0;
-	if(cmi->flags & 0x1) return 1;
+	if(cmi && cmi->decompressor) return 1;
 	return 0;
 }
 
@@ -281,27 +280,30 @@ static void my_zipexpl_cb_post_read_trees(ui6a_ctx *ui6a, struct ui6a_htables *t
 	}
 }
 
-static int do_decompress_implode(deark *c, lctx *d,
-	dbuf *inf, i64 inf_pos, i64 inf_size,
-	dbuf *outf, i64 uncmpr_size, unsigned int bit_flags)
+static void do_decompress_implode(deark *c, lctx *d, struct compression_params *cparams,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
 {
 	ui6a_ctx *ui6a = NULL;
 	struct ozXX_udatatype zu;
 	int retval = 0;
+	static const char *modname = "unimplode";
 
 	de_zeromem(&zu, sizeof(struct ozXX_udatatype));
+	if(!dcmpro->len_known) goto done;
+
 	zu.c = c;
 	zu.dumptrees = de_get_ext_option_bool(c, "zip:dumptrees", 0);
-	zu.inf = inf;
-	zu.inf_curpos = inf_pos;
-	zu.outf = outf;
+	zu.inf = dcmpri->f;
+	zu.inf_curpos = dcmpri->pos;
+	zu.outf = dcmpro->f;
 
 	ui6a = ui6a_create((void*)&zu);
 	if(!ui6a) goto done;
 
-	ui6a->cmpr_size = inf_size;
-	ui6a->uncmpr_size = uncmpr_size;
-	ui6a->bit_flags = bit_flags;
+	ui6a->cmpr_size = dcmpri->len;
+	ui6a->uncmpr_size = dcmpro->expected_len;
+	ui6a->bit_flags = cparams->bit_flags;
 
 	ui6a->cb_read = my_zipexpl_read;
 	ui6a->cb_write =  my_zipexpl_write;
@@ -315,35 +317,51 @@ static int do_decompress_implode(deark *c, lctx *d,
 		retval = 1;
 	}
 	else {
-		de_err(c, "Implode decompression failed (code %d)", ui6a->error_code);
+		de_dfilter_set_errorf(c, dres, modname, "Decompression failed (code %d)", ui6a->error_code);
 	}
 
 done:
 	ui6a_destroy(ui6a);
-	return retval;
+
+	if(!retval && !dres->errcode) {
+		de_dfilter_set_generic_error(c, dres, modname);
+	}
 }
 
-static int do_decompress_deflate(deark *c, lctx *d,
-	dbuf *inf, i64 inf_pos, i64 inf_size,
-	dbuf *outf, i64 maxuncmprsize)
+static void do_decompress_deflate(deark *c, lctx *d, struct compression_params *cparams,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
 {
 	int ret;
 	i64 bytes_consumed = 0;
+	static const char *modname = "deflate";
 
-	ret = de_decompress_deflate(inf, inf_pos, inf_size, outf, maxuncmprsize,
+	// TODO: Make a deflate function that can return the error message in dres.
+	ret = de_decompress_deflate(dcmpri->f, dcmpri->pos, dcmpri->len,
+		dcmpro->f, dcmpro->expected_len,
 		&bytes_consumed, DE_DEFLATEFLAG_USEMAXUNCMPRSIZE);
-	return ret;
+
+	if(!ret) {
+		de_dfilter_set_generic_error(c, dres, modname);
+	}
+}
+
+static void do_decompress_stored(deark *c, lctx *d, struct compression_params *cparams,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	dbuf_copy(dcmpri->f, dcmpri->pos, dcmpri->len, dcmpro->f);
 }
 
 static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
-	{ 0, 0x01, "stored", NULL },
+	{ 0, 0x00, "stored", do_decompress_stored },
 	{ 1, 0x00, "shrink", NULL },
-	{ 2, 0x01, "reduce, CF=1", do_decompress_reduce },
-	{ 3, 0x01, "reduce, CF=2", do_decompress_reduce },
-	{ 4, 0x01, "reduce, CF=3", do_decompress_reduce },
-	{ 5, 0x01, "reduce, CF=4", do_decompress_reduce },
-	{ 6, 0x01, "implode", NULL },
-	{ 8, 0x01, "deflate", NULL },
+	{ 2, 0x00, "reduce, CF=1", do_decompress_reduce },
+	{ 3, 0x00, "reduce, CF=2", do_decompress_reduce },
+	{ 4, 0x00, "reduce, CF=3", do_decompress_reduce },
+	{ 5, 0x00, "reduce, CF=4", do_decompress_reduce },
+	{ 6, 0x00, "implode", do_decompress_implode },
+	{ 8, 0x00, "deflate", do_decompress_deflate },
 	{ 9, 0x00, "deflate64", NULL },
 	{ 10, 0x00, "PKWARE DCL implode", NULL },
 	{ 12, 0x00, "bzip2", NULL },
@@ -381,7 +399,6 @@ static int do_decompress_data(deark *c, lctx *d,
 	int cmpr_meth, const struct cmpr_meth_info *cmi, unsigned int bit_flags)
 {
 	int retval = 0;
-	int ret;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
@@ -400,7 +417,6 @@ static int do_decompress_data(deark *c, lctx *d,
 	dcmpro.expected_len = maxuncmprsize;
 	dcmpro.len_known = 1;
 
-	// If a decompressor in standard form is available, use it.
 	if(cmi && cmi->decompressor) {
 		cmi->decompressor(c, d, &cparams, &dcmpri, &dcmpro, &dres);
 		if(dres.errcode) {
@@ -412,26 +428,8 @@ static int do_decompress_data(deark *c, lctx *d,
 		goto done;
 	}
 
-	// Other decompressors:
-	switch(cmpr_meth) {
-	case 0: // uncompressed
-		dbuf_copy(inf, inf_pos, inf_size, outf);
-		retval = 1;
-		break;
-	case 6: // implode
-		ret = do_decompress_implode(c, d, inf, inf_pos, inf_size, outf, maxuncmprsize, bit_flags);
-		if(!ret) goto done;
-		retval = 1;
-		break;
-	case 8: // deflate
-		ret = do_decompress_deflate(c, d, inf, inf_pos, inf_size, outf, maxuncmprsize);
-		if(!ret) goto done;
-		retval = 1;
-		break;
-	default:
-		// (Not really supposed to get here.)
-		de_err(c, "Unsupported compression method");
-	}
+	de_err(c, "Unsupported compression method: %d (%s)", cmpr_meth,
+		(cmi ? cmi->name : "?"));
 
 done:
 	return retval;
