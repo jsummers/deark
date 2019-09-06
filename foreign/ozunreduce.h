@@ -1,8 +1,78 @@
-// Old ZIP Unreduce - Decompressor for "Reduce" compression
+// Ozunreduce / Old ZIP Unreduce - A single-header-file C/C++ library for
+// decompressing ("expanding") ZIP "Reduce" (methods 2 through 5) compression
 //
-// This file is part of Deark (for now, at least).
-// Copyright (C) 2019 Jason Summers
-// See Deark's main COPYING file for terms of use.
+// This file, normally named ozunreduce.h, hereinafter referred to as "this
+// file" or "this software", is an independent software library. It is okay to
+// distribute this file by itself.
+//
+// This software was written from scratch by Jason Summers, using public
+// specifications from the PKZIP/PKWARE APPNOTE.TXT files.
+//
+// For an overview of how to use this software, see the example code at the
+// end of this file.
+//
+// More information might be found at:
+// * <https://entropymine.com/oldunzip/>
+// * <https://github.com/jsummers/oldunzip>
+
+/*
+================================ TERMS OF USE ================================
+These terms of use apply only to this file, and not to any other files that
+might appear alongside it.
+
+This software is dual-licensed. Choose the license you prefer:
+------------------------------------------------------------------------------
+Licence option #1: MIT
+Copyright (C) 2019 Jason Summers
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+------------------------------------------------------------------------------
+Licence option #2: Public domain
+
+This is free and unencumbered software released into the public domain.
+
+Anyone is free to copy, modify, publish, use, compile, sell, or
+distribute this software, either in source code form or as a compiled
+binary, for any purpose, commercial or non-commercial, and by any
+means.
+
+In jurisdictions that recognize copyright laws, the author or authors
+of this software dedicate any and all copyright interest in the
+software to the public domain. We make this dedication for the benefit
+of the public at large and to the detriment of our heirs and
+successors. We intend this dedication to be an overt act of
+relinquishment in perpetuity of all present and future rights to this
+software under copyright law.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+
+For more information, please refer to <http://unlicense.org/>
+==============================================================================
+*/
+
+#define OZUR_VERSION 20190906
 
 #ifndef OZUR_UINT8
 #define OZUR_UINT8   unsigned char
