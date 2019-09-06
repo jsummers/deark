@@ -184,7 +184,7 @@ static void do_decompress_reduce(deark *c, lctx *d, struct compression_params *c
 
 	ozur->cmpr_size = dcmpri->len;
 	ozur->uncmpr_size = dcmpro->expected_len;
-	ozur->cmpr_factor = cparams->cmpr_meth - 1;
+	ozur->cmpr_factor = (unsigned int)(cparams->cmpr_meth - 1);
 
 	ozur_run(ozur);
 

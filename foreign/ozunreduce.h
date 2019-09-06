@@ -24,9 +24,9 @@
 #define OZUR_ERRCODE_INSUFFICIENT_CDATA 8
 
 struct ozur_follower_item {
-	unsigned int count; // N - 0<=count<=32
-	unsigned int nbits; // B(N) - Valid if count>0
-	u8 values[32]; // S - First 'count' values are valid
+	OZUR_UINT8 count; // N - 0<=count<=32
+	OZUR_UINT8 nbits; // B(N) - Valid if count>0
+	OZUR_UINT8 values[32]; // S - First 'count' values are valid
 };
 
 struct ozur_ctx_type;
@@ -38,7 +38,7 @@ typedef void (*ozur_cb_post_follower_sets_type)(ozur_ctx *ozur);
 struct ozur_ctx_type {
 	// Fields the user can or must set:
 	void *userdata;
-	int cmpr_factor;
+	unsigned int cmpr_factor;
 	OZUR_OFF_T cmpr_size;
 	OZUR_OFF_T uncmpr_size;
 	ozur_cb_read_type cb_read;
@@ -147,7 +147,7 @@ static OZUR_UINT8 ozur_bitreader_getbits(ozur_ctx *ozur, unsigned int nbits)
 
 // "the minimal number of bits required to encode the value of x-1".
 // Assumes 1 <= x <= 32.
-static unsigned int ozur_func_B(ozur_ctx *ozur, unsigned int x)
+static OZUR_UINT8 ozur_func_B(ozur_ctx *ozur, OZUR_UINT8 x)
 {
 	if(x<=2) return 1;
 	if(x<=4) return 2;
@@ -166,9 +166,9 @@ static void ozur_part1_readfollowersets(ozur_ctx *ozur)
 
 		f_i = &ozur->followers[k];
 
-		f_i->count = (unsigned int)ozur_bitreader_getbits(ozur, 6);
+		f_i->count = ozur_bitreader_getbits(ozur, 6);
 		if(ozur->error_code) goto done;
-		if(f_i->count>32) {
+		if(f_i->count > 32) {
 			ozur_set_error(ozur, OZUR_ERRCODE_BAD_CDATA);
 			goto done;
 		}
@@ -177,7 +177,7 @@ static void ozur_part1_readfollowersets(ozur_ctx *ozur)
 			f_i->nbits = ozur_func_B(ozur, f_i->count);
 		}
 
-		for(z=0; z<f_i->count; z++) {
+		for(z=0; z<(unsigned int)f_i->count; z++) {
 			f_i->values[z] = ozur_bitreader_getbits(ozur, 8);
 			if(ozur->error_code) goto done;
 		}
@@ -206,7 +206,7 @@ static OZUR_UINT8 ozur_part1_getnextbyte(ozur_ctx *ozur)
 		else {
 			unsigned int var_I;
 
-			var_I = (unsigned int)ozur_bitreader_getbits(ozur, f_i->nbits);
+			var_I = (unsigned int)ozur_bitreader_getbits(ozur, (unsigned int)f_i->nbits);
 			outbyte = f_i->values[var_I];
 		}
 	}
@@ -307,7 +307,8 @@ static void ozur_part2(ozur_ctx *ozur, OZUR_UINT8 var_C)
 		break;
 
 	case 3:
-		nbytes_to_look_back = (size_t)(ozur->var_V>>(8-ozur->cmpr_factor)) * 256 + (size_t)var_C + 1; // D()
+		nbytes_to_look_back = (size_t)(ozur->var_V>>(8-ozur->cmpr_factor)) * 256 +
+			(size_t)var_C + 1; // D()
 		nbytes_to_copy = (size_t)ozur->var_Len + 3;
 		ozur_emit_copy_of_prev_bytes(ozur, nbytes_to_look_back, nbytes_to_copy);
 		ozur->state = 0;
@@ -350,3 +351,82 @@ OZUR_API(void) ozur_run(ozur_ctx *ozur)
 done:
 	ozur_flush(ozur);
 }
+
+#if 0 // Example code
+
+// You must at least define the off_t or OZUR_OFF_T symbol, either manually,
+// or by #including the appopriate standard header file.
+
+#include <sys/types.h>
+
+// The library is expected to be used by just one of your .c/.cpp files. There
+// are no provisions to make it convenient to use from multiple files.
+#include "ozunreduce.h"
+
+#endif
+
+#ifdef OZUR_TESTING_EXAMPLE_CODE
+
+// Define a custom struct for context data used by callbacks
+struct example_ozur_uctxtype {
+	FILE *infile;
+	FILE *outfile;
+};
+
+// Implement your read and write callbacks
+static size_t example_ozur_read(ozur_ctx *ozur, OZUR_UINT8 *buf, size_t size)
+{
+	struct example_ozur_uctxtype *uctx = (struct example_ozur_uctxtype*)ozur->userdata;
+	return (size_t)fread(buf, 1, size, uctx->infile);
+}
+
+static size_t example_ozur_write(ozur_ctx *ozur, const OZUR_UINT8 *buf, size_t size)
+{
+	struct example_ozur_uctxtype *uctx = (struct example_ozur_uctxtype*)ozur->userdata;
+	return (size_t)fwrite(buf, 1, size, uctx->outfile);
+}
+
+// A example function that uses the library.
+// infile: The ZIP file. Seek to the start of compressed data before calling
+//   this function.
+// outfile: The file to write uncompressed data to.
+// cmpr_size, uncmpr_size: Compressed and uncompressed file sizes, from the
+//   ZIP file directory data.
+// cmpr_factor: The compression factor, from 1 to 4. This is the ZIP
+//   "compression method" field, minus 1.
+static void ozur_example_code(FILE *infile, FILE *outfile,
+	OZUR_OFF_T cmpr_size, OZUR_OFF_T uncmpr_size, unsigned int cmpr_factor)
+{
+	ozur_ctx *ozur = NULL;
+	struct example_ozur_uctxtype uctx;
+
+	// Prepare your context data
+	uctx.infile = infile;
+	uctx.outfile = outfile;
+
+	// Allocate an ozur_ctx object, and (**important!**) initialize it to all
+	// zero bytes.
+	// The object is about 16KB in size, so putting it on the stack is an
+	// option, but make sure to initialize it.
+	ozur = calloc(1, sizeof(ozur_ctx));
+	if(!ozur) return;
+
+	// Set some required fields
+	ozur->userdata = (void*)&uctx;
+	ozur->cmpr_size = cmpr_size;
+	ozur->uncmpr_size = uncmpr_size;
+	ozur->cmpr_factor = cmpr_factor;
+	ozur->cb_read = example_ozur_read;
+	ozur->cb_write = example_ozur_write;
+
+	// Do the decompression
+	ozur_run(ozur);
+	if(ozur->error_code != OZUR_ERRCODE_OK) {
+		printf("Decompression failed (code %d)\n", ozur->error_code);
+	}
+
+	// Fee any resources you allocated. The library does not require any
+	// cleanup of its own.
+	free(ozur);
+}
+#endif // End of example code
