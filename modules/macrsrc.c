@@ -14,6 +14,7 @@ DE_DECLARE_MODULE(de_module_macrsrc);
 #define CODE_CURS 0x43555253U
 #define CODE_MeSa 0x4d655361U
 #define CODE_PICT 0x50494354U
+#define CODE_cicn 0x6369636eU
 #define CODE_icns 0x69636e73U
 #define CODE_moov 0x6d6f6f76U
 
@@ -167,6 +168,126 @@ done:
 	de_bitmap_destroy(mask);
 }
 
+static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
+	struct rsrcinstanceinfo *rii, i64 dpos, i64 dlen)
+{
+	struct fmtutil_macbitmap_info *bi_fgcolor = NULL;
+	struct fmtutil_macbitmap_info *bi_mask;
+	struct fmtutil_macbitmap_info *bi_bw;
+	de_bitmap *img_fgcolor = NULL;
+	de_bitmap *img_mask = NULL;
+	de_bitmap *img_bw = NULL;
+	de_finfo *fi = NULL;
+	i64 fgcolor_bitssize;
+	i64 mask_bitssize;
+	i64 bw_bitssize = 0;
+	int bw_exists = 0;
+	i64 colortable_size = 0;
+	i64 pos = dpos;
+
+	bi_fgcolor = de_malloc(c, sizeof(struct fmtutil_macbitmap_info));
+	bi_mask = de_malloc(c, sizeof(struct fmtutil_macbitmap_info));
+	bi_bw = de_malloc(c, sizeof(struct fmtutil_macbitmap_info));
+
+	de_dbg(c, "[color pixmap header]");
+	de_dbg_indent(c, 1);
+	fmtutil_macbitmap_read_baseaddr(c, c->infile, bi_fgcolor, pos);
+	pos += 4;
+	fmtutil_macbitmap_read_rowbytes_and_bounds(c, c->infile, bi_fgcolor, pos);
+	pos += 10;
+	fmtutil_macbitmap_read_pixmap_only_fields(c, c->infile, bi_fgcolor, pos);
+	pos += 36;
+	de_dbg_indent(c, -1);
+
+	de_dbg(c, "[mask bitmap header]");
+	de_dbg_indent(c, 1);
+	fmtutil_macbitmap_read_baseaddr(c, c->infile, bi_mask, pos);
+	pos += 4;
+	fmtutil_macbitmap_read_rowbytes_and_bounds(c, c->infile, bi_mask, pos);
+	pos += 10;
+	de_dbg_indent(c, -1);
+
+	de_dbg(c, "[b/w bitmap header]");
+	de_dbg_indent(c, 1);
+	fmtutil_macbitmap_read_baseaddr(c, c->infile, bi_bw, pos);
+	pos += 4;
+	fmtutil_macbitmap_read_rowbytes_and_bounds(c, c->infile, bi_bw, pos);
+	pos += 10;
+	de_dbg_indent(c, -1);
+
+	pos += 4; // "icon data"
+
+	// This is said to be optional, but I don't know how to tell if it exists.
+	if(bi_bw->rowbytes && bi_bw->height && bi_bw->width) {
+		bw_exists = 1;
+	}
+
+	if(!de_good_image_dimensions(c, bi_fgcolor->width, bi_fgcolor->height)) goto done;
+	if(!de_good_image_dimensions(c, bi_mask->width, bi_mask->height)) goto done;
+	if(bw_exists && !de_good_image_dimensions(c, bi_bw->width, bi_bw->height)) goto done;
+
+	if(bi_fgcolor->pixeltype!=0) goto done;
+	if(bi_fgcolor->pixelsize!=bi_fgcolor->cmpsize) goto done;
+	if(bi_fgcolor->cmpcount!=1) goto done;
+	if(bi_fgcolor->pixelsize!=1 && bi_fgcolor->pixelsize!=2 &&
+		bi_fgcolor->pixelsize!=4 && bi_fgcolor->pixelsize!=8)
+	{
+		goto done;
+	}
+
+	mask_bitssize = bi_mask->rowbytes * bi_mask->height;
+	if(bw_exists) bw_bitssize = bi_bw->rowbytes * bi_bw->height;
+	fgcolor_bitssize =  bi_fgcolor->rowbytes * bi_fgcolor->height;
+
+	de_dbg(c, "mask bitmap at %"I64_FMT", len=%"I64_FMT, pos, mask_bitssize);
+	img_mask = de_bitmap_create(c, bi_mask->width, bi_mask->height, 1);
+	de_convert_image_bilevel(c->infile, pos, bi_mask->rowbytes, img_mask, 0);
+	pos += mask_bitssize;
+
+	if(bw_exists) {
+		de_dbg(c, "bw bitmap at %"I64_FMT", len=%"I64_FMT, pos, bw_bitssize);
+		img_bw = de_bitmap_create(c, bi_bw->width, bi_bw->height, 1);
+		de_convert_image_bilevel(c->infile, pos, bi_bw->rowbytes, img_bw,
+			DE_CVTF_WHITEISZERO);
+		de_bitmap_write_to_file(img_bw, "cicn_bw", 0);
+		pos += bw_bitssize;
+	}
+	else {
+		de_dbg(c, "[assuming there is no bw bitmap]");
+	}
+
+	if(!fmtutil_macbitmap_read_colortable(c, c->infile, bi_fgcolor,
+		pos, &colortable_size))
+	{
+		goto done;
+	}
+	pos += colortable_size;
+
+	de_dbg(c, "color bitmap at %"I64_FMT", len=%"I64_FMT, pos, fgcolor_bitssize);
+	img_fgcolor = de_bitmap_create(c, bi_fgcolor->width, bi_fgcolor->height, 4);
+	de_convert_image_paletted(c->infile, pos, bi_fgcolor->pixelsize, bi_fgcolor->rowbytes,
+		bi_fgcolor->pal, img_fgcolor, 0);
+	de_bitmap_apply_mask(img_fgcolor, img_mask, 0);
+	fi = de_finfo_create(c);
+	if(bi_fgcolor->hdpi>=1.0 && bi_fgcolor->vdpi>=1.0) {
+		fi->density.code = DE_DENSITY_DPI;
+		fi->density.xdens = bi_fgcolor->hdpi;
+		fi->density.ydens = bi_fgcolor->vdpi;
+	}
+	de_finfo_set_name_from_sz(c, fi, "cicn", 0, DE_ENCODING_LATIN1);
+	de_bitmap_write_to_file_finfo(img_fgcolor, fi, DE_CREATEFLAG_OPT_IMAGE);
+	pos += fgcolor_bitssize;
+
+done:
+	de_bitmap_destroy(img_fgcolor);
+	de_bitmap_destroy(img_mask);
+	de_bitmap_destroy(img_bw);
+	de_free(c, bi_fgcolor);
+	de_free(c, bi_mask);
+	de_free(c, bi_bw);
+	de_finfo_destroy(c, fi);
+}
+
 static int looks_like_pict(deark *c, lctx *d, struct rsrcinstanceinfo *rii,
 	i64 pos, i64 len)
 {
@@ -261,6 +382,10 @@ static void do_resource_data(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	}
 	else if(rti->fcc.id==CODE_CURS) {
 		do_CURS_resource(c, d, rti, rii, dpos, dlen);
+		handled = 1;
+	}
+	else if(rti->fcc.id==CODE_cicn) {
+		do_cicn_resource(c, d, rti, rii, dpos, dlen);
 		handled = 1;
 	}
 
