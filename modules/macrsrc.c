@@ -210,7 +210,7 @@ static void do_resource_data(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	const char *ext = "bin";
 	int extr_flag = 0;
 	int is_pict = 0;
-	dbuf *outf = NULL;
+	int handled = 0;
 
 	de_dbg(c, "resource data at %d", (int)rii->data_offset);
 	de_dbg_indent(c, 1);
@@ -245,6 +245,7 @@ static void do_resource_data(deark *c, lctx *d, struct rsrctypeinfo *rti,
 		de_dbg_indent(c, 1);
 		de_fmtutil_handle_iptc(c, c->infile, dpos, dlen, 0x0);
 		de_dbg_indent(c, -1);
+		handled = 1;
 	}
 	else if(rti->is_icns_type) {
 		de_dbg(c, "[icns resource]");
@@ -252,24 +253,35 @@ static void do_resource_data(deark *c, lctx *d, struct rsrctypeinfo *rti,
 		dbuf_write(d->icns_stream, rti->fcc.bytes, 4);
 		dbuf_writeu32be(d->icns_stream, 8+dlen);
 		dbuf_copy(c->infile, dpos, dlen, d->icns_stream);
+		handled = 1;
 	}
 	else if(rti->is_psrc_type) {
 		do_psrc_resource(c, d, rti, rii, dpos, dlen);
+		handled = 1;
 	}
 	else if(rti->fcc.id==CODE_CURS) {
 		do_CURS_resource(c, d, rti, rii, dpos, dlen);
+		handled = 1;
 	}
 
 	if(extr_flag) {
+		dbuf *outf = NULL;
+
 		outf = dbuf_create_output_file(c, ext, NULL, 0);
 		if(is_pict) {
 			dbuf_write_zeroes(outf, 512);
 		}
 		dbuf_copy(c->infile, dpos, dlen, outf);
+		dbuf_close(outf);
+		handled = 1;
+	}
+
+	if(!handled && c->debug_level>=2) {
+		de_dbg_hexdump(c, c->infile, dpos, dlen, 256, NULL, 0x1);
+		handled = 1;
 	}
 
 done:
-	dbuf_close(outf);
 	de_dbg_indent(c, -1);
 }
 
@@ -306,7 +318,21 @@ static void do_resource_record(deark *c, lctx *d, struct rsrctypeinfo *rti,
 		do_resource_name(c, d, &rii);
 	}
 	rii.attribs = de_getbyte_p(&pos);
-	de_dbg(c, "attributes: 0x%02x", (unsigned int)rii.attribs);
+	if(rii.attribs==0) {
+		de_dbg(c, "attributes: 0x%02x", (unsigned int)rii.attribs);
+	}
+	else {
+		de_ucstring *flags_str;
+		flags_str = ucstring_create(c);
+		if(rii.attribs & 0x40) ucstring_append_flags_item(flags_str, "system heap");
+		if(rii.attribs & 0x20) ucstring_append_flags_item(flags_str, "purgeable");
+		if(rii.attribs & 0x10) ucstring_append_flags_item(flags_str, "locked");
+		if(rii.attribs & 0x08) ucstring_append_flags_item(flags_str, "read-only");
+		if(rii.attribs & 0x04) ucstring_append_flags_item(flags_str, "preload");
+		if(rii.attribs & 0x01) ucstring_append_flags_item(flags_str, "compressed");
+		de_dbg(c, "attributes: 0x%02x (%s)", (unsigned int)rii.attribs, ucstring_getpsz_d(flags_str));
+		ucstring_destroy(flags_str);
+	}
 
 	dataOffset_rel = dbuf_getint_ext(c->infile, pos, 3, 0, 0);
 	rii.data_offset = d->data_offs + dataOffset_rel;
@@ -324,7 +350,8 @@ static void do_resource_list(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	de_dbg(c, "resource list at %d", (int)rsrc_list_offs);
 	de_dbg_indent(c, 1);
 	for(k=0; k<count; k++) {
-		de_dbg(c, "resource record[%d] at %d", (int)k, (int)pos);
+		de_dbg(c, "resource record[%d] at %"I64_FMT" (type '%s')", (int)k, pos,
+			rti->fcc.id_dbgstr);
 		de_dbg_indent(c, 1);
 		do_resource_record(c, d, rti, pos);
 		de_dbg_indent(c, -1);
