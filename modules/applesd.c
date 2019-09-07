@@ -475,6 +475,12 @@ static int de_identify_applesd(deark *c)
 	return 0;
 }
 
+static void de_help_applesd(deark *c)
+{
+	de_msg(c, "-opt applesd:extractrsrc=<0|1> : Decode (0) or extract (1) the "
+		"resource fork");
+}
+
 void de_module_applesd(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "applesd";
@@ -483,4 +489,5 @@ void de_module_applesd(deark *c, struct deark_module_info *mi)
 	mi->desc = "AppleSingle/AppleDouble";
 	mi->run_fn = de_run_applesd;
 	mi->identify_fn = de_identify_applesd;
+	mi->help_fn = de_help_applesd;
 }
