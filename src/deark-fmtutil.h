@@ -346,3 +346,28 @@ void de_fmtutil_riscos_read_load_exec(deark *c, dbuf *f, struct de_riscos_file_a
 #define DE_RISCOS_FLAG_HAS_LZWMAXBITS   0x2
 void de_fmtutil_riscos_read_attribs_field(deark *c, dbuf *f, struct de_riscos_file_attrs *rfa,
 	i64 pos, unsigned int flags);
+
+struct fmtutil_macbitmap_info {
+	i64 rowbytes; // The rowBytes field
+	i64 rowspan; // Actual number of bytes/row
+	i64 width, height;
+	int is_uncompressed;
+	i64 packing_type;
+	i64 pixeltype, pixelsize;
+	i64 cmpcount, cmpsize;
+	double hdpi, vdpi;
+	int pixmap_flag;
+	int has_colortable; // Does the file contain a colortable for this bitmap?
+	int uses_pal; // Are we using the palette below?
+	i64 num_pal_entries;
+	u32 pal[256];
+};
+
+void fmtutil_macbitmap_read_baseaddr(deark *c, dbuf *f,
+	struct fmtutil_macbitmap_info *bi, i64 pos);
+void fmtutil_macbitmap_read_rowbytes_and_bounds(deark *c, dbuf *f,
+	struct fmtutil_macbitmap_info *bi, i64 pos);
+void fmtutil_macbitmap_read_pixmap_only_fields(deark *c, dbuf *f,
+	struct fmtutil_macbitmap_info *bi, i64 pos);
+int fmtutil_macbitmap_read_colortable(deark *c, dbuf *f,
+	struct fmtutil_macbitmap_info *bi, i64 pos, i64 *bytes_used);

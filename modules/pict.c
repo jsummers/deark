@@ -208,153 +208,8 @@ static int handler_Rectangle(deark *c, lctx *d, i64 opcode, i64 data_pos, i64 *b
 	return 1;
 }
 
-struct bitmapinfo {
-	i64 rowbytes; // The rowBytes field
-	i64 rowspan; // Actual number of bytes/row
-	i64 width, height;
-	int is_uncompressed;
-	i64 packing_type;
-	i64 pixeltype, pixelsize;
-	i64 cmpcount, cmpsize;
-	double hdpi, vdpi;
-	int pixmap_flag;
-	int has_colortable; // Does the file contain a colortable for this bitmap?
-	int uses_pal; // Are we using the palette below?
-	i64 num_pal_entries;
-	u32 pal[256];
-};
-
-// Sometimes-present baseAddr field (4 bytes)
-static void read_baseaddr(deark *c, lctx *d, struct bitmapinfo *bi, i64 pos)
-{
-	i64 n;
-	de_dbg(c, "baseAddr part of PixMap, at %d", (int)pos);
-	de_dbg_indent(c, 1);
-	n = de_getu32be(pos);
-	de_dbg(c, "baseAddr: 0x%08x", (unsigned int)n);
-	de_dbg_indent(c, -1);
-}
-
-static void read_rowbytes_and_bounds(deark *c, lctx *d, struct bitmapinfo *bi,
-	i64 pos)
-{
-	struct pict_rect tmprect;
-	i64 rowbytes_code;
-
-	de_dbg(c, "rowBytes/bounds part of bitmap/PixMap header, at %d", (int)pos);
-	de_dbg_indent(c, 1);
-	rowbytes_code = de_getu16be(pos);
-	bi->rowbytes = rowbytes_code & 0x7fff;
-	bi->pixmap_flag = (rowbytes_code & 0x8000)?1:0;
-	de_dbg(c, "rowBytes: %d", (int)bi->rowbytes);
-	de_dbg(c, "pixmap flag: %d", bi->pixmap_flag);
-
-	pict_read_rect(c->infile, pos+2, &tmprect, "rect");
-	bi->width = tmprect.r - tmprect.l;
-	bi->height = tmprect.b - tmprect.t;
-
-	de_dbg_indent(c, -1);
-}
-
-// Pixmap fields that aren't read by read_baseaddr or read_rowbytes_and_bounds
-// (36 bytes)
-static int read_pixmap_only_fields(deark *c, lctx *d, struct bitmapinfo *bi,
-	i64 pos)
-{
-	i64 pixmap_version;
-	i64 pack_size;
-	i64 plane_bytes;
-	i64 n;
-
-	de_dbg(c, "additional PixMap header fields, at %d", (int)pos);
-	de_dbg_indent(c, 1);
-
-	pixmap_version = de_getu16be(pos+0);
-	de_dbg(c, "pixmap version: %d", (int)pixmap_version);
-
-	bi->packing_type = de_getu16be(pos+2);
-	de_dbg(c, "packing type: %d", (int)bi->packing_type);
-
-	pack_size = de_getu32be(pos+4);
-	de_dbg(c, "pixel data length: %d", (int)pack_size);
-
-	bi->hdpi = pict_read_fixed(c->infile, pos+8);
-	bi->vdpi = pict_read_fixed(c->infile, pos+12);
-	de_dbg(c, "dpi: %.2f"DE_CHAR_TIMES"%.2f", bi->hdpi, bi->vdpi);
-
-	bi->pixeltype = de_getu16be(pos+16);
-	bi->pixelsize = de_getu16be(pos+18);
-	bi->cmpcount = de_getu16be(pos+20);
-	bi->cmpsize = de_getu16be(pos+22);
-	de_dbg(c, "pixel type=%d, bits/pixel=%d, components/pixel=%d, bits/comp=%d",
-		(int)bi->pixeltype, (int)bi->pixelsize, (int)bi->cmpcount, (int)bi->cmpsize);
-
-	plane_bytes = de_getu32be(pos+24);
-	de_dbg(c, "plane bytes: %d", (int)plane_bytes);
-
-	n = de_getu32be(pos+28);
-	de_dbg(c, "pmTable: 0x%08x", (unsigned int)n);
-
-	n = de_getu32be(pos+32);
-	de_dbg(c, "pmReserved: 0x%08x", (unsigned int)n);
-
-	de_dbg_indent(c, -1);
-	return 1;
-}
-
-static int read_colortable(deark *c, lctx *d, struct bitmapinfo *bi, i64 pos, i64 *bytes_used)
-{
-	i64 ct_id;
-	u32 ct_flags;
-	i64 ct_size;
-	i64 k, z;
-	u32 s[4];
-	u8 cr, cg, cb;
-	u32 clr;
-	char tmps[64];
-
-	*bytes_used = 0;
-	de_dbg(c, "color table at %d", (int)pos);
-	de_dbg_indent(c, 1);
-
-	ct_id = de_getu32be(pos);
-	ct_flags = (u32)de_getu16be(pos+4); // a.k.a. transIndex
-	ct_size = de_getu16be(pos+6);
-	bi->num_pal_entries = ct_size+1;
-	de_dbg(c, "color table id=0x%08x, flags=0x%04x, colors=%d", (unsigned int)ct_id,
-		(unsigned int)ct_flags, (int)bi->num_pal_entries);
-
-	for(k=0; k<bi->num_pal_entries; k++) {
-		for(z=0; z<4; z++) {
-			s[z] = (u32)de_getu16be(pos+8+8*k+2*z);
-		}
-		cr = (u8)(s[1]>>8);
-		cg = (u8)(s[2]>>8);
-		cb = (u8)(s[3]>>8);
-		clr = DE_MAKE_RGB(cr,cg,cb);
-		de_snprintf(tmps, sizeof(tmps), "(%5d,%5d,%5d,idx=%3d) "DE_CHAR_RIGHTARROW" ",
-			(int)s[1], (int)s[2], (int)s[3], (int)s[0]);
-		de_dbg_pal_entry2(c, k, clr, tmps, NULL, NULL);
-
-		// Some files don't have the palette indices set. Most PICT decoders ignore
-		// the indices if the "device" flag of ct_flags is set, and that seems to
-		// work (though it's not clearly documented).
-		if(ct_flags & 0x8000U) {
-			s[0] = (u32)k;
-		}
-
-		if(s[0]<=255) {
-			bi->pal[s[0]] = clr;
-		}
-	}
-
-	de_dbg_indent(c, -1);
-	*bytes_used = 8 + 8*bi->num_pal_entries;
-	return 1;
-}
-
 // final few bitmap header fields (18 bytes)
-static void read_src_dst_mode(deark *c, lctx *d, struct bitmapinfo *bi, i64 pos)
+static void read_src_dst_mode(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi, i64 pos)
 {
 	struct pict_rect tmprect;
 	i64 n;
@@ -377,7 +232,7 @@ static void read_src_dst_mode(deark *c, lctx *d, struct bitmapinfo *bi, i64 pos)
 // (We could instead scan and decode it at the same time, but error handling
 // would get really messy.)
 // Returns 0 on fatal error (if we could not even parse the data).
-static int get_pixdata_size(deark *c, lctx *d, struct bitmapinfo *bi,
+static int get_pixdata_size(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi,
 	i64 pos1, i64 *pixdata_size)
 {
 	i64 pos;
@@ -430,7 +285,7 @@ done:
 	return retval;
 }
 
-static void decode_bitmap_rgb24(deark *c, lctx *d, struct bitmapinfo *bi,
+static void decode_bitmap_rgb24(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi,
 	dbuf *unc_pixels, de_bitmap *img, i64 pos)
 {
 	i64 i, j;
@@ -446,7 +301,7 @@ static void decode_bitmap_rgb24(deark *c, lctx *d, struct bitmapinfo *bi,
 	}
 }
 
-static void decode_bitmap_rgb16(deark *c, lctx *d, struct bitmapinfo *bi,
+static void decode_bitmap_rgb16(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi,
 	dbuf *unc_pixels, de_bitmap *img, i64 pos)
 {
 	i64 i, j;
@@ -464,7 +319,7 @@ static void decode_bitmap_rgb16(deark *c, lctx *d, struct bitmapinfo *bi,
 	}
 }
 
-static void decode_bitmap_paletted(deark *c, lctx *d, struct bitmapinfo *bi,
+static void decode_bitmap_paletted(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi,
 	dbuf *unc_pixels, de_bitmap *img, i64 pos)
 {
 	i64 i, j;
@@ -480,7 +335,7 @@ static void decode_bitmap_paletted(deark *c, lctx *d, struct bitmapinfo *bi,
 	}
 }
 
-static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, i64 pos)
+static int decode_bitmap(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi, i64 pos)
 {
 	i64 j;
 	dbuf *unc_pixels = NULL;
@@ -566,7 +421,7 @@ static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, i64 pos)
 	return 1;
 }
 
-static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, i64 pos)
+static int decode_pixdata(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi, i64 pos)
 {
 	int retval = 0;
 
@@ -626,25 +481,25 @@ done:
 
 static int handler_98_9a(deark *c, lctx *d, i64 opcode, i64 pos1, i64 *bytes_used)
 {
-	struct bitmapinfo *bi = NULL;
+	struct fmtutil_macbitmap_info *bi = NULL;
 	i64 pixdata_size = 0;
 	i64 colortable_size = 0;
 	int retval = 0;
 	i64 pos;
 
-	bi = de_malloc(c, sizeof(struct bitmapinfo));
+	bi = de_malloc(c, sizeof(struct fmtutil_macbitmap_info));
 	pos = pos1;
 
 	if(opcode==0x9a) {
-		read_baseaddr(c, d, bi, pos);
+		fmtutil_macbitmap_read_baseaddr(c, c->infile, bi, pos);
 		pos += 4;
 	}
 
-	read_rowbytes_and_bounds(c, d, bi, pos);
+	fmtutil_macbitmap_read_rowbytes_and_bounds(c, c->infile, bi, pos);
 	pos += 10;
 
 	if(bi->pixmap_flag) {
-		read_pixmap_only_fields(c, d, bi, pos);
+		fmtutil_macbitmap_read_pixmap_only_fields(c, c->infile, bi, pos);
 		pos += 36;
 	}
 
@@ -669,7 +524,7 @@ static int handler_98_9a(deark *c, lctx *d, i64 opcode, i64 pos1, i64 *bytes_use
 	}
 
 	if(bi->has_colortable) {
-		if(!read_colortable(c, d, bi, pos, &colortable_size)) goto done;
+		if(!fmtutil_macbitmap_read_colortable(c, c->infile, bi, pos, &colortable_size)) goto done;
 		pos += colortable_size;
 	}
 

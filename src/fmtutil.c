@@ -1909,3 +1909,163 @@ void de_fmtutil_riscos_read_attribs_field(deark *c, dbuf *f, struct de_riscos_fi
 	}
 	de_dbg_indent(c, -1);
 }
+
+struct pict_rect {
+	i64 t, l, b, r;
+};
+
+// Note: Code duplicated in pict.c
+static double pict_read_fixed(dbuf *f, i64 pos)
+{
+	i64 n;
+
+	// I think QuickDraw's "Fixed point" numbers are signed, but I don't know
+	// how negative numbers are handled.
+	n = dbuf_geti32be(f, pos);
+	return ((double)n)/65536.0;
+}
+
+// Read a QuickDraw Rectangle. Caller supplies rect struct.
+// Note: Code duplicated in pict.c
+static void pict_read_rect(dbuf *f, i64 pos,
+	struct pict_rect *rect, const char *dbgname)
+{
+	rect->t = dbuf_geti16be(f, pos);
+	rect->l = dbuf_geti16be(f, pos+2);
+	rect->b = dbuf_geti16be(f, pos+4);
+	rect->r = dbuf_geti16be(f, pos+6);
+
+	if(dbgname) {
+		de_dbg(f->c, "%s: (%d,%d)-(%d,%d)", dbgname, (int)rect->l, (int)rect->t,
+			(int)rect->r, (int)rect->b);
+	}
+}
+
+// Sometimes-present baseAddr field (4 bytes)
+void fmtutil_macbitmap_read_baseaddr(deark *c, dbuf *f, struct fmtutil_macbitmap_info *bi, i64 pos)
+{
+	i64 n;
+	de_dbg(c, "baseAddr part of PixMap, at %d", (int)pos);
+	de_dbg_indent(c, 1);
+	n = dbuf_getu32be(f, pos);
+	de_dbg(c, "baseAddr: 0x%08x", (unsigned int)n);
+	de_dbg_indent(c, -1);
+}
+
+void fmtutil_macbitmap_read_rowbytes_and_bounds(deark *c, dbuf *f,
+	struct fmtutil_macbitmap_info *bi, i64 pos)
+{
+	struct pict_rect tmprect;
+	i64 rowbytes_code;
+
+	de_dbg(c, "rowBytes/bounds part of bitmap/PixMap header, at %d", (int)pos);
+	de_dbg_indent(c, 1);
+	rowbytes_code = dbuf_getu16be(f, pos);
+	bi->rowbytes = rowbytes_code & 0x7fff;
+	bi->pixmap_flag = (rowbytes_code & 0x8000)?1:0;
+	de_dbg(c, "rowBytes: %d", (int)bi->rowbytes);
+	de_dbg(c, "pixmap flag: %d", bi->pixmap_flag);
+
+	pict_read_rect(f, pos+2, &tmprect, "rect");
+	bi->width = tmprect.r - tmprect.l;
+	bi->height = tmprect.b - tmprect.t;
+
+	de_dbg_indent(c, -1);
+}
+
+// Pixmap fields that aren't read by read_baseaddr or read_rowbytes_and_bounds
+// (36 bytes)
+void fmtutil_macbitmap_read_pixmap_only_fields(deark *c, dbuf *f, struct fmtutil_macbitmap_info *bi,
+	i64 pos)
+{
+	i64 pixmap_version;
+	i64 pack_size;
+	i64 plane_bytes;
+	i64 n;
+
+	de_dbg(c, "additional PixMap header fields, at %d", (int)pos);
+	de_dbg_indent(c, 1);
+
+	pixmap_version = dbuf_getu16be(f, pos+0);
+	de_dbg(c, "pixmap version: %d", (int)pixmap_version);
+
+	bi->packing_type = dbuf_getu16be(f, pos+2);
+	de_dbg(c, "packing type: %d", (int)bi->packing_type);
+
+	pack_size = dbuf_getu32be(f, pos+4);
+	de_dbg(c, "pixel data length: %d", (int)pack_size);
+
+	bi->hdpi = pict_read_fixed(f, pos+8);
+	bi->vdpi = pict_read_fixed(f, pos+12);
+	de_dbg(c, "dpi: %.2f"DE_CHAR_TIMES"%.2f", bi->hdpi, bi->vdpi);
+
+	bi->pixeltype = dbuf_getu16be(f, pos+16);
+	bi->pixelsize = dbuf_getu16be(f, pos+18);
+	bi->cmpcount = dbuf_getu16be(f, pos+20);
+	bi->cmpsize = dbuf_getu16be(f, pos+22);
+	de_dbg(c, "pixel type=%d, bits/pixel=%d, components/pixel=%d, bits/comp=%d",
+		(int)bi->pixeltype, (int)bi->pixelsize, (int)bi->cmpcount, (int)bi->cmpsize);
+
+	plane_bytes = dbuf_getu32be(f, pos+24);
+	de_dbg(c, "plane bytes: %d", (int)plane_bytes);
+
+	n = dbuf_getu32be(f, pos+28);
+	de_dbg(c, "pmTable: 0x%08x", (unsigned int)n);
+
+	n = dbuf_getu32be(f, pos+32);
+	de_dbg(c, "pmReserved: 0x%08x", (unsigned int)n);
+
+	de_dbg_indent(c, -1);
+}
+
+int fmtutil_macbitmap_read_colortable(deark *c, dbuf *f,
+	struct fmtutil_macbitmap_info *bi, i64 pos, i64 *bytes_used)
+{
+	i64 ct_id;
+	u32 ct_flags;
+	i64 ct_size;
+	i64 k, z;
+	u32 s[4];
+	u8 cr, cg, cb;
+	u32 clr;
+	char tmps[64];
+
+	*bytes_used = 0;
+	de_dbg(c, "color table at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
+
+	ct_id = dbuf_getu32be(f, pos);
+	ct_flags = (u32)dbuf_getu16be(f, pos+4); // a.k.a. transIndex
+	ct_size = dbuf_getu16be(f, pos+6);
+	bi->num_pal_entries = ct_size+1;
+	de_dbg(c, "color table id=0x%08x, flags=0x%04x, colors=%d", (unsigned int)ct_id,
+		(unsigned int)ct_flags, (int)bi->num_pal_entries);
+
+	for(k=0; k<bi->num_pal_entries; k++) {
+		for(z=0; z<4; z++) {
+			s[z] = (u32)dbuf_getu16be(f, pos+8+8*k+2*z);
+		}
+		cr = (u8)(s[1]>>8);
+		cg = (u8)(s[2]>>8);
+		cb = (u8)(s[3]>>8);
+		clr = DE_MAKE_RGB(cr,cg,cb);
+		de_snprintf(tmps, sizeof(tmps), "(%5d,%5d,%5d,idx=%3d) "DE_CHAR_RIGHTARROW" ",
+			(int)s[1], (int)s[2], (int)s[3], (int)s[0]);
+		de_dbg_pal_entry2(c, k, clr, tmps, NULL, NULL);
+
+		// Some files don't have the palette indices set. Most PICT decoders ignore
+		// the indices if the "device" flag of ct_flags is set, and that seems to
+		// work (though it's not clearly documented).
+		if(ct_flags & 0x8000U) {
+			s[0] = (u32)k;
+		}
+
+		if(s[0]<=255) {
+			bi->pal[s[0]] = clr;
+		}
+	}
+
+	de_dbg_indent(c, -1);
+	*bytes_used = 8 + 8*bi->num_pal_entries;
+	return 1;
+}
