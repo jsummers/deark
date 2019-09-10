@@ -244,13 +244,14 @@ static int get_pixdata_size(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi
 	de_dbg(c, "PixData at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	if(bi->height<1 || bi->height>65535) {
+	if(bi->height<0 || bi->height>65535) {
 		de_err(c, "Invalid bitmap height (%d)", (int)bi->height);
 		goto done;
 	}
 
 	// Make sure rowbytes is sane. We use it to decide how much memory to allocate.
-	if(bi->rowbytes > (bi->width * bi->pixelsize)/8 + 100) {
+	// Note: I've seen valid bitmaps with as many as 284 extra bytes per row.
+	if(bi->rowbytes > (bi->width * bi->pixelsize)/8 + 1000) {
 		de_err(c, "Bad rowBytes value (%d)", (int)bi->rowbytes);
 		goto done;
 	}
@@ -427,6 +428,11 @@ static int decode_pixdata(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi, 
 
 	de_dbg_indent(c, 1);
 
+	if(bi->width==0 || bi->height==0) {
+		de_warn(c, "Ignoring zero-size bitmap (%d"DE_CHAR_TIMES"%d)",
+			(int)bi->width, (int)bi->height);
+		goto done;
+	}
 	if(!de_good_image_dimensions(c, bi->width, bi->height)) goto done;
 
 	if(bi->pixelsize!=1 && bi->pixelsize!=2 && bi->pixelsize!=4 && bi->pixelsize!=8 &&
