@@ -457,11 +457,7 @@ static void do_read_filename(deark *c, lctx *d,
 {
 	de_encoding from_encoding;
 
-	if(!dd->fname) {
-		dd->fname = ucstring_create(c);
-	}
 	ucstring_empty(dd->fname);
-
 	from_encoding = utf8_flag ? DE_ENCODING_UTF8 : DE_ENCODING_CP437_G;
 	dbuf_read_to_ucstring(c->infile, pos, len, dd->fname, 0, from_encoding);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(dd->fname));
@@ -648,9 +644,6 @@ static void ef_unicodepath(deark *c, lctx *d, struct extra_item_info_struct *eii
 	de_dbg(c, "name-crc (calculated): 0x%08x", (unsigned int)crc_calculated);
 
 	if(crc_calculated == crc_reported) {
-		if(!eii->dd->fname) {
-			eii->dd->fname = ucstring_create(c);
-		}
 		ucstring_empty(eii->dd->fname);
 		ucstring_append_ucstring(eii->dd->fname, fn);
 	}
@@ -1109,12 +1102,13 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		md->cmpr_size);
 
 	if(ldd->bit_flags & 0x1) {
-		de_err(c, "Encryption is not supported");
+		de_err(c, "%s: Encryption is not supported", ucstring_getpsz_d(ldd->fname));
 		goto done;
 	}
 
 	if(!is_compression_method_supported(d, ldd->cmi)) {
-		de_err(c, "Unsupported compression method: %d (%s)",
+		de_err(c, "%s: Unsupported compression method: %d (%s)",
+			ucstring_getpsz_d(ldd->fname),
 			ldd->cmpr_meth, (ldd->cmi ? ldd->cmi->name : "?"));
 		goto done;
 	}
@@ -1172,7 +1166,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	de_dbg(c, "crc (calculated): 0x%08x", (unsigned int)crc_calculated);
 
 	if(crc_calculated != md->crc_reported) {
-		de_warn(c, "CRC check failed for %s: Expected 0x%08x, got 0x%08x",
+		de_warn(c, "%s: CRC check failed: Expected 0x%08x, got 0x%08x",
 			ucstring_getpsz_d(ldd->fname),
 			(unsigned int)md->crc_reported, (unsigned int)crc_calculated);
 	}
@@ -1542,6 +1536,8 @@ static int do_central_dir_entry(deark *c, lctx *d,
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	md = de_malloc(c, sizeof(struct member_data));
+	md->local_dir_entry_data.fname = ucstring_create(c);
+	md->central_dir_entry_data.fname = ucstring_create(c);
 	*entry_size = 0;
 
 	if(pos >= d->central_dir_offset+d->central_dir_byte_size) {
@@ -1586,10 +1582,8 @@ static int do_central_dir_entry(deark *c, lctx *d,
 
 done:
 	if(md) {
-		if(md->central_dir_entry_data.fname)
-			ucstring_destroy(md->central_dir_entry_data.fname);
-		if(md->local_dir_entry_data.fname)
-			ucstring_destroy(md->local_dir_entry_data.fname);
+		ucstring_destroy(md->central_dir_entry_data.fname);
+		ucstring_destroy(md->local_dir_entry_data.fname);
 		de_free(c, md);
 	}
 	de_dbg_indent_restore(c, saved_indent_level);
