@@ -14,6 +14,7 @@ DE_DECLARE_MODULE(de_module_macrsrc);
 #define CODE_CURS 0x43555253U
 #define CODE_MeSa 0x4d655361U
 #define CODE_PICT 0x50494354U
+#define CODE_SICN 0x5349434eU
 #define CODE_cicn 0x6369636eU
 #define CODE_icns 0x69636e73U
 #define CODE_moov 0x6d6f6f76U
@@ -193,6 +194,28 @@ done:
 	de_bitmap_destroy(fg);
 	de_bitmap_destroy(mask);
 	de_finfo_destroy(c, fi);
+}
+
+// SICN - Small icons - One or more 16x16 images
+static void do_SICN_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
+	struct rsrcinstanceinfo *rii, i64 pos1, i64 len)
+{
+	de_finfo *fi = NULL;
+	i64 numicons;
+	i64 i;
+
+	numicons = len/32;
+	fi = de_finfo_create(c);
+	set_resource_filename(c, d, fi, rti, rii, NULL);
+
+	for(i=0; i<numicons; i++) {
+		de_bitmap *img = NULL;
+
+		img = de_bitmap_create(c, 16, 16, 1);
+		de_convert_image_bilevel(c->infile, pos1+32*i, 2, img, DE_CVTF_WHITEISZERO);
+		de_bitmap_write_to_file_finfo(img, fi, 0);
+		de_bitmap_destroy(img);
+	}
 }
 
 static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
@@ -414,6 +437,10 @@ static void do_resource_data(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	}
 	else if(rti->fcc.id==CODE_cicn) {
 		do_cicn_resource(c, d, rti, rii, dpos, dlen);
+		handled = 1;
+	}
+	else if(rti->fcc.id==CODE_SICN) {
+		do_SICN_resource(c, d, rti, rii, dpos, dlen);
 		handled = 1;
 	}
 
