@@ -479,6 +479,7 @@ done:
 	return retval;
 }
 
+// For opcodes 0x90, 0x91, 0x98, 0x99, 0x9a, 0x9b
 static int handler_98_9a(deark *c, lctx *d, i64 opcode, i64 pos1, i64 *bytes_used)
 {
 	struct fmtutil_macbitmap_info *bi = NULL;
@@ -490,7 +491,7 @@ static int handler_98_9a(deark *c, lctx *d, i64 opcode, i64 pos1, i64 *bytes_use
 	bi = de_malloc(c, sizeof(struct fmtutil_macbitmap_info));
 	pos = pos1;
 
-	if(opcode==0x9a) {
+	if(opcode==0x9a || opcode==0x9b) {
 		fmtutil_macbitmap_read_baseaddr(c, c->infile, bi, pos);
 		pos += 4;
 	}
@@ -503,12 +504,12 @@ static int handler_98_9a(deark *c, lctx *d, i64 opcode, i64 pos1, i64 *bytes_use
 		pos += 36;
 	}
 
-	if((opcode==0x90 || opcode==0x98) && bi->pixmap_flag) {
+	if((opcode==0x90 || opcode==0x91 || opcode==0x98 || opcode==0x99) && bi->pixmap_flag) {
 		// Prepare to read the palette
 		bi->uses_pal = 1;
 		bi->has_colortable = 1;
 	}
-	else if((opcode==0x90 || opcode==0x98) && !bi->pixmap_flag) {
+	else if((opcode==0x90 || opcode==0x91 || opcode==0x98 || opcode==0x99) && !bi->pixmap_flag) {
 		// Settings implied by the lack of a PixMap header
 		bi->pixelsize = 1;
 		bi->cmpcount = 1;
@@ -518,7 +519,7 @@ static int handler_98_9a(deark *c, lctx *d, i64 opcode, i64 pos1, i64 *bytes_use
 		bi->pal[0] = DE_STOCKCOLOR_WHITE;
 		bi->pal[1] = DE_STOCKCOLOR_BLACK;
 	}
-	else if(opcode==0x9a && !bi->pixmap_flag) {
+	else if((opcode==0x9a || opcode==0x9b) && !bi->pixmap_flag) {
 		de_err(c, "DirectBitsRect image without PixMap flag is not supported");
 		goto done;
 	}
@@ -530,6 +531,20 @@ static int handler_98_9a(deark *c, lctx *d, i64 opcode, i64 pos1, i64 *bytes_use
 
 	read_src_dst_mode(c, d, bi, pos);
 	pos += 18;
+
+	if(opcode==0x91 || opcode==0x99 || opcode==0x9b) {
+		i64 rgnsize;
+
+		de_dbg(c, "region at %"I64_FMT, pos);
+		de_dbg_indent(c, 1);
+		rgnsize = de_getu16be(pos);
+		de_dbg(c, "region size: %d", (int)rgnsize);
+		de_dbg_indent(c, -1);
+		if(rgnsize<2) goto done;
+		pos += rgnsize;
+		de_info(c, "Note: Ignoring clipping region. Output image might have "
+			"extraneous pixels.");
+	}
 
 	if(!get_pixdata_size(c, d, bi, pos, &pixdata_size)) {
 		goto done;
@@ -726,6 +741,9 @@ static const struct opcode_info opcode_info_arr[] = {
 	{ 0x000f, SZCODE_EXACT,   4,  "BkColor", NULL },
 	{ 0x0010, SZCODE_EXACT,   8,  "TxRatio", NULL },
 	{ 0x0011, SZCODE_EXACT,   1,  "Version", handler_11 },
+	{ 0x0012, SZCODE_SPECIAL, 0,  "BkPixPat", NULL }, // TODO
+	{ 0x0013, SZCODE_SPECIAL, 0,  "PnPixPat", NULL }, // TODO
+	{ 0x0014, SZCODE_SPECIAL, 0,  "FillPixPat", NULL }, // TODO
 	{ 0x0015, SZCODE_EXACT,   2,  "PnLocHFrac", NULL },
 	{ 0x0016, SZCODE_EXACT,   2,  "ChExtra", NULL },
 	{ 0x001a, SZCODE_EXACT,   6,  "RGBFgCol", handler_RGBColor },
@@ -796,8 +814,11 @@ static const struct opcode_info opcode_info_arr[] = {
 	{ 0x0073, SZCODE_POLYGON, 0,  "invertPoly", NULL },
 	{ 0x0074, SZCODE_POLYGON, 0,  "fillPoly", NULL },
 	{ 0x0090, SZCODE_SPECIAL, 0,  "BitsRect", handler_98_9a },
+	{ 0x0091, SZCODE_SPECIAL, 0,  "BitsRgn", handler_98_9a },
 	{ 0x0098, SZCODE_SPECIAL, 0,  "PackBitsRect", handler_98_9a },
+	{ 0x0099, SZCODE_SPECIAL, 0,  "PackBitsRgn", handler_98_9a },
 	{ 0x009a, SZCODE_SPECIAL, 0,  "DirectBitsRect", handler_98_9a },
+	{ 0x009b, SZCODE_SPECIAL, 0,  "DirectBitsRgn", handler_98_9a },
 	{ 0x00a0, SZCODE_EXACT,   2,  "ShortComment", handler_a0 },
 	{ 0x00a1, SZCODE_SPECIAL, 0,  "LongComment", handler_a1 },
 	{ 0x00ff, SZCODE_EXACT,   2,  "opEndPic", NULL },
