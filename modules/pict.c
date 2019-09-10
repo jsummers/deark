@@ -449,14 +449,14 @@ static int decode_pixdata(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi, 
 		de_err(c, "%d-bit components are not supported", (int)bi->cmpsize);
 		goto done;
 	}
-	if(bi->packing_type!=0 && bi->packing_type!=3 && bi->packing_type!=4) {
+	if(bi->packing_type!=0 && bi->packing_type!=1 && bi->packing_type!=3 && bi->packing_type!=4) {
 		de_err(c, "Packing type %d is not supported", (int)bi->packing_type);
 		goto done;
 	}
-	if((bi->uses_pal && bi->packing_type==0 && bi->pixelsize==1 && bi->cmpcount==1 && bi->cmpsize==1) ||
-		(bi->uses_pal && bi->packing_type==0 && bi->pixelsize==2 && bi->cmpcount==1 && bi->cmpsize==2) ||
-		(bi->uses_pal && bi->packing_type==0 && bi->pixelsize==4 && bi->cmpcount==1 && bi->cmpsize==4) ||
-		(bi->uses_pal && bi->packing_type==0 && bi->pixelsize==8 && bi->cmpcount==1 && bi->cmpsize==8) ||
+	if((bi->uses_pal &&
+		(bi->packing_type==0 || bi->packing_type==1) &&
+		(bi->pixelsize==1 || bi->pixelsize==2 || bi->pixelsize==4 || bi->pixelsize==8) &&
+		bi->cmpcount==1 && bi->cmpsize==bi->pixelsize) ||
 		(!bi->uses_pal && bi->packing_type==3 && bi->pixelsize==16 && bi->cmpcount==3 && bi->cmpsize==5) ||
 		(!bi->uses_pal && bi->packing_type==4 && bi->pixelsize==32 && bi->cmpcount==3 && bi->cmpsize==8) ||
 		(!bi->uses_pal && bi->packing_type==4 && bi->pixelsize==32 && bi->cmpcount==4 && bi->cmpsize==8))
