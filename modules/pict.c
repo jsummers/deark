@@ -1040,8 +1040,12 @@ static void do_detect_version(deark *c, struct detection_info *dti, int mode)
 
 	if(mode==0) {
 		// For v1, check that the file ends as expected
-		if(de_getbyte(c->infile->len-1) != 0xff) {
-			return;
+		de_read(buf, c->infile->len-2, 2);
+		if(buf[1]==0xff) {
+			; // v1 files should end with 0xff
+		}
+		else if(buf[0]==0xff && buf[1]==0x00) {
+			; // But a few have an extra NUL byte at the end
 		}
 	}
 
