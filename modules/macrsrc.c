@@ -43,6 +43,7 @@ struct rsrcinstanceinfo {
 	i64 data_offset;
 	i64 name_offset;
 	i64 name_raw_len;
+	de_ucstring *name;
 };
 
 #define CODE_ICN_ 0x49434e23U // ICN#
@@ -55,6 +56,28 @@ struct rsrcinstanceinfo {
 #define CODE_ics_ 0x69637323U // ics#
 #define CODE_ics4 0x69637334U
 #define CODE_ics8 0x69637338U
+
+// Helper function to set the filename of an finfo.
+static void set_resource_filename(deark *c, lctx *d, de_finfo *fi,
+	struct rsrctypeinfo *rti, struct rsrcinstanceinfo *rii, const char *token)
+{
+	de_ucstring *tmpname = NULL;
+
+	tmpname = ucstring_create(c);
+	if(c->filenames_from_file && ucstring_isnonempty(rii->name)) {
+		ucstring_append_ucstring(tmpname, rii->name);
+		ucstring_append_sz(tmpname, ".", DE_ENCODING_LATIN1);
+	}
+
+	if(token) {
+		ucstring_append_sz(tmpname, token, DE_ENCODING_LATIN1);
+	}
+	else {
+		ucstring_append_sz(tmpname, rti->fcc.id_sanitized_sz, DE_ENCODING_ASCII);
+	}
+	de_finfo_set_name_from_ucstring(c, fi, tmpname, 0);
+	ucstring_destroy(tmpname);
+}
 
 static int is_icns_icon(deark *c, lctx *d, struct rsrctypeinfo *rti)
 {
@@ -155,6 +178,7 @@ static void do_CURS_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 {
 	de_bitmap *fg = NULL;
 	de_bitmap *mask = NULL;
+	de_finfo *fi = NULL;
 
 	if(dlen!=68) goto done;
 	fg = de_bitmap_create(c, 16, 16, 2);
@@ -162,10 +186,13 @@ static void do_CURS_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	mask = de_bitmap_create(c, 16, 16, 1);
 	de_convert_image_bilevel(c->infile, dpos+32, 2, mask, 0);
 	de_bitmap_apply_mask(fg, mask, 0);
-	de_bitmap_write_to_file(fg, "cursor", 0);
+	fi = de_finfo_create(c);
+	set_resource_filename(c, d, fi, rti, rii, NULL);
+	de_bitmap_write_to_file_finfo(fg, fi, 0);
 done:
 	de_bitmap_destroy(fg);
 	de_bitmap_destroy(mask);
+	de_finfo_destroy(c, fi);
 }
 
 static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
@@ -188,6 +215,7 @@ static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	bi_fgcolor = de_malloc(c, sizeof(struct fmtutil_macbitmap_info));
 	bi_mask = de_malloc(c, sizeof(struct fmtutil_macbitmap_info));
 	bi_bw = de_malloc(c, sizeof(struct fmtutil_macbitmap_info));
+	fi = de_finfo_create(c);
 
 	de_dbg(c, "[color pixmap header]");
 	de_dbg_indent(c, 1);
@@ -249,7 +277,8 @@ static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 		img_bw = de_bitmap_create(c, bi_bw->width, bi_bw->height, 1);
 		de_convert_image_bilevel(c->infile, pos, bi_bw->rowbytes, img_bw,
 			DE_CVTF_WHITEISZERO);
-		de_bitmap_write_to_file(img_bw, "cicn_bw", 0);
+		set_resource_filename(c, d, fi, rti, rii, "cicn_bw");
+		de_bitmap_write_to_file_finfo(img_bw, fi, 0);
 		pos += bw_bitssize;
 	}
 	else {
@@ -268,13 +297,12 @@ static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	de_convert_image_paletted(c->infile, pos, bi_fgcolor->pixelsize, bi_fgcolor->rowbytes,
 		bi_fgcolor->pal, img_fgcolor, 0);
 	de_bitmap_apply_mask(img_fgcolor, img_mask, 0);
-	fi = de_finfo_create(c);
 	if(bi_fgcolor->hdpi>=1.0 && bi_fgcolor->vdpi>=1.0) {
 		fi->density.code = DE_DENSITY_DPI;
 		fi->density.xdens = bi_fgcolor->hdpi;
 		fi->density.ydens = bi_fgcolor->vdpi;
 	}
-	de_finfo_set_name_from_sz(c, fi, "cicn", 0, DE_ENCODING_LATIN1);
+	set_resource_filename(c, d, fi, rti, rii, NULL);
 	de_bitmap_write_to_file_finfo(img_fgcolor, fi, DE_CREATEFLAG_OPT_IMAGE);
 	pos += fgcolor_bitssize;
 
@@ -391,8 +419,12 @@ static void do_resource_data(deark *c, lctx *d, struct rsrctypeinfo *rti,
 
 	if(extr_flag) {
 		dbuf *outf = NULL;
+		de_finfo *fi = NULL;
 
-		outf = dbuf_create_output_file(c, ext, NULL, 0);
+		fi = de_finfo_create(c);
+		set_resource_filename(c, d, fi, rti, rii, ext);
+		outf = dbuf_create_output_file(c, NULL, fi, 0);
+		de_finfo_destroy(c, fi);
 		if(is_pict) {
 			dbuf_write_zeroes(outf, 512);
 		}
@@ -410,18 +442,17 @@ done:
 	de_dbg_indent(c, -1);
 }
 
-// Sets rii->name_raw_len
+// Sets rii->name_raw_len.
+// Sets rii->name.
 static void do_resource_name(deark *c, lctx *d, struct rsrcinstanceinfo *rii)
 {
 	i64 nlen;
-	de_ucstring *rname = NULL;
 
 	nlen = (i64)de_getbyte(rii->name_offset);
 	rii->name_raw_len = 1+nlen;
-	rname = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, rii->name_offset+1, nlen, rname, 0, DE_ENCODING_MACROMAN);
-	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(rname));
-	ucstring_destroy(rname);
+	rii->name = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, rii->name_offset+1, nlen, rii->name , 0, DE_ENCODING_MACROMAN);
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(rii->name ));
 }
 
 static void do_resource_record(deark *c, lctx *d, struct rsrctypeinfo *rti,
@@ -464,6 +495,8 @@ static void do_resource_record(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	pos += 3;
 	de_dbg(c, "dataOffset: (%d+)%d", (int)d->data_offs, (int)dataOffset_rel);
 	do_resource_data(c, d, rti, &rii);
+
+	if(rii.name) ucstring_destroy(rii.name);
 }
 
 static void do_resource_list(deark *c, lctx *d, struct rsrctypeinfo *rti,
