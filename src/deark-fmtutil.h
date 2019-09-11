@@ -26,7 +26,7 @@ struct de_bmpinfo {
 #define DE_BMPINFO_FMT_PNG 1
 	int file_format;
 
-	i64 hotspot_x, hotspot_y;
+	int hotspot_x, hotspot_y;
 	i64 bitsoffset; // Literal value from FILEHEADER
 	i64 infohdrsize;
 	i64 width;

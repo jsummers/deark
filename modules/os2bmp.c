@@ -26,6 +26,7 @@ DE_DECLARE_MODULE(de_module_os2bmp);
 // final image.
 struct srcbitmap {
 	struct de_bmpinfo bi;
+	u8 has_hotspot;
 	i64 bitssize;
 	u32 pal[256];
 };
@@ -38,7 +39,8 @@ static int get_bitmap_info(deark *c, struct srcbitmap *srcbmp, const char *fmt, 
 	unsigned int flags;
 
 	flags = DE_BMPINFO_HAS_FILEHEADER;
-	if(!de_strcmp(fmt,"CP")) {
+	if(!de_strcmp(fmt, "CP") || !de_strcmp(fmt, "PT")) {
+		srcbmp->has_hotspot = 1;
 		flags |= DE_BMPINFO_HAS_HOTSPOT;
 	}
 	if(!de_fmtutil_get_bmpinfo(c, c->infile, &srcbmp->bi, pos, c->infile->len - pos, flags)) {
@@ -110,7 +112,8 @@ done:
 // srcbmp_main can be NULL.
 static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, struct srcbitmap *srcbmp_mask)
 {
-	de_bitmap *img;
+	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
 	i64 w, h;
 	i64 i, j;
 	i64 byte_offset;
@@ -191,9 +194,26 @@ static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, str
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL, 0);
+	fi = de_finfo_create(c);
+	if(srcbmp_main) {
+		if(srcbmp_main->has_hotspot) {
+			fi->has_hotspot = 1;
+			fi->hotspot_x = srcbmp_main->bi.hotspot_x;
+			fi->hotspot_y = (int)h - 1 - srcbmp_main->bi.hotspot_y;
+		}
+	}
+	else if(srcbmp_mask) {
+		if(srcbmp_mask->has_hotspot) {
+			fi->has_hotspot = 1;
+			fi->hotspot_x = srcbmp_mask->bi.hotspot_x;
+			fi->hotspot_y = (int)h - 1 - srcbmp_mask->bi.hotspot_y;
+		}
+	}
+
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 
 	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
 }
 
 static void do_decode_CI_or_CP_pair(deark *c, const char *fmt, i64 pos)

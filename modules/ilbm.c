@@ -41,6 +41,8 @@ struct img_info {
 	i64 planespan;
 	i64 bits_per_row_per_plane;
 	u8 masking_code;
+	u8 has_hotspot;
+	int hotspot_x, hotspot_y;
 	int is_thumb;
 	const char *filename_token;
 };
@@ -247,7 +249,8 @@ static void get_row_vdat(deark *c, lctx *d, struct img_info *ii,
 	}
 }
 
-static void set_density_and_filename(deark *c, lctx *d, struct img_info *ii, de_finfo *fi)
+// Set density, filename, etc.
+static void set_finfo_data(deark *c, lctx *d, struct img_info *ii, de_finfo *fi)
 {
 	int has_aspect, has_dpi;
 
@@ -269,6 +272,12 @@ static void set_density_and_filename(deark *c, lctx *d, struct img_info *ii, de_
 		fi->density.code = DE_DENSITY_UNK_UNITS;
 		fi->density.ydens = (double)d->x_aspect;
 		fi->density.xdens = (double)d->y_aspect;
+	}
+
+	if(ii->has_hotspot) {
+		fi->has_hotspot = 1;
+		fi->hotspot_x = ii->hotspot_x;
+		fi->hotspot_y = ii->hotspot_y;
 	}
 }
 
@@ -294,7 +303,7 @@ static void do_image_24(deark *c, lctx *d, struct img_info *ii,
 
 	img = de_bitmap_create(c, ii->width, ii->height, 3);
 	fi = de_finfo_create(c);
-	set_density_and_filename(c, d, ii, fi);
+	set_finfo_data(c, d, ii, fi);
 
 	for(j=0; j<ii->height; j++) {
 		dbuf_read(unc_pixels, row_orig, j*ii->rowspan, ii->rowspan);
@@ -481,7 +490,7 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 
 	img = de_bitmap_create(c, ii->width, ii->height, dst_bytes_per_pixel);
 	fi = de_finfo_create(c);
-	set_density_and_filename(c, d, ii, fi);
+	set_finfo_data(c, d, ii, fi);
 
 	for(j=0; j<ii->height; j++) {
 		if(d->is_ham6 || d->is_ham8) {
@@ -733,6 +742,7 @@ static void do_tiny(deark *c, lctx *d, i64 pos1, i64 len)
 	ii = de_malloc(c, sizeof(struct img_info));
 	*ii = d->main_img; // structure copy
 	ii->is_thumb = 1;
+	ii->has_hotspot = 0;
 	ii->width = de_getu16be(pos1);
 	if(len<=4) goto done;
 	ii->height = de_getu16be(pos1+2);
@@ -1005,9 +1015,10 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	case CODE_GRAB:
 		if(ictx->chunkctx->dlen<4) break;
-		tmp1 = de_getu16be(ictx->chunkctx->dpos);
-		tmp2 = de_getu16be(ictx->chunkctx->dpos+2);
-		de_dbg(c, "hotspot: (%d, %d)", (int)tmp1, (int)tmp2);
+		d->main_img.has_hotspot = 1;
+		d->main_img.hotspot_x = (int)de_getu16be(ictx->chunkctx->dpos);
+		d->main_img.hotspot_y = (int)de_getu16be(ictx->chunkctx->dpos+2);
+		de_dbg(c, "hotspot: (%d, %d)", d->main_img.hotspot_x, d->main_img.hotspot_y);
 		break;
 
 	case CODE_SHAM:

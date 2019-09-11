@@ -341,11 +341,14 @@ static int decode_win1_icon(deark *c, win1ctx *d, i64 pos1)
 {
 	de_bitmap *mask = NULL;
 	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
 	i64 w, h;
 	i64 rowspan;
 	i64 i, j;
 	i64 pos = pos1;
 	int has_inv_bkgd = 0;
+	int hotspot_x = 0;
+	int hotspot_y = 0;
 	int retval = 0;
 	int saved_indent_level;
 
@@ -356,10 +359,9 @@ static int decode_win1_icon(deark *c, win1ctx *d, i64 pos1)
 	de_dbg_indent(c, 1);
 
 	if(d->is_cur) {
-		i64 hotspot_x, hotspot_y;
-		hotspot_x = de_getu16le(pos);
-		hotspot_y = de_getu16le(pos+2);
-		de_dbg(c, "hotspot: %d,%d", (int)hotspot_x, (int)hotspot_y);
+		hotspot_x = (int)de_getu16le(pos);
+		hotspot_y = (int)de_getu16le(pos+2);
+		de_dbg(c, "hotspot: %d,%d", hotspot_x, hotspot_y);
 	}
 	pos += 4;
 
@@ -411,13 +413,23 @@ static int decode_win1_icon(deark *c, win1ctx *d, i64 pos1)
 	}
 
 	de_bitmap_apply_mask(img, mask, DE_BITMAPFLAG_WHITEISTRNS);
-	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
+
+	fi = de_finfo_create(c);
+
+	if(d->is_cur) {
+		fi->has_hotspot = 1;
+		fi->hotspot_x = hotspot_x;
+		fi->hotspot_y = hotspot_y;
+	}
+
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
 	d->bytes_consumed = pos - pos1;
 	retval = 1;
 
 done:
 	de_bitmap_destroy(img);
 	de_bitmap_destroy(mask);
+	de_finfo_destroy(c, fi);
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }

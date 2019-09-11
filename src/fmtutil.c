@@ -56,9 +56,9 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, i64 pos,
 
 	if(fhs) {
 		if(flags & DE_BMPINFO_HAS_HOTSPOT) {
-			bi->hotspot_x = dbuf_getu16le(f, pos+6);
-			bi->hotspot_y = dbuf_getu16le(f, pos+8);
-			de_dbg(c, "hotspot: (%d,%d)", (int)bi->hotspot_x, (int)bi->hotspot_y);
+			bi->hotspot_x = (int)dbuf_getu16le(f, pos+6);
+			bi->hotspot_y = (int)dbuf_getu16le(f, pos+8);
+			de_dbg(c, "hotspot: (%d,%d)", bi->hotspot_x, bi->hotspot_y);
 		}
 
 		bi->bitsoffset = dbuf_getu32le(f, pos+10);
