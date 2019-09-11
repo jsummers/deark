@@ -188,7 +188,15 @@ static void do_image_data(deark *c, lctx *d, struct page_ctx *pg)
 	de_optimize_image_alpha(img, (bi.bitcount==32)?0x1:0x0);
 
 	fi = de_finfo_create(c);
+
 	de_finfo_set_name_from_sz(c, fi, filename_token, 0, DE_ENCODING_ASCII);
+
+	if(d->is_cur) {
+		fi->has_hotspot = 1;
+		fi->hotspot_x = pg->hotspot_x;
+		fi->hotspot_y = pg->hotspot_y;
+	}
+
 	de_bitmap_write_to_file_finfo(img, fi, 0);
 
 	if(!use_mask && d->extract_unused_masks) {

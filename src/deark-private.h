@@ -186,6 +186,7 @@ struct de_finfo_struct {
 	u8 is_root_dir; // Is this definitely the unnamed root (".") dir?
 	u8 detect_root_dot_dir; // Directories named "." are special.
 	u8 orig_name_was_dot; // Internal use
+	u8 has_hotspot;
 
 #define DE_MODEFLAG_NONEXE 0x01 // Make the output file non-executable.
 #define DE_MODEFLAG_EXE    0x02 // Make the output file executable.
@@ -195,6 +196,7 @@ struct de_finfo_struct {
 	struct de_timestamp image_mod_time; // Mod time of an image (for PNG tIME chunk)
 	struct de_density_info density;
 	de_ucstring *name_other; // Modules can use this field as needed.
+	int hotspot_x, hotspot_y; // Measured from upper-left pixel (after handling 'flipped')
 };
 
 struct deark_bitmap_struct {

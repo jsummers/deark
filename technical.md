@@ -188,8 +188,8 @@ In most cases, Deark writes Macintosh resource forks to AppleDouble format. It
 considers this to be its preferred format for resource forks. You have to use
 an option, if you want it to write the fork in raw form.
 
-It give AppleDouble output files an ".adf" file extension. Although this is one
-of the conventions suggested in the AppleDouble specification, it is not
+It gives AppleDouble output files an ".adf" file extension. Although this is
+one of the conventions suggested in the AppleDouble specification, it is not
 commonly used. The other naming conventions don't play well with Deark's naming
 conventions.
 
@@ -198,6 +198,37 @@ like "output.NNN", the AppleDouble file and its associated data fork will not
 have the same base filename, further reducing the chance that other systems
 will treat them as a unit. There's no good fix for this, though you may be able
 to avoid it by using the -zip option.
+
+## PNG htSP chunks ##
+
+When decoding mouse cursor graphics, Deark sometimes records the cursor's
+"hotspot" in the resulting PNG image, in a custom "htSP" chunk. The htSP
+chunk's format is explained here.
+
+The chunk type is "htSP": hex [68 74 53 50].
+
+The chunk data field length is 24 or more bytes. Encoders must write exactly 24
+bytes. Decoders must ignore any bytes after the first 24.
+
+The first 16 bytes of the data field are an arbitrary signature UUID: hex [b9
+fe 4f 3d 8f 32 45 6f aa 02 dc d7 9c ce 0e 24]. This represents the UUID
+b9fe4f3d-8f32-456f-aa02-dcd79cce0e24. If the first 16 bytes are not exactly
+this signature, the chunk does not conform to this specification.
+
+After the signature are two 4-byte fields: The X coordinate at offset 16, then
+the Y coordinate at offset 20. Each is stored as a "PNG four-byte signed
+integer" (big-endian, two's complement).
+
+The X coordinate is the number of pixels the hotspot is to the right of the
+image's leftmost column of pixels. (If the hotspot is in the leftmost column,
+then its coordinate is 0). The Y coordinate is the number of pixels the hotspot
+is below the image's topmost row of pixels. It is legal for the hotspot to be
+beyond the bounds of the image.
+
+The hotspot is conceptually an entire pixel (or virtual pixel), not a specific
+point in some coordinate system. If more precision is needed, assume the
+hotspot is the center of that pixel. For example, if a 16x16-pixel image with
+hotspot (0,0) were to be mirrored left-right, the new hotspot would be (15,0).
 
 ## I've never heard of that format! ##
 

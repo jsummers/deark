@@ -40,6 +40,7 @@ struct zip_data_struct {
 #define CODE_IDAT 0x49444154U
 #define CODE_IEND 0x49454e44U
 #define CODE_IHDR 0x49484452U
+#define CODE_htSP 0x68745350U
 #define CODE_pHYs 0x70485973U
 #define CODE_tEXt 0x74455874U
 #define CODE_tIME 0x74494d45U
@@ -57,6 +58,8 @@ struct deark_png_encode_info {
 	dbuf *outf;
 	struct de_timestamp image_mod_time;
 	u8 include_text_chunk_software;
+	u8 has_hotspot;
+	int hotspot_x, hotspot_y;
 };
 
 static void write_png_chunk_raw(dbuf *outf, const u8 *src, i64 src_len,
@@ -125,6 +128,19 @@ static void write_png_chunk_tIME(struct deark_png_encode_info *pei,
 	dbuf_writebyte(cdbuf, (u8)tm2.tm_min);
 	dbuf_writebyte(cdbuf, (u8)tm2.tm_sec);
 	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_tIME);
+}
+
+static void write_png_chunk_htSP(struct deark_png_encode_info *pei,
+	dbuf *cdbuf)
+{
+	// This is the UUID b9fe4f3d-8f32-456f-aa02-dcd79cce0e24
+	static const u8 uuid[16] = {0xb9,0xfe,0x4f,0x3d,0x8f,0x32,0x45,0x6f,
+		0xaa,0x02,0xdc,0xd7,0x9c,0xce,0x0e,0x24};
+
+	dbuf_write(cdbuf, uuid, 16);
+	dbuf_writei32be(cdbuf, (i64)pei->hotspot_x);
+	dbuf_writei32be(cdbuf, (i64)pei->hotspot_y);
+	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_htSP);
 }
 
 static void write_png_chunk_tEXt(struct deark_png_encode_info *pei,
@@ -203,6 +219,11 @@ static int do_generate_png(struct deark_png_encode_info *pei, const mz_uint8 *sr
 	if(pei->image_mod_time.is_valid && pei->c->preserve_file_times_images) {
 		dbuf_truncate(cdbuf, 0);
 		write_png_chunk_tIME(pei, cdbuf);
+	}
+
+	if(pei->has_hotspot) {
+		dbuf_truncate(cdbuf, 0);
+		write_png_chunk_htSP(pei, cdbuf);
 	}
 
 	if(pei->include_text_chunk_software) {
@@ -297,6 +318,14 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f)
 
 	if(f->fi_copy && f->fi_copy->image_mod_time.is_valid) {
 		pei.image_mod_time = f->fi_copy->image_mod_time;
+	}
+
+	if(f->fi_copy && f->fi_copy->has_hotspot) {
+		pei.has_hotspot = 1;
+		pei.hotspot_x = f->fi_copy->hotspot_x;
+		pei.hotspot_y = f->fi_copy->hotspot_y;
+		// Leave a hint as to where our custom Hotspot chunk came from.
+		pei.include_text_chunk_software = 1;
 	}
 
 	if(!do_generate_png(&pei, img->bitmap)) {

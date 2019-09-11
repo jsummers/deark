@@ -24,6 +24,7 @@ DE_DECLARE_MODULE(de_module_png);
 #define CODE_fdAT 0x66644154U
 #define CODE_gAMA 0x67414d41U
 #define CODE_hIST 0x68495354U
+#define CODE_htSP 0x68745350U
 #define CODE_iCCP 0x69434350U
 #define CODE_iTXt 0x69545874U
 #define CODE_orNT 0x6f724e54U
@@ -792,6 +793,21 @@ static void handler_orNT(deark *c, lctx *d, struct handler_params *hp)
 	de_dbg(c, "orientation: %d (%s)", (int)n, de_fmtutil_tiff_orientation_name((i64)n));
 }
 
+static void handler_htSP(deark *c, lctx *d, struct handler_params *hp)
+{
+	i64 hotspot_x, hotspot_y;
+	u8 buf[16];
+	static const u8 uuid[16] = {0xb9,0xfe,0x4f,0x3d,0x8f,0x32,0x45,0x6f,
+		0xaa,0x02,0xdc,0xd7,0x9c,0xce,0x0e,0x24};
+
+	if(hp->dlen<24) return;
+	de_read(buf, hp->dpos, 16);
+	if(de_memcmp(buf, uuid, 16)) return;
+	hotspot_x = de_geti32be(hp->dpos+16);
+	hotspot_y = de_geti32be(hp->dpos+20);
+	de_dbg(c, "hotspot: (%d, %d)", (int)hotspot_x, (int)hotspot_y);
+}
+
 static void do_APNG_seqno(deark *c, lctx *d, i64 pos)
 {
 	unsigned int n;
@@ -894,6 +910,7 @@ static const struct chunk_type_info_struct chunk_type_info_arr[] = {
 	{ CODE_fdAT, 0x00ff, "APNG frame data", handler_fdAT },
 	{ CODE_gAMA, 0x00ff, "image gamma", handler_gAMA },
 	{ CODE_hIST, 0x00ff, "histogram", handler_hIST },
+	{ CODE_htSP, 0x00ff, "Deark-style hotspot", handler_htSP },
 	{ CODE_iCCP, 0x00ff, "ICC profile", handler_iccp },
 	{ CODE_iTXt, 0x00ff, NULL, handler_text },
 	{ CODE_orNT, 0x00ff, NULL, handler_orNT },

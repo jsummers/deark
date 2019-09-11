@@ -950,6 +950,9 @@ static void finfo_shallow_copy(deark *c, de_finfo *src, de_finfo *dst)
 	dst->mod_time = src->mod_time;
 	dst->image_mod_time = src->image_mod_time;
 	dst->density = src->density;
+	dst->has_hotspot = src->has_hotspot;
+	dst->hotspot_x = src->hotspot_x;
+	dst->hotspot_y = src->hotspot_y;
 }
 
 // Create or open a file for writing, that is *not* one of the usual
