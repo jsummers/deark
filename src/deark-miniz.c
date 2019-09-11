@@ -41,6 +41,7 @@ struct zip_data_struct {
 #define CODE_IEND 0x49454e44U
 #define CODE_IHDR 0x49484452U
 #define CODE_pHYs 0x70485973U
+#define CODE_tEXt 0x74455874U
 #define CODE_tIME 0x74494d45U
 
 struct deark_png_encode_info {
@@ -55,6 +56,7 @@ struct deark_png_encode_info {
 	deark *c;
 	dbuf *outf;
 	struct de_timestamp image_mod_time;
+	u8 include_text_chunk_software;
 };
 
 static void write_png_chunk_raw(dbuf *outf, const u8 *src, i64 src_len,
@@ -125,6 +127,18 @@ static void write_png_chunk_tIME(struct deark_png_encode_info *pei,
 	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_tIME);
 }
 
+static void write_png_chunk_tEXt(struct deark_png_encode_info *pei,
+	dbuf *cdbuf, const char *keyword, const char *value)
+{
+	i64 kwlen, vlen;
+	kwlen = (i64)de_strlen(keyword);
+	vlen = (i64)de_strlen(value);
+	dbuf_write(cdbuf, (const u8*)keyword, kwlen);
+	dbuf_writebyte(cdbuf, 0);
+	dbuf_write(cdbuf, (const u8*)value, vlen);
+	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_tEXt);
+}
+
 static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, const mz_uint8 *src_pixels)
 {
 	tdefl_compressor *pComp = NULL;
@@ -191,6 +205,11 @@ static int do_generate_png(struct deark_png_encode_info *pei, const mz_uint8 *sr
 		write_png_chunk_tIME(pei, cdbuf);
 	}
 
+	if(pei->include_text_chunk_software) {
+		dbuf_truncate(cdbuf, 0);
+		write_png_chunk_tEXt(pei, cdbuf, "Software", "Deark");
+	}
+
 	if(!write_png_chunk_IDAT(pei, src_pixels)) goto done;
 
 	dbuf_truncate(cdbuf, 0);
@@ -254,6 +273,7 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f)
 	pei.height = (int)img->height;
 	pei.flip = img->flipped;
 	pei.num_chans = img->bytes_per_pixel;
+	pei.include_text_chunk_software = 0;
 
 	if(!c->pngcprlevel_valid) {
 		c->pngcmprlevel = 9; // default
