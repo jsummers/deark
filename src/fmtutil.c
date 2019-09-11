@@ -1475,16 +1475,6 @@ void de_fmtutil_handle_id3(deark *c, dbuf *f, struct de_id3info *id3i,
 // might want to do something special with (e.g. Mac type/creator codes).
 // It is essentially a wrapper around dbuf/finfo.
 
-static void writei32be(dbuf *f, i64 n)
-{
-	if(n<0) {
-		dbuf_writeu32be(f, n+0x100000000LL);
-	}
-	else {
-		dbuf_writeu32be(f, n);
-	}
-}
-
 // de_advfile_create creates a new object.
 // Then, before calling de_advfile_run, caller must:
 //  - Set advf->filename if possible, e.g. using ucstring_append_*().
@@ -1785,10 +1775,10 @@ static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_app
 		case SDID_FILEDATES:
 			// We could try to maintain dates other than the modification date, but
 			// Deark doesn't generally care about them.
-			writei32be(outf, INVALID_APPLESD_DATE); // creation
-			writei32be(outf, timestamp_to_applesd_date(c, &advf->mainfork.fi->mod_time));
-			writei32be(outf, INVALID_APPLESD_DATE); // backup
-			writei32be(outf, INVALID_APPLESD_DATE); // access
+			dbuf_writei32be(outf, INVALID_APPLESD_DATE); // creation
+			dbuf_writei32be(outf, timestamp_to_applesd_date(c, &advf->mainfork.fi->mod_time));
+			dbuf_writei32be(outf, INVALID_APPLESD_DATE); // backup
+			dbuf_writei32be(outf, INVALID_APPLESD_DATE); // access
 			break;
 
 		case SDID_FINDERINFO:

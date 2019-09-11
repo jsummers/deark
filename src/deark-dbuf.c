@@ -1458,6 +1458,26 @@ void dbuf_writeu16be(dbuf *f, i64 n)
 	dbuf_write(f, buf, 2);
 }
 
+void dbuf_writei16le(dbuf *f, i64 n)
+{
+	if(n<0) {
+		dbuf_writeu16le(f, n+65536);
+	}
+	else {
+		dbuf_writeu16le(f, n);
+	}
+}
+
+void dbuf_writei16be(dbuf *f, i64 n)
+{
+	if(n<0) {
+		dbuf_writeu16be(f, n+65536);
+	}
+	else {
+		dbuf_writeu16be(f, n);
+	}
+}
+
 void de_writeu32be_direct(u8 *m, i64 n)
 {
 	m[0] = (u8)((n & 0xff000000)>>24);
@@ -1486,6 +1506,25 @@ void dbuf_writeu32le(dbuf *f, i64 n)
 	u8 buf[4];
 	de_writeu32le_direct(buf, n);
 	dbuf_write(f, buf, 4);
+}
+
+void dbuf_writei32le(dbuf *f, i64 n)
+{
+	if(n<0) {
+		dbuf_writeu32le(f, n+0x100000000LL);
+	}
+	else {
+		dbuf_writeu32le(f, n);
+	}}
+
+void dbuf_writei32be(dbuf *f, i64 n)
+{
+	if(n<0) {
+		dbuf_writeu32be(f, n+0x100000000LL);
+	}
+	else {
+		dbuf_writeu32be(f, n);
+	}
 }
 
 void de_writeu64le_direct(u8 *m, u64 n)

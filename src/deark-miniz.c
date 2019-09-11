@@ -557,16 +557,6 @@ static void set_dos_modtime(struct deark_file_attribs *dfa)
 		((tm2.tm_mon + 1) << 5) + tm2.tm_mday);
 }
 
-static void writei32le(dbuf *f, i64 n)
-{
-	if(n<0) {
-		dbuf_writeu32le(f, n+0x100000000LL);
-	}
-	else {
-		dbuf_writeu32le(f, n);
-	}
-}
-
 static void do_UT_times(deark *c, struct deark_file_attribs *dfa,
 	dbuf *ef, int is_central)
 {
@@ -576,7 +566,7 @@ static void do_UT_times(deark *c, struct deark_file_attribs *dfa,
 	dbuf_writeu16le(ef, 0x5455);
 	dbuf_writeu16le(ef, (i64)5);
 	dbuf_writebyte(ef, 0x01); // has-modtime flag
-	writei32le(ef, dfa->modtime_unix);
+	dbuf_writei32le(ef, dfa->modtime_unix);
 }
 
 static void do_ntfs_times(deark *c, struct deark_file_attribs *dfa,

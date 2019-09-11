@@ -131,16 +131,6 @@ static void finalize_psrc_stream(deark *c, lctx *d)
 	d->psrc_stream = NULL;
 }
 
-static void writei16be(dbuf *f, i64 n)
-{
-	if(n<0) {
-		dbuf_writeu16be(f, n+65536);
-	}
-	else {
-		dbuf_writeu16be(f, n);
-	}
-}
-
 static void do_psrc_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	struct rsrcinstanceinfo *rii, i64 dpos, i64 dlen)
 {
@@ -156,7 +146,7 @@ static void do_psrc_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 
 	de_dbg(c, "[Photoshop resource]");
 	dbuf_write(d->psrc_stream, rti->fcc.bytes, 4);
-	writei16be(d->psrc_stream, (i64)rii->id);
+	dbuf_writei16be(d->psrc_stream, (i64)rii->id);
 	if(rii->has_name) {
 		dbuf_copy(c->infile, rii->name_offset, rii->name_raw_len, d->psrc_stream);
 		if(rii->name_raw_len%2) {

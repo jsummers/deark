@@ -640,8 +640,12 @@ void dbuf_writebyte(dbuf *f, u8 n);
 void dbuf_writebyte_at(dbuf *f, i64 pos, u8 n);
 void dbuf_writeu16le(dbuf *f, i64 n);
 void dbuf_writeu16be(dbuf *f, i64 n);
+void dbuf_writei16le(dbuf *f, i64 n);
+void dbuf_writei16be(dbuf *f, i64 n);
 void dbuf_writeu32le(dbuf *f, i64 n);
 void dbuf_writeu32be(dbuf *f, i64 n);
+void dbuf_writei32le(dbuf *f, i64 n);
+void dbuf_writei32be(dbuf *f, i64 n);
 void dbuf_writeu64le(dbuf *f, u64 n);
 
 void dbuf_puts(dbuf *f, const char *sz);
