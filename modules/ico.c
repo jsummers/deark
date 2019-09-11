@@ -10,6 +10,13 @@
 DE_DECLARE_MODULE(de_module_ico);
 DE_DECLARE_MODULE(de_module_win1ico);
 
+struct page_ctx {
+	i64 img_num;
+	i64 data_size;
+	i64 data_offset;
+	int hotspot_x, hotspot_y; // Valid if lctx::is_cur
+};
+
 typedef struct localctx_struct {
 	int is_cur;
 	int extract_unused_masks;
@@ -34,7 +41,7 @@ static void warn_inv_bkgd(deark *c)
 		"fully supported.");
 }
 
-static void do_image_data(deark *c, lctx *d, i64 img_num, i64 pos1, i64 len)
+static void do_image_data(deark *c, lctx *d, struct page_ctx *pg)
 {
 	struct de_bmpinfo bi;
 	i64 fg_start, bg_start;
@@ -42,6 +49,7 @@ static void do_image_data(deark *c, lctx *d, i64 img_num, i64 pos1, i64 len)
 	u32 pal[256];
 	i64 p;
 	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
 	u8 x;
 	u8 cr=0, cg=0, cb=0, ca=0;
 	int inverse_warned = 0;
@@ -49,27 +57,29 @@ static void do_image_data(deark *c, lctx *d, i64 img_num, i64 pos1, i64 len)
 	int has_alpha_channel = 0;
 	i64 bitcount_color;
 	char filename_token[32];
+	i64 pos1 = pg->data_offset;
+	i64 len = pg->data_size;
 
-	if(pos1+len > c->infile->len) return;
+	if(pos1+len > c->infile->len) goto done;
 
 	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, pos1, len, DE_BMPINFO_ICO_FORMAT)) {
 		de_err(c, "Invalid bitmap");
-		return;
+		goto done;
 	}
 
 	if(bi.file_format == DE_BMPINFO_FMT_PNG) {
 		do_extract_png(c, d, pos1, len);
-		return;
+		goto done;
 	}
 
 	switch(bi.bitcount) {
 	case 1: case 2: case 4: case 8: case 24: case 32:
 		break;
 	case 16:
-		de_err(c, "(image #%d) Unsupported bit count (%d)", (int)img_num, (int)bi.bitcount);
+		de_err(c, "(image #%d) Unsupported bit count (%d)", (int)pg->img_num, (int)bi.bitcount);
 		goto done;
 	default:
-		de_err(c, "(image #%d) Invalid bit count (%d)", (int)img_num, (int)bi.bitcount);
+		de_err(c, "(image #%d) Invalid bit count (%d)", (int)pg->img_num, (int)bi.bitcount);
 		goto done;
 	}
 
@@ -177,7 +187,9 @@ static void do_image_data(deark *c, lctx *d, i64 img_num, i64 pos1, i64 len)
 
 	de_optimize_image_alpha(img, (bi.bitcount==32)?0x1:0x0);
 
-	de_bitmap_write_to_file(img, filename_token, 0);
+	fi = de_finfo_create(c);
+	de_finfo_set_name_from_sz(c, fi, filename_token, 0, DE_ENCODING_ASCII);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 
 	if(!use_mask && d->extract_unused_masks) {
 		char maskname_token[32];
@@ -194,27 +206,30 @@ static void do_image_data(deark *c, lctx *d, i64 img_num, i64 pos1, i64 len)
 
 done:
 	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
 }
 
 static void do_image_dir_entry(deark *c, lctx *d, i64 img_num, i64 pos)
 {
-	i64 data_size;
-	i64 data_offset;
+	struct page_ctx *pg = NULL;
 
-	de_dbg(c, "image #%d, index at %d", (int)img_num, (int)pos);
+	pg = de_malloc(c, sizeof(struct page_ctx));
+	pg->img_num = img_num;
+
+	de_dbg(c, "image #%d, index at %d", (int)pg->img_num, (int)pos);
 	de_dbg_indent(c, 1);
 	if(d->is_cur) {
-		i64 hotspot_x, hotspot_y;
-		hotspot_x = de_getu16le(pos+4);
-		hotspot_y = de_getu16le(pos+6);
-		de_dbg(c, "hotspot: %d,%d", (int)hotspot_x, (int)hotspot_y);
+		pg->hotspot_x = (int)de_getu16le(pos+4);
+		pg->hotspot_y = (int)de_getu16le(pos+6);
+		de_dbg(c, "hotspot: %d,%d", pg->hotspot_x, pg->hotspot_y);
 	}
-	data_size = de_getu32le(pos+8);
-	data_offset = de_getu32le(pos+12);
-	de_dbg(c, "offset=%d, size=%d", (int)data_offset, (int)data_size);
+	pg->data_size = de_getu32le(pos+8);
+	pg->data_offset = de_getu32le(pos+12);
+	de_dbg(c, "offset=%"I64_FMT", size=%"I64_FMT, pg->data_offset, pg->data_size);
 
-	do_image_data(c, d, img_num, data_offset, data_size);
+	do_image_data(c, d, pg);
 
+	de_free(c, pg);
 	de_dbg_indent(c, -1);
 }
 
