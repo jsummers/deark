@@ -172,12 +172,18 @@ static void do_CURS_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	de_finfo *fi = NULL;
 
 	if(dlen!=68) goto done;
+	fi = de_finfo_create(c);
 	fg = de_bitmap_create(c, 16, 16, 2);
 	de_convert_image_bilevel(c->infile, dpos, 2, fg, DE_CVTF_WHITEISZERO);
 	mask = de_bitmap_create(c, 16, 16, 1);
 	de_convert_image_bilevel(c->infile, dpos+32, 2, mask, 0);
+	// I'm assuming the hotspot is a QuickDraw Point structure.
+	fi->hotspot_y = (int)de_geti16be(dpos+64);
+	fi->hotspot_x = (int)de_geti16be(dpos+66);
+	fi->has_hotspot = 1;
+	de_dbg(c, "hotspot: (%d,%d)", fi->hotspot_x, fi->hotspot_y);
+
 	de_bitmap_apply_mask(fg, mask, 0);
-	fi = de_finfo_create(c);
 	set_resource_filename(c, d, fi, rti, rii, NULL);
 	de_bitmap_write_to_file_finfo(fg, fi, 0);
 done:
