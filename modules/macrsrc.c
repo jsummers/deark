@@ -16,6 +16,7 @@ DE_DECLARE_MODULE(de_module_macrsrc);
 #define CODE_PICT 0x50494354U
 #define CODE_SICN 0x5349434eU
 #define CODE_cicn 0x6369636eU
+#define CODE_crsr 0x63727372U
 #define CODE_icns 0x69636e73U
 #define CODE_moov 0x6d6f6f76U
 
@@ -163,32 +164,111 @@ static void do_psrc_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	}
 }
 
-// 16x16 cursor
-static void do_CURS_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
-	struct rsrcinstanceinfo *rii, i64 dpos, i64 dlen)
+// Handle 'crsr' and 'CURS' cursors.
+// The documentation of 'crsr' in ImagingWithQuickDraw seems to have only
+// the vaguest resemblance to reality. The code here is partly based on
+// reverse engineering.
+static void do_crsr_CURS_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
+	struct rsrcinstanceinfo *rii, i64 pos1, i64 dlen)
 {
-	de_bitmap *fg = NULL;
-	de_bitmap *mask = NULL;
+	struct fmtutil_macbitmap_info *bi = NULL;
+	de_bitmap *img_color = NULL;
+	de_bitmap *img_bw = NULL;
+	de_bitmap *img_mask = NULL;
 	de_finfo *fi = NULL;
+	i64 pos = pos1;
+	i64 pixmap_offs = 0;
+	i64 pixdata_offs = 0;
+	i64 n;
+	i64 colortable_size = 0;
+	int is_crsr = (rti->fcc.id==CODE_crsr);
 
-	if(dlen!=68) goto done;
+	if(dlen<68) goto done;
 	fi = de_finfo_create(c);
-	fg = de_bitmap_create(c, 16, 16, 2);
-	de_convert_image_bilevel(c->infile, dpos, 2, fg, DE_CVTF_WHITEISZERO);
-	mask = de_bitmap_create(c, 16, 16, 1);
-	de_convert_image_bilevel(c->infile, dpos+32, 2, mask, 0);
+
+	if(is_crsr) {
+		// TODO: Do we need special handling for type=0x8000 (b/w cursor)?
+		n = de_getu16be_p(&pos);
+		de_dbg(c, "cursor type: 0x%04x", (unsigned int)n);
+		if(n!=0x8000 && n!=0x8001) {
+			de_err(c, "Invalid or unsupported cursor type");;
+			goto done;
+		}
+		pixmap_offs = de_getu32be_p(&pos);
+		de_dbg(c, "offset to pixel map: %d", (int)pixmap_offs);
+		pixdata_offs = de_getu32be_p(&pos);
+		de_dbg(c, "offset to pixel data: %d", (int)pixdata_offs);
+		pos += 10; // other fields
+	}
+
+	de_dbg(c, "b/w foreground at %"I64_FMT, pos);
+	img_bw = de_bitmap_create(c, 16, 16, 2);
+	de_convert_image_bilevel(c->infile, pos, 2, img_bw, DE_CVTF_WHITEISZERO);
+	pos += 32;
+
+	de_dbg(c, "mask at %"I64_FMT, pos);
+	img_mask = de_bitmap_create(c, 16, 16, 1);
+	de_convert_image_bilevel(c->infile, pos, 2, img_mask, 0);
+	pos += 32;
+
 	// I'm assuming the hotspot is a QuickDraw Point structure.
-	fi->hotspot_y = (int)de_geti16be(dpos+64);
-	fi->hotspot_x = (int)de_geti16be(dpos+66);
+	fi->hotspot_y = (int)de_geti16be_p(&pos);
+	fi->hotspot_x = (int)de_geti16be_p(&pos);
 	fi->has_hotspot = 1;
 	de_dbg(c, "hotspot: (%d,%d)", fi->hotspot_x, fi->hotspot_y);
 
-	de_bitmap_apply_mask(fg, mask, 0);
+	de_bitmap_apply_mask(img_bw, img_mask, 0);
+	set_resource_filename(c, d, fi, rti, rii, (is_crsr?"crsr_bw":NULL));
+	de_bitmap_write_to_file_finfo(img_bw, fi, 0);
+	if(!is_crsr) goto done;
+
+	bi = de_malloc(c, sizeof(struct fmtutil_macbitmap_info));
+	if(pixmap_offs >= dlen) goto done;
+	pos = pos1+pixmap_offs;
+	fmtutil_macbitmap_read_baseaddr(c, c->infile, bi, pos);
+	pos += 4;
+	fmtutil_macbitmap_read_rowbytes_and_bounds(c, c->infile, bi, pos);
+	pos += 10;
+	fmtutil_macbitmap_read_pixmap_only_fields(c, c->infile, bi, pos);
+	pos += 36;
+	if(!de_good_image_dimensions(c, bi->width, bi->height)) goto done;
+
+	if((i64)bi->pmTable != pixdata_offs + bi->rowbytes * bi->height) {
+		de_warn(c, "Unexpected color table offset. "
+			"Cursor might not be decoded correctly.");
+	}
+	if(bi->pmTable>0 && bi->pmTable<dlen) {
+		pos = pos1 + (i64)bi->pmTable;
+	}
+	else {
+		pos = pos1 + pixdata_offs + bi->rowbytes * bi->height;
+	}
+	if(!fmtutil_macbitmap_read_colortable(c, c->infile, bi, pos, &colortable_size)) {
+		goto done;
+	}
+
+	img_color = de_bitmap_create(c, bi->width, bi->height, 4);
+
+	if(pixdata_offs >= dlen) goto done;
+	pos = pos1 + pixdata_offs;
+	de_dbg(c, "color pixels at %"I64_FMT, pos);
+	de_convert_image_paletted(c->infile, pos, bi->pixelsize, bi->rowbytes,
+		bi->pal, img_color, 0);
+	de_bitmap_apply_mask(img_color, img_mask, 0);
+
 	set_resource_filename(c, d, fi, rti, rii, NULL);
-	de_bitmap_write_to_file_finfo(fg, fi, 0);
+	if(bi->hdpi>=1.0 && bi->vdpi>=1.0) {
+		fi->density.code = DE_DENSITY_DPI;
+		fi->density.xdens = bi->hdpi;
+		fi->density.ydens = bi->vdpi;
+	}
+	de_bitmap_write_to_file_finfo(img_color, fi, DE_CREATEFLAG_OPT_IMAGE);
+
 done:
-	de_bitmap_destroy(fg);
-	de_bitmap_destroy(mask);
+	de_free(c, bi);
+	de_bitmap_destroy(img_color);
+	de_bitmap_destroy(img_bw);
+	de_bitmap_destroy(img_mask);
 	de_finfo_destroy(c, fi);
 }
 
@@ -218,8 +298,8 @@ static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	struct rsrcinstanceinfo *rii, i64 dpos, i64 dlen)
 {
 	struct fmtutil_macbitmap_info *bi_fgcolor = NULL;
-	struct fmtutil_macbitmap_info *bi_mask;
-	struct fmtutil_macbitmap_info *bi_bw;
+	struct fmtutil_macbitmap_info *bi_mask = NULL;
+	struct fmtutil_macbitmap_info *bi_bw = NULL;
 	de_bitmap *img_fgcolor = NULL;
 	de_bitmap *img_mask = NULL;
 	de_bitmap *img_bw = NULL;
@@ -427,8 +507,8 @@ static void do_resource_data(deark *c, lctx *d, struct rsrctypeinfo *rti,
 		do_psrc_resource(c, d, rti, rii, dpos, dlen);
 		handled = 1;
 	}
-	else if(rti->fcc.id==CODE_CURS) {
-		do_CURS_resource(c, d, rti, rii, dpos, dlen);
+	else if(rti->fcc.id==CODE_CURS || rti->fcc.id==CODE_crsr) {
+		do_crsr_CURS_resource(c, d, rti, rii, dpos, dlen);
 		handled = 1;
 	}
 	else if(rti->fcc.id==CODE_cicn) {

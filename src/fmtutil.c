@@ -1999,8 +1999,8 @@ void fmtutil_macbitmap_read_pixmap_only_fields(deark *c, dbuf *f, struct fmtutil
 	plane_bytes = dbuf_getu32be(f, pos+24);
 	de_dbg(c, "plane bytes: %d", (int)plane_bytes);
 
-	n = dbuf_getu32be(f, pos+28);
-	de_dbg(c, "pmTable: 0x%08x", (unsigned int)n);
+	bi->pmTable = (u32)dbuf_getu32be(f, pos+28);
+	de_dbg(c, "pmTable: 0x%08x", (unsigned int)bi->pmTable);
 
 	n = dbuf_getu32be(f, pos+32);
 	de_dbg(c, "pmReserved: 0x%08x", (unsigned int)n);

@@ -356,6 +356,7 @@ struct fmtutil_macbitmap_info {
 	i64 pixeltype, pixelsize;
 	i64 cmpcount, cmpsize;
 	double hdpi, vdpi;
+	u32 pmTable;
 	int pixmap_flag;
 	int has_colortable; // Does the file contain a colortable for this bitmap?
 	int uses_pal; // Are we using the palette below?

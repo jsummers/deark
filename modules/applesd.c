@@ -479,6 +479,8 @@ static void de_help_applesd(deark *c)
 {
 	de_msg(c, "-opt applesd:extractrsrc=<0|1> : Decode (0) or extract (1) the "
 		"resource fork");
+	de_msg(c, "-opt macrsrc:extractraw : Extract all resources to files (if "
+		"decoding the resource fork)");
 }
 
 void de_module_applesd(deark *c, struct deark_module_info *mi)
