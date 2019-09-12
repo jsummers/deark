@@ -191,7 +191,7 @@ static void do_crsr_CURS_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 		n = de_getu16be_p(&pos);
 		de_dbg(c, "cursor type: 0x%04x", (unsigned int)n);
 		if(n!=0x8000 && n!=0x8001) {
-			de_err(c, "Invalid or unsupported cursor type");;
+			de_err(c, "Invalid or unsupported 'crsr' cursor type");;
 			goto done;
 		}
 		pixmap_offs = de_getu32be_p(&pos);
@@ -310,6 +310,8 @@ static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	int bw_exists = 0;
 	i64 colortable_size = 0;
 	i64 pos = dpos;
+	int needmsg = 1;
+	int ok = 0;
 
 	bi_fgcolor = de_malloc(c, sizeof(struct fmtutil_macbitmap_info));
 	bi_mask = de_malloc(c, sizeof(struct fmtutil_macbitmap_info));
@@ -321,6 +323,7 @@ static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	fmtutil_macbitmap_read_baseaddr(c, c->infile, bi_fgcolor, pos);
 	pos += 4;
 	fmtutil_macbitmap_read_rowbytes_and_bounds(c, c->infile, bi_fgcolor, pos);
+	if(!bi_fgcolor->pixmap_flag) goto done;
 	pos += 10;
 	fmtutil_macbitmap_read_pixmap_only_fields(c, c->infile, bi_fgcolor, pos);
 	pos += 36;
@@ -349,9 +352,9 @@ static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 		bw_exists = 1;
 	}
 
-	if(!de_good_image_dimensions(c, bi_fgcolor->width, bi_fgcolor->height)) goto done;
-	if(!de_good_image_dimensions(c, bi_mask->width, bi_mask->height)) goto done;
-	if(bw_exists && !de_good_image_dimensions(c, bi_bw->width, bi_bw->height)) goto done;
+	if(!de_good_image_dimensions_noerr(c, bi_fgcolor->width, bi_fgcolor->height)) goto done;
+	if(!de_good_image_dimensions_noerr(c, bi_mask->width, bi_mask->height)) goto done;
+	if(bw_exists && !de_good_image_dimensions_noerr(c, bi_bw->width, bi_bw->height)) goto done;
 
 	if(bi_fgcolor->pixeltype!=0) goto done;
 	if(bi_fgcolor->pixelsize!=bi_fgcolor->cmpsize) goto done;
@@ -366,18 +369,21 @@ static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	if(bw_exists) bw_bitssize = bi_bw->rowbytes * bi_bw->height;
 	fgcolor_bitssize =  bi_fgcolor->rowbytes * bi_fgcolor->height;
 
+	if(pos+mask_bitssize > dpos+dlen) goto done;
 	de_dbg(c, "mask bitmap at %"I64_FMT", len=%"I64_FMT, pos, mask_bitssize);
 	img_mask = de_bitmap_create(c, bi_mask->width, bi_mask->height, 1);
 	de_convert_image_bilevel(c->infile, pos, bi_mask->rowbytes, img_mask, 0);
 	pos += mask_bitssize;
 
 	if(bw_exists) {
+		if(pos+bw_bitssize > dpos+dlen) goto done;
 		de_dbg(c, "bw bitmap at %"I64_FMT", len=%"I64_FMT, pos, bw_bitssize);
-		img_bw = de_bitmap_create(c, bi_bw->width, bi_bw->height, 1);
+		img_bw = de_bitmap_create(c, bi_bw->width, bi_bw->height, 2);
 		de_convert_image_bilevel(c->infile, pos, bi_bw->rowbytes, img_bw,
 			DE_CVTF_WHITEISZERO);
+		de_bitmap_apply_mask(img_bw, img_mask, 0);
 		set_resource_filename(c, d, fi, rti, rii, "cicn_bw");
-		de_bitmap_write_to_file_finfo(img_bw, fi, 0);
+		de_bitmap_write_to_file_finfo(img_bw, fi, DE_CREATEFLAG_OPT_IMAGE);
 		pos += bw_bitssize;
 	}
 	else {
@@ -391,6 +397,7 @@ static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	}
 	pos += colortable_size;
 
+	if(pos+fgcolor_bitssize > dpos+dlen) goto done;
 	de_dbg(c, "color bitmap at %"I64_FMT", len=%"I64_FMT, pos, fgcolor_bitssize);
 	img_fgcolor = de_bitmap_create(c, bi_fgcolor->width, bi_fgcolor->height, 4);
 	de_convert_image_paletted(c->infile, pos, bi_fgcolor->pixelsize, bi_fgcolor->rowbytes,
@@ -404,8 +411,15 @@ static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	set_resource_filename(c, d, fi, rti, rii, NULL);
 	de_bitmap_write_to_file_finfo(img_fgcolor, fi, DE_CREATEFLAG_OPT_IMAGE);
 	pos += fgcolor_bitssize;
+	ok = 1;
 
 done:
+	if(!ok && needmsg) {
+		// TODO: There are a small but significant number of 'cicn' resources that
+		// appear to use a completely different format than the one I know about.
+		// (Or it could be some sort of systematic corruption.)
+		de_err(c, "Failed to parse 'cicn' icon resource at %"I64_FMT, dpos);
+	}
 	de_bitmap_destroy(img_fgcolor);
 	de_bitmap_destroy(img_mask);
 	de_bitmap_destroy(img_bw);
