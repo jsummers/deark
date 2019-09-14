@@ -95,10 +95,6 @@ static void extract_ani_frame(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos
 		ext = "bin";
 	}
 
-	// TODO: Most embedded CUR files don't seem to have a meaningful "hotspot"
-	// set. Can we patch that up? Maybe we should even convert ICO files to CUR
-	// files, so that we can give them a hotspot.
-
 	dbuf_create_file_from_slice(ictx->f, pos, len, ext, NULL, 0);
 }
 

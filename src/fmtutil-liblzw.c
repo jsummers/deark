@@ -32,6 +32,7 @@ static size_t my_liblzw_read(struct de_liblzwctx *lzw, u8 *buf, size_t size)
 
 // flags:
 //  DE_LIBLZWFLAG_HAS3BYTEHEADER = has "compress" style header
+//  DE_LIBLZWFLAG_HAS1BYTEHEADER = 1-byte header, containing maxbits
 //  DE_LIBLZWFLAG_ARCFSMODE = arcfs mode
 // lzwmode: Like compress format. Used if there's no header.
 void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmpri,

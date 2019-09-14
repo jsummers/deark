@@ -362,7 +362,6 @@ static void do_spark_extract_member_dir(deark *c, lctx *d, struct member_data *m
 
 static void do_sequence_of_members(deark *c, lctx *d, i64 pos1, i64 len);
 
-// Note: This shares a lot of code with ARC.
 // Returns 1 if we can and should continue after this member.
 static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed, int *is_eoa)
 {

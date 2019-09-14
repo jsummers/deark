@@ -32,6 +32,9 @@ static void do_extract_png(deark *c, lctx *d, i64 pos, i64 len)
 	h = de_getu32be(pos+20);
 
 	de_snprintf(ext, sizeof(ext), "%dx%d.png", (int)w, (int)h);
+
+	// TODO?: Might be nice to edit the PNG file to add an htSP chunk for the
+	// hotspot, but it seems like more trouble than it's worth.
 	dbuf_create_file_from_slice(c->infile, pos, len, ext, NULL, 0);
 }
 
