@@ -81,6 +81,12 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
+	if(!de_memcmp(b, "\x7f" "ELF", 4)) {
+		fmti->confidence = 40;
+		fmti->descr = "an ELF binary";
+		return;
+	}
+
 	if(!de_memcmp(b, "\xff" "WPC", 4)) {
 		fmti->confidence = 40;
 		fmti->descr = "a WordPerfect document";
