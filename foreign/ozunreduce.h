@@ -72,7 +72,7 @@ For more information, please refer to <http://unlicense.org/>
 ==============================================================================
 */
 
-#define OZUR_VERSION 20190906
+#define OZUR_VERSION 20190914
 
 #ifndef OZUR_UINT8
 #define OZUR_UINT8   unsigned char
@@ -169,6 +169,7 @@ static void ozur_refill_inbuf(ozur_ctx *ozur)
 		ozur_set_error(ozur, OZUR_ERRCODE_READ_FAILED);
 		return;
 	}
+	ozur->cmpr_nbytes_read += (OZUR_OFF_T)nbytes_to_read;
 	ozur->inbuf_nbytes_total = nbytes_to_read;
 }
 
@@ -396,7 +397,8 @@ OZUR_API(void) ozur_run(ozur_ctx *ozur)
 	}
 
 	// Part 1 is undoing the "probabilistic" compression.
-	// It starts with a header, then we'll decompress 1 byte at a time.
+	// It starts with a header, then we'll repeatedly get 1 byte of output from
+	// Part 1, and use it as input to Part 2.
 	ozur_part1_readfollowersets(ozur);
 	if(ozur->error_code) goto done;
 
@@ -423,6 +425,8 @@ done:
 }
 
 #if 0 // Example code
+
+#include <stdio.h> // Used by the example code, not by the library
 
 // You must at least define the off_t or OZUR_OFF_T symbol, either manually,
 // or by #including the appopriate standard header file.
@@ -456,7 +460,7 @@ static size_t example_ozur_write(ozur_ctx *ozur, const OZUR_UINT8 *buf, size_t s
 	return (size_t)fwrite(buf, 1, size, uctx->outfile);
 }
 
-// A example function that uses the library.
+// An example function that uses the library.
 // infile: The ZIP file. Seek to the start of compressed data before calling
 //   this function.
 // outfile: The file to write uncompressed data to.
@@ -486,7 +490,10 @@ static void ozur_example_code(FILE *infile, FILE *outfile,
 	ozur->cmpr_size = cmpr_size;
 	ozur->uncmpr_size = uncmpr_size;
 	ozur->cmpr_factor = cmpr_factor;
+	// cb_read must supply all of the bytes requested. Returning any other number
+	// is considered a failure.
 	ozur->cb_read = example_ozur_read;
+	// cb_write must consume all of the bytes supplied.
 	ozur->cb_write = example_ozur_write;
 
 	// Do the decompression
@@ -495,8 +502,9 @@ static void ozur_example_code(FILE *infile, FILE *outfile,
 		printf("Decompression failed (code %d)\n", ozur->error_code);
 	}
 
-	// Fee any resources you allocated. The library does not require any
+	// Free any resources you allocated. The library does not require any
 	// cleanup of its own.
 	free(ozur);
 }
+
 #endif // End of example code

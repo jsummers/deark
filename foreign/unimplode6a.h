@@ -146,7 +146,7 @@ For more information, please refer to <http://unlicense.org/>
 /* inflate.c -- put in the public domain by Mark Adler
    version c16b, 29 March 1998 */
 
-#define UI6A_VERSION 20190824
+#define UI6A_VERSION 20190914
 
 #ifndef UI6A_UINT8
 #define UI6A_UINT8   unsigned char
@@ -235,10 +235,7 @@ struct ui6a_ctx_struct {
 	UI6A_OFF_T cmpr_size; // compressed size
 	UI6A_OFF_T uncmpr_size; // reported uncompressed size
 	UI6A_UINT16 bit_flags; // Sum of UI6A_FLAG_* values
-	// cb_read must supply all of the bytes requested. Returning any other number
-	// is considered a failure.
 	ui6a_cb_read_type cb_read;
-	// cb_write must consume all of the bytes supplied.
 	ui6a_cb_write_type cb_write;
 	ui6a_cb_post_read_trees_type cb_post_read_trees; // Optional hook
 
@@ -718,7 +715,7 @@ static void ui6a_huft_build(ui6a_ctx *ui6a, const unsigned *b, unsigned n, unsig
 
 	/* Check if we were given an incomplete table */
 	if (y != 0 && g != 1) {
-		ui6a_set_error(ui6a, UI6A_ERRCODE_GENERIC_ERROR);
+		ui6a_set_error(ui6a, UI6A_ERRCODE_BAD_CDATA);
 	}
 
 done:
@@ -1064,7 +1061,7 @@ static size_t my_write(ui6a_ctx *ui6a, const UI6A_UINT8 *buf, size_t size)
 	return (size_t)fwrite(buf, 1, size, uctx->outfile);
 }
 
-// A example function that uses the library.
+// An example function that uses the library.
 // infile: The ZIP file. Seek to the start of compressed data before calling
 //   this function.
 // outfile: The file to write uncompressed data to.
@@ -1090,7 +1087,10 @@ static void ui6a_example_code(FILE *infile, FILE *outfile,
 	ui6a->cmpr_size = cmpr_size;
 	ui6a->uncmpr_size = uncmpr_size;
 	ui6a->bit_flags = bit_flags;
+	// cb_read must supply all of the bytes requested. Returning any other number
+	// is considered a failure.
 	ui6a->cb_read = my_read;
+	// cb_write must consume all of the bytes supplied.
 	ui6a->cb_write = my_write;
 
 	// Do the decompression
