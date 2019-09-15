@@ -215,6 +215,9 @@ fe 4f 3d 8f 32 45 6f aa 02 dc d7 9c ce 0e 24]. This represents the UUID
 b9fe4f3d-8f32-456f-aa02-dcd79cce0e24. If the first 16 bytes are not exactly
 this signature, the chunk does not conform to this specification.
 
+At most one htSP chunk with this signature may appear in a PNG file. The chunk
+must appear before the IDAT chunks.
+
 After the signature are two 4-byte fields: The X coordinate at offset 16, then
 the Y coordinate at offset 20. Each is stored as a "PNG four-byte signed
 integer" (big-endian, two's complement).
@@ -227,8 +230,10 @@ beyond the bounds of the image.
 
 The hotspot is conceptually an entire pixel (or virtual pixel), not a specific
 point in some coordinate system. If more precision is needed, assume the
-hotspot is the center of that pixel. For example, if a 16x16-pixel image with
-hotspot (0,0) were to be mirrored left-right, the new hotspot would be (15,0).
+hotspot is the center of that pixel. This means that if a 16x16-pixel image
+with hotspot (0,0) were to be mirrored left-right, the new hotspot would be
+(15,0), not (16,0) as it would be if the hotspot were the upper-left corner of
+the pixel.
 
 ## I've never heard of that format! ##
 
