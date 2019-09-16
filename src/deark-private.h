@@ -496,10 +496,35 @@ void de_tar_close_file(deark *c);
 
 ///////////////////////////////////////////
 
+// These dfilter defs probably belong in deark-fmtutil.h, but have to go here
+// for now, because deark-miniz.c is a mess.
+
+struct de_dfilter_in_params {
+	dbuf *f;
+	i64 pos;
+	i64 len;
+};
+
+struct de_dfilter_out_params {
+	dbuf *f;
+	u8 len_known;
+	i64 expected_len;
+};
+
+struct de_dfilter_results {
+	int errcode;
+	u8 bytes_consumed_valid;
+	i64 bytes_consumed;
+	char errmsg[80];
+};
+
 #define DE_DEFLATEFLAG_ISZLIB 0x1
 #define DE_DEFLATEFLAG_USEMAXUNCMPRSIZE 0x2
 int de_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
 	i64 maxuncmprsize, i64 *bytes_consumed, unsigned int flags);
+void de_decompress_deflate2(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	unsigned int flags);
 
 int de_zip_create_file(deark *c);
 void de_zip_add_file_to_archive(deark *c, dbuf *f);

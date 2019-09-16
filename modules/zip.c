@@ -332,18 +332,7 @@ static void do_decompress_deflate(deark *c, lctx *d, struct compression_params *
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	int ret;
-	i64 bytes_consumed = 0;
-	static const char *modname = "deflate";
-
-	// TODO: Make a deflate function that can return the error message in dres.
-	ret = de_decompress_deflate(dcmpri->f, dcmpri->pos, dcmpri->len,
-		dcmpro->f, dcmpro->expected_len,
-		&bytes_consumed, DE_DEFLATEFLAG_USEMAXUNCMPRSIZE);
-
-	if(!ret) {
-		de_dfilter_set_generic_error(c, dres, modname);
-	}
+	de_decompress_deflate2(c, dcmpri, dcmpro, dres, 0);
 }
 
 static void do_decompress_stored(deark *c, lctx *d, struct compression_params *cparams,

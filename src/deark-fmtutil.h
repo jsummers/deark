@@ -2,25 +2,6 @@
 // Copyright (C) 2016 Jason Summers
 // See the file COPYING for terms of use.
 
-struct de_dfilter_in_params {
-	dbuf *f;
-	i64 pos;
-	i64 len;
-};
-
-struct de_dfilter_out_params {
-	dbuf *f;
-	u8 len_known;
-	i64 expected_len;
-};
-
-struct de_dfilter_results {
-	int errcode;
-	u8 bytes_consumed_valid;
-	i64 bytes_consumed;
-	char errmsg[80];
-};
-
 struct de_bmpinfo {
 #define DE_BMPINFO_FMT_BMP 0
 #define DE_BMPINFO_FMT_PNG 1
