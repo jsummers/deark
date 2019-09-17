@@ -353,7 +353,7 @@ static int do_text_field(deark *c, lctx *d,
 	*bytes_consumed = bytes_avail;
 
 	tmpdbuf = dbuf_create_membuf(c, 0, 0);
-	if(!de_decompress_deflate(c->infile, pos, bytes_avail, tmpdbuf, 0, NULL,
+	if(!fmtutil_decompress_deflate(c->infile, pos, bytes_avail, tmpdbuf, 0, NULL,
 		d->is_CgBI ? 0 : DE_DEFLATEFLAG_ISZLIB))
 	{
 		goto done;
@@ -745,7 +745,7 @@ static void handler_iccp(deark *c, lctx *d, struct handler_params *hp)
 	if(c->filenames_from_file && prof_name2[0])
 		de_finfo_set_name_from_sz(c, fi, prof_name2, 0, DE_ENCODING_LATIN1);
 	f = dbuf_create_output_file(c, "icc", fi, DE_CREATEFLAG_IS_AUX);
-	de_decompress_deflate(c->infile, pos, hp->dlen - pos, f, 0, NULL,
+	fmtutil_decompress_deflate(c->infile, pos, hp->dlen - pos, f, 0, NULL,
 		d->is_CgBI ? 0 : DE_DEFLATEFLAG_ISZLIB);
 
 done:

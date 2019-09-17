@@ -39,7 +39,7 @@ $(OBJDIR)/modules/bintext.o: modules/bintext.c src/deark-config.h \
 $(OBJDIR)/modules/bmff.o: modules/bmff.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/bmi.o: modules/bmi.c src/deark-config.h \
- src/deark-private.h src/deark.h
+ src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/bmp.o: modules/bmp.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/bpg.o: modules/bpg.c src/deark-config.h \
@@ -89,7 +89,7 @@ $(OBJDIR)/modules/grasp.o: modules/grasp.c src/deark-config.h \
 $(OBJDIR)/modules/grob.o: modules/grob.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/gzip.o: modules/gzip.c src/deark-config.h \
- src/deark-private.h src/deark.h
+ src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/hfs.o: modules/hfs.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/hlp.o: modules/hlp.c src/deark-config.h \
@@ -145,7 +145,7 @@ $(OBJDIR)/modules/msp.o: modules/msp.c src/deark-config.h \
 $(OBJDIR)/modules/nokia.o: modules/nokia.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/officeart.o: modules/officeart.c src/deark-config.h \
- src/deark-private.h src/deark.h
+ src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/ogg.o: modules/ogg.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/ole1.o: modules/ole1.c src/deark-config.h \
@@ -209,7 +209,7 @@ $(OBJDIR)/modules/sauce.o: modules/sauce.c src/deark-config.h \
 $(OBJDIR)/modules/shg.o: modules/shg.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/sis.o: modules/sis.c src/deark-config.h \
- src/deark-private.h src/deark.h
+ src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/spectrum512.o: modules/spectrum512.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/stuffit.o: modules/stuffit.c src/deark-config.h \
@@ -266,8 +266,8 @@ $(OBJDIR)/src/deark-dbuf.o: src/deark-dbuf.c src/deark-config.h \
 $(OBJDIR)/src/deark-font.o: src/deark-font.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/src/deark-miniz.o: src/deark-miniz.c src/deark-config.h \
- src/deark-private.h src/deark.h src/deark-fmtutil.h \
- src/../foreign/miniz.h src/deark-zip-src.h src/deark-png-src.h \
+ src/deark-private.h src/deark.h src/../foreign/miniz.h \
+ src/deark-zip-src.h src/deark-png-src.h src/deark-fmtutil.h \
  src/fmtutil-miniz-src.h
 $(OBJDIR)/src/deark-modules.o: src/deark-modules.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-user.h src/deark-modules.h

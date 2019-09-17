@@ -142,7 +142,7 @@ done:
 	de_free(c, outbuf);
 }
 
-int de_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
+int fmtutil_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
 	i64 maxuncmprsize, i64 *bytes_consumed, unsigned int flags)
 {
 	deark *c = inf->c;
@@ -179,7 +179,7 @@ int de_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
 	return 1;
 }
 
-void de_decompress_deflate2(deark *c, struct de_dfilter_in_params *dcmpri,
+void fmtutil_decompress_deflate_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags)
 {

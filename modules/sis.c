@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_sis);
 
 struct lang_info {
@@ -217,7 +218,7 @@ static void do_extract_file(deark *c, lctx *d, struct file_rec *fr,
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
 	if(d->files_are_compressed) {
-		if(!de_decompress_deflate(c->infile, fr->ffi[fork_num].ptr, fr->ffi[fork_num].len,
+		if(!fmtutil_decompress_deflate(c->infile, fr->ffi[fork_num].ptr, fr->ffi[fork_num].len,
 			outf, fr->ffi[fork_num].orig_len, NULL,
 			DE_DEFLATEFLAG_ISZLIB|DE_DEFLATEFLAG_USEMAXUNCMPRSIZE))
 		{

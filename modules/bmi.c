@@ -9,6 +9,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_bmi);
 
 struct table_item {
@@ -189,7 +190,7 @@ static void do_bitmap(deark *c, lctx *d, i64 pos1)
 		if(unc_pixels->len < unc_data_size_calc) {
 			i64 len_before = unc_pixels->len;
 
-			if(!de_decompress_deflate(c->infile, pos, blen, unc_pixels,
+			if(!fmtutil_decompress_deflate(c->infile, pos, blen, unc_pixels,
 				max_uncmpr_block_size, NULL,
 				DE_DEFLATEFLAG_ISZLIB|DE_DEFLATEFLAG_USEMAXUNCMPRSIZE))
 			{

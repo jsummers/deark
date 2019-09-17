@@ -7,7 +7,6 @@
 #define DE_NOT_IN_MODULE
 #include "deark-config.h"
 #include "deark-private.h"
-#include "deark-fmtutil.h"
 
 struct deark_file_attribs {
 	struct de_timestamp modtime;
@@ -43,5 +42,7 @@ u32 de_crc32_continue(u32 prev_crc, const void *buf, i64 buf_len)
 {
 	return (u32)mz_crc32(prev_crc, (const mz_uint8*)buf, (size_t)buf_len);
 }
+
+#include "deark-fmtutil.h"
 
 #include "fmtutil-miniz-src.h"

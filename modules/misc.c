@@ -320,7 +320,6 @@ void de_module_bytefreq(deark *c, struct deark_module_info *mi)
 // zlib module
 //
 // This module is for decompressing zlib-compressed files.
-// It uses the deark-miniz.c utilities, which in turn use miniz.c (miniz.h).
 // **************************************************************************
 
 static void de_run_zlib(deark *c, de_module_params *mparams)
@@ -328,7 +327,7 @@ static void de_run_zlib(deark *c, de_module_params *mparams)
 	dbuf *f = NULL;
 
 	f = dbuf_create_output_file(c, "unc", NULL, 0);
-	de_decompress_deflate(c->infile, 0, c->infile->len, f, 0, NULL, DE_DEFLATEFLAG_ISZLIB);
+	fmtutil_decompress_deflate(c->infile, 0, c->infile->len, f, 0, NULL, DE_DEFLATEFLAG_ISZLIB);
 	dbuf_close(f);
 }
 
