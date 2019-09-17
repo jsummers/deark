@@ -267,7 +267,8 @@ $(OBJDIR)/src/deark-font.o: src/deark-font.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/src/deark-miniz.o: src/deark-miniz.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h \
- src/../foreign/miniz.h
+ src/../foreign/miniz.h src/deark-zip-src.h src/deark-png-src.h \
+ src/fmtutil-miniz-src.h
 $(OBJDIR)/src/deark-modules.o: src/deark-modules.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-user.h src/deark-modules.h
 $(OBJDIR)/src/deark-tar.o: src/deark-tar.c src/deark-config.h \

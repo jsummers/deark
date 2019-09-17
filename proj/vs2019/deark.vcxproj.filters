@@ -495,6 +495,15 @@
     <ClInclude Include="..\..\foreign\ozunreduce.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\src\deark-png-src.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\deark-zip-src.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\fmtutil-miniz-src.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\..\src\deark.rc">

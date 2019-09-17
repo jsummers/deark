@@ -328,9 +328,12 @@
     <ClInclude Include="..\..\src\deark-config.h" />
     <ClInclude Include="..\..\src\deark-fmtutil.h" />
     <ClInclude Include="..\..\src\deark-modules.h" />
+    <ClInclude Include="..\..\src\deark-png-src.h" />
     <ClInclude Include="..\..\src\deark-private.h" />
     <ClInclude Include="..\..\src\deark-user.h" />
+    <ClInclude Include="..\..\src\deark-zip-src.h" />
     <ClInclude Include="..\..\src\deark.h" />
+    <ClInclude Include="..\..\src\fmtutil-miniz-src.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\..\src\deark.rc" />
