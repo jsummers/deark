@@ -126,55 +126,29 @@ static void write_png_chunk_tEXt(struct deark_png_encode_info *pei,
 #define MY_MZ_MAX(a,b) (((a)>(b))?(a):(b))
 #define MY_MZ_MIN(a,b) (((a)<(b))?(a):(b))
 
-#define MY_MZ_MALLOC(x) malloc(x)
-#define MY_MZ_FREE(x) free(x)
-#define MY_MZ_REALLOC(p, x) realloc(p, x)
-
-typedef struct
-{
-  size_t m_size, m_capacity;
-  mz_uint8 *m_pBuf;
-  mz_bool m_expandable;
-} my_tdefl_output_buffer;
-
 static mz_bool my_tdefl_output_buffer_putter(const void *pBuf, int len, void *pUser)
 {
-  my_tdefl_output_buffer *p = (my_tdefl_output_buffer *)pUser;
-  size_t new_size = p->m_size + len;
-  if (new_size > p->m_capacity)
-  {
-    size_t new_capacity = p->m_capacity; mz_uint8 *pNew_buf; if (!p->m_expandable) return MZ_FALSE;
-    do { new_capacity = MY_MZ_MAX(128U, new_capacity << 1U); } while (new_size > new_capacity);
-    pNew_buf = (mz_uint8*)MY_MZ_REALLOC(p->m_pBuf, new_capacity); if (!pNew_buf) return MZ_FALSE;
-    p->m_pBuf = pNew_buf; p->m_capacity = new_capacity;
-  }
-  memcpy((mz_uint8*)p->m_pBuf + p->m_size, pBuf, len); p->m_size = new_size;
-  return MZ_TRUE;
+	dbuf *f = (dbuf*)pUser;
+
+	dbuf_write(f, (const u8*)pBuf, (i64)len);
+	return MZ_TRUE;
 }
 
-static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, const mz_uint8 *src_pixels)
+static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, dbuf *cdbuf,
+	const mz_uint8 *src_pixels)
 {
 	tdefl_compressor *pComp = NULL;
-	my_tdefl_output_buffer out_buf;
 	int bpl = pei->width * pei->num_chans; // bytes per row in src_pixels
 	int y;
 	static const char nulbyte = '\0';
 	int retval = 0;
+	deark *c = pei->c;
 	static const mz_uint my_s_tdefl_num_probes[11] = { 0, 1, 6, 32,  16, 32, 128, 256,  512, 768, 1500 };
 
-	de_zeromem(&out_buf, sizeof(my_tdefl_output_buffer));
-
-	pComp = MY_MZ_MALLOC(sizeof(tdefl_compressor));
-	if (!pComp) goto done;
-	de_zeromem(pComp, sizeof(tdefl_compressor));
-
-	out_buf.m_expandable = MZ_TRUE;
-	out_buf.m_capacity = 16+(size_t)MY_MZ_MAX(64, (1+bpl)*pei->height);
-	out_buf.m_pBuf = MY_MZ_MALLOC(out_buf.m_capacity);
-	if (!out_buf.m_pBuf) { goto done; }
+	pComp = de_malloc(c, sizeof(tdefl_compressor));
 
 	// compress image data
-	tdefl_init(pComp, my_tdefl_output_buffer_putter, &out_buf,
+	tdefl_init(pComp, my_tdefl_output_buffer_putter, (void*)cdbuf,
 		my_s_tdefl_num_probes[MY_MZ_MIN(10, pei->level)] | TDEFL_WRITE_ZLIB_HEADER);
 
 	for (y = 0; y < pei->height; ++y) {
@@ -184,13 +158,12 @@ static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, const mz_uint
 	}
 	if (tdefl_compress_buffer(pComp, NULL, 0, TDEFL_FINISH) != TDEFL_STATUS_DONE) { goto done; }
 
-	write_png_chunk_raw(pei->outf, (const u8*)out_buf.m_pBuf, (i64)out_buf.m_size, CODE_IDAT);
+	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_IDAT);
+
 	retval = 1;
 
 done:
-
-	if(pComp) MY_MZ_FREE(pComp);
-	if(out_buf.m_pBuf) MY_MZ_FREE(out_buf.m_pBuf);
+	de_free(c, pComp);
 	return retval;
 }
 
@@ -200,9 +173,7 @@ static int do_generate_png(struct deark_png_encode_info *pei, const mz_uint8 *sr
 	dbuf *cdbuf = NULL;
 	int retval = 0;
 
-	// A membuf that we'll use and reuse for each chunk's data...
-	// except for the IDAT chunk. miniz has its own 'tdefl_output_buffer'
-	// resizable memory object, that we have to use with it.
+	// A membuf that we'll use and reuse for each chunk's data
 	cdbuf = dbuf_create_membuf(pei->c, 64, 0);
 
 	dbuf_write(pei->outf, pngsig, 8);
@@ -229,7 +200,8 @@ static int do_generate_png(struct deark_png_encode_info *pei, const mz_uint8 *sr
 		write_png_chunk_tEXt(pei, cdbuf, "Software", "Deark");
 	}
 
-	if(!write_png_chunk_IDAT(pei, src_pixels)) goto done;
+	dbuf_truncate(cdbuf, 0);
+	if(!write_png_chunk_IDAT(pei, cdbuf, src_pixels)) goto done;
 
 	dbuf_truncate(cdbuf, 0);
 	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_IEND);
