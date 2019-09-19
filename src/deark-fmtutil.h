@@ -91,6 +91,8 @@ void de_fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dc
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
 int de_fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
 	dbuf *unc_pixels, i64 *cmpr_bytes_consumed);
+void de_fmtutil_decompress_packbits16_ex(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
 int de_fmtutil_decompress_packbits16(dbuf *f, i64 pos1, i64 len,
 	dbuf *unc_pixels, i64 *cmpr_bytes_consumed);
 void de_fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpri,

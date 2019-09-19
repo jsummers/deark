@@ -122,6 +122,16 @@ int de_fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
 	return 1;
 }
 
+// TODO: Make this the main packbits16 function.
+void de_fmtutil_decompress_packbits16_ex(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
+{
+	dres->bytes_consumed = 0;
+	de_fmtutil_decompress_packbits16(dcmpri->f, dcmpri->pos, dcmpri->len,
+		dcmpro->f, &dres->bytes_consumed);
+	dres->bytes_consumed_valid = 1;
+}
+
 // A 16-bit variant of de_fmtutil_uncompress_packbits().
 int de_fmtutil_decompress_packbits16(dbuf *f, i64 pos1, i64 len,
 	dbuf *unc_pixels, i64 *cmpr_bytes_consumed)
