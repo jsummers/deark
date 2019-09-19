@@ -345,6 +345,13 @@ static int decode_bitmap(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi, i
 	i64 bytecount;
 	i64 bitmapsize;
 	int dst_nsamples;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
+	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
+	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
+	de_dfilter_results_clear(c, &dres);
 
 	bi->rowspan = bi->rowbytes;
 	if(bi->pixelsize==32 && bi->cmpcount==3 && bi->cmpsize==8) {
@@ -353,6 +360,9 @@ static int decode_bitmap(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi, i
 
 	bitmapsize = bi->height * bi->rowspan;
 	unc_pixels = dbuf_create_membuf(c, bitmapsize, 1);
+
+	dcmpri.f = c->infile;
+	dcmpro.f = unc_pixels;
 
 	for(j=0; j<bi->height; j++) {
 		if(bi->packing_type==1 || bi->rowbytes<8) {
@@ -371,10 +381,14 @@ static int decode_bitmap(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi, i
 			dbuf_copy(c->infile, pos, bytecount, unc_pixels);
 		}
 		else if(bi->packing_type==3 && bi->pixelsize==16) {
-			de_fmtutil_decompress_packbits16(c->infile, pos, bytecount, unc_pixels, NULL);
+			dcmpri.pos = pos;
+			dcmpri.len = bytecount;
+			de_fmtutil_decompress_packbits16_ex(c, &dcmpri, &dcmpro, &dres);
 		}
 		else {
-			de_fmtutil_decompress_packbits(c->infile, pos, bytecount, unc_pixels, NULL);
+			dcmpri.pos = pos;
+			dcmpri.len = bytecount;
+			de_fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres);
 		}
 
 		// Make sure the data decompressed to the right number of bytes.

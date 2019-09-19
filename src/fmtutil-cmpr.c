@@ -122,31 +122,28 @@ int de_fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
 	return 1;
 }
 
-// TODO: Make this the main packbits16 function.
+// A 16-bit variant of de_fmtutil_uncompress_packbits().
 void de_fmtutil_decompress_packbits16_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
-{
-	dres->bytes_consumed = 0;
-	de_fmtutil_decompress_packbits16(dcmpri->f, dcmpri->pos, dcmpri->len,
-		dcmpro->f, &dres->bytes_consumed);
-	dres->bytes_consumed_valid = 1;
-}
-
-// A 16-bit variant of de_fmtutil_uncompress_packbits().
-int de_fmtutil_decompress_packbits16(dbuf *f, i64 pos1, i64 len,
-	dbuf *unc_pixels, i64 *cmpr_bytes_consumed)
 {
 	i64 pos;
 	u8 b, b1, b2;
 	i64 k;
 	i64 count;
 	i64 endpos;
+	i64 outf_len_limit = 0;
+	dbuf *f = dcmpri->f;
+	dbuf *unc_pixels = dcmpro->f;
 
-	pos = pos1;
-	endpos = pos1+len;
+	pos = dcmpri->pos;
+	endpos = dcmpri->pos + dcmpri->len;
+
+	if(dcmpro->len_known) {
+		outf_len_limit = unc_pixels->len + dcmpro->expected_len;
+	}
 
 	while(1) {
-		if(unc_pixels->has_len_limit && unc_pixels->len>=unc_pixels->len_limit) {
+		if(dcmpro->len_known && unc_pixels->len >= outf_len_limit) {
 			break; // Decompressed the requested amount of dst data.
 		}
 
@@ -172,7 +169,37 @@ int de_fmtutil_decompress_packbits16(dbuf *f, i64 pos1, i64 len,
 		// Else b==128. No-op.
 	}
 
-	if(cmpr_bytes_consumed) *cmpr_bytes_consumed = pos - pos1;
+	dres->bytes_consumed = pos - dcmpri->pos;
+	dres->bytes_consumed_valid = 1;
+}
+
+int de_fmtutil_decompress_packbits16(dbuf *f, i64 pos1, i64 len,
+	dbuf *unc_pixels, i64 *cmpr_bytes_consumed)
+{
+	struct de_dfilter_results dres;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+
+	if(cmpr_bytes_consumed) *cmpr_bytes_consumed = 0;
+	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
+	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
+	de_dfilter_results_clear(f->c, &dres);
+
+	dcmpri.f = f;
+	dcmpri.pos = pos1;
+	dcmpri.len = len;
+	dcmpro.f = unc_pixels;
+	if(unc_pixels->has_len_limit) {
+		dcmpro.len_known = 1;
+		dcmpro.expected_len = unc_pixels->len_limit - unc_pixels->len;
+	}
+
+	de_fmtutil_decompress_packbits16_ex(f->c, &dcmpri, &dcmpro, &dres);
+
+	if(cmpr_bytes_consumed && dres.bytes_consumed_valid) {
+		*cmpr_bytes_consumed = dres.bytes_consumed;
+	}
+	if(dres.errcode != 0) return 0;
 	return 1;
 }
 
