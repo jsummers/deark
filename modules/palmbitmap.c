@@ -14,10 +14,15 @@ DE_DECLARE_MODULE(de_module_palmbitmap);
 #define PALMBMPFLAG_HASTRNS        0x2000U
 #define PALMBMPFLAG_DIRECTCOLOR    0x0400U
 
-#define CMPR_SCANLINE 0
-#define CMPR_RLE      1
-#define CMPR_PACKBITS 2
-#define CMPR_NONE     0xff
+enum palm_cmpr_type {
+	PCMPR_UNKNOWN, PCMPR_NONE, PCMPR_SCANLINE, PCMPR_RLE,
+	PCMPR_PACKBITS8, PCMPR_PACKBITS16
+};
+
+#define CMPR_FIELD_SCANLINE 0
+#define CMPR_FIELD_RLE      1
+#define CMPR_FIELD_PACKBITS 2
+#define CMPR_FIELD_NONE     0xff
 
 struct page_ctx {
 	i64 w, h;
@@ -28,6 +33,8 @@ struct page_ctx {
 	int is_rgb;
 	u8 bitmapversion;
 	int has_custom_pal;
+	unsigned int cmpr_type_field;
+	enum palm_cmpr_type cmpr_type;
 	u32 custom_pal[256];
 };
 
@@ -133,7 +140,7 @@ static int do_decompress_packbits_compression(deark *c, lctx *d, struct page_ctx
 {
 	int ret;
 
-	if(pg->bitsperpixel==16) {
+	if(pg->cmpr_type==PCMPR_PACKBITS16) {
 		ret = de_fmtutil_decompress_packbits16(c->infile, pos1, len, unc_pixels, NULL);
 	}
 	else {
@@ -231,14 +238,14 @@ done:
 
 // A wrapper that decompresses the image if necessary, then calls do_generate_unc_image().
 static void do_generate_image(deark *c, lctx *d, struct page_ctx *pg,
-	dbuf *inf, i64 pos, i64 len, unsigned int cmpr_type)
+	dbuf *inf, i64 pos, i64 len)
 {
 	dbuf *unc_pixels = NULL;
 	i64 expected_num_uncmpr_image_bytes;
 
 	expected_num_uncmpr_image_bytes = pg->rowbytes*pg->h;
 
-	if(cmpr_type==CMPR_NONE) {
+	if(pg->cmpr_type==PCMPR_NONE) {
 		if(expected_num_uncmpr_image_bytes > len) {
 			de_warn(c, "Not enough data for image");
 		}
@@ -268,17 +275,17 @@ static void do_generate_image(deark *c, lctx *d, struct page_ctx *pg,
 
 		unc_pixels = dbuf_create_membuf(c, expected_num_uncmpr_image_bytes, 1);
 
-		if(cmpr_type==CMPR_SCANLINE) {
+		if(pg->cmpr_type==PCMPR_SCANLINE) {
 			do_decompress_scanline_compression(c, d, pg, inf, pos, len, unc_pixels);
 		}
-		else if(cmpr_type==CMPR_RLE) {
+		else if(pg->cmpr_type==PCMPR_RLE) {
 			do_decompress_rle_compression(c, d, pg, inf, pos, len, unc_pixels);
 		}
-		else if(cmpr_type==CMPR_PACKBITS) {
+		else if(pg->cmpr_type==PCMPR_PACKBITS8 || pg->cmpr_type==PCMPR_PACKBITS16) {
 			do_decompress_packbits_compression(c, d, pg, inf, pos, len, unc_pixels);
 		}
 		else {
-			de_err(c, "Unsupported compression type: %u", cmpr_type);
+			de_err(c, "Unsupported compression type: %u", pg->cmpr_type_field);
 			goto done;
 		}
 
@@ -293,15 +300,16 @@ done:
 	dbuf_close(unc_pixels);
 }
 
-static const char *get_cmpr_type_name(unsigned int cmpr_type)
+static const char *get_cmpr_type_name(enum palm_cmpr_type cmpr_type)
 {
 	const char *name;
 
 	switch(cmpr_type) {
-	case 0: name = "ScanLine"; break;
-	case 1: name = "RLE"; break;
-	case 2: name = "PackBits"; break;
-	case 0xff: name = "none"; break;
+	case PCMPR_NONE: name = "none"; break;
+	case PCMPR_SCANLINE: name = "ScanLine"; break;
+	case PCMPR_RLE: name = "RLE"; break;
+	case PCMPR_PACKBITS8: name = "PackBits"; break;
+	case PCMPR_PACKBITS16: name = "PackBits16"; break;
 	default: name = "?"; break;
 	}
 	return name;
@@ -412,7 +420,6 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, i64 pos1, i64 len,
 	i64 needed_rowbytes;
 	i64 bytes_consumed;
 	i64 nextbitmapoffs_in_bytes = 0;
-	unsigned int cmpr_type;
 	const char *cmpr_type_src_name = "";
 	const char *bpp_src_name = "";
 	struct page_ctx *pg = NULL;
@@ -516,20 +523,39 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, i64 pos1, i64 len,
 	cmpr_type_src_name = "flags";
 	if(bitmapflags&PALMBMPFLAG_COMPRESSED) {
 		if(pg->bitmapversion>=2) {
-			cmpr_type = (unsigned int)de_getbyte(pos1+13);
-			cmpr_type_src_name = "compression type field";
-			de_dbg(c, "compression type field: 0x%02x", cmpr_type);
+			pg->cmpr_type_field = (unsigned int)de_getbyte(pos1+13);
+			cmpr_type_src_name = "flags + compression type field";
+			de_dbg(c, "compression type field: 0x%02x", pg->cmpr_type_field);
+			switch(pg->cmpr_type_field) {
+			case CMPR_FIELD_SCANLINE:
+				pg->cmpr_type = PCMPR_SCANLINE;
+				break;
+			case CMPR_FIELD_RLE:
+				pg->cmpr_type = PCMPR_RLE;
+				break;
+			case CMPR_FIELD_PACKBITS:
+				cmpr_type_src_name = "flags + compression type field + pixelSize";
+				if(pg->bitsperpixel==16) {
+					pg->cmpr_type = PCMPR_PACKBITS16;
+				}
+				else {
+					pg->cmpr_type = PCMPR_PACKBITS8;
+				}
+				break;
+			default:
+				pg->cmpr_type = PCMPR_UNKNOWN;
+			}
 		}
 		else {
 			// V1 & V2 have no cmpr_type field, but can still be compressed.
-			cmpr_type = CMPR_SCANLINE;
+			pg->cmpr_type = PCMPR_SCANLINE;
 		}
 	}
 	else {
-		cmpr_type = CMPR_NONE;
+		pg->cmpr_type = PCMPR_NONE;
 	}
 
-	de_dbg(c, "compression type: %s (based on %s)", get_cmpr_type_name(cmpr_type), cmpr_type_src_name);
+	de_dbg(c, "compression type: %s (based on %s)", get_cmpr_type_name(pg->cmpr_type), cmpr_type_src_name);
 
 	if(pg->bitmapversion==3) {
 		i64 densitycode;
@@ -647,7 +673,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, i64 pos1, i64 len,
 
 	de_dbg(c, "image data at %d", (int)pos);
 	de_dbg_indent(c, 1);
-	do_generate_image(c, d, pg, c->infile, pos, pos1+len-pos, cmpr_type);
+	do_generate_image(c, d, pg, c->infile, pos, pos1+len-pos);
 	de_dbg_indent(c, -1);
 
 done:
