@@ -146,7 +146,7 @@ For more information, please refer to <http://unlicense.org/>
 /* inflate.c -- put in the public domain by Mark Adler
    version c16b, 29 March 1998 */
 
-#define UI6A_VERSION 20190914
+#define UI6A_VERSION 20190923
 
 #ifndef UI6A_UINT8
 #define UI6A_UINT8   unsigned char
@@ -235,6 +235,7 @@ struct ui6a_ctx_struct {
 	UI6A_OFF_T cmpr_size; // compressed size
 	UI6A_OFF_T uncmpr_size; // reported uncompressed size
 	UI6A_UINT16 bit_flags; // Sum of UI6A_FLAG_* values
+	UI6A_UINT8 emulate_pkzip10x;
 	ui6a_cb_read_type cb_read;
 	ui6a_cb_write_type cb_write;
 	ui6a_cb_post_read_trees_type cb_post_read_trees; // Optional hook
@@ -955,6 +956,7 @@ UI6A_API(void) ui6a_unimplode(ui6a_ctx *ui6a)
 	unsigned l[256];      /* bit lengths for codes */
 	int has_literal_tree;
 	int has_8k_window;
+	ui6a_len_or_dist_getter len_getter;
 
 	UI6A_ZEROMEM(&tbls, sizeof(struct ui6a_htables));
 	tbls.b.tblname = "B";
@@ -985,8 +987,13 @@ UI6A_API(void) ui6a_unimplode(ui6a_ctx *ui6a)
 
 	ui6a_get_tree(ui6a, l, 64);
 	if (ui6a->error_code != UI6A_ERRCODE_OK) goto done;
-	ui6a_huft_build(ui6a, l, 64, 0, (has_literal_tree ? ui6a_get_cplen3 : ui6a_get_cplen2),
-		ui6a_get_extra, &tbls.l);
+	if(ui6a->emulate_pkzip10x) {
+		len_getter = has_8k_window ? ui6a_get_cplen3 : ui6a_get_cplen2;
+	}
+	else {
+		len_getter = has_literal_tree ? ui6a_get_cplen3 : ui6a_get_cplen2;
+	}
+	ui6a_huft_build(ui6a, l, 64, 0, len_getter, ui6a_get_extra, &tbls.l);
 	if (ui6a->error_code != UI6A_ERRCODE_OK) goto done;
 
 	ui6a_get_tree(ui6a, l, 64);
@@ -1087,6 +1094,14 @@ static void ui6a_example_code(FILE *infile, FILE *outfile,
 	ui6a->cmpr_size = cmpr_size;
 	ui6a->uncmpr_size = uncmpr_size;
 	ui6a->bit_flags = bit_flags;
+
+	// It seems that PKZIP 1.01 and 1.02 have a bug in which two of the four
+	// Implode variants (4KDICT+3TREES and 8KDICT+2TREES) do not work in
+	// accordance with the specification. Set the ->emulate_pkzip10x field to 1
+	// if for some reason you want to recreate this bug. Doing so will cause
+	// some valid ZIP files to fail.
+	//ui6a->emulate_pkzip10x = 0;
+
 	// cb_read must supply all of the bytes requested. Returning any other number
 	// is considered a failure.
 	ui6a->cb_read = my_read;

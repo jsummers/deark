@@ -304,6 +304,7 @@ static void do_decompress_implode(deark *c, lctx *d, struct compression_params *
 	ui6a->cmpr_size = dcmpri->len;
 	ui6a->uncmpr_size = dcmpro->expected_len;
 	ui6a->bit_flags = cparams->bit_flags;
+	ui6a->emulate_pkzip10x = de_get_ext_option_bool(c, "zip:implodebug", 0);
 
 	ui6a->cb_read = my_zipexpl_read;
 	ui6a->cb_write =  my_zipexpl_write;
@@ -355,7 +356,7 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 10, 0x00, "PKWARE DCL implode", NULL },
 	{ 12, 0x00, "bzip2", NULL },
 	{ 14, 0x00, "LZMA", NULL },
-	{ 16, 0x00, "IBM z/OS CMPSC ", NULL },
+	{ 16, 0x00, "IBM z/OS CMPSC", NULL },
 	{ 18, 0x00, "IBM TERSE (new)", NULL },
 	{ 19, 0x00, "IBM LZ77 z Architecture", NULL },
 	{ 94, 0x00, "MP3", NULL },
@@ -1155,7 +1156,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	de_dbg(c, "crc (calculated): 0x%08x", (unsigned int)crc_calculated);
 
 	if(crc_calculated != md->crc_reported) {
-		de_warn(c, "%s: CRC check failed: Expected 0x%08x, got 0x%08x",
+		de_err(c, "%s: CRC check failed: Expected 0x%08x, got 0x%08x",
 			ucstring_getpsz_d(ldd->fname),
 			(unsigned int)md->crc_reported, (unsigned int)crc_calculated);
 	}
