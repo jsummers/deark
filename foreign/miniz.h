@@ -4235,13 +4235,20 @@ static mz_bool mz_zip_writer_add_put_buf_callback(const void* pBuf, int len, voi
   return MZ_TRUE;
 }
 
-static mz_bool mz_zip_writer_create_local_dir_header(mz_zip_archive *pZip, mz_uint8 *pDst, mz_uint16 filename_size, mz_uint16 extra_size, mz_uint64 uncomp_size, mz_uint64 comp_size, mz_uint32 uncomp_crc32, mz_uint16 method, mz_uint16 bit_flags, mz_uint16 dos_time, mz_uint16 dos_date)
+static mz_uint16 mz_get_ver_needed(struct deark_file_attribs *dfa, mz_uint16 method)
+{
+  if(dfa->is_directory) return 20;
+  else if(method!=0) return 20;
+  return 10;
+}
+
+static mz_bool mz_zip_writer_create_local_dir_header(mz_zip_archive *pZip, mz_uint8 *pDst, mz_uint16 filename_size, mz_uint16 extra_size, mz_uint64 uncomp_size, mz_uint64 comp_size, mz_uint32 uncomp_crc32, mz_uint16 method, mz_uint16 bit_flags, mz_uint16 dos_time, mz_uint16 dos_date, struct deark_file_attribs *dfa)
 {
   (void)pZip;
   bit_flags |= 0x0800; // Use UTF-8 filenames (hack for Deark)
   memset(pDst, 0, MZ_ZIP_LOCAL_DIR_HEADER_SIZE);
   MZ_WRITE_LE32(pDst + MZ_ZIP_LDH_SIG_OFS, MZ_ZIP_LOCAL_DIR_HEADER_SIG);
-  MZ_WRITE_LE16(pDst + MZ_ZIP_LDH_VERSION_NEEDED_OFS, method ? 20 : 0);
+  MZ_WRITE_LE16(pDst + MZ_ZIP_LDH_VERSION_NEEDED_OFS, mz_get_ver_needed(dfa, method));
   MZ_WRITE_LE16(pDst + MZ_ZIP_LDH_BIT_FLAG_OFS, bit_flags);
   MZ_WRITE_LE16(pDst + MZ_ZIP_LDH_METHOD_OFS, method);
   MZ_WRITE_LE16(pDst + MZ_ZIP_LDH_FILE_TIME_OFS, dos_time);
@@ -4263,7 +4270,7 @@ static mz_bool mz_zip_writer_create_central_dir_header(mz_zip_archive *pZip, mz_
   // 03xx = Unix
   // 63 decimal = ZIP spec v6.3 (first version to document the UTF-8 flag)
   MZ_WRITE_LE16(pDst + MZ_ZIP_CDH_VERSION_MADE_BY_OFS, 0x0300 | 63);
-  MZ_WRITE_LE16(pDst + MZ_ZIP_CDH_VERSION_NEEDED_OFS, method ? 20 : 0);
+  MZ_WRITE_LE16(pDst + MZ_ZIP_CDH_VERSION_NEEDED_OFS, mz_get_ver_needed(dfa, method));
   MZ_WRITE_LE16(pDst + MZ_ZIP_CDH_BIT_FLAG_OFS, bit_flags);
   MZ_WRITE_LE16(pDst + MZ_ZIP_CDH_METHOD_OFS, method);
   MZ_WRITE_LE16(pDst + MZ_ZIP_CDH_FILE_TIME_OFS, dos_time);
@@ -4518,7 +4525,7 @@ mz_bool mz_zip_writer_add_mem_ex(mz_zip_archive *pZip, const char *pArchive_name
 
   if (!mz_zip_writer_create_local_dir_header(pZip, local_dir_header, (mz_uint16)archive_name_size,
 	  dfa?dfa->extra_data_local_size:0, uncomp_size, comp_size, uncomp_crc32, method, bit_flags,
-	  dos_time, dos_date))
+	  dos_time, dos_date, dfa))
   {
     return MZ_FALSE;
   }
