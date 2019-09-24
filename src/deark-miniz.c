@@ -8,22 +8,9 @@
 #include "deark-config.h"
 #include "deark-private.h"
 
-struct deark_file_attribs {
-	struct de_timestamp modtime;
-	i64 modtime_unix;
-	unsigned int modtime_dosdate;
-	unsigned int modtime_dostime;
-	i64 modtime_as_FILETIME; // valid if nonzero
-	u8 is_executable;
-	u8 is_directory;
-	u16 extra_data_central_size;
-	u16 extra_data_local_size;
-	const u8 *extra_data_central;
-	const u8 *extra_data_local;
-};
-
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
 #define MINIZ_NO_STDIO
+#define MINIZ_NO_ARCHIVE_APIS
 #include "../foreign/miniz.h"
 
 #include "deark-zip-src.h"

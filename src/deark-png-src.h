@@ -126,7 +126,7 @@ static void write_png_chunk_tEXt(struct deark_png_encode_info *pei,
 #define MY_MZ_MAX(a,b) (((a)>(b))?(a):(b))
 #define MY_MZ_MIN(a,b) (((a)<(b))?(a):(b))
 
-static mz_bool my_tdefl_output_buffer_putter(const void *pBuf, int len, void *pUser)
+static mz_bool my_png_tdefl_output_buffer_putter(const void *pBuf, int len, void *pUser)
 {
 	dbuf *f = (dbuf*)pUser;
 
@@ -148,7 +148,7 @@ static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, dbuf *cdbuf,
 	pComp = de_malloc(c, sizeof(tdefl_compressor));
 
 	// compress image data
-	tdefl_init(pComp, my_tdefl_output_buffer_putter, (void*)cdbuf,
+	tdefl_init(pComp, my_png_tdefl_output_buffer_putter, (void*)cdbuf,
 		my_s_tdefl_num_probes[MY_MZ_MIN(10, pei->level)] | TDEFL_WRITE_ZLIB_HEADER);
 
 	for (y = 0; y < pei->height; ++y) {
