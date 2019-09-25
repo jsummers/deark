@@ -183,7 +183,8 @@ static void zipw_add_memberfile(deark *c, struct zipw_ctx *zzz, struct zipw_md *
 	i64 ldir_offset;
 	i64 fnlen;
 	u32 crc;
-	int use_compression = 0;
+	int try_compression = 0;
+	int using_compression = 0;
 	dbuf *cmpr_data = NULL;
 	i64 cmpr_len;
 	unsigned int bit_flags = 0;
@@ -195,12 +196,13 @@ static void zipw_add_memberfile(deark *c, struct zipw_ctx *zzz, struct zipw_md *
 	crc = de_crcobj_getval(zzz->crc32o);
 
 	ldir_offset = zzz->outf->len;
+	cmpr_len = f->len; // default
 
-	if(f->len>0 && !md->is_directory) {
-		use_compression = 1;
+	if(f->len>5 && !md->is_directory) {
+		try_compression = 1;
 	}
 
-	if(use_compression) {
+	if(try_compression) {
 		mz_uint level;
 
 		cmpr_data = dbuf_create_membuf(c, 0, 0);
@@ -210,14 +212,19 @@ static void zipw_add_memberfile(deark *c, struct zipw_ctx *zzz, struct zipw_md *
 		level = level_and_flags & 0xF;
 
 		zipw_deflate(c, zzz, f, cmpr_data, level);
-		cmpr_len = cmpr_data->len;
 
-		// This is the logic used by Info-Zip
-		if(level<=2) bit_flags |= 4;
-		else if(level>=8) bit_flags |= 2;
-	}
-	else {
-		cmpr_len = f->len;
+		if(cmpr_data->len < f->len) {
+			using_compression = 1;
+			cmpr_len = cmpr_data->len;
+
+			// This is the logic used by Info-Zip
+			if(level<=2) bit_flags |= 4;
+			else if(level>=8) bit_flags |= 2;
+		}
+		else { // No savings - Discard compressed data
+			dbuf_close(cmpr_data);
+			cmpr_data = NULL;
+		}
 	}
 
 	bit_flags |= 0x0800; // Use UTF-8 filenames
@@ -229,7 +236,7 @@ static void zipw_add_memberfile(deark *c, struct zipw_ctx *zzz, struct zipw_md *
 	// 63 decimal = ZIP spec v6.3 (first version to document the UTF-8 flag)
 	dbuf_writeu16le(zzz->cdir, (3<<8) | 63); // version made by
 
-	if(use_compression) ver_needed = 20;
+	if(using_compression) ver_needed = 20;
 	else if(md->is_directory) ver_needed = 20;
 	else ver_needed = 10;
 
@@ -239,8 +246,8 @@ static void zipw_add_memberfile(deark *c, struct zipw_ctx *zzz, struct zipw_md *
 	dbuf_writeu16le(zzz->cdir, bit_flags);
 	dbuf_writeu16le(zzz->outf, bit_flags);
 
-	dbuf_writeu16le(zzz->cdir, use_compression?8:0); // cmpr method
-	dbuf_writeu16le(zzz->outf, use_compression?8:0);
+	dbuf_writeu16le(zzz->cdir, using_compression?8:0); // cmpr method
+	dbuf_writeu16le(zzz->outf, using_compression?8:0);
 
 	dbuf_writeu16le(zzz->cdir, md->modtime_dostime);
 	dbuf_writeu16le(zzz->outf, md->modtime_dostime);
@@ -286,7 +293,7 @@ static void zipw_add_memberfile(deark *c, struct zipw_ctx *zzz, struct zipw_md *
 	dbuf_copy(md->efcentral, 0, md->efcentral->len, zzz->cdir);
 	dbuf_copy(md->eflocal, 0, md->eflocal->len, zzz->outf);
 
-	if(use_compression && cmpr_data) {
+	if(using_compression && cmpr_data) {
 		dbuf_copy(cmpr_data, 0, cmpr_data->len, zzz->outf);
 	}
 	else {
