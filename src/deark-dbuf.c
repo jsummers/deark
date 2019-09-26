@@ -985,6 +985,20 @@ dbuf *dbuf_create_unmanaged_file(deark *c, const char *fname, int overwrite_mode
 	return f;
 }
 
+dbuf *dbuf_create_unmanaged_file_stdout(deark *c, const char *name)
+{
+	dbuf *f;
+
+	f = de_malloc(c, sizeof(dbuf));
+	f->c = c;
+	f->is_managed = 0;
+	f->name = de_strdup(c, name);
+	f->btype = DBUF_TYPE_STDOUT;
+	f->max_len_hard = c->max_output_file_size;
+	f->fp = stdout;
+	return f;
+}
+
 static void sanitize_ext(const char *ext1, char *ext, size_t extlen)
 {
 	size_t k;
@@ -1299,7 +1313,7 @@ void dbuf_write(dbuf *f, const u8 *m, i64 len)
 	else if(f->btype==DBUF_TYPE_OFILE || f->btype==DBUF_TYPE_STDOUT) {
 		if(!f->fp) return;
 		if(f->c->debug_level>=3) {
-			de_dbg3(f->c, "writing %d bytes to %s", (int)len, f->name);
+			de_dbg3(f->c, "writing %"I64_FMT" bytes to %s", len, f->name);
 		}
 		fwrite(m, 1, (size_t)len, f->fp);
 		f->len += len;
@@ -1307,7 +1321,7 @@ void dbuf_write(dbuf *f, const u8 *m, i64 len)
 	}
 	else if(f->btype==DBUF_TYPE_MEMBUF) {
 		if(f->c->debug_level>=3 && f->name) {
-			de_dbg3(f->c, "appending %d bytes to membuf %s", (int)len, f->name);
+			de_dbg3(f->c, "appending %"I64_FMT" bytes to membuf %s", len, f->name);
 		}
 		membuf_append(f, m, len);
 		return;
@@ -1669,8 +1683,11 @@ void dbuf_close(dbuf *f)
 		f->fp = NULL;
 	}
 	else if(f->btype==DBUF_TYPE_STDOUT) {
-		if(f->name) {
+		if(f->name && f->is_managed) {
 			de_dbg3(c, "finished writing %s to stdout", f->name);
+		}
+		else if(!f->is_managed) {
+			de_dbg3(c, "finished writing %s", f->name);
 		}
 		f->fp = NULL;
 	}

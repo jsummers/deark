@@ -81,8 +81,7 @@ Command-line options:
    Write the output file(s) to the standard output stream (stdout).
    It is recommended to put -tostdout early on the command line. The
    -msgstostderr option is enabled automatically.
-   If used with -zip: Write the ZIP file to standard output. This option
-   might be inefficient, or have file size limitations.
+   If used with -zip: Write the ZIP file to standard output.
    Otherwise: The "-maxfiles 1" option is enabled automatically. Including the
    -main option is recommended.
 -fromstdin

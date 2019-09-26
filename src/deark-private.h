@@ -609,6 +609,7 @@ void dbuf_read_to_ucstring_n(dbuf *f, i64 pos, i64 len, i64 max_len,
 dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi, unsigned int createflags);
 
 dbuf *dbuf_create_unmanaged_file(deark *c, const char *fname, int overwrite_mode, unsigned int flags);
+dbuf *dbuf_create_unmanaged_file_stdout(deark *c, const char *name);
 
 dbuf *dbuf_open_input_file(deark *c, const char *fn);
 dbuf *dbuf_open_input_stdin(deark *c);

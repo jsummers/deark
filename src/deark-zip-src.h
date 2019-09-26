@@ -72,9 +72,7 @@ int de_zip_create_file(deark *c)
 	}
 
 	if(c->archive_to_stdout) {
-		// TODO: We don't have to use a membuf here, at least not with our current
-		// zip writing strategy.
-		zzz->outf = dbuf_create_membuf(c, 4096, 0);
+		zzz->outf = dbuf_create_unmanaged_file_stdout(c, "[ZIP stdout stream]");
 	}
 	else {
 		de_info(c, "Creating %s", zzz->pFilename);
@@ -191,11 +189,24 @@ static void zipw_add_memberfile(deark *c, struct zipw_ctx *zzz, struct zipw_md *
 	unsigned int ext_attributes;
 	unsigned int ver_needed;
 
+	if(zzz->membercount >= 0xffff) {
+		de_err(c, "Maximum number of ZIP member files exceeded");
+		goto done;
+	}
+
 	de_crcobj_reset(zzz->crc32o);
 	de_crcobj_addbuf(zzz->crc32o, f->membuf_buf, f->len);
 	crc = de_crcobj_getval(zzz->crc32o);
 
 	ldir_offset = zzz->outf->len;
+	if(ldir_offset > 0xffffffffLL) {
+		de_err(c, "Maximum ZIP file size exceeded");
+		goto done;
+	}
+	if(f->len > 0xffffffffLL) {
+		de_err(c, "Maximum ZIP member file size exceeded");
+		goto done;
+	}
 	cmpr_len = f->len; // default
 
 	if(f->len>5 && !md->is_directory) {
@@ -293,8 +304,10 @@ static void zipw_add_memberfile(deark *c, struct zipw_ctx *zzz, struct zipw_md *
 	dbuf_copy(md->efcentral, 0, md->efcentral->len, zzz->cdir);
 	dbuf_copy(md->eflocal, 0, md->eflocal->len, zzz->outf);
 
-	if(using_compression && cmpr_data) {
-		dbuf_copy(cmpr_data, 0, cmpr_data->len, zzz->outf);
+	if(using_compression) {
+		if(cmpr_data) {
+			dbuf_copy(cmpr_data, 0, cmpr_data->len, zzz->outf);
+		}
 	}
 	else {
 		dbuf_copy(f, 0, f->len, zzz->outf);
@@ -302,6 +315,7 @@ static void zipw_add_memberfile(deark *c, struct zipw_ctx *zzz, struct zipw_md *
 
 	zzz->membercount++;
 
+done:
 	if(cmpr_data) dbuf_close(cmpr_data);
 }
 
@@ -441,6 +455,11 @@ static void zipw_finalize(deark *c, struct zipw_ctx *zzz)
 	i64 cdir_start;
 
 	cdir_start = zzz->outf->len;
+	if((cdir_start > 0xffffffffLL) || (zzz->cdir->len > 0xffffffffLL)) {
+		de_err(c, "Maximum ZIP file size exceeded");
+		goto done;
+	}
+
 	dbuf_copy(zzz->cdir, 0, zzz->cdir->len, zzz->outf);
 
 	// Write 22-byte EOCD record
@@ -452,6 +471,8 @@ static void zipw_finalize(deark *c, struct zipw_ctx *zzz)
 	dbuf_writeu32le(zzz->outf, zzz->cdir->len); // central dir size
 	dbuf_writeu32le(zzz->outf, cdir_start);
 	dbuf_writeu16le(zzz->outf, 0); // ZIP comment length
+done:
+	;
 }
 
 void de_zip_close_file(deark *c)
