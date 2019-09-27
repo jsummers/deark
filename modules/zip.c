@@ -1748,10 +1748,18 @@ done:
 static void de_run_zip(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	int eocd_found;
 
 	d = de_malloc(c, sizeof(lctx));
 
-	if(!de_fmtutil_find_zip_eocd(c, c->infile, &d->end_of_central_dir_pos)) {
+	if(c->module_nesting_level==1 && c->detection_data.zip_eocd_looked_for) {
+		eocd_found = (int)c->detection_data.zip_eocd_found;
+		d->end_of_central_dir_pos = c->detection_data.zip_eocd_pos;
+	}
+	else {
+		eocd_found = de_fmtutil_find_zip_eocd(c, c->infile, &d->end_of_central_dir_pos);
+	}
+	if(!eocd_found) {
 		de_err(c, "Not a ZIP file");
 		goto done;
 	}
@@ -1789,20 +1797,46 @@ static int de_identify_zip(deark *c)
 {
 	u8 b[4];
 	int has_zip_ext;
+	int has_mz_sig = 0;
 
 	has_zip_ext = de_input_file_has_ext(c, "zip");
 
-	// This will not detect every ZIP file, but there is no cheap way to do that.
+	// Fast tests:
 
 	de_read(b, 0, 4);
 	if(!de_memcmp(b, "PK\x03\x04", 4)) {
 		return has_zip_ext ? 100 : 90;
 	}
+	if(b[0]=='M' && b[1]=='Z') has_mz_sig = 1;
 
 	if(c->infile->len >= 22) {
 		de_read(b, c->infile->len - 22, 4);
 		if(!de_memcmp(b, "PK\x05\x06", 4)) {
 			return has_zip_ext ? 100 : 19;
+		}
+	}
+
+	// Things to consider:
+	// * We want de_fmtutil_find_zip_eocd() to be called no more than once, and
+	// only on files that for some reason we suspect could be ZIP files.
+	// * If the user disables exe format detection (e.g. with "-onlydetect zip"),
+	// we want self-extracting-ZIP .exe files to be detected as ZIP instead.
+	// * And we want the above to work even if the file has a ZIP file comment,
+	// making it expensive to detect as ZIP.
+
+	// Tests below can't return a confidence higher than this.
+	if(c->detection_data.best_confidence_so_far >= 19) return 0;
+
+	// Slow tests:
+
+	if(has_mz_sig || has_zip_ext) {
+		i64 eocd_pos = 0;
+
+		c->detection_data.zip_eocd_looked_for = 1;
+		if(de_fmtutil_find_zip_eocd(c, c->infile, &eocd_pos)) {
+			c->detection_data.zip_eocd_found = 1;
+			c->detection_data.zip_eocd_pos = eocd_pos;
+			return 19;
 		}
 	}
 

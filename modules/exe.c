@@ -1311,7 +1311,7 @@ static void do_lx_or_le_rsrc_tbl(deark *c, lctx *d)
 static void de_run_exe(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	i64 eocdpos = 0;
+	int zip_eocd_found;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -1327,9 +1327,19 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 		do_lx_or_le_rsrc_tbl(c, d);
 	}
 
-	if(de_fmtutil_find_zip_eocd(c, c->infile, &eocdpos)) {
+	if(c->module_nesting_level==1 && c->detection_data.zip_eocd_looked_for) {
+		// Note: It isn't necessarily possible to get here - It depends on the details
+		// of how other modules' identify() functions work.
+		zip_eocd_found = (int)c->detection_data.zip_eocd_found;
+	}
+	else {
+		i64 zip_eocd_pos = 0;
+		zip_eocd_found = de_fmtutil_find_zip_eocd(c, c->infile, &zip_eocd_pos);
+	}
+	if(zip_eocd_found) {
 		de_info(c, "Note: This might be a self-extracting ZIP file (try \"-m zip\").");
 	}
+
 	de_free(c, d);
 }
 

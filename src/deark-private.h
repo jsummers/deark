@@ -227,10 +227,17 @@ struct de_ID3_detection_data {
 	u32 bytes_at_start;
 };
 
+// This struct is a crude way for data to be shared by the various format
+// identification functions. It generally should not be used outside of them --
+// but it can be, provided it's only used as a cache.
 struct de_detection_data_struct {
+	int best_confidence_so_far;
 	u8 has_utf8_bom;
 	u8 is_macbinary;
 	u8 SAUCE_detection_attempted;
+	u8 zip_eocd_looked_for;
+	u8 zip_eocd_found;
+	i64 zip_eocd_pos; // valid if zip_eocd_found
 	struct de_SAUCE_detection_data sauce;
 	struct de_ID3_detection_data id3;
 };
@@ -384,8 +391,6 @@ struct deark_struct {
 	int num_ext_options;
 	struct deark_ext_option ext_option[DE_MAX_EXT_OPTIONS];
 
-	// This struct is for data that can be shared by the various format
-	// identification functions. It should not be used outside of them.
 	struct de_detection_data_struct detection_data;
 };
 

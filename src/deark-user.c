@@ -21,11 +21,15 @@ static struct deark_module_info *detect_module_for_file(deark *c, int *errflag)
 {
 	int i;
 	int result;
-	int best_result = 0;
 	int orig_errcount;
 	struct deark_module_info *best_module = NULL;
 
 	*errflag = 0;
+
+	// This value is made available to modules' identification functions, so
+	// that they can potentially skip expensive tests that cannot possibly return
+	// a high enough confidence.
+	c->detection_data.best_confidence_so_far = 0;
 
 	// Check for a UTF-8 BOM just once. Any module can use this flag.
 	if(dbuf_has_utf8_bom(c->infile, 0)) {
@@ -59,12 +63,12 @@ static struct deark_module_info *detect_module_for_file(deark *c, int *errflag)
 			continue;
 		}
 
-		if(result <= best_result) continue;
+		if(result <= c->detection_data.best_confidence_so_far) continue;
 
 		// This is the best result so far.
-		best_result = result;
+		c->detection_data.best_confidence_so_far = result;
 		best_module = &c->module_info[i];
-		if(best_result>=100) break;
+		if(c->detection_data.best_confidence_so_far>=100) break;
 	}
 
 	return best_module;
