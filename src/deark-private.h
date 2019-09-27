@@ -277,6 +277,13 @@ struct deark_ext_option {
 
 typedef void (*de_module_register_fn_type)(deark *c);
 
+enum de_moddisp_enum {
+	DE_MODDISP_NONE = 0,    // No active module, or unknown
+	DE_MODDISP_AUTODETECT,  // Format was autodetected
+	DE_MODDISP_EXPLICIT,    // User used -m to select the module
+	DE_MODDISP_INTERNAL     // Another module is using this module
+};
+
 struct deark_struct {
 	int debug_level;
 	void *userdata;
@@ -298,12 +305,10 @@ struct deark_struct {
 	// top-level file.
 	int format_declared;
 
-#define DE_MODDISP_NONE       0 // No active module, or unknown
-#define DE_MODDISP_AUTODETECT 1 // Format was autodetected
-#define DE_MODDISP_EXPLICIT   2 // User used -m to select the module
-#define DE_MODDISP_INTERNAL   3 // Another module is using this module
-	int module_disposition; // Why are we using this module?
+	enum de_moddisp_enum module_disposition; // Why are we using this module?
 
+	// Always valid during identify(); can be NULL during run().
+	struct de_detection_data_struct *detection_data;
 	////////////////////////////////////////////////////
 
 	int file_count; // The number of extractable files encountered so far.
@@ -390,14 +395,13 @@ struct deark_struct {
 #define DE_MAX_EXT_OPTIONS 16
 	int num_ext_options;
 	struct deark_ext_option ext_option[DE_MAX_EXT_OPTIONS];
-
-	struct de_detection_data_struct detection_data;
 };
 
 void de_fatalerror(deark *c);
 
 deark *de_create_internal(void);
-int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mparams, int moddisp);
+int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mparams,
+	enum de_moddisp_enum moddisp);
 int de_run_module_by_id(deark *c, const char *id, de_module_params *mparams);
 void de_run_module_by_id_on_slice(deark *c, const char *id, de_module_params *mparams,
 	dbuf *f, i64 pos, i64 len);

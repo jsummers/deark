@@ -363,7 +363,7 @@ static int de_identify_macpaint(deark *c)
 	// Not all MacPaint files can be easily identified, but this will work
 	// for some of them.
 	if(!de_memcmp(buf, "PNTG", 4)) {
-		if(c->detection_data.is_macbinary) return 100;
+		if(c->detection_data->is_macbinary) return 100;
 		if(!de_memcmp(&buf[4], "MPNT", 4)) return 80;
 		return 70;
 	}

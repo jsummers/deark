@@ -388,8 +388,8 @@ static void de_run_sauce(deark *c, de_module_params *mparams)
 
 static int de_identify_sauce(deark *c)
 {
-	c->detection_data.SAUCE_detection_attempted = 1;
-	if(de_fmtutil_detect_SAUCE(c, c->infile, &c->detection_data.sauce, 0)) {
+	c->detection_data->SAUCE_detection_attempted = 1;
+	if(de_fmtutil_detect_SAUCE(c, c->infile, &c->detection_data->sauce, 0)) {
 		// This module should have a very low priority, but other modules can use
 		// the results of its detection.
 		return 2;

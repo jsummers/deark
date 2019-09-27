@@ -474,7 +474,7 @@ static int de_identify_macbinary(deark *c)
 
 done:
 	if(conf>0) {
-		c->detection_data.is_macbinary = 1;
+		c->detection_data->is_macbinary = 1;
 	}
 	return conf;
 }

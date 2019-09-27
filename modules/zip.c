@@ -1752,9 +1752,9 @@ static void de_run_zip(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	if(c->module_nesting_level==1 && c->detection_data.zip_eocd_looked_for) {
-		eocd_found = (int)c->detection_data.zip_eocd_found;
-		d->end_of_central_dir_pos = c->detection_data.zip_eocd_pos;
+	if(c->detection_data && c->detection_data->zip_eocd_looked_for) {
+		eocd_found = (int)c->detection_data->zip_eocd_found;
+		d->end_of_central_dir_pos = c->detection_data->zip_eocd_pos;
 	}
 	else {
 		eocd_found = de_fmtutil_find_zip_eocd(c, c->infile, &d->end_of_central_dir_pos);
@@ -1825,17 +1825,17 @@ static int de_identify_zip(deark *c)
 	// making it expensive to detect as ZIP.
 
 	// Tests below can't return a confidence higher than this.
-	if(c->detection_data.best_confidence_so_far >= 19) return 0;
+	if(c->detection_data->best_confidence_so_far >= 19) return 0;
 
 	// Slow tests:
 
 	if(has_mz_sig || has_zip_ext) {
 		i64 eocd_pos = 0;
 
-		c->detection_data.zip_eocd_looked_for = 1;
+		c->detection_data->zip_eocd_looked_for = 1;
 		if(de_fmtutil_find_zip_eocd(c, c->infile, &eocd_pos)) {
-			c->detection_data.zip_eocd_found = 1;
-			c->detection_data.zip_eocd_pos = eocd_pos;
+			c->detection_data->zip_eocd_found = 1;
+			c->detection_data->zip_eocd_pos = eocd_pos;
 			return 19;
 		}
 	}

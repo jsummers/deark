@@ -1327,10 +1327,10 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 		do_lx_or_le_rsrc_tbl(c, d);
 	}
 
-	if(c->module_nesting_level==1 && c->detection_data.zip_eocd_looked_for) {
+	if(c->detection_data && c->detection_data->zip_eocd_looked_for) {
 		// Note: It isn't necessarily possible to get here - It depends on the details
 		// of how other modules' identify() functions work.
-		zip_eocd_found = (int)c->detection_data.zip_eocd_found;
+		zip_eocd_found = (int)c->detection_data->zip_eocd_found;
 	}
 	else {
 		i64 zip_eocd_pos = 0;

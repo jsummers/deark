@@ -1082,7 +1082,7 @@ static int de_identify_ansiart(deark *c)
 	u8 buf[4];
 	int has_ans_ext;
 
-	if(!c->detection_data.SAUCE_detection_attempted) {
+	if(!c->detection_data->SAUCE_detection_attempted) {
 		de_err(c, "ansiart detection requires sauce module");
 		return 0;
 	}
@@ -1097,9 +1097,9 @@ static int de_identify_ansiart(deark *c)
 
 	has_ans_ext = de_input_file_has_ext(c, "ans");
 
-	if(c->detection_data.sauce.has_SAUCE) {
-		if(c->detection_data.sauce.data_type==1 &&
-			c->detection_data.sauce.file_type==1)
+	if(c->detection_data->sauce.has_SAUCE) {
+		if(c->detection_data->sauce.data_type==1 &&
+			c->detection_data->sauce.file_type==1)
 		{
 			// Unfortunately, iCEDraw and possibly other formats may use the
 			// same SAUCE identifiers as ANSI Art, so we probably shouldn't always

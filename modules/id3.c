@@ -1236,9 +1236,9 @@ static int de_identify_id3(deark *c)
 	u8 has_footer = 0;
 	i64 total_len;
 
-	c->detection_data.id3.detection_attempted = 1;
+	c->detection_data->id3.detection_attempted = 1;
 	if(dbuf_memcmp(c->infile, 0, "ID3", 3)) return 0;
-	c->detection_data.id3.has_id3v2 = 1;
+	c->detection_data->id3.has_id3v2 = 1;
 
 	version_code = dbuf_getbyte(c->infile, 3);
 	flags = dbuf_getbyte(c->infile, 5);
@@ -1251,7 +1251,7 @@ static int de_identify_id3(deark *c)
 	if(has_footer) total_len += 10;
 
 	de_dbg2(c, "[id3detect] calculated end of ID3v2 data: %u", (unsigned int)total_len);
-	c->detection_data.id3.bytes_at_start = (u32)total_len;
+	c->detection_data->id3.bytes_at_start = (u32)total_len;
 
 	// This module is never "detected". It's only used for its side effects,
 	// and as a submodule.

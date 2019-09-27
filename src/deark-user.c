@@ -25,15 +25,18 @@ static struct deark_module_info *detect_module_for_file(deark *c, int *errflag)
 	struct deark_module_info *best_module = NULL;
 
 	*errflag = 0;
+	if(!c->detection_data) {
+		c->detection_data = de_malloc(c, sizeof(struct de_detection_data_struct));
+	}
 
 	// This value is made available to modules' identification functions, so
 	// that they can potentially skip expensive tests that cannot possibly return
 	// a high enough confidence.
-	c->detection_data.best_confidence_so_far = 0;
+	c->detection_data->best_confidence_so_far = 0;
 
 	// Check for a UTF-8 BOM just once. Any module can use this flag.
 	if(dbuf_has_utf8_bom(c->infile, 0)) {
-		c->detection_data.has_utf8_bom = 1;
+		c->detection_data->has_utf8_bom = 1;
 	}
 
 	orig_errcount = c->error_count;
@@ -63,12 +66,12 @@ static struct deark_module_info *detect_module_for_file(deark *c, int *errflag)
 			continue;
 		}
 
-		if(result <= c->detection_data.best_confidence_so_far) continue;
+		if(result <= c->detection_data->best_confidence_so_far) continue;
 
 		// This is the best result so far.
-		c->detection_data.best_confidence_so_far = result;
+		c->detection_data->best_confidence_so_far = result;
 		best_module = &c->module_info[i];
-		if(c->detection_data.best_confidence_so_far>=100) break;
+		if(c->detection_data->best_confidence_so_far>=100) break;
 	}
 
 	return best_module;
@@ -472,6 +475,7 @@ void de_destroy(deark *c)
 	if(c->base_output_filename) { de_free(c, c->base_output_filename); }
 	if(c->output_archive_filename) { de_free(c, c->output_archive_filename); }
 	if(c->extrlist_filename) { de_free(c, c->extrlist_filename); }
+	if(c->detection_data) { de_free(c, c->detection_data); }
 	de_free(c, c->module_info);
 	de_free(NULL,c);
 }

@@ -606,7 +606,7 @@ static int de_identify_mpegaudio(deark *c)
 	u8 has_id3v2;
 	i64 pos;
 
-	if(!c->detection_data.id3.detection_attempted) {
+	if(!c->detection_data->id3.detection_attempted) {
 		de_err(c, "mpegaudio detection requires id3 module");
 		return 0;
 	}
@@ -627,7 +627,7 @@ static int de_identify_mpegaudio(deark *c)
 	}
 	has_any_ext = has_mp3_ext || has_mp2_ext || has_mp1_ext;
 
-	has_id3v2 = c->detection_data.id3.has_id3v2;
+	has_id3v2 = c->detection_data->id3.has_id3v2;
 
 	if(!has_id3v2 && !has_any_ext) {
 		// TODO: We could try harder to identify MP3.
@@ -635,7 +635,7 @@ static int de_identify_mpegaudio(deark *c)
 	}
 
 	if(has_id3v2) {
-		pos = (i64)c->detection_data.id3.bytes_at_start;
+		pos = (i64)c->detection_data->id3.bytes_at_start;
 	}
 	else {
 		pos = 0;

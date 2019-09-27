@@ -678,13 +678,13 @@ static int de_identify_ogg(deark *c)
 {
 	i64 pos = 0;
 
-	if(!c->detection_data.id3.detection_attempted) {
+	if(!c->detection_data->id3.detection_attempted) {
 		de_err(c, "ogg detection requires id3 module");
 		return 0;
 	}
 
-	if(c->detection_data.id3.has_id3v2) {
-		pos = (i64)c->detection_data.id3.bytes_at_start;
+	if(c->detection_data->id3.has_id3v2) {
+		pos = (i64)c->detection_data->id3.bytes_at_start;
 	}
 
 	if(!dbuf_memcmp(c->infile, pos, "OggS", 4))

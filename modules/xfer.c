@@ -446,7 +446,7 @@ static int de_identify_uuencode(deark *c)
 	int retval = 0;
 	struct uu_hdr_parser *uuhp;
 
-	pos = c->detection_data.has_utf8_bom?3:0;
+	pos = c->detection_data->has_utf8_bom?3:0;
 	de_read(b, pos, sizeof(b));
 
 	if(!de_memcmp(b, "begin-base64 ", 13)) {

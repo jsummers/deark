@@ -504,13 +504,13 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 
 static int de_identify_bintext(deark *c)
 {
-	if(!c->detection_data.SAUCE_detection_attempted) {
+	if(!c->detection_data->SAUCE_detection_attempted) {
 		// FIXME?: This is known to happen if "-disablemods sauce" was used.
 		de_err(c, "bintext detection requires sauce module");
 		return 0;
 	}
-	if(c->detection_data.sauce.has_SAUCE) {
-		if(c->detection_data.sauce.data_type==5)
+	if(c->detection_data->sauce.has_SAUCE) {
+		if(c->detection_data->sauce.data_type==5)
 		{
 			return 100;
 		}

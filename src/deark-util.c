@@ -757,13 +757,23 @@ struct deark_module_info *de_get_module_by_id(deark *c, const char *module_id)
 	return &c->module_info[idx];
 }
 
-int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mparams, int moddisp)
+int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mparams,
+	enum de_moddisp_enum moddisp)
 {
-	int old_moddisp;
+	enum de_moddisp_enum old_moddisp;
+	struct de_detection_data_struct *old_detection_data;
+
 	if(!mi) return 0;
 	if(!mi->run_fn) return 0;
+
 	old_moddisp = c->module_disposition;
 	c->module_disposition = moddisp;
+
+	old_detection_data = c->detection_data;
+	if(c->module_nesting_level > 0) {
+		c->detection_data = NULL;
+	}
+
 	if(c->module_nesting_level>0 && c->debug_level>=3) {
 		de_dbg3(c, "[using %s module]", mi->id);
 	}
@@ -771,6 +781,7 @@ int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mpar
 	mi->run_fn(c, mparams);
 	c->module_nesting_level--;
 	c->module_disposition = old_moddisp;
+	c->detection_data = old_detection_data;
 	return 1;
 }
 
