@@ -996,10 +996,6 @@ void de_crcobj_addbuf(struct de_crcobj *crco, const u8 *buf, i64 buf_len);
 void de_crcobj_addbyte(struct de_crcobj *crco, u8 b);
 void de_crcobj_addslice(struct de_crcobj *crco, dbuf *f, i64 pos, i64 len);
 
-// Deprecated. Use de_crcobj_* instead.
-u32 de_crc32(const void *buf, i64 buf_len);
-u32 de_crc32_continue(u32 prev_crc, const void *buf, i64 buf_len);
-
 ///////////////////////////////////////////
 
 struct de_bitmap_font_char {

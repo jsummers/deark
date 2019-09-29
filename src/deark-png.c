@@ -10,9 +10,6 @@
 #include "deark-fmtutil.h"
 
 // TODO: Finish removing the "mz" symbols, and other miniz things.
-#define mz_uint32 u32
-#define mz_uint8  u8
-#define mz_uint   unsigned int
 #define MY_MZ_MIN(a,b) (((a)<(b))?(a):(b))
 #define MY_TDEFL_WRITE_ZLIB_HEADER  0x01000
 
@@ -25,49 +22,46 @@
 #define CODE_tIME 0x74494d45U
 
 struct deark_png_encode_info {
+	deark *c;
+	dbuf *outf;
 	int width, height;
 	int num_chans;
 	int flip;
 	unsigned int level;
 	int has_phys;
-	mz_uint32 xdens;
-	mz_uint32 ydens;
-	mz_uint8 phys_units;
-	deark *c;
-	dbuf *outf;
+	u32 xdens;
+	u32 ydens;
+	u8 phys_units;
 	struct de_timestamp image_mod_time;
 	u8 include_text_chunk_software;
 	u8 has_hotspot;
 	int hotspot_x, hotspot_y;
+	struct de_crcobj *crco;
 };
 
-static void write_png_chunk_raw(dbuf *outf, const u8 *src, i64 src_len,
-	u32 chunktype)
+static void write_png_chunk_from_cdbuf(struct deark_png_encode_info *pei,
+	dbuf *cdbuf, u32 chunktype)
 {
 	u32 crc;
 	u8 buf[4];
 
+	de_crcobj_reset(pei->crco);
+
 	// length field
-	dbuf_writeu32be(outf, src_len);
+	dbuf_writeu32be(pei->outf, cdbuf->len);
 
 	// chunk type field
 	de_writeu32be_direct(buf, (i64)chunktype);
-	crc = de_crc32(buf, 4);
-	dbuf_write(outf, buf, 4);
+	de_crcobj_addbuf(pei->crco, buf, 4);
+	dbuf_write(pei->outf, buf, 4);
 
 	// data field
-	crc = de_crc32_continue(crc, src, src_len);
-	dbuf_write(outf, src, src_len);
+	de_crcobj_addslice(pei->crco, cdbuf, 0, cdbuf->len);
+	dbuf_copy(cdbuf, 0, cdbuf->len, pei->outf);
 
 	// CRC field
-	dbuf_writeu32be(outf, (i64)crc);
-}
-
-static void write_png_chunk_from_cdbuf(dbuf *outf, dbuf *cdbuf, u32 chunktype)
-{
-	// We really shouldn't access ->membuf_buf directly, but we'll allow it
-	// here as a performance optimization.
-	write_png_chunk_raw(outf, cdbuf->membuf_buf, cdbuf->len, chunktype);
+	crc = de_crcobj_getval(pei->crco);
+	dbuf_writeu32be(pei->outf, (i64)crc);
 }
 
 static void write_png_chunk_IHDR(struct deark_png_encode_info *pei,
@@ -80,7 +74,7 @@ static void write_png_chunk_IHDR(struct deark_png_encode_info *pei,
 	dbuf_writebyte(cdbuf, 8); // bit depth
 	dbuf_writebyte(cdbuf, color_type_code[pei->num_chans]);
 	dbuf_truncate(cdbuf, 13); // rest of chunk is zeroes
-	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_IHDR);
+	write_png_chunk_from_cdbuf(pei, cdbuf, CODE_IHDR);
 }
 
 static void write_png_chunk_pHYs(struct deark_png_encode_info *pei,
@@ -89,7 +83,7 @@ static void write_png_chunk_pHYs(struct deark_png_encode_info *pei,
 	dbuf_writeu32be(cdbuf, (i64)pei->xdens);
 	dbuf_writeu32be(cdbuf, (i64)pei->ydens);
 	dbuf_writebyte(cdbuf, pei->phys_units);
-	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_pHYs);
+	write_png_chunk_from_cdbuf(pei, cdbuf, CODE_pHYs);
 }
 
 static void write_png_chunk_tIME(struct deark_png_encode_info *pei,
@@ -106,7 +100,7 @@ static void write_png_chunk_tIME(struct deark_png_encode_info *pei,
 	dbuf_writebyte(cdbuf, (u8)tm2.tm_hour);
 	dbuf_writebyte(cdbuf, (u8)tm2.tm_min);
 	dbuf_writebyte(cdbuf, (u8)tm2.tm_sec);
-	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_tIME);
+	write_png_chunk_from_cdbuf(pei, cdbuf, CODE_tIME);
 }
 
 static void write_png_chunk_htSP(struct deark_png_encode_info *pei,
@@ -119,7 +113,7 @@ static void write_png_chunk_htSP(struct deark_png_encode_info *pei,
 	dbuf_write(cdbuf, uuid, 16);
 	dbuf_writei32be(cdbuf, (i64)pei->hotspot_x);
 	dbuf_writei32be(cdbuf, (i64)pei->hotspot_y);
-	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_htSP);
+	write_png_chunk_from_cdbuf(pei, cdbuf, CODE_htSP);
 }
 
 static void write_png_chunk_tEXt(struct deark_png_encode_info *pei,
@@ -131,11 +125,11 @@ static void write_png_chunk_tEXt(struct deark_png_encode_info *pei,
 	dbuf_write(cdbuf, (const u8*)keyword, kwlen);
 	dbuf_writebyte(cdbuf, 0);
 	dbuf_write(cdbuf, (const u8*)value, vlen);
-	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_tEXt);
+	write_png_chunk_from_cdbuf(pei, cdbuf, CODE_tEXt);
 }
 
 static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, dbuf *cdbuf,
-	const mz_uint8 *src_pixels)
+	const u8 *src_pixels)
 {
 	int bpl = pei->width * pei->num_chans; // bytes per row in src_pixels
 	int y;
@@ -143,7 +137,7 @@ static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, dbuf *cdbuf,
 	int retval = 0;
 	deark *c = pei->c;
 	struct fmtutil_tdefl_ctx *tdctx = NULL;
-	static const mz_uint my_s_tdefl_num_probes[11] = { 0, 1, 6, 32,  16, 32, 128, 256,  512, 768, 1500 };
+	static const unsigned int my_s_tdefl_num_probes[11] = { 0, 1, 6, 32,  16, 32, 128, 256,  512, 768, 1500 };
 
 	// compress image data
 	tdctx = fmtutil_tdefl_create(c, cdbuf,
@@ -160,7 +154,7 @@ static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, dbuf *cdbuf,
 		goto done;
 	}
 
-	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_IDAT);
+	write_png_chunk_from_cdbuf(pei, cdbuf, CODE_IDAT);
 
 	retval = 1;
 
@@ -169,7 +163,7 @@ done:
 	return retval;
 }
 
-static int do_generate_png(struct deark_png_encode_info *pei, const mz_uint8 *src_pixels)
+static int do_generate_png(struct deark_png_encode_info *pei, const u8 *src_pixels)
 {
 	static const u8 pngsig[8] = { 0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a };
 	dbuf *cdbuf = NULL;
@@ -206,7 +200,7 @@ static int do_generate_png(struct deark_png_encode_info *pei, const mz_uint8 *sr
 	if(!write_png_chunk_IDAT(pei, cdbuf, src_pixels)) goto done;
 
 	dbuf_truncate(cdbuf, 0);
-	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_IEND);
+	write_png_chunk_from_cdbuf(pei, cdbuf, CODE_IEND);
 	retval = 1;
 
 done:
@@ -217,56 +211,57 @@ done:
 int de_write_png(deark *c, de_bitmap *img, dbuf *f)
 {
 	const char *opt_level;
-	struct deark_png_encode_info pei;
+	int retval = 0;
+	struct deark_png_encode_info *pei = NULL;
 
-	de_zeromem(&pei, sizeof(struct deark_png_encode_info));
+	pei = de_malloc(c, sizeof(struct deark_png_encode_info));
+	pei->c = c;
 
 	if(img->invalid_image_flag) {
-		return 0;
+		goto done;
 	}
 	if(!de_good_image_dimensions(c, img->width, img->height)) {
-		return 0;
+		goto done;
 	}
 
 	if(f->btype==DBUF_TYPE_NULL) {
-		return 0;
+		goto done;
 	}
 
 	if(f->fi_copy && f->fi_copy->density.code>0 && c->write_density) {
-		pei.has_phys = 1;
+		pei->has_phys = 1;
 		if(f->fi_copy->density.code==1) { // unspecified units
-			pei.phys_units = 0;
-			pei.xdens = (mz_uint32)(f->fi_copy->density.xdens+0.5);
-			pei.ydens = (mz_uint32)(f->fi_copy->density.ydens+0.5);
+			pei->phys_units = 0;
+			pei->xdens = (u32)(f->fi_copy->density.xdens+0.5);
+			pei->ydens = (u32)(f->fi_copy->density.ydens+0.5);
 		}
 		else if(f->fi_copy->density.code==2) { // dpi
-			pei.phys_units = 1; // pixels/meter
-			pei.xdens = (mz_uint32)(0.5+f->fi_copy->density.xdens/0.0254);
-			pei.ydens = (mz_uint32)(0.5+f->fi_copy->density.ydens/0.0254);
+			pei->phys_units = 1; // pixels/meter
+			pei->xdens = (u32)(0.5+f->fi_copy->density.xdens/0.0254);
+			pei->ydens = (u32)(0.5+f->fi_copy->density.ydens/0.0254);
 		}
 	}
 
-	if(pei.has_phys && pei.xdens==pei.ydens && pei.phys_units==0) {
+	if(pei->has_phys && pei->xdens==pei->ydens && pei->phys_units==0) {
 		// Useless density information. Don't bother to write it.
-		pei.has_phys = 0;
+		pei->has_phys = 0;
 	}
 
 	// Detect likely-bogus density settings.
-	if(pei.has_phys) {
-		if(pei.xdens<=0 || pei.ydens<=0 ||
-			(pei.xdens > pei.ydens*5) || (pei.ydens > pei.xdens*5))
+	if(pei->has_phys) {
+		if(pei->xdens<=0 || pei->ydens<=0 ||
+			(pei->xdens > pei->ydens*5) || (pei->ydens > pei->xdens*5))
 		{
-			pei.has_phys = 0;
+			pei->has_phys = 0;
 		}
 	}
 
-	pei.c = c;
-	pei.outf = f;
-	pei.width = (int)img->width;
-	pei.height = (int)img->height;
-	pei.flip = img->flipped;
-	pei.num_chans = img->bytes_per_pixel;
-	pei.include_text_chunk_software = 0;
+	pei->outf = f;
+	pei->width = (int)img->width;
+	pei->height = (int)img->height;
+	pei->flip = img->flipped;
+	pei->num_chans = img->bytes_per_pixel;
+	pei->include_text_chunk_software = 0;
 
 	if(!c->pngcprlevel_valid) {
 		c->pngcmprlevel = 9; // default
@@ -286,24 +281,33 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f)
 			}
 		}
 	}
-	pei.level = c->pngcmprlevel;
+	pei->level = c->pngcmprlevel;
 
 	if(f->fi_copy && f->fi_copy->image_mod_time.is_valid) {
-		pei.image_mod_time = f->fi_copy->image_mod_time;
+		pei->image_mod_time = f->fi_copy->image_mod_time;
 	}
 
 	if(f->fi_copy && f->fi_copy->has_hotspot) {
-		pei.has_hotspot = 1;
-		pei.hotspot_x = f->fi_copy->hotspot_x;
-		pei.hotspot_y = f->fi_copy->hotspot_y;
+		pei->has_hotspot = 1;
+		pei->hotspot_x = f->fi_copy->hotspot_x;
+		pei->hotspot_y = f->fi_copy->hotspot_y;
 		// Leave a hint as to where our custom Hotspot chunk came from.
-		pei.include_text_chunk_software = 1;
+		pei->include_text_chunk_software = 1;
 	}
 
-	if(!do_generate_png(&pei, img->bitmap)) {
+	pei->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+
+	if(!do_generate_png(pei, img->bitmap)) {
 		de_err(c, "PNG write failed");
-		return 0;
+		goto done;
 	}
 
-	return 1;
+	retval = 1;
+
+done:
+	if(pei) {
+		de_crcobj_destroy(pei->crco);
+		de_free(c, pei);
+	}
+	return retval;
 }

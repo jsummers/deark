@@ -1767,13 +1767,13 @@ static u32 crc32_calc(const u8 *ptr, size_t cnt, u32 crc)
 // For a one-shot CRC calculations, or the first part of a multi-part
 // calculation.
 // buf can be NULL (in which case buf_len should be 0, but is ignored)
-u32 de_crc32(const void *buf, i64 buf_len)
+static u32 de_crc32(const void *buf, i64 buf_len)
 {
 	if(!buf) return DE_CRC32_INIT;
 	return (u32)crc32_calc((const u8*)buf, (size_t)buf_len, DE_CRC32_INIT);
 }
 
-u32 de_crc32_continue(u32 prev_crc, const void *buf, i64 buf_len)
+static u32 de_crc32_continue(u32 prev_crc, const void *buf, i64 buf_len)
 {
 	return (u32)crc32_calc((const u8*)buf, (size_t)buf_len, prev_crc);
 }
