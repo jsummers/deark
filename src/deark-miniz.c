@@ -30,6 +30,4 @@ u32 de_crc32_continue(u32 prev_crc, const void *buf, i64 buf_len)
 
 #include "deark-fmtutil.h"
 
-#include "deark-png-src.h"
-
 #include "fmtutil-miniz-src.h"

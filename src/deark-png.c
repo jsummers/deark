@@ -3,7 +3,18 @@
 // See the file COPYING for terms of use.
 
 // PNG encoding
-// (This file is #included by deark-miniz.c.)
+
+#define DE_NOT_IN_MODULE
+#include "deark-config.h"
+#include "deark-private.h"
+#include "deark-fmtutil.h"
+
+// TODO: Finish removing the "mz" symbols, and other miniz things.
+#define mz_uint32 u32
+#define mz_uint8  u8
+#define mz_uint   unsigned int
+#define MY_MZ_MIN(a,b) (((a)<(b))?(a):(b))
+#define MY_TDEFL_WRITE_ZLIB_HEADER  0x01000
 
 #define CODE_IDAT 0x49444154U
 #define CODE_IEND 0x49454e44U
@@ -123,8 +134,6 @@ static void write_png_chunk_tEXt(struct deark_png_encode_info *pei,
 	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_tEXt);
 }
 
-#define MY_MZ_MIN(a,b) (((a)<(b))?(a):(b))
-
 static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, dbuf *cdbuf,
 	const mz_uint8 *src_pixels)
 {
@@ -138,10 +147,10 @@ static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, dbuf *cdbuf,
 
 	// compress image data
 	tdctx = fmtutil_tdefl_create(c, cdbuf,
-		my_s_tdefl_num_probes[MY_MZ_MIN(10, pei->level)] | TDEFL_WRITE_ZLIB_HEADER);
+		my_s_tdefl_num_probes[MY_MZ_MIN(10, pei->level)] | MY_TDEFL_WRITE_ZLIB_HEADER);
 
 	for (y = 0; y < pei->height; ++y) {
-		fmtutil_tdefl_compress_buffer(tdctx, &nulbyte, 1, TDEFL_NO_FLUSH);
+		fmtutil_tdefl_compress_buffer(tdctx, &nulbyte, 1, FMTUTIL_TDEFL_NO_FLUSH);
 		fmtutil_tdefl_compress_buffer(tdctx, &src_pixels[(pei->flip ? (pei->height - 1 - y) : y) * bpl],
 			bpl, FMTUTIL_TDEFL_NO_FLUSH);
 	}

@@ -451,6 +451,9 @@
     <ClCompile Include="..\..\src\fmtutil-cmpr.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\deark-png.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\deark-config.h">
@@ -494,9 +497,6 @@
     </ClInclude>
     <ClInclude Include="..\..\foreign\ozunreduce.h">
       <Filter>Foreign Code</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\deark-png-src.h">
-      <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\deark-zip-src.h">
       <Filter>Header Files</Filter>
