@@ -299,6 +299,7 @@
     <ClCompile Include="..\..\src\deark-data.c" />
     <ClCompile Include="..\..\src\deark-dbuf.c" />
     <ClCompile Include="..\..\src\deark-png.c" />
+    <ClCompile Include="..\..\src\deark-zip.c" />
     <ClCompile Include="..\..\src\fmtutil-cmpr.c" />
     <ClCompile Include="..\..\src\fmtutil.c" />
     <ClCompile Include="..\..\src\deark-font.c" />
@@ -331,7 +332,6 @@
     <ClInclude Include="..\..\src\deark-modules.h" />
     <ClInclude Include="..\..\src\deark-private.h" />
     <ClInclude Include="..\..\src\deark-user.h" />
-    <ClInclude Include="..\..\src\deark-zip-src.h" />
     <ClInclude Include="..\..\src\deark.h" />
     <ClInclude Include="..\..\src\fmtutil-miniz-src.h" />
   </ItemGroup>

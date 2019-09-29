@@ -132,6 +132,8 @@ struct fmtutil_tdefl_ctx *fmtutil_tdefl_create(deark *c, dbuf *outf, int flags);
 enum fmtutil_tdefl_status fmtutil_tdefl_compress_buffer(struct fmtutil_tdefl_ctx *tdctx,
 	const void *pIn_buf, size_t in_buf_size, enum fmtutil_tdefl_flush flush);
 void fmtutil_tdefl_destroy(struct fmtutil_tdefl_ctx *tdctx);
+unsigned int fmtutil_tdefl_create_comp_flags_from_zip_params(int level, int window_bits,
+	int strategy);
 
 struct de_SAUCE_info {
 	int is_valid;

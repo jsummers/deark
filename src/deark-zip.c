@@ -3,7 +3,18 @@
 // See the file COPYING for terms of use.
 
 // ZIP encoding
-// (This file is #included by deark-miniz.c.)
+
+#define DE_NOT_IN_MODULE
+#include "deark-config.h"
+#include "deark-private.h"
+#include "deark-fmtutil.h"
+
+// TODO: Finish removing the "mz" symbols, and other miniz things.
+#define mz_uint   unsigned int
+#define MZ_NO_COMPRESSION   0
+#define MZ_BEST_COMPRESSION 9
+#define MZ_DEFAULT_LEVEL    6
+#define MZ_DEFAULT_STRATEGY 0
 
 #define CODE_PK12 0x02014b50U
 #define CODE_PK34 0x04034b50U
@@ -142,36 +153,26 @@ static void do_ntfs_times(deark *c, struct zipw_md *md,
 	dbuf_writeu64le(ef, (u64)md->modtime_as_FILETIME); // create time
 }
 
-static mz_bool my_zip_tdefl_output_buffer_putter(const void *pBuf, int len, void *pUser)
-{
-	dbuf *f = (dbuf*)pUser;
-
-	dbuf_write(f, (const u8*)pBuf, (i64)len);
-	return MZ_TRUE;
-}
-
 static int zipw_deflate(deark *c, struct zipw_ctx *zzz, dbuf *uncmpr_data,
 	dbuf *cmpr_data, mz_uint level)
 {
 	int retval = 0;
-	tdefl_status ret;
-	tdefl_compressor *pComp = NULL;
+	enum fmtutil_tdefl_status ret;
+	struct fmtutil_tdefl_ctx *tdctx = NULL;
 
-	pComp = de_malloc(c, sizeof(tdefl_compressor));
+	tdctx = fmtutil_tdefl_create(c, cmpr_data,
+		fmtutil_tdefl_create_comp_flags_from_zip_params(level, -15, MZ_DEFAULT_STRATEGY));
 
-	tdefl_init(pComp, my_zip_tdefl_output_buffer_putter, (void*)cmpr_data,
-		tdefl_create_comp_flags_from_zip_params(level, -15, MZ_DEFAULT_STRATEGY));
-
-	ret = tdefl_compress_buffer(pComp, uncmpr_data->membuf_buf,
-		(size_t)uncmpr_data->len, TDEFL_FINISH);
-	if(ret != TDEFL_STATUS_DONE) {
+	ret = fmtutil_tdefl_compress_buffer(tdctx, uncmpr_data->membuf_buf,
+		(size_t)uncmpr_data->len, FMTUTIL_TDEFL_FINISH);
+	if(ret != FMTUTIL_TDEFL_STATUS_DONE) {
 		de_err(c, "Deflate compression error");
 		goto done;
 	}
 	retval = 1;
 
 done:
-	de_free(c, pComp);
+	fmtutil_tdefl_destroy(tdctx);
 	return retval;
 }
 

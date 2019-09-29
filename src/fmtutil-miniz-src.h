@@ -250,3 +250,10 @@ void fmtutil_tdefl_destroy(struct fmtutil_tdefl_ctx *tdctx)
 	c = tdctx->c;
 	de_free(c, tdctx);
 }
+
+unsigned int fmtutil_tdefl_create_comp_flags_from_zip_params(int level, int window_bits,
+	int strategy)
+{
+	return (unsigned int)tdefl_create_comp_flags_from_zip_params(level, window_bits,
+		strategy);
+}

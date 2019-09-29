@@ -13,8 +13,6 @@
 #define MINIZ_NO_ARCHIVE_APIS
 #include "../foreign/miniz.h"
 
-#include "deark-zip-src.h"
-
 // For a one-shot CRC calculations, or the first part of a multi-part
 // calculation.
 // buf can be NULL (in which case buf_len should be 0, but is ignored)
