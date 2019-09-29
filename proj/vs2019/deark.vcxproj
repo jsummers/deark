@@ -301,10 +301,10 @@
     <ClCompile Include="..\..\src\deark-png.c" />
     <ClCompile Include="..\..\src\deark-zip.c" />
     <ClCompile Include="..\..\src\fmtutil-cmpr.c" />
+    <ClCompile Include="..\..\src\fmtutil-miniz.c" />
     <ClCompile Include="..\..\src\fmtutil.c" />
     <ClCompile Include="..\..\src\deark-font.c" />
     <ClCompile Include="..\..\src\fmtutil-liblzw.c" />
-    <ClCompile Include="..\..\src\deark-miniz.c" />
     <ClCompile Include="..\..\src\deark-modules.c" />
     <ClCompile Include="..\..\src\deark-tar.c" />
     <ClCompile Include="..\..\src\deark-ucstring.c" />
@@ -333,7 +333,6 @@
     <ClInclude Include="..\..\src\deark-private.h" />
     <ClInclude Include="..\..\src\deark-user.h" />
     <ClInclude Include="..\..\src\deark.h" />
-    <ClInclude Include="..\..\src\fmtutil-miniz-src.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\..\src\deark.rc" />

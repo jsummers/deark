@@ -265,9 +265,6 @@ $(OBJDIR)/src/deark-dbuf.o: src/deark-dbuf.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/src/deark-font.o: src/deark-font.c src/deark-config.h \
  src/deark-private.h src/deark.h
-$(OBJDIR)/src/deark-miniz.o: src/deark-miniz.c src/deark-config.h \
- src/deark-private.h src/deark.h src/../foreign/miniz.h \
- src/deark-fmtutil.h src/fmtutil-miniz-src.h
 $(OBJDIR)/src/deark-modules.o: src/deark-modules.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-user.h src/deark-modules.h
 $(OBJDIR)/src/deark-png.o: src/deark-png.c src/deark-config.h \
@@ -290,5 +287,8 @@ $(OBJDIR)/src/fmtutil-cmpr.o: src/fmtutil-cmpr.c src/deark-config.h \
 $(OBJDIR)/src/fmtutil-liblzw.o: src/fmtutil-liblzw.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h \
  src/../foreign/liblzw.h
+$(OBJDIR)/src/fmtutil-miniz.o: src/fmtutil-miniz.c src/deark-config.h \
+ src/deark-private.h src/deark.h src/deark-fmtutil.h \
+ src/../foreign/miniz.h
 $(OBJDIR)/src/fmtutil.o: src/fmtutil.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h

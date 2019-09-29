@@ -3,7 +3,16 @@
 // See the file COPYING for terms of use.
 
 // Compression and decompression of Deflate and zlib
-// (This file is #included by deark-miniz.c.)
+
+#define DE_NOT_IN_MODULE
+#include "deark-config.h"
+#include "deark-private.h"
+#include "deark-fmtutil.h"
+
+#define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
+#define MINIZ_NO_STDIO
+#define MINIZ_NO_ARCHIVE_APIS
+#include "../foreign/miniz.h"
 
 static void de_inflate_internal(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
