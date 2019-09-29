@@ -1737,6 +1737,47 @@ struct de_crcobj {
 	u16 *table16;
 };
 
+#define DE_CRC32_INIT 0
+
+// crc32_calc() is based on public domain code by Jon Mayo, downloaded
+// from <http://orangetide.com/code/crc.c>.
+// It includes minor changes for Deark. I disclaim any copyright on these
+// minor changes. -JS
+// Note: I have found several other seemingly-independent implementations
+// of the same algorithm, such as the one by Karl Malbrain, used in miniz.
+// I don't know its origin.
+static u32 crc32_calc(const u8 *ptr, size_t cnt, u32 crc)
+{
+	static const u32 crc32_tab[16] = {
+		0x00000000U, 0x1db71064U, 0x3b6e20c8U, 0x26d930acU,
+		0x76dc4190U, 0x6b6b51f4U, 0x4db26158U, 0x5005713cU,
+		0xedb88320U, 0xf00f9344U, 0xd6d6a3e8U, 0xcb61b38cU,
+		0x9b64c2b0U, 0x86d3d2d4U, 0xa00ae278U, 0xbdbdf21cU
+	};
+
+	if(cnt==0) return crc;
+	crc = ~crc;
+	while(cnt--) {
+		crc = (crc >> 4) ^ crc32_tab[(crc & 0xf) ^ (*ptr & 0xf)];
+		crc = (crc >> 4) ^ crc32_tab[(crc & 0xf) ^ (*ptr++ >> 4)];
+	}
+	return ~crc;
+}
+
+// For a one-shot CRC calculations, or the first part of a multi-part
+// calculation.
+// buf can be NULL (in which case buf_len should be 0, but is ignored)
+u32 de_crc32(const void *buf, i64 buf_len)
+{
+	if(!buf) return DE_CRC32_INIT;
+	return (u32)crc32_calc((const u8*)buf, (size_t)buf_len, DE_CRC32_INIT);
+}
+
+u32 de_crc32_continue(u32 prev_crc, const void *buf, i64 buf_len)
+{
+	return (u32)crc32_calc((const u8*)buf, (size_t)buf_len, prev_crc);
+}
+
 // This is the CRC-16 algorithm used in MacBinary.
 // It is in the x^16 + x^12 + x^5 + 1 family.
 // CRC-16-CCITT is probably the best name for it, though I'm not completely
