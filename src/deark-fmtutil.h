@@ -111,6 +111,28 @@ int de_fmtutil_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
 	dbuf *outf, unsigned int has_maxlen, i64 max_out_len,
 	unsigned int flags, u8 lzwmode);
 
+// Wrapper for miniz' tdefl functions
+
+enum fmtutil_tdefl_status {
+	FMTUTIL_TDEFL_STATUS_BAD_PARAM      = -2,
+	FMTUTIL_TDEFL_STATUS_PUT_BUF_FAILED = -1,
+	FMTUTIL_TDEFL_STATUS_OKAY           = 0,
+	FMTUTIL_TDEFL_STATUS_DONE           = 1
+};
+
+enum fmtutil_tdefl_flush {
+	FMTUTIL_TDEFL_NO_FLUSH   = 0,
+	FMTUTIL_TDEFL_SYNC_FLUSH = 2,
+	FMTUTIL_TDEFL_FULL_FLUSH = 3,
+	FMTUTIL_TDEFL_FINISH     = 4
+};
+
+struct fmtutil_tdefl_ctx;
+struct fmtutil_tdefl_ctx *fmtutil_tdefl_create(deark *c, dbuf *outf, int flags);
+enum fmtutil_tdefl_status fmtutil_tdefl_compress_buffer(struct fmtutil_tdefl_ctx *tdctx,
+	const void *pIn_buf, size_t in_buf_size, enum fmtutil_tdefl_flush flush);
+void fmtutil_tdefl_destroy(struct fmtutil_tdefl_ctx *tdctx);
+
 struct de_SAUCE_info {
 	int is_valid;
 	de_ucstring *title;

@@ -2,7 +2,7 @@
 // Copyright (C) 2016-2019 Jason Summers
 // See the file COPYING for terms of use.
 
-// Decompression of Deflate and zlib
+// Compression and decompression of Deflate and zlib
 // (This file is #included by deark-miniz.c.)
 
 static void de_inflate_internal(deark *c, struct de_dfilter_in_params *dcmpri,
@@ -184,4 +184,69 @@ void fmtutil_decompress_deflate_ex(deark *c, struct de_dfilter_in_params *dcmpri
 	unsigned int flags)
 {
 	de_inflate_internal(c, dcmpri, dcmpro, dres, flags);
+}
+
+struct fmtutil_tdefl_ctx {
+	deark *c;
+	tdefl_compressor pComp;
+};
+
+static mz_bool my_fmtutil_tdefl_output_buffer_putter(const void *pBuf, int len, void *pUser)
+{
+	dbuf *f = (dbuf*)pUser;
+
+	dbuf_write(f, (const u8*)pBuf, (i64)len);
+	return MZ_TRUE;
+}
+
+struct fmtutil_tdefl_ctx *fmtutil_tdefl_create(deark *c, dbuf *outf, int flags)
+{
+	struct fmtutil_tdefl_ctx *tdctx = NULL;
+
+	tdctx = de_malloc(c, sizeof(struct fmtutil_tdefl_ctx));
+	tdctx->c = c;
+	tdefl_init(&tdctx->pComp, my_fmtutil_tdefl_output_buffer_putter, (void*)outf,
+		flags);
+	return tdctx;
+}
+
+static enum fmtutil_tdefl_status tdefl_status_to_fmtutil(tdefl_status n)
+{
+	switch(n) {
+	case TDEFL_STATUS_BAD_PARAM: return FMTUTIL_TDEFL_STATUS_BAD_PARAM;
+	case TDEFL_STATUS_PUT_BUF_FAILED: return FMTUTIL_TDEFL_STATUS_PUT_BUF_FAILED;
+	case TDEFL_STATUS_OKAY: return FMTUTIL_TDEFL_STATUS_OKAY;
+	case TDEFL_STATUS_DONE: return FMTUTIL_TDEFL_STATUS_DONE;
+	}
+	return TDEFL_STATUS_PUT_BUF_FAILED;
+}
+
+static tdefl_flush fmtutil_flush_to_tdefl(enum fmtutil_tdefl_flush n)
+{
+	switch(n) {
+	case FMTUTIL_TDEFL_NO_FLUSH: return TDEFL_NO_FLUSH;
+	case FMTUTIL_TDEFL_SYNC_FLUSH: return TDEFL_SYNC_FLUSH;
+	case FMTUTIL_TDEFL_FULL_FLUSH: return TDEFL_FULL_FLUSH;
+	case FMTUTIL_TDEFL_FINISH: return TDEFL_FINISH ;
+	}
+	return FMTUTIL_TDEFL_NO_FLUSH;
+}
+
+enum fmtutil_tdefl_status fmtutil_tdefl_compress_buffer(struct fmtutil_tdefl_ctx *tdctx,
+	const void *pIn_buf, size_t in_buf_size, enum fmtutil_tdefl_flush flush)
+{
+	tdefl_status st;
+
+	st = tdefl_compress_buffer(&tdctx->pComp, pIn_buf, in_buf_size,
+		fmtutil_flush_to_tdefl(flush));
+	return tdefl_status_to_fmtutil(st);
+}
+
+void fmtutil_tdefl_destroy(struct fmtutil_tdefl_ctx *tdctx)
+{
+	deark *c;
+
+	if(!tdctx) return;
+	c = tdctx->c;
+	de_free(c, tdctx);
 }

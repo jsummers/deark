@@ -15,8 +15,6 @@
 
 #include "deark-zip-src.h"
 
-#include "deark-png-src.h"
-
 // For a one-shot CRC calculations, or the first part of a multi-part
 // calculation.
 // buf can be NULL (in which case buf_len should be 0, but is ignored)
@@ -31,5 +29,7 @@ u32 de_crc32_continue(u32 prev_crc, const void *buf, i64 buf_len)
 }
 
 #include "deark-fmtutil.h"
+
+#include "deark-png-src.h"
 
 #include "fmtutil-miniz-src.h"

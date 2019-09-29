@@ -123,47 +123,40 @@ static void write_png_chunk_tEXt(struct deark_png_encode_info *pei,
 	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_tEXt);
 }
 
-#define MY_MZ_MAX(a,b) (((a)>(b))?(a):(b))
 #define MY_MZ_MIN(a,b) (((a)<(b))?(a):(b))
-
-static mz_bool my_png_tdefl_output_buffer_putter(const void *pBuf, int len, void *pUser)
-{
-	dbuf *f = (dbuf*)pUser;
-
-	dbuf_write(f, (const u8*)pBuf, (i64)len);
-	return MZ_TRUE;
-}
 
 static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, dbuf *cdbuf,
 	const mz_uint8 *src_pixels)
 {
-	tdefl_compressor *pComp = NULL;
 	int bpl = pei->width * pei->num_chans; // bytes per row in src_pixels
 	int y;
 	static const char nulbyte = '\0';
 	int retval = 0;
 	deark *c = pei->c;
+	struct fmtutil_tdefl_ctx *tdctx = NULL;
 	static const mz_uint my_s_tdefl_num_probes[11] = { 0, 1, 6, 32,  16, 32, 128, 256,  512, 768, 1500 };
 
-	pComp = de_malloc(c, sizeof(tdefl_compressor));
-
 	// compress image data
-	tdefl_init(pComp, my_png_tdefl_output_buffer_putter, (void*)cdbuf,
+	tdctx = fmtutil_tdefl_create(c, cdbuf,
 		my_s_tdefl_num_probes[MY_MZ_MIN(10, pei->level)] | TDEFL_WRITE_ZLIB_HEADER);
 
 	for (y = 0; y < pei->height; ++y) {
-		tdefl_compress_buffer(pComp, &nulbyte, 1, TDEFL_NO_FLUSH);
-		tdefl_compress_buffer(pComp, &src_pixels[(pei->flip ? (pei->height - 1 - y) : y) * bpl],
-			bpl, TDEFL_NO_FLUSH);
+		fmtutil_tdefl_compress_buffer(tdctx, &nulbyte, 1, TDEFL_NO_FLUSH);
+		fmtutil_tdefl_compress_buffer(tdctx, &src_pixels[(pei->flip ? (pei->height - 1 - y) : y) * bpl],
+			bpl, FMTUTIL_TDEFL_NO_FLUSH);
 	}
-	if (tdefl_compress_buffer(pComp, NULL, 0, TDEFL_FINISH) != TDEFL_STATUS_DONE) { goto done; }
+	if (fmtutil_tdefl_compress_buffer(tdctx, NULL, 0, FMTUTIL_TDEFL_FINISH) !=
+		FMTUTIL_TDEFL_STATUS_DONE)
+	{
+		goto done;
+	}
 
 	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_IDAT);
 
 	retval = 1;
 
 done:
-	de_free(c, pComp);
+	fmtutil_tdefl_destroy(tdctx);
 	return retval;
 }
 
