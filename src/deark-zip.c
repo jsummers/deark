@@ -10,7 +10,6 @@
 #include "deark-fmtutil.h"
 
 // TODO: Finish removing the "mz" symbols, and other miniz things.
-#define mz_uint   unsigned int
 #define MZ_NO_COMPRESSION   0
 #define MZ_BEST_COMPRESSION 9
 #define MZ_DEFAULT_LEVEL    6
@@ -35,7 +34,7 @@ struct zipw_md {
 struct zipw_ctx {
 	deark *c;
 	const char *pFilename;
-	mz_uint cmprlevel;
+	unsigned int cmprlevel;
 	i64 membercount;
 	dbuf *outf;
 	dbuf *cdir; // central directory
@@ -66,7 +65,7 @@ int de_zip_create_file(deark *c)
 			zzz->cmprlevel = MZ_DEFAULT_LEVEL;
 		}
 		else {
-			zzz->cmprlevel = (mz_uint)opt_level_n;
+			zzz->cmprlevel = (unsigned int)opt_level_n;
 		}
 	}
 
@@ -154,7 +153,7 @@ static void do_ntfs_times(deark *c, struct zipw_md *md,
 }
 
 static int zipw_deflate(deark *c, struct zipw_ctx *zzz, dbuf *uncmpr_data,
-	dbuf *cmpr_data, mz_uint level)
+	dbuf *cmpr_data, unsigned int level)
 {
 	int retval = 0;
 	enum fmtutil_tdefl_status ret;
@@ -177,7 +176,7 @@ done:
 }
 
 static void zipw_add_memberfile(deark *c, struct zipw_ctx *zzz, struct zipw_md *md,
-	dbuf *f, const char *name, mz_uint level_and_flags)
+	dbuf *f, const char *name, unsigned int level_and_flags)
 {
 	i64 ldir_offset;
 	i64 fnlen;
@@ -215,7 +214,7 @@ static void zipw_add_memberfile(deark *c, struct zipw_ctx *zzz, struct zipw_md *
 	}
 
 	if(try_compression) {
-		mz_uint level;
+		unsigned int level;
 
 		cmpr_data = dbuf_create_membuf(c, 0, 0);
 
