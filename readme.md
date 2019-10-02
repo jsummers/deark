@@ -73,6 +73,13 @@ Command-line options:
 -arcfn &lt;filename>
    When using -zip/-tar, use this name for the output file. Default is
    "output.zip" or "output.tar".
+-ka, -ka2, -ka3
+   When uzing -zip/-tar, "keep" the input filename, and use it as the initial
+   part of the archive output filename. A suitable filename extenson like
+   ".zip" will be appended.
+   -ka: Use only the base filename.
+   -ka2: Use the full path, but not as an actual path.
+   -ka3: Use the full path, as-is.
 -extrlist &lt;filename>
    Also create a text file containing a list of the names of the extracted
    files. Format is UTF-8, no BOM, LF terminators. To append to the file

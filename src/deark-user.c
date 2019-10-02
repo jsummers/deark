@@ -518,6 +518,54 @@ static const char *get_basename_ptr(const char *fn)
 	return basenameptr;
 }
 
+// Construct a basename for output files, or a filename for archives.
+// flags:
+//  0x1 = use base filename only
+//  0x2 = remove path separators
+// Returns an allocated string, which the caller must eventually free.
+// Returns NULL if it can't make a decent filename.
+static char *make_output_filename(deark *c, const char *fn, const char *suffix, unsigned int flags)
+{
+	char *newfn = NULL;
+	size_t newfn_alloc;
+
+	newfn_alloc = de_strlen(fn) + 10;
+	newfn = de_malloc(c, newfn_alloc);
+
+	if(!suffix) suffix = "";
+
+	if(flags & 0x1) {
+		// Use base filename only
+		de_snprintf(newfn, newfn_alloc, "%s%s", get_basename_ptr(fn), suffix);
+	}
+	else {
+		de_snprintf(newfn, newfn_alloc, "%s%s", fn, suffix);
+	}
+
+	if(flags & 0x2) {
+		// Remove path separators; sanitize
+		size_t i;
+
+		for(i=0; newfn[i]; i++) {
+			if(newfn[i]=='/' || newfn[i]=='\\') {
+				newfn[i] = '_';
+			}
+		}
+
+		if(newfn[0]=='.') {
+			newfn[0] = '_';
+		}
+	}
+
+	// Don't allow empty filename
+	if(newfn[0]=='\0') {
+		de_free(c, newfn);
+		newfn = NULL;
+	}
+
+	return newfn;
+}
+
 // flags:
 //  0x1 = use base filename only
 //  0x2 = remove path separators
@@ -527,47 +575,36 @@ void de_set_base_output_filename(deark *c, const char *fn, unsigned int flags)
 	c->base_output_filename = NULL;
 	if(!fn) return;
 
-	if(flags & 0x1) {
-		// Use base filename only
-		c->base_output_filename = de_strdup(c, get_basename_ptr(fn));
-	}
-	else {
-		c->base_output_filename = de_strdup(c, fn);
-	}
-
-	if(flags & 0x2) {
-		// Remove path separators; sanitize
-		size_t i;
-
-		for(i=0; c->base_output_filename[i]; i++) {
-			if(c->base_output_filename[i]=='/' || c->base_output_filename[i]=='\\') {
-				c->base_output_filename[i] = '_';
-			}
-		}
-
-		if(c->base_output_filename[0]=='.') {
-			c->base_output_filename[0] = '_';
-		}
-	}
-
-	// Don't allow empty filename
-	if(c->base_output_filename[0]=='\0') {
-		de_free(c, c->base_output_filename);
-		c->base_output_filename = NULL;
-	}
+	c->base_output_filename = make_output_filename(c, fn, NULL, flags);
 }
 
-// If flags&0x1, configure the archive file to be written to stdout.
+// If flags&0x10, configure the archive file to be written to stdout.
+// 0x20 = Append ".zip"/".tar" (must have already called de_set_output_style())
+//  0x1 = use base filename only
+//  0x2 = remove path separators
 void de_set_output_archive_filename(deark *c, const char *fn, unsigned int flags)
 {
+	const char *suffix = NULL;
 	if(c->output_archive_filename) de_free(c, c->output_archive_filename);
-	c->output_archive_filename = NULL;
-	if(fn) {
-		c->output_archive_filename = de_strdup(c, fn);
-	}
-	if(flags&0x1) {
+
+	if(flags&0x10) {
 		c->archive_to_stdout = 1;
+		return;
 	}
+
+	if((flags & 0x20) && c->output_style==DE_OUTPUTSTYLE_ARCHIVE) {
+		if(c->archive_fmt==DE_ARCHIVEFMT_ZIP) {
+			suffix = ".zip";
+		}
+		else if(c->archive_fmt==DE_ARCHIVEFMT_TAR) {
+			suffix = ".tar";
+		}
+		else {
+			suffix = ".err";
+		}
+	}
+
+	c->output_archive_filename = make_output_filename(c, fn, suffix, flags);
 }
 
 void de_set_extrlist_filename(deark *c, const char *fn)
