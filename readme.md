@@ -48,10 +48,14 @@ Command-line options:
    path. Default is "output", except in some cases when using -zip/-tar.
 -k, -k2, -k3
    "Keep" the input filename, and use it as the initial part of the output
-   filename(s).
+   filename(s). Incompatible with -o.
    -k: Use only the base filename.
    -k2: Use the full path, but not as an actual path.
    -k3: Use the full path, as-is.
+-od &lt;directory>
+   The directory in which to write output files. The directory must exist.
+   This affects only files that Deark writes directly, not e.g. the names of
+   ZIP member files when using -zip.
 -n
    Do not overwrite existing output files.
 -file &lt;input-file>
@@ -76,7 +80,7 @@ Command-line options:
 -ka, -ka2, -ka3
    When uzing -zip/-tar, "keep" the input filename, and use it as the initial
    part of the archive output filename. A suitable filename extenson like
-   ".zip" will be appended.
+   ".zip" will be appended. Incompatible with -arcfn.
    -ka: Use only the base filename.
    -ka2: Use the full path, but not as an actual path.
    -ka3: Use the full path, as-is.

@@ -41,6 +41,7 @@ struct cmdctx {
 	int use_fwputs;
 #endif
 
+	const char *output_dirname;
 	const char *base_output_filename;
 	const char *archive_filename;
 	int option_k_level; // Use input filename in output filenames
@@ -111,6 +112,7 @@ static void show_help(deark *c)
 		" -m <module>: Assume input file is this format, instead of autodetecting.\n"
 		" -k: Start output filenames with the input filename.\n"
 		" -o <base-filename>: Start output filenames with this string.\n"
+		" -od <directory>: Write files to this directory.\n"
 		" -zip: Write output files to a .zip file.\n"
 		" -ka: Start the .zip filename with the input filename.\n"
 		" -a: Extract more data than usual.\n"
@@ -354,7 +356,7 @@ enum opt_id_enum {
  DE_OPT_TOSTDOUT, DE_OPT_MSGSTOSTDERR, DE_OPT_FROMSTDIN, DE_OPT_COLOR,
  DE_OPT_ENCODING,
  DE_OPT_EXTOPT, DE_OPT_FILE, DE_OPT_FILE2, DE_OPT_INENC, DE_OPT_INTZ,
- DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_MODCODES, DE_OPT_O,
+ DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_MODCODES, DE_OPT_O, DE_OPT_OD,
  DE_OPT_K, DE_OPT_K2, DE_OPT_K3, DE_OPT_KA, DE_OPT_KA2, DE_OPT_KA3,
  DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES,
  DE_OPT_MAXFILESIZE, DE_OPT_MAXTOTALSIZE, DE_OPT_MAXIMGDIM,
@@ -417,6 +419,7 @@ struct opt_struct option_array[] = {
 	{ "modcodes",     DE_OPT_MODCODES,     1 },
 	{ "o",            DE_OPT_O,            1 },
 	{ "basefn",       DE_OPT_O,            1 }, // Deprecated
+	{ "od",           DE_OPT_OD,           1 },
 	{ "arcfn",        DE_OPT_ARCFN,        1 },
 	{ "get",          DE_OPT_GET,          1 },
 	{ "firstfile",    DE_OPT_FIRSTFILE,    1 },
@@ -478,6 +481,80 @@ static void colormode_opt(struct cmdctx *cc, const char *modestr)
 		cc->error_flag = 1;
 		return;
 	}
+}
+
+static void set_output_basename(struct cmdctx *cc)
+{
+	const char *outputbasefn = cc->base_output_filename; // default, could be NULL
+	const char *outdirname;
+	unsigned int flags = 0;
+
+	if(cc->option_k_level && cc->input_filename) {
+		if(cc->option_k_level==1) {
+			// Use base input filename in output filenames.
+			outputbasefn = cc->input_filename;
+			flags |= 0x1;
+		}
+		else if(cc->option_k_level==2) {
+			// Use full input filename path, but not as an actual path.
+			outputbasefn = cc->input_filename;
+			flags |= 0x2;
+		}
+		else if(cc->option_k_level==3) {
+			// Use full input filename path, as-is.
+			outputbasefn = cc->input_filename;
+		}
+	}
+
+	if(cc->to_zip || cc->to_tar) {
+		// In this case, -od refers to the archive filename, not to the base
+		// filename that we're dealing with here.
+		outdirname = NULL;
+	}
+	else if(cc->to_stdout) {
+		// -od is incompatible with -tostdout
+		outdirname = NULL;
+	}
+	else {
+		outdirname = cc->output_dirname;
+	}
+
+	de_set_base_output_filename(cc->c, outdirname, outputbasefn, flags);
+}
+
+static void set_output_archive_name(struct cmdctx *cc)
+{
+	const char *arcfn = cc->archive_filename; // default, could be NULL
+	unsigned int flags = 0;
+
+	if(!cc->to_zip && !cc->to_tar) return;
+	if(cc->to_stdout) return;
+
+	if(cc->option_ka_level && cc->input_filename)
+	{
+		if(cc->option_ka_level==1) {
+			// Use base input filename in output filenames.
+			arcfn = cc->input_filename;
+			flags |= 0x21;
+		}
+		else if(cc->option_ka_level==2) {
+			// Use full input filename path, but not as an actual path.
+			arcfn = cc->input_filename;
+			flags |= 0x22;
+		}
+		else if(cc->option_ka_level==3) {
+			// Use full input filename path, as-is.
+			arcfn = cc->input_filename;
+			flags |= 0x20;
+		}
+	}
+
+	if(!arcfn) {
+		arcfn = "output";
+		flags |= 0x20;
+	}
+
+	de_set_output_archive_filename(cc->c, cc->output_dirname, arcfn, flags);
 }
 
 static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
@@ -663,6 +740,9 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 			case DE_OPT_O:
 				cc->base_output_filename = argv[i+1];
 				break;
+			case DE_OPT_OD:
+				cc->output_dirname = argv[i+1];
+				break;
 			case DE_OPT_ARCFN:
 				// Relevant e.g. if the -zip option is used.
 				cc->archive_filename = argv[i+1];
@@ -748,7 +828,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 
 	if(cc->to_stdout) {
 		if(cc->to_zip || cc->to_tar) {
-			de_set_output_archive_filename(c, NULL, 0x10);
+			de_set_output_archive_filename(c, NULL, NULL, 0x10);
 		}
 		else {
 			de_set_output_style(c, DE_OUTPUTSTYLE_STDOUT, 0);
@@ -756,45 +836,8 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 		}
 	}
 
-	if(cc->option_k_level && cc->input_filename) {
-		if(cc->option_k_level==1) {
-			// Use base input filename in output filenames.
-			de_set_base_output_filename(c, cc->input_filename, 0x1);
-		}
-		else if(cc->option_k_level==2) {
-			// Use full input filename path, but not as an actual path.
-			de_set_base_output_filename(c, cc->input_filename, 0x2);
-		}
-		else if(cc->option_k_level==3) {
-			// Use full input filename path, as-is.
-			de_set_base_output_filename(c, cc->input_filename, 0x0);
-		}
-	}
-
-	if(cc->base_output_filename) {
-		de_set_base_output_filename(c, cc->base_output_filename, 0);
-	}
-
-	if(cc->option_ka_level && cc->input_filename &&
-		(cc->to_zip || cc->to_tar) && !cc->to_stdout)
-	{
-		if(cc->option_ka_level==1) {
-			// Use base input filename in output filenames.
-			de_set_output_archive_filename(c, cc->input_filename, 0x21);
-		}
-		else if(cc->option_ka_level==2) {
-			// Use full input filename path, but not as an actual path.
-			de_set_output_archive_filename(c, cc->input_filename, 0x22);
-		}
-		else if(cc->option_ka_level==3) {
-			// Use full input filename path, as-is.
-			de_set_output_archive_filename(c, cc->input_filename, 0x20);
-		}
-	}
-
-	if(cc->archive_filename) {
-		de_set_output_archive_filename(c, cc->archive_filename, 0);
-	}
+	set_output_basename(cc);
+	set_output_archive_name(cc);
 }
 
 static void main2(int argc, char **argv)

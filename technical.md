@@ -65,8 +65,8 @@ off onto your unzip/untar program. It is more tolerant in this case.
 
 Directory paths are only maintained as such if you use -zip/-tar (and you don't
 use "-opt archive:subdirs=0"). Deark generally does not write a file anywhere
-other than the current directory, though you can tell it to do so by using -o,
--arcfn, or -k3.
+other than the current directory, though you can tell it to do so with -od, or
+with other options such as -arcfn or -k3.
 
 ## The "Is this one format or two?" problem ##
 
