@@ -21,6 +21,11 @@ enum color_method_enum {
 	CM_WINCONSOLE
 };
 
+enum special_command_code_enum {
+	CMD_NONE = 0, CMD_PRINTHELP, CMD_PRINTVERSION, CMD_PRINTLICENSE,
+	CMD_PRINTMODULES
+};
+
 struct cmdctx {
 	deark *c;
 	struct de_platform_data *plctx;
@@ -28,9 +33,7 @@ struct cmdctx {
 	int error_flag;
 	int show_usage_message;
 	int special_command_flag;
-#define CMD_PRINTMODULES 2
-#define CMD_PRINTLICENSE 3
-	int special_command_code;
+	enum special_command_code_enum special_command_code;
 	int msgs_to_stderr;
 
 	// Have we set msgs_FILE and have_windows_console, and called _setmode if needed?
@@ -71,12 +74,13 @@ static void emit_sz(struct cmdctx *cc, const char *sz)
 	fputs(sz, cc->msgs_FILE);
 }
 
-static void show_version(deark *c, int verbose)
+static void print_version(deark *c, int verbose)
 {
 	char vbuf[80];
 
 	de_printf(c, DE_MSGTYPE_MESSAGE, "Deark version: %s\n",
 		de_get_version_string(vbuf, sizeof(vbuf)));
+	if(!verbose) return;
 	de_printf(c, DE_MSGTYPE_MESSAGE, "platform API: %s\n",
 #ifdef DE_WINDOWS
 		"Windows"
@@ -91,22 +95,22 @@ static void show_version(deark *c, int verbose)
 #endif
 }
 
-static void show_usage_preamble(deark *c) {
+static void print_usage_oneline(deark *c) {
 	de_puts(c, DE_MSGTYPE_MESSAGE, "Usage: deark [options] <input-file> [options]\n");
 }
 
-static void show_usage_error(deark *c)
+static void print_usage_error(deark *c)
 {
-	show_usage_preamble(c);
+	print_usage_oneline(c);
 	de_puts(c, DE_MSGTYPE_MESSAGE, "\"deark -h\" for help.\n");
 }
 
-static void show_help(deark *c)
+static void print_help(deark *c)
 {
-	show_version(c, 0);
+	print_version(c, 0);
 	de_puts(c, DE_MSGTYPE_MESSAGE,
 		"A utility for extracting data from various file formats\n\n");
-	show_usage_preamble(c);
+	print_usage_oneline(c);
 	de_puts(c, DE_MSGTYPE_MESSAGE,
 		"\nCommonly used options:\n"
 		" -l: Instead of extracting, list the files that would be extracted.\n"
@@ -674,16 +678,16 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				de_set_warnings(c, 0);
 				break;
 			case DE_OPT_VERSION:
-				// TODO: Use ->special_command_code instead of calling show_version() here.
-				show_version(c, 1);
 				cc->special_command_flag = 1;
+				cc->special_command_code = CMD_PRINTVERSION;
 				break;
 			case DE_OPT_PRINTMODULES:
 				cc->special_command_flag = 1;
 				cc->special_command_code = CMD_PRINTMODULES;
 				break;
 			case DE_OPT_HELP:
-				// TODO: Use ->special_command_code instead of help_flag.
+				// At this point, we don't know whether this will be general help,
+				// or module-specific help. So just set a flag for later.
 				help_flag = 1;
 				break;
 			case DE_OPT_LICENSE:
@@ -854,7 +858,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 		}
 		else {
 			cc->special_command_flag = 1;
-			show_help(c);
+			cc->special_command_code = CMD_PRINTHELP;
 		}
 		return;
 	}
@@ -896,7 +900,7 @@ static void main2(int argc, char **argv)
 	cc->plctx = de_platformdata_create();
 
 	if(argc<2) { // Empty command line
-		show_help(c);
+		print_help(c);
 		goto done;
 	}
 
@@ -904,18 +908,26 @@ static void main2(int argc, char **argv)
 
 	if(cc->error_flag) {
 		if(cc->show_usage_message) {
-			show_usage_error(c);
+			print_usage_error(c);
 		}
 		goto done;
 	}
 
 	if(cc->special_command_flag) {
 		switch(cc->special_command_code) {
-		case CMD_PRINTMODULES:
-			print_modules(c);
+		case CMD_PRINTHELP:
+			print_help(c);
+			break;
+		case CMD_PRINTVERSION:
+			print_version(c, 1);
 			break;
 		case CMD_PRINTLICENSE:
 			print_license(c);
+			break;
+		case CMD_PRINTMODULES:
+			print_modules(c);
+			break;
+		default:
 			break;
 		}
 		goto done;
