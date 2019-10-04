@@ -29,6 +29,7 @@ struct cmdctx {
 	int show_usage_message;
 	int special_command_flag;
 #define CMD_PRINTMODULES 2
+#define CMD_PRINTLICENSE 3
 	int special_command_code;
 	int msgs_to_stderr;
 
@@ -122,8 +123,42 @@ static void show_help(deark *c)
 		" -q, -noinfo, -nowarn: Print fewer messages than usual.\n"
 		" -modules: Print the names of all available modules.\n"
 		" -help, -h: Print this message.\n"
+		" -license: Print the credits and terms of use.\n"
 		" -version: Print version information.\n"
 		);
+}
+
+static void print_license(deark *c)
+{
+	de_puts(c, DE_MSGTYPE_MESSAGE, "Deark\n"
+	"Copyright (C) 2016-2019 Jason Summers\n\n"
+	"Permission is hereby granted, free of charge, to any person obtaining a copy\n"
+	"of this software and associated documentation files (the \"Software\"), to deal\n"
+	"in the Software without restriction, including without limitation the rights\n"
+	"to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n"
+	"copies of the Software, and to permit persons to whom the Software is\n"
+	"furnished to do so, subject to the following conditions:\n\n"
+	"The above copyright notice and this permission notice shall be included in\n"
+	"all copies or substantial portions of the Software.\n\n"
+	"THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n"
+	"IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n"
+	"FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n"
+	"AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n"
+	"LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n"
+	"OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\n"
+	"THE SOFTWARE.\n\n"
+	"----------\n"
+	"The zlib and Deflate encoder and decoder use public domain code originally from\n"
+	"miniz v1.16 beta r1, by Rich Geldreich.\n\n"
+	"Some LZW decoders use public domain code from liblzw by Mike Frysinger, based\n"
+	"on compress/ncompress by Thomas, Woods, et. al.\n\n"
+	"The ZIP Implode decoder is derived from public domain code by Mark Adler, from\n"
+	"Info-ZIP UnZip v5.4.\n\n"
+	"The X-Face decoder uses code from Compface, Copyright (c) 1990 James Ashton.\n\n"
+	"The Stuffit Huffman decoder uses code by Allan G. Weber, from Unsit Version 1.\n\n"
+	"The ZOO LZD decoder uses public domain code by Rahul Dhesi, from zoo-2.10pl1.\n\n"
+	"The ZOO LZH decoder uses public domain code by Martin Schoenert et. al., from\n"
+	"unzoo.c v4.4.\n");
 }
 
 static void print_modules(deark *c)
@@ -351,7 +386,7 @@ enum opt_id_enum {
  DE_OPT_NOINFO, DE_OPT_NOWARN,
  DE_OPT_NOBOM, DE_OPT_NODENS, DE_OPT_ASCIIHTML, DE_OPT_NONAMES,
  DE_OPT_NOOVERWRITE, DE_OPT_MODTIME, DE_OPT_NOMODTIME,
- DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP,
+ DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP, DE_OPT_LICENSE,
  DE_OPT_MAINONLY, DE_OPT_AUXONLY, DE_OPT_EXTRACTALL, DE_OPT_ZIP, DE_OPT_TAR,
  DE_OPT_TOSTDOUT, DE_OPT_MSGSTOSTDERR, DE_OPT_FROMSTDIN, DE_OPT_COLOR,
  DE_OPT_ENCODING,
@@ -407,6 +442,7 @@ struct opt_struct option_array[] = {
 	{ "ka",           DE_OPT_KA,           0 },
 	{ "ka2",          DE_OPT_KA2,          0 },
 	{ "ka3",          DE_OPT_KA3,          0 },
+	{ "license",      DE_OPT_LICENSE,      0 },
 	{ "enc",          DE_OPT_ENCODING,     1 },
 	{ "opt",          DE_OPT_EXTOPT,       1 },
 	{ "file",         DE_OPT_FILE,         1 },
@@ -650,6 +686,10 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				// TODO: Use ->special_command_code instead of help_flag.
 				help_flag = 1;
 				break;
+			case DE_OPT_LICENSE:
+				cc->special_command_flag = 1;
+				cc->special_command_code = CMD_PRINTLICENSE;
+				break;
 			case DE_OPT_MAINONLY:
 				de_set_extract_policy(c, DE_EXTRACTPOLICY_MAINONLY);
 				break;
@@ -873,6 +913,9 @@ static void main2(int argc, char **argv)
 		switch(cc->special_command_code) {
 		case CMD_PRINTMODULES:
 			print_modules(c);
+			break;
+		case CMD_PRINTLICENSE:
+			print_license(c);
 			break;
 		}
 		goto done;
