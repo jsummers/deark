@@ -52,6 +52,7 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define IFDTYPE_NIKONMN      6 // First IFD of a Nikon MakerNote
 #define IFDTYPE_NIKONPREVIEW 7
 #define IFDTYPE_APPLEMN      8
+#define IFDTYPE_MASKSUBIFD   9
 
 struct localctx_struct;
 typedef struct localctx_struct lctx;
@@ -591,19 +592,28 @@ static int lookup_str_and_append_to_ucstring(const struct int_and_str *items, si
 
 static int valdec_newsubfiletype(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
-	if(vp->n<1) return 0;
+	i64 n = vp->n;
 
-	if(vp->n&0x1) {
+	if(n<1) return 0;
+
+	if(n&0x1) {
 		ucstring_append_flags_item(vr->s, "reduced-res");
+		n -= 0x1;
 	}
-	if(vp->n&0x2) {
+	if(n&0x2) {
 		ucstring_append_flags_item(vr->s, "one-page-of-many");
+		n -= 0x2;
 	}
-	if(vp->n&0x4) {
+	if(n&0x4) {
 		ucstring_append_flags_item(vr->s, "mask");
+		n -= 0x4;
 	}
-	if((vp->n & ~0x7)!=0) {
-		ucstring_append_flags_item(vr->s, "?");
+	if(n&0x10) {
+		ucstring_append_flags_item(vr->s, "MRC-related");
+		n -= 0x10;
+	}
+	if(n!=0) {
+		ucstring_append_flags_itemf(vr->s, "0x%x", (unsigned int)n);
 	}
 
 	return 1;
@@ -1102,6 +1112,7 @@ static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const st
 	else if(tg->tagnum==330) ifdtype = IFDTYPE_SUBIFD;
 	else if(tg->tagnum==400) ifdtype = IFDTYPE_GLOBALPARAMS;
 	else if(tg->tagnum==34665) ifdtype = IFDTYPE_EXIF;
+	else if(tg->tagnum==34731) ifdtype = IFDTYPE_MASKSUBIFD;
 	else if(tg->tagnum==34853) ifdtype = IFDTYPE_GPS;
 	else if(tg->tagnum==40965) ifdtype = IFDTYPE_EXIFINTEROP;
 
@@ -1718,6 +1729,8 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	//{ 34688, 0x0000, "MultiProfiles", NULL, NULL, NULL },
 	//{ 34689, 0x0000, "SharedData", NULL, NULL, NULL },
 	//{ 34690, 0x0000, "T88Options", NULL, NULL, NULL },
+	{ 34730, 0x0000, "Annotation Offsets", NULL, NULL },
+	{ 34731, 0x0008, "Mask SubIFDs", handler_subifd, NULL },
 	{ 34732, 0x0000, "ImageLayer", NULL, NULL },
 	{ 34735, 0x0000, "GeoKeyDirectoryTag", NULL, NULL },
 	{ 34736, 0x0000, "GeoDoubleParamsTag", NULL, NULL },
@@ -2418,6 +2431,9 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 	case IFDTYPE_NIKONPREVIEW:
 		name=" (Nikon Preview)";
 		break;
+	case IFDTYPE_MASKSUBIFD:
+		name=" (Mask SubIFD)";
+		break;
 	default:
 		name="";
 	}
@@ -2635,18 +2651,30 @@ static int de_identify_tiff_internal(deark *c, int *is_le)
 	return fmt;
 }
 
-// Deark TIFF container formats. See de_fmtutil_handle_iptc() for example.
-static void identify_deark_formats(deark *c, lctx *d)
+static void identify_more_formats(deark *c, lctx *d)
 {
 	u8 buf[20];
+
 	de_read(buf, 8, sizeof(buf));
-	if(de_memcmp(buf, "Deark extracted ", 16)) return;
-	if(!de_memcmp(&buf[16], "IPTC", 4)) {
-		d->is_deark_iptc = 1;
+
+	// Deark TIFF container formats. See de_fmtutil_handle_iptc() for example.
+	if(!de_memcmp(buf, "Deark extracted ", 16)) {
+		if(!de_memcmp(&buf[16], "IPTC", 4)) {
+			d->is_deark_iptc = 1;
+			return;
+		}
+		if(!de_memcmp(&buf[16], "8BIM", 4)) {
+			d->is_deark_8bim = 1;
+			return;
+		}
+	}
+
+	if(!de_memcmp(buf, "XEROX DIFF", 10)) {
+		de_dbg(c, "XIFF/XEROX DIFF format detected");
 		return;
 	}
-	if(!de_memcmp(&buf[16], "8BIM", 4)) {
-		d->is_deark_8bim = 1;
+	if(!de_memcmp(buf, " eXtended ", 10)) {
+		de_dbg(c, "XIFF/eXtended format detected");
 	}
 }
 
@@ -2684,7 +2712,7 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 	}
 
 	if(d->fmt==DE_TIFFFMT_TIFF) {
-		identify_deark_formats(c, d);
+		identify_more_formats(c, d);
 	}
 
 	switch(d->fmt) {
