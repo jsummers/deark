@@ -919,6 +919,7 @@ void ucstring_append_char(de_ucstring *s, i32 ch);
 void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2);
 void ucstring_printf(de_ucstring *s, de_encoding encoding, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 3, 4)));
+int ucstring_isempty(const de_ucstring *s);
 int ucstring_isnonempty(const de_ucstring *s);
 
 // Convert and append an encoded array of bytes to the string.
@@ -1075,10 +1076,6 @@ struct de_char_screen {
 	struct de_char_cell **cell_rows; // Array of [height] row pointers
 };
 
-struct de_char_comment {
-	de_ucstring *s;
-};
-
 struct de_char_context {
 	u8 prefer_image_output;
 	u8 prefer_9col_mode;
@@ -1094,8 +1091,7 @@ struct de_char_context {
 	de_ucstring *artist;
 	de_ucstring *organization;
 	struct de_timestamp creation_date;
-	i64 num_comments;
-	struct de_char_comment *comments; // Array of [num_comments] comments
+	de_ucstring *comment; // NULL if there is no comment
 };
 
 void de_char_output_to_file(deark *c, struct de_char_context *charctx);

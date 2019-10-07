@@ -121,6 +121,12 @@ void ucstring_destroy(de_ucstring *s)
 	}
 }
 
+int ucstring_isempty(const de_ucstring *s)
+{
+	if(!s) return 1;
+	return (s->len == 0);
+}
+
 int ucstring_isnonempty(const de_ucstring *s)
 {
 	return (s && (s->len > 0));

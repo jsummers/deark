@@ -279,8 +279,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 		charctx->artist = si->artist;
 		charctx->organization = si->organization;
 		charctx->creation_date = si->creation_date;
-		charctx->num_comments = si->num_comments;
-		charctx->comments = si->comments;
+		charctx->comment = si->comment;
 	}
 
 	d->width_in_chars = de_getu16le(5);
@@ -440,8 +439,7 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 		charctx->artist = si->artist;
 		charctx->organization = si->organization;
 		charctx->creation_date = si->creation_date;
-		charctx->num_comments = si->num_comments;
-		charctx->comments = si->comments;
+		charctx->comment = si->comment;
 
 		effective_file_size = si->original_file_size;
 

@@ -999,8 +999,7 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 		charctx->artist = si->artist;
 		charctx->organization = si->organization;
 		charctx->creation_date = si->creation_date;
-		charctx->num_comments = si->num_comments;
-		charctx->comments = si->comments;
+		charctx->comment = si->comment;
 
 		if(si->is_valid && si->data_type==1 && (si->file_type==1 || si->file_type==2)) {
 			valid_sauce = 1;
@@ -1131,6 +1130,8 @@ static void de_help_ansiart(deark *c)
 	de_msg(c, "-opt char:output=image : Write an image file instead of HTML");
 	de_msg(c, " -opt char:charwidth=<8|9> : Width of a character cell");
 	de_msg(c, "-opt char:width=<n> : Number of characters per row");
+	// TODO: SAUCE help is relevant to more formats than this one.
+	de_msg(c, "-opt sauce:combinecomments=1 : Don't put line breaks between comments");
 }
 
 void de_module_ansiart(deark *c, struct deark_module_info *mi)

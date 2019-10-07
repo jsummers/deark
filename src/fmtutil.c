@@ -416,13 +416,7 @@ void de_fmtutil_free_SAUCE(deark *c, struct de_SAUCE_info *si)
 	ucstring_destroy(si->title);
 	ucstring_destroy(si->artist);
 	ucstring_destroy(si->organization);
-	if(si->comments) {
-		i64 k;
-		for(k=0; k<si->num_comments; k++) {
-			ucstring_destroy(si->comments[k].s);
-		}
-		de_free(c, si->comments);
-	}
+	ucstring_destroy(si->comment);
 	de_free(c, si);
 }
 
