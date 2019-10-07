@@ -1912,6 +1912,12 @@ static int addslice_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 
 void de_crcobj_addslice(struct de_crcobj *crco, dbuf *f, i64 pos, i64 len)
 {
+	// Minor optimization for the case where the data is all in memory
+	if(f->btype==DBUF_TYPE_MEMBUF && (pos>=0) && (pos+len<=f->len)) {
+		de_crcobj_addbuf(crco, &f->membuf_buf[pos], len);
+		return;
+	}
+
 	dbuf_buffered_read(f, pos, len, addslice_cbfn, (void*)crco);
 }
 

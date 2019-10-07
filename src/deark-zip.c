@@ -195,7 +195,7 @@ static void zipw_add_memberfile(deark *c, struct zipw_ctx *zzz, struct zipw_md *
 	}
 
 	de_crcobj_reset(zzz->crc32o);
-	de_crcobj_addbuf(zzz->crc32o, f->membuf_buf, f->len);
+	de_crcobj_addslice(zzz->crc32o, f, 0, f->len);
 	crc = de_crcobj_getval(zzz->crc32o);
 
 	ldir_offset = zzz->outf->len;

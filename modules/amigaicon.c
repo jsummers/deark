@@ -125,7 +125,7 @@ static void do_decode_newicons(deark *c, lctx *d,
 	d->newicons_line_count=0;
 
 	for(srcpos=5; srcpos<f->len; srcpos++) {
-		b0 = f->membuf_buf[srcpos];
+		b0 = dbuf_getbyte(f, srcpos);
 		if((b0>=0x20 && b0<=0x6f) || (b0>=0xa1 && b0<=0xd0)) {
 			if(b0<=0x6f) b1 = b0-0x20;
 			else b1 = 0x50 + (b0-0xa1);
