@@ -708,6 +708,7 @@ static void handler_sRGB(deark *c, lctx *d, struct handler_params *hp)
 static void handler_iccp(deark *c, lctx *d, struct handler_params *hp)
 {
 	u8 cmpr_type;
+	i64 cmpr_len;
 	dbuf *f = NULL;
 	struct de_stringreaderdata *prof_name_srd = NULL;
 	de_finfo *fi = NULL;
@@ -741,11 +742,13 @@ static void handler_iccp(deark *c, lctx *d, struct handler_params *hp)
 	cmpr_type = de_getbyte_p(&pos);
 	if(cmpr_type!=0) return;
 
+	cmpr_len = hp->dpos + hp->dlen - pos;
+	de_dbg(c, "compressed profile data at %"I64_FMT", len=%"I64_FMT, pos, cmpr_len);
 	fi = de_finfo_create(c);
 	if(c->filenames_from_file && prof_name2[0])
 		de_finfo_set_name_from_sz(c, fi, prof_name2, 0, DE_ENCODING_LATIN1);
 	f = dbuf_create_output_file(c, "icc", fi, DE_CREATEFLAG_IS_AUX);
-	fmtutil_decompress_deflate(c->infile, pos, hp->dlen - pos, f, 0, NULL,
+	fmtutil_decompress_deflate(c->infile, pos, cmpr_len, f, 0, NULL,
 		d->is_CgBI ? 0 : DE_DEFLATEFLAG_ISZLIB);
 
 done:
