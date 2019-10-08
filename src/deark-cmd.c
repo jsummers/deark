@@ -390,7 +390,7 @@ enum opt_id_enum {
  DE_OPT_NOINFO, DE_OPT_NOWARN,
  DE_OPT_NOBOM, DE_OPT_NODENS, DE_OPT_ASCIIHTML, DE_OPT_NONAMES,
  DE_OPT_NOOVERWRITE, DE_OPT_MODTIME, DE_OPT_NOMODTIME,
- DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP, DE_OPT_LICENSE,
+ DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP, DE_OPT_LICENSE, DE_OPT_ID,
  DE_OPT_MAINONLY, DE_OPT_AUXONLY, DE_OPT_EXTRACTALL, DE_OPT_ZIP, DE_OPT_TAR,
  DE_OPT_TOSTDOUT, DE_OPT_MSGSTOSTDERR, DE_OPT_FROMSTDIN, DE_OPT_COLOR,
  DE_OPT_ENCODING,
@@ -447,6 +447,7 @@ struct opt_struct option_array[] = {
 	{ "ka2",          DE_OPT_KA2,          0 },
 	{ "ka3",          DE_OPT_KA3,          0 },
 	{ "license",      DE_OPT_LICENSE,      0 },
+	{ "id",           DE_OPT_ID,           0 },
 	{ "enc",          DE_OPT_ENCODING,     1 },
 	{ "opt",          DE_OPT_EXTOPT,       1 },
 	{ "file",         DE_OPT_FILE,         1 },
@@ -693,6 +694,9 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 			case DE_OPT_LICENSE:
 				cc->special_command_flag = 1;
 				cc->special_command_code = CMD_PRINTLICENSE;
+				break;
+			case DE_OPT_ID:
+				de_set_id_mode(c, 1);
 				break;
 			case DE_OPT_MAINONLY:
 				de_set_extract_policy(c, DE_EXTRACTPOLICY_MAINONLY);

@@ -81,6 +81,7 @@ struct deark_module_info {
 #define DE_MODFLAG_SHAREDDETECTION 0x10 // Module modifies deark::detection_data
 #define DE_MODFLAG_DISABLEDETECT 0x100 // Ignore results of autodetection
 	u32 flags;
+	u32 unique_id; // or 0. Rarely used.
 #define DE_MAX_MODULE_ALIASES 2
 	const char *id_alias[DE_MAX_MODULE_ALIASES];
 };
@@ -361,7 +362,8 @@ struct deark_struct {
 	struct de_timestamp reproducible_timestamp;
 	int can_decode_fltpt;
 	int host_is_le;
-	int modhelp_req;
+	u8 identify_only;
+	u8 modhelp_req;
 	de_encoding input_encoding;
 	i64 input_tz_offs_seconds;
 

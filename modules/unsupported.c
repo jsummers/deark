@@ -178,5 +178,6 @@ void de_module_unsupported(deark *c, struct deark_module_info *mi)
 	mi->desc = "Identify some unsupported formats";
 	mi->run_fn = de_run_unsupported;
 	mi->identify_fn = de_identify_unsupported;
-	mi->flags |= DE_MODFLAG_HIDDEN;
+	mi->flags |= DE_MODFLAG_HIDDEN | DE_MODFLAG_NOEXTRACT;
+	mi->unique_id = 1;
 }

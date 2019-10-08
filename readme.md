@@ -211,6 +211,9 @@ Command-line options:
         as = Put both forks in an AppleSingle container.
        For input files already in AppleDouble or AppleSingle format, see the
        formats.txt file for more information.
+-id
+   Stop after the format identification phase. This can be used to show what
+   module Deark will run, without actually running it.
 -h, -?, -help:
    Print the help message.
    Use with -m to get help for a specific module. Use with a filename to get

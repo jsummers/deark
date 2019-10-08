@@ -315,7 +315,7 @@ void de_run(deark *c)
 	}
 
 	if(c->modhelp_req && module_was_autodetected &&
-		de_strcmp(module_to_use->id, "unsupported"))
+		module_to_use->unique_id!=1) // id 1 == "unsupported"
 	{
 		do_modhelp_internal(c, module_to_use);
 		goto done;
@@ -336,6 +336,14 @@ void de_run(deark *c)
 			"not work properly. Caveat emptor.",
 			module_to_use->id);
 	}
+
+	if(c->identify_only) {
+		// Stop here, unless we're using the "unsupported" module.
+		if(module_to_use->unique_id!=1) {
+			goto done;
+		}
+	}
+
 	de_dbg2(c, "file size: %" I64_FMT "", c->infile->len);
 
 	if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE) {
@@ -743,7 +751,12 @@ void de_set_listmode(deark *c, int x)
 
 void de_set_want_modhelp(deark *c, int x)
 {
-	c->modhelp_req = x;
+	c->modhelp_req = x?1:0;
+}
+
+void de_set_id_mode(deark *c, int x)
+{
+	c->identify_only = x?1:0;
 }
 
 void de_set_first_output_file(deark *c, int x)
