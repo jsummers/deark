@@ -227,7 +227,7 @@ static enum fmtutil_tdefl_status tdefl_status_to_fmtutil(tdefl_status n)
 	case TDEFL_STATUS_OKAY: return FMTUTIL_TDEFL_STATUS_OKAY;
 	case TDEFL_STATUS_DONE: return FMTUTIL_TDEFL_STATUS_DONE;
 	}
-	return TDEFL_STATUS_PUT_BUF_FAILED;
+	return FMTUTIL_TDEFL_STATUS_PUT_BUF_FAILED;
 }
 
 static tdefl_flush fmtutil_flush_to_tdefl(enum fmtutil_tdefl_flush n)
@@ -238,7 +238,7 @@ static tdefl_flush fmtutil_flush_to_tdefl(enum fmtutil_tdefl_flush n)
 	case FMTUTIL_TDEFL_FULL_FLUSH: return TDEFL_FULL_FLUSH;
 	case FMTUTIL_TDEFL_FINISH: return TDEFL_FINISH ;
 	}
-	return FMTUTIL_TDEFL_NO_FLUSH;
+	return TDEFL_NO_FLUSH;
 }
 
 enum fmtutil_tdefl_status fmtutil_tdefl_compress_buffer(struct fmtutil_tdefl_ctx *tdctx,
