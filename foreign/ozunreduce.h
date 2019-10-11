@@ -72,7 +72,7 @@ For more information, please refer to <http://unlicense.org/>
 ==============================================================================
 */
 
-#define OZUR_VERSION 20190914
+#define OZUR_VERSION 20191011
 
 #ifndef OZUR_UINT8
 #define OZUR_UINT8   unsigned char
@@ -155,7 +155,6 @@ static void ozur_refill_inbuf(ozur_ctx *ozur)
 	ozur->inbuf_nbytes_total = 0;
 	ozur->inbuf_nbytes_consumed = 0;
 
-	nbytes_to_read = OZUR_INBUF_SIZE;
 	if((ozur->cmpr_size - ozur->cmpr_nbytes_read) > OZUR_INBUF_SIZE) {
 		nbytes_to_read = OZUR_INBUF_SIZE;
 	}
