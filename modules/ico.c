@@ -38,6 +38,14 @@ static void do_extract_png(deark *c, lctx *d, i64 pos, i64 len)
 	dbuf_create_file_from_slice(c->infile, pos, len, ext, NULL, 0);
 }
 
+static u32 get_inv_bkgd_replacement_clr(i64 i, i64 j)
+{
+	if((i+j)%2) {
+		return DE_MAKE_RGBA(255,0,128,128);
+	}
+	return DE_MAKE_RGBA(128,0,255,128);
+}
+
 static void warn_inv_bkgd(deark *c)
 {
 	de_warn(c, "This image contains inverse background pixels, which are not "
@@ -52,10 +60,11 @@ static void do_image_data(deark *c, lctx *d, struct page_ctx *pg)
 	u32 pal[256];
 	i64 p;
 	de_bitmap *img = NULL;
+	de_bitmap *mask_img = NULL;
 	de_finfo *fi = NULL;
 	u8 x;
 	u8 cr=0, cg=0, cb=0, ca=0;
-	int inverse_warned = 0;
+	int has_inv_bkgd = 0;
 	int use_mask;
 	int has_alpha_channel = 0;
 	i64 bitcount_color;
@@ -131,6 +140,10 @@ static void do_image_data(deark *c, lctx *d, struct page_ctx *pg)
 
 	de_dbg(c, "foreground at %d, mask at %d", (int)fg_start, (int)bg_start);
 
+	mask_img = de_bitmap_create(c, bi.width, bi.height, 1);
+	mask_img->flipped = 1;
+	de_convert_image_bilevel(c->infile, bg_start, bi.mask_rowspan, mask_img, 0);
+
 	for(j=0; j<img->height; j++) {
 		for(i=0; i<img->width; i++) {
 
@@ -161,31 +174,33 @@ static void do_image_data(deark *c, lctx *d, struct page_ctx *pg)
 			}
 
 			if(use_mask) {
-				// Read the mask bit, if the main bitmap didn't already
+				u8 maskclr;
+				// Refer to the mask, if the main bitmap didn't already
 				// have transparency.
 
-				p = bg_start + bi.mask_rowspan*j;
-				x = de_get_bits_symbol(c->infile, 1, p, i);
-				ca = x ? 0 : 255;
+				maskclr = DE_COLOR_K(de_bitmap_getpixel(mask_img, i, j));
+				ca = maskclr ? 0 : 255;
 
 				// Inverted background pixels
 				// TODO: Should we do this only for cursors, and not icons?
-				if(x==1 && (cr || cg || cb)) {
-					if(!inverse_warned) {
-						warn_inv_bkgd(c);
-						inverse_warned = 1;
-					}
-					if((i+j)%2) {
-						cr = 255; cg = 0; cb=128; ca = 128;
-					}
-					else {
-						cr = 128; cg = 0; cb=255; ca = 128;
-					}
+				if(maskclr && (cr || cg || cb)) {
+					u32 newclr;
+
+					has_inv_bkgd = 1;
+					newclr = get_inv_bkgd_replacement_clr(i, j);
+					cr = DE_COLOR_R(newclr);
+					cg = DE_COLOR_G(newclr);
+					cb = DE_COLOR_B(newclr);
+					ca = DE_COLOR_A(newclr);
 				}
 			}
 
 			de_bitmap_setpixel_rgba(img, i, j, DE_MAKE_RGBA(cr,cg,cb,ca));
 		}
+	}
+
+	if(has_inv_bkgd) {
+		warn_inv_bkgd(c);
 	}
 
 	de_optimize_image_alpha(img, (bi.bitcount==32)?0x1:0x0);
@@ -204,19 +219,15 @@ static void do_image_data(deark *c, lctx *d, struct page_ctx *pg)
 
 	if(!use_mask && d->extract_unused_masks) {
 		char maskname_token[32];
-		de_bitmap *mask_img = NULL;
 
 		de_snprintf(maskname_token, sizeof(maskname_token), "%dx%dmask",
 			(int)bi.width, (int)bi.height);
-		mask_img = de_bitmap_create(c, bi.width, bi.height, 1);
-		mask_img->flipped = 1;
-		de_convert_image_bilevel(c->infile, bg_start, bi.mask_rowspan, mask_img, 0);
 		de_bitmap_write_to_file(mask_img, maskname_token, DE_CREATEFLAG_IS_AUX);
-		de_bitmap_destroy(mask_img);
 	}
 
 done:
 	de_bitmap_destroy(img);
+	de_bitmap_destroy(mask_img);
 	de_finfo_destroy(c, fi);
 }
 
@@ -404,10 +415,10 @@ static int decode_win1_icon(deark *c, win1ctx *d, i64 pos1)
 			if(maskclr==0) continue;
 			fgclr = DE_COLOR_K(de_bitmap_getpixel(img, i, j));
 			if(fgclr==0) continue;
-			de_bitmap_setpixel_gray(mask, i, j, 255-128);
-			if((i+j)%2) newclr = DE_MAKE_RGB(255,0,128);
-			else newclr = DE_MAKE_RGB(128,0,255);
-			de_bitmap_setpixel_rgb(img, i, j, newclr);
+
+			newclr = get_inv_bkgd_replacement_clr(i, j);
+			de_bitmap_setpixel_gray(mask, i, j, 255-DE_COLOR_A(newclr));
+			de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_OPAQUE(newclr));
 			has_inv_bkgd = 1;
 		}
 	}
