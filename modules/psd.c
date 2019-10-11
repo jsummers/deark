@@ -2488,7 +2488,6 @@ static int do_pattern(deark *c, lctx *d, zztype *zz, i64 pattern_idx)
 	do_pattern_internal(c, d, &datazz);
 
 	zz->pos += de_pad_to_4(pat_dlen);
-	retval = 1;
 
 	de_dbg_indent(c, -1);
 

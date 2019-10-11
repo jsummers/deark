@@ -552,7 +552,6 @@ static void do_resource_data(deark *c, lctx *d, struct rsrctypeinfo *rti,
 
 	if(!handled && c->debug_level>=2) {
 		de_dbg_hexdump(c, c->infile, dpos, dlen, 256, NULL, 0x1);
-		handled = 1;
 	}
 
 done:

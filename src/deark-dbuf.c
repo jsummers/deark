@@ -138,7 +138,7 @@ void dbuf_read(dbuf *f, u8 *buf, i64 pos, i64 len)
 		if(!f->fp) {
 			de_err(c, "Internal: File not open");
 			de_fatalerror(c);
-			return;
+			goto done_read;
 		}
 
 		// For performance reasons, don't call fseek if we're already at the
@@ -169,7 +169,7 @@ void dbuf_read(dbuf *f, u8 *buf, i64 pos, i64 len)
 	default:
 		de_err(c, "Internal: getbytes from this I/O type not implemented");
 		de_fatalerror(c);
-		return;
+		goto done_read;
 	}
 
 done_read:

@@ -311,7 +311,6 @@ static int read_member(deark *c, lctx *d, i64 pos1,
 	md->fi = de_finfo_create(c);
 	md->fi->detect_root_dot_dir = 1;
 
-	pos = md->startpos;
 	identify_cpio_internal(c, md->startpos, &md->subfmt);
 	if(md->subfmt==0) {
 		de_err(c, "Unknown cpio format at %d", (int)md->startpos);

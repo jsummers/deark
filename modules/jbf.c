@@ -268,7 +268,7 @@ static int read_bitmap_v1(deark *c, lctx *d, struct page_ctx *pg, i64 pos1, i64 
 			else { // literal byte
 				count = 1;
 				dbuf_writebyte(outf, b0);
-				dec_bytes += 1;
+				dec_bytes += count;
 			}
 		}
 	}

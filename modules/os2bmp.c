@@ -118,7 +118,6 @@ static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, str
 	i64 i, j;
 	i64 byte_offset;
 	u8 x;
-	u8 cr, cg, cb, ca;
 	u8 xorbit, andbit;
 	int inverse_warned = 0;
 
@@ -133,15 +132,18 @@ static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, str
 	img = de_bitmap_create(c, w, h, 4);
 	img->flipped = 1;
 
-	cr=0; cg=0; cb=0; ca=255;
 
 	for(j=0; j<img->height; j++) {
 		for(i=0; i<img->width; i++) {
+			u8 cr, cg, cb, ca;
+
+			cr=0; cg=0; cb=0; ca=255;
+
 			if(!srcbmp_main) {
 				// IC or PT (bi-level) format.
 				// These images do have a palette, but it's unclear whether we're
 				// supposed to do anything with it.
-				cr = cg = cb = 0;
+				;
 			}
 			else if(srcbmp_main->bi.bitcount<=8) {
 				x = de_get_bits_symbol(c->infile, srcbmp_main->bi.bitcount,
@@ -164,7 +166,7 @@ static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, str
 				srcbmp_mask->bi.bitsoffset + srcbmp_mask->bi.rowspan*(srcbmp_mask->bi.height/2+j), i);
 
 			if(!andbit && !xorbit) {
-				ca = 255; // Normal foreground
+				; // Normal foreground
 			}
 			else if(andbit && !xorbit) {
 				ca = 0; // Transparent
@@ -174,7 +176,6 @@ static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, str
 				cr = 255-cr;
 				cg = 255-cg;
 				cb = 255-cb;
-				ca = 255;
 			}
 			else  {  // (andbit && xorbit)
 				// Inverse of the background. Not supported by PNG format.

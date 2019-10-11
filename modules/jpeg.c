@@ -599,7 +599,9 @@ static void finalize_fpxr_stream(deark *c, lctx *d, struct fpxr_entity_struct *f
 	fi = de_finfo_create(c);
 
 	name2 = ucstring_create(c);
-	ucstring_append_ucstring(name2, fe->name_srd->str);
+	if(fe->name_srd) {
+		ucstring_append_ucstring(name2, fe->name_srd->str);
+	}
 	if(name2->len>0) {
 		ucstring_append_char(name2, '.');
 	}
@@ -942,7 +944,6 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 	de_zeromem(&ad, sizeof(struct app_id_decode_struct));
 
 	// defaults:
-	payload_size = seg_data_size;
 	app_id_info->app_id_found = 0;
 	app_id_info->appsegtype = APPSEGTYPE_UNKNOWN;
 	app_id_info->app_type_name = "?";

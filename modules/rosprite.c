@@ -451,11 +451,11 @@ static void de_run_rosprite(deark *c, de_module_params *mparams)
 
 	pos = 0;
 
-	d->num_images = de_getu32le(0);
+	d->num_images = de_getu32le(pos);
 	de_dbg(c, "number of images: %d", (int)d->num_images);
-	first_sprite_offset = de_getu32le(4) - 4;
+	first_sprite_offset = de_getu32le(pos+4) - 4;
 	de_dbg(c, "first sprite offset: %d", (int)first_sprite_offset);
-	implied_file_size = de_getu32le(8) - 4;
+	implied_file_size = de_getu32le(pos+8) - 4;
 	de_dbg(c, "reported file size: %d", (int)implied_file_size);
 	if(implied_file_size != c->infile->len) {
 		de_warn(c, "The \"first free word\" field implies the file size is %d, but it "

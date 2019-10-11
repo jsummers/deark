@@ -291,7 +291,7 @@ static void handler_cod(deark *c, lctx *d, struct page_ctx *pg,
 	de_dbg(c, "progression order: %d", (int)b);
 	n = de_getu16be_p(&pos);
 	de_dbg(c, "number of layers: %d", (int)n);
-	b = de_getbyte_p(&pos);
+	(void)de_getbyte_p(&pos);
 
 	if(pos < pos1+len) {
 		// TODO

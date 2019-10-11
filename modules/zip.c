@@ -793,7 +793,6 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	unsigned int flags;
 	int cmpr_meth;
 	const struct cmpr_meth_info *cmi = NULL;
-	unsigned int crc_reported;
 	struct de_fourcc filetype;
 	struct de_fourcc creator;
 	de_ucstring *flags_str = NULL;
@@ -835,9 +834,10 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 
 	if(flags&0x0004) { // Uncompressed attribute data
 		cmpr_meth = 0;
-		crc_reported = 0;
 	}
 	else {
+		unsigned int crc_reported;
+
 		cmpr_meth = (int)de_getu16le_p(&pos);
 		cmi = get_cmpr_meth_info(cmpr_meth);
 		de_dbg(c, "finder attr. cmpr. method: %d (%s)", cmpr_meth, (cmi ? cmi->name : "?"));

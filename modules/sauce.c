@@ -292,7 +292,6 @@ static int do_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	// Creation date
 	dbuf_read(f, tmpbuf, pos+82, 8);
 	if(sauce_is_valid_date_string(tmpbuf, 8)) {
-		tmpbuf_len = 8;
 		do_SAUCE_creation_date(c, si, tmpbuf, 8);
 	}
 

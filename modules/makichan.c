@@ -436,8 +436,10 @@ static int find_mag_header(deark *c, lctx *d)
 		// TODO: Is this the correct algorithm, or should we just assume the
 		// header starts immediately after the first 0x1a byte?
 		ret = dbuf_search_byte(c->infile, '\0', pos_1a+1, c->infile->len-pos_1a-1, &d->header_pos);
-		de_dbg(c, "header found at %d", (int)d->header_pos);
-		return 1;
+		if(ret) {
+			de_dbg(c, "header found at %d", (int)d->header_pos);
+			return 1;
+		}
 	}
 
 	de_err(c, "Failed to find header. This is probably not a MAKIchan file.");

@@ -242,7 +242,6 @@ static void do_emfplus_object_image(deark *c, lctx *d, i64 pos1, i64 len)
 
 	ver = de_getu32le(pos);
 	datatype = de_getu32le(pos+4);
-	name = "?";
 
 	switch(datatype) { // ImageDataType
 	case 0: name="Unknown"; break;
