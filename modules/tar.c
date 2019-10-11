@@ -247,11 +247,11 @@ static int read_phys_member_header(deark *c, lctx *d,
 			DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
 		de_dbg(c, "prefix: \"%s\"", ucstring_getpsz_d(pmd->prefix));
 	}
-	pos += 131; // first 131 bytes of prefix, or all of prefix
-	pos += 12; // next 12 bytes of prefix, or atime
-	pos += 12; // last 12 bytes of prefix, or ctime
+	//pos += 131; // first 131 bytes of prefix, or all of prefix
+	//pos += 12; // next 12 bytes of prefix, or atime
+	//pos += 12; // last 12 bytes of prefix, or ctime
 
-	pos += 12; // pad
+	//pos += 12; // pad
 
 	retval = 1;
 

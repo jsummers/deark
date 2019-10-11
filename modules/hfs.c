@@ -353,7 +353,7 @@ static void read_timestamp_fields(deark *c, lctx *d, i64 pos1,
 	read_one_timestamp(c, d, pos, fi1, "mod date");
 	pos += 4;
 	read_one_timestamp(c, d, pos, NULL, "backup date");
-	pos += 4;
+	//pos += 4;
 }
 
 static void do_extract_dir(deark *c, lctx *d, struct nodedata *nd,
@@ -367,7 +367,7 @@ static void do_extract_dir(deark *c, lctx *d, struct nodedata *nd,
 	pos += 4; // dirDirID
 
 	read_timestamp_fields(c, d, pos, advf->mainfork.fi);
-	pos += 12;
+	//pos += 12;
 
 	advf->mainfork.fi->is_directory = 1;
 	advf->mainfork.fork_exists = 1;

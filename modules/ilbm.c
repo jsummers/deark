@@ -1167,7 +1167,7 @@ static void do_anim_anhd(deark *c, animctx *d, i64 pos, i64 len)
 		tmp = de_getu32be(pos);
 		de_dbg(c, "flags: 0x%08u", (unsigned int)tmp);
 	}
-	pos+=4;
+	//pos+=4;
 }
 
 static int my_anim_chunk_handler(deark *c, struct de_iffctx *ictx)

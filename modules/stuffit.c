@@ -501,7 +501,7 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 		de_dbg_indent(c, 1);
 		do_pre_decompress_fork(c, d, md, &md->dfork);
 		de_dbg_indent(c, -1);
-		pos += md->dfork.cmpr_len;
+		//pos += md->dfork.cmpr_len;
 	}
 
 	u.d = d;

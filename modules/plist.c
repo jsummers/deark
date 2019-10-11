@@ -435,7 +435,6 @@ static void read_offset_table(deark *c, lctx *d)
 static void de_run_plist(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	i64 pos = 0;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -447,8 +446,7 @@ static void de_run_plist(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	if(!do_header(c, d, pos)) goto done;
-	pos += 8;
+	if(!do_header(c, d, 0)) goto done;
 
 	if(!do_trailer(c, d, c->infile->len-32)) goto done;
 	read_offset_table(c, d);

@@ -545,7 +545,7 @@ static void do_mp3_frame(deark *c, mp3ctx *d, i64 pos1, i64 len)
 	de_dbg(c, "original media flag: %u", d->has_padding);
 	d->emphasis = (x&0x00000003U);
 	de_dbg(c, "emphasis: %u", d->emphasis);
-	pos += 4;
+	//pos += 4;
 	d->frame_count++;
 
 done:

@@ -87,13 +87,10 @@ static int do_header(deark *c, lctx *d, i64 pos)
 static void de_run_wad(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	i64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
 
-	pos = 0;
-	if(!do_header(c, d, pos)) goto done;
-	pos += 12;
+	if(!do_header(c, d, 0)) goto done;
 
 	do_directory(c, d, d->dir_pos);
 

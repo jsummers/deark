@@ -224,7 +224,7 @@ static void read_src_dst_mode(deark *c, lctx *d, struct fmtutil_macbitmap_info *
 
 	n = de_getu16be(pos);
 	de_dbg(c, "transfer mode: %d", (int)n);
-	pos += 2;
+	//pos += 2;
 	de_dbg_indent(c, -1);
 }
 

@@ -86,7 +86,7 @@ static int do_read_header(deark *c, lctx *d, i64 pos)
 
 	d->image_count = de_getu32le(pos);
 	de_dbg(c, "image count: %d", (int)d->image_count);
-	pos+=4;
+	//pos+=4;
 	if(!de_good_image_count(c, d->image_count)) goto done;
 
 	retval = 1;

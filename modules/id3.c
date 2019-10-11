@@ -248,7 +248,7 @@ static int do_id3v2_header(deark *c, dbuf *f, id3v2ctx *d)
 
 	d->data_len = get_synchsafe_int(f, pos);
 	de_dbg(c, "size: %d", (int)d->data_len);
-	pos += 4;
+	//pos += 4;
 
 	d->data_start = 10;
 

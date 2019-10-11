@@ -330,7 +330,7 @@ static void do_run_spectrum512c_s_internal(deark *c, de_module_params *mparams, 
 	else {
 		spc_uncompress_pixels(c->infile, pos, pixels_cmpr_len, unc_pixels_planar);
 	}
-	pos += pixels_cmpr_len;
+	//pos += pixels_cmpr_len;
 
 	// We'll construct an in-memory SPU file, then (usually) use our
 	// SPU module's decoder to process it.

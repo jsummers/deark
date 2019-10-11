@@ -410,7 +410,7 @@ static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	}
 	set_resource_filename(c, d, fi, rti, rii, NULL);
 	de_bitmap_write_to_file_finfo(img_fgcolor, fi, DE_CREATEFLAG_OPT_IMAGE);
-	pos += fgcolor_bitssize;
+	//pos += fgcolor_bitssize;
 	ok = 1;
 
 done:
