@@ -82,20 +82,19 @@ done:
 	return retval;
 }
 
-// Read the header and palette
-// Returns NULL on error.
-static struct srcbitmap *do_decode_raw_bitmap_segment(deark *c, struct os2icoctx *d, i64 pos)
+// Read the header and palette.
+// Caller allocates srcbmp.
+// On failure, prints an error, and returns 0.
+static int do_bitmap_header(deark *c, struct os2icoctx *d, struct srcbitmap *srcbmp,
+	i64 pos, const char *bitmapname)
 {
-	int okay = 0;
-	struct srcbitmap *srcbmp = NULL;
 	i64 pal_start;
 	int saved_indent_level;
+	int retval = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "%s bitmap at %d", d->fmtname, (int)pos);
+	de_dbg(c, "%s %s bitmap header at %"I64_FMT, d->fmtname, bitmapname, pos);
 	de_dbg_indent(c, 1);
-
-	srcbmp = de_malloc(c, sizeof(struct srcbitmap));
 
 	if(!get_bitmap_info(c, srcbmp, d->fmtname, pos))
 		goto done;
@@ -110,19 +109,16 @@ static struct srcbitmap *do_decode_raw_bitmap_segment(deark *c, struct os2icoctx
 		de_dbg_indent(c, -1);
 	}
 
-	okay = 1;
+	if(srcbmp->bi.size_of_headers_and_pal<26) {
+		de_err(c, "Bad %s image", d->fmtname);
+		goto done;
+	}
+
+	retval = 1;
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
-
-	if(!okay) {
-		if(srcbmp) {
-			do_free_srcbmp(c, srcbmp);
-			srcbmp = NULL;
-		}
-	}
-
-	return srcbmp;
+	return retval;
 }
 
 // Uses d->srcbmp, d->maskbmp (which can be NULL).
@@ -219,7 +215,7 @@ static void do_apply_os2bmp_mask(deark *c, de_bitmap *fg, de_bitmap *mask, int i
 }
 
 // Allocates srcbmp->img.
-static int do_read_bitmap(deark *c, struct srcbitmap *srcbmp, int mask_mode)
+static int do_read_bitmap(deark *c, struct srcbitmap *srcbmp, int mask_mode, const char *bitmapname)
 {
 	int retval = 0;
 
@@ -231,6 +227,8 @@ static int do_read_bitmap(deark *c, struct srcbitmap *srcbmp, int mask_mode)
 	}
 
 	srcbmp->img = de_bitmap_create(c, srcbmp->bi.width, srcbmp->bi.height, mask_mode?1:4);
+
+	de_dbg(c, "%s pixel data at %"I64_FMT, bitmapname, srcbmp->bi.bitsoffset);
 
 	if(mask_mode) {
 		de_convert_image_bilevel(c->infile, srcbmp->bi.bitsoffset, srcbmp->bi.rowspan,
@@ -253,35 +251,27 @@ done:
 	return retval;
 }
 
-static void do_decode_CI_or_CP_pair(deark *c, struct os2icoctx *d, i64 pos)
+static void do_decode_CI_or_CP(deark *c, struct os2icoctx *d, i64 pos)
 {
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "%s pair at %d", d->fmtname, (int)pos);
+	de_dbg(c, "%s image at %"I64_FMT, d->fmtname, pos);
 	de_dbg_indent(c, 1);
 
-	d->maskbmp = do_decode_raw_bitmap_segment(c, d, pos);
-	if(!d->maskbmp) {
-		goto done;
-	}
-	if(d->maskbmp->bi.size_of_headers_and_pal<26) {
-		de_err(c, "Bad CI or CP image");
+	d->maskbmp = de_malloc(c, sizeof(struct srcbitmap));
+	if(!do_bitmap_header(c, d, d->maskbmp, pos, "mask")) {
 		goto done;
 	}
 	pos += d->maskbmp->bi.size_of_headers_and_pal;
 
-	d->srcbmp = do_decode_raw_bitmap_segment(c, d, pos);
-	if(!d->srcbmp) {
-		goto done;
-	}
-	if(d->srcbmp->bi.size_of_headers_and_pal<26) {
-		de_err(c, "Bad CI or CP image");
+	d->srcbmp = de_malloc(c, sizeof(struct srcbitmap));
+	if(!do_bitmap_header(c, d, d->srcbmp, pos, "foreground")) {
 		goto done;
 	}
 
-	if(!do_read_bitmap(c, d->maskbmp, 1)) goto done;
-	if(!do_read_bitmap(c, d->srcbmp, 0)) goto done;
+	if(!do_read_bitmap(c, d->maskbmp, 1, "mask")) goto done;
+	if(!do_read_bitmap(c, d->srcbmp, 0, "foreground")) goto done;
 	do_apply_os2bmp_mask(c, d->srcbmp->img, d->maskbmp->img, 1);
 	do_write_final_image(c, d, d->srcbmp->img);
 
@@ -293,16 +283,12 @@ static void do_decode_IC_or_PT(deark *c, struct os2icoctx *d, i64 pos)
 {
 	de_bitmap *img_main = NULL;
 
-	d->maskbmp = do_decode_raw_bitmap_segment(c, d, pos);
-	if(!d->maskbmp) {
-		goto done;
-	}
-	if(d->maskbmp->bi.size_of_headers_and_pal<26) {
-		de_err(c, "Bad %s image", d->fmtname);
+	d->maskbmp = de_malloc(c, sizeof(struct srcbitmap));
+	if(!do_bitmap_header(c, d, d->maskbmp, pos, "mask-like")) {
 		goto done;
 	}
 
-	if(!do_read_bitmap(c, d->maskbmp, 1)) goto done;
+	if(!do_read_bitmap(c, d->maskbmp, 1, "mask-like")) goto done;
 
 	// There is no "main" image, so manufacture one.
 	img_main = de_bitmap_create(c, d->maskbmp->bi.width, d->maskbmp->bi.height/2, 4);
@@ -331,11 +317,11 @@ static void do_decode_icon_or_cursor(deark *c, int fmt)
 		break;
 	case DE_OS2FMT_CI:
 		d->fmtname = "CI";
-		do_decode_CI_or_CP_pair(c, d, 0);
+		do_decode_CI_or_CP(c, d, 0);
 		break;
 	case DE_OS2FMT_CP:
 		d->fmtname = "CP";
-		do_decode_CI_or_CP_pair(c, d, 0);
+		do_decode_CI_or_CP(c, d, 0);
 		break;
 	}
 
@@ -346,7 +332,7 @@ static void do_decode_icon_or_cursor(deark *c, int fmt)
 	}
 }
 
-static void do_extract_CI_or_CP_pair(deark *c, const char *fmtname, i64 pos)
+static void do_extract_CI_or_CP(deark *c, const char *fmtname, i64 pos)
 {
 	struct de_bmpinfo *bi = NULL;
 	i64 i;
@@ -359,7 +345,7 @@ static void do_extract_CI_or_CP_pair(deark *c, const char *fmtname, i64 pos)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "%s pair at %d", fmtname, (int)pos);
+	de_dbg(c, "%s image at %d", fmtname, (int)pos);
 	de_dbg_indent(c, 1);
 
 	bi = de_malloc(c, sizeof(struct de_bmpinfo));
@@ -484,10 +470,10 @@ static void do_BA_segment(deark *c, i64 pos, i64 *pnextoffset)
 	b0 = de_getbyte(pos+14+0);
 	b1 = de_getbyte(pos+14+1);
 	if(b0=='C' && b1=='I') {
-		do_extract_CI_or_CP_pair(c, "CI", pos+14);
+		do_extract_CI_or_CP(c, "CI", pos+14);
 	}
 	else if(b0=='C' && b1=='P') {
-		do_extract_CI_or_CP_pair(c, "CP", pos+14);
+		do_extract_CI_or_CP(c, "CP", pos+14);
 	}
 	else if(b0=='B' && b1=='M') {
 		do_extract_one_image(c, pos+14, "BM", "bmp");
