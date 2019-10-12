@@ -25,11 +25,21 @@ DE_DECLARE_MODULE(de_module_os2bmp);
 // Two of them (the foreground and the mask) will be combined to make the
 // final image.
 struct srcbitmap {
+	de_bitmap *img;
 	struct de_bmpinfo bi;
 	u8 has_hotspot;
 	i64 bitssize;
 	u32 pal[256];
 };
+
+static void do_free_srcbmp(deark *c, struct srcbitmap *srcbmp)
+{
+	if(!srcbmp) return;
+	if(srcbmp->img) {
+		de_bitmap_destroy(srcbmp->img);
+	}
+	de_free(c, srcbmp);
+}
 
 // Populates srcbmp with information about a bitmap.
 // Does not read the palette.
@@ -101,7 +111,7 @@ done:
 
 	if(!okay) {
 		if(srcbmp) {
-			de_free(c, srcbmp);
+			do_free_srcbmp(c, srcbmp);
 			srcbmp = NULL;
 		}
 	}
@@ -109,118 +119,137 @@ done:
 	return srcbmp;
 }
 
-// srcbmp_main can be NULL.
-static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, struct srcbitmap *srcbmp_mask)
+// srcbmp_* can be NULL.
+static void do_write_final_image(deark *c, de_bitmap *img,
+	struct srcbitmap *srcbmp_main, struct srcbitmap *srcbmp_mask)
 {
-	de_bitmap *img = NULL;
 	de_finfo *fi = NULL;
-	i64 w, h;
-	i64 i, j;
-	i64 byte_offset;
-	u8 x;
-	u8 xorbit, andbit;
-	int inverse_warned = 0;
 
-	if(srcbmp_main) {
-		w = srcbmp_main->bi.width;
-		h = srcbmp_main->bi.height;
-	}
-	else {
-		w = srcbmp_mask->bi.width;
-		h = srcbmp_mask->bi.height/2;
-	}
-	img = de_bitmap_create(c, w, h, 4);
 	img->flipped = 1;
-
-
-	for(j=0; j<img->height; j++) {
-		for(i=0; i<img->width; i++) {
-			u8 cr, cg, cb, ca;
-
-			cr=0; cg=0; cb=0; ca=255;
-
-			if(!srcbmp_main) {
-				// IC or PT (bi-level) format.
-				// These images do have a palette, but it's unclear whether we're
-				// supposed to do anything with it.
-				;
-			}
-			else if(srcbmp_main->bi.bitcount<=8) {
-				x = de_get_bits_symbol(c->infile, srcbmp_main->bi.bitcount,
-					srcbmp_main->bi.bitsoffset + srcbmp_main->bi.rowspan*j, i);
-				cr = DE_COLOR_R(srcbmp_main->pal[x]);
-				cg = DE_COLOR_G(srcbmp_main->pal[x]);
-				cb = DE_COLOR_B(srcbmp_main->pal[x]);
-			}
-			else if(srcbmp_main->bi.bitcount==24) {
-				byte_offset = srcbmp_main->bi.bitsoffset + srcbmp_main->bi.rowspan*j + i*3;
-				cb = de_getbyte(byte_offset+0);
-				cg = de_getbyte(byte_offset+1);
-				cr = de_getbyte(byte_offset+2);
-			}
-
-			// Get the mask bits
-			xorbit = de_get_bits_symbol(c->infile, srcbmp_mask->bi.bitcount,
-				srcbmp_mask->bi.bitsoffset + srcbmp_mask->bi.rowspan*j, i);
-			andbit = de_get_bits_symbol(c->infile, srcbmp_mask->bi.bitcount,
-				srcbmp_mask->bi.bitsoffset + srcbmp_mask->bi.rowspan*(srcbmp_mask->bi.height/2+j), i);
-
-			if(!andbit && !xorbit) {
-				; // Normal foreground
-			}
-			else if(andbit && !xorbit) {
-				ca = 0; // Transparent
-			}
-			else if(!andbit && xorbit) {
-				// Inverse of the foreground? Not expected to happen, but we'll try to support it.
-				cr = 255-cr;
-				cg = 255-cg;
-				cb = 255-cb;
-			}
-			else  {  // (andbit && xorbit)
-				// Inverse of the background. Not supported by PNG format.
-				if(!inverse_warned) {
-					de_warn(c, "This image contains inverse background pixels, which are not fully supported.");
-					inverse_warned = 1;
-				}
-				if((i+j)%2) {
-					cr = 255; cg = 0; cb=128; ca = 128;
-				}
-				else {
-					cr = 128; cg = 0; cb=255; ca = 128;
-				}
-			}
-
-			de_bitmap_setpixel_rgba(img, i, j, DE_MAKE_RGBA(cr,cg,cb,ca));
-		}
-	}
 
 	fi = de_finfo_create(c);
 	if(srcbmp_main) {
 		if(srcbmp_main->has_hotspot) {
 			fi->has_hotspot = 1;
 			fi->hotspot_x = srcbmp_main->bi.hotspot_x;
-			fi->hotspot_y = (int)h - 1 - srcbmp_main->bi.hotspot_y;
+			fi->hotspot_y = (int)img->height - 1 - srcbmp_main->bi.hotspot_y;
 		}
 	}
 	else if(srcbmp_mask) {
 		if(srcbmp_mask->has_hotspot) {
 			fi->has_hotspot = 1;
 			fi->hotspot_x = srcbmp_mask->bi.hotspot_x;
-			fi->hotspot_y = (int)h - 1 - srcbmp_mask->bi.hotspot_y;
+			fi->hotspot_y = (int)img->height - 1 - srcbmp_mask->bi.hotspot_y;
 		}
 	}
 
 	de_bitmap_write_to_file_finfo(img, fi, 0);
 
-	de_bitmap_destroy(img);
 	de_finfo_destroy(c, fi);
+}
+
+static u32 get_inv_bkgd_replacement_clr(i64 i, i64 j)
+{
+	if((i+j)%2) {
+		return DE_MAKE_RGBA(255,0,128,128);
+	}
+	return DE_MAKE_RGBA(128,0,255,128);
+}
+
+// Applies mask to fg. Modifies fg.
+static void do_apply_os2bmp_mask(deark *c, de_bitmap *fg, de_bitmap *mask, int is_color)
+{
+	i64 i, j;
+	i64 mask_adj_height;
+	int inverse_used = 0;
+
+	mask_adj_height = mask->height / 2;
+
+	for(j=0; j<fg->height && j<mask_adj_height; j++) {
+		for(i=0; i<fg->width && i<mask->width; i++) {
+			u8 andmaskclr;
+			u8 xormaskclr;
+			u32 oldclr;
+			u32 newclr;
+
+			oldclr = de_bitmap_getpixel(fg, i, j);
+			newclr = oldclr;
+			xormaskclr = DE_COLOR_K(de_bitmap_getpixel(mask, i, j));
+			andmaskclr =  DE_COLOR_K(de_bitmap_getpixel(mask, i, mask_adj_height+j));
+
+			if(andmaskclr==0) {
+				if(is_color) {
+					// For color bitmaps, the XOR bit is not used when the AND bit is 0.
+					// Always use foreground color.
+					;
+				}
+				else {
+					if(xormaskclr==0) {
+						newclr = DE_STOCKCOLOR_BLACK;
+					}
+					else {
+						newclr = DE_STOCKCOLOR_WHITE;
+					}
+				}
+			}
+			else {
+				if(xormaskclr==0) { // transparent
+					newclr = DE_SET_ALPHA(oldclr, 0);
+				}
+				else { // inverse background
+					newclr = get_inv_bkgd_replacement_clr(i, j);
+					inverse_used = 1;
+				}
+			}
+
+			if(newclr!=oldclr) {
+				de_bitmap_setpixel_rgb(fg, i, j, newclr);
+			}
+		}
+	}
+
+	if(inverse_used) {
+		de_warn(c, "This image contains inverse background pixels, which are not fully supported.");
+	}
+}
+
+// Allocates srcbmp->img.
+static int do_read_bitmap(deark *c, struct srcbitmap *srcbmp, int mask_mode)
+{
+	int retval = 0;
+
+	if(!srcbmp) goto done;
+	if(srcbmp->img) goto done;
+
+	if(mask_mode && srcbmp->bi.bitcount!=1) {
+		mask_mode = 0;
+	}
+
+	srcbmp->img = de_bitmap_create(c, srcbmp->bi.width, srcbmp->bi.height, mask_mode?1:4);
+
+	if(mask_mode) {
+		de_convert_image_bilevel(c->infile, srcbmp->bi.bitsoffset, srcbmp->bi.rowspan,
+			srcbmp->img, 0);
+	}
+	else if(srcbmp->bi.bitcount<=8) {
+		de_convert_image_paletted(c->infile, srcbmp->bi.bitsoffset, srcbmp->bi.bitcount,
+			srcbmp->bi.rowspan, srcbmp->pal, srcbmp->img, 0);
+	}
+	else if(srcbmp->bi.bitcount==24) {
+		de_convert_image_rgb(c->infile, srcbmp->bi.bitsoffset, srcbmp->bi.rowspan, 3,
+			srcbmp->img, DE_GETRGBFLAG_BGR);
+	}
+	else {
+		goto done;
+	}
+
+	retval = 1;
+done:
+	return retval;
 }
 
 static void do_decode_CI_or_CP_pair(deark *c, const char *fmt, i64 pos)
 {
-	i64 i;
-	struct srcbitmap *srcbmp = NULL;
 	struct srcbitmap *srcbmp_mask = NULL;
 	struct srcbitmap *srcbmp_main = NULL;
 	int saved_indent_level;
@@ -229,52 +258,42 @@ static void do_decode_CI_or_CP_pair(deark *c, const char *fmt, i64 pos)
 	de_dbg(c, "%s pair at %d", fmt, (int)pos);
 	de_dbg_indent(c, 1);
 
-	for(i=0; i<2; i++) {
-		srcbmp = do_decode_raw_bitmap_segment(c, fmt, pos);
-		if(!srcbmp) {
-			goto done;
-		}
-
-		if(srcbmp->bi.size_of_headers_and_pal<26) {
-			de_err(c, "Bad CI or CP image");
-			goto done;
-		}
-		pos += srcbmp->bi.size_of_headers_and_pal;
-
-		de_dbg_indent(c, 1);
-
-		// Try to guess whether this is the image or the mask...
-		if(srcbmp->bi.bitcount==1 && (srcbmp_mask==NULL || srcbmp_main!=NULL)) {
-			de_dbg(c, "bitmap interpreted as: mask");
-			srcbmp_mask = srcbmp;
-			srcbmp = NULL;
-		}
-		else {
-			de_dbg(c, "bitmap interpreted as: foreground");
-			srcbmp_main = srcbmp;
-			srcbmp = NULL;
-		}
-
-		de_dbg_indent(c, -1);
+	srcbmp_mask = do_decode_raw_bitmap_segment(c, fmt, pos);
+	if(!srcbmp_mask) {
+		goto done;
 	}
+	if(srcbmp_mask->bi.size_of_headers_and_pal<26) {
+		de_err(c, "Bad CI or CP image");
+		goto done;
+	}
+	pos += srcbmp_mask->bi.size_of_headers_and_pal;
 
-	if(srcbmp_mask==NULL || srcbmp_main==NULL) {
+	srcbmp_main = do_decode_raw_bitmap_segment(c, fmt, pos);
+	if(!srcbmp_main) {
+		goto done;
+	}
+	if(srcbmp_main->bi.size_of_headers_and_pal<26) {
 		de_err(c, "Bad CI or CP image");
 		goto done;
 	}
 
-	do_generate_final_image(c, srcbmp_main, srcbmp_mask);
+	if(!do_read_bitmap(c, srcbmp_mask, 1)) goto done;
+
+	if(!do_read_bitmap(c, srcbmp_main, 0)) goto done;
+	do_apply_os2bmp_mask(c, srcbmp_main->img, srcbmp_mask->img, 1);
+
+	do_write_final_image(c, srcbmp_main->img, srcbmp_main, srcbmp_mask);
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
-	de_free(c, srcbmp_mask);
-	de_free(c, srcbmp_main);
-	de_free(c, srcbmp);
+	do_free_srcbmp(c, srcbmp_mask);
+	do_free_srcbmp(c, srcbmp_main);
 }
 
 static void do_decode_IC_or_PT(deark *c, const char *fmt, i64 pos)
 {
 	struct srcbitmap *srcbmp_mask = NULL;
+	de_bitmap *img_main = NULL;
 
 	srcbmp_mask = do_decode_raw_bitmap_segment(c, fmt, pos);
 	if(!srcbmp_mask) {
@@ -285,10 +304,18 @@ static void do_decode_IC_or_PT(deark *c, const char *fmt, i64 pos)
 		goto done;
 	}
 
-	do_generate_final_image(c, NULL, srcbmp_mask);
+	if(!do_read_bitmap(c, srcbmp_mask, 1)) goto done;
+
+	// There is no "main" image, so manufacture one.
+	img_main = de_bitmap_create(c, srcbmp_mask->bi.width, srcbmp_mask->bi.height/2, 4);
+
+	do_apply_os2bmp_mask(c, img_main, srcbmp_mask->img, 0);
+
+	do_write_final_image(c, img_main, NULL, srcbmp_mask);
 
 done:
-	de_free(c, srcbmp_mask);
+	do_free_srcbmp(c, srcbmp_mask);
+	de_bitmap_destroy(img_main);
 }
 
 static void do_extract_CI_or_CP_pair(deark *c, const char *fmt, i64 pos)
@@ -401,7 +428,7 @@ static void do_extract_one_image(deark *c, i64 pos, const char *fmt, const char 
 done:
 	de_dbg_indent(c, -1);
 	dbuf_close(f);
-	de_free(c, srcbmp);
+	do_free_srcbmp(c, srcbmp);
 }
 
 static void do_BA_segment(deark *c, i64 pos, i64 *pnextoffset)
