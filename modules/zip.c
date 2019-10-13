@@ -105,6 +105,7 @@ struct localctx_struct {
 	i64 offset_discrepancy;
 	int used_offset_discrepancy;
 	int is_zip64;
+	int using_scanmode;
 	struct de_crcobj *crco;
 };
 
@@ -1611,9 +1612,31 @@ static int do_central_dir_entry(deark *c, lctx *d,
 	return ret;
 }
 
+static void do_local_dir_only(deark *c, lctx *d, i64 pos1)
+{
+	struct member_data *md = NULL;
+	i64 tmp_entry_size;
+
+	md = create_member_data(c, d);
+
+	md->offset_of_local_header = pos1;
+
+	// Read the local file header
+	if(!do_file_header(c, d, md, 0, md->offset_of_local_header, &tmp_entry_size)) {
+		goto done;
+	}
+
+	do_process_member(c, d, md);
+
+done:
+	destroy_member_data(c, md);
+}
+
 static void de_run_zip_scanmode(deark *c, lctx *d)
 {
 	i64 pos = 0;
+
+	d->using_scanmode = 1;
 
 	while(1) {
 		int ret;
@@ -1623,7 +1646,7 @@ static void de_run_zip_scanmode(deark *c, lctx *d)
 		ret = dbuf_search(c->infile, (const u8*)"PK\x3\x4", 4, pos, c->infile->len-pos, &foundpos);
 		if(!ret) break;
 		pos = foundpos;
-		// TODO...
+		do_local_dir_only(c, d, pos);
 		break;
 	}
 }
@@ -1638,10 +1661,6 @@ static int do_central_dir(deark *c, lctx *d)
 	pos = d->central_dir_offset;
 	de_dbg(c, "central dir at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
-
-	if(!d->crco) {
-		d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-	}
 
 	for(i=0; i<d->central_dir_num_entries; i++) {
 		if(!do_central_dir_entry(c, d, i, pos, &entry_size)) {
@@ -1840,6 +1859,8 @@ static void de_run_zip(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
 
 	if(de_get_ext_option(c, "zip:scanmode")) {
 		de_run_zip_scanmode(c, d);
