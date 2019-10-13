@@ -1516,18 +1516,59 @@ done:
 	return retval;
 }
 
-static int do_central_dir_entry(deark *c, lctx *d,
-	i64 central_index, i64 pos, i64 *entry_size)
+static struct member_data *create_member_data(deark *c, lctx *d)
 {
-	struct member_data *md = NULL;
+	struct member_data *md;
+
+	md = de_malloc(c, sizeof(struct member_data));
+	md->local_dir_entry_data.fname = ucstring_create(c);
+	md->central_dir_entry_data.fname = ucstring_create(c);
+	return md;
+}
+
+static void destroy_member_data(deark *c, struct member_data *md)
+{
+	if(!md) return;
+	ucstring_destroy(md->central_dir_entry_data.fname);
+	ucstring_destroy(md->local_dir_entry_data.fname);
+	de_free(c, md);
+}
+
+// Things to do after both the central and local headers have been read.
+// E.g., extract the file.
+static void do_process_member(deark *c, lctx *d, struct member_data *md)
+{
+	// Set the final file size and crc fields.
+	if(md->local_dir_entry_data.bit_flags & 0x0008) {
+		// Indicates that certain fields are not present in the local file header,
+		// and are instead in a "data descriptor" after the file data.
+		// Let's hope they are also in the central file header.
+		md->cmpr_size = md->central_dir_entry_data.cmpr_size;
+		md->uncmpr_size = md->central_dir_entry_data.uncmpr_size;
+		md->crc_reported = md->central_dir_entry_data.crc_reported;
+	}
+	else {
+		md->cmpr_size = md->local_dir_entry_data.cmpr_size;
+		md->uncmpr_size = md->local_dir_entry_data.uncmpr_size;
+		md->crc_reported = md->local_dir_entry_data.crc_reported;
+	}
+
+	process_ext_attr(c, d, md);
+
+	do_extract_file(c, d, md);
+}
+
+// In *entry_size, returns the size of the central dir entry.
+// Returns 0 if the central dir entry could not even be parsed.
+static int do_member_from_central_dir_entry(deark *c, lctx *d,
+	struct member_data *md, i64 central_index, i64 pos, i64 *entry_size)
+{
 	i64 tmp_entry_size;
 	int retval = 0;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	md = de_malloc(c, sizeof(struct member_data));
-	md->local_dir_entry_data.fname = ucstring_create(c);
-	md->central_dir_entry_data.fname = ucstring_create(c);
+
 	*entry_size = 0;
 
 	if(pos >= d->central_dir_offset+d->central_dir_byte_size) {
@@ -1551,33 +1592,40 @@ static int do_central_dir_entry(deark *c, lctx *d,
 		goto done;
 	}
 
-	// Set the final file size and crc fields.
-	if(md->local_dir_entry_data.bit_flags & 0x0008) {
-		// Indicates that certain fields are not present in the local file header,
-		// and are instead in a "data descriptor" after the file data.
-		// Let's hope they are also in the central file header.
-		md->cmpr_size = md->central_dir_entry_data.cmpr_size;
-		md->uncmpr_size = md->central_dir_entry_data.uncmpr_size;
-		md->crc_reported = md->central_dir_entry_data.crc_reported;
-	}
-	else {
-		md->cmpr_size = md->local_dir_entry_data.cmpr_size;
-		md->uncmpr_size = md->local_dir_entry_data.uncmpr_size;
-		md->crc_reported = md->local_dir_entry_data.crc_reported;
-	}
-
-	process_ext_attr(c, d, md);
-
-	do_extract_file(c, d, md);
+	do_process_member(c, d, md);
 
 done:
-	if(md) {
-		ucstring_destroy(md->central_dir_entry_data.fname);
-		ucstring_destroy(md->local_dir_entry_data.fname);
-		de_free(c, md);
-	}
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
+}
+
+static int do_central_dir_entry(deark *c, lctx *d,
+	i64 central_index, i64 pos, i64 *entry_size)
+{
+	struct member_data *md = NULL;
+	int ret;
+
+	md = create_member_data(c, d);
+	ret = do_member_from_central_dir_entry(c, d, md, central_index, pos, entry_size);
+	destroy_member_data(c, md);
+	return ret;
+}
+
+static void de_run_zip_scanmode(deark *c, lctx *d)
+{
+	i64 pos = 0;
+
+	while(1) {
+		int ret;
+		i64 foundpos = 0;
+
+		if(pos > c->infile->len-4) break;
+		ret = dbuf_search(c->infile, (const u8*)"PK\x3\x4", 4, pos, c->infile->len-pos, &foundpos);
+		if(!ret) break;
+		pos = foundpos;
+		// TODO...
+		break;
+	}
 }
 
 static int do_central_dir(deark *c, lctx *d)
@@ -1745,12 +1793,9 @@ done:
 	return retval;
 }
 
-static void de_run_zip(deark *c, de_module_params *mparams)
+static void de_run_zip_normally(deark *c, lctx *d)
 {
-	lctx *d = NULL;
 	int eocd_found;
-
-	d = de_malloc(c, sizeof(lctx));
 
 	if(c->detection_data && c->detection_data->zip_eocd_looked_for) {
 		eocd_found = (int)c->detection_data->zip_eocd_found;
@@ -1787,6 +1832,22 @@ static void de_run_zip(deark *c, de_module_params *mparams)
 	}
 
 done:
+	;
+}
+
+static void de_run_zip(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+
+	d = de_malloc(c, sizeof(lctx));
+
+	if(de_get_ext_option(c, "zip:scanmode")) {
+		de_run_zip_scanmode(c, d);
+	}
+	else {
+		de_run_zip_normally(c, d);
+	}
+
 	if(d) {
 		de_crcobj_destroy(d->crco);
 		de_free(c, d);
