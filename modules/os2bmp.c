@@ -10,16 +10,20 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_os2bmp);
 
-#define DE_OS2FMT_BA    1
-#define DE_OS2FMT_BA_BM 3
-#define DE_OS2FMT_IC    4
-#define DE_OS2FMT_BA_IC 5
-#define DE_OS2FMT_PT    6
-#define DE_OS2FMT_BA_PT 7
-#define DE_OS2FMT_CI    8
-#define DE_OS2FMT_BA_CI 9
-#define DE_OS2FMT_CP    10
-#define DE_OS2FMT_BA_CP 11
+enum fmtcode {
+	DE_OS2FMT_UNKNOWN = 0,
+	DE_OS2FMT_BA,
+	DE_OS2FMT_BM,
+	DE_OS2FMT_BA_BM,
+	DE_OS2FMT_IC,
+	DE_OS2FMT_BA_IC,
+	DE_OS2FMT_PT,
+	DE_OS2FMT_BA_PT,
+	DE_OS2FMT_CI,
+	DE_OS2FMT_BA_CI,
+	DE_OS2FMT_CP,
+	DE_OS2FMT_BA_CP
+};
 
 // This struct represents a raw source bitmap (it uses BMP format).
 // Two of them (the foreground and the mask) will be combined to make the
@@ -34,9 +38,54 @@ struct srcbitmap {
 
 struct os2icoctx {
 	const char *fmtname; // Short name, like "CP"
+	enum fmtcode fmt;
 	struct srcbitmap *srcbmp;
 	struct srcbitmap *maskbmp;
 };
+
+static const char *get_fmt_shortname_from_code(enum fmtcode fmt)
+{
+	switch(fmt) {
+	case DE_OS2FMT_IC: return "IC";
+	case DE_OS2FMT_PT: return "PT";
+	case DE_OS2FMT_CI: return "CI";
+	case DE_OS2FMT_CP: return "CP";
+	case DE_OS2FMT_BM: return "BM";
+	case DE_OS2FMT_BA:
+	case DE_OS2FMT_BA_IC:
+	case DE_OS2FMT_BA_CI:
+	case DE_OS2FMT_BA_PT:
+	case DE_OS2FMT_BA_CP:
+	case DE_OS2FMT_BA_BM:
+		return "BA";
+	default:
+		break;
+	}
+	return "??";
+}
+
+static enum fmtcode bytes_to_fmtcode(u8 b0, u8 b1)
+{
+	if(b0=='C' && b1=='I') {
+		return DE_OS2FMT_CI;
+	}
+	else if(b0=='C' && b1=='P') {
+		return DE_OS2FMT_CP;
+	}
+	else if(b0=='I' && b1=='C') {
+		return DE_OS2FMT_IC;
+	}
+	else if(b0=='P' && b1=='T') {
+		return DE_OS2FMT_PT;
+	}
+	else if(b0=='B' && b1=='M') {
+		return DE_OS2FMT_BM;
+	}
+	else if(b0=='B' && b1=='A') {
+		return DE_OS2FMT_BA;
+	}
+	return DE_OS2FMT_UNKNOWN;
+}
 
 static void do_free_srcbmp(deark *c, struct srcbitmap *srcbmp)
 {
@@ -49,13 +98,14 @@ static void do_free_srcbmp(deark *c, struct srcbitmap *srcbmp)
 
 // Populates srcbmp with information about a bitmap.
 // Does not read the palette.
-static int get_bitmap_info(deark *c, struct srcbitmap *srcbmp, const char *fmtname, i64 pos)
+static int get_bitmap_info(deark *c, struct srcbitmap *srcbmp, enum fmtcode fmt,
+	const char *fmtname, i64 pos)
 {
 	int retval = 0;
 	unsigned int flags;
 
 	flags = DE_BMPINFO_HAS_FILEHEADER;
-	if(!de_strcmp(fmtname, "CP") || !de_strcmp(fmtname, "PT")) {
+	if(fmt==DE_OS2FMT_CP || fmt==DE_OS2FMT_PT) {
 		srcbmp->has_hotspot = 1;
 		flags |= DE_BMPINFO_HAS_HOTSPOT;
 	}
@@ -96,7 +146,7 @@ static int do_bitmap_header(deark *c, struct os2icoctx *d, struct srcbitmap *src
 	de_dbg(c, "%s %s bitmap header at %"I64_FMT, d->fmtname, bitmapname, pos);
 	de_dbg_indent(c, 1);
 
-	if(!get_bitmap_info(c, srcbmp, d->fmtname, pos))
+	if(!get_bitmap_info(c, srcbmp, d->fmt, d->fmtname, pos))
 		goto done;
 
 	// read palette
@@ -300,28 +350,24 @@ done:
 	de_bitmap_destroy(img_main);
 }
 
-static void do_decode_icon_or_cursor(deark *c, int fmt)
+static void do_decode_icon_or_cursor(deark *c, enum fmtcode fmt)
 {
 	struct os2icoctx *d = NULL;
 
 	d = de_malloc(c, sizeof(struct os2icoctx));
+	d->fmt = fmt;
+	d->fmtname = get_fmt_shortname_from_code(d->fmt);
 
 	switch(fmt) {
 	case DE_OS2FMT_IC:
-		d->fmtname = "IC";
-		do_decode_IC_or_PT(c, d, 0);
-		break;
 	case DE_OS2FMT_PT:
-		d->fmtname = "PT";
 		do_decode_IC_or_PT(c, d, 0);
 		break;
 	case DE_OS2FMT_CI:
-		d->fmtname = "CI";
+	case DE_OS2FMT_CP:
 		do_decode_CI_or_CP(c, d, 0);
 		break;
-	case DE_OS2FMT_CP:
-		d->fmtname = "CP";
-		do_decode_CI_or_CP(c, d, 0);
+	default:
 		break;
 	}
 
@@ -332,7 +378,7 @@ static void do_decode_icon_or_cursor(deark *c, int fmt)
 	}
 }
 
-static void do_extract_CI_or_CP(deark *c, const char *fmtname, i64 pos)
+static void do_extract_CI_or_CP(deark *c, enum fmtcode fmt, const char *fmtname, i64 pos)
 {
 	struct de_bmpinfo *bi = NULL;
 	i64 i;
@@ -350,7 +396,7 @@ static void do_extract_CI_or_CP(deark *c, const char *fmtname, i64 pos)
 
 	bi = de_malloc(c, sizeof(struct de_bmpinfo));
 
-	if(!de_strcmp(fmtname, "CP")) {
+	if(fmt==DE_OS2FMT_CP) {
 		f = dbuf_create_output_file(c, "ptr", NULL, 0);
 	}
 	else {
@@ -411,7 +457,8 @@ done:
 // Don't convert the image to another format; just extract it as-is in
 // BMP/ICO/PTR format. Unfortunately, this requires collecting the various pieces
 // of it, and adjusting pointers.
-static void do_extract_one_image(deark *c, i64 pos, const char *fmtname, const char *ext)
+static void do_extract_one_image(deark *c, i64 pos, enum fmtcode fmt,
+	const char *fmtname, const char *ext)
 {
 	struct srcbitmap *srcbmp = NULL;
 	dbuf *f = NULL;
@@ -421,7 +468,7 @@ static void do_extract_one_image(deark *c, i64 pos, const char *fmtname, const c
 
 	srcbmp = de_malloc(c, sizeof(struct srcbitmap));
 
-	if(!get_bitmap_info(c, srcbmp, fmtname, pos))
+	if(!get_bitmap_info(c, srcbmp, fmt, fmtname, pos))
 		goto done;
 
 	f = dbuf_create_output_file(c, ext, NULL, 0);
@@ -448,6 +495,8 @@ done:
 static void do_BA_segment(deark *c, i64 pos, i64 *pnextoffset)
 {
 	u8 b0, b1;
+	enum fmtcode fmt;
+	const char *fmtname;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -469,22 +518,24 @@ static void do_BA_segment(deark *c, i64 pos, i64 *pnextoffset)
 	// Peek at the next two bytes
 	b0 = de_getbyte(pos+14+0);
 	b1 = de_getbyte(pos+14+1);
-	if(b0=='C' && b1=='I') {
-		do_extract_CI_or_CP(c, "CI", pos+14);
-	}
-	else if(b0=='C' && b1=='P') {
-		do_extract_CI_or_CP(c, "CP", pos+14);
-	}
-	else if(b0=='B' && b1=='M') {
-		do_extract_one_image(c, pos+14, "BM", "bmp");
-	}
-	else if(b0=='I' && b1=='C') {
-		do_extract_one_image(c, pos+14, "IC", "os2.ico");
-	}
-	else if(b0=='P' && b1=='T') {
-		do_extract_one_image(c, pos+14, "PT", "ptr");
-	}
-	else {
+	fmt = bytes_to_fmtcode(b0, b1);
+	fmtname = get_fmt_shortname_from_code(fmt);
+
+	switch(fmt) {
+	case DE_OS2FMT_CI:
+	case DE_OS2FMT_CP:
+		do_extract_CI_or_CP(c, fmt, fmtname, pos+14);
+		break;
+	case DE_OS2FMT_BM:
+		do_extract_one_image(c, pos+14, fmt, fmtname, "bmp");
+		break;
+	case DE_OS2FMT_IC:
+		do_extract_one_image(c, pos+14, fmt, fmtname, "os2.ico");
+		break;
+	case DE_OS2FMT_PT:
+		do_extract_one_image(c, pos+14, fmt, fmtname, "ptr");
+		break;
+	default:
 		de_err(c, "Not BM/IC/PT/CI/CP format. Not supported.");
 		goto done;
 	}
@@ -513,30 +564,36 @@ static void do_BA_file(deark *c)
 	}
 }
 
-static int de_identify_os2bmp_internal(deark *c)
+static enum fmtcode de_identify_os2bmp_internal(deark *c)
 {
+	enum fmtcode fmt;
 	u8 b[16];
+
 	de_read(b, 0, 16);
 
-	if(b[0]=='B' && b[1]=='A') {
+	fmt = bytes_to_fmtcode(b[0], b[1]);
+	if(fmt==DE_OS2FMT_BA) {
+		enum fmtcode ba_fmt;
+
 		// A Bitmap Array file can contain a mixture of different image types,
 		// but for the purposes of identifying the file type, we only look at
 		// the first one. This is not ideal, but it really doesn't matter.
-		if(b[14]=='I' && b[15]=='C') return DE_OS2FMT_BA_IC;
-		if(b[14]=='P' && b[15]=='T') return DE_OS2FMT_BA_PT;
-		if(b[14]=='C' && b[15]=='I') return DE_OS2FMT_BA_CI;
-		if(b[14]=='C' && b[15]=='P') return DE_OS2FMT_BA_CP;
-		if(b[14]=='B' && b[15]=='M') return DE_OS2FMT_BA_BM;
+		ba_fmt = bytes_to_fmtcode(b[14], b[15]);
+		if(ba_fmt==DE_OS2FMT_IC) return DE_OS2FMT_BA_IC;
+		if(ba_fmt==DE_OS2FMT_PT) return DE_OS2FMT_BA_PT;
+		if(ba_fmt==DE_OS2FMT_CI) return DE_OS2FMT_BA_CI;
+		if(ba_fmt==DE_OS2FMT_CP) return DE_OS2FMT_BA_CP;
+		if(ba_fmt==DE_OS2FMT_BM) return DE_OS2FMT_BA_BM;
 		return DE_OS2FMT_BA;
 	}
-	if(b[0]=='I' && b[1]=='C') return DE_OS2FMT_IC;
-	if(b[0]=='P' && b[1]=='T') return DE_OS2FMT_PT;
-	if(b[0]=='C' && b[1]=='I') return DE_OS2FMT_CI;
-	if(b[0]=='C' && b[1]=='P') return DE_OS2FMT_CP;
-	return 0;
+	if(fmt==DE_OS2FMT_IC) return DE_OS2FMT_IC;
+	if(fmt==DE_OS2FMT_PT) return DE_OS2FMT_PT;
+	if(fmt==DE_OS2FMT_CI) return DE_OS2FMT_CI;
+	if(fmt==DE_OS2FMT_CP) return DE_OS2FMT_CP;
+	return DE_OS2FMT_UNKNOWN;
 }
 
-static const char* get_fmt_name(int fmt)
+static const char* get_fmt_longname_from_code(enum fmtcode fmt)
 {
 	switch(fmt) {
 	case DE_OS2FMT_IC: return "OS/2 Icon";
@@ -552,18 +609,20 @@ static const char* get_fmt_name(int fmt)
 		return "OS/2 Bitmap Array of Pointers";
 	case DE_OS2FMT_BA_BM:
 		return "OS/2 Bitmap Array of Bitmaps";
+	default:
+		break;
 	}
 	return NULL;
 }
 
 static void de_run_os2bmp(deark *c, de_module_params *mparams)
 {
-	int fmt;
+	enum fmtcode fmt;
 	const char *name;
 
 	fmt = de_identify_os2bmp_internal(c);
 
-	name = get_fmt_name(fmt);
+	name = get_fmt_longname_from_code(fmt);
 	if(name) {
 		de_declare_fmt(c, name);
 	}
@@ -590,7 +649,7 @@ static void de_run_os2bmp(deark *c, de_module_params *mparams)
 
 static int de_identify_os2bmp(deark *c)
 {
-	int fmt;
+	enum fmtcode fmt;
 
 	// TODO: We could do a better job of identifying these formats.
 	fmt = de_identify_os2bmp_internal(c);
@@ -608,6 +667,8 @@ static int de_identify_os2bmp(deark *c)
 	case DE_OS2FMT_IC:
 	case DE_OS2FMT_PT:
 		return 10;
+	default:
+		break;
 	}
 	return 0;
 }
