@@ -677,6 +677,9 @@ Deark -- Information about supported formats
   - Compression types supported: "stored", "deflate", "implode", "reduce".
   - Extract main ZIP file comment (use -a).
   - Extract comments for individual files (use -a).
+  Options
+   -opt zip:scanmode - Attempt to read the file without using the ZIP "central
+     directory". Not recommended, but allows some damaged ZIP files to be read.
 
 * zlib (module="zlib")
   - Raw zlib files are uncompressed.

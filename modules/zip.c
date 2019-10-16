@@ -28,6 +28,13 @@ DE_DECLARE_MODULE(de_module_zip);
 struct localctx_struct;
 typedef struct localctx_struct lctx;
 
+#define CODE_PK12 0x02014b50U
+#define CODE_PK34 0x04034b50U
+static const u8 g_zipsig34[4] = {'P', 'K', 0x03, 0x04};
+static const u8 g_zipsig56[4] = {'P', 'K', 0x05, 0x06};
+static const u8 g_zipsig66[4] = {'P', 'K', 0x06, 0x06};
+static const u8 g_zipsig67[4] = {'P', 'K', 0x06, 0x07};
+
 struct compression_params {
 	// ZIP-specific params (not in de_dfilter_*_params) that may be needed to
 	// to decompress something.
@@ -1185,6 +1192,11 @@ static const char *get_platform_name(unsigned int ver_hi)
 // Look at the attributes, and set some other fields based on them.
 static void process_ext_attr(deark *c, lctx *d, struct member_data *md)
 {
+	if(d->using_scanmode) {
+		// In this mode, there is no 'external attribs' field.
+		return;
+	}
+
 	if(md->ver_made_by_hi==3) { // Unix
 		unsigned int unix_filetype;
 		unix_filetype = (md->attr_e>>16)&0170000;
@@ -1355,11 +1367,11 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	de_dbg_indent(c, 1);
 
 	sig = (u32)de_getu32le_p(&pos);
-	if(is_central && sig!=0x02014b50U) {
+	if(is_central && sig!=CODE_PK12) {
 		de_err(c, "Central dir file header not found at %"I64_FMT, pos1);
 		goto done;
 	}
-	else if(!is_central && sig!=0x04034b50U) {
+	else if(!is_central && sig!=CODE_PK34) {
 		de_err(c, "Local file header not found at %"I64_FMT, pos1);
 		goto done;
 	}
@@ -1495,10 +1507,10 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 			i64 alt_pos;
 
 			sig1 = (u32)de_getu32le(md->offset_of_local_header);
-			if(sig1!=0x04034b50U) {
+			if(sig1!=CODE_PK34) {
 				alt_pos = md->offset_of_local_header + d->offset_discrepancy;
 				sig2 = (u32)de_getu32le(alt_pos);
-				if(sig2==0x04034b50U) {
+				if(sig2==CODE_PK34) {
 					de_warn(c, "Local file header found at %"I64_FMT" instead of %"I64_FMT". "
 						"Assuming offsets are wrong by %"I64_FMT" bytes.",
 						alt_pos, md->offset_of_local_header, d->offset_discrepancy);
@@ -1535,12 +1547,25 @@ static void destroy_member_data(deark *c, struct member_data *md)
 	de_free(c, md);
 }
 
+static i32 ucstring_lastchar(de_ucstring *s)
+{
+	if(!s || s->len<1) return 0;
+	return s->str[s->len-1];
+}
+
 // Things to do after both the central and local headers have been read.
 // E.g., extract the file.
-static void do_process_member(deark *c, lctx *d, struct member_data *md)
+static int do_process_member(deark *c, lctx *d, struct member_data *md)
 {
+	int retval = 0;
+
 	// Set the final file size and crc fields.
 	if(md->local_dir_entry_data.bit_flags & 0x0008) {
+		if(d->using_scanmode) {
+			de_err(c, "File is incompatible with scan mode");
+			goto done;
+		}
+
 		// Indicates that certain fields are not present in the local file header,
 		// and are instead in a "data descriptor" after the file data.
 		// Let's hope they are also in the central file header.
@@ -1556,7 +1581,22 @@ static void do_process_member(deark *c, lctx *d, struct member_data *md)
 
 	process_ext_attr(c, d, md);
 
+	// In some cases, detect directories by checking whether the filename ends
+	// with a slash.
+	if(!md->is_dir && md->uncmpr_size==0 &&
+		(d->using_scanmode || (md->ver_made_by_lo<20)))
+	{
+		if(ucstring_lastchar(md->local_dir_entry_data.fname) == '/') {
+			de_dbg(c, "[assuming this is a subdirectory]");
+			md->is_dir = 1;
+		}
+	}
+
 	do_extract_file(c, d, md);
+	retval = 1;
+
+done:
+	return retval;
 }
 
 // In *entry_size, returns the size of the central dir entry.
@@ -1612,10 +1652,11 @@ static int do_central_dir_entry(deark *c, lctx *d,
 	return ret;
 }
 
-static void do_local_dir_only(deark *c, lctx *d, i64 pos1)
+static int do_local_dir_only(deark *c, lctx *d, i64 pos1, i64 *pmember_size)
 {
 	struct member_data *md = NULL;
 	i64 tmp_entry_size;
+	int retval = 0;
 
 	md = create_member_data(c, d);
 
@@ -1626,10 +1667,14 @@ static void do_local_dir_only(deark *c, lctx *d, i64 pos1)
 		goto done;
 	}
 
-	do_process_member(c, d, md);
+	if(!do_process_member(c, d, md)) goto done;
+
+	*pmember_size = md->file_data_pos + md->cmpr_size - pos1;
+	retval = 1;
 
 done:
 	destroy_member_data(c, md);
+	return retval;
 }
 
 static void de_run_zip_scanmode(deark *c, lctx *d)
@@ -1641,13 +1686,19 @@ static void de_run_zip_scanmode(deark *c, lctx *d)
 	while(1) {
 		int ret;
 		i64 foundpos = 0;
+		i64 member_size = 0;
 
 		if(pos > c->infile->len-4) break;
-		ret = dbuf_search(c->infile, (const u8*)"PK\x3\x4", 4, pos, c->infile->len-pos, &foundpos);
+		ret = dbuf_search(c->infile, g_zipsig34, 4, pos, c->infile->len-pos, &foundpos);
 		if(!ret) break;
 		pos = foundpos;
-		do_local_dir_only(c, d, pos);
-		break;
+		de_dbg(c, "zip member at %"I64_FMT, pos);
+		de_dbg_indent(c, 1);
+		ret = do_local_dir_only(c, d, pos, &member_size);
+		de_dbg_indent(c, -1);
+		if(!ret) break;
+		if(member_size<1) break;
+		pos += member_size;
 	}
 }
 
@@ -1685,7 +1736,7 @@ static void do_zip64_eocd(deark *c, lctx *d)
 	if(d->zip64_eocd_disknum!=0) goto done;
 
 	pos = d->zip64_eocd_pos;
-	if(dbuf_memcmp(c->infile, pos, "PK\x06\x06", 4)) {
+	if(dbuf_memcmp(c->infile, pos, g_zipsig66, 4)) {
 		de_err(c, "Zip64 end-of-central-directory record not found at %"I64_FMT, pos);
 		goto done;
 	}
@@ -1715,7 +1766,7 @@ static void do_zip64_eocd_locator(deark *c, lctx *d)
 	i64 n;
 	i64 pos = d->end_of_central_dir_pos - 20;
 
-	if(dbuf_memcmp(c->infile, pos, "PK\x06\x07", 4)) {
+	if(dbuf_memcmp(c->infile, pos, g_zipsig67, 4)) {
 		return;
 	}
 	de_dbg(c, "zip64 eocd locator at %"I64_FMT, pos);
@@ -1798,7 +1849,7 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 			d->central_dir_offset, alt_central_dir_offset);
 
 		sig = (u32)de_getu32le(alt_central_dir_offset);
-		if(sig==0x02014b50U) {
+		if(sig==CODE_PK12) {
 			d->offset_discrepancy = alt_central_dir_offset - d->central_dir_offset;
 			de_dbg(c, "likely central dir found at %"I64_FMT, alt_central_dir_offset);
 			d->central_dir_offset = alt_central_dir_offset;
@@ -1886,14 +1937,14 @@ static int de_identify_zip(deark *c)
 	// Fast tests:
 
 	de_read(b, 0, 4);
-	if(!de_memcmp(b, "PK\x03\x04", 4)) {
+	if(!de_memcmp(b, g_zipsig34, 4)) {
 		return has_zip_ext ? 100 : 90;
 	}
 	if(b[0]=='M' && b[1]=='Z') has_mz_sig = 1;
 
 	if(c->infile->len >= 22) {
 		de_read(b, c->infile->len - 22, 4);
-		if(!de_memcmp(b, "PK\x05\x06", 4)) {
+		if(!de_memcmp(b, g_zipsig56, 4)) {
 			return has_zip_ext ? 100 : 19;
 		}
 	}
@@ -1925,10 +1976,17 @@ static int de_identify_zip(deark *c)
 	return 0;
 }
 
+static void de_help_zip(deark *c)
+{
+	de_msg(c, "-opt zip:scanmode : Do not use the \"central directory\"");
+	de_msg(c, "-opt zip:implodebug : Behave like PKZIP 1.01/1.02");
+}
+
 void de_module_zip(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "zip";
 	mi->desc = "ZIP archive";
 	mi->run_fn = de_run_zip;
 	mi->identify_fn = de_identify_zip;
+	mi->help_fn = de_help_zip;
 }
