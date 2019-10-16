@@ -67,7 +67,7 @@ Command-line options:
    formats.txt file for details.
 -zip
    Write output files to a .zip file, instead of to individual files.
-   If the input format is an "archive" format (e.g. "ar" or "graspgl"), then
+   If the input format is an "archive" format (e.g. "ar" or "zoo"), then
    by default, the filenames in the ZIP archive might not include the usual
    "output.NNN" prefix.
 -tar
@@ -203,7 +203,7 @@ Command-line options:
     -opt atari:palbits=&lt;9|12|15>
        For some Atari image formats, the number of significant bits per
        palette color. The default is to autodetect.
-    -opt macrsrc=<raw|as|ad>
+    -opt macrsrc=&lt;raw|as|ad>
        The preferred way to extract Macintosh resource forks, and data files
        associated with a non-empty resource fork.
         raw = Write the raw resource fork to a separate .rsrc file.
