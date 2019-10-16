@@ -7,6 +7,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 
 #include "../foreign/unzoo.h"
 #include "../foreign/zoo-lzd.h"
@@ -40,7 +41,6 @@ void de_module_zoo(deark *c, struct deark_module_info *mi)
 // just put it here.
 
 struct pdctx_object {
-	u32 load_addr, exec_addr;
 	u32 attribs;
 	u32 object_type;
 	u8 is_dir;
@@ -147,14 +147,6 @@ static void do_packdir_extract_file(deark *c, struct pdctx_struct *d,
 	ucstring_destroy(fullfn);
 }
 
-static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *name)
-{
-	char timestamp_buf[64];
-
-	de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
-	de_dbg(c, "%s: %s", name, timestamp_buf);
-}
-
 // Process and object, and all its descendants.
 // Returns 0 on fatal error.
 static int do_packdir_object(deark *c, struct pdctx_struct *d, i64 pos1,
@@ -168,6 +160,7 @@ static int do_packdir_object(deark *c, struct pdctx_struct *d, i64 pos1,
 	struct pdctx_object *md = NULL;
 	int retval = 0;
 	int need_dirname_pop = 0;
+	struct de_riscos_file_attrs rfa;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -189,21 +182,16 @@ static int do_packdir_object(deark *c, struct pdctx_struct *d, i64 pos1,
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(md->name));
 	pos += name_len + 1;
 
-	md->load_addr = (u32)de_getu32le_p(&pos);
-	md->exec_addr = (u32)de_getu32le_p(&pos);
-	de_dbg(c, "load/exec addrs: 0x%08x, 0x%08x", (unsigned int)md->load_addr,
-		(unsigned int)md->exec_addr);
-	de_dbg_indent(c, 1);
-	if((md->load_addr&0xfff00000U)==0xfff00000U) {
-		// todo: filetype
-		de_riscos_loadexec_to_timestamp(md->load_addr, md->exec_addr, &md->mod_time);
-		dbg_timestamp(c, &md->mod_time, "timestamp");
-	}
-	de_dbg_indent(c, -1);
+	de_zeromem(&rfa, sizeof(struct de_riscos_file_attrs));
+	de_fmtutil_riscos_read_load_exec(c, c->infile, &rfa, pos);
+	pos += 8;
+	md->mod_time = rfa.mod_time;
 
 	length_raw = de_getu32le_p(&pos);
-	md->attribs = (u32)de_getu32le_p(&pos);
-	de_dbg(c, "attribs: 0x%08x", (unsigned int)md->attribs);
+
+	de_fmtutil_riscos_read_attribs_field(c, c->infile, &rfa, pos, 0);
+	pos += 4;
+	md->attribs = rfa.attribs;
 
 	if(level==0) {
 		md->object_type = 1;

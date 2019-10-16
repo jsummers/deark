@@ -536,34 +536,21 @@ static void do_Apple_AA_HFS(deark *c, lctx *d, struct dir_record *dr, i64 pos1, 
 static void do_ARCHIMEDES(deark *c, lctx *d, struct dir_record *dr, i64 pos1, i64 len)
 {
 	i64 pos = pos1;
-	u32 ld, ex;
+	struct de_riscos_file_attrs rfa;
 
 	de_dbg(c, "ARCHIMEDES extension at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	if(len<10+12) goto done;
 	dr->has_archimedes_ext = 1;
 	pos += 10; // signature
-	ld = (u32)de_getu32le_p(&pos);
-	ex = (u32)de_getu32le_p(&pos);
-	de_dbg(c, "load/exec addrs: 0x%08x, 0x%08x", (unsigned int)ld,
-		(unsigned int)ex);
 
-	if((ld&0xfff00000U)==0xfff00000U) {
-		unsigned int file_type;
-		char timestamp_buf[64];
+	de_zeromem(&rfa, sizeof(struct de_riscos_file_attrs));
+	de_fmtutil_riscos_read_load_exec(c, c->infile, &rfa, pos);
+	dr->riscos_timestamp = rfa.mod_time;
+	pos += 8;
 
-		de_dbg_indent(c, 1);
-		file_type = (unsigned int)((ld&0xfff00)>>8);
-		de_dbg(c, "file type: %03X", file_type);
-
-		de_riscos_loadexec_to_timestamp(ld, ex, &dr->riscos_timestamp);
-		de_timestamp_to_string(&dr->riscos_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
-		de_dbg(c, "timestamp: %s", timestamp_buf);
-		de_dbg_indent(c, -1);
-	}
-
-	dr->archimedes_attribs = (u32)de_getu32le_p(&pos);
-	de_dbg(c, "attribs: 0x%08x", (unsigned int)dr->archimedes_attribs);
+	de_fmtutil_riscos_read_attribs_field(c, c->infile, &rfa, pos, 0);
+	dr->archimedes_attribs = rfa.attribs;
 
 done:
 	de_dbg_indent(c, -1);

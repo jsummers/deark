@@ -440,6 +440,8 @@ done:
 static void apply_mod_time(deark *c, lctx *d, struct member_data *md,
 	const struct de_timestamp *ts, int quality)
 {
+	if(!ts->is_valid) return;
+
 	// In case of a tie, we prefer the later timestamp that we encountered.
 	// This makes local headers have priority over central headers, for
 	// example.
@@ -930,8 +932,7 @@ done:
 static void ef_acorn(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
 	i64 pos = eii->dpos;
-	u32 ld, ex;
-	u32 attribs;
+	struct de_riscos_file_attrs rfa;
 
 	if(eii->dlen<16) return;
 	if(dbuf_memcmp(c->infile, eii->dpos, "ARC0", 4)) {
@@ -939,29 +940,15 @@ static void ef_acorn(deark *c, lctx *d, struct extra_item_info_struct *eii)
 		return;
 	}
 	pos += 4;
-	ld = (u32)de_getu32le_p(&pos);
-	ex = (u32)de_getu32le_p(&pos);
-	de_dbg(c, "load/exec addrs: 0x%08x, 0x%08x", (unsigned int)ld,
-		(unsigned int)ex);
 
-	de_dbg_indent(c, 1);
-	if((ld&0xfff00000U)==0xfff00000U) {
-		struct de_timestamp mod_time;
-		unsigned int file_type;
-		char timestamp_buf[64];
-
-		file_type = (unsigned int)((ld&0xfff00)>>8);
-		de_dbg(c, "file type: %03X", file_type);
-
-		de_riscos_loadexec_to_timestamp(ld, ex, &mod_time);
-		de_dbg_timestamp_to_string(c, &mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
-		de_dbg(c, "timestamp: %s", timestamp_buf);
-		apply_mod_time(c, d, eii->md, &mod_time, 70);
+	de_zeromem(&rfa, sizeof(struct de_riscos_file_attrs));
+	de_fmtutil_riscos_read_load_exec(c, c->infile, &rfa, pos);
+	pos += 8;
+	if(rfa.mod_time.is_valid) {
+		apply_mod_time(c, d, eii->md, &rfa.mod_time, 70);
 	}
-	de_dbg_indent(c, -1);
 
-	attribs = (u32)de_getu32le_p(&pos);
-	de_dbg(c, "file perms: 0x%08x", (unsigned int)attribs);
+	de_fmtutil_riscos_read_attribs_field(c, c->infile, &rfa, pos, 0);
 	// Note: attribs does not have any information that we care about (no
 	// 'executable' or 'is-directory' flag).
 }
