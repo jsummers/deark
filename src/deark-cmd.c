@@ -50,6 +50,7 @@ struct cmdctx {
 	const char *archive_filename;
 	int option_k_level; // Use input filename in output filenames
 	int option_ka_level; // Use input filename in output archive filenames
+	u8 set_MAXFILES;
 
 	int to_stdout;
 	int to_zip;
@@ -804,6 +805,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_MAXFILES:
 				de_set_max_output_files(c, de_atoi(argv[i+1]));
+				cc->set_MAXFILES = 1;
 				break;
 			case DE_OPT_MAXFILESIZE:
 				de_set_max_output_file_size(c, de_atoi64(argv[i+1]));
@@ -880,7 +882,9 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 		}
 		else {
 			de_set_output_style(c, DE_OUTPUTSTYLE_STDOUT, 0);
-			de_set_max_output_files(c, 1);
+			if(!cc->set_MAXFILES) {
+				de_set_max_output_files(c, 1);
+			}
 		}
 	}
 
