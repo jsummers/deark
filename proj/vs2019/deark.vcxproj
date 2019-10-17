@@ -245,6 +245,7 @@
     <ClCompile Include="..\..\modules\ole1.c" />
     <ClCompile Include="..\..\modules\olepropset.c" />
     <ClCompile Include="..\..\modules\os2bmp.c" />
+    <ClCompile Include="..\..\modules\packdir.c" />
     <ClCompile Include="..\..\modules\palmbitmap.c" />
     <ClCompile Include="..\..\modules\palmpdb.c" />
     <ClCompile Include="..\..\modules\pcf.c" />
