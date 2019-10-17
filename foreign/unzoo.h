@@ -110,10 +110,6 @@ struct entryctx {
 	u32           permis;         /* file permissions                */
 	u8             modgen;         /* gens. on, last gen., gen. limit */
 	u16           ver;            /* version number of member        */
-
-	struct lzh_table lzhtbl;
-
-	u8             BufFile [8192];         /* at least LZH_MAX_OFF   */
 };
 
 struct unzooctx {
@@ -166,14 +162,6 @@ static u32 HalfReadArch (struct unzooctx *uz)
 {
 	u32 result;
 	result = (u32)dbuf_getu16le(uz->ReadArch, uz->ReadArch_fpos);
-	uz->ReadArch_fpos += 2;
-	return result;
-}
-
-static u32 FlahReadArch (struct unzooctx *uz)
-{
-	u32 result;
-	result = (u32)dbuf_getu16be(uz->ReadArch, uz->ReadArch_fpos);
 	uz->ReadArch_fpos += 2;
 	return result;
 }
@@ -578,10 +566,9 @@ static int ClosWritFile (struct unzooctx *uz, struct entryctx *ze)
 	return 1;
 }
 
-static i64 BlckWritFile (struct unzooctx *uz, struct entryctx *ze, const u8 *blk, i64 len )
+static i64 BlckWritFile (dbuf *outf, const u8 *blk, i64 len )
 {
-	if(!ze->WritBinr) return 0;
-	dbuf_write(ze->WritBinr, blk, len);
+	dbuf_write(outf, blk, len);
 	return len;
 }
 
@@ -592,18 +579,10 @@ static i64 BlckWritFile (struct unzooctx *uz, struct entryctx *ze, const u8 *blk
 **  'DecodeCopy' simply  copies <size> bytes  from the  archive to the output
 **  file.
 */
-static int DecodeCopy (struct unzooctx *uz, struct entryctx *ze, u32 size )
+static void DecodeCopy (deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	if(uz->ReadArch_fpos + size > uz->ReadArch->len) {
-		uz->ErrMsg = "Unexpected <eof> in the archive";
-		return 0;
-	}
-
-	dbuf_copy(uz->ReadArch, uz->ReadArch_fpos, (i64)size, ze->WritBinr);
-	uz->ReadArch_fpos += size;
-
-	/* indicate success                                                    */
-	return 1;
+	dbuf_copy(dcmpri->f, dcmpri->pos, dcmpri->len, dcmpro->f);
 }
 
 // Forward declaration of a function in zoo-lzd.h
@@ -701,12 +680,10 @@ static void SetLookupTblLen(struct lzh_lookuptable *lookuptbl, size_t idx, u8 va
 **
 **  Haruhiko Okumura  wrote the  LZH code (originally for his 'ar' archiver).
 */
-static int MakeTablLzh (struct unzooctx *uz, struct entryctx *ze,
-	struct lzh_lookuptable *lookuptbl)
+static int MakeTablLzh (struct lzh_table *lzhtbl, struct lzh_lookuptable *lookuptbl)
 {
 	u16           count[17], weight[17], start[18];
 	unsigned int        i, len, ch, jutbits, avail, mask;
-	struct lzh_table *lzhtbl = &ze->lzhtbl;
 
 	de_zeromem(count, sizeof(count));
 	de_zeromem(weight, sizeof(weight));
@@ -789,9 +766,14 @@ static int MakeTablLzh (struct unzooctx *uz, struct entryctx *ze,
 }
 
 struct lzhctx_struct {
-	struct unzooctx *uz;
+	deark *c;
+	struct unzooctx *uz1;
+	dbuf *inf;
+	i64 inf_pos;
 	u32 bits;           /* the bits we are looking at      */
 	u32 bitc;           /* number of bits that are valid   */
+	struct lzh_table lzhtbl;
+	u8             BufFile [8192];         /* at least LZH_MAX_OFF   */
 };
 
 static u32 lzh_peek_bits_(struct lzhctx_struct *lzhctx, u32 n)
@@ -805,25 +787,29 @@ static void lzh_flsh_bits_(struct lzhctx_struct *lzhctx, u32 n)
 	if(n>lzhctx->bitc) return;
 	lzhctx->bitc -= n;
 	if (lzhctx->bitc < 16) {
-		lzhctx->bits  = (lzhctx->bits<<16) + FlahReadArch(lzhctx->uz);
+		lzhctx->bits  = (lzhctx->bits<<16) + (u32)dbuf_getu16be_p(lzhctx->inf, &lzhctx->inf_pos);
 		lzhctx->bitc += 16;
 	}
 }
 
-static u8 BufFile_getbyte(struct entryctx *ze, unsigned int idx)
+static u8 BufFile_getbyte(struct lzhctx_struct *lzhctx, unsigned int idx)
 {
-	if(idx<LZH_MAX_OFF) return ze->BufFile[idx];
+	if(idx<LZH_MAX_OFF) return lzhctx->BufFile[idx];
 	return 0;
 }
 
-static void BufFile_setbyte(struct entryctx *ze, unsigned int idx, u8 n)
+static void BufFile_setbyte(struct lzhctx_struct *lzhctx, unsigned int idx, u8 n)
 {
 	if(idx<LZH_MAX_OFF) {
-		ze->BufFile[idx] = n;
+		lzhctx->BufFile[idx] = n;
 	}
 }
 
-static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
+static void init_lzh_lookuptable(deark *c, struct lzh_lookuptable *lookuptbl,
+	unsigned int tablebits, size_t nlengths);
+
+static void DecodeLzh (deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
 	u32 cnt;            /* number of codes in block        */
 	u32 cnt2;           /* number of stuff in pre code     */
@@ -835,15 +821,25 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 	unsigned int cur_idx;     // current index in BufFile
 	unsigned int end_idx;     // index to the end of BufFile
 	u32 i;              /* loop variable                   */
-	struct lzhctx_struct lzhctx;
-	struct lzh_table *lzhtbl = &ze->lzhtbl;
+	struct lzhctx_struct *lzhctx = NULL;
+	struct lzh_table *lzhtbl = NULL; // = &lzhctx->lzhtbl
+	static const char *modname = "zoo-lzh";
 
-#define LZH_PEEK_BITS(N)  lzh_peek_bits_(&lzhctx, N)
-#define LZH_FLSH_BITS(N)  lzh_flsh_bits_(&lzhctx, N)
+#define LZH_PEEK_BITS(N)  lzh_peek_bits_(lzhctx, N)
+#define LZH_FLSH_BITS(N)  lzh_flsh_bits_(lzhctx, N)
+
+	lzhctx = de_malloc(c, sizeof(struct lzhctx_struct));
+	lzhctx->c = c;
+	lzhctx->inf = dcmpri->f;
+	lzhctx->inf_pos = dcmpri->pos;
+
+	init_lzh_lookuptable(c, &lzhctx->lzhtbl.CodeTbl, 12, LZH_MAX_CODE+1);
+	init_lzh_lookuptable(c, &lzhctx->lzhtbl.LogTbl, 8, LZH_MAX_LOG+1);
+	init_lzh_lookuptable(c, &lzhctx->lzhtbl.PreTbl, 8, LZH_MAX_PRE+1);
+	lzhtbl = &lzhctx->lzhtbl;
 
 	/* initialize bit source, output pointer, and crc                      */
-	lzhctx.uz = uz;
-	lzhctx.bits = 0;  lzhctx.bitc = 0;  LZH_FLSH_BITS(0);
+	lzhctx->bits = 0;  lzhctx->bitc = 0;  LZH_FLSH_BITS(0);
 	cur_idx = 0;
 	end_idx = LZH_MAX_OFF;
 
@@ -873,9 +869,9 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 				}
 			}
 			while ( i <= LZH_MAX_PRE )  lzhtbl->PreTbl.Len[i++] = 0;
-			if ( ! MakeTablLzh(uz, ze, &lzhtbl->PreTbl) ) {
-				uz->ErrMsg = "Pre code description corrupted";
-				return 0;
+			if ( ! MakeTablLzh(lzhtbl, &lzhtbl->PreTbl) ) {
+				de_dfilter_set_errorf(c, dres, modname, "Pre code description corrupted");
+				goto done;
 			}
 		}
 
@@ -920,9 +916,9 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 				}
 			}
 			while ( i <= LZH_MAX_CODE )  lzhtbl->CodeTbl.Len[i++] = 0;
-			if ( ! MakeTablLzh(uz, ze, &lzhtbl->CodeTbl) ) {
-				uz->ErrMsg = "Literal/length code description corrupted";
-				return 0;
+			if ( ! MakeTablLzh(lzhtbl, &lzhtbl->CodeTbl) ) {
+				de_dfilter_set_errorf(c, dres, modname, "Literal/length code description corrupted");
+				goto done;
 			}
 		}
 
@@ -944,9 +940,9 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 				SetLookupTblLen(&lzhtbl->LogTbl, i++, len);
 			}
 			while ( i <= LZH_MAX_LOG )  lzhtbl->LogTbl.Len[i++] = 0;
-			if ( ! MakeTablLzh(uz, ze, &lzhtbl->LogTbl) ) {
-				uz->ErrMsg = "Log code description corrupted";
-				return 0;
+			if ( ! MakeTablLzh(lzhtbl, &lzhtbl->LogTbl) ) {
+				de_dfilter_set_errorf(c, dres, modname, "Log code description corrupted");
+				goto done;
 			}
 		}
 
@@ -971,11 +967,11 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 
 			/* if the code is a literal, stuff it into the buffer          */
 			if ( code <= LZH_MAX_LIT ) {
-				BufFile_setbyte(ze, cur_idx++, code);
+				BufFile_setbyte(lzhctx, cur_idx++, code);
 				if ( cur_idx == end_idx ) {
-					if ( BlckWritFile(uz, ze, ze->BufFile, cur_idx) != cur_idx ) {
-						uz->ErrMsg = "Cannot write output file";
-						return 0;
+					if ( BlckWritFile(dcmpro->f, lzhctx->BufFile, cur_idx) != cur_idx ) {
+						de_dfilter_set_errorf(c, dres, modname, "Cannot write output file");
+						goto done;
 					}
 					cur_idx = 0;
 				}
@@ -1017,23 +1013,23 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 					unsigned int stp_idx;     // stop index during copy
 					stp_idx = cur_idx + len;
 					do {
-						code = BufFile_getbyte(ze, pos_idx++);
-						BufFile_setbyte(ze, cur_idx++, code);
+						code = BufFile_getbyte(lzhctx, pos_idx++);
+						BufFile_setbyte(lzhctx, cur_idx++, code);
 					} while ( cur_idx < stp_idx );
 				}
 				else {
 					while ( 0 < len-- ) {
-						code = BufFile_getbyte(ze, pos_idx++);
-						BufFile_setbyte(ze, cur_idx++, code);
+						code = BufFile_getbyte(lzhctx, pos_idx++);
+						BufFile_setbyte(lzhctx, cur_idx++, code);
 						if ( pos_idx == end_idx ) {
 							pos_idx = 0;
 						}
 						if ( cur_idx == end_idx ) {
-							if ( BlckWritFile(uz, ze, ze->BufFile, cur_idx)
+							if ( BlckWritFile(dcmpro->f, lzhctx->BufFile, cur_idx)
 								 != cur_idx )
 							{
-								uz->ErrMsg = "Cannot write output file";
-								return 0;
+								de_dfilter_set_errorf(c, dres, modname, "Cannot write output file");
+								goto done;
 							}
 							cur_idx = 0;
 						}
@@ -1046,14 +1042,25 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 	}
 
 	/* write out the rest of the buffer                                    */
-	if(cur_idx>=LZH_MAX_OFF) return 0;
-	if ( BlckWritFile(uz, ze, ze->BufFile, cur_idx) != cur_idx ) {
-		uz->ErrMsg = "Cannot write output file";
-		return 0;
+	if(cur_idx>=LZH_MAX_OFF) {
+		de_dfilter_set_generic_error(c, dres, modname);
+		goto done;
+	}
+	if ( BlckWritFile(dcmpro->f, lzhctx->BufFile, cur_idx) != cur_idx ) {
+		de_dfilter_set_errorf(c, dres, modname, "Cannot write output file");
+		goto done;
 	}
 
-	/* indicate success                                                    */
-	return 1;
+done:
+	if(lzhctx) {
+		de_free(c, lzhctx->lzhtbl.CodeTbl.Tab);
+		de_free(c, lzhctx->lzhtbl.CodeTbl.Len);
+		de_free(c, lzhctx->lzhtbl.LogTbl.Tab);
+		de_free(c, lzhctx->lzhtbl.LogTbl.Len);
+		de_free(c, lzhctx->lzhtbl.PreTbl.Tab);
+		de_free(c, lzhctx->lzhtbl.PreTbl.Len);
+		de_free(c, lzhctx);
+	}
 }
 
 static void init_lzh_lookuptable(deark *c, struct lzh_lookuptable *lookuptbl,
@@ -1072,13 +1079,17 @@ static void ExtrEntry(struct unzooctx *uz, i64 pos1, i64 *next_entry_pos)
 	u32       res;            /* status of decoding              */
 	struct entryctx *ze = NULL;
 	deark *c = uz->c;
+	int using_dres = 0;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
+	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
+	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
+	de_dfilter_results_clear(c, &dres);
 
 	ze = de_malloc(c, sizeof(struct entryctx));
 	ze->uz = uz;
-
-	init_lzh_lookuptable(c, &ze->lzhtbl.CodeTbl, 12, LZH_MAX_CODE+1);
-	init_lzh_lookuptable(c, &ze->lzhtbl.LogTbl, 8, LZH_MAX_LOG+1);
-	init_lzh_lookuptable(c, &ze->lzhtbl.PreTbl, 8, LZH_MAX_PRE+1);
 
 	ze->fi = de_finfo_create(c);
 
@@ -1115,6 +1126,11 @@ static void ExtrEntry(struct unzooctx *uz, i64 pos1, i64 *next_entry_pos)
 	de_dbg(c, "compressed data at %u, len=%u", (unsigned int)ze->posdat,
 		(unsigned int)ze->siznow);
 
+	if(ze->posdat + ze->siznow > uz->ReadArch->len) {
+		de_err(c, "Unexpected <eof> in the archive");
+		goto done;
+	}
+
 	/* open the file for creation                                      */
 	if ( ! OpenWritFile(uz, ze) ) {
 		goto done;
@@ -1128,15 +1144,25 @@ static void ExtrEntry(struct unzooctx *uz, i64 pos1, i64 *next_entry_pos)
 	res = 0;
 	uz->ErrMsg = "Internal error";
 
+	dcmpri.f = uz->ReadArch;
+	dcmpri.pos = uz->ReadArch_fpos;
+	dcmpri.len = ze->siznow;
+
+	dcmpro.f = ze->WritBinr;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = ze->sizorg;
+
 	switch(ze->method) {
 	case ZOOCMPR_STORED:
-		res = DecodeCopy(uz, ze, ze->siznow );
+		using_dres = 1;
+		DecodeCopy(uz->c, &dcmpri, &dcmpro, &dres);
 		break;
 	case ZOOCMPR_LZD:
 		res = DecodeLzd(uz, ze);
 		break;
 	case ZOOCMPR_LZH:
-		res = DecodeLzh(uz, ze);
+		using_dres = 1;
+		DecodeLzh(uz->c, &dcmpri, &dcmpro, &dres);
 		break;
 	default:
 		goto done;
@@ -1146,7 +1172,11 @@ static void ExtrEntry(struct unzooctx *uz, i64 pos1, i64 *next_entry_pos)
 	de_dbg(c, "file data crc (calculated): 0x%04x", (unsigned int)ze->crc_calculated);
 
 	/* check that everything went ok                                   */
-	if      ( res == 0 ) {
+	if(using_dres && dres.errcode) {
+		de_err(c, "%s", dres.errmsg);
+	}
+	else if(!using_dres && res==0) {
+		if(!uz->ErrMsg) uz->ErrMsg = "Unspecified error";
 		de_err(c, "%s", uz->ErrMsg);
 	}
 	else if ( ze->crc_calculated != ze->crcdat ) {
@@ -1157,14 +1187,6 @@ done:
 	if(ze) {
 		ClosWritFile(uz, ze);
 		de_finfo_destroy(c, ze->fi);
-
-		de_free(c, ze->lzhtbl.CodeTbl.Tab);
-		de_free(c, ze->lzhtbl.CodeTbl.Len);
-		de_free(c, ze->lzhtbl.LogTbl.Tab);
-		de_free(c, ze->lzhtbl.LogTbl.Len);
-		de_free(c, ze->lzhtbl.PreTbl.Tab);
-		de_free(c, ze->lzhtbl.PreTbl.Len);
-
 		de_free(c, ze);
 	}
 }
