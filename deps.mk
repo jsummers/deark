@@ -252,7 +252,8 @@ $(OBJDIR)/modules/zip.o: modules/zip.c src/deark-config.h \
  modules/../foreign/unimplode6a.h modules/../foreign/ozunreduce.h
 $(OBJDIR)/modules/zoo.o: modules/zoo.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h \
- modules/../foreign/unzoo.h modules/../foreign/zoo-lzd.h
+ modules/../foreign/unzoo-lzh.h modules/../foreign/unzoo.h \
+ modules/../foreign/zoo-lzd.h
 $(OBJDIR)/src/deark-bitmap.o: src/deark-bitmap.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/src/deark-char.o: src/deark-char.c src/deark-config.h \

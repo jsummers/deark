@@ -9,6 +9,7 @@
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 
+#include "../foreign/unzoo-lzh.h"
 #include "../foreign/unzoo.h"
 #include "../foreign/zoo-lzd.h"
 
