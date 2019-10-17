@@ -28,15 +28,13 @@ code.  The contents of this file are hereby released to the public domain.
 */
 
 #define lzd_debug(x)
-#define lzd_assert(E) if(!(E)) lzd_on_assert_fail(uz);
+#define lzd_assert(E) if(!(E)) lzd_on_assert_fail(lc);
 
 #define  LZD_IN_BUF_SIZE       8192
 #define  LZD_OUT_BUF_SIZE      8192
 
 #define  LZD_INBUFSIZ    (LZD_IN_BUF_SIZE - 10)   /* avoid obo errors */
 #define  LZD_OUTBUFSIZ   (LZD_OUT_BUF_SIZE - 10)
-#define  LZD_MEMERR      2
-#define  LZD_IOERR       1
 #define  LZD_MAXMAXBITS  16
 #define  LZD_CLEAR       256         /* clear code */
 #define  LZD_Z_EOF       257         /* end of file marker */
@@ -51,8 +49,11 @@ struct lzd_tabentry {
 };
 
 struct lzdctx {
-	int errorflag;
+	deark *c;
+	struct de_dfilter_results *dres;
+	const char *modname;
 	dbuf *in_f;
+	i64 inf_pos;
 	i64 in_startpos;
 	i64 in_len;
 	dbuf *out_f;
@@ -80,24 +81,24 @@ struct lzdctx {
 };
 
 static void lzd_init_dtab(struct lzdctx *lc);
-static unsigned int lzd_rd_dcode(struct unzooctx *uz, struct lzdctx *lc);
-static void lzd_wr_dchar(struct unzooctx *uz, struct lzdctx *lc, u8 ch);
-static void lzd_ad_dcode(struct unzooctx *uz, struct lzdctx *lc);
+static unsigned int lzd_rd_dcode(struct lzdctx *lc);
+static void lzd_wr_dchar(struct lzdctx *lc, u8 ch);
+static void lzd_ad_dcode(struct lzdctx *lc);
 
-static void lzd_on_assert_fail(struct unzooctx *uz)
+static void lzd_on_assert_fail(struct lzdctx *lc)
 {
-	de_err(uz->c, "lzd_assert failed");
-	de_fatalerror(uz->c);
+	de_err(lc->c, "lzd_assert failed");
+	de_fatalerror(lc->c);
 }
 
-static void lzd_prterror(struct unzooctx *uz, int level, const char *msg)
+static void lzd_prterror(struct lzdctx *lc, int level, const char *msg)
 {
-	de_err(uz->c, "%s", msg);
+	de_err(lc->c, "%s", msg);
 	// TODO: Some of these errors shouldn't be fatal.
-	de_fatalerror(uz->c);
+	de_fatalerror(lc->c);
 }
 
-static void lzd_push(struct unzooctx *uz, struct lzdctx *lc, u8 x)
+static void lzd_push(struct lzdctx *lc, u8 x)
 {
 	if(lc->stack_pointer<LZD_STACKSIZE) {
 		lc->stack[lc->stack_pointer] = x;
@@ -105,7 +106,7 @@ static void lzd_push(struct unzooctx *uz, struct lzdctx *lc, u8 x)
 	lc->stack_pointer++;
 	if (lc->stack_pointer >= LZD_STACKSIZE) {
 		lc->stack_pointer = LZD_STACKSIZE-1;
-		lzd_prterror (uz, 'f', "Stack overflow in lzd().");
+		lzd_prterror (lc, 'f', "Stack overflow in lzd().");
 	}
 }
 
@@ -117,37 +118,47 @@ static u8 lzd_pop(struct lzdctx *lc)
 	return lc->stack[lc->stack_pointer];
 }
 
-static unsigned int lzd_zoowrite (struct unzooctx *uz, dbuf *file, const u8 *buffer, int count)
+static unsigned int lzd_zoowrite (dbuf *file, const u8 *buffer, int count)
 {
 	dbuf_write(file, buffer, count);
 	return (unsigned int)count;
 }
 
-static int lzd_zooread(struct unzooctx *uz, struct lzdctx *lc, u8 *buffer, int count)
+static int lzd_zooread(struct lzdctx *lc, u8 *buffer, int count)
 {
 	i64 amt_avail;
 	i64 amt_to_read;
 
 	amt_to_read = (i64)count;
-	amt_avail = lc->in_startpos + lc->in_len - uz->ReadArch_fpos;
+	amt_avail = lc->in_startpos + lc->in_len - lc->inf_pos;
 	if(amt_to_read > amt_avail) amt_to_read = amt_avail;
 	if(amt_to_read < 0) amt_to_read = 0;
-	return (int)dbuf_standard_read(lc->in_f, buffer, amt_to_read, &uz->ReadArch_fpos);
+	return (int)dbuf_standard_read(lc->in_f, buffer, amt_to_read, &lc->inf_pos);
 }
 
-static int lzd(struct unzooctx *uz, i64 in_len, dbuf *out_f, int maxbits)
+/****************************************************************************
+**
+*F  DecodeLzd() . . . . . . . . . . . . . . .  extract a LZ compressed member
+**
+*/
+static void DecodeLzd(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres, int maxbits)
 {
 	struct lzdctx *lc = NULL;
-	int retval = -1;
 
-	lc = de_malloc(uz->c, sizeof(struct lzdctx));
+	lc = de_malloc(c, sizeof(struct lzdctx));
+	lc->c = c;
+	lc->dres = dres;
+	lc->modname = "zoo-lzd";
 
 	lc->maxbits = maxbits;
 	lzd_assert(lc->maxbits >= 12 && lc->nbits <= LZD_MAXMAXBITS);
-	lc->in_f = uz->ReadArch;                 /* make it avail to other fns */
-	lc->in_startpos = uz->ReadArch_fpos;
-	lc->in_len = in_len;
-	lc->out_f = out_f;               /* ditto */
+	lc->in_f = dcmpri->f;                 /* make it avail to other fns */
+	lc->in_startpos = dcmpri->pos;
+	lc->inf_pos = dcmpri->pos;
+	lc->in_len = dcmpri->len;
+	lc->out_f = dcmpro->f;               /* ditto */
 	lc->nbits = 9;
 	lc->max_code = 512;
 	lc->free_code = LZD_FIRST_FREE;
@@ -155,25 +166,24 @@ static int lzd(struct unzooctx *uz, i64 in_len, dbuf *out_f, int maxbits)
 	lc->bit_offset = 0;
 	lc->output_offset = 0;
 
-	if (lzd_zooread (uz, lc, lc->in_buf_adr, LZD_INBUFSIZ) == -1) {
-		retval = LZD_IOERR;
+	if (lzd_zooread (lc, lc->in_buf_adr, LZD_INBUFSIZ) == -1) {
+		de_dfilter_set_errorf(c, dres, lc->modname, "LZD_IOERR");
 		goto done;
 	}
-	lc->table = de_malloc(uz->c, (LZD_MAXMAX+10) * sizeof(struct lzd_tabentry));
-	lc->stack = de_malloc(uz->c, LZD_STACKSIZE + 20);
+	lc->table = de_malloc(c, (LZD_MAXMAX+10) * sizeof(struct lzd_tabentry));
+	lc->stack = de_malloc(c, LZD_STACKSIZE + 20);
 
 	lzd_init_dtab(lc);             /* initialize table */
 
 loop:
-	lc->cur_code = lzd_rd_dcode(uz, lc);
+	lc->cur_code = lzd_rd_dcode(lc);
 goteof: /* special case for CLEAR then Z_EOF, for 0-length files */
 	if (lc->cur_code == LZD_Z_EOF) {
 		lzd_debug((printf ("lzd: Z_EOF\n")))
 		if (lc->output_offset != 0) {
-			if (lzd_zoowrite (uz, lc->out_f, lc->out_buf_adr, lc->output_offset) != lc->output_offset)
-				lzd_prterror (uz, 'f', "Output error in lzd().");
+			if (lzd_zoowrite (lc->out_f, lc->out_buf_adr, lc->output_offset) != lc->output_offset)
+				lzd_prterror (lc, 'f', "Output error in lzd().");
 		}
-		retval = 0;
 		goto done;
 	}
 
@@ -182,35 +192,35 @@ goteof: /* special case for CLEAR then Z_EOF, for 0-length files */
 	if (lc->cur_code == LZD_CLEAR) {
 		lzd_debug((printf ("lzd: CLEAR\n")))
 		lzd_init_dtab(lc);
-		lc->fin_char = lc->k = lc->old_code = lc->cur_code = lzd_rd_dcode(uz, lc);
+		lc->fin_char = lc->k = lc->old_code = lc->cur_code = lzd_rd_dcode(lc);
 		if (lc->cur_code == LZD_Z_EOF)		/* special case for 0-length files */
 			goto goteof;
-		lzd_wr_dchar(uz, lc, lc->k);
+		lzd_wr_dchar(lc, lc->k);
 		goto loop;
 	}
 
 	lc->in_code = lc->cur_code;
 	if (lc->cur_code >= lc->free_code) {        /* if code not in table (k<w>k<w>k) */
 		lc->cur_code = lc->old_code;             /* previous code becomes current */
-		lzd_push(uz, lc, lc->fin_char);
+		lzd_push(lc, lc->fin_char);
 	}
 
 	while (lc->cur_code > 255) {               /* if code, not character */
 		lzd_assert(lc->cur_code < LZD_MAXMAX+10);
-		lzd_push(uz, lc, lc->table[lc->cur_code].z_ch);         /* push suffix char */
+		lzd_push(lc, lc->table[lc->cur_code].z_ch);         /* push suffix char */
 		lc->cur_code = lc->table[lc->cur_code].next;    /* <w> := <w>.code */
 	}
 
 	lzd_assert(lc->nbits >= 9 && lc->nbits <= lc->maxbits);
 
 	lc->k = lc->fin_char = lc->cur_code;
-	lzd_push(uz, lc, lc->k);
+	lzd_push(lc, lc->k);
 	while (lc->stack_pointer != 0) {
-		lzd_wr_dchar(uz, lc, lzd_pop(lc));
+		lzd_wr_dchar(lc, lzd_pop(lc));
 	}
 	lzd_assert(lc->nbits >= 9 && lc->nbits <= lc->maxbits);
-	lzd_ad_dcode(uz, lc);
-	if(lc->errorflag) goto done;
+	lzd_ad_dcode(lc);
+	if(lc->dres->errcode) goto done;
 	lc->old_code = lc->in_code;
 
 	lzd_assert(lc->nbits >= 9 && lc->nbits <= lc->maxbits);
@@ -219,16 +229,15 @@ goteof: /* special case for CLEAR then Z_EOF, for 0-length files */
 
 done:
 	if(lc) {
-		de_free(uz->c, lc->table);
-		de_free(uz->c, lc->stack);
-		de_free(uz->c, lc);
+		de_free(c, lc->table);
+		de_free(c, lc->stack);
+		de_free(c, lc);
 	}
-	return retval;
 } /* lzd() */
 
 /* lzd_rd_dcode() reads a code from the input (compressed) file and returns
 its value. */
-static unsigned int lzd_rd_dcode(struct unzooctx *uz, struct lzdctx *lc)
+static unsigned int lzd_rd_dcode(struct lzdctx *lc)
 {
 	unsigned int a_idx; // index in lc->in_buf_adr
 	unsigned int word;                     /* first 16 bits in buffer */
@@ -258,8 +267,8 @@ static unsigned int lzd_rd_dcode(struct unzooctx *uz, struct lzdctx *lc)
 		lzd_assert(a_idx + byte_offset <= LZD_OUT_BUF_SIZE);
 		de_memmove(&lc->in_buf_adr[a_idx], &lc->in_buf_adr[byte_offset], (size_t)space_left);
 		a_idx += space_left;
-		if (lzd_zooread (uz, lc, &lc->in_buf_adr[a_idx], (int)byte_offset) == -1)
-			lzd_prterror (uz, 'f', "I/O error in lzd_rd_dcode.");
+		if (lzd_zooread (lc, &lc->in_buf_adr[a_idx], (int)byte_offset) == -1)
+			lzd_prterror (lc, 'f', "I/O error in lzd_rd_dcode.");
 		byte_offset = 0;
 	}
 	a_idx = byte_offset;
@@ -285,11 +294,11 @@ static void lzd_init_dtab(struct lzdctx *lc)
 	lc->free_code = LZD_FIRST_FREE;
 }
 
-static void lzd_wr_dchar(struct unzooctx *uz, struct lzdctx *lc, u8 ch)
+static void lzd_wr_dchar(struct lzdctx *lc, u8 ch)
 {
 	if (lc->output_offset >= LZD_OUTBUFSIZ) {      /* if buffer full */
-		if (lzd_zoowrite (uz, lc->out_f, lc->out_buf_adr, lc->output_offset) != lc->output_offset)
-			lzd_prterror (uz, 'f', "Write error in lzd:wr_dchar.");
+		if (lzd_zoowrite (lc->out_f, lc->out_buf_adr, lc->output_offset) != lc->output_offset)
+			lzd_prterror (lc, 'f', "Write error in lzd:wr_dchar.");
 		lc->output_offset = 0;                  /* restore empty buffer */
 	}
 	lzd_assert(lc->output_offset < LZD_OUTBUFSIZ);
@@ -299,12 +308,11 @@ static void lzd_wr_dchar(struct unzooctx *uz, struct lzdctx *lc, u8 ch)
 } /* lzd_wr_dchar() */
 
 /* adds a code to table */
-static void lzd_ad_dcode(struct unzooctx *uz, struct lzdctx *lc)
+static void lzd_ad_dcode(struct lzdctx *lc)
 {
 	lzd_assert(lc->nbits >= 9 && lc->nbits <= lc->maxbits);
 	if(!(lc->free_code <= LZD_MAXMAX+1)) {
-		de_err(uz->c, "LZD decode error");
-		lc->errorflag = 1;
+		de_dfilter_set_errorf(lc->c, lc->dres, lc->modname, "Decode error");
 		return;
 	}
 	lzd_assert(lc->free_code <= LZD_MAXMAX+1);

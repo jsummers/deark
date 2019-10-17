@@ -84,22 +84,26 @@ done:
 static void do_packdir_file_compressed(deark *c, struct pdctx_struct *d,
 	struct pdctx_object *md, i64 pos, dbuf *outf)
 {
-	struct unzooctx *uz = NULL;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
 
-	uz = de_malloc(c, sizeof(struct unzooctx));
-	uz->c = c;
-	uz->ReadArch = c->infile;
-	uz->ReadArch_fpos = pos;
+	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
+	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
+	de_dfilter_results_clear(c, &dres);
 
-	(void)lzd(uz, md->cmpr_len, outf, d->lzw_maxbits);
+	dcmpri.f = c->infile;
+	dcmpri.pos = pos;
+	dcmpri.len = md->cmpr_len;
+	dcmpro.f = outf;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = md->orig_len;
+
+	DecodeLzd(c, &dcmpri, &dcmpro, &dres, d->lzw_maxbits);
 
 	if(outf->len != md->orig_len) {
 		de_err(c, "%s: Expected %"I64_FMT" decompressed bytes, got %"I64_FMT,
 			ucstring_getpsz_d(md->name), md->orig_len, outf->len);
-	}
-
-	if(uz) {
-		de_free(c, uz);
 	}
 }
 

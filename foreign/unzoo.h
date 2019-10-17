@@ -59,18 +59,18 @@ struct entryctx {
 	u32           magic;          /* magic word 0xfdc4a7dc           */
 	u8             type;           /* type of current member (1)      */
 	u8             method;         /* packing method of member (0..2) */
-	u32           posnxt;         /* position of next member         */
-	u32           posdat;         /* position of data                */
+	i64           posnxt;         /* position of next member         */
+	i64           posdat;         /* position of data                */
 	u16           datdos;         /* date (in DOS format)            */
 	u16           timdos;         /* time (in DOS format)            */
 	u32           crcdat;         /* crc value of member             */
-	u32           sizorg;         /* uncompressed size of member     */
-	u32           siznow;         /*   compressed size of member     */
+	i64           sizorg;         /* uncompressed size of member     */
+	i64           siznow;         /*   compressed size of member     */
 	u8             majver;         /* major version needed to extract */
 	u8             minver;         /* minor version needed to extract */
 	u8             delete_;        /* 1 if member is deleted, 0 else  */
 	u8             spared;         /* spare entry to pad entry        */
-	u32           poscmt;         /* position of comment, 0 if none  */
+	i64           poscmt;         /* position of comment, 0 if none  */
 	u16           sizcmt;         /* length   of comment, 0 if none  */
 	char                nams [14];      /* short name of member or archive */
 	u16           lvar;           /* length of variable part         */
@@ -95,23 +95,14 @@ struct unzooctx {
 	// Original "Descript":
 	char                text[21];       /* "ZOO 2.10 Archive.<ctr>Z"       */
 	u32           magic;          /* magic word 0xfdc4a7dc           */
-	u32           posent;         /* position of first directory ent.*/
+	i64           posent;         /* position of first directory ent.*/
 	u32           klhvmh;         /* two's complement of posent      */
 	u8             majver;         /* major version needed to extract */
 	u8             minver;         /* minor version needed to extract */
 	u8             type;           /* type of current member (0,1)    */
-	u32           poscmt;         /* position of comment, 0 if none  */
+	i64           poscmt;         /* position of comment, 0 if none  */
 	u16           sizcmt;         /* length   of comment, 0 if none  */
 	u8             modgen;         /* gens. on, gen. limit            */
-
-	/****************************************************************************
-	**
-	*V  ErrMsg  . . . . . . . . . . . . . . . . . . . . . . . . . . error message
-	**
-	**  'ErrMsg' is used by the  decode functions to communicate  the cause of an
-	**  error to the calling function.
-	*/
-	const char *ErrMsg;
 
 	// Shared by all member files, so we don't have to recalculate the CRC table
 	// for each member file.
@@ -221,8 +212,8 @@ static int DescReadArch (struct unzooctx *uz)
 	}
 
 	/* read the old part of the description                                */
-	uz->posent = WordReadArch(uz);
-	de_dbg(c, "first entry offset: %u", (unsigned int)uz->posent);
+	uz->posent = (i64)WordReadArch(uz);
+	de_dbg(c, "first entry offset: %"I64_FMT, uz->posent);
 
 	uz->klhvmh = WordReadArch(uz);
 	de_dbg2(c, "2's complement of offset: %u (%d)", (unsigned int)uz->klhvmh,
@@ -236,9 +227,9 @@ static int DescReadArch (struct unzooctx *uz)
 		uz->type   = ByteReadArch(uz);
 		de_dbg2(c, "(global) type: %u", (unsigned int)uz->type);
 
-		uz->poscmt = WordReadArch(uz);
+		uz->poscmt = (i64)WordReadArch(uz);
 		uz->sizcmt = HalfReadArch(uz);
-		de_dbg(c, "(global) comment size: %d, pos=%d", (int)uz->sizcmt, (int)uz->poscmt);
+		de_dbg(c, "(global) comment size: %d, pos=%"I64_FMT, (int)uz->sizcmt, uz->poscmt);
 		do_comment(uz, uz->poscmt, uz->sizcmt, 1);
 
 		uz->modgen = ByteReadArch(uz);
@@ -293,7 +284,7 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 	/* read the fixed part of the directory entry                          */
 	ze->type   = ByteReadArch(uz);
 	ze->method = ByteReadArch(uz);
-	ze->posnxt = WordReadArch(uz);
+	ze->posnxt = (i64)WordReadArch(uz);
 
 	if(ze->posnxt == 0) {
 		// I guess that end of file is marked by a dummy member file entry
@@ -305,28 +296,28 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 
 	de_dbg(c, "type: %d", (int)ze->type);
 	de_dbg(c, "compression method: %d (%s)", (int)ze->method, get_cmpr_meth_name(ze->method));
-	de_dbg(c, "next entry pos: %d", (int)ze->posnxt);
+	de_dbg(c, "next entry pos: %"I64_FMT, ze->posnxt);
 
-	ze->posdat = WordReadArch(uz);
-	de_dbg(c, "pos of file data: %u", (unsigned int)ze->posdat);
+	ze->posdat = (i64)WordReadArch(uz);
+	de_dbg(c, "pos of file data: %"I64_FMT, ze->posdat);
 
 	ze->datdos = HalfReadArch(uz);
 	ze->timdos = HalfReadArch(uz);
 	de_dbg2(c, "dos date,time: %d,%d", (int)ze->datdos, (int)ze->timdos);
 	ze->crcdat = (u32)HalfReadArch(uz);
 	de_dbg(c, "file data crc (reported): 0x%04x", (unsigned int)ze->crcdat);
-	ze->sizorg = WordReadArch(uz);
-	de_dbg(c, "original size: %u", (unsigned int)ze->sizorg);
-	ze->siznow = WordReadArch(uz);
-	de_dbg(c, "compressed size: %u", (unsigned int)ze->siznow);
+	ze->sizorg = (i64)WordReadArch(uz);
+	de_dbg(c, "original size: %"I64_FMT, ze->sizorg);
+	ze->siznow = (i64)WordReadArch(uz);
+	de_dbg(c, "compressed size: %"I64_FMT, ze->siznow);
 	ze->majver = ByteReadArch(uz);
 	ze->minver = ByteReadArch(uz);
 	de_dbg(c, "version needed to extract: %d.%d", (int)ze->majver, (int)ze->minver);
 	ze->delete_ = ByteReadArch(uz);
 	ze->spared = ByteReadArch(uz);
-	ze->poscmt = WordReadArch(uz);
+	ze->poscmt = (i64)WordReadArch(uz);
 	ze->sizcmt = HalfReadArch(uz);
-	de_dbg(c, "comment size: %d, pos=%d", (int)ze->sizcmt, (int)ze->poscmt);
+	de_dbg(c, "comment size: %d, pos=%"I64_FMT, (int)ze->sizcmt, ze->poscmt);
 	if((ze->posnxt!=0) && (ze->delete_ != 1)) {
 		do_comment(uz, ze->poscmt, ze->sizcmt, 0);
 	}
@@ -554,25 +545,15 @@ static void DecodeCopy (deark *c, struct de_dfilter_in_params *dcmpri,
 }
 
 // Forward declaration of a function in zoo-lzd.h
-static int lzd(struct unzooctx *uz, i64 in_len, dbuf *out_f, int maxbits);
-
-/****************************************************************************
-**
-*F  DecodeLzd() . . . . . . . . . . . . . . .  extract a LZ compressed member
-**
-*/
-static int DecodeLzd (struct unzooctx *uz, struct entryctx *ze)
-{
-	return !lzd(uz, ze->siznow, ze->WritBinr, 13);
-}
+static void DecodeLzd(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres, int maxbits);
 
 // Process a single member file
 static void ExtrEntry(struct unzooctx *uz, i64 pos1, i64 *next_entry_pos)
 {
-	u32       res;            /* status of decoding              */
 	struct entryctx *ze = NULL;
 	deark *c = uz->c;
-	int using_dres = 0;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
@@ -616,8 +597,8 @@ static void ExtrEntry(struct unzooctx *uz, i64 pos1, i64 *next_entry_pos)
 		goto done;
 	}
 
-	de_dbg(c, "compressed data at %u, len=%u", (unsigned int)ze->posdat,
-		(unsigned int)ze->siznow);
+	de_dbg(c, "compressed data at %"I64_FMT", len=%"I64_FMT, ze->posdat,
+		ze->siznow);
 
 	if(ze->posdat + ze->siznow > uz->ReadArch->len) {
 		de_err(c, "Unexpected <eof> in the archive");
@@ -634,8 +615,6 @@ static void ExtrEntry(struct unzooctx *uz, i64 pos1, i64 *next_entry_pos)
 		de_err(c, "Cannot find data in archive");
 		goto done;
 	}
-	res = 0;
-	uz->ErrMsg = "Internal error";
 
 	dcmpri.f = uz->ReadArch;
 	dcmpri.pos = uz->ReadArch_fpos;
@@ -647,30 +626,24 @@ static void ExtrEntry(struct unzooctx *uz, i64 pos1, i64 *next_entry_pos)
 
 	switch(ze->method) {
 	case ZOOCMPR_STORED:
-		using_dres = 1;
 		DecodeCopy(uz->c, &dcmpri, &dcmpro, &dres);
 		break;
 	case ZOOCMPR_LZD:
-		res = DecodeLzd(uz, ze);
+		DecodeLzd(uz->c, &dcmpri, &dcmpro, &dres, 13);
 		break;
 	case ZOOCMPR_LZH:
-		using_dres = 1;
 		DecodeLzh(uz->c, &dcmpri, &dcmpro, &dres);
 		break;
 	default:
-		goto done;
+		goto done; // Should be impossible
 	}
 
 	ze->crc_calculated = de_crcobj_getval(uz->crco);
 	de_dbg(c, "file data crc (calculated): 0x%04x", (unsigned int)ze->crc_calculated);
 
 	/* check that everything went ok                                   */
-	if(using_dres && dres.errcode) {
+	if(dres.errcode) {
 		de_err(c, "%s", dres.errmsg);
-	}
-	else if(!using_dres && res==0) {
-		if(!uz->ErrMsg) uz->ErrMsg = "Unspecified error";
-		de_err(c, "%s", uz->ErrMsg);
 	}
 	else if ( ze->crc_calculated != ze->crcdat ) {
 		de_err(c, "CRC failed");
