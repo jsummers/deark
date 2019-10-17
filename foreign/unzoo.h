@@ -544,11 +544,6 @@ static void DecodeCopy (deark *c, struct de_dfilter_in_params *dcmpri,
 	dbuf_copy(dcmpri->f, dcmpri->pos, dcmpri->len, dcmpro->f);
 }
 
-// Forward declaration of a function in zoo-lzd.h
-static void DecodeLzd(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro,
-	struct de_dfilter_results *dres, int maxbits);
-
 // Process a single member file
 static void ExtrEntry(struct unzooctx *uz, i64 pos1, i64 *next_entry_pos)
 {
@@ -629,10 +624,10 @@ static void ExtrEntry(struct unzooctx *uz, i64 pos1, i64 *next_entry_pos)
 		DecodeCopy(uz->c, &dcmpri, &dcmpro, &dres);
 		break;
 	case ZOOCMPR_LZD:
-		DecodeLzd(uz->c, &dcmpri, &dcmpro, &dres, 13);
+		de_fmtutil_decompress_zoo_lzd(uz->c, &dcmpri, &dcmpro, &dres, 13);
 		break;
 	case ZOOCMPR_LZH:
-		DecodeLzh(uz->c, &dcmpri, &dcmpro, &dres);
+		de_fmtutil_decompress_zoo_lzh(uz->c, &dcmpri, &dcmpro, &dres);
 		break;
 	default:
 		goto done; // Should be impossible

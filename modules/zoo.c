@@ -9,9 +9,7 @@
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 
-#include "../foreign/unzoo-lzh.h"
 #include "../foreign/unzoo.h"
-#include "../foreign/zoo-lzd.h"
 
 DE_DECLARE_MODULE(de_module_zoo);
 DE_DECLARE_MODULE(de_module_packdir);
@@ -99,9 +97,12 @@ static void do_packdir_file_compressed(deark *c, struct pdctx_struct *d,
 	dcmpro.len_known = 1;
 	dcmpro.expected_len = md->orig_len;
 
-	DecodeLzd(c, &dcmpri, &dcmpro, &dres, d->lzw_maxbits);
+	de_fmtutil_decompress_zoo_lzd(c, &dcmpri, &dcmpro, &dres, d->lzw_maxbits);
 
-	if(outf->len != md->orig_len) {
+	if(dres.errcode) {
+		de_err(c, "%s: %s", ucstring_getpsz_d(md->name), dres.errmsg);
+	}
+	else if(outf->len != md->orig_len) {
 		de_err(c, "%s: Expected %"I64_FMT" decompressed bytes, got %"I64_FMT,
 			ucstring_getpsz_d(md->name), md->orig_len, outf->len);
 	}

@@ -111,6 +111,11 @@ int de_fmtutil_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
 	dbuf *outf, unsigned int has_maxlen, i64 max_out_len,
 	unsigned int flags, u8 lzwmode);
 
+void de_fmtutil_decompress_zoo_lzd(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, int maxbits);
+void de_fmtutil_decompress_zoo_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
+
 // Wrapper for miniz' tdefl functions
 
 enum fmtutil_tdefl_status {

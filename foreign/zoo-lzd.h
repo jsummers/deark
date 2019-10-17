@@ -141,9 +141,8 @@ static int lzd_zooread(struct lzdctx *lc, u8 *buffer, int count)
 *F  DecodeLzd() . . . . . . . . . . . . . . .  extract a LZ compressed member
 **
 */
-static void DecodeLzd(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro,
-	struct de_dfilter_results *dres, int maxbits)
+void de_fmtutil_decompress_zoo_lzd(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, int maxbits)
 {
 	struct lzdctx *lc = NULL;
 
