@@ -638,6 +638,10 @@ static void ExtrEntry(struct unzooctx *uz, i64 pos1, i64 *next_entry_pos)
 	if(dres.errcode) {
 		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
 	}
+	else if(ze->WritBinr->len != ze->sizorg) {
+		de_err(c, "Expected %"I64_FMT" uncompressed bytes, got %"I64_FMT,
+			ze->sizorg, ze->WritBinr->len);
+	}
 	else if ( ze->crc_calculated != ze->crcdat ) {
 		de_err(c, "CRC failed");
 	}
@@ -680,6 +684,11 @@ static int ExtrArch (deark *c, dbuf *inf)
 		de_dbg_indent_restore(c, saved_indent_level);
 
 		if(pos==0) break;
+
+		if(pos >= inf->len) {
+			de_err(c, "Unexpected EOF");
+			goto done;
+		}
 
 		if(!de_inthashtable_add_item(c, uz->offsets_seen, pos, NULL)) {
 			de_err(c, "Loop detected");

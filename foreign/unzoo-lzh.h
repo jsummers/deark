@@ -203,9 +203,12 @@ static int MakeTablLzh (struct lzh_table *lzhtbl, struct lzh_lookuptable *lookup
 
 struct lzhctx_struct {
 	deark *c;
-	struct unzooctx *uz1;
 	dbuf *inf;
+	dbuf *outf;
+	i64 inf_startpos;
+	i64 inf_endpos;
 	i64 inf_pos;
+	i64 outf_nbyteswritten;
 	u32 bits;           /* the bits we are looking at      */
 	u32 bitc;           /* number of bits that are valid   */
 	struct lzh_table lzhtbl;
@@ -223,7 +226,15 @@ static void lzh_flsh_bits_(struct lzhctx_struct *lzhctx, u32 n)
 	if(n>lzhctx->bitc) return;
 	lzhctx->bitc -= n;
 	if (lzhctx->bitc < 16) {
-		lzhctx->bits  = (lzhctx->bits<<16) + (u32)dbuf_getu16be_p(lzhctx->inf, &lzhctx->inf_pos);
+		u32 x;
+
+		if(lzhctx->inf_pos < lzhctx->inf_endpos) {
+			x = (u32)dbuf_getu16be_p(lzhctx->inf, &lzhctx->inf_pos);
+		}
+		else {
+			x = 0;
+		}
+		lzhctx->bits  = (lzhctx->bits<<16) + x;
 		lzhctx->bitc += 16;
 	}
 }
@@ -241,10 +252,10 @@ static void BufFile_setbyte(struct lzhctx_struct *lzhctx, unsigned int idx, u8 n
 	}
 }
 
-static i64 zoolzh_BlckWritFile (dbuf *outf, const u8 *blk, i64 len)
+static void zoolzh_BlckWritFile(struct lzhctx_struct *lzhctx, const u8 *blk, i64 len)
 {
-	dbuf_write(outf, blk, len);
-	return len;
+	dbuf_write(lzhctx->outf, blk, len);
+	lzhctx->outf_nbyteswritten += len;
 }
 
 static void init_lzh_lookuptable(deark *c, struct lzh_lookuptable *lookuptbl,
@@ -273,7 +284,10 @@ void de_fmtutil_decompress_zoo_lzh(deark *c, struct de_dfilter_in_params *dcmpri
 	lzhctx = de_malloc(c, sizeof(struct lzhctx_struct));
 	lzhctx->c = c;
 	lzhctx->inf = dcmpri->f;
+	lzhctx->inf_startpos = dcmpri->pos;
 	lzhctx->inf_pos = dcmpri->pos;
+	lzhctx->inf_endpos = dcmpri->pos + dcmpri->len;
+	lzhctx->outf = dcmpro->f;
 
 	init_lzh_lookuptable(c, &lzhctx->lzhtbl.CodeTbl, 12, LZH_MAX_CODE+1);
 	init_lzh_lookuptable(c, &lzhctx->lzhtbl.LogTbl, 8, LZH_MAX_LOG+1);
@@ -288,6 +302,7 @@ void de_fmtutil_decompress_zoo_lzh(deark *c, struct de_dfilter_in_params *dcmpri
 	/* loop until all blocks have been read                                */
 	cnt = LZH_PEEK_BITS( 16 );  LZH_FLSH_BITS( 16 );
 	while ( cnt != 0 ) {
+		if(lzhctx->outf_nbyteswritten >= dcmpro->expected_len) break;
 
 		/* read the pre code                                               */
 		cnt2 = LZH_PEEK_BITS( LZH_BITS_PRE );  LZH_FLSH_BITS( LZH_BITS_PRE );
@@ -411,10 +426,7 @@ void de_fmtutil_decompress_zoo_lzh(deark *c, struct de_dfilter_in_params *dcmpri
 			if ( code <= LZH_MAX_LIT ) {
 				BufFile_setbyte(lzhctx, cur_idx++, code);
 				if ( cur_idx == end_idx ) {
-					if ( zoolzh_BlckWritFile(dcmpro->f, lzhctx->BufFile, cur_idx) != cur_idx ) {
-						de_dfilter_set_errorf(c, dres, modname, "Cannot write output file");
-						goto done;
-					}
+					zoolzh_BlckWritFile(lzhctx, lzhctx->BufFile, cur_idx);
 					cur_idx = 0;
 				}
 			}
@@ -467,12 +479,7 @@ void de_fmtutil_decompress_zoo_lzh(deark *c, struct de_dfilter_in_params *dcmpri
 							pos_idx = 0;
 						}
 						if ( cur_idx == end_idx ) {
-							if ( zoolzh_BlckWritFile(dcmpro->f, lzhctx->BufFile, cur_idx)
-								 != cur_idx )
-							{
-								de_dfilter_set_errorf(c, dres, modname, "Cannot write output file");
-								goto done;
-							}
+							zoolzh_BlckWritFile(lzhctx, lzhctx->BufFile, cur_idx);
 							cur_idx = 0;
 						}
 					}
@@ -488,10 +495,7 @@ void de_fmtutil_decompress_zoo_lzh(deark *c, struct de_dfilter_in_params *dcmpri
 		de_dfilter_set_generic_error(c, dres, modname);
 		goto done;
 	}
-	if ( zoolzh_BlckWritFile(dcmpro->f, lzhctx->BufFile, cur_idx) != cur_idx ) {
-		de_dfilter_set_errorf(c, dres, modname, "Cannot write output file");
-		goto done;
-	}
+	zoolzh_BlckWritFile(lzhctx, lzhctx->BufFile, cur_idx);
 
 done:
 	if(lzhctx) {

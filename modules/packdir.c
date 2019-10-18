@@ -85,6 +85,12 @@ static void do_packdir_extract_file(deark *c, struct pdctx_struct *d,
 
 	de_dbg(c, "%"I64_FMT" bytes of %scompressed data at %"I64_FMT,
 		md->cmpr_len, (md->is_compressed?"":"un"), pos);
+
+	if(pos + md->cmpr_len > c->infile->len) {
+		de_err(c, "Unexpected EOF");
+		goto done;
+	}
+
 	fi = de_finfo_create(c);
 
 	if(md->is_dir && md->is_root_dir) {
@@ -116,6 +122,7 @@ static void do_packdir_extract_file(deark *c, struct pdctx_struct *d,
 		dbuf_copy(c->infile, pos, md->cmpr_len, outf);
 	}
 
+done:
 	dbuf_close(outf);
 	de_finfo_destroy(c, fi);
 	ucstring_destroy(fullfn);

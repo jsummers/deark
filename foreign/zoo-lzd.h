@@ -28,7 +28,6 @@ code.  The contents of this file are hereby released to the public domain.
 */
 
 #define lzd_debug(x)
-#define lzd_assert(E) if(!(E)) lzd_on_assert_fail(lc);
 
 #define  LZD_IN_BUF_SIZE       8192
 #define  LZD_OUT_BUF_SIZE      8192
@@ -52,11 +51,12 @@ struct lzdctx {
 	deark *c;
 	struct de_dfilter_results *dres;
 	const char *modname;
-	dbuf *in_f;
+	dbuf *inf;
+	dbuf *outf;
 	i64 inf_pos;
-	i64 in_startpos;
-	i64 in_len;
-	dbuf *out_f;
+	i64 inf_endpos;
+	int inf_eof_count;
+	i64 outf_nbyteswritten;
 	int maxbits;
 	struct lzd_tabentry *table;
 
@@ -85,19 +85,7 @@ static unsigned int lzd_rd_dcode(struct lzdctx *lc);
 static void lzd_wr_dchar(struct lzdctx *lc, u8 ch);
 static void lzd_ad_dcode(struct lzdctx *lc);
 
-static void lzd_on_assert_fail(struct lzdctx *lc)
-{
-	de_err(lc->c, "lzd_assert failed");
-	de_fatalerror(lc->c);
-}
-
-static void lzd_prterror(struct lzdctx *lc, int level, const char *msg)
-{
-	de_err(lc->c, "%s", msg);
-	// TODO: Some of these errors shouldn't be fatal.
-	de_fatalerror(lc->c);
-}
-
+// On failure, sets an error in lc->dres.
 static void lzd_push(struct lzdctx *lc, u8 x)
 {
 	if(lc->stack_pointer<LZD_STACKSIZE) {
@@ -106,7 +94,7 @@ static void lzd_push(struct lzdctx *lc, u8 x)
 	lc->stack_pointer++;
 	if (lc->stack_pointer >= LZD_STACKSIZE) {
 		lc->stack_pointer = LZD_STACKSIZE-1;
-		lzd_prterror (lc, 'f', "Stack overflow in lzd().");
+		de_dfilter_set_errorf(lc->c, lc->dres, lc->modname, "Stack overflow");
 	}
 }
 
@@ -118,22 +106,38 @@ static u8 lzd_pop(struct lzdctx *lc)
 	return lc->stack[lc->stack_pointer];
 }
 
-static unsigned int lzd_zoowrite (dbuf *file, const u8 *buffer, int count)
+static void lzd_zoowrite(struct lzdctx *lc, const u8 *buffer, unsigned int count)
 {
-	dbuf_write(file, buffer, count);
-	return (unsigned int)count;
+	dbuf_write(lc->outf, buffer, (i64)count);
+	lc->outf_nbyteswritten += (i64)count;
 }
 
-static int lzd_zooread(struct lzdctx *lc, u8 *buffer, int count)
+static void lzd_zooread(struct lzdctx *lc, u8 *buffer, unsigned int count)
 {
 	i64 amt_avail;
 	i64 amt_to_read;
 
 	amt_to_read = (i64)count;
-	amt_avail = lc->in_startpos + lc->in_len - lc->inf_pos;
-	if(amt_to_read > amt_avail) amt_to_read = amt_avail;
+	amt_avail = lc->inf_endpos - lc->inf_pos;
+	if(amt_to_read > amt_avail) {
+		amt_to_read = amt_avail;
+		lc->inf_eof_count++;
+	}
 	if(amt_to_read < 0) amt_to_read = 0;
-	return (int)dbuf_standard_read(lc->in_f, buffer, amt_to_read, &lc->inf_pos);
+	if(amt_to_read != (i64)count) {
+		de_zeromem(buffer, (i64)count);
+	}
+	dbuf_read(lc->inf, buffer, lc->inf_pos, amt_to_read);
+	lc->inf_pos += amt_to_read;
+}
+
+static int lzd_check_nbits(struct lzdctx *lc)
+{
+	if(lc->nbits >= 9 && lc->nbits <= lc->maxbits) {
+		return 1;
+	}
+	de_dfilter_set_generic_error(lc->c, lc->dres, lc->modname);
+	return 0;
 }
 
 /****************************************************************************
@@ -152,12 +156,14 @@ void de_fmtutil_decompress_zoo_lzd(deark *c, struct de_dfilter_in_params *dcmpri
 	lc->modname = "zoo-lzd";
 
 	lc->maxbits = maxbits;
-	lzd_assert(lc->maxbits >= 12 && lc->nbits <= LZD_MAXMAXBITS);
-	lc->in_f = dcmpri->f;                 /* make it avail to other fns */
-	lc->in_startpos = dcmpri->pos;
+	if(lc->maxbits < 12 || lc->nbits > LZD_MAXMAXBITS) {
+		de_dfilter_set_generic_error(c, dres, lc->modname);
+		goto done;
+	}
+	lc->inf = dcmpri->f;                 /* make it avail to other fns */
 	lc->inf_pos = dcmpri->pos;
-	lc->in_len = dcmpri->len;
-	lc->out_f = dcmpro->f;               /* ditto */
+	lc->inf_endpos = dcmpri->pos + dcmpri->len;
+	lc->outf = dcmpro->f;               /* ditto */
 	lc->nbits = 9;
 	lc->max_code = 512;
 	lc->free_code = LZD_FIRST_FREE;
@@ -165,36 +171,49 @@ void de_fmtutil_decompress_zoo_lzd(deark *c, struct de_dfilter_in_params *dcmpri
 	lc->bit_offset = 0;
 	lc->output_offset = 0;
 
-	if (lzd_zooread (lc, lc->in_buf_adr, LZD_INBUFSIZ) == -1) {
-		de_dfilter_set_errorf(c, dres, lc->modname, "LZD_IOERR");
-		goto done;
-	}
+	lzd_zooread (lc, lc->in_buf_adr, LZD_INBUFSIZ);
+
 	lc->table = de_malloc(c, (LZD_MAXMAX+10) * sizeof(struct lzd_tabentry));
 	lc->stack = de_malloc(c, LZD_STACKSIZE + 20);
 
 	lzd_init_dtab(lc);             /* initialize table */
 
 loop:
+	if(dcmpro->len_known && lc->outf_nbyteswritten>=dcmpro->expected_len) {
+		goto done; // Have enough output
+	}
+	if(lc->inf_eof_count > 2) {
+		// An emergency brake. This is not the ideal way to detect if we ran out
+		// of input data. But the original lzd code doesn't seem to make any
+		// attempt to do that, and I just want to be sure that infinite loops
+		// are impossible.
+		de_dfilter_set_errorf(lc->c, lc->dres, lc->modname, "Not enough input data");
+		goto done;
+	}
+
 	lc->cur_code = lzd_rd_dcode(lc);
+	if(lc->dres->errcode) goto done;
+
 goteof: /* special case for CLEAR then Z_EOF, for 0-length files */
 	if (lc->cur_code == LZD_Z_EOF) {
 		lzd_debug((printf ("lzd: Z_EOF\n")))
 		if (lc->output_offset != 0) {
-			if (lzd_zoowrite (lc->out_f, lc->out_buf_adr, lc->output_offset) != lc->output_offset)
-				lzd_prterror (lc, 'f', "Output error in lzd().");
+			lzd_zoowrite (lc, lc->out_buf_adr, lc->output_offset);
 		}
 		goto done;
 	}
 
-	lzd_assert(lc->nbits >= 9 && lc->nbits <= lc->maxbits);
+	if(!lzd_check_nbits(lc)) goto done;
 
 	if (lc->cur_code == LZD_CLEAR) {
 		lzd_debug((printf ("lzd: CLEAR\n")))
 		lzd_init_dtab(lc);
 		lc->fin_char = lc->k = lc->old_code = lc->cur_code = lzd_rd_dcode(lc);
+		if(lc->dres->errcode) goto done;
 		if (lc->cur_code == LZD_Z_EOF)		/* special case for 0-length files */
 			goto goteof;
 		lzd_wr_dchar(lc, lc->k);
+		if(lc->dres->errcode) goto done;
 		goto loop;
 	}
 
@@ -202,27 +221,34 @@ goteof: /* special case for CLEAR then Z_EOF, for 0-length files */
 	if (lc->cur_code >= lc->free_code) {        /* if code not in table (k<w>k<w>k) */
 		lc->cur_code = lc->old_code;             /* previous code becomes current */
 		lzd_push(lc, lc->fin_char);
+		if(lc->dres->errcode) goto done;
 	}
 
 	while (lc->cur_code > 255) {               /* if code, not character */
-		lzd_assert(lc->cur_code < LZD_MAXMAX+10);
+		if(!(lc->cur_code < LZD_MAXMAX+10)) {
+			de_dfilter_set_generic_error(c, dres, lc->modname);
+			goto done;
+		}
 		lzd_push(lc, lc->table[lc->cur_code].z_ch);         /* push suffix char */
+		if(lc->dres->errcode) goto done;
 		lc->cur_code = lc->table[lc->cur_code].next;    /* <w> := <w>.code */
 	}
 
-	lzd_assert(lc->nbits >= 9 && lc->nbits <= lc->maxbits);
+	if(!lzd_check_nbits(lc)) goto done;
 
 	lc->k = lc->fin_char = lc->cur_code;
 	lzd_push(lc, lc->k);
+	if(lc->dres->errcode) goto done;
 	while (lc->stack_pointer != 0) {
 		lzd_wr_dchar(lc, lzd_pop(lc));
+		if(lc->dres->errcode) goto done;
 	}
-	lzd_assert(lc->nbits >= 9 && lc->nbits <= lc->maxbits);
+	if(!lzd_check_nbits(lc)) goto done;
 	lzd_ad_dcode(lc);
 	if(lc->dres->errcode) goto done;
 	lc->old_code = lc->in_code;
 
-	lzd_assert(lc->nbits >= 9 && lc->nbits <= lc->maxbits);
+	if(!lzd_check_nbits(lc)) goto done;
 
 	goto loop;
 
@@ -236,6 +262,7 @@ done:
 
 /* lzd_rd_dcode() reads a code from the input (compressed) file and returns
 its value. */
+// On failure, sets an error in lc->dres.
 static unsigned int lzd_rd_dcode(struct lzdctx *lc)
 {
 	unsigned int a_idx; // index in lc->in_buf_adr
@@ -250,12 +277,15 @@ static unsigned int lzd_rd_dcode(struct lzdctx *lc)
 	byte_offset = lc->bit_offset / 8;
 	lc->bit_offset = lc->bit_offset + lc->nbits;
 
-	lzd_assert(lc->nbits >= 9 && lc->nbits <= lc->maxbits);
+	if(!lzd_check_nbits(lc)) return 0;
 
 	if (byte_offset >= LZD_INBUFSIZ - 5) {
 		int space_left;
 
-		lzd_assert(byte_offset >= LZD_INBUFSIZ - 5);
+		if(!(byte_offset >= LZD_INBUFSIZ - 5)) {
+			de_dfilter_set_generic_error(lc->c, lc->dres, lc->modname);
+			return 0;
+		}
 		lzd_debug((printf ("lzd: byte_offset near end of buffer\n")))
 
 		lc->bit_offset = ofs_inbyte + lc->nbits;
@@ -263,15 +293,20 @@ static unsigned int lzd_rd_dcode(struct lzdctx *lc)
 		a_idx = 0;
 		/* we now move the remaining characters down buffer beginning */
 		lzd_debug((printf ("lzd_rd_dcode: space_left = %d\n", space_left)))
-		lzd_assert(a_idx + byte_offset <= LZD_OUT_BUF_SIZE);
+		if(!(a_idx + byte_offset <= LZD_OUT_BUF_SIZE)) {
+			de_dfilter_set_generic_error(lc->c, lc->dres, lc->modname);
+			return 0;
+		}
 		de_memmove(&lc->in_buf_adr[a_idx], &lc->in_buf_adr[byte_offset], (size_t)space_left);
 		a_idx += space_left;
-		if (lzd_zooread (lc, &lc->in_buf_adr[a_idx], (int)byte_offset) == -1)
-			lzd_prterror (lc, 'f', "I/O error in lzd_rd_dcode.");
+		lzd_zooread(lc, &lc->in_buf_adr[a_idx], byte_offset);
 		byte_offset = 0;
 	}
 	a_idx = byte_offset;
-	lzd_assert(a_idx <= LZD_OUT_BUF_SIZE-3);
+	if(!(a_idx <= LZD_OUT_BUF_SIZE-3)) {
+		de_dfilter_set_generic_error(lc->c, lc->dres, lc->modname);
+		return 0;
+	}
 	word = lc->in_buf_adr[a_idx];
 	a_idx++;
 	word = word | ( ((unsigned int) lc->in_buf_adr[a_idx]) << 8 );
@@ -293,37 +328,45 @@ static void lzd_init_dtab(struct lzdctx *lc)
 	lc->free_code = LZD_FIRST_FREE;
 }
 
+// On failure, sets an error in lc->dres.
 static void lzd_wr_dchar(struct lzdctx *lc, u8 ch)
 {
 	if (lc->output_offset >= LZD_OUTBUFSIZ) {      /* if buffer full */
-		if (lzd_zoowrite (lc->out_f, lc->out_buf_adr, lc->output_offset) != lc->output_offset)
-			lzd_prterror (lc, 'f', "Write error in lzd:wr_dchar.");
+		lzd_zoowrite(lc, lc->out_buf_adr, lc->output_offset);
 		lc->output_offset = 0;                  /* restore empty buffer */
 	}
-	lzd_assert(lc->output_offset < LZD_OUTBUFSIZ);
+	if(!(lc->output_offset < LZD_OUTBUFSIZ)) {
+		de_dfilter_set_generic_error(lc->c, lc->dres, lc->modname);
+		return;
+	}
 	if(lc->output_offset < LZD_OUTBUFSIZ) {
 		lc->out_buf_adr[lc->output_offset++] = ch;        /* store character */
 	}
 } /* lzd_wr_dchar() */
 
 /* adds a code to table */
+// On failure, sets an error in lc->dres.
 static void lzd_ad_dcode(struct lzdctx *lc)
 {
-	lzd_assert(lc->nbits >= 9 && lc->nbits <= lc->maxbits);
+	if(!lzd_check_nbits(lc)) return;
 	if(!(lc->free_code <= LZD_MAXMAX+1)) {
 		de_dfilter_set_errorf(lc->c, lc->dres, lc->modname, "Decode error");
 		return;
 	}
-	lzd_assert(lc->free_code <= LZD_MAXMAX+1);
+	if(!(lc->free_code <= LZD_MAXMAX+1)) {
+		de_dfilter_set_generic_error(lc->c, lc->dres, lc->modname);
+		return;
+	}
 	lc->table[lc->free_code].z_ch = lc->k;                /* save suffix char */
 	lc->table[lc->free_code].next = lc->old_code;         /* save prefix code */
 	lc->free_code++;
-	lzd_assert(lc->nbits >= 9 && lc->nbits <= lc->maxbits);
+	if(!lzd_check_nbits(lc)) return;
 	if (lc->free_code >= lc->max_code) {
 		if (lc->nbits < lc->maxbits) {
 			lzd_debug((printf("lzd: nbits was %d\n", nbits)))
 			lc->nbits++;
-			lzd_assert(lc->nbits >= 9 && lc->nbits <= lc->maxbits);
+			if(!lzd_check_nbits(lc)) return;
+
 			lzd_debug((printf("lzd: nbits now %d\n", nbits)))
 			lc->max_code = lc->max_code << 1;        /* double max_code */
 			lzd_debug((printf("lzd: max_code now %d\n", max_code)))
