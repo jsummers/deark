@@ -340,7 +340,7 @@ static const struct entry_id_struct *find_entry_id_info(unsigned int id)
 {
 	size_t k;
 
-	for(k=0; k<DE_ITEMS_IN_ARRAY(entry_id_arr); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(entry_id_arr); k++) {
 		if(entry_id_arr[k].id==id) return &entry_id_arr[k];
 	}
 	return NULL;

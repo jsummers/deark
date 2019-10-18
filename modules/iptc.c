@@ -234,7 +234,7 @@ static int lookup_ds_info(u8 recnum, u8 dsnum, struct ds_info *dsi)
 
 	de_zeromem(dsi, sizeof(struct ds_info));
 
-	for(i=0; i<DE_ITEMS_IN_ARRAY(ds_info_arr); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(ds_info_arr); i++) {
 		if(ds_info_arr[i].recnum==recnum && ds_info_arr[i].dsnum==dsnum) {
 			*dsi = ds_info_arr[i]; // struct copy
 			return 1;

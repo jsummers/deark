@@ -1454,7 +1454,7 @@ static void identify_clsid(deark *c, lctx *d, const u8 *clsid, char *buf, size_t
 	const char *name = "?";
 	size_t i;
 
-	for(i=0; i<DE_ITEMS_IN_ARRAY(known_clsids); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(known_clsids); i++) {
 		u8 tmpclsid[16];
 		unsigned int k;
 		const struct clsid_id_struct *ci = &known_clsids[i];

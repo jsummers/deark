@@ -358,7 +358,7 @@ int de_is_printable_uchar(i32 ch)
 		// TODO: Whitelist more codepoints
 	};
 	size_t i;
-	const size_t num_ranges = DE_ITEMS_IN_ARRAY(ranges);
+	const size_t num_ranges = DE_ARRAYCOUNT(ranges);
 
 	for(i=0; i<num_ranges; i++) {
 		if(ch>=ranges[i].n1 && ch<=ranges[i].n2) return 1;

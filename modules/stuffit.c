@@ -131,7 +131,7 @@ static const struct cmpr_meth_info *find_cmpr_meth_info(deark *c, u8 id)
 {
 	size_t k;
 
-	for(k=0; k<DE_ITEMS_IN_ARRAY(cmpr_meth_info_arr); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(cmpr_meth_info_arr); k++) {
 		if(id == cmpr_meth_info_arr[k].id)
 			return &cmpr_meth_info_arr[k];
 	}

@@ -46,7 +46,7 @@ typedef enum de_encoding_enum de_encoding;
 #define DE_CODEPOINT_BYTE00  0x10000000 // More "invalid" codepoints
 #define DE_CODEPOINT_BYTEFF  0x100000ff
 
-#define DE_ITEMS_IN_ARRAY(x) (sizeof(x)/sizeof(x[0]))
+#define DE_ARRAYCOUNT(x) (sizeof(x)/sizeof((x)[0]))
 
 struct de_ucstring_struct;
 typedef struct de_ucstring_struct de_ucstring;

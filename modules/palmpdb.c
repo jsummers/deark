@@ -152,7 +152,7 @@ static void get_db_attr_descr(de_ucstring *s, u32 attribs)
 		{0x0800, "dmHdrAttrBundle"},
 		{0x8000, "dmHdrAttrOpen"}
 	};
-	for(i=0; i<DE_ITEMS_IN_ARRAY(flags_arr); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(flags_arr); i++) {
 		if(attribs & flags_arr[i].a)
 			ucstring_append_flags_item(s, flags_arr[i].n);
 
@@ -616,7 +616,7 @@ static const struct rsrc_type_info_struct *get_rsrc_type_info(u32 id)
 {
 	size_t i;
 
-	for(i=0; i<DE_ITEMS_IN_ARRAY(rsrc_type_info_arr); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(rsrc_type_info_arr); i++) {
 		if(id == rsrc_type_info_arr[i].id) {
 			return &rsrc_type_info_arr[i];
 		}
@@ -988,7 +988,7 @@ static int de_identify_palmdb(deark *c)
 	static const char *ids[] = {"vIMGView", "TEXtREAd", "pqa clpr", "BOOKMOBI"};
 	size_t k;
 
-	for(k=0; k<DE_ITEMS_IN_ARRAY(exts); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(exts); k++) {
 		if(de_input_file_has_ext(c, exts[k])) {
 			has_ext = 1;
 			break;
@@ -1010,7 +1010,7 @@ static int de_identify_palmdb(deark *c)
 	}
 
 	// Check for known file types
-	for(k=0; k<DE_ITEMS_IN_ARRAY(ids); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(ids); k++) {
 		if(!de_memcmp(id, ids[k], 8)) return 100;
 	}
 

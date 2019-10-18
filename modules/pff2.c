@@ -131,7 +131,7 @@ static const struct pff2_sectiontype_info *find_pffs_sectiontype_info(u32 id)
 {
 	size_t i;
 
-	for(i=0; i<DE_ITEMS_IN_ARRAY(pff2_sectiontype_info_arr); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(pff2_sectiontype_info_arr); i++) {
 		if(pff2_sectiontype_info_arr[i].id == id) {
 			return &pff2_sectiontype_info_arr[i];
 		}

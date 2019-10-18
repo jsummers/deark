@@ -1291,7 +1291,7 @@ const char *de_fmtutil_get_windows_charset_name(u8 cs)
 	};
 	size_t i;
 
-	for(i=0; i<DE_ITEMS_IN_ARRAY(csname_arr); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(csname_arr); i++) {
 		if(cs==csname_arr[i].id) return csname_arr[i].name;
 	}
 	return "?";

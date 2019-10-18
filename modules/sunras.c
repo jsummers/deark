@@ -280,7 +280,7 @@ static void handle_options(deark *c, lctx *d)
 	fmt32 = de_get_ext_option(c, "sunras:fmt32");
 	if(fmt32) {
 		size_t k;
-		for(k=0; k<DE_ITEMS_IN_ARRAY(color32desc_arr); k++) {
+		for(k=0; k<DE_ARRAYCOUNT(color32desc_arr); k++) {
 			if(!de_strcmp(fmt32, color32desc_arr[k].name)) {
 				d->color32desc = color32desc_arr[k]; // struct copy
 				d->user_set_fmt32 = 1;

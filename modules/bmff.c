@@ -1559,7 +1559,7 @@ static const struct box_type_info *find_box_type_info(deark *c, lctx *d,
 	if(d->is_jpegxt) mask |= 0x00040000;
 	if(d->is_heif) mask |= 0x00080000;
 
-	for(k=0; k<DE_ITEMS_IN_ARRAY(box_type_info_arr); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(box_type_info_arr); k++) {
 		if(box_type_info_arr[k].boxtype != boxtype) continue;
 		if(level==0 && (box_type_info_arr[k].flags2 & 0x2)) {
 			// Critical box. Always match.
@@ -1576,7 +1576,7 @@ static const struct box_type_info *find_ilst_box_type_info(deark *c, lctx *d,
 {
 	size_t k;
 
-	for(k=0; k<DE_ITEMS_IN_ARRAY(ilst_box_type_info_arr); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(ilst_box_type_info_arr); k++) {
 		if(ilst_box_type_info_arr[k].boxtype != boxtype) continue;
 		return &ilst_box_type_info_arr[k];
 	}

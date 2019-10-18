@@ -120,7 +120,7 @@ static const struct systemrec_info *find_sysrec_info(deark *c, lctx *d, unsigned
 {
 	size_t i;
 
-	for(i=0; i<DE_ITEMS_IN_ARRAY(systemrec_info_arr); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(systemrec_info_arr); i++) {
 		const struct systemrec_info *sti;
 		sti = &systemrec_info_arr[i];
 		if(sti->rectype==t &&

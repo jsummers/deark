@@ -468,7 +468,7 @@ static const struct apic_type_info *get_apic_type_info(u8 t)
 {
 	size_t k;
 
-	for(k=0; k<DE_ITEMS_IN_ARRAY(apic_type_info_arr); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(apic_type_info_arr); k++) {
 		if(apic_type_info_arr[k].picture_type == t) {
 			return &apic_type_info_arr[k];
 		}
@@ -899,7 +899,7 @@ static const char *get_id3v2_frame_name(id3v2ctx *d, u32 id)
 	};
 	size_t k;
 
-	for(k=0; k<DE_ITEMS_IN_ARRAY(frame_list); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(frame_list); k++) {
 		if(d->version_code==2) {
 			if(id==frame_list[k].threecc)
 				return frame_list[k].name;
@@ -1136,7 +1136,7 @@ static const char *get_id3v1_genre_name(u8 g)
 		{255, "unspecified"} };
 	size_t k;
 
-	for(k=0; k<DE_ITEMS_IN_ARRAY(genre_list); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(genre_list); k++) {
 		if(genre_list[k].id==g) {
 			return genre_list[k].name;
 		}

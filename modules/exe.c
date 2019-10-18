@@ -264,7 +264,7 @@ static const char *get_machine_type_name(unsigned int n)
 		{ 0xaa64, "ARMv8 64-bit" }
 	};
 
-	for(i=0; i<DE_ITEMS_IN_ARRAY(mtn_arr); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(mtn_arr); i++) {
 		if(mtn_arr[i].id == n) {
 			return mtn_arr[i].name;
 		}
@@ -768,7 +768,7 @@ static const struct rsrc_type_info_struct *get_rsrc_type_info(u32 id)
 {
 	size_t i;
 
-	for(i=0; i<DE_ITEMS_IN_ARRAY(rsrc_type_info_arr); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(rsrc_type_info_arr); i++) {
 		if(id == rsrc_type_info_arr[i].id) {
 			return &rsrc_type_info_arr[i];
 		}

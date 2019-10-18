@@ -70,7 +70,7 @@ static const char *get_metadata_dtype_name(unsigned int t)
 	static const char *names[7] = { "string", "bytes", "BOOL", "DWORD",
 		"QWORD", "WORD", "GUID" };
 
-	if(t<DE_ITEMS_IN_ARRAY(names)) {
+	if(t<DE_ARRAYCOUNT(names)) {
 		return names[t];
 	}
 	return "?";
@@ -909,7 +909,7 @@ static const struct uuid_info uuid_info_arr[] = {
 static const struct uuid_info *find_object_info(const u8 *uuid)
 {
 	size_t k;
-	for(k=0; k<DE_ITEMS_IN_ARRAY(object_info_arr); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(object_info_arr); k++) {
 		if(!de_memcmp(uuid, object_info_arr[k].uuid, 16)) {
 			return &object_info_arr[k];
 		}
@@ -920,7 +920,7 @@ static const struct uuid_info *find_object_info(const u8 *uuid)
 static const struct uuid_info *find_uuid_info(const u8 *uuid)
 {
 	size_t k;
-	for(k=0; k<DE_ITEMS_IN_ARRAY(uuid_info_arr); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(uuid_info_arr); k++) {
 		if(!de_memcmp(uuid, uuid_info_arr[k].uuid, 16)) {
 			return &uuid_info_arr[k];
 		}

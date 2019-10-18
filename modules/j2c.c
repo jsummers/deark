@@ -372,7 +372,7 @@ static int get_marker_info(deark *c, lctx *d, struct page_ctx *pg, u8 seg_type,
 	mi->seg_type = seg_type;
 
 	// First, try to find the segment type in the static marker info.
-	for(k=0; k<(i64)DE_ITEMS_IN_ARRAY(marker_info1_arr); k++) {
+	for(k=0; k<(i64)DE_ARRAYCOUNT(marker_info1_arr); k++) {
 		const struct marker_info1 *mi1 = &marker_info1_arr[k];
 
 		if(mi1->seg_type == seg_type) {

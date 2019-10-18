@@ -480,7 +480,7 @@ static void handler_PLTE(deark *c, lctx *d, struct handler_params *hp)
 
 	nentries = hp->dlen/3;
 	de_dbg(c, "num palette entries: %d", (int)nentries);
-	de_read_palette_rgb(c->infile, hp->dpos, nentries, 3, pal, DE_ITEMS_IN_ARRAY(pal), 0);
+	de_read_palette_rgb(c->infile, hp->dpos, nentries, 3, pal, DE_ARRAYCOUNT(pal), 0);
 }
 
 static void handler_sPLT(deark *c, lctx *d, struct handler_params *hp)
@@ -966,7 +966,7 @@ static const struct chunk_type_info_struct *get_chunk_type_info(u32 id)
 {
 	size_t i;
 
-	for(i=0; i<DE_ITEMS_IN_ARRAY(chunk_type_info_arr); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(chunk_type_info_arr); i++) {
 		if(id == chunk_type_info_arr[i].id) {
 			return &chunk_type_info_arr[i];
 		}

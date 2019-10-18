@@ -379,7 +379,7 @@ static const struct cmpr_meth_info *get_cmpr_meth_info(int cmpr_meth)
 {
 	size_t k;
 
-	for(k=0; k<DE_ITEMS_IN_ARRAY(cmpr_meth_info_arr); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(cmpr_meth_info_arr); k++) {
 		if(cmpr_meth_info_arr[k].cmpr_meth == cmpr_meth) {
 			return &cmpr_meth_info_arr[k];
 		}
@@ -1020,7 +1020,7 @@ static const struct extra_item_type_info_struct *get_extra_item_type_info(i64 id
 		{ 0, "?", NULL };
 	size_t i;
 
-	for(i=0; i<DE_ITEMS_IN_ARRAY(extra_item_type_info_arr); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(extra_item_type_info_arr); i++) {
 		if(id == (i64)extra_item_type_info_arr[i].id) {
 			return &extra_item_type_info_arr[i];
 		}

@@ -41,7 +41,7 @@ static const char *get_officeart_rectype_name(unsigned int t)
 {
 	size_t k;
 
-	for(k=0; k<DE_ITEMS_IN_ARRAY(officeart_rectype_arr); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(officeart_rectype_arr); k++) {
 		if((unsigned int)officeart_rectype_arr[k].rectype == t) {
 			return officeart_rectype_arr[k].name;
 		}

@@ -144,7 +144,7 @@ static const struct cmpr_meth_info *get_cmpr_meth_info(lctx *d, u8 cmpr_meth)
 	size_t k;
 	const struct cmpr_meth_info *p;
 
-	for(k=0; k<DE_ITEMS_IN_ARRAY(cmpr_meth_info_arr); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(cmpr_meth_info_arr); k++) {
 		u8 meth_adjusted;
 
 		p = &cmpr_meth_info_arr[k];
@@ -672,7 +672,7 @@ static int de_identify_arc(deark *c)
 	if(cmpr_meth>9) return 0;
 	if(cmpr_meth==0) starts_with_trailer = 1;
 
-	for(k=0; k<DE_ITEMS_IN_ARRAY(exts); k++) {if(de_input_file_has_ext(c, exts[k])) {
+	for(k=0; k<DE_ARRAYCOUNT(exts); k++) {if(de_input_file_has_ext(c, exts[k])) {
 			has_ext = 1;
 			break;
 		}

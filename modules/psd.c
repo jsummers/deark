@@ -564,7 +564,7 @@ static int lookup_rsrc(u32 sig_id, u16 n, struct rsrc_info *ri_dst)
 		return 0;
 	}
 
-	for(i=0; i<(i64)DE_ITEMS_IN_ARRAY(rsrc_info_arr); i++) {
+	for(i=0; i<(i64)DE_ARRAYCOUNT(rsrc_info_arr); i++) {
 		if(rsrc_info_arr[i].id == n) {
 			*ri_dst = rsrc_info_arr[i]; // struct copy
 			if(!ri_dst->idname) ri_dst->idname = "?";

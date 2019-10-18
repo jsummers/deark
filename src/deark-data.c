@@ -1149,7 +1149,7 @@ de_encoding de_encoding_name_to_code(const char *encname)
 {
 	size_t k;
 
-	for(k=0; k<DE_ITEMS_IN_ARRAY(de_encmap_arr); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(de_encmap_arr); k++) {
 		if(!de_strcasecmp(encname, de_encmap_arr[k].encname)) {
 			return de_encmap_arr[k].n;
 		}
@@ -1195,7 +1195,7 @@ de_encoding de_windows_codepage_to_encoding(deark *c, int wincodepage,
 	size_t k;
 	const struct de_encmapwin_item *cpinfo = NULL;
 
-	for(k=0; k<DE_ITEMS_IN_ARRAY(de_encmapwin_arr); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(de_encmapwin_arr); k++) {
 		if(de_encmapwin_arr[k].wincodepage == wincodepage) {
 			cpinfo = &de_encmapwin_arr[k];
 			break;

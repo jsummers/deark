@@ -421,7 +421,7 @@ static void do_identify_bitstream(deark *c, lctx *d, struct stream_info *si, i64
 
 	de_read(idbuf, pos, bytes_to_scan);
 
-	for(k=0; k<DE_ITEMS_IN_ARRAY(stream_type_info_arr); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(stream_type_info_arr); k++) {
 		if(!de_memcmp(idbuf, stream_type_info_arr[k].magic,
 			stream_type_info_arr[k].magic_len))
 		{

@@ -330,7 +330,7 @@ static int wmf_handler_ESCAPE(deark *c, lctx *d, struct decoder_params *dp)
 	escfn = (u16)de_getu16le(dp->dpos);
 
 	// Find the name, etc. of this record type
-	for(k=0; k<DE_ITEMS_IN_ARRAY(escape_info_arr); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(escape_info_arr); k++) {
 		if(escape_info_arr[k].escfn == escfn) {
 			einfo = &escape_info_arr[k];
 			break;
@@ -709,7 +709,7 @@ static const struct wmf_func_info *find_wmf_func_info(u16 recfunc)
 	size_t i;
 	u8 rectype_wanted = (u8)(recfunc&0xff);
 
-	for(i=0; i<DE_ITEMS_IN_ARRAY(wmf_func_info_arr); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(wmf_func_info_arr); i++) {
 		if(wmf_func_info_arr[i].rectype == rectype_wanted) {
 			return &wmf_func_info_arr[i];
 		}
