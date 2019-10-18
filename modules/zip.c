@@ -403,9 +403,7 @@ static int do_decompress_data(deark *c, lctx *d,
 	struct compression_params cparams;
 
 	de_zeromem(&cparams, sizeof(struct compression_params));
-	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
-	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
-	de_dfilter_results_clear(c, &dres);
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	cparams.cmpr_meth = cmpr_meth;
 	cparams.bit_flags = bit_flags;
 	dcmpri.f = inf;
@@ -418,7 +416,7 @@ static int do_decompress_data(deark *c, lctx *d,
 	if(cmi && cmi->decompressor) {
 		cmi->decompressor(c, d, &cparams, &dcmpri, &dcmpro, &dres);
 		if(dres.errcode) {
-			de_err(c, "%s", dres.errmsg);
+			de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
 		}
 		else {
 			retval = 1;

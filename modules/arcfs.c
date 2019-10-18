@@ -93,8 +93,7 @@ static void do_arcfs_crunched(deark *c, lctx *d, struct arcfs_member_data *md,
 	struct de_dfilter_out_params tmpoparams;
 	struct de_dfilter_in_params tmpiparams;
 
-	de_zeromem(&tmpoparams, sizeof(struct de_dfilter_out_params));
-	de_zeromem(&tmpiparams, sizeof(struct de_dfilter_in_params));
+	de_dfilter_init_objects(c, &tmpiparams, &tmpoparams, NULL);
 
 	// "Crunched" means "packed", then "compressed".
 	// So we have to "uncompress", then "unpack".
@@ -138,9 +137,7 @@ static void do_arcfs_extract_member_file(deark *c, lctx *d, struct arcfs_member_
 	struct de_dfilter_results dres;
 	int have_dres = 0;
 
-	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
-	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
-	de_dfilter_results_clear(c, &dres);
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	if(md->file_data_offs_abs + md->cmpr_len > c->infile->len) goto done;
 
 	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT,
@@ -195,7 +192,7 @@ static void do_arcfs_extract_member_file(deark *c, lctx *d, struct arcfs_member_
 
 	if(have_dres && dres.errcode!=0) {
 		de_err(c, "%s: Decompression failed: %s",
-			ucstring_getpsz_d(md->fn), dres.errmsg);
+			ucstring_getpsz_d(md->fn), de_dfilter_get_errmsg(c, &dres));
 		goto done;
 	}
 
@@ -458,9 +455,7 @@ static void do_squash_main(deark *c, sqctx *d)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
-	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
-	de_dfilter_results_clear(c, &dres);
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 
 	dcmpri.f = c->infile;
 	dcmpri.pos = 20;
@@ -488,7 +483,7 @@ static void do_squash_main(deark *c, sqctx *d)
 	de_fmtutil_decompress_liblzw_ex(c, &dcmpri, &dcmpro, &dres, DE_LIBLZWFLAG_HAS3BYTEHEADER, 0);
 
 	if(dres.errcode) {
-		de_err(c, "%s", dres.errmsg);
+		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
 		goto done;
 	}
 

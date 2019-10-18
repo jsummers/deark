@@ -57,10 +57,7 @@ static void do_packdir_file_compressed(deark *c, struct pdctx_struct *d,
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
 
-	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
-	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
-	de_dfilter_results_clear(c, &dres);
-
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
 	dcmpri.pos = pos;
 	dcmpri.len = md->cmpr_len;
@@ -71,7 +68,7 @@ static void do_packdir_file_compressed(deark *c, struct pdctx_struct *d,
 	de_fmtutil_decompress_zoo_lzd(c, &dcmpri, &dcmpro, &dres, d->lzw_maxbits);
 
 	if(dres.errcode) {
-		de_err(c, "%s: %s", ucstring_getpsz_d(md->name), dres.errmsg);
+		de_err(c, "%s: %s", ucstring_getpsz_d(md->name), de_dfilter_get_errmsg(c, &dres));
 	}
 	else if(outf->len != md->orig_len) {
 		de_err(c, "%s: Expected %"I64_FMT" decompressed bytes, got %"I64_FMT,

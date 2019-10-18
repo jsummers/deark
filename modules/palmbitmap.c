@@ -227,10 +227,7 @@ static int de_decompress_image(deark *c, lctx *d, struct page_ctx *pg,
 	struct de_dfilter_results dres;
 	int retval = 0;
 
-	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
-	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
-	de_dfilter_results_clear(c, &dres);
-
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = inf;
 	dcmpri.pos = pos;
 	dcmpri.len = len;
@@ -254,7 +251,7 @@ static int de_decompress_image(deark *c, lctx *d, struct page_ctx *pg,
 	}
 
 	if(dres.errcode) {
-		de_err(c, "%s", dres.errmsg);
+		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
 		goto done;
 	}
 

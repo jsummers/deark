@@ -9,11 +9,34 @@
 #include "deark-private.h"
 #include "deark-fmtutil.h"
 
+// Returns a message that is valid until the next operation on dres.
+const char *de_dfilter_get_errmsg(deark *c, struct de_dfilter_results *dres)
+{
+	if(dres->errcode==0) {
+		return "No error";
+	}
+	if(dres->errmsg[0]) {
+		return dres->errmsg;
+	}
+	return "Unspecified error";
+}
+
 // Initialize or reset a dfilter results struct
 void de_dfilter_results_clear(deark *c, struct de_dfilter_results *dres)
 {
 	de_zeromem(dres, sizeof(struct de_dfilter_results));
-	de_strlcpy(dres->errmsg, "Unspecified error", sizeof(dres->errmsg));
+}
+
+// Note: It is also okay to init these objects by zeroing out their bytes.
+void de_dfilter_init_objects(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
+{
+	if(dcmpri)
+		de_zeromem(dcmpri, sizeof(struct de_dfilter_in_params));
+	if(dcmpro)
+		de_zeromem(dcmpro, sizeof(struct de_dfilter_out_params));
+	if(dres)
+		de_dfilter_results_clear(c, dres);
 }
 
 void de_dfilter_set_errorf(deark *c, struct de_dfilter_results *dres, const char *modname,
@@ -100,9 +123,7 @@ int de_fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
 	struct de_dfilter_out_params dcmpro;
 
 	if(cmpr_bytes_consumed) *cmpr_bytes_consumed = 0;
-	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
-	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
-	de_dfilter_results_clear(f->c, &dres);
+	de_dfilter_init_objects(f->c, &dcmpri, &dcmpro, &dres);
 
 	dcmpri.f = f;
 	dcmpri.pos = pos1;
@@ -181,9 +202,7 @@ int de_fmtutil_decompress_packbits16(dbuf *f, i64 pos1, i64 len,
 	struct de_dfilter_out_params dcmpro;
 
 	if(cmpr_bytes_consumed) *cmpr_bytes_consumed = 0;
-	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
-	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
-	de_dfilter_results_clear(f->c, &dres);
+	de_dfilter_init_objects(f->c, &dcmpri, &dcmpro, &dres);
 
 	dcmpri.f = f;
 	dcmpri.pos = pos1;

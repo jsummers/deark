@@ -159,9 +159,7 @@ int fmtutil_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *o
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 
-	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
-	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
-	de_dfilter_results_clear(c, &dres);
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	if(bytes_consumed) *bytes_consumed = 0;
 
 	dcmpri.f = inf;
@@ -182,7 +180,7 @@ int fmtutil_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *o
 	}
 
 	if(dres.errcode != 0) {
-		de_err(c, "%s", dres.errmsg);
+		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
 		return 0;
 	}
 	return 1;

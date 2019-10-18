@@ -141,10 +141,7 @@ int de_fmtutil_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
 	struct de_dfilter_out_params dcmpro;
 	deark *c = inf1->c;
 
-	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
-	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
-	de_dfilter_results_clear(c, &dres);
-
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
 	dcmpri.pos = pos1;
 	dcmpri.len = len;
@@ -153,7 +150,7 @@ int de_fmtutil_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
 	dcmpro.expected_len = max_out_len;
 	de_fmtutil_decompress_liblzw_ex(c, &dcmpri, &dcmpro, &dres, flags, lzwmode);
 	if(dres.errcode!=0) {
-		de_err(c, "%s", dres.errmsg);
+		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
 		return 0;
 	}
 	return 1;

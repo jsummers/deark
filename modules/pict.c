@@ -349,9 +349,7 @@ static int decode_bitmap(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi, i
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
 
-	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
-	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
-	de_dfilter_results_clear(c, &dres);
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 
 	bi->rowspan = bi->rowbytes;
 	if(bi->pixelsize==32 && bi->cmpcount==3 && bi->cmpsize==8) {

@@ -367,7 +367,10 @@ void de_dfilter_set_errorf(deark *c, struct de_dfilter_results *dres, const char
 	const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 4, 5)));
 void de_dfilter_set_generic_error(deark *c, struct de_dfilter_results *dres, const char *modname);
+const char *de_dfilter_get_errmsg(deark *c, struct de_dfilter_results *dres);
 void de_dfilter_results_clear(deark *c, struct de_dfilter_results *dres);
+void de_dfilter_init_objects(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
 
 struct de_riscos_file_attrs {
 	u8 file_type_known;

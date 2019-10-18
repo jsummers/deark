@@ -553,9 +553,7 @@ static void ExtrEntry(struct unzooctx *uz, i64 pos1, i64 *next_entry_pos)
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
 
-	de_zeromem(&dcmpri, sizeof(struct de_dfilter_in_params));
-	de_zeromem(&dcmpro, sizeof(struct de_dfilter_out_params));
-	de_dfilter_results_clear(c, &dres);
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 
 	ze = de_malloc(c, sizeof(struct entryctx));
 	ze->uz = uz;
@@ -638,7 +636,7 @@ static void ExtrEntry(struct unzooctx *uz, i64 pos1, i64 *next_entry_pos)
 
 	/* check that everything went ok                                   */
 	if(dres.errcode) {
-		de_err(c, "%s", dres.errmsg);
+		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
 	}
 	else if ( ze->crc_calculated != ze->crcdat ) {
 		de_err(c, "CRC failed");

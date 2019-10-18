@@ -261,7 +261,8 @@ static int do_extract_internal(deark *c, lctx *d, struct member_data *md,
 	}
 
 	if(have_dres && dres.errcode) {
-		de_err(c, "%s: Decompression failed: %s", ucstring_getpsz_d(md->fn), dres.errmsg);
+		de_err(c, "%s: Decompression failed: %s", ucstring_getpsz_d(md->fn),
+			de_dfilter_get_errmsg(c, &dres));
 		goto done;
 	}
 
