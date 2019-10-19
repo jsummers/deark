@@ -250,8 +250,7 @@ $(OBJDIR)/modules/xface.o: modules/xface.c src/deark-config.h \
 $(OBJDIR)/modules/xfer.o: modules/xfer.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/zip.o: modules/zip.c src/deark-config.h \
- src/deark-private.h src/deark.h src/deark-fmtutil.h \
- modules/../foreign/unimplode6a.h modules/../foreign/ozunreduce.h
+ src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/zoo.o: modules/zoo.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h \
  modules/../foreign/unzoo.h
@@ -292,6 +291,9 @@ $(OBJDIR)/src/fmtutil-liblzw.o: src/fmtutil-liblzw.c src/deark-config.h \
 $(OBJDIR)/src/fmtutil-miniz.o: src/fmtutil-miniz.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h \
  src/../foreign/miniz.h
+$(OBJDIR)/src/fmtutil-zip.o: src/fmtutil-zip.c src/deark-config.h \
+ src/deark-private.h src/deark.h src/deark-fmtutil.h \
+ src/../foreign/ozunreduce.h src/../foreign/unimplode6a.h
 $(OBJDIR)/src/fmtutil-zoo.o: src/fmtutil-zoo.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h \
  src/../foreign/unzoo-lzh.h src/../foreign/zoo-lzd.h
