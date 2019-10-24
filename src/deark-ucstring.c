@@ -501,7 +501,14 @@ void de_strarray_make_path(struct de_strarray *sa, de_ucstring *path, unsigned i
 
 	for(i=0; i<sa->count; i++) {
 		i64 oldlen = path->len;
-		ucstring_append_ucstring(path, sa->ss[i]);
+
+		if(ucstring_isnonempty(sa->ss[i])) {
+			ucstring_append_ucstring(path, sa->ss[i]);
+		}
+		else {
+			ucstring_append_char(path, '/');
+		}
+
 		mp_squash_slashes(path, oldlen);
 		if((i+1 < sa->count) || !(flags & DE_MPFLAG_NOTRAILINGSLASH)) {
 			ucstring_append_sz(path, "/", DE_ENCODING_LATIN1);

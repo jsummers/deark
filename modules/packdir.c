@@ -14,7 +14,6 @@ struct pdctx_object {
 	u32 attribs;
 	u32 object_type;
 	u8 is_dir;
-	u8 is_root_dir;
 	i64 num_children; //  valid if is_dir
 	i64 orig_len; // valid if !is_dir
 	i64 cmpr_len;
@@ -93,23 +92,17 @@ static void do_packdir_extract_file(deark *c, struct pdctx_struct *d,
 
 	fi = de_finfo_create(c);
 
-	if(md->is_dir && md->is_root_dir) {
+	fullfn = ucstring_create(c);
+	if(md->is_dir) {
 		fi->is_directory = 1;
-		fi->is_root_dir = 1;
+		de_strarray_make_path(d->curpath, fullfn, DE_MPFLAG_NOTRAILINGSLASH);
 	}
 	else {
-		fullfn = ucstring_create(c);
-		if(md->is_dir) {
-			fi->is_directory = 1;
-			de_strarray_make_path(d->curpath, fullfn, DE_MPFLAG_NOTRAILINGSLASH);
-		}
-		else {
-			de_strarray_make_path(d->curpath, fullfn, 0);
-			ucstring_append_ucstring(fullfn, md->name);
-		}
-		de_finfo_set_name_from_ucstring(c, fi, fullfn, DE_SNFLAG_FULLPATH);
-		fi->original_filename_flag = 1;
+		de_strarray_make_path(d->curpath, fullfn, 0);
+		ucstring_append_ucstring(fullfn, md->name);
 	}
+	de_finfo_set_name_from_ucstring(c, fi, fullfn, DE_SNFLAG_FULLPATH);
+	fi->original_filename_flag = 1;
 
 	fi->mod_time = md->mod_time;
 
@@ -126,6 +119,25 @@ done:
 	dbuf_close(outf);
 	de_finfo_destroy(c, fi);
 	ucstring_destroy(fullfn);
+}
+
+// The name of the root object is usually something ugly like
+// "RAM::RamDisc0.$.MyProg". Try to make it nicer by only using the last part
+// of it.
+static void convert_root_name(deark *c, struct pdctx_struct *d,
+	de_ucstring *nsrc, de_ucstring *ndst)
+{
+	i64 k;
+
+	for(k=0; k<nsrc->len; k++) {
+		i32 ch = nsrc->str[k];
+		if(ch=='.' || ch==':') {
+			ucstring_empty(ndst);
+		}
+		else {
+			ucstring_append_char(ndst, ch);
+		}
+	}
 }
 
 // Process and object, and all its descendants.
@@ -200,10 +212,11 @@ static int do_packdir_object(deark *c, struct pdctx_struct *d, i64 pos1,
 		md->num_children = length_raw;
 		de_dbg(c, "number of dir entries: %"I64_FMT, md->num_children);
 
-		// TODO: Should we try to construct a root dirname?
-		// (e.g. the part after the last "." or ":"?)
 		if(level<=0) {
-			md->is_root_dir = 1;
+			de_ucstring *tmpstr = ucstring_create(c);
+			convert_root_name(c, d, md->name, tmpstr);
+			de_strarray_push(d->curpath, tmpstr);
+			ucstring_destroy(tmpstr);
 		}
 		else {
 			de_strarray_push(d->curpath, md->name);
