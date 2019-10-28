@@ -9,6 +9,8 @@
 #include "deark-private.h"
 #include "deark-fmtutil.h"
 
+#include "../foreign/ozunshrink.h"
+
 #define OZUR_UINT8     u8
 #define OZUR_OFF_T     i64
 #include "../foreign/ozunreduce.h"
@@ -47,6 +49,29 @@ static size_t ozXX_write(struct ozXX_udatatype *uctx, const u8 *buf, size_t size
 {
 	dbuf_write(uctx->outf, buf, (i64)size);
 	return size;
+}
+
+void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	unsigned int flags)
+{
+	ozus_ctx *ozus = NULL;
+	static const char *modname = "unshrink";
+
+	ozus = ozus_create(c);
+	ozus->inf = dcmpri->f;
+	ozus->inf_pos = dcmpri->pos;
+	ozus->inf_endpos= dcmpri->pos + dcmpri->len;
+	ozus->outf = dcmpro->f;
+	ozus->outf_nbytes_expected = dcmpro->expected_len;
+
+	ozus_run(ozus);
+
+	if(ozus->error_code) {
+		de_dfilter_set_errorf(c, dres, modname, "Decompression failed (code %d)",
+			ozus->error_code);
+	}
+	ozus_destroy(ozus);
 }
 
 static size_t my_ozur_read(ozur_ctx *ozur, OZUR_UINT8 *buf, size_t size)

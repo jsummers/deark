@@ -110,6 +110,13 @@ static int is_compression_method_supported(lctx *d, const struct cmpr_meth_info 
 	return 0;
 }
 
+static void do_decompress_shrink(deark *c, lctx *d, struct compression_params *cparams,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	fmtutil_decompress_zip_shrink(c, dcmpri, dcmpro, dres, 0);
+}
+
 static void do_decompress_reduce(deark *c, lctx *d, struct compression_params *cparams,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
@@ -146,7 +153,7 @@ static void do_decompress_stored(deark *c, lctx *d, struct compression_params *c
 
 static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 0, 0x00, "stored", do_decompress_stored },
-	{ 1, 0x00, "shrink", NULL },
+	{ 1, 0x00, "shrink", do_decompress_shrink },
 	{ 2, 0x00, "reduce, CF=1", do_decompress_reduce },
 	{ 3, 0x00, "reduce, CF=2", do_decompress_reduce },
 	{ 4, 0x00, "reduce, CF=3", do_decompress_reduce },
