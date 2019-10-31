@@ -44,7 +44,7 @@ struct member_data {
 	int is_dir;
 };
 
-typedef struct localctx_struct {
+struct localctx_struct {
 	int fmt;
 	const char *fmtname;
 	int input_encoding;
@@ -59,7 +59,7 @@ typedef struct localctx_struct {
 	int has_file_comments;
 	i64 num_file_comments;
 	i64 file_comments_pos;
-} lctx;
+};
 
 static void decompressor_stored(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
