@@ -71,6 +71,16 @@ static size_t ozXX_write(struct ozXX_udatatype *uctx, const u8 *buf, size_t size
 	return size;
 }
 
+static size_t my_ozus_read(ozus_ctx *ozus, OZUS_UINT8 *buf, size_t size)
+{
+	return ozXX_read((struct ozXX_udatatype*)ozus->userdata, buf, size);
+}
+
+static size_t my_ozus_write(ozus_ctx *ozus, const OZUS_UINT8 *buf, size_t size)
+{
+	return ozXX_write((struct ozXX_udatatype*)ozus->userdata, buf, size);
+}
+
 void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags)
@@ -88,11 +98,14 @@ void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri
 	zu.outf = dcmpro->f;
 
 	ozus = ozus_create(c, (void*)&zu);
-	ozus->inf = dcmpri->f;
-	ozus->inf_pos = dcmpri->pos;
-	ozus->inf_endpos= dcmpri->pos + dcmpri->len;
-	ozus->outf = dcmpro->f;
-	ozus->outf_nbytes_expected = dcmpro->expected_len;
+	if(!ozus) {
+		de_dfilter_set_generic_error(c, dres, modname);
+		goto done;
+	}
+	ozus->cmpr_size = dcmpri->len;
+	ozus->uncmpr_size = dcmpro->expected_len;
+	ozus->cb_read = my_ozus_read;
+	ozus->cb_write = my_ozus_write;
 
 	ozus_run(ozus);
 

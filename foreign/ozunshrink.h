@@ -44,18 +44,22 @@ struct ozus_tableentry {
 struct ozus_ctx_type;
 typedef struct ozus_ctx_type ozus_ctx;
 
+typedef size_t (*ozus_cb_read_type)(ozus_ctx *ozus, OZUS_UINT8 *buf, size_t size);
+typedef size_t (*ozus_cb_write_type)(ozus_ctx *ozus, const OZUS_UINT8 *buf, size_t size);
+
 struct ozus_ctx_type {
 	// Fields the user can or must set:
 	void *userdata;
 	deark *c;
-	dbuf *inf;
-	OZUS_OFF_T inf_pos;
-	OZUS_OFF_T inf_endpos;
-	dbuf *outf;
-	OZUS_OFF_T outf_nbytes_expected;
+	OZUS_OFF_T cmpr_size; // compressed size
+	OZUS_OFF_T uncmpr_size; // reported uncompressed size
+	ozus_cb_read_type cb_read;
+	ozus_cb_write_type cb_write;
 
 	// Fields the user can read:
 	int error_code;
+	OZUS_OFF_T cmpr_nbytes_consumed;
+	OZUS_OFF_T uncmpr_nbytes_written;
 
 	// Fields private to the library:
 	int have_oldcode;
@@ -74,20 +78,29 @@ struct ozus_ctx_type {
 	dbuf *tmpbuf;
 };
 
-static ozus_ctx *ozus_create(deark *c, void *userdata)
+static void ozus_set_error(ozus_ctx *ozus, int error_code)
 {
-	ozus_ctx *ozus;
+	// Only record the first error.
+	if (ozus->error_code == OZUS_ERRCODE_OK) {
+		ozus->error_code = error_code;
+	}
+}
+
+static void ozus_init(ozus_ctx *ozus)
+{
 	OZUS_CODE i;
 
-	ozus = OZUS_CALLOC(userdata, 1, sizeof(ozus_ctx), ozus_ctx*);
-	ozus->userdata = userdata;
-	ozus->c = c;
 	ozus->initial_code_size = 9;
 	ozus->max_code_size = 13;
 
 	ozus->ct_arraysize = ((size_t)1)<<ozus->max_code_size;
 	ozus->ct = OZUS_CALLOC(ozus->userdata, ozus->ct_arraysize, sizeof(struct ozus_tableentry),
 		struct ozus_tableentry*);
+	if(!ozus->ct) {
+		ozus_set_error(ozus, OZUS_ERRCODE_MALLOC_FAILED);
+		return;
+	}
+
 	for(i=0; i<256; i++) {
 		ozus->ct[i].parent = OZUS_INVALID_CODE;
 		ozus->ct[i].value = (OZUS_UINT8)i;
@@ -97,7 +110,17 @@ static ozus_ctx *ozus_create(deark *c, void *userdata)
 	}
 
 	ozus->free_code_search_start = 257;
-	ozus->tmpbuf = dbuf_create_membuf(c, 0, 0);
+	ozus->tmpbuf = dbuf_create_membuf(ozus->c, 0, 0);
+}
+
+static ozus_ctx *ozus_create(deark *c, void *userdata)
+{
+	ozus_ctx *ozus;
+
+	ozus = OZUS_CALLOC(userdata, 1, sizeof(ozus_ctx), ozus_ctx*);
+	if(!ozus) return NULL;
+	ozus->userdata = userdata;
+	ozus->c = c;
 	return ozus;
 }
 
@@ -111,11 +134,21 @@ static void ozus_destroy(ozus_ctx *ozus)
 
 static OZUS_UINT8 ozus_nextbyte(ozus_ctx *ozus)
 {
-	if(ozus->inf_pos>=ozus->inf_endpos) {
-		ozus->error_code = OZUS_ERRCODE_INSUFFICIENT_CDATA;
+	size_t ret;
+	OZUS_UINT8 b;
+
+	if(ozus->error_code) return 0;
+	if(ozus->cmpr_nbytes_consumed >= ozus->cmpr_size) {
+		ozus_set_error(ozus, OZUS_ERRCODE_INSUFFICIENT_CDATA);
 		return 0;
 	}
-	return dbuf_getbyte_p(ozus->inf, &ozus->inf_pos);
+	ret = ozus->cb_read(ozus, &b, 1);
+	if(ret != 1) {
+		ozus_set_error(ozus, OZUS_ERRCODE_READ_FAILED);
+		return 0;
+	}
+	ozus->cmpr_nbytes_consumed++;
+	return b;
 }
 
 static OZUS_CODE ozus_bitreader_getbits(ozus_ctx *ozus, unsigned int nbits)
@@ -139,6 +172,20 @@ static OZUS_CODE ozus_bitreader_getbits(ozus_ctx *ozus, unsigned int nbits)
 	return (OZUS_CODE)n;
 }
 
+static void ozus_writebyte(ozus_ctx *ozus, OZUS_UINT8 b)
+{
+	size_t ret;
+
+	if(ozus->error_code) return;
+	if(ozus->uncmpr_nbytes_written >= ozus->uncmpr_size) return;
+	ret = ozus->cb_write(ozus, &b, 1);
+	if(ret != 1) {
+		ozus_set_error(ozus, OZUS_ERRCODE_WRITE_FAILED);
+		return;
+	}
+	ozus->uncmpr_nbytes_written++;
+}
+
 // Decode an LZW code to one or more values, and write the values.
 // Updates ctx->last_value.
 static void ozus_emit_code(ozus_ctx *ozus, OZUS_CODE code1)
@@ -153,7 +200,7 @@ static void ozus_emit_code(ozus_ctx *ozus, OZUS_CODE code1)
 
 	while(1) {
 		if(code >= ozus->ct_arraysize) {
-			ozus->error_code = OZUS_ERRCODE_GENERIC_ERROR;
+			ozus_set_error(ozus, OZUS_ERRCODE_GENERIC_ERROR);
 			return;
 		}
 
@@ -163,7 +210,7 @@ static void ozus_emit_code(ozus_ctx *ozus, OZUS_CODE code1)
 		if(count >= ozus->ct_arraysize) {
 			// Max possible chain length is less than this.
 			// We must be in an infinite loop (probably an internal error).
-			ozus->error_code = OZUS_ERRCODE_GENERIC_ERROR;
+			ozus_set_error(ozus, OZUS_ERRCODE_GENERIC_ERROR);
 			return;
 		}
 
@@ -178,7 +225,7 @@ static void ozus_emit_code(ozus_ctx *ozus, OZUS_CODE code1)
 
 	// Write out the collected values, in reverse order.
 	for(k=ozus->tmpbuf->len-1; k>=0; k--) {
-		dbuf_writebyte(ozus->outf, dbuf_getbyte(ozus->tmpbuf, k));
+		ozus_writebyte(ozus, dbuf_getbyte(ozus->tmpbuf, k));
 	}
 }
 
@@ -194,7 +241,7 @@ static void ozus_find_first_free_entry(ozus_ctx *ozus, OZUS_CODE *pentry)
 	}
 
 	*pentry = ozus->ct_arraysize-1;
-	ozus->error_code = OZUS_ERRCODE_BAD_CDATA;
+	ozus_set_error(ozus, OZUS_ERRCODE_BAD_CDATA);
 }
 
 // Add a code to the dictionary.
@@ -216,7 +263,7 @@ static void ozus_add_to_dict(ozus_ctx *ozus, OZUS_CODE parent, OZUS_UINT8 value)
 static void ozus_process_data_code(ozus_ctx *ozus, OZUS_CODE code)
 {
 	if(code >= ozus->ct_arraysize) {
-		ozus->error_code = OZUS_ERRCODE_GENERIC_ERROR;
+		ozus_set_error(ozus, OZUS_ERRCODE_GENERIC_ERROR);
 		return;
 	}
 
@@ -281,10 +328,13 @@ static void ozus_run(ozus_ctx *ozus)
 	OZUS_CODE code;
 	unsigned int curr_code_size;
 
+	ozus_init(ozus);
+	if(ozus->error_code) goto done;
+
 	curr_code_size = ozus->initial_code_size;
 
 	while(1) {
-		if(ozus->outf->len >= ozus->outf_nbytes_expected) {
+		if(ozus->uncmpr_nbytes_written >= ozus->uncmpr_size) {
 			goto done; // Have enough output data.
 		}
 
@@ -304,7 +354,7 @@ static void ozus_run(ozus_ctx *ozus)
 				ozus_partial_clear(ozus);
 			}
 			else {
-				ozus->error_code = OZUS_ERRCODE_BAD_CDATA;
+				ozus_set_error(ozus, OZUS_ERRCODE_BAD_CDATA);
 				goto done;
 			}
 
