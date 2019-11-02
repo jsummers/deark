@@ -15,8 +15,6 @@ static void ozXX_free(void *userdata, void *ptr);
 #define OZUS_UINT8     u8
 #define OZUS_UINT16    u16
 #define OZUS_OFF_T     i64
-#define OZUS_CALLOC(u, nmemb, size, ty) ozXX_calloc((u), (nmemb), (size))
-#define OZUS_FREE      ozXX_free
 #include "../foreign/ozunshrink.h"
 
 #define OZUR_UINT8     u8
@@ -97,11 +95,8 @@ void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri
 	zu.inf_curpos = dcmpri->pos;
 	zu.outf = dcmpro->f;
 
-	ozus = ozus_create((void*)&zu);
-	if(!ozus) {
-		de_dfilter_set_generic_error(c, dres, modname);
-		goto done;
-	}
+	ozus = de_malloc(c, sizeof(ozus_ctx));
+	ozus->userdata = (void*)&zu;
 	ozus->cmpr_size = dcmpri->len;
 	ozus->uncmpr_size = dcmpro->expected_len;
 	ozus->cb_read = my_ozus_read;
@@ -113,9 +108,12 @@ void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri
 		de_dfilter_set_errorf(c, dres, modname, "Decompression failed (code %d)",
 			ozus->error_code);
 	}
+	else if(ozus->cmpr_nbytes_consumed < ozus->cmpr_size) {
+		de_warn(c, "Shrink decompression may have failed (did not use all compressed data)");
+	}
 
 done:
-	ozus_destroy(ozus);
+	de_free(c, ozus);
 }
 
 static size_t my_ozur_read(ozur_ctx *ozur, OZUR_UINT8 *buf, size_t size)

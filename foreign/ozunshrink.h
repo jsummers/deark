@@ -16,22 +16,19 @@
 #ifndef OZUS_OFF_T
 #define OZUS_OFF_T   off_t
 #endif
-#ifndef OZUS_CALLOC
-#define OZUS_CALLOC(u, nmemb, size, ty) (ty)calloc((nmemb), (size))
-#endif
-#ifndef OZUS_FREE
-#define OZUS_FREE(u, ptr) free(ptr)
-#endif
 
 #define OZUS_ERRCODE_OK             0
 #define OZUS_ERRCODE_GENERIC_ERROR  1
 #define OZUS_ERRCODE_BAD_CDATA      2
-#define OZUS_ERRCODE_MALLOC_FAILED  3
 #define OZUS_ERRCODE_READ_FAILED    6
 #define OZUS_ERRCODE_WRITE_FAILED   7
 #define OZUS_ERRCODE_INSUFFICIENT_CDATA 8
 
 typedef OZUS_UINT16 OZUS_CODE;
+
+#define OZUS_INITIAL_CODE_SIZE 9
+#define OZUS_MAX_CODE_SIZE 13
+#define OZUS_NUM_CODES 8192
 
 // For entries <=256, .parent is always set to OZUS_INVALID_CODE.
 // For entries >256, .parent==OZUS_INVALID_CODE means code is unused
@@ -63,6 +60,7 @@ struct ozus_ctx_type {
 	OZUS_OFF_T uncmpr_nbytes_written;
 
 	// Fields private to the library:
+	unsigned int curr_code_size;
 	int have_oldcode;
 	OZUS_CODE oldcode;
 	OZUS_CODE last_code_added;
@@ -72,15 +70,12 @@ struct ozus_ctx_type {
 	unsigned int bitreader_buf;
 	unsigned int bitreader_nbits_in_buf;
 
-	unsigned int initial_code_size;
-	unsigned int max_code_size;
-	OZUS_CODE ct_arraysize;
-	struct ozus_tableentry *ct;
+	struct ozus_tableentry ct[OZUS_NUM_CODES];
 
 // Need room for the max possible chain length, which I calculate to be
 // 8192 - 257 + 1 = 7936.
 #define OZUS_VALBUFSIZE 7936
-	OZUS_UINT8 *valbuf;
+	OZUS_UINT8 valbuf[OZUS_VALBUFSIZE];
 };
 
 static void ozus_set_error(ozus_ctx *ozus, int error_code)
@@ -95,49 +90,19 @@ static void ozus_init(ozus_ctx *ozus)
 {
 	OZUS_CODE i;
 
-	ozus->initial_code_size = 9;
-	ozus->max_code_size = 13;
-
-	ozus->ct_arraysize = ((size_t)1)<<ozus->max_code_size;
-	ozus->ct = OZUS_CALLOC(ozus->userdata, ozus->ct_arraysize, sizeof(struct ozus_tableentry),
-		struct ozus_tableentry*);
-	ozus->valbuf = OZUS_CALLOC(ozus->userdata, OZUS_VALBUFSIZE, 1, OZUS_UINT8*);
-	if(!ozus->ct || !ozus->valbuf) {
-		ozus_set_error(ozus, OZUS_ERRCODE_MALLOC_FAILED);
-		return;
-	}
-
 	for(i=0; i<256; i++) {
 		ozus->ct[i].parent = OZUS_INVALID_CODE;
 		ozus->ct[i].value = (OZUS_UINT8)i;
 	}
-	for(i=256; i<ozus->ct_arraysize; i++) {
+	for(i=256; i<OZUS_NUM_CODES; i++) {
 		ozus->ct[i].parent = OZUS_INVALID_CODE;
 	}
 
 	ozus->free_code_search_start = 257;
 }
 
-static ozus_ctx *ozus_create(void *userdata)
-{
-	ozus_ctx *ozus;
-
-	ozus = OZUS_CALLOC(userdata, 1, sizeof(ozus_ctx), ozus_ctx*);
-	if(!ozus) return NULL;
-	ozus->userdata = userdata;
-	return ozus;
-}
-
-static void ozus_destroy(ozus_ctx *ozus)
-{
-	if(!ozus) return;
-	OZUS_FREE(ozus->userdata, ozus->ct);
-	OZUS_FREE(ozus->userdata, ozus->valbuf);
-	OZUS_FREE(ozus->userdata, ozus);
-}
-
 // TODO: Buffering
-static OZUS_UINT8 ozus_nextbyte(ozus_ctx *ozus)
+static OZUS_UINT8 ozus_getnextbyte(ozus_ctx *ozus)
 {
 	size_t ret;
 	OZUS_UINT8 b;
@@ -156,22 +121,21 @@ static OZUS_UINT8 ozus_nextbyte(ozus_ctx *ozus)
 	return b;
 }
 
-static OZUS_CODE ozus_bitreader_getbits(ozus_ctx *ozus, unsigned int nbits)
+static OZUS_CODE ozus_getnextcode(ozus_ctx *ozus)
 {
+	unsigned int nbits = ozus->curr_code_size;
 	unsigned int n;
-
-	if(nbits<1 || nbits>ozus->max_code_size) return 0;
 
 	while(ozus->bitreader_nbits_in_buf < nbits) {
 		OZUS_UINT8 b;
 
-		b = ozus_nextbyte(ozus);
+		b = ozus_getnextbyte(ozus);
 		if(ozus->error_code) return 0;
 		ozus->bitreader_buf |= ((unsigned int)b)<<ozus->bitreader_nbits_in_buf;
 		ozus->bitreader_nbits_in_buf += 8;
 	}
 
-	n = (ozus->bitreader_buf & (0xffff >> (16-nbits)));
+	n = ozus->bitreader_buf & ((1U<<nbits)-1U);
 	ozus->bitreader_buf >>= nbits;
 	ozus->bitreader_nbits_in_buf -= nbits;
 	return (OZUS_CODE)n;
@@ -203,7 +167,7 @@ static void ozus_emit_code(ozus_ctx *ozus, OZUS_CODE code1)
 	size_t valbuf_pos = OZUS_VALBUFSIZE; // = First entry that's used
 
 	while(1) {
-		if(code >= ozus->ct_arraysize) {
+		if(code >= OZUS_NUM_CODES) {
 			ozus_set_error(ozus, OZUS_ERRCODE_GENERIC_ERROR);
 			return;
 		}
@@ -236,14 +200,14 @@ static void ozus_find_first_free_entry(ozus_ctx *ozus, OZUS_CODE *pentry)
 {
 	OZUS_CODE k;
 
-	for(k=ozus->free_code_search_start; k<ozus->ct_arraysize; k++) {
+	for(k=ozus->free_code_search_start; k<OZUS_NUM_CODES; k++) {
 		if(ozus->ct[k].parent==OZUS_INVALID_CODE) {
 			*pentry = k;
 			return;
 		}
 	}
 
-	*pentry = ozus->ct_arraysize-1;
+	*pentry = OZUS_NUM_CODES-1;
 	ozus_set_error(ozus, OZUS_ERRCODE_BAD_CDATA);
 }
 
@@ -265,7 +229,7 @@ static void ozus_add_to_dict(ozus_ctx *ozus, OZUS_CODE parent, OZUS_UINT8 value)
 // Process a single (nonspecial) LZW code that was read from the input stream.
 static void ozus_process_data_code(ozus_ctx *ozus, OZUS_CODE code)
 {
-	if(code >= ozus->ct_arraysize) {
+	if(code >= OZUS_NUM_CODES) {
 		ozus_set_error(ozus, OZUS_ERRCODE_GENERIC_ERROR);
 		return;
 	}
@@ -307,13 +271,13 @@ static void ozus_partial_clear(ozus_ctx *ozus)
 {
 	OZUS_CODE i;
 
-	for(i=257; i<ozus->ct_arraysize; i++) {
+	for(i=257; i<OZUS_NUM_CODES; i++) {
 		if(ozus->ct[i].parent!=OZUS_INVALID_CODE) {
 			ozus->ct[ozus->ct[i].parent].flags = 1; // Mark codes that have a child
 		}
 	}
 
-	for(i=257; i<ozus->ct_arraysize; i++) {
+	for(i=257; i<OZUS_NUM_CODES; i++) {
 		if(ozus->ct[i].flags == 0) {
 			ozus->ct[i].parent = OZUS_INVALID_CODE; // Clear this code
 			ozus->ct[i].value = 0;
@@ -329,29 +293,28 @@ static void ozus_partial_clear(ozus_ctx *ozus)
 static void ozus_run(ozus_ctx *ozus)
 {
 	OZUS_CODE code;
-	unsigned int curr_code_size;
 
 	ozus_init(ozus);
 	if(ozus->error_code) goto done;
 
-	curr_code_size = ozus->initial_code_size;
+	ozus->curr_code_size = OZUS_INITIAL_CODE_SIZE;
 
 	while(1) {
 		if(ozus->uncmpr_nbytes_written >= ozus->uncmpr_size) {
 			goto done; // Have enough output data.
 		}
 
-		code = ozus_bitreader_getbits(ozus, curr_code_size);
+		code = ozus_getnextcode(ozus);
 		if(ozus->error_code) goto done;
 
 		if(code==256) {
 			OZUS_CODE n;
 
-			n = ozus_bitreader_getbits(ozus, curr_code_size);
+			n = ozus_getnextcode(ozus);
 			if(ozus->error_code) goto done;
 
-			if(n==1 && (curr_code_size<ozus->max_code_size)) {
-				curr_code_size++;
+			if(n==1 && (ozus->curr_code_size<OZUS_MAX_CODE_SIZE)) {
+				ozus->curr_code_size++;
 			}
 			else if(n==2) {
 				ozus_partial_clear(ozus);
