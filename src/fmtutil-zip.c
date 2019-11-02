@@ -9,6 +9,14 @@
 #include "deark-private.h"
 #include "deark-fmtutil.h"
 
+static void *ozXX_calloc(void *userdata, size_t nmemb, size_t size);
+static void ozXX_free(void *userdata, void *ptr);
+
+#define OZUS_UINT8     u8
+#define OZUS_UINT16    u16
+#define OZUS_OFF_T     i64
+#define OZUS_CALLOC(u, nmemb, size, ty) ozXX_calloc((u), (nmemb), (size))
+#define OZUS_FREE      ozXX_free
 #include "../foreign/ozunshrink.h"
 
 #define OZUR_UINT8     u8
@@ -21,10 +29,8 @@
 #define UI6A_OFF_T     i64
 #define UI6A_ZEROMEM   de_zeromem
 #define UI6A_MEMCPY    de_memcpy
-#define UI6A_CALLOC(u, nmemb, size, ty) zipexpl_calloc((u), (nmemb), (size))
-#define UI6A_FREE      zipexpl_free
-static void *zipexpl_calloc(void *userdata, size_t nmemb, size_t size);
-static void zipexpl_free(void *userdata, void *ptr);
+#define UI6A_CALLOC(u, nmemb, size, ty) ozXX_calloc((u), (nmemb), (size))
+#define UI6A_FREE      ozXX_free
 #include "../foreign/unimplode6a.h"
 
 // Struct for userdata, shared by Implode and Reduce decoders
@@ -35,6 +41,20 @@ struct ozXX_udatatype {
 	dbuf *outf;
 	int dumptrees;
 };
+
+static void *ozXX_calloc(void *userdata, size_t nmemb, size_t size)
+{
+	deark *c = ((struct ozXX_udatatype *)userdata)->c;
+
+	return de_mallocarray(c, (i64)nmemb, size);
+}
+
+static void ozXX_free(void *userdata, void *ptr)
+{
+	deark *c = ((struct ozXX_udatatype *)userdata)->c;
+
+	de_free(c, ptr);
+}
 
 // Used by Implode and Reduce decoders
 static size_t ozXX_read(struct ozXX_udatatype *uctx, u8 *buf, size_t size)
@@ -56,9 +76,18 @@ void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri
 	unsigned int flags)
 {
 	ozus_ctx *ozus = NULL;
+	struct ozXX_udatatype zu;
 	static const char *modname = "unshrink";
 
-	ozus = ozus_create(c);
+	de_zeromem(&zu, sizeof(struct ozXX_udatatype));
+	if(!dcmpro->len_known) goto done;
+
+	zu.c = c;
+	zu.inf = dcmpri->f;
+	zu.inf_curpos = dcmpri->pos;
+	zu.outf = dcmpro->f;
+
+	ozus = ozus_create(c, (void*)&zu);
 	ozus->inf = dcmpri->f;
 	ozus->inf_pos = dcmpri->pos;
 	ozus->inf_endpos= dcmpri->pos + dcmpri->len;
@@ -71,6 +100,8 @@ void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri
 		de_dfilter_set_errorf(c, dres, modname, "Decompression failed (code %d)",
 			ozus->error_code);
 	}
+
+done:
 	ozus_destroy(ozus);
 }
 
@@ -136,20 +167,6 @@ done:
 	if(retval==0 && !dres->errcode) {
 		de_dfilter_set_generic_error(c, dres, modname);
 	}
-}
-
-static void *zipexpl_calloc(void *userdata, size_t nmemb, size_t size)
-{
-	deark *c = ((struct ozXX_udatatype *)userdata)->c;
-
-	return de_mallocarray(c, (i64)nmemb, size);
-}
-
-static void zipexpl_free(void *userdata, void *ptr)
-{
-	deark *c = ((struct ozXX_udatatype *)userdata)->c;
-
-	de_free(c, ptr);
 }
 
 static void zipexpl_huft_dump1(struct ozXX_udatatype *zu, struct ui6a_huft *t, unsigned int idx)

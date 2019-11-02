@@ -5,6 +5,22 @@
 //
 // ZIP "shrink" decompression
 
+#ifndef OZUS_UINT8
+#define OZUS_UINT8   unsigned char
+#endif
+#ifndef OZUS_UINT16
+#define OZUS_UINT16  uint16_t
+#endif
+#ifndef OZUS_OFF_T
+#define OZUS_OFF_T   off_t
+#endif
+#ifndef OZUS_CALLOC
+#define OZUS_CALLOC(u, nmemb, size, ty) (ty)calloc((nmemb), (size))
+#endif
+#ifndef OZUS_FREE
+#define OZUS_FREE(u, ptr) free(ptr)
+#endif
+
 #define OZUS_ERRCODE_OK             0
 #define OZUS_ERRCODE_GENERIC_ERROR  1
 #define OZUS_ERRCODE_BAD_CDATA      2
@@ -13,7 +29,7 @@
 #define OZUS_ERRCODE_WRITE_FAILED   7
 #define OZUS_ERRCODE_INSUFFICIENT_CDATA 8
 
-typedef u16 OZUS_CODE;
+typedef OZUS_UINT16 OZUS_CODE;
 
 // For entries <=256, .parent is always set to OZUS_INVALID_CODE.
 // For entries >256, .parent==OZUS_INVALID_CODE means code is unused
@@ -21,8 +37,8 @@ typedef u16 OZUS_CODE;
 
 struct ozus_tableentry {
 	OZUS_CODE parent; // pointer to previous table entry (if not a root code)
-	u8 value;
-	u8 flags;
+	OZUS_UINT8 value;
+	OZUS_UINT8 flags;
 };
 
 struct ozus_ctx_type;
@@ -30,12 +46,13 @@ typedef struct ozus_ctx_type ozus_ctx;
 
 struct ozus_ctx_type {
 	// Fields the user can or must set:
+	void *userdata;
 	deark *c;
 	dbuf *inf;
-	i64 inf_pos;
-	i64 inf_endpos;
+	OZUS_OFF_T inf_pos;
+	OZUS_OFF_T inf_endpos;
 	dbuf *outf;
-	i64 outf_nbytes_expected;
+	OZUS_OFF_T outf_nbytes_expected;
 
 	// Fields the user can read:
 	int error_code;
@@ -45,7 +62,7 @@ struct ozus_ctx_type {
 	OZUS_CODE oldcode;
 	OZUS_CODE last_code_added;
 	OZUS_CODE free_code_search_start;
-	u8 last_value;
+	OZUS_UINT8 last_value;
 
 	unsigned int bitreader_buf;
 	unsigned int bitreader_nbits_in_buf;
@@ -57,21 +74,23 @@ struct ozus_ctx_type {
 	dbuf *tmpbuf;
 };
 
-static ozus_ctx *ozus_create(deark *c)
+static ozus_ctx *ozus_create(deark *c, void *userdata)
 {
 	ozus_ctx *ozus;
 	OZUS_CODE i;
 
-	ozus = de_malloc(c, sizeof(ozus_ctx));
+	ozus = OZUS_CALLOC(userdata, 1, sizeof(ozus_ctx), ozus_ctx*);
+	ozus->userdata = userdata;
 	ozus->c = c;
 	ozus->initial_code_size = 9;
 	ozus->max_code_size = 13;
 
 	ozus->ct_arraysize = ((size_t)1)<<ozus->max_code_size;
-	ozus->ct = de_mallocarray(c, ozus->ct_arraysize, sizeof(struct ozus_tableentry));
+	ozus->ct = OZUS_CALLOC(ozus->userdata, ozus->ct_arraysize, sizeof(struct ozus_tableentry),
+		struct ozus_tableentry*);
 	for(i=0; i<256; i++) {
 		ozus->ct[i].parent = OZUS_INVALID_CODE;
-		ozus->ct[i].value = (u8)i;
+		ozus->ct[i].value = (OZUS_UINT8)i;
 	}
 	for(i=256; i<ozus->ct_arraysize; i++) {
 		ozus->ct[i].parent = OZUS_INVALID_CODE;
@@ -86,11 +105,11 @@ static void ozus_destroy(ozus_ctx *ozus)
 {
 	if(!ozus) return;
 	dbuf_close(ozus->tmpbuf);
-	de_free(ozus->c, ozus->ct);
-	de_free(ozus->c, ozus);
+	OZUS_FREE(ozus->userdata, ozus->ct);
+	OZUS_FREE(ozus->userdata, ozus);
 }
 
-static u8 ozus_nextbyte(ozus_ctx *ozus)
+static OZUS_UINT8 ozus_nextbyte(ozus_ctx *ozus)
 {
 	if(ozus->inf_pos>=ozus->inf_endpos) {
 		ozus->error_code = OZUS_ERRCODE_INSUFFICIENT_CDATA;
@@ -106,7 +125,7 @@ static OZUS_CODE ozus_bitreader_getbits(ozus_ctx *ozus, unsigned int nbits)
 	if(nbits<1 || nbits>ozus->max_code_size) return 0;
 
 	while(ozus->bitreader_nbits_in_buf < nbits) {
-		u8 b;
+		OZUS_UINT8 b;
 
 		b = ozus_nextbyte(ozus);
 		if(ozus->error_code) return 0;
@@ -180,7 +199,7 @@ static void ozus_find_first_free_entry(ozus_ctx *ozus, OZUS_CODE *pentry)
 
 // Add a code to the dictionary.
 // Sets ozus->last_code_added to the position where it was added.
-static void ozus_add_to_dict(ozus_ctx *ozus, OZUS_CODE parent, u8 value)
+static void ozus_add_to_dict(ozus_ctx *ozus, OZUS_CODE parent, OZUS_UINT8 value)
 {
 	OZUS_CODE newpos;
 
@@ -206,7 +225,7 @@ static void ozus_process_data_code(ozus_ctx *ozus, OZUS_CODE code)
 		ozus_emit_code(ozus, code);
 		ozus->oldcode = code;
 		ozus->have_oldcode = 1;
-		ozus->last_value = (u8)ozus->oldcode;
+		ozus->last_value = (OZUS_UINT8)ozus->oldcode;
 		return;
 	}
 
