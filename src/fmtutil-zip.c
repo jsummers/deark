@@ -97,7 +97,7 @@ void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri
 	zu.inf_curpos = dcmpri->pos;
 	zu.outf = dcmpro->f;
 
-	ozus = ozus_create(c, (void*)&zu);
+	ozus = ozus_create((void*)&zu);
 	if(!ozus) {
 		de_dfilter_set_generic_error(c, dres, modname);
 		goto done;

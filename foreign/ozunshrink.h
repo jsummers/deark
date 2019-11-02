@@ -5,6 +5,8 @@
 //
 // ZIP "shrink" decompression
 
+#define OZUS_VERSION 20190000
+
 #ifndef OZUS_UINT8
 #define OZUS_UINT8   unsigned char
 #endif
@@ -50,7 +52,6 @@ typedef size_t (*ozus_cb_write_type)(ozus_ctx *ozus, const OZUS_UINT8 *buf, size
 struct ozus_ctx_type {
 	// Fields the user can or must set:
 	void *userdata;
-	deark *c;
 	OZUS_OFF_T cmpr_size; // compressed size
 	OZUS_OFF_T uncmpr_size; // reported uncompressed size
 	ozus_cb_read_type cb_read;
@@ -75,7 +76,11 @@ struct ozus_ctx_type {
 	unsigned int max_code_size;
 	OZUS_CODE ct_arraysize;
 	struct ozus_tableentry *ct;
-	dbuf *tmpbuf;
+
+// Need room for the max possible chain length, which I calculate to be
+// 8192 - 257 + 1 = 7936.
+#define OZUS_VALBUFSIZE 7936
+	OZUS_UINT8 *valbuf;
 };
 
 static void ozus_set_error(ozus_ctx *ozus, int error_code)
@@ -96,7 +101,8 @@ static void ozus_init(ozus_ctx *ozus)
 	ozus->ct_arraysize = ((size_t)1)<<ozus->max_code_size;
 	ozus->ct = OZUS_CALLOC(ozus->userdata, ozus->ct_arraysize, sizeof(struct ozus_tableentry),
 		struct ozus_tableentry*);
-	if(!ozus->ct) {
+	ozus->valbuf = OZUS_CALLOC(ozus->userdata, OZUS_VALBUFSIZE, 1, OZUS_UINT8*);
+	if(!ozus->ct || !ozus->valbuf) {
 		ozus_set_error(ozus, OZUS_ERRCODE_MALLOC_FAILED);
 		return;
 	}
@@ -110,28 +116,27 @@ static void ozus_init(ozus_ctx *ozus)
 	}
 
 	ozus->free_code_search_start = 257;
-	ozus->tmpbuf = dbuf_create_membuf(ozus->c, 0, 0);
 }
 
-static ozus_ctx *ozus_create(deark *c, void *userdata)
+static ozus_ctx *ozus_create(void *userdata)
 {
 	ozus_ctx *ozus;
 
 	ozus = OZUS_CALLOC(userdata, 1, sizeof(ozus_ctx), ozus_ctx*);
 	if(!ozus) return NULL;
 	ozus->userdata = userdata;
-	ozus->c = c;
 	return ozus;
 }
 
 static void ozus_destroy(ozus_ctx *ozus)
 {
 	if(!ozus) return;
-	dbuf_close(ozus->tmpbuf);
 	OZUS_FREE(ozus->userdata, ozus->ct);
+	OZUS_FREE(ozus->userdata, ozus->valbuf);
 	OZUS_FREE(ozus->userdata, ozus);
 }
 
+// TODO: Buffering
 static OZUS_UINT8 ozus_nextbyte(ozus_ctx *ozus)
 {
 	size_t ret;
@@ -172,18 +177,22 @@ static OZUS_CODE ozus_bitreader_getbits(ozus_ctx *ozus, unsigned int nbits)
 	return (OZUS_CODE)n;
 }
 
-static void ozus_writebyte(ozus_ctx *ozus, OZUS_UINT8 b)
+// TODO: Buffering
+static void ozus_write(ozus_ctx *ozus, const OZUS_UINT8 *buf, size_t n)
 {
 	size_t ret;
 
 	if(ozus->error_code) return;
-	if(ozus->uncmpr_nbytes_written >= ozus->uncmpr_size) return;
-	ret = ozus->cb_write(ozus, &b, 1);
-	if(ret != 1) {
+	if(ozus->uncmpr_nbytes_written + (OZUS_OFF_T)n > ozus->uncmpr_size) {
+		n = ozus->uncmpr_size - ozus->uncmpr_nbytes_written;
+	}
+	if(n==0) return;
+	ret = ozus->cb_write(ozus, buf, n);
+	if(ret != n) {
 		ozus_set_error(ozus, OZUS_ERRCODE_WRITE_FAILED);
 		return;
 	}
-	ozus->uncmpr_nbytes_written++;
+	ozus->uncmpr_nbytes_written += n;
 }
 
 // Decode an LZW code to one or more values, and write the values.
@@ -191,12 +200,7 @@ static void ozus_writebyte(ozus_ctx *ozus, OZUS_UINT8 b)
 static void ozus_emit_code(ozus_ctx *ozus, OZUS_CODE code1)
 {
 	OZUS_CODE code = code1;
-	OZUS_CODE count = 0;
-	i64 k;
-
-	// Use a temp buffer, because we have to reverse the order of the bytes
-	// before writing them.
-	dbuf_truncate(ozus->tmpbuf, 0);
+	size_t valbuf_pos = OZUS_VALBUFSIZE; // = First entry that's used
 
 	while(1) {
 		if(code >= ozus->ct_arraysize) {
@@ -204,15 +208,16 @@ static void ozus_emit_code(ozus_ctx *ozus, OZUS_CODE code1)
 			return;
 		}
 
-		dbuf_writebyte(ozus->tmpbuf, ozus->ct[code].value);
-
-		count++;
-		if(count >= ozus->ct_arraysize) {
-			// Max possible chain length is less than this.
+		if(valbuf_pos==0) {
 			// We must be in an infinite loop (probably an internal error).
 			ozus_set_error(ozus, OZUS_ERRCODE_GENERIC_ERROR);
 			return;
 		}
+
+		// valbuf is a stack, essentially. We fill it in the reverse direction,
+		// to make it simpler to write the final byte sequence.
+		valbuf_pos--;
+		ozus->valbuf[valbuf_pos] = ozus->ct[code].value;
 
 		if(code < 257) {
 			ozus->last_value = ozus->ct[code].value;
@@ -223,10 +228,8 @@ static void ozus_emit_code(ozus_ctx *ozus, OZUS_CODE code1)
 		code = ozus->ct[code].parent;
 	}
 
-	// Write out the collected values, in reverse order.
-	for(k=ozus->tmpbuf->len-1; k>=0; k--) {
-		ozus_writebyte(ozus, dbuf_getbyte(ozus->tmpbuf, k));
-	}
+	// Write out the collected values.
+	ozus_write(ozus, &ozus->valbuf[valbuf_pos], OZUS_VALBUFSIZE - valbuf_pos);
 }
 
 static void ozus_find_first_free_entry(ozus_ctx *ozus, OZUS_CODE *pentry)
