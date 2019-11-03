@@ -25,24 +25,11 @@ struct fpxr_data_struct {
 	struct fpxr_entity_struct *entities;
 };
 
-// Data associated with the whole file or module instance.
-// Note: This is separate from streamctx_struct because this module used to be
-// able to process multiple independent JPEG streams in a single file. It no
-// longer does that, so the structs could be merged.
-struct file_ctx {
-	int image_count; // Not really used anymore
-	u8 look_for_multiple_streams;
-	u8 has_mpf_seg;
-};
-
-// Data associated with a JPEG stream (SOI through EOI).
-// It is possible for there to be multiple streams in a file.
-typedef struct streamctx_struct {
-	struct file_ctx *fctx;
+typedef struct localctx_struct {
 	u8 is_jpegls;
 
 	u8 has_jfif_seg, has_jfif_thumb, has_jfxx_seg;
-	u8 has_exif_seg, has_exif_gps, has_spiff_seg, has_mpf_seg;
+	u8 has_exif_seg, has_exif_gps, has_spiff_seg, has_mpf_seg, has_afcp;
 	u8 has_psd, has_iptc, has_xmp, has_xmp_ext, has_iccprofile, has_flashpix;
 	u8 is_baseline, is_progressive, is_lossless, is_arithmetic, is_hierarchical;
 	u8 is_jpeghdr, is_jpegxt, is_mpo, is_jps;
@@ -612,7 +599,9 @@ static void finalize_fpxr_stream(deark *c, lctx *d, struct fpxr_entity_struct *f
 	fi = de_finfo_create(c);
 
 	name2 = ucstring_create(c);
-	ucstring_append_ucstring(name2, fe->name_srd->str);
+	if(fe->name_srd) {
+		ucstring_append_ucstring(name2, fe->name_srd->str);
+	}
 	if(name2->len>0) {
 		ucstring_append_char(name2, '.');
 	}
@@ -894,6 +883,8 @@ static void normalize_app_id(const char *app_id_orig, char *app_id_normalized,
 #define APPSEGTYPE_HDR_RI_EXT     25
 #define APPSEGTYPE_META           26
 #define APPSEGTYPE_AROT           27
+#define APPSEGTYPE_MSRGBA         100
+#define APPSEGTYPE_RBSWAP         101
 
 struct app_id_info_struct {
 	int app_id_found;
@@ -953,7 +944,6 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 	de_zeromem(&ad, sizeof(struct app_id_decode_struct));
 
 	// defaults:
-	payload_size = seg_data_size;
 	app_id_info->app_id_found = 0;
 	app_id_info->appsegtype = APPSEGTYPE_UNKNOWN;
 	app_id_info->app_type_name = "?";
@@ -1095,6 +1085,14 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 		// Guessing that there's a "padding byte" that's part of the signature.
 		sig_size = 6;
 	}
+	else if(seg_type==0xe1 && !de_strcmp(ad.app_id_orig, "Deark_MSRGBA")) {
+		app_id_info->appsegtype = APPSEGTYPE_MSRGBA;
+		app_id_info->app_type_name = "RGBA JPEG headers from Thumbs.db";
+	}
+	else if(seg_type==0xe1 && !de_strcmp(ad.app_id_orig, "Deark_RB_swap")) {
+		app_id_info->appsegtype = APPSEGTYPE_RBSWAP;
+		app_id_info->app_type_name = "Flag for swapped red/blue";
+	}
 
 done:
 	app_id_info->payload_pos = seg_data_pos + sig_size;
@@ -1126,11 +1124,6 @@ static void handler_app(deark *c, lctx *d,
 	if(payload_size<0) goto done;
 
 	switch(appsegtype) {
-	case APPSEGTYPE_UNKNOWN:
-		if(c->debug_level>=2) {
-			de_dbg_hexdump(c, c->infile, seg_data_pos, seg_data_size, 256, "segment data", 0x1);
-		}
-		break;
 	case APPSEGTYPE_JFIF:
 		do_jfif_segment(c, d, payload_pos, payload_size);
 		break;
@@ -1191,6 +1184,11 @@ static void handler_app(deark *c, lctx *d,
 		break;
 	case APPSEGTYPE_AROT:
 		do_arot_segment(c, d, payload_pos, payload_size);
+		break;
+	default:
+		if(c->debug_level>=2) {
+			de_dbg_hexdump(c, c->infile, seg_data_pos, seg_data_size, 256, "segment data", 0x1);
+		}
 		break;
 	}
 
@@ -1471,7 +1469,7 @@ done:
 }
 
 static void handle_comment(deark *c, lctx *d, i64 pos, i64 comment_size,
-   int encoding)
+   de_encoding encoding)
 {
 	de_ucstring *s = NULL;
 	int write_to_file;
@@ -1593,7 +1591,7 @@ static int get_marker_info(deark *c, lctx *d, u8 seg_type,
 	mi->seg_type = seg_type;
 
 	// First, try to find the segment type in the static marker info.
-	for(k=0; k<(i64)DE_ITEMS_IN_ARRAY(marker_info1_arr); k++) {
+	for(k=0; k<(i64)DE_ARRAYCOUNT(marker_info1_arr); k++) {
 		const struct marker_info1 *mi1 = &marker_info1_arr[k];
 
 		if(!d->is_jpegls && !(mi1->flags&FLAG_JPEG_COMPAT)) continue;
@@ -1788,6 +1786,7 @@ static void print_summary(deark *c, lctx *d)
 	if(d->has_psd) ucstring_append_sz(summary, " PSD", DE_ENCODING_LATIN1);
 	if(d->has_iptc) ucstring_append_sz(summary, " IPTC", DE_ENCODING_LATIN1);
 	if(d->has_exif_gps) ucstring_append_sz(summary, " GPS", DE_ENCODING_LATIN1);
+	if(d->has_afcp) ucstring_append_sz(summary, " AFCP", DE_ENCODING_LATIN1);
 
 	if(d->scan_count!=1) ucstring_printf(summary, DE_ENCODING_LATIN1, " scans=%d", d->scan_count);
 
@@ -1824,10 +1823,38 @@ static void do_post_sof_stuff(deark *c, lctx *d)
 	}
 }
 
+// Tasks to do at the end of normal JPEG data (after we've found the EOI marker,
+// or an unexpected end of file).
+// This does not handle data that might exist after the EOI; that might still
+// be read later.
+static void do_at_end_of_jpeg(deark *c, lctx *d)
+{
+	dbuf_close(d->iccprofile_file);
+	d->iccprofile_file = NULL;
+	dbuf_close(d->hdr_residual_file);
+	d->hdr_residual_file = NULL;
+	destroy_fpxr_data(c, d);
+
+	if(d->extxmp_membuf && !d->extxmp_error_flag) {
+		dbuf *tmpdbuf = NULL;
+		tmpdbuf = dbuf_create_output_file(c, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
+		dbuf_copy(d->extxmp_membuf, 0, d->extxmp_total_len, tmpdbuf);
+		dbuf_close(tmpdbuf);
+	}
+	dbuf_close(d->extxmp_membuf);
+	d->extxmp_membuf = NULL;
+}
+
+static void do_destroy_lctx(deark *c, lctx *d)
+{
+	if(!d) return;
+	ucstring_destroy(d->sampling_code);
+	de_free(c, d);
+}
+
 // Process a single JPEG image (through the EOI marker).
-// Returns nonzero if we could continue, and look for more images after the EOI.
-// May set fctx->has_mpf_seg.
-static int do_jpeg_page(deark *c, struct file_ctx *fctx, i64 pos1, i64 *bytes_consumed)
+// Returns nonzero if EOI was found.
+static int do_jpeg_stream(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 {
 	u8 b;
 	i64 pos = pos1;
@@ -1838,10 +1865,7 @@ static int do_jpeg_page(deark *c, struct file_ctx *fctx, i64 pos1, i64 *bytes_co
 	i64 scan_byte_count;
 	int sof_count = 0;
 	int retval = 0;
-	lctx *d = NULL;
 
-	d = de_malloc(c, sizeof(lctx));
-	d->fctx = fctx; // This might currently be unused
 	d->sampling_code = ucstring_create(c);
 
 	found_marker = 0;
@@ -1867,15 +1891,6 @@ static int do_jpeg_page(deark *c, struct file_ctx *fctx, i64 pos1, i64 *bytes_co
 
 		seg_type = b;
 
-		if(!d->found_soi && seg_type!=0xd8 && fctx->image_count>0) {
-			// If this is not the first JPEG sequence in the file, require the
-			// first marker to be SOI. The goal is to handle all of the following:
-			// * Files containing multiple SOI->EOI sequences
-			// * Files without SOI/EOI markers
-			// * Files that have garbage after the EOI
-			goto done;
-		}
-
 		if(seg_type==0xf7 && !d->found_sof) {
 			d->is_jpegls = 1;
 		}
@@ -1890,15 +1905,13 @@ static int do_jpeg_page(deark *c, struct file_ctx *fctx, i64 pos1, i64 *bytes_co
 			de_dbg(c, "marker 0x%02x (%s) at %d", (unsigned int)seg_type,
 				mi.longname, (int)(pos-2));
 
-			if(seg_type==0xd9) { // EOI / EOC
+			if(seg_type==0xd9) { // EOI
 				retval = 1;
 				goto done;
 			}
 
 			if(seg_type==0xd8 && !d->found_soi) {
 				d->found_soi = 1;
-				// Count the number of SOI segments
-				fctx->image_count++;
 			}
 
 			continue;
@@ -1930,61 +1943,64 @@ static int do_jpeg_page(deark *c, struct file_ctx *fctx, i64 pos1, i64 *bytes_co
 	}
 
 done:
-	if(d) {
-		fctx->has_mpf_seg = d->has_mpf_seg;
-		dbuf_close(d->iccprofile_file);
-		dbuf_close(d->hdr_residual_file);
-		destroy_fpxr_data(c, d);
-
-		if(d->extxmp_membuf && !d->extxmp_error_flag) {
-			dbuf *tmpdbuf = NULL;
-			tmpdbuf = dbuf_create_output_file(c, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
-			dbuf_copy(d->extxmp_membuf, 0, d->extxmp_total_len, tmpdbuf);
-			dbuf_close(tmpdbuf);
-		}
-		dbuf_close(d->extxmp_membuf);
-
-		if(retval) {
-			print_summary(c, d);
-		}
-
-		ucstring_destroy(d->sampling_code);
-		de_free(c, d);
-	}
-
+	do_at_end_of_jpeg(c, d);
 	*bytes_consumed = pos - pos1;
 	return retval;
 }
 
-static void do_jpeg_internal(deark *c, struct file_ctx *fctx)
+static void do_afcp_segment(deark *c, lctx *d, i64 endpos)
+{
+	d->has_afcp = 1;
+	de_dbg(c, "AFCP segment found at end of file");
+
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice(c, "afcp", NULL, c->infile, 0, endpos);
+	de_dbg_indent(c, -1);
+}
+
+static void de_run_jpeg(deark *c, de_module_params *mparams)
 {
 	i64 pos;
 	i64 bytes_consumed;
-	int ret;
+	int retval_stream = 0;
 	i64 foundpos;
 	i64 extra_bytes_at_eof;
 	i64 nbytes_to_scan;
+	lctx *d = NULL;
 
+	d = de_malloc(c, sizeof(lctx));
 	pos = 0;
 	bytes_consumed = 0;
-	ret = do_jpeg_page(c, fctx, pos, &bytes_consumed);
-	if(!ret) goto done;
+	retval_stream = do_jpeg_stream(c, d, pos, &bytes_consumed);
+	if(!retval_stream) goto done;
 	pos += bytes_consumed;
+
 	if(bytes_consumed<1) goto done;
 	if(pos >= c->infile->len) goto done;
-	if(!fctx->look_for_multiple_streams) goto done;
-	if(fctx->has_mpf_seg) {
-		// In this case, it is normal for there to be multiple JPEG streams,
-		// and we should have already extracted the extras.
-		goto done;
-	}
 
 	if(c->module_nesting_level>1) goto done;
 	extra_bytes_at_eof = c->infile->len - pos;
 	if(extra_bytes_at_eof<4) goto done;
 
-	nbytes_to_scan = extra_bytes_at_eof;
-	if(nbytes_to_scan>512) nbytes_to_scan=512;
+	if(extra_bytes_at_eof>=24) {
+		u8 tbuf[12];
+
+		de_read(tbuf, c->infile->len-12, sizeof(tbuf));
+		if(tbuf[0]=='A' && tbuf[1]=='X' && tbuf[2]=='S' &&
+			(tbuf[3]=='!' || tbuf[3]=='*'))
+		{
+			do_afcp_segment(c, d, c->infile->len);
+			goto done;
+		}
+	}
+
+	if(d->has_mpf_seg) {
+		// In this case, it is normal for there to be multiple JPEG streams,
+		// and we should have already extracted the extras.
+		goto done;
+	}
+
+	nbytes_to_scan = de_min_int(extra_bytes_at_eof, 512);
 	if(dbuf_search(c->infile, (const u8*)"\xff\xd8\xff", 3, pos,
 		nbytes_to_scan, &foundpos))
 	{
@@ -1999,24 +2015,12 @@ static void do_jpeg_internal(deark *c, struct file_ctx *fctx)
 		"of file (starting at %"I64_FMT").", extra_bytes_at_eof, pos);
 
 done:
-	;
-}
-
-static void de_run_jpeg(deark *c, de_module_params *mparams)
-{
-	struct file_ctx *fctx = NULL;
-
-	fctx = de_malloc(c, sizeof(struct file_ctx));
-
-	fctx->look_for_multiple_streams = 1;
-
-	// This option used to do more than it does now.
-	if(de_get_ext_option(c, "jpeg:stopateoi")) {
-		fctx->look_for_multiple_streams = 0;
+	if(d) {
+		if(retval_stream) {
+			print_summary(c, d);
+		}
+		do_destroy_lctx(c, d);
 	}
-
-	do_jpeg_internal(c, fctx);
-	de_free(c, fctx);
 }
 
 typedef struct scanctx_struct {

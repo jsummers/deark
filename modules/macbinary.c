@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_macbinary);
 
 typedef struct localctx_struct {
@@ -16,10 +17,22 @@ typedef struct localctx_struct {
 	int is_v23;
 	i64 dfpos, rfpos;
 	i64 dflen, rflen;
-	de_ucstring *filename;
+	struct de_stringreaderdata *filename_srd;
 	struct de_timestamp create_time;
 	struct de_timestamp mod_time;
 } lctx;
+
+struct fork_info {
+	u8 is_rsrc;
+	u8 extract_error_flag;
+	i64 pos;
+};
+
+struct extract_ctx {
+	lctx *d;
+	struct fork_info fki_data;
+	struct fork_info fki_rsrc;
+};
 
 static const char *fork_name(int is_rsrc, int capitalize)
 {
@@ -29,10 +42,9 @@ static const char *fork_name(int is_rsrc, int capitalize)
 	return capitalize?"Data":"data";
 }
 
-static void do_header(deark *c, lctx *d)
+static void do_header(deark *c, lctx *d, struct de_advfile *advf)
 {
 	u8 b;
-	u8 fflags;
 	i64 namelen;
 	i64 pos = 0;
 	i64 n, n2;
@@ -63,11 +75,10 @@ static void do_header(deark *c, lctx *d)
 	if(namelen>=1 && namelen<=63) {
 		// Required to be 1-63 by MacBinary II spec.
 		// Original spec has no written requirements.
-		d->filename = ucstring_create(c);
 		// Not supposed to be NUL terminated, but such files exist.
-		dbuf_read_to_ucstring(c->infile, pos, namelen, d->filename,
+		d->filename_srd = dbuf_read_string(c->infile, pos, namelen, namelen,
 			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_MACROMAN);
-		de_dbg(c, "filename: \"%s\"", ucstring_getpsz(d->filename));
+		de_dbg(c, "filename: \"%s\"", ucstring_getpsz(d->filename_srd->str));
 	}
 	else {
 		de_warn(c, "Bad MacBinary filename length (%d)", (int)namelen);
@@ -79,15 +90,28 @@ static void do_header(deark *c, lctx *d)
 
 	dbuf_read_fourcc(c->infile, pos, &type4cc, 4, 0x0);
 	de_dbg(c, "type: '%s'", type4cc.id_dbgstr);
+	de_memcpy(advf->typecode, type4cc.bytes, 4);
+	advf->has_typecode = 1;
 	pos += 4;
 	dbuf_read_fourcc(c->infile, pos, &creator4cc, 4, 0x0);
 	de_dbg(c, "creator: '%s'", creator4cc.id_dbgstr);
+	de_memcpy(advf->creatorcode, creator4cc.bytes, 4);
+	advf->has_creatorcode = 1;
 	pos += 4;
 
-	fflags = de_getbyte_p(&pos);
-	de_dbg(c, "finder flags: 0x%02x", (unsigned int)fflags);
+	advf->has_finderflags = 1;
+	if(d->is_v23) {
+		u8 fflags_hibyte;
 
-	pos++;
+		fflags_hibyte = de_getbyte_p(&pos);
+		de_dbg(c, "finder flags (high byte): 0x%02x__", (unsigned int)fflags_hibyte);
+		pos++;
+		advf->finderflags = (u16)fflags_hibyte << 8;
+	}
+	else {
+		advf->finderflags = (u16)de_getu16be_p(&pos);
+		de_dbg(c, "finder flags: 0x%04x", (unsigned int)advf->finderflags);
+	}
 
 	n = de_geti16be_p(&pos);
 	n2 = de_geti16be_p(&pos);
@@ -134,8 +158,11 @@ static void do_header(deark *c, lctx *d)
 	pos += 2; // length of Get Info comment
 
 	if(d->is_v23) {
-		b = de_getbyte(pos);
-		de_dbg(c, "finder flags, bits 0-7: 0x%02x", (unsigned int)b);
+		u8 fflags_lobyte;
+
+		fflags_lobyte = de_getbyte(pos);
+		de_dbg(c, "finder flags (low byte): 0x__%02x", (unsigned int)fflags_lobyte);
+		advf->finderflags |= (u16)fflags_lobyte;
 	}
 	pos += 1;
 
@@ -173,68 +200,101 @@ done:
 	;
 }
 
-static void do_extract_one_file(deark *c, lctx *d, i64 pos, i64 len,
-	int is_rsrc)
+// If a fork is going to be extracted, call this to set up some things.
+// Caller must first set advfki->fork_len, among other things.
+// Sets fki->extract_error_flag if there was a problem that would prevent the
+// fork from being extracted.
+static void do_prepare_one_fork(deark *c, lctx *d, struct de_advfile_forkinfo *advfki,
+	struct fork_info *fki)
 {
-	de_finfo *fi = NULL;
-	const char *ext = NULL;
+	de_dbg(c, "%s fork at %"I64_FMT", len=%"I64_FMT, fork_name(fki->is_rsrc, 0),
+		fki->pos, advfki->fork_len);
 
-	de_dbg(c, "%s fork at %"I64_FMT", len=%"I64_FMT, fork_name(is_rsrc, 0),
-		pos, len);
-
-	if(pos+len>c->infile->len) {
+	if(fki->pos+advfki->fork_len>c->infile->len) {
 		de_err(c, "%s fork at %"I64_FMT" goes beyond end of file.",
-			fork_name(is_rsrc, 1), pos);
-		if(pos+len>c->infile->len+1024) {
+			fork_name(fki->is_rsrc, 1), fki->pos);
+		if(fki->pos+advfki->fork_len > c->infile->len+1024) {
+			fki->extract_error_flag = 1;
 			goto done;
 		}
 	}
-	fi = de_finfo_create(c);
-
-	if(d->mod_time.is_valid) {
-		fi->mod_time = d->mod_time; // struct copy
-	}
-
-	if(is_rsrc) {
-		de_finfo_set_name_from_ucstring(c, fi, d->filename, 0);
-		ext = "rsrc";
-	}
-	else {
-		if(d->filename) {
-			de_finfo_set_name_from_ucstring(c, fi, d->filename, 0);
-			fi->original_filename_flag = 1;
-		}
-		else {
-			ext = "data";
-		}
-	}
-
-	dbuf_create_file_from_slice(c->infile, pos, len, ext, fi, 0x0);
 
 done:
-	de_finfo_destroy(c, fi);
+	;
+}
+
+static int my_advfile_cbfn(deark *c, struct de_advfile *advf,
+	struct de_advfile_cbparams *afp)
+{
+	struct extract_ctx *ectx = (struct extract_ctx*)advf->userdata;
+
+	if(afp->whattodo == DE_ADVFILE_WRITEMAIN) {
+		dbuf_copy(c->infile, ectx->fki_data.pos, advf->mainfork.fork_len, afp->outf);
+	}
+	else if(afp->whattodo == DE_ADVFILE_WRITERSRC) {
+		dbuf_copy(c->infile, ectx->fki_rsrc.pos, advf->rsrcfork.fork_len, afp->outf);
+	}
+	return 1;
 }
 
 static void run_macbinary_internal(deark *c, lctx *d)
 {
 	i64 pos = 128;
+	struct de_advfile *advf = NULL;
+	struct extract_ctx *ectx = NULL;
 
-	do_header(c, d);
+	ectx = de_malloc(c, sizeof(struct extract_ctx));
+	advf = de_advfile_create(c);
+
+	do_header(c, d, advf);
+	if(d->filename_srd && ucstring_isnonempty(d->filename_srd->str)) {
+		ucstring_append_ucstring(advf->filename, d->filename_srd->str);
+		advf->original_filename_flag = 1;
+	}
+	if(d->filename_srd) {
+		de_advfile_set_orig_filename(advf, d->filename_srd->sz,
+			d->filename_srd->sz_strlen);
+	}
+	advf->mainfork.fi->mod_time = d->mod_time;
 
 	if(d->dflen>0) {
 		d->dfpos = pos;
+		ectx->fki_data.pos = d->dfpos;
+		advf->mainfork.fork_len = d->dflen;
+
 		if(d->extract_files) {
-			do_extract_one_file(c, d, d->dfpos, d->dflen, 0);
+			do_prepare_one_fork(c, d, &advf->mainfork, &ectx->fki_data);
+			if(!ectx->fki_data.extract_error_flag) {
+				advf->mainfork.fork_exists = 1;
+			}
 		}
+
 		pos += de_pad_to_n(d->dflen, 128);
 	}
 
 	if(d->rflen>0) {
 		d->rfpos = pos;
+
+		ectx->fki_rsrc.is_rsrc = 1;
+		ectx->fki_rsrc.pos = d->rfpos;
+		advf->rsrcfork.fork_len = d->rflen;
+
 		if(d->extract_files) {
-			do_extract_one_file(c, d, pos, d->rflen, 1);
+			do_prepare_one_fork(c, d, &advf->rsrcfork, &ectx->fki_rsrc);
+			if(!ectx->fki_rsrc.extract_error_flag) {
+				advf->rsrcfork.fork_exists = 1;
+			}
 		}
 	}
+
+	if(d->extract_files) {
+		advf->userdata = (void*)ectx;
+		advf->writefork_cbfn = my_advfile_cbfn;
+		de_advfile_run(advf);
+	}
+
+	de_advfile_destroy(advf);
+	de_free(c, ectx);
 }
 
 static void de_run_macbinary(deark *c, de_module_params *mparams)
@@ -259,14 +319,14 @@ static void de_run_macbinary(deark *c, de_module_params *mparams)
 			mparams->out_params.fi->mod_time = d->mod_time;
 
 			// If caller created .fi->name_other, copy the filename to it.
-			if(d->filename && d->filename->len>0 && mparams->out_params.fi->name_other) {
-				ucstring_append_ucstring(mparams->out_params.fi->name_other, d->filename);
+			if(d->filename_srd && d->filename_srd->str->len>0 && mparams->out_params.fi->name_other) {
+				ucstring_append_ucstring(mparams->out_params.fi->name_other, d->filename_srd->str);
 			}
 		}
 	}
 
 	if(d) {
-		ucstring_destroy(d->filename);
+		de_destroy_stringreaderdata(c, d->filename_srd);
 		de_free(c, d);
 	}
 }
@@ -414,7 +474,7 @@ static int de_identify_macbinary(deark *c)
 
 done:
 	if(conf>0) {
-		c->detection_data.is_macbinary = 1;
+		c->detection_data->is_macbinary = 1;
 	}
 	return conf;
 }

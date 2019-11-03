@@ -9,8 +9,8 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_emf);
 
-#define CODE_EMFPLUS 0x454d462bU
-#define CODE_GDIC 0x47444943U
+#define CODE_EMFPLUS   0x2b464d45U
+#define CODE_GDIC      0x43494447U
 
 typedef struct localctx_struct {
 	int input_encoding;
@@ -242,7 +242,6 @@ static void do_emfplus_object_image(deark *c, lctx *d, i64 pos1, i64 len)
 
 	ver = de_getu32le(pos);
 	datatype = de_getu32le(pos+4);
-	name = "?";
 
 	switch(datatype) { // ImageDataType
 	case 0: name="Unknown"; break;
@@ -413,7 +412,7 @@ static void do_one_emfplus_record(deark *c, lctx *d, i64 pos, i64 len,
 	payload_pos = pos+12;
 
 	// Find the name, etc. of this record type
-	for(k=0; k<DE_ITEMS_IN_ARRAY(emfplus_rec_info_arr); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(emfplus_rec_info_arr); k++) {
 		if(emfplus_rec_info_arr[k].rectype == rectype) {
 			epinfo = &emfplus_rec_info_arr[k];
 			break;
@@ -491,35 +490,80 @@ static void do_comment_public(deark *c, lctx *d, i64 pos1, i64 len)
 // Comment record
 static int emf_handler_46(deark *c, lctx *d, struct decoder_params *dp)
 {
-	struct de_fourcc id4cc;
 	const char *name;
 	i64 datasize;
+	int handled = 0;
+	enum cmtid_enum { CMTID_UNK, CMTID_EMFSPOOL, CMTID_EMFPLUS, CMTID_PUBLIC,
+		CMTID_INKSCAPESCREEN, CMTID_INKSCAPEDRAWING };
+	enum cmtid_enum cmtid;
 
-	//de_dbg(c, "comment at %d len=%d", (int)recpos, (int)recsize_bytes);
 	if(dp->recsize_bytes<16) goto done;
 
 	// Datasize is measured from the beginning of the next field (CommentIdentifier).
 	datasize = de_getu32le(dp->recpos+8);
+	de_dbg(c, "datasize: %"I64_FMT, datasize);
+	if(12+datasize > dp->recsize_bytes) goto done;
 
-	dbuf_read_fourcc(c->infile, dp->recpos+12, &id4cc, 4, 0x0);
+	cmtid = CMTID_UNK;
+	name="?";
 
-	switch(id4cc.id) {
-	case 0: name="EMR_COMMENT_EMFSPOOL"; break;
-	case CODE_EMFPLUS: name="EMR_COMMENT_EMFPLUS"; break;
-	case CODE_GDIC: name="EMR_COMMENT_PUBLIC"; break;
-	default: name="?";
+	if(datasize>=4) {
+		struct de_fourcc id4cc;
+
+		// The first 4 bytes of comment data might or might not be a signature.
+		// The spec expects these bytes to be read as a little-endian int, which is
+		// then interpreted as a FOURCC, most-significant byte first.
+		// The standard FOURCC codes are designed backwards, so that in the
+		// file they appear forward. E.g. the spec says a code is "+FME", but in
+		// the file the bytes "EMF+" appear in that order. Our messages respect the
+		// spec, though it looks strange.
+		dbuf_read_fourcc(c->infile, dp->recpos+12, &id4cc, 4, 0x1);
+
+		if(id4cc.id==0x00000000) {
+			cmtid = CMTID_EMFSPOOL;
+			name = "EMR_COMMENT_EMFSPOOL";
+		}
+		else if(id4cc.id==CODE_EMFPLUS) {
+			cmtid = CMTID_EMFPLUS;
+			name = "EMR_COMMENT_EMFPLUS";
+		}
+		else if(id4cc.id==CODE_GDIC) {
+			cmtid = CMTID_PUBLIC;
+			name = "EMR_COMMENT_PUBLIC";
+		}
+
+		de_dbg(c, "type: 0x%08x '%s' (%s)", (unsigned int)id4cc.id,
+			id4cc.id_dbgstr, name);
 	}
 
-	de_dbg(c, "type: 0x%08x '%s' (%s) datasize=%d", (unsigned int)id4cc.id, id4cc.id_dbgstr, name,
-		(int)datasize);
+	if(cmtid==CMTID_UNK) {
+		u8 buf[16];
 
-	if(datasize<=4 || 12+datasize > dp->recsize_bytes) goto done; // Bad datasize
+		// FOURCC not recognized; try other methods
+		de_read(buf, dp->recpos+12, 16);
+		if(datasize>=7 && !de_memcmp(buf, "Screen=", 7)) {
+			cmtid = CMTID_INKSCAPESCREEN;
+			name = "Inkscape canvas size";
+		}
+		else if(datasize>=8 && !de_memcmp(buf, "Drawing=", 8)) {
+			cmtid = CMTID_INKSCAPEDRAWING;
+			name = "Inkscape image size";
+		}
 
-	if(id4cc.id==CODE_EMFPLUS) {
+		de_dbg(c, "identified as: %s", name);
+	}
+
+	if(cmtid==CMTID_EMFPLUS) {
 		do_comment_emfplus(c, d, dp->recpos+16, datasize-4);
+		handled = 1;
 	}
-	else if(id4cc.id==CODE_GDIC) {
+	else if(cmtid==CMTID_PUBLIC) {
 		do_comment_public(c, d, dp->recpos+16, datasize-4);
+		handled = 1;
+	}
+
+	if(!handled) {
+		de_dbg_hexdump(c, c->infile, dp->recpos+12, datasize, 256, NULL, 0x1);
 	}
 
 done:
@@ -534,7 +578,7 @@ static void extract_dib(deark *c, lctx *d, i64 bmi_pos, i64 bmi_len,
 	i64 real_height;
 
 	if(bmi_len<12 || bmi_len>2048) goto done;
-	if(bits_len<1 || bmi_len+bits_len>DE_MAX_FILE_SIZE) goto done;
+	if(bits_len<1 || bmi_len+bits_len>DE_MAX_SANE_OBJECT_SIZE) goto done;
 
 	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, bmi_pos, bmi_len, 0)) {
 		de_warn(c, "Invalid bitmap");
@@ -765,7 +809,7 @@ static int emf_handler_50_51(deark *c, lctx *d, struct decoder_params *dp)
 }
 
 static void do_emf_xEmrText(deark *c, lctx *d, i64 recpos, i64 pos1, i64 len,
-	i64 bytesperchar, int encoding)
+	i64 bytesperchar, de_encoding encoding)
 {
 	i64 pos = pos1;
 	i64 nchars;
@@ -1009,7 +1053,7 @@ static const struct emf_func_info *find_emf_func_info(u32 rectype)
 {
 	size_t i;
 
-	for(i=0; i<DE_ITEMS_IN_ARRAY(emf_func_info_arr); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(emf_func_info_arr); i++) {
 		if(emf_func_info_arr[i].rectype == rectype) {
 			return &emf_func_info_arr[i];
 		}
@@ -1096,7 +1140,7 @@ static void detect_emfplus(deark *c, lctx *d)
 	i64 nextpos;
 	nextpos = de_getu32le(4);
 	if(de_getu32le(nextpos)==0x46 &&
-		de_getu32be(nextpos+12)==CODE_EMFPLUS)
+		de_getu32le(nextpos+12)==CODE_EMFPLUS)
 	{
 		d->is_emfplus = 1;
 	}
@@ -1108,10 +1152,7 @@ static void de_run_emf(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	if(c->input_encoding==DE_ENCODING_UNKNOWN)
-		d->input_encoding = DE_ENCODING_WINDOWS1252;
-	else
-		d->input_encoding = c->input_encoding;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 
 	detect_emfplus(c, d);
 

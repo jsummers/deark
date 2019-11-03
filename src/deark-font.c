@@ -31,35 +31,23 @@ void de_destroy_bitmap_font(deark *c, struct de_bitmap_font *font)
 	de_free(c, font);
 }
 
-// Paint a character at the given index in the given font, to the given bitmap.
-void de_font_paint_character_idx(deark *c, de_bitmap *img,
-	struct de_bitmap_font *font, i64 char_idx,
-	i64 xpos, i64 ypos, u32 fgcol, u32 bgcol,
-	unsigned int flags)
+static void paint_character_internal(deark *c, de_bitmap *img,
+	struct de_bitmap_font_char *ch,
+	i64 xpos, i64 ypos, u32 fgcol, unsigned int flags)
 {
 	i64 i, j;
-	i64 i_src; // -1 = No source position
-	i64 j_src;
-	u8 x;
-	int fg;
-	u32 clr;
-	struct de_bitmap_font_char *ch;
 	i64 num_x_pixels_to_paint;
 	int vga9col_flag = 0;
 
-	if(char_idx<0 || char_idx>=font->num_chars) return;
-	ch = &font->char_array[char_idx];
-	if(!is_valid_char(ch)) return;
-	if(ch->width > font->nominal_width) return;
-	if(ch->height > font->nominal_height) return;
-
-	num_x_pixels_to_paint = (i64)ch->extraspace_l + (i64)ch->width + (i64)ch->extraspace_r;
+	num_x_pixels_to_paint = (i64)ch->width;
 	if((flags&DE_PAINTFLAG_VGA9COL) && ch->width==8) {
 		vga9col_flag = 1;
 		num_x_pixels_to_paint = 9;
 	}
 
 	for(j=0; j<ch->height; j++) {
+		i64 j_src;
+
 		j_src = j;
 		if(flags&DE_PAINTFLAG_TOPHALF) {
 			j_src = j/2;
@@ -69,6 +57,10 @@ void de_font_paint_character_idx(deark *c, de_bitmap *img,
 		}
 
 		for(i=0; i<num_x_pixels_to_paint; i++) {
+			i64 i_src; // -1 = No source position
+			int is_fg = 0;
+			u8 x;
+
 			i_src = i;
 			if(flags&DE_PAINTFLAG_LEFTHALF) {
 				i_src = i/2;
@@ -87,22 +79,74 @@ void de_font_paint_character_idx(deark *c, de_bitmap *img,
 				}
 			}
 
-			i_src -= (i64)ch->extraspace_l;
-
 			if(i_src>=0 && i_src<ch->width) {
 				x = ch->bitmap[j_src*ch->rowspan + i_src/8];
-				fg = (x & (1<<(7-i_src%8))) ? 1 : 0;
-			}
-			else {
-				fg = 0;
+				if(x & (1<<(7-i_src%8))) {
+					is_fg = 1;
+				}
 			}
 
-			if(fg || !(flags&DE_PAINTFLAG_TRNSBKGD)) {
-				clr = fg ? fgcol : bgcol;
-				de_bitmap_setpixel_rgba(img, xpos+i, ypos+ch->v_offset+j, clr);
+			if(is_fg) {
+				u32 clr = fgcol;
+
+				de_bitmap_setpixel_rgba(img, xpos+i, ypos+j, clr);
 			}
 		}
 	}
+}
+
+// Paint a character at the given index in the given font, to the given bitmap.
+void de_font_paint_character_idx(deark *c, de_bitmap *img,
+	struct de_bitmap_font *font, i64 char_idx,
+	i64 xpos, i64 ypos, u32 fgcol, u32 bgcol,
+	unsigned int flags)
+{
+	struct de_bitmap_font_char *ch;
+
+	if(char_idx<0 || char_idx>=font->num_chars) return;
+	ch = &font->char_array[char_idx];
+	if(!is_valid_char(ch)) return;
+	if(ch->width > font->nominal_width) return;
+	if(ch->height > font->nominal_height) return;
+
+	// Paint a "canvas" for the char, if needed.
+
+	// If the "extraspace" feature is used, paint an additional canvas of
+	// a different color.
+	if(!(flags&DE_PAINTFLAG_TRNSBKGD) && (ch->extraspace_l || ch->extraspace_r)) {
+		i64 canvas_x, canvas_y;
+		i64 canvas_w, canvas_h;
+
+		canvas_x = xpos;
+		canvas_y = ypos+ch->v_offset;
+		canvas_w = (i64)ch->extraspace_l + (i64)ch->width + (i64)ch->extraspace_r;
+		canvas_h = ch->height;
+		// (We don't need to support both the "extraspace" and the VGA9COL
+		// feature at the same time.)
+
+		de_bitmap_rect(img, canvas_x, canvas_y,
+			canvas_w, canvas_h, DE_MAKE_RGB(192,255,192), 0);
+	}
+
+	// Paint the canvas for the main part of the character.
+	if(!(flags&DE_PAINTFLAG_TRNSBKGD)) {
+		i64 canvas_x, canvas_y;
+		i64 canvas_w, canvas_h;
+
+		canvas_x = xpos + ch->extraspace_l;
+		canvas_y = ypos+ch->v_offset;
+		canvas_w = ch->width;
+		if((flags&DE_PAINTFLAG_VGA9COL) && ch->width==8) {
+			canvas_w++;
+		}
+		canvas_h = ch->height;
+
+		de_bitmap_rect(img, canvas_x, canvas_y,
+			canvas_w, canvas_h, bgcol, 0);
+	}
+
+	paint_character_internal(c, img, ch,
+		ch->extraspace_l + xpos, ch->v_offset + ypos, fgcol, flags);
 }
 
 // Given a codepoint, returns the character index in the font.
@@ -159,20 +203,20 @@ struct dfont_char_data {
 };
 
 static const struct dfont_char_data dfont_data[16] = {
-	{48, {0x78,0x48,0x48,0x48,0x48,0x48,0x78}}, // 0
-	{49, {0x08,0x08,0x08,0x08,0x08,0x08,0x08}}, // 1
-	{50, {0x78,0x08,0x08,0x78,0x40,0x40,0x78}}, // 2
-	{51, {0x78,0x08,0x08,0x78,0x08,0x08,0x78}}, // 3
+	{48, {0x30,0x48,0x48,0x48,0x48,0x48,0x30}}, // 0
+	{49, {0x10,0x30,0x10,0x10,0x10,0x10,0x38}}, // 1
+	{50, {0x70,0x08,0x08,0x30,0x40,0x40,0x78}}, // 2
+	{51, {0x70,0x08,0x08,0x30,0x08,0x08,0x70}}, // 3
 	{52, {0x48,0x48,0x48,0x78,0x08,0x08,0x08}}, // 4
-	{53, {0x78,0x40,0x40,0x78,0x08,0x08,0x78}}, // 5
-	{54, {0x78,0x40,0x40,0x78,0x48,0x48,0x78}}, // 6
-	{55, {0x78,0x08,0x08,0x08,0x08,0x08,0x08}}, // 7
-	{56, {0x78,0x48,0x48,0x78,0x48,0x48,0x78}}, // 8
-	{57, {0x78,0x48,0x48,0x78,0x08,0x08,0x78}}, // 9
+	{53, {0x78,0x40,0x40,0x70,0x08,0x08,0x70}}, // 5
+	{54, {0x38,0x40,0x40,0x70,0x48,0x48,0x30}}, // 6
+	{55, {0x78,0x08,0x08,0x10,0x10,0x10,0x10}}, // 7
+	{56, {0x30,0x48,0x48,0x30,0x48,0x48,0x30}}, // 8
+	{57, {0x30,0x48,0x48,0x38,0x08,0x08,0x70}}, // 9
 	{65, {0x30,0x48,0x48,0x78,0x48,0x48,0x48}}, // A
 	{66, {0x70,0x48,0x48,0x70,0x48,0x48,0x70}}, // B
 	{67, {0x30,0x48,0x40,0x40,0x40,0x48,0x30}}, // C
-	{68, {0x70,0x48,0x48,0x48,0x48,0x48,0x70}}, // D
+	{68, {0x70,0x58,0x48,0x48,0x48,0x58,0x70}}, // D
 	{69, {0x78,0x40,0x40,0x70,0x40,0x40,0x78}}, // E
 	{70, {0x78,0x40,0x40,0x70,0x40,0x40,0x40}}  // F
 };
@@ -341,6 +385,17 @@ struct col_info_struct {
 	i64 display_pos;
 };
 
+static void checkerboard_bkgd(de_bitmap *img, i64 xpos, i64 ypos, i64 w, i64 h)
+{
+	i64 ii, jj;
+
+	for(jj=0; jj<h; jj++) {
+		for(ii=0; ii<w; ii++) {
+			de_bitmap_setpixel_gray(img, xpos+ii, ypos+jj, (ii/2+jj/2)%2 ? 176 : 192);
+		}
+	}
+}
+
 void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_finfo *fi,
 	unsigned int createflags)
 {
@@ -408,15 +463,15 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 
 	// TODO: Clean up these margin calculations, and make it more general.
 	if(fctx->render_as_unicode) {
-		img_leftmargin = dfont->nominal_width * 5 + 6;
+		img_leftmargin = (i64)dfont->nominal_width * 5 + 6;
 	}
 	else {
 		if(fctx->max_codepoint >= 1000)
-			img_leftmargin = dfont->nominal_width * 5 + 6;
+			img_leftmargin = (i64)dfont->nominal_width * 5 + 6;
 		else
-			img_leftmargin = dfont->nominal_width * 3 + 6;
+			img_leftmargin = (i64)dfont->nominal_width * 3 + 6;
 	}
-	img_topmargin = dfont->nominal_height + 6;
+	img_topmargin = (i64)dfont->nominal_height + 6;
 	img_rightmargin = 1;
 	img_bottommargin = 1;
 
@@ -444,15 +499,15 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 		row_info[rownum].is_visible = 1;
 
 		// Track the maximum width of any character in this character's column.
-		char_display_width = (i64)(fctx->font->char_array[k].width +
-				(int)fctx->font->char_array[k].extraspace_l +
-				(int)fctx->font->char_array[k].extraspace_r);
+		char_display_width = (i64)fctx->font->char_array[k].width +
+				(i64)fctx->font->char_array[k].extraspace_l +
+				(i64)fctx->font->char_array[k].extraspace_r;
 		if(char_display_width > col_info[colnum].display_width) {
 			col_info[colnum].display_width = char_display_width;
 		}
 	}
 
-	img_vpixelsperchar = fctx->font->nominal_height + 1;
+	img_vpixelsperchar = (i64)fctx->font->nominal_height + 1;
 
 	// Figure out how many rows are used, and where to draw them.
 	num_table_rows_to_display = 0;
@@ -483,14 +538,10 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 	img_height = row_info[last_valid_row].display_pos +
 		img_vpixelsperchar -1 + img_bottommargin;
 
-	img = de_bitmap_create(c, img_width, img_height, 1);
+	img = de_bitmap_create(c, img_width, img_height, 3);
 
 	// Clear the image
-	for(j=0; j<img->height; j++) {
-		for(i=0; i<img->width; i++) {
-			de_bitmap_setpixel_gray(img, i, j, 128);
-		}
-	}
+	de_bitmap_rect(img, 0, 0, img->width, img->height, DE_MAKE_RGB(32,32,144), 0);
 
 	// Draw/clear the cell backgrounds
 	for(j=0; j<num_table_rows_total; j++) {
@@ -498,14 +549,10 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 		ypos = row_info[j].display_pos;
 
 		for(i=0; i<chars_per_row; i++) {
-			i64 ii, jj;
-
 			xpos = col_info[i].display_pos;
-			for(jj=0; jj<img_vpixelsperchar-1; jj++) {
-				for(ii=0; ii<col_info[i].display_width; ii++) {
-					de_bitmap_setpixel_gray(img, xpos+ii, ypos+jj, (ii/2+jj/2)%2 ? 176 : 192);
-				}
-			}
+			de_bitmap_rect(img, xpos, ypos,
+				col_info[i].display_width, img_vpixelsperchar-1,
+				DE_MAKE_RGB(112,112,160), 0);
 		}
 	}
 
@@ -554,6 +601,9 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 
 		xpos = col_info[colnum].display_pos;
 		ypos = row_info[rownum].display_pos;
+
+		checkerboard_bkgd(img, xpos, ypos,
+			col_info[colnum].display_width, img_vpixelsperchar-1);
 
 		de_font_paint_character_idx(c, img, fctx->font, k, xpos, ypos,
 			DE_STOCKCOLOR_BLACK, DE_STOCKCOLOR_WHITE, 0);

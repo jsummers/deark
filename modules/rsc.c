@@ -521,7 +521,7 @@ static int de_identify_rsc(deark *c)
 
 	if(!de_input_file_has_ext(c, "rsc")) return 0;
 	ver = de_getu16be(0);
-	if(ver==0 || ver==1 || ver==4) return 100;
+	if(ver==0 || ver==1 || ver==4) return 70;
 	return 0;
 }
 

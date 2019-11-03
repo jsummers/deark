@@ -10,6 +10,8 @@
 #include "deark-config.h"
 #include "deark-private.h"
 
+#define DE_DUMMY_MAX_FILE_SIZE (1LL<<56)
+#define DE_MAX_MEMBUF_SIZE 2000000000
 #define DE_CACHE_SIZE 262144
 
 // Fill the cache that remembers the first part of the file.
@@ -90,6 +92,21 @@ void dbuf_read(dbuf *f, u8 *buf, i64 pos, i64 len)
 
 	c = f->c;
 
+	if(pos < 0) {
+		if((-pos) >= len) {
+			// All requested bytes are before the beginning of the file
+			de_zeromem(buf, (size_t)len);
+			return;
+		}
+		// Some requested bytes are before the beginning of the file.
+		// Zero out the ones that are:
+		de_zeromem(buf, (size_t)(-pos));
+		// And adjust the parameters:
+		buf += (-pos);
+		len -= (-pos);
+		pos = 0;
+	}
+
 	bytes_to_read = len;
 	if(pos >= f->len) {
 		bytes_to_read = 0;
@@ -121,7 +138,7 @@ void dbuf_read(dbuf *f, u8 *buf, i64 pos, i64 len)
 		if(!f->fp) {
 			de_err(c, "Internal: File not open");
 			de_fatalerror(c);
-			return;
+			goto done_read;
 		}
 
 		// For performance reasons, don't call fseek if we're already at the
@@ -152,7 +169,7 @@ void dbuf_read(dbuf *f, u8 *buf, i64 pos, i64 len)
 	default:
 		de_err(c, "Internal: getbytes from this I/O type not implemented");
 		de_fatalerror(c);
-		return;
+		goto done_read;
 	}
 
 done_read:
@@ -575,7 +592,8 @@ static void init_fltpt_decoder(deark *c)
 	char b = 0;
 
 	c->can_decode_fltpt = 0;
-	if(sizeof(float)!=4 || sizeof(double)!=8) return;
+	if(sizeof(float)!=4) return;
+	if(sizeof(double)!=8) return;
 	c->can_decode_fltpt = 1;
 
 	de_memcpy(&b, &x, 1);
@@ -753,13 +771,15 @@ void dbuf_copy_at(dbuf *inf, i64 input_offset, i64 input_len,
 // UTF-8 version of ->str. This is mainly useful if the original string was
 // UTF-16. sz_utf8 is not "printable" -- use ucstring_get_printable_sz_n(str) for
 // that.
+// ->sz_strlen will equal strlen(->sz) if DE_CONVFLAG_STOP_AT_NUL is set, or
+// the supplied value of max_bytes_to_(scan|keep) if not.
 // Recognized flags:
 //   - DE_CONVFLAG_STOP_AT_NUL
 //   - DE_CONVFLAG_WANT_UTF8
 struct de_stringreaderdata *dbuf_read_string(dbuf *f, i64 pos,
 	i64 max_bytes_to_scan,
 	i64 max_bytes_to_keep,
-	unsigned int flags, int encoding)
+	unsigned int flags, de_encoding encoding)
 {
 	deark *c = f->c;
 	struct de_stringreaderdata *srd;
@@ -767,15 +787,18 @@ struct de_stringreaderdata *dbuf_read_string(dbuf *f, i64 pos,
 	int ret;
 	i64 bytes_avail_to_read;
 	i64 bytes_to_malloc;
-	i64 x_strlen;
+	i64 x_strlen = 0;
 
 	srd = de_malloc(c, sizeof(struct de_stringreaderdata));
 	srd->str = ucstring_create(c);
+	if(max_bytes_to_scan<0) max_bytes_to_scan = 0;
+	if(max_bytes_to_keep<0) max_bytes_to_keep = 0;
 
 	bytes_avail_to_read = max_bytes_to_scan;
 	if(bytes_avail_to_read > f->len-pos) {
 		bytes_avail_to_read = f->len-pos;
 	}
+	if(bytes_avail_to_read<0) bytes_avail_to_read = 0;
 
 	srd->bytes_consumed = bytes_avail_to_read; // default
 
@@ -823,7 +846,7 @@ struct de_stringreaderdata *dbuf_read_string(dbuf *f, i64 pos,
 
 	if(flags&DE_CONVFLAG_WANT_UTF8) {
 		srd->sz_utf8_strlen = (size_t)ucstring_count_utf8_bytes(srd->str);
-		srd->sz_utf8 = de_malloc(c, srd->sz_utf8_strlen + 1);
+		srd->sz_utf8 = de_malloc(c, (i64)srd->sz_utf8_strlen + 1);
 		ucstring_to_sz(srd->str, srd->sz_utf8, srd->sz_utf8_strlen + 1, 0, DE_ENCODING_UTF8);
 	}
 
@@ -837,6 +860,7 @@ done:
 		srd->sz_utf8 = de_malloc(c, 1);
 		srd->sz_utf8_strlen = 0;
 	}
+	srd->sz_strlen = (size_t)x_strlen;
 	return srd;
 }
 
@@ -852,7 +876,7 @@ void de_destroy_stringreaderdata(deark *c, struct de_stringreaderdata *srd)
 // Read (up to) len bytes from f, translate them to characters, and append
 // them to s.
 void dbuf_read_to_ucstring(dbuf *f, i64 pos, i64 len,
-	de_ucstring *s, unsigned int conv_flags, int encoding)
+	de_ucstring *s, unsigned int conv_flags, de_encoding encoding)
 {
 	u8 *buf = NULL;
 	deark *c = f->c;
@@ -871,7 +895,7 @@ void dbuf_read_to_ucstring(dbuf *f, i64 pos, i64 len,
 }
 
 void dbuf_read_to_ucstring_n(dbuf *f, i64 pos, i64 len, i64 max_len,
-	de_ucstring *s, unsigned int conv_flags, int encoding)
+	de_ucstring *s, unsigned int conv_flags, de_encoding encoding)
 {
 	if(len>max_len) len=max_len;
 	dbuf_read_to_ucstring(f, pos, len, s, conv_flags, encoding);
@@ -926,6 +950,9 @@ static void finfo_shallow_copy(deark *c, de_finfo *src, de_finfo *dst)
 	dst->mod_time = src->mod_time;
 	dst->image_mod_time = src->image_mod_time;
 	dst->density = src->density;
+	dst->has_hotspot = src->has_hotspot;
+	dst->hotspot_x = src->hotspot_x;
+	dst->hotspot_y = src->hotspot_y;
 }
 
 // Create or open a file for writing, that is *not* one of the usual
@@ -946,6 +973,7 @@ dbuf *dbuf_create_unmanaged_file(deark *c, const char *fname, int overwrite_mode
 	f->name = de_strdup(c, fname);
 
 	f->btype = DBUF_TYPE_OFILE;
+	f->max_len_hard = c->max_output_file_size;
 	f->fp = de_fopen_for_write(c, f->name, msgbuf, sizeof(msgbuf),
 		c->overwrite_mode, flags);
 
@@ -957,11 +985,48 @@ dbuf *dbuf_create_unmanaged_file(deark *c, const char *fname, int overwrite_mode
 	return f;
 }
 
-dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
+dbuf *dbuf_create_unmanaged_file_stdout(deark *c, const char *name)
+{
+	dbuf *f;
+
+	f = de_malloc(c, sizeof(dbuf));
+	f->c = c;
+	f->is_managed = 0;
+	f->name = de_strdup(c, name);
+	f->btype = DBUF_TYPE_STDOUT;
+	f->max_len_hard = c->max_output_file_size;
+	f->fp = stdout;
+	return f;
+}
+
+static void sanitize_ext(const char *ext1, char *ext, size_t extlen)
+{
+	size_t k;
+
+	de_strlcpy(ext, ext1, extlen);
+	// This part of the filename should come from Deark, and should only
+	// use a limited set of characters. Just to be sure:
+	for(k=0; ext[k]; k++) {
+		if((ext[k]>='0' && ext[k]<='9') ||
+			(ext[k]>='A' && ext[k]<='Z') ||
+			(ext[k]>='a' && ext[k]<='z') ||
+			ext[k]=='.' || ext[k]=='_' || ext[k]=='-' || ext[k]=='+')
+		{
+			;
+		}
+		else {
+			ext[k] = '_';
+		}
+	}
+}
+
+dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 	unsigned int createflags)
 {
 	char nbuf[500];
 	char msgbuf[200];
+	char ext[128];
+	int have_ext;
 	dbuf *f;
 	const char *basefn;
 	int file_index;
@@ -969,11 +1034,22 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	char *name_from_finfo = NULL;
 	i64 name_from_finfo_len = 0;
 
-	if(ext && fi && fi->original_filename_flag) {
+	if(ext1) {
+		have_ext = 1;
+		sanitize_ext(ext1, ext, sizeof(ext));
+	}
+	else {
+		have_ext = 0;
+		ext[0] = '\0';
+	}
+
+	if(have_ext && fi && fi->original_filename_flag) {
 		de_dbg(c, "[internal warning: Incorrect use of create_output_file]");
 	}
 
 	f = de_malloc(c, sizeof(dbuf));
+	f->c = c;
+	f->max_len_hard = c->max_output_file_size;
 	f->is_managed = 1;
 
 	if(fi && fi->is_directory) {
@@ -1014,6 +1090,12 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	}
 
 	if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE && !c->base_output_filename &&
+		fi && fi->is_directory &&
+		(fi->is_root_dir || (fi->detect_root_dot_dir && fi->orig_name_was_dot)))
+	{
+		de_strlcpy(nbuf, ".", sizeof(nbuf));
+	}
+	else if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE && !c->base_output_filename &&
 		fi && fi->original_filename_flag && name_from_finfo)
 	{
 		// TODO: This is a "temporary" hack to allow us to, when both reading from
@@ -1027,10 +1109,10 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	else {
 		char fn_suffix[256];
 
-		if(ext && name_from_finfo) {
+		if(have_ext && name_from_finfo) {
 			de_snprintf(fn_suffix, sizeof(fn_suffix), "%s.%s", name_from_finfo, ext);
 		}
-		else if(ext) {
+		else if(have_ext) {
 			de_strlcpy(fn_suffix, ext, sizeof(fn_suffix));
 		}
 		else if(is_directory && name_from_finfo) {
@@ -1050,7 +1132,6 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	}
 
 	f->name = de_strdup(c, nbuf);
-	f->c = c;
 
 	if(fi) {
 		// The finfo object passed to us at file creation is not required to
@@ -1107,6 +1188,8 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE && c->archive_fmt==DE_ARCHIVEFMT_TAR) {
 		de_info(c, "Adding %s to TAR file", f->name);
 		f->btype = DBUF_TYPE_ODBUF;
+		// A dummy max_len_hard value. The parent will do the checking.
+		f->max_len_hard = DE_DUMMY_MAX_FILE_SIZE;
 		f->writing_to_tar_archive = 1;
 		de_tar_start_member_file(c, f);
 	}
@@ -1114,6 +1197,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 		i64 initial_alloc;
 		de_info(c, "Adding %s to ZIP file", f->name);
 		f->btype = DBUF_TYPE_MEMBUF;
+		f->max_len_hard = DE_MAX_MEMBUF_SIZE;
 		if(is_directory) {
 			// A directory entry is not expected to have any data associated
 			// with it (besides the files it contains).
@@ -1129,6 +1213,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	else if(c->output_style==DE_OUTPUTSTYLE_STDOUT) {
 		de_info(c, "Writing %s to [stdout]", f->name);
 		f->btype = DBUF_TYPE_STDOUT;
+		// TODO: Should we increase f->max_len_hard?
 		f->fp = stdout;
 	}
 	else {
@@ -1148,20 +1233,32 @@ done:
 	return f;
 }
 
+static void do_on_dbuf_size_exceeded(dbuf *f)
+{
+	de_err(f->c, "Maximum %s size of %"I64_FMT" bytes exceeded",
+		(f->btype==DBUF_TYPE_MEMBUF)?"membuf":"output file",
+		f->max_len_hard);
+	de_fatalerror(f->c);
+}
+
 dbuf *dbuf_create_membuf(deark *c, i64 initialsize, unsigned int flags)
 {
 	dbuf *f;
 	f = de_malloc(c, sizeof(dbuf));
 	f->c = c;
 	f->btype = DBUF_TYPE_MEMBUF;
+	f->max_len_hard = DE_MAX_MEMBUF_SIZE;
 
 	if(initialsize>0) {
+		if(initialsize > f->max_len_hard) {
+			do_on_dbuf_size_exceeded(f);
+		}
 		f->membuf_buf = de_malloc(c, initialsize);
 		f->membuf_alloc = initialsize;
 	}
 
 	if(flags&0x01) {
-		dbuf_set_max_length(f, initialsize);
+		dbuf_set_length_limit(f, initialsize);
 	}
 
 	return f;
@@ -1171,9 +1268,9 @@ static void membuf_append(dbuf *f, const u8 *m, i64 mlen)
 {
 	i64 new_alloc_size;
 
-	if(f->has_max_len) {
-		if(f->len + mlen > f->max_len) {
-			mlen = f->max_len - f->len;
+	if(f->has_len_limit) {
+		if(f->len + mlen > f->len_limit) {
+			mlen = f->len_limit - f->len;
 		}
 	}
 
@@ -1183,8 +1280,12 @@ static void membuf_append(dbuf *f, const u8 *m, i64 mlen)
 		// Need to allocate more space
 		new_alloc_size = (f->membuf_alloc + mlen)*2;
 		if(new_alloc_size<1024) new_alloc_size=1024;
-		// TODO: Guard against integer overflows.
-		de_dbg3(f->c, "increasing membuf size %d -> %d", (int)f->membuf_alloc, (int)new_alloc_size);
+		if(new_alloc_size > f->max_len_hard) new_alloc_size = f->max_len_hard;
+		de_dbg3(f->c, "increasing membuf size %"I64_FMT" -> %"I64_FMT,
+			f->membuf_alloc, new_alloc_size);
+		if(f->len + mlen > f->max_len_hard) {
+			do_on_dbuf_size_exceeded(f);
+		}
 		f->membuf_buf = de_realloc(f->c, f->membuf_buf, f->membuf_alloc, new_alloc_size);
 		f->membuf_alloc = new_alloc_size;
 	}
@@ -1195,7 +1296,13 @@ static void membuf_append(dbuf *f, const u8 *m, i64 mlen)
 
 void dbuf_write(dbuf *f, const u8 *m, i64 len)
 {
+	if(f->len + len > f->max_len_hard) {
+		do_on_dbuf_size_exceeded(f);
+	}
+
 	if(f->writecallback_fn) {
+		// Note that the callback function can be changed at any time, so if we
+		// ever decide to buffer these calls, precautions will be needed.
 		f->writecallback_fn(f, m, len);
 	}
 
@@ -1206,7 +1313,7 @@ void dbuf_write(dbuf *f, const u8 *m, i64 len)
 	else if(f->btype==DBUF_TYPE_OFILE || f->btype==DBUF_TYPE_STDOUT) {
 		if(!f->fp) return;
 		if(f->c->debug_level>=3) {
-			de_dbg3(f->c, "writing %d bytes to %s", (int)len, f->name);
+			de_dbg3(f->c, "writing %"I64_FMT" bytes to %s", len, f->name);
 		}
 		fwrite(m, 1, (size_t)len, f->fp);
 		f->len += len;
@@ -1214,7 +1321,7 @@ void dbuf_write(dbuf *f, const u8 *m, i64 len)
 	}
 	else if(f->btype==DBUF_TYPE_MEMBUF) {
 		if(f->c->debug_level>=3 && f->name) {
-			de_dbg3(f->c, "appending %d bytes to membuf %s", (int)len, f->name);
+			de_dbg3(f->c, "appending %"I64_FMT" bytes to membuf %s", len, f->name);
 		}
 		membuf_append(f, m, len);
 		return;
@@ -1226,6 +1333,7 @@ void dbuf_write(dbuf *f, const u8 *m, i64 len)
 	}
 
 	de_err(f->c, "Internal: Invalid output file type (%d)", f->btype);
+	de_fatalerror(f->c);
 }
 
 void dbuf_writebyte(dbuf *f, u8 n)
@@ -1239,6 +1347,10 @@ void dbuf_writebyte(dbuf *f, u8 n)
 void dbuf_write_at(dbuf *f, i64 pos, const u8 *m, i64 len)
 {
 	if(len<1 || pos<0) return;
+
+	if(pos + len > f->max_len_hard) {
+		do_on_dbuf_size_exceeded(f);
+	}
 
 	if(f->btype==DBUF_TYPE_MEMBUF) {
 		i64 amt_overwrite, amt_newzeroes, amt_append;
@@ -1276,8 +1388,9 @@ void dbuf_write_at(dbuf *f, i64 pos, const u8 *m, i64 len)
 			de_fseek(f->fp, pos, SEEK_SET);
 		}
 		fwrite(m, 1, (size_t)len, f->fp);
-		// TODO: Maybe update f->len, but ->len is not generally supported with
-		// unmanaged files.
+		if(pos+len > f->len) {
+			f->len = pos+len;
+		}
 	}
 	else if(f->btype==DBUF_TYPE_NULL) {
 		;
@@ -1362,6 +1475,26 @@ void dbuf_writeu16be(dbuf *f, i64 n)
 	dbuf_write(f, buf, 2);
 }
 
+void dbuf_writei16le(dbuf *f, i64 n)
+{
+	if(n<0) {
+		dbuf_writeu16le(f, n+65536);
+	}
+	else {
+		dbuf_writeu16le(f, n);
+	}
+}
+
+void dbuf_writei16be(dbuf *f, i64 n)
+{
+	if(n<0) {
+		dbuf_writeu16be(f, n+65536);
+	}
+	else {
+		dbuf_writeu16be(f, n);
+	}
+}
+
 void de_writeu32be_direct(u8 *m, i64 n)
 {
 	m[0] = (u8)((n & 0xff000000)>>24);
@@ -1390,6 +1523,25 @@ void dbuf_writeu32le(dbuf *f, i64 n)
 	u8 buf[4];
 	de_writeu32le_direct(buf, n);
 	dbuf_write(f, buf, 4);
+}
+
+void dbuf_writei32le(dbuf *f, i64 n)
+{
+	if(n<0) {
+		dbuf_writeu32le(f, n+0x100000000LL);
+	}
+	else {
+		dbuf_writeu32le(f, n);
+	}}
+
+void dbuf_writei32be(dbuf *f, i64 n)
+{
+	if(n<0) {
+		dbuf_writeu32be(f, n+0x100000000LL);
+	}
+	else {
+		dbuf_writeu32be(f, n);
+	}
 }
 
 void de_writeu64le_direct(u8 *m, u64 n)
@@ -1497,6 +1649,10 @@ void dbuf_close(dbuf *f)
 	if(!f) return;
 	c = f->c;
 
+	if(f->btype==DBUF_TYPE_OFILE || f->btype==DBUF_TYPE_STDOUT) {
+		c->total_output_size += f->len;
+	}
+
 	if(f->btype==DBUF_TYPE_MEMBUF && f->write_memfile_to_zip_archive) {
 		de_zip_add_file_to_archive(c, f);
 		if(f->name) {
@@ -1527,8 +1683,11 @@ void dbuf_close(dbuf *f)
 		f->fp = NULL;
 	}
 	else if(f->btype==DBUF_TYPE_STDOUT) {
-		if(f->name) {
+		if(f->name && f->is_managed) {
 			de_dbg3(c, "finished writing %s to stdout", f->name);
+		}
+		else if(!f->is_managed) {
+			de_dbg3(c, "finished writing %s", f->name);
 		}
 		f->fp = NULL;
 	}
@@ -1551,6 +1710,15 @@ void dbuf_close(dbuf *f)
 	de_free(c, f->cache);
 	if(f->fi_copy) de_finfo_destroy(c, f->fi_copy);
 	de_free(c, f);
+
+	if(c->total_output_size > c->max_total_output_size) {
+		// FIXME: Since we only do this check when a file is closed, it can
+		// potentially be subverted in the (rare) case that Deark has multiple
+		// output files open simultanously.
+		de_err(c, "Maximum total output size of %"I64_FMT" bytes exceeded",
+			c->max_total_output_size);
+		de_fatalerror(c);
+	}
 }
 
 void dbuf_empty(dbuf *f)
@@ -1709,10 +1877,13 @@ int dbuf_find_line(dbuf *f, i64 pos1, i64 *pcontent_len, i64 *ptotal_len)
 	return (*ptotal_len > 0);
 }
 
-void dbuf_set_max_length(dbuf *f, i64 max_len)
+// Enforce a maximum size when writing to a dbuf.
+// Attempting to write more than this is a silent no-op.
+// May be valid only for memory buffers.
+void dbuf_set_length_limit(dbuf *f, i64 max_len)
 {
-	f->has_max_len = 1;
-	f->max_len = max_len;
+	f->has_len_limit = 1;
+	f->len_limit = max_len;
 }
 
 int dbuf_has_utf8_bom(dbuf *f, i64 pos)
@@ -1740,8 +1911,8 @@ static void reverse_fourcc(u8 *buf, int nbytes)
 	for(k=0; k<((size_t)nbytes)/2; k++) {
 		u8 tmpc;
 		tmpc = buf[k];
-		buf[k] = buf[nbytes-1-k];
-		buf[nbytes-1-k] = tmpc;
+		buf[k] = buf[(size_t)nbytes-1-k];
+		buf[(size_t)nbytes-1-k] = tmpc;
 	}
 }
 

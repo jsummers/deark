@@ -9,6 +9,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_bmi);
 
 struct table_item {
@@ -64,7 +65,7 @@ static int do_header(deark *c, lctx *d, i64 pos1)
 	de_dbg(c, "bits/pixel: %d", (int)d->globalimg.bpp);
 
 	if(d->globalimg.palmode && d->globalimg.bpp>=1 && d->globalimg.bpp<=8) {
-		d->globalimg.num_pal_entries = (i64)(1U<<((unsigned int)d->globalimg.bpp));
+		d->globalimg.num_pal_entries = de_pow2(d->globalimg.bpp);
 	}
 
 	pos += 2;
@@ -108,7 +109,8 @@ static void do_bitmap(deark *c, lctx *d, i64 pos1)
 {
 	int saved_indent_level;
 	i64 pos = pos1;
-	i64 unc_data_size;
+	i64 unc_data_size_reported;
+	i64 unc_data_size_calc;
 	i64 max_uncmpr_block_size;
 	i64 i, j;
 	i64 rowspan;
@@ -138,17 +140,25 @@ static void do_bitmap(deark *c, lctx *d, i64 pos1)
 	}
 
 	if(ii.palmode && ii.bpp>=1 && ii.bpp<=8) {
-		ii.num_pal_entries = (i64)(1U<<((unsigned int)ii.bpp));
+		ii.num_pal_entries = de_pow2(ii.bpp);
 	}
 
 	pos += 2;
 
-	unc_data_size = de_getu32le_p(&pos);
-	de_dbg(c, "uncmpr data size: %"I64_FMT, unc_data_size);
-	if(unc_data_size>DE_MAX_FILE_SIZE) goto done;
+	unc_data_size_reported = de_getu32le_p(&pos);
+	de_dbg(c, "uncmpr data size (reported): %"I64_FMT, unc_data_size_reported);
+
+	rowspan = de_pad_to_n(ii.w*ii.bpp, 32)/8;
+	unc_data_size_calc = rowspan * ii.h;
+	de_dbg(c, "uncmpr data size (calculated): %"I64_FMT, unc_data_size_calc);
+
+	if(unc_data_size_reported>DE_MAX_SANE_OBJECT_SIZE) goto done;
 
 	max_uncmpr_block_size = de_getu16le_p(&pos);
 	de_dbg(c, "max uncmpr block size: %d", (int)max_uncmpr_block_size);
+	if(max_uncmpr_block_size > unc_data_size_calc) {
+		max_uncmpr_block_size = unc_data_size_calc;
+	}
 
 	if(ii.num_pal_entries>0) {
 		read_palette(c, d, &ii, pos);
@@ -161,12 +171,12 @@ static void do_bitmap(deark *c, lctx *d, i64 pos1)
 		goto done;
 	}
 
-	unc_pixels = dbuf_create_membuf(c, unc_data_size, 1);
+	unc_pixels = dbuf_create_membuf(c, unc_data_size_calc, 1);
 
 	while(1) {
 		i64 blen;
 
-		if(unc_pixels->len >= unc_data_size) break;
+		if(unc_pixels->len >= unc_data_size_reported) break;
 		if(pos >= c->infile->len) goto done;
 
 		de_dbg(c, "block at %d", (int)pos);
@@ -177,14 +187,25 @@ static void do_bitmap(deark *c, lctx *d, i64 pos1)
 		if(pos+blen > c->infile->len) goto done;
 		if(blen>max_uncmpr_block_size) goto done;
 
-		if(!de_uncompress_zlib(c->infile, pos, blen, unc_pixels)) goto done;
+		if(unc_pixels->len < unc_data_size_calc) {
+			i64 len_before = unc_pixels->len;
+
+			if(!fmtutil_decompress_deflate(c->infile, pos, blen, unc_pixels,
+				max_uncmpr_block_size, NULL,
+				DE_DEFLATEFLAG_ISZLIB|DE_DEFLATEFLAG_USEMAXUNCMPRSIZE))
+			{
+				goto done;
+			}
+
+			de_dbg(c, "decompressed to: %"I64_FMT" (total=%"I64_FMT")",
+				unc_pixels->len - len_before, unc_pixels->len);
+		}
 		de_dbg_indent(c, -1);
 
 		pos += blen;
 	}
 
 	img = de_bitmap_create(c, ii.w, ii.h, 3);
-	rowspan = de_pad_to_n(ii.w*ii.bpp, 32)/8;
 
 	for(j=0; j<ii.h; j++) {
 		for(i=0; i<ii.w; i++) {
@@ -255,10 +276,7 @@ static void de_run_bmi(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	if(c->input_encoding==DE_ENCODING_UNKNOWN)
-		d->input_encoding = DE_ENCODING_WINDOWS1252;
-	else
-		d->input_encoding = c->input_encoding;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 
 	if(!do_header(c, d, pos)) goto done;
 	pos += d->fixed_header_size;

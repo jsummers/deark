@@ -103,7 +103,7 @@ static void spc_uncompress_pixels(dbuf *f, i64 pos1, i64 len,
 	endpos = pos1+len;
 
 	while(1) {
-		if(unc_pixels->max_len>0 && unc_pixels->len>=unc_pixels->max_len) {
+		if(unc_pixels->has_len_limit && unc_pixels->len>=unc_pixels->len_limit) {
 			break; // Decompressed the requested amount of dst data.
 		}
 
@@ -137,7 +137,7 @@ static void sps_uncompress_pixels(dbuf *f, i64 pos1, i64 len,
 	endpos = pos1+len;
 
 	while(1) {
-		if(unc_pixels->max_len>0 && unc_pixels->len>=unc_pixels->max_len) {
+		if(unc_pixels->has_len_limit && unc_pixels->len>=unc_pixels->len_limit) {
 			break; // Decompressed the requested amount of dst data.
 		}
 
@@ -330,7 +330,7 @@ static void do_run_spectrum512c_s_internal(deark *c, de_module_params *mparams, 
 	else {
 		spc_uncompress_pixels(c->infile, pos, pixels_cmpr_len, unc_pixels_planar);
 	}
-	pos += pixels_cmpr_len;
+	//pos += pixels_cmpr_len;
 
 	// We'll construct an in-memory SPU file, then (usually) use our
 	// SPU module's decoder to process it.

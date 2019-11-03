@@ -206,7 +206,7 @@ static const struct obj_type_info_struct *find_obj_type_info(u8 full_type, u8 pr
 {
 	size_t i;
 
-	for(i=0; i<DE_ITEMS_IN_ARRAY(obj_type_info_arr); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(obj_type_info_arr); i++) {
 		if(obj_type_info_arr[i].primitive_type==primitive_type &&
 			obj_type_info_arr[i].full_type==full_type)
 		{

@@ -8,6 +8,18 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_wri);
 
+#define WRI_STG_METAFILE  0x88
+#define WRI_STG_BITMAP    0xe3
+#define WRI_STG_OLE       0xe4
+
+struct picctx_struct {
+	unsigned int mm; // WRI_STG_*
+	i64 cbHeader;
+	i64 cbSize;
+	unsigned int ole_objectType;
+	i64 ole_dwDataSize;
+};
+
 struct text_styles_struct {
 	u8 tab_style;
 };
@@ -30,8 +42,8 @@ struct para_info {
 
 typedef struct localctx_struct {
 	int extract_text;
+	int extract_ole;
 	int input_encoding;
-	int ddbhack;
 	i64 fcMac;
 	i64 pnChar;
 	i64 pnChar_offs;
@@ -41,9 +53,13 @@ typedef struct localctx_struct {
 	i64 pnFntb, pnSep, pnSetb, pnPgtb, pnFfntb;
 	i64 pnMac;
 	dbuf *html_outf;
+	de_ucstring *tmpstr;
 } lctx;
 
 static void do_emit_raw_sz(deark *c, lctx *d, struct para_info *pinfo, const char *sz);
+static void do_emit_ucstring(deark *c, lctx *d, struct para_info *pinfo,
+	de_ucstring *s);
+static void end_para(deark *c, lctx *d, struct para_info *pinfo);
 
 static void default_text_styles(struct text_styles_struct *ts)
 {
@@ -96,59 +112,6 @@ static int do_header(deark *c, lctx *d, i64 pos)
 	return 1;
 }
 
-static void do_picture_metafile(deark *c, lctx *d, struct para_info *pinfo)
-{
-	i64 pos = pinfo->thisparapos;
-	i64 cbHeader, cbSize;
-
-	cbHeader = de_getu16le(pos+30);
-	de_dbg(c, "cbHeader: %d", (int)cbHeader);
-
-	cbSize = de_getu32le(pos+32);
-	de_dbg(c, "cbSize: %d", (int)cbSize);
-
-	if(cbHeader+cbSize <= pinfo->thisparalen) {
-		dbuf_create_file_from_slice(c->infile, pos+cbHeader, cbSize, "wmf", NULL, 0);
-	}
-}
-
-static void do_picture_bitmap(deark *c, lctx *d, struct para_info *pinfo)
-{
-	i64 pos = pinfo->thisparapos;
-	i64 cbHeader, cbSize;
-	i64 bmWidth, bmHeight;
-	i64 bmBitsPixel;
-	i64 rowspan;
-
-	bmWidth = de_getu16le(pos+16+2);
-	bmHeight = de_getu16le(pos+16+4);
-	de_dbg_dimensions(c, bmWidth, bmHeight);
-	bmBitsPixel = (i64)de_getbyte(pos+16+9);
-	de_dbg(c, "bmBitsPixel: %d", (int)bmBitsPixel);
-
-	rowspan = de_getu16le(pos+16+6);
-	de_dbg(c, "bytes/row: %d", (int)rowspan);
-
-	cbHeader = de_getu16le(pos+30);
-	de_dbg(c, "cbHeader: %d", (int)cbHeader);
-
-	cbSize = de_getu32le(pos+32);
-	de_dbg(c, "cbSize: %d", (int)cbSize);
-
-	if(bmBitsPixel!=1) {
-		de_err(c, "This type of bitmap is not supported (bmBitsPixel=%d)",
-			(int)bmBitsPixel);
-		goto done;
-	}
-
-	pos += cbHeader;
-
-	de_convert_and_write_image_bilevel(c->infile, pos, bmWidth, bmHeight, rowspan, 0, NULL, 0);
-
-done:
-	;
-}
-
 static const char *get_objecttype1_name(unsigned int t)
 {
 	const char *name;
@@ -161,276 +124,207 @@ static const char *get_objecttype1_name(unsigned int t)
 	return name;
 }
 
+// Read the usually-40-byte picture header.
+// The header has 3 variants (metafile, bitmap, OLE), which have some common
+// fields, and some different fields. So, this function is kind of ugly.
+static void do_picture_header(deark *c, lctx *d, struct para_info *pinfo,
+	struct picctx_struct *picctx)
+{
+	i64 pos1 = pinfo->thisparapos;
+	i64 pos = pos1;
+	i64 n1, n2;
+
+	// (The initial "mm" / "storage type" field has already been read.)
+
+	if(picctx->mm==WRI_STG_METAFILE) {
+		pos = pos1+2;
+		n1 = de_getu16le_p(&pos);
+		n2 = de_getu16le_p(&pos);
+		de_dbg(c, "xExt,yExt: %d"DE_CHAR_TIMES"%d twips", (int)n1, (int)n2);
+	}
+
+	if(picctx->mm==WRI_STG_OLE) {
+		// This field seems important, but we don't use it, because the OLE
+		// FormatID field is sufficient.
+		picctx->ole_objectType = (unsigned int)de_getu16le(pos1+6);
+		de_dbg(c, "objectType: %u (%s)", picctx->ole_objectType,
+			get_objecttype1_name(picctx->ole_objectType));
+	}
+
+	pos = pos1+8;
+	n1 = de_getu16le_p(&pos);
+	de_dbg(c, "dxaOffset: %d twips", (int)n1);
+	n1 = de_getu16le_p(&pos);
+	n2 = de_getu16le_p(&pos);
+	de_dbg(c, "dxaSize,dyaSize: %d"DE_CHAR_TIMES"%d twips", (int)n1, (int)n2);
+
+	if(picctx->mm==WRI_STG_BITMAP) {
+		de_dbg(c, "[DDB header at %"I64_FMT"]", pos1+16);
+	}
+
+	if(picctx->mm==WRI_STG_OLE) {
+		picctx->ole_dwDataSize = de_getu32le(pos1+16);
+		de_dbg(c, "dwDataSize: %d", (int)picctx->ole_dwDataSize);
+		n1 = de_getu32le(pos1+24);
+		de_dbg(c, "dwObjNum: 0x%08x", (unsigned int)n1);
+	}
+
+	picctx->cbHeader = de_getu16le(pos1+30);
+	de_dbg(c, "header size: %d", (int)picctx->cbHeader);
+
+	if(picctx->mm==WRI_STG_METAFILE || picctx->mm==WRI_STG_BITMAP) {
+		picctx->cbSize = de_getu32le(pos1+32);
+		de_dbg(c, "data size: %d", (int)picctx->cbSize);
+	}
+
+	pos = pos1+36;
+	n1 = de_getu16le_p(&pos);
+	n2 = de_getu16le_p(&pos);
+	de_dbg(c, "scaling factor x,y: %d,%d", (int)n1, (int)n2);
+}
+
+static void do_picture_metafile(deark *c, lctx *d, struct para_info *pinfo,
+	struct picctx_struct *picctx)
+{
+	i64 pos = pinfo->thisparapos;
+
+	if(picctx->cbHeader+picctx->cbSize > pinfo->thisparalen) goto done;
+	de_dbg(c, "metafile data at %"I64_FMT, pos+picctx->cbHeader);
+	dbuf_create_file_from_slice(c->infile, pos+picctx->cbHeader, picctx->cbSize,
+		"wmf", NULL, 0);
+done:
+	;
+}
+
+static void do_picture_bitmap(deark *c, lctx *d, struct para_info *pinfo,
+	struct picctx_struct *picctx)
+{
+	i64 hdrpos, bitspos;
+	i64 bitssize;
+	dbuf *tmpf = NULL;
+
+	if(picctx->cbHeader + picctx->cbSize > pinfo->thisparalen) goto done;
+	hdrpos = pinfo->thisparapos + 16;
+	bitspos = pinfo->thisparapos + picctx->cbHeader;
+	bitssize = picctx->cbSize;
+	de_dbg(c, "processing DDB, header at %"I64_FMT", pixels at %"I64_FMT,
+		hdrpos, bitspos);
+
+	// Most commonly, the DDB bits immediately follow the header. But in this
+	// format, they are separated, with some non-DDB data in between.
+	// We'll construct a temporary DDB, in which they are contiguous, to pass
+	// to the ddb module.
+	tmpf = dbuf_create_membuf(c, 14+bitssize, 0);
+	dbuf_copy(c->infile, hdrpos, 14, tmpf);
+	dbuf_copy(c->infile, bitspos, bitssize, tmpf);
+
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice2(c, "ddb", "N", tmpf, 0, tmpf->len);
+	de_dbg_indent(c, -1);
+
+done:
+	dbuf_close(tmpf);
+}
+
 static const char *get_picture_storage_type_name(unsigned int t)
 {
 	const char *name;
 	switch(t) {
-	case 0x88: name="metafile"; break;
-	case 0xe3: name="bitmap"; break;
-	case 0xe4: name="OLE object"; break;
+	case WRI_STG_METAFILE: name="metafile"; break;
+	case WRI_STG_BITMAP: name="bitmap"; break;
+	case WRI_STG_OLE: name="OLE object"; break;
 	default: name="?"; break;
 	}
 	return name;
 }
 
-// TODO: This does not really work, and is disabled by default.
-// TODO: Can this be merged with do_picture_bitmap()?
-static void do_static_bitmap(deark *c, lctx *d, struct para_info *pinfo, i64 pos1)
+static void do_picture_ole(deark *c, lctx *d, struct para_info *pinfo,
+	struct picctx_struct *picctx)
 {
-	i64 dlen;
-	i64 pos = pos1;
-	i64 bmWidth, bmHeight;
-	i64 bmBitsPixel;
-	i64 rowspan;
-
-	pos += 8; // ??
-	dlen = de_getu32le_p(&pos);
-	de_dbg(c, "bitmap size: %d", (int)dlen);
-
-	pos += 2; // bmType
-	bmWidth = de_getu16le_p(&pos);
-	bmHeight = de_getu16le_p(&pos);
-	de_dbg_dimensions(c, bmWidth, bmHeight);
-
-	rowspan = de_getu16le_p(&pos);
-	de_dbg(c, "bytes/row: %d", (int)rowspan);
-
-	pos++; // bmPlanes
-
-	bmBitsPixel = (i64)de_getbyte_p(&pos);
-	de_dbg(c, "bmBitsPixel: %d", (int)bmBitsPixel);
-
-	pos += 4; // bmBits
-
-	if(bmBitsPixel!=1) {
-		de_err(c, "This type of bitmap is not supported (bmBitsPixel=%d)",
-			(int)bmBitsPixel);
-		goto done;
-	}
-
-	rowspan = (dlen-14)/bmHeight;
-	bmWidth = rowspan*8;
-	de_convert_and_write_image_bilevel(c->infile, pos, bmWidth, bmHeight, rowspan, 0, NULL, 0);
-
-done:
-	;
-}
-
-static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *pinfo,
-	int rendition_idx, i64 pos1, i64 *bytes_consumed)
-{
-	i64 pos = pos1;
-	i64 stringlen;
-	struct de_stringreaderdata *srd_typename = NULL;
-
-	pos += 4; // 0x00000501
-	pos += 4; // "type" (probably already read by caller)
-
-	stringlen = de_getu32le_p(&pos);
-	srd_typename = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
-		DE_ENCODING_ASCII);
-	de_dbg(c, "typename: \"%s\"", ucstring_getpsz(srd_typename->str));
-	pos += stringlen;
-
-	if(!de_strcmp(srd_typename->sz, "DIB")) {
-		pos += 12;
-		de_dbg_indent(c, 1);
-		de_run_module_by_id_on_slice(c, "dib", NULL, c->infile, pos,
-			pinfo->thisparapos+pinfo->thisparalen-pos);
-		de_dbg_indent(c, -1);
-	}
-	else if(!de_strcmp(srd_typename->sz, "METAFILEPICT")) {
-		i64 dlen;
-		pos += 8; // ??
-		dlen = de_getu32le_p(&pos);
-		de_dbg(c, "metafile size: %d", (int)dlen); // Includes "mfp", apparently
-		pos += 8; // "mfp" struct
-		dbuf_create_file_from_slice(c->infile, pos, dlen-8, "wmf", NULL, 0);
-	}
-	else if(d->ddbhack && !de_strcmp(srd_typename->sz, "BITMAP")) {
-		do_static_bitmap(c, d, pinfo, pos);
-	}
-	else {
-		de_warn(c, "Static OLE picture type \"%s\" is not supported",
-			ucstring_getpsz(srd_typename->str));
-	}
-
-	de_destroy_stringreaderdata(c, srd_typename);
-	return 0;
-}
-
-// pos1 points to the ole_id field (should be 0x00000501).
-// Caller must have looked ahead to check the type.
-static int do_picture_ole_embedded_rendition(deark *c, lctx *d, struct para_info *pinfo,
-	int rendition_idx, i64 pos1, i64 *bytes_consumed)
-{
-	i64 pos = pos1;
-	i64 stringlen;
-	i64 data_len;
-	u8 buf[2];
-	struct de_stringreaderdata *srd_typename = NULL;
-	struct de_stringreaderdata *srd_filename = NULL;
-	struct de_stringreaderdata *srd_params = NULL;
-
-	pos += 4; // 0x00000501
-	pos += 4; // "type" (probably already read by caller)
-
-	stringlen = de_getu32le_p(&pos);
-	srd_typename = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
-		DE_ENCODING_ASCII);
-	de_dbg(c, "typename: \"%s\"", ucstring_getpsz(srd_typename->str));
-	pos += stringlen;
-
-	stringlen = de_getu32le_p(&pos);
-	srd_filename = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
-		DE_ENCODING_ASCII);
-	de_dbg(c, "filename: \"%s\"", ucstring_getpsz(srd_filename->str));
-	pos += stringlen;
-
-	stringlen = de_getu32le_p(&pos);
-	srd_params = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
-		DE_ENCODING_ASCII);
-	de_dbg(c, "params: \"%s\"", ucstring_getpsz(srd_params->str));
-	pos += stringlen;
-
-	data_len = de_getu32le_p(&pos);
-	de_dbg(c, "embedded ole rendition data: pos=%d, len=%d", (int)pos, (int)data_len);
-
-	// TODO: I don't know if it's better to sniff the data, or rely on the typename.
-	de_read(buf, pos, 2);
-	if(buf[0]=='B' && buf[1]=='M') {
-		// TODO: Detect true length of data
-		dbuf_create_file_from_slice(c->infile, pos, data_len, "bmp", NULL, 0);
-	}
-	else {
-		de_warn(c, "Unknown/unsupported type of OLE object (\"%s\") at %d",
-			ucstring_getpsz(srd_typename->str), (int)pos1);
-	}
-
-	pos += data_len;
-	*bytes_consumed = pos - pos1;
-
-	de_destroy_stringreaderdata(c, srd_typename);
-	de_destroy_stringreaderdata(c, srd_filename);
-	de_destroy_stringreaderdata(c, srd_params);
-	return 1;
-}
-
-// pos1 points to the ole_id field (should be 0x00000501).
-// Returns nonzero if there may be additional renditions.
-static int do_picture_ole_rendition(deark *c, lctx *d, struct para_info *pinfo,
-	unsigned int objectType,
-	int rendition_idx, i64 pos1, i64 *bytes_consumed)
-{
-	unsigned int ole_id;
-	unsigned int objectType2;
-	int retval = 0;
-
-	de_dbg(c, "OLE rendition[%d] at %d", rendition_idx, (int)pos1);
-	de_dbg_indent(c, 1);
-
-	ole_id = (unsigned int)de_getu32le(pos1);
-	de_dbg(c, "ole id: 0x%08x", ole_id);
-	if(ole_id!=0x00000501U) {
-		de_err(c, "Unexpected ole_id: 0x%08x", ole_id);
-		goto done;
-	}
-
-	objectType2 = (unsigned int)de_getu32le(pos1+4);
-	de_dbg(c, "type: %u", objectType2);
-
-	if(objectType==1) {
-		if(objectType2==3) {
-			do_picture_ole_static_rendition(c, d, pinfo, rendition_idx, pos1, bytes_consumed);
-		}
-	}
-	else if(objectType==2) {
-		if(objectType2==0) {
-			goto done;
-		}
-		else if(objectType2==2) {
-			do_picture_ole_embedded_rendition(c, d, pinfo, rendition_idx, pos1, bytes_consumed);
-			retval = 1;
-		}
-		else if(objectType2==5) { // replacement
-			do_picture_ole_static_rendition(c, d, pinfo, rendition_idx, pos1, bytes_consumed);
-		}
-	}
-
-done:
-	de_dbg_indent(c, -1);
-	return retval;
-}
-
-static void do_picture_ole(deark *c, lctx *d, struct para_info *pinfo)
-{
-	unsigned int objectType;
-	i64 cbHeader, dwDataSize;
 	i64 pos = pinfo->thisparapos;
-	i64 nbytes_left;
-	i64 bytes_consumed = 0;
-	int rendition_idx = 0;
+	i64 ole_len;
+	de_module_params *mparams = NULL;
 
-	objectType = (unsigned int)de_getu16le(pos+6);
-	de_dbg(c, "objectType: %u (%s)", objectType, get_objecttype1_name(objectType));
+	pos += picctx->cbHeader;
 
-	dwDataSize = de_getu32le(pos+16);
-	de_dbg(c, "dwDataSize: %d", (int)dwDataSize);
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->in_params.input_encoding = d->input_encoding;
 
-	cbHeader = de_getu16le(pos+30);
-	de_dbg(c, "cbHeader: %d", (int)cbHeader);
+	ole_len = de_min_int(picctx->ole_dwDataSize, pinfo->thisparapos+pinfo->thisparalen-pos);
+	de_dbg(c, "OLE1 data at %"I64_FMT", len=%"I64_FMT, pos, ole_len);
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice(c, "ole1", mparams, c->infile, pos, ole_len);
+	de_dbg_indent(c, -1);
 
-	pos += cbHeader;
+	de_free(c, mparams);
+}
 
-	// An "embedded" OLE object contains a sequence of entities that I'll call
-	// renditions. The last entity is just an end-of-sequence marker.
-	// I'm not sure if there can be more than two renditions (one embedded, and
-	// one static "replacement"), or if the order matters.
-
-	while(1) {
-		int ret;
-		nbytes_left = pinfo->thisparapos + pinfo->thisparalen - pos;
-		if(nbytes_left<8) break;
-
-		bytes_consumed = 0;
-		ret = do_picture_ole_rendition(c, d, pinfo, objectType, rendition_idx, pos,
-			&bytes_consumed);
-		if(!ret || bytes_consumed==0) break;
-		pos += bytes_consumed;
-		rendition_idx++;
-	}
+static int get_next_output_file_id(deark *c)
+{
+	return c->file_count;
 }
 
 static void do_picture(deark *c, lctx *d, struct para_info *pinfo)
 {
-	unsigned int mm;
+	int orig_file_count, curr_file_count;
+	struct picctx_struct *picctx = NULL;
 	i64 pos = pinfo->thisparapos;
 
-	if(d->html_outf) {
-		do_emit_raw_sz(c, d, pinfo, "<p class=r>picture</p>\n");
-	}
-
+	picctx = de_malloc(c, sizeof(struct picctx_struct));
 	if(pinfo->thisparalen<2) goto done;
-	mm = (unsigned int)de_getu16le(pos);
-	de_dbg(c, "picture storage type: 0x%04x (%s)", mm,
-		get_picture_storage_type_name(mm));
+	picctx->mm = (unsigned int)de_getu16le(pos);
+	de_dbg(c, "picture storage type: 0x%04x (%s)", picctx->mm,
+		get_picture_storage_type_name(picctx->mm));
 
-	switch(mm) {
-	case 0x88:
-		do_picture_metafile(c, d, pinfo);
+	orig_file_count = get_next_output_file_id(c);
+
+	do_picture_header(c, d, pinfo, picctx);
+
+	switch(picctx->mm) {
+	case WRI_STG_METAFILE:
+		do_picture_metafile(c, d, pinfo, picctx);
 		break;
-	case 0xe3:
-		do_picture_bitmap(c, d, pinfo);
+	case WRI_STG_BITMAP:
+		do_picture_bitmap(c, d, pinfo, picctx);
 		break;
-	case 0xe4:
-		do_picture_ole(c, d, pinfo);
+	case WRI_STG_OLE:
+		do_picture_ole(c, d, pinfo, picctx);
 		break;
 	default:
-		de_err(c, "Picture storage type 0x%04x not supported", mm);
+		de_err(c, "Picture storage type 0x%04x not supported", picctx->mm);
+	}
+
+	if(d->html_outf) {
+		// We want to include the image file ID numbers in the HTML document,
+		// so that the user can figure out which image goes where.
+		// To deduce the ID number, we watch the global file ID counter.
+		// It's totally a hack, but unfortunately our high level functions that
+		// create an output file (e.g. de_convert_and_write_image_bilevel) do
+		// not have a way return the ID number of the file they created. It
+		// would be a lot of trouble to create such a mechanism.
+
+		do_emit_raw_sz(c, d, pinfo, "<p class=r>");
+		pinfo->in_para = 1;
+		ucstring_empty(d->tmpstr);
+		ucstring_append_sz(d->tmpstr, "object", DE_ENCODING_LATIN1);
+
+		curr_file_count = get_next_output_file_id(c);
+		if(curr_file_count == orig_file_count+1) {
+			ucstring_printf(d->tmpstr, DE_ENCODING_LATIN1, " %d", orig_file_count);
+		}
+		else if(curr_file_count == orig_file_count) {
+			ucstring_append_sz(d->tmpstr, " (not extracted)", DE_ENCODING_LATIN1);
+		}
+		else {
+			ucstring_printf(d->tmpstr, DE_ENCODING_UTF8, "s %d" "\xe2\x80\x93" "%d",
+				orig_file_count, curr_file_count-1);
+		}
+		do_emit_ucstring(c, d, pinfo, d->tmpstr);
+		end_para(c, d, pinfo);
 	}
 
 done:
-	;
+	de_free(c, picctx);
 }
 
 static void ensure_in_para(deark *c, lctx *d, struct para_info *pinfo)
@@ -478,6 +372,18 @@ static void do_emit_codepoint(deark *c, lctx *d, struct para_info *pinfo, i32 ou
 
 	if(outcp!=32) {
 		pinfo->has_content = 1;
+	}
+}
+
+// Same as calling do_emit_codepoint() on each character.
+static void do_emit_ucstring(deark *c, lctx *d, struct para_info *pinfo,
+	de_ucstring *s)
+{
+	i64 k;
+
+	if(!s) return;
+	for(k=0; k<s->len; k++) {
+		do_emit_codepoint(c, d, pinfo, s->str[k]);
 	}
 }
 
@@ -816,15 +722,12 @@ static void de_run_wri(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	d->extract_text = 1;
-	if(c->input_encoding==DE_ENCODING_UNKNOWN)
-		d->input_encoding = DE_ENCODING_WINDOWS1252;
-	else
-		d->input_encoding = c->input_encoding;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
+	d->extract_text = de_get_ext_option_bool(c, "wri:extracttext", 1);
+	d->extract_ole = de_get_ext_option_bool(c, "wri:extractole",
+		(c->extract_level>=2)?1:0);
 
-	if(de_get_ext_option(c, "wri:ddbhack")) {
-		d->ddbhack = 1;
-	}
+	d->tmpstr = ucstring_create(c);
 
 	pos = 0;
 	if(!do_header(c, d, pos)) goto done;
@@ -835,8 +738,11 @@ static void de_run_wri(deark *c, de_module_params *mparams)
 	do_para_info(c, d);
 
 done:
-	do_html_end(c, d);
-	de_free(c, d);
+	if(d) {
+		do_html_end(c, d);
+		ucstring_destroy(d->tmpstr);
+		de_free(c, d);
+	}
 }
 
 static int de_identify_wri(deark *c)
@@ -855,10 +761,17 @@ static int de_identify_wri(deark *c)
 	return 0;
 }
 
+static void de_help_wri(deark *c)
+{
+	de_msg(c, "-opt wri:extracttext=0 : Do not extract text");
+	de_msg(c, "-opt wri:extractole : Extract unidentified OLE objects");
+}
+
 void de_module_wri(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "wri";
 	mi->desc = "Microsoft Write";
 	mi->run_fn = de_run_wri;
 	mi->identify_fn = de_identify_wri;
+	mi->help_fn = de_help_wri;
 }

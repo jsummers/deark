@@ -40,6 +40,40 @@ void de_strlcpy(char *dst, const char *src, size_t dstlen)
 	dst[n]='\0';
 }
 
+// Compare two ASCII strings, as if all letters were lowercase.
+// (Library functions like strcasecmp or _stricmp usually exist, but we roll
+// our own for portability, and consistent behavior.)
+static int de_strcasecmp_internal(const char *a, const char *b,
+	int has_n, size_t n)
+{
+	size_t k = 0;
+
+	while(1) {
+		unsigned char a1, b1;
+
+		if(has_n && (k>=n)) break;
+		a1 = (unsigned char)a[k];
+		b1 = (unsigned char)b[k];
+		if(a1==0 && b1==0) break;
+		if(a1>='A' && a1<='Z') a1 += 32;
+		if(b1>='A' && b1<='Z') b1 += 32;
+		if(a1<b1) return -1;
+		if(a1>b1) return 1;
+		k++;
+	}
+	return 0;
+}
+
+int de_strcasecmp(const char *a, const char *b)
+{
+	return de_strcasecmp_internal(a, b, 0, 0);
+}
+
+int de_strncasecmp(const char *a, const char *b, size_t n)
+{
+	return de_strcasecmp_internal(a, b, 1, n);
+}
+
 // A wrapper for strchr().
 char *de_strchr(const char *s, int c)
 {
@@ -66,7 +100,7 @@ static void de_puts_advanced(deark *c, unsigned int flags, const char *s)
 	u32 param1 = 0;
 
 	s_len = de_strlen(s);
-	tmps = de_malloc(c, s_len+1);
+	tmps = de_malloc(c, (i64)s_len+1);
 
 	// Search for characters that enable/disable highlighting,
 	// and split the string at them.
@@ -122,7 +156,7 @@ static void de_puts_advanced(deark *c, unsigned int flags, const char *s)
 	}
 
 	// Unset highlight, if it somehow got left on.
-	if(hlmode) {
+	if(hlmode && c->specialmsgfn) {
 		c->specialmsgfn(c, flags, DE_MSGCODE_UNHL, 0);
 	}
 
@@ -607,7 +641,7 @@ void de_fatalerror(deark *c)
 	if(c && c->fatalerrorfn) {
 		c->fatalerrorfn(c);
 	}
-	exit(1);
+	de_exitprocess();
 }
 
 // TODO: Make de_malloc use de_mallocarray internally, instead of vice versa.
@@ -723,13 +757,23 @@ struct deark_module_info *de_get_module_by_id(deark *c, const char *module_id)
 	return &c->module_info[idx];
 }
 
-int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mparams, int moddisp)
+int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mparams,
+	enum de_moddisp_enum moddisp)
 {
-	int old_moddisp;
+	enum de_moddisp_enum old_moddisp;
+	struct de_detection_data_struct *old_detection_data;
+
 	if(!mi) return 0;
 	if(!mi->run_fn) return 0;
+
 	old_moddisp = c->module_disposition;
 	c->module_disposition = moddisp;
+
+	old_detection_data = c->detection_data;
+	if(c->module_nesting_level > 0) {
+		c->detection_data = NULL;
+	}
+
 	if(c->module_nesting_level>0 && c->debug_level>=3) {
 		de_dbg3(c, "[using %s module]", mi->id);
 	}
@@ -737,6 +781,7 @@ int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mpar
 	mi->run_fn(c, mparams);
 	c->module_nesting_level--;
 	c->module_disposition = old_moddisp;
+	c->detection_data = old_detection_data;
 	return 1;
 }
 
@@ -850,6 +895,14 @@ i64 de_pad_to_2(i64 x)
 i64 de_pad_to_4(i64 x)
 {
 	return ((x+3)/4)*4;
+}
+
+// Returns x^2.
+// Valid for x=0 to 62. If x is invalid, returns 1 (=2^0).
+i64 de_pow2(i64 x)
+{
+	if(x<0 || x>62) return 1;
+	return (i64)1 << (unsigned int)x;
 }
 
 i64 de_pad_to_n(i64 x, i64 n)
@@ -1054,6 +1107,8 @@ static void de_finfo_set_name_internal(deark *c, de_finfo *fi, de_ucstring *s,
 	i64 i;
 	int allow_slashes;
 
+	fi->orig_name_was_dot = 0;
+
 	if(fi->file_name_internal) {
 		ucstring_destroy(fi->file_name_internal);
 		fi->file_name_internal = NULL;
@@ -1067,6 +1122,14 @@ static void de_finfo_set_name_internal(deark *c, de_finfo *fi, de_ucstring *s,
 	}
 
 	allow_slashes = (c->allow_subdirs && (flags&DE_SNFLAG_FULLPATH));
+
+	if(allow_slashes && s->len==1 && s->str[0]=='.') {
+		// Remember if this file was named ".", which can be a valid subdir
+		// name in some cases (but at this point we don't even know whether it
+		// is a directory).
+		fi->orig_name_was_dot = 1;
+	}
+
 	for(i=0; i<s->len; i++) {
 		if(s->str[i]=='/' && allow_slashes) {
 			continue;
@@ -1098,7 +1161,7 @@ void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s,
 }
 
 void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1,
-	unsigned int flags, int encoding)
+	unsigned int flags, de_encoding encoding)
 {
 	de_ucstring *fname;
 
@@ -1162,7 +1225,7 @@ void de_mac_time_to_timestamp(i64 mt, struct de_timestamp *ts)
 void de_FILETIME_to_timestamp(i64 ft, struct de_timestamp *ts, unsigned int flags)
 {
 	de_zeromem(ts, sizeof(struct de_timestamp));
-	if(ft<0) return;
+	if(ft<=0) return;
 	ts->is_valid = 1;
 	ts->ts_FILETIME = ft;
 	ts->precision = DE_TSPREC_HIGH;
@@ -1174,6 +1237,11 @@ void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
 {
 	i64 yr, mo, da, hr, mi, se;
 
+	if(ddate==0) {
+		de_zeromem(ts, sizeof(struct de_timestamp));
+		ts->is_valid = 0;
+		return;
+	}
 	yr = 1980+((ddate&0xfe00)>>9);
 	mo = (ddate&0x01e0)>>5;
 	da = (ddate&0x001f);
@@ -1237,8 +1305,7 @@ i64 de_timestamp_to_FILETIME(const struct de_timestamp *ts)
 
 // [Adapted from Eric Raymond's public domain my_timegm().]
 // Convert a time (as individual fields) to a de_timestamp.
-// Since de_timestamp currently uses time_t format internally,
-// this is basically a UTC version of mktime().
+// This is basically a UTC version of mktime().
 // yr = full year
 // mo = month: 1=Jan, ... 12=Dec
 // da = day of month: 1=1, ... 31=31
@@ -1283,9 +1350,96 @@ void de_timestamp_cvt_to_utc(struct de_timestamp *ts, i64 offset_seconds)
 	ts->tzcode = DE_TZCODE_UTC;
 }
 
+// Our version of the standard gmtime() function.
+// We roll our own, so that we can support a wide range of dates. We want to
+// handle erroneous, and deliberately pathological, dates in the distant past
+// and future. We also want Deark to work the same on all platforms.
+//
+// Converts a de_timestamp to a de_struct_tm, with separate fields
+// for year, month, day, ...
+// Uses the Gregorian calendar.
+// Supports dates from about year 1601 to 30828.
+void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2)
+{
+	// Let's define an "eon" to be a 400-year period. Eons begin at the start
+	// of the year 1601, 2001, 2401, etc.
+	static const i64 secs_per_eon = 12622780800LL;
+	i64 eon;
+	i64 secs_since_start_of_1601;
+	i64 secs_since_start_of_eon;
+	i64 days_since_start_of_eon;
+	i64 secs_since_start_of_day;
+	i64 yr_tmp; // years, since start of eon, accounted for so far
+	i64 days_tmp; // number of days not accounted for in yr_tmp
+	i64 count;
+	int is_leapyear;
+	int k;
+
+	de_zeromem(tm2, sizeof(struct de_struct_tm));
+	if(!ts->is_valid || ts->ts_FILETIME<=0) {
+		return;
+	}
+
+	secs_since_start_of_1601 = ts->ts_FILETIME / 10000000;
+	tm2->tm_subsec = ts->ts_FILETIME % 10000000;
+	eon = secs_since_start_of_1601 / secs_per_eon;
+	secs_since_start_of_eon = secs_since_start_of_1601 % secs_per_eon;
+	days_since_start_of_eon = secs_since_start_of_eon / 86400;
+	secs_since_start_of_day = secs_since_start_of_eon % 86400;
+	tm2->tm_hour = (int)(secs_since_start_of_day / 3600);
+	tm2->tm_min = (int)((secs_since_start_of_day % 3600)/60);
+	tm2->tm_sec = (int)(secs_since_start_of_day % 60);
+
+	days_tmp = days_since_start_of_eon;
+	yr_tmp = 0;
+
+	// The first 3 100-year periods in this eon have
+	// 100*365 + 24 days each.
+	count = days_tmp / (100*365 + 24);
+	if(count>3) count = 3;
+	days_tmp -= (100*365 + 24)*count;
+	yr_tmp += 100*count;
+
+	// The first 24 4-year periods in this 100-year period have
+	// 1 leap day each.
+	count = days_tmp / (4*365 + 1);
+	if(count>24) count = 24;
+	days_tmp -= (4*365 + 1)*count;
+	yr_tmp += 4*count;
+
+	// The first 3 years in this 4-year period are not leap years.
+	count = days_tmp / 365;
+	if(count>3) count = 3;
+	days_tmp -= 365*count;
+	yr_tmp += count;
+
+	tm2->tm_fullyear = (int)(1601 + eon*400 + yr_tmp);
+	is_leapyear = ((yr_tmp%4)==3 &&
+		yr_tmp!=99 && yr_tmp!=199 && yr_tmp!=299);
+
+	for(k=0; k<11; k++) {
+		static const u8 days_in_month[11] = // (Don't need December)
+			{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30 };
+		i64 days_in_this_month = (i64)days_in_month[k];
+		if(k==1 && is_leapyear) days_in_this_month++;
+		if(days_tmp >= days_in_this_month) {
+			days_tmp -= days_in_this_month;
+			tm2->tm_mon++;
+		}
+		else {
+			break;
+		}
+	}
+
+	tm2->tm_mday = (int)(1+days_tmp);
+	tm2->is_valid = 1;
+}
+
 // Appends " UTC" if ts->tzcode==DE_TZCODE_UTC
 // No flags are currently defined.
-void de_timestamp_to_string(const struct de_timestamp *ts,
+// Caller supplies buf (suggest it be at least size 64).
+// Returns an extra pointer to buf.
+char *de_timestamp_to_string(const struct de_timestamp *ts,
 	char *buf, size_t buf_len, unsigned int flags)
 {
 	const char *tzlabel;
@@ -1294,14 +1448,14 @@ void de_timestamp_to_string(const struct de_timestamp *ts,
 
 	if(!ts->is_valid) {
 		de_strlcpy(buf, "[invalid timestamp]", buf_len);
-		return;
+		goto done;
 	}
 
 	de_gmtime(ts, &tm2);
 	if(!tm2.is_valid) {
 		de_snprintf(buf, buf_len, "[timestamp out of range: %"I64_FMT"]",
 			de_timestamp_to_unix_time(ts));
-		return;
+		goto done;
 	}
 
 	if(ts->precision>DE_TSPREC_1SEC) {
@@ -1318,11 +1472,36 @@ void de_timestamp_to_string(const struct de_timestamp *ts,
 	if(ts->precision!=DE_TSPREC_UNKNOWN && ts->precision<=DE_TSPREC_1DAY) { // date only
 		de_snprintf(buf, buf_len, "%04d-%02d-%02d",
 			tm2.tm_fullyear, 1+tm2.tm_mon, tm2.tm_mday);
-		return;
+		goto done;
 	}
 	de_snprintf(buf, buf_len, "%04d-%02d-%02d %02d:%02d:%02d%s%s",
 		tm2.tm_fullyear, 1+tm2.tm_mon, tm2.tm_mday,
 		tm2.tm_hour, tm2.tm_min, tm2.tm_sec, subsec, tzlabel);
+done:
+	return buf;
+}
+
+// Same as de_timestamp_to_string(), except it assumes the output is only
+// needed if debug output is enabled.
+// If it is not, it just returns an empty string, to avoid the relatively
+// slow date processing.
+char *de_dbg_timestamp_to_string(deark *c, const struct de_timestamp *ts,
+	char *buf, size_t buf_len, unsigned int flags)
+{
+	if(c->debug_level<1) {
+		buf[0] = '\0';
+		return buf;
+	}
+	return de_timestamp_to_string(ts, buf, buf_len, flags);
+}
+
+// Returns the same time if called multiple times.
+void de_cached_current_time_to_timestamp(deark *c, struct de_timestamp *ts)
+{
+	if(!c->current_time.is_valid) {
+		de_current_time_to_timestamp(&c->current_time);
+	}
+	*ts = c->current_time;
 }
 
 void de_declare_fmt(deark *c, const char *fmtname)
@@ -1344,6 +1523,23 @@ void de_declare_fmtf(deark *c, const char *fmt, ...)
 	de_vsnprintf(buf, sizeof(buf), fmt, ap);
 	de_declare_fmt(c, buf);
 	va_end(ap);
+}
+
+// Returns a suitable input encoding.
+// If mparams.in_params.input_encoding exists and is not UNKNOWN,
+// returns that.
+// Else if c->input_encoding (the -inenc option) is not UNKNOWN, returns that.
+// Else returns dflt.
+de_encoding de_get_input_encoding(deark *c, de_module_params *mparams,
+	de_encoding dflt)
+{
+	if(mparams && mparams->in_params.input_encoding!=DE_ENCODING_UNKNOWN) {
+		return mparams->in_params.input_encoding;
+	}
+	if(c->input_encoding!=DE_ENCODING_UNKNOWN) {
+		return c->input_encoding;
+	}
+	return dflt;
 }
 
 // Assumes dst starts out with only '0' bits
@@ -1541,6 +1737,47 @@ struct de_crcobj {
 	u16 *table16;
 };
 
+#define DE_CRC32_INIT 0
+
+// crc32_calc() is based on public domain code by Jon Mayo, downloaded
+// from <http://orangetide.com/code/crc.c>.
+// It includes minor changes for Deark. I disclaim any copyright on these
+// minor changes. -JS
+// Note: I have found several other seemingly-independent implementations
+// of the same algorithm, such as the one by Karl Malbrain, used in miniz.
+// I don't know its origin.
+static u32 crc32_calc(const u8 *ptr, size_t cnt, u32 crc)
+{
+	static const u32 crc32_tab[16] = {
+		0x00000000U, 0x1db71064U, 0x3b6e20c8U, 0x26d930acU,
+		0x76dc4190U, 0x6b6b51f4U, 0x4db26158U, 0x5005713cU,
+		0xedb88320U, 0xf00f9344U, 0xd6d6a3e8U, 0xcb61b38cU,
+		0x9b64c2b0U, 0x86d3d2d4U, 0xa00ae278U, 0xbdbdf21cU
+	};
+
+	if(cnt==0) return crc;
+	crc = ~crc;
+	while(cnt--) {
+		crc = (crc >> 4) ^ crc32_tab[(crc & 0xf) ^ (*ptr & 0xf)];
+		crc = (crc >> 4) ^ crc32_tab[(crc & 0xf) ^ (*ptr++ >> 4)];
+	}
+	return ~crc;
+}
+
+// For a one-shot CRC calculations, or the first part of a multi-part
+// calculation.
+// buf can be NULL (in which case buf_len should be 0, but is ignored)
+static u32 de_crc32(const void *buf, i64 buf_len)
+{
+	if(!buf) return DE_CRC32_INIT;
+	return (u32)crc32_calc((const u8*)buf, (size_t)buf_len, DE_CRC32_INIT);
+}
+
+static u32 de_crc32_continue(u32 prev_crc, const void *buf, i64 buf_len)
+{
+	return (u32)crc32_calc((const u8*)buf, (size_t)buf_len, prev_crc);
+}
+
 // This is the CRC-16 algorithm used in MacBinary.
 // It is in the x^16 + x^12 + x^5 + 1 family.
 // CRC-16-CCITT is probably the best name for it, though I'm not completely
@@ -1675,7 +1912,25 @@ static int addslice_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 
 void de_crcobj_addslice(struct de_crcobj *crco, dbuf *f, i64 pos, i64 len)
 {
+	// Minor optimization for the case where the data is all in memory
+	if(f->btype==DBUF_TYPE_MEMBUF && (pos>=0) && (pos+len<=f->len)) {
+		de_crcobj_addbuf(crco, &f->membuf_buf[pos], len);
+		return;
+	}
+
 	dbuf_buffered_read(f, pos, len, addslice_cbfn, (void*)crco);
+}
+
+void de_get_reproducible_timestamp(deark *c, struct de_timestamp *ts)
+{
+	if(c->reproducible_timestamp.is_valid) {
+		*ts = c->reproducible_timestamp;
+		return;
+	}
+
+	// An arbitrary timestamp
+	// $ date -u --date='2010-09-08 07:06:05' '+%s'
+	de_unix_time_to_timestamp(1283929565LL, ts, 0x1);
 }
 
 // Call this to ensure that a zip/tar file will be created, even if it has

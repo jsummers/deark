@@ -390,7 +390,7 @@ static const struct wpg_rectype_info wpg_rectype_info_arr[] = {
 static const struct wpg_rectype_info *find_wpg_rectype_info(u8 rectype)
 {
 	i64 i;
-	for(i=0; i<(i64)DE_ITEMS_IN_ARRAY(wpg_rectype_info_arr); i++) {
+	for(i=0; i<(i64)DE_ARRAYCOUNT(wpg_rectype_info_arr); i++) {
 		if(wpg_rectype_info_arr[i].rectype == rectype) {
 			return &wpg_rectype_info_arr[i];
 		}

@@ -3,9 +3,8 @@
 /obj/**/*.d
 /deark
 /deark.exe
-/proj/vs2008/deark.vcproj.*.user
-/proj/vs2008/*.suo
-/proj/vs2008/*.ncb
+/proj/vs2019/*.vcxproj.user
+/proj/vs2019/.vs
 /Debug32/
 /Debug64/
 /Release32/

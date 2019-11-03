@@ -30,7 +30,7 @@ struct phys_member_data {
 	de_ucstring *prefix;
 };
 
-// A struct to collect various exended attributes from a logical member
+// A struct to collect various extended attributes for a logical member
 // (or for global attributes).
 struct extattr_data {
 	de_ucstring *alt_name;
@@ -183,7 +183,7 @@ static int read_phys_member_header(deark *c, lctx *d,
 	ret = read_ascii_octal_number(c->infile, pos, 12, &pmd->modtime_unix);
 	if(ret) {
 		de_unix_time_to_timestamp(pmd->modtime_unix, &pmd->mod_time, 0x1);
-		de_timestamp_to_string(&pmd->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+		de_dbg_timestamp_to_string(c, &pmd->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 		de_dbg(c, "mtime: %"I64_FMT" (%s)", pmd->modtime_unix, timestamp_buf);
 	}
 	pos += 12;
@@ -241,17 +241,17 @@ static int read_phys_member_header(deark *c, lctx *d,
 
 	if((pmd->fmt==TARFMT_POSIX || pmd->fmt==TARFMT_STAR) && (de_getbyte(pos)!=0)) {
 		// This field might only be 131 bytes, instead of 155. Let's hope that
-		// that it's NUL terminated in that case.
+		// it's NUL terminated in that case.
 		pmd->prefix = ucstring_create(c);
 		dbuf_read_to_ucstring(c->infile, pos, 155, pmd->prefix,
 			DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
 		de_dbg(c, "prefix: \"%s\"", ucstring_getpsz_d(pmd->prefix));
 	}
-	pos += 131; // first 133 bytes of prefix, or all of prefix
-	pos += 12; // next 12 bytes of prefix, or atime
-	pos += 12; // last 12 bytes of prefix, or ctime
+	//pos += 131; // first 131 bytes of prefix, or all of prefix
+	//pos += 12; // next 12 bytes of prefix, or atime
+	//pos += 12; // last 12 bytes of prefix, or ctime
 
-	pos += 12; // pad
+	//pos += 12; // pad
 
 	retval = 1;
 
@@ -336,8 +336,8 @@ static void do_exthdr_mtime(deark *c, lctx *d, struct phys_member_data *pmd,
 
 	if(ehi->val_len<1) return;
 
-	// TODO: There is probably roundoff error here than there needs to be.
-	val_dbl = strtod(ehi->value->sz, NULL);
+	// TODO: There is probably more roundoff error here than there needs to be.
+	val_dbl = de_strtod(ehi->value->sz, NULL);
 	if(val_dbl > 0.0) {
 		val_int = (i64)val_dbl;
 		val_frac = val_dbl - (double)val_int;
@@ -352,7 +352,7 @@ static void do_exthdr_mtime(deark *c, lctx *d, struct phys_member_data *pmd,
 		de_timestamp_set_subsec(&ea->alt_mod_time, val_frac);
 	}
 
-	de_timestamp_to_string(&ea->alt_mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg_timestamp_to_string(c, &ea->alt_mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %s", timestamp_buf);
 }
 
@@ -548,6 +548,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 
 	md = de_malloc(c, sizeof(struct member_data));
 	md->fi = de_finfo_create(c);
+	md->fi->detect_root_dot_dir = 1;
 	md->filename = ucstring_create(c);
 
 	ea = de_malloc(c, sizeof(struct extattr_data));
@@ -589,7 +590,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	if(!pmd) goto done;
 
 	// At this point, pmd is the main physical member for this logical file.
-	// Any other pmd's have been discarded, other than extended attributes
+	// Any other 'pmd's have been discarded, other than extended attributes
 	// that were recorded in ea.
 
 	if(ea->has_alt_size) {
@@ -699,7 +700,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 		}
 		else if(pmd->linkname) {
 			dbuf_write(outf, (const u8*)pmd->linkname->sz,
-				(i64)de_strlen(pmd->linkname->sz));
+				(i64)pmd->linkname->sz_strlen);
 			goto done;
 		}
 	}
@@ -731,10 +732,7 @@ static void de_run_tar(deark *c, de_module_params *mparams)
 
 	d->global_ea = de_malloc(c, sizeof(struct extattr_data));
 
-	if(c->input_encoding==DE_ENCODING_UNKNOWN)
-		d->input_encoding = DE_ENCODING_UTF8;
-	else
-		d->input_encoding = c->input_encoding;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_UTF8);
 
 	pos = 0;
 	while(1) {

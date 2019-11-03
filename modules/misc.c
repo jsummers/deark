@@ -13,6 +13,7 @@ DE_DECLARE_MODULE(de_module_null);
 DE_DECLARE_MODULE(de_module_cp437);
 DE_DECLARE_MODULE(de_module_crc);
 DE_DECLARE_MODULE(de_module_hexdump);
+DE_DECLARE_MODULE(de_module_bytefreq);
 DE_DECLARE_MODULE(de_module_zlib);
 DE_DECLARE_MODULE(de_module_hpicn);
 DE_DECLARE_MODULE(de_module_xpuzzle);
@@ -40,10 +41,9 @@ DE_DECLARE_MODULE(de_module_hs2);
 DE_DECLARE_MODULE(de_module_lumena_cel);
 DE_DECLARE_MODULE(de_module_zbr);
 DE_DECLARE_MODULE(de_module_cdr_wl);
-DE_DECLARE_MODULE(de_module_bld);
-DE_DECLARE_MODULE(de_module_megapaint_pat);
-DE_DECLARE_MODULE(de_module_megapaint_lib);
 DE_DECLARE_MODULE(de_module_compress);
+DE_DECLARE_MODULE(de_module_gws_thn);
+DE_DECLARE_MODULE(de_module_deskmate_pnt);
 
 // **************************************************************************
 // "copy" module
@@ -212,10 +212,114 @@ void de_module_hexdump(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
+// bytefreq
+// Prints a summary of how many times each byte value occurs.
+// **************************************************************************
+
+struct bytefreqentry {
+	i64 count;
+#define DE_BYTEFREQ_NUMLOC 3
+	i64 locations[DE_BYTEFREQ_NUMLOC];
+};
+
+struct bytefreqctx_struct {
+	struct bytefreqentry e[256];
+};
+
+static int bytefreq_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
+	i64 buf_len)
+{
+	i64 k;
+	struct bytefreqctx_struct *bfctx = (struct bytefreqctx_struct*)brctx->userdata;
+
+	for(k=0; k<buf_len; k++) {
+		struct bytefreqentry *bf = &bfctx->e[(unsigned int)buf[k]];
+
+		// Save the location of the first few occurrences of this byte value.
+		if(bf->count<DE_BYTEFREQ_NUMLOC) {
+			bf->locations[bf->count] = brctx->offset + k;
+		}
+		bf->count++;
+	}
+	return 1;
+}
+
+static void de_run_bytefreq(deark *c, de_module_params *mparams)
+{
+	struct bytefreqctx_struct *bfctx = NULL;
+	de_ucstring *s = NULL;
+	unsigned int k;
+	int input_encoding;
+
+	bfctx = de_malloc(c, sizeof(struct bytefreqctx_struct));
+	input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
+	if(input_encoding==DE_ENCODING_UTF8) {
+		input_encoding=DE_ENCODING_ASCII;
+	}
+
+	dbuf_buffered_read(c->infile, 0, c->infile->len, bytefreq_cbfn, (void*)bfctx);
+
+	de_msg(c, "====Byte==== ===Count=== ==Locations==");
+	s = ucstring_create(c);
+	for(k=0; k<256; k++) {
+		i32 ch;
+		int cflag;
+		unsigned int z;
+		struct bytefreqentry *bf = &bfctx->e[k];
+
+		if(bf->count==0) continue;
+		ucstring_empty(s);
+
+		ucstring_printf(s, DE_ENCODING_LATIN1, "%3u 0x%02x ", k, k);
+
+		ch = de_char_to_unicode(c, (i32)k, input_encoding);
+		if(ch==DE_CODEPOINT_INVALID) {
+			cflag = 0;
+		}
+		else {
+			cflag = de_is_printable_uchar(ch);
+		}
+
+		if(cflag) {
+			ucstring_append_sz(s, "'", DE_ENCODING_LATIN1);
+			ucstring_append_char(s, ch);
+			ucstring_append_sz(s, "'", DE_ENCODING_LATIN1);
+		}
+		else {
+			ucstring_append_sz(s, "   ", DE_ENCODING_LATIN1);
+		}
+
+		ucstring_printf(s, DE_ENCODING_LATIN1, " %11"I64_FMT" ", bf->count);
+
+		for(z=0; z<DE_BYTEFREQ_NUMLOC && z<bf->count; z++) {
+			ucstring_printf(s, DE_ENCODING_LATIN1, "%"I64_FMT, bf->locations[z]);
+			if(z<bf->count-1) {
+				ucstring_append_sz(s, ",", DE_ENCODING_LATIN1);
+			}
+		}
+		if(bf->count>DE_BYTEFREQ_NUMLOC) {
+			ucstring_append_sz(s, "...", DE_ENCODING_LATIN1);
+		}
+
+		de_msg(c, "%s", ucstring_getpsz(s));
+	}
+	de_msg(c, "      Total: %11"I64_FMT, c->infile->len);
+	ucstring_destroy(s);
+	de_free(c, bfctx);
+}
+
+void de_module_bytefreq(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "bytefreq";
+	mi->desc = "Print a byte frequence analysis";
+	mi->run_fn = de_run_bytefreq;
+	mi->flags |= DE_MODFLAG_NOEXTRACT;
+}
+
+// **************************************************************************
 // zlib module
 //
 // This module is for decompressing zlib-compressed files.
-// It uses the deark-miniz.c utilities, which in turn use miniz.c (miniz.h).
 // **************************************************************************
 
 static void de_run_zlib(deark *c, de_module_params *mparams)
@@ -223,7 +327,7 @@ static void de_run_zlib(deark *c, de_module_params *mparams)
 	dbuf *f = NULL;
 
 	f = dbuf_create_output_file(c, "unc", NULL, 0);
-	de_uncompress_zlib(c->infile, 0, c->infile->len, f);
+	fmtutil_decompress_deflate(c->infile, 0, c->infile->len, f, 0, NULL, DE_DEFLATEFLAG_ISZLIB);
 	dbuf_close(f);
 }
 
@@ -1449,21 +1553,6 @@ void de_module_vgafont(deark *c, struct deark_module_info *mi)
 // HSI Raw image format (from Image Alchemy / Handmade Software)
 // **************************************************************************
 
-static void convert_image_rgb(dbuf *f, i64 fpos,
-	i64 rowspan, i64 pixelspan,
-	de_bitmap *img, unsigned int flags)
-{
-	i64 i, j;
-	i32 clr;
-
-	for(j=0; j<img->height; j++) {
-		for(i=0; i<img->width; i++) {
-			clr = dbuf_getRGB(f, fpos + j*rowspan + i*pixelspan, flags);
-			de_bitmap_setpixel_rgb(img, i, j, clr);
-		}
-	}
-}
-
 static void de_run_hsiraw(deark *c, de_module_params *mparams)
 {
 	i64 w, h;
@@ -1523,7 +1612,7 @@ static void de_run_hsiraw(deark *c, de_module_params *mparams)
 	img = de_bitmap_create(c, w, h, is_grayscale?1:3);
 
 	if(num_pal_colors==0) {
-		convert_image_rgb(c->infile, pos, 3*w, 3, img, 0);
+		de_convert_image_rgb(c->infile, pos, 3*w, 3, img, 0);
 	}
 	else {
 		de_convert_image_paletted(c->infile, pos, 8, w, pal, img, 0);
@@ -1934,183 +2023,16 @@ void de_module_cdr_wl(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
-// MegaPaint BLD image
+// compress (.Z)
 // **************************************************************************
-
-static void de_run_bld(deark *c, de_module_params *mparams)
-{
-	i64 w_raw, h_raw;
-	i64 w, h;
-	i64 rowspan;
-	i64 pos = 0;
-	int is_compressed;
-	dbuf *unc_pixels = NULL;
-
-	w_raw = de_geti16be_p(&pos);
-	h_raw = de_geti16be_p(&pos);
-	is_compressed = (w_raw<0);
-	w = is_compressed ? ((-w_raw)+1) : (w_raw+1);
-	h = h_raw+1;
-	de_dbg_dimensions(c, w, h);
-	de_dbg(c, "compressed: %d", is_compressed);
-	if(!de_good_image_dimensions(c, w, h)) goto done;
-	rowspan = (w+7)/8;
-
-	if(is_compressed) {
-		unc_pixels = dbuf_create_membuf(c, h*rowspan, 1);
-		while(1) {
-			u8 b1;
-			i64 count;
-
-			if(pos >= c->infile->len) break;
-			if(unc_pixels->len >= h*rowspan) break;
-
-			b1 = de_getbyte_p(&pos);
-			if(b1==0x00 || b1==0xff) {
-				count = 1+(i64)de_getbyte_p(&pos);
-				dbuf_write_run(unc_pixels, b1, count);
-			}
-			else {
-				dbuf_writebyte(unc_pixels, b1);
-			}
-		}
-	}
-	else {
-		unc_pixels = dbuf_open_input_subfile(c->infile, pos, c->infile->len-pos);
-	}
-
-	de_convert_and_write_image_bilevel(unc_pixels, 0, w, h, rowspan,
-		DE_CVTF_WHITEISZERO, NULL, 0);
-
-done:
-	dbuf_close(unc_pixels);
-}
-
-static int de_identify_bld(deark *c)
-{
-	if(de_input_file_has_ext(c, "bld")) return 20;
-	// TODO: We could try to test if the dimensions are sane, but we'd risk
-	// getting it wrong, because we probably don't know what every edition of
-	// MegaPaint does.
-	return 0;
-}
-
-void de_module_bld(deark *c, struct deark_module_info *mi)
-{
-	mi->id = "bld";
-	mi->desc = "MegaPaint BLD";
-	mi->run_fn = de_run_bld;
-	mi->identify_fn = de_identify_bld;
-}
-
-// **************************************************************************
-// MegaPaint .PAT
-// **************************************************************************
-
-static void de_run_megapaint_pat(deark *c, de_module_params *mparams)
-{
-	// Note: This module is based on guesswork, and may be incomplete.
-	de_bitmap *mainimg = NULL;
-	i64 main_w, main_h;
-	i64 pos = 0;
-	i64 k;
-
-	pos += 8;
-	main_w = 1+(32+1)*16;
-	main_h = 1+(32+1)*2;
-
-	mainimg = de_bitmap_create(c, main_w, main_h, 1);
-	de_bitmap_rect(mainimg, 0, 0, main_w, main_h, DE_MAKE_GRAY(128), 0);
-
-	for(k=0; k<32; k++) {
-		de_bitmap *img = NULL;
-		i64 imgpos_x, imgpos_y;
-
-		img = de_bitmap_create(c, 32, 32, 1);
-		de_convert_image_bilevel(c->infile, pos, 4, img, DE_CVTF_WHITEISZERO);
-		pos += 4*32;
-
-		imgpos_x = 1+(32+1)*(k%16);
-		imgpos_y = 1+(32+1)*(k/16);
-		de_bitmap_copy_rect(img, mainimg, 0, 0, 32, 32, imgpos_x, imgpos_y, 0);
-		de_bitmap_destroy(img);
-	}
-
-	de_bitmap_write_to_file(mainimg, NULL, 0);
-	de_bitmap_destroy(mainimg);
-}
-
-static int de_identify_megapaint_pat(deark *c)
-{
-	if(dbuf_memcmp(c->infile, 0, "\x07" "PAT", 4))
-		return 0;
-	if(c->infile->len==4396) return 100;
-	return 40;
-}
-
-void de_module_megapaint_pat(deark *c, struct deark_module_info *mi)
-{
-	mi->id = "megapaint_pat";
-	mi->desc = "MegaPaint Patterns";
-	mi->run_fn = de_run_megapaint_pat;
-	mi->identify_fn = de_identify_megapaint_pat;
-}
-
-// **************************************************************************
-// MegaPaint .LIB
-// **************************************************************************
-
-static void de_run_megapaint_lib(deark *c, de_module_params *mparams)
-{
-	// Note: This module is based on guesswork, and may be incomplete.
-	const i64 idxpos = 14;
-	i64 k;
-	i64 nsyms;
-
-	nsyms = 1+de_getu16be(12);
-	de_dbg(c, "number of symbols: %d", (int)nsyms);
-
-	for(k=0; k<nsyms; k++) {
-		i64 sym_offs;
-		i64 w, h, rowspan;
-
-		sym_offs = de_getu32be(idxpos+4*k);
-		de_dbg(c, "symbol #%d", (int)(1+k));
-		de_dbg_indent(c, 1);
-		de_dbg(c, "offset: %u", (unsigned int)sym_offs);
-
-		w = 1+de_getu16be(sym_offs);
-		h = 1+de_getu16be(sym_offs+2);
-		de_dbg_dimensions(c, w, h);
-		rowspan = ((w+15)/16)*2;
-		de_convert_and_write_image_bilevel(c->infile, sym_offs+4, w, h, rowspan,
-			DE_CVTF_WHITEISZERO, NULL, 0);
-		de_dbg_indent(c, -1);
-	}
-}
-
-static int de_identify_megapaint_lib(deark *c)
-{
-	if(dbuf_memcmp(c->infile, 0, "\x07" "LIB", 4))
-		return 0;
-	if(de_input_file_has_ext(c, "lib")) return 100;
-	return 40;
-}
-
-void de_module_megapaint_lib(deark *c, struct deark_module_info *mi)
-{
-	mi->id = "megapaint_lib";
-	mi->desc = "MegaPaint Symbol Library";
-	mi->run_fn = de_run_megapaint_lib;
-	mi->identify_fn = de_identify_megapaint_lib;
-}
 
 static void de_run_compress(deark *c, de_module_params *mparams)
 {
 	dbuf *f = NULL;
 
 	f = dbuf_create_output_file(c, "bin", NULL, 0);
-	de_decompress_liblzw(c->infile, 0, c->infile->len, f, 0, 0, 0x1, 0);
+	de_fmtutil_decompress_liblzw(c->infile, 0, c->infile->len, f, 0, 0,
+		DE_LIBLZWFLAG_HAS3BYTEHEADER, 0);
 	dbuf_close(f);
 }
 
@@ -2127,4 +2049,163 @@ void de_module_compress(deark *c, struct deark_module_info *mi)
 	mi->desc = "Compress (.Z)";
 	mi->run_fn = de_run_compress;
 	mi->identify_fn = de_identify_compress;
+}
+
+// **************************************************************************
+// Graphic Workshop .THN
+// **************************************************************************
+
+static void de_run_gws_thn(deark *c, de_module_params *mparams)
+{
+	de_bitmap *img = NULL;
+	u8 v1, v2;
+	i64 w, h;
+	i64 pos;
+	de_encoding encoding;
+	de_ucstring *s = NULL;
+	u32 pal[256];
+
+	// This code is based on reverse engineering, and may be incorrect.
+	encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
+	pos = 4;
+	v1 = de_getbyte_p(&pos);
+	v2 = de_getbyte_p(&pos);
+	de_dbg(c, "version?: 0x%02x 0x%02x", (unsigned int)v1, (unsigned int)v2);
+
+	s = ucstring_create(c);
+	// For the text fields, the field size appears to be 129, but the software
+	// only properly supports up to 127 non-NUL bytes.
+	dbuf_read_to_ucstring(c->infile, 6, 127, s, DE_CONVFLAG_STOP_AT_NUL, encoding);
+	if(s->len>0) de_dbg(c, "comments: \"%s\"", ucstring_getpsz_d(s));
+	ucstring_empty(s);
+	dbuf_read_to_ucstring(c->infile, 135, 127, s, DE_CONVFLAG_STOP_AT_NUL, encoding);
+	if(s->len>0) de_dbg(c, "key words: \"%s\"", ucstring_getpsz_d(s));
+
+	pos = 264;
+	de_dbg(c, "image at %"I64_FMT, pos);
+	w = 96;
+	h = 96;
+
+	// Set up the palette. There are two possible fixed palettes.
+	if(v1==0) { // Original palette
+		// Based on Graphic Workshop v1.1a for Windows
+		static const u8 rbvals[6] = {0x00,0x57,0x83,0xab,0xd7,0xff};
+		static const u8 gvals[7] = {0x00,0x2b,0x57,0x83,0xab,0xd7,0xff};
+		static const u32 gwspal_last5[5] = {0x3f3f3f,0x6b6b6b,0x979797,
+			0xc3c3c3,0xffffff};
+		unsigned int k;
+
+		for(k=0; k<=250; k++) {
+			pal[k] = DE_MAKE_RGB(
+				rbvals[k%6],
+				gvals[(k%42)/6],
+				rbvals[k/42]);
+		}
+		for(k=251; k<=255; k++) {
+			pal[k] = gwspal_last5[k-251];
+		}
+	}
+	else { // New palette (really RGB332), introduced by v1.1c
+		// Based on Graphic Workshop v1.1u for Windows
+		unsigned int k;
+
+		for(k=0; k<256; k++) {
+			u8 r, g, b;
+			r = de_sample_nbit_to_8bit(3, k>>5);
+			g = de_sample_nbit_to_8bit(3, (k>>2)&0x07);
+			b = de_sample_nbit_to_8bit(2, k&0x03);
+			pal[k] = DE_MAKE_RGB(r, g, b);
+		}
+	}
+
+	img = de_bitmap_create(c, w, h, 3);
+	de_convert_image_paletted(c->infile, pos, 8, w, pal, img, 0);
+	img->flipped = 1;
+	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_destroy(img);
+	ucstring_destroy(s);
+}
+
+static int de_identify_gws_thn(deark *c)
+{
+	if(c->infile->len!=9480) return 0;
+	if(!dbuf_memcmp(c->infile, 0, "THNL", 4)) return 100;
+	return 0;
+}
+
+void de_module_gws_thn(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "gws_thn";
+	mi->desc = "Graphic Workshop thumbnail .THN";
+	mi->run_fn = de_run_gws_thn;
+	mi->identify_fn = de_identify_gws_thn;
+}
+
+// **************************************************************************
+// Tandy DeskMate Paint .PNT
+// **************************************************************************
+
+static void de_run_deskmate_pnt(deark *c, de_module_params *mparams)
+{
+	i64 w, h;
+	i64 rowspan;
+	i64 pos = 0;
+	int k;
+	int is_compressed;
+	de_bitmap *img = NULL;
+	dbuf *unc_pixels = NULL;
+	i64 unc_pixels_size;
+	u32 pal[16];
+
+	pos += 22;
+	w = 312;
+	h = 176;
+	rowspan = w/2;
+	unc_pixels_size = rowspan * h;
+
+	for(k=0; k<16; k++) {
+		pal[k] = de_palette_pc16(k);
+	}
+
+	is_compressed = (pos+unc_pixels_size != c->infile->len);
+	de_dbg(c, "compressed: %d", is_compressed);
+
+	if(is_compressed) {
+		unc_pixels = dbuf_create_membuf(c, unc_pixels_size, 0x1);
+		while(1) {
+			i64 count;
+			u8 val;
+
+			if(pos >= c->infile->len) break; // out of source data
+			if(unc_pixels->len >= unc_pixels_size) break; // enough dst data
+			val = de_getbyte_p(&pos);
+			count = (i64)de_getbyte_p(&pos);
+			dbuf_write_run(unc_pixels, val, count);
+		}
+	}
+	else {
+		unc_pixels = dbuf_open_input_subfile(c->infile, pos, unc_pixels_size);
+	}
+
+	de_dbg(c, "image at %"I64_FMT, pos);
+	img = de_bitmap_create(c, w, h, 3);
+	de_convert_image_paletted(unc_pixels, 0, 4, rowspan, pal, img, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
+
+	dbuf_close(unc_pixels);
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_deskmate_pnt(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "\x13" "PNT", 4)) return 100;
+	return 0;
+}
+
+void de_module_deskmate_pnt(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "deskmate_pnt";
+	mi->desc = "Tandy DeskMate Paint";
+	mi->run_fn = de_run_deskmate_pnt;
+	mi->identify_fn = de_identify_deskmate_pnt;
 }

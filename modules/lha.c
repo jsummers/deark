@@ -322,7 +322,7 @@ static const struct exthdr_type_info_struct *get_exthdr_type_info(u8 id)
 {
 	size_t i;
 
-	for(i=0; i<DE_ITEMS_IN_ARRAY(exthdr_type_info_arr); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(exthdr_type_info_arr); i++) {
 		if(id == exthdr_type_info_arr[i].id) {
 			return &exthdr_type_info_arr[i];
 		}

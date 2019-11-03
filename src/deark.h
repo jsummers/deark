@@ -23,7 +23,7 @@
 #define de_gnuc_attribute(x)
 #endif
 
-#define DE_VERSION_NUMBER 0x01050000U
+#define DE_VERSION_NUMBER 0x01050300U
 #define DE_VERSION_SUFFIX ""
 
 #ifdef DE_WINDOWS
@@ -66,6 +66,7 @@ typedef struct deark_struct deark;
 
 char *de_get_version_string(char *buf, size_t bufsize);
 unsigned int de_get_version_int(void);
+void de_exitprocess(void);
 
 void *de_malloc(deark *c, i64 n);
 void *de_mallocarray(deark *c, i64 nmemb, size_t membsize);
@@ -78,6 +79,10 @@ int de_atoi(const char *string);
 i64 de_strtoll(const char *string, char **endptr, int base);
 i64 de_atoi64(const char *string);
 int de_strcasecmp(const char *a, const char *b);
+int de_strncasecmp(const char *a, const char *b, size_t n);
+void de_vsnprintf(char *buf, size_t buflen, const char *fmt, va_list ap);
+void de_snprintf(char *buf, size_t buflen, const char *fmt, ...)
+  de_gnuc_attribute ((format (printf, 3, 4)));
 
 // Used by de_set_extract_policy()
 #define DE_EXTRACTPOLICY_DEFAULT  0

@@ -81,7 +81,7 @@ void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2)
 	}
 }
 
-static void ucstring_vprintf(de_ucstring *s, int encoding, const char *fmt, va_list ap)
+static void ucstring_vprintf(de_ucstring *s, de_encoding encoding, const char *fmt, va_list ap)
 {
 	char buf[1024];
 	de_vsnprintf(buf, sizeof(buf), fmt, ap);
@@ -91,7 +91,7 @@ static void ucstring_vprintf(de_ucstring *s, int encoding, const char *fmt, va_l
 // Appends a formatted C-style string.
 // (Unfortunately, there is no format specifier for a ucstring.)
 // There is a limit to how many characters will be appended.
-void ucstring_printf(de_ucstring *s, int encoding, const char *fmt, ...)
+void ucstring_printf(de_ucstring *s, de_encoding encoding, const char *fmt, ...)
 {
 	va_list ap;
 
@@ -121,6 +121,12 @@ void ucstring_destroy(de_ucstring *s)
 	}
 }
 
+int ucstring_isempty(const de_ucstring *s)
+{
+	if(!s) return 1;
+	return (s->len == 0);
+}
+
 int ucstring_isnonempty(const de_ucstring *s)
 {
 	return (s && (s->len > 0));
@@ -147,7 +153,7 @@ void ucstring_append_char(de_ucstring *s, i32 ch)
 }
 
 void ucstring_append_bytes(de_ucstring *s, const u8 *buf, i64 buflen,
-	unsigned int conv_flags, int encoding)
+	unsigned int conv_flags, de_encoding encoding)
 {
 	int ret;
 	i64 pos = 0;
@@ -199,7 +205,7 @@ void ucstring_append_bytes(de_ucstring *s, const u8 *buf, i64 buflen,
 	}
 }
 
-void ucstring_append_sz(de_ucstring *s, const char *sz, int encoding)
+void ucstring_append_sz(de_ucstring *s, const char *sz, de_encoding encoding)
 {
 	i64 len;
 	len = (i64)de_strlen(sz);
@@ -251,12 +257,11 @@ void ucstring_write_as_utf8(deark *c, de_ucstring *s, dbuf *outf, int add_bom_if
 	}
 }
 
-static int is_printable_uchar(i32 ch);
-
 // Note: This function is similar to de_finfo_set_name_from_ucstring().
 // Maybe they should be consolidated.
 // TODO: Should we remove the 'encoding' param, and always assume UTF-8?
-void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int flags, int encoding)
+void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len,
+	unsigned int flags, de_encoding encoding)
 {
 	i64 i;
 	i64 szpos = 0;
@@ -286,7 +291,7 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int 
 		if(flags & DE_CONVFLAG_MAKE_PRINTABLE) {
 			// TODO: This is slightly inefficient, because we're overwriting the
 			// conversion we already did.
-			if(!is_printable_uchar(ch)) {
+			if(!de_is_printable_uchar(ch)) {
 				if(ch==0x0a) {
 					de_snprintf((char*)charcodebuf, sizeof(charcodebuf),
 						"%s\\n%s", sc1, sc2);
@@ -334,7 +339,7 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int 
 // and noncharacters.
 // It would be good to also ban incorrectly-used "combining" and other context-
 // sensitive characters, but that's too difficult.
-static int is_printable_uchar(i32 ch)
+int de_is_printable_uchar(i32 ch)
 {
 	struct pr_range { i32 n1, n2; };
 	static const struct pr_range ranges[] = {
@@ -353,7 +358,7 @@ static int is_printable_uchar(i32 ch)
 		// TODO: Whitelist more codepoints
 	};
 	size_t i;
-	const size_t num_ranges = DE_ITEMS_IN_ARRAY(ranges);
+	const size_t num_ranges = DE_ARRAYCOUNT(ranges);
 
 	for(i=0; i<num_ranges; i++) {
 		if(ch>=ranges[i].n1 && ch<=ranges[i].n2) return 1;
@@ -496,10 +501,17 @@ void de_strarray_make_path(struct de_strarray *sa, de_ucstring *path, unsigned i
 
 	for(i=0; i<sa->count; i++) {
 		i64 oldlen = path->len;
-		ucstring_append_ucstring(path, sa->ss[i]);
+
+		if(ucstring_isnonempty(sa->ss[i])) {
+			ucstring_append_ucstring(path, sa->ss[i]);
+		}
+		else {
+			ucstring_append_char(path, '_');
+		}
+
 		mp_squash_slashes(path, oldlen);
 		if((i+1 < sa->count) || !(flags & DE_MPFLAG_NOTRAILINGSLASH)) {
-			ucstring_append_sz(path, "/", DE_ENCODING_LATIN1);
+			ucstring_append_char(path, '/');
 		}
 	}
 }

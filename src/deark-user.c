@@ -12,20 +12,31 @@
 #include "deark-private.h"
 #include "deark-user.h"
 
+#define DE_DEFAULT_MAX_FILE_SIZE 0x280000000LL // 10GiB
+#define DE_DEFAULT_MAX_TOTAL_OUTPUT_SIZE 0x3c0000000LL // 15GiB
+#define DE_DEFAULT_MAX_IMAGE_DIMENSION 10000
+
 // Returns the best module to use, by looking at the file contents, etc.
 static struct deark_module_info *detect_module_for_file(deark *c, int *errflag)
 {
 	int i;
 	int result;
-	int best_result = 0;
 	int orig_errcount;
 	struct deark_module_info *best_module = NULL;
 
 	*errflag = 0;
+	if(!c->detection_data) {
+		c->detection_data = de_malloc(c, sizeof(struct de_detection_data_struct));
+	}
+
+	// This value is made available to modules' identification functions, so
+	// that they can potentially skip expensive tests that cannot possibly return
+	// a high enough confidence.
+	c->detection_data->best_confidence_so_far = 0;
 
 	// Check for a UTF-8 BOM just once. Any module can use this flag.
 	if(dbuf_has_utf8_bom(c->infile, 0)) {
-		c->detection_data.has_utf8_bom = 1;
+		c->detection_data->has_utf8_bom = 1;
 	}
 
 	orig_errcount = c->error_count;
@@ -55,12 +66,12 @@ static struct deark_module_info *detect_module_for_file(deark *c, int *errflag)
 			continue;
 		}
 
-		if(result <= best_result) continue;
+		if(result <= c->detection_data->best_confidence_so_far) continue;
 
 		// This is the best result so far.
-		best_result = result;
+		c->detection_data->best_confidence_so_far = result;
 		best_module = &c->module_info[i];
-		if(best_result>=100) break;
+		if(c->detection_data->best_confidence_so_far>=100) break;
 	}
 
 	return best_module;
@@ -79,7 +90,7 @@ static int module_compare_fn(const void *a, const void *b)
 	m1 = (struct sort_data_struct *)a;
 	m2 = (struct sort_data_struct *)b;
 	c = m1->c;
-	return de_strcmp(c->module_info[m1->module_index].id,
+	return de_strcasecmp(c->module_info[m1->module_index].id,
 		c->module_info[m2->module_index].id);
 }
 
@@ -304,7 +315,7 @@ void de_run(deark *c)
 	}
 
 	if(c->modhelp_req && module_was_autodetected &&
-		de_strcmp(module_to_use->id, "unsupported"))
+		module_to_use->unique_id!=1) // id 1 == "unsupported"
 	{
 		do_modhelp_internal(c, module_to_use);
 		goto done;
@@ -325,6 +336,14 @@ void de_run(deark *c)
 			"not work properly. Caveat emptor.",
 			module_to_use->id);
 	}
+
+	if(c->identify_only) {
+		// Stop here, unless we're using the "unsupported" module.
+		if(module_to_use->unique_id!=1) {
+			goto done;
+		}
+	}
+
 	de_dbg2(c, "file size: %" I64_FMT "", c->infile->len);
 
 	if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE) {
@@ -344,13 +363,34 @@ void de_run(deark *c)
 	if(keepdirentries_opt<0) {
 		// By default, only keep dir entries if there is some way that
 		// files can be present in such a subdir.
-		c->keep_dir_entries = (
+		c->keep_dir_entries = (u8)(
 			(c->output_style==DE_OUTPUTSTYLE_ARCHIVE) &&
 			c->allow_subdirs &&
 			(!c->base_output_filename));
 	}
 	else {
 		c->keep_dir_entries = keepdirentries_opt?1:0;
+	}
+
+	if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE) {
+		const char *s_opt;
+
+		s_opt = de_get_ext_option(c, "archive:timestamp");
+		if(s_opt) {
+			c->reproducible_output = 1;
+			de_unix_time_to_timestamp(de_atoi64(s_opt), &c->reproducible_timestamp, 0x1);
+			if(!c->reproducible_timestamp.is_valid) {
+				// Timestamp out of range? Note: Supported range is
+				//  -11644473599 ( 1601-01-01 00:00:01) through
+				//  910692730085 (30828-09-14 02:48:05)
+				c->reproducible_output = 0;
+			}
+		}
+		else {
+			if(de_get_ext_option(c, "archive:repro")) {
+				c->reproducible_output = 1;
+			}
+		}
 	}
 
 	// If we're writing to a zip file, we normally defer creating that zip file
@@ -415,8 +455,12 @@ deark *de_create_internal(void)
 	c->write_density = 1;
 	c->filenames_from_file = 1;
 	c->preserve_file_times = 1;
+	c->preserve_file_times_archives = 1;
+	c->preserve_file_times_images = 1;
 	c->max_output_files = -1;
 	c->max_image_dimension = DE_DEFAULT_MAX_IMAGE_DIMENSION;
+	c->max_output_file_size = DE_DEFAULT_MAX_FILE_SIZE;
+	c->max_total_output_size = DE_DEFAULT_MAX_TOTAL_OUTPUT_SIZE;
 	c->current_time.is_valid = 0;
 	c->can_decode_fltpt = -1; // = unknown
 	c->host_is_le = -1; // = unknown
@@ -439,6 +483,7 @@ void de_destroy(deark *c)
 	if(c->base_output_filename) { de_free(c, c->base_output_filename); }
 	if(c->output_archive_filename) { de_free(c, c->output_archive_filename); }
 	if(c->extrlist_filename) { de_free(c, c->extrlist_filename); }
+	if(c->detection_data) { de_free(c, c->detection_data); }
 	de_free(c, c->module_info);
 	de_free(NULL,c);
 }
@@ -468,69 +513,155 @@ void de_set_fatalerror_callback(deark *c, de_fatalerrorfn_type fn)
 	c->fatalerrorfn = fn;
 }
 
+static int is_pathsep(i32 ch)
+{
+	if(ch=='/') return 1;
+#ifdef DE_WINDOWS
+	if(ch=='\\') return 1;
+#endif
+	return 0;
+}
+
+#ifdef DE_WINDOWS
+#define DE_PATHSEP '\\'
+#else
+#define DE_PATHSEP '/'
+#endif
+
 static const char *get_basename_ptr(const char *fn)
 {
 	size_t i;
 	const char *basenameptr = fn;
 
 	for(i=0; fn[i]; i++) {
-		if(fn[i]=='/' || fn[i]=='\\') {
+		if(is_pathsep(fn[i])) {
 			basenameptr = &fn[i+1];
 		}
 	}
 	return basenameptr;
 }
 
+static i32 ucstring_char_at(de_ucstring *s, i64 pos)
+{
+	if(!s) return 0;
+	if(pos>=0 && pos<s->len) return s->str[pos];
+	return 0;
+}
+
+// Construct a basename for output files, or a filename for archives.
 // flags:
 //  0x1 = use base filename only
 //  0x2 = remove path separators
-void de_set_base_output_filename(deark *c, const char *fn, unsigned int flags)
+// Returns an allocated string, which the caller must eventually free.
+// Returns NULL if it can't make a decent filename.
+static char *make_output_filename(deark *c, const char *dirname, const char *fn,
+	const char *suffix, unsigned int flags)
 {
-	if(c->base_output_filename) de_free(c, c->base_output_filename);
-	c->base_output_filename = NULL;
-	if(!fn) return;
+	char *newfn = NULL;
+	const char *fn_part;
+	size_t newfn_alloc;
+	de_ucstring *tmps = NULL;
+	i64 fnpartpos;
+
+	tmps = ucstring_create(c);
+
+	if(dirname && dirname[0]) {
+		ucstring_append_sz(tmps, dirname, DE_ENCODING_UTF8);
+		if(!is_pathsep(ucstring_char_at(tmps, tmps->len-1))) {
+			ucstring_append_char(tmps, DE_PATHSEP);
+		}
+	}
+
+	fnpartpos = tmps->len;
 
 	if(flags & 0x1) {
 		// Use base filename only
-		c->base_output_filename = de_strdup(c, get_basename_ptr(fn));
+		fn_part = get_basename_ptr(fn);
 	}
 	else {
-		c->base_output_filename = de_strdup(c, fn);
+		fn_part = fn;
+	}
+	if(fn_part) {
+		ucstring_append_sz(tmps, fn_part, DE_ENCODING_UTF8);
+	}
+
+	if(tmps->len <= fnpartpos) {
+		// Disallow empty filename
+		ucstring_append_sz(tmps, "_", DE_ENCODING_LATIN1);
+	}
+
+	if(suffix) {
+		ucstring_append_sz(tmps, suffix, DE_ENCODING_UTF8);
 	}
 
 	if(flags & 0x2) {
 		// Remove path separators; sanitize
-		size_t i;
+		i64 i;
 
-		for(i=0; c->base_output_filename[i]; i++) {
-			if(c->base_output_filename[i]=='/' || c->base_output_filename[i]=='\\') {
-				c->base_output_filename[i] = '_';
+		for(i=fnpartpos; i<tmps->len; i++) {
+			if(is_pathsep(tmps->str[i])) {
+				tmps->str[i] = '_';
 			}
-		}
 
-		if(c->base_output_filename[0]=='.') {
-			c->base_output_filename[0] = '_';
+			if(i==fnpartpos && tmps->str[i]=='.') {
+				tmps->str[i] = '_';
+			}
 		}
 	}
 
 	// Don't allow empty filename
-	if(c->base_output_filename[0]=='\0') {
-		de_free(c, c->base_output_filename);
-		c->base_output_filename = NULL;
-	}
+	if(tmps->len<1) goto done;
+
+	newfn_alloc = (size_t)ucstring_count_utf8_bytes(tmps) + 1;
+	newfn = de_malloc(c, newfn_alloc);
+	ucstring_to_sz(tmps, newfn, newfn_alloc, 0, DE_ENCODING_UTF8);
+
+done:
+	ucstring_destroy(tmps);
+	return newfn;
 }
 
-// If flags&0x1, configure the archive file to be written to stdout.
-void de_set_output_archive_filename(deark *c, const char *fn, unsigned int flags)
+// flags:
+//  0x1 = use base filename only
+//  0x2 = remove path separators
+void de_set_base_output_filename(deark *c, const char *dirname, const char *fn,
+	unsigned int flags)
 {
+	if(c->base_output_filename) de_free(c, c->base_output_filename);
+	c->base_output_filename = NULL;
+	if(!fn && !dirname) return;
+	if(!fn) fn = "output";
+	c->base_output_filename = make_output_filename(c, dirname, fn, NULL, flags);
+}
+
+// If flags&0x10, configure the archive file to be written to stdout.
+// 0x20 = Append ".zip"/".tar" (must have already called de_set_output_style())
+//  0x1 = use base filename only
+//  0x2 = remove path separators
+void de_set_output_archive_filename(deark *c, const char *dname, const char *fn,
+	unsigned int flags)
+{
+	const char *suffix = NULL;
 	if(c->output_archive_filename) de_free(c, c->output_archive_filename);
-	c->output_archive_filename = NULL;
-	if(fn) {
-		c->output_archive_filename = de_strdup(c, fn);
-	}
-	if(flags&0x1) {
+
+	if(flags&0x10) {
 		c->archive_to_stdout = 1;
+		return;
 	}
+
+	if((flags & 0x20) && c->output_style==DE_OUTPUTSTYLE_ARCHIVE) {
+		if(c->archive_fmt==DE_ARCHIVEFMT_ZIP) {
+			suffix = ".zip";
+		}
+		else if(c->archive_fmt==DE_ARCHIVEFMT_TAR) {
+			suffix = ".tar";
+		}
+		else {
+			suffix = ".err";
+		}
+	}
+
+	c->output_archive_filename = make_output_filename(c, dname, fn, suffix, flags);
 }
 
 void de_set_extrlist_filename(deark *c, const char *fn)
@@ -554,7 +685,7 @@ void de_set_input_filename(deark *c, const char *fn)
 
 int de_set_input_encoding(deark *c, const char *encname, int reserved)
 {
-	int enc;
+	de_encoding enc;
 
 	enc = de_encoding_name_to_code(encname);
 	if(enc==DE_ENCODING_UNKNOWN) {
@@ -620,7 +751,12 @@ void de_set_listmode(deark *c, int x)
 
 void de_set_want_modhelp(deark *c, int x)
 {
-	c->modhelp_req = x;
+	c->modhelp_req = x?1:0;
+}
+
+void de_set_id_mode(deark *c, int x)
+{
+	c->identify_only = x?1:0;
 }
 
 void de_set_first_output_file(deark *c, int x)
@@ -631,6 +767,21 @@ void de_set_first_output_file(deark *c, int x)
 void de_set_max_output_files(deark *c, int n)
 {
 	c->max_output_files = n;
+}
+
+void de_set_max_output_file_size(deark *c, i64 n)
+{
+	if(n<0) n=0;
+	c->max_output_file_size = n;
+	if(c->max_total_output_size < n) {
+		c->max_total_output_size = n;
+	}
+}
+
+void de_set_max_total_output_size(deark *c, i64 n)
+{
+	if(n<0) n=0;
+	c->max_total_output_size = n;
 }
 
 void de_set_max_image_dimension(deark *c, i64 n)
@@ -652,22 +803,22 @@ void de_set_warnings(deark *c, int x)
 
 void de_set_write_bom(deark *c, int x)
 {
-	c->write_bom = x;
+	c->write_bom = (u8)x;
 }
 
 void de_set_write_density(deark *c, int x)
 {
-	c->write_density = x;
+	c->write_density = (u8)x;
 }
 
 void de_set_ascii_html(deark *c, int x)
 {
-	c->ascii_html = x;
+	c->ascii_html = (u8)x;
 }
 
 void de_set_filenames_from_file(deark *c, int x)
 {
-	c->filenames_from_file = x;
+	c->filenames_from_file = (u8)x;
 }
 
 // DE_OVERWRITEMODE_DEFAULT =
@@ -681,9 +832,30 @@ void de_set_overwrite_mode(deark *c, int x)
 	c->overwrite_mode = x;
 }
 
-void de_set_preserve_file_times(deark *c, int x)
+void de_set_preserve_file_times(deark *c, int setting, int x)
 {
-	c->preserve_file_times = x;
+	if(setting==0) {
+		// For files written directly to the filesystem.
+		c->preserve_file_times = x?1:0;
+	}
+	else if(setting==1) {
+		// For member files written to .zip/.tar files.
+		// I can't think of a good reason why a user would want to disable
+		// this, but it's allowed for consistency, and it doesn't hurt
+		// anything.
+		c->preserve_file_times_archives = x?1:0;
+	}
+	else if(setting==2) {
+		// For the tIME chunk in PNG files we generate.
+		// (Not currently used.)
+		// TODO: I'm undecided about whether this should be a user option, or
+		// just always be on.
+		// TODO: If we allow this setting to be turned off, it would be
+		// consistent to rename it, and use it for all "converted" formats,
+		// including e.g. the "Date" header item in ANSI Art files converted
+		// to HTML.
+		c->preserve_file_times_images = x?1:0;
+	}
 }
 
 void de_set_ext_option(deark *c, const char *name, const char *val)

@@ -13,8 +13,6 @@ void de_destroy(deark *c);
 
 void de_register_modules(deark *c);
 
-void de_exitprocess(void);
-
 #define DE_INPUTSTYLE_FILE    0
 #define DE_INPUTSTYLE_STDIN   1
 void de_set_input_style(deark *c, int x);
@@ -44,8 +42,11 @@ void de_set_extract_level(deark *c, int x);
 
 void de_set_listmode(deark *c, int x);
 void de_set_want_modhelp(deark *c, int x);
+void de_set_id_mode(deark *c, int x);
 void de_set_first_output_file(deark *c, int x);
 void de_set_max_output_files(deark *c, int n);
+void de_set_max_output_file_size(deark *c, i64 n);
+void de_set_max_total_output_size(deark *c, i64 n);
 void de_set_max_image_dimension(deark *c, i64 n);
 void de_set_infomessages(deark *c, int x);
 void de_set_warnings(deark *c, int x);
@@ -65,7 +66,7 @@ void de_set_filenames_from_file(deark *c, int x);
 // See DE_OVERWRITEMODE_ in deark.h
 void de_set_overwrite_mode(deark *c, int x);
 
-void de_set_preserve_file_times(deark *c, int x);
+void de_set_preserve_file_times(deark *c, int setting, int x);
 
 void de_set_ext_option(deark *c, const char *name, const char *val);
 
@@ -81,15 +82,20 @@ void de_set_module_init_codes(deark *c, const char *codes);
 // See DE_OUTPUTSTYLE_ defs in deark.h
 void de_set_output_style(deark *c, int x, int subtype);
 
-void de_set_base_output_filename(deark *c, const char *fn,
+void de_set_base_output_filename(deark *c, const char *dirname, const char *fn,
 	unsigned int flags);
 
-void de_set_output_archive_filename(deark *c, const char *fn, unsigned int flags);
+void de_set_output_archive_filename(deark *c, const char *dirname, const char *fn,
+	unsigned int flags);
 
 void de_set_extrlist_filename(deark *c, const char *fn);
 
 void de_set_disable_mods(deark *c, const char *s, int invert);
 void de_set_disable_moddetect(deark *c, const char *s, int invert);
+
+struct de_platform_data;
+struct de_platform_data *de_platformdata_create(void);
+void de_platformdata_destroy(struct de_platform_data *plctx);
 
 #ifdef DE_WINDOWS
 void de_utf8_to_oem(deark *c, const char *src, char *dst, size_t dstlen);
@@ -97,8 +103,10 @@ char **de_convert_args_to_utf8(int argc, wchar_t **argvW);
 void de_free_utf8_args(int argc, char **argv);
 wchar_t *de_utf8_to_utf16_strdup(deark *c, const char *src);
 void de_utf8_to_utf16_to_FILE(deark *c, const char *src, FILE *f);
-void *de_winconsole_get_handle(int n);
-int de_winconsole_is_console(void *h1);
-int de_get_current_windows_attributes(void *handle, unsigned int *attrs);
-void de_windows_highlight(void *handle1, unsigned int orig_attr, int x);
+void de_winconsole_init_handle(struct de_platform_data *plctx, int n);
+int de_winconsole_is_console(struct de_platform_data *plctx);
+void de_winconsole_record_current_attributes(struct de_platform_data *plctx);
+void de_winconsole_highlight(struct de_platform_data *plctx, int x);
+int de_winconsole_try_enable_ansi24(struct de_platform_data *plctx);
+int de_winconsole_enable_ansi(struct de_platform_data *plctx);
 #endif

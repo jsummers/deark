@@ -134,7 +134,7 @@ static int block_id_to_offset_and_size(deark *c, lctx *d, u32 blk_id,
 
 	addr_code = d->block_addr_table[blk_id].addr_code;
 	size_indicator = addr_code&0x1f;
-	*psize = (i64)(1U<<size_indicator);
+	*psize = de_pow2((i64)size_indicator);
 	*poffs = HDRSIZE+(i64)(addr_code-size_indicator);
 
 	retval = 1;

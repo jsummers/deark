@@ -157,7 +157,7 @@ static void de_run_degas(deark *c, de_module_params *mparams)
 		de_dbg(c, "Invalid or unsupported resolution (%u)", resolution_code);
 		goto done;
 	}
-	adata->ncolors = (i64)(1<<adata->bpp);
+	adata->ncolors = de_pow2(adata->bpp);
 
 	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d, colors: %d", (int)adata->w, (int)adata->h, (int)adata->ncolors);
 
@@ -175,7 +175,7 @@ static void de_run_degas(deark *c, de_module_params *mparams)
 		adata->was_compressed = 1;
 		adata->unc_pixels = dbuf_create_membuf(c, 32000, 1);
 
-		if(!de_fmtutil_uncompress_packbits(c->infile, pos, c->infile->len-pos, adata->unc_pixels, &cmpr_bytes_consumed))
+		if(!de_fmtutil_decompress_packbits(c->infile, pos, c->infile->len-pos, adata->unc_pixels, &cmpr_bytes_consumed))
 			goto done;
 
 		de_dbg(c, "Compressed bytes found: %d", (int)cmpr_bytes_consumed);
@@ -385,9 +385,9 @@ static void de_run_prismpaint(deark *c, de_module_params *mparams)
 		adata->unc_pixels = dbuf_create_membuf(c, adata->w*adata->h, 0);
 		//dbuf_set_max_length(unc_pixels, ...);
 
-		de_fmtutil_uncompress_packbits(c->infile, pixels_start, c->infile->len - pixels_start,
+		de_fmtutil_decompress_packbits(c->infile, pixels_start, c->infile->len - pixels_start,
 			adata->unc_pixels, NULL);
-		de_dbg(c, "uncompressed to %d bytes", (int)adata->unc_pixels->len);
+		de_dbg(c, "decompressed to %d bytes", (int)adata->unc_pixels->len);
 	}
 
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
@@ -854,7 +854,7 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	adata->ncolors = (i64)(1<<adata->bpp);
+	adata->ncolors = de_pow2(adata->bpp);
 
 	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d, colors: %d", (int)adata->w, (int)adata->h, (int)adata->ncolors);
 
@@ -1020,7 +1020,7 @@ static void de_run_neochrome(deark *c, de_module_params *mparams)
 	adata->bpp = 4;
 	adata->w = 320;
 	adata->h = 200;
-	adata->ncolors = (i64)(1<<adata->bpp);
+	adata->ncolors = de_pow2(adata->bpp);
 	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d, colors: %d", (int)adata->w, (int)adata->h, (int)adata->ncolors);
 
 	de_fmtutil_read_atari_palette(c, c->infile, 4, adata->pal, 16, adata->ncolors, 0);

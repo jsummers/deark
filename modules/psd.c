@@ -178,6 +178,7 @@ typedef struct localctx_struct {
 	int tagged_blocks_only;
 #define MAX_NESTING_LEVEL 50
 	int nesting_level;
+	u8 jpeg_rbswap_mode;
 	i64 intsize_2or4;
 	i64 intsize_4or8;
 
@@ -563,7 +564,7 @@ static int lookup_rsrc(u32 sig_id, u16 n, struct rsrc_info *ri_dst)
 		return 0;
 	}
 
-	for(i=0; i<(i64)DE_ITEMS_IN_ARRAY(rsrc_info_arr); i++) {
+	for(i=0; i<(i64)DE_ARRAYCOUNT(rsrc_info_arr); i++) {
 		if(rsrc_info_arr[i].id == n) {
 			*ri_dst = rsrc_info_arr[i]; // struct copy
 			if(!ri_dst->idname) ri_dst->idname = "?";
@@ -1675,17 +1676,22 @@ static void hrsrc_thumbnail(deark *c, lctx *d, zztype *zz, const struct rsrc_inf
 {
 	i64 fmt;
 	const char *ext;
+	dbuf *outf = NULL;
+	i64 dpos;
+	i64 dlen;
 
-	if(zz_avail(zz)<=28) return;
+	if(zz_avail(zz)<=28) goto done;
 
 	fmt = psd_getu32(zz->pos);
 	if(fmt != 1) {
 		// fmt != kJpegRGB
 		de_dbg(c, "thumbnail in unsupported format (%d) found", (int)fmt);
-		return;
+		goto done;
 	}
 
 	zz->pos += 28;
+	dpos = zz->pos;
+	dlen = zz_avail(zz);
 
 	if(ri->id==0x0409) {
 		ext = "psdthumb_rbswap.jpg";
@@ -1698,8 +1704,24 @@ static void hrsrc_thumbnail(deark *c, lctx *d, zztype *zz, const struct rsrc_inf
 		ext = "psdthumb.jpg";
 	}
 
-	dbuf_create_file_from_slice(c->infile, zz->pos, zz_avail(zz),
-		ext, NULL, DE_CREATEFLAG_IS_AUX);
+	outf = dbuf_create_output_file(c, ext, NULL, DE_CREATEFLAG_IS_AUX);
+
+	if(ri->id==0x0409 && d->jpeg_rbswap_mode && dlen>=11 &&
+		!dbuf_memcmp(c->infile, dpos, "\xff\xd8\xff\xe0\x00\x10" "JFIF" "\x00", 11))
+	{
+		// If we were to extract this image as-is, there will be no way to tell
+		// later that the red/blue channels are swapped. So, we have this feature
+		// to mark it by inserting a custom segment (after the JFIF segment).
+		dbuf_copy(c->infile, dpos, 20, outf);
+		dbuf_write(outf, (const u8*)"\xff\xe1\x00\x10" "Deark_RB_swap\0", 18);
+		dbuf_copy(c->infile, dpos+20, dlen-20, outf);
+	}
+	else {
+		dbuf_copy(c->infile, dpos, dlen, outf);
+	}
+
+done:
+	dbuf_close(outf);
 }
 
 // Handler for any resource that consists of a 1-byte numeric value
@@ -2466,7 +2488,6 @@ static int do_pattern(deark *c, lctx *d, zztype *zz, i64 pattern_idx)
 	do_pattern_internal(c, d, &datazz);
 
 	zz->pos += de_pad_to_4(pat_dlen);
-	retval = 1;
 
 	de_dbg_indent(c, -1);
 
@@ -3454,10 +3475,9 @@ static void init_version_specific_info(deark *c, lctx *d)
 	// Some sources say they use MacRoman, and *some* PSD files do use MacRoman.
 	// But other PSD files use other encodings, and I don't know how to know what
 	// encoding they use.
-	if(c->input_encoding==DE_ENCODING_UNKNOWN)
-		d->input_encoding = DE_ENCODING_MACROMAN;
-	else
-		d->input_encoding = c->input_encoding;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_MACROMAN);
+
+	d->jpeg_rbswap_mode = 1;
 }
 
 static int do_psd_header(deark *c, lctx *d, i64 pos)
@@ -3666,7 +3686,7 @@ static void do_bitmap_packbits(deark *c, lctx *d, zztype *zz, const struct image
 	}
 
 	unc_pixels = dbuf_create_membuf(c, 1024, 0);
-	de_fmtutil_uncompress_packbits(c->infile, zz->pos, cmpr_data_size, unc_pixels, NULL);
+	de_fmtutil_decompress_packbits(c->infile, zz->pos, cmpr_data_size, unc_pixels, NULL);
 	zz->pos += cmpr_data_size;
 	de_dbg_indent(c, 1);
 	de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT"", cmpr_data_size, unc_pixels->len);

@@ -264,7 +264,7 @@ static const char *get_machine_type_name(unsigned int n)
 		{ 0xaa64, "ARMv8 64-bit" }
 	};
 
-	for(i=0; i<DE_ITEMS_IN_ARRAY(mtn_arr); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(mtn_arr); i++) {
 		if(mtn_arr[i].id == n) {
 			return mtn_arr[i].name;
 		}
@@ -556,10 +556,29 @@ static void do_fileheader(deark *c, lctx *d)
 	}
 }
 
+static void do_decode_ddb(deark *c, lctx *d, i64 pos1, i64 len, de_finfo *fi)
+{
+	de_module_params *mparams = NULL;
+
+	de_dbg(c, "BITMAP16 at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->in_params.fi = fi;
+	de_run_module_by_id_on_slice(c, "ddb", mparams, c->infile, pos1, len);
+	de_dbg_indent(c, -1);
+	de_free(c, mparams);
+}
+
 // Extract a raw DIB, and write it to a file as a BMP.
 static void do_extract_BITMAP(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
 {
 	if(len<12) return;
+
+	if((d->fmt==EXE_FMT_NE) && (de_getbyte(pos)==0x02)) {
+		do_decode_ddb(c, d, pos, len, fi);
+		return;
+	}
+
 	de_dbg_indent(c, 1);
 	de_run_module_by_id_on_slice2(c, "dib", "X", c->infile, pos, len);
 	de_dbg_indent(c, -1);
@@ -628,17 +647,78 @@ static void do_extract_ico_cur(deark *c, lctx *d, i64 pos, i64 len,
 
 static void do_extract_CURSOR(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
 {
+	unsigned int firstword;
 	i64 hotspot_x, hotspot_y;
 
-	if(len<4) return;
-	hotspot_x = de_getu16le(pos);
+	if(len<8) return;
+	firstword = (unsigned int)de_getu16le(pos);
+
+	// For Win3 icons, the first word is the x hotspot.
+	// For Win1 icons, it is one of the type codes below.
+	if(d->fmt==EXE_FMT_NE && (firstword==0x0003 || firstword==0x0103 ||
+		firstword==0x0203))
+	{
+		unsigned int fourthword;
+		// For Win3 icons, the 4th word is the high word of the
+		// bitmap-info-header-size (definitely 0).
+		// For Win1 icons, it is the width (definitely not 0).
+		fourthword = (unsigned int)de_getu16le(pos+6);
+		if(fourthword!=0) {
+			dbuf_create_file_from_slice(c->infile, pos, len, "win1.cur", fi, 0);
+			return;
+		}
+	}
+
+	hotspot_x = (i64)firstword;
 	hotspot_y = de_getu16le(pos+2);
+	de_dbg(c, "hotspot: %d,%d", (int)hotspot_x, (int)hotspot_y);
 	do_extract_ico_cur(c, d, pos+4, len-4, 1, hotspot_x, hotspot_y, fi);
 }
 
 static void do_extract_ICON(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
 {
+	if(d->fmt==EXE_FMT_NE && len>14) {
+		unsigned int firstword;
+
+		firstword = (unsigned int)de_getu16le(pos);
+		// For Win3 icons, the first word is the low word of bitmap-info-header-size
+		// (usually 40, definitely not one of the Win1 type codes).
+		// For Win1 icons, it is one of the type codes below.
+		if(firstword==0x0001 || firstword==0x0101 || firstword==0x0201) {
+			dbuf_create_file_from_slice(c->infile, pos, len, "win1.ico", fi, 0);
+			return;
+		}
+	}
+
 	do_extract_ico_cur(c, d, pos, len, 0, 0, 0, fi);
+}
+
+// Try to get the face name and 'points' from a font resource. If successful,
+// set the filename of the 'fi' object accordingly.
+// This code is somewhat duplicated in fnt.c, but it's not worth consolidating.
+static void get_font_facename(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
+{
+	unsigned int fnt_version;
+	unsigned int dfPoints;
+	i64 dfFace;
+	de_ucstring *s = NULL;
+
+	if(!fi) goto done;
+	if(len<109) goto done;
+	fnt_version = (unsigned int)de_getu16le(pos);
+	if(fnt_version < 0x0200) goto done;
+	dfPoints = (unsigned int)de_getu16le(pos+68);
+	dfFace = de_getu32le(pos+105);
+	if(dfFace>=len) goto done;
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pos+dfFace, 64, len-dfFace, s,
+		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	if(s->len<1) goto done;
+	ucstring_printf(s, DE_ENCODING_LATIN1, "-%u", dfPoints);
+	de_finfo_set_name_from_ucstring(c, fi, s, 0);
+
+done:
+	ucstring_destroy(s);
 }
 
 static void do_extract_FONT(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
@@ -651,6 +731,9 @@ static void do_extract_FONT(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
 	if(fntlen<6 || fntlen>len) {
 		fntlen = len;
 	}
+
+	get_font_facename(c, d, pos, fntlen, fi);
+
 	dbuf_create_file_from_slice(c->infile, pos, fntlen, "fnt", fi, 0);
 }
 
@@ -685,7 +768,7 @@ static const struct rsrc_type_info_struct *get_rsrc_type_info(u32 id)
 {
 	size_t i;
 
-	for(i=0; i<DE_ITEMS_IN_ARRAY(rsrc_type_info_arr); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(rsrc_type_info_arr); i++) {
 		if(id == rsrc_type_info_arr[i].id) {
 			return &rsrc_type_info_arr[i];
 		}
@@ -710,7 +793,7 @@ static void do_ne_pe_extract_resource(deark *c, lctx *d,
 	u32 type_id, const struct rsrc_type_info_struct *rsrci,
 	i64 pos, i64 len, de_finfo *fi)
 {
-	if(len<1 || len>DE_MAX_FILE_SIZE) return;
+	if(len<1 || len>DE_MAX_SANE_OBJECT_SIZE) return;
 
 	if(rsrci && rsrci->decoder_fn) {
 		rsrci->decoder_fn(c, d, pos, len, fi);
@@ -766,8 +849,9 @@ static void do_pe_resource_data_entry(deark *c, lctx *d, i64 rel_pos)
 	de_dbg(c, "data offset in file: %d",
 		(int)data_real_offset);
 
+	fi = de_finfo_create(c);
+
 	if(d->pe_cur_name_offset) {
-		fi = de_finfo_create(c);
 		de_finfo_set_name_from_pe_string(c, fi, c->infile, d->pe_cur_name_offset);
 	}
 
@@ -976,6 +1060,7 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, i64 npos)
 
 	if(!d->ne_have_type) goto done;
 
+	fi = de_finfo_create(c);
 
 	if(is_named) {
 		// Names are prefixed with a single-byte length.
@@ -983,7 +1068,6 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, i64 npos)
 		if(x>0) {
 			de_ucstring *rname = NULL;
 
-			fi = de_finfo_create(c);
 			rname = ucstring_create(c);
 			dbuf_read_to_ucstring(c->infile, rnNameOffset+1, x, rname, 0, DE_ENCODING_ASCII);
 			de_dbg(c, "resource name: \"%s\"", ucstring_getpsz(rname));
@@ -1001,8 +1085,8 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, i64 npos)
 		else
 			rsrcname = "?";
 
-		de_dbg(c, "resource at %d, type_id=%d (%s)", (int)rsrc_offset, (int)d->ne_rsrc_type_id,
-			rsrcname);
+		de_dbg(c, "resource at %"I64_FMT", len=%"I64_FMT", type_id=%d (%s)", rsrc_offset,
+			rsrc_size, (int)d->ne_rsrc_type_id, rsrcname);
 		de_dbg_indent(c, 1);
 		do_ne_pe_extract_resource(c, d, d->ne_rsrc_type_id, d->ne_rsrc_type_info,
 			rsrc_offset, rsrc_size, fi);
@@ -1227,7 +1311,7 @@ static void do_lx_or_le_rsrc_tbl(deark *c, lctx *d)
 static void de_run_exe(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	i64 eocdpos = 0;
+	int zip_eocd_found;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -1243,9 +1327,19 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 		do_lx_or_le_rsrc_tbl(c, d);
 	}
 
-	if(de_fmtutil_find_zip_eocd(c, c->infile, &eocdpos)) {
+	if(c->detection_data && c->detection_data->zip_eocd_looked_for) {
+		// Note: It isn't necessarily possible to get here - It depends on the details
+		// of how other modules' identify() functions work.
+		zip_eocd_found = (int)c->detection_data->zip_eocd_found;
+	}
+	else {
+		i64 zip_eocd_pos = 0;
+		zip_eocd_found = de_fmtutil_find_zip_eocd(c, c->infile, &zip_eocd_pos);
+	}
+	if(zip_eocd_found) {
 		de_info(c, "Note: This might be a self-extracting ZIP file (try \"-m zip\").");
 	}
+
 	de_free(c, d);
 }
 

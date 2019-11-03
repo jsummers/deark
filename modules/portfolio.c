@@ -142,7 +142,7 @@ static void de_run_pgx(deark *c, de_module_params *mparams)
 static int de_identify_pgx(deark *c)
 {
 	if(!dbuf_memcmp(c->infile, 0, "PGX", 3))
-		return 100;
+		return 90;
 	return 0;
 }
 

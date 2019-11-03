@@ -135,7 +135,7 @@ static void de_register_modules_internal(deark *c)
 
 	if(c->module_info) return; // Already done.
 
-	num_modules = DE_ITEMS_IN_ARRAY(infofunc_list);
+	num_modules = DE_ARRAYCOUNT(infofunc_list);
 
 	c->module_info = de_mallocarray(c, num_modules, sizeof(struct deark_module_info));
 
@@ -148,7 +148,7 @@ static void de_register_modules_internal(deark *c)
 
 // A wrapper for the real de_create function (de_create_internal), which also
 // records a pointer to the register_modules function.
-// This allows deark-modules.c, and indirecly deark-cmd.c, to be the only C
+// This allows deark-modules.c, and indirectly deark-cmd.c, to be the only C
 // files for which the symbols in the individual modules have to be visible.
 deark *de_create(void)
 {

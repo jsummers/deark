@@ -11,23 +11,17 @@
 DE_DECLARE_MODULE(de_module_arcfs);
 DE_DECLARE_MODULE(de_module_squash);
 
-struct member_data {
+struct arcfs_member_data {
+	struct de_riscos_file_attrs rfa;
 	int is_dir;
 	int is_regular_file;
-	int file_type_known;
 	u8 cmpr_method;
-	unsigned int lzwmaxbits;
-	u32 attribs;
-	u32 crc;
-	u32 load_addr, exec_addr;
-	unsigned int file_type;
 	i64 file_data_offs_rel;
 	i64 file_data_offs_abs;
 	i64 orig_len;
 	i64 cmpr_len;
 	const char *cmpr_meth_name;
 	de_ucstring *fn;
-	struct de_timestamp mod_time;
 };
 
 typedef struct localctx_struct {
@@ -38,15 +32,7 @@ typedef struct localctx_struct {
 	struct de_strarray *curpath;
 } lctx;
 
-static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *name)
-{
-	char timestamp_buf[64];
-
-	de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
-	de_dbg(c, "%s: %s", name, timestamp_buf);
-}
-
-static int do_file_header(deark *c, lctx *d, i64 pos1)
+static int do_arcfs_file_header(deark *c, lctx *d, i64 pos1)
 {
 	i64 pos = pos1;
 	i64 hlen;
@@ -88,25 +74,28 @@ done:
 	return retval;
 }
 
-static int do_compressed(deark *c, lctx *d, struct member_data *md, dbuf *outf,
-	int limit_size_flag)
+static void do_arcfs_compressed(deark *c, lctx *d, struct arcfs_member_data *md,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
 {
 	u8 lzwmode;
-	int retval = 0;
 
-	lzwmode = (u8)(md->lzwmaxbits | 0x80);
-	retval = de_decompress_liblzw(c->infile, md->file_data_offs_abs, md->cmpr_len,
-		outf, limit_size_flag, md->orig_len, 0x2, lzwmode);
-	return retval;
+	lzwmode = (u8)(md->rfa.lzwmaxbits | 0x80);
+	de_fmtutil_decompress_liblzw_ex(c, dcmpri, dcmpro, dres,
+		DE_LIBLZWFLAG_ARCFSMODE, lzwmode);
 }
 
-static int do_crunched(deark *c, lctx *d, struct member_data *md, dbuf *outf)
+static void do_arcfs_crunched(deark *c, lctx *d, struct arcfs_member_data *md,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
 {
 	dbuf *tmpf = NULL;
-	int ret1, ret2;
-	int retval = 0;
+	struct de_dfilter_out_params tmpoparams;
+	struct de_dfilter_in_params tmpiparams;
 
-	// "Crunched" apparently means "packed", then "compressed".
+	de_dfilter_init_objects(c, &tmpiparams, &tmpoparams, NULL);
+
+	// "Crunched" means "packed", then "compressed".
 	// So we have to "uncompress", then "unpack".
 
 	// TODO: It would be better to unpack the bytes in a streaming fashion, instead
@@ -114,17 +103,21 @@ static int do_crunched(deark *c, lctx *d, struct member_data *md, dbuf *outf)
 	// TODO: We should at least set a size limit on tmpf, but it's not clear what
 	// the limit should be.
 	tmpf = dbuf_create_membuf(c, 0, 0);
-	ret1 = do_compressed(c, d, md, tmpf, 0);
-	de_dbg2(c, "size after intermediate decompression: %d", (int)tmpf->len);
+	tmpoparams.f = tmpf;
+	tmpoparams.len_known = 0;
+	do_arcfs_compressed(c, d, md, dcmpri, &tmpoparams, dres);
+	if(dres->errcode) goto done;
 
-	ret2 = de_fmtutil_decompress_rle90(tmpf, 0, tmpf->len, outf, 1, md->orig_len, 0);
-	if(!ret1 || !ret2) goto done;
+	de_dbg2(c, "size after intermediate decompression: %"I64_FMT, tmpf->len);
 
-	retval = 1;
+	tmpiparams.f = tmpf;
+	tmpiparams.pos = 0;
+	tmpiparams.len = tmpf->len;
+
+	de_fmtutil_decompress_rle90_ex(c, &tmpiparams, dcmpro, dres, 0);
 
 done:
 	dbuf_close(tmpf);
-	return retval;
 }
 
 static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
@@ -133,14 +126,18 @@ static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
 	de_crcobj_addbuf(crco, buf, buf_len);
 }
 
-static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
+static void do_arcfs_extract_member_file(deark *c, lctx *d, struct arcfs_member_data *md,
 	de_finfo *fi)
 {
 	dbuf *outf = NULL;
 	u32 crc_calc;
-	int ret;
 	de_ucstring *fullfn = NULL;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	int have_dres = 0;
 
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	if(md->file_data_offs_abs + md->cmpr_len > c->infile->len) goto done;
 
 	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT,
@@ -149,9 +146,9 @@ static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
 	fullfn = ucstring_create(c);
 	de_strarray_make_path(d->curpath, fullfn, 0);
 	ucstring_append_ucstring(fullfn, md->fn);
-	if(d->append_type && md->file_type_known) {
+	if(d->append_type && md->rfa.file_type_known) {
 		// Append the file type to the filename, like nspark's -X option.
-		ucstring_printf(fullfn, DE_ENCODING_LATIN1, ",%03X", md->file_type);
+		ucstring_printf(fullfn, DE_ENCODING_LATIN1, ",%03X", md->rfa.file_type);
 	}
 
 	if(md->cmpr_method!=0x82 && md->cmpr_method!=0x83 && md->cmpr_method!=0x88 &&
@@ -170,36 +167,45 @@ static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
 	outf->userdata = (void*)d->crco;
 	de_crcobj_reset(d->crco);
 
+	dcmpri.f = c->infile;
+	dcmpri.pos = md->file_data_offs_abs;
+	dcmpri.len = md->cmpr_len;
+	dcmpro.f = outf;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = md->orig_len;
+
 	if(md->cmpr_method==0x82) { // stored
 		dbuf_copy(c->infile, md->file_data_offs_abs, md->cmpr_len, outf);
 	}
 	else if(md->cmpr_method==0x83) {
-		de_fmtutil_decompress_rle90(c->infile, md->file_data_offs_abs, md->cmpr_len,
-			outf, 1, md->orig_len, 0);
+		de_fmtutil_decompress_rle90_ex(c, &dcmpri, &dcmpro, &dres, 0);
+		have_dres = 1;
 	}
 	else if(md->cmpr_method==0xff) {
-		ret = do_compressed(c, d, md, outf, 1);
-		if(!ret) {
-			goto done;
-		}
+		do_arcfs_compressed(c, d, md, &dcmpri, &dcmpro, &dres);
+		have_dres = 1;
 	}
 	else if(md->cmpr_method==0x88) {
-		ret = do_crunched(c, d, md, outf);
-		if(!ret) {
-			goto done;
-		}
+		do_arcfs_crunched(c, d, md, &dcmpri, &dcmpro, &dres);
+		have_dres = 1;
+	}
+
+	if(have_dres && dres.errcode!=0) {
+		de_err(c, "%s: Decompression failed: %s",
+			ucstring_getpsz_d(md->fn), de_dfilter_get_errmsg(c, &dres));
+		goto done;
 	}
 
 	if(outf->len != md->orig_len) {
-		de_err(c, "Decompression failed for file %s, expected size %"I64_FMT
+		de_err(c, "%s: Decompression failed: Expected size %"I64_FMT
 			", got %"I64_FMT, ucstring_getpsz_d(md->fn), md->orig_len, outf->len);
 		goto done;
 	}
 
 	crc_calc = de_crcobj_getval(d->crco);
 	de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)crc_calc);
-	if(crc_calc != md->crc) {
-		if(md->crc==0) {
+	if(crc_calc != md->rfa.crc_from_attribs) {
+		if(md->rfa.crc_from_attribs==0) {
 			de_warn(c, "CRC check not available for file %s", ucstring_getpsz_d(md->fn));
 		}
 		else {
@@ -213,7 +219,7 @@ done:
 }
 
 // "Extract" a directory entry
-static void do_extract_member_dir(deark *c, lctx *d, struct member_data *md,
+static void do_arcfs_extract_member_dir(deark *c, lctx *d, struct arcfs_member_data *md,
 	de_finfo *fi)
 {
 	dbuf *outf = NULL;
@@ -231,21 +237,21 @@ static void do_extract_member_dir(deark *c, lctx *d, struct member_data *md,
 	ucstring_destroy(fullfn);
 }
 
-static void do_extract_member(deark *c, lctx *d, struct member_data *md)
+static void do_arcfs_extract_member(deark *c, lctx *d, struct arcfs_member_data *md)
 {
 	de_finfo *fi = NULL;
 
 	fi = de_finfo_create(c);
 	fi->original_filename_flag = 1;
-	if(md->mod_time.is_valid) {
-		fi->mod_time = md->mod_time;
+	if(md->rfa.mod_time.is_valid) {
+		fi->mod_time = md->rfa.mod_time;
 	}
 
 	if(md->is_regular_file) {
-		do_extract_member_file(c, d, md, fi);
+		do_arcfs_extract_member_file(c, d, md, fi);
 	}
 	else if(md->is_dir) {
-		do_extract_member_dir(c, d, md, fi);
+		do_arcfs_extract_member_dir(c, d, md, fi);
 	}
 
 	de_finfo_destroy(c, fi);
@@ -260,28 +266,30 @@ static const char *get_info_byte_name(u8 t)
 	case 0x82: name="stored"; break;
 	case 0x83: name="packed (RLE)"; break;
 	case 0x88: name="crunched"; break;
+	case 0x89: name="squashed"; break;
 	case 0xff: name="compressed"; break;
 	}
 	return name?name:"?";
 }
 
-static void destroy_member_data(deark *c, struct member_data *md)
+static void destroy_arcfs_member_data(deark *c, struct arcfs_member_data *md)
 {
 	if(!md) return;
 	ucstring_destroy(md->fn);
 	de_free(c, md);
 }
 
-static void do_member(deark *c, lctx *d, i64 idx, i64 pos1)
+static void do_arcfs_member(deark *c, lctx *d, i64 idx, i64 pos1)
 {
 	i64 pos = pos1;
 	u32 info_word;
 	u8 info_byte;
+	unsigned int tmpflags;
 	int saved_indent_level;
-	struct member_data *md;
+	struct arcfs_member_data *md;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	md = de_malloc(c, sizeof(struct member_data));
+	md = de_malloc(c, sizeof(struct arcfs_member_data));
 	de_dbg(c, "header at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
@@ -315,33 +323,16 @@ static void do_member(deark *c, lctx *d, i64 idx, i64 pos1)
 		de_dbg(c, "orig file length: %"I64_FMT, md->orig_len);
 	}
 
-	md->load_addr = (u32)de_getu32le_p(&pos);
-	md->exec_addr = (u32)de_getu32le_p(&pos);
-	de_dbg(c, "load/exec addrs: 0x%08x, 0x%08x", (unsigned int)md->load_addr,
-		(unsigned int)md->exec_addr);
-	de_dbg_indent(c, 1);
-	if((md->load_addr&0xfff00000U)==0xfff00000U) {
-		md->file_type = (unsigned int)((md->load_addr&0xfff00)>>8);
-		md->file_type_known = 1;
-		de_dbg(c, "file type: %03X", md->file_type);
+	de_fmtutil_riscos_read_load_exec(c, c->infile, &md->rfa, pos);
+	pos += 8;
 
-		de_riscos_loadexec_to_timestamp(md->load_addr, md->exec_addr, &md->mod_time);
-		dbg_timestamp(c, &md->mod_time, "timestamp");
-	}
-	de_dbg_indent(c, -1);
-
-	md->attribs = (u32)de_getu32le_p(&pos);
-	de_dbg(c, "attribs: 0x%08x", (unsigned int)md->attribs);
-	de_dbg_indent(c, 1);
-	md->crc = md->attribs>>16;
-	if(md->is_regular_file) {
-		de_dbg(c, "crc (reported): 0x%04x", (unsigned int)md->crc);
-	}
-	if(md->cmpr_method==0xff || md->cmpr_method==0x88) {
-		md->lzwmaxbits = (unsigned int)((md->attribs&0xff00)>>8);
-		de_dbg(c, "lzw maxbits: %u", md->lzwmaxbits);
-	}
-	de_dbg_indent(c, -1);
+	tmpflags = 0;
+	if(md->is_regular_file)
+		tmpflags |= DE_RISCOS_FLAG_HAS_CRC;
+	if(md->cmpr_method==0xff || md->cmpr_method==0x88)
+		tmpflags |= DE_RISCOS_FLAG_HAS_LZWMAXBITS;
+	de_fmtutil_riscos_read_attribs_field(c, c->infile, &md->rfa, pos, tmpflags);
+	pos += 4;
 
 	md->cmpr_len = de_getu32le_p(&pos);
 	if(md->is_regular_file) {
@@ -361,14 +352,14 @@ static void do_member(deark *c, lctx *d, i64 idx, i64 pos1)
 
 	de_dbg_indent(c, -1);
 
-	do_extract_member(c, d, md);
+	do_arcfs_extract_member(c, d, md);
 
 done:
-	destroy_member_data(c, md);
+	destroy_arcfs_member_data(c, md);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void do_members(deark *c, lctx *d, i64 pos1)
+static void do_arcfs_members(deark *c, lctx *d, i64 pos1)
 {
 	i64 k;
 	i64 pos = pos1;
@@ -377,7 +368,7 @@ static void do_members(deark *c, lctx *d, i64 pos1)
 		if(pos>=c->infile->len) break;
 		de_dbg(c, "member[%d]", (int)k);
 		de_dbg_indent(c, 1);
-		do_member(c, d, k, pos);
+		do_arcfs_member(c, d, k, pos);
 		de_dbg_indent(c, -1);
 		pos += 36;
 	}
@@ -393,12 +384,12 @@ static void de_run_arcfs(deark *c, de_module_params *mparams)
 	d->append_type = de_get_ext_option_bool(c, "arcfs:appendtype", 0);
 
 	pos = 0;
-	if(!do_file_header(c, d, pos)) goto done;
+	if(!do_arcfs_file_header(c, d, pos)) goto done;
 	pos += 96;
 
 	d->curpath = de_strarray_create(c);
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
-	do_members(c, d, pos);
+	do_arcfs_members(c, d, pos);
 
 done:
 	if(d) {
@@ -432,15 +423,12 @@ void de_module_arcfs(deark *c, struct deark_module_info *mi)
 ///////////////////////////////////////////////////////////////////////////
 // Squash
 
-// TODO?: The squash module has a lot of duplicated code with the arcfs and
-// compress modules. This could be consolidated, but it might not be worth the
-// added complexity.
-
 typedef struct sqctx_struct {
-	int reserved;
+	i64 orig_len;
+	struct de_riscos_file_attrs rfa;
 } sqctx;
 
-static void do_squash_header(deark *c, sqctx *d, struct member_data *md, i64 pos1)
+static void do_squash_header(deark *c, sqctx *d, i64 pos1)
 {
 	i64 pos = pos1;
 
@@ -448,68 +436,60 @@ static void do_squash_header(deark *c, sqctx *d, struct member_data *md, i64 pos
 
 	de_dbg_indent(c, 1);
 	pos += 4; // signature
-	md->orig_len = de_getu32le_p(&pos);
-	de_dbg(c, "orig file length: %"I64_FMT, md->orig_len);
+	d->orig_len = de_getu32le_p(&pos);
+	de_dbg(c, "orig file length: %"I64_FMT, d->orig_len);
 
-	md->load_addr = (u32)de_getu32le_p(&pos);
-	md->exec_addr = (u32)de_getu32le_p(&pos);
-	de_dbg(c, "load/exec addrs: 0x%08x, 0x%08x", (unsigned int)md->load_addr,
-		(unsigned int)md->exec_addr);
-	de_dbg_indent(c, 1);
-	if((md->load_addr&0xfff00000U)==0xfff00000U) {
-		md->file_type = (unsigned int)((md->load_addr&0xfff00)>>8);
-		md->file_type_known = 1;
-		de_dbg(c, "file type: %03X", md->file_type);
-
-		de_riscos_loadexec_to_timestamp(md->load_addr, md->exec_addr, &md->mod_time);
-		dbg_timestamp(c, &md->mod_time, "timestamp");
-	}
-	de_dbg_indent(c, -1);
-
+	de_fmtutil_riscos_read_load_exec(c, c->infile, &d->rfa, pos);
+	pos += 8;
 	de_dbg_indent(c, -1);
 }
 
-static void de_run_squash(deark *c, de_module_params *mparams)
+static void do_squash_main(deark *c, sqctx *d)
 {
-	sqctx *d = NULL;
-	struct member_data *md = NULL;
 	dbuf *outf = NULL;
 	de_finfo *fi = NULL;
 	de_ucstring *fn = NULL;
-	int ret;
+	struct de_dfilter_results dres;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	int saved_indent_level;
 
-	d = de_malloc(c, sizeof(sqctx));
-	md = de_malloc(c, sizeof(struct member_data));
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 
-	do_squash_header(c, d, md, 0);
-
-	md->file_data_offs_abs = 20;
-	md->cmpr_len = c->infile->len - md->file_data_offs_abs;
-	de_dbg(c, "compressed data at %"I64_FMT, md->file_data_offs_abs);
+	dcmpri.f = c->infile;
+	dcmpri.pos = 20;
+	dcmpri.len = c->infile->len - dcmpri.pos;
+	de_dbg(c, "compressed data at %"I64_FMT, dcmpri.pos);
+	de_dbg_indent(c, 1);
 
 	fi = de_finfo_create(c);
 
 	fn = ucstring_create(c);
 	ucstring_append_sz(fn, "bin", DE_ENCODING_LATIN1);
-	if(md->file_type_known && c->filenames_from_file) {
-		ucstring_printf(fn, DE_ENCODING_LATIN1, ",%03X", md->file_type);
+	if(d->rfa.file_type_known && c->filenames_from_file) {
+		ucstring_printf(fn, DE_ENCODING_LATIN1, ",%03X", d->rfa.file_type);
 	}
 	de_finfo_set_name_from_ucstring(c, fi, fn, 0);
 
-	if(md->mod_time.is_valid) {
-		fi->mod_time = md->mod_time;
+	if(d->rfa.mod_time.is_valid) {
+		fi->mod_time = d->rfa.mod_time;
 	}
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
+	dcmpro.f = outf;
+	dcmpro.len_known = 0;
 
-	ret = de_decompress_liblzw(c->infile, md->file_data_offs_abs, md->cmpr_len,
-		outf, 1, md->orig_len, 0x1, 0);
+	de_fmtutil_decompress_liblzw_ex(c, &dcmpri, &dcmpro, &dres, DE_LIBLZWFLAG_HAS3BYTEHEADER, 0);
 
-	if(!ret) goto done;
+	if(dres.errcode) {
+		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
 
-	if(outf->len != md->orig_len) {
+	if(outf->len != d->orig_len) {
 		de_err(c, "Decompression failed, expected size %"I64_FMT
-			", got %"I64_FMT, md->orig_len, outf->len);
+			", got %"I64_FMT, d->orig_len, outf->len);
 		goto done;
 	}
 
@@ -517,7 +497,18 @@ done:
 	dbuf_close(outf);
 	de_finfo_destroy(c, fi);
 	ucstring_destroy(fn);
-	destroy_member_data(c, md);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void de_run_squash(deark *c, de_module_params *mparams)
+{
+	sqctx *d = NULL;
+
+	d = de_malloc(c, sizeof(sqctx));
+
+	do_squash_header(c, d, 0);
+	do_squash_main(c, d);
+
 	de_free(c, d);
 }
 

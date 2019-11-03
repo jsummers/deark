@@ -88,7 +88,7 @@ static int do_header_KWAJ(deark *c, lctx *d, i64 pos1)
 	if(flags&0x01) {
 		d->uncmpr_len = de_getu32le(pos);
 		de_dbg(c, "uncompressed len: %"I64_FMT"", d->uncmpr_len);
-		pos += 4;
+		//pos += 4;
 	}
 	// TODO: More header fields
 

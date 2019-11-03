@@ -407,6 +407,12 @@ static void do_code_m(deark *c, lctx *d)
 		else if(sgr_code==49) {
 			d->curr_bgcol = DEFAULT_BGCOL;
 		}
+		else if(sgr_code>=90 && sgr_code<=97) {
+			d->curr_fgcol = (u32)(8+(sgr_code-90));
+		}
+		else if(sgr_code>=100 && sgr_code<=107) {
+			d->curr_bgcol = (u32)(8+(sgr_code-100));
+		}
 		else {
 			if(d->num_warnings<ANSIART_MAX_WARNINGS) {
 				de_warn(c, "Unsupported SGR code %d", (int)sgr_code);
@@ -993,8 +999,7 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 		charctx->artist = si->artist;
 		charctx->organization = si->organization;
 		charctx->creation_date = si->creation_date;
-		charctx->num_comments = si->num_comments;
-		charctx->comments = si->comments;
+		charctx->comment = si->comment;
 
 		if(si->is_valid && si->data_type==1 && (si->file_type==1 || si->file_type==2)) {
 			valid_sauce = 1;
@@ -1076,7 +1081,7 @@ static int de_identify_ansiart(deark *c)
 	u8 buf[4];
 	int has_ans_ext;
 
-	if(!c->detection_data.SAUCE_detection_attempted) {
+	if(!c->detection_data->SAUCE_detection_attempted) {
 		de_err(c, "ansiart detection requires sauce module");
 		return 0;
 	}
@@ -1091,9 +1096,9 @@ static int de_identify_ansiart(deark *c)
 
 	has_ans_ext = de_input_file_has_ext(c, "ans");
 
-	if(c->detection_data.sauce.has_SAUCE) {
-		if(c->detection_data.sauce.data_type==1 &&
-			c->detection_data.sauce.file_type==1)
+	if(c->detection_data->sauce.has_SAUCE) {
+		if(c->detection_data->sauce.data_type==1 &&
+			c->detection_data->sauce.file_type==1)
 		{
 			// Unfortunately, iCEDraw and possibly other formats may use the
 			// same SAUCE identifiers as ANSI Art, so we probably shouldn't always
@@ -1125,6 +1130,8 @@ static void de_help_ansiart(deark *c)
 	de_msg(c, "-opt char:output=image : Write an image file instead of HTML");
 	de_msg(c, " -opt char:charwidth=<8|9> : Width of a character cell");
 	de_msg(c, "-opt char:width=<n> : Number of characters per row");
+	// TODO: SAUCE help is relevant to more formats than this one.
+	de_msg(c, "-opt sauce:combinecomments=1 : Don't put line breaks between comments");
 }
 
 void de_module_ansiart(deark *c, struct deark_module_info *mi)

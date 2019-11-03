@@ -274,37 +274,65 @@ static void do_prescan_image(deark *c, lctx *d, dbuf *unc_pixels)
 	}
 }
 
-static int do_decode_rle(deark *c, lctx *d, i64 pos1, dbuf *unc_pixels)
+static void do_decode_rle_internal(deark *c1, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	i64 bytes_per_pixel)
 {
 	u8 b;
 	i64 count;
 	i64 k;
 	u8 buf[8];
-	i64 pos = pos1;
+	i64 pos = dcmpri->pos;
+
+	if(bytes_per_pixel<1 || bytes_per_pixel>8) return;
 
 	while(1) {
-		if(pos >= c->infile->len) break;
-		if(unc_pixels->len >= d->main_image.img_size_in_bytes) break;
+		if(pos >= dcmpri->pos + dcmpri->len) break;
+		if(dcmpro->f->len >= dcmpro->expected_len) break;
 
-		b = de_getbyte(pos);
+		b = dbuf_getbyte(dcmpri->f, pos);
 		pos++;
 
 		if(b & 0x80) { // RLE block
 			count = (i64)(b - 0x80) + 1;
-			de_read(buf, pos, d->bytes_per_pixel);
-			pos += d->bytes_per_pixel;
+			dbuf_read(dcmpri->f, buf, pos, bytes_per_pixel);
+			pos += bytes_per_pixel;
 			for(k=0; k<count; k++) {
-				dbuf_write(unc_pixels, buf, d->bytes_per_pixel);
+				dbuf_write(dcmpro->f, buf, bytes_per_pixel);
 			}
 		}
 		else { // uncompressed block
 			count = (i64)(b) + 1;
-			dbuf_copy(c->infile, pos, count * d->bytes_per_pixel, unc_pixels);
-			pos += count * d->bytes_per_pixel;
+			dbuf_copy(dcmpri->f, pos, count * bytes_per_pixel, dcmpro->f);
+			pos += count * bytes_per_pixel;
 		}
 	}
+	dres->bytes_consumed = pos - dcmpri->pos;
+	dres->bytes_consumed_valid = 1;
+}
 
-	de_dbg(c, "decompressed %d bytes to %d bytes", (int)(pos-pos1), (int)unc_pixels->len);
+static int do_decode_rle(deark *c, lctx *d, i64 pos1, dbuf *unc_pixels)
+{
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = pos1;
+	dcmpri.len = c->infile->len - pos1;
+	dcmpro.f = unc_pixels;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = d->main_image.img_size_in_bytes;
+
+	do_decode_rle_internal(c, &dcmpri, &dcmpro, &dres, d->bytes_per_pixel);
+
+	if(dres.errcode) {
+		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
+		return 0;
+	}
+	de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT" bytes",
+		dres.bytes_consumed, unc_pixels->len);
 	return 1;
 }
 

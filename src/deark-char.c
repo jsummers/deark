@@ -35,29 +35,57 @@ struct charextractx {
 	struct screen_stats *scrstats; // pointer to array of struct screen_stats
 };
 
-// Frees a charctx struct that has been allocated in a particular way.
-// Does not free charctx->font.
-// Does not free the ucstring fields.
-void de_free_charctx(deark *c, struct de_char_context *charctx)
+struct de_char_context *de_create_charctx(deark *c, unsigned int flags)
+{
+	struct de_char_context *charctx;
+
+	charctx = de_malloc(c, sizeof(struct de_char_context));
+	return charctx;
+}
+
+// Free the ->screens data, assuming it has been allocated in a particular way.
+void de_free_charctx_screens(deark *c, struct de_char_context *charctx)
 {
 	i64 pgnum;
 	i64 j;
 
-	if(charctx) {
-		if(charctx->screens) {
-			for(pgnum=0; pgnum<charctx->nscreens; pgnum++) {
-				if(charctx->screens[pgnum]) {
-					if(charctx->screens[pgnum]->cell_rows) {
-						for(j=0; j<charctx->screens[pgnum]->height; j++) {
-							de_free(c, charctx->screens[pgnum]->cell_rows[j]);
-						}
-						de_free(c, charctx->screens[pgnum]->cell_rows);
-					}
-					de_free(c, charctx->screens[pgnum]);
+	if(!charctx || !charctx->screens) return;
+
+	for(pgnum=0; pgnum<charctx->nscreens; pgnum++) {
+		if(charctx->screens[pgnum]) {
+			if(charctx->screens[pgnum]->cell_rows) {
+				for(j=0; j<charctx->screens[pgnum]->height; j++) {
+					de_free(c, charctx->screens[pgnum]->cell_rows[j]);
 				}
+				de_free(c, charctx->screens[pgnum]->cell_rows);
 			}
-			de_free(c, charctx->screens);
+			de_free(c, charctx->screens[pgnum]);
 		}
+	}
+	de_free(c, charctx->screens);
+	charctx->screens = NULL;
+}
+
+// Frees a charctx struct.
+// Does not free charctx->font.
+// Does not free the ucstring fields.
+void de_destroy_charctx(deark *c, struct de_char_context *charctx)
+{
+	if(!charctx) return;
+
+	if(charctx->screens) {
+		de_err(c, "internal: charctx");
+		de_fatalerror(c);
+	}
+	de_free(c, charctx);
+}
+
+// Deprecated in favor of de_free_charctx_screens() (if applicable),
+// followed by de_destroy_charctx().
+void de_free_charctx(deark *c, struct de_char_context *charctx)
+{
+	if(charctx) {
+		de_free_charctx_screens(c, charctx);
 		de_free(c, charctx);
 	}
 }
@@ -367,15 +395,19 @@ static void output_css_color_block(deark *c, dbuf *ofile, u32 *pal,
 static void write_ucstring_to_html(deark *c, const de_ucstring *s, dbuf *f)
 {
 	i64 i;
+	i64 len_at_last_linebreak;
 	int prev_space = 0;
 	i32 ch;
 
 	if(!s) return;
 
+	len_at_last_linebreak = f->len;
+
 	for(i=0; i<s->len; i++) {
 		ch = s->str[i];
 
 		// Don't let HTML collapse consecutive spaces
+		// (this is not ideal, but it's better than nothing).
 		if(ch==0x20) {
 			if(prev_space) {
 				ch = 0xa0; // nbsp
@@ -387,7 +419,13 @@ static void write_ucstring_to_html(deark *c, const de_ucstring *s, dbuf *f)
 		}
 
 		if(ch==0x0a) {
-			dbuf_puts(f, "<br>");
+			dbuf_puts(f, "<br>\n");
+			len_at_last_linebreak = f->len;
+		}
+		else if(ch==0x20 && (f->len - len_at_last_linebreak > 70)) {
+			// Low-quality attempt at word wrapping
+			dbuf_puts(f, "\n");
+			len_at_last_linebreak = f->len;
 		}
 		else {
 			de_write_codepoint_to_html(c, f, ch);
@@ -416,9 +454,7 @@ static void print_header_item(deark *c, dbuf *ofile, const char *name_rawhtml, c
 
 static void print_comments(deark *c, struct de_char_context *charctx, dbuf *ofile)
 {
-	int k;
-
-	if(charctx->num_comments<1) return;
+	if(ucstring_isempty(charctx->comment)) return;
 	dbuf_puts(ofile, "<table class=htt><tr>\n");
 	dbuf_puts(ofile, "<td class=hcth>");
 	dbuf_printf(ofile, "<span class=hn>Comments:</span>");
@@ -427,12 +463,8 @@ static void print_comments(deark *c, struct de_char_context *charctx, dbuf *ofil
 	dbuf_puts(ofile, "<td class=hctc>");
 
 	dbuf_puts(ofile, "<span class=hv>");
-	for(k=0; k<charctx->num_comments; k++) { // For each comment...
-		write_ucstring_to_html(c, charctx->comments[k].s, ofile);
-		if(k<charctx->num_comments-1) {
-			dbuf_puts(ofile, "<br>\n");
-		}
-	}
+	// TODO: Some line breaks would be good.
+	write_ucstring_to_html(c, charctx->comment, ofile);
 	dbuf_puts(ofile, "</span>");
 
 	dbuf_puts(ofile, "</td>\n");
@@ -473,13 +505,13 @@ static void do_output_html_header(deark *c, struct de_char_context *charctx,
 	// The table for the main graphics
 	dbuf_puts(ofile, " .mt { margin-left: auto; margin-right: auto }\n");
 
-	if(has_metadata || charctx->num_comments>0) {
+	if(has_metadata || charctx->comment) {
 		// Styles for header name and value
 		// Header table <table> styles
 		dbuf_puts(ofile, " .htt { width: 100%; border-collapse: collapse; background-color: #034 }\n");
 		// Header table cell <td> styles
 		dbuf_puts(ofile, " .htc { border: 2px solid #056; text-align: center }\n");
-		if(charctx->num_comments>0) {
+		if(charctx->comment) {
 			// Comment table cell <td> styles
 			dbuf_puts(ofile, " .hcth { border: 2px solid #056; padding-left: 0.5em; "
 				"padding-right: 0.5em; width: 1px }\n");
@@ -785,28 +817,38 @@ static void de_char_output_to_image_files(deark *c, struct de_char_context *char
 	}
 }
 
+// Sets charctx->outfmt
+void de_char_decide_output_format(deark *c, struct de_char_context *charctx)
+{
+	const char *s;
+
+	if(charctx->outfmt_known) return;
+	charctx->outfmt_known = 1;
+
+	if(charctx->prefer_image_output)
+		charctx->outfmt = 1;
+
+	s = de_get_ext_option(c, "char:output");
+	if(s) {
+		if(!de_strcmp(s, "html")) {
+			charctx->outfmt = 0;
+		}
+		else if(!de_strcmp(s, "image")) {
+			charctx->outfmt = 1;
+		}
+	}
+}
+
 void de_char_output_to_file(deark *c, struct de_char_context *charctx)
 {
 	i64 i;
-	int outfmt = 0;
 	const char *s;
 	int n;
 	struct charextractx *ectx = NULL;
 
 	ectx = de_malloc(c, sizeof(struct charextractx));
 
-	if(charctx->prefer_image_output)
-		outfmt = 1;
-
-	s = de_get_ext_option(c, "char:output");
-	if(s) {
-		if(!de_strcmp(s, "html")) {
-			outfmt = 0;
-		}
-		else if(!de_strcmp(s, "image")) {
-			outfmt = 1;
-		}
-	}
+	de_char_decide_output_format(c, charctx);
 
 	if(charctx->prefer_9col_mode) {
 		ectx->vga_9col_mode = 1;
@@ -829,7 +871,7 @@ void de_char_output_to_file(deark *c, struct de_char_context *charctx)
 		do_prescan_screen(c, charctx, ectx, i);
 	}
 
-	switch(outfmt) {
+	switch(charctx->outfmt) {
 	case 1:
 		de_char_output_to_image_files(c, charctx, ectx);
 		break;

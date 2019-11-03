@@ -99,9 +99,12 @@ Deark -- Information about supported formats
 * Calamus Raster Graphic (module="crg") (experimental)
 
 * Cardfile (module="cardfile")
-  - Partial support. MGC format only.
+  - Supports MGC and RRG formats.
   - Extracts bitmaps.
   - Extracts text (use -a).
+  - Extracts OLE objects.
+  Options
+   -opt ole1:extractall - Extract unidentified OLE objects
 
 * CorelDRAW CDR, old "WL" format (module="cdr_wl") (experimental)
   - Extracts preview image.
@@ -124,6 +127,8 @@ Deark -- Information about supported formats
   Options
    -opt atari:palbits=<n> (refer to readme.md)
    -opt atari:respectpal - Don't ignore a seemingly bad 2-color palette
+
+* DeskMate Paint .PNT (module="deskmate_pnt")
 
 * Doodle (Atari) (module="doodle")
   - Supports high resolution (640x400) only
@@ -170,6 +175,8 @@ Deark -- Information about supported formats
      the file has been disposed of. Incompatible with gif:raw.
 
 * GodPaint (Atari Falcon) (module="godpaint")
+
+* Graphic Workshop thumbnail (.thn) (module="gws_thn")
 
 * GRASP GL animation (module="graspgl")
   - Extracts all files.
@@ -448,6 +455,9 @@ Deark -- Information about supported formats
 
 * Sun Raster (module="sunras") (incomplete)
   - Supports most common image types
+  Options
+   -opt sunras:fmt32=<xbgr|abgr|xrgb|argb|bgrx|bgra|rgbx|rgba> - Specify the
+     interpretation of a 32-bit pixel
 
 * TGA (Targa) (module="tga")
 
@@ -481,6 +491,8 @@ Deark -- Information about supported formats
 * VITec image format (module="vitec) (experimental/incomplete)
 
 * VORT ray tracer .pix image (module="vort") (experimental/incomplete)
+
+* Windows 1.0 ICO/CUR (module="win1ico")
 
 * Windows Metafile (module=wmf)
   - Extract BMP images from some records.
@@ -516,10 +528,11 @@ Deark -- Information about supported formats
 === Font formats ===
 
 * FNT (Windows font) (module="fnt")
-  FNT files have an extra "absolute space" character, which Deark arbitrarily
-  places at code point 256, or U+2002 (EN SPACE).
+  Most FNT files have an extra "absolute space" character, which Deark
+  arbitrarily places at code point 256, or U+2002 (EN SPACE).
 
 * GEM bitmap font (module="gemfont") (experimental)
+  - Autodetection may not always work. May need "-m gemfont".
 
 * GRASP font (module="graspfont") (experimental)
   .set/.fnt; may be found inside GRASP .gl files.
@@ -539,6 +552,9 @@ Deark -- Information about supported formats
 
 === Compression, archive, installer, disk image modules ===
 
+* ARC archive (module="arc")
+  - Limited support.
+
 * ArcFS (module="arcfs")
   Options
    -opt arcfs:appendtype - Append the file type to the filename
@@ -546,14 +562,16 @@ Deark -- Information about supported formats
 * AmBs (AMOS "Banks" aggregate format) (module="abk")
   - Extract AmSp, AmIc, AmBk files.
 
-* AppleDouble Header file (module="appledouble")
-  These files usually have names beginning with "._".
-  - Extract resource fork.
-
 * Apple Partition Map (module="apm") (experimental)
 
-* AppleSingle (module="applesingle")
-  - Extract data and resource forks.
+* AppleSingle/AppleDouble (module="applesd")
+  AppleDouble files often have names beginning with "._".
+  - Extract data fork.
+  - Extract (default for AppleSingle) or decode (default for AppleDouble)
+    resource fork.
+  Options
+   -opt applesd:extractrsrc=<0|1> - Specify whether the resource fork is
+     decoded (0), or extracted (1).
 
 * ar (.a archive/library format) (module="ar") (experimental/incomplete)
   - Supports System V long filenames
@@ -581,6 +599,9 @@ Deark -- Information about supported formats
   - The extracted files are usually in specialized formats.
 
 * Gzip (module="gzip")
+
+* HFS filesystem image (module="hfs") (experimental/incomplete)
+  - Incomplete support, but should be enough for most CD-ROM images.
 
 * ISO 9660 CD-ROM image (module="iso9660") (experimental)
    -opt iso9660:tolower - Convert filenames to lowercase. Does not affect Rock
@@ -633,6 +654,12 @@ Deark -- Information about supported formats
 * SIS (EPOC/Symbian archive) (module="sis")
   - EPOC release 3/4/5/6
 
+* Spark archive (module="spark")
+  - Limited support.
+  Options
+   -opt spark:appendtype - Append the file type to the filename
+   -opt spark:recurse=0 - Extract subdirectories as Spark files
+
 * Squash (module="squash") (experimental)
   A variant of "compress", used on RISC OS.
 
@@ -647,12 +674,12 @@ Deark -- Information about supported formats
   - Some metadata is parsed, but the disk contents are not extracted or listed.
 
 * ZIP (module="zip")
-  - Limited support
+  - Supports most compression methods.
   - Extract main ZIP file comment (use -a).
   - Extract comments for individual files (use -a).
   Options
-   -opt zip:unsafe - Allow decompression code that hasn't yet been audited for
-     security. This adds support for compression type 6 ("implode").
+   -opt zip:scanmode - Attempt to read the file without using the ZIP "central
+     directory". Not recommended, but allows some damaged ZIP files to be read.
 
 * zlib (module="zlib")
   - Raw zlib files are uncompressed.
@@ -688,6 +715,10 @@ Deark -- Information about supported formats
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
 
+* Byte frequency analysis (module="bytefreq")
+  Print a table showing how many times each byte value occurs.
+  - You must use "-m bytefreq".
+
 * C64 BASIC (module="basic-c64") (experimental)
   - Detokenize C64 BASIC programs
 
@@ -710,7 +741,7 @@ Deark -- Information about supported formats
 
 * EBML/Matroska/MKV/WebM (module="ebml")
   Options
-   -opt ebml:encodedid : Also print element ID numbers in raw (encoded) form.
+   -opt ebml:encodedid - Also print element ID numbers in raw (encoded) form.
 
 * EXE/PE/NE/etc. (module="exe")
   EXE format can be complex. Not all varieties are correctly supported.
@@ -749,7 +780,7 @@ Deark -- Information about supported formats
 * ISO-BMFF (module="bmff") (incomplete)
   - MP4, QuickTime .mov, HEIF, etc.
   Options
-   -opt bmff:maxentries=<n> : Maximum number of sample table entries to print
+   -opt bmff:maxentries=<n> - Maximum number of sample table entries to print
      when using -d. This applies to several boxes, such as 'stsz'.
 
 * JPEG scan (module="jpegscan")
@@ -759,11 +790,14 @@ Deark -- Information about supported formats
 * Macintosh Resource Manager (module="macrsrc") (experimental/incomplete)
   This is the format generally used by Mac resource forks.
   Options
-   -opt macrsrc:extractraw : Extract all resources directly to files.
+   -opt macrsrc:extractraw - Extract all resources directly to files.
 
 * MIDI (module="midi")
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
+
+* Monkey's Audio (.ape) (module="monkeys_audio")
+  - Minimal support. Decodes APE tag metadata.
 
 * MP3 / MPEG audio (module="mpegaudio" or "mp3")
   - Not all files can be autodetected.
@@ -776,7 +810,7 @@ Deark -- Information about supported formats
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
   Options
-   -opt ogg:hexdump : With -d, include a hex dump of more data than usual.
+   -opt ogg:hexdump - With -d, include a hex dump of more data than usual.
 
 * Photoshop Action format (.atn) (module="ps_action")
   - Files can be parsed, but there is usually nothing that can be extracted
@@ -819,4 +853,7 @@ Deark -- Information about supported formats
 * WRI - Microsoft Write (module="wri") (incomplete)
   - Extract raw text to an HTML file. Very little formatting, etc.
   - Extract most pictures.
+  Options
+   -opt wri:extracttext=0 - Do not extract text
+   -opt ole1:extractall - Extract unidentified OLE objects
 

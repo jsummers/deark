@@ -10,35 +10,103 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_os2bmp);
 
-#define DE_OS2FMT_BA    1
-#define DE_OS2FMT_BA_BM 3
-#define DE_OS2FMT_IC    4
-#define DE_OS2FMT_BA_IC 5
-#define DE_OS2FMT_PT    6
-#define DE_OS2FMT_BA_PT 7
-#define DE_OS2FMT_CI    8
-#define DE_OS2FMT_BA_CI 9
-#define DE_OS2FMT_CP    10
-#define DE_OS2FMT_BA_CP 11
+enum fmtcode {
+	DE_OS2FMT_UNKNOWN = 0,
+	DE_OS2FMT_BA,
+	DE_OS2FMT_BM,
+	DE_OS2FMT_BA_BM,
+	DE_OS2FMT_IC,
+	DE_OS2FMT_BA_IC,
+	DE_OS2FMT_PT,
+	DE_OS2FMT_BA_PT,
+	DE_OS2FMT_CI,
+	DE_OS2FMT_BA_CI,
+	DE_OS2FMT_CP,
+	DE_OS2FMT_BA_CP
+};
 
 // This struct represents a raw source bitmap (it uses BMP format).
 // Two of them (the foreground and the mask) will be combined to make the
 // final image.
 struct srcbitmap {
+	de_bitmap *img;
 	struct de_bmpinfo bi;
+	u8 has_hotspot;
 	i64 bitssize;
 	u32 pal[256];
 };
 
+struct os2icoctx {
+	const char *fmtname; // Short name, like "CP"
+	enum fmtcode fmt;
+	struct srcbitmap *srcbmp;
+	struct srcbitmap *maskbmp;
+};
+
+static const char *get_fmt_shortname_from_code(enum fmtcode fmt)
+{
+	switch(fmt) {
+	case DE_OS2FMT_IC: return "IC";
+	case DE_OS2FMT_PT: return "PT";
+	case DE_OS2FMT_CI: return "CI";
+	case DE_OS2FMT_CP: return "CP";
+	case DE_OS2FMT_BM: return "BM";
+	case DE_OS2FMT_BA:
+	case DE_OS2FMT_BA_IC:
+	case DE_OS2FMT_BA_CI:
+	case DE_OS2FMT_BA_PT:
+	case DE_OS2FMT_BA_CP:
+	case DE_OS2FMT_BA_BM:
+		return "BA";
+	default:
+		break;
+	}
+	return "??";
+}
+
+static enum fmtcode bytes_to_fmtcode(u8 b0, u8 b1)
+{
+	if(b0=='C' && b1=='I') {
+		return DE_OS2FMT_CI;
+	}
+	else if(b0=='C' && b1=='P') {
+		return DE_OS2FMT_CP;
+	}
+	else if(b0=='I' && b1=='C') {
+		return DE_OS2FMT_IC;
+	}
+	else if(b0=='P' && b1=='T') {
+		return DE_OS2FMT_PT;
+	}
+	else if(b0=='B' && b1=='M') {
+		return DE_OS2FMT_BM;
+	}
+	else if(b0=='B' && b1=='A') {
+		return DE_OS2FMT_BA;
+	}
+	return DE_OS2FMT_UNKNOWN;
+}
+
+static void do_free_srcbmp(deark *c, struct srcbitmap *srcbmp)
+{
+	if(!srcbmp) return;
+	if(srcbmp->img) {
+		de_bitmap_destroy(srcbmp->img);
+	}
+	de_free(c, srcbmp);
+}
+
 // Populates srcbmp with information about a bitmap.
 // Does not read the palette.
-static int get_bitmap_info(deark *c, struct srcbitmap *srcbmp, const char *fmt, i64 pos)
+static int get_bitmap_info(deark *c, struct srcbitmap *srcbmp, enum fmtcode fmt,
+	const char *fmtname, i64 pos)
 {
 	int retval = 0;
 	unsigned int flags;
 
 	flags = DE_BMPINFO_HAS_FILEHEADER;
-	if(!de_strcmp(fmt,"CP")) {
+	if(fmt==DE_OS2FMT_CP || fmt==DE_OS2FMT_PT) {
+		srcbmp->has_hotspot = 1;
 		flags |= DE_BMPINFO_HAS_HOTSPOT;
 	}
 	if(!de_fmtutil_get_bmpinfo(c, c->infile, &srcbmp->bi, pos, c->infile->len - pos, flags)) {
@@ -64,22 +132,21 @@ done:
 	return retval;
 }
 
-// Read the header and palette
-// Returns NULL on error.
-static struct srcbitmap *do_decode_raw_bitmap_segment(deark *c, const char *fmt, i64 pos)
+// Read the header and palette.
+// Caller allocates srcbmp.
+// On failure, prints an error, and returns 0.
+static int do_bitmap_header(deark *c, struct os2icoctx *d, struct srcbitmap *srcbmp,
+	i64 pos, const char *bitmapname)
 {
-	int okay = 0;
-	struct srcbitmap *srcbmp = NULL;
 	i64 pal_start;
 	int saved_indent_level;
+	int retval = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "%s bitmap at %d", fmt, (int)pos);
+	de_dbg(c, "%s %s bitmap header at %"I64_FMT, d->fmtname, bitmapname, pos);
 	de_dbg_indent(c, 1);
 
-	srcbmp = de_malloc(c, sizeof(struct srcbitmap));
-
-	if(!get_bitmap_info(c, srcbmp, fmt, pos))
+	if(!get_bitmap_info(c, srcbmp, d->fmt, d->fmtname, pos))
 		goto done;
 
 	// read palette
@@ -92,185 +159,226 @@ static struct srcbitmap *do_decode_raw_bitmap_segment(deark *c, const char *fmt,
 		de_dbg_indent(c, -1);
 	}
 
-	okay = 1;
+	if(srcbmp->bi.size_of_headers_and_pal<26) {
+		de_err(c, "Bad %s image", d->fmtname);
+		goto done;
+	}
+
+	retval = 1;
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
-
-	if(!okay) {
-		if(srcbmp) {
-			de_free(c, srcbmp);
-			srcbmp = NULL;
-		}
-	}
-
-	return srcbmp;
+	return retval;
 }
 
-// srcbmp_main can be NULL.
-static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, struct srcbitmap *srcbmp_mask)
+// Uses d->srcbmp, d->maskbmp (which can be NULL).
+static void do_write_final_image(deark *c, struct os2icoctx *d, de_bitmap *img)
 {
-	de_bitmap *img;
-	i64 w, h;
-	i64 i, j;
-	i64 byte_offset;
-	u8 x;
-	u8 cr, cg, cb, ca;
-	u8 xorbit, andbit;
-	int inverse_warned = 0;
+	de_finfo *fi = NULL;
 
-	if(srcbmp_main) {
-		w = srcbmp_main->bi.width;
-		h = srcbmp_main->bi.height;
-	}
-	else {
-		w = srcbmp_mask->bi.width;
-		h = srcbmp_mask->bi.height/2;
-	}
-	img = de_bitmap_create(c, w, h, 4);
 	img->flipped = 1;
 
-	cr=0; cg=0; cb=0; ca=255;
-
-	for(j=0; j<img->height; j++) {
-		for(i=0; i<img->width; i++) {
-			if(!srcbmp_main) {
-				// IC or PT (bi-level) format.
-				// These images do have a palette, but it's unclear whether we're
-				// supposed to do anything with it.
-				cr = cg = cb = 0;
-			}
-			else if(srcbmp_main->bi.bitcount<=8) {
-				x = de_get_bits_symbol(c->infile, srcbmp_main->bi.bitcount,
-					srcbmp_main->bi.bitsoffset + srcbmp_main->bi.rowspan*j, i);
-				cr = DE_COLOR_R(srcbmp_main->pal[x]);
-				cg = DE_COLOR_G(srcbmp_main->pal[x]);
-				cb = DE_COLOR_B(srcbmp_main->pal[x]);
-			}
-			else if(srcbmp_main->bi.bitcount==24) {
-				byte_offset = srcbmp_main->bi.bitsoffset + srcbmp_main->bi.rowspan*j + i*3;
-				cb = de_getbyte(byte_offset+0);
-				cg = de_getbyte(byte_offset+1);
-				cr = de_getbyte(byte_offset+2);
-			}
-
-			// Get the mask bits
-			xorbit = de_get_bits_symbol(c->infile, srcbmp_mask->bi.bitcount,
-				srcbmp_mask->bi.bitsoffset + srcbmp_mask->bi.rowspan*j, i);
-			andbit = de_get_bits_symbol(c->infile, srcbmp_mask->bi.bitcount,
-				srcbmp_mask->bi.bitsoffset + srcbmp_mask->bi.rowspan*(srcbmp_mask->bi.height/2+j), i);
-
-			if(!andbit && !xorbit) {
-				ca = 255; // Normal foreground
-			}
-			else if(andbit && !xorbit) {
-				ca = 0; // Transparent
-			}
-			else if(!andbit && xorbit) {
-				// Inverse of the foreground? Not expected to happen, but we'll try to support it.
-				cr = 255-cr;
-				cg = 255-cg;
-				cb = 255-cb;
-				ca = 255;
-			}
-			else  {  // (andbit && xorbit)
-				// Inverse of the background. Not supported by PNG format.
-				if(!inverse_warned) {
-					de_warn(c, "This image contains inverse background pixels, which are not fully supported.");
-					inverse_warned = 1;
-				}
-				if((i+j)%2) {
-					cr = 255; cg = 0; cb=128; ca = 128;
-				}
-				else {
-					cr = 128; cg = 0; cb=255; ca = 128;
-				}
-			}
-
-			de_bitmap_setpixel_rgba(img, i, j, DE_MAKE_RGBA(cr,cg,cb,ca));
+	fi = de_finfo_create(c);
+	if(d->srcbmp) {
+		if(d->srcbmp->has_hotspot) {
+			fi->has_hotspot = 1;
+			fi->hotspot_x = d->srcbmp->bi.hotspot_x;
+			fi->hotspot_y = (int)img->height - 1 - d->srcbmp->bi.hotspot_y;
+		}
+	}
+	else if(d->maskbmp) {
+		if(d->maskbmp->has_hotspot) {
+			fi->has_hotspot = 1;
+			fi->hotspot_x = d->maskbmp->bi.hotspot_x;
+			fi->hotspot_y = (int)img->height - 1 - d->maskbmp->bi.hotspot_y;
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
 
-	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
 }
 
-static void do_decode_CI_or_CP_pair(deark *c, const char *fmt, i64 pos)
+static u32 get_inv_bkgd_replacement_clr(i64 i, i64 j)
 {
-	i64 i;
-	struct srcbitmap *srcbmp = NULL;
-	struct srcbitmap *srcbmp_mask = NULL;
-	struct srcbitmap *srcbmp_main = NULL;
+	if((i+j)%2) {
+		return DE_MAKE_RGBA(255,0,128,128);
+	}
+	return DE_MAKE_RGBA(128,0,255,128);
+}
+
+// Applies mask to fg. Modifies fg.
+static void do_apply_os2bmp_mask(deark *c, de_bitmap *fg, de_bitmap *mask, int is_color)
+{
+	i64 i, j;
+	i64 mask_adj_height;
+	int inverse_used = 0;
+
+	mask_adj_height = mask->height / 2;
+
+	for(j=0; j<fg->height && j<mask_adj_height; j++) {
+		for(i=0; i<fg->width && i<mask->width; i++) {
+			u8 andmaskclr;
+			u8 xormaskclr;
+			u32 oldclr;
+			u32 newclr;
+
+			oldclr = de_bitmap_getpixel(fg, i, j);
+			newclr = oldclr;
+			xormaskclr = DE_COLOR_K(de_bitmap_getpixel(mask, i, j));
+			andmaskclr =  DE_COLOR_K(de_bitmap_getpixel(mask, i, mask_adj_height+j));
+
+			if(andmaskclr==0) {
+				if(is_color) {
+					// For color bitmaps, the XOR bit is not used when the AND bit is 0.
+					// Always use foreground color.
+					;
+				}
+				else {
+					if(xormaskclr==0) {
+						newclr = DE_STOCKCOLOR_BLACK;
+					}
+					else {
+						newclr = DE_STOCKCOLOR_WHITE;
+					}
+				}
+			}
+			else {
+				if(xormaskclr==0) { // transparent
+					newclr = DE_SET_ALPHA(oldclr, 0);
+				}
+				else { // inverse background
+					newclr = get_inv_bkgd_replacement_clr(i, j);
+					inverse_used = 1;
+				}
+			}
+
+			if(newclr!=oldclr) {
+				de_bitmap_setpixel_rgb(fg, i, j, newclr);
+			}
+		}
+	}
+
+	if(inverse_used) {
+		de_warn(c, "This image contains inverse background pixels, which are not fully supported.");
+	}
+}
+
+// Allocates srcbmp->img.
+static int do_read_bitmap(deark *c, struct srcbitmap *srcbmp, int mask_mode, const char *bitmapname)
+{
+	int retval = 0;
+
+	if(!srcbmp) goto done;
+	if(srcbmp->img) goto done;
+
+	if(mask_mode && srcbmp->bi.bitcount!=1) {
+		mask_mode = 0;
+	}
+
+	srcbmp->img = de_bitmap_create(c, srcbmp->bi.width, srcbmp->bi.height, mask_mode?1:4);
+
+	de_dbg(c, "%s pixel data at %"I64_FMT, bitmapname, srcbmp->bi.bitsoffset);
+
+	if(mask_mode) {
+		de_convert_image_bilevel(c->infile, srcbmp->bi.bitsoffset, srcbmp->bi.rowspan,
+			srcbmp->img, 0);
+	}
+	else if(srcbmp->bi.bitcount<=8) {
+		de_convert_image_paletted(c->infile, srcbmp->bi.bitsoffset, srcbmp->bi.bitcount,
+			srcbmp->bi.rowspan, srcbmp->pal, srcbmp->img, 0);
+	}
+	else if(srcbmp->bi.bitcount==24) {
+		de_convert_image_rgb(c->infile, srcbmp->bi.bitsoffset, srcbmp->bi.rowspan, 3,
+			srcbmp->img, DE_GETRGBFLAG_BGR);
+	}
+	else {
+		goto done;
+	}
+
+	retval = 1;
+done:
+	return retval;
+}
+
+static void do_decode_CI_or_CP(deark *c, struct os2icoctx *d, i64 pos)
+{
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "%s pair at %d", fmt, (int)pos);
+	de_dbg(c, "%s image at %"I64_FMT, d->fmtname, pos);
 	de_dbg_indent(c, 1);
 
-	for(i=0; i<2; i++) {
-		srcbmp = do_decode_raw_bitmap_segment(c, fmt, pos);
-		if(!srcbmp) {
-			goto done;
-		}
-
-		if(srcbmp->bi.size_of_headers_and_pal<26) {
-			de_err(c, "Bad CI or CP image");
-			goto done;
-		}
-		pos += srcbmp->bi.size_of_headers_and_pal;
-
-		de_dbg_indent(c, 1);
-
-		// Try to guess whether this is the image or the mask...
-		if(srcbmp->bi.bitcount==1 && (srcbmp_mask==NULL || srcbmp_main!=NULL)) {
-			de_dbg(c, "bitmap interpreted as: mask");
-			srcbmp_mask = srcbmp;
-			srcbmp = NULL;
-		}
-		else {
-			de_dbg(c, "bitmap interpreted as: foreground");
-			srcbmp_main = srcbmp;
-			srcbmp = NULL;
-		}
-
-		de_dbg_indent(c, -1);
+	d->maskbmp = de_malloc(c, sizeof(struct srcbitmap));
+	if(!do_bitmap_header(c, d, d->maskbmp, pos, "mask")) {
+		goto done;
 	}
+	pos += d->maskbmp->bi.size_of_headers_and_pal;
 
-	if(srcbmp_mask==NULL || srcbmp_main==NULL) {
-		de_err(c, "Bad CI or CP image");
+	d->srcbmp = de_malloc(c, sizeof(struct srcbitmap));
+	if(!do_bitmap_header(c, d, d->srcbmp, pos, "foreground")) {
 		goto done;
 	}
 
-	do_generate_final_image(c, srcbmp_main, srcbmp_mask);
+	if(!do_read_bitmap(c, d->maskbmp, 1, "mask")) goto done;
+	if(!do_read_bitmap(c, d->srcbmp, 0, "foreground")) goto done;
+	do_apply_os2bmp_mask(c, d->srcbmp->img, d->maskbmp->img, 1);
+	do_write_final_image(c, d, d->srcbmp->img);
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
-	de_free(c, srcbmp_mask);
-	de_free(c, srcbmp_main);
-	de_free(c, srcbmp);
 }
 
-static void do_decode_IC_or_PT(deark *c, const char *fmt, i64 pos)
+static void do_decode_IC_or_PT(deark *c, struct os2icoctx *d, i64 pos)
 {
-	struct srcbitmap *srcbmp_mask = NULL;
+	de_bitmap *img_main = NULL;
 
-	srcbmp_mask = do_decode_raw_bitmap_segment(c, fmt, pos);
-	if(!srcbmp_mask) {
-		goto done;
-	}
-	if(srcbmp_mask->bi.size_of_headers_and_pal<26) {
-		de_err(c, "Bad %s image", fmt);
+	d->maskbmp = de_malloc(c, sizeof(struct srcbitmap));
+	if(!do_bitmap_header(c, d, d->maskbmp, pos, "mask-like")) {
 		goto done;
 	}
 
-	do_generate_final_image(c, NULL, srcbmp_mask);
+	if(!do_read_bitmap(c, d->maskbmp, 1, "mask-like")) goto done;
+
+	// There is no "main" image, so manufacture one.
+	img_main = de_bitmap_create(c, d->maskbmp->bi.width, d->maskbmp->bi.height/2, 4);
+
+	do_apply_os2bmp_mask(c, img_main, d->maskbmp->img, 0);
+	do_write_final_image(c, d, img_main);
 
 done:
-	de_free(c, srcbmp_mask);
+	de_bitmap_destroy(img_main);
 }
 
-static void do_extract_CI_or_CP_pair(deark *c, const char *fmt, i64 pos)
+static void do_decode_icon_or_cursor(deark *c, enum fmtcode fmt)
+{
+	struct os2icoctx *d = NULL;
+
+	d = de_malloc(c, sizeof(struct os2icoctx));
+	d->fmt = fmt;
+	d->fmtname = get_fmt_shortname_from_code(d->fmt);
+
+	switch(fmt) {
+	case DE_OS2FMT_IC:
+	case DE_OS2FMT_PT:
+		do_decode_IC_or_PT(c, d, 0);
+		break;
+	case DE_OS2FMT_CI:
+	case DE_OS2FMT_CP:
+		do_decode_CI_or_CP(c, d, 0);
+		break;
+	default:
+		break;
+	}
+
+	if(d) {
+		do_free_srcbmp(c, d->srcbmp);
+		do_free_srcbmp(c, d->maskbmp);
+		de_free(c, d);
+	}
+}
+
+static void do_extract_CI_or_CP(deark *c, enum fmtcode fmt, const char *fmtname, i64 pos)
 {
 	struct de_bmpinfo *bi = NULL;
 	i64 i;
@@ -283,12 +391,12 @@ static void do_extract_CI_or_CP_pair(deark *c, const char *fmt, i64 pos)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "%s pair at %d", fmt, (int)pos);
+	de_dbg(c, "%s image at %d", fmtname, (int)pos);
 	de_dbg_indent(c, 1);
 
 	bi = de_malloc(c, sizeof(struct de_bmpinfo));
 
-	if(!de_strcmp(fmt, "CP")) {
+	if(fmt==DE_OS2FMT_CP) {
 		f = dbuf_create_output_file(c, "ptr", NULL, 0);
 	}
 	else {
@@ -349,17 +457,18 @@ done:
 // Don't convert the image to another format; just extract it as-is in
 // BMP/ICO/PTR format. Unfortunately, this requires collecting the various pieces
 // of it, and adjusting pointers.
-static void do_extract_one_image(deark *c, i64 pos, const char *fmt, const char *ext)
+static void do_extract_one_image(deark *c, i64 pos, enum fmtcode fmt,
+	const char *fmtname, const char *ext)
 {
 	struct srcbitmap *srcbmp = NULL;
 	dbuf *f = NULL;
 
-	de_dbg(c, "%s image at %d", fmt, (int)pos);
+	de_dbg(c, "%s image at %d", fmtname, (int)pos);
 	de_dbg_indent(c, 1);
 
 	srcbmp = de_malloc(c, sizeof(struct srcbitmap));
 
-	if(!get_bitmap_info(c, srcbmp, fmt, pos))
+	if(!get_bitmap_info(c, srcbmp, fmt, fmtname, pos))
 		goto done;
 
 	f = dbuf_create_output_file(c, ext, NULL, 0);
@@ -380,12 +489,14 @@ static void do_extract_one_image(deark *c, i64 pos, const char *fmt, const char 
 done:
 	de_dbg_indent(c, -1);
 	dbuf_close(f);
-	de_free(c, srcbmp);
+	do_free_srcbmp(c, srcbmp);
 }
 
 static void do_BA_segment(deark *c, i64 pos, i64 *pnextoffset)
 {
 	u8 b0, b1;
+	enum fmtcode fmt;
+	const char *fmtname;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -407,22 +518,24 @@ static void do_BA_segment(deark *c, i64 pos, i64 *pnextoffset)
 	// Peek at the next two bytes
 	b0 = de_getbyte(pos+14+0);
 	b1 = de_getbyte(pos+14+1);
-	if(b0=='C' && b1=='I') {
-		do_extract_CI_or_CP_pair(c, "CI", pos+14);
-	}
-	else if(b0=='C' && b1=='P') {
-		do_extract_CI_or_CP_pair(c, "CP", pos+14);
-	}
-	else if(b0=='B' && b1=='M') {
-		do_extract_one_image(c, pos+14, "BM", "bmp");
-	}
-	else if(b0=='I' && b1=='C') {
-		do_extract_one_image(c, pos+14, "IC", "os2.ico");
-	}
-	else if(b0=='P' && b1=='T') {
-		do_extract_one_image(c, pos+14, "PT", "ptr");
-	}
-	else {
+	fmt = bytes_to_fmtcode(b0, b1);
+	fmtname = get_fmt_shortname_from_code(fmt);
+
+	switch(fmt) {
+	case DE_OS2FMT_CI:
+	case DE_OS2FMT_CP:
+		do_extract_CI_or_CP(c, fmt, fmtname, pos+14);
+		break;
+	case DE_OS2FMT_BM:
+		do_extract_one_image(c, pos+14, fmt, fmtname, "bmp");
+		break;
+	case DE_OS2FMT_IC:
+		do_extract_one_image(c, pos+14, fmt, fmtname, "os2.ico");
+		break;
+	case DE_OS2FMT_PT:
+		do_extract_one_image(c, pos+14, fmt, fmtname, "ptr");
+		break;
+	default:
 		de_err(c, "Not BM/IC/PT/CI/CP format. Not supported.");
 		goto done;
 	}
@@ -451,30 +564,36 @@ static void do_BA_file(deark *c)
 	}
 }
 
-static int de_identify_os2bmp_internal(deark *c)
+static enum fmtcode de_identify_os2bmp_internal(deark *c)
 {
+	enum fmtcode fmt;
 	u8 b[16];
+
 	de_read(b, 0, 16);
 
-	if(b[0]=='B' && b[1]=='A') {
+	fmt = bytes_to_fmtcode(b[0], b[1]);
+	if(fmt==DE_OS2FMT_BA) {
+		enum fmtcode ba_fmt;
+
 		// A Bitmap Array file can contain a mixture of different image types,
 		// but for the purposes of identifying the file type, we only look at
 		// the first one. This is not ideal, but it really doesn't matter.
-		if(b[14]=='I' && b[15]=='C') return DE_OS2FMT_BA_IC;
-		if(b[14]=='P' && b[15]=='T') return DE_OS2FMT_BA_PT;
-		if(b[14]=='C' && b[15]=='I') return DE_OS2FMT_BA_CI;
-		if(b[14]=='C' && b[15]=='P') return DE_OS2FMT_BA_CP;
-		if(b[14]=='B' && b[15]=='M') return DE_OS2FMT_BA_BM;
+		ba_fmt = bytes_to_fmtcode(b[14], b[15]);
+		if(ba_fmt==DE_OS2FMT_IC) return DE_OS2FMT_BA_IC;
+		if(ba_fmt==DE_OS2FMT_PT) return DE_OS2FMT_BA_PT;
+		if(ba_fmt==DE_OS2FMT_CI) return DE_OS2FMT_BA_CI;
+		if(ba_fmt==DE_OS2FMT_CP) return DE_OS2FMT_BA_CP;
+		if(ba_fmt==DE_OS2FMT_BM) return DE_OS2FMT_BA_BM;
 		return DE_OS2FMT_BA;
 	}
-	if(b[0]=='I' && b[1]=='C') return DE_OS2FMT_IC;
-	if(b[0]=='P' && b[1]=='T') return DE_OS2FMT_PT;
-	if(b[0]=='C' && b[1]=='I') return DE_OS2FMT_CI;
-	if(b[0]=='C' && b[1]=='P') return DE_OS2FMT_CP;
-	return 0;
+	if(fmt==DE_OS2FMT_IC) return DE_OS2FMT_IC;
+	if(fmt==DE_OS2FMT_PT) return DE_OS2FMT_PT;
+	if(fmt==DE_OS2FMT_CI) return DE_OS2FMT_CI;
+	if(fmt==DE_OS2FMT_CP) return DE_OS2FMT_CP;
+	return DE_OS2FMT_UNKNOWN;
 }
 
-static const char* get_fmt_name(int fmt)
+static const char* get_fmt_longname_from_code(enum fmtcode fmt)
 {
 	switch(fmt) {
 	case DE_OS2FMT_IC: return "OS/2 Icon";
@@ -490,35 +609,30 @@ static const char* get_fmt_name(int fmt)
 		return "OS/2 Bitmap Array of Pointers";
 	case DE_OS2FMT_BA_BM:
 		return "OS/2 Bitmap Array of Bitmaps";
+	default:
+		break;
 	}
 	return NULL;
 }
 
 static void de_run_os2bmp(deark *c, de_module_params *mparams)
 {
-	int fmt;
+	enum fmtcode fmt;
 	const char *name;
 
 	fmt = de_identify_os2bmp_internal(c);
 
-	name = get_fmt_name(fmt);
+	name = get_fmt_longname_from_code(fmt);
 	if(name) {
 		de_declare_fmt(c, name);
 	}
 
 	switch(fmt) {
 	case DE_OS2FMT_IC:
-		do_decode_IC_or_PT(c, "IC", 0);
-		break;
 	case DE_OS2FMT_PT:
-		// TODO: PT support is untested.
-		do_decode_IC_or_PT(c, "PT", 0);
-		break;
 	case DE_OS2FMT_CI:
-		do_decode_CI_or_CP_pair(c, "CI", 0);
-		break;
 	case DE_OS2FMT_CP:
-		do_decode_CI_or_CP_pair(c, "CP", 0);
+		do_decode_icon_or_cursor(c, fmt);
 		break;
 	case DE_OS2FMT_BA:
 	case DE_OS2FMT_BA_IC:
@@ -535,7 +649,7 @@ static void de_run_os2bmp(deark *c, de_module_params *mparams)
 
 static int de_identify_os2bmp(deark *c)
 {
-	int fmt;
+	enum fmtcode fmt;
 
 	// TODO: We could do a better job of identifying these formats.
 	fmt = de_identify_os2bmp_internal(c);
@@ -553,6 +667,8 @@ static int de_identify_os2bmp(deark *c)
 	case DE_OS2FMT_IC:
 	case DE_OS2FMT_PT:
 		return 10;
+	default:
+		break;
 	}
 	return 0;
 }

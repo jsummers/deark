@@ -73,18 +73,27 @@ static int do_uncompress_image(deark *c, lctx *d, i64 pos1, dbuf *unc_pixels)
 	i64 bytes_in_this_line;
 	i64 pos = pos1;
 	i64 j;
-	int ret;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
 
 	de_dbg(c, "decompressing bitmap");
 
 	// Each line is compressed independently, using PackBits.
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpro.f = unc_pixels;
 
 	for(j=0; j<d->h; j++) {
 		bytes_in_this_line = de_getu16le(pos);
 		pos += 2;
-		ret = de_fmtutil_uncompress_packbits(c->infile, pos, bytes_in_this_line,
-			unc_pixels, NULL);
-		if(!ret) return 0;
+		dcmpri.pos = pos;
+		dcmpri.len = bytes_in_this_line;
+		de_fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres);
+		if(dres.errcode) {
+			de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
+			return 0;
+		}
 		pos += bytes_in_this_line;
 	}
 	de_dbg(c, "decompressed %d bytes to %d bytes", (int)(pos-pos1),

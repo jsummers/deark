@@ -498,7 +498,7 @@ Gen(struct xfacectx *ctx, char *f, size_t f_len)
 							ctx->errflag = 1;
 							return;
 						}
-						k = *(f + l + m * XFACE_WIDTH) ? k * 2 + 1 : k * 2;
+						k = f[l + m * XFACE_WIDTH] ? k * 2 + 1 : k * 2;
 					}
 				}
 			switch (i)
@@ -565,11 +565,11 @@ PopGreys(struct xfacectx *ctx, char *f, int wid, int hei)
 		hei /= 2;
 		PopGreys(ctx, f, wid, hei);
 		if(ctx->errflag) return;
-		PopGreys(ctx, f + wid, wid, hei);
+		PopGreys(ctx, &f[wid], wid, hei);
 		if(ctx->errflag) return;
-		PopGreys(ctx, f + XFACE_WIDTH * hei, wid, hei);
+		PopGreys(ctx, &f[XFACE_WIDTH * hei], wid, hei);
 		if(ctx->errflag) return;
-		PopGreys(ctx, f + XFACE_WIDTH * hei + wid, wid, hei);
+		PopGreys(ctx, &f[XFACE_WIDTH * hei + wid], wid, hei);
 		if(ctx->errflag) return;
 	}
 	else
@@ -577,13 +577,13 @@ PopGreys(struct xfacectx *ctx, char *f, int wid, int hei)
 		wid = BigPop(ctx, gg_freqs);
 		if(ctx->errflag) return;
 		if (wid & 1)
-			*f = 1;
+			f[0] = 1;
 		if (wid & 2)
-			*(f + 1) = 1;
+			f[1] = 1;
 		if (wid & 4)
-			*(f + XFACE_WIDTH) = 1;
+			f[XFACE_WIDTH] = 1;
 		if (wid & 8)
-			*(f + XFACE_WIDTH + 1) = 1;
+			f[XFACE_WIDTH + 1] = 1;
 	}
 }
 
@@ -608,11 +608,11 @@ UnCompress(struct xfacectx *ctx, char *f, int wid, int hei, int lev)
 			lev++;
 			UnCompress(ctx, f, wid, hei, lev);
 			if(ctx->errflag) return;
-			UnCompress(ctx, f + wid, wid, hei, lev);
+			UnCompress(ctx, &f[wid], wid, hei, lev);
 			if(ctx->errflag) return;
-			UnCompress(ctx, f + hei * XFACE_WIDTH, wid, hei, lev);
+			UnCompress(ctx, &f[hei * XFACE_WIDTH], wid, hei, lev);
 			if(ctx->errflag) return;
-			UnCompress(ctx, f + wid + hei * XFACE_WIDTH, wid, hei, lev);
+			UnCompress(ctx, &f[wid + hei * XFACE_WIDTH], wid, hei, lev);
 			return;
 	}
 }

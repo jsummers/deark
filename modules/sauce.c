@@ -12,28 +12,44 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_sauce);
 
-static i64 sauce_space_padded_length(const u8 *buf, i64 len)
+struct sauce_private_ctx {
+	int combine_comments;
+	i64 num_comments;
+};
+
+static i64 sauce_get_string_length(const u8 *buf, i64 len, int respect_trailing_spaces)
 {
 	i64 i;
-	i64 last_nonspace = -1;
+	i64 last_nonpadding_char_pos = -1;
 
 	for(i=len-1; i>=0; i--) {
 		// Spec says to use spaces for padding, and for nonexistent data.
 		// But some files use NUL bytes.
-		if(buf[i]!=0x20 && buf[i]!=0x00) {
-			last_nonspace = i;
+		if((buf[i]==0x20 && !respect_trailing_spaces) || buf[i]==0x00) {
+			;
+		}
+		else {
+			last_nonpadding_char_pos = i;
 			break;
 		}
 	}
-	return last_nonspace+1;
+	return last_nonpadding_char_pos+1;
 }
 
-// TODO: I don't think there's any reason we couldn't read SAUCE strings
-// directly to ucstrings, without doing it via a temporary buffer.
+static void sauce_strip_trailing_whitespace(de_ucstring *s)
+{
+	while(s->len>=1 &&
+		(s->str[s->len-1]==' ' || s->str[s->len-1]==0x0a)) {
+		ucstring_truncate(s, s->len-1);
+	}
+}
 
+// TODO?: This function could read a dbuf instead of a u8 array, but it
+// would have to be combined with sauce_get_string_length() somehow.
+//
 // flags: 0x02: Interpret 0x0a as newline, regardless of encoding
 static void sauce_bytes_to_ucstring(deark *c, const u8 *buf, i64 len,
-	de_ucstring *s, int encoding, unsigned int flags)
+	de_ucstring *s, de_encoding encoding, unsigned int flags)
 {
 	i32 u;
 	i64 i;
@@ -107,71 +123,90 @@ static const char *get_sauce_filetype_name(u8 dt, unsigned int t)
 	return n;
 }
 
-// Write a buffer to a file, converting the encoding to UTF-8.
-static void write_buffer_as_utf8(deark *c, const u8 *buf, i64 len,
-	dbuf *outf, int from_encoding)
-{
-	i32 u;
-	i64 i;
-
-	for(i=0; i<len; i++) {
-		u = de_char_to_unicode(c, (i32)buf[i], from_encoding);
-		dbuf_write_uchar_as_utf8(outf, u);
-	}
-}
-
-// This may modify si->num_comments.
-static void sauce_read_comments(deark *c, dbuf *inf, struct de_SAUCE_info *si)
+// The SAUCE spec has insufficient detail about how comments are to be
+// interpreted. And some ANSI editors don't obey the spec, anyway.
+// Our behavior:
+// * We have two modes, depending on the combine_comments flag.
+// * We interpret 0x0a as a newline. All other bytes are CP437 printable
+//   charaters.
+// * If !combine_comments, trailing spaces and NUL bytes are ignored for
+//   each comment.
+// * If combine_comments, same as above except that trailing spaces are
+//   respected for each comment except the last.
+// * If !combine_comments, we add a newline after every comment except the
+//   last.
+// (Autodetecting which mode to use would be nice, and it's possible to make
+// a pretty good guess, but it's not possible to get it right every time.)
+static void sauce_read_comments(deark *c, struct sauce_private_ctx *d, dbuf *inf,
+	struct de_SAUCE_info *si)
 {
 	i64 cmnt_blk_start;
 	i64 k;
 	i64 cmnt_pos;
 	i64 cmnt_len;
 	u8 buf[64];
+	de_ucstring *tmpcomment = NULL;
 
-	if(si->num_comments<1) goto done;
-	cmnt_blk_start = inf->len - 128 - (5 + si->num_comments*64);
+	if(d->num_comments<1) goto done;
+	cmnt_blk_start = inf->len - 128 - (5 + d->num_comments*64);
 
 	if(dbuf_memcmp(inf, cmnt_blk_start, "COMNT", 5)) {
 		de_dbg(c, "invalid SAUCE comment, not found at %d", (int)cmnt_blk_start);
-		si->num_comments = 0;
+		d->num_comments = 0;
 		goto done;
 	}
 
 	de_dbg(c, "SAUCE comment block at %d", (int)cmnt_blk_start);
 
-	si->comments = de_mallocarray(c, si->num_comments, sizeof(struct de_char_comment));
+	si->comment = ucstring_create(c);
+	tmpcomment = ucstring_create(c);
 
 	de_dbg_indent(c, 1);
-	for(k=0; k<si->num_comments; k++) {
+	for(k=0; k<d->num_comments; k++) {
+		int respect_trailing_spaces = 0;
+
 		cmnt_pos = cmnt_blk_start+5+k*64;
 		dbuf_read(inf, buf, cmnt_pos, 64);
-		cmnt_len = sauce_space_padded_length(buf, 64);
 
-		si->comments[k].s = ucstring_create(c);
-		sauce_bytes_to_ucstring(c, buf, cmnt_len, si->comments[k].s, DE_ENCODING_CP437_G, 0x02);
+		if(d->combine_comments && k!=(d->num_comments-1)) {
+			respect_trailing_spaces = 1;
+		}
+		cmnt_len = sauce_get_string_length(buf, 64, respect_trailing_spaces);
 
 		de_dbg(c, "comment at %d, len=%d", (int)cmnt_pos, (int)cmnt_len);
+		de_dbg_indent(c, 1);
 
-		if(c->extract_level>=2) {
-			dbuf *outf = NULL;
-			outf = dbuf_create_output_file(c, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
-			if(c->write_bom && !de_is_ascii(buf, cmnt_len)) {
-				dbuf_write_uchar_as_utf8(outf, 0xfeff);
-			}
-			write_buffer_as_utf8(c, buf, cmnt_len, outf, DE_ENCODING_CP437_G);
-			dbuf_close(outf);
+		ucstring_empty(tmpcomment);
+		sauce_bytes_to_ucstring(c, buf, cmnt_len, tmpcomment, DE_ENCODING_CP437_G, 0x02);
+		ucstring_append_ucstring(si->comment, tmpcomment);
+		if(!d->combine_comments && k!=(d->num_comments-1)) {
+			ucstring_append_char(si->comment, 0x0a);
 		}
-		else {
-			de_dbg_indent(c, 1);
-			de_dbg(c, "comment: \"%s\"", ucstring_getpsz(si->comments[k].s));
-			de_dbg_indent(c, -1);
-		}
+
+		de_dbg(c, "comment: \"%s\"", ucstring_getpsz(tmpcomment));
+		de_dbg_indent(c, -1);
 	}
+
+	sauce_strip_trailing_whitespace(si->comment);
+	if(ucstring_isempty(si->comment)) {
+		ucstring_destroy(si->comment);
+		si->comment = NULL;
+		goto done;
+	}
+
+	if(c->extract_level>=2) {
+		dbuf *cmnt_outf = NULL;
+
+		cmnt_outf = dbuf_create_output_file(c, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
+		ucstring_write_as_utf8(c, si->comment, cmnt_outf, 1);
+		dbuf_puts(cmnt_outf, "\n");
+		dbuf_close(cmnt_outf);
+	}
+
 	de_dbg_indent(c, -1);
 
 done:
-	;
+	ucstring_destroy(tmpcomment);
 }
 
 static void do_SAUCE_creation_date(deark *c, struct de_SAUCE_info *si,
@@ -217,17 +252,22 @@ static int do_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	i64 pos;
 	const char *name;
 	de_ucstring *tflags_descr = NULL;
+	int retval = 0;
+	struct sauce_private_ctx *d = NULL;
 
 	pos = f->len - 128;
 	if(dbuf_memcmp(f, pos+0, "SAUCE00", 7)) {
-		return 0;
+		goto done;
 	}
 
 	si->is_valid = 1;
 
+	d = de_malloc(c, sizeof(struct sauce_private_ctx));
+	d->combine_comments = de_get_ext_option_bool(c, "sauce:combinecomments", 0);
+
 	// Title
 	dbuf_read(f, tmpbuf, pos+7, 35);
-	tmpbuf_len = sauce_space_padded_length(tmpbuf, 35);
+	tmpbuf_len = sauce_get_string_length(tmpbuf, 35, 0);
 	if(tmpbuf_len>0) {
 		si->title = ucstring_create(c);
 		sauce_bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->title, DE_ENCODING_CP437_G, 0);
@@ -235,7 +275,7 @@ static int do_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 
 	// Artist / Creator
 	dbuf_read(f, tmpbuf, pos+42, 20);
-	tmpbuf_len = sauce_space_padded_length(tmpbuf, 20);
+	tmpbuf_len = sauce_get_string_length(tmpbuf, 20, 0);
 	if(tmpbuf_len>0) {
 		si->artist = ucstring_create(c);
 		sauce_bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->artist, DE_ENCODING_CP437_G, 0);
@@ -243,7 +283,7 @@ static int do_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 
 	// Organization
 	dbuf_read(f, tmpbuf, pos+62, 20);
-	tmpbuf_len = sauce_space_padded_length(tmpbuf, 20);
+	tmpbuf_len = sauce_get_string_length(tmpbuf, 20, 0);
 	if(tmpbuf_len>0) {
 		si->organization = ucstring_create(c);
 		sauce_bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->organization, DE_ENCODING_CP437_G, 0);
@@ -252,7 +292,6 @@ static int do_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	// Creation date
 	dbuf_read(f, tmpbuf, pos+82, 8);
 	if(sauce_is_valid_date_string(tmpbuf, 8)) {
-		tmpbuf_len = 8;
 		do_SAUCE_creation_date(c, si, tmpbuf, 8);
 	}
 
@@ -268,19 +307,28 @@ static int do_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	name = get_sauce_filetype_name(si->data_type, t);
 	de_dbg(c, "file type: %d (%s)", (int)si->file_type, name);
 
+	si->tinfo1 = (u16)dbuf_getu16le(f, pos+96);
+	si->tinfo2 = (u16)dbuf_getu16le(f, pos+98);
+	si->tinfo3 = (u16)dbuf_getu16le(f, pos+100);
+	si->tinfo4 = (u16)dbuf_getu16le(f, pos+102);
+	de_dbg(c, "TInfo1: %u", (unsigned int)si->tinfo1);
+	de_dbg(c, "TInfo2: %u", (unsigned int)si->tinfo2);
+	de_dbg(c, "TInfo3: %u", (unsigned int)si->tinfo3);
+	de_dbg(c, "TInfo4: %u", (unsigned int)si->tinfo4);
+
 	if(t==0x0100 || t==0x0101 || t==0x0102 || t==0x0104 || t==0x0105 || t==0x0108 || t==0x0600) {
-		si->width_in_chars = dbuf_getu16le(f, pos+96);
+		si->width_in_chars = (i64)si->tinfo1;
 		de_dbg(c, "width in chars: %d", (int)si->width_in_chars);
 	}
 	if(t==0x0100 || t==0x0101 || t==0x0104 || t==0x0105 || t==0x0108 || t==0x0600) {
-		si->number_of_lines = dbuf_getu16le(f, pos+98);
+		si->number_of_lines = (i64)si->tinfo2;
 		de_dbg(c, "number of lines: %d", (int)si->number_of_lines);
 	}
 
-	si->num_comments = (i64)dbuf_getbyte(f, pos+104);
-	de_dbg(c, "num comments: %d", (int)si->num_comments);
-	if(si->num_comments>0) {
-		sauce_read_comments(c, f, si);
+	d->num_comments = (i64)dbuf_getbyte(f, pos+104);
+	de_dbg(c, "num comments: %d", (int)d->num_comments);
+	if(d->num_comments>0) {
+		sauce_read_comments(c, d, f, si);
 	}
 
 	si->tflags = dbuf_getbyte(f, pos+105);
@@ -311,11 +359,14 @@ static int do_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 
 	if(si->original_file_size==0 || si->original_file_size>f->len-128) {
 		// If this field seems bad, try to correct it.
-		si->original_file_size = f->len-128-(5+si->num_comments*64);
+		si->original_file_size = f->len-128-(5+d->num_comments*64);
 	}
 
+	retval = 1;
+done:
 	ucstring_destroy(tflags_descr);
-	return 1;
+	de_free(c, d);
+	return retval;
 }
 
 // When running as a submodule, we assume the caller already detected the
@@ -379,8 +430,8 @@ static void de_run_sauce(deark *c, de_module_params *mparams)
 
 static int de_identify_sauce(deark *c)
 {
-	c->detection_data.SAUCE_detection_attempted = 1;
-	if(de_fmtutil_detect_SAUCE(c, c->infile, &c->detection_data.sauce, 0)) {
+	c->detection_data->SAUCE_detection_attempted = 1;
+	if(de_fmtutil_detect_SAUCE(c, c->infile, &c->detection_data->sauce, 0)) {
 		// This module should have a very low priority, but other modules can use
 		// the results of its detection.
 		return 2;

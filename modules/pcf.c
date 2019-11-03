@@ -364,7 +364,7 @@ static void handler_bdf_encodings(deark *c, lctx *d, struct table_entry *te)
 
 	byte1_count = max_byte1-min_byte1+1;
 	byte2_count = max_char_or_byte2-min_char_or_byte2+1;
-	ncodepoints = byte1_count * byte2_count;
+	ncodepoints = (i64)byte1_count * (i64)byte2_count;
 	de_dbg(c, "number of codepoints in table: %"I64_FMT, ncodepoints);
 
 	d->has_encodings_table = 1;

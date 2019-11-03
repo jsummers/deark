@@ -95,7 +95,7 @@ static void id3v2_read_to_ucstring(deark *c, dbuf *f, i64 pos1, i64 len,
 {
 	i64 pos = pos1;
 	const char *bomdesc = "none";
-	int encoding_to_use = DE_ENCODING_UNKNOWN;
+	de_encoding encoding_to_use = DE_ENCODING_UNKNOWN;
 
 	if(len<=0) goto done;
 
@@ -248,7 +248,7 @@ static int do_id3v2_header(deark *c, dbuf *f, id3v2ctx *d)
 
 	d->data_len = get_synchsafe_int(f, pos);
 	de_dbg(c, "size: %d", (int)d->data_len);
-	pos += 4;
+	//pos += 4;
 
 	d->data_start = 10;
 
@@ -468,7 +468,7 @@ static const struct apic_type_info *get_apic_type_info(u8 t)
 {
 	size_t k;
 
-	for(k=0; k<DE_ITEMS_IN_ARRAY(apic_type_info_arr); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(apic_type_info_arr); k++) {
 		if(apic_type_info_arr[k].picture_type == t) {
 			return &apic_type_info_arr[k];
 		}
@@ -863,6 +863,7 @@ static const char *get_id3v2_frame_name(id3v2ctx *d, u32 id)
 		{0x57434dU, 0x57434f4dU, "Commercial information"},
 		{0x54434dU, 0x54434f4dU, "Composer"},
 		{0x545033U, 0x54504533U, "Conductor"},
+		{0x545431U, 0x54495431U, "Content group description"},
 		{0x54434fU, 0x54434f4eU, "Content type"},
 		{0x544352U, 0x54434f50U, "Copyright message"},
 		{0x544441U, 0x54444154U, "Date"},
@@ -881,7 +882,7 @@ static const char *get_id3v2_frame_name(id3v2ctx *d, u32 id)
 		{0x544f54U, 0x544f414cU, "Original album/movie/show title"},
 		{0x544f41U, 0x544f5045U, "Original artist/performer"},
 		{0x544f4cU, 0x544f4c59U, "Original lyricist"},
-		{0,         0x54504f53U, "Part of a set"}, // TPOS
+		{0x545041U, 0x54504f53U, "Part of a set"}, // TPA,TPOS
 		{CODE_POP,  CODE_POPM,   "Popularimeter"},
 		{0,         CODE_PRIV,   "Private frame"},
 		{0x545042U, 0x54505542U, "Publisher"},
@@ -898,7 +899,7 @@ static const char *get_id3v2_frame_name(id3v2ctx *d, u32 id)
 	};
 	size_t k;
 
-	for(k=0; k<DE_ITEMS_IN_ARRAY(frame_list); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(frame_list); k++) {
 		if(d->version_code==2) {
 			if(id==frame_list[k].threecc)
 				return frame_list[k].name;
@@ -1135,7 +1136,7 @@ static const char *get_id3v1_genre_name(u8 g)
 		{255, "unspecified"} };
 	size_t k;
 
-	for(k=0; k<DE_ITEMS_IN_ARRAY(genre_list); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(genre_list); k++) {
 		if(genre_list[k].id==g) {
 			return genre_list[k].name;
 		}
@@ -1235,9 +1236,9 @@ static int de_identify_id3(deark *c)
 	u8 has_footer = 0;
 	i64 total_len;
 
-	c->detection_data.id3.detection_attempted = 1;
+	c->detection_data->id3.detection_attempted = 1;
 	if(dbuf_memcmp(c->infile, 0, "ID3", 3)) return 0;
-	c->detection_data.id3.has_id3v2 = 1;
+	c->detection_data->id3.has_id3v2 = 1;
 
 	version_code = dbuf_getbyte(c->infile, 3);
 	flags = dbuf_getbyte(c->infile, 5);
@@ -1250,7 +1251,7 @@ static int de_identify_id3(deark *c)
 	if(has_footer) total_len += 10;
 
 	de_dbg2(c, "[id3detect] calculated end of ID3v2 data: %u", (unsigned int)total_len);
-	c->detection_data.id3.bytes_at_start = (u32)total_len;
+	c->detection_data->id3.bytes_at_start = (u32)total_len;
 
 	// This module is never "detected". It's only used for its side effects,
 	// and as a submodule.

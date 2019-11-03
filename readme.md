@@ -48,10 +48,14 @@ Command-line options:
    path. Default is "output", except in some cases when using -zip/-tar.
 -k, -k2, -k3
    "Keep" the input filename, and use it as the initial part of the output
-   filename(s).
+   filename(s). Incompatible with -o.
    -k: Use only the base filename.
    -k2: Use the full path, but not as an actual path.
    -k3: Use the full path, as-is.
+-od &lt;directory>
+   The directory in which to write output files. The directory must exist.
+   This affects only files that Deark writes directly, not e.g. the names of
+   ZIP member files when using -zip.
 -n
    Do not overwrite existing output files.
 -file &lt;input-file>
@@ -63,7 +67,7 @@ Command-line options:
    formats.txt file for details.
 -zip
    Write output files to a .zip file, instead of to individual files.
-   If the input format is an "archive" format (e.g. "ar" or "graspgl"), then
+   If the input format is an "archive" format (e.g. "ar" or "zoo"), then
    by default, the filenames in the ZIP archive might not include the usual
    "output.NNN" prefix.
 -tar
@@ -73,6 +77,13 @@ Command-line options:
 -arcfn &lt;filename>
    When using -zip/-tar, use this name for the output file. Default is
    "output.zip" or "output.tar".
+-ka, -ka2, -ka3
+   When uzing -zip/-tar, "keep" the input filename, and use it as the initial
+   part of the archive output filename. A suitable filename extenson like
+   ".zip" will be appended. Incompatible with -arcfn.
+   -ka: Use only the base filename.
+   -ka2: Use the full path, but not as an actual path.
+   -ka3: Use the full path, as-is.
 -extrlist &lt;filename>
    Also create a text file containing a list of the names of the extracted
    files. Format is UTF-8, no BOM, LF terminators. To append to the file
@@ -81,8 +92,7 @@ Command-line options:
    Write the output file(s) to the standard output stream (stdout).
    It is recommended to put -tostdout early on the command line. The
    -msgstostderr option is enabled automatically.
-   If used with -zip: Write the ZIP file to standard output. This option
-   might be inefficient, or have file size limitations.
+   If used with -zip: Write the ZIP file to standard output.
    Otherwise: The "-maxfiles 1" option is enabled automatically. Including the
    -main option is recommended.
 -fromstdin
@@ -104,6 +114,19 @@ Command-line options:
    Extract only the file identifed by &lt;n>. The first file is 0.
    Equivalent to "-firstfile &lt;n> -maxfiles 1".
    To unconditionally show the file identifiers, use "-l -opt list:fileid".
+-maxfilesize &lt;n>
+   Do not write a file larger than &lt;n> bytes. The default is 10 GiB.
+   This is an "emergency brake". If the limit is exceeded, Deark will stop all
+   processing.
+   This setting is for physical output files, so if you use -zip/-tar, it
+   applies to the ZIP/tar file, not to the individual member files.
+   This option implicitly increases the -maxtotalsize setting to be at least
+   &lt;n>.
+-maxtotalsize &lt;n>
+   Do not write files totaling more than about &lt;n> bytes. The default is
+   15 GiB.
+   Currently, this feature is not implemented very precisely. The limit is only
+   checked when an output file is completed.
 -maxdim &lt;n>
    Allow image dimensions up to &lt;n> pixels.
    By default, Deark refuses to generate images with a dimension larger than
@@ -126,12 +149,13 @@ Command-line options:
    Make Deark less likely to try to improve output filenames by using names
    from the contents of the input file. The output filenames will be more
    predictable, but less informative.
--modtime
 -nomodtime
-   Do / Do not try to preserve the modification timestamp of extracted files.
-   On by default, but not relevant to most formats. It's used with archive
-   formats where files are extracted as-is, and where each member file has a
-   last-modified timestamp.
+   In some cases, mainly when reading archive formats, a last-modified
+   timestamp contained in an input file will be used to set the timestamp of an
+   output file written directly to your computer (or with -zip/-tar, of a
+   member file inside that file). Use -nomodtime to disable this.
+   This does not affect internal timestamps that may be maintained when Deark
+   converts an item to some other format (such as PNG or HTML).
 -opt &lt;module:option>=&lt;value>
    Module-specific and feature-specific options. See formats.txt.
    Caution: Unrecognized or misspelled options will be silently ignored.
@@ -148,6 +172,11 @@ Command-line options:
     -opt archive:subdirs=0
        When using -zip/-tar, disallow subdirectories (the "/" character) in
        member filenames.
+    -opt archive:zipcmprlevel=&lt;n>
+       When using -zip, the compression level to use, from 0 (none) to 9 (max).
+    -opt pngcmprlevel=&lt;n>
+       When generating a PNG file, the compression level to use, from 0 (low)
+       to 10 (max).
     -opt archive:timestamp=&lt;n>
     -opt archive:repro
        Make the -zip/-tar output reproducible, by not including modification
@@ -174,6 +203,17 @@ Command-line options:
     -opt atari:palbits=&lt;9|12|15>
        For some Atari image formats, the number of significant bits per
        palette color. The default is to autodetect.
+    -opt macrsrc=&lt;raw|as|ad>
+       The preferred way to extract Macintosh resource forks, and data files
+       associated with a non-empty resource fork.
+        raw = Write the raw resource fork to a separate .rsrc file.
+        ad = Put the resource fork in an AppleDouble container (default).
+        as = Put both forks in an AppleSingle container.
+       For input files already in AppleDouble or AppleSingle format, see the
+       formats.txt file for more information.
+-id
+   Stop after the format identification phase. This can be used to show what
+   module Deark will run, without actually running it.
 -h, -?, -help:
    Print the help message.
    Use with -m to get help for a specific module. Use with a filename to get
@@ -195,12 +235,19 @@ Command-line options:
    Print technical and debugging information. -d2 and -d3 are more verbose.
 -dprefix &lt;msg>
    Start each line printed by -d with this prefix. Default is "DEBUG: ".
+-colormode &lt;none|auto|ansi|ansi24|winconsole>
+   Control whether Deark uses color and similar features in its debug output.
+   Currently, this is mainly used to highlight unprintable characters, and
+   preview color palettes (usually requires -d2).
+   none: No color (default).
+   ansi: Use ANSI codes, but not the less-standard ones for 24-bit color.
+   ansi24: Use ANSI codes, including codes for 24-bit color. Works on most
+     Linux terminals, and on sufficiently new versions of Windows 10.
+   winconsole: Use Windows console commands. Works on all versions of Windows,
+     but does not support 24-bit color.
+   auto: Request color. Let Deark decide how to do it.
 -color
-   Allow the use of color and similar features in the debug output. This is
-   done using ANSI escape sequences, or Windows console commands.
-   This feature is experimental. Currently, it is limited to highlighting
-   unprintable characters, and previewing most color palettes (usually
-   requires -d2). The latter does not work on a Windows console.
+   Same as "-colormode auto".
 -enc &lt;ascii|oem>
    Set the encoding of the messages that are printed to the console. This does
    not affect the extracted data files.

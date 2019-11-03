@@ -14,45 +14,15 @@ DE_DECLARE_MODULE(de_module_palmbitmap);
 #define PALMBMPFLAG_HASTRNS        0x2000U
 #define PALMBMPFLAG_DIRECTCOLOR    0x0400U
 
-#define CMPR_SCANLINE 0
-#define CMPR_RLE      1
-#define CMPR_PACKBITS 2
-#define CMPR_NONE     0xff
-
-static const u32 palm256pal[256] = {
-	0xffffff,0xffccff,0xff99ff,0xff66ff,0xff33ff,0xff00ff,0xffffcc,0xffcccc,
-	0xff99cc,0xff66cc,0xff33cc,0xff00cc,0xffff99,0xffcc99,0xff9999,0xff6699,
-	0xff3399,0xff0099,0xccffff,0xccccff,0xcc99ff,0xcc66ff,0xcc33ff,0xcc00ff,
-	0xccffcc,0xcccccc,0xcc99cc,0xcc66cc,0xcc33cc,0xcc00cc,0xccff99,0xcccc99,
-	0xcc9999,0xcc6699,0xcc3399,0xcc0099,0x99ffff,0x99ccff,0x9999ff,0x9966ff,
-	0x9933ff,0x9900ff,0x99ffcc,0x99cccc,0x9999cc,0x9966cc,0x9933cc,0x9900cc,
-	0x99ff99,0x99cc99,0x999999,0x996699,0x993399,0x990099,0x66ffff,0x66ccff,
-	0x6699ff,0x6666ff,0x6633ff,0x6600ff,0x66ffcc,0x66cccc,0x6699cc,0x6666cc,
-	0x6633cc,0x6600cc,0x66ff99,0x66cc99,0x669999,0x666699,0x663399,0x660099,
-	0x33ffff,0x33ccff,0x3399ff,0x3366ff,0x3333ff,0x3300ff,0x33ffcc,0x33cccc,
-	0x3399cc,0x3366cc,0x3333cc,0x3300cc,0x33ff99,0x33cc99,0x339999,0x336699,
-	0x333399,0x330099,0x00ffff,0x00ccff,0x0099ff,0x0066ff,0x0033ff,0x0000ff,
-	0x00ffcc,0x00cccc,0x0099cc,0x0066cc,0x0033cc,0x0000cc,0x00ff99,0x00cc99,
-	0x009999,0x006699,0x003399,0x000099,0xffff66,0xffcc66,0xff9966,0xff6666,
-	0xff3366,0xff0066,0xffff33,0xffcc33,0xff9933,0xff6633,0xff3333,0xff0033,
-	0xffff00,0xffcc00,0xff9900,0xff6600,0xff3300,0xff0000,0xccff66,0xcccc66,
-	0xcc9966,0xcc6666,0xcc3366,0xcc0066,0xccff33,0xcccc33,0xcc9933,0xcc6633,
-	0xcc3333,0xcc0033,0xccff00,0xcccc00,0xcc9900,0xcc6600,0xcc3300,0xcc0000,
-	0x99ff66,0x99cc66,0x999966,0x996666,0x993366,0x990066,0x99ff33,0x99cc33,
-	0x999933,0x996633,0x993333,0x990033,0x99ff00,0x99cc00,0x999900,0x996600,
-	0x993300,0x990000,0x66ff66,0x66cc66,0x669966,0x666666,0x663366,0x660066,
-	0x66ff33,0x66cc33,0x669933,0x666633,0x663333,0x660033,0x66ff00,0x66cc00,
-	0x669900,0x666600,0x663300,0x660000,0x33ff66,0x33cc66,0x339966,0x336666,
-	0x333366,0x330066,0x33ff33,0x33cc33,0x339933,0x336633,0x333333,0x330033,
-	0x33ff00,0x33cc00,0x339900,0x336600,0x333300,0x330000,0x00ff66,0x00cc66,
-	0x009966,0x006666,0x003366,0x000066,0x00ff33,0x00cc33,0x009933,0x006633,
-	0x003333,0x000033,0x00ff00,0x00cc00,0x009900,0x006600,0x003300,0x111111,
-	0x222222,0x444444,0x555555,0x777777,0x888888,0xaaaaaa,0xbbbbbb,0xdddddd,
-	0xeeeeee,0xc0c0c0,0x800000,0x800080,0x008000,0x008080,0x000000,0x000000,
-	0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,
-	0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,
-	0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,0x000000
+enum palm_cmpr_type {
+	PCMPR_UNKNOWN, PCMPR_NONE, PCMPR_SCANLINE, PCMPR_RLE,
+	PCMPR_PACKBITS8, PCMPR_PACKBITS16
 };
+
+#define CMPR_FIELD_SCANLINE 0
+#define CMPR_FIELD_RLE      1
+#define CMPR_FIELD_PACKBITS 2
+#define CMPR_FIELD_NONE     0xff
 
 struct page_ctx {
 	i64 w, h;
@@ -63,6 +33,8 @@ struct page_ctx {
 	int is_rgb;
 	u8 bitmapversion;
 	int has_custom_pal;
+	unsigned int cmpr_type_field;
+	enum palm_cmpr_type cmpr_type;
 	u32 custom_pal[256];
 };
 
@@ -103,10 +75,11 @@ static int de_identify_palmbitmap_internal(deark *c, dbuf *f, i64 pos, i64 len)
 	return 1;
 }
 
-static int do_decompress_scanline_compression(deark *c, lctx *d, struct page_ctx *pg,
-	dbuf *inf, i64 pos1, i64 len, dbuf *unc_pixels)
+static void do_decompress_scanline_compression(deark *c, lctx *d, struct page_ctx *pg,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
 {
-	i64 srcpos = pos1;
+	i64 srcpos = dcmpri->pos;
 	i64 j;
 	i64 blocknum;
 	i64 blocksperrow;
@@ -123,58 +96,63 @@ static int do_decompress_scanline_compression(deark *c, lctx *d, struct page_ctx
 			// For each byte-per-row, we expect a lead byte, which is a
 			// bitfield that tells us which of the next 8 bytes are stored
 			// in the file, versus being copied from the previous row.
-			bf = dbuf_getbyte(inf, srcpos++);
+			bf = dbuf_getbyte(dcmpri->f, srcpos++);
 			for(k=0; k<8; k++) {
 				if(bytes_written_this_row>=pg->rowbytes) break;
 
 				if(bf&(1<<(7-k))) {
 					// byte is present
-					dstb = dbuf_getbyte(inf, srcpos++);
+					dstb = dbuf_getbyte(dcmpri->f, srcpos++);
 				}
 				else {
 					// copy from previous row
-					dstb = dbuf_getbyte(unc_pixels, unc_pixels->len - pg->rowbytes);
+					dstb = dbuf_getbyte(dcmpro->f, dcmpro->f->len - pg->rowbytes);
 				}
-				dbuf_writebyte(unc_pixels, dstb);
+				dbuf_writebyte(dcmpro->f, dstb);
 
 				bytes_written_this_row++;
 			}
 		}
 	}
-
-	return 1;
 }
 
 // Note that this is distinct from ImageViewer RLE compression.
-static int do_decompress_rle_compression(deark *c, lctx *d, struct page_ctx *pg,
-	dbuf *inf, i64 pos1, i64 len, dbuf *unc_pixels)
+static void do_decompress_rle_compression(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	i64 srcpos = pos1;
+	i64 srcpos = dcmpri->pos;
 
-	while(srcpos <= (pos1+len-2)) {
+	while(srcpos <= (dcmpri->pos + dcmpri->len - 2)) {
 		i64 count;
 		u8 val;
 
-		count = (i64)de_getbyte(srcpos++);
-		val = (i64)de_getbyte(srcpos++);
-		dbuf_write_run(unc_pixels, val, count);
+		count = (i64)dbuf_getbyte_p(dcmpri->f, &srcpos);
+		val = dbuf_getbyte_p(dcmpri->f, &srcpos);
+		dbuf_write_run(dcmpro->f, val, count);
 	}
-
-	return 1;
 }
 
-static int do_decompress_packbits_compression(deark *c, lctx *d, struct page_ctx *pg,
-	dbuf *inf, i64 pos1, i64 len, dbuf *unc_pixels)
+static void make_stdpal256(deark *c, lctx *d, u32 *stdpal)
 {
-	int ret;
+	unsigned int k;
+	static const u32 supplpal[15] = {0x111111,
+		0x222222,0x444444,0x555555,0x777777,0x888888,0xaaaaaa,0xbbbbbb,0xdddddd,
+		0xeeeeee,0xc0c0c0,0x800000,0x800080,0x008000,0x008080};
+	static u8 vals[6] = {0xff, 0xcc, 0x99, 0x66, 0x33, 0x00};
 
-	if(pg->bitsperpixel==16) {
-		ret = de_fmtutil_uncompress_packbits16(c->infile, pos1, len, unc_pixels, NULL);
+	for(k=0; k<215; k++) {
+		u8 r, g, b;
+		r = vals[(k%108)/18];
+		g = vals[k%6];
+		b = vals[(k/108)*3 + (k%18)/6];
+		stdpal[k] = DE_MAKE_RGB(r, g, b);
 	}
-	else {
-		ret = de_fmtutil_uncompress_packbits(c->infile, pos1, len, unc_pixels, NULL);
+	for(k=215; k<230; k++) {
+		stdpal[k] = DE_MAKE_OPAQUE(supplpal[k-215]);
 	}
-	return ret;
+	for(k=230; k<256; k++) {
+		stdpal[k] = DE_STOCKCOLOR_BLACK;
+	}
 }
 
 static void do_generate_unc_image(deark *c, lctx *d, struct page_ctx *pg,
@@ -186,6 +164,7 @@ static void do_generate_unc_image(deark *c, lctx *d, struct page_ctx *pg,
 	u32 clr;
 	int has_color;
 	de_bitmap *img = NULL;
+	u32 stdpal[256];
 
 	has_color = (pg->bitsperpixel>4 || pg->has_custom_pal);
 
@@ -194,6 +173,8 @@ static void do_generate_unc_image(deark *c, lctx *d, struct page_ctx *pg,
 			DE_CVTF_WHITEISZERO, NULL, 0);
 		goto done;
 	}
+
+	make_stdpal256(c, d, stdpal);
 
 	img = de_bitmap_create(c, pg->w, pg->h,
 		(has_color?3:1) + (pg->has_trns?1:0));
@@ -215,7 +196,7 @@ static void do_generate_unc_image(deark *c, lctx *d, struct page_ctx *pg,
 					if(pg->has_custom_pal)
 						clr = pg->custom_pal[(unsigned int)b];
 					else
-						clr = DE_MAKE_OPAQUE(palm256pal[(unsigned int)b]);
+						clr = stdpal[(unsigned int)b];
 				}
 				else {
 					// TODO: What are the correct colors (esp. for 4bpp)?
@@ -238,16 +219,61 @@ done:
 	de_bitmap_destroy(img);
 }
 
+static int de_decompress_image(deark *c, lctx *d, struct page_ctx *pg,
+	dbuf *inf, i64 pos, i64 len, dbuf *unc_pixels)
+{
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	int retval = 0;
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = inf;
+	dcmpri.pos = pos;
+	dcmpri.len = len;
+	dcmpro.f = unc_pixels;
+
+	if(pg->cmpr_type==PCMPR_SCANLINE) {
+		do_decompress_scanline_compression(c, d, pg, &dcmpri, &dcmpro, &dres);
+	}
+	else if(pg->cmpr_type==PCMPR_RLE) {
+		do_decompress_rle_compression(c, &dcmpri, &dcmpro, &dres);
+	}
+	else if(pg->cmpr_type==PCMPR_PACKBITS8) {
+		de_fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres);
+	}
+	else if(pg->cmpr_type==PCMPR_PACKBITS16) {
+		de_fmtutil_decompress_packbits16_ex(c, &dcmpri, &dcmpro, &dres);
+	}
+	else {
+		de_err(c, "Unsupported compression type: %u", pg->cmpr_type_field);
+		goto done;
+	}
+
+	if(dres.errcode) {
+		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
+
+	// TODO: The byte counts in this message are not very accurate.
+	de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT" bytes", len,
+		unc_pixels->len);
+	retval = 1;
+
+done:
+	return retval;
+}
+
 // A wrapper that decompresses the image if necessary, then calls do_generate_unc_image().
 static void do_generate_image(deark *c, lctx *d, struct page_ctx *pg,
-	dbuf *inf, i64 pos, i64 len, unsigned int cmpr_type)
+	dbuf *inf, i64 pos, i64 len)
 {
 	dbuf *unc_pixels = NULL;
 	i64 expected_num_uncmpr_image_bytes;
 
 	expected_num_uncmpr_image_bytes = pg->rowbytes*pg->h;
 
-	if(cmpr_type==CMPR_NONE) {
+	if(pg->cmpr_type==PCMPR_NONE) {
 		if(expected_num_uncmpr_image_bytes > len) {
 			de_warn(c, "Not enough data for image");
 		}
@@ -277,23 +303,9 @@ static void do_generate_image(deark *c, lctx *d, struct page_ctx *pg,
 
 		unc_pixels = dbuf_create_membuf(c, expected_num_uncmpr_image_bytes, 1);
 
-		if(cmpr_type==CMPR_SCANLINE) {
-			do_decompress_scanline_compression(c, d, pg, inf, pos, len, unc_pixels);
-		}
-		else if(cmpr_type==CMPR_RLE) {
-			do_decompress_rle_compression(c, d, pg, inf, pos, len, unc_pixels);
-		}
-		else if(cmpr_type==CMPR_PACKBITS) {
-			do_decompress_packbits_compression(c, d, pg, inf, pos, len, unc_pixels);
-		}
-		else {
-			de_err(c, "Unsupported compression type: %u", cmpr_type);
+		if(!de_decompress_image(c, d, pg, inf, pos, len, unc_pixels)) {
 			goto done;
 		}
-
-		// TODO: The byte counts in this message are not very accurate.
-		de_dbg(c, "decompressed %d bytes to %d bytes", (int)len,
-			(int)unc_pixels->len);
 	}
 
 	do_generate_unc_image(c, d, pg, unc_pixels);
@@ -302,15 +314,16 @@ done:
 	dbuf_close(unc_pixels);
 }
 
-static const char *get_cmpr_type_name(unsigned int cmpr_type)
+static const char *get_cmpr_type_name(enum palm_cmpr_type cmpr_type)
 {
 	const char *name;
 
 	switch(cmpr_type) {
-	case 0: name = "ScanLine"; break;
-	case 1: name = "RLE"; break;
-	case 2: name = "PackBits"; break;
-	case 0xff: name = "none"; break;
+	case PCMPR_NONE: name = "none"; break;
+	case PCMPR_SCANLINE: name = "ScanLine"; break;
+	case PCMPR_RLE: name = "RLE"; break;
+	case PCMPR_PACKBITS8: name = "PackBits"; break;
+	case PCMPR_PACKBITS16: name = "PackBits16"; break;
 	default: name = "?"; break;
 	}
 	return name;
@@ -319,6 +332,7 @@ static const char *get_cmpr_type_name(unsigned int cmpr_type)
 static int read_BitmapType_colortable(deark *c, lctx *d, struct page_ctx *pg,
 	i64 pos1, i64 *bytes_consumed)
 {
+	i64 num_entries_raw;
 	i64 num_entries;
 	i64 k;
 	i64 pos = pos1;
@@ -328,13 +342,26 @@ static int read_BitmapType_colortable(deark *c, lctx *d, struct page_ctx *pg,
 	de_dbg(c, "color table at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
-	num_entries = dbuf_getu16x(c->infile, pos1, d->is_le);
-	de_dbg(c, "number of entries: %d", (int)num_entries);
+	num_entries_raw = dbuf_getu16x(c->infile, pos1, d->is_le);
+	num_entries = num_entries_raw;
 	// TODO: Documentation says "High bits (numEntries > 256) reserved."
 	// What exactly does that mean?
-	if(num_entries>256) {
-		de_warn(c, "Invalid or unsupported type of color table");
+	if(num_entries_raw>256) {
+		// Files with "4096" entries have been observed, but they actually have 256
+		// entries.
+		if(num_entries_raw!=4096) {
+			de_warn(c, "This image's color table type might not be supported correctly");
+		}
+		num_entries = 256;
 	}
+	if(num_entries==num_entries_raw) {
+		de_dbg(c, "number of entries: %d", (int)num_entries);
+	}
+	else {
+		de_dbg(c, "number of entries: 0x%04x (assuming %d)", (unsigned int)num_entries_raw,
+			(int)num_entries);
+	}
+
 	pos += 2;
 
 	if(num_entries>0) {
@@ -407,7 +434,6 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, i64 pos1, i64 len,
 	i64 needed_rowbytes;
 	i64 bytes_consumed;
 	i64 nextbitmapoffs_in_bytes = 0;
-	unsigned int cmpr_type;
 	const char *cmpr_type_src_name = "";
 	const char *bpp_src_name = "";
 	struct page_ctx *pg = NULL;
@@ -511,20 +537,39 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, i64 pos1, i64 len,
 	cmpr_type_src_name = "flags";
 	if(bitmapflags&PALMBMPFLAG_COMPRESSED) {
 		if(pg->bitmapversion>=2) {
-			cmpr_type = (unsigned int)de_getbyte(pos1+13);
-			cmpr_type_src_name = "compression type field";
-			de_dbg(c, "compression type field: 0x%02x", cmpr_type);
+			pg->cmpr_type_field = (unsigned int)de_getbyte(pos1+13);
+			cmpr_type_src_name = "flags + compression type field";
+			de_dbg(c, "compression type field: 0x%02x", pg->cmpr_type_field);
+			switch(pg->cmpr_type_field) {
+			case CMPR_FIELD_SCANLINE:
+				pg->cmpr_type = PCMPR_SCANLINE;
+				break;
+			case CMPR_FIELD_RLE:
+				pg->cmpr_type = PCMPR_RLE;
+				break;
+			case CMPR_FIELD_PACKBITS:
+				cmpr_type_src_name = "flags + compression type field + pixelSize";
+				if(pg->bitsperpixel==16) {
+					pg->cmpr_type = PCMPR_PACKBITS16;
+				}
+				else {
+					pg->cmpr_type = PCMPR_PACKBITS8;
+				}
+				break;
+			default:
+				pg->cmpr_type = PCMPR_UNKNOWN;
+			}
 		}
 		else {
 			// V1 & V2 have no cmpr_type field, but can still be compressed.
-			cmpr_type = CMPR_SCANLINE;
+			pg->cmpr_type = PCMPR_SCANLINE;
 		}
 	}
 	else {
-		cmpr_type = CMPR_NONE;
+		pg->cmpr_type = PCMPR_NONE;
 	}
 
-	de_dbg(c, "compression type: %s (based on %s)", get_cmpr_type_name(cmpr_type), cmpr_type_src_name);
+	de_dbg(c, "compression type: %s (based on %s)", get_cmpr_type_name(pg->cmpr_type), cmpr_type_src_name);
 
 	if(pg->bitmapversion==3) {
 		i64 densitycode;
@@ -642,7 +687,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, i64 pos1, i64 len,
 
 	de_dbg(c, "image data at %d", (int)pos);
 	de_dbg_indent(c, 1);
-	do_generate_image(c, d, pg, c->infile, pos, pos1+len-pos, cmpr_type);
+	do_generate_image(c, d, pg, c->infile, pos, pos1+len-pos);
 	de_dbg_indent(c, -1);
 
 done:

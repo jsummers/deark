@@ -5,9 +5,9 @@
 // This file is for format-specific functions that are used by multiple modules.
 
 #define DE_NOT_IN_MODULE
-#include <deark-config.h>
-#include <deark-private.h>
-#include <deark-fmtutil.h>
+#include "deark-config.h"
+#include "deark-private.h"
+#include "deark-fmtutil.h"
 
 void de_fmtutil_get_bmp_compression_name(u32 code, char *s, size_t s_len,
 	int is_os2v2)
@@ -56,9 +56,9 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, i64 pos,
 
 	if(fhs) {
 		if(flags & DE_BMPINFO_HAS_HOTSPOT) {
-			bi->hotspot_x = dbuf_getu16le(f, pos+6);
-			bi->hotspot_y = dbuf_getu16le(f, pos+8);
-			de_dbg(c, "hotspot: (%d,%d)", (int)bi->hotspot_x, (int)bi->hotspot_y);
+			bi->hotspot_x = (int)dbuf_getu16le(f, pos+6);
+			bi->hotspot_y = (int)dbuf_getu16le(f, pos+8);
+			de_dbg(c, "hotspot: (%d,%d)", bi->hotspot_x, bi->hotspot_y);
 		}
 
 		bi->bitsoffset = dbuf_getu32le(f, pos+10);
@@ -114,11 +114,11 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, i64 pos,
 
 	if(bi->bitcount>=1 && bi->bitcount<=8) {
 		if(bi->pal_entries==0) {
-			bi->pal_entries = (i64)(1<<(unsigned int)bi->bitcount);
+			bi->pal_entries = de_pow2(bi->bitcount);
 		}
 		// I think the NumColors field (in icons) is supposed to be the maximum number of
 		// colors implied by the bit depth, not the number of colors in the palette.
-		bi->num_colors = (i64)(1<<(unsigned int)bi->bitcount);
+		bi->num_colors = de_pow2(bi->bitcount);
 	}
 	else {
 		// An arbitrary value. All that matters is that it's >=256.
@@ -379,152 +379,6 @@ void de_fmtutil_handle_plist(deark *c, dbuf *f, i64 pos, i64 len,
 	de_run_module_by_id_on_slice(c, "plist", NULL, f, pos, len);
 }
 
-// Returns 0 on failure (currently impossible).
-int de_fmtutil_uncompress_packbits(dbuf *f, i64 pos1, i64 len,
-	dbuf *unc_pixels, i64 *cmpr_bytes_consumed)
-{
-	i64 pos;
-	u8 b, b2;
-	i64 count;
-	i64 endpos;
-
-	pos = pos1;
-	endpos = pos1+len;
-
-	while(1) {
-		if(unc_pixels->max_len>0 && unc_pixels->len>=unc_pixels->max_len) {
-			break; // Decompressed the requested amount of dst data.
-		}
-
-		if(pos>=endpos) {
-			break; // Reached the end of source data
-		}
-		b = dbuf_getbyte(f, pos++);
-
-		if(b>128) { // A compressed run
-			count = 257 - (i64)b;
-			b2 = dbuf_getbyte(f, pos++);
-			dbuf_write_run(unc_pixels, b2, count);
-		}
-		else if(b<128) { // An uncompressed run
-			count = 1 + (i64)b;
-			dbuf_copy(f, pos, count, unc_pixels);
-			pos += count;
-		}
-		// Else b==128. No-op.
-		// TODO: Some (but not most) ILBM specs say that code 128 is used to
-		// mark the end of compressed data, so maybe there should be options to
-		// tell us what to do when code 128 is encountered.
-	}
-
-	if(cmpr_bytes_consumed) *cmpr_bytes_consumed = pos - pos1;
-	return 1;
-}
-
-// A 16-bit variant of de_fmtutil_uncompress_packbits().
-int de_fmtutil_uncompress_packbits16(dbuf *f, i64 pos1, i64 len,
-	dbuf *unc_pixels, i64 *cmpr_bytes_consumed)
-{
-	i64 pos;
-	u8 b, b1, b2;
-	i64 k;
-	i64 count;
-	i64 endpos;
-
-	pos = pos1;
-	endpos = pos1+len;
-
-	while(1) {
-		if(unc_pixels->max_len>0 && unc_pixels->len>=unc_pixels->max_len) {
-			break; // Decompressed the requested amount of dst data.
-		}
-
-		if(pos>=endpos) {
-			break; // Reached the end of source data
-		}
-		b = dbuf_getbyte(f, pos++);
-
-		if(b>128) { // A compressed run
-			count = 257 - (i64)b;
-			b1 = dbuf_getbyte(f, pos++);
-			b2 = dbuf_getbyte(f, pos++);
-			for(k=0; k<count; k++) {
-				dbuf_writebyte(unc_pixels, b1);
-				dbuf_writebyte(unc_pixels, b2);
-			}
-		}
-		else if(b<128) { // An uncompressed run
-			count = 1 + (i64)b;
-			dbuf_copy(f, pos, count*2, unc_pixels);
-			pos += count*2;
-		}
-		// Else b==128. No-op.
-	}
-
-	if(cmpr_bytes_consumed) *cmpr_bytes_consumed = pos - pos1;
-	return 1;
-}
-
-// RLE algorithm occasionally called "RLE90". Variants of this are used by
-// BinHex, ARC, StuffIt, and others.
-int de_fmtutil_decompress_rle90(dbuf *inf, i64 pos1, i64 len,
-	dbuf *outf, unsigned int has_maxlen, i64 max_out_len, unsigned int flags)
-{
-	i64 pos = pos1;
-	u8 b;
-	u8 lastbyte = 0x00;
-	u8 countcode;
-	i64 count;
-	i64 nbytes_written = 0;
-
-	while(pos < pos1+len) {
-		if(has_maxlen && nbytes_written>=max_out_len) break;
-
-		b = dbuf_getbyte(inf, pos);
-		pos++;
-		if(b!=0x90) {
-			dbuf_writebyte(outf, b);
-			nbytes_written++;
-			lastbyte = b;
-			continue;
-		}
-
-		// b = 0x90, which is a special code.
-		countcode = dbuf_getbyte(inf, pos);
-		pos++;
-
-		if(countcode==0x00) {
-			// Not RLE, just an escaped 0x90 byte.
-			dbuf_writebyte(outf, 0x90);
-			nbytes_written++;
-
-			// Here there is an inconsistency between different RLE90
-			// implementations.
-			// Some of them can compress a run of 0x90 bytes, because the byte
-			// to repeat is defined to be the "last byte emitted".
-			// Others do not allow this. If the "0x90 0x00 0x90 0xNN" sequence
-			// (with 0xNN>0) is encountered, they may (by accident?) repeat the
-			// last non-0x90 byte emitted, or do something else.
-			// Hopefully, valid files in such formats never contain this byte
-			// sequence, so it shouldn't matter what we do here. But maybe not.
-			// We might need to add an option to do something else.
-			lastbyte = 0x90;
-			continue;
-		}
-
-		// RLE. We already emitted one byte (because the byte to repeat
-		// comes before the repeat count), so write countcode-1 bytes.
-		count = (i64)(countcode-1);
-		if(has_maxlen && (nbytes_written+count > max_out_len)) {
-			count = max_out_len - nbytes_written;
-		}
-		dbuf_write_run(outf, lastbyte, count);
-		nbytes_written += count;
-	}
-
-	return 1;
-}
-
 // Caller allocates sdd. It does not need to be initialized.
 // flags: 0x1 = Print a debug message if signature is found.
 int de_fmtutil_detect_SAUCE(deark *c, dbuf *f, struct de_SAUCE_detection_data *sdd,
@@ -562,13 +416,7 @@ void de_fmtutil_free_SAUCE(deark *c, struct de_SAUCE_info *si)
 	ucstring_destroy(si->title);
 	ucstring_destroy(si->artist);
 	ucstring_destroy(si->organization);
-	if(si->comments) {
-		i64 k;
-		for(k=0; k<si->num_comments; k++) {
-			ucstring_destroy(si->comments[k].s);
-		}
-		de_free(c, si->comments);
-	}
+	ucstring_destroy(si->comment);
 	de_free(c, si);
 }
 
@@ -921,9 +769,9 @@ void de_fmtutil_read_atari_palette(deark *c, dbuf *f, i64 pos,
  */
 static unsigned int spectrum512_FindIndex(i64 x, unsigned int c)
 {
-	int x1;
+	i64 x1;
 
-	x1 = 10 * c;
+	x1 = 10 * (i64)c;
 
 	if (c & 1)  /* If c is odd */
 		x1 = x1 - 5;
@@ -1443,7 +1291,7 @@ const char *de_fmtutil_get_windows_charset_name(u8 cs)
 	};
 	size_t i;
 
-	for(i=0; i<DE_ITEMS_IN_ARRAY(csname_arr); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(csname_arr); i++) {
 		if(cs==csname_arr[i].id) return csname_arr[i].name;
 	}
 	return "?";
@@ -1614,4 +1462,594 @@ void de_fmtutil_handle_id3(deark *c, dbuf *f, struct de_id3info *id3i,
 		de_dbg_indent(c, -1);
 		id3i->main_end = id3v1pos;
 	}
+}
+
+// advfile is a uniform way to handle multi-fork files (e.g. classic Mac files
+// with a resource fork), and files with platform-specific metadata that we
+// might want to do something special with (e.g. Mac type/creator codes).
+// It is essentially a wrapper around dbuf/finfo.
+
+// de_advfile_create creates a new object.
+// Then, before calling de_advfile_run, caller must:
+//  - Set advf->filename if possible, e.g. using ucstring_append_*().
+//  - Set advf->original_filename_flag, if appropriate. Note that this annotates the
+//    ->filename field, and is not related to de_advfile_set_orig_filename().
+//  - Set advf->snflags, if needed.
+//  - Set advf->createflags, if needed (unlikely to be).
+//  - Set advf->mainfork.fork_exists, if there is a main fork.
+//  - Set advf->mainfork.fork_len, if there is a main fork. advfile cannot be
+//    used if the fork lengths are not known in advance.
+//  - Set advf->rsrcfork.fork_exists, if there is an rsrc fork.
+//  - Set advf->rsrcfork.fork_len, if there is an rsrc fork.
+//  - Set advf->mainfork.mod_time, if known, even if there is no main fork. Mac
+//    files do not use advf->rsrcfork.mod_time.
+//  - If appropriate, set other fields potentially advf->mainfork.fi and/or
+//    advf->rsrcfork.fi, such as ->is_directory. But verify that they work
+//    as expected.
+struct de_advfile *de_advfile_create(deark *c)
+{
+	struct de_advfile *advf = NULL;
+
+	advf = de_malloc(c, sizeof(struct de_advfile));
+	advf->c = c;
+	advf->filename = ucstring_create(c);
+	advf->mainfork.fi = de_finfo_create(c);
+	advf->rsrcfork.fi = de_finfo_create(c);
+	return advf;
+}
+
+void de_advfile_destroy(struct de_advfile *advf)
+{
+	deark *c;
+
+	if(!advf) return;
+	c = advf->c;
+	ucstring_destroy(advf->filename);
+	de_finfo_destroy(c, advf->mainfork.fi);
+	de_finfo_destroy(c, advf->rsrcfork.fi);
+	de_free(c, advf->orig_filename);
+	de_free(c, advf);
+}
+
+// Set the original untranslated filename, as an array of bytes of indeterminate
+// encoding (most likely MacRoman).
+// We can't necessarily decode this filename correctly, but we can copy it
+// unchanged to AppleSingle/AppleDouble's "Real Name" field.
+void de_advfile_set_orig_filename(struct de_advfile *advf, const char *fn, size_t fnlen)
+{
+	deark *c = advf->c;
+
+	if(advf->orig_filename) {
+		de_free(c, advf->orig_filename);
+		advf->orig_filename = NULL;
+	}
+
+	if(fnlen<1) return;
+	advf->orig_filename_len = fnlen;
+	if(advf->orig_filename_len>1024)
+		advf->orig_filename_len = 1024;
+	advf->orig_filename = de_malloc(c, advf->orig_filename_len);
+	de_memcpy(advf->orig_filename, fn, advf->orig_filename_len);
+
+	if(advf->orig_filename[0]<32) {
+		// This is to ensure that our applesd module won't incorrectly guess that
+		// this is a Pascal string.
+		advf->orig_filename[0] = '_';
+	}
+}
+
+static void setup_rsrc_finfo(struct de_advfile *advf)
+{
+	deark *c = advf->c;
+	de_ucstring *fname_rsrc = NULL;
+
+	fname_rsrc = ucstring_create(c);
+	ucstring_append_ucstring(fname_rsrc, advf->filename);
+	if(fname_rsrc->len<1) {
+		ucstring_append_sz(fname_rsrc, "_", DE_ENCODING_LATIN1);
+	}
+	ucstring_append_sz(fname_rsrc, ".rsrc", DE_ENCODING_LATIN1);
+	de_finfo_set_name_from_ucstring(c, advf->rsrcfork.fi, fname_rsrc, advf->snflags);
+	advf->rsrcfork.fi->original_filename_flag = advf->original_filename_flag;
+
+	ucstring_destroy(fname_rsrc);
+}
+
+// If is_appledouble is set, do not write the resource fork (it will be handled
+// in another way), and *always* write a main fork (even if we have to write a
+// 0-length file). Our theory is that it's never appropriate to write an
+// AppleDouble header file by itself -- it should always have a companion data
+// file.
+static void de_advfile_run_rawfiles(deark *c, struct de_advfile *advf, int is_appledouble)
+{
+	struct de_advfile_cbparams *afp_main = NULL;
+	struct de_advfile_cbparams *afp_rsrc = NULL;
+
+	if(advf->mainfork.fork_exists || is_appledouble) {
+		if(!advf->mainfork.fork_exists) {
+			advf->mainfork.fork_len = 0;
+		}
+		afp_main = de_malloc(c, sizeof(struct de_advfile_cbparams));
+		afp_main->whattodo = DE_ADVFILE_WRITEMAIN;
+		de_finfo_set_name_from_ucstring(c, advf->mainfork.fi, advf->filename, advf->snflags);
+		advf->mainfork.fi->original_filename_flag = advf->original_filename_flag;
+		afp_main->outf = dbuf_create_output_file(c, NULL, advf->mainfork.fi, advf->createflags);
+		afp_main->outf->userdata = advf->mainfork.userdata;
+		afp_main->outf->writecallback_fn = advf->mainfork.writecallback_fn;
+		if(advf->writefork_cbfn && advf->mainfork.fork_len>0) {
+			advf->writefork_cbfn(c, advf, afp_main);
+		}
+		dbuf_close(afp_main->outf);
+		afp_main->outf = NULL;
+	}
+	if(!is_appledouble && advf->rsrcfork.fork_exists && advf->rsrcfork.fork_len>0) {
+		afp_rsrc = de_malloc(c, sizeof(struct de_advfile_cbparams));
+		setup_rsrc_finfo(advf);
+		afp_rsrc->whattodo = DE_ADVFILE_WRITERSRC;
+		// Note: It is intentional to use mainfork in the next line.
+		advf->rsrcfork.fi->mod_time = advf->mainfork.fi->mod_time;
+		afp_rsrc->outf = dbuf_create_output_file(c, NULL, advf->rsrcfork.fi, advf->createflags);
+		afp_rsrc->outf->userdata = advf->rsrcfork.userdata;
+		afp_rsrc->outf->writecallback_fn = advf->rsrcfork.writecallback_fn;
+		if(advf->writefork_cbfn) {
+			advf->writefork_cbfn(c, advf, afp_rsrc);
+		}
+		dbuf_close(afp_rsrc->outf);
+		afp_rsrc->outf = NULL;
+	}
+
+	de_free(c, afp_main);
+	de_free(c, afp_rsrc);
+}
+
+struct applesd_entry {
+	unsigned int id;
+	i64 offset;
+	i64 len;
+};
+
+#define SDID_DATAFORK 1
+#define SDID_RESOURCEFORK 2
+#define SDID_REALNAME 3
+#define SDID_COMMENT 4
+#define SDID_FILEDATES 8
+#define SDID_FINDERINFO 9
+
+#define INVALID_APPLESD_DATE ((i64)(-0x80000000LL))
+
+static i64 timestamp_to_applesd_date(deark *c, struct de_timestamp *ts)
+{
+	i64 t;
+
+	if(!ts->is_valid) return INVALID_APPLESD_DATE;
+	t = de_timestamp_to_unix_time(ts);
+	t -= (365*30 + 7)*86400;
+	if(t>0x7fffffffLL || t<-0x7fffffffLL) return INVALID_APPLESD_DATE;
+	return t;
+}
+
+// If is_appledouble is set, do not write the data fork (it will be handled
+// in another way).
+static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_appledouble)
+{
+	de_ucstring *fname = NULL;
+	struct de_advfile_cbparams *afp_main = NULL;
+	struct de_advfile_cbparams *afp_rsrc = NULL;
+	dbuf *outf = NULL;
+	i64 cur_data_pos;
+	size_t num_entries = 0;
+	size_t k;
+	char commentstr[80];
+	size_t comment_strlen;
+	struct applesd_entry entry_info[16];
+
+	fname = ucstring_create(c);
+	ucstring_append_ucstring(fname, advf->filename);
+	if(fname->len<1) {
+		ucstring_append_sz(fname, "_", DE_ENCODING_LATIN1);
+	}
+	if(is_appledouble) {
+		// TODO: Consider using "._" prefix when writing to ZIP/tar
+		ucstring_append_sz(fname, ".adf", DE_ENCODING_LATIN1);
+	}
+	else {
+		ucstring_append_sz(fname, ".as", DE_ENCODING_LATIN1);
+	}
+	de_finfo_set_name_from_ucstring(c, advf->mainfork.fi, fname, advf->snflags);
+	advf->mainfork.fi->original_filename_flag = advf->original_filename_flag;
+	outf = dbuf_create_output_file(c, NULL, advf->mainfork.fi, advf->createflags);
+
+	if(is_appledouble) { // signature
+		dbuf_writeu32be(outf, 0x00051607U);
+	}
+	else {
+		dbuf_writeu32be(outf, 0x00051600U);
+	}
+	dbuf_writeu32be(outf, 0x00020000U); // version
+	dbuf_write_zeroes(outf, 16); // filler
+
+	// Decide what entries we will write, and in what order, and their data length.
+
+	de_snprintf(commentstr, sizeof(commentstr), "Apple%s container generated by Deark",
+		is_appledouble?"Double":"Single");
+	comment_strlen = de_strlen(commentstr);
+
+	if(advf->orig_filename) {
+		entry_info[num_entries].id = SDID_REALNAME;
+		entry_info[num_entries].len = (i64)advf->orig_filename_len;
+		num_entries++;
+	}
+
+	entry_info[num_entries].id = SDID_COMMENT;
+	entry_info[num_entries].len = (i64)comment_strlen;
+	num_entries++;
+
+	if(advf->mainfork.fi->mod_time.is_valid) {
+		entry_info[num_entries].id = SDID_FILEDATES;
+		entry_info[num_entries].len = 16;
+		num_entries++;
+	}
+	if((advf->has_typecode || advf->has_creatorcode || advf->has_finderflags) &&
+		!advf->mainfork.fi->is_directory)
+	{
+		entry_info[num_entries].id = SDID_FINDERINFO;
+		entry_info[num_entries].len = 32;
+		num_entries++;
+	}
+	if(advf->rsrcfork.fork_exists) {
+		entry_info[num_entries].id = SDID_RESOURCEFORK;
+		entry_info[num_entries].len = advf->rsrcfork.fork_len;
+		num_entries++;
+	};
+	if(advf->mainfork.fork_exists && !is_appledouble) {
+		entry_info[num_entries].id = SDID_DATAFORK;
+		entry_info[num_entries].len = advf->mainfork.fork_len;
+		num_entries++;
+	};
+
+	dbuf_writeu16be(outf, (i64)num_entries);
+
+	// Figure out where the each data element will be written.
+	cur_data_pos = 26 + 12*(i64)num_entries;
+	for(k=0; k<num_entries; k++) {
+		entry_info[k].offset = cur_data_pos;
+		cur_data_pos += entry_info[k].len;
+	};
+
+	// Write the element table
+	for(k=0; k<num_entries; k++) {
+		dbuf_writeu32be(outf, (i64)entry_info[k].id);
+		if(entry_info[k].offset>0xffffffffLL || entry_info[k].len>0xffffffffLL) {
+			de_err(c, "File too large to write to AppleSingle/AppleDouble format");
+			goto done;
+		}
+		dbuf_writeu32be(outf, entry_info[k].offset);
+		dbuf_writeu32be(outf, entry_info[k].len);
+	}
+
+	// Write the elements' data
+	for(k=0; k<num_entries; k++) {
+		switch(entry_info[k].id) {
+		case SDID_DATAFORK:
+			afp_main = de_malloc(c, sizeof(struct de_advfile_cbparams));
+			afp_main->whattodo = DE_ADVFILE_WRITEMAIN;
+			outf->userdata = advf->mainfork.userdata;
+			outf->writecallback_fn = advf->mainfork.writecallback_fn;
+			afp_main->outf = outf;
+			if(advf->writefork_cbfn && advf->mainfork.fork_len>0) {
+				advf->writefork_cbfn(c, advf, afp_main);
+			}
+			outf->userdata = NULL;
+			outf->writecallback_fn = NULL;
+			break;
+
+		case SDID_RESOURCEFORK:
+			afp_rsrc = de_malloc(c, sizeof(struct de_advfile_cbparams));
+			afp_rsrc->whattodo = DE_ADVFILE_WRITERSRC;
+			outf->userdata = advf->rsrcfork.userdata;
+			outf->writecallback_fn = advf->rsrcfork.writecallback_fn;
+			afp_rsrc->outf = outf;
+			if(advf->writefork_cbfn && advf->rsrcfork.fork_len>0) {
+				advf->writefork_cbfn(c, advf, afp_rsrc);
+			}
+			outf->userdata = NULL;
+			outf->writecallback_fn = NULL;
+			break;
+
+		case SDID_REALNAME:
+			// If you think this code might be wrong, first review the comments
+			// in applesd.c regarding Pascal strings.
+			dbuf_write(outf, advf->orig_filename, (i64)advf->orig_filename_len);
+			break;
+
+		case SDID_COMMENT:
+			dbuf_write(outf, (const u8*)commentstr, (i64)comment_strlen);
+			break;
+
+		case SDID_FILEDATES:
+			// We could try to maintain dates other than the modification date, but
+			// Deark doesn't generally care about them.
+			dbuf_writei32be(outf, INVALID_APPLESD_DATE); // creation
+			dbuf_writei32be(outf, timestamp_to_applesd_date(c, &advf->mainfork.fi->mod_time));
+			dbuf_writei32be(outf, INVALID_APPLESD_DATE); // backup
+			dbuf_writei32be(outf, INVALID_APPLESD_DATE); // access
+			break;
+
+		case SDID_FINDERINFO:
+			if(advf->has_typecode)
+				dbuf_write(outf, advf->typecode, 4);
+			else
+				dbuf_write_zeroes(outf, 4);
+			if(advf->has_creatorcode)
+				dbuf_write(outf, advf->creatorcode, 4);
+			else
+				dbuf_write_zeroes(outf, 4);
+			dbuf_writeu16be(outf, advf->has_finderflags?((i64)advf->finderflags):0);
+			dbuf_write_zeroes(outf, 6 + 16);
+			break;
+		}
+
+		// In case something went wrong, try to make sure we're at the expected
+		// file position.
+		// Note: This might not compensate for all failures, as dbuf_truncate
+		// might not be fully implemented for this output type.
+		dbuf_truncate(outf, entry_info[k].offset + entry_info[k].len);
+	}
+
+done:
+	dbuf_close(outf);
+	de_free(c, afp_main);
+	de_free(c, afp_rsrc);
+	ucstring_destroy(fname);
+}
+
+void de_advfile_run(struct de_advfile *advf)
+{
+	deark *c = advf->c;
+	int is_mac_file;
+	int fmt;
+
+	is_mac_file = (advf->rsrcfork.fork_exists && advf->rsrcfork.fork_len>0);
+
+	if(is_mac_file && !c->macformat_known) {
+		const char *mfmt;
+
+		c->macformat_known = 1;
+		c->macformat = 2; // default=AppleDouble
+
+		// [I know there is a module named "macrsrc", so this could lead to confusion,
+		// but I can't think of a better name.]
+		mfmt = de_get_ext_option(c, "macrsrc");
+		if(mfmt) {
+			if(!de_strcmp(mfmt, "raw")) {
+				c->macformat = 0; // Raw resource file
+			}
+			else if(!de_strcmp(mfmt, "as")) {
+				c->macformat = 1; // AppleSingle
+			}
+			else if(!de_strcmp(mfmt, "ad")) {
+				c->macformat = 2; // AppleDouble
+			}
+		}
+	}
+
+	fmt = c->macformat; // Default to the default Mac format.
+	if(fmt==1 && advf->no_applesingle) fmt = 2;
+	if(fmt==2 && advf->no_appledouble) fmt = 0;
+
+	if(is_mac_file && fmt==1) { // AppleSingle
+		de_advfile_run_applesd(c, advf, 0);
+	}
+	else if(is_mac_file && fmt==2) { // AppleDouble
+		de_advfile_run_rawfiles(c, advf, 1); // For the data/main fork
+		de_advfile_run_applesd(c, advf, 1); // For the rsrc fork
+	}
+	else {
+		de_advfile_run_rawfiles(c, advf, 0);
+	}
+}
+
+static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *name)
+{
+	char timestamp_buf[64];
+
+	de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "%s: %s", name, timestamp_buf);
+}
+
+void de_fmtutil_riscos_read_load_exec(deark *c, dbuf *f, struct de_riscos_file_attrs *rfa, i64 pos1)
+{
+	i64 pos = pos1;
+
+	rfa->load_addr = (u32)dbuf_getu32le_p(f, &pos);
+	rfa->exec_addr = (u32)dbuf_getu32le_p(f, &pos);
+	de_dbg(c, "load/exec addrs: 0x%08x, 0x%08x", (unsigned int)rfa->load_addr,
+		(unsigned int)rfa->exec_addr);
+	de_dbg_indent(c, 1);
+	if((rfa->load_addr&0xfff00000U)==0xfff00000U) {
+		rfa->file_type = (unsigned int)((rfa->load_addr&0xfff00)>>8);
+		rfa->file_type_known = 1;
+		de_dbg(c, "file type: %03X", rfa->file_type);
+
+		de_riscos_loadexec_to_timestamp(rfa->load_addr, rfa->exec_addr, &rfa->mod_time);
+		dbg_timestamp(c, &rfa->mod_time, "timestamp");
+	}
+	de_dbg_indent(c, -1);
+}
+
+void de_fmtutil_riscos_read_attribs_field(deark *c, dbuf *f, struct de_riscos_file_attrs *rfa,
+	i64 pos, unsigned int flags)
+{
+	rfa->attribs = (u32)dbuf_getu32le(f, pos);
+	de_dbg(c, "attribs: 0x%08x", (unsigned int)rfa->attribs);
+	de_dbg_indent(c, 1);
+	rfa->crc_from_attribs = rfa->attribs>>16;
+	if(flags & DE_RISCOS_FLAG_HAS_CRC) {
+		de_dbg(c, "crc (reported): 0x%04x", (unsigned int)rfa->crc_from_attribs);
+	}
+	if(flags & DE_RISCOS_FLAG_HAS_LZWMAXBITS) {
+		rfa->lzwmaxbits = (unsigned int)((rfa->attribs&0xff00)>>8);
+		de_dbg(c, "lzw maxbits: %u", rfa->lzwmaxbits);
+	}
+	de_dbg_indent(c, -1);
+}
+
+struct pict_rect {
+	i64 t, l, b, r;
+};
+
+// Note: Code duplicated in pict.c
+static double pict_read_fixed(dbuf *f, i64 pos)
+{
+	i64 n;
+
+	// I think QuickDraw's "Fixed point" numbers are signed, but I don't know
+	// how negative numbers are handled.
+	n = dbuf_geti32be(f, pos);
+	return ((double)n)/65536.0;
+}
+
+// Read a QuickDraw Rectangle. Caller supplies rect struct.
+// Note: Code duplicated in pict.c
+static void pict_read_rect(dbuf *f, i64 pos,
+	struct pict_rect *rect, const char *dbgname)
+{
+	rect->t = dbuf_geti16be(f, pos);
+	rect->l = dbuf_geti16be(f, pos+2);
+	rect->b = dbuf_geti16be(f, pos+4);
+	rect->r = dbuf_geti16be(f, pos+6);
+
+	if(dbgname) {
+		de_dbg(f->c, "%s: (%d,%d)-(%d,%d)", dbgname, (int)rect->l, (int)rect->t,
+			(int)rect->r, (int)rect->b);
+	}
+}
+
+// Sometimes-present baseAddr field (4 bytes)
+void fmtutil_macbitmap_read_baseaddr(deark *c, dbuf *f, struct fmtutil_macbitmap_info *bi, i64 pos)
+{
+	i64 n;
+	de_dbg(c, "baseAddr part of PixMap, at %d", (int)pos);
+	de_dbg_indent(c, 1);
+	n = dbuf_getu32be(f, pos);
+	de_dbg(c, "baseAddr: 0x%08x", (unsigned int)n);
+	de_dbg_indent(c, -1);
+}
+
+void fmtutil_macbitmap_read_rowbytes_and_bounds(deark *c, dbuf *f,
+	struct fmtutil_macbitmap_info *bi, i64 pos)
+{
+	struct pict_rect tmprect;
+	i64 rowbytes_code;
+
+	de_dbg(c, "rowBytes/bounds part of bitmap/PixMap header, at %d", (int)pos);
+	de_dbg_indent(c, 1);
+	rowbytes_code = dbuf_getu16be(f, pos);
+	bi->rowbytes = rowbytes_code & 0x7fff;
+	bi->pixmap_flag = (rowbytes_code & 0x8000)?1:0;
+	de_dbg(c, "rowBytes: %d", (int)bi->rowbytes);
+	de_dbg(c, "pixmap flag: %d", bi->pixmap_flag);
+
+	pict_read_rect(f, pos+2, &tmprect, "rect");
+	bi->width = tmprect.r - tmprect.l;
+	bi->height = tmprect.b - tmprect.t;
+
+	de_dbg_indent(c, -1);
+}
+
+// Pixmap fields that aren't read by read_baseaddr or read_rowbytes_and_bounds
+// (36 bytes)
+void fmtutil_macbitmap_read_pixmap_only_fields(deark *c, dbuf *f, struct fmtutil_macbitmap_info *bi,
+	i64 pos)
+{
+	i64 pixmap_version;
+	i64 pack_size;
+	i64 plane_bytes;
+	i64 n;
+
+	de_dbg(c, "additional PixMap header fields, at %d", (int)pos);
+	de_dbg_indent(c, 1);
+
+	pixmap_version = dbuf_getu16be(f, pos+0);
+	de_dbg(c, "pixmap version: %d", (int)pixmap_version);
+
+	bi->packing_type = dbuf_getu16be(f, pos+2);
+	de_dbg(c, "packing type: %d", (int)bi->packing_type);
+
+	pack_size = dbuf_getu32be(f, pos+4);
+	de_dbg(c, "pixel data length: %d", (int)pack_size);
+
+	bi->hdpi = pict_read_fixed(f, pos+8);
+	bi->vdpi = pict_read_fixed(f, pos+12);
+	de_dbg(c, "dpi: %.2f"DE_CHAR_TIMES"%.2f", bi->hdpi, bi->vdpi);
+
+	bi->pixeltype = dbuf_getu16be(f, pos+16);
+	bi->pixelsize = dbuf_getu16be(f, pos+18);
+	bi->cmpcount = dbuf_getu16be(f, pos+20);
+	bi->cmpsize = dbuf_getu16be(f, pos+22);
+	de_dbg(c, "pixel type=%d, bits/pixel=%d, components/pixel=%d, bits/comp=%d",
+		(int)bi->pixeltype, (int)bi->pixelsize, (int)bi->cmpcount, (int)bi->cmpsize);
+
+	plane_bytes = dbuf_getu32be(f, pos+24);
+	de_dbg(c, "plane bytes: %d", (int)plane_bytes);
+
+	bi->pmTable = (u32)dbuf_getu32be(f, pos+28);
+	de_dbg(c, "pmTable: 0x%08x", (unsigned int)bi->pmTable);
+
+	n = dbuf_getu32be(f, pos+32);
+	de_dbg(c, "pmReserved: 0x%08x", (unsigned int)n);
+
+	de_dbg_indent(c, -1);
+}
+
+int fmtutil_macbitmap_read_colortable(deark *c, dbuf *f,
+	struct fmtutil_macbitmap_info *bi, i64 pos, i64 *bytes_used)
+{
+	i64 ct_id;
+	u32 ct_flags;
+	i64 ct_size;
+	i64 k, z;
+	u32 s[4];
+	u8 cr, cg, cb;
+	u32 clr;
+	char tmps[64];
+
+	*bytes_used = 0;
+	de_dbg(c, "color table at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
+
+	ct_id = dbuf_getu32be(f, pos);
+	ct_flags = (u32)dbuf_getu16be(f, pos+4); // a.k.a. transIndex
+	ct_size = dbuf_getu16be(f, pos+6);
+	bi->num_pal_entries = ct_size+1;
+	de_dbg(c, "color table id=0x%08x, flags=0x%04x, colors=%d", (unsigned int)ct_id,
+		(unsigned int)ct_flags, (int)bi->num_pal_entries);
+
+	for(k=0; k<bi->num_pal_entries; k++) {
+		for(z=0; z<4; z++) {
+			s[z] = (u32)dbuf_getu16be(f, pos+8+8*k+2*z);
+		}
+		cr = (u8)(s[1]>>8);
+		cg = (u8)(s[2]>>8);
+		cb = (u8)(s[3]>>8);
+		clr = DE_MAKE_RGB(cr,cg,cb);
+		de_snprintf(tmps, sizeof(tmps), "(%5d,%5d,%5d,idx=%3d) "DE_CHAR_RIGHTARROW" ",
+			(int)s[1], (int)s[2], (int)s[3], (int)s[0]);
+		de_dbg_pal_entry2(c, k, clr, tmps, NULL, NULL);
+
+		// Some files don't have the palette indices set. Most PICT decoders ignore
+		// the indices if the "device" flag of ct_flags is set, and that seems to
+		// work (though it's not clearly documented).
+		if(ct_flags & 0x8000U) {
+			s[0] = (u32)k;
+		}
+
+		if(s[0]<=255) {
+			bi->pal[s[0]] = clr;
+		}
+	}
+
+	de_dbg_indent(c, -1);
+	*bytes_used = 8 + 8*bi->num_pal_entries;
+	return 1;
 }

@@ -12,6 +12,7 @@ DE_DECLARE_MODULE(de_module_anim);
 
 #define CODE_ABIT  0x41424954
 #define CODE_ANHD  0x414e4844U
+#define CODE_BEAM  0x4245414dU
 #define CODE_BMHD  0x424d4844
 #define CODE_BODY  0x424f4459
 #define CODE_CAMG  0x43414d47
@@ -40,6 +41,8 @@ struct img_info {
 	i64 planespan;
 	i64 bits_per_row_per_plane;
 	u8 masking_code;
+	u8 has_hotspot;
+	int hotspot_x, hotspot_y;
 	int is_thumb;
 	const char *filename_token;
 };
@@ -63,6 +66,8 @@ typedef struct localctx_struct {
 	u8 in_vdat_image;
 	u8 is_vdat;
 	u8 is_sham, is_pchg, is_ctbl;
+	u8 is_beam;
+	u8 is_rast;
 	u8 uses_color_cycling;
 	u8 errflag; // Set if image(s) format is not supported.
 	i64 transparent_color;
@@ -244,7 +249,8 @@ static void get_row_vdat(deark *c, lctx *d, struct img_info *ii,
 	}
 }
 
-static void set_density_and_filename(deark *c, lctx *d, struct img_info *ii, de_finfo *fi)
+// Set density, filename, etc.
+static void set_finfo_data(deark *c, lctx *d, struct img_info *ii, de_finfo *fi)
 {
 	int has_aspect, has_dpi;
 
@@ -266,6 +272,12 @@ static void set_density_and_filename(deark *c, lctx *d, struct img_info *ii, de_
 		fi->density.code = DE_DENSITY_UNK_UNITS;
 		fi->density.ydens = (double)d->x_aspect;
 		fi->density.xdens = (double)d->y_aspect;
+	}
+
+	if(ii->has_hotspot) {
+		fi->has_hotspot = 1;
+		fi->hotspot_x = ii->hotspot_x;
+		fi->hotspot_y = ii->hotspot_y;
 	}
 }
 
@@ -291,7 +303,7 @@ static void do_image_24(deark *c, lctx *d, struct img_info *ii,
 
 	img = de_bitmap_create(c, ii->width, ii->height, 3);
 	fi = de_finfo_create(c);
-	set_density_and_filename(c, d, ii, fi);
+	set_finfo_data(c, d, ii, fi);
 
 	for(j=0; j<ii->height; j++) {
 		dbuf_read(unc_pixels, row_orig, j*ii->rowspan, ii->rowspan);
@@ -416,10 +428,15 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 		}
 	}
 
+	if(d->planes==6 && d->pal_ncolors==32 && !d->ehb_flag) {
+		de_warn(c, "Assuming this is an EHB image");
+		d->ehb_flag = 1;
+	}
+
 	if(d->opt_fixpal)
 		fixup_palette(c, d);
 
-	if(d->ehb_flag && d->planes==6 && d->pal_ncolors==32) {
+	if(d->ehb_flag && d->planes==6) {
 		make_ehb_palette(c, d);
 	}
 
@@ -473,7 +490,7 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 
 	img = de_bitmap_create(c, ii->width, ii->height, dst_bytes_per_pixel);
 	fi = de_finfo_create(c);
-	set_density_and_filename(c, d, ii, fi);
+	set_finfo_data(c, d, ii, fi);
 
 	for(j=0; j<ii->height; j++) {
 		if(d->is_ham6 || d->is_ham8) {
@@ -606,10 +623,14 @@ static void print_summary(deark *c, lctx *d)
 		ucstring_append_sz(summary, " PCHG", DE_ENCODING_UTF8);
 	else if(d->is_ctbl)
 		ucstring_append_sz(summary, " CBTL", DE_ENCODING_UTF8);
+	else if(d->is_beam)
+		ucstring_append_sz(summary, " BEAM", DE_ENCODING_LATIN1);
 	else if(d->ham_flag)
 		ucstring_append_sz(summary, " HAM", DE_ENCODING_UTF8);
 	else if(d->ehb_flag)
 		ucstring_append_sz(summary, " EHB", DE_ENCODING_UTF8);
+	else if(d->is_rast)
+		ucstring_append_sz(summary, " RAST", DE_ENCODING_LATIN1);
 
 	ucstring_printf(summary, DE_ENCODING_UTF8, " cmpr=%d", (int)d->compression);
 	ucstring_printf(summary, DE_ENCODING_UTF8, " planes=%d", (int)d->planes);
@@ -660,6 +681,12 @@ static int do_image(deark *c, lctx *d, struct img_info *ii,
 
 	if(!de_good_image_dimensions(c, ii->width, ii->height)) goto done;
 
+	if(d->formtype==CODE_ACBM && d->compression!=0) {
+		// TODO: Can we safely assume ACBM is never compressed?
+		de_warn(c, "ACBM images are not usually compressed. Image might not "
+			"be decoded correctly.");
+	}
+
 	if(d->in_vdat_image) {
 		// TODO: Consider using the tinystuff decoder for VDAT.
 		if(d->planes!=4) {
@@ -676,7 +703,7 @@ static int do_image(deark *c, lctx *d, struct img_info *ii,
 		unc_pixels_toclose = dbuf_create_membuf(c, 0, 0);
 		unc_pixels = unc_pixels_toclose;
 		// TODO: Call dbuf_set_max_length()
-		if(!de_fmtutil_uncompress_packbits(c->infile, pos1, len, unc_pixels, NULL))
+		if(!de_fmtutil_decompress_packbits(c->infile, pos1, len, unc_pixels, NULL))
 			goto done;
 		de_dbg(c, "decompressed %d bytes to %d bytes", (int)len, (int)unc_pixels->len);
 	}
@@ -715,6 +742,7 @@ static void do_tiny(deark *c, lctx *d, i64 pos1, i64 len)
 	ii = de_malloc(c, sizeof(struct img_info));
 	*ii = d->main_img; // structure copy
 	ii->is_thumb = 1;
+	ii->has_hotspot = 0;
 	ii->width = de_getu16be(pos1);
 	if(len<=4) goto done;
 	ii->height = de_getu16be(pos1+2);
@@ -840,6 +868,7 @@ static void do_multipalette(deark *c, lctx *d, u32 chunktype)
 	if(chunktype==CODE_SHAM) { d->is_sham = 1; }
 	else if(chunktype==CODE_PCHG) { d->is_pchg = 1; }
 	else if(chunktype==CODE_CTBL) { d->is_ctbl = 1; }
+	else if(chunktype==CODE_BEAM) { d->is_beam = 1; }
 
 	de_err(c, "Multi-palette ILBM images are not supported.");
 	d->errflag = 1;
@@ -868,6 +897,14 @@ static int my_preprocess_ilbm_chunk_fn(deark *c, struct de_iffctx *ictx)
 		de_fmtutil_default_iff_chunk_identify(c, ictx);
 	}
 	return 1;
+}
+
+static void look_for_RAST(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos)
+{
+	if(d->is_rast) return;
+	if(!dbuf_memcmp(c->infile, pos, "RAST", 4)) {
+		d->is_rast = 1;
+	}
 }
 
 static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
@@ -908,8 +945,17 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 		// (apparently included in the file size given by the FORM chunk).
 		// To avoid it, don't read past the BODY chunk.
 
-		if(!is_vdat)
+		if(!is_vdat) {
+			look_for_RAST(c, d, ictx, ictx->chunkctx->dpos+ictx->chunkctx->dlen);
+			if(ictx->chunkctx->dlen%2)
+				look_for_RAST(c, d, ictx, ictx->chunkctx->dpos+ictx->chunkctx->dlen+1);
+			if(d->is_rast) {
+				de_warn(c, "Possible RAST data found, which is not supported. "
+					"Image might not be decoded correctly.");
+			}
+
 			quitflag = 1;
+		}
 		break;
 
 	case CODE_VDAT:
@@ -969,14 +1015,16 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	case CODE_GRAB:
 		if(ictx->chunkctx->dlen<4) break;
-		tmp1 = de_getu16be(ictx->chunkctx->dpos);
-		tmp2 = de_getu16be(ictx->chunkctx->dpos+2);
-		de_dbg(c, "hotspot: (%d, %d)", (int)tmp1, (int)tmp2);
+		d->main_img.has_hotspot = 1;
+		d->main_img.hotspot_x = (int)de_getu16be(ictx->chunkctx->dpos);
+		d->main_img.hotspot_y = (int)de_getu16be(ictx->chunkctx->dpos+2);
+		de_dbg(c, "hotspot: (%d, %d)", d->main_img.hotspot_x, d->main_img.hotspot_y);
 		break;
 
 	case CODE_SHAM:
 	case CODE_PCHG:
 	case CODE_CTBL:
+	case CODE_BEAM:
 		do_multipalette(c, d, ictx->chunkctx->chunk4cc.id);
 		goto done;
 
@@ -1119,7 +1167,7 @@ static void do_anim_anhd(deark *c, animctx *d, i64 pos, i64 len)
 		tmp = de_getu32be(pos);
 		de_dbg(c, "flags: 0x%08u", (unsigned int)tmp);
 	}
-	pos+=4;
+	//pos+=4;
 }
 
 static int my_anim_chunk_handler(deark *c, struct de_iffctx *ictx)
@@ -1156,6 +1204,7 @@ static void de_run_anim(deark *c, de_module_params *mparams)
 	struct de_iffctx *ictx = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+	de_declare_fmt(c, "ANIM");
 
 	ictx = de_malloc(c, sizeof(struct de_iffctx));
 	ictx->userdata = (void*)d;

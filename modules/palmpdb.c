@@ -152,7 +152,7 @@ static void get_db_attr_descr(de_ucstring *s, u32 attribs)
 		{0x0800, "dmHdrAttrBundle"},
 		{0x8000, "dmHdrAttrOpen"}
 	};
-	for(i=0; i<DE_ITEMS_IN_ARRAY(flags_arr); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(flags_arr); i++) {
 		if(attribs & flags_arr[i].a)
 			ucstring_append_flags_item(s, flags_arr[i].n);
 
@@ -616,7 +616,7 @@ static const struct rsrc_type_info_struct *get_rsrc_type_info(u32 id)
 {
 	size_t i;
 
-	for(i=0; i<DE_ITEMS_IN_ARRAY(rsrc_type_info_arr); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(rsrc_type_info_arr); i++) {
 		if(id == rsrc_type_info_arr[i].id) {
 			return &rsrc_type_info_arr[i];
 		}
@@ -817,53 +817,48 @@ static void do_pqa_app_info_block(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	u32 sig;
 	u32 ux;
+	i64 n;
 	de_ucstring *s = NULL;
 	i64 pos = pos1;
 
-	sig = (u32)de_getu32be(pos);
+	de_dbg(c, "hello");
+	sig = (u32)de_getu32be_p(&pos);
 	if(sig!=CODE_lnch) return; // Apparently not a PQA appinfo block
 	de_dbg(c, "PQA sig: 0x%08x", (unsigned int)sig);
-	pos += 4;
 
-	ux = (u32)de_getu16be(pos);
+	ux = (u32)de_getu16be_p(&pos);
 	de_dbg(c, "hdrVersion: 0x%04x", (unsigned int)ux);
-	pos += 2;
-	ux = (u32)de_getu16be(pos);
+	ux = (u32)de_getu16be_p(&pos);
 	de_dbg(c, "encVersion: 0x%04x", (unsigned int)ux);
-	pos += 2;
 
 	s = ucstring_create(c);
 
-	ux = (u32)de_getu16be(pos);
-	pos += 2;
-	dbuf_read_to_ucstring_n(c->infile, pos, ux*2, DE_DBG_MAX_STRLEN, s,
+	n = de_getu16be_p(&pos);
+	dbuf_read_to_ucstring_n(c->infile, pos, n*2, DE_DBG_MAX_STRLEN, s,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
 	de_dbg(c, "verStr: \"%s\"", ucstring_getpsz(s));
 	ucstring_empty(s);
-	pos += 2*ux;
+	pos += 2*n;
 
-	ux = (u32)de_getu16be(pos);
-	pos += 2;
-	dbuf_read_to_ucstring_n(c->infile, pos, ux*2, DE_DBG_MAX_STRLEN, s,
+	n = de_getu16be_p(&pos);
+	dbuf_read_to_ucstring_n(c->infile, pos, n*2, DE_DBG_MAX_STRLEN, s,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
 	de_dbg(c, "pqaTitle: \"%s\"", ucstring_getpsz(s));
 	ucstring_empty(s);
-	pos += 2*ux;
+	pos += 2*n;
 
 	de_dbg(c, "icon");
 	de_dbg_indent(c, 1);
-	ux = (u32)de_getu16be(pos); // iconWords (length prefix)
-	pos += 2;
-	extract_item(c, d, pos, 2*ux, "icon.palm", NULL, DE_CREATEFLAG_IS_AUX, 1);
-	pos += 2*ux;
+	n = de_getu16be_p(&pos); // iconWords (length prefix)
+	extract_item(c, d, pos, 2*n, "icon.palm", NULL, DE_CREATEFLAG_IS_AUX, 1);
+	pos += 2*n;
 	de_dbg_indent(c, -1);
 
 	de_dbg(c, "smIcon");
 	de_dbg_indent(c, 1);
-	ux = (u32)de_getu16be(pos); // smIconWords
-	pos += 2;
-	extract_item(c, d, pos, 2*ux, "smicon.palm", NULL, DE_CREATEFLAG_IS_AUX, 1);
-	pos += 2*ux;
+	n = de_getu16be_p(&pos); // smIconWords
+	extract_item(c, d, pos, 2*n, "smicon.palm", NULL, DE_CREATEFLAG_IS_AUX, 1);
+	pos += 2*n;
 	de_dbg_indent(c, -1);
 
 	ucstring_destroy(s);
@@ -993,7 +988,7 @@ static int de_identify_palmdb(deark *c)
 	static const char *ids[] = {"vIMGView", "TEXtREAd", "pqa clpr", "BOOKMOBI"};
 	size_t k;
 
-	for(k=0; k<DE_ITEMS_IN_ARRAY(exts); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(exts); k++) {
 		if(de_input_file_has_ext(c, exts[k])) {
 			has_ext = 1;
 			break;
@@ -1015,7 +1010,7 @@ static int de_identify_palmdb(deark *c)
 	}
 
 	// Check for known file types
-	for(k=0; k<DE_ITEMS_IN_ARRAY(ids); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(ids); k++) {
 		if(!de_memcmp(id, ids[k], 8)) return 100;
 	}
 

@@ -108,7 +108,7 @@ static int wmf_handler_BITBLT_STRETCHBLT_DIBBITBLT(deark *c, lctx *d, struct dec
 	i64 Width, Height;
 	i64 YDest, XDest;
 
-	has_src_bitmap = (dp->recsize_words != ((dp->recfunc>>8)+3));
+	has_src_bitmap = (dp->recsize_words != ((i64)(dp->recfunc>>8)+3));
 	de_dbg(c, "has src bitmap: %d", has_src_bitmap);
 	if(!has_src_bitmap) goto done;
 
@@ -330,7 +330,7 @@ static int wmf_handler_ESCAPE(deark *c, lctx *d, struct decoder_params *dp)
 	escfn = (u16)de_getu16le(dp->dpos);
 
 	// Find the name, etc. of this record type
-	for(k=0; k<DE_ITEMS_IN_ARRAY(escape_info_arr); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(escape_info_arr); k++) {
 		if(escape_info_arr[k].escfn == escfn) {
 			einfo = &escape_info_arr[k];
 			break;
@@ -403,7 +403,7 @@ static int wmf_handler_DIBSTRETCHBLT_STRETCHDIB(deark *c, lctx *d, struct decode
 	int has_src_bitmap = 1;
 
 	if(dp->rectype==0x41) { // DIBSTRETCHBLT
-		has_src_bitmap = (dp->recsize_words != ((dp->recfunc>>8)+3));
+		has_src_bitmap = (dp->recsize_words != ((i64)(dp->recfunc>>8)+3));
 		de_dbg(c, "has src bitmap: %d", has_src_bitmap);
 	}
 
@@ -709,7 +709,7 @@ static const struct wmf_func_info *find_wmf_func_info(u16 recfunc)
 	size_t i;
 	u8 rectype_wanted = (u8)(recfunc&0xff);
 
-	for(i=0; i<DE_ITEMS_IN_ARRAY(wmf_func_info_arr); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(wmf_func_info_arr); i++) {
 		if(wmf_func_info_arr[i].rectype == rectype_wanted) {
 			return &wmf_func_info_arr[i];
 		}
@@ -810,10 +810,7 @@ static void de_run_wmf(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	if(c->input_encoding==DE_ENCODING_UNKNOWN)
-		d->input_encoding = DE_ENCODING_WINDOWS1252;
-	else
-		d->input_encoding = c->input_encoding;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 
 	if(!dbuf_memcmp(c->infile, 0, "\xd7\xcd\xc6\x9a", 4)) {
 		d->has_aldus_header = 1;

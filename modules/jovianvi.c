@@ -90,7 +90,7 @@ done:
 
 static void do_convert_rgb(deark *c, lctx *d, de_bitmap *img)
 {
-	int i, j;
+	i64 i, j;
 	u32 clr;
 	u8 b0, b1;
 

@@ -140,10 +140,13 @@ static void do_read_palette(deark *c, lctx *d,struct de_char_context *charctx,
 	de_dbg(c, "palette at %d", (int)pos);
 
 	for(k=0; k<16; k++) {
-		if(adf_style && k>=8)
-			cpos = pos+(48+k)*3;
-		else
-			cpos = pos+k*3;
+		i64 idx = k;
+
+		if(adf_style) {
+			if(k>=8) idx = 48+k;
+			else if(k==6) idx = 20;
+		}
+		cpos = pos + idx*3;
 		cr1 = de_getbyte(cpos);
 		cg1 = de_getbyte(cpos+1);
 		cb1 = de_getbyte(cpos+2);
@@ -260,8 +263,9 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	charctx = de_malloc(c, sizeof(struct de_char_context));
+	charctx = de_create_charctx(c, 0);
 	charctx->prefer_image_output = 1;
+	de_char_decide_output_format(c, charctx);
 
 	de_fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
 	if(sdd.has_SAUCE) {
@@ -275,17 +279,12 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 		charctx->artist = si->artist;
 		charctx->organization = si->organization;
 		charctx->creation_date = si->creation_date;
-		charctx->num_comments = si->num_comments;
-		charctx->comments = si->comments;
+		charctx->comment = si->comment;
 	}
 
 	d->width_in_chars = de_getu16le(5);
 	d->height_in_chars = de_getu16le(7);
 	d->font_height = (i64)de_getbyte(9);
-	if(d->font_height<1 || d->font_height>32) {
-		de_err(c, "Invalid font height: %d", (int)d->font_height);
-		goto done;
-	}
 
 	flags = de_getbyte(10);
 	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d characters", (int)d->width_in_chars, (int)d->height_in_chars);
@@ -302,6 +301,10 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	de_dbg(c, " non-blink mode: %d", (int)d->nonblink);
 	de_dbg(c, " 512 character mode: %d", (int)d->has_512chars);
 
+	if(d->has_font && (d->font_height<1 || d->font_height>32)) {
+		de_err(c, "Invalid font height: %d", (int)d->font_height);
+		goto done;
+	}
 	pos = 11;
 
 	if(d->has_palette) {
@@ -343,12 +346,20 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	else {
 		// Use default font
 
-		// FIXME: We probably shouldn't give up if font_height!=16, at
-		// least if the output format is HTML.
-		if(d->has_512chars || d->font_height!=16) {
+		if(d->has_512chars) {
 			de_err(c, "This type of XBIN file is not supported.");
 			goto done;
 		}
+
+		if(d->font_height==0) {
+			// Not really legal, but we'll let it mean "default".
+		}
+		else if(d->font_height!=16) {
+			if(charctx->outfmt==1) { // image output
+				de_warn(c, "Incompatible font height (%d), using 16 instead.", (int)d->font_height);
+			}
+		}
+		d->font_height = 16;
 	}
 
 	de_dbg(c, "image data at %d", (int)pos);
@@ -364,7 +375,8 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 
 done:
 	dbuf_close(unc_data);
-	de_free_charctx(c, charctx);
+	de_free_charctx_screens(c, charctx);
+	de_destroy_charctx(c, charctx);
 	de_fmtutil_free_SAUCE(c, si);
 	free_lctx(c, d);
 }
@@ -427,16 +439,21 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 		charctx->artist = si->artist;
 		charctx->organization = si->organization;
 		charctx->creation_date = si->creation_date;
-		charctx->num_comments = si->num_comments;
-		charctx->comments = si->comments;
+		charctx->comment = si->comment;
 
 		effective_file_size = si->original_file_size;
 
 		if(si->data_type==5) {
 			valid_sauce = 1;
 
-			// For BinText, the FileType field is inexplicably used for the width.
-			d->width_in_chars = 2*(i64)sdd.file_type;
+			if(si->file_type==1 && si->tinfo1>0) {
+				// Some files created by ACiDDraw do this.
+				d->width_in_chars = 2*(i64)si->tinfo1;
+			}
+			else {
+				// For BinText, the FileType field is inexplicably used for the width (usually).
+				d->width_in_chars = 2*(i64)si->file_type;
+			}
 
 			if(si->tflags & 0x01) {
 				d->nonblink = 1;
@@ -485,13 +502,13 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 
 static int de_identify_bintext(deark *c)
 {
-	if(!c->detection_data.SAUCE_detection_attempted) {
+	if(!c->detection_data->SAUCE_detection_attempted) {
 		// FIXME?: This is known to happen if "-disablemods sauce" was used.
 		de_err(c, "bintext detection requires sauce module");
 		return 0;
 	}
-	if(c->detection_data.sauce.has_SAUCE) {
-		if(c->detection_data.sauce.data_type==5)
+	if(c->detection_data->sauce.has_SAUCE) {
+		if(c->detection_data->sauce.data_type==5)
 		{
 			return 100;
 		}

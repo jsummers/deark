@@ -63,10 +63,10 @@ When Deark writes to a ZIP or tar file (the "-zip"/"-tar" option), it doesn't
 have to worry about what to name the internal files. It can palm that problem
 off onto your unzip/untar program. It is more tolerant in this case.
 
-Directory paths only maintained as such if you use -zip/-tar (and you don't use
-"-opt archive:subdirs=0"). Deark generally does write a file anywhere other
-than the current directory, though you can tell it to do so by using -o,
--arcfn, or -k3.
+Directory paths are only maintained as such if you use -zip/-tar (and you don't
+use "-opt archive:subdirs=0"). Deark generally does not write a file anywhere
+other than the current directory, though you can tell it to do so with -od, or
+with other options such as -arcfn or -k3.
 
 ## The "Is this one format or two?" problem ##
 
@@ -136,7 +136,7 @@ characters.
 Most file attributes (such as file ownership) are ignored when extracting
 files, but Deark does try to maintain the "executable" status of output
 files, for formats which store this attribute. The Windows version of Deark
-does not use this information, except when writing to a ZIP file.
+does not use this information, except when writing to a ZIP/tar file.
 
 This is a simple yes/no flag. It does not distinguish between
 owner-executable and world-executable, for example.
@@ -145,10 +145,10 @@ owner-executable and world-executable, for example.
 
 Some archive formats contain independent representations of subdirectores,
 allowing empty directories, and directory attributes, to be stored. By default,
-Deark retains these entries when writing to a ZIP file, and otherwise ignores
-them. This behavior can be changed with "-opt keepdirentries". Even so, Deark
-never creates directories directly. Instead, it may create marker files with a
-".dir" extension.
+Deark retains these entries when writing to a ZIP/tar file, and otherwise
+ignores them. This behavior can be changed with "-opt keepdirentries". Even so,
+Deark never creates directories directly. Instead, it may create marker files
+with a ".dir" extension.
 
 Note that this means the -zip/-tar option can affect the numbering of output
 files used by, e.g., the -get option.
@@ -182,6 +182,59 @@ good *file* format to use, so Deark wraps them in a minimal TIFF-based
 container. You can reprocess this container file with Deark, and it may decode
 the data (use -d), or extract the raw data to a file.
 
+## AppleDouble format ##
+
+In most cases, Deark writes Macintosh resource forks to AppleDouble format. It
+considers this to be its preferred format for resource forks. You have to use
+an option, if you want it to write the fork in raw form.
+
+It gives AppleDouble output files an ".adf" file extension. Although this is
+one of the conventions suggested in the AppleDouble specification, it is not
+commonly used. The other naming conventions don't play well with Deark's naming
+conventions.
+
+Another problem is that, because Deark gives each output file a unique prefix
+like "output.NNN", the AppleDouble file and its associated data fork will not
+have the same base filename, further reducing the chance that other systems
+will treat them as a unit. There's no good fix for this, though you may be able
+to avoid it by using the -zip option.
+
+## PNG htSP chunks ##
+
+When decoding mouse cursor graphics, Deark sometimes records the cursor's
+"hotspot" in the resulting PNG image, in a custom "htSP" chunk. The htSP
+chunk's format is explained here.
+
+The chunk type is "htSP": hex [68 74 53 50].
+
+The chunk data field length is 24 or more bytes. Encoders must write exactly 24
+bytes. Decoders must ignore any bytes after the first 24.
+
+The first 16 bytes of the data field are an arbitrary signature UUID: hex [b9
+fe 4f 3d 8f 32 45 6f aa 02 dc d7 9c ce 0e 24]. This represents the UUID
+b9fe4f3d-8f32-456f-aa02-dcd79cce0e24. If the first 16 bytes are not exactly
+this signature, the chunk does not conform to this specification.
+
+At most one htSP chunk with this signature may appear in a PNG file. The chunk
+must appear before the IDAT chunks.
+
+After the signature are two 4-byte fields: The X coordinate at offset 16, then
+the Y coordinate at offset 20. Each is stored as a "PNG four-byte signed
+integer" (big-endian, two's complement).
+
+The X coordinate is the number of pixels the hotspot is to the right of the
+image's leftmost column of pixels. (If the hotspot is in the leftmost column,
+then its coordinate is 0). The Y coordinate is the number of pixels the hotspot
+is below the image's topmost row of pixels. It is legal for the hotspot to be
+beyond the bounds of the image.
+
+The hotspot is conceptually an entire pixel (or virtual pixel), not a specific
+point in some coordinate system. If more precision is needed, assume the
+hotspot is the center of that pixel. This means that if a 16x16-pixel image
+with hotspot (0,0) were to be mirrored left-right, the new hotspot would be
+(15,0), not (16,0) as it would be if the hotspot were the upper-left corner of
+the pixel.
+
 ## I've never heard of that format! ##
 
 For the identities of the formats supported by Deark, see
@@ -208,6 +261,9 @@ will (hopefully) be sufficient:
 This will build an executable file named "deark". Deark has no dependencies,
 other than the standard C libraries.
 
+It is possible to configure the build by setting certain environment variables.
+See the scripts at scripts/example-build-* for examples.
+
 It is safe to build Deark using "parallel make", i.e. "make -j". This will
 speed up the build, in most cases.
 
@@ -216,8 +272,9 @@ For example:
 
     $ sudo cp deark /usr/local/bin/
 
-For Microsoft Windows, the project files in proj/vs2008 should work for Visual
-Studio 2008 and later. Alternatively, you can use Cygwin.
+For Microsoft Windows, the project files in proj/vs2019 should work for
+sufficiently new versions of Micrsoft Visual Studio. Alternatively, you can use
+Cygwin.
 
 ## Developer notes ##
 

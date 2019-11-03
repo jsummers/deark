@@ -21,12 +21,18 @@
 
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <time.h>
 
-int de_strcasecmp(const char *a, const char *b)
-{
-	return _stricmp(a, b);
-}
+#ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
+#define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+#endif
+
+// Windows-specific contextual data, mainly for console settings.
+struct de_platform_data {
+	HANDLE msgs_HANDLE;
+	int msgs_HANDLE_is_console;
+	WORD orig_console_attribs;
+	WORD inverse_console_attribs;
+};
 
 void de_vsnprintf(char *buf, size_t buflen, const char *fmt, va_list ap)
 {
@@ -58,6 +64,18 @@ void de_utf8_to_oem(deark *c, const char *src, char *dst, size_t dstlen)
 
 	srcW = de_utf8_to_utf16_strdup(c, src);
 
+	// FIXME: An issue is that WideCharToMultiByte translates some printable
+	// Unicode characters to OEM graphics characters below 0x20. For example, for
+	// CP437, U+000A (LINE FEED) and U+25D9 (INVERSE WHITE CIRCLE) are both
+	// translated to 0x0a.
+	// The printf-like functions we will use on the translated string interpret
+	// bytes below 0x20 as ASCII control characters, so U+25D9 will end up being
+	// misinterpreted as a newline.
+	// I am not sure what to do about this. It might be possible to change the
+	// mode that printf uses, but we at least need newlines to work.
+	// Ideally, we should probably redesign some things so that de_utf8_to_oem()
+	// is not used with strings that contain newlines. But that's a lot of work
+	// for an obscure feature.
 	ret = WideCharToMultiByte(CP_OEMCP, 0, srcW, -1, dst, (int)dstlen, NULL, NULL);
 	if(ret<1) {
 		dst[0]='\0';
@@ -318,81 +336,113 @@ void de_free_utf8_args(int argc, char **argv)
 	de_free(NULL, argv);
 }
 
-// Return an output HANDLE that can be passed to other winconsole functions.
-// n: 1=stdout, 2=stderr
-void *de_winconsole_get_handle(int n)
+struct de_platform_data *de_platformdata_create(void)
 {
-	return (void*)GetStdHandle((n==2)?STD_ERROR_HANDLE:STD_OUTPUT_HANDLE);
+	struct de_platform_data *plctx;
+
+	plctx = de_malloc(NULL, sizeof(struct de_platform_data));
+	return plctx;
 }
 
-// Does the given HANDLE (cast to void*) seem to be a Windows console?
-int de_winconsole_is_console(void *h1)
+void de_platformdata_destroy(struct de_platform_data *plctx)
+{
+	if(!plctx) return;
+	de_free(NULL, plctx);
+}
+
+// Set the plctx->msgs_HANDLE field, for later use.
+// n: 1=stdout, 2=stderr
+void de_winconsole_init_handle(struct de_platform_data *plctx, int n)
 {
 	DWORD consolemode=0;
-	BOOL n;
+	BOOL b;
 
-	n=GetConsoleMode((HANDLE)h1, &consolemode);
-	return n ? 1 : 0;
+	plctx->msgs_HANDLE = GetStdHandle((n==2)?STD_ERROR_HANDLE:STD_OUTPUT_HANDLE);
+
+	b = GetConsoleMode(plctx->msgs_HANDLE, &consolemode);
+	plctx->msgs_HANDLE_is_console = b ? 1 : 0;
 }
 
-int de_get_current_windows_attributes(void *handle, unsigned int *attrs)
+// Does plctx->msgs_HANDLE seem to be a Windows console?
+int de_winconsole_is_console(struct de_platform_data *plctx)
+{
+	return plctx->msgs_HANDLE_is_console;
+}
+
+// Save current attribs to plctx.
+// Returns 1 on success.
+void de_winconsole_record_current_attributes(struct de_platform_data *plctx)
 {
 	CONSOLE_SCREEN_BUFFER_INFO csbi;
-	if(!GetConsoleScreenBufferInfo((HANDLE)handle, &csbi))
-		return 0;
-	*attrs = (unsigned int)csbi.wAttributes;
+
+	if(GetConsoleScreenBufferInfo(plctx->msgs_HANDLE, &csbi)) {
+		plctx->orig_console_attribs = csbi.wAttributes;
+	}
+	else {
+		plctx->orig_console_attribs = 0x0007;
+	}
+
+	plctx->inverse_console_attribs =
+		(plctx->orig_console_attribs&0xff00) |
+		((plctx->orig_console_attribs&0x000f)<<4) |
+		((plctx->orig_console_attribs&0x00f0)>>4);
+}
+
+// If we think this computer supports 24-bit color ANSI, enable it (if needed)
+// and return 1.
+// Otherwise return 0.
+int de_winconsole_try_enable_ansi24(struct de_platform_data *plctx)
+{
+	// Note: Maybe we should check for Windows 10 (e.g. using
+	// IsWindows10OrGreater()) before calling SetConsoleMode(), but maybe that's
+	// just be a waste of time. Also, IsWindows10OrGreater() is fragile because
+	// it requires a .manifest file with certain properties.
+
+	// TODO: This is not correct. AFAIK, there is a range of Windows 10 builds
+	// that support ANSI codes, but do not support 24-bit color ANSI.
+	// I don't know a *good* way to detect 24-bit color support.
+	// Querying the Windows build number is possible, but requires some hackery,
+	// because Microsoft *really* does not want applications to do that.
+	return de_winconsole_enable_ansi(plctx);
+}
+
+int de_winconsole_enable_ansi(struct de_platform_data *plctx)
+{
+	BOOL b;
+	DWORD oldmode = 0;
+
+	if(!plctx->msgs_HANDLE_is_console) return 1;
+
+	b = GetConsoleMode(plctx->msgs_HANDLE, &oldmode);
+	if(!b) return 0;
+	if(oldmode & ENABLE_VIRTUAL_TERMINAL_PROCESSING) return 1; // Already enabled
+
+	// The ENABLE_VIRTUAL_TERMINAL_PROCESSING mode is what enables interpretation
+	// of ANSI escape codes.
+
+	// Note: This mode seems to be specific to the console window, not to the specific
+	// I/O handle that we pass to SetConsoleMode.
+	// I.e. if both stderr and stdout refer to the console, it doesn't matter which
+	// one we use here.
+	// And if we write an ANSI code to stderr, it could also affect stdout.
+	// That's not what we want, but it shouldn't cause much of a problem for us.
+
+	// Note: This mode seems to get reset automatically when the process ends.
+	// It doesn't affect future processes that run in the same console.
+	// So we don't have to try to set it back when we're done.
+
+	b = SetConsoleMode(plctx->msgs_HANDLE, oldmode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+	if(!b) return 0;
 	return 1;
 }
 
-void de_windows_highlight(void *handle1, unsigned int orig_attr, int x)
+void de_winconsole_highlight(struct de_platform_data *plctx, int x)
 {
 	if(x) {
-		SetConsoleTextAttribute((void*)handle1,
-			(orig_attr&0xff00) |
-			((orig_attr&0x000fU)<<4) |
-			((orig_attr&0x00f0U)>>4) );
+		SetConsoleTextAttribute(plctx->msgs_HANDLE, plctx->inverse_console_attribs);
 	}
 	else {
-		SetConsoleTextAttribute((void*)handle1, (WORD)orig_attr);
-	}
-}
-
-// Note: Need to keep this function in sync with the implementation in deark-unix.c.
-// Similar to standard gmtime().
-// Populates a caller-allocated de_struct_tm.
-void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2)
-{
-	i64 tmpt_int64;
-	__time64_t tmpt;
-	struct tm tm1;
-	errno_t ret;
-
-	de_zeromem(tm2, sizeof(struct de_struct_tm));
-	if(!ts->is_valid) {
-		return;
-	}
-
-	de_zeromem(&tm1, sizeof(struct tm));
-	tmpt_int64 = de_timestamp_to_unix_time(ts);
-	tmpt = (__time64_t)tmpt_int64;
-
-	// _gmtime64_s is documented as supporting times in the range:
-	//  1970-01-01 00:00:00 UTC, through
-	//  3000-12-31 23:59:59 UTC.
-	ret = _gmtime64_s(&tm1, &tmpt);
-	if(ret!=0) {
-		return;
-	}
-
-	tm2->is_valid = 1;
-	tm2->tm_fullyear = 1900+tm1.tm_year;
-	tm2->tm_mon = tm1.tm_mon;
-	tm2->tm_mday = tm1.tm_mday;
-	tm2->tm_hour = tm1.tm_hour;
-	tm2->tm_min = tm1.tm_min;
-	tm2->tm_sec = tm1.tm_sec;
-	if(ts->precision>DE_TSPREC_1SEC) {
-		tm2->tm_subsec = (int)de_timestamp_get_subsec(ts);
+		SetConsoleTextAttribute(plctx->msgs_HANDLE, plctx->orig_console_attribs);
 	}
 }
 

@@ -309,8 +309,8 @@ static int read_member(deark *c, lctx *d, i64 pos1,
 	md = de_malloc(c, sizeof(struct member_data));
 	md->startpos = pos1;
 	md->fi = de_finfo_create(c);
+	md->fi->detect_root_dot_dir = 1;
 
-	pos = md->startpos;
 	identify_cpio_internal(c, md->startpos, &md->subfmt);
 	if(md->subfmt==0) {
 		de_err(c, "Unknown cpio format at %d", (int)md->startpos);
@@ -438,10 +438,7 @@ static void de_run_cpio(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	if(c->input_encoding==DE_ENCODING_UNKNOWN)
-		d->input_encoding = DE_ENCODING_UTF8;
-	else
-		d->input_encoding = c->input_encoding;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_UTF8);
 
 	pos = 0;
 

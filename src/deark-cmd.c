@@ -13,13 +13,27 @@
 #include <io.h> // for _setmode
 #endif
 
+enum color_method_enum {
+	CM_NOCOLOR=0,
+	CM_AUTOCOLOR,
+	CM_ANSI,
+	CM_ANSI24,
+	CM_WINCONSOLE
+};
+
+enum special_command_code_enum {
+	CMD_NONE = 0, CMD_PRINTHELP, CMD_PRINTVERSION, CMD_PRINTLICENSE,
+	CMD_PRINTMODULES
+};
+
 struct cmdctx {
+	deark *c;
+	struct de_platform_data *plctx;
 	const char *input_filename;
 	int error_flag;
 	int show_usage_message;
 	int special_command_flag;
-#define CMD_PRINTMODULES 2
-	int special_command_code;
+	enum special_command_code_enum special_command_code;
 	int msgs_to_stderr;
 
 	// Have we set msgs_FILE and have_windows_console, and called _setmode if needed?
@@ -27,14 +41,16 @@ struct cmdctx {
 
 	FILE *msgs_FILE; // Where to print (error, etc.) messages
 #ifdef DE_WINDOWS
-	void *msgs_HANDLE;
 	int have_windows_console; // Is msgs_FILE a console?
 	int use_fwputs;
-	unsigned int orig_console_attribs;
 #endif
 
+	const char *output_dirname;
 	const char *base_output_filename;
+	const char *archive_filename;
 	int option_k_level; // Use input filename in output filenames
+	int option_ka_level; // Use input filename in output archive filenames
+	u8 set_MAXFILES;
 
 	int to_stdout;
 	int to_zip;
@@ -42,17 +58,30 @@ struct cmdctx {
 	int from_stdin;
 	int to_ascii;
 	int to_oem;
-	int use_color_req;
-	int color_method; // 0=no color, 1=ANSI codes, 2=Windows console commands
+	enum color_method_enum color_method_req;
+	enum color_method_enum color_method;
 	char msgbuf[1000];
 };
 
-static void show_version(deark *c, int verbose)
+// Low-level print function
+static void emit_sz(struct cmdctx *cc, const char *sz)
+{
+#ifdef DE_WINDOWS
+	if(cc->use_fwputs) {
+		de_utf8_to_utf16_to_FILE(cc->c, sz, cc->msgs_FILE);
+		return;
+	}
+#endif
+	fputs(sz, cc->msgs_FILE);
+}
+
+static void print_version(deark *c, int verbose)
 {
 	char vbuf[80];
 
 	de_printf(c, DE_MSGTYPE_MESSAGE, "Deark version: %s\n",
 		de_get_version_string(vbuf, sizeof(vbuf)));
+	if(!verbose) return;
 	de_printf(c, DE_MSGTYPE_MESSAGE, "platform API: %s\n",
 #ifdef DE_WINDOWS
 		"Windows"
@@ -67,29 +96,31 @@ static void show_version(deark *c, int verbose)
 #endif
 }
 
-static void show_usage_preamble(deark *c) {
+static void print_usage_oneline(deark *c) {
 	de_puts(c, DE_MSGTYPE_MESSAGE, "Usage: deark [options] <input-file> [options]\n");
 }
 
-static void show_usage_error(deark *c)
+static void print_usage_error(deark *c)
 {
-	show_usage_preamble(c);
+	print_usage_oneline(c);
 	de_puts(c, DE_MSGTYPE_MESSAGE, "\"deark -h\" for help.\n");
 }
 
-static void show_help(deark *c)
+static void print_help(deark *c)
 {
-	show_version(c, 0);
+	print_version(c, 0);
 	de_puts(c, DE_MSGTYPE_MESSAGE,
 		"A utility for extracting data from various file formats\n\n");
-	show_usage_preamble(c);
+	print_usage_oneline(c);
 	de_puts(c, DE_MSGTYPE_MESSAGE,
 		"\nCommonly used options:\n"
 		" -l: Instead of extracting, list the files that would be extracted.\n"
 		" -m <module>: Assume input file is this format, instead of autodetecting.\n"
 		" -k: Start output filenames with the input filename.\n"
 		" -o <base-filename>: Start output filenames with this string.\n"
+		" -od <directory>: Write files to this directory.\n"
 		" -zip: Write output files to a .zip file.\n"
+		" -ka: Start the .zip filename with the input filename.\n"
 		" -a: Extract more data than usual.\n"
 		" -main: Extract less data than usual.\n"
 		" -get <n>: Extract only file number <n>.\n"
@@ -97,8 +128,42 @@ static void show_help(deark *c)
 		" -q, -noinfo, -nowarn: Print fewer messages than usual.\n"
 		" -modules: Print the names of all available modules.\n"
 		" -help, -h: Print this message.\n"
+		" -license: Print the credits and terms of use.\n"
 		" -version: Print version information.\n"
 		);
+}
+
+static void print_license(deark *c)
+{
+	de_puts(c, DE_MSGTYPE_MESSAGE, "Deark\n"
+	"Copyright (C) 2016-2019 Jason Summers\n\n"
+	"Permission is hereby granted, free of charge, to any person obtaining a copy\n"
+	"of this software and associated documentation files (the \"Software\"), to deal\n"
+	"in the Software without restriction, including without limitation the rights\n"
+	"to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n"
+	"copies of the Software, and to permit persons to whom the Software is\n"
+	"furnished to do so, subject to the following conditions:\n\n"
+	"The above copyright notice and this permission notice shall be included in\n"
+	"all copies or substantial portions of the Software.\n\n"
+	"THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n"
+	"IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n"
+	"FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n"
+	"AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n"
+	"LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n"
+	"OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\n"
+	"THE SOFTWARE.\n\n"
+	"----------\n"
+	"The zlib and Deflate encoder and decoder use public domain code originally from\n"
+	"miniz v1.16 beta r1, by Rich Geldreich.\n\n"
+	"Some LZW decoders use public domain code from liblzw by Mike Frysinger, based\n"
+	"on compress/ncompress by Thomas, Woods, et. al.\n\n"
+	"The ZIP Implode decoder is derived from public domain code by Mark Adler, from\n"
+	"Info-ZIP UnZip v5.4.\n\n"
+	"The X-Face decoder uses code from Compface, Copyright (c) 1990 James Ashton.\n\n"
+	"The Stuffit Huffman decoder uses code by Allan G. Weber, from Unsit Version 1.\n\n"
+	"The ZOO LZD decoder uses public domain code by Rahul Dhesi, from zoo-2.10pl1.\n\n"
+	"The ZOO LZH decoder uses public domain code by Martin Schoenert et. al., from\n"
+	"unzoo.c v4.4.\n");
 }
 
 static void print_modules(deark *c)
@@ -108,43 +173,88 @@ static void print_modules(deark *c)
 
 static void initialize_output_stream(struct cmdctx *cc)
 {
-		if(cc->msgs_to_stderr) {
-			cc->msgs_FILE = stderr;
-		}
-		else {
-			cc->msgs_FILE = stdout;
-		}
-
 #ifdef DE_WINDOWS
-		// If appropriate, call _setmode so that Unicode output to the console
-		// works correctly (provided we use Unicode functions like fputws()).
-
-		cc->msgs_HANDLE = de_winconsole_get_handle(cc->msgs_to_stderr ? 2 : 1);
-		cc->have_windows_console = de_winconsole_is_console(cc->msgs_HANDLE);
-		if(cc->have_windows_console && !cc->to_ascii && !cc->to_oem) {
-			cc->use_fwputs = 1;
-			_setmode(_fileno(cc->msgs_FILE), _O_U16TEXT);
-		}
-		if(cc->use_color_req) {
-			if(cc->have_windows_console) {
-				if(de_get_current_windows_attributes(cc->msgs_HANDLE, &cc->orig_console_attribs)) {
-					cc->color_method = 2;
-				}
-			}
-			else {
-				cc->color_method = 1;
-			}
-		}
-#else
-		cc->color_method = cc->use_color_req ? 1 : 0;
+	int ansi_is_enabled = 0;
 #endif
 
-		if(cc->color_method==1) {
-			// If using ANSI codes, start by resetting all attributes
-			fputs("\x1b[0m", cc->msgs_FILE);
-		}
+	if(cc->msgs_to_stderr) {
+		cc->msgs_FILE = stderr;
+	}
+	else {
+		cc->msgs_FILE = stdout;
+	}
 
-		cc->have_initialized_output_stream = 1;
+	cc->color_method = CM_NOCOLOR; // start with default
+
+#ifdef DE_WINDOWS
+	de_winconsole_init_handle(cc->plctx, cc->msgs_to_stderr ? 2 : 1);
+	cc->have_windows_console = de_winconsole_is_console(cc->plctx);
+
+	// If appropriate, call _setmode so that Unicode output to the console
+	// works correctly (provided we use Unicode functions like fputws()).
+	if(cc->have_windows_console && !cc->to_ascii && !cc->to_oem) {
+		cc->use_fwputs = 1;
+		(void)_setmode(_fileno(cc->msgs_FILE), _O_U16TEXT);
+	}
+
+	switch(cc->color_method_req) {
+	case CM_AUTOCOLOR:
+		if(cc->have_windows_console) {
+			if(de_winconsole_try_enable_ansi24(cc->plctx)) {
+				cc->color_method = CM_ANSI24;
+				ansi_is_enabled = 1;
+			}
+			else {
+				cc->color_method = CM_WINCONSOLE;
+			}
+		}
+		else {
+			cc->color_method = CM_ANSI24;
+		}
+		break;
+	case CM_WINCONSOLE:
+		if(cc->have_windows_console) {
+			cc->color_method = CM_WINCONSOLE;
+		}
+		break;
+	case CM_ANSI:
+		cc->color_method = CM_ANSI;
+		break;
+	case CM_ANSI24:
+		cc->color_method = CM_ANSI24;
+		break;
+	default:
+		; // leave at CM_NOCOLOR
+	}
+
+	if(cc->color_method==CM_WINCONSOLE) {
+		de_winconsole_record_current_attributes(cc->plctx);
+	}
+
+	if((cc->color_method==CM_ANSI || cc->color_method==CM_ANSI24) && !ansi_is_enabled) {
+		de_winconsole_enable_ansi(cc->plctx);
+	}
+
+#else
+	switch(cc->color_method_req) {
+	case CM_NOCOLOR:
+	case CM_WINCONSOLE:
+		cc->color_method = CM_NOCOLOR;
+		break;
+	case CM_ANSI:
+		cc->color_method = CM_ANSI;
+		break;
+	default:
+		cc->color_method = CM_ANSI24;
+	}
+#endif
+
+	if(cc->color_method==CM_ANSI || cc->color_method==CM_ANSI24) {
+		// If using ANSI codes, start by resetting all attributes
+		emit_sz(cc, "\x1b[0m");
+	}
+
+	cc->have_initialized_output_stream = 1;
 }
 
 static void our_specialmsgfn(deark *c, unsigned int flags, unsigned int code,
@@ -153,34 +263,26 @@ static void our_specialmsgfn(deark *c, unsigned int flags, unsigned int code,
 	struct cmdctx *cc;
 
 	cc = de_get_userdata(c);
-	if(!cc->color_method) return;
+	if(cc->color_method==CM_NOCOLOR) return;
 
 	if(!cc->have_initialized_output_stream) {
 		initialize_output_stream(cc);
 	}
 
 #ifdef DE_WINDOWS
-	if(cc->have_windows_console) {
+	if(cc->color_method==CM_WINCONSOLE) {
 		if(code==DE_MSGCODE_HL) {
-			de_windows_highlight(cc->msgs_HANDLE, cc->orig_console_attribs, 1);
+			de_winconsole_highlight(cc->plctx, 1);
 		}
 		else if(code==DE_MSGCODE_UNHL) {
-			de_windows_highlight(cc->msgs_HANDLE, cc->orig_console_attribs, 0);
+			de_winconsole_highlight(cc->plctx, 0);
 		}
 		else if(code==DE_MSGCODE_RGBSAMPLE) {
-			// TODO: Traditional Windows console only supports 16 colors,
-			// so there's no good solution here. We could approximate the
-			// color somehow, I guess. Though that is complicated, as I think
-			// the color palette can be user-defined, and different editions of
-			// Windows have different default color schemes.
-			// As of 2016-10, Microsoft says they've added truecolor console
-			// support to Windows 10, so we should investigate that.
+			// There's no way to get 24-bit color using Windows console
+			// commands. Have to use ANSI24 instead.
 			;
 		}
 		return;
-	}
-	else if(cc->use_fwputs) {
-		return; // Shouldn't be possible
 	}
 #endif
 
@@ -189,15 +291,17 @@ static void our_specialmsgfn(deark *c, unsigned int flags, unsigned int code,
 #define X_DE_COLOR_G(x)  (unsigned int)(((x)>>8)&0xff)
 #define X_DE_COLOR_B(x)  (unsigned int)((x)&0xff)
 	if(code==DE_MSGCODE_HL) {
-		fputs("\x1b[7m", cc->msgs_FILE);
+		emit_sz(cc, "\x1b[7m");
 	}
 	else if(code==DE_MSGCODE_UNHL) {
-		fputs("\x1b[27m", cc->msgs_FILE);
+		emit_sz(cc, "\x1b[27m");
 	}
-	else if(code==DE_MSGCODE_RGBSAMPLE) {
-		// Print two spaces with their background color set to the requested color.
-		fprintf(cc->msgs_FILE, "\x1b[48;2;%u;%u;%um  \x1b[0m",
+	else if(code==DE_MSGCODE_RGBSAMPLE && cc->color_method==CM_ANSI24) {
+		char buf[64];
+
+		de_snprintf(buf, sizeof(buf), "\x1b[48;2;%u;%u;%um  \x1b[0m",
 			X_DE_COLOR_R(param1), X_DE_COLOR_G(param1), X_DE_COLOR_B(param1));
+		emit_sz(cc, buf);
 	}
 }
 
@@ -235,16 +339,7 @@ static void our_msgfn(deark *c, unsigned int flags, const char *s1)
 		s = s1;
 	}
 
-#ifdef DE_WINDOWS
-	if(cc->use_fwputs) {
-		de_utf8_to_utf16_to_FILE(c, s, cc->msgs_FILE);
-	}
-	else {
-		fputs(s, cc->msgs_FILE);
-	}
-#else
-	fputs(s, cc->msgs_FILE);
-#endif
+	emit_sz(cc, s);
 }
 
 static void our_fatalerrorfn(deark *c)
@@ -296,16 +391,18 @@ enum opt_id_enum {
  DE_OPT_NOINFO, DE_OPT_NOWARN,
  DE_OPT_NOBOM, DE_OPT_NODENS, DE_OPT_ASCIIHTML, DE_OPT_NONAMES,
  DE_OPT_NOOVERWRITE, DE_OPT_MODTIME, DE_OPT_NOMODTIME,
- DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP,
+ DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP, DE_OPT_LICENSE, DE_OPT_ID,
  DE_OPT_MAINONLY, DE_OPT_AUXONLY, DE_OPT_EXTRACTALL, DE_OPT_ZIP, DE_OPT_TAR,
  DE_OPT_TOSTDOUT, DE_OPT_MSGSTOSTDERR, DE_OPT_FROMSTDIN, DE_OPT_COLOR,
  DE_OPT_ENCODING,
  DE_OPT_EXTOPT, DE_OPT_FILE, DE_OPT_FILE2, DE_OPT_INENC, DE_OPT_INTZ,
- DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_MODCODES, DE_OPT_O,
- DE_OPT_K, DE_OPT_K2, DE_OPT_K3,
- DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES, DE_OPT_MAXIMGDIM,
+ DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_MODCODES, DE_OPT_O, DE_OPT_OD,
+ DE_OPT_K, DE_OPT_K2, DE_OPT_K3, DE_OPT_KA, DE_OPT_KA2, DE_OPT_KA3,
+ DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES,
+ DE_OPT_MAXFILESIZE, DE_OPT_MAXTOTALSIZE, DE_OPT_MAXIMGDIM,
  DE_OPT_PRINTMODULES, DE_OPT_DPREFIX, DE_OPT_EXTRLIST,
- DE_OPT_ONLYMODS, DE_OPT_DISABLEMODS, DE_OPT_ONLYDETECT, DE_OPT_NODETECT
+ DE_OPT_ONLYMODS, DE_OPT_DISABLEMODS, DE_OPT_ONLYDETECT, DE_OPT_NODETECT,
+ DE_OPT_COLORMODE
 };
 
 struct opt_struct {
@@ -347,6 +444,11 @@ struct opt_struct option_array[] = {
 	{ "k",            DE_OPT_K,            0 },
 	{ "k2",           DE_OPT_K2,           0 },
 	{ "k3",           DE_OPT_K3,           0 },
+	{ "ka",           DE_OPT_KA,           0 },
+	{ "ka2",          DE_OPT_KA2,          0 },
+	{ "ka3",          DE_OPT_KA3,          0 },
+	{ "license",      DE_OPT_LICENSE,      0 },
+	{ "id",           DE_OPT_ID,           0 },
 	{ "enc",          DE_OPT_ENCODING,     1 },
 	{ "opt",          DE_OPT_EXTOPT,       1 },
 	{ "file",         DE_OPT_FILE,         1 },
@@ -359,10 +461,13 @@ struct opt_struct option_array[] = {
 	{ "modcodes",     DE_OPT_MODCODES,     1 },
 	{ "o",            DE_OPT_O,            1 },
 	{ "basefn",       DE_OPT_O,            1 }, // Deprecated
+	{ "od",           DE_OPT_OD,           1 },
 	{ "arcfn",        DE_OPT_ARCFN,        1 },
 	{ "get",          DE_OPT_GET,          1 },
 	{ "firstfile",    DE_OPT_FIRSTFILE,    1 },
 	{ "maxfiles",     DE_OPT_MAXFILES,     1 },
+	{ "maxfilesize",  DE_OPT_MAXFILESIZE,  1 },
+	{ "maxtotalsize", DE_OPT_MAXTOTALSIZE, 1 },
 	{ "maxdim",       DE_OPT_MAXIMGDIM,    1 },
 	{ "dprefix",      DE_OPT_DPREFIX,      1 },
 	{ "extrlist",     DE_OPT_EXTRLIST,     1 },
@@ -370,6 +475,7 @@ struct opt_struct option_array[] = {
 	{ "disablemods",  DE_OPT_DISABLEMODS,  1 },
 	{ "onlydetect",   DE_OPT_ONLYDETECT,   1 },
 	{ "nodetect",     DE_OPT_NODETECT,     1 },
+	{ "colormode",    DE_OPT_COLORMODE,    1 },
 	{ NULL,           DE_OPT_NULL,         0 }
 };
 
@@ -393,6 +499,104 @@ static void send_msgs_to_stderr(deark *c, struct cmdctx *cc)
 #ifdef DE_WINDOWS
 	cc->have_windows_console = 0;
 #endif
+}
+
+static void colormode_opt(struct cmdctx *cc, const char *modestr)
+{
+	if(!strcmp(modestr, "auto")) {
+		cc->color_method_req = CM_AUTOCOLOR;
+	}
+	else if(!strcmp(modestr, "ansi")) {
+		cc->color_method_req = CM_ANSI;
+	}
+	else if(!strcmp(modestr, "ansi24")) {
+		cc->color_method_req = CM_ANSI24;
+	}
+	else if(!strcmp(modestr, "winconsole")) {
+		cc->color_method_req = CM_WINCONSOLE;
+	}
+	else  if(!strcmp(modestr, "none")) {
+		cc->color_method_req = CM_NOCOLOR;
+	}
+	else {
+		de_printf(cc->c, DE_MSGTYPE_MESSAGE, "Invalid colormode: %s\n", modestr);
+		cc->error_flag = 1;
+		return;
+	}
+}
+
+static void set_output_basename(struct cmdctx *cc)
+{
+	const char *outputbasefn = cc->base_output_filename; // default, could be NULL
+	const char *outdirname;
+	unsigned int flags = 0;
+
+	if(cc->option_k_level && cc->input_filename) {
+		if(cc->option_k_level==1) {
+			// Use base input filename in output filenames.
+			outputbasefn = cc->input_filename;
+			flags |= 0x1;
+		}
+		else if(cc->option_k_level==2) {
+			// Use full input filename path, but not as an actual path.
+			outputbasefn = cc->input_filename;
+			flags |= 0x2;
+		}
+		else if(cc->option_k_level==3) {
+			// Use full input filename path, as-is.
+			outputbasefn = cc->input_filename;
+		}
+	}
+
+	if(cc->to_zip || cc->to_tar) {
+		// In this case, -od refers to the archive filename, not to the base
+		// filename that we're dealing with here.
+		outdirname = NULL;
+	}
+	else if(cc->to_stdout) {
+		// -od is incompatible with -tostdout
+		outdirname = NULL;
+	}
+	else {
+		outdirname = cc->output_dirname;
+	}
+
+	de_set_base_output_filename(cc->c, outdirname, outputbasefn, flags);
+}
+
+static void set_output_archive_name(struct cmdctx *cc)
+{
+	const char *arcfn = cc->archive_filename; // default, could be NULL
+	unsigned int flags = 0;
+
+	if(!cc->to_zip && !cc->to_tar) return;
+	if(cc->to_stdout) return;
+
+	if(cc->option_ka_level && cc->input_filename)
+	{
+		if(cc->option_ka_level==1) {
+			// Use base input filename in output filenames.
+			arcfn = cc->input_filename;
+			flags |= 0x21;
+		}
+		else if(cc->option_ka_level==2) {
+			// Use full input filename path, but not as an actual path.
+			arcfn = cc->input_filename;
+			flags |= 0x22;
+		}
+		else if(cc->option_ka_level==3) {
+			// Use full input filename path, as-is.
+			arcfn = cc->input_filename;
+			flags |= 0x20;
+		}
+	}
+
+	if(!arcfn) {
+		arcfn = "output";
+		flags |= 0x20;
+	}
+
+	de_set_output_archive_filename(cc->c, cc->output_dirname, arcfn, flags);
 }
 
 static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
@@ -464,27 +668,36 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				de_set_overwrite_mode(c, DE_OVERWRITEMODE_NEVER);
 				break;
 			case DE_OPT_MODTIME:
-				de_set_preserve_file_times(c, 1);
+				de_set_preserve_file_times(c, 0, 1);
+				de_set_preserve_file_times(c, 1, 1);
 				break;
 			case DE_OPT_NOMODTIME:
-				de_set_preserve_file_times(c, 0);
+				de_set_preserve_file_times(c, 0, 0);
+				de_set_preserve_file_times(c, 1, 0);
 				break;
 			case DE_OPT_Q:
 				de_set_infomessages(c, 0);
 				de_set_warnings(c, 0);
 				break;
 			case DE_OPT_VERSION:
-				// TODO: Use ->special_command_code instead of calling show_version() here.
-				show_version(c, 1);
 				cc->special_command_flag = 1;
+				cc->special_command_code = CMD_PRINTVERSION;
 				break;
 			case DE_OPT_PRINTMODULES:
 				cc->special_command_flag = 1;
 				cc->special_command_code = CMD_PRINTMODULES;
 				break;
 			case DE_OPT_HELP:
-				// TODO: Use ->special_command_code instead of help_flag.
+				// At this point, we don't know whether this will be general help,
+				// or module-specific help. So just set a flag for later.
 				help_flag = 1;
+				break;
+			case DE_OPT_LICENSE:
+				cc->special_command_flag = 1;
+				cc->special_command_code = CMD_PRINTLICENSE;
+				break;
+			case DE_OPT_ID:
+				de_set_id_mode(c, 1);
 				break;
 			case DE_OPT_MAINONLY:
 				de_set_extract_policy(c, DE_EXTRACTPOLICY_MAINONLY);
@@ -515,7 +728,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				cc->from_stdin = 1;
 				break;
 			case DE_OPT_COLOR:
-				cc->use_color_req = 1;
+				colormode_opt(cc, "auto");
 				break;
 			case DE_OPT_K:
 				cc->option_k_level = 1;
@@ -525,6 +738,15 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_K3:
 				cc->option_k_level = 3;
+				break;
+			case DE_OPT_KA:
+				cc->option_ka_level = 1;
+				break;
+			case DE_OPT_KA2:
+				cc->option_ka_level = 2;
+				break;
+			case DE_OPT_KA3:
+				cc->option_ka_level = 3;
 				break;
 			case DE_OPT_ENCODING:
 				set_encoding_option(c, cc, argv[i+1]);
@@ -567,9 +789,12 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 			case DE_OPT_O:
 				cc->base_output_filename = argv[i+1];
 				break;
+			case DE_OPT_OD:
+				cc->output_dirname = argv[i+1];
+				break;
 			case DE_OPT_ARCFN:
 				// Relevant e.g. if the -zip option is used.
-				de_set_output_archive_filename(c, argv[i+1], 0);
+				cc->archive_filename = argv[i+1];
 				break;
 			case DE_OPT_GET:
 				de_set_first_output_file(c, de_atoi(argv[i+1]));
@@ -580,6 +805,13 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_MAXFILES:
 				de_set_max_output_files(c, de_atoi(argv[i+1]));
+				cc->set_MAXFILES = 1;
+				break;
+			case DE_OPT_MAXFILESIZE:
+				de_set_max_output_file_size(c, de_atoi64(argv[i+1]));
+				break;
+			case DE_OPT_MAXTOTALSIZE:
+				de_set_max_total_output_size(c, de_atoi64(argv[i+1]));
 				break;
 			case DE_OPT_MAXIMGDIM:
 				de_set_max_image_dimension(c, de_atoi64(argv[i+1]));
@@ -601,6 +833,10 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_NODETECT:
 				de_set_disable_moddetect(c, argv[i+1], 0);
+				break;
+			case DE_OPT_COLORMODE:
+				colormode_opt(cc, argv[i+1]);
+				if(cc->error_flag) return;
 				break;
 			default:
 				de_printf(c, DE_MSGTYPE_MESSAGE, "Unrecognized option: %s\n", argv[i]);
@@ -628,7 +864,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 		}
 		else {
 			cc->special_command_flag = 1;
-			show_help(c);
+			cc->special_command_code = CMD_PRINTHELP;
 		}
 		return;
 	}
@@ -642,32 +878,18 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 
 	if(cc->to_stdout) {
 		if(cc->to_zip || cc->to_tar) {
-			de_set_output_archive_filename(c, NULL, 0x1);
+			de_set_output_archive_filename(c, NULL, NULL, 0x10);
 		}
 		else {
 			de_set_output_style(c, DE_OUTPUTSTYLE_STDOUT, 0);
-			de_set_max_output_files(c, 1);
+			if(!cc->set_MAXFILES) {
+				de_set_max_output_files(c, 1);
+			}
 		}
 	}
 
-	if(cc->option_k_level && cc->input_filename) {
-		if(cc->option_k_level==1) {
-			// Use base input filename in output filenames.
-			de_set_base_output_filename(c, cc->input_filename, 0x1);
-		}
-		else if(cc->option_k_level==2) {
-			// Use full input filename path, but not as an actual path.
-			de_set_base_output_filename(c, cc->input_filename, 0x2);
-		}
-		else if(cc->option_k_level==3) {
-			// Use full input filename path, as-is.
-			de_set_base_output_filename(c, cc->input_filename, 0x0);
-		}
-	}
-
-	if(cc->base_output_filename) {
-		de_set_base_output_filename(c, cc->base_output_filename, 0);
-	}
+	set_output_basename(cc);
+	set_output_archive_name(cc);
 }
 
 static void main2(int argc, char **argv)
@@ -676,15 +898,17 @@ static void main2(int argc, char **argv)
 	struct cmdctx *cc = NULL;
 
 	cc = de_malloc(NULL, sizeof(struct cmdctx));
-
 	c = de_create();
+	cc->c = c;
+
 	de_set_userdata(c, (void*)cc);
 	de_set_fatalerror_callback(c, our_fatalerrorfn);
 	de_set_messages_callback(c, our_msgfn);
 	de_set_special_messages_callback(c, our_specialmsgfn);
+	cc->plctx = de_platformdata_create();
 
 	if(argc<2) { // Empty command line
-		show_help(c);
+		print_help(c);
 		goto done;
 	}
 
@@ -692,15 +916,26 @@ static void main2(int argc, char **argv)
 
 	if(cc->error_flag) {
 		if(cc->show_usage_message) {
-			show_usage_error(c);
+			print_usage_error(c);
 		}
 		goto done;
 	}
 
 	if(cc->special_command_flag) {
 		switch(cc->special_command_code) {
+		case CMD_PRINTHELP:
+			print_help(c);
+			break;
+		case CMD_PRINTVERSION:
+			print_version(c, 1);
+			break;
+		case CMD_PRINTLICENSE:
+			print_license(c);
+			break;
 		case CMD_PRINTMODULES:
 			print_modules(c);
+			break;
+		default:
 			break;
 		}
 		goto done;
@@ -708,10 +943,10 @@ static void main2(int argc, char **argv)
 
 #ifdef DE_WINDOWS
 	if(cc->to_stdout) {
-		_setmode(_fileno(stdout), _O_BINARY);
+		(void)_setmode(_fileno(stdout), _O_BINARY);
 	}
 	if(cc->from_stdin) {
-		_setmode(_fileno(stdin), _O_BINARY);
+		(void)_setmode(_fileno(stdin), _O_BINARY);
 	}
 #endif
 
@@ -719,7 +954,8 @@ static void main2(int argc, char **argv)
 
 done:
 	de_destroy(c);
-
+	de_platformdata_destroy(cc->plctx);
+	cc->plctx = NULL;
 	de_free(NULL, cc);
 }
 

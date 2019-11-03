@@ -352,7 +352,7 @@ static const struct ele_id_info ele_id_info_arr[] = {
 static const struct ele_id_info *find_ele_id_info(i64 ele_id)
 {
 	size_t k;
-	for(k=0; k<DE_ITEMS_IN_ARRAY(ele_id_info_arr); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(ele_id_info_arr); k++) {
 		if(ele_id_info_arr[k].ele_id == ele_id) {
 			return &ele_id_info_arr[k];
 		}
@@ -433,7 +433,7 @@ static void decode_date(deark *c, lctx *d, const struct ele_id_info *ele_id,
 }
 
 static void decode_string(deark *c, lctx *d, const struct ele_id_info *ele_id,
-	  i64 pos, i64 len, int encoding)
+	  i64 pos, i64 len, de_encoding encoding)
 {
 	de_ucstring *s = NULL;
 

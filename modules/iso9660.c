@@ -53,7 +53,7 @@ struct vol_record {
 	i64 root_dir_extent_blk;
 	i64 root_dir_data_len;
 	i64 block_size;
-	int encoding; // Char encoding associated with this volume descriptor
+	de_encoding encoding; // Char encoding associated with this volume descriptor
 	u8 file_structure_version;
 	u8 is_joliet;
 	u8 is_cdxa;
@@ -64,6 +64,7 @@ typedef struct localctx_struct {
 	int rr_encoding;
 	u8 names_to_lowercase;
 	u8 vol_desc_sector_forced;
+	u8 dirsize_hack;
 	i64 vol_desc_sector_to_use;
 	i64 secsize;
 	i64 primary_vol_desc_count;
@@ -108,7 +109,7 @@ static i64 getu32bbo_p(dbuf *f, i64 *ppos)
 static void read_iso_string(deark *c, lctx *d, struct vol_record *vol,
 	i64 pos, i64 len, de_ucstring *s)
 {
-	int encoding;
+	de_encoding encoding;
 
 	ucstring_empty(s);
 	encoding = vol ? vol->encoding : DE_ENCODING_ASCII;
@@ -135,7 +136,7 @@ static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *field_n
 	char timestamp_buf[64];
 
 	if(ts->is_valid) {
-		de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
+		de_dbg_timestamp_to_string(c, ts, timestamp_buf, sizeof(timestamp_buf), 0);
 		de_dbg(c, "%s: %s", field_name, timestamp_buf);
 	}
 	else {
@@ -270,9 +271,15 @@ static void do_extract_file(deark *c, lctx *d, struct dir_record *dr)
 	fi = de_finfo_create(c);
 
 	final_name = ucstring_create(c);
-	de_strarray_make_path(d->curpath, final_name, 0);
 
-	if(ucstring_isnonempty(dr->rr_name)) {
+	if(!dr->is_root_dot) {
+		de_strarray_make_path(d->curpath, final_name, 0);
+	}
+
+	if(dr->is_root_dot) {
+		fi->is_root_dir = 1;
+	}
+	else if(ucstring_isnonempty(dr->rr_name)) {
 		ucstring_append_ucstring(final_name, dr->rr_name);
 		de_finfo_set_name_from_ucstring(c, fi, final_name, DE_SNFLAG_FULLPATH);
 		fi->original_filename_flag = 1;
@@ -529,34 +536,21 @@ static void do_Apple_AA_HFS(deark *c, lctx *d, struct dir_record *dr, i64 pos1, 
 static void do_ARCHIMEDES(deark *c, lctx *d, struct dir_record *dr, i64 pos1, i64 len)
 {
 	i64 pos = pos1;
-	u32 ld, ex;
+	struct de_riscos_file_attrs rfa;
 
 	de_dbg(c, "ARCHIMEDES extension at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	if(len<10+12) goto done;
 	dr->has_archimedes_ext = 1;
 	pos += 10; // signature
-	ld = (u32)de_getu32le_p(&pos);
-	ex = (u32)de_getu32le_p(&pos);
-	de_dbg(c, "load/exec addrs: 0x%08x, 0x%08x", (unsigned int)ld,
-		(unsigned int)ex);
 
-	if((ld&0xfff00000U)==0xfff00000U) {
-		unsigned int file_type;
-		char timestamp_buf[64];
+	de_zeromem(&rfa, sizeof(struct de_riscos_file_attrs));
+	de_fmtutil_riscos_read_load_exec(c, c->infile, &rfa, pos);
+	dr->riscos_timestamp = rfa.mod_time;
+	pos += 8;
 
-		de_dbg_indent(c, 1);
-		file_type = (unsigned int)((ld&0xfff00)>>8);
-		de_dbg(c, "file type: %03X", file_type);
-
-		de_riscos_loadexec_to_timestamp(ld, ex, &dr->riscos_timestamp);
-		de_timestamp_to_string(&dr->riscos_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
-		de_dbg(c, "timestamp: %s", timestamp_buf);
-		de_dbg_indent(c, -1);
-	}
-
-	dr->archimedes_attribs = (u32)de_getu32le_p(&pos);
-	de_dbg(c, "attribs: 0x%08x", (unsigned int)dr->archimedes_attribs);
+	de_fmtutil_riscos_read_attribs_field(c, c->infile, &rfa, pos, 0);
+	dr->archimedes_attribs = rfa.attribs;
 
 done:
 	de_dbg_indent(c, -1);
@@ -781,7 +775,8 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 	de_dbg(c, "ext attrib rec len: %u", (unsigned int)dr->len_ext_attr_rec);
 
 	dr->extent_blk = getu32bbo_p(c->infile, &pos);
-	de_dbg(c, "loc. of extent: block #%u", (unsigned int)dr->extent_blk);
+	de_dbg(c, "loc. of extent: %"I64_FMT" (block #%u)", sector_dpos(d, dr->extent_blk),
+		(unsigned int)dr->extent_blk);
 	dr->data_len = getu32bbo_p(c->infile, &pos);
 	de_dbg(c, "data length: %u", (unsigned int)dr->data_len);
 
@@ -897,6 +892,9 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 	else if(!dr->is_dir) {
 		do_extract_file(c, d, dr);
 	}
+	else if(dr->is_root_dot) {
+		do_extract_file(c, d, dr);
+	}
 
 	retval = 1;
 
@@ -911,11 +909,18 @@ static void do_directory(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level
 	struct dir_record *dr = NULL;
 	i64 pos = pos1;
 	int saved_indent_level;
+	int idx = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	if(pos1<=0) goto done;
 
-	de_dbg(c, "directory at %"I64_FMT, pos1);
+	if(d->dirsize_hack) {
+		// I have a volume for which the high bits of the dir-length fields
+		// are corrupted.
+		len &= 0x00ffffffLL;
+	}
+
+	de_dbg(c, "directory at %"I64_FMT", len=%"I64_FMT, pos1, len);
 	de_dbg_indent(c, 1);
 
 	if(!de_inthashtable_add_item(c, d->dirs_seen, pos1, NULL)) {
@@ -928,13 +933,30 @@ static void do_directory(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level
 		goto done;
 	}
 
+	if(pos1+len > c->infile->len) {
+		de_warn(c, "Directory at %"I64_FMT" goes beyond end of file (size=%"I64_FMT")",
+			pos1, len);
+	}
+
 	while(1) {
 		int ret;
 
 		if(pos >= pos1+len) break;
 		if(pos >= c->infile->len) break;
 
-		de_dbg(c, "directory record at %"I64_FMT" (for directory@%"I64_FMT")", pos, pos1);
+		// Peek at the first byte of the dir record (the length)
+		if(pos%d->secsize != 0) {
+			if(de_getbyte(pos)==0) {
+				// No more dir records in this sector; advance to the next sector
+				pos = de_pad_to_n(pos, d->secsize);
+			}
+
+			if(pos >= pos1+len) break;
+			if(pos >= c->infile->len) break;
+		}
+
+		de_dbg(c, "file/dir record at %"I64_FMT" (item[%d] in dir@%"I64_FMT")", pos,
+			idx, pos1);
 		dr = de_malloc(c, sizeof(struct dir_record));
 		de_dbg_indent(c, 1);
 		ret = do_directory_record(c, d, pos, dr, nesting_level);
@@ -945,6 +967,7 @@ static void do_directory(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level
 		pos += dr->len_dir_rec; // + ext_len??
 		free_dir_record(c, dr);
 		dr = NULL;
+		idx++;
 	}
 
 done:
@@ -1231,7 +1254,7 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 		goto done;
 	}
 
-	de_dbg(c, "volume descriptor at %"I64_FMT" (sector %d)", pos, (int)secnum);
+	de_dbg(c, "volume descriptor at %"I64_FMT" (sector %d)", pos1, (int)secnum);
 	de_dbg_indent(c, 1);
 
 	de_dbg(c, "type: %u", (unsigned int)dtype);
@@ -1293,18 +1316,17 @@ static void de_run_iso9660(deark *c, de_module_params *mparams)
 		d->names_to_lowercase = 1;
 	}
 
+	if(de_get_ext_option_bool(c, "iso9660:dirsizehack", 0)) {
+		d->dirsize_hack = 1;
+	}
+
 	s = de_get_ext_option(c, "iso9660:voldesc");
 	if(s) {
 		d->vol_desc_sector_forced = 1;
 		d->vol_desc_sector_to_use = de_atoi(s);
 	}
 
-	if(c->input_encoding==DE_ENCODING_UNKNOWN) {
-		d->rr_encoding = DE_ENCODING_UTF8;
-	}
-	else {
-		d->rr_encoding = c->input_encoding;
-	}
+	d->rr_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_UTF8);
 
 	d->secsize = 2048;
 
@@ -1406,12 +1428,41 @@ struct cdraw_params {
 	const char *ext;
 };
 
+// If the volume has an ISO 9660 "volume identifier", try to read it to use as
+// part of the output filename.
+// This is quick and dirty, and somewhat duplicates code from the iso9660 module.
+static void cdraw_set_name_from_vol_id(deark *c, struct cdraw_params *cdrp, de_finfo *fi)
+{
+	de_ucstring *vol_id = NULL;
+	i64 pos;
+
+	pos = 16*cdrp->sector_total_len + cdrp->sector_data_offset;
+	if(dbuf_memcmp(c->infile, pos, "\x01" "CD001", 6)) goto done;
+
+	vol_id = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos+40, 32, vol_id, DE_CONVFLAG_STOP_AT_NUL,
+		DE_ENCODING_ASCII);
+	ucstring_strip_trailing_spaces(vol_id);
+
+	if(ucstring_isnonempty(vol_id)) {
+		de_dbg(c, "iso9660 volume id: \"%s\"", ucstring_getpsz_d(vol_id));
+		de_finfo_set_name_from_ucstring(c, fi, vol_id, 0);
+	}
+
+done:
+	ucstring_destroy(vol_id);
+}
+
 static void do_cdraw_convert(deark *c, struct cdraw_params *cdrp)
 {
 	i64 pos;
+	de_finfo *fi = NULL;
 	dbuf *outf = NULL;
 
-	outf = dbuf_create_output_file(c, cdrp->ext, NULL, 0x0);
+	fi = de_finfo_create(c);
+	cdraw_set_name_from_vol_id(c, cdrp, fi);
+
+	outf = dbuf_create_output_file(c, cdrp->ext, fi, 0x0);
 
 	pos = cdrp->sector_data_offset;
 	while(1) {
@@ -1421,6 +1472,7 @@ static void do_cdraw_convert(deark *c, struct cdraw_params *cdrp)
 	}
 
 	dbuf_close(outf);
+	de_finfo_destroy(c, fi);
 }
 
 static void cdraw_setdefaults(struct cdraw_params *cdrp)
@@ -1458,6 +1510,13 @@ static void cdraw_detect_params(dbuf *f, struct cdraw_params *cdrp)
 		cdrp->ok = 1;
 		cdrp->sector_total_len = 2352;
 		cdrp->sector_data_offset = 24;
+		cdrp->ext = "iso";
+		return;
+	}
+	if(cdsig_at2(f, 2448*16+16, 2448*17+16)) {
+		cdrp->ok = 1;
+		cdrp->sector_total_len = 2448;
+		cdrp->sector_data_offset = 16;
 		cdrp->ext = "iso";
 		return;
 	}

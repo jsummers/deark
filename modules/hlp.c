@@ -120,7 +120,7 @@ static const struct systemrec_info *find_sysrec_info(deark *c, lctx *d, unsigned
 {
 	size_t i;
 
-	for(i=0; i<DE_ITEMS_IN_ARRAY(systemrec_info_arr); i++) {
+	for(i=0; i<DE_ARRAYCOUNT(systemrec_info_arr); i++) {
 		const struct systemrec_info *sti;
 		sti = &systemrec_info_arr[i];
 		if(sti->rectype==t &&
@@ -663,10 +663,7 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	if(c->input_encoding==DE_ENCODING_UNKNOWN)
-		d->input_encoding = DE_ENCODING_ASCII;
-	else
-		d->input_encoding = c->input_encoding;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
 
 	pos = 0;
 	do_header(c, d, pos);

@@ -206,7 +206,7 @@ void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi,
 	if(optimg) de_bitmap_destroy(optimg);
 }
 
-// "token" - A (UTf-8) filename component, like "output.000.<token>.png".
+// "token" - A (UTF-8) filename component, like "output.000.<token>.png".
 //   It can be NULL.
 void de_bitmap_write_to_file(de_bitmap *img, const char *token,
 	unsigned int createflags)
@@ -231,6 +231,7 @@ void de_bitmap_setsample(de_bitmap *img, i64 x, i64 y,
 	i64 pos;
 
 	if(!img->bitmap) de_bitmap_alloc_pixels(img);
+	if(!img->bitmap) return;
 	if(x<0 || y<0 || x>=img->width || y>=img->height) return;
 	if(samplenum<0 || samplenum>3) return;
 	pos = (img->width*img->bytes_per_pixel)*y + img->bytes_per_pixel*x;
@@ -265,6 +266,7 @@ void de_bitmap_setpixel_gray(de_bitmap *img, i64 x, i64 y, u8 v)
 	i64 pos;
 
 	if(!img->bitmap) de_bitmap_alloc_pixels(img);
+	if(!img->bitmap) return;
 	if(x<0 || y<0 || x>=img->width || y>=img->height) return;
 	pos = (img->width*img->bytes_per_pixel)*y + img->bytes_per_pixel*x;
 
@@ -299,6 +301,7 @@ void de_bitmap_setpixel_rgba(de_bitmap *img, i64 x, i64 y,
 	i64 pos;
 
 	if(!img->bitmap) de_bitmap_alloc_pixels(img);
+	if(!img->bitmap) return;
 	if(x<0 || y<0 || x>=img->width || y>=img->height) return;
 	pos = (img->width*img->bytes_per_pixel)*y + img->bytes_per_pixel*x;
 
@@ -558,6 +561,20 @@ void de_convert_image_paletted(dbuf *f, i64 fpos,
 	}
 }
 
+void de_convert_image_rgb(dbuf *f, i64 fpos,
+	i64 rowspan, i64 pixelspan, de_bitmap *img, unsigned int flags)
+{
+	i64 i, j;
+	u32 clr;
+
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<img->width; i++) {
+			clr = dbuf_getRGB(f, fpos + j*rowspan + i*pixelspan, flags);
+			de_bitmap_setpixel_rgb(img, i, j, clr);
+		}
+	}
+}
+
 // Paint a solid, solid-color rectangle onto an image.
 // (Pixels will be replaced, not merged.)
 void de_bitmap_rect(de_bitmap *img,
@@ -660,8 +677,8 @@ void de_optimize_image_alpha(de_bitmap *img, unsigned int flags)
 	// by the alpha channel is not de-allocated.
 	for(j=0; j<img->height; j++) {
 		for(i=0; i<img->width; i++) {
-			for(k=0; k<img->bytes_per_pixel-1; k++) {
-				img->bitmap[(j*img->width+i)*(img->bytes_per_pixel-1) + k] =
+			for(k=0; k<(i64)img->bytes_per_pixel-1; k++) {
+				img->bitmap[(j*img->width+i)*((i64)img->bytes_per_pixel-1) + k] =
 					img->bitmap[(j*img->width+i)*(img->bytes_per_pixel) + k];
 			}
 		}

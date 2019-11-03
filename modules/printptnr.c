@@ -243,8 +243,6 @@ static void de_run_pp_gph(deark *c, de_module_params *mparams)
 		img_idx++;
 	}
 
-	pos = 0;
-
 done:
 	de_free(c, d);
 }

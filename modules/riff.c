@@ -49,6 +49,8 @@ DE_DECLARE_MODULE(de_module_riff);
 typedef struct localctx_struct {
 	int is_cdr;
 	u32 curr_avi_stream_type;
+	u8 in_movi;
+	int in_movi_level;
 } lctx;
 
 static void do_extract_raw(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len, const char *ext,
@@ -92,10 +94,6 @@ static void extract_ani_frame(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos
 	else {
 		ext = "bin";
 	}
-
-	// TODO: Most embedded CUR files don't seem to have a meaningful "hotspot"
-	// set. Can we patch that up? Maybe we should even convert ICO files to CUR
-	// files, so that we can give them a hotspot.
 
 	dbuf_create_file_from_slice(ictx->f, pos, len, ext, NULL, 0);
 }
@@ -359,6 +357,27 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 		return 0;
 	}
 
+	if(ictx->main_contentstype4cc.id==CODE_AVI &&
+		ictx->curr_container_contentstype4cc.id==CODE_movi && !d->in_movi)
+	{
+		// Keep track of when we are inside a 'movi' container.
+		d->in_movi = 1;
+		d->in_movi_level = ictx->level;
+	}
+
+	return 1;
+}
+
+static int my_on_container_end_fn(deark *c, struct de_iffctx *ictx)
+{
+	lctx *d = (lctx*)ictx->userdata;
+
+	if(ictx->curr_container_contentstype4cc.id==CODE_movi &&
+		d->in_movi && ictx->level==d->in_movi_level)
+	{
+		d->in_movi = 0;
+	}
+
 	return 1;
 }
 
@@ -414,6 +433,9 @@ static int my_riff_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	case CHUNK_DISP:
 		do_DISP(c, d, ictx, dpos, dlen);
+		break;
+
+	case CHUNK_JUNK:
 		break;
 
 	case CHUNK_ICCP: // Used by WebP
@@ -478,6 +500,14 @@ static int my_riff_chunk_handler(deark *c, struct de_iffctx *ictx)
 		if(d->is_cdr && ictx->curr_container_contentstype4cc.id==CODE_bmpt) {
 			do_cdr_bmp(c, d, ictx, dpos, dlen);
 		}
+		break;
+
+	default:
+		if(c->debug_level>=2 &&
+			ictx->main_contentstype4cc.id==CODE_AVI && !d->in_movi)
+		{
+			de_dbg_hexdump(c, ictx->f, dpos, dlen, 256, NULL, 0x1);
+		}
 	}
 
 chunk_handled:
@@ -497,6 +527,7 @@ static void de_run_riff(deark *c, de_module_params *mparams)
 	ictx->preprocess_chunk_fn = my_preprocess_riff_chunk_fn;
 	ictx->handle_chunk_fn = my_riff_chunk_handler;
 	ictx->on_std_container_start_fn = my_on_std_container_start_fn;
+	ictx->on_container_end_fn = my_on_container_end_fn;
 	ictx->f = c->infile;
 
 	de_read(buf, 0, 4);
@@ -527,13 +558,21 @@ static void de_run_riff(deark *c, de_module_params *mparams)
 
 static int de_identify_riff(deark *c)
 {
-	if(!dbuf_memcmp(c->infile, 0, "RIFF", 4))
-		return 50;
-	if(!dbuf_memcmp(c->infile, 0, "XFIR", 4))
-		return 50;
-	if(!dbuf_memcmp(c->infile, 0, "RIFX", 4))
-		return 50;
-	return 0;
+	u8 buf[4];
+	int has_sig;
+	i64 dlen;
+
+	de_read(buf, 0, 4);
+	has_sig = (!de_memcmp(buf, "RIFF", 4)) ||
+		(!de_memcmp(buf, "XFIR", 4)) ||
+		(!de_memcmp(buf, "RIFX", 4));
+	if(!has_sig) return 0;
+
+	dlen = de_getu32le(4);
+	// This check screens out .AMV format, for example.
+	if(dlen==0 && c->infile->len!=8) return 0;
+
+	return 50;
 }
 
 void de_module_riff(deark *c, struct deark_module_info *mi)

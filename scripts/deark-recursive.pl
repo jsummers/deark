@@ -53,6 +53,11 @@ sub main {
 
  foreach my $fn (@ARGV) {
    my $fn_sanitized = $fn;
+   if($fn_sanitized =~ /^(.*)[\/\\](.*)$/) { # Only use basename
+      if($2 ne "") {
+         $fn_sanitized = $2;
+      }
+   }
    $fn_sanitized =~ s/[\/\\:\*\?\"<>\|\c@-\c_]/_/g;
    push @nlist, $fn_sanitized;
    do_onefile(\@nlist, $fn);

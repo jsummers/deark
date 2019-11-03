@@ -39,7 +39,7 @@ static void do_read_bitmap(deark *c, lctx *d, i64 pos)
 
 	unc_pixels = dbuf_create_membuf(c, MACPAINT_IMAGE_BYTES, 1);
 
-	de_fmtutil_uncompress_packbits(c->infile, pos, c->infile->len - pos,
+	de_fmtutil_decompress_packbits(c->infile, pos, c->infile->len - pos,
 		unc_pixels, &cmpr_bytes_consumed);
 
 	de_dbg(c, "decompressed %d to %d bytes", (int)cmpr_bytes_consumed,
@@ -363,8 +363,8 @@ static int de_identify_macpaint(deark *c)
 	// Not all MacPaint files can be easily identified, but this will work
 	// for some of them.
 	if(!de_memcmp(buf, "PNTG", 4)) {
-		if(c->detection_data.is_macbinary) return 100;
-		if(!de_memcmp(&buf[4], "MPNT", 8)) return 80;
+		if(c->detection_data->is_macbinary) return 100;
+		if(!de_memcmp(&buf[4], "MPNT", 4)) return 80;
 		return 70;
 	}
 

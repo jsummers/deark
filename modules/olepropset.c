@@ -27,7 +27,7 @@ struct propset_struct {
 	i64 tbloffset;
 	u32 sfmtid;
 	int code_page; // value of the Code Page property
-	int encoding; // DE_ENCODING_*
+	de_encoding encoding;
 
 	size_t num_dict_entries;
 	struct dictionary_entry *dictionary;
@@ -237,7 +237,7 @@ static void do_prop_CodePageString2(deark *c, lctx *d, struct propset_struct *si
 {
 	i64 n_raw;
 	int is_utf16 = (si->code_page==1200);
-	int encoding = si->encoding;
+	de_encoding encoding = si->encoding;
 
 	if(is_utf16 && is_dict_name && d->asciipropnames) {
 		// A hack that the user can enable. Some dictionaries use an 8-bit
@@ -341,7 +341,7 @@ static char *get_prop_data_type_name(char *buf, size_t buf_len, u32 dt)
 		dt -= 0x2000;
 	}
 
-	for(k=0; k<DE_ITEMS_IN_ARRAY(prop_data_type_info_arr); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(prop_data_type_info_arr); k++) {
 		if(prop_data_type_info_arr[k].dt == dt) {
 			name = prop_data_type_info_arr[k].name;
 			break;
@@ -776,7 +776,7 @@ static void set_prop_name(deark *c, struct propset_struct *si, struct prop_info_
 	}
 
 	// Check our table of known types
-	for(k=0; k<DE_ITEMS_IN_ARRAY(prop_info_arr); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(prop_info_arr); k++) {
 		if((prop_info_arr[k].sfmtid != si->sfmtid) &&
 			(prop_info_arr[k].sfmtid != SFMTID_COMMON))
 		{
@@ -880,7 +880,7 @@ done:
 static const struct fmtid_info_entry *find_fmtid_info(const u8 *b)
 {
 	size_t k;
-	for(k=0; k<DE_ITEMS_IN_ARRAY(fmtid_info_arr); k++) {
+	for(k=0; k<DE_ARRAYCOUNT(fmtid_info_arr); k++) {
 		if(!de_memcmp(fmtid_info_arr[k].guid, b, 16)) {
 			return &fmtid_info_arr[k];
 		}
