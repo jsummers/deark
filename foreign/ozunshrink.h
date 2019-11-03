@@ -334,3 +334,82 @@ static void ozus_run(ozus_ctx *ozus)
 done:
 	;
 }
+
+#if 0 // Example code
+
+#include <stdio.h> // Used by the example code, not by the library
+
+// Include headers to define some symbols the library needs
+#include <sys/types.h>
+#include <stdint.h>
+
+// The library is expected to be used by just one of your .c/.cpp files. There
+// are no provisions to make it convenient to use from multiple files.
+#include "ozunshrink.h"
+
+#endif
+
+#ifdef OZUS_TESTING_EXAMPLE_CODE
+
+// Define a custom struct for context data used by callbacks
+struct example_ozus_uctxtype {
+	FILE *infile;
+	FILE *outfile;
+};
+
+// Implement your read and write callbacks
+static size_t example_ozus_read(ozus_ctx *ozus, OZUS_UINT8 *buf, size_t size)
+{
+	struct example_ozus_uctxtype *uctx = (struct example_ozus_uctxtype*)ozus->userdata;
+	return (size_t)fread(buf, 1, size, uctx->infile);
+}
+
+static size_t example_ozus_write(ozus_ctx *ozus, const OZUS_UINT8 *buf, size_t size)
+{
+	struct example_ozus_uctxtype *uctx = (struct example_ozus_uctxtype*)ozus->userdata;
+	return (size_t)fwrite(buf, 1, size, uctx->outfile);
+}
+
+// An example function that uses the library.
+// infile: The ZIP file. Seek to the start of compressed data before calling
+//   this function.
+// outfile: The file to write uncompressed data to.
+// cmpr_size, uncmpr_size: Compressed and uncompressed file sizes, from the
+//   ZIP file directory data.
+static void ozus_example_code(FILE *infile, FILE *outfile,
+	OZUS_OFF_T cmpr_size, OZUS_OFF_T uncmpr_size)
+{
+	ozus_ctx *ozus = NULL;
+	struct example_ozus_uctxtype uctx;
+
+	// Prepare your context data
+	uctx.infile = infile;
+	uctx.outfile = outfile;
+
+	// Allocate an ozus_ctx object, and (**important!**) initialize it to all
+	// zero bytes. The object is about 40KB in size.
+	ozus = calloc(1, sizeof(ozus_ctx));
+	if(!ozus) return;
+
+	// Set some required fields
+	ozus->userdata = (void*)&uctx;
+	ozus->cmpr_size = cmpr_size;
+	ozus->uncmpr_size = uncmpr_size;
+	// cb_read must supply all of the bytes requested. Returning any other number
+	// is considered a failure.
+	ozus->cb_read = example_ozus_read;
+	// cb_write must consume all of the bytes supplied.
+	ozus->cb_write = example_ozus_write;
+
+	// Do the decompression
+	ozus_run(ozus);
+	if(ozus->error_code != OZUS_ERRCODE_OK) {
+		printf("Decompression failed (code %d)\n", ozus->error_code);
+	}
+
+	// Free any resources you allocated. The library does not require any
+	// cleanup of its own.
+	free(ozus);
+}
+
+#endif // End of example code
