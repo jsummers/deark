@@ -139,4 +139,4 @@ $(OBJDIR)/%.d: %.c
 endif
 
 install:
-	install -s deark /usr/local/bin/
+	install -s $(DEARK_EXE) /usr/local/bin/
