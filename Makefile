@@ -1,4 +1,3 @@
-
 CFLAGS ?= -g -O2 -Wall -Wextra -Wmissing-prototypes -Wformat-security -Wno-unused-parameter
 LDFLAGS ?= -Wall
 
@@ -50,7 +49,7 @@ include $(DEPS_MK)
 
 endif
 
-.PHONY: all clean dep
+.PHONY: all clean dep install
 
 OFILES_MODS_AB:=$(addprefix $(OBJDIR)/modules/,abk.o alphabmp.o amigaicon.o \
  ansiart.o ar.o asf.o atari-dsk.o atari-img.o autocad.o awbm.o basic-c64.o \
@@ -139,3 +138,5 @@ $(OBJDIR)/%.d: %.c
 
 endif
 
+install:
+	install -s deark /usr/local/bin/
