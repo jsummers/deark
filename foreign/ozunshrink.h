@@ -70,7 +70,7 @@ For more information, please refer to <http://unlicense.org/>
 ==============================================================================
 */
 
-#define OZUS_VERSION 20191104
+#define OZUS_VERSION 20191106
 
 #ifndef OZUS_UINT8
 #define OZUS_UINT8   unsigned char
@@ -80,6 +80,9 @@ For more information, please refer to <http://unlicense.org/>
 #endif
 #ifndef OZUS_OFF_T
 #define OZUS_OFF_T   off_t
+#endif
+#ifndef OZUS_MEMCPY
+#define OZUS_MEMCPY memcpy
 #endif
 
 #define OZUS_ERRCODE_OK             0
@@ -135,12 +138,22 @@ struct ozus_ctx_type {
 	unsigned int bitreader_buf;
 	unsigned int bitreader_nbits_in_buf;
 
+	size_t inbuf_nbytes_consumed;
+	size_t inbuf_nbytes_total;
+	size_t outbuf_nbytes_used;
+
 	struct ozus_tableentry ct[OZUS_NUM_CODES];
 
 // Need room for the max possible chain length, which I calculate to be
 // 8192 - 257 + 1 = 7936.
 #define OZUS_VALBUFSIZE 7936
 	OZUS_UINT8 valbuf[OZUS_VALBUFSIZE];
+
+#define OZUS_INBUF_SIZE 1024
+	OZUS_UINT8 inbuf[OZUS_INBUF_SIZE];
+
+#define OZUS_OUTBUF_SIZE 1024
+	OZUS_UINT8 outbuf[OZUS_OUTBUF_SIZE];
 };
 
 static void ozus_set_error(ozus_ctx *ozus, int error_code)
@@ -166,24 +179,53 @@ static void ozus_init(ozus_ctx *ozus)
 	ozus->free_code_search_start = 257;
 }
 
-// TODO: Buffering
-static OZUS_UINT8 ozus_getnextbyte(ozus_ctx *ozus)
+static void ozus_refill_inbuf(ozus_ctx *ozus)
 {
 	size_t ret;
-	OZUS_UINT8 b;
+	size_t nbytes_to_read;
+
+	ozus->inbuf_nbytes_total = 0;
+	ozus->inbuf_nbytes_consumed = 0;
+
+	if((ozus->cmpr_size - ozus->cmpr_nbytes_consumed) > OZUS_INBUF_SIZE) {
+		nbytes_to_read = OZUS_INBUF_SIZE;
+	}
+	else {
+		nbytes_to_read = (size_t)(ozus->cmpr_size - ozus->cmpr_nbytes_consumed);
+	}
+	if(nbytes_to_read<1 || nbytes_to_read>OZUS_INBUF_SIZE) return;
+
+	ret = ozus->cb_read(ozus, ozus->inbuf, nbytes_to_read);
+	if(ret != nbytes_to_read) {
+		ozus_set_error(ozus, OZUS_ERRCODE_READ_FAILED);
+		return;
+	}
+	ozus->inbuf_nbytes_total = nbytes_to_read;
+}
+
+static OZUS_UINT8 ozus_getnextbyte(ozus_ctx *ozus)
+{
+	OZUS_UINT8 x;
 
 	if(ozus->error_code) return 0;
+
 	if(ozus->cmpr_nbytes_consumed >= ozus->cmpr_size) {
 		ozus_set_error(ozus, OZUS_ERRCODE_INSUFFICIENT_CDATA);
 		return 0;
 	}
-	ret = ozus->cb_read(ozus, &b, 1);
-	if(ret != 1) {
-		ozus_set_error(ozus, OZUS_ERRCODE_READ_FAILED);
-		return 0;
+
+	if(ozus->inbuf_nbytes_consumed >= ozus->inbuf_nbytes_total) {
+		// No bytes left in inbuf. Refill it.
+		ozus_refill_inbuf(ozus);
+		if(ozus->inbuf_nbytes_total<1) {
+			ozus_set_error(ozus, OZUS_ERRCODE_GENERIC_ERROR);
+			return 0;
+		}
 	}
+
+	x = ozus->inbuf[ozus->inbuf_nbytes_consumed++];
 	ozus->cmpr_nbytes_consumed++;
-	return b;
+	return x;
 }
 
 static OZUS_CODE ozus_getnextcode(ozus_ctx *ozus)
@@ -206,22 +248,51 @@ static OZUS_CODE ozus_getnextcode(ozus_ctx *ozus)
 	return (OZUS_CODE)n;
 }
 
-// TODO: Buffering
-static void ozus_write(ozus_ctx *ozus, const OZUS_UINT8 *buf, size_t n)
+static void ozus_write_unbuffered(ozus_ctx *ozus, const OZUS_UINT8 *buf, size_t n)
 {
 	size_t ret;
 
 	if(ozus->error_code) return;
-	if(ozus->uncmpr_nbytes_written + (OZUS_OFF_T)n > ozus->uncmpr_size) {
-		n = ozus->uncmpr_size - ozus->uncmpr_nbytes_written;
-	}
-	if(n==0) return;
+	if(n<1) return;
 	ret = ozus->cb_write(ozus, buf, n);
 	if(ret != n) {
 		ozus_set_error(ozus, OZUS_ERRCODE_WRITE_FAILED);
 		return;
 	}
 	ozus->uncmpr_nbytes_written += n;
+}
+
+static void ozus_flush(ozus_ctx *ozus)
+{
+	if(ozus->error_code) return;
+	ozus_write_unbuffered(ozus, ozus->outbuf, ozus->outbuf_nbytes_used);
+	ozus->outbuf_nbytes_used = 0;
+}
+
+static void ozus_write(ozus_ctx *ozus, const OZUS_UINT8 *buf, size_t n)
+{
+	if(ozus->error_code) return;
+
+	// If there's enough room in outbuf, copy it there, and we're done.
+	if(ozus->outbuf_nbytes_used + n <= OZUS_OUTBUF_SIZE) {
+		OZUS_MEMCPY(&ozus->outbuf[ozus->outbuf_nbytes_used], buf, n);
+		ozus->outbuf_nbytes_used += n;
+		return;
+	}
+
+	// Flush anything currently in outbuf.
+	ozus_flush(ozus);
+	if(ozus->error_code) return;
+
+	// If too big for outbuf, write without buffering.
+	if(n > OZUS_OUTBUF_SIZE) {
+		ozus_write_unbuffered(ozus, buf, n);
+		return;
+	}
+
+	// Otherwise copy to outbuf
+	OZUS_MEMCPY(ozus->outbuf, buf, n);
+	ozus->outbuf_nbytes_used += n;
 }
 
 // Decode an LZW code to one or more values, and write the values.
@@ -246,6 +317,13 @@ static void ozus_emit_code(ozus_ctx *ozus, OZUS_CODE code1)
 		// valbuf is a stack, essentially. We fill it in the reverse direction,
 		// to make it simpler to write the final byte sequence.
 		valbuf_pos--;
+
+		if(code >= 257 && ozus->ct[code].parent==OZUS_INVALID_CODE) {
+			ozus->valbuf[valbuf_pos] = ozus->last_value;
+			code = ozus->oldcode;
+			continue;
+		}
+
 		ozus->valbuf[valbuf_pos] = ozus->ct[code].value;
 
 		if(code < 257) {
@@ -365,7 +443,9 @@ static void ozus_run(ozus_ctx *ozus)
 	ozus->curr_code_size = OZUS_INITIAL_CODE_SIZE;
 
 	while(1) {
-		if(ozus->uncmpr_nbytes_written >= ozus->uncmpr_size) {
+		if(ozus->uncmpr_nbytes_written + (OZUS_OFF_T)ozus->outbuf_nbytes_used >=
+			ozus->uncmpr_size)
+		{
 			goto done; // Have enough output data.
 		}
 
@@ -397,7 +477,7 @@ static void ozus_run(ozus_ctx *ozus)
 	}
 
 done:
-	;
+	ozus_flush(ozus);
 }
 
 #if 0 // Example code
@@ -406,6 +486,7 @@ done:
 
 // Include headers to define some symbols the library needs
 #include <sys/types.h>
+#include <string.h>
 #include <stdint.h>
 
 // The library is expected to be used by just one of your .c/.cpp files. There
@@ -452,7 +533,7 @@ static void ozus_example_code(FILE *infile, FILE *outfile,
 	uctx.outfile = outfile;
 
 	// Allocate an ozus_ctx object, and (**important!**) initialize it to all
-	// zero bytes. The object is about 40KB in size.
+	// zero bytes. The object is about 40 to 50 KB in size.
 	ozus = calloc(1, sizeof(ozus_ctx));
 	if(!ozus) return;
 

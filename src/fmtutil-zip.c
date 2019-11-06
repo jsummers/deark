@@ -15,6 +15,7 @@ static void ozXX_free(void *userdata, void *ptr);
 #define OZUS_UINT8     u8
 #define OZUS_UINT16    u16
 #define OZUS_OFF_T     i64
+#define OZUS_MEMCPY    de_memcpy
 #include "../foreign/ozunshrink.h"
 
 #define OZUR_UINT8     u8
