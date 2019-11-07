@@ -790,9 +790,9 @@ static int de_identify_tar(deark *c)
 		}
 	}
 	if(digit_count<1) return 0;
-	if(buf[6]!=0x00) return 0;
-	if(buf[7]!=' ') return 0;
-	return 60;
+	if(buf[6]==0x00 && buf[7]==' ') return 60;
+	if(buf[6]==' ' && buf[7]==0x00) return 15;
+	return 0;
 }
 
 void de_module_tar(deark *c, struct deark_module_info *mi)
