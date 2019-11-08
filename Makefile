@@ -25,12 +25,13 @@ EXE_EXT:=.exe
 else
 EXE_EXT:=
 endif
-DEARK_EXE:=deark$(EXE_EXT)
+DEARK_EXE_BASENAME:=deark$(EXE_EXT)
+DEARK_EXE:=$(DEARK_EXE_BASENAME)
 
 DEPS_MK:=deps.mk
 
 ifneq ($(OBJDIR),obj)
-DEARK_EXE:=$(OBJDIR)/$(DEARK_EXE)
+DEARK_EXE:=$(OBJDIR)/$(DEARK_EXE_BASENAME)
 DEPS_MK:=$(OBJDIR)/$(DEPS_MK)
 endif
 
@@ -50,7 +51,7 @@ include $(DEPS_MK)
 
 endif
 
-.PHONY: all clean dep
+.PHONY: all clean dep install
 
 OFILES_MODS_AB:=$(addprefix $(OBJDIR)/modules/,abk.o alphabmp.o amigaicon.o \
  ansiart.o ar.o asf.o atari-dsk.o atari-img.o autocad.o awbm.o basic-c64.o \
@@ -125,6 +126,12 @@ $(DEARK_RC_O): src/deark.rc
 $(DEARK_RC_O:.o=.d):
 	> $@
 endif
+
+DEARK_INSTALLDIR ?= /usr/local/bin
+INSTALL_TARGET:=$(DEARK_INSTALLDIR)/$(DEARK_EXE_BASENAME)
+install: $(INSTALL_TARGET)
+$(INSTALL_TARGET): $(DEARK_EXE)
+	install -s $(DEARK_EXE) $(DEARK_INSTALLDIR)
 
 clean:
 	rm -f $(OBJDIR)/src/*.[oad] $(OBJDIR)/modules/*.[oad] $(DEARK_EXE)

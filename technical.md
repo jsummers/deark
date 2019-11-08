@@ -271,6 +271,8 @@ If you want to install it in a convenient location, just copy the "deark" file.
 For example:
 
     $ sudo cp deark /usr/local/bin/
+or
+    $ sudo make install
 
 For Microsoft Windows, the project files in proj/vs2019 should work for
 sufficiently new versions of Micrsoft Visual Studio. Alternatively, you can use
