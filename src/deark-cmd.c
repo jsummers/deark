@@ -156,13 +156,13 @@ static void print_license(deark *c)
 	"The zlib and Deflate encoder and decoder use public domain code originally from\n"
 	"miniz v1.16 beta r1, by Rich Geldreich.\n\n"
 	"Some LZW decoders use public domain code from liblzw by Mike Frysinger, based\n"
-	"on compress/ncompress by Thomas, Woods, et. al.\n\n"
+	"on compress/ncompress by Thomas, Woods, et al.\n\n"
 	"The ZIP Implode decoder is derived from public domain code by Mark Adler, from\n"
 	"Info-ZIP UnZip v5.4.\n\n"
 	"The X-Face decoder uses code from Compface, Copyright (c) 1990 James Ashton.\n\n"
 	"The Stuffit Huffman decoder uses code by Allan G. Weber, from Unsit Version 1.\n\n"
 	"The ZOO LZD decoder uses public domain code by Rahul Dhesi, from zoo-2.10pl1.\n\n"
-	"The ZOO LZH decoder uses public domain code by Martin Schoenert et. al., from\n"
+	"The ZOO LZH decoder uses public domain code by Martin Schoenert et al., from\n"
 	"unzoo.c v4.4.\n");
 }
 
