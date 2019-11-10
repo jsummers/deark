@@ -908,6 +908,16 @@ static void do_box_full_superbox(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 static void do_box_meta(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
+	if(bctx->curbox->payload_len>=8) {
+		// The QuickTime spec says 'meta' is not a full box, but in newer files
+		// it is. I don't know how you're supposed to know, but sniffing for
+		// "hdlr" should be good enough.
+		u32 n = (u32)dbuf_getu32be(bctx->f, bctx->curbox->payload_pos+4);
+		if(n==BOX_hdlr) {
+			return;
+		}
+	}
+
 	do_box_full_superbox(c, d, bctx);
 }
 
