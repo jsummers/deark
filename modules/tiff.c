@@ -42,6 +42,7 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define DE_TIFFFMT_MPEXT      8 // "MP Extension" data from MPF format
 #define DE_TIFFFMT_NIKONMN    9 // Nikon MakerNote
 #define DE_TIFFFMT_APPLEMN    10 // Apple iOS MakerNote
+#define DE_TIFFFMT_FUJIFILMMN 11 // FujiFilm MakerNote
 
 #define IFDTYPE_NORMAL       0
 #define IFDTYPE_SUBIFD       1
@@ -53,6 +54,7 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define IFDTYPE_NIKONPREVIEW 7
 #define IFDTYPE_APPLEMN      8
 #define IFDTYPE_MASKSUBIFD   9
+#define IFDTYPE_FUJIFILMMN   10
 
 struct localctx_struct;
 typedef struct localctx_struct lctx;
@@ -97,6 +99,7 @@ struct tagnuminfo {
 	// 0x1000=tags for Nikon MakerNote
 	// 0x2000=tags for Apple iOS MakerNote
 	// 0x4000=Panasonic RAW/RW2
+	// 0x8000=FUJIFILM
 	unsigned int flags;
 
 	const char *tagname;
@@ -1153,10 +1156,15 @@ static void handler_photoshoprsrc(deark *c, lctx *d, const struct taginfo *tg, c
 	de_dbg_indent(c, -1);
 }
 
+enum makernote_type {
+	MAKERNOTE_UNKNOWN = 0,
+	MAKERNOTE_NIKON,
+	MAKERNOTE_APPLE_IOS,
+	MAKERNOTE_FUJIFILM
+};
+
 struct makernote_id_info {
-#define MAKERNOTE_NIKON 1
-#define MAKERNOTE_APPLE_IOS 2
-	int mntype;
+	enum makernote_type mntype;
 	char name[32];
 };
 
@@ -1182,6 +1190,11 @@ static void identify_makernote(deark *c, lctx *d, const struct taginfo *tg, stru
 	else if(!de_memcmp(buf, "Apple iOS\x00\x00\x01\x4d\x4d", 14)) {
 		mni->mntype = MAKERNOTE_APPLE_IOS;
 		de_strlcpy(mni->name, "Apple iOS", sizeof(mni->name));
+		goto done;
+	}
+	else if(!de_memcmp(buf, "FUJIFILM", 8)) {
+		mni->mntype = MAKERNOTE_FUJIFILM;
+		de_strlcpy(mni->name, "FujiFilm", sizeof(mni->name));
 		goto done;
 	}
 
@@ -1226,6 +1239,16 @@ static void do_makernote_apple_ios(deark *c, lctx *d, i64 pos1, i64 len)
 	de_dbg_indent(c, -1);
 }
 
+static void do_makernote_fujifilm(deark *c, lctx *d, i64 pos1, i64 len)
+{
+	if(len<14) return;
+
+	de_dbg(c, "FujiFilm MakerNote tag data at %"I64_FMT", len=%"I64_FMT, pos1, len);
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice2(c, "tiff", "F", c->infile, pos1, len);
+	de_dbg_indent(c, -1);
+}
+
 static void handler_makernote(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
 	struct makernote_id_info *mni = NULL;
@@ -1242,6 +1265,9 @@ static void handler_makernote(deark *c, lctx *d, const struct taginfo *tg, const
 	}
 	else if(mni->mntype==MAKERNOTE_APPLE_IOS) {
 		do_makernote_apple_ios(c, d, tg->val_offset, tg->total_size);
+	}
+	else if(mni->mntype==MAKERNOTE_FUJIFILM) {
+		do_makernote_fujifilm(c, d, tg->val_offset, tg->total_size);
 	}
 	else {
 		handler_hexdump(c, d, tg, tni);
@@ -2163,7 +2189,34 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 0x2f, 0x4001, "CropTop", NULL, NULL },
 	{ 0x30, 0x4001, "CropLeft", NULL, NULL },
 	{ 0x31, 0x4001, "CropBottom", NULL, NULL },
-	{ 0x32, 0x4001, "CropRight", NULL, NULL }
+	{ 0x32, 0x4001, "CropRight", NULL, NULL },
+
+	{ 0x0000, 0x8001, "Version", NULL, NULL},
+	{ 0x0010, 0x8001, "InternalSerialNumber", NULL, NULL},
+	{ 0x1000, 0x8001, "Quality", NULL, NULL},
+	{ 0x1001, 0x8001, "Sharpness", NULL, NULL},
+	{ 0x1002, 0x8001, "WhiteBalance", NULL, NULL},
+	{ 0x1003, 0x8001, "Saturation", NULL, NULL},
+	{ 0x1010, 0x8001, "FujiFlashMode", NULL, NULL},
+	{ 0x1011, 0x8001, "FlashExposureComp", NULL, NULL},
+	{ 0x1020, 0x8001, "Macro", NULL, NULL},
+	{ 0x1021, 0x8001, "FocusMode", NULL, NULL},
+	{ 0x1022, 0x8001, "AFMode", NULL, NULL},
+	{ 0x1023, 0x8001, "FocusPixel", NULL, NULL},
+	{ 0x1030, 0x8001, "SlowSync", NULL, NULL},
+	{ 0x1031, 0x8001, "PictureMode", NULL, NULL},
+	{ 0x1032, 0x8001, "ExposureCount", NULL, NULL},
+	{ 0x1100, 0x8001, "AutoBracketing", NULL, NULL},
+	{ 0x1101, 0x8001, "SequenceNumber", NULL, NULL},
+	{ 0x1201, 0x8001, "AdvancedFilter", NULL, NULL},
+	{ 0x1210, 0x8001, "ColorMode", NULL, NULL},
+	{ 0x1300, 0x8001, "BlurWarning", NULL, NULL},
+	{ 0x1301, 0x8001, "FocusWarning", NULL, NULL},
+	{ 0x1302, 0x8001, "ExposureWarning", NULL, NULL},
+	{ 0x1400, 0x8001, "DynamicRange", NULL, NULL},
+	{ 0x1422, 0x8001, "ImageStabilization", NULL, NULL},
+	{ 0x4100, 0x8001, "FacesDetected", NULL, NULL},
+	{ 0x4200, 0x8001, "NumFaceElements", NULL, NULL}
 };
 
 static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni,
@@ -2346,6 +2399,12 @@ static const struct tagnuminfo *find_tagnuminfo(int tagnum, int filefmt, int ifd
 		else if(ifdtype==IFDTYPE_APPLEMN) {
 			// For this IFD, allow only special tags
 			if(!(tagnuminfo_arr[i].flags&0x2000)) {
+				continue;
+			}
+		}
+		else if(ifdtype==IFDTYPE_FUJIFILMMN) {
+			// For this IFD, allow only special tags
+			if(!(tagnuminfo_arr[i].flags&0x8000)) {
 				continue;
 			}
 		}
@@ -2560,6 +2619,11 @@ static void do_tiff(deark *c, lctx *d)
 		push_ifd(c, d, 14, IFDTYPE_APPLEMN);
 		need_to_read_header = 0;
 	}
+	else if(d->fmt==DE_TIFFFMT_FUJIFILMMN) {
+		ifdoffs = getfpos(c, d, 8);
+		push_ifd(c, d, ifdoffs, IFDTYPE_FUJIFILMMN);
+		need_to_read_header = 0;
+	}
 
 	if(need_to_read_header) {
 		de_dbg(c, "TIFF file header at %d", (int)pos);
@@ -2692,6 +2756,11 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 		d->fmt = DE_TIFFFMT_APPLEMN;
 		d->is_le = 0;
 		d->errmsgprefix = "[Apple MakerNote] ";
+	}
+	else if(de_havemodcode(c, mparams, 'F')) {
+		d->fmt = DE_TIFFFMT_FUJIFILMMN;
+		d->is_le = 1;
+		d->errmsgprefix = "[FujiFilm MakerNote] ";
 	}
 	else {
 		d->fmt = de_identify_tiff_internal(c, &d->is_le);
