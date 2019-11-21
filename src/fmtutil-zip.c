@@ -80,6 +80,19 @@ static size_t my_ozus_write(ozus_ctx *ozus, const OZUS_UINT8 *buf, size_t size)
 	return ozXX_write((struct ozXX_udatatype*)ozus->userdata, buf, size);
 }
 
+static void my_ozus_inc_code_size(ozus_ctx *ozus)
+{
+	struct ozXX_udatatype *zu = (struct ozXX_udatatype*)ozus->userdata;
+	de_dbg(zu->c, "code size now %u (lc=%u)", (unsigned int)ozus->curr_code_size,
+		(unsigned int)ozus->last_code_added);
+}
+
+static void my_ozus_pre_partial_clear(ozus_ctx *ozus)
+{
+	struct ozXX_udatatype *zu = (struct ozXX_udatatype*)ozus->userdata;
+	de_dbg(zu->c, "partial clear (lc=%u)", (unsigned int)ozus->last_code_added);
+}
+
 void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags)
@@ -102,8 +115,14 @@ void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri
 	ozus->uncmpr_size = dcmpro->expected_len;
 	ozus->cb_read = my_ozus_read;
 	ozus->cb_write = my_ozus_write;
+	if(c->debug_level>=2) {
+		ozus->cb_inc_code_size = my_ozus_inc_code_size;
+		ozus->cb_pre_partial_clear = my_ozus_pre_partial_clear;
+	}
 
+	de_dbg_indent(c, 1);
 	ozus_run(ozus);
+	de_dbg_indent(c, -1);
 
 	if(ozus->error_code) {
 		de_dfilter_set_errorf(c, dres, modname, "Decompression failed (code %d)",

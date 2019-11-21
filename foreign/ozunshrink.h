@@ -70,7 +70,7 @@ For more information, please refer to <http://unlicense.org/>
 ==============================================================================
 */
 
-#define OZUS_VERSION 20191106
+#define OZUS_VERSION 20191120
 
 #ifndef OZUS_UINT8
 #define OZUS_UINT8   unsigned char
@@ -113,6 +113,8 @@ typedef struct ozus_ctx_type ozus_ctx;
 
 typedef size_t (*ozus_cb_read_type)(ozus_ctx *ozus, OZUS_UINT8 *buf, size_t size);
 typedef size_t (*ozus_cb_write_type)(ozus_ctx *ozus, const OZUS_UINT8 *buf, size_t size);
+typedef void (*ozus_cb_inc_code_size_type)(ozus_ctx *ozus);
+typedef void (*ozus_cb_pre_partial_clear_type)(ozus_ctx *ozus);
 
 struct ozus_ctx_type {
 	// Fields the user can or must set:
@@ -121,6 +123,8 @@ struct ozus_ctx_type {
 	OZUS_OFF_T uncmpr_size; // reported uncompressed size
 	ozus_cb_read_type cb_read;
 	ozus_cb_write_type cb_write;
+	ozus_cb_inc_code_size_type cb_inc_code_size; // Optional hook
+	ozus_cb_pre_partial_clear_type cb_pre_partial_clear; // Optional hook
 
 	// Fields the user can read:
 	int error_code;
@@ -132,6 +136,7 @@ struct ozus_ctx_type {
 	int have_oldcode;
 	OZUS_CODE oldcode;
 	OZUS_CODE last_code_added;
+	OZUS_CODE highest_code_ever_used;
 	OZUS_CODE free_code_search_start;
 	OZUS_UINT8 last_value;
 
@@ -367,6 +372,9 @@ static void ozus_add_to_dict(ozus_ctx *ozus, OZUS_CODE parent, OZUS_UINT8 value)
 	ozus->ct[newpos].value = value;
 	ozus->last_code_added = newpos;
 	ozus->free_code_search_start = newpos+1;
+	if(newpos > ozus->highest_code_ever_used) {
+		ozus->highest_code_ever_used = newpos;
+	}
 }
 
 // Process a single (nonspecial) LZW code that was read from the input stream.
@@ -414,13 +422,17 @@ static void ozus_partial_clear(ozus_ctx *ozus)
 {
 	OZUS_CODE i;
 
-	for(i=257; i<OZUS_NUM_CODES; i++) {
+	if(ozus->cb_pre_partial_clear) {
+		ozus->cb_pre_partial_clear(ozus);
+	}
+
+	for(i=257; i<=ozus->highest_code_ever_used; i++) {
 		if(ozus->ct[i].parent!=OZUS_INVALID_CODE) {
 			ozus->ct[ozus->ct[i].parent].flags = 1; // Mark codes that have a child
 		}
 	}
 
-	for(i=257; i<OZUS_NUM_CODES; i++) {
+	for(i=257; i<=ozus->highest_code_ever_used; i++) {
 		if(ozus->ct[i].flags == 0) {
 			ozus->ct[i].parent = OZUS_INVALID_CODE; // Clear this code
 			ozus->ct[i].value = 0;
@@ -460,6 +472,9 @@ static void ozus_run(ozus_ctx *ozus)
 
 			if(n==1 && (ozus->curr_code_size<OZUS_MAX_CODE_SIZE)) {
 				ozus->curr_code_size++;
+				if(ozus->cb_inc_code_size) {
+					ozus->cb_inc_code_size(ozus);
+				}
 			}
 			else if(n==2) {
 				ozus_partial_clear(ozus);
