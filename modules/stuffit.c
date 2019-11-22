@@ -60,8 +60,9 @@ typedef struct localctx_struct {
 	struct de_crcobj *crco_dfork;
 } lctx;
 
-typedef int (*decompressor_fn)(deark *c, lctx *d, struct member_data *md,
-	struct fork_data *frk, dbuf *outf);
+typedef void (*decompressor_fn)(deark *c, lctx *d, struct member_data *md,
+	struct fork_data *frk, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
 
 struct cmpr_meth_info {
 	u8 id;
@@ -69,49 +70,50 @@ struct cmpr_meth_info {
 	decompressor_fn decompressor;
 };
 
-static int do_decompr_uncompressed(deark *c, lctx *d, struct member_data *md,
-	struct fork_data *frk, dbuf *outf)
+static void do_decompr_uncompressed(deark *c, lctx *d, struct member_data *md,
+	struct fork_data *frk, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	dbuf_copy(c->infile, frk->cmpr_pos, frk->cmpr_len, outf);
-	return 1;
+	dbuf_copy(dcmpri->f, dcmpri->pos, dcmpri->len, dcmpro->f);
 }
 
-static int do_decompr_rle(deark *c, lctx *d, struct member_data *md,
-	struct fork_data *frk, dbuf *outf)
+static void do_decompr_rle(deark *c, lctx *d, struct member_data *md,
+	struct fork_data *frk, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	return de_fmtutil_decompress_rle90(c->infile, frk->cmpr_pos, frk->cmpr_len,
-		outf, 1, frk->unc_len, 0);
+	de_fmtutil_decompress_rle90_ex(c, dcmpri, dcmpro, dres, 0);
 }
 
-static int do_decompr_lzw(deark *c, lctx *d, struct member_data *md,
-	struct fork_data *frk, dbuf *outf)
+static void do_decompr_lzw(deark *c, lctx *d, struct member_data *md,
+	struct fork_data *frk, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
 	u8 lzwmode;
-	int retval = 0;
 
 	// TODO: What are the right lzw settings?
 	lzwmode = (u8)(14 | 0x80);
-	retval = de_fmtutil_decompress_liblzw(c->infile, frk->cmpr_pos, frk->cmpr_len, outf,
-		1, frk->unc_len, 0x0, lzwmode);
-	return retval;
+	de_fmtutil_decompress_liblzw_ex(c, dcmpri, dcmpro, dres, 0x0, lzwmode);
 }
 
-static int do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
-	struct fork_data *frk, dbuf *outf)
+static void do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
+	struct fork_data *frk, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
 	int ret;
 	struct huffctx hctx;
 
 	de_zeromem(&hctx, sizeof(struct huffctx));
 	hctx.c = c;
-	hctx.inf = c->infile;
-	hctx.cmpr_pos = frk->cmpr_pos;
-	hctx.cmpr_len = frk->cmpr_len;
-	hctx.outf = outf;
-	hctx.unc_len = frk->unc_len;
+	hctx.inf = dcmpri->f;
+	hctx.cmpr_pos = dcmpri->pos;
+	hctx.cmpr_len = dcmpri->len;
+	hctx.outf = dcmpro->f;
+	hctx.unc_len = dcmpro->expected_len;
 
 	ret = huff_main(&hctx);
-	return ret;
+	if(!ret) {
+		de_dfilter_set_generic_error(c, dres, "huffman");
+	}
 }
 
 static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
@@ -342,16 +344,25 @@ done:
 static void do_main_decompress_fork(deark *c, lctx *d, struct member_data *md,
 	struct fork_data *frk, dbuf *outf)
 {
-	int ret;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
 
 	if(!frk || !frk->cmi || !frk->cmi->decompressor) {
 		goto done;
 	}
 
-	ret = frk->cmi->decompressor(c, d, md, frk, outf);
-	if(!ret) {
-		de_err(c, "Decompression failed for file %s %s fork", ucstring_getpsz_d(md->full_fname),
-			frk->forkname);
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = frk->cmpr_pos;
+	dcmpri.len = frk->cmpr_len;
+	dcmpro.f = outf;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = frk->unc_len;
+	frk->cmi->decompressor(c, d, md, frk, &dcmpri, &dcmpro, &dres);
+	if(dres.errcode) {
+		de_err(c, "Decompression failed for file %s %s fork: %s", ucstring_getpsz_d(md->full_fname),
+			frk->forkname, de_dfilter_get_errmsg(c, &dres));
 		goto done;
 	}
 
@@ -370,7 +381,7 @@ static void do_post_decompress_fork(deark *c, lctx *d, struct member_data *md,
 	else {
 		crc_calc = de_crcobj_getval(d->crco_dfork);
 	}
-	de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)crc_calc);
+	de_dbg(c, "%s crc (calculated): 0x%04x", frk->forkname, (unsigned int)crc_calc);
 	if(crc_calc != frk->crc) {
 		de_err(c, "CRC check failed for file %s %s fork", ucstring_getpsz_d(md->full_fname),
 			frk->forkname);
