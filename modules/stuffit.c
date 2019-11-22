@@ -99,21 +99,15 @@ static void do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
 	struct fork_data *frk, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	int ret;
-	struct huffctx hctx;
+	struct huffctx *hctx = NULL;
 
-	de_zeromem(&hctx, sizeof(struct huffctx));
-	hctx.c = c;
-	hctx.inf = dcmpri->f;
-	hctx.cmpr_pos = dcmpri->pos;
-	hctx.cmpr_len = dcmpri->len;
-	hctx.outf = dcmpro->f;
-	hctx.unc_len = dcmpro->expected_len;
-
-	ret = huff_main(&hctx);
-	if(!ret) {
-		de_dfilter_set_generic_error(c, dres, "huffman");
-	}
+	hctx = de_malloc(c, sizeof(struct huffctx));
+	hctx->c = c;
+	hctx->dcmpri = dcmpri;
+	hctx->dcmpro = dcmpro;
+	hctx->dres = dres;
+	huff_main(hctx);
+	de_free(c, hctx);
 }
 
 static const struct cmpr_meth_info cmpr_meth_info_arr[] = {

@@ -31,11 +31,9 @@ struct huff_node {
 
 struct huffctx {
 	deark *c;
-	dbuf *inf;
-	i64 cmpr_pos;
-	i64 cmpr_len;
-	dbuf *outf;
-	i64 unc_len;
+	struct de_dfilter_in_params *dcmpri;
+	struct de_dfilter_out_params *dcmpro;
+	struct de_dfilter_results *dres;
 
 	i64 in_pos;
 	int error_flag;
@@ -52,7 +50,7 @@ static u8 huff_getc(struct huffctx *hctx)
 {
 	u8 ch;
 
-	if(hctx->in_pos >= hctx->cmpr_pos + hctx->cmpr_len) {
+	if(hctx->in_pos >= hctx->dcmpri->pos + hctx->dcmpri->len) {
 		// No more input data
 		hctx->error_flag = 1;
 		return 0;
@@ -142,25 +140,29 @@ static struct huff_node *huff_read_tree(struct huffctx *hctx, int depth)
 	return(np);
 }
 
-static int huff_main(struct huffctx *hctx)
+// Errors are returned in hctx->dres.
+static void huff_main(struct huffctx *hctx)
 {
 	i64 obytes;
 
-	hctx->in_pos = hctx->cmpr_pos;
+	hctx->in_pos = hctx->dcmpri->pos;
 
 	hctx->nodeptr_idx = 0;
 	hctx->bit = 0;		/* put us on a byte boundary */
 	huff_read_tree(hctx, 0);
-	if(hctx->error_flag) return 0;
+	if(hctx->error_flag) goto done;
 
-	obytes = hctx->unc_len;
+	obytes = hctx->dcmpro->expected_len;
 	while (obytes > 0 && !hctx->error_flag) {
 		u8 ch;
 
 		ch = huff_gethuffbyte(hctx, HUFF_DECODE);
-		dbuf_writebyte(hctx->outf, ch);
+		dbuf_writebyte(hctx->dcmpro->f, ch);
 		obytes -= 1;
 	}
 
-	return hctx->error_flag ? 0 : 1;
+done:
+	if(hctx->error_flag) {
+		de_dfilter_set_generic_error(hctx->c, hctx->dres, "huffman");
+	}
 }
