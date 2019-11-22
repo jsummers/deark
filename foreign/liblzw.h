@@ -33,6 +33,10 @@
 #define HBITS   17			/* 50% occupancy */
 #define HSIZE   (1<<HBITS)
 
+#define BUFSIZE      4096
+#define IN_BUFSIZE   (BUFSIZE + 64)
+#define OUT_BUFSIZE  (BUFSIZE + 2048)
+
 struct de_liblzwctx;
 typedef size_t (*liblzw_cb_read_type)(struct de_liblzwctx *lzw, u8 *buf, size_t size);
 
@@ -44,8 +48,8 @@ struct de_liblzwctx {
 
 	int eof;
 
-	unsigned char *inbuf, *outbuf, *stackp;
-	unsigned char *unreadbuf;
+	unsigned char *stackp;
+	size_t unread_amt;
 	size_t stackp_diff;
 	size_t insize, outpos;
 	i64 rsize;
@@ -60,23 +64,17 @@ struct de_liblzwctx {
 
 	int errcode;
 	char errmsg[80];
+	unsigned char inbuf[IN_BUFSIZE];
+	unsigned char outbuf[OUT_BUFSIZE];
 };
 
 /******************************************/
 
-
-/*
- * Misc common define cruft
- */
-#define BUFSIZE      4096
-#define IN_BUFSIZE   (BUFSIZE + 64)
-#define OUT_BUFSIZE  (BUFSIZE + 2048)
 #define BITS         16
 #define INIT_BITS    9			/* initial number of bits/code */
 #define MAXCODE(n)   (1L << (n))
 #define FIRST        257					/* first free entry */
 #define CLEAR        256					/* table clear output code */
-
 
 static void liblzw_set_errorf(struct de_liblzwctx *lzw, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
@@ -111,8 +109,6 @@ static struct de_liblzwctx *de_liblzw_create(deark *c, void *userdata)
 static void de_liblzw_destroy(struct de_liblzwctx *lzw)
 {
 	if(!lzw) return;
-	de_free(lzw->c, lzw->inbuf);
-	de_free(lzw->c, lzw->outbuf);
 	de_free(lzw->c, lzw);
 }
 
@@ -123,8 +119,6 @@ static int de_liblzw_init(struct de_liblzwctx *lzw, unsigned int flags, u8 lzwmo
 {
 	lzw->arcfs_mode = (flags&0x2)?1:0;
 	lzw->eof = 0;
-	lzw->inbuf = de_malloc(lzw->c, sizeof(unsigned char) * IN_BUFSIZE);
-	lzw->outbuf = de_malloc(lzw->c, sizeof(unsigned char) * OUT_BUFSIZE);
 	lzw->stackp = NULL;
 	lzw->insize = 0;
 	lzw->outpos = 0;
@@ -176,8 +170,7 @@ err_out_free:
 static i64 de_liblzw_read(struct de_liblzwctx *lzw, u8 *readbuf, size_t count)
 {
 	size_t count_left = count;
-	unsigned char *inbuf = lzw->inbuf;
-	unsigned char *outbuf = lzw->outbuf;
+	size_t outbuf_startpos = 0;
 
 	i32 maxmaxcode = MAXCODE(lzw->maxbits);
 
@@ -187,10 +180,10 @@ static i64 de_liblzw_read(struct de_liblzwctx *lzw, u8 *readbuf, size_t count)
 	if (lzw->stackp != NULL) {
 		if (lzw->outpos) {
 			if (lzw->outpos >= count) {
-				outbuf = lzw->unreadbuf;
+				outbuf_startpos = lzw->unread_amt;
 				goto empty_existing_buffer;
 			} else /*if (lzw->outpos < count)*/ {
-				memcpy(readbuf, lzw->unreadbuf, lzw->outpos);
+				de_memcpy(readbuf, &lzw->outbuf[lzw->unread_amt], lzw->outpos);
 				goto resume_partial_reading;
 			}
 		}
@@ -205,14 +198,14 @@ resetbuf:
 			e = o <= lzw->insize ? lzw->insize - o : 0;
 
 			for (i = 0; i < e; ++i)
-				inbuf[i] = inbuf[i+o];
+				lzw->inbuf[i] = lzw->inbuf[i+o];
 
 			lzw->insize = e;
 			lzw->posbits = 0;
 		}
 
 		if (lzw->insize < IN_BUFSIZE-BUFSIZE) {
-			lzw->rsize = lzw->cb_read(lzw, inbuf+lzw->insize, BUFSIZE);
+			lzw->rsize = lzw->cb_read(lzw, lzw->inbuf+lzw->insize, BUFSIZE);
 			lzw->insize += (size_t)lzw->rsize;
 		}
 
@@ -234,14 +227,15 @@ resetbuf:
 				goto resetbuf;
 			}
 
-			lzw_input(inbuf,lzw->posbits,lzw->code,lzw->n_bits,lzw->bitmask);
+			lzw_input(lzw->inbuf, lzw->posbits, lzw->code, lzw->n_bits, lzw->bitmask);
 
 			if (lzw->oldcode == -1) {
 				if (lzw->code >= 256) {
 					liblzw_set_coded_error(lzw, 1);
 					return -1;
 				}
-				outbuf[lzw->outpos++] = lzw->finchar = lzw->oldcode = lzw->code;
+				lzw->outbuf[outbuf_startpos + lzw->outpos] = lzw->finchar = lzw->oldcode = lzw->code;
+				lzw->outpos++;
 				continue;
 			}
 
@@ -295,21 +289,21 @@ resetbuf:
 							lzw->stackp_diff = BUFSIZE-lzw->outpos;
 
 						if (lzw->stackp_diff > 0) {
-							memcpy(outbuf+lzw->outpos, lzw->stackp, lzw->stackp_diff);
+							de_memcpy(&lzw->outbuf[outbuf_startpos+lzw->outpos], lzw->stackp, lzw->stackp_diff);
 							lzw->outpos += lzw->stackp_diff;
 						}
 
 						if (lzw->outpos >= BUFSIZE) {
 							if (lzw->outpos < count_left) {
-								memcpy(readbuf, outbuf, lzw->outpos);
+								de_memcpy(readbuf, &lzw->outbuf[outbuf_startpos], lzw->outpos);
 resume_partial_reading:
 								readbuf += lzw->outpos;
 								count_left -= lzw->outpos;
 							} else {
 empty_existing_buffer:
 								lzw->outpos -= count_left;
-								memcpy(readbuf, outbuf, count_left);
-								lzw->unreadbuf = outbuf + count_left;
+								de_memcpy(readbuf, &lzw->outbuf[outbuf_startpos], count_left);
+								lzw->unread_amt =  outbuf_startpos + count_left;
 								return count;
 							}
 resume_reading:
@@ -318,7 +312,7 @@ resume_reading:
 						lzw->stackp += lzw->stackp_diff;
 					} while ((lzw->stackp_diff = (lzw_de_stack-lzw->stackp)) > 0);
 				} else {
-					memcpy(outbuf+lzw->outpos, lzw->stackp, lzw->stackp_diff);
+					de_memcpy(&lzw->outbuf[outbuf_startpos + lzw->outpos], lzw->stackp, lzw->stackp_diff);
 					lzw->outpos += lzw->stackp_diff;
 				}
 			}
@@ -336,7 +330,7 @@ resume_reading:
 
 	if (lzw->outpos < count_left) {
 		lzw->eof = 1;
-		memcpy(readbuf, outbuf, lzw->outpos);
+		de_memcpy(readbuf, &lzw->outbuf[outbuf_startpos], lzw->outpos);
 		count_left -= lzw->outpos;
 		return (count - count_left);
 	} else {
