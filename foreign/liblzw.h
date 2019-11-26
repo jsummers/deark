@@ -32,6 +32,7 @@
 
 #define HBITS   17			/* 50% occupancy */
 #define HSIZE   (1<<HBITS)
+#define LZW_MAX_NCODES  65536
 
 #define BUFSIZE      4096
 #define IN_BUFSIZE   (BUFSIZE + 64)
@@ -56,7 +57,8 @@ struct de_liblzwctx {
 
 	int maxbits, block_mode;
 
-	u32 htab[HSIZE];
+	unsigned char htab[HSIZE];
+	unsigned char stackdata[LZW_MAX_NCODES];
 	u16 codetab[HSIZE];
 
 	int n_bits, posbits, inbits, bitmask, finchar;
@@ -137,7 +139,7 @@ static int de_liblzw_init(struct de_liblzwctx *lzw, unsigned int flags, u8 lzwmo
 
 	/* initialize the first 256 entries in the table */
 	for (lzw->code = 255; lzw->code >= 0; --lzw->code)
-		lzw->htab[lzw->code] = lzw->code;
+		lzw->htab[lzw->code] = (unsigned char)lzw->code;
 
 	if (lzw->maxbits > BITS) {
 		liblzw_set_errorf(lzw, "Unsupported number of bits (%d)", lzw->maxbits);
@@ -162,7 +164,22 @@ err_out_free:
 		(o) += (n); \
 	} while (0)
 
-#define lzw_de_stack				((unsigned char *)&(lzw->htab[HSIZE-1]))
+#define lzw_de_stack  (&(lzw->stackdata[sizeof(lzw->stackdata)-1]))
+
+static void lzw_empty_stack(struct de_liblzwctx *lzw)
+{
+	lzw->stackp = lzw_de_stack;
+}
+
+static void lzw_push(struct de_liblzwctx *lzw, unsigned char x)
+{
+	if(lzw->stackp == &lzw->stackdata[0]) {
+		liblzw_set_coded_error(lzw, 3);
+		return;
+	}
+	--lzw->stackp;
+	*lzw->stackp = x;
+}
 
 /*
  * Read LZW file
@@ -250,7 +267,7 @@ resetbuf:
 			}
 
 			lzw->incode = lzw->code;
-			lzw->stackp = lzw_de_stack;
+			lzw_empty_stack(lzw);
 
 			/* Special case for KwKwK string.*/
 			if (lzw->code >= lzw->free_ent) {
@@ -259,25 +276,21 @@ resetbuf:
 					return -1;
 				}
 
-				*--lzw->stackp = lzw->finchar;
+				lzw_push(lzw, lzw->finchar);
+				if(lzw->errcode) return -1;
 				lzw->code = lzw->oldcode;
 			}
 
 			/* Generate output characters in reverse order */
 			while (lzw->code >= 256) {
-				if(lzw->stackp==(unsigned char*)&lzw->htab[0]) {
-					liblzw_set_coded_error(lzw, 3);
-					return -1;
-				}
-				*--lzw->stackp = (unsigned char)lzw->htab[lzw->code];
+				lzw_push(lzw, lzw->htab[lzw->code]);
+				if(lzw->errcode) return -1;
 				lzw->code = lzw->codetab[lzw->code];
 			}
 
-			if(lzw->stackp==(unsigned char*)&lzw->htab[0]) {
-				liblzw_set_coded_error(lzw, 4);
-				return -1;
-			}
-			*--lzw->stackp = (lzw->finchar = lzw->htab[lzw->code]);
+			lzw->finchar = lzw->htab[lzw->code];
+			lzw_push(lzw, lzw->finchar);
+			if(lzw->errcode) return -1;
 
 			/* And put them out in forward order */
 			{
