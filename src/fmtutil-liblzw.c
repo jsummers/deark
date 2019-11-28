@@ -123,7 +123,7 @@ void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmp
 
 	while(1) {
 		if(dcmpro->len_known && (lu.nbytes_written >= dcmpro->expected_len)) break;
-		n = de_liblzw_read(lzw);
+		n = de_liblzw_read(lzw, 1024);
 		if(n<0) {
 			goto done;
 		}

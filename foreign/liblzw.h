@@ -70,7 +70,6 @@ struct de_liblzwctx {
 	char errmsg[80];
 	unsigned char inbuf[IN_BUFSIZE];
 	unsigned char outbuf[OUT_BUFSIZE];
-	unsigned char outbuf_final[1024];
 };
 
 /******************************************/
@@ -187,10 +186,8 @@ static void lzw_push(struct de_liblzwctx *lzw, unsigned char x)
 /*
  * Read LZW file
  */
-static i64 de_liblzw_read(struct de_liblzwctx *lzw)
+static i64 de_liblzw_read(struct de_liblzwctx *lzw, size_t count)
 {
-	size_t count = sizeof(lzw->outbuf_final);
-	u8 *readbuf = lzw->outbuf_final;
 	size_t count_left = count;
 	size_t outbuf_startpos = 0;
 	i64 retval = 0;
@@ -206,7 +203,7 @@ static i64 de_liblzw_read(struct de_liblzwctx *lzw)
 				outbuf_startpos = lzw->unread_amt;
 				goto empty_existing_buffer;
 			} else /*if (lzw->outpos < count)*/ {
-				de_memcpy(readbuf, &lzw->outbuf[lzw->unread_amt], lzw->outpos);
+				lzw->cb_write(lzw, &lzw->outbuf[lzw->unread_amt], lzw->outpos);
 				goto resume_partial_reading;
 			}
 		}
@@ -257,7 +254,9 @@ resetbuf:
 					liblzw_set_coded_error(lzw, 1);
 					return -1;
 				}
-				lzw->outbuf[outbuf_startpos + lzw->outpos] = lzw->finchar = lzw->oldcode = lzw->code;
+				lzw->oldcode = lzw->code;
+				lzw->finchar = (unsigned char)lzw->code;
+				lzw->outbuf[outbuf_startpos + lzw->outpos] = (unsigned char)lzw->code;
 				lzw->outpos++;
 				continue;
 			}
@@ -314,14 +313,13 @@ resetbuf:
 
 						if (lzw->outpos >= BUFSIZE) {
 							if (lzw->outpos < count_left) {
-								de_memcpy(readbuf, &lzw->outbuf[outbuf_startpos], lzw->outpos);
+								lzw->cb_write(lzw, &lzw->outbuf[outbuf_startpos], lzw->outpos);
 resume_partial_reading:
-								readbuf += lzw->outpos;
 								count_left -= lzw->outpos;
 							} else {
 empty_existing_buffer:
 								lzw->outpos -= count_left;
-								de_memcpy(readbuf, &lzw->outbuf[outbuf_startpos], count_left);
+								lzw->cb_write(lzw, &lzw->outbuf[outbuf_startpos], count_left);
 								lzw->unread_amt =  outbuf_startpos + count_left;
 								retval = count;
 								goto done;
@@ -350,7 +348,7 @@ resume_reading:
 
 	if (lzw->outpos < count_left) {
 		lzw->eof = 1;
-		de_memcpy(readbuf, &lzw->outbuf[outbuf_startpos], lzw->outpos);
+		lzw->cb_write(lzw, &lzw->outbuf[outbuf_startpos], lzw->outpos);
 		count_left -= lzw->outpos;
 		retval = ((i64)count - (i64)count_left);
 		goto done;
@@ -359,8 +357,5 @@ resume_reading:
 	}
 
 done:
-	if(retval > 0) {
-		lzw->cb_write(lzw, lzw->outbuf_final, retval);
-	}
 	return retval;
 }
