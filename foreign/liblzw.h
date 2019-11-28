@@ -40,11 +40,13 @@
 
 struct de_liblzwctx;
 typedef size_t (*liblzw_cb_read_type)(struct de_liblzwctx *lzw, u8 *buf, size_t size);
+typedef void (*liblzw_cb_write_type)(struct de_liblzwctx *lzw, const u8 *buf, size_t size);
 
 struct de_liblzwctx {
 	void *userdata;
 	deark *c;
 	liblzw_cb_read_type cb_read;
+	liblzw_cb_write_type cb_write;
 	int arcfs_mode;
 
 	int eof;
@@ -68,6 +70,7 @@ struct de_liblzwctx {
 	char errmsg[80];
 	unsigned char inbuf[IN_BUFSIZE];
 	unsigned char outbuf[OUT_BUFSIZE];
+	unsigned char outbuf_final[1024];
 };
 
 /******************************************/
@@ -184,10 +187,13 @@ static void lzw_push(struct de_liblzwctx *lzw, unsigned char x)
 /*
  * Read LZW file
  */
-static i64 de_liblzw_read(struct de_liblzwctx *lzw, u8 *readbuf, size_t count)
+static i64 de_liblzw_read(struct de_liblzwctx *lzw)
 {
+	size_t count = sizeof(lzw->outbuf_final);
+	u8 *readbuf = lzw->outbuf_final;
 	size_t count_left = count;
 	size_t outbuf_startpos = 0;
+	i64 retval = 0;
 
 	i32 maxmaxcode = MAXCODE(lzw->maxbits);
 
@@ -317,7 +323,8 @@ empty_existing_buffer:
 								lzw->outpos -= count_left;
 								de_memcpy(readbuf, &lzw->outbuf[outbuf_startpos], count_left);
 								lzw->unread_amt =  outbuf_startpos + count_left;
-								return count;
+								retval = count;
+								goto done;
 							}
 resume_reading:
 							lzw->outpos = 0;
@@ -345,8 +352,15 @@ resume_reading:
 		lzw->eof = 1;
 		de_memcpy(readbuf, &lzw->outbuf[outbuf_startpos], lzw->outpos);
 		count_left -= lzw->outpos;
-		return (count - count_left);
+		retval = ((i64)count - (i64)count_left);
+		goto done;
 	} else {
 		goto empty_existing_buffer;
 	}
+
+done:
+	if(retval > 0) {
+		lzw->cb_write(lzw, lzw->outbuf_final, retval);
+	}
+	return retval;
 }

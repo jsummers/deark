@@ -14,6 +14,8 @@ struct liblzw_userdata_type {
 	dbuf *inf;
 	i64 inf_pos;
 	i64 inf_endpos;
+	struct de_dfilter_out_params *dcmpro;
+	i64 nbytes_written;
 };
 
 static size_t my_liblzw_read(struct de_liblzwctx *lzw, u8 *buf, size_t size)
@@ -30,6 +32,22 @@ static size_t my_liblzw_read(struct de_liblzwctx *lzw, u8 *buf, size_t size)
 	return (size_t)amt_to_read;
 }
 
+static void my_liblzw_write(struct de_liblzwctx *lzw, const u8 *buf, size_t size)
+{
+	struct liblzw_userdata_type *lu = (struct liblzw_userdata_type*)lzw->userdata;
+	i64 amt_to_write = (i64)size;
+
+	if(lu->dcmpro->len_known) {
+		if(lu->nbytes_written + amt_to_write > lu->dcmpro->expected_len) {
+			amt_to_write = lu->dcmpro->expected_len - lu->nbytes_written;
+		}
+	}
+	if(amt_to_write<1) return;
+
+	dbuf_write(lu->dcmpro->f, buf, amt_to_write);
+	lu->nbytes_written += amt_to_write;
+}
+
 // flags:
 //  DE_LIBLZWFLAG_HAS3BYTEHEADER = has "compress" style header
 //  DE_LIBLZWFLAG_HAS1BYTEHEADER = 1-byte header, containing maxbits
@@ -39,15 +57,14 @@ void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmp
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags, u8 lzwmode)
 {
-	u8 buf[1024];
 	i64 n;
 	struct de_liblzwctx *lzw = NULL;
-	i64 nbytes_still_to_write;
 	int retval = 0;
 	int ret;
 	struct liblzw_userdata_type lu;
 	const char *modname = "liblzw";
 
+	de_zeromem(&lu, sizeof(struct liblzw_userdata_type));
 	lu.inf = dcmpri->f;
 	lu.inf_pos = dcmpri->pos;
 	lu.inf_endpos = dcmpri->pos + dcmpri->len;
@@ -57,21 +74,24 @@ void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmp
 	if(lu.inf_pos > lu.inf_endpos) {
 		lu.inf_pos = lu.inf_endpos;
 	}
+	lu.dcmpro = dcmpro;
 
 	if(flags & DE_LIBLZWFLAG_HAS3BYTEHEADER) {
+		u8 buf1[3];
+
 		if(lu.inf_endpos - lu.inf_pos < 3) {
 			de_dfilter_set_errorf(c, dres, modname, "Not in compress format");
 			goto done;
 		}
 
-		dbuf_read(lu.inf, buf, lu.inf_pos, 3);
+		dbuf_read(lu.inf, buf1, lu.inf_pos, 3);
 		lu.inf_pos += 3;
 
-		if (buf[0] != LZW_MAGIC_1 || buf[1] != LZW_MAGIC_2 || (buf[2] & 0x60)) {
+		if (buf1[0] != LZW_MAGIC_1 || buf1[1] != LZW_MAGIC_2 || (buf1[2] & 0x60)) {
 			de_dfilter_set_errorf(c, dres, modname, "Not in compress format");
 			goto done;
 		}
-		lzwmode = buf[2];
+		lzwmode = buf1[2];
 		de_dbg(c, "lzw mode: 0x%02x", (unsigned int)lzwmode);
 		de_dbg_indent(c, 1);
 		de_dbg(c, "lzw maxbits: %u", (unsigned int)(lzwmode & 0x1f));
@@ -79,42 +99,35 @@ void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmp
 		flags -= DE_LIBLZWFLAG_HAS3BYTEHEADER;
 	}
 	else if(flags & DE_LIBLZWFLAG_HAS1BYTEHEADER) {
+		u8 buf1[1];
+
 		if(lu.inf_endpos - lu.inf_pos < 1) {
 			de_dfilter_set_generic_error(c, dres, modname);
 			goto done;
 		}
 
-		buf[0] = dbuf_getbyte(lu.inf, lu.inf_pos);
+		buf1[0] = dbuf_getbyte(lu.inf, lu.inf_pos);
 		lu.inf_pos += 1;
 
-		de_dbg(c, "lzw maxbits: %u", (unsigned int)buf[0]);
-		lzwmode = 0x80 | buf[0];
+		de_dbg(c, "lzw maxbits: %u", (unsigned int)buf1[0]);
+		lzwmode = 0x80 | buf1[0];
 		flags -= DE_LIBLZWFLAG_HAS1BYTEHEADER;
 	}
 
 	lzw = de_liblzw_create(c, (void*)&lu);
 	lzw->cb_read = my_liblzw_read;
+	lzw->cb_write = my_liblzw_write;
 
 	ret = de_liblzw_init(lzw, flags, lzwmode);
 	if(!ret) goto done;
 
-	nbytes_still_to_write = dcmpro->len_known ? dcmpro->expected_len : 0;
-
 	while(1) {
-		if(dcmpro->len_known && (nbytes_still_to_write<1)) break;
-		n = de_liblzw_read(lzw, buf, sizeof(buf));
+		if(dcmpro->len_known && (lu.nbytes_written >= dcmpro->expected_len)) break;
+		n = de_liblzw_read(lzw);
 		if(n<0) {
 			goto done;
 		}
 		if(n<1) break;
-
-		if(dcmpro->len_known && (n > nbytes_still_to_write)) {
-			// Make sure we don't write more bytes than expected.
-			n = nbytes_still_to_write;
-		}
-
-		dbuf_write(dcmpro->f, buf, n);
-		nbytes_still_to_write -= n;
 	}
 	retval = 1;
 
