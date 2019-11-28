@@ -2158,6 +2158,7 @@ static void de_run_deskmate_pnt(deark *c, de_module_params *mparams)
 	u32 pal[16];
 
 	pos += 22;
+	de_dbg(c, "image at %"I64_FMT, pos);
 	w = 312;
 	h = 176;
 	rowspan = w/2;
@@ -2187,7 +2188,6 @@ static void de_run_deskmate_pnt(deark *c, de_module_params *mparams)
 		unc_pixels = dbuf_open_input_subfile(c->infile, pos, unc_pixels_size);
 	}
 
-	de_dbg(c, "image at %"I64_FMT, pos);
 	img = de_bitmap_create(c, w, h, 3);
 	de_convert_image_paletted(unc_pixels, 0, 4, rowspan, pal, img, 0);
 	de_bitmap_write_to_file(img, NULL, 0);
