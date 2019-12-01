@@ -152,17 +152,14 @@ err_out_free:
 	return 0;
 }
 
-/*
- * Misc read-specific define cruft
- */
+static void lzw_input(struct de_liblzwctx *lzw)
+{
+	unsigned char *p = &(lzw->inbuf)[(lzw->posbits)>>3];
 
-#define lzw_input(b,o,c,n,m) \
-	do { \
-		unsigned char *p = &(b)[(o)>>3]; \
-		(c) = ((((i32)(p[0]))|((i32)(p[1])<<8)| \
-		       ((i32)(p[2])<<16))>>((o)&0x7))&(m); \
-		(o) += (n); \
-	} while (0)
+	lzw->code = ((((i32)(p[0]))|((i32)(p[1])<<8) |
+	       ((i32)(p[2])<<16))>>((lzw->posbits)&0x7))&(lzw->bitmask);
+	lzw->posbits += lzw->n_bits;
+}
 
 #define lzw_de_stack  (&(lzw->stackdata[sizeof(lzw->stackdata)-1]))
 
@@ -181,6 +178,14 @@ static void lzw_push(struct de_liblzwctx *lzw, unsigned char x)
 	*lzw->stackp = x;
 }
 
+static void lzw_empty_existing_buffer(struct de_liblzwctx *lzw, size_t outbuf_startpos,
+	size_t count_left)
+{
+	lzw->outpos -= count_left;
+	lzw->cb_write(lzw, &lzw->outbuf[outbuf_startpos], count_left);
+	lzw->unread_amt =  outbuf_startpos + count_left;
+}
+
 /*
  * Read LZW file
  */
@@ -189,7 +194,6 @@ static i64 de_liblzw_read(struct de_liblzwctx *lzw, size_t count)
 	size_t count_left = count;
 	size_t outbuf_startpos = 0;
 	i64 retval = 0;
-
 	i32 maxmaxcode = LZW_NBITS_TO_NCODES(lzw->maxbits);
 
 	if (!count || lzw->eof)
@@ -199,7 +203,9 @@ static i64 de_liblzw_read(struct de_liblzwctx *lzw, size_t count)
 		if (lzw->outpos) {
 			if (lzw->outpos >= count) {
 				outbuf_startpos = lzw->unread_amt;
-				goto empty_existing_buffer;
+				lzw_empty_existing_buffer(lzw, outbuf_startpos, count_left);
+				retval = count;
+				goto done;
 			} else /*if (lzw->outpos < count)*/ {
 				lzw->cb_write(lzw, &lzw->outbuf[lzw->unread_amt], lzw->outpos);
 				goto resume_partial_reading;
@@ -245,7 +251,7 @@ resetbuf:
 				goto resetbuf;
 			}
 
-			lzw_input(lzw->inbuf, lzw->posbits, lzw->code, lzw->n_bits, lzw->bitmask);
+			lzw_input(lzw); // Sets lzw->code
 			if(lzw->code>=LZW_MAX_NCODES || lzw->code<0) {
 				liblzw_set_coded_error(lzw, 1);
 				return -1;
@@ -320,10 +326,7 @@ resetbuf:
 resume_partial_reading:
 								count_left -= lzw->outpos;
 							} else {
-empty_existing_buffer:
-								lzw->outpos -= count_left;
-								lzw->cb_write(lzw, &lzw->outbuf[outbuf_startpos], count_left);
-								lzw->unread_amt =  outbuf_startpos + count_left;
+								lzw_empty_existing_buffer(lzw, outbuf_startpos, count_left);
 								retval = count;
 								goto done;
 							}
@@ -356,7 +359,9 @@ resume_reading:
 		retval = ((i64)count - (i64)count_left);
 		goto done;
 	} else {
-		goto empty_existing_buffer;
+		lzw_empty_existing_buffer(lzw, outbuf_startpos, count_left);
+		retval = count;
+		goto done;
 	}
 
 done:
