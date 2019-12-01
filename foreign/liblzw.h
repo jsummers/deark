@@ -30,8 +30,7 @@
 #define LZW_MAGIC_1 0x1F
 #define LZW_MAGIC_2 0x9D
 
-#define HBITS   17			/* 50% occupancy */
-#define HSIZE   (1<<HBITS)
+#define LZW_MAXMAXBITS  16
 #define LZW_MAX_NCODES  65536
 
 #define BUFSIZE      4096
@@ -59,9 +58,9 @@ struct de_liblzwctx {
 
 	int maxbits, block_mode;
 
-	unsigned char htab[HSIZE];
+	unsigned char valuetab[LZW_MAX_NCODES];
+	u16 parenttab[LZW_MAX_NCODES];
 	unsigned char stackdata[LZW_MAX_NCODES];
-	u16 codetab[HSIZE];
 
 	int n_bits, posbits, inbits, bitmask, finchar;
 	i32 maxcode, oldcode, incode, code, free_ent;
@@ -74,9 +73,8 @@ struct de_liblzwctx {
 
 /******************************************/
 
-#define BITS         16
 #define INIT_BITS    9			/* initial number of bits/code */
-#define MAXCODE(n)   (1L << (n))
+#define LZW_NBITS_TO_NCODES(n)   (1L << (n))
 #define FIRST        257					/* first free entry */
 #define CLEAR        256					/* table clear output code */
 
@@ -132,7 +130,7 @@ static int de_liblzw_init(struct de_liblzwctx *lzw, unsigned int flags, u8 lzwmo
 	lzw->block_mode = lzwmode & 0x80;
 
 	lzw->n_bits = INIT_BITS;
-	lzw->maxcode = MAXCODE(INIT_BITS) - 1;
+	lzw->maxcode = LZW_NBITS_TO_NCODES(INIT_BITS) - 1;
 	lzw->bitmask = (1<<INIT_BITS)-1;
 	lzw->oldcode = -1;
 	lzw->finchar = 0;
@@ -141,9 +139,9 @@ static int de_liblzw_init(struct de_liblzwctx *lzw, unsigned int flags, u8 lzwmo
 
 	/* initialize the first 256 entries in the table */
 	for (lzw->code = 255; lzw->code >= 0; --lzw->code)
-		lzw->htab[lzw->code] = (unsigned char)lzw->code;
+		lzw->valuetab[lzw->code] = (unsigned char)lzw->code;
 
-	if (lzw->maxbits > BITS) {
+	if (lzw->maxbits > LZW_MAXMAXBITS) {
 		liblzw_set_errorf(lzw, "Unsupported number of bits (%d)", lzw->maxbits);
 		goto err_out_free;
 	}
@@ -192,7 +190,7 @@ static i64 de_liblzw_read(struct de_liblzwctx *lzw, size_t count)
 	size_t outbuf_startpos = 0;
 	i64 retval = 0;
 
-	i32 maxmaxcode = MAXCODE(lzw->maxbits);
+	i32 maxmaxcode = LZW_NBITS_TO_NCODES(lzw->maxbits);
 
 	if (!count || lzw->eof)
 		return 0;
@@ -241,13 +239,17 @@ resetbuf:
 				if (lzw->n_bits == lzw->maxbits)
 					lzw->maxcode = maxmaxcode;
 				else
-					lzw->maxcode = MAXCODE(lzw->n_bits)-1;
+					lzw->maxcode = LZW_NBITS_TO_NCODES(lzw->n_bits)-1;
 
 				lzw->bitmask = (1 << lzw->n_bits) - 1;
 				goto resetbuf;
 			}
 
 			lzw_input(lzw->inbuf, lzw->posbits, lzw->code, lzw->n_bits, lzw->bitmask);
+			if(lzw->code>=LZW_MAX_NCODES || lzw->code<0) {
+				liblzw_set_coded_error(lzw, 1);
+				return -1;
+			}
 
 			if (lzw->oldcode == -1) {
 				if (lzw->code >= 256) {
@@ -262,11 +264,12 @@ resetbuf:
 			}
 
 			if (lzw->code == CLEAR && lzw->block_mode) {
-				de_zeromem(lzw->codetab, sizeof(lzw->codetab));
+				de_zeromem(lzw->parenttab, sizeof(lzw->parenttab));
 				lzw->free_ent = FIRST - 1;
 				lzw->posbits = ((lzw->posbits-1) + ((lzw->n_bits<<3) -
 				                (lzw->posbits-1 + (lzw->n_bits<<3)) % (lzw->n_bits<<3)));
-				lzw->maxcode = MAXCODE(lzw->n_bits = INIT_BITS)-1;
+				lzw->n_bits = INIT_BITS;
+				lzw->maxcode = LZW_NBITS_TO_NCODES(lzw->n_bits)-1;
 				lzw->bitmask = (1 << lzw->n_bits) - 1;
 				goto resetbuf;
 			}
@@ -288,12 +291,12 @@ resetbuf:
 
 			/* Generate output characters in reverse order */
 			while (lzw->code >= 256) {
-				lzw_push(lzw, lzw->htab[lzw->code]);
+				lzw_push(lzw, lzw->valuetab[lzw->code]);
 				if(lzw->errcode) return -1;
-				lzw->code = lzw->codetab[lzw->code];
+				lzw->code = lzw->parenttab[lzw->code];
 			}
 
-			lzw->finchar = lzw->htab[lzw->code];
+			lzw->finchar = lzw->valuetab[lzw->code];
 			lzw_push(lzw, lzw->finchar);
 			if(lzw->errcode) return -1;
 
@@ -337,8 +340,8 @@ resume_reading:
 
 			/* Generate the new entry. */
 			if ((lzw->code = lzw->free_ent) < maxmaxcode) {
-				lzw->codetab[lzw->code] = lzw->oldcode;
-				lzw->htab[lzw->code] = lzw->finchar;
+				lzw->parenttab[lzw->code] = lzw->oldcode;
+				lzw->valuetab[lzw->code] = lzw->finchar;
 				lzw->free_ent = lzw->code+1;
 			}
 
