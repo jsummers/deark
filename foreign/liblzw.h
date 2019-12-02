@@ -1,4 +1,4 @@
-/* This file is an edited version of the lzw.c and lzw.h files from liblzw.
+/* This file is a heavily edited version of the lzw.c and lzw.h files from liblzw.
  * Modified for Deark. */
 
 /* Original header from lwz.c: */
@@ -25,8 +25,6 @@
  *                       (peter@ncs.nl)
  */
 
-/*************** from lzw.h ***************/
-
 #define LZW_MAGIC_1 0x1F
 #define LZW_MAGIC_2 0x9D
 
@@ -45,33 +43,34 @@ struct de_liblzwctx {
 	void *userdata;
 	deark *c;
 	liblzw_cb_read_type cb_read;
-	liblzw_cb_write_type cb_write;
-	int arcfs_mode;
+	struct de_dfilter_out_params *dcmpro;
 
-	int eof;
+	int arcfs_mode;
+	int input_eof_flag;
+	int errcode;
+
+	i64 nbytes_written;
+	int output_len_known;
+	i64 output_expected_len;
 
 	unsigned char *stackp;
-	size_t unread_amt;
 	size_t stackp_diff;
-	size_t insize, outpos;
-	i64 rsize;
 
 	int maxbits, block_mode;
+
+	unsigned int bitreader_buf;
+	unsigned int bitreader_nbits_in_buf;
+	i64 bitcount_for_this_group;
+
+	int n_bits;
+	int finchar;
+	i32 maxcode, oldcode, incode, code, free_ent;
 
 	unsigned char valuetab[LZW_MAX_NCODES];
 	u16 parenttab[LZW_MAX_NCODES];
 	unsigned char stackdata[LZW_MAX_NCODES];
-
-	int n_bits, posbits, inbits, bitmask, finchar;
-	i32 maxcode, oldcode, incode, code, free_ent;
-
-	int errcode;
 	char errmsg[80];
-	unsigned char inbuf[IN_BUFSIZE];
-	unsigned char outbuf[OUT_BUFSIZE];
 };
-
-/******************************************/
 
 #define INIT_BITS    9			/* initial number of bits/code */
 #define LZW_NBITS_TO_NCODES(n)   (1L << (n))
@@ -98,6 +97,85 @@ static void liblzw_set_coded_error(struct de_liblzwctx *lzw, int code)
 	liblzw_set_errorf(lzw, "LZW decompression error (%d)", code);
 }
 
+static void lzw_write(struct de_liblzwctx *lzw, const u8 *buf, size_t size)
+{
+	i64 amt_to_write = (i64)size;
+
+	if(lzw->dcmpro->len_known) {
+		if(lzw->nbytes_written + amt_to_write > lzw->dcmpro->expected_len) {
+			amt_to_write = lzw->dcmpro->expected_len - lzw->nbytes_written;
+		}
+	}
+	if(amt_to_write<1) return;
+
+	dbuf_write(lzw->dcmpro->f, buf, amt_to_write);
+	lzw->nbytes_written += amt_to_write;
+}
+
+static void lzw_writebyte(struct de_liblzwctx *lzw, const u8 b)
+{
+	lzw_write(lzw, &b, 1);
+}
+
+static u8 lzw_getnextbyte(struct de_liblzwctx *lzw)
+{
+	u8 buf[1];
+	size_t nread;
+
+	if(lzw->errcode || lzw->input_eof_flag) return 0;
+
+	nread = lzw->cb_read(lzw, buf, 1);
+	if(nread!=1) {
+		lzw->input_eof_flag = 1;
+		return 0;
+	}
+
+	return buf[0];
+}
+
+static i32 lzw_getbits(struct de_liblzwctx *lzw, unsigned int nbits)
+{
+	unsigned int n;
+
+	if(lzw->errcode || lzw->input_eof_flag) return 0;
+	while(lzw->bitreader_nbits_in_buf < nbits) {
+		u8 b;
+
+		b = lzw_getnextbyte(lzw);
+		if(lzw->errcode || lzw->input_eof_flag) return 0;
+		lzw->bitreader_buf |= ((unsigned int)b)<<lzw->bitreader_nbits_in_buf;
+		lzw->bitreader_nbits_in_buf += 8;
+	}
+
+	n = lzw->bitreader_buf & ((1U<<nbits)-1U);
+	lzw->bitreader_buf >>= nbits;
+	lzw->bitreader_nbits_in_buf -= nbits;
+	lzw->bitcount_for_this_group += (i64)nbits;
+	return (i32)n;
+}
+
+static i32 lzw_getnextcode(struct de_liblzwctx *lzw)
+{
+	return lzw_getbits(lzw, (unsigned int)lzw->n_bits);
+}
+
+static void lzw_skipbits(struct de_liblzwctx *lzw, unsigned int nbits)
+{
+	while(nbits > 0) {
+		unsigned int n;
+
+		if(nbits <= 16) {
+			n = nbits;
+		}
+		else {
+			n = 16;
+		}
+
+		(void)lzw_getbits(lzw, n);
+		nbits -= n;
+	}
+}
+
 static struct de_liblzwctx *de_liblzw_create(deark *c, void *userdata)
 {
 	struct de_liblzwctx *lzw = NULL;
@@ -120,21 +198,14 @@ static void de_liblzw_destroy(struct de_liblzwctx *lzw)
 static int de_liblzw_init(struct de_liblzwctx *lzw, unsigned int flags, u8 lzwmode)
 {
 	lzw->arcfs_mode = (flags&0x2)?1:0;
-	lzw->eof = 0;
-	lzw->stackp = NULL;
-	lzw->insize = 0;
-	lzw->outpos = 0;
-	lzw->rsize = 0;
 
 	lzw->maxbits = lzwmode & 0x1f;    /* Mask for 'number of compression bits' */
 	lzw->block_mode = lzwmode & 0x80;
 
 	lzw->n_bits = INIT_BITS;
 	lzw->maxcode = LZW_NBITS_TO_NCODES(INIT_BITS) - 1;
-	lzw->bitmask = (1<<INIT_BITS)-1;
 	lzw->oldcode = -1;
 	lzw->finchar = 0;
-	lzw->posbits = 3<<3;
 	lzw->free_ent = ((lzw->block_mode) ? FIRST : 256);
 
 	/* initialize the first 256 entries in the table */
@@ -150,15 +221,6 @@ static int de_liblzw_init(struct de_liblzwctx *lzw, unsigned int flags, u8 lzwmo
 
 err_out_free:
 	return 0;
-}
-
-static void lzw_input(struct de_liblzwctx *lzw)
-{
-	unsigned char *p = &(lzw->inbuf)[(lzw->posbits)>>3];
-
-	lzw->code = ((((i32)(p[0]))|((i32)(p[1])<<8) |
-	       ((i32)(p[2])<<16))>>((lzw->posbits)&0x7))&(lzw->bitmask);
-	lzw->posbits += lzw->n_bits;
 }
 
 #define lzw_de_stack  (&(lzw->stackdata[sizeof(lzw->stackdata)-1]))
@@ -178,192 +240,114 @@ static void lzw_push(struct de_liblzwctx *lzw, unsigned char x)
 	*lzw->stackp = x;
 }
 
-static void lzw_empty_existing_buffer(struct de_liblzwctx *lzw, size_t outbuf_startpos,
-	size_t count_left)
+static void lzw_end_bitgroup(struct de_liblzwctx *lzw)
 {
-	lzw->outpos -= count_left;
-	lzw->cb_write(lzw, &lzw->outbuf[outbuf_startpos], count_left);
-	lzw->unread_amt =  outbuf_startpos + count_left;
+	// To the best of my understanding, this is a silly bug that somehow became part of
+	// the standard 'compress' format. -JS
+	lzw_skipbits(lzw, (unsigned int)(de_pad_to_n(lzw->bitcount_for_this_group, 8*(i64)lzw->n_bits) -
+		lzw->bitcount_for_this_group));
+	lzw->bitcount_for_this_group = 0;
 }
 
 /*
  * Read LZW file
  */
-static i64 de_liblzw_read(struct de_liblzwctx *lzw, size_t count)
+static void de_liblzw_run(struct de_liblzwctx *lzw)
 {
-	size_t count_left = count;
-	size_t outbuf_startpos = 0;
-	i64 retval = 0;
 	i32 maxmaxcode = LZW_NBITS_TO_NCODES(lzw->maxbits);
 
-	if (!count || lzw->eof)
-		return 0;
-
-	if (lzw->stackp != NULL) {
-		if (lzw->outpos) {
-			if (lzw->outpos >= count) {
-				outbuf_startpos = lzw->unread_amt;
-				lzw_empty_existing_buffer(lzw, outbuf_startpos, count_left);
-				retval = count;
-				goto done;
-			} else /*if (lzw->outpos < count)*/ {
-				lzw->cb_write(lzw, &lzw->outbuf[lzw->unread_amt], lzw->outpos);
-				goto resume_partial_reading;
-			}
+	while (1) {
+		if(lzw->dcmpro->len_known) {
+			if(lzw->nbytes_written >= lzw->dcmpro->expected_len) goto done;
 		}
-		goto resume_reading;
-	}
+		if(lzw->input_eof_flag) goto done;
+		if(lzw->errcode) goto done;
 
-	do {
-resetbuf:
-		{
-			size_t i, e, o;
-			o = lzw->posbits >> 3;
-			e = o <= lzw->insize ? lzw->insize - o : 0;
-
-			for (i = 0; i < e; ++i)
-				lzw->inbuf[i] = lzw->inbuf[i+o];
-
-			lzw->insize = e;
-			lzw->posbits = 0;
-		}
-
-		if (lzw->insize < IN_BUFSIZE-BUFSIZE) {
-			lzw->rsize = lzw->cb_read(lzw, lzw->inbuf+lzw->insize, BUFSIZE);
-			lzw->insize += (size_t)lzw->rsize;
-		}
-
-		lzw->inbits = (int)( ((lzw->rsize > 0) ? (lzw->insize - lzw->insize%lzw->n_bits)<<3 :
-		               (lzw->insize<<3) - ((size_t)lzw->n_bits-1)) );
-
-		while (lzw->inbits > lzw->posbits) {
-			if (lzw->free_ent > lzw->maxcode) {
-				lzw->posbits = ((lzw->posbits-1) + ((lzw->n_bits<<3) -
-				                (lzw->posbits-1 + (lzw->n_bits<<3)) % (lzw->n_bits<<3)));
-
-				++lzw->n_bits;
-				if (lzw->n_bits == lzw->maxbits)
-					lzw->maxcode = maxmaxcode;
-				else
-					lzw->maxcode = LZW_NBITS_TO_NCODES(lzw->n_bits)-1;
-
-				lzw->bitmask = (1 << lzw->n_bits) - 1;
-				goto resetbuf;
-			}
-
-			lzw_input(lzw); // Sets lzw->code
-			if(lzw->code>=LZW_MAX_NCODES || lzw->code<0) {
-				liblzw_set_coded_error(lzw, 1);
-				return -1;
-			}
-
-			if (lzw->oldcode == -1) {
-				if (lzw->code >= 256) {
-					liblzw_set_coded_error(lzw, 1);
-					return -1;
-				}
-				lzw->oldcode = lzw->code;
-				lzw->finchar = (unsigned char)lzw->code;
-				lzw->outbuf[outbuf_startpos + lzw->outpos] = (unsigned char)lzw->code;
-				lzw->outpos++;
-				continue;
-			}
-
-			if (lzw->code == CLEAR && lzw->block_mode) {
-				de_zeromem(lzw->parenttab, sizeof(lzw->parenttab));
-				lzw->free_ent = FIRST - 1;
-				lzw->posbits = ((lzw->posbits-1) + ((lzw->n_bits<<3) -
-				                (lzw->posbits-1 + (lzw->n_bits<<3)) % (lzw->n_bits<<3)));
-				lzw->n_bits = INIT_BITS;
+		if (lzw->free_ent > lzw->maxcode) {
+			lzw_end_bitgroup(lzw);
+			++lzw->n_bits;
+			if (lzw->n_bits == lzw->maxbits)
+				lzw->maxcode = maxmaxcode;
+			else
 				lzw->maxcode = LZW_NBITS_TO_NCODES(lzw->n_bits)-1;
-				lzw->bitmask = (1 << lzw->n_bits) - 1;
-				goto resetbuf;
+		}
+
+		lzw->code = lzw_getnextcode(lzw);
+		if(lzw->input_eof_flag || lzw->errcode) goto done;
+
+		if(lzw->code>=LZW_MAX_NCODES || lzw->code<0) {
+			liblzw_set_coded_error(lzw, 1);
+			return;
+		}
+
+		if (lzw->oldcode == -1) {
+			if (lzw->code >= 256) {
+				liblzw_set_coded_error(lzw, 1);
+				return;
+			}
+			lzw->oldcode = lzw->code;
+			lzw->finchar = (unsigned char)lzw->code;
+			lzw_writebyte(lzw, (unsigned char)lzw->code);
+			continue;
+		}
+
+		if (lzw->code == CLEAR && lzw->block_mode) {
+			lzw_end_bitgroup(lzw);
+
+			de_zeromem(lzw->parenttab, sizeof(lzw->parenttab));
+			// ?? Why is this FIRST-1, instead of FIRST?
+			// My best guess is that it's a hack to handle the special case
+			// of the first code after a CLEAR. It causes a code to be
+			// written to table[256], where it will never get used. -JS
+			lzw->free_ent = FIRST - 1;
+
+			lzw->n_bits = INIT_BITS;
+			lzw->maxcode = LZW_NBITS_TO_NCODES(lzw->n_bits)-1;
+			continue;
+		}
+
+		lzw->incode = lzw->code;
+		lzw_empty_stack(lzw);
+
+		/* Special case for KwKwK string.*/
+		if (lzw->code >= lzw->free_ent) {
+			if ((lzw->code > lzw->free_ent) && !lzw->arcfs_mode) {
+				liblzw_set_coded_error(lzw, 2);
+				return;
 			}
 
-			lzw->incode = lzw->code;
-			lzw_empty_stack(lzw);
-
-			/* Special case for KwKwK string.*/
-			if (lzw->code >= lzw->free_ent) {
-				if ((lzw->code > lzw->free_ent) && !lzw->arcfs_mode) {
-					liblzw_set_coded_error(lzw, 2);
-					return -1;
-				}
-
-				lzw_push(lzw, lzw->finchar);
-				if(lzw->errcode) return -1;
-				lzw->code = lzw->oldcode;
-			}
-
-			/* Generate output characters in reverse order */
-			while (lzw->code >= 256) {
-				lzw_push(lzw, lzw->valuetab[lzw->code]);
-				if(lzw->errcode) return -1;
-				lzw->code = lzw->parenttab[lzw->code];
-			}
-
-			lzw->finchar = lzw->valuetab[lzw->code];
 			lzw_push(lzw, lzw->finchar);
-			if(lzw->errcode) return -1;
+			if(lzw->errcode) return;
+			lzw->code = lzw->oldcode;
+		}
 
-			/* And put them out in forward order */
-			{
-				lzw->stackp_diff = lzw_de_stack - lzw->stackp;
+		/* Generate output characters in reverse order */
+		while (lzw->code >= 256) {
+			lzw_push(lzw, lzw->valuetab[lzw->code]);
+			if(lzw->errcode) return;
+			lzw->code = lzw->parenttab[lzw->code];
+		}
 
-				if (lzw->outpos+lzw->stackp_diff >= BUFSIZE) {
-					do {
-						if (lzw->stackp_diff > BUFSIZE-lzw->outpos)
-							lzw->stackp_diff = BUFSIZE-lzw->outpos;
+		lzw->finchar = lzw->valuetab[lzw->code];
+		lzw_push(lzw, lzw->finchar);
+		if(lzw->errcode) return;
 
-						if (lzw->stackp_diff > 0) {
-							de_memcpy(&lzw->outbuf[outbuf_startpos+lzw->outpos], lzw->stackp, lzw->stackp_diff);
-							lzw->outpos += lzw->stackp_diff;
-						}
+		/* And put them out in forward order */
+		lzw->stackp_diff = lzw_de_stack - lzw->stackp;
+		lzw_write(lzw, lzw->stackp, lzw->stackp_diff);
 
-						if (lzw->outpos >= BUFSIZE) {
-							if (lzw->outpos < count_left) {
-								lzw->cb_write(lzw, &lzw->outbuf[outbuf_startpos], lzw->outpos);
-resume_partial_reading:
-								count_left -= lzw->outpos;
-							} else {
-								lzw_empty_existing_buffer(lzw, outbuf_startpos, count_left);
-								retval = count;
-								goto done;
-							}
-resume_reading:
-							lzw->outpos = 0;
-						}
-						lzw->stackp += lzw->stackp_diff;
-					} while ((lzw->stackp_diff = (lzw_de_stack-lzw->stackp)) > 0);
-				} else {
-					de_memcpy(&lzw->outbuf[outbuf_startpos + lzw->outpos], lzw->stackp, lzw->stackp_diff);
-					lzw->outpos += lzw->stackp_diff;
-				}
-			}
-
-			/* Generate the new entry. */
-			if ((lzw->code = lzw->free_ent) < maxmaxcode) {
+		/* Generate the new entry. */
+		if ((lzw->code = lzw->free_ent) < maxmaxcode) {
+			if(lzw->code < LZW_MAX_NCODES) {
 				lzw->parenttab[lzw->code] = lzw->oldcode;
 				lzw->valuetab[lzw->code] = lzw->finchar;
-				lzw->free_ent = lzw->code+1;
 			}
-
-			lzw->oldcode = lzw->incode;	/* Remember previous code. */
+			lzw->free_ent = lzw->code+1;
 		}
-    } while (lzw->rsize != 0);
 
-	if (lzw->outpos < count_left) {
-		lzw->eof = 1;
-		lzw->cb_write(lzw, &lzw->outbuf[outbuf_startpos], lzw->outpos);
-		count_left -= lzw->outpos;
-		retval = ((i64)count - (i64)count_left);
-		goto done;
-	} else {
-		lzw_empty_existing_buffer(lzw, outbuf_startpos, count_left);
-		retval = count;
-		goto done;
+		lzw->oldcode = lzw->incode;	/* Remember previous code. */
 	}
 
 done:
-	return retval;
+	;
 }

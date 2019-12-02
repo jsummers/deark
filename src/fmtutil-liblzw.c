@@ -14,8 +14,6 @@ struct liblzw_userdata_type {
 	dbuf *inf;
 	i64 inf_pos;
 	i64 inf_endpos;
-	struct de_dfilter_out_params *dcmpro;
-	i64 nbytes_written;
 };
 
 static size_t my_liblzw_read(struct de_liblzwctx *lzw, u8 *buf, size_t size)
@@ -32,22 +30,6 @@ static size_t my_liblzw_read(struct de_liblzwctx *lzw, u8 *buf, size_t size)
 	return (size_t)amt_to_read;
 }
 
-static void my_liblzw_write(struct de_liblzwctx *lzw, const u8 *buf, size_t size)
-{
-	struct liblzw_userdata_type *lu = (struct liblzw_userdata_type*)lzw->userdata;
-	i64 amt_to_write = (i64)size;
-
-	if(lu->dcmpro->len_known) {
-		if(lu->nbytes_written + amt_to_write > lu->dcmpro->expected_len) {
-			amt_to_write = lu->dcmpro->expected_len - lu->nbytes_written;
-		}
-	}
-	if(amt_to_write<1) return;
-
-	dbuf_write(lu->dcmpro->f, buf, amt_to_write);
-	lu->nbytes_written += amt_to_write;
-}
-
 // flags:
 //  DE_LIBLZWFLAG_HAS3BYTEHEADER = has "compress" style header
 //  DE_LIBLZWFLAG_HAS1BYTEHEADER = 1-byte header, containing maxbits
@@ -57,7 +39,6 @@ void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmp
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags, u8 lzwmode)
 {
-	i64 n;
 	struct de_liblzwctx *lzw = NULL;
 	int retval = 0;
 	int ret;
@@ -74,7 +55,6 @@ void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmp
 	if(lu.inf_pos > lu.inf_endpos) {
 		lu.inf_pos = lu.inf_endpos;
 	}
-	lu.dcmpro = dcmpro;
 
 	if(flags & DE_LIBLZWFLAG_HAS3BYTEHEADER) {
 		u8 buf1[3];
@@ -116,19 +96,12 @@ void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmp
 
 	lzw = de_liblzw_create(c, (void*)&lu);
 	lzw->cb_read = my_liblzw_read;
-	lzw->cb_write = my_liblzw_write;
+	lzw->dcmpro = dcmpro;
 
 	ret = de_liblzw_init(lzw, flags, lzwmode);
 	if(!ret) goto done;
 
-	while(1) {
-		if(dcmpro->len_known && (lu.nbytes_written >= dcmpro->expected_len)) break;
-		n = de_liblzw_read(lzw, 1024);
-		if(n<0) {
-			goto done;
-		}
-		if(n<1) break;
-	}
+	de_liblzw_run(lzw);
 	retval = 1;
 
 done:
