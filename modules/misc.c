@@ -44,6 +44,7 @@ DE_DECLARE_MODULE(de_module_cdr_wl);
 DE_DECLARE_MODULE(de_module_compress);
 DE_DECLARE_MODULE(de_module_gws_thn);
 DE_DECLARE_MODULE(de_module_deskmate_pnt);
+DE_DECLARE_MODULE(de_module_corel_bmf);
 
 // **************************************************************************
 // "copy" module
@@ -2208,4 +2209,60 @@ void de_module_deskmate_pnt(deark *c, struct deark_module_info *mi)
 	mi->desc = "Tandy DeskMate Paint";
 	mi->run_fn = de_run_deskmate_pnt;
 	mi->identify_fn = de_identify_deskmate_pnt;
+}
+
+
+// **************************************************************************
+// Corel Gallery .BMF
+// **************************************************************************
+
+// Warning: The BMF preview image decoder is based on reverse engineering, may not
+// be correct.
+
+static void de_run_corel_bmf(deark *c, de_module_params *mparams1)
+{
+	de_module_params *mparams2 = NULL;
+	int saved_indent_level;
+	i64 pos;
+	i64 n;
+	i64 seg_size;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	pos = 65;
+	seg_size = de_getu32le_p(&pos);
+	de_dbg(c, "preview image segment at %"I64_FMT", len=%"I64_FMT, pos, seg_size);
+	de_dbg_indent(c, 1);
+
+	if(pos + seg_size > c->infile->len) {
+		seg_size = c->infile->len - pos;
+	}
+
+	n = de_getu32le(pos);
+	if(n!=40) {
+		de_err(c, "Unsupported Corel BMF version");
+		goto done;
+	}
+
+	mparams2 = de_malloc(c, sizeof(de_module_params));
+	mparams2->in_params.codes = "X";
+	mparams2->in_params.flags = 0x81;
+	de_run_module_by_id_on_slice(c, "dib", mparams2, c->infile, pos, seg_size);
+
+done:
+	de_free(c, mparams2);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static int de_identify_corel_bmf(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "@CorelBMF\x0a\x0d", 11)) return 100;
+	return 0;
+}
+
+void de_module_corel_bmf(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "corel_bmf";
+	mi->desc = "Corel Gallery BMF";
+	mi->run_fn = de_run_corel_bmf;
+	mi->identify_fn = de_identify_corel_bmf;
 }

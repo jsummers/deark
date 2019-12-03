@@ -106,15 +106,18 @@ Deark -- Information about supported formats
   Options
    -opt ole1:extractall - Extract unidentified OLE objects
 
-* CorelDRAW CDR, old "WL" format (module="cdr_wl") (experimental)
-  - Extracts preview image.
-
 * COKE (Atari Falcon) (*.tg1) (module="coke")
 
 * Compface intermediate format (module="compfacei")
   This is an obscure text-based format related to X-Face, used by the Compface
   software.
   - Cannot be autodetected. You must use "-m compfacei".
+
+* CorelDRAW CDR, old "WL" format (module="cdr_wl") (experimental)
+  - Extracts preview image.
+
+* Corel Gallery BMF (module="corel_bmf") (experimental)
+  - Extracts preview image.
 
 * DIB (module="dib")
   - Adds a BMP file header to a raw Windows DIB file.

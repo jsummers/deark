@@ -892,23 +892,44 @@ static void de_run_dib(deark *c, de_module_params *mparams)
 	struct de_bmpinfo bi;
 	unsigned int createflags = 0;
 	dbuf *outf = NULL;
+	int implicit_size = 0;
+	i64 dib_len;
+	const char *ext = "bmp";
 
-	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, 0, c->infile->len, 0)) {
-		de_err(c, "Invalid DIB, or not a DIB file");
-		goto done;
+	if(mparams) {
+		// If flags&0x01, try to calculate the proper file size, instead of trusting
+		// the length of the input file.
+		if(mparams->in_params.flags & 0x01) implicit_size = 1;
+
+		if(mparams->in_params.flags & 0x80) ext = "preview.bmp";
 	}
 
 	if(de_havemodcode(c, mparams, 'X')) {
 		createflags |= DE_CREATEFLAG_IS_AUX;
 	}
 
-	outf = dbuf_create_output_file(c, "bmp", NULL, createflags);
+	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, 0, c->infile->len, 0)) {
+		de_err(c, "Invalid DIB, or not a DIB file");
+		goto done;
+	}
+
+	if(implicit_size) {
+		dib_len = bi.total_size;
+		if(dib_len > c->infile->len) {
+			dib_len = c->infile->len;
+		}
+	}
+	else {
+		dib_len = c->infile->len;
+	}
+
+	outf = dbuf_create_output_file(c, ext, NULL, createflags);
 
 	de_dbg(c, "writing a BMP FILEHEADER");
-	de_fmtutil_generate_bmpfileheader(c, outf, &bi, 14+c->infile->len);
+	de_fmtutil_generate_bmpfileheader(c, outf, &bi, 14+dib_len);
 
 	de_dbg(c, "copying DIB file");
-	dbuf_copy(c->infile, 0, c->infile->len, outf);
+	dbuf_copy(c->infile, 0, dib_len, outf);
 
 done:
 	dbuf_close(outf);
