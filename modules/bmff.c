@@ -99,6 +99,8 @@ struct box_type_info {
 #define BOX_wide 0x77696465U
 #define BOX_xml  0x786d6c20U
 #define BOX_PICT 0x50494354U
+#define BOX_THMB 0x54484d42U
+#define BOX_PRVW 0x50525657U
 
 #define BOX_blank 0x2d2d2d2dU // "----"
 #define BOX_cpil 0x6370696cU
@@ -197,6 +199,9 @@ struct box_type_info {
 #define CODE_Exif 0x45786966U
 #define CODE_rICC 0x72494343U
 #define CODE_prof 0x70726f66U
+
+static const u8 *g_uuid_cr3_85c0 = (const u8*)"\x85\xc0\xb6\x87\x82\x0f\x11\xe0\x81\x11\xf4\xce\x46\x2b\x6a\x48";
+static const u8 *g_uuid_cr3_eaf4 = (const u8*)"\xea\xf4\x2b\x5e\x1c\x98\x4b\x88\xb9\xfb\xb7\xdc\x40\x6e\x4d\x16";
 
 // Called for each primary or compatible brand.
 // Brand-specific setup can be done here.
@@ -1418,6 +1423,44 @@ static void do_box_xml(deark *c, lctx *d, struct de_boxesctx *bctx)
 		"xml", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
+static void do_box_THMB(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	struct de_boxdata *curbox = bctx->curbox;
+	i64 img_pos;
+	i64 img_len;
+
+	if(!curbox->parent) return;
+	if(!curbox->parent->is_uuid) return;
+	if(de_memcmp(curbox->parent->uuid, g_uuid_cr3_85c0, 16)) return;
+	if(curbox->payload_len<20) return;
+	img_pos= curbox->payload_pos+16;
+	if(dbuf_memcmp(bctx->f, img_pos, "\xff\xd8\xff", 3)) return;
+	img_len = dbuf_getu32be(bctx->f, curbox->payload_pos+8);
+	de_dbg(c, "image at %"I64_FMT", len=%"I64_FMT, img_pos, img_len);
+	if(img_pos+img_len > curbox->payload_pos+curbox->payload_len) return;
+	dbuf_create_file_from_slice(bctx->f, img_pos, img_len, "thumb.jpg", NULL,
+		DE_CREATEFLAG_IS_AUX);
+}
+
+static void do_box_PRVW(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	struct de_boxdata *curbox = bctx->curbox;
+	i64 img_pos;
+	i64 img_len;
+
+	if(!curbox->parent) return;
+	if(!curbox->parent->is_uuid) return;
+	if(de_memcmp(curbox->parent->uuid, g_uuid_cr3_eaf4, 16)) return;
+	if(curbox->payload_len<20) return;
+	img_pos= curbox->payload_pos+16;
+	if(dbuf_memcmp(bctx->f, img_pos, "\xff\xd8\xff", 3)) return;
+	img_len = dbuf_getu32be(bctx->f, curbox->payload_pos+12);
+	de_dbg(c, "image at %"I64_FMT", len=%"I64_FMT, img_pos, img_len);
+	if(img_pos+img_len > curbox->payload_pos+curbox->payload_len) return;
+	dbuf_create_file_from_slice(bctx->f, img_pos, img_len, "preview.jpg", NULL,
+		DE_CREATEFLAG_IS_AUX);
+}
+
 // The first line that matches will be used, so items related to more-specific
 // formats/brands should be listed first.
 static const struct box_type_info box_type_info_arr[] = {
@@ -1491,6 +1534,8 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_vmhd, 0x00000001, 0x00000000, "video media header", do_box_vmhd},
 	{BOX_wide, 0x00000001, 0x00000000, "reserved space", NULL},
 	{BOX_PICT, 0x00000001, 0x00000000, "QuickDraw picture", do_box_PICT},
+	{BOX_PRVW, 0x00000001, 0x00000000, "preview", do_box_PRVW},
+	{BOX_THMB, 0x00000001, 0x00000000, "thumbnail", do_box_THMB},
 	{BOX_asoc, 0x00010000, 0x00000001, "association", NULL},
 	{BOX_cgrp, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_cdef, 0x00010000, 0x00000000, "channel definition", do_box_cdef},
@@ -1569,6 +1614,10 @@ static const struct box_type_info *find_box_type_info(deark *c, lctx *d,
 	if(d->is_jpegxt) mask |= 0x00040000;
 	if(d->is_heif) mask |= 0x00080000;
 
+	if(boxtype==0x54484d42U) {
+		boxtype=boxtype;
+	}
+
 	for(k=0; k<DE_ARRAYCOUNT(box_type_info_arr); k++) {
 		if(box_type_info_arr[k].boxtype != boxtype) continue;
 		if(level==0 && (box_type_info_arr[k].flags2 & 0x2)) {
@@ -1642,7 +1691,17 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 	struct de_boxdata *curbox = bctx->curbox;
 
 	if(curbox->is_uuid) {
-		return de_fmtutil_default_box_handler(c, bctx);
+		if(!de_memcmp(curbox->uuid, g_uuid_cr3_85c0, 16)) {
+			curbox->is_superbox = 1;
+		}
+		else if(!de_memcmp(curbox->uuid, g_uuid_cr3_eaf4, 16)) {
+			curbox->is_superbox = 1;
+			curbox->extra_bytes_before_children = 8;
+		}
+		else {
+			return de_fmtutil_default_box_handler(c, bctx);
+		}
+		return 1;
 	}
 
 	bti = (const struct box_type_info *)curbox->box_userdata;
