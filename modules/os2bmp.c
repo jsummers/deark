@@ -659,13 +659,13 @@ static int de_identify_os2bmp(deark *c)
 	case DE_OS2FMT_BA_CI:
 	case DE_OS2FMT_BA_CP:
 	case DE_OS2FMT_BA_BM:
-		return 100;
-	case DE_OS2FMT_BA:
+		return 90;
 	case DE_OS2FMT_CI:
-	case DE_OS2FMT_CP:
-		return 80;
-	case DE_OS2FMT_IC:
+	case DE_OS2FMT_CP: // Note that Corel Photo-Paint is similar
 	case DE_OS2FMT_PT:
+		return 20;
+	case DE_OS2FMT_BA:
+	case DE_OS2FMT_IC:
 		return 10;
 	default:
 		break;

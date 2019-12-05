@@ -139,6 +139,15 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
+	if(!de_memcmp(b, "CPT", 3) &&
+		(b[3]>='7' && b[3]<='9') &&
+		!de_memcmp(&b[4], "FILE", 4))
+	{
+		fmti->confidence = 91;
+		fmti->descr = "a Corel Photo-Paint image";
+		return;
+	}
+
 	// We're not trying to detect every HTML file, but we want to make sure
 	// we can detect the ones we generate.
 	if(!de_memcmp(b, "<!DOCTYPE html", 14) ||
