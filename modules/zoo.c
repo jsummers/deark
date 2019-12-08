@@ -181,17 +181,41 @@ static const char *get_cmpr_meth_name(u8 t)
 	return name?name:"?";
 }
 
+// To be called after all mod_time-related fields have been read.
+// Finish reporting the mod_time, and set md->fi->mod_time.
+static void finish_modtime_decoding(deark *c, lctx *d, struct member_data *md)
+{
+	i64 timestamp_offset;
+	char timestamp_buf[64];
+
+	timestamp_offset = 0;
+	if      ( md->timzon < 127 )  timestamp_offset = 15*60*((i64)md->timzon      );
+	else if ( 127 < md->timzon )  timestamp_offset = 15*60*((i64)md->timzon - 256);
+
+	de_dos_datetime_to_timestamp(&md->fi->mod_time, (i64)md->datdos, (i64)md->timdos);
+	de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "mod time: %s", timestamp_buf);
+	if(md->timzon == 127) {
+		md->fi->mod_time.tzcode = DE_TZCODE_LOCAL;
+	}
+	else {
+		de_timestamp_cvt_to_utc(&md->fi->mod_time, timestamp_offset);
+		de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+		de_dbg(c, "mod time (UTC): %s", timestamp_buf);
+	}
+}
+
 static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 {
-	i64 l;              /* 'Entry.lnamu+Entry.ldiru'       */
 	de_ucstring *shortname_ucstring = NULL;
 	de_ucstring *longname_ucstring = NULL;
 	de_ucstring *dirname_ucstring = NULL;
 	int retval = 0;
 	i64 pos = pos1;
+	i64 hdr_endpos;
 	unsigned int sig;
-	i64 timestamp_offset;
-	char timestamp_buf[64];
+	int has_ext_header;
+	char namebuf[80];
 
 	sig = (unsigned int)de_getu32le_p(&pos);
 	if(sig != ZOO_SIGNATURE) {
@@ -201,6 +225,7 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 
 	/* read the fixed part of the directory entry                          */
 	md->type   = de_getbyte_p(&pos);
+	has_ext_header = (md->type == 2);
 	md->method = de_getbyte_p(&pos);
 	md->posnxt = de_getu32le_p(&pos);
 
@@ -222,6 +247,11 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	md->datdos = (unsigned int)de_getu16le_p(&pos);
 	md->timdos = (unsigned int)de_getu16le_p(&pos);
 	de_dbg2(c, "dos date,time: %u,%u", md->datdos, md->timdos);
+	if(!has_ext_header) {
+		md->timzon = 127;
+		finish_modtime_decoding(c, d, md);
+	}
+
 	md->crcdat = (u32)de_getu16le_p(&pos);
 	de_dbg(c, "file data crc (reported): 0x%04x", (unsigned int)md->crcdat);
 	md->sizorg = de_getu32le_p(&pos);
@@ -247,144 +277,95 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	de_dbg(c, "short name: \"%s\"", ucstring_getpsz(shortname_ucstring));
 	pos += 13;
 
-	/* handle the long name and the directory in the variable part         */
+	if(!has_ext_header) {
+		goto done_with_header;
+	}
 
-	if(md->type == 2) {
-		md->lvar   = de_getu16le_p(&pos);
-		de_dbg(c, "length of variable part: %d", (int)md->lvar);
+	// If has_ext_header, there are at least 3 more header fields:
+	//  2-byte length-of-variable-part
+	//  1-byte timezone
+	//  2-byte CRC of dir entry
+
+	md->lvar   = de_getu16le_p(&pos);
+	de_dbg(c, "length of variable part: %d", (int)md->lvar);
+
+	md->timzon = de_getbyte_p(&pos);
+
+	// Note: The timezone field is definitely a signed byte that is the
+	// number of 15-minute units from UTC, but it is unknown to me whether
+	// a positive number means west, or east. Under either interpretation,
+	// I have multiple sample files with highly implausible timezones. The
+	// interpretation used here is based on the preponderance of evidence.
+	if(md->timzon==127) {
+		de_strlcpy(namebuf, "unknown", sizeof(namebuf));
+	}
+	else if(md->timzon>127) {
+		de_snprintf(namebuf, sizeof(namebuf), "%.2f hours east of UTC",
+			((double)md->timzon - 256.0)/-4.0);
 	}
 	else {
-		md->lvar   = 0;
+		de_snprintf(namebuf, sizeof(namebuf), "%.2f hours west of UTC",
+			((double)md->timzon)/4.0);
 	}
+	de_dbg(c, "time zone: %d (%s)", (int)md->timzon, namebuf);
+	finish_modtime_decoding(c, d, md);
 
-	if(md->type == 2) {
-		char namebuf[80];
+	md->crcent = (u32)de_getu16le_p(&pos);
+	de_dbg(c, "entry crc (reported): 0x%04x", (unsigned int)md->crcent);
 
-		md->timzon = de_getbyte_p(&pos);
+	// The "variable part" of the extended header begins here.
+	hdr_endpos = pos + md->lvar;
 
-		// Note: The timezone field is definitely a signed byte that is the
-		// number of 15-minute units from UTC, but it is unknown to me whether
-		// a positive number means west, or east. Under either interpretation,
-		// I have multiple sample files with highly implausible timezones. The
-		// interpretation used here is based on the preponderance of evidence.
-		if(md->timzon==127) {
-			de_strlcpy(namebuf, "unknown", sizeof(namebuf));
-		}
-		else if(md->timzon>127) {
-			de_snprintf(namebuf, sizeof(namebuf), "%.2f hours east of UTC",
-				((double)md->timzon - 256.0)/-4.0);
-		}
-		else {
-			de_snprintf(namebuf, sizeof(namebuf), "%.2f hours west of UTC",
-				((double)md->timzon)/4.0);
-		}
-		de_dbg(c, "time zone: %d (%s)", (int)md->timzon, namebuf);
+	if(hdr_endpos-pos < 1) goto done_with_header;
+	md->lnamu = (i64)de_getbyte_p(&pos);
+	de_dbg2(c, "long name len: %d", (int)md->lnamu);
 
-	}
-	else {
-		md->timzon = 127;
-	}
+	if(hdr_endpos-pos < 1) goto done_with_header;
+	md->ldiru = (i64)de_getbyte_p(&pos);
+	de_dbg2(c, "dir name len: %d", (int)md->ldiru);
 
-	// Now that we know the timezone, finish reporting the mod time, and set
-	// md->fi->mod_time.
-	timestamp_offset = 0;
-	if      ( md->timzon < 127 )  timestamp_offset = 15*60*((i64)md->timzon      );
-	else if ( 127 < md->timzon )  timestamp_offset = 15*60*((i64)md->timzon - 256);
-
-	de_dos_datetime_to_timestamp(&md->fi->mod_time, (i64)md->datdos, (i64)md->timdos);
-	de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
-	de_dbg(c, "mod time: %s", timestamp_buf);
-	if(md->timzon == 127) {
-		md->fi->mod_time.tzcode = DE_TZCODE_LOCAL;
-	}
-	else {
-		de_timestamp_cvt_to_utc(&md->fi->mod_time, timestamp_offset);
-		de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
-		de_dbg(c, "mod time (UTC): %s", timestamp_buf);
-	}
-
-	if(md->type == 2) {
-		md->crcent = (u32)de_getu16le_p(&pos);
-		de_dbg(c, "entry crc (reported): 0x%04x", (unsigned int)md->crcent);
-	}
-	else {
-		md->crcent = 0;
-	}
-
-	if(md->lvar > 0) {
-		md->lnamu = (i64)de_getbyte_p(&pos);
-		de_dbg2(c, "long name len: %d", (int)md->lnamu);
-	}
-	else {
-		md->lnamu = 0;
-	}
-
-	if(md->lvar > 1) {
-		md->ldiru = (i64)de_getbyte_p(&pos);
-		de_dbg2(c, "dir name len: %d", (int)md->ldiru);
-	}
-	else {
-		md->ldiru = 0;
-	}
-
-	longname_ucstring = ucstring_create(c);
+	if(hdr_endpos-pos < md->lnamu) goto done_with_header;
 	if(md->lnamu>0) {
+		longname_ucstring = ucstring_create(c);
 		dbuf_read_to_ucstring(c->infile, pos, md->lnamu, longname_ucstring,
 			DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
 		de_dbg(c, "long name: \"%s\"", ucstring_getpsz(longname_ucstring));
 	}
 	pos += md->lnamu;
 
-	dirname_ucstring = ucstring_create(c);
+	if(hdr_endpos-pos < md->ldiru) goto done_with_header;
 	if(md->ldiru>0) {
+		dirname_ucstring = ucstring_create(c);
 		dbuf_read_to_ucstring(c->infile, pos, md->ldiru, dirname_ucstring,
 			DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
 		de_dbg(c, "dir name: \"%s\"", ucstring_getpsz(dirname_ucstring));
 	}
 	pos += md->ldiru;
 
-	l = md->lnamu + md->ldiru;
-	if(l+2 < md->lvar) {
-		md->system = (unsigned int)de_getu16le_p(&pos);
-		de_dbg(c, "system id: %u", md->system);
+	if(hdr_endpos-pos < 2) goto done_with_header;
+	md->system = (unsigned int)de_getu16le_p(&pos);
+	de_dbg(c, "system id: %u", md->system);
+
+	if(hdr_endpos-pos < 3) goto done_with_header;
+	md->permis = (u32)dbuf_getint_ext(c->infile, pos, 3, 1, 0);
+	pos += 3;
+	de_dbg(c, "perms: octal(%o)", (unsigned int)md->permis);
+	if((md->permis & 0111) != 0) {
+		md->fi->mode_flags |= DE_MODEFLAG_EXE;
 	}
 	else {
-		md->system = 0;
+		md->fi->mode_flags |= DE_MODEFLAG_NONEXE;
 	}
 
-	if(l+4 < md->lvar) {
-		md->permis = (u32)dbuf_getint_ext(c->infile, pos, 3, 1, 0);
-		pos += 3;
-	}
-	else {
-		md->permis = 0;
-	}
-	if(l+4 < md->lvar) {
-		de_dbg(c, "perms: octal(%o)", (unsigned int)md->permis);
-		if((md->permis & 0111) != 0) {
-			md->fi->mode_flags |= DE_MODEFLAG_EXE;
-		}
-		else {
-			md->fi->mode_flags |= DE_MODEFLAG_NONEXE;
-		}
-	}
+	if(hdr_endpos-pos < 1) goto done_with_header;
+	md->modgen = de_getbyte_p(&pos);
+	de_dbg(c, "modgen: %u", (unsigned int)md->modgen);
 
-	if(l+7 < md->lvar) {
-		md->modgen = de_getbyte_p(&pos);
-		de_dbg(c, "modgen: %u", (unsigned int)md->modgen);
-	}
-	else {
-		md->modgen = 0;
-	}
+	if(hdr_endpos-pos < 2) goto done_with_header;
+	md->ver = (unsigned int)de_getu16le_p(&pos);
+	de_dbg(c, "member version: %u", md->ver);
 
-	if(l+9 < md->lvar) {
-		md->ver = (unsigned int)de_getu16le_p(&pos);
-		de_dbg(c, "member version: %u", md->ver);
-	}
-	else {
-		md->ver = 0;
-	}
-
+done_with_header:
 	// Note: Typically, there is a 5-byte "file leader" ("@)#(\0") here, between
 	// the member header and the member data, so pos is not
 	// expected to equal md->posdat.
