@@ -12,6 +12,8 @@ DE_DECLARE_MODULE(de_module_riff);
 
 #define CODE_ACON  0x41434f4eU
 #define CODE_AVI   0x41564920U
+#define CODE_CDRX  0x43445258U
+#define CODE_CMX1  0x434d5831U
 #define CODE_INFO  0x494e464fU
 #define CODE_PAL   0x50414c20U
 #define CODE_RMID  0x524d4944U
@@ -320,19 +322,21 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 	if(ictx->level==0) {
 		const char *fmtname = NULL;
 
+		switch(ictx->main_contentstype4cc.id) {
+		case CODE_ACON: fmtname = "Windows animated cursor"; break;
+		case CODE_AVI: fmtname = "AVI"; break;
+		case CODE_CDRX: fmtname = "Corel CCX"; break;
+		case CODE_CMX1: fmtname = "Corel CMX"; break;
+		case CODE_WAVE: fmtname = "WAVE"; break;
+		case CODE_WEBP: fmtname = "WebP"; break;
+		}
+
 		// Special check for CorelDraw formats.
-		if(!de_memcmp(ictx->main_contentstype4cc.bytes, (const void*)"CDR", 3)) {
+		if(!fmtname && !de_memcmp(ictx->main_contentstype4cc.bytes, (const void*)"CDR", 3)) {
 			d->is_cdr = 1;
 			fmtname = "CorelDRAW (RIFF-based)";
 		}
-		else {
-			switch(ictx->main_contentstype4cc.id) {
-			case CODE_ACON: fmtname = "Windows animated cursor"; break;
-			case CODE_AVI: fmtname = "AVI"; break;
-			case CODE_WAVE: fmtname = "WAVE"; break;
-			case CODE_WEBP: fmtname = "WebP"; break;
-			}
-		}
+
 		if(fmtname) {
 			de_declare_fmt(c, fmtname);
 		}
