@@ -113,6 +113,9 @@ Deark -- Information about supported formats
   software.
   - Cannot be autodetected. You must use "-m compfacei".
 
+* Corel CCX (module="corel_ccx")
+  - Decompresses and converts to CMX format.
+
 * CorelDRAW CDR, old "WL" format (module="cdr_wl") (experimental)
   - Extracts preview image.
 
