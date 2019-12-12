@@ -35,7 +35,8 @@ static size_t my_liblzw_read(struct de_liblzwctx *lzw, u8 *buf, size_t size)
 //  DE_LIBLZWFLAG_HAS1BYTEHEADER = 1-byte header, containing maxbits
 //  DE_LIBLZWFLAG_ARCFSMODE = arcfs mode
 // lzwmode: Like compress format. Used if there's no header.
-void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmpri,
+static void de_fmtutil_decompress_liblzw_ex_internal(deark *c,
+	struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags, u8 lzwmode)
 {
@@ -115,6 +116,36 @@ done:
 		// In case we somehow got here without recording an error
 		de_dfilter_set_generic_error(c, dres, modname);
 	}
+}
+
+void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	unsigned int flags, u8 lzwmode)
+{
+	struct delzw_params delzwp;
+
+	if(c->lzwcodec==0) {
+		if(de_get_ext_option(c, "newlzw")) {
+			c->lzwcodec = 2;
+		}
+		else {
+			c->lzwcodec = 1;
+		}
+	}
+
+	if(c->lzwcodec!=2) {
+		// Use liblzw-based LZW decompressor
+		de_fmtutil_decompress_liblzw_ex_internal(c, dcmpri, dcmpro, dres,
+			flags, lzwmode);
+		return;
+	}
+
+	// Use new LZW decompressor
+	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	delzwp.basefmt = DELZW_BASEFMT_UNIXCOMPRESS;
+	delzwp.unixcompress_flags = flags;
+	delzwp.unixcompress_lzwmode = lzwmode;
+	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
 
 // Old API, semi-deprecated

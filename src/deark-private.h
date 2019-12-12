@@ -372,6 +372,7 @@ struct deark_struct {
 	de_fatalerrorfn_type fatalerrorfn;
 	const char *dprefix;
 
+	u8 lzwcodec; // temporary
 	u8 pngcprlevel_valid;
 	unsigned int pngcmprlevel;
 	void *zip_data;

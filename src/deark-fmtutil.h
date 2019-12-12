@@ -111,6 +111,16 @@ int de_fmtutil_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
 	dbuf *outf, unsigned int has_maxlen, i64 max_out_len,
 	unsigned int flags, u8 lzwmode);
 
+struct delzw_params {
+#define DELZW_BASEFMT_UNIXCOMPRESS 1
+	int basefmt;
+	unsigned int unixcompress_flags;
+	u8 unixcompress_lzwmode;
+};
+void de_fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	struct delzw_params *delzwp);
+
 void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags);
