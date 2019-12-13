@@ -892,10 +892,11 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 	set_output_archive_name(cc);
 }
 
-static void main2(int argc, char **argv)
+static int main2(int argc, char **argv)
 {
 	deark *c = NULL;
 	struct cmdctx *cc = NULL;
+	int error_flag;
 
 	cc = de_malloc(NULL, sizeof(struct cmdctx));
 	c = de_create();
@@ -956,7 +957,9 @@ done:
 	de_destroy(c);
 	de_platformdata_destroy(cc->plctx);
 	cc->plctx = NULL;
+	error_flag = cc->error_flag;
 	de_free(NULL, cc);
+	return error_flag;
 }
 
 #ifdef DE_WINDOWS
@@ -978,8 +981,7 @@ int wmain(int argc, wchar_t **argvW)
 
 int main(int argc, char **argv)
 {
-	main2(argc, argv);
-	return 0;
+	return main2(argc, argv);
 }
 
 #endif
