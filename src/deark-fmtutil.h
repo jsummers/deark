@@ -112,8 +112,8 @@ int de_fmtutil_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
 	unsigned int flags, u8 lzwmode);
 
 struct delzw_params {
-#define DELZW_BASEFMT_UNIXCOMPRESS 1
-	int basefmt;
+#define DE_LZWFMT_UNIXCOMPRESS 1
+	int fmt;
 	unsigned int unixcompress_flags;
 	u8 unixcompress_lzwmode;
 };

@@ -142,7 +142,7 @@ void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmp
 
 	// Use new LZW decompressor
 	de_zeromem(&delzwp, sizeof(struct delzw_params));
-	delzwp.basefmt = DELZW_BASEFMT_UNIXCOMPRESS;
+	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
 	delzwp.unixcompress_flags = flags;
 	delzwp.unixcompress_lzwmode = lzwmode;
 	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
