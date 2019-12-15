@@ -111,9 +111,16 @@ int de_fmtutil_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
 	dbuf *outf, unsigned int has_maxlen, i64 max_out_len,
 	unsigned int flags, u8 lzwmode);
 
+enum lzwfmt_enum {
+	DE_LZWFMT_GENERIC = 0,
+	DE_LZWFMT_UNIXCOMPRESS,
+	DE_LZWFMT_GIF,
+	DE_LZWFMT_ZIPSHRINK,
+	DE_LZWFMT_ZOOLZD
+};
+
 struct delzw_params {
-#define DE_LZWFMT_UNIXCOMPRESS 1
-	int fmt;
+	enum lzwfmt_enum fmt;
 	unsigned int unixcompress_flags;
 	u8 unixcompress_lzwmode;
 };

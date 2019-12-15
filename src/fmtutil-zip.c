@@ -93,7 +93,7 @@ static void my_ozus_pre_partial_clear(ozus_ctx *ozus)
 	de_dbg(zu->c, "partial clear (lc=%u)", (unsigned int)ozus->last_code_added);
 }
 
-void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri,
+static void fmtutil_decompress_zip_shrink_internal(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags)
 {
@@ -135,6 +135,33 @@ void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri
 done:
 	de_free(c, ozus);
 }
+
+void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	unsigned int flags)
+{
+	struct delzw_params delzwp;
+
+	if(c->lzwcodec==0) {
+		if(de_get_ext_option(c, "newlzw")) {
+			c->lzwcodec = 2;
+		}
+		else {
+			c->lzwcodec = 1;
+		}
+	}
+
+	if(c->lzwcodec!=2) {
+		fmtutil_decompress_zip_shrink_internal(c, dcmpri, dcmpro, dres, flags);
+		return;
+	}
+
+	// Use new LZW decompressor
+	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	delzwp.fmt = DE_LZWFMT_ZIPSHRINK;
+	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
+}
+
 
 static size_t my_ozur_read(ozur_ctx *ozur, OZUR_UINT8 *buf, size_t size)
 {
