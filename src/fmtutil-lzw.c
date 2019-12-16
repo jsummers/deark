@@ -15,6 +15,7 @@ typedef struct delzwctx_struct delzwctx;
 
 #define DELZW_CODE u16
 #define DELZW_MAXMAXCODESIZE 16
+#define DELZW_NBITS_TO_MAXCODE(n) ((DELZW_CODE)((1<<(n))-1))
 
 struct delzw_tableentry {
 	DELZW_CODE parent;
@@ -228,6 +229,8 @@ static void delzw_after_header(delzwctx *dc)
 		for(i=dc->first_dynamic_code; i<dc->ct_capacity; i++) {
 			dc->ct[i].codetype = DELZW_CODETYPE_DYN_UNUSED;
 		}
+
+		dc->free_code_search_start = dc->first_dynamic_code;
 	}
 	else if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK) {
 		dc->first_dynamic_code = 257;
@@ -246,13 +249,20 @@ static void delzw_after_header(delzwctx *dc)
 
 static void delzw_process_unixcompress_header(delzwctx *dc)
 {
+	unsigned int options;
+
 	if(dc->header_buf[0]!=0x1f || dc->header_buf[1]!=0x9d) {
 		delzw_set_error(dc, 1, "Not in compress format");
 		return;
 	}
 
-	dc->maxcodesize = (unsigned int)(dc->header_buf[2] & 0x1f);
-	dc->codesize_is_dynamic = (dc->header_buf[2] & 0x80) ? 1 : 0;
+	options = (unsigned int)dc->header_buf[2];
+	de_dbg(dc->c, "options: 0x%02x", options);
+	de_dbg_indent(dc->c, 1);
+	dc->maxcodesize = (unsigned int)(options & 0x1f);
+	de_dbg(dc->c, "max code size: %u", dc->maxcodesize);
+	dc->codesize_is_dynamic = (options & 0x80) ? 1 : 0;
+	de_dbg_indent(dc->c, 1);
 
 	if(dc->codesize_is_dynamic) {
 		dc->has_clear_code = 1;
@@ -390,14 +400,28 @@ static void delzw_find_first_free_entry(delzwctx *dc, DELZW_CODE *pentry)
 	delzw_set_error(dc, 1, "4");
 }
 
+static void delzw_increase_codesize(delzwctx *dc)
+{
+	if(dc->curr_code_size<dc->maxcodesize) {
+		dc->curr_code_size++;
+		de_dbg(dc->c, "increased codesize to %u", dc->curr_code_size);
+	}
+}
+
 // Add a code to the dictionary.
 // Sets delzw->last_code_added to the position where it was added.
 static void delzw_add_to_dict(delzwctx *dc, DELZW_CODE parent, u8 value)
 {
 	DELZW_CODE newpos;
 
-	delzw_find_first_free_entry(dc, &newpos);
+	if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK) {
+		delzw_find_first_free_entry(dc, &newpos);
+	}
+	else {
+		newpos = dc->free_code_search_start;
+	}
 	if(dc->errcode) return;
+	if(newpos >= dc->ct_capacity) return;
 
 	dc->ct[newpos].parent = parent;
 	dc->ct[newpos].value = value;
@@ -406,6 +430,12 @@ static void delzw_add_to_dict(delzwctx *dc, DELZW_CODE parent, u8 value)
 	dc->free_code_search_start = newpos+1;
 	if(newpos > dc->highest_code_ever_used) {
 		dc->highest_code_ever_used = newpos;
+	}
+
+	if(dc->codesize_is_dynamic &&
+		dc->free_code_search_start>DELZW_NBITS_TO_MAXCODE(dc->curr_code_size))
+	{
+		delzw_increase_codesize(dc);
 	}
 }
 
@@ -448,8 +478,6 @@ static void delzw_process_data_code(delzwctx *dc, DELZW_CODE code)
 
 static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 {
-	if(code >= dc->ct_capacity) return;
-
 	if(dc->escaped_code_is_pending) {
 		dc->escaped_code_is_pending = 0;
 		if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK) {
@@ -463,11 +491,16 @@ static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 		return;
 	}
 
+	if(code >= dc->ct_capacity) return;
+
 	switch(dc->ct[code].codetype) {
 	case DELZW_CODETYPE_STATIC:
 	case DELZW_CODETYPE_DYN_UNUSED:
 	case DELZW_CODETYPE_DYN_USED:
 		delzw_process_data_code(dc, code);
+		break;
+	case DELZW_CODETYPE_CLEAR:
+		delzw_set_error(dc, 2, "clear not implemented");
 		break;
 	case DELZW_CODETYPE_SPECIAL:
 		if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK && code==256) {
@@ -526,7 +559,9 @@ static void delzw_addbuf(delzwctx *dc, const u8 *buf, size_t buf_len)
 
 static void delzw_finish(delzwctx *dc)
 {
-	if(dc->basefmt != DELZW_BASEFMT_ZIPSHRINK) {
+	if(dc->basefmt!=DELZW_BASEFMT_ZIPSHRINK &&
+		dc->basefmt!=DELZW_BASEFMT_UNIXCOMPRESS)
+	{
 		delzw_set_error(dc, DELZW_ERRCODE_NOTIMPL, "Not implemented");
 	}
 
