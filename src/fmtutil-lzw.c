@@ -16,11 +16,17 @@ typedef struct delzwctx_struct delzwctx;
 #define DELZW_CODE u16
 #define DELZW_MAXMAXCODESIZE 16
 
-#define DELZW_ZIPSHRINK_INVALID_CODE 256
-
 struct delzw_tableentry {
 	DELZW_CODE parent;
 	u8 value;
+#define DELZW_CODETYPE_INVALID     0x00
+#define DELZW_CODETYPE_STATIC      0x01
+#define DELZW_CODETYPE_DYN_UNUSED  0x02
+#define DELZW_CODETYPE_DYN_USED    0x03
+#define DELZW_CODETYPE_CLEAR       0x08
+#define DELZW_CODETYPE_STOP        0x09
+#define DELZW_CODETYPE_SPECIAL     0x0f
+	u8 codetype;
 	u8 flags;
 };
 
@@ -63,7 +69,10 @@ struct delzwctx_struct {
 	u8 last_value;
 	DELZW_CODE highest_code_ever_used;
 	DELZW_CODE free_code_search_start;
+	DELZW_CODE first_dynamic_code;
 	int escaped_code_is_pending;
+	int has_clear_code;
+	DELZW_CODE clear_code_value;
 
 	unsigned int bitreader_buf;
 	unsigned int bitreader_nbits_in_buf;
@@ -72,16 +81,25 @@ struct delzwctx_struct {
 
 	struct delzw_tableentry *ct;
 
-	char errmsg[80];
-
 	u8 header_buf[3];
-
-#define DELZW_VALBUFSIZE 7936
-	u8 valbuf[DELZW_VALBUFSIZE];
+	size_t valbuf_capacity;
+	u8 *valbuf;
+	char errmsg[80];
 
 #define DELZW_OUTBUF_SIZE 1024
 	u8 outbuf[DELZW_OUTBUF_SIZE];
 };
+
+#if 0
+static void delzw_dumptable(delzwctx *dc) {
+	DELZW_CODE k;
+	for(k=0; k<dc->highest_code_ever_used; k++) {
+		de_dbg(dc->c, "[%d] p=%d v=%d ty=%d f=%d",
+			(int)k, (int)dc->ct[k].parent,
+			(int)dc->ct[k].value, (int)dc->ct[k].codetype, (int)dc->ct[k].flags);
+	}
+}
+#endif
 
 static void delzw_set_error(delzwctx *dc, int code, const char *msg)
 {
@@ -107,6 +125,7 @@ static void delzw_destroy(delzwctx *dc)
 	if(!dc) return;
 	c = dc->c;
 	de_free(c, dc->ct);
+	de_free(c, dc->valbuf);
 	de_free(c, dc);
 }
 
@@ -172,6 +191,7 @@ static void delzw_init_decompression(delzwctx *dc)
 }
 
 // Set any remaining params needed, and validate params.
+// (This is always called, even if there is no header.)
 static void delzw_after_header(delzwctx *dc)
 {
 	DELZW_CODE i;
@@ -188,16 +208,40 @@ static void delzw_after_header(delzwctx *dc)
 
 	dc->ct_capacity = ((size_t)1)<<dc->maxcodesize;
 	dc->ct = de_mallocarray(dc->c, dc->ct_capacity, sizeof(struct delzw_tableentry));
+	dc->valbuf_capacity = dc->ct_capacity;
+	dc->valbuf = de_malloc(dc->c, dc->valbuf_capacity);
 
-	for(i=0; i<256; i++) {
-		dc->ct[i].parent = DELZW_ZIPSHRINK_INVALID_CODE;
-		dc->ct[i].value = (u8)i;
-	}
-	for(i=256; i<dc->ct_capacity; i++) {
-		dc->ct[i].parent = DELZW_ZIPSHRINK_INVALID_CODE;
-	}
+	if(dc->basefmt==DELZW_BASEFMT_UNIXCOMPRESS) {
+		for(i=0; i<256; i++) {
+			dc->ct[i].codetype = DELZW_CODETYPE_STATIC;
+			dc->ct[i].value = (u8)i;
+		}
 
-	dc->free_code_search_start = 257;
+		if(dc->codesize_is_dynamic) {
+			dc->ct[256].codetype = DELZW_CODETYPE_CLEAR;
+			dc->first_dynamic_code = 257;
+		}
+		else {
+			dc->first_dynamic_code = 256;
+		}
+
+		for(i=dc->first_dynamic_code; i<dc->ct_capacity; i++) {
+			dc->ct[i].codetype = DELZW_CODETYPE_DYN_UNUSED;
+		}
+	}
+	else if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK) {
+		dc->first_dynamic_code = 257;
+		dc->free_code_search_start = 257;
+
+		for(i=0; i<256; i++) {
+			dc->ct[i].codetype = DELZW_CODETYPE_STATIC;
+			dc->ct[i].value = (u8)i;
+		}
+		dc->ct[256].codetype = DELZW_CODETYPE_SPECIAL;
+		for(i=dc->first_dynamic_code; i<dc->ct_capacity; i++) {
+			dc->ct[i].codetype = DELZW_CODETYPE_DYN_UNUSED;
+		}
+	}
 }
 
 static void delzw_process_unixcompress_header(delzwctx *dc)
@@ -209,6 +253,14 @@ static void delzw_process_unixcompress_header(delzwctx *dc)
 
 	dc->maxcodesize = (unsigned int)(dc->header_buf[2] & 0x1f);
 	dc->codesize_is_dynamic = (dc->header_buf[2] & 0x80) ? 1 : 0;
+
+	if(dc->codesize_is_dynamic) {
+		dc->has_clear_code = 1;
+		dc->clear_code_value = 256;
+	}
+	else {
+		dc->has_clear_code = 0;
+	}
 }
 
 static void delzw_process_header(delzwctx *dc)
@@ -243,29 +295,39 @@ static void delzw_partial_clear(delzwctx *dc)
 	DELZW_CODE i;
 
 	for(i=257; i<=dc->highest_code_ever_used; i++) {
-		if(dc->ct[i].parent!=DELZW_ZIPSHRINK_INVALID_CODE) {
-			dc->ct[dc->ct[i].parent].flags = 1; // Mark codes that have a child
+		// If this code is in use
+		if(dc->ct[i].codetype==DELZW_CODETYPE_DYN_USED) {
+			// and its parent is a dynamic code,
+			//   mark its parent as having a child
+			if(dc->ct[i].parent>=257) {
+				dc->ct[dc->ct[i].parent].flags = 1;
+			}
 		}
 	}
 
 	for(i=257; i<=dc->highest_code_ever_used; i++) {
-		if(dc->ct[i].flags == 0) {
-			dc->ct[i].parent = DELZW_ZIPSHRINK_INVALID_CODE; // Clear this code
+		if(dc->ct[i].flags==0) {
+			// If this code has no children, clear it
+			dc->ct[i].codetype = DELZW_CODETYPE_DYN_UNUSED;
+			dc->ct[i].parent = 0;
 			dc->ct[i].value = 0;
 		}
 		else {
-			dc->ct[i].flags = 0; // Leave all flags at 0, for next time.
+			// Leave all flags clear, for next time
+			dc->ct[i].flags = 0;
 		}
 	}
 
 	dc->free_code_search_start = 257;
 }
 
+// Is this a valid code with a value (a static, or in-use dynamic code)?
 static int delzw_code_is_in_table(delzwctx *dc, DELZW_CODE code)
 {
-	if(code<256 || dc->ct[code].parent!=DELZW_ZIPSHRINK_INVALID_CODE) {
-		return 1;
-	}
+	u8 codetype = dc->ct[code].codetype;
+
+	if(codetype==DELZW_CODETYPE_STATIC) return 1;
+	if(codetype==DELZW_CODETYPE_DYN_USED) return 1;
 	return 0;
 }
 
@@ -274,7 +336,7 @@ static int delzw_code_is_in_table(delzwctx *dc, DELZW_CODE code)
 static void delzw_emit_code(delzwctx *dc, DELZW_CODE code1)
 {
 	DELZW_CODE code = code1;
-	size_t valbuf_pos = DELZW_VALBUFSIZE; // = First entry that's used
+	size_t valbuf_pos = dc->valbuf_capacity; // = First entry that's used
 
 	while(1) {
 		if(code >= dc->ct_capacity) {
@@ -292,7 +354,7 @@ static void delzw_emit_code(delzwctx *dc, DELZW_CODE code1)
 		// to make it simpler to write the final byte sequence.
 		valbuf_pos--;
 
-		if(code >= 257 && dc->ct[code].parent==DELZW_ZIPSHRINK_INVALID_CODE) {
+		if(dc->ct[code].codetype==DELZW_CODETYPE_DYN_UNUSED) {
 			dc->valbuf[valbuf_pos] = dc->last_value;
 			code = dc->oldcode;
 			continue;
@@ -300,7 +362,7 @@ static void delzw_emit_code(delzwctx *dc, DELZW_CODE code1)
 
 		dc->valbuf[valbuf_pos] = dc->ct[code].value;
 
-		if(code < 257) {
+		if(dc->ct[code].codetype==DELZW_CODETYPE_STATIC) {
 			dc->last_value = dc->ct[code].value;
 			break;
 		}
@@ -310,7 +372,7 @@ static void delzw_emit_code(delzwctx *dc, DELZW_CODE code1)
 	}
 
 	// Write out the collected values.
-	delzw_write(dc, &dc->valbuf[valbuf_pos], DELZW_VALBUFSIZE - valbuf_pos);
+	delzw_write(dc, &dc->valbuf[valbuf_pos], dc->valbuf_capacity - valbuf_pos);
 }
 
 static void delzw_find_first_free_entry(delzwctx *dc, DELZW_CODE *pentry)
@@ -318,7 +380,7 @@ static void delzw_find_first_free_entry(delzwctx *dc, DELZW_CODE *pentry)
 	DELZW_CODE k;
 
 	for(k=dc->free_code_search_start; k<dc->ct_capacity; k++) {
-		if(dc->ct[k].parent==DELZW_ZIPSHRINK_INVALID_CODE) {
+		if(dc->ct[k].codetype==DELZW_CODETYPE_DYN_UNUSED) {
 			*pentry = k;
 			return;
 		}
@@ -339,6 +401,7 @@ static void delzw_add_to_dict(delzwctx *dc, DELZW_CODE parent, u8 value)
 
 	dc->ct[newpos].parent = parent;
 	dc->ct[newpos].value = value;
+	dc->ct[newpos].codetype = DELZW_CODETYPE_DYN_USED;
 	dc->last_code_added = newpos;
 	dc->free_code_search_start = newpos+1;
 	if(newpos > dc->highest_code_ever_used) {
@@ -385,21 +448,33 @@ static void delzw_process_data_code(delzwctx *dc, DELZW_CODE code)
 
 static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 {
+	if(code >= dc->ct_capacity) return;
+
 	if(dc->escaped_code_is_pending) {
 		dc->escaped_code_is_pending = 0;
-		if(code==1 && (dc->curr_code_size<dc->maxcodesize)) {
-			dc->curr_code_size++;
-		}
-		else if(code==2) {
-			delzw_partial_clear(dc);
+		if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK) {
+			if(code==1 && (dc->curr_code_size<dc->maxcodesize)) {
+				dc->curr_code_size++;
+			}
+			else if(code==2) {
+				delzw_partial_clear(dc);
+			}
 		}
 		return;
 	}
-	else if(code==256) {
-		dc->escaped_code_is_pending = 1;
-		return;
+
+	switch(dc->ct[code].codetype) {
+	case DELZW_CODETYPE_STATIC:
+	case DELZW_CODETYPE_DYN_UNUSED:
+	case DELZW_CODETYPE_DYN_USED:
+		delzw_process_data_code(dc, code);
+		break;
+	case DELZW_CODETYPE_SPECIAL:
+		if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK && code==256) {
+			dc->escaped_code_is_pending = 1;
+		}
+		break;
 	}
-	delzw_process_data_code(dc, code);
 }
 
 static void delzw_process_byte(delzwctx *dc, u8 b)
