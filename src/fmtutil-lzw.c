@@ -57,11 +57,13 @@ struct delzwctx_struct {
 #define DELZW_STATE_INIT            0
 #define DELZW_STATE_READING_HEADER  1
 #define DELZW_STATE_READING_CODES   2
-#define DELZW_STATE_SKIPPING_BITS   3
 	int state;
 	i64 header_size;
 	i64 total_nbytes_processed;
 	i64 uncmpr_nbytes_written;
+	i64 bitcount_for_this_group;
+	i64 nbits_left_to_skip;
+
 	unsigned int curr_code_size;
 	size_t ct_capacity;
 	i64 have_oldcode;
@@ -195,7 +197,7 @@ static void delzw_init_decompression(delzwctx *dc)
 // (This is always called, even if there is no header.)
 static void delzw_after_header(delzwctx *dc)
 {
-	DELZW_CODE i;
+	size_t i;
 
 	if(dc->basefmt==DELZW_BASEFMT_UNIXCOMPRESS) {
 		dc->mincodesize = 9;
@@ -302,7 +304,7 @@ static DELZW_CODE delzw_get_code(delzwctx *dc, unsigned int nbits)
 
 static void delzw_partial_clear(delzwctx *dc)
 {
-	DELZW_CODE i;
+	size_t i;
 
 	for(i=257; i<=dc->highest_code_ever_used; i++) {
 		// If this code is in use
@@ -387,7 +389,7 @@ static void delzw_emit_code(delzwctx *dc, DELZW_CODE code1)
 
 static void delzw_find_first_free_entry(delzwctx *dc, DELZW_CODE *pentry)
 {
-	DELZW_CODE k;
+	size_t k;
 
 	for(k=dc->free_code_search_start; k<dc->ct_capacity; k++) {
 		if(dc->ct[k].codetype==DELZW_CODETYPE_DYN_UNUSED) {
@@ -400,11 +402,45 @@ static void delzw_find_first_free_entry(delzwctx *dc, DELZW_CODE *pentry)
 	delzw_set_error(dc, 1, "4");
 }
 
+// Remove up to dc->nbits_left_to_skip from the bit buffer
+static void delzw_skip_bits_in_bitbuf(delzwctx *dc)
+{
+	if(dc->bitreader_nbits_in_buf <= dc->nbits_left_to_skip) {
+		unsigned int nbits = dc->bitreader_nbits_in_buf;
+
+		dc->bitreader_nbits_in_buf = 0;
+		dc->bitreader_buf = 0;
+		dc->nbits_left_to_skip -= (i64)nbits;
+		return;
+	}
+
+	while(dc->bitreader_nbits_in_buf>0 && dc->nbits_left_to_skip>0) {
+		// TODO: Better optimization
+		(void)delzw_get_code(dc, 1);
+		dc->nbits_left_to_skip--;
+	}
+}
+
+static void delzw_unixcompress_end_bitgroup(delzwctx *dc)
+{
+	// To the best of my understanding, this is a silly bug that somehow became part of
+	// the standard 'compress' format.
+	dc->nbits_left_to_skip = de_pad_to_n(dc->bitcount_for_this_group, 8*(i64)dc->curr_code_size) -
+		dc->bitcount_for_this_group;
+
+	dc->bitcount_for_this_group = 0;
+	delzw_skip_bits_in_bitbuf(dc);
+}
+
 static void delzw_increase_codesize(delzwctx *dc)
 {
+	if(dc->basefmt==DELZW_BASEFMT_UNIXCOMPRESS) {
+		delzw_unixcompress_end_bitgroup(dc);
+	}
+
 	if(dc->curr_code_size<dc->maxcodesize) {
 		dc->curr_code_size++;
-		de_dbg(dc->c, "increased codesize to %u", dc->curr_code_size);
+		de_dbg(dc->c, "[increased codesize to %u]", dc->curr_code_size);
 	}
 }
 
@@ -476,6 +512,28 @@ static void delzw_process_data_code(delzwctx *dc, DELZW_CODE code)
 
 }
 
+static void delzw_clear(delzwctx *dc)
+{
+	size_t i;
+
+	de_dbg(dc->c, "[clear]");
+
+	if(dc->basefmt==DELZW_BASEFMT_UNIXCOMPRESS) {
+		delzw_unixcompress_end_bitgroup(dc);
+	}
+
+	dc->curr_code_size = dc->mincodesize;
+	dc->have_oldcode = 0;
+	dc->oldcode = 0;
+
+	for(i=dc->first_dynamic_code; i<=dc->highest_code_ever_used; i++) {
+		dc->ct[i].codetype = DELZW_CODETYPE_DYN_UNUSED;
+		dc->ct[i].parent = 0;
+		dc->ct[i].value = 0;
+	}
+	dc->free_code_search_start = dc->first_dynamic_code;
+}
+
 static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 {
 	if(dc->escaped_code_is_pending) {
@@ -500,7 +558,7 @@ static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 		delzw_process_data_code(dc, code);
 		break;
 	case DELZW_CODETYPE_CLEAR:
-		delzw_set_error(dc, 2, "clear not implemented");
+		delzw_clear(dc);
 		break;
 	case DELZW_CODETYPE_SPECIAL:
 		if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK && code==256) {
@@ -535,12 +593,29 @@ static void delzw_process_byte(delzwctx *dc, u8 b)
 	else if(dc->state==DELZW_STATE_READING_CODES) {
 		delzw_add_byte_to_bitbuf(dc, b);
 
-		while(dc->bitreader_nbits_in_buf >= dc->curr_code_size) {
+		while(1) {
 			DELZW_CODE code;
 
 			if(dc->errcode) break;
+
+			if(dc->nbits_left_to_skip>0) {
+				delzw_skip_bits_in_bitbuf(dc);
+				if(dc->nbits_left_to_skip>0) {
+					break;
+				}
+			}
+
+			if(dc->bitreader_nbits_in_buf < dc->curr_code_size) {
+				break;
+			}
+
 			code = delzw_get_code(dc, dc->curr_code_size);
+			dc->bitcount_for_this_group += (i64)dc->curr_code_size;
 			delzw_process_code(dc, code);
+
+			if(dc->bitreader_nbits_in_buf==0) {
+				break;
+			}
 		}
 	}
 }
