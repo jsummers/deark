@@ -13,12 +13,13 @@
 struct delzwctx_struct;
 typedef struct delzwctx_struct delzwctx;
 
-#define DELZW_CODE u16
+#define DELZW_CODE           u32 // int type used in most cases
+#define DELZW_CODE_MINRANGE  u16 // int type used for parents in table entries
 #define DELZW_MAXMAXCODESIZE 16
 #define DELZW_NBITS_TO_MAXCODE(n) ((DELZW_CODE)((1<<(n))-1))
 
 struct delzw_tableentry {
-	DELZW_CODE parent;
+	DELZW_CODE_MINRANGE parent;
 	u8 value;
 #define DELZW_CODETYPE_INVALID     0x00
 #define DELZW_CODETYPE_STATIC      0x01
@@ -36,6 +37,8 @@ typedef size_t (*delzw_cb_write_type)(delzwctx *dc, const u8 *buf, size_t size);
 struct delzwctx_struct {
 	deark *c;
 	void *userdata;
+	int debugmode;
+
 #define DELZW_BASEFMT_UNIXCOMPRESS 1
 #define DELZW_BASEFMT_ZIPSHRINK    3
 	int basefmt;
@@ -62,10 +65,10 @@ struct delzwctx_struct {
 	i64 total_nbytes_processed;
 	i64 uncmpr_nbytes_written;
 	i64 bitcount_for_this_group;
-	i64 nbits_left_to_skip;
+	i64 nbytes_left_to_skip;
 
 	unsigned int curr_code_size;
-	size_t ct_capacity;
+	DELZW_CODE ct_capacity;
 	i64 have_oldcode;
 	DELZW_CODE oldcode;
 	DELZW_CODE last_code_added;
@@ -93,7 +96,6 @@ struct delzwctx_struct {
 	u8 outbuf[DELZW_OUTBUF_SIZE];
 };
 
-#if 0
 static void delzw_dumptable(delzwctx *dc) {
 	DELZW_CODE k;
 	for(k=0; k<dc->highest_code_ever_used; k++) {
@@ -102,7 +104,6 @@ static void delzw_dumptable(delzwctx *dc) {
 			(int)dc->ct[k].value, (int)dc->ct[k].codetype, (int)dc->ct[k].flags);
 	}
 }
-#endif
 
 static void delzw_set_error(delzwctx *dc, int code, const char *msg)
 {
@@ -197,7 +198,7 @@ static void delzw_init_decompression(delzwctx *dc)
 // (This is always called, even if there is no header.)
 static void delzw_after_header(delzwctx *dc)
 {
-	size_t i;
+	DELZW_CODE i;
 
 	if(dc->basefmt==DELZW_BASEFMT_UNIXCOMPRESS) {
 		dc->mincodesize = 9;
@@ -209,7 +210,7 @@ static void delzw_after_header(delzwctx *dc)
 
 	dc->curr_code_size = dc->mincodesize;
 
-	dc->ct_capacity = ((size_t)1)<<dc->maxcodesize;
+	dc->ct_capacity = ((DELZW_CODE)1)<<dc->maxcodesize;
 	dc->ct = de_mallocarray(dc->c, dc->ct_capacity, sizeof(struct delzw_tableentry));
 	dc->valbuf_capacity = dc->ct_capacity;
 	dc->valbuf = de_malloc(dc->c, dc->valbuf_capacity);
@@ -259,10 +260,10 @@ static void delzw_process_unixcompress_header(delzwctx *dc)
 	}
 
 	options = (unsigned int)dc->header_buf[2];
-	de_dbg(dc->c, "options: 0x%02x", options);
+	de_dbg(dc->c, "lzw mode: 0x%02x", options);
 	de_dbg_indent(dc->c, 1);
 	dc->maxcodesize = (unsigned int)(options & 0x1f);
-	de_dbg(dc->c, "max code size: %u", dc->maxcodesize);
+	de_dbg(dc->c, "lzw maxbits: %u", dc->maxcodesize);
 	dc->codesize_is_dynamic = (options & 0x80) ? 1 : 0;
 	de_dbg_indent(dc->c, 1);
 
@@ -277,12 +278,20 @@ static void delzw_process_unixcompress_header(delzwctx *dc)
 
 static void delzw_process_header(delzwctx *dc)
 {
-	de_dbg(dc->c, "process_header");
+	if(dc->debugmode) {
+		de_dbg(dc->c, "[process_header]");
+	}
 	if(dc->header_type==DELZW_HEADERTYPE_3BYTE) {
 		delzw_process_unixcompress_header(dc);
 	}
 	delzw_after_header(dc);
 	dc->state = DELZW_STATE_READING_CODES;
+}
+
+static void delzw_clear_bitbuf(delzwctx *dc)
+{
+	dc->bitreader_nbits_in_buf = 0;
+	dc->bitreader_buf = 0;
 }
 
 static void delzw_add_byte_to_bitbuf(delzwctx *dc, u8 b)
@@ -304,7 +313,7 @@ static DELZW_CODE delzw_get_code(delzwctx *dc, unsigned int nbits)
 
 static void delzw_partial_clear(delzwctx *dc)
 {
-	size_t i;
+	DELZW_CODE i;
 
 	for(i=257; i<=dc->highest_code_ever_used; i++) {
 		// If this code is in use
@@ -359,6 +368,9 @@ static void delzw_emit_code(delzwctx *dc, DELZW_CODE code1)
 		if(valbuf_pos==0) {
 			// We must be in an infinite loop (probably an internal error).
 			delzw_set_error(dc, 1, "3");
+			if(dc->debugmode) {
+				delzw_dumptable(dc);
+			}
 			return;
 		}
 
@@ -389,11 +401,11 @@ static void delzw_emit_code(delzwctx *dc, DELZW_CODE code1)
 
 static void delzw_find_first_free_entry(delzwctx *dc, DELZW_CODE *pentry)
 {
-	size_t k;
+	DELZW_CODE k;
 
 	for(k=dc->free_code_search_start; k<dc->ct_capacity; k++) {
 		if(dc->ct[k].codetype==DELZW_CODETYPE_DYN_UNUSED) {
-			*pentry = k;
+			*pentry = (DELZW_CODE)k;
 			return;
 		}
 	}
@@ -402,34 +414,40 @@ static void delzw_find_first_free_entry(delzwctx *dc, DELZW_CODE *pentry)
 	delzw_set_error(dc, 1, "4");
 }
 
-// Remove up to dc->nbits_left_to_skip from the bit buffer
-static void delzw_skip_bits_in_bitbuf(delzwctx *dc)
+static void delzw_unixcompress_end_bitgroup(delzwctx *dc)
 {
-	if(dc->bitreader_nbits_in_buf <= dc->nbits_left_to_skip) {
-		unsigned int nbits = dc->bitreader_nbits_in_buf;
+	i64 nbits_left_to_skip;
 
-		dc->bitreader_nbits_in_buf = 0;
-		dc->bitreader_buf = 0;
-		dc->nbits_left_to_skip -= (i64)nbits;
+	// To the best of my understanding, this is a silly bug that somehow became part of
+	// the standard 'compress' format.
+	nbits_left_to_skip = de_pad_to_n(dc->bitcount_for_this_group, 8*(i64)dc->curr_code_size) -
+		dc->bitcount_for_this_group;
+
+	// My thinking:
+	// Each "bitgroup" has a whole number of bytes.
+	// When we get here, we've just read a code, so the bitreader's buffer can have no more than
+	// 7 bits in it.
+	// All of the bits in it will be part of the "bits to skip". After accounting for them, we'll
+	// be left with a whole number of *bytes* left to skip, which always start on a byte boundary
+	// in the input stream.
+	// So, whenever the main input loop needs to skip anything, it will be a whole byte, and the
+	// bitreader's buffer will be empty. That's good; it makes it easier to deal with this
+	// padding.
+
+	dc->bitcount_for_this_group = 0;
+	if(dc->bitreader_nbits_in_buf>7 || dc->bitreader_nbits_in_buf>nbits_left_to_skip) {
+		delzw_set_error(dc, 1, "7");
 		return;
 	}
 
-	while(dc->bitreader_nbits_in_buf>0 && dc->nbits_left_to_skip>0) {
-		// TODO: Better optimization
-		(void)delzw_get_code(dc, 1);
-		dc->nbits_left_to_skip--;
+	nbits_left_to_skip -= dc->bitreader_nbits_in_buf;
+	if(nbits_left_to_skip%8 != 0) {
+		delzw_set_error(dc, 1, "8");
+		return;
 	}
-}
 
-static void delzw_unixcompress_end_bitgroup(delzwctx *dc)
-{
-	// To the best of my understanding, this is a silly bug that somehow became part of
-	// the standard 'compress' format.
-	dc->nbits_left_to_skip = de_pad_to_n(dc->bitcount_for_this_group, 8*(i64)dc->curr_code_size) -
-		dc->bitcount_for_this_group;
-
-	dc->bitcount_for_this_group = 0;
-	delzw_skip_bits_in_bitbuf(dc);
+	delzw_clear_bitbuf(dc);
+	dc->nbytes_left_to_skip = nbits_left_to_skip/8;
 }
 
 static void delzw_increase_codesize(delzwctx *dc)
@@ -440,7 +458,9 @@ static void delzw_increase_codesize(delzwctx *dc)
 
 	if(dc->curr_code_size<dc->maxcodesize) {
 		dc->curr_code_size++;
-		de_dbg(dc->c, "[increased codesize to %u]", dc->curr_code_size);
+		if(dc->debugmode) {
+			de_dbg(dc->c, "[increased codesize to %u]", dc->curr_code_size);
+		}
 	}
 }
 
@@ -457,9 +477,16 @@ static void delzw_add_to_dict(delzwctx *dc, DELZW_CODE parent, u8 value)
 		newpos = dc->free_code_search_start;
 	}
 	if(dc->errcode) return;
-	if(newpos >= dc->ct_capacity) return;
+	if(newpos >= dc->ct_capacity) {
+		return;
+	}
 
-	dc->ct[newpos].parent = parent;
+	if(newpos < dc->first_dynamic_code) {
+		delzw_set_error(dc, 1, "6");
+		return;
+	}
+
+	dc->ct[newpos].parent = (DELZW_CODE_MINRANGE)parent;
 	dc->ct[newpos].value = value;
 	dc->ct[newpos].codetype = DELZW_CODETYPE_DYN_USED;
 	dc->last_code_added = newpos;
@@ -514,9 +541,11 @@ static void delzw_process_data_code(delzwctx *dc, DELZW_CODE code)
 
 static void delzw_clear(delzwctx *dc)
 {
-	size_t i;
+	DELZW_CODE i;
 
-	de_dbg(dc->c, "[clear]");
+	if(dc->debugmode) {
+		de_dbg(dc->c, "[clear]");
+	}
 
 	if(dc->basefmt==DELZW_BASEFMT_UNIXCOMPRESS) {
 		delzw_unixcompress_end_bitgroup(dc);
@@ -591,20 +620,17 @@ static void delzw_process_byte(delzwctx *dc, u8 b)
 		}
 	}
 	else if(dc->state==DELZW_STATE_READING_CODES) {
+		if(dc->nbytes_left_to_skip>0) {
+			dc->nbytes_left_to_skip--;
+			return;
+		}
+
 		delzw_add_byte_to_bitbuf(dc, b);
 
 		while(1) {
 			DELZW_CODE code;
 
 			if(dc->errcode) break;
-
-			if(dc->nbits_left_to_skip>0) {
-				delzw_skip_bits_in_bitbuf(dc);
-				if(dc->nbits_left_to_skip>0) {
-					break;
-				}
-			}
-
 			if(dc->bitreader_nbits_in_buf < dc->curr_code_size) {
 				break;
 			}
@@ -613,7 +639,7 @@ static void delzw_process_byte(delzwctx *dc, u8 b)
 			dc->bitcount_for_this_group += (i64)dc->curr_code_size;
 			delzw_process_code(dc, code);
 
-			if(dc->bitreader_nbits_in_buf==0) {
+			if(dc->nbytes_left_to_skip>0) {
 				break;
 			}
 		}
@@ -624,7 +650,9 @@ static void delzw_addbuf(delzwctx *dc, const u8 *buf, size_t buf_len)
 {
 	size_t i;
 
-	de_dbg(dc->c, "[read %d bytes]", (int)buf_len);
+	if(dc->debugmode) {
+		de_dbg(dc->c, "[read %d bytes]", (int)buf_len);
+	}
 	for(i=0; i<buf_len; i++) {
 		if(dc->errcode) break;
 		delzw_process_byte(dc, buf[i]);
@@ -684,6 +712,7 @@ void de_fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 	dc = delzw_create(c, (void*)&u);
 	if(!dc) goto done;
 	u.dc = dc;
+	dc->debugmode = (c->debug_level >= 2);
 	dc->cb_write = my_delzw_write;
 	if(delzwp->fmt==DE_LZWFMT_UNIXCOMPRESS) {
 		dc->basefmt = DELZW_BASEFMT_UNIXCOMPRESS;
