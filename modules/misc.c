@@ -45,6 +45,7 @@ DE_DECLARE_MODULE(de_module_compress);
 DE_DECLARE_MODULE(de_module_gws_thn);
 DE_DECLARE_MODULE(de_module_deskmate_pnt);
 DE_DECLARE_MODULE(de_module_corel_bmf);
+DE_DECLARE_MODULE(de_module_hpi);
 
 // **************************************************************************
 // "copy" module
@@ -2265,4 +2266,48 @@ void de_module_corel_bmf(deark *c, struct deark_module_info *mi)
 	mi->desc = "Corel Gallery BMF";
 	mi->run_fn = de_run_corel_bmf;
 	mi->identify_fn = de_identify_corel_bmf;
+}
+
+// **************************************************************************
+// Hemera Photo-Object image (.hpi)
+// **************************************************************************
+
+static void de_run_hpi(deark *c, de_module_params *mparams)
+{
+	i64 jpgpos, pngpos;
+	i64 jpglen, pnglen;
+	i64 pos;
+
+	pos = 12;
+	jpgpos = de_getu32le_p(&pos);
+	jpglen = de_getu32le_p(&pos);
+	de_dbg(c, "jpeg: pos=%"I64_FMT", len=%"I64_FMT, jpgpos, jpglen);
+	pngpos = de_getu32le_p(&pos);
+	pnglen = de_getu32le_p(&pos);
+	de_dbg(c, "png: pos=%"I64_FMT", len=%"I64_FMT, pngpos, pnglen);
+
+	if(jpglen>0 && jpgpos+jpglen<=c->infile->len && de_getbyte(jpgpos)==0xff) {
+		const char *ext;
+
+		if(pnglen==0) ext="jpg";
+		else ext="foreground.jpg";
+		dbuf_create_file_from_slice(c->infile, jpgpos, jpglen, ext, NULL, 0);
+	}
+	if(pnglen>0 && pngpos+pnglen<=c->infile->len && de_getbyte(pngpos)==0x89) {
+		dbuf_create_file_from_slice(c->infile, pngpos, pnglen, "mask.png", NULL, 0);
+	}
+}
+
+static int de_identify_hpi(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "\x89\x48\x50\x49\x0d\x0a\x1a\x0a", 8)) return 100;
+	return 0;
+}
+
+void de_module_hpi(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "hpi";
+	mi->desc = "Hemera Photo-Object image";
+	mi->run_fn = de_run_hpi;
+	mi->identify_fn = de_identify_hpi;
 }

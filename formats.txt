@@ -195,6 +195,10 @@ Deark -- Information about supported formats
    -opt grob:planeorder=l - For grayscale, assume the least-significant
      bitplane comes first.
 
+* Hemera Photo-Object image (module="hpi")
+  - Extracts the color components to a JPEG file, and the alpha component (if
+   present) to a PNG file.
+
 * HP 100LX / HP 200LX .ICN icon format (module="hpicn")
 
 * HR (TRS-80 High Resolution graphics file) (module="hr")
