@@ -56,6 +56,7 @@ struct delzwctx_struct {
 	unsigned int mincodesize;
 	unsigned int maxcodesize;
 	int codesize_is_dynamic;
+	int has_clear_code;
 
 #define DELZW_STATE_INIT            0
 #define DELZW_STATE_READING_HEADER  1
@@ -63,7 +64,11 @@ struct delzwctx_struct {
 	int state;
 	i64 header_size;
 	i64 total_nbytes_processed;
-	i64 uncmpr_nbytes_written;
+	i64 uncmpr_nbytes_written; // (Not including those in outbuf)
+
+	int output_len_known;
+	i64 output_expected_len;
+
 	i64 bitcount_for_this_group;
 	i64 nbytes_left_to_skip;
 
@@ -131,18 +136,24 @@ static void delzw_destroy(delzwctx *dc)
 	de_free(c, dc);
 }
 
-static void delzw_write_unbuffered(delzwctx *dc, const u8 *buf, size_t n)
+static void delzw_write_unbuffered(delzwctx *dc, const u8 *buf, size_t n1)
 {
 	size_t ret;
+	i64 n = (i64)n1;
 
 	if(dc->errcode) return;
+	if(dc->output_len_known) {
+		if(dc->uncmpr_nbytes_written + n > dc->output_expected_len) {
+			n = dc->output_expected_len - dc->uncmpr_nbytes_written;
+		}
+	}
 	if(n<1) return;
-	ret = dc->cb_write(dc, buf, n);
-	if(ret != n) {
+	ret = dc->cb_write(dc, buf, (size_t)n);
+	if(ret != (size_t)n) {
 		delzw_set_error(dc, 1, "1");
 		return;
 	}
-	dc->uncmpr_nbytes_written += (i64)n;
+	dc->uncmpr_nbytes_written += n;
 }
 
 static void delzw_flush(delzwctx *dc)
@@ -211,11 +222,11 @@ static void delzw_after_header(delzwctx *dc)
 		dc->maxcodesize = 13;
 	}
 
-	if(dc->mincodesize<9 || dc->mincodesize>16 ||
-		dc->maxcodesize<9 || dc->maxcodesize>16 ||
+	if(dc->mincodesize<9 || dc->mincodesize>DELZW_MAXMAXCODESIZE ||
+		dc->maxcodesize<9 || dc->maxcodesize>DELZW_MAXMAXCODESIZE ||
 		dc->mincodesize>dc->maxcodesize)
 	{
-		delzw_set_error(dc, 10, "");
+		delzw_set_error(dc, 1, "10");
 		return;
 	}
 
@@ -232,7 +243,7 @@ static void delzw_after_header(delzwctx *dc)
 			dc->ct[i].value = (u8)i;
 		}
 
-		if(dc->codesize_is_dynamic) {
+		if(dc->has_clear_code) {
 			dc->ct[256].codetype = DELZW_CODETYPE_CLEAR;
 			dc->first_dynamic_code = 257;
 		}
@@ -275,7 +286,7 @@ static void delzw_process_unixcompress_3byteheader(delzwctx *dc)
 	de_dbg_indent(dc->c, 1);
 	dc->maxcodesize = (unsigned int)(options & 0x1f);
 	de_dbg(dc->c, "lzw maxbits: %u", dc->maxcodesize);
-	dc->codesize_is_dynamic = (options & 0x80) ? 1 : 0;
+	dc->has_clear_code = (options & 0x80) ? 1 : 0;
 	de_dbg_indent(dc->c, -1);
 }
 
@@ -283,7 +294,7 @@ static void delzw_process_unixcompress_1byteheader(delzwctx *dc)
 {
 	dc->maxcodesize = (unsigned int)(dc->header_buf[0] & 0x1f);
 	de_dbg(dc->c, "lzw maxbits: %u", dc->maxcodesize);
-	dc->codesize_is_dynamic = 1;
+	dc->has_clear_code = 1;
 }
 
 static void delzw_process_header(delzwctx *dc)
@@ -499,11 +510,6 @@ static void delzw_add_to_dict(delzwctx *dc, DELZW_CODE parent, u8 value)
 		return;
 	}
 
-	if(newpos==parent) {
-		delzw_set_error(dc, 11, "Bad cdata");
-		return;
-	}
-
 	dc->ct[newpos].parent = (DELZW_CODE_MINRANGE)parent;
 	dc->ct[newpos].value = value;
 	dc->ct[newpos].codetype = DELZW_CODETYPE_DYN_USED;
@@ -615,6 +621,18 @@ static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 	}
 }
 
+static int delzw_have_enough_output(delzwctx *dc)
+{
+	if(dc->output_len_known) {
+		if(dc->uncmpr_nbytes_written + (i64)dc->outbuf_nbytes_used >=
+			dc->output_expected_len)
+		{
+			return 1;
+		}
+	}
+	return 0;
+}
+
 static void delzw_process_byte(delzwctx *dc, u8 b)
 {
 	if(dc->state==DELZW_STATE_INIT) {
@@ -673,6 +691,7 @@ static void delzw_addbuf(delzwctx *dc, const u8 *buf, size_t buf_len)
 	}
 	for(i=0; i<buf_len; i++) {
 		if(dc->errcode) break;
+		if(delzw_have_enough_output(dc)) return;
 		delzw_process_byte(dc, buf[i]);
 		dc->total_nbytes_processed++;
 	}
@@ -732,8 +751,13 @@ void de_fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 	u.dc = dc;
 	dc->debugmode = (c->debug_level >= 2);
 	dc->cb_write = my_delzw_write;
+	if(dcmpro->len_known) {
+		dc->output_len_known = 1;
+		dc->output_expected_len = dcmpro->expected_len;
+	}
 	if(delzwp->fmt==DE_LZWFMT_UNIXCOMPRESS) {
 		dc->basefmt = DELZW_BASEFMT_UNIXCOMPRESS;
+		dc->codesize_is_dynamic = 1;
 		if(delzwp->unixcompress_flags & DE_LIBLZWFLAG_HAS3BYTEHEADER) {
 			dc->header_type = DELZW_HEADERTYPE_3BYTE;
 		}
@@ -741,7 +765,7 @@ void de_fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 			dc->header_type = DELZW_HEADERTYPE_1BYTE;
 		}
 		else {
-			dc->codesize_is_dynamic = 1;
+			dc->has_clear_code = 1;
 			dc->maxcodesize = (delzwp->unixcompress_lzwmode & 0x1f);
 		}
 	}
