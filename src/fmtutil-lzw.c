@@ -38,6 +38,7 @@ struct delzwctx_struct {
 	deark *c;
 	void *userdata;
 	int debugmode;
+	int debug2;
 
 #define DELZW_BASEFMT_UNIXCOMPRESS 1
 #define DELZW_BASEFMT_ZIPSHRINK    3
@@ -47,6 +48,9 @@ struct delzwctx_struct {
 #define DELZW_HEADERTYPE_3BYTE 1
 #define DELZW_HEADERTYPE_1BYTE 2
 	int header_type;
+
+	int has_partial_clearing;
+	int stop_on_invalid_code;
 
 	delzw_cb_write_type cb_write;
 
@@ -83,6 +87,8 @@ struct delzwctx_struct {
 	DELZW_CODE first_dynamic_code;
 	int escaped_code_is_pending;
 
+	int stop_flag;
+
 	unsigned int bitreader_buf;
 	unsigned int bitreader_nbits_in_buf;
 
@@ -102,9 +108,9 @@ struct delzwctx_struct {
 static void delzw_dumptable(delzwctx *dc) {
 	DELZW_CODE k;
 	for(k=0; k<dc->highest_code_ever_used; k++) {
-		de_dbg(dc->c, "[%d] p=%d v=%d ty=%d f=%d",
-			(int)k, (int)dc->ct[k].parent,
-			(int)dc->ct[k].value, (int)dc->ct[k].codetype, (int)dc->ct[k].flags);
+		de_dbg(dc->c, "[%d] ty=%d p=%d v=%d f=%d",
+			(int)k, (int)dc->ct[k].codetype, (int)dc->ct[k].parent,
+			(int)dc->ct[k].value, (int)dc->ct[k].flags);
 	}
 }
 
@@ -191,6 +197,10 @@ static void delzw_write(delzwctx *dc, const u8 *buf, size_t n)
 
 static void delzw_init_decompression(delzwctx *dc)
 {
+	if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK) {
+		dc->has_partial_clearing = 1;
+	}
+
 	if(dc->header_type==DELZW_HEADERTYPE_3BYTE) {
 		dc->header_size = 3;
 	}
@@ -483,7 +493,8 @@ static void delzw_increase_codesize(delzwctx *dc)
 	if(dc->curr_code_size<dc->maxcodesize) {
 		dc->curr_code_size++;
 		if(dc->debugmode) {
-			de_dbg(dc->c, "[increased codesize to %u]", dc->curr_code_size);
+			de_dbg(dc->c, "[%d: increased codesize to %u]",
+				(int)dc->total_nbytes_processed, dc->curr_code_size);
 		}
 	}
 }
@@ -550,6 +561,18 @@ static void delzw_process_data_code(delzwctx *dc, DELZW_CODE code)
 		delzw_add_to_dict(dc, dc->oldcode, dc->last_value);
 	}
 	else {
+		if(code>dc->free_code_search_start && !dc->has_partial_clearing) {
+			if(dc->stop_on_invalid_code) {
+				de_dbg(dc->c, "bad code: %d when max=%d (assuming data stops here)",
+					(int)code, (int)dc->free_code_search_start);
+				dc->stop_flag = 1;
+				return;
+			}
+			delzw_flush(dc);
+			delzw_set_error(dc, 1, "Bad code");
+			return;
+		}
+
 		// Let k = the first char of the translation of oldcode.
 		// Add <oldcode>k to the dictionary.
 		delzw_add_to_dict(dc, dc->oldcode, dc->last_value);
@@ -560,7 +583,6 @@ static void delzw_process_data_code(delzwctx *dc, DELZW_CODE code)
 	}
 
 	dc->oldcode = code;
-
 }
 
 static void delzw_clear(delzwctx *dc)
@@ -589,6 +611,13 @@ static void delzw_clear(delzwctx *dc)
 
 static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 {
+	if(dc->debug2) {
+		de_dbg(dc->c, "%d: code=%d oc=%d lca=%d lv=%d next=%d",
+			(int)dc->total_nbytes_processed, (int)code,
+			(int)dc->oldcode, (int)dc->last_code_added, (int)dc->last_value,
+			(int)dc->free_code_search_start);
+	}
+
 	if(dc->escaped_code_is_pending) {
 		dc->escaped_code_is_pending = 0;
 		if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK) {
@@ -691,7 +720,8 @@ static void delzw_addbuf(delzwctx *dc, const u8 *buf, size_t buf_len)
 	}
 	for(i=0; i<buf_len; i++) {
 		if(dc->errcode) break;
-		if(delzw_have_enough_output(dc)) return;
+		if(dc->stop_flag) break;
+		if(delzw_have_enough_output(dc)) break;
 		delzw_process_byte(dc, buf[i]);
 		dc->total_nbytes_processed++;
 	}
@@ -750,6 +780,7 @@ void de_fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 	if(!dc) goto done;
 	u.dc = dc;
 	dc->debugmode = (c->debug_level >= 2);
+	dc->debug2 = 0;
 	dc->cb_write = my_delzw_write;
 	if(dcmpro->len_known) {
 		dc->output_len_known = 1;
@@ -767,6 +798,12 @@ void de_fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 		else {
 			dc->has_clear_code = 1;
 			dc->maxcodesize = (delzwp->unixcompress_lzwmode & 0x1f);
+		}
+
+		if((delzwp->unixcompress_flags & DE_LIBLZWFLAG_ARCFSMODE) &&
+			!dc->output_len_known)
+		{
+			dc->stop_on_invalid_code = 1;
 		}
 	}
 	else if(delzwp->fmt==DE_LZWFMT_ZIPSHRINK) {
