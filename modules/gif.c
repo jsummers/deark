@@ -49,7 +49,7 @@ struct gif_image_data {
 };
 
 static void do_record_pixel(deark *c, lctx *d, struct gif_image_data *gi, unsigned int coloridx,
-	int offset)
+	i64 offset)
 {
 	i64 pixnum;
 	i64 xi, yi;
@@ -117,6 +117,8 @@ struct lzwdeccontext {
 	struct lzw_tableentry ct[4096]; // Code table
 };
 
+static void lzw_clear(struct lzwdeccontext *lz);
+
 static int lzw_init(deark *c, struct lzwdeccontext *lz, unsigned int root_codesize)
 {
 	unsigned int i;
@@ -139,6 +141,7 @@ static int lzw_init(deark *c, struct lzwdeccontext *lz, unsigned int root_codesi
 		lz->ct[i].firstchar = (u8)i;
 	}
 
+	lzw_clear(lz);
 	return 1;
 }
 
@@ -161,7 +164,7 @@ static void lzw_emit_code(deark *c, lctx *d, struct gif_image_data *gi, struct l
 	// an LZW code are decoded in reverse order (right to left).
 
 	while(1) {
-		do_record_pixel(c, d, gi, (unsigned int)lz->ct[code].lastchar, (int)(lz->ct[code].length-1));
+		do_record_pixel(c, d, gi, (unsigned int)lz->ct[code].lastchar, (i64)(lz->ct[code].length-1));
 		if(lz->ct[code].length<=1) break;
 		// The codes are structured as a "forest" (multiple trees).
 		// Go to the parent code, which will have a length 1 less than this one.
@@ -972,7 +975,7 @@ static void do_create_interlace_map(deark *c, lctx *d, struct gif_image_data *gi
 
 // Returns nonzero if parsing can continue.
 // If an image was successfully decoded, also sets gi->img.
-static int do_image_internal(deark *c, lctx *d,
+static int do_image_internal_oldlzw(deark *c, lctx *d,
 	struct gif_image_data *gi, i64 pos1, i64 *bytesused)
 {
 	int retval = 0;
@@ -1039,9 +1042,6 @@ static int do_image_internal(deark *c, lctx *d,
 	if(!lzw_init(c, lz, lzw_min_code_size)) {
 		failure_flag = 1;
 	}
-	if(!failure_flag) {
-		lzw_clear(lz);
-	}
 
 	if(gi->interlaced && !failure_flag) {
 		do_create_interlace_map(c, d, gi);
@@ -1082,6 +1082,147 @@ done:
 	return retval;
 }
 
+// Returns nonzero if parsing can continue.
+// If an image was successfully decoded, also sets gi->img.
+static int do_image_internal_newlzw(deark *c, lctx *d,
+	struct gif_image_data *gi, i64 pos1, i64 *bytesused)
+{
+	int retval = 0;
+	i64 pos;
+	i64 n;
+	int bypp;
+	int failure_flag = 0;
+	int saved_indent_level;
+	unsigned int lzw_min_code_size;
+	// The LZW decoder's I/O model is capable of supporting GIF efficiently, but
+	// we need to do more work to make that ability accessible from here (TODO).
+	// For now, write the whole compressed image to a membuf, then decompress it
+	// to another membuf.
+	dbuf *cmpr_pixels = NULL;
+	dbuf *uncmpr_pixels = NULL;
+	i64 npixels_total;
+	struct delzw_params delzwp;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	i64 i;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	pos = pos1;
+	*bytesused = 0;
+
+	do_read_image_descriptor(c, d, gi, pos);
+	pos += 9;
+
+	if(gi->has_local_color_table) {
+		de_dbg(c, "local color table at %d", (int)pos);
+		de_dbg_indent(c, 1);
+		do_read_color_table(c, d, pos, gi->local_color_table_size, gi->local_ct);
+		de_dbg_indent(c, -1);
+		pos += 3*gi->local_color_table_size;
+	}
+
+	if(c->infile->len-pos < 1) {
+		de_err(c, "Unexpected end of file");
+		goto done;
+	}
+	de_dbg(c, "image data at %d", (int)pos);
+	de_dbg_indent(c, 1);
+	lzw_min_code_size = (unsigned int)de_getbyte(pos++);
+	de_dbg(c, "lzw min code size: %u", lzw_min_code_size);
+
+	// Using a failure_flag variable like this is ugly, but I don't like any
+	// of the other options either, short of a major redesign of this module.
+	// We have to continue to parse the image segment, even after most errors,
+	// so that we know where it ends.
+
+	if(gi->width==0 || gi->height==0) {
+		// This doesn't seem to be forbidden by the spec.
+		de_warn(c, "Image has zero size (%d"DE_CHAR_TIMES"%d)", (int)gi->width, (int)gi->height);
+		failure_flag = 1;
+	}
+	else if(!de_good_image_dimensions(c, gi->width, gi->height)) {
+		failure_flag = 1;
+	}
+
+	if(d->gce && d->gce->trns_color_idx_valid)
+		bypp = 4;
+	else
+		bypp = 3;
+
+	if(failure_flag) {
+		gi->img = de_bitmap_create(c, 1, 1, 1);
+	}
+	else {
+		gi->img = de_bitmap_create(c, gi->width, gi->height, bypp);
+	}
+
+	if(gi->interlaced && !failure_flag) {
+		do_create_interlace_map(c, d, gi);
+	}
+
+	cmpr_pixels = dbuf_create_membuf(c, 0, 0);
+	while(1) {
+		if(pos >= c->infile->len) goto done;
+		n = (i64)de_getbyte(pos);
+		if(n==0)
+			de_dbg(c, "block terminator at %d", (int)pos);
+		else
+			de_dbg2(c, "sub-block at %d, size=%d", (int)pos, (int)n);
+		pos++;
+		if(n==0) break;
+
+		if(!failure_flag) {
+			dbuf_copy(c->infile, pos, n, cmpr_pixels);
+		}
+
+		pos += n;
+	}
+
+	*bytesused = pos - pos1;
+	retval = 1;
+
+	if(failure_flag) {
+		goto done;
+	}
+	npixels_total = gi->width * gi->height;
+	uncmpr_pixels = dbuf_create_membuf(c, npixels_total, 0x1);
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	dcmpri.f = cmpr_pixels;
+	dcmpri.pos = 0;
+	dcmpri.len = cmpr_pixels->len;
+	dcmpro.f = uncmpr_pixels;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = npixels_total;
+
+	delzwp.fmt = DE_LZWFMT_GIF;
+	delzwp.gif_root_code_size = lzw_min_code_size;
+
+	de_fmtutil_decompress_lzw(c, &dcmpri, &dcmpro, &dres, &delzwp);
+
+	for(i=0; i<npixels_total && i<uncmpr_pixels->len; i++) {
+		do_record_pixel(c, d, gi,
+			dbuf_getbyte(uncmpr_pixels, i), i);
+	}
+
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
+	}
+
+	de_dbg_indent(c, -1);
+
+done:
+	if(failure_flag) {
+		de_bitmap_destroy(gi->img);
+		gi->img = NULL;
+	}
+	dbuf_close(cmpr_pixels);
+	dbuf_close(uncmpr_pixels);
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
 static int do_image(deark *c, lctx *d, i64 pos1, i64 *bytesused)
 {
 	int retval = 0;
@@ -1091,7 +1232,22 @@ static int do_image(deark *c, lctx *d, i64 pos1, i64 *bytesused)
 
 	de_dbg_indent(c, 1);
 	gi = de_malloc(c, sizeof(struct gif_image_data));
-	retval = do_image_internal(c, d, gi, pos1, bytesused);
+
+	if(c->lzwcodec==0) {
+		if(de_get_ext_option(c, "newlzw")) {
+			c->lzwcodec = 2;
+		}
+		else {
+			c->lzwcodec = 1;
+		}
+	}
+	if(c->lzwcodec==2) {
+		retval = do_image_internal_newlzw(c, d, gi, pos1, bytesused);
+	}
+	else {
+		retval = do_image_internal_oldlzw(c, d, gi, pos1, bytesused);
+	}
+
 	if(!retval) goto done;
 	if(d->bad_screen_flag || !gi->img) {
 		de_warn(c, "Skipping image due to errors");

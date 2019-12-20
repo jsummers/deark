@@ -123,6 +123,7 @@ struct delzw_params {
 	enum lzwfmt_enum fmt;
 	unsigned int unixcompress_flags;
 	u8 unixcompress_lzwmode;
+	unsigned int gif_root_code_size;
 };
 void de_fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
