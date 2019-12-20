@@ -15,8 +15,10 @@ typedef struct delzwctx_struct delzwctx;
 
 #define DELZW_CODE           u32 // int type used in most cases
 #define DELZW_CODE_MINRANGE  u16 // int type used for parents in table entries
+#define DELZW_MINMINCODESIZE 3
 #define DELZW_MAXMAXCODESIZE 16
 #define DELZW_NBITS_TO_MAXCODE(n) ((DELZW_CODE)((1<<(n))-1))
+#define DELZW_NBITS_TO_NCODES(n) ((DELZW_CODE)(1<<(n)))
 
 struct delzw_tableentry {
 	DELZW_CODE_MINRANGE parent;
@@ -43,6 +45,7 @@ struct delzwctx_struct {
 	delzw_cb_debugmsg_type cb_debugmsg;
 
 #define DELZW_BASEFMT_UNIXCOMPRESS 1
+#define DELZW_BASEFMT_GIF          2
 #define DELZW_BASEFMT_ZIPSHRINK    3
 	int basefmt;
 
@@ -54,10 +57,11 @@ struct delzwctx_struct {
 	i64 header_size;
 	int has_partial_clearing;
 	int stop_on_invalid_code;
-	int codesize_is_dynamic;
-	int has_clear_code;
+	int codesize_is_dynamic; // Auto-increase code size
+	int has_clear_code; // Used by UnixCompress format
 	unsigned int mincodesize;
 	unsigned int maxcodesize;
+	unsigned gif_root_code_size;
 
 	int output_len_known;
 	i64 output_expected_len;
@@ -589,6 +593,10 @@ static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 	case DELZW_CODETYPE_CLEAR:
 		delzw_clear(dc);
 		break;
+	case DELZW_CODETYPE_STOP:
+		delzw_debugmsg(dc, 2, "stop");
+		dc->stop_flag = 1;
+		break;
 	case DELZW_CODETYPE_SPECIAL:
 		if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK && code==256) {
 			dc->escaped_code_is_pending = 1;
@@ -600,9 +608,10 @@ static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 static void delzw_on_decompression_start(delzwctx *dc)
 {
 	if(dc->basefmt!=DELZW_BASEFMT_ZIPSHRINK &&
+		dc->basefmt!=DELZW_BASEFMT_GIF &&
 		dc->basefmt!=DELZW_BASEFMT_UNIXCOMPRESS)
 	{
-		delzw_set_error(dc, DELZW_ERRCODE_UNSUPPORTED_OPTION, NULL);
+		delzw_set_error(dc, DELZW_ERRCODE_UNSUPPORTED_OPTION, "Unsupported LZW format");
 		goto done;
 	}
 
@@ -647,13 +656,18 @@ static void delzw_on_codes_start(delzwctx *dc)
 	if(dc->basefmt==DELZW_BASEFMT_UNIXCOMPRESS) {
 		dc->mincodesize = 9;
 	}
+	else if(dc->basefmt==DELZW_BASEFMT_GIF) {
+		dc->codesize_is_dynamic = 1;
+		dc->mincodesize = dc->gif_root_code_size + 1;
+		dc->maxcodesize = 12;
+	}
 	else if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK) {
 		dc->mincodesize = 9;
 		dc->maxcodesize = 13;
 	}
 
-	if(dc->mincodesize<9 || dc->mincodesize>DELZW_MAXMAXCODESIZE ||
-		dc->maxcodesize<9 || dc->maxcodesize>DELZW_MAXMAXCODESIZE ||
+	if(dc->mincodesize<DELZW_MINMINCODESIZE || dc->mincodesize>DELZW_MAXMAXCODESIZE ||
+		dc->maxcodesize<DELZW_MINMINCODESIZE || dc->maxcodesize>DELZW_MAXMAXCODESIZE ||
 		dc->mincodesize>dc->maxcodesize)
 	{
 		delzw_set_errorf(dc, DELZW_ERRCODE_UNSUPPORTED_OPTION, "Unsupported code size (%u,%u)",
@@ -687,12 +701,24 @@ static void delzw_on_codes_start(delzwctx *dc)
 		for(i=dc->first_dynamic_code; i<dc->ct_capacity; i++) {
 			dc->ct[i].codetype = DELZW_CODETYPE_DYN_UNUSED;
 		}
+	}
+	else if(dc->basefmt==DELZW_BASEFMT_GIF) {
+		DELZW_CODE n = DELZW_NBITS_TO_NCODES(dc->gif_root_code_size);
 
-		dc->free_code_search_start = dc->first_dynamic_code;
+		for(i=0; i<n; i++) {
+			dc->ct[i].codetype = DELZW_CODETYPE_STATIC;
+			dc->ct[i].value = (n<=255)?((u8)i):0;
+		}
+		dc->ct[n].codetype = DELZW_CODETYPE_CLEAR;
+		dc->ct[n+1].codetype = DELZW_CODETYPE_STOP;
+		dc->first_dynamic_code = n+2;
+
+		for(i=dc->first_dynamic_code; i<dc->ct_capacity; i++) {
+			dc->ct[i].codetype = DELZW_CODETYPE_DYN_UNUSED;
+		}
 	}
 	else if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK) {
 		dc->first_dynamic_code = 257;
-		dc->free_code_search_start = 257;
 
 		for(i=0; i<256; i++) {
 			dc->ct[i].codetype = DELZW_CODETYPE_STATIC;
@@ -703,6 +729,8 @@ static void delzw_on_codes_start(delzwctx *dc)
 			dc->ct[i].codetype = DELZW_CODETYPE_DYN_UNUSED;
 		}
 	}
+
+	dc->free_code_search_start = dc->first_dynamic_code;
 
 done:
 	;
@@ -758,6 +786,9 @@ static void delzw_process_byte(delzwctx *dc, u8 b)
 			dc->bitcount_for_this_group += (i64)dc->curr_code_size;
 			delzw_process_code(dc, code);
 
+			if(dc->stop_flag) {
+				break;
+			}
 			if(dc->nbytes_left_to_skip>0) {
 				break;
 			}
@@ -866,6 +897,10 @@ void de_fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 	}
 	else if(delzwp->fmt==DE_LZWFMT_ZIPSHRINK) {
 		dc->basefmt = DELZW_BASEFMT_ZIPSHRINK;
+	}
+	else if(delzwp->fmt==DE_LZWFMT_GIF) {
+		dc->basefmt = DELZW_BASEFMT_GIF;
+		dc->gif_root_code_size = delzwp->gif_root_code_size;
 	}
 
 	dbuf_buffered_read(dcmpri->f, dcmpri->pos, dcmpri->len,
