@@ -34,7 +34,15 @@ struct delzw_tableentry {
 	u8 flags;
 };
 
-typedef size_t (*delzw_cb_write_type)(delzwctx *dc, const u8 *buf, size_t size);
+// Normally, the client must consume all the bytes in 'buf', and return 'size'.
+// The other options are:
+// - Set *outflags to 1, and return a number <='size'. This indicates that
+// that decompression can stop; the client has all the data it needs.
+// - Return a number !='size'. This is interpreted as a write error, and
+// decompression will stop.
+typedef size_t (*delzw_cb_write_type)(delzwctx *dc, const u8 *buf, size_t size,
+	unsigned int *outflags);
+
 typedef void (*delzw_cb_debugmsg_type)(delzwctx *dc, int level, const char *msg);
 
 struct delzwctx_struct {
@@ -79,6 +87,7 @@ struct delzwctx_struct {
 #define DELZW_STATE_INIT            0
 #define DELZW_STATE_READING_HEADER  1
 #define DELZW_STATE_READING_CODES   2
+#define DELZW_STATE_FINISHED        3
 	int state;
 	i64 total_nbytes_processed;
 	i64 uncmpr_nbytes_written; // (Not including those in outbuf)
@@ -97,7 +106,6 @@ struct delzwctx_struct {
 	DELZW_CODE free_code_search_start;
 	DELZW_CODE first_dynamic_code;
 	int escaped_code_is_pending;
-	int stop_flag;
 
 	unsigned int bitreader_buf;
 	unsigned int bitreader_nbits_in_buf;
@@ -142,6 +150,13 @@ static void delzw_dumptable(delzwctx *dc)
 	}
 }
 
+static void delzw_stop(delzwctx *dc, const char *reason)
+{
+	if(dc->state == DELZW_STATE_FINISHED) return;
+	delzw_debugmsg(dc, 2, "stopping due to %s", reason);
+	dc->state = DELZW_STATE_FINISHED;
+}
+
 static void delzw_set_errorf(delzwctx *dc, int errcode, const char *fmt, ...)
 	de_gnuc_attribute ((format (printf, 3, 4)));
 
@@ -149,6 +164,7 @@ static void delzw_set_errorf(delzwctx *dc, int errcode, const char *fmt, ...)
 {
 	va_list ap;
 
+	delzw_stop(dc, "error");
 	if(dc->errcode) return;
 	dc->errcode = errcode;
 	va_start(ap, fmt);
@@ -158,6 +174,7 @@ static void delzw_set_errorf(delzwctx *dc, int errcode, const char *fmt, ...)
 
 static void delzw_set_error(delzwctx *dc, int errcode, const char *msg)
 {
+	delzw_stop(dc, "error");
 	if(dc->errcode) return;
 	dc->errcode = errcode;
 	if(!msg || !msg[0]) {
@@ -189,7 +206,8 @@ static void delzw_destroy(delzwctx *dc)
 
 static void delzw_write_unbuffered(delzwctx *dc, const u8 *buf, size_t n1)
 {
-	size_t ret;
+	i64 nbytes_written;
+	unsigned int outflags = 0;
 	i64 n = (i64)n1;
 
 	if(dc->errcode) return;
@@ -199,17 +217,20 @@ static void delzw_write_unbuffered(delzwctx *dc, const u8 *buf, size_t n1)
 		}
 	}
 	if(n<1) return;
-	ret = dc->cb_write(dc, buf, (size_t)n);
-	if(ret != (size_t)n) {
+	nbytes_written = (i64)dc->cb_write(dc, buf, (size_t)n, &outflags);
+	if((outflags & 0x1) && (nbytes_written<=n)) {
+		delzw_stop(dc, "client request");
+	}
+	else if(nbytes_written != n) {
 		delzw_set_error(dc, DELZW_ERRCODE_WRITE_FAILED, "Write failed");
 		return;
 	}
-	dc->uncmpr_nbytes_written += n;
+	dc->uncmpr_nbytes_written += (i64)nbytes_written;
 }
 
 static void delzw_flush(delzwctx *dc)
 {
-	if(dc->errcode) return;
+	if(dc->outbuf_nbytes_used<1) return;
 	delzw_write_unbuffered(dc, dc->outbuf, dc->outbuf_nbytes_used);
 	dc->outbuf_nbytes_used = 0;
 }
@@ -473,10 +494,9 @@ static void delzw_process_data_code(delzwctx *dc, DELZW_CODE code)
 			if(dc->stop_on_invalid_code) {
 				delzw_debugmsg(dc, 1, "bad code: %d when max=%d (assuming data stops here)",
 					(int)code, (int)dc->free_code_search_start);
-				dc->stop_flag = 1;
+				delzw_stop(dc, "bad LZW code");
 				return;
 			}
-			delzw_flush(dc);
 			delzw_set_errorf(dc, DELZW_ERRCODE_BAD_CDATA, "Bad LZW code (%d when max=%d)",
 				(int)code, (int)dc->free_code_search_start);
 			return;
@@ -594,8 +614,8 @@ static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 		delzw_clear(dc);
 		break;
 	case DELZW_CODETYPE_STOP:
-		delzw_debugmsg(dc, 2, "stop");
-		dc->stop_flag = 1;
+		// Presumably the GIF "End of Information" code.
+		delzw_stop(dc, "EOI code");
 		break;
 	case DELZW_CODETYPE_SPECIAL:
 		if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK && code==256) {
@@ -786,7 +806,7 @@ static void delzw_process_byte(delzwctx *dc, u8 b)
 			dc->bitcount_for_this_group += (i64)dc->curr_code_size;
 			delzw_process_code(dc, code);
 
-			if(dc->stop_flag) {
+			if(dc->state != DELZW_STATE_READING_CODES) {
 				break;
 			}
 			if(dc->nbytes_left_to_skip>0) {
@@ -806,8 +826,11 @@ static void delzw_addbuf(delzwctx *dc, const u8 *buf, size_t buf_len)
 
 	for(i=0; i<buf_len; i++) {
 		if(dc->errcode) break;
-		if(dc->stop_flag) break;
-		if(delzw_have_enough_output(dc)) break;
+		if(dc->state == DELZW_STATE_FINISHED) break;
+		if(delzw_have_enough_output(dc)) {
+			delzw_stop(dc, "sufficient output");
+			break;
+		}
 		delzw_process_byte(dc, buf[i]);
 		dc->total_nbytes_processed++;
 	}
@@ -815,8 +838,18 @@ static void delzw_addbuf(delzwctx *dc, const u8 *buf, size_t buf_len)
 
 static void delzw_finish(delzwctx *dc)
 {
-	if(dc->errcode) return;
+	const char *reason;
+
 	delzw_flush(dc);
+
+	if(dc->output_len_known && (dc->uncmpr_nbytes_decoded==dc->output_expected_len)) {
+		reason = "end of input and sufficient output";
+	}
+	else {
+		reason = "end of input";
+	}
+
+	delzw_stop(dc, reason);
 }
 
 ///////////////////////////////////////////////////
@@ -835,7 +868,8 @@ static void my_delzw_debugmsg(delzwctx *dc, int level, const char *msg)
 		(i64)dc->total_nbytes_processed, (i64)dc->uncmpr_nbytes_decoded, msg);
 }
 
-static size_t my_delzw_write(delzwctx *dc, const u8 *buf, size_t buf_len)
+static size_t my_delzw_write(delzwctx *dc, const u8 *buf, size_t buf_len,
+	unsigned int *outflags)
 {
 	struct my_delzw_userdata *u = (struct my_delzw_userdata*)dc->userdata;
 
