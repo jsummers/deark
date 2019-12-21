@@ -1082,6 +1082,18 @@ done:
 	return retval;
 }
 
+struct my_giflzw_userdata {
+	dbuf *outf;
+};
+
+static i64 my_giflzw_write_cb(struct de_dfilter_ctx *dfctx, void *userdata,
+	const u8 *buf, i64 size)
+{
+	struct my_giflzw_userdata *u = (struct my_giflzw_userdata*)userdata;
+	dbuf_write(u->outf, buf, size);
+	return size;
+}
+
 // Returns nonzero if parsing can continue.
 // If an image was successfully decoded, also sets gi->img.
 static int do_image_internal_newlzw(deark *c, lctx *d,
@@ -1094,17 +1106,13 @@ static int do_image_internal_newlzw(deark *c, lctx *d,
 	int failure_flag = 0;
 	int saved_indent_level;
 	unsigned int lzw_min_code_size;
-	// The LZW decoder's I/O model is capable of supporting GIF efficiently, but
-	// we need to do more work to make that ability accessible from here (TODO).
-	// For now, write the whole compressed image to a membuf, then decompress it
-	// to another membuf.
-	dbuf *cmpr_pixels = NULL;
+	// TODO: Write decompressed pixels directly to the bitmap, instead of to a temp dbuf.
 	dbuf *uncmpr_pixels = NULL;
 	i64 npixels_total;
+	struct de_dfilter_ctx *dfctx = NULL;
 	struct delzw_params delzwp;
-	struct de_dfilter_in_params dcmpri;
-	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
+	struct my_giflzw_userdata u;
 	i64 i;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -1161,7 +1169,19 @@ static int do_image_internal_newlzw(deark *c, lctx *d,
 		do_create_interlace_map(c, d, gi);
 	}
 
-	cmpr_pixels = dbuf_create_membuf(c, 0, 0);
+	npixels_total = gi->width * gi->height;
+	uncmpr_pixels = dbuf_create_membuf(c, npixels_total, 0x1);
+
+	de_dfilter_init_objects(c, NULL, NULL, &dres);
+	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	de_zeromem(&u, sizeof(struct my_giflzw_userdata));
+	u.outf = uncmpr_pixels;
+	delzwp.fmt = DE_LZWFMT_GIF;
+	delzwp.gif_root_code_size = lzw_min_code_size;
+
+	dfctx = de_dfilter_create_delzw(c, &delzwp, my_giflzw_write_cb, (void*)&u,
+		1, npixels_total, &dres);
+
 	while(1) {
 		if(pos >= c->infile->len) goto done;
 		n = (i64)de_getbyte(pos);
@@ -1173,7 +1193,10 @@ static int do_image_internal_newlzw(deark *c, lctx *d,
 		if(n==0) break;
 
 		if(!failure_flag) {
-			dbuf_copy(c->infile, pos, n, cmpr_pixels);
+			u8 buf[255];
+
+			de_read(buf, pos, n);
+			de_dfilter_addbuf(dfctx, buf, n);
 		}
 
 		pos += n;
@@ -1185,40 +1208,26 @@ static int do_image_internal_newlzw(deark *c, lctx *d,
 	if(failure_flag) {
 		goto done;
 	}
-	npixels_total = gi->width * gi->height;
-	uncmpr_pixels = dbuf_create_membuf(c, npixels_total, 0x1);
-	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
-	de_zeromem(&delzwp, sizeof(struct delzw_params));
-	dcmpri.f = cmpr_pixels;
-	dcmpri.pos = 0;
-	dcmpri.len = cmpr_pixels->len;
-	dcmpro.f = uncmpr_pixels;
-	dcmpro.len_known = 1;
-	dcmpro.expected_len = npixels_total;
 
-	delzwp.fmt = DE_LZWFMT_GIF;
-	delzwp.gif_root_code_size = lzw_min_code_size;
+	de_dfilter_finish(dfctx);
 
-	de_fmtutil_decompress_lzw(c, &dcmpri, &dcmpro, &dres, &delzwp);
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
 
 	for(i=0; i<npixels_total && i<uncmpr_pixels->len; i++) {
 		do_record_pixel(c, d, gi,
 			dbuf_getbyte(uncmpr_pixels, i), i);
 	}
 
-	if(dres.errcode) {
-		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
-	}
-
-	de_dbg_indent(c, -1);
-
 done:
 	if(failure_flag) {
 		de_bitmap_destroy(gi->img);
 		gi->img = NULL;
 	}
-	dbuf_close(cmpr_pixels);
 	dbuf_close(uncmpr_pixels);
+	de_dfilter_destroy(dfctx);
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }

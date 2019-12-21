@@ -727,7 +727,7 @@ static void delzw_on_codes_start(delzwctx *dc)
 
 		for(i=0; i<n; i++) {
 			dc->ct[i].codetype = DELZW_CODETYPE_STATIC;
-			dc->ct[i].value = (n<=255)?((u8)i):0;
+			dc->ct[i].value = (i<=255)?((u8)i):0;
 		}
 		dc->ct[n].codetype = DELZW_CODETYPE_CLEAR;
 		dc->ct[n+1].codetype = DELZW_CODETYPE_STOP;
@@ -887,28 +887,10 @@ static int my_delzw_buffered_read_cbfn(struct de_bufferedreadctx *brctx, const u
 	return 1;
 }
 
-void de_fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	struct delzw_params *delzwp)
+static void setup_delzw_common(deark *c, delzwctx *dc, struct delzw_params *delzwp)
 {
-	delzwctx *dc = NULL;
-	const char *modname = "delzw";
-	struct my_delzw_userdata u;
-
-	de_zeromem(&u, sizeof(struct my_delzw_userdata));
-	u.c = c;
-	u.outf = dcmpro->f;
-
-	dc = delzw_create(c, (void*)&u);
-	if(!dc) goto done;
-	u.dc = dc;
 	dc->debug_level = c->debug_level;
-	dc->cb_debugmsg = my_delzw_debugmsg;
-	dc->cb_write = my_delzw_write;
-	if(dcmpro->len_known) {
-		dc->output_len_known = 1;
-		dc->output_expected_len = dcmpro->expected_len;
-	}
+
 	if(delzwp->fmt==DE_LZWFMT_UNIXCOMPRESS) {
 		dc->basefmt = DELZW_BASEFMT_UNIXCOMPRESS;
 		dc->codesize_is_dynamic = 1;
@@ -936,6 +918,30 @@ void de_fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 		dc->basefmt = DELZW_BASEFMT_GIF;
 		dc->gif_root_code_size = delzwp->gif_root_code_size;
 	}
+}
+
+void de_fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	struct delzw_params *delzwp)
+{
+	delzwctx *dc = NULL;
+	const char *modname = "delzw";
+	struct my_delzw_userdata u;
+
+	de_zeromem(&u, sizeof(struct my_delzw_userdata));
+	u.c = c;
+	u.outf = dcmpro->f;
+
+	dc = delzw_create(c, (void*)&u);
+	if(!dc) goto done;
+	u.dc = dc;
+	dc->cb_write = my_delzw_write;
+	dc->cb_debugmsg = my_delzw_debugmsg;
+	if(dcmpro->len_known) {
+		dc->output_len_known = 1;
+		dc->output_expected_len = dcmpro->expected_len;
+	}
+	setup_delzw_common(c, dc, delzwp);
 
 	dbuf_buffered_read(dcmpri->f, dcmpri->pos, dcmpri->len,
 		my_delzw_buffered_read_cbfn, (void*)&u);
@@ -948,4 +954,97 @@ void de_fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 
 done:
 	delzw_destroy(dc);
+}
+
+// This is a decompression API that uses a "push" input model. The client
+// sends data to the codec as the data becomes available.
+// (The client must still be able to consume any amount of output data
+// immediately.)
+// This model makes it easier to chain multiple codecs together, and to handle
+// input data that is not contiguous.
+// TODO: Make this more generic, instead of LZW-specific.
+
+struct de_dfilter_ctx {
+	deark *c;
+	struct de_dfilter_results *dres;
+
+	delzwctx *dc;
+	void *orig_userdata;
+	de_dfilter_cb_write_type orig_cb_write;
+};
+
+static size_t wrapped_dfctx_write_cb(delzwctx *dc, const u8 *buf, size_t size,
+	unsigned int *outflags)
+{
+	struct de_dfilter_ctx *dfctx = (struct de_dfilter_ctx*)dc->userdata;
+	i64 ret;
+
+	ret = dfctx->orig_cb_write(dfctx, dfctx->orig_userdata, buf, (i64)size);
+	return (size_t)ret;
+}
+
+static void wrapped_dfctx_debugmsg(delzwctx *dc, int level, const char *msg)
+{
+	struct de_dfilter_ctx *dfctx = (struct de_dfilter_ctx*)dc->userdata;
+
+	de_dbg(dfctx->c, "[i%"I64_FMT"/o%"I64_FMT"] %s",
+		(i64)dc->total_nbytes_processed, (i64)dc->uncmpr_nbytes_decoded, msg);
+}
+
+struct de_dfilter_ctx *de_dfilter_create_delzw(deark *c, struct delzw_params *delzwp,
+	de_dfilter_cb_write_type cb_write, void *userdata,
+	int output_len_known, i64 output_expected_len, struct de_dfilter_results *dres)
+{
+	struct de_dfilter_ctx *dfctx = NULL;
+	delzwctx *dc = NULL;
+
+	dfctx = de_malloc(c, sizeof(struct de_dfilter_ctx));
+	dfctx->c = c;
+	dfctx->dres = dres;
+	dfctx->orig_userdata = userdata;
+	dfctx->orig_cb_write = cb_write;
+
+	dc = delzw_create(c, (void*)dfctx);
+	if(!dc) goto done;
+	dfctx->dc = dc;
+
+	dc->cb_write = wrapped_dfctx_write_cb;
+	dc->cb_debugmsg = wrapped_dfctx_debugmsg;
+	dc->output_len_known = output_len_known;
+	dc->output_expected_len = output_expected_len;
+
+	setup_delzw_common(c, dc, delzwp);
+
+done:
+	return dfctx;
+}
+
+void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
+	const u8 *buf, i64 buf_len)
+{
+	if(!dfctx->dc) return;
+	delzw_addbuf(dfctx->dc, buf, (size_t)buf_len);
+}
+
+void de_dfilter_finish(struct de_dfilter_ctx *dfctx)
+{
+	const char *modname = "delzw";
+	if(!dfctx->dc) return;
+
+	delzw_finish(dfctx->dc);
+
+	if(dfctx->dc->errcode) {
+		de_dfilter_set_errorf(dfctx->c, dfctx->dres, modname, "%s", dfctx->dc->errmsg);
+	}
+}
+
+void de_dfilter_destroy(struct de_dfilter_ctx *dfctx)
+{
+	deark *c;
+
+	if(!dfctx) return;
+	c = dfctx->c;
+
+	delzw_destroy(dfctx->dc);
+	de_free(c, dfctx);
 }
