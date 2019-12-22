@@ -2030,11 +2030,23 @@ void de_module_cdr_wl(deark *c, struct deark_module_info *mi)
 
 static void de_run_compress(deark *c, de_module_params *mparams)
 {
+	struct de_dfilter_results dres;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
 	dbuf *f = NULL;
 
 	f = dbuf_create_output_file(c, "bin", NULL, 0);
-	de_fmtutil_decompress_liblzw(c->infile, 0, c->infile->len, f, 0, 0,
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = 0;
+	dcmpri.len = c->infile->len;
+	dcmpro.f = f;
+	dcmpro.len_known = 0;
+	de_fmtutil_decompress_liblzw_ex(c, &dcmpri, &dcmpro, &dres,
 		DE_LIBLZWFLAG_HAS3BYTEHEADER, 0);
+	if(dres.errcode!=0) {
+		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
+	}
 	dbuf_close(f);
 }
 

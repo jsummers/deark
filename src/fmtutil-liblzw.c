@@ -147,28 +147,3 @@ void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmp
 	delzwp.unixcompress_lzwmode = lzwmode;
 	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
-
-// Old API, semi-deprecated
-int de_fmtutil_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
-	dbuf *outf, unsigned int has_maxlen, i64 max_out_len,
-	unsigned int flags, u8 lzwmode)
-{
-	struct de_dfilter_results dres;
-	struct de_dfilter_in_params dcmpri;
-	struct de_dfilter_out_params dcmpro;
-	deark *c = inf1->c;
-
-	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
-	dcmpri.f = c->infile;
-	dcmpri.pos = pos1;
-	dcmpri.len = len;
-	dcmpro.f = outf;
-	dcmpro.len_known = (u8)has_maxlen;
-	dcmpro.expected_len = max_out_len;
-	de_fmtutil_decompress_liblzw_ex(c, &dcmpri, &dcmpro, &dres, flags, lzwmode);
-	if(dres.errcode!=0) {
-		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
-		return 0;
-	}
-	return 1;
-}
