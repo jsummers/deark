@@ -145,7 +145,7 @@ static int lzd_check_nbits(struct lzdctx *lc)
 *F  DecodeLzd() . . . . . . . . . . . . . . .  extract a LZ compressed member
 **
 */
-void de_fmtutil_decompress_zoo_lzd(deark *c, struct de_dfilter_in_params *dcmpri,
+static void de_fmtutil_decompress_zoo_lzd_internal(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, int maxbits)
 {
 	struct lzdctx *lc = NULL;

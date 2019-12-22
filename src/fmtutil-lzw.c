@@ -55,6 +55,7 @@ struct delzwctx_struct {
 #define DELZW_BASEFMT_UNIXCOMPRESS 1
 #define DELZW_BASEFMT_GIF          2
 #define DELZW_BASEFMT_ZIPSHRINK    3
+#define DELZW_BASEFMT_ZOOLZD       4
 	int basefmt;
 
 #define DELZW_HEADERTYPE_NONE  0
@@ -614,8 +615,7 @@ static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 		delzw_clear(dc);
 		break;
 	case DELZW_CODETYPE_STOP:
-		// Presumably the GIF "End of Information" code.
-		delzw_stop(dc, "EOI code");
+		delzw_stop(dc, "stop code");
 		break;
 	case DELZW_CODETYPE_SPECIAL:
 		if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK && code==256) {
@@ -629,7 +629,8 @@ static void delzw_on_decompression_start(delzwctx *dc)
 {
 	if(dc->basefmt!=DELZW_BASEFMT_ZIPSHRINK &&
 		dc->basefmt!=DELZW_BASEFMT_GIF &&
-		dc->basefmt!=DELZW_BASEFMT_UNIXCOMPRESS)
+		dc->basefmt!=DELZW_BASEFMT_UNIXCOMPRESS &&
+		dc->basefmt!=DELZW_BASEFMT_ZOOLZD)
 	{
 		delzw_set_error(dc, DELZW_ERRCODE_UNSUPPORTED_OPTION, "Unsupported LZW format");
 		goto done;
@@ -685,6 +686,12 @@ static void delzw_on_codes_start(delzwctx *dc)
 		dc->mincodesize = 9;
 		dc->maxcodesize = 13;
 	}
+	else if(dc->basefmt==DELZW_BASEFMT_ZOOLZD) {
+		dc->mincodesize = 9;
+		if(dc->maxcodesize==0) {
+			dc->maxcodesize = 13;
+		}
+	}
 
 	if(dc->mincodesize<DELZW_MINMINCODESIZE || dc->mincodesize>DELZW_MAXMAXCODESIZE ||
 		dc->maxcodesize<DELZW_MINMINCODESIZE || dc->maxcodesize>DELZW_MAXMAXCODESIZE ||
@@ -717,10 +724,6 @@ static void delzw_on_codes_start(delzwctx *dc)
 		else {
 			dc->first_dynamic_code = 256;
 		}
-
-		for(i=dc->first_dynamic_code; i<dc->ct_capacity; i++) {
-			dc->ct[i].codetype = DELZW_CODETYPE_DYN_UNUSED;
-		}
 	}
 	else if(dc->basefmt==DELZW_BASEFMT_GIF) {
 		DELZW_CODE n = DELZW_NBITS_TO_NCODES(dc->gif_root_code_size);
@@ -732,10 +735,6 @@ static void delzw_on_codes_start(delzwctx *dc)
 		dc->ct[n].codetype = DELZW_CODETYPE_CLEAR;
 		dc->ct[n+1].codetype = DELZW_CODETYPE_STOP;
 		dc->first_dynamic_code = n+2;
-
-		for(i=dc->first_dynamic_code; i<dc->ct_capacity; i++) {
-			dc->ct[i].codetype = DELZW_CODETYPE_DYN_UNUSED;
-		}
 	}
 	else if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK) {
 		dc->first_dynamic_code = 257;
@@ -745,9 +744,19 @@ static void delzw_on_codes_start(delzwctx *dc)
 			dc->ct[i].value = (u8)i;
 		}
 		dc->ct[256].codetype = DELZW_CODETYPE_SPECIAL;
-		for(i=dc->first_dynamic_code; i<dc->ct_capacity; i++) {
-			dc->ct[i].codetype = DELZW_CODETYPE_DYN_UNUSED;
+	}
+	else if(dc->basefmt==DELZW_BASEFMT_ZOOLZD) {
+		for(i=0; i<256; i++) {
+			dc->ct[i].codetype = DELZW_CODETYPE_STATIC;
+			dc->ct[i].value = (u8)i;
 		}
+		dc->ct[256].codetype = DELZW_CODETYPE_CLEAR;
+		dc->ct[257].codetype = DELZW_CODETYPE_STOP;
+		dc->first_dynamic_code = 258;
+	}
+
+	for(i=dc->first_dynamic_code; i<dc->ct_capacity; i++) {
+		dc->ct[i].codetype = DELZW_CODETYPE_DYN_UNUSED;
 	}
 
 	dc->free_code_search_start = dc->first_dynamic_code;
@@ -883,7 +892,7 @@ static int my_delzw_buffered_read_cbfn(struct de_bufferedreadctx *brctx, const u
 	struct my_delzw_userdata *u = (struct my_delzw_userdata*)brctx->userdata;
 
 	delzw_addbuf(u->dc, buf, (size_t)buf_len);
-	if(u->dc->errcode) return 0;
+	if(u->dc->state == DELZW_STATE_FINISHED) return 0;
 	return 1;
 }
 
@@ -917,6 +926,11 @@ static void setup_delzw_common(deark *c, delzwctx *dc, struct delzw_params *delz
 	else if(delzwp->fmt==DE_LZWFMT_GIF) {
 		dc->basefmt = DELZW_BASEFMT_GIF;
 		dc->gif_root_code_size = delzwp->gif_root_code_size;
+	}
+	else if(delzwp->fmt==DE_LZWFMT_ZOOLZD) {
+		dc->basefmt = DELZW_BASEFMT_ZOOLZD;
+		dc->codesize_is_dynamic = 1;
+		dc->maxcodesize = delzwp->max_code_size;
 	}
 }
 
