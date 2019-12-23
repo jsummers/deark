@@ -272,9 +272,9 @@ done:
 	return retval;
 }
 
-static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
+static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
 {
-	struct de_crcobj *crco = (struct de_crcobj*)f->userdata;
+	struct de_crcobj *crco = (struct de_crcobj*)userdata;
 	de_crcobj_addbuf(crco, buf, buf_len);
 }
 
@@ -308,8 +308,7 @@ static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
 
-	outf->writecallback_fn = our_writecallback;
-	outf->userdata = (void*)d->crco;
+	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
 	de_crcobj_reset(d->crco);
 
 	dcmpri = de_malloc(c, sizeof(struct de_dfilter_in_params));

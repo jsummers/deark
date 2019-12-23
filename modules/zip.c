@@ -867,9 +867,9 @@ static void do_extra_data(deark *c, lctx *d,
 	de_dbg_indent(c, -1);
 }
 
-static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
+static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
 {
-	struct member_data *md = (struct member_data *)f->userdata;
+	struct member_data *md = (struct member_data *)userdata;
 	de_crcobj_addbuf(md->crco, buf, buf_len);
 }
 
@@ -935,9 +935,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		goto done;
 	}
 
-	outf->writecallback_fn = our_writecallback;
-	outf->userdata = (void*)md;
-
+	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)md);
 	md->crco = d->crco;
 	de_crcobj_reset(md->crco);
 

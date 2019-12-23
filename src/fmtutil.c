@@ -1574,8 +1574,8 @@ static void de_advfile_run_rawfiles(deark *c, struct de_advfile *advf, int is_ap
 		de_finfo_set_name_from_ucstring(c, advf->mainfork.fi, advf->filename, advf->snflags);
 		advf->mainfork.fi->original_filename_flag = advf->original_filename_flag;
 		afp_main->outf = dbuf_create_output_file(c, NULL, advf->mainfork.fi, advf->createflags);
-		afp_main->outf->userdata = advf->mainfork.userdata;
-		afp_main->outf->writecallback_fn = advf->mainfork.writecallback_fn;
+		dbuf_set_writelistener(afp_main->outf, advf->mainfork.writelistener_cb,
+			advf->mainfork.userdata_for_writelistener);
 		if(advf->writefork_cbfn && advf->mainfork.fork_len>0) {
 			advf->writefork_cbfn(c, advf, afp_main);
 		}
@@ -1589,8 +1589,8 @@ static void de_advfile_run_rawfiles(deark *c, struct de_advfile *advf, int is_ap
 		// Note: It is intentional to use mainfork in the next line.
 		advf->rsrcfork.fi->mod_time = advf->mainfork.fi->mod_time;
 		afp_rsrc->outf = dbuf_create_output_file(c, NULL, advf->rsrcfork.fi, advf->createflags);
-		afp_rsrc->outf->userdata = advf->rsrcfork.userdata;
-		afp_rsrc->outf->writecallback_fn = advf->rsrcfork.writecallback_fn;
+		dbuf_set_writelistener(afp_rsrc->outf, advf->rsrcfork.writelistener_cb,
+			advf->rsrcfork.userdata_for_writelistener);
 		if(advf->writefork_cbfn) {
 			advf->writefork_cbfn(c, advf, afp_rsrc);
 		}
@@ -1733,27 +1733,25 @@ static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_app
 		case SDID_DATAFORK:
 			afp_main = de_malloc(c, sizeof(struct de_advfile_cbparams));
 			afp_main->whattodo = DE_ADVFILE_WRITEMAIN;
-			outf->userdata = advf->mainfork.userdata;
-			outf->writecallback_fn = advf->mainfork.writecallback_fn;
+			dbuf_set_writelistener(outf, advf->mainfork.writelistener_cb,
+				advf->mainfork.userdata_for_writelistener);
 			afp_main->outf = outf;
 			if(advf->writefork_cbfn && advf->mainfork.fork_len>0) {
 				advf->writefork_cbfn(c, advf, afp_main);
 			}
-			outf->userdata = NULL;
-			outf->writecallback_fn = NULL;
+			dbuf_set_writelistener(outf, NULL, NULL);
 			break;
 
 		case SDID_RESOURCEFORK:
 			afp_rsrc = de_malloc(c, sizeof(struct de_advfile_cbparams));
 			afp_rsrc->whattodo = DE_ADVFILE_WRITERSRC;
-			outf->userdata = advf->rsrcfork.userdata;
-			outf->writecallback_fn = advf->rsrcfork.writecallback_fn;
+			dbuf_set_writelistener(outf, advf->rsrcfork.writelistener_cb,
+				advf->rsrcfork.userdata_for_writelistener);
 			afp_rsrc->outf = outf;
 			if(advf->writefork_cbfn && advf->rsrcfork.fork_len>0) {
 				advf->writefork_cbfn(c, advf, afp_rsrc);
 			}
-			outf->userdata = NULL;
-			outf->writecallback_fn = NULL;
+			dbuf_set_writelistener(outf, NULL, NULL);
 			break;
 
 		case SDID_REALNAME:

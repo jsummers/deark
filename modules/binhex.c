@@ -94,9 +94,9 @@ static int do_decode_main(deark *c, lctx *d, i64 pos)
 	return 1;
 }
 
-static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
+static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
 {
-	struct de_crcobj *crco = (struct de_crcobj*)f->userdata;
+	struct de_crcobj *crco = (struct de_crcobj*)userdata;
 	de_crcobj_addbuf(crco, buf, buf_len);
 }
 
@@ -123,8 +123,8 @@ static int do_pre_extract_fork(deark *c, lctx *d, dbuf *inf, struct binhex_forki
 	de_dbg(c, "%s fork crc (reported): 0x%04x", fki->forkname,
 		(unsigned int)fki->crc_reported);
 
-	advfki->writecallback_fn = our_writecallback;
-	advfki->userdata = (void*)fki->crco;
+	advfki->writelistener_cb = our_writelistener_cb;
+	advfki->userdata_for_writelistener = (void*)fki->crco;
 
 	if((fki->pos + fki->len > inf->len) && fki->len!=0) {
 		de_err(c, "%s fork goes beyond end of file", fki->forkname);

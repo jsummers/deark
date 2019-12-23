@@ -112,7 +112,7 @@ struct de_timestamp {
 	i64 ts_FILETIME; // the timestamp, in Windows FILETIME format
 };
 
-typedef void (*de_writecallback_fn)(dbuf *f, const u8 *buf, i64 buf_len);
+typedef void (*de_writelistener_cb_type)(dbuf *f, void *userdata, const u8 *buf, i64 buf_len);
 
 // dbuf is our generalized I/O object. Used for many purposes.
 struct dbuf_struct {
@@ -149,8 +149,8 @@ struct dbuf_struct {
 	i64 membuf_alloc;
 	u8 *membuf_buf;
 
-	void *userdata;
-	de_writecallback_fn writecallback_fn;
+	void *userdata_for_writelistener;
+	de_writelistener_cb_type writelistener_cb;
 
 #define DE_CACHE_POLICY_NONE    0
 #define DE_CACHE_POLICY_ENABLED 1
@@ -630,6 +630,8 @@ dbuf *dbuf_create_membuf(deark *c, i64 initialsize, unsigned int flags);
 
 // If f is NULL, this is a no-op.
 void dbuf_close(dbuf *f);
+
+void dbuf_set_writelistener(dbuf *f, de_writelistener_cb_type fn, void *userdata);
 
 void dbuf_write(dbuf *f, const u8 *m, i64 len);
 void dbuf_write_at(dbuf *f, i64 pos, const u8 *m, i64 len);
