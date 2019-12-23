@@ -117,8 +117,6 @@ enum lzwfmt_enum {
 };
 
 struct de_dfilter_ctx;
-typedef i64 (*de_dfilter_cb_write_type)(struct de_dfilter_ctx *dfctx, void *userdata,
-	const u8 *buf, i64 size);
 
 struct delzw_params {
 	enum lzwfmt_enum fmt;
@@ -132,8 +130,7 @@ void de_fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct delzw_params *delzwp);
 
 struct de_dfilter_ctx *de_dfilter_create_delzw(deark *c, struct delzw_params *delzwp,
-	de_dfilter_cb_write_type cb_write, void *userdata,
-	int output_len_known, i64 output_expected_len, struct de_dfilter_results *dres);
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
 void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
 	const u8 *buf, i64 buf_len);
 void de_dfilter_finish(struct de_dfilter_ctx *dfctx);

@@ -1088,7 +1088,7 @@ struct my_giflzw_userdata {
 	struct gif_image_data *gi;
 };
 
-static i64 my_giflzw_write_cb(struct de_dfilter_ctx *dfctx, void *userdata,
+static void my_giflzw_write_cb(dbuf *f, void *userdata,
 	const u8 *buf, i64 size)
 {
 	i64 i;
@@ -1099,8 +1099,6 @@ static i64 my_giflzw_write_cb(struct de_dfilter_ctx *dfctx, void *userdata,
 			buf[i], i);
 	}
 	u->gi->pixels_set += (i64)size;
-
-	return size;
 }
 
 // Returns nonzero if parsing can continue.
@@ -1116,8 +1114,10 @@ static int do_image_internal_newlzw(deark *c, lctx *d,
 	int saved_indent_level;
 	unsigned int lzw_min_code_size;
 	i64 npixels_total;
+	dbuf *custom_outf = NULL;
 	struct de_dfilter_ctx *dfctx = NULL;
 	struct delzw_params delzwp;
+	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
 	struct my_giflzw_userdata u;
 
@@ -1177,17 +1177,22 @@ static int do_image_internal_newlzw(deark *c, lctx *d,
 
 	npixels_total = gi->width * gi->height;
 
-	de_dfilter_init_objects(c, NULL, NULL, &dres);
+	de_dfilter_init_objects(c, NULL, &dcmpro, &dres);
 	de_zeromem(&delzwp, sizeof(struct delzw_params));
 	de_zeromem(&u, sizeof(struct my_giflzw_userdata));
+	custom_outf = dbuf_create_custom_dbuf(c, 0, 0);
 	u.c = c;
 	u.d = d;
 	u.gi = gi;
+	custom_outf->userdata_for_customwrite = (void*)&u;
+	custom_outf->customwrite_fn = my_giflzw_write_cb;
 	delzwp.fmt = DE_LZWFMT_GIF;
 	delzwp.gif_root_code_size = lzw_min_code_size;
+	dcmpro.f = custom_outf;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = npixels_total;
 
-	dfctx = de_dfilter_create_delzw(c, &delzwp, my_giflzw_write_cb, (void*)&u,
-		1, npixels_total, &dres);
+	dfctx = de_dfilter_create_delzw(c, &delzwp, &dcmpro, &dres);
 
 	while(1) {
 		if(pos >= c->infile->len) goto done;
@@ -1229,6 +1234,7 @@ done:
 		gi->img = NULL;
 	}
 	de_dfilter_destroy(dfctx);
+	dbuf_close(custom_outf);
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }

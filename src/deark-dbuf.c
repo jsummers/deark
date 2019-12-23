@@ -1331,6 +1331,13 @@ void dbuf_write(dbuf *f, const u8 *m, i64 len)
 		f->len += len;
 		return;
 	}
+	else if(f->btype==DBUF_TYPE_CUSTOM) {
+		if(f->customwrite_fn) {
+			f->customwrite_fn(f, f->userdata_for_customwrite, m, len);
+		}
+		f->len += len;
+		return;
+	}
 
 	de_err(f->c, "Internal: Invalid output file type (%d)", f->btype);
 	de_fatalerror(f->c);
@@ -1643,6 +1650,18 @@ dbuf *dbuf_open_input_subfile(dbuf *parent, i64 offset, i64 size)
 	return f;
 }
 
+dbuf *dbuf_create_custom_dbuf(deark *c, i64 apparent_size, unsigned int flags)
+{
+	dbuf *f;
+
+	f = de_malloc(c, sizeof(dbuf));
+	f->btype = DBUF_TYPE_CUSTOM;
+	f->c = c;
+	f->len = apparent_size;
+	f->max_len_hard = DE_DUMMY_MAX_FILE_SIZE;
+	return f;
+}
+
 void dbuf_set_writelistener(dbuf *f, de_writelistener_cb_type fn, void *userdata)
 {
 	f->userdata_for_writelistener = userdata;
@@ -1704,6 +1723,8 @@ void dbuf_close(dbuf *f)
 	else if(f->btype==DBUF_TYPE_ODBUF) {
 	}
 	else if(f->btype==DBUF_TYPE_STDIN) {
+	}
+	else if(f->btype==DBUF_TYPE_CUSTOM) {
 	}
 	else if(f->btype==DBUF_TYPE_NULL) {
 	}

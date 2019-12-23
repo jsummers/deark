@@ -981,20 +981,21 @@ done:
 struct de_dfilter_ctx {
 	deark *c;
 	struct de_dfilter_results *dres;
-
+	struct de_dfilter_out_params *dcmpro;
 	delzwctx *dc;
-	void *orig_userdata;
-	de_dfilter_cb_write_type orig_cb_write;
 };
 
 static size_t wrapped_dfctx_write_cb(delzwctx *dc, const u8 *buf, size_t size,
 	unsigned int *outflags)
 {
 	struct de_dfilter_ctx *dfctx = (struct de_dfilter_ctx*)dc->userdata;
-	i64 ret;
 
-	ret = dfctx->orig_cb_write(dfctx, dfctx->orig_userdata, buf, (i64)size);
-	return (size_t)ret;
+	// Note: We could be writing to a custom dbuf, in which case the client has
+	// a chance to examine the decompressed bytes, and might want to stop the
+	// decompression based on their contents. But there's currently no way to
+	// do that.
+	dbuf_write(dfctx->dcmpro->f, buf, (i64)size);
+	return size;
 }
 
 static void wrapped_dfctx_debugmsg(delzwctx *dc, int level, const char *msg)
@@ -1006,8 +1007,7 @@ static void wrapped_dfctx_debugmsg(delzwctx *dc, int level, const char *msg)
 }
 
 struct de_dfilter_ctx *de_dfilter_create_delzw(deark *c, struct delzw_params *delzwp,
-	de_dfilter_cb_write_type cb_write, void *userdata,
-	int output_len_known, i64 output_expected_len, struct de_dfilter_results *dres)
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
 	struct de_dfilter_ctx *dfctx = NULL;
 	delzwctx *dc = NULL;
@@ -1015,8 +1015,7 @@ struct de_dfilter_ctx *de_dfilter_create_delzw(deark *c, struct delzw_params *de
 	dfctx = de_malloc(c, sizeof(struct de_dfilter_ctx));
 	dfctx->c = c;
 	dfctx->dres = dres;
-	dfctx->orig_userdata = userdata;
-	dfctx->orig_cb_write = cb_write;
+	dfctx->dcmpro = dcmpro;
 
 	dc = delzw_create(c, (void*)dfctx);
 	if(!dc) goto done;
@@ -1024,8 +1023,8 @@ struct de_dfilter_ctx *de_dfilter_create_delzw(deark *c, struct delzw_params *de
 
 	dc->cb_write = wrapped_dfctx_write_cb;
 	dc->cb_debugmsg = wrapped_dfctx_debugmsg;
-	dc->output_len_known = output_len_known;
-	dc->output_expected_len = output_expected_len;
+	dc->output_len_known = dcmpro->len_known;
+	dc->output_expected_len = dcmpro->expected_len;
 
 	setup_delzw_common(c, dc, delzwp);
 

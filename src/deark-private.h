@@ -113,6 +113,8 @@ struct de_timestamp {
 };
 
 typedef void (*de_writelistener_cb_type)(dbuf *f, void *userdata, const u8 *buf, i64 buf_len);
+typedef void (*de_dbufcustomread_type)(dbuf *f, void *userdata, u8 *buf, i64 pos, i64 len);
+typedef void (*de_dbufcustomwrite_type)(dbuf *f, void *userdata, const u8 *buf, i64 buf_len);
 
 // dbuf is our generalized I/O object. Used for many purposes.
 struct dbuf_struct {
@@ -125,6 +127,7 @@ struct dbuf_struct {
 #define DBUF_TYPE_STDIN   6
 #define DBUF_TYPE_FIFO    7
 #define DBUF_TYPE_ODBUF   8 // nested dbuf, for output
+#define DBUF_TYPE_CUSTOM  9
 	int btype;
 	u8 is_managed;
 
@@ -151,6 +154,10 @@ struct dbuf_struct {
 
 	void *userdata_for_writelistener;
 	de_writelistener_cb_type writelistener_cb;
+	void *userdata_for_customread;
+	de_dbufcustomread_type customread_fn; // used for DBUF_TYPE_CUSTOM
+	void *userdata_for_customwrite;
+	de_dbufcustomwrite_type customwrite_fn; // used for DBUF_TYPE_CUSTOM
 
 #define DE_CACHE_POLICY_NONE    0
 #define DE_CACHE_POLICY_ENABLED 1
@@ -618,11 +625,10 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi, unsigned 
 
 dbuf *dbuf_create_unmanaged_file(deark *c, const char *fname, int overwrite_mode, unsigned int flags);
 dbuf *dbuf_create_unmanaged_file_stdout(deark *c, const char *name);
-
 dbuf *dbuf_open_input_file(deark *c, const char *fn);
 dbuf *dbuf_open_input_stdin(deark *c);
-
 dbuf *dbuf_open_input_subfile(dbuf *parent, i64 offset, i64 size);
+dbuf *dbuf_create_custom_dbuf(deark *c, i64 apparent_size, unsigned int flags);
 
 // Flag:
 //  0x1: Set the maximum size to the 'initialsize'
