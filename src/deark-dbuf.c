@@ -980,6 +980,7 @@ dbuf *dbuf_create_unmanaged_file(deark *c, const char *fname, int overwrite_mode
 	if(!f->fp) {
 		de_err(c, "Failed to write %s: %s", f->name, msgbuf);
 		f->btype = DBUF_TYPE_NULL;
+		c->serious_error_flag = 1;
 	}
 
 	return f;
@@ -1225,6 +1226,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 		if(!f->fp) {
 			de_err(c, "Failed to write %s: %s", f->name, msgbuf);
 			f->btype = DBUF_TYPE_NULL;
+			c->serious_error_flag = 1;
 		}
 	}
 
@@ -1595,7 +1597,10 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 	unsigned int returned_flags = 0;
 	char msgbuf[200];
 
-	if(!fn) return NULL;
+	if(!fn) {
+		c->serious_error_flag = 1;
+		return NULL;
+	}
 	f = de_malloc(c, sizeof(dbuf));
 	f->btype = DBUF_TYPE_IFILE;
 	f->c = c;
@@ -1606,6 +1611,7 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 	if(!f->fp) {
 		de_err(c, "Can't read %s: %s", fn, msgbuf);
 		de_free(c, f);
+		c->serious_error_flag = 1;
 		return NULL;
 	}
 

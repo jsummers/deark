@@ -345,7 +345,7 @@ static void our_msgfn(deark *c, unsigned int flags, const char *s1)
 static void our_fatalerrorfn(deark *c)
 {
 	de_puts(c, DE_MSGTYPE_MESSAGE, "Exiting\n");
-	de_exitprocess();
+	de_exitprocess(1);
 }
 
 static void set_ext_option(deark *c, struct cmdctx *cc, const char *optionstring)
@@ -892,10 +892,12 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 	set_output_archive_name(cc);
 }
 
-static void main2(int argc, char **argv)
+static int main2(int argc, char **argv)
 {
 	deark *c = NULL;
 	struct cmdctx *cc = NULL;
+	int ret;
+	int exit_status = 0;
 
 	cc = de_malloc(NULL, sizeof(struct cmdctx));
 	c = de_create();
@@ -950,13 +952,18 @@ static void main2(int argc, char **argv)
 	}
 #endif
 
-	de_run(c);
+	ret = de_run(c);
+	if(!ret) {
+		exit_status = 1;
+	}
 
 done:
 	de_destroy(c);
 	de_platformdata_destroy(cc->plctx);
 	cc->plctx = NULL;
+	if(cc->error_flag) exit_status = 1;
 	de_free(NULL, cc);
+	return exit_status;
 }
 
 #ifdef DE_WINDOWS
@@ -967,19 +974,19 @@ int wmain(int argc, wchar_t **argvW);
 int wmain(int argc, wchar_t **argvW)
 {
 	char **argv;
+	int exit_status;
 
 	argv = de_convert_args_to_utf8(argc, argvW);
-	main2(argc, argv);
+	exit_status = main2(argc, argv);
 	de_free_utf8_args(argc, argv);
-	return 0;
+	return exit_status;
 }
 
 #else
 
 int main(int argc, char **argv)
 {
-	main2(argc, argv);
-	return 0;
+	return main2(argc, argv);
 }
 
 #endif

@@ -258,9 +258,9 @@ void de_current_time_to_timestamp(struct de_timestamp *ts)
 	de_timestamp_set_subsec(ts, ((double)tv.tv_usec)/1000000.0);
 }
 
-void de_exitprocess(void)
+void de_exitprocess(int s)
 {
-	exit(1);
+	exit(s);
 }
 
 struct de_platform_data *de_platformdata_create(void)

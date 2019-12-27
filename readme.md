@@ -292,7 +292,18 @@ Command-line options:
    interest of transparency, but it is mainly for developers, and to make it
    possible to do things whose usefulness was not anticipated.
 </pre>
- 
+
+## Exit status ##
+
+Deark sets the exit status to nonzero only if it wasn't able to do its job,
+e.g. due to a read or write failure. A malformed input file usually does not
+cause such an error, and the exit status will be zero even if an error message
+was printed.
+
+However, all fatal errors result in a nonzero exit status, and in extreme cases
+it is possible for the input file to cause a fatal error, due to certain
+resource limits being exceeded.
+
 ## Terms of use ##
 
 Starting with version 1.4.x, Deark is distributed under an MIT-style license.

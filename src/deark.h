@@ -66,7 +66,7 @@ typedef struct deark_struct deark;
 
 char *de_get_version_string(char *buf, size_t bufsize);
 unsigned int de_get_version_int(void);
-void de_exitprocess(void);
+void de_exitprocess(int s);
 
 void *de_malloc(deark *c, i64 n);
 void *de_mallocarray(deark *c, i64 nmemb, size_t membsize);

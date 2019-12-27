@@ -457,9 +457,9 @@ void de_current_time_to_timestamp(struct de_timestamp *ts)
 	de_FILETIME_to_timestamp(ft, ts, 0x1);
 }
 
-void de_exitprocess(void)
+void de_exitprocess(int s)
 {
-	exit(1);
+	exit(s);
 }
 
 #endif // DE_WINDOWS

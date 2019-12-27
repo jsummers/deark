@@ -327,6 +327,7 @@ struct deark_struct {
 
 	i64 total_output_size;
 	int error_count;
+	u8 serious_error_flag;
 
 	const char *input_filename;
 	const char *input_format_req; // Format requested
