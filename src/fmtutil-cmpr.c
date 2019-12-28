@@ -403,3 +403,77 @@ void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_param
 	dfctx->codec_finish_fn = my_rle90_codec_finish;
 	dfctx->codec_destroy_fn = my_rle90_codec_destroy;
 }
+
+struct my_2layer_userdata {
+	struct de_dfilter_ctx *dfctx_codec2;
+	i64 intermediate_nbytes;
+};
+
+static void my_2layer_write_cb(dbuf *f, void *userdata,
+	const u8 *buf, i64 size)
+{
+	struct my_2layer_userdata *u = (struct my_2layer_userdata*)userdata;
+
+	de_dfilter_addbuf(u->dfctx_codec2, buf, size);
+	u->intermediate_nbytes += size;
+}
+
+static void dres_transfer_error(deark *c, struct de_dfilter_results *src,
+	struct de_dfilter_results *dst)
+{
+	if(src->errcode) {
+		dst->errcode = src->errcode;
+		de_strlcpy(dst->errmsg, src->errmsg, sizeof(dst->errmsg));
+	}
+}
+
+// Decompress an arbitrary two-layer compressed format.
+// codec1 is the first one that will be used during decompression (i.e. the second
+// method used when during *compression*).
+ void de_dfilter_decompress_two_layer(deark *c,
+	dfilter_codec_type codec1, void *codec1_private_params,
+	dfilter_codec_type codec2, void *codec2_private_params,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	dbuf *outf_codec1 = NULL;
+	struct de_dfilter_out_params dcmpro_codec1;
+	struct de_dfilter_results dres_codec2;
+	struct my_2layer_userdata u;
+	struct de_dfilter_ctx *dfctx_codec2 = NULL;
+
+	de_dfilter_init_objects(c, NULL, &dcmpro_codec1, NULL);
+	de_dfilter_init_objects(c, NULL, NULL, &dres_codec2);
+	de_zeromem(&u, sizeof(struct my_2layer_userdata));
+
+	// Make a custom dbuf. The output from the first decompressor will be written
+	// to it, and it will relay that output to the second decompressor.
+	outf_codec1 = dbuf_create_custom_dbuf(c, 0, 0);
+	outf_codec1->userdata_for_customwrite = (void*)&u;
+	outf_codec1->customwrite_fn = my_2layer_write_cb;
+	dcmpro_codec1.f = outf_codec1;
+	dcmpro_codec1.len_known = 0;
+	dcmpro_codec1.expected_len = 0;
+
+	dfctx_codec2 = de_dfilter_create(c, codec2, codec2_private_params, dcmpro, &dres_codec2);
+	u.dfctx_codec2 = dfctx_codec2;
+
+	// The first codec in the chain does not need the advanced (de_dfilter_create) API.
+	de_dfilter_decompress_oneshot(c, codec1, codec1_private_params,
+		dcmpri, &dcmpro_codec1, dres);
+
+	if(dres->errcode) goto done;
+	de_dbg2(c, "size after intermediate decompression: %"I64_FMT, u.intermediate_nbytes);
+
+	if(dres_codec2.errcode) {
+		// An error occurred in codec2, and not in codec1.
+		// Copy the error info to the dres that will be returned to the caller.
+		// TODO: Make a cleaner way to do this.
+		dres_transfer_error(c, &dres_codec2, dres);
+		goto done;
+	}
+
+done:
+	de_dfilter_destroy(dfctx_codec2);
+	dbuf_close(outf_codec1);
+}

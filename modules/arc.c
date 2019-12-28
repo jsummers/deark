@@ -89,67 +89,21 @@ static void decompressor_packed(deark *c, lctx *d, struct member_data *md,
 	de_fmtutil_decompress_rle90_ex(c, dcmpri, dcmpro, dres, 0);
 }
 
-struct my_arc_userdata {
-	dbuf *outf;
-};
-
-static void my_arclzw_write_cb(dbuf *f, void *userdata,
-	const u8 *buf, i64 size)
-{
-	struct my_arc_userdata *u = (struct my_arc_userdata*)userdata;
-
-	dbuf_write(u->outf, buf, size);
-}
-
 static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	dbuf *tmpf = NULL;
-	dbuf *custom_outf = NULL;
-	struct de_dfilter_out_params dcmpro_tmp;
-	struct de_dfilter_in_params dcmpri_tmp;
-	struct my_arc_userdata u;
 	struct delzw_params delzwp;
 
-	de_dfilter_init_objects(c, NULL, &dcmpro_tmp, NULL);
-	de_dfilter_init_objects(c, &dcmpri_tmp, NULL, NULL);
-	de_zeromem(&u, sizeof(struct my_arc_userdata));
-	de_zeromem(&delzwp, sizeof(struct delzw_params));
-
 	// "Crunched" means "packed", then "compressed".
-	// So we have to "uncompress", then "unpack".
+	// So we have to "uncompress" (LZW), then "unpack" (RLE90).
 
-	// TODO: Make an rle90 decompressor that accepts data incrementally, so we
-	// don't need a temp dbuf.
-	tmpf = dbuf_create_membuf(c, 0, 0);
-	u.outf = tmpf;
-
-	custom_outf = dbuf_create_custom_dbuf(c, 0, 0);
-	custom_outf->userdata_for_customwrite = (void*)&u;
-	custom_outf->customwrite_fn = my_arclzw_write_cb;
-	dcmpro_tmp.f = custom_outf;
-	dcmpro_tmp.len_known = 0;
-	dcmpro_tmp.expected_len = 0;
-
+	de_zeromem(&delzwp, sizeof(struct delzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
 	delzwp.unixcompress_flags = DE_LIBLZWFLAG_HAS1BYTEHEADER;
-	de_dfilter_decompress_oneshot(c, dfilter_lzw_codec, (void*)&delzwp,
-		dcmpri, &dcmpro_tmp, dres);
 
-	if(dres->errcode) goto done;
-	de_dbg2(c, "size after intermediate decompression: %"I64_FMT, tmpf->len);
-
-	dcmpri_tmp.f = tmpf;
-	dcmpri_tmp.pos = 0;
-	dcmpri_tmp.len = tmpf->len;
-
-	de_dfilter_decompress_oneshot(c, dfilter_rle90_codec, NULL,
-		&dcmpri_tmp, dcmpro, dres);
-
-done:
-	dbuf_close(custom_outf);
-	dbuf_close(tmpf);
+	de_dfilter_decompress_two_layer(c, dfilter_lzw_codec, (void*)&delzwp,
+		dfilter_rle90_codec, NULL, dcmpri, dcmpro, dres);
 }
 
 // Flags:
