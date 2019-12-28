@@ -338,8 +338,6 @@ See the [technical.md](technical.md) file.
 
 Thanks to Rich Geldreich for the miniz library.
 
-Thanks to Mike Frysinger, and the authors of compress/ncompress, for liblzw.
-
 Thanks to Rahul Dhesi and Martin Schoenert for much of the code used by the ZOO
 format decoder.
 

@@ -327,7 +327,6 @@
     <ClInclude Include="..\..\foreign\ozunreduce.h" />
     <ClInclude Include="..\..\foreign\ozunshrink.h" />
     <ClInclude Include="..\..\foreign\unimplode6a.h" />
-    <ClInclude Include="..\..\foreign\liblzw.h" />
     <ClInclude Include="..\..\foreign\miniz.h" />
     <ClInclude Include="..\..\foreign\uncompface.h" />
     <ClInclude Include="..\..\foreign\unsit.h" />

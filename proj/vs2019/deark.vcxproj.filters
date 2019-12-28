@@ -492,9 +492,6 @@
     <ClInclude Include="..\..\src\deark.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\foreign\liblzw.h">
-      <Filter>Foreign Code</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\foreign\miniz.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>

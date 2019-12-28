@@ -155,8 +155,6 @@ static void print_license(deark *c)
 	"----------\n"
 	"The zlib and Deflate encoder and decoder use public domain code originally from\n"
 	"miniz v1.16 beta r1, by Rich Geldreich.\n\n"
-	"Some LZW decoders use public domain code from liblzw by Mike Frysinger, based\n"
-	"on compress/ncompress by Thomas, Woods, et al.\n\n"
 	"The ZIP Implode decoder is derived from public domain code by Mark Adler, from\n"
 	"Info-ZIP UnZip v5.4.\n\n"
 	"The X-Face decoder uses code from Compface, Copyright (c) 1990 James Ashton.\n\n"
