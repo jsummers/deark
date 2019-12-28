@@ -308,6 +308,7 @@ void de_fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpr
 {
 	int ret;
 
+	// TODO: Call de_dfilter_decompress_oneshot() instead.
 	ret = de_fmtutil_decompress_rle90(dcmpri->f, dcmpri->pos, dcmpri->len,
 		dcmpro->f, (unsigned int)dcmpro->len_known, dcmpro->expected_len,
 		flags);
@@ -319,7 +320,7 @@ void de_fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpr
 
 // RLE algorithm occasionally called "RLE90". Variants of this are used by
 // BinHex, ARC, StuffIt, and others.
-// TODO: Make de_fmtutil_decompress_rle90_ex the main function.
+// TODO: Make this a wrapper function.
 int de_fmtutil_decompress_rle90(dbuf *inf, i64 pos1, i64 len,
 	dbuf *outf, unsigned int has_maxlen, i64 max_out_len, unsigned int flags)
 {
@@ -376,4 +377,97 @@ int de_fmtutil_decompress_rle90(dbuf *inf, i64 pos1, i64 len,
 	}
 
 	return 1;
+}
+
+struct rle90ctx {
+	i64 total_nbytes_processed;
+	i64 nbytes_written;
+	u8 last_output_byte;
+	int countcode_pending;
+};
+
+static void my_rle90_codec_addbuf(struct de_dfilter_ctx *dfctx,
+	const u8 *buf, i64 buf_len)
+{
+	int i;
+	u8 b;
+	struct rle90ctx *rctx = (struct rle90ctx*)dfctx->codec_private;
+
+	if(!rctx) return;
+
+	for(i=0; i<buf_len; i++) {
+		if(dfctx->dcmpro->len_known &&
+			(rctx->nbytes_written >= dfctx->dcmpro->expected_len))
+		{
+			dfctx->finished_flag = 1;
+			break;
+		}
+
+		b = buf[i];
+		rctx->total_nbytes_processed++;
+
+		if(rctx->countcode_pending && b==0) {
+			// Not RLE, just an escaped 0x90 byte.
+			dbuf_writebyte(dfctx->dcmpro->f, 0x90);
+			rctx->nbytes_written++;
+			rctx->last_output_byte = 0x90;
+			rctx->countcode_pending = 0;
+		}
+		else if(rctx->countcode_pending) {
+			i64 count;
+
+			// RLE. We already emitted one byte (because the byte to repeat
+			// comes before the repeat count), so write countcode-1 bytes.
+			count = (i64)(b-1);
+			if(dfctx->dcmpro->len_known &&
+				(rctx->nbytes_written+count > dfctx->dcmpro->expected_len))
+			{
+				count = dfctx->dcmpro->expected_len - rctx->nbytes_written;
+			}
+			dbuf_write_run(dfctx->dcmpro->f, rctx->last_output_byte, count);
+			rctx->nbytes_written += count;
+
+			rctx->countcode_pending = 0;
+		}
+		else if(b==0x90) {
+			rctx->countcode_pending = 1;
+		}
+		else {
+			dbuf_writebyte(dfctx->dcmpro->f, b);
+			rctx->nbytes_written++;
+			rctx->last_output_byte = b;
+		}
+	}
+}
+
+static void my_rle90_codec_finish(struct de_dfilter_ctx *dfctx)
+{
+	const char *modname = "rle90";
+	struct rle90ctx *rctx = (struct rle90ctx*)dfctx->codec_private;
+
+	if(!rctx) return;
+
+	dfctx->dres->bytes_consumed = rctx->total_nbytes_processed;
+	dfctx->dres->bytes_consumed_valid = 1;
+}
+
+static void my_rle90_codec_destroy(struct de_dfilter_ctx *dfctx)
+{
+	struct rle90ctx *rctx = (struct rle90ctx*)dfctx->codec_private;
+
+	if(rctx) {
+		de_free(dfctx->c, rctx);
+	}
+	dfctx->codec_private = NULL;
+}
+
+void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
+{
+	struct rle90ctx *rctx = NULL;
+
+	rctx = de_malloc(dfctx->c, sizeof(struct rle90ctx));
+	dfctx->codec_private = (void*)rctx;
+	dfctx->codec_addbuf_fn = my_rle90_codec_addbuf;
+	dfctx->codec_finish_fn = my_rle90_codec_finish;
+	dfctx->codec_destroy_fn = my_rle90_codec_destroy;
 }

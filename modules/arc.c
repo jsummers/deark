@@ -110,10 +110,12 @@ static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_out_params dcmpro_tmp;
 	struct de_dfilter_in_params dcmpri_tmp;
 	struct my_arc_userdata u;
+	struct delzw_params delzwp;
 
 	de_dfilter_init_objects(c, NULL, &dcmpro_tmp, NULL);
 	de_dfilter_init_objects(c, &dcmpri_tmp, NULL, NULL);
 	de_zeromem(&u, sizeof(struct my_arc_userdata));
+	de_zeromem(&delzwp, sizeof(struct delzw_params));
 
 	// "Crunched" means "packed", then "compressed".
 	// So we have to "uncompress", then "unpack".
@@ -130,7 +132,10 @@ static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
 	dcmpro_tmp.len_known = 0;
 	dcmpro_tmp.expected_len = 0;
 
-	de_fmtutil_decompress_liblzw_ex(c, dcmpri, &dcmpro_tmp, dres, DE_LIBLZWFLAG_HAS1BYTEHEADER, 0);
+	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
+	delzwp.unixcompress_flags = DE_LIBLZWFLAG_HAS1BYTEHEADER;
+	de_dfilter_decompress_oneshot(c, dfilter_lzw_codec, (void*)&delzwp,
+		dcmpri, &dcmpro_tmp, dres);
 
 	if(dres->errcode) goto done;
 	de_dbg2(c, "size after intermediate decompression: %"I64_FMT, tmpf->len);
@@ -139,7 +144,8 @@ static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
 	dcmpri_tmp.pos = 0;
 	dcmpri_tmp.len = tmpf->len;
 
-	de_fmtutil_decompress_rle90_ex(c, &dcmpri_tmp, dcmpro, dres, 0);
+	de_dfilter_decompress_oneshot(c, dfilter_rle90_codec, NULL,
+		&dcmpri_tmp, dcmpro, dres);
 
 done:
 	dbuf_close(custom_outf);
