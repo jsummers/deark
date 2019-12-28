@@ -66,6 +66,60 @@ void de_dfilter_set_generic_error(deark *c, struct de_dfilter_results *dres, con
 	de_dfilter_set_errorf(c, dres, modname, "Unspecified error");
 }
 
+// This is a decompression API that uses a "push" input model. The client
+// sends data to the codec as the data becomes available.
+// (The client must still be able to consume any amount of output data
+// immediately.)
+// This model makes it easier to chain multiple codecs together, and to handle
+// input data that is not contiguous.
+
+struct de_dfilter_ctx *de_dfilter_create(deark *c,
+	dfilter_codec_type codec_init_fn, void *codec_private_params,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
+{
+	struct de_dfilter_ctx *dfctx = NULL;
+
+	dfctx = de_malloc(c, sizeof(struct de_dfilter_ctx));
+	dfctx->c = c;
+	dfctx->dres = dres;
+	dfctx->dcmpro = dcmpro;
+
+	if(codec_init_fn) {
+		codec_init_fn(dfctx, codec_private_params);
+	}
+	// TODO: How should we handle failure to initialize a codec?
+
+	return dfctx;
+}
+
+void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
+	const u8 *buf, i64 buf_len)
+{
+	if(dfctx->codec_addbuf_fn) {
+		dfctx->codec_addbuf_fn(dfctx, buf, buf_len);
+	}
+}
+
+void de_dfilter_finish(struct de_dfilter_ctx *dfctx)
+{
+	if(dfctx->codec_finish_fn) {
+		dfctx->codec_finish_fn(dfctx);
+	}
+}
+
+void de_dfilter_destroy(struct de_dfilter_ctx *dfctx)
+{
+	deark *c;
+
+	if(!dfctx) return;
+	c = dfctx->c;
+	if(dfctx->codec_destroy_fn) {
+		dfctx->codec_destroy_fn(dfctx);
+	}
+
+	de_free(c, dfctx);
+}
+
 void de_fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {

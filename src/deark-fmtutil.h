@@ -108,6 +108,23 @@ void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmp
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags, u8 lzwmode);
 
+struct de_dfilter_ctx;
+typedef void (*dfilter_codec_type)(struct de_dfilter_ctx *dfctx, void *codec_private_params);
+typedef void (*dfilter_codec_addbuf_type)(struct de_dfilter_ctx *dfctx,
+	const u8 *buf, i64 buf_len);
+typedef void (*dfilter_codec_finish_type)(struct de_dfilter_ctx *dfctx);
+typedef void (*dfilter_codec_destroy_type)(struct de_dfilter_ctx *dfctx);
+
+struct de_dfilter_ctx {
+	deark *c;
+	struct de_dfilter_results *dres;
+	struct de_dfilter_out_params *dcmpro;
+	void *codec_private;
+	dfilter_codec_addbuf_type codec_addbuf_fn;
+	dfilter_codec_finish_type codec_finish_fn;
+	dfilter_codec_destroy_type codec_destroy_fn;
+};
+
 enum lzwfmt_enum {
 	DE_LZWFMT_GENERIC = 0,
 	DE_LZWFMT_UNIXCOMPRESS,
@@ -115,8 +132,6 @@ enum lzwfmt_enum {
 	DE_LZWFMT_ZIPSHRINK,
 	DE_LZWFMT_ZOOLZD
 };
-
-struct de_dfilter_ctx;
 
 struct delzw_params {
 	enum lzwfmt_enum fmt;
@@ -129,12 +144,17 @@ void de_fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	struct delzw_params *delzwp);
 
-struct de_dfilter_ctx *de_dfilter_create_delzw(deark *c, struct delzw_params *delzwp,
+struct de_dfilter_ctx *de_dfilter_create(deark *c,
+	dfilter_codec_type codec_init_fn, void *codec_private_params,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
 void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
 	const u8 *buf, i64 buf_len);
 void de_dfilter_finish(struct de_dfilter_ctx *dfctx);
 void de_dfilter_destroy(struct de_dfilter_ctx *dfctx);
+
+void dfilter_liblzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
+struct de_dfilter_ctx *de_dfilter_create_delzw(deark *c, struct delzw_params *delzwp,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
 
 void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,

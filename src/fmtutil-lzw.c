@@ -984,21 +984,6 @@ done:
 	delzw_destroy(dc);
 }
 
-// This is a decompression API that uses a "push" input model. The client
-// sends data to the codec as the data becomes available.
-// (The client must still be able to consume any amount of output data
-// immediately.)
-// This model makes it easier to chain multiple codecs together, and to handle
-// input data that is not contiguous.
-// TODO: Make this more generic, instead of LZW-specific.
-
-struct de_dfilter_ctx {
-	deark *c;
-	struct de_dfilter_results *dres;
-	struct de_dfilter_out_params *dcmpro;
-	delzwctx *dc;
-};
-
 static size_t wrapped_dfctx_write_cb(delzwctx *dc, const u8 *buf, size_t size,
 	unsigned int *outflags)
 {
@@ -1020,58 +1005,62 @@ static void wrapped_dfctx_debugmsg(delzwctx *dc, int level, const char *msg)
 		(i64)dc->total_nbytes_processed, (i64)dc->uncmpr_nbytes_decoded, msg);
 }
 
-struct de_dfilter_ctx *de_dfilter_create_delzw(deark *c, struct delzw_params *delzwp,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
-{
-	struct de_dfilter_ctx *dfctx = NULL;
-	delzwctx *dc = NULL;
-
-	dfctx = de_malloc(c, sizeof(struct de_dfilter_ctx));
-	dfctx->c = c;
-	dfctx->dres = dres;
-	dfctx->dcmpro = dcmpro;
-
-	dc = delzw_create(c, (void*)dfctx);
-	if(!dc) goto done;
-	dfctx->dc = dc;
-
-	dc->cb_write = wrapped_dfctx_write_cb;
-	dc->cb_debugmsg = wrapped_dfctx_debugmsg;
-	dc->output_len_known = dcmpro->len_known;
-	dc->output_expected_len = dcmpro->expected_len;
-
-	setup_delzw_common(c, dc, delzwp);
-
-done:
-	return dfctx;
-}
-
-void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
-	const u8 *buf, i64 buf_len)
-{
-	if(!dfctx->dc) return;
-	delzw_addbuf(dfctx->dc, buf, (size_t)buf_len);
-}
-
-void de_dfilter_finish(struct de_dfilter_ctx *dfctx)
+static void my_liblzw_codec_finish(struct de_dfilter_ctx *dfctx)
 {
 	const char *modname = "delzw";
-	if(!dfctx->dc) return;
+	delzwctx *dc = (delzwctx*)dfctx->codec_private;
 
-	delzw_finish(dfctx->dc);
+	if(!dc) return;
+	delzw_finish(dc);
 
-	if(dfctx->dc->errcode) {
-		de_dfilter_set_errorf(dfctx->c, dfctx->dres, modname, "%s", dfctx->dc->errmsg);
+	if(dc->errcode) {
+		de_dfilter_set_errorf(dfctx->c, dfctx->dres, modname, "%s", dc->errmsg);
 	}
 }
 
-void de_dfilter_destroy(struct de_dfilter_ctx *dfctx)
+static void my_liblzw_codec_addbuf(struct de_dfilter_ctx *dfctx,
+	const u8 *buf, i64 buf_len)
 {
-	deark *c;
+	delzwctx *dc = (delzwctx*)dfctx->codec_private;
 
-	if(!dfctx) return;
-	c = dfctx->c;
+	if(!dc) return;
+	delzw_addbuf(dc, buf, (size_t)buf_len);
+}
 
-	delzw_destroy(dfctx->dc);
-	de_free(c, dfctx);
+static void my_liblzw_codec_destroy(struct de_dfilter_ctx *dfctx)
+{
+	delzwctx *dc = (delzwctx*)dfctx->codec_private;
+
+	delzw_destroy(dc);
+	dfctx->codec_private = NULL;
+}
+
+// codec_private_params is type struct delzw_params.
+void dfilter_liblzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
+{
+	delzwctx *dc = NULL;
+	struct delzw_params *delzwp = (struct delzw_params*)codec_private_params;
+
+	dc = delzw_create(dfctx->c, (void*)dfctx);
+	if(!dc) goto done;
+	dfctx->codec_private = (void*)dc;
+	dfctx->codec_finish_fn = my_liblzw_codec_finish;
+	dfctx->codec_destroy_fn = my_liblzw_codec_destroy;
+	dfctx->codec_addbuf_fn = my_liblzw_codec_addbuf;
+
+	dc->cb_write = wrapped_dfctx_write_cb;
+	dc->cb_debugmsg = wrapped_dfctx_debugmsg;
+	dc->output_len_known = dfctx->dcmpro->len_known;
+	dc->output_expected_len = dfctx->dcmpro->expected_len;
+
+	setup_delzw_common(dfctx->c, dc, delzwp);
+done:
+	;
+}
+
+struct de_dfilter_ctx *de_dfilter_create_delzw(deark *c, struct delzw_params *delzwp,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
+{
+	return de_dfilter_create(c, dfilter_liblzw_codec, (void*)delzwp,
+		dcmpro, dres);
 }
