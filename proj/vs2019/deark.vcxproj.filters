@@ -501,9 +501,6 @@
     <ClInclude Include="..\..\foreign\unsit.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\foreign\zoo-lzd.h">
-      <Filter>Foreign Code</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\foreign\unimplode6a.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>

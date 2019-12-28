@@ -330,7 +330,6 @@
     <ClInclude Include="..\..\foreign\uncompface.h" />
     <ClInclude Include="..\..\foreign\unsit.h" />
     <ClInclude Include="..\..\foreign\unzoo-lzh.h" />
-    <ClInclude Include="..\..\foreign\zoo-lzd.h" />
     <ClInclude Include="..\..\src\deark-config.h" />
     <ClInclude Include="..\..\src\deark-fmtutil.h" />
     <ClInclude Include="..\..\src\deark-modules.h" />
