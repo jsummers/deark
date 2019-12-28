@@ -89,34 +89,60 @@ static void decompressor_packed(deark *c, lctx *d, struct member_data *md,
 	de_fmtutil_decompress_rle90_ex(c, dcmpri, dcmpro, dres, 0);
 }
 
+struct my_arc_userdata {
+	dbuf *outf;
+};
+
+static void my_arclzw_write_cb(dbuf *f, void *userdata,
+	const u8 *buf, i64 size)
+{
+	struct my_arc_userdata *u = (struct my_arc_userdata*)userdata;
+
+	dbuf_write(u->outf, buf, size);
+}
+
 static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
 	dbuf *tmpf = NULL;
-	struct de_dfilter_out_params tmpoparams;
-	struct de_dfilter_in_params tmpiparams;
+	dbuf *custom_outf = NULL;
+	struct de_dfilter_out_params dcmpro_tmp;
+	struct de_dfilter_in_params dcmpri_tmp;
+	struct my_arc_userdata u;
 
-	de_zeromem(&tmpoparams, sizeof(struct de_dfilter_out_params));
-	de_zeromem(&tmpiparams, sizeof(struct de_dfilter_in_params));
+	de_dfilter_init_objects(c, NULL, &dcmpro_tmp, NULL);
+	de_dfilter_init_objects(c, &dcmpri_tmp, NULL, NULL);
+	de_zeromem(&u, sizeof(struct my_arc_userdata));
 
 	// "Crunched" means "packed", then "compressed".
 	// So we have to "uncompress", then "unpack".
-	tmpf = dbuf_create_membuf(c, 0, 0);
 
-	tmpoparams.f = tmpf;
-	tmpoparams.len_known = 0;
-	tmpoparams.expected_len = 0;
-	decompressor_spark_compressed(c, d, md, dcmpri, &tmpoparams, dres);
+	// TODO: Make an rle90 decompressor that accepts data incrementally, so we
+	// don't need a temp dbuf.
+	tmpf = dbuf_create_membuf(c, 0, 0);
+	u.outf = tmpf;
+
+	custom_outf = dbuf_create_custom_dbuf(c, 0, 0);
+	custom_outf->userdata_for_customwrite = (void*)&u;
+	custom_outf->customwrite_fn = my_arclzw_write_cb;
+	dcmpro_tmp.f = custom_outf;
+	dcmpro_tmp.len_known = 0;
+	dcmpro_tmp.expected_len = 0;
+
+	de_fmtutil_decompress_liblzw_ex(c, dcmpri, &dcmpro_tmp, dres, DE_LIBLZWFLAG_HAS1BYTEHEADER, 0);
+
 	if(dres->errcode) goto done;
 	de_dbg2(c, "size after intermediate decompression: %"I64_FMT, tmpf->len);
 
-	tmpiparams.f = tmpf;
-	tmpiparams.pos = 0;
-	tmpiparams.len = tmpf->len;
-	decompressor_packed(c, d, md, &tmpiparams, dcmpro, dres);
+	dcmpri_tmp.f = tmpf;
+	dcmpri_tmp.pos = 0;
+	dcmpri_tmp.len = tmpf->len;
+
+	de_fmtutil_decompress_rle90_ex(c, &dcmpri_tmp, dcmpro, dres, 0);
 
 done:
+	dbuf_close(custom_outf);
 	dbuf_close(tmpf);
 }
 
