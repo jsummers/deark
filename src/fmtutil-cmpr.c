@@ -306,77 +306,8 @@ void de_fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpr
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags)
 {
-	int ret;
-
-	// TODO: Call de_dfilter_decompress_oneshot() instead.
-	ret = de_fmtutil_decompress_rle90(dcmpri->f, dcmpri->pos, dcmpri->len,
-		dcmpro->f, (unsigned int)dcmpro->len_known, dcmpro->expected_len,
-		flags);
-
-	if(!ret) {
-		de_dfilter_set_generic_error(c, dres, "rle90");
-	}
-}
-
-// RLE algorithm occasionally called "RLE90". Variants of this are used by
-// BinHex, ARC, StuffIt, and others.
-// TODO: Make this a wrapper function.
-int de_fmtutil_decompress_rle90(dbuf *inf, i64 pos1, i64 len,
-	dbuf *outf, unsigned int has_maxlen, i64 max_out_len, unsigned int flags)
-{
-	i64 pos = pos1;
-	u8 b;
-	u8 lastbyte = 0x00;
-	u8 countcode;
-	i64 count;
-	i64 nbytes_written = 0;
-
-	while(pos < pos1+len) {
-		if(has_maxlen && nbytes_written>=max_out_len) break;
-
-		b = dbuf_getbyte(inf, pos);
-		pos++;
-		if(b!=0x90) {
-			dbuf_writebyte(outf, b);
-			nbytes_written++;
-			lastbyte = b;
-			continue;
-		}
-
-		// b = 0x90, which is a special code.
-		countcode = dbuf_getbyte(inf, pos);
-		pos++;
-
-		if(countcode==0x00) {
-			// Not RLE, just an escaped 0x90 byte.
-			dbuf_writebyte(outf, 0x90);
-			nbytes_written++;
-
-			// Here there is an inconsistency between different RLE90
-			// implementations.
-			// Some of them can compress a run of 0x90 bytes, because the byte
-			// to repeat is defined to be the "last byte emitted".
-			// Others do not allow this. If the "0x90 0x00 0x90 0xNN" sequence
-			// (with 0xNN>0) is encountered, they may (by accident?) repeat the
-			// last non-0x90 byte emitted, or do something else.
-			// Hopefully, valid files in such formats never contain this byte
-			// sequence, so it shouldn't matter what we do here. But maybe not.
-			// We might need to add an option to do something else.
-			lastbyte = 0x90;
-			continue;
-		}
-
-		// RLE. We already emitted one byte (because the byte to repeat
-		// comes before the repeat count), so write countcode-1 bytes.
-		count = (i64)(countcode-1);
-		if(has_maxlen && (nbytes_written+count > max_out_len)) {
-			count = max_out_len - nbytes_written;
-		}
-		dbuf_write_run(outf, lastbyte, count);
-		nbytes_written += count;
-	}
-
-	return 1;
+	de_dfilter_decompress_oneshot(c, dfilter_rle90_codec, NULL,
+		dcmpri, dcmpro, dres);
 }
 
 struct rle90ctx {
@@ -442,11 +373,9 @@ static void my_rle90_codec_addbuf(struct de_dfilter_ctx *dfctx,
 
 static void my_rle90_codec_finish(struct de_dfilter_ctx *dfctx)
 {
-	const char *modname = "rle90";
 	struct rle90ctx *rctx = (struct rle90ctx*)dfctx->codec_private;
 
 	if(!rctx) return;
-
 	dfctx->dres->bytes_consumed = rctx->total_nbytes_processed;
 	dfctx->dres->bytes_consumed_valid = 1;
 }
@@ -461,6 +390,9 @@ static void my_rle90_codec_destroy(struct de_dfilter_ctx *dfctx)
 	dfctx->codec_private = NULL;
 }
 
+// RLE algorithm occasionally called "RLE90". Variants of this are used by
+// BinHex, ARC, StuffIt, and others.
+// codec_private_params: Unused, must be NULL.
 void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
 {
 	struct rle90ctx *rctx = NULL;

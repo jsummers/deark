@@ -252,6 +252,9 @@ done:
 static void do_binhex(deark *c, lctx *d, i64 pos)
 {
 	int ret;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
 
 	de_dbg(c, "BinHex data starts at %d", (int)pos);
 
@@ -261,9 +264,16 @@ static void do_binhex(deark *c, lctx *d, i64 pos)
 	ret = do_decode_main(c, d, pos);
 	if(!ret) goto done;
 
-	ret = de_fmtutil_decompress_rle90(d->decoded, 0, d->decoded->len, d->decompressed,
-		0, 0, 0);
-	if(!ret) goto done;
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = d->decoded;
+	dcmpri.pos = 0;
+	dcmpri.len = d->decoded->len;
+	dcmpro.f = d->decompressed;
+	de_fmtutil_decompress_rle90_ex(c, &dcmpri, &dcmpro, &dres, 0);
+	if(dres.errcode) {
+		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
 	de_dbg(c, "size after decompression: %d", (int)d->decompressed->len);
 
 	d->advf = de_advfile_create(c);
