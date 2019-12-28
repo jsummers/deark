@@ -877,39 +877,6 @@ static void delzw_finish(delzwctx *dc)
 
 ///////////////////////////////////////////////////
 
-struct my_delzw_userdata {
-	deark *c;
-	delzwctx *dc;
-	dbuf *outf;
-};
-
-static void my_delzw_debugmsg(delzwctx *dc, int level, const char *msg)
-{
-	struct my_delzw_userdata *u = (struct my_delzw_userdata*)dc->userdata;
-
-	de_dbg(u->c, "[i%"I64_FMT"/o%"I64_FMT"] %s",
-		(i64)dc->total_nbytes_processed, (i64)dc->uncmpr_nbytes_decoded, msg);
-}
-
-static size_t my_delzw_write(delzwctx *dc, const u8 *buf, size_t buf_len,
-	unsigned int *outflags)
-{
-	struct my_delzw_userdata *u = (struct my_delzw_userdata*)dc->userdata;
-
-	dbuf_write(u->outf, buf, (i64)buf_len);
-	return buf_len;
-}
-
-static int my_delzw_buffered_read_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
-	i64 buf_len)
-{
-	struct my_delzw_userdata *u = (struct my_delzw_userdata*)brctx->userdata;
-
-	delzw_addbuf(u->dc, buf, (size_t)buf_len);
-	if(u->dc->state == DELZW_STATE_FINISHED) return 0;
-	return 1;
-}
-
 static void setup_delzw_common(deark *c, delzwctx *dc, struct delzw_params *delzwp)
 {
 	dc->debug_level = c->debug_level;
@@ -952,36 +919,8 @@ void de_fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	struct delzw_params *delzwp)
 {
-	delzwctx *dc = NULL;
-	const char *modname = "delzw";
-	struct my_delzw_userdata u;
-
-	de_zeromem(&u, sizeof(struct my_delzw_userdata));
-	u.c = c;
-	u.outf = dcmpro->f;
-
-	dc = delzw_create(c, (void*)&u);
-	if(!dc) goto done;
-	u.dc = dc;
-	dc->cb_write = my_delzw_write;
-	dc->cb_debugmsg = my_delzw_debugmsg;
-	if(dcmpro->len_known) {
-		dc->output_len_known = 1;
-		dc->output_expected_len = dcmpro->expected_len;
-	}
-	setup_delzw_common(c, dc, delzwp);
-
-	dbuf_buffered_read(dcmpri->f, dcmpri->pos, dcmpri->len,
-		my_delzw_buffered_read_cbfn, (void*)&u);
-
-	delzw_finish(dc);
-
-	if(dc->errcode) {
-		de_dfilter_set_errorf(c, dres, modname, "%s", dc->errmsg);
-	}
-
-done:
-	delzw_destroy(dc);
+	de_dfilter_decompress_oneshot(c, dfilter_lzw_codec, (void*)delzwp,
+		dcmpri, dcmpro, dres);
 }
 
 static size_t wrapped_dfctx_write_cb(delzwctx *dc, const u8 *buf, size_t size,
@@ -1001,11 +940,11 @@ static void wrapped_dfctx_debugmsg(delzwctx *dc, int level, const char *msg)
 {
 	struct de_dfilter_ctx *dfctx = (struct de_dfilter_ctx*)dc->userdata;
 
-	de_dbg(dfctx->c, "[i%"I64_FMT"/o%"I64_FMT"] %s",
+	de_dbg(dfctx->c, "[delzw:i%"I64_FMT"/o%"I64_FMT"] %s",
 		(i64)dc->total_nbytes_processed, (i64)dc->uncmpr_nbytes_decoded, msg);
 }
 
-static void my_liblzw_codec_finish(struct de_dfilter_ctx *dfctx)
+static void my_lzw_codec_finish(struct de_dfilter_ctx *dfctx)
 {
 	const char *modname = "delzw";
 	delzwctx *dc = (delzwctx*)dfctx->codec_private;
@@ -1013,21 +952,27 @@ static void my_liblzw_codec_finish(struct de_dfilter_ctx *dfctx)
 	if(!dc) return;
 	delzw_finish(dc);
 
+	dfctx->dres->bytes_consumed = dc->total_nbytes_processed;
+	dfctx->dres->bytes_consumed_valid = 1;
+
 	if(dc->errcode) {
 		de_dfilter_set_errorf(dfctx->c, dfctx->dres, modname, "%s", dc->errmsg);
 	}
 }
 
-static void my_liblzw_codec_addbuf(struct de_dfilter_ctx *dfctx,
+static void my_lzw_codec_addbuf(struct de_dfilter_ctx *dfctx,
 	const u8 *buf, i64 buf_len)
 {
 	delzwctx *dc = (delzwctx*)dfctx->codec_private;
 
 	if(!dc) return;
 	delzw_addbuf(dc, buf, (size_t)buf_len);
+	if(dc->state == DELZW_STATE_FINISHED) {
+		dfctx->finished_flag = 1;
+	}
 }
 
-static void my_liblzw_codec_destroy(struct de_dfilter_ctx *dfctx)
+static void my_lzw_codec_destroy(struct de_dfilter_ctx *dfctx)
 {
 	delzwctx *dc = (delzwctx*)dfctx->codec_private;
 
@@ -1036,7 +981,7 @@ static void my_liblzw_codec_destroy(struct de_dfilter_ctx *dfctx)
 }
 
 // codec_private_params is type struct delzw_params.
-void dfilter_liblzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
+void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
 {
 	delzwctx *dc = NULL;
 	struct delzw_params *delzwp = (struct delzw_params*)codec_private_params;
@@ -1044,9 +989,9 @@ void dfilter_liblzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_para
 	dc = delzw_create(dfctx->c, (void*)dfctx);
 	if(!dc) goto done;
 	dfctx->codec_private = (void*)dc;
-	dfctx->codec_finish_fn = my_liblzw_codec_finish;
-	dfctx->codec_destroy_fn = my_liblzw_codec_destroy;
-	dfctx->codec_addbuf_fn = my_liblzw_codec_addbuf;
+	dfctx->codec_finish_fn = my_lzw_codec_finish;
+	dfctx->codec_destroy_fn = my_lzw_codec_destroy;
+	dfctx->codec_addbuf_fn = my_lzw_codec_addbuf;
 
 	dc->cb_write = wrapped_dfctx_write_cb;
 	dc->cb_debugmsg = wrapped_dfctx_debugmsg;
@@ -1061,6 +1006,6 @@ done:
 struct de_dfilter_ctx *de_dfilter_create_delzw(deark *c, struct delzw_params *delzwp,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	return de_dfilter_create(c, dfilter_liblzw_codec, (void*)delzwp,
+	return de_dfilter_create(c, dfilter_lzw_codec, (void*)delzwp,
 		dcmpro, dres);
 }

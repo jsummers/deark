@@ -120,6 +120,32 @@ void de_dfilter_destroy(struct de_dfilter_ctx *dfctx)
 	de_free(c, dfctx);
 }
 
+static int my_dfilter_oneshot_buffered_read_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
+	i64 buf_len)
+{
+	struct de_dfilter_ctx *dfctx = (struct de_dfilter_ctx *)brctx->userdata;
+
+	de_dfilter_addbuf(dfctx, buf, buf_len);
+	if(dfctx->finished_flag) return 0;
+	return 1;
+}
+
+// Use a "pushable" codec in a non-pushable way.
+void de_dfilter_decompress_oneshot(deark *c,
+	dfilter_codec_type codec_init_fn, void *codec_private_params,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	struct de_dfilter_ctx *dfctx = NULL;
+
+	dfctx = de_dfilter_create(c, codec_init_fn, codec_private_params,
+		dcmpro, dres);
+	dbuf_buffered_read(dcmpri->f, dcmpri->pos, dcmpri->len,
+		my_dfilter_oneshot_buffered_read_cbfn, (void*)dfctx);
+	de_dfilter_finish(dfctx);
+	de_dfilter_destroy(dfctx);
+}
+
 void de_fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {

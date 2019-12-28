@@ -119,6 +119,7 @@ struct de_dfilter_ctx {
 	deark *c;
 	struct de_dfilter_results *dres;
 	struct de_dfilter_out_params *dcmpro;
+	u8 finished_flag;
 	void *codec_private;
 	dfilter_codec_addbuf_type codec_addbuf_fn;
 	dfilter_codec_finish_type codec_finish_fn;
@@ -144,6 +145,11 @@ void de_fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	struct delzw_params *delzwp);
 
+void de_dfilter_decompress_oneshot(deark *c,
+	dfilter_codec_type codec_init_fn, void *codec_private_params,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres);
+
 struct de_dfilter_ctx *de_dfilter_create(deark *c,
 	dfilter_codec_type codec_init_fn, void *codec_private_params,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
@@ -152,7 +158,7 @@ void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
 void de_dfilter_finish(struct de_dfilter_ctx *dfctx);
 void de_dfilter_destroy(struct de_dfilter_ctx *dfctx);
 
-void dfilter_liblzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
+void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 struct de_dfilter_ctx *de_dfilter_create_delzw(deark *c, struct delzw_params *delzwp,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
 

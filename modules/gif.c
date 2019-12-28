@@ -872,7 +872,7 @@ static int do_image_internal(deark *c, lctx *d,
 		pos++;
 		if(n==0) break;
 
-		if(!failure_flag) {
+		if(!failure_flag && !dfctx->finished_flag) {
 			u8 buf[255];
 
 			de_read(buf, pos, n);
