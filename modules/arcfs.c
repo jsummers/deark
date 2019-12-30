@@ -78,46 +78,43 @@ static void do_arcfs_compressed(deark *c, lctx *d, struct arcfs_member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	u8 lzwmode;
+	struct delzw_params delzwp;
 
-	lzwmode = (u8)(md->rfa.lzwmaxbits | 0x80);
-	de_fmtutil_decompress_liblzw_ex(c, dcmpri, dcmpro, dres,
-		DE_LIBLZWFLAG_ARCFSMODE, lzwmode);
+	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
+	delzwp.unixcompress_lzwmode = (u8)(md->rfa.lzwmaxbits | 0x80);
+	if(!dcmpro->len_known) {
+		delzwp.unixcompress_flags |= DE_LIBLZWFLAG_ARCFSMODE;
+	}
+	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
 
 static void do_arcfs_crunched(deark *c, lctx *d, struct arcfs_member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	dbuf *tmpf = NULL;
-	struct de_dfilter_out_params tmpoparams;
-	struct de_dfilter_in_params tmpiparams;
-
-	de_dfilter_init_objects(c, &tmpiparams, &tmpoparams, NULL);
+	struct delzw_params delzwp;
 
 	// "Crunched" means "packed", then "compressed".
-	// So we have to "uncompress", then "unpack".
+	// So we have to "uncompress" (LZW), then "unpack" (RLE90).
 
-	// TODO: It would be better to unpack the bytes in a streaming fashion, instead
-	// of uncompressing the whole file to a memory buffer.
-	// TODO: We should at least set a size limit on tmpf, but it's not clear what
-	// the limit should be.
-	tmpf = dbuf_create_membuf(c, 0, 0);
-	tmpoparams.f = tmpf;
-	tmpoparams.len_known = 0;
-	do_arcfs_compressed(c, d, md, dcmpri, &tmpoparams, dres);
-	if(dres->errcode) goto done;
+	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
+	delzwp.unixcompress_lzwmode = (u8)(md->rfa.lzwmaxbits | 0x80);
 
-	de_dbg2(c, "size after intermediate decompression: %"I64_FMT, tmpf->len);
+	// This flag tells the LZW decompressor to stop, instead of reporting failure,
+	// if bad LZW compressed data is encountered.
+	// The problem is that some ArcFS files have garbage at the end of the
+	// compressed data.
+	// Apparently, we're expected to have a single decompression algorithm that
+	// handles both layers of compression simultaneously, without any buffering
+	// between them. That way, we could stop immediately when we've decompressed
+	// a sufficient number of bytes, and never encounter the garbage. But we
+	// don't have that.
+	delzwp.unixcompress_flags |= DE_LIBLZWFLAG_ARCFSMODE;
 
-	tmpiparams.f = tmpf;
-	tmpiparams.pos = 0;
-	tmpiparams.len = tmpf->len;
-
-	de_fmtutil_decompress_rle90_ex(c, &tmpiparams, dcmpro, dres, 0);
-
-done:
-	dbuf_close(tmpf);
+	de_dfilter_decompress_two_layer(c, dfilter_lzw_codec, (void*)&delzwp,
+		dfilter_rle90_codec, NULL, dcmpri, dcmpro, dres);
 }
 
 static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
