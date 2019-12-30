@@ -442,9 +442,6 @@
     <ClCompile Include="..\..\src\fmtutil.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\fmtutil-liblzw.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\src\fmtutil-cmpr.c">
       <Filter>Source Files</Filter>
     </ClCompile>

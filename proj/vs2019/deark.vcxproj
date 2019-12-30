@@ -309,7 +309,6 @@
     <ClCompile Include="..\..\src\fmtutil-zoo.c" />
     <ClCompile Include="..\..\src\fmtutil.c" />
     <ClCompile Include="..\..\src\deark-font.c" />
-    <ClCompile Include="..\..\src\fmtutil-liblzw.c" />
     <ClCompile Include="..\..\src\deark-modules.c" />
     <ClCompile Include="..\..\src\deark-tar.c" />
     <ClCompile Include="..\..\src\deark-ucstring.c" />
