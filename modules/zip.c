@@ -191,6 +191,7 @@ static const struct cmpr_meth_info *get_cmpr_meth_info(int cmpr_meth)
 // and append it to outf.
 // On failure, prints an error and returns 0.
 // Returns 1 on apparent success.
+// TODO: How should this low-level function report errors and warnings?
 static int do_decompress_data(deark *c, lctx *d,
 	dbuf *inf, i64 inf_pos, i64 inf_size,
 	dbuf *outf, i64 maxuncmprsize,
@@ -219,6 +220,11 @@ static int do_decompress_data(deark *c, lctx *d,
 			de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
 		}
 		else {
+			if(dres.bytes_consumed_valid && (dres.bytes_consumed < inf_size)) {
+				de_warn(c, "Decompression may have failed (used only "
+					"%"I64_FMT" of %"I64_FMT" compressed bytes)",
+					dres.bytes_consumed, inf_size);
+			}
 			retval = 1;
 		}
 		goto done;

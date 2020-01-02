@@ -130,6 +130,8 @@ void fmtutil_decompress_zip_reduce(deark *c, struct de_dfilter_in_params *dcmpri
 			ozur->error_code);
 	}
 	else {
+		dres->bytes_consumed = ozur->cmpr_nbytes_consumed;
+		dres->bytes_consumed_valid = 1;
 		retval = 1;
 	}
 
@@ -238,9 +240,8 @@ void fmtutil_decompress_zip_implode(deark *c, struct de_dfilter_in_params *dcmpr
 
 	ui6a_unimplode(ui6a);
 	if(ui6a->error_code == UI6A_ERRCODE_OK) {
-		if(ui6a->cmpr_nbytes_consumed < ui6a->cmpr_size) {
-			de_warn(c, "Implode decompression may have failed (did not use all compressed data)");
-		}
+		dres->bytes_consumed = ui6a->cmpr_nbytes_consumed;
+		dres->bytes_consumed_valid = 1;
 		retval = 1;
 	}
 	else {
