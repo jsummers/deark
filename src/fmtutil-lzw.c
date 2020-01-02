@@ -101,7 +101,7 @@ struct delzwctx_struct {
 	i64 uncmpr_nbytes_written; // (Not including those in outbuf)
 	i64 uncmpr_nbytes_decoded; // (Including those in outbuf)
 
-	i64 bitcount_for_this_group;
+	i64 ncodes_in_this_bitgroup;
 	i64 nbytes_left_to_skip;
 
 	unsigned int curr_codesize;
@@ -393,12 +393,22 @@ static void delzw_find_first_free_entry(delzwctx *dc, DELZW_CODE *pentry)
 
 static void delzw_unixcompress_end_bitgroup(delzwctx *dc)
 {
+	i64 ncodes_alloc;
 	i64 nbits_left_to_skip;
 
-	// To the best of my understanding, this is a silly bug that somehow became part of
-	// the standard 'compress' format.
-	nbits_left_to_skip = de_pad_to_n(dc->bitcount_for_this_group, 8*(i64)dc->curr_codesize) -
-		dc->bitcount_for_this_group;
+	// The Unix 'compress' format has a quirk.
+	// The codes are written 8 at a time, with all 8 having the same codesize.
+	// The codesize cannot change in the middle of a block of 8. If it needs to,
+	// the remainder of the block is unused padding, which we must skip over.
+	// For versions of the format that use a clear code, this should only be
+	// relevant when we encounter a clear code, not when the codesize is
+	// incremented (because that will happen when there are exactly 256, 512,
+	// 1024, ... codes since the last clear code).
+	// I do not know how compress v2 format works -- it evidently did not use a
+	// clear code, so I guess the number of codes would be 257, 513, ...
+
+	ncodes_alloc = de_pad_to_n(dc->ncodes_in_this_bitgroup, 8);
+	nbits_left_to_skip = (ncodes_alloc - dc->ncodes_in_this_bitgroup) * dc->curr_codesize;
 
 	// My thinking:
 	// Each "bitgroup" has a whole number of bytes.
@@ -415,7 +425,7 @@ static void delzw_unixcompress_end_bitgroup(delzwctx *dc)
 		delzw_debugmsg(dc, 2, "padding bits: %d", (int)nbits_left_to_skip);
 	}
 
-	dc->bitcount_for_this_group = 0;
+	dc->ncodes_in_this_bitgroup = 0;
 	if(dc->bitreader_nbits_in_buf>7 || dc->bitreader_nbits_in_buf>nbits_left_to_skip) {
 		delzw_set_error(dc, DELZW_ERRCODE_INTERNAL_ERROR, NULL);
 		return;
@@ -826,7 +836,7 @@ static void delzw_process_byte(delzwctx *dc, u8 b)
 			}
 
 			code = delzw_get_code(dc, dc->curr_codesize);
-			dc->bitcount_for_this_group += (i64)dc->curr_codesize;
+			dc->ncodes_in_this_bitgroup++;
 			delzw_process_code(dc, code);
 
 			if(dc->state != DELZW_STATE_READING_CODES) {
