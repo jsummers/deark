@@ -286,6 +286,12 @@ static void delzw_process_unixcompress_3byteheader(delzwctx *dc)
 	dc->max_codesize = (unsigned int)(options & 0x1f);
 	delzw_debugmsg(dc, 1, " max code size: %u", dc->max_codesize);
 	dc->unixcompress_has_clear_code = (options & 0x80) ? 1 : 0;
+	delzw_debugmsg(dc, 1, " block mode: %d", dc->unixcompress_has_clear_code);
+	if(!dc->unixcompress_has_clear_code) {
+		// TODO: Handle warnings with a callback function, or something.
+		de_warn(dc->c, "This file uses an obsolete compress'd format, which "
+			"might not be decompressed correctly");
+	}
 }
 
 static void delzw_process_arc_1byteheader(delzwctx *dc)
@@ -400,12 +406,14 @@ static void delzw_unixcompress_end_bitgroup(delzwctx *dc)
 	// The codes are written 8 at a time, with all 8 having the same codesize.
 	// The codesize cannot change in the middle of a block of 8. If it needs to,
 	// the remainder of the block is unused padding, which we must skip over.
-	// For versions of the format that use a clear code, this should only be
-	// relevant when we encounter a clear code, not when the codesize is
-	// incremented (because that will happen when there are exactly 256, 512,
-	// 1024, ... codes since the last clear code).
-	// I do not know how compress v2 format works -- it evidently did not use a
-	// clear code, so I guess the number of codes would be 257, 513, ...
+	// Ths is relevant when we encounter a clear code, and *potentially* when the
+	// codesize is auto-incremented. But except possibly for the first group of
+	// codes (the 9-bit codes), the number of codes is always (?) a power of 2,
+	// and a multiple of 8. So no padding is present.
+	// As it happens, when code 256 is reserved as the clear code, it reduces the
+	// number of 9-bit codes from 257 to 256, so still no padding is present.
+	// But "v2" format does not use a clear code, and AFAICT it does have padding
+	// after the 9-bit codes.
 
 	ncodes_alloc = de_pad_to_n(dc->ncodes_in_this_bitgroup, 8);
 	nbits_left_to_skip = (ncodes_alloc - dc->ncodes_in_this_bitgroup) * dc->curr_codesize;
