@@ -27,6 +27,8 @@ struct member_data {
 	i64 total_size;
 	struct de_fourcc cmpr_meth_4cc;
 	int is_dir;
+	int is_nonexecutable;
+	int is_executable;
 	i64 orig_size;
 	u32 crc16;
 	u8 os_id;
@@ -231,15 +233,28 @@ static void exthdr_windowstimestamp(deark *c, lctx *d, struct member_data *md,
 	read_windows_FILETIME(c, d, md, pos+16, 0, "access time");
 }
 
+static void interpret_unix_perms(deark *c, lctx *d, struct member_data *md, unsigned int mode)
+{
+	if(mode & 0100000) { // regular file
+		if(mode & 0111) { // executable
+			md->is_executable = 1;
+		}
+		else {
+			md->is_nonexecutable = 1;
+		}
+	}
+}
+
 static void exthdr_unixperms(deark *c, lctx *d, struct member_data *md,
 	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
 {
-	i64 mode;
+	unsigned int mode;
 
 	if(dlen<2) return;
-	mode = de_getu16le(pos);
-	de_dbg(c, "mode: octal(%06o)", (unsigned int)mode);
+	mode = (unsigned int)de_getu16le(pos);
+	de_dbg(c, "mode: octal(%06o)", mode);
+	interpret_unix_perms(c, d, md, mode);
 }
 
 static void exthdr_unixuidgid(deark *c, lctx *d, struct member_data *md,
@@ -379,15 +394,16 @@ static void do_lev0_ext_area(deark *c, lctx *d, struct member_data *md,
 
 	// TODO: Finish this
 	if(md->os_id=='U') {
-		i64 mode;
+		unsigned int mode;
 		i64 uid, gid;
 
 		if(len<12) goto done;
 
 		read_unix_timestamp(c, d, md, pos1+2, 1, "last-modified");
 
-		mode = de_getu16le(pos1+6);
-		de_dbg(c, "mode: octal(%06o)", (unsigned int)mode);
+		mode = (unsigned int)de_getu16le(pos1+6);
+		de_dbg(c, "mode: octal(%06o)", mode);
+		interpret_unix_perms(c, d, md, mode);
 
 		uid = de_getu16le(pos1+8);
 		de_dbg(c, "uid: %d", (int)uid);
@@ -539,6 +555,12 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md,
 
 	if(md->is_dir) {
 		fi->is_directory = 1;
+	}
+	else if(md->is_executable) {
+		fi->mode_flags |= DE_MODEFLAG_EXE;
+	}
+	else if(md->is_nonexecutable) {
+		fi->mode_flags |= DE_MODEFLAG_NONEXE;
 	}
 
 	de_finfo_set_name_from_ucstring(c, fi, md->fullfilename, DE_SNFLAG_FULLPATH);
