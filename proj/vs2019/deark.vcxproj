@@ -240,6 +240,7 @@
     <ClCompile Include="..\..\modules\mp3.c" />
     <ClCompile Include="..\..\modules\mscompress.c" />
     <ClCompile Include="..\..\modules\msp.c" />
+    <ClCompile Include="..\..\modules\nie.c" />
     <ClCompile Include="..\..\modules\nokia.c" />
     <ClCompile Include="..\..\modules\officeart.c" />
     <ClCompile Include="..\..\modules\ogg.c" />

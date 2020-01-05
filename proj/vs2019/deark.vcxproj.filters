@@ -469,6 +469,9 @@
     <ClCompile Include="..\..\src\fmtutil-lzw.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\modules\nie.c">
+      <Filter>Modules</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\deark-config.h">
