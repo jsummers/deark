@@ -1614,10 +1614,6 @@ static const struct box_type_info *find_box_type_info(deark *c, lctx *d,
 	if(d->is_jpegxt) mask |= 0x00040000;
 	if(d->is_heif) mask |= 0x00080000;
 
-	if(boxtype==0x54484d42U) {
-		boxtype=boxtype;
-	}
-
 	for(k=0; k<DE_ARRAYCOUNT(box_type_info_arr); k++) {
 		if(box_type_info_arr[k].boxtype != boxtype) continue;
 		if(level==0 && (box_type_info_arr[k].flags2 & 0x2)) {
