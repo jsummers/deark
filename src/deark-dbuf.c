@@ -980,6 +980,7 @@ dbuf *dbuf_create_unmanaged_file(deark *c, const char *fname, int overwrite_mode
 	if(!f->fp) {
 		de_err(c, "Failed to write %s: %s", f->name, msgbuf);
 		f->btype = DBUF_TYPE_NULL;
+		c->serious_error_flag = 1;
 	}
 
 	return f;
@@ -1225,6 +1226,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 		if(!f->fp) {
 			de_err(c, "Failed to write %s: %s", f->name, msgbuf);
 			f->btype = DBUF_TYPE_NULL;
+			c->serious_error_flag = 1;
 		}
 	}
 
@@ -1300,10 +1302,10 @@ void dbuf_write(dbuf *f, const u8 *m, i64 len)
 		do_on_dbuf_size_exceeded(f);
 	}
 
-	if(f->writecallback_fn) {
+	if(f->writelistener_cb) {
 		// Note that the callback function can be changed at any time, so if we
 		// ever decide to buffer these calls, precautions will be needed.
-		f->writecallback_fn(f, m, len);
+		f->writelistener_cb(f, f->userdata_for_writelistener, m, len);
 	}
 
 	if(f->btype==DBUF_TYPE_NULL) {
@@ -1328,6 +1330,13 @@ void dbuf_write(dbuf *f, const u8 *m, i64 len)
 	}
 	else if(f->btype==DBUF_TYPE_ODBUF) {
 		dbuf_write(f->parent_dbuf, m, len);
+		f->len += len;
+		return;
+	}
+	else if(f->btype==DBUF_TYPE_CUSTOM) {
+		if(f->customwrite_fn) {
+			f->customwrite_fn(f, f->userdata_for_customwrite, m, len);
+		}
 		f->len += len;
 		return;
 	}
@@ -1588,7 +1597,10 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 	unsigned int returned_flags = 0;
 	char msgbuf[200];
 
-	if(!fn) return NULL;
+	if(!fn) {
+		c->serious_error_flag = 1;
+		return NULL;
+	}
 	f = de_malloc(c, sizeof(dbuf));
 	f->btype = DBUF_TYPE_IFILE;
 	f->c = c;
@@ -1599,6 +1611,7 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 	if(!f->fp) {
 		de_err(c, "Can't read %s: %s", fn, msgbuf);
 		de_free(c, f);
+		c->serious_error_flag = 1;
 		return NULL;
 	}
 
@@ -1641,6 +1654,24 @@ dbuf *dbuf_open_input_subfile(dbuf *parent, i64 offset, i64 size)
 	f->offset_into_parent_dbuf = offset;
 	f->len = size;
 	return f;
+}
+
+dbuf *dbuf_create_custom_dbuf(deark *c, i64 apparent_size, unsigned int flags)
+{
+	dbuf *f;
+
+	f = de_malloc(c, sizeof(dbuf));
+	f->btype = DBUF_TYPE_CUSTOM;
+	f->c = c;
+	f->len = apparent_size;
+	f->max_len_hard = DE_DUMMY_MAX_FILE_SIZE;
+	return f;
+}
+
+void dbuf_set_writelistener(dbuf *f, de_writelistener_cb_type fn, void *userdata)
+{
+	f->userdata_for_writelistener = userdata;
+	f->writelistener_cb = fn;
 }
 
 void dbuf_close(dbuf *f)
@@ -1698,6 +1729,8 @@ void dbuf_close(dbuf *f)
 	else if(f->btype==DBUF_TYPE_ODBUF) {
 	}
 	else if(f->btype==DBUF_TYPE_STDIN) {
+	}
+	else if(f->btype==DBUF_TYPE_CUSTOM) {
 	}
 	else if(f->btype==DBUF_TYPE_NULL) {
 	}

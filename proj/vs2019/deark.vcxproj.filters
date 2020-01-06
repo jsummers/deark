@@ -442,9 +442,6 @@
     <ClCompile Include="..\..\src\fmtutil.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\fmtutil-liblzw.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\src\fmtutil-cmpr.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -469,6 +466,12 @@
     <ClCompile Include="..\..\modules\ccx.c">
       <Filter>Modules</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\fmtutil-lzw.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\modules\nie.c">
+      <Filter>Modules</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\deark-config.h">
@@ -489,9 +492,6 @@
     <ClInclude Include="..\..\src\deark.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\foreign\liblzw.h">
-      <Filter>Foreign Code</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\foreign\miniz.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>
@@ -501,9 +501,6 @@
     <ClInclude Include="..\..\foreign\unsit.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\foreign\zoo-lzd.h">
-      <Filter>Foreign Code</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\foreign\unimplode6a.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>
@@ -511,9 +508,6 @@
       <Filter>Foreign Code</Filter>
     </ClInclude>
     <ClInclude Include="..\..\foreign\unzoo-lzh.h">
-      <Filter>Foreign Code</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\foreign\ozunshrink.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>
   </ItemGroup>

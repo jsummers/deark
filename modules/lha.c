@@ -9,14 +9,26 @@
 DE_DECLARE_MODULE(de_module_lha);
 
 #define CODE_lh0 0x6c6830U
+#define CODE_lh1 0x6c6831U
+#define CODE_lh5 0x6c6835U
 #define CODE_lhd 0x6c6864U
+#define CODE_lz4 0x6c7a34U
+#define CODE_pm0 0x706d30U
+
+struct cmpr_meth_info {
+	unsigned int flags;
+	unsigned int id;
+	const char *descr;
+	void *reserved;
+};
 
 struct member_data {
 	u8 hlev; // header level
 	i64 total_size;
-	struct de_stringreaderdata *cmpr_method;
-	u32 cmpr_meth_code;
+	struct de_fourcc cmpr_meth_4cc;
 	int is_dir;
+	int is_nonexecutable;
+	int is_executable;
 	i64 orig_size;
 	u32 crc16;
 	u8 os_id;
@@ -221,15 +233,28 @@ static void exthdr_windowstimestamp(deark *c, lctx *d, struct member_data *md,
 	read_windows_FILETIME(c, d, md, pos+16, 0, "access time");
 }
 
+static void interpret_unix_perms(deark *c, lctx *d, struct member_data *md, unsigned int mode)
+{
+	if(mode & 0100000) { // regular file
+		if(mode & 0111) { // executable
+			md->is_executable = 1;
+		}
+		else {
+			md->is_nonexecutable = 1;
+		}
+	}
+}
+
 static void exthdr_unixperms(deark *c, lctx *d, struct member_data *md,
 	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
 {
-	i64 mode;
+	unsigned int mode;
 
 	if(dlen<2) return;
-	mode = de_getu16le(pos);
-	de_dbg(c, "mode: octal(%06o)", (unsigned int)mode);
+	mode = (unsigned int)de_getu16le(pos);
+	de_dbg(c, "mode: octal(%06o)", mode);
+	interpret_unix_perms(c, d, md, mode);
 }
 
 static void exthdr_unixuidgid(deark *c, lctx *d, struct member_data *md,
@@ -311,7 +336,6 @@ static const struct exthdr_type_info_struct exthdr_type_info_arr[] = {
 static void destroy_member_data(deark *c, struct member_data *md)
 {
 	if(!md) return;
-	de_destroy_stringreaderdata(c, md->cmpr_method);
 	ucstring_destroy(md->dirname);
 	ucstring_destroy(md->filename);
 	ucstring_destroy(md->fullfilename);
@@ -370,15 +394,16 @@ static void do_lev0_ext_area(deark *c, lctx *d, struct member_data *md,
 
 	// TODO: Finish this
 	if(md->os_id=='U') {
-		i64 mode;
+		unsigned int mode;
 		i64 uid, gid;
 
 		if(len<12) goto done;
 
 		read_unix_timestamp(c, d, md, pos1+2, 1, "last-modified");
 
-		mode = de_getu16le(pos1+6);
-		de_dbg(c, "mode: octal(%06o)", (unsigned int)mode);
+		mode = (unsigned int)de_getu16le(pos1+6);
+		de_dbg(c, "mode: octal(%06o)", mode);
+		interpret_unix_perms(c, d, md, mode);
 
 		uid = de_getu16le(pos1+8);
 		de_dbg(c, "uid: %d", (int)uid);
@@ -481,13 +506,31 @@ static void make_fullfilename(deark *c, lctx *d, struct member_data *md)
 	}
 }
 
-static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
+static void do_decompress_stored(deark *c, lctx *d, struct member_data *md, dbuf *outf)
 {
-	struct de_crcobj *crco = (struct de_crcobj*)f->userdata;
+	dbuf_copy(c->infile, md->compressed_data_pos, md->compressed_data_len, outf);
+}
+
+// flags:
+//   0x01 = directory
+//   0x02 = uncompressed
+static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
+	{ 0x01, CODE_lhd, "directory", NULL },
+	{ 0x02, CODE_lh0, "uncompressed", NULL },
+	{ 0x00, CODE_lh1, "LZSS-4K / dynamic Huffman / static Huffman", NULL },
+	{ 0x00, CODE_lh5, "LZSS-8K / static Huffman / static Huffman", NULL },
+	{ 0x02, CODE_lz4, "uncompressed (LArc)", NULL },
+	{ 0x02, CODE_pm0, "uncompressed (PMArc)", NULL }
+};
+
+static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
+{
+	struct de_crcobj *crco = (struct de_crcobj*)userdata;
 	de_crcobj_addbuf(crco, buf, buf_len);
 }
 
-static void do_extract_file(deark *c, lctx *d, struct member_data *md)
+static void do_extract_file(deark *c, lctx *d, struct member_data *md,
+	const struct cmpr_meth_info *cmi)
 {
 	de_finfo *fi = NULL;
 	dbuf *outf = NULL;
@@ -497,12 +540,12 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	if(md->is_dir) {
 		;
 	}
-	else if(md->cmpr_meth_code==CODE_lh0) {
-		;
+	else if(cmi && (cmi->flags & 0x02)) {
+		; // uncompressed
 	}
 	else {
-		de_err(c, "%s: Unsupported compression method",
-			ucstring_getpsz_d(md->fullfilename));
+		de_err(c, "%s: Unsupported compression method '%s'",
+			ucstring_getpsz_d(md->fullfilename), md->cmpr_meth_4cc.id_sanitized_sz);
 		return;
 	}
 
@@ -512,6 +555,12 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 
 	if(md->is_dir) {
 		fi->is_directory = 1;
+	}
+	else if(md->is_executable) {
+		fi->mode_flags |= DE_MODEFLAG_EXE;
+	}
+	else if(md->is_nonexecutable) {
+		fi->mode_flags |= DE_MODEFLAG_NONEXE;
 	}
 
 	de_finfo_set_name_from_ucstring(c, fi, md->fullfilename, DE_SNFLAG_FULLPATH);
@@ -525,10 +574,9 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	else {
 		de_crcobj_reset(d->crco);
 	}
-	outf->userdata = (void*)d->crco;
-	outf->writecallback_fn = our_writecallback;
+	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
 
-	dbuf_copy(c->infile, md->compressed_data_pos, md->compressed_data_len, outf);
+	do_decompress_stored(c, d, md, outf);
 
 	crc_calc = de_crcobj_getval(d->crco);
 	de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)crc_calc);
@@ -538,6 +586,18 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 
 	dbuf_close(outf);
 	de_finfo_destroy(c, fi);
+}
+
+static const struct cmpr_meth_info *get_cmpr_meth_info(lctx *d, unsigned int id)
+{
+	size_t k;
+
+	for(k=0; k<DE_ARRAYCOUNT(cmpr_meth_info_arr); k++) {
+		if(cmpr_meth_info_arr[k].id == id) {
+			return &cmpr_meth_info_arr[k];
+		}
+	}
+	return NULL;
 }
 
 // This single function parses all the different header formats, using lots of
@@ -559,6 +619,10 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	i64 fnlen = 0;
 	int is_compressed;
 	int ret;
+	u8 tmpb1, tmpb2;
+	const struct cmpr_meth_info *cmi;
+	const char *cmpr_meth_descr = NULL;
+	char tmpstr[80];
 
 	if(c->infile->len - pos1 < 21) {
 		goto done;
@@ -567,9 +631,11 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	de_dbg(c, "member at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	// Read this first, to help decide whether this is LHA data at all.
-	md->cmpr_method = dbuf_read_string(c->infile, pos1+2, 5, 5, 0, DE_ENCODING_ASCII);
-	if(md->cmpr_method->sz[0]!='-' || md->cmpr_method->sz[4]!='-') {
+	// Read compression method first, to help decide whether this is LHA data at all.
+	tmpb1 = de_getbyte(pos1+2);
+	dbuf_read_fourcc(c->infile, pos1+3, &md->cmpr_meth_4cc, 3, 0);
+	tmpb2 = de_getbyte(pos1+6);
+	if(tmpb1!='-' || tmpb2!='-') {
 		if(d->member_count==0) {
 			de_err(c, "Not an LHA file");
 			goto done;
@@ -580,9 +646,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 		}
 	}
 
-	md->cmpr_meth_code = (u32)(u8)md->cmpr_method->sz[1] << 16;
-	md->cmpr_meth_code |= (u32)(u8)md->cmpr_method->sz[2] << 8;
-	md->cmpr_meth_code |= (u32)(u8)md->cmpr_method->sz[3];
+	cmi = get_cmpr_meth_info(d, md->cmpr_meth_4cc.id);
 
 	// Look ahead to figure out the header format version.
 	// This byte was originally the high byte of the "MS-DOS file attribute" field,
@@ -621,14 +685,21 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	}
 
 	// This field was read earlier.
-	de_dbg(c, "cmpr method: \"%s\"", ucstring_getpsz(md->cmpr_method->str));
+	if(cmi && cmi->descr) cmpr_meth_descr = cmi->descr;
+	if(cmpr_meth_descr) {
+		de_snprintf(tmpstr, sizeof(tmpstr), " (%s)", cmpr_meth_descr);
+	}
+	else {
+		de_strlcpy(tmpstr, "", sizeof(tmpstr));
+	}
+	de_dbg(c, "cmpr method: \"%s\"%s", md->cmpr_meth_4cc.id_dbgstr, tmpstr);
 	pos+=5;
 
-	if(md->cmpr_meth_code==CODE_lhd) {
+	if(cmi && (cmi->flags & 0x01)) {
 		is_compressed = 0;
 		md->is_dir = 1;
 	}
-	else if(md->cmpr_meth_code==CODE_lh0) {
+	else if(cmi && (cmi->flags & 0x02)) {
 		is_compressed = 0;
 	}
 	else {
@@ -759,7 +830,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 
 	make_fullfilename(c, d, md);
 
-	do_extract_file(c, d, md);
+	do_extract_file(c, d, md, cmi);
 
 	retval = 1;
 done:
@@ -832,7 +903,7 @@ static void de_help_lha(deark *c)
 void de_module_lha(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "lha";
-	mi->desc = "LHA/LZW/PMA archive";
+	mi->desc = "LHA/LZH/PMA archive";
 	mi->run_fn = de_run_lha;
 	mi->identify_fn = de_identify_lha;
 	mi->help_fn = de_help_lha;

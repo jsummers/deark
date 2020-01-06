@@ -1,10 +1,19 @@
-// This file is an edited version of unzoo.c v4.4 by Martin Schoenert.
-// It has been heavily modified for Deark, with unneeded portions removed.
+// This file is an edited version of the LZH decompression routine from
+// unzoo.c v4.4 by Martin Schoenert.
+// It has been heavily modified for Deark.
+
+// The original file had this notice:
+
+/*
+*A  unzoo.c                     Tools                        Martin Schoenert
+**
+*H  @(#)$Id: unzoo.c,v 4.4 2000/05/29 08:56:57 sal Exp $
+**
+*Y  This file is in the Public Domain.
+*/
 
 // This file (unzoo-lzh.h) is hereby left in the public domain; or it may, at
 // your option, be distributed under the same terms as the main Deark software.
-
-// See the companion file unzoo.h for additional comments.
 
 struct lzh_lookuptable {
 	unsigned int tablebits;

@@ -93,31 +93,17 @@ static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	dbuf *tmpf = NULL;
-	struct de_dfilter_out_params tmpoparams;
-	struct de_dfilter_in_params tmpiparams;
-
-	de_zeromem(&tmpoparams, sizeof(struct de_dfilter_out_params));
-	de_zeromem(&tmpiparams, sizeof(struct de_dfilter_in_params));
+	struct delzw_params delzwp;
 
 	// "Crunched" means "packed", then "compressed".
-	// So we have to "uncompress", then "unpack".
-	tmpf = dbuf_create_membuf(c, 0, 0);
+	// So we have to "uncompress" (LZW), then "unpack" (RLE90).
 
-	tmpoparams.f = tmpf;
-	tmpoparams.len_known = 0;
-	tmpoparams.expected_len = 0;
-	decompressor_spark_compressed(c, d, md, dcmpri, &tmpoparams, dres);
-	if(dres->errcode) goto done;
-	de_dbg2(c, "size after intermediate decompression: %"I64_FMT, tmpf->len);
+	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
+	delzwp.unixcompress_flags = DE_LIBLZWFLAG_HAS1BYTEHEADER;
 
-	tmpiparams.f = tmpf;
-	tmpiparams.pos = 0;
-	tmpiparams.len = tmpf->len;
-	decompressor_packed(c, d, md, &tmpiparams, dcmpro, dres);
-
-done:
-	dbuf_close(tmpf);
+	de_dfilter_decompress_two_layer(c, dfilter_lzw_codec, (void*)&delzwp,
+		dfilter_rle90_codec, NULL, dcmpri, dcmpro, dres);
 }
 
 // Flags:
@@ -272,9 +258,9 @@ done:
 	return retval;
 }
 
-static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
+static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
 {
-	struct de_crcobj *crco = (struct de_crcobj*)f->userdata;
+	struct de_crcobj *crco = (struct de_crcobj*)userdata;
 	de_crcobj_addbuf(crco, buf, buf_len);
 }
 
@@ -308,8 +294,7 @@ static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
 
-	outf->writecallback_fn = our_writecallback;
-	outf->userdata = (void*)d->crco;
+	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
 	de_crcobj_reset(d->crco);
 
 	dcmpri = de_malloc(c, sizeof(struct de_dfilter_in_params));

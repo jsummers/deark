@@ -12,12 +12,6 @@
 static void *ozXX_calloc(void *userdata, size_t nmemb, size_t size);
 static void ozXX_free(void *userdata, void *ptr);
 
-#define OZUS_UINT8     u8
-#define OZUS_UINT16    u16
-#define OZUS_OFF_T     i64
-#define OZUS_MEMCPY    de_memcpy
-#include "../foreign/ozunshrink.h"
-
 #define OZUR_UINT8     u8
 #define OZUR_OFF_T     i64
 #include "../foreign/ozunreduce.h"
@@ -70,71 +64,17 @@ static size_t ozXX_write(struct ozXX_udatatype *uctx, const u8 *buf, size_t size
 	return size;
 }
 
-static size_t my_ozus_read(ozus_ctx *ozus, OZUS_UINT8 *buf, size_t size)
-{
-	return ozXX_read((struct ozXX_udatatype*)ozus->userdata, buf, size);
-}
-
-static size_t my_ozus_write(ozus_ctx *ozus, const OZUS_UINT8 *buf, size_t size)
-{
-	return ozXX_write((struct ozXX_udatatype*)ozus->userdata, buf, size);
-}
-
-static void my_ozus_inc_code_size(ozus_ctx *ozus)
-{
-	struct ozXX_udatatype *zu = (struct ozXX_udatatype*)ozus->userdata;
-	de_dbg(zu->c, "code size now %u (lc=%u)", (unsigned int)ozus->curr_code_size,
-		(unsigned int)ozus->last_code_added);
-}
-
-static void my_ozus_pre_partial_clear(ozus_ctx *ozus)
-{
-	struct ozXX_udatatype *zu = (struct ozXX_udatatype*)ozus->userdata;
-	de_dbg(zu->c, "partial clear (lc=%u)", (unsigned int)ozus->last_code_added);
-}
-
 void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags)
 {
-	ozus_ctx *ozus = NULL;
-	struct ozXX_udatatype zu;
-	static const char *modname = "unshrink";
+	struct delzw_params delzwp;
 
-	de_zeromem(&zu, sizeof(struct ozXX_udatatype));
-	if(!dcmpro->len_known) goto done;
-
-	zu.c = c;
-	zu.inf = dcmpri->f;
-	zu.inf_curpos = dcmpri->pos;
-	zu.outf = dcmpro->f;
-
-	ozus = de_malloc(c, sizeof(ozus_ctx));
-	ozus->userdata = (void*)&zu;
-	ozus->cmpr_size = dcmpri->len;
-	ozus->uncmpr_size = dcmpro->expected_len;
-	ozus->cb_read = my_ozus_read;
-	ozus->cb_write = my_ozus_write;
-	if(c->debug_level>=2) {
-		ozus->cb_inc_code_size = my_ozus_inc_code_size;
-		ozus->cb_pre_partial_clear = my_ozus_pre_partial_clear;
-	}
-
-	de_dbg_indent(c, 1);
-	ozus_run(ozus);
-	de_dbg_indent(c, -1);
-
-	if(ozus->error_code) {
-		de_dfilter_set_errorf(c, dres, modname, "Decompression failed (code %d)",
-			ozus->error_code);
-	}
-	else if(ozus->cmpr_nbytes_consumed < ozus->cmpr_size) {
-		de_warn(c, "Shrink decompression may have failed (did not use all compressed data)");
-	}
-
-done:
-	de_free(c, ozus);
+	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	delzwp.fmt = DE_LZWFMT_ZIPSHRINK;
+	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
+
 
 static size_t my_ozur_read(ozur_ctx *ozur, OZUR_UINT8 *buf, size_t size)
 {
@@ -190,6 +130,8 @@ void fmtutil_decompress_zip_reduce(deark *c, struct de_dfilter_in_params *dcmpri
 			ozur->error_code);
 	}
 	else {
+		dres->bytes_consumed = ozur->cmpr_nbytes_consumed;
+		dres->bytes_consumed_valid = 1;
 		retval = 1;
 	}
 
@@ -298,9 +240,8 @@ void fmtutil_decompress_zip_implode(deark *c, struct de_dfilter_in_params *dcmpr
 
 	ui6a_unimplode(ui6a);
 	if(ui6a->error_code == UI6A_ERRCODE_OK) {
-		if(ui6a->cmpr_nbytes_consumed < ui6a->cmpr_size) {
-			de_warn(c, "Implode decompression may have failed (did not use all compressed data)");
-		}
+		dres->bytes_consumed = ui6a->cmpr_nbytes_consumed;
+		dres->bytes_consumed_valid = 1;
 		retval = 1;
 	}
 	else {

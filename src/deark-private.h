@@ -112,7 +112,9 @@ struct de_timestamp {
 	i64 ts_FILETIME; // the timestamp, in Windows FILETIME format
 };
 
-typedef void (*de_writecallback_fn)(dbuf *f, const u8 *buf, i64 buf_len);
+typedef void (*de_writelistener_cb_type)(dbuf *f, void *userdata, const u8 *buf, i64 buf_len);
+typedef void (*de_dbufcustomread_type)(dbuf *f, void *userdata, u8 *buf, i64 pos, i64 len);
+typedef void (*de_dbufcustomwrite_type)(dbuf *f, void *userdata, const u8 *buf, i64 buf_len);
 
 // dbuf is our generalized I/O object. Used for many purposes.
 struct dbuf_struct {
@@ -125,6 +127,7 @@ struct dbuf_struct {
 #define DBUF_TYPE_STDIN   6
 #define DBUF_TYPE_FIFO    7
 #define DBUF_TYPE_ODBUF   8 // nested dbuf, for output
+#define DBUF_TYPE_CUSTOM  9
 	int btype;
 	u8 is_managed;
 
@@ -149,8 +152,12 @@ struct dbuf_struct {
 	i64 membuf_alloc;
 	u8 *membuf_buf;
 
-	void *userdata;
-	de_writecallback_fn writecallback_fn;
+	void *userdata_for_writelistener;
+	de_writelistener_cb_type writelistener_cb;
+	void *userdata_for_customread;
+	de_dbufcustomread_type customread_fn; // used for DBUF_TYPE_CUSTOM
+	void *userdata_for_customwrite;
+	de_dbufcustomwrite_type customwrite_fn; // used for DBUF_TYPE_CUSTOM
 
 #define DE_CACHE_POLICY_NONE    0
 #define DE_CACHE_POLICY_ENABLED 1
@@ -320,6 +327,7 @@ struct deark_struct {
 
 	i64 total_output_size;
 	int error_count;
+	u8 serious_error_flag;
 
 	const char *input_filename;
 	const char *input_format_req; // Format requested
@@ -372,6 +380,8 @@ struct deark_struct {
 	de_fatalerrorfn_type fatalerrorfn;
 	const char *dprefix;
 
+	u8 tmpflag1;
+	u8 tmpflag2;
 	u8 pngcprlevel_valid;
 	unsigned int pngcmprlevel;
 	void *zip_data;
@@ -617,11 +627,10 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi, unsigned 
 
 dbuf *dbuf_create_unmanaged_file(deark *c, const char *fname, int overwrite_mode, unsigned int flags);
 dbuf *dbuf_create_unmanaged_file_stdout(deark *c, const char *name);
-
 dbuf *dbuf_open_input_file(deark *c, const char *fn);
 dbuf *dbuf_open_input_stdin(deark *c);
-
 dbuf *dbuf_open_input_subfile(dbuf *parent, i64 offset, i64 size);
+dbuf *dbuf_create_custom_dbuf(deark *c, i64 apparent_size, unsigned int flags);
 
 // Flag:
 //  0x1: Set the maximum size to the 'initialsize'
@@ -629,6 +638,8 @@ dbuf *dbuf_create_membuf(deark *c, i64 initialsize, unsigned int flags);
 
 // If f is NULL, this is a no-op.
 void dbuf_close(dbuf *f);
+
+void dbuf_set_writelistener(dbuf *f, de_writelistener_cb_type fn, void *userdata);
 
 void dbuf_write(dbuf *f, const u8 *m, i64 len);
 void dbuf_write_at(dbuf *f, i64 pos, const u8 *m, i64 len);

@@ -269,9 +269,9 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	return 1;
 }
 
-static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
+static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
 {
-	struct de_crcobj *crco = (struct de_crcobj*)f->userdata;
+	struct de_crcobj *crco = (struct de_crcobj*)userdata;
 	de_crcobj_addbuf(crco, buf, buf_len);
 }
 
@@ -321,13 +321,13 @@ static void do_pre_decompress_fork(deark *c, lctx *d, struct member_data *md,
 
 	ok = 1;
 
-	advfki->writecallback_fn = our_writecallback;
+	advfki->writelistener_cb = our_writelistener_cb;
 	if(frk->is_rsrc_fork) {
-		advfki->userdata = (void*)d->crco_rfork;
+		advfki->userdata_for_writelistener = (void*)d->crco_rfork;
 		de_crcobj_reset(d->crco_rfork);
 	}
 	else {
-		advfki->userdata = (void*)d->crco_dfork;
+		advfki->userdata_for_writelistener = (void*)d->crco_dfork;
 		de_crcobj_reset(d->crco_dfork);
 	}
 

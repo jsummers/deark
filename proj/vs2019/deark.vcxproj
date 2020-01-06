@@ -240,6 +240,7 @@
     <ClCompile Include="..\..\modules\mp3.c" />
     <ClCompile Include="..\..\modules\mscompress.c" />
     <ClCompile Include="..\..\modules\msp.c" />
+    <ClCompile Include="..\..\modules\nie.c" />
     <ClCompile Include="..\..\modules\nokia.c" />
     <ClCompile Include="..\..\modules\officeart.c" />
     <ClCompile Include="..\..\modules\ogg.c" />
@@ -303,12 +304,12 @@
     <ClCompile Include="..\..\src\deark-png.c" />
     <ClCompile Include="..\..\src\deark-zip.c" />
     <ClCompile Include="..\..\src\fmtutil-cmpr.c" />
+    <ClCompile Include="..\..\src\fmtutil-lzw.c" />
     <ClCompile Include="..\..\src\fmtutil-miniz.c" />
     <ClCompile Include="..\..\src\fmtutil-zip.c" />
     <ClCompile Include="..\..\src\fmtutil-zoo.c" />
     <ClCompile Include="..\..\src\fmtutil.c" />
     <ClCompile Include="..\..\src\deark-font.c" />
-    <ClCompile Include="..\..\src\fmtutil-liblzw.c" />
     <ClCompile Include="..\..\src\deark-modules.c" />
     <ClCompile Include="..\..\src\deark-tar.c" />
     <ClCompile Include="..\..\src\deark-ucstring.c" />
@@ -324,14 +325,11 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\foreign\ozunreduce.h" />
-    <ClInclude Include="..\..\foreign\ozunshrink.h" />
     <ClInclude Include="..\..\foreign\unimplode6a.h" />
-    <ClInclude Include="..\..\foreign\liblzw.h" />
     <ClInclude Include="..\..\foreign\miniz.h" />
     <ClInclude Include="..\..\foreign\uncompface.h" />
     <ClInclude Include="..\..\foreign\unsit.h" />
     <ClInclude Include="..\..\foreign\unzoo-lzh.h" />
-    <ClInclude Include="..\..\foreign\zoo-lzd.h" />
     <ClInclude Include="..\..\src\deark-config.h" />
     <ClInclude Include="..\..\src\deark-fmtutil.h" />
     <ClInclude Include="..\..\src\deark-modules.h" />

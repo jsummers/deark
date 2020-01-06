@@ -274,10 +274,10 @@ static void read_member_name(deark *c, lctx *d, struct member_data *md)
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz(md->filename_srd->str));
 }
 
-static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
+static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
 {
 	i64 k;
-	struct member_data *md = (struct member_data *)f->userdata;
+	struct member_data *md = (struct member_data *)userdata;
 
 	for(k=0; k<buf_len; k++) {
 		// The 32-bit unsigned integer overflow is by design.
@@ -399,8 +399,7 @@ static int read_member(deark *c, lctx *d, i64 pos1,
 
 	if(md->subfmt==SUBFMT_ASCII_NEWCRC) {
 		// Use a callback function to calculate the checksum.
-		outf->writecallback_fn = our_writecallback;
-		outf->userdata = (void*)md;
+		dbuf_set_writelistener(outf, our_writelistener_cb, (void*)md);
 		md->checksum_calculated = 0;
 	}
 

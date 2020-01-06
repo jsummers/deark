@@ -144,6 +144,8 @@ $(OBJDIR)/modules/mscompress.o: modules/mscompress.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/msp.o: modules/msp.c src/deark-config.h \
  src/deark-private.h src/deark.h
+$(OBJDIR)/modules/nie.o: modules/nie.c src/deark-config.h \
+ src/deark-private.h src/deark.h
 $(OBJDIR)/modules/nokia.o: modules/nokia.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/officeart.o: modules/officeart.c src/deark-config.h \
@@ -286,18 +288,16 @@ $(OBJDIR)/src/deark-zip.o: src/deark-zip.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/src/fmtutil-cmpr.o: src/fmtutil-cmpr.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
-$(OBJDIR)/src/fmtutil-liblzw.o: src/fmtutil-liblzw.c src/deark-config.h \
- src/deark-private.h src/deark.h src/deark-fmtutil.h \
- src/../foreign/liblzw.h
+$(OBJDIR)/src/fmtutil-lzw.o: src/fmtutil-lzw.c src/deark-config.h \
+ src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/src/fmtutil-miniz.o: src/fmtutil-miniz.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h \
  src/../foreign/miniz.h
 $(OBJDIR)/src/fmtutil-zip.o: src/fmtutil-zip.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h \
- src/../foreign/ozunshrink.h src/../foreign/ozunreduce.h \
- src/../foreign/unimplode6a.h
+ src/../foreign/ozunreduce.h src/../foreign/unimplode6a.h
 $(OBJDIR)/src/fmtutil-zoo.o: src/fmtutil-zoo.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h \
- src/../foreign/unzoo-lzh.h src/../foreign/zoo-lzd.h
+ src/../foreign/unzoo-lzh.h
 $(OBJDIR)/src/fmtutil.o: src/fmtutil.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h

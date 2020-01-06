@@ -98,8 +98,6 @@ int de_fmtutil_decompress_packbits16(dbuf *f, i64 pos1, i64 len,
 void de_fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags);
-int de_fmtutil_decompress_rle90(dbuf *inf, i64 pos1, i64 len,
-	dbuf *outf, unsigned int has_maxlen, i64 max_out_len, unsigned int flags);
 
 #define DE_LIBLZWFLAG_HAS3BYTEHEADER  0x1
 #define DE_LIBLZWFLAG_ARCFSMODE       0x2
@@ -107,9 +105,67 @@ int de_fmtutil_decompress_rle90(dbuf *inf, i64 pos1, i64 len,
 void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags, u8 lzwmode);
-int de_fmtutil_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
-	dbuf *outf, unsigned int has_maxlen, i64 max_out_len,
-	unsigned int flags, u8 lzwmode);
+
+struct de_dfilter_ctx;
+typedef void (*dfilter_codec_type)(struct de_dfilter_ctx *dfctx, void *codec_private_params);
+typedef void (*dfilter_codec_addbuf_type)(struct de_dfilter_ctx *dfctx,
+	const u8 *buf, i64 buf_len);
+typedef void (*dfilter_codec_finish_type)(struct de_dfilter_ctx *dfctx);
+typedef void (*dfilter_codec_destroy_type)(struct de_dfilter_ctx *dfctx);
+
+struct de_dfilter_ctx {
+	deark *c;
+	struct de_dfilter_results *dres;
+	struct de_dfilter_out_params *dcmpro;
+	u8 finished_flag;
+	void *codec_private;
+	dfilter_codec_addbuf_type codec_addbuf_fn;
+	dfilter_codec_finish_type codec_finish_fn;
+	dfilter_codec_destroy_type codec_destroy_fn;
+};
+
+enum lzwfmt_enum {
+	DE_LZWFMT_GENERIC = 0,
+	DE_LZWFMT_UNIXCOMPRESS,
+	DE_LZWFMT_GIF,
+	DE_LZWFMT_ZIPSHRINK,
+	DE_LZWFMT_ZOOLZD
+};
+
+struct delzw_params {
+	enum lzwfmt_enum fmt;
+	unsigned int unixcompress_flags;
+	u8 unixcompress_lzwmode;
+	unsigned int gif_root_code_size;
+	unsigned int max_code_size; // 0 = no info
+};
+void de_fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	struct delzw_params *delzwp);
+
+void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
+
+struct de_dfilter_ctx *de_dfilter_create(deark *c,
+	dfilter_codec_type codec_init_fn, void *codec_private_params,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
+void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
+	const u8 *buf, i64 buf_len);
+void de_dfilter_finish(struct de_dfilter_ctx *dfctx);
+void de_dfilter_destroy(struct de_dfilter_ctx *dfctx);
+
+void de_dfilter_decompress_oneshot(deark *c,
+	dfilter_codec_type codec_init_fn, void *codec_private_params,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres);
+ void de_dfilter_decompress_two_layer(deark *c,
+	dfilter_codec_type codec1, void *codec1_private_params,
+	dfilter_codec_type codec2, void *codec2_private_params,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres);
+
+void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
+struct de_dfilter_ctx *de_dfilter_create_delzw(deark *c, struct delzw_params *delzwp,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
 
 void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
@@ -342,8 +398,8 @@ struct de_advfile_forkinfo {
 	u8 fork_exists;
 	i64 fork_len;
 	de_finfo *fi; // Note: do not set the name; use de_advfile.filename.
-	void *userdata; // dbuf::userdata
-	de_writecallback_fn writecallback_fn; // dbuf::writecallback_fn
+	void *userdata_for_writelistener;
+	de_writelistener_cb_type writelistener_cb;
 };
 
 struct de_advfile {

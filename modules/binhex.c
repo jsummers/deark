@@ -94,9 +94,9 @@ static int do_decode_main(deark *c, lctx *d, i64 pos)
 	return 1;
 }
 
-static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
+static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
 {
-	struct de_crcobj *crco = (struct de_crcobj*)f->userdata;
+	struct de_crcobj *crco = (struct de_crcobj*)userdata;
 	de_crcobj_addbuf(crco, buf, buf_len);
 }
 
@@ -123,8 +123,8 @@ static int do_pre_extract_fork(deark *c, lctx *d, dbuf *inf, struct binhex_forki
 	de_dbg(c, "%s fork crc (reported): 0x%04x", fki->forkname,
 		(unsigned int)fki->crc_reported);
 
-	advfki->writecallback_fn = our_writecallback;
-	advfki->userdata = (void*)fki->crco;
+	advfki->writelistener_cb = our_writelistener_cb;
+	advfki->userdata_for_writelistener = (void*)fki->crco;
 
 	if((fki->pos + fki->len > inf->len) && fki->len!=0) {
 		de_err(c, "%s fork goes beyond end of file", fki->forkname);
@@ -252,6 +252,9 @@ done:
 static void do_binhex(deark *c, lctx *d, i64 pos)
 {
 	int ret;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
 
 	de_dbg(c, "BinHex data starts at %d", (int)pos);
 
@@ -261,9 +264,16 @@ static void do_binhex(deark *c, lctx *d, i64 pos)
 	ret = do_decode_main(c, d, pos);
 	if(!ret) goto done;
 
-	ret = de_fmtutil_decompress_rle90(d->decoded, 0, d->decoded->len, d->decompressed,
-		0, 0, 0);
-	if(!ret) goto done;
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = d->decoded;
+	dcmpri.pos = 0;
+	dcmpri.len = d->decoded->len;
+	dcmpro.f = d->decompressed;
+	de_fmtutil_decompress_rle90_ex(c, &dcmpri, &dcmpro, &dres, 0);
+	if(dres.errcode) {
+		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
 	de_dbg(c, "size after decompression: %d", (int)d->decompressed->len);
 
 	d->advf = de_advfile_create(c);

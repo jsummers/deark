@@ -66,6 +66,86 @@ void de_dfilter_set_generic_error(deark *c, struct de_dfilter_results *dres, con
 	de_dfilter_set_errorf(c, dres, modname, "Unspecified error");
 }
 
+// This is a decompression API that uses a "push" input model. The client
+// sends data to the codec as the data becomes available.
+// (The client must still be able to consume any amount of output data
+// immediately.)
+// This model makes it easier to chain multiple codecs together, and to handle
+// input data that is not contiguous.
+
+struct de_dfilter_ctx *de_dfilter_create(deark *c,
+	dfilter_codec_type codec_init_fn, void *codec_private_params,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
+{
+	struct de_dfilter_ctx *dfctx = NULL;
+
+	dfctx = de_malloc(c, sizeof(struct de_dfilter_ctx));
+	dfctx->c = c;
+	dfctx->dres = dres;
+	dfctx->dcmpro = dcmpro;
+
+	if(codec_init_fn) {
+		codec_init_fn(dfctx, codec_private_params);
+	}
+	// TODO: How should we handle failure to initialize a codec?
+
+	return dfctx;
+}
+
+void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
+	const u8 *buf, i64 buf_len)
+{
+	if(dfctx->codec_addbuf_fn) {
+		dfctx->codec_addbuf_fn(dfctx, buf, buf_len);
+	}
+}
+
+void de_dfilter_finish(struct de_dfilter_ctx *dfctx)
+{
+	if(dfctx->codec_finish_fn) {
+		dfctx->codec_finish_fn(dfctx);
+	}
+}
+
+void de_dfilter_destroy(struct de_dfilter_ctx *dfctx)
+{
+	deark *c;
+
+	if(!dfctx) return;
+	c = dfctx->c;
+	if(dfctx->codec_destroy_fn) {
+		dfctx->codec_destroy_fn(dfctx);
+	}
+
+	de_free(c, dfctx);
+}
+
+static int my_dfilter_oneshot_buffered_read_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
+	i64 buf_len)
+{
+	struct de_dfilter_ctx *dfctx = (struct de_dfilter_ctx *)brctx->userdata;
+
+	de_dfilter_addbuf(dfctx, buf, buf_len);
+	if(dfctx->finished_flag) return 0;
+	return 1;
+}
+
+// Use a "pushable" codec in a non-pushable way.
+void de_dfilter_decompress_oneshot(deark *c,
+	dfilter_codec_type codec_init_fn, void *codec_private_params,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	struct de_dfilter_ctx *dfctx = NULL;
+
+	dfctx = de_dfilter_create(c, codec_init_fn, codec_private_params,
+		dcmpro, dres);
+	dbuf_buffered_read(dcmpri->f, dcmpri->pos, dcmpri->len,
+		my_dfilter_oneshot_buffered_read_cbfn, (void*)dfctx);
+	de_dfilter_finish(dfctx);
+	de_dfilter_destroy(dfctx);
+}
+
 void de_fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
@@ -226,74 +306,174 @@ void de_fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpr
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags)
 {
-	int ret;
+	de_dfilter_decompress_oneshot(c, dfilter_rle90_codec, NULL,
+		dcmpri, dcmpro, dres);
+}
 
-	ret = de_fmtutil_decompress_rle90(dcmpri->f, dcmpri->pos, dcmpri->len,
-		dcmpro->f, (unsigned int)dcmpro->len_known, dcmpro->expected_len,
-		flags);
+struct rle90ctx {
+	i64 total_nbytes_processed;
+	i64 nbytes_written;
+	u8 last_output_byte;
+	int countcode_pending;
+};
 
-	if(!ret) {
-		de_dfilter_set_generic_error(c, dres, "rle90");
+static void my_rle90_codec_addbuf(struct de_dfilter_ctx *dfctx,
+	const u8 *buf, i64 buf_len)
+{
+	int i;
+	u8 b;
+	struct rle90ctx *rctx = (struct rle90ctx*)dfctx->codec_private;
+
+	if(!rctx) return;
+
+	for(i=0; i<buf_len; i++) {
+		if(dfctx->dcmpro->len_known &&
+			(rctx->nbytes_written >= dfctx->dcmpro->expected_len))
+		{
+			dfctx->finished_flag = 1;
+			break;
+		}
+
+		b = buf[i];
+		rctx->total_nbytes_processed++;
+
+		if(rctx->countcode_pending && b==0) {
+			// Not RLE, just an escaped 0x90 byte.
+			dbuf_writebyte(dfctx->dcmpro->f, 0x90);
+			rctx->nbytes_written++;
+			rctx->last_output_byte = 0x90;
+			rctx->countcode_pending = 0;
+		}
+		else if(rctx->countcode_pending) {
+			i64 count;
+
+			// RLE. We already emitted one byte (because the byte to repeat
+			// comes before the repeat count), so write countcode-1 bytes.
+			count = (i64)(b-1);
+			if(dfctx->dcmpro->len_known &&
+				(rctx->nbytes_written+count > dfctx->dcmpro->expected_len))
+			{
+				count = dfctx->dcmpro->expected_len - rctx->nbytes_written;
+			}
+			dbuf_write_run(dfctx->dcmpro->f, rctx->last_output_byte, count);
+			rctx->nbytes_written += count;
+
+			rctx->countcode_pending = 0;
+		}
+		else if(b==0x90) {
+			rctx->countcode_pending = 1;
+		}
+		else {
+			dbuf_writebyte(dfctx->dcmpro->f, b);
+			rctx->nbytes_written++;
+			rctx->last_output_byte = b;
+		}
 	}
+}
+
+static void my_rle90_codec_finish(struct de_dfilter_ctx *dfctx)
+{
+	struct rle90ctx *rctx = (struct rle90ctx*)dfctx->codec_private;
+
+	if(!rctx) return;
+	dfctx->dres->bytes_consumed = rctx->total_nbytes_processed;
+	dfctx->dres->bytes_consumed_valid = 1;
+}
+
+static void my_rle90_codec_destroy(struct de_dfilter_ctx *dfctx)
+{
+	struct rle90ctx *rctx = (struct rle90ctx*)dfctx->codec_private;
+
+	if(rctx) {
+		de_free(dfctx->c, rctx);
+	}
+	dfctx->codec_private = NULL;
 }
 
 // RLE algorithm occasionally called "RLE90". Variants of this are used by
 // BinHex, ARC, StuffIt, and others.
-// TODO: Make de_fmtutil_decompress_rle90_ex the main function.
-int de_fmtutil_decompress_rle90(dbuf *inf, i64 pos1, i64 len,
-	dbuf *outf, unsigned int has_maxlen, i64 max_out_len, unsigned int flags)
+// codec_private_params: Unused, must be NULL.
+void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
 {
-	i64 pos = pos1;
-	u8 b;
-	u8 lastbyte = 0x00;
-	u8 countcode;
-	i64 count;
-	i64 nbytes_written = 0;
+	struct rle90ctx *rctx = NULL;
 
-	while(pos < pos1+len) {
-		if(has_maxlen && nbytes_written>=max_out_len) break;
+	rctx = de_malloc(dfctx->c, sizeof(struct rle90ctx));
+	dfctx->codec_private = (void*)rctx;
+	dfctx->codec_addbuf_fn = my_rle90_codec_addbuf;
+	dfctx->codec_finish_fn = my_rle90_codec_finish;
+	dfctx->codec_destroy_fn = my_rle90_codec_destroy;
+}
 
-		b = dbuf_getbyte(inf, pos);
-		pos++;
-		if(b!=0x90) {
-			dbuf_writebyte(outf, b);
-			nbytes_written++;
-			lastbyte = b;
-			continue;
-		}
+struct my_2layer_userdata {
+	struct de_dfilter_ctx *dfctx_codec2;
+	i64 intermediate_nbytes;
+};
 
-		// b = 0x90, which is a special code.
-		countcode = dbuf_getbyte(inf, pos);
-		pos++;
+static void my_2layer_write_cb(dbuf *f, void *userdata,
+	const u8 *buf, i64 size)
+{
+	struct my_2layer_userdata *u = (struct my_2layer_userdata*)userdata;
 
-		if(countcode==0x00) {
-			// Not RLE, just an escaped 0x90 byte.
-			dbuf_writebyte(outf, 0x90);
-			nbytes_written++;
+	de_dfilter_addbuf(u->dfctx_codec2, buf, size);
+	u->intermediate_nbytes += size;
+}
 
-			// Here there is an inconsistency between different RLE90
-			// implementations.
-			// Some of them can compress a run of 0x90 bytes, because the byte
-			// to repeat is defined to be the "last byte emitted".
-			// Others do not allow this. If the "0x90 0x00 0x90 0xNN" sequence
-			// (with 0xNN>0) is encountered, they may (by accident?) repeat the
-			// last non-0x90 byte emitted, or do something else.
-			// Hopefully, valid files in such formats never contain this byte
-			// sequence, so it shouldn't matter what we do here. But maybe not.
-			// We might need to add an option to do something else.
-			lastbyte = 0x90;
-			continue;
-		}
+static void dres_transfer_error(deark *c, struct de_dfilter_results *src,
+	struct de_dfilter_results *dst)
+{
+	if(src->errcode) {
+		dst->errcode = src->errcode;
+		de_strlcpy(dst->errmsg, src->errmsg, sizeof(dst->errmsg));
+	}
+}
 
-		// RLE. We already emitted one byte (because the byte to repeat
-		// comes before the repeat count), so write countcode-1 bytes.
-		count = (i64)(countcode-1);
-		if(has_maxlen && (nbytes_written+count > max_out_len)) {
-			count = max_out_len - nbytes_written;
-		}
-		dbuf_write_run(outf, lastbyte, count);
-		nbytes_written += count;
+// Decompress an arbitrary two-layer compressed format.
+// codec1 is the first one that will be used during decompression (i.e. the second
+// method used when during *compression*).
+ void de_dfilter_decompress_two_layer(deark *c,
+	dfilter_codec_type codec1, void *codec1_private_params,
+	dfilter_codec_type codec2, void *codec2_private_params,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	dbuf *outf_codec1 = NULL;
+	struct de_dfilter_out_params dcmpro_codec1;
+	struct de_dfilter_results dres_codec2;
+	struct my_2layer_userdata u;
+	struct de_dfilter_ctx *dfctx_codec2 = NULL;
+
+	de_dfilter_init_objects(c, NULL, &dcmpro_codec1, NULL);
+	de_dfilter_init_objects(c, NULL, NULL, &dres_codec2);
+	de_zeromem(&u, sizeof(struct my_2layer_userdata));
+
+	// Make a custom dbuf. The output from the first decompressor will be written
+	// to it, and it will relay that output to the second decompressor.
+	outf_codec1 = dbuf_create_custom_dbuf(c, 0, 0);
+	outf_codec1->userdata_for_customwrite = (void*)&u;
+	outf_codec1->customwrite_fn = my_2layer_write_cb;
+	dcmpro_codec1.f = outf_codec1;
+	dcmpro_codec1.len_known = 0;
+	dcmpro_codec1.expected_len = 0;
+
+	dfctx_codec2 = de_dfilter_create(c, codec2, codec2_private_params, dcmpro, &dres_codec2);
+	u.dfctx_codec2 = dfctx_codec2;
+
+	// The first codec in the chain does not need the advanced (de_dfilter_create) API.
+	de_dfilter_decompress_oneshot(c, codec1, codec1_private_params,
+		dcmpri, &dcmpro_codec1, dres);
+
+	if(dres->errcode) goto done;
+	de_dbg2(c, "size after intermediate decompression: %"I64_FMT, u.intermediate_nbytes);
+
+	if(dres_codec2.errcode) {
+		// An error occurred in codec2, and not in codec1.
+		// Copy the error info to the dres that will be returned to the caller.
+		// TODO: Make a cleaner way to do this.
+		dres_transfer_error(c, &dres_codec2, dres);
+		goto done;
 	}
 
-	return 1;
+done:
+	de_dfilter_destroy(dfctx_codec2);
+	dbuf_close(outf_codec1);
 }

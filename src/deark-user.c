@@ -210,7 +210,8 @@ static void open_extrlist(deark *c)
 		DE_OVERWRITEMODE_STANDARD, flags);
 }
 
-void de_run(deark *c)
+// Returns 0 on "serious" error; e.g. input file not found.
+int de_run(deark *c)
 {
 	dbuf *orig_ifile = NULL;
 	dbuf *subfile = NULL;
@@ -230,6 +231,7 @@ void de_run(deark *c)
 
 	if(c->extrlist_filename) {
 		open_extrlist(c);
+		if(c->serious_error_flag) goto done;
 	}
 
 	friendly_infn = ucstring_create(c);
@@ -240,8 +242,8 @@ void de_run(deark *c)
 	else {
 		if(!c->input_filename) {
 			de_err(c, "Internal: Input file not set");
-			de_fatalerror(c);
-			return;
+			c->serious_error_flag = 1;
+			goto done;
 		}
 		ucstring_append_sz(friendly_infn, c->input_filename, DE_ENCODING_UTF8);
 	}
@@ -252,6 +254,7 @@ void de_run(deark *c)
 		module_to_use = de_get_module_by_id(c, c->input_format_req);
 		if(!module_to_use) {
 			de_err(c, "Unknown module \"%s\"", c->input_format_req);
+			c->serious_error_flag = 1;
 			goto done;
 		}
 	}
@@ -328,6 +331,7 @@ void de_run(deark *c)
 			"greater than average chance that it is unsafe to use with untrusted "
 			"input files. Use \"-m %s\" to confirm that you want to use it.",
 			module_to_use->id, module_to_use->id);
+		c->serious_error_flag = 1;
 		goto done;
 	}
 
@@ -443,6 +447,7 @@ done:
 	if(subfile) dbuf_close(subfile);
 	if(orig_ifile) dbuf_close(orig_ifile);
 	de_free(c, mparams);
+	return c->serious_error_flag ? 0 : 1;
 }
 
 deark *de_create_internal(void)

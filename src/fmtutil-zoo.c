@@ -10,4 +10,14 @@
 #include "deark-fmtutil.h"
 
 #include "../foreign/unzoo-lzh.h"
-#include "../foreign/zoo-lzd.h"
+
+void de_fmtutil_decompress_zoo_lzd(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, int maxbits)
+{
+	struct delzw_params delzwp;
+
+	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	delzwp.fmt = DE_LZWFMT_ZOOLZD;
+	delzwp.max_code_size = (unsigned int)maxbits;
+	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
+}
