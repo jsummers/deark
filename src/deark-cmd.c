@@ -136,7 +136,7 @@ static void print_help(deark *c)
 static void print_license(deark *c)
 {
 	de_puts(c, DE_MSGTYPE_MESSAGE, "Deark\n"
-	"Copyright (C) 2016-2019 Jason Summers\n\n"
+	"Copyright (C) 2016-2020 Jason Summers\n\n"
 	"Permission is hereby granted, free of charge, to any person obtaining a copy\n"
 	"of this software and associated documentation files (the \"Software\"), to deal\n"
 	"in the Software without restriction, including without limitation the rights\n"
@@ -155,13 +155,10 @@ static void print_license(deark *c)
 	"----------\n"
 	"The zlib and Deflate encoder and decoder use public domain code originally from\n"
 	"miniz v1.16 beta r1, by Rich Geldreich.\n\n"
-	"Some LZW decoders use public domain code from liblzw by Mike Frysinger, based\n"
-	"on compress/ncompress by Thomas, Woods, et al.\n\n"
 	"The ZIP Implode decoder is derived from public domain code by Mark Adler, from\n"
 	"Info-ZIP UnZip v5.4.\n\n"
 	"The X-Face decoder uses code from Compface, Copyright (c) 1990 James Ashton.\n\n"
 	"The Stuffit Huffman decoder uses code by Allan G. Weber, from Unsit Version 1.\n\n"
-	"The ZOO LZD decoder uses public domain code by Rahul Dhesi, from zoo-2.10pl1.\n\n"
 	"The ZOO LZH decoder uses public domain code by Martin Schoenert et al., from\n"
 	"unzoo.c v4.4.\n");
 }
@@ -345,7 +342,7 @@ static void our_msgfn(deark *c, unsigned int flags, const char *s1)
 static void our_fatalerrorfn(deark *c)
 {
 	de_puts(c, DE_MSGTYPE_MESSAGE, "Exiting\n");
-	de_exitprocess();
+	de_exitprocess(1);
 }
 
 static void set_ext_option(deark *c, struct cmdctx *cc, const char *optionstring)
@@ -896,7 +893,8 @@ static int main2(int argc, char **argv)
 {
 	deark *c = NULL;
 	struct cmdctx *cc = NULL;
-	int error_flag;
+	int ret;
+	int exit_status = 0;
 
 	cc = de_malloc(NULL, sizeof(struct cmdctx));
 	c = de_create();
@@ -951,15 +949,18 @@ static int main2(int argc, char **argv)
 	}
 #endif
 
-	de_run(c);
+	ret = de_run(c);
+	if(!ret) {
+		exit_status = 1;
+	}
 
 done:
 	de_destroy(c);
 	de_platformdata_destroy(cc->plctx);
 	cc->plctx = NULL;
-	error_flag = cc->error_flag;
+	if(cc->error_flag) exit_status = 1;
 	de_free(NULL, cc);
-	return error_flag;
+	return exit_status;
 }
 
 #ifdef DE_WINDOWS
@@ -970,11 +971,12 @@ int wmain(int argc, wchar_t **argvW);
 int wmain(int argc, wchar_t **argvW)
 {
 	char **argv;
+	int exit_status;
 
 	argv = de_convert_args_to_utf8(argc, argvW);
-	main2(argc, argv);
+	exit_status = main2(argc, argv);
 	de_free_utf8_args(argc, argv);
-	return 0;
+	return exit_status;
 }
 
 #else
