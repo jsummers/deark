@@ -324,6 +324,7 @@
     <ClCompile Include="..\..\src\deark-win.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\foreign\delzw.h" />
     <ClInclude Include="..\..\foreign\ozunreduce.h" />
     <ClInclude Include="..\..\foreign\unimplode6a.h" />
     <ClInclude Include="..\..\foreign\miniz.h" />
