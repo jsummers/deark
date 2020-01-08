@@ -10,7 +10,10 @@
 #include "deark-private.h"
 #include "deark-fmtutil.h"
 
-#define DELZW_UINT8 u8
+#define DELZW_UINT8   u8
+#define DELZW_UINT16  u16
+#define DELZW_UINT32  u32
+#define DELZW_OFF_T   i64
 #include "../foreign/delzw.h"
 
 ///////////////////////////////////////////////////
@@ -61,7 +64,7 @@ void de_fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 		dcmpri, dcmpro, dres);
 }
 
-static size_t wrapped_dfctx_write_cb(delzwctx *dc, const u8 *buf, size_t size,
+static size_t wrapped_dfctx_write_cb(delzwctx *dc, const DELZW_UINT8 *buf, size_t size,
 	unsigned int *outflags)
 {
 	struct de_dfilter_ctx *dfctx = (struct de_dfilter_ctx*)dc->userdata;
