@@ -10,8 +10,14 @@
 #include "deark-private.h"
 #include "deark-fmtutil.h"
 
+#define DELZW_UINT8 u8
+
 struct delzwctx_struct;
 typedef struct delzwctx_struct delzwctx;
+
+#ifndef DELZW_UINT8
+#define DELZW_UINT8 unsigned char
+#endif
 
 #define DELZW_CODE           u32 // int type used in most cases
 #define DELZW_CODE_MINRANGE  u16 // int type used for parents in table entries
@@ -45,6 +51,8 @@ typedef size_t (*delzw_cb_write_type)(delzwctx *dc, const u8 *buf, size_t size,
 
 typedef void (*delzw_cb_debugmsg_type)(delzwctx *dc, int level, const char *msg);
 
+typedef void (*delzw_cb_generic_type)(delzwctx *dc);
+
 struct delzwctx_struct {
 	// Fields the user can or must set:
 	deark *c;
@@ -52,6 +60,7 @@ struct delzwctx_struct {
 	int debug_level;
 	delzw_cb_write_type cb_write;
 	delzw_cb_debugmsg_type cb_debugmsg;
+	delzw_cb_generic_type cb_after_header_parsed;
 
 #define DELZW_BASEFMT_UNIXCOMPRESS 1
 #define DELZW_BASEFMT_GIF          2
@@ -80,6 +89,11 @@ struct delzwctx_struct {
 	// Derived fields:
 	i64 header_size;
 	int has_partial_clearing;
+
+	// Informational:
+	DELZW_UINT8 header_unixcompress_mode;
+	DELZW_UINT8 header_unixcompress_max_codesize;
+	DELZW_UINT8 header_unixcompress_block_mode; // = 1 or 0
 
 	// Internal state:
 #define DELZW_ERRCODE_OK                    0
@@ -274,30 +288,28 @@ static void delzw_write(delzwctx *dc, const u8 *buf, size_t n)
 
 static void delzw_process_unixcompress_3byteheader(delzwctx *dc)
 {
-	unsigned int options;
-
 	if(dc->header_buf[0]!=0x1f || dc->header_buf[1]!=0x9d) {
 		delzw_set_error(dc, DELZW_ERRCODE_BAD_CDATA, "Not in compress format");
 		return;
 	}
 
-	options = (unsigned int)dc->header_buf[2];
-	delzw_debugmsg(dc, 1, "LZW mode: 0x%02x", options);
-	dc->max_codesize = (unsigned int)(options & 0x1f);
-	delzw_debugmsg(dc, 1, " max code size: %u", dc->max_codesize);
-	dc->unixcompress_has_clear_code = (options & 0x80) ? 1 : 0;
-	delzw_debugmsg(dc, 1, " block mode: %d", dc->unixcompress_has_clear_code);
-	if(!dc->unixcompress_has_clear_code) {
-		// TODO: Handle warnings with a callback function, or something.
-		de_warn(dc->c, "This file uses an obsolete compress'd format, which "
-			"might not be decompressed correctly");
-	}
+	dc->header_unixcompress_mode = dc->header_buf[2];
+	dc->header_unixcompress_max_codesize = (dc->header_unixcompress_mode & 0x1f);
+	dc->header_unixcompress_block_mode = (dc->header_unixcompress_mode & 0x80) ? 1 : 0;
+	delzw_debugmsg(dc, 2, "LZW mode=0x%02x, maxbits=%u, blockmode=%u",
+		(unsigned int)dc->header_unixcompress_mode,
+		(unsigned int)dc->header_unixcompress_max_codesize,
+		(unsigned int)dc->header_unixcompress_block_mode);
+
+	dc->max_codesize = (unsigned int)dc->header_unixcompress_max_codesize;
+	dc->unixcompress_has_clear_code = (int)dc->header_unixcompress_block_mode;
 }
 
 static void delzw_process_arc_1byteheader(delzwctx *dc)
 {
-	dc->max_codesize = (unsigned int)(dc->header_buf[0] & 0x1f);
-	delzw_debugmsg(dc, 1, "max code size: %u", dc->max_codesize);
+	dc->header_unixcompress_max_codesize = (dc->header_buf[0] & 0x1f);
+	dc->max_codesize = (unsigned int)dc->header_unixcompress_max_codesize;
+	delzw_debugmsg(dc, 2, "max code size: %u", dc->max_codesize);
 	dc->unixcompress_has_clear_code = 1;
 }
 
@@ -702,6 +714,10 @@ static void delzw_on_codes_start(delzwctx *dc)
 		else if(dc->header_type==DELZW_HEADERTYPE_ARC1BYTE) {
 			delzw_process_arc_1byteheader(dc);
 		}
+
+		if(dc->cb_after_header_parsed) {
+			dc->cb_after_header_parsed(dc);
+		}
 	}
 
 	delzw_debugmsg(dc, 2, "start of codes");
@@ -998,6 +1014,27 @@ static void my_lzw_codec_destroy(struct de_dfilter_ctx *dfctx)
 	dfctx->codec_private = NULL;
 }
 
+// Print dbg messages and warnings about the header
+static void my_lzw_after_header_parsed(delzwctx *dc)
+{
+	deark *c = dc->c;
+
+	if(dc->header_type==DELZW_HEADERTYPE_UNIXCOMPRESS3BYTE) {
+		de_dbg(c, "LZW mode: 0x%02x", (unsigned int)dc->header_unixcompress_mode);
+		de_dbg_indent(c, 1);
+		de_dbg(c, "maxbits: %u", (unsigned int)dc->header_unixcompress_max_codesize);
+		de_dbg(c, "blockmode: %d", (int)dc->header_unixcompress_block_mode);
+		if(!dc->header_unixcompress_block_mode) {
+			de_warn(dc->c, "This file uses an obsolete compress'd format, which "
+				"might not be decompressed correctly");
+		}
+		de_dbg_indent(c, -1);
+	}
+	else if(dc->header_type==DELZW_HEADERTYPE_ARC1BYTE) {
+		de_dbg(c, "LZW maxbits: %u", (unsigned int)dc->header_unixcompress_max_codesize);
+	}
+}
+
 // codec_private_params is type struct delzw_params.
 void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
 {
@@ -1013,6 +1050,7 @@ void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
 
 	dc->cb_write = wrapped_dfctx_write_cb;
 	dc->cb_debugmsg = wrapped_dfctx_debugmsg;
+	dc->cb_after_header_parsed = my_lzw_after_header_parsed;
 	dc->output_len_known = dfctx->dcmpro->len_known;
 	dc->output_expected_len = dfctx->dcmpro->expected_len;
 
