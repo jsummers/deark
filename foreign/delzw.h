@@ -5,9 +5,6 @@
 // This file is in the "foreign" subdirectory because I want to make it usable
 // independently of Deark. I haven't decided if it will be released by itself.
 
-struct delzwctx_struct;
-typedef struct delzwctx_struct delzwctx;
-
 #ifndef DELZW_UINT8
 #define DELZW_UINT8 unsigned char
 #endif
@@ -20,6 +17,24 @@ typedef struct delzwctx_struct delzwctx;
 #ifndef DELZW_OFF_T
 #define DELZW_OFF_T   off_t
 #endif
+#ifndef DELZW_MEMCPY
+#define DELZW_MEMCPY  memcpy
+#endif
+#ifndef DELZW_STRLCPY
+#define DELZW_STRLCPY  strlcpy
+#endif
+#ifndef DELZW_VSNPRINTF
+#define DELZW_VSNPRINTF  vsnprintf
+#endif
+#ifndef DELZW_CALLOC
+#define DELZW_CALLOC(u, nmemb, size, ty) (ty)calloc((nmemb), (size))
+#endif
+#ifndef DELZW_FREE
+#define DELZW_FREE(u, ptr) free(ptr)
+#endif
+#ifndef DELZW_GNUC_ATTRIBUTE
+#define DELZW_GNUC_ATTRIBUTE(x)
+#endif
 
 #define DELZW_CODE           DELZW_UINT32 // int type used in most cases
 #define DELZW_CODE_MINRANGE  DELZW_UINT16 // int type used for parents in table entries
@@ -27,6 +42,9 @@ typedef struct delzwctx_struct delzwctx;
 #define DELZW_MAXMAXCODESIZE 16
 #define DELZW_NBITS_TO_MAXCODE(n) ((DELZW_CODE)((1<<(n))-1))
 #define DELZW_NBITS_TO_NCODES(n) ((DELZW_CODE)(1<<(n)))
+
+struct delzwctx_struct;
+typedef struct delzwctx_struct delzwctx;
 
 struct delzw_tableentry {
 	DELZW_CODE_MINRANGE parent;
@@ -56,7 +74,6 @@ typedef void (*delzw_cb_generic_type)(delzwctx *dc);
 
 struct delzwctx_struct {
 	// Fields the user can or must set:
-	deark *c;
 	void *userdata;
 	int debug_level;
 	delzw_cb_write_type cb_write;
@@ -150,7 +167,7 @@ struct delzwctx_struct {
 };
 
 static void delzw_debugmsg(delzwctx *dc, int level, const char *fmt, ...)
-	de_gnuc_attribute ((format (printf, 3, 4)));
+	DELZW_GNUC_ATTRIBUTE ((format (printf, 3, 4)));
 
 static void delzw_debugmsg(delzwctx *dc, int level, const char *fmt, ...)
 {
@@ -161,7 +178,7 @@ static void delzw_debugmsg(delzwctx *dc, int level, const char *fmt, ...)
 	if(level>dc->debug_level) return;
 
 	va_start(ap, fmt);
-	de_vsnprintf(msg, sizeof(msg), fmt, ap);
+	DELZW_VSNPRINTF(msg, sizeof(msg), fmt, ap);
 	va_end(ap);
 	dc->cb_debugmsg(dc, level, msg);
 }
@@ -184,7 +201,7 @@ static void delzw_stop(delzwctx *dc, const char *reason)
 }
 
 static void delzw_set_errorf(delzwctx *dc, int errcode, const char *fmt, ...)
-	de_gnuc_attribute ((format (printf, 3, 4)));
+	DELZW_GNUC_ATTRIBUTE ((format (printf, 3, 4)));
 
 static void delzw_set_errorf(delzwctx *dc, int errcode, const char *fmt, ...)
 {
@@ -194,7 +211,7 @@ static void delzw_set_errorf(delzwctx *dc, int errcode, const char *fmt, ...)
 	if(dc->errcode) return;
 	dc->errcode = errcode;
 	va_start(ap, fmt);
-	de_vsnprintf(dc->errmsg, sizeof(dc->errmsg), fmt, ap);
+	DELZW_VSNPRINTF(dc->errmsg, sizeof(dc->errmsg), fmt, ap);
 	va_end(ap);
 }
 
@@ -206,28 +223,24 @@ static void delzw_set_error(delzwctx *dc, int errcode, const char *msg)
 	if(!msg || !msg[0]) {
 		msg = "LZW decompression error";
 	}
-	de_strlcpy(dc->errmsg, msg, sizeof(dc->errmsg));
+	DELZW_STRLCPY(dc->errmsg, msg, sizeof(dc->errmsg));
 }
 
-static delzwctx *delzw_create(deark *c, void *userdata)
+static delzwctx *delzw_create(void *userdata)
 {
 	delzwctx *dc;
 
-	dc = de_malloc(c, sizeof(delzwctx));
-	dc->c = c;
+	dc = DELZW_CALLOC(userdata, 1, sizeof(delzwctx), delzwctx *);
 	dc->userdata = userdata;
 	return dc;
 }
 
 static void delzw_destroy(delzwctx *dc)
 {
-	deark *c;
-
 	if(!dc) return;
-	c = dc->c;
-	de_free(c, dc->ct);
-	de_free(c, dc->valbuf);
-	de_free(c, dc);
+	DELZW_FREE(dc->userdata, dc->ct);
+	DELZW_FREE(dc->userdata, dc->valbuf);
+	DELZW_FREE(dc->userdata, dc);
 }
 
 static void delzw_write_unbuffered(delzwctx *dc, const DELZW_UINT8 *buf, size_t n1)
@@ -267,7 +280,7 @@ static void delzw_write(delzwctx *dc, const DELZW_UINT8 *buf, size_t n)
 
 	// If there's enough room in outbuf, copy it there, and we're done.
 	if(dc->outbuf_nbytes_used + n <= DELZW_OUTBUF_SIZE) {
-		de_memcpy(&dc->outbuf[dc->outbuf_nbytes_used], buf, n);
+		DELZW_MEMCPY(&dc->outbuf[dc->outbuf_nbytes_used], buf, n);
 		dc->outbuf_nbytes_used += n;
 		return;
 	}
@@ -283,7 +296,7 @@ static void delzw_write(delzwctx *dc, const DELZW_UINT8 *buf, size_t n)
 	}
 
 	// Otherwise copy to outbuf
-	de_memcpy(dc->outbuf, buf, n);
+	DELZW_MEMCPY(dc->outbuf, buf, n);
 	dc->outbuf_nbytes_used += n;
 }
 
@@ -428,7 +441,7 @@ static void delzw_unixcompress_end_bitgroup(delzwctx *dc)
 	// But "v2" format does not use a clear code, and AFAICT it does have padding
 	// after the 9-bit codes.
 
-	ncodes_alloc = de_pad_to_n(dc->ncodes_in_this_bitgroup, 8);
+	ncodes_alloc = ((dc->ncodes_in_this_bitgroup + 7)/8)*8;
 	nbits_left_to_skip = (ncodes_alloc - dc->ncodes_in_this_bitgroup) * dc->curr_codesize;
 
 	// My thinking:
@@ -756,9 +769,10 @@ static void delzw_on_codes_start(delzwctx *dc)
 	dc->curr_codesize = dc->min_codesize;
 
 	dc->ct_capacity = ((DELZW_CODE)1)<<dc->max_codesize;
-	dc->ct = de_mallocarray(dc->c, dc->ct_capacity, sizeof(struct delzw_tableentry));
+	dc->ct = DELZW_CALLOC(dc->userdata, dc->ct_capacity, sizeof(struct delzw_tableentry),
+		struct delzw_tableentry *);
 	dc->valbuf_capacity = dc->ct_capacity;
-	dc->valbuf = de_malloc(dc->c, dc->valbuf_capacity);
+	dc->valbuf = DELZW_CALLOC(dc->userdata, dc->valbuf_capacity, 1, DELZW_UINT8 *);
 
 	if(dc->basefmt==DELZW_BASEFMT_UNIXCOMPRESS) {
 		for(i=0; i<256; i++) {

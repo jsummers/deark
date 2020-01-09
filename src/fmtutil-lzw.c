@@ -10,10 +10,20 @@
 #include "deark-private.h"
 #include "deark-fmtutil.h"
 
+static void *my_delzw_calloc(void *userdata, size_t nmemb, size_t size);
+static void my_delzw_free(void *userdata, void *ptr);
+
 #define DELZW_UINT8   u8
 #define DELZW_UINT16  u16
 #define DELZW_UINT32  u32
 #define DELZW_OFF_T   i64
+#define DELZW_MEMCPY  de_memcpy
+#define DELZW_STRLCPY de_strlcpy
+#define DELZW_VSNPRINTF de_vsnprintf
+#define DELZW_GNUC_ATTRIBUTE de_gnuc_attribute
+#define DELZW_CALLOC(u, nmemb, size, ty) my_delzw_calloc((u), (nmemb), (size))
+#define DELZW_FREE      my_delzw_free
+
 #include "../foreign/delzw.h"
 
 ///////////////////////////////////////////////////
@@ -124,7 +134,8 @@ static void my_lzw_codec_destroy(struct de_dfilter_ctx *dfctx)
 // Print dbg messages and warnings about the header
 static void my_lzw_after_header_parsed(delzwctx *dc)
 {
-	deark *c = dc->c;
+	struct de_dfilter_ctx *dfctx = (struct de_dfilter_ctx *)dc->userdata;
+	deark *c = dfctx->c;
 
 	if(dc->header_type==DELZW_HEADERTYPE_UNIXCOMPRESS3BYTE) {
 		de_dbg(c, "LZW mode: 0x%02x", (unsigned int)dc->header_unixcompress_mode);
@@ -132,7 +143,7 @@ static void my_lzw_after_header_parsed(delzwctx *dc)
 		de_dbg(c, "maxbits: %u", (unsigned int)dc->header_unixcompress_max_codesize);
 		de_dbg(c, "blockmode: %d", (int)dc->header_unixcompress_block_mode);
 		if(!dc->header_unixcompress_block_mode) {
-			de_warn(dc->c, "This file uses an obsolete compress'd format, which "
+			de_warn(c, "This file uses an obsolete compress'd format, which "
 				"might not be decompressed correctly");
 		}
 		de_dbg_indent(c, -1);
@@ -142,13 +153,27 @@ static void my_lzw_after_header_parsed(delzwctx *dc)
 	}
 }
 
+static void *my_delzw_calloc(void *userdata, size_t nmemb, size_t size)
+{
+	struct de_dfilter_ctx *dfctx = (struct de_dfilter_ctx*)userdata;
+
+	return de_mallocarray(dfctx->c, (i64)nmemb, size);
+}
+
+static void my_delzw_free(void *userdata, void *ptr)
+{
+	struct de_dfilter_ctx *dfctx = (struct de_dfilter_ctx*)userdata;
+
+	de_free(dfctx->c, ptr);
+}
+
 // codec_private_params is type struct delzw_params.
 void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
 {
 	delzwctx *dc = NULL;
 	struct delzw_params *delzwp = (struct delzw_params*)codec_private_params;
 
-	dc = delzw_create(dfctx->c, (void*)dfctx);
+	dc = delzw_create((void*)dfctx);
 	if(!dc) goto done;
 	dfctx->codec_private = (void*)dc;
 	dfctx->codec_finish_fn = my_lzw_codec_finish;
