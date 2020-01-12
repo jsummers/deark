@@ -305,8 +305,8 @@ Deark -- Information about supported formats
    -file2 <file.pnm> - Use this "name" file
    -opt namefile=<file.pnm> - Use this "name" file
 
-* NIE (module="nie") (experimental)
-  This is one of the "Naive Image Formats" associated with the Wuffs project.
+* NIE/NII/NIA (module="nie") (experimental)
+  The "Naive Image Formats" associated with the Wuffs project.
 
 * NGG (Nokia Group Graphic) (module="ngg")
 
