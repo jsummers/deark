@@ -27,6 +27,7 @@ struct bptree {
 
 typedef struct localctx_struct {
 	int input_encoding;
+	int extract_text;
 	i64 internal_dir_FILEHEADER_offs;
 	struct bptree bpt;
 	int found_system_file;
@@ -37,6 +38,7 @@ typedef struct localctx_struct {
 	int pass;
 	int has_shg, has_ico, has_bmp;
 	i64 internal_dir_num_levels;
+	dbuf *outf_text;
 } lctx;
 
 static void do_file(deark *c, lctx *d, i64 pos1, int file_fmt);
@@ -71,6 +73,64 @@ static const struct systemrec_info systemrec_info_arr[] = {
 };
 static const struct systemrec_info systemrec_info_default =
 	{ 0, 0x0000, "?", NULL };
+
+// "compressed unsigned short" - a variable-length integer format
+// TODO: This is duplicated in shg.c
+static i64 get_cus(dbuf *f, i64 *ppos)
+{
+	i64 x1, x2;
+
+	x1 = (i64)dbuf_getbyte_p(f, ppos);
+	if(x1%2 == 0) {
+		// If it's even, divide by two, and subtract 64
+		return (x1>>1) - 64;
+	}
+	// If it's odd, divide by two, aadd 128 times the value of
+	// the next byte, and subtract 16384.
+	x1 >>= 1;
+	x2 = (i64)dbuf_getbyte_p(f, ppos);
+	x1 += x2 * 128;
+	x1 -= 16384;
+	return x1;
+}
+
+// "compressed signed short"
+static i64 get_css(dbuf *f, i64 *pos)
+{
+	i64 x1, x2;
+
+	x1 = (i64)dbuf_getbyte(f, *pos);
+	*pos += 1;
+	if(x1%2 == 0) {
+		// If it's even, divide by two.
+		return x1>>1;
+	}
+	// If it's odd, divide by two, and add 128 times the value of
+	// the next byte.
+	x2 = (i64)dbuf_getbyte(f, *pos);
+	*pos += 1;
+	return (x1>>1) | (x2<<7);
+}
+
+// "compressed signed long"
+static i64 get_csl(dbuf *f, i64 *ppos)
+{
+	i64 x1, x2;
+
+	x1 = dbuf_getu16le_p(f, ppos);
+
+	if(x1%2 == 0) {
+		// If it's even, divide by two, and subtract 16384
+		return (x1>>1) - 16384;
+	}
+	// If it's odd, divide by two, add 32768 times the value of
+	// the next two bytes, and subtract 67108864.
+	x1 >>= 1;
+	x2 = dbuf_getu16le_p(f, ppos);
+	x1 += x2*32768;
+	x1 -= 67108864;
+	return x1;
+}
 
 static void hlptime_to_timestamp(i64 ht, struct de_timestamp *ts)
 {
@@ -283,10 +343,190 @@ static void do_file_SHG(deark *c, lctx *d, i64 pos1, i64 used_space)
 	dbuf_close(outf);
 }
 
+struct topiclink_data {
+	i64 blocksize;
+	i64 datalen2;
+	i64 prevblock;
+	i64 nextblock;
+	i64 datalen1;
+	u8 recordtype;
+
+	i64 linkdata1_pos;
+	i64 linkdata1_len;
+	i64 linkdata2_pos;
+	i64 linkdata2_len;
+
+	i64 paragraphinfo_pos;
+};
+
+static int do_topiclink_rectype_32_linkdata1(deark *c, lctx *d,
+	struct topiclink_data *tld, dbuf *inf)
+{
+	i64 pos = tld->linkdata1_pos;
+	i64 topicsize;
+	i64 topiclength;
+	unsigned int id;
+	unsigned int bits;
+	int retval = 0;
+
+	topicsize = get_csl(inf, &pos);
+	de_dbg(c, "topic size: %"I64_FMT, topicsize);
+	topiclength = get_cus(inf, &pos);
+	de_dbg(c, "topic length: %"I64_FMT, topiclength);
+
+	pos++; // unknownUnsignedChar
+	pos++; // unknownBiasedChar
+	id = (unsigned int)dbuf_getu16le_p(inf, &pos);
+	de_dbg(c, "id: %u", id);
+	bits = (unsigned int)dbuf_getu16le_p(inf, &pos);
+	de_dbg(c, "bits: 0x%04x", bits);
+
+	if(bits & 0x0001) { // Unknown
+		(void)get_csl(inf, &pos);
+	}
+	if(bits & 0x0002) { // SpacingAbove
+		(void)get_css(inf, &pos);
+	}
+	if(bits & 0x0004) { // SpacingBelow
+		(void)get_css(inf, &pos);
+	}
+	if(bits & 0x0008) { // SpacingLines
+		(void)get_css(inf, &pos);
+	}
+	if(bits & 0x0010) { // LeftIndent
+		(void)get_css(inf, &pos);
+	}
+	if(bits & 0x0020) { // RightIndent
+		(void)get_css(inf, &pos);
+	}
+	if(bits & 0x0040) { // FirstlineIndent
+		(void)get_css(inf, &pos);
+	}
+	// 0x0080 = unused
+	if(bits & 0x0100) { // Borderinfo
+		goto done; // TODO
+	}
+	if(bits & 0x0200) { // Tabinfo
+		goto done; // TODO
+	}
+	// 0x0400 = RightAlignedParagraph
+	// 0x0800 = CenterAlignedParagraph
+
+	tld->paragraphinfo_pos = pos;
+	retval = 1;
+done:
+	return retval;
+}
+
+static void do_topclink_rectype_32(deark *c, lctx *d,
+	struct topiclink_data *tld, dbuf *inf)
+{
+	i64 pos;
+	int in_string = 0;
+
+	if(!d->extract_text) goto done;
+	if(!d->outf_text) {
+		d->outf_text = dbuf_create_output_file(c, "dump.txt", NULL, 0);
+	}
+
+	do_topiclink_rectype_32_linkdata1(c, d, tld, inf);
+
+	// TODO: This is very quick & dirty.
+	// The linkdata2 is a collection of NUL-terminated strings. We'd have to
+	// interpret the command bytes from linkdata1 to know how to format them.
+
+	pos = tld->linkdata2_pos;
+	while(1) {
+		u8 b;
+
+		if(pos >= tld->linkdata2_pos+tld->linkdata2_len) break;
+		if(pos >= inf->len) break;
+
+		b = dbuf_getbyte_p(inf, &pos);
+		if(b==0x00) {
+			if(in_string) {
+				dbuf_writebyte(d->outf_text, '\n');
+				in_string = 0;
+			}
+		}
+		else {
+			dbuf_writebyte(d->outf_text, b);
+			in_string = 1;
+		}
+	}
+	if(in_string) {
+		dbuf_writebyte(d->outf_text, '\n');
+	}
+
+done:
+	;
+}
+
+static void do_topiclink(deark *c, lctx *d, dbuf *inf, i64 pos1, i64 blocksize)
+{
+	struct topiclink_data *tld = NULL;
+	i64 pos = pos1 + 4;
+
+	tld = de_malloc(c, sizeof(struct topiclink_data));
+
+	tld->blocksize = blocksize;
+	de_dbg(c, "blocksize: %d", (int)tld->blocksize);
+	tld->datalen2 = dbuf_geti32le_p(inf, &pos);
+	de_dbg(c, "datalen2: %d", (int)tld->datalen2);
+	tld->prevblock = dbuf_geti32le_p(inf, &pos);
+	de_dbg(c, "prevblock: %d", (int)tld->prevblock);
+	tld->nextblock = dbuf_geti32le_p(inf, &pos);
+	de_dbg(c, "nextblock: %d", (int)tld->nextblock);
+	tld->datalen1 = dbuf_geti32le_p(inf, &pos);
+	de_dbg(c, "datalen1: %d", (int)tld->datalen1);
+	tld->recordtype = dbuf_getbyte_p(inf, &pos);
+	de_dbg(c, "record type: %d", (int)tld->recordtype);
+
+	tld->linkdata1_pos = pos1 + 21;
+	tld->linkdata1_len = tld->datalen1 - 21;
+	de_dbg(c, "linkdata1: pos=[%"I64_FMT"], len=%"I64_FMT, tld->linkdata1_pos, tld->linkdata1_len);
+
+	// TODO: Check if LinkData2 is compressed
+	tld->linkdata2_pos = tld->linkdata1_pos + tld->linkdata1_len;
+	tld->linkdata2_len = tld->blocksize - tld->datalen1;
+	de_dbg(c, "linkdata2: pos=[%"I64_FMT"], len=%"I64_FMT, tld->linkdata2_pos, tld->linkdata2_len);
+	if(tld->recordtype==32) {
+		do_topclink_rectype_32(c, d, tld, inf);
+	}
+	de_free(c, tld);
+}
+
+static void do_topicdata(deark *c, lctx *d, dbuf *inf)
+{
+	i64 pos = 0;
+	int saved_indent_level;
+	i64 blocksize;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	de_dbg(c, "topic data");
+	de_dbg_indent(c, 1);
+	while(1) {
+		if(pos + 21 > inf->len) break;
+		blocksize = dbuf_geti32le(inf, pos);
+		if(blocksize<21) break;
+		if(pos + blocksize > inf->len) break;
+
+		de_dbg(c, "topiclink at [%"I64_FMT"]", pos);
+		de_dbg_indent(c, 1);
+		do_topiclink(c, d, inf, pos, blocksize);
+		de_dbg_indent(c, -1);
+		pos += blocksize;
+	}
+
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static void do_file_TOPIC(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	i64 pos = pos1;
 	int saved_indent_level;
+	dbuf *unc_topicdata = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "TOPIC at %d", (int)pos1);
@@ -296,6 +536,8 @@ static void do_file_TOPIC(deark *c, lctx *d, i64 pos1, i64 len)
 		de_err(c, "SYSTEM file not found");
 		goto done;
 	}
+
+	unc_topicdata = dbuf_create_membuf(c, 0, 0);
 
 	// A series of blocks, each with a 12-byte header
 	while(1) {
@@ -319,11 +561,20 @@ static void do_file_TOPIC(deark *c, lctx *d, i64 pos1, i64 len)
 		de_dbg(c, "LastLink=%d, FirstLink=%d, LastHeader=%d",
 			(int)lastlink, (int)firstlink, (int)lastheader);
 
+		if(!d->is_compressed) {
+			dbuf_copy(c->infile, blk_dpos, blk_dlen, unc_topicdata);
+		}
+
 		de_dbg_indent(c, -1);
 		pos += blklen;
 	}
 
+	if(unc_topicdata && unc_topicdata->len>0) {
+		do_topicdata(c, d, unc_topicdata);
+	}
+
 done:
+	dbuf_close(unc_topicdata);
 	de_dbg_indent_restore(c, saved_indent_level);
 
 }
@@ -664,6 +915,7 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
+	d->extract_text = de_get_ext_option_bool(c, "hlp:extracttext", 0);
 
 	pos = 0;
 	do_header(c, d, pos);
@@ -679,7 +931,12 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 		d->has_ico?" has-ico":"",
 		d->has_bmp?" has-bmp":"");
 
-	de_free(c, d);
+	if(d) {
+		if(d->outf_text) {
+			dbuf_close(d->outf_text);
+		}
+		de_free(c, d);
+	}
 }
 
 static int de_identify_hlp(deark *c)
