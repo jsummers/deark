@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_hlp);
 
 #define FILETYPE_INTERNALDIR  1
@@ -13,6 +14,9 @@ DE_DECLARE_MODULE(de_module_hlp);
 #define FILETYPE_TOPIC        10
 #define FILETYPE_SHG          11
 #define FILETYPE_BMP          20
+#define FILETYPE_PHRASES      30
+#define FILETYPE_PHRINDEX     31
+#define FILETYPE_PHRIMAGE     32
 
 struct bptree {
 	unsigned int flags;
@@ -30,7 +34,10 @@ typedef struct localctx_struct {
 	int extract_text;
 	i64 internal_dir_FILEHEADER_offs;
 	struct bptree bpt;
-	int found_system_file;
+	u8 found_system_file;
+	u8 found_Phrases_file;
+	u8 found_PhrIndex_file;
+	u8 found_PhrImage_file;
 	int ver_major;
 	int ver_minor;
 	i64 topic_block_size;
@@ -39,6 +46,7 @@ typedef struct localctx_struct {
 	int has_shg, has_ico, has_bmp;
 	i64 internal_dir_num_levels;
 	dbuf *outf_text;
+	i64 offset_of_Phrases;
 } lctx;
 
 static void do_file(deark *c, lctx *d, i64 pos1, int file_fmt);
@@ -76,26 +84,7 @@ static const struct systemrec_info systemrec_info_default =
 
 // "compressed unsigned short" - a variable-length integer format
 // TODO: This is duplicated in shg.c
-static i64 get_cus(dbuf *f, i64 *ppos)
-{
-	i64 x1, x2;
-
-	x1 = (i64)dbuf_getbyte_p(f, ppos);
-	if(x1%2 == 0) {
-		// If it's even, divide by two, and subtract 64
-		return (x1>>1) - 64;
-	}
-	// If it's odd, divide by two, aadd 128 times the value of
-	// the next byte, and subtract 16384.
-	x1 >>= 1;
-	x2 = (i64)dbuf_getbyte_p(f, ppos);
-	x1 += x2 * 128;
-	x1 -= 16384;
-	return x1;
-}
-
-// "compressed signed short"
-static i64 get_css(dbuf *f, i64 *pos)
+static i64 get_cus(dbuf *f, i64 *pos)
 {
 	i64 x1, x2;
 
@@ -110,6 +99,25 @@ static i64 get_css(dbuf *f, i64 *pos)
 	x2 = (i64)dbuf_getbyte(f, *pos);
 	*pos += 1;
 	return (x1>>1) | (x2<<7);
+}
+
+// "compressed signed short"
+static i64 get_css(dbuf *f, i64 *ppos)
+{
+	i64 x1, x2;
+
+	x1 = (i64)dbuf_getbyte_p(f, ppos);
+	if(x1%2 == 0) {
+		// If it's even, divide by two, and subtract 64
+		return (x1>>1) - 64;
+	}
+	// If it's odd, divide by two, add 128 times the value of
+	// the next byte, and subtract 16384.
+	x1 >>= 1;
+	x2 = (i64)dbuf_getbyte_p(f, ppos);
+	x1 += x2 * 128;
+	x1 -= 16384;
+	return x1;
 }
 
 // "compressed signed long"
@@ -357,6 +365,7 @@ struct topiclink_data {
 	i64 linkdata2_len;
 
 	i64 paragraphinfo_pos;
+	u8 seems_compressed;
 };
 
 static int do_topiclink_rectype_32_linkdata1(deark *c, lctx *d,
@@ -489,6 +498,10 @@ static void do_topiclink(deark *c, lctx *d, dbuf *inf, i64 pos1, i64 blocksize)
 	// TODO: Check if LinkData2 is compressed
 	tld->linkdata2_pos = tld->linkdata1_pos + tld->linkdata1_len;
 	tld->linkdata2_len = tld->blocksize - tld->datalen1;
+	if(tld->datalen2 > (tld->blocksize - tld->datalen1)) {
+		tld->seems_compressed = 1;
+	}
+
 	de_dbg(c, "linkdata2: pos=[%"I64_FMT"], len=%"I64_FMT, tld->linkdata2_pos, tld->linkdata2_len);
 	if(tld->recordtype==32) {
 		do_topclink_rectype_32(c, d, tld, inf);
@@ -520,6 +533,22 @@ static void do_topicdata(deark *c, lctx *d, dbuf *inf)
 	}
 
 	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void decompress_topic_block(deark *c, lctx *d, i64 blk_dpos, i64 blk_dlen,
+	dbuf *outf)
+{
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+
+	dcmpri.f = c->infile;
+	dcmpri.pos = blk_dpos;
+	dcmpri.len = blk_dlen;
+	dcmpro.f = outf;
+	fmtutil_decompress_hlp_lz77(c, &dcmpri, &dcmpro, &dres);
 }
 
 static void do_file_TOPIC(deark *c, lctx *d, i64 pos1, i64 len)
@@ -561,7 +590,10 @@ static void do_file_TOPIC(deark *c, lctx *d, i64 pos1, i64 len)
 		de_dbg(c, "LastLink=%d, FirstLink=%d, LastHeader=%d",
 			(int)lastlink, (int)firstlink, (int)lastheader);
 
-		if(!d->is_compressed) {
+		if(d->is_compressed) {
+			decompress_topic_block(c, d, blk_dpos, blk_dlen, unc_topicdata);
+		}
+		else {
 			dbuf_copy(c->infile, blk_dpos, blk_dlen, unc_topicdata);
 		}
 
@@ -595,6 +627,9 @@ static int filename_to_filetype(deark *c, lctx *d, const char *fn)
 	if(!de_strcmp(fn, "|SYSTEM")) return FILETYPE_SYSTEM;
 	if(!de_strncmp(fn, "|bm", 3) && de_is_digit(fn[3])) return FILETYPE_SHG;
 	if(!de_strncmp(fn, "bm", 2) && de_is_digit(fn[2])) return FILETYPE_SHG;
+	if(!de_strcmp(fn, "|Phrases")) return FILETYPE_PHRASES;
+	if(!de_strcmp(fn, "|PhrIndex")) return FILETYPE_PHRINDEX;
+	if(!de_strcmp(fn, "|PhrImage")) return FILETYPE_PHRIMAGE;
 	if(de_sz_has_ext(fn, "bmp")) return FILETYPE_BMP;
 	return 0;
 }
@@ -626,6 +661,7 @@ static void do_leaf_page(deark *c, lctx *d, i64 pos1, i64 *pnext_page)
 	if(pnext_page) *pnext_page = n;
 
 	for(k=0; k<num_entries; k++) {
+		int pass_for_this_file;
 
 		de_dbg(c, "entry[%d]", (int)k);
 		de_dbg_indent(c, 1);
@@ -647,17 +683,31 @@ static void do_leaf_page(deark *c, lctx *d, i64 pos1, i64 *pnext_page)
 
 		file_type = filename_to_filetype(c, d, fn_srd->sz);
 
-		if((d->pass==1 && file_type==FILETYPE_SYSTEM) ||
-			(d->pass==2 && file_type!=FILETYPE_SYSTEM))
-		{
+		switch(file_type) {
+		case FILETYPE_SYSTEM:
+			pass_for_this_file = 1;
+			break;
+		case FILETYPE_PHRASES:
+			d->found_Phrases_file = 1;
+			d->offset_of_Phrases = file_offset;
+			pass_for_this_file = 1;
+			break;
+		case FILETYPE_PHRINDEX:
+			d->found_PhrIndex_file = 1;
+			pass_for_this_file = 1;
+			break;
+		case FILETYPE_PHRIMAGE:
+			d->found_PhrImage_file = 1;
+			pass_for_this_file = 1;
+			break;
+		default:
+			pass_for_this_file = 2;
+		}
+		if(d->pass==pass_for_this_file) {
 			do_file(c, d, file_offset, file_type);
 		}
 
 		de_dbg_indent(c, -1);
-
-		// All we do in pass 1 is read the SYSTEM file, so we can stop if we've
-		// done that.
-		if(d->pass==1 && d->found_system_file) break;
 	}
 
 done:
@@ -801,11 +851,6 @@ static void do_bplustree(deark *c, lctx *d, i64 pos1, i64 len,
 			do_leaf_page(c, d, page_pos, &next_page);
 			de_dbg_indent(c, -1);
 
-			if(d->pass==1 && d->found_system_file) {
-				de_dbg(c, "[found SYSTEM file, so stopping pass 1]");
-				break;
-			}
-
 			curr_page = next_page;
 		}
 
@@ -922,9 +967,11 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 
 	do_file(c, d, d->internal_dir_FILEHEADER_offs, FILETYPE_INTERNALDIR);
 
-	de_dbg(c, "summary: v%d.%d cmpr=%s blksize=%d levels=%d%s%s%s",
+	de_dbg(c, "summary: v%d.%d cmpr=%s%s%s blksize=%d levels=%d%s%s%s",
 		d->ver_major, d->ver_minor,
 		d->is_compressed?"lz77":"none",
+		d->found_Phrases_file?" phrase_compression":"",
+		(d->found_PhrIndex_file||d->found_PhrImage_file)?" Hall_compression":"",
 		(int)d->topic_block_size,
 		(int)d->internal_dir_num_levels,
 		d->has_shg?" has-shg":"",

@@ -404,6 +404,64 @@ void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_param
 	dfctx->codec_destroy_fn = my_rle90_codec_destroy;
 }
 
+// This is very similar to the mscompress SZDD algorithm, but
+// gratuitously different.
+void fmtutil_decompress_hlp_lz77(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
+{
+	i64 pos = dcmpri->pos;
+	i64 nbytes_written = 0;
+	u8 *window = NULL;
+	unsigned int wpos;
+
+	window = de_malloc(c, 4096);
+	wpos = 4096 - 16;
+	de_memset(window, 0x20, 4096);
+
+	while(1) {
+		unsigned int control;
+		unsigned int cbit;
+
+		if(pos >= (dcmpri->pos+dcmpri->len)) break; // Out of input data
+
+		control = (unsigned int)dbuf_getbyte(dcmpri->f, pos++);
+
+		for(cbit=0x01; cbit&0xff; cbit<<=1) {
+			if(!(control & cbit)) { // literal
+				u8 b;
+				b = dbuf_getbyte(dcmpri->f, pos++);
+				dbuf_writebyte(dcmpro->f, b);
+				nbytes_written++;
+				if(dcmpro->len_known && nbytes_written>=dcmpro->expected_len) goto unc_done;
+				window[wpos] = b;
+				wpos++; wpos &= 4095;
+			}
+			else { // match
+				unsigned int matchpos;
+				unsigned int matchlen;
+				matchpos = (unsigned int)dbuf_getu16le(dcmpri->f, pos);
+				pos+=2;
+				matchlen = ((matchpos>>12) & 0x0f) + 3;
+				matchpos = wpos-(matchpos&4095)-1;
+				matchpos &= 4095;
+				while(matchlen--) {
+					dbuf_writebyte(dcmpro->f, window[matchpos]);
+					nbytes_written++;
+					if(dcmpro->len_known && nbytes_written>=dcmpro->expected_len) goto unc_done;
+					window[wpos] = window[matchpos];
+					wpos++; wpos &= 4095;
+					matchpos++; matchpos &= 4095;
+				}
+			}
+		}
+	}
+
+unc_done:
+	dres->bytes_consumed = pos - dcmpri->pos;
+	dres->bytes_consumed_valid = 1;
+	de_free(c, window);
+}
+
 struct my_2layer_userdata {
 	struct de_dfilter_ctx *dfctx_codec2;
 	i64 intermediate_nbytes;

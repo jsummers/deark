@@ -33,64 +33,6 @@ typedef struct localctx_struct {
 	i64 num_pictures;
 } lctx;
 
-// This is very similar to the mscompress SZDD algorithm, but
-// gratuitously different.
-static void do_decompress_hlp_lz77(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
-{
-	i64 pos = dcmpri->pos;
-	i64 nbytes_written = 0;
-	u8 *window = NULL;
-	unsigned int wpos;
-
-	window = de_malloc(c, 4096);
-	wpos = 4096 - 16;
-	de_memset(window, 0x20, 4096);
-
-	while(1) {
-		unsigned int control;
-		unsigned int cbit;
-
-		if(pos >= (dcmpri->pos+dcmpri->len)) break; // Out of input data
-
-		control = (unsigned int)dbuf_getbyte(dcmpri->f, pos++);
-
-		for(cbit=0x01; cbit&0xff; cbit<<=1) {
-			if(!(control & cbit)) { // literal
-				u8 b;
-				b = dbuf_getbyte(dcmpri->f, pos++);
-				dbuf_writebyte(dcmpro->f, b);
-				nbytes_written++;
-				if(dcmpro->len_known && nbytes_written>=dcmpro->expected_len) goto unc_done;
-				window[wpos] = b;
-				wpos++; wpos &= 4095;
-			}
-			else { // match
-				unsigned int matchpos;
-				unsigned int matchlen;
-				matchpos = (unsigned int)dbuf_getu16le(dcmpri->f, pos);
-				pos+=2;
-				matchlen = ((matchpos>>12) & 0x0f) + 3;
-				matchpos = wpos-(matchpos&4095)-1;
-				matchpos &= 4095;
-				while(matchlen--) {
-					dbuf_writebyte(dcmpro->f, window[matchpos]);
-					nbytes_written++;
-					if(dcmpro->len_known && nbytes_written>=dcmpro->expected_len) goto unc_done;
-					window[wpos] = window[matchpos];
-					wpos++; wpos &= 4095;
-					matchpos++; matchpos &= 4095;
-				}
-			}
-		}
-	}
-
-unc_done:
-	dres->bytes_consumed = pos - dcmpri->pos;
-	dres->bytes_consumed_valid = 1;
-	de_free(c, window);
-}
-
 static void do_decompress_lz77_wrapper(deark *c, dbuf *inf, i64 pos1,
 	i64 input_len, dbuf *outf, u8 output_len_known, i64 expected_output_len)
 {
@@ -112,7 +54,7 @@ static void do_decompress_lz77_wrapper(deark *c, dbuf *inf, i64 pos1,
 	}
 	outf_start_len = outf->len;
 
-	do_decompress_hlp_lz77(c, &dcmpri, &dcmpro, &dres);
+	fmtutil_decompress_hlp_lz77(c, &dcmpri, &dcmpro, &dres);
 
 	if(dres.errcode) {
 		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
