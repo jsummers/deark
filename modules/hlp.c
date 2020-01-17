@@ -9,14 +9,18 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_hlp);
 
-#define FILETYPE_INTERNALDIR  1
-#define FILETYPE_SYSTEM       2
-#define FILETYPE_TOPIC        10
-#define FILETYPE_SHG          11
-#define FILETYPE_BMP          20
-#define FILETYPE_PHRASES      30
-#define FILETYPE_PHRINDEX     31
-#define FILETYPE_PHRIMAGE     32
+enum hlp_filetype {
+	FILETYPE_UNKNOWN = 0,
+	FILETYPE_INTERNALDIR,
+	FILETYPE_SYSTEM,
+	FILETYPE_TOPIC,
+	FILETYPE_SHG,
+	FILETYPE_BMP,
+	FILETYPE_PHRASES,
+	FILETYPE_PHRINDEX,
+	FILETYPE_PHRIMAGE,
+	FILETYPE_TOMAP
+};
 
 struct bptree {
 	unsigned int flags;
@@ -38,6 +42,7 @@ typedef struct localctx_struct {
 	u8 found_Phrases_file;
 	u8 found_PhrIndex_file;
 	u8 found_PhrImage_file;
+	u8 phrase_compression_warned;
 	int ver_major;
 	int ver_minor;
 	i64 topic_block_size;
@@ -49,7 +54,7 @@ typedef struct localctx_struct {
 	i64 offset_of_Phrases;
 } lctx;
 
-static void do_file(deark *c, lctx *d, i64 pos1, int file_fmt);
+static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt);
 
 struct systemrec_info {
 	unsigned int rectype;
@@ -378,10 +383,16 @@ static int do_topiclink_rectype_32_linkdata1(deark *c, lctx *d,
 	unsigned int bits;
 	int retval = 0;
 
+	// TODO: type 33 (table)
+	if(tld->recordtype!=1 && tld->recordtype!=32) goto done;
+
 	topicsize = get_csl(inf, &pos);
 	de_dbg(c, "topic size: %"I64_FMT, topicsize);
-	topiclength = get_cus(inf, &pos);
-	de_dbg(c, "topic length: %"I64_FMT, topiclength);
+
+	if(tld->recordtype==32) {
+		topiclength = get_cus(inf, &pos);
+		de_dbg(c, "topic length: %"I64_FMT, topiclength);
+	}
 
 	pos++; // unknownUnsignedChar
 	pos++; // unknownBiasedChar
@@ -427,16 +438,22 @@ done:
 	return retval;
 }
 
-static void do_topclink_rectype_32(deark *c, lctx *d,
+static void ensure_text_output_file_open(deark *c, lctx *d)
+{
+	if(d->outf_text) return;
+	d->outf_text = dbuf_create_output_file(c, "dump.txt", NULL, 0);
+}
+
+static void do_topclink_rectype_1_32(deark *c, lctx *d,
 	struct topiclink_data *tld, dbuf *inf)
 {
 	i64 pos;
 	int in_string = 0;
+	int string_count = 0;
+	int byte_count = 0;
 
 	if(!d->extract_text) goto done;
-	if(!d->outf_text) {
-		d->outf_text = dbuf_create_output_file(c, "dump.txt", NULL, 0);
-	}
+	ensure_text_output_file_open(c, d);
 
 	do_topiclink_rectype_32_linkdata1(c, d, tld, inf);
 
@@ -455,17 +472,21 @@ static void do_topclink_rectype_32(deark *c, lctx *d,
 		if(b==0x00) {
 			if(in_string) {
 				dbuf_writebyte(d->outf_text, '\n');
+				string_count++;
 				in_string = 0;
 			}
 		}
 		else {
 			dbuf_writebyte(d->outf_text, b);
+			byte_count++;
 			in_string = 1;
 		}
 	}
 	if(in_string) {
 		dbuf_writebyte(d->outf_text, '\n');
+		string_count++;
 	}
+	de_dbg(c, "[emitted %d strings, totaling %d bytes]", string_count, byte_count);
 
 done:
 	;
@@ -481,7 +502,7 @@ static void do_topiclink(deark *c, lctx *d, dbuf *inf, i64 pos1, i64 blocksize)
 	tld->blocksize = blocksize;
 	de_dbg(c, "blocksize: %d", (int)tld->blocksize);
 	tld->datalen2 = dbuf_geti32le_p(inf, &pos);
-	de_dbg(c, "datalen2: %d", (int)tld->datalen2);
+	de_dbg(c, "datalen2 (after any decompression): %d", (int)tld->datalen2);
 	tld->prevblock = dbuf_geti32le_p(inf, &pos);
 	de_dbg(c, "prevblock: %d", (int)tld->prevblock);
 	tld->nextblock = dbuf_geti32le_p(inf, &pos);
@@ -495,16 +516,30 @@ static void do_topiclink(deark *c, lctx *d, dbuf *inf, i64 pos1, i64 blocksize)
 	tld->linkdata1_len = tld->datalen1 - 21;
 	de_dbg(c, "linkdata1: pos=[%"I64_FMT"], len=%"I64_FMT, tld->linkdata1_pos, tld->linkdata1_len);
 
-	// TODO: Check if LinkData2 is compressed
 	tld->linkdata2_pos = tld->linkdata1_pos + tld->linkdata1_len;
 	tld->linkdata2_len = tld->blocksize - tld->datalen1;
 	if(tld->datalen2 > (tld->blocksize - tld->datalen1)) {
 		tld->seems_compressed = 1;
 	}
 
-	de_dbg(c, "linkdata2: pos=[%"I64_FMT"], len=%"I64_FMT, tld->linkdata2_pos, tld->linkdata2_len);
-	if(tld->recordtype==32) {
-		do_topclink_rectype_32(c, d, tld, inf);
+	if(tld->seems_compressed && d->extract_text && !d->phrase_compression_warned &&
+		(d->found_Phrases_file || d->found_PhrIndex_file || d->found_PhrImage_file))
+	{
+		de_warn(c, "This file uses a type of compression that is not supported");
+		d->phrase_compression_warned = 1;
+	}
+
+	if(tld->linkdata2_pos + tld->linkdata2_len > pos1+blocksize) {
+		de_dbg(c, "bad linkdata2");
+	}
+
+	de_dbg(c, "linkdata2: pos=[%"I64_FMT"], len=%"I64_FMT,
+		tld->linkdata2_pos, tld->linkdata2_len);
+	switch(tld->recordtype) {
+	case 1:
+	case 32:
+		do_topclink_rectype_1_32(c, d, tld, inf);
+		break;
 	}
 	de_free(c, tld);
 }
@@ -520,16 +555,42 @@ static void do_topicdata(deark *c, lctx *d, dbuf *inf)
 	de_dbg(c, "topic data");
 	de_dbg_indent(c, 1);
 	while(1) {
-		if(pos + 21 > inf->len) break;
+		if(pos >= inf->len) {
+			de_dbg(c, "[stopping TOPIC parsing, reached end of data]");
+			break;
+		}
+		if(pos + 21 > inf->len) {
+			de_warn(c, "Error parsing TOPIC, not enough room for another TOPICLINK (%"I64_FMT
+				", %"I64_FMT")", pos, inf->len);
+			break;
+		}
 		blocksize = dbuf_geti32le(inf, pos);
-		if(blocksize<21) break;
-		if(pos + blocksize > inf->len) break;
+		if(blocksize==0) {
+			de_dbg(c, "[stopping TOPIC parsing, blocksize=0]");
+			break;
+		}
+		if(blocksize<21) {
+			de_warn(c, "Error parsing TOPIC, bad blocksize (%"I64_FMT")", blocksize);
+			break;
+		}
+		if(pos + blocksize > inf->len) {
+			de_warn(c, "Error parsing TOPIC, TOPICLINK goes beyond end of data "
+				"(blocksize=%"I64_FMT")", blocksize);
+			break;
+		}
 
 		de_dbg(c, "topiclink at [%"I64_FMT"]", pos);
 		de_dbg_indent(c, 1);
 		do_topiclink(c, d, inf, pos, blocksize);
 		de_dbg_indent(c, -1);
+
+		// FIXME: This is wrong, unfortunately. topiclinks can have unused space
+		// between them, so we can't iterate through them like this.
 		pos += blocksize;
+	}
+
+	if(pos < inf->len) {
+		de_dbg(c, "[%"I64_FMT" more bytes not processed]", (inf->len - pos));
 	}
 
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -541,6 +602,7 @@ static void decompress_topic_block(deark *c, lctx *d, i64 blk_dpos, i64 blk_dlen
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
+	i64 len_before;
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 
@@ -548,7 +610,12 @@ static void decompress_topic_block(deark *c, lctx *d, i64 blk_dpos, i64 blk_dlen
 	dcmpri.pos = blk_dpos;
 	dcmpri.len = blk_dlen;
 	dcmpro.f = outf;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = 16384;
+	len_before = dcmpro.f->len;
 	fmtutil_decompress_hlp_lz77(c, &dcmpri, &dcmpro, &dres);
+	de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", blk_dlen,
+		dcmpro.f->len - len_before);
 }
 
 static void do_file_TOPIC(deark *c, lctx *d, i64 pos1, i64 len)
@@ -558,7 +625,7 @@ static void do_file_TOPIC(deark *c, lctx *d, i64 pos1, i64 len)
 	dbuf *unc_topicdata = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "TOPIC at %d", (int)pos1);
+	de_dbg(c, "TOPIC at %"I64_FMT", len=%"I64_FMT, pos1, len);
 	de_dbg_indent(c, 1);
 
 	if(!d->found_system_file || d->topic_block_size<2048) {
@@ -566,7 +633,9 @@ static void do_file_TOPIC(deark *c, lctx *d, i64 pos1, i64 len)
 		goto done;
 	}
 
-	unc_topicdata = dbuf_create_membuf(c, 0, 0);
+	if(d->extract_text) {
+		unc_topicdata = dbuf_create_membuf(c, 0, 0);
+	}
 
 	// A series of blocks, each with a 12-byte header
 	while(1) {
@@ -590,11 +659,14 @@ static void do_file_TOPIC(deark *c, lctx *d, i64 pos1, i64 len)
 		de_dbg(c, "LastLink=%d, FirstLink=%d, LastHeader=%d",
 			(int)lastlink, (int)firstlink, (int)lastheader);
 
-		if(d->is_compressed) {
-			decompress_topic_block(c, d, blk_dpos, blk_dlen, unc_topicdata);
-		}
-		else {
-			dbuf_copy(c->infile, blk_dpos, blk_dlen, unc_topicdata);
+		if(d->extract_text && unc_topicdata) {
+			if(d->is_compressed) {
+				decompress_topic_block(c, d, blk_dpos, blk_dlen, unc_topicdata);
+			}
+			else {
+				dbuf_copy(c->infile, blk_dpos, blk_dlen, unc_topicdata);
+			}
+			de_dbg2(c, "[current decompressed size: %"I64_FMT"]", unc_topicdata->len);
 		}
 
 		de_dbg_indent(c, -1);
@@ -621,9 +693,10 @@ static int de_is_digit(char x)
 	return (x>='0' && x<='9');
 }
 
-static int filename_to_filetype(deark *c, lctx *d, const char *fn)
+static enum hlp_filetype filename_to_filetype(deark *c, lctx *d, const char *fn)
 {
 	if(!de_strcmp(fn, "|TOPIC")) return FILETYPE_TOPIC;
+	if(!de_strcmp(fn, "|TOMAP")) return FILETYPE_TOMAP;
 	if(!de_strcmp(fn, "|SYSTEM")) return FILETYPE_SYSTEM;
 	if(!de_strncmp(fn, "|bm", 3) && de_is_digit(fn[3])) return FILETYPE_SHG;
 	if(!de_strncmp(fn, "bm", 2) && de_is_digit(fn[2])) return FILETYPE_SHG;
@@ -631,7 +704,7 @@ static int filename_to_filetype(deark *c, lctx *d, const char *fn)
 	if(!de_strcmp(fn, "|PhrIndex")) return FILETYPE_PHRINDEX;
 	if(!de_strcmp(fn, "|PhrImage")) return FILETYPE_PHRIMAGE;
 	if(de_sz_has_ext(fn, "bmp")) return FILETYPE_BMP;
-	return 0;
+	return FILETYPE_UNKNOWN;
 }
 
 static void do_leaf_page(deark *c, lctx *d, i64 pos1, i64 *pnext_page)
@@ -643,7 +716,7 @@ static void do_leaf_page(deark *c, lctx *d, i64 pos1, i64 *pnext_page)
 	i64 file_offset;
 	i64 k;
 	struct de_stringreaderdata *fn_srd = NULL;
-	int file_type;
+	enum hlp_filetype file_type;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -685,6 +758,9 @@ static void do_leaf_page(deark *c, lctx *d, i64 pos1, i64 *pnext_page)
 
 		switch(file_type) {
 		case FILETYPE_SYSTEM:
+			pass_for_this_file = 1;
+			break;
+		case FILETYPE_TOMAP:
 			pass_for_this_file = 1;
 			break;
 		case FILETYPE_PHRASES:
@@ -868,7 +944,28 @@ static void do_file_INTERNALDIR(deark *c, lctx *d, i64 pos1, i64 len)
 	do_bplustree(c, d, pos1, len, 1);
 }
 
-static const char* file_type_to_type_name(int file_fmt)
+static void do_file_TOMAP(deark *c, lctx *d, i64 pos1, i64 len)
+{
+	i64 k;
+	i64 n;
+	i64 ntopics = len/4;
+
+	if(len>DE_MAX_SANE_OBJECT_SIZE) goto done;
+	de_dbg(c, "TOMAP table at %"I64_FMT", num topics=%d", pos1, (int)ntopics);
+	if(!d->extract_text) goto done;
+
+	de_dbg_indent(c, 1);
+	for(k=0; k<ntopics; k++) {
+		n = de_getu32le(pos1+4*k);
+		de_dbg(c, "[%d]: 0x%08x", (int)k, (unsigned int)n);
+	}
+	de_dbg_indent(c, -1);
+
+done:
+	;
+}
+
+static const char* file_type_to_type_name(enum hlp_filetype file_fmt)
 {
 	const char *name = "unspecified";
 	switch(file_fmt) {
@@ -876,11 +973,12 @@ static const char* file_type_to_type_name(int file_fmt)
 	case FILETYPE_TOPIC: name="topic"; break;
 	case FILETYPE_SHG: name="SHG/MRB"; break;
 	case FILETYPE_INTERNALDIR: name="directory"; break;
+	default: ;
 	}
 	return name;
 }
 
-static void do_file(deark *c, lctx *d, i64 pos1, int file_fmt)
+static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt)
 {
 	i64 reserved_space;
 	i64 used_space;
@@ -905,28 +1003,27 @@ static void do_file(deark *c, lctx *d, i64 pos1, int file_fmt)
 		goto done;
 	}
 
-	//
 	switch(file_fmt) {
 	case FILETYPE_INTERNALDIR:
 		do_file_INTERNALDIR(c, d, pos, used_space);
 		break;
-
 	case FILETYPE_TOPIC:
 		do_file_TOPIC(c, d, pos, used_space);
 		break;
-
+	case FILETYPE_TOMAP:
+		do_file_TOMAP(c, d, pos, used_space);
+		break;
 	case FILETYPE_SYSTEM:
 		do_file_SYSTEM(c, d, pos, used_space);
 		break;
-
 	case FILETYPE_SHG:
 		d->has_shg = 1;
 		do_file_SHG(c, d, pos, used_space);
 		break;
-
 	case FILETYPE_BMP:
 		d->has_bmp = 1;
 		break;
+	default: ;
 	}
 
 done:
