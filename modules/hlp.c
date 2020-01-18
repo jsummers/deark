@@ -241,7 +241,7 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, i64 pos1)
 	flags = (unsigned int)de_getu16le_p(&pos);
 	de_dbg(c, "flags: 0x%04x", flags);
 
-	if(d->ver_minor>=16) {
+	if(d->ver_minor>16) {
 		if(flags==8) {
 			d->is_compressed = 1;
 			d->topic_block_size = 2048;
@@ -319,7 +319,7 @@ static void do_file_SYSTEM(deark *c, lctx *d, i64 pos1, i64 len)
 	if(!do_file_SYSTEM_header(c, d, pos)) goto done;
 	pos += 12;
 
-	if(d->ver_minor<16) {
+	if(d->ver_minor<=16) {
 		do_display_STRINGZ(c, d, pos, (pos1+len)-pos, "HelpFileTitle");
 	}
 	else {
@@ -444,7 +444,7 @@ static void ensure_text_output_file_open(deark *c, lctx *d)
 	d->outf_text = dbuf_create_output_file(c, "dump.txt", NULL, 0);
 }
 
-static void do_topclink_rectype_1_32(deark *c, lctx *d,
+static void do_topiclink_rectype_1_32(deark *c, lctx *d,
 	struct topiclink_data *tld, dbuf *inf)
 {
 	i64 pos;
@@ -492,21 +492,64 @@ done:
 	;
 }
 
-static void do_topiclink(deark *c, lctx *d, dbuf *inf, i64 pos1, i64 blocksize)
+static void do_topiclink_rectype_2_linkdata2(deark *c, lctx *d,
+	struct topiclink_data *tld, dbuf *inf)
+{
+	i64 k;
+	int bytecount = 0;
+
+	dbuf_puts(d->outf_text, "# ");
+	for(k=0; k<tld->linkdata2_len; k++) {
+		u8 b;
+
+		b = dbuf_getbyte(inf, tld->linkdata2_pos+k);
+		if(b==0) break;
+		dbuf_writebyte(d->outf_text, b);
+		bytecount++;
+	}
+
+	if(bytecount==0) {
+		dbuf_puts(d->outf_text, "(untitled topic)");
+	}
+
+	dbuf_puts(d->outf_text, " #\n");
+}
+
+// topic header and title
+static void do_topiclink_rectype_2(deark *c, lctx *d,
+	struct topiclink_data *tld, dbuf *inf)
+{
+	if(!d->extract_text) goto done;
+	ensure_text_output_file_open(c, d);
+
+	do_topiclink_rectype_2_linkdata2(c, d, tld, inf);
+done:
+	;
+}
+
+// Returns 1 if we set next_pos_code
+static int do_topiclink(deark *c, lctx *d, dbuf *inf, i64 pos1, u32 *next_pos_code)
 {
 	struct topiclink_data *tld = NULL;
-	i64 pos = pos1 + 4;
+	i64 pos = pos1;
+	int retval = 0;
 
 	tld = de_malloc(c, sizeof(struct topiclink_data));
 
-	tld->blocksize = blocksize;
+	tld->blocksize = dbuf_geti32le_p(inf, &pos);
 	de_dbg(c, "blocksize: %d", (int)tld->blocksize);
+	if((tld->blocksize<21) || (pos1 + tld->blocksize > inf->len)) {
+		de_dbg(c, "bad topiclink blocksize");
+		goto done;
+	}
 	tld->datalen2 = dbuf_geti32le_p(inf, &pos);
 	de_dbg(c, "datalen2 (after any decompression): %d", (int)tld->datalen2);
 	tld->prevblock = dbuf_geti32le_p(inf, &pos);
 	de_dbg(c, "prevblock: %d", (int)tld->prevblock);
 	tld->nextblock = dbuf_geti32le_p(inf, &pos);
 	de_dbg(c, "nextblock: %d", (int)tld->nextblock);
+	*next_pos_code = (u32)tld->nextblock;
+	retval = 1;
 	tld->datalen1 = dbuf_geti32le_p(inf, &pos);
 	de_dbg(c, "datalen1: %d", (int)tld->datalen1);
 	tld->recordtype = dbuf_getbyte_p(inf, &pos);
@@ -529,8 +572,13 @@ static void do_topiclink(deark *c, lctx *d, dbuf *inf, i64 pos1, i64 blocksize)
 		d->phrase_compression_warned = 1;
 	}
 
-	if(tld->linkdata2_pos + tld->linkdata2_len > pos1+blocksize) {
-		de_dbg(c, "bad linkdata2");
+	if((tld->linkdata1_pos<pos1) || (tld->linkdata2_pos<pos1) ||
+		(tld->linkdata1_len<0) || (tld->linkdata2_len<0) ||
+		(tld->linkdata1_pos + tld->linkdata1_len > pos1+tld->blocksize) ||
+		(tld->linkdata2_pos + tld->linkdata2_len > pos1+tld->blocksize))
+	{
+		de_dbg(c, "bad linkdata");
+		goto done;
 	}
 
 	de_dbg(c, "linkdata2: pos=[%"I64_FMT"], len=%"I64_FMT,
@@ -538,24 +586,65 @@ static void do_topiclink(deark *c, lctx *d, dbuf *inf, i64 pos1, i64 blocksize)
 	switch(tld->recordtype) {
 	case 1:
 	case 32:
-		do_topclink_rectype_1_32(c, d, tld, inf);
+		do_topiclink_rectype_1_32(c, d, tld, inf);
 		break;
+	case 2:
+		do_topiclink_rectype_2(c, d, tld, inf);
+		break;
+	default:
+		de_dbg(c, "[not processing record type %d]", (int)tld->recordtype);
 	}
+
+done:
 	de_free(c, tld);
+	return retval;
+}
+
+static i64 hc30_abspos_plus_offset_to_abspos(deark *c, lctx *d, i64 pos, i64 offset)
+{
+	i64 blksize = d->topic_block_size-12;
+	i64 start_of_curr_block;
+	i64 end_of_curr_block;
+	i64 n;
+
+	// We're at a position in blocks of size (d->topic_block_size-12). We need to add
+	// 'offset', but subtract 12 every time we cross a block boundary.
+	start_of_curr_block = (pos/blksize)*blksize;
+	end_of_curr_block = start_of_curr_block + blksize;
+	if(pos+offset <= end_of_curr_block) {
+		return pos + offset;
+	}
+
+	n = pos+offset - end_of_curr_block;
+	return pos + offset - 12*(1+(n / blksize));
 }
 
 static void do_topicdata(deark *c, lctx *d, dbuf *inf)
 {
-	i64 pos = 0;
-	int saved_indent_level;
-	i64 blocksize;
+	i64 pos;
+	int saved_indent_level, saved_indent_level2;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
 	de_dbg(c, "topic data");
+
 	de_dbg_indent(c, 1);
+	if(!inf) {
+		goto done;
+	}
+
+	de_dbg_indent_save(c, &saved_indent_level2);
+
+	pos = 0; // TODO: Is the first topiclink always at 0?
+
 	while(1) {
-		if(pos >= inf->len) {
+		u32 next_pos_code;
+
+		if(pos > inf->len) {
+			de_dbg(c, "[stopping TOPIC parsing, exceeded end of data]");
+			break;
+		}
+		if(pos == inf->len) {
 			de_dbg(c, "[stopping TOPIC parsing, reached end of data]");
 			break;
 		}
@@ -564,35 +653,32 @@ static void do_topicdata(deark *c, lctx *d, dbuf *inf)
 				", %"I64_FMT")", pos, inf->len);
 			break;
 		}
-		blocksize = dbuf_geti32le(inf, pos);
-		if(blocksize==0) {
-			de_dbg(c, "[stopping TOPIC parsing, blocksize=0]");
-			break;
-		}
-		if(blocksize<21) {
-			de_warn(c, "Error parsing TOPIC, bad blocksize (%"I64_FMT")", blocksize);
-			break;
-		}
-		if(pos + blocksize > inf->len) {
-			de_warn(c, "Error parsing TOPIC, TOPICLINK goes beyond end of data "
-				"(blocksize=%"I64_FMT")", blocksize);
-			break;
-		}
 
 		de_dbg(c, "topiclink at [%"I64_FMT"]", pos);
 		de_dbg_indent(c, 1);
-		do_topiclink(c, d, inf, pos, blocksize);
+		next_pos_code = 0;
+		if(!do_topiclink(c, d, inf, pos, &next_pos_code)) goto done;
 		de_dbg_indent(c, -1);
 
-		// FIXME: This is wrong, unfortunately. topiclinks can have unused space
-		// between them, so we can't iterate through them like this.
-		pos += blocksize;
+		if(d->ver_minor<=16) {
+			if(next_pos_code < 21) {
+				de_dbg(c, "[stopping TOPIC parsing, no nextblock available]");
+				break;
+			}
+			pos = hc30_abspos_plus_offset_to_abspos(c, d, pos, next_pos_code);
+		}
+		else {
+			// TODO
+			de_dbg(c, "[version not supported]");
+			goto done;
+		}
 	}
 
 	if(pos < inf->len) {
 		de_dbg(c, "[%"I64_FMT" more bytes not processed]", (inf->len - pos));
 	}
 
+done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -946,23 +1032,8 @@ static void do_file_INTERNALDIR(deark *c, lctx *d, i64 pos1, i64 len)
 
 static void do_file_TOMAP(deark *c, lctx *d, i64 pos1, i64 len)
 {
-	i64 k;
-	i64 n;
-	i64 ntopics = len/4;
-
-	if(len>DE_MAX_SANE_OBJECT_SIZE) goto done;
-	de_dbg(c, "TOMAP table at %"I64_FMT", num topics=%d", pos1, (int)ntopics);
-	if(!d->extract_text) goto done;
-
-	de_dbg_indent(c, 1);
-	for(k=0; k<ntopics; k++) {
-		n = de_getu32le(pos1+4*k);
-		de_dbg(c, "[%d]: 0x%08x", (int)k, (unsigned int)n);
-	}
-	de_dbg_indent(c, -1);
-
-done:
-	;
+	// I'm not sure if we ever need to parse this, so we can find the first
+	// 'topiclink'.
 }
 
 static const char* file_type_to_type_name(enum hlp_filetype file_fmt)
