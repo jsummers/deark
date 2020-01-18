@@ -187,6 +187,11 @@ static void do_SYSTEMREC(deark *c, lctx *d, unsigned int recordtype,
 	else if(sti->flags&0x10) {
 		do_SYSTEMREC_STRINGZ(c, d, recordtype, pos1, len, sti);
 	}
+	else {
+		if(c->debug_level>=2) {
+			de_dbg_hexdump(c, c->infile, pos1, len, 256, NULL, 0x1);
+		}
+	}
 }
 
 static const struct systemrec_info *find_sysrec_info(deark *c, lctx *d, unsigned int t)
@@ -544,12 +549,25 @@ static int do_topiclink(deark *c, lctx *d, dbuf *inf, i64 pos1, u32 *next_pos_co
 	}
 	tld->datalen2 = dbuf_geti32le_p(inf, &pos);
 	de_dbg(c, "datalen2 (after any decompression): %d", (int)tld->datalen2);
-	tld->prevblock = dbuf_geti32le_p(inf, &pos);
-	de_dbg(c, "prevblock: %d", (int)tld->prevblock);
-	tld->nextblock = dbuf_geti32le_p(inf, &pos);
-	de_dbg(c, "nextblock: %d", (int)tld->nextblock);
+
+	tld->prevblock = dbuf_getu32le_p(inf, &pos);
+	if(d->ver_minor<=16) {
+		de_dbg(c, "prevblock: %"I64_FMT, tld->prevblock);
+	}
+	else {
+		de_dbg(c, "prevblock: 0x%08x", (unsigned int)tld->prevblock);
+	}
+
+	tld->nextblock = dbuf_getu32le_p(inf, &pos);
+	if(d->ver_minor<=16) {
+		de_dbg(c, "nextblock: %"I64_FMT, tld->nextblock);
+	}
+	else {
+		de_dbg(c, "nextblock: 0x%08x", (unsigned int)tld->nextblock);
+	}
 	*next_pos_code = (u32)tld->nextblock;
 	retval = 1;
+
 	tld->datalen1 = dbuf_geti32le_p(inf, &pos);
 	de_dbg(c, "datalen1: %d", (int)tld->datalen1);
 	tld->recordtype = dbuf_getbyte_p(inf, &pos);
@@ -598,6 +616,19 @@ static int do_topiclink(deark *c, lctx *d, dbuf *inf, i64 pos1, u32 *next_pos_co
 done:
 	de_free(c, tld);
 	return retval;
+}
+
+static int topicpos_to_abspos(deark *c, lctx *d, i64 topicpos, i64 *pabspos)
+{
+	i64 blknum, blkoffs;
+
+	if(!d->topic_block_size) return 0;
+	if(d->is_compressed) return 0;
+	blkoffs = topicpos % 16384;
+	if(blkoffs<12) return 0;
+	blknum = topicpos / 16384;
+	*pabspos = (d->topic_block_size-12) * blknum + (blkoffs-12);
+	return 1;
 }
 
 static i64 hc30_abspos_plus_offset_to_abspos(deark *c, lctx *d, i64 pos, i64 offset)
@@ -668,14 +699,25 @@ static void do_topicdata(deark *c, lctx *d, dbuf *inf)
 			pos = hc30_abspos_plus_offset_to_abspos(c, d, pos, next_pos_code);
 		}
 		else {
-			// TODO
-			de_dbg(c, "[version not supported]");
-			goto done;
-		}
-	}
+			i64 next_pos = 0;
 
-	if(pos < inf->len) {
-		de_dbg(c, "[%"I64_FMT" more bytes not processed]", (inf->len - pos));
+			if(next_pos_code==0xffffffffLL) {
+				de_dbg(c, "[stopping TOPIC parsing, end-of-links marker found]");
+				break;
+			}
+
+			if(!topicpos_to_abspos(c, d, next_pos_code, &next_pos)) {
+				de_dbg(c, "[stopping TOPIC parsing, no nextblock available]");
+				break;
+			}
+
+			if(next_pos <= pos) {
+				de_dbg(c, "[stopping TOPIC parsing, blocks not in order]");
+				break;
+			}
+
+			pos = next_pos;
+		}
 	}
 
 done:
@@ -697,7 +739,7 @@ static void decompress_topic_block(deark *c, lctx *d, i64 blk_dpos, i64 blk_dlen
 	dcmpri.len = blk_dlen;
 	dcmpro.f = outf;
 	dcmpro.len_known = 1;
-	dcmpro.expected_len = 16384;
+	dcmpro.expected_len = 16384-12;
 	len_before = dcmpro.f->len;
 	fmtutil_decompress_hlp_lz77(c, &dcmpri, &dcmpro, &dres);
 	de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", blk_dlen,
@@ -1127,7 +1169,7 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 	d->extract_text = de_get_ext_option_bool(c, "hlp:extracttext", 0);
 
 	pos = 0;
