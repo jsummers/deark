@@ -9,6 +9,8 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_hlp);
 
+#define TOPICBLOCKHDRSIZE 12
+
 enum hlp_filetype {
 	FILETYPE_UNKNOWN = 0,
 	FILETYPE_INTERNALDIR,
@@ -52,6 +54,7 @@ typedef struct localctx_struct {
 	i64 internal_dir_num_levels;
 	dbuf *outf_text;
 	i64 offset_of_Phrases;
+	i64 num_topic_blocks;
 } lctx;
 
 static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt);
@@ -378,10 +381,22 @@ struct topiclink_data {
 	u8 seems_compressed;
 };
 
+struct topic_block_info_item {
+	i64 pos; // position in ->unc_topicdata
+	i64 len;
+};
+
+struct topic_ctx {
+	i64 num_topic_blocks;
+	struct topic_block_info_item *topic_block_info; // array [num_topic_blocks]
+	dbuf *unc_topicdata;
+};
+
 static int do_topiclink_rectype_32_linkdata1(deark *c, lctx *d,
-	struct topiclink_data *tld, dbuf *inf)
+	struct topic_ctx *tctx, struct topiclink_data *tld)
 {
 	i64 pos = tld->linkdata1_pos;
+	dbuf *inf = tctx->unc_topicdata;
 	i64 topicsize;
 	i64 topiclength;
 	unsigned int id;
@@ -450,7 +465,7 @@ static void ensure_text_output_file_open(deark *c, lctx *d)
 }
 
 static void do_topiclink_rectype_1_32(deark *c, lctx *d,
-	struct topiclink_data *tld, dbuf *inf)
+	struct topic_ctx *tctx, struct topiclink_data *tld)
 {
 	i64 pos;
 	int in_string = 0;
@@ -460,7 +475,7 @@ static void do_topiclink_rectype_1_32(deark *c, lctx *d,
 	if(!d->extract_text) goto done;
 	ensure_text_output_file_open(c, d);
 
-	do_topiclink_rectype_32_linkdata1(c, d, tld, inf);
+	do_topiclink_rectype_32_linkdata1(c, d, tctx, tld);
 
 	// TODO: This is very quick & dirty.
 	// The linkdata2 is a collection of NUL-terminated strings. We'd have to
@@ -471,9 +486,9 @@ static void do_topiclink_rectype_1_32(deark *c, lctx *d,
 		u8 b;
 
 		if(pos >= tld->linkdata2_pos+tld->linkdata2_len) break;
-		if(pos >= inf->len) break;
+		if(pos >= tctx->unc_topicdata->len) break;
 
-		b = dbuf_getbyte_p(inf, &pos);
+		b = dbuf_getbyte_p(tctx->unc_topicdata, &pos);
 		if(b==0x00) {
 			if(in_string) {
 				dbuf_writebyte(d->outf_text, '\n');
@@ -498,7 +513,7 @@ done:
 }
 
 static void do_topiclink_rectype_2_linkdata2(deark *c, lctx *d,
-	struct topiclink_data *tld, dbuf *inf)
+	struct topic_ctx *tctx, struct topiclink_data *tld)
 {
 	i64 k;
 	int bytecount = 0;
@@ -507,7 +522,7 @@ static void do_topiclink_rectype_2_linkdata2(deark *c, lctx *d,
 	for(k=0; k<tld->linkdata2_len; k++) {
 		u8 b;
 
-		b = dbuf_getbyte(inf, tld->linkdata2_pos+k);
+		b = dbuf_getbyte(tctx->unc_topicdata, tld->linkdata2_pos+k);
 		if(b==0) break;
 		dbuf_writebyte(d->outf_text, b);
 		bytecount++;
@@ -522,22 +537,23 @@ static void do_topiclink_rectype_2_linkdata2(deark *c, lctx *d,
 
 // topic header and title
 static void do_topiclink_rectype_2(deark *c, lctx *d,
-	struct topiclink_data *tld, dbuf *inf)
+	struct topic_ctx *tctx, struct topiclink_data *tld)
 {
 	if(!d->extract_text) goto done;
 	ensure_text_output_file_open(c, d);
 
-	do_topiclink_rectype_2_linkdata2(c, d, tld, inf);
+	do_topiclink_rectype_2_linkdata2(c, d, tctx, tld);
 done:
 	;
 }
 
 // Returns 1 if we set next_pos_code
-static int do_topiclink(deark *c, lctx *d, dbuf *inf, i64 pos1, u32 *next_pos_code)
+static int do_topiclink(deark *c, lctx *d, struct topic_ctx *tctx, i64 pos1, u32 *next_pos_code)
 {
 	struct topiclink_data *tld = NULL;
 	i64 pos = pos1;
 	int retval = 0;
+	dbuf *inf = tctx->unc_topicdata;
 
 	tld = de_malloc(c, sizeof(struct topiclink_data));
 
@@ -604,10 +620,10 @@ static int do_topiclink(deark *c, lctx *d, dbuf *inf, i64 pos1, u32 *next_pos_co
 	switch(tld->recordtype) {
 	case 1:
 	case 32:
-		do_topiclink_rectype_1_32(c, d, tld, inf);
+		do_topiclink_rectype_1_32(c, d, tctx, tld);
 		break;
 	case 2:
-		do_topiclink_rectype_2(c, d, tld, inf);
+		do_topiclink_rectype_2(c, d, tctx, tld);
 		break;
 	default:
 		de_dbg(c, "[not processing record type %d]", (int)tld->recordtype);
@@ -618,22 +634,23 @@ done:
 	return retval;
 }
 
-static int topicpos_to_abspos(deark *c, lctx *d, i64 topicpos, i64 *pabspos)
+static int topicpos_to_abspos(deark *c, lctx *d, struct topic_ctx *tctx, i64 topicpos,
+	i64 *pabspos)
 {
 	i64 blknum, blkoffs;
 
 	if(!d->topic_block_size) return 0;
-	if(d->is_compressed) return 0;
 	blkoffs = topicpos % 16384;
-	if(blkoffs<12) return 0;
+	if(blkoffs<TOPICBLOCKHDRSIZE) return 0;
 	blknum = topicpos / 16384;
-	*pabspos = (d->topic_block_size-12) * blknum + (blkoffs-12);
+	if(blknum<0 || blknum>=tctx->num_topic_blocks) return 0;
+	*pabspos = tctx->topic_block_info[blknum].pos + (blkoffs-TOPICBLOCKHDRSIZE);
 	return 1;
 }
 
 static i64 hc30_abspos_plus_offset_to_abspos(deark *c, lctx *d, i64 pos, i64 offset)
 {
-	i64 blksize = d->topic_block_size-12;
+	i64 blksize = d->topic_block_size-TOPICBLOCKHDRSIZE;
 	i64 start_of_curr_block;
 	i64 end_of_curr_block;
 	i64 n;
@@ -647,13 +664,14 @@ static i64 hc30_abspos_plus_offset_to_abspos(deark *c, lctx *d, i64 pos, i64 off
 	}
 
 	n = pos+offset - end_of_curr_block;
-	return pos + offset - 12*(1+(n / blksize));
+	return pos + offset - TOPICBLOCKHDRSIZE*(1+(n / blksize));
 }
 
-static void do_topicdata(deark *c, lctx *d, dbuf *inf)
+static void do_topicdata(deark *c, lctx *d, struct topic_ctx *tctx)
 {
 	i64 pos;
 	int saved_indent_level, saved_indent_level2;
+	dbuf *inf = tctx->unc_topicdata;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -688,7 +706,7 @@ static void do_topicdata(deark *c, lctx *d, dbuf *inf)
 		de_dbg(c, "topiclink at [%"I64_FMT"]", pos);
 		de_dbg_indent(c, 1);
 		next_pos_code = 0;
-		if(!do_topiclink(c, d, inf, pos, &next_pos_code)) goto done;
+		if(!do_topiclink(c, d, tctx, pos, &next_pos_code)) goto done;
 		de_dbg_indent(c, -1);
 
 		if(d->ver_minor<=16) {
@@ -706,7 +724,7 @@ static void do_topicdata(deark *c, lctx *d, dbuf *inf)
 				break;
 			}
 
-			if(!topicpos_to_abspos(c, d, next_pos_code, &next_pos)) {
+			if(!topicpos_to_abspos(c, d, tctx, next_pos_code, &next_pos)) {
 				de_dbg(c, "[stopping TOPIC parsing, no nextblock available]");
 				break;
 			}
@@ -739,7 +757,7 @@ static void decompress_topic_block(deark *c, lctx *d, i64 blk_dpos, i64 blk_dlen
 	dcmpri.len = blk_dlen;
 	dcmpro.f = outf;
 	dcmpro.len_known = 1;
-	dcmpro.expected_len = 16384-12;
+	dcmpro.expected_len = 16384-TOPICBLOCKHDRSIZE;
 	len_before = dcmpro.f->len;
 	fmtutil_decompress_hlp_lz77(c, &dcmpri, &dcmpro, &dres);
 	de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", blk_dlen,
@@ -750,9 +768,11 @@ static void do_file_TOPIC(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	i64 pos = pos1;
 	int saved_indent_level;
-	dbuf *unc_topicdata = NULL;
+	struct topic_ctx *tctx = NULL;
+	i64 blknum;
 
 	de_dbg_indent_save(c, &saved_indent_level);
+	tctx = de_malloc(c, sizeof(struct topic_ctx));
 	de_dbg(c, "TOPIC at %"I64_FMT", len=%"I64_FMT, pos1, len);
 	de_dbg_indent(c, 1);
 
@@ -762,21 +782,25 @@ static void do_file_TOPIC(deark *c, lctx *d, i64 pos1, i64 len)
 	}
 
 	if(d->extract_text) {
-		unc_topicdata = dbuf_create_membuf(c, 0, 0);
+		tctx->unc_topicdata = dbuf_create_membuf(c, 0, 0);
 	}
+	tctx->num_topic_blocks = (len + (d->topic_block_size - TOPICBLOCKHDRSIZE)) % d->topic_block_size;
+	tctx->topic_block_info = de_mallocarray(c, tctx->num_topic_blocks, sizeof(struct topic_block_info_item));
 
 	// A series of blocks, each with a 12-byte header
-	while(1) {
+	for(blknum=0; blknum<tctx->num_topic_blocks; blknum++) {
 		i64 lastlink, firstlink, lastheader;
 		i64 blklen;
 		i64 blk_dpos;
 		i64 blk_dlen;
 
-		blklen = (pos1+len)-pos;
-		if(blklen<12) break;
-		if(blklen > d->topic_block_size) blklen = d->topic_block_size;
-		blk_dpos = pos+12;
-		blk_dlen = blklen-12;
+		blklen = d->topic_block_size;
+		if(blklen > (pos1+len)-pos) {
+			blklen = (pos1+len)-pos;
+		}
+		if(blklen<TOPICBLOCKHDRSIZE) break;
+		blk_dpos = pos+TOPICBLOCKHDRSIZE;
+		blk_dlen = blklen-TOPICBLOCKHDRSIZE;
 
 		de_dbg(c, "TOPIC block at %d, dpos=%d, dlen=%d", (int)pos,
 			(int)blk_dpos, (int)blk_dlen);
@@ -787,26 +811,36 @@ static void do_file_TOPIC(deark *c, lctx *d, i64 pos1, i64 len)
 		de_dbg(c, "LastLink=%d, FirstLink=%d, LastHeader=%d",
 			(int)lastlink, (int)firstlink, (int)lastheader);
 
-		if(d->extract_text && unc_topicdata) {
+		if(d->extract_text && tctx->unc_topicdata) {
+			// Record the position for later reference.
+			tctx->topic_block_info[blknum].pos = tctx->unc_topicdata->len;
+
 			if(d->is_compressed) {
-				decompress_topic_block(c, d, blk_dpos, blk_dlen, unc_topicdata);
+				decompress_topic_block(c, d, blk_dpos, blk_dlen, tctx->unc_topicdata);
 			}
 			else {
-				dbuf_copy(c->infile, blk_dpos, blk_dlen, unc_topicdata);
+				dbuf_copy(c->infile, blk_dpos, blk_dlen, tctx->unc_topicdata);
 			}
-			de_dbg2(c, "[current decompressed size: %"I64_FMT"]", unc_topicdata->len);
+
+			tctx->topic_block_info[blknum].len = tctx->unc_topicdata->len - tctx->topic_block_info[blknum].pos;
+
+			de_dbg2(c, "[current decompressed size: %"I64_FMT"]", tctx->unc_topicdata->len);
 		}
 
 		de_dbg_indent(c, -1);
 		pos += blklen;
 	}
 
-	if(unc_topicdata && unc_topicdata->len>0) {
-		do_topicdata(c, d, unc_topicdata);
+	if(tctx->unc_topicdata && tctx->unc_topicdata->len>0) {
+		do_topicdata(c, d, tctx);
 	}
 
 done:
-	dbuf_close(unc_topicdata);
+	if(tctx) {
+		dbuf_close(tctx->unc_topicdata);
+		de_free(c, tctx->topic_block_info);
+		de_free(c, tctx);
+	}
 	de_dbg_indent_restore(c, saved_indent_level);
 
 }
