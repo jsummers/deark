@@ -364,6 +364,16 @@ static void do_file_SHG(deark *c, lctx *d, i64 pos1, i64 used_space)
 	dbuf_close(outf);
 }
 
+// If a "file"'s name ends in .bmp, and it looks like BMP format, extract it.
+static void do_file_BMP(deark *c, lctx *d, i64 pos1, i64 used_space)
+{
+	if(used_space<14+12) return;
+	if(de_getu16be(pos1) != 0x424d) return; // "BM"
+	d->has_bmp = 1;
+	dbuf_create_file_from_slice(c->infile, pos1, used_space, "bmp", NULL,
+		DE_CREATEFLAG_IS_AUX);
+}
+
 struct topiclink_data {
 	i64 blocksize;
 	i64 datalen2;
@@ -1168,7 +1178,7 @@ static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt)
 		do_file_SHG(c, d, pos, used_space);
 		break;
 	case FILETYPE_BMP:
-		d->has_bmp = 1;
+		do_file_BMP(c, d, pos, used_space);
 		break;
 	default: ;
 	}
