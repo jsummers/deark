@@ -37,6 +37,7 @@ struct bptree {
 
 typedef struct localctx_struct {
 	int input_encoding;
+	int output_is_utf8;
 	int extract_text;
 	i64 internal_dir_FILEHEADER_offs;
 	struct bptree bpt;
@@ -48,13 +49,17 @@ typedef struct localctx_struct {
 	int ver_major;
 	int ver_minor;
 	i64 topic_block_size;
-	int is_compressed;
+	int is_lz77_compressed;
+	int uses_old_phrase_compression;
+	int uses_hall_compression;
 	int pass;
 	int has_shg, has_ico, has_bmp;
 	i64 internal_dir_num_levels;
 	dbuf *outf_text;
 	i64 offset_of_Phrases;
 	i64 num_topic_blocks;
+	dbuf *tmpdbuf1;
+	de_ucstring *tmpucstring1;
 } lctx;
 
 static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt);
@@ -251,23 +256,23 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, i64 pos1)
 
 	if(d->ver_minor>16) {
 		if(flags==8) {
-			d->is_compressed = 1;
+			d->is_lz77_compressed = 1;
 			d->topic_block_size = 2048;
 		}
 		else if(flags==4) {
-			d->is_compressed = 1;
+			d->is_lz77_compressed = 1;
 			d->topic_block_size = 4096;
 		}
 		else {
-			d->is_compressed = 0;
+			d->is_lz77_compressed = 0;
 			d->topic_block_size = 4096;
 		}
 	}
 	else {
-		d->is_compressed = 0;
+		d->is_lz77_compressed = 0;
 		d->topic_block_size = 2048;
 	}
-	de_dbg(c, "compressed: %d", d->is_compressed);
+	de_dbg(c, "lz77 compression: %d", d->is_lz77_compressed);
 	de_dbg(c, "topic block size: %d", (int)d->topic_block_size);
 
 	retval = 1;
@@ -402,6 +407,39 @@ struct topic_ctx {
 	dbuf *unc_topicdata;
 };
 
+static void ensure_text_output_file_open(deark *c, lctx *d)
+{
+	if(d->outf_text) return;
+	d->outf_text = dbuf_create_output_file(c, "dump.txt", NULL, 0);
+	if(d->output_is_utf8 && c->write_bom) {
+		dbuf_write_uchar_as_utf8(d->outf_text, 0xfeff);
+	}
+	// TODO: Include the (systemrec) title, and maybe other global info.
+}
+
+// Emit a string that needs no conversion.
+static void emit_raw_sz(deark *c, lctx *d, const char *sz)
+{
+	if(!d->outf_text) return;
+	dbuf_puts(d->outf_text, sz);
+}
+
+// Emit a content string, i.e. one that might need character encoding conversion
+// or escaping.
+static void emit_slice(deark *c, lctx *d, dbuf *inf, i64 pos, i64 len)
+{
+	if(!d->outf_text) return;
+
+	if(!d->output_is_utf8) {
+		dbuf_copy(inf, pos, len, d->outf_text);
+		return;
+	}
+
+	ucstring_empty(d->tmpucstring1);
+	dbuf_read_to_ucstring(inf, pos, len, d->tmpucstring1, 0, d->input_encoding);
+	ucstring_write_as_utf8(c, d->tmpucstring1, d->outf_text, 0);
+}
+
 static int do_topiclink_rectype_32_linkdata1(deark *c, lctx *d,
 	struct topic_ctx *tctx, struct topiclink_data *tld)
 {
@@ -468,12 +506,6 @@ done:
 	return retval;
 }
 
-static void ensure_text_output_file_open(deark *c, lctx *d)
-{
-	if(d->outf_text) return;
-	d->outf_text = dbuf_create_output_file(c, "dump.txt", NULL, 0);
-}
-
 static void do_topiclink_rectype_1_32(deark *c, lctx *d,
 	struct topic_ctx *tctx, struct topiclink_data *tld)
 {
@@ -492,6 +524,8 @@ static void do_topiclink_rectype_1_32(deark *c, lctx *d,
 	// interpret the command bytes from linkdata1 to know how to format them.
 
 	pos = tld->linkdata2_pos;
+	dbuf_truncate(d->tmpdbuf1, 0); // A place to collect the current output string
+
 	while(1) {
 		u8 b;
 
@@ -501,19 +535,23 @@ static void do_topiclink_rectype_1_32(deark *c, lctx *d,
 		b = dbuf_getbyte_p(tctx->unc_topicdata, &pos);
 		if(b==0x00) {
 			if(in_string) {
-				dbuf_writebyte(d->outf_text, '\n');
+				emit_slice(c, d, d->tmpdbuf1, 0, d->tmpdbuf1->len);
+				dbuf_truncate(d->tmpdbuf1, 0);
+				emit_raw_sz(c, d, "\n");
 				string_count++;
 				in_string = 0;
 			}
 		}
 		else {
-			dbuf_writebyte(d->outf_text, b);
+			dbuf_writebyte(d->tmpdbuf1, b);
 			byte_count++;
 			in_string = 1;
 		}
 	}
 	if(in_string) {
-		dbuf_writebyte(d->outf_text, '\n');
+		emit_slice(c, d, d->tmpdbuf1, 0, d->tmpdbuf1->len);
+		dbuf_truncate(d->tmpdbuf1, 0);
+		emit_raw_sz(c, d, "\n");
 		string_count++;
 	}
 	de_dbg(c, "[emitted %d strings, totaling %d bytes]", string_count, byte_count);
@@ -528,21 +566,26 @@ static void do_topiclink_rectype_2_linkdata2(deark *c, lctx *d,
 	i64 k;
 	int bytecount = 0;
 
-	dbuf_puts(d->outf_text, "# ");
+	dbuf_truncate(d->tmpdbuf1, 0);
+	emit_raw_sz(c, d, "# ");
+
 	for(k=0; k<tld->linkdata2_len; k++) {
 		u8 b;
 
 		b = dbuf_getbyte(tctx->unc_topicdata, tld->linkdata2_pos+k);
 		if(b==0) break;
-		dbuf_writebyte(d->outf_text, b);
+		dbuf_writebyte(d->tmpdbuf1, b);
 		bytecount++;
 	}
 
-	if(bytecount==0) {
-		dbuf_puts(d->outf_text, "(untitled topic)");
+	if(bytecount>0) {
+		emit_slice(c, d, d->tmpdbuf1, 0, d->tmpdbuf1->len);
+	}
+	else {
+		emit_raw_sz(c, d, "(untitled topic)");
 	}
 
-	dbuf_puts(d->outf_text, " #\n");
+	emit_raw_sz(c, d, " #\n");
 }
 
 // topic header and title
@@ -610,7 +653,7 @@ static int do_topiclink(deark *c, lctx *d, struct topic_ctx *tctx, i64 pos1, u32
 	}
 
 	if(tld->seems_compressed && d->extract_text && !d->phrase_compression_warned &&
-		(d->found_Phrases_file || d->found_PhrIndex_file || d->found_PhrImage_file))
+		(d->uses_old_phrase_compression || d->uses_hall_compression))
 	{
 		de_warn(c, "This file uses a type of compression that is not supported");
 		d->phrase_compression_warned = 1;
@@ -752,7 +795,8 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void decompress_topic_block(deark *c, lctx *d, i64 blk_dpos, i64 blk_dlen,
+static void decompress_topic_block(deark *c, lctx *d, struct topic_ctx *tctx,
+	i64 blknum, i64 blk_dpos, i64 blk_dlen,
 	dbuf *outf)
 {
 	struct de_dfilter_in_params dcmpri;
@@ -768,10 +812,10 @@ static void decompress_topic_block(deark *c, lctx *d, i64 blk_dpos, i64 blk_dlen
 	dcmpro.f = outf;
 	dcmpro.len_known = 1;
 	dcmpro.expected_len = 16384-TOPICBLOCKHDRSIZE;
-	len_before = dcmpro.f->len;
+	len_before = outf->len;
 	fmtutil_decompress_hlp_lz77(c, &dcmpri, &dcmpro, &dres);
 	de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", blk_dlen,
-		dcmpro.f->len - len_before);
+		outf->len - len_before);
 }
 
 static void do_file_TOPIC(deark *c, lctx *d, i64 pos1, i64 len)
@@ -812,7 +856,7 @@ static void do_file_TOPIC(deark *c, lctx *d, i64 pos1, i64 len)
 		blk_dpos = pos+TOPICBLOCKHDRSIZE;
 		blk_dlen = blklen-TOPICBLOCKHDRSIZE;
 
-		de_dbg(c, "TOPIC block at %d, dpos=%d, dlen=%d", (int)pos,
+		de_dbg(c, "TOPIC block #%d at %d, dpos=%d, dlen=%d", (int)blknum, (int)pos,
 			(int)blk_dpos, (int)blk_dlen);
 		de_dbg_indent(c, 1);
 		lastlink = de_geti32le(pos);
@@ -825,8 +869,8 @@ static void do_file_TOPIC(deark *c, lctx *d, i64 pos1, i64 len)
 			// Record the position for later reference.
 			tctx->topic_block_info[blknum].pos = tctx->unc_topicdata->len;
 
-			if(d->is_compressed) {
-				decompress_topic_block(c, d, blk_dpos, blk_dlen, tctx->unc_topicdata);
+			if(d->is_lz77_compressed) {
+				decompress_topic_block(c, d, tctx, blknum, blk_dpos, blk_dlen, tctx->unc_topicdata);
 			}
 			else {
 				dbuf_copy(c->infile, blk_dpos, blk_dlen, tctx->unc_topicdata);
@@ -1006,6 +1050,26 @@ done:
 	return retval;
 }
 
+static void do_after_pass_1(deark *c, lctx *d)
+{
+	if(d->found_Phrases_file) {
+		d->uses_old_phrase_compression = 1;
+	}
+	else if(d->found_PhrIndex_file && d->found_PhrImage_file) {
+		d->uses_hall_compression = 1;
+	}
+
+	if(d->input_encoding==DE_ENCODING_UNKNOWN || d->input_encoding==DE_ENCODING_ASCII) {
+		d->output_is_utf8 = 0;
+	}
+	else if(d->uses_old_phrase_compression || d->uses_hall_compression) {
+		d->output_is_utf8 = 0; // temporary
+	}
+	else {
+		d->output_is_utf8 = 1;
+	}
+}
+
 // This function is only for the "internal directory" tree.
 // There are other data objects in HLP files that use the same kind of data
 // structure. If we ever want to parse them, this function will have to be
@@ -1074,6 +1138,9 @@ static void do_bplustree(deark *c, lctx *d, i64 pos1, i64 len,
 
 		de_dbg(c, "pass %d", d->pass);
 		de_dbg_indent(c, 1);
+		if(d->pass==2) {
+			do_after_pass_1(c, d);
+		}
 
 		curr_page = d->bpt.first_leaf_page;
 
@@ -1215,6 +1282,8 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 	d->extract_text = de_get_ext_option_bool(c, "hlp:extracttext", 0);
+	d->tmpdbuf1 = dbuf_create_membuf(c, 0, 0);
+	d->tmpucstring1 = ucstring_create(c);
 
 	pos = 0;
 	do_header(c, d, pos);
@@ -1223,9 +1292,9 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 
 	de_dbg(c, "summary: v%d.%d cmpr=%s%s%s blksize=%d levels=%d%s%s%s",
 		d->ver_major, d->ver_minor,
-		d->is_compressed?"lz77":"none",
-		d->found_Phrases_file?" phrase_compression":"",
-		(d->found_PhrIndex_file||d->found_PhrImage_file)?" Hall_compression":"",
+		d->is_lz77_compressed?"lz77":"none",
+		d->uses_old_phrase_compression?" phrase_compression":"",
+		d->uses_hall_compression?" Hall_compression":"",
 		(int)d->topic_block_size,
 		(int)d->internal_dir_num_levels,
 		d->has_shg?" has-shg":"",
@@ -1233,9 +1302,9 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 		d->has_bmp?" has-bmp":"");
 
 	if(d) {
-		if(d->outf_text) {
-			dbuf_close(d->outf_text);
-		}
+		dbuf_close(d->tmpdbuf1);
+		ucstring_destroy(d->tmpucstring1);
+		dbuf_close(d->outf_text);
 		de_free(c, d);
 	}
 }
