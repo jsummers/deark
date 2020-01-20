@@ -410,6 +410,7 @@ void fmtutil_decompress_hlp_lz77(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
 	i64 pos = dcmpri->pos;
+	i64 endpos = dcmpri->pos + dcmpri->len;
 	i64 nbytes_written = 0;
 	u8 *window = NULL;
 	unsigned int wpos;
@@ -422,13 +423,14 @@ void fmtutil_decompress_hlp_lz77(deark *c, struct de_dfilter_in_params *dcmpri,
 		unsigned int control;
 		unsigned int cbit;
 
-		if(pos >= (dcmpri->pos+dcmpri->len)) break; // Out of input data
-
+		if(pos+1 > endpos) goto unc_done; // Out of input data
 		control = (unsigned int)dbuf_getbyte(dcmpri->f, pos++);
 
 		for(cbit=0x01; cbit&0xff; cbit<<=1) {
 			if(!(control & cbit)) { // literal
 				u8 b;
+
+				if(pos+1 > endpos) goto unc_done;
 				b = dbuf_getbyte(dcmpri->f, pos++);
 				dbuf_writebyte(dcmpro->f, b);
 				nbytes_written++;
@@ -439,6 +441,8 @@ void fmtutil_decompress_hlp_lz77(deark *c, struct de_dfilter_in_params *dcmpri,
 			else { // match
 				unsigned int matchpos;
 				unsigned int matchlen;
+
+				if(pos+2 > endpos) goto unc_done;
 				matchpos = (unsigned int)dbuf_getu16le(dcmpri->f, pos);
 				pos+=2;
 				matchlen = ((matchpos>>12) & 0x0f) + 3;
