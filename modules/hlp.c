@@ -35,6 +35,11 @@ struct bptree {
 	i64 first_leaf_page;
 };
 
+struct phrase_item {
+	i32 pos; // pos in ->phrases_data
+	i32 len;
+};
+
 typedef struct localctx_struct {
 	int input_encoding;
 	int output_is_utf8;
@@ -45,7 +50,14 @@ typedef struct localctx_struct {
 	u8 found_Phrases_file;
 	u8 found_PhrIndex_file;
 	u8 found_PhrImage_file;
+	u8 found_TOPIC_file;
 	u8 phrase_compression_warned;
+	u8 valid_Phrases_file;
+	i64 offset_of_system_file;
+	i64 offset_of_Phrases;
+	i64 offset_of_PhrIndex;
+	i64 offset_of_PhrImage;
+	i64 offset_of_TOPIC;
 	int ver_major;
 	int ver_minor;
 	i64 topic_block_size;
@@ -56,9 +68,12 @@ typedef struct localctx_struct {
 	int has_shg, has_ico, has_bmp;
 	i64 internal_dir_num_levels;
 	dbuf *outf_text;
-	i64 offset_of_Phrases;
 	i64 num_topic_blocks;
 	dbuf *tmpdbuf1;
+	dbuf *tmpdbuf2; // Used for phrase/hall decompression
+	dbuf *phrases_data;
+	i64 num_phrases;
+	struct phrase_item *phrase_info; // array [num_phrases]
 	de_ucstring *tmpucstring1;
 } lctx;
 
@@ -327,7 +342,6 @@ static void do_file_SYSTEM(deark *c, lctx *d, i64 pos1, i64 len)
 	// SYSTEM header that would require knowing the charset.)
 
 	if(d->pass!=1) goto done;
-	d->found_system_file = 1;
 
 	if(!do_file_SYSTEM_header(c, d, pos)) goto done;
 	pos += 12;
@@ -440,6 +454,23 @@ static void emit_slice(deark *c, lctx *d, dbuf *inf, i64 pos, i64 len)
 	ucstring_write_as_utf8(c, d->tmpucstring1, d->outf_text, 0);
 }
 
+static void decompress_and_emit_slice(deark *c, lctx *d, dbuf *inf, i64 pos, i64 len)
+{
+	if(d->uses_old_phrase_compression) {
+		dbuf_truncate(d->tmpdbuf2, 0);
+		dbuf_puts(d->tmpdbuf2, "[phrase]");
+		emit_slice(c, d, d->tmpdbuf2, 0, d->tmpdbuf2->len);
+	}
+	else if(d->uses_hall_compression) {
+		dbuf_truncate(d->tmpdbuf2, 0);
+		dbuf_puts(d->tmpdbuf2, "[hall]");
+		emit_slice(c, d, d->tmpdbuf2, 0, d->tmpdbuf2->len);
+	}
+	else {
+		emit_slice(c, d, inf, pos, len);
+	}
+}
+
 static int do_topiclink_rectype_32_linkdata1(deark *c, lctx *d,
 	struct topic_ctx *tctx, struct topiclink_data *tld)
 {
@@ -535,7 +566,7 @@ static void do_topiclink_rectype_1_32(deark *c, lctx *d,
 		b = dbuf_getbyte_p(tctx->unc_topicdata, &pos);
 		if(b==0x00) {
 			if(in_string) {
-				emit_slice(c, d, d->tmpdbuf1, 0, d->tmpdbuf1->len);
+				decompress_and_emit_slice(c, d, d->tmpdbuf1, 0, d->tmpdbuf1->len);
 				dbuf_truncate(d->tmpdbuf1, 0);
 				emit_raw_sz(c, d, "\n");
 				string_count++;
@@ -549,7 +580,7 @@ static void do_topiclink_rectype_1_32(deark *c, lctx *d,
 		}
 	}
 	if(in_string) {
-		emit_slice(c, d, d->tmpdbuf1, 0, d->tmpdbuf1->len);
+		decompress_and_emit_slice(c, d, d->tmpdbuf1, 0, d->tmpdbuf1->len);
 		dbuf_truncate(d->tmpdbuf1, 0);
 		emit_raw_sz(c, d, "\n");
 		string_count++;
@@ -579,7 +610,7 @@ static void do_topiclink_rectype_2_linkdata2(deark *c, lctx *d,
 	}
 
 	if(bytecount>0) {
-		emit_slice(c, d, d->tmpdbuf1, 0, d->tmpdbuf1->len);
+		decompress_and_emit_slice(c, d, d->tmpdbuf1, 0, d->tmpdbuf1->len);
 	}
 	else {
 		emit_raw_sz(c, d, "(untitled topic)");
@@ -974,9 +1005,13 @@ static void do_leaf_page(deark *c, lctx *d, i64 pos1, i64 *pnext_page)
 
 		switch(file_type) {
 		case FILETYPE_SYSTEM:
+			d->found_system_file = 1;
+			d->offset_of_system_file = file_offset;
 			pass_for_this_file = 1;
 			break;
-		case FILETYPE_TOMAP:
+		case FILETYPE_TOPIC:
+			d->found_TOPIC_file = 1;
+			d->offset_of_TOPIC = file_offset;
 			pass_for_this_file = 1;
 			break;
 		case FILETYPE_PHRASES:
@@ -986,16 +1021,18 @@ static void do_leaf_page(deark *c, lctx *d, i64 pos1, i64 *pnext_page)
 			break;
 		case FILETYPE_PHRINDEX:
 			d->found_PhrIndex_file = 1;
+			d->offset_of_PhrIndex = file_offset;
 			pass_for_this_file = 1;
 			break;
 		case FILETYPE_PHRIMAGE:
 			d->found_PhrImage_file = 1;
+			d->offset_of_PhrImage = file_offset;
 			pass_for_this_file = 1;
 			break;
 		default:
 			pass_for_this_file = 2;
 		}
-		if(d->pass==pass_for_this_file) {
+		if(d->pass==2 && pass_for_this_file==2) {
 			do_file(c, d, file_offset, file_type);
 		}
 
@@ -1052,6 +1089,11 @@ done:
 
 static void do_after_pass_1(deark *c, lctx *d)
 {
+	// Read the SYSTEM file first -- lots of other things depend on it.
+	if(d->found_system_file) {
+		do_file(c, d, d->offset_of_system_file, FILETYPE_SYSTEM);
+	}
+
 	if(d->found_Phrases_file) {
 		d->uses_old_phrase_compression = 1;
 	}
@@ -1067,6 +1109,16 @@ static void do_after_pass_1(deark *c, lctx *d)
 	}
 	else {
 		d->output_is_utf8 = 1;
+	}
+
+	// Read other special files, in a suitable order.
+
+	if(d->found_Phrases_file) {
+		do_file(c, d, d->offset_of_Phrases, FILETYPE_PHRASES);
+	}
+
+	if(d->found_TOPIC_file) {
+		do_file(c, d, d->offset_of_TOPIC, FILETYPE_TOPIC);
 	}
 }
 
@@ -1138,9 +1190,6 @@ static void do_bplustree(deark *c, lctx *d, i64 pos1, i64 len,
 
 		de_dbg(c, "pass %d", d->pass);
 		de_dbg_indent(c, 1);
-		if(d->pass==2) {
-			do_after_pass_1(c, d);
-		}
 
 		curr_page = d->bpt.first_leaf_page;
 
@@ -1170,6 +1219,13 @@ static void do_bplustree(deark *c, lctx *d, i64 pos1, i64 len,
 		}
 
 		de_dbg_indent(c, -1);
+
+		if(d->pass==1) {
+			de_dbg(c, "reading items after pass 1");
+			de_dbg_indent(c, 1);
+			do_after_pass_1(c, d);
+			de_dbg_indent(c, -1);
+		}
 	}
 
 done:
@@ -1189,6 +1245,137 @@ static void do_file_TOMAP(deark *c, lctx *d, i64 pos1, i64 len)
 	// 'topiclink'.
 }
 
+static void decompress_Phrases(deark *c, lctx *d, i64 pos, i64 cmpr_len, i64 uncmpr_len)
+{
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = pos;
+	dcmpri.len = cmpr_len;
+	dcmpro.f = d->phrases_data;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = uncmpr_len;
+	fmtutil_decompress_hlp_lz77(c, &dcmpri, &dcmpro, &dres);
+	if(dres.errcode || (d->phrases_data->len!=uncmpr_len)) {
+		de_warn(c, "Phrase decompression may have failed");
+	}
+}
+
+static void do_file_Phrases(deark *c, lctx *d, i64 pos1, i64 len)
+{
+	i64 pos;
+	i64 s0, s1, s2;
+	i64 nphrases;
+	i64 phrase_data_pos;
+	i64 phrase_data_cmpr_len;
+	i64 phrase_data_uncmpr_len = 0;
+	i64 phrase_offset_table_pos;
+	i64 phrase_offset_table_len;
+	i64 k;
+	int is_MVB_format = 0;
+	int is_compressed = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(!d->extract_text) goto done;
+
+	de_dbg(c, "Phrases data at %"I64_FMT", len=%"I64_FMT, pos1, len);
+	de_dbg_indent(c, 1);
+	if(len<6) goto done;
+
+	s0 = de_getu16le(pos1);
+	s1 = de_getu16le(pos1+2);
+	s2 = de_getu16le(pos1+4);
+
+	if(s0==0x0800 && s1!=0x0100 && s2==0x0100) {
+		is_MVB_format = 1;
+	}
+	else if(s1==0x0100) {
+		;
+	}
+	else {
+		de_err(c, "Unknown Phrases format");
+		goto done;
+	}
+	de_dbg(c, "MVB format: %d", is_MVB_format);
+	if(is_MVB_format) {
+		de_err(c, "Unsupported Phrases format");
+		goto done;
+	}
+
+	nphrases = s0;
+	de_dbg(c, "num phrases: %d", (int)nphrases);
+	pos = pos1+4;
+
+	if(d->ver_minor>16) {
+		is_compressed = 1;
+	}
+	de_dbg(c, "Phrases are lzw-compressed: %d", is_compressed);
+
+	if(is_compressed) {
+		phrase_data_uncmpr_len = de_getu32le_p(&pos);
+		de_dbg(c, "decompressed len (reported): %"I64_FMT, phrase_data_uncmpr_len);
+	}
+
+	// Phrase offsets are measured from the start of the offset table.
+	phrase_offset_table_pos = pos;
+	phrase_offset_table_len = (nphrases+1)*2;
+	de_dbg(c, "offset table at %"I64_FMT", len=%"I64_FMT, phrase_offset_table_pos,
+		phrase_offset_table_len);
+
+	phrase_data_pos = phrase_offset_table_pos + phrase_offset_table_len;
+	phrase_data_cmpr_len = pos1+len - phrase_data_pos; // (before any decompression)
+	if(phrase_data_cmpr_len<0) goto done;
+	if(!is_compressed) {
+		phrase_data_uncmpr_len = phrase_data_cmpr_len;
+	}
+
+	d->phrase_info = de_mallocarray(c, nphrases, sizeof(struct phrase_item));
+	for(k=0; k<nphrases+1; k++) {
+		i32 offs;
+
+		offs = (i32)de_getu16le_p(&pos);
+		offs -= (i32)(phrase_offset_table_len);
+
+		if(k<nphrases) {
+			d->phrase_info[k].pos = offs;
+		}
+		if(k>=1) {
+			d->phrase_info[k-1].len = offs - d->phrase_info[k-1].pos;
+		}
+	}
+	for(k=0; k<nphrases; k++) {
+		de_dbg(c, "phrase[%d]: offs=%d, len=%d", (int)k, (int)d->phrase_info[k].pos, (int)d->phrase_info[k].len);
+	}
+
+	de_dbg(c, "phrase data at %"I64_FMT", len=%"I64_FMT, phrase_data_pos, phrase_data_cmpr_len);
+
+	if(is_compressed) {
+		decompress_Phrases(c, d, phrase_data_pos, phrase_data_cmpr_len, phrase_data_uncmpr_len);
+	}
+	else {
+		dbuf_copy(c->infile, phrase_data_pos, phrase_data_cmpr_len, d->phrases_data);
+	}
+
+	// Sanitize phrase_info
+	for(k=0; k<nphrases; k++) {
+		if(d->phrase_info[k].pos<0 || d->phrase_info[k].len<0 ||
+			((i64)d->phrase_info[k].pos + (i64)d->phrase_info[k].len > d->phrases_data->len))
+		{
+			d->phrase_info[k].pos = 0;
+			d->phrase_info[k].len = 0;
+		}
+	}
+
+	d->valid_Phrases_file = 1;
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static const char* file_type_to_type_name(enum hlp_filetype file_fmt)
 {
 	const char *name = "unspecified";
@@ -1197,6 +1384,7 @@ static const char* file_type_to_type_name(enum hlp_filetype file_fmt)
 	case FILETYPE_TOPIC: name="topic"; break;
 	case FILETYPE_SHG: name="SHG/MRB"; break;
 	case FILETYPE_INTERNALDIR: name="directory"; break;
+	case FILETYPE_PHRASES: name="Phrases"; break;
 	default: ;
 	}
 	return name;
@@ -1233,6 +1421,9 @@ static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt)
 		break;
 	case FILETYPE_TOPIC:
 		do_file_TOPIC(c, d, pos, used_space);
+		break;
+	case FILETYPE_PHRASES:
+		do_file_Phrases(c, d, pos, used_space);
 		break;
 	case FILETYPE_TOMAP:
 		do_file_TOMAP(c, d, pos, used_space);
@@ -1283,7 +1474,9 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 	d->extract_text = de_get_ext_option_bool(c, "hlp:extracttext", 0);
 	d->tmpdbuf1 = dbuf_create_membuf(c, 0, 0);
+	d->tmpdbuf2 = dbuf_create_membuf(c, 0, 0);
 	d->tmpucstring1 = ucstring_create(c);
+	d->phrases_data = dbuf_create_membuf(c, 0, 0);
 
 	pos = 0;
 	do_header(c, d, pos);
@@ -1303,8 +1496,11 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 
 	if(d) {
 		dbuf_close(d->tmpdbuf1);
+		dbuf_close(d->tmpdbuf2);
+		dbuf_close(d->phrases_data);
 		ucstring_destroy(d->tmpucstring1);
 		dbuf_close(d->outf_text);
+		de_free(c, d->phrase_info);
 		de_free(c, d);
 	}
 }
