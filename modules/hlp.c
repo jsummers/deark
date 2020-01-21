@@ -71,6 +71,8 @@ typedef struct localctx_struct {
 	i64 num_topic_blocks;
 	dbuf *tmpdbuf1;
 	dbuf *unc_linkdata2_dbuf;
+	i64 PhrImageUncSize;
+	i64 PhrImageCmprSize;
 	dbuf *phrases_data;
 	unsigned int num_phrases;
 	struct phrase_item *phrase_info; // array [num_phrases]
@@ -1171,8 +1173,15 @@ static void do_after_pass_1(deark *c, lctx *d)
 
 	// Read other special files, in a suitable order.
 
-	if(d->found_Phrases_file) {
+	if(d->found_Phrases_file && d->uses_old_phrase_compression) {
 		do_file(c, d, d->offset_of_Phrases, FILETYPE_PHRASES);
+	}
+
+	if(d->found_PhrIndex_file && d->uses_hall_compression) {
+		do_file(c, d, d->offset_of_PhrIndex, FILETYPE_PHRINDEX);
+	}
+	if(d->found_PhrImage_file && d->uses_hall_compression) {
+		do_file(c, d, d->offset_of_PhrImage, FILETYPE_PHRIMAGE);
 	}
 
 	if(d->found_TOPIC_file) {
@@ -1433,6 +1442,56 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+static void do_file_PhrIndex(deark *c, lctx *d, i64 pos1, i64 len)
+{
+	i64 pos = pos1;
+	i64 cmprsize;
+	i64 n;
+	unsigned int bits;
+	unsigned int bitcount;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(len<30) goto done;
+	n = de_getu32le_p(&pos);
+	if(n!=1) goto done;
+	d->num_phrases = (unsigned int)de_getu32le_p(&pos);
+	de_dbg(c, "num phrases: %u", d->num_phrases);
+
+	cmprsize = de_getu32le_p(&pos);
+	de_dbg(c, "index cmpr size: %"I64_FMT, cmprsize);
+	d->PhrImageUncSize = de_getu32le_p(&pos);
+	de_dbg(c, "PhrImage uncmpr size: %"I64_FMT, d->PhrImageUncSize);
+	d->PhrImageCmprSize = de_getu32le_p(&pos);
+	de_dbg(c, "PhrImage cmpr size: %"I64_FMT, d->PhrImageCmprSize);
+	pos += 4;
+	bits = (unsigned int)de_getu16le_p(&pos);
+	de_dbg(c, "bits: 0x%04x", bits);
+	de_dbg_indent(c, 1);
+	bitcount = bits & 0xf;
+	de_dbg(c, "bit count: %u", bitcount);
+	de_dbg_indent(c, -1);
+	pos += 4;
+
+	de_dbg(c, "avail size: %d", (int)(pos1+len-pos));
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_file_PhrImage(deark *c, lctx *d, i64 pos1, i64 len)
+{
+	if(len < d->PhrImageCmprSize) {
+		return;
+	}
+
+	if(d->PhrImageCmprSize == d->PhrImageUncSize) {
+		dbuf_copy(c->infile, pos1, d->PhrImageCmprSize, d->phrases_data);
+	}
+	else {
+		decompress_Phrases(c, d, pos1, d->PhrImageCmprSize, d->PhrImageUncSize);
+	}
+}
+
 static const char* file_type_to_type_name(enum hlp_filetype file_fmt)
 {
 	const char *name = "unspecified";
@@ -1442,6 +1501,8 @@ static const char* file_type_to_type_name(enum hlp_filetype file_fmt)
 	case FILETYPE_SHG: name="SHG/MRB"; break;
 	case FILETYPE_INTERNALDIR: name="directory"; break;
 	case FILETYPE_PHRASES: name="Phrases"; break;
+	case FILETYPE_PHRINDEX: name="PhrIndex"; break;
+	case FILETYPE_PHRIMAGE: name="PhrImage"; break;
 	default: ;
 	}
 	return name;
@@ -1481,6 +1542,12 @@ static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt)
 		break;
 	case FILETYPE_PHRASES:
 		do_file_Phrases(c, d, pos, used_space);
+		break;
+	case FILETYPE_PHRINDEX:
+		do_file_PhrIndex(c, d, pos, used_space);
+		break;
+	case FILETYPE_PHRIMAGE:
+		do_file_PhrImage(c, d, pos, used_space);
 		break;
 	case FILETYPE_TOMAP:
 		do_file_TOMAP(c, d, pos, used_space);
