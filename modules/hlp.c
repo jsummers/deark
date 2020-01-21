@@ -70,9 +70,9 @@ typedef struct localctx_struct {
 	dbuf *outf_text;
 	i64 num_topic_blocks;
 	dbuf *tmpdbuf1;
-	dbuf *tmpdbuf2; // Used for phrase/hall decompression
+	dbuf *unc_linkdata2_dbuf;
 	dbuf *phrases_data;
-	i64 num_phrases;
+	unsigned int num_phrases;
 	struct phrase_item *phrase_info; // array [num_phrases]
 	de_ucstring *tmpucstring1;
 } lctx;
@@ -404,7 +404,8 @@ struct topiclink_data {
 	i64 linkdata1_pos;
 	i64 linkdata1_len;
 	i64 linkdata2_pos;
-	i64 linkdata2_len;
+	i64 linkdata2_cmprlen;
+	i64 linkdata2_uncmprlen;
 
 	i64 paragraphinfo_pos;
 	u8 seems_compressed;
@@ -454,21 +455,46 @@ static void emit_slice(deark *c, lctx *d, dbuf *inf, i64 pos, i64 len)
 	ucstring_write_as_utf8(c, d->tmpucstring1, d->outf_text, 0);
 }
 
-static void decompress_and_emit_slice(deark *c, lctx *d, dbuf *inf, i64 pos, i64 len)
+static void do_phrase_decompression(deark *c, lctx *d, dbuf *inf, i64 pos1, i64 len,
+	dbuf *outf,  i64 unc_len_expected)
 {
-	if(d->uses_old_phrase_compression) {
-		dbuf_truncate(d->tmpdbuf2, 0);
-		dbuf_puts(d->tmpdbuf2, "[phrase]");
-		emit_slice(c, d, d->tmpdbuf2, 0, d->tmpdbuf2->len);
+	i64 pos = pos1;
+	i64 endpos = pos1+len;
+
+	if(!d->phrases_data) return;
+
+	while(1) {
+		u8 b;
+
+		if(pos >= endpos) break;
+		b = dbuf_getbyte_p(inf, &pos);
+		if(b==0 || b>=0x10) {
+			dbuf_writebyte(outf, b);
+		}
+		else {
+			u8 b2;
+			unsigned int n, phrasenum;
+
+			if(pos >= endpos) break;
+			b2 = dbuf_getbyte_p(inf, &pos);
+			n = ((unsigned int)(b-1)<<8) | b2;
+			phrasenum = n/2;
+			if(phrasenum < d->num_phrases) {
+				dbuf_copy(d->phrases_data,
+					d->phrase_info[phrasenum].pos, d->phrase_info[phrasenum].len, outf);
+			}
+			if(n & 0x1) {
+				dbuf_writebyte(outf, ' ');
+			}
+		}
 	}
-	else if(d->uses_hall_compression) {
-		dbuf_truncate(d->tmpdbuf2, 0);
-		dbuf_puts(d->tmpdbuf2, "[hall]");
-		emit_slice(c, d, d->tmpdbuf2, 0, d->tmpdbuf2->len);
-	}
-	else {
-		emit_slice(c, d, inf, pos, len);
-	}
+}
+
+static void do_hall_decompression(deark *c, lctx *d, dbuf *inf, i64 pos, i64 len,
+	dbuf *outf, i64 unc_len_expected)
+{
+	// TODO
+	dbuf_puts(outf, "[hall]");
 }
 
 static int do_topiclink_rectype_32_linkdata1(deark *c, lctx *d,
@@ -537,8 +563,9 @@ done:
 	return retval;
 }
 
+// linkdata2 = after Phrase/Hall decompression
 static void do_topiclink_rectype_1_32(deark *c, lctx *d,
-	struct topic_ctx *tctx, struct topiclink_data *tld)
+	struct topic_ctx *tctx, struct topiclink_data *tld, dbuf *linkdata2)
 {
 	i64 pos;
 	int in_string = 0;
@@ -554,19 +581,17 @@ static void do_topiclink_rectype_1_32(deark *c, lctx *d,
 	// The linkdata2 is a collection of NUL-terminated strings. We'd have to
 	// interpret the command bytes from linkdata1 to know how to format them.
 
-	pos = tld->linkdata2_pos;
+	pos = 0;
 	dbuf_truncate(d->tmpdbuf1, 0); // A place to collect the current output string
 
 	while(1) {
 		u8 b;
 
-		if(pos >= tld->linkdata2_pos+tld->linkdata2_len) break;
-		if(pos >= tctx->unc_topicdata->len) break;
-
-		b = dbuf_getbyte_p(tctx->unc_topicdata, &pos);
+		if(pos >= linkdata2->len) break;
+		b = dbuf_getbyte_p(linkdata2, &pos);
 		if(b==0x00) {
 			if(in_string) {
-				decompress_and_emit_slice(c, d, d->tmpdbuf1, 0, d->tmpdbuf1->len);
+				emit_slice(c, d, d->tmpdbuf1, 0, d->tmpdbuf1->len);
 				dbuf_truncate(d->tmpdbuf1, 0);
 				emit_raw_sz(c, d, "\n");
 				string_count++;
@@ -580,7 +605,7 @@ static void do_topiclink_rectype_1_32(deark *c, lctx *d,
 		}
 	}
 	if(in_string) {
-		decompress_and_emit_slice(c, d, d->tmpdbuf1, 0, d->tmpdbuf1->len);
+		emit_slice(c, d, d->tmpdbuf1, 0, d->tmpdbuf1->len);
 		dbuf_truncate(d->tmpdbuf1, 0);
 		emit_raw_sz(c, d, "\n");
 		string_count++;
@@ -591,8 +616,9 @@ done:
 	;
 }
 
+// TOPIC header
 static void do_topiclink_rectype_2_linkdata2(deark *c, lctx *d,
-	struct topic_ctx *tctx, struct topiclink_data *tld)
+	struct topic_ctx *tctx, struct topiclink_data *tld, dbuf *linkdata2)
 {
 	i64 k;
 	int bytecount = 0;
@@ -600,17 +626,17 @@ static void do_topiclink_rectype_2_linkdata2(deark *c, lctx *d,
 	dbuf_truncate(d->tmpdbuf1, 0);
 	emit_raw_sz(c, d, "# ");
 
-	for(k=0; k<tld->linkdata2_len; k++) {
+	for(k=0; k<linkdata2->len; k++) {
 		u8 b;
 
-		b = dbuf_getbyte(tctx->unc_topicdata, tld->linkdata2_pos+k);
+		b = dbuf_getbyte(linkdata2, k);
 		if(b==0) break;
 		dbuf_writebyte(d->tmpdbuf1, b);
 		bytecount++;
 	}
 
 	if(bytecount>0) {
-		decompress_and_emit_slice(c, d, d->tmpdbuf1, 0, d->tmpdbuf1->len);
+		emit_slice(c, d, d->tmpdbuf1, 0, d->tmpdbuf1->len);
 	}
 	else {
 		emit_raw_sz(c, d, "(untitled topic)");
@@ -621,12 +647,12 @@ static void do_topiclink_rectype_2_linkdata2(deark *c, lctx *d,
 
 // topic header and title
 static void do_topiclink_rectype_2(deark *c, lctx *d,
-	struct topic_ctx *tctx, struct topiclink_data *tld)
+	struct topic_ctx *tctx, struct topiclink_data *tld, dbuf *linkdata2)
 {
 	if(!d->extract_text) goto done;
 	ensure_text_output_file_open(c, d);
 
-	do_topiclink_rectype_2_linkdata2(c, d, tctx, tld);
+	do_topiclink_rectype_2_linkdata2(c, d, tctx, tld, linkdata2);
 done:
 	;
 }
@@ -636,6 +662,7 @@ static int do_topiclink(deark *c, lctx *d, struct topic_ctx *tctx, i64 pos1, u32
 {
 	struct topiclink_data *tld = NULL;
 	i64 pos = pos1;
+	i64 linkdata2_nbytes_avail;
 	int retval = 0;
 	dbuf *inf = tctx->unc_topicdata;
 
@@ -678,36 +705,67 @@ static int do_topiclink(deark *c, lctx *d, struct topic_ctx *tctx, i64 pos1, u32
 	de_dbg(c, "linkdata1: pos=[%"I64_FMT"], len=%"I64_FMT, tld->linkdata1_pos, tld->linkdata1_len);
 
 	tld->linkdata2_pos = tld->linkdata1_pos + tld->linkdata1_len;
-	tld->linkdata2_len = tld->blocksize - tld->datalen1;
-	if(tld->datalen2 > (tld->blocksize - tld->datalen1)) {
-		tld->seems_compressed = 1;
+	linkdata2_nbytes_avail = tld->blocksize - tld->datalen1;
+
+	if(d->uses_old_phrase_compression || d->uses_hall_compression) {
+		if(tld->datalen2 > linkdata2_nbytes_avail) {
+			// Phrase/Hall compression used in this topiclink
+			tld->seems_compressed = 1;
+			tld->linkdata2_cmprlen = linkdata2_nbytes_avail;
+			tld->linkdata2_uncmprlen = tld->datalen2;
+		}
+		else {
+			// Phrase/Hall compression used in this file, but not in this topiclink
+			tld->linkdata2_cmprlen = tld->datalen2;
+			tld->linkdata2_uncmprlen = tld->datalen2;
+		}
+	}
+	else {
+		// Phrase/Hall compression not used in this file
+		tld->linkdata2_cmprlen = de_min_int(tld->datalen2, linkdata2_nbytes_avail);
+		tld->linkdata2_uncmprlen = tld->linkdata2_cmprlen;
 	}
 
-	if(tld->seems_compressed && d->extract_text && !d->phrase_compression_warned &&
-		(d->uses_old_phrase_compression || d->uses_hall_compression))
+	if(tld->seems_compressed && d->extract_text && d->uses_hall_compression &&
+		!d->phrase_compression_warned)
 	{
 		de_warn(c, "This file uses a type of compression that is not supported");
 		d->phrase_compression_warned = 1;
 	}
 
 	if((tld->linkdata1_pos<pos1) || (tld->linkdata2_pos<pos1) ||
-		(tld->linkdata1_len<0) || (tld->linkdata2_len<0) ||
+		(tld->linkdata1_len<0) || (tld->linkdata2_cmprlen<0) ||
 		(tld->linkdata1_pos + tld->linkdata1_len > pos1+tld->blocksize) ||
-		(tld->linkdata2_pos + tld->linkdata2_len > pos1+tld->blocksize))
+		(tld->linkdata2_pos + tld->linkdata2_cmprlen > pos1+tld->blocksize))
 	{
 		de_dbg(c, "bad linkdata");
 		goto done;
 	}
 
-	de_dbg(c, "linkdata2: pos=[%"I64_FMT"], len=%"I64_FMT,
-		tld->linkdata2_pos, tld->linkdata2_len);
+	de_dbg(c, "linkdata2: pos=[%"I64_FMT"], cmprlen=%"I64_FMT", uncmprlen=%"I64_FMT,
+		tld->linkdata2_pos, tld->linkdata2_cmprlen, tld->linkdata2_uncmprlen);
+
+	// Decompress linkdata2 if necessary
+	dbuf_truncate(d->unc_linkdata2_dbuf, 0);
+	if(tld->seems_compressed && d->uses_old_phrase_compression) {
+		do_phrase_decompression(c, d, inf, tld->linkdata2_pos, tld->linkdata2_cmprlen,
+			d->unc_linkdata2_dbuf, tld->linkdata2_cmprlen);
+	}
+	else if(tld->seems_compressed && d->uses_hall_compression) {
+		do_hall_decompression(c, d, inf, tld->linkdata2_pos, tld->linkdata2_cmprlen,
+			d->unc_linkdata2_dbuf, tld->linkdata2_cmprlen);
+	}
+	else {
+		dbuf_copy(inf, tld->linkdata2_pos, tld->linkdata2_cmprlen, d->unc_linkdata2_dbuf);
+	}
+
 	switch(tld->recordtype) {
 	case 1:
 	case 32:
-		do_topiclink_rectype_1_32(c, d, tctx, tld);
+		do_topiclink_rectype_1_32(c, d, tctx, tld, d->unc_linkdata2_dbuf);
 		break;
 	case 2:
-		do_topiclink_rectype_2(c, d, tctx, tld);
+		do_topiclink_rectype_2(c, d, tctx, tld, d->unc_linkdata2_dbuf);
 		break;
 	default:
 		de_dbg(c, "[not processing record type %d]", (int)tld->recordtype);
@@ -1268,13 +1326,12 @@ static void do_file_Phrases(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	i64 pos;
 	i64 s0, s1, s2;
-	i64 nphrases;
 	i64 phrase_data_pos;
 	i64 phrase_data_cmpr_len;
 	i64 phrase_data_uncmpr_len = 0;
 	i64 phrase_offset_table_pos;
 	i64 phrase_offset_table_len;
-	i64 k;
+	unsigned int k;
 	int is_MVB_format = 0;
 	int is_compressed = 0;
 	int saved_indent_level;
@@ -1306,8 +1363,8 @@ static void do_file_Phrases(deark *c, lctx *d, i64 pos1, i64 len)
 		goto done;
 	}
 
-	nphrases = s0;
-	de_dbg(c, "num phrases: %d", (int)nphrases);
+	d->num_phrases = (unsigned int)s0;
+	de_dbg(c, "num phrases: %u", d->num_phrases);
 	pos = pos1+4;
 
 	if(d->ver_minor>16) {
@@ -1322,7 +1379,7 @@ static void do_file_Phrases(deark *c, lctx *d, i64 pos1, i64 len)
 
 	// Phrase offsets are measured from the start of the offset table.
 	phrase_offset_table_pos = pos;
-	phrase_offset_table_len = (nphrases+1)*2;
+	phrase_offset_table_len = ((i64)d->num_phrases+1)*2;
 	de_dbg(c, "offset table at %"I64_FMT", len=%"I64_FMT, phrase_offset_table_pos,
 		phrase_offset_table_len);
 
@@ -1333,21 +1390,21 @@ static void do_file_Phrases(deark *c, lctx *d, i64 pos1, i64 len)
 		phrase_data_uncmpr_len = phrase_data_cmpr_len;
 	}
 
-	d->phrase_info = de_mallocarray(c, nphrases, sizeof(struct phrase_item));
-	for(k=0; k<nphrases+1; k++) {
+	d->phrase_info = de_mallocarray(c, (i64)d->num_phrases, sizeof(struct phrase_item));
+	for(k=0; k<d->num_phrases+1; k++) {
 		i32 offs;
 
 		offs = (i32)de_getu16le_p(&pos);
 		offs -= (i32)(phrase_offset_table_len);
 
-		if(k<nphrases) {
+		if(k<d->num_phrases) {
 			d->phrase_info[k].pos = offs;
 		}
 		if(k>=1) {
 			d->phrase_info[k-1].len = offs - d->phrase_info[k-1].pos;
 		}
 	}
-	for(k=0; k<nphrases; k++) {
+	for(k=0; k<d->num_phrases; k++) {
 		de_dbg(c, "phrase[%d]: offs=%d, len=%d", (int)k, (int)d->phrase_info[k].pos, (int)d->phrase_info[k].len);
 	}
 
@@ -1361,7 +1418,7 @@ static void do_file_Phrases(deark *c, lctx *d, i64 pos1, i64 len)
 	}
 
 	// Sanitize phrase_info
-	for(k=0; k<nphrases; k++) {
+	for(k=0; k<d->num_phrases; k++) {
 		if(d->phrase_info[k].pos<0 || d->phrase_info[k].len<0 ||
 			((i64)d->phrase_info[k].pos + (i64)d->phrase_info[k].len > d->phrases_data->len))
 		{
@@ -1474,7 +1531,7 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 	d->extract_text = de_get_ext_option_bool(c, "hlp:extracttext", 0);
 	d->tmpdbuf1 = dbuf_create_membuf(c, 0, 0);
-	d->tmpdbuf2 = dbuf_create_membuf(c, 0, 0);
+	d->unc_linkdata2_dbuf = dbuf_create_membuf(c, 0, 0);
 	d->tmpucstring1 = ucstring_create(c);
 	d->phrases_data = dbuf_create_membuf(c, 0, 0);
 
@@ -1496,7 +1553,7 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 
 	if(d) {
 		dbuf_close(d->tmpdbuf1);
-		dbuf_close(d->tmpdbuf2);
+		dbuf_close(d->unc_linkdata2_dbuf);
 		dbuf_close(d->phrases_data);
 		ucstring_destroy(d->tmpucstring1);
 		dbuf_close(d->outf_text);
