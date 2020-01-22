@@ -777,6 +777,9 @@ Deark -- Information about supported formats
 * HLP (Windows Help) (module="hlp") (experimental)
   - Extract SHG/MRB graphics
   - Extract icon (rarely present)
+  Options
+   -opt hlp:extracttext : Write the file's text (unformatted) to a file. This
+     feature is experimental and incomplete.
 
 * ICC profile (module="iccprofile")
   - Debug info only.

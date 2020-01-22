@@ -4,6 +4,9 @@
 
 // Windows HLP
 
+// This module was developed with the help of information from the helpfile.txt
+// document included with the helpdeco software by M. Winterhoff.
+
 #include <deark-config.h>
 #include <deark-private.h>
 #include <deark-fmtutil.h>
@@ -51,7 +54,6 @@ typedef struct localctx_struct {
 	u8 found_PhrIndex_file;
 	u8 found_PhrImage_file;
 	u8 found_TOPIC_file;
-	u8 phrase_compression_warned;
 	u8 valid_Phrases_file;
 	i64 offset_of_system_file;
 	i64 offset_of_Phrases;
@@ -457,6 +459,14 @@ static void emit_slice(deark *c, lctx *d, dbuf *inf, i64 pos, i64 len)
 	ucstring_write_as_utf8(c, d->tmpucstring1, d->outf_text, 0);
 }
 
+static void emit_phrase(deark *c, lctx *d, dbuf *outf, unsigned int phrasenum)
+{
+	if(phrasenum < d->num_phrases) {
+		dbuf_copy(d->phrases_data,
+			d->phrase_info[phrasenum].pos, d->phrase_info[phrasenum].len, outf);
+	}
+}
+
 static void do_phrase_decompression(deark *c, lctx *d, dbuf *inf, i64 pos1, i64 len,
 	dbuf *outf,  i64 unc_len_expected)
 {
@@ -475,16 +485,12 @@ static void do_phrase_decompression(deark *c, lctx *d, dbuf *inf, i64 pos1, i64 
 		}
 		else {
 			u8 b2;
-			unsigned int n, phrasenum;
+			unsigned int n;
 
 			if(pos >= endpos) break;
 			b2 = dbuf_getbyte_p(inf, &pos);
 			n = ((unsigned int)(b-1)<<8) | b2;
-			phrasenum = n/2;
-			if(phrasenum < d->num_phrases) {
-				dbuf_copy(d->phrases_data,
-					d->phrase_info[phrasenum].pos, d->phrase_info[phrasenum].len, outf);
-			}
+			emit_phrase(c, d, outf, n>>1);
 			if(n & 0x1) {
 				dbuf_writebyte(outf, ' ');
 			}
@@ -492,11 +498,49 @@ static void do_phrase_decompression(deark *c, lctx *d, dbuf *inf, i64 pos1, i64 
 	}
 }
 
-static void do_hall_decompression(deark *c, lctx *d, dbuf *inf, i64 pos, i64 len,
+static void do_hall_decompression(deark *c, lctx *d, dbuf *inf, i64 pos1, i64 len,
 	dbuf *outf, i64 unc_len_expected)
 {
-	// TODO
-	dbuf_puts(outf, "[hall]");
+	static const u8 action[16] = {0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,4};
+	i64 pos = pos1;
+	i64 endpos = pos1+len;
+	unsigned int n;
+	i64 outf_expected_endpos;
+
+	outf_expected_endpos = outf->len + unc_len_expected;
+
+	while(1) {
+		u8 b;
+
+		if(outf->len >= outf_expected_endpos) goto unc_done;
+		if(pos >= endpos) goto unc_done;
+		b = dbuf_getbyte_p(inf, &pos);
+		switch(action[b&0x0f]) {
+		case 0:
+			emit_phrase(c, d, outf, b>>1);
+			break;
+		case 1:
+			if(pos >= endpos) goto unc_done;
+			n = (((unsigned int)b & 0xfc) << 6) | 0x80;
+			n += dbuf_getbyte_p(inf, &pos);
+			emit_phrase(c, d, outf, n);
+			break;
+		case 2:
+			n = (b >> 3) +1;
+			if(pos + (i64)n > endpos) goto unc_done;
+			dbuf_copy(inf, pos, (i64)n, outf);
+			pos += (i64)n;
+			break;
+		case 3:
+			dbuf_write_run(outf, ' ', (i64)(b>>4)+1);
+			break;
+		default: // 4
+			dbuf_write_zeroes(outf, (i64)(b>>4)+1);
+			break;
+		}
+	}
+unc_done:
+	;
 }
 
 static int do_topiclink_rectype_32_linkdata1(deark *c, lctx *d,
@@ -612,7 +656,7 @@ static void do_topiclink_rectype_1_32(deark *c, lctx *d,
 		emit_raw_sz(c, d, "\n");
 		string_count++;
 	}
-	de_dbg(c, "[emitted %d strings, totaling %d bytes]", string_count, byte_count);
+	de_dbg2(c, "[emitted %d strings, totaling %d bytes]", string_count, byte_count);
 
 done:
 	;
@@ -728,13 +772,6 @@ static int do_topiclink(deark *c, lctx *d, struct topic_ctx *tctx, i64 pos1, u32
 		tld->linkdata2_uncmprlen = tld->linkdata2_cmprlen;
 	}
 
-	if(tld->seems_compressed && d->extract_text && d->uses_hall_compression &&
-		!d->phrase_compression_warned)
-	{
-		de_warn(c, "This file uses a type of compression that is not supported");
-		d->phrase_compression_warned = 1;
-	}
-
 	if((tld->linkdata1_pos<pos1) || (tld->linkdata2_pos<pos1) ||
 		(tld->linkdata1_len<0) || (tld->linkdata2_cmprlen<0) ||
 		(tld->linkdata1_pos + tld->linkdata1_len > pos1+tld->blocksize) ||
@@ -751,11 +788,11 @@ static int do_topiclink(deark *c, lctx *d, struct topic_ctx *tctx, i64 pos1, u32
 	dbuf_truncate(d->unc_linkdata2_dbuf, 0);
 	if(tld->seems_compressed && d->uses_old_phrase_compression) {
 		do_phrase_decompression(c, d, inf, tld->linkdata2_pos, tld->linkdata2_cmprlen,
-			d->unc_linkdata2_dbuf, tld->linkdata2_cmprlen);
+			d->unc_linkdata2_dbuf, tld->linkdata2_uncmprlen);
 	}
 	else if(tld->seems_compressed && d->uses_hall_compression) {
 		do_hall_decompression(c, d, inf, tld->linkdata2_pos, tld->linkdata2_cmprlen,
-			d->unc_linkdata2_dbuf, tld->linkdata2_cmprlen);
+			d->unc_linkdata2_dbuf,tld->linkdata2_uncmprlen);
 	}
 	else {
 		dbuf_copy(inf, tld->linkdata2_pos, tld->linkdata2_cmprlen, d->unc_linkdata2_dbuf);
@@ -764,13 +801,14 @@ static int do_topiclink(deark *c, lctx *d, struct topic_ctx *tctx, i64 pos1, u32
 	switch(tld->recordtype) {
 	case 1:
 	case 32:
+	case 35:
 		do_topiclink_rectype_1_32(c, d, tctx, tld, d->unc_linkdata2_dbuf);
 		break;
 	case 2:
 		do_topiclink_rectype_2(c, d, tctx, tld, d->unc_linkdata2_dbuf);
 		break;
 	default:
-		de_dbg(c, "[not processing record type %d]", (int)tld->recordtype);
+		de_warn(c, "Unsupported record type: %d", (int)tld->recordtype);
 	}
 
 done:
@@ -1164,9 +1202,6 @@ static void do_after_pass_1(deark *c, lctx *d)
 	if(d->input_encoding==DE_ENCODING_UNKNOWN || d->input_encoding==DE_ENCODING_ASCII) {
 		d->output_is_utf8 = 0;
 	}
-	else if(d->uses_old_phrase_compression || d->uses_hall_compression) {
-		d->output_is_utf8 = 0; // temporary
-	}
 	else {
 		d->output_is_utf8 = 1;
 	}
@@ -1312,6 +1347,16 @@ static void do_file_TOMAP(deark *c, lctx *d, i64 pos1, i64 len)
 	// 'topiclink'.
 }
 
+static void dump_phrase_offset_table(deark *c, lctx *d)
+{
+	unsigned int k;
+
+	for(k=0; k<d->num_phrases; k++) {
+		de_dbg2(c, "phrase[%d]: offs=%d, len=%d", (int)k, (int)d->phrase_info[k].pos,
+			(int)d->phrase_info[k].len);
+	}
+}
+
 static void decompress_Phrases(deark *c, lctx *d, i64 pos, i64 cmpr_len, i64 uncmpr_len)
 {
 	struct de_dfilter_in_params dcmpri;
@@ -1327,7 +1372,7 @@ static void decompress_Phrases(deark *c, lctx *d, i64 pos, i64 cmpr_len, i64 unc
 	dcmpro.expected_len = uncmpr_len;
 	fmtutil_decompress_hlp_lz77(c, &dcmpri, &dcmpro, &dres);
 	if(dres.errcode || (d->phrases_data->len!=uncmpr_len)) {
-		de_warn(c, "Phrase decompression may have failed");
+		de_warn(c, "Phrases decompression may have failed");
 	}
 }
 
@@ -1413,8 +1458,8 @@ static void do_file_Phrases(deark *c, lctx *d, i64 pos1, i64 len)
 			d->phrase_info[k-1].len = offs - d->phrase_info[k-1].pos;
 		}
 	}
-	for(k=0; k<d->num_phrases; k++) {
-		de_dbg(c, "phrase[%d]: offs=%d, len=%d", (int)k, (int)d->phrase_info[k].pos, (int)d->phrase_info[k].len);
+	if(c->debug_level>=2) {
+		dump_phrase_offset_table(c, d);
 	}
 
 	de_dbg(c, "phrase data at %"I64_FMT", len=%"I64_FMT, phrase_data_pos, phrase_data_cmpr_len);
@@ -1442,6 +1487,63 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+struct PhrIndex_ctx {
+	i64 curpos;
+	unsigned int bitreader_buf;
+	unsigned int bitreader_nbits_in_buf;
+};
+
+static unsigned int phrgetbits(deark *c, lctx *d, struct PhrIndex_ctx *pctx, unsigned int nbits)
+{
+	unsigned int n;
+
+	while(pctx->bitreader_nbits_in_buf < nbits) {
+		u8 b;
+
+		b = de_getbyte_p(&pctx->curpos);
+		pctx->bitreader_buf |= ((unsigned int)b)<<pctx->bitreader_nbits_in_buf;
+		pctx->bitreader_nbits_in_buf += 8;
+	}
+
+	n = pctx->bitreader_buf & ((1U<<nbits)-1U);
+	pctx->bitreader_buf >>= nbits;
+	pctx->bitreader_nbits_in_buf -= nbits;
+	return n;
+}
+
+static void phrdecompress(deark *c, lctx *d, i64 pos1, i64 len, unsigned int BitCount)
+{
+	unsigned int n;
+	unsigned int i;
+	struct PhrIndex_ctx pctx;
+
+	de_zeromem(&pctx, sizeof(struct PhrIndex_ctx));
+
+	pctx.curpos = pos1;
+	d->phrase_info[0].pos = 0;
+
+	for(i=0; i<d->num_phrases; i++) {
+		unsigned int num1bits = 0;
+
+		while(phrgetbits(c, d, &pctx, 1)) {
+			if(pctx.curpos > pos1+len) goto done; // emergency brake
+			num1bits++;
+		}
+		n = num1bits<<BitCount;
+		n += phrgetbits(c, d, &pctx, BitCount) + 1;
+
+		d->phrase_info[i].len = n;
+		if(i+1<d->num_phrases) {
+			d->phrase_info[i+1].pos = d->phrase_info[i].pos+n;
+		}
+	}
+
+done:
+	if(c->debug_level>=2) {
+		dump_phrase_offset_table(c, d);
+	}
+}
+
 static void do_file_PhrIndex(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	i64 pos = pos1;
@@ -1457,6 +1559,7 @@ static void do_file_PhrIndex(deark *c, lctx *d, i64 pos1, i64 len)
 	if(n!=1) goto done;
 	d->num_phrases = (unsigned int)de_getu32le_p(&pos);
 	de_dbg(c, "num phrases: %u", d->num_phrases);
+	d->phrase_info = de_mallocarray(c, (i64)d->num_phrases, sizeof(struct phrase_item));
 
 	cmprsize = de_getu32le_p(&pos);
 	de_dbg(c, "index cmpr size: %"I64_FMT, cmprsize);
@@ -1471,15 +1574,17 @@ static void do_file_PhrIndex(deark *c, lctx *d, i64 pos1, i64 len)
 	bitcount = bits & 0xf;
 	de_dbg(c, "bit count: %u", bitcount);
 	de_dbg_indent(c, -1);
-	pos += 4;
+	pos += 2;
 
 	de_dbg(c, "avail size: %d", (int)(pos1+len-pos));
+	phrdecompress(c, d, pos, pos1+len-pos, bitcount);
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void do_file_PhrImage(deark *c, lctx *d, i64 pos1, i64 len)
 {
+	de_dbg(c, "PhrImage data at %"I64_FMT", len=%"I64_FMT, pos1, len);
 	if(len < d->PhrImageCmprSize) {
 		return;
 	}
@@ -1489,6 +1594,7 @@ static void do_file_PhrImage(deark *c, lctx *d, i64 pos1, i64 len)
 	}
 	else {
 		decompress_Phrases(c, d, pos1, d->PhrImageCmprSize, d->PhrImageUncSize);
+		de_dbg(c, "decompressed to %"I64_FMT" bytes", d->phrases_data->len);
 	}
 }
 
@@ -1596,7 +1702,8 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
-	d->extract_text = de_get_ext_option_bool(c, "hlp:extracttext", 0);
+	d->extract_text = de_get_ext_option_bool(c, "hlp:extracttext",
+		((c->extract_level>=2)?1:0));
 	d->tmpdbuf1 = dbuf_create_membuf(c, 0, 0);
 	d->unc_linkdata2_dbuf = dbuf_create_membuf(c, 0, 0);
 	d->tmpucstring1 = ucstring_create(c);
@@ -1607,9 +1714,9 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 
 	do_file(c, d, d->internal_dir_FILEHEADER_offs, FILETYPE_INTERNALDIR);
 
-	de_dbg(c, "summary: v%d.%d cmpr=%s%s%s blksize=%d levels=%d%s%s%s",
+	de_dbg(c, "summary: v%d.%d %s%s%s blksize=%d levels=%d%s%s%s",
 		d->ver_major, d->ver_minor,
-		d->is_lz77_compressed?"lz77":"none",
+		d->is_lz77_compressed?"lz77":"no_lz77",
 		d->uses_old_phrase_compression?" phrase_compression":"",
 		d->uses_hall_compression?" Hall_compression":"",
 		(int)d->topic_block_size,
@@ -1636,10 +1743,16 @@ static int de_identify_hlp(deark *c)
 	return 0;
 }
 
+static void de_help_hlp(deark *c)
+{
+	de_msg(c, "-opt hlp:extracttext : Write the text (unformatted) to a file");
+}
+
 void de_module_hlp(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "hlp";
 	mi->desc = "HLP";
 	mi->run_fn = de_run_hlp;
 	mi->identify_fn = de_identify_hlp;
+	mi->help_fn = de_help_hlp;
 }
