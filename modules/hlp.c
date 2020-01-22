@@ -114,64 +114,6 @@ static const struct systemrec_info systemrec_info_arr[] = {
 static const struct systemrec_info systemrec_info_default =
 	{ 0, 0x0000, "?", NULL };
 
-// "compressed unsigned short" - a variable-length integer format
-// TODO: This is duplicated in shg.c
-static i64 get_cus(dbuf *f, i64 *pos)
-{
-	i64 x1, x2;
-
-	x1 = (i64)dbuf_getbyte(f, *pos);
-	*pos += 1;
-	if(x1%2 == 0) {
-		// If it's even, divide by two.
-		return x1>>1;
-	}
-	// If it's odd, divide by two, and add 128 times the value of
-	// the next byte.
-	x2 = (i64)dbuf_getbyte(f, *pos);
-	*pos += 1;
-	return (x1>>1) | (x2<<7);
-}
-
-// "compressed signed short"
-static i64 get_css(dbuf *f, i64 *ppos)
-{
-	i64 x1, x2;
-
-	x1 = (i64)dbuf_getbyte_p(f, ppos);
-	if(x1%2 == 0) {
-		// If it's even, divide by two, and subtract 64
-		return (x1>>1) - 64;
-	}
-	// If it's odd, divide by two, add 128 times the value of
-	// the next byte, and subtract 16384.
-	x1 >>= 1;
-	x2 = (i64)dbuf_getbyte_p(f, ppos);
-	x1 += x2 * 128;
-	x1 -= 16384;
-	return x1;
-}
-
-// "compressed signed long"
-static i64 get_csl(dbuf *f, i64 *ppos)
-{
-	i64 x1, x2;
-
-	x1 = dbuf_getu16le_p(f, ppos);
-
-	if(x1%2 == 0) {
-		// If it's even, divide by two, and subtract 16384
-		return (x1>>1) - 16384;
-	}
-	// If it's odd, divide by two, add 32768 times the value of
-	// the next two bytes, and subtract 67108864.
-	x1 >>= 1;
-	x2 = dbuf_getu16le_p(f, ppos);
-	x1 += x2*32768;
-	x1 -= 67108864;
-	return x1;
-}
-
 static void hlptime_to_timestamp(i64 ht, struct de_timestamp *ts)
 {
 	if(ht!=0) {
@@ -557,11 +499,11 @@ static int do_topiclink_rectype_32_linkdata1(deark *c, lctx *d,
 	// TODO: type 33 (table)
 	if(tld->recordtype!=1 && tld->recordtype!=32) goto done;
 
-	topicsize = get_csl(inf, &pos);
+	topicsize = fmtutil_hlp_get_csl_p(inf, &pos);
 	de_dbg(c, "topic size: %"I64_FMT, topicsize);
 
 	if(tld->recordtype==32) {
-		topiclength = get_cus(inf, &pos);
+		topiclength = fmtutil_hlp_get_cus_p(inf, &pos);
 		de_dbg(c, "topic length: %"I64_FMT, topiclength);
 	}
 
@@ -573,25 +515,25 @@ static int do_topiclink_rectype_32_linkdata1(deark *c, lctx *d,
 	de_dbg(c, "bits: 0x%04x", bits);
 
 	if(bits & 0x0001) { // Unknown
-		(void)get_csl(inf, &pos);
+		(void)fmtutil_hlp_get_csl_p(inf, &pos);
 	}
 	if(bits & 0x0002) { // SpacingAbove
-		(void)get_css(inf, &pos);
+		(void)fmtutil_hlp_get_css_p(inf, &pos);
 	}
 	if(bits & 0x0004) { // SpacingBelow
-		(void)get_css(inf, &pos);
+		(void)fmtutil_hlp_get_css_p(inf, &pos);
 	}
 	if(bits & 0x0008) { // SpacingLines
-		(void)get_css(inf, &pos);
+		(void)fmtutil_hlp_get_css_p(inf, &pos);
 	}
 	if(bits & 0x0010) { // LeftIndent
-		(void)get_css(inf, &pos);
+		(void)fmtutil_hlp_get_css_p(inf, &pos);
 	}
 	if(bits & 0x0020) { // RightIndent
-		(void)get_css(inf, &pos);
+		(void)fmtutil_hlp_get_css_p(inf, &pos);
 	}
 	if(bits & 0x0040) { // FirstlineIndent
-		(void)get_css(inf, &pos);
+		(void)fmtutil_hlp_get_css_p(inf, &pos);
 	}
 	// 0x0080 = unused
 	if(bits & 0x0100) { // Borderinfo

@@ -481,3 +481,8 @@ void fmtutil_macbitmap_read_pixmap_only_fields(deark *c, dbuf *f,
 	struct fmtutil_macbitmap_info *bi, i64 pos);
 int fmtutil_macbitmap_read_colortable(deark *c, dbuf *f,
 	struct fmtutil_macbitmap_info *bi, i64 pos, i64 *bytes_used);
+
+i64 fmtutil_hlp_get_cus_p(dbuf *f, i64 *ppos);
+i64 fmtutil_hlp_get_css_p(dbuf *f, i64 *ppos);
+i64 fmtutil_hlp_get_cul_p(dbuf *f, i64 *ppos);
+i64 fmtutil_hlp_get_csl_p(dbuf *f, i64 *ppos);

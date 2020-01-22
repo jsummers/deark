@@ -74,40 +74,6 @@ done:
 	;
 }
 
-// "compressed unsigned short" - a variable-length integer format
-static i64 get_cus(dbuf *f, i64 *pos)
-{
-	i64 x1, x2;
-	x1 = (i64)dbuf_getbyte(f, *pos);
-	*pos += 1;
-	if(x1%2 == 0) {
-		// If it's even, divide by two.
-		return x1>>1;
-	}
-	// If it's odd, divide by two, and add 128 times the value of
-	// the next byte.
-	x2 = (i64)dbuf_getbyte(f, *pos);
-	*pos += 1;
-	return (x1>>1) | (x2<<7);
-}
-
-// "compressed unsigned long" - a variable-length integer format
-static i64 get_cul(dbuf *f, i64 *pos)
-{
-	i64 x1, x2;
-	x1 = dbuf_getu16le(f, *pos);
-	*pos += 2;
-	if(x1%2 == 0) {
-		// If it's even, divide by two.
-		return x1>>1;
-	}
-	// If it's odd, divide by two, and add 32768 times the value of
-	// the next two bytes.
-	x2 = dbuf_getu16le(f, *pos);
-	*pos += 2;
-	return (x1>>1) | (x2<<15);
-}
-
 static void do_uncompress_rle(deark *c, lctx *d,
 	dbuf *inf, i64 pos1, i64 len,
 	dbuf *unc_pixels)
@@ -289,24 +255,24 @@ static int do_dib_ddb(deark *c, lctx *d, struct picture_ctx *pctx, i64 pos1)
 
 	pos = pos1 + 2;
 
-	pctx->xdpi = get_cul(c->infile, &pos);
-	pctx->ydpi = get_cul(c->infile, &pos);
+	pctx->xdpi = fmtutil_hlp_get_cul_p(c->infile, &pos);
+	pctx->ydpi = fmtutil_hlp_get_cul_p(c->infile, &pos);
 	de_dbg(c, "dpi: %d"DE_CHAR_TIMES"%d", (int)pctx->xdpi, (int)pctx->ydpi);
 	if(pctx->xdpi<10 || pctx->ydpi<10 || pctx->xdpi>30000 || pctx->ydpi>30000) {
 		pctx->xdpi = 0;
 		pctx->ydpi = 0;
 	}
 
-	pctx->planes = get_cus(c->infile, &pos);
+	pctx->planes = fmtutil_hlp_get_cus_p(c->infile, &pos);
 	de_dbg(c, "planes: %d", (int)pctx->planes);
-	pctx->bitcount = get_cus(c->infile, &pos);
+	pctx->bitcount = fmtutil_hlp_get_cus_p(c->infile, &pos);
 	de_dbg(c, "bitcount: %d", (int)pctx->bitcount);
-	pctx->width = get_cul(c->infile, &pos);
-	pctx->height = get_cul(c->infile, &pos);
+	pctx->width = fmtutil_hlp_get_cul_p(c->infile, &pos);
+	pctx->height = fmtutil_hlp_get_cul_p(c->infile, &pos);
 	de_dbg_dimensions(c, pctx->width, pctx->height);
 
-	pctx->colors_used = get_cul(c->infile, &pos);
-	pctx->colors_important = get_cul(c->infile, &pos);
+	pctx->colors_used = fmtutil_hlp_get_cul_p(c->infile, &pos);
+	pctx->colors_important = fmtutil_hlp_get_cul_p(c->infile, &pos);
 	de_dbg(c, "colors used=%d, important=%d", (int)pctx->colors_used,
 		(int)pctx->colors_important);
 	if(pctx->colors_important==1) {
@@ -314,8 +280,8 @@ static int do_dib_ddb(deark *c, lctx *d, struct picture_ctx *pctx, i64 pos1)
 		pctx->colors_important = 0;
 	}
 
-	compressed_size = get_cul(c->infile, &pos);
-	hotspot_size = get_cul(c->infile, &pos);
+	compressed_size = fmtutil_hlp_get_cul_p(c->infile, &pos);
+	hotspot_size = fmtutil_hlp_get_cul_p(c->infile, &pos);
 	compressed_offset_rel = de_getu32le_p(&pos);
 	compressed_offset_abs = pos1 + compressed_offset_rel;
 	hotspot_offset_rel = de_getu32le_p(&pos);
@@ -428,16 +394,16 @@ static int do_wmf(deark *c, lctx *d, struct picture_ctx *pctx, i64 pos1)
 
 	pos = pos1 + 2;
 
-	mapping_mode = get_cus(c->infile, &pos);
+	mapping_mode = fmtutil_hlp_get_cus_p(c->infile, &pos);
 	width = de_getu16le(pos);
 	pos+=2;
 	height = de_getu16le(pos);
 	pos+=2;
 	de_dbg(c, "mapping mode: %d, nominal dimensions: %d"DE_CHAR_TIMES"%d",
 		(int)mapping_mode, (int)width, (int)height);
-	decompressed_size = get_cul(c->infile, &pos);
-	compressed_size = get_cul(c->infile, &pos);
-	hotspot_size = get_cul(c->infile, &pos);
+	decompressed_size = fmtutil_hlp_get_cul_p(c->infile, &pos);
+	compressed_size = fmtutil_hlp_get_cul_p(c->infile, &pos);
+	hotspot_size = fmtutil_hlp_get_cul_p(c->infile, &pos);
 	compressed_offset = de_getu32le(pos);
 	pos+=4;
 	compressed_offset += pos1;
