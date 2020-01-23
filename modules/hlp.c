@@ -39,8 +39,8 @@ struct bptree {
 };
 
 struct phrase_item {
-	i32 pos; // pos in ->phrases_data
-	i32 len;
+	u32 pos; // pos in ->phrases_data
+	u32 len;
 };
 
 typedef struct localctx_struct {
@@ -404,8 +404,8 @@ static void emit_slice(deark *c, lctx *d, dbuf *inf, i64 pos, i64 len)
 static void emit_phrase(deark *c, lctx *d, dbuf *outf, unsigned int phrasenum)
 {
 	if(phrasenum < d->num_phrases) {
-		dbuf_copy(d->phrases_data,
-			d->phrase_info[phrasenum].pos, d->phrase_info[phrasenum].len, outf);
+		dbuf_copy(d->phrases_data, (i64)d->phrase_info[phrasenum].pos,
+			(i64)d->phrase_info[phrasenum].len, outf);
 	}
 }
 
@@ -1127,6 +1127,23 @@ done:
 	return retval;
 }
 
+static void sanitize_phrase_info(deark *c, lctx *d)
+{
+	unsigned int k;
+
+	if(!d->phrases_data) {
+		d->num_phrases = 0;
+		return;
+	}
+
+	for(k=0; k<d->num_phrases; k++) {
+		if((i64)d->phrase_info[k].pos + (i64)d->phrase_info[k].len > d->phrases_data->len) {
+			d->phrase_info[k].pos = 0;
+			d->phrase_info[k].len = 0;
+		}
+	}
+}
+
 static void do_after_pass_1(deark *c, lctx *d)
 {
 	// Read the SYSTEM file first -- lots of other things depend on it.
@@ -1160,6 +1177,7 @@ static void do_after_pass_1(deark *c, lctx *d)
 	if(d->found_PhrImage_file && d->uses_hall_compression) {
 		do_file(c, d, d->offset_of_PhrImage, FILETYPE_PHRIMAGE);
 	}
+	sanitize_phrase_info(c, d);
 
 	if(d->found_TOPIC_file) {
 		do_file(c, d, d->offset_of_TOPIC, FILETYPE_TOPIC);
@@ -1294,8 +1312,8 @@ static void dump_phrase_offset_table(deark *c, lctx *d)
 	unsigned int k;
 
 	for(k=0; k<d->num_phrases; k++) {
-		de_dbg2(c, "phrase[%d]: offs=%d, len=%d", (int)k, (int)d->phrase_info[k].pos,
-			(int)d->phrase_info[k].len);
+		de_dbg2(c, "phrase[%u]: offs=%u, len=%u", k, d->phrase_info[k].pos,
+			d->phrase_info[k].len);
 	}
 }
 
@@ -1388,10 +1406,10 @@ static void do_file_Phrases(deark *c, lctx *d, i64 pos1, i64 len)
 
 	d->phrase_info = de_mallocarray(c, (i64)d->num_phrases, sizeof(struct phrase_item));
 	for(k=0; k<d->num_phrases+1; k++) {
-		i32 offs;
+		u32 offs;
 
-		offs = (i32)de_getu16le_p(&pos);
-		offs -= (i32)(phrase_offset_table_len);
+		offs = (u32)de_getu16le_p(&pos);
+		offs -= (u32)phrase_offset_table_len;
 
 		if(k<d->num_phrases) {
 			d->phrase_info[k].pos = offs;
@@ -1411,16 +1429,6 @@ static void do_file_Phrases(deark *c, lctx *d, i64 pos1, i64 len)
 	}
 	else {
 		dbuf_copy(c->infile, phrase_data_pos, phrase_data_cmpr_len, d->phrases_data);
-	}
-
-	// Sanitize phrase_info
-	for(k=0; k<d->num_phrases; k++) {
-		if(d->phrase_info[k].pos<0 || d->phrase_info[k].len<0 ||
-			((i64)d->phrase_info[k].pos + (i64)d->phrase_info[k].len > d->phrases_data->len))
-		{
-			d->phrase_info[k].pos = 0;
-			d->phrase_info[k].len = 0;
-		}
 	}
 
 	d->valid_Phrases_file = 1;
