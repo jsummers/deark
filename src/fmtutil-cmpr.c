@@ -404,6 +404,21 @@ void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_param
 	dfctx->codec_destroy_fn = my_rle90_codec_destroy;
 }
 
+struct hlplz77ctx {
+	i64 nbytes_written;
+	struct de_dfilter_out_params *dcmpro;
+	unsigned int wpos;
+	u8 window[4096];
+};
+
+static void hlp_lz77_emit_byte(deark *c, struct hlplz77ctx *hctx, u8 b)
+{
+	dbuf_writebyte(hctx->dcmpro->f, b);
+	hctx->nbytes_written++;
+	hctx->window[hctx->wpos] = b;
+	hctx->wpos = (hctx->wpos+1) & 4095;
+}
+
 // This is very similar to the mscompress SZDD algorithm, but
 // gratuitously different.
 void fmtutil_decompress_hlp_lz77(deark *c, struct de_dfilter_in_params *dcmpri,
@@ -411,13 +426,11 @@ void fmtutil_decompress_hlp_lz77(deark *c, struct de_dfilter_in_params *dcmpri,
 {
 	i64 pos = dcmpri->pos;
 	i64 endpos = dcmpri->pos + dcmpri->len;
-	i64 nbytes_written = 0;
-	u8 *window = NULL;
-	unsigned int wpos;
+	struct hlplz77ctx *hctx = NULL;
 
-	window = de_malloc(c, 4096);
-	wpos = 4096 - 16;
-	de_memset(window, 0x20, 4096);
+	hctx = de_malloc(c, sizeof(struct hlplz77ctx));
+	hctx->dcmpro = dcmpro;
+	de_memset(hctx->window, 0x20, 4096);
 
 	while(1) {
 		unsigned int control;
@@ -426,35 +439,28 @@ void fmtutil_decompress_hlp_lz77(deark *c, struct de_dfilter_in_params *dcmpri,
 		if(pos+1 > endpos) goto unc_done; // Out of input data
 		control = (unsigned int)dbuf_getbyte(dcmpri->f, pos++);
 
-		for(cbit=0x01; cbit&0xff; cbit<<=1) {
-			if(!(control & cbit)) { // literal
+		for(cbit=0x01; cbit<=0x80; cbit<<=1) {
+			if((control & cbit)==0) { // literal
 				u8 b;
 
 				if(pos+1 > endpos) goto unc_done;
 				b = dbuf_getbyte(dcmpri->f, pos++);
-				dbuf_writebyte(dcmpro->f, b);
-				nbytes_written++;
-				if(dcmpro->len_known && nbytes_written>=dcmpro->expected_len) goto unc_done;
-				window[wpos] = b;
-				wpos++; wpos &= 4095;
+				hlp_lz77_emit_byte(c, hctx, b);
+				if(dcmpro->len_known && hctx->nbytes_written>=dcmpro->expected_len) goto unc_done;
 			}
 			else { // match
+				unsigned int x;
 				unsigned int matchpos;
 				unsigned int matchlen;
 
 				if(pos+2 > endpos) goto unc_done;
-				matchpos = (unsigned int)dbuf_getu16le(dcmpri->f, pos);
-				pos+=2;
-				matchlen = ((matchpos>>12) & 0x0f) + 3;
-				matchpos = wpos-(matchpos&4095)-1;
-				matchpos &= 4095;
+				x = (unsigned int)dbuf_getu16le_p(dcmpri->f, &pos);
+				matchlen = (x>>12) + 3;
+				matchpos = (hctx->wpos - ((x & 0x0fff)+1)) & 4095;
 				while(matchlen--) {
-					dbuf_writebyte(dcmpro->f, window[matchpos]);
-					nbytes_written++;
-					if(dcmpro->len_known && nbytes_written>=dcmpro->expected_len) goto unc_done;
-					window[wpos] = window[matchpos];
-					wpos++; wpos &= 4095;
-					matchpos++; matchpos &= 4095;
+					hlp_lz77_emit_byte(c, hctx, hctx->window[matchpos]);
+					if(dcmpro->len_known && hctx->nbytes_written>=dcmpro->expected_len) goto unc_done;
+					matchpos = (matchpos+1) & 4095;
 				}
 			}
 		}
@@ -463,7 +469,7 @@ void fmtutil_decompress_hlp_lz77(deark *c, struct de_dfilter_in_params *dcmpri,
 unc_done:
 	dres->bytes_consumed = pos - dcmpri->pos;
 	dres->bytes_consumed_valid = 1;
-	de_free(c, window);
+	de_free(c, hctx);
 }
 
 struct my_2layer_userdata {
