@@ -79,6 +79,8 @@ typedef struct localctx_struct {
 	unsigned int num_phrases;
 	struct phrase_item *phrase_info; // array [num_phrases]
 	de_ucstring *tmpucstring1;
+	de_ucstring *help_file_title;
+	de_ucstring *help_file_copyright;
 } lctx;
 
 static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt);
@@ -106,7 +108,7 @@ static const struct systemrec_info systemrec_info_arr[] = {
 	{ 11, 0x0000, "Charset", NULL },
 	{ 12, 0x0000, "Default dialog font", NULL },
 	{ 13, 0x0010, "Defined GROUPs", NULL },
-	{ 14, 0x0011, "IndexSeparators separators", NULL },
+	{ 14, 0x0011, "IndexSeparators", NULL },
 	{ 14, 0x0002, "Multimedia Help Files", NULL },
 	{ 18, 0x0010, "Defined language", NULL },
 	{ 19, 0x0000, "Defined DLLMAPS", NULL }
@@ -126,35 +128,72 @@ static void hlptime_to_timestamp(i64 ht, struct de_timestamp *ts)
 	}
 }
 
-static void do_display_STRINGZ(deark *c, lctx *d, i64 pos1, i64 len,
-	const char *name)
+// s can be NULL, or it can be a string to save the value in.
+static void do_display_and_store_STRINGZ(deark *c, lctx *d, i64 pos1, i64 len,
+	const char *name, de_ucstring *s1)
 {
-	de_ucstring *s = NULL;
+	de_ucstring *s_tmp = NULL;
+	de_ucstring *s;
 
+	if(s1) {
+		s = s1;
+	}
+	else {
+		s_tmp = ucstring_create(c);
+		s = s_tmp;
+	}
+
+	ucstring_empty(s);
 	if(len<1) return;
-	s = ucstring_create(c);
+
 	dbuf_read_to_ucstring_n(c->infile,
 		pos1, len, DE_DBG_MAX_STRLEN,
 		s, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
 	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz(s));
-	ucstring_destroy(s);
+
+	if(s_tmp) ucstring_destroy(s_tmp);
 }
 
 static void do_SYSTEMREC_STRINGZ(deark *c, lctx *d, unsigned int recordtype,
-	i64 pos1, i64 len, const struct systemrec_info *sti)
+	i64 pos1, i64 len, const struct systemrec_info *sti, de_ucstring *s)
 {
-	do_display_STRINGZ(c, d, pos1, len, sti->name);
+	do_display_and_store_STRINGZ(c, d, pos1, len, sti->name, s);
+}
+
+static void do_SYSTEMREC_uint32_hex(deark *c, lctx *d, unsigned int recordtype,
+	i64 pos1, i64 len)
+{
+	unsigned int n;
+
+	if(len!=4) return;
+	n = (unsigned int)de_getu32le(pos1);
+	de_dbg(c, "value: 0x%08x", n);
 }
 
 static void do_SYSTEMREC(deark *c, lctx *d, unsigned int recordtype,
 	i64 pos1, i64 len, const struct systemrec_info *sti)
 {
-	if(recordtype==5) { // Icon
+	if(recordtype==1) { // title
+		if(!d->help_file_title) {
+			d->help_file_title = ucstring_create(c);
+		}
+		do_SYSTEMREC_STRINGZ(c, d, recordtype, pos1, len, sti, d->help_file_title);
+	}
+	else if(recordtype==2) { // copyright
+		if(!d->help_file_copyright) {
+			d->help_file_copyright = ucstring_create(c);
+		}
+		do_SYSTEMREC_STRINGZ(c, d, recordtype, pos1, len, sti, d->help_file_copyright);
+	}
+	else if(recordtype==3 && len==4) { // contents
+		do_SYSTEMREC_uint32_hex(c, d, recordtype, pos1, len);
+	}
+	else if(recordtype==5) { // Icon
 		d->has_ico = 1;
 		dbuf_create_file_from_slice(c->infile, pos1, len, "ico", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 	else if(sti->flags&0x10) {
-		do_SYSTEMREC_STRINGZ(c, d, recordtype, pos1, len, sti);
+		do_SYSTEMREC_STRINGZ(c, d, recordtype, pos1, len, sti, NULL);
 	}
 	else {
 		if(c->debug_level>=2) {
@@ -281,11 +320,12 @@ static void do_file_SYSTEM(deark *c, lctx *d, i64 pos1, i64 len)
 	// the format version information.
 	//
 	// The SYSTEM file may contain a series of SYSTEMREC records that we want
-	// to parse. We might [someday] have to make two (sub)passes over the
-	// SYSTEMREC records, the first pass to collect "charset" setting, so it
-	// can be used when parsing the other SYSTEMREC records.
-	// (We can do it this way because there doesn't seem to be anything in the
-	// SYSTEM header that would require knowing the charset.)
+	// to parse.
+	// Note: It seems like we might have to make two (sub)passes over the
+	// SYSTEMREC records, the first pass to collect the "charset" setting, so it
+	// can be used to interpret records that appear before it. But I've never
+	// seen a charset record that I can make sense of -- it's usually just a
+	// random number of NUL bytes.
 
 	if(d->pass!=1) goto done;
 
@@ -293,7 +333,8 @@ static void do_file_SYSTEM(deark *c, lctx *d, i64 pos1, i64 len)
 	pos += 12;
 
 	if(d->ver_minor<=16) {
-		do_display_STRINGZ(c, d, pos, (pos1+len)-pos, "HelpFileTitle");
+		d->help_file_title = ucstring_create(c);
+		do_display_and_store_STRINGZ(c, d, pos, (pos1+len)-pos, "HelpFileTitle", d->help_file_title);
 	}
 	else {
 		// A sequence of variable-sized SYSTEMRECs
@@ -375,7 +416,17 @@ static void ensure_text_output_file_open(deark *c, lctx *d)
 	if(d->output_is_utf8 && c->write_bom) {
 		dbuf_write_uchar_as_utf8(d->outf_text, 0xfeff);
 	}
-	// TODO: Include the (systemrec) title, and maybe other global info.
+	if(ucstring_isnonempty(d->help_file_title)) {
+		dbuf_puts(d->outf_text, "Title: ");
+		// TODO: This doesn't do the right thing if !d->output_is_utf8.
+		ucstring_write_as_utf8(c, d->help_file_title, d->outf_text, 0);
+		dbuf_puts(d->outf_text, "\n");
+	}
+	if(ucstring_isnonempty(d->help_file_copyright)) {
+		dbuf_puts(d->outf_text, "Copyright: ");
+		ucstring_write_as_utf8(c, d->help_file_copyright, d->outf_text, 0);
+		dbuf_puts(d->outf_text, "\n");
+	}
 }
 
 // Emit a string that needs no conversion.
@@ -1680,6 +1731,8 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 		dbuf_close(d->unc_linkdata2_dbuf);
 		dbuf_close(d->phrases_data);
 		ucstring_destroy(d->tmpucstring1);
+		ucstring_destroy(d->help_file_title);
+		ucstring_destroy(d->help_file_copyright);
 		dbuf_close(d->outf_text);
 		de_free(c, d->phrase_info);
 		de_free(c, d);
