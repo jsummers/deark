@@ -17,12 +17,6 @@
 #include <inttypes.h>
 #endif
 
-#ifdef __GNUC__
-#define de_gnuc_attribute __attribute__
-#else
-#define de_gnuc_attribute(x)
-#endif
-
 #define DE_VERSION_NUMBER 0x01050300U
 #define DE_VERSION_SUFFIX ""
 
