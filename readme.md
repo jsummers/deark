@@ -256,11 +256,11 @@ Command-line options:
    oem: [Windows only; has no effect on other platforms] Use the "OEM"
      character set. This may be useful when paging the output with "|more".
 -inenc &lt;ascii|utf8|latin1|cp437|windows1250|windows1251|windows1252|
-     macroman>
+     windows1253|windows1254|macroman>
    Supply a hint as to the encoding of the text contained in the input file.
-   This option is incompletely implemented, and will be ignored if the encoding
-   can be reliably determined by other means. Admittedly, Deark does not yet
-   know enough encodings for this option to be really useful.
+   This option is not supported by all formats, and may be ignored if the
+   encoding can be reliably determined by other means. Admittedly, it would be
+   nice if Deark knew more encodings than this.
 -intz &lt;offset>
    Supply a hint as to the time zone used by timestamps contained in the input
    file.
