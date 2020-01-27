@@ -355,6 +355,9 @@ Deark -- Information about supported formats
   Options
    -opt pcx:pal=<0|1> - The predefined palette to use, if there is no palette
      in the file. Default is 0.
+   -opt pcx:resmode=<ignore|dpi|screen|guess> - How to interpret the
+     "resolution" field. "screen" means as the target screen mode's pixel
+     dimensions. The default is to ignore the field.
    -file2 <file.p13> - Read the palette from a separate file. Each entry is 3
      bytes (R,G,B); samples range from 0-63.
 
