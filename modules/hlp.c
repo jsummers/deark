@@ -47,6 +47,7 @@ typedef struct localctx_struct {
 	int input_encoding;
 	int output_is_utf8;
 	int extract_text;
+	u8 extract_raw_streams;
 	i64 internal_dir_FILEHEADER_offs;
 	struct bptree bpt;
 	u8 found_system_file;
@@ -83,7 +84,8 @@ typedef struct localctx_struct {
 	de_ucstring *help_file_copyright;
 } lctx;
 
-static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt);
+static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt, int extract_only,
+	struct de_stringreaderdata *fn);
 
 struct systemrec_info {
 	unsigned int rectype;
@@ -316,7 +318,7 @@ static void do_file_SYSTEM(deark *c, lctx *d, i64 pos1, i64 len)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	// We'll read the SYSTEM "file" only in pass 1, most importantly to record
+	// We'll read the SYSTEM "file" before pass 2, most importantly to record
 	// the format version information.
 	//
 	// The SYSTEM file may contain a series of SYSTEMREC records that we want
@@ -378,6 +380,24 @@ static void do_file_BMP(deark *c, lctx *d, i64 pos1, i64 used_space)
 	d->has_bmp = 1;
 	dbuf_create_file_from_slice(c->infile, pos1, used_space, "bmp", NULL,
 		DE_CREATEFLAG_IS_AUX);
+}
+
+static void do_extract_raw_file(deark *c, lctx *d, i64 pos1, i64 used_space,
+	struct de_stringreaderdata *fn)
+{
+	de_finfo *fi = NULL;
+	const char *ext = NULL;
+
+	fi = de_finfo_create(c);
+	if(fn && ucstring_isnonempty(fn->str)) {
+		de_finfo_set_name_from_ucstring(c, fi, fn->str, 0);
+	}
+	else {
+		ext = "bin";
+	}
+	dbuf_create_file_from_slice(c->infile, pos1, used_space, ext, fi, 0);
+
+	de_finfo_destroy(c, fi);
 }
 
 struct topiclink_data {
@@ -1123,8 +1143,12 @@ static void do_leaf_page(deark *c, lctx *d, i64 pos1, i64 *pnext_page)
 		default:
 			pass_for_this_file = 2;
 		}
-		if(d->pass==2 && pass_for_this_file==2) {
-			do_file(c, d, file_offset, file_type);
+
+		if(d->pass==2 && d->extract_raw_streams) {
+			do_file(c, d, file_offset, file_type, 1, fn_srd);
+		}
+		else if(d->pass==2 && pass_for_this_file==2) {
+			do_file(c, d, file_offset, file_type, 0, NULL);
 		}
 
 		de_dbg_indent(c, -1);
@@ -1199,7 +1223,7 @@ static void do_after_pass_1(deark *c, lctx *d)
 {
 	// Read the SYSTEM file first -- lots of other things depend on it.
 	if(d->found_system_file) {
-		do_file(c, d, d->offset_of_system_file, FILETYPE_SYSTEM);
+		do_file(c, d, d->offset_of_system_file, FILETYPE_SYSTEM, 0, NULL);
 	}
 
 	if(d->found_Phrases_file) {
@@ -1219,19 +1243,19 @@ static void do_after_pass_1(deark *c, lctx *d)
 	// Read other special files, in a suitable order.
 
 	if(d->found_Phrases_file && d->uses_old_phrase_compression) {
-		do_file(c, d, d->offset_of_Phrases, FILETYPE_PHRASES);
+		do_file(c, d, d->offset_of_Phrases, FILETYPE_PHRASES, 0, NULL);
 	}
 
 	if(d->found_PhrIndex_file && d->uses_hall_compression) {
-		do_file(c, d, d->offset_of_PhrIndex, FILETYPE_PHRINDEX);
+		do_file(c, d, d->offset_of_PhrIndex, FILETYPE_PHRINDEX, 0, NULL);
 	}
 	if(d->found_PhrImage_file && d->uses_hall_compression) {
-		do_file(c, d, d->offset_of_PhrImage, FILETYPE_PHRIMAGE);
+		do_file(c, d, d->offset_of_PhrImage, FILETYPE_PHRIMAGE, 0, NULL);
 	}
 	sanitize_phrase_info(c, d);
 
 	if(d->found_TOPIC_file) {
-		do_file(c, d, d->offset_of_TOPIC, FILETYPE_TOPIC);
+		do_file(c, d, d->offset_of_TOPIC, FILETYPE_TOPIC, 0, NULL);
 	}
 }
 
@@ -1615,7 +1639,8 @@ static const char* file_type_to_type_name(enum hlp_filetype file_fmt)
 	return name;
 }
 
-static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt)
+static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt, int extract_only,
+	struct de_stringreaderdata *fn)
 {
 	i64 reserved_space;
 	i64 used_space;
@@ -1637,6 +1662,11 @@ static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt)
 
 	if(pos+used_space > c->infile->len) {
 		de_err(c, "Bad file size");
+		goto done;
+	}
+
+	if(extract_only) {
+		do_extract_raw_file(c, d, pos, used_space, fn);
 		goto done;
 	}
 
@@ -1705,6 +1735,7 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 	d->extract_text = de_get_ext_option_bool(c, "hlp:extracttext",
 		((c->extract_level>=2)?1:0));
+	d->extract_raw_streams = (u8)de_get_ext_option_bool(c, "hlp:extractstreams", 0);
 	d->tmpdbuf1 = dbuf_create_membuf(c, 0, 0);
 	d->unc_linkdata2_dbuf = dbuf_create_membuf(c, 0, 0);
 	d->tmpucstring1 = ucstring_create(c);
@@ -1713,7 +1744,7 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 	pos = 0;
 	do_header(c, d, pos);
 
-	do_file(c, d, d->internal_dir_FILEHEADER_offs, FILETYPE_INTERNALDIR);
+	do_file(c, d, d->internal_dir_FILEHEADER_offs, FILETYPE_INTERNALDIR, 0, NULL);
 
 	de_dbg(c, "summary: v%d.%d %s%s%s blksize=%d levels=%d%s%s%s",
 		d->ver_major, d->ver_minor,
@@ -1749,6 +1780,7 @@ static int de_identify_hlp(deark *c)
 static void de_help_hlp(deark *c)
 {
 	de_msg(c, "-opt hlp:extracttext : Write the text (unformatted) to a file");
+	de_msg(c, "-opt hlp:extractstreams : Extract raw files, instead of decoding");
 }
 
 void de_module_hlp(deark *c, struct deark_module_info *mi)

@@ -777,12 +777,11 @@ Deark -- Information about supported formats
   Print a hex dump of the file.
   - You must use "-m hexdump".
 
-* HLP (Windows Help) (module="hlp") (experimental)
-  - Extract SHG/MRB graphics
-  - Extract icon (rarely present)
+* HLP (Windows Help) (module="hlp")
   Options
-   -opt hlp:extracttext : Write the file's text (unformatted) to a file. This
+   -opt hlp:extracttext - Write the file's text (unformatted) to a file. This
      feature is experimental and incomplete.
+   -opt hlp:extractstreams - Extract raw files, instead of decoding.
 
 * ICC profile (module="iccprofile")
   - Debug info only.
