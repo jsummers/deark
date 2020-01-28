@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_mscompress);
 
 #define FMT_SZDD 1
@@ -96,68 +97,111 @@ static int do_header_KWAJ(deark *c, lctx *d, i64 pos1)
 	return 0;
 }
 
+struct szdd_ctx {
+	i64 nbytes_written;
+	struct de_dfilter_out_params *dcmpro;
+	uint wpos;
+	u8 window[4096];
+};
+
+static void szdd_emit_byte(deark *c, struct szdd_ctx *sctx, u8 b)
+{
+	dbuf_writebyte(sctx->dcmpro->f, b);
+	sctx->nbytes_written++;
+	sctx->window[sctx->wpos] = b;
+	sctx->wpos = (sctx->wpos+1) & 4095;
+}
+
 // Based on the libmspack's format documentation at
 // <https://www.cabextract.org.uk/libmspack/doc/szdd_kwaj_format.html>
-static void do_uncompress_SZDD(deark *c,
-	dbuf *inf, i64 pos1, i64 input_len,
-	dbuf *outf, i64 expected_output_len)
+static void do_decompress_SZDD(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	i64 pos = pos1;
-	u8 *window = NULL;
-	unsigned int wpos;
-	i64 nbytes_read;
+	i64 pos = dcmpri->pos;
+	i64 endpos = dcmpri->pos + dcmpri->len;
+	struct szdd_ctx *sctx = NULL;
 
-	window = de_malloc(c, 4096);
-	wpos = 4096 - 16;
-	de_memset(window, 0x20, 4096);
+	sctx = de_malloc(c, sizeof(struct szdd_ctx));
+	sctx->dcmpro = dcmpro;
+	sctx->wpos = 4096 - 16;
+	de_memset(sctx->window, 0x20, 4096);
 
 	while(1) {
-		unsigned int control;
-		unsigned int cbit;
+		uint control;
+		uint cbit;
 
-		if(pos >= (pos1+input_len)) break; // Out of input data
+		if(pos+1 > endpos) goto unc_done; // Out of input data
+		control = (uint)dbuf_getbyte(dcmpri->f, pos++);
 
-		control = (unsigned int)dbuf_getbyte(inf, pos++);
-
-		for(cbit=0x01; cbit&0xff; cbit<<=1) {
+		for(cbit=0x01; cbit<=0x80; cbit<<=1) {
 			if(control & cbit) { // literal
 				u8 b;
-				b = dbuf_getbyte(inf, pos++);
-				dbuf_writebyte(outf, b);
-				if(outf->len >= expected_output_len) goto unc_done;
-				window[wpos] = b;
-				wpos++; wpos &= 4095;
+
+				if(pos+1 > endpos) goto unc_done;
+				b = dbuf_getbyte(dcmpri->f, pos++);
+				szdd_emit_byte(c, sctx, b);
+				if(dcmpro->len_known && sctx->nbytes_written>=dcmpro->expected_len) goto unc_done;
 			}
 			else { // match
-				unsigned int matchpos;
-				unsigned int matchlen;
-				matchpos = (unsigned int)dbuf_getbyte(inf, pos++);
-				matchlen = (unsigned int)dbuf_getbyte(inf, pos++);
-				matchpos |= (matchlen & 0xf0) << 4;
-				matchpos &= 4095;
-				matchlen = (matchlen & 0x0f) + 3;
+				uint x0, x1;
+				uint matchpos;
+				uint matchlen;
+
+				if(pos+2 > endpos) goto unc_done;
+				x0 = (uint)dbuf_getbyte_p(dcmpri->f, &pos);
+				x1 = (uint)dbuf_getbyte_p(dcmpri->f, &pos);
+				matchpos = ((x1 & 0xf0) << 4) | x0;
+				matchlen = (x1 & 0x0f) + 3;
+
 				while(matchlen--) {
-					dbuf_writebyte(outf, window[matchpos]);
-					if(outf->len >= expected_output_len) goto unc_done;
-					window[wpos] = window[matchpos];
-					wpos++; wpos &= 4095;
-					matchpos++; matchpos &= 4095;
+					szdd_emit_byte(c, sctx, sctx->window[matchpos]);
+					if(dcmpro->len_known && sctx->nbytes_written>=dcmpro->expected_len) goto unc_done;
+					matchpos = (matchpos+1) & 4095;
 				}
 			}
 		}
 	}
 
 unc_done:
-	nbytes_read = pos-pos1;
-	de_dbg(c, "uncompressed %d bytes to %d bytes",
-		(int)nbytes_read, (int)outf->len);
+	dres->bytes_consumed_valid = 1;
+	dres->bytes_consumed = pos - dcmpri->pos;
+	de_free(c, sctx);
+}
 
-	if(outf->len != expected_output_len) {
-		de_warn(c, "Expected %d output bytes, got %d",
-			(int)expected_output_len, (int)outf->len);
+static void do_decompress(deark *c,
+	lctx *d, dbuf *inf, i64 pos, i64 input_len,
+	dbuf *outf, i64 expected_output_len)
+{
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = inf;
+	dcmpri.pos = pos;
+	dcmpri.len = input_len;
+	dcmpro.f = outf;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = expected_output_len;
+	do_decompress_SZDD(c, &dcmpri, &dcmpro, &dres);
+
+	if(dres.errcode) {
+		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
+		goto done;
 	}
 
-	de_free(c, window);
+	if(dres.bytes_consumed_valid) {
+		de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes",
+			dres.bytes_consumed, outf->len);
+	}
+
+	if(outf->len != expected_output_len) {
+		de_warn(c, "Expected %"I64_FMT" output bytes, got %"I64_FMT,
+			expected_output_len, outf->len);
+	}
+
+done:
+	;
 }
 
 static int detect_fmt_internal(deark *c)
@@ -207,7 +251,7 @@ static void de_run_mscompress(deark *c, de_module_params *mparams)
 	de_dbg(c, "compressed data at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	outf = dbuf_create_output_file(c, "bin", NULL, 0);
-	do_uncompress_SZDD(c, c->infile, pos, c->infile->len-pos, outf, d->uncmpr_len);
+	do_decompress(c, d, c->infile, pos, c->infile->len-pos, outf, d->uncmpr_len);
 	de_dbg_indent(c, -1);
 
 done:
