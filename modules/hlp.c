@@ -83,6 +83,7 @@ typedef struct localctx_struct {
 	de_ucstring *tmpucstring1;
 	de_ucstring *help_file_title;
 	de_ucstring *help_file_copyright;
+	struct de_timestamp gendate;
 } lctx;
 
 static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt, int extract_only,
@@ -122,12 +123,10 @@ static const struct systemrec_info systemrec_info_default =
 static void hlptime_to_timestamp(i64 ht, struct de_timestamp *ts)
 {
 	if(ht!=0) {
-		// This appears to be a Unix-style timestamp, though some documentation
-		// says otherwise.
 		de_unix_time_to_timestamp(ht, ts, 0);
 	}
 	else {
-		de_zeromem(ts, sizeof(struct de_timestamp));
+		ts->is_valid = 0;
 	}
 }
 
@@ -173,6 +172,16 @@ static void do_SYSTEMREC_uint32_hex(deark *c, lctx *d, unsigned int recordtype,
 	de_dbg(c, "value: 0x%08x", n);
 }
 
+static void extract_system_icon(deark *c, lctx *d, i64 pos, i64 len)
+{
+	de_finfo *fi = NULL;
+
+	fi = de_finfo_create(c);
+	fi->mod_time = d->gendate;
+	dbuf_create_file_from_slice(c->infile, pos, len, "ico", fi, DE_CREATEFLAG_IS_AUX);
+	de_finfo_destroy(c, fi);
+}
+
 static void do_SYSTEMREC(deark *c, lctx *d, unsigned int recordtype,
 	i64 pos1, i64 len, const struct systemrec_info *sti)
 {
@@ -193,7 +202,7 @@ static void do_SYSTEMREC(deark *c, lctx *d, unsigned int recordtype,
 	}
 	else if(recordtype==5) { // Icon
 		d->has_ico = 1;
-		dbuf_create_file_from_slice(c->infile, pos1, len, "ico", NULL, DE_CREATEFLAG_IS_AUX);
+		extract_system_icon(c, d, pos1, len);
 	}
 	else if(sti->flags&0x10) {
 		do_SYSTEMREC_STRINGZ(c, d, recordtype, pos1, len, sti, NULL);
@@ -227,7 +236,6 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, i64 pos1)
 	i64 magic;
 	i64 gen_date;
 	unsigned int flags;
-	struct de_timestamp ts;
 	char timestamp_buf[64];
 	int retval = 0;
 
@@ -250,8 +258,8 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, i64 pos1)
 	}
 
 	gen_date = de_geti32le_p(&pos);
-	hlptime_to_timestamp(gen_date, &ts);
-	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
+	hlptime_to_timestamp(gen_date, &d->gendate);
+	de_timestamp_to_string(&d->gendate, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "GenDate: %d (%s)", (int)gen_date, timestamp_buf);
 
 	flags = (unsigned int)de_getu16le_p(&pos);
@@ -350,27 +358,41 @@ done:
 
 static void do_file_SHG(deark *c, lctx *d, i64 pos1, i64 used_space)
 {
-	i64 num_images;
-	i64 sig;
+	i64 oldsig;
 	const char *ext;
 	dbuf *outf = NULL;
+	de_finfo *fi = NULL;
 
-	// Ignore the file SHG vs. MRB file type signature, and replace it with
-	// the correct one based on the number of images in the file.
-	num_images = de_getu16le(pos1+2);
-	if(num_images>1) {
-		ext="mrb";
-		sig = 0x706c;
+	// Reportedly, 0x506c = SHG = 1 image, and 0x706c = MRB = >1 image.
+	// But I'm not convinced that's correct.
+	// I'm to sure what to do, as far as selecting a file extension, and potentially
+	// correcting the signature. Current behavior is to leave the signature the same,
+	// and derive the file extension from the number of images.
+	oldsig = de_getu16le(pos1);
+
+	if(oldsig==0x506c || oldsig==0x706c) {
+		i64 num_images;
+
+		num_images = de_getu16le(pos1+2);
+		if(num_images>1) {
+			ext="mrb";
+		}
+		else {
+			ext="shg";
+		}
 	}
 	else {
-		ext="shg";
-		sig = 0x506c;
+		ext="bin";
 	}
 
-	outf = dbuf_create_output_file(c, ext, NULL, 0);
-	dbuf_writeu16le(outf, sig);
-	dbuf_copy(c->infile, pos1+2, used_space-2, outf);
+	fi = de_finfo_create(c);
+	// (Note that if we were to correct the signature, we probably should not copy
+	// the mod time.)
+	fi->mod_time = d->gendate;
+	outf = dbuf_create_output_file(c, ext, fi, 0);
+	dbuf_copy(c->infile, pos1, used_space, outf);
 	dbuf_close(outf);
+	de_finfo_destroy(c, fi);
 }
 
 static void do_extract_raw_file(deark *c, lctx *d, i64 pos1, i64 used_space,
@@ -380,6 +402,7 @@ static void do_extract_raw_file(deark *c, lctx *d, i64 pos1, i64 used_space,
 	const char *ext = NULL;
 
 	fi = de_finfo_create(c);
+	fi->mod_time = d->gendate;
 	if(fn && ucstring_isnonempty(fn->str)) {
 		de_finfo_set_name_from_ucstring(c, fi, fn->str, 0);
 		fi->original_filename_flag = 1;
