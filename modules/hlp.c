@@ -16,11 +16,12 @@ DE_DECLARE_MODULE(de_module_hlp);
 
 enum hlp_filetype {
 	FILETYPE_UNKNOWN = 0,
+	FILETYPE_OTHERSPECIAL,
+	FILETYPE_EXTRACTABLE,
 	FILETYPE_INTERNALDIR,
 	FILETYPE_SYSTEM,
 	FILETYPE_TOPIC,
 	FILETYPE_SHG,
-	FILETYPE_BMP,
 	FILETYPE_PHRASES,
 	FILETYPE_PHRINDEX,
 	FILETYPE_PHRIMAGE,
@@ -372,16 +373,6 @@ static void do_file_SHG(deark *c, lctx *d, i64 pos1, i64 used_space)
 	dbuf_close(outf);
 }
 
-// If a "file"'s name ends in .bmp, and it looks like BMP format, extract it.
-static void do_file_BMP(deark *c, lctx *d, i64 pos1, i64 used_space)
-{
-	if(used_space<14+12) return;
-	if(de_getu16be(pos1) != 0x424d) return; // "BM"
-	d->has_bmp = 1;
-	dbuf_create_file_from_slice(c->infile, pos1, used_space, "bmp", NULL,
-		DE_CREATEFLAG_IS_AUX);
-}
-
 static void do_extract_raw_file(deark *c, lctx *d, i64 pos1, i64 used_space,
 	struct de_stringreaderdata *fn)
 {
@@ -391,6 +382,7 @@ static void do_extract_raw_file(deark *c, lctx *d, i64 pos1, i64 used_space,
 	fi = de_finfo_create(c);
 	if(fn && ucstring_isnonempty(fn->str)) {
 		de_finfo_set_name_from_ucstring(c, fi, fn->str, 0);
+		fi->original_filename_flag = 1;
 	}
 	else {
 		ext = "bin";
@@ -1053,16 +1045,32 @@ static int de_is_digit(char x)
 
 static enum hlp_filetype filename_to_filetype(deark *c, lctx *d, const char *fn)
 {
-	if(!de_strcmp(fn, "|TOPIC")) return FILETYPE_TOPIC;
-	if(!de_strcmp(fn, "|TOMAP")) return FILETYPE_TOMAP;
-	if(!de_strcmp(fn, "|SYSTEM")) return FILETYPE_SYSTEM;
-	if(!de_strncmp(fn, "|bm", 3) && de_is_digit(fn[3])) return FILETYPE_SHG;
-	if(!de_strncmp(fn, "bm", 2) && de_is_digit(fn[2])) return FILETYPE_SHG;
-	if(!de_strcmp(fn, "|Phrases")) return FILETYPE_PHRASES;
-	if(!de_strcmp(fn, "|PhrIndex")) return FILETYPE_PHRINDEX;
-	if(!de_strcmp(fn, "|PhrImage")) return FILETYPE_PHRIMAGE;
-	if(de_sz_has_ext(fn, "bmp")) return FILETYPE_BMP;
-	return FILETYPE_UNKNOWN;
+	const char *ext;
+	size_t extlen;
+
+	if(fn[0]=='|') {
+		if(!de_strcmp(fn, "|TOPIC")) return FILETYPE_TOPIC;
+		if(!de_strcmp(fn, "|TOMAP")) return FILETYPE_TOMAP;
+		if(!de_strcmp(fn, "|SYSTEM")) return FILETYPE_SYSTEM;
+		if(!de_strncmp(fn, "|bm", 3) && de_is_digit(fn[3])) return FILETYPE_SHG;
+		if(!de_strcmp(fn, "|Phrases")) return FILETYPE_PHRASES;
+		if(!de_strcmp(fn, "|PhrIndex")) return FILETYPE_PHRINDEX;
+		if(!de_strcmp(fn, "|PhrImage")) return FILETYPE_PHRIMAGE;
+		return FILETYPE_OTHERSPECIAL;
+	}
+
+	ext = de_get_sz_ext(fn);
+	extlen = de_strlen(ext);
+
+	// Some SHG streams' names don't start with "|". Assume it is SHG if it
+	// starts with "bm" and a digit, and doesn't have a ".".
+	if(extlen==0) {
+		if(!de_strncmp(fn, "bm", 2) && de_is_digit(fn[2])) return FILETYPE_SHG;
+	}
+
+	// Not sure how bold to be here. Should we extract every file that we can't
+	// identify? Or maybe only those that have a filename extension?
+	return FILETYPE_EXTRACTABLE;
 }
 
 static void do_leaf_page(deark *c, lctx *d, i64 pos1, i64 *pnext_page)
@@ -1148,7 +1156,7 @@ static void do_leaf_page(deark *c, lctx *d, i64 pos1, i64 *pnext_page)
 			do_file(c, d, file_offset, file_type, 1, fn_srd);
 		}
 		else if(d->pass==2 && pass_for_this_file==2) {
-			do_file(c, d, file_offset, file_type, 0, NULL);
+			do_file(c, d, file_offset, file_type, 0, fn_srd);
 		}
 
 		de_dbg_indent(c, -1);
@@ -1634,12 +1642,14 @@ static const char* file_type_to_type_name(enum hlp_filetype file_fmt)
 	case FILETYPE_PHRASES: name="Phrases"; break;
 	case FILETYPE_PHRINDEX: name="PhrIndex"; break;
 	case FILETYPE_PHRIMAGE: name="PhrImage"; break;
+	case FILETYPE_OTHERSPECIAL: name="other special stream"; break;
+	case FILETYPE_EXTRACTABLE: name="other extractable file"; break;
 	default: ;
 	}
 	return name;
 }
 
-static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt, int extract_only,
+static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt, int force_extract,
 	struct de_stringreaderdata *fn)
 {
 	i64 reserved_space;
@@ -1665,7 +1675,7 @@ static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt, int
 		goto done;
 	}
 
-	if(extract_only) {
+	if(force_extract) {
 		do_extract_raw_file(c, d, pos, used_space, fn);
 		goto done;
 	}
@@ -1696,8 +1706,8 @@ static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt, int
 		d->has_shg = 1;
 		do_file_SHG(c, d, pos, used_space);
 		break;
-	case FILETYPE_BMP:
-		do_file_BMP(c, d, pos, used_space);
+	case FILETYPE_EXTRACTABLE:
+		do_extract_raw_file(c, d, pos, used_space, fn);
 		break;
 	default: ;
 	}
