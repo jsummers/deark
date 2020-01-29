@@ -29,6 +29,15 @@ typedef struct localctx_struct {
 	de_ucstring *filename;
 } lctx;
 
+static int cmpr_meth_is_supported(uint n)
+{
+	switch(n) {
+	case CMPR_SZDD:
+		return 1;
+	}
+	return 0;
+}
+
 static const char *get_cmpr_meth_name(uint n)
 {
 	char *name = NULL;
@@ -230,6 +239,67 @@ unc_done:
 	de_free(c, sctx);
 }
 
+static void do_decompress_MSZIP(deark *c, struct de_dfilter_in_params *dcmpri1,
+	struct de_dfilter_out_params *dcmpro1, struct de_dfilter_results *dres)
+{
+	const char *modname = "mszip";
+	i64 pos = dcmpri1->pos;
+	int saved_indent_level;
+	dbuf *tmpdbuf = NULL;
+	struct de_dfilter_in_params dcmpri2;
+	struct de_dfilter_out_params dcmpro2;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dfilter_init_objects(c, &dcmpri2, &dcmpro2, NULL);
+	tmpdbuf = dbuf_create_membuf(c, 32768, 0);
+
+	dcmpri2.f = dcmpri1->f;
+	dcmpro2.f = tmpdbuf;
+	dcmpro2.len_known = 1;
+	dcmpro2.expected_len = 32768;
+
+	while(1) {
+		i64 blkpos;
+		i64 blklen_raw;
+		i64 blk_dlen;
+		uint sig;
+
+		if(pos > dcmpri1->pos + dcmpri1->len -4) {
+			goto done;
+		}
+		blkpos = pos;
+		de_dbg(c, "MSZIP block at %"I64_FMT, blkpos);
+		de_dbg_indent(c, 1);
+		blklen_raw = dbuf_getu16le_p(dcmpri1->f, &pos);
+		blk_dlen = blklen_raw - 2;
+		sig = (uint)dbuf_getu16be_p(dcmpri1->f, &pos);
+		if(sig != 0x434b) { // "CK"
+			de_dfilter_set_errorf(c, dres, modname, "Failed to find MSZIP block "
+				"at %"I64_FMT, blkpos);
+			goto done;
+		}
+		de_dbg(c, "block dpos: %"I64_FMT", dlen: %d", pos, (int)blk_dlen);
+		if(blk_dlen < 0) goto done;
+		dcmpri2.pos = pos;
+		dcmpri2.len = blk_dlen;
+		fmtutil_decompress_deflate_ex(c, &dcmpri2, &dcmpro2, dres, 0);
+		if(dres->errcode) goto done;
+		dbuf_copy(tmpdbuf, 0, tmpdbuf->len, dcmpro1->f);
+		if(tmpdbuf->len < 32768) break; // Presumably we're done.
+
+		// TODO: Need to somehow save the history buffer, for the next chunk.
+
+		dbuf_truncate(tmpdbuf, 0);
+		de_dbg_indent(c, -1);
+		pos += blk_dlen;
+		break;
+	}
+
+done:
+	dbuf_close(tmpdbuf);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static void do_decompress(deark *c, lctx *d, dbuf *outf)
 {
 	struct de_dfilter_in_params dcmpri;
@@ -243,7 +313,15 @@ static void do_decompress(deark *c, lctx *d, dbuf *outf)
 	dcmpro.f = outf;
 	dcmpro.len_known = d->uncmpr_len_known;
 	dcmpro.expected_len =  d->uncmpr_len;
-	do_decompress_SZDD(c, &dcmpri, &dcmpro, &dres);
+
+	switch(d->cmpr_meth) {
+	case CMPR_SZDD:
+		do_decompress_SZDD(c, &dcmpri, &dcmpro, &dres);
+		break;
+	case CMPR_MSZIP:
+		do_decompress_MSZIP(c, &dcmpri, &dcmpro, &dres);
+		break;
+	}
 
 	if(dres.errcode) {
 		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
@@ -269,7 +347,7 @@ static void do_extract_file(deark *c, lctx *d)
 	dbuf *outf = NULL;
 
 	de_dbg(c, "compressed data at %"I64_FMT, d->cmpr_data_pos);
-	if(d->cmpr_meth != CMPR_SZDD) {
+	if(!cmpr_meth_is_supported(d->cmpr_meth)) {
 		de_err(c, "Compression method %u (%s) is not supported", d->cmpr_meth,
 			get_cmpr_meth_name(d->cmpr_meth));
 		goto done;
