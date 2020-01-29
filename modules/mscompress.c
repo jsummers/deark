@@ -33,6 +33,7 @@ static int cmpr_meth_is_supported(uint n)
 {
 	switch(n) {
 	case CMPR_SZDD:
+	case CMPR_MSZIP:
 		return 1;
 	}
 	return 0;
@@ -248,6 +249,7 @@ static void do_decompress_MSZIP(deark *c, struct de_dfilter_in_params *dcmpri1,
 	dbuf *tmpdbuf = NULL;
 	struct de_dfilter_in_params dcmpri2;
 	struct de_dfilter_out_params dcmpro2;
+	u8 *prev_dict = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dfilter_init_objects(c, &dcmpri2, &dcmpro2, NULL);
@@ -282,21 +284,27 @@ static void do_decompress_MSZIP(deark *c, struct de_dfilter_in_params *dcmpri1,
 		if(blk_dlen < 0) goto done;
 		dcmpri2.pos = pos;
 		dcmpri2.len = blk_dlen;
-		fmtutil_decompress_deflate_ex(c, &dcmpri2, &dcmpro2, dres, 0);
+		fmtutil_decompress_deflate_ex2(c, &dcmpri2, &dcmpro2, dres, 0, prev_dict);
 		if(dres->errcode) goto done;
 		dbuf_copy(tmpdbuf, 0, tmpdbuf->len, dcmpro1->f);
+		pos += blk_dlen;
 		if(tmpdbuf->len < 32768) break; // Presumably we're done.
 
-		// TODO: Need to somehow save the history buffer, for the next chunk.
+		// Save the history buffer, for the next chunk.
+		if(!prev_dict) {
+			prev_dict = de_malloc(c, 32768);
+		}
+		dbuf_read(tmpdbuf, prev_dict, 0, 32768);
 
 		dbuf_truncate(tmpdbuf, 0);
 		de_dbg_indent(c, -1);
-		pos += blk_dlen;
-		break;
 	}
 
 done:
+	dres->bytes_consumed_valid = 1;
+	dres->bytes_consumed = pos - dcmpri1->pos;
 	dbuf_close(tmpdbuf);
+	de_free(c, prev_dict);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 

@@ -642,7 +642,7 @@ Deark -- Information about supported formats
    -opt cfb:fmt=thumbsdb - Treat the file as a Thumbs.db file.
 
 * Microsoft Installation Compression (module="mscompress")
-  - "KWAJ" variant not supported
+  - "KWAJ" variant is not well supported
 
 * NRG (module="nrg") (experimental)
   Nero CD image format.

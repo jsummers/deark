@@ -16,7 +16,7 @@
 
 static void de_inflate_internal(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	unsigned int flags)
+	unsigned int flags, const u8 *starting_dict)
 {
 	mz_stream strm;
 	int ret;
@@ -56,6 +56,12 @@ static void de_inflate_internal(deark *c, struct de_dfilter_in_params *dcmpri,
 	if(ret!=MZ_OK) {
 		de_dfilter_set_errorf(c, dres, modname, "Inflate error");
 		goto done;
+	}
+
+	if(starting_dict) {
+		inflate_state *pDecomp = (inflate_state *)strm.state;
+
+		de_memcpy(pDecomp->m_dict, starting_dict, 32768);
 	}
 
 	stream_open_flag = 1;
@@ -106,6 +112,7 @@ static void de_inflate_internal(deark *c, struct de_dfilter_in_params *dcmpri,
 		strm.avail_out = DE_DFL_OUTBUF_SIZE;
 
 		ret = mz_inflate(&strm, MZ_SYNC_FLUSH);
+
 		if(ret!=MZ_STREAM_END && ret!=MZ_OK) {
 			de_dfilter_set_errorf(c, dres, modname, "Inflate error (%d)", (int)ret);
 			goto done;
@@ -173,7 +180,7 @@ int fmtutil_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *o
 		flags -= DE_DEFLATEFLAG_USEMAXUNCMPRSIZE;
 	}
 
-	de_inflate_internal(c, &dcmpri, &dcmpro, &dres, flags);
+	de_inflate_internal(c, &dcmpri, &dcmpro, &dres, flags, NULL);
 
 	if(bytes_consumed && dres.bytes_consumed_valid) {
 		*bytes_consumed = dres.bytes_consumed;
@@ -190,7 +197,15 @@ void fmtutil_decompress_deflate_ex(deark *c, struct de_dfilter_in_params *dcmpri
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags)
 {
-	de_inflate_internal(c, dcmpri, dcmpro, dres, flags);
+	de_inflate_internal(c, dcmpri, dcmpro, dres, flags, NULL);
+}
+
+// TODO: There are too many decompress_deflate_* functions. Clean this up.
+void fmtutil_decompress_deflate_ex2(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	unsigned int flags, const u8 *dict)
+{
+	de_inflate_internal(c, dcmpri, dcmpro, dres, flags, dict);
 }
 
 struct fmtutil_tdefl_ctx {
