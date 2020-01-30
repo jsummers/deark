@@ -32,6 +32,8 @@ typedef struct localctx_struct {
 static int cmpr_meth_is_supported(uint n)
 {
 	switch(n) {
+	case CMPR_NONE:
+	case CMPR_XOR:
 	case CMPR_SZDD:
 	case CMPR_MSZIP:
 		return 1;
@@ -44,7 +46,7 @@ static const char *get_cmpr_meth_name(uint n)
 	char *name = NULL;
 
 	switch(n) {
-	case CMPR_NONE: name="none"; break;
+	case CMPR_NONE: name="uncompressed"; break;
 	case CMPR_XOR: name="XOR"; break;
 	case CMPR_SZDD: name="SZDD"; break;
 	case CMPR_LZHUFF: name="LZ+Huffman"; break;
@@ -163,10 +165,36 @@ header_extensions_done:
 	if(ucstring_isnonempty(d->filename)) {
 		de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(d->filename));
 	}
+
+	// If no compression, don't copy/convert more bytes than given by the uncmpr_len field.
+	if(d->uncmpr_len_known && (d->cmpr_meth==CMPR_NONE || d->cmpr_meth==CMPR_XOR) &&
+		d->uncmpr_len < d->cmpr_data_len)
+	{
+		d->cmpr_data_len = d->uncmpr_len;
+	}
+
 	retval = 1;
 
 	de_dbg_indent(c, -1);
 	return retval;
+}
+
+static int XOR_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
+	i64 buf_len)
+{
+	i64 k;
+	dbuf *f = (dbuf*)brctx->userdata;
+
+	for(k=0; k<buf_len; k++) {
+		dbuf_writebyte(f, ~buf[k]);
+	}
+	return 1;
+}
+
+static void do_decompress_XOR(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
+{
+	dbuf_buffered_read(dcmpri->f, dcmpri->pos, dcmpri->len, XOR_cbfn, (void*)dcmpro->f);
 }
 
 struct szdd_ctx {
@@ -318,11 +346,18 @@ static void do_decompress(deark *c, lctx *d, dbuf *outf)
 	dcmpri.f = c->infile;
 	dcmpri.pos = d->cmpr_data_pos;
 	dcmpri.len = d->cmpr_data_len;
+
 	dcmpro.f = outf;
 	dcmpro.len_known = d->uncmpr_len_known;
 	dcmpro.expected_len =  d->uncmpr_len;
 
 	switch(d->cmpr_meth) {
+	case CMPR_NONE:
+		dbuf_copy(dcmpri.f, dcmpri.pos, dcmpri.len, dcmpro.f);
+		break;
+	case CMPR_XOR:
+		do_decompress_XOR(c, &dcmpri, &dcmpro, &dres);
+		break;
 	case CMPR_SZDD:
 		do_decompress_SZDD(c, &dcmpri, &dcmpro, &dres);
 		break;
@@ -353,6 +388,7 @@ done:
 static void do_extract_file(deark *c, lctx *d)
 {
 	dbuf *outf = NULL;
+	de_finfo *fi = NULL;
 
 	de_dbg(c, "compressed data at %"I64_FMT, d->cmpr_data_pos);
 	if(!cmpr_meth_is_supported(d->cmpr_meth)) {
@@ -363,12 +399,21 @@ static void do_extract_file(deark *c, lctx *d)
 	if(d->cmpr_data_len<0) goto done;
 
 	de_dbg_indent(c, 1);
-	outf = dbuf_create_output_file(c, "bin", NULL, 0);
+	fi = de_finfo_create(c);
+	if(ucstring_isnonempty(d->filename)) {
+		de_finfo_set_name_from_ucstring(c, fi, d->filename, 0);
+		fi->original_filename_flag = 1;
+	}
+	else {
+		de_finfo_set_name_from_sz(c, fi, "bin", 0, DE_ENCODING_LATIN1);
+	}
+	outf = dbuf_create_output_file(c, NULL, fi, 0);
 	do_decompress(c, d, outf);
 	de_dbg_indent(c, -1);
 
 done:
 	dbuf_close(outf);
+	de_finfo_destroy(c, fi);
 }
 
 static int detect_fmt_internal(deark *c)
