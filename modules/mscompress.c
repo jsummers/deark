@@ -312,7 +312,7 @@ static void do_decompress_MSZIP(deark *c, struct de_dfilter_in_params *dcmpri1,
 		if(blk_dlen < 0) goto done;
 		dcmpri2.pos = pos;
 		dcmpri2.len = blk_dlen;
-		fmtutil_decompress_deflate_ex2(c, &dcmpri2, &dcmpro2, dres, 0, prev_dict);
+		fmtutil_decompress_deflate_ex(c, &dcmpri2, &dcmpro2, dres, 0, prev_dict);
 		if(dres->errcode) goto done;
 		dbuf_copy(tmpdbuf, 0, tmpdbuf->len, dcmpro1->f);
 		pos += blk_dlen;

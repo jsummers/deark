@@ -141,7 +141,7 @@ static void do_decompress_deflate(deark *c, lctx *d, struct compression_params *
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	fmtutil_decompress_deflate_ex(c, dcmpri, dcmpro, dres, 0);
+	fmtutil_decompress_deflate_ex(c, dcmpri, dcmpro, dres, 0, NULL);
 }
 
 static void do_decompress_stored(deark *c, lctx *d, struct compression_params *cparams,
