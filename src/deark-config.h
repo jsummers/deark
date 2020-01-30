@@ -22,3 +22,9 @@
 #endif
 
 #endif
+
+#ifdef __GNUC__
+#define de_gnuc_attribute __attribute__
+#else
+#define de_gnuc_attribute(x)
+#endif

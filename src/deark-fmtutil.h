@@ -98,6 +98,8 @@ int de_fmtutil_decompress_packbits16(dbuf *f, i64 pos1, i64 len,
 void de_fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags);
+void fmtutil_decompress_hlp_lz77(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
 
 #define DE_LIBLZWFLAG_HAS3BYTEHEADER  0x1
 #define DE_LIBLZWFLAG_ARCFSMODE       0x2
@@ -479,3 +481,8 @@ void fmtutil_macbitmap_read_pixmap_only_fields(deark *c, dbuf *f,
 	struct fmtutil_macbitmap_info *bi, i64 pos);
 int fmtutil_macbitmap_read_colortable(deark *c, dbuf *f,
 	struct fmtutil_macbitmap_info *bi, i64 pos, i64 *bytes_used);
+
+i64 fmtutil_hlp_get_cus_p(dbuf *f, i64 *ppos);
+i64 fmtutil_hlp_get_css_p(dbuf *f, i64 *ppos);
+i64 fmtutil_hlp_get_cul_p(dbuf *f, i64 *ppos);
+i64 fmtutil_hlp_get_csl_p(dbuf *f, i64 *ppos);

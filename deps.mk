@@ -95,7 +95,7 @@ $(OBJDIR)/modules/gzip.o: modules/gzip.c src/deark-config.h \
 $(OBJDIR)/modules/hfs.o: modules/hfs.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/hlp.o: modules/hlp.c src/deark-config.h \
- src/deark-private.h src/deark.h
+ src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/iccprofile.o: modules/iccprofile.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/icns.o: modules/icns.c src/deark-config.h \
@@ -289,7 +289,8 @@ $(OBJDIR)/src/deark-zip.o: src/deark-zip.c src/deark-config.h \
 $(OBJDIR)/src/fmtutil-cmpr.o: src/fmtutil-cmpr.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/src/fmtutil-lzw.o: src/fmtutil-lzw.c src/deark-config.h \
- src/deark-private.h src/deark.h src/deark-fmtutil.h
+ src/deark-private.h src/deark.h src/deark-fmtutil.h \
+ src/../foreign/delzw.h
 $(OBJDIR)/src/fmtutil-miniz.o: src/fmtutil-miniz.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h \
  src/../foreign/miniz.h

@@ -553,6 +553,13 @@ static void destroy_lctx(deark *c, lctx *d)
 
 static void do_run_arc_spark_internal(deark *c, lctx *d)
 {
+	i64 pos = 0;
+
+	if(de_getbyte(0)!=0x1a && de_getbyte(3)==0x1a) {
+		// Possible self-extracting COM file
+		pos += 3;
+	}
+
 	de_declare_fmt(c, d->fmtname);
 
 	d->curpath = de_strarray_create(c);
@@ -562,7 +569,7 @@ static void do_run_arc_spark_internal(deark *c, lctx *d)
 		do_comments(c, d);
 	}
 
-	do_sequence_of_members(c, d, 0, c->infile->len);
+	do_sequence_of_members(c, d, pos, c->infile->len);
 }
 
 static void de_run_spark(deark *c, de_module_params *mparams)
@@ -645,20 +652,34 @@ static void de_run_arc(deark *c, de_module_params *mparams)
 
 static int de_identify_arc(deark *c)
 {
-	static const char *exts[] = {"arc", "ark", "pak", "spk"};
+	static const char *exts[] = {"arc", "ark", "pak", "spk", "com"};
 	int has_ext = 0;
+	int maybe_sfx = 0;
 	int ends_with_trailer = 0;
 	int ends_with_comments = 0;
 	int starts_with_trailer = 0;
+	i64 arc_start = 0;
 	size_t k;
 	u8 cmpr_meth;
 
-	if(de_getbyte(0) != 0x1a) return 0;
-	cmpr_meth = de_getbyte(1);
+	if(de_getbyte(0) != 0x1a) {
+		if(de_input_file_has_ext(c, "com")) {
+			maybe_sfx = 1;
+		}
+		if(maybe_sfx && de_getbyte(3)==0x1a) {
+			arc_start = 3;
+		}
+		else {
+			return 0;
+		}
+	}
+
+	cmpr_meth = de_getbyte(arc_start+1);
 	if(cmpr_meth>9) return 0;
 	if(cmpr_meth==0) starts_with_trailer = 1;
 
-	for(k=0; k<DE_ARRAYCOUNT(exts); k++) {if(de_input_file_has_ext(c, exts[k])) {
+	for(k=0; k<DE_ARRAYCOUNT(exts); k++) {
+		if(de_input_file_has_ext(c, exts[k])) {
 			has_ext = 1;
 			break;
 		}
@@ -683,7 +704,7 @@ static int de_identify_arc(deark *c)
 	}
 	if(has_ext && (ends_with_trailer || ends_with_comments)) return 90;
 	if(ends_with_trailer || ends_with_comments) return 25;
-	if(has_ext) return 15;
+	if(has_ext || maybe_sfx) return 15;
 	return 0;
 }
 

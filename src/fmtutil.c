@@ -2051,3 +2051,74 @@ int fmtutil_macbitmap_read_colortable(deark *c, dbuf *f,
 	*bytes_used = 8 + 8*bi->num_pal_entries;
 	return 1;
 }
+
+// "compressed unsigned short" - a variable-length integer format
+// TODO: This is duplicated in shg.c
+i64 fmtutil_hlp_get_cus_p(dbuf *f, i64 *ppos)
+{
+	i64 x1, x2;
+
+	x1 = (i64)dbuf_getbyte_p(f, ppos);
+	if(x1%2 == 0) {
+		// If it's even, divide by two.
+		return x1>>1;
+	}
+	// If it's odd, divide by two, and add 128 times the value of
+	// the next byte.
+	x2 = (i64)dbuf_getbyte_p(f, ppos);
+	return (x1>>1) | (x2<<7);
+}
+
+// "compressed signed short"
+i64 fmtutil_hlp_get_css_p(dbuf *f, i64 *ppos)
+{
+	i64 x1, x2;
+
+	x1 = (i64)dbuf_getbyte_p(f, ppos);
+	if(x1%2 == 0) {
+		// If it's even, divide by two, and subtract 64
+		return (x1>>1) - 64;
+	}
+	// If it's odd, divide by two, add 128 times the value of
+	// the next byte, and subtract 16384.
+	x1 >>= 1;
+	x2 = (i64)dbuf_getbyte_p(f, ppos);
+	x1 += x2 * 128;
+	x1 -= 16384;
+	return x1;
+}
+
+// "compressed unsigned long"
+i64 fmtutil_hlp_get_cul_p(dbuf *f, i64 *ppos)
+{
+	i64 x1, x2;
+	x1 = dbuf_getu16le_p(f, ppos);
+	if(x1%2 == 0) {
+		// If it's even, divide by two.
+		return x1>>1;
+	}
+	// If it's odd, divide by two, and add 32768 times the value of
+	// the next two bytes.
+	x2 = dbuf_getu16le_p(f, ppos);
+	return (x1>>1) | (x2<<15);
+}
+
+// "compressed signed long"
+i64 fmtutil_hlp_get_csl_p(dbuf *f, i64 *ppos)
+{
+	i64 x1, x2;
+
+	x1 = dbuf_getu16le_p(f, ppos);
+
+	if(x1%2 == 0) {
+		// If it's even, divide by two, and subtract 16384
+		return (x1>>1) - 16384;
+	}
+	// If it's odd, divide by two, add 32768 times the value of
+	// the next two bytes, and subtract 67108864.
+	x1 >>= 1;
+	x2 = dbuf_getu16le_p(f, ppos);
+	x1 += x2*32768;
+	x1 -= 67108864;
+	return x1;
+}
