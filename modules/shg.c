@@ -33,47 +33,6 @@ typedef struct localctx_struct {
 	i64 num_pictures;
 } lctx;
 
-static void do_decompress_lz77_wrapper(deark *c, dbuf *inf, i64 pos1,
-	i64 input_len, dbuf *outf, u8 output_len_known, i64 expected_output_len)
-{
-	struct de_dfilter_in_params dcmpri;
-	struct de_dfilter_out_params dcmpro;
-	struct de_dfilter_results dres;
-	i64 outf_start_len;
-	i64 actual_output_len;
-
-	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
-	dcmpri.f = inf;
-	dcmpri.pos = pos1;
-	dcmpri.len = input_len;
-
-	dcmpro.f = outf;
-	if(output_len_known) {
-		dcmpro.len_known = 1;
-		dcmpro.expected_len = expected_output_len;
-	}
-	outf_start_len = outf->len;
-
-	fmtutil_decompress_hlp_lz77(c, &dcmpri, &dcmpro, &dres);
-
-	if(dres.errcode) {
-		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
-		goto done;
-	}
-
-	actual_output_len = outf->len - outf_start_len;
-	de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", input_len,
-		actual_output_len);
-
-	if(dcmpro.len_known && (actual_output_len < dcmpro.expected_len)) {
-		de_warn(c, "Expected %"I64_FMT" output bytes, got %"I64_FMT,
-			dcmpro.expected_len, actual_output_len);
-	}
-
-done:
-	;
-}
-
 struct rlectx {
 	dbuf *outf;
 	int compressed_run_pending;
@@ -112,24 +71,62 @@ static void rle_codec_addbuf(struct rlectx *rctx, const u8 *buf, i64 buf_len)
 	}
 }
 
-static void do_uncompress_rle(deark *c, lctx *d,
-	dbuf *inf, i64 pos1, i64 len,
-	dbuf *unc_pixels)
+// RunLength
+static void do_decompress_type_1(deark *c, lctx *d,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
 {
-	i64 k;
 	struct rlectx *rctx = NULL;
+	i64 k;
 
+	de_dbg(c, "doing RLE decompression");
 	rctx = de_malloc(c, sizeof(struct rlectx));
-	rctx->outf = unc_pixels;
+	rctx->outf =  dcmpro->f;
 
-	for(k=0; k<len; k++) {
+	for(k=0; k<dcmpri->len; k++) {
 		u8 b;
 
-		b = dbuf_getbyte(inf, pos1+k);
+		b = dbuf_getbyte(dcmpri->f, dcmpri->pos+k);
 		rle_codec_addbuf(rctx, &b, 1);
 	}
 
 	de_free(c, rctx);
+}
+
+// LZ77
+static void do_decompress_type_2(deark *c, lctx *d,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	de_dbg(c, "doing LZ77 decompression");
+	fmtutil_decompress_hlp_lz77(c, dcmpri, dcmpro, dres);
+}
+
+// LZ77 + RLE
+static void do_decompress_type_3(deark *c, lctx *d,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	dbuf *pixels_tmp = NULL;
+	struct de_dfilter_in_params dcmpri_tmp;
+	struct de_dfilter_out_params dcmpro_tmp;
+
+	de_dfilter_init_objects(c, &dcmpri_tmp, &dcmpro_tmp, NULL);
+
+	// FIXME: This is temporary.
+	pixels_tmp = dbuf_create_membuf(c, 0, 0);
+
+	dcmpro_tmp.f = pixels_tmp;
+	do_decompress_type_2(c, d, dcmpri, &dcmpro_tmp, dres);
+	if(dres->errcode) goto done;
+
+	dcmpri_tmp.f = pixels_tmp;
+	dcmpri_tmp.pos = 0;
+	dcmpri_tmp.len = pixels_tmp->len;
+	do_decompress_type_1(c, d, &dcmpri_tmp, dcmpro, dres);
+
+done:
+	dbuf_close(pixels_tmp);
 }
 
 static int do_uncompress_picture_data(deark *c, lctx *d,
@@ -137,56 +134,51 @@ static int do_uncompress_picture_data(deark *c, lctx *d,
 	i64 compressed_offset, i64 compressed_size,
 	dbuf *pixels_final, i64 final_image_size)
 {
-	dbuf *pixels_tmp = NULL;
 	int retval = 0;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
 
 	if(pctx->packing_method>3) {
 		de_err(c, "Unsupported compression type: %d", (int)pctx->packing_method);
 		goto done;
 	}
 
-	pixels_tmp = dbuf_create_membuf(c, 0, 0);
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = compressed_offset;
+	dcmpri.len = compressed_size;
+	dcmpro.f = pixels_final;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = final_image_size;
 
-	// Copy the pixels to a membuf, then run zero or more decompression
-	// algorithms on them using a temporary membuf.
-	// This is not very efficient, but it keeps the code simple.
-	dbuf_copy(c->infile, compressed_offset, compressed_size, pixels_final);
-
-	if(pctx->packing_method==2 || pctx->packing_method==3) {
-		de_dbg(c, "doing LZ77 decompression");
-		dbuf_copy(pixels_final, 0, pixels_final->len, pixels_tmp);
-		dbuf_truncate(pixels_final, 0);
-
-		// If packing_method==2, then this is the last decompression algorithm,
-		// so we know how many output bytes to expect.
-		if(pctx->packing_method==2) {
-			do_decompress_lz77_wrapper(c, pixels_tmp, 0, pixels_tmp->len,
-				pixels_final, 1, final_image_size);
-		}
-		else {
-			do_decompress_lz77_wrapper(c, pixels_tmp, 0, pixels_tmp->len,
-				pixels_final, 0, 0);
-		}
-		dbuf_truncate(pixels_tmp, 0);
+	switch(pctx->packing_method) {
+	case 1:
+		do_decompress_type_1(c, d, &dcmpri, &dcmpro, &dres);
+		break;
+	case 2:
+		do_decompress_type_2(c, d, &dcmpri, &dcmpro, &dres);
+		break;
+	case 3:
+		do_decompress_type_3(c, d, &dcmpri, &dcmpro, &dres);
+		break;
+	default: // 0, uncompressed
+		dbuf_copy(dcmpri.f, dcmpri.pos, dcmpri.len, dcmpro.f);
 	}
 
-	if(pctx->packing_method==1 || pctx->packing_method==3) {
-		de_dbg(c, "doing RLE decompression");
-		dbuf_copy(pixels_final, 0, pixels_final->len, pixels_tmp);
-		dbuf_truncate(pixels_final, 0);
-		do_uncompress_rle(c, d, pixels_tmp, 0, pixels_tmp->len, pixels_final);
-		dbuf_truncate(pixels_tmp, 0);
+	if(pixels_final->len < final_image_size) {
+		de_warn(c, "Expected %"I64_FMT" bytes after decompression, only got %"I64_FMT,
+			final_image_size, pixels_final->len);
+	}
 
-		if(pixels_final->len < final_image_size) {
-			de_warn(c, "Expected %d bytes after decompression, only got %d",
-				(int)final_image_size, (int)pixels_final->len);
-		}
+	if(dres.errcode) {
+		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
+		goto done;
 	}
 
 	retval = 1;
 
 done:
-	dbuf_close(pixels_tmp);
 	return retval;
 }
 
