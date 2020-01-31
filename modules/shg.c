@@ -74,34 +74,62 @@ done:
 	;
 }
 
+struct rlectx {
+	dbuf *outf;
+	int compressed_run_pending;
+	i64 compressed_run_count;
+	i64 uncompressed_run_bytes_left;
+	i64 nbytes_consumed;
+};
+
+static void rle_codec_addbuf(struct rlectx *rctx, const u8 *buf, i64 buf_len)
+{
+	i64 k;
+
+	for(k=0; k<buf_len; k++) {
+		if(rctx->uncompressed_run_bytes_left>0) {
+			dbuf_writebyte(rctx->outf, buf[k]);
+			rctx->uncompressed_run_bytes_left--;
+			rctx->nbytes_consumed++;
+			continue;
+		}
+
+		if(rctx->compressed_run_pending) {
+			dbuf_write_run(rctx->outf, buf[k], rctx->compressed_run_count);
+			rctx->compressed_run_pending = 0;
+			rctx->nbytes_consumed += 2;
+			continue;
+		}
+
+		if(buf[k] & 0x80) { // beginning of uncompressed run
+			rctx->uncompressed_run_bytes_left = (i64)(buf[k] & 0x7f);
+			rctx->nbytes_consumed++;
+			continue;
+		}
+
+		rctx->compressed_run_count = (i64)buf[k];
+		rctx->compressed_run_pending = 1;
+	}
+}
+
 static void do_uncompress_rle(deark *c, lctx *d,
 	dbuf *inf, i64 pos1, i64 len,
 	dbuf *unc_pixels)
 {
-	i64 pos;
-	i64 endpos;
-	u8 b;
-	i64 count;
+	i64 k;
+	struct rlectx *rctx = NULL;
 
-	endpos = pos1 + len;
-	pos = pos1;
-	while(pos<endpos) {
-		b = dbuf_getbyte(inf, pos);
-		pos++;
-		if(b&0x80) {
-			// uncompressed run
-			count = (i64)(b&0x7f);
-			dbuf_copy(inf, pos, count, unc_pixels);
-			pos += count;
-		}
-		else {
-			// compressed run
-			count = (i64)b;
-			b = dbuf_getbyte(inf, pos);
-			pos++;
-			dbuf_write_run(unc_pixels, b, count);
-		}
+	rctx = de_malloc(c, sizeof(struct rlectx));
+	rctx->outf = unc_pixels;
+
+	for(k=0; k<len; k++) {
+		u8 b;
+
+		b = dbuf_getbyte(inf, pos1+k);
+		rle_codec_addbuf(rctx, &b, 1);
 	}
+
+	de_free(c, rctx);
 }
 
 static int do_uncompress_picture_data(deark *c, lctx *d,
