@@ -565,6 +565,7 @@ static void dres_transfer_error(deark *c, struct de_dfilter_results *src,
 	// The first codec in the chain does not need the advanced (de_dfilter_create) API.
 	de_dfilter_decompress_oneshot(c, codec1, codec1_private_params,
 		dcmpri, &dcmpro_codec1, dres);
+	de_dfilter_finish(dfctx_codec2);
 
 	if(dres->errcode) goto done;
 	de_dbg2(c, "size after intermediate decompression: %"I64_FMT, u.intermediate_nbytes);

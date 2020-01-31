@@ -41,9 +41,11 @@ struct rlectx {
 	i64 nbytes_consumed;
 };
 
-static void rle_codec_addbuf(struct rlectx *rctx, const u8 *buf, i64 buf_len)
+static void  my_shgrle_codec_addbuf(struct de_dfilter_ctx *dfctx,
+	const u8 *buf, i64 buf_len)
 {
 	i64 k;
+	struct rlectx *rctx = (struct rlectx*)dfctx->codec_private;
 
 	for(k=0; k<buf_len; k++) {
 		if(rctx->uncompressed_run_bytes_left>0) {
@@ -71,26 +73,42 @@ static void rle_codec_addbuf(struct rlectx *rctx, const u8 *buf, i64 buf_len)
 	}
 }
 
+static void my_shgrle_codec_finish(struct de_dfilter_ctx *dfctx)
+{
+	struct rlectx *rctx = (struct rlectx*)dfctx->codec_private;
+
+	dfctx->dres->bytes_consumed_valid = 1;
+	dfctx->dres->bytes_consumed = rctx->nbytes_consumed;
+}
+
+static void my_shgrle_codec_destroy(struct de_dfilter_ctx *dfctx)
+{
+	struct rlectx *rctx = (struct rlectx*)dfctx->codec_private;
+
+	de_free(dfctx->c, rctx);
+}
+
+static void dfilter_shgrle_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
+{
+	struct rlectx *rctx = NULL;
+
+	rctx = de_malloc(dfctx->c, sizeof(struct rlectx));
+	rctx->outf = dfctx->dcmpro->f;
+
+	dfctx->codec_private = (void*)rctx;
+	dfctx->codec_finish_fn = my_shgrle_codec_finish;
+	dfctx->codec_destroy_fn = my_shgrle_codec_destroy;
+	dfctx->codec_addbuf_fn = my_shgrle_codec_addbuf;
+}
+
 // RunLength
 static void do_decompress_type_1(deark *c, lctx *d,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	struct rlectx *rctx = NULL;
-	i64 k;
-
 	de_dbg(c, "doing RLE decompression");
-	rctx = de_malloc(c, sizeof(struct rlectx));
-	rctx->outf =  dcmpro->f;
-
-	for(k=0; k<dcmpri->len; k++) {
-		u8 b;
-
-		b = dbuf_getbyte(dcmpri->f, dcmpri->pos+k);
-		rle_codec_addbuf(rctx, &b, 1);
-	}
-
-	de_free(c, rctx);
+	de_dfilter_decompress_oneshot(c, dfilter_shgrle_codec, NULL,
+		dcmpri, dcmpro, dres);
 }
 
 // LZ77
@@ -107,26 +125,9 @@ static void do_decompress_type_3(deark *c, lctx *d,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	dbuf *pixels_tmp = NULL;
-	struct de_dfilter_in_params dcmpri_tmp;
-	struct de_dfilter_out_params dcmpro_tmp;
-
-	de_dfilter_init_objects(c, &dcmpri_tmp, &dcmpro_tmp, NULL);
-
-	// FIXME: This is temporary.
-	pixels_tmp = dbuf_create_membuf(c, 0, 0);
-
-	dcmpro_tmp.f = pixels_tmp;
-	do_decompress_type_2(c, d, dcmpri, &dcmpro_tmp, dres);
-	if(dres->errcode) goto done;
-
-	dcmpri_tmp.f = pixels_tmp;
-	dcmpri_tmp.pos = 0;
-	dcmpri_tmp.len = pixels_tmp->len;
-	do_decompress_type_1(c, d, &dcmpri_tmp, dcmpro, dres);
-
-done:
-	dbuf_close(pixels_tmp);
+	de_dbg(c, "doing LZ77+RLE decompression");
+	de_dfilter_decompress_two_layer(c, dfilter_hlp_lz77_codec, NULL,
+		dfilter_shgrle_codec, NULL, dcmpri, dcmpro, dres);
 }
 
 static int do_uncompress_picture_data(deark *c, lctx *d,
