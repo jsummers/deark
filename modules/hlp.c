@@ -13,6 +13,7 @@
 DE_DECLARE_MODULE(de_module_hlp);
 
 #define TOPICBLOCKHDRSIZE 12
+#define INVALIDPOS 0xffffffffU
 
 enum hlp_filetype {
 	FILETYPE_UNKNOWN = 0,
@@ -24,8 +25,7 @@ enum hlp_filetype {
 	FILETYPE_SHG,
 	FILETYPE_PHRASES,
 	FILETYPE_PHRINDEX,
-	FILETYPE_PHRIMAGE,
-	FILETYPE_TOMAP
+	FILETYPE_PHRIMAGE
 };
 
 struct bptree {
@@ -119,6 +119,22 @@ static const struct systemrec_info systemrec_info_arr[] = {
 };
 static const struct systemrec_info systemrec_info_default =
 	{ 0, 0x0000, "?", NULL };
+
+static void format_topiclink(deark *c, lctx *d, u32 n, char *buf, size_t buf_len)
+{
+	if(d->ver_minor<=16) {
+		de_snprintf(buf, buf_len, "%u", (uint)n);
+	}
+	else {
+		if(n==INVALIDPOS) {
+			de_strlcpy(buf, "-1", buf_len);
+		}
+		else {
+			de_snprintf(buf, buf_len, "Blk%u:%u", (uint)(n/16384),
+				(uint)(n%16384));
+		}
+	}
+}
 
 static void hlptime_to_timestamp(i64 ht, struct de_timestamp *ts)
 {
@@ -263,7 +279,7 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, i64 pos1)
 	de_dbg(c, "GenDate: %d (%s)", (int)gen_date, timestamp_buf);
 
 	flags = (unsigned int)de_getu16le_p(&pos);
-	de_dbg(c, "flags: 0x%04x", flags);
+	de_dbg(c, "system flags: 0x%04x", flags);
 
 	if(d->ver_minor>16) {
 		if(flags==8) {
@@ -418,8 +434,8 @@ static void do_extract_raw_file(deark *c, lctx *d, i64 pos1, i64 used_space,
 struct topiclink_data {
 	i64 blocksize;
 	i64 datalen2;
-	i64 prevblock;
-	i64 nextblock;
+	u32 prevblock;
+	u32 nextblock;
 	i64 datalen1;
 	u8 recordtype;
 
@@ -442,6 +458,7 @@ struct topic_ctx {
 	i64 num_topic_blocks;
 	struct topic_block_info_item *topic_block_info; // array [num_topic_blocks]
 	dbuf *unc_topicdata;
+	u32 pos_of_first_topiclink;
 };
 
 static void ensure_text_output_file_open(deark *c, lctx *d)
@@ -739,6 +756,7 @@ static int do_topiclink(deark *c, lctx *d, struct topic_ctx *tctx, i64 pos1, u32
 	i64 linkdata2_nbytes_avail;
 	int retval = 0;
 	dbuf *inf = tctx->unc_topicdata;
+	char tmpbuf[24];
 
 	tld = de_malloc(c, sizeof(struct topiclink_data));
 
@@ -751,21 +769,13 @@ static int do_topiclink(deark *c, lctx *d, struct topic_ctx *tctx, i64 pos1, u32
 	tld->datalen2 = dbuf_geti32le_p(inf, &pos);
 	de_dbg(c, "datalen2 (after any decompression): %d", (int)tld->datalen2);
 
-	tld->prevblock = dbuf_getu32le_p(inf, &pos);
-	if(d->ver_minor<=16) {
-		de_dbg(c, "prevblock: %"I64_FMT, tld->prevblock);
-	}
-	else {
-		de_dbg(c, "prevblock: 0x%08x", (unsigned int)tld->prevblock);
-	}
+	tld->prevblock = (u32)dbuf_getu32le_p(inf, &pos);
+	format_topiclink(c, d, tld->prevblock, tmpbuf, sizeof(tmpbuf));
+	de_dbg(c, "prevblock: %s", tmpbuf);
 
-	tld->nextblock = dbuf_getu32le_p(inf, &pos);
-	if(d->ver_minor<=16) {
-		de_dbg(c, "nextblock: %"I64_FMT, tld->nextblock);
-	}
-	else {
-		de_dbg(c, "nextblock: 0x%08x", (unsigned int)tld->nextblock);
-	}
+	tld->nextblock = (u32)dbuf_getu32le_p(inf, &pos);
+	format_topiclink(c, d, tld->nextblock, tmpbuf, sizeof(tmpbuf));
+	de_dbg(c, "nextblock: %s", tmpbuf);
 	*next_pos_code = (u32)tld->nextblock;
 	retval = 1;
 
@@ -877,6 +887,38 @@ static i64 hc30_abspos_plus_offset_to_abspos(deark *c, lctx *d, i64 pos, i64 off
 	return pos + offset - TOPICBLOCKHDRSIZE*(1+(n / blksize));
 }
 
+static int calc_next_topiclink_pos(deark *c, lctx *d, struct topic_ctx *tctx, i64 curpos,
+	u32 next_pos_code, i64 *pnextpos)
+{
+	*pnextpos = 0;
+
+	if(next_pos_code==INVALIDPOS) {
+		de_dbg(c, "[stopping TOPIC parsing, end-of-links marker found]");
+		return 0;
+	}
+
+	if(d->ver_minor<=16) {
+		if(next_pos_code < 21) {
+			de_dbg(c, "[stopping TOPIC parsing, no nextblock available]");
+			return 0;
+		}
+		*pnextpos = hc30_abspos_plus_offset_to_abspos(c, d, curpos, next_pos_code);
+	}
+	else {
+		if(!topicpos_to_abspos(c, d, tctx, next_pos_code, pnextpos)) {
+			de_dbg(c, "[stopping TOPIC parsing, no nextblock available]");
+			return 0;
+		}
+
+		if((*pnextpos) <= curpos) {
+			de_dbg(c, "[stopping TOPIC parsing, blocks not in order]");
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
 static void do_topicdata(deark *c, lctx *d, struct topic_ctx *tctx)
 {
 	i64 pos;
@@ -894,10 +936,20 @@ static void do_topicdata(deark *c, lctx *d, struct topic_ctx *tctx)
 
 	de_dbg_indent_save(c, &saved_indent_level2);
 
-	pos = 0; // TODO: Is the first topiclink always at 0?
+	if(tctx->pos_of_first_topiclink==INVALIDPOS || tctx->pos_of_first_topiclink<TOPICBLOCKHDRSIZE) {
+		de_warn(c, "Bad first topic link");
+		pos = 0;
+	}
+	else {
+		// Maybe we should call topicpos_to_abspos(), etc., but this should be
+		// correct since an offset in the first topicblock.
+		pos = tctx->pos_of_first_topiclink - TOPICBLOCKHDRSIZE;
+	}
 
 	while(1) {
 		u32 next_pos_code;
+		i64 next_pos = 0;
+		int ret;
 
 		if(pos > inf->len) {
 			de_dbg(c, "[stopping TOPIC parsing, exceeded end of data]");
@@ -913,39 +965,16 @@ static void do_topicdata(deark *c, lctx *d, struct topic_ctx *tctx)
 			break;
 		}
 
+		// TODO: Display as "Blk#:offs"
 		de_dbg(c, "topiclink at [%"I64_FMT"]", pos);
 		de_dbg_indent(c, 1);
 		next_pos_code = 0;
 		if(!do_topiclink(c, d, tctx, pos, &next_pos_code)) goto done;
 		de_dbg_indent(c, -1);
 
-		if(d->ver_minor<=16) {
-			if(next_pos_code < 21) {
-				de_dbg(c, "[stopping TOPIC parsing, no nextblock available]");
-				break;
-			}
-			pos = hc30_abspos_plus_offset_to_abspos(c, d, pos, next_pos_code);
-		}
-		else {
-			i64 next_pos = 0;
-
-			if(next_pos_code==0xffffffffLL) {
-				de_dbg(c, "[stopping TOPIC parsing, end-of-links marker found]");
-				break;
-			}
-
-			if(!topicpos_to_abspos(c, d, tctx, next_pos_code, &next_pos)) {
-				de_dbg(c, "[stopping TOPIC parsing, no nextblock available]");
-				break;
-			}
-
-			if(next_pos <= pos) {
-				de_dbg(c, "[stopping TOPIC parsing, blocks not in order]");
-				break;
-			}
-
-			pos = next_pos;
-		}
+		ret = calc_next_topiclink_pos(c, d, tctx, pos, next_pos_code, &next_pos);
+		if(!ret) break;
+		pos = next_pos;
 	}
 
 done:
@@ -968,6 +997,7 @@ static void decompress_topic_block(deark *c, lctx *d, struct topic_ctx *tctx,
 	dcmpri.len = blk_dlen;
 	dcmpro.f = outf;
 	dcmpro.len_known = 1;
+	// TODO: Confirm what happens if a block decompresses to more than 16384-12 bytes.
 	dcmpro.expected_len = 16384-TOPICBLOCKHDRSIZE;
 	len_before = outf->len;
 	fmtutil_decompress_hlp_lz77(c, &dcmpri, &dcmpro, &dres);
@@ -998,12 +1028,15 @@ static void do_file_TOPIC(deark *c, lctx *d, i64 pos1, i64 len)
 	tctx->num_topic_blocks = (len + (d->topic_block_size - TOPICBLOCKHDRSIZE)) % d->topic_block_size;
 	tctx->topic_block_info = de_mallocarray(c, tctx->num_topic_blocks, sizeof(struct topic_block_info_item));
 
+	tctx->pos_of_first_topiclink = INVALIDPOS;
+
 	// A series of blocks, each with a 12-byte header
 	for(blknum=0; blknum<tctx->num_topic_blocks; blknum++) {
-		i64 lastlink, firstlink, lastheader;
+		u32 lastlink, firstlink, lastheader;
 		i64 blklen;
 		i64 blk_dpos;
 		i64 blk_dlen;
+		char tbuf1[24], tbuf2[24], tbuf3[24];
 
 		blklen = d->topic_block_size;
 		if(blklen > (pos1+len)-pos) {
@@ -1016,11 +1049,17 @@ static void do_file_TOPIC(deark *c, lctx *d, i64 pos1, i64 len)
 		de_dbg(c, "TOPIC block #%d at %d, dpos=%d, dlen=%d", (int)blknum, (int)pos,
 			(int)blk_dpos, (int)blk_dlen);
 		de_dbg_indent(c, 1);
-		lastlink = de_geti32le(pos);
-		firstlink = de_geti32le(pos+4);
-		lastheader = de_geti32le(pos+8);
-		de_dbg(c, "LastLink=%d, FirstLink=%d, LastHeader=%d",
-			(int)lastlink, (int)firstlink, (int)lastheader);
+		lastlink = (u32)de_getu32le(pos);
+		firstlink = (u32)de_getu32le(pos+4);
+		lastheader = (u32)de_getu32le(pos+8);
+		format_topiclink(c, d, lastlink, tbuf1, sizeof(tbuf1));
+		format_topiclink(c, d, firstlink, tbuf2, sizeof(tbuf2));
+		format_topiclink(c, d, lastheader, tbuf3, sizeof(tbuf3));
+		de_dbg(c, "LastLink=%s, FirstLink=%s, LastHeader=%s",
+			tbuf1, tbuf2, tbuf3);
+		if(tctx->pos_of_first_topiclink==INVALIDPOS && firstlink!=INVALIDPOS) {
+			tctx->pos_of_first_topiclink = firstlink;
+		}
 
 		if(d->extract_text && tctx->unc_topicdata) {
 			// Record the position for later reference.
@@ -1073,7 +1112,6 @@ static enum hlp_filetype filename_to_filetype(deark *c, lctx *d, const char *fn)
 
 	if(fn[0]=='|') {
 		if(!de_strcmp(fn, "|TOPIC")) return FILETYPE_TOPIC;
-		if(!de_strcmp(fn, "|TOMAP")) return FILETYPE_TOMAP;
 		if(!de_strcmp(fn, "|SYSTEM")) return FILETYPE_SYSTEM;
 		if(!de_strncmp(fn, "|bm", 3) && de_is_digit(fn[3])) return FILETYPE_SHG;
 		if(!de_strcmp(fn, "|Phrases")) return FILETYPE_PHRASES;
@@ -1301,6 +1339,7 @@ static void do_bplustree(deark *c, lctx *d, i64 pos1, i64 len,
 	i64 n;
 	int saved_indent_level;
 	u8 *page_seen = NULL;
+	struct de_stringreaderdata *structure = NULL;
 
 	if(!is_internaldir) return;
 
@@ -1316,12 +1355,17 @@ static void do_bplustree(deark *c, lctx *d, i64 pos1, i64 len,
 	de_dbg_indent(c, 1);
 
 	d->bpt.flags = (unsigned int)de_getu16le_p(&pos);
-	de_dbg(c, "flags: 0x%04x", d->bpt.flags);
+	de_dbg(c, "Btree flags: 0x%04x", d->bpt.flags);
 
 	d->bpt.pagesize = de_getu16le_p(&pos);
 	de_dbg(c, "PageSize: %d", (int)d->bpt.pagesize);
 
 	// TODO: Understand the Structure field
+	structure = dbuf_read_string(c->infile, pos, 16, 16, DE_CONVFLAG_STOP_AT_NUL,
+		DE_ENCODING_ASCII);
+	de_dbg(c, "Structure: \"%s\"", ucstring_getpsz_d(structure->str));
+	de_destroy_stringreaderdata(c, structure);
+	structure = NULL;
 	pos += 16;
 
 	pos += 2; // MustBeZero
@@ -1398,6 +1442,7 @@ static void do_bplustree(deark *c, lctx *d, i64 pos1, i64 len,
 
 done:
 	de_free(c, page_seen);
+	if(structure) de_destroy_stringreaderdata(c, structure);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -1405,12 +1450,6 @@ static void do_file_INTERNALDIR(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	de_dbg(c, "internal dir data at %d", (int)pos1);
 	do_bplustree(c, d, pos1, len, 1);
-}
-
-static void do_file_TOMAP(deark *c, lctx *d, i64 pos1, i64 len)
-{
-	// I'm not sure if we ever need to parse this, so we can find the first
-	// 'topiclink'.
 }
 
 static void dump_phrase_offset_table(deark *c, lctx *d)
@@ -1718,9 +1757,6 @@ static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt, int
 		break;
 	case FILETYPE_PHRIMAGE:
 		do_file_PhrImage(c, d, pos, used_space);
-		break;
-	case FILETYPE_TOMAP:
-		do_file_TOMAP(c, d, pos, used_space);
 		break;
 	case FILETYPE_SYSTEM:
 		do_file_SYSTEM(c, d, pos, used_space);
