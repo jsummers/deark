@@ -92,9 +92,8 @@ static void do_decompr_lzw(deark *c, lctx *d, struct member_data *md,
 
 	de_zeromem(&delzwp, sizeof(struct delzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
-	delzwp.unixcompress_flags = 0;
 	// TODO: What are the right lzw settings?
-	delzwp.unixcompress_lzwmode = (u8)(14 | 0x80);
+	delzwp.max_code_size = 14;
 	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
 

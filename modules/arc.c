@@ -76,8 +76,7 @@ static void decompressor_spark_compressed(deark *c, lctx *d, struct member_data 
 
 	de_zeromem(&delzwp, sizeof(struct delzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
-	delzwp.unixcompress_flags = DE_LIBLZWFLAG_HAS1BYTEHEADER;
-	delzwp.unixcompress_lzwmode = 0;
+	delzwp.flags |= DE_LZWFLAG_HAS1BYTEHEADER;
 	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
 
@@ -89,8 +88,7 @@ static void decompressor_squashed(deark *c, lctx *d, struct member_data *md,
 
 	de_zeromem(&delzwp, sizeof(struct delzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
-	delzwp.unixcompress_flags = 0;
-	delzwp.unixcompress_lzwmode = 0x80|13;
+	delzwp.max_code_size = 13;
 	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
 
@@ -112,7 +110,7 @@ static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
 
 	de_zeromem(&delzwp, sizeof(struct delzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
-	delzwp.unixcompress_flags = DE_LIBLZWFLAG_HAS1BYTEHEADER;
+	delzwp.flags |= DE_LZWFLAG_HAS1BYTEHEADER;
 
 	de_dfilter_decompress_two_layer(c, dfilter_lzw_codec, (void*)&delzwp,
 		dfilter_rle90_codec, NULL, dcmpri, dcmpro, dres);

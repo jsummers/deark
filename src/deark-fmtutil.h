@@ -132,11 +132,10 @@ enum lzwfmt_enum {
 
 struct delzw_params {
 	enum lzwfmt_enum fmt;
-#define DE_LIBLZWFLAG_HAS3BYTEHEADER  0x1
-#define DE_LIBLZWFLAG_ARCFSMODE       0x2
-#define DE_LIBLZWFLAG_HAS1BYTEHEADER  0x4
-	unsigned int unixcompress_flags;
-	u8 unixcompress_lzwmode;
+#define DE_LZWFLAG_HAS3BYTEHEADER       0x1 // Unix-compress style, use with fmt=UNIXCOMPRESS
+#define DE_LZWFLAG_HAS1BYTEHEADER       0x2 // ARC style, use with fmt=UNIXCOMPRESS
+#define DE_LZWFLAG_TOLERATETRAILINGJUNK 0x4
+	uint flags;
 	unsigned int gif_root_code_size;
 	unsigned int max_code_size; // 0 = no info
 };

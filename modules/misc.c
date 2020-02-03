@@ -2047,8 +2047,7 @@ static void de_run_compress(deark *c, de_module_params *mparams)
 
 	de_zeromem(&delzwp, sizeof(struct delzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
-	delzwp.unixcompress_flags = DE_LIBLZWFLAG_HAS3BYTEHEADER;
-	delzwp.unixcompress_lzwmode = 0;
+	delzwp.flags |= DE_LZWFLAG_HAS3BYTEHEADER;
 
 	de_fmtutil_decompress_lzw(c, &dcmpri, &dcmpro, &dres, &delzwp);
 	if(dres.errcode!=0) {

@@ -35,18 +35,18 @@ static void setup_delzw_common(deark *c, delzwctx *dc, struct delzw_params *delz
 	if(delzwp->fmt==DE_LZWFMT_UNIXCOMPRESS) {
 		dc->basefmt = DELZW_BASEFMT_UNIXCOMPRESS;
 		dc->auto_inc_codesize = 1;
-		if(delzwp->unixcompress_flags & DE_LIBLZWFLAG_HAS3BYTEHEADER) {
+		if(delzwp->flags & DE_LZWFLAG_HAS3BYTEHEADER) {
 			dc->header_type = DELZW_HEADERTYPE_UNIXCOMPRESS3BYTE;
 		}
-		else if(delzwp->unixcompress_flags & DE_LIBLZWFLAG_HAS1BYTEHEADER) {
+		else if(delzwp->flags & DE_LZWFLAG_HAS1BYTEHEADER) {
 			dc->header_type = DELZW_HEADERTYPE_ARC1BYTE;
 		}
 		else {
 			dc->unixcompress_has_clear_code = 1;
-			dc->max_codesize = (delzwp->unixcompress_lzwmode & 0x1f);
+			dc->max_codesize = delzwp->max_code_size;
 		}
 
-		if((delzwp->unixcompress_flags & DE_LIBLZWFLAG_ARCFSMODE) &&
+		if((delzwp->flags & DE_LZWFLAG_TOLERATETRAILINGJUNK) &&
 			!dc->output_len_known)
 		{
 			dc->stop_on_invalid_code = 1;

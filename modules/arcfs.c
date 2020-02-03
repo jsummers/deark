@@ -82,9 +82,9 @@ static void do_arcfs_compressed(deark *c, lctx *d, struct arcfs_member_data *md,
 
 	de_zeromem(&delzwp, sizeof(struct delzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
-	delzwp.unixcompress_lzwmode = (u8)(md->rfa.lzwmaxbits | 0x80);
+	delzwp.max_code_size = md->rfa.lzwmaxbits;
 	if(!dcmpro->len_known) {
-		delzwp.unixcompress_flags |= DE_LIBLZWFLAG_ARCFSMODE;
+		delzwp.flags |= DE_LZWFLAG_TOLERATETRAILINGJUNK;
 	}
 	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
@@ -100,7 +100,7 @@ static void do_arcfs_crunched(deark *c, lctx *d, struct arcfs_member_data *md,
 
 	de_zeromem(&delzwp, sizeof(struct delzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
-	delzwp.unixcompress_lzwmode = (u8)(md->rfa.lzwmaxbits | 0x80);
+	delzwp.max_code_size = md->rfa.lzwmaxbits;
 
 	// This flag tells the LZW decompressor to stop, instead of reporting failure,
 	// if bad LZW compressed data is encountered.
@@ -111,7 +111,7 @@ static void do_arcfs_crunched(deark *c, lctx *d, struct arcfs_member_data *md,
 	// between them. That way, we could stop immediately when we've decompressed
 	// a sufficient number of bytes, and never encounter the garbage. But we
 	// don't have that.
-	delzwp.unixcompress_flags |= DE_LIBLZWFLAG_ARCFSMODE;
+	delzwp.flags |= DE_LZWFLAG_TOLERATETRAILINGJUNK;
 
 	de_dfilter_decompress_two_layer(c, dfilter_lzw_codec, (void*)&delzwp,
 		dfilter_rle90_codec, NULL, dcmpri, dcmpro, dres);
@@ -479,8 +479,7 @@ static void do_squash_main(deark *c, sqctx *d)
 
 	de_zeromem(&delzwp, sizeof(struct delzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
-	delzwp.unixcompress_flags = DE_LIBLZWFLAG_HAS3BYTEHEADER;
-	delzwp.unixcompress_lzwmode = 0;
+	delzwp.flags |= DE_LZWFLAG_HAS3BYTEHEADER;
 
 	de_fmtutil_decompress_lzw(c, &dcmpri, &dcmpro, &dres, &delzwp);
 
