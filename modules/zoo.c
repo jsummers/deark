@@ -404,12 +404,6 @@ static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf
 	de_crcobj_addbuf(crco, buf, buf_len);
 }
 
-static void do_extract_stored(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
-{
-	dbuf_copy(dcmpri->f, dcmpri->pos, dcmpri->len, dcmpro->f);
-}
-
 // Process a single member file (or EOF marker).
 // If there are more members after this, sets *next_member_hdr_pos to nonzero.
 static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
@@ -483,7 +477,7 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 
 	switch(md->method) {
 	case ZOOCMPR_STORED:
-		do_extract_stored(c, &dcmpri, &dcmpro, &dres);
+		fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
 		break;
 	case ZOOCMPR_LZD:
 		de_fmtutil_decompress_zoo_lzd(c, &dcmpri, &dcmpro, &dres, 13);

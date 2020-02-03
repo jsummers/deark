@@ -171,7 +171,7 @@ static void do_arcfs_extract_member_file(deark *c, lctx *d, struct arcfs_member_
 	dcmpro.expected_len = md->orig_len;
 
 	if(md->cmpr_method==0x82) { // stored
-		dbuf_copy(c->infile, md->file_data_offs_abs, md->cmpr_len, outf);
+		fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
 	}
 	else if(md->cmpr_method==0x83) {
 		de_fmtutil_decompress_rle90_ex(c, &dcmpri, &dcmpro, &dres, 0);

@@ -146,6 +146,30 @@ void de_dfilter_decompress_oneshot(deark *c,
 	de_dfilter_destroy(dfctx);
 }
 
+// Trivial "decompression" of uncompressed data.
+void fmtutil_decompress_uncompressed(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, uint flags)
+{
+	i64 len;
+	i64 nbytes_avail;
+
+	nbytes_avail = de_min_int(dcmpri->len, dcmpri->f->len - dcmpri->pos);
+
+	if(dcmpro->len_known) {
+		len = dcmpro->expected_len;
+	}
+	else {
+		len = dcmpri->len;
+	}
+
+	if(len>nbytes_avail) len = nbytes_avail;
+	if(len<0) len = 0;
+
+	dbuf_copy(dcmpri->f, dcmpri->pos, len, dcmpro->f);
+	dres->bytes_consumed = len;
+	dres->bytes_consumed_valid = 1;
+}
+
 void de_fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {

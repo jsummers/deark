@@ -74,7 +74,7 @@ static void do_decompr_uncompressed(deark *c, lctx *d, struct member_data *md,
 	struct fork_data *frk, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	dbuf_copy(dcmpri->f, dcmpri->pos, dcmpri->len, dcmpro->f);
+	fmtutil_decompress_uncompressed(c, dcmpri, dcmpro, dres, 0);
 }
 
 static void do_decompr_rle(deark *c, lctx *d, struct member_data *md,

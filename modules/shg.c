@@ -164,17 +164,17 @@ static int do_uncompress_picture_data(deark *c, lctx *d,
 		do_decompress_type_3(c, d, &dcmpri, &dcmpro, &dres);
 		break;
 	default: // 0, uncompressed
-		dbuf_copy(dcmpri.f, dcmpri.pos, dcmpri.len, dcmpro.f);
-	}
-
-	if(pixels_final->len < final_image_size) {
-		de_warn(c, "Expected %"I64_FMT" bytes after decompression, only got %"I64_FMT,
-			final_image_size, pixels_final->len);
+		fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
 	}
 
 	if(dres.errcode) {
 		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
 		goto done;
+	}
+
+	if(pixels_final->len < final_image_size) {
+		de_warn(c, "Expected %"I64_FMT" bytes after decompression, only got %"I64_FMT,
+			final_image_size, pixels_final->len);
 	}
 
 	retval = 1;

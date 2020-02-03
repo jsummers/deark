@@ -353,7 +353,7 @@ static void do_decompress(deark *c, lctx *d, dbuf *outf)
 
 	switch(d->cmpr_meth) {
 	case CMPR_NONE:
-		dbuf_copy(dcmpri.f, dcmpri.pos, dcmpri.len, dcmpro.f);
+		fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
 		break;
 	case CMPR_XOR:
 		do_decompress_XOR(c, &dcmpri, &dcmpro, &dres);
