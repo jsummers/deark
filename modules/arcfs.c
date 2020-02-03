@@ -448,6 +448,7 @@ static void do_squash_main(deark *c, sqctx *d)
 	struct de_dfilter_results dres;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
+	struct delzw_params delzwp;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -476,7 +477,12 @@ static void do_squash_main(deark *c, sqctx *d)
 	dcmpro.f = outf;
 	dcmpro.len_known = 0;
 
-	de_fmtutil_decompress_liblzw_ex(c, &dcmpri, &dcmpro, &dres, DE_LIBLZWFLAG_HAS3BYTEHEADER, 0);
+	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
+	delzwp.unixcompress_flags = DE_LIBLZWFLAG_HAS3BYTEHEADER;
+	delzwp.unixcompress_lzwmode = 0;
+
+	de_fmtutil_decompress_lzw(c, &dcmpri, &dcmpro, &dres, &delzwp);
 
 	if(dres.errcode) {
 		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));

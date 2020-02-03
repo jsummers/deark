@@ -2033,17 +2033,24 @@ static void de_run_compress(deark *c, de_module_params *mparams)
 	struct de_dfilter_results dres;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
+	struct delzw_params delzwp;
 	dbuf *f = NULL;
 
 	f = dbuf_create_output_file(c, "bin", NULL, 0);
+
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
 	dcmpri.pos = 0;
 	dcmpri.len = c->infile->len;
 	dcmpro.f = f;
 	dcmpro.len_known = 0;
-	de_fmtutil_decompress_liblzw_ex(c, &dcmpri, &dcmpro, &dres,
-		DE_LIBLZWFLAG_HAS3BYTEHEADER, 0);
+
+	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
+	delzwp.unixcompress_flags = DE_LIBLZWFLAG_HAS3BYTEHEADER;
+	delzwp.unixcompress_lzwmode = 0;
+
+	de_fmtutil_decompress_lzw(c, &dcmpri, &dcmpro, &dres, &delzwp);
 	if(dres.errcode!=0) {
 		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
 	}

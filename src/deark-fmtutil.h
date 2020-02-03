@@ -104,13 +104,6 @@ void de_fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpr
 void fmtutil_decompress_hlp_lz77(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
 
-#define DE_LIBLZWFLAG_HAS3BYTEHEADER  0x1
-#define DE_LIBLZWFLAG_ARCFSMODE       0x2
-#define DE_LIBLZWFLAG_HAS1BYTEHEADER  0x4
-void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	unsigned int flags, u8 lzwmode);
-
 struct de_dfilter_ctx;
 typedef void (*dfilter_codec_type)(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 typedef void (*dfilter_codec_addbuf_type)(struct de_dfilter_ctx *dfctx,
@@ -139,6 +132,9 @@ enum lzwfmt_enum {
 
 struct delzw_params {
 	enum lzwfmt_enum fmt;
+#define DE_LIBLZWFLAG_HAS3BYTEHEADER  0x1
+#define DE_LIBLZWFLAG_ARCFSMODE       0x2
+#define DE_LIBLZWFLAG_HAS1BYTEHEADER  0x4
 	unsigned int unixcompress_flags;
 	u8 unixcompress_lzwmode;
 	unsigned int gif_root_code_size;

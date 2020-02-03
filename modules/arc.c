@@ -72,14 +72,26 @@ static void decompressor_spark_compressed(deark *c, lctx *d, struct member_data 
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	de_fmtutil_decompress_liblzw_ex(c, dcmpri, dcmpro, dres, DE_LIBLZWFLAG_HAS1BYTEHEADER, 0);
+	struct delzw_params delzwp;
+
+	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
+	delzwp.unixcompress_flags = DE_LIBLZWFLAG_HAS1BYTEHEADER;
+	delzwp.unixcompress_lzwmode = 0;
+	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
 
 static void decompressor_squashed(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	de_fmtutil_decompress_liblzw_ex(c, dcmpri, dcmpro, dres, 0, 0x80|13);
+	struct delzw_params delzwp;
+
+	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
+	delzwp.unixcompress_flags = 0;
+	delzwp.unixcompress_lzwmode = 0x80|13;
+	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
 
 static void decompressor_packed(deark *c, lctx *d, struct member_data *md,

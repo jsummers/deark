@@ -88,11 +88,14 @@ static void do_decompr_lzw(deark *c, lctx *d, struct member_data *md,
 	struct fork_data *frk, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	u8 lzwmode;
+	struct delzw_params delzwp;
 
+	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
+	delzwp.unixcompress_flags = 0;
 	// TODO: What are the right lzw settings?
-	lzwmode = (u8)(14 | 0x80);
-	de_fmtutil_decompress_liblzw_ex(c, dcmpri, dcmpro, dres, 0x0, lzwmode);
+	delzwp.unixcompress_lzwmode = (u8)(14 | 0x80);
+	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
 
 static void do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
