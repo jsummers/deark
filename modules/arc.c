@@ -131,6 +131,8 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 0x07, 0x83, "crunched7 (ARC 4.6)", NULL },
 	{ 0x08, 0x83, "crunched8 (RLE + dynamic LZW)", decompressor_crunched8 },
 	{ 0x09, 0x83, "squashed (dynamic LZW)", decompressor_squashed },
+	{ 0x0a, 0x01, "crushed", NULL },
+	{ 0x0b, 0x01, "distilled", NULL },
 	{ 0x80, 0x02, "end of archive marker", NULL },
 	{ 0xff, 0x02, "compressed", decompressor_spark_compressed }
 };
@@ -685,7 +687,7 @@ static int de_identify_arc(deark *c)
 	}
 
 	cmpr_meth = de_getbyte(arc_start+1);
-	if(cmpr_meth>9) return 0;
+	if(cmpr_meth>11) return 0;
 	if(cmpr_meth==0) starts_with_trailer = 1;
 
 	for(k=0; k<DE_ARRAYCOUNT(exts); k++) {
@@ -706,6 +708,13 @@ static int de_identify_arc(deark *c)
 	if(de_getu32be(c->infile->len-8) == 0x504baa55) {
 		// PKARC trailer, for files with comments
 		ends_with_comments = 1;
+	}
+
+	if(!ends_with_trailer && !ends_with_comments) {
+		// PAK-style extensions
+		if(de_getu16be(c->infile->len-2) == 0xfe00) {
+			ends_with_comments = 1;
+		}
 	}
 
 	if(starts_with_trailer) {
