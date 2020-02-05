@@ -14,7 +14,7 @@ DE_DECLARE_MODULE(de_module_dcx);
 
 enum resmode_type {
 	RESMODE_IGNORE = 0,
-	RESMODE_GUESS,
+	RESMODE_AUTO,
 	RESMODE_DPI,
 	RESMODE_SCREENDIMENSIONS
 };
@@ -46,6 +46,32 @@ typedef struct localctx_struct {
 	u32 pal[256];
 } lctx;
 
+static void simplify_dens(i64 *pxdens, i64 *pydens, i64 factor)
+{
+	while(*pxdens>factor && *pydens>factor &&
+		(*pxdens%factor==0) && (*pydens%factor==0))
+	{
+		*pxdens /= factor;
+		*pydens /= factor;
+	}
+}
+
+static void set_density_from_screen_res(deark *c, lctx *d, i64 hres, i64 vres)
+{
+	i64 xdens, ydens;
+
+	d->fi->density.code = DE_DENSITY_UNK_UNITS;
+	xdens = hres*3; // Assume 4:3 screen
+	ydens = vres*4;
+
+	simplify_dens(&xdens, &ydens, 2);
+	simplify_dens(&xdens, &ydens, 3);
+	simplify_dens(&xdens, &ydens, 5);
+
+	d->fi->density.xdens = (double)xdens;
+	d->fi->density.ydens = (double)ydens;
+}
+
 // The resolution field is unreliable. It might contain:
 // * Zeroes
 // * The DPI
@@ -59,7 +85,7 @@ static void do_decode_resolution(deark *c, lctx *d, i64 hres, i64 vres)
 
 	if(hres==0 || vres==0) return;
 
-	if(resmode==RESMODE_GUESS) {
+	if(resmode==RESMODE_AUTO) {
 		if((hres==320 && vres==200) ||
 			(hres==640 && vres==480) ||
 			(hres==640 && vres==350) ||
@@ -88,9 +114,7 @@ static void do_decode_resolution(deark *c, lctx *d, i64 hres, i64 vres)
 		d->fi->density.ydens = (double)vres;
 	}
 	else if(resmode==RESMODE_SCREENDIMENSIONS) {
-		d->fi->density.code = DE_DENSITY_UNK_UNITS;
-		d->fi->density.xdens = (double)(hres*3);
-		d->fi->density.ydens = (double)(vres*4);
+		set_density_from_screen_res(c, d, hres, vres);
 	}
 }
 
@@ -131,7 +155,7 @@ static int do_read_header(deark *c, lctx *d)
 	de_dbg(c, "margins: %d, %d, %d, %d", (int)d->margin_L, (int)d->margin_T,
 		(int)d->margin_R, (int)d->margin_B);
 
-	de_dbg(c, "\"resolution\": %d"DE_CHAR_TIMES"%d", (int)hres, (int)vres);
+	de_dbg(c, "resolution: %d"DE_CHAR_TIMES"%d", (int)hres, (int)vres);
 
 	d->width = d->margin_R - d->margin_L +1;
 	d->height = d->margin_B - d->margin_T +1;
@@ -531,10 +555,11 @@ static void de_run_pcx_internal(deark *c, lctx *d, de_module_params *mparams)
 		d->default_pal_set = 1;
 	}
 
+	d->resmode = RESMODE_AUTO;
 	s = de_get_ext_option(c, "pcx:resmode");
 	if(s) {
-		if(!de_strcmp(s, "guess")) {
-			d->resmode = RESMODE_GUESS;
+		if(!de_strcmp(s, "auto")) {
+			d->resmode = RESMODE_AUTO;
 		}
 		else if(!de_strcmp(s, "dpi")) {
 			d->resmode = RESMODE_DPI;
@@ -604,6 +629,8 @@ static void de_help_pcx(deark *c)
 {
 	de_msg(c, "-opt pcx:pal=<0|1> : Code for the predefined palette to use, "
 		"if there is no palette in the file");
+	de_msg(c, "-opt pcx:resmode=<ignore|dpi|screen|auto> : How to interpret the "
+		"\"resolution\" field");
 	de_msg(c, "-file2 <file.p13> : Read the palette from a separate file");
 }
 
