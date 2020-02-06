@@ -90,6 +90,7 @@ struct localctx_struct {
 	i64 central_dir_num_entries;
 	i64 central_dir_byte_size;
 	i64 central_dir_offset;
+	i64 this_disk_num;
 	i64 zip64_eocd_pos;
 	i64 zip64_cd_pos;
 	unsigned int zip64_eocd_disknum;
@@ -1150,7 +1151,10 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	else {
 		dd = &md->local_dir_entry_data;
 		fixed_header_size = 30;
-		if(md->disk_number_start!=0) return 0;
+		if(md->disk_number_start!=d->this_disk_num) {
+			de_err(c, "Member file not in this ZIP file");
+			return 0;
+		}
 		de_dbg(c, "local file header at %"I64_FMT, pos);
 	}
 	de_dbg_indent(c, 1);
@@ -1574,7 +1578,6 @@ static void do_zip64_eocd_locator(deark *c, lctx *d)
 static int do_end_of_central_dir(deark *c, lctx *d)
 {
 	i64 pos;
-	i64 this_disk_num;
 	i64 num_entries_this_disk;
 	i64 disk_num_with_central_dir_start;
 	i64 comment_length;
@@ -1585,8 +1588,8 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	de_dbg(c, "end-of-central-dir record at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
-	this_disk_num = de_getu16le(pos+4);
-	de_dbg(c, "this disk num: %d", (int)this_disk_num);
+	d->this_disk_num = de_getu16le(pos+4);
+	de_dbg(c, "this disk num: %d", (int)d->this_disk_num);
 	disk_num_with_central_dir_start = de_getu16le(pos+6);
 
 	num_entries_this_disk = de_getu16le(pos+8);
@@ -1613,11 +1616,16 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	}
 
 	// TODO: Figure out exactly how to detect disk spanning.
-	if(this_disk_num!=0 || disk_num_with_central_dir_start!=0 ||
-		(d->is_zip64 && d->zip64_eocd_disknum!=0))
+	if(disk_num_with_central_dir_start!=d->this_disk_num ||
+		(d->is_zip64 && d->zip64_eocd_disknum!=d->this_disk_num))
 	{
 		de_err(c, "Disk spanning not supported");
 		goto done;
+	}
+
+	if(d->this_disk_num!=0) {
+		de_warn(c, "This ZIP file might be part of a multi-part archive, and "
+			"might not be supported correctly");
 	}
 
 	if(num_entries_this_disk!=d->central_dir_num_entries) {
