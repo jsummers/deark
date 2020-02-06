@@ -186,7 +186,7 @@ static void do_pk_comments(deark *c, lctx *d)
 	int has_archive_comment = 0;
 	i64 file_comments_pos;
 	i64 num_file_comments;
-	de_ucstring *s = NULL;
+	de_ucstring *archive_comment = NULL;
 	u8 dscr[4];
 
 	if(!d->prescan_found_eoa) return;
@@ -229,9 +229,9 @@ static void do_pk_comments(deark *c, lctx *d)
 	}
 
 	if(has_archive_comment) {
-		s = ucstring_create(c);
-		read_one_pk_comment(c, d, comments_descr_pos-32, s);
-		de_dbg(c, "archive comment: \"%s\"", ucstring_getpsz_d(s));
+		archive_comment = ucstring_create(c);
+		read_one_pk_comment(c, d, comments_descr_pos-32, archive_comment);
+		de_dbg(c, "archive comment: \"%s\"", ucstring_getpsz_d(archive_comment));
 	}
 
 	if(has_file_comments) {
@@ -250,7 +250,96 @@ static void do_pk_comments(deark *c, lctx *d)
 	}
 
 done:
-	ucstring_destroy(s);
+	ucstring_destroy(archive_comment);
+	de_dbg_indent(c, -1);
+}
+
+static int do_pak_ext_record(deark *c, lctx *d, i64 pos1, i64 *pbytes_consumed)
+{
+	i64 pos = pos1;
+	u8 rectype;
+	const char *rtname = "?";
+	int retval = 0;
+	i64 filenum;
+	i64 filenum_adj;
+	i64 dlen;
+	de_ucstring *archive_comment = NULL;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(de_getbyte_p(&pos) != 0xfe) goto done;
+	de_dbg(c, "record at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	rectype = de_getbyte_p(&pos);
+	switch(rectype) {
+	case 0: rtname = "end"; break;
+	case 1: rtname = "remark"; break;
+	case 2: rtname = "path"; break;
+	}
+	de_dbg(c, "rectype: %d (%s)", (int)rectype, rtname);
+	if(rectype==0) goto done;
+
+	filenum = de_getu16le_p(&pos);
+	de_dbg(c, "file num: %d", (int)filenum);
+	dlen = de_getu32le_p(&pos);
+	de_dbg(c, "dlen: %"I64_FMT, dlen);
+	if(pos+dlen > c->infile->len) goto done;
+
+	*pbytes_consumed = 8 + dlen;
+	retval = 1;
+
+	if(rectype==1) { // remark
+		if(filenum==0) { // archive comment
+			archive_comment = ucstring_create(c);
+			dbuf_read_to_ucstring_n(c->infile, pos, dlen, 16384, archive_comment,
+				0, d->input_encoding);
+			de_dbg(c, "archive comment: \"%s\"", ucstring_getpsz_d(archive_comment));
+		}
+		else { // file comment
+			filenum_adj = filenum - 1;
+			if(filenum_adj >= d->num_top_level_members) goto done;
+			if(!d->persistent_md[filenum_adj].comment) {
+				d->persistent_md[filenum_adj].comment = ucstring_create(c);
+			}
+			if(ucstring_isnonempty(d->persistent_md[filenum_adj].comment)) goto done;
+			dbuf_read_to_ucstring_n(c->infile, pos, dlen, 2048, d->persistent_md[filenum_adj].comment,
+				0, d->input_encoding);
+		}
+	}
+	// TODO: rectype==2, Path
+
+done:
+	if(archive_comment) ucstring_destroy(archive_comment);
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static void do_pak_trailer(deark *c, lctx *d)
+{
+	u8 b;
+	i64 pos;
+
+	if(!d->prescan_found_eoa) return;
+	if(c->infile->len - d->prescan_pos_after_eoa < 2) return;
+	if(de_getbyte(d->prescan_pos_after_eoa) != 0xfe) return;
+	b = de_getbyte(d->prescan_pos_after_eoa+1);
+	if(b>4) return;
+
+	pos = d->prescan_pos_after_eoa;
+	de_dbg(c, "PAK extended records at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
+	init_trailer_data(c, d);
+
+	while(1) {
+		i64 bytes_consumed = 0;
+
+		if(pos > c->infile->len-2) break;
+		if(!do_pak_ext_record(c, d, pos, &bytes_consumed)) break;
+		if(bytes_consumed<8) break;
+		pos += bytes_consumed;
+	}
+
 	de_dbg_indent(c, -1);
 }
 
@@ -655,6 +744,7 @@ static void do_run_arc_spark_internal(deark *c, lctx *d)
 
 	if(d->fmt==FMT_ARC) {
 		do_pk_comments(c, d);
+		do_pak_trailer(c, d);
 	}
 
 	do_sequence_of_members(c, d, pos, c->infile->len, 0);
