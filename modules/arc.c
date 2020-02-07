@@ -261,9 +261,10 @@ static int do_pak_ext_record(deark *c, lctx *d, i64 pos1, i64 *pbytes_consumed)
 	const char *rtname = "?";
 	int retval = 0;
 	i64 filenum;
-	i64 filenum_adj;
+	i64 filenum_adj = 0;
 	i64 dlen;
 	de_ucstring *archive_comment = NULL;
+	struct persistent_member_data *pmd = NULL;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -289,6 +290,13 @@ static int do_pak_ext_record(deark *c, lctx *d, i64 pos1, i64 *pbytes_consumed)
 	*pbytes_consumed = 8 + dlen;
 	retval = 1;
 
+	if(filenum > 0) {
+		filenum_adj = filenum - 1;
+		if(filenum_adj < d->num_top_level_members) {
+			pmd = &d->persistent_md[filenum_adj];
+		}
+	}
+
 	if(rectype==1) { // remark
 		if(filenum==0) { // archive comment
 			archive_comment = ucstring_create(c);
@@ -297,17 +305,25 @@ static int do_pak_ext_record(deark *c, lctx *d, i64 pos1, i64 *pbytes_consumed)
 			de_dbg(c, "archive comment: \"%s\"", ucstring_getpsz_d(archive_comment));
 		}
 		else { // file comment
-			filenum_adj = filenum - 1;
-			if(filenum_adj >= d->num_top_level_members) goto done;
-			if(!d->persistent_md[filenum_adj].comment) {
-				d->persistent_md[filenum_adj].comment = ucstring_create(c);
+			if(!pmd) goto done;
+
+			if(!pmd->comment) {
+				pmd->comment = ucstring_create(c);
 			}
-			if(ucstring_isnonempty(d->persistent_md[filenum_adj].comment)) goto done;
-			dbuf_read_to_ucstring_n(c->infile, pos, dlen, 2048, d->persistent_md[filenum_adj].comment,
+			if(ucstring_isnonempty(pmd->comment)) goto done;
+			dbuf_read_to_ucstring_n(c->infile, pos, dlen, 2048, pmd->comment,
 				0, d->input_encoding);
 		}
 	}
-	// TODO: rectype==2, Path
+	else if(rectype==2) {
+		if(!pmd) goto done;
+		if(!pmd->path) {
+			pmd->path = ucstring_create(c);
+		}
+		if(ucstring_isnonempty(pmd->path)) goto done;
+		dbuf_read_to_ucstring_n(c->infile, pos, dlen, 512, pmd->path,
+			0, d->input_encoding);
+	}
 
 done:
 	if(archive_comment) ucstring_destroy(archive_comment);
@@ -391,8 +407,26 @@ static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf
 	de_crcobj_addbuf(crco, buf, buf_len);
 }
 
+// Convert backslashes to slashes, and make sure the string ends with a /.
+static void fixup_path(deark *c, lctx *d, de_ucstring *s)
+{
+	i64 i;
+
+	if(s->len<1) return;
+
+	for(i=0; i<s->len; i++) {
+		if(s->str[i]=='\\') {
+			s->str[i] = '/';
+		}
+	}
+
+	if(s->str[s->len-1]!='/') {
+		ucstring_append_char(s, '/');
+	}
+}
+
 static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
-	de_finfo *fi, i64 pos)
+	struct persistent_member_data *pmd, de_finfo *fi, i64 pos)
 {
 	de_ucstring *fullfn = NULL;
 	dbuf *outf = NULL;
@@ -404,7 +438,18 @@ static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	fullfn = ucstring_create(c);
+
+	if(pmd && ucstring_isnonempty(pmd->path)) {
+		// For PAK-style paths.
+		// (Pretty useless, until we support cmpr. meth. #11.)
+		// Note that PAK-style paths, and Spark-style recursion, are not expected to
+		// be possible in the same file.
+		ucstring_append_ucstring(fullfn, pmd->path);
+		fixup_path(c, d, fullfn);
+	}
+
 	de_strarray_make_path(d->curpath, fullfn, DE_MPFLAG_NOTRAILINGSLASH);
+
 	if(d->append_type && md->rfa.file_type_known) {
 		ucstring_printf(fullfn, DE_ENCODING_LATIN1, ",%03X", md->rfa.file_type);
 	}
@@ -487,6 +532,7 @@ static int do_member(deark *c, lctx *d, i64 pos1,
 	de_finfo *fi = NULL;
 	struct member_data *md = NULL;
 	int need_curpath_pop = 0;
+	struct persistent_member_data *pmd = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "member at %"I64_FMT, pos1);
@@ -494,8 +540,12 @@ static int do_member(deark *c, lctx *d, i64 pos1,
 	md = de_malloc(c, sizeof(struct member_data));
 
 	if(nesting_level==0 && d->persistent_md && (member_idx < d->num_top_level_members)) {
-		if(ucstring_isnonempty(d->persistent_md[member_idx].comment)) {
-			de_dbg(c, "file comment: \"%s\"", ucstring_getpsz_d(d->persistent_md[member_idx].comment));
+		pmd = &d->persistent_md[member_idx];
+		if(ucstring_isnonempty(pmd->comment)) {
+			de_dbg(c, "file comment: \"%s\"", ucstring_getpsz_d(pmd->comment));
+		}
+		if(ucstring_isnonempty(pmd->path)) {
+			de_dbg(c, "path: \"%s\"", ucstring_getpsz_d(pmd->path));
 		}
 	}
 
@@ -570,7 +620,7 @@ static int do_member(deark *c, lctx *d, i64 pos1,
 	// TODO: Is it possible to distinguish between a subdirectory, and a Spark
 	// member file that should always be extracted? Does a nonzero CRC mean
 	// we should not recurse?
-	md->is_dir = (d->recurse_subdirs && md->rfa.file_type_known &&
+	md->is_dir = (d->fmt==FMT_SPARK && d->recurse_subdirs && md->rfa.file_type_known &&
 		(md->rfa.file_type==0xddc) && md->cmpr_meth==0x82);
 
 	if(d->recurse_subdirs) {
@@ -609,7 +659,7 @@ static int do_member(deark *c, lctx *d, i64 pos1,
 		do_sequence_of_members(c, d, md->cmpr_data_pos, md->cmpr_size, nesting_level+1);
 	}
 	else {
-		do_extract_member_file(c, d, md, fi, md->cmpr_data_pos);
+		do_extract_member_file(c, d, md, pmd, fi, md->cmpr_data_pos);
 	}
 
 done:
