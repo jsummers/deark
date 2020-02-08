@@ -9,6 +9,8 @@
 DE_DECLARE_MODULE(de_module_rsc);
 
 typedef struct localctx_struct {
+	deark *c;
+	int is_pc;
 	int decode_objects;
 	i64 version;
 	i64 object_offs, object_num;
@@ -28,6 +30,50 @@ struct iconinfo {
 	i64 nplanes;
 };
 
+static i64 gem_getu16(lctx *d, i64 pos)
+{
+	return dbuf_getu16x(d->c->infile, pos, d->is_pc);
+}
+
+static i64 gem_getu32(lctx *d, i64 pos)
+{
+	return dbuf_getu32x(d->c->infile, pos, d->is_pc);
+}
+
+static void do_decode_bilevel_image(deark *c, lctx *d, de_bitmap *img, i64 bits_pos,
+	i64 rowspan)
+{
+	i64 i, j;
+	i64 rowspan_in_16bit_chunks;
+	uint k;
+	uint n;
+
+	rowspan_in_16bit_chunks = (rowspan+1)/2;
+
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<rowspan_in_16bit_chunks; i++) {
+			n = (uint)gem_getu16(d, bits_pos + j*rowspan + i*2);
+			for(k=0; k<16; k++) {
+				u8 clr;
+
+				clr = (n & (1U<<(15-k))) ? 0 : 0xff;
+				de_bitmap_setpixel_gray(img, i*16+(i64)k, j, clr);
+			}
+		}
+	}
+}
+
+static void do_decode_and_write_bilevel_image(deark *c, lctx *d, i64 bits_pos,
+	i64 rowspan, i64 width, i64 height)
+{
+	de_bitmap *img = NULL;
+
+	img = de_bitmap_create(c, width, height, 1);
+	do_decode_bilevel_image(c, d, img, bits_pos, rowspan);
+	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_destroy(img);
+}
+
 static int do_scan_iconblk(deark *c, lctx *d, i64 pos1, struct iconinfo *ii)
 {
 	i64 pos;
@@ -36,8 +82,8 @@ static int do_scan_iconblk(deark *c, lctx *d, i64 pos1, struct iconinfo *ii)
 
 	de_dbg(c, "ICONBLK at %d", (int)pos1);
 	pos = pos1;
-	ii->width = de_getu16be(pos+22);
-	ii->height = de_getu16be(pos+24);
+	ii->width = gem_getu16(d, pos+22);
+	ii->height = gem_getu16(d, pos+24);
 	de_dbg_dimensions(c, ii->width, ii->height);
 	if(!de_good_image_dimensions(c, ii->width, ii->height)) {
 		return 0;
@@ -48,24 +94,17 @@ static int do_scan_iconblk(deark *c, lctx *d, i64 pos1, struct iconinfo *ii)
 static void do_bilevel_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 	i64 mask_pos, const char *token)
 {
-	i64 i, j;
-	u8 n, a;
 	de_bitmap *img = NULL;
+	de_bitmap *mask = NULL;
 
 	img = de_bitmap_create(c, ii->width, ii->height, 2);
-
-	for(j=0; j<ii->height; j++) {
-		for(i=0; i<ii->width; i++) {
-			n = de_get_bits_symbol(c->infile, 1, fg_pos + j*ii->mono_rowspan, i);
-			a = de_get_bits_symbol(c->infile, 1, mask_pos + j*ii->mono_rowspan, i);
-			n = n ? 0 : 255;
-			a = a ? 255 : 0;
-			de_bitmap_setpixel_rgba(img, i, j, DE_MAKE_RGBA(n,n,n,a));
-		}
-	}
-
+	mask = de_bitmap_create(c, ii->width, ii->height, 1);
+	do_decode_bilevel_image(c, d, img, fg_pos, ii->mono_rowspan);
+	do_decode_bilevel_image(c, d, mask, mask_pos, ii->mono_rowspan);
+	de_bitmap_apply_mask(img, mask, DE_BITMAPFLAG_WHITEISTRNS);
 	de_bitmap_write_to_file(img, token, 0);
 	de_bitmap_destroy(img);
+	de_bitmap_destroy(mask);
 }
 
 static int do_old_iconblk(deark *c, lctx *d, i64 pos)
@@ -78,8 +117,8 @@ static int do_old_iconblk(deark *c, lctx *d, i64 pos)
 
 	if(!do_scan_iconblk(c, d, pos, ii)) goto done;
 
-	mask_pos = de_getu32be(pos);
-	fg_pos = de_getu32be(pos+4);
+	mask_pos = gem_getu32(d, pos);
+	fg_pos = gem_getu32(d, pos+4);
 	de_dbg(c, "bitmap at %d, mask at %d", (int)fg_pos, (int)mask_pos);
 
 	ii->mono_rowspan = ((ii->width+15)/16)*2;
@@ -140,6 +179,7 @@ static u32 getpal256(unsigned int k)
 	return 0;
 }
 
+// FIXME: This probably doesn't work for PC format (little-endian).
 static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 	i64 mask_pos, const char *token)
 {
@@ -210,7 +250,7 @@ static int do_ciconblk_struct(deark *c, lctx *d, i64 icon_idx, i64 pos1,
 	}
 	pos+=34;
 
-	n_cicons = de_getu32be(pos);
+	n_cicons = gem_getu32(d, pos);
 	de_dbg(c, "number of color depths for this icon: %d", (int)n_cicons);
 	pos += 4;
 
@@ -231,20 +271,20 @@ static int do_ciconblk_struct(deark *c, lctx *d, i64 icon_idx, i64 pos1,
 		de_dbg(c, "-- color depth %d of %d --", (int)(i+1), (int)n_cicons);
 		de_dbg_indent(c, 1);
 
-		ii->nplanes = de_getu16be(pos);
+		ii->nplanes = gem_getu16(d, pos);
 		de_dbg(c, "planes: %d", (int)ii->nplanes);
 		pos += 2;
 
 		pos += 4; // col_data (placeholder)
 		pos += 4; // col_mask (placeholder)
 
-		sel_data_flag = de_getu32be(pos);
+		sel_data_flag = gem_getu32(d, pos);
 		de_dbg(c, "sel_data flag: %d", (int)sel_data_flag);
 		pos += 4; // sel_data
 
 		pos += 4; // sel_mask (placeholder)
 
-		next_res = de_getu32be(pos);
+		next_res = gem_getu32(d, pos);
 		de_dbg(c, "next_res_flag: %d", (int)next_res);
 		pos += 4;
 
@@ -295,7 +335,7 @@ static int do_cicon_ptr_table(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 			return 0;
 		}
 
-		n = de_getu32be(pos);
+		n = gem_getu32(d, pos);
 		pos+=4;
 
 		if(n==0xffffffffU) {
@@ -340,10 +380,10 @@ static void do_newformat(deark *c, lctx *d)
 
 	pos = d->rssize;
 
-	rsc_file_size = de_getu32be(pos);
+	rsc_file_size = gem_getu32(d, pos);
 	de_dbg(c, "reported rsc file size: %d", (int)rsc_file_size);
 
-	cicon_offs = de_getu32be(pos+4);
+	cicon_offs = gem_getu32(d, pos+4);
 	if(cicon_offs!=0 && cicon_offs!=0xffffffffU) {
 		de_dbg(c, "CICON offset: %d", (int)cicon_offs);
 		do_cicon(c, d, cicon_offs);
@@ -393,29 +433,29 @@ static int do_object(deark *c, lctx *d, i64 obj_index, i64 pos)
 	de_dbg(c, "OBJECT #%d at %d", (int)obj_index, (int)pos);
 	de_dbg_indent(c, 1);
 
-	next_sibling = de_getu16be(pos);
+	next_sibling = gem_getu16(d, pos);
 	if(next_sibling==0xffff) next_sibling = -1;
-	first_child = de_getu16be(pos+2);
+	first_child = gem_getu16(d, pos+2);
 	if(first_child==0xffff) first_child = -1;
-	last_child = de_getu16be(pos+4);
+	last_child = gem_getu16(d, pos+4);
 	if(last_child==0xffff) last_child = -1;
 	de_dbg(c, "next sibling: %d, first child: %d, last child: %d",
 		(int)next_sibling, (int)first_child, (int)last_child);
 
-	obj_type_orig = de_getu16be(pos+6);
+	obj_type_orig = gem_getu16(d, pos+6);
 	obj_type = (u8)(obj_type_orig&0xff);
 
 	de_dbg(c, "type: 0x%04x (%u; %s)", (unsigned int)obj_type_orig,
 		(unsigned int)obj_type, get_obj_type_name(obj_type));
 
-	ob_spec = de_getu32be(pos+12);
+	ob_spec = gem_getu32(d, pos+12);
 	de_dbg(c, "ob_spec: %u (0x%08x)", (unsigned int)ob_spec, (unsigned int)ob_spec);
 
 	// Note: This does not seem to read the width and height fields correctly.
 	// Don't know what I'm doing wrong.
 	// (Fortunately, we don't necessarily need them.)
-	width = de_getu16be(pos+20);
-	height = de_getu16be(pos+22);
+	width = gem_getu16(d, pos+20);
+	height = gem_getu16(d, pos+22);
 	de_dbg_dimensions(c, width, height);
 
 	de_dbg_indent(c, -1);
@@ -432,19 +472,18 @@ static int do_bitblk(deark *c, lctx *d, i64 pos)
 	de_dbg(c, "BITBLK struct at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	bits_pos = de_getu32be(pos);
+	bits_pos = gem_getu32(d, pos);
 	de_dbg(c, "bitmap pos: %d", (int)bits_pos);
-	width_in_bytes = de_getu16be(pos+4);
+	width_in_bytes = gem_getu16(d, pos+4);
 	width = width_in_bytes*8;
 	de_dbg(c, "width in bytes: %d", (int)width_in_bytes);
-	height = de_getu16be(pos+6);
+	height = gem_getu16(d, pos+6);
 	de_dbg_dimensions(c, width, height);
-	fgcol = de_getu16be(pos+12);
+	fgcol = gem_getu16(d, pos+12);
 	de_dbg(c, "foreground color: 0x%04x", (unsigned int)fgcol);
 	// TODO: Can we do anything with the foreground color?
 
-	de_convert_and_write_image_bilevel(c->infile, bits_pos, width, height, width_in_bytes,
-		DE_CVTF_WHITEISZERO, NULL, 0);
+	do_decode_and_write_bilevel_image(c, d, bits_pos, width_in_bytes, width, height);
 
 	de_dbg_indent(c, -1);
 	return 1;
@@ -479,25 +518,38 @@ static void do_oldformat(deark *c, lctx *d)
 static void de_run_rsc(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	const char *tmps;
 
 	de_warn(c, "RSC support is experimental and incomplete. Images may not be decoded correctly.");
 
 	d = de_malloc(c, sizeof(lctx));
+	d->c = c;
 	d->decode_objects = 1;
 
-	d->version = de_getu16be(0);
+	d->is_pc = 0;
+	tmps = de_get_ext_option(c, "rsc:fmt");
+	if(tmps) {
+		if(!de_strcmp(tmps, "pc")) {
+			d->is_pc = 1;
+		}
+		else if(!de_strcmp(tmps, "atari")) {
+			d->is_pc = 0;
+		}
+	}
+
+	d->version = gem_getu16(d, 0);
 	de_dbg(c, "version: 0x%04x", (int)d->version);
 
-	d->object_offs = de_getu16be(2);
-	d->iconblk_offs = de_getu16be(6);
-	d->bitblk_offs = de_getu16be(8);
-	d->imagedata_offs = de_getu16be(14);
-	d->imagepointertable_offs = de_getu16be(16);
-	d->object_num = de_getu16be(20);
-	d->objecttree_num = de_getu16be(22);
-	d->iconblk_num = de_getu16be(26);
-	d->bitblk_num = de_getu16be(28);
-	d->rssize = de_getu16be(34);
+	d->object_offs = gem_getu16(d, 2);
+	d->iconblk_offs = gem_getu16(d, 6);
+	d->bitblk_offs = gem_getu16(d, 8);
+	d->imagedata_offs = gem_getu16(d, 14);
+	d->imagepointertable_offs = gem_getu16(d, 16);
+	d->object_num = gem_getu16(d, 20);
+	d->objecttree_num = gem_getu16(d, 22);
+	d->iconblk_num = gem_getu16(d, 26);
+	d->bitblk_num = gem_getu16(d, 28);
+	d->rssize = gem_getu16(d, 34);
 
 	de_dbg(c, "OBJECT: %d at %d", (int)d->object_num, (int)d->object_offs);
 	de_dbg(c, "ojbecttree num: %d", (int)d->objecttree_num);
