@@ -445,6 +445,8 @@ Deark -- Information about supported formats
 * RSC (GEM resource) (module="rsc") (experimental)
   - Supports both "old" and "new" formats.
   - Extracts icons and bitmaps.
+  Options
+   -opt rsc:fmt=<atari|pc> - Use this byte order. Default is to autodetect.
 
 * SHG and MRB (module="shg")
   Segmented Hypergraphics and Multi-Resolution Bitmap formats are used in

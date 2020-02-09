@@ -8,9 +8,15 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_rsc);
 
+#define RSCFMT_UNKNOWN 0
+// ATARI means Atari-style (big-endian). Not necessarily limited to that platform.
+#define RSCFMT_ATARI   1
+#define RSCFMT_PC      2
+
 typedef struct localctx_struct {
 	deark *c;
-	int is_pc;
+	int fmt;
+	int is_le;
 	int decode_objects;
 	i64 version;
 	i64 object_offs, object_num;
@@ -32,12 +38,12 @@ struct iconinfo {
 
 static i64 gem_getu16(lctx *d, i64 pos)
 {
-	return dbuf_getu16x(d->c->infile, pos, d->is_pc);
+	return dbuf_getu16x(d->c->infile, pos, d->is_le);
 }
 
 static i64 gem_getu32(lctx *d, i64 pos)
 {
-	return dbuf_getu32x(d->c->infile, pos, d->is_pc);
+	return dbuf_getu32x(d->c->infile, pos, d->is_le);
 }
 
 static void do_decode_bilevel_image(deark *c, lctx *d, de_bitmap *img, i64 bits_pos,
@@ -515,6 +521,59 @@ static void do_oldformat(deark *c, lctx *d)
 	}
 }
 
+static void detect_rsc_format(deark *c, lctx *d)
+{
+	i64 n_be, n_le;
+	i64 pos;
+
+	// Check the version number. Assumes PC format is always 0.
+	n_be = de_getu16be(0);
+	if(n_be != 0) {
+		d->fmt = RSCFMT_ATARI;
+		return;
+	}
+
+	// Check the (old-style) file size field
+	n_le = de_getu16le(34);
+	n_be = de_getu16be(34);
+	if(n_le != n_be) {
+		if(n_be==c->infile->len) {
+			d->fmt = RSCFMT_ATARI;
+			return;
+		}
+		if(n_le==c->infile->len) {
+			d->fmt = RSCFMT_PC;
+			return;
+		}
+	}
+
+	// Check some file offsets
+	for(pos=2; pos<=18; pos+=2) {
+		n_le = de_getu16le(pos);
+		if(n_le==0 || n_le==0xffff) continue;
+		n_be = de_getu16be(pos);
+		if(n_le > c->infile->len) {
+			d->fmt = RSCFMT_ATARI;
+			return;
+		}
+		if(n_be > c->infile->len) {
+			d->fmt = RSCFMT_PC;
+			return;
+		}
+		// Offsets should be even, I think.
+		if(n_le&0x1) {
+			d->fmt = RSCFMT_ATARI;
+			return;
+		}
+		if(n_be&0x1) {
+			d->fmt = RSCFMT_PC;
+			return;
+		}
+	}
+
+	// TODO: Is it worth doing more checks?
+}
+
 static void de_run_rsc(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -524,18 +583,35 @@ static void de_run_rsc(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 	d->c = c;
-	d->decode_objects = 1;
 
-	d->is_pc = 0;
+	d->fmt = RSCFMT_UNKNOWN;
 	tmps = de_get_ext_option(c, "rsc:fmt");
 	if(tmps) {
 		if(!de_strcmp(tmps, "pc")) {
-			d->is_pc = 1;
+			d->fmt = RSCFMT_PC;
 		}
 		else if(!de_strcmp(tmps, "atari")) {
-			d->is_pc = 0;
+			d->fmt = RSCFMT_ATARI;
 		}
 	}
+
+	if(d->fmt==RSCFMT_UNKNOWN) {
+		detect_rsc_format(c, d);
+	}
+
+	if(d->fmt==RSCFMT_UNKNOWN) {
+		d->fmt = RSCFMT_ATARI;
+	}
+
+	if(d->fmt==RSCFMT_PC) {
+		de_declare_fmt(c, "GEM RSC, PC");
+		d->is_le = 1;
+	}
+	else {
+		de_declare_fmt(c, "GEM RSC, Atari");
+	}
+
+	d->decode_objects = 1;
 
 	d->version = gem_getu16(d, 0);
 	de_dbg(c, "version: 0x%04x", (int)d->version);
@@ -552,12 +628,13 @@ static void de_run_rsc(deark *c, de_module_params *mparams)
 	d->rssize = gem_getu16(d, 34);
 
 	de_dbg(c, "OBJECT: %d at %d", (int)d->object_num, (int)d->object_offs);
-	de_dbg(c, "ojbecttree num: %d", (int)d->objecttree_num);
+	de_dbg(c, "num object trees: %d", (int)d->objecttree_num);
 	de_dbg(c, "ICONBLK: %d at %d", (int)d->iconblk_num, (int)d->iconblk_offs);
 	de_dbg(c, "BITBLK: %d at %d", (int)d->bitblk_num, (int)d->bitblk_offs);
 	de_dbg(c, "imagedata: at %d", (int)d->imagedata_offs);
 	de_dbg(c, "imagepointertable: at %d", (int)d->imagepointertable_offs);
-	if(d->version==4) {
+
+	if(d->version & 0x0004) {
 		do_newformat(c, d);
 	}
 	else if(d->version==0 || d->version==1) {
@@ -577,10 +654,16 @@ static int de_identify_rsc(deark *c)
 	return 0;
 }
 
+static void de_help_rsc(deark *c)
+{
+	de_msg(c, "-opt rsc:fmt=<atari|pc> : Use this byte order");
+}
+
 void de_module_rsc(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "rsc";
 	mi->desc = "GEM resource file";
 	mi->run_fn = de_run_rsc;
 	mi->identify_fn = de_identify_rsc;
+	mi->help_fn = de_help_rsc;
 }
