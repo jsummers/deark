@@ -14,7 +14,7 @@ DE_DECLARE_MODULE(de_module_spark);
 #define FMT_ARC 1
 #define FMT_SPARK 2
 
-#define MAX_SPARK_NESTING_LEVEL 24
+#define MAX_NESTING_LEVEL 24
 
 struct localctx_struct;
 typedef struct localctx_struct lctx;
@@ -138,6 +138,8 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 0x09, 0x83, "squashed (dynamic LZW)", decompressor_squashed },
 	{ 0x0a, 0x01, "crushed", NULL },
 	{ 0x0b, 0x01, "distilled", NULL },
+	{ 0x1e, 0x01, "subdir", NULL },
+	{ 0x1f, 0x01, "end of subdir marker", NULL },
 	{ 0x80, 0x02, "end of archive marker", NULL },
 	{ 0xff, 0x02, "compressed", decompressor_spark_compressed }
 };
@@ -442,7 +444,7 @@ static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
 	if(pmd && ucstring_isnonempty(pmd->path)) {
 		// For PAK-style paths.
 		// (Pretty useless, until we support cmpr. meth. #11.)
-		// Note that PAK-style paths, and Spark-style recursion, are not expected to
+		// Note that PAK-style paths, and directory recursion, are not expected to
 		// be possible in the same file.
 		ucstring_append_ucstring(fullfn, pmd->path);
 		fixup_path(c, d, fullfn);
@@ -501,7 +503,7 @@ done:
 }
 
 // "Extract" a directory entry
-static void do_spark_extract_member_dir(deark *c, lctx *d, struct member_data *md,
+static void do_extract_member_dir(deark *c, lctx *d, struct member_data *md,
 	de_finfo *fi)
 {
 	dbuf *outf = NULL;
@@ -521,13 +523,14 @@ static void do_spark_extract_member_dir(deark *c, lctx *d, struct member_data *m
 static void do_sequence_of_members(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level);
 
 // Returns 1 if we can and should continue after this member.
-static int do_member(deark *c, lctx *d, i64 pos1,
+static int do_member(deark *c, lctx *d, i64 pos1, i64 nbytes_avail,
 	int nesting_level, i64 member_idx, i64 *bytes_consumed, int *is_eoa)
 {
 	u8 magic;
 	int saved_indent_level;
 	int retval = 0;
 	i64 pos = pos1;
+	i64 hdrsize;
 	i64 mod_time_raw, mod_date_raw;
 	de_finfo *fi = NULL;
 	struct member_data *md = NULL;
@@ -573,7 +576,26 @@ static int do_member(deark *c, lctx *d, i64 pos1,
 
 	de_dbg(c, "cmpr meth: 0x%02x (%s)", (unsigned int)md->cmpr_meth, md->cmpr_meth_name);
 
-	if(md->cmpr_meth_masked==0x00) { // end of dir marker
+	if(md->cmpr_meth_masked==0x00 || md->cmpr_meth==0x1f) {
+		hdrsize = 2;
+	}
+	else {
+		if(md->cmpr_meth_masked==0x01) {
+			hdrsize = 25;
+		}
+		else {
+			hdrsize = 29;
+		}
+		if(md->cmpr_meth>=128) {
+			hdrsize += 12;
+		}
+	}
+	if(nbytes_avail<hdrsize) {
+		de_err(c, "Insufficient data for archive member at %"I64_FMT, pos1);
+		goto done;
+	}
+
+	if(md->cmpr_meth_masked==0x00 || md->cmpr_meth==0x1f) { // end of dir marker
 		*is_eoa = 1;
 		*bytes_consumed = 2;
 		goto done;
@@ -620,8 +642,14 @@ static int do_member(deark *c, lctx *d, i64 pos1,
 	// TODO: Is it possible to distinguish between a subdirectory, and a Spark
 	// member file that should always be extracted? Does a nonzero CRC mean
 	// we should not recurse?
-	md->is_dir = (d->fmt==FMT_SPARK && d->recurse_subdirs && md->rfa.file_type_known &&
-		(md->rfa.file_type==0xddc) && md->cmpr_meth==0x82);
+	if(d->fmt==FMT_SPARK && d->recurse_subdirs && md->rfa.file_type_known &&
+		(md->rfa.file_type==0xddc) && md->cmpr_meth==0x82)
+	{
+		md->is_dir = 1;
+	}
+	else if(d->fmt==FMT_ARC && d->recurse_subdirs && md->cmpr_meth==0x1e) {
+		md->is_dir = 1;
+	}
 
 	if(d->recurse_subdirs) {
 		de_dbg(c, "is directory: %d", md->is_dir);
@@ -646,9 +674,9 @@ static int do_member(deark *c, lctx *d, i64 pos1,
 	}
 
 	if(md->is_dir) {
-		do_spark_extract_member_dir(c, d, md, fi);
+		do_extract_member_dir(c, d, md, fi);
 
-		// Nested Spark archives (which double as subdirectories) have both a known
+		// Nested subdirectory archives (ARC 6 "z" option, or Spark) have both a known
 		// length (md->cmpr_size), and an end-of-archive marker. So there are two
 		// ways to parse them:
 		// 1) Recursively, meaning we trust the md->cmpr_size field (or maybe we should
@@ -657,6 +685,9 @@ static int do_member(deark *c, lctx *d, i64 pos1,
 		//    will not have extra data after the end-of-archive marker.
 		// Here, we use the recursive method.
 		do_sequence_of_members(c, d, md->cmpr_data_pos, md->cmpr_size, nesting_level+1);
+	}
+	else if(md->cmpr_meth_masked>=20 && md->cmpr_meth_masked<=29) {
+		de_warn(c, "Ignoring extension type %d at %"I64_FMT, (int)md->cmpr_meth_masked, pos1);
 	}
 	else {
 		do_extract_member_file(c, d, md, pmd, fi, md->cmpr_data_pos);
@@ -680,7 +711,7 @@ static void do_sequence_of_members(deark *c, lctx *d, i64 pos1, i64 len, int nes
 	i64 pos = pos1;
 	i64 member_idx = 0;
 
-	if(nesting_level >= MAX_SPARK_NESTING_LEVEL) {
+	if(nesting_level >= MAX_NESTING_LEVEL) {
 		de_err(c, "Max subdir nesting level exceeded");
 		return;
 	}
@@ -691,10 +722,12 @@ static void do_sequence_of_members(deark *c, lctx *d, i64 pos1, i64 len, int nes
 	while(1) {
 		int ret;
 		int is_eoa = 0;
+		i64 nbytes_avail;
 		i64 bytes_consumed = 0;
 
-		if(pos >= pos1+len) break;
-		ret = do_member(c, d, pos, nesting_level, member_idx, &bytes_consumed, &is_eoa);
+		nbytes_avail = pos1+len-pos;
+		if(nbytes_avail<2) break;
+		ret = do_member(c, d, pos, nbytes_avail, nesting_level, member_idx, &bytes_consumed, &is_eoa);
 		pos += bytes_consumed;
 
 		if(is_eoa) {
@@ -881,7 +914,9 @@ static void de_run_arc(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 	d->fmt = FMT_ARC;
 	d->fmtname = "ARC";
-	d->recurse_subdirs = 0;
+	// TODO: Make 'recurse' configurable. Would require us to make the embedded
+	// archives end with the correct marker.
+	d->recurse_subdirs = 1;
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437_G);
 
 	do_run_arc_spark_internal(c, d);
