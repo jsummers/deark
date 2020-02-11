@@ -136,8 +136,10 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 0x07, 0x83, "crunched7 (ARC 4.6)", NULL },
 	{ 0x08, 0x83, "crunched8 (RLE + dynamic LZW)", decompressor_crunched8 },
 	{ 0x09, 0x83, "squashed (dynamic LZW)", decompressor_squashed },
-	{ 0x0a, 0x01, "crushed", NULL },
+	{ 10,   0x01, "trimmed or crushed", NULL },
 	{ 0x0b, 0x01, "distilled", NULL },
+	{ 20,   0x01, "archive comment", NULL },
+	{ 21,   0x01, "file comment", NULL },
 	{ 0x1e, 0x01, "subdir", NULL },
 	{ 0x1f, 0x01, "end of subdir marker", NULL },
 	{ 0x80, 0x02, "end of archive marker", NULL },
@@ -457,7 +459,6 @@ static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
 	}
 	de_finfo_set_name_from_ucstring(c, fi, fullfn, DE_SNFLAG_FULLPATH);
 
-	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, pos, md->cmpr_size);
 	de_dbg_indent(c, 1);
 
 	if(!md->cmi || !md->cmi->decompressor) {
@@ -595,7 +596,7 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 nbytes_avail,
 		goto done;
 	}
 
-	if(md->cmpr_meth_masked==0x00 || md->cmpr_meth==0x1f) { // end of dir marker
+	if(md->cmpr_meth_masked==0x00 || md->cmpr_meth==0x1f) { // end of archive/dir marker
 		*is_eoa = 1;
 		*bytes_consumed = 2;
 		goto done;
@@ -657,6 +658,8 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 nbytes_avail,
 
 	*bytes_consumed = md->cmpr_data_pos + md->cmpr_size - pos1;
 	retval = 1;
+
+	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, md->cmpr_data_pos, md->cmpr_size);
 
 	// Extract...
 	fi = de_finfo_create(c);
@@ -948,7 +951,7 @@ static int de_identify_arc(deark *c)
 	}
 
 	cmpr_meth = de_getbyte(arc_start+1);
-	if(cmpr_meth>11) return 0;
+	if(cmpr_meth>11 && cmpr_meth!=20 && cmpr_meth!=21 && cmpr_meth!=30) return 0;
 	if(cmpr_meth==0) starts_with_trailer = 1;
 
 	for(k=0; k<DE_ARRAYCOUNT(exts); k++) {
