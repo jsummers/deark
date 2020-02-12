@@ -138,8 +138,8 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 0x09, 0x83, "squashed (dynamic LZW)", decompressor_squashed },
 	{ 10,   0x01, "trimmed or crushed", NULL },
 	{ 0x0b, 0x01, "distilled", NULL },
-	{ 20,   0x01, "archive comment", NULL },
-	{ 21,   0x01, "file comment", NULL },
+	{ 20,   0x01, "archive info", NULL },
+	{ 21,   0x01, "extended file info", NULL },
 	{ 0x1e, 0x01, "subdir", NULL },
 	{ 0x1f, 0x01, "end of subdir marker", NULL },
 	{ 0x80, 0x02, "end of archive marker", NULL },
@@ -521,6 +521,61 @@ static void do_extract_member_dir(deark *c, lctx *d, struct member_data *md,
 	ucstring_destroy(fullfn);
 }
 
+static void do_info_record_string(deark *c, lctx *d, i64 pos, i64 len, const char *name)
+{
+	de_ucstring *s = NULL;
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pos, len, 2048, s, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz_d(s));
+	ucstring_destroy(s);
+}
+
+static void do_info_item(deark *c, lctx *d, struct member_data *md)
+{
+	int saved_indent_level;
+	i64 pos = md->cmpr_data_pos;
+	i64 endpos = md->cmpr_data_pos+md->cmpr_size;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "info item data (meth=%d) at %"I64_FMT" len=%"I64_FMT, (int)md->cmpr_meth,
+		md->cmpr_data_pos, md->cmpr_size);
+	de_dbg_indent(c, 1);
+
+	while(1) {
+		i64 reclen;
+		i64 recpos;
+		i64 dpos;
+		i64 dlen;
+		u8 rectype;
+
+		recpos = pos;
+		if(pos+3 > endpos) goto done;
+		reclen = de_getu16le_p(&pos);
+		rectype = de_getbyte_p(&pos);
+		if(reclen<3 || recpos+reclen > endpos) goto done;
+		dpos = recpos + 3;
+		dlen = reclen - 3;
+		de_dbg(c, "record type %d at %"I64_FMT", len=%"I64_FMT, (int)rectype, recpos, reclen);
+		de_dbg_indent(c, 1);
+		if(md->cmpr_meth==20) {
+			if(rectype==0) {
+				do_info_record_string(c, d, dpos, dlen, "archive comment");
+			}
+		}
+		else if(md->cmpr_meth==21) {
+			if(rectype==0) {
+				do_info_record_string(c, d, dpos, dlen, "file comment");
+			}
+		}
+		de_dbg_indent(c, -1);
+		pos = recpos + reclen;
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static void do_sequence_of_members(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level);
 
 // Returns 1 if we can and should continue after this member.
@@ -689,8 +744,13 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 nbytes_avail,
 		// Here, we use the recursive method.
 		do_sequence_of_members(c, d, md->cmpr_data_pos, md->cmpr_size, nesting_level+1);
 	}
-	else if(md->cmpr_meth_masked>=20 && md->cmpr_meth_masked<=29) {
-		de_warn(c, "Ignoring extension type %d at %"I64_FMT, (int)md->cmpr_meth_masked, pos1);
+	else if(md->cmpr_meth>=20 && md->cmpr_meth<=29) {
+		if(md->cmpr_meth==20 || md->cmpr_meth==21) {
+			do_info_item(c, d, md);
+		}
+		else {
+			de_warn(c, "Ignoring extension type %d at %"I64_FMT, (int)md->cmpr_meth, pos1);
+		}
 	}
 	else {
 		do_extract_member_file(c, d, md, pmd, fi, md->cmpr_data_pos);
