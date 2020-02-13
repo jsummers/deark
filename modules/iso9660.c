@@ -61,6 +61,7 @@ struct vol_record {
 };
 
 typedef struct localctx_struct {
+	int user_req_encoding;
 	int rr_encoding;
 	u8 names_to_lowercase;
 	u8 vol_desc_sector_forced;
@@ -105,14 +106,19 @@ static i64 getu32bbo_p(dbuf *f, i64 *ppos)
 	return val;
 }
 
-// If vol is not NULL, use its encoding. Else ASCII.
+// If vol is not NULL, use its encoding if it has one. Else ASCII.
 static void read_iso_string(deark *c, lctx *d, struct vol_record *vol,
 	i64 pos, i64 len, de_ucstring *s)
 {
 	de_encoding encoding;
 
 	ucstring_empty(s);
-	encoding = vol ? vol->encoding : DE_ENCODING_ASCII;
+	if(vol && (vol->encoding!=DE_ENCODING_UNKNOWN)) {
+		encoding = vol->encoding;
+	}
+	else {
+		encoding = DE_ENCODING_ASCII;
+	}
 	if(encoding==DE_ENCODING_UTF16BE) {
 		if(len%2) {
 			len--;
@@ -831,8 +837,19 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 		// To better display the "thisdir" and "parentdir" directory entries
 		file_id_encoding = DE_ENCODING_PRINTABLEASCII;
 	}
-	else {
+	else if(d->vol->encoding!=DE_ENCODING_UNKNOWN) {
 		file_id_encoding = d->vol->encoding;
+	}
+	else if(d->uses_SUSP) {
+		// We're using the user_req_encoding for the Rock Ridge names,
+		// so don't use it here.
+		file_id_encoding = DE_ENCODING_ASCII;
+	}
+	else if(d->user_req_encoding!=DE_ENCODING_UNKNOWN) {
+		file_id_encoding = d->user_req_encoding;
+	}
+	else {
+		file_id_encoding = DE_ENCODING_ASCII;
 	}
 
 	dr->fname = ucstring_create(c);
@@ -1069,7 +1086,7 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 	}
 	/////////
 
-	vol->encoding = DE_ENCODING_ASCII; // default
+	vol->encoding = DE_ENCODING_UNKNOWN;
 
 	if(!is_primary) {
 		vol_flags = de_getbyte(pos);
@@ -1326,7 +1343,9 @@ static void de_run_iso9660(deark *c, de_module_params *mparams)
 		d->vol_desc_sector_to_use = de_atoi(s);
 	}
 
-	d->rr_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_UTF8);
+	d->user_req_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
+	d->rr_encoding = (d->user_req_encoding==DE_ENCODING_UNKNOWN) ?
+		DE_ENCODING_UTF8 : d->user_req_encoding;
 
 	d->secsize = 2048;
 
