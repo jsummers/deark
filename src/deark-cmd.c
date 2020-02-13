@@ -136,7 +136,7 @@ static void print_help(deark *c)
 static void print_license(deark *c)
 {
 	de_puts(c, DE_MSGTYPE_MESSAGE, "Deark\n"
-	"Copyright (C) 2016-2020 Jason Summers\n\n"
+	"Copyright (C) 2016-"DE_COPYRIGHT_YEAR_STRING" Jason Summers\n\n"
 	"Permission is hereby granted, free of charge, to any person obtaining a copy\n"
 	"of this software and associated documentation files (the \"Software\"), to deal\n"
 	"in the Software without restriction, including without limitation the rights\n"
