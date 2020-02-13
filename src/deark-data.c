@@ -120,6 +120,7 @@ static const u16 riscostable[32] = {
 	0x2018,0x2019,0x2039,0x203a,0x201c,0x201d,0x201e,0x2013,0x2014,0x2212,0x0152,0x0153,0x2020,0x2021,0xfb01,0xfb02
 };
 
+// MacRoman, a.k.a "Mac OS Roman", "Macintosh"
 static const u16 macromantable[128] = {
 	0x00c4,0x00c5,0x00c7,0x00c9,0x00d1,0x00d6,0x00dc,0x00e1,0x00e0,0x00e2,0x00e4,0x00e3,0x00e5,0x00e7,0x00e9,0x00e8,
 	0x00ea,0x00eb,0x00ed,0x00ec,0x00ee,0x00ef,0x00f1,0x00f3,0x00f2,0x00f4,0x00f6,0x00f5,0x00fa,0x00f9,0x00fb,0x00fc,
@@ -171,7 +172,7 @@ static i32 de_cp437c_to_unicode(i32 a)
 {
 	i32 n;
 	if(a<=0x7f) n = a;
-	else if(a>=0x080 && a<=0xff) n = (i32)cp437table[a];
+	else if(a>=0x80 && a<=0xff) n = (i32)cp437table[a];
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
@@ -183,26 +184,6 @@ static i32 de_latin2_to_unicode(i32 a)
 	if(a<=0x9f) n = a;
 	else if(a>=0xa0 && a<=0xbf) n = (i32)latin2table[a-0xa0];
 	else if(a>=0x0c0 && a<=0xff) n = (i32)windows1250table[a-0x80];
-	else n = DE_CODEPOINT_INVALID;
-	if(n==0xffff) n = DE_CODEPOINT_INVALID;
-	return n;
-}
-
-static i32 de_windows1250_to_unicode(i32 a)
-{
-	i32 n;
-	if(a<=0x7f) n = a;
-	else if(a>=0x080 && a<=0xff) n = (i32)windows1250table[a-0x80];
-	else n = DE_CODEPOINT_INVALID;
-	if(n==0xffff) n = DE_CODEPOINT_INVALID;
-	return n;
-}
-
-static i32 de_windows1251_to_unicode(i32 a)
-{
-	i32 n;
-	if(a<=0x7f) n = a;
-	else if(a>=0x080 && a<=0xff) n = (i32)windows1251table[a-0x80];
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
@@ -239,17 +220,6 @@ static i32 de_riscos_to_unicode(i32 a)
 	return n;
 }
 
-// MacRoman, a.k.a "Mac OS Roman", "Macintosh"
-static i32 de_macroman_to_unicode(i32 a)
-{
-	i32 n;
-	if(a<=0x7f) n = a;
-	else if(a>=0x080 && a<=0xff) n = (i32)macromantable[a-0x80];
-	else n = DE_CODEPOINT_INVALID;
-	if(n==0xffff) n = DE_CODEPOINT_INVALID;
-	return n;
-}
-
 static i32 de_petscii_to_unicode(i32 a)
 {
 	i32 n;
@@ -273,7 +243,7 @@ static i32 de_ext_ascii_to_unicode(const u16 tbl[128], i32 a)
 {
 	i32 n;
 	if(a<=0x7f) n = a;
-	else if(a>=0x080 && a<=0xff) n = (i32)tbl[a-0x80];
+	else if(a>=0x80 && a<=0xff) n = (i32)tbl[a-0x80];
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
@@ -299,11 +269,11 @@ i32 de_char_to_unicode(deark *c, i32 a, de_encoding encoding)
 	case DE_ENCODING_WINDOWS1252:
 		return de_windows1252_to_unicode(a);
 	case DE_ENCODING_MACROMAN:
-		return de_macroman_to_unicode(a);
+		return de_ext_ascii_to_unicode(macromantable, a);
 	case DE_ENCODING_WINDOWS1250:
-		return de_windows1250_to_unicode(a);
+		return de_ext_ascii_to_unicode(windows1250table, a);
 	case DE_ENCODING_WINDOWS1251:
-		return de_windows1251_to_unicode(a);
+		return de_ext_ascii_to_unicode(windows1251table, a);
 	case DE_ENCODING_WINDOWS1253:
 		return de_ext_ascii_to_unicode(windows1253table, a);
 	case DE_ENCODING_WINDOWS1254:
