@@ -336,6 +336,7 @@
     <ClInclude Include="..\..\src\deark-modules.h" />
     <ClInclude Include="..\..\src\deark-private.h" />
     <ClInclude Include="..\..\src\deark-user.h" />
+    <ClInclude Include="..\..\src\deark-version.h" />
     <ClInclude Include="..\..\src\deark.h" />
   </ItemGroup>
   <ItemGroup>

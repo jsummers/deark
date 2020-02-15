@@ -262,7 +262,7 @@ $(OBJDIR)/src/deark-bitmap.o: src/deark-bitmap.c src/deark-config.h \
 $(OBJDIR)/src/deark-char.o: src/deark-char.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/src/deark-cmd.o: src/deark-cmd.c src/deark-config.h \
- src/deark-user.h src/deark.h
+ src/deark-user.h src/deark.h src/deark-version.h
 $(OBJDIR)/src/deark-data.o: src/deark-data.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/src/deark-dbuf.o: src/deark-dbuf.c src/deark-config.h \
@@ -282,7 +282,7 @@ $(OBJDIR)/src/deark-unix.o: src/deark-unix.c src/deark-config.h \
 $(OBJDIR)/src/deark-user.o: src/deark-user.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-user.h
 $(OBJDIR)/src/deark-util.o: src/deark-util.c src/deark-config.h \
- src/deark-private.h src/deark.h
+ src/deark-private.h src/deark.h src/deark-version.h
 $(OBJDIR)/src/deark-win.o: src/deark-win.c src/deark-config.h
 $(OBJDIR)/src/deark-zip.o: src/deark-zip.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h

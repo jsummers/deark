@@ -7,6 +7,7 @@
 #define DE_NOT_IN_MODULE
 #include "deark-config.h"
 #include "deark-user.h"
+#include "deark-version.h"
 
 #ifdef DE_WINDOWS
 #include <fcntl.h>

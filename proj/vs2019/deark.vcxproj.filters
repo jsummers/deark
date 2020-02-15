@@ -513,6 +513,9 @@
     <ClInclude Include="..\..\foreign\delzw.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\src\deark-version.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\..\src\deark.rc">
