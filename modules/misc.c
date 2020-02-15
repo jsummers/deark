@@ -46,6 +46,7 @@ DE_DECLARE_MODULE(de_module_gws_thn);
 DE_DECLARE_MODULE(de_module_deskmate_pnt);
 DE_DECLARE_MODULE(de_module_corel_bmf);
 DE_DECLARE_MODULE(de_module_hpi);
+DE_DECLARE_MODULE(de_module_dwc);
 
 // **************************************************************************
 // "copy" module
@@ -2328,4 +2329,94 @@ void de_module_hpi(deark *c, struct deark_module_info *mi)
 	mi->desc = "Hemera Photo-Object image";
 	mi->run_fn = de_run_hpi;
 	mi->identify_fn = de_identify_hpi;
+}
+
+// **************************************************************************
+// DWC archive
+// **************************************************************************
+
+struct dwc_member_data {
+	de_ucstring *fn;
+	i64 unclen, cmprlen;
+	i64 cmprdatapos;
+	u8 cmpr_meth;
+};
+
+static void do_dwc_member(deark *c, i64 pos1)
+{
+	i64 pos = pos1;
+	struct dwc_member_data *md = NULL;
+
+	md = de_malloc(c, sizeof(struct dwc_member_data));
+	de_dbg(c, "member header at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	md->fn = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, 12, md->fn, DE_CONVFLAG_STOP_AT_NUL,
+		DE_ENCODING_CP437_G);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->fn));
+	pos += 13;
+	md->unclen = de_getu32le_p(&pos);
+	de_dbg(c, "unc. size: %"I64_FMT, md->unclen);
+	pos += 4; // time/date
+	md->cmprlen = de_getu32le_p(&pos);
+	de_dbg(c, "cmpr. size: %"I64_FMT, md->cmprlen);
+	md->cmprdatapos = de_getu32le_p(&pos);
+	de_dbg(c, "cmpr. data pos: %"I64_FMT, md->cmprdatapos);
+	md->cmpr_meth = de_getbyte_p(&pos);
+	de_dbg(c, "cmpr. method: %d", (int)md->cmpr_meth);
+	// pos += 2; // ?
+	// pos += 2; // CRC
+	de_dbg_indent(c, -1);
+	if(md) {
+		ucstring_destroy(md->fn);
+		de_free(c, md);
+	}
+}
+
+static void de_run_dwc(deark *c, de_module_params *mparams)
+{
+	i64 trailer_pos;
+	i64 nmembers;
+	i64 fhsize; // size of each file header
+	i64 pos;
+	i64 i;
+
+	de_info(c, "Note: DWC files can be parsed, but no files can be extracted from them.");
+	trailer_pos = c->infile->len - 27;
+	pos = trailer_pos;
+	de_dbg(c, "trailer at %"I64_FMT, trailer_pos);
+	de_dbg_indent(c, 1);
+	pos += 2; // trailer length (27)
+	fhsize = de_getu16le_p(&pos);
+	pos += 16;
+	nmembers = de_getu16le_p(&pos);
+	de_dbg(c, "number of member files: %d", (int)nmembers);
+	de_dbg_indent(c, -1);
+
+	pos = trailer_pos - fhsize*nmembers;
+	for(i=0; i<nmembers; i++) {
+		if(pos<0 || pos>(trailer_pos-fhsize)) break;
+		do_dwc_member(c, pos);
+		pos += fhsize;
+	}
+}
+
+static int de_identify_dwc(deark *c)
+{
+	if(!de_input_file_has_ext(c, "dwc")) return 0;
+	if(dbuf_memcmp(c->infile, c->infile->len-3, (const u8*)"DWC", 3)) {
+		return 0;
+	}
+	if(de_getu16le(c->infile->len-27) != 27) {
+		return 0;
+	}
+	return 70;
+}
+
+void de_module_dwc(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "dwc";
+	mi->desc = "DWC compressed archive";
+	mi->run_fn = de_run_dwc;
+	mi->identify_fn = de_identify_dwc;
 }
