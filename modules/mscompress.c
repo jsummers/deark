@@ -27,9 +27,10 @@ typedef struct localctx_struct {
 	u8 uncmpr_len_known;
 	i64 uncmpr_len;
 	de_ucstring *filename;
+	u8 enable_lzh;
 } lctx;
 
-static int cmpr_meth_is_supported(uint n)
+static int cmpr_meth_is_supported(lctx *d, uint n)
 {
 	switch(n) {
 	case CMPR_NONE:
@@ -37,6 +38,8 @@ static int cmpr_meth_is_supported(uint n)
 	case CMPR_SZDD:
 	case CMPR_MSZIP:
 		return 1;
+	case CMPR_LZHUFF:
+		return (d->enable_lzh!=0);
 	}
 	return 0;
 }
@@ -177,6 +180,219 @@ header_extensions_done:
 
 	de_dbg_indent(c, -1);
 	return retval;
+}
+
+// I assume the max is supposed to be 15, though some encoding methods make
+// larger lengths possible.
+#define LZHUFF_MAX_CODELENGTH  15
+
+#define LZHUFF_SYMLEN_TYPE  u8  // Assumed to be unsigned
+
+struct lzhuff_tree {
+	uint enctype;
+	uint num_symbols;
+	LZHUFF_SYMLEN_TYPE *symlengths; // array[num_symbols]
+};
+
+struct lzhuff_context {
+	deark *c;
+	unsigned int bitreader_buf;
+	unsigned int bitreader_nbits_in_buf;
+	dbuf *inf;
+	dbuf *outf;
+	i64 inf_endpos;
+	i64 inf_curpos;
+	int error_flag;
+	struct de_dfilter_results *dres;
+	struct lzhuff_tree htree[5];
+};
+
+static uint lzh_getbits(struct lzhuff_context *lzhctx, uint nbits)
+{
+	uint n;
+
+	while(lzhctx->bitreader_nbits_in_buf < nbits) {
+		u8 b;
+
+		if(lzhctx->inf_curpos >= lzhctx->inf_endpos) {
+			lzhctx->error_flag = 1;
+			return 0;
+		}
+
+		b = dbuf_getbyte_p(lzhctx->inf, &lzhctx->inf_curpos);
+		lzhctx->bitreader_buf = (lzhctx->bitreader_buf<<8) | (uint)b;
+		lzhctx->bitreader_nbits_in_buf += 8;
+	}
+
+	n = lzhctx->bitreader_buf;
+	n >>= (lzhctx->bitreader_nbits_in_buf - nbits);
+	n = n & ((1U<<nbits)-1U);
+	lzhctx->bitreader_nbits_in_buf -= nbits;
+	return n;
+}
+
+static void lzhctx_read_huffman_tree_enctype_0(struct lzhuff_context *lzhctx, struct lzhuff_tree *htr)
+{
+	LZHUFF_SYMLEN_TYPE n;
+	uint sym_idx;
+
+	n = (LZHUFF_SYMLEN_TYPE)de_log2_rounded_up((i64)htr->num_symbols);
+	for(sym_idx=0; sym_idx<htr->num_symbols; sym_idx++) {
+		htr->symlengths[sym_idx] = n;
+	}
+}
+
+static void lzhctx_read_huffman_tree_enctype_1(struct lzhuff_context *lzhctx, struct lzhuff_tree *htr)
+{
+	LZHUFF_SYMLEN_TYPE prev_sym_len;
+	uint sym_idx;
+	uint n;
+
+	htr->symlengths[0] = (LZHUFF_SYMLEN_TYPE)lzh_getbits(lzhctx, 4);
+	prev_sym_len = htr->symlengths[0];
+
+	for(sym_idx=1; sym_idx<htr->num_symbols; sym_idx++) {
+		if(lzhctx->error_flag) goto done;
+
+		n = lzh_getbits(lzhctx, 1);
+		if(n==0) { // 0
+			htr->symlengths[sym_idx] = prev_sym_len;
+		}
+		else { // 1...
+			n = lzh_getbits(lzhctx, 1);
+			if(n==0) { // 10
+				htr->symlengths[sym_idx] = prev_sym_len + 1;
+			}
+			else { // 11...
+				htr->symlengths[sym_idx] = (LZHUFF_SYMLEN_TYPE)lzh_getbits(lzhctx, 4);
+			}
+		}
+
+		prev_sym_len = htr->symlengths[sym_idx];
+	}
+done:
+	;
+}
+
+static void lzhctx_read_huffman_tree_enctype_2(struct lzhuff_context *lzhctx, struct lzhuff_tree *htr)
+{
+	LZHUFF_SYMLEN_TYPE prev_sym_len;
+	uint sym_idx;
+	uint n;
+
+	htr->symlengths[0] = (LZHUFF_SYMLEN_TYPE)lzh_getbits(lzhctx, 4);
+	prev_sym_len = htr->symlengths[0];
+	de_dbg(lzhctx->c, "first sym len: %u", (uint)htr->symlengths[0]);
+
+	for(sym_idx=1; sym_idx<htr->num_symbols; sym_idx++) {
+		if(lzhctx->error_flag) goto done;
+
+		n = lzh_getbits(lzhctx, 2);
+		if(n==3) {
+			htr->symlengths[sym_idx] = (LZHUFF_SYMLEN_TYPE)lzh_getbits(lzhctx, 4);
+		}
+		else {
+			htr->symlengths[sym_idx] = prev_sym_len + (LZHUFF_SYMLEN_TYPE)n - 1;
+		}
+
+		prev_sym_len = htr->symlengths[sym_idx];
+	}
+done:
+	;
+}
+
+static void lzhctx_read_huffman_tree_enctype_3(struct lzhuff_context *lzhctx, struct lzhuff_tree *htr)
+{
+	uint sym_idx;
+
+	for(sym_idx=0; sym_idx<htr->num_symbols; sym_idx++) {
+		if(lzhctx->error_flag) goto done;
+		htr->symlengths[sym_idx] = (LZHUFF_SYMLEN_TYPE)lzh_getbits(lzhctx, 4);
+	}
+done:
+	;
+}
+
+static void lzhctx_read_huffman_tree(struct lzhuff_context *lzhctx, uint idx)
+{
+	uint i;
+
+	struct lzhuff_tree *htr = &lzhctx->htree[idx];
+
+	de_dbg(lzhctx->c, "huffman tree #%u at %"I64_FMT", nsyms=%u, enctype=%u",
+		idx, lzhctx->inf_curpos, htr->num_symbols, htr->enctype);
+
+	htr->symlengths = de_mallocarray(lzhctx->c, htr->num_symbols, sizeof(htr->symlengths[0]));
+
+	switch(htr->enctype) {
+	case 0:
+		lzhctx_read_huffman_tree_enctype_0(lzhctx, htr);
+		break;
+	case 1:
+		lzhctx_read_huffman_tree_enctype_1(lzhctx, htr);
+		break;
+	case 2:
+		lzhctx_read_huffman_tree_enctype_2(lzhctx, htr);
+		break;
+	case 3:
+		lzhctx_read_huffman_tree_enctype_3(lzhctx, htr);
+		break;
+	default:
+		lzhctx->error_flag = 1;
+	}
+
+	if(lzhctx->error_flag) goto done;
+
+	for(i=0; i<htr->num_symbols; i++) {
+		de_dbg(lzhctx->c, "length[%u] = %u", i, (uint)htr->symlengths[i]);
+
+		if(htr->symlengths[i] > LZHUFF_MAX_CODELENGTH) {
+			lzhctx->error_flag = 1;
+			goto done;
+		}
+	}
+
+done:
+	de_free(lzhctx->c, htr->symlengths);
+	htr->symlengths = NULL;
+}
+
+static void do_decompress_LZHUFF(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
+{
+	struct lzhuff_context *lzhctx = NULL;
+	i64 k;
+	const char *modname = "lzhuff";
+
+	lzhctx = de_malloc(c, sizeof(struct lzhuff_context));
+	lzhctx->c = c;
+	lzhctx->inf = dcmpri->f;
+	lzhctx->inf_curpos = dcmpri->pos;
+	lzhctx->inf_endpos = dcmpri->pos + dcmpri->len;
+	lzhctx->outf = dcmpro->f;
+
+	lzhctx->htree[0].num_symbols = 16;
+	lzhctx->htree[1].num_symbols = 16;
+	lzhctx->htree[2].num_symbols = 32;
+	lzhctx->htree[3].num_symbols = 64;
+	lzhctx->htree[4].num_symbols = 256;
+
+	// 3-byte header
+	for(k=0; k<5; k++) {
+		lzhctx->htree[k].enctype = lzh_getbits(lzhctx, 4);
+		de_dbg(c, "huffman tree enctype[%d] = %u", (int)k, lzhctx->htree[k].enctype);
+	}
+	(void)lzh_getbits(lzhctx, 4); // unused
+	if(lzhctx->error_flag) goto done;
+
+	for(k=0; k<5; k++) {
+		lzhctx_read_huffman_tree(lzhctx, (uint)k);
+		if(lzhctx->error_flag) goto done;
+	}
+
+done:
+	de_dfilter_set_generic_error(c, dres, modname);
+	de_free(c, lzhctx);
 }
 
 static int XOR_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
@@ -361,6 +577,9 @@ static void do_decompress(deark *c, lctx *d, dbuf *outf)
 	case CMPR_SZDD:
 		do_decompress_SZDD(c, &dcmpri, &dcmpro, &dres);
 		break;
+	case CMPR_LZHUFF:
+		do_decompress_LZHUFF(c, &dcmpri, &dcmpro, &dres);
+		break;
 	case CMPR_MSZIP:
 		do_decompress_MSZIP(c, &dcmpri, &dcmpro, &dres);
 		break;
@@ -391,7 +610,7 @@ static void do_extract_file(deark *c, lctx *d)
 	de_finfo *fi = NULL;
 
 	de_dbg(c, "compressed data at %"I64_FMT, d->cmpr_data_pos);
-	if(!cmpr_meth_is_supported(d->cmpr_meth)) {
+	if(!cmpr_meth_is_supported(d, d->cmpr_meth)) {
 		de_err(c, "Compression method %u (%s) is not supported", d->cmpr_meth,
 			get_cmpr_meth_name(d->cmpr_meth));
 		goto done;
@@ -435,6 +654,10 @@ static void de_run_mscompress(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
+
+	if(de_get_ext_option_bool(c, "mscompress:lzh", 0)) {
+		d->enable_lzh = 1; // For testing/development
+	}
 
 	d->fmt = detect_fmt_internal(c);
 	if(d->fmt==FMT_SZDD) {
