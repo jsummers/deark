@@ -946,8 +946,10 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	md->crco = d->crco;
 	de_crcobj_reset(md->crco);
 
+	de_dbg_indent(c, 1);
 	ret = do_decompress_data(c, d, c->infile, md->file_data_pos, md->cmpr_size,
 		outf, md->uncmpr_size, ldd->cmpr_meth, ldd->cmi, ldd->bit_flags);
+	de_dbg_indent(c, -1);
 	if(!ret) goto done;
 
 	crc_calculated = de_crcobj_getval(md->crco);
