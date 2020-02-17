@@ -187,11 +187,21 @@ header_extensions_done:
 #define LZHUFF_MAX_CODELENGTH  15
 
 #define LZHUFF_SYMLEN_TYPE  u8  // Assumed to be unsigned
+#define LZHUFF_VALUE_TYPE   u8  // Type of a decoded symbol
+
+struct lzhuff_tableentry {
+	LZHUFF_SYMLEN_TYPE code_len;
+	LZHUFF_VALUE_TYPE value;
+};
 
 struct lzhuff_tree {
 	uint enctype;
 	uint num_symbols;
 	LZHUFF_SYMLEN_TYPE *symlengths; // array[num_symbols]
+	LZHUFF_SYMLEN_TYPE max_sym_len_used;
+
+	uint decode_table_numentries;
+	struct lzhuff_tableentry *decode_table; // array[decode_table_numentries]
 };
 
 struct lzhuff_context {
@@ -313,6 +323,32 @@ done:
 	;
 }
 
+static void lzhuff_populate_decode_table(struct lzhuff_context *lzhctx,
+	struct lzhuff_tree *htr)
+{
+	uint next_avail_code = 0;
+	LZHUFF_SYMLEN_TYPE symlen;
+
+	// For each possible symbol length...
+	for(symlen=1; symlen<=htr->max_sym_len_used; symlen++) {
+		uint k;
+
+		// Find all the codes that use this symbol length, in order
+		for(k=0; k<htr->num_symbols; k++) {
+			if(htr->symlengths[k] != symlen) continue;
+
+			// Found a code of the length we're looking for.
+			htr->decode_table[next_avail_code].code_len = symlen;
+			htr->decode_table[next_avail_code].value = (LZHUFF_VALUE_TYPE)k;
+
+			next_avail_code += 1U<<(LZHUFF_MAX_CODELENGTH-symlen);
+			if(next_avail_code >= htr->decode_table_numentries) goto tbl_done;
+		}
+	}
+tbl_done:
+	;
+}
+
 static void lzhctx_read_huffman_tree(struct lzhuff_context *lzhctx, uint idx)
 {
 	uint i;
@@ -343,6 +379,7 @@ static void lzhctx_read_huffman_tree(struct lzhuff_context *lzhctx, uint idx)
 
 	if(lzhctx->error_flag) goto done;
 
+	htr->max_sym_len_used = 0;
 	for(i=0; i<htr->num_symbols; i++) {
 		de_dbg(lzhctx->c, "length[%u] = %u", i, (uint)htr->symlengths[i]);
 
@@ -350,7 +387,17 @@ static void lzhctx_read_huffman_tree(struct lzhuff_context *lzhctx, uint idx)
 			lzhctx->error_flag = 1;
 			goto done;
 		}
+
+		if(htr->symlengths[i] > htr->max_sym_len_used) {
+			htr->max_sym_len_used = htr->symlengths[i];
+		}
 	}
+
+	// TODO: Instead of LZHUFF_MAX_CODELENGTH, use htr->max_sym_len_used.
+	htr->decode_table_numentries = 1U<<LZHUFF_MAX_CODELENGTH;
+	htr->decode_table = de_mallocarray(lzhctx->c, htr->decode_table_numentries,
+		sizeof(struct lzhuff_tableentry));
+	lzhuff_populate_decode_table(lzhctx, htr);
 
 done:
 	de_free(lzhctx->c, htr->symlengths);
@@ -392,7 +439,14 @@ static void do_decompress_LZHUFF(deark *c, struct de_dfilter_in_params *dcmpri,
 
 done:
 	de_dfilter_set_generic_error(c, dres, modname);
-	de_free(c, lzhctx);
+	if(lzhctx) {
+		size_t tr;
+
+		for(tr=0; tr<5; tr++) {
+			de_free(c, lzhctx->htree[tr].decode_table);
+		}
+		de_free(c, lzhctx);
+	}
 }
 
 static int XOR_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
