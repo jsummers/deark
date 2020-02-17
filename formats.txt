@@ -355,9 +355,10 @@ Deark -- Information about supported formats
   Options
    -opt pcx:pal=<0|1> - The predefined palette to use, if there is no palette
      in the file. Default is 0.
-   -opt pcx:resmode=<ignore|dpi|screen|guess> - How to interpret the
+   -opt pcx:resmode=<ignore|dpi|screen|auto> - How to interpret the
      "resolution" field. "screen" means as the target screen mode's pixel
-     dimensions. The default is to ignore the field.
+     dimensions (assumes 4:3 screen). The default is "auto", which means to
+     guess.
    -file2 <file.p13> - Read the palette from a separate file. Each entry is 3
      bytes (R,G,B); samples range from 0-63.
 
@@ -444,6 +445,8 @@ Deark -- Information about supported formats
 * RSC (GEM resource) (module="rsc") (experimental)
   - Supports both "old" and "new" formats.
   - Extracts icons and bitmaps.
+  Options
+   -opt rsc:fmt=<atari|pc> - Use this byte order. Default is to autodetect.
 
 * SHG and MRB (module="shg")
   Segmented Hypergraphics and Multi-Resolution Bitmap formats are used in
@@ -642,7 +645,7 @@ Deark -- Information about supported formats
    -opt cfb:fmt=thumbsdb - Treat the file as a Thumbs.db file.
 
 * Microsoft Installation Compression (module="mscompress")
-  - "KWAJ" variant not supported
+  - "KWAJ" variant is not well supported
 
 * NRG (module="nrg") (experimental)
   Nero CD image format.
@@ -777,12 +780,11 @@ Deark -- Information about supported formats
   Print a hex dump of the file.
   - You must use "-m hexdump".
 
-* HLP (Windows Help) (module="hlp") (experimental)
-  - Extract SHG/MRB graphics
-  - Extract icon (rarely present)
+* HLP (Windows Help) (module="hlp")
   Options
-   -opt hlp:extracttext : Write the file's text (unformatted) to a file. This
+   -opt hlp:extracttext - Write the file's text (unformatted) to a file. This
      feature is experimental and incomplete.
+   -opt hlp:extractstreams - Extract raw files, instead of decoding.
 
 * ICC profile (module="iccprofile")
   - Debug info only.

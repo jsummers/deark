@@ -13,18 +13,19 @@
 DE_DECLARE_MODULE(de_module_hlp);
 
 #define TOPICBLOCKHDRSIZE 12
+#define INVALIDPOS 0xffffffffU
 
 enum hlp_filetype {
 	FILETYPE_UNKNOWN = 0,
+	FILETYPE_OTHERSPECIAL,
+	FILETYPE_EXTRACTABLE,
 	FILETYPE_INTERNALDIR,
 	FILETYPE_SYSTEM,
 	FILETYPE_TOPIC,
 	FILETYPE_SHG,
-	FILETYPE_BMP,
 	FILETYPE_PHRASES,
 	FILETYPE_PHRINDEX,
-	FILETYPE_PHRIMAGE,
-	FILETYPE_TOMAP
+	FILETYPE_PHRIMAGE
 };
 
 struct bptree {
@@ -47,6 +48,7 @@ typedef struct localctx_struct {
 	int input_encoding;
 	int output_is_utf8;
 	int extract_text;
+	u8 extract_raw_streams;
 	i64 internal_dir_FILEHEADER_offs;
 	struct bptree bpt;
 	u8 found_system_file;
@@ -81,9 +83,11 @@ typedef struct localctx_struct {
 	de_ucstring *tmpucstring1;
 	de_ucstring *help_file_title;
 	de_ucstring *help_file_copyright;
+	struct de_timestamp gendate;
 } lctx;
 
-static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt);
+static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt, int extract_only,
+	struct de_stringreaderdata *fn);
 
 struct systemrec_info {
 	unsigned int rectype;
@@ -116,15 +120,29 @@ static const struct systemrec_info systemrec_info_arr[] = {
 static const struct systemrec_info systemrec_info_default =
 	{ 0, 0x0000, "?", NULL };
 
+static void format_topiclink(deark *c, lctx *d, u32 n, char *buf, size_t buf_len)
+{
+	if(d->ver_minor<=16) {
+		de_snprintf(buf, buf_len, "%u", (uint)n);
+	}
+	else {
+		if(n==INVALIDPOS) {
+			de_strlcpy(buf, "-1", buf_len);
+		}
+		else {
+			de_snprintf(buf, buf_len, "Blk%u:%u", (uint)(n/16384),
+				(uint)(n%16384));
+		}
+	}
+}
+
 static void hlptime_to_timestamp(i64 ht, struct de_timestamp *ts)
 {
 	if(ht!=0) {
-		// This appears to be a Unix-style timestamp, though some documentation
-		// says otherwise.
 		de_unix_time_to_timestamp(ht, ts, 0);
 	}
 	else {
-		de_zeromem(ts, sizeof(struct de_timestamp));
+		ts->is_valid = 0;
 	}
 }
 
@@ -170,6 +188,16 @@ static void do_SYSTEMREC_uint32_hex(deark *c, lctx *d, unsigned int recordtype,
 	de_dbg(c, "value: 0x%08x", n);
 }
 
+static void extract_system_icon(deark *c, lctx *d, i64 pos, i64 len)
+{
+	de_finfo *fi = NULL;
+
+	fi = de_finfo_create(c);
+	fi->mod_time = d->gendate;
+	dbuf_create_file_from_slice(c->infile, pos, len, "ico", fi, DE_CREATEFLAG_IS_AUX);
+	de_finfo_destroy(c, fi);
+}
+
 static void do_SYSTEMREC(deark *c, lctx *d, unsigned int recordtype,
 	i64 pos1, i64 len, const struct systemrec_info *sti)
 {
@@ -190,7 +218,7 @@ static void do_SYSTEMREC(deark *c, lctx *d, unsigned int recordtype,
 	}
 	else if(recordtype==5) { // Icon
 		d->has_ico = 1;
-		dbuf_create_file_from_slice(c->infile, pos1, len, "ico", NULL, DE_CREATEFLAG_IS_AUX);
+		extract_system_icon(c, d, pos1, len);
 	}
 	else if(sti->flags&0x10) {
 		do_SYSTEMREC_STRINGZ(c, d, recordtype, pos1, len, sti, NULL);
@@ -224,7 +252,6 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, i64 pos1)
 	i64 magic;
 	i64 gen_date;
 	unsigned int flags;
-	struct de_timestamp ts;
 	char timestamp_buf[64];
 	int retval = 0;
 
@@ -247,12 +274,12 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, i64 pos1)
 	}
 
 	gen_date = de_geti32le_p(&pos);
-	hlptime_to_timestamp(gen_date, &ts);
-	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
+	hlptime_to_timestamp(gen_date, &d->gendate);
+	de_timestamp_to_string(&d->gendate, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "GenDate: %d (%s)", (int)gen_date, timestamp_buf);
 
 	flags = (unsigned int)de_getu16le_p(&pos);
-	de_dbg(c, "flags: 0x%04x", flags);
+	de_dbg(c, "system flags: 0x%04x", flags);
 
 	if(d->ver_minor>16) {
 		if(flags==8) {
@@ -316,7 +343,7 @@ static void do_file_SYSTEM(deark *c, lctx *d, i64 pos1, i64 len)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	// We'll read the SYSTEM "file" only in pass 1, most importantly to record
+	// We'll read the SYSTEM "file" before pass 2, most importantly to record
 	// the format version information.
 	//
 	// The SYSTEM file may contain a series of SYSTEMREC records that we want
@@ -347,44 +374,68 @@ done:
 
 static void do_file_SHG(deark *c, lctx *d, i64 pos1, i64 used_space)
 {
-	i64 num_images;
-	i64 sig;
+	i64 oldsig;
 	const char *ext;
 	dbuf *outf = NULL;
+	de_finfo *fi = NULL;
 
-	// Ignore the file SHG vs. MRB file type signature, and replace it with
-	// the correct one based on the number of images in the file.
-	num_images = de_getu16le(pos1+2);
-	if(num_images>1) {
-		ext="mrb";
-		sig = 0x706c;
+	// Reportedly, 0x506c = SHG = 1 image, and 0x706c = MRB = >1 image.
+	// But I'm not convinced that's correct.
+	// I'm to sure what to do, as far as selecting a file extension, and potentially
+	// correcting the signature. Current behavior is to leave the signature the same,
+	// and derive the file extension from the number of images.
+	oldsig = de_getu16le(pos1);
+
+	if(oldsig==0x506c || oldsig==0x706c) {
+		i64 num_images;
+
+		num_images = de_getu16le(pos1+2);
+		if(num_images>1) {
+			ext="mrb";
+		}
+		else {
+			ext="shg";
+		}
 	}
 	else {
-		ext="shg";
-		sig = 0x506c;
+		ext="bin";
 	}
 
-	outf = dbuf_create_output_file(c, ext, NULL, 0);
-	dbuf_writeu16le(outf, sig);
-	dbuf_copy(c->infile, pos1+2, used_space-2, outf);
+	fi = de_finfo_create(c);
+	// (Note that if we were to correct the signature, we probably should not copy
+	// the mod time.)
+	fi->mod_time = d->gendate;
+	outf = dbuf_create_output_file(c, ext, fi, 0);
+	dbuf_copy(c->infile, pos1, used_space, outf);
 	dbuf_close(outf);
+	de_finfo_destroy(c, fi);
 }
 
-// If a "file"'s name ends in .bmp, and it looks like BMP format, extract it.
-static void do_file_BMP(deark *c, lctx *d, i64 pos1, i64 used_space)
+static void do_extract_raw_file(deark *c, lctx *d, i64 pos1, i64 used_space,
+	struct de_stringreaderdata *fn)
 {
-	if(used_space<14+12) return;
-	if(de_getu16be(pos1) != 0x424d) return; // "BM"
-	d->has_bmp = 1;
-	dbuf_create_file_from_slice(c->infile, pos1, used_space, "bmp", NULL,
-		DE_CREATEFLAG_IS_AUX);
+	de_finfo *fi = NULL;
+	const char *ext = NULL;
+
+	fi = de_finfo_create(c);
+	fi->mod_time = d->gendate;
+	if(fn && ucstring_isnonempty(fn->str)) {
+		de_finfo_set_name_from_ucstring(c, fi, fn->str, 0);
+		fi->original_filename_flag = 1;
+	}
+	else {
+		ext = "bin";
+	}
+	dbuf_create_file_from_slice(c->infile, pos1, used_space, ext, fi, 0);
+
+	de_finfo_destroy(c, fi);
 }
 
 struct topiclink_data {
 	i64 blocksize;
 	i64 datalen2;
-	i64 prevblock;
-	i64 nextblock;
+	u32 prevblock;
+	u32 nextblock;
 	i64 datalen1;
 	u8 recordtype;
 
@@ -407,6 +458,7 @@ struct topic_ctx {
 	i64 num_topic_blocks;
 	struct topic_block_info_item *topic_block_info; // array [num_topic_blocks]
 	dbuf *unc_topicdata;
+	u32 pos_of_first_topiclink;
 };
 
 static void ensure_text_output_file_open(deark *c, lctx *d)
@@ -704,6 +756,7 @@ static int do_topiclink(deark *c, lctx *d, struct topic_ctx *tctx, i64 pos1, u32
 	i64 linkdata2_nbytes_avail;
 	int retval = 0;
 	dbuf *inf = tctx->unc_topicdata;
+	char tmpbuf[24];
 
 	tld = de_malloc(c, sizeof(struct topiclink_data));
 
@@ -716,21 +769,13 @@ static int do_topiclink(deark *c, lctx *d, struct topic_ctx *tctx, i64 pos1, u32
 	tld->datalen2 = dbuf_geti32le_p(inf, &pos);
 	de_dbg(c, "datalen2 (after any decompression): %d", (int)tld->datalen2);
 
-	tld->prevblock = dbuf_getu32le_p(inf, &pos);
-	if(d->ver_minor<=16) {
-		de_dbg(c, "prevblock: %"I64_FMT, tld->prevblock);
-	}
-	else {
-		de_dbg(c, "prevblock: 0x%08x", (unsigned int)tld->prevblock);
-	}
+	tld->prevblock = (u32)dbuf_getu32le_p(inf, &pos);
+	format_topiclink(c, d, tld->prevblock, tmpbuf, sizeof(tmpbuf));
+	de_dbg(c, "prevblock: %s", tmpbuf);
 
-	tld->nextblock = dbuf_getu32le_p(inf, &pos);
-	if(d->ver_minor<=16) {
-		de_dbg(c, "nextblock: %"I64_FMT, tld->nextblock);
-	}
-	else {
-		de_dbg(c, "nextblock: 0x%08x", (unsigned int)tld->nextblock);
-	}
+	tld->nextblock = (u32)dbuf_getu32le_p(inf, &pos);
+	format_topiclink(c, d, tld->nextblock, tmpbuf, sizeof(tmpbuf));
+	de_dbg(c, "nextblock: %s", tmpbuf);
 	*next_pos_code = (u32)tld->nextblock;
 	retval = 1;
 
@@ -842,6 +887,38 @@ static i64 hc30_abspos_plus_offset_to_abspos(deark *c, lctx *d, i64 pos, i64 off
 	return pos + offset - TOPICBLOCKHDRSIZE*(1+(n / blksize));
 }
 
+static int calc_next_topiclink_pos(deark *c, lctx *d, struct topic_ctx *tctx, i64 curpos,
+	u32 next_pos_code, i64 *pnextpos)
+{
+	*pnextpos = 0;
+
+	if(next_pos_code==INVALIDPOS) {
+		de_dbg(c, "[stopping TOPIC parsing, end-of-links marker found]");
+		return 0;
+	}
+
+	if(d->ver_minor<=16) {
+		if(next_pos_code < 21) {
+			de_dbg(c, "[stopping TOPIC parsing, no nextblock available]");
+			return 0;
+		}
+		*pnextpos = hc30_abspos_plus_offset_to_abspos(c, d, curpos, next_pos_code);
+	}
+	else {
+		if(!topicpos_to_abspos(c, d, tctx, next_pos_code, pnextpos)) {
+			de_dbg(c, "[stopping TOPIC parsing, no nextblock available]");
+			return 0;
+		}
+
+		if((*pnextpos) <= curpos) {
+			de_dbg(c, "[stopping TOPIC parsing, blocks not in order]");
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
 static void do_topicdata(deark *c, lctx *d, struct topic_ctx *tctx)
 {
 	i64 pos;
@@ -859,10 +936,20 @@ static void do_topicdata(deark *c, lctx *d, struct topic_ctx *tctx)
 
 	de_dbg_indent_save(c, &saved_indent_level2);
 
-	pos = 0; // TODO: Is the first topiclink always at 0?
+	if(tctx->pos_of_first_topiclink==INVALIDPOS || tctx->pos_of_first_topiclink<TOPICBLOCKHDRSIZE) {
+		de_warn(c, "Bad first topic link");
+		pos = 0;
+	}
+	else {
+		// Maybe we should call topicpos_to_abspos(), etc., but this should be
+		// correct since an offset in the first topicblock.
+		pos = tctx->pos_of_first_topiclink - TOPICBLOCKHDRSIZE;
+	}
 
 	while(1) {
 		u32 next_pos_code;
+		i64 next_pos = 0;
+		int ret;
 
 		if(pos > inf->len) {
 			de_dbg(c, "[stopping TOPIC parsing, exceeded end of data]");
@@ -878,39 +965,16 @@ static void do_topicdata(deark *c, lctx *d, struct topic_ctx *tctx)
 			break;
 		}
 
+		// TODO: Display as "Blk#:offs"
 		de_dbg(c, "topiclink at [%"I64_FMT"]", pos);
 		de_dbg_indent(c, 1);
 		next_pos_code = 0;
 		if(!do_topiclink(c, d, tctx, pos, &next_pos_code)) goto done;
 		de_dbg_indent(c, -1);
 
-		if(d->ver_minor<=16) {
-			if(next_pos_code < 21) {
-				de_dbg(c, "[stopping TOPIC parsing, no nextblock available]");
-				break;
-			}
-			pos = hc30_abspos_plus_offset_to_abspos(c, d, pos, next_pos_code);
-		}
-		else {
-			i64 next_pos = 0;
-
-			if(next_pos_code==0xffffffffLL) {
-				de_dbg(c, "[stopping TOPIC parsing, end-of-links marker found]");
-				break;
-			}
-
-			if(!topicpos_to_abspos(c, d, tctx, next_pos_code, &next_pos)) {
-				de_dbg(c, "[stopping TOPIC parsing, no nextblock available]");
-				break;
-			}
-
-			if(next_pos <= pos) {
-				de_dbg(c, "[stopping TOPIC parsing, blocks not in order]");
-				break;
-			}
-
-			pos = next_pos;
-		}
+		ret = calc_next_topiclink_pos(c, d, tctx, pos, next_pos_code, &next_pos);
+		if(!ret) break;
+		pos = next_pos;
 	}
 
 done:
@@ -933,6 +997,7 @@ static void decompress_topic_block(deark *c, lctx *d, struct topic_ctx *tctx,
 	dcmpri.len = blk_dlen;
 	dcmpro.f = outf;
 	dcmpro.len_known = 1;
+	// TODO: Confirm what happens if a block decompresses to more than 16384-12 bytes.
 	dcmpro.expected_len = 16384-TOPICBLOCKHDRSIZE;
 	len_before = outf->len;
 	fmtutil_decompress_hlp_lz77(c, &dcmpri, &dcmpro, &dres);
@@ -963,12 +1028,15 @@ static void do_file_TOPIC(deark *c, lctx *d, i64 pos1, i64 len)
 	tctx->num_topic_blocks = (len + (d->topic_block_size - TOPICBLOCKHDRSIZE)) % d->topic_block_size;
 	tctx->topic_block_info = de_mallocarray(c, tctx->num_topic_blocks, sizeof(struct topic_block_info_item));
 
+	tctx->pos_of_first_topiclink = INVALIDPOS;
+
 	// A series of blocks, each with a 12-byte header
 	for(blknum=0; blknum<tctx->num_topic_blocks; blknum++) {
-		i64 lastlink, firstlink, lastheader;
+		u32 lastlink, firstlink, lastheader;
 		i64 blklen;
 		i64 blk_dpos;
 		i64 blk_dlen;
+		char tbuf1[24], tbuf2[24], tbuf3[24];
 
 		blklen = d->topic_block_size;
 		if(blklen > (pos1+len)-pos) {
@@ -981,11 +1049,17 @@ static void do_file_TOPIC(deark *c, lctx *d, i64 pos1, i64 len)
 		de_dbg(c, "TOPIC block #%d at %d, dpos=%d, dlen=%d", (int)blknum, (int)pos,
 			(int)blk_dpos, (int)blk_dlen);
 		de_dbg_indent(c, 1);
-		lastlink = de_geti32le(pos);
-		firstlink = de_geti32le(pos+4);
-		lastheader = de_geti32le(pos+8);
-		de_dbg(c, "LastLink=%d, FirstLink=%d, LastHeader=%d",
-			(int)lastlink, (int)firstlink, (int)lastheader);
+		lastlink = (u32)de_getu32le(pos);
+		firstlink = (u32)de_getu32le(pos+4);
+		lastheader = (u32)de_getu32le(pos+8);
+		format_topiclink(c, d, lastlink, tbuf1, sizeof(tbuf1));
+		format_topiclink(c, d, firstlink, tbuf2, sizeof(tbuf2));
+		format_topiclink(c, d, lastheader, tbuf3, sizeof(tbuf3));
+		de_dbg(c, "LastLink=%s, FirstLink=%s, LastHeader=%s",
+			tbuf1, tbuf2, tbuf3);
+		if(tctx->pos_of_first_topiclink==INVALIDPOS && firstlink!=INVALIDPOS) {
+			tctx->pos_of_first_topiclink = firstlink;
+		}
 
 		if(d->extract_text && tctx->unc_topicdata) {
 			// Record the position for later reference.
@@ -1033,16 +1107,31 @@ static int de_is_digit(char x)
 
 static enum hlp_filetype filename_to_filetype(deark *c, lctx *d, const char *fn)
 {
-	if(!de_strcmp(fn, "|TOPIC")) return FILETYPE_TOPIC;
-	if(!de_strcmp(fn, "|TOMAP")) return FILETYPE_TOMAP;
-	if(!de_strcmp(fn, "|SYSTEM")) return FILETYPE_SYSTEM;
-	if(!de_strncmp(fn, "|bm", 3) && de_is_digit(fn[3])) return FILETYPE_SHG;
-	if(!de_strncmp(fn, "bm", 2) && de_is_digit(fn[2])) return FILETYPE_SHG;
-	if(!de_strcmp(fn, "|Phrases")) return FILETYPE_PHRASES;
-	if(!de_strcmp(fn, "|PhrIndex")) return FILETYPE_PHRINDEX;
-	if(!de_strcmp(fn, "|PhrImage")) return FILETYPE_PHRIMAGE;
-	if(de_sz_has_ext(fn, "bmp")) return FILETYPE_BMP;
-	return FILETYPE_UNKNOWN;
+	const char *ext;
+	size_t extlen;
+
+	if(fn[0]=='|') {
+		if(!de_strcmp(fn, "|TOPIC")) return FILETYPE_TOPIC;
+		if(!de_strcmp(fn, "|SYSTEM")) return FILETYPE_SYSTEM;
+		if(!de_strncmp(fn, "|bm", 3) && de_is_digit(fn[3])) return FILETYPE_SHG;
+		if(!de_strcmp(fn, "|Phrases")) return FILETYPE_PHRASES;
+		if(!de_strcmp(fn, "|PhrIndex")) return FILETYPE_PHRINDEX;
+		if(!de_strcmp(fn, "|PhrImage")) return FILETYPE_PHRIMAGE;
+		return FILETYPE_OTHERSPECIAL;
+	}
+
+	ext = de_get_sz_ext(fn);
+	extlen = de_strlen(ext);
+
+	// Some SHG streams' names don't start with "|". Assume it is SHG if it
+	// starts with "bm" and a digit, and doesn't have a ".".
+	if(extlen==0) {
+		if(!de_strncmp(fn, "bm", 2) && de_is_digit(fn[2])) return FILETYPE_SHG;
+	}
+
+	// Not sure how bold to be here. Should we extract every file that we can't
+	// identify? Or maybe only those that have a filename extension?
+	return FILETYPE_EXTRACTABLE;
 }
 
 static void do_leaf_page(deark *c, lctx *d, i64 pos1, i64 *pnext_page)
@@ -1123,8 +1212,12 @@ static void do_leaf_page(deark *c, lctx *d, i64 pos1, i64 *pnext_page)
 		default:
 			pass_for_this_file = 2;
 		}
-		if(d->pass==2 && pass_for_this_file==2) {
-			do_file(c, d, file_offset, file_type);
+
+		if(d->pass==2 && d->extract_raw_streams) {
+			do_file(c, d, file_offset, file_type, 1, fn_srd);
+		}
+		else if(d->pass==2 && pass_for_this_file==2) {
+			do_file(c, d, file_offset, file_type, 0, fn_srd);
 		}
 
 		de_dbg_indent(c, -1);
@@ -1199,7 +1292,7 @@ static void do_after_pass_1(deark *c, lctx *d)
 {
 	// Read the SYSTEM file first -- lots of other things depend on it.
 	if(d->found_system_file) {
-		do_file(c, d, d->offset_of_system_file, FILETYPE_SYSTEM);
+		do_file(c, d, d->offset_of_system_file, FILETYPE_SYSTEM, 0, NULL);
 	}
 
 	if(d->found_Phrases_file) {
@@ -1219,19 +1312,19 @@ static void do_after_pass_1(deark *c, lctx *d)
 	// Read other special files, in a suitable order.
 
 	if(d->found_Phrases_file && d->uses_old_phrase_compression) {
-		do_file(c, d, d->offset_of_Phrases, FILETYPE_PHRASES);
+		do_file(c, d, d->offset_of_Phrases, FILETYPE_PHRASES, 0, NULL);
 	}
 
 	if(d->found_PhrIndex_file && d->uses_hall_compression) {
-		do_file(c, d, d->offset_of_PhrIndex, FILETYPE_PHRINDEX);
+		do_file(c, d, d->offset_of_PhrIndex, FILETYPE_PHRINDEX, 0, NULL);
 	}
 	if(d->found_PhrImage_file && d->uses_hall_compression) {
-		do_file(c, d, d->offset_of_PhrImage, FILETYPE_PHRIMAGE);
+		do_file(c, d, d->offset_of_PhrImage, FILETYPE_PHRIMAGE, 0, NULL);
 	}
 	sanitize_phrase_info(c, d);
 
 	if(d->found_TOPIC_file) {
-		do_file(c, d, d->offset_of_TOPIC, FILETYPE_TOPIC);
+		do_file(c, d, d->offset_of_TOPIC, FILETYPE_TOPIC, 0, NULL);
 	}
 }
 
@@ -1246,6 +1339,7 @@ static void do_bplustree(deark *c, lctx *d, i64 pos1, i64 len,
 	i64 n;
 	int saved_indent_level;
 	u8 *page_seen = NULL;
+	struct de_stringreaderdata *structure = NULL;
 
 	if(!is_internaldir) return;
 
@@ -1261,12 +1355,17 @@ static void do_bplustree(deark *c, lctx *d, i64 pos1, i64 len,
 	de_dbg_indent(c, 1);
 
 	d->bpt.flags = (unsigned int)de_getu16le_p(&pos);
-	de_dbg(c, "flags: 0x%04x", d->bpt.flags);
+	de_dbg(c, "Btree flags: 0x%04x", d->bpt.flags);
 
 	d->bpt.pagesize = de_getu16le_p(&pos);
 	de_dbg(c, "PageSize: %d", (int)d->bpt.pagesize);
 
 	// TODO: Understand the Structure field
+	structure = dbuf_read_string(c->infile, pos, 16, 16, DE_CONVFLAG_STOP_AT_NUL,
+		DE_ENCODING_ASCII);
+	de_dbg(c, "Structure: \"%s\"", ucstring_getpsz_d(structure->str));
+	de_destroy_stringreaderdata(c, structure);
+	structure = NULL;
 	pos += 16;
 
 	pos += 2; // MustBeZero
@@ -1343,6 +1442,7 @@ static void do_bplustree(deark *c, lctx *d, i64 pos1, i64 len,
 
 done:
 	de_free(c, page_seen);
+	if(structure) de_destroy_stringreaderdata(c, structure);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -1350,12 +1450,6 @@ static void do_file_INTERNALDIR(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	de_dbg(c, "internal dir data at %d", (int)pos1);
 	do_bplustree(c, d, pos1, len, 1);
-}
-
-static void do_file_TOMAP(deark *c, lctx *d, i64 pos1, i64 len)
-{
-	// I'm not sure if we ever need to parse this, so we can find the first
-	// 'topiclink'.
 }
 
 static void dump_phrase_offset_table(deark *c, lctx *d)
@@ -1610,12 +1704,15 @@ static const char* file_type_to_type_name(enum hlp_filetype file_fmt)
 	case FILETYPE_PHRASES: name="Phrases"; break;
 	case FILETYPE_PHRINDEX: name="PhrIndex"; break;
 	case FILETYPE_PHRIMAGE: name="PhrImage"; break;
+	case FILETYPE_OTHERSPECIAL: name="other special stream"; break;
+	case FILETYPE_EXTRACTABLE: name="other extractable file"; break;
 	default: ;
 	}
 	return name;
 }
 
-static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt)
+static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt, int force_extract,
+	struct de_stringreaderdata *fn)
 {
 	i64 reserved_space;
 	i64 used_space;
@@ -1640,6 +1737,11 @@ static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt)
 		goto done;
 	}
 
+	if(force_extract) {
+		do_extract_raw_file(c, d, pos, used_space, fn);
+		goto done;
+	}
+
 	switch(file_fmt) {
 	case FILETYPE_INTERNALDIR:
 		do_file_INTERNALDIR(c, d, pos, used_space);
@@ -1656,9 +1758,6 @@ static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt)
 	case FILETYPE_PHRIMAGE:
 		do_file_PhrImage(c, d, pos, used_space);
 		break;
-	case FILETYPE_TOMAP:
-		do_file_TOMAP(c, d, pos, used_space);
-		break;
 	case FILETYPE_SYSTEM:
 		do_file_SYSTEM(c, d, pos, used_space);
 		break;
@@ -1666,8 +1765,8 @@ static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt)
 		d->has_shg = 1;
 		do_file_SHG(c, d, pos, used_space);
 		break;
-	case FILETYPE_BMP:
-		do_file_BMP(c, d, pos, used_space);
+	case FILETYPE_EXTRACTABLE:
+		do_extract_raw_file(c, d, pos, used_space, fn);
 		break;
 	default: ;
 	}
@@ -1705,6 +1804,7 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 	d->extract_text = de_get_ext_option_bool(c, "hlp:extracttext",
 		((c->extract_level>=2)?1:0));
+	d->extract_raw_streams = (u8)de_get_ext_option_bool(c, "hlp:extractstreams", 0);
 	d->tmpdbuf1 = dbuf_create_membuf(c, 0, 0);
 	d->unc_linkdata2_dbuf = dbuf_create_membuf(c, 0, 0);
 	d->tmpucstring1 = ucstring_create(c);
@@ -1713,7 +1813,7 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 	pos = 0;
 	do_header(c, d, pos);
 
-	do_file(c, d, d->internal_dir_FILEHEADER_offs, FILETYPE_INTERNALDIR);
+	do_file(c, d, d->internal_dir_FILEHEADER_offs, FILETYPE_INTERNALDIR, 0, NULL);
 
 	de_dbg(c, "summary: v%d.%d %s%s%s blksize=%d levels=%d%s%s%s",
 		d->ver_major, d->ver_minor,
@@ -1749,6 +1849,7 @@ static int de_identify_hlp(deark *c)
 static void de_help_hlp(deark *c)
 {
 	de_msg(c, "-opt hlp:extracttext : Write the text (unformatted) to a file");
+	de_msg(c, "-opt hlp:extractstreams : Extract raw files, instead of decoding");
 }
 
 void de_module_hlp(deark *c, struct deark_module_info *mi)

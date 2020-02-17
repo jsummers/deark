@@ -79,13 +79,16 @@ void de_fmtutil_handle_photoshop_rsrc(deark *c, dbuf *f, i64 pos, i64 len,
 void de_fmtutil_handle_plist(deark *c, dbuf *f, i64 pos, i64 len,
 	de_finfo *fi, unsigned int flags);
 
+void fmtutil_decompress_uncompressed(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, uint flags);
+
 #define DE_DEFLATEFLAG_ISZLIB 0x1
 #define DE_DEFLATEFLAG_USEMAXUNCMPRSIZE 0x2
 int fmtutil_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
 	i64 maxuncmprsize, i64 *bytes_consumed, unsigned int flags);
 void fmtutil_decompress_deflate_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	unsigned int flags);
+	unsigned int flags, const u8 *starting_dict);
 
 void de_fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
@@ -100,13 +103,6 @@ void de_fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpr
 	unsigned int flags);
 void fmtutil_decompress_hlp_lz77(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
-
-#define DE_LIBLZWFLAG_HAS3BYTEHEADER  0x1
-#define DE_LIBLZWFLAG_ARCFSMODE       0x2
-#define DE_LIBLZWFLAG_HAS1BYTEHEADER  0x4
-void de_fmtutil_decompress_liblzw_ex(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	unsigned int flags, u8 lzwmode);
 
 struct de_dfilter_ctx;
 typedef void (*dfilter_codec_type)(struct de_dfilter_ctx *dfctx, void *codec_private_params);
@@ -136,8 +132,10 @@ enum lzwfmt_enum {
 
 struct delzw_params {
 	enum lzwfmt_enum fmt;
-	unsigned int unixcompress_flags;
-	u8 unixcompress_lzwmode;
+#define DE_LZWFLAG_HAS3BYTEHEADER       0x1 // Unix-compress style, use with fmt=UNIXCOMPRESS
+#define DE_LZWFLAG_HAS1BYTEHEADER       0x2 // ARC style, use with fmt=UNIXCOMPRESS
+#define DE_LZWFLAG_TOLERATETRAILINGJUNK 0x4
+	uint flags;
 	unsigned int gif_root_code_size;
 	unsigned int max_code_size; // 0 = no info
 };
@@ -146,6 +144,7 @@ void de_fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct delzw_params *delzwp);
 
 void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
+void dfilter_hlp_lz77_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 
 struct de_dfilter_ctx *de_dfilter_create(deark *c,
 	dfilter_codec_type codec_init_fn, void *codec_private_params,

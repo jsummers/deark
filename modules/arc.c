@@ -14,6 +14,8 @@ DE_DECLARE_MODULE(de_module_spark);
 #define FMT_ARC 1
 #define FMT_SPARK 2
 
+#define MAX_NESTING_LEVEL 24
+
 struct localctx_struct;
 typedef struct localctx_struct lctx;
 struct member_data;
@@ -26,6 +28,11 @@ struct cmpr_meth_info {
 	unsigned int flags;
 	const char *name;
 	decompressor_fn decompressor;
+};
+
+struct persistent_member_data {
+	de_ucstring *comment;
+	de_ucstring *path;
 };
 
 struct member_data {
@@ -50,36 +57,44 @@ struct localctx_struct {
 	int input_encoding;
 	int append_type;
 	int recurse_subdirs;
-	i64 nmembers;  // Counts top-level members
-#define MAX_SPARK_NESTING_LEVEL 24
-	int level; // subdirectory nesting level
+	u8 prescan_found_eoa;
+	u8 has_trailer_data;
+	i64 prescan_pos_after_eoa;
+	i64 num_top_level_members; // Not including EOA marker
 	struct de_crcobj *crco;
 	struct de_strarray *curpath;
-	int has_comments;
-	int has_file_comments;
-	i64 num_file_comments;
-	i64 file_comments_pos;
+	struct persistent_member_data *persistent_md; // optional array[num_top_level_members]
 };
 
 static void decompressor_stored(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	dbuf_copy(dcmpri->f, dcmpri->pos, dcmpri->len, dcmpro->f);
+	fmtutil_decompress_uncompressed(c, dcmpri, dcmpro, dres, 0);
 }
 
 static void decompressor_spark_compressed(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	de_fmtutil_decompress_liblzw_ex(c, dcmpri, dcmpro, dres, DE_LIBLZWFLAG_HAS1BYTEHEADER, 0);
+	struct delzw_params delzwp;
+
+	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
+	delzwp.flags |= DE_LZWFLAG_HAS1BYTEHEADER;
+	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
 
 static void decompressor_squashed(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	de_fmtutil_decompress_liblzw_ex(c, dcmpri, dcmpro, dres, 0, 0x80|13);
+	struct delzw_params delzwp;
+
+	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
+	delzwp.max_code_size = 13;
+	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
 
 static void decompressor_packed(deark *c, lctx *d, struct member_data *md,
@@ -100,7 +115,7 @@ static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
 
 	de_zeromem(&delzwp, sizeof(struct delzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
-	delzwp.unixcompress_flags = DE_LIBLZWFLAG_HAS1BYTEHEADER;
+	delzwp.flags |= DE_LZWFLAG_HAS1BYTEHEADER;
 
 	de_dfilter_decompress_two_layer(c, dfilter_lzw_codec, (void*)&delzwp,
 		dfilter_rle90_codec, NULL, dcmpri, dcmpro, dres);
@@ -121,6 +136,12 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 0x07, 0x83, "crunched7 (ARC 4.6)", NULL },
 	{ 0x08, 0x83, "crunched8 (RLE + dynamic LZW)", decompressor_crunched8 },
 	{ 0x09, 0x83, "squashed (dynamic LZW)", decompressor_squashed },
+	{ 10,   0x01, "trimmed or crushed", NULL },
+	{ 0x0b, 0x01, "distilled", NULL },
+	{ 20,   0x01, "archive info", NULL },
+	{ 21,   0x01, "extended file info", NULL },
+	{ 0x1e, 0x01, "subdir", NULL },
+	{ 0x1f, 0x01, "end of subdir marker", NULL },
 	{ 0x80, 0x02, "end of archive marker", NULL },
 	{ 0xff, 0x02, "compressed", decompressor_spark_compressed }
 };
@@ -146,28 +167,39 @@ static const struct cmpr_meth_info *get_cmpr_meth_info(lctx *d, u8 cmpr_meth)
 	return NULL;
 }
 
-static void read_one_comment(deark *c, lctx *d, i64 pos, de_ucstring *s)
+static void read_one_pk_comment(deark *c, lctx *d, i64 pos, de_ucstring *s)
 {
 	dbuf_read_to_ucstring(c->infile, pos, 32, s, 0, d->input_encoding);
 	ucstring_strip_trailing_spaces(s);
 }
 
-static void do_comments(deark *c, lctx *d)
+static void init_trailer_data(deark *c, lctx *d)
+{
+	d->has_trailer_data = 1;
+	if(!d->persistent_md) {
+		d->persistent_md = de_mallocarray(c, d->num_top_level_members,
+			sizeof(struct persistent_member_data));
+	}
+}
+
+static void do_pk_comments(deark *c, lctx *d)
 {
 	i64 sig_pos;
 	i64 comments_descr_pos;
+	int has_file_comments = 0;
 	int has_archive_comment = 0;
-	de_ucstring *s = NULL;
+	i64 file_comments_pos;
+	i64 num_file_comments;
+	de_ucstring *archive_comment = NULL;
 	u8 dscr[4];
 
+	if(!d->prescan_found_eoa) return;
 	sig_pos = c->infile->len-8;
+	if(sig_pos < d->prescan_pos_after_eoa) return;
 	if(de_getu32be(sig_pos) != 0x504baa55) {
 		return;
 	}
-	// TODO: False positives are possible here. Ideally, we'd pre-scan the
-	// whole file, to make sure the comments occur after the end of the
-	// main part of the archive.
-	d->has_comments = 1;
+	init_trailer_data(c, d);
 
 	de_dbg(c, "PKARC/PKPAK comment block found");
 	de_dbg_indent(c, 1);
@@ -178,41 +210,156 @@ static void do_comments(deark *c, lctx *d)
 
 	de_read(dscr, comments_descr_pos, 4);
 	if(dscr[0]==0x20 && dscr[1]==0x20 && dscr[2]==0x20 && dscr[3]==0x00) {
-		d->has_file_comments = 0;
+		has_file_comments = 0;
 		has_archive_comment = 1;
 	}
 	else if(dscr[0]==0x01 && dscr[3]==0x20) {
-		d->has_file_comments = 1;
+		has_file_comments = 1;
 		has_archive_comment = 0;
 	}
 	else if(dscr[0]==0x01 && dscr[3]==0x00) {
-		d->has_file_comments = 1;
+		has_file_comments = 1;
 		has_archive_comment = 1;
 	}
 	else {
 		de_dbg(c, "[unrecognized comments descriptor]");
 	}
 
-	if(d->has_file_comments) {
-		d->file_comments_pos = comments_descr_pos + 32;
-		if(sig_pos - d->file_comments_pos < 32) {
-			d->has_file_comments = 0;
+	if(has_file_comments) {
+		file_comments_pos = comments_descr_pos + 32;
+		if(sig_pos - file_comments_pos < 32) {
+			has_file_comments = 0;
 		}
 	}
 
 	if(has_archive_comment) {
-		s = ucstring_create(c);
-		read_one_comment(c, d, comments_descr_pos-32, s);
-		de_dbg(c, "archive comment: \"%s\"", ucstring_getpsz_d(s));
+		archive_comment = ucstring_create(c);
+		read_one_pk_comment(c, d, comments_descr_pos-32, archive_comment);
+		de_dbg(c, "archive comment: \"%s\"", ucstring_getpsz_d(archive_comment));
 	}
 
-	if(d->has_file_comments) {
-		d->num_file_comments = (sig_pos - d->file_comments_pos)/32;
-		de_dbg(c, "apparent number of file comments: %d", (int)d->num_file_comments);
+	if(has_file_comments) {
+		i64 i;
+
+		num_file_comments = (sig_pos - file_comments_pos)/32;
+		de_dbg(c, "apparent number of file comments: %d", (int)num_file_comments);
+
+		for(i=0; i<num_file_comments && i<d->num_top_level_members; i++) {
+			if(!d->persistent_md[i].comment) {
+				d->persistent_md[i].comment = ucstring_create(c);
+			}
+			if(ucstring_isnonempty(d->persistent_md[i].comment)) continue;
+			read_one_pk_comment(c, d,file_comments_pos + i*32, d->persistent_md[i].comment);
+		}
 	}
 
 done:
-	ucstring_destroy(s);
+	ucstring_destroy(archive_comment);
+	de_dbg_indent(c, -1);
+}
+
+static int do_pak_ext_record(deark *c, lctx *d, i64 pos1, i64 *pbytes_consumed)
+{
+	i64 pos = pos1;
+	u8 rectype;
+	const char *rtname = "?";
+	int retval = 0;
+	i64 filenum;
+	i64 filenum_adj = 0;
+	i64 dlen;
+	de_ucstring *archive_comment = NULL;
+	struct persistent_member_data *pmd = NULL;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(de_getbyte_p(&pos) != 0xfe) goto done;
+	de_dbg(c, "record at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	rectype = de_getbyte_p(&pos);
+	switch(rectype) {
+	case 0: rtname = "end"; break;
+	case 1: rtname = "remark"; break;
+	case 2: rtname = "path"; break;
+	}
+	de_dbg(c, "rectype: %d (%s)", (int)rectype, rtname);
+	if(rectype==0) goto done;
+
+	filenum = de_getu16le_p(&pos);
+	de_dbg(c, "file num: %d", (int)filenum);
+	dlen = de_getu32le_p(&pos);
+	de_dbg(c, "dlen: %"I64_FMT, dlen);
+	if(pos+dlen > c->infile->len) goto done;
+
+	*pbytes_consumed = 8 + dlen;
+	retval = 1;
+
+	if(filenum > 0) {
+		filenum_adj = filenum - 1;
+		if(filenum_adj < d->num_top_level_members) {
+			pmd = &d->persistent_md[filenum_adj];
+		}
+	}
+
+	if(rectype==1) { // remark
+		if(filenum==0) { // archive comment
+			archive_comment = ucstring_create(c);
+			dbuf_read_to_ucstring_n(c->infile, pos, dlen, 16384, archive_comment,
+				0, d->input_encoding);
+			de_dbg(c, "archive comment: \"%s\"", ucstring_getpsz_d(archive_comment));
+		}
+		else { // file comment
+			if(!pmd) goto done;
+
+			if(!pmd->comment) {
+				pmd->comment = ucstring_create(c);
+			}
+			if(ucstring_isnonempty(pmd->comment)) goto done;
+			dbuf_read_to_ucstring_n(c->infile, pos, dlen, 2048, pmd->comment,
+				0, d->input_encoding);
+		}
+	}
+	else if(rectype==2) {
+		if(!pmd) goto done;
+		if(!pmd->path) {
+			pmd->path = ucstring_create(c);
+		}
+		if(ucstring_isnonempty(pmd->path)) goto done;
+		dbuf_read_to_ucstring_n(c->infile, pos, dlen, 512, pmd->path,
+			0, d->input_encoding);
+	}
+
+done:
+	if(archive_comment) ucstring_destroy(archive_comment);
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static void do_pak_trailer(deark *c, lctx *d)
+{
+	u8 b;
+	i64 pos;
+
+	if(!d->prescan_found_eoa) return;
+	if(c->infile->len - d->prescan_pos_after_eoa < 2) return;
+	if(de_getbyte(d->prescan_pos_after_eoa) != 0xfe) return;
+	b = de_getbyte(d->prescan_pos_after_eoa+1);
+	if(b>4) return;
+
+	pos = d->prescan_pos_after_eoa;
+	de_dbg(c, "PAK extended records at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
+	init_trailer_data(c, d);
+
+	while(1) {
+		i64 bytes_consumed = 0;
+
+		if(pos > c->infile->len-2) break;
+		if(!do_pak_ext_record(c, d, pos, &bytes_consumed)) break;
+		if(bytes_consumed<8) break;
+		pos += bytes_consumed;
+	}
+
 	de_dbg_indent(c, -1);
 }
 
@@ -264,8 +411,26 @@ static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf
 	de_crcobj_addbuf(crco, buf, buf_len);
 }
 
+// Convert backslashes to slashes, and make sure the string ends with a /.
+static void fixup_path(deark *c, lctx *d, de_ucstring *s)
+{
+	i64 i;
+
+	if(s->len<1) return;
+
+	for(i=0; i<s->len; i++) {
+		if(s->str[i]=='\\') {
+			s->str[i] = '/';
+		}
+	}
+
+	if(s->str[s->len-1]!='/') {
+		ucstring_append_char(s, '/');
+	}
+}
+
 static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
-	de_finfo *fi, i64 pos)
+	struct persistent_member_data *pmd, de_finfo *fi, i64 pos)
 {
 	de_ucstring *fullfn = NULL;
 	dbuf *outf = NULL;
@@ -277,13 +442,23 @@ static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	fullfn = ucstring_create(c);
+
+	if(pmd && ucstring_isnonempty(pmd->path)) {
+		// For PAK-style paths.
+		// (Pretty useless, until we support cmpr. meth. #11.)
+		// Note that PAK-style paths, and directory recursion, are not expected to
+		// be possible in the same file.
+		ucstring_append_ucstring(fullfn, pmd->path);
+		fixup_path(c, d, fullfn);
+	}
+
 	de_strarray_make_path(d->curpath, fullfn, DE_MPFLAG_NOTRAILINGSLASH);
+
 	if(d->append_type && md->rfa.file_type_known) {
 		ucstring_printf(fullfn, DE_ENCODING_LATIN1, ",%03X", md->rfa.file_type);
 	}
 	de_finfo_set_name_from_ucstring(c, fi, fullfn, DE_SNFLAG_FULLPATH);
 
-	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, pos, md->cmpr_size);
 	de_dbg_indent(c, 1);
 
 	if(!md->cmi || !md->cmi->decompressor) {
@@ -329,7 +504,7 @@ done:
 }
 
 // "Extract" a directory entry
-static void do_spark_extract_member_dir(deark *c, lctx *d, struct member_data *md,
+static void do_extract_member_dir(deark *c, lctx *d, struct member_data *md,
 	de_finfo *fi)
 {
 	dbuf *outf = NULL;
@@ -346,37 +521,96 @@ static void do_spark_extract_member_dir(deark *c, lctx *d, struct member_data *m
 	ucstring_destroy(fullfn);
 }
 
-static void do_sequence_of_members(deark *c, lctx *d, i64 pos1, i64 len);
+static void do_info_record_string(deark *c, lctx *d, i64 pos, i64 len, const char *name)
+{
+	de_ucstring *s = NULL;
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pos, len, 2048, s, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz_d(s));
+	ucstring_destroy(s);
+}
+
+static void do_info_item(deark *c, lctx *d, struct member_data *md)
+{
+	int saved_indent_level;
+	i64 pos = md->cmpr_data_pos;
+	i64 endpos = md->cmpr_data_pos+md->cmpr_size;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "info item data (meth=%d) at %"I64_FMT" len=%"I64_FMT, (int)md->cmpr_meth,
+		md->cmpr_data_pos, md->cmpr_size);
+	de_dbg_indent(c, 1);
+
+	while(1) {
+		i64 reclen;
+		i64 recpos;
+		i64 dpos;
+		i64 dlen;
+		u8 rectype;
+
+		recpos = pos;
+		if(pos+3 > endpos) goto done;
+		reclen = de_getu16le_p(&pos);
+		rectype = de_getbyte_p(&pos);
+		if(reclen<3 || recpos+reclen > endpos) goto done;
+		dpos = recpos + 3;
+		dlen = reclen - 3;
+		de_dbg(c, "record type %d at %"I64_FMT", len=%"I64_FMT, (int)rectype, recpos, reclen);
+		de_dbg_indent(c, 1);
+		if(md->cmpr_meth==20) {
+			if(rectype==0) {
+				do_info_record_string(c, d, dpos, dlen, "archive comment");
+			}
+		}
+		else if(md->cmpr_meth==21) {
+			if(rectype==0) {
+				do_info_record_string(c, d, dpos, dlen, "file comment");
+			}
+		}
+		de_dbg_indent(c, -1);
+		pos = recpos + reclen;
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_sequence_of_members(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level);
 
 // Returns 1 if we can and should continue after this member.
-static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed, int *is_eoa)
+static int do_member(deark *c, lctx *d, i64 pos1, i64 nbytes_avail,
+	int nesting_level, i64 member_idx, i64 *bytes_consumed, int *is_eoa)
 {
 	u8 magic;
 	int saved_indent_level;
 	int retval = 0;
 	i64 pos = pos1;
+	i64 hdrsize;
 	i64 mod_time_raw, mod_date_raw;
 	de_finfo *fi = NULL;
 	struct member_data *md = NULL;
 	int need_curpath_pop = 0;
+	struct persistent_member_data *pmd = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "member at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	md = de_malloc(c, sizeof(struct member_data));
 
-	if(d->has_file_comments && (d->nmembers < d->num_file_comments)) {
-		de_ucstring *comment;
-
-		comment = ucstring_create(c);
-		read_one_comment(c, d, d->file_comments_pos + d->nmembers*32, comment);
-		de_dbg(c, "file comment: \"%s\"", ucstring_getpsz_d(comment));
-		ucstring_destroy(comment);
+	if(nesting_level==0 && d->persistent_md && (member_idx < d->num_top_level_members)) {
+		pmd = &d->persistent_md[member_idx];
+		if(ucstring_isnonempty(pmd->comment)) {
+			de_dbg(c, "file comment: \"%s\"", ucstring_getpsz_d(pmd->comment));
+		}
+		if(ucstring_isnonempty(pmd->path)) {
+			de_dbg(c, "path: \"%s\"", ucstring_getpsz_d(pmd->path));
+		}
 	}
 
 	magic = de_getbyte_p(&pos);
 	if(magic != 0x1a) {
-		if(d->nmembers==0 && d->level==0) {
+		if(member_idx==0 && nesting_level==0) {
 			de_err(c, "Not a(n) %s file", d->fmtname);
 		}
 		else {
@@ -398,7 +632,26 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed, int *is_e
 
 	de_dbg(c, "cmpr meth: 0x%02x (%s)", (unsigned int)md->cmpr_meth, md->cmpr_meth_name);
 
-	if(md->cmpr_meth_masked==0x00) { // end of dir marker
+	if(md->cmpr_meth_masked==0x00 || md->cmpr_meth==0x1f) {
+		hdrsize = 2;
+	}
+	else {
+		if(md->cmpr_meth_masked==0x01) {
+			hdrsize = 25;
+		}
+		else {
+			hdrsize = 29;
+		}
+		if(md->cmpr_meth>=128) {
+			hdrsize += 12;
+		}
+	}
+	if(nbytes_avail<hdrsize) {
+		de_err(c, "Insufficient data for archive member at %"I64_FMT, pos1);
+		goto done;
+	}
+
+	if(md->cmpr_meth_masked==0x00 || md->cmpr_meth==0x1f) { // end of archive/dir marker
 		*is_eoa = 1;
 		*bytes_consumed = 2;
 		goto done;
@@ -445,8 +698,14 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed, int *is_e
 	// TODO: Is it possible to distinguish between a subdirectory, and a Spark
 	// member file that should always be extracted? Does a nonzero CRC mean
 	// we should not recurse?
-	md->is_dir = (d->recurse_subdirs && md->rfa.file_type_known &&
-		(md->rfa.file_type==0xddc) && md->cmpr_meth==0x82);
+	if(d->fmt==FMT_SPARK && d->recurse_subdirs && md->rfa.file_type_known &&
+		(md->rfa.file_type==0xddc) && md->cmpr_meth==0x82)
+	{
+		md->is_dir = 1;
+	}
+	else if(d->fmt==FMT_ARC && d->recurse_subdirs && md->cmpr_meth==0x1e) {
+		md->is_dir = 1;
+	}
 
 	if(d->recurse_subdirs) {
 		de_dbg(c, "is directory: %d", md->is_dir);
@@ -454,6 +713,8 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed, int *is_e
 
 	*bytes_consumed = md->cmpr_data_pos + md->cmpr_size - pos1;
 	retval = 1;
+
+	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, md->cmpr_data_pos, md->cmpr_size);
 
 	// Extract...
 	fi = de_finfo_create(c);
@@ -471,9 +732,9 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed, int *is_e
 	}
 
 	if(md->is_dir) {
-		do_spark_extract_member_dir(c, d, md, fi);
+		do_extract_member_dir(c, d, md, fi);
 
-		// Nested Spark archives (which double as subdirectories) have both a known
+		// Nested subdirectory archives (ARC 6 "z" option, or Spark) have both a known
 		// length (md->cmpr_size), and an end-of-archive marker. So there are two
 		// ways to parse them:
 		// 1) Recursively, meaning we trust the md->cmpr_size field (or maybe we should
@@ -481,12 +742,18 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed, int *is_e
 		// 2) As a flat sequence of members, meaning we trust that a nested archive
 		//    will not have extra data after the end-of-archive marker.
 		// Here, we use the recursive method.
-		d->level++;
-		do_sequence_of_members(c, d, md->cmpr_data_pos, md->cmpr_size);
-		d->level--;
+		do_sequence_of_members(c, d, md->cmpr_data_pos, md->cmpr_size, nesting_level+1);
+	}
+	else if(md->cmpr_meth>=20 && md->cmpr_meth<=29) {
+		if(md->cmpr_meth==20 || md->cmpr_meth==21) {
+			do_info_item(c, d, md);
+		}
+		else {
+			de_warn(c, "Ignoring extension type %d at %"I64_FMT, (int)md->cmpr_meth, pos1);
+		}
 	}
 	else {
-		do_extract_member_file(c, d, md, fi, md->cmpr_data_pos);
+		do_extract_member_file(c, d, md, pmd, fi, md->cmpr_data_pos);
 	}
 
 done:
@@ -502,12 +769,12 @@ done:
 	return retval;
 }
 
-static void do_sequence_of_members(deark *c, lctx *d, i64 pos1, i64 len)
+static void do_sequence_of_members(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level)
 {
 	i64 pos = pos1;
-	int found_eoa = 0;
+	i64 member_idx = 0;
 
-	if(d->level >= MAX_SPARK_NESTING_LEVEL) {
+	if(nesting_level >= MAX_NESTING_LEVEL) {
 		de_err(c, "Max subdir nesting level exceeded");
 		return;
 	}
@@ -518,26 +785,71 @@ static void do_sequence_of_members(deark *c, lctx *d, i64 pos1, i64 len)
 	while(1) {
 		int ret;
 		int is_eoa = 0;
+		i64 nbytes_avail;
 		i64 bytes_consumed = 0;
 
-		if(pos >= pos1+len) break;
-		ret = do_member(c, d, pos, &bytes_consumed, &is_eoa);
+		nbytes_avail = pos1+len-pos;
+		if(nbytes_avail<2) break;
+		ret = do_member(c, d, pos, nbytes_avail, nesting_level, member_idx, &bytes_consumed, &is_eoa);
 		pos += bytes_consumed;
 
 		if(is_eoa) {
-			found_eoa = 1;
 			break;
 		}
 
 		if(!ret || (bytes_consumed<1)) break;
-		if(d->level==0) {
-			d->nmembers++;
-		}
+		member_idx++;
 	}
 
-	if(found_eoa && (pos < pos1+len) && !(d->level==0 && d->has_comments)) {
-		de_dbg(c, "extra bytes at end of archive: %"I64_FMT" (at %"I64_FMT")",
-			pos1+len-pos, pos);
+	de_dbg_indent(c, -1);
+}
+
+// Unfortunately, a pre-pass is necessary for robust handling of some ARC format
+// extensions. The main issue is member-file comments, which we want to be
+// available when we process that member file, but can only be found after we've
+// read through the whole ARC file.
+static void do_prescan_file(deark *c, lctx *d, i64 pos1)
+{
+	i64 memberpos = pos1;
+
+	de_dbg2(c, "prescan");
+	d->num_top_level_members = 0;
+	de_dbg_indent(c, 1);
+
+	while(1) {
+		u8 magic;
+		u8 cmpr_meth, cmpr_meth_masked;
+		i64 pos;
+		i64 cmpr_size;
+
+		pos = memberpos;
+		if(pos + 2 > c->infile->len) break;
+		magic = de_getbyte_p(&pos);
+		if(magic!=0x1a) break;
+		cmpr_meth = de_getbyte_p(&pos);
+		cmpr_meth_masked = cmpr_meth & 0x7f;
+		de_dbg2(c, "member at %"I64_FMT, memberpos);
+
+		if(cmpr_meth_masked==0x00) { // end of archive
+			memberpos = pos;
+			d->prescan_found_eoa = 1;
+			d->prescan_pos_after_eoa = memberpos;
+			de_dbg2(c, "end of member sequence at %"I64_FMT, d->prescan_pos_after_eoa);
+			break;
+		}
+
+		pos += 13;
+		cmpr_size = de_getu32le_p(&pos);
+		pos += 2+2+2;
+		if(cmpr_meth_masked!=0x01) {
+			pos += 4; // original size
+		}
+		if(cmpr_meth & 0x80) {
+			pos += 12; // Spark-specific data
+		}
+		pos += cmpr_size;
+		memberpos = pos;
+		d->num_top_level_members++;
 	}
 
 	de_dbg_indent(c, -1);
@@ -548,6 +860,15 @@ static void destroy_lctx(deark *c, lctx *d)
 	if(!d) return;
 	de_crcobj_destroy(d->crco);
 	de_strarray_destroy(d->curpath);
+	if(d->persistent_md) {
+		i64 i;
+
+		for(i=0; i<d->num_top_level_members; i++) {
+			ucstring_destroy(d->persistent_md[i].comment);
+			ucstring_destroy(d->persistent_md[i].path);
+		}
+		de_free(c, d->persistent_md);
+	}
 	de_free(c, d);
 }
 
@@ -565,11 +886,24 @@ static void do_run_arc_spark_internal(deark *c, lctx *d)
 	d->curpath = de_strarray_create(c);
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 
+	do_prescan_file(c, d, pos);
+
 	if(d->fmt==FMT_ARC) {
-		do_comments(c, d);
+		do_pk_comments(c, d);
+		do_pak_trailer(c, d);
 	}
 
-	do_sequence_of_members(c, d, pos, c->infile->len);
+	do_sequence_of_members(c, d, pos, c->infile->len, 0);
+
+	if(d->prescan_found_eoa && !d->has_trailer_data) {
+		i64 num_extra_bytes;
+
+		num_extra_bytes = c->infile->len - d->prescan_pos_after_eoa;
+		if(num_extra_bytes>0) {
+			de_dbg(c, "extra bytes at end of archive: %"I64_FMT" (at %"I64_FMT")",
+				num_extra_bytes, d->prescan_pos_after_eoa);
+		}
+	}
 }
 
 static void de_run_spark(deark *c, de_module_params *mparams)
@@ -643,7 +977,9 @@ static void de_run_arc(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 	d->fmt = FMT_ARC;
 	d->fmtname = "ARC";
-	d->recurse_subdirs = 0;
+	// TODO: Make 'recurse' configurable. Would require us to make the embedded
+	// archives end with the correct marker.
+	d->recurse_subdirs = 1;
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437_G);
 
 	do_run_arc_spark_internal(c, d);
@@ -675,7 +1011,7 @@ static int de_identify_arc(deark *c)
 	}
 
 	cmpr_meth = de_getbyte(arc_start+1);
-	if(cmpr_meth>9) return 0;
+	if(cmpr_meth>11 && cmpr_meth!=20 && cmpr_meth!=21 && cmpr_meth!=30) return 0;
 	if(cmpr_meth==0) starts_with_trailer = 1;
 
 	for(k=0; k<DE_ARRAYCOUNT(exts); k++) {
@@ -696,6 +1032,13 @@ static int de_identify_arc(deark *c)
 	if(de_getu32be(c->infile->len-8) == 0x504baa55) {
 		// PKARC trailer, for files with comments
 		ends_with_comments = 1;
+	}
+
+	if(!ends_with_trailer && !ends_with_comments) {
+		// PAK-style extensions
+		if(de_getu16be(c->infile->len-2) == 0xfe00) {
+			ends_with_comments = 1;
+		}
 	}
 
 	if(starts_with_trailer) {

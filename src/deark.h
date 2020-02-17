@@ -17,8 +17,9 @@
 #include <inttypes.h>
 #endif
 
-#define DE_VERSION_NUMBER 0x01050300U
+#define DE_VERSION_NUMBER 0x01050400U
 #define DE_VERSION_SUFFIX ""
+#define DE_COPYRIGHT_YEAR_STRING "2020"
 
 #ifdef DE_WINDOWS
 

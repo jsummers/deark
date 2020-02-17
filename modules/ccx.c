@@ -56,7 +56,6 @@ static void do_decompress(deark *c, lctx *d)
 	cmpr_len = d->pack_dpos + d->pack_dlen - cmpr_start;
 	if(cmpr_len<1) goto done;
 
-
 	// Decompress the "pack" chunk to a membuf.
 	// We *could* decompress directly to the output file instead, but this way
 	// is more flexible.
@@ -68,7 +67,7 @@ static void do_decompress(deark *c, lctx *d)
 	dcmpro.f = unc_data;
 	dcmpro.len_known = 1;
 	dcmpro.expected_len = unc_len;
-	fmtutil_decompress_deflate_ex(c, &dcmpri, &dcmpro, &dres, DE_DEFLATEFLAG_ISZLIB);
+	fmtutil_decompress_deflate_ex(c, &dcmpri, &dcmpro, &dres, DE_DEFLATEFLAG_ISZLIB, NULL);
 	if(dres.errcode) {
 		de_err(c, "%s", dres.errmsg);
 		goto done;

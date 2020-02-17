@@ -16,7 +16,7 @@
 
 static void de_inflate_internal(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	unsigned int flags)
+	unsigned int flags, const u8 *starting_dict)
 {
 	mz_stream strm;
 	int ret;
@@ -56,6 +56,12 @@ static void de_inflate_internal(deark *c, struct de_dfilter_in_params *dcmpri,
 	if(ret!=MZ_OK) {
 		de_dfilter_set_errorf(c, dres, modname, "Inflate error");
 		goto done;
+	}
+
+	if(starting_dict) {
+		inflate_state *pDecomp = (inflate_state *)strm.state;
+
+		de_memcpy(pDecomp->m_dict, starting_dict, 32768);
 	}
 
 	stream_open_flag = 1;
@@ -106,6 +112,7 @@ static void de_inflate_internal(deark *c, struct de_dfilter_in_params *dcmpri,
 		strm.avail_out = DE_DFL_OUTBUF_SIZE;
 
 		ret = mz_inflate(&strm, MZ_SYNC_FLUSH);
+
 		if(ret!=MZ_STREAM_END && ret!=MZ_OK) {
 			de_dfilter_set_errorf(c, dres, modname, "Inflate error (%d)", (int)ret);
 			goto done;
@@ -151,6 +158,9 @@ done:
 	de_free(c, outbuf);
 }
 
+// flags:
+//   DE_DEFLATEFLAG_ISZLIB
+//   DE_DEFLATEFLAG_USEMAXUNCMPRSIZE
 int fmtutil_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
 	i64 maxuncmprsize, i64 *bytes_consumed, unsigned int flags)
 {
@@ -173,7 +183,7 @@ int fmtutil_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *o
 		flags -= DE_DEFLATEFLAG_USEMAXUNCMPRSIZE;
 	}
 
-	de_inflate_internal(c, &dcmpri, &dcmpro, &dres, flags);
+	de_inflate_internal(c, &dcmpri, &dcmpro, &dres, flags, NULL);
 
 	if(bytes_consumed && dres.bytes_consumed_valid) {
 		*bytes_consumed = dres.bytes_consumed;
@@ -186,11 +196,14 @@ int fmtutil_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *o
 	return 1;
 }
 
+// flags:
+//   DE_DEFLATEFLAG_ISZLIB
+// starting_dict: Usually NULL. This is a hack needed by MSZIP format.
 void fmtutil_decompress_deflate_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	unsigned int flags)
+	unsigned int flags, const u8 *starting_dict)
 {
-	de_inflate_internal(c, dcmpri, dcmpro, dres, flags);
+	de_inflate_internal(c, dcmpri, dcmpro, dres, flags, starting_dict);
 }
 
 struct fmtutil_tdefl_ctx {

@@ -239,6 +239,16 @@ FILE* de_fopen_for_write(deark *c, const char *fn,
 	WCHAR *fnW = NULL;
 	FILE *f_ret = NULL;
 
+	// A simple check to make it harder to accidentally overwrite the input
+	// file. (But it can easily be defeated.)
+	// TODO?: Make this more robust.
+	if(c->input_filename && !de_strcasecmp(fn, c->input_filename)) {
+		de_err(c, "Refusing to write to %s: Same as input filename", fn);
+		de_fatalerror(c);
+		de_strlcpy(errmsg, "", errmsg_len);
+		goto done;
+	}
+
 	modeW = (flags&0x1) ? L"ab" : L"wb";
 	fnW = de_utf8_to_utf16_strdup(c, fn);
 

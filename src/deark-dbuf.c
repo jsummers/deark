@@ -1308,11 +1308,9 @@ void dbuf_write(dbuf *f, const u8 *m, i64 len)
 		f->writelistener_cb(f, f->userdata_for_writelistener, m, len);
 	}
 
-	if(f->btype==DBUF_TYPE_NULL) {
-		f->len += len;
-		return;
-	}
-	else if(f->btype==DBUF_TYPE_OFILE || f->btype==DBUF_TYPE_STDOUT) {
+	switch(f->btype) {
+	case DBUF_TYPE_OFILE:
+	case DBUF_TYPE_STDOUT:
 		if(!f->fp) return;
 		if(f->c->debug_level>=3) {
 			de_dbg3(f->c, "writing %"I64_FMT" bytes to %s", len, f->name);
@@ -1320,23 +1318,23 @@ void dbuf_write(dbuf *f, const u8 *m, i64 len)
 		fwrite(m, 1, (size_t)len, f->fp);
 		f->len += len;
 		return;
-	}
-	else if(f->btype==DBUF_TYPE_MEMBUF) {
+	case DBUF_TYPE_MEMBUF:
 		if(f->c->debug_level>=3 && f->name) {
 			de_dbg3(f->c, "appending %"I64_FMT" bytes to membuf %s", len, f->name);
 		}
 		membuf_append(f, m, len);
 		return;
-	}
-	else if(f->btype==DBUF_TYPE_ODBUF) {
+	case DBUF_TYPE_ODBUF:
 		dbuf_write(f->parent_dbuf, m, len);
 		f->len += len;
 		return;
-	}
-	else if(f->btype==DBUF_TYPE_CUSTOM) {
+	case DBUF_TYPE_CUSTOM:
 		if(f->customwrite_fn) {
 			f->customwrite_fn(f, f->userdata_for_customwrite, m, len);
 		}
+		f->len += len;
+		return;
+	case DBUF_TYPE_NULL:
 		f->len += len;
 		return;
 	}
@@ -1402,7 +1400,9 @@ void dbuf_write_at(dbuf *f, i64 pos, const u8 *m, i64 len)
 		}
 	}
 	else if(f->btype==DBUF_TYPE_NULL) {
-		;
+		if(pos+len > f->len) {
+			f->len = pos+len;
+		}
 	}
 	else {
 		de_err(f->c, "internal: Attempt to seek on non-seekable stream");
@@ -1694,7 +1694,9 @@ void dbuf_close(dbuf *f)
 		de_tar_end_member_file(c, f);
 	}
 
-	if(f->btype==DBUF_TYPE_IFILE || f->btype==DBUF_TYPE_OFILE) {
+	switch(f->btype) {
+	case DBUF_TYPE_IFILE:
+	case DBUF_TYPE_OFILE:
 		if(f->name) {
 			de_dbg3(c, "closing file %s", f->name);
 		}
@@ -1708,12 +1710,12 @@ void dbuf_close(dbuf *f)
 		if(f->btype==DBUF_TYPE_OFILE && f->is_managed && c->preserve_file_times) {
 			de_update_file_time(f);
 		}
-	}
-	else if(f->btype==DBUF_TYPE_FIFO) {
+		break;
+	case DBUF_TYPE_FIFO:
 		de_fclose(f->fp);
 		f->fp = NULL;
-	}
-	else if(f->btype==DBUF_TYPE_STDOUT) {
+		break;
+	case DBUF_TYPE_STDOUT:
 		if(f->name && f->is_managed) {
 			de_dbg3(c, "finished writing %s to stdout", f->name);
 		}
@@ -1721,20 +1723,15 @@ void dbuf_close(dbuf *f)
 			de_dbg3(c, "finished writing %s", f->name);
 		}
 		f->fp = NULL;
-	}
-	else if(f->btype==DBUF_TYPE_MEMBUF) {
-	}
-	else if(f->btype==DBUF_TYPE_IDBUF) {
-	}
-	else if(f->btype==DBUF_TYPE_ODBUF) {
-	}
-	else if(f->btype==DBUF_TYPE_STDIN) {
-	}
-	else if(f->btype==DBUF_TYPE_CUSTOM) {
-	}
-	else if(f->btype==DBUF_TYPE_NULL) {
-	}
-	else {
+		break;
+	case DBUF_TYPE_MEMBUF:
+	case DBUF_TYPE_IDBUF:
+	case DBUF_TYPE_ODBUF:
+	case DBUF_TYPE_STDIN:
+	case DBUF_TYPE_CUSTOM:
+	case DBUF_TYPE_NULL:
+		break;
+	default:
 		de_err(c, "Internal: Don't know how to close this type of file (%d)", f->btype);
 	}
 

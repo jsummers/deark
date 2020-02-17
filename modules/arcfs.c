@@ -82,9 +82,9 @@ static void do_arcfs_compressed(deark *c, lctx *d, struct arcfs_member_data *md,
 
 	de_zeromem(&delzwp, sizeof(struct delzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
-	delzwp.unixcompress_lzwmode = (u8)(md->rfa.lzwmaxbits | 0x80);
+	delzwp.max_code_size = md->rfa.lzwmaxbits;
 	if(!dcmpro->len_known) {
-		delzwp.unixcompress_flags |= DE_LIBLZWFLAG_ARCFSMODE;
+		delzwp.flags |= DE_LZWFLAG_TOLERATETRAILINGJUNK;
 	}
 	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
@@ -100,7 +100,7 @@ static void do_arcfs_crunched(deark *c, lctx *d, struct arcfs_member_data *md,
 
 	de_zeromem(&delzwp, sizeof(struct delzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
-	delzwp.unixcompress_lzwmode = (u8)(md->rfa.lzwmaxbits | 0x80);
+	delzwp.max_code_size = md->rfa.lzwmaxbits;
 
 	// This flag tells the LZW decompressor to stop, instead of reporting failure,
 	// if bad LZW compressed data is encountered.
@@ -111,7 +111,7 @@ static void do_arcfs_crunched(deark *c, lctx *d, struct arcfs_member_data *md,
 	// between them. That way, we could stop immediately when we've decompressed
 	// a sufficient number of bytes, and never encounter the garbage. But we
 	// don't have that.
-	delzwp.unixcompress_flags |= DE_LIBLZWFLAG_ARCFSMODE;
+	delzwp.flags |= DE_LZWFLAG_TOLERATETRAILINGJUNK;
 
 	de_dfilter_decompress_two_layer(c, dfilter_lzw_codec, (void*)&delzwp,
 		dfilter_rle90_codec, NULL, dcmpri, dcmpro, dres);
@@ -171,7 +171,7 @@ static void do_arcfs_extract_member_file(deark *c, lctx *d, struct arcfs_member_
 	dcmpro.expected_len = md->orig_len;
 
 	if(md->cmpr_method==0x82) { // stored
-		dbuf_copy(c->infile, md->file_data_offs_abs, md->cmpr_len, outf);
+		fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
 	}
 	else if(md->cmpr_method==0x83) {
 		de_fmtutil_decompress_rle90_ex(c, &dcmpri, &dcmpro, &dres, 0);
@@ -448,6 +448,7 @@ static void do_squash_main(deark *c, sqctx *d)
 	struct de_dfilter_results dres;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
+	struct delzw_params delzwp;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -476,7 +477,11 @@ static void do_squash_main(deark *c, sqctx *d)
 	dcmpro.f = outf;
 	dcmpro.len_known = 0;
 
-	de_fmtutil_decompress_liblzw_ex(c, &dcmpri, &dcmpro, &dres, DE_LIBLZWFLAG_HAS3BYTEHEADER, 0);
+	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
+	delzwp.flags |= DE_LZWFLAG_HAS3BYTEHEADER;
+
+	de_fmtutil_decompress_lzw(c, &dcmpri, &dcmpro, &dres, &delzwp);
 
 	if(dres.errcode) {
 		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));

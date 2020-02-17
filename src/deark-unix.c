@@ -123,6 +123,16 @@ FILE* de_fopen_for_write(deark *c, const char *fn,
 {
 	const char *mode;
 
+	// A simple check to make it harder to accidentally overwrite the input
+	// file. (But it can easily be defeated.)
+	// TODO?: Make this more robust.
+	if(c->input_filename && !de_strcmp(fn, c->input_filename)) {
+		de_err(c, "Refusing to write to %s: Same as input filename", fn);
+		de_fatalerror(c);
+		de_strlcpy(errmsg, "", errmsg_len);
+		return NULL;
+	}
+
 	if(overwrite_mode!=DE_OVERWRITEMODE_STANDARD) {
 		// Check if the file already exists.
 		struct stat stbuf;
