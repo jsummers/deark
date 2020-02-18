@@ -48,7 +48,7 @@
 #endif
 
 // "uint" is short for "unsigned int". It will not be redefined.
-#define uint unsigned int
+typedef unsigned int uint;
 
 #define DE_CHAR_TIMES "\xc3\x97"
 #define DE_CHAR_RIGHTARROW "\xe2\x86\x92"

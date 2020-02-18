@@ -12,15 +12,15 @@
 
 #include <windows.h>
 
+#include <sys/stat.h>
+#include <sys/types.h>
+
 // This file is overloaded, in that it contains functions intended to only
 // be used internally, as well as functions intended only for the
 // command-line utility. That's why we need both deark-user.h and
 // deark-private.h.
 #include "deark-private.h"
 #include "deark-user.h"
-
-#include <sys/stat.h>
-#include <sys/types.h>
 
 #ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
 #define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
