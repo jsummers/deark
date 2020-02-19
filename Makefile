@@ -1,5 +1,5 @@
 
-CFLAGS ?= -g -O2 -Wall -Wextra -Wmissing-prototypes -Wformat-security -Wno-unused-parameter
+CFLAGS ?= -g -O2 -Wall -Wextra -Wmissing-prototypes -Wformat-security -Wno-unused-parameter -D_POSIX_C_SOURCE
 LDFLAGS ?= -Wall
 
 ifdef DEARK_OBJDIR
@@ -145,4 +145,3 @@ $(OBJDIR)/%.d: %.c
 	$(CC) $(CFLAGS) $(INCLUDES) -MM -MT '$$(OBJDIR)/$*.o' -MF $@ $<
 
 endif
-
