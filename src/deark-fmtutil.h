@@ -80,7 +80,7 @@ void de_fmtutil_handle_plist(deark *c, dbuf *f, i64 pos, i64 len,
 	de_finfo *fi, unsigned int flags);
 
 void fmtutil_decompress_uncompressed(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, uint flags);
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, UI flags);
 
 #define DE_DEFLATEFLAG_ISZLIB 0x1
 #define DE_DEFLATEFLAG_USEMAXUNCMPRSIZE 0x2
@@ -135,7 +135,7 @@ struct delzw_params {
 #define DE_LZWFLAG_HAS3BYTEHEADER       0x1 // Unix-compress style, use with fmt=UNIXCOMPRESS
 #define DE_LZWFLAG_HAS1BYTEHEADER       0x2 // ARC style, use with fmt=UNIXCOMPRESS
 #define DE_LZWFLAG_TOLERATETRAILINGJUNK 0x4
-	uint flags;
+	UI flags;
 	unsigned int gif_root_code_size;
 	unsigned int max_code_size; // 0 = no info
 };

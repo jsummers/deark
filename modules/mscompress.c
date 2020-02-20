@@ -21,7 +21,7 @@ DE_DECLARE_MODULE(de_module_mscompress);
 typedef struct localctx_struct {
 	int fmt;
 	int input_encoding;
-	uint cmpr_meth;
+	UI cmpr_meth;
 	i64 cmpr_data_pos;
 	i64 cmpr_data_len;
 	u8 uncmpr_len_known;
@@ -29,7 +29,7 @@ typedef struct localctx_struct {
 	de_ucstring *filename;
 } lctx;
 
-static int cmpr_meth_is_supported(lctx *d, uint n)
+static int cmpr_meth_is_supported(lctx *d, UI n)
 {
 	switch(n) {
 	case CMPR_NONE:
@@ -42,7 +42,7 @@ static int cmpr_meth_is_supported(lctx *d, uint n)
 	return 0;
 }
 
-static const char *get_cmpr_meth_name(uint n)
+static const char *get_cmpr_meth_name(UI n)
 {
 	char *name = NULL;
 
@@ -118,14 +118,14 @@ static int do_header_KWAJ(deark *c, lctx *d, i64 pos1)
 
 	pos += 8; // signature
 
-	d->cmpr_meth = (uint)de_getu16le_p(&pos);
+	d->cmpr_meth = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "compression method: %u (%s)", d->cmpr_meth, get_cmpr_meth_name(d->cmpr_meth));
 
 	d->cmpr_data_pos = de_getu16le_p(&pos);
 	de_dbg(c, "compressed data offset: %"I64_FMT, d->cmpr_data_pos);
 	d->cmpr_data_len = c->infile->len - d->cmpr_data_pos;
 
-	flags = (uint)de_getu16le_p(&pos);
+	flags = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "header extension flags: 0x%04x", flags);
 
 	if(flags & 0x0001) { // bit 0
@@ -193,13 +193,13 @@ struct lzhuff_tableentry {
 };
 
 struct lzhuff_tree {
-	uint enctype;
-	uint num_symbols;
+	UI enctype;
+	UI num_symbols;
 	LZHUFF_SYMLEN_TYPE *symlengths; // array[num_symbols]
 	LZHUFF_SYMLEN_TYPE max_sym_len_used;
 
-	uint decode_table_nbits;
-	uint decode_table_numentries; // == 1<<decode_table_nbits
+	UI decode_table_nbits;
+	UI decode_table_numentries; // == 1<<decode_table_nbits
 	struct lzhuff_tableentry *decode_table; // array[decode_table_numentries]
 };
 
@@ -222,7 +222,7 @@ struct lzhuff_context {
 #define LZH_TREE_IDX_LITERAL    4
 #define LZH_NUM_TREES   5
 	struct lzhuff_tree htree[LZH_NUM_TREES];
-	uint wpos;
+	UI wpos;
 	u8 window[4096];
 };
 
@@ -232,9 +232,9 @@ static void lzhuff_set_errorflag(struct lzhuff_context *lzhctx)
 	lzhctx->eof_flag = 1;
 }
 
-static uint lzh_getbits(struct lzhuff_context *lzhctx, uint nbits)
+static UI lzh_getbits(struct lzhuff_context *lzhctx, UI nbits)
 {
-	uint n;
+	UI n;
 
 	while(lzhctx->bitreader_nbits_in_buf < nbits) {
 		u8 b;
@@ -245,7 +245,7 @@ static uint lzh_getbits(struct lzhuff_context *lzhctx, uint nbits)
 		}
 
 		b = dbuf_getbyte_p(lzhctx->inf, &lzhctx->inf_curpos);
-		lzhctx->bitreader_buf = (lzhctx->bitreader_buf<<8) | (uint)b;
+		lzhctx->bitreader_buf = (lzhctx->bitreader_buf<<8) | (UI)b;
 		lzhctx->bitreader_nbits_in_buf += 8;
 	}
 
@@ -259,7 +259,7 @@ static uint lzh_getbits(struct lzhuff_context *lzhctx, uint nbits)
 static void lzhctx_read_huffman_tree_enctype_0(struct lzhuff_context *lzhctx, struct lzhuff_tree *htr)
 {
 	LZHUFF_SYMLEN_TYPE n;
-	uint sym_idx;
+	UI sym_idx;
 
 	n = (LZHUFF_SYMLEN_TYPE)de_log2_rounded_up((i64)htr->num_symbols);
 	for(sym_idx=0; sym_idx<htr->num_symbols; sym_idx++) {
@@ -270,8 +270,8 @@ static void lzhctx_read_huffman_tree_enctype_0(struct lzhuff_context *lzhctx, st
 static void lzhctx_read_huffman_tree_enctype_1(struct lzhuff_context *lzhctx, struct lzhuff_tree *htr)
 {
 	LZHUFF_SYMLEN_TYPE prev_sym_len;
-	uint sym_idx;
-	uint n;
+	UI sym_idx;
+	UI n;
 
 	htr->symlengths[0] = (LZHUFF_SYMLEN_TYPE)lzh_getbits(lzhctx, 4);
 	prev_sym_len = htr->symlengths[0];
@@ -302,8 +302,8 @@ done:
 static void lzhctx_read_huffman_tree_enctype_2(struct lzhuff_context *lzhctx, struct lzhuff_tree *htr)
 {
 	LZHUFF_SYMLEN_TYPE prev_sym_len;
-	uint sym_idx;
-	uint n;
+	UI sym_idx;
+	UI n;
 
 	htr->symlengths[0] = (LZHUFF_SYMLEN_TYPE)lzh_getbits(lzhctx, 4);
 	prev_sym_len = htr->symlengths[0];
@@ -327,7 +327,7 @@ done:
 
 static void lzhctx_read_huffman_tree_enctype_3(struct lzhuff_context *lzhctx, struct lzhuff_tree *htr)
 {
-	uint sym_idx;
+	UI sym_idx;
 
 	for(sym_idx=0; sym_idx<htr->num_symbols; sym_idx++) {
 		if(lzhctx->eof_flag) goto done;
@@ -340,12 +340,12 @@ done:
 static void lzhuff_populate_decode_table(struct lzhuff_context *lzhctx,
 	struct lzhuff_tree *htr)
 {
-	uint next_avail_code = 0;
+	UI next_avail_code = 0;
 	LZHUFF_SYMLEN_TYPE symlen;
 
 	// For each possible symbol length...
 	for(symlen=1; symlen<=htr->max_sym_len_used; symlen++) {
-		uint k;
+		UI k;
 
 		// Find all the codes that use this symbol length, in order
 		for(k=0; k<htr->num_symbols; k++) {
@@ -368,7 +368,7 @@ tbl_done:
 // Returns 0 if found (returned in *pvalue)
 //   1 if not found (need more bits)
 //   2 if error (too many bits)
-static int lzhuff_lookup_code(struct lzhuff_tree *htr, uint code, uint nbits,
+static int lzhuff_lookup_code(struct lzhuff_tree *htr, UI code, UI nbits,
 	LZHUFF_VALUE_TYPE *pvalue)
 {
 	struct lzhuff_tableentry *e;
@@ -387,14 +387,14 @@ static int lzhuff_lookup_code(struct lzhuff_tree *htr, uint code, uint nbits,
 static LZHUFF_VALUE_TYPE lzhuff_getnextcode(struct lzhuff_context *lzhctx,
 	struct lzhuff_tree *htr)
 {
-	uint next_shift;
-	uint curr_val = 0;
-	uint curr_nbits = 0;
+	UI next_shift;
+	UI curr_val = 0;
+	UI curr_nbits = 0;
 	LZHUFF_VALUE_TYPE decoded_val = 0;
 
 	next_shift = htr->decode_table_nbits - 1;
 	while(1) {
-		uint n;
+		UI n;
 		int ret;
 
 		n = lzh_getbits(lzhctx, 1);
@@ -418,9 +418,9 @@ static LZHUFF_VALUE_TYPE lzhuff_getnextcode(struct lzhuff_context *lzhctx,
 	return 0;
 }
 
-static void lzhctx_read_huffman_tree(struct lzhuff_context *lzhctx, uint idx)
+static void lzhctx_read_huffman_tree(struct lzhuff_context *lzhctx, UI idx)
 {
-	uint i;
+	UI i;
 	int saved_indent_level;
 	deark *c = lzhctx->c;
 	struct lzhuff_tree *htr = &lzhctx->htree[idx];
@@ -456,7 +456,7 @@ static void lzhctx_read_huffman_tree(struct lzhuff_context *lzhctx, uint idx)
 
 	htr->max_sym_len_used = 0;
 	for(i=0; i<htr->num_symbols; i++) {
-		de_dbg2(c, "length[%u] = %u", i, (uint)htr->symlengths[i]);
+		de_dbg2(c, "length[%u] = %u", i, (UI)htr->symlengths[i]);
 
 		if(htr->symlengths[i] > LZHUFF_MAX_CODELENGTH) {
 			lzhuff_set_errorflag(lzhctx);
@@ -528,9 +528,9 @@ static void lzhuff_decompress_main(struct lzhuff_context *lzhctx)
 		if(lzhctx->eof_flag) goto unc_done;
 
 		if(v!=0) { // match
-			uint matchlen;
-			uint matchpos;
-			uint x, y;
+			UI matchlen;
+			UI matchpos;
+			UI x, y;
 
 			matchlen = v + 2;
 
@@ -548,9 +548,9 @@ static void lzhuff_decompress_main(struct lzhuff_context *lzhctx)
 			}
 		}
 		else { // run of literals
-			uint x;
-			uint count;
-			uint i;
+			UI x;
+			UI count;
+			UI i;
 
 			x = lzhuff_getnextcode(lzhctx, &lzhctx->htree[LZH_TREE_IDX_LITLEN]);
 			if(lzhctx->eof_flag) goto unc_done;
@@ -608,7 +608,7 @@ static void do_decompress_LZHUFF(deark *c, struct de_dfilter_in_params *dcmpri,
 	de_dbg_indent(c, -1);
 
 	for(k=0; k<LZH_NUM_TREES; k++) {
-		lzhctx_read_huffman_tree(lzhctx, (uint)k);
+		lzhctx_read_huffman_tree(lzhctx, (UI)k);
 		if(lzhctx->eof_flag) {
 			lzhuff_set_errorflag(lzhctx);
 			goto done;
@@ -654,7 +654,7 @@ static void do_decompress_XOR(deark *c, struct de_dfilter_in_params *dcmpri,
 struct szdd_ctx {
 	i64 nbytes_written;
 	struct de_dfilter_out_params *dcmpro;
-	uint wpos;
+	UI wpos;
 	u8 window[4096];
 };
 
@@ -681,11 +681,11 @@ static void do_decompress_SZDD(deark *c, struct de_dfilter_in_params *dcmpri,
 	de_memset(sctx->window, 0x20, 4096);
 
 	while(1) {
-		uint control;
-		uint cbit;
+		UI control;
+		UI cbit;
 
 		if(pos+1 > endpos) goto unc_done; // Out of input data
-		control = (uint)dbuf_getbyte(dcmpri->f, pos++);
+		control = (UI)dbuf_getbyte(dcmpri->f, pos++);
 
 		for(cbit=0x01; cbit<=0x80; cbit<<=1) {
 			if(control & cbit) { // literal
@@ -697,13 +697,13 @@ static void do_decompress_SZDD(deark *c, struct de_dfilter_in_params *dcmpri,
 				if(dcmpro->len_known && sctx->nbytes_written>=dcmpro->expected_len) goto unc_done;
 			}
 			else { // match
-				uint x0, x1;
-				uint matchpos;
-				uint matchlen;
+				UI x0, x1;
+				UI matchpos;
+				UI matchlen;
 
 				if(pos+2 > endpos) goto unc_done;
-				x0 = (uint)dbuf_getbyte_p(dcmpri->f, &pos);
-				x1 = (uint)dbuf_getbyte_p(dcmpri->f, &pos);
+				x0 = (UI)dbuf_getbyte_p(dcmpri->f, &pos);
+				x1 = (UI)dbuf_getbyte_p(dcmpri->f, &pos);
 				matchpos = ((x1 & 0xf0) << 4) | x0;
 				matchlen = (x1 & 0x0f) + 3;
 
@@ -746,7 +746,7 @@ static void do_decompress_MSZIP(deark *c, struct de_dfilter_in_params *dcmpri1,
 		i64 blkpos;
 		i64 blklen_raw;
 		i64 blk_dlen;
-		uint sig;
+		UI sig;
 
 		if(pos > dcmpri1->pos + dcmpri1->len -4) {
 			goto done;
@@ -756,7 +756,7 @@ static void do_decompress_MSZIP(deark *c, struct de_dfilter_in_params *dcmpri1,
 		de_dbg_indent(c, 1);
 		blklen_raw = dbuf_getu16le_p(dcmpri1->f, &pos);
 		blk_dlen = blklen_raw - 2;
-		sig = (uint)dbuf_getu16be_p(dcmpri1->f, &pos);
+		sig = (UI)dbuf_getu16be_p(dcmpri1->f, &pos);
 		if(sig != 0x434b) { // "CK"
 			de_dfilter_set_errorf(c, dres, modname, "Failed to find MSZIP block "
 				"at %"I64_FMT, blkpos);

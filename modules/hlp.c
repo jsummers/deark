@@ -123,15 +123,15 @@ static const struct systemrec_info systemrec_info_default =
 static void format_topiclink(deark *c, lctx *d, u32 n, char *buf, size_t buf_len)
 {
 	if(d->ver_minor<=16) {
-		de_snprintf(buf, buf_len, "%u", (uint)n);
+		de_snprintf(buf, buf_len, "%u", (UI)n);
 	}
 	else {
 		if(n==INVALIDPOS) {
 			de_strlcpy(buf, "-1", buf_len);
 		}
 		else {
-			de_snprintf(buf, buf_len, "Blk%u:%u", (uint)(n/16384),
-				(uint)(n%16384));
+			de_snprintf(buf, buf_len, "Blk%u:%u", (UI)(n/16384),
+				(UI)(n%16384));
 		}
 	}
 }

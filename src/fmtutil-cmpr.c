@@ -148,7 +148,7 @@ void de_dfilter_decompress_oneshot(deark *c,
 
 // Trivial "decompression" of uncompressed data.
 void fmtutil_decompress_uncompressed(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, uint flags)
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, UI flags)
 {
 	i64 len;
 	i64 nbytes_avail;
@@ -429,14 +429,14 @@ void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_param
 }
 
 struct hlplz77ctx {
-	uint control_byte;
-	uint control_byte_bits_left;
+	UI control_byte;
+	UI control_byte_bits_left;
 	u8 matchcode_first_byte;
 	int matchcode_second_byte_pending;
 	i64 nbytes_consumed;
 	i64 nbytes_written;
 	dbuf *outf;
-	uint wpos;
+	UI wpos;
 	u8 window[4096];
 };
 
@@ -459,11 +459,11 @@ static void  my_hlp_lz77_codec_addbuf(struct de_dfilter_ctx *dfctx,
 	for(k=0; k<buf_len; k++) {
 
 		if(hctx->matchcode_second_byte_pending) {
-			uint x;
-			uint matchpos;
-			uint matchlen;
+			UI x;
+			UI matchpos;
+			UI matchlen;
 
-			x = (((uint)buf[k])<<8) | hctx->matchcode_first_byte;
+			x = (((UI)buf[k])<<8) | hctx->matchcode_first_byte;
 			hctx->matchcode_second_byte_pending = 0;
 			hctx->nbytes_consumed += 2;
 

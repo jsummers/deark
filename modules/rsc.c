@@ -51,14 +51,14 @@ static void do_decode_bilevel_image(deark *c, lctx *d, de_bitmap *img, i64 bits_
 {
 	i64 i, j;
 	i64 rowspan_in_16bit_chunks;
-	uint k;
-	uint n;
+	UI k;
+	UI n;
 
 	rowspan_in_16bit_chunks = (rowspan+1)/2;
 
 	for(j=0; j<img->height; j++) {
 		for(i=0; i<rowspan_in_16bit_chunks; i++) {
-			n = (uint)gem_getu16(d, bits_pos + j*rowspan + i*2);
+			n = (UI)gem_getu16(d, bits_pos + j*rowspan + i*2);
 			for(k=0; k<16; k++) {
 				u8 clr;
 

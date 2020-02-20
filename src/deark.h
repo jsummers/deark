@@ -47,8 +47,8 @@
 
 #endif
 
-// "uint" is short for "unsigned int". It will not be redefined.
-typedef unsigned int uint;
+// UI = unsigned int (%u format). It will not be redefined.
+#define UI unsigned int
 
 #define DE_CHAR_TIMES "\xc3\x97"
 #define DE_CHAR_RIGHTARROW "\xe2\x86\x92"
