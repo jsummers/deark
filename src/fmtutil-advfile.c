@@ -7,6 +7,10 @@
 #include "deark-private.h"
 #include "deark-fmtutil.h"
 
+#define DE_MACFORMAT_RAW          0
+#define DE_MACFORMAT_APPLESINGLE  1
+#define DE_MACFORMAT_APPLEDOUBLE  2
+
 // advfile is a uniform way to handle multi-fork files (e.g. classic Mac files
 // with a resource fork), and files with platform-specific metadata that we
 // might want to do something special with (e.g. Mac type/creator codes).
@@ -356,32 +360,32 @@ void de_advfile_run(struct de_advfile *advf)
 		const char *mfmt;
 
 		c->macformat_known = 1;
-		c->macformat = 2; // default=AppleDouble
+		c->macformat = DE_MACFORMAT_APPLEDOUBLE;
 
 		// [I know there is a module named "macrsrc", so this could lead to confusion,
 		// but I can't think of a better name.]
 		mfmt = de_get_ext_option(c, "macrsrc");
 		if(mfmt) {
 			if(!de_strcmp(mfmt, "raw")) {
-				c->macformat = 0; // Raw resource file
+				c->macformat = DE_MACFORMAT_RAW; // Raw resource file
 			}
 			else if(!de_strcmp(mfmt, "as")) {
-				c->macformat = 1; // AppleSingle
+				c->macformat = DE_MACFORMAT_APPLESINGLE;
 			}
 			else if(!de_strcmp(mfmt, "ad")) {
-				c->macformat = 2; // AppleDouble
+				c->macformat = DE_MACFORMAT_APPLEDOUBLE;
 			}
 		}
 	}
 
 	fmt = c->macformat; // Default to the default Mac format.
-	if(fmt==1 && advf->no_applesingle) fmt = 2;
-	if(fmt==2 && advf->no_appledouble) fmt = 0;
+	if(fmt==DE_MACFORMAT_APPLESINGLE && advf->no_applesingle) fmt = DE_MACFORMAT_APPLEDOUBLE;
+	if(fmt==DE_MACFORMAT_APPLEDOUBLE && advf->no_appledouble) fmt = DE_MACFORMAT_RAW;
 
-	if(is_mac_file && fmt==1) { // AppleSingle
+	if(is_mac_file && fmt==DE_MACFORMAT_APPLESINGLE) {
 		de_advfile_run_applesd(c, advf, 0);
 	}
-	else if(is_mac_file && fmt==2) { // AppleDouble
+	else if(is_mac_file && fmt==DE_MACFORMAT_APPLEDOUBLE) {
 		de_advfile_run_rawfiles(c, advf, 1); // For the data/main fork
 		de_advfile_run_applesd(c, advf, 1); // For the rsrc fork
 	}
