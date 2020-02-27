@@ -130,11 +130,14 @@ endif
 DEARK_INSTALLDIR ?= /usr/local/bin
 INSTALL_TARGET:=$(DEARK_INSTALLDIR)/$(DEARK_EXE_BASENAME)
 install: $(INSTALL_TARGET)
-$(INSTALL_TARGET): $(DEARK_EXE)
+$(INSTALL_TARGET): $(DEARK_EXE) deark.1
 	install -s $(DEARK_EXE) $(DEARK_INSTALLDIR)
+	install deark.1 /usr/share/man/man1
+deark.1: $(DEARK_EXE)
+	-help2man -n "a utility for extracting data from various file formats" -o $@ -N $(DEARK_EXE)
 
 clean:
-	rm -f $(OBJDIR)/src/*.[oad] $(OBJDIR)/modules/*.[oad] $(DEARK_EXE)
+	rm -f $(OBJDIR)/src/*.[oad] $(OBJDIR)/modules/*.[oad] $(DEARK_EXE) deark.1
 
 ifeq ($(MAKECMDGOALS),dep)
 
