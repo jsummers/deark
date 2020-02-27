@@ -105,9 +105,7 @@ static void setup_rsrc_finfo(struct de_advfile *advf)
 
 // If is_appledouble is set, do not write the resource fork (it will be handled
 // in another way), and *always* write a main fork (even if we have to write a
-// 0-length file). Our theory is that it's never appropriate to write an
-// AppleDouble header file by itself -- it should always have a companion data
-// file.
+// 0-length file).
 static void de_advfile_run_rawfiles(deark *c, struct de_advfile *advf, int is_appledouble)
 {
 	struct de_advfile_cbparams *afp_main = NULL;
@@ -535,8 +533,25 @@ void de_advfile_run(struct de_advfile *advf)
 		de_advfile_run_applesd(c, advf, 0);
 	}
 	else if(is_mac_file && fmt==DE_MACFORMAT_APPLEDOUBLE) {
-		de_advfile_run_rawfiles(c, advf, 1); // For the data/main fork
-		de_advfile_run_applesd(c, advf, 1); // For the rsrc fork
+		int extract_dfork = 0;
+		int extract_rfork = 0;
+
+		if(advf->mainfork.fork_exists && advf->mainfork.fork_len>0) {
+			extract_dfork = 1;
+		}
+		if(advf->rsrcfork.fork_exists && advf->rsrcfork.fork_len>0) {
+			extract_rfork = 1;
+		}
+		if(!extract_dfork && !extract_rfork) {
+			extract_dfork = 1;
+		}
+
+		if(extract_dfork) {
+			de_advfile_run_rawfiles(c, advf, 1); // For the data/main fork
+		}
+		if(extract_rfork) {
+			de_advfile_run_applesd(c, advf, 1); // For the rsrc fork
+		}
 	}
 	else if(is_mac_file && fmt==DE_MACFORMAT_MACBINARY) {
 		de_advfile_run_macbinary(c, advf);
