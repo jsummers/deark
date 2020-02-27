@@ -10,6 +10,7 @@
 #define DE_MACFORMAT_RAW          0
 #define DE_MACFORMAT_APPLESINGLE  1
 #define DE_MACFORMAT_APPLEDOUBLE  2
+#define DE_MACFORMAT_MACBINARY    3
 
 // advfile is a uniform way to handle multi-fork files (e.g. classic Mac files
 // with a resource fork), and files with platform-specific metadata that we
@@ -348,6 +349,151 @@ done:
 	ucstring_destroy(fname);
 }
 
+static i64 timestamp_to_mac_time(const struct de_timestamp *ts)
+{
+	i64 t;
+
+	if(!ts->is_valid) return 0;
+	t = de_timestamp_to_unix_time(ts);
+	return t + 2082844800;
+}
+
+static void de_advfile_run_macbinary(deark *c, struct de_advfile *advf)
+{
+	struct de_advfile_cbparams *afp_main = NULL;
+	struct de_advfile_cbparams *afp_rsrc = NULL;
+	dbuf *outf = NULL;
+	de_ucstring *fname = NULL;
+	i64 main_amt_padding, rsrc_amt_padding;
+	i64 main_fork_len, rsrc_fork_len;
+	dbuf *hdr = NULL;
+	struct de_crcobj *crco = NULL;
+	u32 crc_calc;
+
+	if(advf->mainfork.fork_exists) {
+		main_fork_len = advf->mainfork.fork_len;
+	}
+	else {
+		main_fork_len = 0;
+	}
+	if(advf->rsrcfork.fork_exists) {
+		rsrc_fork_len = advf->rsrcfork.fork_len;
+	}
+	else {
+		rsrc_fork_len = 0;
+	}
+
+	if(main_fork_len>0xffffffffLL || rsrc_fork_len>0xffffffffLL) {
+		de_err(c, "File too large to write to MacBinary format");
+		goto done;
+	}
+
+	main_amt_padding = advf->mainfork.fork_len % 128;
+	if(main_amt_padding > 0) main_amt_padding = 128-main_amt_padding;
+	rsrc_amt_padding = advf->rsrcfork.fork_len % 128;
+	if(rsrc_amt_padding > 0) rsrc_amt_padding = 128-rsrc_amt_padding;
+
+	fname = ucstring_create(c);
+	ucstring_append_ucstring(fname, advf->filename);
+	if(fname->len<1) {
+		ucstring_append_sz(fname, "_", DE_ENCODING_LATIN1);
+	}
+	ucstring_append_sz(fname, ".bin", DE_ENCODING_LATIN1);
+	de_finfo_set_name_from_ucstring(c, advf->mainfork.fi, fname, advf->snflags);
+	advf->mainfork.fi->original_filename_flag = advf->original_filename_flag;
+
+	// Construct 128-byte header
+	hdr = dbuf_create_membuf(c, 128, 0);
+	dbuf_writebyte(hdr, 0);
+
+	// Filename
+	if(advf->orig_filename && advf->orig_filename_len>0) {
+		i64 fnlen = advf->orig_filename_len;
+
+		if(fnlen>63) fnlen=63;
+		dbuf_writebyte(hdr, (u8)fnlen);
+		dbuf_write(hdr, advf->orig_filename, fnlen);
+	}
+	else {
+		// TODO: Get the name from elsewhere?
+		dbuf_writebyte(hdr, 7);
+		dbuf_puts(hdr, "Unnamed");
+	}
+	dbuf_truncate(hdr, 65);
+
+	// type/creator
+	if(advf->has_typecode) {
+		dbuf_write(hdr, advf->typecode, 4);
+	}
+	dbuf_truncate(hdr, 69);
+	if(advf->has_creatorcode) {
+		dbuf_write(hdr, advf->creatorcode, 4);
+	}
+
+	dbuf_truncate(hdr, 73); // high byte of finder flags
+	if(advf->has_finderflags) {
+		dbuf_writebyte(hdr, (u8)(advf->finderflags >> 8));
+	}
+
+	dbuf_truncate(hdr, 83);
+	dbuf_writeu32be(hdr, main_fork_len);
+	dbuf_writeu32be(hdr, rsrc_fork_len);
+
+	dbuf_truncate(hdr, 95);
+	dbuf_writeu32be(hdr, timestamp_to_mac_time(&advf->mainfork.fi->mod_time));
+
+	dbuf_truncate(hdr, 101); // low byte of finder flags
+	if(advf->has_finderflags) {
+		dbuf_writebyte(hdr, (u8)(advf->finderflags & 0xff));
+	}
+
+	dbuf_truncate(hdr, 102);
+	dbuf_write(hdr, (const u8*)"mBIN", 4);
+
+	dbuf_truncate(hdr, 122);
+	dbuf_writebyte(hdr, 130); // version (III)
+	dbuf_writebyte(hdr, 129); // compatible version (II)
+
+	crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
+	de_crcobj_addslice(crco, hdr, 0, 124);
+	crc_calc = de_crcobj_getval(crco);
+	dbuf_writeu16be(hdr, (i64)crc_calc);
+
+	dbuf_truncate(hdr, 128);
+	outf = dbuf_create_output_file(c, NULL, advf->mainfork.fi, advf->createflags);
+	dbuf_copy(hdr, 0, 128, outf);
+
+	afp_main = de_malloc(c, sizeof(struct de_advfile_cbparams));
+	afp_rsrc = de_malloc(c, sizeof(struct de_advfile_cbparams));
+	afp_main->whattodo = DE_ADVFILE_WRITEMAIN;
+	afp_rsrc->whattodo = DE_ADVFILE_WRITERSRC;
+
+	dbuf_set_writelistener(outf, advf->mainfork.writelistener_cb,
+		advf->mainfork.userdata_for_writelistener);
+	afp_main->outf = outf;
+	if(advf->writefork_cbfn && main_fork_len>0) {
+		advf->writefork_cbfn(c, advf, afp_main);
+	}
+	dbuf_set_writelistener(outf, NULL, NULL);
+	dbuf_write_zeroes(outf, main_amt_padding);
+
+	dbuf_set_writelistener(outf, advf->rsrcfork.writelistener_cb,
+		advf->rsrcfork.userdata_for_writelistener);
+	afp_rsrc->outf = outf;
+	if(advf->writefork_cbfn && rsrc_fork_len>0) {
+		advf->writefork_cbfn(c, advf, afp_rsrc);
+	}
+	dbuf_set_writelistener(outf, NULL, NULL);
+
+done:
+	dbuf_close(hdr);
+	dbuf_close(outf);
+	de_free(c, afp_main);
+	de_free(c, afp_rsrc);
+	ucstring_destroy(fname);
+	de_crcobj_destroy(crco);
+}
+
 void de_advfile_run(struct de_advfile *advf)
 {
 	deark *c = advf->c;
@@ -375,6 +521,9 @@ void de_advfile_run(struct de_advfile *advf)
 			else if(!de_strcmp(mfmt, "ad")) {
 				c->macformat = DE_MACFORMAT_APPLEDOUBLE;
 			}
+			else if(!de_strcmp(mfmt, "mbin")) {
+				c->macformat = DE_MACFORMAT_MACBINARY;
+			}
 		}
 	}
 
@@ -388,6 +537,9 @@ void de_advfile_run(struct de_advfile *advf)
 	else if(is_mac_file && fmt==DE_MACFORMAT_APPLEDOUBLE) {
 		de_advfile_run_rawfiles(c, advf, 1); // For the data/main fork
 		de_advfile_run_applesd(c, advf, 1); // For the rsrc fork
+	}
+	else if(is_mac_file && fmt==DE_MACFORMAT_MACBINARY) {
+		de_advfile_run_macbinary(c, advf);
 	}
 	else {
 		de_advfile_run_rawfiles(c, advf, 0);
