@@ -1,5 +1,5 @@
 
-CFLAGS ?= -g -O2 -Wall -Wextra -Wmissing-prototypes -Wformat-security -Wno-unused-parameter -D_POSIX_C_SOURCE
+CFLAGS ?= -g -O2 -Wall -Wextra -Wmissing-prototypes -Wformat-security -Wno-unused-parameter
 LDFLAGS ?= -Wall
 
 ifdef DEARK_OBJDIR
