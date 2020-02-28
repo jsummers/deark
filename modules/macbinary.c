@@ -343,6 +343,7 @@ static int de_identify_macbinary(deark *c)
 	int is_v23 = 0; // v2 or v3
 	int good_file_len = 0;
 	int good_cc = 0;
+	int bad_crc = 0;
 	i64 n;
 	i64 dflen, rflen;
 	i64 min_expected_len;
@@ -455,12 +456,21 @@ static int de_identify_macbinary(deark *c)
 		de_crcobj_addbuf(crco, b, 124);
 		crc_calc = de_crcobj_getval(crco);
 		de_crcobj_destroy(crco);
-		if(crc_calc!=crc_reported && is_v23 && crc_reported!=0) goto done;
+		if(crc_calc!=crc_reported && is_v23 && crc_reported!=0) {
+			bad_crc = 1;
+		}
 	}
 
 	if(is_v23 && good_file_len && good_cc) {
-		// Passed the CRC-16 check, so confidence is high.
-		conf = 90;
+		if(bad_crc) {
+			conf = 19;
+		}
+		else {
+			conf = 90;
+		}
+	}
+	else if(bad_crc) {
+		goto done;
 	}
 	else if(is_v23) {
 		conf = 49;
