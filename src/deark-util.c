@@ -9,6 +9,8 @@
 #include "deark-private.h"
 #include "deark-version.h"
 
+#define DE_MAX_SUBMODULE_NESTING_LEVEL 10
+
 char *de_get_version_string(char *buf, size_t bufsize)
 {
 	char extver[32];
@@ -766,6 +768,12 @@ int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mpar
 
 	if(!mi) return 0;
 	if(!mi->run_fn) return 0;
+	// Note that c->module_nesting_level is 0 when we are not in a module,
+	// 1 when in the top-level module, 2 for a first-level submodule, etc.
+	if(c->module_nesting_level >= 1+DE_MAX_SUBMODULE_NESTING_LEVEL) {
+		de_err(c, "Max module nesting level exceeded");
+		return 0;
+	}
 
 	old_moddisp = c->module_disposition;
 	c->module_disposition = moddisp;
@@ -799,38 +807,42 @@ int de_run_module_by_id(deark *c, const char *id, de_module_params *mparams)
 	return de_run_module(c, module_to_use, mparams, DE_MODDISP_INTERNAL);
 }
 
-void de_run_module_by_id_on_slice(deark *c, const char *id, de_module_params *mparams,
+int de_run_module_by_id_on_slice(deark *c, const char *id, de_module_params *mparams,
 	dbuf *f, i64 pos, i64 len)
 {
 	dbuf *old_ifile;
+	int ret;
 
 	old_ifile = c->infile;
 
 	if(pos==0 && len==f->len) {
 		// Optimization: We don't need a subfile in this case
 		c->infile = f;
-		de_run_module_by_id(c, id, mparams);
+		ret = de_run_module_by_id(c, id, mparams);
 	}
 	else {
 		c->infile = dbuf_open_input_subfile(f, pos, len);
-		de_run_module_by_id(c, id, mparams);
+		ret = de_run_module_by_id(c, id, mparams);
 		dbuf_close(c->infile);
 	}
 
 	c->infile = old_ifile;
+	return ret;
 }
 
 // Same as de_run_module_by_id_on_slice(), but takes just ->codes
 // as a parameter, instead of a full de_module_params struct.
-void de_run_module_by_id_on_slice2(deark *c, const char *id, const char *codes,
+int de_run_module_by_id_on_slice2(deark *c, const char *id, const char *codes,
 	dbuf *f, i64 pos, i64 len)
 {
 	de_module_params *mparams = NULL;
+	int ret;
 
 	mparams = de_malloc(c, sizeof(de_module_params));
 	mparams->in_params.codes = codes;
-	de_run_module_by_id_on_slice(c, id, mparams, f, pos, len);
+	ret = de_run_module_by_id_on_slice(c, id, mparams, f, pos, len);
 	de_free(c, mparams);
+	return ret;
 }
 
 const char *de_get_ext_option(deark *c, const char *name)

@@ -417,9 +417,9 @@ deark *de_create_internal(void);
 int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mparams,
 	enum de_moddisp_enum moddisp);
 int de_run_module_by_id(deark *c, const char *id, de_module_params *mparams);
-void de_run_module_by_id_on_slice(deark *c, const char *id, de_module_params *mparams,
+int de_run_module_by_id_on_slice(deark *c, const char *id, de_module_params *mparams,
 	dbuf *f, i64 pos, i64 len);
-void de_run_module_by_id_on_slice2(deark *c, const char *id, const char *codes,
+int de_run_module_by_id_on_slice2(deark *c, const char *id, const char *codes,
 	dbuf *f, i64 pos, i64 len);
 int de_get_module_idx_by_id(deark *c, const char *module_id);
 struct deark_module_info *de_get_module_by_id(deark *c, const char *module_id);
