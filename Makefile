@@ -28,10 +28,12 @@ endif
 DEARK_EXE_BASENAME:=deark$(EXE_EXT)
 DEARK_EXE:=$(DEARK_EXE_BASENAME)
 
+DEARK_MAN:=deark.1
 DEPS_MK:=deps.mk
 
 ifneq ($(OBJDIR),obj)
 DEARK_EXE:=$(OBJDIR)/$(DEARK_EXE_BASENAME)
+DEARK_MAN:=$(OBJDIR)/$(DEARK_MAN)
 DEPS_MK:=$(OBJDIR)/$(DEPS_MK)
 endif
 
@@ -133,8 +135,16 @@ install: $(INSTALL_TARGET)
 $(INSTALL_TARGET): $(DEARK_EXE)
 	install -s $(DEARK_EXE) $(DEARK_INSTALLDIR)
 
+# Quick & dirty man page generation. (experimental/temporary)
+.PHONY: man install-man
+man: $(DEARK_MAN)
+$(DEARK_MAN): $(DEARK_EXE)
+	help2man -n "extract data from various file formats" -o $@ -N $(DEARK_EXE)
+install-man: $(DEARK_MAN)
+	install $(DEARK_MAN) /usr/share/man/man1
+
 clean:
-	rm -f $(OBJDIR)/src/*.[oad] $(OBJDIR)/modules/*.[oad] $(DEARK_EXE)
+	rm -f $(OBJDIR)/src/*.[oad] $(OBJDIR)/modules/*.[oad] $(DEARK_MAN) $(DEARK_EXE)
 
 ifeq ($(MAKECMDGOALS),dep)
 
