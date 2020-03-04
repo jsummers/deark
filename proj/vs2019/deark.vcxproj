@@ -205,6 +205,7 @@
     <ClCompile Include="..\..\modules\eps.c" />
     <ClCompile Include="..\..\modules\exe.c" />
     <ClCompile Include="..\..\modules\flac.c" />
+    <ClCompile Include="..\..\modules\fli.c" />
     <ClCompile Include="..\..\modules\flif.c" />
     <ClCompile Include="..\..\modules\fnt.c" />
     <ClCompile Include="..\..\modules\gemfont.c" />
