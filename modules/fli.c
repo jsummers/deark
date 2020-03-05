@@ -10,6 +10,7 @@ DE_DECLARE_MODULE(de_module_fli);
 
 #define CHUNKTYPE_COLORMAP256 0x0004
 #define CHUNKTYPE_COLORMAP64 0x000b
+#define CHUNKTYPE_DELTA_FLI  0x000c
 #define CHUNKTYPE_RLE        0x000f
 #define CHUNKTYPE_THUMBNAIL  0x0012
 #define CHUNKTYPE_FLI        0xaf11
@@ -112,7 +113,7 @@ static void do_chunk_rle(deark *c, lctx *d, struct chunk_info_type *ci)
 {
 	i64 xpos = 0;
 	i64 ypos = 0;
-	i64 pos = ci->pos + 6; // ?
+	i64 pos = ci->pos + 6;
 	struct image_ctx_type *ictx;
 
 	if(!ci->ictx) goto done;
@@ -122,10 +123,10 @@ static void do_chunk_rle(deark *c, lctx *d, struct chunk_info_type *ci)
 	pos++; // First byte of each line is a packet count (not needed)
 
 	while(1) {
+		UI clridx;
 		u8 code;
 		i64 count;
 		i64 k;
-		UI clridx;
 
 		if(pos >= ci->pos + ci->len) break;
 
@@ -153,6 +154,68 @@ static void do_chunk_rle(deark *c, lctx *d, struct chunk_info_type *ci)
 			pos++; // packet count
 			if(ypos>=ictx->h) break;
 		}
+	}
+
+done:
+	;
+}
+
+static void do_chunk_delta_fli(deark *c, lctx *d, struct chunk_info_type *ci)
+{
+	i64 ypos;
+	i64 num_encoded_lines;
+	i64 line_idx;
+	i64 pos = ci->pos + 6;
+	struct image_ctx_type *ictx;
+
+	if(!ci->ictx) goto done;
+	de_dbg(c, "doing delta (FLI-style) decompression");
+	ictx = ci->ictx;
+	ictx->use_count++;
+
+	ypos = de_getu16le_p(&pos);
+	num_encoded_lines = de_getu16le_p(&pos);
+
+	for(line_idx=0; line_idx<num_encoded_lines; line_idx++) {
+		UI npackets;
+		UI pkidx;
+		i64 xpos = 0;
+
+		if(pos >= ci->pos + ci->len) goto done;
+
+		npackets = (UI)de_getbyte_p(&pos);
+		xpos = 0;
+
+		for(pkidx=0; pkidx<npackets; pkidx++) {
+			UI clridx;
+			u8 code;
+			i64 count;
+			i64 k;
+			i64 skip_count;
+
+			if(pos >= ci->pos + ci->len) goto done;
+			skip_count = (i64)de_getbyte_p(&pos);
+			xpos += skip_count;
+			code = de_getbyte_p(&pos);
+			if(code<128) { // "positive" = run of uncompressed pixels
+				count = (i64)code;
+				for(k=0; k<count; k++) {
+					clridx = (UI)de_getbyte_p(&pos);
+					de_bitmap_setpixel_rgb(ictx->img, xpos, ypos, ictx->pal[clridx]);
+					xpos++;
+				}
+			}
+			else { // "negative" = RLE
+				clridx = (UI)de_getbyte_p(&pos);
+				count = (i64)256 - (i64)code;
+				for(k=0; k<count; k++) {
+					de_bitmap_setpixel_rgb(ictx->img, xpos, ypos, ictx->pal[clridx]);
+					xpos++;
+				}
+			}
+		}
+
+		ypos++;
 	}
 
 done:
@@ -227,6 +290,8 @@ static void do_chunk_FLI_FLC(deark *c, lctx *d, struct chunk_info_type *ci)
 	pos += 2;
 	n = (int)de_getu16le_p(&pos);
 	de_dbg(c, "speed: %d ticks/frame", (int)n);
+
+	// TODO: More fields here (FLC format)
 
 	ictx = create_image_ctx(c, d, scr_width, scr_height);
 	ci->ictx = ictx;
@@ -344,8 +409,8 @@ static int do_chunk(deark *c, lctx *d, struct chunk_info_type *parent_ci,
 	if(ci->chunktype==CHUNKTYPE_FRAME) {
 		do_chunk_frame(c, d, ci);
 	}
-	else if(ci->chunktype==CHUNKTYPE_THUMBNAIL && parent_ct==CHUNKTYPE_FRAME) {
-		do_chunk_thumbnail(c, d, ci);
+	else if(ci->chunktype==CHUNKTYPE_DELTA_FLI) {
+		do_chunk_delta_fli(c, d, ci);
 	}
 	else if(ci->chunktype==CHUNKTYPE_RLE) {
 		do_chunk_rle(c, d, ci);
@@ -355,6 +420,9 @@ static int do_chunk(deark *c, lctx *d, struct chunk_info_type *parent_ci,
 	}
 	else if(ci->chunktype==CHUNKTYPE_COLORMAP256) {
 		do_chunk_colormap(c, d, ci, 8);
+	}
+	else if(ci->chunktype==CHUNKTYPE_THUMBNAIL && parent_ct==CHUNKTYPE_FRAME) {
+		do_chunk_thumbnail(c, d, ci);
 	}
 
 done:
