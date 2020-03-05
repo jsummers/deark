@@ -8,6 +8,8 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_fli);
 
+#define CHUNKTYPE_COLORMAP256 0x0004
+#define CHUNKTYPE_COLORMAP64 0x000b
 #define CHUNKTYPE_RLE        0x000f
 #define CHUNKTYPE_THUMBNAIL  0x0012
 #define CHUNKTYPE_FLI        0xaf11
@@ -18,6 +20,7 @@ DE_DECLARE_MODULE(de_module_fli);
 struct image_ctx_type {
 	i64 w;
 	i64 h;
+	int use_count;
 	de_bitmap *img;
 	u32 pal[256];
 };
@@ -68,6 +71,20 @@ static const char *get_chunk_type_name(lctx *d, struct chunk_info_type *parent_c
 	return name?name:"?";
 }
 
+// Caller supplies pal[256]
+static void make_6cube_pal(u32 *pal)
+{
+	UI r, g, b;
+	UI k;
+
+	for(k=0; k<216; k++) {
+		b = (k%6) * 51;
+		g = ((k/6)%6) * 51;
+		r = (k/36) * 51;
+		pal[k] = DE_MAKE_RGB(r, g, b);
+	}
+}
+
 static struct image_ctx_type *create_image_ctx(deark *c, lctx *d, i64 w, i64 h)
 {
 	struct image_ctx_type *ictx;
@@ -101,7 +118,7 @@ static void do_chunk_rle(deark *c, lctx *d, struct chunk_info_type *ci)
 	if(!ci->ictx) goto done;
 	de_dbg(c, "doing RLE decompression");
 	ictx = ci->ictx;
-
+	ictx->use_count++;
 	pos++; // First byte of each line is a packet count (not needed)
 
 	while(1) {
@@ -142,6 +159,52 @@ done:
 	;
 }
 
+// bps = bits/sample: 6 or 8
+static void do_chunk_colormap(deark *c, lctx *d, struct chunk_info_type *ci, int bps)
+{
+	i64 npackets;
+	i64 pknum;
+	i64 pos = ci->pos + 6;
+	UI next_idx = 0;
+
+	if(!ci->ictx) return;
+	npackets = de_getu16le_p(&pos);
+
+	for(pknum=0; pknum<npackets; pknum++) {
+		UI num_entries_to_skip;
+		UI num_entries_to_set;
+		UI k;
+
+		if(pos >= ci->pos + ci->len)  goto done;
+		num_entries_to_skip = (UI)de_getbyte_p(&pos);
+		next_idx += num_entries_to_skip;
+		num_entries_to_set = (UI)de_getbyte_p(&pos);
+		if(num_entries_to_set==0) num_entries_to_set = 256;
+
+		for(k=0; k<num_entries_to_set; k++) {
+			u8 samp[3];
+			u32 clr;
+			UI z;
+
+			for(z=0; z<3; z++) {
+				samp[z] = de_getbyte_p(&pos);
+				if(bps==6) {
+					samp[z] = de_scale_63_to_255(samp[z]);
+				}
+			}
+
+			clr = DE_MAKE_RGB(samp[0], samp[1], samp[2]);
+			if(next_idx < 256) {
+				ci->ictx->pal[next_idx] = clr;
+				de_dbg_pal_entry(c, (i64)next_idx, clr);
+			}
+			next_idx++;
+		}
+	}
+done:
+	;
+}
+
 static void do_chunk_FLI_FLC(deark *c, lctx *d, struct chunk_info_type *ci)
 {
 	i64 pos = ci->pos + 6;
@@ -167,6 +230,8 @@ static void do_chunk_FLI_FLC(deark *c, lctx *d, struct chunk_info_type *ci)
 
 	ictx = create_image_ctx(c, d, scr_width, scr_height);
 	ci->ictx = ictx;
+	// TODO: Is there a default palette?
+
 	pos = ci->pos + 128;
 	do_sequence_of_chunks(c, d, ci, pos, -1);
 
@@ -177,23 +242,21 @@ static void do_chunk_FLI_FLC(deark *c, lctx *d, struct chunk_info_type *ci)
 static void do_chunk_frame(deark *c, lctx *d, struct chunk_info_type *ci)
 {
 	i64 num_subchunks;
+	i64 prev_use_count = 0;
 
 	num_subchunks = de_getu16le(ci->pos+6);
 	de_dbg(c, "num subchunks: %"I64_FMT, num_subchunks);
+
+	if(ci->ictx) {
+		prev_use_count = ci->ictx->use_count;
+	}
+
 	do_sequence_of_chunks(c, d, ci, ci->pos+16, num_subchunks);
-}
 
-// Caller supplies pal[256]
-static void make_dflt_pal(u32 *pal)
-{
-	UI r, g, b;
-	UI k;
-
-	for(k=0; k<216; k++) {
-		b = (k%6) * 51;
-		g = ((k/6)%6) * 51;
-		r = (k/36) * 51;
-		pal[k] = DE_MAKE_RGB(r, g, b);
+	if(ci->ictx) {
+		if(ci->ictx->use_count > prev_use_count) {
+			de_bitmap_write_to_file(ci->ictx->img, NULL, 0);
+		}
 	}
 }
 
@@ -212,10 +275,12 @@ static void do_chunk_thumbnail(deark *c, lctx *d, struct chunk_info_type *ci)
 
 	ictx = create_image_ctx(c, d, w, h);
 	ci->ictx = ictx;
-	make_dflt_pal(ictx->pal);
+	make_6cube_pal(ictx->pal);
 	do_sequence_of_chunks(c, d, ci, pos, -1);
 
-	de_bitmap_write_to_file(ictx->img, "thumb", DE_CREATEFLAG_IS_AUX);
+	if(ictx->use_count>0) {
+		de_bitmap_write_to_file(ictx->img, "thumb", DE_CREATEFLAG_IS_AUX);
+	}
 	destroy_image_ctx(c, ictx);
 	ci->ictx = NULL;
 }
@@ -282,8 +347,14 @@ static int do_chunk(deark *c, lctx *d, struct chunk_info_type *parent_ci,
 	else if(ci->chunktype==CHUNKTYPE_THUMBNAIL && parent_ct==CHUNKTYPE_FRAME) {
 		do_chunk_thumbnail(c, d, ci);
 	}
-	else if(ci->chunktype==CHUNKTYPE_RLE && ci->ictx) {
+	else if(ci->chunktype==CHUNKTYPE_RLE) {
 		do_chunk_rle(c, d, ci);
+	}
+	else if(ci->chunktype==CHUNKTYPE_COLORMAP64) {
+		do_chunk_colormap(c, d, ci, 6);
+	}
+	else if(ci->chunktype==CHUNKTYPE_COLORMAP256) {
+		do_chunk_colormap(c, d, ci, 8);
 	}
 
 done:
