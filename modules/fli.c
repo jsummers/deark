@@ -18,6 +18,7 @@ DE_DECLARE_MODULE(de_module_fli);
 #define CHUNKTYPE_THUMBNAIL  0x0012
 #define CHUNKTYPE_FLI        0xaf11
 #define CHUNKTYPE_FLC        0xaf12
+#define CHUNKTYPE_PREFIX     0xf100
 #define CHUNKTYPE_FRAME      0xf1fa
 #define CHUNKTYPE_NONE      0x10000
 
@@ -26,6 +27,7 @@ struct image_ctx_type {
 	i64 h;
 	int use_count;
 	int error_flag;
+	struct de_density_info density;
 	de_bitmap *img;
 	u32 pal[256];
 };
@@ -43,6 +45,8 @@ struct chunk_info_type {
 typedef struct localctx_struct {
 	UI main_chunktype;
 	i64 frame_count;
+	struct de_timestamp create_timestamp;
+	struct de_timestamp mod_timestamp;
 } lctx;
 
 static const char *get_chunk_type_name(lctx *d, struct chunk_info_type *parent_ci, UI t)
@@ -311,6 +315,7 @@ done:
 static void do_chunk_copy(deark *c, lctx *d, struct chunk_info_type *ci)
 {
 	if(!ci->ictx) return;
+	ci->ictx->use_count++;
 	de_convert_image_paletted(c->infile, ci->pos, 8, ci->ictx->w, ci->ictx->pal,
 		ci->ictx->img, 0);
 }
@@ -369,16 +374,39 @@ done:
 	;
 }
 
+#if 0
+static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *name)
+{
+	char timestamp_buf[64];
+
+	if(ts->is_valid) {
+		de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
+	}
+	else {
+		de_strlcpy(timestamp_buf, "(not set)", sizeof(timestamp_buf));
+	}
+	de_dbg(c, "%s: %s", name, timestamp_buf);
+}
+#endif
+
 static void do_chunk_FLI_FLC(deark *c, lctx *d, struct chunk_info_type *ci)
 {
 	i64 pos = ci->pos + 6;
 	i64 scr_width, scr_height;
 	int depth;
 	i64 n;
-
+	i64 aspect_x = 0;
+	i64 aspect_y = 0;
 	struct image_ctx_type *ictx = NULL;
+	double fps = 0.0;
 
 	d->main_chunktype = ci->chunktype;
+	if(d->main_chunktype==CHUNKTYPE_FLI) {
+		de_declare_fmt(c, "FLI");
+	}
+	else if(d->main_chunktype==CHUNKTYPE_FLC) {
+		de_declare_fmt(c, "FLC");
+	}
 
 	n = de_getu16le_p(&pos);
 	de_dbg(c, "num frames: %d", (int)n);
@@ -388,15 +416,69 @@ static void do_chunk_FLI_FLC(deark *c, lctx *d, struct chunk_info_type *ci)
 	de_dbg(c, "screen height: %d", (int)scr_height);
 	depth = (int)de_getu16le_p(&pos);
 	de_dbg(c, "depth: %d", depth);
-	pos += 2;
-	n = (int)de_getu16le_p(&pos);
-	de_dbg(c, "speed: %d ticks/frame", (int)n);
+	pos += 2; // flags
 
-	// TODO: More fields here (FLC format)
+	n = de_getu32le_p(&pos);
+	if(ci->chunktype==CHUNKTYPE_FLI && n!=0) {
+		fps = 70.0/(double)n;
+	}
+	else if(ci->chunktype==CHUNKTYPE_FLC && n!=0) {
+		fps = 1000.0/(double)n;
+	}
+	de_dbg(c, "speed: %"I64_FMT" (%.4f frames/sec)", n, fps);
+
+	pos += 2; // reserved
+
+	if(ci->chunktype==CHUNKTYPE_FLI) {
+		if(scr_width==320 && scr_height==200) {
+			aspect_x = 6;
+			aspect_y = 5;
+		}
+	}
+
+	if(ci->chunktype==CHUNKTYPE_FLC) {
+		i64 time_raw;
+#if 0
+		i64 date_raw;
+#endif
+
+		// TODO: Figure out the timestamp format.
+#if 0
+		time_raw = de_getu16le_p(&pos);
+		date_raw = de_getu16le_p(&pos);
+		de_dos_datetime_to_timestamp(&d->create_timestamp, date_raw, time_raw);
+		d->create_timestamp.tzcode = DE_TZCODE_LOCAL;
+		dbg_timestamp(c, &d->create_timestamp, "create time");
+#else
+		time_raw = de_getu32le_p(&pos);
+		de_dbg(c, "create time: %"I64_FMT, time_raw);
+#endif
+		pos += 4; // creator ID
+
+#if 0
+		time_raw = de_getu16le_p(&pos);
+		date_raw = de_getu16le_p(&pos);
+		de_dos_datetime_to_timestamp(&d->mod_timestamp, date_raw, time_raw);
+		d->mod_timestamp.tzcode = DE_TZCODE_LOCAL;
+		dbg_timestamp(c, &d->mod_timestamp, "mod time");
+#else
+		time_raw = de_getu32le_p(&pos);
+		de_dbg(c, "mod time: %"I64_FMT, time_raw);
+#endif
+		pos += 4; // updater ID
+
+		aspect_x = de_getu16le_p(&pos);
+		aspect_y = de_getu16le_p(&pos);
+		de_dbg(c, "aspect ratio: %d,%d", (int)aspect_x, (int)aspect_y);
+	}
 
 	ictx = create_image_ctx(c, d, scr_width, scr_height);
 	ci->ictx = ictx;
-	// TODO: Is there a default palette?
+	if(aspect_x && aspect_y) {
+		ictx->density.code = DE_DENSITY_UNK_UNITS;
+		ictx->density.xdens = (double)aspect_x;
+		ictx->density.ydens = (double)aspect_y;
+	}
 
 	pos = ci->pos + 128;
 	do_sequence_of_chunks(c, d, ci, pos, -1);
@@ -409,6 +491,7 @@ static void do_chunk_frame(deark *c, lctx *d, struct chunk_info_type *ci)
 {
 	i64 num_subchunks;
 	i64 prev_use_count = 0;
+	de_finfo *fi = NULL;
 
 	num_subchunks = de_getu16le(ci->pos+6);
 	de_dbg(c, "num subchunks: %"I64_FMT, num_subchunks);
@@ -421,9 +504,14 @@ static void do_chunk_frame(deark *c, lctx *d, struct chunk_info_type *ci)
 
 	if(ci->ictx) {
 		if(ci->ictx->use_count > prev_use_count && !ci->ictx->error_flag) {
-			de_bitmap_write_to_file(ci->ictx->img, NULL, 0);
+			fi = de_finfo_create(c);
+			fi->density = ci->ictx->density;
+			fi->image_mod_time = d->mod_timestamp;
+			de_bitmap_write_to_file_finfo(ci->ictx->img, fi, 0);
 		}
 	}
+
+	de_finfo_destroy(c, fi);
 }
 
 static void do_chunk_thumbnail(deark *c, lctx *d, struct chunk_info_type *ci)
@@ -432,6 +520,7 @@ static void do_chunk_thumbnail(deark *c, lctx *d, struct chunk_info_type *ci)
 	i64 w, h;
 	struct image_ctx_type *ictx = NULL;
 	i64 pos = ci->pos + 6;
+	de_finfo *fi = NULL;
 
 	h = de_getu16le_p(&pos);
 	w = de_getu16le_p(&pos);
@@ -444,11 +533,17 @@ static void do_chunk_thumbnail(deark *c, lctx *d, struct chunk_info_type *ci)
 	make_6cube_pal(ictx->pal);
 	do_sequence_of_chunks(c, d, ci, pos, -1);
 
+	fi = de_finfo_create(c);
+	fi->image_mod_time = d->mod_timestamp;
+	// TODO: density?
+	de_finfo_set_name_from_sz(c, fi, "thumb", 0, DE_ENCODING_LATIN1);
+
 	if(ictx->use_count>0 && !ictx->error_flag) {
-		de_bitmap_write_to_file(ictx->img, "thumb", DE_CREATEFLAG_IS_AUX);
+		de_bitmap_write_to_file_finfo(ictx->img, fi, DE_CREATEFLAG_IS_AUX);
 	}
 	destroy_image_ctx(c, ictx);
 	ci->ictx = NULL;
+	de_finfo_destroy(c, fi);
 }
 
 static int do_chunk(deark *c, lctx *d, struct chunk_info_type *parent_ci,
@@ -541,6 +636,13 @@ static int do_chunk(deark *c, lctx *d, struct chunk_info_type *parent_ci,
 			do_chunk_thumbnail(c, d, ci);
 		}
 		break;
+	case CHUNKTYPE_PREFIX:
+		// TODO: There might be interesting things here.
+		break;
+	default:
+		if(parent_ct==CHUNKTYPE_FLI || parent_ct==CHUNKTYPE_FLC || parent_ct==CHUNKTYPE_FRAME) {
+			de_warn(c, "Unknown chunk type 0x%04x at %"I64_FMT, ci->chunktype, ci->pos);
+		}
 	}
 
 done:
