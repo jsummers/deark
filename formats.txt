@@ -160,6 +160,9 @@ Deark -- Information about supported formats
 
 * farbfeld (module="farbfeld")
 
+* FLI/FLC (Autodesk Animator) (module="fli") (experimental/incomplete)
+  - Extract the (non-repeated) frames.
+
 * GEM VDI Bit Image (GEM Raster) (module="gemras")
   - Supports original bilevel format
   - Supports paletted XIMG format

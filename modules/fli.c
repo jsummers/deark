@@ -9,9 +9,12 @@
 DE_DECLARE_MODULE(de_module_fli);
 
 #define CHUNKTYPE_COLORMAP256 0x0004
+#define CHUNKTYPE_DELTA_FLC  0x0007
 #define CHUNKTYPE_COLORMAP64 0x000b
 #define CHUNKTYPE_DELTA_FLI  0x000c
+#define CHUNKTYPE_BLACK      0x000d
 #define CHUNKTYPE_RLE        0x000f
+#define CHUNKTYPE_COPY       0x0010
 #define CHUNKTYPE_THUMBNAIL  0x0012
 #define CHUNKTYPE_FLI        0xaf11
 #define CHUNKTYPE_FLC        0xaf12
@@ -22,6 +25,7 @@ struct image_ctx_type {
 	i64 w;
 	i64 h;
 	int use_count;
+	int error_flag;
 	de_bitmap *img;
 	u32 pal[256];
 };
@@ -63,7 +67,7 @@ static const char *get_chunk_type_name(lctx *d, struct chunk_info_type *parent_c
 		else {
 			name="thumbnail image";
 		}
-		break; // FLC only
+		break;
 	case CHUNKTYPE_FLI: name="FLI"; break;
 	case CHUNKTYPE_FLC: name="FLC"; break;
 	case 0xf100: name="prefix"; break;
@@ -184,7 +188,6 @@ static void do_chunk_delta_fli(deark *c, lctx *d, struct chunk_info_type *ci)
 		if(pos >= ci->pos + ci->len) goto done;
 
 		npackets = (UI)de_getbyte_p(&pos);
-		xpos = 0;
 
 		for(pkidx=0; pkidx<npackets; pkidx++) {
 			UI clridx;
@@ -220,6 +223,104 @@ static void do_chunk_delta_fli(deark *c, lctx *d, struct chunk_info_type *ci)
 
 done:
 	;
+}
+
+static void do_chunk_delta_flc(deark *c, lctx *d, struct chunk_info_type *ci)
+{
+	i64 ypos = 0;
+	i64 num_encoded_lines;
+	i64 line_idx;
+	i64 pos = ci->pos + 6;
+	struct image_ctx_type *ictx;
+
+	if(!ci->ictx) goto done;
+	de_dbg(c, "doing delta (FLC-style) decompression");
+	ictx = ci->ictx;
+	ictx->use_count++;
+
+	num_encoded_lines = de_getu16le_p(&pos);
+
+	for(line_idx=0; line_idx<num_encoded_lines; line_idx++) {
+		UI npackets = 0;
+		UI pkidx;
+		UI wcode, wcode_hi;
+		i64 xpos = 0;
+
+		// Read code words until we find one the high 2 bits == 0.
+		while(1) {
+			if(pos >= ci->pos + ci->len) goto done;
+
+			wcode = (UI)de_getu16le_p(&pos);
+			wcode_hi = wcode>>14;
+
+			if(wcode_hi==0) {
+				npackets = wcode;
+				break;
+			}
+			else if(wcode_hi==3) {
+				ypos += (i64)65536 - (i64)wcode;
+			}
+			else if(wcode_hi==2) {
+				// Set the "last byte of current line".
+				// (UNTESTED) This feature is only expected to be used if the
+				// screen width is odd, and I haven't found such a file.
+				de_bitmap_setpixel_rgb(ictx->img, ictx->w-1, ypos, ictx->pal[wcode & 0x00ff]);
+			}
+		}
+
+		for(pkidx=0; pkidx<npackets; pkidx++) {
+			UI clridx, clridx2;
+			u8 code;
+			i64 count;
+			i64 k;
+			i64 skip_count;
+
+			if(pos >= ci->pos + ci->len) goto done;
+			skip_count = (i64)de_getbyte_p(&pos);
+			xpos += skip_count;
+			code = de_getbyte_p(&pos);
+			if(code<128) { // "positive" = run of uncompressed pixels
+				count = 2 * (i64)code;
+				for(k=0; k<count; k++) {
+					clridx = (UI)de_getbyte_p(&pos);
+					de_bitmap_setpixel_rgb(ictx->img, xpos, ypos, ictx->pal[clridx]);
+					xpos++;
+				}
+			}
+			else { // "negative" = RLE
+				count = (i64)256 - (i64)code;
+				clridx = (UI)de_getbyte_p(&pos);
+				clridx2 = (UI)de_getbyte_p(&pos);
+				for(k=0; k<count; k++) {
+					de_bitmap_setpixel_rgb(ictx->img, xpos, ypos, ictx->pal[clridx]);
+					xpos++;
+					de_bitmap_setpixel_rgb(ictx->img, xpos, ypos, ictx->pal[clridx2]);
+					xpos++;
+				}
+			}
+		}
+
+		ypos++;
+	}
+
+done:
+	;
+}
+
+// (UNTESTED)
+static void do_chunk_copy(deark *c, lctx *d, struct chunk_info_type *ci)
+{
+	if(!ci->ictx) return;
+	de_convert_image_paletted(c->infile, ci->pos, 8, ci->ictx->w, ci->ictx->pal,
+		ci->ictx->img, 0);
+}
+
+// (UNTESTED)
+static void do_chunk_black(deark *c, lctx *d, struct chunk_info_type *ci)
+{
+	if(!ci->ictx) return;
+	de_bitmap_rect(ci->ictx->img, 0, 0, ci->ictx->w, ci->ictx->h,
+		ci->ictx->pal[0], 0);
 }
 
 // bps = bits/sample: 6 or 8
@@ -319,7 +420,7 @@ static void do_chunk_frame(deark *c, lctx *d, struct chunk_info_type *ci)
 	do_sequence_of_chunks(c, d, ci, ci->pos+16, num_subchunks);
 
 	if(ci->ictx) {
-		if(ci->ictx->use_count > prev_use_count) {
+		if(ci->ictx->use_count > prev_use_count && !ci->ictx->error_flag) {
 			de_bitmap_write_to_file(ci->ictx->img, NULL, 0);
 		}
 	}
@@ -343,7 +444,7 @@ static void do_chunk_thumbnail(deark *c, lctx *d, struct chunk_info_type *ci)
 	make_6cube_pal(ictx->pal);
 	do_sequence_of_chunks(c, d, ci, pos, -1);
 
-	if(ictx->use_count>0) {
+	if(ictx->use_count>0 && !ictx->error_flag) {
 		de_bitmap_write_to_file(ictx->img, "thumb", DE_CREATEFLAG_IS_AUX);
 	}
 	destroy_image_ctx(c, ictx);
@@ -377,6 +478,9 @@ static int do_chunk(deark *c, lctx *d, struct chunk_info_type *parent_ci,
 
 	ci->len = de_getu32le_p(&pos);
 	de_dbg(c, "chunk len: %"I64_FMT, ci->len);
+	if(ci->len==0 && level==0) {
+		ci->len = c->infile->len;
+	}
 	if(ci->len==0) {
 		goto done;
 	}
@@ -385,7 +489,8 @@ static int do_chunk(deark *c, lctx *d, struct chunk_info_type *parent_ci,
 		goto done;
 	}
 	if(ci->len > bytes_avail) {
-		de_warn(c, "Chunk at %"I64_FMT" exceeds its parent's bounds", ci->pos);
+		de_warn(c, "Chunk at %"I64_FMT" exceeds its parent's bounds (ends at %"I64_FMT
+			", parent ends at %"I64_FMT")", ci->pos, ci->pos+ci->len, ci->pos+bytes_avail);
 		ci->len = bytes_avail;
 	}
 
@@ -406,23 +511,36 @@ static int do_chunk(deark *c, lctx *d, struct chunk_info_type *parent_ci,
 		goto done;
 	}
 
-	if(ci->chunktype==CHUNKTYPE_FRAME) {
+	switch(ci->chunktype) {
+	case CHUNKTYPE_FRAME:
 		do_chunk_frame(c, d, ci);
-	}
-	else if(ci->chunktype==CHUNKTYPE_DELTA_FLI) {
+		break;
+	case CHUNKTYPE_DELTA_FLI:
 		do_chunk_delta_fli(c, d, ci);
-	}
-	else if(ci->chunktype==CHUNKTYPE_RLE) {
+		break;
+	case CHUNKTYPE_DELTA_FLC:
+		do_chunk_delta_flc(c, d, ci);
+		break;
+	case CHUNKTYPE_RLE:
 		do_chunk_rle(c, d, ci);
-	}
-	else if(ci->chunktype==CHUNKTYPE_COLORMAP64) {
+		break;
+	case CHUNKTYPE_COPY:
+		do_chunk_copy(c, d, ci);
+		break;
+	case CHUNKTYPE_BLACK:
+		do_chunk_black(c, d, ci);
+		break;
+	case CHUNKTYPE_COLORMAP64:
 		do_chunk_colormap(c, d, ci, 6);
-	}
-	else if(ci->chunktype==CHUNKTYPE_COLORMAP256) {
+		break;
+	case CHUNKTYPE_COLORMAP256:
 		do_chunk_colormap(c, d, ci, 8);
-	}
-	else if(ci->chunktype==CHUNKTYPE_THUMBNAIL && parent_ct==CHUNKTYPE_FRAME) {
-		do_chunk_thumbnail(c, d, ci);
+		break;
+	case CHUNKTYPE_THUMBNAIL:
+		if(parent_ct==CHUNKTYPE_FRAME) {
+			do_chunk_thumbnail(c, d, ci);
+		}
+		break;
 	}
 
 done:
@@ -498,5 +616,4 @@ void de_module_fli(deark *c, struct deark_module_info *mi)
 	mi->desc = "FLI/FLC animation";
 	mi->run_fn = de_run_fli;
 	mi->identify_fn = de_identify_fli;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }
