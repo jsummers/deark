@@ -101,36 +101,38 @@ done:
 	de_destroy_stringreaderdata(c, srd);
 }
 
+// Read, debug, and store in caller-supplied returned_ts.
 static void do_one_date(deark *c, lctx *d, i64 pos, const char *name,
-	int is_modtime)
+	struct de_timestamp *returned_ts)
 {
 	i64 dt;
+	struct de_timestamp ts;
 	char timestamp_buf[64];
 
+	de_zeromem(&ts, sizeof(struct de_timestamp));
 	dt = de_geti32be(pos);
 	if(dt == -0x80000000LL) {
 		de_strlcpy(timestamp_buf, "unknown", sizeof(timestamp_buf));
 	}
 	else {
-		struct de_timestamp ts;
 		// Epoch is Jan 1, 2001. There are 30 years, with 7 leap days, between
 		// that and the Unix time epoch.
 		de_unix_time_to_timestamp(dt + ((365*30 + 7)*86400), &ts, 0x1);
-		if(is_modtime) {
-			d->advf->mainfork.fi->mod_time = ts;
-		}
 		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
 	}
 	de_dbg(c, "%s: %"I64_FMT" (%s)", name, dt, timestamp_buf);
+	if(returned_ts) {
+		*returned_ts = ts;
+	}
 }
 
 static void handler_dates(deark *c, lctx *d, struct entry_struct *e)
 {
 	if(e->length<16) return;
-	do_one_date(c, d, e->offset, "creation date", 0);
-	do_one_date(c, d, e->offset+4, "mod date", 1);
-	do_one_date(c, d, e->offset+8, "backup date", 0);
-	do_one_date(c, d, e->offset+12, "access date", 0);
+	do_one_date(c, d, e->offset, "creation date", &d->advf->mainfork.fi->create_time);
+	do_one_date(c, d, e->offset+4, "mod date", &d->advf->mainfork.fi->mod_time);
+	do_one_date(c, d, e->offset+8, "backup date", &d->advf->mainfork.fi->backup_time);
+	do_one_date(c, d, e->offset+12, "access date", &d->advf->mainfork.fi->access_time);
 }
 
 static void do_finder_orig(deark *c, lctx *d, struct entry_struct *e)

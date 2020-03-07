@@ -238,6 +238,7 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	de_mac_time_to_timestamp(n, &md->create_time);
 	de_timestamp_to_string(&md->create_time, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "create time: %"I64_FMT" (%s)", n, timestamp_buf);
+	md->advf->mainfork.fi->create_time = md->create_time;
 
 	n = de_getu32be_p(&pos);
 	de_mac_time_to_timestamp(n, &md->mod_time);

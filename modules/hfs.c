@@ -99,24 +99,27 @@ static i64 node_dpos(lctx *d, i64 nodenum)
 	return allocation_blk_dpos(d, d->drCTExtRec[2].first_alloc_blk) + n;
 }
 
-static void read_one_timestamp(deark *c, lctx *d, i64 pos, de_finfo *fi1,
+// returned_ts can be NULL.
+static void read_one_timestamp(deark *c, lctx *d, i64 pos, struct de_timestamp *returned_ts,
 	const char *name)
 {
 	i64 ts_raw;
 	struct de_timestamp ts;
 	char timestamp_buf[64];
 
+	de_zeromem(&ts, sizeof(struct de_timestamp));
 	ts.is_valid = 0;
 	ts_raw = de_getu32be(pos);
 	if(ts_raw!=0) {
 		de_mac_time_to_timestamp(ts_raw, &ts);
 	}
+
+	if(returned_ts) {
+		*returned_ts = ts;
+	}
+
 	if(ts.is_valid) {
 		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
-
-		if(fi1) {
-			fi1->mod_time = ts;
-		}
 	}
 	else {
 		de_strlcpy(timestamp_buf, "unknown", sizeof(timestamp_buf));
@@ -348,11 +351,11 @@ static void read_timestamp_fields(deark *c, lctx *d, i64 pos1,
 {
 	i64 pos = pos1;
 
-	read_one_timestamp(c, d, pos, NULL, "create date");
+	read_one_timestamp(c, d, pos, &fi1->create_time, "create date");
 	pos += 4;
-	read_one_timestamp(c, d, pos, fi1, "mod date");
+	read_one_timestamp(c, d, pos, &fi1->mod_time, "mod date");
 	pos += 4;
-	read_one_timestamp(c, d, pos, NULL, "backup date");
+	read_one_timestamp(c, d, pos, &fi1->backup_time, "backup date");
 	//pos += 4;
 }
 

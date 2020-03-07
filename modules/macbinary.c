@@ -256,6 +256,7 @@ static void run_macbinary_internal(deark *c, lctx *d)
 			d->filename_srd->sz_strlen);
 	}
 	advf->mainfork.fi->mod_time = d->mod_time;
+	advf->mainfork.fi->create_time = d->create_time;
 
 	if(d->dflen>0) {
 		d->dfpos = pos;

@@ -203,7 +203,11 @@ struct de_finfo_struct {
 	unsigned int mode_flags;
 
 	struct de_timestamp mod_time; // Mod time of an archived file
-	struct de_timestamp image_mod_time; // Mod time of an image (for PNG tIME chunk)
+	struct de_timestamp create_time; // (Limited use)
+	struct de_timestamp access_time;  // (Limited use)
+	struct de_timestamp attrchange_time; // (Limited use)
+	struct de_timestamp backup_time; // (Limited use)
+	struct de_timestamp image_mod_time; // Internal mod time (e.g. for PNG tIME chunk)
 	struct de_density_info density;
 	de_ucstring *name_other; // Modules can use this field as needed.
 	int hotspot_x, hotspot_y; // Measured from upper-left pixel (after handling 'flipped')

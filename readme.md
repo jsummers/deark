@@ -209,6 +209,7 @@ Command-line options:
         raw = Write the raw resource fork to a separate .rsrc file.
         ad = Put the resource fork in an AppleDouble container (default).
         as = Put both forks in an AppleSingle container.
+        mbin = Put both forks in a MacBinary container.
        For input files already in AppleDouble or AppleSingle format, see the
        formats.txt file for more information.
 -id

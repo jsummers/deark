@@ -948,6 +948,10 @@ static void finfo_shallow_copy(deark *c, de_finfo *src, de_finfo *dst)
 	dst->is_directory = src->is_directory;
 	dst->mode_flags = src->mode_flags;
 	dst->mod_time = src->mod_time;
+	dst->create_time = src->create_time;
+	dst->access_time = src->access_time;
+	dst->attrchange_time = src->attrchange_time;
+	dst->backup_time = src->backup_time;
 	dst->image_mod_time = src->image_mod_time;
 	dst->density = src->density;
 	dst->has_hotspot = src->has_hotspot;

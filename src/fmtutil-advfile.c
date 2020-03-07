@@ -31,6 +31,7 @@
 //  - Set advf->rsrcfork.fork_len, if there is an rsrc fork.
 //  - Set advf->mainfork.mod_time, if known, even if there is no main fork. Mac
 //    files do not use advf->rsrcfork.mod_time.
+//  - (Same for advf->mainfork.create_time, etc.)
 //  - If appropriate, set other fields potentially advf->mainfork.fi and/or
 //    advf->rsrcfork.fi, such as ->is_directory. But verify that they work
 //    as expected.
@@ -313,10 +314,10 @@ static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_app
 		case SDID_FILEDATES:
 			// We could try to maintain dates other than the modification date, but
 			// Deark doesn't generally care about them.
-			dbuf_writei32be(outf, INVALID_APPLESD_DATE); // creation
+			dbuf_writei32be(outf, timestamp_to_applesd_date(c, &advf->mainfork.fi->create_time));
 			dbuf_writei32be(outf, timestamp_to_applesd_date(c, &advf->mainfork.fi->mod_time));
-			dbuf_writei32be(outf, INVALID_APPLESD_DATE); // backup
-			dbuf_writei32be(outf, INVALID_APPLESD_DATE); // access
+			dbuf_writei32be(outf, timestamp_to_applesd_date(c, &advf->mainfork.fi->backup_time));
+			dbuf_writei32be(outf, timestamp_to_applesd_date(c, &advf->mainfork.fi->access_time));
 			break;
 
 		case SDID_FINDERINFO:
@@ -437,7 +438,8 @@ static void de_advfile_run_macbinary(deark *c, struct de_advfile *advf)
 	dbuf_writeu32be(hdr, main_fork_len);
 	dbuf_writeu32be(hdr, rsrc_fork_len);
 
-	dbuf_truncate(hdr, 95);
+	dbuf_truncate(hdr, 91);
+	dbuf_writeu32be(hdr, timestamp_to_mac_time(&advf->mainfork.fi->create_time));
 	dbuf_writeu32be(hdr, timestamp_to_mac_time(&advf->mainfork.fi->mod_time));
 
 	dbuf_truncate(hdr, 101); // low byte of finder flags
