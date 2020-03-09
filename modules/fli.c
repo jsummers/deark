@@ -37,7 +37,8 @@ enum mapped_chunktype_enum {
 	MCT_DELTA_FLC,
 	MCT_THUMBNAIL,
 	MCT_SETTINGS,
-	MCT_ONESETTING
+	MCT_ONESETTING,
+	MCT_CELDATA
 };
 
 struct localctx_struct;
@@ -77,6 +78,9 @@ struct localctx_struct {
 	i64 frame_count;
 	struct de_timestamp create_timestamp;
 	struct de_timestamp mod_timestamp;
+	int depth;
+	i64 aspect_x;
+	i64 aspect_y;
 };
 
 // Caller supplies pal[256]
@@ -394,16 +398,29 @@ static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *name)
 }
 #endif
 
+static void dbg_id(deark *c, lctx *d, i64 pos, const char *name)
+{
+	i64 n;
+	struct de_fourcc id4cc;
+
+	n = de_getu32le(pos);
+	if(n<0x01000000) {
+		de_dbg(c, "%s: %"I64_FMT,name, n);
+		return;
+	}
+	dbuf_read_fourcc(c->infile, pos, &id4cc, 4, 0x0);
+	de_dbg(c, "%s: %"I64_FMT" (0x%08x, '%s')", name, n, (UI)n,
+		id4cc.id_dbgstr);
+}
+
 static void do_chunk_FLI_FLC(deark *c, lctx *d, struct chunk_info_type *ci)
 {
 	i64 pos = ci->pos + 6;
 	i64 scr_width, scr_height;
-	int depth;
 	i64 n;
-	i64 aspect_x = 0;
-	i64 aspect_y = 0;
 	struct image_ctx_type *ictx = NULL;
 	double fps = 0.0;
+	int can_decode_images = 1;
 
 	d->main_chunktype = ci->chunktype;
 	if(d->main_chunktype==CHUNKTYPE_FLI) {
@@ -412,15 +429,21 @@ static void do_chunk_FLI_FLC(deark *c, lctx *d, struct chunk_info_type *ci)
 	else if(d->main_chunktype==CHUNKTYPE_FLC) {
 		de_declare_fmt(c, "FLC");
 	}
+	else {
+		de_warn(c, "Unrecognized signature (0x%04x). This might not be a FLI/FLC file.",
+			d->main_chunktype);
+	}
 
 	d->num_frames = de_getu16le_p(&pos);
 	de_dbg(c, "num frames: %d", (int)d->num_frames);
+
 	scr_width = de_getu16le_p(&pos);
-	de_dbg(c, "screen width: %d", (int)scr_width);
 	scr_height = de_getu16le_p(&pos);
-	de_dbg(c, "screen height: %d", (int)scr_height);
-	depth = (int)de_getu16le_p(&pos);
-	de_dbg(c, "depth: %d", depth);
+	de_dbg(c, "screen dimensions: %"I64_FMT DE_CHAR_TIMES "%"I64_FMT, scr_width, scr_height);
+
+	d->depth = (int)de_getu16le_p(&pos);
+	de_dbg(c, "depth: %d", d->depth);
+	if(d->depth==0) d->depth = 8;
 	pos += 2; // flags
 
 	n = de_getu32le_p(&pos);
@@ -436,8 +459,8 @@ static void do_chunk_FLI_FLC(deark *c, lctx *d, struct chunk_info_type *ci)
 
 	if(ci->chunktype==CHUNKTYPE_FLI) {
 		if(scr_width==320 && scr_height==200) {
-			aspect_x = 6;
-			aspect_y = 5;
+			d->aspect_x = 6;
+			d->aspect_y = 5;
 		}
 	}
 
@@ -458,7 +481,8 @@ static void do_chunk_FLI_FLC(deark *c, lctx *d, struct chunk_info_type *ci)
 		time_raw = de_getu32le_p(&pos);
 		de_dbg(c, "create time: %"I64_FMT, time_raw);
 #endif
-		pos += 4; // creator ID
+		dbg_id(c, d, pos, "creator ID");
+		pos += 4;
 
 #if 0
 		time_raw = de_getu16le_p(&pos);
@@ -470,19 +494,31 @@ static void do_chunk_FLI_FLC(deark *c, lctx *d, struct chunk_info_type *ci)
 		time_raw = de_getu32le_p(&pos);
 		de_dbg(c, "mod time: %"I64_FMT, time_raw);
 #endif
-		pos += 4; // updater ID
+		dbg_id(c, d, pos, "updater ID");
+		pos += 4;
 
-		aspect_x = de_getu16le_p(&pos);
-		aspect_y = de_getu16le_p(&pos);
-		de_dbg(c, "aspect ratio: %d,%d", (int)aspect_x, (int)aspect_y);
+		d->aspect_x = de_getu16le_p(&pos);
+		d->aspect_y = de_getu16le_p(&pos);
+		de_dbg(c, "aspect ratio: %d,%d", (int)d->aspect_x, (int)d->aspect_y);
 	}
 
-	ictx = create_image_ctx(c, d, scr_width, scr_height);
-	ci->ictx = ictx;
-	if(aspect_x && aspect_y) {
-		ictx->density.code = DE_DENSITY_UNK_UNITS;
-		ictx->density.xdens = (double)aspect_x;
-		ictx->density.ydens = (double)aspect_y;
+	can_decode_images = 1;
+	if(d->depth != 8) {
+		de_err(c, "Unsupported depth: %d", d->depth);
+		can_decode_images = 0;
+	}
+	if(!de_good_image_dimensions(c, scr_width, scr_height)) {
+		can_decode_images = 0;
+	}
+
+	if(can_decode_images) {
+		ictx = create_image_ctx(c, d, scr_width, scr_height);
+		ci->ictx = ictx;
+		if(d->aspect_x && d->aspect_y) {
+			ictx->density.code = DE_DENSITY_UNK_UNITS;
+			ictx->density.xdens = (double)d->aspect_x;
+			ictx->density.ydens = (double)d->aspect_y;
+		}
 	}
 
 	pos = ci->pos + 128;
@@ -514,7 +550,7 @@ static void do_chunk_frame(deark *c, lctx *d, struct chunk_info_type *ci)
 
 	if(ci->ictx) {
 		if(ci->ictx->use_count > prev_use_count && !ci->ictx->error_flag) {
-			if(frame_idx>=d->num_frames && c->extract_level<2) {
+			if(d->num_frames>0 && frame_idx==d->num_frames && c->extract_level<2) {
 				de_dbg(c, "[not extracting ring frame]");
 				goto done;
 			}
@@ -552,7 +588,13 @@ static void do_chunk_thumbnail(deark *c, lctx *d, struct chunk_info_type *ci)
 
 	fi = de_finfo_create(c);
 	fi->image_mod_time = d->mod_timestamp;
-	// TODO: density?
+	if(d->aspect_x && d->aspect_y) {
+		// Evidence suggests the thumbnail has the same aspect ratio as the animation,
+		// at least approximately.
+		fi->density.code = DE_DENSITY_UNK_UNITS;
+		fi->density.xdens = (double)d->aspect_x;
+		fi->density.ydens = (double)d->aspect_y;
+	}
 	de_finfo_set_name_from_sz(c, fi, "thumb", 0, DE_ENCODING_LATIN1);
 
 	if(ictx->use_count>0 && !ictx->error_flag) {
@@ -575,7 +617,7 @@ static void do_chunk_settings(deark *c, lctx *d, struct chunk_info_type *ci)
 	do_sequence_of_chunks(c, d, ci, ci->pos+8, -1);
 }
 
-static void do_chunk_onesetting(deark *c, lctx *d, struct chunk_info_type *ci)
+static void do_chunk_hexdump(deark *c, lctx *d, struct chunk_info_type *ci)
 {
 	if(c->debug_level<2) return;
 	de_dbg_hexdump(c, c->infile, ci->pos+6, ci->len-6, 256, NULL, 0x1);
@@ -596,23 +638,26 @@ static void identify_chunk(deark *c, lctx *d, struct chunk_info_type *ci)
 
 	if(parent_mct==MCT_NONE) {
 		if(ct==CHUNKTYPE_FLI) {
-			ci->mct = MCT_FLI_OR_FLC;
 			ci->chunk_type_name = "FLI";
-			ci->handler_fn = do_chunk_FLI_FLC;
-			goto done;
 		}
 		else if(ct==CHUNKTYPE_FLC) {
-			ci->mct = MCT_FLI_OR_FLC;
 			ci->chunk_type_name = "FLC";
-			ci->handler_fn = do_chunk_FLI_FLC;
-			goto done;
 		}
+		ci->mct = MCT_FLI_OR_FLC;
+		ci->handler_fn = do_chunk_FLI_FLC;
+		goto done;
 	}
 
 	if(parent_mct==MCT_FLI_OR_FLC) {
 		if(ct==CHUNKTYPE_FRAME) {
 			ci->mct = MCT_FRAME;
 			ci->chunk_type_name = "frame";
+			ci->handler_fn = do_chunk_frame;
+			goto done;
+		}
+		else if(ct==0xf5fa) {
+			ci->mct = MCT_FRAME;
+			ci->chunk_type_name = "frame-variant";
 			ci->handler_fn = do_chunk_frame;
 			goto done;
 		}
@@ -685,11 +730,18 @@ static void identify_chunk(deark *c, lctx *d, struct chunk_info_type *ci)
 			ci->handler_fn = do_chunk_settings;
 			goto done;
 		}
+		else if(ct==0x0003) {
+			ci->mct = MCT_CELDATA;
+			ci->chunk_type_name = "CEL data";
+			ci->handler_fn = do_chunk_hexdump;
+			goto done;
+		}
 	}
 
 	if(parent_mct==MCT_SETTINGS) {
 		ci->mct = MCT_ONESETTING;
-		ci->handler_fn = do_chunk_onesetting;
+		ci->handler_fn = do_chunk_hexdump;
+		goto done;
 	}
 
 done:
@@ -747,11 +799,6 @@ static int do_chunk(deark *c, lctx *d, struct chunk_info_type *parent_ci,
 
 	identify_chunk(c, d, ci);
 	de_dbg(c, "chunk type: 0x%04x (%s)", ci->chunktype, ci->chunk_type_name);
-
-	if(ci->handler_fn==NULL && level==0) {
-		de_err(c, "Not a FLI/FLC file");
-		goto done;
-	}
 
 	if(ci->handler_fn) {
 		ci->handler_fn(c, d, ci);
@@ -824,11 +871,15 @@ static int de_identify_fli(deark *c)
 	int has_ext;
 
 	ct = (UI)de_getu16le(4);
-	if(ct!=CHUNKTYPE_FLI && ct!=CHUNKTYPE_FLC) return 0;
+	if((ct>>8) != 0xaf) return 0;
 	has_ext = de_input_file_has_ext(c, "fli") ||
 		de_input_file_has_ext(c, "flc");
-	if(has_ext) return 90;
-	return 15;
+	if(ct==CHUNKTYPE_FLI || ct==CHUNKTYPE_FLC) {
+		if(has_ext) return 100;
+		return 20;
+	}
+	if(has_ext) return 9;
+	return 0;
 }
 
 void de_module_fli(deark *c, struct deark_module_info *mi)
