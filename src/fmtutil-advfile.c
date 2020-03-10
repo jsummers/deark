@@ -134,7 +134,7 @@ static void de_advfile_run_rawfiles(deark *c, struct de_advfile *advf, int is_ap
 		setup_rsrc_finfo(advf);
 		afp_rsrc->whattodo = DE_ADVFILE_WRITERSRC;
 		// Note: It is intentional to use mainfork in the next line.
-		advf->rsrcfork.fi->mod_time = advf->mainfork.fi->mod_time;
+		advf->rsrcfork.fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_MODIFY];
 		afp_rsrc->outf = dbuf_create_output_file(c, NULL, advf->rsrcfork.fi, advf->createflags);
 		dbuf_set_writelistener(afp_rsrc->outf, advf->rsrcfork.writelistener_cb,
 			advf->rsrcfork.userdata_for_writelistener);
@@ -231,7 +231,7 @@ static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_app
 	entry_info[num_entries].len = (i64)comment_strlen;
 	num_entries++;
 
-	if(advf->mainfork.fi->mod_time.is_valid) {
+	if(advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_MODIFY].is_valid) {
 		entry_info[num_entries].id = SDID_FILEDATES;
 		entry_info[num_entries].len = 16;
 		num_entries++;
@@ -314,10 +314,10 @@ static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_app
 		case SDID_FILEDATES:
 			// We could try to maintain dates other than the modification date, but
 			// Deark doesn't generally care about them.
-			dbuf_writei32be(outf, timestamp_to_applesd_date(c, &advf->mainfork.fi->create_time));
-			dbuf_writei32be(outf, timestamp_to_applesd_date(c, &advf->mainfork.fi->mod_time));
-			dbuf_writei32be(outf, timestamp_to_applesd_date(c, &advf->mainfork.fi->backup_time));
-			dbuf_writei32be(outf, timestamp_to_applesd_date(c, &advf->mainfork.fi->access_time));
+			dbuf_writei32be(outf, timestamp_to_applesd_date(c, &advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_CREATE]));
+			dbuf_writei32be(outf, timestamp_to_applesd_date(c, &advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_MODIFY]));
+			dbuf_writei32be(outf, timestamp_to_applesd_date(c, &advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_BACKUP]));
+			dbuf_writei32be(outf, timestamp_to_applesd_date(c, &advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_ACCESS]));
 			break;
 
 		case SDID_FINDERINFO:
@@ -439,8 +439,8 @@ static void de_advfile_run_macbinary(deark *c, struct de_advfile *advf)
 	dbuf_writeu32be(hdr, rsrc_fork_len);
 
 	dbuf_truncate(hdr, 91);
-	dbuf_writeu32be(hdr, timestamp_to_mac_time(&advf->mainfork.fi->create_time));
-	dbuf_writeu32be(hdr, timestamp_to_mac_time(&advf->mainfork.fi->mod_time));
+	dbuf_writeu32be(hdr, timestamp_to_mac_time(&advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_CREATE]));
+	dbuf_writeu32be(hdr, timestamp_to_mac_time(&advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_MODIFY]));
 
 	dbuf_truncate(hdr, 101); // low byte of finder flags
 	if(advf->has_finderflags) {

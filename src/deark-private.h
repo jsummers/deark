@@ -202,11 +202,14 @@ struct de_finfo_struct {
 #define DE_MODEFLAG_EXE    0x02 // Make the output file executable.
 	unsigned int mode_flags;
 
-	struct de_timestamp mod_time; // Mod time of an archived file
-	struct de_timestamp create_time; // (Limited use)
-	struct de_timestamp access_time;  // (Limited use)
-	struct de_timestamp attrchange_time; // (Limited use)
-	struct de_timestamp backup_time; // (Limited use)
+#define DE_TIMESTAMPIDX_MODIFY      0 // Mod time of an archived file
+#define DE_TIMESTAMPIDX_CREATE      1 // (Limited use)
+#define DE_TIMESTAMPIDX_ACCESS      2 // (Limited use)
+#define DE_TIMESTAMPIDX_ATTRCHANGE  3 // (Limited use)
+#define DE_TIMESTAMPIDX_BACKUP      4 // (Limited use)
+#define DE_TIMESTAMPIDX_COUNT       5
+	struct de_timestamp timestamp[DE_TIMESTAMPIDX_COUNT];
+
 	struct de_timestamp image_mod_time; // Internal mod time (e.g. for PNG tIME chunk)
 	struct de_density_info density;
 	de_ucstring *name_other; // Modules can use this field as needed.

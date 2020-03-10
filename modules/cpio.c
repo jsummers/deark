@@ -108,8 +108,8 @@ static int read_header_ascii_portable(deark *c, lctx *d, struct member_data *md)
 
 	ret = dbuf_read_ascii_number(c->infile, pos, 11, 8, &modtime_unix);
 	if(!ret) goto done;
-	de_unix_time_to_timestamp(modtime_unix, &md->fi->mod_time, 0x1);
-	de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_unix_time_to_timestamp(modtime_unix, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], 0x1);
+	de_timestamp_to_string(&md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "c_mtime: %d (%s)", (int)modtime_unix, timestamp_buf);
 	pos += 11;
 
@@ -163,8 +163,8 @@ static int read_header_ascii_new(deark *c, lctx *d, struct member_data *md)
 
 	ret = dbuf_read_ascii_number(c->infile, pos, 8, 16, &modtime_unix);
 	if(!ret) goto done;
-	de_unix_time_to_timestamp(modtime_unix, &md->fi->mod_time, 0x1);
-	de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_unix_time_to_timestamp(modtime_unix, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], 0x1);
+	de_timestamp_to_string(&md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "c_mtime: %d (%s)", (int)modtime_unix, timestamp_buf);
 	pos += 8;
 
@@ -235,8 +235,8 @@ static int read_header_binary(deark *c, lctx *d, struct member_data *md)
 	modtime_msw = dbuf_getu16x(c->infile, pos, md->is_le);
 	modtime_lsw = dbuf_getu16x(c->infile, pos+2, md->is_le);
 	modtime_unix = (modtime_msw<<16) | modtime_lsw;
-	de_unix_time_to_timestamp(modtime_unix, &md->fi->mod_time, 0x1);
-	de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_unix_time_to_timestamp(modtime_unix, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], 0x1);
+	de_timestamp_to_string(&md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "c_mtime: %d (%s)", (int)modtime_unix, timestamp_buf);
 	pos += 4;
 

@@ -351,11 +351,11 @@ static void read_timestamp_fields(deark *c, lctx *d, i64 pos1,
 {
 	i64 pos = pos1;
 
-	read_one_timestamp(c, d, pos, &fi1->create_time, "create date");
+	read_one_timestamp(c, d, pos, &fi1->timestamp[DE_TIMESTAMPIDX_CREATE], "create date");
 	pos += 4;
-	read_one_timestamp(c, d, pos, &fi1->mod_time, "mod date");
+	read_one_timestamp(c, d, pos, &fi1->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod date");
 	pos += 4;
-	read_one_timestamp(c, d, pos, &fi1->backup_time, "backup date");
+	read_one_timestamp(c, d, pos, &fi1->timestamp[DE_TIMESTAMPIDX_BACKUP], "backup date");
 	//pos += 4;
 }
 

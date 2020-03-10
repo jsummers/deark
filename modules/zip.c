@@ -924,7 +924,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	}
 
 	if(md->mod_time.is_valid) {
-		fi->mod_time = md->mod_time;
+		fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->mod_time;
 	}
 
 	if(md->is_dir) {

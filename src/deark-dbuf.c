@@ -945,13 +945,13 @@ int dbuf_create_file_from_slice(dbuf *inf, i64 pos, i64 data_size,
 
 static void finfo_shallow_copy(deark *c, de_finfo *src, de_finfo *dst)
 {
+	UI k;
+
 	dst->is_directory = src->is_directory;
 	dst->mode_flags = src->mode_flags;
-	dst->mod_time = src->mod_time;
-	dst->create_time = src->create_time;
-	dst->access_time = src->access_time;
-	dst->attrchange_time = src->attrchange_time;
-	dst->backup_time = src->backup_time;
+	for(k=0; k<DE_TIMESTAMPIDX_COUNT; k++) {
+		dst->timestamp[k] = src->timestamp[k];
+	}
 	dst->image_mod_time = src->image_mod_time;
 	dst->density = src->density;
 	dst->has_hotspot = src->has_hotspot;
@@ -1147,10 +1147,10 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 
 		// Here's where we respect the -intz option, by using it to convert to
 		// UTC in some cases.
-		if(f->fi_copy->mod_time.is_valid && f->fi_copy->mod_time.tzcode==DE_TZCODE_LOCAL &&
+		if(f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY].is_valid && f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY].tzcode==DE_TZCODE_LOCAL &&
 			c->input_tz_offs_seconds!=0)
 		{
-			de_timestamp_cvt_to_utc(&f->fi_copy->mod_time, -c->input_tz_offs_seconds);
+			de_timestamp_cvt_to_utc(&f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY], -c->input_tz_offs_seconds);
 		}
 
 		if(f->fi_copy->image_mod_time.is_valid && f->fi_copy->image_mod_time.tzcode==DE_TZCODE_LOCAL &&

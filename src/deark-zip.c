@@ -348,8 +348,8 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 		md->is_executable = 1;
 	}
 
-	if(c->preserve_file_times_archives && f->fi_copy && f->fi_copy->mod_time.is_valid) {
-		md->modtime = f->fi_copy->mod_time;
+	if(c->preserve_file_times_archives && f->fi_copy && f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY].is_valid) {
+		md->modtime = f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY];
 		if(md->modtime.precision>DE_TSPREC_1SEC) {
 			write_ntfs_times = 1;
 		}

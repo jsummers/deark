@@ -255,8 +255,8 @@ static void run_macbinary_internal(deark *c, lctx *d)
 		de_advfile_set_orig_filename(advf, d->filename_srd->sz,
 			d->filename_srd->sz_strlen);
 	}
-	advf->mainfork.fi->mod_time = d->mod_time;
-	advf->mainfork.fi->create_time = d->create_time;
+	advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = d->mod_time;
+	advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_CREATE] = d->create_time;
 
 	if(d->dflen>0) {
 		d->dfpos = pos;
@@ -317,7 +317,7 @@ static void de_run_macbinary(deark *c, de_module_params *mparams)
 
 		if(mparams->out_params.fi) {
 			// If caller created out_params.fi for us, save the mod time to it.
-			mparams->out_params.fi->mod_time = d->mod_time;
+			mparams->out_params.fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = d->mod_time;
 
 			// If caller created .fi->name_other, copy the filename to it.
 			if(d->filename_srd && d->filename_srd->str->len>0 && mparams->out_params.fi->name_other) {

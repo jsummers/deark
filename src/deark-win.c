@@ -297,11 +297,11 @@ void de_update_file_time(dbuf *f)
 
 	if(f->btype!=DBUF_TYPE_OFILE) return;
 	if(!f->fi_copy) return;
-	if(!f->fi_copy->mod_time.is_valid) return;
+	if(!f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY].is_valid) return;
 	if(!f->name) return;
 	c = f->c;
 
-	ft = de_timestamp_to_FILETIME(&f->fi_copy->mod_time);
+	ft = de_timestamp_to_FILETIME(&f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY]);
 	if(ft==0) goto done;
 	fnW = de_utf8_to_utf16_strdup(c, f->name);
 	fh = CreateFileW(fnW, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ, NULL,

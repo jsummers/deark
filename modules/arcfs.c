@@ -240,7 +240,7 @@ static void do_arcfs_extract_member(deark *c, lctx *d, struct arcfs_member_data 
 	fi = de_finfo_create(c);
 	fi->original_filename_flag = 1;
 	if(md->rfa.mod_time.is_valid) {
-		fi->mod_time = md->rfa.mod_time;
+		fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->rfa.mod_time;
 	}
 
 	if(md->is_regular_file) {
@@ -470,7 +470,7 @@ static void do_squash_main(deark *c, sqctx *d)
 	de_finfo_set_name_from_ucstring(c, fi, fn, 0);
 
 	if(d->rfa.mod_time.is_valid) {
-		fi->mod_time = d->rfa.mod_time;
+		fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = d->rfa.mod_time;
 	}
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);

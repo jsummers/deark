@@ -660,10 +660,10 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 		pmd->filesize);
 
 	if(ea->alt_mod_time.is_valid) {
-		md->fi->mod_time = ea->alt_mod_time;
+		md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = ea->alt_mod_time;
 	}
 	else if(pmd->mod_time.is_valid) {
-		md->fi->mod_time = pmd->mod_time;
+		md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = pmd->mod_time;
 	}
 
 	if(!md->is_regular_file && !md->is_dir) {

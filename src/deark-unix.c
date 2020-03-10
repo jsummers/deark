@@ -232,7 +232,7 @@ void de_update_file_time(dbuf *f)
 
 	if(f->btype!=DBUF_TYPE_OFILE) return;
 	if(!f->fi_copy) return;
-	ts = &f->fi_copy->mod_time;
+	ts = &f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY];
 	if(!ts->is_valid) return;
 	if(!f->name) return;
 

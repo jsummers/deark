@@ -265,8 +265,8 @@ static void do_macbinary(deark *c, lctx *d)
 		d->expected_dflen = (i64)mparams->out_params.uint2;
 	}
 
-	if(mparams->out_params.fi->mod_time.is_valid) {
-		d->mod_time_from_macbinary = mparams->out_params.fi->mod_time;
+	if(mparams->out_params.fi->timestamp[DE_TIMESTAMPIDX_MODIFY].is_valid) {
+		d->mod_time_from_macbinary = mparams->out_params.fi->timestamp[DE_TIMESTAMPIDX_MODIFY];
 	}
 
 	if(d->df_known) {

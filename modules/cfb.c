@@ -664,7 +664,7 @@ static void do_extract_stream_to_file_thumbsdb(deark *c, lctx *d, struct dir_ent
 
 	if(catalog_idx>=0) {
 		if(d->thumbsdb_catalog[catalog_idx].mod_time.is_valid) {
-			fi->mod_time = d->thumbsdb_catalog[catalog_idx].mod_time; // struct copy
+			fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = d->thumbsdb_catalog[catalog_idx].mod_time; // struct copy
 		}
 	}
 
@@ -1507,8 +1507,8 @@ static void do_process_stream(deark *c, lctx *d, struct dir_entry_info *dei)
 
 	// By default, use the mod time from the directory entry.
 	if(dei->mod_time.is_valid) {
-		fi_raw->mod_time = dei->mod_time; // struct copy
-		fi_tmp->mod_time = dei->mod_time; // struct copy
+		fi_raw->timestamp[DE_TIMESTAMPIDX_MODIFY] = dei->mod_time; // struct copy
+		fi_tmp->timestamp[DE_TIMESTAMPIDX_MODIFY] = dei->mod_time; // struct copy
 	}
 
 	if(d->extract_raw_streams) {

@@ -166,7 +166,7 @@ static int do_gzip_read_member(deark *c, lctx *d, i64 pos1, i64 *member_size)
 		}
 
 		if(md->mod_time_ts.is_valid) {
-			fi->mod_time = md->mod_time_ts;
+			fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->mod_time_ts;
 		}
 
 		d->output_file = dbuf_create_output_file(c, member_name?NULL:"bin", fi, 0);

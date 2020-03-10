@@ -298,15 +298,15 @@ static void do_extract_file(deark *c, lctx *d, struct dir_record *dr)
 	}
 
 	if(dr->riscos_timestamp.is_valid) {
-		fi->mod_time = dr->riscos_timestamp;
+		fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = dr->riscos_timestamp;
 	}
 	else if(dr->rr_modtime.is_valid) {
-		fi->mod_time = dr->rr_modtime;
+		fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = dr->rr_modtime;
 	}
 	else if(dr->recording_time.is_valid) {
 		// Apparently, the "recording time" (whatever that is) is
 		// sometimes used as the mod time.
-		fi->mod_time = dr->recording_time;
+		fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = dr->recording_time;
 	}
 
 	if(dr->is_dir) {

@@ -50,8 +50,8 @@ static int do_ar_item(deark *c, lctx *d, i64 pos1, i64 *p_item_len)
 	de_dbg(c, "member raw name: \"%s\"", ucstring_getpsz(rawname_ucstring));
 
 	(void)dbuf_read_ascii_number(c->infile, pos1+16, 12, 10, &mod_time);
-	de_unix_time_to_timestamp(mod_time, &fi->mod_time, 0x1);
-	de_timestamp_to_string(&fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_unix_time_to_timestamp(mod_time, &fi->timestamp[DE_TIMESTAMPIDX_MODIFY], 0x1);
+	de_timestamp_to_string(&fi->timestamp[DE_TIMESTAMPIDX_MODIFY], timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %" I64_FMT " (%s)", mod_time, timestamp_buf);
 
 	(void)dbuf_read_ascii_number(c->infile, pos1+40, 8, 8, &file_mode);

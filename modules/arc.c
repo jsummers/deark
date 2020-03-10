@@ -721,10 +721,10 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 nbytes_avail,
 	fi->original_filename_flag = 1;
 
 	if(md->rfa.mod_time.is_valid) {
-		fi->mod_time = md->rfa.mod_time;
+		fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->rfa.mod_time;
 	}
 	else if(md->arc_timestamp.is_valid) {
-		fi->mod_time = md->arc_timestamp;
+		fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->arc_timestamp;
 	}
 
 	if(md->is_dir) {

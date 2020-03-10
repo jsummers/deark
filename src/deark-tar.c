@@ -156,8 +156,8 @@ void de_tar_start_member_file(deark *c, dbuf *f)
 
 	md->headers_pos = tctx->outf->len;
 
-	if(c->preserve_file_times_archives && f->fi_copy && f->fi_copy->mod_time.is_valid) {
-		md->modtime = f->fi_copy->mod_time;
+	if(c->preserve_file_times_archives && f->fi_copy && f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY].is_valid) {
+		md->modtime = f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY];
 	}
 	else if(c->reproducible_output) {
 		de_get_reproducible_timestamp(c, &md->modtime);

@@ -193,7 +193,7 @@ static void extract_system_icon(deark *c, lctx *d, i64 pos, i64 len)
 	de_finfo *fi = NULL;
 
 	fi = de_finfo_create(c);
-	fi->mod_time = d->gendate;
+	fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = d->gendate;
 	dbuf_create_file_from_slice(c->infile, pos, len, "ico", fi, DE_CREATEFLAG_IS_AUX);
 	de_finfo_destroy(c, fi);
 }
@@ -404,7 +404,7 @@ static void do_file_SHG(deark *c, lctx *d, i64 pos1, i64 used_space)
 	fi = de_finfo_create(c);
 	// (Note that if we were to correct the signature, we probably should not copy
 	// the mod time.)
-	fi->mod_time = d->gendate;
+	fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = d->gendate;
 	outf = dbuf_create_output_file(c, ext, fi, 0);
 	dbuf_copy(c->infile, pos1, used_space, outf);
 	dbuf_close(outf);
@@ -418,7 +418,7 @@ static void do_extract_raw_file(deark *c, lctx *d, i64 pos1, i64 used_space,
 	const char *ext = NULL;
 
 	fi = de_finfo_create(c);
-	fi->mod_time = d->gendate;
+	fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = d->gendate;
 	if(fn && ucstring_isnonempty(fn->str)) {
 		de_finfo_set_name_from_ucstring(c, fi, fn->str, 0);
 		fi->original_filename_flag = 1;

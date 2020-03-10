@@ -190,15 +190,15 @@ static void finish_modtime_decoding(deark *c, lctx *d, struct member_data *md)
 	if      ( md->timzon < 127 )  timestamp_offset = 15*60*((i64)md->timzon      );
 	else if ( 127 < md->timzon )  timestamp_offset = 15*60*((i64)md->timzon - 256);
 
-	de_dos_datetime_to_timestamp(&md->fi->mod_time, (i64)md->datdos, (i64)md->timdos);
-	de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dos_datetime_to_timestamp(&md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], (i64)md->datdos, (i64)md->timdos);
+	de_timestamp_to_string(&md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %s", timestamp_buf);
 	if(md->timzon == 127) {
-		md->fi->mod_time.tzcode = DE_TZCODE_LOCAL;
+		md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY].tzcode = DE_TZCODE_LOCAL;
 	}
 	else {
-		de_timestamp_cvt_to_utc(&md->fi->mod_time, timestamp_offset);
-		de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+		de_timestamp_cvt_to_utc(&md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], timestamp_offset);
+		de_timestamp_to_string(&md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], timestamp_buf, sizeof(timestamp_buf), 0);
 		de_dbg(c, "mod time (UTC): %s", timestamp_buf);
 	}
 }

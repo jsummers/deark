@@ -129,10 +129,10 @@ static void do_one_date(deark *c, lctx *d, i64 pos, const char *name,
 static void handler_dates(deark *c, lctx *d, struct entry_struct *e)
 {
 	if(e->length<16) return;
-	do_one_date(c, d, e->offset, "creation date", &d->advf->mainfork.fi->create_time);
-	do_one_date(c, d, e->offset+4, "mod date", &d->advf->mainfork.fi->mod_time);
-	do_one_date(c, d, e->offset+8, "backup date", &d->advf->mainfork.fi->backup_time);
-	do_one_date(c, d, e->offset+12, "access date", &d->advf->mainfork.fi->access_time);
+	do_one_date(c, d, e->offset, "creation date", &d->advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_CREATE]);
+	do_one_date(c, d, e->offset+4, "mod date", &d->advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_MODIFY]);
+	do_one_date(c, d, e->offset+8, "backup date", &d->advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_BACKUP]);
+	do_one_date(c, d, e->offset+12, "access date", &d->advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_ACCESS]);
 }
 
 static void do_finder_orig(deark *c, lctx *d, struct entry_struct *e)

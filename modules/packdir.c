@@ -104,7 +104,7 @@ static void do_packdir_extract_file(deark *c, struct pdctx_struct *d,
 	de_finfo_set_name_from_ucstring(c, fi, fullfn, DE_SNFLAG_FULLPATH);
 	fi->original_filename_flag = 1;
 
-	fi->mod_time = md->mod_time;
+	fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->mod_time;
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
 

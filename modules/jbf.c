@@ -176,8 +176,8 @@ static void read_FILETIME(deark *c, lctx *d, struct page_ctx *pg, i64 pos)
 	char timestamp_buf[64];
 
 	ft = de_geti64le(pos);
-	de_FILETIME_to_timestamp(ft, &pg->fi->mod_time, 0x1);
-	de_timestamp_to_string(&pg->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_FILETIME_to_timestamp(ft, &pg->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], 0x1);
+	de_timestamp_to_string(&pg->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %s", timestamp_buf);
 }
 
@@ -187,8 +187,8 @@ static void read_unix_time(deark *c, lctx *d, struct page_ctx *pg, i64 pos)
 	char timestamp_buf[64];
 
 	ut = de_geti32le(pos);
-	de_unix_time_to_timestamp(ut, &pg->fi->mod_time, 0x1);
-	de_timestamp_to_string(&pg->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_unix_time_to_timestamp(ut, &pg->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], 0x1);
+	de_timestamp_to_string(&pg->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %s", timestamp_buf);
 }
 
