@@ -172,6 +172,7 @@
     <ClCompile Include="..\..\modules\afcp.c" />
     <ClCompile Include="..\..\modules\alphabmp.c" />
     <ClCompile Include="..\..\modules\amigaicon.c" />
+    <ClCompile Include="..\..\modules\anim.c" />
     <ClCompile Include="..\..\modules\ansiart.c" />
     <ClCompile Include="..\..\modules\apm.c" />
     <ClCompile Include="..\..\modules\apple2-dsk.c" />

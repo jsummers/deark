@@ -6,6 +6,8 @@ $(OBJDIR)/modules/alphabmp.o: modules/alphabmp.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/amigaicon.o: modules/amigaicon.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/anim.o: modules/anim.c src/deark-config.h \
+ src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/ansiart.o: modules/ansiart.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/apm.o: modules/apm.c src/deark-config.h \
