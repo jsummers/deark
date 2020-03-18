@@ -12,6 +12,8 @@ DE_DECLARE_MODULE(de_module_anim);
 // TODO: This code might eventually replace the current ilbm module.
 // Until then, expect a lot of duplicated code.
 
+#define ANIM_MAX_FRAMES 10000
+
 #define CODE_ANHD 0x414e4844U
 #define CODE_ANIM 0x414e494dU
 #define CODE_BMHD 0x424d4844U
@@ -29,8 +31,12 @@ DE_DECLARE_MODULE(de_module_anim);
 
 #define ANIM_OP_XOR 1
 
-struct img_info {
+struct bmhd_info {
 	i64 width, height;
+	u8 compression;
+	i64 planes;
+	i64 transparent_color;
+	i64 x_aspect, y_aspect;
 	//i64 planes_total;
 	//i64 rowspan;
 	//i64 planespan;
@@ -43,16 +49,10 @@ struct img_info {
 };
 
 struct frame_ctx {
+	u32 formtype;
 	int frame_idx;
+	int done_flag; // Have we processed the image (BODY/DLTA/etc. chunk)?
 	u8 op;
-	u8 compression;
-	i64 planes;
-	i64 transparent_color;
-	i64 x_aspect, y_aspect;
-
-	// This struct is for image attributes that might be different in
-	// thumbnail images vs. the main image.
-	struct img_info main_img;
 };
 
 typedef struct localctx_struct {
@@ -60,8 +60,13 @@ typedef struct localctx_struct {
 	int errflag;
 	int num_frames_started;
 	int num_frames_finished;
+	u8 found_cmap;
 	struct frame_ctx *frctx; // Non-NULL means we're inside a frame
+	struct frame_ctx *oldfrctx[2];
 	u8 found_bmhd;
+	struct bmhd_info main_img;
+	i64 pal_ncolors; // Number of colors we read from the file
+	u32 pal[256];
 } lctx;
 
 static const char *anim_get_op_name(u8 op)
@@ -80,11 +85,20 @@ static const char *anim_get_op_name(u8 op)
 	return name?name:"?";
 }
 
-static void anim_destroy_current_frame(deark *c, lctx *d)
+static void destroy_frame(deark *c, lctx *d, struct frame_ctx *frctx)
 {
-	if(!d->frctx) return;
-	de_free(c, d->frctx);
-	d->frctx = NULL;
+	if(!frctx) return;
+	de_free(c, frctx);
+}
+
+static void do_cmap(deark *c, lctx *d, i64 pos, i64 len)
+{
+	d->found_cmap = 1;
+	d->pal_ncolors = len/3;
+	de_dbg(c, "number of palette colors: %d", (int)d->pal_ncolors);
+	if(d->pal_ncolors>256) d->pal_ncolors=256;
+
+	de_read_palette_rgb(c->infile, pos, d->pal_ncolors, 3, d->pal, 256, 0);
 }
 
 static int do_bmhd(deark *c, lctx *d, i64 pos1, i64 len)
@@ -101,14 +115,14 @@ static int do_bmhd(deark *c, lctx *d, i64 pos1, i64 len)
 	}
 
 	d->found_bmhd = 1;
-	frctx->main_img.width = de_getu16be_p(&pos);
-	frctx->main_img.height = de_getu16be_p(&pos);
-	de_dbg_dimensions(c, frctx->main_img.width, frctx->main_img.height);
+	d->main_img.width = de_getu16be_p(&pos);
+	d->main_img.height = de_getu16be_p(&pos);
+	de_dbg_dimensions(c, d->main_img.width, d->main_img.height);
 	pos += 4;
-	frctx->planes = (i64)de_getbyte_p(&pos);
-	de_dbg(c, "planes: %d", (int)frctx->planes);
-	frctx->main_img.masking_code = de_getbyte_p(&pos);
-	switch(frctx->main_img.masking_code) {
+	d->main_img.planes = (i64)de_getbyte_p(&pos);
+	de_dbg(c, "planes: %d", (int)d->main_img.planes);
+	d->main_img.masking_code = de_getbyte_p(&pos);
+	switch(d->main_img.masking_code) {
 	case 0: masking_name = "no transparency"; break;
 	case 1: masking_name = "1-bit transparency mask"; break;
 	case 2: masking_name = "color-key transparency"; break;
@@ -116,23 +130,122 @@ static int do_bmhd(deark *c, lctx *d, i64 pos1, i64 len)
 	default: masking_name = "unknown"; break;
 	}
 
-	frctx->compression = de_getbyte_p(&pos);
-	de_dbg(c, "compression: %d", (int)frctx->compression);
+	d->main_img.compression = de_getbyte_p(&pos);
+	de_dbg(c, "compression: %d", (int)d->main_img.compression);
 
 	pos++;
-	frctx->transparent_color = de_getu16be_p(&pos);
-	de_dbg(c, "masking: %d (%s)", (int)frctx->main_img.masking_code, masking_name);
-	if(frctx->main_img.masking_code==2 || frctx->main_img.masking_code==3) {
-		de_dbg(c, " color key: %d", (int)frctx->transparent_color);
+	d->main_img.transparent_color = de_getu16be_p(&pos);
+	de_dbg(c, "masking: %d (%s)", (int)d->main_img.masking_code, masking_name);
+	if(d->main_img.masking_code==2 || d->main_img.masking_code==3) {
+		de_dbg(c, " color key: %d", (int)d->main_img.transparent_color);
 	}
 
-	frctx->x_aspect = (i64)de_getbyte_p(&pos);
-	frctx->y_aspect = (i64)de_getbyte_p(&pos);
-	de_dbg(c, "apect ratio: %d, %d", (int)frctx->x_aspect, (int)frctx->y_aspect);
+	d->main_img.x_aspect = (i64)de_getbyte_p(&pos);
+	d->main_img.y_aspect = (i64)de_getbyte_p(&pos);
+	de_dbg(c, "apect ratio: %d, %d", (int)d->main_img.x_aspect, (int)d->main_img.y_aspect);
 
 	retval = 1;
 done:
 	return retval;
+}
+
+static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
+{
+	struct frame_ctx *frctx = d->frctx;
+	struct frame_ctx *reference_frctx = NULL;
+	int i;
+	i64 pos = pos1;
+	i64 plane_offs[16];
+
+	if(d->errflag) goto done;
+	if(!d->found_bmhd) goto done;
+	if(!frctx) goto done;
+	if(frctx->done_flag) goto done;
+	frctx->done_flag = 1;
+
+	if(frctx->frame_idx==1) {
+		reference_frctx = d->oldfrctx[0];
+	}
+	else if(frctx->frame_idx>=2) {
+		reference_frctx = d->oldfrctx[frctx->frame_idx%2];
+	}
+
+	if(!reference_frctx) {
+		de_err(c, "Missing reference frame");
+		goto done;
+	}
+
+	if(d->main_img.masking_code != 0) {
+		de_err(c, "Transparency not supported");
+		d->errflag = 1;
+		goto done;
+	}
+	if(d->main_img.planes<1 || d->main_img.planes>8) {
+		de_err(c, "Bad or unsupported number of planes (%d)", (int)d->main_img.planes);
+		d->errflag = 1;
+		goto done;
+	}
+
+	for(i=0; i<16; i++) {
+		plane_offs[i] = de_getu32be_p(&pos);
+		if(i<d->main_img.planes) {
+			de_dbg(c, "plane[%d] offs: %"I64_FMT, (int)i, plane_offs[i]);
+		}
+	}
+
+done:
+	;
+}
+
+static int decompress_method1(deark *c, lctx *d, i64 pos, i64 len, dbuf *unc_pixels)
+{
+	int retval = 0;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = pos;
+	dcmpri.len = len;
+	dcmpro.f = unc_pixels;
+
+	de_fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres);
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", dres.errmsg);
+		goto done;
+	}
+	retval = 1;
+done:
+	return retval;
+}
+
+static void do_body(deark *c, lctx *d, i64 pos1, i64 len)
+{
+	struct frame_ctx *frctx = d->frctx;
+	int ok = 0;
+	dbuf *unc_pixels = NULL;
+
+	if(d->errflag) goto done;
+	if(!d->found_bmhd) goto done;
+	if(!frctx) goto done;
+	if(frctx->done_flag) goto done;
+	frctx->done_flag = 1;
+
+	if(d->main_img.compression!=1) {
+		de_err(c, "Unsupported compression method (%d)", (int)d->main_img.compression);
+		goto done;
+	}
+
+	unc_pixels = dbuf_create_membuf(c, 0, 0);
+	if(!decompress_method1(c, d, pos1, len, unc_pixels)) goto done;
+	de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", len, unc_pixels->len);
+
+done:
+	dbuf_close(unc_pixels);
+	if(!ok) {
+		d->errflag = 1;
+	}
 }
 
 static void do_anim_anhd(deark *c, lctx *d, i64 pos, i64 len)
@@ -179,20 +292,28 @@ static void do_anim_anhd(deark *c, lctx *d, i64 pos, i64 len)
 	//pos+=4;
 }
 
-static void anim_on_frame_begin(deark *c, lctx *d)
+static void anim_on_frame_begin(deark *c, lctx *d, u32 formtype)
 {
 	if(d->frctx) return;
 	d->num_frames_started++;
 	d->frctx = de_malloc(c, sizeof(struct frame_ctx));
+	d->frctx->formtype = formtype;
 	d->frctx->frame_idx = d->num_frames_finished;
 	de_dbg(c, "[frame #%d begin]", d->frctx->frame_idx);
 }
 
 static void anim_on_frame_end(deark *c, lctx *d)
 {
+	int where_to_save_this_frame;
 	if(!d->frctx) return;
+
 	de_dbg(c, "[frame #%d end]", d->frctx->frame_idx);
-	anim_destroy_current_frame(c, d);
+
+	where_to_save_this_frame = d->frctx->frame_idx % 2;
+
+	destroy_frame(c, d, d->oldfrctx[where_to_save_this_frame]);
+	d->oldfrctx[where_to_save_this_frame] = d->frctx;
+	d->frctx = NULL;
 	d->num_frames_finished++;
 }
 
@@ -204,21 +325,19 @@ static int my_anim_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
+	if(d->num_frames_finished >= ANIM_MAX_FRAMES) {
+		quitflag = 1;
+		goto done;
+	}
+
 	// Pretend we can handle all nonstandard chunks
 	if(!de_fmtutil_is_standard_iff_chunk(c, ictx, ictx->chunkctx->chunk4cc.id)) {
 		ictx->handled = 1;
 	}
 
-	if(!d->frctx && (ictx->level==d->FORM_level+1) && ictx->curr_container_contentstype4cc.id==CODE_ILBM) {
-		anim_on_frame_begin(c, d);
-	}
-
 	switch(ictx->chunkctx->chunk4cc.id) {
 	case CODE_FORM:
 		if(ictx->level>d->FORM_level) break;
-		if(d->frctx && ictx->level==d->FORM_level) {
-			anim_on_frame_end(c, d);
-		}
 		ictx->is_std_container = 1;
 		break;
 
@@ -230,9 +349,31 @@ static int my_anim_chunk_handler(deark *c, struct de_iffctx *ictx)
 		}
 		break;
 
+	case CODE_DLTA:
+		if(ictx->curr_container_contentstype4cc.id != CODE_ILBM) {
+			d->errflag = 1;
+			goto done;
+		}
+		if(!d->frctx) goto done;
+		do_dlta(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		break;
+
 	case CODE_ANHD:
 		if(!d->frctx) goto done;
 		do_anim_anhd(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		break;
+
+	case CODE_CMAP:
+		do_cmap(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		break;
+
+	case CODE_BODY:
+		if(ictx->curr_container_contentstype4cc.id != CODE_ILBM) {
+			de_err(c, "Unsupported ILBM-like format");
+			d->errflag = 1;
+			goto done;
+		}
+		do_body(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		break;
 	}
 
@@ -264,6 +405,19 @@ static int my_preprocess_ilbm_chunk_fn(deark *c, struct de_iffctx *ictx)
 	}
 	else {
 		de_fmtutil_default_iff_chunk_identify(c, ictx);
+	}
+	return 1;
+}
+
+static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
+{
+	lctx *d = (lctx*)ictx->userdata;
+
+	if(ictx->level==d->FORM_level) {
+		if(d->frctx) {
+			anim_on_frame_end(c, d);
+		}
+		anim_on_frame_begin(c, d, ictx->curr_container_contentstype4cc.id);
 	}
 	return 1;
 }
@@ -302,6 +456,7 @@ static void de_run_anim(deark *c, de_module_params *mparams)
 	ictx->userdata = (void*)d;
 	ictx->handle_chunk_fn = my_anim_chunk_handler;
 	ictx->preprocess_chunk_fn = my_preprocess_ilbm_chunk_fn;
+	ictx->on_std_container_start_fn = my_on_std_container_start_fn;
 	ictx->f = c->infile;
 	de_fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
 
@@ -311,6 +466,9 @@ done:
 		if(d->frctx) {
 			anim_on_frame_end(c, d);
 		}
+		destroy_frame(c, d, d->frctx);
+		destroy_frame(c, d, d->oldfrctx[0]);
+		destroy_frame(c, d, d->oldfrctx[1]);
 		de_free(c, d);
 	}
 }
