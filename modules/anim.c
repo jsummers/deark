@@ -40,7 +40,7 @@ struct bmhd_info {
 	//i64 planes_total;
 	//i64 rowspan;
 	//i64 planespan;
-	//i64 bits_per_row_per_plane;
+	i64 bits_per_row_per_plane;
 	u8 masking_code;
 	//u8 has_hotspot;
 	//int hotspot_x, hotspot_y;
@@ -149,14 +149,95 @@ done:
 	return retval;
 }
 
+static void decompress_plane_delta_op5(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1, i64 maxlen,
+	dbuf *unc_pixels, i64 dstpos1, i64 dststride)
+{
+	i64 num_columns;
+	i64 col;
+	i64 pos = pos1;
+
+	de_dbg(c, "delta5 plane at %"I64_FMT", maxlen=%"I64_FMT, pos1, maxlen);
+	num_columns = de_pad_to_n(d->main_img.width, 8)/8;
+	for(col=0; col<num_columns; col++) {
+		i64 opcount;
+		i64 opidx;
+		i64 k;
+		u8 op;
+		i64 dstpos = dstpos1 + col;
+
+		opcount = de_getbyte_p(&pos);
+		de_dbg(c, "col %d opt count: %d at %"I64_FMT, (int)col, (int)opcount, pos);
+		for(opidx=0; opidx<opcount; opidx++) {
+			i64 count;
+			u8 val;
+
+			if(pos >= pos1+maxlen) goto done;
+			op = de_getbyte_p(&pos);
+			de_dbg(c, "op: 0x%02x at %"I64_FMT, (UI)op, pos);
+			if(op==0) { // RLE
+				count = (i64)de_getbyte_p(&pos);
+				val = de_getbyte_p(&pos);
+				for(k=0; k<count; k++) {
+					dbuf_writebyte_at(unc_pixels, dstpos, val);
+					dstpos += dststride;
+				}
+			}
+			else if(op<0x80) { // skip
+				dstpos += (i64)op * dststride;
+			}
+			else { // uncompressed
+				count = (i64)(op & 0x7f);
+				for(k=0; k<count; k++) {
+					val = de_getbyte_p(&pos);
+					dbuf_writebyte_at(unc_pixels, dstpos, val);
+					dstpos += dststride;
+				}
+			}
+		}
+	}
+
+done:
+	;
+}
+
+static void decompress_delta_op5(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1, i64 len,
+	dbuf *unc_pixels)
+{
+	i64 planedata_offs[16];
+	i64 pos = pos1;
+	int i;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	de_dbg(c, "delta5 %"I64_FMT", len=%"I64_FMT, pos1, len);
+	for(i=0; i<16; i++) {
+		planedata_offs[i] = de_getu32be_p(&pos);
+		if(i<d->main_img.planes) {
+			de_dbg(c, "plane[%d] offs: %"I64_FMT, i, planedata_offs[i]);
+			if(planedata_offs[i]>0) {
+				decompress_plane_delta_op5(c, d, frctx, pos1+planedata_offs[i], len-planedata_offs[i],
+					unc_pixels, i * (d->main_img.bits_per_row_per_plane/8),
+					d->main_img.planes * (d->main_img.bits_per_row_per_plane/8));
+			}
+		}
+	}
+
+	de_convert_and_write_image_bilevel(unc_pixels, 0, d->main_img.bits_per_row_per_plane * d->main_img.planes,
+		d->main_img.height, (d->main_img.bits_per_row_per_plane/8) * d->main_img.planes, 0, NULL, 0);
+
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	struct frame_ctx *frctx = d->frctx;
 	struct frame_ctx *reference_frctx = NULL;
-	int i;
 	i64 pos = pos1;
-	i64 plane_offs[16];
+	dbuf *unc_pixels = NULL;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	if(d->errflag) goto done;
 	if(!d->found_bmhd) goto done;
 	if(!frctx) goto done;
@@ -186,18 +267,23 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 		goto done;
 	}
 
-	for(i=0; i<16; i++) {
-		plane_offs[i] = de_getu32be_p(&pos);
-		if(i<d->main_img.planes) {
-			de_dbg(c, "plane[%d] offs: %"I64_FMT, (int)i, plane_offs[i]);
-		}
+	unc_pixels = dbuf_create_membuf(c, 0, 0);
+
+	switch(frctx->op) {
+	case 5:
+		decompress_delta_op5(c, d, frctx, pos1, len, unc_pixels);
+		break;
+	default:
+		goto done;
 	}
 
 done:
-	;
+	de_dbg_indent_restore(c, saved_indent_level);
+	dbuf_close(unc_pixels);
 }
 
-static int decompress_method1(deark *c, lctx *d, i64 pos, i64 len, dbuf *unc_pixels)
+static int decompress_method1(deark *c, lctx *d, i64 pos, i64 len, dbuf *unc_pixels,
+	i64 expected_len)
 {
 	int retval = 0;
 	struct de_dfilter_in_params dcmpri;
@@ -209,6 +295,8 @@ static int decompress_method1(deark *c, lctx *d, i64 pos, i64 len, dbuf *unc_pix
 	dcmpri.pos = pos;
 	dcmpri.len = len;
 	dcmpro.f = unc_pixels;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = expected_len;
 
 	de_fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres);
 	if(dres.errcode) {
@@ -225,6 +313,7 @@ static void do_body(deark *c, lctx *d, i64 pos1, i64 len)
 	struct frame_ctx *frctx = d->frctx;
 	int ok = 0;
 	dbuf *unc_pixels = NULL;
+	i64 expected_image_size;
 
 	if(d->errflag) goto done;
 	if(!d->found_bmhd) goto done;
@@ -237,9 +326,20 @@ static void do_body(deark *c, lctx *d, i64 pos1, i64 len)
 		goto done;
 	}
 
-	unc_pixels = dbuf_create_membuf(c, 0, 0);
-	if(!decompress_method1(c, d, pos1, len, unc_pixels)) goto done;
+	d->main_img.bits_per_row_per_plane = de_pad_to_n(d->main_img.width, 16);
+	expected_image_size = (d->main_img.bits_per_row_per_plane/8) * d->main_img.planes * d->main_img.height;
+
+	unc_pixels = dbuf_create_membuf(c, expected_image_size, 0x1);
+	if(!decompress_method1(c, d, pos1, len, unc_pixels, expected_image_size)) goto done;
 	de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", len, unc_pixels->len);
+	if(unc_pixels->len != expected_image_size) {
+		de_warn(c, "Expected %"I64_FMT" decompressed bytes, got %"I64_FMT, expected_image_size,
+			unc_pixels->len);
+	}
+
+	de_convert_and_write_image_bilevel(unc_pixels, 0, d->main_img.bits_per_row_per_plane * d->main_img.planes,
+		d->main_img.height, (d->main_img.bits_per_row_per_plane/8) * d->main_img.planes, 0, NULL, 0);
+	ok = 1;
 
 done:
 	dbuf_close(unc_pixels);
@@ -270,15 +370,15 @@ static void do_anim_anhd(deark *c, lctx *d, i64 pos, i64 len)
 	else {
 		pos += 9;
 	}
-	pos+=4; // abstime
+	pos += 4; // abstime
 
-	tmp = de_getu32be(pos); // reltime
+	tmp = de_getu32be_p(&pos); // reltime
 	de_dbg(c, "reltime: %.5f sec", ((double)tmp)/60.0);
-	pos+=4;
 
 	ileave = de_getbyte_p(&pos); // interleave
 	de_dbg(c, "interleave: %d", (int)ileave);
-	if(ileave != 0) {
+	if(ileave!=0 && ileave!=2) {
+		de_err(c, "Unsupported interleave");
 		d->errflag = 1;
 	}
 
@@ -289,7 +389,7 @@ static void do_anim_anhd(deark *c, lctx *d, i64 pos, i64 len)
 		tmp = de_getu32be(pos);
 		de_dbg(c, "flags: 0x%08u", (unsigned int)tmp);
 	}
-	//pos+=4;
+	//else { pos += 4; }
 }
 
 static void anim_on_frame_begin(deark *c, lctx *d, u32 formtype)
