@@ -64,10 +64,11 @@ typedef struct localctx_struct {
 	int errflag;
 	int num_frames_started;
 	int num_frames_finished;
+	int debug_frame_buffer;
+	u8 found_bmhd;
 	u8 found_cmap;
 	struct frame_ctx *frctx; // Non-NULL means we're inside a frame
 	struct frame_ctx *oldfrctx[2];
-	u8 found_bmhd;
 	struct bmhd_info main_img;
 	i64 pal_ncolors; // Number of colors we read from the file
 	u32 pal[256];
@@ -401,20 +402,59 @@ static void do_anim_anhd(deark *c, lctx *d, i64 pos, i64 len)
 // Generate the final image and write it to a file.
 static void write_frame(deark *c, lctx *d, struct frame_ctx *frctx)
 {
+	de_bitmap *img = NULL;
+	i64 j;
+	u8 pixelval[8];
+
 	if(d->errflag) goto done;
 	if(!frctx) goto done;
 	if(!frctx->frame_buffer) {
 		d->errflag = 1;
 		goto done;
 	}
+	if(d->main_img.planes<1 || d->main_img.planes>8) goto done;
 
-	// temp:
-	de_convert_and_write_image_bilevel(frctx->frame_buffer, 0,
-		d->main_img.bits_per_row_per_plane * d->main_img.planes,
-		d->main_img.height, d->main_img.frame_buffer_rowspan, 0, NULL, 0);
+	if(d->debug_frame_buffer) {
+		de_convert_and_write_image_bilevel(frctx->frame_buffer, 0,
+			d->main_img.bits_per_row_per_plane * d->main_img.planes,
+			d->main_img.height, d->main_img.frame_buffer_rowspan, 0, NULL, 0);
+	}
+
+	img = de_bitmap_create(c, d->main_img.width, d->main_img.height, 3);
+	for(j=0; j<d->main_img.height; j++) {
+		i64 z;
+		i64 plane;
+		UI k;
+
+		// Process 8 pixels at a time
+		for(z=0; z<d->main_img.bytes_per_row_per_plane; z++) {
+			de_zeromem(pixelval, sizeof(pixelval));
+
+			// Read the zth byte in each plane
+			for(plane=0; plane<d->main_img.planes; plane++) {
+				u8 b;
+
+				b = dbuf_getbyte(frctx->frame_buffer,
+					j*d->main_img.frame_buffer_rowspan +
+					plane*d->main_img.bytes_per_row_per_plane + z);
+
+				for(k=0; k<8; k++) {
+					if(b & (1U<<(7-k))) {
+						pixelval[k] |= 1U<<(UI)plane;
+					}
+				}
+			}
+
+			for(k=0; k<8; k++) {
+				de_bitmap_setpixel_rgb(img, z*8+(i64)k, j, d->pal[(UI)pixelval[k]]);
+			}
+		}
+	}
+
+	de_bitmap_write_to_file_finfo(img, NULL, 0);
 
 done:
-	;
+	de_bitmap_destroy(img);
 }
 
 static void anim_on_frame_begin(deark *c, lctx *d, u32 formtype)
