@@ -34,6 +34,7 @@ DE_DECLARE_MODULE(de_module_anim);
 struct bmhd_info {
 	i64 width, height;
 	u8 compression;
+	u8 masking_code;
 	i64 planes;
 	i64 transparent_color;
 	i64 x_aspect, y_aspect;
@@ -41,7 +42,9 @@ struct bmhd_info {
 	//i64 rowspan;
 	//i64 planespan;
 	i64 bits_per_row_per_plane;
-	u8 masking_code;
+	i64 bytes_per_row_per_plane;
+	i64 frame_buffer_rowspan;
+	i64 frame_buffer_size;
 	//u8 has_hotspot;
 	//int hotspot_x, hotspot_y;
 	//int is_thumb;
@@ -53,6 +56,7 @@ struct frame_ctx {
 	int frame_idx;
 	int done_flag; // Have we processed the image (BODY/DLTA/etc. chunk)?
 	u8 op;
+	dbuf *frame_buffer;
 };
 
 typedef struct localctx_struct {
@@ -88,6 +92,7 @@ static const char *anim_get_op_name(u8 op)
 static void destroy_frame(deark *c, lctx *d, struct frame_ctx *frctx)
 {
 	if(!frctx) return;
+	dbuf_close(frctx->frame_buffer);
 	de_free(c, frctx);
 }
 
@@ -149,8 +154,9 @@ done:
 	return retval;
 }
 
+// Decompress into frctx->frame_buffer, at dstpos1
 static void decompress_plane_delta_op5(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1, i64 maxlen,
-	dbuf *unc_pixels, i64 dstpos1, i64 dststride)
+	i64 dstpos1, i64 dststride)
 {
 	i64 num_columns;
 	i64 col;
@@ -166,19 +172,18 @@ static void decompress_plane_delta_op5(deark *c, lctx *d, struct frame_ctx *frct
 		i64 dstpos = dstpos1 + col;
 
 		opcount = de_getbyte_p(&pos);
-		de_dbg(c, "col %d opt count: %d at %"I64_FMT, (int)col, (int)opcount, pos);
+		de_dbg2(c, "col %d opt count: %d at %"I64_FMT, (int)col, (int)opcount, pos);
 		for(opidx=0; opidx<opcount; opidx++) {
 			i64 count;
 			u8 val;
 
 			if(pos >= pos1+maxlen) goto done;
 			op = de_getbyte_p(&pos);
-			de_dbg(c, "op: 0x%02x at %"I64_FMT, (UI)op, pos);
 			if(op==0) { // RLE
 				count = (i64)de_getbyte_p(&pos);
 				val = de_getbyte_p(&pos);
 				for(k=0; k<count; k++) {
-					dbuf_writebyte_at(unc_pixels, dstpos, val);
+					dbuf_writebyte_at(frctx->frame_buffer, dstpos, val);
 					dstpos += dststride;
 				}
 			}
@@ -189,7 +194,7 @@ static void decompress_plane_delta_op5(deark *c, lctx *d, struct frame_ctx *frct
 				count = (i64)(op & 0x7f);
 				for(k=0; k<count; k++) {
 					val = de_getbyte_p(&pos);
-					dbuf_writebyte_at(unc_pixels, dstpos, val);
+					dbuf_writebyte_at(frctx->frame_buffer, dstpos, val);
 					dstpos += dststride;
 				}
 			}
@@ -200,8 +205,8 @@ done:
 	;
 }
 
-static void decompress_delta_op5(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1, i64 len,
-	dbuf *unc_pixels)
+// Decompress into frctx->frame_buffer, at dstpos1
+static void decompress_delta_op5(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1, i64 len)
 {
 	i64 planedata_offs[16];
 	i64 pos = pos1;
@@ -209,6 +214,7 @@ static void decompress_delta_op5(deark *c, lctx *d, struct frame_ctx *frctx, i64
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
+	if(!frctx->frame_buffer) goto done;
 
 	de_dbg(c, "delta5 %"I64_FMT", len=%"I64_FMT, pos1, len);
 	for(i=0; i<16; i++) {
@@ -217,15 +223,13 @@ static void decompress_delta_op5(deark *c, lctx *d, struct frame_ctx *frctx, i64
 			de_dbg(c, "plane[%d] offs: %"I64_FMT, i, planedata_offs[i]);
 			if(planedata_offs[i]>0) {
 				decompress_plane_delta_op5(c, d, frctx, pos1+planedata_offs[i], len-planedata_offs[i],
-					unc_pixels, i * (d->main_img.bits_per_row_per_plane/8),
-					d->main_img.planes * (d->main_img.bits_per_row_per_plane/8));
+					i * d->main_img.bytes_per_row_per_plane,
+					d->main_img.frame_buffer_rowspan);
 			}
 		}
 	}
 
-	de_convert_and_write_image_bilevel(unc_pixels, 0, d->main_img.bits_per_row_per_plane * d->main_img.planes,
-		d->main_img.height, (d->main_img.bits_per_row_per_plane/8) * d->main_img.planes, 0, NULL, 0);
-
+done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -233,8 +237,6 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	struct frame_ctx *frctx = d->frctx;
 	struct frame_ctx *reference_frctx = NULL;
-	i64 pos = pos1;
-	dbuf *unc_pixels = NULL;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -244,16 +246,12 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 	if(frctx->done_flag) goto done;
 	frctx->done_flag = 1;
 
+	// Find the reference frame
 	if(frctx->frame_idx==1) {
 		reference_frctx = d->oldfrctx[0];
 	}
 	else if(frctx->frame_idx>=2) {
 		reference_frctx = d->oldfrctx[frctx->frame_idx%2];
-	}
-
-	if(!reference_frctx) {
-		de_err(c, "Missing reference frame");
-		goto done;
 	}
 
 	if(d->main_img.masking_code != 0) {
@@ -267,19 +265,27 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 		goto done;
 	}
 
-	unc_pixels = dbuf_create_membuf(c, 0, 0);
+	if(!frctx->frame_buffer) {
+		frctx->frame_buffer = dbuf_create_membuf(c, d->main_img.frame_buffer_size, 0x1);
+	}
+
+	if(reference_frctx && reference_frctx->frame_buffer) {
+		dbuf_copy(reference_frctx->frame_buffer, 0, reference_frctx->frame_buffer->len,
+			frctx->frame_buffer);
+	}
 
 	switch(frctx->op) {
 	case 5:
-		decompress_delta_op5(c, d, frctx, pos1, len, unc_pixels);
+		decompress_delta_op5(c, d, frctx, pos1, len);
 		break;
 	default:
+		de_err(c, "Unsupported DLTA operation: %d", (int)frctx->op);
+		d->errflag = 1;
 		goto done;
 	}
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
-	dbuf_close(unc_pixels);
 }
 
 static int decompress_method1(deark *c, lctx *d, i64 pos, i64 len, dbuf *unc_pixels,
@@ -312,8 +318,6 @@ static void do_body(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	struct frame_ctx *frctx = d->frctx;
 	int ok = 0;
-	dbuf *unc_pixels = NULL;
-	i64 expected_image_size;
 
 	if(d->errflag) goto done;
 	if(!d->found_bmhd) goto done;
@@ -327,22 +331,24 @@ static void do_body(deark *c, lctx *d, i64 pos1, i64 len)
 	}
 
 	d->main_img.bits_per_row_per_plane = de_pad_to_n(d->main_img.width, 16);
-	expected_image_size = (d->main_img.bits_per_row_per_plane/8) * d->main_img.planes * d->main_img.height;
+	d->main_img.bytes_per_row_per_plane = d->main_img.bits_per_row_per_plane/8;
+	d->main_img.frame_buffer_rowspan = d->main_img.bytes_per_row_per_plane * d->main_img.planes;
+	d->main_img.frame_buffer_size = d->main_img.frame_buffer_rowspan * d->main_img.height;
 
-	unc_pixels = dbuf_create_membuf(c, expected_image_size, 0x1);
-	if(!decompress_method1(c, d, pos1, len, unc_pixels, expected_image_size)) goto done;
-	de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", len, unc_pixels->len);
-	if(unc_pixels->len != expected_image_size) {
-		de_warn(c, "Expected %"I64_FMT" decompressed bytes, got %"I64_FMT, expected_image_size,
-			unc_pixels->len);
+	if(!frctx->frame_buffer) {
+		frctx->frame_buffer = dbuf_create_membuf(c, d->main_img.frame_buffer_size, 0x1);
 	}
 
-	de_convert_and_write_image_bilevel(unc_pixels, 0, d->main_img.bits_per_row_per_plane * d->main_img.planes,
-		d->main_img.height, (d->main_img.bits_per_row_per_plane/8) * d->main_img.planes, 0, NULL, 0);
+	if(!decompress_method1(c, d, pos1, len, frctx->frame_buffer, d->main_img.frame_buffer_size)) goto done;
+	de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", len, frctx->frame_buffer->len);
+	if(frctx->frame_buffer->len != d->main_img.frame_buffer_size) {
+		de_warn(c, "Expected %"I64_FMT" decompressed bytes, got %"I64_FMT, d->main_img.frame_buffer_size,
+			frctx->frame_buffer->len);
+	}
+
 	ok = 1;
 
 done:
-	dbuf_close(unc_pixels);
 	if(!ok) {
 		d->errflag = 1;
 	}
@@ -392,6 +398,25 @@ static void do_anim_anhd(deark *c, lctx *d, i64 pos, i64 len)
 	//else { pos += 4; }
 }
 
+// Generate the final image and write it to a file.
+static void write_frame(deark *c, lctx *d, struct frame_ctx *frctx)
+{
+	if(d->errflag) goto done;
+	if(!frctx) goto done;
+	if(!frctx->frame_buffer) {
+		d->errflag = 1;
+		goto done;
+	}
+
+	// temp:
+	de_convert_and_write_image_bilevel(frctx->frame_buffer, 0,
+		d->main_img.bits_per_row_per_plane * d->main_img.planes,
+		d->main_img.height, d->main_img.frame_buffer_rowspan, 0, NULL, 0);
+
+done:
+	;
+}
+
 static void anim_on_frame_begin(deark *c, lctx *d, u32 formtype)
 {
 	if(d->frctx) return;
@@ -408,6 +433,8 @@ static void anim_on_frame_end(deark *c, lctx *d)
 	if(!d->frctx) return;
 
 	de_dbg(c, "[frame #%d end]", d->frctx->frame_idx);
+
+	write_frame(c, d, d->frctx);
 
 	where_to_save_this_frame = d->frctx->frame_idx % 2;
 
