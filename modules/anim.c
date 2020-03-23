@@ -68,7 +68,10 @@ typedef struct localctx_struct {
 	int debug_frame_buffer;
 	u8 found_bmhd;
 	u8 found_cmap;
+	u8 has_camg;
 	u8 ham_flag; // "hold and modify"
+	u8 is_ham6;
+	u8 is_ham8;
 	u8 ehb_flag; // "extra halfbrite"
 	UI camg_mode;
 	struct frame_ctx *frctx; // Non-NULL means we're inside a frame
@@ -409,7 +412,12 @@ static void do_anim_anhd(deark *c, lctx *d, i64 pos, i64 len)
 static void do_camg(deark *c, lctx *d, i64 pos, i64 len)
 {
 	if(len<4) return;
-	//d->has_camg = 1;
+	d->has_camg = 1;
+
+	d->ham_flag = 0;
+	d->is_ham6 = 0;
+	d->is_ham8 = 0;
+	d->ehb_flag = 0;
 
 	d->camg_mode = (UI)de_getu32be(pos);
 	de_dbg(c, "CAMG mode: 0x%x", d->camg_mode);
@@ -420,16 +428,111 @@ static void do_camg(deark *c, lctx *d, i64 pos, i64 len)
 		d->ehb_flag = 1;
 
 	de_dbg_indent(c, 1);
-	de_dbg(c, "HAM: %d, EHB: %d", (int)d->ham_flag, (int)d->ehb_flag);
+	de_dbg(c, "HAM: %d", (int)d->ham_flag);
+	de_dbg(c, "EHB: %d", (int)d->ehb_flag);
 	de_dbg_indent(c, -1);
 
 	if(d->ham_flag) {
-		de_err(c, "HAM images are not supported");
-		d->errflag = 1;
+		if(d->main_img.planes==6 || d->main_img.planes==5) {
+			d->is_ham6 = 1;
+		}
+		else if(d->main_img.planes==8 || d->main_img.planes==7) {
+			d->is_ham8 = 1;
+		}
+		else {
+			de_warn(c, "Invalid bit depth (%d) for HAM image.", (int)d->main_img.planes);
+		}
 	}
+
 	if(d->ehb_flag) {
 		de_err(c, "EHB images are not supported");
 		d->errflag = 1;
+	}
+}
+
+static void render_pixel_row_ham6(deark *c, lctx *d, i64 rownum, const u8 *rowbuf,
+	UI rowbuf_size, de_bitmap *img)
+{
+	UI i;
+	u8 cr, cg, cb;
+
+	// At the beginning of each row, the color accumulators are
+	// initialized to palette entry 0.
+	cr = DE_COLOR_R(d->pal[0]);
+	cg = DE_COLOR_G(d->pal[0]);
+	cb = DE_COLOR_B(d->pal[0]);
+
+	for(i=0; i<rowbuf_size; i++) {
+		u32 clr;
+		u8 val = rowbuf[i];
+
+		switch((val>>4)&0x3) {
+		case 0x1: // Modify blue value
+			cb = 17*(val&0x0f);
+			break;
+		case 0x2: // Modify red value
+			cr = 17*(val&0x0f);
+			break;
+		case 0x3: // Modify green value
+			cg = 17*(val&0x0f);
+			break;
+		default: // 0: Use colormap value
+			clr = d->pal[(UI)val];
+			cr = DE_COLOR_R(clr);
+			cg = DE_COLOR_G(clr);
+			cb = DE_COLOR_B(clr);
+			break;
+		}
+
+		de_bitmap_setpixel_rgb(img, (i64)i, rownum, DE_MAKE_RGB(cr, cg, cb));
+	}
+}
+
+static void render_pixel_row_ham8(deark *c, lctx *d, i64 rownum, const u8 *rowbuf,
+	UI rowbuf_size, de_bitmap *img)
+{
+	UI i;
+	u8 cr, cg, cb;
+
+	// At the beginning of each row, the color accumulators are
+	// initialized to palette entry 0.
+	cr = DE_COLOR_R(d->pal[0]);
+	cg = DE_COLOR_G(d->pal[0]);
+	cb = DE_COLOR_B(d->pal[0]);
+
+	for(i=0; i<rowbuf_size; i++) {
+		u32 clr;
+		u8 val = rowbuf[i];
+
+		switch((val>>6)&0x3) {
+		case 0x1:
+			cb = ((val&0x3f)<<2)|((val&0x3f)>>4);
+			break;
+		case 0x2:
+			cr = ((val&0x3f)<<2)|((val&0x3f)>>4);
+			break;
+		case 0x3:
+			cg = ((val&0x3f)<<2)|((val&0x3f)>>4);
+			break;
+		default:
+			clr = d->pal[(UI)val];
+			cr = DE_COLOR_R(clr);
+			cg = DE_COLOR_G(clr);
+			cb = DE_COLOR_B(clr);
+			break;
+		}
+
+		de_bitmap_setpixel_rgb(img, (i64)i, rownum, DE_MAKE_RGB(cr, cg, cb));
+	}
+}
+
+static void render_pixel_row_normal(deark *c, lctx *d, i64 rownum, const u8 *rowbuf,
+	UI rowbuf_size, de_bitmap *img)
+{
+	UI k;
+
+	for(k=0; k<rowbuf_size; k++) {
+		de_bitmap_setpixel_rgb(img, (i64)k, rownum, d->pal[(UI)rowbuf[k]]);
 	}
 }
 
@@ -439,6 +542,8 @@ static void write_frame(deark *c, lctx *d, struct frame_ctx *frctx)
 	de_bitmap *img = NULL;
 	i64 j;
 	u8 pixelval[8];
+	u8 *rowbuf = NULL; // The current row of pixel (palette) value
+	UI rowbuf_size;
 
 	if(d->errflag) goto done;
 	if(!frctx) goto done;
@@ -453,6 +558,9 @@ static void write_frame(deark *c, lctx *d, struct frame_ctx *frctx)
 			d->main_img.bits_per_row_per_plane * d->main_img.planes,
 			d->main_img.height, d->main_img.frame_buffer_rowspan, 0, NULL, 0);
 	}
+
+	rowbuf_size = (UI)d->main_img.width;
+	rowbuf = de_malloc(c, rowbuf_size);
 
 	img = de_bitmap_create(c, d->main_img.width, d->main_img.height, 3);
 	for(j=0; j<d->main_img.height; j++) {
@@ -480,8 +588,23 @@ static void write_frame(deark *c, lctx *d, struct frame_ctx *frctx)
 			}
 
 			for(k=0; k<8; k++) {
-				de_bitmap_setpixel_rgb(img, z*8+(i64)k, j, d->pal[(UI)pixelval[k]]);
+				UI idx;
+
+				idx = (UI)z*8+k;
+				if(idx < rowbuf_size) {
+					rowbuf[idx] = pixelval[k];
+				}
 			}
+		}
+
+		if(d->is_ham6) {
+			render_pixel_row_ham6(c, d, j, rowbuf, rowbuf_size, img);
+		}
+		else if(d->is_ham8) {
+			render_pixel_row_ham8(c, d, j, rowbuf, rowbuf_size, img);
+		}
+		else {
+			render_pixel_row_normal(c, d, j, rowbuf, rowbuf_size, img);
 		}
 	}
 
@@ -489,6 +612,7 @@ static void write_frame(deark *c, lctx *d, struct frame_ctx *frctx)
 
 done:
 	de_bitmap_destroy(img);
+	de_free(c, rowbuf);
 }
 
 static void anim_on_frame_begin(deark *c, lctx *d, u32 formtype)
