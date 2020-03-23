@@ -213,7 +213,7 @@ done:
 	;
 }
 
-// Decompress into frctx->frame_buffer, at dstpos1
+// Decompress into frctx->frame_buffer
 static void decompress_delta_op5(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1, i64 len)
 {
 	i64 planedata_offs[16];
@@ -245,6 +245,142 @@ static void decompress_delta_op5(deark *c, lctx *d, struct frame_ctx *frctx, i64
 	}
 
 done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+// Decompress into frctx->frame_buffer, at dstpos1
+static void decompress_plane_delta_op7(deark *c, lctx *d, struct frame_ctx *frctx,
+	dbuf *inf, i64 oppos1, i64 datapos1,
+	i64 dstpos1, i64 dststride, i64 elem_size)
+{
+	i64 oppos = oppos1;
+	i64 datapos = datapos1;
+	i64 num_columns;
+	i64 col;
+
+	de_dbg(c, "delta7 plane at (%"I64_FMT", %"I64_FMT")", oppos1, datapos1);
+	if(elem_size!=2 && elem_size!=4) goto done;
+
+	// ??? How does this work? How many columns are there? What happens if
+	// elem_size is 4, and bytes_per_row_per_plane is not a multiple of 4 bytes?
+	if(elem_size==4) {
+		num_columns = (d->main_img.bytes_per_row_per_plane+3)/4;
+	}
+	else {
+		num_columns = (d->main_img.frame_buffer_rowspan+1)/2;
+	}
+
+	for(col=0; col<num_columns; col++) {
+		i64 opcount;
+		i64 opidx;
+		i64 k;
+		u8 op;
+		i64 dstpos = dstpos1 + col*elem_size;
+
+		if(oppos >= inf->len) goto done;
+		opcount = (i64)dbuf_getbyte_p(inf, &oppos);
+		de_dbg2(c, "col %d opt count: %d", (int)col, (int)opcount);
+
+		for(opidx=0; opidx<opcount; opidx++) {
+			i64 count;
+			u8 valbuf[4];
+
+			if(datapos > inf->len) goto done;
+			op = dbuf_getbyte_p(inf, &oppos);
+
+			if(op==0) { // RLE
+				count = (i64)dbuf_getbyte_p(inf, &oppos);
+
+				dbuf_read(inf, valbuf, datapos, elem_size);
+				datapos += elem_size;
+
+				for(k=0; k<count; k++) {
+					dbuf_write_at(frctx->frame_buffer, dstpos, valbuf, elem_size);
+					dstpos += dststride;
+				}
+			}
+			else if(op<0x80) { // skip
+				dstpos += (i64)op * dststride;
+			}
+			else { // uncompressed
+				count = (i64)(op & 0x7f);
+				for(k=0; k<count; k++) {
+					dbuf_read(inf, valbuf, datapos, elem_size);
+					datapos += elem_size;
+					dbuf_write_at(frctx->frame_buffer, dstpos, valbuf, elem_size);
+					dstpos += dststride;
+				}
+			}
+		}
+	}
+
+done:
+	;
+}
+
+// Decompress into frctx->frame_buffer
+static void decompress_delta_op7(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1, i64 len)
+{
+	i64 opcodelist_offs[8];
+	i64 datalist_offs[8];
+	i64 infpos;
+	int i;
+	int saved_indent_level;
+	i64 elem_size = 2;
+	dbuf *inf = NULL;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(!frctx->frame_buffer) goto done;
+
+	de_dbg(c, "delta7 %"I64_FMT", len=%"I64_FMT, pos1, len);
+
+	if(frctx->bits & 0xfffffffeU) {
+		de_err(c, "Unsupported ANHD options");
+		d->errflag = 1;
+		goto done;
+	}
+	if(frctx->bits & 0x00000001) {
+		elem_size = 4;
+	}
+	else {
+		elem_size = 2;
+	}
+
+	// We'll have to interleave lots of short reads between two different segments of
+	// the file, with no way to know how big either segment is.
+	// I see no good way to process this DLTA#7 format, except by first reading the
+	// entire chunk into memory.
+	if(len > DE_MAX_SANE_OBJECT_SIZE) {
+		d->errflag = 1;
+		goto done;
+	}
+	inf = dbuf_create_membuf(c, len, 0);
+	dbuf_copy(c->infile, pos1, len, inf);
+	infpos = 0;
+
+	for(i=0; i<8; i++) {
+		opcodelist_offs[i] = dbuf_getu32be_p(inf, &infpos);
+	}
+
+	for(i=0; i<8; i++) {
+		datalist_offs[i] = dbuf_getu32be_p(inf, &infpos);
+	}
+
+	for(i=0; i<8; i++) {
+		if(i<d->main_img.planes) {
+			de_dbg(c, "opcode_list[%d] offs: %"I64_FMT, i, opcodelist_offs[i]);
+			de_dbg(c, "data_list[%d] offs: %"I64_FMT, i, datalist_offs[i]);
+			if(opcodelist_offs[i]>0) {
+				decompress_plane_delta_op7(c, d, frctx, inf,
+					opcodelist_offs[i], datalist_offs[i],
+					i * d->main_img.bytes_per_row_per_plane,
+					d->main_img.frame_buffer_rowspan, elem_size);
+			}
+		}
+	}
+
+done:
+	dbuf_close(inf);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -292,6 +428,9 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 	switch(frctx->op) {
 	case 5:
 		decompress_delta_op5(c, d, frctx, pos1, len);
+		break;
+	case 7:
+		decompress_delta_op7(c, d, frctx, pos1, len);
 		break;
 	default:
 		de_err(c, "Unsupported DLTA operation: %d", (int)frctx->op);
@@ -554,9 +693,14 @@ static void write_frame(deark *c, lctx *d, struct frame_ctx *frctx)
 	if(d->main_img.planes<1 || d->main_img.planes>8) goto done;
 
 	if(d->debug_frame_buffer) {
+		de_finfo *fi_fb;
+
+		fi_fb = de_finfo_create(c);
+		de_finfo_set_name_from_sz(c, fi_fb, "fb", 0, DE_ENCODING_LATIN1);
 		de_convert_and_write_image_bilevel(frctx->frame_buffer, 0,
 			d->main_img.bits_per_row_per_plane * d->main_img.planes,
-			d->main_img.height, d->main_img.frame_buffer_rowspan, 0, NULL, 0);
+			d->main_img.height, d->main_img.frame_buffer_rowspan, 0, fi_fb, 0);
+		de_finfo_destroy(c, fi_fb);
 	}
 
 	rowbuf_size = (UI)d->main_img.width;
