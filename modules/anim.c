@@ -56,6 +56,7 @@ struct frame_ctx {
 	int frame_idx;
 	int done_flag; // Have we processed the image (BODY/DLTA/etc. chunk)?
 	u8 op;
+	UI bits;
 	dbuf *frame_buffer;
 };
 
@@ -67,6 +68,9 @@ typedef struct localctx_struct {
 	int debug_frame_buffer;
 	u8 found_bmhd;
 	u8 found_cmap;
+	u8 ham_flag; // "hold and modify"
+	u8 ehb_flag; // "extra halfbrite"
+	UI camg_mode;
 	struct frame_ctx *frctx; // Non-NULL means we're inside a frame
 	struct frame_ctx *oldfrctx[2];
 	struct bmhd_info main_img;
@@ -218,6 +222,13 @@ static void decompress_delta_op5(deark *c, lctx *d, struct frame_ctx *frctx, i64
 	if(!frctx->frame_buffer) goto done;
 
 	de_dbg(c, "delta5 %"I64_FMT", len=%"I64_FMT, pos1, len);
+
+	if(frctx->bits != 0) {
+		de_err(c, "Unsupported ANHD options");
+		d->errflag = 1;
+		goto done;
+	}
+
 	for(i=0; i<16; i++) {
 		planedata_offs[i] = de_getu32be_p(&pos);
 		if(i<d->main_img.planes) {
@@ -391,12 +402,35 @@ static void do_anim_anhd(deark *c, lctx *d, i64 pos, i64 len)
 
 	pos++; // pad0
 
-	// bits
-	if(frctx->op==4 || frctx->op==5) {
-		tmp = de_getu32be(pos);
-		de_dbg(c, "flags: 0x%08u", (unsigned int)tmp);
+	frctx->bits = (UI)de_getu32be_p(&pos);
+	de_dbg(c, "flags: 0x%08u", frctx->bits);
+}
+
+static void do_camg(deark *c, lctx *d, i64 pos, i64 len)
+{
+	if(len<4) return;
+	//d->has_camg = 1;
+
+	d->camg_mode = (UI)de_getu32be(pos);
+	de_dbg(c, "CAMG mode: 0x%x", d->camg_mode);
+
+	if(d->camg_mode & 0x0800)
+		d->ham_flag = 1;
+	if(d->camg_mode & 0x0080)
+		d->ehb_flag = 1;
+
+	de_dbg_indent(c, 1);
+	de_dbg(c, "HAM: %d, EHB: %d", (int)d->ham_flag, (int)d->ehb_flag);
+	de_dbg_indent(c, -1);
+
+	if(d->ham_flag) {
+		de_err(c, "HAM images are not supported");
+		d->errflag = 1;
 	}
-	//else { pos += 4; }
+	if(d->ehb_flag) {
+		de_err(c, "EHB images are not supported");
+		d->errflag = 1;
+	}
 }
 
 // Generate the final image and write it to a file.
@@ -542,6 +576,10 @@ static int my_anim_chunk_handler(deark *c, struct de_iffctx *ictx)
 		}
 		do_body(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		break;
+
+	case CODE_CAMG:
+		do_camg(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		break;
 	}
 
 done:
@@ -657,5 +695,4 @@ void de_module_anim(deark *c, struct deark_module_info *mi)
 	mi->desc = "IFF-ANIM animation";
 	mi->run_fn = de_run_anim;
 	mi->identify_fn = de_identify_anim;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }

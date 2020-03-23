@@ -24,6 +24,10 @@ Deark -- Information about supported formats
 * ANI (Windows Animated Cursor) (part of module "riff")
   - Extract individual CUR and ICO files.
 
+* ANIM (Amiga IFF-ANIM) (module="anim") (expermimental)
+  - Limited support.
+  - Extract the individual frames.
+
 * Animatic Film (module="animatic")
   - Extract the individual frames.
   Options
