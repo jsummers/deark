@@ -61,6 +61,7 @@ struct frame_ctx {
 };
 
 typedef struct localctx_struct {
+	int is_anim;
 	int FORM_level; // nesting level of the frames' FORM chunks
 	int errflag;
 	int num_frames_started;
@@ -68,6 +69,7 @@ typedef struct localctx_struct {
 	int debug_frame_buffer;
 	u8 found_bmhd;
 	u8 found_cmap;
+	u8 cmap_changed_flag;
 	u8 has_camg;
 	u8 ham_flag; // "hold and modify"
 	u8 is_ham6;
@@ -78,7 +80,8 @@ typedef struct localctx_struct {
 	struct frame_ctx *oldfrctx[2];
 	struct bmhd_info main_img;
 	i64 pal_ncolors; // Number of colors we read from the file
-	u32 pal[256];
+	u32 pal_raw[256]; // Palette as read from the file
+	u32 pal[256]; // Palette that we will use
 } lctx;
 
 static const char *anim_get_op_name(u8 op)
@@ -106,12 +109,18 @@ static void destroy_frame(deark *c, lctx *d, struct frame_ctx *frctx)
 
 static void do_cmap(deark *c, lctx *d, i64 pos, i64 len)
 {
-	d->found_cmap = 1;
-	d->pal_ncolors = len/3;
-	de_dbg(c, "number of palette colors: %d", (int)d->pal_ncolors);
-	if(d->pal_ncolors>256) d->pal_ncolors=256;
+	i64 ncolors;
 
-	de_read_palette_rgb(c->infile, pos, d->pal_ncolors, 3, d->pal, 256, 0);
+	d->found_cmap = 1;
+	d->cmap_changed_flag = 1;
+	ncolors = len/3;
+	de_dbg(c, "number of palette colors: %d", (int)ncolors);
+	if(ncolors>256) ncolors=256;
+
+	de_read_palette_rgb(c->infile, pos, ncolors, 3, d->pal_raw, 256, 0);
+	if(ncolors > d->pal_ncolors) {
+		d->pal_ncolors = ncolors;
+	}
 }
 
 static int do_bmhd(deark *c, lctx *d, i64 pos1, i64 len)
@@ -170,7 +179,7 @@ static void decompress_plane_delta_op5(deark *c, lctx *d, struct frame_ctx *frct
 	i64 col;
 	i64 pos = pos1;
 
-	de_dbg(c, "delta5 plane at %"I64_FMT", maxlen=%"I64_FMT, pos1, maxlen);
+	de_dbg2(c, "delta5 plane at %"I64_FMT", maxlen=%"I64_FMT, pos1, maxlen);
 	num_columns = de_pad_to_n(d->main_img.width, 8)/8;
 	for(col=0; col<num_columns; col++) {
 		i64 opcount;
@@ -180,7 +189,9 @@ static void decompress_plane_delta_op5(deark *c, lctx *d, struct frame_ctx *frct
 		i64 dstpos = dstpos1 + col;
 
 		opcount = de_getbyte_p(&pos);
-		de_dbg2(c, "col %d opt count: %d at %"I64_FMT, (int)col, (int)opcount, pos);
+		if(c->debug_level>=3) {
+			de_dbg3(c, "col %d op count: %d at %"I64_FMT, (int)col, (int)opcount, pos);
+		}
 		for(opidx=0; opidx<opcount; opidx++) {
 			i64 count;
 			u8 val;
@@ -224,7 +235,7 @@ static void decompress_delta_op5(deark *c, lctx *d, struct frame_ctx *frctx, i64
 	de_dbg_indent_save(c, &saved_indent_level);
 	if(!frctx->frame_buffer) goto done;
 
-	de_dbg(c, "delta5 %"I64_FMT", len=%"I64_FMT, pos1, len);
+	de_dbg(c, "[delta5 data]");
 
 	if(frctx->bits != 0) {
 		de_err(c, "Unsupported ANHD options");
@@ -235,7 +246,7 @@ static void decompress_delta_op5(deark *c, lctx *d, struct frame_ctx *frctx, i64
 	for(i=0; i<16; i++) {
 		planedata_offs[i] = de_getu32be_p(&pos);
 		if(i<d->main_img.planes) {
-			de_dbg(c, "plane[%d] offs: %"I64_FMT, i, planedata_offs[i]);
+			de_dbg2(c, "plane[%d] offs: %"I64_FMT, i, planedata_offs[i]);
 			if(planedata_offs[i]>0) {
 				decompress_plane_delta_op5(c, d, frctx, pos1+planedata_offs[i], len-planedata_offs[i],
 					i * d->main_img.bytes_per_row_per_plane,
@@ -258,7 +269,7 @@ static void decompress_plane_delta_op7(deark *c, lctx *d, struct frame_ctx *frct
 	i64 num_columns;
 	i64 col;
 
-	de_dbg(c, "delta7 plane at (%"I64_FMT", %"I64_FMT")", oppos1, datapos1);
+	de_dbg2(c, "delta7 plane at (%"I64_FMT", %"I64_FMT")", oppos1, datapos1);
 	if(elem_size!=2 && elem_size!=4) goto done;
 
 	// ??? How does this work? How many columns are there? What happens if
@@ -279,7 +290,9 @@ static void decompress_plane_delta_op7(deark *c, lctx *d, struct frame_ctx *frct
 
 		if(oppos >= inf->len) goto done;
 		opcount = (i64)dbuf_getbyte_p(inf, &oppos);
-		de_dbg2(c, "col %d opt count: %d", (int)col, (int)opcount);
+		if(c->debug_level>=3) {
+			de_dbg3(c, "col %d op count: %d", (int)col, (int)opcount);
+		}
 
 		for(opidx=0; opidx<opcount; opidx++) {
 			i64 count;
@@ -332,7 +345,7 @@ static void decompress_delta_op7(deark *c, lctx *d, struct frame_ctx *frctx, i64
 	de_dbg_indent_save(c, &saved_indent_level);
 	if(!frctx->frame_buffer) goto done;
 
-	de_dbg(c, "delta7 %"I64_FMT", len=%"I64_FMT, pos1, len);
+	de_dbg(c, "[delta7 data]");
 
 	if(frctx->bits & 0xfffffffeU) {
 		de_err(c, "Unsupported ANHD options");
@@ -368,8 +381,8 @@ static void decompress_delta_op7(deark *c, lctx *d, struct frame_ctx *frctx, i64
 
 	for(i=0; i<8; i++) {
 		if(i<d->main_img.planes) {
-			de_dbg(c, "opcode_list[%d] offs: %"I64_FMT, i, opcodelist_offs[i]);
-			de_dbg(c, "data_list[%d] offs: %"I64_FMT, i, datalist_offs[i]);
+			de_dbg2(c, "opcode_list[%d] offs: %"I64_FMT, i, opcodelist_offs[i]);
+			de_dbg2(c, "data_list[%d] offs: %"I64_FMT, i, datalist_offs[i]);
 			if(opcodelist_offs[i]>0) {
 				decompress_plane_delta_op7(c, d, frctx, inf,
 					opcodelist_offs[i], datalist_offs[i],
@@ -382,6 +395,45 @@ static void decompress_delta_op7(deark *c, lctx *d, struct frame_ctx *frctx, i64
 done:
 	dbuf_close(inf);
 	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_before_first_frame_body(deark *c, lctx *d)
+{
+	if(d->main_img.planes==6 && d->pal_ncolors==32 && !d->ehb_flag) {
+		de_warn(c, "Assuming this is an EHB image");
+		d->ehb_flag = 1;
+	}
+}
+
+// Called when we encounter a BODY or DLTA chunk
+static void do_before_frame_body(deark *c, lctx *d)
+{
+	if(!d->frctx) goto done;
+	if(d->frctx->frame_idx==0) {
+		do_before_first_frame_body(c, d);
+	}
+
+	if(d->cmap_changed_flag) {
+		de_memcpy(d->pal, d->pal_raw, 256*sizeof(d->pal_raw[0]));
+	}
+
+	if(d->cmap_changed_flag && d->ehb_flag && d->main_img.planes==6) {
+		UI k;
+
+		// TODO: Should we still do this if the palette already has 64 colors
+		// (as it often does)?
+		for(k=0; k<32; k++) {
+			u8 cr, cg, cb;
+
+			cr = DE_COLOR_R(d->pal[k]);
+			cg = DE_COLOR_G(d->pal[k]);
+			cb = DE_COLOR_B(d->pal[k]);
+			d->pal[k+32] = DE_MAKE_RGB(cr/2, cg/2, cb/2);
+		}
+	}
+
+done:
+	d->cmap_changed_flag = 0;
 }
 
 static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
@@ -397,16 +449,10 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 	if(frctx->done_flag) goto done;
 	frctx->done_flag = 1;
 
-	// Find the reference frame
-	if(frctx->frame_idx==1) {
-		reference_frctx = d->oldfrctx[0];
-	}
-	else if(frctx->frame_idx>=2) {
-		reference_frctx = d->oldfrctx[frctx->frame_idx%2];
-	}
+	do_before_frame_body(c, d);
 
 	if(d->main_img.masking_code != 0) {
-		de_err(c, "Transparency not supported");
+		de_err(c, "Transparency is not supported");
 		d->errflag = 1;
 		goto done;
 	}
@@ -416,10 +462,21 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 		goto done;
 	}
 
+	// Find the reference frame
+	if(frctx->frame_idx==1) {
+		reference_frctx = d->oldfrctx[0];
+	}
+	else if(frctx->frame_idx>=2) {
+		reference_frctx = d->oldfrctx[frctx->frame_idx%2];
+	}
+
+	// Allocate buffer for this frame
 	if(!frctx->frame_buffer) {
 		frctx->frame_buffer = dbuf_create_membuf(c, d->main_img.frame_buffer_size, 0x1);
 	}
 
+	// Start by copying the reference frame to this frame. The decompress function
+	// will then modify this frame.
 	if(reference_frctx && reference_frctx->frame_buffer) {
 		dbuf_copy(reference_frctx->frame_buffer, 0, reference_frctx->frame_buffer->len,
 			frctx->frame_buffer);
@@ -478,6 +535,8 @@ static void do_body(deark *c, lctx *d, i64 pos1, i64 len)
 	if(!frctx) goto done;
 	if(frctx->done_flag) goto done;
 	frctx->done_flag = 1;
+
+	do_before_frame_body(c, d);
 
 	if(d->main_img.compression!=1) {
 		de_err(c, "Unsupported compression method (%d)", (int)d->main_img.compression);
@@ -581,11 +640,6 @@ static void do_camg(deark *c, lctx *d, i64 pos, i64 len)
 		else {
 			de_warn(c, "Invalid bit depth (%d) for HAM image.", (int)d->main_img.planes);
 		}
-	}
-
-	if(d->ehb_flag) {
-		de_err(c, "EHB images are not supported");
-		d->errflag = 1;
 	}
 }
 
@@ -818,15 +872,6 @@ static int my_anim_chunk_handler(deark *c, struct de_iffctx *ictx)
 		}
 		break;
 
-	case CODE_DLTA:
-		if(ictx->curr_container_contentstype4cc.id != CODE_ILBM) {
-			d->errflag = 1;
-			goto done;
-		}
-		if(!d->frctx) goto done;
-		do_dlta(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
-		break;
-
 	case CODE_ANHD:
 		if(!d->frctx) goto done;
 		do_anim_anhd(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
@@ -834,6 +879,10 @@ static int my_anim_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	case CODE_CMAP:
 		do_cmap(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		break;
+
+	case CODE_CAMG:
+		do_camg(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		break;
 
 	case CODE_BODY:
@@ -845,8 +894,13 @@ static int my_anim_chunk_handler(deark *c, struct de_iffctx *ictx)
 		do_body(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		break;
 
-	case CODE_CAMG:
-		do_camg(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+	case CODE_DLTA:
+		if(ictx->curr_container_contentstype4cc.id != CODE_ILBM) {
+			d->errflag = 1;
+			goto done;
+		}
+		if(!d->frctx) goto done;
+		do_dlta(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		break;
 	}
 
@@ -911,19 +965,17 @@ static void de_run_anim(deark *c, de_module_params *mparams)
 	id = (u32)de_getu32be(8);
 	switch(id) {
 	case CODE_ANIM:
-		d->FORM_level = 1;
+		de_declare_fmt(c, "IFF-ANIM");
+		d->is_anim = 1;
 		break;
 	case CODE_ILBM:
-		d->FORM_level = 0;
 		break;
 	default:
 		de_err(c, "Not a supported IFF format");
 		goto done;
 	}
 
-	if(id==CODE_ANIM) {
-		de_declare_fmt(c, "IFF-ANIM");
-	}
+	d->FORM_level = d->is_anim ? 1 : 0;
 
 	ictx = de_malloc(c, sizeof(struct de_iffctx));
 	ictx->userdata = (void*)d;
