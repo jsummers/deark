@@ -10,6 +10,7 @@
 DE_DECLARE_MODULE(de_module_ilbm);
 
 #define CODE_ABIT  0x41424954
+#define CODE_ANIM  0x414e494dU
 #define CODE_BEAM  0x4245414dU
 #define CODE_BMHD  0x424d4844
 #define CODE_BODY  0x424f4459
@@ -1075,6 +1076,7 @@ static void de_run_ilbm(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	struct de_iffctx *ictx = NULL;
+	u32 formtype;
 
 	d = de_malloc(c, sizeof(lctx));
 	ictx = de_malloc(c, sizeof(struct de_iffctx));
@@ -1085,6 +1087,8 @@ static void de_run_ilbm(deark *c, de_module_params *mparams)
 
 	d->opt_fixpal = de_get_ext_option_bool(c, "ilbm:fixpal", 1);
 
+	formtype = (u32)de_getu32be(8);
+
 	ictx->userdata = (void*)d;
 	ictx->preprocess_chunk_fn = my_preprocess_ilbm_chunk_fn;
 	ictx->handle_chunk_fn = my_ilbm_chunk_handler;
@@ -1092,7 +1096,17 @@ static void de_run_ilbm(deark *c, de_module_params *mparams)
 	ictx->on_container_end_fn = my_on_container_end_fn;
 	ictx->f = c->infile;
 	d->chunks_seen = de_inthashtable_create(c);
-	de_fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
+
+	if(formtype==CODE_ANIM) {
+		// If for some reason this module got used with an ANIM file, try to
+		// decode the first frame as an ILBM file (usually works).
+		de_declare_fmt(c, "IFF-ANIM");
+		de_fmtutil_read_iff_format(c, ictx, 12, c->infile->len-12);
+	}
+	else {
+		de_fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
+	}
+
 	print_summary(c, d);
 
 	dbuf_close(d->vdat_unc_pixels);
