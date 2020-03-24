@@ -171,6 +171,101 @@ done:
 	return retval;
 }
 
+static i64 delta3_calc_elem_pos(i64 elemnum, i64 elemsize, i64 elems_per_row, i64 plane_offset,
+	i64 frame_buffer_rowspan)
+{
+	i64 row, col;
+
+	row = elemnum / elems_per_row;
+	col = elemnum % elems_per_row;
+	return row * frame_buffer_rowspan + plane_offset + elemsize * col;
+}
+
+// Note - It should be easy to modify this to work for DLTA#2 compression as well
+// (need a sample file).
+static void decompress_plane_delta_op3(deark *c, lctx *d, struct frame_ctx *frctx,
+	i64 plane, i64 pos1, i64 maxlen)
+{
+	i64 endpos = pos1+maxlen;
+	i64 pos = pos1;
+	i64 elemnum = 0;
+	i64 elemsize = 2;
+	i64 elems_per_row;
+	i64 elems_total;
+	i64 plane_offset;
+	i64 dstpos;
+	u8 elembuf[2];
+
+	de_dbg2(c, "delta3 plane at %"I64_FMT", maxlen=%"I64_FMT, pos1, maxlen);
+
+	elems_per_row = (d->main_img.bytes_per_row_per_plane + (elemsize-1) ) / elemsize;
+	if(elems_per_row<1) goto done;
+	elems_total = elems_per_row * d->main_img.height;
+	plane_offset = plane * d->main_img.bytes_per_row_per_plane;
+
+	while(1) {
+		i64 code;
+		i64 offset;
+
+		if(elemnum >= elems_total) break;
+		if(pos+2 >= endpos) goto done;
+		code = de_geti16be_p(&pos);
+
+		if(code == -1) { // Stop.
+			break;
+		}
+		else if(code >= 0) { // Skip some number of elements, then write one element.
+			offset = code;
+			elemnum += offset;
+			de_read(elembuf, pos, elemsize);
+			pos += elemsize;
+			dstpos = delta3_calc_elem_pos(elemnum, elemsize, elems_per_row, plane_offset,
+				d->main_img.frame_buffer_rowspan);
+			dbuf_write_at(frctx->frame_buffer, dstpos, elembuf, elemsize);
+		}
+		else { // Skip some number of elements, then write multiple elements.
+			i64 count;
+			i64 k;
+
+			offset = -(code+2);
+			elemnum += offset;
+			count = de_getu16be_p(&pos);
+			for(k=0; k<count; k++) {
+				de_read(elembuf, pos, elemsize);
+				pos += elemsize;
+				elemnum++;
+				dstpos = delta3_calc_elem_pos(elemnum, elemsize, elems_per_row, plane_offset,
+					d->main_img.frame_buffer_rowspan);
+				dbuf_write_at(frctx->frame_buffer, dstpos, elembuf, elemsize);
+			}
+		}
+	}
+
+done:
+	;
+}
+
+// "Short Delta" mode
+// Decompress into frctx->frame_buffer
+static void decompress_delta_op3(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1, i64 len)
+{
+	i64 i;
+	i64 pos = pos1;
+	i64 planedata_offs[8];
+
+	de_dbg(c, "[delta3 data]");
+
+	for(i=0; i<8; i++) {
+		planedata_offs[i] = de_getu32be_p(&pos);
+		if(i<d->main_img.planes) {
+			de_dbg2(c, "plane[%d] offs: %"I64_FMT, (int)i, planedata_offs[i]);
+			if(planedata_offs[i]>0) {
+				decompress_plane_delta_op3(c, d, frctx, i, pos1+planedata_offs[i], len-planedata_offs[i]);
+			}
+		}
+	}
+}
+
 // Decompress into frctx->frame_buffer, at dstpos1
 static void decompress_plane_delta_op5(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1, i64 maxlen,
 	i64 dstpos1, i64 dststride)
@@ -483,6 +578,9 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 	}
 
 	switch(frctx->op) {
+	case 3:
+		decompress_delta_op3(c, d, frctx, pos1, len);
+		break;
 	case 5:
 		decompress_delta_op5(c, d, frctx, pos1, len);
 		break;
@@ -604,7 +702,7 @@ static void do_anim_anhd(deark *c, lctx *d, i64 pos, i64 len)
 	pos++; // pad0
 
 	frctx->bits = (UI)de_getu32be_p(&pos);
-	de_dbg(c, "flags: 0x%08u", frctx->bits);
+	de_dbg(c, "flags: 0x%08x", frctx->bits);
 }
 
 static void do_camg(deark *c, lctx *d, i64 pos, i64 len)
