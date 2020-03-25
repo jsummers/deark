@@ -660,6 +660,16 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+static int decompress_method0(deark *c, lctx *d, i64 pos, i64 len, dbuf *unc_pixels,
+	i64 expected_len)
+{
+	i64 amt_to_copy;
+
+	amt_to_copy = de_min_int(len, expected_len);
+	dbuf_copy(c->infile, pos, amt_to_copy, unc_pixels);
+	return 1;
+}
+
 static int decompress_method1(deark *c, lctx *d, i64 pos, i64 len, dbuf *unc_pixels,
 	i64 expected_len)
 {
@@ -705,7 +715,7 @@ static int do_body_or_tiny(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1,
 		goto done;
 	}
 
-	if(ibi->compression!=1) {
+	if(ibi->compression!=0 && ibi->compression!=1) {
 		de_err(c, "Unsupported compression method (%d)", (int)ibi->compression);
 		goto done;
 	}
@@ -714,8 +724,19 @@ static int do_body_or_tiny(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1,
 		frctx->frame_buffer = dbuf_create_membuf(c, ibi->frame_buffer_size, 0x1);
 	}
 
-	if(!decompress_method1(c, d, pos1, len, frctx->frame_buffer, ibi->frame_buffer_size)) goto done;
-	de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", len, frctx->frame_buffer->len);
+	switch(ibi->compression) {
+	case 0:
+		if(!decompress_method0(c, d, pos1, len, frctx->frame_buffer, ibi->frame_buffer_size)) goto done;
+		break;
+
+	case 1:
+		if(!decompress_method1(c, d, pos1, len, frctx->frame_buffer, ibi->frame_buffer_size)) goto done;
+		break;
+	}
+
+	if(ibi->compression!=0) {
+		de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", len, frctx->frame_buffer->len);
+	}
 	if(frctx->frame_buffer->len != ibi->frame_buffer_size) {
 		de_warn(c, "Expected %"I64_FMT" decompressed bytes, got %"I64_FMT, ibi->frame_buffer_size,
 			frctx->frame_buffer->len);
