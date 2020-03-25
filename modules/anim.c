@@ -31,24 +31,22 @@ DE_DECLARE_MODULE(de_module_anim);
 
 #define ANIM_OP_XOR 1
 
-struct bmhd_info {
+// Parameters for a single image, derived from a combination of the global
+// state and the image context.
+struct imgbody_info {
 	i64 width, height;
 	u8 compression;
 	u8 masking_code;
 	i64 planes;
 	i64 transparent_color;
 	i64 x_aspect, y_aspect;
-	//i64 planes_total;
-	//i64 rowspan;
-	//i64 planespan;
 	i64 bits_per_row_per_plane;
 	i64 bytes_per_row_per_plane;
 	i64 frame_buffer_rowspan;
 	i64 frame_buffer_size;
 	//u8 has_hotspot;
 	//int hotspot_x, hotspot_y;
-	//int is_thumb;
-	//const char *filename_token;
+	int is_thumb;
 };
 
 struct frame_ctx {
@@ -70,15 +68,24 @@ typedef struct localctx_struct {
 	u8 found_bmhd;
 	u8 found_cmap;
 	u8 cmap_changed_flag;
+	u8 bmhd_changed_flag;
 	u8 has_camg;
 	u8 ham_flag; // "hold and modify"
 	u8 is_ham6;
 	u8 is_ham8;
 	u8 ehb_flag; // "extra halfbrite"
 	UI camg_mode;
+
+	i64 width, height;
+	u8 compression;
+	u8 masking_code;
+	i64 planes_raw;
+	i64 transparent_color;
+	i64 x_aspect, y_aspect;
+	i64 thumb_width, thumb_height;
+
 	struct frame_ctx *frctx; // Non-NULL means we're inside a frame
 	struct frame_ctx *oldfrctx[2];
-	struct bmhd_info main_img;
 	i64 pal_ncolors; // Number of colors we read from the file
 	u32 pal_raw[256]; // Palette as read from the file
 	u32 pal[256]; // Palette that we will use
@@ -98,6 +105,13 @@ static const char *anim_get_op_name(u8 op)
 	case 7: name="short/long vert. delta"; break;
 	}
 	return name?name:"?";
+}
+
+static struct frame_ctx *create_frame(deark *c, lctx *d)
+{
+	struct frame_ctx *frctx;
+	frctx = de_malloc(c, sizeof(struct frame_ctx));
+	return frctx;
 }
 
 static void destroy_frame(deark *c, lctx *d, struct frame_ctx *frctx)
@@ -128,23 +142,22 @@ static int do_bmhd(deark *c, lctx *d, i64 pos1, i64 len)
 	i64 pos = pos1;
 	int retval = 0;
 	const char *masking_name;
-	struct frame_ctx *frctx = d->frctx;
 
-	if(!frctx) goto done;
+	d->bmhd_changed_flag = 1;
 	if(len<20) {
 		de_err(c, "Bad BMHD chunk");
 		goto done;
 	}
 
 	d->found_bmhd = 1;
-	d->main_img.width = de_getu16be_p(&pos);
-	d->main_img.height = de_getu16be_p(&pos);
-	de_dbg_dimensions(c, d->main_img.width, d->main_img.height);
+	d->width = de_getu16be_p(&pos);
+	d->height = de_getu16be_p(&pos);
+	de_dbg_dimensions(c, d->width, d->height);
 	pos += 4;
-	d->main_img.planes = (i64)de_getbyte_p(&pos);
-	de_dbg(c, "planes: %d", (int)d->main_img.planes);
-	d->main_img.masking_code = de_getbyte_p(&pos);
-	switch(d->main_img.masking_code) {
+	d->planes_raw = (i64)de_getbyte_p(&pos);
+	de_dbg(c, "planes: %d", (int)d->planes_raw);
+	d->masking_code = de_getbyte_p(&pos);
+	switch(d->masking_code) {
 	case 0: masking_name = "no transparency"; break;
 	case 1: masking_name = "1-bit transparency mask"; break;
 	case 2: masking_name = "color-key transparency"; break;
@@ -152,19 +165,19 @@ static int do_bmhd(deark *c, lctx *d, i64 pos1, i64 len)
 	default: masking_name = "unknown"; break;
 	}
 
-	d->main_img.compression = de_getbyte_p(&pos);
-	de_dbg(c, "compression: %d", (int)d->main_img.compression);
+	d->compression = de_getbyte_p(&pos);
+	de_dbg(c, "compression: %d", (int)d->compression);
 
 	pos++;
-	d->main_img.transparent_color = de_getu16be_p(&pos);
-	de_dbg(c, "masking: %d (%s)", (int)d->main_img.masking_code, masking_name);
-	if(d->main_img.masking_code==2 || d->main_img.masking_code==3) {
-		de_dbg(c, " color key: %d", (int)d->main_img.transparent_color);
+	d->transparent_color = de_getu16be_p(&pos);
+	de_dbg(c, "masking: %d (%s)", (int)d->masking_code, masking_name);
+	if(d->masking_code==2 || d->masking_code==3) {
+		de_dbg(c, " color key: %d", (int)d->transparent_color);
 	}
 
-	d->main_img.x_aspect = (i64)de_getbyte_p(&pos);
-	d->main_img.y_aspect = (i64)de_getbyte_p(&pos);
-	de_dbg(c, "apect ratio: %d, %d", (int)d->main_img.x_aspect, (int)d->main_img.y_aspect);
+	d->x_aspect = (i64)de_getbyte_p(&pos);
+	d->y_aspect = (i64)de_getbyte_p(&pos);
+	de_dbg(c, "aspect ratio: %d, %d", (int)d->x_aspect, (int)d->y_aspect);
 
 	retval = 1;
 done:
@@ -183,8 +196,8 @@ static i64 delta3_calc_elem_pos(i64 elemnum, i64 elemsize, i64 elems_per_row, i6
 
 // Note - It should be easy to modify this to work for DLTA#2 compression as well
 // (need a sample file).
-static void decompress_plane_delta_op3(deark *c, lctx *d, struct frame_ctx *frctx,
-	i64 plane, i64 pos1, i64 maxlen)
+static void decompress_plane_delta_op3(deark *c, lctx *d, struct imgbody_info *ibi,
+	struct frame_ctx *frctx, i64 plane, i64 pos1, i64 maxlen)
 {
 	i64 endpos = pos1+maxlen;
 	i64 pos = pos1;
@@ -198,10 +211,10 @@ static void decompress_plane_delta_op3(deark *c, lctx *d, struct frame_ctx *frct
 
 	de_dbg2(c, "delta3 plane at %"I64_FMT", maxlen=%"I64_FMT, pos1, maxlen);
 
-	elems_per_row = (d->main_img.bytes_per_row_per_plane + (elemsize-1) ) / elemsize;
+	elems_per_row = (ibi->bytes_per_row_per_plane + (elemsize-1) ) / elemsize;
 	if(elems_per_row<1) goto done;
-	elems_total = elems_per_row * d->main_img.height;
-	plane_offset = plane * d->main_img.bytes_per_row_per_plane;
+	elems_total = elems_per_row * ibi->height;
+	plane_offset = plane * ibi->bytes_per_row_per_plane;
 
 	while(1) {
 		i64 code;
@@ -220,7 +233,7 @@ static void decompress_plane_delta_op3(deark *c, lctx *d, struct frame_ctx *frct
 			de_read(elembuf, pos, elemsize);
 			pos += elemsize;
 			dstpos = delta3_calc_elem_pos(elemnum, elemsize, elems_per_row, plane_offset,
-				d->main_img.frame_buffer_rowspan);
+				ibi->frame_buffer_rowspan);
 			dbuf_write_at(frctx->frame_buffer, dstpos, elembuf, elemsize);
 		}
 		else { // Skip some number of elements, then write multiple elements.
@@ -235,7 +248,7 @@ static void decompress_plane_delta_op3(deark *c, lctx *d, struct frame_ctx *frct
 				pos += elemsize;
 				elemnum++;
 				dstpos = delta3_calc_elem_pos(elemnum, elemsize, elems_per_row, plane_offset,
-					d->main_img.frame_buffer_rowspan);
+					ibi->frame_buffer_rowspan);
 				dbuf_write_at(frctx->frame_buffer, dstpos, elembuf, elemsize);
 			}
 		}
@@ -247,7 +260,8 @@ done:
 
 // "Short Delta" mode
 // Decompress into frctx->frame_buffer
-static void decompress_delta_op3(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1, i64 len)
+static void decompress_delta_op3(deark *c, lctx *d, struct imgbody_info *ibi,
+	struct frame_ctx *frctx, i64 pos1, i64 len)
 {
 	i64 i;
 	i64 pos = pos1;
@@ -257,17 +271,19 @@ static void decompress_delta_op3(deark *c, lctx *d, struct frame_ctx *frctx, i64
 
 	for(i=0; i<8; i++) {
 		planedata_offs[i] = de_getu32be_p(&pos);
-		if(i<d->main_img.planes) {
+		if(i<ibi->planes) {
 			de_dbg2(c, "plane[%d] offs: %"I64_FMT, (int)i, planedata_offs[i]);
 			if(planedata_offs[i]>0) {
-				decompress_plane_delta_op3(c, d, frctx, i, pos1+planedata_offs[i], len-planedata_offs[i]);
+				decompress_plane_delta_op3(c, d, ibi, frctx, i,
+					pos1+planedata_offs[i], len-planedata_offs[i]);
 			}
 		}
 	}
 }
 
 // Decompress into frctx->frame_buffer, at dstpos1
-static void decompress_plane_delta_op5(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1, i64 maxlen,
+static void decompress_plane_delta_op5(deark *c, lctx *d, struct imgbody_info *ibi,
+	struct frame_ctx *frctx, i64 pos1, i64 maxlen,
 	i64 dstpos1, i64 dststride)
 {
 	i64 num_columns;
@@ -275,7 +291,7 @@ static void decompress_plane_delta_op5(deark *c, lctx *d, struct frame_ctx *frct
 	i64 pos = pos1;
 
 	de_dbg2(c, "delta5 plane at %"I64_FMT", maxlen=%"I64_FMT, pos1, maxlen);
-	num_columns = de_pad_to_n(d->main_img.width, 8)/8;
+	num_columns = de_pad_to_n(ibi->width, 8)/8;
 	for(col=0; col<num_columns; col++) {
 		i64 opcount;
 		i64 opidx;
@@ -320,7 +336,8 @@ done:
 }
 
 // Decompress into frctx->frame_buffer
-static void decompress_delta_op5(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1, i64 len)
+static void decompress_delta_op5(deark *c, lctx *d, struct imgbody_info *ibi,
+	struct frame_ctx *frctx, i64 pos1, i64 len)
 {
 	i64 planedata_offs[16];
 	i64 pos = pos1;
@@ -340,12 +357,13 @@ static void decompress_delta_op5(deark *c, lctx *d, struct frame_ctx *frctx, i64
 
 	for(i=0; i<16; i++) {
 		planedata_offs[i] = de_getu32be_p(&pos);
-		if(i<d->main_img.planes) {
+		if(i<ibi->planes) {
 			de_dbg2(c, "plane[%d] offs: %"I64_FMT, i, planedata_offs[i]);
 			if(planedata_offs[i]>0) {
-				decompress_plane_delta_op5(c, d, frctx, pos1+planedata_offs[i], len-planedata_offs[i],
-					i * d->main_img.bytes_per_row_per_plane,
-					d->main_img.frame_buffer_rowspan);
+				decompress_plane_delta_op5(c, d, ibi, frctx,
+					pos1+planedata_offs[i], len-planedata_offs[i],
+					i * ibi->bytes_per_row_per_plane,
+					ibi->frame_buffer_rowspan);
 			}
 		}
 	}
@@ -355,8 +373,8 @@ done:
 }
 
 // Decompress into frctx->frame_buffer, at dstpos1
-static void decompress_plane_delta_op7(deark *c, lctx *d, struct frame_ctx *frctx,
-	dbuf *inf, i64 oppos1, i64 datapos1,
+static void decompress_plane_delta_op7(deark *c, lctx *d, struct imgbody_info *ibi,
+	struct frame_ctx *frctx, dbuf *inf, i64 oppos1, i64 datapos1,
 	i64 dstpos1, i64 dststride, i64 elem_size)
 {
 	i64 oppos = oppos1;
@@ -370,10 +388,10 @@ static void decompress_plane_delta_op7(deark *c, lctx *d, struct frame_ctx *frct
 	// ??? How does this work? How many columns are there? What happens if
 	// elem_size is 4, and bytes_per_row_per_plane is not a multiple of 4 bytes?
 	if(elem_size==4) {
-		num_columns = (d->main_img.bytes_per_row_per_plane+3)/4;
+		num_columns = (ibi->bytes_per_row_per_plane+3)/4;
 	}
 	else {
-		num_columns = (d->main_img.frame_buffer_rowspan+1)/2;
+		num_columns = (ibi->frame_buffer_rowspan+1)/2;
 	}
 
 	for(col=0; col<num_columns; col++) {
@@ -427,7 +445,8 @@ done:
 }
 
 // Decompress into frctx->frame_buffer
-static void decompress_delta_op7(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1, i64 len)
+static void decompress_delta_op7(deark *c, lctx *d, struct imgbody_info *ibi,
+	struct frame_ctx *frctx, i64 pos1, i64 len)
 {
 	i64 opcodelist_offs[8];
 	i64 datalist_offs[8];
@@ -475,14 +494,14 @@ static void decompress_delta_op7(deark *c, lctx *d, struct frame_ctx *frctx, i64
 	}
 
 	for(i=0; i<8; i++) {
-		if(i<d->main_img.planes) {
+		if(i<ibi->planes) {
 			de_dbg2(c, "opcode_list[%d] offs: %"I64_FMT, i, opcodelist_offs[i]);
 			de_dbg2(c, "data_list[%d] offs: %"I64_FMT, i, datalist_offs[i]);
 			if(opcodelist_offs[i]>0) {
-				decompress_plane_delta_op7(c, d, frctx, inf,
+				decompress_plane_delta_op7(c, d, ibi, frctx, inf,
 					opcodelist_offs[i], datalist_offs[i],
-					i * d->main_img.bytes_per_row_per_plane,
-					d->main_img.frame_buffer_rowspan, elem_size);
+					i * ibi->bytes_per_row_per_plane,
+					ibi->frame_buffer_rowspan, elem_size);
 			}
 		}
 	}
@@ -492,27 +511,21 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void do_before_first_frame_body(deark *c, lctx *d)
+// Called when we encounter a BODY or DLTA or TINY chunk
+static void do_before_image_chunk(deark *c, lctx *d)
 {
-	if(d->main_img.planes==6 && d->pal_ncolors==32 && !d->ehb_flag) {
-		de_warn(c, "Assuming this is an EHB image");
-		d->ehb_flag = 1;
-	}
-}
-
-// Called when we encounter a BODY or DLTA chunk
-static void do_before_frame_body(deark *c, lctx *d)
-{
-	if(!d->frctx) goto done;
-	if(d->frctx->frame_idx==0) {
-		do_before_first_frame_body(c, d);
+	if(d->bmhd_changed_flag) {
+		if(d->planes_raw==6 && d->pal_ncolors==32 && !d->ehb_flag) {
+			de_warn(c, "Assuming this is an EHB image");
+			d->ehb_flag = 1;
+		}
 	}
 
 	if(d->cmap_changed_flag) {
 		de_memcpy(d->pal, d->pal_raw, 256*sizeof(d->pal_raw[0]));
 	}
 
-	if(d->cmap_changed_flag && d->ehb_flag && d->main_img.planes==6) {
+	if(d->cmap_changed_flag && d->ehb_flag && d->planes_raw==6) {
 		UI k;
 
 		// TODO: Should we still do this if the palette already has 64 colors
@@ -527,14 +540,64 @@ static void do_before_frame_body(deark *c, lctx *d)
 		}
 	}
 
-done:
 	d->cmap_changed_flag = 0;
+	d->bmhd_changed_flag = 0;
 }
+
+static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is_thumb)
+{
+	int retval = 0;
+
+	ibi->is_thumb = is_thumb;
+
+	if(is_thumb) {
+		ibi->width = d->thumb_width;
+		ibi->height = d->thumb_height;
+	}
+	else {
+		ibi->width = d->width;
+		ibi->height = d->height;
+	}
+	ibi->compression = d->compression;
+
+	ibi->masking_code = d->masking_code;
+	// Based on what little data I have, it seems that TINY images do not have
+	// a transparency mask, even if the main image does.
+	if(is_thumb && ibi->masking_code==1) {
+		ibi->masking_code = 0;
+	}
+
+	ibi->planes = d->planes_raw;
+	ibi->transparent_color = d->transparent_color;
+	ibi->x_aspect = d->x_aspect;
+	ibi->y_aspect = d->y_aspect;
+
+	ibi->bits_per_row_per_plane = de_pad_to_n(ibi->width, 16);
+	ibi->bytes_per_row_per_plane = ibi->bits_per_row_per_plane/8;
+	ibi->frame_buffer_rowspan = ibi->bytes_per_row_per_plane * ibi->planes;
+	ibi->frame_buffer_size = ibi->frame_buffer_rowspan * ibi->height;
+
+	if(ibi->masking_code != 0) {
+		de_err(c, "Transparency is not supported");
+		goto done;
+	}
+	if(ibi->planes<1 || ibi->planes>8) {
+		de_err(c, "Bad or unsupported number of planes (%d)", (int)ibi->planes);
+		goto done;
+	}
+	retval = 1;
+
+done:
+	return retval;
+}
+
+static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct frame_ctx *frctx);
 
 static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	struct frame_ctx *frctx = d->frctx;
 	struct frame_ctx *reference_frctx = NULL;
+	struct imgbody_info *ibi = NULL;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -544,15 +607,12 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 	if(frctx->done_flag) goto done;
 	frctx->done_flag = 1;
 
-	do_before_frame_body(c, d);
+	// TODO: Should the imgbody_info be saved somewhere, or recalculated for every frame?
+	ibi = de_malloc(c, sizeof(struct imgbody_info));
 
-	if(d->main_img.masking_code != 0) {
-		de_err(c, "Transparency is not supported");
-		d->errflag = 1;
-		goto done;
-	}
-	if(d->main_img.planes<1 || d->main_img.planes>8) {
-		de_err(c, "Bad or unsupported number of planes (%d)", (int)d->main_img.planes);
+	do_before_image_chunk(c, d);
+
+	if(!init_imgbody_info(c, d, ibi, 0)) {
 		d->errflag = 1;
 		goto done;
 	}
@@ -567,7 +627,7 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 
 	// Allocate buffer for this frame
 	if(!frctx->frame_buffer) {
-		frctx->frame_buffer = dbuf_create_membuf(c, d->main_img.frame_buffer_size, 0x1);
+		frctx->frame_buffer = dbuf_create_membuf(c, ibi->frame_buffer_size, 0x1);
 	}
 
 	// Start by copying the reference frame to this frame. The decompress function
@@ -579,13 +639,13 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 
 	switch(frctx->op) {
 	case 3:
-		decompress_delta_op3(c, d, frctx, pos1, len);
+		decompress_delta_op3(c, d, ibi, frctx, pos1, len);
 		break;
 	case 5:
-		decompress_delta_op5(c, d, frctx, pos1, len);
+		decompress_delta_op5(c, d, ibi, frctx, pos1, len);
 		break;
 	case 7:
-		decompress_delta_op7(c, d, frctx, pos1, len);
+		decompress_delta_op7(c, d, ibi, frctx, pos1, len);
 		break;
 	default:
 		de_err(c, "Unsupported DLTA operation: %d", (int)frctx->op);
@@ -593,7 +653,10 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 		goto done;
 	}
 
+	write_frame(c, d, ibi, d->frctx);
+
 done:
+	de_free(c, ibi);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -623,10 +686,10 @@ done:
 	return retval;
 }
 
-static void do_body(deark *c, lctx *d, i64 pos1, i64 len)
+static int do_body_or_tiny(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1, i64 len, int is_thumb)
 {
-	struct frame_ctx *frctx = d->frctx;
-	int ok = 0;
+	struct imgbody_info *ibi = NULL;
+	int retval = 0;
 
 	if(d->errflag) goto done;
 	if(!d->found_bmhd) goto done;
@@ -634,35 +697,67 @@ static void do_body(deark *c, lctx *d, i64 pos1, i64 len)
 	if(frctx->done_flag) goto done;
 	frctx->done_flag = 1;
 
-	do_before_frame_body(c, d);
+	ibi = de_malloc(c, sizeof(struct imgbody_info));
 
-	if(d->main_img.compression!=1) {
-		de_err(c, "Unsupported compression method (%d)", (int)d->main_img.compression);
+	do_before_image_chunk(c, d);
+
+	if(!init_imgbody_info(c, d, ibi, is_thumb)) {
 		goto done;
 	}
 
-	d->main_img.bits_per_row_per_plane = de_pad_to_n(d->main_img.width, 16);
-	d->main_img.bytes_per_row_per_plane = d->main_img.bits_per_row_per_plane/8;
-	d->main_img.frame_buffer_rowspan = d->main_img.bytes_per_row_per_plane * d->main_img.planes;
-	d->main_img.frame_buffer_size = d->main_img.frame_buffer_rowspan * d->main_img.height;
-
-	if(!frctx->frame_buffer) {
-		frctx->frame_buffer = dbuf_create_membuf(c, d->main_img.frame_buffer_size, 0x1);
+	if(ibi->compression!=1) {
+		de_err(c, "Unsupported compression method (%d)", (int)ibi->compression);
+		goto done;
 	}
 
-	if(!decompress_method1(c, d, pos1, len, frctx->frame_buffer, d->main_img.frame_buffer_size)) goto done;
+	if(!frctx->frame_buffer) {
+		frctx->frame_buffer = dbuf_create_membuf(c, ibi->frame_buffer_size, 0x1);
+	}
+
+	if(!decompress_method1(c, d, pos1, len, frctx->frame_buffer, ibi->frame_buffer_size)) goto done;
 	de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", len, frctx->frame_buffer->len);
-	if(frctx->frame_buffer->len != d->main_img.frame_buffer_size) {
-		de_warn(c, "Expected %"I64_FMT" decompressed bytes, got %"I64_FMT, d->main_img.frame_buffer_size,
+	if(frctx->frame_buffer->len != ibi->frame_buffer_size) {
+		de_warn(c, "Expected %"I64_FMT" decompressed bytes, got %"I64_FMT, ibi->frame_buffer_size,
 			frctx->frame_buffer->len);
 	}
 
-	ok = 1;
+	write_frame(c, d, ibi, frctx);
+
+	retval = 1;
 
 done:
-	if(!ok) {
+	de_free(c, ibi);
+	return retval;
+}
+
+static void do_body(deark *c, lctx *d, i64 pos1, i64 len)
+{
+	if(!do_body_or_tiny(c, d, d->frctx, pos1, len, 0)) {
 		d->errflag = 1;
 	}
+}
+
+static void do_tiny(deark *c, lctx *d, i64 pos1, i64 len)
+{
+	struct frame_ctx *frctx = NULL;
+	i64 pos = pos1;
+
+	if(d->compression==2) {
+		de_warn(c, "Thumbnails not supported with VDAT compression");
+		goto done;
+	}
+	if(len<=4) goto done;
+
+	d->thumb_width = de_getu16be_p(&pos);
+	d->thumb_height = de_getu16be_p(&pos);
+	de_dbg(c, "thumbnail image, dimensions: %d"DE_CHAR_TIMES"%d", (int)d->thumb_width, (int)d->thumb_height);
+
+	do_before_image_chunk(c, d);
+	frctx = create_frame(c, d);
+	(void)do_body_or_tiny(c, d, frctx, pos, pos1+len-pos, 1);
+
+done:
+	destroy_frame(c, d, frctx);
 }
 
 static void do_anim_anhd(deark *c, lctx *d, i64 pos, i64 len)
@@ -729,14 +824,14 @@ static void do_camg(deark *c, lctx *d, i64 pos, i64 len)
 	de_dbg_indent(c, -1);
 
 	if(d->ham_flag) {
-		if(d->main_img.planes==6 || d->main_img.planes==5) {
+		if(d->planes_raw==6 || d->planes_raw==5) {
 			d->is_ham6 = 1;
 		}
-		else if(d->main_img.planes==8 || d->main_img.planes==7) {
+		else if(d->planes_raw==8 || d->planes_raw==7) {
 			d->is_ham8 = 1;
 		}
 		else {
-			de_warn(c, "Invalid bit depth (%d) for HAM image.", (int)d->main_img.planes);
+			de_warn(c, "Invalid bit depth (%d) for HAM image.", (int)d->planes_raw);
 		}
 	}
 }
@@ -828,13 +923,15 @@ static void render_pixel_row_normal(deark *c, lctx *d, i64 rownum, const u8 *row
 }
 
 // Generate the final image and write it to a file.
-static void write_frame(deark *c, lctx *d, struct frame_ctx *frctx)
+static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct frame_ctx *frctx)
 {
 	de_bitmap *img = NULL;
 	i64 j;
 	u8 pixelval[8];
 	u8 *rowbuf = NULL; // The current row of pixel (palette) value
 	UI rowbuf_size;
+	de_finfo *fi = NULL;
+	UI createflags = 0;
 
 	if(d->errflag) goto done;
 	if(!frctx) goto done;
@@ -842,7 +939,7 @@ static void write_frame(deark *c, lctx *d, struct frame_ctx *frctx)
 		d->errflag = 1;
 		goto done;
 	}
-	if(d->main_img.planes<1 || d->main_img.planes>8) goto done;
+	if(ibi->planes<1 || ibi->planes>8) goto done;
 
 	if(d->debug_frame_buffer) {
 		de_finfo *fi_fb;
@@ -850,31 +947,31 @@ static void write_frame(deark *c, lctx *d, struct frame_ctx *frctx)
 		fi_fb = de_finfo_create(c);
 		de_finfo_set_name_from_sz(c, fi_fb, "fb", 0, DE_ENCODING_LATIN1);
 		de_convert_and_write_image_bilevel(frctx->frame_buffer, 0,
-			d->main_img.bits_per_row_per_plane * d->main_img.planes,
-			d->main_img.height, d->main_img.frame_buffer_rowspan, 0, fi_fb, 0);
+			ibi->bits_per_row_per_plane * ibi->planes,
+			ibi->height, ibi->frame_buffer_rowspan, 0, fi_fb, 0);
 		de_finfo_destroy(c, fi_fb);
 	}
 
-	rowbuf_size = (UI)d->main_img.width;
+	rowbuf_size = (UI)ibi->width;
 	rowbuf = de_malloc(c, rowbuf_size);
 
-	img = de_bitmap_create(c, d->main_img.width, d->main_img.height, 3);
-	for(j=0; j<d->main_img.height; j++) {
+	img = de_bitmap_create(c, ibi->width, ibi->height, 3);
+	for(j=0; j<ibi->height; j++) {
 		i64 z;
 		i64 plane;
 		UI k;
 
 		// Process 8 pixels at a time
-		for(z=0; z<d->main_img.bytes_per_row_per_plane; z++) {
+		for(z=0; z<ibi->bytes_per_row_per_plane; z++) {
 			de_zeromem(pixelval, sizeof(pixelval));
 
 			// Read the zth byte in each plane
-			for(plane=0; plane<d->main_img.planes; plane++) {
+			for(plane=0; plane<ibi->planes; plane++) {
 				u8 b;
 
 				b = dbuf_getbyte(frctx->frame_buffer,
-					j*d->main_img.frame_buffer_rowspan +
-					plane*d->main_img.bytes_per_row_per_plane + z);
+					j*ibi->frame_buffer_rowspan +
+					plane*ibi->bytes_per_row_per_plane + z);
 
 				for(k=0; k<8; k++) {
 					if(b & (1U<<(7-k))) {
@@ -904,10 +1001,18 @@ static void write_frame(deark *c, lctx *d, struct frame_ctx *frctx)
 		}
 	}
 
-	de_bitmap_write_to_file_finfo(img, NULL, 0);
+	fi = de_finfo_create(c);
+
+	if(ibi->is_thumb) {
+		de_finfo_set_name_from_sz(c, fi, "thumb", 0, DE_ENCODING_LATIN1);
+		createflags |= DE_CREATEFLAG_IS_AUX;
+	}
+
+	de_bitmap_write_to_file_finfo(img, fi, createflags);
 
 done:
 	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
 	de_free(c, rowbuf);
 }
 
@@ -915,7 +1020,7 @@ static void anim_on_frame_begin(deark *c, lctx *d, u32 formtype)
 {
 	if(d->frctx) return;
 	d->num_frames_started++;
-	d->frctx = de_malloc(c, sizeof(struct frame_ctx));
+	d->frctx = create_frame(c, d);
 	d->frctx->formtype = formtype;
 	d->frctx->frame_idx = d->num_frames_finished;
 	de_dbg(c, "[frame #%d begin]", d->frctx->frame_idx);
@@ -927,8 +1032,6 @@ static void anim_on_frame_end(deark *c, lctx *d)
 	if(!d->frctx) return;
 
 	de_dbg(c, "[frame #%d end]", d->frctx->frame_idx);
-
-	write_frame(c, d, d->frctx);
 
 	where_to_save_this_frame = d->frctx->frame_idx % 2;
 
@@ -999,6 +1102,10 @@ static int my_anim_chunk_handler(deark *c, struct de_iffctx *ictx)
 		}
 		if(!d->frctx) goto done;
 		do_dlta(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		break;
+
+	case CODE_TINY:
+		do_tiny(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		break;
 	}
 
