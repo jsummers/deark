@@ -3,6 +3,7 @@
 /obj/**/*.d
 /deark
 /deark.exe
+/deark.1
 /proj/vs2019/*.vcxproj.user
 /proj/vs2019/.vs
 /Debug32/
