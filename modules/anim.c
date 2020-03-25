@@ -22,6 +22,7 @@ DE_DECLARE_MODULE(de_module_anim);
 #define CODE_CMAP 0x434d4150U
 #define CODE_CRNG 0x43524e47U
 #define CODE_DLTA 0x444c5441U
+#define CODE_DPAN 0x4450414eU
 #define CODE_DPI  0x44504920U
 #define CODE_DRNG 0x44524e47U
 #define CODE_FORM 0x464f524dU
@@ -82,7 +83,10 @@ typedef struct localctx_struct {
 	i64 planes_raw;
 	i64 transparent_color;
 	i64 x_aspect, y_aspect;
+	i64 x_dpi, y_dpi;
 	i64 thumb_width, thumb_height;
+	u8 has_hotspot;
+	int hotspot_x, hotspot_y;
 
 	struct frame_ctx *frctx; // Non-NULL means we're inside a frame
 	struct frame_ctx *oldfrctx[2];
@@ -577,10 +581,17 @@ static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is
 	ibi->frame_buffer_rowspan = ibi->bytes_per_row_per_plane * ibi->planes;
 	ibi->frame_buffer_size = ibi->frame_buffer_rowspan * ibi->height;
 
-	if(ibi->masking_code != 0) {
-		de_err(c, "Transparency is not supported");
+	if(ibi->masking_code == 0) {
+		;
+	}
+	else if(ibi->masking_code == 2) {
+		de_warn(c, "This image has transpareny, which is not supported");
+	}
+	else {
+		de_err(c, "This type of transparent image is not supported");
 		goto done;
 	}
+
 	if(ibi->planes<1 || ibi->planes>8) {
 		de_err(c, "Bad or unsupported number of planes (%d)", (int)ibi->planes);
 		goto done;
@@ -857,6 +868,34 @@ static void do_camg(deark *c, lctx *d, i64 pos, i64 len)
 	}
 }
 
+static void do_dpi(deark *c, lctx *d, i64 pos, i64 len)
+{
+	if(len<4) return;
+	d->x_dpi = de_getu16be(pos);
+	d->y_dpi = de_getu16be(pos+2);
+	de_dbg(c, "dpi: %d"DE_CHAR_TIMES"%d", (int)d->x_dpi, (int)d->y_dpi);
+}
+
+
+static void do_grab(deark *c, lctx *d, i64 pos, i64 len)
+{
+	if(len<4) return;
+	d->has_hotspot = 1;
+	d->hotspot_x = (int)de_getu16be(pos);
+	d->hotspot_y = (int)de_getu16be(pos+2);
+	de_dbg(c, "hotspot: (%d, %d)", d->hotspot_x, d->hotspot_y);
+}
+
+static void do_dpan(deark *c, lctx *d, i64 pos, i64 len)
+{
+	i64 nframes;
+
+	if(!d->is_anim) return;
+	if(len<4) return;
+	nframes = de_getu16be(pos+2);
+	de_dbg(c, "number of frames: %d", (int)nframes);
+}
+
 static void render_pixel_row_ham6(deark *c, lctx *d, i64 rownum, const u8 *rowbuf,
 	UI rowbuf_size, de_bitmap *img)
 {
@@ -943,6 +982,41 @@ static void render_pixel_row_normal(deark *c, lctx *d, i64 rownum, const u8 *row
 	}
 }
 
+static void set_finfo_data(deark *c, lctx *d, struct imgbody_info *ibi, de_finfo *fi)
+{
+	int has_aspect = 0;
+	int has_dpi = 0;
+
+	if(ibi->is_thumb) {
+		de_finfo_set_name_from_sz(c, fi, "thumb", 0, DE_ENCODING_LATIN1);
+	}
+
+	if(d->x_aspect>0 && d->y_aspect>0) {
+		has_aspect = 1;
+	}
+	if(!ibi->is_thumb && d->x_dpi>0 && d->y_dpi>0) {
+		has_dpi = 1;
+	}
+
+	if(has_dpi) {
+		fi->density.code = DE_DENSITY_DPI;
+		fi->density.xdens = (double)d->x_dpi;
+		fi->density.ydens = (double)d->y_dpi;
+	}
+	else if(has_aspect) {
+		fi->density.code = DE_DENSITY_UNK_UNITS;
+		fi->density.ydens = (double)d->x_aspect;
+		fi->density.xdens = (double)d->y_aspect;
+	}
+
+	if(!ibi->is_thumb && d->has_hotspot) {
+		fi->has_hotspot = 1;
+		fi->hotspot_x = d->hotspot_x;
+		fi->hotspot_y = d->hotspot_y;
+	}
+
+}
+
 // Generate the final image and write it to a file.
 static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct frame_ctx *frctx)
 {
@@ -1023,9 +1097,8 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 	}
 
 	fi = de_finfo_create(c);
-
+	set_finfo_data(c, d, ibi, fi);
 	if(ibi->is_thumb) {
-		de_finfo_set_name_from_sz(c, fi, "thumb", 0, DE_ENCODING_LATIN1);
 		createflags |= DE_CREATEFLAG_IS_AUX;
 	}
 
@@ -1127,6 +1200,16 @@ static int my_anim_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	case CODE_TINY:
 		do_tiny(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		break;
+
+	case CODE_DPI:
+		do_dpi(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		break;
+	case CODE_GRAB:
+		do_grab(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		break;
+	case CODE_DPAN:
+		do_dpan(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		break;
 	}
 
