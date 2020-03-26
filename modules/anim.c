@@ -51,7 +51,8 @@ enum colortype_enum {
 // state and the image context.
 struct imgbody_info {
 	i64 width, height;
-	i64 planes;
+	i64 planes_fg;
+	i64 planes_total; // Different from planes_fg if MASKINGTYPE_1BITMASK.
 	u8 compression;
 	u8 masking_code;
 	u8 use_colorkey_transparency;
@@ -81,6 +82,7 @@ typedef struct localctx_struct {
 	int num_frames_started;
 	int num_frames_finished;
 	int debug_frame_buffer;
+	int opt_notrans;
 	u8 found_bmhd;
 	u8 found_cmap;
 	u8 cmap_changed_flag;
@@ -219,7 +221,7 @@ static int do_bmhd(deark *c, lctx *d, i64 pos1, i64 len)
 	pos++;
 	d->transparent_color = (UI)de_getu16be_p(&pos);
 	de_dbg(c, "masking: %d (%s)", (int)d->masking_code, masking_name);
-	if(d->masking_code==2 || d->masking_code==3) {
+	if(d->masking_code==MASKINGTYPE_COLORKEY || d->masking_code==MASKINGTYPE_LASSO) {
 		de_dbg(c, " color key: %u", d->transparent_color);
 	}
 
@@ -319,7 +321,7 @@ static void decompress_delta_op3(deark *c, lctx *d, struct imgbody_info *ibi,
 
 	for(i=0; i<8; i++) {
 		planedata_offs[i] = de_getu32be_p(&pos);
-		if(i<ibi->planes) {
+		if(i<ibi->planes_total) {
 			de_dbg2(c, "plane[%d] offs: %"I64_FMT, (int)i, planedata_offs[i]);
 			if(planedata_offs[i]>0) {
 				decompress_plane_delta_op3(c, d, ibi, frctx, i,
@@ -405,7 +407,7 @@ static void decompress_delta_op5(deark *c, lctx *d, struct imgbody_info *ibi,
 
 	for(i=0; i<16; i++) {
 		planedata_offs[i] = de_getu32be_p(&pos);
-		if(i<ibi->planes) {
+		if(i<ibi->planes_total) {
 			de_dbg2(c, "plane[%d] offs: %"I64_FMT, i, planedata_offs[i]);
 			if(planedata_offs[i]>0) {
 				decompress_plane_delta_op5(c, d, ibi, frctx,
@@ -542,7 +544,7 @@ static void decompress_delta_op7(deark *c, lctx *d, struct imgbody_info *ibi,
 	}
 
 	for(i=0; i<8; i++) {
-		if(i<ibi->planes) {
+		if(i<ibi->planes_total) {
 			de_dbg2(c, "opcode_list[%d] offs: %"I64_FMT, i, opcodelist_offs[i]);
 			de_dbg2(c, "data_list[%d] offs: %"I64_FMT, i, datalist_offs[i]);
 			if(opcodelist_offs[i]>0) {
@@ -611,8 +613,8 @@ static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is
 	ibi->masking_code = d->masking_code;
 	// Based on what little data I have, it seems that TINY images do not have
 	// a transparency mask, even if the main image does.
-	if(is_thumb && ibi->masking_code==1) {
-		ibi->masking_code = 0;
+	if(is_thumb && ibi->masking_code==MASKINGTYPE_1BITMASK) {
+		ibi->masking_code = MASKINGTYPE_NONE;
 	}
 
 	if(d->planes_raw==24) {
@@ -622,27 +624,33 @@ static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is
 		ibi->colortype = COLORTYPE_DEFAULT;
 	}
 
-	ibi->planes = d->planes_raw;
+	ibi->planes_fg = d->planes_raw;
+	ibi->planes_total = d->planes_raw;
+	if(ibi->masking_code==MASKINGTYPE_1BITMASK) {
+		ibi->planes_total++;
+	}
 	ibi->transparent_color = d->transparent_color;
 	ibi->x_aspect = d->x_aspect;
 	ibi->y_aspect = d->y_aspect;
 
 	ibi->bits_per_row_per_plane = de_pad_to_n(ibi->width, 16);
 	ibi->bytes_per_row_per_plane = ibi->bits_per_row_per_plane/8;
-	ibi->frame_buffer_rowspan = ibi->bytes_per_row_per_plane * ibi->planes;
+	ibi->frame_buffer_rowspan = ibi->bytes_per_row_per_plane * ibi->planes_total;
 	ibi->frame_buffer_size = ibi->frame_buffer_rowspan * ibi->height;
 
 	if(ibi->masking_code==MASKINGTYPE_NONE) {
 		;
 	}
 	else if(ibi->masking_code==MASKINGTYPE_COLORKEY) {
-		if(ibi->planes<=8 && !d->ham_flag) {
+		if(!d->opt_notrans && ibi->planes_fg<=8 && !d->ham_flag) {
 			ibi->use_colorkey_transparency = 1;
 		}
 	}
+	else if(ibi->masking_code==MASKINGTYPE_1BITMASK) {
+		;
+	}
 	else {
-		de_err(c, "This type of transparent image is not supported");
-		goto done;
+		de_warn(c, "This type of transparency is not supported");
 	}
 
 	if(ibi->use_colorkey_transparency && ibi->transparent_color<=255) {
@@ -652,8 +660,8 @@ static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is
 	if(ibi->colortype==COLORTYPE_RGB24) {
 		;
 	}
-	else if(ibi->planes<1 || ibi->planes>8) {
-		de_err(c, "Bad or unsupported number of planes (%d)", (int)ibi->planes);
+	else if(ibi->planes_fg<1 || ibi->planes_fg>8) {
+		de_err(c, "Bad or unsupported number of planes (%d)", (int)ibi->planes_fg);
 		goto done;
 	}
 	retval = 1;
@@ -1134,12 +1142,14 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 {
 	de_bitmap *img = NULL;
 	i64 j;
-	u32 pixelval[8];
 	u32 *rowbuf = NULL; // The current row of pixel (palette or RGB) values
+	u8 *rowbuf_trns = NULL; // The current row's 1-bit transparency mask values
 	UI rowbuf_size;
 	int bypp;
 	de_finfo *fi = NULL;
 	UI createflags = 0;
+	u32 pixelval[8];
+	u8 pixeltrnsval[8];
 
 	if(d->errflag) goto done;
 	if(!frctx) goto done;
@@ -1148,9 +1158,9 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 		goto done;
 	}
 	if(ibi->colortype==COLORTYPE_RGB24) {
-		if(ibi->planes!=24) goto done;
+		if(ibi->planes_fg!=24) goto done;
 	}
-	else if(ibi->planes<1 || ibi->planes>8) {
+	else if(ibi->planes_fg<1 || ibi->planes_fg>8) {
 		goto done;
 	}
 
@@ -1160,16 +1170,21 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 		fi_fb = de_finfo_create(c);
 		de_finfo_set_name_from_sz(c, fi_fb, "fb", 0, DE_ENCODING_LATIN1);
 		de_convert_and_write_image_bilevel(frctx->frame_buffer, 0,
-			ibi->bits_per_row_per_plane * ibi->planes,
+			ibi->bits_per_row_per_plane * ibi->planes_total,
 			ibi->height, ibi->frame_buffer_rowspan, 0, fi_fb, 0);
 		de_finfo_destroy(c, fi_fb);
 	}
 
 	rowbuf_size = (UI)ibi->width;
 	rowbuf = de_mallocarray(c, rowbuf_size, sizeof(rowbuf[0]));
+	rowbuf_trns = de_mallocarray(c, rowbuf_size, sizeof(rowbuf_trns[0]));
 
 	bypp = 3;
-	if(ibi->use_colorkey_transparency) bypp++;
+	if(ibi->use_colorkey_transparency || ibi->masking_code==MASKINGTYPE_1BITMASK) {
+		if(!d->opt_notrans) {
+			bypp++;
+		}
+	}
 
 	img = de_bitmap_create(c, ibi->width, ibi->height, bypp);
 	for(j=0; j<ibi->height; j++) {
@@ -1180,9 +1195,10 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 		// Process 8 pixels at a time
 		for(z=0; z<ibi->bytes_per_row_per_plane; z++) {
 			de_zeromem(pixelval, sizeof(pixelval));
+			de_zeromem(pixeltrnsval, sizeof(pixeltrnsval));
 
 			// Read the zth byte in each plane
-			for(plane=0; plane<ibi->planes; plane++) {
+			for(plane=0; plane<ibi->planes_total; plane++) {
 				u8 b;
 
 				b = dbuf_getbyte(frctx->frame_buffer,
@@ -1191,7 +1207,14 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 
 				for(k=0; k<8; k++) {
 					if(b & (1U<<(7-k))) {
-						pixelval[k] |= 1U<<(UI)plane;
+						if(plane < ibi->planes_fg) {
+							pixelval[k] |= 1U<<(UI)plane;
+						}
+						else {
+							// The only way this can happen is if this plane is a
+							// 1-bit transparency mask.
+							pixeltrnsval[k] = 1;
+						}
 					}
 				}
 			}
@@ -1202,6 +1225,7 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 				idx = (UI)z*8+k;
 				if(idx < rowbuf_size) {
 					rowbuf[idx] = pixelval[k];
+					rowbuf_trns[idx] = pixeltrnsval[k];
 				}
 			}
 		}
@@ -1218,6 +1242,21 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 		else {
 			render_pixel_row_normal(c, d, ibi, j, rowbuf, rowbuf_size, img);
 		}
+
+		// Handle 1-bit transparency masks here, for all color types.
+		if(ibi->masking_code==MASKINGTYPE_1BITMASK && !d->opt_notrans) {
+			i64 i;
+
+			for(i=0; i<rowbuf_size; i++) {
+				u32 clr;
+
+				if(rowbuf_trns[i]==0) {
+					clr = de_bitmap_getpixel(img, i, j);
+					clr = DE_SET_ALPHA(clr, 0);
+					de_bitmap_setpixel_rgba(img, i, j, clr);
+				}
+			}
+		}
 	}
 
 	fi = de_finfo_create(c);
@@ -1232,6 +1271,7 @@ done:
 	de_bitmap_destroy(img);
 	de_finfo_destroy(c, fi);
 	de_free(c, rowbuf);
+	de_free(c, rowbuf_trns);
 }
 
 static void anim_on_frame_begin(deark *c, lctx *d, u32 formtype)
