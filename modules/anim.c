@@ -42,6 +42,11 @@ DE_DECLARE_MODULE(de_module_anim);
 #define MASKINGTYPE_COLORKEY  2
 #define MASKINGTYPE_LASSO     3
 
+enum colortype_enum {
+	COLORTYPE_DEFAULT = 0,
+	COLORTYPE_RGB24
+};
+
 // Parameters for a single image, derived from a combination of the global
 // state and the image context.
 struct imgbody_info {
@@ -56,6 +61,7 @@ struct imgbody_info {
 	i64 bytes_per_row_per_plane;
 	i64 frame_buffer_rowspan;
 	i64 frame_buffer_size;
+	enum colortype_enum colortype;
 	int is_thumb;
 };
 
@@ -609,6 +615,13 @@ static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is
 		ibi->masking_code = 0;
 	}
 
+	if(d->planes_raw==24) {
+		ibi->colortype = COLORTYPE_RGB24;
+	}
+	else {
+		ibi->colortype = COLORTYPE_DEFAULT;
+	}
+
 	ibi->planes = d->planes_raw;
 	ibi->transparent_color = d->transparent_color;
 	ibi->x_aspect = d->x_aspect;
@@ -636,7 +649,10 @@ static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is
 		d->pal[ibi->transparent_color] = DE_SET_ALPHA(d->pal[ibi->transparent_color], 0);
 	}
 
-	if(ibi->planes<1 || ibi->planes>8) {
+	if(ibi->colortype==COLORTYPE_RGB24) {
+		;
+	}
+	else if(ibi->planes<1 || ibi->planes>8) {
 		de_err(c, "Bad or unsupported number of planes (%d)", (int)ibi->planes);
 		goto done;
 	}
@@ -977,7 +993,7 @@ static void do_ccrt(deark *c, lctx *d, i64 pos1, i64 len)
 	}
 }
 
-static void render_pixel_row_ham6(deark *c, lctx *d, i64 rownum, const u8 *rowbuf,
+static void render_pixel_row_ham6(deark *c, lctx *d, i64 rownum, const u32 *rowbuf,
 	UI rowbuf_size, de_bitmap *img)
 {
 	UI i;
@@ -991,7 +1007,7 @@ static void render_pixel_row_ham6(deark *c, lctx *d, i64 rownum, const u8 *rowbu
 
 	for(i=0; i<rowbuf_size; i++) {
 		u32 clr;
-		u8 val = rowbuf[i];
+		u8 val = rowbuf[i] & 0xff;
 
 		switch((val>>4)&0x3) {
 		case 0x1: // Modify blue value
@@ -1015,7 +1031,7 @@ static void render_pixel_row_ham6(deark *c, lctx *d, i64 rownum, const u8 *rowbu
 	}
 }
 
-static void render_pixel_row_ham8(deark *c, lctx *d, i64 rownum, const u8 *rowbuf,
+static void render_pixel_row_ham8(deark *c, lctx *d, i64 rownum, const u32 *rowbuf,
 	UI rowbuf_size, de_bitmap *img)
 {
 	UI i;
@@ -1029,7 +1045,7 @@ static void render_pixel_row_ham8(deark *c, lctx *d, i64 rownum, const u8 *rowbu
 
 	for(i=0; i<rowbuf_size; i++) {
 		u32 clr;
-		u8 val = rowbuf[i];
+		u8 val = rowbuf[i] & 0xff;
 
 		switch((val>>6)&0x3) {
 		case 0x1:
@@ -1054,12 +1070,27 @@ static void render_pixel_row_ham8(deark *c, lctx *d, i64 rownum, const u8 *rowbu
 }
 
 static void render_pixel_row_normal(deark *c, lctx *d, struct imgbody_info *ibi,
-	i64 rownum, const u8 *rowbuf, UI rowbuf_size, de_bitmap *img)
+	i64 rownum, const u32 *rowbuf, UI rowbuf_size, de_bitmap *img)
 {
 	UI k;
 
 	for(k=0; k<rowbuf_size; k++) {
-		de_bitmap_setpixel_rgb(img, (i64)k, rownum, d->pal[(UI)rowbuf[k]]);
+		de_bitmap_setpixel_rgb(img, (i64)k, rownum, d->pal[(UI)rowbuf[k] & 0xff]);
+	}
+}
+
+static void render_pixel_row_rgb24(deark *c, lctx *d, struct imgbody_info *ibi,
+	i64 rownum, const u32 *rowbuf, UI rowbuf_size, de_bitmap *img)
+{
+	UI k;
+
+	for(k=0; k<rowbuf_size; k++) {
+		UI r, g, b;
+
+		r = (rowbuf[k] & 0x0000ff);
+		g = (rowbuf[k] & 0x00ff00)>>8;
+		b = (rowbuf[k] & 0xff0000)>>16;
+		de_bitmap_setpixel_rgb(img, (i64)k, rownum, DE_MAKE_RGB(r, g, b));
 	}
 }
 
@@ -1103,8 +1134,8 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 {
 	de_bitmap *img = NULL;
 	i64 j;
-	u8 pixelval[8];
-	u8 *rowbuf = NULL; // The current row of pixel (palette) value
+	u32 pixelval[8];
+	u32 *rowbuf = NULL; // The current row of pixel (palette or RGB) values
 	UI rowbuf_size;
 	int bypp;
 	de_finfo *fi = NULL;
@@ -1116,7 +1147,12 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 		d->errflag = 1;
 		goto done;
 	}
-	if(ibi->planes<1 || ibi->planes>8) goto done;
+	if(ibi->colortype==COLORTYPE_RGB24) {
+		if(ibi->planes!=24) goto done;
+	}
+	else if(ibi->planes<1 || ibi->planes>8) {
+		goto done;
+	}
 
 	if(d->debug_frame_buffer) {
 		de_finfo *fi_fb;
@@ -1130,7 +1166,7 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 	}
 
 	rowbuf_size = (UI)ibi->width;
-	rowbuf = de_malloc(c, rowbuf_size);
+	rowbuf = de_mallocarray(c, rowbuf_size, sizeof(rowbuf[0]));
 
 	bypp = 3;
 	if(ibi->use_colorkey_transparency) bypp++;
@@ -1170,7 +1206,10 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 			}
 		}
 
-		if(d->is_ham6) {
+		if(ibi->colortype==COLORTYPE_RGB24) {
+			render_pixel_row_rgb24(c, d, ibi, j, rowbuf, rowbuf_size, img);
+		}
+		else if(d->is_ham6) {
 			render_pixel_row_ham6(c, d, j, rowbuf, rowbuf_size, img);
 		}
 		else if(d->is_ham8) {
@@ -1388,6 +1427,7 @@ static void de_run_anim(deark *c, de_module_params *mparams)
 		d->is_anim = 1;
 		break;
 	case CODE_ILBM:
+		de_declare_fmt(c, "IFF-ILBM");
 		break;
 	default:
 		de_err(c, "Not a supported IFF format");
