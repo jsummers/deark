@@ -49,6 +49,7 @@ struct imgbody_info {
 	i64 planes;
 	u8 compression;
 	u8 masking_code;
+	u8 use_colorkey_transparency;
 	UI transparent_color;
 	i64 x_aspect, y_aspect;
 	i64 bits_per_row_per_plane;
@@ -618,15 +619,21 @@ static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is
 	ibi->frame_buffer_rowspan = ibi->bytes_per_row_per_plane * ibi->planes;
 	ibi->frame_buffer_size = ibi->frame_buffer_rowspan * ibi->height;
 
-	if(ibi->masking_code == 0) {
+	if(ibi->masking_code==MASKINGTYPE_NONE) {
 		;
 	}
-	else if(ibi->masking_code == 2) {
-		de_warn(c, "This image has transpareny, which is not supported");
+	else if(ibi->masking_code==MASKINGTYPE_COLORKEY) {
+		if(ibi->planes<=8 && !d->ham_flag) {
+			ibi->use_colorkey_transparency = 1;
+		}
 	}
 	else {
 		de_err(c, "This type of transparent image is not supported");
 		goto done;
+	}
+
+	if(ibi->use_colorkey_transparency && ibi->transparent_color<=255) {
+		d->pal[ibi->transparent_color] = DE_SET_ALPHA(d->pal[ibi->transparent_color], 0);
 	}
 
 	if(ibi->planes<1 || ibi->planes>8) {
@@ -1046,8 +1053,8 @@ static void render_pixel_row_ham8(deark *c, lctx *d, i64 rownum, const u8 *rowbu
 	}
 }
 
-static void render_pixel_row_normal(deark *c, lctx *d, i64 rownum, const u8 *rowbuf,
-	UI rowbuf_size, de_bitmap *img)
+static void render_pixel_row_normal(deark *c, lctx *d, struct imgbody_info *ibi,
+	i64 rownum, const u8 *rowbuf, UI rowbuf_size, de_bitmap *img)
 {
 	UI k;
 
@@ -1099,6 +1106,7 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 	u8 pixelval[8];
 	u8 *rowbuf = NULL; // The current row of pixel (palette) value
 	UI rowbuf_size;
+	int bypp;
 	de_finfo *fi = NULL;
 	UI createflags = 0;
 
@@ -1124,7 +1132,10 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 	rowbuf_size = (UI)ibi->width;
 	rowbuf = de_malloc(c, rowbuf_size);
 
-	img = de_bitmap_create(c, ibi->width, ibi->height, 3);
+	bypp = 3;
+	if(ibi->use_colorkey_transparency) bypp++;
+
+	img = de_bitmap_create(c, ibi->width, ibi->height, bypp);
 	for(j=0; j<ibi->height; j++) {
 		i64 z;
 		i64 plane;
@@ -1166,7 +1177,7 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 			render_pixel_row_ham8(c, d, j, rowbuf, rowbuf_size, img);
 		}
 		else {
-			render_pixel_row_normal(c, d, j, rowbuf, rowbuf_size, img);
+			render_pixel_row_normal(c, d, ibi, j, rowbuf, rowbuf_size, img);
 		}
 	}
 
