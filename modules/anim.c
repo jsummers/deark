@@ -16,11 +16,14 @@ DE_DECLARE_MODULE(de_module_anim);
 
 #define CODE_ANHD 0x414e4844U
 #define CODE_ANIM 0x414e494dU
+#define CODE_BEAM 0x4245414dU
 #define CODE_BMHD 0x424d4844U
 #define CODE_BODY 0x424f4459U
 #define CODE_CAMG 0x43414d47U
+#define CODE_CCRT 0x43435254U
 #define CODE_CMAP 0x434d4150U
 #define CODE_CRNG 0x43524e47U
+#define CODE_CTBL 0x4354424cU
 #define CODE_DLTA 0x444c5441U
 #define CODE_DPAN 0x4450414eU
 #define CODE_DPI  0x44504920U
@@ -28,25 +31,30 @@ DE_DECLARE_MODULE(de_module_anim);
 #define CODE_FORM 0x464f524dU
 #define CODE_GRAB 0x47524142U
 #define CODE_ILBM 0x494c424dU
+#define CODE_PCHG 0x50434847U
+#define CODE_SHAM 0x5348414dU
 #define CODE_TINY 0x54494e59U
 
 #define ANIM_OP_XOR 1
+
+#define MASKINGTYPE_NONE      0
+#define MASKINGTYPE_1BITMASK  1
+#define MASKINGTYPE_COLORKEY  2
+#define MASKINGTYPE_LASSO     3
 
 // Parameters for a single image, derived from a combination of the global
 // state and the image context.
 struct imgbody_info {
 	i64 width, height;
+	i64 planes;
 	u8 compression;
 	u8 masking_code;
-	i64 planes;
-	i64 transparent_color;
+	UI transparent_color;
 	i64 x_aspect, y_aspect;
 	i64 bits_per_row_per_plane;
 	i64 bytes_per_row_per_plane;
 	i64 frame_buffer_rowspan;
 	i64 frame_buffer_size;
-	//u8 has_hotspot;
-	//int hotspot_x, hotspot_y;
 	int is_thumb;
 };
 
@@ -75,13 +83,20 @@ typedef struct localctx_struct {
 	u8 is_ham6;
 	u8 is_ham8;
 	u8 ehb_flag; // "extra halfbrite"
+	u8 uses_color_cycling;
+	u8 color_cycling_warned;
+	u8 is_sham;
+	u8 is_ctbl;
+	u8 is_pchg;
+	u8 is_beam;
+	u8 multipalette_warned;
 	UI camg_mode;
 
 	i64 width, height;
+	i64 planes_raw;
 	u8 compression;
 	u8 masking_code;
-	i64 planes_raw;
-	i64 transparent_color;
+	UI transparent_color;
 	i64 x_aspect, y_aspect;
 	i64 x_dpi, y_dpi;
 	i64 thumb_width, thumb_height;
@@ -109,6 +124,34 @@ static const char *anim_get_op_name(u8 op)
 	case 7: name="short/long vert. delta"; break;
 	}
 	return name?name:"?";
+}
+
+static const char *get_maskingtype_name(u8 n)
+{
+	const char *name = NULL;
+
+	switch(n) {
+	case MASKINGTYPE_NONE: name = "no transparency"; break;
+	case MASKINGTYPE_1BITMASK: name = "1-bit transparency mask"; break;
+	case MASKINGTYPE_COLORKEY: name = "color-key transparency"; break;
+	case MASKINGTYPE_LASSO: name = "lasso"; break;
+	}
+	return name?name:"?";
+}
+
+static void on_color_cycling_enabled(deark *c, lctx *d)
+{
+	d->uses_color_cycling = 1;
+	if(d->color_cycling_warned) return;
+	de_warn(c, "This image uses color cycling animation, which is not supported.");
+	d->color_cycling_warned = 1;
+}
+
+static void on_multipalette_enabled(deark *c, lctx *d)
+{
+	d->errflag = 1;
+	if(d->multipalette_warned) return;
+	de_err(c, "Multi-palette ILBM images are not supported.");
 }
 
 static struct frame_ctx *create_frame(deark *c, lctx *d)
@@ -161,22 +204,16 @@ static int do_bmhd(deark *c, lctx *d, i64 pos1, i64 len)
 	d->planes_raw = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "planes: %d", (int)d->planes_raw);
 	d->masking_code = de_getbyte_p(&pos);
-	switch(d->masking_code) {
-	case 0: masking_name = "no transparency"; break;
-	case 1: masking_name = "1-bit transparency mask"; break;
-	case 2: masking_name = "color-key transparency"; break;
-	case 3: masking_name = "lasso"; break;
-	default: masking_name = "unknown"; break;
-	}
+	masking_name = get_maskingtype_name(d->masking_code);
 
 	d->compression = de_getbyte_p(&pos);
 	de_dbg(c, "compression: %d", (int)d->compression);
 
 	pos++;
-	d->transparent_color = de_getu16be_p(&pos);
+	d->transparent_color = (UI)de_getu16be_p(&pos);
 	de_dbg(c, "masking: %d (%s)", (int)d->masking_code, masking_name);
 	if(d->masking_code==2 || d->masking_code==3) {
-		de_dbg(c, " color key: %d", (int)d->transparent_color);
+		de_dbg(c, " color key: %u", d->transparent_color);
 	}
 
 	d->x_aspect = (i64)de_getbyte_p(&pos);
@@ -896,6 +933,43 @@ static void do_dpan(deark *c, lctx *d, i64 pos, i64 len)
 	de_dbg(c, "number of frames: %d", (int)nframes);
 }
 
+static void do_crng(deark *c, lctx *d, i64 pos1, i64 len)
+{
+	UI tmp1, tmp2;
+
+	if(len<8) return;
+	tmp1 = (UI)de_getu16be(pos1+2);
+	tmp2 = (UI)de_getu16be(pos1+4);
+	de_dbg(c, "CRNG flags: 0x%04x", tmp2);
+	if(tmp2&0x1) {
+		de_dbg(c, "rate: %.2f fps", (double)(((double)tmp1)*(60.0/16384.0)));
+		on_color_cycling_enabled(c, d);
+	}
+}
+
+static void do_drng(deark *c, lctx *d, i64 pos1, i64 len)
+{
+	UI tmp2;
+
+	tmp2 = (UI)de_getu16be(pos1+4);
+	de_dbg(c, "DRNG flags: 0x%04x", tmp2);
+	if(tmp2&0x1) {
+		on_color_cycling_enabled(c, d);
+	}
+}
+
+// Graphicraft Color Cycling Range and Timing
+static void do_ccrt(deark *c, lctx *d, i64 pos1, i64 len)
+{
+	i64 tmp1;
+
+	tmp1 = de_geti16be(pos1);
+	de_dbg(c, "cycling direction: %d", (int)tmp1);
+	if(tmp1!=0) {
+		d->uses_color_cycling = 1;
+	}
+}
+
 static void render_pixel_row_ham6(deark *c, lctx *d, i64 rownum, const u8 *rowbuf,
 	UI rowbuf_size, de_bitmap *img)
 {
@@ -1210,6 +1284,31 @@ static int my_anim_chunk_handler(deark *c, struct de_iffctx *ictx)
 		break;
 	case CODE_DPAN:
 		do_dpan(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		break;
+	case CODE_CRNG:
+		do_crng(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		break;
+	case CODE_DRNG:
+		do_drng(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		break;
+	case CODE_CCRT:
+		do_ccrt(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		break;
+	case CODE_SHAM:
+		d->is_sham = 1;
+		on_multipalette_enabled(c, d);
+		break;
+	case CODE_PCHG:
+		d->is_pchg = 1;
+		on_multipalette_enabled(c, d);
+		break;
+	case CODE_CTBL:
+		d->is_ctbl = 1;
+		on_multipalette_enabled(c, d);
+		break;
+	case CODE_BEAM:
+		d->is_beam = 1;
+		on_multipalette_enabled(c, d);
 		break;
 	}
 
