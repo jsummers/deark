@@ -34,6 +34,7 @@ DE_DECLARE_MODULE(de_module_anim);
 #define CODE_PCHG 0x50434847U
 #define CODE_SHAM 0x5348414dU
 #define CODE_TINY 0x54494e59U
+#define CODE_VDAT 0x56444154U
 
 #define ANIM_OP_XOR 1
 
@@ -148,6 +149,18 @@ static const char *get_maskingtype_name(u8 n)
 	return name?name:"?";
 }
 
+static const char *get_cmprtype_name(u8 n)
+{
+	const char *name = NULL;
+
+	switch(n) {
+	case 0: name = "uncompressed"; break;
+	case 1: name = "PackBits"; break;
+	case 2: name = "VDAT"; break;
+	}
+	return name?name:"?";
+}
+
 static void on_color_cycling_enabled(deark *c, lctx *d)
 {
 	d->uses_color_cycling = 1;
@@ -216,7 +229,7 @@ static int do_bmhd(deark *c, lctx *d, i64 pos1, i64 len)
 	masking_name = get_maskingtype_name(d->masking_code);
 
 	d->compression = de_getbyte_p(&pos);
-	de_dbg(c, "compression: %d", (int)d->compression);
+	de_dbg(c, "compression: %d (%s)", (int)d->compression, get_cmprtype_name(d->compression));
 
 	pos++;
 	d->transparent_color = (UI)de_getu16be_p(&pos);
@@ -775,6 +788,148 @@ done:
 	return retval;
 }
 
+struct vdat_ctx {
+	lctx *d;
+	struct imgbody_info *ibi;
+	dbuf *unc_pixels;
+	i64 vdat_chunk_count; // (the plane number)
+	i64 cur_col;
+	i64 ypos;
+};
+
+static void vdat_write_element(deark *c, struct vdat_ctx *vdctx, const u8 *elembuf)
+{
+	i64 dstpos;
+
+	dstpos = vdctx->ibi->bytes_per_row_per_plane * vdctx->vdat_chunk_count;
+	dstpos += 2*vdctx->cur_col;
+	dstpos += vdctx->ypos * vdctx->ibi->frame_buffer_rowspan;
+
+	dbuf_write_at(vdctx->unc_pixels, dstpos, elembuf, 2);
+	vdctx->ypos++;
+	if(vdctx->ypos >= vdctx->ibi->height) {
+		vdctx->ypos = 0;
+		vdctx->cur_col++;
+	}
+}
+
+static void do_vdat_chunk(deark *c, struct vdat_ctx *vdctx, i64 pos1, i64 len)
+{
+	i64 pos;
+	i64 endpos;
+	i64 count;
+	i64 cmd_cnt;
+	i64 i, k;
+	u8 cmd;
+	u8 *cmds = NULL;
+	u8 elembuf[2];
+
+	vdctx->cur_col = 0;
+	vdctx->ypos = 0;
+	pos = pos1;
+	endpos = pos1+len;
+
+	cmd_cnt = de_getu16be(pos); // command count + 2
+	pos+=2;
+	cmd_cnt -= 2;
+	de_dbg(c, "number of command bytes: %d", (int)cmd_cnt);
+	if(cmd_cnt<1) goto done;
+
+	cmds = de_mallocarray(c, cmd_cnt, sizeof(u8));
+
+	// Read commands
+	de_read(cmds, pos, cmd_cnt);
+	pos += cmd_cnt;
+
+	// Read data
+	for(i=0; i<cmd_cnt; i++) {
+		if(pos>=endpos) {
+			break;
+		}
+
+		cmd = cmds[i];
+
+		if(cmd==0x00) {
+			count = de_getu16be(pos);
+			pos += 2;
+			for(k=0; k<count; k++) {
+				de_read(elembuf, pos, 2);
+				pos += 2;
+				vdat_write_element(c, vdctx, elembuf);
+			}
+		}
+		else if(cmd==0x01) {
+			count = de_getu16be(pos);
+			pos += 2;
+			de_read(elembuf, pos, 2);
+			pos += 2;
+			for(k=0; k<count; k++) {
+				vdat_write_element(c, vdctx, elembuf);
+			}
+		}
+		else if(cmd>=0x80) {
+			count = (128-(i64)(cmd&0x7f));
+			for(k=0; k<count; k++) {
+				de_read(elembuf, pos, 2);
+				pos += 2;
+				vdat_write_element(c, vdctx, elembuf);
+			}
+		}
+		else { // cmd is from 0x02 to 0x7f
+			de_read(elembuf, pos, 2);
+			pos += 2;
+			count = (i64)cmd;
+			for(k=0; k<count; k++) {
+				vdat_write_element(c, vdctx, elembuf);
+			}
+		}
+	}
+
+done:
+	de_free(c, cmds);
+}
+
+static int my_vdat_chunk_handler(deark *c, struct de_iffctx *ictx)
+{
+	struct vdat_ctx *vdctx = (struct vdat_ctx*)ictx->userdata;
+
+	ictx->handled = 1;
+	if(ictx->chunkctx->chunk4cc.id != CODE_VDAT) {
+		goto done;
+	}
+
+	if(vdctx->vdat_chunk_count >= vdctx->ibi->planes_total) goto done;
+	do_vdat_chunk(c, vdctx, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+
+done:
+	if(ictx->chunkctx->chunk4cc.id == CODE_VDAT) {
+		vdctx->vdat_chunk_count++;
+	}
+	return 1;
+}
+
+static int decompress_method2(deark *c, lctx *d, struct imgbody_info *ibi,
+	i64 pos, i64 len, dbuf *unc_pixels, i64 expected_len)
+{
+	struct vdat_ctx vdctx;
+	struct de_iffctx *ictx_vdat = NULL;
+
+	// For sanity, we'll use a separate IFF decoder for the contents of this BODY chunk.
+	de_zeromem(&vdctx, sizeof(struct vdat_ctx));
+	vdctx.d = d;
+	vdctx.ibi = ibi;
+	vdctx.unc_pixels = unc_pixels;
+
+	ictx_vdat = de_malloc(c, sizeof(struct de_iffctx));
+	ictx_vdat->userdata = (void*)&vdctx;
+	ictx_vdat->handle_chunk_fn = my_vdat_chunk_handler;
+	ictx_vdat->f = c->infile;
+	de_fmtutil_read_iff_format(c, ictx_vdat, pos, len);
+
+	de_free(c, ictx_vdat);
+	return 1;
+}
+
 static int do_body_or_tiny(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1, i64 len, int is_thumb)
 {
 	struct imgbody_info *ibi = NULL;
@@ -794,7 +949,7 @@ static int do_body_or_tiny(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1,
 		goto done;
 	}
 
-	if(ibi->compression!=0 && ibi->compression!=1) {
+	if(ibi->compression!=0 && ibi->compression!=1 && ibi->compression!=2) {
 		de_err(c, "Unsupported compression method (%d)", (int)ibi->compression);
 		goto done;
 	}
@@ -807,9 +962,11 @@ static int do_body_or_tiny(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1,
 	case 0:
 		if(!decompress_method0(c, d, pos1, len, frctx->frame_buffer, ibi->frame_buffer_size)) goto done;
 		break;
-
 	case 1:
 		if(!decompress_method1(c, d, pos1, len, frctx->frame_buffer, ibi->frame_buffer_size)) goto done;
+		break;
+	case 2:
+		if(!decompress_method2(c, d, ibi, pos1, len, frctx->frame_buffer, ibi->frame_buffer_size)) goto done;
 		break;
 	}
 
