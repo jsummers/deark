@@ -14,6 +14,7 @@ DE_DECLARE_MODULE(de_module_anim);
 
 #define ANIM_MAX_FRAMES 10000
 
+#define CODE_ACBM 0x4143424dU
 #define CODE_ANHD 0x414e4844U
 #define CODE_ANIM 0x414e494dU
 #define CODE_BEAM 0x4245414dU
@@ -31,6 +32,7 @@ DE_DECLARE_MODULE(de_module_anim);
 #define CODE_FORM 0x464f524dU
 #define CODE_GRAB 0x47524142U
 #define CODE_ILBM 0x494c424dU
+#define CODE_PBM  0x50424d20U
 #define CODE_PCHG 0x50434847U
 #define CODE_SHAM 0x5348414dU
 #define CODE_TINY 0x54494e59U
@@ -78,12 +80,14 @@ struct frame_ctx {
 
 typedef struct localctx_struct {
 	int is_anim;
+	u32 formtype;
 	int FORM_level; // nesting level of the frames' FORM chunks
 	int errflag;
 	int num_frames_started;
 	int num_frames_finished;
 	int debug_frame_buffer;
-	int opt_notrans;
+	u8 opt_notrans;
+	u8 opt_allowsham;
 	u8 found_bmhd;
 	u8 found_cmap;
 	u8 cmap_changed_flag;
@@ -118,6 +122,7 @@ typedef struct localctx_struct {
 	i64 pal_ncolors; // Number of colors we read from the file
 	u32 pal_raw[256]; // Palette as read from the file
 	u32 pal[256]; // Palette that we will use
+	u8 delta_ops_used[256];
 } lctx;
 
 static const char *anim_get_op_name(u8 op)
@@ -171,9 +176,16 @@ static void on_color_cycling_enabled(deark *c, lctx *d)
 
 static void on_multipalette_enabled(deark *c, lctx *d)
 {
-	d->errflag = 1;
+	if(!d->opt_allowsham) {
+		d->errflag = 1;
+	}
 	if(d->multipalette_warned) return;
-	de_err(c, "Multi-palette ILBM images are not supported.");
+	if(d->opt_allowsham) {
+		de_warn(c, "This is a multi-palette image, which is not correctly supported.");
+	}
+	else {
+		de_err(c, "Multi-palette ILBM images are not supported.");
+	}
 }
 
 static struct frame_ctx *create_frame(deark *c, lctx *d)
@@ -578,7 +590,7 @@ done:
 static void do_before_image_chunk(deark *c, lctx *d)
 {
 	if(d->bmhd_changed_flag) {
-		if(d->planes_raw==6 && d->pal_ncolors==32 && !d->ehb_flag) {
+		if(d->planes_raw==6 && d->pal_ncolors==32 && !d->ehb_flag && !d->ham_flag) {
 			de_warn(c, "Assuming this is an EHB image");
 			d->ehb_flag = 1;
 		}
@@ -693,6 +705,8 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
+	d->delta_ops_used[(size_t)frctx->op] = 1; // Remember this for the summary line.
+
 	if(d->errflag) goto done;
 	if(!d->found_bmhd) goto done;
 	if(!frctx) goto done;
@@ -783,6 +797,7 @@ static int decompress_method1(deark *c, lctx *d, i64 pos, i64 len, dbuf *unc_pix
 		de_err(c, "Decompression failed: %s", dres.errmsg);
 		goto done;
 	}
+	de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", len, unc_pixels->len);
 	retval = 1;
 done:
 	return retval;
@@ -970,9 +985,6 @@ static int do_body_or_tiny(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1,
 		break;
 	}
 
-	if(ibi->compression!=0) {
-		de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", len, frctx->frame_buffer->len);
-	}
 	if(frctx->frame_buffer->len != ibi->frame_buffer_size) {
 		de_warn(c, "Expected %"I64_FMT" decompressed bytes, got %"I64_FMT, ibi->frame_buffer_size,
 			frctx->frame_buffer->len);
@@ -1291,7 +1303,6 @@ static void set_finfo_data(deark *c, lctx *d, struct imgbody_info *ibi, de_finfo
 		fi->hotspot_x = d->hotspot_x;
 		fi->hotspot_y = d->hotspot_y;
 	}
-
 }
 
 // Generate the final image and write it to a file.
@@ -1604,6 +1615,65 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 	return 1;
 }
 
+static void summary_append(de_ucstring *s, const char *fmt, ...)
+  de_gnuc_attribute ((format (printf, 2, 3)));
+
+static void summary_append(de_ucstring *s, const char *fmt, ...)
+{
+	va_list ap;
+
+	ucstring_append_char(s, ' ');
+	va_start(ap, fmt);
+	ucstring_vprintf(s, DE_ENCODING_LATIN1, fmt, ap);
+	va_end(ap);
+}
+
+// Print a summary line indicating the main characteristics of this file.
+static void print_summary(deark *c, lctx *d)
+{
+	de_ucstring *s = NULL;
+	size_t k;
+
+	if(c->debug_level<1) goto done;
+	if(!d->found_bmhd) goto done;
+
+	s = ucstring_create(c);
+
+	switch(d->formtype) {
+	case CODE_ANIM: summary_append(s, "ANIM"); break;
+	case CODE_ILBM: summary_append(s, "ILBM"); break;
+	case CODE_PBM:  summary_append(s, "PBM"); break;
+	case CODE_ACBM: summary_append(s, "ACBM"); break;
+	default: summary_append(s, "???"); break;
+	}
+
+	summary_append(s, "planes=%d", (int)d->planes_raw);
+	if(d->masking_code!=0) summary_append(s, "masking=%d", (int)d->masking_code);
+	summary_append(s, "cmpr=%d", (int)d->compression);
+	for(k=0; k<256; k++) {
+		if(d->delta_ops_used[k]) {
+			summary_append(s, "delta%u", (UI)k);
+		}
+	}
+
+	if(d->ham_flag) summary_append(s, "HAM");
+	if(d->ehb_flag) summary_append(s, "EHB");
+	if(d->is_sham) summary_append(s, "SHAM");
+	if(d->is_pchg) summary_append(s, "PCHG");
+	if(d->is_ctbl) summary_append(s, "CBTL");
+	if(d->is_beam) summary_append(s, "BEAM");
+	// TODO: RAST
+
+	if(d->uses_color_cycling) summary_append(s, "color-cycling");
+	// TODO: CLUT
+	if(!d->found_cmap) summary_append(s, "no-CMAP");
+
+	de_dbg(c, "summary:%s", ucstring_getpsz(s));
+
+done:
+	ucstring_destroy(s);
+}
+
 static void de_run_anim(deark *c, de_module_params *mparams)
 {
 	u32 id;
@@ -1611,14 +1681,20 @@ static void de_run_anim(deark *c, de_module_params *mparams)
 	struct de_iffctx *ictx = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+	if(de_get_ext_option(c, "ilbm:notrans")) {
+		d->opt_notrans = 1;
+	}
+	if(de_get_ext_option(c, "ilbm:allowsham")) {
+		d->opt_allowsham = 1;
+	}
 
 	id = (u32)de_getu32be(0);
 	if(id!=CODE_FORM) {
 		de_err(c, "Not an IFF file");
 		goto done;
 	}
-	id = (u32)de_getu32be(8);
-	switch(id) {
+	d->formtype = (u32)de_getu32be(8);
+	switch(d->formtype) {
 	case CODE_ANIM:
 		de_declare_fmt(c, "IFF-ANIM");
 		d->is_anim = 1;
@@ -1640,6 +1716,8 @@ static void de_run_anim(deark *c, de_module_params *mparams)
 	ictx->on_std_container_start_fn = my_on_std_container_start_fn;
 	ictx->f = c->infile;
 	de_fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
+
+	print_summary(c, d);
 
 done:
 	de_free(c, ictx);
