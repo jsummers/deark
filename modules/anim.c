@@ -68,6 +68,7 @@ struct imgbody_info {
 	i64 frame_buffer_size;
 	enum colortype_enum colortype;
 	int is_thumb;
+	int is_pbm; // frame buffer is PBM pixel format
 };
 
 struct frame_ctx {
@@ -630,6 +631,11 @@ static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is
 
 	ibi->is_thumb = is_thumb;
 
+	// Unlike ACBM, it would be messy and slow to convert PBM to the standard ILBM
+	// frame buffer format (and back). So we support a special frame buffer format
+	// just for PBM.
+	ibi->is_pbm = (d->formtype==CODE_PBM);
+
 	if(is_thumb) {
 		ibi->width = d->thumb_width;
 		ibi->height = d->thumb_height;
@@ -654,17 +660,40 @@ static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is
 		ibi->colortype = COLORTYPE_DEFAULT;
 	}
 
-	ibi->planes_fg = d->planes_raw;
-	ibi->planes_total = d->planes_raw;
-	if(ibi->masking_code==MASKINGTYPE_1BITMASK) {
-		ibi->planes_total++;
+	if(ibi->is_pbm) {
+		ibi->planes_fg = 1;
+		ibi->planes_total = 1;
+	}
+	else {
+		ibi->planes_fg = d->planes_raw;
+		ibi->planes_total = d->planes_raw;
+		if(ibi->masking_code==MASKINGTYPE_1BITMASK) {
+			ibi->planes_total++;
+		}
 	}
 	ibi->transparent_color = d->transparent_color;
 	ibi->x_aspect = d->x_aspect;
 	ibi->y_aspect = d->y_aspect;
 
-	ibi->bits_per_row_per_plane = de_pad_to_n(ibi->width, 16);
-	ibi->bytes_per_row_per_plane = ibi->bits_per_row_per_plane/8;
+	if(ibi->is_pbm) {
+		if(d->planes_raw!=8 || d->masking_code==MASKINGTYPE_1BITMASK) {
+			de_err(c, "Not a supported PBM format");
+			goto done;
+		}
+	}
+
+	if(ibi->is_pbm) {
+		ibi->bytes_per_row_per_plane = ibi->width;
+		if(ibi->bytes_per_row_per_plane%2) {
+			ibi->bytes_per_row_per_plane++;
+		}
+		ibi->bits_per_row_per_plane = ibi->bytes_per_row_per_plane * 8;
+		// Note: The PBM row size might be adjusted later, after decompression.
+	}
+	else {
+		ibi->bits_per_row_per_plane = de_pad_to_n(ibi->width, 16);
+		ibi->bytes_per_row_per_plane = ibi->bits_per_row_per_plane/8;
+	}
 	ibi->frame_buffer_rowspan = ibi->bytes_per_row_per_plane * ibi->planes_total;
 	ibi->frame_buffer_size = ibi->frame_buffer_rowspan * ibi->height;
 
@@ -1008,6 +1037,17 @@ static int do_body_or_tiny(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1,
 	else {
 		de_err(c, "Unsupported compression method (%d)", (int)ibi->compression);
 		goto done;
+	}
+
+	if(ibi->is_pbm && (frctx->frame_buffer->len != ibi->frame_buffer_size) && (ibi->width%2)) {
+		if(frctx->frame_buffer->len == ibi->width*ibi->height) {
+			// Hack: I have some PBM images (e.g. BBM thumbnails) that aren't row-padded.
+			de_dbg(c, "[assuming rows are not 16-bit padded]");
+			ibi->bytes_per_row_per_plane = ibi->width;
+			ibi->bits_per_row_per_plane = ibi->bytes_per_row_per_plane * 8;
+			ibi->frame_buffer_rowspan = ibi->bytes_per_row_per_plane * ibi->planes_total;
+			ibi->frame_buffer_size = ibi->frame_buffer_rowspan * ibi->height;
+		}
 	}
 
 	if(frctx->frame_buffer->len != ibi->frame_buffer_size) {
@@ -1383,6 +1423,13 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 	}
 
 	img = de_bitmap_create(c, ibi->width, ibi->height, bypp);
+
+	if(ibi->is_pbm) {
+		de_convert_image_paletted(frctx->frame_buffer, 0, 8, ibi->frame_buffer_rowspan,
+			d->pal, img, 0);
+		goto after_render;
+	}
+
 	for(j=0; j<ibi->height; j++) {
 		i64 z;
 		i64 plane;
@@ -1455,6 +1502,7 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 		}
 	}
 
+after_render:
 	fi = de_finfo_create(c);
 	set_finfo_data(c, d, ibi, fi);
 	if(ibi->is_thumb) {
@@ -1541,7 +1589,9 @@ static int my_anim_chunk_handler(deark *c, struct de_iffctx *ictx)
 		break;
 
 	case CODE_BODY:
-		if(ictx->curr_container_contentstype4cc.id != CODE_ILBM) {
+		if((ictx->curr_container_contentstype4cc.id != CODE_ILBM) &&
+			(ictx->curr_container_contentstype4cc.id != CODE_PBM))
+		{
 			de_err(c, "Unsupported ILBM-like format");
 			d->errflag = 1;
 			goto done;
@@ -1741,6 +1791,9 @@ static void de_run_anim(deark *c, de_module_params *mparams)
 		break;
 	case CODE_ACBM:
 		de_declare_fmt(c, "IFF-ACBM");
+		break;
+	case CODE_PBM:
+		de_declare_fmt(c, "IFF-PBM");
 		break;
 	default:
 		de_err(c, "Not a supported IFF format");
