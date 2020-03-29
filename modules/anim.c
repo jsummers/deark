@@ -14,6 +14,7 @@ DE_DECLARE_MODULE(de_module_anim);
 
 #define ANIM_MAX_FRAMES 10000
 
+#define CODE_ABIT 0x41424954U
 #define CODE_ACBM 0x4143424dU
 #define CODE_ANHD 0x414e4844U
 #define CODE_ANIM 0x414e494dU
@@ -154,9 +155,11 @@ static const char *get_maskingtype_name(u8 n)
 	return name?name:"?";
 }
 
-static const char *get_cmprtype_name(u8 n)
+static const char *get_cmprtype_name(lctx *d, u8 n)
 {
 	const char *name = NULL;
+
+	if(d->formtype==CODE_ACBM) return "n/a";
 
 	switch(n) {
 	case 0: name = "uncompressed"; break;
@@ -241,13 +244,15 @@ static int do_bmhd(deark *c, lctx *d, i64 pos1, i64 len)
 	masking_name = get_maskingtype_name(d->masking_code);
 
 	d->compression = de_getbyte_p(&pos);
-	de_dbg(c, "compression: %d (%s)", (int)d->compression, get_cmprtype_name(d->compression));
+	de_dbg(c, "compression: %d (%s)", (int)d->compression, get_cmprtype_name(d, d->compression));
 
 	pos++;
 	d->transparent_color = (UI)de_getu16be_p(&pos);
 	de_dbg(c, "masking: %d (%s)", (int)d->masking_code, masking_name);
 	if(d->masking_code==MASKINGTYPE_COLORKEY || d->masking_code==MASKINGTYPE_LASSO) {
-		de_dbg(c, " color key: %u", d->transparent_color);
+		de_dbg_indent(c, 1);
+		de_dbg(c, "color key: %u", d->transparent_color);
+		de_dbg_indent(c, -1);
 	}
 
 	d->x_aspect = (i64)de_getbyte_p(&pos);
@@ -945,6 +950,25 @@ static int decompress_method2(deark *c, lctx *d, struct imgbody_info *ibi,
 	return 1;
 }
 
+// Convert ACBM ABIT image to standard ILBM frame buffer format.
+static int convert_abit(deark *c, lctx *d, struct imgbody_info *ibi,
+	i64 pos, i64 len, dbuf *frame_buffer)
+{
+	i64 plane, j;
+	i64 planespan;
+
+	planespan = ibi->height * ibi->bytes_per_row_per_plane;
+
+	for(plane=0; plane<ibi->planes_total; plane++) {
+		for(j=0; j<ibi->height; j++) {
+			dbuf_copy_at(c->infile, pos + plane*planespan + j*ibi->bytes_per_row_per_plane,
+				ibi->bytes_per_row_per_plane, frame_buffer,
+				j*ibi->frame_buffer_rowspan + plane*ibi->bytes_per_row_per_plane);
+		}
+	}
+	return 1;
+}
+
 static int do_body_or_tiny(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1, i64 len, int is_thumb)
 {
 	struct imgbody_info *ibi = NULL;
@@ -964,25 +988,26 @@ static int do_body_or_tiny(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1,
 		goto done;
 	}
 
-	if(ibi->compression!=0 && ibi->compression!=1 && ibi->compression!=2) {
-		de_err(c, "Unsupported compression method (%d)", (int)ibi->compression);
-		goto done;
-	}
-
 	if(!frctx->frame_buffer) {
 		frctx->frame_buffer = dbuf_create_membuf(c, ibi->frame_buffer_size, 0x1);
 	}
 
-	switch(ibi->compression) {
-	case 0:
+	if(d->formtype==CODE_ACBM) {
+		// Note: I don't think ABIT images are ever compressed.
+		if(!convert_abit(c, d, ibi, pos1, len, frctx->frame_buffer)) goto done;
+	}
+	else if(ibi->compression==0) {
 		if(!decompress_method0(c, d, pos1, len, frctx->frame_buffer, ibi->frame_buffer_size)) goto done;
-		break;
-	case 1:
+	}
+	else if(ibi->compression==1) {
 		if(!decompress_method1(c, d, pos1, len, frctx->frame_buffer, ibi->frame_buffer_size)) goto done;
-		break;
-	case 2:
+	}
+	else if(ibi->compression==2) {
 		if(!decompress_method2(c, d, ibi, pos1, len, frctx->frame_buffer, ibi->frame_buffer_size)) goto done;
-		break;
+	}
+	else {
+		de_err(c, "Unsupported compression method (%d)", (int)ibi->compression);
+		goto done;
 	}
 
 	if(frctx->frame_buffer->len != ibi->frame_buffer_size) {
@@ -1006,22 +1031,25 @@ static void do_body(deark *c, lctx *d, i64 pos1, i64 len)
 	}
 }
 
+// ACBM ABIT chunk
+static void do_abit(deark *c, lctx *d, i64 pos1, i64 len)
+{
+	if(!do_body_or_tiny(c, d, d->frctx, pos1, len, 0)) {
+		d->errflag = 1;
+	}
+}
+
 static void do_tiny(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	struct frame_ctx *frctx = NULL;
 	i64 pos = pos1;
 
-	if(d->compression==2) {
-		de_warn(c, "Thumbnails not supported with VDAT compression");
-		goto done;
-	}
 	if(len<=4) goto done;
 
 	d->thumb_width = de_getu16be_p(&pos);
 	d->thumb_height = de_getu16be_p(&pos);
 	de_dbg(c, "thumbnail image, dimensions: %d"DE_CHAR_TIMES"%d", (int)d->thumb_width, (int)d->thumb_height);
 
-	do_before_image_chunk(c, d);
 	frctx = create_frame(c, d);
 	(void)do_body_or_tiny(c, d, frctx, pos, pos1+len-pos, 1);
 
@@ -1521,6 +1549,15 @@ static int my_anim_chunk_handler(deark *c, struct de_iffctx *ictx)
 		do_body(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		break;
 
+	case CODE_ABIT:
+		if(ictx->curr_container_contentstype4cc.id != CODE_ACBM) {
+			de_err(c, "Unsupported ILBM-like format");
+			d->errflag = 1;
+			goto done;
+		}
+		do_abit(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		break;
+
 	case CODE_DLTA:
 		if(ictx->curr_container_contentstype4cc.id != CODE_ILBM) {
 			d->errflag = 1;
@@ -1616,7 +1653,7 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 }
 
 static void summary_append(de_ucstring *s, const char *fmt, ...)
-  de_gnuc_attribute ((format (printf, 2, 3)));
+	de_gnuc_attribute ((format (printf, 2, 3)));
 
 static void summary_append(de_ucstring *s, const char *fmt, ...)
 {
@@ -1701,6 +1738,9 @@ static void de_run_anim(deark *c, de_module_params *mparams)
 		break;
 	case CODE_ILBM:
 		de_declare_fmt(c, "IFF-ILBM");
+		break;
+	case CODE_ACBM:
+		de_declare_fmt(c, "IFF-ACBM");
 		break;
 	default:
 		de_err(c, "Not a supported IFF format");
