@@ -23,6 +23,7 @@ DE_DECLARE_MODULE(de_module_anim);
 #define CODE_BODY 0x424f4459U
 #define CODE_CAMG 0x43414d47U
 #define CODE_CCRT 0x43435254U
+#define CODE_CLUT 0x434c5554U
 #define CODE_CMAP 0x434d4150U
 #define CODE_CRNG 0x43524e47U
 #define CODE_CTBL 0x4354424cU
@@ -83,6 +84,7 @@ struct frame_ctx {
 typedef struct localctx_struct {
 	int is_anim;
 	u32 formtype;
+	i64 main_chunk_endpos;
 	int FORM_level; // nesting level of the frames' FORM chunks
 	int errflag;
 	int num_frames_started;
@@ -105,6 +107,8 @@ typedef struct localctx_struct {
 	u8 is_ctbl;
 	u8 is_pchg;
 	u8 is_beam;
+	u8 found_clut;
+	u8 found_rast;
 	u8 multipalette_warned;
 	UI camg_mode;
 
@@ -998,7 +1002,8 @@ static int convert_abit(deark *c, lctx *d, struct imgbody_info *ibi,
 	return 1;
 }
 
-static int do_body_or_tiny(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1, i64 len, int is_thumb)
+// BODY/ABIT/TINY
+static int do_image_chunk_internal(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1, i64 len, int is_thumb)
 {
 	struct imgbody_info *ibi = NULL;
 	int retval = 0;
@@ -1064,17 +1069,9 @@ done:
 	return retval;
 }
 
-static void do_body(deark *c, lctx *d, i64 pos1, i64 len)
+static void do_body_or_abit(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos1, i64 len)
 {
-	if(!do_body_or_tiny(c, d, d->frctx, pos1, len, 0)) {
-		d->errflag = 1;
-	}
-}
-
-// ACBM ABIT chunk
-static void do_abit(deark *c, lctx *d, i64 pos1, i64 len)
-{
-	if(!do_body_or_tiny(c, d, d->frctx, pos1, len, 0)) {
+	if(!do_image_chunk_internal(c, d, d->frctx, pos1, len, 0)) {
 		d->errflag = 1;
 	}
 }
@@ -1091,7 +1088,7 @@ static void do_tiny(deark *c, lctx *d, i64 pos1, i64 len)
 	de_dbg(c, "thumbnail image, dimensions: %d"DE_CHAR_TIMES"%d", (int)d->thumb_width, (int)d->thumb_height);
 
 	frctx = create_frame(c, d);
-	(void)do_body_or_tiny(c, d, frctx, pos, pos1+len-pos, 1);
+	(void)do_image_chunk_internal(c, d, frctx, pos, pos1+len-pos, 1);
 
 done:
 	destroy_frame(c, d, frctx);
@@ -1543,7 +1540,7 @@ static void anim_on_frame_end(deark *c, lctx *d)
 	d->num_frames_finished++;
 }
 
-static int my_anim_chunk_handler(deark *c, struct de_iffctx *ictx)
+static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 {
 	int quitflag = 0;
 	int saved_indent_level;
@@ -1563,6 +1560,10 @@ static int my_anim_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	switch(ictx->chunkctx->chunk4cc.id) {
 	case CODE_FORM:
+		if(ictx->level==0) {
+			// Remember this for later
+			d->main_chunk_endpos = ictx->chunkctx->dpos + ictx->chunkctx->dlen;
+		}
 		if(ictx->level>d->FORM_level) break;
 		ictx->is_std_container = 1;
 		break;
@@ -1589,23 +1590,16 @@ static int my_anim_chunk_handler(deark *c, struct de_iffctx *ictx)
 		break;
 
 	case CODE_BODY:
+	case CODE_ABIT:
 		if((ictx->curr_container_contentstype4cc.id != CODE_ILBM) &&
-			(ictx->curr_container_contentstype4cc.id != CODE_PBM))
+			(ictx->curr_container_contentstype4cc.id != CODE_PBM) &&
+			(ictx->curr_container_contentstype4cc.id != CODE_ACBM))
 		{
 			de_err(c, "Unsupported ILBM-like format");
 			d->errflag = 1;
 			goto done;
 		}
-		do_body(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
-		break;
-
-	case CODE_ABIT:
-		if(ictx->curr_container_contentstype4cc.id != CODE_ACBM) {
-			de_err(c, "Unsupported ILBM-like format");
-			d->errflag = 1;
-			goto done;
-		}
-		do_abit(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		do_body_or_abit(c, d, ictx, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		break;
 
 	case CODE_DLTA:
@@ -1655,6 +1649,9 @@ static int my_anim_chunk_handler(deark *c, struct de_iffctx *ictx)
 		d->is_beam = 1;
 		on_multipalette_enabled(c, d);
 		break;
+	case CODE_CLUT:
+		d->found_clut = 1;
+		break;
 	}
 
 done:
@@ -1662,7 +1659,7 @@ done:
 	return (quitflag) ? 0 : 1;
 }
 
-static int my_preprocess_ilbm_chunk_fn(deark *c, struct de_iffctx *ictx)
+static int my_preprocess_iff_chunk_fn(deark *c, struct de_iffctx *ictx)
 {
 	const char *name = NULL;
 
@@ -1698,6 +1695,46 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 			anim_on_frame_end(c, d);
 		}
 		anim_on_frame_begin(c, d, ictx->curr_container_contentstype4cc.id);
+	}
+	return 1;
+}
+
+static void look_for_RAST(deark *c, lctx *d, i64 pos)
+{
+	if(d->found_rast) return;
+	if(!dbuf_memcmp(c->infile, pos, "RAST", 4)) {
+		d->found_rast = 1;
+	}
+}
+
+static void do_eof_stuff(deark *c, lctx *d)
+{
+	i64 endpos, endpos_padded;
+	i64 extra_bytes;
+
+	endpos = d->main_chunk_endpos;
+	if(endpos<1) return;
+	endpos_padded = de_pad_to_2(endpos);
+	extra_bytes = c->infile->len - endpos_padded;
+	if(extra_bytes<1) return;
+	de_dbg(c, "[found %"I64_FMT" extra bytes at end of file, starting at %"I64_FMT"]",
+		extra_bytes, endpos_padded);
+
+	look_for_RAST(c, d, endpos);
+	if(endpos_padded!=endpos) {
+		look_for_RAST(c, d, endpos_padded);
+	}
+	if(d->found_rast) {
+		de_warn(c, "Possible RAST data found, which is not supported. "
+			"Image might not be decoded correctly.");
+	}
+}
+
+static int my_on_container_end_fn(deark *c, struct de_iffctx *ictx)
+{
+	if(ictx->level==0) {
+		// Stop after the first top-level chunk (the FORM chunk).
+		return 0;
 	}
 	return 1;
 }
@@ -1749,10 +1786,9 @@ static void print_summary(deark *c, lctx *d)
 	if(d->is_pchg) summary_append(s, "PCHG");
 	if(d->is_ctbl) summary_append(s, "CBTL");
 	if(d->is_beam) summary_append(s, "BEAM");
-	// TODO: RAST
-
+	if(d->found_rast) summary_append(s, "RAST");
 	if(d->uses_color_cycling) summary_append(s, "color-cycling");
-	// TODO: CLUT
+	if(d->found_clut) summary_append(s, "CLUT");
 	if(!d->found_cmap) summary_append(s, "no-CMAP");
 
 	de_dbg(c, "summary:%s", ucstring_getpsz(s));
@@ -1804,20 +1840,22 @@ static void de_run_anim(deark *c, de_module_params *mparams)
 
 	ictx = de_malloc(c, sizeof(struct de_iffctx));
 	ictx->userdata = (void*)d;
-	ictx->handle_chunk_fn = my_anim_chunk_handler;
-	ictx->preprocess_chunk_fn = my_preprocess_ilbm_chunk_fn;
+	ictx->handle_chunk_fn = my_iff_chunk_handler;
+	ictx->preprocess_chunk_fn = my_preprocess_iff_chunk_fn;
 	ictx->on_std_container_start_fn = my_on_std_container_start_fn;
+	ictx->on_container_end_fn = my_on_container_end_fn;
 	ictx->f = c->infile;
 	de_fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
 
+	if(d->frctx) {
+		anim_on_frame_end(c, d);
+	}
+	do_eof_stuff(c, d);
 	print_summary(c, d);
 
 done:
 	de_free(c, ictx);
 	if(d) {
-		if(d->frctx) {
-			anim_on_frame_end(c, d);
-		}
 		destroy_frame(c, d, d->frctx);
 		destroy_frame(c, d, d->oldfrctx[0]);
 		destroy_frame(c, d, d->oldfrctx[1]);
@@ -1833,6 +1871,9 @@ static int de_identify_anim(deark *c)
 	if(id!=CODE_FORM) return 0;
 	id = (u32)de_getu32be(8);
 	if(id==CODE_ANIM) return 100;
+	if(id==CODE_ILBM) return 90;
+	if(id==CODE_PBM ) return 90;
+	if(id==CODE_ACBM) return 90;
 	return 0;
 }
 
