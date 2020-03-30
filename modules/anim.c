@@ -91,6 +91,7 @@ typedef struct localctx_struct {
 	int num_frames_finished;
 	int debug_frame_buffer;
 	u8 opt_notrans;
+	u8 opt_fixpal;
 	u8 opt_allowsham;
 	u8 found_bmhd;
 	u8 found_cmap;
@@ -126,6 +127,7 @@ typedef struct localctx_struct {
 	struct frame_ctx *frctx; // Non-NULL means we're inside a frame
 	struct frame_ctx *oldfrctx[2];
 	i64 pal_ncolors; // Number of colors we read from the file
+	int pal_is_grayscale;
 	u32 pal_raw[256]; // Palette as read from the file
 	u32 pal[256]; // Palette that we will use
 	u8 delta_ops_used[256];
@@ -596,6 +598,78 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+
+static void pal_fixup4(deark *c, lctx *d)
+{
+	i64 k;
+	u8 cr, cg, cb;
+
+	for(k=0; k<d->pal_ncolors; k++) {
+		cr = DE_COLOR_R(d->pal[k]);
+		cg = DE_COLOR_G(d->pal[k]);
+		cb = DE_COLOR_B(d->pal[k]);
+		cr = 17*(cr>>4);
+		cg = 17*(cg>>4);
+		cb = 17*(cb>>4);
+		d->pal[k] = DE_MAKE_RGB(cr, cg, cb);
+	}
+}
+
+static void pal_fixup6(deark *c, lctx *d)
+{
+	i64 k;
+	u8 cr, cg, cb;
+
+	for(k=0; k<d->pal_ncolors; k++) {
+		cr = DE_COLOR_R(d->pal[k]);
+		cg = DE_COLOR_G(d->pal[k]);
+		cb = DE_COLOR_B(d->pal[k]);
+		cr = (cr&0xfc)|(cr>>6);
+		cg = (cg&0xfc)|(cg>>6);
+		cb = (cb&0xfc)|(cb>>6);
+		d->pal[k] = DE_MAKE_RGB(cr, cg, cb);
+	}
+}
+
+// It's clear that some ILBM images have palette colors with only 4 bits of
+// precision (the low bits often being set to 0), while others have 8, or
+// something in between.
+// What's not clear is how to tell them apart.
+// We'll guess that
+// * HAM6 images always have 4.
+// * HAM8 images always have 6.
+// * For anything else, assume 4 if the low 4 bits are all 0.
+// * Otherwise, 8.
+// TODO: It may be safe to assume that 8-plane images always have 8, but
+// more research is needed.
+static void fixup_palette(deark *c, lctx *d)
+{
+	i64 k;
+	u8 cr, cg, cb;
+
+	if(d->pal_ncolors<1) return;
+
+	if(d->is_ham8) {
+		pal_fixup6(c, d);
+		return;
+	}
+	if(d->is_ham6) {
+		pal_fixup4(c, d);
+		return;
+	}
+
+	for(k=0; k<d->pal_ncolors; k++) {
+		cr = DE_COLOR_R(d->pal[k]);
+		cg = DE_COLOR_G(d->pal[k]);
+		cb = DE_COLOR_B(d->pal[k]);
+		if((cr&0x0f) != 0) return;
+		if((cg&0x0f) != 0) return;
+		if((cb&0x0f) != 0) return;
+	}
+	de_dbg(c, "Palette seems to have 4 bits of precision. Rescaling palette.");
+	pal_fixup4(c,d );
+}
+
 // Called when we encounter a BODY or DLTA or TINY chunk
 static void do_before_image_chunk(deark *c, lctx *d)
 {
@@ -623,6 +697,15 @@ static void do_before_image_chunk(deark *c, lctx *d)
 			cb = DE_COLOR_B(d->pal[k]);
 			d->pal[k+32] = DE_MAKE_RGB(cr/2, cg/2, cb/2);
 		}
+	}
+
+
+	if(d->opt_fixpal && !d->is_anim && d->cmap_changed_flag) {
+		fixup_palette(c, d);
+	}
+
+	if(d->cmap_changed_flag) {
+		d->pal_is_grayscale = de_is_grayscale_palette(d->pal, 256);
 	}
 
 	d->cmap_changed_flag = 0;
@@ -1412,7 +1495,13 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 	rowbuf = de_mallocarray(c, rowbuf_size, sizeof(rowbuf[0]));
 	rowbuf_trns = de_mallocarray(c, rowbuf_size, sizeof(rowbuf_trns[0]));
 
-	bypp = 3;
+	if(d->found_cmap && d->pal_is_grayscale && d->planes_raw<=8 && !d->is_ham6 && !d->is_ham8) {
+		bypp = 1;
+	}
+	else {
+		bypp = 3;
+	}
+
 	if(ibi->use_colorkey_transparency || ibi->masking_code==MASKINGTYPE_1BITMASK) {
 		if(!d->opt_notrans) {
 			bypp++;
@@ -1505,6 +1594,9 @@ after_render:
 	if(ibi->is_thumb) {
 		createflags |= DE_CREATEFLAG_IS_AUX;
 	}
+	if(!d->is_anim) {
+		createflags |= DE_CREATEFLAG_OPT_IMAGE;
+	}
 
 	de_bitmap_write_to_file_finfo(img, fi, createflags);
 
@@ -1522,7 +1614,7 @@ static void anim_on_frame_begin(deark *c, lctx *d, u32 formtype)
 	d->frctx = create_frame(c, d);
 	d->frctx->formtype = formtype;
 	d->frctx->frame_idx = d->num_frames_finished;
-	de_dbg(c, "[frame #%d begin]", d->frctx->frame_idx);
+	if(d->is_anim) de_dbg(c, "[frame #%d begin]", d->frctx->frame_idx);
 }
 
 static void anim_on_frame_end(deark *c, lctx *d)
@@ -1530,7 +1622,7 @@ static void anim_on_frame_end(deark *c, lctx *d)
 	int where_to_save_this_frame;
 	if(!d->frctx) return;
 
-	de_dbg(c, "[frame #%d end]", d->frctx->frame_idx);
+	if(d->is_anim) de_dbg(c, "[frame #%d end]", d->frctx->frame_idx);
 
 	where_to_save_this_frame = d->frctx->frame_idx % 2;
 
@@ -1804,6 +1896,7 @@ static void de_run_anim(deark *c, de_module_params *mparams)
 	struct de_iffctx *ictx = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->opt_fixpal = (u8)de_get_ext_option_bool(c, "ilbm:fixpal", 1);
 	if(de_get_ext_option(c, "ilbm:notrans")) {
 		d->opt_notrans = 1;
 	}
