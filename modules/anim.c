@@ -77,6 +77,7 @@ struct frame_ctx {
 	int frame_idx;
 	int done_flag; // Have we processed the image (BODY/DLTA/etc. chunk)?
 	u8 op;
+	u8 interleave;
 	UI bits;
 	dbuf *frame_buffer;
 };
@@ -436,7 +437,7 @@ static void decompress_delta_op5(deark *c, lctx *d, struct imgbody_info *ibi,
 
 	de_dbg(c, "[delta5 data]");
 
-	if(frctx->bits != 0) {
+	if((frctx->bits & 0xfffffffdU) != 0) {
 		de_err(c, "Unsupported ANHD options");
 		d->errflag = 1;
 		goto done;
@@ -823,6 +824,7 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 	struct frame_ctx *frctx = d->frctx;
 	struct frame_ctx *reference_frctx = NULL;
 	struct imgbody_info *ibi = NULL;
+	int xor_mode = 0;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -845,11 +847,16 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 	}
 
 	// Find the reference frame
-	if(frctx->frame_idx==1) {
-		reference_frctx = d->oldfrctx[0];
+	if(frctx->interleave==1) {
+		reference_frctx = d->oldfrctx[(frctx->frame_idx+1)%2];
 	}
-	else if(frctx->frame_idx>=2) {
-		reference_frctx = d->oldfrctx[frctx->frame_idx%2];
+	else { // interleave==2
+		if(frctx->frame_idx==1) {
+			reference_frctx = d->oldfrctx[0];
+		}
+		else if(frctx->frame_idx>=2) {
+			reference_frctx = d->oldfrctx[frctx->frame_idx%2];
+		}
 	}
 
 	// Allocate buffer for this frame
@@ -857,9 +864,16 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 		frctx->frame_buffer = dbuf_create_membuf(c, ibi->frame_buffer_size, 0x1);
 	}
 
+
+	if(frctx->op==4 || frctx->op==5) {
+		if(frctx->bits & 0x2) {
+			xor_mode = 1;
+		}
+	}
+
 	// Start by copying the reference frame to this frame. The decompress function
 	// will then modify this frame.
-	if(reference_frctx && reference_frctx->frame_buffer) {
+	if(!xor_mode && reference_frctx && reference_frctx->frame_buffer) {
 		dbuf_copy(reference_frctx->frame_buffer, 0, reference_frctx->frame_buffer->len,
 			frctx->frame_buffer);
 	}
@@ -880,7 +894,18 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 		goto done;
 	}
 
-	write_frame(c, d, ibi, d->frctx);
+	if(xor_mode && reference_frctx && reference_frctx->frame_buffer) {
+		i64 k;
+		for(k=0; k<ibi->frame_buffer_size; k++) {
+			u8 b0, b1;
+			b1 = dbuf_getbyte(reference_frctx->frame_buffer, k);
+			if(b1==0) continue;
+			b0 = dbuf_getbyte(frctx->frame_buffer, k);
+			dbuf_writebyte_at(frctx->frame_buffer, k, b0^b1);
+		}
+	}
+
+	write_frame(c, d, ibi, frctx);
 
 done:
 	de_free(c, ibi);
@@ -1179,7 +1204,6 @@ done:
 
 static void do_anim_anhd(deark *c, lctx *d, i64 pos, i64 len)
 {
-	u8 ileave;
 	i64 tmp;
 	struct frame_ctx *frctx = d->frctx;
 
@@ -1204,9 +1228,9 @@ static void do_anim_anhd(deark *c, lctx *d, i64 pos, i64 len)
 	tmp = de_getu32be_p(&pos); // reltime
 	de_dbg(c, "reltime: %.5f sec", ((double)tmp)/60.0);
 
-	ileave = de_getbyte_p(&pos); // interleave
-	de_dbg(c, "interleave: %d", (int)ileave);
-	if(ileave!=0 && ileave!=2) {
+	frctx->interleave = de_getbyte_p(&pos);
+	de_dbg(c, "interleave: %d", (int)frctx->interleave);
+	if(frctx->interleave>2 && !d->errflag) {
 		de_err(c, "Unsupported interleave");
 		d->errflag = 1;
 	}
