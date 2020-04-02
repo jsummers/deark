@@ -63,7 +63,7 @@ static void do_degas_anim_fields(deark *c, degasctx *d, i64 pos)
 
 	// TODO: Can we determine if palette animation is actually used,
 	// and only show the warning if it is?
-	//de_warn(c, "This image may use palette color animation, which is not supported.");
+	//de_warn(c, "This image may use palette cycling animation, which is not supported.");
 }
 
 // Try to figure out if this is a DEGAS Elite file (as opposed to original DEGAS).
@@ -599,7 +599,52 @@ typedef struct tinyctx_struct {
 	i64 num_control_bytes;
 	i64 num_data_words;
 	u32 pal[16];
+
+	// Decompression params:
+	i64 numstripes;
+	i64 numscans;
+	i64 dst_rowspan;
+
+	// Decompression state:
+	int stopflag;
+	i64 ypos;
+	i64 stripe;
+	i64 scan;
+	i64 column;
+	i64 dcmpr_word_count;
 } tinyctx;
+
+static void tiny_setword(deark *c, tinyctx *d, struct atari_img_decode_data *adata, const u8 *wordbuf)
+{
+	i64 dstpos;
+
+	// As each word is emitted from the decompressor, we store it in the unc_pixels buffer
+	// in a particular location. The location is chosen so as to make the pixel data more
+	// contiguous, but (for 2bpp and 4bpp images) more work will still have to be done when
+	// the image is generated.
+
+	if(d->stopflag) return;
+	d->dcmpr_word_count++;
+	dstpos = d->stripe * 8 + d->column*2 + (d->ypos * d->numscans + d->scan)*d->dst_rowspan;
+	dbuf_write_at(adata->unc_pixels, dstpos, wordbuf, 2);
+	d->ypos++;
+	if(d->ypos >= 200) {
+		d->ypos = 0;
+		d->stripe++;
+		if(d->stripe >= d->numstripes) {
+			d->stripe = 0;
+			d->scan++;
+			if(d->scan >= d->numscans) {
+				d->scan = 0;
+				d->column++;
+				if(d->column >= 4) {
+					d->stopflag = 1;
+					return;
+				}
+			}
+		}
+	}
+}
 
 // Uncompress to adata->unc_pixels.
 static int tiny_uncompress(deark *c, tinyctx *d, struct atari_img_decode_data *adata, i64 pos)
@@ -607,10 +652,20 @@ static int tiny_uncompress(deark *c, tinyctx *d, struct atari_img_decode_data *a
 	u8 *control_bytes = NULL;
 	i64 k;
 	i64 count;
-	u8 b0, b1;
-	i64 dcmpr_word_count = 0;
 	i64 cpos;
 	u8 ctrl;
+	u8 wordbuf[2];
+
+	if(adata->bpp==1) {
+		d->numscans = 2;
+		d->numstripes = 10;
+		d->dst_rowspan = 80;
+	}
+	else {
+		d->numscans = 1;
+		d->numstripes = 20;
+		d->dst_rowspan = 160;
+	}
 
 	de_dbg(c, "RLE control bytes at %d", (int)pos);
 	control_bytes = de_malloc(c, d->num_control_bytes +2);
@@ -621,172 +676,118 @@ static int tiny_uncompress(deark *c, tinyctx *d, struct atari_img_decode_data *a
 
 	cpos = 0;
 
+	d->stopflag = 0;
+	d->scan = 0;
+	d->ypos = 0;
+	d->column = 0;
+	d->stripe = 0;
+	d->dcmpr_word_count = 0;
+
 	while(1) {
+		if(d->stopflag) break;
 		if(cpos >= d->num_control_bytes) break;
 		ctrl = control_bytes[cpos++];
 
 		if(ctrl >= 128) { // Uncompressed run, count encoded in control byte
 			count = 256 - (i64)ctrl;
-			dbuf_copy(c->infile, pos, 2*count, adata->unc_pixels);
-			dcmpr_word_count += count;
-			pos += 2*count;
+			for(k=0; k<count; k++) {
+				dbuf_read(c->infile, wordbuf, pos, 2);
+				pos += 2;
+				tiny_setword(c, d, adata, wordbuf);
+			}
 		}
 		else if(ctrl == 0) { // RLE, 16-bit count in next 2 control bytes
 			count = de_getu16be_direct(&control_bytes[cpos]);
 			cpos += 2;
-			b0 = de_getbyte(pos++);
-			b1 = de_getbyte(pos++);
+			dbuf_read(c->infile, wordbuf, pos, 2);
+			pos += 2;
 			for(k=0; k<count; k++) {
-				dbuf_writebyte(adata->unc_pixels, b0);
-				dbuf_writebyte(adata->unc_pixels, b1);
+				tiny_setword(c, d, adata, wordbuf);
 			}
-			dcmpr_word_count += count;
 		}
 		else if(ctrl == 1) { // Uncompressed run, 16-bit count in next 2 control bytes
 			count = de_getu16be_direct(&control_bytes[cpos]);
 			cpos += 2;
 
-			dbuf_copy(c->infile, pos, 2*count, adata->unc_pixels);
-			pos += 2*count;
-			dcmpr_word_count += count;
+			for(k=0; k<count; k++) {
+				dbuf_read(c->infile, wordbuf, pos, 2);
+				pos += 2;
+				tiny_setword(c, d, adata, wordbuf);
+			}
 		}
 		else { // RLE, count encoded in control byte
 			count = (i64)ctrl;
-			b0 = de_getbyte(pos++);
-			b1 = de_getbyte(pos++);
+			dbuf_read(c->infile, wordbuf, pos, 2);
+			pos += 2;
 			for(k=0; k<count; k++) {
-				dbuf_writebyte(adata->unc_pixels, b0);
-				dbuf_writebyte(adata->unc_pixels, b1);
+				tiny_setword(c, d, adata, wordbuf);
 			}
-			dcmpr_word_count += count;
 		}
 	}
 
-	de_dbg(c, "decompressed words: %d", (int)dcmpr_word_count);
-	// Many files seem to decompress to 16001 words instead of 16000. I don't know why.
-	if(dcmpr_word_count<16000 || dcmpr_word_count>16008) {
-		de_warn(c, "Expected 16000 decompressed words, got %d", (int)dcmpr_word_count);
+	de_dbg(c, "decompressed words: %d", (int)d->dcmpr_word_count);
+	if(d->dcmpr_word_count<16000) {
+		de_warn(c, "Expected 16000 decompressed words, got %d", (int)d->dcmpr_word_count);
 	}
 
 	de_free(c, control_bytes);
 	return 1;
 }
 
-static void do_tinystuff_1bpp(deark *c, struct atari_img_decode_data *adata)
+static void do_tinystuff_1bpp(deark *c, tinyctx *d, struct atari_img_decode_data *adata)
 {
-	i64 xpos, ypos;
-	i64 col;
-	i64 upos = 0;
-	i64 scanline;
-	unsigned int w;
-	i64 k;
-	unsigned int b;
-	u32 clr;
+	de_convert_image_paletted(adata->unc_pixels, 0, 1, d->dst_rowspan, adata->pal,
+		adata->img, 0);
+}
 
-	for(col=0; col<80; col++) {
-		for(scanline=0; scanline<200; scanline++) {
-			w = (unsigned int)dbuf_getu16be(adata->unc_pixels, upos);
-			upos+=2;
+static void do_tinystuff_2or4bpp(deark *c, tinyctx *d, struct atari_img_decode_data *adata)
+{
+	i64 x, y;
+	i64 pos = 0;
+	i64 width;
+	UI bpp;
+
+	bpp = (UI)adata->bpp;
+	if(bpp!=2 && bpp!=4) return;
+
+	if(bpp==2) width = 640;
+	else width = 320;
+
+	for(y=0; y<200; y++) {
+		for(x=0; x<width; x+=16) {
+			UI n[4];
+			UI b_idx;
+			UI k;
+
+			// 2bpp: Every 2 words (4 bytes; 32 bits) makes 16 pixels
+			// 4bpp: Every 4 words (8 bytes; 64 bits) makes 16 pixels
+			for(b_idx=0; b_idx<bpp; b_idx++) {
+				n[b_idx] = (UI)dbuf_getu16be_p(adata->unc_pixels, &pos);
+			}
 
 			for(k=0; k<16; k++) {
-				b = (w>>(15-k)) & 1;
+				UI v = 0;
 
-				if((col%20)<10) {
-					xpos = (4*(col%20) + col/20)*16 + k;
-					ypos = scanline*2;
+				for(b_idx=0; b_idx<bpp; b_idx++) {
+					if(n[b_idx]&(1U<<(15-k))) v += (1U<<b_idx);
 				}
-				else {
-					xpos = (4*(col%20) + col/20)*16 + k - 640;
-					ypos = scanline*2 + 1;
-				}
-
-				clr = adata->pal[b];
-				de_bitmap_setpixel_rgb(adata->img, xpos, ypos, clr);
+				de_bitmap_setpixel_rgb(adata->img, x+(i64)k, y, adata->pal[v]);
 			}
 		}
 	}
 }
 
-static void do_tinystuff_2bpp(deark *c, struct atari_img_decode_data *adata)
-{
-	i64 xpos, ypos;
-	i64 col;
-	i64 upos = 0;
-	i64 scanline;
-	unsigned int w[2];
-	i64 k;
-	i64 z;
-	unsigned int b[2];
-	u32 clr;
-
-	for(col=0; col<40; col++) {
-		for(scanline=0; scanline<200; scanline++) {
-			for(z=0; z<2; z++) {
-				w[z] = (unsigned int)dbuf_getu16be(adata->unc_pixels, upos +z*8000 +(col/20)*8000);
-			}
-			upos+=2;
-
-			for(k=0; k<16; k++) {
-				for(z=0; z<2; z++) {
-					b[z] = (w[z]>>(15-k)) & 1;
-				}
-
-				xpos = (2*(col%20) + (col/20))*16 + k;
-				ypos = scanline;
-				clr = adata->pal[b[0] + 2*b[1]];
-				de_bitmap_setpixel_rgb(adata->img, xpos, ypos, clr);
-			}
-		}
-	}
-}
-
-static void do_tinystuff_4bpp(deark *c, struct atari_img_decode_data *adata)
-{
-	i64 xpos, ypos;
-	i64 col;
-	i64 upos = 0;
-	i64 scanline;
-	unsigned int w[4];
-	i64 k;
-	i64 z;
-	unsigned int b[4];
-	u32 clr;
-
-	for(col=0; col<20; col++) {
-		for(scanline=0; scanline<200; scanline++) {
-			for(z=0; z<4; z++) {
-				w[z] = (unsigned int)dbuf_getu16be(adata->unc_pixels, upos + z*8000);
-			}
-			upos+=2;
-
-			for(k=0; k<16; k++) {
-				for(z=0; z<4; z++) {
-					b[z] = (w[z]>>(15-k)) & 1;
-				}
-
-				xpos = col*16 + k;
-				ypos = scanline;
-				clr = adata->pal[b[0] + 2*b[1] + 4*b[2] + 8*b[3]];
-				de_bitmap_setpixel_rgb(adata->img, xpos, ypos, clr);
-			}
-		}
-	}
-}
-
-static void do_tinystuff_image(deark *c, struct atari_img_decode_data *adata)
+static void do_tinystuff_image(deark *c, tinyctx *d, struct atari_img_decode_data *adata)
 {
 	switch(adata->bpp) {
 	case 1:
-		do_tinystuff_1bpp(c, adata);
+		do_tinystuff_1bpp(c, d, adata);
 		break;
 	case 2:
-		do_tinystuff_2bpp(c, adata);
-		break;
 	case 4:
-		do_tinystuff_4bpp(c, adata);
+		do_tinystuff_2or4bpp(c, d, adata);
 		break;
 	}
-	return;
 }
 
 // Some 1bpp images apparently have the palette set to [001, 000],
@@ -859,7 +860,7 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d, colors: %d", (int)adata->w, (int)adata->h, (int)adata->ncolors);
 
 	if(d->res_code>=3) {
-		de_warn(c, "This image uses palette color animation, which is not supported.");
+		de_warn(c, "This image uses palette cycling animation, which is not supported.");
 		pos += 4; // skip animation_info
 	}
 
@@ -887,6 +888,7 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 	}
 
 	adata->unc_pixels = dbuf_create_membuf(c, 32000, 1);
+
 	if(!tiny_uncompress(c, d, adata, pos)) {
 		goto done;
 	}
@@ -898,7 +900,7 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 	fi = de_finfo_create(c);
 	de_fmtutil_atari_set_standard_density(c, adata, fi);
 
-	do_tinystuff_image(c, adata);
+	do_tinystuff_image(c, d, adata);
 	de_bitmap_write_to_file_finfo(adata->img, fi, 0);
 
 done:
