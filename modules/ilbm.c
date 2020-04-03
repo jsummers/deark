@@ -476,8 +476,6 @@ static void decompress_plane_delta_op7(deark *c, lctx *d, struct imgbody_info *i
 	de_dbg2(c, "delta7 plane at (%"I64_FMT", %"I64_FMT")", oppos1, datapos1);
 	if(elem_size!=2 && elem_size!=4) goto done;
 
-	// ??? How does this work? How many columns are there? What happens if
-	// elem_size is 4, and bytes_per_row_per_plane is not a multiple of 4 bytes?
 	if(elem_size==4) {
 		num_columns = (ibi->bytes_per_row_per_plane+3)/4;
 	}
@@ -491,8 +489,18 @@ static void decompress_plane_delta_op7(deark *c, lctx *d, struct imgbody_info *i
 		i64 k;
 		u8 op;
 		i64 dstpos = dstpos1 + col*elem_size;
+		i64 elem_bytes_to_write;
 
 		if(oppos >= inf->len) goto done;
+
+		// Defend against writing beyond the right edge of this plane
+		if((col+1 == num_columns) && (elem_size==4) && (ibi->bytes_per_row_per_plane%4)) {
+			elem_bytes_to_write = 2;
+		}
+		else {
+			elem_bytes_to_write = elem_size;
+		}
+
 		opcount = (i64)dbuf_getbyte_p(inf, &oppos);
 		if(c->debug_level>=3) {
 			de_dbg3(c, "col %d op count: %d", (int)col, (int)opcount);
@@ -512,7 +520,7 @@ static void decompress_plane_delta_op7(deark *c, lctx *d, struct imgbody_info *i
 				datapos += elem_size;
 
 				for(k=0; k<count; k++) {
-					dbuf_write_at(frctx->frame_buffer, dstpos, valbuf, elem_size);
+					dbuf_write_at(frctx->frame_buffer, dstpos, valbuf, elem_bytes_to_write);
 					dstpos += dststride;
 				}
 			}
@@ -524,7 +532,7 @@ static void decompress_plane_delta_op7(deark *c, lctx *d, struct imgbody_info *i
 				for(k=0; k<count; k++) {
 					dbuf_read(inf, valbuf, datapos, elem_size);
 					datapos += elem_size;
-					dbuf_write_at(frctx->frame_buffer, dstpos, valbuf, elem_size);
+					dbuf_write_at(frctx->frame_buffer, dstpos, valbuf, elem_bytes_to_write);
 					dstpos += dststride;
 				}
 			}
