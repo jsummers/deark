@@ -146,6 +146,8 @@ static const char *anim_get_op_name(u8 op)
 	case 4: name="short/long delta"; break;
 	case 5: name="byte vert. delta"; break;
 	case 7: name="short/long vert. delta"; break;
+		//case 8 - TODO
+	case 74: name="ANIM-J (Eric Graham)"; break;
 	}
 	return name?name:"?";
 }
@@ -1205,10 +1207,49 @@ done:
 	destroy_frame(c, d, frctx);
 }
 
+static void get_bits_descr(deark *c, lctx *d, struct frame_ctx *frctx, de_ucstring *s)
+{
+	UI bits = frctx->bits;
+
+	if(frctx->op==4 || frctx->op==5 || frctx->op==7) {
+		if(bits & 0x1) {
+			ucstring_append_flags_item(s, "long data");
+			bits -= 0x1;
+		}
+	}
+	if(frctx->op==4 || frctx->op==5) {
+		if(bits & 0x2) {
+			ucstring_append_flags_item(s, "XOR");
+			bits -= 0x2;
+		}
+		if(bits & 0x4) {
+			ucstring_append_flags_item(s, "one info list");
+			bits -= 0x4;
+		}
+		if(bits & 0x8) {
+			ucstring_append_flags_item(s, "RLC");
+			bits -= 0x8;
+		}
+		if(bits & 0x10) {
+			ucstring_append_flags_item(s, "vertical");
+			bits -= 0x10;
+		}
+		if(bits & 0x20) {
+			ucstring_append_flags_item(s, "long info offsets");
+			bits -= 0x20;
+		}
+	}
+
+	if(bits!=0) {
+		ucstring_append_flags_itemf(s, "0x%08x", bits);
+	}
+}
+
 static void do_anim_anhd(deark *c, lctx *d, i64 pos, i64 len)
 {
 	i64 tmp;
 	u8 ileave_raw;
+	de_ucstring *bits_descr = NULL;
 	struct frame_ctx *frctx = d->frctx;
 
 	if(!frctx) return;
@@ -1248,12 +1289,16 @@ static void do_anim_anhd(deark *c, lctx *d, i64 pos, i64 len)
 	pos++; // pad0
 
 	frctx->bits = (UI)de_getu32be_p(&pos);
-	de_dbg(c, "flags: 0x%08x", frctx->bits);
+	bits_descr = ucstring_create(c);
+	get_bits_descr(c, d, frctx, bits_descr);
+	de_dbg(c, "bits: 0x%08x (%s)", frctx->bits, ucstring_getpsz_d(bits_descr));
 	if(frctx->op==4 || frctx->op==5) {
 		if(frctx->bits & 0x2) {
 			frctx->delta4_5_xor_mode = 1;
 		}
 	}
+
+	ucstring_destroy(bits_descr);
 }
 
 static void do_camg(deark *c, lctx *d, i64 pos, i64 len)
