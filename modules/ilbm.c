@@ -1192,9 +1192,16 @@ done:
 
 static void do_body_or_abit(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos1, i64 len)
 {
+	if(!de_good_image_dimensions(c, d->width, d->height)) {
+		d->errflag = 1;
+		goto done;
+	}
 	if(!do_image_chunk_internal(c, d, d->frctx, pos1, len, 0)) {
 		d->errflag = 1;
+		goto done;
 	}
+done:
+	;
 }
 
 static void do_tiny(deark *c, lctx *d, i64 pos1, i64 len)
@@ -1207,6 +1214,10 @@ static void do_tiny(deark *c, lctx *d, i64 pos1, i64 len)
 	d->thumb_width = de_getu16be_p(&pos);
 	d->thumb_height = de_getu16be_p(&pos);
 	de_dbg(c, "thumbnail image, dimensions: %d"DE_CHAR_TIMES"%d", (int)d->thumb_width, (int)d->thumb_height);
+	if(!de_good_image_dimensions_noerr(c, d->thumb_width, d->thumb_height)) {
+		de_warn(c, "Bad thumbnail image dimensions");
+		goto done;
+	}
 
 	frctx = create_frame(c, d);
 	(void)do_image_chunk_internal(c, d, frctx, pos, pos1+len-pos, 1);
