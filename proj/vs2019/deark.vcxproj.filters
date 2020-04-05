@@ -478,9 +478,6 @@
     <ClCompile Include="..\..\modules\fli.c">
       <Filter>Modules</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\modules\anim.c">
-      <Filter>Modules</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\deark-config.h">
