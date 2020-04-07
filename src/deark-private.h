@@ -939,6 +939,7 @@ void ucstring_strip_trailing_NUL(de_ucstring *s);
 void ucstring_strip_trailing_spaces(de_ucstring *s);
 void ucstring_append_char(de_ucstring *s, i32 ch);
 void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2);
+void ucstring_vprintf(de_ucstring *s, de_encoding encoding, const char *fmt, va_list ap);
 void ucstring_printf(de_ucstring *s, de_encoding encoding, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 3, 4)));
 int ucstring_isempty(const de_ucstring *s);

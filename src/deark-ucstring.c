@@ -81,7 +81,7 @@ void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2)
 	}
 }
 
-static void ucstring_vprintf(de_ucstring *s, de_encoding encoding, const char *fmt, va_list ap)
+void ucstring_vprintf(de_ucstring *s, de_encoding encoding, const char *fmt, va_list ap)
 {
 	char buf[1024];
 	de_vsnprintf(buf, sizeof(buf), fmt, ap);

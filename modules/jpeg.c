@@ -30,6 +30,7 @@ typedef struct localctx_struct {
 
 	u8 has_jfif_seg, has_jfif_thumb, has_jfxx_seg;
 	u8 has_exif_seg, has_exif_gps, has_spiff_seg, has_mpf_seg, has_afcp;
+	u8 exif_before_jfif;
 	u8 has_psd, has_iptc, has_xmp, has_xmp_ext, has_iccprofile, has_flashpix;
 	u8 is_baseline, is_progressive, is_lossless, is_arithmetic, is_hierarchical;
 	u8 is_jpeghdr, is_jpegxt, is_mpo, is_jps;
@@ -303,6 +304,9 @@ static void do_exif_segment(deark *c, lctx *d,
 	// Note that Exif has an additional padding byte after the APP ID NUL terminator.
 	de_dbg(c, "Exif data at %d, size=%d", (int)pos, (int)data_size);
 	d->has_exif_seg = 1;
+	if(!d->has_jfif_seg) {
+		d->exif_before_jfif = 1;
+	}
 	de_dbg_indent(c, 1);
 	de_fmtutil_handle_exif2(c, pos, data_size,
 		&exifflags, &exiforientation, &exifversion);
@@ -1800,21 +1804,18 @@ static void do_post_sof_stuff(deark *c, lctx *d)
 {
 	if(d->is_jpegls) return;
 
-	// There is really no reason to warn about these JFIF vs. Exif conflicts.
-	// It's just a pet peeve.
-
-	if(d->has_jfif_seg && d->has_exif_seg &&
+	if(d->has_jfif_seg && d->has_exif_seg && !d->exif_before_jfif &&
 		(d->jfif_ver_h==1 && (d->jfif_ver_l==1 || d->jfif_ver_l==2)))
 	{
 		if(d->exif_orientation>1) {
-			de_warn(c, "Image has an ambiguous orientation: JFIF says "
+			de_dbg(c, "Note: Image has an ambiguous orientation: JFIF says "
 				"%s; Exif says %s",
 				de_fmtutil_tiff_orientation_name(1),
 				de_fmtutil_tiff_orientation_name((i64)d->exif_orientation));
 		}
 
 		if(d->exif_cosited && d->is_subsampled && d->ncomp>1) {
-			de_warn(c, "Image has an ambiguous subsampling position: JFIF says "
+			de_dbg(c, "Note: Image has an ambiguous subsampling position: JFIF says "
 				"centered; Exif says cosited");
 		}
 
