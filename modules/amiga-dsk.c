@@ -26,6 +26,7 @@ struct member_data {
 	i64 first_data_block;
 	int sec_type;
 	de_ucstring *fn;
+	struct de_timestamp mod_time;
 
 	dbuf *outf;
 	i64 nbytes_written;
@@ -54,13 +55,20 @@ static void on_adf_error(deark *c, lctx *d, int code)
 }
 
 // Remember which blocks have been processed, to prevent infinite loops.
+// In failure, reports an error and returns 0.
 static int claim_block(deark *c, lctx *d, i64 blknum)
 {
-	if(blknum<0 || blknum>=d->num_blocks) return 0;
+	if(blknum<0 || blknum>=d->num_blocks) {
+		de_err(c, "Bad block number: %"I64_FMT, blknum);
+		return 0;
+	}
 	if(!d->block_used_flags) {
 		d->block_used_flags = de_malloc(c, d->num_blocks);
 	}
-	if(d->block_used_flags[blknum]) return 0;
+	if(d->block_used_flags[blknum]) {
+		de_err(c, "Attempt to reuse block #%"I64_FMT, blknum);
+		return 0;
+	}
 	d->block_used_flags[blknum] = 1;
 	return 1;
 }
@@ -85,7 +93,6 @@ static int do_file_data_block(deark *c, lctx *d, struct member_data *md,
 	de_dbg_indent(c, 1);
 
 	if(!claim_block(c, d, blknum)) {
-		on_adf_error(c, d, 10);
 		goto done;
 	}
 
@@ -93,7 +100,9 @@ static int do_file_data_block(deark *c, lctx *d, struct member_data *md,
 	blocktype = (int)de_geti32be_p(&pos);
 	de_dbg(c, "block type: %d", blocktype);
 	if(blocktype!=ADF_T_DATA) {
-		on_adf_error(c, d, 11);
+		de_err(c, "%s: Bad block type in data block %d (%d, expected %d)",
+			ucstring_getpsz_d(md->fn), (int)seq_num_expected,
+			blocktype, (int)ADF_T_DATA);
 		goto done;
 	}
 
@@ -113,7 +122,9 @@ static int do_file_data_block(deark *c, lctx *d, struct member_data *md,
 	data_size = de_getu32be_p(&pos);
 	de_dbg(c, "data size: %"I64_FMT, data_size);
 	if(data_size > d->bsize-24) {
-		on_adf_error(c, d, 14);
+		de_err(c, "%s: Bad data size in data block %d (%"I64_FMT", max=%"I64_FMT")",
+			ucstring_getpsz_d(md->fn), (int)seq_num_expected,
+			data_size, (i64)(d->bsize-24));
 		goto done;
 	}
 	if(md->nbytes_written + data_size > md->fsize) {
@@ -124,7 +135,6 @@ static int do_file_data_block(deark *c, lctx *d, struct member_data *md,
 	md->next_block_to_read = de_getu32be_p(&pos);
 	de_dbg(c, "next data block: %"I64_FMT, md->next_block_to_read);
 
-
 	dpos = pos1 + 24;
 	dbuf_copy(c->infile, dpos, data_size, md->outf);
 	md->nbytes_written += data_size;
@@ -134,6 +144,36 @@ static int do_file_data_block(deark *c, lctx *d, struct member_data *md,
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
+}
+
+static void read_ofs_timestamp(deark *c, lctx *d, i64 pos1, struct de_timestamp *ts,
+	const char *name)
+{
+	i64 pos = pos1;
+	i64 days, mins, ticks;
+	i64 ut;
+	char timestamp_buf[64];
+
+	ts->is_valid = 0;
+	days = de_getu32be_p(&pos);
+	mins = de_getu32be_p(&pos);
+	ticks = de_getu32be_p(&pos);
+	ut = (6*365 + 2*366) * 86400; // 1970-01-01 to 1978-01-01
+	ut += days * 86400;
+	ut += mins * 60;
+	ut += ticks / 50;
+
+	if(days!=0) {
+		de_unix_time_to_timestamp(ut, ts, 0);
+		de_timestamp_set_subsec(ts, (double)(ticks%50) / 50.0);
+		de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
+	}
+	else {
+		de_strlcpy(timestamp_buf, "none", sizeof(timestamp_buf));
+	}
+
+	de_dbg(c, "%s: [%"I64_FMT",%"I64_FMT",%"I64_FMT"] (%s)",
+		name, days, mins, ticks, timestamp_buf);
 }
 
 static void do_file(deark *c, lctx *d, struct member_data *md)
@@ -164,13 +204,17 @@ static void do_file(deark *c, lctx *d, struct member_data *md)
 	de_dbg(c, "first data block: %"I64_FMT, md->first_data_block);
 
 	if(header_key!=md->header_blknum) {
-		on_adf_error(c, d, 17);
+		de_err(c, "Bad self-pointer (%"I64_FMT") in block #%"I64_FMT, header_key,
+			md->header_blknum);
 		goto done;
 	}
 
 	pos = pos1+d->bsize-188;
 	md->fsize = de_getu32be_p(&pos);
 	de_dbg(c, "file size: %"I64_FMT, md->fsize);
+
+	pos = pos1+d->bsize-92;
+	read_ofs_timestamp(c, d, pos, &md->mod_time, "mod time");
 
 	pos = pos1+d->bsize-80;
 	fnlen = (i64)de_getbyte_p(&pos);
@@ -194,6 +238,10 @@ static void do_file(deark *c, lctx *d, struct member_data *md)
 	fullfn = ucstring_create(c);
 	de_strarray_make_path(d->curpath, fullfn, DE_MPFLAG_NOTRAILINGSLASH);
 	de_finfo_set_name_from_ucstring(c, md->fi, fullfn, DE_SNFLAG_FULLPATH);
+
+	if(md->mod_time.is_valid) {
+		md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->mod_time;
+	}
 
 	md->outf = dbuf_create_output_file(c, NULL, md->fi, 0x0);
 
@@ -249,6 +297,7 @@ static void do_hashtable(deark *c, lctx *d, i64 pos1, i64 ht_size_in_longs)
 	i64 k;
 	i64 pos = pos1;
 	int saved_indent_level;
+	i64 used_count = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -262,11 +311,13 @@ static void do_hashtable(deark *c, lctx *d, i64 pos1, i64 ht_size_in_longs)
 			de_dbg(c, "ht[%u]: %u", (UI)k, (UI)n);
 		}
 		if(n>0) {
+			used_count++;
 			de_dbg_indent(c, 1);
 			do_file_list(c, d, n);
 			de_dbg_indent(c, -1);
 		}
 	}
+	de_dbg(c, "hash buckets in use: %d of %d", (int)used_count, (int)ht_size_in_longs);
 
 	de_dbg_indent_restore(c, saved_indent_level);
 }
@@ -279,6 +330,7 @@ static void do_directory(deark *c, lctx *d, struct member_data *md)
 	int saved_indent_level;
 	int need_curpath_pop = 0;
 	de_ucstring *fullfn = NULL;
+	struct de_timestamp tmpts;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -302,6 +354,8 @@ static void do_directory(deark *c, lctx *d, struct member_data *md)
 		ht_size_in_longs = (d->bsize/4) - 56;
 	}
 
+	read_ofs_timestamp(c, d, pos1+d->bsize-92, &md->mod_time, "dir mod time");
+
 	if(md->sec_type==ADF_ST_USERDIR) {
 		i64 fnlen;
 
@@ -312,6 +366,11 @@ static void do_directory(deark *c, lctx *d, struct member_data *md)
 		de_dbg(c, "dirname: \"%s\"", ucstring_getpsz_d(md->fn));
 		de_strarray_push(d->curpath, md->fn);
 		need_curpath_pop = 1;
+	}
+
+	if(md->sec_type==ADF_ST_ROOT) {
+		read_ofs_timestamp(c, d, pos1+d->bsize-40, &tmpts, "disk mod time");
+		read_ofs_timestamp(c, d, pos1+d->bsize-28, &tmpts, "filesystem create time");
 	}
 
 	// "extract"
@@ -326,6 +385,10 @@ static void do_directory(deark *c, lctx *d, struct member_data *md)
 			de_strarray_make_path(d->curpath, fullfn, DE_MPFLAG_NOTRAILINGSLASH);
 			de_finfo_set_name_from_ucstring(c, md->fi, fullfn, DE_SNFLAG_FULLPATH);
 		}
+	}
+
+	if(md->mod_time.is_valid) {
+		md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->mod_time;
 	}
 
 	md->outf = dbuf_create_output_file(c, NULL, md->fi, 0x0);
@@ -343,10 +406,11 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-// For block type 2 (ST_HEADER)
+// For block type 2 (ST_HEADER).
+// Returns 1 unless the block isn't a header block.
 static int do_header_block(deark *c, lctx *d, i64 blknum)
 {
-	i64 pos1, pos;
+	i64 pos1;
 	int blocktype;
 	int retval = 0;
 	int saved_indent_level;
@@ -360,8 +424,12 @@ static int do_header_block(deark *c, lctx *d, i64 blknum)
 	pos1 = blocknum_to_offset(d, blknum);
 
 	if(!claim_block(c, d, blknum)) {
-		on_adf_error(c, d, 18);
 		goto done;
+	}
+
+	blocktype = (int)de_geti32be(pos1);
+	if(blocktype==ADF_T_HEADER) {
+		retval = 1;
 	}
 
 	md = de_malloc(c, sizeof(struct member_data));
@@ -369,18 +437,15 @@ static int do_header_block(deark *c, lctx *d, i64 blknum)
 	md->header_pos = blocknum_to_offset(d, md->header_blknum);
 	md->fi = de_finfo_create(c);
 
-	md->sec_type = (UI)de_getu32be(pos1+d->bsize-4);
-
 	de_dbg(c, "header block: #%"I64_FMT" (%"I64_FMT")", blknum, pos1);
 	de_dbg_indent(c, 1);
-	pos = pos1;
 
-	blocktype = (int)de_geti32be_p(&pos);
 	de_dbg(c, "block type: %d", blocktype);
 	if(blocktype!=ADF_T_HEADER) {
-		on_adf_error(c, d, 19);
+		de_err(c, "Expected header block #%"I64_FMT" (at %"I64_FMT") not found", blknum, pos1);
 		goto done;
 	}
+	md->sec_type = (UI)de_getu32be(pos1+d->bsize-4);
 	de_dbg(c, "block secondary type: %d", md->sec_type);
 
 	if(md->sec_type==ADF_ST_ROOT || md->sec_type==ADF_ST_USERDIR) {
@@ -394,7 +459,6 @@ static int do_header_block(deark *c, lctx *d, i64 blknum)
 		goto done;
 	}
 
-	retval = 1;
 done:
 	if(md) {
 		if(md->outf) {
@@ -471,5 +535,4 @@ void de_module_amiga_adf(deark *c, struct deark_module_info *mi)
 	mi->desc = "Amiga disk image";
 	mi->run_fn = de_run_amiga_adf;
 	mi->identify_fn = de_identify_amiga_adf;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }
