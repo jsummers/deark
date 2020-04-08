@@ -579,7 +579,6 @@ Deark -- Information about supported formats
 === Compression, archive, installer, disk image modules ===
 
 * ADF (Amiga disk image) (module="amiga_adf") (experimental)
-  - Limited support, OFS only.
 
 * ARC archive (module="arc")
   - Limited support.

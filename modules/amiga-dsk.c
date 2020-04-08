@@ -10,6 +10,7 @@ DE_DECLARE_MODULE(de_module_amiga_adf);
 
 #define ADF_T_HEADER      2
 #define ADF_T_DATA        8
+#define ADF_T_LIST        16
 
 #define ADF_ST_ROOT       1
 #define ADF_ST_USERDIR    2
@@ -18,12 +19,19 @@ DE_DECLARE_MODULE(de_module_amiga_adf);
 #define MAX_ADF_BLOCKS 3520
 #define MAX_NESTING_LEVEL 16
 
+struct block_ptrs_tbl {
+	i64 high_seq;
+	i64 blocks_tbl_capacity;
+	i64 *blocks_tbl; // array[blocks_tbl_capacity]
+};
+
 struct member_data {
 	i64 header_blknum;
 	i64 header_pos;
 
 	i64 fsize;
 	i64 first_data_block;
+	i64 first_ext_block;
 	int sec_type;
 	de_ucstring *fn;
 	struct de_timestamp mod_time;
@@ -32,9 +40,13 @@ struct member_data {
 	i64 nbytes_written;
 	i64 next_block_to_read;
 	de_finfo *fi;
+	struct block_ptrs_tbl tmpbpt; // reused for each extension block
 };
 
 typedef struct localctx_struct {
+	int is_ffs;
+	int intnl_mode;
+	int dirc_mode;
 	i64 bsize;
 	i64 root_block;
 	i64 num_blocks;
@@ -75,7 +87,7 @@ static int claim_block(deark *c, lctx *d, i64 blknum)
 
 // Reads a file data block.
 // On success, returns nonzero and sets md->next_block_to_read.
-static int do_file_data_block(deark *c, lctx *d, struct member_data *md,
+static int do_file_ofs_data_block(deark *c, lctx *d, struct member_data *md,
 	i64 seq_num_expected, i64 blknum)
 {
 	i64 pos1, pos;
@@ -176,12 +188,167 @@ static void read_ofs_timestamp(deark *c, lctx *d, i64 pos1, struct de_timestamp 
 		name, days, mins, ticks, timestamp_buf);
 }
 
+static void read_file_ofs_style(deark *c, lctx *d, struct member_data *md)
+{
+	i64 seq_num;
+
+	md->next_block_to_read = md->first_data_block;
+	seq_num = 1;
+	while(1) {
+		int ret;
+
+		if(md->next_block_to_read==0) break;
+
+		ret = do_file_ofs_data_block(c, d, md, seq_num, md->next_block_to_read);
+		if(!ret) goto done;
+		seq_num++;
+	}
+done:
+	;
+}
+
+static void read_blocks_table(deark *c, lctx *d, i64 pos, struct block_ptrs_tbl *bpt)
+{
+	i64 k;
+
+	for(k=0; k<bpt->blocks_tbl_capacity; k++) {
+		bpt->blocks_tbl[k] = de_getu32be(pos + 4*k);
+		if(c->debug_level>=2 && bpt->blocks_tbl[k]!=0) {
+			de_dbg2(c, "blktbl[%d]: %u", (int)k, (UI)bpt->blocks_tbl[k]);
+		}
+	}
+}
+
+static int read_file_segment_from_blocks_tbl(deark *c, lctx *d, struct member_data *md)
+{
+	i64 nbytes_left_to_copy;
+	i64 k;
+	int retval = 0;
+
+	nbytes_left_to_copy = md->fsize - md->outf->len;
+
+	for(k=0; k<md->tmpbpt.high_seq; k++) {
+		i64 blknum;
+		i64 blkpos;
+		i64 nbytes_to_copy;
+
+		if(nbytes_left_to_copy<1) break;
+
+		blknum = md->tmpbpt.blocks_tbl[md->tmpbpt.blocks_tbl_capacity-1-k];
+		if(!claim_block(c, d, blknum)) {
+			goto done;
+		}
+
+		blkpos = blocknum_to_offset(d, blknum);
+		nbytes_to_copy = d->bsize;
+		if(!d->is_ffs) {
+			// TODO: If we allow this, it might be better to call
+			// do_file_ofs_data_block(), somehow.
+			blkpos += 24;
+			nbytes_to_copy -= 24;
+		}
+
+		if(nbytes_to_copy > nbytes_left_to_copy) {
+			nbytes_to_copy = nbytes_left_to_copy;
+		}
+		dbuf_copy(c->infile, blkpos, nbytes_to_copy, md->outf);
+		nbytes_left_to_copy -= nbytes_to_copy;
+	}
+	retval = 1;
+
+done:
+	return retval;
+}
+
+static int read_file_segment_from_extension_block(deark *c, lctx *d, struct member_data *md,
+	i64 blknum, i64 *pnextblock)
+{
+	u64 pos1;
+	int blocktype;
+	int retval = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	pos1 = blocknum_to_offset(d, blknum);
+	de_dbg(c, "file ext. block #%"I64_FMT, blknum);
+	de_dbg_indent(c, 1);
+
+	if(!claim_block(c, d, blknum)) {
+		goto done;
+	}
+
+	blocktype = (int)de_geti32be(pos1);
+	de_dbg(c, "block type: %d", blocktype);
+	if(blocktype!=ADF_T_LIST) {
+		de_err(c, "%s: Bad extension block type in (%d, expected %d)",
+			ucstring_getpsz_d(md->fn), blocktype, (int)ADF_T_LIST);
+		goto done;
+	}
+
+	md->tmpbpt.high_seq = de_getu32be(pos1+8);
+	de_dbg(c, "high_seq: %u", (UI)md->tmpbpt.high_seq);
+	read_blocks_table(c, d, pos1+24, &md->tmpbpt);
+
+	if(!read_file_segment_from_blocks_tbl(c, d, md)) {
+		goto done;
+	}
+
+	*pnextblock = de_getu32be(pos1+d->bsize-8);
+	de_dbg(c, "next ext. block: %"I64_FMT, (i64)(*pnextblock));
+
+	retval = 1;
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static void read_file_using_blocks_table(deark *c, lctx *d, struct member_data *md)
+{
+	i64 cur_ext_header_blk;
+
+	if(md->tmpbpt.high_seq > md->tmpbpt.blocks_tbl_capacity) {
+		on_adf_error(c, d, 30);
+		goto done;
+	}
+
+	// Process the blocks table stored in the main file header
+	if(!read_file_segment_from_blocks_tbl(c, d, md)) goto done;
+
+	// Process the chain of extended header blocks
+	if(md->first_ext_block) {
+		cur_ext_header_blk = md->first_ext_block;
+		while(1) {
+			i64 next_ext_header_blk = 0;
+
+			if(cur_ext_header_blk == 0) break;
+			if(md->outf->len >= md->fsize) break;
+
+			if(!read_file_segment_from_extension_block(c, d, md, cur_ext_header_blk,
+				&next_ext_header_blk))
+			{
+				goto done;
+			}
+			cur_ext_header_blk = next_ext_header_blk;
+		}
+	}
+
+	if(md->outf->len < md->fsize) {
+		on_adf_error(c, d, 26);
+		goto done;
+	}
+
+done:
+	;
+}
+
 static void do_file(deark *c, lctx *d, struct member_data *md)
 {
 	i64 pos1, pos;
 	i64 fnlen;
 	i64 header_key;
-	i64 seq_num;
+	i64 blocks_tbl_pos;
 	i64 n;
 	int need_curpath_pop = 0;
 	de_ucstring *fullfn = NULL;
@@ -197,8 +364,8 @@ static void do_file(deark *c, lctx *d, struct member_data *md)
 	pos = pos1 + 4;
 	header_key = de_getu32be_p(&pos);
 	de_dbg(c, "header_key: %u", (UI)header_key);
-	n = de_getu32be_p(&pos);
-	de_dbg(c, "high_seq: %u", (UI)n);
+	md->tmpbpt.high_seq = de_getu32be_p(&pos);
+	de_dbg(c, "high_seq: %u", (UI)md->tmpbpt.high_seq);
 	pos += 4; // data_size - unused
 	md->first_data_block = de_getu32be_p(&pos);
 	de_dbg(c, "first data block: %"I64_FMT, md->first_data_block);
@@ -208,6 +375,13 @@ static void do_file(deark *c, lctx *d, struct member_data *md)
 			md->header_blknum);
 		goto done;
 	}
+
+	blocks_tbl_pos = md->header_pos + 24;
+	md->tmpbpt.blocks_tbl_capacity = (d->bsize/4) - 56;
+	md->tmpbpt.blocks_tbl = de_mallocarray(c, md->tmpbpt.blocks_tbl_capacity,
+		sizeof(md->tmpbpt.blocks_tbl[0]));
+
+	read_blocks_table(c, d, blocks_tbl_pos, &md->tmpbpt);
 
 	pos = pos1+d->bsize-188;
 	md->fsize = de_getu32be_p(&pos);
@@ -228,6 +402,8 @@ static void do_file(deark *c, lctx *d, struct member_data *md)
 	pos = pos1+d->bsize-12;
 	n = de_getu32be_p(&pos);
 	de_dbg(c, "parent dir: %"I64_FMT, n);
+	md->first_ext_block = de_getu32be_p(&pos);
+	de_dbg(c, "first ext. block: %"I64_FMT, md->first_ext_block);
 
 	if(md->sec_type!=ADF_ST_FILE) {
 		de_dbg(c, "[not a supported file type]");
@@ -245,16 +421,11 @@ static void do_file(deark *c, lctx *d, struct member_data *md)
 
 	md->outf = dbuf_create_output_file(c, NULL, md->fi, 0x0);
 
-	md->next_block_to_read = md->first_data_block;
-	seq_num = 1;
-	while(1) {
-		int ret;
-
-		if(md->next_block_to_read==0) break;
-
-		ret = do_file_data_block(c, d, md, seq_num, md->next_block_to_read);
-		if(!ret) goto done;
-		seq_num++;
+	if(d->is_ffs) {
+		read_file_using_blocks_table(c, d, md);
+	}
+	else {
+		read_file_ofs_style(c, d, md);
 	}
 
 done:
@@ -466,6 +637,7 @@ done:
 		}
 		de_finfo_destroy(c, md->fi);
 		ucstring_destroy(md->fn);
+		de_free(c, md->tmpbpt.blocks_tbl);
 		de_free(c, md);
 	}
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -477,6 +649,7 @@ static void de_run_amiga_adf(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	int saved_indent_level;
+	de_ucstring *flags_descr;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -485,8 +658,31 @@ static void de_run_amiga_adf(deark *c, de_module_params *mparams)
 
 	de_dbg(c, "header at %d", 0);
 	de_dbg_indent(c, 1);
-	d->bootblock_flags = de_getbyte(3);
-	de_dbg(c, "flags: 0x%02x", (UI)d->bootblock_flags);
+
+	d->bootblock_flags = (de_getbyte(3) & 0x07);
+	flags_descr = ucstring_create(c);
+
+	if(d->bootblock_flags & 0x1) {
+		d->is_ffs = 1;
+	}
+	if(d->bootblock_flags & 0x2) {
+		d->intnl_mode = 1;
+	}
+	if(d->bootblock_flags & 0x4) {
+		d->intnl_mode = 1;
+		d->dirc_mode = 1;
+	}
+	ucstring_append_flags_item(flags_descr, d->is_ffs?"FFS":"OFS");
+	if(d->intnl_mode) {
+		ucstring_append_flags_item(flags_descr, "international mode");
+	}
+	if(d->dirc_mode) {
+		ucstring_append_flags_item(flags_descr, "dircache mode");
+	}
+	de_dbg(c, "flags: 0x%02x (%s)", (UI)d->bootblock_flags, ucstring_getpsz_d(flags_descr));
+	ucstring_destroy(flags_descr);
+	de_declare_fmtf(c, "Amiga ADF, %s", d->is_ffs?"FFS":"OFS");
+
 	d->root_block = de_getu32be(8);
 	de_dbg(c, "root block (reported): %"I64_FMT, d->root_block);
 
@@ -496,8 +692,8 @@ static void de_run_amiga_adf(deark *c, de_module_params *mparams)
 	}
 	de_dbg_indent(c, -1);
 
-	if(d->bootblock_flags!=0) {
-		de_err(c, "Unsupported type of ADF file");
+	if(d->dirc_mode || d->intnl_mode) {
+		de_warn(c, "This type of ADF file might not be supported correctly");
 		goto done;
 	}
 
