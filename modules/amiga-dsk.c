@@ -29,6 +29,7 @@ struct member_data {
 	i64 header_blknum;
 	i64 header_pos;
 
+	u8 is_dir;
 	i64 fsize;
 	i64 first_data_block;
 	i64 first_ext_block;
@@ -44,9 +45,9 @@ struct member_data {
 };
 
 typedef struct localctx_struct {
-	int is_ffs;
-	int intnl_mode;
-	int dirc_mode;
+	u8 is_ffs;
+	u8 intnl_mode;
+	u8 dirc_mode;
 	i64 bsize;
 	i64 root_block;
 	i64 num_blocks;
@@ -343,6 +344,26 @@ done:
 	;
 }
 
+static void read_protection_flags(deark *c, lctx *d, struct member_data *md, i64 pos)
+{
+	UI n;
+
+	n = (UI)de_getu32be(pos);
+	de_dbg(c, "protection flags: 0x%08x", n);
+	if(md->fi && !md->is_dir) {
+		// Some disks use the 0x2 bit to mean "non executable", but I don't think
+		// there's a good way to tell *which* disks.
+		if((n & 0x0000ff0f)!=0) { // If these flags seem to be used...
+			if(n & 0x00000002) {
+				md->fi->mode_flags |= DE_MODEFLAG_NONEXE;
+			}
+			else {
+				md->fi->mode_flags |= DE_MODEFLAG_EXE;
+			}
+		}
+	}
+}
+
 static void do_file(deark *c, lctx *d, struct member_data *md)
 {
 	i64 pos1, pos;
@@ -382,6 +403,8 @@ static void do_file(deark *c, lctx *d, struct member_data *md)
 		sizeof(md->tmpbpt.blocks_tbl[0]));
 
 	read_blocks_table(c, d, blocks_tbl_pos, &md->tmpbpt);
+
+	read_protection_flags(c, d, md, pos1+d->bsize-192);
 
 	pos = pos1+d->bsize-188;
 	md->fsize = de_getu32be_p(&pos);
@@ -505,11 +528,11 @@ static void do_directory(deark *c, lctx *d, struct member_data *md)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
+	md->is_dir = 1;
 	pos1 = md->header_pos;
 	de_dbg(c, "directory header block: #%"I64_FMT" (%"I64_FMT")", md->header_blknum, pos1);
 	de_dbg_indent(c, 1);
 	if(md->sec_type!=ADF_ST_ROOT && md->sec_type!=ADF_ST_USERDIR) {
-		de_err(c, "not implemented");
 		goto done;
 	}
 
@@ -524,6 +547,8 @@ static void do_directory(deark *c, lctx *d, struct member_data *md)
 	else {
 		ht_size_in_longs = (d->bsize/4) - 56;
 	}
+
+	read_protection_flags(c, d, md, pos1+d->bsize-192);
 
 	read_ofs_timestamp(c, d, pos1+d->bsize-92, &md->mod_time, "dir mod time");
 
@@ -645,9 +670,41 @@ done:
 	return retval;
 }
 
+// If true, sets d->root_block
+static int test_root_block(deark *c, lctx *d, i64 blknum)
+{
+	i64 pos;
+
+	pos = blocknum_to_offset(d, blknum);
+	if(de_getu32be(pos) != ADF_T_HEADER) return 0;
+	if(de_getu32be(pos+d->bsize-4) != ADF_ST_ROOT) return 0;
+	d->root_block = blknum;
+	return 1;
+}
+
+// If found, sets d->root_block
+static int find_root_block(deark *c, lctx *d, i64 root_block_reported)
+{
+	if(c->infile->len >= 1802240) {
+		if(test_root_block(c, d, 880*2)) return 1;
+	}
+	else {
+		if(test_root_block(c, d, 880)) return 1;
+	}
+
+	if(test_root_block(c, d, root_block_reported)) return 1;
+
+	if((c->infile->len >= (901120+d->bsize)) && (c->infile->len < 1802240)) {
+		if(test_root_block(c, d, 880*2)) return 1;
+	}
+
+	return 0;
+}
+
 static void de_run_amiga_adf(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	i64 root_block_reported;
 	int saved_indent_level;
 	de_ucstring *flags_descr;
 
@@ -681,10 +738,11 @@ static void de_run_amiga_adf(deark *c, de_module_params *mparams)
 	}
 	de_dbg(c, "flags: 0x%02x (%s)", (UI)d->bootblock_flags, ucstring_getpsz_d(flags_descr));
 	ucstring_destroy(flags_descr);
+
 	de_declare_fmtf(c, "Amiga ADF, %s", d->is_ffs?"FFS":"OFS");
 
-	d->root_block = de_getu32be(8);
-	de_dbg(c, "root block (reported): %"I64_FMT, d->root_block);
+	root_block_reported = de_getu32be(8);
+	de_dbg(c, "root block (reported): %"I64_FMT, root_block_reported);
 
 	d->num_blocks = de_pad_to_n(c->infile->len, 512) / 512;
 	if(d->num_blocks > MAX_ADF_BLOCKS) {
@@ -694,12 +752,16 @@ static void de_run_amiga_adf(deark *c, de_module_params *mparams)
 
 	if(d->dirc_mode || d->intnl_mode) {
 		de_warn(c, "This type of ADF file might not be supported correctly");
+	}
+
+	if(!find_root_block(c, d, root_block_reported)) {
+		de_err(c, "Root block not found");
 		goto done;
 	}
 
 	d->curpath = de_strarray_create(c);
 
-	if(!do_header_block(c, d, 880)) goto done;
+	if(!do_header_block(c, d, d->root_block)) goto done;
 
 done:
 	if(d) {
@@ -718,7 +780,7 @@ static int de_identify_amiga_adf(deark *c)
 	if(dbuf_memcmp(c->infile, 0, "DOS", 3)) return 0;
 	if(de_getbyte(3)>0x05) return 0;
 	has_ext = de_input_file_has_ext(c, "adf");
-	has_size = (c->infile->len==901120); // TODO: High density disks?
+	has_size = (c->infile->len==901120 || c->infile->len==1802240);
 	if(has_ext && has_size) return 100;
 	if(has_size) return 90;
 	if(has_ext) return 60;
