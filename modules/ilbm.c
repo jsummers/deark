@@ -382,6 +382,7 @@ static void decompress_plane_delta_op5(deark *c, lctx *d, struct imgbody_info *i
 	i64 num_columns;
 	i64 col;
 	i64 pos = pos1;
+	u8 xor_mode = frctx->delta4_5_xor_mode;
 
 	de_dbg2(c, "delta5 plane at %"I64_FMT", maxlen=%"I64_FMT, pos1, maxlen);
 	num_columns = de_pad_to_n(ibi->width, 8)/8;
@@ -406,7 +407,10 @@ static void decompress_plane_delta_op5(deark *c, lctx *d, struct imgbody_info *i
 				count = (i64)de_getbyte_p(&pos);
 				val = de_getbyte_p(&pos);
 				for(k=0; k<count; k++) {
-					dbuf_writebyte_at(frctx->frame_buffer, dstpos, val);
+					u8 vtmp = val;
+
+					if(xor_mode) vtmp ^= dbuf_getbyte(frctx->frame_buffer, dstpos);
+					dbuf_writebyte_at(frctx->frame_buffer, dstpos, vtmp);
 					dstpos += dststride;
 				}
 			}
@@ -417,6 +421,8 @@ static void decompress_plane_delta_op5(deark *c, lctx *d, struct imgbody_info *i
 				count = (i64)(op & 0x7f);
 				for(k=0; k<count; k++) {
 					val = de_getbyte_p(&pos);
+
+					if(xor_mode) val ^= dbuf_getbyte(frctx->frame_buffer, dstpos);
 					dbuf_writebyte_at(frctx->frame_buffer, dstpos, val);
 					dstpos += dststride;
 				}
@@ -832,23 +838,6 @@ done:
 
 static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct frame_ctx *frctx);
 
-static void do_xor_frame_buffers(deark *c, lctx *d, struct imgbody_info *ibi,
-	struct frame_ctx *reference_frctx, struct frame_ctx *frctx)
-{
-	i64 k;
-
-	if(!reference_frctx || !reference_frctx->frame_buffer) return;
-	if(!frctx || !frctx->frame_buffer) return;
-
-	for(k=0; k<ibi->frame_buffer_size; k++) {
-		u8 b0, b1;
-		b1 = dbuf_getbyte(reference_frctx->frame_buffer, k);
-		if(b1==0) continue;
-		b0 = dbuf_getbyte(frctx->frame_buffer, k);
-		dbuf_writebyte_at(frctx->frame_buffer, k, b0^b1);
-	}
-}
-
 static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	struct frame_ctx *frctx = d->frctx;
@@ -895,7 +884,7 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 
 	// Start by copying the reference frame to this frame. The decompress function
 	// will then modify this frame.
-	if(!frctx->delta4_5_xor_mode && reference_frctx && reference_frctx->frame_buffer) {
+	if(reference_frctx && reference_frctx->frame_buffer) {
 		dbuf_copy(reference_frctx->frame_buffer, 0, reference_frctx->frame_buffer->len,
 			frctx->frame_buffer);
 	}
@@ -914,10 +903,6 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 		de_err(c, "Unsupported DLTA operation: %d", (int)frctx->op);
 		d->errflag = 1;
 		goto done;
-	}
-
-	if(frctx->delta4_5_xor_mode) {
-		do_xor_frame_buffers(c, d, ibi, reference_frctx, frctx);
 	}
 
 	write_frame(c, d, ibi, frctx);
