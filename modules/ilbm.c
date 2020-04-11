@@ -35,6 +35,7 @@ DE_DECLARE_MODULE(de_module_anim);
 #define CODE_ILBM 0x494c424dU
 #define CODE_PBM  0x50424d20U
 #define CODE_PCHG 0x50434847U
+#define CODE_SBDY 0x53424459U
 #define CODE_SHAM 0x5348414dU
 #define CODE_TINY 0x54494e59U
 #define CODE_VDAT 0x56444154U
@@ -111,6 +112,7 @@ typedef struct localctx_struct {
 	u8 is_beam;
 	u8 found_clut;
 	u8 found_rast;
+	u8 found_audio;
 	u8 multipalette_warned;
 	UI camg_mode;
 
@@ -1845,6 +1847,13 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 	case CODE_CLUT:
 		d->found_clut = 1;
 		break;
+	case CODE_SBDY:
+		if(d->is_anim && !d->found_audio) {
+			de_info(c, "Note: This file includes AnimFX-style audio, which is "
+				"not supported.");
+			d->found_audio = 1;
+		}
+		break;
 	}
 
 done:
@@ -1982,6 +1991,7 @@ static void print_summary(deark *c, lctx *d)
 	if(d->found_rast) summary_append(s, "RAST");
 	if(d->uses_color_cycling) summary_append(s, "color-cycling");
 	if(d->found_clut) summary_append(s, "CLUT");
+	if(d->found_audio) summary_append(s, "audio");
 	if(!d->found_cmap) summary_append(s, "no-CMAP");
 
 	de_dbg(c, "summary:%s", ucstring_getpsz(s));
