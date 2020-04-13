@@ -17,6 +17,7 @@ DE_DECLARE_MODULE(de_module_anim);
 #define CODE_ACBM 0x4143424dU
 #define CODE_ANHD 0x414e4844U
 #define CODE_ANIM 0x414e494dU
+#define CODE_ANSQ 0x414e5351U
 #define CODE_BEAM 0x4245414dU
 #define CODE_BMHD 0x424d4844U
 #define CODE_BODY 0x424f4459U
@@ -618,6 +619,117 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+struct d74state {
+	struct imgbody_info *ibi;
+	struct frame_ctx *frctx;
+	i64 pos;
+	i64 endpos;
+
+	// Temporary use:
+	UI op;
+	i64 nblocks;
+	i64 nrows; // block height in rows
+	i64 nbytes; // block width in bytes per plane
+};
+
+static void do_delta74_blocks(deark *c, struct d74state *d74s)
+{
+	i64 blkidx, rowidx, planeidx, byteidx;
+	i64 d74_bytes_per_row_per_plane;
+
+	// Reportedly, the 'offset' field assumes a potentially-different measuring
+	// system than one would expect.
+	d74_bytes_per_row_per_plane = (d74s->ibi->width + 7)/8;
+
+	for(blkidx=0; blkidx<d74s->nblocks; blkidx++) {
+		i64 offset;
+		i64 block_srcpos = d74s->pos;
+		i64 block_dstpos;
+
+		if(d74s->pos+2 >= d74s->endpos) goto done;
+		offset = de_getu16be_p(&d74s->pos);
+
+		block_dstpos = (offset / d74_bytes_per_row_per_plane) * d74s->ibi->frame_buffer_rowspan +
+			(offset % d74_bytes_per_row_per_plane);
+
+		for(rowidx=0; rowidx<d74s->nrows; rowidx++) {
+			for(planeidx=0; planeidx<d74s->ibi->planes_total; planeidx++) {
+				i64 dstpos;
+
+				// Calculate the offset in our frame buffer.
+				dstpos = block_dstpos + (rowidx * d74s->ibi->frame_buffer_rowspan) +
+					planeidx * d74s->ibi->bytes_per_row_per_plane;
+
+				for(byteidx=0; byteidx<d74s->nbytes; byteidx++) {
+					u8 val;
+
+					val = de_getbyte_p(&d74s->pos);
+					if(d74s->op) val ^= dbuf_getbyte(d74s->frctx->frame_buffer, dstpos);
+					dbuf_writebyte_at(d74s->frctx->frame_buffer, dstpos, val);
+					dstpos++;
+				}
+			}
+		}
+
+		if((block_srcpos - d74s->pos) & 0x1) {
+			d74s->pos++; // padding byte
+		}
+	}
+
+done:
+	;
+}
+
+static void decompress_delta_op74(deark *c, lctx *d, struct imgbody_info *ibi,
+	struct frame_ctx *frctx, i64 pos1, i64 len)
+{
+	struct d74state d74s;
+
+	de_zeromem(&d74s, sizeof(struct d74state));
+	d74s.ibi = ibi;
+	d74s.frctx = frctx;
+	d74s.pos = pos1;
+	d74s.endpos = pos1+len;
+
+	if(!d->delta_ops_used[74]) { // If this is the first DLTA#7 chunk...
+		if(ibi->width < 320) {
+			// The XAnim code says this is a special case, but I haven't found any
+			// sample files. (TODO)
+			de_warn(c, "ANIM-J with width < 320 might not be supported correctly");
+		}
+	}
+
+	while(1) {
+		UI code;
+
+		if(d74s.pos+2 >= d74s.endpos) goto done;
+		code = (UI)de_getu16be_p(&d74s.pos);
+		if(code==1) {
+			d74s.op = (UI)de_getu16be_p(&d74s.pos);
+			d74s.nrows = de_getu16be_p(&d74s.pos);
+			d74s.nbytes = 1;
+			d74s.nblocks = de_getu16be_p(&d74s.pos);
+			do_delta74_blocks(c, &d74s);
+		}
+		else if(code==2) {
+			d74s.op = (UI)de_getu16be_p(&d74s.pos);
+			d74s.nrows = de_getu16be_p(&d74s.pos);
+			d74s.nbytes = de_getu16be_p(&d74s.pos);
+			d74s.nblocks = de_getu16be_p(&d74s.pos);
+			do_delta74_blocks(c, &d74s);
+		}
+		else if(code==0) {
+			break;
+		}
+		else {
+			de_warn(c, "Bad or unsupported ANIM-J compression code (%u)", code);
+			goto done;
+		}
+	}
+
+done:
+	;
+}
 
 static void pal_fixup4(deark *c, lctx *d)
 {
@@ -846,7 +958,6 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	d->delta_ops_used[(size_t)frctx->op] = 1; // Remember this for the summary line.
 
 	if(d->errflag) goto done;
 	if(!d->found_bmhd) goto done;
@@ -899,6 +1010,9 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 	case 7:
 		decompress_delta_op7(c, d, ibi, frctx, pos1, len);
 		break;
+	case 74:
+		decompress_delta_op74(c, d, ibi, frctx, pos1, len);
+		break;
 	default:
 		de_err(c, "Unsupported DLTA operation: %d", (int)frctx->op);
 		d->errflag = 1;
@@ -908,6 +1022,12 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 	write_frame(c, d, ibi, frctx);
 
 done:
+	// For the summary line, and so we can know when encountering an op for the
+	// first time.
+	if(frctx) {
+		d->delta_ops_used[(size_t)frctx->op] = 1;
+	}
+
 	de_free(c, ibi);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
@@ -1408,6 +1528,30 @@ static void do_ccrt(deark *c, lctx *d, i64 pos1, i64 len)
 	}
 }
 
+// Frame sequencing chunk used in ANIM-J
+static void do_ansq(deark *c, lctx *d, i64 pos1, i64 len)
+{
+	i64 num_items;
+	i64 i;
+
+	// TODO: Figure out how critical this ANSQ info is.
+	// If deltas are supposed to be applied out of sequence, we could at least
+	// emit a warning.
+
+	num_items = len / 4;
+	de_dbg(c, "number of frames in sequence: %d", (int)num_items);
+	if(c->debug_level<2) return;
+	de_dbg_indent(c, 1);
+	for(i=0; i<num_items && i<2000; i++) {
+		i64 frnum, dur;
+
+		frnum = de_getu16be(pos1+i*4);
+		dur = de_getu16be(pos1+i*4+2);
+		de_dbg2(c, "item[%d]: frame=%d, dur=%d", (int)i, (int)frnum, (int)dur);
+	}
+	de_dbg_indent(c, -1);
+}
+
 static void render_pixel_row_ham6(deark *c, lctx *d, i64 rownum, const u32 *rowbuf,
 	UI rowbuf_size, de_bitmap *img)
 {
@@ -1831,6 +1975,9 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 		break;
 	case CODE_CLUT:
 		d->found_clut = 1;
+		break;
+	case CODE_ANSQ:
+		do_ansq(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		break;
 	case CODE_SBDY:
 		if(d->is_anim && !d->found_audio) {

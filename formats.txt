@@ -25,7 +25,7 @@ Deark -- Information about supported formats
   - Extract individual CUR and ICO files.
 
 * ANIM (Amiga IFF-ANIM) (module="anim") (expermimental)
-  - Limited support.
+  - Supports most common formats.
   - Extract the individual frames.
 
 * Animatic Film (module="animatic")
