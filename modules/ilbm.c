@@ -148,8 +148,8 @@ static const char *anim_get_op_name(u8 op)
 	case 3: name="short delta"; break;
 	case 4: name="short/long delta"; break;
 	case 5: name="byte vert. delta"; break;
-	case 7: name="short/long vert. delta"; break;
-		//case 8 - TODO
+	case 7: name="short/long vert. delta, separated"; break;
+	case 8: name="short/long vert. delta, contiguous"; break;
 	case 74: name="ANIM-J (Eric Graham)"; break;
 	}
 	return name?name:"?";
@@ -374,6 +374,111 @@ static void decompress_delta_op3(deark *c, lctx *d, struct imgbody_info *ibi,
 			}
 		}
 	}
+}
+
+static i64 get_elem_as_int_p(dbuf *f, i64 *ppos, i64 elem_size)
+{
+	if(elem_size==1) {
+		return (i64)dbuf_getbyte_p(f, ppos);
+	}
+	if(elem_size==2) {
+		return dbuf_getu16be_p(f, ppos);
+	}
+	return dbuf_getu32be_p(f, ppos);
+}
+
+static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
+	struct frame_ctx *frctx, i64 plane_idx, i64 pos1, i64 maxlen, i64 elem_size, u8 xor_mode)
+{
+	i64 pos = pos1;
+	i64 num_columns;
+	i64 col;
+	i64 dststride = ibi->frame_buffer_rowspan;
+	UI unc_threshold;
+
+	de_dbg2(c, "vdelta(%d) plane at (%"I64_FMT")", (int)elem_size, pos1);
+	if(elem_size!=1 && elem_size!=2 && elem_size!=4) goto done;
+
+	if(elem_size==1) {
+		num_columns = (ibi->width+7)/8;
+		unc_threshold = 0x80;
+	}
+	else if(elem_size==2) {
+		num_columns = (ibi->width+15)/16;
+		unc_threshold = 0x8000;
+	}
+	else {
+		num_columns = (ibi->width+31)/32;
+		unc_threshold = 0x80000000U;
+	}
+
+	for(col=0; col<num_columns; col++) {
+		i64 opcount;
+		i64 opidx;
+		i64 elem_bytes_to_write;
+		i64 ypos = 0;
+		i64 col_start_dstpos;
+
+		if(pos >= pos1+maxlen) goto done;
+
+		// Defend against writing beyond the right edge of this plane
+		if((elem_size==4) && (col+1 == num_columns) && (ibi->bytes_per_row_per_plane%4)) {
+			elem_bytes_to_write = 2;
+		}
+		else {
+			elem_bytes_to_write = elem_size;
+		}
+
+		col_start_dstpos = plane_idx * ibi->bytes_per_row_per_plane + elem_size*col;
+
+		opcount = get_elem_as_int_p(c->infile, &pos, elem_size);
+		if(c->debug_level>=3) {
+			de_dbg3(c, "col %d op count: %"I64_FMT, (int)col, opcount);
+		}
+
+		for(opidx=0; opidx<opcount; opidx++) {
+			i64 dstpos;
+			i64 count;
+			i64 k;
+			UI op;
+			u8 valbuf[4];
+
+			if(pos >= pos1+maxlen) goto done;
+			op = (UI)get_elem_as_int_p(c->infile, &pos, elem_size);
+
+			if(op==0) { // RLE
+				count = get_elem_as_int_p(c->infile, &pos, elem_size);
+				if(ypos+count > ibi->height) goto done;
+
+				de_read(valbuf, pos, elem_size);
+				pos += elem_size;
+
+				for(k=0; k<count; k++) {
+					dstpos = col_start_dstpos + ypos*dststride;
+					dbuf_write_at(frctx->frame_buffer, dstpos, valbuf, elem_bytes_to_write);
+					ypos++;
+				}
+			}
+			else if(op < unc_threshold) { // skip
+				ypos += (i64)op;
+			}
+			else { // uncompressed run
+				count = (i64)(op - unc_threshold);
+				if(ypos+count > ibi->height) goto done;
+
+				for(k=0; k<count; k++) {
+					de_read(valbuf, pos, elem_size);
+					pos += elem_size;
+					dstpos = col_start_dstpos + ypos*dststride;
+					dbuf_write_at(frctx->frame_buffer, dstpos, valbuf, elem_bytes_to_write);
+					ypos++;
+				}
+			}
+		}
+	}
+
+done:
+	;
 }
 
 // Decompress into frctx->frame_buffer, at dstpos1
@@ -617,6 +722,47 @@ static void decompress_delta_op7(deark *c, lctx *d, struct imgbody_info *ibi,
 
 done:
 	dbuf_close(inf);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void decompress_delta_op8(deark *c, lctx *d, struct imgbody_info *ibi,
+	struct frame_ctx *frctx, i64 pos1, i64 len)
+{
+	i64 planedata_offs[16];
+	i64 pos = pos1;
+	i64 elem_size;
+	int i;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(!frctx->frame_buffer) goto done;
+
+	de_dbg(c, "[delta8 data]");
+
+	if(frctx->bits & 0xfffffffeU) {
+		de_err(c, "Unsupported ANHD options");
+		d->errflag = 1;
+		goto done;
+	}
+	if(frctx->bits & 0x00000001) {
+		elem_size = 4;
+	}
+	else {
+		elem_size = 2;
+	}
+
+	for(i=0; i<16; i++) {
+		planedata_offs[i] = de_getu32be_p(&pos);
+		if(i<ibi->planes_total) {
+			de_dbg2(c, "plane[%d] offs: %"I64_FMT, i, planedata_offs[i]);
+			if(planedata_offs[i]>0) {
+				decompress_plane_vdelta(c, d, ibi, frctx, i,
+					pos1+planedata_offs[i], len-planedata_offs[i], elem_size, 0);
+			}
+		}
+	}
+
+done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -1014,6 +1160,9 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 		break;
 	case 7:
 		decompress_delta_op7(c, d, ibi, frctx, pos1, len);
+		break;
+	case 8:
+		decompress_delta_op8(c, d, ibi, frctx, pos1, len);
 		break;
 	case 74:
 		decompress_delta_op74(c, d, ibi, frctx, pos1, len);
