@@ -252,6 +252,7 @@ static int do_bmhd(deark *c, lctx *d, i64 pos1, i64 len)
 	d->height = de_getu16be_p(&pos);
 	de_dbg_dimensions(c, d->width, d->height);
 	pos += 4;
+
 	d->planes_raw = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "planes: %d", (int)d->planes_raw);
 	d->masking_code = de_getbyte_p(&pos);
@@ -799,13 +800,17 @@ static void fixup_palette(deark *c, lctx *d)
 		if((cb&0x0f) != 0) return;
 	}
 	de_dbg(c, "Palette seems to have 4 bits of precision. Rescaling palette.");
-	pal_fixup4(c,d );
+	pal_fixup4(c, d);
 }
 
 // Called when we encounter a BODY or DLTA or TINY chunk
 static void do_before_image_chunk(deark *c, lctx *d)
 {
 	if(d->bmhd_changed_flag) {
+		if(!d->found_cmap && d->planes_raw<=8) {
+			de_make_grayscale_palette(d->pal, (i64)1<<(UI)d->planes_raw, 0);
+		}
+
 		if(d->planes_raw==6 && d->pal_ncolors==32 && !d->ehb_flag && !d->ham_flag) {
 			de_warn(c, "Assuming this is an EHB image");
 			d->ehb_flag = 1;
@@ -813,7 +818,7 @@ static void do_before_image_chunk(deark *c, lctx *d)
 	}
 
 	if(d->cmap_changed_flag) {
-		de_memcpy(d->pal, d->pal_raw, 256*sizeof(d->pal_raw[0]));
+		de_memcpy(d->pal, d->pal_raw, (size_t)d->pal_ncolors * sizeof(d->pal_raw[0]));
 	}
 
 	if(d->cmap_changed_flag && d->ehb_flag && d->planes_raw==6) {
