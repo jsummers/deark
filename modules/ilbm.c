@@ -487,10 +487,10 @@ static void decompress_plane_delta_op7(deark *c, lctx *d, struct imgbody_info *i
 	if(elem_size!=2 && elem_size!=4) goto done;
 
 	if(elem_size==4) {
-		num_columns = (ibi->bytes_per_row_per_plane+3)/4;
+		num_columns = (ibi->width+31)/32;
 	}
 	else {
-		num_columns = (ibi->frame_buffer_rowspan+1)/2;
+		num_columns = (ibi->width+15)/16;
 	}
 
 	for(col=0; col<num_columns; col++) {
@@ -562,7 +562,7 @@ static void decompress_delta_op7(deark *c, lctx *d, struct imgbody_info *ibi,
 	i64 infpos;
 	int i;
 	int saved_indent_level;
-	i64 elem_size = 2;
+	i64 elem_size;
 	dbuf *inf = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -1342,7 +1342,7 @@ static void get_bits_descr(deark *c, lctx *d, struct frame_ctx *frctx, de_ucstri
 {
 	UI bits = frctx->bits;
 
-	if(frctx->op==4 || frctx->op==5 || frctx->op==7) {
+	if(frctx->op==4 || frctx->op==5 || frctx->op==7 || frctx->op==8) {
 		if(bits & 0x1) {
 			ucstring_append_flags_item(s, "long data");
 			bits -= 0x1;
