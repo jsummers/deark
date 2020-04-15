@@ -387,32 +387,52 @@ static i64 get_elem_as_int_p(dbuf *f, i64 *ppos, i64 elem_size)
 	return dbuf_getu32be_p(f, ppos);
 }
 
-// Decompression function that works for most DLTA5 and DLTA8 frames.
+// This routine decompresses most frame types used in DLTA#5, #7, and #8.
+// For #7, the codestream and datastream are stored separately, and have different
+// element sizes.
+// For #5 and #8, datapos1 is not used.
 static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
-	struct frame_ctx *frctx, i64 plane_idx, i64 pos1, i64 maxlen, i64 elem_size, u8 xor_mode)
+	struct frame_ctx *frctx, i64 plane_idx,
+	dbuf *inf, i64 codepos1, i64 datapos1, i64 endpos,
+	i64 code_size, i64 dataelem_size, int separate_data_stream, u8 xor_mode)
 {
-	i64 pos = pos1;
+	i64 pos = codepos1; // If !separate_data_stream, this is for code and data
+	i64 datapos = datapos1;
 	i64 num_columns;
 	i64 col;
 	i64 dststride = ibi->frame_buffer_rowspan;
 	UI unc_threshold;
-	dbuf *inf = c->infile;
+	int baddata_flag = 0;
 
-	de_dbg2(c, "vdelta(%d) plane at (%"I64_FMT")", (int)elem_size, pos1);
-	if(elem_size!=1 && elem_size!=2 && elem_size!=4) goto done;
-	if(xor_mode && elem_size!=1) goto done;
+	if(separate_data_stream) {
+		de_dbg2(c, "vdelta(%d,%d) plane %d at (%"I64_FMT",%"I64_FMT")", (int)code_size,
+			(int)dataelem_size, (int)plane_idx, codepos1, datapos1);
+	}
+	else {
+		de_dbg2(c, "vdelta(%d) plane at (%"I64_FMT")", (int)code_size, codepos1);
+	}
+	if(code_size!=1 && code_size!=2 && code_size!=4) goto done;
+	if(dataelem_size!=1 && dataelem_size!=2 && dataelem_size!=4) goto done;
+	if(xor_mode && dataelem_size!=1) goto done;
 
-	if(elem_size==1) {
-		num_columns = (ibi->width+7)/8;
+	if(code_size==1) {
 		unc_threshold = 0x80;
 	}
-	else if(elem_size==2) {
-		num_columns = (ibi->width+15)/16;
+	else if(code_size==2) {
 		unc_threshold = 0x8000;
 	}
 	else {
-		num_columns = (ibi->width+31)/32;
 		unc_threshold = 0x80000000U;
+	}
+
+	if(dataelem_size==1) {
+		num_columns = (ibi->width+7)/8;
+	}
+	else if(dataelem_size==2) {
+		num_columns = (ibi->width+15)/16;
+	}
+	else {
+		num_columns = (ibi->width+31)/32;
 	}
 
 	for(col=0; col<num_columns; col++) {
@@ -422,19 +442,22 @@ static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
 		i64 ypos = 0;
 		i64 col_start_dstpos;
 
-		if(pos >= pos1+maxlen) goto done;
+		if(pos>=endpos) {
+			baddata_flag = 1;
+			goto done;
+		}
 
 		// Defend against writing beyond the right edge of this plane
-		if((elem_size==4) && (col+1 == num_columns) && (ibi->bytes_per_row_per_plane%4)) {
+		if((dataelem_size==4) && (col+1 == num_columns) && (ibi->bytes_per_row_per_plane%4)) {
 			elem_bytes_to_write = 2;
 		}
 		else {
-			elem_bytes_to_write = elem_size;
+			elem_bytes_to_write = dataelem_size;
 		}
 
-		col_start_dstpos = plane_idx * ibi->bytes_per_row_per_plane + elem_size*col;
+		col_start_dstpos = plane_idx * ibi->bytes_per_row_per_plane + dataelem_size*col;
 
-		opcount = get_elem_as_int_p(inf, &pos, elem_size);
+		opcount = get_elem_as_int_p(inf, &pos, code_size);
 		if(c->debug_level>=3) {
 			de_dbg3(c, "col %d op count: %"I64_FMT, (int)col, opcount);
 		}
@@ -446,15 +469,31 @@ static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
 			UI op;
 			u8 valbuf[4];
 
-			if(pos >= pos1+maxlen) goto done;
-			op = (UI)get_elem_as_int_p(inf, &pos, elem_size);
+			if(pos>=endpos) {
+				baddata_flag = 1;
+				goto done;
+			}
+			op = (UI)get_elem_as_int_p(inf, &pos, code_size);
 
 			if(op==0) { // RLE
-				count = get_elem_as_int_p(inf, &pos, elem_size);
-				if(ypos+count > ibi->height) goto done;
+				count = get_elem_as_int_p(inf, &pos, code_size);
+				if(ypos+count > ibi->height) {
+					baddata_flag = 1;
+					goto done;
+				}
 
-				dbuf_read(inf, valbuf, pos, elem_size);
-				pos += elem_size;
+				if(separate_data_stream) {
+					if(datapos>=endpos) {
+						baddata_flag = 1;
+						goto done;
+					}
+					dbuf_read(inf, valbuf, datapos, dataelem_size);
+					datapos += dataelem_size;
+				}
+				else {
+					dbuf_read(inf, valbuf, pos, dataelem_size);
+					pos += dataelem_size;
+				}
 
 				for(k=0; k<count; k++) {
 					dstpos = col_start_dstpos + ypos*dststride;
@@ -475,11 +514,25 @@ static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
 			}
 			else { // uncompressed run
 				count = (i64)(op - unc_threshold);
-				if(ypos+count > ibi->height) goto done;
+				if(ypos+count > ibi->height) {
+					baddata_flag = 1;
+					goto done;
+				}
 
 				for(k=0; k<count; k++) {
-					dbuf_read(inf, valbuf, pos, elem_size);
-					pos += elem_size;
+					if(separate_data_stream) {
+						if(datapos>=endpos) {
+							baddata_flag = 1;
+							goto done;
+						}
+						dbuf_read(inf, valbuf, datapos, dataelem_size);
+						datapos += dataelem_size;
+					}
+					else {
+						dbuf_read(inf, valbuf, pos, dataelem_size);
+						pos += dataelem_size;
+					}
+
 					dstpos = col_start_dstpos + ypos*dststride;
 					if(xor_mode) {
 						valbuf[0] ^= dbuf_getbyte(frctx->frame_buffer, dstpos);
@@ -492,7 +545,10 @@ static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
 	}
 
 done:
-	;
+	if(baddata_flag && !d->errflag) {
+		de_err(c, "Delta decompression failed");
+		d->errflag = 1;
+	}
 }
 
 // Decompress into frctx->frame_buffer
@@ -516,99 +572,20 @@ static void decompress_delta_op5(deark *c, lctx *d, struct imgbody_info *ibi,
 	}
 
 	for(i=0; i<16; i++) {
+		if(d->errflag) goto done;
 		planedata_offs[i] = de_getu32be_p(&pos);
 		if(i<ibi->planes_total) {
 			de_dbg2(c, "plane[%d] offs: %"I64_FMT, i, planedata_offs[i]);
 			if(planedata_offs[i]>0) {
-				decompress_plane_vdelta(c, d, ibi, frctx, i,
-					pos1+planedata_offs[i], len-planedata_offs[i], 1,
-					frctx->delta4_5_xor_mode);
+				decompress_plane_vdelta(c, d, ibi, frctx, i, c->infile,
+					pos1+planedata_offs[i], 0, pos1+len, 1, 1,
+					0, frctx->delta4_5_xor_mode);
 			}
 		}
 	}
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
-}
-
-// Decompress into frctx->frame_buffer, at dstpos1
-static void decompress_plane_delta_op7(deark *c, lctx *d, struct imgbody_info *ibi,
-	struct frame_ctx *frctx, dbuf *inf, i64 oppos1, i64 datapos1,
-	i64 dstpos1, i64 dststride, i64 elem_size)
-{
-	i64 oppos = oppos1;
-	i64 datapos = datapos1;
-	i64 num_columns;
-	i64 col;
-
-	de_dbg2(c, "delta7 plane at (%"I64_FMT", %"I64_FMT")", oppos1, datapos1);
-	if(elem_size!=2 && elem_size!=4) goto done;
-
-	if(elem_size==4) {
-		num_columns = (ibi->width+31)/32;
-	}
-	else {
-		num_columns = (ibi->width+15)/16;
-	}
-
-	for(col=0; col<num_columns; col++) {
-		i64 opcount;
-		i64 opidx;
-		i64 k;
-		u8 op;
-		i64 dstpos = dstpos1 + col*elem_size;
-		i64 elem_bytes_to_write;
-
-		if(oppos >= inf->len) goto done;
-
-		// Defend against writing beyond the right edge of this plane
-		if((col+1 == num_columns) && (elem_size==4) && (ibi->bytes_per_row_per_plane%4)) {
-			elem_bytes_to_write = 2;
-		}
-		else {
-			elem_bytes_to_write = elem_size;
-		}
-
-		opcount = (i64)dbuf_getbyte_p(inf, &oppos);
-		if(c->debug_level>=3) {
-			de_dbg3(c, "col %d op count: %d", (int)col, (int)opcount);
-		}
-
-		for(opidx=0; opidx<opcount; opidx++) {
-			i64 count;
-			u8 valbuf[4];
-
-			if(datapos > inf->len) goto done;
-			op = dbuf_getbyte_p(inf, &oppos);
-
-			if(op==0) { // RLE
-				count = (i64)dbuf_getbyte_p(inf, &oppos);
-
-				dbuf_read(inf, valbuf, datapos, elem_size);
-				datapos += elem_size;
-
-				for(k=0; k<count; k++) {
-					dbuf_write_at(frctx->frame_buffer, dstpos, valbuf, elem_bytes_to_write);
-					dstpos += dststride;
-				}
-			}
-			else if(op<0x80) { // skip
-				dstpos += (i64)op * dststride;
-			}
-			else { // uncompressed
-				count = (i64)(op & 0x7f);
-				for(k=0; k<count; k++) {
-					dbuf_read(inf, valbuf, datapos, elem_size);
-					datapos += elem_size;
-					dbuf_write_at(frctx->frame_buffer, dstpos, valbuf, elem_bytes_to_write);
-					dstpos += dststride;
-				}
-			}
-		}
-	}
-
-done:
-	;
 }
 
 // Decompress into frctx->frame_buffer
@@ -620,7 +597,7 @@ static void decompress_delta_op7(deark *c, lctx *d, struct imgbody_info *ibi,
 	i64 infpos;
 	int i;
 	int saved_indent_level;
-	i64 elem_size;
+	i64 dataelem_size;
 	dbuf *inf = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -634,10 +611,10 @@ static void decompress_delta_op7(deark *c, lctx *d, struct imgbody_info *ibi,
 		goto done;
 	}
 	if(frctx->bits & 0x00000001) {
-		elem_size = 4;
+		dataelem_size = 4;
 	}
 	else {
-		elem_size = 2;
+		dataelem_size = 2;
 	}
 
 	// We'll have to interleave lots of short reads between two different segments of
@@ -661,14 +638,14 @@ static void decompress_delta_op7(deark *c, lctx *d, struct imgbody_info *ibi,
 	}
 
 	for(i=0; i<8; i++) {
+		if(d->errflag) goto done;
 		if(i<ibi->planes_total) {
 			de_dbg2(c, "opcode_list[%d] offs: %"I64_FMT, i, opcodelist_offs[i]);
 			de_dbg2(c, "data_list[%d] offs: %"I64_FMT, i, datalist_offs[i]);
 			if(opcodelist_offs[i]>0) {
-				decompress_plane_delta_op7(c, d, ibi, frctx, inf,
-					opcodelist_offs[i], datalist_offs[i],
-					i * ibi->bytes_per_row_per_plane,
-					ibi->frame_buffer_rowspan, elem_size);
+				decompress_plane_vdelta(c, d, ibi, frctx, i, inf,
+					opcodelist_offs[i], datalist_offs[i], len,
+					1, dataelem_size, 1, 0);
 			}
 		}
 	}
@@ -705,12 +682,13 @@ static void decompress_delta_op8(deark *c, lctx *d, struct imgbody_info *ibi,
 	}
 
 	for(i=0; i<16; i++) {
+		if(d->errflag) goto done;
 		planedata_offs[i] = de_getu32be_p(&pos);
 		if(i<ibi->planes_total) {
 			de_dbg2(c, "plane[%d] offs: %"I64_FMT, i, planedata_offs[i]);
 			if(planedata_offs[i]>0) {
-				decompress_plane_vdelta(c, d, ibi, frctx, i,
-					pos1+planedata_offs[i], len-planedata_offs[i], elem_size, 0);
+				decompress_plane_vdelta(c, d, ibi, frctx, i, c->infile,
+					pos1+planedata_offs[i], 0, pos1+len, elem_size, elem_size, 0, 0);
 			}
 		}
 	}
