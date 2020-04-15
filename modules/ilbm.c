@@ -117,6 +117,7 @@ typedef struct localctx_struct {
 	u8 found_rast;
 	u8 found_audio;
 	u8 multipalette_warned;
+	u8 is_dctv;
 	UI camg_mode;
 
 	i64 width, height;
@@ -1336,6 +1337,36 @@ static int convert_abit(deark *c, lctx *d, struct imgbody_info *ibi,
 	return 1;
 }
 
+// Detect and warn about DCTV, which we don't support.
+static void detect_dctv(deark *c, lctx *d, struct imgbody_info *ibi,
+	struct frame_ctx *frctx)
+{
+	static const u8 sig[31] = {
+		0x49, 0x87, 0x28, 0xde, 0x11, 0x0b, 0xef, 0xd2, 0x0c, 0x8e, 0x8b, 0x35, 0x5b, 0x75, 0xec, 0xb8,
+		0x29, 0x6b, 0x03, 0xf9, 0x2b, 0xb4, 0x34, 0xee, 0x67, 0x1e, 0x7c, 0x4f, 0x53, 0x63, 0x15 };
+	i64 pos;
+
+	// As far as I can tell, in DCTV images, the last plane of the first row is
+	// as follows:
+	//   <00> <31-byte signature> <00 fill> <31-byte signature> <00>
+	// (Sometimes, the last plane of the *second* row is the same.)
+	// Unknowns:
+	// * Is DCTV possible if there are fewer than 64 bytes per row per plane (i.e. width < 512)?
+	// * Can a DCTV image have transparency?
+	// * If a DCTV image has a thumbnail image, what format does the thumbnail use?
+
+	if(d->is_dctv) return;
+	if(!frctx || !frctx->frame_buffer) return;
+	if(ibi->is_thumb) return;
+	if(frctx->formtype!=CODE_ILBM && frctx->formtype!=CODE_ACBM) return;
+	if(ibi->bytes_per_row_per_plane<64) return;
+	pos = d->planes_raw * ibi->bytes_per_row_per_plane - 32;
+	if(dbuf_getbyte(frctx->frame_buffer, pos) != sig[0]) return;
+	if(dbuf_memcmp(frctx->frame_buffer, pos, sig, 31)) return;
+	de_warn(c, "This is probably a DCTV image, which is not supported correctly");
+	d->is_dctv = 1;
+}
+
 // BODY/ABIT/TINY
 static int do_image_chunk_internal(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1, i64 len, int is_thumb)
 {
@@ -1393,6 +1424,8 @@ static int do_image_chunk_internal(deark *c, lctx *d, struct frame_ctx *frctx, i
 		de_warn(c, "Expected %"I64_FMT" decompressed bytes, got %"I64_FMT, ibi->frame_buffer_size,
 			frctx->frame_buffer->len);
 	}
+
+	detect_dctv(c, d, ibi, frctx);
 
 	write_frame(c, d, ibi, frctx);
 
@@ -2226,6 +2259,7 @@ static void print_summary(deark *c, lctx *d)
 	if(d->is_pchg) summary_append(s, "PCHG");
 	if(d->is_ctbl) summary_append(s, "CBTL");
 	if(d->is_beam) summary_append(s, "BEAM");
+	if(d->is_dctv) summary_append(s, "DCTV");
 	if(d->found_rast) summary_append(s, "RAST");
 	if(d->uses_color_cycling) summary_append(s, "color-cycling");
 	if(d->found_clut) summary_append(s, "CLUT");
