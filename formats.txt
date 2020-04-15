@@ -27,6 +27,8 @@ Deark -- Information about supported formats
 * ANIM (Amiga IFF-ANIM) (module="anim") (expermimental)
   - Supports most common formats.
   - Extract the individual frames.
+  Options
+   -opt anim:includedups - Do not suppress duplicate frames.
 
 * Animatic Film (module="animatic")
   - Extract the individual frames.

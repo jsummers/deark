@@ -77,6 +77,7 @@ struct frame_ctx {
 	u32 formtype;
 	int frame_idx;
 	int done_flag; // Have we processed the image (BODY/DLTA/etc. chunk)?
+	int change_flag; // Is this frame different from the previous one?
 	u8 op;
 	u8 delta4_5_xor_mode;
 	UI interleave;
@@ -96,6 +97,7 @@ typedef struct localctx_struct {
 	u8 opt_notrans;
 	u8 opt_fixpal;
 	u8 opt_allowsham;
+	u8 opt_anim_includedups;
 	u8 found_bmhd;
 	u8 found_cmap;
 	u8 cmap_changed_flag;
@@ -323,6 +325,7 @@ static void decompress_plane_delta_op3(deark *c, lctx *d, struct imgbody_info *i
 			break;
 		}
 		else if(code >= 0) { // Skip some number of elements, then write one element.
+			frctx->change_flag = 1;
 			offset = code;
 			elemnum += offset;
 			de_read(elembuf, pos, elemsize);
@@ -338,6 +341,9 @@ static void decompress_plane_delta_op3(deark *c, lctx *d, struct imgbody_info *i
 			offset = -(code+2);
 			elemnum += offset;
 			count = de_getu16be_p(&pos);
+			if(count>0) {
+				frctx->change_flag = 1;
+			}
 			for(k=0; k<count; k++) {
 				de_read(elembuf, pos, elemsize);
 				pos += elemsize;
@@ -482,6 +488,10 @@ static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
 					goto done;
 				}
 
+				if(count>0) {
+					frctx->change_flag = 1;
+				}
+
 				if(separate_data_stream) {
 					if(datapos>=endpos) {
 						baddata_flag = 1;
@@ -517,6 +527,10 @@ static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
 				if(ypos+count > ibi->height) {
 					baddata_flag = 1;
 					goto done;
+				}
+
+				if(count>0) {
+					frctx->change_flag = 1;
 				}
 
 				for(k=0; k<count; k++) {
@@ -783,6 +797,7 @@ static void decompress_delta_op74(deark *c, lctx *d, struct imgbody_info *ibi,
 		if(d74s.pos+2 >= d74s.endpos) goto done;
 		code = (UI)de_getu16be_p(&d74s.pos);
 		if(code==1) {
+			frctx->change_flag = 1;
 			d74s.op = (UI)de_getu16be_p(&d74s.pos);
 			d74s.nrows = de_getu16be_p(&d74s.pos);
 			d74s.nbytes = 1;
@@ -790,6 +805,7 @@ static void decompress_delta_op74(deark *c, lctx *d, struct imgbody_info *ibi,
 			do_delta74_blocks(c, &d74s);
 		}
 		else if(code==2) {
+			frctx->change_flag = 1;
 			d74s.op = (UI)de_getu16be_p(&d74s.pos);
 			d74s.nrows = de_getu16be_p(&d74s.pos);
 			d74s.nbytes = de_getu16be_p(&d74s.pos);
@@ -1104,7 +1120,12 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 		goto done;
 	}
 
-	write_frame(c, d, ibi, frctx);
+	if(frctx->change_flag || d->opt_anim_includedups) {
+		write_frame(c, d, ibi, frctx);
+	}
+	else {
+		de_dbg(c, "[suppressing duplicate frame]");
+	}
 
 done:
 	// For the summary line, and so we can know when encountering an op for the
@@ -2257,6 +2278,10 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
+	if(d->is_anim) {
+		d->opt_anim_includedups = (u8)de_get_ext_option_bool(c, "anim:includedups", 0);
+	}
+
 	d->FORM_level = d->is_anim ? 1 : 0;
 
 	ictx = de_malloc(c, sizeof(struct de_iffctx));
@@ -2326,6 +2351,9 @@ static void do_help_ilbm_anim(deark *c, int is_anim)
 			"slightly too dark");
 	}
 	de_msg(c, "-opt ilbm:allowsham : Suppress an error on some images");
+	if(is_anim) {
+		de_msg(c, "-opt anim:includedups : Do not suppress duplicate frames");
+	}
 }
 
 static void de_help_ilbm(deark *c)
