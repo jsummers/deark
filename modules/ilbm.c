@@ -764,7 +764,7 @@ static void do_delta74_blocks(deark *c, struct d74state *d74s)
 			}
 		}
 
-		if((block_srcpos - d74s->pos) & 0x1) {
+		if((d74s->pos - block_srcpos) & 0x1) {
 			d74s->pos++; // padding byte
 		}
 	}
@@ -1610,7 +1610,6 @@ static void do_dpi(deark *c, lctx *d, i64 pos, i64 len)
 	de_dbg(c, "dpi: %d"DE_CHAR_TIMES"%d", (int)d->x_dpi, (int)d->y_dpi);
 }
 
-
 static void do_grab(deark *c, lctx *d, i64 pos, i64 len)
 {
 	if(len<4) return;
@@ -1980,7 +1979,7 @@ done:
 	de_free(c, rowbuf_trns);
 }
 
-static void anim_on_frame_begin(deark *c, lctx *d, u32 formtype)
+static void on_frame_begin(deark *c, lctx *d, u32 formtype)
 {
 	if(d->frctx) return;
 	d->num_frames_started++;
@@ -1990,7 +1989,7 @@ static void anim_on_frame_begin(deark *c, lctx *d, u32 formtype)
 	if(d->is_anim) de_dbg(c, "[frame #%d begin]", d->frctx->frame_idx);
 }
 
-static void anim_on_frame_end(deark *c, lctx *d)
+static void on_frame_end(deark *c, lctx *d)
 {
 	if(!d->frctx) return;
 
@@ -2165,9 +2164,9 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 
 	if(ictx->level==d->FORM_level) {
 		if(d->frctx) {
-			anim_on_frame_end(c, d);
+			on_frame_end(c, d);
 		}
-		anim_on_frame_begin(c, d, ictx->curr_container_contentstype4cc.id);
+		on_frame_begin(c, d, ictx->curr_container_contentstype4cc.id);
 	}
 	return 1;
 }
@@ -2328,7 +2327,7 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 	de_fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
 
 	if(d->frctx) {
-		anim_on_frame_end(c, d);
+		on_frame_end(c, d);
 	}
 	do_eof_stuff(c, d);
 	print_summary(c, d);
