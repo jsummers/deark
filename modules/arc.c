@@ -188,8 +188,7 @@ static void do_pk_comments(deark *c, lctx *d)
 	i64 comments_descr_pos;
 	int has_file_comments = 0;
 	int has_archive_comment = 0;
-	i64 file_comments_pos;
-	i64 num_file_comments;
+	i64 file_comments_pos = 0;
 	de_ucstring *archive_comment = NULL;
 	u8 dscr[4];
 
@@ -239,6 +238,7 @@ static void do_pk_comments(deark *c, lctx *d)
 	}
 
 	if(has_file_comments) {
+		i64 num_file_comments;
 		i64 i;
 
 		num_file_comments = (sig_pos - file_comments_pos)/32;
