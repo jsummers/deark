@@ -117,6 +117,7 @@ typedef struct localctx_struct {
 	u8 found_rast;
 	u8 found_audio;
 	u8 multipalette_warned;
+	u8 is_hame;
 	u8 is_dctv;
 	UI camg_mode;
 
@@ -1337,6 +1338,53 @@ static int convert_abit(deark *c, lctx *d, struct imgbody_info *ibi,
 	return 1;
 }
 
+// Detect and warn about HAM-E, which we don't support.
+static void detect_hame(deark *c, lctx *d, struct imgbody_info *ibi,
+	struct frame_ctx *frctx)
+{
+	i64 plane;
+	i64 k;
+	UI firstword[4];
+	u8 pixelval[16];
+	static const u8 sig[15] = { 0xa, 0x2, 0xf, 0x5, 0x8, 0x4, 0xd, 0xc,
+		0x6, 0xd, 0xb, 0x0, 0x7, 0xf, 0x1 };
+
+	if(d->is_hame) return;
+	if(d->ham_flag) return;
+	if(!d->found_cmap) return;
+	if(ibi->width<640) return;
+	if(ibi->planes_fg!=4 || ibi->planes_total!=4) return;
+	if(ibi->is_thumb) return;
+	if(frctx->formtype!=CODE_ILBM && frctx->formtype!=CODE_ACBM) return;
+	if(!frctx || !frctx->frame_buffer) return;
+
+	// Note: This is quite possibly not the right way to detect HAM-E.
+	// RECOIL does it by looking up the palette color of each pixel, and using
+	// certain bits in the palette entry. In all the HAM-E images I have, the
+	// palette is constructed so as to make that process a no-op.
+
+	// Need to examine the values of the first 16 pixels, so need the first 2
+	// bytes of each of the 4 planes of row 0.
+	for(plane=0; plane<4; plane++) {
+		firstword[plane] = (UI)dbuf_getu16be(frctx->frame_buffer,
+			plane * ibi->bytes_per_row_per_plane);
+	}
+
+	for(k=0; k<16; k++) {
+		pixelval[k] = 0;
+		for(plane=0; plane<4; plane++) {
+			if(firstword[plane] & (1U<<(15-(UI)k))) {
+				pixelval[k] |= 1U<<(UI)plane;
+			}
+		}
+	}
+
+	if(de_memcmp(pixelval, sig, 15)) return;
+	if(pixelval[15]!=0x4 && pixelval[15]!=0x8) return;
+	de_warn(c, "This is probably a HAM-E image, which is not supported correctly.");
+	d->is_hame = 1;
+}
+
 // Detect and warn about DCTV, which we don't support.
 static void detect_dctv(deark *c, lctx *d, struct imgbody_info *ibi,
 	struct frame_ctx *frctx)
@@ -1363,7 +1411,7 @@ static void detect_dctv(deark *c, lctx *d, struct imgbody_info *ibi,
 	pos = d->planes_raw * ibi->bytes_per_row_per_plane - 32;
 	if(dbuf_getbyte(frctx->frame_buffer, pos) != sig[0]) return;
 	if(dbuf_memcmp(frctx->frame_buffer, pos, sig, 31)) return;
-	de_warn(c, "This is probably a DCTV image, which is not supported correctly");
+	de_warn(c, "This is probably a DCTV image, which is not supported correctly.");
 	d->is_dctv = 1;
 }
 
@@ -1426,6 +1474,7 @@ static int do_image_chunk_internal(deark *c, lctx *d, struct frame_ctx *frctx, i
 	}
 
 	detect_dctv(c, d, ibi, frctx);
+	detect_hame(c, d, ibi, frctx);
 
 	write_frame(c, d, ibi, frctx);
 
@@ -2258,6 +2307,7 @@ static void print_summary(deark *c, lctx *d)
 	if(d->is_pchg) summary_append(s, "PCHG");
 	if(d->is_ctbl) summary_append(s, "CBTL");
 	if(d->is_beam) summary_append(s, "BEAM");
+	if(d->is_hame) summary_append(s, "HAM-E");
 	if(d->is_dctv) summary_append(s, "DCTV");
 	if(d->found_rast) summary_append(s, "RAST");
 	if(d->uses_color_cycling) summary_append(s, "color-cycling");
