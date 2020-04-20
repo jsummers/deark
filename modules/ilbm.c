@@ -17,6 +17,7 @@ DE_DECLARE_MODULE(de_module_anim);
 #define CODE_ACBM 0x4143424dU
 #define CODE_ANHD 0x414e4844U
 #define CODE_ANIM 0x414e494dU
+#define CODE_ANSQ 0x414e5351U
 #define CODE_BEAM 0x4245414dU
 #define CODE_BMHD 0x424d4844U
 #define CODE_BODY 0x424f4459U
@@ -35,6 +36,7 @@ DE_DECLARE_MODULE(de_module_anim);
 #define CODE_ILBM 0x494c424dU
 #define CODE_PBM  0x50424d20U
 #define CODE_PCHG 0x50434847U
+#define CODE_SBDY 0x53424459U
 #define CODE_SHAM 0x5348414dU
 #define CODE_TINY 0x54494e59U
 #define CODE_VDAT 0x56444154U
@@ -75,6 +77,7 @@ struct frame_ctx {
 	u32 formtype;
 	int frame_idx;
 	int done_flag; // Have we processed the image (BODY/DLTA/etc. chunk)?
+	int change_flag; // Is this frame different from the previous one?
 	u8 op;
 	u8 delta4_5_xor_mode;
 	UI interleave;
@@ -94,6 +97,7 @@ typedef struct localctx_struct {
 	u8 opt_notrans;
 	u8 opt_fixpal;
 	u8 opt_allowsham;
+	u8 opt_anim_includedups;
 	u8 found_bmhd;
 	u8 found_cmap;
 	u8 cmap_changed_flag;
@@ -111,7 +115,10 @@ typedef struct localctx_struct {
 	u8 is_beam;
 	u8 found_clut;
 	u8 found_rast;
+	u8 found_audio;
 	u8 multipalette_warned;
+	u8 is_hame;
+	u8 is_dctv;
 	UI camg_mode;
 
 	i64 width, height;
@@ -145,8 +152,8 @@ static const char *anim_get_op_name(u8 op)
 	case 3: name="short delta"; break;
 	case 4: name="short/long delta"; break;
 	case 5: name="byte vert. delta"; break;
-	case 7: name="short/long vert. delta"; break;
-		//case 8 - TODO
+	case 7: name="short/long vert. delta, separated"; break;
+	case 8: name="short/long vert. delta, contiguous"; break;
 	case 74: name="ANIM-J (Eric Graham)"; break;
 	}
 	return name?name:"?";
@@ -249,6 +256,7 @@ static int do_bmhd(deark *c, lctx *d, i64 pos1, i64 len)
 	d->height = de_getu16be_p(&pos);
 	de_dbg_dimensions(c, d->width, d->height);
 	pos += 4;
+
 	d->planes_raw = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "planes: %d", (int)d->planes_raw);
 	d->masking_code = de_getbyte_p(&pos);
@@ -319,6 +327,7 @@ static void decompress_plane_delta_op3(deark *c, lctx *d, struct imgbody_info *i
 			break;
 		}
 		else if(code >= 0) { // Skip some number of elements, then write one element.
+			frctx->change_flag = 1;
 			offset = code;
 			elemnum += offset;
 			de_read(elembuf, pos, elemsize);
@@ -334,6 +343,9 @@ static void decompress_plane_delta_op3(deark *c, lctx *d, struct imgbody_info *i
 			offset = -(code+2);
 			elemnum += offset;
 			count = de_getu16be_p(&pos);
+			if(count>0) {
+				frctx->change_flag = 1;
+			}
 			for(k=0; k<count; k++) {
 				de_read(elembuf, pos, elemsize);
 				pos += elemsize;
@@ -372,58 +384,187 @@ static void decompress_delta_op3(deark *c, lctx *d, struct imgbody_info *ibi,
 	}
 }
 
-// Decompress into frctx->frame_buffer, at dstpos1
-static void decompress_plane_delta_op5(deark *c, lctx *d, struct imgbody_info *ibi,
-	struct frame_ctx *frctx, i64 pos1, i64 maxlen,
-	i64 dstpos1, i64 dststride)
+static i64 get_elem_as_int_p(dbuf *f, i64 *ppos, i64 elem_size)
 {
+	if(elem_size==1) {
+		return (i64)dbuf_getbyte_p(f, ppos);
+	}
+	if(elem_size==2) {
+		return dbuf_getu16be_p(f, ppos);
+	}
+	return dbuf_getu32be_p(f, ppos);
+}
+
+// This routine decompresses most frame types used in DLTA#5, #7, and #8.
+// For #7, the codestream and datastream are stored separately, and have different
+// element sizes.
+// For #5 and #8, datapos1 is not used.
+static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
+	struct frame_ctx *frctx, i64 plane_idx,
+	dbuf *inf, i64 codepos1, i64 datapos1, i64 endpos,
+	i64 code_size, i64 dataelem_size, int separate_data_stream, u8 xor_mode)
+{
+	i64 pos = codepos1; // If !separate_data_stream, this is for code and data
+	i64 datapos = datapos1;
 	i64 num_columns;
 	i64 col;
-	i64 pos = pos1;
+	i64 dststride = ibi->frame_buffer_rowspan;
+	UI unc_threshold;
+	int baddata_flag = 0;
 
-	de_dbg2(c, "delta5 plane at %"I64_FMT", maxlen=%"I64_FMT, pos1, maxlen);
-	num_columns = de_pad_to_n(ibi->width, 8)/8;
+	if(separate_data_stream) {
+		de_dbg2(c, "vdelta(%d,%d) plane %d at (%"I64_FMT",%"I64_FMT")", (int)code_size,
+			(int)dataelem_size, (int)plane_idx, codepos1, datapos1);
+	}
+	else {
+		de_dbg2(c, "vdelta(%d) plane at (%"I64_FMT")", (int)code_size, codepos1);
+	}
+	if(code_size!=1 && code_size!=2 && code_size!=4) goto done;
+	if(dataelem_size!=1 && dataelem_size!=2 && dataelem_size!=4) goto done;
+	if(xor_mode && dataelem_size!=1) goto done;
+
+	if(code_size==1) {
+		unc_threshold = 0x80;
+	}
+	else if(code_size==2) {
+		unc_threshold = 0x8000;
+	}
+	else {
+		unc_threshold = 0x80000000U;
+	}
+
+	if(dataelem_size==1) {
+		num_columns = (ibi->width+7)/8;
+	}
+	else if(dataelem_size==2) {
+		num_columns = (ibi->width+15)/16;
+	}
+	else {
+		num_columns = (ibi->width+31)/32;
+	}
+
 	for(col=0; col<num_columns; col++) {
 		i64 opcount;
 		i64 opidx;
-		i64 k;
-		u8 op;
-		i64 dstpos = dstpos1 + col;
+		i64 elem_bytes_to_write;
+		i64 ypos = 0;
+		i64 col_start_dstpos;
 
-		opcount = de_getbyte_p(&pos);
-		if(c->debug_level>=3) {
-			de_dbg3(c, "col %d op count: %d at %"I64_FMT, (int)col, (int)opcount, pos);
+		if(pos>=endpos) {
+			baddata_flag = 1;
+			goto done;
 		}
-		for(opidx=0; opidx<opcount; opidx++) {
-			i64 count;
-			u8 val;
 
-			if(pos >= pos1+maxlen) goto done;
-			op = de_getbyte_p(&pos);
+		// Defend against writing beyond the right edge of this plane
+		if((dataelem_size==4) && (col+1 == num_columns) && (ibi->bytes_per_row_per_plane%4)) {
+			elem_bytes_to_write = 2;
+		}
+		else {
+			elem_bytes_to_write = dataelem_size;
+		}
+
+		col_start_dstpos = plane_idx * ibi->bytes_per_row_per_plane + dataelem_size*col;
+
+		opcount = get_elem_as_int_p(inf, &pos, code_size);
+		if(c->debug_level>=3) {
+			de_dbg3(c, "col %d op count: %"I64_FMT, (int)col, opcount);
+		}
+
+		for(opidx=0; opidx<opcount; opidx++) {
+			i64 dstpos;
+			i64 count;
+			i64 k;
+			UI op;
+			u8 valbuf[4];
+
+			if(pos>=endpos) {
+				baddata_flag = 1;
+				goto done;
+			}
+			op = (UI)get_elem_as_int_p(inf, &pos, code_size);
+
 			if(op==0) { // RLE
-				count = (i64)de_getbyte_p(&pos);
-				val = de_getbyte_p(&pos);
+				count = get_elem_as_int_p(inf, &pos, code_size);
+				if(ypos+count > ibi->height) {
+					baddata_flag = 1;
+					goto done;
+				}
+
+				if(count>0) {
+					frctx->change_flag = 1;
+				}
+
+				if(separate_data_stream) {
+					if(datapos>=endpos) {
+						baddata_flag = 1;
+						goto done;
+					}
+					dbuf_read(inf, valbuf, datapos, dataelem_size);
+					datapos += dataelem_size;
+				}
+				else {
+					dbuf_read(inf, valbuf, pos, dataelem_size);
+					pos += dataelem_size;
+				}
+
 				for(k=0; k<count; k++) {
-					dbuf_writebyte_at(frctx->frame_buffer, dstpos, val);
-					dstpos += dststride;
+					dstpos = col_start_dstpos + ypos*dststride;
+					if(xor_mode) {
+						u8 val;
+
+						val = valbuf[0] ^ dbuf_getbyte(frctx->frame_buffer, dstpos);
+						dbuf_writebyte_at(frctx->frame_buffer, dstpos, val);
+					}
+					else {
+						dbuf_write_at(frctx->frame_buffer, dstpos, valbuf, elem_bytes_to_write);
+					}
+					ypos++;
 				}
 			}
-			else if(op<0x80) { // skip
-				dstpos += (i64)op * dststride;
+			else if(op < unc_threshold) { // skip
+				ypos += (i64)op;
 			}
-			else { // uncompressed
-				count = (i64)(op & 0x7f);
+			else { // uncompressed run
+				count = (i64)(op - unc_threshold);
+				if(ypos+count > ibi->height) {
+					baddata_flag = 1;
+					goto done;
+				}
+
+				if(count>0) {
+					frctx->change_flag = 1;
+				}
+
 				for(k=0; k<count; k++) {
-					val = de_getbyte_p(&pos);
-					dbuf_writebyte_at(frctx->frame_buffer, dstpos, val);
-					dstpos += dststride;
+					if(separate_data_stream) {
+						if(datapos>=endpos) {
+							baddata_flag = 1;
+							goto done;
+						}
+						dbuf_read(inf, valbuf, datapos, dataelem_size);
+						datapos += dataelem_size;
+					}
+					else {
+						dbuf_read(inf, valbuf, pos, dataelem_size);
+						pos += dataelem_size;
+					}
+
+					dstpos = col_start_dstpos + ypos*dststride;
+					if(xor_mode) {
+						valbuf[0] ^= dbuf_getbyte(frctx->frame_buffer, dstpos);
+					}
+					dbuf_write_at(frctx->frame_buffer, dstpos, valbuf, elem_bytes_to_write);
+					ypos++;
 				}
 			}
 		}
 	}
 
 done:
-	;
+	if(baddata_flag && !d->errflag) {
+		de_err(c, "Delta decompression failed");
+		d->errflag = 1;
+	}
 }
 
 // Decompress into frctx->frame_buffer
@@ -447,100 +588,20 @@ static void decompress_delta_op5(deark *c, lctx *d, struct imgbody_info *ibi,
 	}
 
 	for(i=0; i<16; i++) {
+		if(d->errflag) goto done;
 		planedata_offs[i] = de_getu32be_p(&pos);
 		if(i<ibi->planes_total) {
 			de_dbg2(c, "plane[%d] offs: %"I64_FMT, i, planedata_offs[i]);
 			if(planedata_offs[i]>0) {
-				decompress_plane_delta_op5(c, d, ibi, frctx,
-					pos1+planedata_offs[i], len-planedata_offs[i],
-					i * ibi->bytes_per_row_per_plane,
-					ibi->frame_buffer_rowspan);
+				decompress_plane_vdelta(c, d, ibi, frctx, i, c->infile,
+					pos1+planedata_offs[i], 0, pos1+len, 1, 1,
+					0, frctx->delta4_5_xor_mode);
 			}
 		}
 	}
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
-}
-
-// Decompress into frctx->frame_buffer, at dstpos1
-static void decompress_plane_delta_op7(deark *c, lctx *d, struct imgbody_info *ibi,
-	struct frame_ctx *frctx, dbuf *inf, i64 oppos1, i64 datapos1,
-	i64 dstpos1, i64 dststride, i64 elem_size)
-{
-	i64 oppos = oppos1;
-	i64 datapos = datapos1;
-	i64 num_columns;
-	i64 col;
-
-	de_dbg2(c, "delta7 plane at (%"I64_FMT", %"I64_FMT")", oppos1, datapos1);
-	if(elem_size!=2 && elem_size!=4) goto done;
-
-	if(elem_size==4) {
-		num_columns = (ibi->bytes_per_row_per_plane+3)/4;
-	}
-	else {
-		num_columns = (ibi->frame_buffer_rowspan+1)/2;
-	}
-
-	for(col=0; col<num_columns; col++) {
-		i64 opcount;
-		i64 opidx;
-		i64 k;
-		u8 op;
-		i64 dstpos = dstpos1 + col*elem_size;
-		i64 elem_bytes_to_write;
-
-		if(oppos >= inf->len) goto done;
-
-		// Defend against writing beyond the right edge of this plane
-		if((col+1 == num_columns) && (elem_size==4) && (ibi->bytes_per_row_per_plane%4)) {
-			elem_bytes_to_write = 2;
-		}
-		else {
-			elem_bytes_to_write = elem_size;
-		}
-
-		opcount = (i64)dbuf_getbyte_p(inf, &oppos);
-		if(c->debug_level>=3) {
-			de_dbg3(c, "col %d op count: %d", (int)col, (int)opcount);
-		}
-
-		for(opidx=0; opidx<opcount; opidx++) {
-			i64 count;
-			u8 valbuf[4];
-
-			if(datapos > inf->len) goto done;
-			op = dbuf_getbyte_p(inf, &oppos);
-
-			if(op==0) { // RLE
-				count = (i64)dbuf_getbyte_p(inf, &oppos);
-
-				dbuf_read(inf, valbuf, datapos, elem_size);
-				datapos += elem_size;
-
-				for(k=0; k<count; k++) {
-					dbuf_write_at(frctx->frame_buffer, dstpos, valbuf, elem_bytes_to_write);
-					dstpos += dststride;
-				}
-			}
-			else if(op<0x80) { // skip
-				dstpos += (i64)op * dststride;
-			}
-			else { // uncompressed
-				count = (i64)(op & 0x7f);
-				for(k=0; k<count; k++) {
-					dbuf_read(inf, valbuf, datapos, elem_size);
-					datapos += elem_size;
-					dbuf_write_at(frctx->frame_buffer, dstpos, valbuf, elem_bytes_to_write);
-					dstpos += dststride;
-				}
-			}
-		}
-	}
-
-done:
-	;
 }
 
 // Decompress into frctx->frame_buffer
@@ -552,7 +613,7 @@ static void decompress_delta_op7(deark *c, lctx *d, struct imgbody_info *ibi,
 	i64 infpos;
 	int i;
 	int saved_indent_level;
-	i64 elem_size = 2;
+	i64 dataelem_size;
 	dbuf *inf = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -566,10 +627,10 @@ static void decompress_delta_op7(deark *c, lctx *d, struct imgbody_info *ibi,
 		goto done;
 	}
 	if(frctx->bits & 0x00000001) {
-		elem_size = 4;
+		dataelem_size = 4;
 	}
 	else {
-		elem_size = 2;
+		dataelem_size = 2;
 	}
 
 	// We'll have to interleave lots of short reads between two different segments of
@@ -593,14 +654,14 @@ static void decompress_delta_op7(deark *c, lctx *d, struct imgbody_info *ibi,
 	}
 
 	for(i=0; i<8; i++) {
+		if(d->errflag) goto done;
 		if(i<ibi->planes_total) {
 			de_dbg2(c, "opcode_list[%d] offs: %"I64_FMT, i, opcodelist_offs[i]);
 			de_dbg2(c, "data_list[%d] offs: %"I64_FMT, i, datalist_offs[i]);
 			if(opcodelist_offs[i]>0) {
-				decompress_plane_delta_op7(c, d, ibi, frctx, inf,
-					opcodelist_offs[i], datalist_offs[i],
-					i * ibi->bytes_per_row_per_plane,
-					ibi->frame_buffer_rowspan, elem_size);
+				decompress_plane_vdelta(c, d, ibi, frctx, i, inf,
+					opcodelist_offs[i], datalist_offs[i], len,
+					1, dataelem_size, 1, 0);
 			}
 		}
 	}
@@ -610,6 +671,161 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+static void decompress_delta_op8(deark *c, lctx *d, struct imgbody_info *ibi,
+	struct frame_ctx *frctx, i64 pos1, i64 len)
+{
+	i64 planedata_offs[16];
+	i64 pos = pos1;
+	i64 elem_size;
+	int i;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(!frctx->frame_buffer) goto done;
+
+	de_dbg(c, "[delta8 data]");
+
+	if(frctx->bits & 0xfffffffeU) {
+		de_err(c, "Unsupported ANHD options");
+		d->errflag = 1;
+		goto done;
+	}
+	if(frctx->bits & 0x00000001) {
+		elem_size = 4;
+	}
+	else {
+		elem_size = 2;
+	}
+
+	for(i=0; i<16; i++) {
+		if(d->errflag) goto done;
+		planedata_offs[i] = de_getu32be_p(&pos);
+		if(i<ibi->planes_total) {
+			de_dbg2(c, "plane[%d] offs: %"I64_FMT, i, planedata_offs[i]);
+			if(planedata_offs[i]>0) {
+				decompress_plane_vdelta(c, d, ibi, frctx, i, c->infile,
+					pos1+planedata_offs[i], 0, pos1+len, elem_size, elem_size, 0, 0);
+			}
+		}
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+struct d74state {
+	struct imgbody_info *ibi;
+	struct frame_ctx *frctx;
+	i64 pos;
+	i64 endpos;
+
+	// Temporary use:
+	UI op;
+	i64 nblocks;
+	i64 nrows; // block height in rows
+	i64 nbytes; // block width in bytes per plane
+};
+
+static void do_delta74_blocks(deark *c, struct d74state *d74s)
+{
+	i64 blkidx, rowidx, planeidx, byteidx;
+	i64 d74_bytes_per_row_per_plane;
+
+	// Reportedly, the 'offset' field assumes a potentially-different measuring
+	// system than one would expect.
+	d74_bytes_per_row_per_plane = (d74s->ibi->width + 7)/8;
+
+	for(blkidx=0; blkidx<d74s->nblocks; blkidx++) {
+		i64 offset;
+		i64 block_srcpos = d74s->pos;
+		i64 block_dstpos;
+
+		if(d74s->pos+2 >= d74s->endpos) goto done;
+		offset = de_getu16be_p(&d74s->pos);
+
+		block_dstpos = (offset / d74_bytes_per_row_per_plane) * d74s->ibi->frame_buffer_rowspan +
+			(offset % d74_bytes_per_row_per_plane);
+
+		for(rowidx=0; rowidx<d74s->nrows; rowidx++) {
+			for(planeidx=0; planeidx<d74s->ibi->planes_total; planeidx++) {
+				i64 dstpos;
+
+				// Calculate the offset in our frame buffer.
+				dstpos = block_dstpos + (rowidx * d74s->ibi->frame_buffer_rowspan) +
+					planeidx * d74s->ibi->bytes_per_row_per_plane;
+
+				for(byteidx=0; byteidx<d74s->nbytes; byteidx++) {
+					u8 val;
+
+					val = de_getbyte_p(&d74s->pos);
+					if(d74s->op) val ^= dbuf_getbyte(d74s->frctx->frame_buffer, dstpos);
+					dbuf_writebyte_at(d74s->frctx->frame_buffer, dstpos, val);
+					dstpos++;
+				}
+			}
+		}
+
+		if((d74s->pos - block_srcpos) & 0x1) {
+			d74s->pos++; // padding byte
+		}
+	}
+
+done:
+	;
+}
+
+static void decompress_delta_op74(deark *c, lctx *d, struct imgbody_info *ibi,
+	struct frame_ctx *frctx, i64 pos1, i64 len)
+{
+	struct d74state d74s;
+
+	de_zeromem(&d74s, sizeof(struct d74state));
+	d74s.ibi = ibi;
+	d74s.frctx = frctx;
+	d74s.pos = pos1;
+	d74s.endpos = pos1+len;
+
+	if(!d->delta_ops_used[74]) { // If this is the first DLTA#7 chunk...
+		if(ibi->width < 320) {
+			// The XAnim code says this is a special case, but I haven't found any
+			// sample files. (TODO)
+			de_warn(c, "ANIM-J with width < 320 might not be supported correctly");
+		}
+	}
+
+	while(1) {
+		UI code;
+
+		if(d74s.pos+2 >= d74s.endpos) goto done;
+		code = (UI)de_getu16be_p(&d74s.pos);
+		if(code==1) {
+			frctx->change_flag = 1;
+			d74s.op = (UI)de_getu16be_p(&d74s.pos);
+			d74s.nrows = de_getu16be_p(&d74s.pos);
+			d74s.nbytes = 1;
+			d74s.nblocks = de_getu16be_p(&d74s.pos);
+			do_delta74_blocks(c, &d74s);
+		}
+		else if(code==2) {
+			frctx->change_flag = 1;
+			d74s.op = (UI)de_getu16be_p(&d74s.pos);
+			d74s.nrows = de_getu16be_p(&d74s.pos);
+			d74s.nbytes = de_getu16be_p(&d74s.pos);
+			d74s.nblocks = de_getu16be_p(&d74s.pos);
+			do_delta74_blocks(c, &d74s);
+		}
+		else if(code==0) {
+			break;
+		}
+		else {
+			de_warn(c, "Bad or unsupported ANIM-J compression code (%u)", code);
+			goto done;
+		}
+	}
+
+done:
+	;
+}
 
 static void pal_fixup4(deark *c, lctx *d)
 {
@@ -679,13 +895,17 @@ static void fixup_palette(deark *c, lctx *d)
 		if((cb&0x0f) != 0) return;
 	}
 	de_dbg(c, "Palette seems to have 4 bits of precision. Rescaling palette.");
-	pal_fixup4(c,d );
+	pal_fixup4(c, d);
 }
 
 // Called when we encounter a BODY or DLTA or TINY chunk
 static void do_before_image_chunk(deark *c, lctx *d)
 {
 	if(d->bmhd_changed_flag) {
+		if(!d->found_cmap && d->planes_raw<=8) {
+			de_make_grayscale_palette(d->pal, (i64)1<<(UI)d->planes_raw, 0);
+		}
+
 		if(d->planes_raw==6 && d->pal_ncolors==32 && !d->ehb_flag && !d->ham_flag) {
 			de_warn(c, "Assuming this is an EHB image");
 			d->ehb_flag = 1;
@@ -693,7 +913,7 @@ static void do_before_image_chunk(deark *c, lctx *d)
 	}
 
 	if(d->cmap_changed_flag) {
-		de_memcpy(d->pal, d->pal_raw, 256*sizeof(d->pal_raw[0]));
+		de_memcpy(d->pal, d->pal_raw, (size_t)d->pal_ncolors * sizeof(d->pal_raw[0]));
 	}
 
 	if(d->cmap_changed_flag && d->ehb_flag && d->planes_raw==6) {
@@ -830,23 +1050,6 @@ done:
 
 static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct frame_ctx *frctx);
 
-static void do_xor_frame_buffers(deark *c, lctx *d, struct imgbody_info *ibi,
-	struct frame_ctx *reference_frctx, struct frame_ctx *frctx)
-{
-	i64 k;
-
-	if(!reference_frctx || !reference_frctx->frame_buffer) return;
-	if(!frctx || !frctx->frame_buffer) return;
-
-	for(k=0; k<ibi->frame_buffer_size; k++) {
-		u8 b0, b1;
-		b1 = dbuf_getbyte(reference_frctx->frame_buffer, k);
-		if(b1==0) continue;
-		b0 = dbuf_getbyte(frctx->frame_buffer, k);
-		dbuf_writebyte_at(frctx->frame_buffer, k, b0^b1);
-	}
-}
-
 static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	struct frame_ctx *frctx = d->frctx;
@@ -855,7 +1058,6 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	d->delta_ops_used[(size_t)frctx->op] = 1; // Remember this for the summary line.
 
 	if(d->errflag) goto done;
 	if(!d->found_bmhd) goto done;
@@ -893,7 +1095,7 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 
 	// Start by copying the reference frame to this frame. The decompress function
 	// will then modify this frame.
-	if(!frctx->delta4_5_xor_mode && reference_frctx && reference_frctx->frame_buffer) {
+	if(reference_frctx && reference_frctx->frame_buffer) {
 		dbuf_copy(reference_frctx->frame_buffer, 0, reference_frctx->frame_buffer->len,
 			frctx->frame_buffer);
 	}
@@ -908,19 +1110,32 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 	case 7:
 		decompress_delta_op7(c, d, ibi, frctx, pos1, len);
 		break;
+	case 8:
+		decompress_delta_op8(c, d, ibi, frctx, pos1, len);
+		break;
+	case 74:
+		decompress_delta_op74(c, d, ibi, frctx, pos1, len);
+		break;
 	default:
 		de_err(c, "Unsupported DLTA operation: %d", (int)frctx->op);
 		d->errflag = 1;
 		goto done;
 	}
 
-	if(frctx->delta4_5_xor_mode) {
-		do_xor_frame_buffers(c, d, ibi, reference_frctx, frctx);
+	if(frctx->change_flag || d->opt_anim_includedups) {
+		write_frame(c, d, ibi, frctx);
+	}
+	else {
+		de_dbg(c, "[suppressing duplicate frame]");
 	}
 
-	write_frame(c, d, ibi, frctx);
-
 done:
+	// For the summary line, and so we can know when encountering an op for the
+	// first time.
+	if(frctx) {
+		d->delta_ops_used[(size_t)frctx->op] = 1;
+	}
+
 	de_free(c, ibi);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
@@ -1123,6 +1338,83 @@ static int convert_abit(deark *c, lctx *d, struct imgbody_info *ibi,
 	return 1;
 }
 
+// Detect and warn about HAM-E, which we don't support.
+static void detect_hame(deark *c, lctx *d, struct imgbody_info *ibi,
+	struct frame_ctx *frctx)
+{
+	i64 plane;
+	i64 k;
+	UI firstword[4];
+	u8 pixelval[16];
+	static const u8 sig[15] = { 0xa, 0x2, 0xf, 0x5, 0x8, 0x4, 0xd, 0xc,
+		0x6, 0xd, 0xb, 0x0, 0x7, 0xf, 0x1 };
+
+	if(d->is_hame) return;
+	if(d->ham_flag) return;
+	if(!d->found_cmap) return;
+	if(ibi->width<640) return;
+	if(ibi->planes_fg!=4 || ibi->planes_total!=4) return;
+	if(ibi->is_thumb) return;
+	if(frctx->formtype!=CODE_ILBM && frctx->formtype!=CODE_ACBM) return;
+	if(!frctx || !frctx->frame_buffer) return;
+
+	// Note: This is quite possibly not the right way to detect HAM-E.
+	// RECOIL does it by looking up the palette color of each pixel, and using
+	// certain bits in the palette entry. In all the HAM-E images I have, the
+	// palette is constructed so as to make that process a no-op.
+
+	// Need to examine the values of the first 16 pixels, so need the first 2
+	// bytes of each of the 4 planes of row 0.
+	for(plane=0; plane<4; plane++) {
+		firstword[plane] = (UI)dbuf_getu16be(frctx->frame_buffer,
+			plane * ibi->bytes_per_row_per_plane);
+	}
+
+	for(k=0; k<16; k++) {
+		pixelval[k] = 0;
+		for(plane=0; plane<4; plane++) {
+			if(firstword[plane] & (1U<<(15-(UI)k))) {
+				pixelval[k] |= 1U<<(UI)plane;
+			}
+		}
+	}
+
+	if(de_memcmp(pixelval, sig, 15)) return;
+	if(pixelval[15]!=0x4 && pixelval[15]!=0x8) return;
+	de_warn(c, "This is probably a HAM-E image, which is not supported correctly.");
+	d->is_hame = 1;
+}
+
+// Detect and warn about DCTV, which we don't support.
+static void detect_dctv(deark *c, lctx *d, struct imgbody_info *ibi,
+	struct frame_ctx *frctx)
+{
+	static const u8 sig[31] = {
+		0x49, 0x87, 0x28, 0xde, 0x11, 0x0b, 0xef, 0xd2, 0x0c, 0x8e, 0x8b, 0x35, 0x5b, 0x75, 0xec, 0xb8,
+		0x29, 0x6b, 0x03, 0xf9, 0x2b, 0xb4, 0x34, 0xee, 0x67, 0x1e, 0x7c, 0x4f, 0x53, 0x63, 0x15 };
+	i64 pos;
+
+	// As far as I can tell, in DCTV images, the last plane of the first row is
+	// as follows:
+	//   <00> <31-byte signature> <00 fill> <31-byte signature> <00>
+	// (Sometimes, the last plane of the *second* row is the same.)
+	// Unknowns:
+	// * Is DCTV possible if there are fewer than 64 bytes per row per plane (i.e. width < 512)?
+	// * Can a DCTV image have transparency?
+	// * If a DCTV image has a thumbnail image, what format does the thumbnail use?
+
+	if(d->is_dctv) return;
+	if(!frctx || !frctx->frame_buffer) return;
+	if(ibi->is_thumb) return;
+	if(frctx->formtype!=CODE_ILBM && frctx->formtype!=CODE_ACBM) return;
+	if(ibi->bytes_per_row_per_plane<64) return;
+	pos = d->planes_raw * ibi->bytes_per_row_per_plane - 32;
+	if(dbuf_getbyte(frctx->frame_buffer, pos) != sig[0]) return;
+	if(dbuf_memcmp(frctx->frame_buffer, pos, sig, 31)) return;
+	de_warn(c, "This is probably a DCTV image, which is not supported correctly.");
+	d->is_dctv = 1;
+}
+
 // BODY/ABIT/TINY
 static int do_image_chunk_internal(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1, i64 len, int is_thumb)
 {
@@ -1181,6 +1473,9 @@ static int do_image_chunk_internal(deark *c, lctx *d, struct frame_ctx *frctx, i
 			frctx->frame_buffer->len);
 	}
 
+	detect_dctv(c, d, ibi, frctx);
+	detect_hame(c, d, ibi, frctx);
+
 	write_frame(c, d, ibi, frctx);
 
 	retval = 1;
@@ -1230,7 +1525,7 @@ static void get_bits_descr(deark *c, lctx *d, struct frame_ctx *frctx, de_ucstri
 {
 	UI bits = frctx->bits;
 
-	if(frctx->op==4 || frctx->op==5 || frctx->op==7) {
+	if(frctx->op==4 || frctx->op==5 || frctx->op==7 || frctx->op==8) {
 		if(bits & 0x1) {
 			ucstring_append_flags_item(s, "long data");
 			bits -= 0x1;
@@ -1364,7 +1659,6 @@ static void do_dpi(deark *c, lctx *d, i64 pos, i64 len)
 	de_dbg(c, "dpi: %d"DE_CHAR_TIMES"%d", (int)d->x_dpi, (int)d->y_dpi);
 }
 
-
 static void do_grab(deark *c, lctx *d, i64 pos, i64 len)
 {
 	if(len<4) return;
@@ -1419,6 +1713,30 @@ static void do_ccrt(deark *c, lctx *d, i64 pos1, i64 len)
 	if(tmp1!=0) {
 		d->uses_color_cycling = 1;
 	}
+}
+
+// Frame sequencing chunk used in ANIM-J
+static void do_ansq(deark *c, lctx *d, i64 pos1, i64 len)
+{
+	i64 num_items;
+	i64 i;
+
+	// TODO: Figure out how critical this ANSQ info is.
+	// If deltas are supposed to be applied out of sequence, we could at least
+	// emit a warning.
+
+	num_items = len / 4;
+	de_dbg(c, "number of frames in sequence: %d", (int)num_items);
+	if(c->debug_level<2) return;
+	de_dbg_indent(c, 1);
+	for(i=0; i<num_items && i<2000; i++) {
+		i64 frnum, dur;
+
+		frnum = de_getu16be(pos1+i*4);
+		dur = de_getu16be(pos1+i*4+2);
+		de_dbg2(c, "item[%d]: frame=%d, dur=%d", (int)i, (int)frnum, (int)dur);
+	}
+	de_dbg_indent(c, -1);
 }
 
 static void render_pixel_row_ham6(deark *c, lctx *d, i64 rownum, const u32 *rowbuf,
@@ -1710,7 +2028,7 @@ done:
 	de_free(c, rowbuf_trns);
 }
 
-static void anim_on_frame_begin(deark *c, lctx *d, u32 formtype)
+static void on_frame_begin(deark *c, lctx *d, u32 formtype)
 {
 	if(d->frctx) return;
 	d->num_frames_started++;
@@ -1720,7 +2038,7 @@ static void anim_on_frame_begin(deark *c, lctx *d, u32 formtype)
 	if(d->is_anim) de_dbg(c, "[frame #%d begin]", d->frctx->frame_idx);
 }
 
-static void anim_on_frame_end(deark *c, lctx *d)
+static void on_frame_end(deark *c, lctx *d)
 {
 	if(!d->frctx) return;
 
@@ -1845,6 +2163,16 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 	case CODE_CLUT:
 		d->found_clut = 1;
 		break;
+	case CODE_ANSQ:
+		do_ansq(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		break;
+	case CODE_SBDY:
+		if(d->is_anim && !d->found_audio) {
+			de_info(c, "Note: This file includes AnimFX-style audio, which is "
+				"not supported.");
+			d->found_audio = 1;
+		}
+		break;
 	}
 
 done:
@@ -1885,9 +2213,9 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 
 	if(ictx->level==d->FORM_level) {
 		if(d->frctx) {
-			anim_on_frame_end(c, d);
+			on_frame_end(c, d);
 		}
-		anim_on_frame_begin(c, d, ictx->curr_container_contentstype4cc.id);
+		on_frame_begin(c, d, ictx->curr_container_contentstype4cc.id);
 	}
 	return 1;
 }
@@ -1979,9 +2307,12 @@ static void print_summary(deark *c, lctx *d)
 	if(d->is_pchg) summary_append(s, "PCHG");
 	if(d->is_ctbl) summary_append(s, "CBTL");
 	if(d->is_beam) summary_append(s, "BEAM");
+	if(d->is_hame) summary_append(s, "HAM-E");
+	if(d->is_dctv) summary_append(s, "DCTV");
 	if(d->found_rast) summary_append(s, "RAST");
 	if(d->uses_color_cycling) summary_append(s, "color-cycling");
 	if(d->found_clut) summary_append(s, "CLUT");
+	if(d->found_audio) summary_append(s, "audio");
 	if(!d->found_cmap) summary_append(s, "no-CMAP");
 
 	de_dbg(c, "summary:%s", ucstring_getpsz(s));
@@ -2030,6 +2361,10 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
+	if(d->is_anim) {
+		d->opt_anim_includedups = (u8)de_get_ext_option_bool(c, "anim:includedups", 0);
+	}
+
 	d->FORM_level = d->is_anim ? 1 : 0;
 
 	ictx = de_malloc(c, sizeof(struct de_iffctx));
@@ -2042,7 +2377,7 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 	de_fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
 
 	if(d->frctx) {
-		anim_on_frame_end(c, d);
+		on_frame_end(c, d);
 	}
 	do_eof_stuff(c, d);
 	print_summary(c, d);
@@ -2099,6 +2434,9 @@ static void do_help_ilbm_anim(deark *c, int is_anim)
 			"slightly too dark");
 	}
 	de_msg(c, "-opt ilbm:allowsham : Suppress an error on some images");
+	if(is_anim) {
+		de_msg(c, "-opt anim:includedups : Do not suppress duplicate frames");
+	}
 }
 
 static void de_help_ilbm(deark *c)
