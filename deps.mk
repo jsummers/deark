@@ -74,6 +74,8 @@ $(OBJDIR)/modules/eps.o: modules/eps.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/exe.o: modules/exe.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/fat.o: modules/fat.c src/deark-config.h \
+ src/deark-private.h src/deark.h
 $(OBJDIR)/modules/flac.o: modules/flac.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/fli.o: modules/fli.c src/deark-config.h \
