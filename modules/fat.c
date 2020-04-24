@@ -18,6 +18,7 @@ struct member_data {
 	i64 filesize;
 	i64 first_cluster;
 	de_ucstring *fn_u;
+	struct de_timestamp mod_time;
 };
 
 typedef struct localctx_struct {
@@ -43,6 +44,7 @@ typedef struct localctx_struct {
 	i64 max_root_dir_entries;
 	i64 root_dir_sector;
 	i64 num_cluster_identifiers;
+	struct de_strarray *curpath;
 
 	i64 num_fat_entries;
 	u32 *fat_nextcluster; // array[num_fat_entries]
@@ -54,9 +56,24 @@ static i64 sectornum_to_offset(deark *c, lctx *d, i64 secnum)
 	return secnum * d->bytes_per_sector;
 }
 
+static int is_good_clusternum(lctx *d, i64 cnum)
+{
+	if(cnum<2) return 0;
+	if(cnum >= d->num_cluster_identifiers) return 0;
+	return 1;
+}
+
 static i64 clusternum_to_offset(deark *c, lctx *d, i64 cnum)
 {
 	return d->data_region_pos + (cnum-2) * d->bytes_per_cluster;
+}
+
+static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *name)
+{
+	char timestamp_buf[64];
+
+	de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "%s: %s", name, timestamp_buf);
 }
 
 static i64 get_unpadded_len(const u8 *s, i64 len1)
@@ -84,23 +101,38 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 {
 	dbuf *outf = NULL;
 	de_finfo *fi = NULL;
+	de_ucstring *fullfn = NULL;
 	i64 cur_cluster;
 	i64 nbytes_remaining;
 
 	fi = de_finfo_create(c);
-	de_finfo_set_name_from_ucstring(c, fi, md->fn_u, 0);
+	fullfn = ucstring_create(c);
+	de_strarray_make_path(d->curpath, fullfn, DE_MPFLAG_NOTRAILINGSLASH);
+	de_finfo_set_name_from_ucstring(c, fi, fullfn, DE_SNFLAG_FULLPATH);
 	fi->original_filename_flag = 1;
+	if(md->is_subdir) {
+		fi->is_directory = 1;
+	}
+	if(md->mod_time.is_valid) {
+		fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->mod_time;
+	}
+
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
 
 	cur_cluster = md->first_cluster;
-	nbytes_remaining = md->filesize;
+	if(md->is_subdir) {
+		nbytes_remaining = 0;
+	}
+	else {
+		nbytes_remaining = md->filesize;
+	}
 
 	while(1) {
 		i64 dpos;
 		i64 nbytes_to_copy;
 
 		if(nbytes_remaining <= 0) break;
-		if(cur_cluster<2 || cur_cluster>=d->num_cluster_identifiers) break;
+		if(!is_good_clusternum(d, cur_cluster)) break;
 		if(d->cluster_used_flags[cur_cluster]) break;
 		d->cluster_used_flags[cur_cluster] = 1;
 		if(c->debug_level>=3) de_dbg3(c, "cluster: %d", (int)cur_cluster);
@@ -116,14 +148,20 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	}
 
 	dbuf_close(outf);
+	ucstring_destroy(fullfn);
 	de_finfo_destroy(c, fi);
 }
 
+static void do_subdir(deark *c, lctx *d, struct member_data *md, int nesting_level);
+
 // Returns 0 if this is the end-of-directory marker.
-static int do_dir_entry(deark *c, lctx *d, i64 pos1)
+static int do_dir_entry(deark *c, lctx *d, i64 pos1, int nesting_level)
 {
 	i64 pos = pos1;
+	i64 ddate, dtime;
 	int retval = 0;
+	int is_deleted = 0;
+	int need_curpath_pop = 0;
 	struct member_data *md = NULL;
 
 	md = de_malloc(c, sizeof(struct member_data));
@@ -141,9 +179,10 @@ static int do_dir_entry(deark *c, lctx *d, i64 pos1)
 
 	if(md->fn_base[0]==0xe5) {
 		de_dbg(c, "[deleted]");
-		goto done;
+		is_deleted = 1;
+		md->fn_base[0] = '?';
 	}
-	if(md->fn_base[0]==0x05) {
+	else if(md->fn_base[0]==0x05) {
 		md->fn_base[0] = 0xe5;
 	}
 
@@ -155,7 +194,7 @@ static int do_dir_entry(deark *c, lctx *d, i64 pos1)
 
 	if(md->attribs==0x0f) {
 		de_dbg(c, "[VFAT entry]");
-		if(!d->found_vfat) {
+		if(!is_deleted && !d->found_vfat) {
 			de_warn(c, "This disk uses VFAT extended filenames, which are not supported");
 			d->found_vfat = 1;
 		}
@@ -178,6 +217,8 @@ static int do_dir_entry(deark *c, lctx *d, i64 pos1)
 	}
 
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->fn_u));
+	de_strarray_push(d->curpath, md->fn_u);
+	need_curpath_pop = 1;
 
 	if(md->attribs & 0x40) {
 		de_dbg(c, "[device]");
@@ -190,8 +231,16 @@ static int do_dir_entry(deark *c, lctx *d, i64 pos1)
 	else if(md->attribs & 0x10) {
 		de_dbg(c, "[subdirectory]");
 		md->is_subdir = 1;
-		// TODO: special "." and ".." dirs
+		if(md->fn_base_len>=1 && md->fn_base[0]=='.') {
+			// special "." and ".." dirs
+			md->is_special = 1;
+		}
 	}
+
+	dtime = de_getu16le(pos1+22);
+	ddate = de_getu16le(pos1+24);
+	de_dos_datetime_to_timestamp(&md->mod_time, ddate, dtime);
+	dbg_timestamp(c, &md->mod_time, "mod time");
 
 	// TODO: This is wrong for FAT32.
 	md->first_cluster = de_getu16le(pos1+26);
@@ -200,35 +249,89 @@ static int do_dir_entry(deark *c, lctx *d, i64 pos1)
 	md->filesize = de_getu32le(pos1+28);
 	de_dbg(c, "file size: %"I64_FMT, md->filesize);
 
-	if(!md->is_subdir && !md->is_special) {
+	if(!is_deleted && !md->is_subdir && !md->is_special) {
 		do_extract_file(c, d, md);
+	}
+	else if(!is_deleted && md->is_subdir && !md->is_special) {
+		do_extract_file(c, d, md);
+		do_subdir(c, d, md, nesting_level+1);
 	}
 
 done:
 	if(md) {
 		ucstring_destroy(md->fn_u);
 	}
+	if(need_curpath_pop) {
+		de_strarray_pop(d->curpath);
+	}
 	de_dbg_indent(c, -1);
 	return retval;
 }
 
 // Process a contiguous block of directory entries
-static void do_dir_entries(deark *c, lctx *d, i64 pos1, i64 len)
+// Returns 0 if an end-of-dir marker was found.
+static int do_dir_entries(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level)
 {
 	i64 num_entries;
 	i64 i;
+	int retval = 0;
 
 	num_entries = d->max_root_dir_entries;
 	de_dbg(c, "num entries: %"I64_FMT, num_entries);
 
 	for(i=0; i<num_entries; i++) {
-		if(!do_dir_entry(c, d, pos1+32*i)) {
-			break;
+		if(!do_dir_entry(c, d, pos1+32*i, nesting_level)) {
+			goto done;
 		}
 	}
+
+	retval = 1;
+done:
+	return retval;
 }
 
-static void do_dir(deark *c, lctx *d, i64 secnum, int is_root)
+static void do_subdir(deark *c, lctx *d, struct member_data *md, int nesting_level)
+{
+	int saved_indent_level;
+	i64 cur_cluster_num;
+	i64 cur_cluster_pos;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	if(nesting_level >= 16) {
+		de_err(c, "Directories nested too deeply");
+		goto done;
+	}
+
+	cur_cluster_num = md->first_cluster;
+	cur_cluster_pos = clusternum_to_offset(c, d, cur_cluster_num);
+	de_dbg(c, "subdir starting at %"I64_FMT, cur_cluster_pos);
+	de_dbg_indent(c, 1);
+
+	while(1) {
+		if(!is_good_clusternum(d, cur_cluster_num)) {
+			break;
+		}
+		cur_cluster_pos = clusternum_to_offset(c, d, cur_cluster_num);
+		de_dbg(c, "[subdir cluster %"I64_FMT" at %"I64_FMT"]", cur_cluster_num, cur_cluster_pos);
+
+		if(d->cluster_used_flags[cur_cluster_num]) {
+			goto done;
+		}
+		d->cluster_used_flags[cur_cluster_num] = 1;
+
+		if(!do_dir_entries(c, d, cur_cluster_pos, d->bytes_per_cluster, nesting_level)) {
+			break;
+		};
+
+		cur_cluster_num = d->fat_nextcluster[cur_cluster_num];
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_root_dir(deark *c, lctx *d, i64 secnum)
 {
 	i64 pos1;
 
@@ -236,8 +339,7 @@ static void do_dir(deark *c, lctx *d, i64 secnum, int is_root)
 	de_dbg(c, "dir at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	if(pos1<d->bytes_per_sector) goto done;
-	if(!is_root) goto done;
-	do_dir_entries(c, d, pos1, d->max_root_dir_entries * 32);
+	(void)do_dir_entries(c, d, pos1, d->max_root_dir_entries * 32, 0);
 done:
 	de_dbg_indent(c, -1);
 }
@@ -360,6 +462,10 @@ static int do_read_fat(deark *c, lctx *d)
 	de_dbg(c, "FAT#%d at %"I64_FMT, (int)fat_idx_to_read, pos1);
 	de_dbg_indent(c, 1);
 
+	if(d->num_fat_bits!=12) {
+		goto done;
+	}
+
 	if(d->num_cluster_identifiers > (i64)(DE_MAX_SANE_OBJECT_SIZE/sizeof(u32))) goto done;
 	d->num_fat_entries = d->num_cluster_identifiers;
 	d->fat_nextcluster = de_mallocarray(c, d->num_fat_entries, sizeof(u32));
@@ -417,12 +523,14 @@ static void de_run_fat(deark *c, de_module_params *mparams)
 
 	if(!do_read_fat(c, d)) goto done;
 
-	do_dir(c, d, d->root_dir_sector, 1);
+	d->curpath = de_strarray_create(c);
+	do_root_dir(c, d, d->root_dir_sector);
 
 done:
 	if(d) {
 		de_free(c, d->fat_nextcluster);
 		de_free(c, d->cluster_used_flags);
+		if(d->curpath) de_strarray_destroy(d->curpath);
 		de_free(c, d);
 	}
 }
