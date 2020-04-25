@@ -17,8 +17,21 @@ struct member_data {
 	i64 fn_base_len, fn_ext_len;
 	i64 filesize;
 	i64 first_cluster;
-	de_ucstring *fn_u;
+	de_ucstring *short_fn;
+	de_ucstring *long_fn;
 	struct de_timestamp mod_time;
+};
+
+struct dirctx {
+	u8 lfn_valid;
+	u8 first_seq_num;
+	u8 prev_seq_num;
+	u8 name_cksum;
+	i64 dir_entry_count;
+	i64 pending_lfn_bytesused;
+#define LFN_CHARS_PER_FRAGMENT 13
+#define LFN_MAX_FRAGMENTS 20
+	u8 pending_lfn[LFN_CHARS_PER_FRAGMENT*2*LFN_MAX_FRAGMENTS];
 };
 
 typedef struct localctx_struct {
@@ -29,7 +42,6 @@ typedef struct localctx_struct {
 	int platform;
 	u8 num_fat_bits; // 12, 16, or 32. 0 if unknown.
 	u8 has_atarist_checksum;
-	u8 found_vfat;
 	i64 bytes_per_sector;
 	i64 sectors_per_cluster;
 	i64 bytes_per_cluster;
@@ -105,6 +117,13 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	i64 cur_cluster;
 	i64 nbytes_remaining;
 
+	if(!md->is_subdir) {
+		if(md->filesize > d->num_data_region_clusters * d->bytes_per_cluster) {
+			de_err(c, "%s: Bad file size", ucstring_getpsz_d(md->short_fn));
+			goto done;
+		}
+	}
+
 	fi = de_finfo_create(c);
 	fullfn = ucstring_create(c);
 	de_strarray_make_path(d->curpath, fullfn, DE_MPFLAG_NOTRAILINGSLASH);
@@ -144,9 +163,11 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	}
 
 	if(nbytes_remaining>0) {
-		de_err(c, "%s: File extraction failed", ucstring_getpsz_d(md->fn_u));
+		de_err(c, "%s: File extraction failed", ucstring_getpsz_d(md->short_fn));
+		goto done;
 	}
 
+done:
 	dbuf_close(outf);
 	ucstring_destroy(fullfn);
 	de_finfo_destroy(c, fi);
@@ -154,10 +175,112 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 
 static void do_subdir(deark *c, lctx *d, struct member_data *md, int nesting_level);
 
-// Returns 0 if this is the end-of-directory marker.
-static int do_dir_entry(deark *c, lctx *d, i64 pos1, int nesting_level)
+static void do_vfat_entry(deark *c, lctx *d, struct dirctx *dctx, i64 pos1, u8 seq_num_raw)
 {
-	i64 pos = pos1;
+	u8 seq_num;
+	u8 fn_cksum;
+	int is_first_entry = 0;
+	i64 startpos_in_lfn;
+
+	if(seq_num_raw==0xe5) {
+		de_dbg(c, "[deleted VFAT entry]");
+		dctx->lfn_valid = 0;
+		goto done;
+	}
+
+	de_dbg(c, "[VFAT entry]");
+	de_dbg(c, "seq number: 0x%02x", (UI)seq_num_raw);
+
+	seq_num = seq_num_raw & 0xbf;
+
+	if(seq_num<1 || seq_num>LFN_MAX_FRAGMENTS) {
+		de_warn(c, "Bad VFAT sequence number (%u)", (UI)seq_num);
+		dctx->lfn_valid = 0;
+	}
+
+	if(seq_num_raw & 0x40) {
+		is_first_entry = 1;
+		de_zeromem(dctx->pending_lfn, sizeof(dctx->pending_lfn));
+		dctx->first_seq_num = seq_num;
+		dctx->lfn_valid = 1;
+	}
+	else {
+		if(!dctx->lfn_valid || (seq_num+1 != dctx->prev_seq_num)) {
+			de_dbg(c, "[stray VFAT entry]");
+			dctx->lfn_valid = 0;
+			goto done;
+		}
+	}
+	dctx->prev_seq_num = seq_num;
+
+	startpos_in_lfn = LFN_CHARS_PER_FRAGMENT*2*((i64)seq_num-1);
+
+	de_read(&dctx->pending_lfn[startpos_in_lfn+ 0], pos1+ 1, 10); // 5 chars
+	fn_cksum = de_getbyte(pos1+13);
+	de_read(&dctx->pending_lfn[startpos_in_lfn+10], pos1+14, 12); // 6 more chars
+	de_read(&dctx->pending_lfn[startpos_in_lfn+22], pos1+28,  4); // 2 more chars
+	de_dbg(c, "filename checksum (reported): 0x%02x", (UI)fn_cksum);
+	if(!is_first_entry) {
+		if(fn_cksum != dctx->name_cksum) {
+			de_dbg(c, "[inconsistent VFAT checksums]");
+			dctx->lfn_valid = 0;
+		}
+	}
+	dctx->name_cksum = fn_cksum;
+
+done:
+	;
+}
+
+static void vfat_cksum_update(const u8 *buf, size_t buflen, u8 *cksum)
+{
+	size_t i;
+
+	for(i=0; i<buflen; i++) {
+		*cksum = (((*cksum) & 1) << 7) + ((*cksum) >> 1) + buf[i];
+	}
+}
+
+// If the long file name seems valid, sets it in md->long_fn for later use.
+static void handle_vfat_lfn(deark *c, lctx *d, struct dirctx *dctx,
+	struct member_data *md)
+{
+	u8 cksum_calc = 0;
+	i64 max_len_in_ucs2_chars;
+	i64 len_in_ucs2_chars = 0;
+	i64 i;
+
+	if(!dctx->lfn_valid) goto done;
+	if(dctx->prev_seq_num != 1) goto done;
+	if(md->long_fn) goto done;
+
+	vfat_cksum_update(md->fn_base, 8, &cksum_calc);
+	vfat_cksum_update(md->fn_ext, 3, &cksum_calc);
+	de_dbg(c, "filename checksum (calculated): 0x%02x", (UI)cksum_calc);
+	if(cksum_calc != dctx->name_cksum) goto done;
+
+	max_len_in_ucs2_chars = LFN_CHARS_PER_FRAGMENT * (i64)dctx->first_seq_num;
+	if(max_len_in_ucs2_chars > (i64)(sizeof(dctx->pending_lfn)/2)) goto done;
+	for(i=0; i<max_len_in_ucs2_chars; i++) {
+		if(dctx->pending_lfn[i*2]==0x00 && dctx->pending_lfn[i*2+1]==0x00) break;
+		if(dctx->pending_lfn[i*2]==0xff && dctx->pending_lfn[i*2+1]==0xff) break;
+		len_in_ucs2_chars++;
+	}
+
+	md->long_fn = ucstring_create(c);
+	ucstring_append_bytes(md->long_fn, dctx->pending_lfn, len_in_ucs2_chars*2,
+		0, DE_ENCODING_UTF16LE);
+	de_dbg(c, "long filename: \"%s\"", ucstring_getpsz_d(md->long_fn));
+
+done:
+	;
+}
+
+// Returns 0 if this is the end-of-directory marker.
+static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
+	i64 pos1, int nesting_level)
+{
+	u8 firstbyte;
 	i64 ddate, dtime;
 	int retval = 0;
 	int is_deleted = 0;
@@ -169,73 +292,84 @@ static int do_dir_entry(deark *c, lctx *d, i64 pos1, int nesting_level)
 	de_dbg(c, "dir entry at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
-	de_read(md->fn_base, pos, 8);
-	pos += 8;
-	if(md->fn_base[0]==0x00) {
+	de_read(md->fn_base, pos1+0, 8);
+	de_read(md->fn_ext, pos1+8, 3);
+	firstbyte = md->fn_base[0];
+
+	if(firstbyte==0x00) {
 		de_dbg(c, "[end of dir marker]");
 		goto done;
 	}
 	retval = 1;
 
-	if(md->fn_base[0]==0xe5) {
+	md->attribs = (UI)de_getbyte(pos1+11);
+	de_dbg(c, "attribs: 0x%02x", md->attribs);
+	if((md->attribs & 0x3f)==0x0f) {
+		do_vfat_entry(c, d, dctx, pos1, firstbyte);
+		goto done;
+	}
+
+	if((md->attribs & 0x18) == 0x00) {
+		; // Normal file
+	}
+	else if((md->attribs & 0x18) == 0x08) {
+		de_dbg(c, "[volume label]");
+		md->is_special = 1;
+	}
+	else if((md->attribs & 0x18) == 0x10) {
+		de_dbg(c, "[subdirectory]");
+		md->is_subdir = 1;
+	}
+	else {
+		de_warn(c, "Invalid directory entry");
+		md->is_special = 1;
+		dctx->lfn_valid = 0;
+		goto done;
+	}
+
+	if(dctx->lfn_valid) {
+		handle_vfat_lfn(c, d, dctx, md);
+		dctx->lfn_valid = 0;
+	}
+
+	if(firstbyte==0xe5) {
 		de_dbg(c, "[deleted]");
 		is_deleted = 1;
 		md->fn_base[0] = '?';
 	}
-	else if(md->fn_base[0]==0x05) {
+	else if(firstbyte==0x05) {
 		md->fn_base[0] = 0xe5;
-	}
-
-	de_read(md->fn_ext, pos, 3);
-	pos += 3;
-
-	md->attribs = (UI)de_getbyte_p(&pos);
-	de_dbg(c, "attribs: 0x%02x", md->attribs);
-
-	if(md->attribs==0x0f) {
-		de_dbg(c, "[VFAT entry]");
-		if(!is_deleted && !d->found_vfat) {
-			de_warn(c, "This disk uses VFAT extended filenames, which are not supported");
-			d->found_vfat = 1;
-		}
-		goto done;
 	}
 
 	md->fn_base_len = get_unpadded_len(md->fn_base, 8);
 	md->fn_ext_len = get_unpadded_len(md->fn_ext, 3);
 
-	md->fn_u = ucstring_create(c);
+	if(md->is_subdir && md->fn_base_len>=1 && md->fn_base[0]=='.') {
+		// special "." and ".." dirs
+		md->is_special = 1;
+	}
+
+	md->short_fn = ucstring_create(c);
 	if(md->fn_base_len>0) {
-		ucstring_append_bytes(md->fn_u, md->fn_base, md->fn_base_len, 0, d->input_encoding);
+		ucstring_append_bytes(md->short_fn, md->fn_base, md->fn_base_len, 0, d->input_encoding);
 	}
 	else {
-		ucstring_append_char(md->fn_u, '_');
+		ucstring_append_char(md->short_fn, '_');
 	}
 	if(md->fn_ext_len>0) {
-		ucstring_append_char(md->fn_u, '.');
-		ucstring_append_bytes(md->fn_u, md->fn_ext, md->fn_ext_len, 0, d->input_encoding);
+		ucstring_append_char(md->short_fn, '.');
+		ucstring_append_bytes(md->short_fn, md->fn_ext, md->fn_ext_len, 0, d->input_encoding);
 	}
 
-	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->fn_u));
-	de_strarray_push(d->curpath, md->fn_u);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->short_fn));
+
+	if(ucstring_isnonempty(md->long_fn)) {
+		de_strarray_push(d->curpath, md->long_fn);
+	}
+	else {
+		de_strarray_push(d->curpath, md->short_fn);
+	}
 	need_curpath_pop = 1;
-
-	if(md->attribs & 0x40) {
-		de_dbg(c, "[device]");
-		md->is_special = 1;
-	}
-	else if(md->attribs & 0x08) {
-		de_dbg(c, "[volume label]");
-		md->is_special = 1;
-	}
-	else if(md->attribs & 0x10) {
-		de_dbg(c, "[subdirectory]");
-		md->is_subdir = 1;
-		if(md->fn_base_len>=1 && md->fn_base[0]=='.') {
-			// special "." and ".." dirs
-			md->is_special = 1;
-		}
-	}
 
 	dtime = de_getu16le(pos1+22);
 	ddate = de_getu16le(pos1+24);
@@ -259,7 +393,8 @@ static int do_dir_entry(deark *c, lctx *d, i64 pos1, int nesting_level)
 
 done:
 	if(md) {
-		ucstring_destroy(md->fn_u);
+		ucstring_destroy(md->short_fn);
+		ucstring_destroy(md->long_fn);
 	}
 	if(need_curpath_pop) {
 		de_strarray_pop(d->curpath);
@@ -270,7 +405,8 @@ done:
 
 // Process a contiguous block of directory entries
 // Returns 0 if an end-of-dir marker was found.
-static int do_dir_entries(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level)
+static int do_dir_entries(deark *c, lctx *d, struct dirctx *dctx,
+	i64 pos1, i64 len, int nesting_level)
 {
 	i64 num_entries;
 	i64 i;
@@ -280,9 +416,10 @@ static int do_dir_entries(deark *c, lctx *d, i64 pos1, i64 len, int nesting_leve
 	de_dbg(c, "num entries: %"I64_FMT, num_entries);
 
 	for(i=0; i<num_entries; i++) {
-		if(!do_dir_entry(c, d, pos1+32*i, nesting_level)) {
+		if(!do_dir_entry(c, d, dctx, pos1+32*i, nesting_level)) {
 			goto done;
 		}
+		dctx->dir_entry_count++;
 	}
 
 	retval = 1;
@@ -290,11 +427,18 @@ done:
 	return retval;
 }
 
+static void destroy_dirctx(deark *c, struct dirctx *dctx)
+{
+	if(!dctx) return;
+	de_free(c, dctx);
+}
+
 static void do_subdir(deark *c, lctx *d, struct member_data *md, int nesting_level)
 {
 	int saved_indent_level;
 	i64 cur_cluster_num;
 	i64 cur_cluster_pos;
+	struct dirctx *dctx = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -303,7 +447,13 @@ static void do_subdir(deark *c, lctx *d, struct member_data *md, int nesting_lev
 		goto done;
 	}
 
+	dctx = de_malloc(c, sizeof(struct dirctx));
+
 	cur_cluster_num = md->first_cluster;
+	if(!is_good_clusternum(d, cur_cluster_num)) {
+		de_err(c, "Bad subdirectory entry");
+		goto done;
+	}
 	cur_cluster_pos = clusternum_to_offset(c, d, cur_cluster_num);
 	de_dbg(c, "subdir starting at %"I64_FMT, cur_cluster_pos);
 	de_dbg_indent(c, 1);
@@ -320,7 +470,7 @@ static void do_subdir(deark *c, lctx *d, struct member_data *md, int nesting_lev
 		}
 		d->cluster_used_flags[cur_cluster_num] = 1;
 
-		if(!do_dir_entries(c, d, cur_cluster_pos, d->bytes_per_cluster, nesting_level)) {
+		if(!do_dir_entries(c, d, dctx, cur_cluster_pos, d->bytes_per_cluster, nesting_level)) {
 			break;
 		};
 
@@ -328,19 +478,23 @@ static void do_subdir(deark *c, lctx *d, struct member_data *md, int nesting_lev
 	}
 
 done:
+	destroy_dirctx(c, dctx);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void do_root_dir(deark *c, lctx *d, i64 secnum)
 {
 	i64 pos1;
+	struct dirctx *dctx = NULL;
 
+	dctx = de_malloc(c, sizeof(struct dirctx));
 	pos1 = sectornum_to_offset(c, d, secnum);
 	de_dbg(c, "dir at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	if(pos1<d->bytes_per_sector) goto done;
-	(void)do_dir_entries(c, d, pos1, d->max_root_dir_entries * 32, 0);
+	(void)do_dir_entries(c, d, dctx, pos1, d->max_root_dir_entries * 32, 0);
 done:
+	destroy_dirctx(c, dctx);
 	de_dbg_indent(c, -1);
 }
 
@@ -463,6 +617,7 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 			goto done;
 		}
 	}
+	de_dbg(c, "bits per cluster id: %u", (UI)d->num_fat_bits);
 
 	retval = 1;
 
