@@ -360,6 +360,26 @@ static void do_atarist_boot_checksum(deark *c, lctx *d, i64 pos1)
 	}
 }
 
+static void do_oem_name(deark *c, lctx *d, i64 pos)
+{
+	struct de_stringreaderdata *srd;
+	i64 i;
+
+	srd = dbuf_read_string(c->infile, pos, 8, 8, 0, DE_ENCODING_ASCII);
+
+	// Require printable ASCII.
+	for(i=0; i<8; i++) {
+		if(srd->sz[i]<32 || srd->sz[i]>126) {
+			goto done;
+		}
+	}
+
+	de_dbg(c, "OEM name: \"%s\"", ucstring_getpsz_d(srd->str));
+
+done:
+	de_destroy_stringreaderdata(c, srd);
+}
+
 static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 {
 	i64 pos;
@@ -373,6 +393,7 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 	de_dbg_indent(c, 1);
 
 	// BIOS parameter block
+	do_oem_name(c, d, pos1+3);
 	pos = pos1+11;
 	d->bytes_per_sector = de_getu16le_p(&pos);
 	de_dbg(c, "bytes per sector: %d", (int)d->bytes_per_sector);
@@ -514,10 +535,13 @@ static void de_run_fat(deark *c, de_module_params *mparams)
 
 	switch(d->platform) {
 	case FAT_PLATFORM_PC:
-		de_declare_fmtf(c, "FAT%d / PC", d->num_fat_bits);
+		de_declare_fmtf(c, "FAT%d - PC", d->num_fat_bits);
 		break;
 	case FAT_PLATFORM_ATARIST:
-		de_declare_fmtf(c, "FAT%d / Atari ST", d->num_fat_bits);
+		de_declare_fmtf(c, "FAT%d - Atari ST", d->num_fat_bits);
+		break;
+	default:
+		de_declare_fmtf(c, "FAT%d - Unknown platform", d->num_fat_bits);
 		break;
 	}
 
@@ -537,6 +561,24 @@ done:
 
 static int de_identify_fat(deark *c)
 {
+	u8 b[32];
+
+	// TODO: This needs a lot of work.
+	// It's good enough for most FAT12 floppy disk images.
+
+	de_read(b, 0, sizeof(b));
+
+	if(b[21]<0xe5) return 0; // Media descriptor
+	if(b[11]==0 && b[12]==2 && (b[13]==1 || b[13]==2) && b[14]==1 &&
+		b[15]==0 && b[16]==2)
+	{
+		int has_sig;
+
+		has_sig = (de_getu16be(510)==0x55aa);
+		if(has_sig) return 100;
+		return 60;
+	}
+
 	return 0;
 }
 
@@ -546,5 +588,4 @@ void de_module_fat(deark *c, struct deark_module_info *mi)
 	mi->desc = "FAT disk image";
 	mi->run_fn = de_run_fat;
 	mi->identify_fn = de_identify_fat;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }

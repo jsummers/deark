@@ -628,12 +628,16 @@ Deark -- Information about supported formats
 * Doom WAD (module="wad")
   - The extracted files are usually in specialized formats.
 
+* FAT (module="fat") (experimental/incomplete)
+  - Limited support, mainly for floppy disk images.
+
 * Gzip (module="gzip")
 
 * HFS filesystem image (module="hfs") (experimental/incomplete)
   - Incomplete support, but should be enough for most CD-ROM images.
 
-* ISO 9660 CD-ROM image (module="iso9660") (experimental)
+* ISO 9660 CD-ROM image (module="iso9660")
+  Options
    -opt iso9660:tolower - Convert filenames to lowercase. Does not affect Rock
      Ridge or Joliet filenames.
    -opt iso9660:voldesc=<n> - Use the volume descriptor at sector <n>. A
@@ -656,6 +660,12 @@ Deark -- Information about supported formats
    -opt cfb:fmt=thumbsdb - Treat the file as a Thumbs.db file.
 
 * Microsoft Installation Compression (module="mscompress")
+
+* MSA (Magic Shadow Archiver) (module="msa") (experimental)
+  - Atari ST disk image format.
+  Options
+   -opt msa:toraw - Instead of decoding, extract to raw ".ST" format (this is
+     usually a FAT format).
 
 * NRG (module="nrg") (experimental)
   Nero CD image format.

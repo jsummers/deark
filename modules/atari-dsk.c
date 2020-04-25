@@ -286,6 +286,7 @@ void de_module_atr(deark *c, struct deark_module_info *mi)
 // MSA - Magic Shadow Archiver - Atari ST disk image
 
 struct msactx {
+	int opt_to_raw;
 	i64 sectors_per_track;
 	i64 sides;
 	i64 first_track;
@@ -408,15 +409,33 @@ done:
 	return retval;
 }
 
+static void msa_decode_fat(deark *c, struct msactx *d, dbuf *diskbuf)
+{
+	de_dbg(c, "decoding as FAT");
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice2(c, "fat", "A", diskbuf, 0, diskbuf->len);
+	de_dbg_indent(c, -1);
+}
+
+static void msa_extract_to_raw(deark *c, struct msactx *d, dbuf *diskbuf)
+{
+	dbuf *outf = NULL;
+
+	outf = dbuf_create_output_file(c, "st", NULL, 0);
+	dbuf_copy(diskbuf, 0, d->disk_size, outf);
+	dbuf_close(outf);
+}
+
 static void de_run_msa(deark *c, de_module_params *mparams)
 {
 	struct msactx *d = NULL;
 	dbuf *diskbuf = NULL;
-	dbuf *outf = NULL;
 	i64 tk, sd;
 	i64 pos = 0;
 
 	d = de_malloc(c, sizeof(struct msactx));
+	d->opt_to_raw = de_get_ext_option_bool(c, "msa:toraw", 0);
+
 	if(!do_msa_header(c, d, pos)) goto done;
 	pos += 10;
 
@@ -439,11 +458,14 @@ static void de_run_msa(deark *c, de_module_params *mparams)
 	}
 
 after_decompress:
-	outf = dbuf_create_output_file(c, "st", NULL, 0);
-	dbuf_copy(diskbuf, 0, d->disk_size, outf);
+	if(d->opt_to_raw) {
+		msa_extract_to_raw(c, d, diskbuf);
+	}
+	else {
+		msa_decode_fat(c, d, diskbuf);
+	}
 
 done:
-	dbuf_close(outf);
 	de_free(c, d);
 }
 
@@ -459,10 +481,16 @@ static int de_identify_msa(deark *c)
 	return 45;
 }
 
+static void de_help_msa(deark *c)
+{
+	de_msg(c, "-opt msa:toraw : Extract to raw .ST format");
+}
+
 void de_module_msa(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "msa";
 	mi->desc = "MSA - Atari ST floppy disk image format";
 	mi->run_fn = de_run_msa;
 	mi->identify_fn = de_identify_msa;
+	mi->help_fn = de_help_msa;
 }
