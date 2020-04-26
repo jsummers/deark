@@ -45,7 +45,6 @@ typedef struct localctx_struct {
 	i64 bytes_per_sector;
 	i64 sectors_per_cluster;
 	i64 bytes_per_cluster;
-	i64 num_sectors_old;
 	i64 num_sectors;
 	i64 data_region_sector;
 	i64 data_region_pos;
@@ -53,7 +52,7 @@ typedef struct localctx_struct {
 	i64 num_rsvd_sectors;
 	i64 num_fats;
 	i64 num_sectors_per_fat;
-	i64 max_root_dir_entries;
+	i64 max_root_dir_entries16;
 	i64 root_dir_sector;
 	i64 num_cluster_identifiers;
 	struct de_strarray *curpath;
@@ -412,7 +411,7 @@ static int do_dir_entries(deark *c, lctx *d, struct dirctx *dctx,
 	i64 i;
 	int retval = 0;
 
-	num_entries = d->max_root_dir_entries;
+	num_entries = len/32;
 	de_dbg(c, "num entries: %"I64_FMT, num_entries);
 
 	for(i=0; i<num_entries; i++) {
@@ -492,7 +491,7 @@ static void do_root_dir(deark *c, lctx *d, i64 secnum)
 	de_dbg(c, "dir at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	if(pos1<d->bytes_per_sector) goto done;
-	(void)do_dir_entries(c, d, dctx, pos1, d->max_root_dir_entries * 32, 0);
+	(void)do_dir_entries(c, d, dctx, pos1, d->max_root_dir_entries16 * 32, 0);
 done:
 	destroy_dirctx(c, dctx);
 	de_dbg_indent(c, -1);
@@ -537,8 +536,12 @@ done:
 static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 {
 	i64 pos;
-	i64 num_root_dir_sectors;
 	i64 num_data_region_sectors;
+	i64 num_root_dir_sectors;
+	i64 num_sectors_per_fat16;
+	i64 num_sectors_per_fat32 = 0;
+	i64 num_sectors16;
+	i64 num_sectors32 = 0;
 	u8 b;
 	u8 cksum_sig[2];
 	int retval = 0;
@@ -557,17 +560,17 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 	de_dbg(c, "reserved sectors: %d", (int)d->num_rsvd_sectors);
 	d->num_fats = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "number of FATs: %d", (int)d->num_fats);
-	d->max_root_dir_entries = de_getu16le_p(&pos);
-	de_dbg(c, "max number of root dir entries (if FAT12/16): %d", (int)d->max_root_dir_entries);
-	d->num_sectors_old = de_getu16le_p(&pos);
-	if(d->num_sectors_old!=0) {
-		d->num_sectors = d->num_sectors_old;
-	}
-	de_dbg(c, "number of sectors (if FAT12/16): %d", (int)d->num_sectors_old);
+
+	// This is expected to be 0 for FAT32.
+	d->max_root_dir_entries16 = de_getu16le_p(&pos);
+	de_dbg(c, "max number of root dir entries (if FAT12/16): %d", (int)d->max_root_dir_entries16);
+
+	num_sectors16 = de_getu16le_p(&pos);
+	de_dbg(c, "number of sectors (old 16-bit field): %d", (int)num_sectors16);
 	b = de_getbyte_p(&pos);
 	de_dbg(c, "media descriptor: 0x%02x", (UI)b);
-	d->num_sectors_per_fat = de_getu16le_p(&pos);
-	de_dbg(c, "sectors per FAT (if FAT12/16): %d", (int)d->num_sectors_per_fat);
+	num_sectors_per_fat16 = de_getu16le_p(&pos);
+	de_dbg(c, "sectors per FAT (if FAT12/16): %d", (int)num_sectors_per_fat16);
 
 	pos = pos1+0x1fe;
 	de_read(cksum_sig, pos, 2);
@@ -583,40 +586,61 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 		de_dbg(c, "[Disk has PC-compatible boot code.]");
 	}
 
-	if(d->num_sectors_old==0) {
-		d->num_fat_bits = 32;
-		d->num_sectors = de_getu32le(pos1+32);
-		de_dbg(c, "num sectors: %"I64_FMT, d->num_sectors);
+	if(num_sectors16==0) {
+		num_sectors32 = de_getu32le(pos1+32);
+		de_dbg(c, "num sectors (new 32-bit field): %"I64_FMT, num_sectors32);
+	}
+
+	if(num_sectors_per_fat16==0) {
+		num_sectors_per_fat32 = de_getu32le(pos1+36);
+		de_dbg(c, "sectors per FAT (if FAT32): %u", (UI)num_sectors_per_fat32);
+	}
+
+	if(num_sectors_per_fat16==0) {
+		d->num_sectors_per_fat = num_sectors_per_fat32;
+	}
+	else {
+		d->num_sectors_per_fat = num_sectors_per_fat16;
+	}
+
+	if(num_sectors16==0) {
+		d->num_sectors = num_sectors32;
+	}
+	else {
+		d->num_sectors = num_sectors16;
 	}
 
 	if(d->sectors_per_cluster<1) goto done;
 	if(d->bytes_per_sector<32) goto done;
 	d->bytes_per_cluster = d->bytes_per_sector * d->sectors_per_cluster;
 	d->root_dir_sector = d->num_rsvd_sectors + d->num_sectors_per_fat * d->num_fats;
-	num_root_dir_sectors = (d->max_root_dir_entries*32 + d->bytes_per_sector -1)/d->bytes_per_sector;
+
+	// num_root_dir_sectors is expected to be 0 for FAT32.
+	num_root_dir_sectors = (d->max_root_dir_entries16*32 + d->bytes_per_sector - 1)/d->bytes_per_sector;
+
+	num_data_region_sectors = d->num_sectors - (d->root_dir_sector + num_root_dir_sectors);
+	if(num_data_region_sectors<0) goto done;
+	d->num_data_region_clusters = num_data_region_sectors / d->sectors_per_cluster;
+	de_dbg(c, "num clusters (calculated): %"I64_FMT, d->num_data_region_clusters);
+
 	d->data_region_sector = d->root_dir_sector + num_root_dir_sectors;
 	d->data_region_pos = d->data_region_sector * d->bytes_per_sector;
 	de_dbg(c, "data region pos (calculated): %"I64_FMT" (sector %"I64_FMT")", d->data_region_pos,
 		d->data_region_sector);
-	num_data_region_sectors = d->num_sectors - d->data_region_sector;
-	if(num_data_region_sectors<0) goto done;
-	d->num_data_region_clusters = (num_data_region_sectors + d->sectors_per_cluster - 1) /
-		d->sectors_per_cluster;
-	de_dbg(c, "num clusters (calculated): %"I64_FMT, d->num_data_region_clusters);
+
 	// (The first cluster is numbered "2".)
 	d->num_cluster_identifiers = d->num_data_region_clusters + 2;
-	if(d->num_fat_bits==0) {
-		// TODO: This might not be quite correct.
-		if(d->num_cluster_identifiers <= 4095) {
-			d->num_fat_bits = 12;
-		}
-		else if(d->num_cluster_identifiers <= 65535) {
-			d->num_fat_bits = 16;
-		}
-		else {
-			goto done;
-		}
+
+	if(d->num_data_region_clusters < 4085) {
+		d->num_fat_bits = 12;
 	}
+	else if(d->num_data_region_clusters < 65525) {
+		d->num_fat_bits = 16;
+	}
+	else {
+		d->num_fat_bits = 32;
+	}
+
 	de_dbg(c, "bits per cluster id: %u", (UI)d->num_fat_bits);
 
 	retval = 1;
