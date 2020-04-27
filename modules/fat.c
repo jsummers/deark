@@ -195,6 +195,7 @@ static void do_vfat_entry(deark *c, lctx *d, struct dirctx *dctx, i64 pos1, u8 s
 	if(seq_num<1 || seq_num>LFN_MAX_FRAGMENTS) {
 		de_warn(c, "Bad VFAT sequence number (%u)", (UI)seq_num);
 		dctx->lfn_valid = 0;
+		goto done;
 	}
 
 	if(seq_num_raw & 0x40) {
@@ -707,8 +708,13 @@ static void de_run_fat(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	d->input_encoding = de_get_input_encoding(c, mparams, DE_ENCODING_CP437_G);
+	if(d->input_encoding==DE_ENCODING_CP437_C) { // hack
+		d->input_encoding=DE_ENCODING_CP437_G;
+	}
+
 	// TODO: Detect MBR?
-	d->input_encoding = DE_ENCODING_CP437_G;
 	if(!do_boot_sector(c, d, 0)) goto done;
 	if(d->num_fat_bits==0) goto done;
 

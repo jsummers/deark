@@ -286,6 +286,7 @@ void de_module_atr(deark *c, struct deark_module_info *mi)
 // MSA - Magic Shadow Archiver - Atari ST disk image
 
 struct msactx {
+	int input_encoding;
 	int opt_to_raw;
 	i64 sectors_per_track;
 	i64 sides;
@@ -449,9 +450,15 @@ done:
 
 static void msa_decode_fat(deark *c, struct msactx *d, dbuf *diskbuf)
 {
+	de_module_params *mparams = NULL;
+
+	mparams = de_malloc(c, sizeof(de_module_params));
 	de_dbg(c, "decoding as FAT");
 	de_dbg_indent(c, 1);
-	de_run_module_by_id_on_slice2(c, "fat", "A", diskbuf, 0, diskbuf->len);
+	mparams->in_params.codes = "A";
+	mparams->in_params.input_encoding = d->input_encoding;
+	de_run_module_by_id_on_slice(c, "fat", mparams, diskbuf, 0, diskbuf->len);
+	de_free(c, mparams);
 	de_dbg_indent(c, -1);
 }
 
@@ -471,6 +478,7 @@ static void de_run_msa(deark *c, de_module_params *mparams)
 	i64 pos = 0;
 
 	d = de_malloc(c, sizeof(struct msactx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ATARIST);
 	d->opt_to_raw = de_get_ext_option_bool(c, "msa:toraw", 0);
 
 	if(!do_msa_header(c, d, pos)) goto done;
