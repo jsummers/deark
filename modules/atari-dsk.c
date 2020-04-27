@@ -295,6 +295,10 @@ struct msactx {
 	i64 num_tracks_total;
 	i64 track_size; // bytes per track per side
 	i64 disk_size;
+	i64 total_track_sides;
+	i64 total_track_sides_cmpr;
+	i64 total_cmpr_bytes;
+	i64 total_uncmpr_bytes;
 };
 
 // Decompress one track
@@ -351,21 +355,24 @@ static int do_msa_track(deark *c, struct msactx *d, i64 tk, i64 sd, i64 pos1, i6
 	int retval = 0;
 	i64 outf_startsize = outf->len;
 
-	de_dbg(c, "track (t=%d, s=%d) at %"I64_FMT", dlen=%"I64_FMT, (int)tk, (int)sd, pos1, dlen);
+	de_dbg2(c, "track (t=%d, s=%d) at %"I64_FMT", dlen=%"I64_FMT, (int)tk, (int)sd, pos1, dlen);
 	de_dbg_indent(c, 1);
 	if(dlen > d->track_size) {
 		de_err(c, "Invalid compressed track size");
 		goto done;
 	}
 	is_compressed = (dlen!=d->track_size);
-	de_dbg(c, "compressed: %d", is_compressed);
+	de_dbg2(c, "compressed: %d", is_compressed);
 
 	if(is_compressed) {
 		if(!msa_decompress_rle(c, d, pos1+2, dlen, outf)) goto done;
+		d->total_track_sides_cmpr++;
 	}
 	else {
 		dbuf_copy(c->infile, pos1+2, dlen, outf);
 	}
+	d->total_cmpr_bytes += dlen;
+	d->total_track_sides++;
 
 	dbuf_truncate(outf, outf_startsize + d->track_size);
 	retval = 1;
@@ -409,6 +416,37 @@ done:
 	return retval;
 }
 
+static int do_msa_tracks(deark *c, struct msactx *d, i64 pos1, dbuf *diskbuf)
+{
+	i64 tk, sd;
+	i64 pos = pos1;
+	int retval = 0;
+
+	de_dbg(c, "tracks at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	for(tk=d->first_track; tk<=d->last_track; tk++) {
+		for(sd=0; sd<d->sides; sd++) {
+			i64 dlen;
+			i64 tkpos = pos;
+
+			if(pos+2 >= c->infile->len) {
+				de_err(c, "Unexpected end of file");
+				goto after_decompress;
+			}
+
+			dlen = de_getu16be_p(&pos);
+			if(!do_msa_track(c, d, tk, sd, tkpos, dlen, diskbuf)) goto done;
+			pos += dlen;
+		}
+	}
+after_decompress:
+	retval = 1;
+done:
+	de_dbg_indent(c, -1);
+	return retval;
+}
+
 static void msa_decode_fat(deark *c, struct msactx *d, dbuf *diskbuf)
 {
 	de_dbg(c, "decoding as FAT");
@@ -430,7 +468,6 @@ static void de_run_msa(deark *c, de_module_params *mparams)
 {
 	struct msactx *d = NULL;
 	dbuf *diskbuf = NULL;
-	i64 tk, sd;
 	i64 pos = 0;
 
 	d = de_malloc(c, sizeof(struct msactx));
@@ -441,23 +478,14 @@ static void de_run_msa(deark *c, de_module_params *mparams)
 
 	diskbuf = dbuf_create_membuf(c, d->disk_size, 0x1);
 
-	for(tk=d->first_track; tk<=d->last_track; tk++) {
-		for(sd=0; sd<d->sides; sd++) {
-			i64 dlen;
-			i64 tkpos = pos;
+	if(!do_msa_tracks(c, d, pos, diskbuf)) goto done;
 
-			if(pos+2 >= c->infile->len) {
-				de_err(c, "Unexpected end of file");
-				goto after_decompress;
-			}
+	d->total_uncmpr_bytes = diskbuf->len;
+	de_dbg(c, "totals: %u track-sides, %u compressed",
+		(UI)d->total_track_sides, (UI)d->total_track_sides_cmpr);
+	de_dbg(c, "totals: decompressed %"I64_FMT" bytes to %"I64_FMT,
+		d->total_cmpr_bytes, d->total_uncmpr_bytes);
 
-			dlen = de_getu16be_p(&pos);
-			if(!do_msa_track(c, d, tk, sd, tkpos, dlen, diskbuf)) goto done;
-			pos += dlen;
-		}
-	}
-
-after_decompress:
 	if(d->opt_to_raw) {
 		msa_extract_to_raw(c, d, diskbuf);
 	}
