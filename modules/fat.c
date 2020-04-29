@@ -187,7 +187,6 @@ static void do_vfat_entry(deark *c, lctx *d, struct dirctx *dctx, i64 pos1, u8 s
 		goto done;
 	}
 
-	de_dbg(c, "[VFAT entry]");
 	de_dbg(c, "seq number: 0x%02x", (UI)seq_num_raw);
 
 	seq_num = seq_num_raw & 0xbf;
@@ -285,6 +284,7 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 	int retval = 0;
 	int is_deleted = 0;
 	int need_curpath_pop = 0;
+	de_ucstring *descr = NULL;
 	struct member_data *md = NULL;
 
 	md = de_malloc(c, sizeof(struct member_data));
@@ -303,7 +303,9 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 	retval = 1;
 
 	md->attribs = (UI)de_getbyte(pos1+11);
-	de_dbg(c, "attribs: 0x%02x", md->attribs);
+	descr = ucstring_create(c);
+	de_describe_dos_attribs(c, md->attribs, descr, 0x1);
+	de_dbg(c, "attribs: 0x%02x (%s)", md->attribs, ucstring_getpsz_d(descr));
 	if((md->attribs & 0x3f)==0x0f) {
 		do_vfat_entry(c, d, dctx, pos1, firstbyte);
 		goto done;
@@ -313,11 +315,9 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 		; // Normal file
 	}
 	else if((md->attribs & 0x18) == 0x08) {
-		de_dbg(c, "[volume label]");
 		md->is_special = 1;
 	}
 	else if((md->attribs & 0x18) == 0x10) {
-		de_dbg(c, "[subdirectory]");
 		md->is_subdir = 1;
 	}
 	else {
@@ -392,6 +392,7 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 	}
 
 done:
+	ucstring_destroy(descr);
 	if(md) {
 		ucstring_destroy(md->short_fn);
 		ucstring_destroy(md->long_fn);

@@ -1265,6 +1265,46 @@ void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
 	ts->precision = DE_TSPREC_2SEC;
 }
 
+// flags:
+//  0x1 = support VFAT long filename attribs
+void de_describe_dos_attribs(deark *c, UI attr, de_ucstring *s, UI flags)
+{
+	unsigned int bf = attr;
+
+	if((flags & 0x1) && (bf & 0x3f)==0x0f) {
+		ucstring_append_flags_item(s, "long filename");
+		bf -= 0x0f;
+	}
+	if(bf & 0x01) {
+		ucstring_append_flags_item(s, "read-only");
+		bf -= 0x01;
+	}
+	if(bf & 0x02) {
+		ucstring_append_flags_item(s, "hidden");
+		bf -= 0x02;
+	}
+	if(bf & 0x04) {
+		ucstring_append_flags_item(s, "system");
+		bf -= 0x04;
+	}
+	if(bf & 0x08) {
+		ucstring_append_flags_item(s, "volume label");
+		bf -= 0x08;
+	}
+	if(bf & 0x10) {
+		ucstring_append_flags_item(s, "directory");
+		bf -= 0x10;
+	}
+	if(bf & 0x20) {
+		ucstring_append_flags_item(s, "archive");
+		bf -= 0x20;
+	}
+
+	if(bf!=0) { // Report any unrecognized flags
+		ucstring_append_flags_itemf(s, "0x%02x", bf);
+	}
+}
+
 // Sets the DE_TZCODE_UTC flag.
 void de_riscos_loadexec_to_timestamp(u32 load_addr,
 	u32 exec_addr, struct de_timestamp *ts)

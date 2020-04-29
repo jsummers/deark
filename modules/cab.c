@@ -226,10 +226,7 @@ static int do_one_CFFILE(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 
 	attribs = (unsigned int)de_getu16le_p(&pos);
 	attribs_str = ucstring_create(c);
-	if(attribs&0x1) ucstring_append_flags_item(attribs_str, "RDONLY");
-	if(attribs&0x2) ucstring_append_flags_item(attribs_str, "HIDDEN");
-	if(attribs&0x4) ucstring_append_flags_item(attribs_str, "SYSTEM");
-	if(attribs&0x20) ucstring_append_flags_item(attribs_str, "ARCH");
+	de_describe_dos_attribs(c, (attribs & 0x3f), attribs_str, 0);
 	if(attribs&0x40) ucstring_append_flags_item(attribs_str, "EXEC");
 	if(attribs&0x80) ucstring_append_flags_item(attribs_str, "NAME_IS_UTF8");
 	de_dbg(c, "attribs: 0x%04x (%s)", attribs, ucstring_getpsz(attribs_str));
