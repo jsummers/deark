@@ -1174,13 +1174,16 @@ static const struct de_encmap_item de_encmap_arr[] = {
 	{ 0x01, DE_ENCODING_ASCII, "ascii" },
 	{ 0x01, DE_ENCODING_UTF8, "utf8" },
 	{ 0x01, DE_ENCODING_LATIN1, "latin1" },
+	{ 0x01, DE_ENCODING_LATIN2, "latin2" },
 	{ 0x01, DE_ENCODING_CP437_C, "cp437" },
 	{ 0x01, DE_ENCODING_WINDOWS1250, "windows1250" },
-	{ 0x01, DE_ENCODING_WINDOWS1251, "windows1251"},
+	{ 0x01, DE_ENCODING_WINDOWS1251, "windows1251" },
 	{ 0x01, DE_ENCODING_WINDOWS1252, "windows1252" },
 	{ 0x01, DE_ENCODING_WINDOWS1253, "windows1253" },
 	{ 0x01, DE_ENCODING_WINDOWS1254, "windows1254" },
 	{ 0x01, DE_ENCODING_MACROMAN, "macroman" },
+	{ 0x01, DE_ENCODING_PALM, "palm" },
+	{ 0x01, DE_ENCODING_RISCOS, "riscos" },
 	{ 0x01, DE_ENCODING_ATARIST, "atarist" }
 };
 
