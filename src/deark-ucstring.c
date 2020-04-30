@@ -354,7 +354,7 @@ int de_is_printable_uchar(i32 ch)
 		{ 0xff00, 0xffef },
 		{ 0xfffd, 0xfffd },
 		{ 0x10000, 0x101ff },
-		{ 0x1f000, 0x1f9ff }
+		{ 0x1f000, 0x1fbff }
 		// TODO: Whitelist more codepoints
 	};
 	size_t i;
