@@ -35,7 +35,8 @@ struct dirctx {
 };
 
 typedef struct localctx_struct {
-	int input_encoding;
+	de_encoding input_encoding;
+	int opt_check_rootdir;
 #define FAT_PLATFORM_UNKNOWN   0
 #define FAT_PLATFORM_PC        1
 #define FAT_PLATFORM_ATARIST   2
@@ -483,13 +484,13 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void do_root_dir(deark *c, lctx *d, i64 secnum)
+static void do_root_dir(deark *c, lctx *d)
 {
 	i64 pos1;
 	struct dirctx *dctx = NULL;
 
 	dctx = de_malloc(c, sizeof(struct dirctx));
-	pos1 = sectornum_to_offset(c, d, secnum);
+	pos1 = sectornum_to_offset(c, d, d->root_dir_sector);
 	de_dbg(c, "dir at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	if(pos1<d->bytes_per_sector) goto done;
@@ -497,6 +498,55 @@ static void do_root_dir(deark *c, lctx *d, i64 secnum)
 done:
 	destroy_dirctx(c, dctx);
 	de_dbg_indent(c, -1);
+}
+
+static int root_dir_seems_valid(deark *c, lctx *d)
+{
+	i64 pos1;
+	i64 max_entries_to_check;
+	i64 i;
+	i64 entrycount = 0;
+	i64 errcount = 0;
+
+	if(d->num_fat_bits==32) return 1;
+
+	if(d->max_root_dir_entries16<=0) return 0;
+	pos1 = sectornum_to_offset(c, d, d->root_dir_sector);
+	if(pos1 + d->max_root_dir_entries16 * 32 > c->infile->len) {
+		return 0;
+	}
+
+	max_entries_to_check = de_max_int(d->max_root_dir_entries16, 10);
+	for(i=0; i<max_entries_to_check; i++) {
+		i64 entrypos;
+		u8 firstbyte;
+		u8 attribs;
+
+		entrypos = pos1 + 32*i;
+		firstbyte = de_getbyte(entrypos);
+		if(firstbyte==0x00) break;
+		if(firstbyte==0xe5) continue; // Don't validate deleted entries
+		entrycount++;
+		attribs = de_getbyte(entrypos+11);
+		if(attribs & 0xc0) {
+			errcount++;
+		}
+		else if((attribs & 0x3f) == 0x0f) {
+			; // LFN; OK
+		}
+		else if((attribs & 0x18)==0x18) {
+			errcount++; // dir + vol.label not valid
+		}
+
+		// TODO: It's really lame to only validate the attribs field, when there's
+		// so much more we could be doing. But it's a hard problem. We don't want
+		// to be too sensitive to minor errors.
+	}
+
+	if(errcount>1 || (errcount==1 && entrycount<=1)) {
+		return 0;
+	}
+	return 1;
 }
 
 static void do_atarist_boot_checksum(deark *c, lctx *d, i64 pos1)
@@ -559,7 +609,13 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 	d->sectors_per_cluster = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "sectors per cluster: %d", (int)d->sectors_per_cluster);
 	d->num_rsvd_sectors = de_getu16le_p(&pos);
+
 	de_dbg(c, "reserved sectors: %d", (int)d->num_rsvd_sectors);
+	if(d->num_rsvd_sectors==0) {
+		// This happens on some Atari ST disks. Don't know why.
+		d->num_rsvd_sectors = 1;
+	}
+
 	d->num_fats = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "number of FATs: %d", (int)d->num_fats);
 
@@ -648,6 +704,9 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 	retval = 1;
 
 done:
+	if(!retval) {
+		de_err(c, "Invalid or unsupported boot sector");
+	}
 	de_dbg_indent(c, -1);
 	return retval;
 }
@@ -707,8 +766,15 @@ done:
 static void de_run_fat(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	int got_root_dir = 0;
+
+	if(mparams) {
+		mparams->out_params.flags = 0;
+	}
 
 	d = de_malloc(c, sizeof(lctx));
+
+	d->opt_check_rootdir = de_get_ext_option_bool(c, "fat:checkroot", 1);
 
 	d->input_encoding = de_get_input_encoding(c, mparams, DE_ENCODING_CP437_G);
 	if(d->input_encoding==DE_ENCODING_CP437_C) { // hack
@@ -733,10 +799,26 @@ static void de_run_fat(deark *c, de_module_params *mparams)
 
 	if(!do_read_fat(c, d)) goto done;
 
+	if(d->opt_check_rootdir) {
+		if(!root_dir_seems_valid(c, d)) {
+			de_warn(c, "This file does not appear to contain a valid FAT "
+				"directory structure. (\"-opt fat:checkroot=0\" to try anyway)");
+			goto done;
+		}
+	}
+
 	d->curpath = de_strarray_create(c);
-	do_root_dir(c, d, d->root_dir_sector);
+	got_root_dir = 1;
+	do_root_dir(c, d);
 
 done:
+	if(!got_root_dir) {
+		// Inform the parent module that we failed to do anything.
+		if(mparams) {
+			mparams->out_params.flags |= 0x1;
+		}
+	}
+
 	if(d) {
 		de_free(c, d->fat_nextcluster);
 		de_free(c, d->cluster_used_flags);
@@ -768,10 +850,17 @@ static int de_identify_fat(deark *c)
 	return 0;
 }
 
+static void de_help_fat(deark *c)
+{
+	de_msg(c, "-opt fat:checkroot=0 : Read the directory structure, even if it "
+		"seems invalid");
+}
+
 void de_module_fat(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "fat";
 	mi->desc = "FAT disk image";
 	mi->run_fn = de_run_fat;
 	mi->identify_fn = de_identify_fat;
+	mi->help_fn = de_help_fat;
 }
