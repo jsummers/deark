@@ -666,6 +666,7 @@ Deark -- Information about supported formats
   Options
    -opt msa:toraw - Instead of decoding, extract to raw ".ST" format (this is
      usually a FAT format).
+   -opt msa:touncmsa - Instead of decoding, convert to uncompressed MSA.
 
 * NRG (module="nrg") (experimental)
   Nero CD image format.

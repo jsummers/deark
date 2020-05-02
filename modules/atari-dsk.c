@@ -287,7 +287,10 @@ void de_module_atr(deark *c, struct deark_module_info *mi)
 
 struct msactx {
 	de_encoding input_encoding;
-	int opt_to_raw;
+#define MSA_OUTFMT_FILES   0
+#define MSA_OUTFMT_ST      1
+#define MSA_OUTFMT_UNCMSA  2
+	int outfmt;
 	i64 sectors_per_track;
 	i64 sides;
 	i64 first_track;
@@ -474,22 +477,45 @@ static void msa_extract_to_raw(deark *c, struct msactx *d, dbuf *diskbuf)
 	dbuf_close(outf);
 }
 
+static void msa_extract_to_uncmsa(deark *c, struct msactx *d, dbuf *diskbuf)
+{
+	dbuf *outf = NULL;
+	i64 i;
+
+	outf = dbuf_create_output_file(c, "msa", NULL, 0);
+	dbuf_copy(c->infile, 0, 10, outf);
+
+	for(i=0; i<d->num_tracks_total; i++) {
+		dbuf_writeu16be(outf, d->track_size);
+		dbuf_copy(diskbuf, i*d->track_size, d->track_size, outf);
+	}
+
+	dbuf_close(outf);
+}
+
 static void de_run_msa(deark *c, de_module_params *mparams)
 {
 	struct msactx *d = NULL;
 	dbuf *diskbuf = NULL;
-	i64 pos = 0;
 
 	d = de_malloc(c, sizeof(struct msactx));
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ATARIST);
-	d->opt_to_raw = de_get_ext_option_bool(c, "msa:toraw", 0);
 
-	if(!do_msa_header(c, d, pos)) goto done;
-	pos += 10;
+	if(de_get_ext_option_bool(c, "msa:touncmsa", 0)) {
+		d->outfmt = MSA_OUTFMT_UNCMSA;
+	}
+	else if(de_get_ext_option_bool(c, "msa:toraw", 0)) {
+		d->outfmt = MSA_OUTFMT_ST;
+	}
+	else {
+		d->outfmt = MSA_OUTFMT_FILES;
+	}
+
+	if(!do_msa_header(c, d, 0)) goto done;
 
 	diskbuf = dbuf_create_membuf(c, d->disk_size, 0x1);
 
-	if(!do_msa_tracks(c, d, pos, diskbuf)) goto done;
+	if(!do_msa_tracks(c, d, 10, diskbuf)) goto done;
 
 	d->total_uncmpr_bytes = diskbuf->len;
 	de_dbg(c, "totals: %u track-sides, %u compressed",
@@ -497,8 +523,11 @@ static void de_run_msa(deark *c, de_module_params *mparams)
 	de_dbg(c, "totals: decompressed %"I64_FMT" bytes to %"I64_FMT,
 		d->total_cmpr_bytes, d->total_uncmpr_bytes);
 
-	if(d->opt_to_raw) {
+	if(d->outfmt==MSA_OUTFMT_ST) {
 		msa_extract_to_raw(c, d, diskbuf);
+	}
+	else if(d->outfmt==MSA_OUTFMT_UNCMSA) {
+		msa_extract_to_uncmsa(c, d, diskbuf);
 	}
 	else {
 		msa_decode_fat(c, d, diskbuf);
@@ -523,6 +552,7 @@ static int de_identify_msa(deark *c)
 static void de_help_msa(deark *c)
 {
 	de_msg(c, "-opt msa:toraw : Extract to raw .ST format");
+	de_msg(c, "-opt msa:touncmsa : Convert to uncompressed MSA");
 }
 
 void de_module_msa(deark *c, struct deark_module_info *mi)
