@@ -37,10 +37,18 @@ struct dirctx {
 typedef struct localctx_struct {
 	de_encoding input_encoding;
 	int opt_check_rootdir;
+
+	// TODO: Decide how to handle different variants of FAT.
+#define FAT_SUBFMT_UNKNOWN   0
+#define FAT_SUBFMT_PC        1
+#define FAT_SUBFMT_ATARIST   2
+	int subfmt_req;
+	int subfmt;
 #define FAT_PLATFORM_UNKNOWN   0
 #define FAT_PLATFORM_PC        1
 #define FAT_PLATFORM_ATARIST   2
 	int platform;
+
 	u8 num_fat_bits; // 12, 16, or 32. 0 if unknown.
 	u8 has_atarist_checksum;
 	i64 bytes_per_sector;
@@ -565,15 +573,15 @@ static void do_atarist_boot_checksum(deark *c, lctx *d, i64 pos1)
 	}
 }
 
-static void do_oem_name(deark *c, lctx *d, i64 pos)
+static void do_oem_name(deark *c, lctx *d, i64 pos, i64 len)
 {
 	struct de_stringreaderdata *srd;
 	i64 i;
 
-	srd = dbuf_read_string(c->infile, pos, 8, 8, 0, DE_ENCODING_ASCII);
+	srd = dbuf_read_string(c->infile, pos, len, len, 0, DE_ENCODING_ASCII);
 
 	// Require printable ASCII.
-	for(i=0; i<8; i++) {
+	for(i=0; i<len; i++) {
 		if(srd->sz[i]<32 || srd->sz[i]>126) {
 			goto done;
 		}
@@ -594,6 +602,7 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 	i64 num_sectors_per_fat32 = 0;
 	i64 num_sectors16;
 	i64 num_sectors32 = 0;
+	i64 jmpinstrlen;
 	u8 b;
 	u8 cksum_sig[2];
 	int retval = 0;
@@ -602,7 +611,17 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 	de_dbg_indent(c, 1);
 
 	// BIOS parameter block
-	do_oem_name(c, d, pos1+3);
+	jmpinstrlen = (d->subfmt==FAT_SUBFMT_ATARIST)?2:3;
+	de_dbg_hexdump(c, c->infile, pos1, jmpinstrlen, jmpinstrlen, "jump instr", 0);
+
+	if(d->subfmt==FAT_SUBFMT_ATARIST) {
+		do_oem_name(c, d, pos1+2, 6);
+		de_dbg_hexdump(c, c->infile, pos1+8, 3, 3, "serial num", 0);
+	}
+	else {
+		do_oem_name(c, d, pos1+3, 8);
+	}
+
 	pos = pos1+11;
 	d->bytes_per_sector = de_getu16le_p(&pos);
 	de_dbg(c, "bytes per sector: %d", (int)d->bytes_per_sector);
@@ -766,17 +785,34 @@ done:
 static void de_run_fat(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	const char *s;
 	int got_root_dir = 0;
+	de_encoding default_encoding =  DE_ENCODING_CP437_G;
 
 	if(mparams) {
+		// out_params.flags:
+		//  0x1 = No valid FAT directory structure found
 		mparams->out_params.flags = 0;
 	}
 
 	d = de_malloc(c, sizeof(lctx));
 
 	d->opt_check_rootdir = de_get_ext_option_bool(c, "fat:checkroot", 1);
+	s = de_get_ext_option(c, "fat:subfmt");
+	if(s) {
+		if(!de_strcmp(s, "pc")) {
+			d->subfmt_req = FAT_SUBFMT_PC;
+		}
+		else if(!de_strcmp(s, "atarist")) {
+			d->subfmt_req = FAT_SUBFMT_ATARIST;
+		}
+	}
+	d->subfmt = d->subfmt_req;
+	if(d->subfmt==FAT_SUBFMT_ATARIST) {
+		default_encoding = DE_ENCODING_ATARIST;
+	}
 
-	d->input_encoding = de_get_input_encoding(c, mparams, DE_ENCODING_CP437_G);
+	d->input_encoding = de_get_input_encoding(c, mparams, default_encoding);
 	if(d->input_encoding==DE_ENCODING_CP437_C) { // hack
 		d->input_encoding=DE_ENCODING_CP437_G;
 	}
@@ -829,25 +865,51 @@ done:
 
 static int de_identify_fat(deark *c)
 {
+	i64 bytes_per_sector;
+	i64 max_root_dir_entries;
+	i64 num_rsvd_sectors;
+	int confidence = 0;
+	int has_pc_sig;
+	int has_ext;
+	u8 sectors_per_cluster;
+	u8 num_fats;
+	u8 media_descr;
 	u8 b[32];
 
 	// TODO: This needs a lot of work.
 	// It's good enough for most FAT12 floppy disk images.
 
 	de_read(b, 0, sizeof(b));
+	bytes_per_sector = de_getu16le_direct(&b[11]);
+	sectors_per_cluster = b[13];
+	num_rsvd_sectors = de_getu16le_direct(&b[14]);
+	num_fats = b[16];
+	max_root_dir_entries = de_getu16le_direct(&b[17]);
+	media_descr = b[21];
 
-	if(b[21]<0xe5) return 0; // Media descriptor
-	if(b[11]==0 && b[12]==2 && (b[13]==1 || b[13]==2) && b[14]==1 &&
-		b[15]==0 && b[16]==2)
-	{
-		int has_sig;
+	if(bytes_per_sector!=512) return 0;
+	if(sectors_per_cluster!=1 && sectors_per_cluster!=2) return 0;
+	if(num_fats!=1 && num_fats!=2) return 0;
+	if(media_descr<0xe5 && media_descr!=0) return 0; // Media descriptor
 
-		has_sig = (de_getu16be(510)==0x55aa);
-		if(has_sig) return 100;
-		return 60;
-	}
+	confidence = 1;
+	if(b[0]==0xeb && b[2]==0x90) confidence += 2;
+	else if(b[0]==0xe9) confidence += 1;
+	else if(b[0]==0x60) confidence += 1;
+	has_pc_sig = (de_getu16be(510)==0x55aa);
+	if(has_pc_sig) confidence += 2;
+	if(num_fats==2) confidence += 1;
+	if(media_descr>=0xe5) confidence += 1;
+	if(num_rsvd_sectors==1) confidence += 1;
+	if(max_root_dir_entries==112 || max_root_dir_entries==224) confidence += 2;
 
-	return 0;
+	has_ext = de_input_file_has_ext(c, "ima") ||
+		de_input_file_has_ext(c, "img") ||
+		de_input_file_has_ext(c, "st");
+
+	if(confidence>=6) return (has_ext?100:80);
+	else if(confidence>=4) return (has_ext?60:9);
+	else return 0;
 }
 
 static void de_help_fat(deark *c)
