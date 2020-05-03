@@ -277,11 +277,11 @@ static i32 de_ext_ascii_to_unicode(const u16 tbl[128], i32 a)
 	return n;
 }
 
-i32 de_char_to_unicode(deark *c, i32 a, de_encoding encoding)
+i32 de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee)
 {
 	if(a<0) return DE_CODEPOINT_INVALID;
 
-	switch(encoding) {
+	switch(DE_EXTENC_GET_BASE(ee)) {
 	case DE_ENCODING_ASCII:
 		return (a<128)?a:DE_CODEPOINT_INVALID;
 	case DE_ENCODING_LATIN1:
@@ -1089,10 +1089,11 @@ char de_byte_to_printable_char(u8 b)
 // Supported conv_flags: DE_CONVFLAG_STOP_AT_NUL, DE_CONVFLAG_ALLOW_HL
 // src_encoding: Only DE_ENCODING_ASCII is supported.
 void de_bytes_to_printable_sz(const u8 *s1, i64 s1_len,
-	char *s2, i64 s2_size, unsigned int conv_flags, de_encoding src_encoding)
+	char *s2, i64 s2_size, unsigned int conv_flags, de_ext_encoding src_ee)
 {
 	i64 i;
 	i64 s2_pos = 0;
+	de_ext_encoding src_encoding = DE_EXTENC_GET_BASE(src_ee);
 
 	if(src_encoding!=DE_ENCODING_ASCII) {
 		s2[0] = '\0';

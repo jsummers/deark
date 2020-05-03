@@ -81,22 +81,22 @@ void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2)
 	}
 }
 
-void ucstring_vprintf(de_ucstring *s, de_encoding encoding, const char *fmt, va_list ap)
+void ucstring_vprintf(de_ucstring *s, de_ext_encoding ee, const char *fmt, va_list ap)
 {
 	char buf[1024];
 	de_vsnprintf(buf, sizeof(buf), fmt, ap);
-	ucstring_append_sz(s, buf, encoding);
+	ucstring_append_sz(s, buf, ee);
 }
 
 // Appends a formatted C-style string.
 // (Unfortunately, there is no format specifier for a ucstring.)
 // There is a limit to how many characters will be appended.
-void ucstring_printf(de_ucstring *s, de_encoding encoding, const char *fmt, ...)
+void ucstring_printf(de_ucstring *s, de_ext_encoding ee, const char *fmt, ...)
 {
 	va_list ap;
 
 	va_start(ap, fmt);
-	ucstring_vprintf(s, encoding, fmt, ap);
+	ucstring_vprintf(s, ee, fmt, ap);
 	va_end(ap);
 }
 
@@ -153,12 +153,13 @@ void ucstring_append_char(de_ucstring *s, i32 ch)
 }
 
 void ucstring_append_bytes(de_ucstring *s, const u8 *buf, i64 buflen,
-	unsigned int conv_flags, de_encoding encoding)
+	unsigned int conv_flags, de_ext_encoding ee)
 {
 	int ret;
 	i64 pos = 0;
 	i32 ch;
 	i64 code_len;
+	de_encoding encoding = DE_EXTENC_GET_BASE(ee);
 
 	// Adjust buflen if necessary.
 	if(conv_flags & DE_CONVFLAG_STOP_AT_NUL) {
@@ -193,7 +194,7 @@ void ucstring_append_bytes(de_ucstring *s, const u8 *buf, i64 buflen,
 			}
 		}
 		else {
-			ch = de_char_to_unicode(s->c, buf[pos], encoding);
+			ch = de_char_to_unicode(s->c, buf[pos], ee);
 			if(ch==DE_CODEPOINT_INVALID) {
 				// Map unconvertible bytes to a special range.
 				ch = DE_CODEPOINT_BYTE00 + (i32)buf[pos];
@@ -205,11 +206,11 @@ void ucstring_append_bytes(de_ucstring *s, const u8 *buf, i64 buflen,
 	}
 }
 
-void ucstring_append_sz(de_ucstring *s, const char *sz, de_encoding encoding)
+void ucstring_append_sz(de_ucstring *s, const char *sz, de_ext_encoding ee)
 {
 	i64 len;
 	len = (i64)de_strlen(sz);
-	ucstring_append_bytes(s, (const u8*)sz, len, 0, encoding);
+	ucstring_append_bytes(s, (const u8*)sz, len, 0, ee);
 }
 
 static int ucstring_is_ascii(const de_ucstring *s)
@@ -261,12 +262,13 @@ void ucstring_write_as_utf8(deark *c, de_ucstring *s, dbuf *outf, int add_bom_if
 // Maybe they should be consolidated.
 // TODO: Should we remove the 'encoding' param, and always assume UTF-8?
 void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len,
-	unsigned int flags, de_encoding encoding)
+	unsigned int flags, de_ext_encoding ee)
 {
 	i64 i;
 	i64 szpos = 0;
 	i32 ch;
 	i64 charcodelen;
+	de_encoding encoding = DE_EXTENC_GET_BASE(ee);
 	static const char *sc1 = "\x01<"; // DE_CODEPOINT_HL in UTF-8
 	static const char *sc2 = ">\x02"; // DE_CODEPOINT_UNHL
 	u8 charcodebuf[32];
