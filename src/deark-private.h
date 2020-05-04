@@ -32,6 +32,7 @@ enum de_encoding_enum {
 	DE_ENCODING_CP437_G,
 	DE_ENCODING_CP437_C,
 	DE_ENCODING_MACROMAN,
+	DE_ENCODING_ATARIST,
 	DE_ENCODING_PALM,
 	DE_ENCODING_RISCOS,
 	DE_ENCODING_PETSCII,
@@ -1140,6 +1141,7 @@ void de_mac_time_to_timestamp(i64 mt, struct de_timestamp *ts);
 void de_FILETIME_to_timestamp(i64 ft, struct de_timestamp *ts, unsigned int flags);
 void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
    i64 ddate, i64 dtime);
+void de_describe_dos_attribs(deark *c, UI attr, de_ucstring *s, UI flags);
 void de_riscos_loadexec_to_timestamp(u32 load_addr,
 	u32 exec_addr, struct de_timestamp *ts);
 void de_timestamp_set_subsec(struct de_timestamp *ts, double frac);

@@ -66,6 +66,7 @@ typedef struct localctx_struct {
 	u8 names_to_lowercase;
 	u8 vol_desc_sector_forced;
 	u8 dirsize_hack;
+	u8 blocksize_warned;
 	i64 vol_desc_sector_to_use;
 	i64 secsize;
 	i64 primary_vol_desc_count;
@@ -1117,6 +1118,13 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 	de_dbg(c, "volume sequence number: %u", (unsigned int)vol_seq_num);
 	vol->block_size = getu16bbo_p(c->infile, &pos);
 	de_dbg(c, "block size: %u bytes", (unsigned int)vol->block_size);
+	if(vol->block_size==0) {
+		if(!d->blocksize_warned) {
+			de_warn(c, "Block size not set. Assuming 2048.");
+			d->blocksize_warned = 1;
+		}
+		vol->block_size = 2048;
+	}
 	n = getu32bbo_p(c->infile, &pos);
 	de_dbg(c, "path table size: %"I64_FMT" bytes", n);
 

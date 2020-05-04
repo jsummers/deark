@@ -344,6 +344,7 @@ struct de_iffctx {
 	i64 sizeof_len; // 0 = default
 	int is_le; // For RIFF format
 	int reversed_4cc;
+	int input_encoding;
 
 	int level;
 

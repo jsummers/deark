@@ -218,6 +218,7 @@ static void de_run_iff(deark *c, de_module_params *mparams)
 	}
 
 	ictx->userdata = (void*)d;
+	ictx->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
 	ictx->handle_chunk_fn = my_iff_chunk_handler;
 	ictx->on_std_container_start_fn = my_std_container_start_fn;
 	ictx->f = c->infile;

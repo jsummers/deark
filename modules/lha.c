@@ -208,10 +208,15 @@ static void exthdr_msdosattribs(deark *c, lctx *d, struct member_data *md,
 	i64 pos, i64 dlen)
 {
 	u32 attribs;
+	de_ucstring *descr = NULL;
 
-	if(dlen<2) return;
+	if(dlen<2) goto done;
 	attribs = (u32)de_getu16le(pos);
-	de_dbg(c, "%s: 0x%04x", e->name, (unsigned int)attribs);
+	descr = ucstring_create(c);
+	de_describe_dos_attribs(c, (UI)attribs, descr, 0);
+	de_dbg(c, "%s: 0x%04x (%s)", e->name, (UI)attribs, ucstring_getpsz_d(descr));
+done:
+	ucstring_destroy(descr);
 }
 
 static void exthdr_filesize(deark *c, lctx *d, struct member_data *md,

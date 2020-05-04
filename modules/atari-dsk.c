@@ -6,6 +6,7 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_atari_cas);
 DE_DECLARE_MODULE(de_module_atr);
+DE_DECLARE_MODULE(de_module_msa);
 
 typedef struct localctx_struct {
 	i64 sector_size;
@@ -279,4 +280,286 @@ void de_module_atr(deark *c, struct deark_module_info *mi)
 	mi->desc = "ATR Atari floppy disk image format";
 	mi->run_fn = de_run_atr;
 	mi->identify_fn = de_identify_atr;
+}
+
+////////////////////////////////////////////////////////
+// MSA - Magic Shadow Archiver - Atari ST disk image
+
+struct msactx {
+	de_encoding input_encoding;
+#define MSA_OUTFMT_FILES   0
+#define MSA_OUTFMT_ST      1
+#define MSA_OUTFMT_UNCMSA  2
+	int outfmt;
+	i64 sectors_per_track;
+	i64 sides;
+	i64 first_track;
+	i64 last_track;
+	i64 num_tracks_per_side;
+	i64 num_tracks_total;
+	i64 track_size; // bytes per track per side
+	i64 disk_size;
+	i64 total_track_sides;
+	i64 total_track_sides_cmpr;
+	i64 total_cmpr_bytes;
+	i64 total_uncmpr_bytes;
+};
+
+// Decompress one track
+static int msa_decompress_rle(deark *c, struct msactx *d, i64 pos1, i64 dlen,
+	dbuf *outf)
+{
+	i64 endpos = pos1+dlen;
+	i64 pos = pos1;
+	i64 outcount = 0;
+	int retval = 0;
+
+	while(1) {
+		u8 b;
+		i64 count;
+
+		if(outcount >= d->track_size) {
+			retval = 1;
+			goto done; // Have enough output
+		}
+
+		if(pos >= endpos) {
+			goto done;
+		}
+
+		b = de_getbyte_p(&pos);
+		if(b != 0xe5) {
+			dbuf_writebyte(outf, b);
+			outcount++;
+			continue;
+		}
+
+		if(pos+3 > endpos) {
+			goto done;
+		}
+		b = de_getbyte_p(&pos);
+		count = de_getu16be_p(&pos);
+		if(outcount+count > d->track_size) {
+			count = d->track_size - outcount;
+		}
+		dbuf_write_run(outf, b, count);
+		outcount += count;
+	}
+
+done:
+	if(!retval) {
+		de_err(c, "Decompression failed");
+	}
+	return retval;
+}
+
+static int do_msa_track(deark *c, struct msactx *d, i64 tk, i64 sd, i64 pos1, i64 dlen, dbuf *outf)
+{
+	int is_compressed;
+	int retval = 0;
+	i64 outf_startsize = outf->len;
+
+	de_dbg2(c, "track (t=%d, s=%d) at %"I64_FMT", dlen=%"I64_FMT, (int)tk, (int)sd, pos1, dlen);
+	de_dbg_indent(c, 1);
+	if(dlen > d->track_size) {
+		de_err(c, "Invalid compressed track size");
+		goto done;
+	}
+	is_compressed = (dlen!=d->track_size);
+	de_dbg2(c, "compressed: %d", is_compressed);
+
+	if(is_compressed) {
+		if(!msa_decompress_rle(c, d, pos1+2, dlen, outf)) goto done;
+		d->total_track_sides_cmpr++;
+	}
+	else {
+		dbuf_copy(c->infile, pos1+2, dlen, outf);
+	}
+	d->total_cmpr_bytes += dlen;
+	d->total_track_sides++;
+
+	dbuf_truncate(outf, outf_startsize + d->track_size);
+	retval = 1;
+
+done:
+	de_dbg_indent(c, -1);
+	return retval;
+}
+
+static int do_msa_header(deark *c, struct msactx *d, i64 pos1)
+{
+	i64 pos;
+	int retval = 0;
+
+	de_dbg(c, "header at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	pos = pos1+2;
+	d->sectors_per_track = de_getu16be_p(&pos);
+	de_dbg(c, "sectors/track: %d", (int)d->sectors_per_track);
+	d->sides = 1 + de_getu16be_p(&pos);
+	de_dbg(c, "sides: %d", (int)d->sides);
+	d->first_track = de_getu16be_p(&pos);
+	de_dbg(c, "first track: %d", (int)d->first_track);
+	d->last_track = de_getu16be_p(&pos);
+	de_dbg(c, "last track: %d", (int)d->last_track);
+
+	d->num_tracks_per_side = d->last_track - d->first_track + 1;
+	if(d->sides<1 || d->sides>2) goto done;
+	if(d->sectors_per_track<1 || d->sectors_per_track>30) goto done;
+	d->num_tracks_total = d->num_tracks_per_side * d->sides;
+	if(d->num_tracks_total<1 || d->num_tracks_total>200) goto done;
+	d->track_size = d->sectors_per_track * 512;
+	d->disk_size = d->track_size * d->num_tracks_total;
+	retval = 1;
+
+done:
+	if(!retval) {
+		de_err(c, "Bad or unsupported disk layout");
+	}
+	de_dbg_indent(c, -1);
+	return retval;
+}
+
+static int do_msa_tracks(deark *c, struct msactx *d, i64 pos1, dbuf *diskbuf)
+{
+	i64 tk, sd;
+	i64 pos = pos1;
+	int retval = 0;
+
+	de_dbg(c, "tracks at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	for(tk=d->first_track; tk<=d->last_track; tk++) {
+		for(sd=0; sd<d->sides; sd++) {
+			i64 dlen;
+			i64 tkpos = pos;
+
+			if(pos+2 >= c->infile->len) {
+				de_err(c, "Unexpected end of file");
+				goto after_decompress;
+			}
+
+			dlen = de_getu16be_p(&pos);
+			if(!do_msa_track(c, d, tk, sd, tkpos, dlen, diskbuf)) goto done;
+			pos += dlen;
+		}
+	}
+after_decompress:
+	retval = 1;
+done:
+	de_dbg_indent(c, -1);
+	return retval;
+}
+
+static void msa_decode_fat(deark *c, struct msactx *d, dbuf *diskbuf)
+{
+	de_module_params *mparams = NULL;
+
+	mparams = de_malloc(c, sizeof(de_module_params));
+	de_dbg(c, "decoding as FAT");
+	de_dbg_indent(c, 1);
+	mparams->in_params.codes = "A";
+	mparams->in_params.input_encoding = d->input_encoding;
+	de_run_module_by_id_on_slice(c, "fat", mparams, diskbuf, 0, diskbuf->len);
+	if(mparams->out_params.flags & 0x1) {
+		de_info(c, "Note: Use \"-opt msa:toraw\" to decompress to a raw .ST file");
+	}
+	de_free(c, mparams);
+	de_dbg_indent(c, -1);
+}
+
+static void msa_extract_to_raw(deark *c, struct msactx *d, dbuf *diskbuf)
+{
+	dbuf *outf = NULL;
+
+	outf = dbuf_create_output_file(c, "st", NULL, 0);
+	dbuf_copy(diskbuf, 0, d->disk_size, outf);
+	dbuf_close(outf);
+}
+
+static void msa_extract_to_uncmsa(deark *c, struct msactx *d, dbuf *diskbuf)
+{
+	dbuf *outf = NULL;
+	i64 i;
+
+	outf = dbuf_create_output_file(c, "msa", NULL, 0);
+	dbuf_copy(c->infile, 0, 10, outf);
+
+	for(i=0; i<d->num_tracks_total; i++) {
+		dbuf_writeu16be(outf, d->track_size);
+		dbuf_copy(diskbuf, i*d->track_size, d->track_size, outf);
+	}
+
+	dbuf_close(outf);
+}
+
+static void de_run_msa(deark *c, de_module_params *mparams)
+{
+	struct msactx *d = NULL;
+	dbuf *diskbuf = NULL;
+
+	d = de_malloc(c, sizeof(struct msactx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ATARIST);
+
+	if(de_get_ext_option_bool(c, "msa:touncmsa", 0)) {
+		d->outfmt = MSA_OUTFMT_UNCMSA;
+	}
+	else if(de_get_ext_option_bool(c, "msa:toraw", 0)) {
+		d->outfmt = MSA_OUTFMT_ST;
+	}
+	else {
+		d->outfmt = MSA_OUTFMT_FILES;
+	}
+
+	if(!do_msa_header(c, d, 0)) goto done;
+
+	diskbuf = dbuf_create_membuf(c, d->disk_size, 0x1);
+
+	if(!do_msa_tracks(c, d, 10, diskbuf)) goto done;
+
+	d->total_uncmpr_bytes = diskbuf->len;
+	de_dbg(c, "totals: %u track-sides, %u compressed",
+		(UI)d->total_track_sides, (UI)d->total_track_sides_cmpr);
+	de_dbg(c, "totals: decompressed %"I64_FMT" bytes to %"I64_FMT,
+		d->total_cmpr_bytes, d->total_uncmpr_bytes);
+
+	if(d->outfmt==MSA_OUTFMT_ST) {
+		msa_extract_to_raw(c, d, diskbuf);
+	}
+	else if(d->outfmt==MSA_OUTFMT_UNCMSA) {
+		msa_extract_to_uncmsa(c, d, diskbuf);
+	}
+	else {
+		msa_decode_fat(c, d, diskbuf);
+	}
+
+done:
+	de_free(c, d);
+}
+
+static int de_identify_msa(deark *c)
+{
+	i64 sig;
+	int has_ext;
+
+	sig = de_getu16be(0);
+	if(sig != 0x0e0f) return 0;
+	has_ext = de_input_file_has_ext(c, "msa");
+	if(has_ext) return 100;
+	return 45;
+}
+
+static void de_help_msa(deark *c)
+{
+	de_msg(c, "-opt msa:toraw : Extract to raw .ST format");
+	de_msg(c, "-opt msa:touncmsa : Convert to uncompressed MSA");
+}
+
+void de_module_msa(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "msa";
+	mi->desc = "MSA - Atari ST floppy disk image format";
+	mi->run_fn = de_run_msa;
+	mi->identify_fn = de_identify_msa;
+	mi->help_fn = de_help_msa;
 }

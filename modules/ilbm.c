@@ -117,6 +117,7 @@ typedef struct localctx_struct {
 	u8 found_rast;
 	u8 found_audio;
 	u8 multipalette_warned;
+	u8 extra_content_warned;
 	u8 is_hame;
 	u8 is_dctv;
 	UI camg_mode;
@@ -2069,6 +2070,8 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 		ictx->handled = 1;
 	}
 
+	// Chunks that we support even if they are not in FORM:ILBM, FORM:PBM, etc. chunk.
+
 	switch(ictx->chunkctx->chunk4cc.id) {
 	case CODE_FORM:
 		if(ictx->level==0) {
@@ -2077,10 +2080,15 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 		}
 		if(ictx->level>d->FORM_level) break;
 		ictx->is_std_container = 1;
-		break;
+		goto done;
+	}
 
+	// Chunks that we process only inside a FORM:ILBM, etc. chunk.
+
+	if(!d->frctx) goto done;
+
+	switch(ictx->chunkctx->chunk4cc.id) {
 	case CODE_BMHD:
-		if(!d->frctx) goto done;
 		if(!do_bmhd(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen)) {
 			d->errflag = 1;
 			goto done;
@@ -2088,7 +2096,6 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 		break;
 
 	case CODE_ANHD:
-		if(!d->frctx) goto done;
 		do_anim_anhd(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		break;
 
@@ -2102,14 +2109,6 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	case CODE_BODY:
 	case CODE_ABIT:
-		if((ictx->curr_container_contentstype4cc.id != CODE_ILBM) &&
-			(ictx->curr_container_contentstype4cc.id != CODE_PBM) &&
-			(ictx->curr_container_contentstype4cc.id != CODE_ACBM))
-		{
-			de_err(c, "Unsupported ILBM-like format");
-			d->errflag = 1;
-			goto done;
-		}
 		do_body_or_abit(c, d, ictx, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		break;
 
@@ -2118,7 +2117,6 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 			d->errflag = 1;
 			goto done;
 		}
-		if(!d->frctx) goto done;
 		do_dlta(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		break;
 
@@ -2182,20 +2180,26 @@ done:
 
 static int my_preprocess_iff_chunk_fn(deark *c, struct de_iffctx *ictx)
 {
+	lctx *d = (lctx*)ictx->userdata;
 	const char *name = NULL;
 
-	switch(ictx->chunkctx->chunk4cc.id) {
-	case CODE_ANHD: name="animation header"; break;
-	case CODE_BMHD: name="bitmap header"; break;
-	case CODE_BODY: name="image data"; break;
-	case CODE_CAMG: name="Amiga viewport mode"; break;
-	case CODE_CMAP: name="color map"; break;
-	case CODE_CRNG: name="color register range info"; break;
-	case CODE_DLTA: name="delta-compressed data"; break;
-	case CODE_DPI : name="dots/inch"; break;
-	case CODE_DRNG: name="color cycle"; break;
-	case CODE_GRAB: name="hotspot"; break;
-	case CODE_TINY: name="thumbnail"; break;
+	// frctx will be set if we're in an "image" container, such as FORM:ILBM.
+	// It is possible, e.g., for an ANIM file to contain FORM:8SVX containers
+	// which contain BODY chunks that are not "image data".
+	if(d->frctx) {
+		switch(ictx->chunkctx->chunk4cc.id) {
+		case CODE_ANHD: name="animation header"; break;
+		case CODE_BMHD: name="bitmap header"; break;
+		case CODE_BODY: name="image data"; break;
+		case CODE_CAMG: name="Amiga viewport mode"; break;
+		case CODE_CMAP: name="color map"; break;
+		case CODE_CRNG: name="color register range info"; break;
+		case CODE_DLTA: name="delta-compressed data"; break;
+		case CODE_DPI : name="dots/inch"; break;
+		case CODE_DRNG: name="color cycle"; break;
+		case CODE_GRAB: name="hotspot"; break;
+		case CODE_TINY: name="thumbnail"; break;
+		}
 	}
 
 	if(name) {
@@ -2215,7 +2219,25 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 		if(d->frctx) {
 			on_frame_end(c, d);
 		}
-		on_frame_begin(c, d, ictx->curr_container_contentstype4cc.id);
+		if((ictx->curr_container_contentstype4cc.id == CODE_ILBM) ||
+			(ictx->curr_container_contentstype4cc.id == CODE_PBM) ||
+			(ictx->curr_container_contentstype4cc.id == CODE_ACBM))
+		{
+			on_frame_begin(c, d, ictx->curr_container_contentstype4cc.id);
+		}
+		else {
+			if(d->is_anim) {
+				if(!d->extra_content_warned) {
+					de_warn(c, "File includes unsupported content of type '%s'",
+						ictx->curr_container_contentstype4cc.id_sanitized_sz);
+					d->extra_content_warned = 1;
+				}
+			}
+			else {
+				de_err(c, "Unsupported ILBM-like format");
+				d->errflag = 1;
+			}
+		}
 	}
 	return 1;
 }
@@ -2369,6 +2391,7 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 
 	ictx = de_malloc(c, sizeof(struct de_iffctx));
 	ictx->userdata = (void*)d;
+	ictx->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
 	ictx->handle_chunk_fn = my_iff_chunk_handler;
 	ictx->preprocess_chunk_fn = my_preprocess_iff_chunk_fn;
 	ictx->on_std_container_start_fn = my_on_std_container_start_fn;

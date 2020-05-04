@@ -1104,28 +1104,6 @@ static void describe_general_purpose_bit_flags(deark *c, struct dir_entry_data *
 	}
 }
 
-static void describe_msdos_attribs(deark *c, unsigned int attr, de_ucstring *s)
-{
-	unsigned int bf = attr;
-
-	if(bf & 0x01) {
-		ucstring_append_flags_item(s, "read-only");
-		bf -= 0x01;
-	}
-	if(bf & 0x10) {
-		ucstring_append_flags_item(s, "directory");
-		bf -= 0x10;
-	}
-	if(bf & 0x20) {
-		ucstring_append_flags_item(s, "archive");
-		bf -= 0x20;
-	}
-
-	if(bf!=0) { // Report any unrecognized flags
-		ucstring_append_flags_itemf(s, "0x%02x", bf);
-	}
-}
-
 // Read either a central directory entry (a.k.a. central directory file header),
 // or a local file header.
 static int do_file_header(deark *c, lctx *d, struct member_data *md,
@@ -1247,7 +1225,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 			// attributes.
 			unsigned int dos_attrs = (md->attr_e & 0xff);
 			ucstring_empty(descr);
-			describe_msdos_attribs(c, dos_attrs, descr);
+			de_describe_dos_attribs(c, dos_attrs, descr, 0);
 			de_dbg(c, "%sMS-DOS attribs: 0x%02x (%s)",
 				(md->ver_made_by_hi==0)?"":"(hypothetical) ",
 				dos_attrs, ucstring_getpsz(descr));
