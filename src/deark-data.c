@@ -194,6 +194,16 @@ static i32 de_cp437c_to_unicode(i32 a)
 	return n;
 }
 
+// Code page 437, with only selected control characters.
+static i32 de_cp437h_to_unicode(i32 a)
+{
+	i32 n;
+
+	if(a==0 || a==9 || a==10 || a==13) n = a;
+	else n = de_cp437g_to_unicode(a);
+	return n;
+}
+
 static i32 de_latin2_to_unicode(i32 a)
 {
 	i32 n;
@@ -288,10 +298,14 @@ i32 de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee)
 		return (a<256)?a:DE_CODEPOINT_INVALID;
 	case DE_ENCODING_LATIN2:
 		return de_latin2_to_unicode(a);
-	case DE_ENCODING_CP437_G:
+	case DE_ENCODING_CP437:
+		switch(DE_EXTENC_GET_SUBTYPE(ee)) {
+		case DE_ENCSUBTYPE_CONTROLS:
+			return de_cp437c_to_unicode(a);
+		case DE_ENCSUBTYPE_HYBRID:
+			return de_cp437h_to_unicode(a);
+		}
 		return de_cp437g_to_unicode(a);
-	case DE_ENCODING_CP437_C:
-		return de_cp437c_to_unicode(a);
 	case DE_ENCODING_PETSCII:
 		return de_petscii_to_unicode(a);
 	case DE_ENCODING_WINDOWS1252:
@@ -1177,7 +1191,7 @@ static const struct de_encmap_item de_encmap_arr[] = {
 	{ 0x01, DE_ENCODING_UTF8, "utf8" },
 	{ 0x01, DE_ENCODING_LATIN1, "latin1" },
 	{ 0x01, DE_ENCODING_LATIN2, "latin2" },
-	{ 0x01, DE_ENCODING_CP437_C, "cp437" },
+	{ 0x01, DE_ENCODING_CP437, "cp437" },
 	{ 0x01, DE_ENCODING_WINDOWS1250, "windows1250" },
 	{ 0x01, DE_ENCODING_WINDOWS1251, "windows1251" },
 	{ 0x01, DE_ENCODING_WINDOWS1252, "windows1252" },
