@@ -105,6 +105,7 @@ wchar_t *de_utf8_to_utf16_strdup(deark *c, const char *src);
 void de_utf8_to_utf16_to_FILE(deark *c, const char *src, FILE *f);
 void de_winconsole_init_handle(struct de_platform_data *plctx, int n);
 int de_winconsole_is_console(struct de_platform_data *plctx);
+void de_winconsole_set_UTF8_CP(struct de_platform_data *plctx);
 void de_winconsole_record_current_attributes(struct de_platform_data *plctx);
 void de_winconsole_highlight(struct de_platform_data *plctx, int x);
 int de_winconsole_try_enable_ansi24(struct de_platform_data *plctx);
