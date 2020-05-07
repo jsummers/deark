@@ -146,7 +146,7 @@ For more information, please refer to <http://unlicense.org/>
 /* inflate.c -- put in the public domain by Mark Adler
    version c16b, 29 March 1998 */
 
-#define UI6A_VERSION 20190923
+#define UI6A_VERSION 20200507
 
 #ifndef UI6A_UINT8
 #define UI6A_UINT8   unsigned char
@@ -904,7 +904,7 @@ static void ui6a_unimplode_internal(ui6a_ctx *ui6a, unsigned window_k,
 					d += e;
 				}
 				else {
-					if (w - d >= e) { /* (this test assumes unsigned comparison) */
+					if (d + e <= w) {
 						if(w+e > UI6A_WSIZE) goto done;
 						if(d+e > UI6A_WSIZE) goto done;
 						UI6A_MEMCPY(&ui6a->Slide[w], &ui6a->Slide[d], e);

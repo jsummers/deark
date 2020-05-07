@@ -194,6 +194,16 @@ static i32 de_cp437c_to_unicode(i32 a)
 	return n;
 }
 
+// Code page 437, with only selected control characters.
+static i32 de_cp437h_to_unicode(i32 a)
+{
+	i32 n;
+
+	if(a==0 || a==9 || a==10 || a==13) n = a;
+	else n = de_cp437g_to_unicode(a);
+	return n;
+}
+
 static i32 de_latin2_to_unicode(i32 a)
 {
 	i32 n;
@@ -277,21 +287,25 @@ static i32 de_ext_ascii_to_unicode(const u16 tbl[128], i32 a)
 	return n;
 }
 
-i32 de_char_to_unicode(deark *c, i32 a, de_encoding encoding)
+i32 de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee)
 {
 	if(a<0) return DE_CODEPOINT_INVALID;
 
-	switch(encoding) {
+	switch(DE_EXTENC_GET_BASE(ee)) {
 	case DE_ENCODING_ASCII:
 		return (a<128)?a:DE_CODEPOINT_INVALID;
 	case DE_ENCODING_LATIN1:
 		return (a<256)?a:DE_CODEPOINT_INVALID;
 	case DE_ENCODING_LATIN2:
 		return de_latin2_to_unicode(a);
-	case DE_ENCODING_CP437_G:
+	case DE_ENCODING_CP437:
+		switch(DE_EXTENC_GET_SUBTYPE(ee)) {
+		case DE_ENCSUBTYPE_CONTROLS:
+			return de_cp437c_to_unicode(a);
+		case DE_ENCSUBTYPE_HYBRID:
+			return de_cp437h_to_unicode(a);
+		}
 		return de_cp437g_to_unicode(a);
-	case DE_ENCODING_CP437_C:
-		return de_cp437c_to_unicode(a);
 	case DE_ENCODING_PETSCII:
 		return de_petscii_to_unicode(a);
 	case DE_ENCODING_WINDOWS1252:
@@ -1089,10 +1103,11 @@ char de_byte_to_printable_char(u8 b)
 // Supported conv_flags: DE_CONVFLAG_STOP_AT_NUL, DE_CONVFLAG_ALLOW_HL
 // src_encoding: Only DE_ENCODING_ASCII is supported.
 void de_bytes_to_printable_sz(const u8 *s1, i64 s1_len,
-	char *s2, i64 s2_size, unsigned int conv_flags, de_encoding src_encoding)
+	char *s2, i64 s2_size, unsigned int conv_flags, de_ext_encoding src_ee)
 {
 	i64 i;
 	i64 s2_pos = 0;
+	de_ext_encoding src_encoding = DE_EXTENC_GET_BASE(src_ee);
 
 	if(src_encoding!=DE_ENCODING_ASCII) {
 		s2[0] = '\0';
@@ -1176,7 +1191,7 @@ static const struct de_encmap_item de_encmap_arr[] = {
 	{ 0x01, DE_ENCODING_UTF8, "utf8" },
 	{ 0x01, DE_ENCODING_LATIN1, "latin1" },
 	{ 0x01, DE_ENCODING_LATIN2, "latin2" },
-	{ 0x01, DE_ENCODING_CP437_C, "cp437" },
+	{ 0x01, DE_ENCODING_CP437, "cp437" },
 	{ 0x01, DE_ENCODING_WINDOWS1250, "windows1250" },
 	{ 0x01, DE_ENCODING_WINDOWS1251, "windows1251" },
 	{ 0x01, DE_ENCODING_WINDOWS1252, "windows1252" },

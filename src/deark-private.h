@@ -29,8 +29,7 @@ enum de_encoding_enum {
 	DE_ENCODING_WINDOWS1252,
 	DE_ENCODING_WINDOWS1253,
 	DE_ENCODING_WINDOWS1254,
-	DE_ENCODING_CP437_G,
-	DE_ENCODING_CP437_C,
+	DE_ENCODING_CP437,
 	DE_ENCODING_MACROMAN,
 	DE_ENCODING_ATARIST,
 	DE_ENCODING_PALM,
@@ -38,7 +37,16 @@ enum de_encoding_enum {
 	DE_ENCODING_PETSCII,
 	DE_ENCODING_DEC_SPECIAL_GRAPHICS
 };
+#define DE_ENCODING_CP437_G DE_ENCODING_CP437
+
+#define DE_ENCSUBTYPE_CONTROLS     2
+#define DE_ENCSUBTYPE_HYBRID       3
+#define DE_ENCSUBTYPE_PRINTABLE    4
 typedef enum de_encoding_enum de_encoding;
+typedef int de_ext_encoding;
+#define DE_EXTENC_MAKE(b, st) (((int)(b) & 0xff) | ((int)(st)<<8))
+#define DE_EXTENC_GET_BASE(ee) ((int)(ee) & 0xff)
+#define DE_EXTENC_GET_SUBTYPE(ee) ((int)(ee) >> 8)
 
 #define DE_CODEPOINT_HL          0x0001
 #define DE_CODEPOINT_UNHL        0x0002
@@ -625,10 +633,10 @@ u32 dbuf_getRGB(dbuf *f, i64 pos, unsigned int flags);
 // Convert and append encoded bytes from a dbuf to a ucstring.
 // (see also ucstring_append_*)
 void dbuf_read_to_ucstring(dbuf *f, i64 pos, i64 len,
-	de_ucstring *s, unsigned int conv_flags, de_encoding encoding);
+	de_ucstring *s, unsigned int conv_flags, de_ext_encoding encoding);
 // The _n version has an extra max_len field, for convenience.
 void dbuf_read_to_ucstring_n(dbuf *f, i64 pos, i64 len, i64 max_len,
-	de_ucstring *s, unsigned int conv_flags, de_encoding encoding);
+	de_ucstring *s, unsigned int conv_flags, de_ext_encoding encoding);
 
 // At least one of 'ext' or 'fi' should be non-NULL.
 #define DE_CREATEFLAG_IS_AUX   0x1
@@ -699,7 +707,7 @@ struct de_stringreaderdata {
 
 struct de_stringreaderdata *dbuf_read_string(dbuf *f, i64 pos,
 	i64 max_bytes_to_scan,	i64 max_bytes_to_keep,
-	unsigned int flags, de_encoding encoding);
+	unsigned int flags, de_ext_encoding ee);
 void de_destroy_stringreaderdata(deark *c, struct de_stringreaderdata *srd);
 
 // Compare bytes in a dbuf to s.
@@ -896,7 +904,7 @@ u32 de_rgb565_to_888(u32 x);
 u32 de_bgr555_to_888(u32 x);
 u32 de_rgb555_to_888(u32 x);
 
-i32 de_char_to_unicode(deark *c, i32 a, de_encoding encoding);
+i32 de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee);
 void de_uchar_to_utf8(i32 u1, u8 *utf8buf, i64 *p_utf8len);
 void dbuf_write_uchar_as_utf8(dbuf *outf, i32 u);
 int de_utf8_to_uchar(const u8 *utf8buf, i64 buflen,
@@ -919,7 +927,7 @@ char de_byte_to_printable_char(u8 b);
 // ucstring_append_bytes} followed by
 // {ucstring_get_printable_sz or ucstring_to_printable_sz} instead.
 void de_bytes_to_printable_sz(const u8 *src, i64 src_len,
-	char *dst, i64 dst_len, unsigned int conv_flags, de_encoding src_encoding);
+	char *dst, i64 dst_len, unsigned int conv_flags, de_ext_encoding src_ee);
 
 de_finfo *de_finfo_create(deark *c);
 void de_finfo_destroy(deark *c, de_finfo *fi);
@@ -928,7 +936,7 @@ void de_finfo_destroy(deark *c, de_finfo *fi);
 #define DE_SNFLAG_STRIPTRAILINGSLASH 0x2
 void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s, unsigned int flags);
 void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1, unsigned int flags,
-	de_encoding encoding);
+	de_ext_encoding ee);
 
 de_ucstring *ucstring_create(deark *c);
 de_ucstring *ucstring_clone(const de_ucstring *src);
@@ -940,17 +948,17 @@ void ucstring_strip_trailing_NUL(de_ucstring *s);
 void ucstring_strip_trailing_spaces(de_ucstring *s);
 void ucstring_append_char(de_ucstring *s, i32 ch);
 void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2);
-void ucstring_vprintf(de_ucstring *s, de_encoding encoding, const char *fmt, va_list ap);
-void ucstring_printf(de_ucstring *s, de_encoding encoding, const char *fmt, ...)
+void ucstring_vprintf(de_ucstring *s, de_ext_encoding ee, const char *fmt, va_list ap);
+void ucstring_printf(de_ucstring *s, de_ext_encoding ee, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 3, 4)));
 int ucstring_isempty(const de_ucstring *s);
 int ucstring_isnonempty(const de_ucstring *s);
 
 // Convert and append an encoded array of bytes to the string.
 void ucstring_append_bytes(de_ucstring *s, const u8 *buf, i64 buflen,
-	unsigned int conv_flags, de_encoding encoding);
+	unsigned int conv_flags, de_ext_encoding ee);
 
-void ucstring_append_sz(de_ucstring *s, const char *sz, de_encoding encoding);
+void ucstring_append_sz(de_ucstring *s, const char *sz, de_ext_encoding ee);
 
 void ucstring_write_as_utf8(deark *c, de_ucstring *s, dbuf *outf, int add_bom_if_needed);
 int de_is_printable_uchar(i32 ch);
@@ -959,7 +967,7 @@ i64 ucstring_count_utf8_bytes(de_ucstring *s);
 // Supported encodings are DE_ENCODING_UTF8, DE_ENCODING_ASCII, DE_ENCODING_LATIN1.
 // flags: DE_CONVFLAG_*
 void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int flags,
-	de_encoding encoding);
+	de_ext_encoding ee);
 
 // "get printable string"
 // Returns a pointer to a NUL-terminated string, that is valid until the

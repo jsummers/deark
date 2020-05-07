@@ -59,6 +59,7 @@ struct cmdctx {
 	int from_stdin;
 	int to_ascii;
 	int to_oem;
+	int no_chcp;
 	enum color_method_enum color_method_req;
 	enum color_method_enum color_method;
 	char msgbuf[1000];
@@ -193,6 +194,12 @@ static void initialize_output_stream(struct cmdctx *cc)
 	if(cc->have_windows_console && !cc->to_ascii && !cc->to_oem) {
 		cc->use_fwputs = 1;
 		(void)_setmode(_fileno(cc->msgs_FILE), _O_U16TEXT);
+	}
+
+	if(!cc->have_windows_console && !cc->to_ascii && !cc->to_oem && !cc->no_chcp) {
+		// There are some situations in which it helps to declare the code page
+		// that our output uses.
+		de_winconsole_set_UTF8_CP(cc->plctx);
 	}
 
 	switch(cc->color_method_req) {
@@ -392,7 +399,7 @@ enum opt_id_enum {
  DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP, DE_OPT_LICENSE, DE_OPT_ID,
  DE_OPT_MAINONLY, DE_OPT_AUXONLY, DE_OPT_EXTRACTALL, DE_OPT_ZIP, DE_OPT_TAR,
  DE_OPT_TOSTDOUT, DE_OPT_MSGSTOSTDERR, DE_OPT_FROMSTDIN, DE_OPT_COLOR,
- DE_OPT_ENCODING,
+ DE_OPT_NOCHCP, DE_OPT_ENCODING,
  DE_OPT_EXTOPT, DE_OPT_FILE, DE_OPT_FILE2, DE_OPT_INENC, DE_OPT_INTZ,
  DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_MODCODES, DE_OPT_O, DE_OPT_OD,
  DE_OPT_K, DE_OPT_K2, DE_OPT_K3, DE_OPT_KA, DE_OPT_KA2, DE_OPT_KA3,
@@ -447,6 +454,7 @@ struct opt_struct option_array[] = {
 	{ "ka3",          DE_OPT_KA3,          0 },
 	{ "license",      DE_OPT_LICENSE,      0 },
 	{ "id",           DE_OPT_ID,           0 },
+	{ "nochcp",       DE_OPT_NOCHCP,       0 },
 	{ "enc",          DE_OPT_ENCODING,     1 },
 	{ "opt",          DE_OPT_EXTOPT,       1 },
 	{ "file",         DE_OPT_FILE,         1 },
@@ -696,6 +704,9 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_ID:
 				de_set_id_mode(c, 1);
+				break;
+			case DE_OPT_NOCHCP:
+				cc->no_chcp = 1;
 				break;
 			case DE_OPT_MAINONLY:
 				de_set_extract_policy(c, DE_EXTRACTPOLICY_MAINONLY);

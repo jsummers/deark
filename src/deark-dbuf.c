@@ -779,7 +779,7 @@ void dbuf_copy_at(dbuf *inf, i64 input_offset, i64 input_len,
 struct de_stringreaderdata *dbuf_read_string(dbuf *f, i64 pos,
 	i64 max_bytes_to_scan,
 	i64 max_bytes_to_keep,
-	unsigned int flags, de_encoding encoding)
+	unsigned int flags, de_ext_encoding ee)
 {
 	deark *c = f->c;
 	struct de_stringreaderdata *srd;
@@ -842,7 +842,7 @@ struct de_stringreaderdata *dbuf_read_string(dbuf *f, i64 pos,
 	srd->sz = de_malloc(c, bytes_to_malloc);
 	dbuf_read(f, (u8*)srd->sz, pos, bytes_to_malloc-1); // The last byte remains NUL
 
-	ucstring_append_bytes(srd->str, (const u8*)srd->sz, bytes_to_malloc-1, 0, encoding);
+	ucstring_append_bytes(srd->str, (const u8*)srd->sz, bytes_to_malloc-1, 0, ee);
 
 	if(flags&DE_CONVFLAG_WANT_UTF8) {
 		srd->sz_utf8_strlen = (size_t)ucstring_count_utf8_bytes(srd->str);
@@ -876,7 +876,7 @@ void de_destroy_stringreaderdata(deark *c, struct de_stringreaderdata *srd)
 // Read (up to) len bytes from f, translate them to characters, and append
 // them to s.
 void dbuf_read_to_ucstring(dbuf *f, i64 pos, i64 len,
-	de_ucstring *s, unsigned int conv_flags, de_encoding encoding)
+	de_ucstring *s, unsigned int conv_flags, de_ext_encoding ee)
 {
 	u8 *buf = NULL;
 	deark *c = f->c;
@@ -890,15 +890,15 @@ void dbuf_read_to_ucstring(dbuf *f, i64 pos, i64 len,
 
 	buf = de_malloc(c, len);
 	dbuf_read(f, buf, pos, len);
-	ucstring_append_bytes(s, buf, len, 0, encoding);
+	ucstring_append_bytes(s, buf, len, 0, ee);
 	de_free(c, buf);
 }
 
 void dbuf_read_to_ucstring_n(dbuf *f, i64 pos, i64 len, i64 max_len,
-	de_ucstring *s, unsigned int conv_flags, de_encoding encoding)
+	de_ucstring *s, unsigned int conv_flags, de_ext_encoding ee)
 {
 	if(len>max_len) len=max_len;
-	dbuf_read_to_ucstring(f, pos, len, s, conv_flags, encoding);
+	dbuf_read_to_ucstring(f, pos, len, s, conv_flags, ee);
 }
 
 static int dbufmemcmp_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,

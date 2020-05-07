@@ -1174,7 +1174,7 @@ void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s,
 }
 
 void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1,
-	unsigned int flags, de_encoding encoding)
+	unsigned int flags, de_ext_encoding ee)
 {
 	de_ucstring *fname;
 
@@ -1183,7 +1183,7 @@ void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1,
 		return;
 	}
 	fname = ucstring_create(c);
-	ucstring_append_sz(fname, name1, encoding);
+	ucstring_append_sz(fname, name1, ee);
 	de_finfo_set_name_internal(c, fi, fname, flags);
 }
 

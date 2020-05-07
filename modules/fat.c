@@ -813,9 +813,6 @@ static void de_run_fat(deark *c, de_module_params *mparams)
 	}
 
 	d->input_encoding = de_get_input_encoding(c, mparams, default_encoding);
-	if(d->input_encoding==DE_ENCODING_CP437_C) { // hack
-		d->input_encoding=DE_ENCODING_CP437_G;
-	}
 
 	// TODO: Detect MBR?
 	if(!do_boot_sector(c, d, 0)) goto done;

@@ -263,23 +263,23 @@ static void do_read_filename(deark *c, lctx *d,
 	de_encoding from_encoding;
 
 	ucstring_empty(dd->fname);
-	from_encoding = utf8_flag ? DE_ENCODING_UTF8 : DE_ENCODING_CP437_G;
+	from_encoding = utf8_flag ? DE_ENCODING_UTF8 : DE_ENCODING_CP437;
 	dbuf_read_to_ucstring(c->infile, pos, len, dd->fname, 0, from_encoding);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(dd->fname));
 }
 
-static void do_comment_display(deark *c, lctx *d, i64 pos, i64 len, de_encoding encoding,
+static void do_comment_display(deark *c, lctx *d, i64 pos, i64 len, de_ext_encoding ee,
 	const char *name)
 {
 	de_ucstring *s = NULL;
 
 	s = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos, len, s, 0, encoding);
+	dbuf_read_to_ucstring(c->infile, pos, len, s, 0, ee);
 	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz_d(s));
 	ucstring_destroy(s);
 }
 
-static void do_comment_extract(deark *c, lctx *d, i64 pos, i64 len, de_encoding encoding,
+static void do_comment_extract(deark *c, lctx *d, i64 pos, i64 len, de_ext_encoding ee,
 	const char *ext)
 {
 	dbuf *f = NULL;
@@ -287,7 +287,7 @@ static void do_comment_extract(deark *c, lctx *d, i64 pos, i64 len, de_encoding 
 
 	f = dbuf_create_output_file(c, ext, NULL, DE_CREATEFLAG_IS_AUX);
 	s = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos, len, s, 0, encoding);
+	dbuf_read_to_ucstring(c->infile, pos, len, s, 0, ee);
 	ucstring_write_as_utf8(c, s, f, 1);
 	ucstring_destroy(s);
 }
@@ -295,15 +295,16 @@ static void do_comment_extract(deark *c, lctx *d, i64 pos, i64 len, de_encoding 
 static void do_comment(deark *c, lctx *d, i64 pos, i64 len, int utf8_flag,
 	const char *name, const char *ext)
 {
-	de_encoding encoding;
+	de_ext_encoding ee;
 
 	if(len<1) return;
-	encoding = utf8_flag ? DE_ENCODING_UTF8 : DE_ENCODING_CP437_C;
+	ee = utf8_flag ? DE_ENCODING_UTF8 : DE_ENCODING_CP437;
+	ee = DE_EXTENC_MAKE(ee, DE_ENCSUBTYPE_HYBRID);
 	if(c->extract_level>=2) {
-		do_comment_extract(c, d, pos, len, encoding, ext);
+		do_comment_extract(c, d, pos, len, ee, ext);
 	}
 	else {
-		do_comment_display(c, d, pos, len, encoding, name);
+		do_comment_display(c, d, pos, len, ee, name);
 	}
 }
 
