@@ -383,21 +383,6 @@ done:
 	de_dbg(c, "number of entries: %u", num_entries_total);
 }
 
-#if 0
-static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *name)
-{
-	char timestamp_buf[64];
-
-	if(ts->is_valid) {
-		de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
-	}
-	else {
-		de_strlcpy(timestamp_buf, "(not set)", sizeof(timestamp_buf));
-	}
-	de_dbg(c, "%s: %s", name, timestamp_buf);
-}
-#endif
-
 static void dbg_id(deark *c, lctx *d, i64 pos, const char *name)
 {
 	i64 n;
@@ -411,6 +396,42 @@ static void dbg_id(deark *c, lctx *d, i64 pos, const char *name)
 	dbuf_read_fourcc(c->infile, pos, &id4cc, 4, 0x0);
 	de_dbg(c, "%s: %"I64_FMT" (0x%08x, '%s')", name, n, (UI)n,
 		id4cc.id_dbgstr);
+}
+
+static void read_timestamp(deark *c, lctx *d, i64 pos, struct de_timestamp *ts,
+	const char *name)
+{
+	i64 datetime_raw;
+	i64 date_raw, time_raw;
+	struct de_timestamp tmp_timestamp;
+	char timestamp_buf[64];
+
+	de_zeromem(ts, sizeof(struct de_timestamp));
+
+	// The timestamp is said to be "MS-DOS formatted", but that's uncomfortably
+	// vague, and bogus timestamps seem to be common.
+
+	datetime_raw = de_getu32le_p(&pos);
+	de_dbg(c, "%s time: %"I64_FMT, name, datetime_raw);
+	if(datetime_raw==0) return;
+
+	de_dbg_indent(c, 1);
+	time_raw = datetime_raw & 0xffff;
+	date_raw = (datetime_raw >> 16) & 0xffff;
+
+	de_zeromem(&tmp_timestamp, sizeof(struct de_timestamp));
+	de_dos_datetime_to_timestamp(&tmp_timestamp, date_raw, time_raw);
+	tmp_timestamp.tzcode = DE_TZCODE_LOCAL;
+	de_timestamp_to_string(&tmp_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "... if DOS time/date: %s", timestamp_buf);
+
+	// Autodesk animator was first released in 1989. Assume timestamps older than
+	// the middle of 1988 are bogus.
+	if(de_timestamp_to_unix_time(&tmp_timestamp) >= 583718400) {
+		*ts = tmp_timestamp;
+	}
+
+	de_dbg_indent(c, -1);
 }
 
 static void do_chunk_FLI_FLC(deark *c, lctx *d, struct chunk_info_type *ci)
@@ -465,35 +486,13 @@ static void do_chunk_FLI_FLC(deark *c, lctx *d, struct chunk_info_type *ci)
 	}
 
 	if(ci->chunktype==CHUNKTYPE_FLC) {
-		i64 time_raw;
-#if 0
-		i64 date_raw;
-#endif
-
-		// TODO: Figure out the timestamp format.
-#if 0
-		time_raw = de_getu16le_p(&pos);
-		date_raw = de_getu16le_p(&pos);
-		de_dos_datetime_to_timestamp(&d->create_timestamp, date_raw, time_raw);
-		d->create_timestamp.tzcode = DE_TZCODE_LOCAL;
-		dbg_timestamp(c, &d->create_timestamp, "create time");
-#else
-		time_raw = de_getu32le_p(&pos);
-		de_dbg(c, "create time: %"I64_FMT, time_raw);
-#endif
+		read_timestamp(c, d, pos, &d->create_timestamp, "create");
+		pos += 4;
 		dbg_id(c, d, pos, "creator ID");
 		pos += 4;
 
-#if 0
-		time_raw = de_getu16le_p(&pos);
-		date_raw = de_getu16le_p(&pos);
-		de_dos_datetime_to_timestamp(&d->mod_timestamp, date_raw, time_raw);
-		d->mod_timestamp.tzcode = DE_TZCODE_LOCAL;
-		dbg_timestamp(c, &d->mod_timestamp, "mod time");
-#else
-		time_raw = de_getu32le_p(&pos);
-		de_dbg(c, "mod time: %"I64_FMT, time_raw);
-#endif
+		read_timestamp(c, d, pos, &d->mod_timestamp, "mod");
+		pos += 4;
 		dbg_id(c, d, pos, "updater ID");
 		pos += 4;
 
