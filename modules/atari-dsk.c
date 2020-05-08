@@ -134,6 +134,7 @@ static void do_directory_entry(deark *c, lctx *d, dbuf *f, i64 pos)
 	de_ucstring *fn_ext = NULL;
 	de_finfo *fi = NULL;
 	dbuf *outf = NULL;
+	de_ext_encoding fn_encoding;
 
 	flags = dbuf_getbyte(f, pos);
 	de_dbg(c, "flags: 0x%02x", (unsigned int)flags);
@@ -161,8 +162,9 @@ static void do_directory_entry(deark *c, lctx *d, dbuf *f, i64 pos)
 	fn_ext = ucstring_create(c);
 
 	// TODO: Use correct Atari encoding.
-	dbuf_read_to_ucstring(f, pos+5, 8, fn_u, 0, DE_ENCODING_PRINTABLEASCII);
-	dbuf_read_to_ucstring(f, pos+13, 3, fn_ext, 0, DE_ENCODING_PRINTABLEASCII);
+	fn_encoding = DE_EXTENC_MAKE(DE_ENCODING_ASCII, DE_ENCSUBTYPE_PRINTABLE);
+	dbuf_read_to_ucstring(f, pos+5, 8, fn_u, 0,fn_encoding);
+	dbuf_read_to_ucstring(f, pos+13, 3, fn_ext, 0, fn_encoding);
 	de_dbg(c, "filename: \"%s.%s\"",
 		ucstring_getpsz(fn_u), ucstring_getpsz(fn_ext));
 	ucstring_strip_trailing_spaces(fn_u);

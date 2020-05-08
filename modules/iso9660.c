@@ -772,7 +772,7 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 	u8 specialfnbyte;
 	de_ucstring *tmps = NULL;
 	int retval = 0;
-	int file_id_encoding;
+	de_ext_encoding file_id_encoding;
 
 	dr->len_dir_rec = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "dir rec len: %u", (unsigned int)dr->len_dir_rec);
@@ -836,7 +836,7 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 
 	if(specialfnbyte==0x00 || specialfnbyte==0x01) {
 		// To better display the "thisdir" and "parentdir" directory entries
-		file_id_encoding = DE_ENCODING_PRINTABLEASCII;
+		file_id_encoding = DE_EXTENC_MAKE(DE_ENCODING_ASCII, DE_ENCSUBTYPE_PRINTABLE);
 	}
 	else if(d->vol->encoding!=DE_ENCODING_UNKNOWN) {
 		file_id_encoding = d->vol->encoding;

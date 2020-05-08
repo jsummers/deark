@@ -1473,9 +1473,10 @@ done:
 }
 
 static void handle_comment(deark *c, lctx *d, i64 pos, i64 comment_size,
-   de_encoding encoding)
+   de_encoding encoding_base)
 {
 	de_ucstring *s = NULL;
+	de_ext_encoding encoding_ext;
 	int write_to_file;
 
 	// If c->extract_level>=2, write the comment to a file;
@@ -1488,21 +1489,24 @@ static void handle_comment(deark *c, lctx *d, i64 pos, i64 comment_size,
 
 	write_to_file = (c->extract_level>=2);
 
-	if(write_to_file && encoding==DE_ENCODING_UNKNOWN) {
+	if(write_to_file && encoding_base==DE_ENCODING_UNKNOWN) {
 		// If we don't know the encoding, dump the raw bytes to a file.
 		dbuf_create_file_from_slice(c->infile, pos, comment_size, "comment.txt",
 			NULL, DE_CREATEFLAG_IS_AUX);
 		goto done;
 	}
 
-	if(encoding==DE_ENCODING_UNKNOWN) {
+	if(encoding_base==DE_ENCODING_UNKNOWN) {
 		// In this case, we're printing the comment in the debug info.
 		// If we don't know the encoding, pretend it's ASCII-like.
-		encoding=DE_ENCODING_PRINTABLEASCII;
+		encoding_ext = DE_EXTENC_MAKE(DE_ENCODING_ASCII, DE_ENCSUBTYPE_PRINTABLE);
+	}
+	else {
+		encoding_ext = encoding_base;
 	}
 
 	s = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos, comment_size, s, 0, encoding);
+	dbuf_read_to_ucstring(c->infile, pos, comment_size, s, 0, encoding_ext);
 
 	if(write_to_file) {
 		dbuf *outf = NULL;

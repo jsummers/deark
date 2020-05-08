@@ -214,7 +214,7 @@ static int read_phys_member_header(deark *c, lctx *d,
 	if(c->debug_level>=2) {
 		ucstring_empty(tmpstr);
 		dbuf_read_to_ucstring(c->infile, pos, 8, tmpstr, 0,
-			DE_ENCODING_PRINTABLEASCII);
+			DE_EXTENC_MAKE(DE_ENCODING_ASCII, DE_ENCSUBTYPE_PRINTABLE));
 		de_dbg2(c, "magic/version: \"%s\"", ucstring_getpsz_d(tmpstr));
 	}
 	pos += 6; // magic
