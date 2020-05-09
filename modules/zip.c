@@ -397,11 +397,13 @@ static void ef_extended_timestamp(deark *c, lctx *d, struct extra_item_info_stru
 	if(has_atime) {
 		if(pos+4>endpos) return;
 		read_unix_timestamp(c, d, pos, &timestamp_tmp, "atime");
+		apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_ACCESS, &timestamp_tmp, 50);
 		pos+=4;
 	}
 	if(has_ctime) {
 		if(pos+4>endpos) return;
 		read_unix_timestamp(c, d, pos, &timestamp_tmp, "creation time");
+		apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_CREATE, &timestamp_tmp, 50);
 		pos+=4;
 	}
 }
@@ -415,6 +417,7 @@ static void ef_infozip1(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	if(eii->is_central && eii->dlen<8) return;
 	if(!eii->is_central && eii->dlen<12) return;
 	read_unix_timestamp(c, d, eii->dpos, &timestamp_tmp, "atime");
+	apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_ACCESS, &timestamp_tmp, 45);
 	read_unix_timestamp(c, d, eii->dpos+4, &timestamp_tmp, "mtime");
 	apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_MODIFY, &timestamp_tmp, 45);
 	if(!eii->is_central) {
@@ -534,7 +537,9 @@ static void ef_ntfs(deark *c, lctx *d, struct extra_item_info_struct *eii)
 			read_FILETIME(c, d, pos, &timestamp_tmp, "mtime");
 			apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_MODIFY, &timestamp_tmp, 90);
 			read_FILETIME(c, d, pos+8, &timestamp_tmp, "atime");
+			apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_ACCESS, &timestamp_tmp, 90);
 			read_FILETIME(c, d, pos+16, &timestamp_tmp, "creation time");
+			apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_CREATE, &timestamp_tmp, 90);
 		}
 		de_dbg_indent(c, -1);
 
@@ -707,11 +712,17 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	backup_time_offset = dbuf_geti32le(attr_data, dpos); dpos += 4;
 
 	handle_mac_time(c, d, create_time_raw, create_time_offset, &tmp_timestamp, "create time");
+	if(create_time_raw>0) {
+		apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_CREATE, &tmp_timestamp, 40);
+	}
 	handle_mac_time(c, d, mod_time_raw,    mod_time_offset,    &tmp_timestamp, "mod time   ");
 	if(mod_time_raw>0) {
 		apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_MODIFY, &tmp_timestamp, 40);
 	}
 	handle_mac_time(c, d, backup_time_raw, backup_time_offset, &tmp_timestamp, "backup time");
+	if(backup_time_raw>0) {
+		apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_BACKUP, &tmp_timestamp, 40);
+	}
 
 	// Expecting 2 bytes for charset, and at least 2 more for the 2 NUL-terminated
 	// strings that follow.
@@ -891,6 +902,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	de_finfo *fi = NULL;
 	struct dir_entry_data *ldd = &md->local_dir_entry_data;
 	u32 crc_calculated;
+	int tsidx;
 	int ret;
 
 	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, md->file_data_pos,
@@ -928,8 +940,10 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		fi->original_filename_flag = 1;
 	}
 
-	if(md->tsdata[DE_TIMESTAMPIDX_MODIFY].ts.is_valid) {
-		fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->tsdata[DE_TIMESTAMPIDX_MODIFY].ts;
+	for(tsidx=0; tsidx<DE_TIMESTAMPIDX_COUNT; tsidx++) {
+		if(md->tsdata[tsidx].ts.is_valid) {
+			fi->timestamp[tsidx] = md->tsdata[tsidx].ts;
+		}
 	}
 
 	if(md->is_dir) {
