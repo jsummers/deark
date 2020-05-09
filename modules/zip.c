@@ -51,6 +51,11 @@ struct dir_entry_data {
 	de_ucstring *fname;
 };
 
+struct timestamp_data {
+	struct de_timestamp ts; // The best timestamp of this type found so far
+	int quality;
+};
+
 struct member_data {
 	unsigned int ver_made_by;
 	unsigned int ver_made_by_hi, ver_made_by_lo;
@@ -63,8 +68,7 @@ struct member_data {
 	int is_dir;
 	int is_symlink;
 	struct de_crcobj *crco; // copy of lctx::crco
-	struct de_timestamp mod_time; // The best timestamp found so far
-	int mod_time_quality;
+	struct timestamp_data tsdata[DE_TIMESTAMPIDX_COUNT];
 
 	struct dir_entry_data central_dir_entry_data;
 	struct dir_entry_data local_dir_entry_data;
@@ -242,7 +246,7 @@ done:
 // which can differ in their precision, and whether they use UTC.
 // This function is called to remember the "best" file modification time
 // encountered so far.
-static void apply_mod_time(deark *c, lctx *d, struct member_data *md,
+static void apply_timestamp(deark *c, lctx *d, struct member_data *md, int tstype,
 	const struct de_timestamp *ts, int quality)
 {
 	if(!ts->is_valid) return;
@@ -250,9 +254,9 @@ static void apply_mod_time(deark *c, lctx *d, struct member_data *md,
 	// In case of a tie, we prefer the later timestamp that we encountered.
 	// This makes local headers have priority over central headers, for
 	// example.
-	if(quality >= md->mod_time_quality) {
-		md->mod_time = *ts;
-		md->mod_time_quality = quality;
+	if(quality >= md->tsdata[tstype].quality) {
+		md->tsdata[tstype].ts = *ts;
+		md->tsdata[tstype].quality = quality;
 	}
 }
 
@@ -387,7 +391,7 @@ static void ef_extended_timestamp(deark *c, lctx *d, struct extra_item_info_stru
 	if(has_mtime) {
 		if(pos+4>endpos) return;
 		read_unix_timestamp(c, d, pos, &timestamp_tmp, "mtime");
-		apply_mod_time(c, d, eii->md, &timestamp_tmp, 50);
+		apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_MODIFY, &timestamp_tmp, 50);
 		pos+=4;
 	}
 	if(has_atime) {
@@ -412,7 +416,7 @@ static void ef_infozip1(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	if(!eii->is_central && eii->dlen<12) return;
 	read_unix_timestamp(c, d, eii->dpos, &timestamp_tmp, "atime");
 	read_unix_timestamp(c, d, eii->dpos+4, &timestamp_tmp, "mtime");
-	apply_mod_time(c, d, eii->md, &timestamp_tmp, 45);
+	apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_MODIFY, &timestamp_tmp, 45);
 	if(!eii->is_central) {
 		uidnum = de_getu16le(eii->dpos+8);
 		gidnum = de_getu16le(eii->dpos+10);
@@ -528,7 +532,7 @@ static void ef_ntfs(deark *c, lctx *d, struct extra_item_info_struct *eii)
 		de_dbg_indent(c, 1);
 		if(attr_tag==0x0001 && attr_size>=24) {
 			read_FILETIME(c, d, pos, &timestamp_tmp, "mtime");
-			apply_mod_time(c, d, eii->md, &timestamp_tmp, 90);
+			apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_MODIFY, &timestamp_tmp, 90);
 			read_FILETIME(c, d, pos+8, &timestamp_tmp, "atime");
 			read_FILETIME(c, d, pos+16, &timestamp_tmp, "creation time");
 		}
@@ -705,7 +709,7 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	handle_mac_time(c, d, create_time_raw, create_time_offset, &tmp_timestamp, "create time");
 	handle_mac_time(c, d, mod_time_raw,    mod_time_offset,    &tmp_timestamp, "mod time   ");
 	if(mod_time_raw>0) {
-		apply_mod_time(c, d, eii->md, &tmp_timestamp, 40);
+		apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_MODIFY, &tmp_timestamp, 40);
 	}
 	handle_mac_time(c, d, backup_time_raw, backup_time_offset, &tmp_timestamp, "backup time");
 
@@ -751,7 +755,7 @@ static void ef_acorn(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	de_fmtutil_riscos_read_load_exec(c, c->infile, &rfa, pos);
 	pos += 8;
 	if(rfa.mod_time.is_valid) {
-		apply_mod_time(c, d, eii->md, &rfa.mod_time, 70);
+		apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_MODIFY, &rfa.mod_time, 70);
 	}
 
 	de_fmtutil_riscos_read_attribs_field(c, c->infile, &rfa, pos, 0);
@@ -924,8 +928,8 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		fi->original_filename_flag = 1;
 	}
 
-	if(md->mod_time.is_valid) {
-		fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->mod_time;
+	if(md->tsdata[DE_TIMESTAMPIDX_MODIFY].ts.is_valid) {
+		fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->tsdata[DE_TIMESTAMPIDX_MODIFY].ts;
 	}
 
 	if(md->is_dir) {
@@ -1184,7 +1188,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	dos_timestamp.tzcode = DE_TZCODE_LOCAL;
 	de_dbg_timestamp_to_string(c, &dos_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %s", timestamp_buf);
-	apply_mod_time(c, d, md, &dos_timestamp, 10);
+	apply_timestamp(c, d, md, DE_TIMESTAMPIDX_MODIFY, &dos_timestamp, 10);
 
 	dd->crc_reported = (u32)de_getu32le_p(&pos);
 	de_dbg(c, "crc (reported): 0x%08x", (unsigned int)dd->crc_reported);
