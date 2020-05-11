@@ -8,22 +8,26 @@
 #include "deark-config.h"
 #include "deark-private.h"
 
+struct timestamp_data {
+	struct de_timestamp timestamp;
+	i64 timestamp_unix; // Same time as .timestamp, for convenience
+	u8 need_exthdr;
+	char exthdr_sz[32];
+};
+
 struct tar_md {
 	u8 is_dir;
 	u8 has_exthdr;
 	u8 need_exthdr_size;
 	u8 need_exthdr_path;
-	u8 need_exthdr_mtime;
 	size_t namelen;
 	i64 headers_pos;
 	i64 headers_size;
-	struct de_timestamp modtime;
-	i64 modtime_unix; // Same time as .modtime, for convenience
 	i64 exthdr_num_data_blocks;
 	i64 extdata_nbytes_needed;
 	i64 extdata_nbytes_used;
 	char *filename;
-	char mtime_exthdr[32];
+	struct timestamp_data tsdata[DE_TIMESTAMPIDX_COUNT];
 };
 
 struct tar_ctx {
@@ -96,43 +100,42 @@ void de_tar_close_file(deark *c)
 	c->tar_data = NULL;
 }
 
-static void prepare_mtime_exthdr(deark *c, struct tar_md *md)
+static void prepare_timestamp_exthdr(deark *c, struct tar_md *md, int tsidx)
 {
 	i64 unix_time;
 	i64 subsec = 0;
 	int is_high_prec = 0;
-	const struct de_timestamp *ts;
+	struct timestamp_data *tsd = &md->tsdata[tsidx];
 
-	if(!md->modtime.is_valid) return;
-	ts = &md->modtime;
+	if(!tsd->timestamp.is_valid) return;
 
-	unix_time = md->modtime_unix;
+	unix_time = tsd->timestamp_unix;
 
-	if(unix_time>=0 && ts->precision>DE_TSPREC_1SEC) {
-		subsec = de_timestamp_get_subsec(ts);
+	if(unix_time>=0 && tsd->timestamp.precision>DE_TSPREC_1SEC) {
+		subsec = de_timestamp_get_subsec(&tsd->timestamp);
 		if(subsec!=0) is_high_prec = 1;
 	}
 
-	if(is_high_prec || unix_time<0 || unix_time>0x1ffffffffLL) {
-		md->need_exthdr_mtime = 1;
+	if(tsidx!=DE_TIMESTAMPIDX_MODIFY || is_high_prec || unix_time<0 || unix_time>0x1ffffffffLL) {
+		tsd->need_exthdr = 1;
 	}
 	else {
 		return;
 	}
 
 	if(is_high_prec) {
-		de_snprintf(md->mtime_exthdr, sizeof(md->mtime_exthdr),
+		de_snprintf(tsd->exthdr_sz, sizeof(tsd->exthdr_sz),
 			"%"I64_FMT".%07"I64_FMT, unix_time, subsec);
 	}
 	else {
-		de_snprintf(md->mtime_exthdr, sizeof(md->mtime_exthdr),
+		de_snprintf(tsd->exthdr_sz, sizeof(tsd->exthdr_sz),
 			"%"I64_FMT, unix_time);
 	}
 
 	// Max length for this item is around 29, so we allow 2 bytes for the
 	// length field.
 	// E.g. "28 mtime=1222333444.5555555\n"
-	md->extdata_nbytes_needed += 2 + 1 + 5 + 1 + (i64)de_strlen(md->mtime_exthdr) + 1;
+	md->extdata_nbytes_needed += 2 + 1 + 5 + 1 + (i64)de_strlen(tsd->exthdr_sz) + 1;
 }
 
 // f is type DBUF_TYPE_ODBUF, in the process of being created.
@@ -142,6 +145,7 @@ void de_tar_start_member_file(deark *c, dbuf *f)
 {
 	struct tar_ctx *tctx = NULL;
 	struct tar_md *md = NULL;
+	int tsidx;
 
 	if(!c->tar_data) {
 		de_tar_create_file(c);
@@ -156,20 +160,34 @@ void de_tar_start_member_file(deark *c, dbuf *f)
 
 	md->headers_pos = tctx->outf->len;
 
-	if(c->preserve_file_times_archives && f->fi_copy && f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY].is_valid) {
-		md->modtime = f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY];
+	if(c->preserve_file_times_archives && f->fi_copy) {
+		for(tsidx=0; tsidx<DE_TIMESTAMPIDX_COUNT; tsidx++) {
+			//if(tsidx != DE_TIMESTAMPIDX_MODIFY) continue;
+
+			if(f->fi_copy->timestamp[tsidx].is_valid) {
+				md->tsdata[tsidx].timestamp = f->fi_copy->timestamp[tsidx];
+			}
+			else if(tsidx == DE_TIMESTAMPIDX_MODIFY) {
+				// Special handling if we don't have a mod time.
+				if(c->reproducible_output) {
+					de_get_reproducible_timestamp(c, &md->tsdata[tsidx].timestamp);
+				}
+				else {
+					de_cached_current_time_to_timestamp(c, &md->tsdata[tsidx].timestamp);
+					// Although c->current_time is probably high precision, we treat it as
+					// low precision, so as not to write an "mtime" extended header.
+					// TODO: If we write "mtime" for some other reason, it can be high prec.
+					md->tsdata[tsidx].timestamp.precision = DE_TSPREC_1SEC;
+				}
+			}
+			else {
+				// Unavailable timestamp that isn't the mod time.
+				continue;
+			}
+
+			md->tsdata[tsidx].timestamp_unix = de_timestamp_to_unix_time(&md->tsdata[tsidx].timestamp);
+		}
 	}
-	else if(c->reproducible_output) {
-		de_get_reproducible_timestamp(c, &md->modtime);
-	}
-	else {
-		de_cached_current_time_to_timestamp(c, &md->modtime);
-		// Although c->current_time is probably high precision, we treat it as
-		// low precision, so as not to write an "mtime" extended header.
-		// TODO: If we write "mtime" for some other reason, it can be high prec.
-		md->modtime.precision = DE_TSPREC_1SEC;
-	}
-	md->modtime_unix = de_timestamp_to_unix_time(&md->modtime);
 
 	if(f->fi_copy && f->fi_copy->is_directory) {
 		md->is_dir = 1;
@@ -201,7 +219,10 @@ void de_tar_start_member_file(deark *c, dbuf *f)
 		md->extdata_nbytes_needed += (i64)md->namelen + 13;
 	}
 
-	prepare_mtime_exthdr(c, md);
+	prepare_timestamp_exthdr(c, md, DE_TIMESTAMPIDX_MODIFY);
+	prepare_timestamp_exthdr(c, md, DE_TIMESTAMPIDX_ACCESS);
+	prepare_timestamp_exthdr(c, md, DE_TIMESTAMPIDX_ATTRCHANGE);
+	prepare_timestamp_exthdr(c, md, DE_TIMESTAMPIDX_CREATE);
 
 	if(md->extdata_nbytes_needed>0) {
 		md->has_exthdr = 1;
@@ -337,7 +358,7 @@ static void set_common_header_fields(deark *c, struct tar_ctx *tctx,
 	// gid
 	format_and_write_ascii_octal_field(c, tctx, 0, 8, hdr, 116);
 	// mtime
-	format_and_write_ascii_octal_field(c, tctx, md->modtime_unix, 12, hdr, 136);
+	format_and_write_ascii_octal_field(c, tctx, md->tsdata[DE_TIMESTAMPIDX_MODIFY].timestamp_unix, 12, hdr, 136);
 	// magic/version
 	dbuf_write_at(hdr, 257, (const u8*)"ustar\0" "00", 8);
 	format_and_write_ascii_field(c, tctx, "root", 32, hdr, 265); // uname
@@ -447,8 +468,17 @@ static void make_exthdrs(deark *c, struct tar_ctx *tctx,
 		add_exthdr_item(c, tctx, extdata, "path", md->filename, &extdata_len);
 	}
 
-	if(md->need_exthdr_mtime) {
-		add_exthdr_item(c, tctx, extdata, "mtime", md->mtime_exthdr, &extdata_len);
+	if(md->tsdata[DE_TIMESTAMPIDX_MODIFY].need_exthdr) {
+		add_exthdr_item(c, tctx, extdata, "mtime", md->tsdata[DE_TIMESTAMPIDX_MODIFY].exthdr_sz, &extdata_len);
+	}
+	if(md->tsdata[DE_TIMESTAMPIDX_ACCESS].need_exthdr) {
+		add_exthdr_item(c, tctx, extdata, "atime", md->tsdata[DE_TIMESTAMPIDX_ACCESS].exthdr_sz, &extdata_len);
+	}
+	if(md->tsdata[DE_TIMESTAMPIDX_ATTRCHANGE].need_exthdr) {
+		add_exthdr_item(c, tctx, extdata, "ctime", md->tsdata[DE_TIMESTAMPIDX_ATTRCHANGE].exthdr_sz, &extdata_len);
+	}
+	if(md->tsdata[DE_TIMESTAMPIDX_CREATE].need_exthdr) {
+		add_exthdr_item(c, tctx, extdata, "LIBARCHIVE.creationtime", md->tsdata[DE_TIMESTAMPIDX_CREATE].exthdr_sz, &extdata_len);
 	}
 
 	// We have to use exactly the number of exthdr data blocks that we
