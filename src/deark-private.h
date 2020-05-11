@@ -487,9 +487,7 @@ FILE* de_fopen_for_write(deark *c, const char *fn,
 int de_fseek(FILE *fp, i64 offs, int whence);
 i64 de_ftell(FILE *fp);
 int de_fclose(FILE *fp);
-
-void de_update_file_perms(dbuf *f);
-void de_update_file_time(dbuf *f);
+void de_update_file_attribs(dbuf *f, u8 preserve_file_times);
 
 void de_declare_fmt(deark *c, const char *fmtname);
 void de_declare_fmtf(deark *c, const char *fmt, ...)

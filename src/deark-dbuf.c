@@ -1708,11 +1708,7 @@ void dbuf_close(dbuf *f)
 		f->fp = NULL;
 
 		if(f->btype==DBUF_TYPE_OFILE && f->is_managed) {
-			de_update_file_perms(f);
-		}
-
-		if(f->btype==DBUF_TYPE_OFILE && f->is_managed && c->preserve_file_times) {
-			de_update_file_time(f);
+			de_update_file_attribs(f, c->preserve_file_times);
 		}
 		break;
 	case DBUF_TYPE_FIFO:
