@@ -434,7 +434,7 @@ static void do_image(deark *c, lctx *d)
 	}
 
 	fi = de_finfo_create(c);
-	fi->image_mod_time = d->timestamp;
+	fi->internal_mod_time = d->timestamp;
 
 	de_bitmap_write_to_file_finfo(img, fi, 0);
 

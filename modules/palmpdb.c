@@ -369,7 +369,7 @@ static void do_imgview_image(deark *c, lctx *d, i64 pos1, i64 len)
 	de_dbg(c, "image record at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
-	igi->fi->image_mod_time = d->mod_time;
+	igi->fi->internal_mod_time = d->mod_time;
 
 	iname = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, 32, iname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);

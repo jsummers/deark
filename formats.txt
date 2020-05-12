@@ -24,7 +24,7 @@ Deark -- Information about supported formats
 * ANI (Windows Animated Cursor) (part of module "riff")
   - Extract individual CUR and ICO files.
 
-* ANIM (Amiga IFF-ANIM) (module="anim") (expermimental)
+* ANIM (Amiga IFF-ANIM) (module="anim")
   - Supports most common formats.
   - Extract the individual frames.
   Options
@@ -166,7 +166,7 @@ Deark -- Information about supported formats
 
 * farbfeld (module="farbfeld")
 
-* FLI/FLC (Autodesk Animator) (module="fli") (experimental/incomplete)
+* FLI/FLC (Autodesk Animator) (module="fli")
   - Extract the (non-repeated) frames.
 
 * GEM VDI Bit Image (GEM Raster) (module="gemras")
@@ -615,7 +615,7 @@ Deark -- Information about supported formats
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
 
-* CD/raw (module="cd_raw") (experimental)
+* CD/raw (module="cd_raw")
   - Extract .ISO and other filesystem data from some raw CD images, such as
     the .BIN file in CUE/BIN format.
 
@@ -700,13 +700,13 @@ Deark -- Information about supported formats
    -opt spark:appendtype - Append the file type to the filename
    -opt spark:recurse=0 - Extract subdirectories as Spark files
 
-* Squash (module="squash") (experimental)
+* Squash (module="squash")
   A variant of "compress", used on RISC OS.
 
 * StuffIt (.sit) (module="stuffit")
   - Limited support. Old format only.
 
-* tar (module="tar") (experimental/incomplete)
+* tar (module="tar")
   - Rare files may need "-m tar", as tar is difficult to autodetect.
 
 * WOZ (module="woz") (incomplete)

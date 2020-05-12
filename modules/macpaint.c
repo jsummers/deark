@@ -64,7 +64,7 @@ static void do_read_bitmap(deark *c, lctx *d, i64 pos)
 	}
 
 	if(d->mod_time_from_macbinary.is_valid) {
-		fi->image_mod_time = d->mod_time_from_macbinary;
+		fi->internal_mod_time = d->mod_time_from_macbinary;
 	}
 
 	de_convert_and_write_image_bilevel(unc_pixels, 0,

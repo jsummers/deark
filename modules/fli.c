@@ -556,7 +556,7 @@ static void do_chunk_frame(deark *c, lctx *d, struct chunk_info_type *ci)
 
 			fi = de_finfo_create(c);
 			fi->density = ci->ictx->density;
-			fi->image_mod_time = d->mod_timestamp;
+			fi->internal_mod_time = d->mod_timestamp;
 			de_bitmap_write_to_file_finfo(ci->ictx->img, fi, 0);
 		}
 	}
@@ -586,7 +586,7 @@ static void do_chunk_thumbnail(deark *c, lctx *d, struct chunk_info_type *ci)
 	do_sequence_of_chunks(c, d, ci, pos, -1);
 
 	fi = de_finfo_create(c);
-	fi->image_mod_time = d->mod_timestamp;
+	fi->internal_mod_time = d->mod_timestamp;
 	if(d->aspect_x && d->aspect_y) {
 		// Evidence suggests the thumbnail has the same aspect ratio as the animation,
 		// at least approximately.

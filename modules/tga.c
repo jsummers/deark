@@ -170,7 +170,7 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 	}
 
 	if(d->mod_time.is_valid) {
-		fi->image_mod_time = d->mod_time;
+		fi->internal_mod_time = d->mod_time;
 	}
 
 	do_decode_image_default(c, d, imginfo, unc_pixels, fi, createflags);

@@ -461,7 +461,7 @@ deark *de_create_internal(void)
 	c->filenames_from_file = 1;
 	c->preserve_file_times = 1;
 	c->preserve_file_times_archives = 1;
-	c->preserve_file_times_images = 1;
+	c->preserve_file_times_internal = 1;
 	c->max_output_files = -1;
 	c->max_image_dimension = DE_DEFAULT_MAX_IMAGE_DIMENSION;
 	c->max_output_file_size = DE_DEFAULT_MAX_FILE_SIZE;
@@ -851,7 +851,7 @@ void de_set_preserve_file_times(deark *c, int setting, int x)
 		c->preserve_file_times_archives = x?1:0;
 	}
 	else if(setting==2) {
-		// For the tIME chunk in PNG files we generate.
+		// For the tIME chunk in PNG files we generate, and other internal timestamps.
 		// (Not currently used.)
 		// TODO: I'm undecided about whether this should be a user option, or
 		// just always be on.
@@ -859,7 +859,7 @@ void de_set_preserve_file_times(deark *c, int setting, int x)
 		// consistent to rename it, and use it for all "converted" formats,
 		// including e.g. the "Date" header item in ANSI Art files converted
 		// to HTML.
-		c->preserve_file_times_images = x?1:0;
+		c->preserve_file_times_internal = x?1:0;
 	}
 }
 
