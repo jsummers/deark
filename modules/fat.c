@@ -691,6 +691,8 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 	if(d->bytes_per_sector<32) goto done;
 	d->bytes_per_cluster = d->bytes_per_sector * d->sectors_per_cluster;
 	d->root_dir_sector = d->num_rsvd_sectors + d->num_sectors_per_fat * d->num_fats;
+	de_dbg(c, "root dir pos (calculated): %"I64_FMT" (sector %"I64_FMT")",
+		sectornum_to_offset(c, d, d->root_dir_sector), d->root_dir_sector);
 
 	// num_root_dir_sectors is expected to be 0 for FAT32.
 	num_root_dir_sectors = (d->max_root_dir_entries16*32 + d->bytes_per_sector - 1)/d->bytes_per_sector;
@@ -742,10 +744,6 @@ static int do_read_fat(deark *c, lctx *d)
 	de_dbg(c, "FAT#%d at %"I64_FMT, (int)fat_idx_to_read, pos1);
 	de_dbg_indent(c, 1);
 
-	if(d->num_fat_bits!=12) {
-		goto done;
-	}
-
 	if(d->num_cluster_identifiers > (i64)(DE_MAX_SANE_OBJECT_SIZE/sizeof(u32))) goto done;
 	d->num_fat_entries = d->num_cluster_identifiers;
 	d->fat_nextcluster = de_mallocarray(c, d->num_fat_entries, sizeof(u32));
@@ -766,7 +764,13 @@ static int do_read_fat(deark *c, lctx *d)
 			}
 		}
 	}
+	else if(d->num_fat_bits==16) {
+		for(i=0; i<d->num_fat_entries; i++) {
+			d->fat_nextcluster[i] = (u32)de_getu16le_p(&pos);
+		}
+	}
 	else {
+		de_err(c, "This type of FAT is not supported");
 		goto done;
 	}
 
@@ -885,7 +889,13 @@ static int de_identify_fat(deark *c)
 	media_descr = b[21];
 
 	if(bytes_per_sector!=512) return 0;
-	if(sectors_per_cluster!=1 && sectors_per_cluster!=2) return 0;
+	switch(sectors_per_cluster) {
+	case 1: case 2: case 4: case 8:
+	case 16: case 32: case 64: case 128:
+		break;
+	default:
+		return 0;
+	}
 	if(num_fats!=1 && num_fats!=2) return 0;
 	if(media_descr<0xe5 && media_descr!=0) return 0; // Media descriptor
 
