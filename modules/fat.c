@@ -284,6 +284,32 @@ done:
 	;
 }
 
+// Reads from md->fn_base* and md->fn_ext*, writes to md->short_fn
+static void decode_short_filename(deark *c, lctx *d, struct member_data *md)
+{
+	if(md->fn_base_len>0) {
+		ucstring_append_bytes(md->short_fn, md->fn_base, md->fn_base_len, 0, d->input_encoding);
+	}
+	else {
+		ucstring_append_char(md->short_fn, '_');
+	}
+	if(md->fn_ext_len>0) {
+		ucstring_append_char(md->short_fn, '.');
+		ucstring_append_bytes(md->short_fn, md->fn_ext, md->fn_ext_len, 0, d->input_encoding);
+	}
+}
+
+static void decode_volume_label_name(deark *c, lctx *d, struct member_data *md)
+{
+	if(md->fn_ext_len>0) {
+		ucstring_append_bytes(md->short_fn, md->fn_base, 8, 0, d->input_encoding);
+		ucstring_append_bytes(md->short_fn, md->fn_ext, md->fn_ext_len, 0, d->input_encoding);
+	}
+	else {
+		ucstring_append_bytes(md->short_fn, md->fn_base, md->fn_base_len, 0, d->input_encoding);
+	}
+}
+
 // Returns 0 if this is the end-of-directory marker.
 static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 	i64 pos1, int nesting_level)
@@ -292,6 +318,7 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 	i64 ddate, dtime;
 	int retval = 0;
 	int is_deleted = 0;
+	int is_volume_label = 0;
 	int need_curpath_pop = 0;
 	de_ucstring *descr = NULL;
 	struct member_data *md = NULL;
@@ -324,6 +351,7 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 		; // Normal file
 	}
 	else if((md->attribs & 0x18) == 0x08) {
+		is_volume_label = 1;
 		md->is_special = 1;
 	}
 	else if((md->attribs & 0x18) == 0x10) {
@@ -359,15 +387,11 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 	}
 
 	md->short_fn = ucstring_create(c);
-	if(md->fn_base_len>0) {
-		ucstring_append_bytes(md->short_fn, md->fn_base, md->fn_base_len, 0, d->input_encoding);
+	if(is_volume_label) {
+		decode_volume_label_name(c, d, md);
 	}
 	else {
-		ucstring_append_char(md->short_fn, '_');
-	}
-	if(md->fn_ext_len>0) {
-		ucstring_append_char(md->short_fn, '.');
-		ucstring_append_bytes(md->short_fn, md->fn_ext, md->fn_ext_len, 0, d->input_encoding);
+		decode_short_filename(c, d, md);
 	}
 
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->short_fn));
