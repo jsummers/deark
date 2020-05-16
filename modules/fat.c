@@ -626,6 +626,8 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 	i64 num_sectors_per_fat32 = 0;
 	i64 num_sectors16;
 	i64 num_sectors32 = 0;
+	i64 num_sectors_per_track;
+	i64 num_heads;
 	i64 jmpinstrlen;
 	u8 b;
 	u8 cksum_sig[2];
@@ -672,6 +674,11 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 	de_dbg(c, "media descriptor: 0x%02x", (UI)b);
 	num_sectors_per_fat16 = de_getu16le_p(&pos);
 	de_dbg(c, "sectors per FAT (if FAT12/16): %d", (int)num_sectors_per_fat16);
+
+	num_sectors_per_track = de_getu16le_p(&pos);
+	de_dbg(c, "sectors per track: %d", (int)num_sectors_per_track);
+	num_heads = de_getu16le_p(&pos);
+	de_dbg(c, "number of heads: %d", (int)num_heads);
 
 	pos = pos1+0x1fe;
 	de_read(cksum_sig, pos, 2);

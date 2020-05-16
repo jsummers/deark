@@ -688,7 +688,13 @@ Deark -- Information about supported formats
   - Extracted ".palm" files are in Palm BitmapType format. Reprocess them to
     convert to PNG.
 
-* RPM (package manager) (module="rpm)
+* Pasti (.stx) (module="pasti") (experimental)
+  - Atari ST disk image format.
+  Options
+   -opt pasti:toraw - Instead of decoding, extract to raw ".ST" format (this is
+     usually a FAT format).
+
+* RPM (package manager) (module="rpm")
   - Extract compressed cpio file.
 
 * SIS (EPOC/Symbian archive) (module="sis")
