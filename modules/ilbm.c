@@ -13,6 +13,7 @@ DE_DECLARE_MODULE(de_module_anim);
 
 #define ANIM_MAX_FRAMES 10000
 
+#define CODE_8SVX 0x38535658U
 #define CODE_ABIT 0x41424954U
 #define CODE_ACBM 0x4143424dU
 #define CODE_ANHD 0x414e4844U
@@ -115,6 +116,8 @@ typedef struct localctx_struct {
 	u8 found_clut;
 	u8 found_rast;
 	u8 found_audio;
+	u8 uses_anim4_5_xor_mode;
+	u8 uses_anim_long_data;
 	u8 multipalette_warned;
 	u8 extra_content_warned;
 	u8 is_hame;
@@ -155,6 +158,9 @@ static const char *anim_get_op_name(u8 op)
 	case 7: name="short/long vert. delta, separated"; break;
 	case 8: name="short/long vert. delta, contiguous"; break;
 	case 74: name="ANIM-J (Eric Graham)"; break;
+	case 100: name="ANIM32"; break;
+	case 101: name="ANIM16"; break;
+	case 108: name="ANIM-l (Eric Graham)"; break;
 	}
 	return name?name:"?";
 }
@@ -837,6 +843,155 @@ done:
 	;
 }
 
+// ANIM-l
+// Similar to op3, but different in enough ways that it probably isn't worth
+// combining into one function.
+static void decompress_plane_delta_op108(deark *c, lctx *d, struct imgbody_info *ibi,
+	struct frame_ctx *frctx, i64 plane_idx, dbuf *inf, i64 codepos1, i64 datapos1,
+	i64 endpos)
+{
+	i64 codepos = codepos1;
+	i64 datapos = datapos1;
+	const i64 code_size = 2;
+	const i64 dataelem_size = 2;
+	i64 elems_per_row;
+	i64 plane_offset;
+	u8 elembuf[2];
+	int baddata_flag = 0;
+
+	de_dbg2(c, "delta108 plane %d at (%"I64_FMT",%"I64_FMT")", (int)plane_idx,
+		codepos1, datapos1);
+
+	elems_per_row = (ibi->bytes_per_row_per_plane + (dataelem_size-1) ) / dataelem_size;
+	if(elems_per_row<1) goto done;
+	plane_offset = plane_idx * ibi->bytes_per_row_per_plane;
+
+	while(1) {
+		i64 elemnum;
+		i64 count_code;
+		i64 xpos, ypos;
+		i64 dstpos;
+
+		if(codepos+code_size > endpos) goto done;
+		elemnum = dbuf_getu16be_p(inf, &codepos);
+
+		if(elemnum == 0xffff) { // Stop.
+			goto done;
+		}
+
+		ypos = elemnum / elems_per_row;
+		xpos = elemnum % elems_per_row;
+		dstpos = plane_offset + ypos * ibi->frame_buffer_rowspan + dataelem_size*xpos;
+
+		if(codepos+code_size > endpos) goto done;
+		count_code = dbuf_geti16be_p(inf, &codepos);
+
+		if(count_code < 0) { // an uncompressed run
+			i64 count = -count_code;
+			i64 k;
+
+			frctx->change_flag = 1;
+
+			if(datapos + dataelem_size > endpos) {
+				baddata_flag = 1;
+				goto done;
+			}
+			dbuf_read(inf, elembuf, datapos, dataelem_size);
+			datapos += dataelem_size;
+
+			for(k=0; k<count; k++) {
+				if(ypos >= ibi->height) {
+					baddata_flag = 1;
+					goto done;
+				}
+
+				dbuf_write_at(frctx->frame_buffer, dstpos, elembuf, dataelem_size);
+				ypos++;
+				dstpos += ibi->frame_buffer_rowspan;
+			}
+		}
+		else { // an RLE run
+			i64 count = count_code;
+			i64 k;
+
+			if(count > 0) frctx->change_flag = 1;
+
+			for(k=0; k<count; k++) {
+				if(ypos >= ibi->height) {
+					baddata_flag = 1;
+					goto done;
+				}
+				if(datapos + dataelem_size > endpos) {
+					baddata_flag = 1;
+					goto done;
+				}
+				dbuf_read(inf, elembuf, datapos, dataelem_size);
+				datapos += dataelem_size;
+
+				dbuf_write_at(frctx->frame_buffer, dstpos, elembuf, dataelem_size);
+				ypos++;
+				dstpos += ibi->frame_buffer_rowspan;
+			}
+		}
+	}
+
+done:
+	if(baddata_flag && !d->errflag) {
+		de_err(c, "Delta decompression failed");
+		d->errflag = 1;
+	}
+}
+
+static void decompress_delta_op108(deark *c, lctx *d, struct imgbody_info *ibi,
+	struct frame_ctx *frctx, i64 pos1, i64 len)
+{
+	i64 opcodelist_offs[8];
+	i64 datalist_offs[8];
+	i64 infpos;
+	int i;
+	int saved_indent_level;
+	dbuf *inf = NULL;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(!frctx->frame_buffer) goto done;
+
+	de_dbg(c, "[delta108 data]");
+
+	// Read the entire chunk into memory, so that the random-access reads will be
+	// faster.
+	if(len > DE_MAX_SANE_OBJECT_SIZE) {
+		d->errflag = 1;
+		goto done;
+	}
+	inf = dbuf_create_membuf(c, len, 0);
+	dbuf_copy(c->infile, pos1, len, inf);
+	infpos = 0;
+
+	for(i=0; i<8; i++) {
+		datalist_offs[i] = dbuf_getu32be_p(inf, &infpos);
+	}
+
+	for(i=0; i<8; i++) {
+		opcodelist_offs[i] = dbuf_getu32be_p(inf, &infpos);
+	}
+
+	for(i=0; i<8; i++) {
+		if(d->errflag) goto done;
+		if(i<ibi->planes_total) {
+			de_dbg2(c, "opcode_list[%d] offs: %"I64_FMT, i, opcodelist_offs[i]);
+			de_dbg2(c, "data_list[%d] offs: %"I64_FMT, i, datalist_offs[i]);
+			if(opcodelist_offs[i]>0) {
+				decompress_plane_delta_op108(c, d, ibi, frctx, i, inf,
+					2*opcodelist_offs[i], 2*datalist_offs[i], len);
+			}
+		}
+	}
+
+done:
+	dbuf_close(inf);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static void pal_fixup4(deark *c, lctx *d)
 {
 	i64 k;
@@ -1125,6 +1280,9 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 		break;
 	case 74:
 		decompress_delta_op74(c, d, ibi, frctx, pos1, len);
+		break;
+	case 108:
+		decompress_delta_op108(c, d, ibi, frctx, pos1, len);
 		break;
 	default:
 		de_err(c, "Unsupported DLTA operation: %d", (int)frctx->op);
@@ -1539,12 +1697,14 @@ static void get_bits_descr(deark *c, lctx *d, struct frame_ctx *frctx, de_ucstri
 		if(bits & 0x1) {
 			ucstring_append_flags_item(s, "long data");
 			bits -= 0x1;
+			d->uses_anim_long_data = 1;
 		}
 	}
 	if(frctx->op==4 || frctx->op==5) {
 		if(bits & 0x2) {
 			ucstring_append_flags_item(s, "XOR");
 			bits -= 0x2;
+			d->uses_anim4_5_xor_mode = 1;
 		}
 		if(bits & 0x4) {
 			ucstring_append_flags_item(s, "one info list");
@@ -2231,6 +2391,9 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 		}
 		else {
 			if(d->is_anim) {
+				if(ictx->curr_container_contentstype4cc.id == CODE_8SVX) {
+					d->found_audio = 1;
+				}
 				if(!d->extra_content_warned) {
 					de_warn(c, "File includes unsupported content of type '%s'",
 						ictx->curr_container_contentstype4cc.id_sanitized_sz);
@@ -2326,6 +2489,8 @@ static void print_summary(deark *c, lctx *d)
 			summary_append(s, "delta%u", (UI)k);
 		}
 	}
+	if(d->uses_anim_long_data) summary_append(s, "long_data");
+	if(d->uses_anim4_5_xor_mode) summary_append(s, "xor_mode");
 
 	if(d->ham_flag) summary_append(s, "HAM");
 	if(d->ehb_flag) summary_append(s, "EHB");
