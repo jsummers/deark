@@ -79,7 +79,6 @@ struct frame_ctx {
 	int done_flag; // Have we processed the image (BODY/DLTA/etc. chunk)?
 	int change_flag; // Is this frame different from the previous one?
 	u8 op;
-	u8 delta4_5_xor_mode;
 	UI interleave;
 	UI bits;
 	dbuf *frame_buffer;
@@ -576,16 +575,26 @@ static void decompress_delta_op5(deark *c, lctx *d, struct imgbody_info *ibi,
 	i64 pos = pos1;
 	int i;
 	int saved_indent_level;
+	u8 delta4_5_xor_mode = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	if(!frctx->frame_buffer) goto done;
 
 	de_dbg(c, "[delta5 data]");
 
-	if((frctx->bits & 0xfffffffdU) != 0) {
+	// Note that we ignore the 0x8 bit ("RLC - run length coded").
+	// I don't know what this option is for. *All* ANIM4/5 frames use run length
+	// coding, but they almost never have have this bit set.
+	// The rare files that do set this bit don't seem to be any different from
+	// those that don't.
+	if((frctx->bits & 0xfffffff5U) != 0) {
 		de_err(c, "Unsupported ANHD options");
 		d->errflag = 1;
 		goto done;
+	}
+
+	if(frctx->bits & 0x2) {
+		delta4_5_xor_mode = 1;
 	}
 
 	for(i=0; i<16; i++) {
@@ -596,7 +605,7 @@ static void decompress_delta_op5(deark *c, lctx *d, struct imgbody_info *ibi,
 			if(planedata_offs[i]>0) {
 				decompress_plane_vdelta(c, d, ibi, frctx, i, c->infile,
 					pos1+planedata_offs[i], 0, pos1+len, 1, 1,
-					0, frctx->delta4_5_xor_mode);
+					0, delta4_5_xor_mode);
 			}
 		}
 	}
@@ -1120,8 +1129,8 @@ static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 	default:
 		de_err(c, "Unsupported DLTA operation: %d", (int)frctx->op);
 		d->errflag = 1;
-		goto done;
 	}
+	if(d->errflag) goto done;
 
 	if(frctx->change_flag || d->opt_anim_includedups) {
 		write_frame(c, d, ibi, frctx);
@@ -1607,11 +1616,6 @@ static void do_anim_anhd(deark *c, lctx *d, i64 pos, i64 len)
 	bits_descr = ucstring_create(c);
 	get_bits_descr(c, d, frctx, bits_descr);
 	de_dbg(c, "bits: 0x%08x (%s)", frctx->bits, ucstring_getpsz_d(bits_descr));
-	if(frctx->op==4 || frctx->op==5) {
-		if(frctx->bits & 0x2) {
-			frctx->delta4_5_xor_mode = 1;
-		}
-	}
 
 	ucstring_destroy(bits_descr);
 }

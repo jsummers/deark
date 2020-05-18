@@ -188,11 +188,16 @@ int de_fclose(FILE *fp)
 	return fclose(fp);
 }
 
+struct upd_attr_ctx {
+	int tried_stat;
+	int stat_ret;
+	struct stat stbuf;
+};
+
 // If, based on f->mode_flags, we know that the file should be executable or
 // non-executable, make it so.
-void de_update_file_perms(dbuf *f)
+static void update_file_perms(struct upd_attr_ctx *uactx, dbuf *f)
 {
-	struct stat stbuf;
 	mode_t oldmode, newmode;
 
 	if(f->btype!=DBUF_TYPE_OFILE) return;
@@ -200,12 +205,14 @@ void de_update_file_perms(dbuf *f)
 	if(!f->name) return;
 	if(!(f->fi_copy->mode_flags&DE_MODEFLAG_NONEXE) &&!(f->fi_copy->mode_flags&DE_MODEFLAG_EXE)) return;
 
-	de_zeromem(&stbuf, sizeof(struct stat));
-	if(0 != stat(f->name, &stbuf)) {
+	uactx->stat_ret = stat(f->name, &uactx->stbuf);
+	uactx->tried_stat = 1;
+	if(uactx->stat_ret != 0) {
 		return;
 	}
+	printf("actime = %ld\n", uactx->stbuf.st_atime);
 
-	oldmode = stbuf.st_mode;
+	oldmode = uactx->stbuf.st_mode;
 	newmode = oldmode;
 
 	// Start by turning off the executable bits in the tentative new mode.
@@ -225,7 +232,7 @@ void de_update_file_perms(dbuf *f)
 	}
 }
 
-void de_update_file_time(dbuf *f)
+static void update_file_time(struct upd_attr_ctx *uactx, dbuf *f)
 {
 	const struct de_timestamp *ts;
 	struct timeval times[2];
@@ -236,19 +243,49 @@ void de_update_file_time(dbuf *f)
 	if(!ts->is_valid) return;
 	if(!f->name) return;
 
+	if(!uactx->tried_stat) {
+		uactx->stat_ret = stat(f->name, &uactx->stbuf);
+		uactx->tried_stat = 1;
+	}
+
 	// I know that this code is not Y2038-compliant, if sizeof(time_t)==4.
 	// But it's not likely to be a serious problem, and I'd rather not replace
 	// it with code that's less portable.
 
 	de_zeromem(&times, sizeof(times));
 	// times[0] = access time
-	times[0].tv_sec = (long)de_timestamp_to_unix_time(ts);
-	if(ts->precision>DE_TSPREC_1SEC) {
-		times[0].tv_usec = (long)(de_timestamp_get_subsec(ts)/10);
-	}
 	// times[1] = mod time
-	times[1] = times[0];
+	times[1].tv_sec = (long)de_timestamp_to_unix_time(ts);
+	if(ts->precision>DE_TSPREC_1SEC) {
+		times[1].tv_usec = (long)(de_timestamp_get_subsec(ts)/10);
+	}
+
+	// We don't want to set the access time, but unfortunately the utimes()
+	// function forces us to.
+	if(uactx->tried_stat && (uactx->stat_ret==0)) {
+		// If we have the file's current access time recorded, use that.
+		// (Though this may lose precision. Which could be fixed at the cost of
+		// portability.)
+		times[0].tv_sec = (long)uactx->stbuf.st_atime;
+		times[0].tv_usec = 0;
+	}
+	else {
+		// Otherwise use the mod time.
+		times[0] = times[1];
+	}
 	utimes(f->name, times);
+}
+
+void de_update_file_attribs(dbuf *f, u8 preserve_file_times)
+{
+	struct upd_attr_ctx uactx;
+
+	de_zeromem(&uactx, sizeof(struct upd_attr_ctx));
+
+	update_file_perms(&uactx, f);
+	if(preserve_file_times) {
+		update_file_time(&uactx, f);
+	}
 }
 
 // Note: Need to keep this function in sync with the implementation in deark-win.c.

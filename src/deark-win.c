@@ -282,17 +282,12 @@ int de_fclose(FILE *fp)
 	return fclose(fp);
 }
 
-void de_update_file_perms(dbuf *f)
-{
-	// Not implemented on Windows.
-}
-
-void de_update_file_time(dbuf *f)
+static void update_file_time(dbuf *f)
 {
 	WCHAR *fnW = NULL;
 	HANDLE fh = INVALID_HANDLE_VALUE;
 	i64 ft;
-	FILETIME crtime, actime, wrtime;
+	FILETIME wrtime;
 	deark *c;
 
 	if(f->btype!=DBUF_TYPE_OFILE) return;
@@ -310,15 +305,22 @@ void de_update_file_time(dbuf *f)
 
 	wrtime.dwHighDateTime = (DWORD)(((u64)ft)>>32);
 	wrtime.dwLowDateTime = (DWORD)(((u64)ft)&0xffffffffULL);
-	actime = wrtime;
-	crtime = wrtime;
-	SetFileTime(fh, &crtime, &actime, &wrtime);
+	SetFileTime(fh, NULL, NULL, &wrtime);
 
 done:
 	if(fh != INVALID_HANDLE_VALUE) {
 		CloseHandle(fh);
 	}
 	de_free(c, fnW);
+}
+
+void de_update_file_attribs(dbuf *f, u8 preserve_file_times)
+{
+	// [Updating file permissions not implemented on Windows.]
+
+	if(preserve_file_times) {
+		update_file_time(f);
+	}
 }
 
 char **de_convert_args_to_utf8(int argc, wchar_t **argvW)

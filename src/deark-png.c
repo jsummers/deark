@@ -32,7 +32,7 @@ struct deark_png_encode_info {
 	u32 xdens;
 	u32 ydens;
 	u8 phys_units;
-	struct de_timestamp image_mod_time;
+	struct de_timestamp internal_mod_time;
 	u8 include_text_chunk_software;
 	u8 has_hotspot;
 	int hotspot_x, hotspot_y;
@@ -91,7 +91,7 @@ static void write_png_chunk_tIME(struct deark_png_encode_info *pei,
 {
 	struct de_struct_tm tm2;
 
-	de_gmtime(&pei->image_mod_time, &tm2);
+	de_gmtime(&pei->internal_mod_time, &tm2);
 	if(!tm2.is_valid) return;
 
 	dbuf_writeu16be(cdbuf, (i64)tm2.tm_fullyear);
@@ -181,7 +181,7 @@ static int do_generate_png(struct deark_png_encode_info *pei, const u8 *src_pixe
 		write_png_chunk_pHYs(pei, cdbuf);
 	}
 
-	if(pei->image_mod_time.is_valid && pei->c->preserve_file_times_images) {
+	if(pei->internal_mod_time.is_valid && pei->c->preserve_file_times_internal) {
 		dbuf_truncate(cdbuf, 0);
 		write_png_chunk_tIME(pei, cdbuf);
 	}
@@ -283,8 +283,8 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f)
 	}
 	pei->level = c->pngcmprlevel;
 
-	if(f->fi_copy && f->fi_copy->image_mod_time.is_valid) {
-		pei->image_mod_time = f->fi_copy->image_mod_time;
+	if(f->fi_copy && f->fi_copy->internal_mod_time.is_valid) {
+		pei->internal_mod_time = f->fi_copy->internal_mod_time;
 	}
 
 	if(f->fi_copy && f->fi_copy->has_hotspot) {

@@ -678,7 +678,7 @@ static void de_char_output_screen_to_image_file(deark *c, struct de_char_context
 		// The ->creation_date field is most likely from a SAUCE record, for which the
 		// only date field is documented as "The date the file was created".
 		// We intentionally treat it as a last-modified timestamp.
-		fi->image_mod_time = charctx->creation_date;
+		fi->internal_mod_time = charctx->creation_date;
 	}
 
 	for(j=0; j<screen->height; j++) {

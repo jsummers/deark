@@ -199,7 +199,9 @@ u8 dbuf_getbyte(dbuf *f, i64 pos)
 {
 	switch(f->btype) {
 	case DBUF_TYPE_MEMBUF:
-		// Optimization for memory buffers
+		// Optimization for memory buffers -
+		// and it is necessary to handle read+write dbuf types specially,
+		// so that the 1-byte "cache2" feature isn't used.
 		if(pos>=0 && pos<f->len) {
 			return f->membuf_buf[pos];
 		}
@@ -952,7 +954,7 @@ static void finfo_shallow_copy(deark *c, de_finfo *src, de_finfo *dst)
 	for(k=0; k<DE_TIMESTAMPIDX_COUNT; k++) {
 		dst->timestamp[k] = src->timestamp[k];
 	}
-	dst->image_mod_time = src->image_mod_time;
+	dst->internal_mod_time = src->internal_mod_time;
 	dst->density = src->density;
 	dst->has_hotspot = src->has_hotspot;
 	dst->hotspot_x = src->hotspot_x;
@@ -1153,10 +1155,10 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 			de_timestamp_cvt_to_utc(&f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY], -c->input_tz_offs_seconds);
 		}
 
-		if(f->fi_copy->image_mod_time.is_valid && f->fi_copy->image_mod_time.tzcode==DE_TZCODE_LOCAL &&
+		if(f->fi_copy->internal_mod_time.is_valid && f->fi_copy->internal_mod_time.tzcode==DE_TZCODE_LOCAL &&
 			c->input_tz_offs_seconds!=0)
 		{
-			de_timestamp_cvt_to_utc(&f->fi_copy->image_mod_time, -c->input_tz_offs_seconds);
+			de_timestamp_cvt_to_utc(&f->fi_copy->internal_mod_time, -c->input_tz_offs_seconds);
 		}
 	}
 
@@ -1708,11 +1710,7 @@ void dbuf_close(dbuf *f)
 		f->fp = NULL;
 
 		if(f->btype==DBUF_TYPE_OFILE && f->is_managed) {
-			de_update_file_perms(f);
-		}
-
-		if(f->btype==DBUF_TYPE_OFILE && f->is_managed && c->preserve_file_times) {
-			de_update_file_time(f);
+			de_update_file_attribs(f, c->preserve_file_times);
 		}
 		break;
 	case DBUF_TYPE_FIFO:

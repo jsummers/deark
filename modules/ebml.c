@@ -433,13 +433,13 @@ static void decode_date(deark *c, lctx *d, const struct ele_id_info *ele_id,
 }
 
 static void decode_string(deark *c, lctx *d, const struct ele_id_info *ele_id,
-	  i64 pos, i64 len, de_encoding encoding)
+	  i64 pos, i64 len, de_ext_encoding ee)
 {
 	de_ucstring *s = NULL;
 
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN, s,
-		DE_CONVFLAG_STOP_AT_NUL, encoding);
+		DE_CONVFLAG_STOP_AT_NUL, ee);
 	de_dbg(c, "value: \"%s\"", ucstring_getpsz_d(s));
 
 	ucstring_destroy(s);
@@ -589,7 +589,8 @@ static int do_element(deark *c, lctx *d, i64 pos1,
 			decode_string(c, d, einfo, pos, ele_dlen, DE_ENCODING_UTF8);
 			break;
 		case TY_s:
-			decode_string(c, d, einfo, pos, ele_dlen, DE_ENCODING_PRINTABLEASCII);
+			decode_string(c, d, einfo, pos, ele_dlen,
+				DE_EXTENC_MAKE(DE_ENCODING_ASCII, DE_ENCSUBTYPE_PRINTABLE));
 			break;
 		case TY_d:
 			decode_date(c, d, einfo, pos, ele_dlen);

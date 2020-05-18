@@ -293,6 +293,9 @@ i32 de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee)
 
 	switch(DE_EXTENC_GET_BASE(ee)) {
 	case DE_ENCODING_ASCII:
+		if(DE_EXTENC_GET_SUBTYPE(ee)==DE_ENCSUBTYPE_PRINTABLE) {
+			return (a>=32 && a<=126)?a:DE_CODEPOINT_INVALID;
+		}
 		return (a<128)?a:DE_CODEPOINT_INVALID;
 	case DE_ENCODING_LATIN1:
 		return (a<256)?a:DE_CODEPOINT_INVALID;
@@ -328,8 +331,6 @@ i32 de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee)
 		return de_riscos_to_unicode(a);
 	case DE_ENCODING_DEC_SPECIAL_GRAPHICS:
 		return de_decspecialgraphics_to_unicode(a);
-	case DE_ENCODING_PRINTABLEASCII:
-		return (a>=32 && a<=126)?a:DE_CODEPOINT_INVALID;
 	default:
 		break;
 	}

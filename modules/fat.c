@@ -284,6 +284,32 @@ done:
 	;
 }
 
+// Reads from md->fn_base* and md->fn_ext*, writes to md->short_fn
+static void decode_short_filename(deark *c, lctx *d, struct member_data *md)
+{
+	if(md->fn_base_len>0) {
+		ucstring_append_bytes(md->short_fn, md->fn_base, md->fn_base_len, 0, d->input_encoding);
+	}
+	else {
+		ucstring_append_char(md->short_fn, '_');
+	}
+	if(md->fn_ext_len>0) {
+		ucstring_append_char(md->short_fn, '.');
+		ucstring_append_bytes(md->short_fn, md->fn_ext, md->fn_ext_len, 0, d->input_encoding);
+	}
+}
+
+static void decode_volume_label_name(deark *c, lctx *d, struct member_data *md)
+{
+	if(md->fn_ext_len>0) {
+		ucstring_append_bytes(md->short_fn, md->fn_base, 8, 0, d->input_encoding);
+		ucstring_append_bytes(md->short_fn, md->fn_ext, md->fn_ext_len, 0, d->input_encoding);
+	}
+	else {
+		ucstring_append_bytes(md->short_fn, md->fn_base, md->fn_base_len, 0, d->input_encoding);
+	}
+}
+
 // Returns 0 if this is the end-of-directory marker.
 static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 	i64 pos1, int nesting_level)
@@ -292,6 +318,7 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 	i64 ddate, dtime;
 	int retval = 0;
 	int is_deleted = 0;
+	int is_volume_label = 0;
 	int need_curpath_pop = 0;
 	de_ucstring *descr = NULL;
 	struct member_data *md = NULL;
@@ -324,6 +351,7 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 		; // Normal file
 	}
 	else if((md->attribs & 0x18) == 0x08) {
+		is_volume_label = 1;
 		md->is_special = 1;
 	}
 	else if((md->attribs & 0x18) == 0x10) {
@@ -359,15 +387,11 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 	}
 
 	md->short_fn = ucstring_create(c);
-	if(md->fn_base_len>0) {
-		ucstring_append_bytes(md->short_fn, md->fn_base, md->fn_base_len, 0, d->input_encoding);
+	if(is_volume_label) {
+		decode_volume_label_name(c, d, md);
 	}
 	else {
-		ucstring_append_char(md->short_fn, '_');
-	}
-	if(md->fn_ext_len>0) {
-		ucstring_append_char(md->short_fn, '.');
-		ucstring_append_bytes(md->short_fn, md->fn_ext, md->fn_ext_len, 0, d->input_encoding);
+		decode_short_filename(c, d, md);
 	}
 
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->short_fn));
@@ -602,6 +626,8 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 	i64 num_sectors_per_fat32 = 0;
 	i64 num_sectors16;
 	i64 num_sectors32 = 0;
+	i64 num_sectors_per_track;
+	i64 num_heads;
 	i64 jmpinstrlen;
 	u8 b;
 	u8 cksum_sig[2];
@@ -649,6 +675,11 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 	num_sectors_per_fat16 = de_getu16le_p(&pos);
 	de_dbg(c, "sectors per FAT (if FAT12/16): %d", (int)num_sectors_per_fat16);
 
+	num_sectors_per_track = de_getu16le_p(&pos);
+	de_dbg(c, "sectors per track: %d", (int)num_sectors_per_track);
+	num_heads = de_getu16le_p(&pos);
+	de_dbg(c, "number of heads: %d", (int)num_heads);
+
 	pos = pos1+0x1fe;
 	de_read(cksum_sig, pos, 2);
 	de_dbg(c, "boot sector signature: 0x%02x 0x%02x", (UI)cksum_sig[0], (UI)cksum_sig[1]);
@@ -691,6 +722,8 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 	if(d->bytes_per_sector<32) goto done;
 	d->bytes_per_cluster = d->bytes_per_sector * d->sectors_per_cluster;
 	d->root_dir_sector = d->num_rsvd_sectors + d->num_sectors_per_fat * d->num_fats;
+	de_dbg(c, "root dir pos (calculated): %"I64_FMT" (sector %"I64_FMT")",
+		sectornum_to_offset(c, d, d->root_dir_sector), d->root_dir_sector);
 
 	// num_root_dir_sectors is expected to be 0 for FAT32.
 	num_root_dir_sectors = (d->max_root_dir_entries16*32 + d->bytes_per_sector - 1)/d->bytes_per_sector;
@@ -742,10 +775,6 @@ static int do_read_fat(deark *c, lctx *d)
 	de_dbg(c, "FAT#%d at %"I64_FMT, (int)fat_idx_to_read, pos1);
 	de_dbg_indent(c, 1);
 
-	if(d->num_fat_bits!=12) {
-		goto done;
-	}
-
 	if(d->num_cluster_identifiers > (i64)(DE_MAX_SANE_OBJECT_SIZE/sizeof(u32))) goto done;
 	d->num_fat_entries = d->num_cluster_identifiers;
 	d->fat_nextcluster = de_mallocarray(c, d->num_fat_entries, sizeof(u32));
@@ -766,7 +795,13 @@ static int do_read_fat(deark *c, lctx *d)
 			}
 		}
 	}
+	else if(d->num_fat_bits==16) {
+		for(i=0; i<d->num_fat_entries; i++) {
+			d->fat_nextcluster[i] = (u32)de_getu16le_p(&pos);
+		}
+	}
 	else {
+		de_err(c, "This type of FAT is not supported");
 		goto done;
 	}
 
@@ -885,7 +920,13 @@ static int de_identify_fat(deark *c)
 	media_descr = b[21];
 
 	if(bytes_per_sector!=512) return 0;
-	if(sectors_per_cluster!=1 && sectors_per_cluster!=2) return 0;
+	switch(sectors_per_cluster) {
+	case 1: case 2: case 4: case 8:
+	case 16: case 32: case 64: case 128:
+		break;
+	default:
+		return 0;
+	}
 	if(num_fats!=1 && num_fats!=2) return 0;
 	if(media_descr<0xe5 && media_descr!=0) return 0; // Media descriptor
 

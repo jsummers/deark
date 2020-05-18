@@ -21,10 +21,14 @@
 
 struct zipw_md {
 	struct de_timestamp modtime;
+	struct de_timestamp actime;
+	struct de_timestamp crtime;
 	i64 modtime_unix;
 	unsigned int modtime_dosdate;
 	unsigned int modtime_dostime;
 	i64 modtime_as_FILETIME; // valid if nonzero
+	i64 actime_as_FILETIME;
+	i64 crtime_as_FILETIME;
 	u8 is_executable;
 	u8 is_directory;
 	dbuf *eflocal;
@@ -40,6 +44,11 @@ struct zipw_ctx {
 	dbuf *cdir; // central directory
 	struct de_crcobj *crc32o;
 };
+
+static int is_valid_32bit_unix_time(i64 ut)
+{
+	return (ut >= -0x80000000LL) && (ut <= 0x7fffffffLL);
+}
 
 // Create and initialize the main ZIP archive
 int de_zip_create_file(deark *c)
@@ -125,31 +134,79 @@ static void set_dos_modtime(struct zipw_md *md)
 		((tm2.tm_mon + 1) << 5) + tm2.tm_mday);
 }
 
+
 static void do_UT_times(deark *c, struct zipw_md *md,
 	dbuf *ef, int is_central)
 {
+	int write_crtime = 0;
+	int write_actime = 0;
+	i64 num_timestamps = 0;
+	i64 actime_unix = 0;
+	i64 crtime_unix = 0;
+	u8 flags = 0;
 	// Note: Although our 0x5455 central and local extra data fields happen to
 	// be identical, that is not generally the case.
 
+	if(!is_central) {
+		if(md->actime.is_valid) {
+			actime_unix = de_timestamp_to_unix_time(&md->actime);
+			if(is_valid_32bit_unix_time(actime_unix)) {
+				write_actime = 1;
+			}
+		}
+
+		if(md->crtime.is_valid) {
+			crtime_unix = de_timestamp_to_unix_time(&md->crtime);
+			if(is_valid_32bit_unix_time(crtime_unix)) {
+				write_crtime = 1;
+			}
+		}
+	}
+
+	// Always write mod time
+	num_timestamps++;
+	flags |= 0x01;
+
+	if(write_actime) {
+		num_timestamps++;
+		flags |= 0x02;
+	}
+
+	if(write_crtime) {
+		num_timestamps++;
+		flags |= 0x04;
+	}
+
 	dbuf_writeu16le(ef, 0x5455);
-	dbuf_writeu16le(ef, (i64)5);
-	dbuf_writebyte(ef, 0x01); // has-modtime flag
+	dbuf_writeu16le(ef, (i64)(1+4*num_timestamps));
+	dbuf_writebyte(ef, flags); // tells which fields are present
 	dbuf_writei32le(ef, md->modtime_unix);
+	if(write_actime) {
+		dbuf_writei32le(ef, actime_unix);
+	}
+	if(write_crtime) {
+		dbuf_writei32le(ef, crtime_unix);
+	}
 }
 
 static void do_ntfs_times(deark *c, struct zipw_md *md,
 	dbuf *ef, int is_central)
 {
+	u64 modtm, actm, crtm;
+
 	dbuf_writeu16le(ef, 0x000a); // = NTFS
 	dbuf_writeu16le(ef, 32); // data size
 	dbuf_write_zeroes(ef, 4);
 	dbuf_writeu16le(ef, 0x0001); // file times element
 	dbuf_writeu16le(ef, 24); // element data size
-	// We only know the mod time, but we are forced to make up something for
-	// the other timestamps.
-	dbuf_writeu64le(ef, (u64)md->modtime_as_FILETIME); // mod time
-	dbuf_writeu64le(ef, (u64)md->modtime_as_FILETIME); // access time
-	dbuf_writeu64le(ef, (u64)md->modtime_as_FILETIME); // create time
+	// We only necessarily know the mod time, but we have to write something for
+	// the others.
+	modtm = (u64)md->modtime_as_FILETIME;
+	actm = (md->actime_as_FILETIME>0) ? (u64)md->actime_as_FILETIME : modtm;
+	crtm = (md->crtime_as_FILETIME>0) ? (u64)md->crtime_as_FILETIME : modtm;
+	dbuf_writeu64le(ef, modtm);
+	dbuf_writeu64le(ef, actm);
+	dbuf_writeu64le(ef, crtm);
 }
 
 static int zipw_deflate(deark *c, struct zipw_ctx *zzz, dbuf *uncmpr_data,
@@ -367,15 +424,22 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 		// to be written.
 	}
 
+	// Note: Timestamps other than the modification time are a low priority.
+	// We'll write them in some cases, when it is easy to do so.
+	if(c->preserve_file_times_archives && f->fi_copy) {
+		md->actime = f->fi_copy->timestamp[DE_TIMESTAMPIDX_ACCESS];
+		md->crtime = f->fi_copy->timestamp[DE_TIMESTAMPIDX_CREATE];
+	}
+
 	md->modtime_unix = de_timestamp_to_unix_time(&md->modtime);
 	set_dos_modtime(md);
 
-	if((md->modtime_unix >= -0x80000000LL) && (md->modtime_unix <= 0x7fffffffLL)) {
+	if(is_valid_32bit_unix_time(md->modtime_unix)) {
 		// Always write a Unix timestamp if we can.
 		write_UT_time = 1;
 
 		if(md->modtime_unix < 0) {
-			// This negative Unix time is in range, but problematical,
+			// This negative Unix time is in range, but problematic,
 			// so write NTFS times as well.
 			write_ntfs_times = 1;
 		}
@@ -388,6 +452,10 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 		md->modtime_as_FILETIME = de_timestamp_to_FILETIME(&md->modtime);
 		if(md->modtime_as_FILETIME == 0) {
 			write_ntfs_times = 0;
+		}
+		else {
+			md->actime_as_FILETIME = de_timestamp_to_FILETIME(&md->actime);
+			md->crtime_as_FILETIME = de_timestamp_to_FILETIME(&md->crtime);
 		}
 	}
 

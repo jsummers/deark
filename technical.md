@@ -155,8 +155,9 @@ files used by, e.g., the -get option.
 
 ## Modification times ##
 
-In certain cases, Deark tries to maintain the modification time of the original
-file. This only happens with timestamps contained inside the input file.
+In certain cases, Deark tries to maintain the modification time (and to a
+lesser degree, other timestamps) of the original file. This only happens with
+timestamps contained inside the input file.
 
 If a timestamp does not include a time zone, the time will be assumed to be in
 Universal Time (UTC), unless the -intz option was used. Deark is expected to be

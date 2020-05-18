@@ -7,6 +7,7 @@
 DE_DECLARE_MODULE(de_module_atari_cas);
 DE_DECLARE_MODULE(de_module_atr);
 DE_DECLARE_MODULE(de_module_msa);
+DE_DECLARE_MODULE(de_module_pasti);
 
 typedef struct localctx_struct {
 	i64 sector_size;
@@ -134,6 +135,7 @@ static void do_directory_entry(deark *c, lctx *d, dbuf *f, i64 pos)
 	de_ucstring *fn_ext = NULL;
 	de_finfo *fi = NULL;
 	dbuf *outf = NULL;
+	de_ext_encoding fn_encoding;
 
 	flags = dbuf_getbyte(f, pos);
 	de_dbg(c, "flags: 0x%02x", (unsigned int)flags);
@@ -161,8 +163,9 @@ static void do_directory_entry(deark *c, lctx *d, dbuf *f, i64 pos)
 	fn_ext = ucstring_create(c);
 
 	// TODO: Use correct Atari encoding.
-	dbuf_read_to_ucstring(f, pos+5, 8, fn_u, 0, DE_ENCODING_PRINTABLEASCII);
-	dbuf_read_to_ucstring(f, pos+13, 3, fn_ext, 0, DE_ENCODING_PRINTABLEASCII);
+	fn_encoding = DE_EXTENC_MAKE(DE_ENCODING_ASCII, DE_ENCSUBTYPE_PRINTABLE);
+	dbuf_read_to_ucstring(f, pos+5, 8, fn_u, 0,fn_encoding);
+	dbuf_read_to_ucstring(f, pos+13, 3, fn_ext, 0, fn_encoding);
 	de_dbg(c, "filename: \"%s.%s\"",
 		ucstring_getpsz(fn_u), ucstring_getpsz(fn_ext));
 	ucstring_strip_trailing_spaces(fn_u);
@@ -285,12 +288,15 @@ void de_module_atr(deark *c, struct deark_module_info *mi)
 ////////////////////////////////////////////////////////
 // MSA - Magic Shadow Archiver - Atari ST disk image
 
+enum atarist_outfmt {
+	ATARIST_OUTFMT_FILES = 0,
+	ATARIST_OUTFMT_ST,
+	ATARIST_OUTFMT_UNCMSA
+};
+
 struct msactx {
 	de_encoding input_encoding;
-#define MSA_OUTFMT_FILES   0
-#define MSA_OUTFMT_ST      1
-#define MSA_OUTFMT_UNCMSA  2
-	int outfmt;
+	enum atarist_outfmt outfmt;
 	i64 sectors_per_track;
 	i64 sides;
 	i64 first_track;
@@ -502,13 +508,13 @@ static void de_run_msa(deark *c, de_module_params *mparams)
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ATARIST);
 
 	if(de_get_ext_option_bool(c, "msa:touncmsa", 0)) {
-		d->outfmt = MSA_OUTFMT_UNCMSA;
+		d->outfmt = ATARIST_OUTFMT_UNCMSA;
 	}
 	else if(de_get_ext_option_bool(c, "msa:toraw", 0)) {
-		d->outfmt = MSA_OUTFMT_ST;
+		d->outfmt = ATARIST_OUTFMT_ST;
 	}
 	else {
-		d->outfmt = MSA_OUTFMT_FILES;
+		d->outfmt = ATARIST_OUTFMT_FILES;
 	}
 
 	if(!do_msa_header(c, d, 0)) goto done;
@@ -523,10 +529,10 @@ static void de_run_msa(deark *c, de_module_params *mparams)
 	de_dbg(c, "totals: decompressed %"I64_FMT" bytes to %"I64_FMT,
 		d->total_cmpr_bytes, d->total_uncmpr_bytes);
 
-	if(d->outfmt==MSA_OUTFMT_ST) {
+	if(d->outfmt==ATARIST_OUTFMT_ST) {
 		msa_extract_to_raw(c, d, diskbuf);
 	}
-	else if(d->outfmt==MSA_OUTFMT_UNCMSA) {
+	else if(d->outfmt==ATARIST_OUTFMT_UNCMSA) {
 		msa_extract_to_uncmsa(c, d, diskbuf);
 	}
 	else {
@@ -562,4 +568,418 @@ void de_module_msa(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_msa;
 	mi->identify_fn = de_identify_msa;
 	mi->help_fn = de_help_msa;
+}
+
+////////////////////////////////////////////////////////
+// Pasti / (.STX) - Atari ST disk image
+
+#define PASTI_MAX_SECTORS_PER_TRACK 100
+#define PASTI_MAX_TRACK_NUM 255
+
+struct pasti_track_ctx {
+	i64 track_num;
+	i64 side_num;
+
+	i64 fuzzy_count;
+	i64 sector_count;
+
+#define TRK_SYNC    0x0080
+#define TRK_IMAGE   0x0040
+#define TRK_PROT    0x0020
+#define TRK_SECT    0x0001
+	UI track_flags;
+
+	i64 track_length;
+	i64 sector_descriptors_pos;
+	i64 track_data_record_pos;
+};
+
+struct pastictx {
+	de_encoding input_encoding;
+	enum atarist_outfmt outfmt;
+
+	UI version;
+	UI revision;
+	i64 track_count;
+
+	i64 fat_bytes_per_sector;
+	i64 fat_sectors_per_track;
+	i64 fat_num_heads;
+
+	// Set if we can't convert the format to FAT, but maybe can continue decoding
+	// the Pasti structure.
+	int convert_errflag;
+
+	i64 num_nonempty_sectors_found;
+	i64 oob_sector_count;
+
+	dbuf *diskbuf;
+};
+
+static void pasti_save_sector_data(deark *c, struct pastictx *d,
+	i64 srcpos, i64 srclen,
+	i64 trknum, i64 sidenum, i64 secnum)
+{
+	i64 dstpos;
+	i64 len_to_copy;
+
+	if(d->convert_errflag || srclen<=0) goto done;
+	de_dbg2(c, "[recording sector %d,%d,%d]", (int)trknum, (int)sidenum, (int)secnum);
+
+	d->num_nonempty_sectors_found++;
+	if(trknum<0 || trknum>PASTI_MAX_TRACK_NUM ||
+		sidenum<0 || sidenum>=d->fat_num_heads ||
+		secnum<1 || secnum>d->fat_sectors_per_track)
+	{
+		de_dbg2(c, "[sector out of bounds]");
+		d->oob_sector_count++;
+		goto done;
+	}
+
+	if(!d->diskbuf) {
+		d->diskbuf = dbuf_create_membuf(c, 0, 0);
+	}
+
+	dstpos =
+		(d->fat_bytes_per_sector * d->fat_sectors_per_track * d->fat_num_heads) * trknum +
+		(d->fat_bytes_per_sector * d->fat_sectors_per_track) * sidenum +
+		(d->fat_bytes_per_sector) * (secnum-1);
+
+	if(srclen > d->fat_bytes_per_sector) {
+		de_warn(c, "Oversized sector");
+		len_to_copy = d->fat_bytes_per_sector;
+	}
+	else {
+		len_to_copy = srclen;
+	}
+
+	dbuf_copy_at(c->infile, srcpos, len_to_copy, d->diskbuf, dstpos);
+
+done:
+	;
+}
+
+static int do_pasti_sectors(deark *c, struct pastictx *d, struct pasti_track_ctx *tctx)
+{
+	int saved_indent_level;
+	int retval = 0;
+	i64 secnum;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	de_dbg(c, "[%d sector descriptors at %"I64_FMT"]", (int)tctx->sector_count,
+		tctx->sector_descriptors_pos);
+	de_dbg_indent(c, 1);
+
+	for(secnum=0; secnum<tctx->sector_count; secnum++) {
+		i64 data_offset_rel;
+		i64 data_offset_abs;
+		u8 size_code;
+		i64 size_in_bytes;
+		i64 n_track, n_head, n_secnum;
+		i64 pos = tctx->sector_descriptors_pos + secnum*16;
+
+		de_dbg2(c, "sector[%d] descriptor at %"I64_FMT, (int)secnum, pos);
+		de_dbg_indent(c, 1);
+		data_offset_rel = de_getu32le_p(&pos);
+		data_offset_abs = tctx->track_data_record_pos + data_offset_rel;
+		de_dbg2(c, "dataOffset: %"I64_FMT" (+%"I64_FMT"=%"I64_FMT")", data_offset_rel,
+			tctx->track_data_record_pos, data_offset_abs);
+		pos += 2; // bitPosition
+		pos += 2; // readTime
+
+		n_track = (i64)de_getbyte_p(&pos);
+		n_head = (i64)de_getbyte_p(&pos);
+		n_secnum = (i64)de_getbyte_p(&pos);
+		de_dbg2(c, "track %d, side %d, sector %d", (int)n_track, (int)n_head, (int)n_secnum);
+		// TODO: What should we do if the track and head are not the expected values?
+		// Who do we trust?
+
+		size_code = de_getbyte_p(&pos);
+		if(size_code>4) goto done;
+		size_in_bytes = ((i64)128)<<(UI)size_code;
+		de_dbg2(c, "size: 0x%02x (%"I64_FMT" bytes)", (UI)size_code, size_in_bytes);
+
+		pos += 2; // crc - TODO
+		pos += 1; // fdcFlags
+		pos += 1; // reserved
+
+		pasti_save_sector_data(c, d, data_offset_abs, size_in_bytes,
+			tctx->track_num, tctx->side_num, n_secnum);
+		de_dbg_indent(c, -1);
+	}
+
+	retval = 1;
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+// There's a chicken-and-egg problem, as we need information contained
+// in the boot sector (especially the number of sectors per track),
+// before we can effectively process the sectors.
+// This function looks ahead to get the information. It duplicates some of
+// the code in this module, and in the "fat" module.
+static void pasti_find_and_read_boot_sector(deark *c, struct pastictx *d,
+	struct pasti_track_ctx *tctx)
+{
+	i64 secnum;
+	i64 s1pos = 0; // sector 1 abs pos, 0 if unknown
+
+	for(secnum=0; secnum<tctx->sector_count; secnum++) {
+		i64 data_offset_rel;
+		i64 n_secnum;
+		i64 pos = tctx->sector_descriptors_pos + secnum*16;
+
+		n_secnum = (i64)de_getbyte(pos + 10);
+		if(n_secnum == 1) {
+			data_offset_rel = de_getu32le(pos);
+			s1pos = tctx->track_data_record_pos + data_offset_rel;
+			break;
+		}
+	}
+
+	if(s1pos==0) {
+		de_err(c, "Could not find boot sector");
+		d->convert_errflag = 1;
+		goto done;
+	}
+
+	de_dbg(c, "found boot sector; data at %"I64_FMT, s1pos);
+	de_dbg_indent(c, 1);
+	d->fat_bytes_per_sector = de_getu16le(s1pos+11);
+	de_dbg(c, "bytes per sector: %d", (int)d->fat_bytes_per_sector);
+	d->fat_sectors_per_track = de_getu16le(s1pos+24);
+	de_dbg(c, "sectors per track: %d", (int)d->fat_sectors_per_track);
+	d->fat_num_heads = de_getu16le(s1pos+26);
+	de_dbg(c, "number of heads: %d", (int)d->fat_num_heads);
+
+	de_dbg_indent(c, -1);
+
+	if(d->fat_bytes_per_sector<128 || d->fat_bytes_per_sector>2048 ||
+		d->fat_sectors_per_track<1 || d->fat_sectors_per_track>32 ||
+		d->fat_num_heads<1 || d->fat_num_heads>2)
+	{
+		de_err(c, "Invalid or unsupported disk geometry (%d sectors/track, "
+			"%d heads, %d bytes/sector)", (int)d->fat_sectors_per_track,
+			(int)d->fat_num_heads, (int)d->fat_bytes_per_sector);
+		d->convert_errflag = 1;
+		goto done;
+	}
+
+done:
+	;
+}
+
+static int do_pasti_track(deark *c, struct pastictx *d, i64 trkidx, i64 pos1, i64 len)
+{
+	i64 pos = pos1;
+	u8 track_number_raw;
+	struct pasti_track_ctx *tctx = NULL;
+	int retval = 0;
+
+	de_dbg(c, "track record[%d] at %"I64_FMT", len=%"I64_FMT, (int)trkidx, pos1, len);
+	de_dbg_indent(c, 1);
+
+	tctx = de_malloc(c, sizeof(struct pasti_track_ctx));
+	pos = pos1;
+	pos += 4; // record size, already read
+
+	tctx->fuzzy_count = de_getu32le_p(&pos);
+	de_dbg(c, "fuzzyCount: %"I64_FMT, tctx->fuzzy_count);
+	tctx->sector_count = de_getu16le_p(&pos);
+	de_dbg(c, "sectorCount: %"I64_FMT, tctx->sector_count);
+	if(tctx->sector_count > PASTI_MAX_SECTORS_PER_TRACK) {
+		goto done;
+	}
+
+	tctx->track_flags = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "trackFlags: 0x%02x", tctx->track_flags);
+
+	tctx->track_length = de_getu16le_p(&pos);
+	de_dbg(c, "trackLength: %"I64_FMT, tctx->track_length);
+
+	track_number_raw = de_getbyte_p(&pos);
+	tctx->track_num = (i64)(track_number_raw & 0x7f);
+	tctx->side_num = (i64)(track_number_raw>>7);
+	de_dbg(c, "trackNumber: 0x%02x (track %u, side %u)", (UI)track_number_raw,
+		(UI)tctx->track_num, (UI)tctx->side_num);
+
+	pos += 1; // trackType, unused
+
+	if(tctx->track_flags & TRK_SECT) {
+		tctx->sector_descriptors_pos = pos;
+		pos += 16 * tctx->sector_count;
+	}
+
+	pos += tctx->fuzzy_count;
+
+	tctx->track_data_record_pos = pos;
+
+	if(!(tctx->track_flags & TRK_SECT)) {
+		// TODO: Support this
+		de_err(c, "Pasti files without sector descriptors are not supported");
+		goto done;
+	}
+
+	if(trkidx==0) {
+		// Special handling for the first track in the file
+
+		if(track_number_raw == 0x00) {
+			pasti_find_and_read_boot_sector(c, d, tctx);
+		}
+		else {
+			de_err(c, "First track in file is not track 0/side 0; can't convert this file");
+			d->convert_errflag = 1;
+		}
+	}
+
+	if(tctx->sector_count>0) {
+		if(!do_pasti_sectors(c, d, tctx)) goto done;
+	}
+
+	retval = 1;
+done:
+	if(tctx) {
+		de_free(c, tctx);
+	}
+	de_dbg_indent(c, -1);
+	return retval;
+}
+
+static int do_pasti_tracks(deark *c, struct pastictx *d, i64 pos1)
+{
+	i64 trkidx;
+	i64 pos = pos1;
+	int retval = 0;
+
+	for(trkidx=0; trkidx<d->track_count; trkidx++) {
+		i64 recsize;
+
+		if(pos+16 > c->infile->len) goto done;
+		recsize = de_getu32le(pos);
+		if(recsize<16) goto done;
+		if(!do_pasti_track(c, d, trkidx, pos, recsize)) goto done;
+		pos += recsize;
+	}
+	retval = 1;
+done:
+	if(!retval) {
+		de_err(c, "Bad data or unexpected end of file");
+	}
+	return retval;
+}
+
+static int do_pasti_header(deark *c, struct pastictx *d, i64 pos1)
+{
+	i64 pos = pos1;
+	int retval = 0;
+
+	de_dbg(c, "file descriptor at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	pos += 4; // signature
+	d->version = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "version: %u", d->version);
+	pos += 2; // tool
+	pos += 2; // reserved_1
+	d->track_count = (i64)de_getbyte_p(&pos);
+	de_dbg(c, "track count: %d", (int)d->track_count);
+	d->revision = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "revision: %u", d->revision);
+	if(d->version!=3 || d->revision!=2) {
+		de_err(c, "Unsupported format version: %ur%u", d->version, d->revision);
+		goto done;
+	}
+
+	retval = 1;
+done:
+	de_dbg_indent(c, -1);
+	return retval;
+}
+
+static void pasti_decode_fat(deark *c, struct pastictx *d)
+{
+	de_module_params *mparams = NULL;
+
+	mparams = de_malloc(c, sizeof(de_module_params));
+	de_dbg(c, "decoding as FAT");
+	de_dbg_indent(c, 1);
+	mparams->in_params.codes = "A";
+	mparams->in_params.input_encoding = d->input_encoding;
+	de_run_module_by_id_on_slice(c, "fat", mparams, d->diskbuf, 0, d->diskbuf->len);
+	if(mparams->out_params.flags & 0x1) {
+		de_info(c, "Note: Use \"-opt pasti:toraw\" to decompress to a raw .ST file");
+	}
+	de_free(c, mparams);
+	de_dbg_indent(c, -1);
+}
+
+static void pasti_extract_to_raw(deark *c, struct pastictx *d)
+{
+	dbuf *outf = NULL;
+
+	outf = dbuf_create_output_file(c, "st", NULL, 0);
+	dbuf_copy(d->diskbuf, 0, d->diskbuf->len, outf);
+	dbuf_close(outf);
+}
+
+static void de_run_pasti(deark *c, de_module_params *mparams)
+{
+	struct pastictx *d = NULL;
+
+	d = de_malloc(c, sizeof(struct pastictx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ATARIST);
+
+	if(de_get_ext_option_bool(c, "pasti:toraw", 0)) {
+		d->outfmt = ATARIST_OUTFMT_ST;
+	}
+	else {
+		d->outfmt = ATARIST_OUTFMT_FILES;
+	}
+
+	if(!do_pasti_header(c, d, 0)) goto done;
+
+	if(!do_pasti_tracks(c, d, 16)) goto done;
+	if(!d->diskbuf) goto done;
+
+	if(d->oob_sector_count>0) {
+		de_warn(c, "%d of %d sectors are outside the bounds of the disk geometry, and will "
+			"be ignored.", (int)d->oob_sector_count, (int)d->num_nonempty_sectors_found);
+	}
+
+	if(d->num_nonempty_sectors_found<=0) goto done;
+
+	if(d->outfmt==ATARIST_OUTFMT_ST) {
+		pasti_extract_to_raw(c, d);
+	}
+	else {
+		pasti_decode_fat(c, d);
+	}
+
+done:
+	if(d) {
+		dbuf_close(d->diskbuf);
+	}
+	de_free(c, d);
+}
+
+static int de_identify_pasti(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "RSY\0", 4))
+		return 100;
+	return 0;
+}
+
+static void de_help_pasti(deark *c)
+{
+	de_msg(c, "-opt pasti:toraw : Extract to raw .ST format");
+}
+
+void de_module_pasti(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "pasti";
+	mi->desc = "Pasti - Atari ST floppy disk image format";
+	mi->run_fn = de_run_pasti;
+	mi->identify_fn = de_identify_pasti;
+	mi->help_fn = de_help_pasti;
 }

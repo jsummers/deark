@@ -18,7 +18,6 @@
 enum de_encoding_enum {
 	DE_ENCODING_UNKNOWN = 0,
 	DE_ENCODING_ASCII,
-	DE_ENCODING_PRINTABLEASCII,
 	DE_ENCODING_UTF8,
 	DE_ENCODING_UTF16LE,
 	DE_ENCODING_UTF16BE,
@@ -211,15 +210,15 @@ struct de_finfo_struct {
 #define DE_MODEFLAG_EXE    0x02 // Make the output file executable.
 	unsigned int mode_flags;
 
-#define DE_TIMESTAMPIDX_MODIFY      0 // Mod time of an archived file
-#define DE_TIMESTAMPIDX_CREATE      1 // (Limited use)
-#define DE_TIMESTAMPIDX_ACCESS      2 // (Limited use)
-#define DE_TIMESTAMPIDX_ATTRCHANGE  3 // (Limited use)
-#define DE_TIMESTAMPIDX_BACKUP      4 // (Limited use)
+#define DE_TIMESTAMPIDX_MODIFY      0 // External timestamps...
+#define DE_TIMESTAMPIDX_CREATE      1
+#define DE_TIMESTAMPIDX_ACCESS      2
+#define DE_TIMESTAMPIDX_ATTRCHANGE  3
+#define DE_TIMESTAMPIDX_BACKUP      4
 #define DE_TIMESTAMPIDX_COUNT       5
 	struct de_timestamp timestamp[DE_TIMESTAMPIDX_COUNT];
 
-	struct de_timestamp image_mod_time; // Internal mod time (e.g. for PNG tIME chunk)
+	struct de_timestamp internal_mod_time; // E.g. for PNG tIME chunk
 	struct de_density_info density;
 	de_ucstring *name_other; // Modules can use this field as needed.
 	int hotspot_x, hotspot_y; // Measured from upper-left pixel (after handling 'flipped')
@@ -383,7 +382,7 @@ struct deark_struct {
 	int overwrite_mode;
 	u8 preserve_file_times;
 	u8 preserve_file_times_archives;
-	u8 preserve_file_times_images;
+	u8 preserve_file_times_internal;
 	u8 reproducible_output;
 	struct de_timestamp reproducible_timestamp;
 	int can_decode_fltpt;
@@ -488,9 +487,7 @@ FILE* de_fopen_for_write(deark *c, const char *fn,
 int de_fseek(FILE *fp, i64 offs, int whence);
 i64 de_ftell(FILE *fp);
 int de_fclose(FILE *fp);
-
-void de_update_file_perms(dbuf *f);
-void de_update_file_time(dbuf *f);
+void de_update_file_attribs(dbuf *f, u8 preserve_file_times);
 
 void de_declare_fmt(deark *c, const char *fmtname);
 void de_declare_fmtf(deark *c, const char *fmt, ...)

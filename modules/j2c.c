@@ -42,8 +42,7 @@ struct marker_info1 {
 	handler_fn_type hfn;
 };
 
-static void handle_comment(deark *c, lctx *d, i64 pos, i64 comment_size,
-   de_encoding encoding)
+static void handle_comment(deark *c, lctx *d, i64 pos, i64 comment_size)
 {
 	de_ucstring *s = NULL;
 	int write_to_file;
@@ -58,21 +57,8 @@ static void handle_comment(deark *c, lctx *d, i64 pos, i64 comment_size,
 
 	write_to_file = (c->extract_level>=2);
 
-	if(write_to_file && encoding==DE_ENCODING_UNKNOWN) {
-		// If we don't know the encoding, dump the raw bytes to a file.
-		dbuf_create_file_from_slice(c->infile, pos, comment_size, "comment.txt",
-			NULL, DE_CREATEFLAG_IS_AUX);
-		goto done;
-	}
-
-	if(encoding==DE_ENCODING_UNKNOWN) {
-		// In this case, we're printing the comment in the debug info.
-		// If we don't know the encoding, pretend it's ASCII-like.
-		encoding=DE_ENCODING_PRINTABLEASCII;
-	}
-
 	s = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos, comment_size, s, 0, encoding);
+	dbuf_read_to_ucstring(c->infile, pos, comment_size, s, 0, DE_ENCODING_LATIN1);
 
 	if(write_to_file) {
 		dbuf *outf = NULL;
@@ -84,7 +70,6 @@ static void handle_comment(deark *c, lctx *d, i64 pos, i64 comment_size,
 		de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(s));
 	}
 
-done:
 	ucstring_destroy(s);
 }
 
@@ -110,7 +95,7 @@ static void handler_cme(deark *c, lctx *d, struct page_ctx *pg,
 	comment_size = data_size-2;
 
 	if(reg_val==1) {
-		handle_comment(c, d, comment_pos, comment_size, DE_ENCODING_LATIN1);
+		handle_comment(c, d, comment_pos, comment_size);
 	}
 	else {
 		de_dbg_hexdump(c, c->infile, comment_pos, comment_size, 256, NULL, 0x1);

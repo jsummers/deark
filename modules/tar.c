@@ -19,8 +19,6 @@ struct phys_member_data {
 	int fmt;
 	u8 linkflag;
 	i64 mode;
-	i64 modtime_unix;
-	struct de_timestamp mod_time;
 	i64 file_data_pos;
 	i64 filesize;
 	i64 checksum;
@@ -28,6 +26,7 @@ struct phys_member_data {
 	de_ucstring *name;
 	struct de_stringreaderdata *linkname;
 	de_ucstring *prefix;
+	struct de_timestamp timestamps[DE_TIMESTAMPIDX_COUNT];
 };
 
 // A struct to collect various extended attributes for a logical member
@@ -35,10 +34,10 @@ struct phys_member_data {
 struct extattr_data {
 	de_ucstring *alt_name;
 	de_ucstring *linkname;
-	struct de_timestamp alt_mod_time;
 	u8 main_file_is_special;
 	u8 has_alt_size;
 	i64 alt_size;
+	struct de_timestamp alt_timestamps[DE_TIMESTAMPIDX_COUNT];
 };
 
 struct member_data {
@@ -89,6 +88,22 @@ static int read_ascii_octal_number(dbuf *f, i64 pos, i64 fieldsize,
 	return 0;
 }
 
+static void read_12char_timestamp(deark *c, struct phys_member_data *pmd, i64 pos,
+	int tsidx, const char *name)
+{
+	int ret;
+	i64 timestamp_unix;
+	char timestamp_buf[64];
+
+	ret = read_ascii_octal_number(c->infile, pos, 12, &timestamp_unix);
+	if(ret) {
+		de_unix_time_to_timestamp(timestamp_unix, &pmd->timestamps[tsidx], 0x1);
+		de_dbg_timestamp_to_string(c, &pmd->timestamps[tsidx],
+			timestamp_buf, sizeof(timestamp_buf), 0);
+		de_dbg(c, "%s: %"I64_FMT" (%s)", name, timestamp_unix, timestamp_buf);
+	}
+}
+
 // Sets md->checksum_calc
 static void calc_checksum(deark *c, lctx *d, struct phys_member_data *pmd,
 	const u8 *hdrblock)
@@ -108,7 +123,6 @@ static void calc_checksum(deark *c, lctx *d, struct phys_member_data *pmd,
 static int read_phys_member_header(deark *c, lctx *d,
 	struct phys_member_data *pmd, i64 pos1)
 {
-	char timestamp_buf[64];
 	i64 n;
 	int ret;
 	i64 pos = pos1;
@@ -180,12 +194,7 @@ static int read_phys_member_header(deark *c, lctx *d,
 	de_dbg(c, "size: %"I64_FMT, pmd->filesize);
 	pmd->file_data_pos = pos1 + 512;
 
-	ret = read_ascii_octal_number(c->infile, pos, 12, &pmd->modtime_unix);
-	if(ret) {
-		de_unix_time_to_timestamp(pmd->modtime_unix, &pmd->mod_time, 0x1);
-		de_dbg_timestamp_to_string(c, &pmd->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
-		de_dbg(c, "mtime: %"I64_FMT" (%s)", pmd->modtime_unix, timestamp_buf);
-	}
+	read_12char_timestamp(c, pmd, pos, DE_TIMESTAMPIDX_MODIFY, "mtime");
 	pos += 12;
 
 	(void)read_ascii_octal_number(c->infile, pos, 8, &pmd->checksum);
@@ -214,7 +223,7 @@ static int read_phys_member_header(deark *c, lctx *d,
 	if(c->debug_level>=2) {
 		ucstring_empty(tmpstr);
 		dbuf_read_to_ucstring(c->infile, pos, 8, tmpstr, 0,
-			DE_ENCODING_PRINTABLEASCII);
+			DE_EXTENC_MAKE(DE_ENCODING_ASCII, DE_ENCSUBTYPE_PRINTABLE));
 		de_dbg2(c, "magic/version: \"%s\"", ucstring_getpsz_d(tmpstr));
 	}
 	pos += 6; // magic
@@ -239,6 +248,13 @@ static int read_phys_member_header(deark *c, lctx *d,
 	pos += 8; // devmajor
 	pos += 8; // devminor
 
+	// TODO?: There are various dialect-specific fields after this point, more of
+	// which might be worth supporting.
+
+	// TODO?: Some (rare?) GNU files have atime/ctime fields here, but is it
+	// worth trying to detect them?
+	// And "star" files can have atime/ctime fields at offset 476.
+
 	if((pmd->fmt==TARFMT_POSIX || pmd->fmt==TARFMT_STAR) && (de_getbyte(pos)!=0)) {
 		// This field might only be 131 bytes, instead of 155. Let's hope that
 		// it's NUL terminated in that case.
@@ -246,12 +262,8 @@ static int read_phys_member_header(deark *c, lctx *d,
 		dbuf_read_to_ucstring(c->infile, pos, 155, pmd->prefix,
 			DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
 		de_dbg(c, "prefix: \"%s\"", ucstring_getpsz_d(pmd->prefix));
+		//pos += 155;
 	}
-	//pos += 131; // first 131 bytes of prefix, or all of prefix
-	//pos += 12; // next 12 bytes of prefix, or atime
-	//pos += 12; // last 12 bytes of prefix, or ctime
-
-	//pos += 12; // pad
 
 	retval = 1;
 
@@ -326,8 +338,8 @@ struct exthdr_item {
 	struct de_stringreaderdata *value;
 };
 
-static void do_exthdr_mtime(deark *c, lctx *d, struct phys_member_data *pmd,
-	struct exthdr_item *ehi, struct extattr_data *ea)
+static void do_exthdr_timestamp(deark *c, lctx *d, struct phys_member_data *pmd,
+	struct exthdr_item *ehi, struct extattr_data *ea, int tsidx, const char *name)
 {
 	double val_dbl;
 	double val_frac;
@@ -347,13 +359,14 @@ static void do_exthdr_mtime(deark *c, lctx *d, struct phys_member_data *pmd,
 		val_frac = 0.0;
 	}
 
-	de_unix_time_to_timestamp(val_int, &ea->alt_mod_time, 0x1);
+	de_unix_time_to_timestamp(val_int, &ea->alt_timestamps[tsidx], 0x1);
 	if(val_frac > 0.0) {
-		de_timestamp_set_subsec(&ea->alt_mod_time, val_frac);
+		de_timestamp_set_subsec(&ea->alt_timestamps[tsidx], val_frac);
 	}
 
-	de_dbg_timestamp_to_string(c, &ea->alt_mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
-	de_dbg(c, "mod time: %s", timestamp_buf);
+	de_dbg_timestamp_to_string(c, &ea->alt_timestamps[tsidx],
+		timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "%s: %s", name, timestamp_buf);
 }
 
 static int read_exthdr_item(deark *c, lctx *d, struct phys_member_data *pmd,
@@ -467,7 +480,16 @@ static int read_exthdr_item(deark *c, lctx *d, struct phys_member_data *pmd,
 		ucstring_append_ucstring(ea->linkname, ehi->value->str);
 	}
 	else if(!de_strcmp(ehi->name->sz, "mtime")) {
-		do_exthdr_mtime(c, d, pmd, ehi, ea);
+		do_exthdr_timestamp(c, d, pmd, ehi, ea, DE_TIMESTAMPIDX_MODIFY, "mod time");
+	}
+	else if(!de_strcmp(ehi->name->sz, "atime")) {
+		do_exthdr_timestamp(c, d, pmd, ehi, ea, DE_TIMESTAMPIDX_ACCESS, "access time");
+	}
+	else if(!de_strcmp(ehi->name->sz, "ctime")) {
+		do_exthdr_timestamp(c, d, pmd, ehi, ea, DE_TIMESTAMPIDX_ATTRCHANGE, "attrib-change time");
+	}
+	else if(!de_strcmp(ehi->name->sz, "LIBARCHIVE.creationtime")) {
+		do_exthdr_timestamp(c, d, pmd, ehi, ea, DE_TIMESTAMPIDX_CREATE, "create time");
 	}
 	else if(!de_strcmp(ehi->name->sz, "size")) {
 		if(ehi->val_len==0) {
@@ -539,6 +561,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	struct extattr_data *ea = NULL;
 	dbuf *outf = NULL;
 	unsigned int snflags;
+	int tsidx;
 	i64 pos = pos1;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -659,11 +682,13 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, pmd->file_data_pos,
 		pmd->filesize);
 
-	if(ea->alt_mod_time.is_valid) {
-		md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = ea->alt_mod_time;
-	}
-	else if(pmd->mod_time.is_valid) {
-		md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = pmd->mod_time;
+	for(tsidx=0; tsidx<DE_TIMESTAMPIDX_COUNT; tsidx++) {
+		if(ea->alt_timestamps[tsidx].is_valid) {
+			md->fi->timestamp[tsidx] = ea->alt_timestamps[tsidx];
+		}
+		else if(pmd->timestamps[tsidx].is_valid) {
+			md->fi->timestamp[tsidx] = pmd->timestamps[tsidx];
+		}
 	}
 
 	if(!md->is_regular_file && !md->is_dir) {

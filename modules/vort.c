@@ -72,6 +72,7 @@ typedef struct localctx_struct {
 	i64 colormap_pos;
 	i64 colormap_size;
 	u8 rle_flag;
+	struct de_timestamp timestamp;
 
 	u32 pal[256];
 } lctx;
@@ -145,10 +146,9 @@ static void decode_date(deark *c, lctx *d,
 	i64 pos, i64 dlen, i64 value_as_vlq)
 {
 	char timestamp_buf[64];
-	struct de_timestamp timestamp;
 
-	de_unix_time_to_timestamp(value_as_vlq, &timestamp, 0x1);
-	de_timestamp_to_string(&timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_unix_time_to_timestamp(value_as_vlq, &d->timestamp, 0x1);
+	de_timestamp_to_string(&d->timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "%s: %"I64_FMT" (%s)", oti->name, value_as_vlq, timestamp_buf);
 }
 
@@ -383,6 +383,7 @@ static void do_decompress(deark *c, lctx *d, i64 pos1, dbuf *unc_pixels,
 static void do_image(deark *c, lctx *d)
 {
 	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
 	dbuf *unc_pixels = NULL;
 	i64 i, j;
 	i64 bytes_per_pixel;
@@ -432,12 +433,16 @@ static void do_image(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL, 0);
+	fi = de_finfo_create(c);
+	fi->internal_mod_time = d->timestamp;
+
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 
 done:
 	de_dbg_indent(c, -1);
 	dbuf_close(unc_pixels);
 	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
 }
 
 static void de_run_vort(deark *c, de_module_params *mparams)

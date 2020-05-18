@@ -22,6 +22,12 @@ struct cmpr_meth_info {
 	void *reserved;
 };
 
+#define TIMESTAMPIDX_INVALID (-1)
+struct timestamp_data {
+	struct de_timestamp ts; // The best timestamp of this type found so far
+	int quality;
+};
+
 struct member_data {
 	u8 hlev; // header level
 	i64 total_size;
@@ -38,8 +44,7 @@ struct member_data {
 	de_ucstring *dirname;
 	de_ucstring *filename;
 	de_ucstring *fullfilename;
-	struct de_timestamp mod_time; // The best timestamp found so far
-	int mod_time_quality;
+	struct timestamp_data tsdata[DE_TIMESTAMPIDX_COUNT];
 };
 
 typedef struct localctx_struct {
@@ -61,13 +66,14 @@ struct exthdr_type_info_struct {
 	exthdr_decoder_fn decoder_fn;
 };
 
-static void apply_mod_time(deark *c, lctx *d, struct member_data *md,
-	const struct de_timestamp *ts, int quality)
+static void apply_timestamp(deark *c, lctx *d, struct member_data *md,
+	int tsidx, const struct de_timestamp *ts, int quality)
 {
 	if(!ts->is_valid) return;
-	if(quality < md->mod_time_quality) return;
-	md->mod_time = *ts;
-	md->mod_time_quality = quality;
+	if(tsidx<0 || tsidx>=DE_TIMESTAMPIDX_COUNT) return;
+	if(quality < md->tsdata[tsidx].quality) return;
+	md->tsdata[tsidx].ts = *ts;
+	md->tsdata[tsidx].quality = quality;
 }
 
 static void read_msdos_modtime(deark *c, lctx *d, struct member_data *md,
@@ -87,11 +93,11 @@ static void read_msdos_modtime(deark *c, lctx *d, struct member_data *md,
 	tmp_timestamp.tzcode = DE_TZCODE_LOCAL;
 	de_timestamp_to_string(&tmp_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "%s: %s", name, timestamp_buf);
-	apply_mod_time(c, d, md, &tmp_timestamp, 10);
+	apply_timestamp(c, d, md, DE_TIMESTAMPIDX_MODIFY, &tmp_timestamp, 10);
 }
 
 static void read_windows_FILETIME(deark *c, lctx *d, struct member_data *md,
-	i64 pos, int is_modtime, const char *name)
+	i64 pos, int tsidx, const char *name)
 {
 	i64 t_FILETIME;
 	char timestamp_buf[64];
@@ -99,13 +105,14 @@ static void read_windows_FILETIME(deark *c, lctx *d, struct member_data *md,
 
 	t_FILETIME = de_geti64le(pos);
 	de_FILETIME_to_timestamp(t_FILETIME, &tmp_timestamp, 0x1);
+	if(t_FILETIME<=0) tmp_timestamp.is_valid = 0;
 	de_timestamp_to_string(&tmp_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
-	de_dbg(c, "%s: %s", name, timestamp_buf);
-	if(is_modtime) apply_mod_time(c, d, md, &tmp_timestamp, 90);
+	de_dbg(c, "%s: %"I64_FMT" (%s)", name, t_FILETIME, timestamp_buf);
+	apply_timestamp(c, d, md, tsidx, &tmp_timestamp, 90);
 }
 
 static void read_unix_timestamp(deark *c, lctx *d, struct member_data *md,
-	i64 pos, int is_modtime, const char *name)
+	i64 pos, int tsidx, const char *name)
 {
 	i64 t;
 	char timestamp_buf[64];
@@ -115,7 +122,7 @@ static void read_unix_timestamp(deark *c, lctx *d, struct member_data *md,
 	de_unix_time_to_timestamp(t, &tmp_timestamp, 0x1);
 	de_timestamp_to_string(&tmp_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "%s: %d (%s)", name, (int)t, timestamp_buf);
-	if(is_modtime) apply_mod_time(c, d, md, &tmp_timestamp, 50);
+	apply_timestamp(c, d, md, tsidx, &tmp_timestamp, 50);
 }
 
 static void read_filename(deark *c, lctx *d, struct member_data *md,
@@ -233,9 +240,9 @@ static void exthdr_windowstimestamp(deark *c, lctx *d, struct member_data *md,
 	i64 pos, i64 dlen)
 {
 	if(dlen<24) return;
-	read_windows_FILETIME(c, d, md, pos,    0, "create time");
-	read_windows_FILETIME(c, d, md, pos+8,  1, "mod time   ");
-	read_windows_FILETIME(c, d, md, pos+16, 0, "access time");
+	read_windows_FILETIME(c, d, md, pos,    DE_TIMESTAMPIDX_CREATE, "create time");
+	read_windows_FILETIME(c, d, md, pos+8,  DE_TIMESTAMPIDX_MODIFY, "mod time   ");
+	read_windows_FILETIME(c, d, md, pos+16, DE_TIMESTAMPIDX_ACCESS, "access time");
 }
 
 static void interpret_unix_perms(deark *c, lctx *d, struct member_data *md, unsigned int mode)
@@ -282,7 +289,7 @@ static void exthdr_unixtimestamp(deark *c, lctx *d, struct member_data *md,
 	i64 pos, i64 dlen)
 {
 	if(dlen<4) return;
-	read_unix_timestamp(c, d, md, pos, 1, "last-modified");
+	read_unix_timestamp(c, d, md, pos, DE_TIMESTAMPIDX_MODIFY, "last-modified");
 }
 
 static void exthdr_lev3newattribs2(deark *c, lctx *d, struct member_data *md,
@@ -296,9 +303,9 @@ static void exthdr_lev3newattribs2(deark *c, lctx *d, struct member_data *md,
 
 	// [Documented as "creation time", but this is a Unix-style header, so I
 	// wonder if someone mistranslated "ctime" (=change time).]
-	read_unix_timestamp(c, d, md, pos+12, 0, "create(?) time");
+	read_unix_timestamp(c, d, md, pos+12, TIMESTAMPIDX_INVALID, "create(?) time");
 
-	read_unix_timestamp(c, d, md, pos+16, 0, "access time   ");
+	read_unix_timestamp(c, d, md, pos+16, DE_TIMESTAMPIDX_ACCESS, "access time   ");
 }
 
 static void exthdr_codepage(deark *c, lctx *d, struct member_data *md,
@@ -404,7 +411,7 @@ static void do_lev0_ext_area(deark *c, lctx *d, struct member_data *md,
 
 		if(len<12) goto done;
 
-		read_unix_timestamp(c, d, md, pos1+2, 1, "last-modified");
+		read_unix_timestamp(c, d, md, pos1+2, DE_TIMESTAMPIDX_MODIFY, "last-modified");
 
 		mode = (unsigned int)de_getu16le(pos1+6);
 		de_dbg(c, "mode: octal(%06o)", mode);
@@ -540,6 +547,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md,
 	de_finfo *fi = NULL;
 	dbuf *outf = NULL;
 	u32 crc_calc;
+	int tsidx;
 
 	if(!d->try_to_extract) return;
 	if(md->is_dir) {
@@ -556,7 +564,11 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md,
 
 	fi = de_finfo_create(c);
 
-	fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->mod_time;
+	for(tsidx=0; tsidx<DE_TIMESTAMPIDX_COUNT; tsidx++) {
+		if(md->tsdata[tsidx].ts.is_valid) {
+			fi->timestamp[tsidx] = md->tsdata[tsidx].ts;
+		}
+	}
 
 	if(md->is_dir) {
 		fi->is_directory = 1;
@@ -740,7 +752,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 		pos += 4; // modification time/date (MS-DOS)
 	}
 	else if(md->hlev==2 || md->hlev==3) {
-		read_unix_timestamp(c, d, md, pos, 1, "last-modified");
+		read_unix_timestamp(c, d, md, pos, DE_TIMESTAMPIDX_MODIFY, "last-modified");
 		pos += 4; // Unix time
 	}
 
@@ -829,7 +841,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 			first_ext_hdr_size, &exthdr_bytes_consumed);
 	}
 
-	de_dbg(c, "%scompressed member data at %"I64_FMT", len=%"I64_FMT,
+	de_dbg(c, "member data (%scompressed) at %"I64_FMT", len=%"I64_FMT,
 		is_compressed?"":"un",
 		md->compressed_data_pos, md->compressed_data_len);
 
@@ -898,7 +910,6 @@ static int de_identify_lha(deark *c)
 	}
 	return 0;
 }
-
 
 static void de_help_lha(deark *c)
 {
