@@ -11,6 +11,7 @@ DE_DECLARE_MODULE(de_module_lha);
 #define CODE_lh0 0x6c6830U
 #define CODE_lh1 0x6c6831U
 #define CODE_lh5 0x6c6835U
+#define CODE_lh6 0x6c6836U
 #define CODE_lhd 0x6c6864U
 #define CODE_lz4 0x6c7a34U
 #define CODE_pm0 0x706d30U
@@ -48,8 +49,9 @@ struct member_data {
 };
 
 typedef struct localctx_struct {
-	int member_count;
+	de_encoding input_encoding;
 	int try_to_extract;
+	int member_count;
 	struct de_crcobj *crco;
 } lctx;
 
@@ -132,7 +134,7 @@ static void read_filename(deark *c, lctx *d, struct member_data *md,
 
 	md->filename = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, len,
-		md->filename, 0, DE_ENCODING_ASCII);
+		md->filename, 0, d->input_encoding);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
 
 	if(md->hlev==0) {
@@ -187,7 +189,7 @@ static void exthdr_dirname(deark *c, lctx *d, struct member_data *md,
 	}
 
 	dbuf_read_to_ucstring(c->infile, pos, dlen,
-		md->dirname, 0, DE_ENCODING_ASCII);
+		md->dirname, 0, d->input_encoding);
 	de_dbg(c, "%s: \"%s\"", e->name, ucstring_getpsz(md->dirname));
 
 	// Fixup dir name.
@@ -529,8 +531,9 @@ static void do_decompress_stored(deark *c, lctx *d, struct member_data *md, dbuf
 static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 0x01, CODE_lhd, "directory", NULL },
 	{ 0x02, CODE_lh0, "uncompressed", NULL },
-	{ 0x00, CODE_lh1, "LZSS-4K / dynamic Huffman / static Huffman", NULL },
-	{ 0x00, CODE_lh5, "LZSS-8K / static Huffman / static Huffman", NULL },
+	{ 0x00, CODE_lh1, "LZ77, 4K, codes = dynamic Huffman", NULL },
+	{ 0x00, CODE_lh5, "LZ77, 8K, static Huffman", NULL },
+	{ 0x00, CODE_lh6, "LZ77, 32K, static Huffman", NULL },
 	{ 0x02, CODE_lz4, "uncompressed (LArc)", NULL },
 	{ 0x02, CODE_pm0, "uncompressed (PMArc)", NULL }
 };
@@ -634,6 +637,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	i64 pos = pos1;
 	i64 exthdr_bytes_consumed = 0;
 	i64 fnlen = 0;
+	UI attribs;
 	int is_compressed;
 	int ret;
 	u8 tmpb1, tmpb2;
@@ -756,13 +760,21 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 		pos += 4; // Unix time
 	}
 
+	attribs = (UI)de_getbyte_p(&pos);
 	if(md->hlev==0) {
-		pos += 2; // MS-DOS file attributes
+		de_ucstring *attr_descr;
+
+		// This is a 2-byte field, but the high byte must be 0 here because it's
+		// also the header level.
+		attr_descr = ucstring_create(c);
+		de_describe_dos_attribs(c, attribs, attr_descr, 0);
+		de_dbg(c, "attribs: 0x%04x (%s)", attribs, ucstring_getpsz_d(attr_descr));
+		ucstring_destroy(attr_descr);
 	}
-	else if(md->hlev==1 || md->hlev==2 || md->hlev==3) {
-		pos++; // reserved
-		pos++; // header level
+	else {
+		de_dbg(c, "obsolete attribs low byte: 0x%02x", attribs);
 	}
+	pos++; // header level or high byte of attribs, already handled
 
 	if(md->hlev<=1) {
 		fnlen = de_getbyte(pos++);
@@ -862,6 +874,7 @@ static void de_run_lha(deark *c, de_module_params *mparams)
 	struct member_data *md = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->input_encoding = DE_ENCODING_ASCII;
 
 	d->try_to_extract = de_get_ext_option_bool(c, "lha:extract", -1);
 	if(d->try_to_extract == -1) {
