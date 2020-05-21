@@ -10,6 +10,8 @@
 
 DE_DECLARE_MODULE(de_module_packdir);
 
+#define MAX_NESTING_LEVEL 32
+
 struct pdctx_object {
 	u32 attribs;
 	u32 object_type;
@@ -157,7 +159,7 @@ static int do_packdir_object(deark *c, struct pdctx_struct *d, i64 pos1,
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	if(level >= 32) {
+	if(level >= MAX_NESTING_LEVEL) {
 		goto done;
 	}
 
@@ -283,7 +285,7 @@ static void de_run_packdir(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(struct pdctx_struct));
 
 	if(!do_packdir_header(c, d)) goto done;
-	d->curpath = de_strarray_create(c);
+	d->curpath = de_strarray_create(c, MAX_NESTING_LEVEL+10);
 	do_packdir_object(c, d, 9, 0, &bytes_consumed);
 
 done:

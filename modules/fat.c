@@ -8,6 +8,8 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_fat);
 
+#define MAX_NESTING_LEVEL 16
+
 struct member_data {
 	u8 fn_base[8];
 	u8 fn_ext[3];
@@ -476,7 +478,7 @@ static void do_subdir(deark *c, lctx *d, struct member_data *md, int nesting_lev
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	if(nesting_level >= 16) {
+	if(nesting_level >= MAX_NESTING_LEVEL) {
 		de_err(c, "Directories nested too deeply");
 		goto done;
 	}
@@ -875,7 +877,7 @@ static void de_run_fat(deark *c, de_module_params *mparams)
 		}
 	}
 
-	d->curpath = de_strarray_create(c);
+	d->curpath = de_strarray_create(c, MAX_NESTING_LEVEL+10);
 	got_root_dir = 1;
 	do_root_dir(c, d);
 

@@ -10,6 +10,8 @@
 #include "../foreign/unsit.h"
 DE_DECLARE_MODULE(de_module_stuffit);
 
+#define MAX_NESTING_LEVEL 32
+
 struct cmpr_meth_info;
 
 struct fork_data {
@@ -482,6 +484,11 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	de_advfile_set_orig_filename(md->advf, md->fname->sz, md->fname->sz_strlen);
 
 	if(md->is_folder) {
+		if(d->subdir_level >= MAX_NESTING_LEVEL) {
+			de_err(c, "Directories nested too deeply");
+			retval = 0;
+			goto done;
+		}
 		d->subdir_level++;
 		de_strarray_push(d->curpath, md->fname->str);
 		do_extract_folder(c, d, md);
@@ -607,7 +614,7 @@ static void de_run_stuffit(deark *c, de_module_params *mparams)
 	if(!do_master_header(c, d, pos)) goto done;
 	pos += 22;
 
-	d->curpath = de_strarray_create(c);
+	d->curpath = de_strarray_create(c, MAX_NESTING_LEVEL+10);
 	d->crco_rfork = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 	d->crco_dfork = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 

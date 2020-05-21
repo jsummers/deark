@@ -23,6 +23,8 @@ DE_DECLARE_MODULE(de_module_nrg);
 #define CODE_TF 0x5446U
 #define CODE_ZF 0x5a46U
 
+#define MAX_NESTING_LEVEL 32
+
 struct dir_record {
 	u8 file_flags;
 	u8 is_dir;
@@ -946,7 +948,7 @@ static void do_directory(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level
 		goto done;
 	}
 
-	if(nesting_level>32) {
+	if(nesting_level>MAX_NESTING_LEVEL) {
 		de_err(c, "Maximum directory nesting level exceeded");
 		goto done;
 	}
@@ -1388,7 +1390,7 @@ static void de_run_iso9660(deark *c, de_module_params *mparams)
 	}
 
 	d->dirs_seen = de_inthashtable_create(c);
-	d->curpath = de_strarray_create(c);
+	d->curpath = de_strarray_create(c, MAX_NESTING_LEVEL+10);
 
 	if(d->vol->root_dir_extent_blk) {
 		do_directory(c, d, sector_dpos(d, d->vol->root_dir_extent_blk),

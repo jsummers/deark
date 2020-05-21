@@ -11,6 +11,8 @@
 DE_DECLARE_MODULE(de_module_arcfs);
 DE_DECLARE_MODULE(de_module_squash);
 
+#define MAX_NESTING_LEVEL 32
+
 struct arcfs_member_data {
 	struct de_riscos_file_attrs rfa;
 	int is_dir;
@@ -26,6 +28,7 @@ struct arcfs_member_data {
 
 typedef struct localctx_struct {
 	int append_type;
+	int subdir_level;
 	i64 nmembers;
 	i64 data_offs;
 	struct de_crcobj *crco;
@@ -275,7 +278,8 @@ static void destroy_arcfs_member_data(deark *c, struct arcfs_member_data *md)
 	de_free(c, md);
 }
 
-static void do_arcfs_member(deark *c, lctx *d, i64 idx, i64 pos1)
+// Returns 0 only if we should stop parsing the entire arcfs file.
+static int do_arcfs_member(deark *c, lctx *d, i64 idx, i64 pos1)
 {
 	i64 pos = pos1;
 	u32 info_word;
@@ -283,17 +287,20 @@ static void do_arcfs_member(deark *c, lctx *d, i64 idx, i64 pos1)
 	unsigned int tmpflags;
 	int saved_indent_level;
 	struct arcfs_member_data *md;
+	int retval = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	md = de_malloc(c, sizeof(struct arcfs_member_data));
 	de_dbg(c, "header at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
+	retval = 1;
 	info_byte = de_getbyte_p(&pos);
 	md->cmpr_meth_name = get_info_byte_name(info_byte);
 	de_dbg(c, "info byte: 0x%02x (%s)", (unsigned int)info_byte, md->cmpr_meth_name);
 	if(info_byte==1) goto done; // deleted object
 	if(info_byte==0) { // end of directory marker
+		if(d->subdir_level>0) d->subdir_level--;
 		de_strarray_pop(d->curpath);
 		goto done;
 	}
@@ -310,6 +317,12 @@ static void do_arcfs_member(deark *c, lctx *d, i64 idx, i64 pos1)
 		DE_ENCODING_RISCOS);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->fn));
 	if(md->is_dir) {
+		if(d->subdir_level >= MAX_NESTING_LEVEL) {
+			de_err(c, "Directories nested too deeply");
+			retval = 0;
+			goto done;
+		}
+		d->subdir_level++;
 		de_strarray_push(d->curpath, md->fn);
 	}
 	pos += 11;
@@ -353,6 +366,7 @@ static void do_arcfs_member(deark *c, lctx *d, i64 idx, i64 pos1)
 done:
 	destroy_arcfs_member_data(c, md);
 	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
 }
 
 static void do_arcfs_members(deark *c, lctx *d, i64 pos1)
@@ -361,11 +375,14 @@ static void do_arcfs_members(deark *c, lctx *d, i64 pos1)
 	i64 pos = pos1;
 
 	for(k=0; k<d->nmembers; k++) {
+		int ret;
+
 		if(pos>=c->infile->len) break;
 		de_dbg(c, "member[%d]", (int)k);
 		de_dbg_indent(c, 1);
-		do_arcfs_member(c, d, k, pos);
+		ret = do_arcfs_member(c, d, k, pos);
 		de_dbg_indent(c, -1);
+		if(!ret) break;
 		pos += 36;
 	}
 }
@@ -383,7 +400,7 @@ static void de_run_arcfs(deark *c, de_module_params *mparams)
 	if(!do_arcfs_file_header(c, d, pos)) goto done;
 	pos += 96;
 
-	d->curpath = de_strarray_create(c);
+	d->curpath = de_strarray_create(c, MAX_NESTING_LEVEL+10);
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 	do_arcfs_members(c, d, pos);
 

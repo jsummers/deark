@@ -885,7 +885,7 @@ static void do_run_arc_spark_internal(deark *c, lctx *d)
 
 	de_declare_fmt(c, d->fmtname);
 
-	d->curpath = de_strarray_create(c);
+	d->curpath = de_strarray_create(c, MAX_NESTING_LEVEL+10);
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 
 	do_prescan_file(c, d, pos);

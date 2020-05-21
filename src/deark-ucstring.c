@@ -433,16 +433,18 @@ void ucstring_append_flags_itemf(de_ucstring *s, const char *fmt, ...)
 
 struct de_strarray {
 	deark *c;
+	size_t max_elems;
 	size_t count;
 	size_t num_alloc;
 	de_ucstring **ss; // array of 'num_alloc' ucstring pointers
 };
 
-struct de_strarray *de_strarray_create(deark *c)
+struct de_strarray *de_strarray_create(deark *c, size_t max_elems)
 {
 	struct de_strarray *sa;
 	sa = de_malloc(c, sizeof(struct de_strarray));
 	sa->c = c;
+	sa->max_elems = max_elems;
 	return sa;
 }
 
@@ -460,11 +462,12 @@ void de_strarray_destroy(struct de_strarray *sa)
 }
 
 // This makes a copy of 's'. The caller still owns 's'.
-void de_strarray_push(struct de_strarray *sa, de_ucstring *s)
+int de_strarray_push(struct de_strarray *sa, de_ucstring *s)
 {
 	deark *c = sa->c;
 	size_t newidx = sa->count;
 
+	if(sa->count >= sa->max_elems) return 0;
 	if(newidx >= sa->num_alloc) {
 		size_t old_num_alloc = sa->num_alloc;
 		sa->num_alloc *= 2;
@@ -474,14 +477,16 @@ void de_strarray_push(struct de_strarray *sa, de_ucstring *s)
 	}
 	sa->ss[newidx] = ucstring_clone(s);
 	sa->count++;
+	return 1;
 }
 
-void de_strarray_pop(struct de_strarray *sa)
+int de_strarray_pop(struct de_strarray *sa)
 {
-	if(sa->count<1) return;
+	if(sa->count<1) return 0;
 	ucstring_destroy(sa->ss[sa->count-1]);
 	sa->ss[sa->count-1] = NULL;
 	sa->count--;
+	return 1;
 }
 
 // Replace slashes in a string, starting at the given position.
