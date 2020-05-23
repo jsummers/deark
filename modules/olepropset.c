@@ -167,25 +167,36 @@ done:
 	;
 }
 
+static void dbg_FILETIME_as_duration(deark *c, lctx *d, i64 t, const char *name)
+{
+	i64 n_d, n_h, n_m;
+	double n_s;
+
+	n_d = t/864000000000LL;
+	n_h = (t%864000000000LL)/36000000000LL;
+	n_m = (t%36000000000LL)/600000000;
+	n_s = ((double)(t%600000000))/10000000.0;
+	de_dbg(c, "%s: %"I64_FMT" (%"I64_FMT"d %"I64_FMT"h %"I64_FMT"m %.3fs)",
+		name, t, n_d, n_h, n_m, n_s);
+}
+
 static int do_prop_FILETIME(deark *c, lctx *d, struct propset_struct *si,
 	struct prop_info_struct *pinfo, const char *name, i64 pos)
 {
 	i64 ts_as_FILETIME;
-	int full_decode = 1;
+	int is_duration = 0;
 
 	ts_as_FILETIME = dbuf_geti64le(d->f, pos);
 
-	if(ts_as_FILETIME==0) {
-		full_decode = 0;
-	}
-	else if(si->sfmtid==SFMTID_SUMMARYINFO && pinfo->prop_id==10) {
-		// The "Editing time" property typically has a data type of FILETIME,
-		// but it is not actually a FILETIME (I assume it's an *amount* of time).
-		full_decode = 0;
+	if(si->sfmtid==SFMTID_SUMMARYINFO && pinfo->prop_id==10) {
+		is_duration = 1; // The "Editing time" property is special.
 	}
 
-	if(!full_decode) {
+	if(ts_as_FILETIME<=0) {
 		de_dbg(c, "%s: %"I64_FMT, name, ts_as_FILETIME);
+	}
+	else if(is_duration) {
+		dbg_FILETIME_as_duration(c, d, ts_as_FILETIME, name);
 	}
 	else {
 		struct de_timestamp ts;
