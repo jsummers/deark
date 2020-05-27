@@ -8,6 +8,8 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_lha);
 
+#define MAX_SUBDIR_LEVEL 32
+
 #define CODE_lh0 0x6c6830U
 #define CODE_lh1 0x6c6831U
 #define CODE_lh5 0x6c6835U
@@ -127,14 +129,62 @@ static void read_unix_timestamp(deark *c, lctx *d, struct member_data *md,
 	apply_timestamp(c, d, md, tsidx, &tmp_timestamp, 50);
 }
 
+static void rp_add_component(deark *c, lctx *d, dbuf *f, i64 pos, i64 len, struct de_strarray *sa,
+	de_ucstring *tmpstr)
+{
+	if(len<1) return;
+	ucstring_empty(tmpstr);
+	dbuf_read_to_ucstring(f, pos, len, tmpstr, 0, d->input_encoding);
+	de_strarray_push(sa, tmpstr);
+}
+
+static void read_path_to_strarray(deark *c, lctx *d, dbuf *inf, i64 pos, i64 len,
+	u8 pathsep, struct de_strarray *sa)
+{
+	dbuf *tmpdbuf = NULL;
+	de_ucstring *tmpstr = NULL;
+	i64 component_startpos;
+	i64 component_len;
+	i64 i;
+
+	tmpstr = ucstring_create(c);
+
+	tmpdbuf = dbuf_create_membuf(c, len, 0);
+	dbuf_copy(inf, pos, len, tmpdbuf);
+
+	component_startpos = 0;
+	component_len = 0;
+
+	for(i=0; i<len; i++) {
+		u8 ch;
+
+		ch = dbuf_getbyte(tmpdbuf, i);
+		if(ch==0x00) break; // Tolerate NUL termination
+		if(ch==pathsep) {
+			component_len = i - component_startpos;
+			rp_add_component(c, d, tmpdbuf, component_startpos, component_len, sa, tmpstr);
+			component_startpos = i+1;
+			component_len = 0;
+		}
+		else {
+			component_len++;
+		}
+	}
+	rp_add_component(c, d, tmpdbuf, component_startpos, component_len, sa, tmpstr);
+
+	dbuf_close(tmpdbuf);
+	ucstring_destroy(tmpstr);
+}
+
 static void read_filename(deark *c, lctx *d, struct member_data *md,
 	i64 pos, i64 len)
 {
 	i64 i;
 
 	md->filename = ucstring_create(c);
+	// Some files seem to assume NUL termination is allowed.
 	dbuf_read_to_ucstring(c->infile, pos, len,
-		md->filename, 0, d->input_encoding);
+		md->filename, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
 
 	if(md->hlev==0) {
@@ -178,8 +228,7 @@ static void exthdr_dirname(deark *c, lctx *d, struct member_data *md,
 	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
 {
-	i64 i;
-	int ends_with_ff = 0;
+	struct de_strarray *dirname_sa = NULL;
 
 	if(md->dirname) {
 		ucstring_empty(md->dirname);
@@ -188,28 +237,14 @@ static void exthdr_dirname(deark *c, lctx *d, struct member_data *md,
 		md->dirname = ucstring_create(c);
 	}
 
-	dbuf_read_to_ucstring(c->infile, pos, dlen,
-		md->dirname, 0, d->input_encoding);
-	de_dbg(c, "%s: \"%s\"", e->name, ucstring_getpsz(md->dirname));
+	dirname_sa = de_strarray_create(c, MAX_SUBDIR_LEVEL+2);
+	// 0xff is used as the path separator. Don't know what happens if a directory
+	// name contains an actual 0xff byte.
+	read_path_to_strarray(c, d, c->infile, pos, dlen, 0xff, dirname_sa);
+	de_strarray_make_path(dirname_sa, md->dirname, DE_MPFLAG_NOTRAILINGSLASH);
+	de_dbg(c, "%s: \"%s\"", e->name, ucstring_getpsz_d(md->dirname));
 
-	// Fixup dir name.
-	// (This is slightly hacky. It would be cleaner to handle the special
-	// 0xff bytes *before* converting to ucstring format.)
-	for(i=0; i<md->dirname->len; i++) {
-		if(md->dirname->str[i]==DE_CODEPOINT_BYTEFF) {
-			if(i==md->dirname->len-1) {
-				ends_with_ff = 1;
-			}
-			md->dirname->str[i] = '/';
-		}
-		else if(md->dirname->str[i]=='/') {
-			md->dirname->str[i] = '_';
-		}
-	}
-
-	if(ends_with_ff) {
-		ucstring_truncate(md->dirname, md->dirname->len - 1);
-	}
+	de_strarray_destroy(dirname_sa);
 }
 
 static void exthdr_msdosattribs(deark *c, lctx *d, struct member_data *md,
@@ -620,6 +655,11 @@ static const struct cmpr_meth_info *get_cmpr_meth_info(lctx *d, unsigned int id)
 	return NULL;
 }
 
+static void warn_non_lha(deark *c, i64 pos, i64 len)
+{
+	de_warn(c, "%"I64_FMT" bytes of non-LHA data found at end of file (offset %"I64_FMT")", len, pos);
+}
+
 // This single function parses all the different header formats, using lots of
 // "if" statements. It is messy, but it's a no-win situation.
 // The alternative of four separate functions would be have a lot of redundant
@@ -635,6 +675,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	i64 lev2_total_header_size = 0;
 	i64 lev3_header_size = 0;
 	i64 pos = pos1;
+	i64 nbytes_avail;
 	i64 exthdr_bytes_consumed = 0;
 	i64 fnlen = 0;
 	UI attribs;
@@ -644,13 +685,16 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	const struct cmpr_meth_info *cmi;
 	const char *cmpr_meth_descr = NULL;
 	char tmpstr[80];
+	int saved_indent_level;
 
-	if(c->infile->len - pos1 < 21) {
+	de_dbg_indent_save(c, &saved_indent_level);
+	nbytes_avail = c->infile->len - pos1;
+	if(nbytes_avail < 21) {
+		if(nbytes_avail > 1) {
+			warn_non_lha(c, pos1, nbytes_avail);
+		}
 		goto done;
 	}
-
-	de_dbg(c, "member at %d", (int)pos);
-	de_dbg_indent(c, 1);
 
 	// Read compression method first, to help decide whether this is LHA data at all.
 	tmpb1 = de_getbyte(pos1+2);
@@ -662,10 +706,13 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 			goto done;
 		}
 		else {
-			de_warn(c, "Extra non-LHA data found at end of file (offset %d)", (int)pos1);
+			warn_non_lha(c, pos1, nbytes_avail);
 			goto done;
 		}
 	}
+
+	de_dbg(c, "member at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
 
 	cmi = get_cmpr_meth_info(d, md->cmpr_meth_4cc.id);
 
@@ -863,7 +910,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 
 	retval = 1;
 done:
-	de_dbg_indent(c, -1);
+	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
 
@@ -874,7 +921,9 @@ static void de_run_lha(deark *c, de_module_params *mparams)
 	struct member_data *md = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
-	d->input_encoding = DE_ENCODING_ASCII;
+	// It's not really safe to guess CP437, because Japanese-encoded (CP932?)
+	// filenames are common.
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
 
 	d->try_to_extract = de_get_ext_option_bool(c, "lha:extract", -1);
 	if(d->try_to_extract == -1) {
@@ -908,19 +957,30 @@ done:
 static int de_identify_lha(deark *c)
 {
 	u8 b[7];
+	int m = 0; // Known cmpr method?
 
 	de_read(b, 0, 7);
 	if(b[2]!='-' || b[6]!='-') return 0;
 	if(b[3]=='l') {
-		if(b[4]=='h' || b[4]=='z') {
-			return 100;
+		if(b[4]=='h') {
+			if(b[5]>='0' && b[5]<='8') m = 1;
+			else if(b[5]=='d' || b[5]=='x') m = 1;
+		}
+		else if(b[4]=='z') {
+			if(b[5]>='2' && b[5]<='8') m = 1;
+			else if(b[5]=='s') m = 1;
 		}
 	}
 	else if(b[3]=='p') {
-		if(b[4]=='c' || b[4]=='m') {
-			return 100;
+		if(b[4]=='c') {
+			if(b[5]=='1') m = 1;
+		}
+		else if(b[4]=='m') {
+			if(b[5]>='0' && b[5]<='2') m = 1;
 		}
 	}
+
+	if(m) return 100;
 	return 0;
 }
 
