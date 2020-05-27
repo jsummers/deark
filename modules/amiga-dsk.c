@@ -770,7 +770,7 @@ static void de_run_amiga_adf(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	d->curpath = de_strarray_create(c);
+	d->curpath = de_strarray_create(c, MAX_NESTING_LEVEL+10);
 
 	if(!do_header_block(c, d, d->root_block)) goto done;
 

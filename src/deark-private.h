@@ -984,10 +984,10 @@ void ucstring_append_flags_itemf(de_ucstring *s, const char *fmt, ...)
 	de_gnuc_attribute ((format (printf, 2, 3)));
 
 struct de_strarray;
-struct de_strarray *de_strarray_create(deark *c);
+struct de_strarray *de_strarray_create(deark *c, size_t max_elems);
 void de_strarray_destroy(struct de_strarray *sa);
-void de_strarray_push(struct de_strarray *sa, de_ucstring *s);
-void de_strarray_pop(struct de_strarray *sa);
+int de_strarray_push(struct de_strarray *sa, de_ucstring *s);
+int de_strarray_pop(struct de_strarray *sa);
 #define DE_MPFLAG_NOTRAILINGSLASH 0x1
 void de_strarray_make_path(struct de_strarray *sa, de_ucstring *path, unsigned int flags);
 

@@ -576,6 +576,14 @@ void de_module_msa(deark *c, struct deark_module_info *mi)
 #define PASTI_MAX_SECTORS_PER_TRACK 100
 #define PASTI_MAX_TRACK_NUM 255
 
+struct pasti_sector_ctx {
+	i64 data_offset_abs;
+	i64 size_in_bytes;
+	i64 n_track, n_head, n_secnum; // The sector's self-reported data
+	u8 fdcFlags;
+	u32 crc_reported;
+};
+
 struct pasti_track_ctx {
 	i64 track_num;
 	i64 side_num;
@@ -617,19 +625,19 @@ struct pastictx {
 };
 
 static void pasti_save_sector_data(deark *c, struct pastictx *d,
-	i64 srcpos, i64 srclen,
-	i64 trknum, i64 sidenum, i64 secnum)
+	struct pasti_sector_ctx *secctx, i64 trknum, i64 sidenum)
 {
 	i64 dstpos;
 	i64 len_to_copy;
 
-	if(d->convert_errflag || srclen<=0) goto done;
-	de_dbg2(c, "[recording sector %d,%d,%d]", (int)trknum, (int)sidenum, (int)secnum);
+	if(d->convert_errflag || secctx->size_in_bytes<=0) goto done;
+	de_dbg2(c, "[recording sector %d,%d,%d]", (int)trknum, (int)sidenum,
+		(int)secctx->n_secnum);
 
 	d->num_nonempty_sectors_found++;
 	if(trknum<0 || trknum>PASTI_MAX_TRACK_NUM ||
 		sidenum<0 || sidenum>=d->fat_num_heads ||
-		secnum<1 || secnum>d->fat_sectors_per_track)
+		secctx->n_secnum<1 || secctx->n_secnum>d->fat_sectors_per_track)
 	{
 		de_dbg2(c, "[sector out of bounds]");
 		d->oob_sector_count++;
@@ -643,17 +651,17 @@ static void pasti_save_sector_data(deark *c, struct pastictx *d,
 	dstpos =
 		(d->fat_bytes_per_sector * d->fat_sectors_per_track * d->fat_num_heads) * trknum +
 		(d->fat_bytes_per_sector * d->fat_sectors_per_track) * sidenum +
-		(d->fat_bytes_per_sector) * (secnum-1);
+		(d->fat_bytes_per_sector) * (secctx->n_secnum-1);
 
-	if(srclen > d->fat_bytes_per_sector) {
+	if(secctx->size_in_bytes > d->fat_bytes_per_sector) {
 		de_warn(c, "Oversized sector");
 		len_to_copy = d->fat_bytes_per_sector;
 	}
 	else {
-		len_to_copy = srclen;
+		len_to_copy = secctx->size_in_bytes;
 	}
 
-	dbuf_copy_at(c->infile, srcpos, len_to_copy, d->diskbuf, dstpos);
+	dbuf_copy_at(c->infile, secctx->data_offset_abs, len_to_copy, d->diskbuf, dstpos);
 
 done:
 	;
@@ -673,39 +681,40 @@ static int do_pasti_sectors(deark *c, struct pastictx *d, struct pasti_track_ctx
 
 	for(secnum=0; secnum<tctx->sector_count; secnum++) {
 		i64 data_offset_rel;
-		i64 data_offset_abs;
 		u8 size_code;
-		i64 size_in_bytes;
-		i64 n_track, n_head, n_secnum;
 		i64 pos = tctx->sector_descriptors_pos + secnum*16;
+		struct pasti_sector_ctx secctx;
 
 		de_dbg2(c, "sector[%d] descriptor at %"I64_FMT, (int)secnum, pos);
 		de_dbg_indent(c, 1);
+		de_zeromem(&secctx, sizeof(struct pasti_sector_ctx));
 		data_offset_rel = de_getu32le_p(&pos);
-		data_offset_abs = tctx->track_data_record_pos + data_offset_rel;
+		secctx.data_offset_abs = tctx->track_data_record_pos + data_offset_rel;
 		de_dbg2(c, "dataOffset: %"I64_FMT" (+%"I64_FMT"=%"I64_FMT")", data_offset_rel,
-			tctx->track_data_record_pos, data_offset_abs);
+			tctx->track_data_record_pos, secctx.data_offset_abs);
 		pos += 2; // bitPosition
 		pos += 2; // readTime
 
-		n_track = (i64)de_getbyte_p(&pos);
-		n_head = (i64)de_getbyte_p(&pos);
-		n_secnum = (i64)de_getbyte_p(&pos);
-		de_dbg2(c, "track %d, side %d, sector %d", (int)n_track, (int)n_head, (int)n_secnum);
+		secctx.n_track = (i64)de_getbyte_p(&pos);
+		secctx.n_head = (i64)de_getbyte_p(&pos);
+		secctx.n_secnum = (i64)de_getbyte_p(&pos);
+		de_dbg2(c, "track %d, side %d, sector %d", (int)secctx.n_track,
+			(int)secctx.n_head, (int)secctx.n_secnum);
 		// TODO: What should we do if the track and head are not the expected values?
 		// Who do we trust?
 
 		size_code = de_getbyte_p(&pos);
 		if(size_code>4) goto done;
-		size_in_bytes = ((i64)128)<<(UI)size_code;
-		de_dbg2(c, "size: 0x%02x (%"I64_FMT" bytes)", (UI)size_code, size_in_bytes);
+		secctx.size_in_bytes = ((i64)128)<<(UI)size_code;
+		de_dbg2(c, "size: 0x%02x (%"I64_FMT" bytes)", (UI)size_code, secctx.size_in_bytes);
 
-		pos += 2; // crc - TODO
-		pos += 1; // fdcFlags
+		secctx.crc_reported = (u32)de_getu16le_p(&pos);
+		de_dbg2(c, "sector crc (reported): 0x%04x", (UI)secctx.crc_reported);
+		secctx.fdcFlags = de_getbyte_p(&pos);
+		de_dbg2(c, "fdcFlags: 0x%02x", (UI)secctx.fdcFlags);
 		pos += 1; // reserved
 
-		pasti_save_sector_data(c, d, data_offset_abs, size_in_bytes,
-			tctx->track_num, tctx->side_num, n_secnum);
+		pasti_save_sector_data(c, d, &secctx, tctx->track_num, tctx->side_num);
 		de_dbg_indent(c, -1);
 	}
 
@@ -959,8 +968,8 @@ static void de_run_pasti(deark *c, de_module_params *mparams)
 done:
 	if(d) {
 		dbuf_close(d->diskbuf);
+		de_free(c, d);
 	}
-	de_free(c, d);
 }
 
 static int de_identify_pasti(deark *c)
