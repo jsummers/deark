@@ -35,9 +35,10 @@ struct member_data {
 	u8 hlev; // header level
 	i64 total_size;
 	struct de_fourcc cmpr_meth_4cc;
-	int is_dir;
-	int is_nonexecutable;
-	int is_executable;
+	u8 is_dir;
+	u8 is_special;
+	u8 is_nonexecutable;
+	u8 is_executable;
 	i64 orig_size;
 	u32 crc16;
 	u8 os_id;
@@ -139,7 +140,7 @@ static void rp_add_component(deark *c, lctx *d, dbuf *f, i64 pos, i64 len, struc
 }
 
 static void read_path_to_strarray(deark *c, lctx *d, dbuf *inf, i64 pos, i64 len,
-	u8 pathsep, struct de_strarray *sa)
+	struct de_strarray *sa, int is_exthdr_dirname)
 {
 	dbuf *tmpdbuf = NULL;
 	de_ucstring *tmpstr = NULL;
@@ -160,7 +161,9 @@ static void read_path_to_strarray(deark *c, lctx *d, dbuf *inf, i64 pos, i64 len
 
 		ch = dbuf_getbyte(tmpdbuf, i);
 		if(ch==0x00) break; // Tolerate NUL termination
-		if(ch==pathsep) {
+		if((is_exthdr_dirname && ch==0xff) ||
+			(!is_exthdr_dirname && (ch=='\\' || ch=='/')))
+		{
 			component_len = i - component_startpos;
 			rp_add_component(c, d, tmpdbuf, component_startpos, component_len, sa, tmpstr);
 			component_startpos = i+1;
@@ -176,31 +179,48 @@ static void read_path_to_strarray(deark *c, lctx *d, dbuf *inf, i64 pos, i64 len
 	ucstring_destroy(tmpstr);
 }
 
-static void read_filename(deark *c, lctx *d, struct member_data *md,
+static void read_filename_hlev0(deark *c, lctx *d, struct member_data *md,
+	i64 pos, i64 len)
+{
+	struct de_strarray *sa = NULL;
+
+	if(md->filename) {
+		ucstring_empty(md->filename);
+	}
+	else {
+		md->filename = ucstring_create(c);
+	}
+
+	sa = de_strarray_create(c, MAX_SUBDIR_LEVEL+2);
+	read_path_to_strarray(c, d, c->infile, pos, len, sa, 0);
+
+	de_strarray_make_path(sa, md->filename, DE_MPFLAG_NOTRAILINGSLASH);
+	de_dbg(c, "filename (parsed): \"%s\"", ucstring_getpsz_d(md->filename));
+
+	de_strarray_destroy(sa);
+}
+
+static void read_filename_hlev1_or_exthdr(deark *c, lctx *d, struct member_data *md,
 	i64 pos, i64 len)
 {
 	i64 i;
 
-	md->filename = ucstring_create(c);
+	if(md->filename) {
+		ucstring_empty(md->filename);
+	}
+	else {
+		md->filename = ucstring_create(c);
+	}
+
 	// Some files seem to assume NUL termination is allowed.
 	dbuf_read_to_ucstring(c->infile, pos, len,
 		md->filename, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
 
-	if(md->hlev==0) {
-		// Slashes (usually backslashes) allowed
-		for(i=0; i<md->filename->len; i++) {
-			if(md->filename->str[i]=='\\') {
-				md->filename->str[i]='/';
-			}
-		}
-	}
-	else {
-		// I don't think slashes are allowed
-		for(i=0; i<md->filename->len; i++) {
-			if(md->filename->str[i]=='/') {
-				md->filename->str[i]='_';
-			}
+	// I don't think slashes are allowed
+	for(i=0; i<md->filename->len; i++) {
+		if(md->filename->str[i]=='/') {
+			md->filename->str[i]='_';
 		}
 	}
 }
@@ -221,7 +241,7 @@ static void exthdr_filename(deark *c, lctx *d, struct member_data *md,
 	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
 {
-	read_filename(c, d, md, pos, dlen);
+	read_filename_hlev1_or_exthdr(c, d, md, pos, dlen);
 }
 
 static void exthdr_dirname(deark *c, lctx *d, struct member_data *md,
@@ -240,9 +260,9 @@ static void exthdr_dirname(deark *c, lctx *d, struct member_data *md,
 	dirname_sa = de_strarray_create(c, MAX_SUBDIR_LEVEL+2);
 	// 0xff is used as the path separator. Don't know what happens if a directory
 	// name contains an actual 0xff byte.
-	read_path_to_strarray(c, d, c->infile, pos, dlen, 0xff, dirname_sa);
+	read_path_to_strarray(c, d, c->infile, pos, dlen, dirname_sa, 1);
 	de_strarray_make_path(dirname_sa, md->dirname, DE_MPFLAG_NOTRAILINGSLASH);
-	de_dbg(c, "%s: \"%s\"", e->name, ucstring_getpsz_d(md->dirname));
+	de_dbg(c, "%s (parsed): \"%s\"", e->name, ucstring_getpsz_d(md->dirname));
 
 	de_strarray_destroy(dirname_sa);
 }
@@ -291,6 +311,10 @@ static void interpret_unix_perms(deark *c, lctx *d, struct member_data *md, unsi
 		else {
 			md->is_nonexecutable = 1;
 		}
+	}
+
+	if((mode & 0170000) == 0120000) {
+		md->is_special = 1; // symlink
 	}
 }
 
@@ -588,6 +612,11 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md,
 	int tsidx;
 
 	if(!d->try_to_extract) return;
+	if(md->is_special) {
+		de_dbg(c, "[not extracting special file]");
+		return;
+	}
+
 	if(md->is_dir) {
 		;
 	}
@@ -826,7 +855,12 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	if(md->hlev<=1) {
 		fnlen = de_getbyte(pos++);
 		de_dbg(c, "filename len: %d", (int)fnlen);
-		read_filename(c, d, md, pos, fnlen);
+		if(md->hlev==0) {
+			read_filename_hlev0(c, d, md, pos, fnlen);
+		}
+		else {
+			read_filename_hlev1_or_exthdr(c, d, md, pos, fnlen);
+		}
 		pos += fnlen;
 	}
 
