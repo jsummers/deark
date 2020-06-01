@@ -651,77 +651,6 @@ static void do_decompress_XOR(deark *c, struct de_dfilter_in_params *dcmpri,
 	dbuf_buffered_read(dcmpri->f, dcmpri->pos, dcmpri->len, XOR_cbfn, (void*)dcmpro->f);
 }
 
-struct szdd_ctx {
-	i64 nbytes_written;
-	struct de_dfilter_out_params *dcmpro;
-	UI wpos;
-	u8 window[4096];
-};
-
-static void szdd_emit_byte(deark *c, struct szdd_ctx *sctx, u8 b)
-{
-	dbuf_writebyte(sctx->dcmpro->f, b);
-	sctx->nbytes_written++;
-	sctx->window[sctx->wpos] = b;
-	sctx->wpos = (sctx->wpos+1) & 4095;
-}
-
-// Based on the libmspack's format documentation at
-// <https://www.cabextract.org.uk/libmspack/doc/szdd_kwaj_format.html>
-static void do_decompress_SZDD(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
-{
-	i64 pos = dcmpri->pos;
-	i64 endpos = dcmpri->pos + dcmpri->len;
-	struct szdd_ctx *sctx = NULL;
-
-	sctx = de_malloc(c, sizeof(struct szdd_ctx));
-	sctx->dcmpro = dcmpro;
-	sctx->wpos = 4096 - 16;
-	de_memset(sctx->window, 0x20, 4096);
-
-	while(1) {
-		UI control;
-		UI cbit;
-
-		if(pos+1 > endpos) goto unc_done; // Out of input data
-		control = (UI)dbuf_getbyte(dcmpri->f, pos++);
-
-		for(cbit=0x01; cbit<=0x80; cbit<<=1) {
-			if(control & cbit) { // literal
-				u8 b;
-
-				if(pos+1 > endpos) goto unc_done;
-				b = dbuf_getbyte(dcmpri->f, pos++);
-				szdd_emit_byte(c, sctx, b);
-				if(dcmpro->len_known && sctx->nbytes_written>=dcmpro->expected_len) goto unc_done;
-			}
-			else { // match
-				UI x0, x1;
-				UI matchpos;
-				UI matchlen;
-
-				if(pos+2 > endpos) goto unc_done;
-				x0 = (UI)dbuf_getbyte_p(dcmpri->f, &pos);
-				x1 = (UI)dbuf_getbyte_p(dcmpri->f, &pos);
-				matchpos = ((x1 & 0xf0) << 4) | x0;
-				matchlen = (x1 & 0x0f) + 3;
-
-				while(matchlen--) {
-					szdd_emit_byte(c, sctx, sctx->window[matchpos]);
-					if(dcmpro->len_known && sctx->nbytes_written>=dcmpro->expected_len) goto unc_done;
-					matchpos = (matchpos+1) & 4095;
-				}
-			}
-		}
-	}
-
-unc_done:
-	dres->bytes_consumed_valid = 1;
-	dres->bytes_consumed = pos - dcmpri->pos;
-	de_free(c, sctx);
-}
-
 static void do_decompress_MSZIP(deark *c, struct de_dfilter_in_params *dcmpri1,
 	struct de_dfilter_out_params *dcmpro1, struct de_dfilter_results *dres)
 {
@@ -813,7 +742,7 @@ static void do_decompress(deark *c, lctx *d, dbuf *outf)
 		do_decompress_XOR(c, &dcmpri, &dcmpro, &dres);
 		break;
 	case CMPR_SZDD:
-		do_decompress_SZDD(c, &dcmpri, &dcmpro, &dres);
+		fmtutil_decompress_szdd(c, &dcmpri, &dcmpro, &dres, 0);
 		break;
 	case CMPR_LZHUFF:
 		do_decompress_LZHUFF(c, &dcmpri, &dcmpro, &dres);

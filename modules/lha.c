@@ -17,6 +17,7 @@ DE_DECLARE_MODULE(de_module_lha);
 #define CODE_lh6 0x6c6836U
 #define CODE_lhd 0x6c6864U
 #define CODE_lz4 0x6c7a34U
+#define CODE_lz5 0x6c7a35U
 #define CODE_pm0 0x706d30U
 
 struct cmpr_meth_info {
@@ -583,14 +584,16 @@ static void make_fullfilename(deark *c, lctx *d, struct member_data *md)
 // flags:
 //   0x01 = directory
 //   0x02 = uncompressed
+//   0x10 = supported
 static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
-	{ 0x01, CODE_lhd, "directory", NULL },
-	{ 0x02, CODE_lh0, "uncompressed", NULL },
+	{ 0x11, CODE_lhd, "directory", NULL },
+	{ 0x12, CODE_lh0, "uncompressed", NULL },
 	{ 0x00, CODE_lh1, "LZ77, 4K, codes = dynamic Huffman", NULL },
 	{ 0x00, CODE_lh5, "LZ77, 8K, static Huffman", NULL },
 	{ 0x00, CODE_lh6, "LZ77, 32K, static Huffman", NULL },
-	{ 0x02, CODE_lz4, "uncompressed (LArc)", NULL },
-	{ 0x02, CODE_pm0, "uncompressed (PMArc)", NULL }
+	{ 0x12, CODE_lz4, "uncompressed (LArc)", NULL },
+	{ 0x10, CODE_lz5, "LZSS, 4K (LArc)", NULL },
+	{ 0x12, CODE_pm0, "uncompressed (PMArc)", NULL }
 };
 
 static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
@@ -615,13 +618,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md,
 		goto done;
 	}
 
-	if(md->is_dir) {
-		;
-	}
-	else if(cmi && (cmi->flags & 0x02)) {
-		; // uncompressed
-	}
-	else {
+	if(!cmi || !(cmi->flags & 0x10)) {
 		if(!d->unsupp_warned) {
 			de_info(c, "Note: LHA files can be parsed, but most compression methods are not supported.");
 			d->unsupp_warned = 1;
@@ -670,17 +667,26 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md,
 	dcmpro.expected_len = md->orig_size;
 	dcmpro.len_known = 1;
 
-	fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
+	if(cmi->flags & 0x02) {
+		fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
+	}
+	else if(cmi->id==CODE_lz5) {
+		fmtutil_decompress_szdd(c, &dcmpri, &dcmpro, &dres, 0x1);
+	}
+	else {
+		goto done;
+	}
 
 	if(dres.errcode) {
-		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
+		de_err(c, "%s: Decompression failed: %s", ucstring_getpsz_d(md->fullfilename),
+			de_dfilter_get_errmsg(c, &dres));
 		goto done;
 	}
 
 	crc_calc = de_crcobj_getval(d->crco);
 	de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)crc_calc);
 	if(crc_calc != md->crc16) {
-		de_err(c, "CRC check failed");
+		de_err(c, "%s: CRC check failed", ucstring_getpsz_d(md->fullfilename));
 	}
 
 done:
