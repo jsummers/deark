@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_lha);
 
 #define MAX_SUBDIR_LEVEL 32
@@ -53,7 +54,7 @@ struct member_data {
 
 typedef struct localctx_struct {
 	de_encoding input_encoding;
-	int try_to_extract;
+	u8 unsupp_warned;
 	int member_count;
 	struct de_crcobj *crco;
 } lctx;
@@ -579,11 +580,6 @@ static void make_fullfilename(deark *c, lctx *d, struct member_data *md)
 	}
 }
 
-static void do_decompress_stored(deark *c, lctx *d, struct member_data *md, dbuf *outf)
-{
-	dbuf_copy(c->infile, md->compressed_data_pos, md->compressed_data_len, outf);
-}
-
 // flags:
 //   0x01 = directory
 //   0x02 = uncompressed
@@ -610,11 +606,13 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md,
 	dbuf *outf = NULL;
 	u32 crc_calc;
 	int tsidx;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
 
-	if(!d->try_to_extract) return;
 	if(md->is_special) {
 		de_dbg(c, "[not extracting special file]");
-		return;
+		goto done;
 	}
 
 	if(md->is_dir) {
@@ -624,9 +622,13 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md,
 		; // uncompressed
 	}
 	else {
+		if(!d->unsupp_warned) {
+			de_info(c, "Note: LHA files can be parsed, but most compression methods are not supported.");
+			d->unsupp_warned = 1;
+		}
 		de_err(c, "%s: Unsupported compression method '%s'",
 			ucstring_getpsz_d(md->fullfilename), md->cmpr_meth_4cc.id_sanitized_sz);
-		return;
+		goto done;
 	}
 
 	fi = de_finfo_create(c);
@@ -660,7 +662,20 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md,
 	}
 	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
 
-	do_decompress_stored(c, d, md, outf);
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = md->compressed_data_pos;
+	dcmpri.len = md->compressed_data_len;
+	dcmpro.f = outf;
+	dcmpro.expected_len = md->orig_size;
+	dcmpro.len_known = 1;
+
+	fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
+
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
 
 	crc_calc = de_crcobj_getval(d->crco);
 	de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)crc_calc);
@@ -668,6 +683,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md,
 		de_err(c, "CRC check failed");
 	}
 
+done:
 	dbuf_close(outf);
 	de_finfo_destroy(c, fi);
 }
@@ -959,12 +975,6 @@ static void de_run_lha(deark *c, de_module_params *mparams)
 	// filenames are common.
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
 
-	d->try_to_extract = de_get_ext_option_bool(c, "lha:extract", -1);
-	if(d->try_to_extract == -1) {
-		de_info(c, "Note: LHA files can be parsed, but no files can be extracted from them.");
-		d->try_to_extract = 0;
-	}
-
 	pos = 0;
 	while(1) {
 		if(pos >= c->infile->len) break;
@@ -1018,16 +1028,10 @@ static int de_identify_lha(deark *c)
 	return 0;
 }
 
-static void de_help_lha(deark *c)
-{
-	de_msg(c, "-opt lha:extract : Extract when possible (uncompressed files only)");
-}
-
 void de_module_lha(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "lha";
 	mi->desc = "LHA/LZH/PMA archive";
 	mi->run_fn = de_run_lha;
 	mi->identify_fn = de_identify_lha;
-	mi->help_fn = de_help_lha;
 }
