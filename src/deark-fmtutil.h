@@ -321,6 +321,11 @@ typedef int (*de_on_iff_container_end_fn)(deark *c, struct de_iffctx *ictx);
 // on_container_end_fn will not be called).
 typedef int (*de_on_std_iff_container_start_fn)(deark *c, struct de_iffctx *ictx);
 
+// Caller can check for nonstandard non-chunk data at 'pos'. If found, set *plen
+// to its length, process it if desired, and return 1.
+typedef int (*de_handle_nonchunk_iff_data_fn)(deark *c, struct de_iffctx *ictx,
+	i64 pos, i64 *plen);
+
 struct de_iffchunkctx {
 	struct de_fourcc chunk4cc;
 	i64 pos;
@@ -340,6 +345,7 @@ struct de_iffctx {
 	de_preprocess_iff_chunk_fn preprocess_chunk_fn;
 	de_on_std_iff_container_start_fn on_std_container_start_fn;
 	de_on_iff_container_end_fn on_container_end_fn;
+	de_handle_nonchunk_iff_data_fn handle_nonchunk_data_fn;
 	i64 alignment; // 0 = default
 	i64 sizeof_len; // 0 = default
 	int is_le; // For RIFF format
