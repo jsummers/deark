@@ -35,6 +35,7 @@ struct timestamp_data {
 
 struct member_data {
 	u8 hlev; // header level
+	de_encoding encoding;
 	i64 total_size;
 	struct de_fourcc cmpr_meth_4cc;
 	u8 is_dir;
@@ -44,7 +45,6 @@ struct member_data {
 	i64 orig_size;
 	u32 crc16;
 	u8 os_id;
-	int codepage_encoding; // Encoding based on the "codepage" ext hdr
 	i64 compressed_data_pos; // relative to beginning of file
 	i64 compressed_data_len;
 	de_ucstring *dirname;
@@ -132,17 +132,17 @@ static void read_unix_timestamp(deark *c, lctx *d, struct member_data *md,
 	apply_timestamp(c, d, md, tsidx, &tmp_timestamp, 50);
 }
 
-static void rp_add_component(deark *c, lctx *d, dbuf *f, i64 pos, i64 len, struct de_strarray *sa,
-	de_ucstring *tmpstr)
+static void rp_add_component(deark *c, lctx *d, struct member_data *md,
+	dbuf *f, i64 pos, i64 len, struct de_strarray *sa, de_ucstring *tmpstr)
 {
 	if(len<1) return;
 	ucstring_empty(tmpstr);
-	dbuf_read_to_ucstring(f, pos, len, tmpstr, 0, d->input_encoding);
+	dbuf_read_to_ucstring(f, pos, len, tmpstr, 0, md->encoding);
 	de_strarray_push(sa, tmpstr);
 }
 
-static void read_path_to_strarray(deark *c, lctx *d, dbuf *inf, i64 pos, i64 len,
-	struct de_strarray *sa, int is_exthdr_dirname)
+static void read_path_to_strarray(deark *c, lctx *d, struct member_data *md,
+	dbuf *inf, i64 pos, i64 len, struct de_strarray *sa, int is_exthdr_dirname)
 {
 	dbuf *tmpdbuf = NULL;
 	de_ucstring *tmpstr = NULL;
@@ -167,7 +167,7 @@ static void read_path_to_strarray(deark *c, lctx *d, dbuf *inf, i64 pos, i64 len
 			(!is_exthdr_dirname && (ch=='\\' || ch=='/')))
 		{
 			component_len = i - component_startpos;
-			rp_add_component(c, d, tmpdbuf, component_startpos, component_len, sa, tmpstr);
+			rp_add_component(c, d, md, tmpdbuf, component_startpos, component_len, sa, tmpstr);
 			component_startpos = i+1;
 			component_len = 0;
 		}
@@ -175,7 +175,7 @@ static void read_path_to_strarray(deark *c, lctx *d, dbuf *inf, i64 pos, i64 len
 			component_len++;
 		}
 	}
-	rp_add_component(c, d, tmpdbuf, component_startpos, component_len, sa, tmpstr);
+	rp_add_component(c, d, md, tmpdbuf, component_startpos, component_len, sa, tmpstr);
 
 	dbuf_close(tmpdbuf);
 	ucstring_destroy(tmpstr);
@@ -194,7 +194,7 @@ static void read_filename_hlev0(deark *c, lctx *d, struct member_data *md,
 	}
 
 	sa = de_strarray_create(c, MAX_SUBDIR_LEVEL+2);
-	read_path_to_strarray(c, d, c->infile, pos, len, sa, 0);
+	read_path_to_strarray(c, d, md, c->infile, pos, len, sa, 0);
 
 	de_strarray_make_path(sa, md->filename, DE_MPFLAG_NOTRAILINGSLASH);
 	de_dbg(c, "filename (parsed): \"%s\"", ucstring_getpsz_d(md->filename));
@@ -216,7 +216,7 @@ static void read_filename_hlev1_or_exthdr(deark *c, lctx *d, struct member_data 
 
 	// Some files seem to assume NUL termination is allowed.
 	dbuf_read_to_ucstring(c->infile, pos, len,
-		md->filename, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+		md->filename, DE_CONVFLAG_STOP_AT_NUL, md->encoding);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
 
 	// I don't think slashes are allowed
@@ -262,7 +262,7 @@ static void exthdr_dirname(deark *c, lctx *d, struct member_data *md,
 	dirname_sa = de_strarray_create(c, MAX_SUBDIR_LEVEL+2);
 	// 0xff is used as the path separator. Don't know what happens if a directory
 	// name contains an actual 0xff byte.
-	read_path_to_strarray(c, d, c->infile, pos, dlen, dirname_sa, 1);
+	read_path_to_strarray(c, d, md, c->infile, pos, dlen, dirname_sa, 1);
 	de_strarray_make_path(dirname_sa, md->dirname, DE_MPFLAG_NOTRAILINGSLASH);
 	de_dbg(c, "%s (parsed): \"%s\"", e->name, ucstring_getpsz_d(md->dirname));
 
@@ -375,13 +375,17 @@ static void exthdr_codepage(deark *c, lctx *d, struct member_data *md,
 	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
 {
-	int n;
+	int n_codepage;
+	de_encoding n_encoding;
 	char descr[100];
 
 	if(dlen!=4) return;
-	n = (int)de_geti32le(pos);
-	md->codepage_encoding = de_windows_codepage_to_encoding(c, n, descr, sizeof(descr), 0);
-	de_dbg(c, "codepage: %d (%s)", n, descr);
+	n_codepage = (int)de_geti32le(pos);
+	n_encoding = de_windows_codepage_to_encoding(c, n_codepage, descr, sizeof(descr), 0);
+	de_dbg(c, "codepage: %d (%s)", n_codepage, descr);
+	if(n_encoding != DE_ENCODING_UNKNOWN) {
+		md->encoding = n_encoding;
+	}
 }
 
 static const struct exthdr_type_info_struct exthdr_type_info_arr[] = {
@@ -459,13 +463,38 @@ static void do_read_ext_header(deark *c, lctx *d, struct member_data *md,
 	}
 }
 
+static const char *get_os_name(u8 id)
+{
+	const char *name = NULL;
+	switch(id) {
+	case '2': name="OS/2"; break;
+	case '3': name="OS/386"; break;
+	case '9': name="OS-9"; break;
+	case 'A': name="Amiga?"; break;
+	case 'C': name="CP/M"; break;
+	case 'F': name="FLEX"; break;
+	case 'H': name="Human68K"; break;
+	case 'J': name="JVM"; break;
+	case 'K': name="OS/68K"; break;
+	case 'M': name="DOS"; break;
+	case 'R': name="RUNser"; break;
+	case 'T': name="TownsOS"; break;
+	case 'U': name="Unix"; break;
+	case 'W': name="Windows NT"; break;
+	case 'a': name="Atari ST?"; break;
+	case 'm': name="Macintosh"; break;
+	case 'w': name="Windows"; break;
+	}
+	return name?name:"?";
+}
+
 static void do_lev0_ext_area(deark *c, lctx *d, struct member_data *md,
 	i64 pos1, i64 len)
 {
 	if(len<1) return;
 	md->os_id = de_getbyte(pos1);
-	de_dbg(c, "OS id: %d ('%c')", (int)md->os_id,
-		de_byte_to_printable_char(md->os_id));
+	de_dbg(c, "OS id: %d ('%c') (%s)", (int)md->os_id,
+		de_byte_to_printable_char(md->os_id), get_os_name(md->os_id));
 
 	// TODO: Finish this
 	if(md->os_id=='U') {
@@ -891,8 +920,8 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 
 	if(md->hlev==1 || md->hlev==2 || md->hlev==3) {
 		md->os_id = de_getbyte_p(&pos);
-		de_dbg(c, "OS id: %d ('%c')", (int)md->os_id,
-			de_byte_to_printable_char(md->os_id));
+		de_dbg(c, "OS id: %d ('%c') (%s)", (int)md->os_id,
+			de_byte_to_printable_char(md->os_id), get_os_name(md->os_id));
 	}
 
 	if(md->hlev==3) {
@@ -986,6 +1015,7 @@ static void de_run_lha(deark *c, de_module_params *mparams)
 		if(pos >= c->infile->len) break;
 
 		md = de_malloc(c, sizeof(struct member_data));
+		md->encoding = d->input_encoding;
 		if(!do_read_member(c, d, md, pos)) goto done;
 		if(md->total_size<1) goto done;
 
