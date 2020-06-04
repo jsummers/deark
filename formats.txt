@@ -623,6 +623,9 @@ Deark -- Information about supported formats
 
 * cpio (module="cpio")
 
+* CRUSH (.cru) (module="crush")
+  CRUSH is a DOS archive utility PocketWare.
+
 * D64 (Commodore 64 disk format) (module="d64") (experimental)
 
 * Doom WAD (module="wad")
