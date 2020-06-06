@@ -6,7 +6,10 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_lha);
+
+#define MAX_SUBDIR_LEVEL 32
 
 #define CODE_lh0 0x6c6830U
 #define CODE_lh1 0x6c6831U
@@ -14,6 +17,7 @@ DE_DECLARE_MODULE(de_module_lha);
 #define CODE_lh6 0x6c6836U
 #define CODE_lhd 0x6c6864U
 #define CODE_lz4 0x6c7a34U
+#define CODE_lz5 0x6c7a35U
 #define CODE_pm0 0x706d30U
 
 struct cmpr_meth_info {
@@ -31,15 +35,16 @@ struct timestamp_data {
 
 struct member_data {
 	u8 hlev; // header level
+	de_encoding encoding;
 	i64 total_size;
 	struct de_fourcc cmpr_meth_4cc;
-	int is_dir;
-	int is_nonexecutable;
-	int is_executable;
+	u8 is_dir;
+	u8 is_special;
+	u8 is_nonexecutable;
+	u8 is_executable;
 	i64 orig_size;
 	u32 crc16;
 	u8 os_id;
-	int codepage_encoding; // Encoding based on the "codepage" ext hdr
 	i64 compressed_data_pos; // relative to beginning of file
 	i64 compressed_data_len;
 	de_ucstring *dirname;
@@ -50,7 +55,7 @@ struct member_data {
 
 typedef struct localctx_struct {
 	de_encoding input_encoding;
-	int try_to_extract;
+	u8 unsupp_warned;
 	int member_count;
 	struct de_crcobj *crco;
 } lctx;
@@ -127,30 +132,97 @@ static void read_unix_timestamp(deark *c, lctx *d, struct member_data *md,
 	apply_timestamp(c, d, md, tsidx, &tmp_timestamp, 50);
 }
 
-static void read_filename(deark *c, lctx *d, struct member_data *md,
+static void rp_add_component(deark *c, lctx *d, struct member_data *md,
+	dbuf *f, i64 pos, i64 len, struct de_strarray *sa, de_ucstring *tmpstr)
+{
+	if(len<1) return;
+	ucstring_empty(tmpstr);
+	dbuf_read_to_ucstring(f, pos, len, tmpstr, 0, md->encoding);
+	de_strarray_push(sa, tmpstr);
+}
+
+static void read_path_to_strarray(deark *c, lctx *d, struct member_data *md,
+	dbuf *inf, i64 pos, i64 len, struct de_strarray *sa, int is_exthdr_dirname)
+{
+	dbuf *tmpdbuf = NULL;
+	de_ucstring *tmpstr = NULL;
+	i64 component_startpos;
+	i64 component_len;
+	i64 i;
+
+	tmpstr = ucstring_create(c);
+
+	tmpdbuf = dbuf_create_membuf(c, len, 0);
+	dbuf_copy(inf, pos, len, tmpdbuf);
+
+	component_startpos = 0;
+	component_len = 0;
+
+	for(i=0; i<len; i++) {
+		u8 ch;
+
+		ch = dbuf_getbyte(tmpdbuf, i);
+		if(ch==0x00) break; // Tolerate NUL termination
+		if((is_exthdr_dirname && ch==0xff) ||
+			(!is_exthdr_dirname && (ch=='\\' || ch=='/')))
+		{
+			component_len = i - component_startpos;
+			rp_add_component(c, d, md, tmpdbuf, component_startpos, component_len, sa, tmpstr);
+			component_startpos = i+1;
+			component_len = 0;
+		}
+		else {
+			component_len++;
+		}
+	}
+	rp_add_component(c, d, md, tmpdbuf, component_startpos, component_len, sa, tmpstr);
+
+	dbuf_close(tmpdbuf);
+	ucstring_destroy(tmpstr);
+}
+
+static void read_filename_hlev0(deark *c, lctx *d, struct member_data *md,
+	i64 pos, i64 len)
+{
+	struct de_strarray *sa = NULL;
+
+	if(md->filename) {
+		ucstring_empty(md->filename);
+	}
+	else {
+		md->filename = ucstring_create(c);
+	}
+
+	sa = de_strarray_create(c, MAX_SUBDIR_LEVEL+2);
+	read_path_to_strarray(c, d, md, c->infile, pos, len, sa, 0);
+
+	de_strarray_make_path(sa, md->filename, DE_MPFLAG_NOTRAILINGSLASH);
+	de_dbg(c, "filename (parsed): \"%s\"", ucstring_getpsz_d(md->filename));
+
+	de_strarray_destroy(sa);
+}
+
+static void read_filename_hlev1_or_exthdr(deark *c, lctx *d, struct member_data *md,
 	i64 pos, i64 len)
 {
 	i64 i;
 
-	md->filename = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos, len,
-		md->filename, 0, d->input_encoding);
-	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
-
-	if(md->hlev==0) {
-		// Slashes (usually backslashes) allowed
-		for(i=0; i<md->filename->len; i++) {
-			if(md->filename->str[i]=='\\') {
-				md->filename->str[i]='/';
-			}
-		}
+	if(md->filename) {
+		ucstring_empty(md->filename);
 	}
 	else {
-		// I don't think slashes are allowed
-		for(i=0; i<md->filename->len; i++) {
-			if(md->filename->str[i]=='/') {
-				md->filename->str[i]='_';
-			}
+		md->filename = ucstring_create(c);
+	}
+
+	// Some files seem to assume NUL termination is allowed.
+	dbuf_read_to_ucstring(c->infile, pos, len,
+		md->filename, DE_CONVFLAG_STOP_AT_NUL, md->encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+
+	// I don't think slashes are allowed
+	for(i=0; i<md->filename->len; i++) {
+		if(md->filename->str[i]=='/') {
+			md->filename->str[i]='_';
 		}
 	}
 }
@@ -171,15 +243,14 @@ static void exthdr_filename(deark *c, lctx *d, struct member_data *md,
 	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
 {
-	read_filename(c, d, md, pos, dlen);
+	read_filename_hlev1_or_exthdr(c, d, md, pos, dlen);
 }
 
 static void exthdr_dirname(deark *c, lctx *d, struct member_data *md,
 	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
 {
-	i64 i;
-	int ends_with_ff = 0;
+	struct de_strarray *dirname_sa = NULL;
 
 	if(md->dirname) {
 		ucstring_empty(md->dirname);
@@ -188,28 +259,14 @@ static void exthdr_dirname(deark *c, lctx *d, struct member_data *md,
 		md->dirname = ucstring_create(c);
 	}
 
-	dbuf_read_to_ucstring(c->infile, pos, dlen,
-		md->dirname, 0, d->input_encoding);
-	de_dbg(c, "%s: \"%s\"", e->name, ucstring_getpsz(md->dirname));
+	dirname_sa = de_strarray_create(c, MAX_SUBDIR_LEVEL+2);
+	// 0xff is used as the path separator. Don't know what happens if a directory
+	// name contains an actual 0xff byte.
+	read_path_to_strarray(c, d, md, c->infile, pos, dlen, dirname_sa, 1);
+	de_strarray_make_path(dirname_sa, md->dirname, DE_MPFLAG_NOTRAILINGSLASH);
+	de_dbg(c, "%s (parsed): \"%s\"", e->name, ucstring_getpsz_d(md->dirname));
 
-	// Fixup dir name.
-	// (This is slightly hacky. It would be cleaner to handle the special
-	// 0xff bytes *before* converting to ucstring format.)
-	for(i=0; i<md->dirname->len; i++) {
-		if(md->dirname->str[i]==DE_CODEPOINT_BYTEFF) {
-			if(i==md->dirname->len-1) {
-				ends_with_ff = 1;
-			}
-			md->dirname->str[i] = '/';
-		}
-		else if(md->dirname->str[i]=='/') {
-			md->dirname->str[i] = '_';
-		}
-	}
-
-	if(ends_with_ff) {
-		ucstring_truncate(md->dirname, md->dirname->len - 1);
-	}
+	de_strarray_destroy(dirname_sa);
 }
 
 static void exthdr_msdosattribs(deark *c, lctx *d, struct member_data *md,
@@ -256,6 +313,10 @@ static void interpret_unix_perms(deark *c, lctx *d, struct member_data *md, unsi
 		else {
 			md->is_nonexecutable = 1;
 		}
+	}
+
+	if((mode & 0170000) == 0120000) {
+		md->is_special = 1; // symlink
 	}
 }
 
@@ -314,13 +375,17 @@ static void exthdr_codepage(deark *c, lctx *d, struct member_data *md,
 	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
 {
-	int n;
+	int n_codepage;
+	de_encoding n_encoding;
 	char descr[100];
 
 	if(dlen!=4) return;
-	n = (int)de_geti32le(pos);
-	md->codepage_encoding = de_windows_codepage_to_encoding(c, n, descr, sizeof(descr), 0);
-	de_dbg(c, "codepage: %d (%s)", n, descr);
+	n_codepage = (int)de_geti32le(pos);
+	n_encoding = de_windows_codepage_to_encoding(c, n_codepage, descr, sizeof(descr), 0);
+	de_dbg(c, "codepage: %d (%s)", n_codepage, descr);
+	if(n_encoding != DE_ENCODING_UNKNOWN) {
+		md->encoding = n_encoding;
+	}
 }
 
 static const struct exthdr_type_info_struct exthdr_type_info_arr[] = {
@@ -398,13 +463,38 @@ static void do_read_ext_header(deark *c, lctx *d, struct member_data *md,
 	}
 }
 
+static const char *get_os_name(u8 id)
+{
+	const char *name = NULL;
+	switch(id) {
+	case '2': name="OS/2"; break;
+	case '3': name="OS/386"; break;
+	case '9': name="OS-9"; break;
+	case 'A': name="Amiga?"; break;
+	case 'C': name="CP/M"; break;
+	case 'F': name="FLEX"; break;
+	case 'H': name="Human68K"; break;
+	case 'J': name="JVM"; break;
+	case 'K': name="OS/68K"; break;
+	case 'M': name="DOS"; break;
+	case 'R': name="RUNser"; break;
+	case 'T': name="TownsOS"; break;
+	case 'U': name="Unix"; break;
+	case 'W': name="Windows NT"; break;
+	case 'a': name="Atari ST?"; break;
+	case 'm': name="Macintosh"; break;
+	case 'w': name="Windows"; break;
+	}
+	return name?name:"?";
+}
+
 static void do_lev0_ext_area(deark *c, lctx *d, struct member_data *md,
 	i64 pos1, i64 len)
 {
 	if(len<1) return;
 	md->os_id = de_getbyte(pos1);
-	de_dbg(c, "OS id: %d ('%c')", (int)md->os_id,
-		de_byte_to_printable_char(md->os_id));
+	de_dbg(c, "OS id: %d ('%c') (%s)", (int)md->os_id,
+		de_byte_to_printable_char(md->os_id), get_os_name(md->os_id));
 
 	// TODO: Finish this
 	if(md->os_id=='U') {
@@ -520,22 +610,19 @@ static void make_fullfilename(deark *c, lctx *d, struct member_data *md)
 	}
 }
 
-static void do_decompress_stored(deark *c, lctx *d, struct member_data *md, dbuf *outf)
-{
-	dbuf_copy(c->infile, md->compressed_data_pos, md->compressed_data_len, outf);
-}
-
 // flags:
 //   0x01 = directory
 //   0x02 = uncompressed
+//   0x10 = supported
 static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
-	{ 0x01, CODE_lhd, "directory", NULL },
-	{ 0x02, CODE_lh0, "uncompressed", NULL },
+	{ 0x11, CODE_lhd, "directory", NULL },
+	{ 0x12, CODE_lh0, "uncompressed", NULL },
 	{ 0x00, CODE_lh1, "LZ77, 4K, codes = dynamic Huffman", NULL },
 	{ 0x00, CODE_lh5, "LZ77, 8K, static Huffman", NULL },
 	{ 0x00, CODE_lh6, "LZ77, 32K, static Huffman", NULL },
-	{ 0x02, CODE_lz4, "uncompressed (LArc)", NULL },
-	{ 0x02, CODE_pm0, "uncompressed (PMArc)", NULL }
+	{ 0x12, CODE_lz4, "uncompressed (LArc)", NULL },
+	{ 0x10, CODE_lz5, "LZSS, 4K (LArc)", NULL },
+	{ 0x12, CODE_pm0, "uncompressed (PMArc)", NULL }
 };
 
 static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
@@ -551,18 +638,23 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md,
 	dbuf *outf = NULL;
 	u32 crc_calc;
 	int tsidx;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
 
-	if(!d->try_to_extract) return;
-	if(md->is_dir) {
-		;
+	if(md->is_special) {
+		de_dbg(c, "[not extracting special file]");
+		goto done;
 	}
-	else if(cmi && (cmi->flags & 0x02)) {
-		; // uncompressed
-	}
-	else {
+
+	if(!cmi || !(cmi->flags & 0x10)) {
+		if(!d->unsupp_warned) {
+			de_info(c, "Note: LHA files can be parsed, but most compression methods are not supported.");
+			d->unsupp_warned = 1;
+		}
 		de_err(c, "%s: Unsupported compression method '%s'",
 			ucstring_getpsz_d(md->fullfilename), md->cmpr_meth_4cc.id_sanitized_sz);
-		return;
+		goto done;
 	}
 
 	fi = de_finfo_create(c);
@@ -596,14 +688,37 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md,
 	}
 	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
 
-	do_decompress_stored(c, d, md, outf);
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = md->compressed_data_pos;
+	dcmpri.len = md->compressed_data_len;
+	dcmpro.f = outf;
+	dcmpro.expected_len = md->orig_size;
+	dcmpro.len_known = 1;
+
+	if(cmi->flags & 0x02) {
+		fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
+	}
+	else if(cmi->id==CODE_lz5) {
+		fmtutil_decompress_szdd(c, &dcmpri, &dcmpro, &dres, 0x1);
+	}
+	else {
+		goto done;
+	}
+
+	if(dres.errcode) {
+		de_err(c, "%s: Decompression failed: %s", ucstring_getpsz_d(md->fullfilename),
+			de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
 
 	crc_calc = de_crcobj_getval(d->crco);
 	de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)crc_calc);
 	if(crc_calc != md->crc16) {
-		de_err(c, "CRC check failed");
+		de_err(c, "%s: CRC check failed", ucstring_getpsz_d(md->fullfilename));
 	}
 
+done:
 	dbuf_close(outf);
 	de_finfo_destroy(c, fi);
 }
@@ -618,6 +733,11 @@ static const struct cmpr_meth_info *get_cmpr_meth_info(lctx *d, unsigned int id)
 		}
 	}
 	return NULL;
+}
+
+static void warn_non_lha(deark *c, i64 pos, i64 len)
+{
+	de_warn(c, "%"I64_FMT" bytes of non-LHA data found at end of file (offset %"I64_FMT")", len, pos);
 }
 
 // This single function parses all the different header formats, using lots of
@@ -635,6 +755,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	i64 lev2_total_header_size = 0;
 	i64 lev3_header_size = 0;
 	i64 pos = pos1;
+	i64 nbytes_avail;
 	i64 exthdr_bytes_consumed = 0;
 	i64 fnlen = 0;
 	UI attribs;
@@ -644,13 +765,16 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	const struct cmpr_meth_info *cmi;
 	const char *cmpr_meth_descr = NULL;
 	char tmpstr[80];
+	int saved_indent_level;
 
-	if(c->infile->len - pos1 < 21) {
+	de_dbg_indent_save(c, &saved_indent_level);
+	nbytes_avail = c->infile->len - pos1;
+	if(nbytes_avail < 21) {
+		if(nbytes_avail > 1) {
+			warn_non_lha(c, pos1, nbytes_avail);
+		}
 		goto done;
 	}
-
-	de_dbg(c, "member at %d", (int)pos);
-	de_dbg_indent(c, 1);
 
 	// Read compression method first, to help decide whether this is LHA data at all.
 	tmpb1 = de_getbyte(pos1+2);
@@ -662,10 +786,13 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 			goto done;
 		}
 		else {
-			de_warn(c, "Extra non-LHA data found at end of file (offset %d)", (int)pos1);
+			warn_non_lha(c, pos1, nbytes_avail);
 			goto done;
 		}
 	}
+
+	de_dbg(c, "member at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
 
 	cmi = get_cmpr_meth_info(d, md->cmpr_meth_4cc.id);
 
@@ -779,7 +906,12 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	if(md->hlev<=1) {
 		fnlen = de_getbyte(pos++);
 		de_dbg(c, "filename len: %d", (int)fnlen);
-		read_filename(c, d, md, pos, fnlen);
+		if(md->hlev==0) {
+			read_filename_hlev0(c, d, md, pos, fnlen);
+		}
+		else {
+			read_filename_hlev1_or_exthdr(c, d, md, pos, fnlen);
+		}
 		pos += fnlen;
 	}
 
@@ -788,8 +920,8 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 
 	if(md->hlev==1 || md->hlev==2 || md->hlev==3) {
 		md->os_id = de_getbyte_p(&pos);
-		de_dbg(c, "OS id: %d ('%c')", (int)md->os_id,
-			de_byte_to_printable_char(md->os_id));
+		de_dbg(c, "OS id: %d ('%c') (%s)", (int)md->os_id,
+			de_byte_to_printable_char(md->os_id), get_os_name(md->os_id));
 	}
 
 	if(md->hlev==3) {
@@ -863,7 +995,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 
 	retval = 1;
 done:
-	de_dbg_indent(c, -1);
+	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
 
@@ -874,19 +1006,16 @@ static void de_run_lha(deark *c, de_module_params *mparams)
 	struct member_data *md = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
-	d->input_encoding = DE_ENCODING_ASCII;
-
-	d->try_to_extract = de_get_ext_option_bool(c, "lha:extract", -1);
-	if(d->try_to_extract == -1) {
-		de_info(c, "Note: LHA files can be parsed, but no files can be extracted from them.");
-		d->try_to_extract = 0;
-	}
+	// It's not really safe to guess CP437, because Japanese-encoded (CP932?)
+	// filenames are common.
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
 
 	pos = 0;
 	while(1) {
 		if(pos >= c->infile->len) break;
 
 		md = de_malloc(c, sizeof(struct member_data));
+		md->encoding = d->input_encoding;
 		if(!do_read_member(c, d, md, pos)) goto done;
 		if(md->total_size<1) goto done;
 
@@ -908,25 +1037,31 @@ done:
 static int de_identify_lha(deark *c)
 {
 	u8 b[7];
+	int m = 0; // Known cmpr method?
 
 	de_read(b, 0, 7);
 	if(b[2]!='-' || b[6]!='-') return 0;
 	if(b[3]=='l') {
-		if(b[4]=='h' || b[4]=='z') {
-			return 100;
+		if(b[4]=='h') {
+			if(b[5]>='0' && b[5]<='8') m = 1;
+			else if(b[5]=='d' || b[5]=='x') m = 1;
+		}
+		else if(b[4]=='z') {
+			if(b[5]>='2' && b[5]<='8') m = 1;
+			else if(b[5]=='s') m = 1;
 		}
 	}
 	else if(b[3]=='p') {
-		if(b[4]=='c' || b[4]=='m') {
-			return 100;
+		if(b[4]=='c') {
+			if(b[5]=='1') m = 1;
+		}
+		else if(b[4]=='m') {
+			if(b[5]>='0' && b[5]<='2') m = 1;
 		}
 	}
-	return 0;
-}
 
-static void de_help_lha(deark *c)
-{
-	de_msg(c, "-opt lha:extract : Extract when possible (uncompressed files only)");
+	if(m) return 100;
+	return 0;
 }
 
 void de_module_lha(deark *c, struct deark_module_info *mi)
@@ -935,5 +1070,4 @@ void de_module_lha(deark *c, struct deark_module_info *mi)
 	mi->desc = "LHA/LZH/PMA archive";
 	mi->run_fn = de_run_lha;
 	mi->identify_fn = de_identify_lha;
-	mi->help_fn = de_help_lha;
 }

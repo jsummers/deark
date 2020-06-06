@@ -51,6 +51,7 @@ DE_DECLARE_MODULE(de_module_riff);
 typedef struct localctx_struct {
 	int is_cdr;
 	u32 curr_avi_stream_type;
+	u8 cmx_parse_hack;
 	u8 in_movi;
 	int in_movi_level;
 } lctx;
@@ -315,6 +316,47 @@ static void do_DISP(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 	}
 }
 
+static int is_fourcc_at(deark *c, struct de_iffctx *ictx, i64 pos)
+{
+	u8 b[4];
+	size_t i;
+
+	dbuf_read(ictx->f, b, pos, 4);
+	for(i=0; i<4; i++) {
+		if(b[i]<32 || b[i]>126) return 0;
+	}
+	return 1;
+}
+
+static int do_cmx_parse_hack(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 *plen)
+{
+	i64 n, n_padded;
+
+	// Some CMX chunks seem to be followed by a non-RIFF segment starting with either
+	// 04 00 (4 bytes) or 10 00 (16 bytes). I'm just guessing how to parse them.
+	n = dbuf_getu16le(ictx->f, pos);
+	if(n>256 || n==0) return 0;
+
+	n_padded = de_pad_to_2(n);
+	if(is_fourcc_at(c, ictx, pos + n_padded)) {
+		de_dbg(c, "[%d non-RIFF bytes at %"I64_FMT"]", (int)n_padded, pos);
+		*plen = n_padded;
+		return 1;
+	}
+	return 0;
+}
+
+static int my_handle_nonchunk_riff_data_fn(deark *c, struct de_iffctx *ictx,
+	i64 pos, i64 *plen)
+{
+	lctx *d = (lctx*)ictx->userdata;
+
+	if(d->cmx_parse_hack) {
+		return do_cmx_parse_hack(c, d, ictx, pos, plen);
+	}
+	return 0;
+}
+
 static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 {
 	lctx *d = (lctx*)ictx->userdata;
@@ -326,7 +368,11 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 		case CODE_ACON: fmtname = "Windows animated cursor"; break;
 		case CODE_AVI: fmtname = "AVI"; break;
 		case CODE_CDRX: fmtname = "Corel CCX"; break;
-		case CODE_CMX1: fmtname = "Corel CMX"; break;
+		case CODE_CMX1:
+			fmtname = "Corel CMX";
+			ictx->handle_nonchunk_data_fn = my_handle_nonchunk_riff_data_fn;
+			d->cmx_parse_hack = 1;
+			break;
 		case CODE_WAVE: fmtname = "WAVE"; break;
 		case CODE_WEBP: fmtname = "WebP"; break;
 		}

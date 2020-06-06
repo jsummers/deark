@@ -1217,6 +1217,15 @@ static int do_iff_chunk_sequence(deark *c, struct de_iffctx *ictx,
 		ictx->curr_container_fmt4cc = saved_container_fmt4cc;
 		ictx->curr_container_contentstype4cc = saved_container_contentstype4cc;
 
+		if(ictx->handle_nonchunk_data_fn) {
+			i64 skip_len = 0;
+			ret = ictx->handle_nonchunk_data_fn(c, ictx, pos, &skip_len);
+			if(ret && skip_len>0) {
+				pos += de_pad_to_n(skip_len, ictx->alignment);
+				continue;
+			}
+		}
+
 		ret = do_iff_chunk(c, ictx, pos, endpos-pos, level, &chunk_len);
 		if(!ret) return 0;
 		pos += chunk_len;
