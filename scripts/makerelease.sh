@@ -39,7 +39,7 @@ cp -p obj/src/.gitignore $D/obj/src/
 mkdir $D/obj/modules
 cp -p obj/modules/.gitignore $D/obj/modules/
 
-cp -p readme.md technical.md formats.txt COPYING Makefile deps.mk $D/
+cp -p readme.md technical.md formats.txt COPYING Makefile deps.mk .editorconfig $D/
 
 mkdir $D/x64
 cp -p Release64/deark.exe $D/x64/
