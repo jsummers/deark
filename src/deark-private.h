@@ -283,6 +283,7 @@ struct de_module_out_params {
 	u32 uint1;
 	u32 uint2;
 	u32 uint3;
+	u32 uint4;
 	i64 int64_1;
 	// The caller is responsible for freeing pointer fields.
 	// The callee should not use these fields unless requested.

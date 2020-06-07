@@ -314,6 +314,8 @@ static void de_run_macbinary(deark *c, de_module_params *mparams)
 	if(mparams) {
 		mparams->out_params.uint1 = (u32)d->dfpos;
 		mparams->out_params.uint2 = (u32)d->dflen;
+		mparams->out_params.uint3 = (u32)d->rfpos;
+		mparams->out_params.uint4 = (u32)d->rflen;
 
 		if(mparams->out_params.fi) {
 			// If caller created out_params.fi for us, save the mod time to it.
