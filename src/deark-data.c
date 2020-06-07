@@ -388,6 +388,9 @@ void dbuf_write_uchar_as_utf8(dbuf *outf, i32 u)
 // Returns 1 if a valid character was converted, 0 otherwise.
 // buflen = the max number of bytes to read (but regardless of buflen, this
 // will not read past a byte whose value is < 0x80).
+//
+// TODO?: There is another UTF-8 decoder in ucstring_append_bytes_ex(). Maybe
+// should be consolidated in some way.
 int de_utf8_to_uchar(const u8 *utf8buf, i64 buflen,
 	i32 *p_uchar, i64 *p_utf8len)
 {

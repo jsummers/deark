@@ -875,6 +875,12 @@ void de_destroy_stringreaderdata(deark *c, struct de_stringreaderdata *srd)
 	de_free(c, srd);
 }
 
+void dbuf_read_to_ucstring_ex(dbuf *f, i64 pos, i64 len,
+	de_ucstring *s, unsigned int conv_flags, struct de_encconv_state *es)
+{
+	// TODO
+}
+
 // Read (up to) len bytes from f, translate them to characters, and append
 // them to s.
 void dbuf_read_to_ucstring(dbuf *f, i64 pos, i64 len,

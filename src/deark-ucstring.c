@@ -152,14 +152,129 @@ void ucstring_append_char(de_ucstring *s, i32 ch)
 	s->len++;
 }
 
-void ucstring_append_bytes(de_ucstring *s, const u8 *buf, i64 buflen,
-	unsigned int conv_flags, de_ext_encoding ee)
+static void handle_invalid_byte(de_ucstring *s, u8 n)
+{
+	i32 ch;
+
+	ch = DE_CODEPOINT_BYTE00 + (i32)n;
+	ucstring_append_char(s, ch);
+}
+
+static void handle_invalid_bytes(de_ucstring *s, const char *buf, UI buflen)
+{
+	UI k;
+
+	for(k=0; k<buflen; k++) {
+		handle_invalid_byte(s, buf[k]);
+	}
+}
+
+// This function does no error checking
+static i32 decode_utf8_sequence(const u8 *b, UI seqlen)
+{
+	u32 ch;
+
+	if(seqlen==2) { // 2-byte
+		ch = b[0] & 0x1f;
+		ch = (ch<<6) | (b[1] & 0x3f);
+	}
+	else if(seqlen==3) { // 3-byte
+		ch = b[0] & 0x0f;
+		ch = (ch<<6) | (b[1] & 0x3f);
+		ch = (ch<<6) | (b[2] & 0x3f);
+	}
+	else if(seqlen==4) {
+		ch = b[0] & 0x07;
+		ch = (ch<<6) | (b[1] & 0x3f);
+		ch = (ch<<6) | (b[2] & 0x3f);
+		ch = (ch<<6) | (b[3] & 0x3f);
+	}
+	else {
+		ch = b[0];
+	}
+	return (i32)ch;
+}
+
+#define UTF8_NBYTES_EXPECTED (es->buf[7])
+#define UTF8_NBYTES_SAVED    (es->buf[6])
+
+static void append_bytes_utf8(de_ucstring *s, const u8 *cbuf, i64 buflen,
+	unsigned int conv_flags, struct de_encconv_state *es)
+{
+	i64 pos;
+
+	for(pos=0; pos<buflen; pos++) {
+		u8 n = cbuf[pos];
+
+		if(n>=0x80 && n<=0xbf) { // continuation byte
+			if(UTF8_NBYTES_EXPECTED==0) {
+				handle_invalid_byte(s, n);
+			}
+			else { // valid continuation byte
+				es->buf[UTF8_NBYTES_SAVED] = n;
+				UTF8_NBYTES_SAVED++;
+				UTF8_NBYTES_EXPECTED--;
+				if(UTF8_NBYTES_EXPECTED==0) {
+					ucstring_append_char(s,
+						decode_utf8_sequence(es->buf, (UI)UTF8_NBYTES_SAVED));
+				}
+			}
+		}
+		else { // not a continuation byte
+			// Should not be any pending bytes. If there are, they're invalid.
+			if(UTF8_NBYTES_EXPECTED != 0) {
+				handle_invalid_bytes(s, es->buf, (UI)UTF8_NBYTES_SAVED);
+				UTF8_NBYTES_EXPECTED = 0;
+			}
+
+			if(n<=0x7f) {
+				ucstring_append_char(s, (i32)n);
+				UTF8_NBYTES_EXPECTED = 0; // number of additional continuation bytes expected
+			}
+			else if(n<=0xdf) { // 2-byte UTF-8 char
+				es->buf[0] = n; // save this byte for later
+				UTF8_NBYTES_SAVED = 1; // number of bytes saved in buf[0]...buf[3]
+				UTF8_NBYTES_EXPECTED = 1; // 1 more byte expected in this sequence
+			}
+			else if(n<=0xef) { // 3-byte UTF-8 char
+				es->buf[0] = n;
+				UTF8_NBYTES_SAVED = 1;
+				UTF8_NBYTES_EXPECTED = 2;
+			}
+			else if(n<=0xf7) { // 4-byte UTF-8 char
+				es->buf[0] = n;
+				UTF8_NBYTES_SAVED = 1;
+				UTF8_NBYTES_EXPECTED = 3;
+			}
+			else {
+				handle_invalid_byte(s, n);
+				UTF8_NBYTES_EXPECTED = 0;
+			}
+		}
+	}
+
+	// Check if there are unprocessed bytes at the end of the string, when there
+	// shouldn't be.
+	if(UTF8_NBYTES_EXPECTED!=0 && !(conv_flags & DE_CONVFLAG_PARTIAL_DATA)) {
+		handle_invalid_bytes(s, es->buf, (UI)UTF8_NBYTES_SAVED);
+		UTF8_NBYTES_EXPECTED = 0;
+	}
+}
+
+#undef UTF8_NBYTES_EXPECTED
+#undef UTF8_NBYTES_SAVED
+
+// conv_flags:
+//  DE_CONVFLAG_PARTIAL_DATA: There might be more data after this; if 'buf' ends
+//   in a way it shouldn't, it's not necessarily an error.
+void ucstring_append_bytes_ex(de_ucstring *s, const u8 *buf, i64 buflen,
+	unsigned int conv_flags, struct de_encconv_state *es)
 {
 	int ret;
 	i64 pos = 0;
 	i32 ch;
 	i64 code_len;
-	de_encoding encoding = DE_EXTENC_GET_BASE(ee);
+	de_encoding encoding = DE_EXTENC_GET_BASE(es->ee);
 
 	// Adjust buflen if necessary.
 	if(conv_flags & DE_CONVFLAG_STOP_AT_NUL) {
@@ -170,40 +285,60 @@ void ucstring_append_bytes(de_ucstring *s, const u8 *buf, i64 buflen,
 		}
 	}
 
-	while(pos<buflen) {
-		if(encoding==DE_ENCODING_UTF8) {
-			ret = de_utf8_to_uchar(&buf[pos], buflen-pos, &ch, &code_len);
-			if(!ret) { // Invalid UTF8
-				ch = DE_CODEPOINT_BYTE00 + (i32)buf[pos];
-				code_len = 1;
-			}
-		}
-		else if(encoding==DE_ENCODING_UTF16LE) {
+	if(encoding==DE_ENCODING_UTF8) {
+		append_bytes_utf8(s, buf, buflen, conv_flags, es);
+	}
+	else if(encoding==DE_ENCODING_UTF16LE) {
+		while(pos<buflen) {
 			ret = de_utf16x_to_uchar(&buf[pos], buflen-pos, &ch, &code_len, 1);
 			if(!ret) {
 				// TODO: Handle invalid UTF16 gracefully
 				ch = '_';
 				code_len = 2;
 			}
+			ucstring_append_char(s, ch);
+			pos += code_len;
 		}
-		else if(encoding==DE_ENCODING_UTF16BE) {
+	}
+	else if(encoding==DE_ENCODING_UTF16BE) {
+		while(pos<buflen) {
 			ret = de_utf16x_to_uchar(&buf[pos], buflen-pos, &ch, &code_len, 0);
 			if(!ret) {
 				ch = '_';
 				code_len = 2;
 			}
+			ucstring_append_char(s, ch);
+			pos += code_len;
 		}
-		else {
-			ch = de_char_to_unicode(s->c, buf[pos], ee);
+	}
+	else {
+		while(pos<buflen) {
+			ch = de_char_to_unicode(s->c, buf[pos], es->ee);
 			if(ch==DE_CODEPOINT_INVALID) {
 				// Map unconvertible bytes to a special range.
 				ch = DE_CODEPOINT_BYTE00 + (i32)buf[pos];
 			}
 			code_len = 1;
+
+			ucstring_append_char(s, ch);
+			pos += code_len;
 		}
-		ucstring_append_char(s, ch);
-		pos += code_len;
 	}
+}
+
+void de_encconv_init(struct de_encconv_state *es, de_ext_encoding ee)
+{
+	de_zeromem(es, sizeof(struct de_encconv_state));
+	es->ee = ee;
+}
+
+void ucstring_append_bytes(de_ucstring *s, const u8 *buf, i64 buflen,
+	unsigned int conv_flags, de_ext_encoding ee)
+{
+	struct de_encconv_state es;
+
+	de_encconv_init(&es, ee);
+	ucstring_append_bytes_ex(s, buf, buflen, conv_flags, &es);
 }
 
 void ucstring_append_sz(de_ucstring *s, const char *sz, de_ext_encoding ee)
