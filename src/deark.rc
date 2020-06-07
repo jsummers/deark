@@ -5,8 +5,8 @@ LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 #pragma code_page(1252)
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,5,4,0
- PRODUCTVERSION 1,5,4,0
+ FILEVERSION 1,5,5,0
+ PRODUCTVERSION 1,5,5,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -24,12 +24,12 @@ BEGIN
             VALUE "Comments", "\0"
             VALUE "CompanyName", "Jason Summers\0"
             VALUE "FileDescription", "Deark\0"
-            VALUE "FileVersion", "1.5.4\0"
+            VALUE "FileVersion", "1.5.5\0"
             VALUE "InternalName", "deark\0"
             VALUE "LegalCopyright", "Copyright (C) 2016-2020 Jason Summers\0"
             VALUE "OriginalFilename", "deark.exe\0"
             VALUE "ProductName", "Deark\0"
-            VALUE "ProductVersion", "1.5.4\0"
+            VALUE "ProductVersion", "1.5.5\0"
         END
     END
     BLOCK "VarFileInfo"
