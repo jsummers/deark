@@ -875,10 +875,60 @@ void de_destroy_stringreaderdata(deark *c, struct de_stringreaderdata *srd)
 	de_free(c, srd);
 }
 
-void dbuf_read_to_ucstring_ex(dbuf *f, i64 pos, i64 len,
+void dbuf_read_to_ucstring_ex(dbuf *f, i64 pos1, i64 len,
 	de_ucstring *s, unsigned int conv_flags, struct de_encconv_state *es)
 {
-	// TODO
+	i64 nbytes_remaining;
+	i64 pos = pos1;
+	int stop_at_nul = 0;
+#define READTOUCSTRING_BUFLEN 256
+	u8 buf[READTOUCSTRING_BUFLEN];
+
+	if(conv_flags & DE_CONVFLAG_STOP_AT_NUL) {
+		stop_at_nul = 1;
+		// We handle STOP_AT_NUL ourselves, so don't pass it on.
+		conv_flags -= DE_CONVFLAG_STOP_AT_NUL;
+	}
+
+	// Note: It might be sensible to use dbuf_buffered_read() here, but I've
+	// decided against it for now.
+	nbytes_remaining = len;
+	do {
+		i64 nbytes_to_read;
+		i64 nbytes_in_buf;
+		unsigned int conv_flags_to_use_this_time;
+
+		// Lack of DE_CONVFLAG_PARTIAL_DATA flag signals end of data, which
+		// isn't necessarily a no-op even with len=0.
+		// That's why we always do this loop at least once.
+
+		nbytes_to_read = de_min_int(nbytes_remaining, READTOUCSTRING_BUFLEN);
+		dbuf_read(f, buf, pos, nbytes_to_read);
+		pos += nbytes_to_read;
+		nbytes_in_buf = nbytes_to_read;
+		nbytes_remaining -= nbytes_to_read;
+
+		if(stop_at_nul) {
+			char *tmpp;
+
+			tmpp = de_memchr(buf, 0x00, (size_t)nbytes_in_buf);
+			if(tmpp) {
+				nbytes_in_buf = (const u8*)tmpp - buf;
+				nbytes_remaining = 0;
+			}
+		}
+
+		conv_flags_to_use_this_time = conv_flags;
+		if(nbytes_remaining>0) {
+			// The caller may have aleady set this flag, in which case we will use
+			// it every time.
+			// If not, we still use it for all but the final call to ucstring_append_bytes_ex().
+			conv_flags_to_use_this_time |= DE_CONVFLAG_PARTIAL_DATA;
+		}
+
+		ucstring_append_bytes_ex(s, buf, nbytes_in_buf, conv_flags_to_use_this_time, es);
+	} while(nbytes_remaining>0);
+
 }
 
 // Read (up to) len bytes from f, translate them to characters, and append
@@ -886,27 +936,20 @@ void dbuf_read_to_ucstring_ex(dbuf *f, i64 pos, i64 len,
 void dbuf_read_to_ucstring(dbuf *f, i64 pos, i64 len,
 	de_ucstring *s, unsigned int conv_flags, de_ext_encoding ee)
 {
-	u8 *buf = NULL;
-	deark *c = f->c;
+	struct de_encconv_state es;
 
-	if(conv_flags & DE_CONVFLAG_STOP_AT_NUL) {
-		i64 foundpos = 0;
-		if(dbuf_search_byte(f, 0x00, pos, len, &foundpos)) {
-			len = foundpos - pos;
-		}
-	}
-
-	buf = de_malloc(c, len);
-	dbuf_read(f, buf, pos, len);
-	ucstring_append_bytes(s, buf, len, 0, ee);
-	de_free(c, buf);
+	de_encconv_init(&es, ee);
+	dbuf_read_to_ucstring_ex(f, pos, len, s, conv_flags, &es);
 }
 
 void dbuf_read_to_ucstring_n(dbuf *f, i64 pos, i64 len, i64 max_len,
 	de_ucstring *s, unsigned int conv_flags, de_ext_encoding ee)
 {
-	if(len>max_len) len=max_len;
-	dbuf_read_to_ucstring(f, pos, len, s, conv_flags, ee);
+	struct de_encconv_state es;
+
+	if(len>max_len) len = max_len;
+	de_encconv_init(&es, ee);
+	dbuf_read_to_ucstring_ex(f, pos, len, s, conv_flags, &es);
 }
 
 static int dbufmemcmp_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,

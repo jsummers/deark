@@ -160,7 +160,7 @@ static void handle_invalid_byte(de_ucstring *s, u8 n)
 	ucstring_append_char(s, ch);
 }
 
-static void handle_invalid_bytes(de_ucstring *s, const char *buf, UI buflen)
+static void handle_invalid_bytes(de_ucstring *s, const u8 *buf, UI buflen)
 {
 	UI k;
 
