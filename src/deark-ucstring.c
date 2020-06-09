@@ -264,16 +264,85 @@ static void append_bytes_utf8(de_ucstring *s, const u8 *cbuf, i64 buflen,
 #undef UTF8_NBYTES_EXPECTED
 #undef UTF8_NBYTES_SAVED
 
+#define UTF16_NBYTES_SAVED    (es->buf[7])
+
+static i64 getu16x_direct(const u8 *m, int is_le)
+{
+	if(is_le)
+		return de_getu16le_direct(m);
+	return de_getu16be_direct(m);
+}
+
+static void append_bytes_utf16(de_ucstring *s, const u8 *cbuf, i64 buflen,
+	unsigned int conv_flags, struct de_encconv_state *es, int is_le)
+{
+	i64 pos = 0;
+	i32 ch;
+
+	for(pos=0; pos<buflen; pos++) {
+		u8 n = cbuf[pos];
+
+		es->buf[UTF16_NBYTES_SAVED] = n;
+		UTF16_NBYTES_SAVED++;
+
+		if(UTF16_NBYTES_SAVED==2) {
+			ch = (i32)getu16x_direct(es->buf, is_le);
+			if(ch>=0xd800 && ch<0xdc00) {
+				; // lead surrogate; do nothing
+			}
+			else if(ch>=0xdc00 && ch<0xe000) {
+				// trail surrogate, shouldn't be here
+				ucstring_append_char(s, 0xfffd);
+				UTF16_NBYTES_SAVED = 0;
+			}
+			else { // non-surrogate
+				ucstring_append_char(s, ch);
+				UTF16_NBYTES_SAVED = 0;
+			}
+		}
+		else if(UTF16_NBYTES_SAVED>=4) { // >4 is impossible
+			i32 ch2;
+
+			ch = (i32)getu16x_direct(es->buf, is_le);
+			ch2 = (i32)getu16x_direct(&es->buf[2], is_le);
+
+			if(ch2>=0xd800 && ch2<0xdc00) {
+				; // lead surrogate immediately following another lead surrogate
+				ucstring_append_char(s, 0xfffd);
+				es->buf[0] = es->buf[2];
+				es->buf[1] = es->buf[3];
+				UTF16_NBYTES_SAVED = 2;
+			}
+			else if(ch2>=0xdc00 && ch2<0xe000) {
+				// well-formed surrogate pair
+				ucstring_append_char(s, 0x10000 + (((ch-0xd800)<<10) | (ch2-0xdc00)));
+				UTF16_NBYTES_SAVED = 0;
+			}
+			else { // non-surrogate immediately following a lead surrogate
+				ucstring_append_char(s, 0xfffd);
+				ucstring_append_char(s, ch2);
+				UTF16_NBYTES_SAVED = 0;
+			}
+
+		}
+	}
+
+	// Check if there are unprocessed bytes at the end of the string, when there
+	// shouldn't be.
+	if(UTF16_NBYTES_SAVED!=0 && !(conv_flags & DE_CONVFLAG_PARTIAL_DATA)) {
+		ucstring_append_char(s, 0xfffd);
+		UTF16_NBYTES_SAVED = 0;
+	}
+}
+
+#undef  UTF16_NBYTES_SAVED
+
 // conv_flags:
 //  DE_CONVFLAG_PARTIAL_DATA: There might be more data after this; if 'buf' ends
 //   in a way it shouldn't, it's not necessarily an error.
 void ucstring_append_bytes_ex(de_ucstring *s, const u8 *buf, i64 buflen,
 	unsigned int conv_flags, struct de_encconv_state *es)
 {
-	int ret;
-	i64 pos = 0;
-	i32 ch;
-	i64 code_len;
 	de_encoding encoding = DE_EXTENC_GET_BASE(es->ee);
 
 	// Adjust buflen if necessary.
@@ -288,40 +357,22 @@ void ucstring_append_bytes_ex(de_ucstring *s, const u8 *buf, i64 buflen,
 	if(encoding==DE_ENCODING_UTF8) {
 		append_bytes_utf8(s, buf, buflen, conv_flags, es);
 	}
-	else if(encoding==DE_ENCODING_UTF16LE) {
-		while(pos<buflen) {
-			ret = de_utf16x_to_uchar(&buf[pos], buflen-pos, &ch, &code_len, 1);
-			if(!ret) {
-				// TODO: Handle invalid UTF16 gracefully
-				ch = '_';
-				code_len = 2;
-			}
-			ucstring_append_char(s, ch);
-			pos += code_len;
-		}
-	}
-	else if(encoding==DE_ENCODING_UTF16BE) {
-		while(pos<buflen) {
-			ret = de_utf16x_to_uchar(&buf[pos], buflen-pos, &ch, &code_len, 0);
-			if(!ret) {
-				ch = '_';
-				code_len = 2;
-			}
-			ucstring_append_char(s, ch);
-			pos += code_len;
-		}
+	else if(encoding==DE_ENCODING_UTF16LE || encoding==DE_ENCODING_UTF16BE) {
+		append_bytes_utf16(s, buf, buflen, conv_flags, es, (encoding==DE_ENCODING_UTF16LE));
 	}
 	else {
-		while(pos<buflen) {
+		i64 pos;
+
+		for(pos=0; pos<buflen; pos++) {
+			i32 ch;
+
 			ch = de_char_to_unicode(s->c, buf[pos], es->ee);
 			if(ch==DE_CODEPOINT_INVALID) {
-				// Map unconvertible bytes to a special range.
-				ch = DE_CODEPOINT_BYTE00 + (i32)buf[pos];
+				handle_invalid_byte(s, buf[pos]);
 			}
-			code_len = 1;
-
-			ucstring_append_char(s, ch);
-			pos += code_len;
+			else {
+				ucstring_append_char(s, ch);
+			}
 		}
 	}
 }

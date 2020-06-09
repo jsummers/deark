@@ -913,9 +913,6 @@ void de_uchar_to_utf8(i32 u1, u8 *utf8buf, i64 *p_utf8len);
 void dbuf_write_uchar_as_utf8(dbuf *outf, i32 u);
 int de_utf8_to_uchar(const u8 *utf8buf, i64 buflen,
 	i32 *p_uchar, i64 *p_utf8len);
-int de_utf16x_to_uchar(const u8 *utf16buf, i64 buflen,
-	i32 *p_uchar, i64 *p_utf16len, int is_le);
-
 int de_is_ascii(const u8 *buf, i64 buflen);
 
 #define DE_CONVFLAG_STOP_AT_NUL 0x1
