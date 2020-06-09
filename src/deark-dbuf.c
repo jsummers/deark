@@ -118,10 +118,6 @@ void dbuf_read(dbuf *f, u8 *buf, i64 pos, i64 len)
 		goto done_read;
 	}
 
-	if(!f->cache && f->cache_policy==DE_CACHE_POLICY_ENABLED) {
-		populate_cache(f);
-	}
-
 	// If the data we need is all cached, get it from cache.
 	if(f->cache &&
 		pos >= 0 &&
@@ -706,10 +702,6 @@ static int copy_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 void dbuf_copy(dbuf *inf, i64 input_offset, i64 input_len, dbuf *outf)
 {
 	u8 tmpbuf[256];
-
-	if(!inf->cache && inf->cache_policy==DE_CACHE_POLICY_ENABLED) {
-		populate_cache(inf);
-	}
 
 	// Fast paths, if the data to copy is all in memory
 
@@ -1689,6 +1681,10 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 		populate_cache_from_pipe(f);
 	}
 
+	if(!f->cache && f->cache_policy==DE_CACHE_POLICY_ENABLED) {
+		populate_cache(f);
+	}
+
 	return f;
 }
 
@@ -2149,10 +2145,6 @@ int dbuf_buffered_read(dbuf *f, i64 pos1, i64 len,
 
 	brctx.c = f->c;
 	brctx.userdata = userdata;
-
-	if(!f->cache && f->cache_policy==DE_CACHE_POLICY_ENABLED) {
-		populate_cache(f);
-	}
 
 	// Use an optimized routine if all the data we need to read is already in memory.
 
