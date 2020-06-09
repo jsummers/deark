@@ -177,9 +177,8 @@ struct dbuf_struct {
 #define DE_CACHE_POLICY_NONE    0
 #define DE_CACHE_POLICY_ENABLED 1
 	int cache_policy;
-	i64 cache_start_pos;
 	i64 cache_bytes_used;
-	u8 *cache;
+	u8 *cache; // first 'cache_bytes_used' bytes of the file
 
 	// cache2 is a simple 1-byte cache, mainly to speed up de_convert_row_bilevel().
 	i64 cache2_start_pos;

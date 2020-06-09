@@ -32,7 +32,6 @@ static void populate_cache(dbuf *f)
 	f->cache = de_malloc(f->c, DE_CACHE_SIZE);
 	de_fseek(f->fp, 0, SEEK_SET);
 	bytes_read = fread(f->cache, 1, (size_t)bytes_to_read, f->fp);
-	f->cache_start_pos = 0;
 	f->cache_bytes_used = bytes_read;
 	f->file_pos_known = 0;
 }
@@ -125,10 +124,10 @@ void dbuf_read(dbuf *f, u8 *buf, i64 pos, i64 len)
 
 	// If the data we need is all cached, get it from cache.
 	if(f->cache &&
-		pos >= f->cache_start_pos &&
-		pos + bytes_to_read <= f->cache_start_pos + f->cache_bytes_used)
+		pos >= 0 &&
+		pos + bytes_to_read <= f->cache_bytes_used)
 	{
-		de_memcpy(buf, &f->cache[pos - f->cache_start_pos], (size_t)bytes_to_read);
+		de_memcpy(buf, &f->cache[pos], (size_t)bytes_to_read);
 		bytes_read = bytes_to_read;
 		goto done_read;
 	}
@@ -966,11 +965,11 @@ int dbuf_memcmp(dbuf *f, i64 pos, const void *s, size_t n)
 	u8 buf1[128];
 
 	if(f->cache &&
-		pos >= f->cache_start_pos &&
-		pos + (i64)n <= f->cache_start_pos + f->cache_bytes_used)
+		pos >= 0 &&
+		pos + (i64)n <= f->cache_bytes_used)
 	{
 		// Fastest path: Compare directly to cache.
-		return de_memcmp(s, &f->cache[pos - f->cache_start_pos], n);
+		return de_memcmp(s, &f->cache[pos], n);
 	}
 
 	if(n<=sizeof(buf1)) {
