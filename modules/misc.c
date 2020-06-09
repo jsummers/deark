@@ -1024,7 +1024,8 @@ static void de_run_lss16(deark *c, de_module_params *mparams)
 			// A run of pixels
 			run_len = (i64)lss16_get_nibble(c, d);
 			if(run_len==0) {
-				run_len = lss16_get_nibble(c, d) | (lss16_get_nibble(c, d)<<4);
+				run_len = lss16_get_nibble(c, d);
+				run_len |= (lss16_get_nibble(c, d)<<4);
 				run_len += 16;
 			}
 			for(i=0; i<run_len; i++) {
