@@ -707,10 +707,22 @@ void dbuf_copy(dbuf *inf, i64 input_offset, i64 input_len, dbuf *outf)
 {
 	u8 tmpbuf[256];
 
+	if(!inf->cache && inf->cache_policy==DE_CACHE_POLICY_ENABLED) {
+		populate_cache(inf);
+	}
+
+	// Fast paths, if the data to copy is all in memory
+
+	if(inf->cache &&
+		(input_offset>=0) && (input_offset+input_len<=inf->cache_bytes_used))
+	{
+		dbuf_write(outf, &inf->cache[input_offset], input_len);
+		return;
+	}
+
 	if(inf->btype==DBUF_TYPE_MEMBUF &&
 		(input_offset>=0) && (input_offset+input_len<=inf->len))
 	{
-		// Fast path if the data to copy is all in memory
 		dbuf_write(outf, &inf->membuf_buf[input_offset], input_len);
 		return;
 	}
@@ -1352,6 +1364,7 @@ static void membuf_append(dbuf *f, const u8 *m, i64 mlen)
 
 void dbuf_write(dbuf *f, const u8 *m, i64 len)
 {
+	if(len<=0) return;
 	if(f->len + len > f->max_len_hard) {
 		do_on_dbuf_size_exceeded(f);
 	}
@@ -2099,9 +2112,9 @@ done:
 	return retval;
 }
 
-// Optimized version, just for type membuf
-static int buffered_read_for_membuf(struct de_bufferedreadctx *brctx,
-	dbuf *f, i64 pos1, i64 len, de_buffered_read_cbfn cbfn)
+// Optimized version, for type membuf, etc.
+static int buffered_read_from_mem(struct de_bufferedreadctx *brctx,
+	dbuf *f, const u8 *mem, i64 pos1, i64 len, de_buffered_read_cbfn cbfn)
 {
 	int retval = 0;
 	i64 total_nbytes_consumed = 0;
@@ -2116,7 +2129,7 @@ static int buffered_read_for_membuf(struct de_bufferedreadctx *brctx,
 		brctx->offset = total_nbytes_consumed;
 		brctx->eof_flag = 1;
 
-		ret = cbfn(brctx, &f->membuf_buf[pos1+total_nbytes_consumed],
+		ret = cbfn(brctx, &mem[pos1+total_nbytes_consumed],
 			nbytes_to_send);
 		if(!ret) goto done;
 		if(brctx->bytes_consumed<1 || brctx->bytes_consumed>nbytes_to_send) {
@@ -2137,11 +2150,20 @@ int dbuf_buffered_read(dbuf *f, i64 pos1, i64 len,
 	brctx.c = f->c;
 	brctx.userdata = userdata;
 
-	if(f->btype==DBUF_TYPE_MEMBUF && (pos1>=0) && (pos1+len<=f->len)) {
-		// Use an optimized routine if all the data we need to read is already
-		// in memory.
-		return buffered_read_for_membuf(&brctx, f, pos1, len, cbfn);
+	if(!f->cache && f->cache_policy==DE_CACHE_POLICY_ENABLED) {
+		populate_cache(f);
 	}
+
+	// Use an optimized routine if all the data we need to read is already in memory.
+
+	if(f->cache && (pos1>=0) && (pos1+len<=f->cache_bytes_used)) {
+		return buffered_read_from_mem(&brctx, f, f->cache, pos1, len, cbfn);
+	}
+
+	if(f->btype==DBUF_TYPE_MEMBUF && (pos1>=0) && (pos1+len<=f->len)) {
+		return buffered_read_from_mem(&brctx, f, f->membuf_buf, pos1, len, cbfn);
+	}
+
 	return buffered_read_internal(&brctx, f, pos1, len, cbfn);
 }
 
