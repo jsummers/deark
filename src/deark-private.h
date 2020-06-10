@@ -15,6 +15,8 @@
 
 #define DE_MAX_SANE_OBJECT_SIZE 100000000
 
+typedef i32 de_rune; // A Unicode codepoint
+
 enum de_encoding_enum {
 	DE_ENCODING_UNKNOWN = 0,
 	DE_ENCODING_ASCII,
@@ -104,7 +106,7 @@ struct de_encconv_state {
 
 struct de_ucstring_struct {
 	deark *c;
-	i32 *str;
+	de_rune *str;
 	i64 len; // len and alloc are measured in characters, not bytes
 	i64 alloc;
 	char *tmp_string;
@@ -907,11 +909,11 @@ u32 de_rgb565_to_888(u32 x);
 u32 de_bgr555_to_888(u32 x);
 u32 de_rgb555_to_888(u32 x);
 
-i32 de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee);
-void de_uchar_to_utf8(i32 u1, u8 *utf8buf, i64 *p_utf8len);
-void dbuf_write_uchar_as_utf8(dbuf *outf, i32 u);
+de_rune de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee);
+void de_uchar_to_utf8(de_rune u1, u8 *utf8buf, i64 *p_utf8len);
+void dbuf_write_uchar_as_utf8(dbuf *outf, de_rune u);
 int de_utf8_to_uchar(const u8 *utf8buf, i64 buflen,
-	i32 *p_uchar, i64 *p_utf8len);
+	de_rune *p_uchar, i64 *p_utf8len);
 int de_is_ascii(const u8 *buf, i64 buflen);
 
 #define DE_CONVFLAG_STOP_AT_NUL 0x1
@@ -947,7 +949,7 @@ void ucstring_truncate(de_ucstring *s, i64 newlen);
 void ucstring_truncate_at_NUL(de_ucstring *s);
 void ucstring_strip_trailing_NUL(de_ucstring *s);
 void ucstring_strip_trailing_spaces(de_ucstring *s);
-void ucstring_append_char(de_ucstring *s, i32 ch);
+void ucstring_append_char(de_ucstring *s, de_rune ch);
 void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2);
 void ucstring_vprintf(de_ucstring *s, de_ext_encoding ee, const char *fmt, va_list ap);
 void ucstring_printf(de_ucstring *s, de_ext_encoding ee, const char *fmt, ...)
@@ -964,7 +966,7 @@ void ucstring_append_bytes_ex(de_ucstring *s, const u8 *buf, i64 buflen,
 void ucstring_append_sz(de_ucstring *s, const char *sz, de_ext_encoding ee);
 
 void ucstring_write_as_utf8(deark *c, de_ucstring *s, dbuf *outf, int add_bom_if_needed);
-int de_is_printable_uchar(i32 ch);
+int de_is_printable_uchar(de_rune ch);
 i64 ucstring_count_utf8_bytes(de_ucstring *s);
 
 // Supported encodings are DE_ENCODING_UTF8, DE_ENCODING_ASCII, DE_ENCODING_LATIN1.
@@ -999,7 +1001,7 @@ int de_strarray_pop(struct de_strarray *sa);
 #define DE_MPFLAG_NOTRAILINGSLASH 0x1
 void de_strarray_make_path(struct de_strarray *sa, de_ucstring *path, unsigned int flags);
 
-void de_write_codepoint_to_html(deark *c, dbuf *f, i32 ch);
+void de_write_codepoint_to_html(deark *c, dbuf *f, de_rune ch);
 
 de_encoding de_encoding_name_to_code(const char *encname);
 de_encoding de_windows_codepage_to_encoding(deark *c, int wincodepage,
@@ -1041,7 +1043,7 @@ struct de_bitmap_font_char {
 
 	// If font->has_unicode_codepoints is set, then ->codepoint_unicode
 	// must be set to a Unicode codepoint, or to DE_INVALID_CODEPOINT.
-	i32 codepoint_unicode;
+	de_rune codepoint_unicode;
 
 	int width, height;
 	int v_offset; // Used if the glyphs do not all have the same height
@@ -1094,7 +1096,7 @@ int de_font_is_standard_vga_font(deark *c, u32 crc);
 // It should not contain pointers.
 struct de_char_cell {
 	i32 codepoint;
-	i32 codepoint_unicode;
+	de_rune codepoint_unicode;
 	// The color fields are interpreted as follows:
 	//  A color value <=0x0000000f is a palette index.
 	//  A color value >=0xff000000 is an RGB color, e.g. from DE_MAKE_RGB().

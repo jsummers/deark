@@ -287,7 +287,7 @@ static i32 de_ext_ascii_to_unicode(const u16 tbl[128], i32 a)
 	return n;
 }
 
-i32 de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee)
+de_rune de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee)
 {
 	if(a<0) return DE_CODEPOINT_INVALID;
 
@@ -340,7 +340,7 @@ i32 de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee)
 // Encode a Unicode char in UTF-8.
 // Caller supplies utf8buf[4].
 // Sets *p_utf8len to the number of bytes used (1-4).
-void de_uchar_to_utf8(i32 u1, u8 *utf8buf, i64 *p_utf8len)
+void de_uchar_to_utf8(de_rune u1, u8 *utf8buf, i64 *p_utf8len)
 {
 	u32 u = (u32)u1;
 
@@ -375,7 +375,7 @@ void de_uchar_to_utf8(i32 u1, u8 *utf8buf, i64 *p_utf8len)
 }
 
 // Write a unicode code point to a file, encoded as UTF-8.
-void dbuf_write_uchar_as_utf8(dbuf *outf, i32 u)
+void dbuf_write_uchar_as_utf8(dbuf *outf, de_rune u)
 {
 	u8 utf8buf[4];
 	i64 utf8len;
@@ -392,7 +392,7 @@ void dbuf_write_uchar_as_utf8(dbuf *outf, i32 u)
 // TODO?: There is another UTF-8 decoder in ucstring_append_bytes_ex(). Maybe
 // should be consolidated in some way.
 int de_utf8_to_uchar(const u8 *utf8buf, i64 buflen,
-	i32 *p_uchar, i64 *p_utf8len)
+	de_rune *p_uchar, i64 *p_utf8len)
 {
 	i32 u0=0;
 	i32 u1=0;
@@ -1114,7 +1114,7 @@ void de_bytes_to_printable_sz(const u8 *s1, i64 s1_len,
 	s2[s2_pos] = '\0';
 }
 
-void de_write_codepoint_to_html(deark *c, dbuf *f, i32 ch)
+void de_write_codepoint_to_html(deark *c, dbuf *f, de_rune ch)
 {
 	int e; // How to encode this codepoint
 

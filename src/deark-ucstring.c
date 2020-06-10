@@ -132,7 +132,7 @@ int ucstring_isnonempty(const de_ucstring *s)
 	return (s && (s->len > 0));
 }
 
-void ucstring_append_char(de_ucstring *s, i32 ch)
+void ucstring_append_char(de_ucstring *s, de_rune ch)
 {
 	i64 new_len;
 	i64 new_alloc;
@@ -527,7 +527,7 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len,
 // and noncharacters.
 // It would be good to also ban incorrectly-used "combining" and other context-
 // sensitive characters, but that's too difficult.
-int de_is_printable_uchar(i32 ch)
+int de_is_printable_uchar(de_rune ch)
 {
 	struct pr_range { i32 n1, n2; };
 	static const struct pr_range ranges[] = {
