@@ -169,30 +169,34 @@ static void handle_invalid_bytes(de_ucstring *s, const u8 *buf, UI buflen)
 	}
 }
 
-// This function does no error checking
-static i32 decode_utf8_sequence(const u8 *b, UI seqlen)
+// This function does not validate the "control" bits of the UTF-8 sequence.
+// Out-of-range codepoints are return as U+FFFD.
+static de_rune decode_utf8_sequence(const u8 *b, UI seqlen)
 {
-	u32 ch;
+	UI ch;
 
 	if(seqlen==2) { // 2-byte
 		ch = b[0] & 0x1f;
 		ch = (ch<<6) | (b[1] & 0x3f);
+		if(ch<0x80) ch = 0xfffd;
 	}
 	else if(seqlen==3) { // 3-byte
 		ch = b[0] & 0x0f;
 		ch = (ch<<6) | (b[1] & 0x3f);
 		ch = (ch<<6) | (b[2] & 0x3f);
+		if(ch<0x800) ch = 0xfffd;
 	}
 	else if(seqlen==4) {
 		ch = b[0] & 0x07;
 		ch = (ch<<6) | (b[1] & 0x3f);
 		ch = (ch<<6) | (b[2] & 0x3f);
 		ch = (ch<<6) | (b[3] & 0x3f);
+		if(ch<0x10000 || ch>0x10ffff) ch = 0xfffd;
 	}
 	else {
-		ch = b[0];
+		ch = b[0] & 0x7f;
 	}
-	return (i32)ch;
+	return (de_rune)ch;
 }
 
 #define UTF8_NBYTES_EXPECTED (es->buf[7])
