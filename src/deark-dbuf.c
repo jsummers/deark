@@ -192,26 +192,26 @@ i64 dbuf_standard_read(dbuf *f, u8 *buf, i64 n, i64 *fpos)
 
 u8 dbuf_getbyte(dbuf *f, i64 pos)
 {
-	switch(f->btype) {
-	case DBUF_TYPE_MEMBUF:
-		// Optimization for memory buffers -
-		// and it is necessary to handle read+write dbuf types specially,
-		// so that the 1-byte "cache2" feature isn't used.
-		if(pos>=0 && pos<f->len) {
-			return f->membuf_buf[pos];
-		}
-		break;
-	default:
-		if(f->cache2_bytes_used>0 && pos==f->cache2_start_pos) {
-			return f->cache2[0];
-		}
+	if(pos<0 || pos>=f->len) return 0x00;
 
-		dbuf_read(f, &f->cache2[0], pos, 1);
-		f->cache2_bytes_used = 1;
-		f->cache2_start_pos = pos;
-		return f->cache2[0];
+	if(pos<f->cache_bytes_used) {
+		return f->cache[pos];
 	}
-	return 0x00;
+	if(f->btype==DBUF_TYPE_MEMBUF) {
+		// Note that it is necessary to handle read+write dbuf types specially,
+		// so that the "cache2" feature isn't used.
+		return f->membuf_buf[pos];
+	}
+
+	// TODO: I don't like that cache2 exists, but without it some large images
+	// are decoded too slowly (especially on Windows), and I haven't figured out
+	// a solution I like better.
+	if(pos==f->cache2_pos) {
+		return f->cache2;
+	}
+	f->cache2_pos = pos;
+	dbuf_read(f, &f->cache2, pos, 1);
+	return f->cache2;
 }
 
 i64 de_geti8_direct(const u8 *m)
@@ -1013,6 +1013,16 @@ static void finfo_shallow_copy(deark *c, de_finfo *src, de_finfo *dst)
 	dst->hotspot_y = src->hotspot_y;
 }
 
+static dbuf *create_dbuf_lowlevel(deark *c)
+{
+	dbuf *f;
+
+	f = de_malloc(c, sizeof(dbuf));
+	f->c = c;
+	f->cache2_pos = -1; // Any offset outside the bounds of the file will do.
+	return f;
+}
+
 // Create or open a file for writing, that is *not* one of the usual
 // "output.000.ext" files we extract from the input file.
 //
@@ -1025,8 +1035,7 @@ dbuf *dbuf_create_unmanaged_file(deark *c, const char *fname, int overwrite_mode
 	dbuf *f;
 	char msgbuf[200];
 
-	f = de_malloc(c, sizeof(dbuf));
-	f->c = c;
+	f = create_dbuf_lowlevel(c);
 	f->is_managed = 0;
 	f->name = de_strdup(c, fname);
 
@@ -1048,8 +1057,7 @@ dbuf *dbuf_create_unmanaged_file_stdout(deark *c, const char *name)
 {
 	dbuf *f;
 
-	f = de_malloc(c, sizeof(dbuf));
-	f->c = c;
+	f = create_dbuf_lowlevel(c);
 	f->is_managed = 0;
 	f->name = de_strdup(c, name);
 	f->btype = DBUF_TYPE_STDOUT;
@@ -1106,8 +1114,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 		de_dbg(c, "[internal warning: Incorrect use of create_output_file]");
 	}
 
-	f = de_malloc(c, sizeof(dbuf));
-	f->c = c;
+	f = create_dbuf_lowlevel(c);
 	f->max_len_hard = c->max_output_file_size;
 	f->is_managed = 1;
 
@@ -1304,8 +1311,8 @@ static void do_on_dbuf_size_exceeded(dbuf *f)
 dbuf *dbuf_create_membuf(deark *c, i64 initialsize, unsigned int flags)
 {
 	dbuf *f;
-	f = de_malloc(c, sizeof(dbuf));
-	f->c = c;
+
+	f = create_dbuf_lowlevel(c);
 	f->btype = DBUF_TYPE_MEMBUF;
 	f->max_len_hard = DE_MAX_MEMBUF_SIZE;
 
@@ -1660,9 +1667,8 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 		c->serious_error_flag = 1;
 		return NULL;
 	}
-	f = de_malloc(c, sizeof(dbuf));
+	f = create_dbuf_lowlevel(c);
 	f->btype = DBUF_TYPE_IFILE;
-	f->c = c;
 	f->cache_policy = DE_CACHE_POLICY_ENABLED;
 
 	f->fp = de_fopen_for_read(c, fn, &f->len, msgbuf, sizeof(msgbuf), &returned_flags);
@@ -1692,9 +1698,8 @@ dbuf *dbuf_open_input_stdin(deark *c)
 {
 	dbuf *f;
 
-	f = de_malloc(c, sizeof(dbuf));
+	f = create_dbuf_lowlevel(c);
 	f->btype = DBUF_TYPE_STDIN;
-	f->c = c;
 
 	// Set to NONE, to make sure we don't try to auto-populate the cache later.
 	f->cache_policy = DE_CACHE_POLICY_NONE;
@@ -1710,9 +1715,8 @@ dbuf *dbuf_open_input_subfile(dbuf *parent, i64 offset, i64 size)
 	deark *c;
 
 	c = parent->c;
-	f = de_malloc(c, sizeof(dbuf));
+	f = create_dbuf_lowlevel(c);
 	f->btype = DBUF_TYPE_IDBUF;
-	f->c = c;
 	f->parent_dbuf = parent;
 	f->offset_into_parent_dbuf = offset;
 	f->len = size;
@@ -1723,9 +1727,8 @@ dbuf *dbuf_create_custom_dbuf(deark *c, i64 apparent_size, unsigned int flags)
 {
 	dbuf *f;
 
-	f = de_malloc(c, sizeof(dbuf));
+	f = create_dbuf_lowlevel(c);
 	f->btype = DBUF_TYPE_CUSTOM;
-	f->c = c;
 	f->len = apparent_size;
 	f->max_len_hard = DE_DUMMY_MAX_FILE_SIZE;
 	return f;

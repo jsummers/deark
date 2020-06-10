@@ -180,10 +180,9 @@ struct dbuf_struct {
 	i64 cache_bytes_used;
 	u8 *cache; // first 'cache_bytes_used' bytes of the file
 
-	// cache2 is a simple 1-byte cache, mainly to speed up de_convert_row_bilevel().
-	i64 cache2_start_pos;
-	i64 cache2_bytes_used;
-	u8 cache2[1];
+	// cache2 is a simple 1-byte cache, mainly to speed up de_get_bits_symbol().
+	i64 cache2_pos;
+	u8 cache2;
 
 	// Things copied from the de_finfo object at file creation
 	de_finfo *fi_copy;
