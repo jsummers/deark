@@ -33,7 +33,7 @@ might appear alongside it.
 This software is dual-licensed. Choose the license you prefer:
 ------------------------------------------------------------------------------
 Licence option #1: MIT
-Copyright (C) 2019 Jason Summers
+Copyright (C) 2019-2020 Jason Summers
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -146,7 +146,7 @@ For more information, please refer to <http://unlicense.org/>
 /* inflate.c -- put in the public domain by Mark Adler
    version c16b, 29 March 1998 */
 
-#define UI6A_VERSION 20200507
+#define UI6A_VERSION 20200605
 
 #ifndef UI6A_UINT8
 #define UI6A_UINT8   unsigned char
@@ -165,9 +165,6 @@ For more information, please refer to <http://unlicense.org/>
 #endif
 #ifndef UI6A_FREE
 #define UI6A_FREE(u, ptr) free(ptr)
-#endif
-#ifndef UI6A_MEMCPY
-#define UI6A_MEMCPY memcpy
 #endif
 #ifndef UI6A_ZEROMEM
 #define UI6A_ZEROMEM(ptr, size) memset((ptr), 0, (size))
@@ -784,12 +781,10 @@ static void ui6a_unimplode_internal(ui6a_ctx *ui6a, unsigned window_k,
 	unsigned mb, ml, md;  /* masks for bb, bl, and bd bits */
 	UI6A_UINT32 b;        /* bit buffer */
 	unsigned k;           /* number of bits in bit buffer */
-	unsigned u;           /* true if unflushed */
 	int ok = 0;
 
 	/* explode the coded data */
 	b = k = w = 0; /* initialize bit buffer, window */
-	u = 1; /* buffer unflushed */
 	mb = ui6a_get_mask_bits(tbls->b.b); /* precompute masks */
 	ml = ui6a_get_mask_bits(tbls->l.b);
 	md = ui6a_get_mask_bits(tbls->d.b);
@@ -828,7 +823,7 @@ static void ui6a_unimplode_internal(ui6a_ctx *ui6a, unsigned window_k,
 			}
 			if (w == UI6A_WSIZE) {
 				ui6a_flush(ui6a, ui6a->Slide, (size_t)w);
-				w = u = 0;
+				w = 0;
 			}
 			if(!tbls->b.first_array) {
 				UI6A_DUMPBITS(8);
@@ -892,37 +887,18 @@ static void ui6a_unimplode_internal(ui6a_ctx *ui6a, unsigned window_k,
 
 			/* do the copy */
 			s -= (UI6A_OFF_T)n;
+
 			do {
 				d &= (UI6A_WSIZE-1);
-				e = UI6A_WSIZE - (d > w ? d : w);
-				if(e>n) { e = n; }
-				n -= e;
-				if (u && w <= d) {
-					if(w+e > UI6A_WSIZE) goto done;
-					UI6A_ZEROMEM(&ui6a->Slide[w], e);
-					w += e;
-					d += e;
-				}
-				else {
-					if (d + e <= w) {
-						if(w+e > UI6A_WSIZE) goto done;
-						if(d+e > UI6A_WSIZE) goto done;
-						UI6A_MEMCPY(&ui6a->Slide[w], &ui6a->Slide[d], e);
-						w += e;
-						d += e;
-					}
-					else { /* do it slow to avoid memcpy() overlap */
-						do {
-							if(w >= UI6A_WSIZE) goto done;
-							if(d >= UI6A_WSIZE) goto done;
-							ui6a->Slide[w++] = ui6a->Slide[d++];
-						} while (--e);
-					}
-				}
+				w &= (UI6A_WSIZE-1);
+				ui6a->Slide[w++] = ui6a->Slide[d++];
+
 				if (w == UI6A_WSIZE) {
 					ui6a_flush(ui6a, ui6a->Slide, (UI6A_UINT32)w);
-					w = u = 0;
+					w = 0;
 				}
+
+				n--;
 			} while (n);
 		}
 	}

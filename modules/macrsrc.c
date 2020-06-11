@@ -693,8 +693,8 @@ static void do_map(deark *c, lctx *d, i64 map_offs, i64 map_size)
 
 	n = de_getu32be(map_offs+4);
 	if(n!=map_offs) {
-		de_err(c, "%sResource map section not found, expected to be at %d",
-			d->errmsgprefix, (int)map_offs);
+		de_err(c, "%sResource map section not found, expected to be at %"I64_FMT,
+			d->errmsgprefix, map_offs);
 		return;
 	}
 

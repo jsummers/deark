@@ -97,6 +97,11 @@ struct deark_module_info {
 };
 typedef void (*de_module_getinfo_fn)(deark *c, struct deark_module_info *mi);
 
+struct de_encconv_state {
+	de_ext_encoding ee;
+	u8 buf[8];
+};
+
 struct de_ucstring_struct {
 	deark *c;
 	i32 *str;
@@ -172,14 +177,12 @@ struct dbuf_struct {
 #define DE_CACHE_POLICY_NONE    0
 #define DE_CACHE_POLICY_ENABLED 1
 	int cache_policy;
-	i64 cache_start_pos;
 	i64 cache_bytes_used;
-	u8 *cache;
+	u8 *cache; // first 'cache_bytes_used' bytes of the file
 
-	// cache2 is a simple 1-byte cache, mainly to speed up de_convert_row_bilevel().
-	i64 cache2_start_pos;
-	i64 cache2_bytes_used;
-	u8 cache2[1];
+	// cache2 is a simple 1-byte cache, mainly to speed up de_get_bits_symbol().
+	i64 cache2_pos;
+	u8 cache2;
 
 	// Things copied from the de_finfo object at file creation
 	de_finfo *fi_copy;
@@ -283,6 +286,7 @@ struct de_module_out_params {
 	u32 uint1;
 	u32 uint2;
 	u32 uint3;
+	u32 uint4;
 	i64 int64_1;
 	// The caller is responsible for freeing pointer fields.
 	// The callee should not use these fields unless requested.
@@ -629,6 +633,8 @@ u32 dbuf_getRGB(dbuf *f, i64 pos, unsigned int flags);
 
 // Convert and append encoded bytes from a dbuf to a ucstring.
 // (see also ucstring_append_*)
+void dbuf_read_to_ucstring_ex(dbuf *f, i64 pos, i64 len,
+	de_ucstring *s, unsigned int conv_flags, struct de_encconv_state *es);
 void dbuf_read_to_ucstring(dbuf *f, i64 pos, i64 len,
 	de_ucstring *s, unsigned int conv_flags, de_ext_encoding encoding);
 // The _n version has an extra max_len field, for convenience.
@@ -906,15 +912,13 @@ void de_uchar_to_utf8(i32 u1, u8 *utf8buf, i64 *p_utf8len);
 void dbuf_write_uchar_as_utf8(dbuf *outf, i32 u);
 int de_utf8_to_uchar(const u8 *utf8buf, i64 buflen,
 	i32 *p_uchar, i64 *p_utf8len);
-int de_utf16x_to_uchar(const u8 *utf16buf, i64 buflen,
-	i32 *p_uchar, i64 *p_utf16len, int is_le);
-
 int de_is_ascii(const u8 *buf, i64 buflen);
 
 #define DE_CONVFLAG_STOP_AT_NUL 0x1
 #define DE_CONVFLAG_MAKE_PRINTABLE 0x2
 #define DE_CONVFLAG_WANT_UTF8 0x10
 #define DE_CONVFLAG_ALLOW_HL  0x20
+#define DE_CONVFLAG_PARTIAL_DATA 0x40
 
 char de_byte_to_printable_char(u8 b);
 
@@ -954,6 +958,8 @@ int ucstring_isnonempty(const de_ucstring *s);
 // Convert and append an encoded array of bytes to the string.
 void ucstring_append_bytes(de_ucstring *s, const u8 *buf, i64 buflen,
 	unsigned int conv_flags, de_ext_encoding ee);
+void ucstring_append_bytes_ex(de_ucstring *s, const u8 *buf, i64 buflen,
+	unsigned int conv_flags, struct de_encconv_state *es);
 
 void ucstring_append_sz(de_ucstring *s, const char *sz, de_ext_encoding ee);
 
@@ -977,6 +983,8 @@ const char *ucstring_getpsz_n(de_ucstring *s, i64 max_bytes);
 #define DE_DBG_MAX_STRLEN 500
 // Same as ..._n, with max_bytes=DE_DBG_MAX_STRLEN
 const char *ucstring_getpsz_d(de_ucstring *s);
+
+void de_encconv_init(struct de_encconv_state *es, de_ext_encoding ee);
 
 // Helper functions for printing the contents of bit-flags fields
 void ucstring_append_flags_item(de_ucstring *s, const char *str);

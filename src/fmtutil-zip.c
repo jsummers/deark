@@ -21,7 +21,6 @@ static void ozXX_free(void *userdata, void *ptr);
 #define UI6A_UINT32    u32
 #define UI6A_OFF_T     i64
 #define UI6A_ZEROMEM   de_zeromem
-#define UI6A_MEMCPY    de_memcpy
 #define UI6A_CALLOC(u, nmemb, size, ty) ozXX_calloc((u), (nmemb), (size))
 #define UI6A_FREE      ozXX_free
 #include "../foreign/unimplode6a.h"

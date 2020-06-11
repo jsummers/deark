@@ -32,7 +32,6 @@ static void populate_cache(dbuf *f)
 	f->cache = de_malloc(f->c, DE_CACHE_SIZE);
 	de_fseek(f->fp, 0, SEEK_SET);
 	bytes_read = fread(f->cache, 1, (size_t)bytes_to_read, f->fp);
-	f->cache_start_pos = 0;
 	f->cache_bytes_used = bytes_read;
 	f->file_pos_known = 0;
 }
@@ -119,16 +118,12 @@ void dbuf_read(dbuf *f, u8 *buf, i64 pos, i64 len)
 		goto done_read;
 	}
 
-	if(!f->cache && f->cache_policy==DE_CACHE_POLICY_ENABLED) {
-		populate_cache(f);
-	}
-
 	// If the data we need is all cached, get it from cache.
 	if(f->cache &&
-		pos >= f->cache_start_pos &&
-		pos + bytes_to_read <= f->cache_start_pos + f->cache_bytes_used)
+		pos >= 0 &&
+		pos + bytes_to_read <= f->cache_bytes_used)
 	{
-		de_memcpy(buf, &f->cache[pos - f->cache_start_pos], (size_t)bytes_to_read);
+		de_memcpy(buf, &f->cache[pos], (size_t)bytes_to_read);
 		bytes_read = bytes_to_read;
 		goto done_read;
 	}
@@ -197,26 +192,26 @@ i64 dbuf_standard_read(dbuf *f, u8 *buf, i64 n, i64 *fpos)
 
 u8 dbuf_getbyte(dbuf *f, i64 pos)
 {
-	switch(f->btype) {
-	case DBUF_TYPE_MEMBUF:
-		// Optimization for memory buffers -
-		// and it is necessary to handle read+write dbuf types specially,
-		// so that the 1-byte "cache2" feature isn't used.
-		if(pos>=0 && pos<f->len) {
-			return f->membuf_buf[pos];
-		}
-		break;
-	default:
-		if(f->cache2_bytes_used>0 && pos==f->cache2_start_pos) {
-			return f->cache2[0];
-		}
+	if(pos<0 || pos>=f->len) return 0x00;
 
-		dbuf_read(f, &f->cache2[0], pos, 1);
-		f->cache2_bytes_used = 1;
-		f->cache2_start_pos = pos;
-		return f->cache2[0];
+	if(pos<f->cache_bytes_used) {
+		return f->cache[pos];
 	}
-	return 0x00;
+	if(f->btype==DBUF_TYPE_MEMBUF) {
+		// Note that it is necessary to handle read+write dbuf types specially,
+		// so that the "cache2" feature isn't used.
+		return f->membuf_buf[pos];
+	}
+
+	// TODO: I don't like that cache2 exists, but without it some large images
+	// are decoded too slowly (especially on Windows), and I haven't figured out
+	// a solution I like better.
+	if(pos==f->cache2_pos) {
+		return f->cache2;
+	}
+	f->cache2_pos = pos;
+	dbuf_read(f, &f->cache2, pos, 1);
+	return f->cache2;
 }
 
 i64 de_geti8_direct(const u8 *m)
@@ -708,10 +703,18 @@ void dbuf_copy(dbuf *inf, i64 input_offset, i64 input_len, dbuf *outf)
 {
 	u8 tmpbuf[256];
 
+	// Fast paths, if the data to copy is all in memory
+
+	if(inf->cache &&
+		(input_offset>=0) && (input_offset+input_len<=inf->cache_bytes_used))
+	{
+		dbuf_write(outf, &inf->cache[input_offset], input_len);
+		return;
+	}
+
 	if(inf->btype==DBUF_TYPE_MEMBUF &&
 		(input_offset>=0) && (input_offset+input_len<=inf->len))
 	{
-		// Fast path if the data to copy is all in memory
 		dbuf_write(outf, &inf->membuf_buf[input_offset], input_len);
 		return;
 	}
@@ -875,32 +878,81 @@ void de_destroy_stringreaderdata(deark *c, struct de_stringreaderdata *srd)
 	de_free(c, srd);
 }
 
+void dbuf_read_to_ucstring_ex(dbuf *f, i64 pos1, i64 len,
+	de_ucstring *s, unsigned int conv_flags, struct de_encconv_state *es)
+{
+	i64 nbytes_remaining;
+	i64 pos = pos1;
+	int stop_at_nul = 0;
+#define READTOUCSTRING_BUFLEN 256
+	u8 buf[READTOUCSTRING_BUFLEN];
+
+	if(conv_flags & DE_CONVFLAG_STOP_AT_NUL) {
+		stop_at_nul = 1;
+		// We handle STOP_AT_NUL ourselves, so don't pass it on.
+		conv_flags -= DE_CONVFLAG_STOP_AT_NUL;
+	}
+
+	// Note: It might be sensible to use dbuf_buffered_read() here, but I've
+	// decided against it for now.
+	nbytes_remaining = len;
+	do {
+		i64 nbytes_to_read;
+		i64 nbytes_in_buf;
+		unsigned int conv_flags_to_use_this_time;
+
+		// Lack of DE_CONVFLAG_PARTIAL_DATA flag signals end of data, which
+		// isn't necessarily a no-op even with len=0.
+		// That's why we always do this loop at least once.
+
+		nbytes_to_read = de_min_int(nbytes_remaining, READTOUCSTRING_BUFLEN);
+		dbuf_read(f, buf, pos, nbytes_to_read);
+		pos += nbytes_to_read;
+		nbytes_in_buf = nbytes_to_read;
+		nbytes_remaining -= nbytes_to_read;
+
+		if(stop_at_nul) {
+			char *tmpp;
+
+			tmpp = de_memchr(buf, 0x00, (size_t)nbytes_in_buf);
+			if(tmpp) {
+				nbytes_in_buf = (const u8*)tmpp - buf;
+				nbytes_remaining = 0;
+			}
+		}
+
+		conv_flags_to_use_this_time = conv_flags;
+		if(nbytes_remaining>0) {
+			// The caller may have aleady set this flag, in which case we will use
+			// it every time.
+			// If not, we still use it for all but the final call to ucstring_append_bytes_ex().
+			conv_flags_to_use_this_time |= DE_CONVFLAG_PARTIAL_DATA;
+		}
+
+		ucstring_append_bytes_ex(s, buf, nbytes_in_buf, conv_flags_to_use_this_time, es);
+	} while(nbytes_remaining>0);
+
+}
+
 // Read (up to) len bytes from f, translate them to characters, and append
 // them to s.
 void dbuf_read_to_ucstring(dbuf *f, i64 pos, i64 len,
 	de_ucstring *s, unsigned int conv_flags, de_ext_encoding ee)
 {
-	u8 *buf = NULL;
-	deark *c = f->c;
+	struct de_encconv_state es;
 
-	if(conv_flags & DE_CONVFLAG_STOP_AT_NUL) {
-		i64 foundpos = 0;
-		if(dbuf_search_byte(f, 0x00, pos, len, &foundpos)) {
-			len = foundpos - pos;
-		}
-	}
-
-	buf = de_malloc(c, len);
-	dbuf_read(f, buf, pos, len);
-	ucstring_append_bytes(s, buf, len, 0, ee);
-	de_free(c, buf);
+	de_encconv_init(&es, ee);
+	dbuf_read_to_ucstring_ex(f, pos, len, s, conv_flags, &es);
 }
 
 void dbuf_read_to_ucstring_n(dbuf *f, i64 pos, i64 len, i64 max_len,
 	de_ucstring *s, unsigned int conv_flags, de_ext_encoding ee)
 {
-	if(len>max_len) len=max_len;
-	dbuf_read_to_ucstring(f, pos, len, s, conv_flags, ee);
+	struct de_encconv_state es;
+
+	if(len>max_len) len = max_len;
+	de_encconv_init(&es, ee);
+	dbuf_read_to_ucstring_ex(f, pos, len, s, conv_flags, &es);
 }
 
 static int dbufmemcmp_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
@@ -917,11 +969,11 @@ int dbuf_memcmp(dbuf *f, i64 pos, const void *s, size_t n)
 	u8 buf1[128];
 
 	if(f->cache &&
-		pos >= f->cache_start_pos &&
-		pos + (i64)n <= f->cache_start_pos + f->cache_bytes_used)
+		pos >= 0 &&
+		pos + (i64)n <= f->cache_bytes_used)
 	{
 		// Fastest path: Compare directly to cache.
-		return de_memcmp(s, &f->cache[pos - f->cache_start_pos], n);
+		return de_memcmp(s, &f->cache[pos], n);
 	}
 
 	if(n<=sizeof(buf1)) {
@@ -961,6 +1013,16 @@ static void finfo_shallow_copy(deark *c, de_finfo *src, de_finfo *dst)
 	dst->hotspot_y = src->hotspot_y;
 }
 
+static dbuf *create_dbuf_lowlevel(deark *c)
+{
+	dbuf *f;
+
+	f = de_malloc(c, sizeof(dbuf));
+	f->c = c;
+	f->cache2_pos = -1; // Any offset outside the bounds of the file will do.
+	return f;
+}
+
 // Create or open a file for writing, that is *not* one of the usual
 // "output.000.ext" files we extract from the input file.
 //
@@ -973,8 +1035,7 @@ dbuf *dbuf_create_unmanaged_file(deark *c, const char *fname, int overwrite_mode
 	dbuf *f;
 	char msgbuf[200];
 
-	f = de_malloc(c, sizeof(dbuf));
-	f->c = c;
+	f = create_dbuf_lowlevel(c);
 	f->is_managed = 0;
 	f->name = de_strdup(c, fname);
 
@@ -996,8 +1057,7 @@ dbuf *dbuf_create_unmanaged_file_stdout(deark *c, const char *name)
 {
 	dbuf *f;
 
-	f = de_malloc(c, sizeof(dbuf));
-	f->c = c;
+	f = create_dbuf_lowlevel(c);
 	f->is_managed = 0;
 	f->name = de_strdup(c, name);
 	f->btype = DBUF_TYPE_STDOUT;
@@ -1054,8 +1114,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 		de_dbg(c, "[internal warning: Incorrect use of create_output_file]");
 	}
 
-	f = de_malloc(c, sizeof(dbuf));
-	f->c = c;
+	f = create_dbuf_lowlevel(c);
 	f->max_len_hard = c->max_output_file_size;
 	f->is_managed = 1;
 
@@ -1252,8 +1311,8 @@ static void do_on_dbuf_size_exceeded(dbuf *f)
 dbuf *dbuf_create_membuf(deark *c, i64 initialsize, unsigned int flags)
 {
 	dbuf *f;
-	f = de_malloc(c, sizeof(dbuf));
-	f->c = c;
+
+	f = create_dbuf_lowlevel(c);
 	f->btype = DBUF_TYPE_MEMBUF;
 	f->max_len_hard = DE_MAX_MEMBUF_SIZE;
 
@@ -1304,6 +1363,7 @@ static void membuf_append(dbuf *f, const u8 *m, i64 mlen)
 
 void dbuf_write(dbuf *f, const u8 *m, i64 len)
 {
+	if(len<=0) return;
 	if(f->len + len > f->max_len_hard) {
 		do_on_dbuf_size_exceeded(f);
 	}
@@ -1607,9 +1667,8 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 		c->serious_error_flag = 1;
 		return NULL;
 	}
-	f = de_malloc(c, sizeof(dbuf));
+	f = create_dbuf_lowlevel(c);
 	f->btype = DBUF_TYPE_IFILE;
-	f->c = c;
 	f->cache_policy = DE_CACHE_POLICY_ENABLED;
 
 	f->fp = de_fopen_for_read(c, fn, &f->len, msgbuf, sizeof(msgbuf), &returned_flags);
@@ -1628,6 +1687,10 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 		populate_cache_from_pipe(f);
 	}
 
+	if(!f->cache && f->cache_policy==DE_CACHE_POLICY_ENABLED) {
+		populate_cache(f);
+	}
+
 	return f;
 }
 
@@ -1635,9 +1698,8 @@ dbuf *dbuf_open_input_stdin(deark *c)
 {
 	dbuf *f;
 
-	f = de_malloc(c, sizeof(dbuf));
+	f = create_dbuf_lowlevel(c);
 	f->btype = DBUF_TYPE_STDIN;
-	f->c = c;
 
 	// Set to NONE, to make sure we don't try to auto-populate the cache later.
 	f->cache_policy = DE_CACHE_POLICY_NONE;
@@ -1653,9 +1715,8 @@ dbuf *dbuf_open_input_subfile(dbuf *parent, i64 offset, i64 size)
 	deark *c;
 
 	c = parent->c;
-	f = de_malloc(c, sizeof(dbuf));
+	f = create_dbuf_lowlevel(c);
 	f->btype = DBUF_TYPE_IDBUF;
-	f->c = c;
 	f->parent_dbuf = parent;
 	f->offset_into_parent_dbuf = offset;
 	f->len = size;
@@ -1666,9 +1727,8 @@ dbuf *dbuf_create_custom_dbuf(deark *c, i64 apparent_size, unsigned int flags)
 {
 	dbuf *f;
 
-	f = de_malloc(c, sizeof(dbuf));
+	f = create_dbuf_lowlevel(c);
 	f->btype = DBUF_TYPE_CUSTOM;
-	f->c = c;
 	f->len = apparent_size;
 	f->max_len_hard = DE_DUMMY_MAX_FILE_SIZE;
 	return f;
@@ -2051,9 +2111,9 @@ done:
 	return retval;
 }
 
-// Optimized version, just for type membuf
-static int buffered_read_for_membuf(struct de_bufferedreadctx *brctx,
-	dbuf *f, i64 pos1, i64 len, de_buffered_read_cbfn cbfn)
+// Optimized version, for type membuf, etc.
+static int buffered_read_from_mem(struct de_bufferedreadctx *brctx,
+	dbuf *f, const u8 *mem, i64 pos1, i64 len, de_buffered_read_cbfn cbfn)
 {
 	int retval = 0;
 	i64 total_nbytes_consumed = 0;
@@ -2068,7 +2128,7 @@ static int buffered_read_for_membuf(struct de_bufferedreadctx *brctx,
 		brctx->offset = total_nbytes_consumed;
 		brctx->eof_flag = 1;
 
-		ret = cbfn(brctx, &f->membuf_buf[pos1+total_nbytes_consumed],
+		ret = cbfn(brctx, &mem[pos1+total_nbytes_consumed],
 			nbytes_to_send);
 		if(!ret) goto done;
 		if(brctx->bytes_consumed<1 || brctx->bytes_consumed>nbytes_to_send) {
@@ -2089,11 +2149,16 @@ int dbuf_buffered_read(dbuf *f, i64 pos1, i64 len,
 	brctx.c = f->c;
 	brctx.userdata = userdata;
 
-	if(f->btype==DBUF_TYPE_MEMBUF && (pos1>=0) && (pos1+len<=f->len)) {
-		// Use an optimized routine if all the data we need to read is already
-		// in memory.
-		return buffered_read_for_membuf(&brctx, f, pos1, len, cbfn);
+	// Use an optimized routine if all the data we need to read is already in memory.
+
+	if(f->cache && (pos1>=0) && (pos1+len<=f->cache_bytes_used)) {
+		return buffered_read_from_mem(&brctx, f, f->cache, pos1, len, cbfn);
 	}
+
+	if(f->btype==DBUF_TYPE_MEMBUF && (pos1>=0) && (pos1+len<=f->len)) {
+		return buffered_read_from_mem(&brctx, f, f->membuf_buf, pos1, len, cbfn);
+	}
+
 	return buffered_read_internal(&brctx, f, pos1, len, cbfn);
 }
 

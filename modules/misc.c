@@ -10,6 +10,7 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_copy);
 DE_DECLARE_MODULE(de_module_null);
+DE_DECLARE_MODULE(de_module_plaintext);
 DE_DECLARE_MODULE(de_module_cp437);
 DE_DECLARE_MODULE(de_module_crc);
 DE_DECLARE_MODULE(de_module_hexdump);
@@ -83,6 +84,66 @@ void de_module_null(deark *c, struct deark_module_info *mi)
 	mi->desc = "Do nothing";
 	mi->run_fn = de_run_null;
 	mi->flags |= DE_MODFLAG_NOEXTRACT;
+}
+
+// **************************************************************************
+// plaintext
+// Convert text files to UTF-8.
+// **************************************************************************
+
+struct plaintextctx_struct {
+	dbuf *outf;
+	de_ucstring *tmpstr;
+	struct de_encconv_state es;
+};
+
+static int plaintext_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
+	i64 buf_len)
+{
+	struct plaintextctx_struct *ptctx = (struct plaintextctx_struct*)brctx->userdata;
+	UI conv_flags;
+
+	// There's no limit to how much data dbuf_buffered_read() could send us
+	// at once, so we won't try to put it all in a ucstring at once.
+	brctx->bytes_consumed = de_min_int(buf_len, 4096);
+
+	// For best results, ucstring_append_bytes_ex() needs to be told whether there will
+	// be any more bytes after this.
+	if(brctx->eof_flag && brctx->bytes_consumed==buf_len)
+		conv_flags = 0;
+	else
+		conv_flags = DE_CONVFLAG_PARTIAL_DATA;
+
+	ucstring_empty(ptctx->tmpstr);
+	ucstring_append_bytes_ex(ptctx->tmpstr, buf, brctx->bytes_consumed, conv_flags,
+		&ptctx->es);
+	ucstring_write_as_utf8(brctx->c, ptctx->tmpstr, ptctx->outf, 0);
+	return 1;
+}
+
+static void de_run_plaintext(deark *c, de_module_params *mparams)
+{
+	struct plaintextctx_struct ptctx;
+	de_encoding input_encoding;
+
+	// TODO: Maybe check for a UTF-8/UTF-16 BOM, and default to the detected encoding.
+	// TODO: Add a BOM if there isn't already one.
+	input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_UTF8);
+	de_encconv_init(&ptctx.es, input_encoding);
+	ptctx.tmpstr = ucstring_create(c);
+	ptctx.outf = dbuf_create_output_file(c, "txt", NULL, 0);
+	dbuf_buffered_read(c->infile, 0, c->infile->len, plaintext_cbfn, (void*)&ptctx);
+	dbuf_close(ptctx.outf);
+	ucstring_destroy(ptctx.tmpstr);
+}
+
+void de_module_plaintext(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "plaintext";
+	mi->desc = "Plain text";
+	mi->desc2 = "Convert to UTF-8";
+	mi->run_fn = de_run_plaintext;
+	mi->flags |= DE_MODFLAG_HIDDEN; // This module is currently just for testing.
 }
 
 // **************************************************************************
@@ -963,7 +1024,8 @@ static void de_run_lss16(deark *c, de_module_params *mparams)
 			// A run of pixels
 			run_len = (i64)lss16_get_nibble(c, d);
 			if(run_len==0) {
-				run_len = lss16_get_nibble(c, d) | (lss16_get_nibble(c, d)<<4);
+				run_len = lss16_get_nibble(c, d);
+				run_len |= (lss16_get_nibble(c, d)<<4);
 				run_len += 16;
 			}
 			for(i=0; i<run_len; i++) {

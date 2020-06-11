@@ -15,9 +15,9 @@ DE_DECLARE_MODULE(de_module_macpaint);
 
 typedef struct localctx_struct {
 	int has_macbinary_header;
-	int df_known;
-	i64 expected_dfpos;
-	i64 expected_dflen;
+	u8 df_known, rf_known;
+	i64 expected_dfpos, expected_rfpos;
+	i64 expected_dflen, expected_rflen;
 	de_ucstring *filename;
 	struct de_timestamp mod_time_from_macbinary;
 } lctx;
@@ -236,6 +236,21 @@ done:
 	ucstring_destroy(tmpname);
 }
 
+// Not many MacPaint-in-MacBinary files have a resource fork, but a few do.
+static void do_decode_rsrc(deark *c, lctx *d)
+{
+	if(!d->rf_known) return;
+	if(d->expected_rflen<1) return;
+	if(d->expected_rfpos+d->expected_rflen > c->infile->len) {
+		return;
+	}
+	de_dbg(c, "resource fork at %"I64_FMT", len=%"I64_FMT, d->expected_rfpos, d->expected_rflen);
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice2(c, "macrsrc", NULL, c->infile,
+		d->expected_rfpos, d->expected_rflen);
+	de_dbg_indent(c, -1);
+}
+
 static void do_macbinary(deark *c, lctx *d)
 {
 	u8 b0, b1;
@@ -256,13 +271,18 @@ static void do_macbinary(deark *c, lctx *d)
 	mparams->in_params.codes = "D"; // = decode only, don't extract
 	mparams->out_params.fi = de_finfo_create(c); // A temporary finfo object
 	mparams->out_params.fi->name_other = ucstring_create(c);
-	de_run_module_by_id_on_slice(c, "macbinary", mparams, c->infile, 0, 128);
+	de_run_module_by_id_on_slice(c, "macbinary", mparams, c->infile, 0, c->infile->len);
 	de_dbg_indent(c, -1);
 
 	if(mparams->out_params.uint1>0) {
 		d->df_known = 1;
 		d->expected_dfpos = (i64)mparams->out_params.uint1;
 		d->expected_dflen = (i64)mparams->out_params.uint2;
+	}
+	if(mparams->out_params.uint3>0) {
+		d->rf_known = 1;
+		d->expected_rfpos = (i64)mparams->out_params.uint3;
+		d->expected_rflen = (i64)mparams->out_params.uint4;
 	}
 
 	if(mparams->out_params.fi->timestamp[DE_TIMESTAMPIDX_MODIFY].is_valid) {
@@ -280,6 +300,10 @@ static void do_macbinary(deark *c, lctx *d)
 
 	if(ucstring_isnonempty(mparams->out_params.fi->name_other) && !d->filename) {
 		d->filename = ucstring_clone(mparams->out_params.fi->name_other);
+	}
+
+	if(d->rf_known) {
+		do_decode_rsrc(c, d);
 	}
 
 done:

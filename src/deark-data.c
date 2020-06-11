@@ -388,6 +388,9 @@ void dbuf_write_uchar_as_utf8(dbuf *outf, i32 u)
 // Returns 1 if a valid character was converted, 0 otherwise.
 // buflen = the max number of bytes to read (but regardless of buflen, this
 // will not read past a byte whose value is < 0x80).
+//
+// TODO?: There is another UTF-8 decoder in ucstring_append_bytes_ex(). Maybe
+// should be consolidated in some way.
 int de_utf8_to_uchar(const u8 *utf8buf, i64 buflen,
 	i32 *p_uchar, i64 *p_utf8len)
 {
@@ -480,46 +483,6 @@ void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int fl
 			if(sc2 && dstpos<dstlen-1) dst[dstpos++] = sc2;
 		}
 	}
-}
-
-static i64 getu16x_direct(const u8 *m, int is_le)
-{
-	if(is_le)
-		return de_getu16le_direct(m);
-	return de_getu16be_direct(m);
-}
-
-// Convert a UTF-16LE or UTF-16BE character to UTF-32.
-// Similar to de_utf8_to_uchar().
-// Returns 1 if a valid character was converted, 0 otherwise.
-int de_utf16x_to_uchar(const u8 *utf16buf, i64 buflen,
-	i32 *p_uchar, i64 *p_utf16len, int is_le)
-{
-	i32 u0, u1;
-
-	// Read the first code unit
-	if(buflen<2) return 0;
-	u0 = (i32)getu16x_direct(&utf16buf[0], is_le);
-
-	if(u0>=0xd800 && u0<=0xdbff) { // It's a lead surrogate
-		// Read the trail surrogate
-		if(buflen<4) return 0;
-		u1 = (i32)getu16x_direct(&utf16buf[2], is_le);
-		if(u1>=0xdc00 && u1<=0xdfff) { // valid trail surrogate
-			*p_uchar = 0x10000 + (((u0-0xd800)<<10) | (u1-0xdc00));
-			*p_utf16len = 4;
-			return 1;
-		}
-		return 0; // invalid trail surrogate
-	}
-	else if(u0>=0xdc00 && u0<=0xdfff) {
-		// First code unit is not allowed to be a trail surrogate
-		return 0;
-	}
-	// Not a surrogate
-	*p_uchar = u0;
-	*p_utf16len = 2;
-	return 1;
 }
 
 // Given a buffer, return 1 if it has no bytes 0x80 or higher.
@@ -1182,7 +1145,7 @@ void de_write_codepoint_to_html(deark *c, dbuf *f, i32 ch)
 }
 
 struct de_encmap_item {
-	unsigned int flags;
+	unsigned int reserved;
 	int n;
 	const char *encname;
 };
@@ -1202,7 +1165,9 @@ static const struct de_encmap_item de_encmap_arr[] = {
 	{ 0x01, DE_ENCODING_PALM, "palm" },
 	{ 0x01, DE_ENCODING_RISCOS, "riscos" },
 	{ 0x01, DE_ENCODING_PETSCII, "petscii" },
-	{ 0x01, DE_ENCODING_ATARIST, "atarist" }
+	{ 0x01, DE_ENCODING_ATARIST, "atarist" },
+	{ 0x01, DE_ENCODING_UTF16BE, "utf16be" },
+	{ 0x01, DE_ENCODING_UTF16LE, "utf16le" }
 };
 
 de_encoding de_encoding_name_to_code(const char *encname)
