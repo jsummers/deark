@@ -225,6 +225,16 @@ static i32 de_windows1252_to_unicode(i32 a)
 	return n;
 }
 
+static de_rune de_windows874_to_unicode(i32 a)
+{
+	de_rune n = 0xffff;
+	if(a<=0x7f || a==0xa0) n = a;
+	else if(a==0x80 || a==0x85 || (a>=0x91 && a<=0x97)) n = (de_rune)windows1252table[a-0x80];
+	else if((a>=0xa1 && a<=0xda) || (a>=0xdf && a<=0xfb)) n = a + (0xe01 - 0xa1);
+	if(n==0xffff) n = DE_CODEPOINT_INVALID;
+	return n;
+}
+
 static i32 de_atarist_to_unicode(i32 a)
 {
 	i32 n;
@@ -323,6 +333,8 @@ de_rune de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee)
 		return de_ext_ascii_to_unicode(windows1253table, a);
 	case DE_ENCODING_WINDOWS1254:
 		return de_ext_ascii_to_unicode(windows1254table, a);
+	case DE_ENCODING_WINDOWS874:
+		return de_windows874_to_unicode(a);
 	case DE_ENCODING_ATARIST:
 		return de_atarist_to_unicode(a);
 	case DE_ENCODING_PALM:
@@ -1161,6 +1173,7 @@ static const struct de_encmap_item de_encmap_arr[] = {
 	{ 0x01, DE_ENCODING_WINDOWS1252, "windows1252" },
 	{ 0x01, DE_ENCODING_WINDOWS1253, "windows1253" },
 	{ 0x01, DE_ENCODING_WINDOWS1254, "windows1254" },
+	{ 0x01, DE_ENCODING_WINDOWS874, "windows874" },
 	{ 0x01, DE_ENCODING_MACROMAN, "macroman" },
 	{ 0x01, DE_ENCODING_PALM, "palm" },
 	{ 0x01, DE_ENCODING_RISCOS, "riscos" },
@@ -1199,7 +1212,7 @@ static const struct de_encmapwin_item de_encmapwin_arr[] = {
 	{ 0x01, 1254, DE_ENCODING_WINDOWS1254, "Windows-1254", "Turkish" },
 	{ 0x01, 10000, DE_ENCODING_MACROMAN, "MacRoman", NULL },
 	{ 0x01, 65001, DE_ENCODING_UTF8, "UTF-8", NULL },
-	{ 0x00, 874, DE_ENCODING_UNKNOWN, "Windows-874", "Thai" },
+	{ 0x01, 874, DE_ENCODING_WINDOWS874, "Windows-874", "Thai" },
 	{ 0x00, 932, DE_ENCODING_UNKNOWN, "Windows-932", "Japanese" },
 	{ 0x00, 936, DE_ENCODING_UNKNOWN, "Windows-936", "simplified Chinese" },
 	{ 0x00, 1255, DE_ENCODING_UNKNOWN, "Windows-1255", "Hebrew" },
