@@ -264,7 +264,6 @@ struct de_ID3_detection_data {
 // but it can be, provided it's only used as a cache.
 struct de_detection_data_struct {
 	int best_confidence_so_far;
-	u8 has_utf8_bom;
 	u8 is_macbinary;
 	u8 SAUCE_detection_attempted;
 	u8 zip_eocd_looked_for;

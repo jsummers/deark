@@ -44,8 +44,7 @@ typedef struct localctx_struct {
 
 static i64 bom_length(deark *c)
 {
-	if(!dbuf_memcmp(c->infile, 0, "\xef\xbb\xbf", 3))
-		return 3;
+	if(dbuf_has_utf8_bom(c->infile, 0)) return 3;
 	return 0;
 }
 
@@ -446,7 +445,7 @@ static int de_identify_uuencode(deark *c)
 	int retval = 0;
 	struct uu_hdr_parser *uuhp;
 
-	pos = c->detection_data->has_utf8_bom?3:0;
+	pos = bom_length(c);
 	de_read(b, pos, sizeof(b));
 
 	if(!de_memcmp(b, "begin-base64 ", 13)) {

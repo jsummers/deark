@@ -34,11 +34,6 @@ static struct deark_module_info *detect_module_for_file(deark *c, int *errflag)
 	// a high enough confidence.
 	c->detection_data->best_confidence_so_far = 0;
 
-	// Check for a UTF-8 BOM just once. Any module can use this flag.
-	if(dbuf_has_utf8_bom(c->infile, 0)) {
-		c->detection_data->has_utf8_bom = 1;
-	}
-
 	orig_errcount = c->error_count;
 	for(i=0; i<c->num_modules; i++) {
 		if(c->module_info[i].identify_fn==NULL) continue;
