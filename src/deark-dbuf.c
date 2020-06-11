@@ -682,7 +682,7 @@ int dbuf_read_ascii_number(dbuf *f, i64 pos, i64 fieldsize,
 	return 1;
 }
 
-u32 dbuf_getRGB(dbuf *f, i64 pos, unsigned int flags)
+de_color dbuf_getRGB(dbuf *f, i64 pos, unsigned int flags)
 {
 	u8 buf[3];
 	dbuf_read(f, buf, pos, 3);

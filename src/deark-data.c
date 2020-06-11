@@ -548,7 +548,7 @@ static const u32 pc16pal[16] = {
 };
 
 
-u32 de_palette_vga256(int index)
+de_color de_palette_vga256(int index)
 {
 	if(index>=0 && index<256) {
 		return vga256pal[index];
@@ -556,7 +556,7 @@ u32 de_palette_vga256(int index)
 	return 0;
 }
 
-u32 de_palette_ega64(int index)
+de_color de_palette_ega64(int index)
 {
 
 	if(index>=0 && index<64) {
@@ -565,7 +565,7 @@ u32 de_palette_ega64(int index)
 	return 0;
 }
 
-u32 de_palette_pc16(int index)
+de_color de_palette_pc16(int index)
 {
 	if(index>=0 && index<16) {
 		return pc16pal[index];
@@ -573,7 +573,7 @@ u32 de_palette_pc16(int index)
 	return 0;
 }
 
-static const u32 pcpaint_cga_pals[6][4] = {
+static const de_color pcpaint_cga_pals[6][4] = {
 	{ 0x000000, 0x00aaaa, 0xaa00aa, 0xaaaaaa }, // palette 1 low
 	{ 0x000000, 0x00aa00, 0xaa0000, 0xaa5500 }, // palette 0 low
 	{ 0x000000, 0x00aaaa, 0xaa0000, 0xaaaaaa }, // 3rd palette low
@@ -582,7 +582,7 @@ static const u32 pcpaint_cga_pals[6][4] = {
 	{ 0x000000, 0x55ffff, 0xff5555, 0xffffff }  // 3rd palette high
 };
 
-u32 de_palette_pcpaint_cga4(int palnum, int index)
+de_color de_palette_pcpaint_cga4(int palnum, int index)
 {
 	if(palnum<0 || palnum>5) palnum=2;
 	if(index>=0 && index<4) {
@@ -960,7 +960,7 @@ const u8 *de_get_vga_cp437_font_ptr(void)
 	return vga_cp437_font_data;
 }
 
-void de_color_to_css(u32 color, char *buf, int buflen)
+void de_color_to_css(de_color color, char *buf, int buflen)
 {
 	u8 r, g, b;
 
@@ -1018,7 +1018,7 @@ u8 de_scale_n_to_255(i64 n, i64 x)
 	return (u8)(0.5+(((double)x)*(255.0/(double)n)));
 }
 
-u32 de_rgb565_to_888(u32 x)
+de_color de_rgb565_to_888(u32 x)
 {
 	u8 cr, cg, cb;
 	cr = (u8)(x>>11);
@@ -1030,7 +1030,7 @@ u32 de_rgb565_to_888(u32 x)
 	return DE_MAKE_RGB(cr, cg, cb);
 }
 
-u32 de_bgr555_to_888(u32 x)
+de_color de_bgr555_to_888(u32 x)
 {
 	u8 cr, cg, cb;
 	cb = (u8)((x>>10)&0x1f);
@@ -1042,7 +1042,7 @@ u32 de_bgr555_to_888(u32 x)
 	return DE_MAKE_RGB(cr, cg, cb);
 }
 
-u32 de_rgb555_to_888(u32 x)
+de_color de_rgb555_to_888(u32 x)
 {
 	u8 cr, cg, cb;
 	cr = (u8)((x>>10)&0x1f);

@@ -50,10 +50,10 @@ int de_good_image_count(deark *c, i64 n)
 	return 1;
 }
 
-int de_is_grayscale_palette(const u32 *pal, i64 num_entries)
+int de_is_grayscale_palette(const de_color *pal, i64 num_entries)
 {
 	i64 k;
-	u8 cr;
+	de_colorsample cr;
 
 	for(k=0; k<num_entries; k++) {
 		cr = DE_COLOR_R(pal[k]);
@@ -93,8 +93,8 @@ struct image_scan_results {
 static void scan_image(de_bitmap *img, struct image_scan_results *isres)
 {
 	i64 i, j;
-	u32 clr;
-	u8 a, r, g, b;
+	de_color clr;
+	de_colorsample a, r, g, b;
 
 	de_zeromem(isres, sizeof(struct image_scan_results));
 	if(img->bytes_per_pixel==1) {
@@ -226,7 +226,7 @@ void de_bitmap_write_to_file(de_bitmap *img, const char *token,
 
 // samplenum 0=Red, 1=Green, 2=Blue, 3=Alpha
 void de_bitmap_setsample(de_bitmap *img, i64 x, i64 y,
-	i64 samplenum, u8 v)
+	i64 samplenum, de_colorsample v)
 {
 	i64 pos;
 
@@ -261,7 +261,7 @@ void de_bitmap_setsample(de_bitmap *img, i64 x, i64 y,
 	}
 }
 
-void de_bitmap_setpixel_gray(de_bitmap *img, i64 x, i64 y, u8 v)
+void de_bitmap_setpixel_gray(de_bitmap *img, i64 x, i64 y, de_colorsample v)
 {
 	i64 pos;
 
@@ -290,13 +290,13 @@ void de_bitmap_setpixel_gray(de_bitmap *img, i64 x, i64 y, u8 v)
 // TODO: Decide if this should just be an alias of setpixel_rgba, or if it will
 // force colors to be opaque.
 void de_bitmap_setpixel_rgb(de_bitmap *img, i64 x, i64 y,
-	u32 color)
+	de_color color)
 {
 	de_bitmap_setpixel_rgba(img, x, y, color);
 }
 
 void de_bitmap_setpixel_rgba(de_bitmap *img, i64 x, i64 y,
-	u32 color)
+	de_color color)
 {
 	i64 pos;
 
@@ -330,7 +330,7 @@ void de_bitmap_setpixel_rgba(de_bitmap *img, i64 x, i64 y,
 	}
 }
 
-u32 de_bitmap_getpixel(de_bitmap *img, i64 x, i64 y)
+de_color de_bitmap_getpixel(de_bitmap *img, i64 x, i64 y)
 {
 	i64 pos;
 
@@ -531,7 +531,7 @@ void de_convert_and_write_image_bilevel(dbuf *f, i64 fpos,
 // flags = flags used by dbuf_getRGB()
 void de_read_palette_rgb(dbuf *f,
 	i64 fpos, i64 num_entries, i64 entryspan,
-	u32 *pal, i64 ncolors_in_pal,
+	de_color *pal, i64 ncolors_in_pal,
 	unsigned int flags)
 {
 	i64 k;
@@ -544,7 +544,7 @@ void de_read_palette_rgb(dbuf *f,
 }
 
 void de_convert_image_paletted(dbuf *f, i64 fpos,
-	i64 bpp, i64 rowspan, const u32 *pal,
+	i64 bpp, i64 rowspan, const de_color *pal,
 	de_bitmap *img, unsigned int flags)
 {
 	i64 i, j;
@@ -565,7 +565,7 @@ void de_convert_image_rgb(dbuf *f, i64 fpos,
 	i64 rowspan, i64 pixelspan, de_bitmap *img, unsigned int flags)
 {
 	i64 i, j;
-	u32 clr;
+	de_color clr;
 
 	for(j=0; j<img->height; j++) {
 		for(i=0; i<img->width; i++) {
@@ -579,7 +579,7 @@ void de_convert_image_rgb(dbuf *f, i64 fpos,
 // (Pixels will be replaced, not merged.)
 void de_bitmap_rect(de_bitmap *img,
 	i64 xpos, i64 ypos, i64 width, i64 height,
-	u32 clr, unsigned int flags)
+	de_color clr, unsigned int flags)
 {
 	i64 i, j;
 
@@ -600,8 +600,8 @@ void de_bitmap_copy_rect(de_bitmap *srcimg, de_bitmap *dstimg,
 	i64 dstxpos, i64 dstypos, unsigned int flags)
 {
 	i64 i, j;
-	u32 dst_clr, src_clr, clr;
-	u8 src_a;
+	de_color dst_clr, src_clr, clr;
+	de_colorsample src_a;
 
 	for(j=0; j<height; j++) {
 		for(i=0; i<width; i++) {
@@ -630,8 +630,8 @@ void de_bitmap_apply_mask(de_bitmap *fg, de_bitmap *mask,
 	unsigned int flags)
 {
 	i64 i, j;
-	u32 clr;
-	u8 a;
+	de_color clr;
+	de_colorsample a;
 
 	for(j=0; j<fg->height && j<mask->height; j++) {
 		for(i=0; i<fg->width && i<mask->width; i++) {
@@ -688,7 +688,7 @@ void de_optimize_image_alpha(de_bitmap *img, unsigned int flags)
 }
 
 // flag 0x1: white-is-min
-void de_make_grayscale_palette(u32 *pal, i64 num_entries, unsigned int flags)
+void de_make_grayscale_palette(de_color *pal, i64 num_entries, unsigned int flags)
 {
 	i64 k;
 	u8 b;
