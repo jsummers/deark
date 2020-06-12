@@ -15,6 +15,8 @@ DE_DECLARE_MODULE(de_module_sauce);
 struct sauce_private_ctx {
 	int combine_comments;
 	i64 num_comments;
+	de_ext_encoding encoding_for_strings;
+	de_ext_encoding encoding_for_comments;
 };
 
 static i64 sauce_get_string_length(const u8 *buf, i64 len, int respect_trailing_spaces)
@@ -44,25 +46,10 @@ static void sauce_strip_trailing_whitespace(de_ucstring *s)
 	}
 }
 
-// TODO?: This function could read a dbuf instead of a u8 array, but it
-// would have to be combined with sauce_get_string_length() somehow.
-//
-// flags: 0x02: Interpret 0x0a as newline, regardless of encoding
 static void sauce_bytes_to_ucstring(deark *c, const u8 *buf, i64 len,
-	de_ucstring *s, de_encoding encoding, unsigned int flags)
+	de_ucstring *s, de_ext_encoding ee)
 {
-	i32 u;
-	i64 i;
-
-	for(i=0; i<len; i++) {
-		if((flags&0x02) && buf[i]==0x0a) {
-			u = 0x000a;
-		}
-		else {
-			u = de_char_to_unicode(c, (i32)buf[i], encoding);
-		}
-		ucstring_append_char(s, u);
-	}
+	ucstring_append_bytes(s, buf, len, 0, ee);
 }
 
 static int sauce_is_valid_date_string(const u8 *buf, i64 len)
@@ -127,9 +114,9 @@ static const char *get_sauce_filetype_name(u8 dt, unsigned int t)
 // interpreted. And some ANSI editors don't obey the spec, anyway.
 // Our behavior:
 // * We have two modes, depending on the combine_comments flag.
-// * We interpret 0x0a as a newline. All other bytes are CP437 printable
+// * We interpret 0x0a as a newline. Most other bytes are CP437 printable
 //   charaters.
-// * If !combine_comments, trailing spaces and NUL bytes are ignored for
+// * If !combine_comments, trailing spaces and trailing NUL bytes are ignored for
 //   each comment.
 // * If combine_comments, same as above except that trailing spaces are
 //   respected for each comment except the last.
@@ -177,7 +164,7 @@ static void sauce_read_comments(deark *c, struct sauce_private_ctx *d, dbuf *inf
 		de_dbg_indent(c, 1);
 
 		ucstring_empty(tmpcomment);
-		sauce_bytes_to_ucstring(c, buf, cmnt_len, tmpcomment, DE_ENCODING_CP437_G, 0x02);
+		sauce_bytes_to_ucstring(c, buf, cmnt_len, tmpcomment, d->encoding_for_comments);
 		ucstring_append_ucstring(si->comment, tmpcomment);
 		if(!d->combine_comments && k!=(d->num_comments-1)) {
 			ucstring_append_char(si->comment, 0x0a);
@@ -263,6 +250,8 @@ static int do_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	si->is_valid = 1;
 
 	d = de_malloc(c, sizeof(struct sauce_private_ctx));
+	d->encoding_for_strings = DE_ENCODING_CP437;
+	d->encoding_for_comments = DE_EXTENC_MAKE(d->encoding_for_strings, DE_ENCSUBTYPE_HYBRID);
 	d->combine_comments = de_get_ext_option_bool(c, "sauce:combinecomments", 0);
 
 	// Title
@@ -270,7 +259,8 @@ static int do_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	tmpbuf_len = sauce_get_string_length(tmpbuf, 35, 0);
 	if(tmpbuf_len>0) {
 		si->title = ucstring_create(c);
-		sauce_bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->title, DE_ENCODING_CP437_G, 0);
+		sauce_bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->title, d->encoding_for_strings);
+		de_dbg(c, "title: \"%s\"", ucstring_getpsz_d(si->title));
 	}
 
 	// Artist / Creator
@@ -278,7 +268,8 @@ static int do_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	tmpbuf_len = sauce_get_string_length(tmpbuf, 20, 0);
 	if(tmpbuf_len>0) {
 		si->artist = ucstring_create(c);
-		sauce_bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->artist, DE_ENCODING_CP437_G, 0);
+		sauce_bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->artist, d->encoding_for_strings);
+		de_dbg(c, "artist: \"%s\"", ucstring_getpsz_d(si->artist));
 	}
 
 	// Organization
@@ -286,7 +277,8 @@ static int do_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	tmpbuf_len = sauce_get_string_length(tmpbuf, 20, 0);
 	if(tmpbuf_len>0) {
 		si->organization = ucstring_create(c);
-		sauce_bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->organization, DE_ENCODING_CP437_G, 0);
+		sauce_bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->organization, d->encoding_for_strings);
+		de_dbg(c, "organization: \"%s\"", ucstring_getpsz_d(si->organization));
 	}
 
 	// Creation date
