@@ -888,6 +888,10 @@ Deark -- Information about supported formats
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
 
+* Plain text (module="plaintext")
+  Read a plain text file, and write it as UTF-8.
+  - Not autodetected. Use "-m plaintext".
+
 * .plist Property List (module="plist")
   - Supports binary .plist format only
   - Files can be parsed, but there is usually nothing that can be extracted
