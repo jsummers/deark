@@ -260,7 +260,7 @@ void de_fmtutil_handle_exif(deark *c, i64 pos, i64 len)
 static void wrap_in_tiff(deark *c, dbuf *f, i64 dpos, i64 dlen,
 	const char *swstring, unsigned int tag, const char *ext, unsigned int createflags);
 
-// Either extract the IPTC data to a file, or drill down into it.
+// Either extract IPTC-IIM data to a file, or drill down into it.
 // flags:
 //  0 = default behavior (currently: depends on c->extract_level and options)
 //  2 = this came from our TIFF-encapsulated format
