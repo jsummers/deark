@@ -511,7 +511,7 @@ void de_dbg_dimensions(deark *c, i64 w, i64 h)
 // (in some circumstances) display a small sample of the given color.
 // Caller supplies csamp[16].
 // Returns a pointer to csamp, for convenience.
-char *de_get_colorsample_code(deark *c, u32 clr, char *csamp,
+char *de_get_colorsample_code(deark *c, de_color clr, char *csamp,
 	size_t csamplen)
 {
 	unsigned int r, g, b;
@@ -541,7 +541,7 @@ char *de_get_colorsample_code(deark *c, u32 clr, char *csamp,
 }
 
 // Print debugging output for an 8-bit RGB palette entry.
-void de_dbg_pal_entry2(deark *c, i64 idx, u32 clr,
+void de_dbg_pal_entry2(deark *c, i64 idx, de_color clr,
 	const char *txt_before, const char *txt_in, const char *txt_after)
 {
 	int r,g,b,a;
@@ -568,7 +568,7 @@ void de_dbg_pal_entry2(deark *c, i64 idx, u32 clr,
 		r, g, b, astr, txt_in, csamp, txt_after);
 }
 
-void de_dbg_pal_entry(deark *c, i64 idx, u32 clr)
+void de_dbg_pal_entry(deark *c, i64 idx, de_color clr)
 {
 	if(c->debug_level<2) return;
 	de_dbg_pal_entry2(c, idx, clr, NULL, NULL, NULL);

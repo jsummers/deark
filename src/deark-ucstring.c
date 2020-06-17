@@ -132,7 +132,7 @@ int ucstring_isnonempty(const de_ucstring *s)
 	return (s && (s->len > 0));
 }
 
-void ucstring_append_char(de_ucstring *s, i32 ch)
+void ucstring_append_char(de_ucstring *s, de_rune ch)
 {
 	i64 new_len;
 	i64 new_alloc;
@@ -169,30 +169,34 @@ static void handle_invalid_bytes(de_ucstring *s, const u8 *buf, UI buflen)
 	}
 }
 
-// This function does no error checking
-static i32 decode_utf8_sequence(const u8 *b, UI seqlen)
+// This function does not validate the "control" bits of the UTF-8 sequence.
+// Out-of-range codepoints are return as U+FFFD.
+static de_rune decode_utf8_sequence(const u8 *b, UI seqlen)
 {
-	u32 ch;
+	UI ch;
 
 	if(seqlen==2) { // 2-byte
 		ch = b[0] & 0x1f;
 		ch = (ch<<6) | (b[1] & 0x3f);
+		if(ch<0x80) ch = 0xfffd;
 	}
 	else if(seqlen==3) { // 3-byte
 		ch = b[0] & 0x0f;
 		ch = (ch<<6) | (b[1] & 0x3f);
 		ch = (ch<<6) | (b[2] & 0x3f);
+		if(ch<0x800) ch = 0xfffd;
 	}
 	else if(seqlen==4) {
 		ch = b[0] & 0x07;
 		ch = (ch<<6) | (b[1] & 0x3f);
 		ch = (ch<<6) | (b[2] & 0x3f);
 		ch = (ch<<6) | (b[3] & 0x3f);
+		if(ch<0x10000 || ch>0x10ffff) ch = 0xfffd;
 	}
 	else {
-		ch = b[0];
+		ch = b[0] & 0x7f;
 	}
-	return (i32)ch;
+	return (de_rune)ch;
 }
 
 #define UTF8_NBYTES_EXPECTED (es->buf[7])
@@ -527,7 +531,7 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len,
 // and noncharacters.
 // It would be good to also ban incorrectly-used "combining" and other context-
 // sensitive characters, but that's too difficult.
-int de_is_printable_uchar(i32 ch)
+int de_is_printable_uchar(de_rune ch)
 {
 	struct pr_range { i32 n1, n2; };
 	static const struct pr_range ranges[] = {

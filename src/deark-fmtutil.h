@@ -286,13 +286,13 @@ struct atari_img_decode_data {
 	dbuf *unc_pixels;
 	int was_compressed;
 	int is_spectrum512;
-	u32 *pal;
+	de_color *pal;
 	de_bitmap *img;
 };
 
 #define DE_FLAG_ATARI_15BIT_PAL 0x2
 void de_fmtutil_read_atari_palette(deark *c, dbuf *f, i64 pos,
-	u32 *dstpal, i64 ncolors_to_read, i64 ncolors_used, unsigned int flags);
+	de_color *dstpal, i64 ncolors_to_read, i64 ncolors_used, unsigned int flags);
 
 int de_fmtutil_atari_decode_image(deark *c, struct atari_img_decode_data *adata);
 void de_fmtutil_atari_set_standard_density(deark *c, struct atari_img_decode_data *adata,
@@ -479,7 +479,7 @@ struct fmtutil_macbitmap_info {
 	int has_colortable; // Does the file contain a colortable for this bitmap?
 	int uses_pal; // Are we using the palette below?
 	i64 num_pal_entries;
-	u32 pal[256];
+	de_color pal[256];
 };
 
 void fmtutil_macbitmap_read_baseaddr(deark *c, dbuf *f,

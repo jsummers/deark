@@ -654,7 +654,7 @@ static u8 scale_15_to_255(u8 x)
 }
 
 void de_fmtutil_read_atari_palette(deark *c, dbuf *f, i64 pos,
-	u32 *dstpal, i64 ncolors_to_read, i64 ncolors_used, unsigned int flags)
+	de_color *dstpal, i64 ncolors_to_read, i64 ncolors_used, unsigned int flags)
 {
 	i64 i;
 	unsigned int n;

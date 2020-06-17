@@ -225,6 +225,16 @@ static i32 de_windows1252_to_unicode(i32 a)
 	return n;
 }
 
+static de_rune de_windows874_to_unicode(i32 a)
+{
+	de_rune n = 0xffff;
+	if(a<=0x7f || a==0xa0) n = a;
+	else if(a==0x80 || a==0x85 || (a>=0x91 && a<=0x97)) n = (de_rune)windows1252table[a-0x80];
+	else if((a>=0xa1 && a<=0xda) || (a>=0xdf && a<=0xfb)) n = a + (0xe01 - 0xa1);
+	if(n==0xffff) n = DE_CODEPOINT_INVALID;
+	return n;
+}
+
 static i32 de_atarist_to_unicode(i32 a)
 {
 	i32 n;
@@ -287,7 +297,7 @@ static i32 de_ext_ascii_to_unicode(const u16 tbl[128], i32 a)
 	return n;
 }
 
-i32 de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee)
+de_rune de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee)
 {
 	if(a<0) return DE_CODEPOINT_INVALID;
 
@@ -323,6 +333,8 @@ i32 de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee)
 		return de_ext_ascii_to_unicode(windows1253table, a);
 	case DE_ENCODING_WINDOWS1254:
 		return de_ext_ascii_to_unicode(windows1254table, a);
+	case DE_ENCODING_WINDOWS874:
+		return de_windows874_to_unicode(a);
 	case DE_ENCODING_ATARIST:
 		return de_atarist_to_unicode(a);
 	case DE_ENCODING_PALM:
@@ -340,7 +352,7 @@ i32 de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee)
 // Encode a Unicode char in UTF-8.
 // Caller supplies utf8buf[4].
 // Sets *p_utf8len to the number of bytes used (1-4).
-void de_uchar_to_utf8(i32 u1, u8 *utf8buf, i64 *p_utf8len)
+void de_uchar_to_utf8(de_rune u1, u8 *utf8buf, i64 *p_utf8len)
 {
 	u32 u = (u32)u1;
 
@@ -375,7 +387,7 @@ void de_uchar_to_utf8(i32 u1, u8 *utf8buf, i64 *p_utf8len)
 }
 
 // Write a unicode code point to a file, encoded as UTF-8.
-void dbuf_write_uchar_as_utf8(dbuf *outf, i32 u)
+void dbuf_write_uchar_as_utf8(dbuf *outf, de_rune u)
 {
 	u8 utf8buf[4];
 	i64 utf8len;
@@ -392,7 +404,7 @@ void dbuf_write_uchar_as_utf8(dbuf *outf, i32 u)
 // TODO?: There is another UTF-8 decoder in ucstring_append_bytes_ex(). Maybe
 // should be consolidated in some way.
 int de_utf8_to_uchar(const u8 *utf8buf, i64 buflen,
-	i32 *p_uchar, i64 *p_utf8len)
+	de_rune *p_uchar, i64 *p_utf8len)
 {
 	i32 u0=0;
 	i32 u1=0;
@@ -548,7 +560,7 @@ static const u32 pc16pal[16] = {
 };
 
 
-u32 de_palette_vga256(int index)
+de_color de_palette_vga256(int index)
 {
 	if(index>=0 && index<256) {
 		return vga256pal[index];
@@ -556,7 +568,7 @@ u32 de_palette_vga256(int index)
 	return 0;
 }
 
-u32 de_palette_ega64(int index)
+de_color de_palette_ega64(int index)
 {
 
 	if(index>=0 && index<64) {
@@ -565,7 +577,7 @@ u32 de_palette_ega64(int index)
 	return 0;
 }
 
-u32 de_palette_pc16(int index)
+de_color de_palette_pc16(int index)
 {
 	if(index>=0 && index<16) {
 		return pc16pal[index];
@@ -573,7 +585,7 @@ u32 de_palette_pc16(int index)
 	return 0;
 }
 
-static const u32 pcpaint_cga_pals[6][4] = {
+static const de_color pcpaint_cga_pals[6][4] = {
 	{ 0x000000, 0x00aaaa, 0xaa00aa, 0xaaaaaa }, // palette 1 low
 	{ 0x000000, 0x00aa00, 0xaa0000, 0xaa5500 }, // palette 0 low
 	{ 0x000000, 0x00aaaa, 0xaa0000, 0xaaaaaa }, // 3rd palette low
@@ -582,7 +594,7 @@ static const u32 pcpaint_cga_pals[6][4] = {
 	{ 0x000000, 0x55ffff, 0xff5555, 0xffffff }  // 3rd palette high
 };
 
-u32 de_palette_pcpaint_cga4(int palnum, int index)
+de_color de_palette_pcpaint_cga4(int palnum, int index)
 {
 	if(palnum<0 || palnum>5) palnum=2;
 	if(index>=0 && index<4) {
@@ -960,7 +972,7 @@ const u8 *de_get_vga_cp437_font_ptr(void)
 	return vga_cp437_font_data;
 }
 
-void de_color_to_css(u32 color, char *buf, int buflen)
+void de_color_to_css(de_color color, char *buf, int buflen)
 {
 	u8 r, g, b;
 
@@ -1018,7 +1030,7 @@ u8 de_scale_n_to_255(i64 n, i64 x)
 	return (u8)(0.5+(((double)x)*(255.0/(double)n)));
 }
 
-u32 de_rgb565_to_888(u32 x)
+de_color de_rgb565_to_888(u32 x)
 {
 	u8 cr, cg, cb;
 	cr = (u8)(x>>11);
@@ -1030,7 +1042,7 @@ u32 de_rgb565_to_888(u32 x)
 	return DE_MAKE_RGB(cr, cg, cb);
 }
 
-u32 de_bgr555_to_888(u32 x)
+de_color de_bgr555_to_888(u32 x)
 {
 	u8 cr, cg, cb;
 	cb = (u8)((x>>10)&0x1f);
@@ -1042,7 +1054,7 @@ u32 de_bgr555_to_888(u32 x)
 	return DE_MAKE_RGB(cr, cg, cb);
 }
 
-u32 de_rgb555_to_888(u32 x)
+de_color de_rgb555_to_888(u32 x)
 {
 	u8 cr, cg, cb;
 	cr = (u8)((x>>10)&0x1f);
@@ -1114,7 +1126,7 @@ void de_bytes_to_printable_sz(const u8 *s1, i64 s1_len,
 	s2[s2_pos] = '\0';
 }
 
-void de_write_codepoint_to_html(deark *c, dbuf *f, i32 ch)
+void de_write_codepoint_to_html(deark *c, dbuf *f, de_rune ch)
 {
 	int e; // How to encode this codepoint
 
@@ -1161,6 +1173,7 @@ static const struct de_encmap_item de_encmap_arr[] = {
 	{ 0x01, DE_ENCODING_WINDOWS1252, "windows1252" },
 	{ 0x01, DE_ENCODING_WINDOWS1253, "windows1253" },
 	{ 0x01, DE_ENCODING_WINDOWS1254, "windows1254" },
+	{ 0x01, DE_ENCODING_WINDOWS874, "windows874" },
 	{ 0x01, DE_ENCODING_MACROMAN, "macroman" },
 	{ 0x01, DE_ENCODING_PALM, "palm" },
 	{ 0x01, DE_ENCODING_RISCOS, "riscos" },
@@ -1199,7 +1212,7 @@ static const struct de_encmapwin_item de_encmapwin_arr[] = {
 	{ 0x01, 1254, DE_ENCODING_WINDOWS1254, "Windows-1254", "Turkish" },
 	{ 0x01, 10000, DE_ENCODING_MACROMAN, "MacRoman", NULL },
 	{ 0x01, 65001, DE_ENCODING_UTF8, "UTF-8", NULL },
-	{ 0x00, 874, DE_ENCODING_UNKNOWN, "Windows-874", "Thai" },
+	{ 0x01, 874, DE_ENCODING_WINDOWS874, "Windows-874", "Thai" },
 	{ 0x00, 932, DE_ENCODING_UNKNOWN, "Windows-932", "Japanese" },
 	{ 0x00, 936, DE_ENCODING_UNKNOWN, "Windows-936", "simplified Chinese" },
 	{ 0x00, 1255, DE_ENCODING_UNKNOWN, "Windows-1255", "Hebrew" },

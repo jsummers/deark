@@ -98,7 +98,7 @@ static void paint_character_internal(deark *c, de_bitmap *img,
 // Paint a character at the given index in the given font, to the given bitmap.
 void de_font_paint_character_idx(deark *c, de_bitmap *img,
 	struct de_bitmap_font *font, i64 char_idx,
-	i64 xpos, i64 ypos, u32 fgcol, u32 bgcol,
+	i64 xpos, i64 ypos, de_color fgcol, de_color bgcol,
 	unsigned int flags)
 {
 	struct de_bitmap_font_char *ch;
@@ -178,7 +178,7 @@ static i64 get_char_idx_by_cp(deark *c, struct de_bitmap_font *font, i32 codepoi
 // have Unicode codepoints, the non-Unicode codepoint will be used instead.
 void de_font_paint_character_cp(deark *c, de_bitmap *img,
 	struct de_bitmap_font *font, i32 codepoint,
-	i64 xpos, i64 ypos, u32 fgcol, u32 bgcol, unsigned int flags)
+	i64 xpos, i64 ypos, de_color fgcol, de_color bgcol, unsigned int flags)
 {
 	i64 char_idx;
 

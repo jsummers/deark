@@ -260,8 +260,8 @@ Command-line options:
    [Windows only] Never change the console OEM code page (to UTF-8).
    For technical reasons, Deark sometimes changes the code page of the Windows
    console it is running in, when its output is going to a pipe or file.
--inenc &lt;ascii|utf8|latin1|latin2|cp437|windows1250|windows1251|windows1252|
-     windows1253|windows1254|macroman|palm|riscos|atarist>
+-inenc &lt;ascii|utf8|latin1|latin2|cp437|windows874|windows1250|windows1251|
+     windows1252|windows1253|windows1254|macroman|palm|riscos|atarist>
    Supply a hint as to the encoding of the text contained in the input file.
    This option is not supported by all formats, and may be ignored if the
    encoding can be reliably determined by other means. Admittedly, it would be

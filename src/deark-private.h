@@ -15,6 +15,10 @@
 
 #define DE_MAX_SANE_OBJECT_SIZE 100000000
 
+typedef i32 de_rune; // A Unicode codepoint
+typedef u8 de_colorsample;
+typedef u32 de_color;
+
 enum de_encoding_enum {
 	DE_ENCODING_UNKNOWN = 0,
 	DE_ENCODING_ASCII,
@@ -28,6 +32,7 @@ enum de_encoding_enum {
 	DE_ENCODING_WINDOWS1252,
 	DE_ENCODING_WINDOWS1253,
 	DE_ENCODING_WINDOWS1254,
+	DE_ENCODING_WINDOWS874,
 	DE_ENCODING_CP437,
 	DE_ENCODING_MACROMAN,
 	DE_ENCODING_ATARIST,
@@ -43,8 +48,8 @@ enum de_encoding_enum {
 #define DE_ENCSUBTYPE_PRINTABLE    4
 typedef enum de_encoding_enum de_encoding;
 typedef int de_ext_encoding;
-#define DE_EXTENC_MAKE(b, st) (((int)(b) & 0xff) | ((int)(st)<<8))
-#define DE_EXTENC_GET_BASE(ee) ((int)(ee) & 0xff)
+#define DE_EXTENC_MAKE(b, st) ((de_ext_encoding)(((int)(b) & 0xff) | ((int)(st)<<8)))
+#define DE_EXTENC_GET_BASE(ee) ((de_encoding)((int)(ee) & 0xff))
 #define DE_EXTENC_GET_SUBTYPE(ee) ((int)(ee) >> 8)
 
 #define DE_CODEPOINT_HL          0x0001
@@ -104,7 +109,7 @@ struct de_encconv_state {
 
 struct de_ucstring_struct {
 	deark *c;
-	i32 *str;
+	de_rune *str;
 	i64 len; // len and alloc are measured in characters, not bytes
 	i64 alloc;
 	char *tmp_string;
@@ -260,7 +265,6 @@ struct de_ID3_detection_data {
 // but it can be, provided it's only used as a cache.
 struct de_detection_data_struct {
 	int best_confidence_so_far;
-	u8 has_utf8_bom;
 	u8 is_macbinary;
 	u8 SAUCE_detection_attempted;
 	u8 zip_eocd_looked_for;
@@ -507,10 +511,10 @@ void de_dbg_hexdump(deark *c, dbuf *f, i64 pos1, i64 nbytes_avail,
 void de_hexdump2(deark *c, dbuf *f, i64 pos1, i64 nbytes_avail,
 	i64 max_nbytes_to_dump, unsigned int flags);
 void de_dbg_dimensions(deark *c, i64 w, i64 h);
-void de_dbg_pal_entry(deark *c, i64 idx, u32 clr);
-void de_dbg_pal_entry2(deark *c, i64 idx, u32 clr,
+void de_dbg_pal_entry(deark *c, i64 idx, de_color clr);
+void de_dbg_pal_entry2(deark *c, i64 idx, de_color clr,
 	const char *txt_before, const char *txt_in, const char *txt_after);
-char *de_get_colorsample_code(deark *c, u32 clr, char *csamp,
+char *de_get_colorsample_code(deark *c, de_color clr, char *csamp,
 	size_t csamplen);
 
 const char *de_get_ext_option(deark *c, const char *name);
@@ -629,7 +633,7 @@ int dbuf_read_ascii_number(dbuf *f, i64 pos, i64 fieldsize,
 	int base, i64 *value);
 
 #define DE_GETRGBFLAG_BGR 0x1 // Assume BGR order instead of RGB
-u32 dbuf_getRGB(dbuf *f, i64 pos, unsigned int flags);
+de_color dbuf_getRGB(dbuf *f, i64 pos, unsigned int flags);
 
 // Convert and append encoded bytes from a dbuf to a ucstring.
 // (see also ucstring_append_*)
@@ -774,38 +778,34 @@ void de_bitmap_write_to_file(de_bitmap *img, const char *token, unsigned int cre
 void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi, unsigned int createflags);
 
 void de_bitmap_setsample(de_bitmap *img, i64 x, i64 y,
-	i64 samplenum, u8 v);
+	i64 samplenum, de_colorsample v);
 
-void de_bitmap_setpixel_gray(de_bitmap *img, i64 x, i64 y, u8 v);
+void de_bitmap_setpixel_gray(de_bitmap *img, i64 x, i64 y, de_colorsample v);
+void de_bitmap_setpixel_rgb(de_bitmap *img, i64 x, i64 y, de_color color);
+void de_bitmap_setpixel_rgba(de_bitmap *img, i64 x, i64 y, de_color color);
 
-void de_bitmap_setpixel_rgb(de_bitmap *img, i64 x, i64 y,
-	u32 color);
-
-void de_bitmap_setpixel_rgba(de_bitmap *img, i64 x, i64 y,
-	u32 color);
-
-u32 de_bitmap_getpixel(de_bitmap *img, i64 x, i64 y);
+de_color de_bitmap_getpixel(de_bitmap *img, i64 x, i64 y);
 
 de_bitmap *de_bitmap_create_noinit(deark *c);
 de_bitmap *de_bitmap_create(deark *c, i64 width, i64 height, int bypp);
 
 void de_bitmap_destroy(de_bitmap *b);
 
-#define DE_COLOR_A(x)  (((x)>>24)&0xff)
-#define DE_COLOR_R(x)  (((x)>>16)&0xff)
-#define DE_COLOR_G(x)  (((x)>>8)&0xff)
-#define DE_COLOR_B(x)  ((x)&0xff)
-#define DE_COLOR_K(x)  (((x)>>16)&0xff) // Gray value. Arbitrarily use the Red channel.
+#define DE_COLOR_A(x)  ((de_colorsample)(((x)>>24)&0xff))
+#define DE_COLOR_R(x)  ((de_colorsample)(((x)>>16)&0xff))
+#define DE_COLOR_G(x)  ((de_colorsample)(((x)>>8)&0xff))
+#define DE_COLOR_B(x)  ((de_colorsample)((x)&0xff))
+#define DE_COLOR_K(x)  ((de_colorsample)(((x)>>16)&0xff)) // Gray value. Arbitrarily use the Red channel.
 
-#define DE_STOCKCOLOR_BLACK   0xff000000U
-#define DE_STOCKCOLOR_WHITE   0xffffffffU
-#define DE_STOCKCOLOR_TRANSPARENT 0x00000000U
+#define DE_STOCKCOLOR_BLACK   ((de_color)0xff000000U)
+#define DE_STOCKCOLOR_WHITE   ((de_color)0xffffffffU)
+#define DE_STOCKCOLOR_TRANSPARENT ((de_color)0x00000000U)
 
-#define DE_MAKE_RGBA(r,g,b,a)  ((((u32)(a))<<24)|((r)<<16)|((g)<<8)|(b))
-#define DE_MAKE_RGB(r,g,b)     ((((u32)0xff)<<24)|((r)<<16)|((g)<<8)|(b))
-#define DE_MAKE_GRAY(k)        ((((u32)0xff)<<24)|((k)<<16)|((k)<<8)|(k))
-#define DE_SET_ALPHA(v,a)      (((v)&0x00ffffff)|(((u32)(a))<<24))
-#define DE_MAKE_OPAQUE(v)      (((u32)(v))|0xff000000U)
+#define DE_MAKE_RGBA(r,g,b,a)  ((((de_color)(a))<<24)|((r)<<16)|((g)<<8)|(b))
+#define DE_MAKE_RGB(r,g,b)     ((((de_color)0xff)<<24)|((r)<<16)|((g)<<8)|(b))
+#define DE_MAKE_GRAY(k)        ((((de_color)0xff)<<24)|((k)<<16)|((k)<<8)|(k))
+#define DE_SET_ALPHA(v,a)      (((v)&0x00ffffff)|(((de_color)(a))<<24))
+#define DE_MAKE_OPAQUE(v)      (((de_color)(v))|0xff000000U)
 
 // Return the index'th symbol in the bitmap row beginning at file position rowstart.
 // A symbol has bps bits. bps must be 1, 2, 4, or 8.
@@ -833,12 +833,12 @@ void de_convert_and_write_image_bilevel(dbuf *f, i64 fpos,
 
 void de_read_palette_rgb(dbuf *f,
 	i64 fpos, i64 num_entries, i64 entryspan,
-	u32 *pal, i64 ncolors_in_pal,
+	de_color *pal, i64 ncolors_in_pal,
 	unsigned int flags);
 
 // Utility function that will work for many of the common kinds of paletted images.
 void de_convert_image_paletted(dbuf *f, i64 fpos,
-	i64 bpp, i64 rowspan, const u32 *pal,
+	i64 bpp, i64 rowspan, const de_color *pal,
 	de_bitmap *img, unsigned int flags);
 
 void de_convert_image_rgb(dbuf *f, i64 fpos,
@@ -865,14 +865,14 @@ int de_good_image_dimensions(deark *c, i64 w, i64 h);
 // Test if the number of images is sane. Report an error if not.
 int de_good_image_count(deark *c, i64 n);
 
-int de_is_grayscale_palette(const u32 *pal, i64 num_entries);
+int de_is_grayscale_palette(const de_color *pal, i64 num_entries);
 
 #define DE_BITMAPFLAG_WHITEISTRNS 0x1
 #define DE_BITMAPFLAG_MERGE       0x2
 
 void de_bitmap_rect(de_bitmap *img,
 	i64 xpos, i64 ypos, i64 width, i64 height,
-	u32 clr, unsigned int flags);
+	de_color clr, unsigned int flags);
 void de_bitmap_copy_rect(de_bitmap *srcimg, de_bitmap *dstimg,
 	i64 srcxpos, i64 srcypos, i64 width, i64 height,
 	i64 dstxpos, i64 dstypos, unsigned int flags);
@@ -882,36 +882,36 @@ void de_bitmap_apply_mask(de_bitmap *fg, de_bitmap *mask,
 
 void de_optimize_image_alpha(de_bitmap *img, unsigned int flags);
 
-void de_make_grayscale_palette(u32 *pal, i64 num_entries, unsigned int flags);
+void de_make_grayscale_palette(de_color *pal, i64 num_entries, unsigned int flags);
 
 ///////////////////////////////////////////
 
 char de_get_hexchar(int n);
 u8 de_decode_hex_digit(u8 x, int *errorflag);
 
-u32 de_palette_vga256(int index);
-u32 de_palette_ega64(int index);
-u32 de_palette_pc16(int index);
-u32 de_palette_pcpaint_cga4(int palnum, int index);
+de_color de_palette_vga256(int index);
+de_color de_palette_ega64(int index);
+de_color de_palette_pc16(int index);
+de_color de_palette_pcpaint_cga4(int palnum, int index);
 
 const u8 *de_get_8x8ascii_font_ptr(void);
 const u8 *de_get_vga_cp437_font_ptr(void);
 
-void de_color_to_css(u32 color, char *buf, int buflen);
+void de_color_to_css(de_color color, char *buf, int buflen);
 
 u8 de_sample_nbit_to_8bit(i64 n, unsigned int x);
 u8 de_scale_63_to_255(u8 x);
 u8 de_scale_1000_to_255(i64 x);
 u8 de_scale_n_to_255(i64 n, i64 x);
-u32 de_rgb565_to_888(u32 x);
-u32 de_bgr555_to_888(u32 x);
-u32 de_rgb555_to_888(u32 x);
+de_color de_rgb565_to_888(u32 x);
+de_color de_bgr555_to_888(u32 x);
+de_color de_rgb555_to_888(u32 x);
 
-i32 de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee);
-void de_uchar_to_utf8(i32 u1, u8 *utf8buf, i64 *p_utf8len);
-void dbuf_write_uchar_as_utf8(dbuf *outf, i32 u);
+de_rune de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee);
+void de_uchar_to_utf8(de_rune u1, u8 *utf8buf, i64 *p_utf8len);
+void dbuf_write_uchar_as_utf8(dbuf *outf, de_rune u);
 int de_utf8_to_uchar(const u8 *utf8buf, i64 buflen,
-	i32 *p_uchar, i64 *p_utf8len);
+	de_rune *p_uchar, i64 *p_utf8len);
 int de_is_ascii(const u8 *buf, i64 buflen);
 
 #define DE_CONVFLAG_STOP_AT_NUL 0x1
@@ -947,7 +947,7 @@ void ucstring_truncate(de_ucstring *s, i64 newlen);
 void ucstring_truncate_at_NUL(de_ucstring *s);
 void ucstring_strip_trailing_NUL(de_ucstring *s);
 void ucstring_strip_trailing_spaces(de_ucstring *s);
-void ucstring_append_char(de_ucstring *s, i32 ch);
+void ucstring_append_char(de_ucstring *s, de_rune ch);
 void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2);
 void ucstring_vprintf(de_ucstring *s, de_ext_encoding ee, const char *fmt, va_list ap);
 void ucstring_printf(de_ucstring *s, de_ext_encoding ee, const char *fmt, ...)
@@ -964,7 +964,7 @@ void ucstring_append_bytes_ex(de_ucstring *s, const u8 *buf, i64 buflen,
 void ucstring_append_sz(de_ucstring *s, const char *sz, de_ext_encoding ee);
 
 void ucstring_write_as_utf8(deark *c, de_ucstring *s, dbuf *outf, int add_bom_if_needed);
-int de_is_printable_uchar(i32 ch);
+int de_is_printable_uchar(de_rune ch);
 i64 ucstring_count_utf8_bytes(de_ucstring *s);
 
 // Supported encodings are DE_ENCODING_UTF8, DE_ENCODING_ASCII, DE_ENCODING_LATIN1.
@@ -999,7 +999,7 @@ int de_strarray_pop(struct de_strarray *sa);
 #define DE_MPFLAG_NOTRAILINGSLASH 0x1
 void de_strarray_make_path(struct de_strarray *sa, de_ucstring *path, unsigned int flags);
 
-void de_write_codepoint_to_html(deark *c, dbuf *f, i32 ch);
+void de_write_codepoint_to_html(deark *c, dbuf *f, de_rune ch);
 
 de_encoding de_encoding_name_to_code(const char *encname);
 de_encoding de_windows_codepage_to_encoding(deark *c, int wincodepage,
@@ -1041,7 +1041,7 @@ struct de_bitmap_font_char {
 
 	// If font->has_unicode_codepoints is set, then ->codepoint_unicode
 	// must be set to a Unicode codepoint, or to DE_INVALID_CODEPOINT.
-	i32 codepoint_unicode;
+	de_rune codepoint_unicode;
 
 	int width, height;
 	int v_offset; // Used if the glyphs do not all have the same height
@@ -1080,10 +1080,10 @@ void de_destroy_bitmap_font(deark *c, struct de_bitmap_font *font);
 #define DE_PAINTFLAG_BOTTOMHALF 0x20
 void de_font_paint_character_idx(deark *c, de_bitmap *img,
 	struct de_bitmap_font *font, i64 char_idx,
-	i64 xpos, i64 ypos, u32 fgcol, u32 bgcol, unsigned int flags);
+	i64 xpos, i64 ypos, de_color fgcol, de_color bgcol, unsigned int flags);
 void de_font_paint_character_cp(deark *c, de_bitmap *img,
 	struct de_bitmap_font *font, i32 codepoint,
-	i64 xpos, i64 ypos, u32 fgcol, u32 bgcol, unsigned int flags);
+	i64 xpos, i64 ypos, de_color fgcol, de_color bgcol, unsigned int flags);
 
 void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finfo *fi, unsigned int createflags);
 int de_font_is_standard_vga_font(deark *c, u32 crc);
@@ -1094,13 +1094,13 @@ int de_font_is_standard_vga_font(deark *c, u32 crc);
 // It should not contain pointers.
 struct de_char_cell {
 	i32 codepoint;
-	i32 codepoint_unicode;
+	de_rune codepoint_unicode;
 	// The color fields are interpreted as follows:
 	//  A color value <=0x0000000f is a palette index.
 	//  A color value >=0xff000000 is an RGB color, e.g. from DE_MAKE_RGB().
 #define DE_IS_PAL_COLOR(x) ((u32)(x)<=0xfU)
-	u32 fgcol;
-	u32 bgcol;
+	de_color fgcol;
+	de_color bgcol;
 	u8 underline;
 	u8 strikethru;
 	u8 blink;
@@ -1122,7 +1122,7 @@ struct de_char_context {
 	int outfmt;
 	i64 nscreens;
 	struct de_char_screen **screens; // Array of [nscreens] screens
-	u32 pal[16];
+	de_color pal[16];
 	struct de_bitmap_font *font; // Optional
 	de_ucstring *title;
 	de_ucstring *artist;
