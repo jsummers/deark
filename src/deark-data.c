@@ -36,6 +36,10 @@ u8 de_decode_hex_digit(u8 x, int *errorflag)
 	return 0;
 }
 
+struct ext_ascii_pvt_data {
+	const u16 *tbl; // array[128]
+};
+
 static const u16 cp437table[256] = {
 	0x00a0,0x263a,0x263b,0x2665,0x2666,0x2663,0x2660,0x2022,0x25d8,0x25cb,0x25d9,0x2642,0x2640,0x266a,0x266b,0x263c,
 	0x25ba,0x25c4,0x2195,0x203c,0x00b6,0x00a7,0x25ac,0x21a8,0x2191,0x2193,0x2192,0x2190,0x221f,0x2194,0x25b2,0x25bc,
@@ -70,6 +74,7 @@ static const u16 windows1250table[128] = {
 	0x0155,0x00e1,0x00e2,0x0103,0x00e4,0x013a,0x0107,0x00e7,0x010d,0x00e9,0x0119,0x00eb,0x011b,0x00ed,0x00ee,0x010f,
 	0x0111,0x0144,0x0148,0x00f3,0x00f4,0x0151,0x00f6,0x00f7,0x0159,0x016f,0x00fa,0x0171,0x00fc,0x00fd,0x0163,0x02d9
 };
+static const struct ext_ascii_pvt_data windows1250_pvt_data = { windows1250table };
 
 static const u16 windows1251table[128] = {
 	0x0402,0x0403,0x201a,0x0453,0x201e,0x2026,0x2020,0x2021,0x20ac,0x2030,0x0409,0x2039,0x040a,0x040c,0x040b,0x040f,
@@ -81,6 +86,7 @@ static const u16 windows1251table[128] = {
 	0x0430,0x0431,0x0432,0x0433,0x0434,0x0435,0x0436,0x0437,0x0438,0x0439,0x043a,0x043b,0x043c,0x043d,0x043e,0x043f,
 	0x0440,0x0441,0x0442,0x0443,0x0444,0x0445,0x0446,0x0447,0x0448,0x0449,0x044a,0x044b,0x044c,0x044d,0x044e,0x044f
 };
+static const struct ext_ascii_pvt_data windows1251_pvt_data = { windows1251table };
 
 static const u16 windows1252table[32] = {
 	0x20ac,0xffff,0x201a,0x0192,0x201e,0x2026,0x2020,0x2021,0x02c6,0x2030,0x0160,0x2039,0x0152,0xffff,0x017d,0xffff,
@@ -97,6 +103,7 @@ static const u16 windows1253table[128] = {
 	0x03b0,0x03b1,0x03b2,0x03b3,0x03b4,0x03b5,0x03b6,0x03b7,0x03b8,0x03b9,0x03ba,0x03bb,0x03bc,0x03bd,0x03be,0x03bf,
 	0x03c0,0x03c1,0x03c2,0x03c3,0x03c4,0x03c5,0x03c6,0x03c7,0x03c8,0x03c9,0x03ca,0x03cb,0x03cc,0x03cd,0x03ce,0xffff
 };
+static const struct ext_ascii_pvt_data windows1253_pvt_data = { windows1253table };
 
 static const u16 windows1254table[128] = {
 	0x20ac,0xffff,0x201a,0x0192,0x201e,0x2026,0x2020,0x2021,0x02c6,0x2030,0x0160,0x2039,0x0152,0xffff,0xffff,0xffff,
@@ -108,6 +115,7 @@ static const u16 windows1254table[128] = {
 	0x00e0,0x00e1,0x00e2,0x00e3,0x00e4,0x00e5,0x00e6,0x00e7,0x00e8,0x00e9,0x00ea,0x00eb,0x00ec,0x00ed,0x00ee,0x00ef,
 	0x011f,0x00f1,0x00f2,0x00f3,0x00f4,0x00f5,0x00f6,0x00f7,0x00f8,0x00f9,0x00fa,0x00fb,0x00fc,0x0131,0x015f,0x00ff
 };
+static const struct ext_ascii_pvt_data windows1254_pvt_data = { windows1254table };
 
 static const i32 atarist_table_lo[32] = { // [0..31]
 	 0x0000, 0x21e7, 0x21e9, 0x21e8, 0x21e6,0x1fbbd,0x1fbbe,0x1fbbf,
@@ -146,6 +154,7 @@ static const u16 macromantable[128] = {
 	0x2021,0x00b7,0x201a,0x201e,0x2030,0x00c2,0x00ca,0x00c1,0x00cb,0x00c8,0x00cd,0x00ce,0x00cf,0x00cc,0x00d3,0x00d4,
 	0xf8ff,0x00d2,0x00da,0x00db,0x00d9,0x0131,0x02c6,0x02dc,0x00af,0x02d8,0x02d9,0x02da,0x00b8,0x02dd,0x02db,0x02c7
 };
+static const struct ext_ascii_pvt_data macroman_pvt_data = { macromantable };
 
 // Note: This is not an official or canonical mapping.
 static const i32 petscii1table[256] = {
@@ -174,58 +183,58 @@ static const u16 decspecialgraphicstable[32] = {
 };
 
 // Code page 437, with screen code graphics characters.
-static i32 de_cp437g_to_unicode(i32 a)
+static de_rune de_cp437g_to_unicode(struct de_encconv_state *es, i32 a)
 {
-	i32 n;
-	if(a<=0xff) n = (i32)cp437table[a];
+	de_rune n;
+	if(a<=0xff) n = (de_rune)cp437table[a];
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
 // Code page 437, with control characters.
-static i32 de_cp437c_to_unicode(i32 a)
+static de_rune de_cp437c_to_unicode(struct de_encconv_state *es, i32 a)
 {
-	i32 n;
+	de_rune n;
 	if(a<=0x7f) n = a;
-	else if(a>=0x80 && a<=0xff) n = (i32)cp437table[a];
+	else if(a>=0x80 && a<=0xff) n = (de_rune)cp437table[a];
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
 // Code page 437, with only selected control characters.
-static i32 de_cp437h_to_unicode(i32 a)
+static de_rune de_cp437h_to_unicode(struct de_encconv_state *es, i32 a)
 {
-	i32 n;
+	de_rune n;
 
 	if(a==0 || a==9 || a==10 || a==13) n = a;
-	else n = de_cp437g_to_unicode(a);
+	else n = de_cp437g_to_unicode(NULL, a);
 	return n;
 }
 
-static i32 de_latin2_to_unicode(i32 a)
+static de_rune de_latin2_to_unicode(struct de_encconv_state *es, i32 a)
 {
-	i32 n;
+	de_rune n;
 	if(a<=0x9f) n = a;
-	else if(a>=0xa0 && a<=0xbf) n = (i32)latin2table[a-0xa0];
-	else if(a>=0x0c0 && a<=0xff) n = (i32)windows1250table[a-0x80];
+	else if(a>=0xa0 && a<=0xbf) n = (de_rune)latin2table[a-0xa0];
+	else if(a>=0x0c0 && a<=0xff) n = (de_rune)windows1250table[a-0x80];
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
-static i32 de_windows1252_to_unicode(i32 a)
+static de_rune de_windows1252_to_unicode(struct de_encconv_state *es, i32 a)
 {
-	i32 n;
-	if(a>=0x80 && a<=0x9f) n = (i32)windows1252table[a-0x80];
+	de_rune n;
+	if(a>=0x80 && a<=0x9f) n = (de_rune)windows1252table[a-0x80];
 	else if(a<=0xff) n = a;
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
-static de_rune de_windows874_to_unicode(i32 a)
+static de_rune de_windows874_to_unicode(struct de_encconv_state *es, i32 a)
 {
 	de_rune n = 0xffff;
 	if(a<=0x7f || a==0xa0) n = a;
@@ -235,118 +244,166 @@ static de_rune de_windows874_to_unicode(i32 a)
 	return n;
 }
 
-static i32 de_atarist_to_unicode(i32 a)
+static de_rune de_atarist_to_unicode(struct de_encconv_state *es, i32 a)
 {
-	i32 n;
+	de_rune n;
 	if(a<=0x1f) n = atarist_table_lo[a];
-	else if(a>=0xb0 && a<=0xff) n = (i32)atarist_table_hi[a-0xb0];
+	else if(a>=0xb0 && a<=0xff) n = (de_rune)atarist_table_hi[a-0xb0];
 	else if(a==0x7f) n = 0x0394;
 	else if(a==0x9e) n = 0x00df;
-	else n = de_cp437g_to_unicode(a);
+	else n = de_cp437g_to_unicode(NULL, a);
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
-static i32 de_palmcs_to_unicode(i32 a)
+static de_rune de_palmcs_to_unicode(struct de_encconv_state *es, i32 a)
 {
-	i32 n;
+	de_rune n;
 	// This is not perfect, but the diamond/club/heart/spade characters seem to
 	// be about the only printable characters common to all versions of this
 	// encoding, that differ from Windows-1252.
-	if(a>=0x8d && a<=0x90) n = (i32)palmcstable[a-0x8d];
-	else n = de_windows1252_to_unicode(a);
+	if(a>=0x8d && a<=0x90) n = (de_rune)palmcstable[a-0x8d];
+	else n = de_windows1252_to_unicode(NULL, a);
 	return n;
 }
 
-static i32 de_riscos_to_unicode(i32 a)
+static de_rune de_riscos_to_unicode(struct de_encconv_state *es, i32 a)
 {
-	i32 n;
-	if(a>=0x80 && a<=0x9f) n = (i32)riscostable[a-0x80];
+	de_rune n;
+	if(a>=0x80 && a<=0x9f) n = (de_rune)riscostable[a-0x80];
 	else if(a<=0xff) n = a;
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
-static i32 de_petscii_to_unicode(i32 a)
+static de_rune de_petscii_to_unicode(struct de_encconv_state *es, i32 a)
 {
-	i32 n;
+	de_rune n;
 	if(a<=0xff) n = petscii1table[a];
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
-static i32 de_decspecialgraphics_to_unicode(i32 a)
+static de_rune de_decspecialgraphics_to_unicode(struct de_encconv_state *es, i32 a)
 {
-	i32 n;
-	if(a>=95 && a<=126) n = (i32)decspecialgraphicstable[a-95];
+	de_rune n;
+	if(a>=95 && a<=126) n = (de_rune)decspecialgraphicstable[a-95];
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
 // For any charset that uses 128 ASCII chars + 128 custom chars.
-static i32 de_ext_ascii_to_unicode(const u16 tbl[128], i32 a)
+static de_rune de_ext_ascii_to_unicode(struct de_encconv_state *es, i32 a)
 {
-	i32 n;
+	de_rune n;
+
 	if(a<=0x7f) n = a;
-	else if(a>=0x80 && a<=0xff) n = (i32)tbl[a-0x80];
+	else if(a>=0x80 && a<=0xff) n = (de_rune)((struct ext_ascii_pvt_data*)es->fn_pvt_data)->tbl[a-0x80];
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
-de_rune de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee)
+void de_encconv_init(struct de_encconv_state *es, de_ext_encoding ee)
+{
+	de_encoding enc = DE_EXTENC_GET_BASE(ee);
+
+	de_zeromem(es, sizeof(struct de_encconv_state));
+	es->ee = ee;
+
+	if(enc==DE_ENCODING_LATIN1 || enc==DE_ENCODING_ASCII) return;
+
+	switch(enc) {
+	case DE_ENCODING_LATIN2:
+		es->fn = de_latin2_to_unicode;
+		break;
+	case DE_ENCODING_CP437:
+		switch(DE_EXTENC_GET_SUBTYPE(es->ee)) {
+		case DE_ENCSUBTYPE_CONTROLS:
+			es->fn = de_cp437c_to_unicode;
+			break;
+		case DE_ENCSUBTYPE_HYBRID:
+			es->fn = de_cp437h_to_unicode;
+			break;
+		default:
+			es->fn = de_cp437g_to_unicode;
+		}
+		break;
+	case DE_ENCODING_PETSCII:
+		es->fn = de_petscii_to_unicode;
+		break;
+	case DE_ENCODING_WINDOWS1252:
+		es->fn = de_windows1252_to_unicode;
+		break;
+	case DE_ENCODING_MACROMAN:
+		es->fn = de_ext_ascii_to_unicode;
+		es->fn_pvt_data = (const void*)&macroman_pvt_data;
+		break;
+	case DE_ENCODING_WINDOWS1250:
+		es->fn = de_ext_ascii_to_unicode;
+		es->fn_pvt_data = (const void*)&windows1250_pvt_data;
+		break;
+	case DE_ENCODING_WINDOWS1251:
+		es->fn = de_ext_ascii_to_unicode;
+		es->fn_pvt_data = (const void*)&windows1251_pvt_data;
+		break;
+	case DE_ENCODING_WINDOWS1253:
+		es->fn = de_ext_ascii_to_unicode;
+		es->fn_pvt_data = (const void*)&windows1253_pvt_data;
+		break;
+	case DE_ENCODING_WINDOWS1254:
+		es->fn = de_ext_ascii_to_unicode;
+		es->fn_pvt_data = (const void*)&windows1254_pvt_data;
+		break;
+	case DE_ENCODING_WINDOWS874:
+		es->fn = de_windows874_to_unicode;
+		break;
+	case DE_ENCODING_ATARIST:
+		es->fn = de_atarist_to_unicode;
+		break;
+	case DE_ENCODING_PALM:
+		es->fn = de_palmcs_to_unicode;
+		break;
+	case DE_ENCODING_RISCOS:
+		es->fn = de_riscos_to_unicode;
+		break;
+	case DE_ENCODING_DEC_SPECIAL_GRAPHICS:
+		es->fn = de_decspecialgraphics_to_unicode;
+	default:
+		break;
+	}
+}
+
+de_rune de_char_to_unicode_ex(i32 a, struct de_encconv_state *es)
 {
 	if(a<0) return DE_CODEPOINT_INVALID;
+	if(es->fn) {
+		return es->fn(es, a);
+	}
 
-	switch(DE_EXTENC_GET_BASE(ee)) {
+	switch(DE_EXTENC_GET_BASE(es->ee)) {
 	case DE_ENCODING_ASCII:
-		if(DE_EXTENC_GET_SUBTYPE(ee)==DE_ENCSUBTYPE_PRINTABLE) {
+		if(DE_EXTENC_GET_SUBTYPE(es->ee)==DE_ENCSUBTYPE_PRINTABLE) {
 			return (a>=32 && a<=126)?a:DE_CODEPOINT_INVALID;
 		}
 		return (a<128)?a:DE_CODEPOINT_INVALID;
 	case DE_ENCODING_LATIN1:
 		return (a<256)?a:DE_CODEPOINT_INVALID;
-	case DE_ENCODING_LATIN2:
-		return de_latin2_to_unicode(a);
-	case DE_ENCODING_CP437:
-		switch(DE_EXTENC_GET_SUBTYPE(ee)) {
-		case DE_ENCSUBTYPE_CONTROLS:
-			return de_cp437c_to_unicode(a);
-		case DE_ENCSUBTYPE_HYBRID:
-			return de_cp437h_to_unicode(a);
-		}
-		return de_cp437g_to_unicode(a);
-	case DE_ENCODING_PETSCII:
-		return de_petscii_to_unicode(a);
-	case DE_ENCODING_WINDOWS1252:
-		return de_windows1252_to_unicode(a);
-	case DE_ENCODING_MACROMAN:
-		return de_ext_ascii_to_unicode(macromantable, a);
-	case DE_ENCODING_WINDOWS1250:
-		return de_ext_ascii_to_unicode(windows1250table, a);
-	case DE_ENCODING_WINDOWS1251:
-		return de_ext_ascii_to_unicode(windows1251table, a);
-	case DE_ENCODING_WINDOWS1253:
-		return de_ext_ascii_to_unicode(windows1253table, a);
-	case DE_ENCODING_WINDOWS1254:
-		return de_ext_ascii_to_unicode(windows1254table, a);
-	case DE_ENCODING_WINDOWS874:
-		return de_windows874_to_unicode(a);
-	case DE_ENCODING_ATARIST:
-		return de_atarist_to_unicode(a);
-	case DE_ENCODING_PALM:
-		return de_palmcs_to_unicode(a);
-	case DE_ENCODING_RISCOS:
-		return de_riscos_to_unicode(a);
-	case DE_ENCODING_DEC_SPECIAL_GRAPHICS:
-		return de_decspecialgraphics_to_unicode(a);
 	default:
 		break;
 	}
 	return a;
+}
+
+de_rune de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee)
+{
+	struct de_encconv_state es;
+
+	de_encconv_init(&es, ee);
+	return de_char_to_unicode_ex(a, &es);
 }
 
 // Encode a Unicode char in UTF-8.

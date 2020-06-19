@@ -102,8 +102,12 @@ struct deark_module_info {
 };
 typedef void (*de_module_getinfo_fn)(deark *c, struct deark_module_info *mi);
 
+struct de_encconv_state;
+typedef de_rune (*de_encconv_fn)(struct de_encconv_state *es, i32 a);
 struct de_encconv_state {
 	de_ext_encoding ee;
+	de_encconv_fn fn;
+	const void *fn_pvt_data;
 	u8 buf[8];
 };
 
@@ -907,6 +911,8 @@ de_color de_rgb565_to_888(u32 x);
 de_color de_bgr555_to_888(u32 x);
 de_color de_rgb555_to_888(u32 x);
 
+void de_encconv_init(struct de_encconv_state *es, de_ext_encoding ee);
+de_rune de_char_to_unicode_ex(i32 a, struct de_encconv_state *es);
 de_rune de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee);
 void de_uchar_to_utf8(de_rune u1, u8 *utf8buf, i64 *p_utf8len);
 void dbuf_write_uchar_as_utf8(dbuf *outf, de_rune u);
@@ -983,8 +989,6 @@ const char *ucstring_getpsz_n(de_ucstring *s, i64 max_bytes);
 #define DE_DBG_MAX_STRLEN 500
 // Same as ..._n, with max_bytes=DE_DBG_MAX_STRLEN
 const char *ucstring_getpsz_d(de_ucstring *s);
-
-void de_encconv_init(struct de_encconv_state *es, de_ext_encoding ee);
 
 // Helper functions for printing the contents of bit-flags fields
 void ucstring_append_flags_item(de_ucstring *s, const char *str);
