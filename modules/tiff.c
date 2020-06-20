@@ -380,7 +380,7 @@ static int read_tag_value_as_int64(deark *c, lctx *d, const struct taginfo *tg,
 static void format_double(de_ucstring *s, double val)
 {
 	// TODO: Formatting should be more intelligent
-	ucstring_printf(s, DE_ENCODING_ASCII, "%f", val);
+	ucstring_printf(s, DE_ENCODING_LATIN1, "%f", val);
 }
 
 struct numeric_value {
@@ -422,9 +422,9 @@ static void read_numeric_value(deark *c, lctx *d, const struct taginfo *tg,
 		nv->isvalid = ret;
 		if(dbgline) {
 			if(nv->isvalid)
-				ucstring_printf(dbgline, DE_ENCODING_UTF8, "%" I64_FMT, nv->val_int64);
+				ucstring_printf(dbgline, DE_ENCODING_LATIN1, "%" I64_FMT, nv->val_int64);
 			else
-				ucstring_append_sz(dbgline, "?", DE_ENCODING_UTF8);
+				ucstring_append_sz(dbgline, "?", DE_ENCODING_LATIN1);
 		}
 		break;
 
@@ -447,7 +447,7 @@ static void read_numeric_value(deark *c, lctx *d, const struct taginfo *tg,
 				nv->val_double = 0.0;
 				nv->val_int64 = 0;
 				if(dbgline) {
-					ucstring_printf(dbgline, DE_ENCODING_UTF8, "%" I64_FMT "/%" I64_FMT, num, den);
+					ucstring_printf(dbgline, DE_ENCODING_LATIN1, "%" I64_FMT "/%" I64_FMT, num, den);
 				}
 
 			}
@@ -479,7 +479,7 @@ static void read_numeric_value(deark *c, lctx *d, const struct taginfo *tg,
 
 	default:
 		if(dbgline) {
-			ucstring_append_sz(dbgline, "?", DE_ENCODING_UTF8);
+			ucstring_append_sz(dbgline, "?", DE_ENCODING_LATIN1);
 		}
 	}
 }
@@ -589,7 +589,7 @@ static int lookup_str_and_append_to_ucstring(const struct int_and_str *items, si
 			return 1;
 		}
 	}
-	ucstring_append_sz(s, "?", DE_ENCODING_UTF8);
+	ucstring_append_sz(s, "?", DE_ENCODING_LATIN1);
 	return 0;
 }
 
@@ -743,15 +743,15 @@ static int valdec_resolutionunit(deark *c, const struct valdec_params *vp, struc
 static int valdec_pagenumber(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	if(vp->idx==0) {
-		ucstring_printf(vr->s, DE_ENCODING_UTF8, "page %d", (int)(vp->n+1));
+		ucstring_printf(vr->s, DE_ENCODING_LATIN1, "page %d", (int)(vp->n+1));
 		return 1;
 	}
 	if(vp->idx==1) {
 		if(vp->n==0) {
-			ucstring_append_sz(vr->s, "of an unknown number", DE_ENCODING_UTF8);
+			ucstring_append_sz(vr->s, "of an unknown number", DE_ENCODING_LATIN1);
 		}
 		else {
-			ucstring_printf(vr->s, DE_ENCODING_UTF8, "of %d", (int)vp->n);
+			ucstring_printf(vr->s, DE_ENCODING_LATIN1, "of %d", (int)vp->n);
 		}
 		return 1;
 	}
@@ -2242,7 +2242,7 @@ static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo 
 		goto done; // Not a supported numeric datatype
 	}
 
-	ucstring_append_sz(dbgline, " {", DE_ENCODING_UTF8);
+	ucstring_append_sz(dbgline, " {", DE_ENCODING_LATIN1);
 
 	// Populate the fields of vp/vr that don't change.
 	vp.d = d;
@@ -2260,20 +2260,20 @@ static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo 
 			ucstring_empty(vr.s);
 
 			if(tni->vdfn(c, &vp, &vr)) {
-				ucstring_append_sz(dbgline, "(=", DE_ENCODING_UTF8);
+				ucstring_append_sz(dbgline, "(=", DE_ENCODING_LATIN1);
 				ucstring_append_ucstring(dbgline, vr.s);
-				ucstring_append_sz(dbgline, ")", DE_ENCODING_UTF8);
+				ucstring_append_sz(dbgline, ")", DE_ENCODING_LATIN1);
 			}
 		}
 
 		if(i<tg->valcount-1) {
-			ucstring_append_sz(dbgline, ",", DE_ENCODING_UTF8);
+			ucstring_append_sz(dbgline, ",", DE_ENCODING_LATIN1);
 		}
 	}
 	if(tg->valcount>DE_TIFF_MAX_VALUES_TO_PRINT) {
-		ucstring_append_sz(dbgline, "...", DE_ENCODING_UTF8);
+		ucstring_append_sz(dbgline, "...", DE_ENCODING_LATIN1);
 	}
-	ucstring_append_sz(dbgline, "}", DE_ENCODING_UTF8);
+	ucstring_append_sz(dbgline, "}", DE_ENCODING_LATIN1);
 done:
 	if(vr.s) ucstring_destroy(vr.s);
 }
@@ -2312,10 +2312,10 @@ static void do_dbg_print_text_multi_values(deark *c, lctx *d, const struct tagin
 		srd = dbuf_read_string(c->infile, pos, endpos-pos, endpos-pos,
 			DE_CONVFLAG_STOP_AT_NUL, d->current_textfield_encoding);
 
-		if(str_count>0) ucstring_append_sz(dbgline, ",", DE_ENCODING_UTF8);
-		ucstring_append_sz(dbgline, "\"", DE_ENCODING_UTF8);
+		if(str_count>0) ucstring_append_sz(dbgline, ",", DE_ENCODING_LATIN1);
+		ucstring_append_sz(dbgline, "\"", DE_ENCODING_LATIN1);
 		ucstring_append_ucstring(dbgline, srd->str);
-		ucstring_append_sz(dbgline, "\"", DE_ENCODING_UTF8);
+		ucstring_append_sz(dbgline, "\"", DE_ENCODING_LATIN1);
 		str_count++;
 
 		pos += srd->bytes_consumed;

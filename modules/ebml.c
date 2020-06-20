@@ -454,7 +454,7 @@ static void print_encoded_id(deark *c, lctx *d, i64 pos, i64 len)
 	if(len>8) return;
 	s = ucstring_create(c);
 	for(i=0; i<len; i++) {
-		ucstring_printf(s, DE_ENCODING_UTF8, "[%02x]",
+		ucstring_printf(s, DE_ENCODING_LATIN1, "[%02x]",
 			(unsigned int)de_getbyte(pos+i));
 	}
 	de_dbg(c, "encoded id: %s", ucstring_getpsz_d(s));

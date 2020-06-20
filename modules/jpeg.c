@@ -609,7 +609,7 @@ static void finalize_fpxr_stream(deark *c, lctx *d, struct fpxr_entity_struct *f
 	if(name2->len>0) {
 		ucstring_append_char(name2, '.');
 	}
-	ucstring_append_sz(name2, "fpxr.bin", DE_ENCODING_UTF8);
+	ucstring_append_sz(name2, "fpxr.bin", DE_ENCODING_LATIN1);
 	de_finfo_set_name_from_ucstring(c, fi, name2, 0);
 
 	outf = dbuf_create_output_file(c, NULL, fi, DE_CREATEFLAG_IS_AUX);
@@ -1758,8 +1758,8 @@ static void print_summary(deark *c, lctx *d)
 		// The subsampling type code printed here is not the standard way to denote
 		// subsampling, but the standard notation is incomprehensible, and doesn't
 		// cover all the possible cases.
-		ucstring_printf(summary, DE_ENCODING_UTF8, " subsampling=%s",
-			ucstring_getpsz(d->sampling_code));
+		ucstring_append_sz(summary, " subsampling=", DE_ENCODING_LATIN1);
+		ucstring_append_ucstring(summary, d->sampling_code);
 	}
 	ucstring_printf(summary, DE_ENCODING_LATIN1, " bits=%d", (int)d->precision);
 

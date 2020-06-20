@@ -148,11 +148,11 @@ static int read_filename(deark *c, lctx *d, struct page_ctx *pg, i64 pos1, i64 *
 
 	if(c->filenames_from_file) {
 		pg->fname = ucstring_clone(fname_orig);
-		ucstring_append_sz(pg->fname, ".thumb.", DE_ENCODING_ASCII);
+		ucstring_append_sz(pg->fname, ".thumb.", DE_ENCODING_LATIN1);
 		if(d->ver_major>=2)
-			ucstring_append_sz(pg->fname, "jpg", DE_ENCODING_ASCII);
+			ucstring_append_sz(pg->fname, "jpg", DE_ENCODING_LATIN1);
 		else
-			ucstring_append_sz(pg->fname, "bmp", DE_ENCODING_ASCII);
+			ucstring_append_sz(pg->fname, "bmp", DE_ENCODING_LATIN1);
 		de_finfo_set_name_from_ucstring(c, pg->fi, pg->fname, 0);
 		pg->fi->original_filename_flag = 1;
 	}

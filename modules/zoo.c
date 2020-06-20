@@ -375,7 +375,7 @@ done_with_header:
 	if(ucstring_isnonempty(longname) || ucstring_isnonempty(shortname)) {
 		if(ucstring_isnonempty(dirname)) {
 			ucstring_append_ucstring(md->fullname, dirname);
-			ucstring_append_sz(md->fullname, "/", DE_ENCODING_ASCII);
+			ucstring_append_sz(md->fullname, "/", DE_ENCODING_LATIN1);
 		}
 		if(ucstring_isnonempty(longname)) {
 			ucstring_append_ucstring(md->fullname, longname);

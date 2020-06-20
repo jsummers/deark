@@ -719,7 +719,7 @@ static void do_extract_stream_to_file_thumbsdb(deark *c, lctx *d, struct dir_ent
 		}
 		else ext = "bin";
 
-		ucstring_printf(tmpfn, DE_ENCODING_ASCII, ".thumb.%s", ext);
+		ucstring_printf(tmpfn, DE_ENCODING_LATIN1, ".thumb.%s", ext);
 	}
 	else {
 		de_warn(c, "Unidentified Thumbs.db stream \"%s\"",
@@ -1297,7 +1297,7 @@ static void do_mark_dir_entries_recursively(deark *c, lctx *d, i32 parent_id,
 		dei->path = ucstring_create(c);
 		if(parent_id>0 && d->dir_entry[parent_id].path) {
 			ucstring_append_ucstring(dei->path, d->dir_entry[parent_id].path);
-			ucstring_append_sz(dei->path, "/", DE_ENCODING_ASCII);
+			ucstring_append_sz(dei->path, "/", DE_ENCODING_LATIN1);
 		}
 		ucstring_append_ucstring(dei->path, dei->fname_srd->str);
 	}
@@ -1496,7 +1496,7 @@ static void do_process_stream(deark *c, lctx *d, struct dir_entry_info *dei)
 
 	if(dei->parent_id>0 && d->dir_entry[dei->parent_id].path) {
 		ucstring_append_ucstring(fn_raw, d->dir_entry[dei->parent_id].path);
-		ucstring_append_sz(fn_raw, "/", DE_ENCODING_ASCII);
+		ucstring_append_sz(fn_raw, "/", DE_ENCODING_LATIN1);
 	}
 
 	ucstring_append_ucstring(fn_raw, dei->fname_srd->str);

@@ -75,7 +75,7 @@ static void set_resource_filename(deark *c, lctx *d, de_finfo *fi,
 		ucstring_append_sz(tmpname, token, DE_ENCODING_LATIN1);
 	}
 	else {
-		ucstring_append_sz(tmpname, rti->fcc.id_sanitized_sz, DE_ENCODING_ASCII);
+		ucstring_append_sz(tmpname, rti->fcc.id_sanitized_sz, DE_ENCODING_LATIN1);
 	}
 	de_finfo_set_name_from_ucstring(c, fi, tmpname, 0);
 	ucstring_destroy(tmpname);
@@ -450,7 +450,7 @@ static void extract_raw_rsrc(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	fi = de_finfo_create(c);
 	s = ucstring_create(c);
 
-	ucstring_append_sz(s, rti->fcc.id_sanitized_sz, DE_ENCODING_ASCII);
+	ucstring_append_sz(s, rti->fcc.id_sanitized_sz, DE_ENCODING_LATIN1);
 	ucstring_strip_trailing_spaces(s);
 	if(rii->attribs&0x01) {
 		ucstring_append_sz(s, ".cmpr", DE_ENCODING_LATIN1);

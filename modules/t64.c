@@ -52,7 +52,7 @@ static void do_extract_file(deark *c, lctx *d, i64 dir_pos,
 	dbuf_read_to_ucstring(c->infile, fnpos, fname_len, fname, 0, DE_ENCODING_PETSCII);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz(fname));
 
-	ucstring_append_sz(fname, ".prg", DE_ENCODING_ASCII);
+	ucstring_append_sz(fname, ".prg", DE_ENCODING_LATIN1);
 
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_ucstring(c, fi, fname, 0);
