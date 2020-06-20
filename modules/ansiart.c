@@ -69,6 +69,9 @@ typedef struct localctx_struct {
 	u8 support_9b_csi;
 	u8 vt100_mode;
 
+	struct de_encconv_state es_main;
+	struct de_encconv_state es_dec_special_gr;
+
 	u8 param_string_buf[100];
 
 	struct parse_results_struct parse_results;
@@ -123,7 +126,7 @@ static i32 ansi_char_to_unicode(deark *c, lctx *d, u8 ch)
 
 	if(cs==CHARSET_LINEDRAWING) {
 		if(ch>=95 && ch<=126) {
-			u = de_char_to_unicode(c, (i32)ch, DE_ENCODING_DEC_SPECIAL_GRAPHICS);
+			u = de_char_to_unicode_ex((i32)ch, &d->es_dec_special_gr);
 			return u;
 		}
 	}
@@ -132,7 +135,7 @@ static i32 ansi_char_to_unicode(deark *c, lctx *d, u8 ch)
 		if(ch=='#') return 0x00a3;
 	}
 
-	u = de_char_to_unicode(c, (i32)ch, DE_ENCODING_CP437_G);
+	u = de_char_to_unicode_ex((i32)ch, &d->es_main);
 	return u;
 }
 
@@ -979,6 +982,9 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	if(s) {
 		width_req = de_atoi(s);
 	}
+
+	de_encconv_init(&d->es_main, DE_ENCODING_CP437_G);
+	de_encconv_init(&d->es_dec_special_gr, DE_ENCODING_DEC_SPECIAL_GRAPHICS);
 
 	d->effective_file_size = c->infile->len;
 

@@ -196,6 +196,7 @@ void de_module_plaintext(deark *c, struct deark_module_info *mi)
 
 struct cp437ctx_struct {
 	dbuf *outf;
+	struct de_encconv_state es;
 };
 
 static int cp437_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
@@ -220,7 +221,7 @@ static int cp437_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 			u = 0x2404;
 		}
 		else {
-			u = de_char_to_unicode(brctx->c, (i32)ch, DE_ENCODING_CP437_G);
+			u = de_char_to_unicode_ex((i32)ch, &cp437ctx->es);
 		}
 		dbuf_write_uchar_as_utf8(cp437ctx->outf, u);
 	}
@@ -233,6 +234,7 @@ static void de_run_cp437(deark *c, de_module_params *mparams)
 	struct cp437ctx_struct cp437ctx;
 
 	cp437ctx.outf = dbuf_create_output_file(c, "txt", NULL, 0);
+	de_encconv_init(&cp437ctx.es, DE_ENCODING_CP437_G);
 	if(c->write_bom) {
 		dbuf_write_uchar_as_utf8(cp437ctx.outf, 0xfeff);
 	}
@@ -356,13 +358,15 @@ static void de_run_bytefreq(deark *c, de_module_params *mparams)
 	struct bytefreqctx_struct *bfctx = NULL;
 	de_ucstring *s = NULL;
 	unsigned int k;
-	int input_encoding;
+	de_encoding input_encoding;
+	struct de_encconv_state es;
 
 	bfctx = de_malloc(c, sizeof(struct bytefreqctx_struct));
 	input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 	if(input_encoding==DE_ENCODING_UTF8) {
 		input_encoding=DE_ENCODING_ASCII;
 	}
+	de_encconv_init(&es, input_encoding);
 
 	dbuf_buffered_read(c->infile, 0, c->infile->len, bytefreq_cbfn, (void*)bfctx);
 
@@ -379,7 +383,7 @@ static void de_run_bytefreq(deark *c, de_module_params *mparams)
 
 		ucstring_printf(s, DE_ENCODING_LATIN1, "%3u 0x%02x ", k, k);
 
-		ch = de_char_to_unicode(c, (i32)k, input_encoding);
+		ch = de_char_to_unicode_ex((i32)k, &es);
 		if(ch==DE_CODEPOINT_INVALID) {
 			cflag = 0;
 		}
@@ -1068,7 +1072,7 @@ static void de_run_lss16(deark *c, de_module_params *mparams)
 			run_len = (i64)lss16_get_nibble(c, d);
 			if(run_len==0) {
 				run_len = lss16_get_nibble(c, d);
-				run_len |= (lss16_get_nibble(c, d)<<4);
+				run_len |= ((i64)lss16_get_nibble(c, d)<<4);
 				run_len += 16;
 			}
 			for(i=0; i<run_len; i++) {

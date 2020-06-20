@@ -89,6 +89,7 @@ static int decode_text(deark *c, lctx *d)
 	i64 i, j, k;
 	u8 ch, attr;
 	int retval = 0;
+	struct de_encconv_state es;
 
 	// TODO: This might not work for monochrome text mode (d->video_mode==0x32).
 
@@ -109,6 +110,7 @@ static int decode_text(deark *c, lctx *d)
 	if(screen->height<1) goto done;
 
 	screen->cell_rows = de_mallocarray(c, screen->height, sizeof(struct de_char_cell*));
+	de_encconv_init(&es, DE_ENCODING_CP437_G);
 
 	for(j=0; j<screen->height; j++) {
 		i64 j2;
@@ -123,7 +125,7 @@ static int decode_text(deark *c, lctx *d)
 			screen->cell_rows[j2][i].fgcol = (u32)(attr & 0x0f);
 			screen->cell_rows[j2][i].bgcol = (u32)((attr & 0xf0) >> 4);
 			screen->cell_rows[j2][i].codepoint = (i32)ch;
-			screen->cell_rows[j2][i].codepoint_unicode = de_char_to_unicode(c, (i32)ch, DE_ENCODING_CP437_G);
+			screen->cell_rows[j2][i].codepoint_unicode = de_char_to_unicode_ex((i32)ch, &es);
 		}
 	}
 

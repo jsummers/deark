@@ -314,7 +314,11 @@ void de_encconv_init(struct de_encconv_state *es, de_ext_encoding ee)
 	de_zeromem(es, sizeof(struct de_encconv_state));
 	es->ee = ee;
 
-	if(enc==DE_ENCODING_LATIN1 || enc==DE_ENCODING_ASCII) return;
+	if(enc==DE_ENCODING_LATIN1 || enc==DE_ENCODING_UTF8 ||
+		enc==DE_ENCODING_ASCII)
+	{
+		return;
+	}
 
 	switch(enc) {
 	case DE_ENCODING_LATIN2:

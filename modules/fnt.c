@@ -95,6 +95,8 @@ static void do_make_image(deark *c, lctx *d)
 {
 	struct de_bitmap_font *font = NULL;
 	i64 i;
+	struct de_encconv_state es_main;
+	struct de_encconv_state es_dec_special_gr;
 
 	de_dbg(c, "reading bitmaps");
 	de_dbg_indent(c, 1);
@@ -110,6 +112,8 @@ static void do_make_image(deark *c, lctx *d)
 	font->nominal_height = (int)d->char_height;
 	font->num_chars = d->num_chars_stored;
 	font->char_array = de_mallocarray(c, font->num_chars, sizeof(struct de_bitmap_font_char));
+	de_encconv_init(&es_main, d->encoding);
+	de_encconv_init(&es_dec_special_gr, DE_ENCODING_DEC_SPECIAL_GRAPHICS);
 
 	for(i=0; i<d->num_chars_stored; i++) {
 		i32 char_index;
@@ -132,10 +136,10 @@ static void do_make_image(deark *c, lctx *d)
 					// This kind of font usually doesn't have glyphs below 32.
 					// If it does, assume that they are VT100 line drawing characters.
 					ch->codepoint_unicode =
-						de_char_to_unicode(c, 95+char_index, DE_ENCODING_DEC_SPECIAL_GRAPHICS);
+						de_char_to_unicode_ex(95+char_index, &es_dec_special_gr);
 				}
 				else {
-					ch->codepoint_unicode = de_char_to_unicode(c, char_index, d->encoding);
+					ch->codepoint_unicode = de_char_to_unicode_ex(char_index, &es_main);
 				}
 			}
 		}

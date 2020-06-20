@@ -741,6 +741,7 @@ static void do_create_standard_font(deark *c, struct charextractx *ectx)
 	struct de_bitmap_font *font;
 	const u8 *vga_cp437_font_data;
 	struct de_bitmap_font_char *ch;
+	struct de_encconv_state es;
 
 	font = de_create_bitmap_font(c);
 	ectx->standard_font = font;
@@ -763,10 +764,11 @@ static void do_create_standard_font(deark *c, struct charextractx *ectx)
 		ch->rowspan = 1;
 	}
 
+	de_encconv_init(&es, DE_ENCODING_CP437_G);
 	for(i=0; i<font->num_chars; i++) {
 		ch = &font->char_array[i];
 		ch->codepoint_nonunicode = (i32)i;
-		ch->codepoint_unicode = de_char_to_unicode(c, (i32)i, DE_ENCODING_CP437_G);
+		ch->codepoint_unicode = de_char_to_unicode_ex((i32)i, &es);
 		ch->bitmap = (u8*)&vga_cp437_font_data[i*16];
 	}
 

@@ -151,6 +151,7 @@ static void de_run_graspfont_oldfmt(deark *c)
 	i64 font_data_size;
 	u8 *font_data = NULL;
 	i64 glyph_rowspan;
+	struct de_encconv_state es;
 
 	font = de_create_bitmap_font(c);
 
@@ -182,6 +183,10 @@ static void de_run_graspfont_oldfmt(deark *c)
 	font_data_size = bytes_per_glyph * font->num_chars;
 	font_data = de_malloc(c, font_data_size);
 
+	// There's no way to tell what encoding a GRASP font uses, but CP437 is
+	// a reasonable guess.
+	de_encconv_init(&es, DE_ENCODING_CP437_G);
+
 	de_read(font_data, 7, font_data_size);
 
 	for(i=0; i<font->num_chars; i++) {
@@ -191,10 +196,8 @@ static void de_run_graspfont_oldfmt(deark *c)
 
 		font->char_array[i].codepoint_nonunicode = first_codepoint + (i32)i;
 
-		// There's no way to tell what encoding a GRASP font uses, but CP437 is
-		// a reasonable guess.
 		font->char_array[i].codepoint_unicode =
-			de_char_to_unicode(c, first_codepoint + (i32)i, DE_ENCODING_CP437_G);
+			de_char_to_unicode_ex(first_codepoint + (i32)i, &es);
 
 		font->char_array[i].bitmap = &font_data[i*bytes_per_glyph];
 	}
@@ -265,7 +268,7 @@ static void de_run_graspfont_newfmt(deark *c)
 		ch_offset = de_getu16le(glyph_offsets_table_pos + 2 + 2*k);
 
 		ch->width = (int)de_getbyte(widths_table_pos + 1 + k);
-		de_dbg(c, "ch[%d]: codepoint=%d, width=%d, glyph_offs=%d", (int)k,
+		de_dbg2(c, "ch[%d]: codepoint=%d, width=%d, glyph_offs=%d", (int)k,
 			(int)ch->codepoint_nonunicode,
 			(int)ch->width, (int)ch_offset);
 
