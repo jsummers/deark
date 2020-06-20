@@ -761,6 +761,7 @@ struct de_fourcc {
 void dbuf_read_fourcc(dbuf *f, i64 pos, struct de_fourcc *fcc, int nbytes,
 	unsigned int flags);
 
+#define DE_BUFFERED_READ_MIN_BLKSIZE 1024
 struct de_bufferedreadctx {
 	void *userdata;
 	deark *c;
