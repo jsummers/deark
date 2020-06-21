@@ -1938,6 +1938,8 @@ u32 de_crcobj_getval(struct de_crcobj *crco)
 
 void de_crcobj_addbuf(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
 {
+	if(buf_len<1) return;
+
 	switch(crco->crctype) {
 	case DE_CRCOBJ_CRC32_IEEE:
 		crco->val = de_crc32_continue(crco->val, buf, buf_len);

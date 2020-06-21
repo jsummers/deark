@@ -2074,19 +2074,6 @@ void dbuf_read_fourcc(dbuf *f, i64 pos, struct de_fourcc *fcc,
 		DE_CONVFLAG_ALLOW_HL, DE_ENCODING_ASCII);
 }
 
-// dbuf_buffered_read:
-// Read a slice of a dbuf, and pass its data to a callback function, one
-// segment at a time.
-// cbfn: Caller-implemented callback function.
-//   - It is required to consume at least 1 byte.
-//   - If it does not consume all bytes, it must set brctx->bytes_consumed.
-//   - It must return nonzero normally, 0 to abort.
-// We guarantee that:
-//   - brctx->eof_flag will be nonzero if and only if there is no data after this.
-//   - At least 1 byte will be provided.
-//   - If eof_flag is not set, at least DE_BUFFERED_READ_MIN_BLKSIZE bytes will
-//     be provided.
-// Return value: 1 normally, 0 if the callback function ever returned 0.
 static int buffered_read_internal(struct de_bufferedreadctx *brctx,
 	dbuf *f, i64 pos1, i64 len, de_buffered_read_cbfn cbfn)
 {
@@ -2183,6 +2170,37 @@ done:
 	return retval;
 }
 
+static int buffered_read_zero_len(struct de_bufferedreadctx *brctx,
+	de_buffered_read_cbfn cbfn)
+{
+	const u8 dummybuf[1] = { 0 };
+	int ret;
+
+	brctx->offset = 0;
+	brctx->eof_flag = 1;
+	brctx->bytes_consumed = 0;
+	ret = cbfn(brctx, dummybuf, 0);
+	return ret?1:0;
+}
+
+// dbuf_buffered_read:
+// Read a slice of a dbuf, and pass its data to a callback function, one
+// segment at a time.
+// cbfn: Caller-implemented callback function.
+//   - It must be prepared for an arbitrarily large number of bytes to be passed
+//     to it at once (though it does not have to consume them all).
+//   - It must consume at least 1 byte, unless 0 bytes were passed to it.
+//   - If it does not consume all the bytes passed to it, it must set
+//     brctx->bytes_consumed.
+//   - It must return nonzero normally, 0 to abort.
+// We guarantee that:
+//   - brctx->eof_flag will be nonzero if and only if there is no data after this.
+//   - If eof_flag is not set, at least DE_BUFFERED_READ_MIN_BLKSIZE bytes will
+//     be provided.
+//   - If the caller supplies 0 bytes of input data, the callback function will be
+//     called exactly once. This is the only case where the callback will be
+//     called with buf_len==0.
+// Return value: 1 normally, 0 if the callback function ever returned 0.
 int dbuf_buffered_read(dbuf *f, i64 pos1, i64 len,
 	de_buffered_read_cbfn cbfn, void *userdata)
 {
@@ -2191,8 +2209,11 @@ int dbuf_buffered_read(dbuf *f, i64 pos1, i64 len,
 	brctx.c = f->c;
 	brctx.userdata = userdata;
 
-	// Use an optimized routine if all the data we need to read is already in memory.
+	if(len<=0) { // Get this special case out of the way.
+		return buffered_read_zero_len(&brctx, cbfn);
+	}
 
+	// Use an optimized routine if all the data we need to read is already in memory.
 	if(f->cache && (pos1>=0) && (pos1+len<=f->cache_bytes_used)) {
 		return buffered_read_from_mem(&brctx, f, f->cache, pos1, len, cbfn);
 	}
@@ -2200,6 +2221,8 @@ int dbuf_buffered_read(dbuf *f, i64 pos1, i64 len,
 	if(f->btype==DBUF_TYPE_MEMBUF && (pos1>=0) && (pos1+len<=f->len)) {
 		return buffered_read_from_mem(&brctx, f, f->membuf_buf, pos1, len, cbfn);
 	}
+
+	// The general case:
 	return buffered_read_internal(&brctx, f, pos1, len, cbfn);
 }
 

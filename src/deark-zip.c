@@ -515,6 +515,7 @@ static int copy_to_FILE_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 
 static void dbuf_copy_to_FILE(dbuf *inf, i64 input_offset, i64 input_len, FILE *outfile)
 {
+	if(input_len<1) return;
 	dbuf_buffered_read(inf, input_offset, input_len, copy_to_FILE_cbfn, (void*)outfile);
 }
 

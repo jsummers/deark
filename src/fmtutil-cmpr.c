@@ -95,7 +95,7 @@ struct de_dfilter_ctx *de_dfilter_create(deark *c,
 void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
 	const u8 *buf, i64 buf_len)
 {
-	if(dfctx->codec_addbuf_fn) {
+	if(dfctx->codec_addbuf_fn && (buf_len>0)) {
 		dfctx->codec_addbuf_fn(dfctx, buf, buf_len);
 	}
 }
