@@ -234,7 +234,7 @@ static int do_read_header(deark *c, lctx *d)
 
 	d->dfCharSet = de_getbyte(85);
 	de_dbg(c, "charset: 0x%02x (%s)", (int)d->dfCharSet,
-		de_fmtutil_get_windows_charset_name(d->dfCharSet));
+		fmtutil_get_windows_charset_name(d->dfCharSet));
 	if(d->dfCharSet==0x00) { // "ANSI"
 		d->encoding = DE_ENCODING_WINDOWS1252; // Guess
 	}

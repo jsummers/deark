@@ -89,7 +89,7 @@ static int do_uncompress_image(deark *c, lctx *d, i64 pos1, dbuf *unc_pixels)
 		pos += 2;
 		dcmpri.pos = pos;
 		dcmpri.len = bytes_in_this_line;
-		de_fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres);
+		fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres);
 		if(dres.errcode) {
 			de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
 			return 0;

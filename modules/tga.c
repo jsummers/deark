@@ -537,7 +537,7 @@ static void do_read_developer_area(deark *c, lctx *d, i64 pos)
 			de_dbg_indent(c, 1);
 			// TODO: We could retrieve the pixel density settings from the Photoshop data,
 			// but it's not clear whether they are ever useful.
-			de_fmtutil_handle_photoshop_rsrc(c, c->infile, tag_data_pos, tag_data_size, 0x0);
+			fmtutil_handle_photoshop_rsrc(c, c->infile, tag_data_pos, tag_data_size, 0x0);
 			de_dbg_indent(c, -1);
 		}
 	}

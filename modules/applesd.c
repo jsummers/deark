@@ -169,7 +169,7 @@ static void do_xattr_entry(deark *c, lctx *d, struct de_stringreaderdata *name,
 	if(len>=8 && !dbuf_memcmp(c->infile, pos1, (const void*)"bplist00", 8)) {
 		de_dbg(c, "binary plist");
 		de_dbg_indent(c, 1);
-		de_fmtutil_handle_plist(c, c->infile, pos1, len, NULL, 0);
+		fmtutil_handle_plist(c, c->infile, pos1, len, NULL, 0);
 		de_dbg_indent(c, -1);
 	}
 	else {

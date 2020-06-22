@@ -1334,7 +1334,7 @@ static int decompress_method1(deark *c, lctx *d, i64 pos, i64 len, dbuf *unc_pix
 	dcmpro.len_known = 1;
 	dcmpro.expected_len = expected_len;
 
-	de_fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres);
+	fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres);
 	if(dres.errcode) {
 		de_err(c, "Decompression failed: %s", dres.errmsg);
 		goto done;
@@ -1481,7 +1481,7 @@ static int decompress_method2(deark *c, lctx *d, struct imgbody_info *ibi,
 	ictx_vdat->userdata = (void*)&vdctx;
 	ictx_vdat->handle_chunk_fn = my_vdat_chunk_handler;
 	ictx_vdat->f = c->infile;
-	de_fmtutil_read_iff_format(c, ictx_vdat, pos, len);
+	fmtutil_read_iff_format(c, ictx_vdat, pos, len);
 
 	de_free(c, ictx_vdat);
 	return 1;
@@ -2230,7 +2230,7 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 	}
 
 	// Pretend we can handle all nonstandard chunks
-	if(!de_fmtutil_is_standard_iff_chunk(c, ictx, ictx->chunkctx->chunk4cc.id)) {
+	if(!fmtutil_is_standard_iff_chunk(c, ictx, ictx->chunkctx->chunk4cc.id)) {
 		ictx->handled = 1;
 	}
 
@@ -2370,7 +2370,7 @@ static int my_preprocess_iff_chunk_fn(deark *c, struct de_iffctx *ictx)
 		ictx->chunkctx->chunk_name = name;
 	}
 	else {
-		de_fmtutil_default_iff_chunk_identify(c, ictx);
+		fmtutil_default_iff_chunk_identify(c, ictx);
 	}
 	return 1;
 }
@@ -2566,7 +2566,7 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 	ictx->on_std_container_start_fn = my_on_std_container_start_fn;
 	ictx->on_container_end_fn = my_on_container_end_fn;
 	ictx->f = c->infile;
-	de_fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
+	fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
 
 	if(d->frctx) {
 		on_frame_end(c, d);

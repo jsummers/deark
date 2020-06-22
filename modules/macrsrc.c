@@ -127,7 +127,7 @@ static void open_psrc_stream(deark *c, lctx *d)
 static void finalize_psrc_stream(deark *c, lctx *d)
 {
 	if(!d->psrc_stream) return;
-	de_fmtutil_handle_photoshop_rsrc(c, d->psrc_stream, 0, d->psrc_stream->len, 0x1);
+	fmtutil_handle_photoshop_rsrc(c, d->psrc_stream, 0, d->psrc_stream->len, 0x1);
 	dbuf_close(d->psrc_stream);
 	d->psrc_stream = NULL;
 }
@@ -505,7 +505,7 @@ static void do_resource_data(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	else if(rti->fcc.id==CODE_ANPA && rii->id==10000) {
 		de_dbg(c, "IPTC data at %"I64_FMT, dpos);
 		de_dbg_indent(c, 1);
-		de_fmtutil_handle_iptc(c, c->infile, dpos, dlen, 0x0);
+		fmtutil_handle_iptc(c, c->infile, dpos, dlen, 0x0);
 		de_dbg_indent(c, -1);
 		handled = 1;
 	}

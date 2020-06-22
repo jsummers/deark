@@ -210,7 +210,7 @@ static void de_run_pff2(deark *c, de_module_params *mparams)
 	d->font->has_unicode_codepoints = 1;
 	d->font->prefer_unicode = 1;
 
-	de_fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
+	fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
 
 	if(d->font) {
 		if(d->font->char_array) {

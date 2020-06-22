@@ -991,12 +991,12 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	charctx = de_malloc(c, sizeof(struct de_char_context));
 
 	// Read SAUCE metadata, if present.
-	si = de_fmtutil_create_SAUCE(c);
-	de_fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
+	si = fmtutil_create_SAUCE(c);
+	fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
 
 	if(sdd.has_SAUCE) {
 		de_dbg_indent(c, 1);
-		de_fmtutil_handle_SAUCE(c, c->infile, si);
+		fmtutil_handle_SAUCE(c, c->infile, si);
 		de_dbg_indent(c, -1);
 
 		d->effective_file_size = si->original_file_size;
@@ -1078,7 +1078,7 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 
 	de_free_charctx(c, charctx);
 	de_free(c, d->row_data);
-	de_fmtutil_free_SAUCE(c, si);
+	fmtutil_free_SAUCE(c, si);
 	de_free(c, d);
 }
 

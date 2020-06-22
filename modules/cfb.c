@@ -1649,7 +1649,7 @@ static void do_read_dir_entry(deark *c, lctx *d, i64 dir_entry_idx, i64 dir_entr
 
 	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_ROOT_STORAGE) {
 		dbuf_read(d->dir, dei->clsid, dir_entry_offs+80, 16);
-		de_fmtutil_guid_to_uuid(dei->clsid);
+		fmtutil_guid_to_uuid(dei->clsid);
 	}
 
 	read_and_cvt_timestamp(c, d->dir, dir_entry_offs+108, &dei->mod_time);
@@ -1725,7 +1725,7 @@ static void do_process_dir_entry(deark *c, lctx *d, i64 dir_entry_idx)
 			identify_clsid(c, d, dei->clsid, buf, sizeof(buf));
 		}
 
-		de_fmtutil_render_uuid(c, dei->clsid, clsid_string, sizeof(clsid_string));
+		fmtutil_render_uuid(c, dei->clsid, clsid_string, sizeof(clsid_string));
 		de_dbg(c, "%sclsid: {%s}%s", (dei->entry_type==OBJTYPE_ROOT_STORAGE)?"root ":"",
 			clsid_string, buf);
 	}

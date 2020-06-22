@@ -373,13 +373,13 @@ static void run_sauce_as_submodule(deark *c, de_module_params *mparams)
 		si_to_use = (struct de_SAUCE_info*)mparams->out_params.obj1;
 	}
 	else {
-		si_local = de_fmtutil_create_SAUCE(c);
+		si_local = fmtutil_create_SAUCE(c);
 		si_to_use = si_local;
 	}
 
 	do_read_SAUCE(c, c->infile, si_to_use);
 
-	de_fmtutil_free_SAUCE(c, si_local);
+	fmtutil_free_SAUCE(c, si_local);
 }
 
 static void run_sauce_direct(deark *c, de_module_params *mparams)
@@ -388,7 +388,7 @@ static void run_sauce_direct(deark *c, de_module_params *mparams)
 	struct de_SAUCE_detection_data sdd;
 	int ret;
 
-	de_fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
+	fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
 	if(!sdd.has_SAUCE) {
 		if(c->module_disposition==DE_MODDISP_EXPLICIT) {
 			de_err(c, "No SAUCE record found");
@@ -396,7 +396,7 @@ static void run_sauce_direct(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	si = de_fmtutil_create_SAUCE(c);
+	si = fmtutil_create_SAUCE(c);
 	de_dbg_indent(c, 1);
 	ret = do_read_SAUCE(c, c->infile, si);
 	de_dbg_indent(c, -1);
@@ -407,7 +407,7 @@ static void run_sauce_direct(deark *c, de_module_params *mparams)
 	}
 
 done:
-	de_fmtutil_free_SAUCE(c, si);
+	fmtutil_free_SAUCE(c, si);
 }
 
 static void de_run_sauce(deark *c, de_module_params *mparams)
@@ -423,7 +423,7 @@ static void de_run_sauce(deark *c, de_module_params *mparams)
 static int de_identify_sauce(deark *c)
 {
 	c->detection_data->SAUCE_detection_attempted = 1;
-	if(de_fmtutil_detect_SAUCE(c, c->infile, &c->detection_data->sauce, 0)) {
+	if(fmtutil_detect_SAUCE(c, c->infile, &c->detection_data->sauce, 0)) {
 		// This module should have a very low priority, but other modules can use
 		// the results of its detection.
 		return 2;

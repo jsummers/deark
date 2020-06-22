@@ -684,7 +684,7 @@ static int valdec_fillorder(deark *c, const struct valdec_params *vp, struct val
 
 static int valdec_orientation(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
-	ucstring_append_sz(vr->s,de_fmtutil_tiff_orientation_name(vp->n), DE_ENCODING_UTF8);
+	ucstring_append_sz(vr->s, fmtutil_tiff_orientation_name(vp->n), DE_ENCODING_UTF8);
 	return 1;
 }
 
@@ -1044,7 +1044,7 @@ static void handler_bplist(deark *c, lctx *d, const struct taginfo *tg, const st
 	{
 		de_dbg(c, "binary .plist at %"I64_FMT", len=%"I64_FMT, tg->val_offset, tg->total_size);
 		de_dbg_indent(c, 1);
-		de_fmtutil_handle_plist(c, c->infile, tg->val_offset, tg->total_size, NULL, 0x0);
+		fmtutil_handle_plist(c, c->infile, tg->val_offset, tg->total_size, NULL, 0x0);
 		de_dbg_indent(c, -1);
 	}
 	else {
@@ -1142,7 +1142,7 @@ static void handler_xmp(deark *c, lctx *d, const struct taginfo *tg, const struc
 
 static void handler_iptc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
-	de_fmtutil_handle_iptc(c, c->infile, tg->val_offset, tg->total_size,
+	fmtutil_handle_iptc(c, c->infile, tg->val_offset, tg->total_size,
 		d->is_deark_iptc?0x2:0x0);
 }
 
@@ -1151,7 +1151,7 @@ static void handler_photoshoprsrc(deark *c, lctx *d, const struct taginfo *tg, c
 	de_dbg(c, "Photoshop resources at %d, len=%d",
 		(int)tg->val_offset, (int)tg->total_size);
 	de_dbg_indent(c, 1);
-	de_fmtutil_handle_photoshop_rsrc(c, c->infile, tg->val_offset, tg->total_size,
+	fmtutil_handle_photoshop_rsrc(c, c->infile, tg->val_offset, tg->total_size,
 		d->is_deark_8bim?0x2:0x0);
 	de_dbg_indent(c, -1);
 }

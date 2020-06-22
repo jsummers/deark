@@ -102,7 +102,7 @@ static void de_run_flac(deark *c, de_module_params *mparams)
 	struct de_id3info id3i;
 
 	d = de_malloc(c, sizeof(lctx));
-	de_fmtutil_handle_id3(c, c->infile, &id3i, 0);
+	fmtutil_handle_id3(c, c->infile, &id3i, 0);
 	run_flac_internal(c, d, id3i.main_start, id3i.main_end-id3i.main_start);
 	de_free(c, d);
 }

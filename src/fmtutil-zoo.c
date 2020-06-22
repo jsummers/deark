@@ -11,13 +11,13 @@
 
 #include "../foreign/unzoo-lzh.h"
 
-void de_fmtutil_decompress_zoo_lzd(deark *c, struct de_dfilter_in_params *dcmpri,
+void fmtutil_decompress_zoo_lzd(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, int maxbits)
 {
-	struct delzw_params delzwp;
+	struct de_lzw_params delzwp;
 
-	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
 	delzwp.fmt = DE_LZWFMT_ZOOLZD;
 	delzwp.max_code_size = (unsigned int)maxbits;
-	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
+	fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }

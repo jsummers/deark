@@ -308,7 +308,7 @@ static void do_exif_segment(deark *c, lctx *d,
 		d->exif_before_jfif = 1;
 	}
 	de_dbg_indent(c, 1);
-	de_fmtutil_handle_exif2(c, pos, data_size,
+	fmtutil_handle_exif2(c, pos, data_size,
 		&exifflags, &exiforientation, &exifversion);
 	if(exifflags&0x08)
 		d->has_exif_gps = 1;
@@ -332,7 +332,7 @@ static void do_photoshop_segment(deark *c, lctx *d,
 	de_dbg(c, "photoshop data at %d, size=%d", (int)pos, (int)data_size);
 	d->has_psd = 1;
 	de_dbg_indent(c, 1);
-	de_fmtutil_handle_photoshop_rsrc2(c, c->infile, pos, data_size, 0x0, &oparams);
+	fmtutil_handle_photoshop_rsrc2(c, c->infile, pos, data_size, 0x0, &oparams);
 	if(oparams.flags&0x02)
 		d->has_iptc = 1;
 	de_dbg_indent(c, -1);
@@ -749,8 +749,8 @@ static void do_fpxr_segment(deark *c, lctx *d, i64 pos1, i64 len)
 			if(fe->is_storage) { // read Entity class ID
 				de_read(clsid_buf, pos, 16);
 				pos += 16;
-				de_fmtutil_guid_to_uuid(clsid_buf);
-				de_fmtutil_render_uuid(c, clsid_buf, clsid_string, sizeof(clsid_string));
+				fmtutil_guid_to_uuid(clsid_buf);
+				fmtutil_render_uuid(c, clsid_buf, clsid_string, sizeof(clsid_string));
 				de_dbg(c, "class id: {%s}", clsid_string);
 			}
 			de_dbg_indent(c, -1);
@@ -1814,8 +1814,8 @@ static void do_post_sof_stuff(deark *c, lctx *d)
 		if(d->exif_orientation>1) {
 			de_dbg(c, "Note: Image has an ambiguous orientation: JFIF says "
 				"%s; Exif says %s",
-				de_fmtutil_tiff_orientation_name(1),
-				de_fmtutil_tiff_orientation_name((i64)d->exif_orientation));
+				fmtutil_tiff_orientation_name(1),
+				fmtutil_tiff_orientation_name((i64)d->exif_orientation));
 		}
 
 		if(d->exif_cosited && d->is_subsampled && d->ncomp>1) {

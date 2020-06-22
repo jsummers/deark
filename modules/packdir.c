@@ -66,7 +66,7 @@ static void do_packdir_file_compressed(deark *c, struct pdctx_struct *d,
 	dcmpro.len_known = 1;
 	dcmpro.expected_len = md->orig_len;
 
-	de_fmtutil_decompress_zoo_lzd(c, &dcmpri, &dcmpro, &dres, d->lzw_maxbits);
+	fmtutil_decompress_zoo_lzd(c, &dcmpri, &dcmpro, &dres, d->lzw_maxbits);
 
 	if(dres.errcode) {
 		de_err(c, "%s: %s", ucstring_getpsz_d(md->name), de_dfilter_get_errmsg(c, &dres));
@@ -178,13 +178,13 @@ static int do_packdir_object(deark *c, struct pdctx_struct *d, i64 pos1,
 	pos += name_len + 1;
 
 	de_zeromem(&rfa, sizeof(struct de_riscos_file_attrs));
-	de_fmtutil_riscos_read_load_exec(c, c->infile, &rfa, pos);
+	fmtutil_riscos_read_load_exec(c, c->infile, &rfa, pos);
 	pos += 8;
 	md->mod_time = rfa.mod_time;
 
 	length_raw = de_getu32le_p(&pos);
 
-	de_fmtutil_riscos_read_attribs_field(c, c->infile, &rfa, pos, 0);
+	fmtutil_riscos_read_attribs_field(c, c->infile, &rfa, pos, 0);
 	pos += 4;
 	md->attribs = rfa.attribs;
 

@@ -270,12 +270,12 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	charctx->prefer_image_output = 1;
 	de_char_decide_output_format(c, charctx);
 
-	de_fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
+	fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
 	if(sdd.has_SAUCE) {
-		si = de_fmtutil_create_SAUCE(c);
+		si = fmtutil_create_SAUCE(c);
 
 		de_dbg_indent(c, 1);
-		de_fmtutil_handle_SAUCE(c, c->infile, si);
+		fmtutil_handle_SAUCE(c, c->infile, si);
 		de_dbg_indent(c, -1);
 
 		charctx->title = si->title;
@@ -380,7 +380,7 @@ done:
 	dbuf_close(unc_data);
 	de_free_charctx_screens(c, charctx);
 	de_destroy_charctx(c, charctx);
-	de_fmtutil_free_SAUCE(c, si);
+	fmtutil_free_SAUCE(c, si);
 	free_lctx(c, d);
 }
 
@@ -430,12 +430,12 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 		width_req = de_atoi(s);
 	}
 
-	de_fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
+	fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
 	if(sdd.has_SAUCE) {
-		si = de_fmtutil_create_SAUCE(c);
+		si = fmtutil_create_SAUCE(c);
 
 		de_dbg_indent(c, 1);
-		de_fmtutil_handle_SAUCE(c, c->infile, si);
+		fmtutil_handle_SAUCE(c, c->infile, si);
 		de_dbg_indent(c, -1);
 
 		charctx->title = si->title;
@@ -499,7 +499,7 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 
 	dbuf_close(unc_data);
 	de_free_charctx(c, charctx);
-	de_fmtutil_free_SAUCE(c, si);
+	fmtutil_free_SAUCE(c, si);
 	free_lctx(c, d);
 }
 
@@ -657,17 +657,17 @@ static void de_run_icedraw(deark *c, de_module_params *mparams)
 {
 	struct de_SAUCE_detection_data sdd;
 
-	de_fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
+	fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
 	if(sdd.has_SAUCE) {
 		// Read the SAUCE record if present, just for the debugging info.
 		struct de_SAUCE_info *si = NULL;
-		si = de_fmtutil_create_SAUCE(c);
+		si = fmtutil_create_SAUCE(c);
 
 		de_dbg_indent(c, 1);
-		de_fmtutil_handle_SAUCE(c, c->infile, si);
+		fmtutil_handle_SAUCE(c, c->infile, si);
 		de_dbg_indent(c, -1);
 
-		de_fmtutil_free_SAUCE(c, si);
+		fmtutil_free_SAUCE(c, si);
 	}
 
 	de_err(c, "iCEDraw format is not supported");

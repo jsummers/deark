@@ -3,7 +3,6 @@
 // See the file COPYING for terms of use.
 
 // LZW decompressor
-// (work in progress)
 
 #define DE_NOT_IN_MODULE
 #include "deark-config.h"
@@ -28,7 +27,7 @@ static void my_delzw_free(void *userdata, void *ptr);
 
 ///////////////////////////////////////////////////
 
-static void setup_delzw_common(deark *c, delzwctx *dc, struct delzw_params *delzwp)
+static void setup_delzw_common(deark *c, delzwctx *dc, struct de_lzw_params *delzwp)
 {
 	dc->debug_level = c->debug_level;
 
@@ -66,11 +65,11 @@ static void setup_delzw_common(deark *c, delzwctx *dc, struct delzw_params *delz
 	}
 }
 
-void de_fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
+void fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	struct delzw_params *delzwp)
+	struct de_lzw_params *lzwp)
 {
-	de_dfilter_decompress_oneshot(c, dfilter_lzw_codec, (void*)delzwp,
+	de_dfilter_decompress_oneshot(c, dfilter_lzw_codec, (void*)lzwp,
 		dcmpri, dcmpro, dres);
 }
 
@@ -167,11 +166,11 @@ static void my_delzw_free(void *userdata, void *ptr)
 	de_free(dfctx->c, ptr);
 }
 
-// codec_private_params is type struct delzw_params.
+// codec_private_params is type struct de_lzw_params.
 void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
 {
 	delzwctx *dc = NULL;
-	struct delzw_params *delzwp = (struct delzw_params*)codec_private_params;
+	struct de_lzw_params *delzwp = (struct de_lzw_params*)codec_private_params;
 
 	dc = delzw_create((void*)dfctx);
 	if(!dc) goto done;
@@ -189,11 +188,4 @@ void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
 	setup_delzw_common(dfctx->c, dc, delzwp);
 done:
 	;
-}
-
-struct de_dfilter_ctx *de_dfilter_create_delzw(deark *c, struct delzw_params *delzwp,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
-{
-	return de_dfilter_create(c, dfilter_lzw_codec, (void*)delzwp,
-		dcmpro, dres);
 }

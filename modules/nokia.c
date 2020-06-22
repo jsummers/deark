@@ -287,7 +287,7 @@ static void de_run_nsl(deark *c, de_module_params *mparams)
 	ictx->f = c->infile;
 	ictx->sizeof_len = 2;
 
-	de_fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
+	fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
 
 	de_free(c, ictx);
 	de_free(c, d);

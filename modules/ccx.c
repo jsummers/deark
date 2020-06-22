@@ -139,7 +139,7 @@ static void de_run_corel_ccx(deark *c, de_module_params *mparams)
 	ictx->handle_chunk_fn = my_ccx_chunk_handler;
 	ictx->f = c->infile;
 
-	de_fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
+	fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
 	if(d->pack_pos) {
 		de_dbg(c, "pack chunk found at %"I64_FMT, d->pack_pos);
 		de_dbg_indent(c, 1);

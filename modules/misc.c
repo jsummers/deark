@@ -640,7 +640,7 @@ static void do_mrw_seg_list(deark *c, i64 pos1, i64 len)
 		pos+=8;
 		if(pos+data_len > pos1+len) break;
 		if(!de_memcmp(seg_id, "\0TTW", 4)) { // Exif
-			de_fmtutil_handle_exif(c, pos, data_len);
+			fmtutil_handle_exif(c, pos, data_len);
 		}
 		pos+=data_len;
 	}
@@ -2143,7 +2143,7 @@ static void de_run_compress(deark *c, de_module_params *mparams)
 	struct de_dfilter_results dres;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
-	struct delzw_params delzwp;
+	struct de_lzw_params delzwp;
 	dbuf *f = NULL;
 
 	f = dbuf_create_output_file(c, "bin", NULL, 0);
@@ -2155,11 +2155,11 @@ static void de_run_compress(deark *c, de_module_params *mparams)
 	dcmpro.f = f;
 	dcmpro.len_known = 0;
 
-	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
 	delzwp.flags |= DE_LZWFLAG_HAS3BYTEHEADER;
 
-	de_fmtutil_decompress_lzw(c, &dcmpri, &dcmpro, &dres, &delzwp);
+	fmtutil_decompress_lzw(c, &dcmpri, &dcmpro, &dres, &delzwp);
 	if(dres.errcode!=0) {
 		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
 	}

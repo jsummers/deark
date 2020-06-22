@@ -137,7 +137,7 @@ static void do_prop_clipboard(deark *c, lctx *d, struct propset_struct *si,
 		cbtype_name="PICT";
 	}
 	else {
-		cbtype_name = de_fmtutil_get_windows_cb_data_type_name((unsigned int)cbtype);
+		cbtype_name = fmtutil_get_windows_cb_data_type_name((unsigned int)cbtype);
 	}
 	de_dbg(c, "clipboard data type: 0x%08x (%s)", (unsigned int)cbtype, cbtype_name);
 
@@ -303,8 +303,8 @@ static void do_prop_CLSID(deark *c, lctx *d, struct propset_struct *si,
 	char clsid_string[50];
 
 	dbuf_read(d->f, clsid, pos, 16);
-	de_fmtutil_guid_to_uuid(clsid);
-	de_fmtutil_render_uuid(c, clsid, clsid_string, sizeof(clsid_string));
+	fmtutil_guid_to_uuid(clsid);
+	fmtutil_render_uuid(c, clsid, clsid_string, sizeof(clsid_string));
 	de_dbg(c, "%s: {%s}", name, clsid_string);
 }
 
@@ -939,8 +939,8 @@ static void do_decode_PropertySetStream(deark *c, lctx *d)
 
 	dbuf_read(d->f, clsid, pos, 16);
 	pos += 16;
-	de_fmtutil_guid_to_uuid(clsid);
-	de_fmtutil_render_uuid(c, clsid, clsid_string, sizeof(clsid_string));
+	fmtutil_guid_to_uuid(clsid);
+	fmtutil_render_uuid(c, clsid, clsid_string, sizeof(clsid_string));
 	de_dbg(c, "clsid: {%s}", clsid_string);
 
 	nsets = dbuf_getu32le_p(d->f, &pos);
@@ -956,9 +956,9 @@ static void do_decode_PropertySetStream(deark *c, lctx *d)
 
 		dbuf_read(d->f, clsid, pos, 16);
 		pos += 16;
-		de_fmtutil_guid_to_uuid(clsid);
+		fmtutil_guid_to_uuid(clsid);
 		fmtid_info = find_fmtid_info(clsid);
-		de_fmtutil_render_uuid(c, clsid, clsid_string, sizeof(clsid_string));
+		fmtutil_render_uuid(c, clsid, clsid_string, sizeof(clsid_string));
 		de_dbg(c, "fmtid[%d]: {%s} (%s)", (int)k, clsid_string, fmtid_info?fmtid_info->name:"?");
 
 		si->sfmtid = fmtid_info ? fmtid_info->sfmtid : SFMTID_UNKNOWN;

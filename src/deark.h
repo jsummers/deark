@@ -17,6 +17,10 @@
 #include <inttypes.h>
 #endif
 
+#ifdef _MSC_VER
+#pragma warning(error:4013) // Calling undeclared function = error
+#endif
+
 #ifndef de_gnuc_attribute
 #ifdef __GNUC__
 #define de_gnuc_attribute __attribute__

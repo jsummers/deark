@@ -763,13 +763,13 @@ static void ef_acorn(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	pos += 4;
 
 	de_zeromem(&rfa, sizeof(struct de_riscos_file_attrs));
-	de_fmtutil_riscos_read_load_exec(c, c->infile, &rfa, pos);
+	fmtutil_riscos_read_load_exec(c, c->infile, &rfa, pos);
 	pos += 8;
 	if(rfa.mod_time.is_valid) {
 		apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_MODIFY, &rfa.mod_time, 70);
 	}
 
-	de_fmtutil_riscos_read_attribs_field(c, c->infile, &rfa, pos, 0);
+	fmtutil_riscos_read_attribs_field(c, c->infile, &rfa, pos, 0);
 	// Note: attribs does not have any information that we care about (no
 	// 'executable' or 'is-directory' flag).
 }
@@ -1668,7 +1668,7 @@ static void de_run_zip_normally(deark *c, lctx *d)
 		d->end_of_central_dir_pos = c->detection_data->zip_eocd_pos;
 	}
 	else {
-		eocd_found = de_fmtutil_find_zip_eocd(c, c->infile, &d->end_of_central_dir_pos);
+		eocd_found = fmtutil_find_zip_eocd(c, c->infile, &d->end_of_central_dir_pos);
 	}
 	if(!eocd_found) {
 		de_err(c, "Not a ZIP file");
@@ -1762,7 +1762,7 @@ static int de_identify_zip(deark *c)
 		i64 eocd_pos = 0;
 
 		c->detection_data->zip_eocd_looked_for = 1;
-		if(de_fmtutil_find_zip_eocd(c, c->infile, &eocd_pos)) {
+		if(fmtutil_find_zip_eocd(c, c->infile, &eocd_pos)) {
 			c->detection_data->zip_eocd_found = 1;
 			c->detection_data->zip_eocd_pos = eocd_pos;
 			return 19;

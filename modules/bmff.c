@@ -1153,7 +1153,7 @@ static void do_box_ulst(deark *c, lctx *d, struct de_boxesctx *bctx)
 	for(k=0; k<nuuids; k++) {
 		if(pos+16 > curbox->payload_pos + curbox->payload_len) break;
 		dbuf_read(bctx->f, ubuf, pos, 16);
-		de_fmtutil_render_uuid(c, ubuf, uuid_string, sizeof(uuid_string));
+		fmtutil_render_uuid(c, ubuf, uuid_string, sizeof(uuid_string));
 		de_dbg(c, "UUID[%d]: {%s}", (int)k, uuid_string);
 		pos += 16;
 	}
@@ -1256,7 +1256,7 @@ static void extract_exif_item(deark *c, lctx *d, dbuf *f)
 	}
 	de_dbg(c, "Exif item segment at %"I64_FMT", size=%"I64_FMT, dpos, dlen);
 	de_dbg_indent(c, 1);
-	de_fmtutil_handle_exif(c, dpos, dlen);
+	fmtutil_handle_exif(c, dpos, dlen);
 	de_dbg_indent(c, -1);
 }
 
@@ -1695,7 +1695,7 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 			curbox->extra_bytes_before_children = 8;
 		}
 		else {
-			return de_fmtutil_default_box_handler(c, bctx);
+			return fmtutil_default_box_handler(c, bctx);
 		}
 		return 1;
 	}
@@ -1768,7 +1768,7 @@ static void de_run_bmff(deark *c, de_module_params *mparams)
 	bctx->identify_box_fn = my_box_identify_fn;
 	bctx->handle_box_fn = my_box_handler;
 
-	de_fmtutil_read_boxes_format(c, bctx);
+	fmtutil_read_boxes_format(c, bctx);
 
 	de_free(c, bctx);
 	de_free(c, d);

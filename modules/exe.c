@@ -596,7 +596,7 @@ static void do_extract_ico_cur(deark *c, lctx *d, i64 pos, i64 len,
 	// There's usually a GROUP_ICON resource that seems to contain (most of) an
 	// ICO header, but I don't know exactly how it's connected to the icon image(s).
 
-	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, pos, len, DE_BMPINFO_ICO_FORMAT)) {
+	if(!fmtutil_get_bmpinfo(c, c->infile, &bi, pos, len, DE_BMPINFO_ICO_FORMAT)) {
 		de_err(c, "Invalid bitmap");
 		return;
 	}
@@ -1334,7 +1334,7 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 	}
 	else {
 		i64 zip_eocd_pos = 0;
-		zip_eocd_found = de_fmtutil_find_zip_eocd(c, c->infile, &zip_eocd_pos);
+		zip_eocd_found = fmtutil_find_zip_eocd(c, c->infile, &zip_eocd_pos);
 	}
 	if(zip_eocd_found) {
 		de_info(c, "Note: This might be a self-extracting ZIP file (try \"-m zip\").");

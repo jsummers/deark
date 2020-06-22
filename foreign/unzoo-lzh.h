@@ -270,7 +270,7 @@ static void zoolzh_BlckWritFile(struct lzhctx_struct *lzhctx, const u8 *blk, i64
 static void init_lzh_lookuptable(deark *c, struct lzh_lookuptable *lookuptbl,
 	unsigned int tablebits, size_t nlengths);
 
-void de_fmtutil_decompress_zoo_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
+void fmtutil_decompress_zoo_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
 	u32 cnt;            /* number of codes in block        */

@@ -205,7 +205,7 @@ static int read_bitmap_v1(deark *c, lctx *d, struct page_ctx *pg, i64 pos1, i64 
 	de_dbg(c, "bitmap at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, pos, c->infile->len-pos, 0)) {
+	if(!fmtutil_get_bmpinfo(c, c->infile, &bi, pos, c->infile->len-pos, 0)) {
 		de_err(c, "Invalid bitmap");
 		goto done;
 	}
@@ -217,7 +217,7 @@ static int read_bitmap_v1(deark *c, lctx *d, struct page_ctx *pg, i64 pos1, i64 
 
 	outf = dbuf_create_output_file(c, pg->thumbnail_ext, pg->fi, 0);
 	// Manufacture a BMP fileheader
-	de_fmtutil_generate_bmpfileheader(c, outf, &bi, 0);
+	fmtutil_generate_bmpfileheader(c, outf, &bi, 0);
 
 	// Copy the BITMAPINFOHEADER
 	dbuf_copy(c->infile, pos, bi.infohdrsize, outf);

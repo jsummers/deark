@@ -546,7 +546,7 @@ static int handler_CREATEFONTINDIRECT(deark *c, lctx *d, struct decoder_params *
 	pos += 9;
 	b = de_getbyte_p(&pos);
 	de_dbg(c, "charset: 0x%02x (%s)", (unsigned int)b,
-		de_fmtutil_get_windows_charset_name(b));
+		fmtutil_get_windows_charset_name(b));
 
 	facename_size = dp->dlen-18;
 	if(facename_size>32) facename_size=32;

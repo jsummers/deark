@@ -83,20 +83,20 @@ static void do_decompr_rle(deark *c, lctx *d, struct member_data *md,
 	struct fork_data *frk, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	de_fmtutil_decompress_rle90_ex(c, dcmpri, dcmpro, dres, 0);
+	fmtutil_decompress_rle90_ex(c, dcmpri, dcmpro, dres, 0);
 }
 
 static void do_decompr_lzw(deark *c, lctx *d, struct member_data *md,
 	struct fork_data *frk, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	struct delzw_params delzwp;
+	struct de_lzw_params delzwp;
 
-	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
 	// TODO: What are the right lzw settings?
 	delzwp.max_code_size = 14;
-	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
+	fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
 
 static void do_decompr_huffman(deark *c, lctx *d, struct member_data *md,

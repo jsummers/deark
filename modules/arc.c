@@ -78,43 +78,43 @@ static void decompressor_spark_compressed(deark *c, lctx *d, struct member_data 
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	struct delzw_params delzwp;
+	struct de_lzw_params delzwp;
 
-	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
 	delzwp.flags |= DE_LZWFLAG_HAS1BYTEHEADER;
-	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
+	fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
 
 static void decompressor_squashed(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	struct delzw_params delzwp;
+	struct de_lzw_params delzwp;
 
-	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
 	delzwp.max_code_size = 13;
-	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
+	fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
 
 static void decompressor_packed(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	de_fmtutil_decompress_rle90_ex(c, dcmpri, dcmpro, dres, 0);
+	fmtutil_decompress_rle90_ex(c, dcmpri, dcmpro, dres, 0);
 }
 
 static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	struct delzw_params delzwp;
+	struct de_lzw_params delzwp;
 
 	// "Crunched" means "packed", then "compressed".
 	// So we have to "uncompress" (LZW), then "unpack" (RLE90).
 
-	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
 	delzwp.flags |= DE_LZWFLAG_HAS1BYTEHEADER;
 
@@ -685,10 +685,10 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 nbytes_avail,
 	}
 
 	if(d->fmt == FMT_SPARK) {
-		de_fmtutil_riscos_read_load_exec(c, c->infile, &md->rfa, pos);
+		fmtutil_riscos_read_load_exec(c, c->infile, &md->rfa, pos);
 		pos += 8;
 
-		de_fmtutil_riscos_read_attribs_field(c, c->infile, &md->rfa, pos, 0);
+		fmtutil_riscos_read_attribs_field(c, c->infile, &md->rfa, pos, 0);
 		pos += 4;
 	}
 

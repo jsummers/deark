@@ -82,9 +82,9 @@ static void read_and_render_guid(dbuf *f, u8 *id, i64 pos,
 	char *id_string, size_t id_string_len)
 {
 	dbuf_read(f, id, pos, 16);
-	de_fmtutil_guid_to_uuid(id);
+	fmtutil_guid_to_uuid(id);
 	if(id_string) {
-		de_fmtutil_render_uuid(f->c, id, id_string, id_string_len);
+		fmtutil_render_uuid(f->c, id, id_string, id_string_len);
 	}
 }
 

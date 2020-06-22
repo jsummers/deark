@@ -574,7 +574,7 @@ static void do_mgk8bim_extension(deark *c, lctx *d, i64 pos)
 	do_copy_subblocks_to_dbuf(c, d, tmpf, pos, 1, 4*1048576);
 	de_dbg(c, "photoshop data at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
-	de_fmtutil_handle_photoshop_rsrc(c, tmpf, 0, tmpf->len, 0x0);
+	fmtutil_handle_photoshop_rsrc(c, tmpf, 0, tmpf->len, 0x0);
 	de_dbg_indent(c, -1);
 	dbuf_close(tmpf);
 }
@@ -586,7 +586,7 @@ static void do_mgkiptc_extension(deark *c, lctx *d, i64 pos)
 	do_copy_subblocks_to_dbuf(c, d, tmpf, pos, 1, 4*1048576);
 	de_dbg(c, "IPTC-IIM data at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
-	de_fmtutil_handle_iptc(c, tmpf, 0, tmpf->len, 0x0);
+	fmtutil_handle_iptc(c, tmpf, 0, tmpf->len, 0x0);
 	de_dbg_indent(c, -1);
 	dbuf_close(tmpf);
 }
@@ -790,7 +790,7 @@ static int do_image_internal(deark *c, lctx *d,
 	i64 npixels_total;
 	dbuf *custom_outf = NULL;
 	struct de_dfilter_ctx *dfctx = NULL;
-	struct delzw_params delzwp;
+	struct de_lzw_params delzwp;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
 	struct my_giflzw_userdata u;
@@ -852,7 +852,7 @@ static int do_image_internal(deark *c, lctx *d,
 	npixels_total = gi->width * gi->height;
 
 	de_dfilter_init_objects(c, NULL, &dcmpro, &dres);
-	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
 	de_zeromem(&u, sizeof(struct my_giflzw_userdata));
 	custom_outf = dbuf_create_custom_dbuf(c, 0, 0);
 	u.c = c;
@@ -866,7 +866,7 @@ static int do_image_internal(deark *c, lctx *d,
 	dcmpro.len_known = 1;
 	dcmpro.expected_len = npixels_total;
 
-	dfctx = de_dfilter_create_delzw(c, &delzwp, &dcmpro, &dres);
+	dfctx = de_dfilter_create(c, dfilter_lzw_codec, &delzwp, &dcmpro, &dres);
 
 	while(1) {
 		if(pos >= c->infile->len) goto done;

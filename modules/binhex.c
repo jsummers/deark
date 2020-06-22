@@ -269,7 +269,7 @@ static void do_binhex(deark *c, lctx *d, i64 pos)
 	dcmpri.pos = 0;
 	dcmpri.len = d->decoded->len;
 	dcmpro.f = d->decompressed;
-	de_fmtutil_decompress_rle90_ex(c, &dcmpri, &dcmpro, &dres, 0);
+	fmtutil_decompress_rle90_ex(c, &dcmpri, &dcmpro, &dres, 0);
 	if(dres.errcode) {
 		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
 		goto done;

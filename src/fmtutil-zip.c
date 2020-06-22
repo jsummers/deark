@@ -67,11 +67,11 @@ void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags)
 {
-	struct delzw_params delzwp;
+	struct de_lzw_params delzwp;
 
-	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
 	delzwp.fmt = DE_LZWFMT_ZIPSHRINK;
-	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
+	fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
 
 

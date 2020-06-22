@@ -554,11 +554,11 @@ static void do_ARCHIMEDES(deark *c, lctx *d, struct dir_record *dr, i64 pos1, i6
 	pos += 10; // signature
 
 	de_zeromem(&rfa, sizeof(struct de_riscos_file_attrs));
-	de_fmtutil_riscos_read_load_exec(c, c->infile, &rfa, pos);
+	fmtutil_riscos_read_load_exec(c, c->infile, &rfa, pos);
 	dr->riscos_timestamp = rfa.mod_time;
 	pos += 8;
 
-	de_fmtutil_riscos_read_attribs_field(c, c->infile, &rfa, pos, 0);
+	fmtutil_riscos_read_attribs_field(c, c->infile, &rfa, pos, 0);
 	dr->archimedes_attribs = rfa.attribs;
 
 done:
@@ -1710,7 +1710,7 @@ static void do_nrg_chunks(deark *c, struct nrg_ctx *nrg)
 	ictx->is_le = 0;
 	ictx->reversed_4cc = 0;
 
-	de_fmtutil_read_iff_format(c, ictx, nrg->chunk_list_start, nrg->chunk_list_size);
+	fmtutil_read_iff_format(c, ictx, nrg->chunk_list_start, nrg->chunk_list_size);
 }
 
 static void de_run_nrg(deark *c, de_module_params *mparams)

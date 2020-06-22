@@ -155,7 +155,7 @@ static int quicktime_box_handler(deark *c, struct de_boxesctx *bctx)
 		do_read_idsc(c, d, curbox->payload_pos, curbox->payload_len);
 	}
 	else if(curbox->is_uuid) {
-		return de_fmtutil_default_box_handler(c, bctx);
+		return fmtutil_default_box_handler(c, bctx);
 	}
 
 	return 1;
@@ -171,7 +171,7 @@ static void do_qtif_file_format(deark *c, lctx *d)
 	bctx->f = c->infile;
 	bctx->handle_box_fn = quicktime_box_handler;
 
-	de_fmtutil_read_boxes_format(c, bctx);
+	fmtutil_read_boxes_format(c, bctx);
 
 	if(d->idat_found) {
 		do_write_image(c, d);
