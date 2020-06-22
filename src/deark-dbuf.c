@@ -2140,7 +2140,7 @@ done:
 	return retval;
 }
 
-// Optimized version, for type membuf, etc.
+// Special case where all bytes are already in memory
 static int buffered_read_from_mem(struct de_bufferedreadctx *brctx,
 	dbuf *f, const u8 *mem, i64 pos1, i64 len, de_buffered_read_cbfn cbfn)
 {
@@ -2200,6 +2200,9 @@ static int buffered_read_zero_len(struct de_bufferedreadctx *brctx,
 //   - If the caller supplies 0 bytes of input data, the callback function will be
 //     called exactly once. This is the only case where the callback will be
 //     called with buf_len==0.
+//   - If the source dbuf is a MEMBUF, and the requested bytes are all in range,
+//     then all requested bytes will be provided in the first call to the callback
+//     function.
 // Return value: 1 normally, 0 if the callback function ever returned 0.
 int dbuf_buffered_read(dbuf *f, i64 pos1, i64 len,
 	de_buffered_read_cbfn cbfn, void *userdata)
@@ -2218,6 +2221,7 @@ int dbuf_buffered_read(dbuf *f, i64 pos1, i64 len,
 		return buffered_read_from_mem(&brctx, f, f->cache, pos1, len, cbfn);
 	}
 
+	// Not an "optimization", since we promise this behavior for MEMBUFs.
 	if(f->btype==DBUF_TYPE_MEMBUF && (pos1>=0) && (pos1+len<=f->len)) {
 		return buffered_read_from_mem(&brctx, f, f->membuf_buf, pos1, len, cbfn);
 	}
