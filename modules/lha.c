@@ -11,6 +11,9 @@ DE_DECLARE_MODULE(de_module_lha);
 
 #define MAX_SUBDIR_LEVEL 32
 
+#define CODE_lZ0 0x6c5a30U
+#define CODE_lZ1 0x6c5a31U
+#define CODE_lZ5 0x6c5a35U
 #define CODE_lh0 0x6c6830U
 #define CODE_lh1 0x6c6831U
 #define CODE_lh5 0x6c6835U
@@ -36,6 +39,7 @@ struct timestamp_data {
 struct member_data {
 	u8 hlev; // header level
 	de_encoding encoding;
+	i64 member_pos;
 	i64 total_size;
 	struct de_fourcc cmpr_meth_4cc;
 	u8 is_dir;
@@ -43,6 +47,13 @@ struct member_data {
 	u8 is_nonexecutable;
 	u8 is_executable;
 	i64 orig_size;
+	UI hdr_checksum_calc;
+
+	u8 have_hdr_crc_reported;
+	u32 hdr_crc_reported;
+	u32 hdr_crc_calc;
+	i64 hdr_crc_field_pos;
+
 	u32 crc16;
 	u8 os_id;
 	i64 compressed_data_pos; // relative to beginning of file
@@ -231,11 +242,11 @@ static void exthdr_common(deark *c, lctx *d, struct member_data *md,
 	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
 {
-	u32 crchdr;
-
 	if(dlen<2) return;
-	crchdr = (u32)de_getu16le(pos);
-	de_dbg(c, "crc16 of header (reported): 0x%04x", (unsigned int)crchdr);
+	md->hdr_crc_reported = (u32)de_getu16le(pos);
+	md->have_hdr_crc_reported = 1;
+	md->hdr_crc_field_pos = pos;
+	de_dbg(c, "header crc (reported): 0x%04x", (unsigned int)md->hdr_crc_reported);
 	// TODO: Additional information
 }
 
@@ -622,7 +633,10 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 0x00, CODE_lh6, "LZ77, 32K, static Huffman", NULL },
 	{ 0x12, CODE_lz4, "uncompressed (LArc)", NULL },
 	{ 0x10, CODE_lz5, "LZSS, 4K (LArc)", NULL },
-	{ 0x12, CODE_pm0, "uncompressed (PMArc)", NULL }
+	{ 0x12, CODE_pm0, "uncompressed (PMArc)", NULL },
+	{ 0x12, CODE_lZ0, "uncompressed (MicroFox PUT)", NULL },
+	{ 0x00, CODE_lZ1, "MicroFox PUT lZ1", NULL },
+	{ 0x00, CODE_lZ5, "MicroFox PUT lZ5", NULL }
 };
 
 static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
@@ -679,13 +693,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md,
 	fi->original_filename_flag = 1;
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
-
-	if(!d->crco) {
-		d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
-	}
-	else {
-		de_crcobj_reset(d->crco);
-	}
+	de_crcobj_reset(d->crco);
 	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
@@ -740,13 +748,51 @@ static void warn_non_lha(deark *c, i64 pos, i64 len)
 	de_warn(c, "%"I64_FMT" bytes of non-LHA data found at end of file (offset %"I64_FMT")", len, pos);
 }
 
+static int cksum_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf, i64 buf_len)
+{
+	struct member_data *md = (struct member_data*)brctx->userdata;
+	i64 i;
+
+	for(i=0; i<buf_len; i++) {
+		md->hdr_checksum_calc = (md->hdr_checksum_calc + buf[i]) & 0xff;
+	}
+	return 1;
+}
+
+static void do_check_header_crc(deark *c, lctx *d, struct member_data *md)
+{
+	// LHA members don't have to have a header CRC field, though it's probably
+	// considered best practice to have one when the checksum field doesn't
+	// exist, or there are any extended headers.
+	if(!md->have_hdr_crc_reported) return;
+	de_crcobj_reset(d->crco);
+
+	// Everything before the CRC field:
+	de_crcobj_addslice(d->crco, c->infile, md->member_pos,
+		md->hdr_crc_field_pos - md->member_pos);
+
+	// The zeroed-out CRC field:
+	de_crcobj_addbuf(d->crco, (const u8*)"\0\0", 2);
+
+	// Everything after the CRC field:
+	de_crcobj_addslice(d->crco, c->infile, md->hdr_crc_field_pos+2,
+		md->compressed_data_pos - (md->hdr_crc_field_pos+2));
+
+	md->hdr_crc_calc = de_crcobj_getval(d->crco);
+	de_dbg(c, "header crc (calculated): 0x%04x", (UI)md->hdr_crc_calc);
+	if(md->hdr_crc_calc != md->hdr_crc_reported) {
+		de_err(c, "Wrong header CRC: reported=0x%04x, calculated=0x%04x",
+				(UI)md->hdr_crc_reported, (UI)md->hdr_crc_calc);
+	}
+}
+
 // This single function parses all the different header formats, using lots of
 // "if" statements. It is messy, but it's a no-win situation.
 // The alternative of four separate functions would be have a lot of redundant
 // code, and be harder to maintain.
 //
 // Caller allocates and initializes md.
-static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
+static int do_read_member(deark *c, lctx *d, struct member_data *md)
 {
 	int retval = 0;
 	i64 lev0_header_size = 0;
@@ -754,11 +800,14 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	i64 lev1_skip_size = 0;
 	i64 lev2_total_header_size = 0;
 	i64 lev3_header_size = 0;
+	i64 pos1 = md->member_pos;
 	i64 pos = pos1;
 	i64 nbytes_avail;
 	i64 exthdr_bytes_consumed = 0;
 	i64 fnlen = 0;
 	UI attribs;
+	UI hdr_checksum_reported = 0;
+	u8 has_hdr_checksum = 0;
 	int is_compressed;
 	int ret;
 	u8 tmpb1, tmpb2;
@@ -811,12 +860,16 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	if(md->hlev==0) {
 		lev0_header_size = (i64)de_getbyte_p(&pos);
 		de_dbg(c, "header size: (2+)%d", (int)lev0_header_size);
-		pos++; // Cksum
+		hdr_checksum_reported = (UI)de_getbyte_p(&pos);
+		has_hdr_checksum = 1;
+		dbuf_buffered_read(c->infile, pos, lev0_header_size, cksum_cbfn, (void*)md);
 	}
 	else if(md->hlev==1) {
 		lev1_base_header_size = (i64)de_getbyte_p(&pos);
 		de_dbg(c, "base header size: %d", (int)lev1_base_header_size);
-		pos++; // Cksum
+		hdr_checksum_reported = (UI)de_getbyte_p(&pos);
+		has_hdr_checksum = 1;
+		dbuf_buffered_read(c->infile, pos, lev1_base_header_size, cksum_cbfn, (void*)md);
 	}
 	else if(md->hlev==2) {
 		lev2_total_header_size = de_getu16le_p(&pos);
@@ -829,6 +882,15 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 		if(lev3_word_size!=4) {
 			de_err(c, "Unsupported word size: %d", (int)lev3_word_size);
 			goto done;
+		}
+	}
+
+	if(has_hdr_checksum) {
+		de_dbg(c, "header checksum (reported): 0x%02x", hdr_checksum_reported);
+		de_dbg(c, "header checksum (calculated): 0x%02x", md->hdr_checksum_calc);
+		if(md->hdr_checksum_calc != hdr_checksum_reported) {
+			de_err(c, "Wrong header checksum: reported=0x%02x, calculated=0x%02x",
+				hdr_checksum_reported, md->hdr_checksum_calc);
 		}
 	}
 
@@ -985,6 +1047,8 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 			first_ext_hdr_size, &exthdr_bytes_consumed);
 	}
 
+	do_check_header_crc(c, d, md);
+
 	de_dbg(c, "member data (%scompressed) at %"I64_FMT", len=%"I64_FMT,
 		is_compressed?"":"un",
 		md->compressed_data_pos, md->compressed_data_len);
@@ -1010,13 +1074,16 @@ static void de_run_lha(deark *c, de_module_params *mparams)
 	// filenames are common.
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
 
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
+
 	pos = 0;
 	while(1) {
 		if(pos >= c->infile->len) break;
 
 		md = de_malloc(c, sizeof(struct member_data));
 		md->encoding = d->input_encoding;
-		if(!do_read_member(c, d, md, pos)) goto done;
+		md->member_pos = pos;
+		if(!do_read_member(c, d, md)) goto done;
 		if(md->total_size<1) goto done;
 
 		d->member_count++;
@@ -1049,6 +1116,9 @@ static int de_identify_lha(deark *c)
 		else if(b[4]=='z') {
 			if(b[5]>='2' && b[5]<='8') m = 1;
 			else if(b[5]=='s') m = 1;
+		}
+		else if(b[4]=='Z') {
+			if(b[5]=='0' || b[5]=='1' || b[5]=='5') m = 1;
 		}
 	}
 	else if(b[3]=='p') {
