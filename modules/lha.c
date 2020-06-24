@@ -23,13 +23,6 @@ DE_DECLARE_MODULE(de_module_lha);
 #define CODE_lz5 0x6c7a35U
 #define CODE_pm0 0x706d30U
 
-struct cmpr_meth_info {
-	unsigned int flags;
-	unsigned int id;
-	const char *descr;
-	void *reserved;
-};
-
 #define TIMESTAMPIDX_INVALID (-1)
 struct timestamp_data {
 	struct de_timestamp ts; // The best timestamp of this type found so far
@@ -70,6 +63,17 @@ typedef struct localctx_struct {
 	int member_count;
 	struct de_crcobj *crco;
 } lctx;
+
+typedef void (*decompressor_fn)(deark *c, lctx *d, struct member_data *md,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres);
+
+struct cmpr_meth_info {
+	unsigned int flags;
+	unsigned int id;
+	const char *descr;
+	decompressor_fn decompressor;
+};
 
 struct exthdr_type_info_struct;
 
@@ -621,20 +625,30 @@ static void make_fullfilename(deark *c, lctx *d, struct member_data *md)
 	}
 }
 
-// flags:
-//   0x01 = directory
-//   0x02 = uncompressed
-//   0x10 = supported
+static void decompress_uncompressed(deark *c, lctx *d, struct member_data *md,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	fmtutil_decompress_uncompressed(c, dcmpri, dcmpro, dres, 0);
+}
+
+static void decompress_lz5(deark *c, lctx *d, struct member_data *md,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	fmtutil_decompress_szdd(c, dcmpri, dcmpro, dres, 0x1);
+}
+
 static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
-	{ 0x11, CODE_lhd, "directory", NULL },
-	{ 0x12, CODE_lh0, "uncompressed", NULL },
+	{ 0x00, CODE_lhd, "directory", NULL },
+	{ 0x00, CODE_lh0, "uncompressed", decompress_uncompressed },
 	{ 0x00, CODE_lh1, "LZ77, 4K, codes = dynamic Huffman", NULL },
 	{ 0x00, CODE_lh5, "LZ77, 8K, static Huffman", NULL },
 	{ 0x00, CODE_lh6, "LZ77, 32K, static Huffman", NULL },
-	{ 0x12, CODE_lz4, "uncompressed (LArc)", NULL },
-	{ 0x10, CODE_lz5, "LZSS, 4K (LArc)", NULL },
-	{ 0x12, CODE_pm0, "uncompressed (PMArc)", NULL },
-	{ 0x12, CODE_lZ0, "uncompressed (MicroFox PUT)", NULL },
+	{ 0x00, CODE_lz4, "uncompressed (LArc)", decompress_uncompressed },
+	{ 0x00, CODE_lz5, "LZSS, 4K (LArc)", decompress_lz5 },
+	{ 0x00, CODE_pm0, "uncompressed (PMArc)", decompress_uncompressed },
+	{ 0x00, CODE_lZ0, "uncompressed (MicroFox PUT)", decompress_uncompressed },
 	{ 0x00, CODE_lZ1, "MicroFox PUT lZ1", NULL },
 	{ 0x00, CODE_lZ5, "MicroFox PUT lZ5", NULL }
 };
@@ -660,8 +674,10 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md,
 		de_dbg(c, "[not extracting special file]");
 		goto done;
 	}
-
-	if(!cmi || !(cmi->flags & 0x10)) {
+	else if(md->is_dir) {
+		;
+	}
+	else if(!cmi || !(cmi->decompressor)) {
 		if(!d->unsupp_warned) {
 			de_info(c, "Note: LHA files can be parsed, but most compression methods are not supported.");
 			d->unsupp_warned = 1;
@@ -704,14 +720,10 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md,
 	dcmpro.expected_len = md->orig_size;
 	dcmpro.len_known = 1;
 
-	if(cmi->flags & 0x02) {
-		fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
-	}
-	else if(cmi->id==CODE_lz5) {
-		fmtutil_decompress_szdd(c, &dcmpri, &dcmpro, &dres, 0x1);
-	}
-	else {
-		goto done;
+	if(md->is_dir) goto done; // For directories, we're done.
+
+	if(cmi->decompressor) {
+		cmi->decompressor(c, d, md, &dcmpri, &dcmpro, &dres);
 	}
 
 	if(dres.errcode) {
@@ -792,6 +804,7 @@ static void do_check_header_crc(deark *c, lctx *d, struct member_data *md)
 // code, and be harder to maintain.
 //
 // Caller allocates and initializes md.
+// If the member was successfully parsed, sets md->total_size and returns nonzero.
 static int do_read_member(deark *c, lctx *d, struct member_data *md)
 {
 	int retval = 0;
@@ -905,11 +918,11 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 	de_dbg(c, "cmpr method: \"%s\"%s", md->cmpr_meth_4cc.id_dbgstr, tmpstr);
 	pos+=5;
 
-	if(cmi && (cmi->flags & 0x01)) {
+	if(cmi && (cmi->id == CODE_lhd)) {
 		is_compressed = 0;
 		md->is_dir = 1;
 	}
-	else if(cmi && (cmi->flags & 0x02)) {
+	else if(cmi && (cmi->decompressor == decompress_uncompressed)) {
 		is_compressed = 0;
 	}
 	else {
