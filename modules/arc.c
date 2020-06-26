@@ -282,6 +282,7 @@ static int do_pak_ext_record(deark *c, lctx *d, i64 pos1, i64 *pbytes_consumed)
 	case 0: rtname = "end"; break;
 	case 1: rtname = "remark"; break;
 	case 2: rtname = "path"; break;
+	case 3: rtname = "security envelope"; break;
 	}
 	de_dbg(c, "rectype: %d (%s)", (int)rectype, rtname);
 	if(rectype==0) goto done;
@@ -854,6 +855,7 @@ static void do_prescan_file(deark *c, lctx *d, i64 pos1)
 		d->num_top_level_members++;
 	}
 
+	de_dbg2(c, "number of members: %"I64_FMT, d->num_top_level_members);
 	de_dbg_indent(c, -1);
 }
 
@@ -876,6 +878,7 @@ static void destroy_lctx(deark *c, lctx *d)
 
 static void do_run_arc_spark_internal(deark *c, lctx *d)
 {
+	i64 members_endpos;
 	i64 pos = 0;
 
 	if(de_getbyte(0)!=0x1a && de_getbyte(3)==0x1a) {
@@ -889,13 +892,19 @@ static void do_run_arc_spark_internal(deark *c, lctx *d)
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 
 	do_prescan_file(c, d, pos);
+	if(d->prescan_found_eoa) {
+		members_endpos = d->prescan_pos_after_eoa;
+	}
+	else {
+		members_endpos = c->infile->len;
+	}
 
 	if(d->fmt==FMT_ARC) {
 		do_pk_comments(c, d);
 		do_pak_trailer(c, d);
 	}
 
-	do_sequence_of_members(c, d, pos, c->infile->len, 0);
+	do_sequence_of_members(c, d, pos, members_endpos, 0);
 
 	if(d->prescan_found_eoa && !d->has_trailer_data) {
 		i64 num_extra_bytes;
@@ -994,7 +1003,7 @@ static void de_run_arc(deark *c, de_module_params *mparams)
 
 static int de_identify_arc(deark *c)
 {
-	static const char *exts[] = {"arc", "ark", "pak", "spk", "com"};
+	static const char *exts[] = {"arc", "ark", "pak", "spk", "sdn", "com"};
 	int has_ext = 0;
 	int maybe_sfx = 0;
 	int ends_with_trailer = 0;
