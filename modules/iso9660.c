@@ -67,8 +67,8 @@ typedef struct localctx_struct {
 	int rr_encoding;
 	u8 names_to_lowercase;
 	u8 vol_desc_sector_forced;
-	u8 dirsize_hack;
 	u8 blocksize_warned;
+	int dirsize_hack_state; // 0=disabled, 1=in use, -1=allowed
 	i64 vol_desc_sector_to_use;
 	i64 secsize;
 	i64 primary_vol_desc_count;
@@ -934,10 +934,17 @@ static void do_directory(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level
 	de_dbg_indent_save(c, &saved_indent_level);
 	if(pos1<=0) goto done;
 
-	if(d->dirsize_hack) {
-		// I have a volume for which the high bits of the dir-length fields
-		// are corrupted.
-		len &= 0x00ffffffLL;
+	if((len>=0x08000000LL) & (d->dirsize_hack_state!=0)) {
+		// A few CDs seem to have garbage in the high bits of the directory length fields.
+		// Examples:
+		//  https://archive.org/details/NIghtsOwl
+		//  https://archive.org/details/SDN1__793
+
+		if(d->dirsize_hack_state<0) {
+			de_warn(c, "Possibly corrupt directory length found (0x%08x). Enabling workaround.", (UI)len);
+			d->dirsize_hack_state = 1;
+		}
+		len &= 0x07ffffffLL;
 	}
 
 	de_dbg(c, "directory at %"I64_FMT", len=%"I64_FMT, pos1, len);
@@ -1343,9 +1350,7 @@ static void de_run_iso9660(deark *c, de_module_params *mparams)
 		d->names_to_lowercase = 1;
 	}
 
-	if(de_get_ext_option_bool(c, "iso9660:dirsizehack", 0)) {
-		d->dirsize_hack = 1;
-	}
+	d->dirsize_hack_state = de_get_ext_option_bool(c, "iso9660:dirsizehack", -1);
 
 	s = de_get_ext_option(c, "iso9660:voldesc");
 	if(s) {
@@ -1438,6 +1443,7 @@ static void de_help_iso9660(deark *c)
 {
 	de_msg(c, "-opt iso9660:tolower : Convert original-style filenames to lowercase.");
 	de_msg(c, "-opt iso9660:voldesc=<n> : Use the volume descriptor at sector <n>.");
+	de_msg(c, "-opt iso9660:dirsizehack=0 : Disable a workaround for bad directory lengths.");
 }
 
 void de_module_iso9660(deark *c, struct deark_module_info *mi)
