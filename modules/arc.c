@@ -442,40 +442,6 @@ static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *name)
 	de_dbg(c, "%s: %s", name, timestamp_buf);
 }
 
-// TODO: Consider merging this function into do_extract_member_file().
-static int do_extract_internal(deark *c, lctx *d, struct member_data *md,
-	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro)
-{
-	int retval = 0;
-	struct de_dfilter_results dres;
-	int have_dres = 0;
-
-	de_dfilter_results_clear(c, &dres);
-	if(dcmpri->pos + dcmpri->len > dcmpri->f->len) {
-		de_err(c, "%s: Data goes beyond end of file", ucstring_getpsz_d(md->fn));
-		goto done;
-	}
-
-	if(md->cmi && md->cmi->decompressor) {
-		md->cmi->decompressor(c, d, md, dcmpri, dcmpro, &dres);
-		have_dres = 1;
-	}
-	else {
-		goto done; // Should be impossible
-	}
-
-	if(have_dres && dres.errcode) {
-		de_err(c, "%s: Decompression failed: %s", ucstring_getpsz_d(md->fn),
-			de_dfilter_get_errmsg(c, &dres));
-		goto done;
-	}
-
-	retval = 1;
-
-done:
-	return retval;
-}
-
 static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
 {
 	struct de_crcobj *crco = (struct de_crcobj*)userdata;
@@ -505,11 +471,11 @@ static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
 {
 	de_ucstring *fullfn = NULL;
 	dbuf *outf = NULL;
-	struct de_dfilter_in_params *dcmpri = NULL;
-	struct de_dfilter_out_params *dcmpro = NULL;
 	int ignore_failed_crc = 0;
-	int ret;
 	int saved_indent_level;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	fullfn = ucstring_create(c);
@@ -543,17 +509,25 @@ static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
 	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
 	de_crcobj_reset(d->crco);
 
-	dcmpri = de_malloc(c, sizeof(struct de_dfilter_in_params));
-	dcmpro = de_malloc(c, sizeof(struct de_dfilter_out_params));
-	dcmpri->f = c->infile;
-	dcmpri->pos = pos;
-	dcmpri->len = md->cmpr_size;
-	dcmpro->f = outf;
-	dcmpro->len_known = 1;
-	dcmpro->expected_len = md->orig_size;
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = pos;
+	dcmpri.len = md->cmpr_size;
+	dcmpro.f = outf;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = md->orig_size;
 
-	ret = do_extract_internal(c, d, md, dcmpri, dcmpro);
-	if(!ret) goto done;
+	if(dcmpri.pos + dcmpri.len > dcmpri.f->len) {
+		de_err(c, "%s: Data goes beyond end of file", ucstring_getpsz_d(md->fn));
+		goto done;
+	}
+
+	md->cmi->decompressor(c, d, md, &dcmpri, &dcmpro, &dres);
+	if(dres.errcode) {
+		de_err(c, "%s: Decompression failed: %s", ucstring_getpsz_d(md->fn),
+			de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
 
 	md->crc_calc = de_crcobj_getval(d->crco);
 	de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)md->crc_calc);
@@ -569,8 +543,6 @@ static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
 done:
 	dbuf_close(outf);
 	ucstring_destroy(fullfn);
-	de_free(c, dcmpri);
-	de_free(c, dcmpro);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
