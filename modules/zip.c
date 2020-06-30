@@ -294,6 +294,7 @@ static void do_comment_extract(deark *c, lctx *d, i64 pos, i64 len, de_ext_encod
 	dbuf_read_to_ucstring(c->infile, pos, len, s, 0, ee);
 	ucstring_write_as_utf8(c, s, f, 1);
 	ucstring_destroy(s);
+	dbuf_close(f);
 }
 
 static void do_comment(deark *c, lctx *d, i64 pos, i64 len, int utf8_flag,
