@@ -58,7 +58,8 @@ endif
 OFILES_MODS_AB:=$(addprefix $(OBJDIR)/modules/,abk.o alphabmp.o amigaicon.o \
  ansiart.o ar.o asf.o atari-dsk.o atari-img.o autocad.o awbm.o basic-c64.o \
  arcfs.o apm.o afcp.o arc.o amiga-dsk.o \
- bmff.o apple2-dsk.o applesd.o binhex.o bintext.o bmi.o bmp.o bpg.o bsave.o)
+ bmff.o apple2-dsk.o applesd.o binhex.o bintext.o bmi.o bmp.o \
+ arj.o bpg.o bsave.o)
 OFILES_MODS_CH:=$(addprefix $(OBJDIR)/modules/,cab.o cardfile.o cfb.o \
  cpio.o d64.o drhalo.o ebml.o emf.o epocimage.o eps.o exe.o \
  flif.o fnt.o gemfont.o gemmeta.o gemras.o gif.o grasp.o grob.o gzip.o \

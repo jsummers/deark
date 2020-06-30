@@ -180,6 +180,7 @@
     <ClCompile Include="..\..\modules\ar.c" />
     <ClCompile Include="..\..\modules\arc.c" />
     <ClCompile Include="..\..\modules\arcfs.c" />
+    <ClCompile Include="..\..\modules\arj.c" />
     <ClCompile Include="..\..\modules\asf.c" />
     <ClCompile Include="..\..\modules\atari-dsk.c" />
     <ClCompile Include="..\..\modules\atari-img.c" />
