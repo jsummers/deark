@@ -9,6 +9,7 @@
 DE_DECLARE_MODULE(de_module_arj);
 
 struct member_data {
+	de_encoding input_encoding;
 	UI hdr_id;
 #define ARJ_OBJTYPE_ARCHIVEHDR  1
 #define ARJ_OBJTYPE_MEMBERFILE  2
@@ -17,13 +18,19 @@ struct member_data {
 	u8 objtype;
 	u8 archiver_ver_num;
 	u8 min_ver_to_extract;
+	u8 os;
+	u8 flags;
 	u8 method;
 	u8 file_type;
+	UI file_mode;
+	u32 crc_reported;
 	i64 cmpr_len;
+	i64 orig_len;
 };
 
 typedef struct localctx_struct {
-	de_encoding input_encoding;
+	de_encoding input_encoding; // if DE_ENCODING_UNKNOWN, autodetect for each member
+	u8 archive_flags;
 } lctx;
 
 static void handle_comment(deark *c, lctx *d, struct member_data *md, i64 pos,
@@ -37,7 +44,7 @@ static void handle_comment(deark *c, lctx *d, struct member_data *md, i64 pos,
 	// The header containing the comment is limited to about 2.5KB, so we don't have
 	// check sizes here.
 	dbuf_read_to_ucstring(c->infile, pos, nbytes_avail, s, DE_CONVFLAG_STOP_AT_NUL,
-		DE_EXTENC_MAKE(d->input_encoding, DE_ENCSUBTYPE_HYBRID));
+		DE_EXTENC_MAKE(md->input_encoding, DE_ENCSUBTYPE_HYBRID));
 	if(s->len<1) goto done;
 	de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(s));
 
@@ -56,6 +63,90 @@ done:
 	ucstring_destroy(s);
 }
 
+static const char *get_host_os_name(u8 n)
+{
+	static const char *names[12] = { "MSDOS", "PRIMOS", "Unix", "Amiga", "MacOS",
+		"OS/2", "Apple GS", "Atari ST", "NeXT", "VMS", "Win95", "WIN32" };
+
+	if(n<=11) return names[(UI)n];
+	return "?";
+}
+
+static const char *get_file_type_name(struct member_data *md, u8 n)
+{
+	const char *name = NULL;
+
+	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
+		if(n==2) name = "main header";
+	}
+	else {
+		switch(n) {
+		case 0: name = "binary"; break;
+		case 1: name = "text"; break;
+		case 2:
+			if(md->objtype==ARJ_OBJTYPE_CHAPTERHDR) {
+				name = "comment header";
+			}
+			break;
+		case 3: name = "directory"; break;
+		case 4: name = "volume label"; break;
+		case 5: name = "chapter label"; break;
+		}
+	}
+	return name?name:"?";
+}
+
+static void get_flags_descr(struct member_data *md, u8 n1, de_ucstring *s)
+{
+	u8 n = n1;
+
+	if(n & 0x01) {
+		ucstring_append_flags_item(s, "GARBLED");
+		n -= 0x01;
+	}
+
+	if((n & 0x02) && (md->objtype==ARJ_OBJTYPE_ARCHIVEHDR)) {
+		if(md->os==10 || md->os==11) {
+			ucstring_append_flags_item(s, "ANSIPAGE");
+			n -= 0x02;
+		}
+	}
+
+	if(n & 0x04) {
+		ucstring_append_flags_item(s, "VOLUME");
+		n -= 0x04;
+	}
+
+	if(n & 0x08) {
+		if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
+			ucstring_append_flags_item(s, "ARJPROT");
+		}
+		else {
+			ucstring_append_flags_item(s, "EXTFILE");
+		}
+		n -= 0x08;
+	}
+
+	if(n & 0x10) {
+		ucstring_append_flags_item(s, "PATHSYM");
+		n -= 0x10;
+	}
+
+	if((n & 0x40) && (md->objtype==ARJ_OBJTYPE_ARCHIVEHDR)) {
+		ucstring_append_flags_item(s, "SECURED");
+		n -= 0x40;
+	}
+
+	if((n & 0x80) && (md->objtype==ARJ_OBJTYPE_ARCHIVEHDR)) {
+		ucstring_append_flags_item(s, "ALTNAME");
+		n -= 0x80;
+	}
+
+	if(n!=0) {
+		ucstring_append_flags_itemf(s, "0x%02x", (UI)n);
+	}
+}
+
 // If successfully parsed, sets *pbytes_consumed.
 // Returns 1 normally, 2 if this is the EOA marker, 0 on fatal error.
 static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archive_hdr,
@@ -70,6 +161,7 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	u32 basic_hdr_crc_reported;
 	struct member_data *md = NULL;
 	struct de_stringreaderdata *name_srd = NULL;
+	de_ucstring *flags_descr = NULL;
 	int retval = 0;
 	int saved_indent_level;
 
@@ -122,10 +214,39 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	md->min_ver_to_extract = de_getbyte_p(&pos);
 	de_dbg(c, "min ver to extract: %u", (UI)md->min_ver_to_extract);
 
-	pos++; // host OS
-	pos++; // flags
-	pos++; // method
-	pos++; // file type
+	md->os = de_getbyte_p(&pos);
+	de_dbg(c, "host OS: %u (%s)", (UI)md->os, get_host_os_name(md->os));
+
+	md->flags = de_getbyte_p(&pos);
+	flags_descr = ucstring_create(c);
+	get_flags_descr(md, md->flags, flags_descr);
+	de_dbg(c, "flags: 0x%02x (%s)", (UI)md->flags, ucstring_getpsz_d(flags_descr));
+	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
+		d->archive_flags = md->flags;
+	}
+
+	// Now we have enough information to choose a character encoding.
+	md->input_encoding = d->input_encoding;
+	if(md->input_encoding==DE_ENCODING_UNKNOWN) {
+		if((d->archive_flags&0x02) && (md->os==10 || md->os==11)) {
+			md->input_encoding = DE_ENCODING_WINDOWS1252;
+		}
+		else {
+			md->input_encoding = DE_ENCODING_CP437;
+		}
+	}
+
+	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
+		pos++; // security version
+	}
+	else {
+		md->method = de_getbyte_p(&pos);
+		de_dbg(c, "cmpr method: %u", (UI)md->method);
+	}
+
+	md->file_type = de_getbyte_p(&pos);
+	de_dbg(c, "file type: %u (%s)", (UI)md->file_type, get_file_type_name(md, md->file_type));
+
 	pos++; // reserved
 	pos += 4; // (this is always a timestamp, but the type depends on objtype)
 
@@ -133,11 +254,45 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		md->cmpr_len = de_getu32le_p(&pos);
 		de_dbg(c, "compressed size: %"I64_FMT, md->cmpr_len);
 	}
+	else {
+		pos += 4;
+	}
+
+	if(md->objtype==ARJ_OBJTYPE_MEMBERFILE) {
+		md->orig_len = de_getu32le_p(&pos);
+		de_dbg(c, "original size: %"I64_FMT, md->orig_len);
+	}
+	else {
+		pos += 4;
+	}
+
+	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
+		pos += 4; // security envelope pos
+	}
+	else {
+		md->crc_reported = (u32)de_getu32le_p(&pos);
+		de_dbg(c, "crc (reported): 0x%08x", (UI)md->crc_reported);
+	}
+
+	pos += 2; // filespec pos in filename
+
+	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
+		pos += 2; // length of security envelope
+	}
+	else {
+		de_ucstring *mode_descr;
+
+		md->file_mode = (UI)de_getu16le_p(&pos);
+		mode_descr = ucstring_create(c);
+		de_describe_dos_attribs(c, md->file_mode, mode_descr, 0);
+		de_dbg(c, "access mode: 0x%02x (%s)", md->file_mode, ucstring_getpsz_d(mode_descr));
+		ucstring_destroy(mode_descr);
+	}
 
 	pos = pos1 + 4 + first_hdr_size; // Now at the offset of the filename field
 	nbytes_avail = basic_hdr_endpos - pos;
 	name_srd = dbuf_read_string(c->infile, pos, nbytes_avail, 256, DE_CONVFLAG_STOP_AT_NUL,
-		d->input_encoding);
+		md->input_encoding);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(name_srd->str));
 
 	if(name_srd->found_nul) {
@@ -165,6 +320,7 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	retval = 1;
 
 done:
+	ucstring_destroy(flags_descr);
 	de_destroy_stringreaderdata(c, name_srd);
 	if(md) {
 		de_free(c, md);
@@ -211,7 +367,7 @@ static void de_run_arj(deark *c, de_module_params *mparams)
 	de_declare_fmt(c, "ARJ");
 	de_info(c, "Note: ARJ files are not fully supported.");
 
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
 
 	pos = 0;
 	if(do_header_or_member(c, d, pos, 1, &bytes_consumed) != 1) goto done;
