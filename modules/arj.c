@@ -26,12 +26,27 @@ struct member_data {
 	u32 crc_reported;
 	i64 cmpr_len;
 	i64 orig_len;
+	struct de_timestamp tmstamp[DE_TIMESTAMPIDX_COUNT];
 };
 
 typedef struct localctx_struct {
 	de_encoding input_encoding; // if DE_ENCODING_UNKNOWN, autodetect for each member
 	u8 archive_flags;
+	struct de_crcobj *crco;
 } lctx;
+
+static void read_arj_datetime(deark *c, lctx *d, i64 pos, struct de_timestamp *ts1, const char *name)
+{
+	i64 dosdt, dostm;
+	char timestamp_buf[64];
+
+	dostm = de_getu16le(pos);
+	dosdt = de_getu16le(pos+2);
+	de_dos_datetime_to_timestamp(ts1, dosdt, dostm);
+	ts1->tzcode = DE_TZCODE_LOCAL;
+	de_timestamp_to_string(ts1, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "%s time: %s", name, timestamp_buf);
+}
 
 static void handle_comment(deark *c, lctx *d, struct member_data *md, i64 pos,
 	i64 nbytes_avail)
@@ -155,15 +170,20 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	i64 pos = pos1;
 	i64 basic_hdr_size;
 	i64 first_hdr_size;
+	i64 first_hdr_endpos;
 	i64 first_ext_hdr_size;
+	i64 extra_data_len;
 	i64 nbytes_avail;
+	i64 n;
 	i64 basic_hdr_endpos;
 	u32 basic_hdr_crc_reported;
+	u32 basic_hdr_crc_calc;
 	struct member_data *md = NULL;
 	struct de_stringreaderdata *name_srd = NULL;
 	de_ucstring *flags_descr = NULL;
 	int retval = 0;
 	int saved_indent_level;
+	u8 b;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	md = de_malloc(c, sizeof(struct member_data));
@@ -206,9 +226,16 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		goto done;
 	}
 
+	de_dbg(c, "[basic header]");
+	de_dbg_indent(c, 1);
+
+	de_dbg(c, "[first header]");
+	de_dbg_indent(c, 1);
+
 	basic_hdr_endpos = pos1 + 4 + basic_hdr_size;
 	first_hdr_size = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "first header size: %"I64_FMT, first_hdr_size);
+	first_hdr_endpos = pos1 + 4 + first_hdr_size;
 	md->archiver_ver_num = de_getbyte_p(&pos);
 	de_dbg(c, "archiver version: %u", (UI)md->archiver_ver_num);
 	md->min_ver_to_extract = de_getbyte_p(&pos);
@@ -237,7 +264,8 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	}
 
 	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
-		pos++; // security version
+		b = de_getbyte_p(&pos);
+		de_dbg(c, "security version: %u", (UI)b);
 	}
 	else {
 		md->method = de_getbyte_p(&pos);
@@ -248,9 +276,25 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	de_dbg(c, "file type: %u (%s)", (UI)md->file_type, get_file_type_name(md, md->file_type));
 
 	pos++; // reserved
-	pos += 4; // (this is always a timestamp, but the type depends on objtype)
 
-	if(md->objtype==ARJ_OBJTYPE_MEMBERFILE) {
+	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
+		read_arj_datetime(c, d, pos, &md->tmstamp[DE_TIMESTAMPIDX_CREATE], "archive creation");
+		pos += 4;
+	}
+	else if(md->objtype==ARJ_OBJTYPE_CHAPTERHDR) {
+		read_arj_datetime(c, d, pos,  &md->tmstamp[DE_TIMESTAMPIDX_CREATE], "creation");
+		pos += 4;
+	}
+	else {
+		read_arj_datetime(c, d, pos, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod");
+		pos += 4;
+	}
+
+	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
+		read_arj_datetime(c, d, pos, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "archive mod");
+		pos += 4;
+	}
+	else if(md->objtype==ARJ_OBJTYPE_MEMBERFILE) {
 		md->cmpr_len = de_getu32le_p(&pos);
 		de_dbg(c, "compressed size: %"I64_FMT, md->cmpr_len);
 	}
@@ -267,17 +311,20 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	}
 
 	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
-		pos += 4; // security envelope pos
+		n = de_getu32le_p(&pos);
+		de_dbg(c, "security envelope pos: %"I64_FMT, n);
 	}
 	else {
 		md->crc_reported = (u32)de_getu32le_p(&pos);
 		de_dbg(c, "crc (reported): 0x%08x", (UI)md->crc_reported);
 	}
 
-	pos += 2; // filespec pos in filename
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "filespec pos in filename: %d", (int)n);
 
 	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
-		pos += 2; // length of security envelope
+		n = de_getu16le_p(&pos);
+		de_dbg(c, "security envelope len: %"I64_FMT, n);
 	}
 	else {
 		de_ucstring *mode_descr;
@@ -289,7 +336,46 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		ucstring_destroy(mode_descr);
 	}
 
-	pos = pos1 + 4 + first_hdr_size; // Now at the offset of the filename field
+	pos++; // first chapter / encryption ver
+	pos++; // last chapter
+
+	extra_data_len = first_hdr_endpos - pos;
+	if(extra_data_len>0) {
+		de_dbg(c, "extra data: %"I64_FMT" bytes at %"I64_FMT"", extra_data_len, pos);
+		de_dbg_indent(c, 1);
+
+		if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
+			if(extra_data_len>=1) {
+				b = de_getbyte_p(&pos);
+				de_dbg(c, "protection factor: %u", (UI)b);
+			}
+			if(extra_data_len>=2) {
+				b = de_getbyte_p(&pos);
+				de_dbg(c, "flags (2nd set): 0x%02x", (UI)b);
+			}
+		}
+		else if(md->objtype==ARJ_OBJTYPE_MEMBERFILE) {
+			if(extra_data_len>=4) {
+				n = de_getu32le_p(&pos);
+				de_dbg(c, "ext. file pos: %"I64_FMT, n);
+			}
+			if(extra_data_len>=12) {
+				read_arj_datetime(c, d, pos, &md->tmstamp[DE_TIMESTAMPIDX_ACCESS], "access");
+				pos += 4;
+				read_arj_datetime(c, d, pos, &md->tmstamp[DE_TIMESTAMPIDX_CREATE], "create");
+				pos += 4;
+			}
+			if(extra_data_len>=16) {
+				n = de_getu32le_p(&pos);
+				de_dbg(c, "ext. orig size: %"I64_FMT, n);
+			}
+		}
+
+		de_dbg_indent(c, -1);
+	}
+
+	de_dbg_indent(c, -1);
+	pos = first_hdr_endpos; // Now at the offset of the filename field
 	nbytes_avail = basic_hdr_endpos - pos;
 	name_srd = dbuf_read_string(c->infile, pos, nbytes_avail, 256, DE_CONVFLAG_STOP_AT_NUL,
 		md->input_encoding);
@@ -301,9 +387,15 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		handle_comment(c, d, md, pos, nbytes_avail);
 	}
 
+	de_dbg_indent(c, -1);
 	pos = basic_hdr_endpos; // Now at the offset just after the 'comment' field
 	basic_hdr_crc_reported = (u32)de_getu32le_p(&pos);
 	de_dbg(c, "basic hdr crc (reported): 0x%08x", (UI)basic_hdr_crc_reported);
+
+	de_crcobj_reset(d->crco);
+	de_crcobj_addslice(d->crco, c->infile, pos1+4, basic_hdr_size);
+	basic_hdr_crc_calc = de_crcobj_getval(d->crco);
+	de_dbg(c, "basic hdr crc (calculated): 0x%08x", (UI)basic_hdr_crc_calc);
 
 	first_ext_hdr_size = de_getu16le_p(&pos);
 	de_dbg(c, "first ext header size: %"I64_FMT, first_ext_hdr_size);
@@ -369,6 +461,7 @@ static void de_run_arj(deark *c, de_module_params *mparams)
 
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
 
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
 	pos = 0;
 	if(do_header_or_member(c, d, pos, 1, &bytes_consumed) != 1) goto done;
 	pos += bytes_consumed;
@@ -376,7 +469,10 @@ static void de_run_arj(deark *c, de_module_params *mparams)
 	do_member_sequence(c, d, pos);
 
 done:
-	de_free(c, d);
+	if(d) {
+		de_crcobj_destroy(d->crco);
+		de_free(c, d);
+	}
 }
 
 static int de_identify_arj(deark *c)
