@@ -15,9 +15,15 @@
 #define MZ_DEFAULT_LEVEL    6
 #define MZ_DEFAULT_STRATEGY 0
 
+// 03xx = Unix
+// 63 decimal = ZIP spec v6.3 (first version to document the UTF-8 flag)
+#define ZIPENC_VER_MADE_BY ((3<<8) | 63)
+
 #define CODE_PK12 0x02014b50U
 #define CODE_PK34 0x04034b50U
 #define CODE_PK56 0x06054b50U
+#define CODE_PK66 0x06064b50U
+#define CODE_PK67 0x07064b50U
 
 struct zipw_md {
 	struct de_timestamp modtime;
@@ -265,7 +271,8 @@ static void zipw_add_memberfile(deark *c, struct zipw_ctx *zzz, struct zipw_md *
 	unsigned int ext_attributes;
 	unsigned int ver_needed;
 
-	if(zzz->membercount >= 0xffff) {
+	// Just a sanity check; we'll run into some other limit long before this
+	if(zzz->membercount >= 0x7fffffff) {
 		de_err(c, "Maximum number of ZIP member files exceeded");
 		goto done;
 	}
@@ -318,10 +325,7 @@ static void zipw_add_memberfile(deark *c, struct zipw_ctx *zzz, struct zipw_md *
 
 	dbuf_writeu32le(zzz->cdir, CODE_PK12);
 	dbuf_writeu32le(zzz->outf, CODE_PK34);
-
-	// 03xx = Unix
-	// 63 decimal = ZIP spec v6.3 (first version to document the UTF-8 flag)
-	dbuf_writeu16le(zzz->cdir, (3<<8) | 63); // version made by
+	dbuf_writeu16le(zzz->cdir, ZIPENC_VER_MADE_BY);
 
 	if(using_compression) ver_needed = 20;
 	else if(md->is_directory) ver_needed = 20;
@@ -541,26 +545,90 @@ static void dbuf_copy_to_FILE(dbuf *inf, i64 input_offset, i64 input_len, FILE *
 static void zipw_finalize(deark *c, struct zipw_ctx *zzz)
 {
 	i64 cdir_start;
+	i64 zip64_eocd_pos;
+	int opt_zip64;
+	int need_zip64 = 0;
+	int use_zip64 = 0;
 
 	cdir_start = zzz->outf->len;
-	if((cdir_start > 0xffffffffLL) || (zzz->cdir->len > 0xffffffffLL)) {
-		de_err(c, "Maximum ZIP file size exceeded");
-		goto done;
+
+	if((zzz->membercount > 0xffff) || (cdir_start > 0xffffffffLL) ||
+		(zzz->cdir->len > 0xffffffffLL))
+	{
+		need_zip64 = 1;
 	}
 
+	opt_zip64 = de_get_ext_option_bool(c, "archive:zip64", 0);
+	if(opt_zip64>0) {
+		use_zip64 = 1; // Zip64 always
+	}
+	else if(need_zip64) {
+		use_zip64 = 1; // Zip64 auto
+		de_info(c, "Note: Writing a ZIP file that uses Zip64 extensions. Not all unzip "
+			"programs will correctly support it.");
+	}
+
+	// Write the central directory
 	dbuf_copy(zzz->cdir, 0, zzz->cdir->len, zzz->outf);
+
+	zip64_eocd_pos = zzz->outf->len;
+
+	if(use_zip64) {
+		// Write 56-byte zip64 EOCD record
+		dbuf_writeu32le(zzz->outf, CODE_PK66);
+		dbuf_writeu64le(zzz->outf, 56-12); // recsize
+		dbuf_writeu16le(zzz->outf, ZIPENC_VER_MADE_BY);
+
+		// version-needed: 4.5 = minimum for Zip64. This is a formality, because
+		// anything that doesn't support Zip64 won't ever see this field.
+		// Unfortunately, the original EOCD record does not have a version-needed
+		// field, so (I guess) there is no good way to tell old unzip programs that
+		// they cannot fully support this ZIP file.
+		dbuf_writeu16le(zzz->outf, 45);
+
+		dbuf_writeu32le(zzz->outf, 0); // this disk num
+		dbuf_writeu32le(zzz->outf, 0); // central dir disk
+		dbuf_writeu64le(zzz->outf, (u64)zzz->membercount); // num files this disk
+		dbuf_writeu64le(zzz->outf, (u64)zzz->membercount); // num files total
+		dbuf_writeu64le(zzz->outf, (u64)zzz->cdir->len); // central dir size
+		dbuf_writeu64le(zzz->outf, (u64)cdir_start); // central dir offset
+
+		// Write 20-byte EOCD locator
+		dbuf_writeu32le(zzz->outf, CODE_PK67);
+		dbuf_writeu32le(zzz->outf, 0); // central dir disk
+		dbuf_writeu64le(zzz->outf, (u64)zip64_eocd_pos);
+		dbuf_writeu32le(zzz->outf, 1); // number of disks
+	}
 
 	// Write 22-byte EOCD record
 	dbuf_writeu32le(zzz->outf, CODE_PK56);
 	dbuf_writeu16le(zzz->outf, 0); // this disk num
 	dbuf_writeu16le(zzz->outf, 0); // central dir disk
-	dbuf_writeu16le(zzz->outf, zzz->membercount); // num files this disk
-	dbuf_writeu16le(zzz->outf, zzz->membercount); // num files total
-	dbuf_writeu32le(zzz->outf, zzz->cdir->len); // central dir size
-	dbuf_writeu32le(zzz->outf, cdir_start);
+
+	if(zzz->membercount > 0xffff) {
+		dbuf_writeu16le(zzz->outf, 0xffff);
+		dbuf_writeu16le(zzz->outf, 0xffff);
+	}
+	else {
+		dbuf_writeu16le(zzz->outf, zzz->membercount); // num files this disk
+		dbuf_writeu16le(zzz->outf, zzz->membercount); // num files total
+	}
+
+	if(zzz->cdir->len > 0xffffffffLL) {
+		dbuf_writeu32le(zzz->outf, 0xffffffffLL);
+	}
+	else {
+		dbuf_writeu32le(zzz->outf, zzz->cdir->len);
+	}
+
+	if(cdir_start > 0xffffffffLL) {
+		dbuf_writeu32le(zzz->outf, 0xffffffffLL);
+	}
+	else {
+		dbuf_writeu32le(zzz->outf, cdir_start);
+	}
+
 	dbuf_writeu16le(zzz->outf, 0); // ZIP comment length
-done:
-	;
 }
 
 void de_zip_close_file(deark *c)

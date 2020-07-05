@@ -473,13 +473,13 @@ void de_destroy(deark *c)
 	i64 i;
 
 	if(!c) return;
+	if(c->zip_data) { de_zip_close_file(c); }
+	if(c->tar_data) { de_tar_close_file(c); }
 	if(c->extrlist_dbuf) { dbuf_close(c->extrlist_dbuf); }
 	for(i=0; i<c->num_ext_options; i++) {
 		de_free(c, c->ext_option[i].name);
 		de_free(c, c->ext_option[i].val);
 	}
-	if(c->zip_data) { de_zip_close_file(c); }
-	if(c->tar_data) { de_tar_close_file(c); }
 	if(c->base_output_filename) { de_free(c, c->base_output_filename); }
 	if(c->output_archive_filename) { de_free(c, c->output_archive_filename); }
 	if(c->extrlist_filename) { de_free(c, c->extrlist_filename); }
