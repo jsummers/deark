@@ -97,6 +97,9 @@ struct localctx_struct {
 	i64 this_disk_num;
 	i64 zip64_eocd_pos;
 	i64 zip64_cd_pos;
+	i64 zip64_num_centr_dir_entries_this_disk;
+	i64 zip64_num_centr_dir_entries_total;
+	i64 zip64_centr_dir_byte_size;
 	unsigned int zip64_eocd_disknum;
 	unsigned int zip64_cd_disknum;
 	i64 offset_discrepancy;
@@ -1520,17 +1523,28 @@ done:
 	return retval;
 }
 
-static void do_zip64_eocd(deark *c, lctx *d)
+static int do_zip64_eocd(deark *c, lctx *d)
 {
 	i64 pos;
+	i64 n;
+	int retval = 0;
 	int saved_indent_level;
+	UI ver, ver_hi, ver_lo;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	if(d->zip64_eocd_disknum!=0) goto done;
+
+	if(d->zip64_eocd_disknum!=0) {
+		de_warn(c, "This might be a multi-disk Zip64 archive, which is not supported");
+		retval = 1;
+		d->is_zip64 = 0;
+		goto done;
+	}
 
 	pos = d->zip64_eocd_pos;
 	if(dbuf_memcmp(c->infile, pos, g_zipsig66, 4)) {
-		de_err(c, "Zip64 end-of-central-directory record not found at %"I64_FMT, pos);
+		de_warn(c, "Expected Zip64 end-of-central-directory record not found at %"I64_FMT, pos);
+		retval = 1; // Maybe the eocd locator sig was a false positive?
+		d->is_zip64 = 0;
 		goto done;
 	}
 
@@ -1538,20 +1552,39 @@ static void do_zip64_eocd(deark *c, lctx *d)
 	pos += 4;
 	de_dbg_indent(c, 1);
 
-	pos += 8; // size of zip64 eocd record
-	pos += 2; // version made by
-	pos += 2; // version needed
-	pos += 4; // number of this disk
+	n = de_geti64le(pos); pos += 8;
+	de_dbg(c, "size of zip64 eocd record: (12+)%"I64_FMT, n);
+
+	ver = (UI)de_getu16le_p(&pos);
+	ver_hi = (ver&0xff00)>>8;
+	ver_lo = ver&0x00ff;
+	de_dbg(c, "version made by: platform=%u (%s), ZIP spec=%u.%u",
+		ver_hi, get_platform_name(ver_hi), (UI)(ver_lo/10), (UI)(ver_lo%10));
+
+	ver = (UI)de_getu16le_p(&pos);
+	ver_hi = (ver&0xff00)>>8;
+	ver_lo = ver&0x00ff;
+	de_dbg(c, "version needed: platform=%u (%s), ZIP spec=%u.%u",
+		ver_hi, get_platform_name(ver_hi), (UI)(ver_lo/10), (UI)(ver_lo%10));
+
+	n = de_getu32le_p(&pos);
+	de_dbg(c, "this disk num: %"I64_FMT, n);
+
 	d->zip64_cd_disknum = (unsigned int)de_getu32le_p(&pos);
-	pos += 8; // # of entries in cd, this disk
-	pos += 8; // # of entries in cd, total
-	pos += 8; // size of cd
+	d->zip64_num_centr_dir_entries_this_disk = de_geti64le(pos); pos += 8;
+	de_dbg(c, "central dir num entries on this disk: %"I64_FMT, d->zip64_num_centr_dir_entries_this_disk);
+	d->zip64_num_centr_dir_entries_total = de_geti64le(pos); pos += 8;
+	de_dbg(c, "central dir num entries: %"I64_FMT, d->zip64_num_centr_dir_entries_total);
+	d->zip64_centr_dir_byte_size = de_geti64le(pos); pos += 8;
+	de_dbg(c, "central dir size: %"I64_FMT, d->zip64_centr_dir_byte_size);
 	d->zip64_cd_pos = de_geti64le(pos); pos += 8;
 	de_dbg(c, "central dir offset: %"I64_FMT", disk: %u",
 		d->zip64_cd_pos, d->zip64_cd_disknum);
 
+	retval = 1;
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
 }
 
 static void do_zip64_eocd_locator(deark *c, lctx *d)
@@ -1562,7 +1595,7 @@ static void do_zip64_eocd_locator(deark *c, lctx *d)
 	if(dbuf_memcmp(c->infile, pos, g_zipsig67, 4)) {
 		return;
 	}
-	de_dbg(c, "zip64 eocd locator at %"I64_FMT, pos);
+	de_dbg(c, "zip64 eocd locator found at %"I64_FMT, pos);
 	pos += 4;
 	d->is_zip64 = 1;
 	de_dbg_indent(c, 1);
@@ -1589,22 +1622,33 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	de_dbg_indent(c, 1);
 
 	d->this_disk_num = de_getu16le(pos+4);
-	de_dbg(c, "this disk num: %d", (int)d->this_disk_num);
+	de_dbg(c, "this disk num: %"I64_FMT, d->this_disk_num);
 	disk_num_with_central_dir_start = de_getu16le(pos+6);
 
 	num_entries_this_disk = de_getu16le(pos+8);
-	de_dbg(c, "num entries on this disk: %d", (int)num_entries_this_disk);
+	de_dbg(c, "central dir num entries on this disk: %"I64_FMT, num_entries_this_disk);
+	if(d->is_zip64 && (num_entries_this_disk==0xffff)) {
+		num_entries_this_disk = d->zip64_num_centr_dir_entries_this_disk;
+	}
 
 	d->central_dir_num_entries = de_getu16le(pos+10);
 	d->central_dir_byte_size  = de_getu32le(pos+12);
 	d->central_dir_offset = de_getu32le(pos+16);
-	de_dbg(c, "central dir num entries: %d", (int)d->central_dir_num_entries);
-	de_dbg(c, "central dir offset: %"I64_FMT", disk: %d", d->central_dir_offset,
-		(int)disk_num_with_central_dir_start);
+	de_dbg(c, "central dir num entries: %"I64_FMT, d->central_dir_num_entries);
+	if(d->is_zip64 && (d->central_dir_num_entries==0xffff)) {
+		d->central_dir_num_entries = d->zip64_num_centr_dir_entries_total;
+	}
+
+	de_dbg(c, "central dir size: %"I64_FMT, d->central_dir_byte_size);
+	if(d->is_zip64 && (d->central_dir_byte_size==0xffffffffLL)) {
+		d->central_dir_byte_size = d->zip64_centr_dir_byte_size;
+	}
+
+	de_dbg(c, "central dir offset: %"I64_FMT", disk: %"I64_FMT, d->central_dir_offset,
+		disk_num_with_central_dir_start);
 	if(d->is_zip64 && (d->central_dir_offset==0xffffffffLL)) {
 		d->central_dir_offset = d->zip64_cd_pos;
 	}
-	de_dbg(c, "central dir size: %d", (int)d->central_dir_byte_size);
 
 	comment_length = de_getu16le(pos+20);
 	de_dbg(c, "comment length: %d", (int)comment_length);
@@ -1676,19 +1720,19 @@ static void de_run_zip_normally(deark *c, lctx *d)
 		goto done;
 	}
 
-	de_dbg(c, "end-of-central-dir record signature found at %"I64_FMT,
+	de_dbg(c, "end-of-central-dir record found at %"I64_FMT,
 		d->end_of_central_dir_pos);
 
 	do_zip64_eocd_locator(c, d);
+
+	if(d->is_zip64) {
+		if(!do_zip64_eocd(c, d)) goto done;
+	}
 
 	if(d->is_zip64)
 		de_declare_fmt(c, "ZIP-Zip64");
 	else
 		de_declare_fmt(c, "ZIP");
-
-	if(d->is_zip64) {
-		do_zip64_eocd(c, d);
-	}
 
 	if(!do_end_of_central_dir(c, d)) {
 		goto done;
