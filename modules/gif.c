@@ -382,11 +382,11 @@ static void do_plaintext_extension(deark *c, lctx *d, i64 pos)
 {
 	dbuf *f = NULL;
 	i64 n;
-	i64 text_pos_x, text_pos_y; // In pixels
-	i64 text_size_x, text_size_y; // In pixels
+	i64 textarea_xpos_in_pixels, textarea_ypos_in_pixels;
+	i64 textarea_xsize_in_pixels, textarea_ysize_in_pixels;
 	i64 text_width_in_chars;
 	i64 char_width, char_height;
-	i64 char_count;
+	i64 cur_xpos_in_chars, cur_ypos_in_chars;
 	i64 k;
 	u32 fgclr, bgclr;
 	u8 fgclr_idx, bgclr_idx;
@@ -407,14 +407,14 @@ static void do_plaintext_extension(deark *c, lctx *d, i64 pos)
 		ok_to_render = 0;
 	}
 
-	text_pos_x = de_getu16le(pos);
-	text_pos_y = de_getu16le(pos+2);
-	text_size_x = de_getu16le(pos+4);
-	text_size_y = de_getu16le(pos+6);
+	textarea_xpos_in_pixels = de_getu16le(pos);
+	textarea_ypos_in_pixels = de_getu16le(pos+2);
+	textarea_xsize_in_pixels = de_getu16le(pos+4);
+	textarea_ysize_in_pixels = de_getu16le(pos+6);
 	char_width = (i64)de_getbyte(pos+8);
 	char_height = (i64)de_getbyte(pos+9);
-	de_dbg(c, "text-area pos: %d,%d pixels", (int)text_pos_x, (int)text_pos_y);
-	de_dbg(c, "text-area size: %d"DE_CHAR_TIMES"%d pixels", (int)text_size_x, (int)text_size_y);
+	de_dbg(c, "text-area pos: %d,%d pixels", (int)textarea_xpos_in_pixels, (int)textarea_ypos_in_pixels);
+	de_dbg(c, "text-area size: %d"DE_CHAR_TIMES"%d pixels", (int)textarea_xsize_in_pixels, (int)textarea_ysize_in_pixels);
 	de_dbg(c, "character size: %d"DE_CHAR_TIMES"%d pixels", (int)char_width, (int)char_height);
 
 	if(char_width<3 || char_height<3) {
@@ -422,8 +422,11 @@ static void do_plaintext_extension(deark *c, lctx *d, i64 pos)
 	}
 
 	if(char_width>0) {
-		text_width_in_chars = text_size_x / char_width;
-		if(text_width_in_chars<1) text_width_in_chars = 1;
+		text_width_in_chars = textarea_xsize_in_pixels / char_width;
+		if(text_width_in_chars<1) {
+			ok_to_render = 0;
+			text_width_in_chars = 1;
+		}
 	}
 	else {
 		text_width_in_chars = 80;
@@ -444,17 +447,18 @@ static void do_plaintext_extension(deark *c, lctx *d, i64 pos)
 	if(ok_to_render && (disposal_method==DISPOSE_PREVIOUS)) {
 		i64 tmpw, tmph;
 		// We need to save a copy of the pixels that may be overwritten.
-		tmpw = text_size_x;
+		tmpw = textarea_xsize_in_pixels;
 		if(tmpw>d->screen_w) tmpw = d->screen_w;
-		tmph = text_size_y;
+		tmph = textarea_ysize_in_pixels;
 		if(tmph>d->screen_h) tmph = d->screen_h;
 		prev_img = de_bitmap_create(c, tmpw, tmph, 4);
 		de_bitmap_copy_rect(d->screen_img, prev_img,
-			text_pos_x, text_pos_y, text_size_x, text_size_y,
-			0, 0, 0);
+			textarea_xpos_in_pixels, textarea_ypos_in_pixels,
+			tmpw, tmph, 0, 0, 0);
 	}
 
-	char_count = 0;
+	cur_xpos_in_chars = 0;
+	cur_ypos_in_chars = 0;
 	while(1) {
 		if(pos >= c->infile->len) break;
 		n = (i64)de_getbyte(pos++);
@@ -464,18 +468,20 @@ static void do_plaintext_extension(deark *c, lctx *d, i64 pos)
 			b = dbuf_getbyte(c->infile, pos+k);
 			if(f) dbuf_writebyte(f, b);
 
-			if(ok_to_render) {
+			if(ok_to_render && ((cur_ypos_in_chars+1)*char_height <= textarea_ysize_in_pixels)) {
 				render_plaintext_char(c, d, b,
-					text_pos_x + (char_count%text_width_in_chars)*char_width,
-					text_pos_y + (char_count/text_width_in_chars)*char_height,
+					textarea_xpos_in_pixels + cur_xpos_in_chars*char_width,
+					textarea_ypos_in_pixels + cur_ypos_in_chars*char_height,
 					char_width, char_height, fgclr, bgclr);
 			}
 
-			char_count++;
+			cur_xpos_in_chars++;
+			if(cur_xpos_in_chars >= text_width_in_chars) {
+				cur_ypos_in_chars++;
+				cur_xpos_in_chars = 0;
 
-			// Insert newlines in appropriate places.
-			if(f) {
-				if(char_count%text_width_in_chars == 0) {
+				if(f) {
+					// Insert newlines in appropriate places.
 					dbuf_writebyte(f, '\n');
 				}
 			}
@@ -488,13 +494,14 @@ static void do_plaintext_extension(deark *c, lctx *d, i64 pos)
 
 		// TODO: Too much code is duplicated with do_image().
 		if(disposal_method==DISPOSE_BKGD) {
-			de_bitmap_rect(d->screen_img, text_pos_x, text_pos_y, text_size_x, text_size_y,
+			de_bitmap_rect(d->screen_img, textarea_xpos_in_pixels, textarea_ypos_in_pixels,
+				textarea_xsize_in_pixels, textarea_ysize_in_pixels,
 				DE_STOCKCOLOR_TRANSPARENT, 0);
 		}
 		else if(disposal_method==DISPOSE_PREVIOUS && prev_img) {
 			de_bitmap_copy_rect(prev_img, d->screen_img,
-				0, 0, text_size_x, text_size_y,
-				text_pos_x, text_pos_y, 0);
+				0, 0, prev_img->width, prev_img->height,
+				textarea_xpos_in_pixels, textarea_ypos_in_pixels, 0);
 		}
 	}
 
