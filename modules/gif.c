@@ -48,6 +48,37 @@ struct gif_image_data {
 	u32 local_ct[256];
 };
 
+struct subblock_reader_data {
+	void *userdata;
+	i64 subblock_idx;
+	dbuf *inf;
+	i64 pos;
+	i64 len;
+};
+
+typedef void (*subblock_callback_fn_type)(deark *c, lctx *d, struct subblock_reader_data *sbrd);
+
+static void do_read_subblocks_p(deark *c, lctx *d, dbuf *inf, i64 *ppos,
+	subblock_callback_fn_type cbfn, void *userdata)
+{
+	struct subblock_reader_data sbrd;
+
+	de_zeromem(&sbrd, sizeof(struct subblock_reader_data));
+	sbrd.userdata = userdata;
+	sbrd.inf = inf;
+
+	while(1) {
+		sbrd.len = (i64)de_getbyte_p(ppos);
+		// Note - It's intentional to allow reading slightly beyond EOF. The virtual
+		// 0x00 bytes there will break us out of the loop.
+		if(sbrd.len==0) break;
+		sbrd.pos = *ppos;
+		*ppos += sbrd.len;
+		cbfn(c, d, &sbrd);
+		sbrd.subblock_idx++;
+	}
+}
+
 static void do_record_pixel(deark *c, lctx *d, struct gif_image_data *gi, unsigned int coloridx,
 	i64 offset)
 {
@@ -179,46 +210,54 @@ static int do_read_global_color_table(deark *c, lctx *d, i64 pos, i64 *bytesused
 	return 1;
 }
 
+static void callback_for_skip_subblocks(deark *c, lctx *d, struct subblock_reader_data *sbrd)
+{
+}
+
 static void do_skip_subblocks(deark *c, lctx *d, i64 pos1, i64 *bytesused)
 {
-	i64 pos;
-	i64 n;
+	i64 pos = pos1;
 
-	pos = pos1;
-	while(1) {
-		if(pos >= c->infile->len) break;
-		n = (i64)de_getbyte(pos++);
-		if(n==0) break;
-		pos += n;
-	}
+	do_read_subblocks_p(c, d, c->infile, &pos, callback_for_skip_subblocks, NULL);
 	*bytesused = pos - pos1;
-	return;
+}
+
+struct copy_subblocks_ctx {
+	dbuf *outf;
+	int has_max;
+	i64 maxlen;
+	i64 nbytes_copied;
+};
+
+static void callback_for_copy_subblocks(deark *c, lctx *d, struct subblock_reader_data *sbrd)
+{
+	struct copy_subblocks_ctx *ctx = (struct copy_subblocks_ctx*)sbrd->userdata;
+	i64 nbytes_to_copy;
+
+	if(ctx->has_max && (ctx->nbytes_copied >= ctx->maxlen)) return;
+	if(sbrd->len<1) return;
+
+	nbytes_to_copy = sbrd->len;
+	if(ctx->has_max) {
+		if(ctx->nbytes_copied + nbytes_to_copy > ctx->maxlen) {
+			nbytes_to_copy = ctx->maxlen - ctx->nbytes_copied;
+		}
+	}
+	dbuf_copy(sbrd->inf, sbrd->pos, nbytes_to_copy, ctx->outf);
+	ctx->nbytes_copied += nbytes_to_copy;
 }
 
 static void do_copy_subblocks_to_dbuf(deark *c, lctx *d, dbuf *outf,
 	i64 pos1, int has_max, i64 maxlen)
 {
 	i64 pos = pos1;
-	i64 nbytes_copied = 0;
+	struct copy_subblocks_ctx ctx;
 
-	while(1) {
-		i64 n;
-		i64 nbytes_to_copy;
-
-		if(pos >= c->infile->len) break;
-		if(has_max && (nbytes_copied >= maxlen)) break;
-		n = (i64)de_getbyte_p(&pos);
-		if(n==0) break;
-		nbytes_to_copy = n;
-		if(has_max) {
-			if(nbytes_copied + nbytes_to_copy > maxlen) {
-				nbytes_to_copy = maxlen - nbytes_copied;
-			}
-		}
-		dbuf_copy(c->infile, pos, nbytes_to_copy, outf);
-		nbytes_copied += nbytes_to_copy;
-		pos += n;
-	}
+	ctx.outf = outf;
+	ctx.has_max = has_max;
+	ctx.maxlen = maxlen;
+	ctx.nbytes_copied = 0;
+	do_read_subblocks_p(c, d, c->infile, &pos, callback_for_copy_subblocks, (void*)&ctx);
 }
 
 static void discard_current_gce_data(deark *c, lctx *d)
@@ -279,40 +318,44 @@ static void do_graphic_control_extension(deark *c, lctx *d, i64 pos)
 	}
 }
 
-static void do_comment_extension(deark *c, lctx *d, i64 pos)
+struct comment_ext_ctx {
+	de_ucstring *s;
+	dbuf *outf;
+};
+
+static void callback_for_comment_ext(deark *c, lctx *d, struct subblock_reader_data *sbrd)
 {
-	dbuf *f = NULL;
-	de_ucstring *s = NULL;
-	i64 n;
+	struct comment_ext_ctx *ctx = (struct comment_ext_ctx*)sbrd->userdata;
 
-	// Either write the comment to a file, or store it in a string.
+	if(sbrd->len<1) return;
+
+	if(ctx->outf) {
+		// GIF comments are supposed to be 7-bit ASCII, so just copy them as-is.
+		dbuf_copy(sbrd->inf, sbrd->pos, sbrd->len, ctx->outf);
+	}
+
+	if(ctx->s->len<DE_DBG_MAX_STRLEN) {
+		dbuf_read_to_ucstring(sbrd->inf, sbrd->pos, sbrd->len, ctx->s, 0, DE_ENCODING_ASCII);
+	}
+}
+
+static void do_comment_extension(deark *c, lctx *d, i64 pos1)
+{
+	struct comment_ext_ctx ctx;
+	i64 pos = pos1;
+
+	de_zeromem(&ctx, sizeof(struct comment_ext_ctx));
+	ctx.s = ucstring_create(c);
 	if(c->extract_level>=2) {
-		f = dbuf_create_output_file(c, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
-	}
-	else {
-		s = ucstring_create(c);
+		ctx.outf = dbuf_create_output_file(c, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 
-	while(1) {
-		if(pos >= c->infile->len) break;
-		n = (i64)de_getbyte(pos++);
-		if(n==0) break;
+	do_read_subblocks_p(c, d, c->infile, &pos, callback_for_comment_ext, (void*)&ctx);
 
-		if(f) {
-			// GIF comments are supposed to be 7-bit ASCII, so just copy them as-is.
-			dbuf_copy(c->infile, pos, n, f);
-		}
-		if(s && s->len<DE_DBG_MAX_STRLEN) {
-			dbuf_read_to_ucstring(c->infile, pos, n, s, 0, DE_ENCODING_ASCII);
-		}
+	de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(ctx.s));
 
-		pos += n;
-	}
-
-	if(s) {
-		de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(s));
-	}
-	dbuf_close(f);
+	dbuf_close(ctx.outf);
+	ucstring_destroy(ctx.s);
 }
 
 static void decode_text_color(deark *c, lctx *d, const char *name, u8 clr_idx,
@@ -699,7 +742,7 @@ static int do_read_extension(deark *c, lctx *d, i64 pos1, i64 *bytesused)
 }
 
 // Read 9-byte image header
-static void do_read_image_descriptor(deark *c, lctx *d, struct gif_image_data *gi, i64 pos)
+static void do_read_image_header(deark *c, lctx *d, struct gif_image_data *gi, i64 pos)
 {
 	u8 packed_fields;
 	unsigned int local_color_table_size_code;
@@ -806,7 +849,7 @@ static int do_image_internal(deark *c, lctx *d,
 	pos = pos1;
 	*bytesused = 0;
 
-	do_read_image_descriptor(c, d, gi, pos);
+	do_read_image_header(c, d, gi, pos);
 	pos += 9;
 
 	if(gi->has_local_color_table) {
