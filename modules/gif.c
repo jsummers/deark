@@ -28,7 +28,7 @@ typedef struct localctx_struct {
 	i64 screen_w, screen_h;
 	int has_global_color_table;
 	i64 global_color_table_size; // Number of colors stored in the file
-	u32 global_ct[256];
+	de_color global_ct[256];
 
 	de_bitmap *screen_img;
 	struct gceinfo *gce; // The Graphic Control Ext. in effect for the next image
@@ -45,7 +45,7 @@ struct gif_image_data {
 	int has_local_color_table;
 	i64 local_color_table_size;
 	u16 *interlace_map;
-	u32 local_ct[256];
+	de_color local_ct[256];
 };
 
 struct subblock_reader_data {
@@ -85,7 +85,7 @@ static void do_record_pixel(deark *c, lctx *d, struct gif_image_data *gi, unsign
 	i64 pixnum;
 	i64 xi, yi;
 	i64 yi1;
-	u32 clr;
+	de_color clr;
 
 	if(coloridx>255) return;
 
@@ -192,7 +192,7 @@ static int do_read_screen_descriptor(deark *c, lctx *d, i64 pos)
 }
 
 static void do_read_color_table(deark *c, lctx *d, i64 pos, i64 ncolors,
-	u32 *ct)
+	de_color *ct)
 {
 	de_read_palette_rgb(c->infile, pos, ncolors, 3, ct, 256, 0);
 }
@@ -359,9 +359,9 @@ static void do_comment_extension(deark *c, lctx *d, i64 pos1)
 }
 
 static void decode_text_color(deark *c, lctx *d, const char *name, u8 clr_idx,
-	u32 *pclr)
+	de_color *pclr)
 {
-	u32 clr;
+	de_color clr;
 	const char *alphastr;
 	char csamp[32];
 
@@ -384,7 +384,7 @@ static void decode_text_color(deark *c, lctx *d, const char *name, u8 clr_idx,
 
 static void render_plaintext_char(deark *c, lctx *d, u8 ch,
 	i64 pos_x, i64 pos_y, i64 size_x, i64 size_y,
-	u32 fgclr, u32 bgclr)
+	de_color fgclr, de_color bgclr)
 {
 	i64 i, j;
 	const u8 *fontdata;
@@ -399,7 +399,7 @@ static void render_plaintext_char(deark *c, lctx *d, u8 ch,
 		for(i=0; i<size_x; i++) {
 			unsigned int x2, y2;
 			int isbg;
-			u32 clr;
+			de_color clr;
 
 			// TODO: Better character-rendering facilities.
 			// de_font_paint_character_idx() doesn't quite do what we need.
@@ -421,137 +421,177 @@ static void render_plaintext_char(deark *c, lctx *d, u8 ch,
 	}
 }
 
-static void do_plaintext_extension(deark *c, lctx *d, i64 pos)
-{
-	dbuf *f = NULL;
-	i64 n;
+struct plaintext_ext_ctx {
+	int header_ok;
+	int ok_to_render; // If 0, something's wrong, and we should't draw the pixels
 	i64 textarea_xpos_in_pixels, textarea_ypos_in_pixels;
 	i64 textarea_xsize_in_pixels, textarea_ysize_in_pixels;
 	i64 text_width_in_chars;
 	i64 char_width, char_height;
 	i64 cur_xpos_in_chars, cur_ypos_in_chars;
-	i64 k;
-	u32 fgclr, bgclr;
-	u8 fgclr_idx, bgclr_idx;
-	u8 b;
-	unsigned char disposal_method = 0;
-	int ok_to_render = 1;
-	de_bitmap *prev_img = NULL;
+	de_color fgclr, bgclr;
+	unsigned char disposal_method;
+	de_bitmap *prev_img;
+	dbuf *outf_txt;
+};
 
-	// The first sub-block is the header
-	n = (i64)de_getbyte(pos++);
-	if(n<12) goto done;
+static void do_plaintext_ext_header(deark *c, lctx *d, struct plaintext_ext_ctx *ctx,
+	dbuf *inf, i64 pos1, i64 len)
+{
+	u8 fgclr_idx, bgclr_idx;
+	i64 pos = pos1;
+
+	if(len<12) goto done;
 
 	if(d->gce) {
-		disposal_method = d->gce->disposal_method;
+		ctx->disposal_method = d->gce->disposal_method;
 	}
 
-	if(!d->compose) {
-		ok_to_render = 0;
+	ctx->textarea_xpos_in_pixels = dbuf_getu16le(inf, pos);
+	ctx->textarea_ypos_in_pixels = dbuf_getu16le(inf, pos+2);
+	ctx->textarea_xsize_in_pixels = dbuf_getu16le(inf, pos+4);
+	ctx->textarea_ysize_in_pixels = dbuf_getu16le(inf, pos+6);
+	ctx->char_width = (i64)dbuf_getbyte(inf, pos+8);
+	ctx->char_height = (i64)dbuf_getbyte(inf, pos+9);
+	de_dbg(c, "text-area pos: %d,%d pixels", (int)ctx->textarea_xpos_in_pixels,
+		(int)ctx->textarea_ypos_in_pixels);
+	de_dbg(c, "text-area size: %d"DE_CHAR_TIMES"%d pixels", (int)ctx->textarea_xsize_in_pixels,
+		(int)ctx->textarea_ysize_in_pixels);
+	de_dbg(c, "character size: %d"DE_CHAR_TIMES"%d pixels", (int)ctx->char_width, (int)ctx->char_height);
+
+	if(ctx->char_width<3 || ctx->char_height<3) {
+		ctx->ok_to_render = 0;
 	}
 
-	textarea_xpos_in_pixels = de_getu16le(pos);
-	textarea_ypos_in_pixels = de_getu16le(pos+2);
-	textarea_xsize_in_pixels = de_getu16le(pos+4);
-	textarea_ysize_in_pixels = de_getu16le(pos+6);
-	char_width = (i64)de_getbyte(pos+8);
-	char_height = (i64)de_getbyte(pos+9);
-	de_dbg(c, "text-area pos: %d,%d pixels", (int)textarea_xpos_in_pixels, (int)textarea_ypos_in_pixels);
-	de_dbg(c, "text-area size: %d"DE_CHAR_TIMES"%d pixels", (int)textarea_xsize_in_pixels, (int)textarea_ysize_in_pixels);
-	de_dbg(c, "character size: %d"DE_CHAR_TIMES"%d pixels", (int)char_width, (int)char_height);
-
-	if(char_width<3 || char_height<3) {
-		ok_to_render = 0;
-	}
-
-	if(char_width>0) {
-		text_width_in_chars = textarea_xsize_in_pixels / char_width;
-		if(text_width_in_chars<1) {
-			ok_to_render = 0;
-			text_width_in_chars = 1;
+	if(ctx->char_width>0) {
+		ctx->text_width_in_chars = ctx->textarea_xsize_in_pixels / ctx->char_width;
+		if(ctx->text_width_in_chars<1) {
+			ctx->ok_to_render = 0;
+			ctx->text_width_in_chars = 1;
 		}
 	}
 	else {
-		text_width_in_chars = 80;
+		ctx->text_width_in_chars = 80;
 	}
-	de_dbg(c, "calculated chars/line: %d", (int)text_width_in_chars);
+	de_dbg(c, "calculated chars/line: %d", (int)ctx->text_width_in_chars);
 
-	fgclr_idx = de_getbyte(pos+10);
-	decode_text_color(c, d, "fg", fgclr_idx, &fgclr);
-	bgclr_idx = de_getbyte(pos+11);
-	decode_text_color(c, d, "bg", bgclr_idx, &bgclr);
-
-	pos += n;
+	fgclr_idx = dbuf_getbyte(inf, pos+10);
+	decode_text_color(c, d, "fg", fgclr_idx, &ctx->fgclr);
+	bgclr_idx = dbuf_getbyte(inf, pos+11);
+	decode_text_color(c, d, "bg", bgclr_idx, &ctx->bgclr);
 
 	if(d->dump_plaintext_ext) {
-		f = dbuf_create_output_file(c, "plaintext.txt", NULL, 0);
+		ctx->outf_txt = dbuf_create_output_file(c, "plaintext.txt", NULL, 0);
 	}
 
-	if(ok_to_render && (disposal_method==DISPOSE_PREVIOUS)) {
+	if(ctx->ok_to_render && (ctx->disposal_method==DISPOSE_PREVIOUS)) {
 		i64 tmpw, tmph;
 		// We need to save a copy of the pixels that may be overwritten.
-		tmpw = textarea_xsize_in_pixels;
+		tmpw = ctx->textarea_xsize_in_pixels;
 		if(tmpw>d->screen_w) tmpw = d->screen_w;
-		tmph = textarea_ysize_in_pixels;
+		tmph = ctx->textarea_ysize_in_pixels;
 		if(tmph>d->screen_h) tmph = d->screen_h;
-		prev_img = de_bitmap_create(c, tmpw, tmph, 4);
-		de_bitmap_copy_rect(d->screen_img, prev_img,
-			textarea_xpos_in_pixels, textarea_ypos_in_pixels,
+		ctx->prev_img = de_bitmap_create(c, tmpw, tmph, 4);
+		de_bitmap_copy_rect(d->screen_img, ctx->prev_img,
+			ctx->textarea_xpos_in_pixels, ctx->textarea_ypos_in_pixels,
 			tmpw, tmph, 0, 0, 0);
 	}
 
-	cur_xpos_in_chars = 0;
-	cur_ypos_in_chars = 0;
-	while(1) {
-		if(pos >= c->infile->len) break;
-		n = (i64)de_getbyte(pos++);
-		if(n==0) break;
+	ctx->cur_xpos_in_chars = 0;
+	ctx->cur_ypos_in_chars = 0;
 
-		for(k=0; k<n; k++) {
-			b = dbuf_getbyte(c->infile, pos+k);
-			if(f) dbuf_writebyte(f, b);
+	ctx->header_ok = 1;
+done:
+	;
+}
 
-			if(ok_to_render && ((cur_ypos_in_chars+1)*char_height <= textarea_ysize_in_pixels)) {
-				render_plaintext_char(c, d, b,
-					textarea_xpos_in_pixels + cur_xpos_in_chars*char_width,
-					textarea_ypos_in_pixels + cur_ypos_in_chars*char_height,
-					char_width, char_height, fgclr, bgclr);
-			}
+static void do_plaintext_ext_textsubblock(deark *c, lctx *d, struct plaintext_ext_ctx *ctx,
+	dbuf *inf, i64 pos1, i64 len)
+{
+	i64 k;
 
-			cur_xpos_in_chars++;
-			if(cur_xpos_in_chars >= text_width_in_chars) {
-				cur_ypos_in_chars++;
-				cur_xpos_in_chars = 0;
+	for(k=0; k<len; k++) {
+		u8 b;
 
-				if(f) {
-					// Insert newlines in appropriate places.
-					dbuf_writebyte(f, '\n');
-				}
+		b = dbuf_getbyte(inf, pos1+k);
+		if(ctx->outf_txt) dbuf_writebyte(ctx->outf_txt, b);
+
+		if(ctx->ok_to_render &&
+			((ctx->cur_ypos_in_chars+1)*ctx->char_height <= ctx->textarea_ysize_in_pixels))
+		{
+			render_plaintext_char(c, d, b,
+				ctx->textarea_xpos_in_pixels + ctx->cur_xpos_in_chars*ctx->char_width,
+				ctx->textarea_ypos_in_pixels + ctx->cur_ypos_in_chars*ctx->char_height,
+				ctx->char_width, ctx->char_height, ctx->fgclr, ctx->bgclr);
+		}
+
+		ctx->cur_xpos_in_chars++;
+		if(ctx->cur_xpos_in_chars >= ctx->text_width_in_chars) {
+			ctx->cur_ypos_in_chars++;
+			ctx->cur_xpos_in_chars = 0;
+
+			if(ctx->outf_txt) {
+				// Insert newlines in appropriate places.
+				dbuf_writebyte(ctx->outf_txt, '\n');
 			}
 		}
-		pos += n;
 	}
+}
+
+static void callback_for_plaintext_ext(deark *c, lctx *d, struct subblock_reader_data *sbrd)
+{
+	struct plaintext_ext_ctx *ctx = (struct plaintext_ext_ctx*)sbrd->userdata;
+
+	if(sbrd->subblock_idx==0) {
+		// The first sub-block is the header
+		do_plaintext_ext_header(c, d, ctx, sbrd->inf, sbrd->pos, sbrd->len);
+	}
+	else {
+		if(ctx->header_ok) {
+			do_plaintext_ext_textsubblock(c, d, ctx, sbrd->inf, sbrd->pos, sbrd->len);
+		}
+	}
+}
+
+static void do_plaintext_extension(deark *c, lctx *d, i64 pos1)
+{
+	i64 pos = pos1;
+	struct plaintext_ext_ctx *ctx = NULL;
+
+	ctx = de_malloc(c, sizeof(struct plaintext_ext_ctx));
+	ctx->disposal_method = 0;
+	ctx->ok_to_render = 1;
+
+	if(!d->compose) {
+		ctx->ok_to_render = 0;
+	}
+
+	do_read_subblocks_p(c, d, c->infile, &pos, callback_for_plaintext_ext, (void*)ctx);
+	if(!ctx->header_ok) goto done;
 
 	if(d->compose) {
 		de_bitmap_write_to_file_finfo(d->screen_img, d->fi, DE_CREATEFLAG_OPT_IMAGE);
 
 		// TODO: Too much code is duplicated with do_image().
-		if(disposal_method==DISPOSE_BKGD) {
-			de_bitmap_rect(d->screen_img, textarea_xpos_in_pixels, textarea_ypos_in_pixels,
-				textarea_xsize_in_pixels, textarea_ysize_in_pixels,
+		if(ctx->disposal_method==DISPOSE_BKGD) {
+			de_bitmap_rect(d->screen_img, ctx->textarea_xpos_in_pixels, ctx->textarea_ypos_in_pixels,
+				ctx->textarea_xsize_in_pixels, ctx->textarea_ysize_in_pixels,
 				DE_STOCKCOLOR_TRANSPARENT, 0);
 		}
-		else if(disposal_method==DISPOSE_PREVIOUS && prev_img) {
-			de_bitmap_copy_rect(prev_img, d->screen_img,
-				0, 0, prev_img->width, prev_img->height,
-				textarea_xpos_in_pixels, textarea_ypos_in_pixels, 0);
+		else if(ctx->disposal_method==DISPOSE_PREVIOUS && ctx->prev_img) {
+			de_bitmap_copy_rect(ctx->prev_img, d->screen_img,
+				0, 0, ctx->prev_img->width, ctx->prev_img->height,
+				ctx->textarea_xpos_in_pixels, ctx->textarea_ypos_in_pixels, 0);
 		}
 	}
 
 done:
-	dbuf_close(f);
-	de_bitmap_destroy(prev_img);
 	discard_current_gce_data(c, d);
+	if(ctx) {
+		dbuf_close(ctx->outf_txt);
+		de_bitmap_destroy(ctx->prev_img);
+		de_free(c, ctx);
+	}
 }
 
 static void do_animation_extension(deark *c, lctx *d, i64 pos)
@@ -732,6 +772,8 @@ static int do_read_extension(deark *c, lctx *d, i64 pos1, i64 *bytesused)
 	}
 	de_dbg_indent(c, -1);
 
+	// TODO?: It's inefficient to do this unconditionally, since we usually have
+	// already figured out where the extension ends.
 	do_skip_subblocks(c, d, pos, &bytesused2);
 	pos += bytesused2;
 
