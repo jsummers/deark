@@ -932,8 +932,7 @@ char de_byte_to_printable_char(u8 b);
 // Convert encoded bytes to a NUL-terminated string that can be
 // printed to the terminal.
 // Consider using {dbuf_read_to_ucstring or dbuf_read_string or
-// ucstring_append_bytes} followed by
-// {ucstring_get_printable_sz or ucstring_to_printable_sz} instead.
+// ucstring_append_bytes} followed by ucstring_getpsz* instead.
 void de_bytes_to_printable_sz(const u8 *src, i64 src_len,
 	char *dst, i64 dst_len, unsigned int conv_flags, de_ext_encoding src_ee);
 
