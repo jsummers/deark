@@ -48,6 +48,10 @@ struct member_data {
 	struct de_timestamp create_time;
 	struct fork_data rfork;
 	struct fork_data dfork;
+	i64 v5_next_member_pos;
+	i64 v5_first_entry_pos; // valid if is_folder
+	i64 v5_num_files_in_folder; // valid if is_folder
+	u8 v5_need_strarray_pop;
 };
 
 typedef struct localctx_struct {
@@ -60,6 +64,7 @@ typedef struct localctx_struct {
 	struct de_strarray *curpath;
 	struct de_crcobj *crco_rfork;
 	struct de_crcobj *crco_dfork;
+	i64 v5_first_entry_pos; // for the root directory
 } lctx;
 
 typedef void (*decompressor_fn)(deark *c, lctx *d, struct member_data *md,
@@ -424,6 +429,56 @@ static int my_advfile_cbfn(deark *c, struct de_advfile *advf,
 	return 1;
 }
 
+// TODO: Refactor do_member() to use this function.
+static int do_v5_extract_member(deark *c, lctx *d, struct member_data *md)
+{
+	struct advfudata u;
+	int retval;
+
+	// TODO: What if this is a folder?
+
+	retval = 1;
+	ucstring_append_ucstring(md->advf->filename, md->full_fname);
+	md->advf->original_filename_flag = 1;
+	md->advf->snflags = DE_SNFLAG_FULLPATH;
+	de_advfile_set_orig_filename(md->advf, md->fname->sz, md->fname->sz_strlen);
+
+	// resource fork
+	if(md->rfork.cmpr_len>0) {
+		de_dbg(c, "rsrc fork data at %"I64_FMT", len=%"I64_FMT,
+			md->rfork.cmpr_pos, md->rfork.cmpr_len);
+		md->advf->rsrcfork.fork_len = md->rfork.unc_len;
+		de_dbg_indent(c, 1);
+		do_pre_decompress_fork(c, d, md, &md->rfork);
+		de_dbg_indent(c, -1);
+	}
+
+	// data fork
+	if(md->dfork.cmpr_len>0) {
+		de_dbg(c, "data fork data at %"I64_FMT", len=%"I64_FMT,
+			md->dfork.cmpr_pos, md->dfork.cmpr_len);
+		md->advf->mainfork.fork_len = md->dfork.unc_len;
+		de_dbg_indent(c, 1);
+		do_pre_decompress_fork(c, d, md, &md->dfork);
+		de_dbg_indent(c, -1);
+	}
+
+	u.d = d;
+	u.md = md;
+	md->advf->userdata = (void*)&u;
+	md->advf->writefork_cbfn = my_advfile_cbfn;
+	de_advfile_run(md->advf);
+
+	if(md->advf->rsrcfork.fork_exists) {
+		do_post_decompress_fork(c, d, md, &md->rfork);
+	}
+	if(md->advf->mainfork.fork_exists) {
+		do_post_decompress_fork(c, d, md, &md->dfork);
+	}
+
+	return retval;
+}
+
 // Returns:
 //  0 if the member could not be parsed sufficiently to determine its size
 //  1 normally
@@ -589,10 +644,319 @@ static void do_sequence_of_members(deark *c, lctx *d, i64 pos1)
 	}
 }
 
+static void do_oldfmt(deark *c, lctx *d)
+{
+	i64 pos = 0;
+
+	if(!do_master_header(c, d, pos)) goto done;
+	pos += 22;
+	do_sequence_of_members(c, d, pos);
+
+done:
+	;
+}
+
+static void do_v5_list_of_members(deark *c, lctx *d, i64 first_member_pos,
+	i64 num_members_expected);
+
+static int do_v5_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
+{
+	i64 pos = pos1;
+	i64 fnlen, fnlen_sanitized;
+	i64 n;
+	i64 hdrsize;
+	u8 blktype;
+	de_ucstring *descr = NULL;
+	int saved_indent_level;
+	int retval = 0;
+	char timestamp_buf[64];
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(pos1==0) goto done;
+
+	de_dbg(c, "member header at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	n = de_getu32be_p(&pos);
+	if(n!=0xa5a5a5a5) {
+		de_err(c, "Expected member not found at %"I64_FMT, pos1);
+		goto done;
+	}
+
+	descr = ucstring_create(c);
+
+	pos++; // ver?
+	pos++; // ?
+	hdrsize = de_getu16be_p(&pos);
+	de_dbg(c, "header size: %"I64_FMT, hdrsize);
+	pos++; // ?
+	blktype = de_getbyte_p(&pos);
+	de_dbg(c, "type: %u", (UI)blktype);
+	if(blktype&64) {
+		// FIXME: How do we identify folders?
+		md->is_folder = 1; // ?????
+	}
+
+	n = de_getu32be_p(&pos);
+	de_mac_time_to_timestamp(n, &md->create_time);
+	de_timestamp_to_string(&md->create_time, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "create time: %"I64_FMT" (%s)", n, timestamp_buf);
+	md->advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_CREATE] = md->create_time;
+
+	n = de_getu32be_p(&pos);
+	de_mac_time_to_timestamp(n, &md->mod_time);
+	de_timestamp_to_string(&md->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "mod time: %"I64_FMT" (%s)", n, timestamp_buf);
+	md->advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->mod_time;
+
+	n = de_getu32be_p(&pos);
+	de_dbg(c, "prev: %"I64_FMT, n);
+	md->v5_next_member_pos = de_getu32be_p(&pos);
+	de_dbg(c, "next: %"I64_FMT, md->v5_next_member_pos);
+	retval = 1;
+
+	// at offset 26
+	n = de_getu32be_p(&pos);
+	de_dbg(c, "parent: %"I64_FMT, n);
+
+	fnlen = de_getu16be_p(&pos);
+	de_dbg(c, "filename len: %u", (UI)fnlen);
+	fnlen_sanitized = de_min_int(fnlen, 1024);
+
+	pos += 2; // hdr crc
+
+	// at offset 34
+	if(md->is_folder) {
+		md->v5_first_entry_pos = de_getu32be_p(&pos);
+		de_dbg(c, "offset of first entry: %"I64_FMT, md->v5_first_entry_pos);
+
+		n = de_getu32be_p(&pos);
+		de_dbg(c, "folder size: %"I64_FMT, n);
+
+		pos += 2; // data fork old crc16
+		pos += 2; // ?
+
+		md->v5_num_files_in_folder = de_getu16be_p(&pos);
+		de_dbg(c, "number of files: %"I64_FMT, md->v5_num_files_in_folder);
+	}
+	else {
+		md->dfork.unc_len = de_getu32be_p(&pos);
+		de_dbg(c, "data fork uncmpr len: %"I64_FMT, md->dfork.unc_len);
+		// at offset 38
+		md->dfork.cmpr_len = de_getu32be_p(&pos);
+		de_dbg(c, "data fork cmpr len: %"I64_FMT, md->dfork.cmpr_len);
+
+		n = de_getu16be_p(&pos);
+		de_dbg(c, "data fork old crc: 0x%04x", (UI)n);
+
+		pos += 2; // ?
+
+		md->dfork.cmpr_meth_etc = de_getbyte_p(&pos);
+		ucstring_empty(descr);
+		decode_cmpr_meth(c, &md->dfork, descr);
+		de_dbg(c, "data cmpr meth (etc.): %u (%s)", (unsigned int)md->dfork.cmpr_meth_etc,
+			ucstring_getpsz(descr));
+
+		// at offset 47
+		n = (i64)de_getbyte_p(&pos);
+		de_dbg(c, "passwd len: %u", (UI)n);
+
+		pos += n;
+	}
+
+	md->fname = dbuf_read_string(c->infile, pos, fnlen_sanitized, fnlen_sanitized, 0, d->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->fname->str));
+	de_strarray_push(d->curpath, md->fname->str);
+	md->v5_need_strarray_pop = 1;
+	pos += fnlen;
+
+	if(!md->is_folder) {
+		n = de_getu16be_p(&pos);
+		de_dbg(c, "flags2: 0x%04x", (UI)n);
+		pos += 2; // ?
+
+		dbuf_read_fourcc(c->infile, pos, &md->filetype, 4, 0x0);
+		de_dbg(c, "filetype: '%s'", md->filetype.id_dbgstr);
+		de_memcpy(md->advf->typecode, md->filetype.bytes, 4);
+		md->advf->has_typecode = 1;
+		pos += 4;
+		dbuf_read_fourcc(c->infile, pos, &md->creator, 4, 0x0);
+		de_dbg(c, "creator: '%s'", md->creator.id_dbgstr);
+		de_memcpy(md->advf->creatorcode, md->creator.bytes, 4);
+		md->advf->has_creatorcode = 1;
+		pos += 4;
+
+		md->finder_flags = (unsigned int)de_getu16be_p(&pos);
+		de_dbg(c, "finder flags: 0x%04x", md->finder_flags);
+		md->advf->finderflags = (u16)md->finder_flags;
+		md->advf->has_finderflags = 1;
+
+		pos += 22; // ?
+
+		md->rfork.unc_len = de_getu32be_p(&pos);
+		de_dbg(c, "rsrc uncmpr len: %"I64_FMT, md->rfork.unc_len);
+		md->rfork.cmpr_len = de_getu32be_p(&pos);
+		de_dbg(c, "rsrc cmpr len: %"I64_FMT, md->rfork.cmpr_len);
+
+		n = de_getu16be_p(&pos);
+		de_dbg(c, "rsrc fork old crc: 0x%04x", (UI)n);
+
+		pos += 2; // ?
+
+		md->rfork.cmpr_meth_etc = de_getbyte_p(&pos);
+		ucstring_empty(descr);
+		decode_cmpr_meth(c, &md->rfork, descr);
+		de_dbg(c, "rsrc cmpr meth (etc.): %u (%s)", (unsigned int)md->rfork.cmpr_meth_etc,
+			ucstring_getpsz(descr));
+
+		pos++; // ?
+	}
+
+	if(!md->is_folder) {
+		md->rfork.cmpr_pos = pos;
+		de_dbg(c, "rsrc fork at %"I64_FMT", len=%"I64_FMT, md->rfork.cmpr_pos, md->rfork.cmpr_len);
+		pos += md->rfork.cmpr_len;
+
+		md->dfork.cmpr_pos = pos;
+		de_dbg(c, "data fork at %"I64_FMT", len=%"I64_FMT, md->dfork.cmpr_pos, md->dfork.cmpr_len);
+		pos += md->dfork.cmpr_len;
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	ucstring_destroy(descr);
+	return retval;
+}
+
+static int do_v5_member(deark *c, lctx *d, i64 member_idx,
+	i64 pos1, i64 *pnext_member_pos)
+{
+	struct member_data *md = NULL;
+	int saved_indent_level;
+	int retval = 0;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	if(pos1==0) goto done;
+
+	md = de_malloc(c, sizeof(struct member_data));
+	md->rfork.is_rsrc_fork = 1;
+	md->dfork.forkname = "data";
+	md->rfork.forkname = "resource";
+
+	de_dbg(c, "member[%d] at %"I64_FMT, (int)member_idx, pos1);
+	de_dbg_indent(c, 1);
+
+	if(pos1<0 || pos1>=c->infile->len) {
+		de_err(c, "Bad file offset");
+		goto done;
+	}
+
+	md->advf = de_advfile_create(c);
+
+	if(!do_v5_member_header(c, d, md, pos1)) goto done;
+	*pnext_member_pos = md->v5_next_member_pos;
+
+	if(!md->full_fname) {
+		md->full_fname = ucstring_create(c);
+		de_strarray_make_path(d->curpath, md->full_fname, DE_MPFLAG_NOTRAILINGSLASH);
+	}
+	de_dbg(c, "full name: \"%s\"", ucstring_getpsz_d(md->full_fname));
+
+	if(md->is_folder) {
+		do_extract_folder(c, d, md);
+
+		if(d->subdir_level >= MAX_NESTING_LEVEL) {
+			de_err(c, "Directories nested too deeply");
+			retval = 0;
+			goto done;
+		}
+		de_dbg(c, "[folder contents]");
+		de_dbg_indent(c, 1);
+		d->subdir_level++;
+		do_v5_list_of_members(c, d, md->v5_first_entry_pos, md->v5_num_files_in_folder);
+		d->subdir_level--;
+		de_dbg_indent(c, -1);
+	}
+	else {
+		if(!do_v5_extract_member(c, d, md)) goto done;
+	}
+
+	retval = 1;
+
+done:
+	if(md) {
+		if(md->v5_need_strarray_pop) {
+			de_strarray_pop(d->curpath);
+		}
+		de_destroy_stringreaderdata(c, md->fname);
+		ucstring_destroy(md->full_fname);
+		de_advfile_destroy(md->advf);
+		de_free(c, md);
+	}
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static void do_v5_list_of_members(deark *c, lctx *d, i64 first_member_pos,
+	i64 num_members_expected)
+{
+	i64 member_count = 0;
+	i64 pos = first_member_pos;
+
+	while(1) {
+		int ret;
+		i64 next_pos = 0;
+
+		if(pos==0) break;
+		if(member_count >= num_members_expected) break;
+
+		ret = do_v5_member(c, d, member_count, pos, &next_pos);
+		if(!ret) break;
+		if(next_pos==0) break;
+
+		pos = next_pos;
+		member_count++;
+	}
+}
+
+static int do_v5_archivehdr(deark *c, lctx *d, i64 pos1)
+{
+	i64 pos = pos1;
+	int retval = 0;
+
+	de_dbg(c, "archive header at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	pos += 80; // text
+	pos += 4; // ?
+
+	d->archive_size = de_getu32be_p(&pos);
+	de_dbg(c, "reported archive file size: %"I64_FMT, d->archive_size);
+
+	pos += 4; // ?
+
+	d->nmembers = (int)de_getu16be_p(&pos);
+	de_dbg(c, "number of root members: %d", d->nmembers);
+
+	d->v5_first_entry_pos = de_getu32be_p(&pos);
+	de_dbg(c, "pos of first root member: %"I64_FMT, d->v5_first_entry_pos);
+	retval = 1;
+
+	de_dbg_indent(c, -1);
+	return retval;
+}
+
+static void do_v5(deark *c, lctx *d)
+{
+	if(!do_v5_archivehdr(c, d, 0)) goto done;
+	do_v5_list_of_members(c, d, d->v5_first_entry_pos, d->nmembers);
+done:
+	;
+}
+
 static void de_run_stuffit(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	i64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_MACROMAN);
@@ -602,23 +966,28 @@ static void de_run_stuffit(deark *c, de_module_params *mparams)
 	}
 	else if(!dbuf_memcmp(c->infile, 0, "StuffIt", 7)) {
 		d->file_fmt = 2;
-		de_err(c, "This version of StuffIt format is not supported.");
-		goto done;
 	}
 	else {
 		de_err(c, "Not a StuffIt file, or unknown version.");
 		goto done;
 	}
 
-	pos = 0;
-	if(!do_master_header(c, d, pos)) goto done;
-	pos += 22;
-
 	d->curpath = de_strarray_create(c, MAX_NESTING_LEVEL+10);
 	d->crco_rfork = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 	d->crco_dfork = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 
-	do_sequence_of_members(c, d, pos);
+	if(d->file_fmt==1) {
+		de_declare_fmt(c, "StuffIt, old format");
+		do_oldfmt(c, d);
+	}
+	else if(d->file_fmt==2 && de_get_ext_option(c, "stuffit:v5")) {
+		// (temporarily disabled by default)
+		de_declare_fmt(c, "StuffIt, v5 format");
+		do_v5(c, d);
+	}
+	else {
+		de_err(c, "This version of StuffIt format is not supported.");
+	}
 
 done:
 	if(d) {
