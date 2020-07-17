@@ -28,7 +28,7 @@ struct fork_data {
 	u8 is_a_file;
 	u8 cmpr_meth;
 	u8 is_encrypted;
-	u32 crc;
+	u32 crc_reported;
 	i64 unc_len;
 	i64 cmpr_pos;
 	i64 cmpr_len;
@@ -64,7 +64,10 @@ typedef struct localctx_struct {
 	struct de_strarray *curpath;
 	struct de_crcobj *crco_rfork;
 	struct de_crcobj *crco_dfork;
+	struct de_crcobj *crco_hdr;
+	u8 v5_archive_flags;
 	i64 v5_first_entry_pos; // for the root directory
+	struct de_inthashtable *v5_offsets_seen;
 } lctx;
 
 typedef void (*decompressor_fn)(deark *c, lctx *d, struct member_data *md,
@@ -149,18 +152,18 @@ static const struct cmpr_meth_info *find_cmpr_meth_info(deark *c, u8 id)
 //  - sets fk.is_encrypted
 //  - sets fk.cmi
 //  - writes a description to the 's' string
-static void decode_cmpr_meth(deark *c, struct fork_data *fk,
+static void decode_cmpr_meth(deark *c, lctx *d, struct fork_data *fk,
 	de_ucstring *s)
 {
 	const char *name = NULL;
 	u8 cmpr = fk->cmpr_meth_etc;
 
-	if(cmpr<32 && (cmpr & 16)) {
+	if(d->file_fmt==1 && cmpr<32 && (cmpr & 16)) {
 		fk->is_encrypted = 1;
 		cmpr -= 16;
 	}
 
-	if(cmpr<16) {
+	if(d->file_fmt==2 || cmpr<16) {
 		fk->is_a_file = 1;
 		fk->cmpr_meth = cmpr;
 	}
@@ -172,16 +175,16 @@ static void decode_cmpr_meth(deark *c, struct fork_data *fk,
 	if(fk->cmi) {
 		name = fk->cmi->name;
 	}
-	else if(fk->cmpr_meth_etc==32) {
+	else if(d->file_fmt==1 && fk->cmpr_meth_etc==32) {
 		name = "folder";
 	}
-	else if(fk->cmpr_meth_etc==33) {
+	else if(d->file_fmt==1 && fk->cmpr_meth_etc==33) {
 		name = "end of folder marker";
 	}
 
 	if(!name) name="?";
 	ucstring_append_flags_item(s, name);
-	if(fk->is_encrypted) {
+	if(d->file_fmt==1 && fk->is_encrypted) {
 		ucstring_append_flags_item(s, "encrypted");
 	}
 }
@@ -201,13 +204,13 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 
 	md->rfork.cmpr_meth_etc = de_getbyte_p(&pos);
 	descr = ucstring_create(c);
-	decode_cmpr_meth(c, &md->rfork, descr);
+	decode_cmpr_meth(c, d, &md->rfork, descr);
 	de_dbg(c, "rsrc cmpr meth (etc.): %u (%s)", (unsigned int)md->rfork.cmpr_meth_etc,
 		ucstring_getpsz(descr));
 
 	md->dfork.cmpr_meth_etc = de_getbyte_p(&pos);
 	ucstring_empty(descr);
-	decode_cmpr_meth(c, &md->dfork, descr);
+	decode_cmpr_meth(c, d, &md->dfork, descr);
 	de_dbg(c, "data cmpr meth (etc.): %u (%s)", (unsigned int)md->dfork.cmpr_meth_etc,
 		ucstring_getpsz(descr));
 
@@ -262,10 +265,10 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	de_dbg(c, "data uncmpr len: %"I64_FMT, md->dfork.unc_len);
 	de_dbg(c, "data cmpr len: %"I64_FMT, md->dfork.cmpr_len);
 
-	md->rfork.crc = (u32)de_getu16be_p(&pos);
-	de_dbg(c, "rsrc crc (reported): 0x%04x", (unsigned int)md->rfork.crc);
-	md->dfork.crc = (u32)de_getu16be_p(&pos);
-	de_dbg(c, "data crc (reported): 0x%04x", (unsigned int)md->dfork.crc);
+	md->rfork.crc_reported = (u32)de_getu16be_p(&pos);
+	de_dbg(c, "rsrc crc (reported): 0x%04x", (UI)md->rfork.crc_reported);
+	md->dfork.crc_reported = (u32)de_getu16be_p(&pos);
+	de_dbg(c, "data crc (reported): 0x%04x", (UI)md->dfork.crc_reported);
 
 	pos += 6; // reserved, etc.
 
@@ -309,6 +312,11 @@ static void do_pre_decompress_fork(deark *c, lctx *d, struct member_data *md,
 		goto done;
 	}
 
+	if(frk->cmpr_pos + frk->cmpr_len > c->infile->len) {
+		de_err(c, "Unexpected end of file");
+		goto done;
+	}
+
 	de_dbg(c, "cmpr method: %u (%s)", (unsigned int)frk->cmpr_meth,
 		frk->cmi?frk->cmi->name:"?");
 
@@ -318,7 +326,7 @@ static void do_pre_decompress_fork(deark *c, lctx *d, struct member_data *md,
 	}
 
 	if(!frk->cmi->decompressor) {
-		de_err(c, "%s %s fork: Unsupported compression method: %u (%s)",
+		de_err(c, "%s[%s fork]: Unsupported compression method: %u (%s)",
 			ucstring_getpsz_d(md->full_fname), frk->forkname,
 			(unsigned int)frk->cmpr_meth, frk->cmi->name);
 		goto done;
@@ -365,7 +373,7 @@ static void do_main_decompress_fork(deark *c, lctx *d, struct member_data *md,
 	dcmpro.expected_len = frk->unc_len;
 	frk->cmi->decompressor(c, d, md, frk, &dcmpri, &dcmpro, &dres);
 	if(dres.errcode) {
-		de_err(c, "Decompression failed for file %s %s fork: %s", ucstring_getpsz_d(md->full_fname),
+		de_err(c, "Decompression failed for file %s[%s fork]: %s", ucstring_getpsz_d(md->full_fname),
 			frk->forkname, de_dfilter_get_errmsg(c, &dres));
 		goto done;
 	}
@@ -386,8 +394,8 @@ static void do_post_decompress_fork(deark *c, lctx *d, struct member_data *md,
 		crc_calc = de_crcobj_getval(d->crco_dfork);
 	}
 	de_dbg(c, "%s crc (calculated): 0x%04x", frk->forkname, (unsigned int)crc_calc);
-	if(crc_calc != frk->crc) {
-		de_err(c, "CRC check failed for file %s %s fork", ucstring_getpsz_d(md->full_fname),
+	if(crc_calc != frk->crc_reported) {
+		de_err(c, "CRC check failed for file %s[%s fork]", ucstring_getpsz_d(md->full_fname),
 			frk->forkname);
 	}
 }
@@ -429,15 +437,11 @@ static int my_advfile_cbfn(deark *c, struct de_advfile *advf,
 	return 1;
 }
 
-// TODO: Refactor do_member() to use this function.
-static int do_v5_extract_member(deark *c, lctx *d, struct member_data *md)
+// This is for files only. Use do_extract_folder() for folders.
+static void do_extract_member_file(deark *c, lctx *d, struct member_data *md)
 {
 	struct advfudata u;
-	int retval;
 
-	// TODO: What if this is a folder?
-
-	retval = 1;
 	ucstring_append_ucstring(md->advf->filename, md->full_fname);
 	md->advf->original_filename_flag = 1;
 	md->advf->snflags = DE_SNFLAG_FULLPATH;
@@ -475,8 +479,6 @@ static int do_v5_extract_member(deark *c, lctx *d, struct member_data *md)
 	if(md->advf->mainfork.fork_exists) {
 		do_post_decompress_fork(c, d, md, &md->dfork);
 	}
-
-	return retval;
 }
 
 // Returns:
@@ -487,8 +489,8 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	i64 pos = pos1;
 	struct member_data *md = NULL;
 	int saved_indent_level;
-	struct advfudata u;
 	int retval = 0;
+	int curpath_need_pop = 0;
 
 	*bytes_consumed = 0;
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -530,13 +532,10 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	pos += 112;
 
 	md->full_fname = ucstring_create(c);
-	de_strarray_make_path(d->curpath, md->full_fname, 0);
-	ucstring_append_ucstring(md->full_fname, md->fname->str);
+	de_strarray_push(d->curpath, md->fname->str);
+	curpath_need_pop = 1;
+	de_strarray_make_path(d->curpath, md->full_fname, DE_MPFLAG_NOTRAILINGSLASH);
 	de_dbg(c, "full name: \"%s\"", ucstring_getpsz_d(md->full_fname));
-	ucstring_append_ucstring(md->advf->filename, md->full_fname);
-	md->advf->original_filename_flag = 1;
-	md->advf->snflags = DE_SNFLAG_FULLPATH;
-	de_advfile_set_orig_filename(md->advf, md->fname->sz, md->fname->sz_strlen);
 
 	if(md->is_folder) {
 		if(d->subdir_level >= MAX_NESTING_LEVEL) {
@@ -545,49 +544,22 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 			goto done;
 		}
 		d->subdir_level++;
-		de_strarray_push(d->curpath, md->fname->str);
+		curpath_need_pop = 0;
 		do_extract_folder(c, d, md);
 		goto done;
 	}
 
-	// resource fork
 	md->rfork.cmpr_pos = pos;
-	if(md->rfork.cmpr_len>0) {
-		de_dbg(c, "rsrc fork data at %"I64_FMT", len=%"I64_FMT,
-			pos, md->rfork.cmpr_len);
-		md->advf->rsrcfork.fork_len = md->rfork.unc_len;
-		de_dbg_indent(c, 1);
-		do_pre_decompress_fork(c, d, md, &md->rfork);
-		de_dbg_indent(c, -1);
-		pos += md->rfork.cmpr_len;
-	}
-
-	// data fork
+	pos += md->rfork.cmpr_len;
 	md->dfork.cmpr_pos = pos;
-	if(md->dfork.cmpr_len>0) {
-		de_dbg(c, "data fork data at %"I64_FMT", len=%"I64_FMT,
-			pos, md->dfork.cmpr_len);
-		md->advf->mainfork.fork_len = md->dfork.unc_len;
-		de_dbg_indent(c, 1);
-		do_pre_decompress_fork(c, d, md, &md->dfork);
-		de_dbg_indent(c, -1);
-		//pos += md->dfork.cmpr_len;
-	}
+	//pos += md->dfork.cmpr_len;
 
-	u.d = d;
-	u.md = md;
-	md->advf->userdata = (void*)&u;
-	md->advf->writefork_cbfn = my_advfile_cbfn;
-	de_advfile_run(md->advf);
-
-	if(md->advf->rsrcfork.fork_exists) {
-		do_post_decompress_fork(c, d, md, &md->rfork);
-	}
-	if(md->advf->mainfork.fork_exists) {
-		do_post_decompress_fork(c, d, md, &md->dfork);
-	}
+	do_extract_member_file(c, d, md);
 
 done:
+	if(curpath_need_pop) {
+		de_strarray_pop(d->curpath);
+	}
 	if(md) {
 		de_destroy_stringreaderdata(c, md->fname);
 		ucstring_destroy(md->full_fname);
@@ -656,6 +628,16 @@ done:
 	;
 }
 
+static void do_v5_comment(deark *c, lctx *d, struct member_data *md, i64 pos, i64 len)
+{
+	de_ucstring *s = NULL;
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pos, len, 4096, s, 0, d->input_encoding);
+	de_dbg(c, "file comment: \"%s\"", ucstring_getpsz_d(s));
+	ucstring_destroy(s);
+}
+
 static void do_v5_list_of_members(deark *c, lctx *d, i64 first_member_pos,
 	i64 num_members_expected);
 
@@ -665,7 +647,10 @@ static int do_v5_member_header(deark *c, lctx *d, struct member_data *md, i64 po
 	i64 fnlen, fnlen_sanitized;
 	i64 n;
 	i64 hdrsize;
-	u8 blktype;
+	i64 hdr_endpos;
+	u32 hdr_crc_reported;
+	u32 hdr_crc_calc;
+	u8 flags;
 	de_ucstring *descr = NULL;
 	int saved_indent_level;
 	int retval = 0;
@@ -688,14 +673,34 @@ static int do_v5_member_header(deark *c, lctx *d, struct member_data *md, i64 po
 	pos++; // ver?
 	pos++; // ?
 	hdrsize = de_getu16be_p(&pos);
-	de_dbg(c, "header size: %"I64_FMT, hdrsize);
-	pos++; // ?
-	blktype = de_getbyte_p(&pos);
-	de_dbg(c, "type: %u", (UI)blktype);
-	if(blktype&64) {
-		// FIXME: How do we identify folders?
-		md->is_folder = 1; // ?????
+	hdr_endpos = pos1 + hdrsize;
+	de_dbg(c, "base header at %"I64_FMT", len=%"I64_FMT, pos1, hdrsize);
+	de_dbg_indent(c, 1);
+	if(hdrsize<48 || hdrsize>2000) {
+		de_err(c, "Bad header");
+		goto done;
 	}
+
+	// calculate actual header crc
+	de_crcobj_reset(d->crco_hdr);
+	de_crcobj_addslice(d->crco_hdr, c->infile, pos1, 32);
+	de_crcobj_addbuf(d->crco_hdr, (const u8*)"\0\0", 2);
+	de_crcobj_addslice(d->crco_hdr, c->infile, pos1+34, hdrsize-34);
+	hdr_crc_calc = de_crcobj_getval(d->crco_hdr);
+
+	pos++; // ?
+	flags = de_getbyte_p(&pos);
+	ucstring_empty(descr);
+	if(flags & 0x40) {
+		md->is_folder = 1;
+		ucstring_append_flags_item(descr, "folder");
+	}
+	if(flags & 0x20) {
+		md->dfork.is_encrypted = 1;
+		md->rfork.is_encrypted = 1;
+		ucstring_append_flags_item(descr, "encrypted");
+	}
+	de_dbg(c, "flags: 0x%02x (%s)", (UI)flags, ucstring_getpsz_d(descr));
 
 	n = de_getu32be_p(&pos);
 	de_mac_time_to_timestamp(n, &md->create_time);
@@ -723,7 +728,13 @@ static int do_v5_member_header(deark *c, lctx *d, struct member_data *md, i64 po
 	de_dbg(c, "filename len: %u", (UI)fnlen);
 	fnlen_sanitized = de_min_int(fnlen, 1024);
 
-	pos += 2; // hdr crc
+	hdr_crc_reported = (u32)de_getu16be_p(&pos);
+	de_dbg(c, "header crc (reported): 0x%04x", (UI)hdr_crc_reported);
+	de_dbg(c, "header crc (calculated): 0x%04x", (UI)hdr_crc_calc);
+	if(hdr_crc_reported != hdr_crc_calc) {
+		de_warn(c, "Bad header CRC (reported 0x%04x, calculated 0x%04x)", (UI)hdr_crc_reported,
+			(UI)hdr_crc_calc);
+	}
 
 	// at offset 34
 	if(md->is_folder) {
@@ -746,21 +757,20 @@ static int do_v5_member_header(deark *c, lctx *d, struct member_data *md, i64 po
 		md->dfork.cmpr_len = de_getu32be_p(&pos);
 		de_dbg(c, "data fork cmpr len: %"I64_FMT, md->dfork.cmpr_len);
 
-		n = de_getu16be_p(&pos);
-		de_dbg(c, "data fork old crc: 0x%04x", (UI)n);
+		md->dfork.crc_reported = (u32)de_getu16be_p(&pos);
+		de_dbg(c, "data fork old crc (reported): 0x%04x", (UI)md->dfork.crc_reported);
 
 		pos += 2; // ?
 
 		md->dfork.cmpr_meth_etc = de_getbyte_p(&pos);
 		ucstring_empty(descr);
-		decode_cmpr_meth(c, &md->dfork, descr);
-		de_dbg(c, "data cmpr meth (etc.): %u (%s)", (unsigned int)md->dfork.cmpr_meth_etc,
+		decode_cmpr_meth(c, d, &md->dfork, descr);
+		de_dbg(c, "data fork cmpr meth: %u (%s)", (unsigned int)md->dfork.cmpr_meth_etc,
 			ucstring_getpsz(descr));
 
 		// at offset 47
 		n = (i64)de_getbyte_p(&pos);
-		de_dbg(c, "passwd len: %u", (UI)n);
-
+		de_dbg(c, "data fork passwd len: %u", (UI)n);
 		pos += n;
 	}
 
@@ -770,9 +780,23 @@ static int do_v5_member_header(deark *c, lctx *d, struct member_data *md, i64 po
 	md->v5_need_strarray_pop = 1;
 	pos += fnlen;
 
+	if(hdr_endpos-pos >= 5) {
+		n = de_getu16be_p(&pos); // comment len
+		pos += 2;
+		if(pos + n <= hdr_endpos) {
+			do_v5_comment(c, d, md, pos, n);
+		}
+	}
+
+	de_dbg_indent(c, -1); // end of first part of header
+
+	pos = hdr_endpos;
+
 	if(!md->is_folder) {
-		n = de_getu16be_p(&pos);
-		de_dbg(c, "flags2: 0x%04x", (UI)n);
+		UI flags2;
+
+		flags2 = (UI)de_getu16be_p(&pos);
+		de_dbg(c, "flags2: 0x%04x", flags2);
 		pos += 2; // ?
 
 		dbuf_read_fourcc(c->infile, pos, &md->filetype, 4, 0x0);
@@ -793,32 +817,34 @@ static int do_v5_member_header(deark *c, lctx *d, struct member_data *md, i64 po
 
 		pos += 22; // ?
 
-		md->rfork.unc_len = de_getu32be_p(&pos);
-		de_dbg(c, "rsrc uncmpr len: %"I64_FMT, md->rfork.unc_len);
-		md->rfork.cmpr_len = de_getu32be_p(&pos);
-		de_dbg(c, "rsrc cmpr len: %"I64_FMT, md->rfork.cmpr_len);
+		if(flags2 & 0x0001) {
+			md->rfork.unc_len = de_getu32be_p(&pos);
+			de_dbg(c, "rsrc fork uncmpr len: %"I64_FMT, md->rfork.unc_len);
+			md->rfork.cmpr_len = de_getu32be_p(&pos);
+			de_dbg(c, "rsrc fork cmpr len: %"I64_FMT, md->rfork.cmpr_len);
 
-		n = de_getu16be_p(&pos);
-		de_dbg(c, "rsrc fork old crc: 0x%04x", (UI)n);
+			md->rfork.crc_reported = (u32)de_getu16be_p(&pos);
+			de_dbg(c, "rsrc fork old crc (reported): 0x%04x", (UI)md->rfork.crc_reported);
 
-		pos += 2; // ?
+			pos += 2; // ?
 
-		md->rfork.cmpr_meth_etc = de_getbyte_p(&pos);
-		ucstring_empty(descr);
-		decode_cmpr_meth(c, &md->rfork, descr);
-		de_dbg(c, "rsrc cmpr meth (etc.): %u (%s)", (unsigned int)md->rfork.cmpr_meth_etc,
-			ucstring_getpsz(descr));
+			md->rfork.cmpr_meth_etc = de_getbyte_p(&pos);
+			ucstring_empty(descr);
+			decode_cmpr_meth(c, d, &md->rfork, descr);
+			de_dbg(c, "rsrc fork cmpr meth: %u (%s)", (unsigned int)md->rfork.cmpr_meth_etc,
+				ucstring_getpsz(descr));
 
-		pos++; // ?
+			n = (i64)de_getbyte_p(&pos);
+			de_dbg(c, "rsrc fork passwd len: %u", (UI)n);
+			pos += n;
+		}
 	}
 
 	if(!md->is_folder) {
 		md->rfork.cmpr_pos = pos;
-		de_dbg(c, "rsrc fork at %"I64_FMT", len=%"I64_FMT, md->rfork.cmpr_pos, md->rfork.cmpr_len);
 		pos += md->rfork.cmpr_len;
 
 		md->dfork.cmpr_pos = pos;
-		de_dbg(c, "data fork at %"I64_FMT", len=%"I64_FMT, md->dfork.cmpr_pos, md->dfork.cmpr_len);
 		pos += md->dfork.cmpr_len;
 	}
 
@@ -838,6 +864,11 @@ static int do_v5_member(deark *c, lctx *d, i64 member_idx,
 	de_dbg_indent_save(c, &saved_indent_level);
 
 	if(pos1==0) goto done;
+
+	if(!de_inthashtable_add_item(c, d->v5_offsets_seen, pos1, NULL)) {
+		de_err(c, "Loop detected");
+		goto done;
+	}
 
 	md = de_malloc(c, sizeof(struct member_data));
 	md->rfork.is_rsrc_fork = 1;
@@ -879,7 +910,7 @@ static int do_v5_member(deark *c, lctx *d, i64 member_idx,
 		de_dbg_indent(c, -1);
 	}
 	else {
-		if(!do_v5_extract_member(c, d, md)) goto done;
+		do_extract_member_file(c, d, md);
 	}
 
 	retval = 1;
@@ -922,13 +953,18 @@ static void do_v5_list_of_members(deark *c, lctx *d, i64 first_member_pos,
 
 static int do_v5_archivehdr(deark *c, lctx *d, i64 pos1)
 {
+	i64 n;
 	i64 pos = pos1;
 	int retval = 0;
 
 	de_dbg(c, "archive header at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	pos += 80; // text
-	pos += 4; // ?
+	pos += 2; // ?
+	n = de_getbyte_p(&pos);
+	de_dbg(c, "archive version: %u", (UI)n);
+	d->v5_archive_flags = de_getbyte_p(&pos);
+	de_dbg(c, "archive flags: 0x%02x", (UI)d->v5_archive_flags);
 
 	d->archive_size = de_getu32be_p(&pos);
 	de_dbg(c, "reported archive file size: %"I64_FMT, d->archive_size);
@@ -940,6 +976,12 @@ static int do_v5_archivehdr(deark *c, lctx *d, i64 pos1)
 
 	d->v5_first_entry_pos = de_getu32be_p(&pos);
 	de_dbg(c, "pos of first root member: %"I64_FMT, d->v5_first_entry_pos);
+
+	n = de_getu16be_p(&pos);
+	de_dbg(c, "archive crc (reported): 0x%04x", (UI)n);
+
+	//if(d->v5_archive_flags & 0x10) pos += 14; // reserved
+	// TODO: Archive comment
 	retval = 1;
 
 	de_dbg_indent(c, -1);
@@ -948,6 +990,7 @@ static int do_v5_archivehdr(deark *c, lctx *d, i64 pos1)
 
 static void do_v5(deark *c, lctx *d)
 {
+	d->v5_offsets_seen = de_inthashtable_create(c);
 	if(!do_v5_archivehdr(c, d, 0)) goto done;
 	do_v5_list_of_members(c, d, d->v5_first_entry_pos, d->nmembers);
 done:
@@ -959,12 +1002,11 @@ static void de_run_stuffit(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_MACROMAN);
 
 	if(!dbuf_memcmp(c->infile, 0, "SIT!", 4)) {
 		d->file_fmt = 1;
 	}
-	else if(!dbuf_memcmp(c->infile, 0, "StuffIt", 7)) {
+	else if(!dbuf_memcmp(c->infile, 0, "StuffIt ", 8)) {
 		d->file_fmt = 2;
 	}
 	else {
@@ -972,16 +1014,23 @@ static void de_run_stuffit(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
+	if(d->file_fmt==2) {
+		d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_UTF8);
+	}
+	else {
+		d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_MACROMAN);
+	}
+
 	d->curpath = de_strarray_create(c, MAX_NESTING_LEVEL+10);
 	d->crco_rfork = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 	d->crco_dfork = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
+	d->crco_hdr = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 
 	if(d->file_fmt==1) {
 		de_declare_fmt(c, "StuffIt, old format");
 		do_oldfmt(c, d);
 	}
-	else if(d->file_fmt==2 && de_get_ext_option(c, "stuffit:v5")) {
-		// (temporarily disabled by default)
+	else if(d->file_fmt==2) {
 		de_declare_fmt(c, "StuffIt, v5 format");
 		do_v5(c, d);
 	}
@@ -993,20 +1042,23 @@ done:
 	if(d) {
 		de_crcobj_destroy(d->crco_rfork);
 		de_crcobj_destroy(d->crco_dfork);
+		de_crcobj_destroy(d->crco_hdr);
 		de_strarray_destroy(d->curpath);
+		if(d->v5_offsets_seen) de_inthashtable_destroy(c, d->v5_offsets_seen);
 		de_free(c, d);
 	}
 }
 
 static int de_identify_stuffit(deark *c)
 {
-	u8 buf[8];
+	u8 buf[9];
 
-	de_read(buf, 0, 8);
-	if(!de_memcmp(buf, "SIT!", 4) ||
-		!de_memcmp(buf, "StuffIt ", 8))
-	{
+	de_read(buf, 0, sizeof(buf));
+	if(!de_memcmp(buf, "SIT!", 4)) {
 		return 100;
+	}
+	if(!de_memcmp(buf, "StuffIt (", 9)) {
+		if(de_getbyte(82)==0x05) return 100;
 	}
 	return 0;
 }
