@@ -109,7 +109,7 @@ static int get_bitmap_info(deark *c, struct srcbitmap *srcbmp, enum fmtcode fmt,
 		srcbmp->has_hotspot = 1;
 		flags |= DE_BMPINFO_HAS_HOTSPOT;
 	}
-	if(!de_fmtutil_get_bmpinfo(c, c->infile, &srcbmp->bi, pos, c->infile->len - pos, flags)) {
+	if(!fmtutil_get_bmpinfo(c, c->infile, &srcbmp->bi, pos, c->infile->len - pos, flags)) {
 		de_err(c, "Invalid or unsupported bitmap");
 		goto done;
 	}
@@ -407,7 +407,7 @@ static void do_extract_CI_or_CP(deark *c, enum fmtcode fmt, const char *fmtname,
 		de_dbg(c, "bitmap at %d", (int)pos);
 		de_dbg_indent(c, 1);
 
-		if(!de_fmtutil_get_bmpinfo(c, c->infile, bi, pos, c->infile->len - pos,
+		if(!fmtutil_get_bmpinfo(c, c->infile, bi, pos, c->infile->len - pos,
 			DE_BMPINFO_HAS_FILEHEADER))
 		{
 			de_err(c, "Unsupported image type");

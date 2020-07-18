@@ -24,11 +24,12 @@ typedef struct localctx_struct {
 	int bad_screen_flag;
 	int dump_screen;
 	int dump_plaintext_ext;
+	u8 unexpected_eof_flag;
 
 	i64 screen_w, screen_h;
 	int has_global_color_table;
 	i64 global_color_table_size; // Number of colors stored in the file
-	u32 global_ct[256];
+	de_color global_ct[256];
 
 	de_bitmap *screen_img;
 	struct gceinfo *gce; // The Graphic Control Ext. in effect for the next image
@@ -43,10 +44,84 @@ struct gif_image_data {
 	i64 pixels_set;
 	int interlaced;
 	int has_local_color_table;
+	int failure_flag;
+	struct de_dfilter_ctx *dfctx;
 	i64 local_color_table_size;
 	u16 *interlace_map;
-	u32 local_ct[256];
+	de_color local_ct[256];
 };
+
+struct subblock_reader_data {
+	void *userdata;
+	i64 subblock_idx;
+	dbuf *inf;
+	i64 subblkpos;
+	i64 reported_dlen;
+	i64 dpos;
+	i64 dlen;
+};
+
+typedef void (*subblock_callback_fn_type)(deark *c, lctx *d, struct subblock_reader_data *sbrd);
+
+static void on_unexpected_eof(deark *c, lctx *d)
+{
+	if(!d->unexpected_eof_flag) {
+		de_err(c, "Unexpected end of file");
+		d->unexpected_eof_flag = 1;
+	}
+}
+
+// Call cbfn once for each subblock.
+// For the block terminator, will be called with .dlen=0.
+// On unexpected EOF, supplies any bytes that are present (with .dlen>0 &&
+// .dlen!=.reported_dlen), calls on_unexpected_eof(), and sets *ppos to point
+// to EOF.
+static void do_read_subblocks_p(deark *c, lctx *d, dbuf *inf,
+	subblock_callback_fn_type cbfn, void *userdata, i64 *ppos)
+{
+	struct subblock_reader_data sbrd;
+	int eof_flag = 0;
+
+	de_zeromem(&sbrd, sizeof(struct subblock_reader_data));
+	sbrd.userdata = userdata;
+	sbrd.inf = inf;
+
+	while(1) {
+		sbrd.subblkpos = *ppos;
+
+		if(*ppos >= inf->len) {
+			on_unexpected_eof(c, d);
+			*ppos = inf->len;
+			return;
+		}
+		sbrd.reported_dlen = (i64)de_getbyte_p(ppos);
+
+		sbrd.dpos = *ppos;
+
+		if(sbrd.dpos + sbrd.reported_dlen > inf->len) {
+			eof_flag = 1;
+			sbrd.dlen = inf->len - sbrd.dpos;
+		}
+		else {
+			sbrd.dlen = sbrd.reported_dlen;
+		}
+
+		*ppos += sbrd.dlen;
+
+		if(sbrd.dlen>0 || !eof_flag) {
+			cbfn(c, d, &sbrd);
+		}
+
+		if(eof_flag) {
+			on_unexpected_eof(c, d);
+			*ppos = inf->len;
+			return;
+		}
+
+		if(sbrd.reported_dlen==0) break;
+		sbrd.subblock_idx++;
+	}
+}
 
 static void do_record_pixel(deark *c, lctx *d, struct gif_image_data *gi, unsigned int coloridx,
 	i64 offset)
@@ -54,7 +129,7 @@ static void do_record_pixel(deark *c, lctx *d, struct gif_image_data *gi, unsign
 	i64 pixnum;
 	i64 xi, yi;
 	i64 yi1;
-	u32 clr;
+	de_color clr;
 
 	if(coloridx>255) return;
 
@@ -161,7 +236,7 @@ static int do_read_screen_descriptor(deark *c, lctx *d, i64 pos)
 }
 
 static void do_read_color_table(deark *c, lctx *d, i64 pos, i64 ncolors,
-	u32 *ct)
+	de_color *ct)
 {
 	de_read_palette_rgb(c->infile, pos, ncolors, 3, ct, 256, 0);
 }
@@ -179,46 +254,54 @@ static int do_read_global_color_table(deark *c, lctx *d, i64 pos, i64 *bytesused
 	return 1;
 }
 
+static void callback_for_skip_subblocks(deark *c, lctx *d, struct subblock_reader_data *sbrd)
+{
+}
+
 static void do_skip_subblocks(deark *c, lctx *d, i64 pos1, i64 *bytesused)
 {
-	i64 pos;
-	i64 n;
+	i64 pos = pos1;
 
-	pos = pos1;
-	while(1) {
-		if(pos >= c->infile->len) break;
-		n = (i64)de_getbyte(pos++);
-		if(n==0) break;
-		pos += n;
-	}
+	do_read_subblocks_p(c, d, c->infile, callback_for_skip_subblocks, NULL, &pos);
 	*bytesused = pos - pos1;
-	return;
+}
+
+struct copy_subblocks_ctx {
+	dbuf *outf;
+	int has_max;
+	i64 maxlen;
+	i64 nbytes_copied;
+};
+
+static void callback_for_copy_subblocks(deark *c, lctx *d, struct subblock_reader_data *sbrd)
+{
+	struct copy_subblocks_ctx *ctx = (struct copy_subblocks_ctx*)sbrd->userdata;
+	i64 nbytes_to_copy;
+
+	if(ctx->has_max && (ctx->nbytes_copied >= ctx->maxlen)) return;
+	if(sbrd->dlen<1) return;
+
+	nbytes_to_copy = sbrd->dlen;
+	if(ctx->has_max) {
+		if(ctx->nbytes_copied + nbytes_to_copy > ctx->maxlen) {
+			nbytes_to_copy = ctx->maxlen - ctx->nbytes_copied;
+		}
+	}
+	dbuf_copy(sbrd->inf, sbrd->dpos, nbytes_to_copy, ctx->outf);
+	ctx->nbytes_copied += nbytes_to_copy;
 }
 
 static void do_copy_subblocks_to_dbuf(deark *c, lctx *d, dbuf *outf,
 	i64 pos1, int has_max, i64 maxlen)
 {
 	i64 pos = pos1;
-	i64 nbytes_copied = 0;
+	struct copy_subblocks_ctx ctx;
 
-	while(1) {
-		i64 n;
-		i64 nbytes_to_copy;
-
-		if(pos >= c->infile->len) break;
-		if(has_max && (nbytes_copied >= maxlen)) break;
-		n = (i64)de_getbyte_p(&pos);
-		if(n==0) break;
-		nbytes_to_copy = n;
-		if(has_max) {
-			if(nbytes_copied + nbytes_to_copy > maxlen) {
-				nbytes_to_copy = maxlen - nbytes_copied;
-			}
-		}
-		dbuf_copy(c->infile, pos, nbytes_to_copy, outf);
-		nbytes_copied += nbytes_to_copy;
-		pos += n;
-	}
+	ctx.outf = outf;
+	ctx.has_max = has_max;
+	ctx.maxlen = maxlen;
+	ctx.nbytes_copied = 0;
+	do_read_subblocks_p(c, d, c->infile, callback_for_copy_subblocks, (void*)&ctx, &pos);
 }
 
 static void discard_current_gce_data(deark *c, lctx *d)
@@ -279,46 +362,50 @@ static void do_graphic_control_extension(deark *c, lctx *d, i64 pos)
 	}
 }
 
-static void do_comment_extension(deark *c, lctx *d, i64 pos)
+struct comment_ext_ctx {
+	de_ucstring *s;
+	dbuf *outf;
+};
+
+static void callback_for_comment_ext(deark *c, lctx *d, struct subblock_reader_data *sbrd)
 {
-	dbuf *f = NULL;
-	de_ucstring *s = NULL;
-	i64 n;
+	struct comment_ext_ctx *ctx = (struct comment_ext_ctx*)sbrd->userdata;
 
-	// Either write the comment to a file, or store it in a string.
+	if(sbrd->dlen<1) return;
+
+	if(ctx->outf) {
+		// GIF comments are supposed to be 7-bit ASCII, so just copy them as-is.
+		dbuf_copy(sbrd->inf, sbrd->dpos, sbrd->dlen, ctx->outf);
+	}
+
+	if(ctx->s->len<DE_DBG_MAX_STRLEN) {
+		dbuf_read_to_ucstring(sbrd->inf, sbrd->dpos, sbrd->dlen, ctx->s, 0, DE_ENCODING_ASCII);
+	}
+}
+
+static void do_comment_extension(deark *c, lctx *d, i64 pos1)
+{
+	struct comment_ext_ctx ctx;
+	i64 pos = pos1;
+
+	de_zeromem(&ctx, sizeof(struct comment_ext_ctx));
+	ctx.s = ucstring_create(c);
 	if(c->extract_level>=2) {
-		f = dbuf_create_output_file(c, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
-	}
-	else {
-		s = ucstring_create(c);
+		ctx.outf = dbuf_create_output_file(c, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 
-	while(1) {
-		if(pos >= c->infile->len) break;
-		n = (i64)de_getbyte(pos++);
-		if(n==0) break;
+	do_read_subblocks_p(c, d, c->infile, callback_for_comment_ext, (void*)&ctx, &pos);
 
-		if(f) {
-			// GIF comments are supposed to be 7-bit ASCII, so just copy them as-is.
-			dbuf_copy(c->infile, pos, n, f);
-		}
-		if(s && s->len<DE_DBG_MAX_STRLEN) {
-			dbuf_read_to_ucstring(c->infile, pos, n, s, 0, DE_ENCODING_ASCII);
-		}
+	de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(ctx.s));
 
-		pos += n;
-	}
-
-	if(s) {
-		de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(s));
-	}
-	dbuf_close(f);
+	dbuf_close(ctx.outf);
+	ucstring_destroy(ctx.s);
 }
 
 static void decode_text_color(deark *c, lctx *d, const char *name, u8 clr_idx,
-	u32 *pclr)
+	de_color *pclr)
 {
-	u32 clr;
+	de_color clr;
 	const char *alphastr;
 	char csamp[32];
 
@@ -341,7 +428,7 @@ static void decode_text_color(deark *c, lctx *d, const char *name, u8 clr_idx,
 
 static void render_plaintext_char(deark *c, lctx *d, u8 ch,
 	i64 pos_x, i64 pos_y, i64 size_x, i64 size_y,
-	u32 fgclr, u32 bgclr)
+	de_color fgclr, de_color bgclr)
 {
 	i64 i, j;
 	const u8 *fontdata;
@@ -356,7 +443,7 @@ static void render_plaintext_char(deark *c, lctx *d, u8 ch,
 		for(i=0; i<size_x; i++) {
 			unsigned int x2, y2;
 			int isbg;
-			u32 clr;
+			de_color clr;
 
 			// TODO: Better character-rendering facilities.
 			// de_font_paint_character_idx() doesn't quite do what we need.
@@ -378,130 +465,177 @@ static void render_plaintext_char(deark *c, lctx *d, u8 ch,
 	}
 }
 
-static void do_plaintext_extension(deark *c, lctx *d, i64 pos)
-{
-	dbuf *f = NULL;
-	i64 n;
-	i64 text_pos_x, text_pos_y; // In pixels
-	i64 text_size_x, text_size_y; // In pixels
+struct plaintext_ext_ctx {
+	int header_ok;
+	int ok_to_render; // If 0, something's wrong, and we should't draw the pixels
+	i64 textarea_xpos_in_pixels, textarea_ypos_in_pixels;
+	i64 textarea_xsize_in_pixels, textarea_ysize_in_pixels;
 	i64 text_width_in_chars;
 	i64 char_width, char_height;
-	i64 char_count;
-	i64 k;
-	u32 fgclr, bgclr;
-	u8 fgclr_idx, bgclr_idx;
-	u8 b;
-	unsigned char disposal_method = 0;
-	int ok_to_render = 1;
-	de_bitmap *prev_img = NULL;
+	i64 cur_xpos_in_chars, cur_ypos_in_chars;
+	de_color fgclr, bgclr;
+	unsigned char disposal_method;
+	de_bitmap *prev_img;
+	dbuf *outf_txt;
+};
 
-	// The first sub-block is the header
-	n = (i64)de_getbyte(pos++);
-	if(n<12) goto done;
+static void do_plaintext_ext_header(deark *c, lctx *d, struct plaintext_ext_ctx *ctx,
+	dbuf *inf, i64 pos1, i64 len)
+{
+	u8 fgclr_idx, bgclr_idx;
+	i64 pos = pos1;
+
+	if(len<12) goto done;
 
 	if(d->gce) {
-		disposal_method = d->gce->disposal_method;
+		ctx->disposal_method = d->gce->disposal_method;
 	}
 
-	if(!d->compose) {
-		ok_to_render = 0;
+	ctx->textarea_xpos_in_pixels = dbuf_getu16le(inf, pos);
+	ctx->textarea_ypos_in_pixels = dbuf_getu16le(inf, pos+2);
+	ctx->textarea_xsize_in_pixels = dbuf_getu16le(inf, pos+4);
+	ctx->textarea_ysize_in_pixels = dbuf_getu16le(inf, pos+6);
+	ctx->char_width = (i64)dbuf_getbyte(inf, pos+8);
+	ctx->char_height = (i64)dbuf_getbyte(inf, pos+9);
+	de_dbg(c, "text-area pos: %d,%d pixels", (int)ctx->textarea_xpos_in_pixels,
+		(int)ctx->textarea_ypos_in_pixels);
+	de_dbg(c, "text-area size: %d"DE_CHAR_TIMES"%d pixels", (int)ctx->textarea_xsize_in_pixels,
+		(int)ctx->textarea_ysize_in_pixels);
+	de_dbg(c, "character size: %d"DE_CHAR_TIMES"%d pixels", (int)ctx->char_width, (int)ctx->char_height);
+
+	if(ctx->char_width<3 || ctx->char_height<3) {
+		ctx->ok_to_render = 0;
 	}
 
-	text_pos_x = de_getu16le(pos);
-	text_pos_y = de_getu16le(pos+2);
-	text_size_x = de_getu16le(pos+4);
-	text_size_y = de_getu16le(pos+6);
-	char_width = (i64)de_getbyte(pos+8);
-	char_height = (i64)de_getbyte(pos+9);
-	de_dbg(c, "text-area pos: %d,%d pixels", (int)text_pos_x, (int)text_pos_y);
-	de_dbg(c, "text-area size: %d"DE_CHAR_TIMES"%d pixels", (int)text_size_x, (int)text_size_y);
-	de_dbg(c, "character size: %d"DE_CHAR_TIMES"%d pixels", (int)char_width, (int)char_height);
-
-	if(char_width<3 || char_height<3) {
-		ok_to_render = 0;
-	}
-
-	if(char_width>0) {
-		text_width_in_chars = text_size_x / char_width;
-		if(text_width_in_chars<1) text_width_in_chars = 1;
+	if(ctx->char_width>0) {
+		ctx->text_width_in_chars = ctx->textarea_xsize_in_pixels / ctx->char_width;
+		if(ctx->text_width_in_chars<1) {
+			ctx->ok_to_render = 0;
+			ctx->text_width_in_chars = 1;
+		}
 	}
 	else {
-		text_width_in_chars = 80;
+		ctx->text_width_in_chars = 80;
 	}
-	de_dbg(c, "calculated chars/line: %d", (int)text_width_in_chars);
+	de_dbg(c, "calculated chars/line: %d", (int)ctx->text_width_in_chars);
 
-	fgclr_idx = de_getbyte(pos+10);
-	decode_text_color(c, d, "fg", fgclr_idx, &fgclr);
-	bgclr_idx = de_getbyte(pos+11);
-	decode_text_color(c, d, "bg", bgclr_idx, &bgclr);
-
-	pos += n;
+	fgclr_idx = dbuf_getbyte(inf, pos+10);
+	decode_text_color(c, d, "fg", fgclr_idx, &ctx->fgclr);
+	bgclr_idx = dbuf_getbyte(inf, pos+11);
+	decode_text_color(c, d, "bg", bgclr_idx, &ctx->bgclr);
 
 	if(d->dump_plaintext_ext) {
-		f = dbuf_create_output_file(c, "plaintext.txt", NULL, 0);
+		ctx->outf_txt = dbuf_create_output_file(c, "plaintext.txt", NULL, 0);
 	}
 
-	if(ok_to_render && (disposal_method==DISPOSE_PREVIOUS)) {
+	if(ctx->ok_to_render && (ctx->disposal_method==DISPOSE_PREVIOUS)) {
 		i64 tmpw, tmph;
 		// We need to save a copy of the pixels that may be overwritten.
-		tmpw = text_size_x;
+		tmpw = ctx->textarea_xsize_in_pixels;
 		if(tmpw>d->screen_w) tmpw = d->screen_w;
-		tmph = text_size_y;
+		tmph = ctx->textarea_ysize_in_pixels;
 		if(tmph>d->screen_h) tmph = d->screen_h;
-		prev_img = de_bitmap_create(c, tmpw, tmph, 4);
-		de_bitmap_copy_rect(d->screen_img, prev_img,
-			text_pos_x, text_pos_y, text_size_x, text_size_y,
-			0, 0, 0);
+		ctx->prev_img = de_bitmap_create(c, tmpw, tmph, 4);
+		de_bitmap_copy_rect(d->screen_img, ctx->prev_img,
+			ctx->textarea_xpos_in_pixels, ctx->textarea_ypos_in_pixels,
+			tmpw, tmph, 0, 0, 0);
 	}
 
-	char_count = 0;
-	while(1) {
-		if(pos >= c->infile->len) break;
-		n = (i64)de_getbyte(pos++);
-		if(n==0) break;
+	ctx->cur_xpos_in_chars = 0;
+	ctx->cur_ypos_in_chars = 0;
 
-		for(k=0; k<n; k++) {
-			b = dbuf_getbyte(c->infile, pos+k);
-			if(f) dbuf_writebyte(f, b);
+	ctx->header_ok = 1;
+done:
+	;
+}
 
-			if(ok_to_render) {
-				render_plaintext_char(c, d, b,
-					text_pos_x + (char_count%text_width_in_chars)*char_width,
-					text_pos_y + (char_count/text_width_in_chars)*char_height,
-					char_width, char_height, fgclr, bgclr);
-			}
+static void do_plaintext_ext_textsubblock(deark *c, lctx *d, struct plaintext_ext_ctx *ctx,
+	dbuf *inf, i64 pos1, i64 len)
+{
+	i64 k;
 
-			char_count++;
+	for(k=0; k<len; k++) {
+		u8 b;
 
-			// Insert newlines in appropriate places.
-			if(f) {
-				if(char_count%text_width_in_chars == 0) {
-					dbuf_writebyte(f, '\n');
-				}
+		b = dbuf_getbyte(inf, pos1+k);
+		if(ctx->outf_txt) dbuf_writebyte(ctx->outf_txt, b);
+
+		if(ctx->ok_to_render &&
+			((ctx->cur_ypos_in_chars+1)*ctx->char_height <= ctx->textarea_ysize_in_pixels))
+		{
+			render_plaintext_char(c, d, b,
+				ctx->textarea_xpos_in_pixels + ctx->cur_xpos_in_chars*ctx->char_width,
+				ctx->textarea_ypos_in_pixels + ctx->cur_ypos_in_chars*ctx->char_height,
+				ctx->char_width, ctx->char_height, ctx->fgclr, ctx->bgclr);
+		}
+
+		ctx->cur_xpos_in_chars++;
+		if(ctx->cur_xpos_in_chars >= ctx->text_width_in_chars) {
+			ctx->cur_ypos_in_chars++;
+			ctx->cur_xpos_in_chars = 0;
+
+			if(ctx->outf_txt) {
+				// Insert newlines in appropriate places.
+				dbuf_writebyte(ctx->outf_txt, '\n');
 			}
 		}
-		pos += n;
 	}
+}
+
+static void callback_for_plaintext_ext(deark *c, lctx *d, struct subblock_reader_data *sbrd)
+{
+	struct plaintext_ext_ctx *ctx = (struct plaintext_ext_ctx*)sbrd->userdata;
+
+	if(sbrd->subblock_idx==0) {
+		// The first sub-block is the header
+		do_plaintext_ext_header(c, d, ctx, sbrd->inf, sbrd->dpos, sbrd->dlen);
+	}
+	else {
+		if(ctx->header_ok && sbrd->dlen>0) {
+			do_plaintext_ext_textsubblock(c, d, ctx, sbrd->inf, sbrd->dpos, sbrd->dlen);
+		}
+	}
+}
+
+static void do_plaintext_extension(deark *c, lctx *d, i64 pos1)
+{
+	i64 pos = pos1;
+	struct plaintext_ext_ctx *ctx = NULL;
+
+	ctx = de_malloc(c, sizeof(struct plaintext_ext_ctx));
+	ctx->disposal_method = 0;
+	ctx->ok_to_render = 1;
+
+	if(!d->compose) {
+		ctx->ok_to_render = 0;
+	}
+
+	do_read_subblocks_p(c, d, c->infile, callback_for_plaintext_ext, (void*)ctx, &pos);
+	if(!ctx->header_ok) goto done;
 
 	if(d->compose) {
 		de_bitmap_write_to_file_finfo(d->screen_img, d->fi, DE_CREATEFLAG_OPT_IMAGE);
 
 		// TODO: Too much code is duplicated with do_image().
-		if(disposal_method==DISPOSE_BKGD) {
-			de_bitmap_rect(d->screen_img, text_pos_x, text_pos_y, text_size_x, text_size_y,
+		if(ctx->disposal_method==DISPOSE_BKGD) {
+			de_bitmap_rect(d->screen_img, ctx->textarea_xpos_in_pixels, ctx->textarea_ypos_in_pixels,
+				ctx->textarea_xsize_in_pixels, ctx->textarea_ysize_in_pixels,
 				DE_STOCKCOLOR_TRANSPARENT, 0);
 		}
-		else if(disposal_method==DISPOSE_PREVIOUS && prev_img) {
-			de_bitmap_copy_rect(prev_img, d->screen_img,
-				0, 0, text_size_x, text_size_y,
-				text_pos_x, text_pos_y, 0);
+		else if(ctx->disposal_method==DISPOSE_PREVIOUS && ctx->prev_img) {
+			de_bitmap_copy_rect(ctx->prev_img, d->screen_img,
+				0, 0, ctx->prev_img->width, ctx->prev_img->height,
+				ctx->textarea_xpos_in_pixels, ctx->textarea_ypos_in_pixels, 0);
 		}
 	}
 
 done:
-	dbuf_close(f);
-	de_bitmap_destroy(prev_img);
 	discard_current_gce_data(c, d);
+	if(ctx) {
+		dbuf_close(ctx->outf_txt);
+		de_bitmap_destroy(ctx->prev_img);
+		de_free(c, ctx);
+	}
 }
 
 static void do_animation_extension(deark *c, lctx *d, i64 pos)
@@ -572,7 +706,10 @@ static void do_mgk8bim_extension(deark *c, lctx *d, i64 pos)
 	dbuf *tmpf = NULL;
 	tmpf = dbuf_create_membuf(c, 0, 0);
 	do_copy_subblocks_to_dbuf(c, d, tmpf, pos, 1, 4*1048576);
-	de_fmtutil_handle_photoshop_rsrc(c, tmpf, 0, tmpf->len, 0x0);
+	de_dbg(c, "photoshop data at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
+	fmtutil_handle_photoshop_rsrc(c, tmpf, 0, tmpf->len, 0x0);
+	de_dbg_indent(c, -1);
 	dbuf_close(tmpf);
 }
 
@@ -581,7 +718,10 @@ static void do_mgkiptc_extension(deark *c, lctx *d, i64 pos)
 	dbuf *tmpf = NULL;
 	tmpf = dbuf_create_membuf(c, 0, 0);
 	do_copy_subblocks_to_dbuf(c, d, tmpf, pos, 1, 4*1048576);
-	de_fmtutil_handle_iptc(c, tmpf, 0, tmpf->len, 0x0);
+	de_dbg(c, "IPTC-IIM data at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
+	fmtutil_handle_iptc(c, tmpf, 0, tmpf->len, 0x0);
+	de_dbg_indent(c, -1);
 	dbuf_close(tmpf);
 }
 
@@ -676,6 +816,8 @@ static int do_read_extension(deark *c, lctx *d, i64 pos1, i64 *bytesused)
 	}
 	de_dbg_indent(c, -1);
 
+	// TODO?: It's inefficient to do this unconditionally, since we usually have
+	// already figured out where the extension ends.
 	do_skip_subblocks(c, d, pos, &bytesused2);
 	pos += bytesused2;
 
@@ -686,7 +828,7 @@ static int do_read_extension(deark *c, lctx *d, i64 pos1, i64 *bytesused)
 }
 
 // Read 9-byte image header
-static void do_read_image_descriptor(deark *c, lctx *d, struct gif_image_data *gi, i64 pos)
+static void do_read_image_header(deark *c, lctx *d, struct gif_image_data *gi, i64 pos)
 {
 	u8 packed_fields;
 	unsigned int local_color_table_size_code;
@@ -769,6 +911,24 @@ static void my_giflzw_write_cb(dbuf *f, void *userdata,
 	u->gi->pixels_set += (i64)size;
 }
 
+static void callback_for_image_subblock(deark *c, lctx *d, struct subblock_reader_data *sbrd)
+{
+	struct gif_image_data *gi = (struct gif_image_data*)sbrd->userdata;
+
+	if(sbrd->reported_dlen==0) {
+		de_dbg(c, "block terminator at %"I64_FMT, sbrd->subblkpos);
+		return;
+	}
+	de_dbg2(c, "sub-block at %"I64_FMT", size=%"I64_FMT, sbrd->subblkpos, sbrd->reported_dlen);
+
+	if(!gi->failure_flag && !gi->dfctx->finished_flag) {
+		u8 buf[255];
+
+		dbuf_read(sbrd->inf, buf, sbrd->dpos, sbrd->dlen);
+		de_dfilter_addbuf(gi->dfctx, buf, sbrd->dlen);
+	}
+}
+
 // Returns nonzero if parsing can continue.
 // If an image was successfully decoded, also sets gi->img.
 static int do_image_internal(deark *c, lctx *d,
@@ -776,15 +936,12 @@ static int do_image_internal(deark *c, lctx *d,
 {
 	int retval = 0;
 	i64 pos;
-	i64 n;
 	int bypp;
-	int failure_flag = 0;
 	int saved_indent_level;
 	unsigned int lzw_min_code_size;
 	i64 npixels_total;
 	dbuf *custom_outf = NULL;
-	struct de_dfilter_ctx *dfctx = NULL;
-	struct delzw_params delzwp;
+	struct de_lzw_params delzwp;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
 	struct my_giflzw_userdata u;
@@ -792,8 +949,10 @@ static int do_image_internal(deark *c, lctx *d,
 	de_dbg_indent_save(c, &saved_indent_level);
 	pos = pos1;
 	*bytesused = 0;
+	gi->failure_flag = 0;
+	gi->dfctx = NULL;
 
-	do_read_image_descriptor(c, d, gi, pos);
+	do_read_image_header(c, d, gi, pos);
 	pos += 9;
 
 	if(gi->has_local_color_table) {
@@ -805,7 +964,7 @@ static int do_image_internal(deark *c, lctx *d,
 	}
 
 	if(c->infile->len-pos < 1) {
-		de_err(c, "Unexpected end of file");
+		on_unexpected_eof(c, d);
 		goto done;
 	}
 	de_dbg(c, "image data at %d", (int)pos);
@@ -821,10 +980,10 @@ static int do_image_internal(deark *c, lctx *d,
 	if(gi->width==0 || gi->height==0) {
 		// This doesn't seem to be forbidden by the spec.
 		de_warn(c, "Image has zero size (%d"DE_CHAR_TIMES"%d)", (int)gi->width, (int)gi->height);
-		failure_flag = 1;
+		gi->failure_flag = 1;
 	}
 	else if(!de_good_image_dimensions(c, gi->width, gi->height)) {
-		failure_flag = 1;
+		gi->failure_flag = 1;
 	}
 
 	if(d->gce && d->gce->trns_color_idx_valid)
@@ -832,21 +991,21 @@ static int do_image_internal(deark *c, lctx *d,
 	else
 		bypp = 3;
 
-	if(failure_flag) {
+	if(gi->failure_flag) {
 		gi->img = de_bitmap_create(c, 1, 1, 1);
 	}
 	else {
 		gi->img = de_bitmap_create(c, gi->width, gi->height, bypp);
 	}
 
-	if(gi->interlaced && !failure_flag) {
+	if(gi->interlaced && !gi->failure_flag) {
 		do_create_interlace_map(c, d, gi);
 	}
 
 	npixels_total = gi->width * gi->height;
 
 	de_dfilter_init_objects(c, NULL, &dcmpro, &dres);
-	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
 	de_zeromem(&u, sizeof(struct my_giflzw_userdata));
 	custom_outf = dbuf_create_custom_dbuf(c, 0, 0);
 	u.c = c;
@@ -860,36 +1019,17 @@ static int do_image_internal(deark *c, lctx *d,
 	dcmpro.len_known = 1;
 	dcmpro.expected_len = npixels_total;
 
-	dfctx = de_dfilter_create_delzw(c, &delzwp, &dcmpro, &dres);
+	gi->dfctx = de_dfilter_create(c, dfilter_lzw_codec, &delzwp, &dcmpro, &dres);
 
-	while(1) {
-		if(pos >= c->infile->len) goto done;
-		n = (i64)de_getbyte(pos);
-		if(n==0)
-			de_dbg(c, "block terminator at %d", (int)pos);
-		else
-			de_dbg2(c, "sub-block at %d, size=%d", (int)pos, (int)n);
-		pos++;
-		if(n==0) break;
-
-		if(!failure_flag && !dfctx->finished_flag) {
-			u8 buf[255];
-
-			de_read(buf, pos, n);
-			de_dfilter_addbuf(dfctx, buf, n);
-		}
-
-		pos += n;
-	}
-
+	do_read_subblocks_p(c, d, c->infile, callback_for_image_subblock, (void*)gi, &pos);
 	*bytesused = pos - pos1;
 	retval = 1;
 
-	if(failure_flag) {
+	if(gi->failure_flag) {
 		goto done;
 	}
 
-	de_dfilter_finish(dfctx);
+	de_dfilter_finish(gi->dfctx);
 
 	if(dres.errcode) {
 		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
@@ -901,11 +1041,14 @@ static int do_image_internal(deark *c, lctx *d,
 	}
 
 done:
-	if(failure_flag) {
+	if(gi->failure_flag) {
 		de_bitmap_destroy(gi->img);
 		gi->img = NULL;
 	}
-	de_dfilter_destroy(dfctx);
+	if(gi->dfctx) {
+		de_dfilter_destroy(gi->dfctx);
+		gi->dfctx = NULL;
+	}
 	dbuf_close(custom_outf);
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
@@ -980,6 +1123,32 @@ done:
 	return retval;
 }
 
+static void do_after_trailer(deark *c, lctx *d, i64 pos1)
+{
+	i64 extra_bytes_at_eof;
+	i64 i;
+	u8 first_byte;
+	u8 flag = 0;
+
+	extra_bytes_at_eof = c->infile->len - pos1;
+	if(extra_bytes_at_eof<=0) return;
+
+	// If all extra bytes are 0x00, or all are 0x1a, don't report it.
+	first_byte = de_getbyte(pos1);
+	if(first_byte==0x00 || first_byte==0x1a) {
+		for(i=1; i<extra_bytes_at_eof; i++) {
+			if(de_getbyte(pos1+i)!=first_byte) {
+				flag = 1;
+				break;
+			}
+		}
+	}
+	if(!flag) return;
+
+	de_info(c, "Note: %"I64_FMT" bytes of unidentified data found at end "
+		"of file (starting at %"I64_FMT").", extra_bytes_at_eof, pos1);
+}
+
 static void de_run_gif(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -1030,8 +1199,8 @@ static void de_run_gif(deark *c, de_module_params *mparams)
 
 	while(1) {
 		if(pos >= c->infile->len) {
-			de_err(c, "Unexpected end of file");
-			break;
+			on_unexpected_eof(c, d);
+			goto done;
 		}
 		block_type = de_getbyte(pos);
 
@@ -1042,14 +1211,12 @@ static void de_run_gif(deark *c, de_module_params *mparams)
 		default: blk_name="?"; break;
 		}
 
-		de_dbg(c, "block type 0x%02x (%s) at %d", (unsigned int)block_type, blk_name, (int)pos);
+		de_dbg(c, "block type 0x%02x (%s) at %"I64_FMT, (UI)block_type, blk_name, pos);
 		pos++;
 
-		if(block_type==0x3b) {
-			break; // Trailer
-		}
-
 		switch(block_type) {
+		case 0x3b:
+			goto found_trailer;
 		case 0x21:
 			if(!do_read_extension(c, d, pos, &bytesused)) goto done;
 			pos += bytesused;
@@ -1063,6 +1230,9 @@ static void de_run_gif(deark *c, de_module_params *mparams)
 			goto done;
 		}
 	}
+
+found_trailer:
+	do_after_trailer(c, d, pos);
 
 done:
 	if(d) {

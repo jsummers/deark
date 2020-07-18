@@ -69,6 +69,9 @@ typedef struct localctx_struct {
 	u8 support_9b_csi;
 	u8 vt100_mode;
 
+	struct de_encconv_state es_main;
+	struct de_encconv_state es_dec_special_gr;
+
 	u8 param_string_buf[100];
 
 	struct parse_results_struct parse_results;
@@ -123,7 +126,7 @@ static i32 ansi_char_to_unicode(deark *c, lctx *d, u8 ch)
 
 	if(cs==CHARSET_LINEDRAWING) {
 		if(ch>=95 && ch<=126) {
-			u = de_char_to_unicode(c, (i32)ch, DE_ENCODING_DEC_SPECIAL_GRAPHICS);
+			u = de_char_to_unicode_ex((i32)ch, &d->es_dec_special_gr);
 			return u;
 		}
 	}
@@ -132,7 +135,7 @@ static i32 ansi_char_to_unicode(deark *c, lctx *d, u8 ch)
 		if(ch=='#') return 0x00a3;
 	}
 
-	u = de_char_to_unicode(c, (i32)ch, DE_ENCODING_CP437_G);
+	u = de_char_to_unicode_ex((i32)ch, &d->es_main);
 	return u;
 }
 
@@ -980,17 +983,20 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 		width_req = de_atoi(s);
 	}
 
+	de_encconv_init(&d->es_main, DE_ENCODING_CP437_G);
+	de_encconv_init(&d->es_dec_special_gr, DE_ENCODING_DEC_SPECIAL_GRAPHICS);
+
 	d->effective_file_size = c->infile->len;
 
 	charctx = de_malloc(c, sizeof(struct de_char_context));
 
 	// Read SAUCE metadata, if present.
-	si = de_fmtutil_create_SAUCE(c);
-	de_fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
+	si = fmtutil_create_SAUCE(c);
+	fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
 
 	if(sdd.has_SAUCE) {
 		de_dbg_indent(c, 1);
-		de_fmtutil_handle_SAUCE(c, c->infile, si);
+		fmtutil_handle_SAUCE(c, c->infile, si);
 		de_dbg_indent(c, -1);
 
 		d->effective_file_size = si->original_file_size;
@@ -1072,7 +1078,7 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 
 	de_free_charctx(c, charctx);
 	de_free(c, d->row_data);
-	de_fmtutil_free_SAUCE(c, si);
+	fmtutil_free_SAUCE(c, si);
 	de_free(c, d);
 }
 

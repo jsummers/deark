@@ -167,7 +167,7 @@ static void de_run_degas(deark *c, de_module_params *mparams)
 		(int)adata->ncolors,
 		d->compression_code?"":"un");
 
-	de_fmtutil_read_atari_palette(c, c->infile, pos, adata->pal, 16, adata->ncolors, 0);
+	fmtutil_read_atari_palette(c, c->infile, pos, adata->pal, 16, adata->ncolors, 0);
 	pos += 2*16;
 	fix_dark_pal(c, adata);
 
@@ -175,7 +175,7 @@ static void de_run_degas(deark *c, de_module_params *mparams)
 		adata->was_compressed = 1;
 		adata->unc_pixels = dbuf_create_membuf(c, 32000, 1);
 
-		if(!de_fmtutil_decompress_packbits(c->infile, pos, c->infile->len-pos, adata->unc_pixels, &cmpr_bytes_consumed))
+		if(!fmtutil_decompress_packbits(c->infile, pos, c->infile->len-pos, adata->unc_pixels, &cmpr_bytes_consumed))
 			goto done;
 
 		de_dbg(c, "Compressed bytes found: %d", (int)cmpr_bytes_consumed);
@@ -200,9 +200,9 @@ static void de_run_degas(deark *c, de_module_params *mparams)
 	adata->img = de_bitmap_create(c, adata->w, adata->h, is_grayscale?1:3);
 
 	fi = de_finfo_create(c);
-	de_fmtutil_atari_set_standard_density(c, adata, fi);
+	fmtutil_atari_set_standard_density(c, adata, fi);
 
-	de_fmtutil_atari_decode_image(c, adata);
+	fmtutil_atari_decode_image(c, adata);
 
 	de_bitmap_write_to_file_finfo(adata->img, fi, 0);
 
@@ -248,7 +248,7 @@ static int de_identify_degas(deark *c)
 
 static void de_help_degas(deark *c)
 {
-	de_fmtutil_atari_help_palbits(c);
+	fmtutil_atari_help_palbits(c);
 	help_respectpal(c);
 }
 
@@ -385,13 +385,13 @@ static void de_run_prismpaint(deark *c, de_module_params *mparams)
 		adata->unc_pixels = dbuf_create_membuf(c, adata->w*adata->h, 0);
 		//dbuf_set_max_length(unc_pixels, ...);
 
-		de_fmtutil_decompress_packbits(c->infile, pixels_start, c->infile->len - pixels_start,
+		fmtutil_decompress_packbits(c->infile, pixels_start, c->infile->len - pixels_start,
 			adata->unc_pixels, NULL);
 		de_dbg(c, "decompressed to %d bytes", (int)adata->unc_pixels->len);
 	}
 
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
-	de_fmtutil_atari_decode_image(c, adata);
+	fmtutil_atari_decode_image(c, adata);
 	de_bitmap_write_to_file(adata->img, NULL, 0);
 
 done:
@@ -437,7 +437,7 @@ static void de_run_ftc(deark *c, de_module_params *mparams)
 	fi->density.code = DE_DENSITY_UNK_UNITS;
 	fi->density.xdens = 288;
 	fi->density.ydens = 240;
-	de_fmtutil_atari_decode_image(c, adata);
+	fmtutil_atari_decode_image(c, adata);
 	de_bitmap_write_to_file_finfo(adata->img, fi, 0);
 	de_bitmap_destroy(adata->img);
 	de_finfo_destroy(c, fi);
@@ -482,7 +482,7 @@ static void de_run_eggpaint(deark *c, de_module_params *mparams)
 	de_dbg_dimensions(c, adata->w, adata->h);
 	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 8, c->infile->len-8);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
-	de_fmtutil_atari_decode_image(c, adata);
+	fmtutil_atari_decode_image(c, adata);
 	de_bitmap_write_to_file(adata->img, NULL, 0);
 
 	dbuf_close(adata->unc_pixels);
@@ -524,7 +524,7 @@ static void de_run_indypaint(deark *c, de_module_params *mparams)
 	de_dbg_dimensions(c, adata->w, adata->h);
 	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 256, c->infile->len-256);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
-	de_fmtutil_atari_decode_image(c, adata);
+	fmtutil_atari_decode_image(c, adata);
 	de_bitmap_write_to_file(adata->img, NULL, 0);
 
 	dbuf_close(adata->unc_pixels);
@@ -563,7 +563,7 @@ static void de_run_godpaint(deark *c, de_module_params *mparams)
 	de_dbg_dimensions(c, adata->w, adata->h);
 	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 6, c->infile->len-6);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
-	de_fmtutil_atari_decode_image(c, adata);
+	fmtutil_atari_decode_image(c, adata);
 	de_bitmap_write_to_file(adata->img, NULL, 0);
 
 	dbuf_close(adata->unc_pixels);
@@ -864,7 +864,7 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 		pos += 4; // skip animation_info
 	}
 
-	de_fmtutil_read_atari_palette(c, c->infile, pos, adata->pal, 16, adata->ncolors, 0);
+	fmtutil_read_atari_palette(c, c->infile, pos, adata->pal, 16, adata->ncolors, 0);
 	fix_dark_pal(c, adata);
 	pos += 16*2;
 
@@ -898,7 +898,7 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 	adata->img = de_bitmap_create(c, adata->w, adata->h, is_grayscale?1:3);
 
 	fi = de_finfo_create(c);
-	de_fmtutil_atari_set_standard_density(c, adata, fi);
+	fmtutil_atari_set_standard_density(c, adata, fi);
 
 	do_tinystuff_image(c, d, adata);
 	de_bitmap_write_to_file_finfo(adata->img, fi, 0);
@@ -930,7 +930,7 @@ static int de_identify_tinystuff(deark *c)
 
 static void de_help_tinystuff(deark *c)
 {
-	de_fmtutil_atari_help_palbits(c);
+	fmtutil_atari_help_palbits(c);
 	help_respectpal(c);
 }
 
@@ -966,8 +966,8 @@ static void de_run_doodle(deark *c, de_module_params *mparams)
 	adata->unc_pixels = c->infile;
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 1);
 	fi = de_finfo_create(c);
-	de_fmtutil_atari_set_standard_density(c, adata, fi);
-	de_fmtutil_atari_decode_image(c, adata);
+	fmtutil_atari_set_standard_density(c, adata, fi);
+	fmtutil_atari_decode_image(c, adata);
 	de_bitmap_write_to_file_finfo(adata->img, fi, 0);
 
 	if(adata) {
@@ -1025,13 +1025,13 @@ static void de_run_neochrome(deark *c, de_module_params *mparams)
 	adata->ncolors = de_pow2(adata->bpp);
 	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d, colors: %d", (int)adata->w, (int)adata->h, (int)adata->ncolors);
 
-	de_fmtutil_read_atari_palette(c, c->infile, 4, adata->pal, 16, adata->ncolors, 0);
+	fmtutil_read_atari_palette(c, c->infile, 4, adata->pal, 16, adata->ncolors, 0);
 	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 128, 32000);
 	is_grayscale = de_is_grayscale_palette(adata->pal, adata->ncolors);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, is_grayscale?1:3);
 	fi = de_finfo_create(c);
-	de_fmtutil_atari_set_standard_density(c, adata, fi);
-	de_fmtutil_atari_decode_image(c, adata);
+	fmtutil_atari_set_standard_density(c, adata, fi);
+	fmtutil_atari_decode_image(c, adata);
 	de_bitmap_write_to_file_finfo(adata->img, fi, 0);
 
 done:
@@ -1058,7 +1058,7 @@ static int de_identify_neochrome(deark *c)
 
 static void de_help_neochrome(deark *c)
 {
-	de_fmtutil_atari_help_palbits(c);
+	fmtutil_atari_help_palbits(c);
 }
 
 void de_module_neochrome(deark *c, struct deark_module_info *mi)
@@ -1117,7 +1117,7 @@ static void de_run_neochrome_ani(deark *c, de_module_params *mparams)
 		adata->unc_pixels = dbuf_open_input_subfile(c->infile, 22 + frame*bytes_per_frame, bytes_per_frame);
 		adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
 
-		de_fmtutil_atari_decode_image(c, adata);
+		fmtutil_atari_decode_image(c, adata);
 		de_bitmap_write_to_file(adata->img, NULL, 0);
 
 		de_bitmap_destroy(adata->img);
@@ -1173,7 +1173,7 @@ static void de_run_animatic(deark *c, de_module_params *mparams)
 	adata->ncolors = 16;
 	adata->pal = pal;
 	de_dbg_indent(c, 1);
-	de_fmtutil_read_atari_palette(c, c->infile, 2, adata->pal, 16, adata->ncolors, 0);
+	fmtutil_read_atari_palette(c, c->infile, 2, adata->pal, 16, adata->ncolors, 0);
 	de_dbg_indent(c, -1);
 
 	adata->w = de_getu16be(40);
@@ -1192,7 +1192,7 @@ static void de_run_animatic(deark *c, de_module_params *mparams)
 		adata->unc_pixels = dbuf_open_input_subfile(c->infile, frame_bitmap_pos, framespan);
 		adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
 
-		de_fmtutil_atari_decode_image(c, adata);
+		fmtutil_atari_decode_image(c, adata);
 		de_bitmap_write_to_file(adata->img, NULL, 0);
 
 		de_bitmap_destroy(adata->img);
@@ -1216,7 +1216,7 @@ static int de_identify_animatic(deark *c)
 
 static void de_help_animatic(deark *c)
 {
-	de_fmtutil_atari_help_palbits(c);
+	fmtutil_atari_help_palbits(c);
 }
 
 void de_module_animatic(deark *c, struct deark_module_info *mi)
@@ -1413,7 +1413,7 @@ static void de_run_falcon_xga(deark *c, de_module_params *mparams)
 		fi->density.xdens = 384;
 		fi->density.ydens = 640;
 	}
-	de_fmtutil_atari_decode_image(c, adata);
+	fmtutil_atari_decode_image(c, adata);
 	de_bitmap_write_to_file_finfo(adata->img, fi, 0);
 	de_bitmap_destroy(adata->img);
 	de_finfo_destroy(c, fi);
@@ -1466,7 +1466,7 @@ static void de_run_coke(deark *c, de_module_params *mparams)
 	fi->density.xdens = 288;
 	fi->density.ydens = 240;
 
-	de_fmtutil_atari_decode_image(c, adata);
+	fmtutil_atari_decode_image(c, adata);
 	de_bitmap_write_to_file_finfo(adata->img, fi, 0);
 
 	if(adata) {

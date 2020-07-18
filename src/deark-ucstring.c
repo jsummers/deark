@@ -370,7 +370,7 @@ void ucstring_append_bytes_ex(de_ucstring *s, const u8 *buf, i64 buflen,
 		for(pos=0; pos<buflen; pos++) {
 			i32 ch;
 
-			ch = de_char_to_unicode(s->c, buf[pos], es->ee);
+			ch = de_char_to_unicode_ex(buf[pos], es);
 			if(ch==DE_CODEPOINT_INVALID) {
 				handle_invalid_byte(s, buf[pos]);
 			}
@@ -379,12 +379,6 @@ void ucstring_append_bytes_ex(de_ucstring *s, const u8 *buf, i64 buflen,
 			}
 		}
 	}
-}
-
-void de_encconv_init(struct de_encconv_state *es, de_ext_encoding ee)
-{
-	de_zeromem(es, sizeof(struct de_encconv_state));
-	es->ee = ee;
 }
 
 void ucstring_append_bytes(de_ucstring *s, const u8 *buf, i64 buflen,
@@ -399,6 +393,17 @@ void ucstring_append_bytes(de_ucstring *s, const u8 *buf, i64 buflen,
 void ucstring_append_sz(de_ucstring *s, const char *sz, de_ext_encoding ee)
 {
 	i64 len;
+
+	if(ee==DE_ENCODING_LATIN1) { // Fast path for this common case
+		const u8 *sz_u8 = (const u8*)sz;
+
+		while(*sz_u8) {
+			ucstring_append_char(s, (de_rune)(*sz_u8));
+			sz_u8++;
+		}
+		return;
+	}
+
 	len = (i64)de_strlen(sz);
 	ucstring_append_bytes(s, (const u8*)sz, len, 0, ee);
 }

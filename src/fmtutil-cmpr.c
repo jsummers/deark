@@ -95,7 +95,7 @@ struct de_dfilter_ctx *de_dfilter_create(deark *c,
 void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
 	const u8 *buf, i64 buf_len)
 {
-	if(dfctx->codec_addbuf_fn) {
+	if(dfctx->codec_addbuf_fn && (buf_len>0)) {
 		dfctx->codec_addbuf_fn(dfctx, buf, buf_len);
 	}
 }
@@ -170,7 +170,7 @@ void fmtutil_decompress_uncompressed(deark *c, struct de_dfilter_in_params *dcmp
 	dres->bytes_consumed_valid = 1;
 }
 
-void de_fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpri,
+void fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
 	i64 pos;
@@ -219,7 +219,7 @@ void de_fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dc
 }
 
 // Returns 0 on failure (currently impossible).
-int de_fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
+int fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
 	dbuf *unc_pixels, i64 *cmpr_bytes_consumed)
 {
 	struct de_dfilter_results dres;
@@ -238,7 +238,7 @@ int de_fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
 		dcmpro.expected_len = unc_pixels->len_limit - unc_pixels->len;
 	}
 
-	de_fmtutil_decompress_packbits_ex(f->c, &dcmpri, &dcmpro, &dres);
+	fmtutil_decompress_packbits_ex(f->c, &dcmpri, &dcmpro, &dres);
 
 	if(cmpr_bytes_consumed && dres.bytes_consumed_valid) {
 		*cmpr_bytes_consumed = dres.bytes_consumed;
@@ -248,7 +248,7 @@ int de_fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
 }
 
 // A 16-bit variant of de_fmtutil_uncompress_packbits().
-void de_fmtutil_decompress_packbits16_ex(deark *c, struct de_dfilter_in_params *dcmpri,
+void fmtutil_decompress_packbits16_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
 	i64 pos;
@@ -298,7 +298,7 @@ void de_fmtutil_decompress_packbits16_ex(deark *c, struct de_dfilter_in_params *
 	dres->bytes_consumed_valid = 1;
 }
 
-int de_fmtutil_decompress_packbits16(dbuf *f, i64 pos1, i64 len,
+int fmtutil_decompress_packbits16(dbuf *f, i64 pos1, i64 len,
 	dbuf *unc_pixels, i64 *cmpr_bytes_consumed)
 {
 	struct de_dfilter_results dres;
@@ -317,7 +317,7 @@ int de_fmtutil_decompress_packbits16(dbuf *f, i64 pos1, i64 len,
 		dcmpro.expected_len = unc_pixels->len_limit - unc_pixels->len;
 	}
 
-	de_fmtutil_decompress_packbits16_ex(f->c, &dcmpri, &dcmpro, &dres);
+	fmtutil_decompress_packbits16_ex(f->c, &dcmpri, &dcmpro, &dres);
 
 	if(cmpr_bytes_consumed && dres.bytes_consumed_valid) {
 		*cmpr_bytes_consumed = dres.bytes_consumed;
@@ -326,7 +326,7 @@ int de_fmtutil_decompress_packbits16(dbuf *f, i64 pos1, i64 len,
 	return 1;
 }
 
-void de_fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpri,
+void fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags)
 {
@@ -556,7 +556,7 @@ static void hlp_lz77_emit_byte(struct hlplz77ctx *hctx, u8 b)
 
 // This is very similar to the mscompress SZDD algorithm, but
 // gratuitously different.
-static void  my_hlp_lz77_codec_addbuf(struct de_dfilter_ctx *dfctx,
+static void my_hlp_lz77_codec_addbuf(struct de_dfilter_ctx *dfctx,
 	const u8 *buf, i64 buf_len)
 {
 	struct hlplz77ctx *hctx = (struct hlplz77ctx*)dfctx->codec_private;

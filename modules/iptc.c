@@ -2,7 +2,7 @@
 // Copyright (C) 2016 Jason Summers
 // See the file COPYING for terms of use.
 
-// IPTC metadata
+// IPTC-IIM metadata
 
 #include <deark-config.h>
 #include <deark-private.h>
@@ -324,11 +324,11 @@ static int do_dataset(deark *c, lctx *d, i64 ds_idx, i64 pos1,
 		if(b==0x00 && ds_idx>0) {
 			// Extraneous padding at the end of data?
 			if(pos == c->infile->len-1) {
-				de_dbg(c, "[ignoring extra byte at end of IPTC data]");
+				de_dbg(c, "[ignoring extra byte at end of IPTC-IIM data]");
 			}
 			else {
-				de_warn(c, "Expected %d bytes of IPTC data, only found %d",
-					(int)c->infile->len, (int)pos);
+				de_warn(c, "Expected %"I64_FMT" bytes of IPTC-IIM data, only found %"I64_FMT,
+					c->infile->len, pos);
 			}
 		}
 		else {
@@ -418,7 +418,7 @@ static int de_identify_iptc(deark *c)
 void de_module_iptc(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "iptc";
-	mi->desc = "IPTC metadata";
+	mi->desc = "IPTC-IIM metadata";
 	mi->run_fn = de_run_iptc;
 	mi->identify_fn = de_identify_iptc;
 }

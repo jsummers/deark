@@ -572,7 +572,7 @@ static void de_run_mpegaudio(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(mp3ctx));
 
-	de_fmtutil_handle_id3(c, c->infile, &id3i, 0);
+	fmtutil_handle_id3(c, c->infile, &id3i, 0);
 	d->has_id3v2 = id3i.has_id3v2;
 	pos = id3i.main_start;
 	endpos = id3i.main_end;

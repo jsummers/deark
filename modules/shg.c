@@ -201,7 +201,7 @@ static void reconstruct_bmp(deark *c, lctx *d, struct picture_ctx *pctx,
 	de_zeromem(&bi, sizeof(struct de_bmpinfo));
 	bi.size_of_headers_and_pal = 40 + pctx->pal_size_in_bytes;
 	bi.total_size = bi.size_of_headers_and_pal + pctx->final_image_size;
-	de_fmtutil_generate_bmpfileheader(c, outf, &bi, 0);
+	fmtutil_generate_bmpfileheader(c, outf, &bi, 0);
 
 	// Write infoheader
 	dbuf_writeu32le(outf, 40);

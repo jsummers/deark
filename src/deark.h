@@ -9,23 +9,40 @@
 #endif
 #define DEARK_H_INC
 
+#ifndef DEARK_CONFIG_H_INC
+// .c files that don't need any non-default system headers don't have to
+// explicitly #include deark-config.h.
+#include "deark-config.h"
+#endif
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
-#ifndef DE_WINDOWS
+#ifndef DE_USE_WINDOWS_INTTYPES
 #include <inttypes.h>
 #endif
 
-#ifndef de_gnuc_attribute
-#ifdef __GNUC__
-#define de_gnuc_attribute __attribute__
+#ifdef DE_USE_CONFIG2_H
+#include "deark-config2.h"
 #else
-#define de_gnuc_attribute(x)
-#endif
+// In-line default deark-config2.h:
+
+#ifdef _MSC_VER
+#pragma warning(error:4013) // Calling undeclared function = error
 #endif
 
-#ifdef DE_WINDOWS
+#ifdef __GNUC__
+#define de_gnuc_attribute __attribute__
+#endif
+
+#endif
+
+#ifndef de_gnuc_attribute
+#define de_gnuc_attribute(x)
+#endif
+
+#ifdef DE_USE_WINDOWS_INTTYPES
 
 #define i64 __int64
 #define u64 unsigned __int64

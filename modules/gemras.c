@@ -312,7 +312,7 @@ static int do_gem_ximg(deark *c, lctx *d)
 		i64 pal_pos = d->header_size_in_bytes-32;
 		de_dbg(c, "palette at %d", (int)pal_pos);
 		de_dbg_indent(c, 1);
-		de_fmtutil_read_atari_palette(c, c->infile, pal_pos,
+		fmtutil_read_atari_palette(c, c->infile, pal_pos,
 			d->pal, 16, ((i64)1)<<d->nplanes, 0);
 		de_dbg_indent(c, -1);
 	}
@@ -483,7 +483,7 @@ static int de_identify_gemraster(deark *c)
 
 static void de_help_gemraster(deark *c)
 {
-	de_fmtutil_atari_help_palbits(c);
+	fmtutil_atari_help_palbits(c);
 }
 
 void de_module_gemraster(deark *c, struct deark_module_info *mi)

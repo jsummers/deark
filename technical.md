@@ -177,7 +177,7 @@ the thumbnail may have been created much later than the original image.
 
 ## The .iptctiff and .8bimtiff formats ##
 
-In some cases, Deark saves IPTC metadata, or Photoshop Resources (also
+In some cases, Deark saves IPTC-IIM metadata, or Photoshop Resources (also
 semi-incorrectly known as "8BIM"), to a file. These data formats don't have a
 good *file* format to use, so Deark wraps them in a minimal TIFF-based
 container. You can reprocess this container file with Deark, and it may decode

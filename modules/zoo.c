@@ -375,7 +375,7 @@ done_with_header:
 	if(ucstring_isnonempty(longname) || ucstring_isnonempty(shortname)) {
 		if(ucstring_isnonempty(dirname)) {
 			ucstring_append_ucstring(md->fullname, dirname);
-			ucstring_append_sz(md->fullname, "/", DE_ENCODING_ASCII);
+			ucstring_append_sz(md->fullname, "/", DE_ENCODING_LATIN1);
 		}
 		if(ucstring_isnonempty(longname)) {
 			ucstring_append_ucstring(md->fullname, longname);
@@ -480,10 +480,10 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 		fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
 		break;
 	case ZOOCMPR_LZD:
-		de_fmtutil_decompress_zoo_lzd(c, &dcmpri, &dcmpro, &dres, 13);
+		fmtutil_decompress_zoo_lzd(c, &dcmpri, &dcmpro, &dres, 13);
 		break;
 	case ZOOCMPR_LZH:
-		de_fmtutil_decompress_zoo_lzh(c, &dcmpri, &dcmpro, &dres);
+		fmtutil_decompress_zoo_lzh(c, &dcmpri, &dcmpro, &dres);
 		break;
 	default:
 		goto done; // Should be impossible

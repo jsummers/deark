@@ -203,7 +203,7 @@ static void do_avi_strf(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 
 	if(d->curr_avi_stream_type==CODE_vids) {
 		struct de_bmpinfo bi;
 		// For video streams, this is a BITMAPINFO.
-		de_fmtutil_get_bmpinfo(c, ictx->f, &bi, pos, len, DE_BMPINFO_CMPR_IS_4CC);
+		fmtutil_get_bmpinfo(c, ictx->f, &bi, pos, len, DE_BMPINFO_CMPR_IS_4CC);
 		// This chunk contains just a bitmap header, so we can't extract a bitmap.
 	}
 	else if(d->curr_avi_stream_type==CODE_auds) {
@@ -283,7 +283,7 @@ static void do_ICCP(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 
 static void do_EXIF(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 {
-	de_fmtutil_handle_exif(c, pos, len);
+	fmtutil_handle_exif(c, pos, len);
 }
 
 static void do_XMP(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
@@ -300,7 +300,7 @@ static void do_DISP(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 	if(len<4) return;
 	ty = (unsigned int)de_getu32le(pos);
 	de_dbg(c, "data type: %u (%s)", ty,
-		de_fmtutil_get_windows_cb_data_type_name(ty));
+		fmtutil_get_windows_cb_data_type_name(ty));
 
 	dpos = pos+4;
 	dlen = len-4;
@@ -600,7 +600,7 @@ static void de_run_riff(deark *c, de_module_params *mparams)
 		ictx->reversed_4cc = 0;
 	}
 
-	de_fmtutil_read_iff_format(c, ictx, 0, ictx->f->len);
+	fmtutil_read_iff_format(c, ictx, 0, ictx->f->len);
 
 	de_free(c, ictx);
 	de_free(c, d);

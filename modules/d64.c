@@ -81,8 +81,8 @@ static void do_extract_file(deark *c, lctx *d, i64 dir_entry_pos,
 	case FTYPE_USR: ext="usr"; break;
 	default: ext="bin"; break;
 	}
-	ucstring_append_sz(fname, ".", DE_ENCODING_ASCII);
-	ucstring_append_sz(fname, ext, DE_ENCODING_ASCII);
+	ucstring_append_sz(fname, ".", DE_ENCODING_LATIN1);
+	ucstring_append_sz(fname, ext, DE_ENCODING_LATIN1);
 	///////
 
 	fi = de_finfo_create(c);

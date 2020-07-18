@@ -725,13 +725,13 @@ static void hrsrc_printflagsinfo(deark *c, lctx *d, zztype *zz, const struct rsr
 
 static void hrsrc_exif(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
-	de_fmtutil_handle_exif(c, zz->pos, zz_avail(zz));
+	fmtutil_handle_exif(c, zz->pos, zz_avail(zz));
 }
 
 static void hrsrc_iptc(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	d->has_iptc = 1;
-	de_fmtutil_handle_iptc(c, c->infile, zz->pos, zz_avail(zz), 0x0);
+	fmtutil_handle_iptc(c, c->infile, zz->pos, zz_avail(zz), 0x0);
 }
 
 static void hrsrc_xmp(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
@@ -3686,7 +3686,7 @@ static void do_bitmap_packbits(deark *c, lctx *d, zztype *zz, const struct image
 	}
 
 	unc_pixels = dbuf_create_membuf(c, 1024, 0);
-	de_fmtutil_decompress_packbits(c->infile, zz->pos, cmpr_data_size, unc_pixels, NULL);
+	fmtutil_decompress_packbits(c->infile, zz->pos, cmpr_data_size, unc_pixels, NULL);
 	zz->pos += cmpr_data_size;
 	de_dbg_indent(c, 1);
 	de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT"", cmpr_data_size, unc_pixels->len);
@@ -3808,7 +3808,7 @@ static void de_run_psd(deark *c, de_module_params *mparams)
 
 	if(x>0) {
 		if(de_get_ext_option_bool(c, "extract8bim", 0)) {
-			de_fmtutil_handle_photoshop_rsrc(c, c->infile, zz->pos, x, 0x1);
+			fmtutil_handle_photoshop_rsrc(c, c->infile, zz->pos, x, 0x1);
 		}
 		else {
 			de_dbg_indent(c, 1);

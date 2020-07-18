@@ -370,10 +370,12 @@ static void do_char_1screen(deark *c, lctx *d, struct de_char_screen *screen, i6
 	u8 fgcol, bgcol;
 	i64 offset;
 	u8 b0, b1;
+	struct de_encconv_state es;
 
 	screen->width = width;
 	screen->height = height;
 	screen->cell_rows = de_mallocarray(c, height, sizeof(struct de_char_cell*));
+	de_encconv_init(&es, DE_ENCODING_CP437_G);
 
 	for(j=0; j<height; j++) {
 		screen->cell_rows[j] = de_mallocarray(c, width, sizeof(struct de_char_cell));
@@ -394,7 +396,7 @@ static void do_char_1screen(deark *c, lctx *d, struct de_char_screen *screen, i6
 			screen->cell_rows[j][i].fgcol = (u32)fgcol;
 			screen->cell_rows[j][i].bgcol = (u32)bgcol;
 			screen->cell_rows[j][i].codepoint = (i32)ch;
-			screen->cell_rows[j][i].codepoint_unicode = de_char_to_unicode(c, (i32)ch, DE_ENCODING_CP437_G);
+			screen->cell_rows[j][i].codepoint_unicode = de_char_to_unicode_ex((i32)ch, &es);
 		}
 	}
 }

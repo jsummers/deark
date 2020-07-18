@@ -625,7 +625,7 @@ static void run_ogg_internal(deark *c, lctx *d)
 	d->always_hexdump = de_get_ext_option(c, "ogg:hexdump")?1:0;
 	d->streamtable = de_inthashtable_create(c);
 
-	de_fmtutil_handle_id3(c, c->infile, &id3i, 0);
+	fmtutil_handle_id3(c, c->infile, &id3i, 0);
 	pos = id3i.main_start;
 	ogg_end = id3i.main_end;
 

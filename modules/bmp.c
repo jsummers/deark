@@ -256,7 +256,7 @@ static int read_infoheader(deark *c, lctx *d, i64 pos)
 	else {
 		char cmprname[80];
 		// d->compression_field was already read, in detect_bmp_version()
-		de_fmtutil_get_bmp_compression_name(d->compression_field, cmprname, sizeof(cmprname),
+		fmtutil_get_bmp_compression_name(d->compression_field, cmprname, sizeof(cmprname),
 			(d->version==DE_BMPVER_OS2V2));
 		de_dbg(c, "compression (etc.): %u (%s)", (unsigned int)d->compression_field, cmprname);
 		d->bytes_per_pal_entry = 4;
@@ -908,7 +908,7 @@ static void de_run_dib(deark *c, de_module_params *mparams)
 		createflags |= DE_CREATEFLAG_IS_AUX;
 	}
 
-	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, 0, c->infile->len, 0)) {
+	if(!fmtutil_get_bmpinfo(c, c->infile, &bi, 0, c->infile->len, 0)) {
 		de_err(c, "Invalid DIB, or not a DIB file");
 		goto done;
 	}
@@ -926,7 +926,7 @@ static void de_run_dib(deark *c, de_module_params *mparams)
 	outf = dbuf_create_output_file(c, ext, NULL, createflags);
 
 	de_dbg(c, "writing a BMP FILEHEADER");
-	de_fmtutil_generate_bmpfileheader(c, outf, &bi, 14+dib_len);
+	fmtutil_generate_bmpfileheader(c, outf, &bi, 14+dib_len);
 
 	de_dbg(c, "copying DIB file");
 	dbuf_copy(c->infile, 0, dib_len, outf);

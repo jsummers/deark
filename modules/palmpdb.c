@@ -647,7 +647,7 @@ static int do_read_prc_record(deark *c, lctx *d, i64 rec_idx, i64 pos1)
 
 	ext_ucstring = ucstring_create(c);
 	// The "filename" always starts with the fourcc.
-	ucstring_append_sz(ext_ucstring, rsrc_type_4cc.id_sanitized_sz, DE_ENCODING_ASCII);
+	ucstring_append_sz(ext_ucstring, rsrc_type_4cc.id_sanitized_sz, DE_ENCODING_LATIN1);
 
 	id = (u32)de_getu16be(pos1+4);
 	de_dbg(c, "id: %d", (int)id);

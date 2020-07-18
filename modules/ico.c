@@ -74,7 +74,7 @@ static void do_image_data(deark *c, lctx *d, struct page_ctx *pg)
 
 	if(pos1+len > c->infile->len) goto done;
 
-	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, pos1, len, DE_BMPINFO_ICO_FORMAT)) {
+	if(!fmtutil_get_bmpinfo(c, c->infile, &bi, pos1, len, DE_BMPINFO_ICO_FORMAT)) {
 		de_err(c, "Invalid bitmap");
 		goto done;
 	}

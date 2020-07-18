@@ -31,6 +31,7 @@ static void do_bin_main(deark *c, lctx *d, dbuf *unc_data, struct de_char_contex
 	u8 ccode, acode;
 	u8 fgcol, bgcol;
 	struct de_char_screen *screen;
+	struct de_encconv_state es;
 
 	charctx->nscreens = 1;
 	charctx->screens = de_mallocarray(c, charctx->nscreens, sizeof(struct de_char_screen*));
@@ -39,6 +40,7 @@ static void do_bin_main(deark *c, lctx *d, dbuf *unc_data, struct de_char_contex
 	screen->width = d->width_in_chars;
 	screen->height = d->height_in_chars;
 	screen->cell_rows = de_mallocarray(c, d->height_in_chars, sizeof(struct de_char_cell*));
+	de_encconv_init(&es, DE_ENCODING_CP437_G);
 
 	for(j=0; j<d->height_in_chars; j++) {
 		screen->cell_rows[j] = de_mallocarray(c, d->width_in_chars, sizeof(struct de_char_cell));
@@ -58,7 +60,7 @@ static void do_bin_main(deark *c, lctx *d, dbuf *unc_data, struct de_char_contex
 			screen->cell_rows[j][i].fgcol = (u32)fgcol;
 			screen->cell_rows[j][i].bgcol = (u32)bgcol;
 			screen->cell_rows[j][i].codepoint = (i32)ccode;
-			screen->cell_rows[j][i].codepoint_unicode = de_char_to_unicode(c, (i32)ccode, DE_ENCODING_CP437_G);
+			screen->cell_rows[j][i].codepoint_unicode = de_char_to_unicode_ex((i32)ccode, &es);
 		}
 	}
 
@@ -214,6 +216,7 @@ static void do_read_font_data(deark *c, lctx *d, i64 pos)
 static int do_generate_font(deark *c, lctx *d)
 {
 	i64 i;
+	struct de_encconv_state es;
 
 	if(!d->font) return 0;
 	if(d->font->num_chars!=256) {
@@ -227,11 +230,11 @@ static int do_generate_font(deark *c, lctx *d)
 	d->font->nominal_width = 8;
 	d->font->nominal_height = (int)d->font_height;
 	d->font->char_array = de_mallocarray(c, d->font->num_chars, sizeof(struct de_bitmap_font_char));
+	de_encconv_init(&es, DE_ENCODING_CP437_G);
 
 	for(i=0; i<d->font->num_chars; i++) {
 		d->font->char_array[i].codepoint_nonunicode = (i32)i;
-		d->font->char_array[i].codepoint_unicode =
-			de_char_to_unicode(c, (i32)i, DE_ENCODING_CP437_G);
+		d->font->char_array[i].codepoint_unicode = de_char_to_unicode_ex((i32)i, &es);
 		d->font->char_array[i].width = d->font->nominal_width;
 		d->font->char_array[i].height = d->font->nominal_height;
 		d->font->char_array[i].rowspan = 1;
@@ -267,12 +270,12 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	charctx->prefer_image_output = 1;
 	de_char_decide_output_format(c, charctx);
 
-	de_fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
+	fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
 	if(sdd.has_SAUCE) {
-		si = de_fmtutil_create_SAUCE(c);
+		si = fmtutil_create_SAUCE(c);
 
 		de_dbg_indent(c, 1);
-		de_fmtutil_handle_SAUCE(c, c->infile, si);
+		fmtutil_handle_SAUCE(c, c->infile, si);
 		de_dbg_indent(c, -1);
 
 		charctx->title = si->title;
@@ -377,7 +380,7 @@ done:
 	dbuf_close(unc_data);
 	de_free_charctx_screens(c, charctx);
 	de_destroy_charctx(c, charctx);
-	de_fmtutil_free_SAUCE(c, si);
+	fmtutil_free_SAUCE(c, si);
 	free_lctx(c, d);
 }
 
@@ -427,12 +430,12 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 		width_req = de_atoi(s);
 	}
 
-	de_fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
+	fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
 	if(sdd.has_SAUCE) {
-		si = de_fmtutil_create_SAUCE(c);
+		si = fmtutil_create_SAUCE(c);
 
 		de_dbg_indent(c, 1);
-		de_fmtutil_handle_SAUCE(c, c->infile, si);
+		fmtutil_handle_SAUCE(c, c->infile, si);
 		de_dbg_indent(c, -1);
 
 		charctx->title = si->title;
@@ -496,7 +499,7 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 
 	dbuf_close(unc_data);
 	de_free_charctx(c, charctx);
-	de_fmtutil_free_SAUCE(c, si);
+	fmtutil_free_SAUCE(c, si);
 	free_lctx(c, d);
 }
 
@@ -654,17 +657,17 @@ static void de_run_icedraw(deark *c, de_module_params *mparams)
 {
 	struct de_SAUCE_detection_data sdd;
 
-	de_fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
+	fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
 	if(sdd.has_SAUCE) {
 		// Read the SAUCE record if present, just for the debugging info.
 		struct de_SAUCE_info *si = NULL;
-		si = de_fmtutil_create_SAUCE(c);
+		si = fmtutil_create_SAUCE(c);
 
 		de_dbg_indent(c, 1);
-		de_fmtutil_handle_SAUCE(c, c->infile, si);
+		fmtutil_handle_SAUCE(c, c->infile, si);
 		de_dbg_indent(c, -1);
 
-		de_fmtutil_free_SAUCE(c, si);
+		fmtutil_free_SAUCE(c, si);
 	}
 
 	de_err(c, "iCEDraw format is not supported");

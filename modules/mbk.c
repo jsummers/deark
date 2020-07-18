@@ -75,11 +75,11 @@ static void do_sprite_param_block(deark *c, lctx *d, i64 res,
 	adata_mask->img = de_bitmap_create(c, adata_fg->w, adata_fg->h, 1);
 	adata_fg->img = de_bitmap_create(c, adata_fg->w, adata_fg->h, 4);
 
-	de_fmtutil_atari_decode_image(c, adata_mask);
-	de_fmtutil_atari_decode_image(c, adata_fg);
+	fmtutil_atari_decode_image(c, adata_mask);
+	fmtutil_atari_decode_image(c, adata_fg);
 	de_bitmap_apply_mask(adata_fg->img, adata_mask->img, 0);
 	fi = de_finfo_create(c);
-	de_fmtutil_atari_set_standard_density(c, adata_fg, fi);
+	fmtutil_atari_set_standard_density(c, adata_fg, fi);
 	de_bitmap_write_to_file_finfo(adata_fg->img, fi, 0);
 
 done:
@@ -126,7 +126,7 @@ static void read_sprite_palette(deark *c, lctx *d, i64 pos)
 	}
 	de_dbg(c, "sprite palette at %d", (int)pos);
 	de_dbg_indent(c, 1);
-	de_fmtutil_read_atari_palette(c, c->infile, pos+4, d->pal, 16, 16, 0);
+	fmtutil_read_atari_palette(c, c->infile, pos+4, d->pal, 16, 16, 0);
 	de_dbg_indent(c, -1);
 }
 
@@ -346,7 +346,7 @@ static int de_identify_mbk(deark *c)
 
 static void de_help_mbk(deark *c)
 {
-	de_fmtutil_atari_help_palbits(c);
+	fmtutil_atari_help_palbits(c);
 }
 
 void de_module_mbk(deark *c, struct deark_module_info *mi)

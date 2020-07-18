@@ -381,12 +381,12 @@ static int decode_bitmap(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi, i
 		else if(bi->packing_type==3 && bi->pixelsize==16) {
 			dcmpri.pos = pos;
 			dcmpri.len = bytecount;
-			de_fmtutil_decompress_packbits16_ex(c, &dcmpri, &dcmpro, &dres);
+			fmtutil_decompress_packbits16_ex(c, &dcmpri, &dcmpro, &dres);
 		}
 		else {
 			dcmpri.pos = pos;
 			dcmpri.len = bytecount;
-			de_fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres);
+			fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres);
 		}
 
 		// Make sure the data decompressed to the right number of bytes.

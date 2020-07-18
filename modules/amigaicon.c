@@ -624,7 +624,7 @@ static void do_glowicons(deark *c, lctx *d, i64 pos1)
 	ictx->userdata = (void*)d;
 	ictx->handle_chunk_fn = my_iff_chunk_handler;
 	ictx->f = c->infile;
-	de_fmtutil_read_iff_format(c, ictx, pos1, c->infile->len - pos1);
+	fmtutil_read_iff_format(c, ictx, pos1, c->infile->len - pos1);
 
 	de_dbg_indent_restore(c, saved_indent_level);
 	de_free(c, ictx);

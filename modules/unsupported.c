@@ -105,12 +105,6 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
-	if(!de_memcmp(b, "\x60\xea", 2)) {
-		fmti->confidence = 9;
-		fmti->descr = "an ARJ archive";
-		return;
-	}
-
 	if(!de_memcmp(b, "ICE!", 4) ||
 		!de_memcmp(b, "Ice!", 4))
 	{

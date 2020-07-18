@@ -580,7 +580,7 @@ static void extract_dib(deark *c, lctx *d, i64 bmi_pos, i64 bmi_len,
 	if(bmi_len<12 || bmi_len>2048) goto done;
 	if(bits_len<1 || bmi_len+bits_len>DE_MAX_SANE_OBJECT_SIZE) goto done;
 
-	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, bmi_pos, bmi_len, 0)) {
+	if(!fmtutil_get_bmpinfo(c, c->infile, &bi, bmi_pos, bmi_len, 0)) {
 		de_warn(c, "Invalid bitmap");
 		goto done;
 	}
@@ -600,7 +600,7 @@ static void extract_dib(deark *c, lctx *d, i64 bmi_pos, i64 bmi_len,
 
 	outf = dbuf_create_output_file(c, "bmp", NULL, 0);
 
-	de_fmtutil_generate_bmpfileheader(c, outf, &bi, 14 + bmi_len + bits_len);
+	fmtutil_generate_bmpfileheader(c, outf, &bi, 14 + bmi_len + bits_len);
 
 	if(real_height == bi.height) {
 		// Copy the BITMAPINFO (headers & palette)
@@ -880,7 +880,7 @@ static void do_LogFont(deark *c, lctx *d, struct decoder_params *dp, i64 pos1, i
 	pos += 15;
 	b = de_getbyte_p(&pos);
 	de_dbg(c, "charset: 0x%02x (%s)", (unsigned int)b,
-		de_fmtutil_get_windows_charset_name(b));
+		fmtutil_get_windows_charset_name(b));
 
 	pos += 4;
 	facename = ucstring_create(c);

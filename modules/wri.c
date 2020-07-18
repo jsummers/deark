@@ -54,6 +54,7 @@ typedef struct localctx_struct {
 	i64 pnMac;
 	dbuf *html_outf;
 	de_ucstring *tmpstr;
+	struct de_encconv_state es;
 } lctx;
 
 static void do_emit_raw_sz(deark *c, lctx *d, struct para_info *pinfo, const char *sz);
@@ -494,7 +495,10 @@ static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 
 		if(incp>=33) {
 			i32 outcp;
-			outcp = de_char_to_unicode(c, (i32)incp, d->input_encoding);
+
+			// TODO: Decide if we ought to support multi-code-unit encodings
+			// like UTF-8.
+			outcp = de_char_to_unicode_ex((i32)incp, &d->es);
 			do_emit_codepoint(c, d, pinfo, outcp);
 		}
 		else {
@@ -726,6 +730,8 @@ static void de_run_wri(deark *c, de_module_params *mparams)
 	d->extract_text = de_get_ext_option_bool(c, "wri:extracttext", 1);
 	d->extract_ole = de_get_ext_option_bool(c, "wri:extractole",
 		(c->extract_level>=2)?1:0);
+
+	de_encconv_init(&d->es, d->input_encoding);
 
 	d->tmpstr = ucstring_create(c);
 

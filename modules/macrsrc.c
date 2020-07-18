@@ -75,7 +75,7 @@ static void set_resource_filename(deark *c, lctx *d, de_finfo *fi,
 		ucstring_append_sz(tmpname, token, DE_ENCODING_LATIN1);
 	}
 	else {
-		ucstring_append_sz(tmpname, rti->fcc.id_sanitized_sz, DE_ENCODING_ASCII);
+		ucstring_append_sz(tmpname, rti->fcc.id_sanitized_sz, DE_ENCODING_LATIN1);
 	}
 	de_finfo_set_name_from_ucstring(c, fi, tmpname, 0);
 	ucstring_destroy(tmpname);
@@ -127,7 +127,7 @@ static void open_psrc_stream(deark *c, lctx *d)
 static void finalize_psrc_stream(deark *c, lctx *d)
 {
 	if(!d->psrc_stream) return;
-	de_fmtutil_handle_photoshop_rsrc(c, d->psrc_stream, 0, d->psrc_stream->len, 0x1);
+	fmtutil_handle_photoshop_rsrc(c, d->psrc_stream, 0, d->psrc_stream->len, 0x1);
 	dbuf_close(d->psrc_stream);
 	d->psrc_stream = NULL;
 }
@@ -450,7 +450,7 @@ static void extract_raw_rsrc(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	fi = de_finfo_create(c);
 	s = ucstring_create(c);
 
-	ucstring_append_sz(s, rti->fcc.id_sanitized_sz, DE_ENCODING_ASCII);
+	ucstring_append_sz(s, rti->fcc.id_sanitized_sz, DE_ENCODING_LATIN1);
 	ucstring_strip_trailing_spaces(s);
 	if(rii->attribs&0x01) {
 		ucstring_append_sz(s, ".cmpr", DE_ENCODING_LATIN1);
@@ -505,7 +505,7 @@ static void do_resource_data(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	else if(rti->fcc.id==CODE_ANPA && rii->id==10000) {
 		de_dbg(c, "IPTC data at %"I64_FMT, dpos);
 		de_dbg_indent(c, 1);
-		de_fmtutil_handle_iptc(c, c->infile, dpos, dlen, 0x0);
+		fmtutil_handle_iptc(c, c->infile, dpos, dlen, 0x0);
 		de_dbg_indent(c, -1);
 		handled = 1;
 	}

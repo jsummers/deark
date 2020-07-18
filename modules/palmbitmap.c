@@ -240,10 +240,10 @@ static int de_decompress_image(deark *c, lctx *d, struct page_ctx *pg,
 		do_decompress_rle_compression(c, &dcmpri, &dcmpro, &dres);
 	}
 	else if(pg->cmpr_type==PCMPR_PACKBITS8) {
-		de_fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres);
+		fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres);
 	}
 	else if(pg->cmpr_type==PCMPR_PACKBITS16) {
-		de_fmtutil_decompress_packbits16_ex(c, &dcmpri, &dcmpro, &dres);
+		fmtutil_decompress_packbits16_ex(c, &dcmpri, &dcmpro, &dres);
 	}
 	else {
 		de_err(c, "Unsupported compression type: %u", pg->cmpr_type_field);

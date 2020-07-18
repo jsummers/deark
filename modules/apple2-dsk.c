@@ -197,7 +197,7 @@ static void de_run_woz(deark *c, de_module_params *mparams)
 	de_dbg(c, "crc: 0x%08x", (unsigned int)crc);
 	de_dbg_indent(c, -1);
 
-	de_fmtutil_read_iff_format(c, ictx, pos, ictx->f->len-pos);
+	fmtutil_read_iff_format(c, ictx, pos, ictx->f->len-pos);
 
 done:
 	de_free(c, ictx);

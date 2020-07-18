@@ -121,18 +121,62 @@ static int plaintext_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 	return 1;
 }
 
+static de_encoding get_bom_enc(deark *c, UI *blen)
+{
+	u8 buf[3];
+
+	de_read(buf, 0, 3);
+	if(buf[0]==0xef && buf[1]==0xbb && buf[2]==0xbf) {
+		*blen = 3;
+		return DE_ENCODING_UTF8;
+	}
+	else if(buf[0]==0xfe && buf[1]==0xff) {
+		*blen = 2;
+		return DE_ENCODING_UTF16BE;
+	}
+	else if(buf[0]==0xff && buf[1]==0xfe) {
+		*blen = 2;
+		return DE_ENCODING_UTF16LE;
+	}
+	*blen = 0;
+	return DE_ENCODING_UNKNOWN;
+}
+
 static void de_run_plaintext(deark *c, de_module_params *mparams)
 {
 	struct plaintextctx_struct ptctx;
 	de_encoding input_encoding;
+	de_encoding enc_from_bom;
+	UI existing_bom_len = 0;
+	i64 dpos, dlen;
 
-	// TODO: Maybe check for a UTF-8/UTF-16 BOM, and default to the detected encoding.
-	// TODO: Add a BOM if there isn't already one.
-	input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_UTF8);
-	de_encconv_init(&ptctx.es, input_encoding);
+	enc_from_bom = get_bom_enc(c, &existing_bom_len);
+	input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
+	if(input_encoding==DE_ENCODING_UNKNOWN) {
+		if(enc_from_bom!=DE_ENCODING_UNKNOWN) {
+			input_encoding = enc_from_bom;
+		}
+		else {
+			input_encoding = DE_ENCODING_UTF8;
+		}
+	}
+	if(input_encoding!=enc_from_bom) {
+		// Even if there was something that looked like a BOM, ignore it.
+		existing_bom_len = 0;
+	}
+
+	dpos = (i64)existing_bom_len;
+	dlen = c->infile->len - dpos;
+
+	de_encconv_init(&ptctx.es, DE_EXTENC_MAKE(input_encoding, DE_ENCSUBTYPE_HYBRID));
 	ptctx.tmpstr = ucstring_create(c);
 	ptctx.outf = dbuf_create_output_file(c, "txt", NULL, 0);
-	dbuf_buffered_read(c->infile, 0, c->infile->len, plaintext_cbfn, (void*)&ptctx);
+
+	if(c->write_bom) {
+		dbuf_write_uchar_as_utf8(ptctx.outf, 0xfeff);
+	}
+
+	dbuf_buffered_read(c->infile, dpos, dlen, plaintext_cbfn, (void*)&ptctx);
 	dbuf_close(ptctx.outf);
 	ucstring_destroy(ptctx.tmpstr);
 }
@@ -143,7 +187,6 @@ void de_module_plaintext(deark *c, struct deark_module_info *mi)
 	mi->desc = "Plain text";
 	mi->desc2 = "Convert to UTF-8";
 	mi->run_fn = de_run_plaintext;
-	mi->flags |= DE_MODFLAG_HIDDEN; // This module is currently just for testing.
 }
 
 // **************************************************************************
@@ -153,6 +196,7 @@ void de_module_plaintext(deark *c, struct deark_module_info *mi)
 
 struct cp437ctx_struct {
 	dbuf *outf;
+	struct de_encconv_state es;
 };
 
 static int cp437_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
@@ -177,7 +221,7 @@ static int cp437_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 			u = 0x2404;
 		}
 		else {
-			u = de_char_to_unicode(brctx->c, (i32)ch, DE_ENCODING_CP437_G);
+			u = de_char_to_unicode_ex((i32)ch, &cp437ctx->es);
 		}
 		dbuf_write_uchar_as_utf8(cp437ctx->outf, u);
 	}
@@ -190,6 +234,7 @@ static void de_run_cp437(deark *c, de_module_params *mparams)
 	struct cp437ctx_struct cp437ctx;
 
 	cp437ctx.outf = dbuf_create_output_file(c, "txt", NULL, 0);
+	de_encconv_init(&cp437ctx.es, DE_ENCODING_CP437_G);
 	if(c->write_bom) {
 		dbuf_write_uchar_as_utf8(cp437ctx.outf, 0xfeff);
 	}
@@ -313,13 +358,15 @@ static void de_run_bytefreq(deark *c, de_module_params *mparams)
 	struct bytefreqctx_struct *bfctx = NULL;
 	de_ucstring *s = NULL;
 	unsigned int k;
-	int input_encoding;
+	de_encoding input_encoding;
+	struct de_encconv_state es;
 
 	bfctx = de_malloc(c, sizeof(struct bytefreqctx_struct));
 	input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 	if(input_encoding==DE_ENCODING_UTF8) {
 		input_encoding=DE_ENCODING_ASCII;
 	}
+	de_encconv_init(&es, input_encoding);
 
 	dbuf_buffered_read(c->infile, 0, c->infile->len, bytefreq_cbfn, (void*)bfctx);
 
@@ -336,7 +383,7 @@ static void de_run_bytefreq(deark *c, de_module_params *mparams)
 
 		ucstring_printf(s, DE_ENCODING_LATIN1, "%3u 0x%02x ", k, k);
 
-		ch = de_char_to_unicode(c, (i32)k, input_encoding);
+		ch = de_char_to_unicode_ex((i32)k, &es);
 		if(ch==DE_CODEPOINT_INVALID) {
 			cflag = 0;
 		}
@@ -593,7 +640,7 @@ static void do_mrw_seg_list(deark *c, i64 pos1, i64 len)
 		pos+=8;
 		if(pos+data_len > pos1+len) break;
 		if(!de_memcmp(seg_id, "\0TTW", 4)) { // Exif
-			de_fmtutil_handle_exif(c, pos, data_len);
+			fmtutil_handle_exif(c, pos, data_len);
 		}
 		pos+=data_len;
 	}
@@ -1025,7 +1072,7 @@ static void de_run_lss16(deark *c, de_module_params *mparams)
 			run_len = (i64)lss16_get_nibble(c, d);
 			if(run_len==0) {
 				run_len = lss16_get_nibble(c, d);
-				run_len |= (lss16_get_nibble(c, d)<<4);
+				run_len |= ((i64)lss16_get_nibble(c, d)<<4);
 				run_len += 16;
 			}
 			for(i=0; i<run_len; i++) {
@@ -2096,7 +2143,7 @@ static void de_run_compress(deark *c, de_module_params *mparams)
 	struct de_dfilter_results dres;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
-	struct delzw_params delzwp;
+	struct de_lzw_params delzwp;
 	dbuf *f = NULL;
 
 	f = dbuf_create_output_file(c, "bin", NULL, 0);
@@ -2108,11 +2155,11 @@ static void de_run_compress(deark *c, de_module_params *mparams)
 	dcmpro.f = f;
 	dcmpro.len_known = 0;
 
-	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
 	delzwp.flags |= DE_LZWFLAG_HAS3BYTEHEADER;
 
-	de_fmtutil_decompress_lzw(c, &dcmpri, &dcmpro, &dres, &delzwp);
+	fmtutil_decompress_lzw(c, &dcmpri, &dcmpro, &dres, &delzwp);
 	if(dres.errcode!=0) {
 		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
 	}

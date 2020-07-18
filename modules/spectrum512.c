@@ -29,14 +29,14 @@ static void do_spu_internal(deark *c, dbuf *inf, int is_enhanced)
 	adata->h = 199;
 	adata->ncolors = num_colors;
 
-	de_fmtutil_read_atari_palette(c, inf, 32000, adata->pal, num_colors, num_colors,
+	fmtutil_read_atari_palette(c, inf, 32000, adata->pal, num_colors, num_colors,
 		is_enhanced?DE_FLAG_ATARI_15BIT_PAL:0);
 
 	adata->unc_pixels = dbuf_open_input_subfile(inf, 160, inf->len-160);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
 	fi = de_finfo_create(c);
-	de_fmtutil_atari_set_standard_density(c, adata, fi);
-	de_fmtutil_atari_decode_image(c, adata);
+	fmtutil_atari_set_standard_density(c, adata, fi);
+	fmtutil_atari_decode_image(c, adata);
 	de_bitmap_write_to_file_finfo(adata->img, fi, 0);
 
 	if(adata) {
@@ -76,7 +76,7 @@ static int de_identify_spectrum512u(deark *c)
 
 static void de_help_spectrum512u(deark *c)
 {
-	de_fmtutil_atari_help_palbits(c);
+	fmtutil_atari_help_palbits(c);
 }
 
 void de_module_spectrum512u(deark *c, struct deark_module_info *mi)
@@ -399,7 +399,7 @@ static int de_identify_spectrum512c(deark *c)
 static void de_help_spectrum512cs(deark *c)
 {
 	de_msg(c, "-opt spectrum512:tospu : Output to an .spu file");
-	de_fmtutil_atari_help_palbits(c);
+	fmtutil_atari_help_palbits(c);
 }
 
 void de_module_spectrum512c(deark *c, struct deark_module_info *mi)

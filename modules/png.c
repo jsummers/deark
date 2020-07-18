@@ -234,10 +234,10 @@ static void on_im_generic_profile_main(deark *c, lctx *d,
 		de_decode_base16(c, inf, pos, dlen, tmpf, 0);
 
 		if(tcc->im_generic_profile_type==PROFILETYPE_8BIM) {
-			de_fmtutil_handle_photoshop_rsrc(c, tmpf, 0, tmpf->len, 0x0);
+			fmtutil_handle_photoshop_rsrc(c, tmpf, 0, tmpf->len, 0x0);
 		}
 		else if(tcc->im_generic_profile_type==PROFILETYPE_IPTC) {
-			de_fmtutil_handle_iptc(c, tmpf, 0, tmpf->len, 0x0);
+			fmtutil_handle_iptc(c, tmpf, 0, tmpf->len, 0x0);
 		}
 
 		dbuf_close(tmpf);
@@ -772,7 +772,7 @@ static void handler_eXIf(deark *c, lctx *d, struct handler_params *hp)
 	}
 	if(len<8) return;
 
-	de_fmtutil_handle_exif(c, pos, len);
+	fmtutil_handle_exif(c, pos, len);
 }
 
 static void handler_caNv(deark *c, lctx *d, struct handler_params *hp)
@@ -793,7 +793,7 @@ static void handler_orNT(deark *c, lctx *d, struct handler_params *hp)
 	u8 n;
 	if(hp->dlen!=1) return;
 	n = de_getbyte(hp->dpos);
-	de_dbg(c, "orientation: %d (%s)", (int)n, de_fmtutil_tiff_orientation_name((i64)n));
+	de_dbg(c, "orientation: %d (%s)", (int)n, fmtutil_tiff_orientation_name((i64)n));
 }
 
 static void handler_htSP(deark *c, lctx *d, struct handler_params *hp)

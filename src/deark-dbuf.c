@@ -1839,7 +1839,45 @@ int dbuf_search_byte(dbuf *f, const u8 b, i64 startpos,
 	return 0;
 }
 
+struct search_ctx {
+	const u8 *needle;
+	i64 needle_len;
+	int foundflag;
+	i64 foundpos_rel;
+};
+
+static int search_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
+	i64 buf_len)
+{
+	struct search_ctx *sctx = (struct search_ctx*)brctx->userdata;
+	i64 i;
+	i64 num_starting_positions_to_check;
+
+	if(buf_len < sctx->needle_len) return 0;
+	num_starting_positions_to_check = buf_len + 1 - sctx->needle_len;
+
+	for(i=0; i<num_starting_positions_to_check; i++) {
+		if(sctx->needle[0]==buf[i] &&
+			!de_memcmp(sctx->needle, &buf[i], (size_t)sctx->needle_len))
+		{
+			sctx->foundpos_rel = brctx->offset+i;
+			sctx->foundflag = 1;
+			return 0;
+		}
+	}
+
+	if(brctx->eof_flag) return 0;
+	brctx->bytes_consumed = num_starting_positions_to_check;
+	return 1;
+}
+
 // Search a section of a dbuf for a given byte sequence.
+//
+// This function is inefficient, but it's good enough for Deark's needs.
+// Maximum 'needle_len' is DE_BUFFERED_READ_MIN_BLKSIZE bytes, but it's expected to
+// be quite short. If it gets close to the maximum, the search could get very
+// inefficient.
+//
 // 'haystack_len' is the number of bytes to search in (the sequence must be completely
 // within that range, not just start there).
 // Returns 0 if not found.
@@ -1848,12 +1886,18 @@ int dbuf_search_byte(dbuf *f, const u8 b, i64 startpos,
 int dbuf_search(dbuf *f, const u8 *needle, i64 needle_len,
 	i64 startpos, i64 haystack_len, i64 *foundpos)
 {
-	u8 *buf = NULL;
 	int retval = 0;
-	i64 i;
+	struct search_ctx sctx;
 
 	*foundpos = 0;
 
+	if(startpos < 0) {
+		haystack_len += startpos;
+		if(haystack_len < 0) {
+			goto done;
+		}
+		startpos = 0;
+	}
 	if(startpos > f->len) {
 		goto done;
 	}
@@ -1863,28 +1907,25 @@ int dbuf_search(dbuf *f, const u8 *needle, i64 needle_len,
 	if(needle_len > haystack_len) {
 		goto done;
 	}
+	if(needle_len > DE_BUFFERED_READ_MIN_BLKSIZE) {
+		goto done;
+	}
 	if(needle_len<1) {
 		retval = 1;
 		*foundpos = startpos;
 		goto done;
 	}
 
-	// TODO: Read memory in chunks (to support large files, and to be more efficient).
-	// Don't read it all at once.
-
-	buf = de_malloc(f->c, haystack_len);
-	dbuf_read(f, buf, startpos, haystack_len);
-
-	for(i=0; i<=haystack_len-needle_len; i++) {
-		if(needle[0]==buf[i] && !de_memcmp(needle, &buf[i], (size_t)needle_len)) {
-			retval = 1;
-			*foundpos = startpos+i;
-			goto done;
-		}
+	de_zeromem(&sctx, sizeof(struct search_ctx));
+	sctx.needle = needle;
+	sctx.needle_len = needle_len;
+	(void)dbuf_buffered_read(f, startpos, haystack_len, search_cbfn, (void*)&sctx);
+	if(sctx.foundflag) {
+		*foundpos = startpos + sctx.foundpos_rel;
+		retval = 1;
 	}
 
 done:
-	de_free(f->c, buf);
 	return retval;
 }
 
@@ -2033,18 +2074,6 @@ void dbuf_read_fourcc(dbuf *f, i64 pos, struct de_fourcc *fcc,
 		DE_CONVFLAG_ALLOW_HL, DE_ENCODING_ASCII);
 }
 
-// dbuf_buffered_read:
-// Read a slice of a dbuf, and pass its data to a callback function, one
-// segment at a time.
-// cbfn: Caller-implemented callback function.
-//   - It is required to consume at least 1 byte.
-//   - If it does not consume all bytes, it must set brctx->bytes_consumed.
-//   - It must return nonzero normally, 0 to abort.
-// We guarantee that:
-//   - brctx->eof_flag will be nonzero if and only if there is no data after this.
-//   - At least 1 byte will be provided.
-//   - If eof_flag is not set, at least 1024 bytes will be provided.
-// Return value: 1 normally, 0 if the callback function ever returned 0.
 static int buffered_read_internal(struct de_bufferedreadctx *brctx,
 	dbuf *f, i64 pos1, i64 len, de_buffered_read_cbfn cbfn)
 {
@@ -2052,7 +2081,7 @@ static int buffered_read_internal(struct de_bufferedreadctx *brctx,
 	i64 pos = pos1; // Absolute pos of next byte to read from f
 	i64 offs_of_first_byte_in_buf; // Relative to pos1, where in f is buf[0]?
 	i64 num_unconsumed_bytes_in_buf;
-#define BRBUFLEN 4096
+#define BRBUFLEN 4096 // Must be >= DE_BUFFERED_READ_MIN_BLKSIZE
 	u8 buf[BRBUFLEN];
 
 	num_unconsumed_bytes_in_buf = 0;
@@ -2095,8 +2124,8 @@ static int buffered_read_internal(struct de_bufferedreadctx *brctx,
 		if(brctx->bytes_consumed < num_unconsumed_bytes_in_buf) {
 			// cbfn didn't consume all bytes
 			// TODO: For better efficiency, we could leave the buffer as it is until
-			// the unconsumed byte count drops below 1024. But that is only useful if
-			// some consumers consume only a small number of bytes.
+			// the unconsumed byte count drops below DE_BUFFERED_READ_MIN_BLKSIZE.
+			// But that's only useful if some consumers consume only a small number of bytes.
 			de_memmove(buf, &buf[brctx->bytes_consumed],
 				(size_t)(num_unconsumed_bytes_in_buf-brctx->bytes_consumed));
 			num_unconsumed_bytes_in_buf -= brctx->bytes_consumed;
@@ -2111,7 +2140,7 @@ done:
 	return retval;
 }
 
-// Optimized version, for type membuf, etc.
+// Special case where all bytes are already in memory
 static int buffered_read_from_mem(struct de_bufferedreadctx *brctx,
 	dbuf *f, const u8 *mem, i64 pos1, i64 len, de_buffered_read_cbfn cbfn)
 {
@@ -2141,6 +2170,40 @@ done:
 	return retval;
 }
 
+static int buffered_read_zero_len(struct de_bufferedreadctx *brctx,
+	de_buffered_read_cbfn cbfn)
+{
+	const u8 dummybuf[1] = { 0 };
+	int ret;
+
+	brctx->offset = 0;
+	brctx->eof_flag = 1;
+	brctx->bytes_consumed = 0;
+	ret = cbfn(brctx, dummybuf, 0);
+	return ret?1:0;
+}
+
+// dbuf_buffered_read:
+// Read a slice of a dbuf, and pass its data to a callback function, one
+// segment at a time.
+// cbfn: Caller-implemented callback function.
+//   - It must be prepared for an arbitrarily large number of bytes to be passed
+//     to it at once (though it does not have to consume them all).
+//   - It must consume at least 1 byte, unless 0 bytes were passed to it.
+//   - If it does not consume all the bytes passed to it, it must set
+//     brctx->bytes_consumed.
+//   - It must return nonzero normally, 0 to abort.
+// We guarantee that:
+//   - brctx->eof_flag will be nonzero if and only if there is no data after this.
+//   - If eof_flag is not set, at least DE_BUFFERED_READ_MIN_BLKSIZE bytes will
+//     be provided.
+//   - If the caller supplies 0 bytes of input data, the callback function will be
+//     called exactly once. This is the only case where the callback will be
+//     called with buf_len==0.
+//   - If the source dbuf is a MEMBUF, and the requested bytes are all in range,
+//     then all requested bytes will be provided in the first call to the callback
+//     function.
+// Return value: 1 normally, 0 if the callback function ever returned 0.
 int dbuf_buffered_read(dbuf *f, i64 pos1, i64 len,
 	de_buffered_read_cbfn cbfn, void *userdata)
 {
@@ -2149,16 +2212,21 @@ int dbuf_buffered_read(dbuf *f, i64 pos1, i64 len,
 	brctx.c = f->c;
 	brctx.userdata = userdata;
 
-	// Use an optimized routine if all the data we need to read is already in memory.
+	if(len<=0) { // Get this special case out of the way.
+		return buffered_read_zero_len(&brctx, cbfn);
+	}
 
+	// Use an optimized routine if all the data we need to read is already in memory.
 	if(f->cache && (pos1>=0) && (pos1+len<=f->cache_bytes_used)) {
 		return buffered_read_from_mem(&brctx, f, f->cache, pos1, len, cbfn);
 	}
 
+	// Not an "optimization", since we promise this behavior for MEMBUFs.
 	if(f->btype==DBUF_TYPE_MEMBUF && (pos1>=0) && (pos1+len<=f->len)) {
 		return buffered_read_from_mem(&brctx, f, f->membuf_buf, pos1, len, cbfn);
 	}
 
+	// The general case:
 	return buffered_read_internal(&brctx, f, pos1, len, cbfn);
 }
 

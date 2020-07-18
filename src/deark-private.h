@@ -102,8 +102,12 @@ struct deark_module_info {
 };
 typedef void (*de_module_getinfo_fn)(deark *c, struct deark_module_info *mi);
 
+struct de_encconv_state;
+typedef de_rune (*de_encconv_fn)(struct de_encconv_state *es, i32 a);
 struct de_encconv_state {
 	de_ext_encoding ee;
+	de_encconv_fn fn;
+	const void *fn_pvt_data;
 	u8 buf[8];
 };
 
@@ -757,6 +761,7 @@ struct de_fourcc {
 void dbuf_read_fourcc(dbuf *f, i64 pos, struct de_fourcc *fcc, int nbytes,
 	unsigned int flags);
 
+#define DE_BUFFERED_READ_MIN_BLKSIZE 1024
 struct de_bufferedreadctx {
 	void *userdata;
 	deark *c;
@@ -907,6 +912,8 @@ de_color de_rgb565_to_888(u32 x);
 de_color de_bgr555_to_888(u32 x);
 de_color de_rgb555_to_888(u32 x);
 
+void de_encconv_init(struct de_encconv_state *es, de_ext_encoding ee);
+de_rune de_char_to_unicode_ex(i32 a, struct de_encconv_state *es);
 de_rune de_char_to_unicode(deark *c, i32 a, de_ext_encoding ee);
 void de_uchar_to_utf8(de_rune u1, u8 *utf8buf, i64 *p_utf8len);
 void dbuf_write_uchar_as_utf8(dbuf *outf, de_rune u);
@@ -925,8 +932,7 @@ char de_byte_to_printable_char(u8 b);
 // Convert encoded bytes to a NUL-terminated string that can be
 // printed to the terminal.
 // Consider using {dbuf_read_to_ucstring or dbuf_read_string or
-// ucstring_append_bytes} followed by
-// {ucstring_get_printable_sz or ucstring_to_printable_sz} instead.
+// ucstring_append_bytes} followed by ucstring_getpsz* instead.
 void de_bytes_to_printable_sz(const u8 *src, i64 src_len,
 	char *dst, i64 dst_len, unsigned int conv_flags, de_ext_encoding src_ee);
 
@@ -983,8 +989,6 @@ const char *ucstring_getpsz_n(de_ucstring *s, i64 max_bytes);
 #define DE_DBG_MAX_STRLEN 500
 // Same as ..._n, with max_bytes=DE_DBG_MAX_STRLEN
 const char *ucstring_getpsz_d(de_ucstring *s);
-
-void de_encconv_init(struct de_encconv_state *es, de_ext_encoding ee);
 
 // Helper functions for printing the contents of bit-flags fields
 void ucstring_append_flags_item(de_ucstring *s, const char *str);

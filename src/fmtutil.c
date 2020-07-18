@@ -9,7 +9,7 @@
 #include "deark-private.h"
 #include "deark-fmtutil.h"
 
-void de_fmtutil_get_bmp_compression_name(u32 code, char *s, size_t s_len,
+void fmtutil_get_bmp_compression_name(u32 code, char *s, size_t s_len,
 	int is_os2v2)
 {
 	const char *name1 = "?";
@@ -39,7 +39,7 @@ void de_fmtutil_get_bmp_compression_name(u32 code, char *s, size_t s_len,
 // Otherwise, it points to the BITMAPINFOHEADER.
 // Caller allocates bi.
 // Returns 0 if BMP is invalid.
-int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, i64 pos,
+int fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, i64 pos,
 	i64 len, unsigned int flags)
 {
 	i64 fhs; // file header size
@@ -132,7 +132,7 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, i64 pos,
 		de_snprintf(cmprname_dbgstr, sizeof(cmprname_dbgstr), "'%s'", cmpr4cc.id_dbgstr);
 	}
 	else {
-		de_fmtutil_get_bmp_compression_name(bi->compression_field,
+		fmtutil_get_bmp_compression_name(bi->compression_field,
 			cmprname_dbgstr, sizeof(cmprname_dbgstr), 0);
 	}
 	de_dbg(c, "compression: %u (%s)", (unsigned int)bi->compression_field, cmprname_dbgstr);
@@ -192,7 +192,7 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, i64 pos,
 
 // TODO: Document and review whether the bi->total_size and
 // bi->size_of_headers_and_pal fields include the 14-byte fileheader.
-void de_fmtutil_generate_bmpfileheader(deark *c, dbuf *outf, const struct de_bmpinfo *bi,
+void fmtutil_generate_bmpfileheader(deark *c, dbuf *outf, const struct de_bmpinfo *bi,
 	i64 file_size_override)
 {
 	i64 file_size_to_write;
@@ -211,7 +211,7 @@ void de_fmtutil_generate_bmpfileheader(deark *c, dbuf *outf, const struct de_bmp
 
 // Extracts Exif if extract_level>=2, or "extractexif" option is set.
 // Otherwise decodes.
-void de_fmtutil_handle_exif2(deark *c, i64 pos, i64 len,
+void fmtutil_handle_exif2(deark *c, i64 pos, i64 len,
 	u32 *returned_flags, u32 *orientation, u32 *exifversion)
 {
 	int user_opt;
@@ -252,19 +252,19 @@ void de_fmtutil_handle_exif2(deark *c, i64 pos, i64 len,
 	de_free(c, mparams);
 }
 
-void de_fmtutil_handle_exif(deark *c, i64 pos, i64 len)
+void fmtutil_handle_exif(deark *c, i64 pos, i64 len)
 {
-	de_fmtutil_handle_exif2(c, pos, len, NULL, NULL, NULL);
+	fmtutil_handle_exif2(c, pos, len, NULL, NULL, NULL);
 }
 
 static void wrap_in_tiff(deark *c, dbuf *f, i64 dpos, i64 dlen,
 	const char *swstring, unsigned int tag, const char *ext, unsigned int createflags);
 
-// Either extract the IPTC data to a file, or drill down into it.
+// Either extract IPTC-IIM data to a file, or drill down into it.
 // flags:
 //  0 = default behavior (currently: depends on c->extract_level and options)
 //  2 = this came from our TIFF-encapsulated format
-void de_fmtutil_handle_iptc(deark *c, dbuf *f, i64 pos, i64 len,
+void fmtutil_handle_iptc(deark *c, dbuf *f, i64 pos, i64 len,
 	unsigned int flags)
 {
 	int should_decode;
@@ -309,7 +309,7 @@ void de_fmtutil_handle_iptc(deark *c, dbuf *f, i64 pos, i64 len,
 //  0 = default behavior (currently: always decode)
 //  1 = always write to file
 //  2 = this came from our TIFF-encapsulated format
-void de_fmtutil_handle_photoshop_rsrc2(deark *c, dbuf *f, i64 pos, i64 len,
+void fmtutil_handle_photoshop_rsrc2(deark *c, dbuf *f, i64 pos, i64 len,
 	unsigned int flags, struct de_module_out_params *oparams)
 {
 	int should_decode;
@@ -359,15 +359,15 @@ void de_fmtutil_handle_photoshop_rsrc2(deark *c, dbuf *f, i64 pos, i64 len,
 	}
 }
 
-void de_fmtutil_handle_photoshop_rsrc(deark *c, dbuf *f, i64 pos, i64 len,
+void fmtutil_handle_photoshop_rsrc(deark *c, dbuf *f, i64 pos, i64 len,
 	unsigned int flags)
 {
-	de_fmtutil_handle_photoshop_rsrc2(c, f, pos, len, flags, NULL);
+	fmtutil_handle_photoshop_rsrc2(c, f, pos, len, flags, NULL);
 }
 
 // flags:
 //  0 = default behavior (currently: decode unless -opt extractplist was used)
-void de_fmtutil_handle_plist(deark *c, dbuf *f, i64 pos, i64 len,
+void fmtutil_handle_plist(deark *c, dbuf *f, i64 pos, i64 len,
 	de_finfo *fi, unsigned int flags)
 {
 	if(de_get_ext_option_bool(c, "extractplist", 0)) {
@@ -381,7 +381,7 @@ void de_fmtutil_handle_plist(deark *c, dbuf *f, i64 pos, i64 len,
 
 // Caller allocates sdd. It does not need to be initialized.
 // flags: 0x1 = Print a debug message if signature is found.
-int de_fmtutil_detect_SAUCE(deark *c, dbuf *f, struct de_SAUCE_detection_data *sdd,
+int fmtutil_detect_SAUCE(deark *c, dbuf *f, struct de_SAUCE_detection_data *sdd,
 	unsigned int flags)
 {
 	de_zeromem(sdd, sizeof(struct de_SAUCE_detection_data));
@@ -396,7 +396,7 @@ int de_fmtutil_detect_SAUCE(deark *c, dbuf *f, struct de_SAUCE_detection_data *s
 	return (int)sdd->has_SAUCE;
 }
 
-void de_fmtutil_handle_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
+void fmtutil_handle_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 {
 	de_module_params mparams;
 
@@ -405,12 +405,12 @@ void de_fmtutil_handle_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	de_run_module_by_id_on_slice(c, "sauce", &mparams, f, 0, f->len);
 }
 
-struct de_SAUCE_info *de_fmtutil_create_SAUCE(deark *c)
+struct de_SAUCE_info *fmtutil_create_SAUCE(deark *c)
 {
 	return de_malloc(c, sizeof(struct de_SAUCE_info));
 }
 
-void de_fmtutil_free_SAUCE(deark *c, struct de_SAUCE_info *si)
+void fmtutil_free_SAUCE(deark *c, struct de_SAUCE_info *si)
 {
 	if(!si) return;
 	ucstring_destroy(si->title);
@@ -434,7 +434,7 @@ static void do_box_sequence(deark *c, struct de_boxesctx *bctx,
 
 // Make a printable version of a UUID (or a big-endian GUID).
 // Caller supplies s.
-void de_fmtutil_render_uuid(deark *c, const u8 *uuid, char *s, size_t s_len)
+void fmtutil_render_uuid(deark *c, const u8 *uuid, char *s, size_t s_len)
 {
 	de_snprintf(s, s_len, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
 		uuid[0], uuid[1], uuid[2], uuid[3], uuid[4], uuid[5], uuid[6], uuid[7],
@@ -442,7 +442,7 @@ void de_fmtutil_render_uuid(deark *c, const u8 *uuid, char *s, size_t s_len)
 }
 
 // Swap some bytes to convert a (little-endian) GUID to a UUID, in-place
-void de_fmtutil_guid_to_uuid(u8 *id)
+void fmtutil_guid_to_uuid(u8 *id)
 {
 	u8 tmp[16];
 	de_memcpy(tmp, id, 16);
@@ -536,7 +536,7 @@ static int do_box(deark *c, struct de_boxesctx *bctx, i64 pos, i64 len,
 		}
 
 		if(curbox->is_uuid) {
-			de_fmtutil_render_uuid(c, curbox->uuid, uuid_string, sizeof(uuid_string));
+			fmtutil_render_uuid(c, curbox->uuid, uuid_string, sizeof(uuid_string));
 			de_dbg(c, "box '%s'{%s}%s at %"I64_FMT", len=%"I64_FMT,
 				box4cc.id_dbgstr, uuid_string, name_str,
 				pos, total_len);
@@ -611,7 +611,7 @@ static void do_box_sequence(deark *c, struct de_boxesctx *bctx,
 // Handle some box types that might be common to multiple formats.
 // This function should be called as needed by the client's box handler function.
 // TODO: A way to identify (name) the boxes that we handle here.
-int de_fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx)
+int fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx)
 {
 	struct de_boxdata *curbox = bctx->curbox;
 
@@ -626,17 +626,17 @@ int de_fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx)
 		}
 		else if(!de_memcmp(curbox->uuid, "\x2c\x4c\x01\x00\x85\x04\x40\xb9\xa0\x3e\x56\x21\x48\xd6\xdf\xeb", 16)) {
 			de_dbg(c, "Photoshop resources at %d, len=%d", (int)curbox->payload_pos, (int)curbox->payload_len);
-			de_fmtutil_handle_photoshop_rsrc(c, bctx->f, curbox->payload_pos, curbox->payload_len, 0x0);
+			fmtutil_handle_photoshop_rsrc(c, bctx->f, curbox->payload_pos, curbox->payload_len, 0x0);
 		}
 		else if(!de_memcmp(curbox->uuid, "\x05\x37\xcd\xab\x9d\x0c\x44\x31\xa7\x2a\xfa\x56\x1f\x2a\x11\x3e", 16)) {
 			de_dbg(c, "Exif data at %d, len=%d", (int)curbox->payload_pos, (int)curbox->payload_len);
-			de_fmtutil_handle_exif(c, curbox->payload_pos, curbox->payload_len);
+			fmtutil_handle_exif(c, curbox->payload_pos, curbox->payload_len);
 		}
 	}
 	return 1;
 }
 
-void de_fmtutil_read_boxes_format(deark *c, struct de_boxesctx *bctx)
+void fmtutil_read_boxes_format(deark *c, struct de_boxesctx *bctx)
 {
 	if(!bctx->f || !bctx->handle_box_fn) return; // Internal error
 	if(bctx->curbox) return; // Internal error
@@ -653,7 +653,7 @@ static u8 scale_15_to_255(u8 x)
 	return x*17;
 }
 
-void de_fmtutil_read_atari_palette(deark *c, dbuf *f, i64 pos,
+void fmtutil_read_atari_palette(deark *c, dbuf *f, i64 pos,
 	de_color *dstpal, i64 ncolors_to_read, i64 ncolors_used, unsigned int flags)
 {
 	i64 i;
@@ -867,7 +867,7 @@ static int decode_atari_image_16(deark *c, struct atari_img_decode_data *adata)
 	return 1;
 }
 
-int de_fmtutil_atari_decode_image(deark *c, struct atari_img_decode_data *adata)
+int fmtutil_atari_decode_image(deark *c, struct atari_img_decode_data *adata)
 {
 	switch(adata->bpp) {
 	case 16:
@@ -880,7 +880,7 @@ int de_fmtutil_atari_decode_image(deark *c, struct atari_img_decode_data *adata)
 	return 0;
 }
 
-void de_fmtutil_atari_set_standard_density(deark *c, struct atari_img_decode_data *adata,
+void fmtutil_atari_set_standard_density(deark *c, struct atari_img_decode_data *adata,
 	de_finfo *fi)
 {
 	switch(adata->bpp) {
@@ -902,7 +902,7 @@ void de_fmtutil_atari_set_standard_density(deark *c, struct atari_img_decode_dat
 	}
 }
 
-void de_fmtutil_atari_help_palbits(deark *c)
+void fmtutil_atari_help_palbits(deark *c)
 {
 	de_msg(c, "-opt atari:palbits=<9|12|15> : Numer of significant bits "
 		"per palette color");
@@ -953,7 +953,7 @@ static void do_iff_anno(deark *c, struct de_iffctx *ictx, i64 pos, i64 len)
 	}
 }
 
-void de_fmtutil_default_iff_chunk_identify(deark *c, struct de_iffctx *ictx)
+void fmtutil_default_iff_chunk_identify(deark *c, struct de_iffctx *ictx)
 {
 	const char *name = NULL;
 
@@ -1003,7 +1003,7 @@ static int de_fmtutil_default_iff_chunk_handler(deark *c, struct de_iffctx *ictx
 }
 
 // ictx can be NULL
-int de_fmtutil_is_standard_iff_chunk(deark *c, struct de_iffctx *ictx,
+int fmtutil_is_standard_iff_chunk(deark *c, struct de_iffctx *ictx,
 	u32 ct)
 {
 	switch(ct) {
@@ -1237,7 +1237,7 @@ static int do_iff_chunk_sequence(deark *c, struct de_iffctx *ictx,
 	return 1;
 }
 
-void de_fmtutil_read_iff_format(deark *c, struct de_iffctx *ictx,
+void fmtutil_read_iff_format(deark *c, struct de_iffctx *ictx,
 	i64 pos, i64 len)
 {
 	if(!ictx->f || !ictx->handle_chunk_fn) return; // Internal error
@@ -1261,7 +1261,7 @@ void de_fmtutil_read_iff_format(deark *c, struct de_iffctx *ictx,
 	do_iff_chunk_sequence(c, ictx, pos, len, 0);
 }
 
-const char *de_fmtutil_tiff_orientation_name(i64 n)
+const char *fmtutil_tiff_orientation_name(i64 n)
 {
 	static const char *names[9] = {
 		"?", "top-left", "top-right", "bottom-right", "bottom-left",
@@ -1271,7 +1271,7 @@ const char *de_fmtutil_tiff_orientation_name(i64 n)
 	return names[0];
 }
 
-const char *de_fmtutil_get_windows_charset_name(u8 cs)
+const char *fmtutil_get_windows_charset_name(u8 cs)
 {
 	struct csname_struct { u8 id; const char *name; };
 	static const struct csname_struct csname_arr[] = {
@@ -1303,7 +1303,7 @@ const char *de_fmtutil_get_windows_charset_name(u8 cs)
 	return "?";
 }
 
-const char *de_fmtutil_get_windows_cb_data_type_name(unsigned int ty)
+const char *fmtutil_get_windows_cb_data_type_name(unsigned int ty)
 {
 	const char *name = "?";
 
@@ -1325,7 +1325,7 @@ const char *de_fmtutil_get_windows_cb_data_type_name(unsigned int ty)
 
 // Search for the ZIP "end of central directory" object.
 // Also useful for detecting hybrid ZIP files, such as self-extracting EXE.
-int de_fmtutil_find_zip_eocd(deark *c, dbuf *f, i64 *foundpos)
+int fmtutil_find_zip_eocd(deark *c, dbuf *f, i64 *foundpos)
 {
 	u32 sig;
 	u8 *buf = NULL;
@@ -1426,7 +1426,7 @@ static void wrap_in_tiff(deark *c, dbuf *f, i64 dpos, i64 dlen,
 // Find ID3 tag data at the beginning and end of file, process it, and return
 // information about its location.
 // Caller allocates id3i.
-void de_fmtutil_handle_id3(deark *c, dbuf *f, struct de_id3info *id3i,
+void fmtutil_handle_id3(deark *c, dbuf *f, struct de_id3info *id3i,
 	unsigned int flags)
 {
 	i64 id3v1pos = 0;
@@ -1478,7 +1478,7 @@ static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *name)
 	de_dbg(c, "%s: %s", name, timestamp_buf);
 }
 
-void de_fmtutil_riscos_read_load_exec(deark *c, dbuf *f, struct de_riscos_file_attrs *rfa, i64 pos1)
+void fmtutil_riscos_read_load_exec(deark *c, dbuf *f, struct de_riscos_file_attrs *rfa, i64 pos1)
 {
 	i64 pos = pos1;
 
@@ -1498,7 +1498,7 @@ void de_fmtutil_riscos_read_load_exec(deark *c, dbuf *f, struct de_riscos_file_a
 	de_dbg_indent(c, -1);
 }
 
-void de_fmtutil_riscos_read_attribs_field(deark *c, dbuf *f, struct de_riscos_file_attrs *rfa,
+void fmtutil_riscos_read_attribs_field(deark *c, dbuf *f, struct de_riscos_file_attrs *rfa,
 	i64 pos, unsigned int flags)
 {
 	rfa->attribs = (u32)dbuf_getu32le(f, pos);

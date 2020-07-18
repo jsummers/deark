@@ -86,9 +86,9 @@ static void do_afcp_record(deark *c, struct afcpctx *d, i64 pos)
 	if(ar->dpos<d->start_tag_offs || ar->dpos+ar->dlen>d->endpos) goto done;
 
 	if(ar->id4cc.id==CODE_IPTC) {
-		de_dbg(c, "IPTC data");
+		de_dbg(c, "IPTC-IIM data");
 		de_dbg_indent(c, 1);
-		de_fmtutil_handle_iptc(c, c->infile, ar->dpos, ar->dlen, 0x0);
+		fmtutil_handle_iptc(c, c->infile, ar->dpos, ar->dlen, 0x0);
 		de_dbg_indent(c, -1);
 	}
 	else if(ar->id4cc.id==CODE_Nail || ar->id4cc.id==CODE_PrVw) {

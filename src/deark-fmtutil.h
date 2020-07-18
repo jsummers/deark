@@ -57,26 +57,26 @@ struct de_bmpinfo {
 #define DE_BMPINFO_HAS_HOTSPOT    0x4
 #define DE_BMPINFO_CMPR_IS_4CC    0x8
 
-void de_fmtutil_get_bmp_compression_name(u32 code, char *s, size_t s_len,
+void fmtutil_get_bmp_compression_name(u32 code, char *s, size_t s_len,
 	int is_os2v2);
-int de_fmtutil_get_bmpinfo(deark *c,  dbuf *f, struct de_bmpinfo *bi, i64 pos,
+int fmtutil_get_bmpinfo(deark *c,  dbuf *f, struct de_bmpinfo *bi, i64 pos,
 	i64 len, unsigned int flags);
-void de_fmtutil_generate_bmpfileheader(deark *c, dbuf *outf, const struct de_bmpinfo *bi,
+void fmtutil_generate_bmpfileheader(deark *c, dbuf *outf, const struct de_bmpinfo *bi,
 	i64 file_size_override);
 
-void de_fmtutil_handle_exif2(deark *c, i64 pos, i64 len,
+void fmtutil_handle_exif2(deark *c, i64 pos, i64 len,
 	u32 *returned_flags, u32 *orientation, u32 *exifversion);
-void de_fmtutil_handle_exif(deark *c, i64 pos, i64 len);
+void fmtutil_handle_exif(deark *c, i64 pos, i64 len);
 
-void de_fmtutil_handle_iptc(deark *c, dbuf *f, i64 pos, i64 len,
+void fmtutil_handle_iptc(deark *c, dbuf *f, i64 pos, i64 len,
 	unsigned int flags);
 
-void de_fmtutil_handle_photoshop_rsrc2(deark *c, dbuf *f, i64 pos, i64 len,
+void fmtutil_handle_photoshop_rsrc2(deark *c, dbuf *f, i64 pos, i64 len,
 	unsigned int flags, struct de_module_out_params *oparams);
-void de_fmtutil_handle_photoshop_rsrc(deark *c, dbuf *f, i64 pos, i64 len,
+void fmtutil_handle_photoshop_rsrc(deark *c, dbuf *f, i64 pos, i64 len,
 	unsigned int flags);
 
-void de_fmtutil_handle_plist(deark *c, dbuf *f, i64 pos, i64 len,
+void fmtutil_handle_plist(deark *c, dbuf *f, i64 pos, i64 len,
 	de_finfo *fi, unsigned int flags);
 
 void fmtutil_decompress_uncompressed(deark *c, struct de_dfilter_in_params *dcmpri,
@@ -90,15 +90,15 @@ void fmtutil_decompress_deflate_ex(deark *c, struct de_dfilter_in_params *dcmpri
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags, const u8 *starting_dict);
 
-void de_fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpri,
+void fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
-int de_fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
+int fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
 	dbuf *unc_pixels, i64 *cmpr_bytes_consumed);
-void de_fmtutil_decompress_packbits16_ex(deark *c, struct de_dfilter_in_params *dcmpri,
+void fmtutil_decompress_packbits16_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
-int de_fmtutil_decompress_packbits16(dbuf *f, i64 pos1, i64 len,
+int fmtutil_decompress_packbits16(dbuf *f, i64 pos1, i64 len,
 	dbuf *unc_pixels, i64 *cmpr_bytes_consumed);
-void de_fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpri,
+void fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags);
 void fmtutil_decompress_szdd(deark *c, struct de_dfilter_in_params *dcmpri,
@@ -125,7 +125,7 @@ struct de_dfilter_ctx {
 	dfilter_codec_destroy_type codec_destroy_fn;
 };
 
-enum lzwfmt_enum {
+enum de_lzwfmt_enum {
 	DE_LZWFMT_GENERIC = 0,
 	DE_LZWFMT_UNIXCOMPRESS,
 	DE_LZWFMT_GIF,
@@ -133,8 +133,8 @@ enum lzwfmt_enum {
 	DE_LZWFMT_ZOOLZD
 };
 
-struct delzw_params {
-	enum lzwfmt_enum fmt;
+struct de_lzw_params {
+	enum de_lzwfmt_enum fmt;
 #define DE_LZWFLAG_HAS3BYTEHEADER       0x1 // Unix-compress style, use with fmt=UNIXCOMPRESS
 #define DE_LZWFLAG_HAS1BYTEHEADER       0x2 // ARC style, use with fmt=UNIXCOMPRESS
 #define DE_LZWFLAG_TOLERATETRAILINGJUNK 0x4
@@ -142,10 +142,11 @@ struct delzw_params {
 	unsigned int gif_root_code_size;
 	unsigned int max_code_size; // 0 = no info
 };
-void de_fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
+void fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	struct delzw_params *delzwp);
+	struct de_lzw_params *lzwp);
 
+void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 void dfilter_hlp_lz77_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 
@@ -167,10 +168,6 @@ void de_dfilter_decompress_oneshot(deark *c,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres);
 
-void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
-struct de_dfilter_ctx *de_dfilter_create_delzw(deark *c, struct delzw_params *delzwp,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
-
 void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags);
@@ -181,9 +178,9 @@ void fmtutil_decompress_zip_implode(deark *c, struct de_dfilter_in_params *dcmpr
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int bit_flags, unsigned int flags);
 
-void de_fmtutil_decompress_zoo_lzd(deark *c, struct de_dfilter_in_params *dcmpri,
+void fmtutil_decompress_zoo_lzd(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, int maxbits);
-void de_fmtutil_decompress_zoo_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
+void fmtutil_decompress_zoo_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
 
 // Wrapper for miniz' tdefl functions
@@ -227,11 +224,11 @@ struct de_SAUCE_info {
 	de_ucstring *comment; // NULL if there is no comment
 };
 
-int de_fmtutil_detect_SAUCE(deark *c, dbuf *f, struct de_SAUCE_detection_data *sdd,
+int fmtutil_detect_SAUCE(deark *c, dbuf *f, struct de_SAUCE_detection_data *sdd,
 	unsigned int flags);
-void de_fmtutil_handle_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si);
-struct de_SAUCE_info *de_fmtutil_create_SAUCE(deark *c);
-void de_fmtutil_free_SAUCE(deark *c, struct de_SAUCE_info *si);
+void fmtutil_handle_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si);
+struct de_SAUCE_info *fmtutil_create_SAUCE(deark *c);
+void fmtutil_free_SAUCE(deark *c, struct de_SAUCE_info *si);
 
 struct de_boxesctx;
 
@@ -274,10 +271,10 @@ struct de_boxesctx {
 };
 
 double dbuf_fmtutil_read_fixed_16_16(dbuf *f, i64 pos);
-int de_fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx);
-void de_fmtutil_read_boxes_format(deark *c, struct de_boxesctx *bctx);
-void de_fmtutil_render_uuid(deark *c, const u8 *uuid, char *s, size_t s_len);
-void de_fmtutil_guid_to_uuid(u8 *id);
+int fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx);
+void fmtutil_read_boxes_format(deark *c, struct de_boxesctx *bctx);
+void fmtutil_render_uuid(deark *c, const u8 *uuid, char *s, size_t s_len);
+void fmtutil_guid_to_uuid(u8 *id);
 
 struct atari_img_decode_data {
 	i64 bpp;
@@ -291,13 +288,13 @@ struct atari_img_decode_data {
 };
 
 #define DE_FLAG_ATARI_15BIT_PAL 0x2
-void de_fmtutil_read_atari_palette(deark *c, dbuf *f, i64 pos,
+void fmtutil_read_atari_palette(deark *c, dbuf *f, i64 pos,
 	de_color *dstpal, i64 ncolors_to_read, i64 ncolors_used, unsigned int flags);
 
-int de_fmtutil_atari_decode_image(deark *c, struct atari_img_decode_data *adata);
-void de_fmtutil_atari_set_standard_density(deark *c, struct atari_img_decode_data *adata,
+int fmtutil_atari_decode_image(deark *c, struct atari_img_decode_data *adata);
+void fmtutil_atari_set_standard_density(deark *c, struct atari_img_decode_data *adata,
 	de_finfo *fi);
-void de_fmtutil_atari_help_palbits(deark *c);
+void fmtutil_atari_help_palbits(deark *c);
 
 // The IFF parser supports IFF and similar formats, including RIFF.
 struct de_iffctx;
@@ -374,23 +371,23 @@ struct de_iffctx {
 	int is_raw_container;
 };
 
-void de_fmtutil_read_iff_format(deark *c, struct de_iffctx *ictx,
+void fmtutil_read_iff_format(deark *c, struct de_iffctx *ictx,
 	i64 pos, i64 len);
-int de_fmtutil_is_standard_iff_chunk(deark *c, struct de_iffctx *ictx,
+int fmtutil_is_standard_iff_chunk(deark *c, struct de_iffctx *ictx,
 	u32 ct);
-void de_fmtutil_default_iff_chunk_identify(deark *c, struct de_iffctx *ictx);
+void fmtutil_default_iff_chunk_identify(deark *c, struct de_iffctx *ictx);
 
-const char *de_fmtutil_tiff_orientation_name(i64 n);
-const char *de_fmtutil_get_windows_charset_name(u8 cs);
-const char *de_fmtutil_get_windows_cb_data_type_name(unsigned int ty);
+const char *fmtutil_tiff_orientation_name(i64 n);
+const char *fmtutil_get_windows_charset_name(u8 cs);
+const char *fmtutil_get_windows_cb_data_type_name(unsigned int ty);
 
-int de_fmtutil_find_zip_eocd(deark *c, dbuf *f, i64 *foundpos);
+int fmtutil_find_zip_eocd(deark *c, dbuf *f, i64 *foundpos);
 
 struct de_id3info {
 	int has_id3v1, has_id3v2;
 	i64 main_start, main_end;
 };
-void de_fmtutil_handle_id3(deark *c, dbuf *f, struct de_id3info *id3i,
+void fmtutil_handle_id3(deark *c, dbuf *f, struct de_id3info *id3i,
 	unsigned int flags);
 
 struct de_advfile;
@@ -459,10 +456,10 @@ struct de_riscos_file_attrs {
 	struct de_timestamp mod_time;
 };
 
-void de_fmtutil_riscos_read_load_exec(deark *c, dbuf *f, struct de_riscos_file_attrs *rfa, i64 pos1);
+void fmtutil_riscos_read_load_exec(deark *c, dbuf *f, struct de_riscos_file_attrs *rfa, i64 pos1);
 #define DE_RISCOS_FLAG_HAS_CRC          0x1
 #define DE_RISCOS_FLAG_HAS_LZWMAXBITS   0x2
-void de_fmtutil_riscos_read_attribs_field(deark *c, dbuf *f, struct de_riscos_file_attrs *rfa,
+void fmtutil_riscos_read_attribs_field(deark *c, dbuf *f, struct de_riscos_file_attrs *rfa,
 	i64 pos, unsigned int flags);
 
 struct fmtutil_macbitmap_info {

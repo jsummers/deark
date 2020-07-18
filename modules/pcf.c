@@ -570,6 +570,7 @@ static void do_make_font_image(deark *c, lctx *d)
 	int max_full_width = 1;
 	int max_ascent = 0;
 	int max_descent = 0;
+	struct de_encconv_state es;
 
 	if(!d->chars) goto done;
 	if(!d->bitmaps_data) goto done;
@@ -585,6 +586,7 @@ static void do_make_font_image(deark *c, lctx *d)
 	}
 
 	font->char_array = de_mallocarray(c, d->num_chars, sizeof(struct de_bitmap_font_char));
+	de_encconv_init(&es, d->src_encoding); // 'es' might not get used, but that's ok.
 
 	// First, scan the characters
 	for(k=0; k<font->num_chars; k++) {
@@ -614,7 +616,7 @@ static void do_make_font_image(deark *c, lctx *d)
 			ch->codepoint_unicode = ci->codepoint;
 		}
 		else if(d->can_translate_to_unicode) {
-			ch->codepoint_unicode = de_char_to_unicode(c, ci->codepoint, d->src_encoding);
+			ch->codepoint_unicode = de_char_to_unicode_ex(ci->codepoint, &es);
 		}
 
 		ch->width = ci->width_raw;

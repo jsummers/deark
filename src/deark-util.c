@@ -1938,6 +1938,8 @@ u32 de_crcobj_getval(struct de_crcobj *crco)
 
 void de_crcobj_addbuf(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
 {
+	if(buf_len<1) return;
+
 	switch(crco->crctype) {
 	case DE_CRCOBJ_CRC32_IEEE:
 		crco->val = de_crc32_continue(crco->val, buf, buf_len);
@@ -1965,12 +1967,6 @@ static int addslice_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 
 void de_crcobj_addslice(struct de_crcobj *crco, dbuf *f, i64 pos, i64 len)
 {
-	// Minor optimization for the case where the data is all in memory
-	if(f->btype==DBUF_TYPE_MEMBUF && (pos>=0) && (pos+len<=f->len)) {
-		de_crcobj_addbuf(crco, &f->membuf_buf[pos], len);
-		return;
-	}
-
 	dbuf_buffered_read(f, pos, len, addslice_cbfn, (void*)crco);
 }
 

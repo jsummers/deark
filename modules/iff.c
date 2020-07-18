@@ -223,7 +223,7 @@ static void de_run_iff(deark *c, de_module_params *mparams)
 	ictx->on_std_container_start_fn = my_std_container_start_fn;
 	ictx->f = c->infile;
 
-	de_fmtutil_read_iff_format(c, ictx, pos, c->infile->len - pos);
+	fmtutil_read_iff_format(c, ictx, pos, c->infile->len - pos);
 
 	de_free(c, ictx);
 	de_free(c, d);
@@ -296,7 +296,7 @@ static void de_run_midi(deark *c, de_module_params *mparams)
 	ictx->handle_chunk_fn = my_midi_chunk_handler;
 	ictx->f = c->infile;
 
-	de_fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
+	fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
 
 	de_free(c, ictx);
 	de_free(c, d);

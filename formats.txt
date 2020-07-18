@@ -422,7 +422,7 @@ Deark -- Information about supported formats
   - Extract ICC profiles.
   - Extract linked layer image data (could be PNG/JPG/PSD/etc. format).
   - Process Exif data (or extract it: use -a)
-  - Extract IPTC data (use -a).
+  - Extract IPTC-IIM data (use -a).
   - Extract "text engine data" (use -a)
 
 * Psion PIC (module="psionpic")
@@ -504,7 +504,7 @@ Deark -- Information about supported formats
     JPEG-compressed images.
   - Extract ICC profiles.
   - Process Photoshop-related data.
-  - Extract IPTC data (use -a).
+  - Extract IPTC-IIM data (use -a).
 
 * TIM (Playstation graphics) (module="tim") (experimental/incomplete)
 
@@ -824,7 +824,7 @@ Deark -- Information about supported formats
   Options
    -opt iff:align=<n> - Assume chunks are padded to an n-byte boundary.
 
-* IPTC metadata (module="iptc")
+* IPTC-IIM metadata (module="iptc")
   - Extract captions/abstracts (use -a).
   - Extract raster caption bitmaps.
 
@@ -887,6 +887,10 @@ Deark -- Information about supported formats
 * Photoshop Styles format (.asl) (module="ps_styles")
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
+
+* Plain text (module="plaintext")
+  Read a plain text file, and write it as UTF-8.
+  - Not autodetected. Use "-m plaintext".
 
 * .plist Property List (module="plist")
   - Supports binary .plist format only

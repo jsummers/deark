@@ -64,7 +64,7 @@ static void do_exif(deark *c, lctx *d, i64 pos1, i64 len1)
 		pos++;
 		len--;
 	}
-	de_fmtutil_handle_exif(c, pos, len);
+	fmtutil_handle_exif(c, pos, len);
 }
 
 static void do_extensions(deark *c, lctx *d, i64 pos)

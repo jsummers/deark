@@ -67,6 +67,75 @@ struct localctx_struct {
 	struct persistent_member_data *persistent_md; // optional array[num_top_level_members]
 };
 
+struct member_parser_data {
+	int nesting_level;
+	int member_idx;
+	u8 magic;
+	u8 cmpr_meth, cmpr_meth_masked;
+	i64 member_pos;
+	i64 member_len;
+	i64 cmpr_data_pos;
+	i64 cmpr_data_len;
+};
+
+typedef void (*member_cb_type)(deark *c, lctx *d, struct member_parser_data *mpd);
+
+// Calls the supplied callback function for each ARC member found.
+// Also called for end-of-archive/directory markers.
+// Also called if unexpected data is encountered (with mpd->magic != 0x1a).
+static void parse_member_sequence(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level,
+	member_cb_type member_cbfn)
+{
+	struct member_parser_data *mpd = NULL;
+	int member_idx = 0;
+	i64 pos = pos1;
+
+	mpd = de_malloc(c, sizeof(struct member_parser_data));
+
+	while(1) {
+		if(pos+2 > pos1+len) break;
+		de_zeromem(mpd, sizeof(struct member_parser_data));
+		mpd->nesting_level = nesting_level;
+		mpd->member_idx = member_idx++;
+		mpd->member_pos = pos;
+
+		mpd->magic = de_getbyte_p(&pos);
+		if(mpd->magic!=0x1a) {
+			mpd->member_len = 1;
+			mpd->cmpr_data_pos = mpd->member_pos; // dummy value
+			member_cbfn(c, d, mpd);
+			break;
+		}
+		mpd->cmpr_meth = de_getbyte_p(&pos);
+		mpd->cmpr_meth_masked = mpd->cmpr_meth & 0x7f;
+
+		if(mpd->cmpr_meth_masked==0x00 || mpd->cmpr_meth==0x1f) { // end of archive/dir
+			mpd->member_len = 2;
+			mpd->cmpr_data_pos = mpd->member_pos+2; // dummy value
+			member_cbfn(c, d, mpd);
+			break;
+		}
+
+		pos += 13;
+		mpd->cmpr_data_len = de_getu32le_p(&pos);
+		pos += 2+2+2;
+		if(mpd->cmpr_meth_masked!=0x01) {
+			pos += 4; // original size
+		}
+		if(mpd->cmpr_meth & 0x80) {
+			pos += 12; // Spark-specific data
+		}
+
+		mpd->cmpr_data_pos = pos;
+		mpd->member_len = mpd->cmpr_data_pos + mpd->cmpr_data_len - mpd->member_pos;
+		member_cbfn(c, d, mpd);
+
+		pos = mpd->member_pos + mpd->member_len;
+	}
+
+	de_free(c, mpd);
+}
+
 static void decompressor_stored(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
@@ -78,43 +147,43 @@ static void decompressor_spark_compressed(deark *c, lctx *d, struct member_data 
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	struct delzw_params delzwp;
+	struct de_lzw_params delzwp;
 
-	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
 	delzwp.flags |= DE_LZWFLAG_HAS1BYTEHEADER;
-	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
+	fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
 
 static void decompressor_squashed(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	struct delzw_params delzwp;
+	struct de_lzw_params delzwp;
 
-	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
 	delzwp.max_code_size = 13;
-	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
+	fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
 
 static void decompressor_packed(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	de_fmtutil_decompress_rle90_ex(c, dcmpri, dcmpro, dres, 0);
+	fmtutil_decompress_rle90_ex(c, dcmpri, dcmpro, dres, 0);
 }
 
 static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	struct delzw_params delzwp;
+	struct de_lzw_params delzwp;
 
 	// "Crunched" means "packed", then "compressed".
 	// So we have to "uncompress" (LZW), then "unpack" (RLE90).
 
-	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
 	delzwp.flags |= DE_LZWFLAG_HAS1BYTEHEADER;
 
@@ -282,6 +351,7 @@ static int do_pak_ext_record(deark *c, lctx *d, i64 pos1, i64 *pbytes_consumed)
 	case 0: rtname = "end"; break;
 	case 1: rtname = "remark"; break;
 	case 2: rtname = "path"; break;
+	case 3: rtname = "security envelope"; break;
 	}
 	de_dbg(c, "rectype: %d (%s)", (int)rectype, rtname);
 	if(rectype==0) goto done;
@@ -372,40 +442,6 @@ static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *name)
 	de_dbg(c, "%s: %s", name, timestamp_buf);
 }
 
-// TODO: Consider merging this function into do_extract_member_file().
-static int do_extract_internal(deark *c, lctx *d, struct member_data *md,
-	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro)
-{
-	int retval = 0;
-	struct de_dfilter_results dres;
-	int have_dres = 0;
-
-	de_dfilter_results_clear(c, &dres);
-	if(dcmpri->pos + dcmpri->len > dcmpri->f->len) {
-		de_err(c, "%s: Data goes beyond end of file", ucstring_getpsz_d(md->fn));
-		goto done;
-	}
-
-	if(md->cmi && md->cmi->decompressor) {
-		md->cmi->decompressor(c, d, md, dcmpri, dcmpro, &dres);
-		have_dres = 1;
-	}
-	else {
-		goto done; // Should be impossible
-	}
-
-	if(have_dres && dres.errcode) {
-		de_err(c, "%s: Decompression failed: %s", ucstring_getpsz_d(md->fn),
-			de_dfilter_get_errmsg(c, &dres));
-		goto done;
-	}
-
-	retval = 1;
-
-done:
-	return retval;
-}
-
 static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
 {
 	struct de_crcobj *crco = (struct de_crcobj*)userdata;
@@ -435,11 +471,11 @@ static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
 {
 	de_ucstring *fullfn = NULL;
 	dbuf *outf = NULL;
-	struct de_dfilter_in_params *dcmpri = NULL;
-	struct de_dfilter_out_params *dcmpro = NULL;
 	int ignore_failed_crc = 0;
-	int ret;
 	int saved_indent_level;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	fullfn = ucstring_create(c);
@@ -473,17 +509,25 @@ static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
 	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
 	de_crcobj_reset(d->crco);
 
-	dcmpri = de_malloc(c, sizeof(struct de_dfilter_in_params));
-	dcmpro = de_malloc(c, sizeof(struct de_dfilter_out_params));
-	dcmpri->f = c->infile;
-	dcmpri->pos = pos;
-	dcmpri->len = md->cmpr_size;
-	dcmpro->f = outf;
-	dcmpro->len_known = 1;
-	dcmpro->expected_len = md->orig_size;
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = pos;
+	dcmpri.len = md->cmpr_size;
+	dcmpro.f = outf;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = md->orig_size;
 
-	ret = do_extract_internal(c, d, md, dcmpri, dcmpro);
-	if(!ret) goto done;
+	if(dcmpri.pos + dcmpri.len > dcmpri.f->len) {
+		de_err(c, "%s: Data goes beyond end of file", ucstring_getpsz_d(md->fn));
+		goto done;
+	}
+
+	md->cmi->decompressor(c, d, md, &dcmpri, &dcmpro, &dres);
+	if(dres.errcode) {
+		de_err(c, "%s: Decompression failed: %s", ucstring_getpsz_d(md->fn),
+			de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
 
 	md->crc_calc = de_crcobj_getval(d->crco);
 	de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)md->crc_calc);
@@ -499,8 +543,6 @@ static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
 done:
 	dbuf_close(outf);
 	ucstring_destroy(fullfn);
-	de_free(c, dcmpri);
-	de_free(c, dcmpro);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -580,13 +622,12 @@ done:
 
 static void do_sequence_of_members(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level);
 
-// Returns 1 if we can and should continue after this member.
-static int do_member(deark *c, lctx *d, i64 pos1, i64 nbytes_avail,
-	int nesting_level, i64 member_idx, i64 *bytes_consumed, int *is_eoa)
+// The main per-member processing function
+static void member_cb_main(deark *c, lctx *d, struct member_parser_data *mpd)
 {
-	u8 magic;
+	//u8 magic;
 	int saved_indent_level;
-	int retval = 0;
+	i64 pos1 = mpd->member_pos;
 	i64 pos = pos1;
 	i64 hdrsize;
 	i64 mod_time_raw, mod_date_raw;
@@ -600,8 +641,8 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 nbytes_avail,
 	de_dbg_indent(c, 1);
 	md = de_malloc(c, sizeof(struct member_data));
 
-	if(nesting_level==0 && d->persistent_md && (member_idx < d->num_top_level_members)) {
-		pmd = &d->persistent_md[member_idx];
+	if(mpd->nesting_level==0 && d->persistent_md && (mpd->member_idx < d->num_top_level_members)) {
+		pmd = &d->persistent_md[mpd->member_idx];
 		if(ucstring_isnonempty(pmd->comment)) {
 			de_dbg(c, "file comment: \"%s\"", ucstring_getpsz_d(pmd->comment));
 		}
@@ -610,9 +651,9 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 nbytes_avail,
 		}
 	}
 
-	magic = de_getbyte_p(&pos);
-	if(magic != 0x1a) {
-		if(member_idx==0 && nesting_level==0) {
+	pos++; // 'magic' byte, already read by the parser
+	if(mpd->magic != 0x1a) {
+		if(mpd->member_idx==0 && mpd->nesting_level==0) {
 			de_err(c, "Not a(n) %s file", d->fmtname);
 		}
 		else {
@@ -621,8 +662,9 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 nbytes_avail,
 		goto done;
 	}
 
-	md->cmpr_meth = de_getbyte_p(&pos);
-	md->cmpr_meth_masked = md->cmpr_meth & 0x7f;
+	pos++; // compression ID, already read by the parser
+	md->cmpr_meth = mpd->cmpr_meth;
+	md->cmpr_meth_masked = mpd->cmpr_meth_masked;
 
 	md->cmi = get_cmpr_meth_info(d, md->cmpr_meth);
 	if(md->cmi && md->cmi->name) {
@@ -648,14 +690,12 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 nbytes_avail,
 			hdrsize += 12;
 		}
 	}
-	if(nbytes_avail<hdrsize) {
+	if(mpd->member_len<hdrsize) {
 		de_err(c, "Insufficient data for archive member at %"I64_FMT, pos1);
 		goto done;
 	}
 
 	if(md->cmpr_meth_masked==0x00 || md->cmpr_meth==0x1f) { // end of archive/dir marker
-		*is_eoa = 1;
-		*bytes_consumed = 2;
 		goto done;
 	}
 
@@ -665,7 +705,8 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 nbytes_avail,
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->fn));
 	pos += 13;
 
-	md->cmpr_size = de_getu32le_p(&pos);
+	pos += 4; // cmpr_size, already read by the parser
+	md->cmpr_size = mpd->cmpr_data_len;
 	de_dbg(c, "cmpr size: %"I64_FMT, md->cmpr_size);
 
 	mod_date_raw = de_getu16le_p(&pos);
@@ -685,14 +726,14 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 nbytes_avail,
 	}
 
 	if(d->fmt == FMT_SPARK) {
-		de_fmtutil_riscos_read_load_exec(c, c->infile, &md->rfa, pos);
+		fmtutil_riscos_read_load_exec(c, c->infile, &md->rfa, pos);
 		pos += 8;
 
-		de_fmtutil_riscos_read_attribs_field(c, c->infile, &md->rfa, pos, 0);
+		fmtutil_riscos_read_attribs_field(c, c->infile, &md->rfa, pos, 0);
 		pos += 4;
 	}
 
-	md->cmpr_data_pos = pos;
+	md->cmpr_data_pos = mpd->cmpr_data_pos;
 
 	de_strarray_push(d->curpath, md->fn);
 	need_curpath_pop = 1;
@@ -712,9 +753,6 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 nbytes_avail,
 	if(d->recurse_subdirs) {
 		de_dbg(c, "is directory: %d", md->is_dir);
 	}
-
-	*bytes_consumed = md->cmpr_data_pos + md->cmpr_size - pos1;
-	retval = 1;
 
 	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, md->cmpr_data_pos, md->cmpr_size);
 
@@ -744,7 +782,7 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 nbytes_avail,
 		// 2) As a flat sequence of members, meaning we trust that a nested archive
 		//    will not have extra data after the end-of-archive marker.
 		// Here, we use the recursive method.
-		do_sequence_of_members(c, d, md->cmpr_data_pos, md->cmpr_size, nesting_level+1);
+		do_sequence_of_members(c, d, md->cmpr_data_pos, md->cmpr_size, mpd->nesting_level+1);
 	}
 	else if(md->cmpr_meth>=20 && md->cmpr_meth<=29) {
 		if(md->cmpr_meth==20 || md->cmpr_meth==21) {
@@ -768,14 +806,10 @@ done:
 		de_free(c, md);
 	}
 	de_dbg_indent_restore(c, saved_indent_level);
-	return retval;
 }
 
 static void do_sequence_of_members(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level)
 {
-	i64 pos = pos1;
-	i64 member_idx = 0;
-
 	if(nesting_level >= MAX_NESTING_LEVEL) {
 		de_err(c, "Max subdir nesting level exceeded");
 		return;
@@ -783,77 +817,34 @@ static void do_sequence_of_members(deark *c, lctx *d, i64 pos1, i64 len, int nes
 
 	de_dbg(c, "archive at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
-
-	while(1) {
-		int ret;
-		int is_eoa = 0;
-		i64 nbytes_avail;
-		i64 bytes_consumed = 0;
-
-		nbytes_avail = pos1+len-pos;
-		if(nbytes_avail<2) break;
-		ret = do_member(c, d, pos, nbytes_avail, nesting_level, member_idx, &bytes_consumed, &is_eoa);
-		pos += bytes_consumed;
-
-		if(is_eoa) {
-			break;
-		}
-
-		if(!ret || (bytes_consumed<1)) break;
-		member_idx++;
-	}
-
+	parse_member_sequence(c, d, pos1, len, nesting_level, member_cb_main);
 	de_dbg_indent(c, -1);
+}
+
+static void member_cb_for_prescan(deark *c, lctx *d, struct member_parser_data *mpd)
+{
+	if(mpd->magic!=0x1a) return;
+	if(mpd->cmpr_meth_masked==0x00) { // end of archive
+		d->prescan_found_eoa = 1;
+		d->prescan_pos_after_eoa = mpd->member_pos + mpd->member_len;
+		de_dbg2(c, "end of member sequence at %"I64_FMT, d->prescan_pos_after_eoa);
+		return;
+	}
+	d->num_top_level_members++;
+	de_dbg2(c, "member at %"I64_FMT, mpd->member_pos);
 }
 
 // Unfortunately, a pre-pass is necessary for robust handling of some ARC format
 // extensions. The main issue is member-file comments, which we want to be
 // available when we process that member file, but can only be found after we've
 // read through the whole ARC file.
-static void do_prescan_file(deark *c, lctx *d, i64 pos1)
+static void do_prescan_file(deark *c, lctx *d, i64 startpos)
 {
-	i64 memberpos = pos1;
-
 	de_dbg2(c, "prescan");
 	d->num_top_level_members = 0;
 	de_dbg_indent(c, 1);
-
-	while(1) {
-		u8 magic;
-		u8 cmpr_meth, cmpr_meth_masked;
-		i64 pos;
-		i64 cmpr_size;
-
-		pos = memberpos;
-		if(pos + 2 > c->infile->len) break;
-		magic = de_getbyte_p(&pos);
-		if(magic!=0x1a) break;
-		cmpr_meth = de_getbyte_p(&pos);
-		cmpr_meth_masked = cmpr_meth & 0x7f;
-		de_dbg2(c, "member at %"I64_FMT, memberpos);
-
-		if(cmpr_meth_masked==0x00) { // end of archive
-			memberpos = pos;
-			d->prescan_found_eoa = 1;
-			d->prescan_pos_after_eoa = memberpos;
-			de_dbg2(c, "end of member sequence at %"I64_FMT, d->prescan_pos_after_eoa);
-			break;
-		}
-
-		pos += 13;
-		cmpr_size = de_getu32le_p(&pos);
-		pos += 2+2+2;
-		if(cmpr_meth_masked!=0x01) {
-			pos += 4; // original size
-		}
-		if(cmpr_meth & 0x80) {
-			pos += 12; // Spark-specific data
-		}
-		pos += cmpr_size;
-		memberpos = pos;
-		d->num_top_level_members++;
-	}
-
+	parse_member_sequence(c, d, startpos, c->infile->len-startpos, 0, member_cb_for_prescan);
+	de_dbg2(c, "number of members: %"I64_FMT, d->num_top_level_members);
 	de_dbg_indent(c, -1);
 }
 
@@ -876,6 +867,7 @@ static void destroy_lctx(deark *c, lctx *d)
 
 static void do_run_arc_spark_internal(deark *c, lctx *d)
 {
+	i64 members_endpos;
 	i64 pos = 0;
 
 	if(de_getbyte(0)!=0x1a && de_getbyte(3)==0x1a) {
@@ -889,13 +881,19 @@ static void do_run_arc_spark_internal(deark *c, lctx *d)
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 
 	do_prescan_file(c, d, pos);
+	if(d->prescan_found_eoa) {
+		members_endpos = d->prescan_pos_after_eoa;
+	}
+	else {
+		members_endpos = c->infile->len;
+	}
 
 	if(d->fmt==FMT_ARC) {
 		do_pk_comments(c, d);
 		do_pak_trailer(c, d);
 	}
 
-	do_sequence_of_members(c, d, pos, c->infile->len, 0);
+	do_sequence_of_members(c, d, pos, members_endpos, 0);
 
 	if(d->prescan_found_eoa && !d->has_trailer_data) {
 		i64 num_extra_bytes;
@@ -994,7 +992,7 @@ static void de_run_arc(deark *c, de_module_params *mparams)
 
 static int de_identify_arc(deark *c)
 {
-	static const char *exts[] = {"arc", "ark", "pak", "spk", "com"};
+	static const char *exts[] = {"arc", "ark", "pak", "spk", "sdn", "com"};
 	int has_ext = 0;
 	int maybe_sfx = 0;
 	int ends_with_trailer = 0;

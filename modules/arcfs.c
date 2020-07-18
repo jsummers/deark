@@ -81,27 +81,27 @@ static void do_arcfs_compressed(deark *c, lctx *d, struct arcfs_member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	struct delzw_params delzwp;
+	struct de_lzw_params delzwp;
 
-	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
 	delzwp.max_code_size = md->rfa.lzwmaxbits;
 	if(!dcmpro->len_known) {
 		delzwp.flags |= DE_LZWFLAG_TOLERATETRAILINGJUNK;
 	}
-	de_fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
+	fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
 
 static void do_arcfs_crunched(deark *c, lctx *d, struct arcfs_member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	struct delzw_params delzwp;
+	struct de_lzw_params delzwp;
 
 	// "Crunched" means "packed", then "compressed".
 	// So we have to "uncompress" (LZW), then "unpack" (RLE90).
 
-	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
 	delzwp.max_code_size = md->rfa.lzwmaxbits;
 
@@ -177,7 +177,7 @@ static void do_arcfs_extract_member_file(deark *c, lctx *d, struct arcfs_member_
 		fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
 	}
 	else if(md->cmpr_method==0x83) {
-		de_fmtutil_decompress_rle90_ex(c, &dcmpri, &dcmpro, &dres, 0);
+		fmtutil_decompress_rle90_ex(c, &dcmpri, &dcmpro, &dres, 0);
 		have_dres = 1;
 	}
 	else if(md->cmpr_method==0xff) {
@@ -332,7 +332,7 @@ static int do_arcfs_member(deark *c, lctx *d, i64 idx, i64 pos1)
 		de_dbg(c, "orig file length: %"I64_FMT, md->orig_len);
 	}
 
-	de_fmtutil_riscos_read_load_exec(c, c->infile, &md->rfa, pos);
+	fmtutil_riscos_read_load_exec(c, c->infile, &md->rfa, pos);
 	pos += 8;
 
 	tmpflags = 0;
@@ -340,7 +340,7 @@ static int do_arcfs_member(deark *c, lctx *d, i64 idx, i64 pos1)
 		tmpflags |= DE_RISCOS_FLAG_HAS_CRC;
 	if(md->cmpr_method==0xff || md->cmpr_method==0x88)
 		tmpflags |= DE_RISCOS_FLAG_HAS_LZWMAXBITS;
-	de_fmtutil_riscos_read_attribs_field(c, c->infile, &md->rfa, pos, tmpflags);
+	fmtutil_riscos_read_attribs_field(c, c->infile, &md->rfa, pos, tmpflags);
 	pos += 4;
 
 	md->cmpr_len = de_getu32le_p(&pos);
@@ -452,7 +452,7 @@ static void do_squash_header(deark *c, sqctx *d, i64 pos1)
 	d->orig_len = de_getu32le_p(&pos);
 	de_dbg(c, "orig file length: %"I64_FMT, d->orig_len);
 
-	de_fmtutil_riscos_read_load_exec(c, c->infile, &d->rfa, pos);
+	fmtutil_riscos_read_load_exec(c, c->infile, &d->rfa, pos);
 	pos += 8;
 	de_dbg_indent(c, -1);
 }
@@ -465,7 +465,7 @@ static void do_squash_main(deark *c, sqctx *d)
 	struct de_dfilter_results dres;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
-	struct delzw_params delzwp;
+	struct de_lzw_params delzwp;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -494,11 +494,11 @@ static void do_squash_main(deark *c, sqctx *d)
 	dcmpro.f = outf;
 	dcmpro.len_known = 0;
 
-	de_zeromem(&delzwp, sizeof(struct delzw_params));
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
 	delzwp.flags |= DE_LZWFLAG_HAS3BYTEHEADER;
 
-	de_fmtutil_decompress_lzw(c, &dcmpri, &dcmpro, &dres, &delzwp);
+	fmtutil_decompress_lzw(c, &dcmpri, &dcmpro, &dres, &delzwp);
 
 	if(dres.errcode) {
 		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
