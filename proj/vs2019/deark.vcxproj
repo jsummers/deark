@@ -235,6 +235,7 @@
     <ClCompile Include="..\..\modules\jbf.c" />
     <ClCompile Include="..\..\modules\jovianvi.c" />
     <ClCompile Include="..\..\modules\jpeg.c" />
+    <ClCompile Include="..\..\modules\lbr.c" />
     <ClCompile Include="..\..\modules\lha.c" />
     <ClCompile Include="..\..\modules\macbinary.c" />
     <ClCompile Include="..\..\modules\macpaint.c" />

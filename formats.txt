@@ -624,7 +624,7 @@ Deark -- Information about supported formats
 * cpio (module="cpio")
 
 * CRUSH (.cru) (module="crush")
-  CRUSH is a DOS archive utility PocketWare.
+  CRUSH is a DOS archive utility by PocketWare.
 
 * D64 (Commodore 64 disk format) (module="d64") (experimental)
 
@@ -645,6 +645,11 @@ Deark -- Information about supported formats
      Ridge or Joliet filenames.
    -opt iso9660:voldesc=<n> - Use the volume descriptor at sector <n>. A
      typical use is to set n=16 to ignore Joliet extensions.
+
+* LBR (module="lbr")
+  LRB is an uncompressed CP/M archive format.
+  - These often contain files in compressed formats known as Squeeze, Crunch,
+  and CrLZH, but decompressing those formats is not supported.
 
 * LHA/LZH/PMA (module="lha")
   - Files can be parsed, but there is usually nothing that can be extracted

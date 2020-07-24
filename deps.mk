@@ -132,6 +132,8 @@ $(OBJDIR)/modules/jovianvi.o: modules/jovianvi.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/jpeg.o: modules/jpeg.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/lbr.o: modules/lbr.c src/deark-private.h src/deark.h \
+ src/deark-config.h
 $(OBJDIR)/modules/lha.o: modules/lha.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/macbinary.o: modules/macbinary.c src/deark-config.h \
