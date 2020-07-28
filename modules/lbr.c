@@ -22,6 +22,8 @@ struct member_data {
 	i64 len_in_bytes_withpadding;
 	i64 len_in_bytes_nopadding;
 	de_ucstring *fn;
+	struct de_timestamp create_timestamp;
+	struct de_timestamp change_timestamp;
 };
 
 typedef struct localctx_struct {
@@ -49,6 +51,13 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 	else {
 		de_finfo_set_name_from_ucstring(c, fi, md->fn, 0);
 		fi->original_filename_flag = 1;
+	}
+
+	if(md->create_timestamp.is_valid) {
+		fi->timestamp[DE_TIMESTAMPIDX_CREATE] = md->create_timestamp;
+	}
+	if(md->change_timestamp.is_valid) {
+		fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->change_timestamp;
 	}
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
@@ -96,6 +105,33 @@ static void read_8_3_filename(deark *c, lctx *d, struct member_data *md, i64 pos
 	ucstring_destroy(ext);
 }
 
+static void handle_timestamp(deark *c, lctx *d, i64 date_raw, i64 time_raw,
+	struct de_timestamp *ts, const char *name)
+{
+	i64 ut;
+	char timestamp_buf[64];
+
+	if(date_raw==0) {
+		de_dbg(c, "%s: [not set]", name);
+		return;
+	}
+
+	// Day 0 is Dec 31, 1977 (or it would be, if 0 weren't reserved).
+	// Difference from Unix time (Jan 1, 1970) =
+	//  365 days in 1970, 1971, 1973, 1974, 1975
+	//  + 366 days in 1972, 1976
+	//  + 364 days in 1977.
+	ut = 86400 * (date_raw + (365*5 + 366*2 + 364));
+
+	// Time of day is in DOS format.
+	ut += 3600*(time_raw>>11); // hours
+	ut += 60*(time_raw&0x07e0)>>5; // minutes
+	ut += 2*(time_raw&0x001f); // seconds
+	de_unix_time_to_timestamp(ut, ts, 0);
+	de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "%s: %s", name, timestamp_buf);
+}
+
 static void on_bad_dir(deark *c)
 {
 	de_err(c, "Bad directory. This is probably not an LBR file.");
@@ -108,6 +144,7 @@ static int do_entry(deark *c, lctx *d, i64 pos1, int is_dir)
 	int retval = 0;
 	int saved_indent_level;
 	struct member_data *md = NULL;
+	i64 crdate, chdate, crtime, chtime;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	md = de_malloc(c, sizeof(struct member_data));
@@ -152,6 +189,12 @@ static int do_entry(deark *c, lctx *d, i64 pos1, int is_dir)
 	de_dbg(c, "crc (reported): 0x%04x", (UI)md->crc_reported);
 
 	// 18-25: timestamps - TODO
+	crdate = de_getu16le(pos1+18);
+	chdate = de_getu16le(pos1+20);
+	crtime = de_getu16le(pos1+22);
+	chtime = de_getu16le(pos1+24);
+	handle_timestamp(c, d, crdate, crtime, &md->create_timestamp, "creation time");
+	handle_timestamp(c, d, chdate, chtime, &md->change_timestamp, "last changed time");
 
 	md->pad_count = de_getbyte(pos1+26);
 	de_dbg(c, "pad count: %u", (UI)md->pad_count);
