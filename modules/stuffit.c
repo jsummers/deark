@@ -4,10 +4,8 @@
 
 // StuffIt
 
-#include <deark-config.h>
 #include <deark-private.h>
 #include <deark-fmtutil.h>
-#include "../foreign/unsit.h"
 DE_DECLARE_MODULE(de_module_stuffit);
 
 #define MAX_NESTING_LEVEL 32
@@ -107,19 +105,143 @@ static void do_decompr_lzw(deark *c, lctx *d, struct member_data *md,
 	fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
 
+struct sit_huffctx {
+	deark *c;
+	const char *modname;
+	struct de_dfilter_in_params *dcmpri;
+	struct de_dfilter_out_params *dcmpro;
+	struct de_dfilter_results *dres;
+	struct fmtutil_huffman_tree *ht;
+	int eofflag;
+	int errflag;
+	i64 inpos;
+	UI nbits_in_bitsbuf;
+	u8 bitsbuf;
+};
+
+static u8 sit_huff_getbit(struct sit_huffctx *hctx)
+{
+	u8 n;
+
+	if(hctx->eofflag || hctx->errflag) return 0;
+
+	if(hctx->nbits_in_bitsbuf<1) {
+		if(hctx->inpos >= hctx->dcmpri->pos + hctx->dcmpri->len) {
+			hctx->eofflag = 1;
+			return 0;
+		}
+		hctx->bitsbuf = dbuf_getbyte_p(hctx->dcmpri->f, &hctx->inpos);
+		hctx->nbits_in_bitsbuf = 8;
+	}
+
+	n = (hctx->bitsbuf & (1U<<(hctx->nbits_in_bitsbuf-1))) ? 1 : 0;
+	hctx->nbits_in_bitsbuf--;
+	return n;
+}
+
+static u8 sit_huff_getbyte(struct sit_huffctx *hctx)
+{
+	UI k;
+	u8 v = 0;
+
+	for(k=0; k<8; k++) {
+		v = (v<<1) | sit_huff_getbit(hctx);
+	}
+	return v;
+}
+
+// A recursive function to read the tree definition.
+static void sit_huff_read_tree(struct sit_huffctx *hctx, u64 curr_code, UI curr_code_nbits)
+{
+	u8 x;
+
+	if(curr_code_nbits>48) {
+		hctx->errflag = 1;
+	}
+	if(hctx->eofflag || hctx->errflag) return;
+
+	x = sit_huff_getbit(hctx);
+	if(hctx->eofflag) return;
+
+	if(x==0) {
+		sit_huff_read_tree(hctx, curr_code<<1, curr_code_nbits+1);
+		if(hctx->eofflag || hctx->errflag) return;
+		sit_huff_read_tree(hctx, (curr_code<<1) | 1, curr_code_nbits+1);
+	}
+	else {
+		int ret;
+		i32 val;
+
+		val = (i32)sit_huff_getbyte(hctx);
+		ret = fmtutil_huffman_add_code(hctx->c, hctx->ht, curr_code, curr_code_nbits, val);
+		if(!ret) {
+			hctx->errflag = 1;
+		}
+	}
+}
+
+// While its code is no longer used by Deark, I credit:
+//   Unsit Version 1 (January 15, 1988), for StuffIt 1.31: unsit.c
+//   by Allan G. Weber
+// for helping me understand the StuffIt type 3 (Huffman) compression format.
 static void do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
 	struct fork_data *frk, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	struct huffctx *hctx = NULL;
+	struct sit_huffctx *hctx = NULL;
+	i64 nbytes_written = 0;
 
-	hctx = de_malloc(c, sizeof(struct huffctx));
+	hctx = de_malloc(c, sizeof(struct sit_huffctx));
 	hctx->c = c;
+	hctx->modname = "huffman";
 	hctx->dcmpri = dcmpri;
 	hctx->dcmpro = dcmpro;
 	hctx->dres = dres;
-	huff_main(hctx);
-	de_free(c, hctx);
+	hctx->ht = fmtutil_huffman_create_tree(c, 256, 512);
+	hctx->inpos = dcmpri->pos;
+
+	// Read the tree definition
+	sit_huff_read_tree(hctx, 0, 0);
+	if(hctx->errflag) goto done;
+	if(c->debug_level>=2) {
+		fmtutil_huffman_dump(c, hctx->ht);
+	}
+	if(fmtutil_huffman_get_max_bits(hctx->ht)<1) {
+		goto done;
+	}
+
+	// Read the data section
+	while(1) {
+		int ret;
+		i32 val = 0;
+		u8 n;
+
+		if(dcmpro->len_known) {
+			if(nbytes_written >= dcmpro->expected_len) break;
+		}
+
+		if(hctx->eofflag || hctx->errflag) break;
+		n = sit_huff_getbit(hctx);
+		if(hctx->eofflag || hctx->errflag) break;
+		ret = fmtutil_huffman_decode_bit(hctx->ht, n, &val);
+		if(ret==0) {
+			hctx->errflag = 1;
+			break;
+		}
+		else if(ret==1) {
+			dbuf_writebyte(dcmpro->f, (u8)val);
+			nbytes_written++;
+		}
+	}
+
+done:
+	if(hctx->errflag) {
+		de_dfilter_set_generic_error(c, dres, hctx->modname);
+	}
+	if(hctx) {
+		fmtutil_huffman_destroy_tree(c, hctx->ht);
+		de_free(c, hctx);
+	}
 }
 
 static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
@@ -359,10 +481,15 @@ static void do_main_decompress_fork(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	if(!frk || !frk->cmi || !frk->cmi->decompressor) {
 		goto done;
 	}
+
+	de_dbg(c, "decompressing %s fork", frk->forkname);
+	de_dbg_indent(c, 1);
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
@@ -379,7 +506,7 @@ static void do_main_decompress_fork(deark *c, lctx *d, struct member_data *md,
 	}
 
 done:
-	;
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void do_post_decompress_fork(deark *c, lctx *d, struct member_data *md,

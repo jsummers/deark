@@ -498,6 +498,8 @@ struct fmtutil_huffman_tree *fmtutil_huffman_create_tree(deark *c, i64 initial_c
 void fmtutil_huffman_destroy_tree(deark *c, struct fmtutil_huffman_tree *ht);
 void fmtutil_huffman_reset_cursor(struct fmtutil_huffman_tree *ht);
 int fmtutil_huffman_add_code(deark *c, struct fmtutil_huffman_tree *ht,
-	u64 code, UI code_nbits, u32 val);
-int fmtutil_huffman_decode_bit(struct fmtutil_huffman_tree *ht, u8 bitval, u32 *pval);
-void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_tree *ht, const char *treename);
+	u64 code, UI code_nbits, i32 val);
+int fmtutil_huffman_decode_bit(struct fmtutil_huffman_tree *ht, u8 bitval, i32 *pval);
+UI fmtutil_huffman_get_max_bits(struct fmtutil_huffman_tree *ht);
+i64 fmtutil_huffman_get_num_codes(struct fmtutil_huffman_tree *ht);
+void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_tree *ht);

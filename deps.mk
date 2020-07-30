@@ -152,8 +152,8 @@ $(OBJDIR)/modules/misc.o: modules/misc.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/mp3.o: modules/mp3.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
-$(OBJDIR)/modules/mscompress.o: modules/mscompress.c src/deark-config.h \
- src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/mscompress.o: modules/mscompress.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/msp.o: modules/msp.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/nie.o: modules/nie.c src/deark-config.h \
@@ -230,9 +230,8 @@ $(OBJDIR)/modules/sis.o: modules/sis.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/spectrum512.o: modules/spectrum512.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
-$(OBJDIR)/modules/stuffit.o: modules/stuffit.c src/deark-config.h \
- src/deark-private.h src/deark.h src/deark-fmtutil.h \
- modules/../foreign/unsit.h
+$(OBJDIR)/modules/stuffit.o: modules/stuffit.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/sunras.o: modules/sunras.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/t64.o: modules/t64.c src/deark-config.h \
