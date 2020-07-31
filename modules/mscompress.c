@@ -180,27 +180,18 @@ header_extensions_done:
 	return retval;
 }
 
-// I assume the max is supposed to be 15, though some encoding methods make
-// larger lengths possible.
-#define LZHUFF_MAX_CODELENGTH  15
+// The max code length is *probably* 15, but some length compression methods
+// can be (mis?)used to make larger lengths possible.
+#define LZHUFF_MAX_CODELENGTH  20
 
 #define LZHUFF_SYMLEN_TYPE  u8  // Assumed to be unsigned
 #define LZHUFF_VALUE_TYPE   u8  // Type of a decoded symbol
-
-struct lzhuff_tableentry {
-	LZHUFF_SYMLEN_TYPE code_len;
-	LZHUFF_VALUE_TYPE value;
-};
 
 struct lzhuff_tree {
 	UI enctype;
 	UI num_symbols;
 	LZHUFF_SYMLEN_TYPE *symlengths; // array[num_symbols]
-	LZHUFF_SYMLEN_TYPE max_sym_len_used;
-
-	UI decode_table_nbits;
-	UI decode_table_numentries; // == 1<<decode_table_nbits
-	struct lzhuff_tableentry *decode_table; // array[decode_table_numentries]
+	struct fmtutil_huffman_tree *fmtuht;
 };
 
 struct lzhuff_context {
@@ -215,6 +206,7 @@ struct lzhuff_context {
 	int eof_flag; // Always set if error_flag is set.
 	int error_flag; // Bad data in the LZ77 part should not set this flag. Set eof_flag instead.
 	struct de_dfilter_results *dres;
+	const char *modname;
 #define LZH_TREE_IDX_MATCHLEN   0
 #define LZH_TREE_IDX_MATCHLEN2  1
 #define LZH_TREE_IDX_LITLEN     2
@@ -337,85 +329,97 @@ done:
 	;
 }
 
-static void lzhuff_populate_decode_table(struct lzhuff_context *lzhctx,
-	struct lzhuff_tree *htr)
+static void lzhuff_finalize_tree(struct lzhuff_context *lzhctx, struct lzhuff_tree *htr)
 {
+	deark *c = lzhctx->c;
 	UI next_avail_code = 0;
+	UI decode_table_numentries;
+	UI decode_table_nbits;
+	UI max_sym_len_used;
+	UI i;
+	int saved_indent_level;
 	LZHUFF_SYMLEN_TYPE symlen;
+	int ok = 0;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	max_sym_len_used = 0;
+	for(i=0; i<htr->num_symbols; i++) {
+		if(htr->symlengths[i] > max_sym_len_used) {
+			max_sym_len_used = htr->symlengths[i];
+		}
+	}
+	if(max_sym_len_used<1 || max_sym_len_used>LZHUFF_MAX_CODELENGTH) {
+		goto done;
+	}
+
+	// TODO: Refactor this (there is no longer a "decode table")
+	decode_table_nbits = max_sym_len_used;
+	decode_table_numentries = 1U<<max_sym_len_used;
+
+	de_dbg(c, "constructing huffman tree:");
+	de_dbg_indent(c, 1);
 
 	// For each possible symbol length...
-	for(symlen=1; symlen<=htr->max_sym_len_used; symlen++) {
+	for(symlen=1; symlen<=max_sym_len_used; symlen++) {
 		UI k;
 
 		// Find all the codes that use this symbol length, in order
 		for(k=0; k<htr->num_symbols; k++) {
+			int ret;
+			UI realcode;
+
 			if(htr->symlengths[k] != symlen) continue;
 
 			// Found a code of the length we're looking for.
-			htr->decode_table[next_avail_code].code_len = symlen;
-			htr->decode_table[next_avail_code].value = (LZHUFF_VALUE_TYPE)k;
+			if(next_avail_code >= decode_table_numentries) {
+				goto done;
+			}
 
-			next_avail_code += 1U<<(htr->decode_table_nbits-symlen);
-			if(next_avail_code >= htr->decode_table_numentries) goto tbl_done;
+			realcode = next_avail_code >> (max_sym_len_used-(UI)symlen);
+
+			if(c->debug_level>=2) {
+				de_dbg2(c, "addcode 0x%x [%u bits] = %u", realcode, (UI)symlen, (UI)k);
+			}
+			ret = fmtutil_huffman_add_code(c, htr->fmtuht, (u64)realcode, (UI)symlen, (u32)k);
+			if(!ret) goto done;
+
+			next_avail_code += 1U<<(decode_table_nbits-symlen);
 		}
 	}
-tbl_done:
-	;
-}
 
-// nbits = the number of valid bits in 'code', with the high valid
-// bit based on htr->decode_table_nbits. All other bits must be 0.
-// Returns 0 if found (returned in *pvalue)
-//   1 if not found (need more bits)
-//   2 if error (too many bits)
-static int lzhuff_lookup_code(struct lzhuff_tree *htr, UI code, UI nbits,
-	LZHUFF_VALUE_TYPE *pvalue)
-{
-	struct lzhuff_tableentry *e;
+	de_dbg_indent(c, -1);
+	ok = 1;
 
-	if(nbits > htr->decode_table_nbits) return 2;
-	if(code > htr->decode_table_numentries) return 2;
-	e = &htr->decode_table[code];
-	if(e->code_len == nbits) {
-		*pvalue = e->value;
-		return 0;
+done:
+	if(!ok) {
+		de_dfilter_set_errorf(c, lzhctx->dres, lzhctx->modname, "Failed to construct Huffman tree");
+		lzhuff_set_errorflag(lzhctx);
 	}
-	return 1;
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 // On error, sets lzhctx->eof_flag
 static LZHUFF_VALUE_TYPE lzhuff_getnextcode(struct lzhuff_context *lzhctx,
 	struct lzhuff_tree *htr)
 {
-	UI next_shift;
-	UI curr_val = 0;
-	UI curr_nbits = 0;
-	LZHUFF_VALUE_TYPE decoded_val = 0;
+	fmtutil_huffman_reset_cursor(htr->fmtuht); // Should be unnecessary
 
-	next_shift = htr->decode_table_nbits - 1;
 	while(1) {
+		u32 test_val = 0;
 		UI n;
 		int ret;
 
 		n = lzh_getbits(lzhctx, 1);
-		if(lzhctx->eof_flag) return 0;
-		curr_val |= n<<next_shift;
-		curr_nbits++;
 
-		ret = lzhuff_lookup_code(htr, curr_val, curr_nbits, &decoded_val);
-		if(ret==0) return decoded_val;
-		if(ret==2) {
+		ret = fmtutil_huffman_decode_bit(htr->fmtuht, (u8)n, &test_val);
+		if(ret==1) { // finished the code
+			return (LZHUFF_VALUE_TYPE)test_val;
+		}
+		else if(ret!=2) {
 			lzhctx->eof_flag = 1;
 			return 0;
 		}
-
-		if(next_shift==0) {
-			lzhctx->eof_flag = 1;
-			return 0;
-		}
-		next_shift--;
 	}
-	return 0;
 }
 
 static void lzhctx_read_huffman_tree(struct lzhuff_context *lzhctx, UI idx)
@@ -454,35 +458,18 @@ static void lzhctx_read_huffman_tree(struct lzhuff_context *lzhctx, UI idx)
 		goto done;
 	}
 
-	htr->max_sym_len_used = 0;
 	for(i=0; i<htr->num_symbols; i++) {
 		de_dbg2(c, "length[%u] = %u", i, (UI)htr->symlengths[i]);
-
-		if(htr->symlengths[i] > LZHUFF_MAX_CODELENGTH) {
-			lzhuff_set_errorflag(lzhctx);
-			goto done;
-		}
-
-		if(htr->symlengths[i] > htr->max_sym_len_used) {
-			htr->max_sym_len_used = htr->symlengths[i];
-		}
 	}
 
-	if(htr->max_sym_len_used<1) {
-		lzhuff_set_errorflag(lzhctx);
-		goto done;
-	}
+	lzhuff_finalize_tree(lzhctx, htr);
 
-	// This is a memory-inefficient way to decode Huffman codes, but:
-	// The maximum legal code length is 15 bits (I think).
-	// Each table could have up to 2^15 entries, 2 bytes each.
-	// There are 5 tables, so worst case that's 32768*2*5 = 327,680 bytes,
-	// which is no problem.
-	htr->decode_table_nbits = htr->max_sym_len_used;
-	htr->decode_table_numentries = 1U<<htr->max_sym_len_used;
-	htr->decode_table = de_mallocarray(c, htr->decode_table_numentries,
-		sizeof(struct lzhuff_tableentry));
-	lzhuff_populate_decode_table(lzhctx, htr);
+	if(c->debug_level>=2) {
+		de_dbg(c, "constructed huffman tree:");
+		de_dbg_indent(c, 1);
+		fmtutil_huffman_dump(c, htr->fmtuht, "node");
+		de_dbg_indent(c, -1);
+	}
 
 done:
 	de_free(c, htr->symlengths);
@@ -576,22 +563,28 @@ static void do_decompress_LZHUFF(deark *c, struct de_dfilter_in_params *dcmpri,
 {
 	struct lzhuff_context *lzhctx = NULL;
 	i64 k;
-	const char *modname = "lzhuff";
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	lzhctx = de_malloc(c, sizeof(struct lzhuff_context));
 	lzhctx->c = c;
+	lzhctx->modname = "lzhuff";
 	lzhctx->inf = dcmpri->f;
 	lzhctx->inf_curpos = dcmpri->pos;
 	lzhctx->inf_endpos = dcmpri->pos + dcmpri->len;
 	lzhctx->dcmpro = dcmpro;
+	lzhctx->dres = dres;
 
 	lzhctx->htree[LZH_TREE_IDX_MATCHLEN].num_symbols = 16;
 	lzhctx->htree[LZH_TREE_IDX_MATCHLEN2].num_symbols = 16;
 	lzhctx->htree[LZH_TREE_IDX_LITLEN].num_symbols = 32;
 	lzhctx->htree[LZH_TREE_IDX_OFFSET].num_symbols = 64;
 	lzhctx->htree[LZH_TREE_IDX_LITERAL].num_symbols = 256;
+
+	for(k=0; k<LZH_NUM_TREES; k++) {
+		lzhctx->htree[k].fmtuht = fmtutil_huffman_create_tree(c,
+				lzhctx->htree[k].num_symbols, lzhctx->htree[k].num_symbols);
+	}
 
 	// 3-byte header
 	de_dbg(c, "LZH header at %"I64_FMT, lzhctx->inf_curpos);
@@ -622,11 +615,11 @@ done:
 		size_t tr;
 
 		if(lzhctx->error_flag) {
-			de_dfilter_set_generic_error(c, dres, modname);
+			de_dfilter_set_generic_error(c, dres, lzhctx->modname);
 		}
 
 		for(tr=0; tr<LZH_NUM_TREES; tr++) {
-			de_free(c, lzhctx->htree[tr].decode_table);
+			fmtutil_huffman_destroy_tree(c, lzhctx->htree[tr].fmtuht);
 		}
 		de_free(c, lzhctx);
 	}

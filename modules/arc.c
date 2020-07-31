@@ -653,12 +653,7 @@ static void member_cb_main(deark *c, lctx *d, struct member_parser_data *mpd)
 
 	pos++; // 'magic' byte, already read by the parser
 	if(mpd->magic != 0x1a) {
-		if(mpd->member_idx==0 && mpd->nesting_level==0) {
-			de_err(c, "Not a(n) %s file", d->fmtname);
-		}
-		else {
-			de_err(c, "Failed to find %s member at %"I64_FMT, d->fmtname, pos1);
-		}
+		de_err(c, "Failed to find %s member at %"I64_FMT, d->fmtname, pos1);
 		goto done;
 	}
 
@@ -848,6 +843,19 @@ static void do_prescan_file(deark *c, lctx *d, i64 startpos)
 	de_dbg_indent(c, -1);
 }
 
+static int find_arc_marker(deark *c, const u8 *buf, size_t buflen, i64 *ppos)
+{
+	size_t i;
+
+	for(i=0; i<buflen; i++) {
+		if(buf[i]==0x1a) {
+			*ppos = (i64)i;
+			return 1;
+		}
+	}
+	return 0;
+}
+
 static void destroy_lctx(deark *c, lctx *d)
 {
 	if(!d) return;
@@ -869,14 +877,16 @@ static void do_run_arc_spark_internal(deark *c, lctx *d)
 {
 	i64 members_endpos;
 	i64 pos = 0;
+	u8 buf[33];
 
-	if(de_getbyte(0)!=0x1a && de_getbyte(3)==0x1a) {
-		// Possible self-extracting COM file
-		pos += 3;
+	// Tolerate up to sizeof(buf)-1 bytes of initial junk
+	de_read(buf, 0, sizeof(buf));
+	if(!find_arc_marker(c, buf, sizeof(buf), &pos)) {
+		de_err(c, "Not a(n) %s file", d->fmtname);
+		goto done;
 	}
 
 	de_declare_fmt(c, d->fmtname);
-
 	d->curpath = de_strarray_create(c, MAX_NESTING_LEVEL+10);
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 
@@ -904,6 +914,9 @@ static void do_run_arc_spark_internal(deark *c, lctx *d)
 				num_extra_bytes, d->prescan_pos_after_eoa);
 		}
 	}
+
+done:
+	;
 }
 
 static void de_run_spark(deark *c, de_module_params *mparams)
@@ -994,39 +1007,44 @@ static int de_identify_arc(deark *c)
 {
 	static const char *exts[] = {"arc", "ark", "pak", "spk", "sdn", "com"};
 	int has_ext = 0;
-	int maybe_sfx = 0;
 	int ends_with_trailer = 0;
 	int ends_with_comments = 0;
 	int starts_with_trailer = 0;
 	i64 arc_start = 0;
 	size_t k;
 	u8 cmpr_meth;
+	u8 buf[5];
 
-	if(de_getbyte(0) != 0x1a) {
-		if(de_input_file_has_ext(c, "com")) {
-			maybe_sfx = 1;
+	de_read(buf, 0, sizeof(buf));
+
+	// Look for 0x1a in the first 4 bytes. Some .COM-style self-extracting
+	// archives start with 1-3 bytes of code before the ARC marker.
+	if(!find_arc_marker(c, buf, sizeof(buf)-1, &arc_start)) {
+		return 0;
+	}
+
+	cmpr_meth = buf[arc_start+1];
+	if(cmpr_meth>11 && cmpr_meth!=20 && cmpr_meth!=21 && cmpr_meth!=30) return 0;
+	if(cmpr_meth==0) starts_with_trailer = 1;
+
+	for(k=0; k<DE_ARRAYCOUNT(exts); k++) {
+		if(de_input_file_has_ext(c, exts[k])) {
+			has_ext = (int)(k+1);
+			break;
 		}
-		if(maybe_sfx && de_getbyte(3)==0x1a) {
-			arc_start = 3;
+	}
+
+	if(arc_start>0) {
+		if(has_ext==1 || has_ext==2 || has_ext==6) { // .arc, .ark, .com
+			;
 		}
 		else {
 			return 0;
 		}
 	}
 
-	cmpr_meth = de_getbyte(arc_start+1);
-	if(cmpr_meth>11 && cmpr_meth!=20 && cmpr_meth!=21 && cmpr_meth!=30) return 0;
-	if(cmpr_meth==0) starts_with_trailer = 1;
-
-	for(k=0; k<DE_ARRAYCOUNT(exts); k++) {
-		if(de_input_file_has_ext(c, exts[k])) {
-			has_ext = 1;
-			break;
-		}
-	}
-
 	if(starts_with_trailer && c->infile->len==2) {
-		if(has_ext) return 15; // Empty archive, 2-byte file
+		if(has_ext>=1 && has_ext<=4) return 15; // Empty archive, 2-byte file
 		return 0;
 	}
 
@@ -1051,7 +1069,7 @@ static int de_identify_arc(deark *c)
 	}
 	if(has_ext && (ends_with_trailer || ends_with_comments)) return 90;
 	if(ends_with_trailer || ends_with_comments) return 25;
-	if(has_ext || maybe_sfx) return 15;
+	if(has_ext) return 15;
 	return 0;
 }
 

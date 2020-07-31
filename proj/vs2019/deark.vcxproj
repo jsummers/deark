@@ -235,6 +235,7 @@
     <ClCompile Include="..\..\modules\jbf.c" />
     <ClCompile Include="..\..\modules\jovianvi.c" />
     <ClCompile Include="..\..\modules\jpeg.c" />
+    <ClCompile Include="..\..\modules\lbr.c" />
     <ClCompile Include="..\..\modules\lha.c" />
     <ClCompile Include="..\..\modules\macbinary.c" />
     <ClCompile Include="..\..\modules\macpaint.c" />
@@ -311,6 +312,7 @@
     <ClCompile Include="..\..\src\deark-zip.c" />
     <ClCompile Include="..\..\src\fmtutil-advfile.c" />
     <ClCompile Include="..\..\src\fmtutil-cmpr.c" />
+    <ClCompile Include="..\..\src\fmtutil-huffman.c" />
     <ClCompile Include="..\..\src\fmtutil-lzw.c" />
     <ClCompile Include="..\..\src\fmtutil-miniz.c" />
     <ClCompile Include="..\..\src\fmtutil-zip.c" />
