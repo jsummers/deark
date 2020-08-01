@@ -3,9 +3,12 @@
 // See the file COPYING for terms of use.
 
 // LBR - uncompressed CP/M archive format
+// Squeeze compressed file
 
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_lbr);
+DE_DECLARE_MODULE(de_module_squeeze);
 
 #define LBR_DIRENT_SIZE 32
 #define LBR_SECTOR_SIZE 128
@@ -274,4 +277,116 @@ void de_module_lbr(deark *c, struct deark_module_info *mi)
 	mi->desc = "LBR archive";
 	mi->run_fn = de_run_lbr;
 	mi->identify_fn = de_identify_lbr;
+}
+
+///////////////////////////////////////////////
+// Squeeze - CP/M compressed file format
+
+struct squeeze_ctx {
+	de_encoding input_encoding;
+	struct de_stringreaderdata *fn;
+	UI checksum_reported;
+	UI checksum_calc;
+};
+
+static void squeeze_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
+{
+	struct squeeze_ctx *sqctx = (struct squeeze_ctx*)userdata;
+	i64 i;
+
+	for(i=0; i<buf_len; i++) {
+		sqctx->checksum_calc += buf[i];
+	}
+}
+
+static void de_run_squeeze(deark *c, de_module_params *mparams)
+{
+	i64 pos = 0;
+	i64 n;
+	struct squeeze_ctx *sqctx = NULL;
+	de_finfo *fi = NULL;
+	dbuf *outf = NULL;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
+	sqctx = de_malloc(c, sizeof(struct squeeze_ctx));
+	sqctx->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+
+	n = de_getu16le_p(&pos);
+	if(n != 0xff76) {
+		de_dbg(c, "Not a Squeezed file");
+		goto done;
+	}
+
+	sqctx->checksum_reported = (u32)de_getu16le_p(&pos);
+	de_dbg(c, "checksum (reported): %u", (UI)sqctx->checksum_reported);
+
+	sqctx->fn = dbuf_read_string(c->infile, pos, 300, 300, DE_CONVFLAG_STOP_AT_NUL,
+		sqctx->input_encoding);
+	if(!sqctx->fn->found_nul) {
+		de_err(c, "Malformed file");
+		goto done;
+	}
+	de_dbg(c, "original filename: \"%s\"", ucstring_getpsz_d(sqctx->fn->str));
+	pos += sqctx->fn->bytes_consumed;
+
+	fi = de_finfo_create(c);
+	de_finfo_set_name_from_ucstring(c, fi, sqctx->fn->str, 0);
+	fi->original_filename_flag = 1;
+
+	de_dbg(c, "squeeze-compressed data at %"I64_FMT, pos);
+
+	outf = dbuf_create_output_file(c, NULL, fi, 0);
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = pos;
+	dcmpri.len = c->infile->len - pos;
+	dcmpro.f = outf;
+
+	dbuf_set_writelistener(outf, squeeze_writelistener_cb, (void*)sqctx);
+
+	de_dfilter_decompress_two_layer(c, dfilter_huff_squeeze_codec, NULL,
+		dfilter_rle90_codec, NULL, &dcmpri, &dcmpro, &dres);
+
+	if(dres.bytes_consumed_valid) {
+		de_dbg(c, "compressed data size: %"I64_FMT", ends at %"I64_FMT, dres.bytes_consumed,
+			dcmpri.pos+dres.bytes_consumed);
+	}
+
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
+
+	sqctx->checksum_calc &= 0xffff;
+	de_dbg(c, "checksum (calculated): %u", (UI)sqctx->checksum_calc);
+	if(sqctx->checksum_calc != sqctx->checksum_reported) {
+		de_err(c, "Checksum error. Decompression probably failed.");
+		goto done;
+	}
+
+done:
+	if(sqctx) {
+		de_destroy_stringreaderdata(c, sqctx->fn);
+		de_free(c, sqctx);
+	}
+	dbuf_close(outf);
+	de_finfo_destroy(c, fi);
+}
+
+static int de_identify_squeeze(deark *c)
+{
+	if(de_getu16le(0)==0xff76) {
+		return 70;
+	}
+	return 0;
+}
+
+void de_module_squeeze(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "squeeze";
+	mi->desc = "Squeeze (CP/M)";
+	mi->run_fn = de_run_squeeze;
+	mi->identify_fn = de_identify_squeeze;
 }
