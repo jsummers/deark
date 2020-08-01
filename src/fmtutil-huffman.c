@@ -10,25 +10,27 @@
 
 #define NODE_REF_TYPE u32
 #define MAX_TREE_DEPTH 56
-#define MAX_MAX_NODES  (65536*2)
+#define MAX_MAX_NODES  66000
 
-struct huffman_node_tree_data {
-	NODE_REF_TYPE child[2]; // child[n]==0 means not-set
+struct huffman_nval_pointer_data {
+	NODE_REF_TYPE noderef;
 };
-struct huffman_node_value_data {
+struct huffman_nval_value_data {
 	i32 value;
 };
 
+union huffman_nval_data {
+	struct huffman_nval_pointer_data hnpd;
+	struct huffman_nval_value_data hnvd;
+};
+
 struct huffman_node {
-#define NODESTATUS_UNUSED 0
-#define NODESTATUS_TREE   1
-#define NODESTATUS_VALUE  2
-	u8 status;
+#define CHILDSTATUS_UNUSED  0
+#define CHILDSTATUS_POINTER 1
+#define CHILDSTATUS_VALUE   2
+	u8 child_status[2];
 	u8 depth;
-	union huffman_node_data {
-		struct huffman_node_tree_data hntd;
-		struct huffman_node_value_data hnvd;
-	} hnd;
+	union huffman_nval_data child[2];
 };
 
 struct fmtutil_huffman_cursor {
@@ -42,13 +44,16 @@ struct fmtutil_huffman_tree {
 	struct fmtutil_huffman_cursor cursor;
 
 	i64 max_nodes;
-	i64 num_codes;
-	UI max_bits;
-	NODE_REF_TYPE nodes_used; // highest node used, +1
+	NODE_REF_TYPE next_avail_node;
 	NODE_REF_TYPE nodes_alloc;
 	struct huffman_node *nodes; // array[nodes_alloc]
+	struct huffman_nval_value_data value_of_null_code;
+
+	i64 num_codes;
+	UI max_bits;
 };
 
+// Ensure that at least n nodes are allocated (0 through n-1)
 static int huffman_ensure_alloc(deark *c, struct fmtutil_huffman_tree *ht, NODE_REF_TYPE n)
 {
 	i64 new_nodes_alloc;
@@ -67,24 +72,34 @@ static int huffman_ensure_alloc(deark *c, struct fmtutil_huffman_tree *ht, NODE_
 	return 1;
 }
 
-// Tracks the number of nodes with VALUE status ("codes").
-static void huffman_setnodestatus(struct fmtutil_huffman_tree *ht, NODE_REF_TYPE n, u8 newstatus)
+// Tracks the number of items with VALUE status ("codes").
+static void huffman_setchildstatus(struct fmtutil_huffman_tree *ht, NODE_REF_TYPE n,
+	u8 child_idx, u8 newstatus)
 {
-	if(ht->nodes[n].status==newstatus) return;
-	if(ht->nodes[n].status==NODESTATUS_VALUE) {
+	if(n>=ht->nodes_alloc) return;
+	if(child_idx>1) return;
+
+	if(ht->nodes[n].child_status[child_idx]==newstatus) return;
+	if(ht->nodes[n].child_status[child_idx]==CHILDSTATUS_VALUE) {
 		ht->num_codes--;
 	}
-	if(newstatus==NODESTATUS_VALUE) {
+	if(newstatus==CHILDSTATUS_VALUE) {
 		ht->num_codes++;
 	}
-	ht->nodes[n].status = newstatus;
+	ht->nodes[n].child_status[child_idx] = newstatus;
 }
 
+// The size of the longest current code.
+// This is mainly for debugging info -- it is not guaranteed to be correct if
+// the tree was constructed improperly.
 UI fmtutil_huffman_get_max_bits(struct fmtutil_huffman_tree *ht)
 {
 	return ht->max_bits;
 }
 
+// The number of codes (symbols) in the the tree.
+// This is mainly for debugging info -- it is not guaranteed to be correct if
+// the tree was constructed improperly.
 i64 fmtutil_huffman_get_num_codes(struct fmtutil_huffman_tree *ht)
 {
 	if(ht->num_codes>=0) return ht->num_codes;
@@ -109,54 +124,60 @@ int fmtutil_huffman_add_code(deark *c, struct fmtutil_huffman_tree *ht,
 	u64 code, UI code_nbits, i32 val)
 {
 	UI k;
-	NODE_REF_TYPE curr_noderef = 0;
+	NODE_REF_TYPE curr_noderef = 0; // Note that this may temporarily point to an unallocated node
 	int retval = 0;
 
 	if(code_nbits>MAX_TREE_DEPTH) goto done;
 
-	// Iterate through the bits, high bit first.
-	// For every bit, there will be one "TREE" node. Then at the end, there
-	// will be an additional ("VALUE") node.
-	for(k=0; k<code_nbits; k++) {
-		NODE_REF_TYPE next_noderef;
-		UI b;
-
-		if(curr_noderef>=ht->nodes_used) goto done;
-
-		// If the current node is not already a TREE node, make it one.
-		if(ht->nodes[curr_noderef].status != NODESTATUS_TREE) {
-			huffman_setnodestatus(ht, curr_noderef, NODESTATUS_TREE);
-			ht->nodes[curr_noderef].hnd.hntd.child[0] = 0;
-			ht->nodes[curr_noderef].hnd.hntd.child[1] = 0;
-		}
-
-		ht->nodes[curr_noderef].depth = (u8)k;
-
-		b = (code>>(code_nbits-1-k))&0x1;
-
-		// If the child node we'll go to doesn't exist yet, append it to the array
-		next_noderef = ht->nodes[curr_noderef].hnd.hntd.child[b];
-		if(next_noderef==0) {
-			if(!huffman_ensure_alloc(c, ht, ht->nodes_used+1)) goto done;
-			next_noderef = ht->nodes_used;
-			ht->nodes_used++;
-			ht->nodes[curr_noderef].hnd.hntd.child[b] = next_noderef;
-		}
-
-		if(next_noderef <= curr_noderef) goto done;
-
-		curr_noderef = next_noderef;
+	if(code_nbits<1) {
+		ht->value_of_null_code.value = val;
+		retval = 1;
+		goto done;
 	}
-
-	if(curr_noderef>=ht->nodes_used) goto done;
-
-	// Make the final node a VALUE node
-	huffman_setnodestatus(ht, curr_noderef, NODESTATUS_VALUE);
-	ht->nodes[curr_noderef].depth = (u8)code_nbits;
-	ht->nodes[curr_noderef].hnd.hnvd.value = val;
 	if(code_nbits > ht->max_bits) {
 		ht->max_bits = code_nbits;
 	}
+
+	// Iterate through the bits, high bit first.
+	for(k=0; k<code_nbits; k++) {
+		UI child_idx; // 0 or 1
+
+		// Make sure the current node exists
+		if(curr_noderef >= ht->nodes_alloc) {
+			if(!huffman_ensure_alloc(c, ht, curr_noderef+1)) goto done;
+		}
+		// Claim the current node, if necessary
+		if(curr_noderef >= ht->next_avail_node) {
+			ht->next_avail_node = curr_noderef+1;
+			ht->nodes[curr_noderef].depth = (u8)k;
+		}
+
+		child_idx = (code>>(code_nbits-1-k))&0x1;
+
+		if(k==code_nbits-1) {
+			// Reached the "leaf" node. Set the value for this child_idx.
+			huffman_setchildstatus(ht, curr_noderef, child_idx, CHILDSTATUS_VALUE);
+			ht->nodes[curr_noderef].child[child_idx].hnvd.value = val;
+		}
+		else {
+			// Not at the leaf node yet.
+			if(ht->nodes[curr_noderef].child_status[child_idx]==CHILDSTATUS_POINTER) {
+				// It's already a pointer.
+				curr_noderef = ht->nodes[curr_noderef].child[child_idx].hnpd.noderef;
+			}
+			else {
+				NODE_REF_TYPE next_noderef;
+
+				// It's not a pointer -- make it one.
+				if(ht->next_avail_node >= ht->max_nodes) goto done;
+				next_noderef = ht->next_avail_node;
+				huffman_setchildstatus(ht, curr_noderef, child_idx, CHILDSTATUS_POINTER);
+				ht->nodes[curr_noderef].child[child_idx].hnpd.noderef = next_noderef;
+				curr_noderef = next_noderef;
+			}
+		}
+	}
+
 	retval = 1;
 
 done:
@@ -171,25 +192,24 @@ done:
 // If return value is not 2, resets the cursor before returning.
 int fmtutil_huffman_decode_bit(struct fmtutil_huffman_tree *ht, u8 bitval, i32 *pval)
 {
+	UI child_idx;
 	int retval = 0;
 	NODE_REF_TYPE curr_noderef = ht->cursor.curr_noderef;
-	NODE_REF_TYPE next_noderef;
 
-	if(curr_noderef >= ht->nodes_used) goto done;
-	if(ht->nodes[curr_noderef].status != NODESTATUS_TREE) goto done;
+	if(curr_noderef >= ht->nodes_alloc) goto done;
+	if(curr_noderef >= ht->next_avail_node) goto done;
+	child_idx = bitval & 0x01;
 
-	next_noderef = ht->nodes[curr_noderef].hnd.hntd.child[bitval & 0x1];
-	if(next_noderef<1 || next_noderef<=curr_noderef || next_noderef>=ht->nodes_used) return 0;
-
-	curr_noderef = next_noderef;
-	if(ht->nodes[curr_noderef].status==NODESTATUS_VALUE) {
-		*pval = ht->nodes[curr_noderef].hnd.hnvd.value;
+	if(ht->nodes[curr_noderef].child_status[child_idx]==CHILDSTATUS_VALUE) {
+		*pval = ht->nodes[curr_noderef].child[child_idx].hnvd.value;
 		retval = 1;
 		goto done;
 	}
-
-	ht->cursor.curr_noderef = curr_noderef;
-	retval = 2;
+	else if(ht->nodes[curr_noderef].child_status[child_idx]==CHILDSTATUS_POINTER) {
+		ht->cursor.curr_noderef = ht->nodes[curr_noderef].child[child_idx].hnpd.noderef;
+		retval = 2;
+		goto done;
+	}
 
 done:
 	if(retval!=2) {
@@ -202,20 +222,38 @@ done:
 void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_tree *ht)
 {
 	NODE_REF_TYPE k;
+	de_ucstring *tmps = NULL;
 
 	de_dbg(c, "number of codes: %"I64_FMT, fmtutil_huffman_get_num_codes(ht));
 	de_dbg(c, "max code size: %u bits", fmtutil_huffman_get_max_bits(ht));
-	for(k=0; k<ht->nodes_used; k++) {
+	tmps = ucstring_create(c);
+	for(k=0; k<ht->next_avail_node && k<ht->nodes_alloc; k++) {
+		UI child_idx;
 		struct huffman_node *nd = &ht->nodes[k];
 
-		if(nd->status==NODESTATUS_TREE) {
-			de_dbg(c, "node[%u]: d=%u (%u, %u)", (UI)k, (UI)nd->depth,
-				(UI)nd->hnd.hntd.child[0], (UI)nd->hnd.hntd.child[1]);
+		ucstring_empty(tmps);
+		ucstring_printf(tmps, DE_ENCODING_LATIN1, "node[%u]: depth=%u (", (UI)k, (UI)nd->depth);
+
+		for(child_idx=0; child_idx<=1; child_idx++) {
+			if(child_idx==1) {
+				ucstring_append_sz(tmps, " ", DE_ENCODING_LATIN1);
+			}
+			if(nd->child_status[child_idx]==CHILDSTATUS_POINTER) {
+				ucstring_printf(tmps, DE_ENCODING_LATIN1, "next=%u",
+					(UI)nd->child[child_idx].hnpd.noderef);
+			}
+			else if(nd->child_status[child_idx]==CHILDSTATUS_VALUE) {
+				ucstring_printf(tmps, DE_ENCODING_LATIN1, "value=%d",
+					(int)nd->child[child_idx].hnvd.value);
+			}
+			else {
+				ucstring_append_sz(tmps, "unused", DE_ENCODING_LATIN1);
+			}
 		}
-		else if(nd->status==NODESTATUS_VALUE) {
-			de_dbg(c, "node[%u]: d=%u value=%u", (UI)k, (UI)nd->depth, (UI)nd->hnd.hnvd.value);
-		}
+		ucstring_printf(tmps, DE_ENCODING_LATIN1, ")");
+		de_dbg(c, "%s", ucstring_getpsz_d(tmps));
 	}
+	ucstring_destroy(tmps);
 }
 
 // initial_codes: If not 0, pre-allocate enough nodes for this many codes.
@@ -228,7 +266,7 @@ struct fmtutil_huffman_tree *fmtutil_huffman_create_tree(deark *c, i64 initial_c
 	ht = de_malloc(c, sizeof(struct fmtutil_huffman_tree));
 
 	if(max_codes>0) {
-		ht->max_nodes = max_codes*2;
+		ht->max_nodes = max_codes;
 	}
 	else {
 		ht->max_nodes = MAX_MAX_NODES;
@@ -238,7 +276,7 @@ struct fmtutil_huffman_tree *fmtutil_huffman_create_tree(deark *c, i64 initial_c
 	}
 
 	if(initial_codes>0) {
-		initial_nodes = initial_codes*2;
+		initial_nodes = initial_codes;
 	}
 	else {
 		initial_nodes = 1;
@@ -248,13 +286,9 @@ struct fmtutil_huffman_tree *fmtutil_huffman_create_tree(deark *c, i64 initial_c
 	}
 
 	huffman_ensure_alloc(c, ht, (NODE_REF_TYPE)initial_nodes);
+	ht->next_avail_node = 0;
 	ht->num_codes = 0;
 	ht->max_bits = 0;
-
-	// Start with a trivial tree (= "the zero-length code has value 0")
-	huffman_setnodestatus(ht, 0, NODESTATUS_VALUE);
-	ht->nodes[0].hnd.hnvd.value = 0;
-	ht->nodes_used = 1;
 
 	return ht;
 }
