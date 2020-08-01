@@ -148,6 +148,7 @@ void fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 
 void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
+void dfilter_huff_squeeze_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 void dfilter_hlp_lz77_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 
 struct de_dfilter_ctx *de_dfilter_create(deark *c,

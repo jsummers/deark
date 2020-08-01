@@ -174,6 +174,14 @@ static void decompressor_packed(deark *c, lctx *d, struct member_data *md,
 	fmtutil_decompress_rle90_ex(c, dcmpri, dcmpro, dres, 0);
 }
 
+static void decompressor_squeezed(deark *c, lctx *d, struct member_data *md,
+	struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
+{
+		de_dfilter_decompress_two_layer(c, dfilter_huff_squeeze_codec, NULL,
+		dfilter_rle90_codec, NULL, dcmpri, dcmpro, dres);
+}
+
 static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
@@ -200,7 +208,7 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 0x01, 0x83, "stored (old format)", decompressor_stored },
 	{ 0x02, 0x83, "stored", decompressor_stored },
 	{ 0x03, 0x83, "packed (RLE)", decompressor_packed },
-	{ 0x04, 0x83, "squeezed (RLE + Huffman)", NULL },
+	{ 0x04, 0x83, "squeezed (RLE + Huffman)", decompressor_squeezed },
 	{ 0x05, 0x83, "crunched5 (static LZW)", NULL },
 	{ 0x06, 0x83, "crunched6 (RLE + static LZW)", NULL },
 	{ 0x07, 0x83, "crunched7 (ARC 4.6)", NULL },
