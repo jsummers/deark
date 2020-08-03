@@ -287,6 +287,7 @@ struct squeeze_ctx {
 	struct de_stringreaderdata *fn;
 	UI checksum_reported;
 	UI checksum_calc;
+	struct de_timestamp timestamp;
 };
 
 static void squeeze_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
@@ -299,13 +300,45 @@ static void squeeze_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64
 	}
 }
 
+static void do_sqeeze_timestamp(deark *c, struct squeeze_ctx *sqctx, i64 pos1)
+{
+	UI cksum_calc = 0;
+	UI cksum_reported;
+	i64 pos = pos1;
+	i64 sig;
+	i64 dt_raw, tm_raw;
+	char timestamp_buf[64];
+
+	if(c->infile->len-pos1 < 8) return;
+	sig = de_getu16le_p(&pos);
+	if(sig != 0xff77) return;
+	dt_raw = de_getu16le_p(&pos);
+	tm_raw = de_getu16le_p(&pos);
+	cksum_reported = (UI)de_getu16le_p(&pos);
+	cksum_calc = ((UI)sig + (UI)dt_raw + (UI)tm_raw)&0xffff;
+	if(cksum_calc != cksum_reported) return; // Presumably a false positive signature
+
+	de_dbg(c, "timestamp at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	de_dos_datetime_to_timestamp(&sqctx->timestamp, dt_raw, tm_raw);
+
+	sqctx->timestamp.tzcode = DE_TZCODE_LOCAL;
+	de_timestamp_to_string(&sqctx->timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "timestamp: %s", timestamp_buf);
+
+	de_dbg(c, "timestamp checksum (calculated): 0x%04x", cksum_calc);
+	de_dbg(c, "timestamp checksum (reported): 0x%04x", cksum_reported);
+	de_dbg_indent(c, -1);
+}
+
 static void de_run_squeeze(deark *c, de_module_params *mparams)
 {
 	i64 pos = 0;
 	i64 n;
 	struct squeeze_ctx *sqctx = NULL;
 	de_finfo *fi = NULL;
-	dbuf *outf = NULL;
+	dbuf *outf_tmp = NULL;
+	dbuf *outf_final = NULL;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
@@ -337,14 +370,17 @@ static void de_run_squeeze(deark *c, de_module_params *mparams)
 
 	de_dbg(c, "squeeze-compressed data at %"I64_FMT, pos);
 
-	outf = dbuf_create_output_file(c, NULL, fi, 0);
+	// We have to decompress the file before we can find the timestamp. That's
+	// why we decompress to a membuf.
+	outf_tmp = dbuf_create_membuf(c, 0, 0);
+
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
 	dcmpri.pos = pos;
 	dcmpri.len = c->infile->len - pos;
-	dcmpro.f = outf;
+	dcmpro.f = outf_tmp;
 
-	dbuf_set_writelistener(outf, squeeze_writelistener_cb, (void*)sqctx);
+	dbuf_set_writelistener(outf_tmp, squeeze_writelistener_cb, (void*)sqctx);
 
 	de_dfilter_decompress_two_layer(c, dfilter_huff_squeeze_codec, NULL,
 		dfilter_rle90_codec, NULL, &dcmpri, &dcmpro, &dres);
@@ -352,7 +388,15 @@ static void de_run_squeeze(deark *c, de_module_params *mparams)
 	if(dres.bytes_consumed_valid) {
 		de_dbg(c, "compressed data size: %"I64_FMT", ends at %"I64_FMT, dres.bytes_consumed,
 			dcmpri.pos+dres.bytes_consumed);
+
+		do_sqeeze_timestamp(c, sqctx, dcmpri.pos+dres.bytes_consumed);
+		if(sqctx->timestamp.is_valid) {
+			fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = sqctx->timestamp;
+		}
 	}
+
+	outf_final = dbuf_create_output_file(c, NULL, fi, 0);
+	dbuf_copy(outf_tmp, 0, outf_tmp->len, outf_final);
 
 	if(dres.errcode) {
 		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
@@ -371,7 +415,8 @@ done:
 		de_destroy_stringreaderdata(c, sqctx->fn);
 		de_free(c, sqctx);
 	}
-	dbuf_close(outf);
+	dbuf_close(outf_final);
+	dbuf_close(outf_tmp);
 	de_finfo_destroy(c, fi);
 }
 
