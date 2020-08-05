@@ -649,7 +649,7 @@ Deark -- Information about supported formats
 * LBR (module="lbr")
   LRB is an uncompressed CP/M archive format.
   - These often contain files in compressed formats known as Squeeze, Crunch,
-  and CrLZH, but decompressing those formats is not supported.
+  and CrLZH. Deark doesn't necessarily support all of those formats.
 
 * LHA/LZH/PMA (module="lha")
   - Files can be parsed, but there is usually nothing that can be extracted
@@ -716,6 +716,9 @@ Deark -- Information about supported formats
 
 * Squash (module="squash")
   A variant of "compress", used on RISC OS.
+
+* Squeeze (module="squeeze")
+  An old compressed file format used mainly on CP/M.
 
 * StuffIt (.sit) (module="stuffit")
   - Limited support. Old format only.

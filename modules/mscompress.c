@@ -4,7 +4,6 @@
 
 // MS-DOS installation compression (compress.exe, expand.exe, MSLZ, etc.)
 
-#include <deark-config.h>
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_mscompress);
@@ -380,7 +379,7 @@ static void lzhuff_finalize_tree(struct lzhuff_context *lzhctx, struct lzhuff_tr
 			if(c->debug_level>=2) {
 				de_dbg2(c, "addcode 0x%x [%u bits] = %u", realcode, (UI)symlen, (UI)k);
 			}
-			ret = fmtutil_huffman_add_code(c, htr->fmtuht, (u64)realcode, (UI)symlen, (u32)k);
+			ret = fmtutil_huffman_add_code(c, htr->fmtuht, (u64)realcode, (UI)symlen, (i32)k);
 			if(!ret) goto done;
 
 			next_avail_code += 1U<<(decode_table_nbits-symlen);
@@ -405,15 +404,15 @@ static LZHUFF_VALUE_TYPE lzhuff_getnextcode(struct lzhuff_context *lzhctx,
 	fmtutil_huffman_reset_cursor(htr->fmtuht); // Should be unnecessary
 
 	while(1) {
-		u32 test_val = 0;
+		i32 val = 0;
 		UI n;
 		int ret;
 
 		n = lzh_getbits(lzhctx, 1);
 
-		ret = fmtutil_huffman_decode_bit(htr->fmtuht, (u8)n, &test_val);
+		ret = fmtutil_huffman_decode_bit(htr->fmtuht, (u8)n, &val);
 		if(ret==1) { // finished the code
-			return (LZHUFF_VALUE_TYPE)test_val;
+			return (LZHUFF_VALUE_TYPE)val;
 		}
 		else if(ret!=2) {
 			lzhctx->eof_flag = 1;
@@ -467,7 +466,7 @@ static void lzhctx_read_huffman_tree(struct lzhuff_context *lzhctx, UI idx)
 	if(c->debug_level>=2) {
 		de_dbg(c, "constructed huffman tree:");
 		de_dbg_indent(c, 1);
-		fmtutil_huffman_dump(c, htr->fmtuht, "node");
+		fmtutil_huffman_dump(c, htr->fmtuht);
 		de_dbg_indent(c, -1);
 	}
 
