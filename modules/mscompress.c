@@ -328,35 +328,31 @@ done:
 	;
 }
 
-static void lzhuff_finalize_tree(struct lzhuff_context *lzhctx, struct lzhuff_tree *htr)
+// Construct the "canonical huffman code" tree, based on the symbol lengths.
+static int lzhuff_finalize_tree(deark *c, struct lzhuff_tree *htr)
 {
-	deark *c = lzhctx->c;
-	UI next_avail_code = 0;
-	UI decode_table_numentries;
-	UI decode_table_nbits;
 	UI max_sym_len_used;
 	UI i;
-	int saved_indent_level;
 	LZHUFF_SYMLEN_TYPE symlen;
-	int ok = 0;
+	UI prev_code_bit_length = 0;
+	UI prev_code = 0; // valid if prev_code_bit_length>0
+	int retval = 0;
+	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg2(c, "constructing huffman tree:");
+	de_dbg_indent(c, 1);
+
+	// Find the maximum length
 	max_sym_len_used = 0;
 	for(i=0; i<htr->num_symbols; i++) {
 		if(htr->symlengths[i] > max_sym_len_used) {
 			max_sym_len_used = htr->symlengths[i];
 		}
 	}
-	if(max_sym_len_used<1 || max_sym_len_used>LZHUFF_MAX_CODELENGTH) {
+	if(max_sym_len_used>LZHUFF_MAX_CODELENGTH) {
 		goto done;
 	}
-
-	// TODO: Refactor this (there is no longer a "decode table")
-	decode_table_nbits = max_sym_len_used;
-	decode_table_numentries = 1U<<max_sym_len_used;
-
-	de_dbg(c, "constructing huffman tree:");
-	de_dbg_indent(c, 1);
 
 	// For each possible symbol length...
 	for(symlen=1; symlen<=max_sym_len_used; symlen++) {
@@ -365,36 +361,36 @@ static void lzhuff_finalize_tree(struct lzhuff_context *lzhctx, struct lzhuff_tr
 		// Find all the codes that use this symbol length, in order
 		for(k=0; k<htr->num_symbols; k++) {
 			int ret;
-			UI realcode;
+			UI thiscode;
 
 			if(htr->symlengths[k] != symlen) continue;
-
 			// Found a code of the length we're looking for.
-			if(next_avail_code >= decode_table_numentries) {
-				goto done;
+
+			if(prev_code_bit_length==0) { // this is the first code
+				thiscode = 0;
+			}
+			else {
+				thiscode = prev_code + 1;
+				if(symlen > prev_code_bit_length) {
+					thiscode <<= (symlen - prev_code_bit_length);
+				}
 			}
 
-			realcode = next_avail_code >> (max_sym_len_used-(UI)symlen);
+			prev_code_bit_length = symlen;
+			prev_code = thiscode;
 
 			if(c->debug_level>=2) {
-				de_dbg2(c, "addcode 0x%x [%u bits] = %u", realcode, (UI)symlen, (UI)k);
+				de_dbg2(c, "addcode 0x%x [%u bits] = %u", thiscode, (UI)symlen, (UI)k);
 			}
-			ret = fmtutil_huffman_add_code(c, htr->fmtuht, (u64)realcode, (UI)symlen, (i32)k);
+			ret = fmtutil_huffman_add_code(c, htr->fmtuht, (u64)thiscode, (UI)symlen, (i32)k);
 			if(!ret) goto done;
-
-			next_avail_code += 1U<<(decode_table_nbits-symlen);
 		}
 	}
-
-	de_dbg_indent(c, -1);
-	ok = 1;
+	retval = 1;
 
 done:
-	if(!ok) {
-		de_dfilter_set_errorf(c, lzhctx->dres, lzhctx->modname, "Failed to construct Huffman tree");
-		lzhuff_set_errorflag(lzhctx);
-	}
 	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
 }
 
 // On error, sets lzhctx->eof_flag
@@ -461,7 +457,11 @@ static void lzhctx_read_huffman_tree(struct lzhuff_context *lzhctx, UI idx)
 		de_dbg2(c, "length[%u] = %u", i, (UI)htr->symlengths[i]);
 	}
 
-	lzhuff_finalize_tree(lzhctx, htr);
+	if(!lzhuff_finalize_tree(c, htr)) {
+		de_dfilter_set_errorf(c, lzhctx->dres, lzhctx->modname, "Failed to construct Huffman tree");
+		lzhuff_set_errorflag(lzhctx);
+		goto done;
+	}
 
 	if(c->debug_level>=2) {
 		de_dbg(c, "constructed huffman tree:");
