@@ -313,6 +313,7 @@
     <ClCompile Include="..\..\src\fmtutil-advfile.c" />
     <ClCompile Include="..\..\src\fmtutil-cmpr.c" />
     <ClCompile Include="..\..\src\fmtutil-huffman.c" />
+    <ClCompile Include="..\..\src\fmtutil-lzh.c" />
     <ClCompile Include="..\..\src\fmtutil-lzw.c" />
     <ClCompile Include="..\..\src\fmtutil-miniz.c" />
     <ClCompile Include="..\..\src\fmtutil-zip.c" />

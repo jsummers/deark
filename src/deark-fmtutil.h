@@ -151,6 +151,15 @@ void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_param
 void dfilter_huff_squeeze_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 void dfilter_hlp_lz77_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 
+struct de_lzh_params {
+#define DE_LZH_FMT_LH5LIKE  1  // subfmt=='5' (etc.)
+	int fmt;
+	int subfmt;
+};
+void fmtutil_decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	struct de_lzh_params *lzhp);
+
 struct de_dfilter_ctx *de_dfilter_create(deark *c,
 	dfilter_codec_type codec_init_fn, void *codec_private_params,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);

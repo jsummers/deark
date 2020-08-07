@@ -632,6 +632,18 @@ static void decompress_uncompressed(deark *c, lctx *d, struct member_data *md,
 	fmtutil_decompress_uncompressed(c, dcmpri, dcmpro, dres, 0);
 }
 
+static void decompress_lh5(deark *c, lctx *d, struct member_data *md,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	struct de_lzh_params lzhparams;
+
+	de_zeromem(&lzhparams, sizeof(struct de_lzh_params));
+	lzhparams.fmt = DE_LZH_FMT_LH5LIKE;
+	lzhparams.subfmt = '5';
+	fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres, &lzhparams);
+}
+
 static void decompress_lz5(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
@@ -643,7 +655,7 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 0x00, CODE_lhd, "directory", NULL },
 	{ 0x00, CODE_lh0, "uncompressed", decompress_uncompressed },
 	{ 0x00, CODE_lh1, "LZ77, 4K, codes = dynamic Huffman", NULL },
-	{ 0x00, CODE_lh5, "LZ77, 8K, static Huffman", NULL },
+	{ 0x00, CODE_lh5, "LZ77, 8K, static Huffman", decompress_lh5 },
 	{ 0x00, CODE_lh6, "LZ77, 32K, static Huffman", NULL },
 	{ 0x00, CODE_lz4, "uncompressed (LArc)", decompress_uncompressed },
 	{ 0x00, CODE_lz5, "LZSS, 4K (LArc)", decompress_lz5 },
@@ -679,7 +691,8 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md,
 	}
 	else if(!cmi || !(cmi->decompressor)) {
 		if(!d->unsupp_warned) {
-			de_info(c, "Note: LHA files can be parsed, but most compression methods are not supported.");
+			de_info(c, "Note: LHA support is incomplete. Some common "
+				"compression methods are not supported.");
 			d->unsupp_warned = 1;
 		}
 		de_err(c, "%s: Unsupported compression method '%s'",

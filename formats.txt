@@ -652,8 +652,8 @@ Deark -- Information about supported formats
   and CrLZH. Deark doesn't necessarily support all of those formats.
 
 * LHA/LZH/PMA (module="lha")
-  - Files can be parsed, but there is usually nothing that can be extracted
-    from them.
+  - Not all the major compression methods are supported. Some are supported but
+    experimental.
 
 * MacBinary (module="macbinary")
   - You may have to use "-m macbinary".
