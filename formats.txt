@@ -719,6 +719,7 @@ Deark -- Information about supported formats
 
 * Squeeze (module="squeeze")
   An old compressed file format used mainly on CP/M.
+  - SQ2 variant is also supported (experimental).
 
 * StuffIt (.sit) (module="stuffit")
   - Limited support. Old format only.
