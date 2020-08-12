@@ -383,7 +383,7 @@ int de_winconsole_is_console(struct de_platform_data *plctx)
 
 void de_winconsole_set_UTF8_CP(struct de_platform_data *plctx)
 {
-	// I hate to do this, but it's the least bad fix I've found for some issues
+	// I hate to do this, but it's the least-bad fix I've found for some issues
 	// that have cropped up in the wake of Cygwin+Mintty using Windows 10's
 	// ConPTY features (as of Cygwin 3.1.0 - Dec. 2019).
 
@@ -391,7 +391,7 @@ void de_winconsole_set_UTF8_CP(struct de_platform_data *plctx)
 	// the output is *not* going directly to a console.
 
 	// Unfortunately, rude as it is not to do so, we can't restore the original
-	// code page settings when we're done. If we restore the code page, we have
+	// code page settings when we're done. If we restore the code page, we have to
 	// do it after all of the output has reached the console. But if our output
 	// is being piped through a pager, some of it likely won't reach the console
 	// until after our program ends.
