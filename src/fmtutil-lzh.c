@@ -463,7 +463,7 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 		}
 
 		if(code < 256) { // literal
-			de_lz77buffer_addbyte(cctx->ringbuf, (u8)code);
+			de_lz77buffer_add_literal_byte(cctx->ringbuf, (u8)code);
 		}
 		else { // repeat previous bytes
 			UI offset;
@@ -489,9 +489,8 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 			}
 			de_dbg3(c, "offset: %u", offset);
 
-			de_lz77buffer_copy_and_write(cctx->ringbuf,
-				(UI)(cctx->ringbuf->curpos-offset-1),
-				length, cctx->dcmpro->f);
+			de_lz77buffer_copy_from_hist(cctx->ringbuf,
+				(UI)(cctx->ringbuf->curpos-offset-1), length);
 		}
 
 		ncodes_remaining_this_block--;

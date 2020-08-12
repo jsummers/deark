@@ -430,46 +430,63 @@ void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_param
 
 struct szdd_ctx {
 	i64 nbytes_written;
+	int stop_flag;
 	struct de_dfilter_out_params *dcmpro;
-	UI wpos;
-	u8 window[4096];
+	struct de_lz77buffer *ringbuf;
 };
 
-static void szdd_emit_byte(deark *c, struct szdd_ctx *sctx, u8 b)
+static void szdd_write(struct szdd_ctx *sctx, const u8 *buf, i64 buf_len)
 {
-	dbuf_writebyte(sctx->dcmpro->f, b);
-	sctx->nbytes_written++;
-	sctx->window[sctx->wpos] = b;
-	sctx->wpos = (sctx->wpos+1) & 4095;
+	if(sctx->stop_flag) return;
+	if(sctx->dcmpro->len_known) {
+		if(sctx->nbytes_written >= sctx->dcmpro->expected_len) {
+			sctx->stop_flag = 1;
+			return;
+		}
+		if(sctx->nbytes_written + buf_len > sctx->dcmpro->expected_len) {
+			buf_len = sctx->dcmpro->expected_len - sctx->nbytes_written;
+			if(buf_len<0) buf_len = 0;
+		}
+	}
+
+	dbuf_write(sctx->dcmpro->f, buf, buf_len);
+	sctx->nbytes_written += buf_len;
 }
 
-static void szdd_init_window_default(struct szdd_ctx *sctx)
+static void szdd_lz77buf_writecb(struct de_lz77buffer *rb, const u8 *buf, i64 buf_len)
 {
-	sctx->wpos = 4096 - 16;
-	de_memset(sctx->window, 0x20, 4096);
+	struct szdd_ctx *sctx = (struct szdd_ctx*)rb->userdata;
+
+	szdd_write(sctx, buf, buf_len);
 }
 
-static void szdd_init_window_lz5(struct szdd_ctx *sctx)
+static void szdd_init_window_default(struct de_lz77buffer *ringbuf)
+{
+	de_lz77buffer_clear(ringbuf, 0x20);
+	ringbuf->curpos = 4096 - 16;
+}
+
+static void szdd_init_window_lz5(struct de_lz77buffer *ringbuf)
 {
 	size_t wpos;
 	int i;
 
-	de_zeromem(sctx->window, 4096);
+	de_zeromem(ringbuf->buf, 4096);
 	wpos = 13;
 	for(i=1; i<256; i++) {
-		de_memset(&sctx->window[wpos], i, 13);
+		de_memset(&ringbuf->buf[wpos], i, 13);
 		wpos += 13;
 	}
 	for(i=0; i<256; i++) {
-		sctx->window[wpos++] = i;
+		ringbuf->buf[wpos++] = i;
 	}
 	for(i=255; i>=0; i--) {
-		sctx->window[wpos++] = i;
+		ringbuf->buf[wpos++] = i;
 	}
 	wpos += 128;
-	de_memset(&sctx->window[wpos], 0x20, 110);
+	de_memset(&ringbuf->buf[wpos], 0x20, 110);
 	wpos += 110;
-	sctx->wpos = (UI)wpos;
+	ringbuf->curpos = (UI)wpos;
 }
 
 // Partially based on the libmspack's format documentation at
@@ -485,11 +502,15 @@ void fmtutil_decompress_szdd(deark *c, struct de_dfilter_in_params *dcmpri,
 
 	sctx = de_malloc(c, sizeof(struct szdd_ctx));
 	sctx->dcmpro = dcmpro;
+	sctx->ringbuf = de_lz77buffer_create(c, 4096);
+	sctx->ringbuf->write_cb = szdd_lz77buf_writecb;
+	sctx->ringbuf->userdata = (void*)sctx;
+
 	if(flags & 0x1) {
-		szdd_init_window_lz5(sctx);
+		szdd_init_window_lz5(sctx->ringbuf);
 	}
 	else {
-		szdd_init_window_default(sctx);
+		szdd_init_window_default(sctx->ringbuf);
 	}
 
 	while(1) {
@@ -505,8 +526,8 @@ void fmtutil_decompress_szdd(deark *c, struct de_dfilter_in_params *dcmpri,
 
 				if(pos+1 > endpos) goto unc_done;
 				b = dbuf_getbyte(dcmpri->f, pos++);
-				szdd_emit_byte(c, sctx, b);
-				if(dcmpro->len_known && sctx->nbytes_written>=dcmpro->expected_len) goto unc_done;
+				de_lz77buffer_add_literal_byte(sctx->ringbuf, b);
+				if(sctx->stop_flag) goto unc_done;
 			}
 			else { // match
 				UI x0, x1;
@@ -518,12 +539,8 @@ void fmtutil_decompress_szdd(deark *c, struct de_dfilter_in_params *dcmpri,
 				x1 = (UI)dbuf_getbyte_p(dcmpri->f, &pos);
 				matchpos = ((x1 & 0xf0) << 4) | x0;
 				matchlen = (x1 & 0x0f) + 3;
-
-				while(matchlen--) {
-					szdd_emit_byte(c, sctx, sctx->window[matchpos]);
-					if(dcmpro->len_known && sctx->nbytes_written>=dcmpro->expected_len) goto unc_done;
-					matchpos = (matchpos+1) & 4095;
-				}
+				de_lz77buffer_copy_from_hist(sctx->ringbuf, matchpos, matchlen);
+				if(sctx->stop_flag) goto unc_done;
 			}
 		}
 	}
@@ -531,7 +548,10 @@ void fmtutil_decompress_szdd(deark *c, struct de_dfilter_in_params *dcmpri,
 unc_done:
 	dres->bytes_consumed_valid = 1;
 	dres->bytes_consumed = pos - dcmpri->pos;
-	de_free(c, sctx);
+	if(sctx) {
+		de_lz77buffer_destroy(c, sctx->ringbuf);
+		de_free(c, sctx);
+	}
 }
 
 struct hlplz77ctx {
@@ -738,15 +758,15 @@ void de_lz77buffer_clear(struct de_lz77buffer *rb, UI val)
 	rb->curpos = 0;
 }
 
-void de_lz77buffer_addbyte(struct de_lz77buffer *rb, u8 b)
+void de_lz77buffer_add_literal_byte(struct de_lz77buffer *rb, u8 b)
 {
 	rb->write_cb(rb, &b, 1);
 	rb->buf[rb->curpos] = b;
 	rb->curpos = (rb->curpos+1) & rb->mask;
 }
 
-void de_lz77buffer_copy_and_write(struct de_lz77buffer *rb,
-	UI startpos, UI count, dbuf *outf)
+void de_lz77buffer_copy_from_hist(struct de_lz77buffer *rb,
+	UI startpos, UI count)
 {
 	UI frompos;
 	UI i;
@@ -754,7 +774,7 @@ void de_lz77buffer_copy_and_write(struct de_lz77buffer *rb,
 	frompos = startpos & rb->mask;
 	// TODO: This could be done more efficiently
 	for(i=0; i<count; i++) {
-		de_lz77buffer_addbyte(rb, rb->buf[frompos]);
+		de_lz77buffer_add_literal_byte(rb, rb->buf[frompos]);
 		frompos = (frompos+1) & rb->mask;
 	}
 }
