@@ -712,3 +712,49 @@ done:
 	de_dfilter_destroy(dfctx_codec2);
 	dbuf_close(outf_codec1);
 }
+
+ struct de_lz77buffer *de_lz77buffer_create(deark *c, UI bufsize)
+{
+	struct de_lz77buffer *rb;
+
+	rb = de_malloc(c, sizeof(struct de_lz77buffer));
+	rb->buf = de_malloc(c, (i64)bufsize);
+	rb->bufsize = bufsize;
+	rb->mask = bufsize - 1;
+	return rb;
+}
+
+void de_lz77buffer_destroy(deark *c, struct de_lz77buffer *rb)
+{
+	if(!rb) return;
+	de_free(c, rb->buf);
+	de_free(c, rb);
+}
+
+// Set all bytes to the same value, and reset the current position to 0.
+void de_lz77buffer_clear(struct de_lz77buffer *rb, UI val)
+{
+	de_memset(rb->buf, val, rb->bufsize);
+	rb->curpos = 0;
+}
+
+void de_lz77buffer_addbyte(struct de_lz77buffer *rb, u8 b)
+{
+	rb->write_cb(rb, &b, 1);
+	rb->buf[rb->curpos] = b;
+	rb->curpos = (rb->curpos+1) & rb->mask;
+}
+
+void de_lz77buffer_copy_and_write(struct de_lz77buffer *rb,
+	UI startpos, UI count, dbuf *outf)
+{
+	UI frompos;
+	UI i;
+
+	frompos = startpos & rb->mask;
+	// TODO: This could be done more efficiently
+	for(i=0; i<count; i++) {
+		de_lz77buffer_addbyte(rb, rb->buf[frompos]);
+		frompos = (frompos+1) & rb->mask;
+	}
+}

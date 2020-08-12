@@ -8,19 +8,6 @@
 #include "deark-private.h"
 #include "deark-fmtutil.h"
 
-struct de_lz77buffer;
-typedef void (*fmtutil_lz77buffer_cb_type)(struct de_lz77buffer *rb, const u8 *buf, i64 buf_len);
-
-struct de_lz77buffer {
-	void *userdata;
-	fmtutil_lz77buffer_cb_type write_cb;
-	UI curpos; // Must be kept valid at all times (0...bufsize-1)
-
-	UI mask;
-	UI bufsize; // Required to be a power of 2
-	u8 *buf;
-};
-
 struct lzh_tree_wrapper {
 	struct fmtutil_huffman_tree *ht;
 	UI null_val; // Used if ht==NULL
@@ -56,52 +43,6 @@ static void lzh_set_err_flag(struct lzh_ctx *cctx)
 {
 	lzh_set_eof_flag(cctx);
 	cctx->err_flag = 1;
-}
-
-static struct de_lz77buffer *de_lz77buffer_create(deark *c, UI bufsize)
-{
-	struct de_lz77buffer *rb;
-
-	rb = de_malloc(c, sizeof(struct de_lz77buffer));
-	rb->buf = de_malloc(c, (i64)bufsize);
-	rb->bufsize = bufsize;
-	rb->mask = bufsize - 1;
-	return rb;
-}
-
-static void de_lz77buffer_destroy(deark *c, struct de_lz77buffer *rb)
-{
-	if(!rb) return;
-	de_free(c, rb->buf);
-	de_free(c, rb);
-}
-
-// Set all bytes to the same value, and reset the current position to 0.
-static void de_lz77buffer_clear(struct de_lz77buffer *rb, UI val)
-{
-	de_memset(rb->buf, val, rb->bufsize);
-	rb->curpos = 0;
-}
-
-static void de_lz77buffer_addbyte(struct de_lz77buffer *rb, u8 b)
-{
-	rb->write_cb(rb, &b, 1);
-	rb->buf[rb->curpos] = b;
-	rb->curpos = (rb->curpos+1) & rb->mask;
-}
-
-static void de_lz77buffer_copy_and_write(struct de_lz77buffer *rb,
-	UI startpos, UI count, dbuf *outf)
-{
-	UI frompos;
-	UI i;
-
-	frompos = startpos & rb->mask;
-	// TODO: This could be done more efficiently
-	for(i=0; i<count; i++) {
-		de_lz77buffer_addbyte(rb, rb->buf[frompos]);
-		frompos = (frompos+1) & rb->mask;
-	}
 }
 
 static void lzh_add_byte_to_bitbuf(struct lzh_ctx *cctx, u8 n)

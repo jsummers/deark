@@ -513,3 +513,21 @@ int fmtutil_huffman_decode_bit(struct fmtutil_huffman_tree *ht, u8 bitval, i32 *
 UI fmtutil_huffman_get_max_bits(struct fmtutil_huffman_tree *ht);
 i64 fmtutil_huffman_get_num_codes(struct fmtutil_huffman_tree *ht);
 void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_tree *ht);
+
+struct de_lz77buffer;
+typedef void (*fmtutil_lz77buffer_cb_type)(struct de_lz77buffer *rb, const u8 *buf, i64 buf_len);
+
+struct de_lz77buffer {
+	void *userdata;
+	fmtutil_lz77buffer_cb_type write_cb;
+	UI curpos; // Must be kept valid at all times (0...bufsize-1)
+	UI mask;
+	UI bufsize; // Required to be a power of 2
+	u8 *buf;
+};
+ struct de_lz77buffer *de_lz77buffer_create(deark *c, UI bufsize);
+ void de_lz77buffer_destroy(deark *c, struct de_lz77buffer *rb);
+ void de_lz77buffer_clear(struct de_lz77buffer *rb, UI val);
+ void de_lz77buffer_addbyte(struct de_lz77buffer *rb, u8 b);
+ void de_lz77buffer_copy_and_write(struct de_lz77buffer *rb,
+	UI startpos, UI count, dbuf *outf);
