@@ -206,6 +206,7 @@ struct mslzh_context {
 	int error_flag; // Bad data in the LZ77 part should not set this flag. Set eof_flag instead.
 	struct de_dfilter_results *dres;
 	const char *modname;
+	struct de_lz77buffer *ringbuf;
 #define MSLZH_TREE_IDX_MATCHLEN   0
 #define MSLZH_TREE_IDX_MATCHLEN2  1
 #define MSLZH_TREE_IDX_LITLEN     2
@@ -213,8 +214,6 @@ struct mslzh_context {
 #define MSLZH_TREE_IDX_LITERAL    4
 #define MSLZH_NUM_TREES   5
 	struct mslzh_tree htree[MSLZH_NUM_TREES];
-	UI wpos;
-	u8 window[4096];
 };
 
 static void mslzh_set_errorflag(struct mslzh_context *lzhctx)
@@ -486,13 +485,16 @@ static int mslzh_have_enough_output(struct mslzh_context *lzhctx)
 	return 0;
 }
 
-static void mslzh_emit_byte(struct mslzh_context *lzhctx, u8 b)
+static void mslzh_lz77buf_writecb(struct de_lz77buffer *rb, const u8 *buf, i64 buf_len)
 {
-	if(mslzh_have_enough_output(lzhctx)) return;
-	lzhctx->window[lzhctx->wpos] = b;
-	lzhctx->wpos = (lzhctx->wpos + 1) & 4095;
-	dbuf_writebyte(lzhctx->dcmpro->f, b);
-	lzhctx->nbytes_written++;
+	i64 k;
+	struct mslzh_context *lzhctx = (struct mslzh_context*)rb->userdata;
+
+	for(k=0; k<buf_len; k++) {
+		if(mslzh_have_enough_output(lzhctx)) return;
+		dbuf_writebyte(lzhctx->dcmpro->f, buf[k]);
+		lzhctx->nbytes_written++;
+	}
 }
 
 static void mslzh_decompress_main(struct mslzh_context *lzhctx)
@@ -501,8 +503,6 @@ static void mslzh_decompress_main(struct mslzh_context *lzhctx)
 	struct mslzh_tree *curr_matchlen_table;
 
 	de_dbg(lzhctx->c, "LZ data at ~%"I64_FMT, lzhctx->inf_curpos);
-	lzhctx->wpos = 0;
-	de_memset(lzhctx->window, 0x20, 4096);
 
 	curr_matchlen_table = &lzhctx->htree[MSLZH_TREE_IDX_MATCHLEN];
 
@@ -524,14 +524,12 @@ static void mslzh_decompress_main(struct mslzh_context *lzhctx)
 			y = mslzh_getbits(lzhctx, 6);
 			if(lzhctx->eof_flag) goto unc_done;
 
-			matchpos = (lzhctx->wpos - (x<<6 | y)) & 4095;
+			// This may underflow -- that's ok.
+			matchpos = lzhctx->ringbuf->curpos - (x<<6 | y);
 
 			curr_matchlen_table = &lzhctx->htree[MSLZH_TREE_IDX_MATCHLEN];
 
-			while(matchlen--) {
-				mslzh_emit_byte(lzhctx, lzhctx->window[matchpos]);
-				matchpos = (matchpos+1) & 4095;
-			}
+			de_lz77buffer_copy_from_hist(lzhctx->ringbuf, matchpos, matchlen);
 		}
 		else { // run of literals
 			UI x;
@@ -548,7 +546,7 @@ static void mslzh_decompress_main(struct mslzh_context *lzhctx)
 			for(i=0; i<count; i++) {
 				v = mslzh_getnextcode(lzhctx, &lzhctx->htree[MSLZH_TREE_IDX_LITERAL]);
 				if(lzhctx->eof_flag) goto unc_done;
-				mslzh_emit_byte(lzhctx, (u8)v);
+				de_lz77buffer_add_literal_byte(lzhctx->ringbuf, (u8)v);
 			}
 		}
 	}
@@ -607,6 +605,11 @@ static void do_decompress_LZHUFF(deark *c, struct de_dfilter_in_params *dcmpri,
 		}
 	}
 
+	lzhctx->ringbuf = de_lz77buffer_create(c, 4096);
+	lzhctx->ringbuf->write_cb = mslzh_lz77buf_writecb;
+	lzhctx->ringbuf->userdata = (void*)lzhctx;
+	de_lz77buffer_clear(lzhctx->ringbuf, 0x20);
+
 	mslzh_decompress_main(lzhctx);
 
 done:
@@ -616,6 +619,8 @@ done:
 		if(lzhctx->error_flag) {
 			de_dfilter_set_generic_error(c, dres, lzhctx->modname);
 		}
+
+		de_lz77buffer_destroy(c, lzhctx->ringbuf);
 
 		for(tr=0; tr<MSLZH_NUM_TREES; tr++) {
 			fmtutil_huffman_destroy_tree(c, lzhctx->htree[tr].fmtuht);
