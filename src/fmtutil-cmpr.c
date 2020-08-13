@@ -435,29 +435,20 @@ struct szdd_ctx {
 	struct de_lz77buffer *ringbuf;
 };
 
-static void szdd_write(struct szdd_ctx *sctx, const u8 *buf, i64 buf_len)
+static void szdd_lz77buf_writebytecb(struct de_lz77buffer *rb, const u8 n)
 {
+	struct szdd_ctx *sctx = (struct szdd_ctx*)rb->userdata;
+
 	if(sctx->stop_flag) return;
 	if(sctx->dcmpro->len_known) {
 		if(sctx->nbytes_written >= sctx->dcmpro->expected_len) {
 			sctx->stop_flag = 1;
 			return;
 		}
-		if(sctx->nbytes_written + buf_len > sctx->dcmpro->expected_len) {
-			buf_len = sctx->dcmpro->expected_len - sctx->nbytes_written;
-			if(buf_len<0) buf_len = 0;
-		}
 	}
 
-	dbuf_write(sctx->dcmpro->f, buf, buf_len);
-	sctx->nbytes_written += buf_len;
-}
-
-static void szdd_lz77buf_writecb(struct de_lz77buffer *rb, const u8 *buf, i64 buf_len)
-{
-	struct szdd_ctx *sctx = (struct szdd_ctx*)rb->userdata;
-
-	szdd_write(sctx, buf, buf_len);
+	dbuf_writebyte(sctx->dcmpro->f, n);
+	sctx->nbytes_written++;
 }
 
 static void szdd_init_window_default(struct de_lz77buffer *ringbuf)
@@ -503,7 +494,7 @@ void fmtutil_decompress_szdd(deark *c, struct de_dfilter_in_params *dcmpri,
 	sctx = de_malloc(c, sizeof(struct szdd_ctx));
 	sctx->dcmpro = dcmpro;
 	sctx->ringbuf = de_lz77buffer_create(c, 4096);
-	sctx->ringbuf->write_cb = szdd_lz77buf_writecb;
+	sctx->ringbuf->writebyte_cb = szdd_lz77buf_writebytecb;
 	sctx->ringbuf->userdata = (void*)sctx;
 
 	if(flags & 0x1) {
@@ -787,7 +778,7 @@ void de_lz77buffer_clear(struct de_lz77buffer *rb, UI val)
 
 void de_lz77buffer_add_literal_byte(struct de_lz77buffer *rb, u8 b)
 {
-	rb->write_cb(rb, &b, 1);
+	rb->writebyte_cb(rb, b);
 	rb->buf[rb->curpos] = b;
 	rb->curpos = (rb->curpos+1) & rb->mask;
 }
@@ -799,7 +790,6 @@ void de_lz77buffer_copy_from_hist(struct de_lz77buffer *rb,
 	UI i;
 
 	frompos = startpos & rb->mask;
-	// TODO: This could be done more efficiently
 	for(i=0; i<count; i++) {
 		de_lz77buffer_add_literal_byte(rb, rb->buf[frompos]);
 		frompos = (frompos+1) & rb->mask;

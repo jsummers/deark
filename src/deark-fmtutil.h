@@ -529,11 +529,11 @@ int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *h
 	const UI *lengths, UI num_lengths);
 
 struct de_lz77buffer;
-typedef void (*fmtutil_lz77buffer_cb_type)(struct de_lz77buffer *rb, const u8 *buf, i64 buf_len);
+typedef void (*fmtutil_lz77buffer_cb_type)(struct de_lz77buffer *rb, u8 n);
 
 struct de_lz77buffer {
 	void *userdata;
-	fmtutil_lz77buffer_cb_type write_cb;
+	fmtutil_lz77buffer_cb_type writebyte_cb;
 	UI curpos; // Must be kept valid at all times (0...bufsize-1)
 	UI mask;
 	UI bufsize; // Required to be a power of 2

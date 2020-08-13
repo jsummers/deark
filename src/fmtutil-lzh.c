@@ -22,6 +22,7 @@ struct lzh_ctx {
 
 	i64 curpos;
 	i64 endpos;
+	i64 nbytes_written;
 	int eof_flag; // Always set if err_flag is set.
 	int err_flag;
 
@@ -436,12 +437,25 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void lha5like_lz77buf_writecb(struct de_lz77buffer *rb, const u8 *buf, i64 buf_len)
+static int lzh_have_enough_output(struct lzh_ctx *cctx)
+{
+	if(cctx->dcmpro->len_known) {
+		if(cctx->nbytes_written >= cctx->dcmpro->expected_len) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static void lha5like_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 {
 	struct lzh_ctx *cctx = (struct lzh_ctx*)rb->userdata;
 
-	// TODO: Don't write more bytes than expected
-	dbuf_write(cctx->dcmpro->f, buf, buf_len);
+	if(lzh_have_enough_output(cctx)) {
+		return;
+	}
+	dbuf_writebyte(cctx->dcmpro->f, n);
+	cctx->nbytes_written++;
 }
 
 static void decompress_lha_lh5like(struct lzh_ctx *cctx, struct de_lzh_params *lzhp)
@@ -462,11 +476,13 @@ static void decompress_lha_lh5like(struct lzh_ctx *cctx, struct de_lzh_params *l
 
 	cctx->ringbuf = de_lz77buffer_create(cctx->c, rb_size);
 	cctx->ringbuf->userdata = (void*)cctx;
-	cctx->ringbuf->write_cb = lha5like_lz77buf_writecb;
+	cctx->ringbuf->writebyte_cb = lha5like_lz77buf_writebytecb;
 	de_lz77buffer_clear(cctx->ringbuf, 0x20);
 
 	while(1) {
 		if(cctx->eof_flag) break;
+		if(lzh_have_enough_output(cctx)) break;
+
 		lh5x_do_lzh_block(cctx, blk_idx);
 		blk_idx++;
 	}

@@ -422,16 +422,13 @@ static int mslzh_have_enough_output(struct mslzh_context *lzhctx)
 	return 0;
 }
 
-static void mslzh_lz77buf_writecb(struct de_lz77buffer *rb, const u8 *buf, i64 buf_len)
+static void mslzh_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 {
-	i64 k;
 	struct mslzh_context *lzhctx = (struct mslzh_context*)rb->userdata;
 
-	for(k=0; k<buf_len; k++) {
-		if(mslzh_have_enough_output(lzhctx)) return;
-		dbuf_writebyte(lzhctx->dcmpro->f, buf[k]);
-		lzhctx->nbytes_written++;
-	}
+	if(mslzh_have_enough_output(lzhctx)) return;
+	dbuf_writebyte(lzhctx->dcmpro->f, n);
+	lzhctx->nbytes_written++;
 }
 
 static void mslzh_decompress_main(struct mslzh_context *lzhctx)
@@ -543,7 +540,7 @@ static void do_decompress_LZHUFF(deark *c, struct de_dfilter_in_params *dcmpri,
 	}
 
 	lzhctx->ringbuf = de_lz77buffer_create(c, 4096);
-	lzhctx->ringbuf->write_cb = mslzh_lz77buf_writecb;
+	lzhctx->ringbuf->writebyte_cb = mslzh_lz77buf_writebytecb;
 	lzhctx->ringbuf->userdata = (void*)lzhctx;
 	de_lz77buffer_clear(lzhctx->ringbuf, 0x20);
 
