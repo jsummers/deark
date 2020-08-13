@@ -29,6 +29,9 @@ struct lzh_ctx {
 	UI nbits_in_bitbuf;
 
 	struct de_lz77buffer *ringbuf;
+
+	UI lh5x_offset_nbits;
+	UI lh5x_offsets_tree_max_codes;
 	struct lzh_tree_wrapper codelengths_tree;
 	struct lzh_tree_wrapper codes_tree;
 	struct lzh_tree_wrapper offsets_tree;
@@ -357,9 +360,6 @@ done:
 	return retval;
 }
 
-#define LH5X_OFFSET_TREE_NBITS 4
-#define LH5X_OFFSET_TREE_MAX_CODES 14
-
 static int lh5x_read_offsets_tree(struct lzh_ctx *cctx)
 {
 	deark *c = cctx->c;
@@ -373,14 +373,14 @@ static int lh5x_read_offsets_tree(struct lzh_ctx *cctx)
 	de_dbg(c, "offsets tree");
 	de_dbg_indent(c, 1);
 
-	ncodes = (UI)lzh_getbits(cctx, LH5X_OFFSET_TREE_NBITS);
+	ncodes = (UI)lzh_getbits(cctx, cctx->lh5x_offset_nbits);
 	de_dbg(c, "num codes: %u", ncodes);
 
-	if(ncodes>LH5X_OFFSET_TREE_MAX_CODES) { // TODO: Is this an error?
-		ncodes = LH5X_OFFSET_TREE_MAX_CODES;
+	if(ncodes>cctx->lh5x_offsets_tree_max_codes) { // TODO: Is this an error?
+		ncodes = cctx->lh5x_offsets_tree_max_codes;
 	}
 	if(ncodes==0) {
-		cctx->offsets_tree.null_val = (UI)lzh_getbits(cctx, LH5X_OFFSET_TREE_NBITS);
+		cctx->offsets_tree.null_val = (UI)lzh_getbits(cctx, cctx->lh5x_offset_nbits);
 		de_dbg2(c, "val0: %u", cctx->offsets_tree.null_val);
 		retval = 1;
 		goto done;
@@ -508,11 +508,23 @@ static void lha5like_lz77buf_writecb(struct de_lz77buffer *rb, const u8 *buf, i6
 	dbuf_write(cctx->dcmpro->f, buf, buf_len);
 }
 
-static void decompress_lha_lh5like(struct lzh_ctx *cctx)
+static void decompress_lha_lh5like(struct lzh_ctx *cctx, struct de_lzh_params *lzhp)
 {
 	int blk_idx = 0;
+	UI rb_size;
 
-	cctx->ringbuf = de_lz77buffer_create(cctx->c, 8192);
+	if(lzhp->subfmt=='6') {
+		rb_size = 32768;
+		cctx->lh5x_offset_nbits = 5;
+		cctx->lh5x_offsets_tree_max_codes = 16;
+	}
+	else { // assume lh5
+		rb_size = 8192;
+		cctx->lh5x_offset_nbits = 4;
+		cctx->lh5x_offsets_tree_max_codes = 14;
+	}
+
+	cctx->ringbuf = de_lz77buffer_create(cctx->c, rb_size);
 	cctx->ringbuf->userdata = (void*)cctx;
 	cctx->ringbuf->write_cb = lha5like_lz77buf_writecb;
 	de_lz77buffer_clear(cctx->ringbuf, 0x20);
@@ -540,8 +552,9 @@ void fmtutil_decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 	cctx->curpos = dcmpri->pos;
 	cctx->endpos = dcmpri->pos + dcmpri->len;
 
-	if(lzhp->fmt==DE_LZH_FMT_LH5LIKE && lzhp->subfmt=='5') {
-		decompress_lha_lh5like(cctx);
+	if(lzhp->fmt==DE_LZH_FMT_LH5LIKE && (lzhp->subfmt=='5' || lzhp->subfmt=='6'))
+	{
+		decompress_lha_lh5like(cctx, lzhp);
 	}
 	else {
 		de_dfilter_set_errorf(c, dres, cctx->modname,
