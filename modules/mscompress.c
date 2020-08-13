@@ -183,7 +183,9 @@ header_extensions_done:
 // can be (mis?)used to make larger lengths possible.
 #define MSLZH_MAX_CODELENGTH  20
 
-#define MSLZH_SYMLEN_TYPE  u8  // Assumed to be unsigned
+// Assumed to be unsigned. Must be UI for make_canonical_tree().
+#define MSLZH_SYMLEN_TYPE  UI
+
 #define MSLZH_VALUE_TYPE   u8  // Type of a decoded symbol
 
 struct mslzh_tree {
@@ -327,71 +329,6 @@ done:
 	;
 }
 
-// Construct the "canonical huffman code" tree, based on the symbol lengths.
-static int mslzh_finalize_tree(deark *c, struct mslzh_tree *htr)
-{
-	UI max_sym_len_used;
-	UI i;
-	MSLZH_SYMLEN_TYPE symlen;
-	UI prev_code_bit_length = 0;
-	UI prev_code = 0; // valid if prev_code_bit_length>0
-	int retval = 0;
-	int saved_indent_level;
-
-	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg2(c, "constructing huffman tree:");
-	de_dbg_indent(c, 1);
-
-	// Find the maximum length
-	max_sym_len_used = 0;
-	for(i=0; i<htr->num_symbols; i++) {
-		if(htr->symlengths[i] > max_sym_len_used) {
-			max_sym_len_used = htr->symlengths[i];
-		}
-	}
-	if(max_sym_len_used>MSLZH_MAX_CODELENGTH) {
-		goto done;
-	}
-
-	// For each possible symbol length...
-	for(symlen=1; symlen<=max_sym_len_used; symlen++) {
-		UI k;
-
-		// Find all the codes that use this symbol length, in order
-		for(k=0; k<htr->num_symbols; k++) {
-			int ret;
-			UI thiscode;
-
-			if(htr->symlengths[k] != symlen) continue;
-			// Found a code of the length we're looking for.
-
-			if(prev_code_bit_length==0) { // this is the first code
-				thiscode = 0;
-			}
-			else {
-				thiscode = prev_code + 1;
-				if(symlen > prev_code_bit_length) {
-					thiscode <<= (symlen - prev_code_bit_length);
-				}
-			}
-
-			prev_code_bit_length = symlen;
-			prev_code = thiscode;
-
-			if(c->debug_level>=2) {
-				de_dbg2(c, "addcode 0x%x [%u bits] = %u", thiscode, (UI)symlen, (UI)k);
-			}
-			ret = fmtutil_huffman_add_code(c, htr->fmtuht, (u64)thiscode, (UI)symlen, (i32)k);
-			if(!ret) goto done;
-		}
-	}
-	retval = 1;
-
-done:
-	de_dbg_indent_restore(c, saved_indent_level);
-	return retval;
-}
-
 // On error, sets lzhctx->eof_flag
 static MSLZH_VALUE_TYPE mslzh_getnextcode(struct mslzh_context *lzhctx,
 	struct mslzh_tree *htr)
@@ -456,7 +393,7 @@ static void mslzh_read_huffman_tree(struct mslzh_context *lzhctx, UI idx)
 		de_dbg2(c, "length[%u] = %u", i, (UI)htr->symlengths[i]);
 	}
 
-	if(!mslzh_finalize_tree(c, htr)) {
+	if(!fmtutil_huffman_make_canonical_tree(c, htr->fmtuht, htr->symlengths, htr->num_symbols)) {
 		de_dfilter_set_errorf(c, lzhctx->dres, lzhctx->modname, "Failed to construct Huffman tree");
 		mslzh_set_errorflag(lzhctx);
 		goto done;

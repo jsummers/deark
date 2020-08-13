@@ -104,79 +104,6 @@ static UI lh5x_read_a_code_length(struct lzh_ctx *cctx)
 	return n;
 }
 
-// Construct the "canonical" Huffman tree, given an array of code lengths.
-// Caller creates ht.
-static int construct_tree_from_lengths(struct lzh_ctx *cctx,
-	struct fmtutil_huffman_tree *ht, const UI *lengths, UI num_lengths)
-{
-	deark *c = cctx->c;
-	UI max_sym_len_used;
-	UI i;
-	UI symlen;
-	UI prev_code_bit_length = 0;
-	u64 prev_code = 0; // valid if prev_code_bit_length>0
-	int retval = 0;
-	int saved_indent_level;
-
-	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg2(c, "constructing huffman tree:");
-	de_dbg_indent(c, 1);
-
-	// Find the maximum length
-	max_sym_len_used = 0;
-	for(i=0; i<num_lengths; i++) {
-		if(lengths[i] > max_sym_len_used) {
-			max_sym_len_used = lengths[i];
-		}
-	}
-	if(max_sym_len_used>48) {
-		goto done;
-	}
-
-	// For each possible symbol length...
-	for(symlen=1; symlen<=max_sym_len_used; symlen++) {
-		UI k;
-
-		// Find all the codes that use this symbol length, in order
-		for(k=0; k<num_lengths; k++) {
-			int ret;
-			u64 thiscode;
-
-			if(lengths[k] != symlen) continue;
-			// Found a code of the length we're looking for.
-
-			if(prev_code_bit_length==0) { // this is the first code
-				thiscode = 0;
-			}
-			else {
-				thiscode = prev_code + 1;
-				if(symlen > prev_code_bit_length) {
-					thiscode <<= (symlen - prev_code_bit_length);
-				}
-			}
-
-			prev_code_bit_length = symlen;
-			prev_code = thiscode;
-
-			if(c->debug_level>=2) {
-				de_dbg2(c, "addcode 0x%"U64_FMTx" [%u bits] = %u", thiscode, symlen, k);
-			}
-			ret = fmtutil_huffman_add_code(c, ht, thiscode, symlen, (i32)k);
-			if(!ret) {
-				goto done;
-			}
-		}
-	}
-	retval = 1;
-
-done:
-	if(!retval) {
-		lzh_set_err_flag(cctx);
-	}
-	de_dbg_indent_restore(c, saved_indent_level);
-	return retval;
-}
-
 static UI read_next_code_using_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *tree)
 {
 	i32 val = 0;
@@ -277,10 +204,13 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx)
 
 	cctx->codelengths_tree.ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
 
-	if(!construct_tree_from_lengths(cctx, cctx->codelengths_tree.ht, lengths, ncodes)) goto done;
+	if(!fmtutil_huffman_make_canonical_tree(c, cctx->codelengths_tree.ht, lengths, ncodes)) goto done;
 
 	retval = 1;
 done:
+	if(!retval) {
+		lzh_set_err_flag(cctx);
+	}
 	de_free(cctx->c, lengths);
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
@@ -351,10 +281,13 @@ static int lh5x_read_codes_tree(struct lzh_ctx *cctx)
 
 	cctx->codes_tree.ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
 
-	if(!construct_tree_from_lengths(cctx, cctx->codes_tree.ht, lengths, ncodes)) goto done;
+	if(!fmtutil_huffman_make_canonical_tree(c, cctx->codes_tree.ht, lengths, ncodes)) goto done;
 
 	retval = 1;
 done:
+	if(!retval) {
+		lzh_set_err_flag(cctx);
+	}
 	de_free(c, lengths);
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
@@ -398,10 +331,13 @@ static int lh5x_read_offsets_tree(struct lzh_ctx *cctx)
 
 	cctx->offsets_tree.ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
 
-	if(!construct_tree_from_lengths(cctx, cctx->offsets_tree.ht, lengths, ncodes)) goto done;
+	if(!fmtutil_huffman_make_canonical_tree(c, cctx->offsets_tree.ht, lengths, ncodes)) goto done;
 
 	retval = 1;
 done:
+	if(!retval) {
+		lzh_set_err_flag(cctx);
+	}
 	de_free(c, lengths);
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
