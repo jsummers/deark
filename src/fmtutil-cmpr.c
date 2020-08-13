@@ -684,8 +684,8 @@ static void dres_transfer_error(deark *c, struct de_dfilter_results *src,
 // Decompress an arbitrary two-layer compressed format.
 // codec1 is the first one that will be used during decompression (i.e. the second
 // method used when during *compression*).
- void de_dfilter_decompress_two_layer(deark *c,
-	dfilter_codec_type codec1, void *codec1_private_params,
+static void de_dfilter_decompress_two_layer_internal(deark *c,
+	de_codectype1_type codec1_type1, dfilter_codec_type codec1_pushable, void *codec1_private_params,
 	dfilter_codec_type codec2, void *codec2_private_params,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
@@ -713,8 +713,13 @@ static void dres_transfer_error(deark *c, struct de_dfilter_results *src,
 	u.dfctx_codec2 = dfctx_codec2;
 
 	// The first codec in the chain does not need the advanced (de_dfilter_create) API.
-	de_dfilter_decompress_oneshot(c, codec1, codec1_private_params,
-		dcmpri, &dcmpro_codec1, dres);
+	if(codec1_type1) {
+		codec1_type1(c, dcmpri, &dcmpro_codec1, dres, codec1_private_params);
+	}
+	else {
+		de_dfilter_decompress_oneshot(c, codec1_pushable, codec1_private_params,
+			dcmpri, &dcmpro_codec1, dres);
+	}
 	de_dfilter_finish(dfctx_codec2);
 
 	if(dres->errcode) goto done;
@@ -731,6 +736,28 @@ static void dres_transfer_error(deark *c, struct de_dfilter_results *src,
 done:
 	de_dfilter_destroy(dfctx_codec2);
 	dbuf_close(outf_codec1);
+}
+
+void de_dfilter_decompress_two_layer(deark *c,
+	dfilter_codec_type codec1, void *codec1_private_params,
+	dfilter_codec_type codec2, void *codec2_private_params,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	de_dfilter_decompress_two_layer_internal(c,
+		NULL, codec1, codec1_private_params,
+		codec2, codec2_private_params, dcmpri, dcmpro, dres);
+}
+
+void de_dfilter_decompress_two_layer2(deark *c,
+	de_codectype1_type codec1, void *codec1_private_params,
+	dfilter_codec_type codec2, void *codec2_private_params,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	de_dfilter_decompress_two_layer_internal(c,
+		codec1, NULL, codec1_private_params,
+		codec2, codec2_private_params, dcmpri, dcmpro, dres);
 }
 
  struct de_lz77buffer *de_lz77buffer_create(deark *c, UI bufsize)

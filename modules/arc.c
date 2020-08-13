@@ -180,7 +180,7 @@ static void decompressor_squeezed(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-		de_dfilter_decompress_two_layer(c, dfilter_huff_squeeze_codec, NULL,
+	de_dfilter_decompress_two_layer2(c, fmtutil_huff_squeeze_codectype1, NULL,
 		dfilter_rle90_codec, NULL, dcmpri, dcmpro, dres);
 }
 

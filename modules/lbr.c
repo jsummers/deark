@@ -472,7 +472,7 @@ static void de_run_squeeze(deark *c, de_module_params *mparams)
 
 	dbuf_set_writelistener(outf_tmp, squeeze_writelistener_cb, (void*)sqctx);
 
-	de_dfilter_decompress_two_layer(c, dfilter_huff_squeeze_codec, NULL,
+	de_dfilter_decompress_two_layer2(c, fmtutil_huff_squeeze_codectype1, NULL,
 		dfilter_rle90_codec, NULL, &dcmpri, &dcmpro, &dres);
 
 	if(dres.bytes_consumed_valid) {

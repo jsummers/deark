@@ -79,6 +79,11 @@ void fmtutil_handle_photoshop_rsrc(deark *c, dbuf *f, i64 pos, i64 len,
 void fmtutil_handle_plist(deark *c, dbuf *f, i64 pos, i64 len,
 	de_finfo *fi, unsigned int flags);
 
+// Definition of a "simple" (non-pushable) codec
+typedef void (*de_codectype1_type)(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params);
+
 void fmtutil_decompress_uncompressed(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, UI flags);
 
@@ -106,6 +111,9 @@ void fmtutil_decompress_szdd(deark *c, struct de_dfilter_in_params *dcmpri,
 	unsigned int flags);
 void fmtutil_decompress_hlp_lz77(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
+void fmtutil_huff_squeeze_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params);
 
 struct de_dfilter_ctx;
 typedef void (*dfilter_codec_type)(struct de_dfilter_ctx *dfctx, void *codec_private_params);
@@ -148,7 +156,6 @@ void fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 
 void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
-void dfilter_huff_squeeze_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 void dfilter_hlp_lz77_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 
 struct de_lzh_params {
@@ -174,6 +181,11 @@ void de_dfilter_decompress_oneshot(deark *c,
 	struct de_dfilter_results *dres);
  void de_dfilter_decompress_two_layer(deark *c,
 	dfilter_codec_type codec1, void *codec1_private_params,
+	dfilter_codec_type codec2, void *codec2_private_params,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres);
+ void de_dfilter_decompress_two_layer2(deark *c,
+	de_codectype1_type codec1, void *codec1_private_params,
 	dfilter_codec_type codec2, void *codec2_private_params,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres);
