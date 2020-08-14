@@ -615,6 +615,10 @@ Deark -- Information about supported formats
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
 
+* CAR (module="car_lha")
+  Variant of LHA by MylesHi! Software. Deark tries to convert it to LHA.
+  - File extension must be ".car" (or use "-m car").
+
 * CD/raw (module="cd_raw")
   - Extract .ISO and other filesystem data from some raw CD images, such as
     the .BIN file in CUE/BIN format.

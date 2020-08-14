@@ -8,6 +8,7 @@
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_lha);
+DE_DECLARE_MODULE(de_module_car_lha);
 
 #define MAX_SUBDIR_LEVEL 32
 
@@ -787,11 +788,11 @@ static void warn_non_lha(deark *c, i64 pos, i64 len)
 
 static int cksum_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf, i64 buf_len)
 {
-	struct member_data *md = (struct member_data*)brctx->userdata;
+	UI *pcksum = (UI*)brctx->userdata;
 	i64 i;
 
 	for(i=0; i<buf_len; i++) {
-		md->hdr_checksum_calc = (md->hdr_checksum_calc + buf[i]) & 0xff;
+		*pcksum = (*pcksum + buf[i]) & 0xff;
 	}
 	return 1;
 }
@@ -900,14 +901,14 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 		de_dbg(c, "header size: (2+)%d", (int)lev0_header_size);
 		hdr_checksum_reported = (UI)de_getbyte_p(&pos);
 		has_hdr_checksum = 1;
-		dbuf_buffered_read(c->infile, pos, lev0_header_size, cksum_cbfn, (void*)md);
+		dbuf_buffered_read(c->infile, pos, lev0_header_size, cksum_cbfn, (void*)&md->hdr_checksum_calc);
 	}
 	else if(md->hlev==1) {
 		lev1_base_header_size = (i64)de_getbyte_p(&pos);
 		de_dbg(c, "base header size: %d", (int)lev1_base_header_size);
 		hdr_checksum_reported = (UI)de_getbyte_p(&pos);
 		has_hdr_checksum = 1;
-		dbuf_buffered_read(c->infile, pos, lev1_base_header_size, cksum_cbfn, (void*)md);
+		dbuf_buffered_read(c->infile, pos, lev1_base_header_size, cksum_cbfn, (void*)&md->hdr_checksum_calc);
 	}
 	else if(md->hlev==2) {
 		lev2_total_header_size = de_getu16le_p(&pos);
@@ -1168,7 +1169,18 @@ static int de_identify_lha(deark *c)
 		}
 	}
 
-	if(m) return 100;
+	if(m) {
+		int has_ext = 0;
+
+		if(de_input_file_has_ext(c, "lzh") ||
+			de_input_file_has_ext(c, "lha"))
+		{
+			has_ext = 1;
+		}
+
+		if(has_ext) return 100;
+		return 80; // Must be less than car_lha
+	}
 	return 0;
 }
 
@@ -1178,4 +1190,156 @@ void de_module_lha(deark *c, struct deark_module_info *mi)
 	mi->desc = "LHA/LZH/PMA archive";
 	mi->run_fn = de_run_lha;
 	mi->identify_fn = de_identify_lha;
+}
+
+/////////////////////// CAR (MylesHi!)
+
+struct car_member_data {
+	i64 member_pos;
+	i64 total_size;
+	UI hdr_checksum_calc;
+};
+
+struct car_ctx {
+	dbuf *hdr_tmp;
+	dbuf *lha_outf;
+};
+
+static int looks_like_car_member(deark *c, i64 pos)
+{
+	u8 b[16];
+
+	de_read(b, pos, 16);
+	if(b[2]!='-' || b[3]!='l'|| b[4]!='h' || b[6]!='-') return 0;
+	if(b[5]!='0' && b[5]!='5') return 0;
+	if((int)b[0] != (int)b[15] + 25) return 0;
+	if(dbuf_memcmp(c->infile, pos + (i64)b[15] + 24, (const u8*)"\x20\x00\x00", 3)) return 0;
+	return 1;
+}
+
+static int do_car_member(deark *c, struct car_ctx *d, struct car_member_data *md)
+{
+	i64 lev1_base_header_size;
+	i64 fnlen;
+	i64 hdr_endpos;
+	i64 compressed_data_len;
+	i64 pos1 = md->member_pos;
+	int retval = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "member at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	// Figure out where everything is...
+	lev1_base_header_size = (i64)de_getbyte(pos1);
+	de_dbg(c, "base header size: %d", (int)lev1_base_header_size);
+	hdr_endpos = pos1 + 2 + lev1_base_header_size;
+	fnlen = lev1_base_header_size - 25;
+	de_dbg(c, "implied filename len: %d", (int)fnlen);
+	if(fnlen<0) goto done;
+
+	compressed_data_len = de_getu32le(pos1 + 7);
+	de_dbg(c, "compressed size: %"I64_FMT, compressed_data_len);
+	if(hdr_endpos + compressed_data_len > c->infile->len) goto done;
+
+	// Convert to an LHA level-1 header
+	dbuf_empty(d->hdr_tmp);
+
+	// Fields through uncmpr_size are the same (we'll patch the checksum later)
+	dbuf_copy(c->infile, pos1, 15, d->hdr_tmp);
+
+	dbuf_copy(c->infile, hdr_endpos-7, 4, d->hdr_tmp); // timestamp
+
+	// attribute (low byte)
+	dbuf_copy(c->infile, hdr_endpos-9, 1, d->hdr_tmp);
+	dbuf_writebyte(d->hdr_tmp, 0x01); // level identifier
+
+	// Fields starting with filename length, through crc
+	dbuf_copy(c->infile, pos1+15, 1+fnlen+2, d->hdr_tmp);
+
+	dbuf_writebyte(d->hdr_tmp, 77); // OS ID = 'M' = MS-DOS
+
+	// Recalculate checksum
+	dbuf_buffered_read(d->hdr_tmp, 2, lev1_base_header_size, cksum_cbfn,
+		(void*)&md->hdr_checksum_calc);
+	de_dbg(c, "header checksum (calculated): 0x%02x", md->hdr_checksum_calc);
+	dbuf_writebyte_at(d->hdr_tmp, 1, (u8)md->hdr_checksum_calc);
+	dbuf_truncate(d->hdr_tmp, 2+lev1_base_header_size);
+
+	// Write everything out
+	dbuf_copy(d->hdr_tmp, 0, d->hdr_tmp->len, d->lha_outf);
+	de_dbg(c, "member data at %"I64_FMT", len=%"I64_FMT, hdr_endpos, compressed_data_len);
+	dbuf_copy(c->infile, hdr_endpos, compressed_data_len, d->lha_outf);
+	md->total_size = hdr_endpos + compressed_data_len;
+	retval = 1;
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static void de_run_car_lha(deark *c, de_module_params *mparams)
+{
+	struct car_ctx *d = NULL;
+	struct car_member_data *md = NULL;
+	int ok = 0;
+	i64 pos = 0;
+
+	d = de_malloc(c, sizeof(struct car_ctx));
+
+	if(!looks_like_car_member(c, 0)) {
+		de_err(c, "Not a CAR file");
+		goto done;
+	}
+
+	d->lha_outf = dbuf_create_output_file(c, "lha", NULL, 0);
+	d->hdr_tmp = dbuf_create_membuf(c, 0, 0);
+
+	md = de_malloc(c, sizeof(struct car_member_data));
+	while(1) {
+		if(de_getbyte(pos)==0) {
+			de_dbg(c, "trailer at %"I64_FMT, pos);
+			dbuf_writebyte(d->lha_outf, 0);
+			ok = 1;
+			break;
+		}
+		if(pos+27 > c->infile->len) goto done;
+		if(!looks_like_car_member(c, pos)) goto done;
+
+		de_zeromem(md, sizeof(struct car_member_data));
+		md->member_pos = pos;
+		if(!do_car_member(c, d, md)) goto done;
+		pos += md->total_size;
+	}
+
+done:
+	de_free(c, md);
+	if(d) {
+		if(d->lha_outf) {
+			dbuf_close(d->lha_outf);
+			if(!ok) {
+				de_err(c, "Conversion to LHA format failed");
+			}
+		}
+		dbuf_close(d->hdr_tmp);
+		de_free(c, d);
+	}
+}
+
+static int de_identify_car_lha(deark *c)
+{
+	if(!de_input_file_has_ext(c, "car")) return 0;
+	if(looks_like_car_member(c, 0)) {
+		return 95;
+	}
+	return 0;
+}
+
+void de_module_car_lha(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "car_lha";
+	mi->desc = "CAR (MylesHi!) LHA-like archive";
+	mi->run_fn = de_run_car_lha;
+	mi->identify_fn = de_identify_car_lha;
 }
