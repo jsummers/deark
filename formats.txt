@@ -795,7 +795,8 @@ Deark -- Information about supported formats
     ones are control characters.
 
 * CRC (module="crc")
-  Print various CRC hashes of the file, including the IEEE CRC-32.
+  Print various CRC hashes and checksums of the file, including the IEEE
+  CRC-32.
   - You must use "-m crc".
 
 * DS_Store (module="dsstore") (experimental)
