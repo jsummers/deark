@@ -673,13 +673,9 @@ static void dres_transfer_error(deark *c, struct de_dfilter_results *src,
 }
 
 // Decompress an arbitrary two-layer compressed format.
-// codec1 is the first one that will be used during decompression (i.e. the second
+// tlp->codec1* is the first one that will be used during decompression (i.e. the second
 // method used when during *compression*).
-static void de_dfilter_decompress_two_layer_internal(deark *c,
-	de_codectype1_type codec1_type1, dfilter_codec_type codec1_pushable, void *codec1_private_params,
-	dfilter_codec_type codec2, void *codec2_private_params,
-	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
-	struct de_dfilter_results *dres)
+void de_dfilter_decompress_two_layer(deark *c, struct de_dcmpr_two_layer_params *tlp)
 {
 	dbuf *outf_codec1 = NULL;
 	struct de_dfilter_out_params dcmpro_codec1;
@@ -700,27 +696,27 @@ static void de_dfilter_decompress_two_layer_internal(deark *c,
 	dcmpro_codec1.len_known = 0;
 	dcmpro_codec1.expected_len = 0;
 
-	dfctx_codec2 = de_dfilter_create(c, codec2, codec2_private_params, dcmpro, &dres_codec2);
+	dfctx_codec2 = de_dfilter_create(c, tlp->codec2, tlp->codec2_private_params, tlp->dcmpro, &dres_codec2);
 	u.dfctx_codec2 = dfctx_codec2;
 
 	// The first codec in the chain does not need the advanced (de_dfilter_create) API.
-	if(codec1_type1) {
-		codec1_type1(c, dcmpri, &dcmpro_codec1, dres, codec1_private_params);
+	if(tlp->codec1_type1) {
+		tlp->codec1_type1(c, tlp->dcmpri, &dcmpro_codec1, tlp->dres, tlp->codec1_private_params);
 	}
 	else {
-		de_dfilter_decompress_oneshot(c, codec1_pushable, codec1_private_params,
-			dcmpri, &dcmpro_codec1, dres);
+		de_dfilter_decompress_oneshot(c, tlp->codec1_pushable, tlp->codec1_private_params,
+			tlp->dcmpri, &dcmpro_codec1, tlp->dres);
 	}
 	de_dfilter_finish(dfctx_codec2);
 
-	if(dres->errcode) goto done;
+	if(tlp->dres->errcode) goto done;
 	de_dbg2(c, "size after intermediate decompression: %"I64_FMT, u.intermediate_nbytes);
 
 	if(dres_codec2.errcode) {
 		// An error occurred in codec2, and not in codec1.
 		// Copy the error info to the dres that will be returned to the caller.
 		// TODO: Make a cleaner way to do this.
-		dres_transfer_error(c, &dres_codec2, dres);
+		dres_transfer_error(c, &dres_codec2, tlp->dres);
 		goto done;
 	}
 
@@ -729,26 +725,24 @@ done:
 	dbuf_close(outf_codec1);
 }
 
-void de_dfilter_decompress_two_layer(deark *c,
+// TODO: Retire this function.
+void de_dfilter_decompress_two_layer_type2(deark *c,
 	dfilter_codec_type codec1, void *codec1_private_params,
 	dfilter_codec_type codec2, void *codec2_private_params,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	de_dfilter_decompress_two_layer_internal(c,
-		NULL, codec1, codec1_private_params,
-		codec2, codec2_private_params, dcmpri, dcmpro, dres);
-}
+	struct de_dcmpr_two_layer_params tlp;
 
-void de_dfilter_decompress_two_layer2(deark *c,
-	de_codectype1_type codec1, void *codec1_private_params,
-	dfilter_codec_type codec2, void *codec2_private_params,
-	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
-	struct de_dfilter_results *dres)
-{
-	de_dfilter_decompress_two_layer_internal(c,
-		codec1, NULL, codec1_private_params,
-		codec2, codec2_private_params, dcmpri, dcmpro, dres);
+	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
+	tlp.codec1_pushable = codec1;
+	tlp.codec1_private_params = codec1_private_params;
+	tlp.codec2 = codec2;
+	tlp.codec2_private_params = codec2_private_params;
+	tlp.dcmpri = dcmpri;
+	tlp.dcmpro = dcmpro;
+	tlp.dres = dres;
+	de_dfilter_decompress_two_layer(c, &tlp);
 }
 
  struct de_lz77buffer *de_lz77buffer_create(deark *c, UI bufsize)

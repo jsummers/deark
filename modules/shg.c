@@ -126,7 +126,7 @@ static void do_decompress_type_3(deark *c, lctx *d,
 	struct de_dfilter_results *dres)
 {
 	de_dbg(c, "doing LZ77+RLE decompression");
-	de_dfilter_decompress_two_layer(c, dfilter_hlp_lz77_codec, NULL,
+	de_dfilter_decompress_two_layer_type2(c, dfilter_hlp_lz77_codec, NULL,
 		dfilter_shgrle_codec, NULL, dcmpri, dcmpro, dres);
 }
 

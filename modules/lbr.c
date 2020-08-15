@@ -428,6 +428,7 @@ static void de_run_squeeze(deark *c, de_module_params *mparams)
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
+	struct de_dcmpr_two_layer_params tlp;
 
 	sqctx = de_malloc(c, sizeof(struct squeeze_ctx));
 	sqctx->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
@@ -472,8 +473,13 @@ static void de_run_squeeze(deark *c, de_module_params *mparams)
 
 	dbuf_set_writelistener(outf_tmp, squeeze_writelistener_cb, (void*)sqctx);
 
-	de_dfilter_decompress_two_layer2(c, fmtutil_huff_squeeze_codectype1, NULL,
-		dfilter_rle90_codec, NULL, &dcmpri, &dcmpro, &dres);
+	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
+	tlp.codec1_type1 = fmtutil_huff_squeeze_codectype1;
+	tlp.codec2 = dfilter_rle90_codec;
+	tlp.dcmpri = &dcmpri;
+	tlp.dcmpro = &dcmpro;
+	tlp.dres = &dres;
+	de_dfilter_decompress_two_layer(c, &tlp);
 
 	if(dres.bytes_consumed_valid) {
 		de_dbg(c, "compressed data size: %"I64_FMT", ends at %"I64_FMT, dres.bytes_consumed,

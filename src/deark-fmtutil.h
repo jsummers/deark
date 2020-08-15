@@ -179,13 +179,21 @@ void de_dfilter_decompress_oneshot(deark *c,
 	dfilter_codec_type codec_init_fn, void *codec_private_params,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres);
- void de_dfilter_decompress_two_layer(deark *c,
+struct de_dcmpr_two_layer_params {
+	de_codectype1_type codec1_type1; // Set either this or codec1_pushable
+	dfilter_codec_type codec1_pushable;
+	void *codec1_private_params;
+	dfilter_codec_type codec2;
+	void *codec2_private_params;
+	struct de_dfilter_in_params *dcmpri;
+	struct de_dfilter_out_params *dcmpro;
+	struct de_dfilter_results *dres;
+	u8 intermed_len_known;
+	i64 intermed_expected_len;
+};
+void de_dfilter_decompress_two_layer(deark *c, struct de_dcmpr_two_layer_params *tlp);
+void de_dfilter_decompress_two_layer_type2(deark *c,
 	dfilter_codec_type codec1, void *codec1_private_params,
-	dfilter_codec_type codec2, void *codec2_private_params,
-	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
-	struct de_dfilter_results *dres);
- void de_dfilter_decompress_two_layer2(deark *c,
-	de_codectype1_type codec1, void *codec1_private_params,
 	dfilter_codec_type codec2, void *codec2_private_params,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres);

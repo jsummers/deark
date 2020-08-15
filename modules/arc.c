@@ -180,8 +180,15 @@ static void decompressor_squeezed(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	de_dfilter_decompress_two_layer2(c, fmtutil_huff_squeeze_codectype1, NULL,
-		dfilter_rle90_codec, NULL, dcmpri, dcmpro, dres);
+	struct de_dcmpr_two_layer_params tlp;
+
+	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
+	tlp.codec1_type1 = fmtutil_huff_squeeze_codectype1;
+	tlp.codec2 = dfilter_rle90_codec;
+	tlp.dcmpri = dcmpri;
+	tlp.dcmpro = dcmpro;
+	tlp.dres = dres;
+	de_dfilter_decompress_two_layer(c, &tlp);
 }
 
 static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
@@ -197,7 +204,7 @@ static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
 	delzwp.flags |= DE_LZWFLAG_HAS1BYTEHEADER;
 
-	de_dfilter_decompress_two_layer(c, dfilter_lzw_codec, (void*)&delzwp,
+	de_dfilter_decompress_two_layer_type2(c, dfilter_lzw_codec, (void*)&delzwp,
 		dfilter_rle90_codec, NULL, dcmpri, dcmpro, dres);
 }
 
