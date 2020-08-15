@@ -32,6 +32,9 @@ struct member_data {
 typedef struct localctx_struct {
 	de_encoding input_encoding; // if DE_ENCODING_UNKNOWN, autodetect for each member
 	u8 archive_flags;
+	u8 is_secured;
+	i64 security_envelope_pos;
+	i64 security_envelope_len;
 	struct de_crcobj *crco;
 } lctx;
 
@@ -162,6 +165,18 @@ static void get_flags_descr(struct member_data *md, u8 n1, de_ucstring *s)
 	}
 }
 
+static const char *get_objtype_name(u8 t) {
+	const char *name = NULL;
+
+	switch(t) {
+	case ARJ_OBJTYPE_ARCHIVEHDR: name="archive header"; break;
+	case ARJ_OBJTYPE_MEMBERFILE: name="member file"; break;
+	case ARJ_OBJTYPE_CHAPTERHDR: name="chapter header"; break;
+	case ARJ_OBJTYPE_EOA: name="end of archive"; break;
+	}
+	return name?name:"?";
+}
+
 // If successfully parsed, sets *pbytes_consumed.
 // Returns 1 normally, 2 if this is the EOA marker, 0 on fatal error.
 static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archive_hdr,
@@ -214,9 +229,12 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 
 	basic_hdr_size = de_getu16le_p(&pos);
 	de_dbg(c, "basic header size: %"I64_FMT, basic_hdr_size);
+	if(basic_hdr_size==0) {
+		md->objtype = ARJ_OBJTYPE_EOA;
+	}
+	de_dbg(c, "object type: %s", get_objtype_name(md->objtype));
 
 	if(basic_hdr_size==0) {
-		de_dbg(c, "[end of archive]");
 		*pbytes_consumed = 4;
 		goto done;
 	}
@@ -250,6 +268,7 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	de_dbg(c, "flags: 0x%02x (%s)", (UI)md->flags, ucstring_getpsz_d(flags_descr));
 	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
 		d->archive_flags = md->flags;
+		if(d->archive_flags & 0x40) d->is_secured = 1;
 	}
 
 	// Now we have enough information to choose a character encoding.
@@ -312,7 +331,10 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 
 	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
 		n = de_getu32le_p(&pos);
-		de_dbg(c, "security envelope pos: %"I64_FMT, n);
+		if(d->is_secured) {
+			d->security_envelope_pos = n;
+			de_dbg(c, "security envelope pos: %"I64_FMT, d->security_envelope_pos);
+		}
 	}
 	else {
 		md->crc_reported = (u32)de_getu32le_p(&pos);
@@ -324,7 +346,10 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 
 	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
 		n = de_getu16le_p(&pos);
-		de_dbg(c, "security envelope len: %"I64_FMT, n);
+		if(d->is_secured) {
+			d->security_envelope_len = n;
+			de_dbg(c, "security envelope len: %"I64_FMT, d->security_envelope_len);
+		}
 	}
 	else {
 		de_ucstring *mode_descr;
@@ -448,6 +473,17 @@ done:
 	;
 }
 
+static void do_security_envelope(deark *c, lctx *d)
+{
+	if(d->security_envelope_len==0) return;
+	de_dbg(c, "security envelope at %"I64_FMT", len=%"I64_FMT, d->security_envelope_pos,
+		d->security_envelope_len);
+	de_dbg_indent(c, 1);
+	de_dbg_hexdump(c, c->infile, d->security_envelope_pos, d->security_envelope_len,
+		256, NULL, 0x0);
+	de_dbg_indent(c, -1);
+}
+
 static void de_run_arj(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -465,6 +501,9 @@ static void de_run_arj(deark *c, de_module_params *mparams)
 	pos = 0;
 	if(do_header_or_member(c, d, pos, 1, &bytes_consumed) != 1) goto done;
 	pos += bytes_consumed;
+	if(d->is_secured) {
+		do_security_envelope(c, d);
+	}
 
 	do_member_sequence(c, d, pos);
 
