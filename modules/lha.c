@@ -857,6 +857,18 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	nbytes_avail = c->infile->len - pos1;
+	if(nbytes_avail<1) goto done;
+
+	tmpb1 = de_getbyte(pos1);
+	if(tmpb1 == 0x00) {
+		de_dbg(c, "trailer at %"I64_FMT, pos1);
+		if(nbytes_avail > 1) {
+			de_info(c, "Note: %"I64_FMT" extra bytes at end of file (offset %"I64_FMT")",
+				nbytes_avail-1, pos1+1);
+		}
+		goto done;
+	}
+
 	if(nbytes_avail < 21) {
 		if(nbytes_avail > 1) {
 			warn_non_lha(c, pos1, nbytes_avail);
@@ -864,7 +876,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 		goto done;
 	}
 
-	// Read compression method first, to help decide whether this is LHA data at all.
+	// Read compression method early, to help decide whether this is LHA data at all.
 	tmpb1 = de_getbyte(pos1+2);
 	dbuf_read_fourcc(c->infile, pos1+3, &md->cmpr_meth_4cc, 3, 0);
 	tmpb2 = de_getbyte(pos1+6);
