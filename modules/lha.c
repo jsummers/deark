@@ -484,14 +484,14 @@ static const char *get_os_name(u8 id)
 	const char *name = NULL;
 	switch(id) {
 	case '2': name="OS/2"; break;
-	case '3': name="OS/386"; break;
+	case '3': name="OS/386?"; break;
 	case '9': name="OS-9"; break;
-	case 'A': name="Amiga?"; break;
+	case 'A': name="Amiga"; break;
 	case 'C': name="CP/M"; break;
 	case 'F': name="FLEX"; break;
 	case 'H': name="Human68K"; break;
 	case 'J': name="JVM"; break;
-	case 'K': name="OS/68K"; break;
+	case 'K': name="OS-9/68K"; break;
 	case 'M': name="DOS"; break;
 	case 'R': name="RUNser"; break;
 	case 'T': name="TownsOS"; break;
@@ -595,6 +595,9 @@ static int do_read_ext_headers(deark *c, lctx *d, struct member_data *md,
 done:
 	if(retval) {
 		de_dbg(c, "size of ext headers section: %d", (int)*tot_bytes_consumed);
+	}
+	else {
+		de_dbg(c, "failed to parse all extended headers");
 	}
 	de_dbg_indent(c, -1);
 	return retval;
@@ -1077,6 +1080,16 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 	}
 	else if(md->hlev==2) {
 		i64 first_ext_hdr_size;
+
+		if(md->os_id=='K') {
+			// So that some lhasa test files will work.
+			// TODO: The extended headers section is (usually?) self-terminating, so we
+			// should be able to parse it and figure out if this bug is present. That
+			// would be better than just guessing.
+			lev2_total_header_size += 2;
+			de_dbg(c, "attempting bug workaround: changing total header size to %d",
+				(int)lev2_total_header_size);
+		}
 
 		md->compressed_data_pos = pos1+lev2_total_header_size;
 
