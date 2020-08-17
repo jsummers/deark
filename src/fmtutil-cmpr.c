@@ -692,9 +692,16 @@ void de_dfilter_decompress_two_layer(deark *c, struct de_dcmpr_two_layer_params 
 	outf_codec1 = dbuf_create_custom_dbuf(c, 0, 0);
 	outf_codec1->userdata_for_customwrite = (void*)&u;
 	outf_codec1->customwrite_fn = my_2layer_write_cb;
+
 	dcmpro_codec1.f = outf_codec1;
-	dcmpro_codec1.len_known = 0;
-	dcmpro_codec1.expected_len = 0;
+	if(tlp->intermed_len_known) {
+		dcmpro_codec1.len_known = 1;
+		dcmpro_codec1.expected_len = tlp->intermed_expected_len;
+	}
+	else {
+		dcmpro_codec1.len_known = 0;
+		dcmpro_codec1.expected_len = 0;
+	}
 
 	dfctx_codec2 = de_dfilter_create(c, tlp->codec2, tlp->codec2_private_params, tlp->dcmpro, &dres_codec2);
 	u.dfctx_codec2 = dfctx_codec2;

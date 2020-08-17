@@ -980,6 +980,49 @@ static void dmsrle_codec(struct de_dfilter_ctx *dfctx, void *codec_private_param
 	dfctx->codec_destroy_fn = dmsrle_codec_destroy;
 }
 
+static void do_decompress_heavy_lzh_rle(deark *c, struct dmsctx *d, struct dms_track_info *tri,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres, struct de_lzh_params *lzhparams)
+{
+	struct de_dcmpr_two_layer_params tlp;
+
+	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
+	tlp.codec1_type1 = fmtutil_lzh_codectype1;
+	tlp.codec1_private_params = (void*)lzhparams;
+	tlp.codec2 = dmsrle_codec;
+	tlp.dcmpri = dcmpri;
+	tlp.dcmpro = dcmpro;
+	tlp.dres = dres;
+	tlp.intermed_expected_len = tri->intermediate_len;
+	tlp.intermed_len_known = 1;
+	de_dfilter_decompress_two_layer(c, &tlp);
+}
+
+static void do_decompress_heavy(deark *c, struct dmsctx *d, struct dms_track_info *tri,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	struct de_lzh_params lzhparams;
+
+	de_zeromem(&lzhparams, sizeof(struct de_lzh_params));
+	lzhparams.fmt = DE_LZH_FMT_DMS_HEAVY;
+	if(tri->cmpr_type==5) {
+		lzhparams.subfmt = 1; // heavy1
+	}
+	else {
+		lzhparams.subfmt = 2; // heavy2
+	}
+	lzhparams.dms_track_flags = tri->flags;
+
+	if(tri->flags & 0x04) {
+		do_decompress_heavy_lzh_rle(c, d, tri, dcmpri, dcmpro, dres, &lzhparams);
+	}
+	else {
+		// LZH, no RLE
+		fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres, &lzhparams);
+	}
+}
+
 static int dms_decompress_track(deark *c, struct dmsctx *d, struct dms_track_info *tri,
 	dbuf *outf)
 {
@@ -1011,6 +1054,10 @@ static int dms_decompress_track(deark *c, struct dmsctx *d, struct dms_track_inf
 	case 1:
 		de_dfilter_decompress_oneshot(c, dmsrle_codec, NULL,
 			&dcmpri, &dcmpro, &dres);
+		break;
+	case 5: // heavy1
+	case 6: // heavy2
+		do_decompress_heavy(c, d, tri, &dcmpri, &dcmpro, &dres);
 		break;
 	default:
 		de_err(c, "[%s] Unsupported compression method: %u (%s)",

@@ -36,6 +36,8 @@ struct lzh_ctx {
 	struct lzh_tree_wrapper codelengths_tree;
 	struct lzh_tree_wrapper codes_tree;
 	struct lzh_tree_wrapper offsets_tree;
+
+	UI dms_np;
 };
 
 static void lzh_set_eof_flag(struct lzh_ctx *cctx)
@@ -64,6 +66,7 @@ static u64 lzh_getbits(struct lzh_ctx *cctx, UI nbits)
 		lzh_set_err_flag(cctx);
 		return 0;
 	}
+	if(nbits==0) return 0;
 
 	while(cctx->nbits_in_bitbuf < nbits) {
 		u8 b;
@@ -405,12 +408,11 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 		else { // repeat previous bytes
 			UI offset;
 			UI length;
-			UI ocode1, ocode2;
+			UI ocode1;
 
 			length = code-253;
 
 			ocode1 = read_next_code_using_tree(cctx, &cctx->offsets_tree);
-
 			if(cctx->eof_flag) goto done;
 			de_dbg3(c, "ocode1: %u", ocode1);
 
@@ -418,6 +420,8 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 				offset = ocode1;
 			}
 			else {
+				UI ocode2;
+
 				ocode2 = (UI)lzh_getbits(cctx, ocode1-1);
 				if(cctx->eof_flag) goto done;
 				de_dbg3(c, "ocode2: %u", ocode2);
@@ -488,6 +492,216 @@ static void decompress_lha_lh5like(struct lzh_ctx *cctx, struct de_lzh_params *l
 	}
 }
 
+//============= DMS Heavy1/Heavy2 =============
+
+static int dmsheavy_read_codes_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *htw)
+{
+	deark *c = cctx->c;
+	UI ncodes;
+	UI curr_idx;
+	UI *lengths = NULL; // array[ncodes]
+	int retval = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "c tree");
+	de_dbg_indent(c, 1);
+
+	ncodes = (UI)lzh_getbits(cctx, 9);
+	de_dbg(c, "num codes: %u", ncodes);
+
+	if(ncodes==0) {
+		htw->null_val = (UI)lzh_getbits(cctx, 9);
+		de_dbg2(c, "val0: %u", htw->null_val);
+		retval = 1;
+		goto done;
+	}
+
+	lengths = de_mallocarray(c, ncodes, sizeof(UI));
+
+	curr_idx = 0;
+	while(curr_idx < ncodes) {
+		lengths[curr_idx] = (UI)lzh_getbits(cctx, 5);
+		de_dbg2(c, "len[%u] = %u", curr_idx, lengths[curr_idx]);
+		curr_idx++;
+	}
+	if(cctx->eof_flag) goto done;
+
+	htw->ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
+
+	if(!fmtutil_huffman_make_canonical_tree(c, htw->ht, lengths, ncodes)) goto done;
+
+	retval = 1;
+done:
+	if(!retval) {
+		lzh_set_err_flag(cctx);
+	}
+	de_free(c, lengths);
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static int dmsheavy_read_offsets_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *htw)
+{
+	deark *c = cctx->c;
+	UI ncodes;
+	UI curr_idx;
+	UI *lengths = NULL; // array[ncodes]
+	int retval = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "p tree");
+	de_dbg_indent(c, 1);
+
+	ncodes = (UI)lzh_getbits(cctx, 5);
+	de_dbg(c, "num codes: %u", ncodes);
+
+	if(ncodes==0) {
+		htw->null_val = (UI)lzh_getbits(cctx, 5);
+		de_dbg2(c, "val0: %u", htw->null_val);
+		retval = 1;
+		goto done;
+	}
+
+	lengths = de_mallocarray(c, ncodes, sizeof(UI));
+
+	curr_idx = 0;
+	while(curr_idx < ncodes) {
+		lengths[curr_idx] = (UI)lzh_getbits(cctx, 4);
+		de_dbg2(c, "len[%u] = %u", curr_idx, lengths[curr_idx]);
+		curr_idx++;
+	}
+	if(cctx->eof_flag) goto done;
+
+	htw->ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
+
+	if(!fmtutil_huffman_make_canonical_tree(c, htw->ht, lengths, ncodes)) goto done;
+
+	retval = 1;
+done:
+	if(!retval) {
+		lzh_set_err_flag(cctx);
+	}
+	de_free(c, lengths);
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static void dmsheavy_do_lzh_internal(struct lzh_ctx *cctx)
+{
+	deark *c = cctx->c;
+	UI prev_offset = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	if(!cctx->dcmpro->len_known) {
+		// I think we (may) have to know the output length, because zero-length Huffman
+		// codes are(?) possible, and unlike lh5 we aren't told how many codes there are.
+		de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname, "Internal error");
+		goto done;
+	}
+
+	if(!dmsheavy_read_codes_tree(cctx, &cctx->codes_tree)) goto done;
+	if(!dmsheavy_read_offsets_tree(cctx, &cctx->offsets_tree)) goto done;
+
+	de_dbg(c, "cmpr data codes at %"I64_FMT" minus %u bits", cctx->curpos, cctx->nbits_in_bitbuf);
+	de_dbg_indent(c, 1);
+	while(1) {
+		UI code;
+
+		if(cctx->eof_flag) goto done;
+		if(lzh_have_enough_output(cctx)) goto done;
+
+		code = read_next_code_using_tree(cctx, &cctx->codes_tree);
+		if(cctx->eof_flag) goto done;
+		if(c->debug_level>=3) {
+			de_dbg3(c, "code: %u (opos=%"I64_FMT")", code, cctx->dcmpro->f->len);
+		}
+
+		if(code < 256) { // literal
+			de_lz77buffer_add_literal_byte(cctx->ringbuf, (u8)code);
+		}
+		else { // repeat previous bytes
+			UI offset;
+			UI length;
+			UI ocode1;
+
+			length = code-253;
+			de_dbg3(c, "length: %u", length);
+
+			ocode1 = read_next_code_using_tree(cctx, &cctx->offsets_tree);
+			if(cctx->eof_flag) goto done;
+			de_dbg3(c, "ocode1: %u", ocode1);
+
+			//if(ocode1 >= cctx->dms_np) {
+			//	TODO: Is this a special case we need to handle?
+			//}
+
+			if(ocode1 == cctx->dms_np-1) {
+				offset = prev_offset;
+			}
+			else {
+				if(ocode1 < 1) {
+					offset = ocode1;
+				}
+				else {
+					UI ocode2;
+
+					ocode2 = (UI)lzh_getbits(cctx, ocode1-1);
+					if(cctx->eof_flag) goto done;
+					de_dbg3(c, "ocode2: %u", ocode2);
+
+					offset = ocode2 | (1U<<(ocode1-1));
+				}
+				prev_offset = offset;
+			}
+
+			de_dbg3(c, "offset: %u", offset);
+
+			de_lz77buffer_copy_from_hist(cctx->ringbuf,
+				(UI)(cctx->ringbuf->curpos-offset-1), length);
+		}
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void decompress_dms_heavy(struct lzh_ctx *cctx, struct de_lzh_params *lzhp)
+{
+	UI rb_size;
+
+	if(lzhp->subfmt!=1 && lzhp->subfmt!=2) return;
+
+	if(!(lzhp->dms_track_flags & 0x02)) { // = No huffman?
+		// TODO: Definitely need to support this.
+		de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
+			"This variant of Heavy compression is not supported");
+		goto done;
+	}
+
+	if(lzhp->subfmt==1) {
+		rb_size = 4096;
+		cctx->dms_np = 14; // for heavy1
+	}
+	else {
+		rb_size = 8192;
+		cctx->dms_np = 15; // for heavy2
+	}
+
+	cctx->ringbuf = de_lz77buffer_create(cctx->c, rb_size);
+	cctx->ringbuf->userdata = (void*)cctx;
+	cctx->ringbuf->writebyte_cb = lha5like_lz77buf_writebytecb;
+	de_lz77buffer_clear(cctx->ringbuf, 0x20); // TODO: Is this right?
+
+	dmsheavy_do_lzh_internal(cctx);
+
+done:
+	;
+}
+
 void fmtutil_decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	struct de_lzh_params *lzhp)
@@ -507,6 +721,9 @@ void fmtutil_decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 	if(lzhp->fmt==DE_LZH_FMT_LH5LIKE && (lzhp->subfmt=='5' || lzhp->subfmt=='6'))
 	{
 		decompress_lha_lh5like(cctx, lzhp);
+	}
+	else if(lzhp->fmt==DE_LZH_FMT_DMS_HEAVY) {
+		decompress_dms_heavy(cctx, lzhp);
 	}
 	else {
 		de_dfilter_set_errorf(c, dres, cctx->modname,
@@ -535,4 +752,12 @@ done:
 		de_lz77buffer_destroy(c, cctx->ringbuf);
 		de_free(c, cctx);
 	}
+}
+
+void fmtutil_lzh_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params)
+{
+	fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres,
+		(struct de_lzh_params *)codec_private_params);
 }
