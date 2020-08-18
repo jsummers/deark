@@ -183,8 +183,7 @@ header_extensions_done:
 // can be (mis?)used to make larger lengths possible.
 #define MSLZH_MAX_CODELENGTH  20
 
-// Assumed to be unsigned. Must be UI for make_canonical_tree().
-#define MSLZH_SYMLEN_TYPE  UI
+#define MSLZH_SYMLEN_TYPE  u8  // Assumed to be unsigned
 
 #define MSLZH_VALUE_TYPE   u8  // Type of a decoded symbol
 
@@ -391,9 +390,10 @@ static void mslzh_read_huffman_tree(struct mslzh_context *lzhctx, UI idx)
 
 	for(i=0; i<htr->num_symbols; i++) {
 		de_dbg2(c, "length[%u] = %u", i, (UI)htr->symlengths[i]);
+		fmtutil_huffman_record_a_code_length(c, htr->fmtuht, (i32)i, (UI)htr->symlengths[i]);
 	}
 
-	if(!fmtutil_huffman_make_canonical_tree(c, htr->fmtuht, htr->symlengths, htr->num_symbols)) {
+	if(!fmtutil_huffman_make_canonical_tree(c, htr->fmtuht)) {
 		de_dfilter_set_errorf(c, lzhctx->dres, lzhctx->modname, "Failed to construct Huffman tree");
 		mslzh_set_errorflag(lzhctx);
 		goto done;

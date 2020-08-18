@@ -33,7 +33,12 @@ struct huffman_node {
 	union huffman_nval_data child[2];
 };
 
-struct fmtutil_huffman_cursor {
+struct huffman_lengths_arr_item {
+	i32 val;
+	UI len;
+};
+
+struct huffman_cursor {
 	NODE_REF_TYPE curr_noderef;
 };
 
@@ -41,7 +46,7 @@ struct fmtutil_huffman_tree {
 	// In principle, the cursor should be separate, so we could have multiple
 	// cursors for one tree. But that's inconvenient, and it's not clear that
 	// it would be of any use in practice.
-	struct fmtutil_huffman_cursor cursor;
+	struct huffman_cursor cursor;
 
 	i64 max_nodes;
 	NODE_REF_TYPE next_avail_node;
@@ -51,6 +56,10 @@ struct fmtutil_huffman_tree {
 
 	i64 num_codes;
 	UI max_bits;
+
+	i64 lengths_arr_numalloc;
+	i64 lengths_arr_numused;
+	struct huffman_lengths_arr_item *lengths_arr; // array[lengths_arr_numalloc]
 };
 
 // Ensure that at least n nodes are allocated (0 through n-1)
@@ -259,7 +268,7 @@ void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_tree *ht)
 // Construct the "canonical" Huffman tree, given an array of code lengths.
 // Lengths of 0 are ignored.
 // Caller creates ht.
-int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *ht,
+int fmtutil_huffman_make_canonical_tree2(deark *c, struct fmtutil_huffman_tree *ht,
 	const UI *lengths, UI num_lengths)
 {
 	UI max_sym_len_used;
@@ -326,6 +335,103 @@ done:
 	return retval;
 }
 
+// This only used with fmtutil_huffman_make_canonical_tree().
+// Call this first, once per item.
+// The order that you supply the items matters, at least within the set of items
+// having the same length.
+// Cannot be used for zero-length items. If len==0, it's a successful no-op.
+int fmtutil_huffman_record_a_code_length(deark *c, struct fmtutil_huffman_tree *ht, i32 val, UI len)
+{
+	if(len==0) return 1;
+	if(ht->lengths_arr_numused > MAX_MAX_NODES) return 0;
+
+	if(ht->lengths_arr_numused >= ht->lengths_arr_numalloc) {
+		i64 new_numalloc;
+
+		new_numalloc = ht->lengths_arr_numused + 128;
+		ht->lengths_arr = de_reallocarray(c, ht->lengths_arr, ht->lengths_arr_numalloc,
+			sizeof(struct huffman_lengths_arr_item), new_numalloc);
+		ht->lengths_arr_numalloc = new_numalloc;
+	}
+	ht->lengths_arr[ht->lengths_arr_numused].val = val;
+	ht->lengths_arr[ht->lengths_arr_numused++].len = len;
+	return 1;
+}
+
+// Call this after calling huffman_record_item_length() (usually many times).
+// Creates the canonical Huffman tree derived from the known code lengths.
+int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *ht)
+{
+	UI max_sym_len_used;
+	UI i;
+	UI symlen;
+	UI prev_code_bit_length = 0;
+	u64 prev_code = 0; // valid if prev_code_bit_length>0
+	int retval = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg2(c, "constructing huffman tree:");
+	de_dbg_indent(c, 1);
+
+	if(!ht->lengths_arr) {
+		retval = 1;
+		goto done;
+	}
+
+	// Find the maximum length
+	max_sym_len_used = 0;
+	for(i=0; i<(UI)ht->lengths_arr_numused; i++) {
+		if(ht->lengths_arr[i].len > max_sym_len_used) {
+			max_sym_len_used = ht->lengths_arr[i].len;
+		}
+	}
+	if(max_sym_len_used>48) {
+		goto done;
+	}
+
+	// For each possible symbol length...
+	for(symlen=1; symlen<=max_sym_len_used; symlen++) {
+		UI k;
+
+		// Find all the codes that use this symbol length, in order
+		for(k=0; k<(UI)ht->lengths_arr_numused; k++) {
+			int ret;
+			u64 thiscode;
+
+			if(ht->lengths_arr[k].len != symlen) continue;
+			// Found a code of the length we're looking for.
+
+			if(prev_code_bit_length==0) { // this is the first code
+				thiscode = 0;
+			}
+			else {
+				thiscode = prev_code + 1;
+				if(symlen > prev_code_bit_length) {
+					thiscode <<= (symlen - prev_code_bit_length);
+				}
+			}
+
+			prev_code_bit_length = symlen;
+			prev_code = thiscode;
+
+			if(c->debug_level>=2) {
+				de_dbg2(c, "addcode 0x%"U64_FMTx" [%u bits] = %d", thiscode, symlen,
+					(int)ht->lengths_arr[k].val);
+			}
+			ret = fmtutil_huffman_add_code(c, ht, thiscode, symlen, ht->lengths_arr[k].val);
+			if(!ret) {
+				goto done;
+			}
+		}
+	}
+	retval = 1;
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
 // initial_codes: If not 0, pre-allocate enough nodes for this many codes.
 // max_codes: If not 0, attempting to add substantially more codes than this will fail.
 struct fmtutil_huffman_tree *fmtutil_huffman_create_tree(deark *c, i64 initial_codes, i64 max_codes)
@@ -366,6 +472,7 @@ struct fmtutil_huffman_tree *fmtutil_huffman_create_tree(deark *c, i64 initial_c
 void fmtutil_huffman_destroy_tree(deark *c, struct fmtutil_huffman_tree *ht)
 {
 	if(!ht) return;
+	de_free(c, ht->lengths_arr);
 	de_free(c, ht);
 }
 

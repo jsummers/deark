@@ -538,8 +538,10 @@ int fmtutil_huffman_decode_bit(struct fmtutil_huffman_tree *ht, u8 bitval, i32 *
 UI fmtutil_huffman_get_max_bits(struct fmtutil_huffman_tree *ht);
 i64 fmtutil_huffman_get_num_codes(struct fmtutil_huffman_tree *ht);
 void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_tree *ht);
-int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *ht,
+int fmtutil_huffman_record_a_code_length(deark *c, struct fmtutil_huffman_tree *ht, i32 val, UI len);
+int fmtutil_huffman_make_canonical_tree2(deark *c, struct fmtutil_huffman_tree *ht,
 	const UI *lengths, UI num_lengths);
+int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *ht);
 
 struct de_lz77buffer;
 typedef void (*fmtutil_lz77buffer_cb_type)(struct de_lz77buffer *rb, u8 n);

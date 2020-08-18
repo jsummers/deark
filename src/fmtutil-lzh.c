@@ -161,7 +161,6 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx)
 	deark *c = cctx->c;
 	UI ncodes;
 	UI curr_idx;
-	UI *lengths = NULL; // array[ncodes]
 	int retval = 0;
 	int saved_indent_level;
 
@@ -183,12 +182,15 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx)
 		goto done;
 	}
 
-	lengths = de_mallocarray(c, ncodes, sizeof(UI));
+	cctx->codelengths_tree.ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
 
 	curr_idx = 0;
 	while(curr_idx < ncodes) {
-		lengths[curr_idx] = lh5x_read_a_code_length(cctx);
-		de_dbg2(c, "len[%u] = %u", curr_idx, lengths[curr_idx]);
+		UI symlen;
+
+		symlen = lh5x_read_a_code_length(cctx);
+		de_dbg2(c, "len[%u] = %u", curr_idx, symlen);
+		fmtutil_huffman_record_a_code_length(c, cctx->codelengths_tree.ht, (i32)curr_idx, symlen);
 		curr_idx++;
 
 		if(curr_idx==3) {
@@ -206,16 +208,13 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx)
 	}
 	if(cctx->eof_flag) goto done;
 
-	cctx->codelengths_tree.ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
-
-	if(!fmtutil_huffman_make_canonical_tree(c, cctx->codelengths_tree.ht, lengths, ncodes)) goto done;
+	if(!fmtutil_huffman_make_canonical_tree(c, cctx->codelengths_tree.ht)) goto done;
 
 	retval = 1;
 done:
 	if(!retval) {
 		lzh_set_err_flag(cctx);
 	}
-	de_free(cctx->c, lengths);
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
@@ -239,7 +238,6 @@ static int lh5x_read_codes_tree(struct lzh_ctx *cctx)
 	deark *c = cctx->c;
 	UI ncodes;
 	UI curr_idx;
-	UI *lengths = NULL; // array[ncodes]
 	int retval = 0;
 	int saved_indent_level;
 
@@ -259,7 +257,7 @@ static int lh5x_read_codes_tree(struct lzh_ctx *cctx)
 		goto done;
 	}
 
-	lengths = de_mallocarray(c, ncodes, sizeof(UI));
+	cctx->codes_tree.ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
 
 	curr_idx = 0;
 	while(curr_idx < ncodes) {
@@ -276,23 +274,23 @@ static int lh5x_read_codes_tree(struct lzh_ctx *cctx)
 			curr_idx += 1 + sk;
 		}
 		else {
-			lengths[curr_idx] = x-2;
-			de_dbg2(c, "len[%u]: code=%u => len=%u", curr_idx, x, lengths[curr_idx]);
+			UI symlen;
+
+			symlen = x-2;
+			de_dbg2(c, "len[%u]: code=%u => len=%u", curr_idx, x, symlen);
+			fmtutil_huffman_record_a_code_length(c, cctx->codes_tree.ht, (i32)curr_idx, symlen);
 			curr_idx++;
 		}
 	}
 	if(cctx->eof_flag) goto done;
 
-	cctx->codes_tree.ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
-
-	if(!fmtutil_huffman_make_canonical_tree(c, cctx->codes_tree.ht, lengths, ncodes)) goto done;
+	if(!fmtutil_huffman_make_canonical_tree(c, cctx->codes_tree.ht)) goto done;
 
 	retval = 1;
 done:
 	if(!retval) {
 		lzh_set_err_flag(cctx);
 	}
-	de_free(c, lengths);
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
@@ -302,7 +300,6 @@ static int lh5x_read_offsets_tree(struct lzh_ctx *cctx)
 	deark *c = cctx->c;
 	UI ncodes;
 	UI curr_idx;
-	UI *lengths = NULL; // array[ncodes]
 	int retval = 0;
 	int saved_indent_level;
 
@@ -323,26 +320,26 @@ static int lh5x_read_offsets_tree(struct lzh_ctx *cctx)
 		goto done;
 	}
 
-	lengths = de_mallocarray(c, ncodes, sizeof(UI));
+	cctx->offsets_tree.ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
 
 	curr_idx = 0;
 	while(curr_idx < ncodes) {
-		lengths[curr_idx] = lh5x_read_a_code_length(cctx);
-		de_dbg2(c, "len[%u] = %u", curr_idx, lengths[curr_idx]);
+		UI symlen;
+
+		symlen = lh5x_read_a_code_length(cctx);
+		de_dbg2(c, "len[%u] = %u", curr_idx, symlen);
+		fmtutil_huffman_record_a_code_length(c, cctx->offsets_tree.ht, (i32)curr_idx, symlen);
 		curr_idx++;
 	}
 	if(cctx->eof_flag) goto done;
 
-	cctx->offsets_tree.ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
-
-	if(!fmtutil_huffman_make_canonical_tree(c, cctx->offsets_tree.ht, lengths, ncodes)) goto done;
+	if(!fmtutil_huffman_make_canonical_tree(c, cctx->offsets_tree.ht)) goto done;
 
 	retval = 1;
 done:
 	if(!retval) {
 		lzh_set_err_flag(cctx);
 	}
-	de_free(c, lengths);
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
@@ -499,7 +496,6 @@ static int dmsheavy_read_codes_tree(struct lzh_ctx *cctx, struct lzh_tree_wrappe
 	deark *c = cctx->c;
 	UI ncodes;
 	UI curr_idx;
-	UI *lengths = NULL; // array[ncodes]
 	int retval = 0;
 	int saved_indent_level;
 
@@ -517,26 +513,26 @@ static int dmsheavy_read_codes_tree(struct lzh_ctx *cctx, struct lzh_tree_wrappe
 		goto done;
 	}
 
-	lengths = de_mallocarray(c, ncodes, sizeof(UI));
+	htw->ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
 
 	curr_idx = 0;
 	while(curr_idx < ncodes) {
-		lengths[curr_idx] = (UI)lzh_getbits(cctx, 5);
-		de_dbg2(c, "len[%u] = %u", curr_idx, lengths[curr_idx]);
+		UI symlen;
+
+		symlen = (UI)lzh_getbits(cctx, 5);
+		de_dbg2(c, "len[%u] = %u", curr_idx, symlen);
+		fmtutil_huffman_record_a_code_length(c, htw->ht, (i32)curr_idx, symlen);
 		curr_idx++;
 	}
 	if(cctx->eof_flag) goto done;
 
-	htw->ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
-
-	if(!fmtutil_huffman_make_canonical_tree(c, htw->ht, lengths, ncodes)) goto done;
+	if(!fmtutil_huffman_make_canonical_tree(c, htw->ht)) goto done;
 
 	retval = 1;
 done:
 	if(!retval) {
 		lzh_set_err_flag(cctx);
 	}
-	de_free(c, lengths);
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
@@ -546,7 +542,6 @@ static int dmsheavy_read_offsets_tree(struct lzh_ctx *cctx, struct lzh_tree_wrap
 	deark *c = cctx->c;
 	UI ncodes;
 	UI curr_idx;
-	UI *lengths = NULL; // array[ncodes]
 	int retval = 0;
 	int saved_indent_level;
 
@@ -564,26 +559,26 @@ static int dmsheavy_read_offsets_tree(struct lzh_ctx *cctx, struct lzh_tree_wrap
 		goto done;
 	}
 
-	lengths = de_mallocarray(c, ncodes, sizeof(UI));
+	htw->ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
 
 	curr_idx = 0;
 	while(curr_idx < ncodes) {
-		lengths[curr_idx] = (UI)lzh_getbits(cctx, 4);
-		de_dbg2(c, "len[%u] = %u", curr_idx, lengths[curr_idx]);
+		UI symlen;
+
+		symlen = (UI)lzh_getbits(cctx, 4);
+		de_dbg2(c, "len[%u] = %u", curr_idx, symlen);
+		fmtutil_huffman_record_a_code_length(c, htw->ht, (i32)curr_idx, symlen);
 		curr_idx++;
 	}
 	if(cctx->eof_flag) goto done;
 
-	htw->ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
-
-	if(!fmtutil_huffman_make_canonical_tree(c, htw->ht, lengths, ncodes)) goto done;
+	if(!fmtutil_huffman_make_canonical_tree(c, htw->ht)) goto done;
 
 	retval = 1;
 done:
 	if(!retval) {
 		lzh_set_err_flag(cctx);
 	}
-	de_free(c, lengths);
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
