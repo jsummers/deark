@@ -821,9 +821,13 @@ struct dms_track_info {
 	i64 cmpr_len;
 	i64 intermediate_len;
 	i64 uncmpr_len;
-	UI flags;
+	UI track_flags;
 	UI cmpr_type;
 	u8 is_real;
+	u32 cksum_reported;
+	u32 crc_cmprdata_reported;
+	u32 crc_header_reported;
+	u32 cksum_calc;
 	char shortname[80];
 };
 
@@ -1012,9 +1016,9 @@ static void do_decompress_heavy(deark *c, struct dmsctx *d, struct dms_track_inf
 	else {
 		lzhparams.subfmt = 2; // heavy2
 	}
-	lzhparams.dms_track_flags = tri->flags;
+	lzhparams.dms_track_flags = tri->track_flags;
 
-	if(tri->flags & 0x04) {
+	if(tri->track_flags & 0x04) {
 		do_decompress_heavy_lzh_rle(c, d, tri, dcmpri, dcmpro, dres, &lzhparams);
 	}
 	else {
@@ -1046,6 +1050,8 @@ static int dms_decompress_track(deark *c, struct dmsctx *d, struct dms_track_inf
 	dcmpro.f = outf;
 	dcmpro.len_known = 1;
 	dcmpro.expected_len = tri->uncmpr_len;
+
+	tri->cksum_calc = 0;
 
 	switch(tri->cmpr_type) {
 	case 0:
@@ -1092,6 +1098,29 @@ done:
 	return retval;
 }
 
+
+static int dms_checksum_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
+	i64 buf_len)
+{
+	u32 *cksum = (u32*)brctx->userdata;
+	i64 i;
+
+	for(i=0; i<buf_len; i++) {
+		*cksum += (u32)buf[i];
+	}
+	return 1;
+}
+
+// outf is presumed to be membuf containing one track, and nothing else.
+static u32 dms_calc_checksum(deark *c, dbuf *outf)
+{
+	u32 cksum = 0;
+
+	dbuf_buffered_read(outf, 0, outf->len, dms_checksum_cbfn, (void*)&cksum);
+	cksum &= 0xffff;
+	return cksum;
+}
+
 // Read track and decompress to outf (which caller supplies as an empty membuf).
 // track_idx: the index into d->tracks_by_file_order
 // Returns nonzero if successfully decompressed.
@@ -1125,14 +1154,28 @@ static int dms_read_and_decompress_track(deark *c, struct dmsctx *d,
 	tri->uncmpr_len = de_getu16be_p(&pos);
 	de_dbg(c, "uncmpr len: %"I64_FMT, tri->uncmpr_len);
 
-	tri->flags = (UI)de_getbyte_p(&pos);
-	de_dbg(c, "track flags: 0x%02x", tri->flags);
+	tri->track_flags = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "track flags: 0x%02x", tri->track_flags);
 	tri->cmpr_type = (UI)de_getbyte_p(&pos);
 	de_dbg(c, "track cmpr type: %u (%s)", tri->cmpr_type, dms_get_cmprtype_name(tri->cmpr_type));
-	// TODO: CRC/checksum validation
+	tri->cksum_reported = (u32)de_getu16be_p(&pos);
+	de_dbg(c, "checksum (reported): 0x%04x", (UI)tri->cksum_reported);
+	tri->crc_cmprdata_reported = (u32)de_getu16be_p(&pos);
+	de_dbg(c, "crc of cmpr data (reported): 0x%04x", (UI)tri->crc_cmprdata_reported);
+	tri->crc_header_reported = (u32)de_getu16be_p(&pos);
+	de_dbg(c, "crc of header (reported): 0x%04x", (UI)tri->crc_header_reported);
 
 	tri->dpos = pos1 + DMS_TRACK_HDR_LEN;
+	de_dbg(c, "cmpr data pos: %"I64_FMT, tri->dpos);
+
 	if(!dms_decompress_track(c, d, tri, outf)) goto done;
+
+	tri->cksum_calc = dms_calc_checksum(c, outf);
+	de_dbg(c, "checksum (calculated): 0x%04x", (UI)tri->cksum_calc);
+	if(tri->cksum_calc != tri->cksum_reported) {
+		de_err(c, "Checksum check failed");
+		goto done;
+	}
 	retval = 1;
 
 done:
@@ -1147,7 +1190,7 @@ static void do_dms_real_tracks(deark *c, struct dmsctx *d)
 	dbuf *outf = NULL;
 	dbuf *trackbuf = NULL;
 
-	trackbuf = dbuf_create_membuf(c, 0, 0);
+	trackbuf = dbuf_create_membuf(c, 11264, 0);
 
 	for(i=d->first_track; i<=d->last_track; i++) {
 		int ret;
@@ -1187,7 +1230,7 @@ static void do_dms_extra_tracks(deark *c, struct dmsctx *d)
 		if(d->tracks_by_file_order[i].is_real) continue;
 
 		if(!trackbuf) {
-			trackbuf = dbuf_create_membuf(c, 0, 0);
+			trackbuf = dbuf_create_membuf(c, 11264, 0);
 		}
 
 		dbuf_truncate(trackbuf, 0);
@@ -1272,6 +1315,8 @@ static int dms_scan_file(deark *c, struct dmsctx *d, i64 pos1)
 		i64 track_num_reported;
 		i64 cmpr_len;
 		i64 uncmpr_len;
+		u8 track_flags;
+		u8 cmpr_type;
 
 		if(pos+DMS_TRACK_HDR_LEN > c->infile->len) break;
 
@@ -1287,9 +1332,12 @@ static int dms_scan_file(deark *c, struct dmsctx *d, i64 pos1)
 		track_num_reported = de_getu16be(pos+2);
 		cmpr_len = de_getu16be(pos+6);
 		uncmpr_len = de_getu16be(pos+10);
+		track_flags = de_getbyte(pos+12);
+		cmpr_type = de_getbyte(pos+13);
 
-		de_dbg(c, "track[%d] at %"I64_FMT", #%d, len=%"I64_FMT"/%"I64_FMT,
-			(int)d->num_tracks_in_file, pos, (int)track_num_reported, cmpr_len, uncmpr_len);
+		de_dbg(c, "track[%d] at %"I64_FMT", #%d, len=%"I64_FMT"/%"I64_FMT", cmpr=%u, flags=0x%02x",
+			(int)d->num_tracks_in_file, pos, (int)track_num_reported, cmpr_len, uncmpr_len,
+			(UI)cmpr_type, (UI)track_flags);
 
 		d->tracks_by_file_order[d->num_tracks_in_file].file_pos = pos;
 		d->tracks_by_file_order[d->num_tracks_in_file].track_num = (u32)track_num_reported;
