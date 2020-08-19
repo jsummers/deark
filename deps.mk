@@ -4,8 +4,8 @@ $(OBJDIR)/modules/afcp.o: modules/afcp.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/alphabmp.o: modules/alphabmp.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
-$(OBJDIR)/modules/amiga-dsk.o: modules/amiga-dsk.c src/deark-config.h \
- src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/amiga-dsk.o: modules/amiga-dsk.c src/deark-private.h \
+ src/deark.h src/deark-config.h
 $(OBJDIR)/modules/amigaicon.o: modules/amigaicon.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/ansiart.o: modules/ansiart.c src/deark-config.h \
@@ -64,6 +64,8 @@ $(OBJDIR)/modules/crush.o: modules/crush.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/d64.o: modules/d64.c src/deark-config.h \
  src/deark-private.h src/deark.h
+$(OBJDIR)/modules/dms.o: modules/dms.c src/deark-private.h src/deark.h \
+ src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/drhalo.o: modules/drhalo.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/dsstore.o: modules/dsstore.c src/deark-config.h \

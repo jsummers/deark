@@ -499,6 +499,9 @@
     <ClCompile Include="..\..\src\fmtutil-lzh.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\modules\dms.c">
+      <Filter>Modules</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\deark-config.h">
