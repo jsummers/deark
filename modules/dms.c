@@ -630,6 +630,9 @@ static void do_decompress_heavy(deark *c, struct dmsctx *d, struct dms_track_inf
 {
 	struct dmslzh_params lzhparams;
 
+	// TODO: If a previous attempted Heavy decompression failed, this one probably
+	// (under some conditions?) can't succeed, and shouldn't be attempted.
+
 	de_zeromem(&lzhparams, sizeof(struct dmslzh_params));
 	lzhparams.fmt = DE_LZH_FMT_DMS_HEAVY;
 	if(tri->cmpr_type==5) {
@@ -804,67 +807,56 @@ done:
 	return retval;
 }
 
-static void do_dms_real_tracks(deark *c, struct dmsctx *d)
+static void write_extra_track(deark *c, struct dmsctx *d, i64 track_idx, dbuf *trackbuf)
+{
+	char ext[80];
+	dbuf *outf_extra = NULL;
+
+	de_snprintf(ext, sizeof(ext), "extratrack%d.bin",
+		(int)d->tracks_by_file_order[track_idx].track_num);
+	outf_extra = dbuf_create_output_file(c, ext, NULL, DE_CREATEFLAG_IS_AUX);
+	dbuf_copy(trackbuf, 0, trackbuf->len, outf_extra);
+	dbuf_close(outf_extra);
+}
+
+// Write out all the tracks, whether real or extra.
+static void do_dms_main(deark *c, struct dmsctx *d)
 {
 	i64 i;
+	int failure_flag = 0;
 	dbuf *outf = NULL;
 	dbuf *trackbuf = NULL;
 
 	trackbuf = dbuf_create_membuf(c, 11264, 0);
+	outf = dbuf_create_output_file(c, "adf", NULL, 0);
 
-	for(i=d->first_track; i<=d->last_track; i++) {
-		int ret;
-		u32 file_idx;
+	for(i=0; i<d->num_tracks_in_file; i++) {
+		int ret_dcmpr;
 
-		if(!d->tracks_by_track_num[i].in_use) {
+		if(failure_flag && d->tracks_by_file_order[i].is_real) {
 			continue;
 		}
 
-		file_idx = d->tracks_by_track_num[i].order_in_file;
-
 		dbuf_truncate(trackbuf, 0);
-		ret = dms_read_and_decompress_track(c, d, file_idx, trackbuf);
-		if(!ret) goto done;
 
-		if(!outf) {
-			outf = dbuf_create_output_file(c, "adf", NULL, 0);
+		ret_dcmpr = dms_read_and_decompress_track(c, d, i, trackbuf);
+
+		if(!ret_dcmpr) {
+			if(d->tracks_by_file_order[i].is_real) {
+				failure_flag = 1;
+			}
+			continue;
 		}
-		dbuf_copy(trackbuf, 0, trackbuf->len, outf);
+
+		if(d->tracks_by_file_order[i].is_real) {
+			dbuf_copy(trackbuf, 0, trackbuf->len, outf);
+		}
+		else {
+			write_extra_track(c, d, i, trackbuf);
+		}
 	}
 
-done:
 	dbuf_close(outf);
-	dbuf_close(trackbuf);
-}
-
-static void do_dms_extra_tracks(deark *c, struct dmsctx *d)
-{
-	i64 i;
-	dbuf *trackbuf = NULL;
-
-	for(i=0; i<d->num_tracks_in_file; i++) {
-		int ret;
-		dbuf *outf = NULL;
-		char ext[80];
-
-		if(d->tracks_by_file_order[i].is_real) continue;
-
-		if(!trackbuf) {
-			trackbuf = dbuf_create_membuf(c, 11264, 0);
-		}
-
-		dbuf_truncate(trackbuf, 0);
-		ret = dms_read_and_decompress_track(c, d, i, trackbuf);
-		if(!ret) continue;
-
-		de_snprintf(ext, sizeof(ext), "extratrack%d.bin",
-			(int)d->tracks_by_file_order[i].track_num);
-		outf = dbuf_create_output_file(c, ext, NULL, DE_CREATEFLAG_IS_AUX);
-		dbuf_copy(trackbuf, 0, trackbuf->len, outf);
-		dbuf_close(outf);
-		outf = NULL;
-	}
-
 	dbuf_close(trackbuf);
 }
 
@@ -924,6 +916,7 @@ static int dms_scan_file(deark *c, struct dmsctx *d, i64 pos1)
 {
 	i64 pos = pos1;
 	i64 i;
+	i64 next_real_tracknum_expected;
 	int retval = 0;
 
 	de_dbg(c, "scanning file");
@@ -977,11 +970,26 @@ static int dms_scan_file(deark *c, struct dmsctx *d, i64 pos1)
 	// with the second one being the real one.
 	for(i=d->first_track; i<=d->last_track; i++) {
 		if(!d->tracks_by_track_num[i].in_use) {
+			// TODO: Maybe we should write a track of all zeroes instead (but how many zeroes?)
 			de_err(c, "Could not find track #%d", (int)i);
 			goto done;
 		}
 
 		d->tracks_by_file_order[d->tracks_by_track_num[i].order_in_file].is_real = 1;
+	}
+
+	next_real_tracknum_expected = 0;
+	for(i=0; i<d->num_tracks_in_file; i++) {
+		if(d->tracks_by_file_order[i].is_real) {
+			// Heavy compression, at least, requires us to decompress the tracks in
+			// a particular order -- I'm assuming the order they appear in the file.
+			// I'm not going to bother supporting out-of-order tracks, at least until
+			// I learn that such files exist.
+			if(d->tracks_by_file_order[i].track_num != next_real_tracknum_expected) {
+				de_err(c, "Track numbers not in order. Not supported.");
+			}
+			next_real_tracknum_expected++;
+		}
 	}
 
 	retval = 1;
@@ -999,8 +1007,7 @@ static void de_run_amiga_dms(deark *c, de_module_params *mparams)
 
 	if(!do_dms_header(c, d, 0)) goto done;
 	if(!dms_scan_file(c, d, DMS_FILE_HDR_LEN)) goto done;
-	do_dms_real_tracks(c, d);
-	do_dms_extra_tracks(c, d);
+	do_dms_main(c, d);
 
 done:
 	de_free(c, d);
