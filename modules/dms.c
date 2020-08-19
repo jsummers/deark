@@ -12,8 +12,6 @@
 
 DE_DECLARE_MODULE(de_module_amiga_dms);
 
-////////////////////////// DMS //////////////////////////
-
 // Used as both the maximum number of physical tracks in the file, and (one more
 // than) the highest logical track number allowed for a "real" track.
 #define DMS_MAX_TRACKS 200
@@ -49,6 +47,7 @@ struct dms_tracks_by_track_num_entry {
 };
 
 struct dmsctx {
+	u8 support_lzh;
 	UI info_bits;
 	UI cmpr_type;
 	i64 first_track, last_track;
@@ -86,6 +85,421 @@ static void read_unix_timestamp(deark *c, i64 pos, struct de_timestamp *ts, cons
 	de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "%s: %"I64_FMT" (%s)", name, t, timestamp_buf);
 }
+
+/////// Heavy (LZH) compression ///////
+
+// TODO: LZH doesn't work yet, because the compression state must be maintained
+// between tracks, in some cases. That's also why we're not using
+// fmtutil_decompress_lzh(), etc., and instead have copy-pasted a lot of its code.
+// At this point, I'm not sure if some genericized method of saving LZH state would
+// be worth adding to the fmtutil-lzh.c subsystem.
+
+struct lzh_tree_wrapper {
+	struct fmtutil_huffman_tree *ht;
+	UI null_val; // Used if ht==NULL
+};
+
+struct lzh_ctx {
+	deark *c;
+	struct de_dfilter_in_params *dcmpri;
+	struct de_dfilter_out_params *dcmpro;
+	struct de_dfilter_results *dres;
+	const char *modname;
+
+	i64 curpos;
+	i64 endpos;
+	i64 nbytes_written;
+	int eof_flag; // Always set if err_flag is set.
+	int err_flag;
+
+	u64 bit_buf;
+	UI nbits_in_bitbuf;
+
+	struct de_lz77buffer *ringbuf;
+
+	struct lzh_tree_wrapper codes_tree;
+	struct lzh_tree_wrapper offsets_tree;
+
+	UI dms_np;
+};
+
+struct dmslzh_params {
+#define DE_LZH_FMT_DMS_HEAVY     2 // heavy1:subfmt==1, heavy2:subfmt==2
+	int fmt;
+	int subfmt;
+	u8 dms_track_flags;
+};
+
+static void lzh_set_eof_flag(struct lzh_ctx *cctx)
+{
+	cctx->eof_flag = 1;
+}
+
+static void lzh_set_err_flag(struct lzh_ctx *cctx)
+{
+	lzh_set_eof_flag(cctx);
+	cctx->err_flag = 1;
+}
+
+static void lzh_add_byte_to_bitbuf(struct lzh_ctx *cctx, u8 n)
+{
+	cctx->bit_buf = (cctx->bit_buf<<8) | n;
+	cctx->nbits_in_bitbuf += 8;
+}
+
+static u64 lzh_getbits(struct lzh_ctx *cctx, UI nbits)
+{
+	u64 n;
+
+	if(cctx->eof_flag) return 0;
+	if(nbits > 48) {
+		lzh_set_err_flag(cctx);
+		return 0;
+	}
+	if(nbits==0) return 0;
+
+	while(cctx->nbits_in_bitbuf < nbits) {
+		u8 b;
+
+		if(cctx->curpos >= cctx->endpos) {
+			lzh_set_eof_flag(cctx);
+			return 0;
+		}
+		b = dbuf_getbyte_p(cctx->dcmpri->f, &cctx->curpos);
+		lzh_add_byte_to_bitbuf(cctx, b);
+	}
+
+	cctx->nbits_in_bitbuf -= nbits;
+	n = cctx->bit_buf >> cctx->nbits_in_bitbuf;
+	cctx->bit_buf &= ((u64)1 << cctx->nbits_in_bitbuf)-1;
+	return n;
+}
+
+static int lzh_have_enough_output(struct lzh_ctx *cctx)
+{
+	if(cctx->dcmpro->len_known) {
+		if(cctx->nbytes_written >= cctx->dcmpro->expected_len) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static void lha5like_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
+{
+	struct lzh_ctx *cctx = (struct lzh_ctx*)rb->userdata;
+
+	if(lzh_have_enough_output(cctx)) {
+		return;
+	}
+	dbuf_writebyte(cctx->dcmpro->f, n);
+	cctx->nbytes_written++;
+}
+
+static UI read_next_code_using_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *tree)
+{
+	i32 val = 0;
+	int tmp_count = 0;
+
+	if(!tree->ht) {
+		return tree->null_val;
+	}
+
+	while(1) {
+		int ret;
+		u8 b;
+
+		b = (u8)lzh_getbits(cctx, 1);
+		if(cctx->eof_flag) {
+			de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
+				"Unexpected end of compressed data");
+			lzh_set_err_flag(cctx);
+			val = 0;
+			goto done;
+		}
+
+		tmp_count++;
+
+		ret = fmtutil_huffman_decode_bit(tree->ht, b, &val);
+		if(ret==1) { // finished the code
+			if(cctx->c->debug_level>=3) {
+				de_dbg3(cctx->c, "hbits: %d", tmp_count);
+			}
+			goto done;
+		}
+		else if(ret!=2) {
+			de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
+				"Huffman decoding error");
+			lzh_set_err_flag(cctx);
+			val = 0;
+			goto done;
+		}
+	}
+done:
+	return (UI)val;
+}
+
+static int dmsheavy_read_codes_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *htw)
+{
+	deark *c = cctx->c;
+	UI ncodes;
+	UI curr_idx;
+	int retval = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "c tree");
+	de_dbg_indent(c, 1);
+
+	ncodes = (UI)lzh_getbits(cctx, 9);
+	de_dbg(c, "num codes: %u", ncodes);
+
+	if(ncodes==0) {
+		htw->null_val = (UI)lzh_getbits(cctx, 9);
+		de_dbg2(c, "val0: %u", htw->null_val);
+		retval = 1;
+		goto done;
+	}
+
+	htw->ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
+
+	curr_idx = 0;
+	while(curr_idx < ncodes) {
+		UI symlen;
+
+		symlen = (UI)lzh_getbits(cctx, 5);
+		de_dbg2(c, "len[%u] = %u", curr_idx, symlen);
+		fmtutil_huffman_record_a_code_length(c, htw->ht, (i32)curr_idx, symlen);
+		curr_idx++;
+	}
+	if(cctx->eof_flag) goto done;
+
+	if(!fmtutil_huffman_make_canonical_tree(c, htw->ht)) goto done;
+
+	retval = 1;
+done:
+	if(!retval) {
+		lzh_set_err_flag(cctx);
+	}
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static int dmsheavy_read_offsets_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *htw)
+{
+	deark *c = cctx->c;
+	UI ncodes;
+	UI curr_idx;
+	int retval = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "p tree");
+	de_dbg_indent(c, 1);
+
+	ncodes = (UI)lzh_getbits(cctx, 5);
+	de_dbg(c, "num codes: %u", ncodes);
+
+	if(ncodes==0) {
+		htw->null_val = (UI)lzh_getbits(cctx, 5);
+		de_dbg2(c, "val0: %u", htw->null_val);
+		retval = 1;
+		goto done;
+	}
+
+	htw->ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
+
+	curr_idx = 0;
+	while(curr_idx < ncodes) {
+		UI symlen;
+
+		symlen = (UI)lzh_getbits(cctx, 4);
+		de_dbg2(c, "len[%u] = %u", curr_idx, symlen);
+		fmtutil_huffman_record_a_code_length(c, htw->ht, (i32)curr_idx, symlen);
+		curr_idx++;
+	}
+	if(cctx->eof_flag) goto done;
+
+	if(!fmtutil_huffman_make_canonical_tree(c, htw->ht)) goto done;
+
+	retval = 1;
+done:
+	if(!retval) {
+		lzh_set_err_flag(cctx);
+	}
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static void dmsheavy_do_lzh_internal(struct lzh_ctx *cctx)
+{
+	deark *c = cctx->c;
+	UI prev_offset = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	if(!cctx->dcmpro->len_known) {
+		// I think we (may) have to know the output length, because zero-length Huffman
+		// codes are(?) possible, and unlike lh5 we aren't told how many codes there are.
+		de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname, "Internal error");
+		goto done;
+	}
+
+	if(!dmsheavy_read_codes_tree(cctx, &cctx->codes_tree)) goto done;
+	if(!dmsheavy_read_offsets_tree(cctx, &cctx->offsets_tree)) goto done;
+
+	de_dbg(c, "cmpr data codes at %"I64_FMT" minus %u bits", cctx->curpos, cctx->nbits_in_bitbuf);
+	de_dbg_indent(c, 1);
+	while(1) {
+		UI code;
+
+		if(cctx->eof_flag) goto done;
+		if(lzh_have_enough_output(cctx)) goto done;
+
+		code = read_next_code_using_tree(cctx, &cctx->codes_tree);
+		if(cctx->eof_flag) goto done;
+		if(c->debug_level>=3) {
+			de_dbg3(c, "code: %u (opos=%"I64_FMT")", code, cctx->dcmpro->f->len);
+		}
+
+		if(code < 256) { // literal
+			de_lz77buffer_add_literal_byte(cctx->ringbuf, (u8)code);
+		}
+		else { // repeat previous bytes
+			UI offset;
+			UI length;
+			UI ocode1;
+
+			length = code-253;
+			de_dbg3(c, "length: %u", length);
+
+			ocode1 = read_next_code_using_tree(cctx, &cctx->offsets_tree);
+			if(cctx->eof_flag) goto done;
+			de_dbg3(c, "ocode1: %u", ocode1);
+
+			//if(ocode1 >= cctx->dms_np) {
+			//	TODO: Is this a special case we need to handle?
+			//}
+
+			if(ocode1 == cctx->dms_np-1) {
+				offset = prev_offset;
+			}
+			else {
+				if(ocode1 < 1) {
+					offset = ocode1;
+				}
+				else {
+					UI ocode2;
+
+					ocode2 = (UI)lzh_getbits(cctx, ocode1-1);
+					if(cctx->eof_flag) goto done;
+					de_dbg3(c, "ocode2: %u", ocode2);
+
+					offset = ocode2 | (1U<<(ocode1-1));
+				}
+				prev_offset = offset;
+			}
+
+			de_dbg3(c, "offset: %u", offset);
+
+			de_lz77buffer_copy_from_hist(cctx->ringbuf,
+				(UI)(cctx->ringbuf->curpos-offset-1), length);
+		}
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzhp)
+{
+	UI rb_size;
+
+	if(lzhp->subfmt!=1 && lzhp->subfmt!=2) return;
+
+	if(!(lzhp->dms_track_flags & 0x02)) { // = no huffman trees?
+		de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
+			"This variant of Heavy compression is not supported");
+		goto done;
+	}
+
+	if(lzhp->subfmt==1) {
+		rb_size = 4096;
+		cctx->dms_np = 14; // for heavy1
+	}
+	else {
+		rb_size = 8192;
+		cctx->dms_np = 15; // for heavy2
+	}
+
+	cctx->ringbuf = de_lz77buffer_create(cctx->c, rb_size);
+	cctx->ringbuf->userdata = (void*)cctx;
+	cctx->ringbuf->writebyte_cb = lha5like_lz77buf_writebytecb;
+	de_lz77buffer_clear(cctx->ringbuf, 0x20); // TODO: Is this right?
+
+	dmsheavy_do_lzh_internal(cctx);
+
+done:
+	;
+}
+
+static void decompress_dmslzh(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	struct dmslzh_params *lzhp)
+{
+	struct lzh_ctx *cctx = NULL;
+
+	cctx = de_malloc(c, sizeof(struct lzh_ctx));
+	cctx->modname = "undmslzh";
+	cctx->c = c;
+	cctx->dcmpri = dcmpri;
+	cctx->dcmpro = dcmpro;
+	cctx->dres = dres;
+
+	cctx->curpos = dcmpri->pos;
+	cctx->endpos = dcmpri->pos + dcmpri->len;
+
+	if(lzhp->fmt==DE_LZH_FMT_DMS_HEAVY) {
+		decompress_dms_heavy(cctx, lzhp);
+	}
+	else {
+		de_dfilter_set_errorf(c, dres, cctx->modname,
+			"Don't know how to decompress this LZH format");
+		goto done;
+	}
+
+	if(cctx->err_flag) {
+		// A default error message
+		de_dfilter_set_errorf(c, dres, cctx->modname, "LZH decoding error");
+		goto done;
+	}
+
+	cctx->dres->bytes_consumed = cctx->curpos - cctx->dcmpri->pos;
+	cctx->dres->bytes_consumed -= cctx->nbits_in_bitbuf / 8;
+	if(cctx->dres->bytes_consumed<0) {
+		cctx->dres->bytes_consumed = 0;
+	}
+	cctx->dres->bytes_consumed_valid = 1;
+
+done:
+	if(cctx) {
+		fmtutil_huffman_destroy_tree(c, cctx->codes_tree.ht);
+		fmtutil_huffman_destroy_tree(c, cctx->offsets_tree.ht);
+		de_lz77buffer_destroy(c, cctx->ringbuf);
+		de_free(c, cctx);
+	}
+}
+
+static void dmslzh_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params)
+{
+	decompress_dmslzh(c, dcmpri, dcmpro, dres,
+		(struct dmslzh_params *)codec_private_params);
+}
+
+/////// RLE compression ///////
 
 // DMS RLE:
 // n1     n2          n3  n4  n5
@@ -190,14 +604,16 @@ static void dmsrle_codec(struct de_dfilter_ctx *dfctx, void *codec_private_param
 	dfctx->codec_destroy_fn = dmsrle_codec_destroy;
 }
 
+///////////////////////////////////
+
 static void do_decompress_heavy_lzh_rle(deark *c, struct dmsctx *d, struct dms_track_info *tri,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
-	struct de_dfilter_results *dres, struct de_lzh_params *lzhparams)
+	struct de_dfilter_results *dres, struct dmslzh_params *lzhparams)
 {
 	struct de_dcmpr_two_layer_params tlp;
 
 	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
-	tlp.codec1_type1 = fmtutil_lzh_codectype1;
+	tlp.codec1_type1 = dmslzh_codectype1;
 	tlp.codec1_private_params = (void*)lzhparams;
 	tlp.codec2 = dmsrle_codec;
 	tlp.dcmpri = dcmpri;
@@ -212,9 +628,9 @@ static void do_decompress_heavy(deark *c, struct dmsctx *d, struct dms_track_inf
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	struct de_lzh_params lzhparams;
+	struct dmslzh_params lzhparams;
 
-	de_zeromem(&lzhparams, sizeof(struct de_lzh_params));
+	de_zeromem(&lzhparams, sizeof(struct dmslzh_params));
 	lzhparams.fmt = DE_LZH_FMT_DMS_HEAVY;
 	if(tri->cmpr_type==5) {
 		lzhparams.subfmt = 1; // heavy1
@@ -229,7 +645,7 @@ static void do_decompress_heavy(deark *c, struct dmsctx *d, struct dms_track_inf
 	}
 	else {
 		// LZH, no RLE
-		fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres, &lzhparams);
+		decompress_dmslzh(c, dcmpri, dcmpro, dres, &lzhparams);
 	}
 }
 
@@ -259,19 +675,17 @@ static int dms_decompress_track(deark *c, struct dmsctx *d, struct dms_track_inf
 
 	tri->cksum_calc = 0;
 
-	switch(tri->cmpr_type) {
-	case 0:
+	if(tri->cmpr_type==0) {
 		fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
-		break;
-	case 1:
+	}
+	else if(tri->cmpr_type==1) {
 		de_dfilter_decompress_oneshot(c, dmsrle_codec, NULL,
 			&dcmpri, &dcmpro, &dres);
-		break;
-	case 5: // heavy1
-	case 6: // heavy2
+	}
+	else if((tri->cmpr_type==5 || tri->cmpr_type==6) && d->support_lzh) {
 		do_decompress_heavy(c, d, tri, &dcmpri, &dcmpro, &dres);
-		break;
-	default:
+	}
+	else {
 		de_err(c, "[%s] Unsupported compression method: %u (%s)",
 			tri->shortname, tri->cmpr_type,
 			dms_get_cmprtype_name(tri->cmpr_type));
@@ -581,6 +995,8 @@ static void de_run_amiga_dms(deark *c, de_module_params *mparams)
 	struct dmsctx *d = NULL;
 
 	d = de_malloc(c, sizeof(struct dmsctx));
+	d->support_lzh = (u8)de_get_ext_option_bool(c, "dms:lzh", 0);
+
 	if(!do_dms_header(c, d, 0)) goto done;
 	if(!dms_scan_file(c, d, DMS_FILE_HDR_LEN)) goto done;
 	do_dms_real_tracks(c, d);

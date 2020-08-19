@@ -160,10 +160,8 @@ void dfilter_hlp_lz77_codec(struct de_dfilter_ctx *dfctx, void *codec_private_pa
 
 struct de_lzh_params {
 #define DE_LZH_FMT_LH5LIKE       1 // subfmt=='5' (etc.)
-#define DE_LZH_FMT_DMS_HEAVY     2 // heavy1:subfmt==1, heavy2:subfmt==2
 	int fmt;
 	int subfmt;
-	u8 dms_track_flags;
 };
 void fmtutil_decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
