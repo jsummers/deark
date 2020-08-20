@@ -632,6 +632,9 @@ Deark -- Information about supported formats
 
 * D64 (Commodore 64 disk format) (module="d64") (experimental)
 
+* DMS (Amiga disk image) (module="amiga_adf") (experimental, incomplete)
+  - Decompresses to ADF format.
+
 * Doom WAD (module="wad")
   - The extracted files are usually in specialized formats.
 
