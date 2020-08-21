@@ -51,6 +51,17 @@ done:
 	return retval;
 }
 
+static void decompress_zoo_lzd(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, int maxbits)
+{
+	struct de_lzw_params delzwp;
+
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
+	delzwp.fmt = DE_LZWFMT_ZOOLZD;
+	delzwp.max_code_size = (unsigned int)maxbits;
+	fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
+}
+
 static void do_packdir_file_compressed(deark *c, struct pdctx_struct *d,
 	struct pdctx_object *md, i64 pos, dbuf *outf)
 {
@@ -66,7 +77,7 @@ static void do_packdir_file_compressed(deark *c, struct pdctx_struct *d,
 	dcmpro.len_known = 1;
 	dcmpro.expected_len = md->orig_len;
 
-	fmtutil_decompress_zoo_lzd(c, &dcmpri, &dcmpro, &dres, d->lzw_maxbits);
+	decompress_zoo_lzd(c, &dcmpri, &dcmpro, &dres, d->lzw_maxbits);
 
 	if(dres.errcode) {
 		de_err(c, "%s: %s", ucstring_getpsz_d(md->name), de_dfilter_get_errmsg(c, &dres));

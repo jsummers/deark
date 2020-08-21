@@ -534,9 +534,6 @@
     <ClInclude Include="..\..\foreign\ozunreduce.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\foreign\unzoo-lzh.h">
-      <Filter>Foreign Code</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\foreign\delzw.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>

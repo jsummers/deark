@@ -212,11 +212,6 @@ void fmtutil_decompress_zip_implode(deark *c, struct de_dfilter_in_params *dcmpr
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int bit_flags, unsigned int flags);
 
-void fmtutil_decompress_zoo_lzd(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, int maxbits);
-void fmtutil_decompress_zoo_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
-
 // Wrapper for miniz' tdefl functions
 
 enum fmtutil_tdefl_status {
