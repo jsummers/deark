@@ -29,6 +29,8 @@ struct lzh_ctx {
 	u64 bit_buf;
 	UI nbits_in_bitbuf;
 
+	u8 stop_on_zero_codes_block;
+
 	struct de_lz77buffer *ringbuf;
 
 	UI lh5x_offset_nbits;
@@ -366,6 +368,19 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 	de_dbg_indent(c, 1);
 	de_dbg(cctx->c, "num codes: %u", (UI)ncodes_in_this_block);
 
+	if(ncodes_in_this_block==0) {
+		if(cctx->stop_on_zero_codes_block) {
+			de_dbg2(c, "stopping, 'stop' code found");
+		}
+		else {
+			// blocksize==0 does not seem to have a well-defined meaning in LHA,
+			// in general.
+			de_dbg(c, "stopping, 0-code block found (error?)");
+		}
+		cctx->eof_flag = 1;
+		goto done;
+	}
+
 	if(cctx->codelengths_tree.ht) {
 		fmtutil_huffman_destroy_tree(c, cctx->codelengths_tree.ht);
 		cctx->codelengths_tree.ht = NULL;
@@ -472,6 +487,8 @@ static void decompress_lha_lh5like(struct lzh_ctx *cctx, struct de_lzh_params *l
 		cctx->lh5x_offset_nbits = 4;
 		cctx->lh5x_offsets_tree_max_codes = 14;
 	}
+
+	cctx->stop_on_zero_codes_block = lzhp->stop_on_zero_codes_block;
 
 	cctx->ringbuf = de_lz77buffer_create(cctx->c, rb_size);
 	cctx->ringbuf->userdata = (void*)cctx;

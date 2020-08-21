@@ -397,6 +397,29 @@ done:
 	return retval;
 }
 
+static void decompress_lzh_new(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
+{
+	struct de_lzh_params lzhparams;
+
+	de_zeromem(&lzhparams, sizeof(struct de_lzh_params));
+	lzhparams.fmt = DE_LZH_FMT_LH5LIKE;
+	lzhparams.subfmt = '5';
+	lzhparams.stop_on_zero_codes_block = 1;
+	fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres, &lzhparams);
+}
+
+static void decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
+{
+	if(de_get_ext_option_bool(c, "zoo:old", 0)) {
+		fmtutil_decompress_zoo_lzh(c, dcmpri, dcmpro, dres);
+	}
+	else {
+		decompress_lzh_new(c, dcmpri, dcmpro, dres);
+	}
+}
+
 static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
 {
 	struct de_crcobj *crco = (struct de_crcobj *)userdata;
@@ -483,7 +506,7 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 		fmtutil_decompress_zoo_lzd(c, &dcmpri, &dcmpro, &dres, 13);
 		break;
 	case ZOOCMPR_LZH:
-		fmtutil_decompress_zoo_lzh(c, &dcmpri, &dcmpro, &dres);
+		decompress_lzh(c, &dcmpri, &dcmpro, &dres);
 		break;
 	default:
 		goto done; // Should be impossible
