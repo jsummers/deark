@@ -71,8 +71,8 @@ static const char *dms_get_cmprtype_name(UI n)
 	case 2: name="quick"; break;
 	case 3: name="medium"; break;
 	case 4: name="deep (LZ+dynamic_huffman + RLE)"; break;
-	case 5: name="heavy1"; break;
-	case 6: name="heavy2"; break;
+	case 5: name="heavy1 (LZ77-4K+Huffman + optional RLE)"; break;
+	case 6: name="heavy2 (LZ77-8K+Huffman + optional RLE)"; break;
 	}
 	return name?name:"?";
 }
@@ -737,6 +737,23 @@ static u32 dms_calc_checksum(deark *c, dbuf *outf)
 	return cksum;
 }
 
+static void get_trackflags_descr(deark *c, de_ucstring *s, UI tflags1, UI cmpr)
+{
+	UI tflags = tflags1;
+
+	if(cmpr==5 || cmpr==6) {
+		if(tflags & 0x4) {
+			ucstring_append_flags_item(s, "w/RLE");
+			tflags -= 0x4;
+		}
+		if(tflags & 0x2) {
+			ucstring_append_flags_item(s, "track_has_Huffman_tree_defs");
+			tflags -= 0x2;
+		}
+	}
+	ucstring_append_flags_itemf(s, "0x%x", tflags);
+}
+
 // Read track and decompress to outf (which caller supplies as an empty membuf).
 // track_idx: the index into d->tracks_by_file_order
 // Returns nonzero if successfully decompressed.
@@ -745,6 +762,7 @@ static int dms_read_and_decompress_track(deark *c, struct dmsctx *d,
 {
 	i64 pos1, pos;
 	struct dms_track_info *tri = NULL;
+	de_ucstring *descr = NULL;
 	int retval = 0;
 	int saved_indent_level;
 
@@ -771,8 +789,12 @@ static int dms_read_and_decompress_track(deark *c, struct dmsctx *d,
 	de_dbg(c, "uncmpr len: %"I64_FMT, tri->uncmpr_len);
 
 	tri->track_flags = (UI)de_getbyte_p(&pos);
-	de_dbg(c, "track flags: 0x%02x", tri->track_flags);
 	tri->cmpr_type = (UI)de_getbyte_p(&pos);
+
+	descr = ucstring_create(c);
+	get_trackflags_descr(c, descr, tri->track_flags, tri->cmpr_type);
+	de_dbg(c, "track flags: 0x%02x (%s)", tri->track_flags, ucstring_getpsz_d(descr));
+
 	de_dbg(c, "track cmpr type: %u (%s)", tri->cmpr_type, dms_get_cmprtype_name(tri->cmpr_type));
 	tri->cksum_reported = (u32)de_getu16be_p(&pos);
 	de_dbg(c, "checksum (reported): 0x%04x", (UI)tri->cksum_reported);
@@ -790,11 +812,12 @@ static int dms_read_and_decompress_track(deark *c, struct dmsctx *d,
 	de_dbg(c, "checksum (calculated): 0x%04x", (UI)tri->cksum_calc);
 	if(tri->cksum_calc != tri->cksum_reported) {
 		de_err(c, "[%s] Checksum check failed", tri->shortname);
-		//goto done;
+		goto done;
 	}
 	retval = 1;
 
 done:
+	ucstring_destroy(descr);
 	de_free(c, tri);
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
