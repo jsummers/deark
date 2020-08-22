@@ -551,5 +551,6 @@ struct de_lz77buffer {
  struct de_lz77buffer *de_lz77buffer_create(deark *c, UI bufsize);
  void de_lz77buffer_destroy(deark *c, struct de_lz77buffer *rb);
  void de_lz77buffer_clear(struct de_lz77buffer *rb, UI val);
+ void de_lz77buffer_set_curpos(struct de_lz77buffer *rb, UI newpos);
  void de_lz77buffer_add_literal_byte(struct de_lz77buffer *rb, u8 b);
  void de_lz77buffer_copy_from_hist(struct de_lz77buffer *rb, UI startpos, UI count);

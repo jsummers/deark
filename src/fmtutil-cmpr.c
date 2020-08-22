@@ -777,6 +777,11 @@ void de_lz77buffer_clear(struct de_lz77buffer *rb, UI val)
 	rb->curpos = 0;
 }
 
+void de_lz77buffer_set_curpos(struct de_lz77buffer *rb, UI newpos)
+{
+	rb->curpos = newpos & rb->mask;
+}
+
 void de_lz77buffer_add_literal_byte(struct de_lz77buffer *rb, u8 b)
 {
 	rb->writebyte_cb(rb, b);
