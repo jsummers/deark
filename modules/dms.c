@@ -19,6 +19,14 @@ DE_DECLARE_MODULE(de_module_amiga_dms);
 #define DMS_FILE_HDR_LEN 56
 #define DMS_TRACK_HDR_LEN 20
 
+#define DMSCMPR_NONE 0
+#define DMSCMPR_RLE 1
+#define DMSCMPR_QUICK 2
+#define DMSCMPR_MEDIUM 3
+#define DMSCMPR_DEEP 4
+#define DMSCMPR_HEAVY1 5
+#define DMSCMPR_HEAVY2 6
+
 struct dms_track_info {
 	i64 track_num; // The reported (logical) track number
 	i64 dpos;
@@ -46,6 +54,8 @@ struct dms_tracks_by_track_num_entry {
 	u8 in_use;
 };
 
+struct dmsheavy_cmpr_state;
+
 struct dmsctx {
 	u8 heavy_cmpr_failure_flag;
 	UI info_bits;
@@ -59,20 +69,20 @@ struct dmsctx {
 	// Entries potentially in use: .first_track <= n <= .last_track
 	struct dms_tracks_by_track_num_entry tracks_by_track_num[DMS_MAX_TRACKS];
 
-	struct lzh_ctx *saved_heavy_cctx;
+	struct dmsheavy_cmpr_state *saved_heavy_state;
 };
 
 static const char *dms_get_cmprtype_name(UI n)
 {
 	const char *name = NULL;
 	switch(n) {
-	case 0: name="uncompressed"; break;
-	case 1: name="simple (RLE)"; break;
-	case 2: name="quick"; break;
-	case 3: name="medium"; break;
-	case 4: name="deep (LZ+dynamic_huffman + RLE)"; break;
-	case 5: name="heavy1 (LZ77-4K+Huffman + optional RLE)"; break;
-	case 6: name="heavy2 (LZ77-8K+Huffman + optional RLE)"; break;
+	case DMSCMPR_NONE: name="uncompressed"; break;
+	case DMSCMPR_RLE: name="simple (RLE)"; break;
+	case DMSCMPR_QUICK: name="quick"; break;
+	case DMSCMPR_MEDIUM: name="medium"; break;
+	case DMSCMPR_DEEP: name="deep (LZ+dynamic_huffman + RLE)"; break;
+	case DMSCMPR_HEAVY1: name="heavy1 (LZ77-4K+Huffman + optional RLE)"; break;
+	case DMSCMPR_HEAVY2: name="heavy2 (LZ77-8K+Huffman + optional RLE)"; break;
 	}
 	return name?name:"?";
 }
@@ -101,9 +111,18 @@ struct lzh_tree_wrapper {
 	UI null_val; // Used if ht==NULL
 };
 
+// The portion of the Heavy decompression context that persists between tracks.
+struct dmsheavy_cmpr_state {
+	UI cmpr_type;
+	UI heavy_prev_offset;
+	struct de_lz77buffer *ringbuf;
+	u8 trees_exist;
+	struct lzh_tree_wrapper codes_tree;
+	struct lzh_tree_wrapper offsets_tree;
+};
+
+// The portion of the Heavy decompression context that does *not* persist between tracks.
 struct lzh_ctx {
-	// Note: When adding a field here, make sure it is correctly initialized in decompress_dmslzh().
-	// (TODO: Refactor this?)
 	deark *c;
 	struct de_dfilter_in_params *dcmpri;
 	struct de_dfilter_out_params *dcmpro;
@@ -120,20 +139,12 @@ struct lzh_ctx {
 	UI nbits_in_bitbuf;
 
 	UI heavy_np;
-	// Fields after this may need to persist between tracks.
-	struct de_lz77buffer *ringbuf;
-	u8 trees_exist;
-	struct lzh_tree_wrapper codes_tree;
-	struct lzh_tree_wrapper offsets_tree;
-	UI heavy_prev_offset;
 };
 
 struct dmslzh_params {
-#define DE_LZH_FMT_DMS_HEAVY     2 // heavy1:subfmt==1, heavy2:subfmt==2
-	int fmt;
-	int subfmt;
+	UI cmpr_type; // 5=heavy1, 6=heavy2
 	u8 dms_track_flags;
-	struct lzh_ctx *cctx;
+	struct dmsheavy_cmpr_state *heavy_state;
 };
 
 static void lzh_set_eof_flag(struct lzh_ctx *cctx)
@@ -297,7 +308,8 @@ static void dmsheavy_discard_tree(deark *c, struct lzh_tree_wrapper *htw)
 	htw->null_val = 0;
 }
 
-static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzhp)
+static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzhp,
+	struct dmsheavy_cmpr_state *hvst)
 {
 	deark *c = cctx->c;
 	UI rb_size;
@@ -306,9 +318,13 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	if(lzhp->subfmt!=1 && lzhp->subfmt!=2) return;
+	if(lzhp->cmpr_type != hvst->cmpr_type) {
+		de_dfilter_set_errorf(c, cctx->dres, cctx->modname,
+			"Mixing Heavy compression types is not supported");
+		goto done;
+	}
 
-	if(lzhp->subfmt==1) {
+	if(lzhp->cmpr_type==DMSCMPR_HEAVY1) {
 		rb_size = 4096;
 		cctx->heavy_np = 14; // for heavy1
 	}
@@ -317,19 +333,12 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 		cctx->heavy_np = 15; // for heavy2
 	}
 
-	// If we already have a suitable ringbuf, keep using it.
-
-	if(cctx->ringbuf && (cctx->ringbuf->bufsize != rb_size)) {
-		de_lz77buffer_destroy(cctx->c, cctx->ringbuf);
-		cctx->ringbuf = NULL;
+	if(!hvst->ringbuf) {
+		hvst->ringbuf = de_lz77buffer_create(cctx->c, rb_size);
 	}
 
-	if(!cctx->ringbuf) {
-		cctx->ringbuf = de_lz77buffer_create(cctx->c, rb_size);
-	}
-
-	cctx->ringbuf->userdata = (void*)cctx;
-	cctx->ringbuf->writebyte_cb = lha5like_lz77buf_writebytecb;
+	hvst->ringbuf->userdata = (void*)cctx;
+	hvst->ringbuf->writebyte_cb = lha5like_lz77buf_writebytecb;
 
 	if(!cctx->dcmpro->len_known) {
 		// I think we (may) have to know the output length, because zero-length Huffman
@@ -339,22 +348,22 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 	}
 
 	if(lzhp->dms_track_flags & 0x02) {
-		dmsheavy_discard_tree(c, &cctx->codes_tree);
-		dmsheavy_discard_tree(c, &cctx->offsets_tree);
-		cctx->trees_exist = 0;
+		dmsheavy_discard_tree(c, &hvst->codes_tree);
+		dmsheavy_discard_tree(c, &hvst->offsets_tree);
+		hvst->trees_exist = 0;
 	}
 
-	if(!cctx->trees_exist) {
-		cctx->trees_exist = 1;
+	if(!hvst->trees_exist) {
+		hvst->trees_exist = 1;
 		de_dbg(c, "c tree");
 		de_dbg_indent(c, 1);
-		ret = dmsheavy_read_tree(cctx, &cctx->codes_tree, 9, 5);
+		ret = dmsheavy_read_tree(cctx, &hvst->codes_tree, 9, 5);
 		de_dbg_indent(c, -1);
 		if(!ret) goto done;
 
 		de_dbg(c, "p tree");
 		de_dbg_indent(c, 1);
-		ret = dmsheavy_read_tree(cctx, &cctx->offsets_tree, 5, 4);
+		ret = dmsheavy_read_tree(cctx, &hvst->offsets_tree, 5, 4);
 		de_dbg_indent(c, -1);
 		if(!ret) goto done;
 	}
@@ -367,14 +376,14 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 		if(cctx->eof_flag) goto done;
 		if(lzh_have_enough_output(cctx)) goto done;
 
-		code = read_next_code_using_tree(cctx, &cctx->codes_tree);
+		code = read_next_code_using_tree(cctx, &hvst->codes_tree);
 		if(cctx->eof_flag) goto done;
 		if(c->debug_level>=3) {
 			de_dbg3(c, "code: %u (opos=%"I64_FMT")", code, cctx->dcmpro->f->len);
 		}
 
 		if(code < 256) { // literal
-			de_lz77buffer_add_literal_byte(cctx->ringbuf, (u8)code);
+			de_lz77buffer_add_literal_byte(hvst->ringbuf, (u8)code);
 		}
 		else { // repeat previous bytes
 			UI offset;
@@ -384,12 +393,12 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 			length = code-253;
 			de_dbg3(c, "length: %u", length);
 
-			ocode1 = read_next_code_using_tree(cctx, &cctx->offsets_tree);
+			ocode1 = read_next_code_using_tree(cctx, &hvst->offsets_tree);
 			if(cctx->eof_flag) goto done;
 			de_dbg3(c, "ocode1: %u", ocode1);
 
 			if(ocode1 == cctx->heavy_np-1) {
-				offset = cctx->heavy_prev_offset;
+				offset = hvst->heavy_prev_offset;
 			}
 			else {
 				if(ocode1 < 1) {
@@ -404,13 +413,13 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 
 					offset = ocode2 | (1U<<(ocode1-1));
 				}
-				cctx->heavy_prev_offset = offset;
+				hvst->heavy_prev_offset = offset;
 			}
 
 			de_dbg3(c, "offset: %u", offset);
 
-			de_lz77buffer_copy_from_hist(cctx->ringbuf,
-				(UI)(cctx->ringbuf->curpos-offset-1), length);
+			de_lz77buffer_copy_from_hist(hvst->ringbuf,
+				(UI)(hvst->ringbuf->curpos-offset-1), length);
 		}
 	}
 
@@ -418,13 +427,12 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void destroy_heavy_cctx(deark *c, struct lzh_ctx *cctx)
+static void destroy_heavy_state(deark *c, struct dmsheavy_cmpr_state *hvst)
 {
-	if(!cctx) return;
-	dmsheavy_discard_tree(c, &cctx->codes_tree);
-	dmsheavy_discard_tree(c, &cctx->offsets_tree);
-	de_lz77buffer_destroy(c, cctx->ringbuf);
-	de_free(c, cctx);
+	if(!hvst) return;
+	dmsheavy_discard_tree(c, &hvst->codes_tree);
+	dmsheavy_discard_tree(c, &hvst->offsets_tree);
+	de_lz77buffer_destroy(c, hvst->ringbuf);
 }
 
 static void decompress_dmslzh(deark *c, struct de_dfilter_in_params *dcmpri,
@@ -432,16 +440,9 @@ static void decompress_dmslzh(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct dmslzh_params *lzhp)
 {
 	struct lzh_ctx *cctx = NULL;
+	struct dmsheavy_cmpr_state *hvst = NULL;
 
-	if(lzhp->cctx) {
-		// If a previous decompression state exists, use it.
-		cctx = lzhp->cctx;
-	}
-	else {
-		lzhp->cctx = de_malloc(c, sizeof(struct lzh_ctx));
-		cctx = lzhp->cctx;
-	}
-
+	cctx = de_malloc(c, sizeof(struct lzh_ctx));
 	cctx->modname = "undmslzh";
 	cctx->c = c;
 	cctx->dcmpri = dcmpri;
@@ -449,13 +450,21 @@ static void decompress_dmslzh(deark *c, struct de_dfilter_in_params *dcmpri,
 	cctx->dres = dres;
 	cctx->curpos = dcmpri->pos;
 	cctx->endpos = dcmpri->pos + dcmpri->len;
-	cctx->nbytes_written = 0;
-	cctx->eof_flag = 0;
-	cctx->err_flag = 0;
-	cctx->bit_buf = 0;
-	cctx->nbits_in_bitbuf = 0;
 
-	decompress_dms_heavy(cctx, lzhp);
+	if(lzhp->heavy_state) {
+		// If a previous decompression state exists, use it.
+		hvst = lzhp->heavy_state;
+		lzhp->heavy_state = NULL;
+	}
+	else {
+		hvst = de_malloc(c, sizeof(struct dmsheavy_cmpr_state));
+		hvst->cmpr_type = lzhp->cmpr_type;
+	}
+
+	decompress_dms_heavy(cctx, lzhp, hvst);
+
+	lzhp->heavy_state = hvst;
+	hvst = NULL;
 
 	if(cctx->err_flag) {
 		// A default error message
@@ -471,7 +480,8 @@ static void decompress_dmslzh(deark *c, struct de_dfilter_in_params *dcmpri,
 	cctx->dres->bytes_consumed_valid = 1;
 
 done:
-	;
+	if(hvst) destroy_heavy_state(c, hvst);
+	de_free(c, cctx);
 }
 
 static void dmslzh_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
@@ -619,15 +629,9 @@ static void do_decompress_heavy(deark *c, struct dmsctx *d, struct dms_track_inf
 	}
 
 	de_zeromem(&lzhparams, sizeof(struct dmslzh_params));
-	lzhparams.fmt = DE_LZH_FMT_DMS_HEAVY;
-	if(tri->cmpr_type==5) {
-		lzhparams.subfmt = 1; // heavy1
-	}
-	else {
-		lzhparams.subfmt = 2; // heavy2
-	}
+	lzhparams.cmpr_type = tri->cmpr_type;
 	lzhparams.dms_track_flags = tri->track_flags;
-	lzhparams.cctx = d->saved_heavy_cctx;
+	lzhparams.heavy_state = d->saved_heavy_state;
 
 	if(tri->track_flags & 0x04) {
 		do_decompress_heavy_lzh_rle(c, d, tri, dcmpri, dcmpro, dres, &lzhparams);
@@ -637,7 +641,7 @@ static void do_decompress_heavy(deark *c, struct dmsctx *d, struct dms_track_inf
 		decompress_dmslzh(c, dcmpri, dcmpro, dres, &lzhparams);
 	}
 
-	d->saved_heavy_cctx = lzhparams.cctx;
+	d->saved_heavy_state = lzhparams.heavy_state;
 
 done:
 	;
@@ -669,14 +673,14 @@ static int dms_decompress_track(deark *c, struct dmsctx *d, struct dms_track_inf
 
 	tri->cksum_calc = 0;
 
-	if(tri->cmpr_type==0) {
+	if(tri->cmpr_type==DMSCMPR_NONE) {
 		fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
 	}
-	else if(tri->cmpr_type==1) {
+	else if(tri->cmpr_type==DMSCMPR_RLE) {
 		de_dfilter_decompress_oneshot(c, dmsrle_codec, NULL,
 			&dcmpri, &dcmpro, &dres);
 	}
-	else if(tri->cmpr_type==5 || tri->cmpr_type==6) {
+	else if(tri->cmpr_type==DMSCMPR_HEAVY1 || tri->cmpr_type==DMSCMPR_HEAVY2) {
 		do_decompress_heavy(c, d, tri, &dcmpri, &dcmpro, &dres);
 	}
 	else {
@@ -709,7 +713,7 @@ static int dms_decompress_track(deark *c, struct dmsctx *d, struct dms_track_inf
 	retval = 1;
 
 done:
-	if(!retval && (tri->cmpr_type==5 || tri->cmpr_type==6)) {
+	if(!retval && (tri->cmpr_type==DMSCMPR_HEAVY1 || tri->cmpr_type==DMSCMPR_HEAVY2)) {
 		d->heavy_cmpr_failure_flag = 1;
 	}
 	return retval;
@@ -751,7 +755,7 @@ static void get_trackflags_descr(deark *c, de_ucstring *s, UI tflags1, UI cmpr)
 			tflags -= 0x2;
 		}
 	}
-	ucstring_append_flags_itemf(s, "0x%x", tflags);
+	if(tflags>0) ucstring_append_flags_itemf(s, "0x%02x", tflags);
 }
 
 // Read track and decompress to outf (which caller supplies as an empty membuf).
@@ -1032,9 +1036,9 @@ static void de_run_amiga_dms(deark *c, de_module_params *mparams)
 
 done:
 	if(d) {
-		if(d->saved_heavy_cctx) {
-			destroy_heavy_cctx(c, d->saved_heavy_cctx);
-			d->saved_heavy_cctx = NULL;
+		if(d->saved_heavy_state) {
+			destroy_heavy_state(c, d->saved_heavy_state);
+			d->saved_heavy_state = NULL;
 		}
 		de_free(c, d);
 	}
