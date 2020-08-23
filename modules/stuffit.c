@@ -115,39 +115,29 @@ struct sit_huffctx {
 	int eofflag;
 	int errflag;
 	i64 inpos;
-	UI nbits_in_bitsbuf;
-	u8 bitsbuf;
+	struct de_bitbuf_lowlevel bbll;
 };
 
-static u8 sit_huff_getbit(struct sit_huffctx *hctx)
+static u8 sit_huff_getbits(struct sit_huffctx *hctx, UI nbits)
 {
 	u8 n;
 
 	if(hctx->eofflag || hctx->errflag) return 0;
 
-	if(hctx->nbits_in_bitsbuf<1) {
+	while(hctx->bbll.nbits_in_bitbuf<nbits) {
+		u8 b;
+
 		if(hctx->inpos >= hctx->dcmpri->pos + hctx->dcmpri->len) {
 			hctx->eofflag = 1;
 			return 0;
 		}
-		hctx->bitsbuf = dbuf_getbyte_p(hctx->dcmpri->f, &hctx->inpos);
-		hctx->nbits_in_bitsbuf = 8;
+
+		b = dbuf_getbyte_p(hctx->dcmpri->f, &hctx->inpos);
+		de_bitbuf_lowelevel_add_byte(&hctx->bbll, b);
 	}
 
-	n = (hctx->bitsbuf & (1U<<(hctx->nbits_in_bitsbuf-1))) ? 1 : 0;
-	hctx->nbits_in_bitsbuf--;
+	n = (u8)de_bitbuf_lowelevel_get_bits(&hctx->bbll, nbits);
 	return n;
-}
-
-static u8 sit_huff_getbyte(struct sit_huffctx *hctx)
-{
-	UI k;
-	u8 v = 0;
-
-	for(k=0; k<8; k++) {
-		v = (v<<1) | sit_huff_getbit(hctx);
-	}
-	return v;
 }
 
 // A recursive function to read the tree definition.
@@ -160,7 +150,7 @@ static void sit_huff_read_tree(struct sit_huffctx *hctx, u64 curr_code, UI curr_
 	}
 	if(hctx->eofflag || hctx->errflag) return;
 
-	x = sit_huff_getbit(hctx);
+	x = sit_huff_getbits(hctx, 1);
 	if(hctx->eofflag) return;
 
 	if(x==0) {
@@ -172,7 +162,7 @@ static void sit_huff_read_tree(struct sit_huffctx *hctx, u64 curr_code, UI curr_
 		int ret;
 		i32 val;
 
-		val = (i32)sit_huff_getbyte(hctx);
+		val = (i32)sit_huff_getbits(hctx, 8);
 		ret = fmtutil_huffman_add_code(hctx->c, hctx->ht, curr_code, curr_code_nbits, val);
 		if(!ret) {
 			hctx->errflag = 1;
@@ -221,7 +211,7 @@ static void do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
 		}
 
 		if(hctx->eofflag || hctx->errflag) break;
-		n = sit_huff_getbit(hctx);
+		n = sit_huff_getbits(hctx, 1);
 		if(hctx->eofflag || hctx->errflag) break;
 		ret = fmtutil_huffman_decode_bit(hctx->ht, n, &val);
 		if(ret==0) {

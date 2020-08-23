@@ -88,36 +88,13 @@ struct dmsctx {
 	struct dmsheavy_cmpr_state *saved_heavy_state;
 };
 
-struct bitbuf_lowlevel {
-	UI nbits_in_bitbuf;
-	u64 bit_buf;
-};
-
 struct bitreader_highlevel {
 	dbuf *f;
 	i64 curpos;
 	i64 endpos;
 	int eof_flag;
-	struct bitbuf_lowlevel bbll;
+	struct de_bitbuf_lowlevel bbll;
 };
-
-static void bitbuf_lowelevel_add_byte(struct bitbuf_lowlevel *bbll, u8 n)
-{
-	if(bbll->nbits_in_bitbuf>56) return;
-	bbll->bit_buf = (bbll->bit_buf<<8) | n;
-	bbll->nbits_in_bitbuf += 8;
-}
-
-static u64 bitbuf_lowelevel_get_bits(struct bitbuf_lowlevel *bbll, UI nbits)
-{
-	u64 n;
-
-	if(nbits>bbll->nbits_in_bitbuf) return 0;
-	bbll->nbits_in_bitbuf -= nbits;
-	n = bbll->bit_buf >> bbll->nbits_in_bitbuf;
-	bbll->bit_buf &= ((u64)1 << bbll->nbits_in_bitbuf)-1;
-	return n;
-}
 
 static const char *dms_get_cmprtype_name(UI n)
 {
@@ -219,10 +196,10 @@ static u64 lzh_getbits(struct lzh_ctx *cctx, UI nbits)
 			return 0;
 		}
 		b = dbuf_getbyte_p(cctx->dcmpri->f, &cctx->brhl.curpos);
-		bitbuf_lowelevel_add_byte(&cctx->brhl.bbll, b);
+		de_bitbuf_lowelevel_add_byte(&cctx->brhl.bbll, b);
 	}
 
-	return bitbuf_lowelevel_get_bits(&cctx->brhl.bbll, nbits);
+	return de_bitbuf_lowelevel_get_bits(&cctx->brhl.bbll, nbits);
 }
 
 static int lzh_have_enough_output(struct lzh_ctx *cctx)
@@ -712,10 +689,10 @@ static u64 medium_getbits(struct bitreader_highlevel *brhl, UI nbits)
 			return 0;
 		}
 		b = dbuf_getbyte_p(brhl->f, &brhl->curpos);
-		bitbuf_lowelevel_add_byte(&brhl->bbll, b);
+		de_bitbuf_lowelevel_add_byte(&brhl->bbll, b);
 	}
 
-	return bitbuf_lowelevel_get_bits(&brhl->bbll, nbits);
+	return de_bitbuf_lowelevel_get_bits(&brhl->bbll, nbits);
 }
 
 static int medium_have_enough_output(struct medium_ctx *mctx)

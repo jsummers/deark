@@ -2250,3 +2250,22 @@ int dbuf_is_all_zeroes(dbuf *f, i64 pos, i64 len)
 {
 	return dbuf_buffered_read(f, pos, len, is_all_zeroes_cbfn, NULL);
 }
+
+void de_bitbuf_lowelevel_add_byte(struct de_bitbuf_lowlevel *bbll, u8 n)
+{
+	if(bbll->nbits_in_bitbuf>56) return;
+	bbll->bit_buf = (bbll->bit_buf<<8) | n;
+	bbll->nbits_in_bitbuf += 8;
+}
+
+u64 de_bitbuf_lowelevel_get_bits(struct de_bitbuf_lowlevel *bbll, UI nbits)
+{
+	u64 n;
+	u64 mask;
+
+	if(nbits > bbll->nbits_in_bitbuf) return 0;
+	bbll->nbits_in_bitbuf -= nbits;
+	mask = ((u64)1 << nbits)-1;
+	n = (bbll->bit_buf >> bbll->nbits_in_bitbuf) & mask;
+	return n;
+}
