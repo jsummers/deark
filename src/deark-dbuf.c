@@ -2269,3 +2269,30 @@ u64 de_bitbuf_lowelevel_get_bits(struct de_bitbuf_lowlevel *bbll, UI nbits)
 	n = (bbll->bit_buf >> bbll->nbits_in_bitbuf) & mask;
 	return n;
 }
+
+u64 de_bitreader_getbits(struct de_bitreader *bitrd, UI nbits)
+{
+	if(bitrd->eof_flag) return 0;
+	if(nbits==0) {
+		// TODO: Decide if we always want to do this. Could risk infinite loops
+		// with this successful no-op.
+		return 0;
+	}
+	if(nbits > 57) {
+		bitrd->eof_flag = 1;
+		return 0;
+	}
+
+	while(bitrd->bbll.nbits_in_bitbuf < nbits) {
+		u8 b;
+
+		if(bitrd->curpos >= bitrd->endpos) {
+			bitrd->eof_flag = 1;
+			return 0;
+		}
+		b = dbuf_getbyte_p(bitrd->f, &bitrd->curpos);
+		de_bitbuf_lowelevel_add_byte(&bitrd->bbll, b);
+	}
+
+	return de_bitbuf_lowelevel_get_bits(&bitrd->bbll, nbits);
+}

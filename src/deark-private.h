@@ -785,6 +785,15 @@ struct de_bitbuf_lowlevel {
 void de_bitbuf_lowelevel_add_byte(struct de_bitbuf_lowlevel *bbll, u8 n);
 u64 de_bitbuf_lowelevel_get_bits(struct de_bitbuf_lowlevel *bbll, UI nbits);
 
+struct de_bitreader {
+	dbuf *f;
+	i64 curpos;
+	i64 endpos;
+	u8 eof_flag;
+	struct de_bitbuf_lowlevel bbll;
+};
+u64 de_bitreader_getbits(struct de_bitreader *bitrd, UI nbits);
+
 ///////////////////////////////////////////
 
 void de_bitmap_write_to_file(de_bitmap *img, const char *token, unsigned int createflags);

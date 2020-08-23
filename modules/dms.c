@@ -88,14 +88,6 @@ struct dmsctx {
 	struct dmsheavy_cmpr_state *saved_heavy_state;
 };
 
-struct bitreader_highlevel {
-	dbuf *f;
-	i64 curpos;
-	i64 endpos;
-	int eof_flag;
-	struct de_bitbuf_lowlevel bbll;
-};
-
 static const char *dms_get_cmprtype_name(UI n)
 {
 	const char *name = NULL;
@@ -156,8 +148,8 @@ struct lzh_ctx {
 	i64 nbytes_written;
 	int err_flag;
 
-	// brhl.eof_flag: Always set if err_flag is set.
-	struct bitreader_highlevel brhl;
+	// bitrd.eof_flag: Always set if err_flag is set.
+	struct de_bitreader bitrd;
 
 	UI heavy_np;
 };
@@ -170,7 +162,7 @@ struct dmslzh_params {
 
 static void lzh_set_eof_flag(struct lzh_ctx *cctx)
 {
-	cctx->brhl.eof_flag = 1;
+	cctx->bitrd.eof_flag = 1;
 }
 
 static void lzh_set_err_flag(struct lzh_ctx *cctx)
@@ -181,25 +173,7 @@ static void lzh_set_err_flag(struct lzh_ctx *cctx)
 
 static u64 lzh_getbits(struct lzh_ctx *cctx, UI nbits)
 {
-	if(cctx->brhl.eof_flag) return 0;
-	if(nbits > 48) {
-		lzh_set_err_flag(cctx);
-		return 0;
-	}
-	if(nbits==0) return 0;
-
-	while(cctx->brhl.bbll.nbits_in_bitbuf < nbits) {
-		u8 b;
-
-		if(cctx->brhl.curpos >= cctx->brhl.endpos) {
-			lzh_set_eof_flag(cctx);
-			return 0;
-		}
-		b = dbuf_getbyte_p(cctx->dcmpri->f, &cctx->brhl.curpos);
-		de_bitbuf_lowelevel_add_byte(&cctx->brhl.bbll, b);
-	}
-
-	return de_bitbuf_lowelevel_get_bits(&cctx->brhl.bbll, nbits);
+	return de_bitreader_getbits(&cctx->bitrd, nbits);
 }
 
 static int lzh_have_enough_output(struct lzh_ctx *cctx)
@@ -237,7 +211,7 @@ static UI read_next_code_using_tree(struct lzh_ctx *cctx, struct lzh_tree_wrappe
 		u8 b;
 
 		b = (u8)lzh_getbits(cctx, 1);
-		if(cctx->brhl.eof_flag) {
+		if(cctx->bitrd.eof_flag) {
 			de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
 				"Unexpected end of compressed data");
 			lzh_set_err_flag(cctx);
@@ -297,7 +271,7 @@ static int dmsheavy_read_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *htw
 		fmtutil_huffman_record_a_code_length(c, htw->ht, (i32)curr_idx, symlen);
 		curr_idx++;
 	}
-	if(cctx->brhl.eof_flag) goto done;
+	if(cctx->bitrd.eof_flag) goto done;
 
 	if(!fmtutil_huffman_make_canonical_tree(c, htw->ht)) goto done;
 
@@ -378,17 +352,17 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 		if(!ret) goto done;
 	}
 
-	de_dbg(c, "cmpr data codes at %"I64_FMT" minus %u bits", cctx->brhl.curpos,
-		cctx->brhl.bbll.nbits_in_bitbuf);
+	de_dbg(c, "cmpr data codes at %"I64_FMT" minus %u bits", cctx->bitrd.curpos,
+		cctx->bitrd.bbll.nbits_in_bitbuf);
 	de_dbg_indent(c, 1);
 	while(1) {
 		UI code;
 
-		if(cctx->brhl.eof_flag) goto done;
+		if(cctx->bitrd.eof_flag) goto done;
 		if(lzh_have_enough_output(cctx)) goto done;
 
 		code = read_next_code_using_tree(cctx, &hvst->codes_tree);
-		if(cctx->brhl.eof_flag) goto done;
+		if(cctx->bitrd.eof_flag) goto done;
 		if(c->debug_level>=3) {
 			de_dbg3(c, "code: %u (opos=%"I64_FMT")", code, cctx->dcmpro->f->len);
 		}
@@ -405,7 +379,7 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 			de_dbg3(c, "length: %u", length);
 
 			ocode1 = read_next_code_using_tree(cctx, &hvst->offsets_tree);
-			if(cctx->brhl.eof_flag) goto done;
+			if(cctx->bitrd.eof_flag) goto done;
 			de_dbg3(c, "ocode1: %u", ocode1);
 
 			if(ocode1 == cctx->heavy_np-1) {
@@ -419,7 +393,7 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 					UI ocode2;
 
 					ocode2 = (UI)lzh_getbits(cctx, ocode1-1);
-					if(cctx->brhl.eof_flag) goto done;
+					if(cctx->bitrd.eof_flag) goto done;
 					de_dbg3(c, "ocode2: %u", ocode2);
 
 					offset = ocode2 | (1U<<(ocode1-1));
@@ -460,9 +434,9 @@ static void dmslzh_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	cctx->dcmpri = dcmpri;
 	cctx->dcmpro = dcmpro;
 	cctx->dres = dres;
-	cctx->brhl.f = dcmpri->f;
-	cctx->brhl.curpos = dcmpri->pos;
-	cctx->brhl.endpos = dcmpri->pos + dcmpri->len;
+	cctx->bitrd.f = dcmpri->f;
+	cctx->bitrd.curpos = dcmpri->pos;
+	cctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
 
 	if(lzhp->heavy_state) {
 		// If a previous decompression state exists, use it.
@@ -487,8 +461,8 @@ static void dmslzh_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 		goto done;
 	}
 
-	cctx->dres->bytes_consumed = cctx->brhl.curpos - cctx->dcmpri->pos;
-	cctx->dres->bytes_consumed -= cctx->brhl.bbll.nbits_in_bitbuf / 8;
+	cctx->dres->bytes_consumed = cctx->bitrd.curpos - cctx->dcmpri->pos;
+	cctx->dres->bytes_consumed -= cctx->bitrd.bbll.nbits_in_bitbuf / 8;
 	if(cctx->dres->bytes_consumed<0) {
 		cctx->dres->bytes_consumed = 0;
 	}
@@ -619,7 +593,7 @@ struct medium_ctx {
 	deark *c;
 	struct de_dfilter_out_params *dcmpro;
 	i64 nbytes_written;
-	struct bitreader_highlevel brhl;
+	struct de_bitreader bitrd;
 };
 
 static void destroy_medium_state(deark *c, struct dmsmedium_cmpr_state *mdst)
@@ -669,32 +643,6 @@ static const u8 g_medium_d_len[16] = {
     0x05, 0x06, 0x06, 0x06, 0x07, 0x07, 0x07, 0x08
 };
 
-static u64 medium_getbits(struct bitreader_highlevel *brhl, UI nbits)
-{
-	if(brhl->eof_flag) return 0;
-	if(nbits > 48) {
-		brhl->eof_flag = 1;
-		return 0;
-	}
-	if(nbits==0) {
-		brhl->eof_flag = 1;
-		return 0;
-	}
-
-	while(brhl->bbll.nbits_in_bitbuf < nbits) {
-		u8 b;
-
-		if(brhl->curpos >= brhl->endpos) {
-			brhl->eof_flag = 1;
-			return 0;
-		}
-		b = dbuf_getbyte_p(brhl->f, &brhl->curpos);
-		de_bitbuf_lowelevel_add_byte(&brhl->bbll, b);
-	}
-
-	return de_bitbuf_lowelevel_get_bits(&brhl->bbll, nbits);
-}
-
 static int medium_have_enough_output(struct medium_ctx *mctx)
 {
 	if(mctx->dcmpro->len_known) {
@@ -710,14 +658,14 @@ static void do_mediumlz77_internal(struct medium_ctx *mctx, struct dmsmedium_cmp
 	while(1) {
 		UI n;
 
-		if(mctx->brhl.eof_flag) break;
+		if(mctx->bitrd.eof_flag) break;
 		if(medium_have_enough_output(mctx)) break;
 
-		n = (UI)medium_getbits(&mctx->brhl, 1);
+		n = (UI)de_bitreader_getbits(&mctx->bitrd, 1);
 		if(n) {
 			u8 b;
 
-			b = (u8)medium_getbits(&mctx->brhl, 8);
+			b = (u8)de_bitreader_getbits(&mctx->bitrd, 8);
 			de_lz77buffer_add_literal_byte(mdst->ringbuf, (u8)b);
 		} else {
 			UI first_code;
@@ -732,15 +680,15 @@ static void do_mediumlz77_internal(struct medium_ctx *mctx, struct dmsmedium_cmp
 			// TODO: This seems overly complicated. Is there a simpler way to
 			// implement this?
 
-			first_code = (UI)medium_getbits(&mctx->brhl, 8);
+			first_code = (UI)de_bitreader_getbits(&mctx->bitrd, 8);
 			length = (UI)g_medium_d_code[first_code] + 3;
 
 			ocode1_nbits = (UI)g_medium_d_len[first_code / 16];
-			ocode1 = (UI)medium_getbits(&mctx->brhl, ocode1_nbits);
+			ocode1 = (UI)de_bitreader_getbits(&mctx->bitrd, ocode1_nbits);
 
 			tmp_code = ((first_code << ocode1_nbits) | ocode1) & 0xff;
 			ocode2_nbits = (UI)g_medium_d_len[tmp_code / 16];
-			ocode2 = (UI)medium_getbits(&mctx->brhl, ocode2_nbits);
+			ocode2 = (UI)de_bitreader_getbits(&mctx->bitrd, ocode2_nbits);
 
 			offset_rel = ((UI)g_medium_d_code[tmp_code] << 8) | (((tmp_code << ocode2_nbits) | ocode2) & 0xff);
 			de_lz77buffer_copy_from_hist(mdst->ringbuf, mdst->ringbuf->curpos - 1 - offset_rel, length);
@@ -772,9 +720,9 @@ static void mediumlz77_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	mctx = de_malloc(c, sizeof(struct medium_ctx));
 	mctx->c = c;
 	mctx->dcmpro = dcmpro;
-	mctx->brhl.f = dcmpri->f;
-	mctx->brhl.curpos = dcmpri->pos;
-	mctx->brhl.endpos = dcmpri->pos + dcmpri->len;
+	mctx->bitrd.f = dcmpri->f;
+	mctx->bitrd.curpos = dcmpri->pos;
+	mctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
 
 	if(mdparams->medium_state) {
 		// Acquire the previous 'state' object from the caller
