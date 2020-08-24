@@ -112,33 +112,10 @@ struct sit_huffctx {
 	struct de_dfilter_out_params *dcmpro;
 	struct de_dfilter_results *dres;
 	struct fmtutil_huffman_tree *ht;
-	int eofflag;
 	int errflag;
-	i64 inpos;
+	struct de_bitreader bitrd;
 	struct de_bitbuf_lowlevel bbll;
 };
-
-static u8 sit_huff_getbits(struct sit_huffctx *hctx, UI nbits)
-{
-	u8 n;
-
-	if(hctx->eofflag || hctx->errflag) return 0;
-
-	while(hctx->bbll.nbits_in_bitbuf<nbits) {
-		u8 b;
-
-		if(hctx->inpos >= hctx->dcmpri->pos + hctx->dcmpri->len) {
-			hctx->eofflag = 1;
-			return 0;
-		}
-
-		b = dbuf_getbyte_p(hctx->dcmpri->f, &hctx->inpos);
-		de_bitbuf_lowelevel_add_byte(&hctx->bbll, b);
-	}
-
-	n = (u8)de_bitbuf_lowelevel_get_bits(&hctx->bbll, nbits);
-	return n;
-}
 
 // A recursive function to read the tree definition.
 static void sit_huff_read_tree(struct sit_huffctx *hctx, u64 curr_code, UI curr_code_nbits)
@@ -148,21 +125,21 @@ static void sit_huff_read_tree(struct sit_huffctx *hctx, u64 curr_code, UI curr_
 	if(curr_code_nbits>48) {
 		hctx->errflag = 1;
 	}
-	if(hctx->eofflag || hctx->errflag) return;
+	if(hctx->bitrd.eof_flag || hctx->errflag) return;
 
-	x = sit_huff_getbits(hctx, 1);
-	if(hctx->eofflag) return;
+	x = (u8)de_bitreader_getbits(&hctx->bitrd, 1);
+	if(hctx->bitrd.eof_flag) return;
 
 	if(x==0) {
 		sit_huff_read_tree(hctx, curr_code<<1, curr_code_nbits+1);
-		if(hctx->eofflag || hctx->errflag) return;
+		if(hctx->bitrd.eof_flag || hctx->errflag) return;
 		sit_huff_read_tree(hctx, (curr_code<<1) | 1, curr_code_nbits+1);
 	}
 	else {
 		int ret;
 		i32 val;
 
-		val = (i32)sit_huff_getbits(hctx, 8);
+		val = (i32)de_bitreader_getbits(&hctx->bitrd, 8);
 		ret = fmtutil_huffman_add_code(hctx->c, hctx->ht, curr_code, curr_code_nbits, val);
 		if(!ret) {
 			hctx->errflag = 1;
@@ -180,6 +157,7 @@ static void do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
 {
 	struct sit_huffctx *hctx = NULL;
 	i64 nbytes_written = 0;
+	char pos_descr[32];
 
 	hctx = de_malloc(c, sizeof(struct sit_huffctx));
 	hctx->c = c;
@@ -188,7 +166,10 @@ static void do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
 	hctx->dcmpro = dcmpro;
 	hctx->dres = dres;
 	hctx->ht = fmtutil_huffman_create_tree(c, 256, 512);
-	hctx->inpos = dcmpri->pos;
+
+	hctx->bitrd.f = dcmpri->f;
+	hctx->bitrd.curpos = dcmpri->pos;
+	hctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
 
 	// Read the tree definition
 	sit_huff_read_tree(hctx, 0, 0);
@@ -200,28 +181,29 @@ static void do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
 		goto done;
 	}
 
+
 	// Read the data section
+	de_bitreader_describe_curpos(&hctx->bitrd, pos_descr, sizeof(pos_descr));
+	de_dbg(c, "cmpr data codes at %s", pos_descr);
 	while(1) {
 		int ret;
 		i32 val = 0;
-		u8 n;
 
 		if(dcmpro->len_known) {
 			if(nbytes_written >= dcmpro->expected_len) break;
 		}
 
-		if(hctx->eofflag || hctx->errflag) break;
-		n = sit_huff_getbits(hctx, 1);
-		if(hctx->eofflag || hctx->errflag) break;
-		ret = fmtutil_huffman_decode_bit(hctx->ht, n, &val);
-		if(ret==0) {
+		if(hctx->bitrd.eof_flag || hctx->errflag) break;
+
+		ret = fmtutil_huffman_read_next_value(hctx->ht, &hctx->bitrd, &val, NULL);
+		if(!ret) {
+			if(hctx->bitrd.eof_flag) break;
 			hctx->errflag = 1;
 			break;
 		}
-		else if(ret==1) {
-			dbuf_writebyte(dcmpro->f, (u8)val);
-			nbytes_written++;
-		}
+
+		dbuf_writebyte(dcmpro->f, (u8)val);
+		nbytes_written++;
 	}
 
 done:
