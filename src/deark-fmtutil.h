@@ -530,7 +530,7 @@ int fmtutil_huffman_add_code(deark *c, struct fmtutil_huffman_tree *ht,
 	u64 code, UI code_nbits, i32 val);
 int fmtutil_huffman_decode_bit(struct fmtutil_huffman_tree *ht, u8 bitval, i32 *pval);
 int fmtutil_huffman_read_next_value(struct fmtutil_huffman_tree *ht,
-	struct de_bitreader *bitrd, i32 *pval);
+	struct de_bitreader *bitrd, i32 *pval, UI *pnbits);
 UI fmtutil_huffman_get_max_bits(struct fmtutil_huffman_tree *ht);
 i64 fmtutil_huffman_get_num_codes(struct fmtutil_huffman_tree *ht);
 void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_tree *ht);

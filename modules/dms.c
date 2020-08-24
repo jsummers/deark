@@ -207,7 +207,7 @@ static UI read_next_code_using_tree(struct lzh_ctx *cctx, struct lzh_tree_wrappe
 		return tree->null_val;
 	}
 
-	ret = fmtutil_huffman_read_next_value(tree->ht, &cctx->bitrd, &val);
+	ret = fmtutil_huffman_read_next_value(tree->ht, &cctx->bitrd, &val, NULL);
 	if(cctx->bitrd.eof_flag) {
 		de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
 			"Unexpected end of compressed data");

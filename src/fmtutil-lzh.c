@@ -10,6 +10,7 @@
 
 struct lzh_tree_wrapper {
 	struct fmtutil_huffman_tree *ht;
+	// TODO: Don't need null_val field anymore.
 	UI null_val; // Used if ht==NULL
 };
 
@@ -20,14 +21,11 @@ struct lzh_ctx {
 	struct de_dfilter_results *dres;
 	const char *modname;
 
-	i64 curpos;
-	i64 endpos;
 	i64 nbytes_written;
-	int eof_flag; // Always set if err_flag is set.
 	int err_flag;
 
-	u64 bit_buf;
-	UI nbits_in_bitbuf;
+	// bitrd.eof_flag: Always set if err_flag is set.
+	struct de_bitreader bitrd;
 
 	u8 stop_on_zero_codes_block;
 
@@ -40,49 +38,15 @@ struct lzh_ctx {
 	struct lzh_tree_wrapper offsets_tree;
 };
 
-static void lzh_set_eof_flag(struct lzh_ctx *cctx)
-{
-	cctx->eof_flag = 1;
-}
-
 static void lzh_set_err_flag(struct lzh_ctx *cctx)
 {
-	lzh_set_eof_flag(cctx);
+	cctx->bitrd.eof_flag = 1;
 	cctx->err_flag = 1;
-}
-
-static void lzh_add_byte_to_bitbuf(struct lzh_ctx *cctx, u8 n)
-{
-	cctx->bit_buf = (cctx->bit_buf<<8) | n;
-	cctx->nbits_in_bitbuf += 8;
 }
 
 static u64 lzh_getbits(struct lzh_ctx *cctx, UI nbits)
 {
-	u64 n;
-
-	if(cctx->eof_flag) return 0;
-	if(nbits > 48) {
-		lzh_set_err_flag(cctx);
-		return 0;
-	}
-	if(nbits==0) return 0;
-
-	while(cctx->nbits_in_bitbuf < nbits) {
-		u8 b;
-
-		if(cctx->curpos >= cctx->endpos) {
-			lzh_set_eof_flag(cctx);
-			return 0;
-		}
-		b = dbuf_getbyte_p(cctx->dcmpri->f, &cctx->curpos);
-		lzh_add_byte_to_bitbuf(cctx, b);
-	}
-
-	cctx->nbits_in_bitbuf -= nbits;
-	n = cctx->bit_buf >> cctx->nbits_in_bitbuf;
-	cctx->bit_buf &= ((u64)1 << cctx->nbits_in_bitbuf)-1;
-	return n;
+	return de_bitreader_getbits(&cctx->bitrd, nbits);
 }
 
 static UI lh5x_read_a_code_length(struct lzh_ctx *cctx)
@@ -95,7 +59,7 @@ static UI lh5x_read_a_code_length(struct lzh_ctx *cctx)
 			UI b;
 
 			b = (UI)lzh_getbits(cctx, 1);
-			if(cctx->eof_flag) break;
+			if(cctx->bitrd.eof_flag) break;
 			if(b==0) break;
 			n++;
 			// TODO: What is the length limit?
@@ -111,42 +75,33 @@ static UI lh5x_read_a_code_length(struct lzh_ctx *cctx)
 static UI read_next_code_using_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *tree)
 {
 	i32 val = 0;
-	int tmp_count = 0;
+	UI bitcount = 0;
+	int ret;
 
 	if(!tree->ht) {
 		return tree->null_val;
 	}
 
-	while(1) {
-		int ret;
-		u8 b;
-
-		b = (u8)lzh_getbits(cctx, 1);
-		if(cctx->eof_flag) {
-			de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
-				"Unexpected end of compressed data");
-			lzh_set_err_flag(cctx);
-			val = 0;
-			goto done;
-		}
-
-		tmp_count++;
-
-		ret = fmtutil_huffman_decode_bit(tree->ht, b, &val);
-		if(ret==1) { // finished the code
-			if(cctx->c->debug_level>=3) {
-				de_dbg3(cctx->c, "hbits: %d", tmp_count);
-			}
-			goto done;
-		}
-		else if(ret!=2) {
-			de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
-				"Huffman decoding error");
-			lzh_set_err_flag(cctx);
-			val = 0;
-			goto done;
-		}
+	ret = fmtutil_huffman_read_next_value(tree->ht, &cctx->bitrd, &val, &bitcount);
+	if(cctx->bitrd.eof_flag) {
+		de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
+			"Unexpected end of compressed data");
+		lzh_set_err_flag(cctx);
+		val = 0;
+		goto done;
 	}
+	else if(!ret) {
+		de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
+			"Huffman decoding error");
+		lzh_set_err_flag(cctx);
+		val = 0;
+		goto done;
+	}
+
+	if(cctx->c->debug_level>=3) {
+		de_dbg3(cctx->c, "hbits: %u", bitcount);
+	}
+
 done:
 	return (UI)val;
 }
@@ -206,7 +161,7 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx)
 			}
 		}
 	}
-	if(cctx->eof_flag) goto done;
+	if(cctx->bitrd.eof_flag) goto done;
 
 	if(!fmtutil_huffman_make_canonical_tree(c, cctx->codelengths_tree.ht)) goto done;
 
@@ -282,7 +237,7 @@ static int lh5x_read_codes_tree(struct lzh_ctx *cctx)
 			curr_idx++;
 		}
 	}
-	if(cctx->eof_flag) goto done;
+	if(cctx->bitrd.eof_flag) goto done;
 
 	if(!fmtutil_huffman_make_canonical_tree(c, cctx->codes_tree.ht)) goto done;
 
@@ -331,7 +286,7 @@ static int lh5x_read_offsets_tree(struct lzh_ctx *cctx)
 		fmtutil_huffman_record_a_code_length(c, cctx->offsets_tree.ht, (i32)curr_idx, symlen);
 		curr_idx++;
 	}
-	if(cctx->eof_flag) goto done;
+	if(cctx->bitrd.eof_flag) goto done;
 
 	if(!fmtutil_huffman_make_canonical_tree(c, cctx->offsets_tree.ht)) goto done;
 
@@ -354,11 +309,11 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	block_start_pos = cctx->curpos;
-	block_start_pos_bits = cctx->nbits_in_bitbuf;
+	block_start_pos = cctx->bitrd.curpos;
+	block_start_pos_bits = cctx->bitrd.bbll.nbits_in_bitbuf;
 
 	ncodes_in_this_block = (UI)lzh_getbits(cctx, 16);
-	if(cctx->eof_flag) {
+	if(cctx->bitrd.eof_flag) {
 		de_dbg2(c, "stopping, not enough room for a block at %"I64_FMT" minus %u bits",
 			block_start_pos, block_start_pos_bits);
 		goto done;
@@ -377,7 +332,7 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 			// in general.
 			de_dbg(c, "stopping, 0-code block found (error?)");
 		}
-		cctx->eof_flag = 1;
+		cctx->bitrd.eof_flag = 1;
 		goto done;
 	}
 
@@ -398,16 +353,17 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 	if(!lh5x_read_codes_tree(cctx)) goto done;
 	if(!lh5x_read_offsets_tree(cctx)) goto done;
 
-	de_dbg(c, "cmpr data codes at %"I64_FMT" minus %u bits", cctx->curpos, cctx->nbits_in_bitbuf);
+	de_dbg(c, "cmpr data codes at %"I64_FMT" minus %u bits", cctx->bitrd.curpos,
+		cctx->bitrd.bbll.nbits_in_bitbuf);
 	ncodes_remaining_this_block = ncodes_in_this_block;
 	while(1) {
 		UI code;
 
 		if(ncodes_remaining_this_block==0) goto done;
-		if(cctx->eof_flag) goto done;
+		if(cctx->bitrd.eof_flag) goto done;
 
 		code = read_next_code_using_tree(cctx, &cctx->codes_tree);
-		if(cctx->eof_flag) goto done;
+		if(cctx->bitrd.eof_flag) goto done;
 		if(c->debug_level>=3) {
 			de_dbg3(c, "code: %u (opos=%"I64_FMT")", code, cctx->dcmpro->f->len);
 		}
@@ -423,7 +379,7 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 			length = code-253;
 
 			ocode1 = read_next_code_using_tree(cctx, &cctx->offsets_tree);
-			if(cctx->eof_flag) goto done;
+			if(cctx->bitrd.eof_flag) goto done;
 			de_dbg3(c, "ocode1: %u", ocode1);
 
 			if(ocode1<=1) {
@@ -433,7 +389,7 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 				UI ocode2;
 
 				ocode2 = (UI)lzh_getbits(cctx, ocode1-1);
-				if(cctx->eof_flag) goto done;
+				if(cctx->bitrd.eof_flag) goto done;
 				de_dbg3(c, "ocode2: %u", ocode2);
 
 				offset = ocode2 + (1U<<(ocode1-1));
@@ -496,7 +452,7 @@ static void decompress_lha_lh5like(struct lzh_ctx *cctx, struct de_lzh_params *l
 	de_lz77buffer_clear(cctx->ringbuf, 0x20);
 
 	while(1) {
-		if(cctx->eof_flag) break;
+		if(cctx->bitrd.eof_flag) break;
 		if(lzh_have_enough_output(cctx)) break;
 
 		lh5x_do_lzh_block(cctx, blk_idx);
@@ -517,8 +473,9 @@ void fmtutil_decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 	cctx->dcmpro = dcmpro;
 	cctx->dres = dres;
 
-	cctx->curpos = dcmpri->pos;
-	cctx->endpos = dcmpri->pos + dcmpri->len;
+	cctx->bitrd.f = dcmpri->f;
+	cctx->bitrd.curpos = dcmpri->pos;
+	cctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
 
 	if(lzhp->fmt==DE_LZH_FMT_LH5LIKE && (lzhp->subfmt=='5' || lzhp->subfmt=='6'))
 	{
@@ -536,8 +493,8 @@ void fmtutil_decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 		goto done;
 	}
 
-	cctx->dres->bytes_consumed = cctx->curpos - cctx->dcmpri->pos;
-	cctx->dres->bytes_consumed -= cctx->nbits_in_bitbuf / 8;
+	cctx->dres->bytes_consumed = cctx->bitrd.curpos - cctx->dcmpri->pos;
+	cctx->dres->bytes_consumed -= cctx->bitrd.bbll.nbits_in_bitbuf / 8;
 	if(cctx->dres->bytes_consumed<0) {
 		cctx->dres->bytes_consumed = 0;
 	}

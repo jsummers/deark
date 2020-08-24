@@ -233,12 +233,13 @@ done:
 
 // Read the next Huffman code from a bitreader, and decode it.
 // *pval will always be written to. On error, it will be set to 0.
+// pnbits returns the number of bits read. Can be NULL.
 // Return value:
 //  nonzero on success
 //  0 on error - Can happen if the tree was not constructed properly, or on EOF
 //    (bitrd->eof_flag can distinguish these cases).
 int fmtutil_huffman_read_next_value(struct fmtutil_huffman_tree *ht,
-	struct de_bitreader *bitrd, i32 *pval)
+	struct de_bitreader *bitrd, i32 *pval, UI *pnbits)
 {
 	int bitcount = 0;
 	int retval = 0;
@@ -272,6 +273,9 @@ int fmtutil_huffman_read_next_value(struct fmtutil_huffman_tree *ht,
 done:
 	if(!retval) {
 		*pval = 0;
+	}
+	if(pnbits) {
+		*pnbits = retval ? bitcount : 0;
 	}
 	return retval;
 }
@@ -602,7 +606,7 @@ static int squeeze_read_codes(deark *c, struct squeeze_ctx *sqctx)
 		int ret;
 		i32 val = 0;
 
-		ret = fmtutil_huffman_read_next_value(sqctx->ht, &sqctx->bitrd, &val);
+		ret = fmtutil_huffman_read_next_value(sqctx->ht, &sqctx->bitrd, &val, NULL);
 		if(!ret || val<0 || val>256) {
 			if(sqctx->bitrd.eof_flag) {
 				retval = 1;
