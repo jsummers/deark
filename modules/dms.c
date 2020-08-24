@@ -124,8 +124,6 @@ static void read_unix_timestamp(deark *c, i64 pos, struct de_timestamp *ts, cons
 
 struct lzh_tree_wrapper {
 	struct fmtutil_huffman_tree *ht;
-	// TODO: Don't need null_val field anymore.
-	UI null_val; // Used if ht==NULL
 };
 
 // The portion of the Heavy decompression context that can persist between tracks.
@@ -204,7 +202,7 @@ static UI read_next_code_using_tree(struct lzh_ctx *cctx, struct lzh_tree_wrappe
 	int ret;
 
 	if(!tree->ht) {
-		return tree->null_val;
+		return 0;
 	}
 
 	ret = fmtutil_huffman_read_next_value(tree->ht, &cctx->bitrd, &val, NULL);
@@ -240,14 +238,17 @@ static int dmsheavy_read_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *htw
 	ncodes = (UI)lzh_getbits(cctx, ncodes_nbits);
 	de_dbg(c, "num codes: %u", ncodes);
 
+	htw->ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
+
 	if(ncodes==0) {
-		htw->null_val = (UI)lzh_getbits(cctx, ncodes_nbits);
-		de_dbg2(c, "val0: %u", htw->null_val);
+		UI null_val;
+
+		null_val = (UI)lzh_getbits(cctx, ncodes_nbits);
+		fmtutil_huffman_add_code(c, htw->ht, 0, 0, (i32)null_val);
+		de_dbg2(c, "val0: %u", null_val);
 		retval = 1;
 		goto done;
 	}
-
-	htw->ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
 
 	curr_idx = 0;
 	while(curr_idx < ncodes) {
@@ -276,7 +277,6 @@ static void dmsheavy_discard_tree(deark *c, struct lzh_tree_wrapper *htw)
 		fmtutil_huffman_destroy_tree(c, htw->ht);
 		htw->ht = NULL;
 	}
-	htw->null_val = 0;
 }
 
 static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzhp,

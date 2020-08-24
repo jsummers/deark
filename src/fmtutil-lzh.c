@@ -10,8 +10,6 @@
 
 struct lzh_tree_wrapper {
 	struct fmtutil_huffman_tree *ht;
-	// TODO: Don't need null_val field anymore.
-	UI null_val; // Used if ht==NULL
 };
 
 struct lzh_ctx {
@@ -79,7 +77,7 @@ static UI read_next_code_using_tree(struct lzh_ctx *cctx, struct lzh_tree_wrappe
 	int ret;
 
 	if(!tree->ht) {
-		return tree->null_val;
+		return 0;
 	}
 
 	ret = fmtutil_huffman_read_next_value(tree->ht, &cctx->bitrd, &val, &bitcount);
@@ -130,14 +128,17 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx)
 		ncodes = LH5X_CODELENGTHS_TREE_MAX_CODES;
 	}
 
+	cctx->codelengths_tree.ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
+
 	if(ncodes==0) {
-		cctx->codelengths_tree.null_val = (UI)lzh_getbits(cctx, 5);
-		de_dbg2(c, "val0: %u", cctx->codelengths_tree.null_val);
+		UI null_val;
+
+		null_val = (UI)lzh_getbits(cctx, 5);
+		fmtutil_huffman_add_code(c, cctx->codelengths_tree.ht, 0, 0, (i32)null_val);
+		de_dbg2(c, "val0: %u", null_val);
 		retval = 1;
 		goto done;
 	}
-
-	cctx->codelengths_tree.ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
 
 	curr_idx = 0;
 	while(curr_idx < ncodes) {
@@ -203,16 +204,20 @@ static int lh5x_read_codes_tree(struct lzh_ctx *cctx)
 	ncodes = (UI)lzh_getbits(cctx, 9);
 	de_dbg(c, "num codes: %u", ncodes);
 
+	cctx->codes_tree.ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
+
 	if(ncodes>LH5X_CODE_TREE_MAX_CODES) { // TODO: Is this an error?
 		ncodes = LH5X_CODE_TREE_MAX_CODES;
 	}
 	if(ncodes==0) {
-		cctx->codes_tree.null_val = (UI)lzh_getbits(cctx, 9);
+		UI null_val;
+
+		null_val = (UI)lzh_getbits(cctx, 9);
+		fmtutil_huffman_add_code(c, cctx->codes_tree.ht, 0, 0, (i32)null_val);
+		de_dbg2(c, "val0: %u", null_val);
 		retval = 1;
 		goto done;
 	}
-
-	cctx->codes_tree.ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
 
 	curr_idx = 0;
 	while(curr_idx < ncodes) {
@@ -268,14 +273,18 @@ static int lh5x_read_offsets_tree(struct lzh_ctx *cctx)
 	if(ncodes>cctx->lh5x_offsets_tree_max_codes) { // TODO: Is this an error?
 		ncodes = cctx->lh5x_offsets_tree_max_codes;
 	}
+
+	cctx->offsets_tree.ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
+
 	if(ncodes==0) {
-		cctx->offsets_tree.null_val = (UI)lzh_getbits(cctx, cctx->lh5x_offset_nbits);
-		de_dbg2(c, "val0: %u", cctx->offsets_tree.null_val);
+		UI null_val;
+
+		null_val = (UI)lzh_getbits(cctx, cctx->lh5x_offset_nbits);
+		fmtutil_huffman_add_code(c, cctx->offsets_tree.ht, 0, 0, (i32)null_val);
+		de_dbg2(c, "val0: %u", null_val);
 		retval = 1;
 		goto done;
 	}
-
-	cctx->offsets_tree.ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
 
 	curr_idx = 0;
 	while(curr_idx < ncodes) {
