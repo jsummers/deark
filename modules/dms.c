@@ -124,6 +124,7 @@ static void read_unix_timestamp(deark *c, i64 pos, struct de_timestamp *ts, cons
 
 struct lzh_tree_wrapper {
 	struct fmtutil_huffman_tree *ht;
+	// TODO: Don't need null_val field anymore.
 	UI null_val; // Used if ht==NULL
 };
 
@@ -200,42 +201,28 @@ static void lha5like_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 static UI read_next_code_using_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *tree)
 {
 	i32 val = 0;
-	int tmp_count = 0;
+	int ret;
 
 	if(!tree->ht) {
 		return tree->null_val;
 	}
 
-	while(1) {
-		int ret;
-		u8 b;
-
-		b = (u8)lzh_getbits(cctx, 1);
-		if(cctx->bitrd.eof_flag) {
-			de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
-				"Unexpected end of compressed data");
-			lzh_set_err_flag(cctx);
-			val = 0;
-			goto done;
-		}
-
-		tmp_count++;
-
-		ret = fmtutil_huffman_decode_bit(tree->ht, b, &val);
-		if(ret==1) { // finished the code
-			if(cctx->c->debug_level>=3) {
-				de_dbg3(cctx->c, "hbits: %d", tmp_count);
-			}
-			goto done;
-		}
-		else if(ret!=2) {
-			de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
-				"Huffman decoding error");
-			lzh_set_err_flag(cctx);
-			val = 0;
-			goto done;
-		}
+	ret = fmtutil_huffman_read_next_value(tree->ht, &cctx->bitrd, &val);
+	if(cctx->bitrd.eof_flag) {
+		de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
+			"Unexpected end of compressed data");
+		lzh_set_err_flag(cctx);
+		val = 0;
+		goto done;
 	}
+	else if(!ret) {
+		de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
+			"Huffman decoding error");
+		lzh_set_err_flag(cctx);
+		val = 0;
+		goto done;
+	}
+
 done:
 	return (UI)val;
 }
