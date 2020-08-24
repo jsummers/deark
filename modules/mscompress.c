@@ -200,11 +200,12 @@ struct mslzh_context {
 	unsigned int bitreader_nbits_in_buf;
 	dbuf *inf;
 	struct de_dfilter_out_params *dcmpro;
-	i64 inf_endpos;
-	i64 inf_curpos;
 	i64 nbytes_written;
-	int eof_flag; // Always set if error_flag is set.
 	int error_flag; // Bad data in the LZ77 part should not set this flag. Set eof_flag instead.
+
+	// bitrd.eof_flag: Always set if error_flag is set.
+	struct de_bitreader bitrd;
+
 	struct de_dfilter_results *dres;
 	const char *modname;
 	struct de_lz77buffer *ringbuf;
@@ -220,31 +221,12 @@ struct mslzh_context {
 static void mslzh_set_errorflag(struct mslzh_context *lzhctx)
 {
 	lzhctx->error_flag = 1;
-	lzhctx->eof_flag = 1;
+	lzhctx->bitrd.eof_flag = 1;
 }
 
 static UI mslzh_getbits(struct mslzh_context *lzhctx, UI nbits)
 {
-	UI n;
-
-	while(lzhctx->bitreader_nbits_in_buf < nbits) {
-		u8 b;
-
-		if(lzhctx->inf_curpos >= lzhctx->inf_endpos) {
-			lzhctx->eof_flag = 1;
-			return 0;
-		}
-
-		b = dbuf_getbyte_p(lzhctx->inf, &lzhctx->inf_curpos);
-		lzhctx->bitreader_buf = (lzhctx->bitreader_buf<<8) | (UI)b;
-		lzhctx->bitreader_nbits_in_buf += 8;
-	}
-
-	n = lzhctx->bitreader_buf;
-	n >>= (lzhctx->bitreader_nbits_in_buf - nbits);
-	n = n & ((1U<<nbits)-1U);
-	lzhctx->bitreader_nbits_in_buf -= nbits;
-	return n;
+	return (UI)de_bitreader_getbits(&lzhctx->bitrd, nbits);
 }
 
 static void mslzh_read_huffman_tree_enctype_0(struct mslzh_context *lzhctx, struct mslzh_tree *htr)
@@ -268,7 +250,7 @@ static void mslzh_read_huffman_tree_enctype_1(struct mslzh_context *lzhctx, stru
 	prev_sym_len = htr->symlengths[0];
 
 	for(sym_idx=1; sym_idx<htr->num_symbols; sym_idx++) {
-		if(lzhctx->eof_flag) goto done;
+		if(lzhctx->bitrd.eof_flag) goto done;
 
 		n = mslzh_getbits(lzhctx, 1);
 		if(n==0) { // 0
@@ -300,7 +282,7 @@ static void mslzh_read_huffman_tree_enctype_2(struct mslzh_context *lzhctx, stru
 	prev_sym_len = htr->symlengths[0];
 
 	for(sym_idx=1; sym_idx<htr->num_symbols; sym_idx++) {
-		if(lzhctx->eof_flag) goto done;
+		if(lzhctx->bitrd.eof_flag) goto done;
 
 		n = mslzh_getbits(lzhctx, 2);
 		if(n==3) {
@@ -321,7 +303,7 @@ static void mslzh_read_huffman_tree_enctype_3(struct mslzh_context *lzhctx, stru
 	UI sym_idx;
 
 	for(sym_idx=0; sym_idx<htr->num_symbols; sym_idx++) {
-		if(lzhctx->eof_flag) goto done;
+		if(lzhctx->bitrd.eof_flag) goto done;
 		htr->symlengths[sym_idx] = (MSLZH_SYMLEN_TYPE)mslzh_getbits(lzhctx, 4);
 	}
 done:
@@ -332,24 +314,14 @@ done:
 static MSLZH_VALUE_TYPE mslzh_getnextcode(struct mslzh_context *lzhctx,
 	struct mslzh_tree *htr)
 {
+	i32 val = 0;
+	int ret;
+
 	fmtutil_huffman_reset_cursor(htr->fmtuht); // Should be unnecessary
 
-	while(1) {
-		i32 val = 0;
-		UI n;
-		int ret;
-
-		n = mslzh_getbits(lzhctx, 1);
-
-		ret = fmtutil_huffman_decode_bit(htr->fmtuht, (u8)n, &val);
-		if(ret==1) { // finished the code
-			return (MSLZH_VALUE_TYPE)val;
-		}
-		else if(ret!=2) {
-			lzhctx->eof_flag = 1;
-			return 0;
-		}
-	}
+	ret = fmtutil_huffman_read_next_value(htr->fmtuht, &lzhctx->bitrd, &val, NULL);
+	if(!ret) return 0;
+	return (MSLZH_VALUE_TYPE)val;
 }
 
 static void mslzh_read_huffman_tree(struct mslzh_context *lzhctx, UI idx)
@@ -361,7 +333,7 @@ static void mslzh_read_huffman_tree(struct mslzh_context *lzhctx, UI idx)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(lzhctx->c, "huffman tree #%u at ~%"I64_FMT", nsyms=%u, enctype=%u",
-		idx, lzhctx->inf_curpos, htr->num_symbols, htr->enctype);
+		idx, lzhctx->bitrd.curpos, htr->num_symbols, htr->enctype);
 	de_dbg_indent(c, 1);
 
 	htr->symlengths = de_mallocarray(c, htr->num_symbols, sizeof(htr->symlengths[0]));
@@ -383,7 +355,7 @@ static void mslzh_read_huffman_tree(struct mslzh_context *lzhctx, UI idx)
 		mslzh_set_errorflag(lzhctx);
 	}
 
-	if(lzhctx->eof_flag) {
+	if(lzhctx->bitrd.eof_flag) {
 		mslzh_set_errorflag(lzhctx);
 		goto done;
 	}
@@ -436,16 +408,16 @@ static void mslzh_decompress_main(struct mslzh_context *lzhctx)
 	MSLZH_VALUE_TYPE v;
 	struct mslzh_tree *curr_matchlen_table;
 
-	de_dbg(lzhctx->c, "LZ data at ~%"I64_FMT, lzhctx->inf_curpos);
+	de_dbg(lzhctx->c, "LZ data at ~%"I64_FMT, lzhctx->bitrd.curpos);
 
 	curr_matchlen_table = &lzhctx->htree[MSLZH_TREE_IDX_MATCHLEN];
 
 	while(1) {
 		if(mslzh_have_enough_output(lzhctx)) goto unc_done;
-		if(lzhctx->eof_flag) goto unc_done;
+		if(lzhctx->bitrd.eof_flag) goto unc_done;
 
 		v = mslzh_getnextcode(lzhctx, curr_matchlen_table);
-		if(lzhctx->eof_flag) goto unc_done;
+		if(lzhctx->bitrd.eof_flag) goto unc_done;
 
 		if(v!=0) { // match
 			UI matchlen;
@@ -456,7 +428,7 @@ static void mslzh_decompress_main(struct mslzh_context *lzhctx)
 
 			x = mslzh_getnextcode(lzhctx, &lzhctx->htree[MSLZH_TREE_IDX_OFFSET]);
 			y = mslzh_getbits(lzhctx, 6);
-			if(lzhctx->eof_flag) goto unc_done;
+			if(lzhctx->bitrd.eof_flag) goto unc_done;
 
 			// This may underflow -- that's ok.
 			matchpos = lzhctx->ringbuf->curpos - (x<<6 | y);
@@ -471,7 +443,7 @@ static void mslzh_decompress_main(struct mslzh_context *lzhctx)
 			UI i;
 
 			x = mslzh_getnextcode(lzhctx, &lzhctx->htree[MSLZH_TREE_IDX_LITLEN]);
-			if(lzhctx->eof_flag) goto unc_done;
+			if(lzhctx->bitrd.eof_flag) goto unc_done;
 			if(x != 31) {
 				curr_matchlen_table = &lzhctx->htree[MSLZH_TREE_IDX_MATCHLEN2];
 			}
@@ -479,7 +451,7 @@ static void mslzh_decompress_main(struct mslzh_context *lzhctx)
 			count = x+1;
 			for(i=0; i<count; i++) {
 				v = mslzh_getnextcode(lzhctx, &lzhctx->htree[MSLZH_TREE_IDX_LITERAL]);
-				if(lzhctx->eof_flag) goto unc_done;
+				if(lzhctx->bitrd.eof_flag) goto unc_done;
 				de_lz77buffer_add_literal_byte(lzhctx->ringbuf, (u8)v);
 			}
 		}
@@ -501,10 +473,12 @@ static void do_decompress_LZHUFF(deark *c, struct de_dfilter_in_params *dcmpri,
 	lzhctx->c = c;
 	lzhctx->modname = "lzhuff";
 	lzhctx->inf = dcmpri->f;
-	lzhctx->inf_curpos = dcmpri->pos;
-	lzhctx->inf_endpos = dcmpri->pos + dcmpri->len;
 	lzhctx->dcmpro = dcmpro;
 	lzhctx->dres = dres;
+
+	lzhctx->bitrd.f = dcmpri->f;
+	lzhctx->bitrd.curpos = dcmpri->pos;
+	lzhctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
 
 	lzhctx->htree[MSLZH_TREE_IDX_MATCHLEN].num_symbols = 16;
 	lzhctx->htree[MSLZH_TREE_IDX_MATCHLEN2].num_symbols = 16;
@@ -518,14 +492,14 @@ static void do_decompress_LZHUFF(deark *c, struct de_dfilter_in_params *dcmpri,
 	}
 
 	// 3-byte header
-	de_dbg(c, "LZH header at %"I64_FMT, lzhctx->inf_curpos);
+	de_dbg(c, "LZH header at %"I64_FMT, lzhctx->bitrd.curpos);
 	de_dbg_indent(c, 1);
 	for(k=0; k<MSLZH_NUM_TREES; k++) {
 		lzhctx->htree[k].enctype = mslzh_getbits(lzhctx, 4);
 		de_dbg2(c, "huffman tree enctype[%d] = %u", (int)k, lzhctx->htree[k].enctype);
 	}
 	(void)mslzh_getbits(lzhctx, 4); // unused
-	if(lzhctx->eof_flag) {
+	if(lzhctx->bitrd.eof_flag) {
 		mslzh_set_errorflag(lzhctx);
 		goto done;
 	}
@@ -533,7 +507,7 @@ static void do_decompress_LZHUFF(deark *c, struct de_dfilter_in_params *dcmpri,
 
 	for(k=0; k<MSLZH_NUM_TREES; k++) {
 		mslzh_read_huffman_tree(lzhctx, (UI)k);
-		if(lzhctx->eof_flag) {
+		if(lzhctx->bitrd.eof_flag) {
 			mslzh_set_errorflag(lzhctx);
 			goto done;
 		}
