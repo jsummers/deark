@@ -2254,7 +2254,12 @@ int dbuf_is_all_zeroes(dbuf *f, i64 pos, i64 len)
 void de_bitbuf_lowelevel_add_byte(struct de_bitbuf_lowlevel *bbll, u8 n)
 {
 	if(bbll->nbits_in_bitbuf>56) return;
-	bbll->bit_buf = (bbll->bit_buf<<8) | n;
+	if(bbll->is_lsb==0) {
+		bbll->bit_buf = (bbll->bit_buf<<8) | n;
+	}
+	else {
+		bbll->bit_buf |= (u64)n << bbll->nbits_in_bitbuf;
+	}
 	bbll->nbits_in_bitbuf += 8;
 }
 
@@ -2264,10 +2269,23 @@ u64 de_bitbuf_lowelevel_get_bits(struct de_bitbuf_lowlevel *bbll, UI nbits)
 	u64 mask;
 
 	if(nbits > bbll->nbits_in_bitbuf) return 0;
-	bbll->nbits_in_bitbuf -= nbits;
 	mask = ((u64)1 << nbits)-1;
-	n = (bbll->bit_buf >> bbll->nbits_in_bitbuf) & mask;
+	if(bbll->is_lsb==0) {
+		bbll->nbits_in_bitbuf -= nbits;
+		n = (bbll->bit_buf >> bbll->nbits_in_bitbuf) & mask;
+	}
+	else {
+		n = bbll->bit_buf & mask;
+		bbll->bit_buf >>= nbits;
+		bbll->nbits_in_bitbuf -= nbits;
+	}
 	return n;
+}
+
+void de_bitbuf_lowelevel_empty(struct de_bitbuf_lowlevel *bbll)
+{
+	bbll->bit_buf = 0;
+	bbll->nbits_in_bitbuf = 0;
 }
 
 u64 de_bitreader_getbits(struct de_bitreader *bitrd, UI nbits)

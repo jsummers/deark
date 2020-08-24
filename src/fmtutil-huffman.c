@@ -478,11 +478,10 @@ struct squeeze_ctx {
 	struct de_dfilter_out_params *dcmpro;
 	struct de_dfilter_results *dres;
 	const char *modname;
-	i64 curpos;
-	i64 endpos;
 	i64 nbytes_written;
 	i64 nodecount;
 	struct fmtutil_huffman_tree *ht;
+	struct de_bitreader bitrd;
 	struct squeeze_node tmpnodes[SQUEEZE_MAX_NODES]; // Temporary use when decoding the node table
 };
 
@@ -557,8 +556,8 @@ static int squeeze_read_nodetable(deark *c, struct squeeze_ctx *sqctx)
 	i64 k;
 	int retval = 0;
 
-	if(sqctx->curpos+2 > sqctx->endpos) goto done;
-	sqctx->nodecount = dbuf_getu16le_p(sqctx->dcmpri->f, &sqctx->curpos);
+	if(sqctx->bitrd.curpos+2 > sqctx->bitrd.endpos) goto done;
+	sqctx->nodecount = dbuf_getu16le_p(sqctx->dcmpri->f, &sqctx->bitrd.curpos);
 	de_dbg(c, "node count: %d", (int)sqctx->nodecount);
 	if(sqctx->nodecount > SQUEEZE_MAX_NODES) {
 		de_dfilter_set_errorf(c, sqctx->dres, sqctx->modname,
@@ -569,15 +568,15 @@ static int squeeze_read_nodetable(deark *c, struct squeeze_ctx *sqctx)
 	de_dbg2(c, "node table:");
 	de_dbg_indent(c, 1);
 	for(k=0; k<sqctx->nodecount; k++) {
-		sqctx->tmpnodes[k].child[0].dval = (i16)dbuf_geti16le_p(sqctx->dcmpri->f, &sqctx->curpos);
-		sqctx->tmpnodes[k].child[1].dval = (i16)dbuf_geti16le_p(sqctx->dcmpri->f, &sqctx->curpos);
+		sqctx->tmpnodes[k].child[0].dval = (i16)dbuf_geti16le_p(sqctx->dcmpri->f, &sqctx->bitrd.curpos);
+		sqctx->tmpnodes[k].child[1].dval = (i16)dbuf_geti16le_p(sqctx->dcmpri->f, &sqctx->bitrd.curpos);
 		if(c->debug_level >= 2) {
 			de_dbg2(c, "nodetable[%d]: %d %d", (int)k, (int)sqctx->tmpnodes[k].child[0].dval,
 				(int)sqctx->tmpnodes[k].child[1].dval);
 		}
 	}
 	de_dbg_indent(c, -1);
-	if(sqctx->curpos > sqctx->endpos) goto done;
+	if(sqctx->bitrd.curpos > sqctx->bitrd.endpos) goto done;
 
 	if(!squeeze_process_nodetable(c, sqctx)) goto done;
 
@@ -588,10 +587,10 @@ done:
 
 static int squeeze_read_codes(deark *c, struct squeeze_ctx *sqctx)
 {
-	int z;
-	u8 n;
-
 	int retval = 0;
+
+	sqctx->bitrd.bbll.is_lsb = 1;
+	de_bitbuf_lowelevel_empty(&sqctx->bitrd.bbll);
 
 	if(fmtutil_huffman_get_max_bits(sqctx->ht) < 1) {
 		// Empty tree? Assume this is an empty file.
@@ -600,35 +599,31 @@ static int squeeze_read_codes(deark *c, struct squeeze_ctx *sqctx)
 	}
 
 	while(1) {
-		if(sqctx->curpos >= sqctx->endpos) {
-			retval = 1;
+		int ret;
+		i32 val = 0;
+
+		ret = fmtutil_huffman_read_next_value(sqctx->ht, &sqctx->bitrd, &val);
+		if(!ret || val<0 || val>256) {
+			if(sqctx->bitrd.eof_flag) {
+				retval = 1;
+			}
+			else {
+				de_dfilter_set_errorf(c, sqctx->dres, sqctx->modname, "Huffman decode error");
+			}
 			goto done;
 		}
-		n = dbuf_getbyte_p(sqctx->dcmpri->f, &sqctx->curpos);
 
-		for(z=0; z<=7; z++) {
-			int hret;
-			i32 val;
-
-			hret = fmtutil_huffman_decode_bit(sqctx->ht, ((n>>z)&0x1), &val);
-			if(hret==0) {
-				de_dfilter_set_errorf(c, sqctx->dres, sqctx->modname, "Huffman decode error");
+		if(val>=0 && val<=255) {
+			dbuf_writebyte(sqctx->dcmpro->f, (u8)val);
+			sqctx->nbytes_written++;
+			if(sqctx->dcmpro->len_known && (sqctx->nbytes_written >= sqctx->dcmpro->expected_len)) {
+				retval = 1;
 				goto done;
 			}
-			else if(hret==1) {
-				if(val>=0 && val<=255) {
-					dbuf_writebyte(sqctx->dcmpro->f, (u8)val);
-					sqctx->nbytes_written++;
-					if(sqctx->dcmpro->len_known && (sqctx->nbytes_written >= sqctx->dcmpro->expected_len)) {
-						retval = 1;
-						goto done;
-					}
-				}
-				else if(val==256) { // STOP code
-					retval = 1;
-					goto done;
-				}
-			}
+		}
+		else if(val==256) { // STOP code
+			retval = 1;
+			goto done;
 		}
 	}
 
@@ -650,14 +645,16 @@ void fmtutil_huff_squeeze_codectype1(deark *c, struct de_dfilter_in_params *dcmp
 	sqctx->dcmpro = dcmpro;
 	sqctx->dres = dres;
 
-	sqctx->curpos = dcmpri->pos;
-	sqctx->endpos = dcmpri->pos + dcmpri->len;
+	sqctx->bitrd.f = dcmpri->f;
+	sqctx->bitrd.curpos = dcmpri->pos;
+	sqctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
+
 	sqctx->ht = fmtutil_huffman_create_tree(c, 257, 257);
 
 	if(!squeeze_read_nodetable(c, sqctx)) goto done;
 	if(!squeeze_read_codes(c, sqctx)) goto done;
 
-	dres->bytes_consumed = sqctx->curpos - dcmpri->pos;
+	dres->bytes_consumed = sqctx->bitrd.curpos - dcmpri->pos;
 	if(dres->bytes_consumed > dcmpri->len) {
 		dres->bytes_consumed = dcmpri->len;
 	}
