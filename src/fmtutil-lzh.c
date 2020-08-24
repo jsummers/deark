@@ -304,22 +304,18 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 	deark *c = cctx->c;
 	UI ncodes_in_this_block;
 	UI ncodes_remaining_this_block;
-	i64 block_start_pos;
-	UI block_start_pos_bits;
 	int saved_indent_level;
+	char pos_descr[32];
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	block_start_pos = cctx->bitrd.curpos;
-	block_start_pos_bits = cctx->bitrd.bbll.nbits_in_bitbuf;
 
+	de_bitreader_describe_curpos(&cctx->bitrd, pos_descr, sizeof(pos_descr));
 	ncodes_in_this_block = (UI)lzh_getbits(cctx, 16);
 	if(cctx->bitrd.eof_flag) {
-		de_dbg2(c, "stopping, not enough room for a block at %"I64_FMT" minus %u bits",
-			block_start_pos, block_start_pos_bits);
+		de_dbg2(c, "stopping, not enough room for a block at %s", pos_descr);
 		goto done;
 	}
-	de_dbg(c, "block#%d at %"I64_FMT" minus %u bits", blk_idx, block_start_pos,
-		block_start_pos_bits);
+	de_dbg(c, "block#%d at %s", blk_idx, pos_descr);
 	de_dbg_indent(c, 1);
 	de_dbg(cctx->c, "num codes: %u", (UI)ncodes_in_this_block);
 
@@ -353,8 +349,8 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 	if(!lh5x_read_codes_tree(cctx)) goto done;
 	if(!lh5x_read_offsets_tree(cctx)) goto done;
 
-	de_dbg(c, "cmpr data codes at %"I64_FMT" minus %u bits", cctx->bitrd.curpos,
-		cctx->bitrd.bbll.nbits_in_bitbuf);
+	de_bitreader_describe_curpos(&cctx->bitrd, pos_descr, sizeof(pos_descr));
+	de_dbg(c, "cmpr data codes at %s", pos_descr);
 	ncodes_remaining_this_block = ncodes_in_this_block;
 	while(1) {
 		UI code;

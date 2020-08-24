@@ -794,6 +794,7 @@ struct de_bitreader {
 	struct de_bitbuf_lowlevel bbll;
 };
 u64 de_bitreader_getbits(struct de_bitreader *bitrd, UI nbits);
+char *de_bitreader_describe_curpos(struct de_bitreader *bitrd, char *buf, size_t buf_len);
 
 ///////////////////////////////////////////
 

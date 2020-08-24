@@ -330,10 +330,12 @@ static void mslzh_read_huffman_tree(struct mslzh_context *lzhctx, UI idx)
 	int saved_indent_level;
 	deark *c = lzhctx->c;
 	struct mslzh_tree *htr = &lzhctx->htree[idx];
+	char tmps[32];
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(lzhctx->c, "huffman tree #%u at ~%"I64_FMT", nsyms=%u, enctype=%u",
-		idx, lzhctx->bitrd.curpos, htr->num_symbols, htr->enctype);
+	de_dbg(lzhctx->c, "huffman tree #%u at %s, nsyms=%u, enctype=%u",
+		idx, de_bitreader_describe_curpos(&lzhctx->bitrd, tmps, sizeof(tmps)),
+		htr->num_symbols, htr->enctype);
 	de_dbg_indent(c, 1);
 
 	htr->symlengths = de_mallocarray(c, htr->num_symbols, sizeof(htr->symlengths[0]));
@@ -407,8 +409,10 @@ static void mslzh_decompress_main(struct mslzh_context *lzhctx)
 {
 	MSLZH_VALUE_TYPE v;
 	struct mslzh_tree *curr_matchlen_table;
+	char tmps[32];
 
-	de_dbg(lzhctx->c, "LZ data at ~%"I64_FMT, lzhctx->bitrd.curpos);
+	de_dbg(lzhctx->c, "LZ data at %s",
+		de_bitreader_describe_curpos(&lzhctx->bitrd, tmps, sizeof(tmps)));
 
 	curr_matchlen_table = &lzhctx->htree[MSLZH_TREE_IDX_MATCHLEN];
 

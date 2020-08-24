@@ -286,6 +286,7 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 	UI rb_size;
 	int ret;
 	int saved_indent_level;
+	char pos_descr[32];
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -339,8 +340,8 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 		if(!ret) goto done;
 	}
 
-	de_dbg(c, "cmpr data codes at %"I64_FMT" minus %u bits", cctx->bitrd.curpos,
-		cctx->bitrd.bbll.nbits_in_bitbuf);
+	de_bitreader_describe_curpos(&cctx->bitrd, pos_descr, sizeof(pos_descr));
+	de_dbg(c, "cmpr data codes at %s", pos_descr);
 	de_dbg_indent(c, 1);
 	while(1) {
 		UI code;

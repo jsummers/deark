@@ -2314,3 +2314,22 @@ u64 de_bitreader_getbits(struct de_bitreader *bitrd, UI nbits)
 
 	return de_bitbuf_lowelevel_get_bits(&bitrd->bbll, nbits);
 }
+
+char *de_bitreader_describe_curpos(struct de_bitreader *bitrd, char *buf, size_t buf_len)
+{
+	i64 curpos;
+	UI nwholebytes;
+	UI nbits;
+
+	nwholebytes = (i64)(bitrd->bbll.nbits_in_bitbuf / 8);
+	nbits = bitrd->bbll.nbits_in_bitbuf % 8;
+	curpos = bitrd->curpos - (i64)nwholebytes;
+
+	if(nbits==0) {
+		de_snprintf(buf, buf_len, "%"I64_FMT, curpos);
+	}
+	else {
+		de_snprintf(buf, buf_len, "%"I64_FMT"+%ubits", curpos-1, (UI)(8-nbits));
+	}
+	return buf;
+}
