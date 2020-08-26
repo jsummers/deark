@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_arj);
 
 struct member_data {
@@ -26,7 +27,9 @@ struct member_data {
 	u32 crc_reported;
 	i64 cmpr_len;
 	i64 orig_len;
+	i64 cmpr_pos;
 	struct de_timestamp tmstamp[DE_TIMESTAMPIDX_COUNT];
+	struct de_stringreaderdata *name_srd;
 };
 
 typedef struct localctx_struct {
@@ -165,6 +168,113 @@ static void get_flags_descr(struct member_data *md, u8 n1, de_ucstring *s)
 	}
 }
 
+static void decompress_method_1(deark *c, lctx *d, struct member_data *md,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	struct de_lzh_params lzhparams;
+
+	de_zeromem(&lzhparams, sizeof(struct de_lzh_params));
+	lzhparams.fmt = DE_LZH_FMT_LH5LIKE;
+	lzhparams.subfmt = '6';
+	fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres, &lzhparams);
+}
+
+static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
+{
+	struct de_crcobj *crco = (struct de_crcobj*)userdata;
+	de_crcobj_addbuf(crco, buf, buf_len);
+}
+
+static void extract_member_file(deark *c, lctx *d, struct member_data *md)
+{
+	de_finfo *fi = NULL;
+	dbuf *outf = NULL;
+	size_t k;
+	int is_normal_file;
+	int is_dir;
+	u32 crc_calc;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
+	if(md->objtype!=ARJ_OBJTYPE_MEMBERFILE) goto done;
+	if(!md->name_srd) goto done;
+
+	is_normal_file = (md->file_type==0 || md->file_type==1);
+	is_dir = (md->file_type==3);
+	if(!is_normal_file && !is_dir) {
+		goto done; // Special file type, not extracting
+	}
+
+	if((md->flags & 0x01) && (md->orig_len!=0)) {
+		de_err(c, "%s: Garbled files are not supported",
+			ucstring_getpsz_d(md->name_srd->str));
+		goto done;
+	}
+
+	if(is_normal_file && (md->method>3) && (md->orig_len!=0)) {
+		de_err(c, "%s: Compression method %u is not supported",
+			ucstring_getpsz_d(md->name_srd->str), (UI)md->method);
+		goto done;
+	}
+
+	fi = de_finfo_create(c);
+
+	de_finfo_set_name_from_ucstring(c, fi, md->name_srd->str, DE_SNFLAG_FULLPATH);
+	fi->original_filename_flag = 1;
+
+	if(is_dir) {
+		fi->is_directory = 1;
+	}
+
+	for(k=0; k<DE_TIMESTAMPIDX_COUNT; k++) {
+		fi->timestamp[k] = md->tmstamp[k];
+	}
+
+	outf = dbuf_create_output_file(c, NULL, fi, 0);
+
+	if(is_dir) goto done;
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = md->cmpr_pos;
+	dcmpri.len = md->cmpr_len;
+	dcmpro.f = outf;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = md->orig_len;
+
+	de_crcobj_reset(d->crco);
+	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
+
+	if(md->orig_len==0) {
+		;
+	}
+	else if(md->method==0) {
+		fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
+	}
+	else if(md->method>=1 && md->method<=3) {
+		decompress_method_1(c, d, md, &dcmpri, &dcmpro, &dres);
+	}
+
+	if(dres.errcode) {
+		de_err(c, "%s: Decompression failed: %s", ucstring_getpsz_d(md->name_srd->str),
+			de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
+
+	crc_calc = de_crcobj_getval(d->crco);
+	de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)crc_calc);
+	if(crc_calc != md->crc_reported) {
+		de_err(c, "%s: CRC check failed", ucstring_getpsz_d(md->name_srd->str));
+		goto done;
+	}
+
+done:
+	dbuf_close(outf);
+	if(fi) de_finfo_destroy(c, fi);
+}
+
 static const char *get_objtype_name(u8 t) {
 	const char *name = NULL;
 
@@ -175,6 +285,17 @@ static const char *get_objtype_name(u8 t) {
 	case ARJ_OBJTYPE_EOA: name="end of archive"; break;
 	}
 	return name?name:"?";
+}
+
+static void fixup_path(de_ucstring *s)
+{
+	i64 i;
+
+	for(i=0; i<s->len; i++) {
+		if(s->str[i]=='\\') {
+			s->str[i] = '/';
+		}
+	}
 }
 
 // If successfully parsed, sets *pbytes_consumed.
@@ -194,7 +315,6 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	u32 basic_hdr_crc_reported;
 	u32 basic_hdr_crc_calc;
 	struct member_data *md = NULL;
-	struct de_stringreaderdata *name_srd = NULL;
 	de_ucstring *flags_descr = NULL;
 	int retval = 0;
 	int saved_indent_level;
@@ -337,6 +457,7 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		}
 	}
 	else {
+		// TODO: Do we skip this if method==8 ?
 		md->crc_reported = (u32)de_getu32le_p(&pos);
 		de_dbg(c, "crc (reported): 0x%08x", (UI)md->crc_reported);
 	}
@@ -402,12 +523,16 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	de_dbg_indent(c, -1);
 	pos = first_hdr_endpos; // Now at the offset of the filename field
 	nbytes_avail = basic_hdr_endpos - pos;
-	name_srd = dbuf_read_string(c->infile, pos, nbytes_avail, 256, DE_CONVFLAG_STOP_AT_NUL,
+	md->name_srd = dbuf_read_string(c->infile, pos, nbytes_avail, 256, DE_CONVFLAG_STOP_AT_NUL,
 		md->input_encoding);
-	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(name_srd->str));
+	if(!(md->flags & 0x10)) {
+		// "PATHSYM" flag missing, need to convert '\' to '/'
+		fixup_path(md->name_srd->str);
+	}
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->name_srd->str));
 
-	if(name_srd->found_nul) {
-		pos += name_srd->bytes_consumed;
+	if(md->name_srd->found_nul) {
+		pos += md->name_srd->bytes_consumed;
 		nbytes_avail = basic_hdr_endpos - pos;
 		handle_comment(c, d, md, pos, nbytes_avail);
 	}
@@ -429,7 +554,9 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	}
 
 	if(md->objtype==ARJ_OBJTYPE_MEMBERFILE) {
-		de_dbg(c, "compressed data at %"I64_FMT, pos);
+		md->cmpr_pos = pos;
+		de_dbg(c, "compressed data at %"I64_FMT, md->cmpr_pos);
+		extract_member_file(c, d, md);
 		pos += md->cmpr_len;
 	}
 
@@ -438,8 +565,8 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 
 done:
 	ucstring_destroy(flags_descr);
-	de_destroy_stringreaderdata(c, name_srd);
 	if(md) {
+		de_destroy_stringreaderdata(c, md->name_srd);
 		de_free(c, md);
 	}
 	de_dbg_indent(c, -1);
@@ -493,7 +620,6 @@ static void de_run_arj(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 
 	de_declare_fmt(c, "ARJ");
-	de_info(c, "Note: ARJ files are not fully supported.");
 
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
 

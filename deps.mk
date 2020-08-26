@@ -23,7 +23,7 @@ $(OBJDIR)/modules/arc.o: modules/arc.c src/deark-config.h \
 $(OBJDIR)/modules/arcfs.o: modules/arcfs.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/arj.o: modules/arj.c src/deark-config.h \
- src/deark-private.h src/deark.h
+ src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/asf.o: modules/asf.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/atari-dsk.o: modules/atari-dsk.c src/deark-config.h \
