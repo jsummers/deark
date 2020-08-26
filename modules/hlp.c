@@ -1582,50 +1582,30 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-struct PhrIndex_ctx {
-	i64 curpos;
-	unsigned int bitreader_buf;
-	unsigned int bitreader_nbits_in_buf;
-};
-
-static unsigned int phrgetbits(deark *c, lctx *d, struct PhrIndex_ctx *pctx, unsigned int nbits)
-{
-	unsigned int n;
-
-	while(pctx->bitreader_nbits_in_buf < nbits) {
-		u8 b;
-
-		b = de_getbyte_p(&pctx->curpos);
-		pctx->bitreader_buf |= ((unsigned int)b)<<pctx->bitreader_nbits_in_buf;
-		pctx->bitreader_nbits_in_buf += 8;
-	}
-
-	n = pctx->bitreader_buf & ((1U<<nbits)-1U);
-	pctx->bitreader_buf >>= nbits;
-	pctx->bitreader_nbits_in_buf -= nbits;
-	return n;
-}
-
 static void phrdecompress(deark *c, lctx *d, i64 pos1, i64 len, unsigned int BitCount)
 {
 	unsigned int n;
 	unsigned int i;
-	struct PhrIndex_ctx pctx;
+	struct de_bitreader bitrd;
 
-	de_zeromem(&pctx, sizeof(struct PhrIndex_ctx));
+	de_zeromem(&bitrd, sizeof(struct de_bitreader));
+	bitrd.f = c->infile;
+	bitrd.curpos = pos1;
+	bitrd.endpos = pos1 + len;
+	bitrd.bbll.is_lsb = 1;
 
-	pctx.curpos = pos1;
 	d->phrase_info[0].pos = 0;
 
 	for(i=0; i<d->num_phrases; i++) {
 		unsigned int num1bits = 0;
 
-		while(phrgetbits(c, d, &pctx, 1)) {
-			if(pctx.curpos > pos1+len) goto done; // emergency brake
+		while(de_bitreader_getbits(&bitrd, 1)) {
+			if(bitrd.eof_flag) goto done;
 			num1bits++;
 		}
 		n = num1bits<<BitCount;
-		n += phrgetbits(c, d, &pctx, BitCount) + 1;
+		n += (UI)de_bitreader_getbits(&bitrd, BitCount) + 1;
+		if(bitrd.eof_flag) goto done;
 
 		d->phrase_info[i].len = n;
 		if(i+1<d->num_phrases) {
