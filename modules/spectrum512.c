@@ -225,32 +225,6 @@ static void spc_uncompress_pal(deark *c, i64 pos1, dbuf *uncmpr_pal)
 	}
 }
 
-struct bit_reader {
-	i64 nextbytepos;
-	u8 cur_byte;
-	unsigned int bits_left;
-};
-
-static unsigned int bit_reader_getbit(dbuf *f, struct bit_reader *br)
-{
-	if(br->bits_left<1) {
-		br->cur_byte = dbuf_getbyte(f, br->nextbytepos++);
-		br->bits_left = 8;
-	}
-	return (br->cur_byte>>(--br->bits_left))&0x1;
-}
-
-static unsigned int bit_reader_getint(dbuf *f, struct bit_reader *br, unsigned int nbits)
-{
-	unsigned int k;
-	unsigned int n = 0;
-
-	for(k=0; k<nbits; k++) {
-		n = (n<<1) | bit_reader_getbit(f, br);
-	}
-	return n;
-}
-
 // Read from c->infile at offset pos1, append to uncmpr_pal
 static void sps_uncompress_pal(deark *c, i64 pos1, dbuf *uncmpr_pal)
 {
@@ -258,23 +232,25 @@ static void sps_uncompress_pal(deark *c, i64 pos1, dbuf *uncmpr_pal)
 	i64 i;
 	unsigned int k;
 	unsigned int code;
-	struct bit_reader br;
+	struct de_bitreader bitrd;
 
-	br.nextbytepos = pos1;
-	br.cur_byte = 0;
-	br.bits_left = 0;
+	de_zeromem(&bitrd, sizeof(struct de_bitreader));
+	bitrd.f = c->infile;
+	bitrd.curpos = pos1;
+	bitrd.endpos = c->infile->len;
 
 	for(i=0; i<num_pals; i++) {
-		code = bit_reader_getint(c->infile, &br, 14);
+		code = (UI)de_bitreader_getbits(&bitrd, 14);
 
 		for(k=0; k<16; k++) {
 			// Palette entries 0 and 15 are always black
 			if(k>=1 && k<=14 && (code&(1<<(14-k)))) {
 				unsigned int cr, cg, cb;
 				unsigned int palcode;
-				cr = bit_reader_getint(c->infile, &br, 3);
-				cg = bit_reader_getint(c->infile, &br, 3);
-				cb = bit_reader_getint(c->infile, &br, 3);
+
+				cr = (UI)de_bitreader_getbits(&bitrd, 3);
+				cg = (UI)de_bitreader_getbits(&bitrd, 3);
+				cb = (UI)de_bitreader_getbits(&bitrd, 3);
 				palcode = (cr<<8)|(cg<<4)|cb;
 				dbuf_writeu16be(uncmpr_pal, palcode);
 			}
