@@ -168,6 +168,111 @@ static void get_flags_descr(struct member_data *md, u8 n1, de_ucstring *s)
 	}
 }
 
+struct method4_ctx {
+	i64 nbytes_written;
+	int stop_flag;
+	struct de_dfilter_out_params *dcmpro;
+	struct de_bitreader bitrd;
+};
+
+static void method4_lz77buf_writebytecb(struct de_lz77buffer *rb, const u8 n)
+{
+	struct method4_ctx *cctx = (struct method4_ctx*)rb->userdata;
+
+	if(cctx->stop_flag) return;
+	if(cctx->dcmpro->len_known) {
+		if(cctx->nbytes_written >= cctx->dcmpro->expected_len) {
+			cctx->stop_flag = 1;
+			return;
+		}
+	}
+
+	dbuf_writebyte(cctx->dcmpro->f, n);
+	cctx->nbytes_written++;
+}
+
+static UI method4_read_a_length_code(struct method4_ctx *cctx)
+{
+	UI onescount = 0;
+	UI n;
+
+	// Read up to 7 bits, counting the number of 1 bits, stopping after the first 0.
+	while(1) {
+		n = (UI)de_bitreader_getbits(&cctx->bitrd, 1);
+		if(n==0) break;
+		onescount++;
+		if(onescount>=7) break;
+	}
+
+	// However many ones there were, read that number of bits.
+	if(onescount==0) return 0;
+	n = (UI)de_bitreader_getbits(&cctx->bitrd, onescount);
+	return (1U<<onescount)-1 + n;
+}
+
+static UI method4_read_an_offset(struct method4_ctx *cctx)
+{
+	UI onescount = 0;
+	UI n;
+
+	// Read up to 4 bits, counting the number of 1 bits, stopping after the first 0.
+	while(1) {
+		n = (UI)de_bitreader_getbits(&cctx->bitrd, 1);
+		if(n==0) break;
+		onescount++;
+		if(onescount>=4) break;
+	}
+
+	// Read {9 + the number of 1 bits} more bits.
+	n = (UI)de_bitreader_getbits(&cctx->bitrd, 9+onescount);
+	return (1U<<(9+onescount))-512 + n;
+}
+
+static void decompress_method_4(deark *c, lctx *d, struct member_data *md,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	struct method4_ctx *cctx = NULL;
+	struct de_lz77buffer *ringbuf = NULL;
+
+	cctx = de_malloc(c, sizeof(struct method4_ctx));
+	cctx->dcmpro = dcmpro;
+	cctx->bitrd.f = dcmpri->f;
+	cctx->bitrd.curpos = dcmpri->pos;
+	cctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
+
+	ringbuf = de_lz77buffer_create(c, 32768);
+	ringbuf->writebyte_cb = method4_lz77buf_writebytecb;
+	ringbuf->userdata = (void*)cctx;
+
+	while(1) {
+		UI len_code;
+
+		if(cctx->bitrd.eof_flag) goto done;
+		if(cctx->stop_flag) goto done;
+
+		len_code = method4_read_a_length_code(cctx);
+		if(len_code==0) {
+			u8 b;
+
+			b = (u8)de_bitreader_getbits(&cctx->bitrd, 8);
+			de_lz77buffer_add_literal_byte(ringbuf, b);
+		}
+		else {
+			UI offs;
+
+			offs = method4_read_an_offset(cctx);
+			de_lz77buffer_copy_from_hist(ringbuf, ringbuf->curpos-1-offs, len_code+2);
+		}
+	}
+
+done:
+	dres->bytes_consumed_valid = 1;
+	dres->bytes_consumed = cctx->bitrd.curpos - dcmpri->pos;
+	de_lz77buffer_destroy(c, ringbuf);
+	de_free(c, cctx);
+}
+
 static void decompress_method_1(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
@@ -213,7 +318,7 @@ static void extract_member_file(deark *c, lctx *d, struct member_data *md)
 		goto done;
 	}
 
-	if(is_normal_file && (md->method>3) && (md->orig_len!=0)) {
+	if(is_normal_file && (md->method>4) && (md->orig_len!=0)) {
 		de_err(c, "%s: Compression method %u is not supported",
 			ucstring_getpsz_d(md->name_srd->str), (UI)md->method);
 		goto done;
@@ -255,6 +360,9 @@ static void extract_member_file(deark *c, lctx *d, struct member_data *md)
 	}
 	else if(md->method>=1 && md->method<=3) {
 		decompress_method_1(c, d, md, &dcmpri, &dcmpro, &dres);
+	}
+	else if(md->method==4) {
+		decompress_method_4(c, d, md, &dcmpri, &dcmpro, &dres);
 	}
 
 	if(dres.errcode) {

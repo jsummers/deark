@@ -589,7 +589,7 @@ Deark -- Information about supported formats
   Options
    -opt arcfs:appendtype - Append the file type to the filename
 
-* ARJ (module="arj") (experimental, incomplete)
+* ARJ (module="arj") (experimental)
 
 * AmBs (AMOS "Banks" aggregate format) (module="abk")
   - Extract AmSp, AmIc, AmBk files.
