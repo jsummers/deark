@@ -60,6 +60,7 @@ struct member_data {
 
 typedef struct localctx_struct {
 	de_encoding input_encoding;
+	u8 most_recent_hlev;
 	u8 unsupp_warned;
 	int member_count;
 	struct de_crcobj *crco;
@@ -678,7 +679,8 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 0x00, CODE_pm0, "uncompressed (PMArc)", decompress_uncompressed },
 	{ 0x00, CODE_lZ0, "uncompressed (MicroFox PUT)", decompress_uncompressed },
 	{ 0x00, CODE_lZ1, "MicroFox PUT lZ1", NULL },
-	{ 0x00, CODE_lZ5, "MicroFox PUT lZ5", NULL }
+	// No evidence found that "PUT" lZ5 is different from lh5.
+	{ 0x00, CODE_lZ5, "MicroFox PUT lZ5", decompress_lh5 }
 };
 
 static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
@@ -863,7 +865,8 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 	if(nbytes_avail<1) goto done;
 
 	tmpb1 = de_getbyte(pos1);
-	if(tmpb1 == 0x00) {
+	// Only header level 2 members can start with a NUL byte.
+	if(tmpb1==0x00 && ((d->most_recent_hlev!=2) || (pos1==c->infile->len-1))) {
 		de_dbg(c, "trailer at %"I64_FMT, pos1);
 		if(nbytes_avail > 1) {
 			de_info(c, "Note: %"I64_FMT" extra bytes at end of file (offset %"I64_FMT")",
@@ -910,6 +913,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 		de_err(c, "Invalid or unsupported header level: %d", (int)md->hlev);
 		goto done;
 	}
+	d->most_recent_hlev = md->hlev;
 
 	if(md->hlev==0) {
 		lev0_header_size = (i64)de_getbyte_p(&pos);
