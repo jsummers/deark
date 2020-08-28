@@ -545,109 +545,89 @@ unc_done:
 	}
 }
 
+//======================= hlp_lz77 =======================
+
 struct hlplz77ctx {
-	UI control_byte;
-	UI control_byte_bits_left;
-	u8 matchcode_first_byte;
-	int matchcode_second_byte_pending;
-	i64 nbytes_consumed;
 	i64 nbytes_written;
-	dbuf *outf;
-	UI wpos;
-	u8 window[4096];
+	int stop_flag;
+	struct de_dfilter_out_params *dcmpro;
+	struct de_lz77buffer *ringbuf;
 };
 
-static void hlp_lz77_emit_byte(struct hlplz77ctx *hctx, u8 b)
+static void hlplz77_lz77buf_writebytecb(struct de_lz77buffer *rb, const u8 n)
 {
-	dbuf_writebyte(hctx->outf, b);
-	hctx->nbytes_written++;
-	hctx->window[hctx->wpos] = b;
-	hctx->wpos = (hctx->wpos+1) & 4095;
+	struct hlplz77ctx *sctx = (struct hlplz77ctx*)rb->userdata;
+
+	if(sctx->stop_flag) return;
+	if(sctx->dcmpro->len_known) {
+		if(sctx->nbytes_written >= sctx->dcmpro->expected_len) {
+			sctx->stop_flag = 1;
+			return;
+		}
+	}
+
+	dbuf_writebyte(sctx->dcmpro->f, n);
+	sctx->nbytes_written++;
 }
 
 // This is very similar to the mscompress SZDD algorithm, but
 // gratuitously different.
-static void my_hlp_lz77_codec_addbuf(struct de_dfilter_ctx *dfctx,
-	const u8 *buf, i64 buf_len)
+void fmtutil_hlp_lz77_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params)
 {
-	struct hlplz77ctx *hctx = (struct hlplz77ctx*)dfctx->codec_private;
-	i64 k;
+	i64 pos = dcmpri->pos;
+	i64 endpos = dcmpri->pos + dcmpri->len;
+	struct hlplz77ctx *sctx = NULL;
 
-	for(k=0; k<buf_len; k++) {
+	sctx = de_malloc(c, sizeof(struct hlplz77ctx));
+	sctx->dcmpro = dcmpro;
+	sctx->ringbuf = de_lz77buffer_create(c, 4096);
+	sctx->ringbuf->writebyte_cb = hlplz77_lz77buf_writebytecb;
+	sctx->ringbuf->userdata = (void*)sctx;
+	de_lz77buffer_clear(sctx->ringbuf, 0x20);
 
-		if(hctx->matchcode_second_byte_pending) {
-			UI x;
-			UI matchpos;
-			UI matchlen;
+	while(1) {
+		UI control;
+		UI cbit;
 
-			x = (((UI)buf[k])<<8) | hctx->matchcode_first_byte;
-			hctx->matchcode_second_byte_pending = 0;
-			hctx->nbytes_consumed += 2;
+		if(pos+1 > endpos) goto unc_done; // Out of input data
+		control = (UI)dbuf_getbyte(dcmpri->f, pos++);
 
-			matchlen = (x>>12) + 3;
-			matchpos = (hctx->wpos - ((x & 0x0fff)+1)) & 4095;
-			while(matchlen--) {
-				hlp_lz77_emit_byte(hctx, hctx->window[matchpos]);
-				matchpos = (matchpos+1) & 4095;
+		for(cbit=0x01; cbit<=0x80; cbit<<=1) {
+			if((control & cbit)==0) { // literal
+				u8 b;
+
+				if(pos+1 > endpos) goto unc_done;
+				b = dbuf_getbyte(dcmpri->f, pos++);
+				de_lz77buffer_add_literal_byte(sctx->ringbuf, b);
+				if(sctx->stop_flag) goto unc_done;
 			}
-			continue;
-		}
+			else { // match
+				UI x;
+				UI matchpos;
+				UI matchlen;
 
-		if(hctx->control_byte_bits_left==0) {
-			hctx->control_byte = buf[k];
-			hctx->control_byte_bits_left = 8;
-			hctx->nbytes_consumed++;
-			continue;
+				if(pos+2 > endpos) goto unc_done;
+				x = (UI)dbuf_getu16le_p(dcmpri->f, &pos);
+				matchlen = (x>>12) + 3;
+				matchpos = sctx->ringbuf->curpos - ((x & 0x0fff)+1);
+				de_lz77buffer_copy_from_hist(sctx->ringbuf, matchpos, matchlen);
+				if(sctx->stop_flag) goto unc_done;
+			}
 		}
+	}
 
-		hctx->control_byte_bits_left--;
-		if((hctx->control_byte & (1<<(7-hctx->control_byte_bits_left)))==0) { // literal
-			hlp_lz77_emit_byte(hctx, buf[k]);
-			hctx->nbytes_consumed++;
-		}
-		else { // match (first byte)
-			hctx->matchcode_first_byte = buf[k];
-			hctx->matchcode_second_byte_pending = 1;
-		}
+unc_done:
+	dres->bytes_consumed_valid = 1;
+	dres->bytes_consumed = pos - dcmpri->pos;
+	if(sctx) {
+		de_lz77buffer_destroy(c, sctx->ringbuf);
+		de_free(c, sctx);
 	}
 }
 
-static void my_hlp_lz77_codec_finish(struct de_dfilter_ctx *dfctx)
-{
-	struct hlplz77ctx *hctx = (struct hlplz77ctx*)dfctx->codec_private;
-
-	dfctx->dres->bytes_consumed_valid = 1;
-	dfctx->dres->bytes_consumed = hctx->nbytes_consumed;
-}
-
-static void my_hlp_lz77_codec_destroy(struct de_dfilter_ctx *dfctx)
-{
-	struct hlplz77ctx *hctx = (struct hlplz77ctx*)dfctx->codec_private;
-
-	de_free(dfctx->c, hctx);
-}
-
-void dfilter_hlp_lz77_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
-{
-	struct hlplz77ctx *hctx = NULL;
-
-	hctx = de_malloc(dfctx->c, sizeof(struct hlplz77ctx));
-	hctx->outf = dfctx->dcmpro->f;
-	de_memset(hctx->window, 0x20, 4096);
-	hctx->wpos = 0;
-
-	dfctx->codec_private = (void*)hctx;
-	dfctx->codec_finish_fn = my_hlp_lz77_codec_finish;
-	dfctx->codec_destroy_fn = my_hlp_lz77_codec_destroy;
-	dfctx->codec_addbuf_fn = my_hlp_lz77_codec_addbuf;
-}
-
-void fmtutil_decompress_hlp_lz77(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
-{
-	de_dfilter_decompress_oneshot(c, dfilter_hlp_lz77_codec, NULL,
-		dcmpri, dcmpro, dres);
-}
+//========================================================
 
 struct my_2layer_userdata {
 	struct de_dfilter_ctx *dfctx_codec2;

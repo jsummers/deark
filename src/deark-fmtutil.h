@@ -109,8 +109,9 @@ void fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 void fmtutil_decompress_szdd(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags);
-void fmtutil_decompress_hlp_lz77(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
+void fmtutil_hlp_lz77_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params);
 void fmtutil_huff_squeeze_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params);
@@ -156,7 +157,6 @@ void fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 
 void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
-void dfilter_hlp_lz77_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 
 struct de_lzh_params {
 #define DE_LZH_FMT_LH5LIKE       1 // subfmt=='5' (etc.)

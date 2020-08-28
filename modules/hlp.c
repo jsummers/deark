@@ -1000,7 +1000,7 @@ static void decompress_topic_block(deark *c, lctx *d, struct topic_ctx *tctx,
 	// TODO: Confirm what happens if a block decompresses to more than 16384-12 bytes.
 	dcmpro.expected_len = 16384-TOPICBLOCKHDRSIZE;
 	len_before = outf->len;
-	fmtutil_decompress_hlp_lz77(c, &dcmpri, &dcmpro, &dres);
+	fmtutil_hlp_lz77_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
 	de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", blk_dlen,
 		outf->len - len_before);
 }
@@ -1475,7 +1475,7 @@ static void decompress_Phrases(deark *c, lctx *d, i64 pos, i64 cmpr_len, i64 unc
 	dcmpro.f = d->phrases_data;
 	dcmpro.len_known = 1;
 	dcmpro.expected_len = uncmpr_len;
-	fmtutil_decompress_hlp_lz77(c, &dcmpri, &dcmpro, &dres);
+	fmtutil_hlp_lz77_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
 	if(dres.errcode || (d->phrases_data->len!=uncmpr_len)) {
 		de_warn(c, "Phrases decompression may have failed");
 	}
