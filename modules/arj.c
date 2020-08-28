@@ -36,6 +36,7 @@ typedef struct localctx_struct {
 	de_encoding input_encoding; // if DE_ENCODING_UNKNOWN, autodetect for each member
 	u8 archive_flags;
 	u8 is_secured;
+	i64 entry_point;
 	i64 security_envelope_pos;
 	i64 security_envelope_len;
 	struct de_crcobj *crco;
@@ -241,7 +242,8 @@ static void decompress_method_4(deark *c, lctx *d, struct member_data *md,
 	cctx->bitrd.curpos = dcmpri->pos;
 	cctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
 
-	ringbuf = de_lz77buffer_create(c, 32768);
+	// The maximum offset that can be encoded is 15871, so a 16K history is enough.
+	ringbuf = de_lz77buffer_create(c, 16384);
 	ringbuf->writebyte_cb = method4_lz77buf_writebytecb;
 	ringbuf->userdata = (void*)cctx;
 
@@ -250,6 +252,9 @@ static void decompress_method_4(deark *c, lctx *d, struct member_data *md,
 
 		if(cctx->bitrd.eof_flag) goto done;
 		if(cctx->stop_flag) goto done;
+		if(cctx->dcmpro->len_known && (cctx->nbytes_written >= cctx->dcmpro->expected_len)) {
+			goto done;
+		}
 
 		len_code = method4_read_a_length_code(cctx);
 		if(len_code==0) {
@@ -565,7 +570,6 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		}
 	}
 	else {
-		// TODO: Do we skip this if method==8 ?
 		md->crc_reported = (u32)de_getu32le_p(&pos);
 		de_dbg(c, "crc (reported): 0x%08x", (UI)md->crc_reported);
 	}
@@ -719,20 +723,33 @@ static void do_security_envelope(deark *c, lctx *d)
 	de_dbg_indent(c, -1);
 }
 
+static void de_help_arj(deark *c)
+{
+	de_msg(c, "-opt arj:entrypoint=<n> : Offset of archive header");
+}
+
 static void de_run_arj(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	i64 pos;
 	i64 bytes_consumed = 0;
+	const char *s;
 
 	d = de_malloc(c, sizeof(lctx));
 
 	de_declare_fmt(c, "ARJ");
-
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
 
+	// Useful with self-extracting archives, at least until we can handle them
+	// automatically. "-start" doesn't work right, because the security envelope
+	// offset is an absolute offset.
+	s = de_get_ext_option(c, "arj:entrypoint");
+	if(s) {
+		d->entry_point = de_atoi64(s);
+	}
+
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-	pos = 0;
+	pos = d->entry_point;
 	if(do_header_or_member(c, d, pos, 1, &bytes_consumed) != 1) goto done;
 	pos += bytes_consumed;
 	if(d->is_secured) {
@@ -765,4 +782,5 @@ void de_module_arj(deark *c, struct deark_module_info *mi)
 	mi->desc = "ARJ";
 	mi->run_fn = de_run_arj;
 	mi->identify_fn = de_identify_arj;
+	mi->help_fn = de_help_arj;
 }
