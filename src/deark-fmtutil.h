@@ -163,6 +163,8 @@ struct de_lzh_params {
 	int fmt;
 	int subfmt;
 	u8 stop_on_zero_codes_block;
+	u8 use_history_fill_val;
+	u8 history_fill_val;
 };
 void fmtutil_decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,

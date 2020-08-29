@@ -454,7 +454,14 @@ static void decompress_lha_lh5like(struct lzh_ctx *cctx, struct de_lzh_params *l
 	cctx->ringbuf = de_lz77buffer_create(cctx->c, rb_size);
 	cctx->ringbuf->userdata = (void*)cctx;
 	cctx->ringbuf->writebyte_cb = lha5like_lz77buf_writebytecb;
-	de_lz77buffer_clear(cctx->ringbuf, 0x20);
+	if(lzhp->use_history_fill_val) {
+		if(lzhp->history_fill_val!=0x00) {
+			de_lz77buffer_clear(cctx->ringbuf, lzhp->history_fill_val);
+		}
+	}
+	else {
+		de_lz77buffer_clear(cctx->ringbuf, 0x20);
+	}
 
 	while(1) {
 		if(cctx->bitrd.eof_flag) break;

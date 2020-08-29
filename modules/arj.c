@@ -287,6 +287,14 @@ static void decompress_method_1(deark *c, lctx *d, struct member_data *md,
 	de_zeromem(&lzhparams, sizeof(struct de_lzh_params));
 	lzhparams.fmt = DE_LZH_FMT_LH5LIKE;
 	lzhparams.subfmt = '6';
+
+	// ARJ does not appear to allow LZ77 offsets that point to data before
+	// the beginning of the file, so it doesn't matter what we initialize the
+	// history buffer to. If don't do this, LZH_FMT_LH5LIKE will pre-fill the
+	// buffer with spaces.
+	lzhparams.use_history_fill_val = 1;
+	lzhparams.history_fill_val = 0x00;
+
 	fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres, &lzhparams);
 }
 
@@ -658,6 +666,9 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	de_crcobj_addslice(d->crco, c->infile, pos1+4, basic_hdr_size);
 	basic_hdr_crc_calc = de_crcobj_getval(d->crco);
 	de_dbg(c, "basic hdr crc (calculated): 0x%08x", (UI)basic_hdr_crc_calc);
+	if(basic_hdr_crc_calc != basic_hdr_crc_reported) {
+		de_warn(c, "Header CRC check failed");
+	}
 
 	first_ext_hdr_size = de_getu16le_p(&pos);
 	de_dbg(c, "first ext header size: %"I64_FMT, first_ext_hdr_size);
