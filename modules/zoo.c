@@ -52,6 +52,7 @@ struct member_data {
 	u32 crc_reported;
 	u32 crc_calculated;
 	u32 crc_hdr_reported;
+	u32 crc_hdr_calculated;
 	u8             majver;         /* major version needed to extract */
 	u8             minver;         /* minor version needed to extract */
 	u8 is_deleted;        /* 1 if member is deleted, 0 else  */
@@ -203,6 +204,15 @@ static void finish_modtime_decoding(deark *c, lctx *d, struct member_data *md)
 	}
 }
 
+static void calc_hdr_crc(deark *c, lctx *d, struct member_data *md, i64 pos1, i64 lvar)
+{
+	de_crcobj_reset(d->crco);
+	de_crcobj_addslice(d->crco, c->infile, pos1, 54);
+	de_crcobj_addbuf(d->crco, (const u8*)"\0\0", 2);
+	de_crcobj_addslice(d->crco, c->infile, pos1+56, lvar);
+	md->crc_hdr_calculated = de_crcobj_getval(d->crco);
+}
+
 static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 {
 	de_ucstring *shortname = NULL;
@@ -313,6 +323,11 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 
 	md->crc_hdr_reported = (u32)de_getu16le_p(&pos);
 	de_dbg(c, "entry crc (reported): 0x%04x", (unsigned int)md->crc_hdr_reported);
+	calc_hdr_crc(c, d, md, pos1, lvar);
+	de_dbg(c, "entry crc (calculated): 0x%04x", (UI)md->crc_hdr_calculated);
+	if(md->crc_hdr_calculated != md->crc_hdr_reported) {
+		de_warn(c, "Header CRC check failed");
+	}
 
 	// The "variable part" of the extended header begins here.
 	hdr_endpos = pos + lvar;
@@ -417,6 +432,14 @@ static void decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 	lzhparams.fmt = DE_LZH_FMT_LH5LIKE;
 	lzhparams.subfmt = '5';
 	lzhparams.stop_on_zero_codes_block = 1;
+
+	// Zoo does not appear to allow LZ77 offsets that point to data before
+	// the beginning of the file, so it doesn't matter what we initialize the
+	// history buffer to. If don't do this, LZH_FMT_LH5LIKE will pre-fill the
+	// buffer with spaces.
+	lzhparams.use_history_fill_val = 1;
+	lzhparams.history_fill_val = 0x00;
+
 	fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres, &lzhparams);
 }
 
