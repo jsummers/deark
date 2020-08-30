@@ -585,6 +585,7 @@ static void do_decompress_MSZIP(deark *c, struct de_dfilter_in_params *dcmpri1,
 		i64 blklen_raw;
 		i64 blk_dlen;
 		UI sig;
+		struct de_inflate_params inflparams;
 
 		if(pos > dcmpri1->pos + dcmpri1->len -4) {
 			goto done;
@@ -604,7 +605,10 @@ static void do_decompress_MSZIP(deark *c, struct de_dfilter_in_params *dcmpri1,
 		if(blk_dlen < 0) goto done;
 		dcmpri2.pos = pos;
 		dcmpri2.len = blk_dlen;
-		fmtutil_decompress_deflate_ex(c, &dcmpri2, &dcmpro2, dres, 0, prev_dict);
+		de_zeromem(&inflparams, sizeof(struct de_inflate_params));
+		inflparams.flags = 0;
+		inflparams.starting_dict = prev_dict;
+		fmtutil_inflate_codectype1(c, &dcmpri2, &dcmpro2, dres, (void*)&inflparams);
 		if(dres->errcode) goto done;
 		dbuf_copy(tmpdbuf, 0, tmpdbuf->len, dcmpro1->f);
 		pos += blk_dlen;

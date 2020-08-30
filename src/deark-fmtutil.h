@@ -89,11 +89,18 @@ void fmtutil_decompress_uncompressed(deark *c, struct de_dfilter_in_params *dcmp
 
 #define DE_DEFLATEFLAG_ISZLIB 0x1
 #define DE_DEFLATEFLAG_USEMAXUNCMPRSIZE 0x2
+struct de_inflate_params {
+	unsigned int flags;
+	const u8 *starting_dict;
+};
 int fmtutil_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
 	i64 maxuncmprsize, i64 *bytes_consumed, unsigned int flags);
 void fmtutil_decompress_deflate_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	unsigned int flags, const u8 *starting_dict);
+	unsigned int flags);
+void fmtutil_inflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params);
 
 void fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
