@@ -625,7 +625,12 @@ static void make_fullfilename(deark *c, lctx *d, struct member_data *md)
 				ucstring_append_ucstring(md->fullfilename, md->dirname);
 				ucstring_append_sz(md->fullfilename, "/", DE_ENCODING_LATIN1);
 			}
-			ucstring_append_ucstring(md->fullfilename, md->filename);
+			if(ucstring_isnonempty(md->filename)) {
+				ucstring_append_ucstring(md->fullfilename, md->filename);
+			}
+			else {
+				ucstring_append_char(md->fullfilename, '_');
+			}
 		}
 	}
 }
@@ -864,9 +869,13 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 	nbytes_avail = c->infile->len - pos1;
 	if(nbytes_avail<1) goto done;
 
+	// FIXME: This attempt to classify this member-or-whatever-it-is is not working
+	// right, and needs a significant rethinking.
 	tmpb1 = de_getbyte(pos1);
 	// Only header level 2 members can start with a NUL byte.
-	if(tmpb1==0x00 && ((d->most_recent_hlev!=2) || (pos1==c->infile->len-1))) {
+	if(tmpb1==0x00 && d->member_count>0 && ((d->most_recent_hlev!=2) ||
+		(pos1==c->infile->len-1)))
+	{
 		de_dbg(c, "trailer at %"I64_FMT, pos1);
 		if(nbytes_avail > 1) {
 			de_info(c, "Note: %"I64_FMT" extra bytes at end of file (offset %"I64_FMT")",
@@ -1091,6 +1100,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 			// should be able to parse it and figure out if this bug is present. That
 			// would be better than just guessing.
 			lev2_total_header_size += 2;
+			md->total_size = lev2_total_header_size + md->compressed_data_len;
 			de_dbg(c, "attempting bug workaround: changing total header size to %d",
 				(int)lev2_total_header_size);
 		}
