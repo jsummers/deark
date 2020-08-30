@@ -679,7 +679,9 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	if(md->objtype==ARJ_OBJTYPE_MEMBERFILE) {
 		md->cmpr_pos = pos;
 		de_dbg(c, "compressed data at %"I64_FMT, md->cmpr_pos);
+		de_dbg_indent(c, 1);
 		extract_member_file(c, d, md);
+		de_dbg_indent(c, -1);
 		pos += md->cmpr_len;
 	}
 

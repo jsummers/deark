@@ -460,7 +460,9 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 
 	md = de_malloc(c, sizeof(struct member_data));
@@ -521,6 +523,7 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 	dcmpro.len_known = 1;
 	dcmpro.expected_len = md->uncmpr_len;
 
+	de_dbg_indent(c, 1);
 	switch(md->method) {
 	case ZOOCMPR_STORED:
 		fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
@@ -534,6 +537,7 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 	default:
 		goto done; // Should be impossible
 	}
+	de_dbg_indent(c, -1);
 
 	md->crc_calculated = de_crcobj_getval(d->crco);
 	de_dbg(c, "file data crc (calculated): 0x%04x", (unsigned int)md->crc_calculated);
@@ -557,6 +561,7 @@ done:
 		de_finfo_destroy(c, md->fi);
 		de_free(c, md);
 	}
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 // The main function: process a ZOO file

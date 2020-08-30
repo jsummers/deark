@@ -1133,7 +1133,9 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 
 	make_fullfilename(c, d, md);
 
+	de_dbg_indent(c, 1);
 	do_extract_file(c, d, md, cmi);
+	de_dbg_indent(c, -1);
 
 	retval = 1;
 done:
