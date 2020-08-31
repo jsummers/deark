@@ -181,7 +181,6 @@ static void do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
 		goto done;
 	}
 
-
 	// Read the data section
 	de_bitreader_describe_curpos(&hctx->bitrd, pos_descr, sizeof(pos_descr));
 	de_dbg(c, "cmpr data codes at %s", pos_descr);
@@ -288,6 +287,8 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	i64 pos = pos1;
 	i64 fnlen;
 	i64 n;
+	u32 hdr_crc_reported;
+	u32 hdr_crc_calc;
 	de_ucstring *descr = NULL;
 	int saved_indent_level;
 	char timestamp_buf[64];
@@ -366,8 +367,17 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 
 	pos += 6; // reserved, etc.
 
-	n = de_getu16be_p(&pos);
-	de_dbg(c, "file header crc (reported): 0x%04x", (unsigned int)n);
+	hdr_crc_reported = (u32)de_getu16be_p(&pos);
+	de_dbg(c, "header crc (reported): 0x%04x", (UI)hdr_crc_reported);
+
+	de_crcobj_reset(d->crco_hdr);
+	de_crcobj_addslice(d->crco_hdr, c->infile, pos1, 110);
+	hdr_crc_calc = de_crcobj_getval(d->crco_hdr);
+	de_dbg(c, "header crc (calculated): 0x%04x", (UI)hdr_crc_calc);
+	if(hdr_crc_reported != hdr_crc_calc) {
+		de_warn(c, "Bad header CRC (reported 0x%04x, calculated 0x%04x)", (UI)hdr_crc_reported,
+			(UI)hdr_crc_calc);
+	}
 
 	de_dbg_indent(c, -1);
 
