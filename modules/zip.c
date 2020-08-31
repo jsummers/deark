@@ -1355,6 +1355,15 @@ static int do_process_member(deark *c, lctx *d, struct member_data *md)
 {
 	int retval = 0;
 
+	// If for some reason we have a central-dir filename but not a local-dir
+	// filename, use the central-dir filename.
+	if(ucstring_isempty(md->local_dir_entry_data.fname) &&
+		ucstring_isnonempty(md->central_dir_entry_data.fname))
+	{
+		ucstring_append_ucstring(md->local_dir_entry_data.fname,
+			md->central_dir_entry_data.fname);
+	}
+
 	// Set the final file size and crc fields.
 	if(md->local_dir_entry_data.bit_flags & 0x0008) {
 		if(d->using_scanmode) {
