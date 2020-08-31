@@ -68,8 +68,7 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 	de_crcobj_reset(d->crco);
 	if(md->is_dir) {
 		de_crcobj_addslice(d->crco, c->infile, md->pos_in_bytes, 16);
-		de_crcobj_addbyte(d->crco, 0); // The 2-byte CRC field...
-		de_crcobj_addbyte(d->crco, 0);
+		de_crcobj_addzeroes(d->crco, 2); // The 2-byte CRC field
 		de_crcobj_addslice(d->crco, c->infile, md->pos_in_bytes+18, md->len_in_bytes_withpadding-18);
 	}
 	else {

@@ -1953,9 +1953,14 @@ void de_crcobj_addbuf(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
 	}
 }
 
-void de_crcobj_addbyte(struct de_crcobj *crco, u8 b)
+void de_crcobj_addzeroes(struct de_crcobj *crco, i64 len)
 {
-	de_crcobj_addbuf(crco, &b, 1);
+	i64 i;
+	const u8 z = 0;
+
+	for(i=0; i<len; i++) {
+		de_crcobj_addbuf(crco, &z, 1);
+	}
 }
 
 static int addslice_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,

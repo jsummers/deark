@@ -783,7 +783,7 @@ static int do_v5_member_header(deark *c, lctx *d, struct member_data *md, i64 po
 	// calculate actual header crc
 	de_crcobj_reset(d->crco_hdr);
 	de_crcobj_addslice(d->crco_hdr, c->infile, pos1, 32);
-	de_crcobj_addbuf(d->crco_hdr, (const u8*)"\0\0", 2);
+	de_crcobj_addzeroes(d->crco_hdr, 2);
 	de_crcobj_addslice(d->crco_hdr, c->infile, pos1+34, hdrsize-34);
 	hdr_crc_calc = de_crcobj_getval(d->crco_hdr);
 

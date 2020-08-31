@@ -208,7 +208,7 @@ static void calc_hdr_crc(deark *c, lctx *d, struct member_data *md, i64 pos1, i6
 {
 	de_crcobj_reset(d->crco);
 	de_crcobj_addslice(d->crco, c->infile, pos1, 54);
-	de_crcobj_addbuf(d->crco, (const u8*)"\0\0", 2);
+	de_crcobj_addzeroes(d->crco, 2);
 	de_crcobj_addslice(d->crco, c->infile, pos1+56, lvar);
 	md->crc_hdr_calculated = de_crcobj_getval(d->crco);
 }

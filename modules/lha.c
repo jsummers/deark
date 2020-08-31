@@ -820,7 +820,7 @@ static void do_check_header_crc(deark *c, lctx *d, struct member_data *md)
 		md->hdr_crc_field_pos - md->member_pos);
 
 	// The zeroed-out CRC field:
-	de_crcobj_addbuf(d->crco, (const u8*)"\0\0", 2);
+	de_crcobj_addzeroes(d->crco, 2);
 
 	// Everything after the CRC field:
 	de_crcobj_addslice(d->crco, c->infile, md->hdr_crc_field_pos+2,
