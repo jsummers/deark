@@ -385,7 +385,7 @@ static void extract_member_file(deark *c, lctx *d, struct member_data *md)
 	}
 
 	crc_calc = de_crcobj_getval(d->crco);
-	de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)crc_calc);
+	de_dbg(c, "crc (calculated): 0x%08x", (UI)crc_calc);
 	if(crc_calc != md->crc_reported) {
 		de_err(c, "%s: CRC check failed", ucstring_getpsz_d(md->name_srd->str));
 		goto done;
@@ -534,6 +534,10 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 
 	md->file_type = de_getbyte_p(&pos);
 	de_dbg(c, "file type: %u (%s)", (UI)md->file_type, get_file_type_name(md, md->file_type));
+	if(expecting_archive_hdr && md->file_type!=2) {
+		de_err(c, "Invalid or missing archive header");
+		goto done;
+	}
 
 	pos++; // reserved
 
