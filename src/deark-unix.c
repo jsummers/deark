@@ -210,7 +210,6 @@ static void update_file_perms(struct upd_attr_ctx *uactx, dbuf *f)
 	if(uactx->stat_ret != 0) {
 		return;
 	}
-	printf("actime = %ld\n", uactx->stbuf.st_atime);
 
 	oldmode = uactx->stbuf.st_mode;
 	newmode = oldmode;
