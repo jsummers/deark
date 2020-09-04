@@ -12,17 +12,18 @@ DE_DECLARE_MODULE(de_module_car_lha);
 
 #define MAX_SUBDIR_LEVEL 32
 
-#define CODE_lZ0 0x6c5a30U
-#define CODE_lZ1 0x6c5a31U
-#define CODE_lZ5 0x6c5a35U
-#define CODE_lh0 0x6c6830U
-#define CODE_lh1 0x6c6831U
-#define CODE_lh5 0x6c6835U
-#define CODE_lh6 0x6c6836U
-#define CODE_lhd 0x6c6864U
-#define CODE_lz4 0x6c7a34U
-#define CODE_lz5 0x6c7a35U
-#define CODE_pm0 0x706d30U
+#define CODE_lZ0 0x2d6c5a30U
+#define CODE_lZ1 0x2d6c5a31U
+#define CODE_lZ5 0x2d6c5a35U
+#define CODE_lh0 0x2d6c6830U
+#define CODE_lh1 0x2d6c6831U
+#define CODE_lh5 0x2d6c6835U
+#define CODE_lh6 0x2d6c6836U
+#define CODE_lhd 0x2d6c6864U
+#define CODE_lz4 0x2d6c7a34U
+#define CODE_lz5 0x2d6c7a35U
+#define CODE_pm0 0x2d706d30U
+#define CODE_pm2 0x2d706d32U
 
 #define TIMESTAMPIDX_INVALID (-1)
 struct timestamp_data {
@@ -30,12 +31,14 @@ struct timestamp_data {
 	int quality;
 };
 
+struct cmpr_meth_info;
+
 struct member_data {
 	u8 hlev; // header level
 	de_encoding encoding;
 	i64 member_pos;
 	i64 total_size;
-	struct de_fourcc cmpr_meth_4cc;
+	struct cmpr_meth_info *cmi;
 	u8 is_dir;
 	u8 is_special;
 	u8 is_nonexecutable;
@@ -71,10 +74,11 @@ typedef void (*decompressor_fn)(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_results *dres);
 
 struct cmpr_meth_info {
-	unsigned int flags;
-	unsigned int id;
-	const char *descr;
+	u8 is_recognized;
+	u32 uniq_id;
 	decompressor_fn decompressor;
+	char id_printable_sz[6];
+	char descr[80];
 };
 
 struct exthdr_type_info_struct;
@@ -89,6 +93,35 @@ struct exthdr_type_info_struct {
 	const char *name;
 	exthdr_decoder_fn decoder_fn;
 };
+
+static int lha_isdigit(u8 x)
+{
+	return (x>='0' && x<='9');
+}
+
+static int lha_isalpha(u8 x)
+{
+	return ((x>='A' && x<='Z') || (x>='a' && x<='z'));
+}
+
+static int lha_isalnum(u8 x)
+{
+	return (lha_isdigit(x) || lha_isalpha(x));
+}
+
+static int is_possible_cmpr_meth(const u8 m[5])
+{
+	if(m[0]!=m[4]) return 0;
+	if(m[0]==' ' && m[1]=='L' && m[2]=='H' && lha_isdigit(m[3])) return 1;
+	if(m[0]!='-') return 0;
+	if(!lha_isalpha(m[1]) ||
+		!lha_isalnum(m[2]) ||
+		!lha_isalnum(m[3]))
+	{
+		return 0;
+	}
+	return 1;
+}
 
 static void apply_timestamp(deark *c, lctx *d, struct member_data *md,
 	int tsidx, const struct de_timestamp *ts, int quality)
@@ -435,6 +468,7 @@ static void destroy_member_data(deark *c, struct member_data *md)
 	ucstring_destroy(md->dirname);
 	ucstring_destroy(md->filename);
 	ucstring_destroy(md->fullfilename);
+	de_free(c, md->cmi);
 	de_free(c, md);
 }
 
@@ -484,6 +518,7 @@ static const char *get_os_name(u8 id)
 {
 	const char *name = NULL;
 	switch(id) {
+	case ' ': name="unspecified"; break;
 	case '2': name="OS/2"; break;
 	case '3': name="OS/386?"; break;
 	case '9': name="OS-9"; break;
@@ -673,7 +708,17 @@ static void decompress_lz5(deark *c, lctx *d, struct member_data *md,
 	fmtutil_decompress_szdd(c, dcmpri, dcmpro, dres, 0x1);
 }
 
-static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
+struct cmpr_meth_array_item {
+	unsigned int flags;
+	u32 uniq_id;
+	const char *descr;
+	decompressor_fn decompressor;
+};
+
+// Compression methods with a decompressor or a description are usually
+// listed here, but note that it is also possible for get_cmpr_meth_info()
+// to handle them procedurally.
+static const struct cmpr_meth_array_item cmpr_meth_arr[] = {
 	{ 0x00, CODE_lhd, "directory", NULL },
 	{ 0x00, CODE_lh0, "uncompressed", decompress_uncompressed },
 	{ 0x00, CODE_lh1, "LZ77, 4K, codes = dynamic Huffman", NULL },
@@ -688,14 +733,60 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 0x00, CODE_lZ5, "MicroFox PUT lZ5", decompress_lh5 }
 };
 
+static const u32 other_known_cmpr_methods[] = { CODE_pm2 };
+
+// Only call this after is_possible_cmpr_meth() return nonzero.
+// Caller allocates cmi, and initializes to zeroes.
+static void get_cmpr_meth_info(const u8 idbuf[5], struct cmpr_meth_info *cmi)
+{
+	size_t k;
+	const struct cmpr_meth_array_item *cmai = NULL;
+
+	// The first 4 bytes are unique for all known methods.
+	cmi->uniq_id = (u32)de_getu32be_direct(idbuf);
+
+	// All "possible" methods only use printable characters.
+	de_memcpy(cmi->id_printable_sz, idbuf, 5);
+	cmi->id_printable_sz[5] = '\0';
+
+	for(k=0; k<DE_ARRAYCOUNT(cmpr_meth_arr); k++) {
+		if(cmpr_meth_arr[k].uniq_id == cmi->uniq_id) {
+			cmai = &cmpr_meth_arr[k];
+			break;
+		}
+	}
+
+	if(cmai) {
+		cmi->is_recognized = 1;
+		cmi->decompressor = cmai->decompressor;
+	}
+	else {
+		for(k=0; k<DE_ARRAYCOUNT(other_known_cmpr_methods); k++) {
+			if(other_known_cmpr_methods[k] == cmi->uniq_id) {
+				cmi->is_recognized = 1;
+				break;
+			}
+		}
+	}
+
+	if(cmai && cmai->descr) {
+		de_strlcpy(cmi->descr, cmai->descr, sizeof(cmi->descr));
+	}
+	else if(cmi->is_recognized) {
+		de_strlcpy(cmi->descr, "recognized, but no info avail.", sizeof(cmi->descr));
+	}
+	else {
+		de_strlcpy(cmi->descr, "?", sizeof(cmi->descr));
+	}
+}
+
 static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
 {
 	struct de_crcobj *crco = (struct de_crcobj*)userdata;
 	de_crcobj_addbuf(crco, buf, buf_len);
 }
 
-static void do_extract_file(deark *c, lctx *d, struct member_data *md,
-	const struct cmpr_meth_info *cmi)
+static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 {
 	de_finfo *fi = NULL;
 	dbuf *outf = NULL;
@@ -705,6 +796,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
 
+	if(!md->cmi) goto done;
 	if(md->is_special) {
 		de_dbg(c, "[not extracting special file]");
 		goto done;
@@ -712,14 +804,14 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md,
 	else if(md->is_dir) {
 		;
 	}
-	else if(!cmi || !(cmi->decompressor)) {
+	else if(!(md->cmi->decompressor)) {
 		if(!d->unsupp_warned) {
 			de_info(c, "Note: LHA support is incomplete. Some common "
 				"compression methods are not supported.");
 			d->unsupp_warned = 1;
 		}
 		de_err(c, "%s: Unsupported compression method '%s'",
-			ucstring_getpsz_d(md->fullfilename), md->cmpr_meth_4cc.id_sanitized_sz);
+			ucstring_getpsz_d(md->fullfilename), md->cmi->id_printable_sz);
 		goto done;
 	}
 
@@ -758,8 +850,8 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md,
 
 	if(md->is_dir) goto done; // For directories, we're done.
 
-	if(cmi->decompressor) {
-		cmi->decompressor(c, d, md, &dcmpri, &dcmpro, &dres);
+	if(md->cmi->decompressor) {
+		md->cmi->decompressor(c, d, md, &dcmpri, &dcmpro, &dres);
 	}
 
 	if(dres.errcode) {
@@ -777,18 +869,6 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md,
 done:
 	dbuf_close(outf);
 	de_finfo_destroy(c, fi);
-}
-
-static const struct cmpr_meth_info *get_cmpr_meth_info(lctx *d, unsigned int id)
-{
-	size_t k;
-
-	for(k=0; k<DE_ARRAYCOUNT(cmpr_meth_info_arr); k++) {
-		if(cmpr_meth_info_arr[k].id == id) {
-			return &cmpr_meth_info_arr[k];
-		}
-	}
-	return NULL;
 }
 
 static void warn_non_lha(deark *c, i64 pos, i64 len)
@@ -859,10 +939,8 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 	u8 has_hdr_checksum = 0;
 	int is_compressed;
 	int ret;
-	u8 tmpb1, tmpb2;
-	const struct cmpr_meth_info *cmi;
-	const char *cmpr_meth_descr = NULL;
-	char tmpstr[80];
+	u8 tmpb1;
+	u8 cmpr_meth_raw[5];
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -892,24 +970,22 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 	}
 
 	// Read compression method early, to help decide whether this is LHA data at all.
-	tmpb1 = de_getbyte(pos1+2);
-	dbuf_read_fourcc(c->infile, pos1+3, &md->cmpr_meth_4cc, 3, 0);
-	tmpb2 = de_getbyte(pos1+6);
-	if(tmpb1!='-' || tmpb2!='-') {
+	de_read(cmpr_meth_raw, pos1+2, 5);
+	if(!is_possible_cmpr_meth(cmpr_meth_raw)) {
 		if(d->member_count==0) {
 			de_err(c, "Not an LHA file");
-			goto done;
 		}
 		else {
 			warn_non_lha(c, pos1, nbytes_avail);
-			goto done;
 		}
+		goto done;
 	}
 
 	de_dbg(c, "member at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
-	cmi = get_cmpr_meth_info(d, md->cmpr_meth_4cc.id);
+	md->cmi = de_malloc(c, sizeof(struct cmpr_meth_info));
+	get_cmpr_meth_info(cmpr_meth_raw, md->cmi);
 
 	// Look ahead to figure out the header format version.
 	// This byte was originally the high byte of the "MS-DOS file attribute" field,
@@ -962,21 +1038,14 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 	}
 
 	// This field was read earlier.
-	if(cmi && cmi->descr) cmpr_meth_descr = cmi->descr;
-	if(cmpr_meth_descr) {
-		de_snprintf(tmpstr, sizeof(tmpstr), " (%s)", cmpr_meth_descr);
-	}
-	else {
-		de_strlcpy(tmpstr, "", sizeof(tmpstr));
-	}
-	de_dbg(c, "cmpr method: \"%s\"%s", md->cmpr_meth_4cc.id_dbgstr, tmpstr);
+	de_dbg(c, "cmpr method: '%s' (%s)", md->cmi->id_printable_sz, md->cmi->descr);
 	pos+=5;
 
-	if(cmi && (cmi->id == CODE_lhd)) {
+	if(md->cmi->uniq_id == CODE_lhd) {
 		is_compressed = 0;
 		md->is_dir = 1;
 	}
-	else if(cmi && (cmi->decompressor == decompress_uncompressed)) {
+	else if(md->cmi->decompressor == decompress_uncompressed) {
 		is_compressed = 0;
 	}
 	else {
@@ -1134,7 +1203,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 	make_fullfilename(c, d, md);
 
 	de_dbg_indent(c, 1);
-	do_extract_file(c, d, md, cmi);
+	do_extract_file(c, d, md);
 	de_dbg_indent(c, -1);
 
 	retval = 1;
