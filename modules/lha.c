@@ -12,17 +12,38 @@ DE_DECLARE_MODULE(de_module_car_lha);
 
 #define MAX_SUBDIR_LEVEL 32
 
-#define CODE_lZ0 0x2d6c5a30U
-#define CODE_lZ1 0x2d6c5a31U
-#define CODE_lZ5 0x2d6c5a35U
+#define CODE_ah0 0x2d616830U // MAR
+#define CODE_ari 0x2d617269U // MAR
+#define CODE_hf0 0x2d686630U // MAR
+#define CODE_lZ0 0x2d6c5a30U // PUT
+#define CODE_lZ1 0x2d6c5a31U // PUT
+#define CODE_lZ5 0x2d6c5a35U // PUT
 #define CODE_lh0 0x2d6c6830U
 #define CODE_lh1 0x2d6c6831U
+#define CODE_lh2 0x2d6c6832U
+#define CODE_lh3 0x2d6c6833U
+#define CODE_lh4 0x2d6c6834U
 #define CODE_lh5 0x2d6c6835U
 #define CODE_lh6 0x2d6c6836U
+#define CODE_lh7 0x2d6c6837U // standard, or LHARK
+#define CODE_lh8 0x2d6c6838U
+#define CODE_lh9 0x2d6c6839U
+#define CODE_lha 0x2d6c6861U
+#define CODE_lhb 0x2d6c6862U
+#define CODE_lhc 0x2d6c6863U
 #define CODE_lhd 0x2d6c6864U
+#define CODE_lhe 0x2d6c6865U
+#define CODE_lhx 0x2d6c6878U
+#define CODE_lz2 0x2d6c7a32U
+#define CODE_lz3 0x2d6c7a33U
 #define CODE_lz4 0x2d6c7a34U
 #define CODE_lz5 0x2d6c7a35U
+#define CODE_lz7 0x2d6c7a37U
+#define CODE_lz8 0x2d6c7a38U
+#define CODE_lzs 0x2d6c7a73U
+#define CODE_pc1 0x2d706331U
 #define CODE_pm0 0x2d706d30U
+#define CODE_pm1 0x2d706d31U
 #define CODE_pm2 0x2d706d32U
 
 #define TIMESTAMPIDX_INVALID (-1)
@@ -733,7 +754,12 @@ static const struct cmpr_meth_array_item cmpr_meth_arr[] = {
 	{ 0x00, CODE_lZ5, "MicroFox PUT lZ5", decompress_lh5 }
 };
 
-static const u32 other_known_cmpr_methods[] = { CODE_pm2 };
+static const u32 other_known_cmpr_methods[] = {
+	CODE_ah0, CODE_ari, CODE_hf0,
+	CODE_lh2, CODE_lh3, CODE_lh4, CODE_lh7, CODE_lh8, CODE_lh9,
+	CODE_lha, CODE_lhb, CODE_lhc, CODE_lhe, CODE_lhx,
+	CODE_lz2, CODE_lz3, CODE_lz7, CODE_lz8, CODE_lzs,
+	CODE_pc1, CODE_pm1, CODE_pm2 };
 
 // Only call this after is_possible_cmpr_meth() return nonzero.
 // Caller allocates cmi, and initializes to zeroes.
