@@ -1278,46 +1278,45 @@ done:
 
 static int de_identify_lha(deark *c)
 {
-	u8 b[7];
-	int m = 0; // Known cmpr method?
+	int has_ext = 0;
+	u8 b[22];
+	struct cmpr_meth_info cmi;
 
-	de_read(b, 0, 7);
-	if(b[2]!='-' || b[6]!='-') return 0;
-	if(b[3]=='l') {
-		if(b[4]=='h') {
-			if(b[5]>='0' && b[5]<='8') m = 1;
-			else if(b[5]=='d' || b[5]=='x') m = 1;
-		}
-		else if(b[4]=='z') {
-			if(b[5]>='2' && b[5]<='8') m = 1;
-			else if(b[5]=='s') m = 1;
-		}
-		else if(b[4]=='Z') {
-			if(b[5]=='0' || b[5]=='1' || b[5]=='5') m = 1;
-		}
+	de_read(b, 0, sizeof(b));
+	if(b[20]>3) return 0; // header level
+
+	if(!is_possible_cmpr_meth(&b[2])) return 0;
+
+	if(b[20]==0) {
+		if(b[0]<22) return 0;
+		if(22 + (int)b[21] + 2 > 2 + (int)b[0]) return 0;
 	}
-	else if(b[3]=='p') {
-		if(b[4]=='c') {
-			if(b[5]=='1') m = 1;
-		}
-		else if(b[4]=='m') {
-			if(b[5]>='0' && b[5]<='2') m = 1;
-		}
+	else if(b[20]==1) {
+		if(b[0]<25) return 0;
+		if(22 + (int)b[21] + 5 > 2 + (int)b[0]) return 0;
+	}
+	else if(b[20]==2) {
+		i64 hsize = de_getu16le_direct(&b[0]);
+		if(hsize < 26) return 0;
+	}
+	else if(b[20]==3) {
+		if((b[0]!=4 && b[0]!=8) || b[1]!=0) return 0;
 	}
 
-	if(m) {
-		int has_ext = 0;
-
-		if(de_input_file_has_ext(c, "lzh") ||
-			de_input_file_has_ext(c, "lha"))
-		{
-			has_ext = 1;
-		}
-
-		if(has_ext) return 100;
-		return 80; // Must be less than car_lha
+	de_zeromem(&cmi, sizeof(struct cmpr_meth_info));
+	get_cmpr_meth_info(&b[2], &cmi);
+	if(!cmi.is_recognized) {
+		return 0;
 	}
-	return 0;
+
+	if(de_input_file_has_ext(c, "lzh") ||
+		de_input_file_has_ext(c, "lha"))
+	{
+		has_ext = 1;
+	}
+
+	if(has_ext) return 100;
+	return 80; // Must be less than car_lha
 }
 
 void de_module_lha(deark *c, struct deark_module_info *mi)
