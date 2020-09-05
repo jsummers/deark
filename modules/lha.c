@@ -12,6 +12,8 @@ DE_DECLARE_MODULE(de_module_car_lha);
 
 #define MAX_SUBDIR_LEVEL 32
 
+#define CODE_S_LH0 0x204c4830 // SAR
+#define CODE_S_LH5 0x204c4835 // SAR
 #define CODE_ah0 0x2d616830U // MAR
 #define CODE_ari 0x2d617269U // MAR
 #define CODE_hf0 0x2d686630U // MAR
@@ -750,8 +752,9 @@ static const struct cmpr_meth_array_item cmpr_meth_arr[] = {
 	{ 0x00, CODE_pm0, "uncompressed (PMArc)", decompress_uncompressed },
 	{ 0x00, CODE_lZ0, "uncompressed (MicroFox PUT)", decompress_uncompressed },
 	{ 0x00, CODE_lZ1, "MicroFox PUT lZ1", NULL },
-	// No evidence found that "PUT" lZ5 is different from lh5.
-	{ 0x00, CODE_lZ5, "MicroFox PUT lZ5", decompress_lh5 }
+	{ 0x00, CODE_lZ5, "MicroFox PUT lZ5", decompress_lh5 },
+	{ 0x00, CODE_S_LH0, "uncompressed (SAR)", decompress_uncompressed },
+	{ 0x00, CODE_S_LH5, "SAR LH5", decompress_lh5 }
 };
 
 static const u32 other_known_cmpr_methods[] = {
