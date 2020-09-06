@@ -86,7 +86,6 @@ struct member_data {
 
 typedef struct localctx_struct {
 	de_encoding input_encoding;
-	u8 most_recent_hlev;
 	u8 unsupp_warned;
 	int member_count;
 	struct de_crcobj *crco;
@@ -900,11 +899,6 @@ done:
 	de_finfo_destroy(c, fi);
 }
 
-static void warn_non_lha(deark *c, i64 pos, i64 len)
-{
-	de_warn(c, "%"I64_FMT" bytes of non-LHA data found at end of file (offset %"I64_FMT")", len, pos);
-}
-
 static int cksum_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf, i64 buf_len)
 {
 	UI *pcksum = (UI*)brctx->userdata;
@@ -943,6 +937,30 @@ static void do_check_header_crc(deark *c, lctx *d, struct member_data *md)
 	}
 }
 
+enum lha_whats_next_enum {
+	LHA_WN_MEMBER,
+	LHA_WN_TRAILER,
+	LHA_WN_TRAILER_AND_JUNK,
+	LHA_WN_JUNK,
+	LHA_WN_NOTHING
+};
+
+static enum lha_whats_next_enum lha_classify_whats_next(deark *c, lctx *d, i64 pos, i64 len)
+{
+	u8 b[21];
+
+	if(len<=0) return LHA_WN_NOTHING;
+	b[0] = de_getbyte(pos);
+	if(b[0]==0 && len<=2) return LHA_WN_TRAILER;
+	if(b[0]==0 && len<21) return LHA_WN_TRAILER_AND_JUNK;
+	de_read(&b[1], pos+1, sizeof(b)-1);
+	if(b[0]==0 && b[1]==0) return LHA_WN_TRAILER_AND_JUNK;
+	if(b[0]==0 && b[20]!=2) return LHA_WN_TRAILER_AND_JUNK;
+	if(b[20]>3) return LHA_WN_JUNK;
+	if(is_possible_cmpr_meth(&b[2])) return LHA_WN_MEMBER;
+	return LHA_WN_JUNK;
+}
+
 // This single function parses all the different header formats, using lots of
 // "if" statements. It is messy, but it's a no-win situation.
 // The alternative of four separate functions would be have a lot of redundant
@@ -968,44 +986,28 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 	u8 has_hdr_checksum = 0;
 	int is_compressed;
 	int ret;
-	u8 tmpb1;
+	enum lha_whats_next_enum wn;
 	u8 cmpr_meth_raw[5];
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
+
 	nbytes_avail = c->infile->len - pos1;
-	if(nbytes_avail<1) goto done;
-
-	// FIXME: This attempt to classify this member-or-whatever-it-is is not working
-	// right, and needs a significant rethinking.
-	tmpb1 = de_getbyte(pos1);
-	// Only header level 2 members can start with a NUL byte.
-	if(tmpb1==0x00 && d->member_count>0 && ((d->most_recent_hlev!=2) ||
-		(pos1==c->infile->len-1)))
-	{
-		de_dbg(c, "trailer at %"I64_FMT, pos1);
-		if(nbytes_avail > 1) {
-			de_info(c, "Note: %"I64_FMT" extra bytes at end of file (offset %"I64_FMT")",
-				nbytes_avail-1, pos1+1);
-		}
-		goto done;
-	}
-
-	if(nbytes_avail < 21) {
-		if(nbytes_avail > 1) {
-			warn_non_lha(c, pos1, nbytes_avail);
-		}
-		goto done;
-	}
-
-	// Read compression method early, to help decide whether this is LHA data at all.
-	de_read(cmpr_meth_raw, pos1+2, 5);
-	if(!is_possible_cmpr_meth(cmpr_meth_raw)) {
+	wn = lha_classify_whats_next(c, d, pos1, nbytes_avail);
+	if(wn!=LHA_WN_MEMBER) {
 		if(d->member_count==0) {
 			de_err(c, "Not an LHA file");
 		}
-		else {
-			warn_non_lha(c, pos1, nbytes_avail);
+		else if(wn==LHA_WN_TRAILER || wn==LHA_WN_TRAILER_AND_JUNK) {
+			de_dbg(c, "trailer at %"I64_FMT, pos1);
+			if(wn==LHA_WN_TRAILER_AND_JUNK) {
+				de_info(c, "Note: %"I64_FMT" extra bytes at end of file (offset %"I64_FMT")",
+					nbytes_avail-1, pos1+1);
+			}
+		}
+		else if(wn==LHA_WN_JUNK) {
+			de_warn(c, "%"I64_FMT" bytes of non-LHA data found at end of file (offset %"I64_FMT")",
+				nbytes_avail, pos1);
 		}
 		goto done;
 	}
@@ -1013,21 +1015,16 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 	de_dbg(c, "member at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
-	md->cmi = de_malloc(c, sizeof(struct cmpr_meth_info));
-	get_cmpr_meth_info(cmpr_meth_raw, md->cmi);
-
 	// Look ahead to figure out the header format version.
 	// This byte was originally the high byte of the "MS-DOS file attribute" field,
 	// which happened to always be zero.
 	// In later LHA versions, it is overloaded to identify the header format
 	// version (called "header level" in LHA jargon).
-	md->hlev = de_getbyte(pos+20);
+	md->hlev = de_getbyte(pos1+20);
 	de_dbg(c, "header level: %d", (int)md->hlev);
 	if(md->hlev>3) {
-		de_err(c, "Invalid or unsupported header level: %d", (int)md->hlev);
-		goto done;
+		goto done; // Shouldn't be possible; checked in lha_classify_whats_next().
 	}
-	d->most_recent_hlev = md->hlev;
 
 	if(md->hlev==0) {
 		lev0_header_size = (i64)de_getbyte_p(&pos);
@@ -1066,7 +1063,9 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 		}
 	}
 
-	// This field was read earlier.
+	de_read(cmpr_meth_raw, pos, 5);
+	md->cmi = de_malloc(c, sizeof(struct cmpr_meth_info));
+	get_cmpr_meth_info(cmpr_meth_raw, md->cmi);
 	de_dbg(c, "cmpr method: '%s' (%s)", md->cmi->id_printable_sz, md->cmi->descr);
 	pos+=5;
 
