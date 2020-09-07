@@ -9,6 +9,7 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_lha);
 DE_DECLARE_MODULE(de_module_car_lha);
+DE_DECLARE_MODULE(de_module_arx);
 
 #define MAX_SUBDIR_LEVEL 32
 
@@ -1408,7 +1409,7 @@ static int do_car_member(deark *c, struct car_ctx *d, struct car_member_data *md
 	dbuf_copy(d->hdr_tmp, 0, d->hdr_tmp->len, d->lha_outf);
 	de_dbg(c, "member data at %"I64_FMT", len=%"I64_FMT, hdr_endpos, compressed_data_len);
 	dbuf_copy(c->infile, hdr_endpos, compressed_data_len, d->lha_outf);
-	md->total_size = hdr_endpos + compressed_data_len;
+	md->total_size = (hdr_endpos-md->member_pos) + compressed_data_len;
 	retval = 1;
 
 done:
@@ -1479,4 +1480,170 @@ void de_module_car_lha(deark *c, struct deark_module_info *mi)
 	mi->desc = "CAR (MylesHi!) LHA-like archive";
 	mi->run_fn = de_run_car_lha;
 	mi->identify_fn = de_identify_car_lha;
+}
+
+/////////////////////// ARX
+
+struct arx_member_data {
+	i64 member_pos;
+	i64 total_size;
+};
+
+struct arx_ctx {
+	dbuf *hdr_tmp;
+	dbuf *lha_outf;
+};
+
+static int looks_like_arx_member(deark *c, i64 pos)
+{
+	u8 b[22];
+
+	de_read(b, pos, sizeof(b));
+	if(b[2]!='-' || b[3]!='l'|| b[4]!='h' || b[6]!='-') return 0;
+	if(b[21]!=0) return 0;
+	return 1;
+}
+
+static int do_arx_member(deark *c, struct arx_ctx *d, struct arx_member_data *md)
+{
+	i64 lev0_header_size;
+	i64 hdr_endpos;
+	i64 compressed_data_len;
+	i64 unc_data_len;
+	i64 pos1 = md->member_pos;
+	UI hdr_checksum_calc;
+	int is_uncompressed = 0;
+	int retval = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "member at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	lev0_header_size = (i64)de_getbyte(pos1);
+	de_dbg(c, "header size: %d", (int)lev0_header_size);
+	if(lev0_header_size<22) goto done;
+	hdr_endpos = pos1 + 2 + lev0_header_size;
+
+	compressed_data_len = de_getu32le(pos1+8);
+	de_dbg(c, "compressed size: %"I64_FMT, compressed_data_len);
+
+	unc_data_len = de_getu32le(pos1+12);
+	de_dbg(c, "uncmpr. size: %"I64_FMT, unc_data_len);
+
+	if(compressed_data_len==0) {
+		is_uncompressed = 1;
+		compressed_data_len = unc_data_len;
+	}
+
+	if(hdr_endpos + compressed_data_len > c->infile->len) goto done;
+
+	// Convert to an LHA header
+	dbuf_empty(d->hdr_tmp);
+
+	// Fields through cmpr meth. (We'll patch the checksum, and
+	// compression method if necessary, later.)
+	dbuf_copy(c->infile, pos1, 7, d->hdr_tmp);
+
+	dbuf_writeu32le(d->hdr_tmp, compressed_data_len);
+	dbuf_writeu32le(d->hdr_tmp, unc_data_len);
+
+	/// Rest of the header can be copied as-is.
+	dbuf_copy(c->infile, pos1+8+8, lev0_header_size-6-8, d->hdr_tmp);
+
+	// No source for the low byte of CRC. ARX doesn't save it.
+	// (The extra byte after the compression method is not it.)
+	// Until we support lh1 decompression, we have no way to recalculate it.
+	// TODO: We could recalculate it for uncompressed files.
+	dbuf_writebyte(d->hdr_tmp, 00);
+
+	if(is_uncompressed) {
+		dbuf_writebyte_at(d->hdr_tmp, 5, '0'); // lh1 -> lh0
+	}
+
+	// Recalculate checksum
+	dbuf_buffered_read(d->hdr_tmp, 2, lev0_header_size, cksum_cbfn,
+		(void*)&hdr_checksum_calc);
+	de_dbg(c, "header checksum (calculated): 0x%02x", hdr_checksum_calc);
+	dbuf_writebyte_at(d->hdr_tmp, 1, (u8)hdr_checksum_calc);
+	dbuf_truncate(d->hdr_tmp, 2+lev0_header_size);
+
+	// Write everything out
+	dbuf_copy(d->hdr_tmp, 0, d->hdr_tmp->len, d->lha_outf);
+	de_dbg(c, "member data at %"I64_FMT", len=%"I64_FMT, hdr_endpos, compressed_data_len);
+	dbuf_copy(c->infile, hdr_endpos, compressed_data_len, d->lha_outf);
+	md->total_size = 2 + lev0_header_size + compressed_data_len;
+	retval = 1;
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static void de_run_arx(deark *c, de_module_params *mparams)
+{
+	struct arx_ctx *d = NULL;
+	struct arx_member_data *md = NULL;
+	int ok = 0;
+	i64 pos = 0;
+
+	d = de_malloc(c, sizeof(struct arx_ctx));
+
+	if(!looks_like_arx_member(c, 0)) {
+		de_err(c, "Not an ARX file");
+		goto done;
+	}
+
+	d->lha_outf = dbuf_create_output_file(c, "lha", NULL, 0);
+	d->hdr_tmp = dbuf_create_membuf(c, 0, 0);
+
+	md = de_malloc(c, sizeof(struct arx_member_data));
+	while(1) {
+		if(de_getbyte(pos)==0) {
+			de_dbg(c, "trailer at %"I64_FMT, pos);
+			dbuf_writebyte(d->lha_outf, 0);
+			ok = 1;
+			break;
+		}
+		if(pos+27 > c->infile->len) goto done;
+		if(!looks_like_arx_member(c, pos)) goto done;
+
+		de_zeromem(md, sizeof(struct arx_member_data));
+		md->member_pos = pos;
+		if(!do_arx_member(c, d, md)) goto done;
+		pos += md->total_size;
+	}
+
+done:
+	de_free(c, md);
+	if(d) {
+		if(d->lha_outf) {
+			dbuf_close(d->lha_outf);
+			if(ok) {
+				de_info(c, "Note: Conversion from ARX to LHA is not fully implemented. "
+					"The CRC fields will be incorrect.");
+			}
+			else {
+				de_err(c, "Conversion to LHA format failed");
+			}
+		}
+		dbuf_close(d->hdr_tmp);
+		de_free(c, d);
+	}
+}
+
+static int de_identify_arx(deark *c)
+{
+	if(dbuf_memcmp(c->infile, 2, "-lh1-", 5)) return 0;
+	if(de_getbyte(20)!=0x20 || de_getbyte(21)!=0x00) return 0;
+	if(de_input_file_has_ext(c, "arx")) return 100;
+	return 70;
+}
+
+void de_module_arx(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "arx";
+	mi->desc = "ARX LHA-like archive";
+	mi->run_fn = de_run_arx;
+	mi->identify_fn = de_identify_arx;
 }
