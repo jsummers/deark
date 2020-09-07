@@ -201,6 +201,7 @@
     <ClCompile Include="..\..\modules\cpio.c" />
     <ClCompile Include="..\..\modules\crush.c" />
     <ClCompile Include="..\..\modules\d64.c" />
+    <ClCompile Include="..\..\modules\dms.c" />
     <ClCompile Include="..\..\modules\drhalo.c" />
     <ClCompile Include="..\..\modules\dsstore.c" />
     <ClCompile Include="..\..\modules\ebml.c" />
@@ -313,6 +314,7 @@
     <ClCompile Include="..\..\src\fmtutil-advfile.c" />
     <ClCompile Include="..\..\src\fmtutil-cmpr.c" />
     <ClCompile Include="..\..\src\fmtutil-huffman.c" />
+    <ClCompile Include="..\..\src\fmtutil-lzh.c" />
     <ClCompile Include="..\..\src\fmtutil-lzw.c" />
     <ClCompile Include="..\..\src\fmtutil-miniz.c" />
     <ClCompile Include="..\..\src\fmtutil-zip.c" />
@@ -338,7 +340,6 @@
     <ClInclude Include="..\..\foreign\unimplode6a.h" />
     <ClInclude Include="..\..\foreign\miniz.h" />
     <ClInclude Include="..\..\foreign\uncompface.h" />
-    <ClInclude Include="..\..\foreign\unzoo-lzh.h" />
     <ClInclude Include="..\..\src\deark-config.h" />
     <ClInclude Include="..\..\src\deark-fmtutil.h" />
     <ClInclude Include="..\..\src\deark-modules.h" />

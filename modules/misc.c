@@ -250,23 +250,29 @@ void de_module_cp437(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
-// CRC-32
-// Prints the CRC-32. Does not create any files.
+// crc
+// Prints various CRCs and checksums. Does not create any files.
 // **************************************************************************
 
 struct crcctx_struct {
 	struct de_crcobj *crco_32ieee;
 	struct de_crcobj *crco_16arc;
 	struct de_crcobj *crco_16ccitt;
+	u64 sum_of_bytes;
 };
 
 static int crc_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 	i64 buf_len)
 {
 	struct crcctx_struct *crcctx = (struct crcctx_struct*)brctx->userdata;
+	i64 i;
+
 	de_crcobj_addbuf(crcctx->crco_32ieee, buf, buf_len);
 	de_crcobj_addbuf(crcctx->crco_16arc, buf, buf_len);
 	de_crcobj_addbuf(crcctx->crco_16ccitt, buf, buf_len);
+	for(i=0; i<buf_len; i++) {
+		crcctx->sum_of_bytes += buf[i];
+	}
 	return 1;
 }
 
@@ -274,6 +280,7 @@ static void de_run_crc(deark *c, de_module_params *mparams)
 {
 	struct crcctx_struct crcctx;
 
+	de_zeromem(&crcctx, sizeof(struct crcctx_struct));
 	crcctx.crco_32ieee = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
 	crcctx.crco_16arc = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 	crcctx.crco_16ccitt = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
@@ -286,6 +293,7 @@ static void de_run_crc(deark *c, de_module_params *mparams)
 		(unsigned int)de_crcobj_getval(crcctx.crco_16arc));
 	de_msg(c, "CRC-16-CCITT: 0x%04x",
 		(unsigned int)de_crcobj_getval(crcctx.crco_16ccitt));
+	de_msg(c, "Sum of bytes: 0x%"U64_FMTx, crcctx.sum_of_bytes);
 
 	de_crcobj_destroy(crcctx.crco_32ieee);
 	de_crcobj_destroy(crcctx.crco_16arc);

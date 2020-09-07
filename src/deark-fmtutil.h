@@ -79,16 +79,28 @@ void fmtutil_handle_photoshop_rsrc(deark *c, dbuf *f, i64 pos, i64 len,
 void fmtutil_handle_plist(deark *c, dbuf *f, i64 pos, i64 len,
 	de_finfo *fi, unsigned int flags);
 
+// Definition of a "simple" (non-pushable) codec
+typedef void (*de_codectype1_type)(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params);
+
 void fmtutil_decompress_uncompressed(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, UI flags);
 
 #define DE_DEFLATEFLAG_ISZLIB 0x1
 #define DE_DEFLATEFLAG_USEMAXUNCMPRSIZE 0x2
+struct de_inflate_params {
+	unsigned int flags;
+	const u8 *starting_dict;
+};
 int fmtutil_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
 	i64 maxuncmprsize, i64 *bytes_consumed, unsigned int flags);
 void fmtutil_decompress_deflate_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	unsigned int flags, const u8 *starting_dict);
+	unsigned int flags);
+void fmtutil_inflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params);
 
 void fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
@@ -104,8 +116,12 @@ void fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 void fmtutil_decompress_szdd(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags);
-void fmtutil_decompress_hlp_lz77(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
+void fmtutil_hlp_lz77_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params);
+void fmtutil_huff_squeeze_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params);
 
 struct de_dfilter_ctx;
 typedef void (*dfilter_codec_type)(struct de_dfilter_ctx *dfctx, void *codec_private_params);
@@ -148,8 +164,21 @@ void fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 
 void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
-void dfilter_huff_squeeze_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
-void dfilter_hlp_lz77_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
+
+struct de_lzh_params {
+#define DE_LZH_FMT_LH5LIKE       1 // subfmt=='5' (etc.)
+	int fmt;
+	int subfmt;
+	u8 stop_on_zero_codes_block;
+	u8 use_history_fill_val;
+	u8 history_fill_val;
+};
+void fmtutil_decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	struct de_lzh_params *lzhp);
+void fmtutil_lzh_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params);
 
 struct de_dfilter_ctx *de_dfilter_create(deark *c,
 	dfilter_codec_type codec_init_fn, void *codec_private_params,
@@ -163,7 +192,20 @@ void de_dfilter_decompress_oneshot(deark *c,
 	dfilter_codec_type codec_init_fn, void *codec_private_params,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres);
- void de_dfilter_decompress_two_layer(deark *c,
+struct de_dcmpr_two_layer_params {
+	de_codectype1_type codec1_type1; // Set either this or codec1_pushable
+	dfilter_codec_type codec1_pushable;
+	void *codec1_private_params;
+	dfilter_codec_type codec2;
+	void *codec2_private_params;
+	struct de_dfilter_in_params *dcmpri;
+	struct de_dfilter_out_params *dcmpro;
+	struct de_dfilter_results *dres;
+	u8 intermed_len_known;
+	i64 intermed_expected_len;
+};
+void de_dfilter_decompress_two_layer(deark *c, struct de_dcmpr_two_layer_params *tlp);
+void de_dfilter_decompress_two_layer_type2(deark *c,
 	dfilter_codec_type codec1, void *codec1_private_params,
 	dfilter_codec_type codec2, void *codec2_private_params,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
@@ -178,11 +220,6 @@ void fmtutil_decompress_zip_reduce(deark *c, struct de_dfilter_in_params *dcmpri
 void fmtutil_decompress_zip_implode(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int bit_flags, unsigned int flags);
-
-void fmtutil_decompress_zoo_lzd(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, int maxbits);
-void fmtutil_decompress_zoo_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
 
 // Wrapper for miniz' tdefl functions
 
@@ -501,6 +538,28 @@ void fmtutil_huffman_reset_cursor(struct fmtutil_huffman_tree *ht);
 int fmtutil_huffman_add_code(deark *c, struct fmtutil_huffman_tree *ht,
 	u64 code, UI code_nbits, i32 val);
 int fmtutil_huffman_decode_bit(struct fmtutil_huffman_tree *ht, u8 bitval, i32 *pval);
+int fmtutil_huffman_read_next_value(struct fmtutil_huffman_tree *ht,
+	struct de_bitreader *bitrd, i32 *pval, UI *pnbits);
 UI fmtutil_huffman_get_max_bits(struct fmtutil_huffman_tree *ht);
 i64 fmtutil_huffman_get_num_codes(struct fmtutil_huffman_tree *ht);
 void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_tree *ht);
+int fmtutil_huffman_record_a_code_length(deark *c, struct fmtutil_huffman_tree *ht, i32 val, UI len);
+int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *ht);
+
+struct de_lz77buffer;
+typedef void (*fmtutil_lz77buffer_cb_type)(struct de_lz77buffer *rb, u8 n);
+
+struct de_lz77buffer {
+	void *userdata;
+	fmtutil_lz77buffer_cb_type writebyte_cb;
+	UI curpos; // Must be kept valid at all times (0...bufsize-1)
+	UI mask;
+	UI bufsize; // Required to be a power of 2
+	u8 *buf;
+};
+ struct de_lz77buffer *de_lz77buffer_create(deark *c, UI bufsize);
+ void de_lz77buffer_destroy(deark *c, struct de_lz77buffer *rb);
+ void de_lz77buffer_clear(struct de_lz77buffer *rb, UI val);
+ void de_lz77buffer_set_curpos(struct de_lz77buffer *rb, UI newpos);
+ void de_lz77buffer_add_literal_byte(struct de_lz77buffer *rb, u8 b);
+ void de_lz77buffer_copy_from_hist(struct de_lz77buffer *rb, UI startpos, UI count);

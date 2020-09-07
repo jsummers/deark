@@ -116,7 +116,7 @@ static void do_arcfs_crunched(deark *c, lctx *d, struct arcfs_member_data *md,
 	// don't have that.
 	delzwp.flags |= DE_LZWFLAG_TOLERATETRAILINGJUNK;
 
-	de_dfilter_decompress_two_layer(c, dfilter_lzw_codec, (void*)&delzwp,
+	de_dfilter_decompress_two_layer_type2(c, dfilter_lzw_codec, (void*)&delzwp,
 		dfilter_rle90_codec, NULL, dcmpri, dcmpro, dres);
 }
 

@@ -149,7 +149,7 @@ static void do_decompress_deflate(deark *c, lctx *d, struct compression_params *
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	fmtutil_decompress_deflate_ex(c, dcmpri, dcmpro, dres, 0, NULL);
+	fmtutil_decompress_deflate_ex(c, dcmpri, dcmpro, dres, 0);
 }
 
 static void do_decompress_stored(deark *c, lctx *d, struct compression_params *cparams,
@@ -1354,6 +1354,15 @@ static i32 ucstring_lastchar(de_ucstring *s)
 static int do_process_member(deark *c, lctx *d, struct member_data *md)
 {
 	int retval = 0;
+
+	// If for some reason we have a central-dir filename but not a local-dir
+	// filename, use the central-dir filename.
+	if(ucstring_isempty(md->local_dir_entry_data.fname) &&
+		ucstring_isnonempty(md->central_dir_entry_data.fname))
+	{
+		ucstring_append_ucstring(md->local_dir_entry_data.fname,
+			md->central_dir_entry_data.fname);
+	}
 
 	// Set the final file size and crc fields.
 	if(md->local_dir_entry_data.bit_flags & 0x0008) {

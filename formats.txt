@@ -589,6 +589,8 @@ Deark -- Information about supported formats
   Options
    -opt arcfs:appendtype - Append the file type to the filename
 
+* ARJ (module="arj") (experimental)
+
 * AmBs (AMOS "Banks" aggregate format) (module="abk")
   - Extract AmSp, AmIc, AmBk files.
 
@@ -615,6 +617,10 @@ Deark -- Information about supported formats
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
 
+* CAR (module="car_lha")
+  Variant of LHA by MylesHi! Software. Deark tries to convert it to LHA.
+  - File extension must be ".car" (or use "-m car").
+
 * CD/raw (module="cd_raw")
   - Extract .ISO and other filesystem data from some raw CD images, such as
     the .BIN file in CUE/BIN format.
@@ -627,6 +633,9 @@ Deark -- Information about supported formats
   CRUSH is a DOS archive utility by PocketWare.
 
 * D64 (Commodore 64 disk format) (module="d64") (experimental)
+
+* DMS (Amiga disk image) (module="amiga_adf") (experimental, incomplete)
+  - Decompresses to ADF format.
 
 * Doom WAD (module="wad")
   - The extracted files are usually in specialized formats.
@@ -652,8 +661,8 @@ Deark -- Information about supported formats
   and CrLZH. Deark doesn't necessarily support all of those formats.
 
 * LHA/LZH/PMA (module="lha")
-  - Files can be parsed, but there is usually nothing that can be extracted
-    from them.
+  - Not all the major compression methods are supported. Some are supported but
+    experimental.
 
 * MacBinary (module="macbinary")
   - You may have to use "-m macbinary".
@@ -719,6 +728,7 @@ Deark -- Information about supported formats
 
 * Squeeze (module="squeeze")
   An old compressed file format used mainly on CP/M.
+  - SQ2 variant is also supported (experimental).
 
 * StuffIt (.sit) (module="stuffit")
   - Limited support. Old format only.
@@ -790,7 +800,8 @@ Deark -- Information about supported formats
     ones are control characters.
 
 * CRC (module="crc")
-  Print various CRC hashes of the file, including the IEEE CRC-32.
+  Print various CRC hashes and checksums of the file, including the IEEE
+  CRC-32.
   - You must use "-m crc".
 
 * DS_Store (module="dsstore") (experimental)

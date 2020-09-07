@@ -777,6 +777,25 @@ int dbuf_buffered_read(dbuf *f, i64 pos, i64 len,
 int de_is_all_zeroes(const u8 *b, i64 n);
 int dbuf_is_all_zeroes(dbuf *f, i64 pos, i64 len);
 
+struct de_bitbuf_lowlevel {
+	u8 is_lsb;
+	UI nbits_in_bitbuf;
+	u64 bit_buf;
+};
+void de_bitbuf_lowelevel_add_byte(struct de_bitbuf_lowlevel *bbll, u8 n);
+u64 de_bitbuf_lowelevel_get_bits(struct de_bitbuf_lowlevel *bbll, UI nbits);
+void de_bitbuf_lowelevel_empty(struct de_bitbuf_lowlevel *bbll);
+
+struct de_bitreader {
+	dbuf *f;
+	i64 curpos;
+	i64 endpos;
+	u8 eof_flag;
+	struct de_bitbuf_lowlevel bbll;
+};
+u64 de_bitreader_getbits(struct de_bitreader *bitrd, UI nbits);
+char *de_bitreader_describe_curpos(struct de_bitreader *bitrd, char *buf, size_t buf_len);
+
 ///////////////////////////////////////////
 
 void de_bitmap_write_to_file(de_bitmap *img, const char *token, unsigned int createflags);
@@ -1035,7 +1054,7 @@ void de_crcobj_destroy(struct de_crcobj *crco);
 void de_crcobj_reset(struct de_crcobj *crco);
 u32 de_crcobj_getval(struct de_crcobj *crco);
 void de_crcobj_addbuf(struct de_crcobj *crco, const u8 *buf, i64 buf_len);
-void de_crcobj_addbyte(struct de_crcobj *crco, u8 b);
+void de_crcobj_addzeroes(struct de_crcobj *crco, i64 len);
 void de_crcobj_addslice(struct de_crcobj *crco, dbuf *f, i64 pos, i64 len);
 
 ///////////////////////////////////////////

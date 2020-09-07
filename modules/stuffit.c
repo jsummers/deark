@@ -112,43 +112,10 @@ struct sit_huffctx {
 	struct de_dfilter_out_params *dcmpro;
 	struct de_dfilter_results *dres;
 	struct fmtutil_huffman_tree *ht;
-	int eofflag;
 	int errflag;
-	i64 inpos;
-	UI nbits_in_bitsbuf;
-	u8 bitsbuf;
+	struct de_bitreader bitrd;
+	struct de_bitbuf_lowlevel bbll;
 };
-
-static u8 sit_huff_getbit(struct sit_huffctx *hctx)
-{
-	u8 n;
-
-	if(hctx->eofflag || hctx->errflag) return 0;
-
-	if(hctx->nbits_in_bitsbuf<1) {
-		if(hctx->inpos >= hctx->dcmpri->pos + hctx->dcmpri->len) {
-			hctx->eofflag = 1;
-			return 0;
-		}
-		hctx->bitsbuf = dbuf_getbyte_p(hctx->dcmpri->f, &hctx->inpos);
-		hctx->nbits_in_bitsbuf = 8;
-	}
-
-	n = (hctx->bitsbuf & (1U<<(hctx->nbits_in_bitsbuf-1))) ? 1 : 0;
-	hctx->nbits_in_bitsbuf--;
-	return n;
-}
-
-static u8 sit_huff_getbyte(struct sit_huffctx *hctx)
-{
-	UI k;
-	u8 v = 0;
-
-	for(k=0; k<8; k++) {
-		v = (v<<1) | sit_huff_getbit(hctx);
-	}
-	return v;
-}
 
 // A recursive function to read the tree definition.
 static void sit_huff_read_tree(struct sit_huffctx *hctx, u64 curr_code, UI curr_code_nbits)
@@ -158,21 +125,21 @@ static void sit_huff_read_tree(struct sit_huffctx *hctx, u64 curr_code, UI curr_
 	if(curr_code_nbits>48) {
 		hctx->errflag = 1;
 	}
-	if(hctx->eofflag || hctx->errflag) return;
+	if(hctx->bitrd.eof_flag || hctx->errflag) return;
 
-	x = sit_huff_getbit(hctx);
-	if(hctx->eofflag) return;
+	x = (u8)de_bitreader_getbits(&hctx->bitrd, 1);
+	if(hctx->bitrd.eof_flag) return;
 
 	if(x==0) {
 		sit_huff_read_tree(hctx, curr_code<<1, curr_code_nbits+1);
-		if(hctx->eofflag || hctx->errflag) return;
+		if(hctx->bitrd.eof_flag || hctx->errflag) return;
 		sit_huff_read_tree(hctx, (curr_code<<1) | 1, curr_code_nbits+1);
 	}
 	else {
 		int ret;
 		i32 val;
 
-		val = (i32)sit_huff_getbyte(hctx);
+		val = (i32)de_bitreader_getbits(&hctx->bitrd, 8);
 		ret = fmtutil_huffman_add_code(hctx->c, hctx->ht, curr_code, curr_code_nbits, val);
 		if(!ret) {
 			hctx->errflag = 1;
@@ -190,6 +157,7 @@ static void do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
 {
 	struct sit_huffctx *hctx = NULL;
 	i64 nbytes_written = 0;
+	char pos_descr[32];
 
 	hctx = de_malloc(c, sizeof(struct sit_huffctx));
 	hctx->c = c;
@@ -198,7 +166,10 @@ static void do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
 	hctx->dcmpro = dcmpro;
 	hctx->dres = dres;
 	hctx->ht = fmtutil_huffman_create_tree(c, 256, 512);
-	hctx->inpos = dcmpri->pos;
+
+	hctx->bitrd.f = dcmpri->f;
+	hctx->bitrd.curpos = dcmpri->pos;
+	hctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
 
 	// Read the tree definition
 	sit_huff_read_tree(hctx, 0, 0);
@@ -211,27 +182,27 @@ static void do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
 	}
 
 	// Read the data section
+	de_bitreader_describe_curpos(&hctx->bitrd, pos_descr, sizeof(pos_descr));
+	de_dbg(c, "cmpr data codes at %s", pos_descr);
 	while(1) {
 		int ret;
 		i32 val = 0;
-		u8 n;
 
 		if(dcmpro->len_known) {
 			if(nbytes_written >= dcmpro->expected_len) break;
 		}
 
-		if(hctx->eofflag || hctx->errflag) break;
-		n = sit_huff_getbit(hctx);
-		if(hctx->eofflag || hctx->errflag) break;
-		ret = fmtutil_huffman_decode_bit(hctx->ht, n, &val);
-		if(ret==0) {
+		if(hctx->bitrd.eof_flag || hctx->errflag) break;
+
+		ret = fmtutil_huffman_read_next_value(hctx->ht, &hctx->bitrd, &val, NULL);
+		if(!ret) {
+			if(hctx->bitrd.eof_flag) break;
 			hctx->errflag = 1;
 			break;
 		}
-		else if(ret==1) {
-			dbuf_writebyte(dcmpro->f, (u8)val);
-			nbytes_written++;
-		}
+
+		dbuf_writebyte(dcmpro->f, (u8)val);
+		nbytes_written++;
 	}
 
 done:
@@ -316,6 +287,8 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	i64 pos = pos1;
 	i64 fnlen;
 	i64 n;
+	u32 hdr_crc_reported;
+	u32 hdr_crc_calc;
 	de_ucstring *descr = NULL;
 	int saved_indent_level;
 	char timestamp_buf[64];
@@ -394,8 +367,17 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 
 	pos += 6; // reserved, etc.
 
-	n = de_getu16be_p(&pos);
-	de_dbg(c, "file header crc (reported): 0x%04x", (unsigned int)n);
+	hdr_crc_reported = (u32)de_getu16be_p(&pos);
+	de_dbg(c, "header crc (reported): 0x%04x", (UI)hdr_crc_reported);
+
+	de_crcobj_reset(d->crco_hdr);
+	de_crcobj_addslice(d->crco_hdr, c->infile, pos1, 110);
+	hdr_crc_calc = de_crcobj_getval(d->crco_hdr);
+	de_dbg(c, "header crc (calculated): 0x%04x", (UI)hdr_crc_calc);
+	if(hdr_crc_reported != hdr_crc_calc) {
+		de_warn(c, "Bad header CRC (reported 0x%04x, calculated 0x%04x)", (UI)hdr_crc_reported,
+			(UI)hdr_crc_calc);
+	}
 
 	de_dbg_indent(c, -1);
 
@@ -811,7 +793,7 @@ static int do_v5_member_header(deark *c, lctx *d, struct member_data *md, i64 po
 	// calculate actual header crc
 	de_crcobj_reset(d->crco_hdr);
 	de_crcobj_addslice(d->crco_hdr, c->infile, pos1, 32);
-	de_crcobj_addbuf(d->crco_hdr, (const u8*)"\0\0", 2);
+	de_crcobj_addzeroes(d->crco_hdr, 2);
 	de_crcobj_addslice(d->crco_hdr, c->infile, pos1+34, hdrsize-34);
 	hdr_crc_calc = de_crcobj_getval(d->crco_hdr);
 

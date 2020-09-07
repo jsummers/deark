@@ -68,8 +68,7 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 	de_crcobj_reset(d->crco);
 	if(md->is_dir) {
 		de_crcobj_addslice(d->crco, c->infile, md->pos_in_bytes, 16);
-		de_crcobj_addbyte(d->crco, 0); // The 2-byte CRC field...
-		de_crcobj_addbyte(d->crco, 0);
+		de_crcobj_addzeroes(d->crco, 2); // The 2-byte CRC field
 		de_crcobj_addslice(d->crco, c->infile, md->pos_in_bytes+18, md->len_in_bytes_withpadding-18);
 	}
 	else {
@@ -283,10 +282,14 @@ void de_module_lbr(deark *c, struct deark_module_info *mi)
 // Squeeze - CP/M compressed file format
 
 struct squeeze_ctx {
+	u8 is_sq2;
 	de_encoding input_encoding;
 	struct de_stringreaderdata *fn;
+	struct de_stringreaderdata *timestamp_string;
+	struct de_stringreaderdata *comment;
 	UI checksum_reported;
 	UI checksum_calc;
+	i64 cmpr_data_pos;
 	struct de_timestamp timestamp;
 };
 
@@ -331,6 +334,88 @@ static void do_sqeeze_timestamp(deark *c, struct squeeze_ctx *sqctx, i64 pos1)
 	de_dbg_indent(c, -1);
 }
 
+static void read_squeeze_checksum(deark *c, struct squeeze_ctx *sqctx, i64 pos)
+{
+	sqctx->checksum_reported = (u32)de_getu16le_p(&pos);
+	de_dbg(c, "checksum (reported): %u", (UI)sqctx->checksum_reported);
+}
+
+static int read_squeeze_filename(deark *c, struct squeeze_ctx *sqctx, i64 pos, i64 *pbytes_consumed)
+{
+	int retval = 0;
+
+	sqctx->fn = dbuf_read_string(c->infile, pos, 300, 300, DE_CONVFLAG_STOP_AT_NUL,
+		sqctx->input_encoding);
+	if(!sqctx->fn->found_nul)goto done;
+	de_dbg(c, "original filename: \"%s\"", ucstring_getpsz_d(sqctx->fn->str));
+	*pbytes_consumed = sqctx->fn->bytes_consumed;
+	retval = 1;
+
+done:
+	return retval;
+}
+
+static int read_squeeze_headers(deark *c, struct squeeze_ctx *sqctx, i64 pos1)
+{
+	i64 pos = pos1;
+	int retval = 0;
+	i64 bytes_consumed = 0;
+
+	read_squeeze_checksum(c, sqctx, pos);
+	pos += 2;
+
+	if(!read_squeeze_filename(c, sqctx, pos, &bytes_consumed)) goto done;
+	pos += bytes_consumed;
+
+	sqctx->cmpr_data_pos = pos;
+	retval = 1;
+done:
+	if(!retval) {
+		de_err(c, "Malformed header");
+	}
+	return retval;
+}
+
+static int read_sq2_headers(deark *c, struct squeeze_ctx *sqctx, i64 pos1)
+{
+	i64 pos = pos1;
+	i64 bytes_consumed = 0;
+	u8 b;
+	int retval = 0;
+
+	if(!read_squeeze_filename(c, sqctx, pos, &bytes_consumed)) goto done;
+	pos += bytes_consumed;
+
+	sqctx->timestamp_string = dbuf_read_string(c->infile, pos, 300, 300,
+		DE_CONVFLAG_STOP_AT_NUL, sqctx->input_encoding);
+	if(!sqctx->timestamp_string->found_nul) goto done;
+	de_dbg(c, "timestamp_string: \"%s\"", ucstring_getpsz_d(sqctx->timestamp_string->str));
+	pos += sqctx->timestamp_string->bytes_consumed;
+
+	sqctx->comment = dbuf_read_string(c->infile, pos, 300, 300,
+		DE_CONVFLAG_STOP_AT_NUL, sqctx->input_encoding);
+	if(!sqctx->comment->found_nul) goto done;
+	de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(sqctx->comment->str));
+	pos += sqctx->comment->bytes_consumed;
+
+	b = de_getbyte_p(&pos);
+	if(b != 0x1a) goto done;
+
+	read_squeeze_checksum(c, sqctx, pos);
+	pos += 2;
+
+	pos += 4; // ?
+
+	sqctx->cmpr_data_pos = pos;
+	retval = 1;
+
+done:
+	if(!retval) {
+		de_err(c, "Malformed header");
+	}
+	return retval;
+}
+
 static void de_run_squeeze(deark *c, de_module_params *mparams)
 {
 	i64 pos = 0;
@@ -342,27 +427,32 @@ static void de_run_squeeze(deark *c, de_module_params *mparams)
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
+	struct de_dcmpr_two_layer_params tlp;
 
 	sqctx = de_malloc(c, sizeof(struct squeeze_ctx));
 	sqctx->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 
 	n = de_getu16le_p(&pos);
-	if(n != 0xff76) {
+	if(n==0xff76) {
+		de_declare_fmt(c, "Squeezed");
+	}
+	else if(n==0xfffa) {
+		de_declare_fmt(c, "Squeeze v2 (SQ2)");
+		sqctx->is_sq2 = 1;
+	}
+	else {
 		de_dbg(c, "Not a Squeezed file");
 		goto done;
 	}
 
-	sqctx->checksum_reported = (u32)de_getu16le_p(&pos);
-	de_dbg(c, "checksum (reported): %u", (UI)sqctx->checksum_reported);
-
-	sqctx->fn = dbuf_read_string(c->infile, pos, 300, 300, DE_CONVFLAG_STOP_AT_NUL,
-		sqctx->input_encoding);
-	if(!sqctx->fn->found_nul) {
-		de_err(c, "Malformed file");
-		goto done;
+	if(sqctx->is_sq2) {
+		if(!read_sq2_headers(c, sqctx, pos)) goto done;
 	}
-	de_dbg(c, "original filename: \"%s\"", ucstring_getpsz_d(sqctx->fn->str));
-	pos += sqctx->fn->bytes_consumed;
+	else {
+		if(!read_squeeze_headers(c, sqctx, pos)) goto done;
+	}
+
+	pos = sqctx->cmpr_data_pos;
 
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_ucstring(c, fi, sqctx->fn->str, 0);
@@ -382,8 +472,13 @@ static void de_run_squeeze(deark *c, de_module_params *mparams)
 
 	dbuf_set_writelistener(outf_tmp, squeeze_writelistener_cb, (void*)sqctx);
 
-	de_dfilter_decompress_two_layer(c, dfilter_huff_squeeze_codec, NULL,
-		dfilter_rle90_codec, NULL, &dcmpri, &dcmpro, &dres);
+	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
+	tlp.codec1_type1 = fmtutil_huff_squeeze_codectype1;
+	tlp.codec2 = dfilter_rle90_codec;
+	tlp.dcmpri = &dcmpri;
+	tlp.dcmpro = &dcmpro;
+	tlp.dres = &dres;
+	de_dfilter_decompress_two_layer(c, &tlp);
 
 	if(dres.bytes_consumed_valid) {
 		de_dbg(c, "compressed data size: %"I64_FMT", ends at %"I64_FMT, dres.bytes_consumed,
@@ -413,6 +508,8 @@ static void de_run_squeeze(deark *c, de_module_params *mparams)
 done:
 	if(sqctx) {
 		de_destroy_stringreaderdata(c, sqctx->fn);
+		de_destroy_stringreaderdata(c, sqctx->timestamp_string);
+		de_destroy_stringreaderdata(c, sqctx->comment);
 		de_free(c, sqctx);
 	}
 	dbuf_close(outf_final);
@@ -422,9 +519,11 @@ done:
 
 static int de_identify_squeeze(deark *c)
 {
-	if(de_getu16le(0)==0xff76) {
-		return 70;
-	}
+	i64 id;
+
+	id = de_getu16le(0);
+	if(id==0xff76) return 70;
+	if(id==0xfffa) return 25; // SQ2
 	return 0;
 }
 

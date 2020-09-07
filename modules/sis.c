@@ -73,12 +73,12 @@ static int do_file_header(deark *c, lctx *d, i64 pos1)
 
 	crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
 	for(k=0; k<12; k+=2) {
-		de_crcobj_addbyte(crco, tmpbuf[k]);
+		de_crcobj_addbuf(crco, &tmpbuf[k], 1);
 	}
 	crc_even = de_crcobj_getval(crco);
 	de_crcobj_reset(crco);
 	for(k=1; k<12; k+=2) {
-		de_crcobj_addbyte(crco, tmpbuf[k]);
+		de_crcobj_addbuf(crco, &tmpbuf[k], 1);
 	}
 	crc_odd = de_crcobj_getval(crco);
 	de_crcobj_destroy(crco);

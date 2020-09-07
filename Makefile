@@ -61,7 +61,7 @@ OFILES_MODS_AB:=$(addprefix $(OBJDIR)/modules/,abk.o alphabmp.o amigaicon.o \
  bmff.o apple2-dsk.o applesd.o binhex.o bintext.o bmi.o bmp.o \
  arj.o bpg.o bsave.o)
 OFILES_MODS_CH:=$(addprefix $(OBJDIR)/modules/,cab.o cardfile.o cfb.o \
- cpio.o d64.o drhalo.o ebml.o emf.o epocimage.o eps.o exe.o \
+ cpio.o d64.o drhalo.o ebml.o emf.o epocimage.o eps.o exe.o dms.o \
  flif.o fnt.o gemfont.o gemmeta.o gemras.o gif.o grasp.o grob.o gzip.o \
  hfs.o hlp.o dsstore.o fli.o fat.o flac.o ccx.o crush.o)
 OFILES_MODS_IO:=$(addprefix $(OBJDIR)/modules/,misc.o iccprofile.o icns.o \
@@ -84,7 +84,8 @@ OFILES_DEARK1:=$(addprefix $(OBJDIR)/src/,fmtutil-miniz.o deark-util.o \
  deark-data.o deark-zip.o deark-tar.o deark-png.o \
  deark-dbuf.o deark-bitmap.o deark-char.o deark-font.o deark-ucstring.o \
  fmtutil.o fmtutil-cmpr.o fmtutil-advfile.o fmtutil-zip.o fmtutil-zoo.o \
- fmtutil-lzw.o fmtutil-huffman.o deark-user.o deark-unix.o deark-win.o)
+ fmtutil-lzh.o fmtutil-lzw.o fmtutil-huffman.o \
+ deark-user.o deark-unix.o deark-win.o)
 OFILES_DEARK2:=$(addprefix $(OBJDIR)/src/,deark-modules.o)
 OFILES_ALL:=$(OFILES_DEARK1) $(OFILES_DEARK2) $(OFILES_MODS) $(OBJDIR)/src/deark-cmd.o $(DEARK_RC_O)
 

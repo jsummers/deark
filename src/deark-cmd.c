@@ -159,9 +159,7 @@ static void print_license(deark *c)
 	"miniz v1.16 beta r1, by Rich Geldreich.\n\n"
 	"The ZIP Implode decoder is derived from public domain code by Mark Adler, from\n"
 	"Info-ZIP UnZip v5.4.\n\n"
-	"The X-Face decoder uses code from Compface, Copyright (c) 1990 James Ashton.\n\n"
-	"The ZOO LZH decoder uses public domain code by Martin Schoenert et al., from\n"
-	"unzoo.c v4.4.\n");
+	"The X-Face decoder uses code from Compface, Copyright (c) 1990 James Ashton.\n");
 }
 
 static void print_modules(deark *c)

@@ -496,6 +496,12 @@
     <ClCompile Include="..\..\src\fmtutil-huffman.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\fmtutil-lzh.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\modules\dms.c">
+      <Filter>Modules</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\deark-config.h">
@@ -526,9 +532,6 @@
       <Filter>Foreign Code</Filter>
     </ClInclude>
     <ClInclude Include="..\..\foreign\ozunreduce.h">
-      <Filter>Foreign Code</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\foreign\unzoo-lzh.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>
     <ClInclude Include="..\..\foreign\delzw.h">

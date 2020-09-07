@@ -117,7 +117,7 @@ static void do_decompress_type_2(deark *c, lctx *d,
 	struct de_dfilter_results *dres)
 {
 	de_dbg(c, "doing LZ77 decompression");
-	fmtutil_decompress_hlp_lz77(c, dcmpri, dcmpro, dres);
+	fmtutil_hlp_lz77_codectype1(c, dcmpri, dcmpro, dres, NULL);
 }
 
 // LZ77 + RLE
@@ -125,9 +125,18 @@ static void do_decompress_type_3(deark *c, lctx *d,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
+	struct de_dcmpr_two_layer_params tlp;
+
 	de_dbg(c, "doing LZ77+RLE decompression");
-	de_dfilter_decompress_two_layer(c, dfilter_hlp_lz77_codec, NULL,
-		dfilter_shgrle_codec, NULL, dcmpri, dcmpro, dres);
+
+	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
+	tlp.codec1_type1 = fmtutil_hlp_lz77_codectype1;
+	tlp.codec1_private_params = NULL;
+	tlp.codec2 = dfilter_shgrle_codec;
+	tlp.dcmpri = dcmpri;
+	tlp.dcmpro = dcmpro;
+	tlp.dres = dres;
+	de_dfilter_decompress_two_layer(c, &tlp);
 }
 
 static int do_uncompress_picture_data(deark *c, lctx *d,

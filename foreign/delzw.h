@@ -432,12 +432,14 @@ static void delzw_unixcompress_end_bitgroup(delzwctx *dc)
 	// The codes are written 8 at a time, with all 8 having the same codesize.
 	// The codesize cannot change in the middle of a block of 8. If it needs to,
 	// the remainder of the block is unused padding, which we must skip over.
-	// Ths is relevant when we encounter a clear code, and *potentially* when the
-	// codesize is auto-incremented. But except possibly for the first group of
-	// codes (the 9-bit codes), the number of codes is always (?) a power of 2,
-	// and a multiple of 8. So no padding is present.
-	// As it happens, when code 256 is reserved as the clear code, it reduces the
-	// number of 9-bit codes from 257 to 256, so still no padding is present.
+	// This is relevant when we encounter a clear code. It is also potentially
+	// relevant when the codesize is auto-incremented. But except possibly for
+	// the first group of codes (the 9-bit codes), the natural number of codes of
+	// a given size is always (?) a power of 2, and a multiple of 8. So, usually
+	// no padding is present at the auto-increment position.
+	// As it happens, when code 256 is used as the clear code, it reduces the
+	// natural number of 9-bit codes from 257 to 256, and since 256 is a multiple
+	// of 8, still no padding is present.
 	// But "v2" format does not use a clear code, and AFAICT it does have padding
 	// after the 9-bit codes.
 

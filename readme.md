@@ -343,8 +343,6 @@ See the [technical.md](technical.md) file.
 
 Thanks to Rich Geldreich for the miniz library.
 
-Thanks Martin Schoenert for some of the code used by the ZOO format decoder.
-
 Thanks to James Ashton for much of the code used by the X-Face format decoder.
 
 Thanks to Mark Adler for the ZIP "implode" decompression code.

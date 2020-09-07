@@ -52,6 +52,7 @@ struct member_data {
 	u32 crc_reported;
 	u32 crc_calculated;
 	u32 crc_hdr_reported;
+	u32 crc_hdr_calculated;
 	u8             majver;         /* major version needed to extract */
 	u8             minver;         /* minor version needed to extract */
 	u8 is_deleted;        /* 1 if member is deleted, 0 else  */
@@ -203,6 +204,15 @@ static void finish_modtime_decoding(deark *c, lctx *d, struct member_data *md)
 	}
 }
 
+static void calc_hdr_crc(deark *c, lctx *d, struct member_data *md, i64 pos1, i64 lvar)
+{
+	de_crcobj_reset(d->crco);
+	de_crcobj_addslice(d->crco, c->infile, pos1, 54);
+	de_crcobj_addzeroes(d->crco, 2);
+	de_crcobj_addslice(d->crco, c->infile, pos1+56, lvar);
+	md->crc_hdr_calculated = de_crcobj_getval(d->crco);
+}
+
 static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 {
 	de_ucstring *shortname = NULL;
@@ -313,6 +323,11 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 
 	md->crc_hdr_reported = (u32)de_getu16le_p(&pos);
 	de_dbg(c, "entry crc (reported): 0x%04x", (unsigned int)md->crc_hdr_reported);
+	calc_hdr_crc(c, d, md, pos1, lvar);
+	de_dbg(c, "entry crc (calculated): 0x%04x", (UI)md->crc_hdr_calculated);
+	if(md->crc_hdr_calculated != md->crc_hdr_reported) {
+		de_warn(c, "Header CRC check failed");
+	}
 
 	// The "variable part" of the extended header begins here.
 	hdr_endpos = pos + lvar;
@@ -397,6 +412,37 @@ done:
 	return retval;
 }
 
+static void decompress_lzd(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, int maxbits)
+{
+	struct de_lzw_params delzwp;
+
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
+	delzwp.fmt = DE_LZWFMT_ZOOLZD;
+	delzwp.max_code_size = (unsigned int)maxbits;
+	fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
+}
+
+static void decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
+{
+	struct de_lzh_params lzhparams;
+
+	de_zeromem(&lzhparams, sizeof(struct de_lzh_params));
+	lzhparams.fmt = DE_LZH_FMT_LH5LIKE;
+	lzhparams.subfmt = '5';
+	lzhparams.stop_on_zero_codes_block = 1;
+
+	// Zoo does not appear to allow LZ77 offsets that point to data before
+	// the beginning of the file, so it doesn't matter what we initialize the
+	// history buffer to. If don't do this, LZH_FMT_LH5LIKE will pre-fill the
+	// buffer with spaces.
+	lzhparams.use_history_fill_val = 1;
+	lzhparams.history_fill_val = 0x00;
+
+	fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres, &lzhparams);
+}
+
 static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
 {
 	struct de_crcobj *crco = (struct de_crcobj *)userdata;
@@ -414,7 +460,9 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 
 	md = de_malloc(c, sizeof(struct member_data));
@@ -475,19 +523,21 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 	dcmpro.len_known = 1;
 	dcmpro.expected_len = md->uncmpr_len;
 
+	de_dbg_indent(c, 1);
 	switch(md->method) {
 	case ZOOCMPR_STORED:
 		fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
 		break;
 	case ZOOCMPR_LZD:
-		fmtutil_decompress_zoo_lzd(c, &dcmpri, &dcmpro, &dres, 13);
+		decompress_lzd(c, &dcmpri, &dcmpro, &dres, 13);
 		break;
 	case ZOOCMPR_LZH:
-		fmtutil_decompress_zoo_lzh(c, &dcmpri, &dcmpro, &dres);
+		decompress_lzh(c, &dcmpri, &dcmpro, &dres);
 		break;
 	default:
 		goto done; // Should be impossible
 	}
+	de_dbg_indent(c, -1);
 
 	md->crc_calculated = de_crcobj_getval(d->crco);
 	de_dbg(c, "file data crc (calculated): 0x%04x", (unsigned int)md->crc_calculated);
@@ -511,6 +561,7 @@ done:
 		de_finfo_destroy(c, md->fi);
 		de_free(c, md);
 	}
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 // The main function: process a ZOO file

@@ -1000,7 +1000,7 @@ static void decompress_topic_block(deark *c, lctx *d, struct topic_ctx *tctx,
 	// TODO: Confirm what happens if a block decompresses to more than 16384-12 bytes.
 	dcmpro.expected_len = 16384-TOPICBLOCKHDRSIZE;
 	len_before = outf->len;
-	fmtutil_decompress_hlp_lz77(c, &dcmpri, &dcmpro, &dres);
+	fmtutil_hlp_lz77_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
 	de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", blk_dlen,
 		outf->len - len_before);
 }
@@ -1475,7 +1475,7 @@ static void decompress_Phrases(deark *c, lctx *d, i64 pos, i64 cmpr_len, i64 unc
 	dcmpro.f = d->phrases_data;
 	dcmpro.len_known = 1;
 	dcmpro.expected_len = uncmpr_len;
-	fmtutil_decompress_hlp_lz77(c, &dcmpri, &dcmpro, &dres);
+	fmtutil_hlp_lz77_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
 	if(dres.errcode || (d->phrases_data->len!=uncmpr_len)) {
 		de_warn(c, "Phrases decompression may have failed");
 	}
@@ -1582,50 +1582,30 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-struct PhrIndex_ctx {
-	i64 curpos;
-	unsigned int bitreader_buf;
-	unsigned int bitreader_nbits_in_buf;
-};
-
-static unsigned int phrgetbits(deark *c, lctx *d, struct PhrIndex_ctx *pctx, unsigned int nbits)
-{
-	unsigned int n;
-
-	while(pctx->bitreader_nbits_in_buf < nbits) {
-		u8 b;
-
-		b = de_getbyte_p(&pctx->curpos);
-		pctx->bitreader_buf |= ((unsigned int)b)<<pctx->bitreader_nbits_in_buf;
-		pctx->bitreader_nbits_in_buf += 8;
-	}
-
-	n = pctx->bitreader_buf & ((1U<<nbits)-1U);
-	pctx->bitreader_buf >>= nbits;
-	pctx->bitreader_nbits_in_buf -= nbits;
-	return n;
-}
-
 static void phrdecompress(deark *c, lctx *d, i64 pos1, i64 len, unsigned int BitCount)
 {
 	unsigned int n;
 	unsigned int i;
-	struct PhrIndex_ctx pctx;
+	struct de_bitreader bitrd;
 
-	de_zeromem(&pctx, sizeof(struct PhrIndex_ctx));
+	de_zeromem(&bitrd, sizeof(struct de_bitreader));
+	bitrd.f = c->infile;
+	bitrd.curpos = pos1;
+	bitrd.endpos = pos1 + len;
+	bitrd.bbll.is_lsb = 1;
 
-	pctx.curpos = pos1;
 	d->phrase_info[0].pos = 0;
 
 	for(i=0; i<d->num_phrases; i++) {
 		unsigned int num1bits = 0;
 
-		while(phrgetbits(c, d, &pctx, 1)) {
-			if(pctx.curpos > pos1+len) goto done; // emergency brake
+		while(de_bitreader_getbits(&bitrd, 1)) {
+			if(bitrd.eof_flag) goto done;
 			num1bits++;
 		}
 		n = num1bits<<BitCount;
-		n += phrgetbits(c, d, &pctx, BitCount) + 1;
+		n += (UI)de_bitreader_getbits(&bitrd, BitCount) + 1;
+		if(bitrd.eof_flag) goto done;
 
 		d->phrase_info[i].len = n;
 		if(i+1<d->num_phrases) {

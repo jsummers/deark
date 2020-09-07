@@ -33,7 +33,12 @@ struct huffman_node {
 	union huffman_nval_data child[2];
 };
 
-struct fmtutil_huffman_cursor {
+struct huffman_lengths_arr_item {
+	i32 val;
+	UI len;
+};
+
+struct huffman_cursor {
 	NODE_REF_TYPE curr_noderef;
 };
 
@@ -41,16 +46,21 @@ struct fmtutil_huffman_tree {
 	// In principle, the cursor should be separate, so we could have multiple
 	// cursors for one tree. But that's inconvenient, and it's not clear that
 	// it would be of any use in practice.
-	struct fmtutil_huffman_cursor cursor;
+	struct huffman_cursor cursor;
 
 	i64 max_nodes;
 	NODE_REF_TYPE next_avail_node;
 	NODE_REF_TYPE nodes_alloc;
 	struct huffman_node *nodes; // array[nodes_alloc]
-	struct huffman_nval_value_data value_of_null_code;
+	u8 has_null_code;
+	i32 value_of_null_code;
 
 	i64 num_codes;
 	UI max_bits;
+
+	i64 lengths_arr_numalloc;
+	i64 lengths_arr_numused;
+	struct huffman_lengths_arr_item *lengths_arr; // array[lengths_arr_numalloc]
 };
 
 // Ensure that at least n nodes are allocated (0 through n-1)
@@ -118,8 +128,7 @@ void fmtutil_huffman_reset_cursor(struct fmtutil_huffman_tree *ht)
 // the tree is left incomplete), we only promise that it will be safe to use
 // the decoding functions. Such errors will not necessarily be detected.
 //
-// Note that we allow adding the 0-length code, but (as of this writing) there
-// is no way to read back its value.
+// Note that adding the 0-length code is allowed.
 int fmtutil_huffman_add_code(deark *c, struct fmtutil_huffman_tree *ht,
 	u64 code, UI code_nbits, i32 val)
 {
@@ -130,10 +139,13 @@ int fmtutil_huffman_add_code(deark *c, struct fmtutil_huffman_tree *ht,
 	if(code_nbits>MAX_TREE_DEPTH) goto done;
 
 	if(code_nbits<1) {
-		ht->value_of_null_code.value = val;
+		ht->value_of_null_code = val;
+		ht->has_null_code = 1;
 		retval = 1;
 		goto done;
 	}
+	ht->has_null_code = 0;
+
 	if(code_nbits > ht->max_bits) {
 		ht->max_bits = code_nbits;
 	}
@@ -190,6 +202,7 @@ done:
 //  2 = Need more bits (*pval unchanged)
 //  0 = Error (*pval unchanged)
 // If return value is not 2, resets the cursor before returning.
+// Note that, by itself, this function cannot read the zero-length code.
 int fmtutil_huffman_decode_bit(struct fmtutil_huffman_tree *ht, u8 bitval, i32 *pval)
 {
 	UI child_idx;
@@ -214,6 +227,55 @@ int fmtutil_huffman_decode_bit(struct fmtutil_huffman_tree *ht, u8 bitval, i32 *
 done:
 	if(retval!=2) {
 		fmtutil_huffman_reset_cursor(ht);
+	}
+	return retval;
+}
+
+// Read the next Huffman code from a bitreader, and decode it.
+// *pval will always be written to. On error, it will be set to 0.
+// pnbits returns the number of bits read. Can be NULL.
+// Return value:
+//  nonzero on success
+//  0 on error - Can happen if the tree was not constructed properly, or on EOF
+//    (bitrd->eof_flag can distinguish these cases).
+int fmtutil_huffman_read_next_value(struct fmtutil_huffman_tree *ht,
+	struct de_bitreader *bitrd, i32 *pval, UI *pnbits)
+{
+	int bitcount = 0;
+	int retval = 0;
+
+	if(bitrd->eof_flag) goto done;
+
+	if(ht->has_null_code) {
+		*pval = ht->value_of_null_code;
+		retval = 1;
+		goto done;
+	}
+
+	while(1) {
+		int ret;
+		u8 b;
+
+		b = (u8)de_bitreader_getbits(bitrd, 1);
+		if(bitrd->eof_flag) goto done;
+		bitcount++;
+		if(bitcount>64) goto done; // Should be impossible
+
+		ret = fmtutil_huffman_decode_bit(ht, b, pval);
+		if(ret==1) { // finished the code
+			retval = 1;
+			goto done;
+		}
+		else if(ret!=2) { // decoding error
+			goto done;
+		}
+	}
+done:
+	if(!retval) {
+		*pval = 0;
+	}
+	if(pnbits) {
+		*pnbits = retval ? bitcount : 0;
 	}
 	return retval;
 }
@@ -256,6 +318,103 @@ void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_tree *ht)
 	ucstring_destroy(tmps);
 }
 
+// This only used with fmtutil_huffman_make_canonical_tree().
+// Call this first, once per item.
+// The order that you supply the items matters, at least within the set of items
+// having the same length.
+// Cannot be used for zero-length items. If len==0, it's a successful no-op.
+int fmtutil_huffman_record_a_code_length(deark *c, struct fmtutil_huffman_tree *ht, i32 val, UI len)
+{
+	if(len==0) return 1;
+	if(ht->lengths_arr_numused > MAX_MAX_NODES) return 0;
+
+	if(ht->lengths_arr_numused >= ht->lengths_arr_numalloc) {
+		i64 new_numalloc;
+
+		new_numalloc = ht->lengths_arr_numused + 128;
+		ht->lengths_arr = de_reallocarray(c, ht->lengths_arr, ht->lengths_arr_numalloc,
+			sizeof(struct huffman_lengths_arr_item), new_numalloc);
+		ht->lengths_arr_numalloc = new_numalloc;
+	}
+	ht->lengths_arr[ht->lengths_arr_numused].val = val;
+	ht->lengths_arr[ht->lengths_arr_numused++].len = len;
+	return 1;
+}
+
+// Call this after calling huffman_record_item_length() (usually many times).
+// Creates the canonical Huffman tree derived from the known code lengths.
+int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *ht)
+{
+	UI max_sym_len_used;
+	UI i;
+	UI symlen;
+	UI prev_code_bit_length = 0;
+	u64 prev_code = 0; // valid if prev_code_bit_length>0
+	int retval = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg2(c, "constructing huffman tree:");
+	de_dbg_indent(c, 1);
+
+	if(!ht->lengths_arr) {
+		retval = 1;
+		goto done;
+	}
+
+	// Find the maximum length
+	max_sym_len_used = 0;
+	for(i=0; i<(UI)ht->lengths_arr_numused; i++) {
+		if(ht->lengths_arr[i].len > max_sym_len_used) {
+			max_sym_len_used = ht->lengths_arr[i].len;
+		}
+	}
+	if(max_sym_len_used>48) {
+		goto done;
+	}
+
+	// For each possible symbol length...
+	for(symlen=1; symlen<=max_sym_len_used; symlen++) {
+		UI k;
+
+		// Find all the codes that use this symbol length, in order
+		for(k=0; k<(UI)ht->lengths_arr_numused; k++) {
+			int ret;
+			u64 thiscode;
+
+			if(ht->lengths_arr[k].len != symlen) continue;
+			// Found a code of the length we're looking for.
+
+			if(prev_code_bit_length==0) { // this is the first code
+				thiscode = 0;
+			}
+			else {
+				thiscode = prev_code + 1;
+				if(symlen > prev_code_bit_length) {
+					thiscode <<= (symlen - prev_code_bit_length);
+				}
+			}
+
+			prev_code_bit_length = symlen;
+			prev_code = thiscode;
+
+			if(c->debug_level>=2) {
+				de_dbg2(c, "addcode 0x%"U64_FMTx" [%u bits] = %d", thiscode, symlen,
+					(int)ht->lengths_arr[k].val);
+			}
+			ret = fmtutil_huffman_add_code(c, ht, thiscode, symlen, ht->lengths_arr[k].val);
+			if(!ret) {
+				goto done;
+			}
+		}
+	}
+	retval = 1;
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
 // initial_codes: If not 0, pre-allocate enough nodes for this many codes.
 // max_codes: If not 0, attempting to add substantially more codes than this will fail.
 struct fmtutil_huffman_tree *fmtutil_huffman_create_tree(deark *c, i64 initial_codes, i64 max_codes)
@@ -296,6 +455,7 @@ struct fmtutil_huffman_tree *fmtutil_huffman_create_tree(deark *c, i64 initial_c
 void fmtutil_huffman_destroy_tree(deark *c, struct fmtutil_huffman_tree *ht)
 {
 	if(!ht) return;
+	de_free(c, ht->lengths_arr);
 	de_free(c, ht);
 }
 
@@ -317,32 +477,27 @@ struct squeeze_node {
 };
 
 struct squeeze_ctx {
+	deark *c;
+	struct de_dfilter_in_params *dcmpri;
+	struct de_dfilter_out_params *dcmpro;
+	struct de_dfilter_results *dres;
 	const char *modname;
-	struct fmtutil_huffman_tree *ht;
-	i64 byte_idx;
-	i64 nbytes_consumed;
 	i64 nbytes_written;
-
-#define SQSTATE_INIT               0
-#define SQSTATE_NODECOUNT1         1 // We've read the first byte of nodecount
-#define SQSTATE_READING_NODETABLE  2
-#define SQSTATE_READING_CODES      3
-#define SQSTATE_EOF                4
-	UI state;
 	i64 nodecount;
-	dbuf *nodetable; // The raw bytes of the node table
+	struct fmtutil_huffman_tree *ht;
+	struct de_bitreader bitrd;
 	struct squeeze_node tmpnodes[SQUEEZE_MAX_NODES]; // Temporary use when decoding the node table
 };
 
-static void squeeze_interpret_node(struct de_dfilter_ctx *dfctx, struct squeeze_ctx *sqctx,
+static void squeeze_interpret_node(struct squeeze_ctx *sqctx,
 	i64 nodenum, u64 currcode, UI currcode_nbits);
 
-static void squeeze_interpret_dval(struct de_dfilter_ctx *dfctx, struct squeeze_ctx *sqctx,
+static void squeeze_interpret_dval(struct squeeze_ctx *sqctx,
 	i16 dval, u64 currcode, UI currcode_nbits)
 {
 	if(dval>=0) { // a pointer to a node
 		if((i64)dval < sqctx->nodecount) {
-			squeeze_interpret_node(dfctx, sqctx, (i64)dval, currcode, currcode_nbits);
+			squeeze_interpret_node(sqctx, (i64)dval, currcode, currcode_nbits);
 		}
 	}
 	else if(dval>=(-257) && dval<=(-1)) {
@@ -354,15 +509,15 @@ static void squeeze_interpret_dval(struct de_dfilter_ctx *dfctx, struct squeeze_
 		//  ...
 		//  -1   => 0   (byte value)
 		adj_value = -(((i32)dval)+1);
-		if(dfctx->c->debug_level>=2) {
-			de_dbg2(dfctx->c, "adding code 0x%x [%u bits]: %d", (UI)currcode, currcode_nbits, (int)adj_value);
+		if(sqctx->c->debug_level>=2) {
+			de_dbg2(sqctx->c, "adding code 0x%x [%u bits]: %d", (UI)currcode, currcode_nbits, (int)adj_value);
 		}
-		fmtutil_huffman_add_code(dfctx->c, sqctx->ht, currcode, currcode_nbits, adj_value);
+		fmtutil_huffman_add_code(sqctx->c, sqctx->ht, currcode, currcode_nbits, adj_value);
 	}
 	// TODO: Report errors?
 }
 
-static void squeeze_interpret_node(struct de_dfilter_ctx *dfctx, struct squeeze_ctx *sqctx,
+static void squeeze_interpret_node(struct squeeze_ctx *sqctx,
 	i64 nodenum, u64 currcode, UI currcode_nbits)
 {
 	// TODO: Report errors?
@@ -371,28 +526,14 @@ static void squeeze_interpret_node(struct de_dfilter_ctx *dfctx, struct squeeze_
 	if(currcode_nbits>=48) return;
 
 	sqctx->tmpnodes[nodenum].in_use = 1;
-	squeeze_interpret_dval(dfctx, sqctx, sqctx->tmpnodes[nodenum].child[0].dval, currcode<<1, currcode_nbits+1);
-	squeeze_interpret_dval(dfctx, sqctx, sqctx->tmpnodes[nodenum].child[1].dval, ((currcode<<1) | 1), currcode_nbits+1);
+	squeeze_interpret_dval(sqctx, sqctx->tmpnodes[nodenum].child[0].dval, currcode<<1, currcode_nbits+1);
+	squeeze_interpret_dval(sqctx, sqctx->tmpnodes[nodenum].child[1].dval, ((currcode<<1) | 1), currcode_nbits+1);
 	sqctx->tmpnodes[nodenum].in_use = 0;
 }
 
-static void squeeze_process_nodetable(struct de_dfilter_ctx *dfctx, struct squeeze_ctx *sqctx)
+static int squeeze_process_nodetable(deark *c, struct squeeze_ctx *sqctx)
 {
-	i64 k;
-	i64 ntpos = 0;
-	deark *c = dfctx->c;
-
-	de_dbg2(c, "node table:");
-	de_dbg_indent(c, 1);
-	for(k=0; k<sqctx->nodecount; k++) {
-		sqctx->tmpnodes[k].child[0].dval = (i16)dbuf_geti16le_p(sqctx->nodetable, &ntpos);
-		sqctx->tmpnodes[k].child[1].dval = (i16)dbuf_geti16le_p(sqctx->nodetable, &ntpos);
-		if(c->debug_level >= 2) {
-			de_dbg2(c, "nodetable[%d]: %d %d", (int)k, (int)sqctx->tmpnodes[k].child[0].dval,
-				(int)sqctx->tmpnodes[k].child[1].dval);
-		}
-	}
-	de_dbg_indent(c, -1);
+	int retval = 0;
 
 	// It feels a little wrong to go to the trouble of decoding this node table into
 	// the form required by our Huffman library's API, when we know it's going to
@@ -400,7 +541,7 @@ static void squeeze_process_nodetable(struct de_dfilter_ctx *dfctx, struct squee
 	// should be a better way to do this.
 	de_dbg2(c, "interpreting huffman table:");
 	de_dbg_indent(c, 1);
-	squeeze_interpret_node(dfctx, sqctx, 0, 0, 0);
+	squeeze_interpret_node(sqctx, 0, 0, 0);
 	de_dbg_indent(c, -1);
 
 	if(c->debug_level>=2) {
@@ -409,114 +550,128 @@ static void squeeze_process_nodetable(struct de_dfilter_ctx *dfctx, struct squee
 		fmtutil_huffman_dump(c, sqctx->ht);
 		de_dbg_indent(c, -1);
 	}
+
+	retval = 1;
+	return retval;
 }
 
-static void my_squeeze_codec_addbuf(struct de_dfilter_ctx *dfctx,
-	const u8 *buf, i64 buf_len)
+static int squeeze_read_nodetable(deark *c, struct squeeze_ctx *sqctx)
 {
-	struct squeeze_ctx *sqctx = (struct squeeze_ctx*)dfctx->codec_private;
-	i64 i;
+	i64 k;
+	int retval = 0;
 
-	for(i=0; i<buf_len; i++) {
-		u8 n = buf[i];
-		int z;
+	if(sqctx->bitrd.curpos+2 > sqctx->bitrd.endpos) goto done;
+	sqctx->nodecount = dbuf_getu16le_p(sqctx->dcmpri->f, &sqctx->bitrd.curpos);
+	de_dbg(c, "node count: %d", (int)sqctx->nodecount);
+	if(sqctx->nodecount > SQUEEZE_MAX_NODES) {
+		de_dfilter_set_errorf(c, sqctx->dres, sqctx->modname,
+			"Invalid node count");
+		goto done;
+	}
 
-		if(sqctx->state==SQSTATE_EOF) goto done;
-
-		sqctx->nbytes_consumed++;
-
-		if(sqctx->state==SQSTATE_READING_NODETABLE &&
-			(sqctx->nodetable->len >= sqctx->nodecount*4))
-		{
-			squeeze_process_nodetable(dfctx, sqctx);
-			sqctx->state = SQSTATE_READING_CODES;
+	de_dbg2(c, "node table:");
+	de_dbg_indent(c, 1);
+	for(k=0; k<sqctx->nodecount; k++) {
+		sqctx->tmpnodes[k].child[0].dval = (i16)dbuf_geti16le_p(sqctx->dcmpri->f, &sqctx->bitrd.curpos);
+		sqctx->tmpnodes[k].child[1].dval = (i16)dbuf_geti16le_p(sqctx->dcmpri->f, &sqctx->bitrd.curpos);
+		if(c->debug_level >= 2) {
+			de_dbg2(c, "nodetable[%d]: %d %d", (int)k, (int)sqctx->tmpnodes[k].child[0].dval,
+				(int)sqctx->tmpnodes[k].child[1].dval);
 		}
+	}
+	de_dbg_indent(c, -1);
+	if(sqctx->bitrd.curpos > sqctx->bitrd.endpos) goto done;
 
-		switch(sqctx->state) {
-		case SQSTATE_INIT:
-			sqctx->nodecount = (i64)buf[i];
-			sqctx->state = SQSTATE_NODECOUNT1;
-			break;
-		case SQSTATE_NODECOUNT1:
-			sqctx->nodecount |= ((i64)buf[i])<<8;
-			de_dbg(dfctx->c, "node count: %d", (int)sqctx->nodecount);
+	if(!squeeze_process_nodetable(c, sqctx)) goto done;
 
-			if(sqctx->nodecount > SQUEEZE_MAX_NODES) {
-				de_dfilter_set_errorf(dfctx->c, dfctx->dres, sqctx->modname,
-					"Invalid node count");
-				sqctx->state = SQSTATE_EOF;
+	retval = 1;
+done:
+	return retval;
+}
+
+static int squeeze_read_codes(deark *c, struct squeeze_ctx *sqctx)
+{
+	int retval = 0;
+
+	sqctx->bitrd.bbll.is_lsb = 1;
+	de_bitbuf_lowelevel_empty(&sqctx->bitrd.bbll);
+
+	if(fmtutil_huffman_get_max_bits(sqctx->ht) < 1) {
+		// Empty tree? Assume this is an empty file.
+		retval = 1;
+		goto done;
+	}
+
+	while(1) {
+		int ret;
+		i32 val = 0;
+
+		ret = fmtutil_huffman_read_next_value(sqctx->ht, &sqctx->bitrd, &val, NULL);
+		if(!ret || val<0 || val>256) {
+			if(sqctx->bitrd.eof_flag) {
+				retval = 1;
 			}
 			else {
-				sqctx->state = SQSTATE_READING_NODETABLE;
+				de_dfilter_set_errorf(c, sqctx->dres, sqctx->modname, "Huffman decode error");
 			}
-			break;
-		case SQSTATE_READING_NODETABLE:
-			dbuf_writebyte(sqctx->nodetable, n);
-			break;
-		case SQSTATE_READING_CODES:
-			for(z=0; z<=7; z++) {
-				int hret;
-				i32 val;
+			goto done;
+		}
 
-				hret = fmtutil_huffman_decode_bit(sqctx->ht, ((n>>z)&0x1), &val);
-				if(hret==1) {
-					if(val>=0 && val<=255) {
-						dbuf_writebyte(dfctx->dcmpro->f, (u8)val);
-						sqctx->nbytes_written++;
-						if(dfctx->dcmpro->len_known && (sqctx->nbytes_written >= dfctx->dcmpro->expected_len)) {
-							sqctx->state = SQSTATE_EOF;
-							goto done;
-						}
-					}
-					else if(val==256) { // STOP code
-						sqctx->state = SQSTATE_EOF;
-						goto done;
-					}
-				}
+		if(val>=0 && val<=255) {
+			dbuf_writebyte(sqctx->dcmpro->f, (u8)val);
+			sqctx->nbytes_written++;
+			if(sqctx->dcmpro->len_known && (sqctx->nbytes_written >= sqctx->dcmpro->expected_len)) {
+				retval = 1;
+				goto done;
 			}
-			break;
+		}
+		else if(val==256) { // STOP code
+			retval = 1;
+			goto done;
 		}
 	}
 
 done:
-	if(sqctx->state==SQSTATE_EOF) {
-		dfctx->finished_flag = 1;
-	}
+	return retval;
 }
 
-static void my_squeeze_codec_finish(struct de_dfilter_ctx *dfctx)
-{
-	struct squeeze_ctx *sqctx = (struct squeeze_ctx*)dfctx->codec_private;
-
-	dfctx->dres->bytes_consumed = sqctx->nbytes_consumed;
-	dfctx->dres->bytes_consumed_valid = 1;
-}
-
-static void my_squeeze_codec_destroy(struct de_dfilter_ctx *dfctx)
-{
-	struct squeeze_ctx *sqctx = (struct squeeze_ctx*)dfctx->codec_private;
-
-	if(sqctx) {
-		dbuf_close(sqctx->nodetable);
-		fmtutil_huffman_destroy_tree(dfctx->c, sqctx->ht);
-		de_free(dfctx->c, sqctx);
-	}
-	dfctx->codec_private = NULL;
-}
-
-// Squeeze = RLE90 + Huffman.
-// This codec is just for the Huffman part.
-void dfilter_huff_squeeze_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
+void fmtutil_huff_squeeze_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params)
 {
 	struct squeeze_ctx *sqctx = NULL;
+	int ok = 0;
 
-	sqctx = de_malloc(dfctx->c, sizeof(struct squeeze_ctx));
-	dfctx->codec_private = (void*)sqctx;
-	dfctx->codec_addbuf_fn = my_squeeze_codec_addbuf;
-	dfctx->codec_finish_fn = my_squeeze_codec_finish;
-	dfctx->codec_destroy_fn = my_squeeze_codec_destroy;
-
+	sqctx = de_malloc(c, sizeof(struct squeeze_ctx));
+	sqctx->c = c;
 	sqctx->modname = "unsqueeze";
-	sqctx->nodetable = dbuf_create_membuf(dfctx->c, SQUEEZE_MAX_NODES*4, 0x1);
-	sqctx->ht = fmtutil_huffman_create_tree(dfctx->c, 257, 257);
+	sqctx->dcmpri = dcmpri;
+	sqctx->dcmpro = dcmpro;
+	sqctx->dres = dres;
+
+	sqctx->bitrd.f = dcmpri->f;
+	sqctx->bitrd.curpos = dcmpri->pos;
+	sqctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
+
+	sqctx->ht = fmtutil_huffman_create_tree(c, 257, 257);
+
+	if(!squeeze_read_nodetable(c, sqctx)) goto done;
+	if(!squeeze_read_codes(c, sqctx)) goto done;
+
+	dres->bytes_consumed = sqctx->bitrd.curpos - dcmpri->pos;
+	if(dres->bytes_consumed > dcmpri->len) {
+		dres->bytes_consumed = dcmpri->len;
+	}
+	dres->bytes_consumed_valid = 1;
+	ok = 1;
+
+done:
+	if(!ok || dres->errcode) {
+		de_dfilter_set_errorf(c, dres, sqctx->modname, "Squeeze decompression failed");
+	}
+
+	if(sqctx) {
+		fmtutil_huffman_destroy_tree(c, sqctx->ht);
+		de_free(c, sqctx);
+	}
 }

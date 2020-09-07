@@ -14,10 +14,11 @@
 #define MINIZ_NO_ARCHIVE_APIS
 #include "../foreign/miniz.h"
 
-static void de_inflate_internal(deark *c, struct de_dfilter_in_params *dcmpri,
+void fmtutil_inflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	unsigned int flags, const u8 *starting_dict)
+	void *codec_private_params)
 {
+	struct de_inflate_params *inflparams = (struct de_inflate_params*)codec_private_params;
 	mz_stream strm;
 	int ret;
 	int ok = 0;
@@ -47,7 +48,7 @@ static void de_inflate_internal(deark *c, struct de_dfilter_in_params *dcmpri,
 	outbuf = de_malloc(c, DE_DFL_OUTBUF_SIZE);
 
 	de_zeromem(&strm, sizeof(strm));
-	if(flags&DE_DEFLATEFLAG_ISZLIB) {
+	if(inflparams->flags&DE_DEFLATEFLAG_ISZLIB) {
 		ret = mz_inflateInit(&strm);
 	}
 	else {
@@ -58,10 +59,10 @@ static void de_inflate_internal(deark *c, struct de_dfilter_in_params *dcmpri,
 		goto done;
 	}
 
-	if(starting_dict) {
+	if(inflparams->starting_dict) {
 		inflate_state *pDecomp = (inflate_state *)strm.state;
 
-		de_memcpy(pDecomp->m_dict, starting_dict, 32768);
+		de_memcpy(pDecomp->m_dict, inflparams->starting_dict, 32768);
 	}
 
 	stream_open_flag = 1;
@@ -168,6 +169,7 @@ int fmtutil_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *o
 	struct de_dfilter_results dres;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
+	struct de_inflate_params inflparams;
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	if(bytes_consumed) *bytes_consumed = 0;
@@ -183,7 +185,9 @@ int fmtutil_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *o
 		flags -= DE_DEFLATEFLAG_USEMAXUNCMPRSIZE;
 	}
 
-	de_inflate_internal(c, &dcmpri, &dcmpro, &dres, flags, NULL);
+	de_zeromem(&inflparams, sizeof(struct de_inflate_params));
+	inflparams.flags = flags;
+	fmtutil_inflate_codectype1(c, &dcmpri, &dcmpro, &dres, (void*)&inflparams);
 
 	if(bytes_consumed && dres.bytes_consumed_valid) {
 		*bytes_consumed = dres.bytes_consumed;
@@ -198,12 +202,15 @@ int fmtutil_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *o
 
 // flags:
 //   DE_DEFLATEFLAG_ISZLIB
-// starting_dict: Usually NULL. This is a hack needed by MSZIP format.
 void fmtutil_decompress_deflate_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	unsigned int flags, const u8 *starting_dict)
+	unsigned int flags)
 {
-	de_inflate_internal(c, dcmpri, dcmpro, dres, flags, starting_dict);
+	struct de_inflate_params inflparams;
+
+	de_zeromem(&inflparams, sizeof(struct de_inflate_params));
+	inflparams.flags = flags;
+	fmtutil_inflate_codectype1(c, dcmpri, dcmpro, dres, (void*)&inflparams);
 }
 
 struct fmtutil_tdefl_ctx {

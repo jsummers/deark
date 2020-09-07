@@ -60,6 +60,8 @@ struct localctx_struct {
 	int recurse_subdirs;
 	u8 prescan_found_eoa;
 	u8 has_trailer_data;
+	u8 has_pak_trailer;
+	u8 has_arc_extensions;
 	i64 prescan_pos_after_eoa;
 	i64 num_top_level_members; // Not including EOA marker
 	struct de_crcobj *crco;
@@ -178,8 +180,15 @@ static void decompressor_squeezed(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-		de_dfilter_decompress_two_layer(c, dfilter_huff_squeeze_codec, NULL,
-		dfilter_rle90_codec, NULL, dcmpri, dcmpro, dres);
+	struct de_dcmpr_two_layer_params tlp;
+
+	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
+	tlp.codec1_type1 = fmtutil_huff_squeeze_codectype1;
+	tlp.codec2 = dfilter_rle90_codec;
+	tlp.dcmpri = dcmpri;
+	tlp.dcmpro = dcmpro;
+	tlp.dres = dres;
+	de_dfilter_decompress_two_layer(c, &tlp);
 }
 
 static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
@@ -195,7 +204,7 @@ static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
 	delzwp.flags |= DE_LZWFLAG_HAS1BYTEHEADER;
 
-	de_dfilter_decompress_two_layer(c, dfilter_lzw_codec, (void*)&delzwp,
+	de_dfilter_decompress_two_layer_type2(c, dfilter_lzw_codec, (void*)&delzwp,
 		dfilter_rle90_codec, NULL, dcmpri, dcmpro, dres);
 }
 
@@ -203,6 +212,7 @@ static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
 //  0x01 = valid in ARC
 //  0x02 = valid in Spark
 //  0x80 = assume high bit of cmpr_meth is set for Spark format
+//  0x100, 0x200 = special
 static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 0x00, 0x03, "end of archive marker", NULL },
 	{ 0x01, 0x83, "stored (old format)", decompressor_stored },
@@ -214,6 +224,8 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 0x07, 0x83, "crunched7 (ARC 4.6)", NULL },
 	{ 0x08, 0x83, "crunched8 (RLE + dynamic LZW)", decompressor_crunched8 },
 	{ 0x09, 0x83, "squashed (dynamic LZW)", decompressor_squashed },
+	{ 10,  0x101, "trimmed", NULL },
+	{ 10,  0x201, "crushed", NULL },
 	{ 10,   0x01, "trimmed or crushed", NULL },
 	{ 0x0b, 0x01, "distilled", NULL },
 	{ 20,   0x01, "archive info", NULL },
@@ -240,6 +252,17 @@ static const struct cmpr_meth_info *get_cmpr_meth_info(lctx *d, u8 cmpr_meth)
 			meth_adjusted |= 0x80;
 		}
 		if(meth_adjusted != cmpr_meth) continue;
+
+		if(p->cmpr_meth==10) {
+			// Method 10 has a conflict -- it could be either Trimmed (ARC7)
+			// or Crushed (PAK).
+			if(p->flags&0x100) { // Skip this unless we're sure it's Trimmed
+				if(d->has_pak_trailer || !d->has_arc_extensions) continue;
+			}
+			else if(p->flags&0x200) { // Skip this unless we're sure it's Crushed
+				if(!d->has_pak_trailer || d->has_arc_extensions) continue;
+			}
+		}
 		return p;
 	}
 	return NULL;
@@ -428,6 +451,7 @@ static void do_pak_trailer(deark *c, lctx *d)
 	pos = d->prescan_pos_after_eoa;
 	de_dbg(c, "PAK extended records at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
+	d->has_pak_trailer = 1;
 	init_trailer_data(c, d);
 
 	while(1) {
@@ -572,6 +596,14 @@ static void do_extract_member_dir(deark *c, lctx *d, struct member_data *md,
 	ucstring_destroy(fullfn);
 }
 
+struct extinfo_item_info {
+	u8 cmprmeth;
+	u8 rectype;
+	unsigned int flags; // 0x1 = string
+	const char *name;
+	void *reserved;
+};
+
 static void do_info_record_string(deark *c, lctx *d, i64 pos, i64 len, const char *name)
 {
 	de_ucstring *s = NULL;
@@ -581,6 +613,26 @@ static void do_info_record_string(deark *c, lctx *d, i64 pos, i64 len, const cha
 		d->input_encoding_for_comments);
 	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz_d(s));
 	ucstring_destroy(s);
+}
+
+static const struct extinfo_item_info extinfo_arr[] = {
+	{ 20, 0, 0x01, "archive comment", NULL },
+	{ 20, 1, 0x01, "created by", NULL },
+	{ 21, 0, 0x01, "file comment", NULL },
+	{ 21, 4, 0x01, "attributes", NULL },
+	{ 21, 5, 0x01, "full path", NULL }
+};
+
+static const struct extinfo_item_info *find_extinfo_item(u8 cmprmeth, u8 rectype)
+{
+	size_t k;
+
+	for(k=0; k<DE_ARRAYCOUNT(extinfo_arr); k++) {
+		if(extinfo_arr[k].cmprmeth==cmprmeth && extinfo_arr[k].rectype==rectype) {
+			return &extinfo_arr[k];
+		}
+	}
+	return NULL;
 }
 
 static void do_info_item(deark *c, lctx *d, struct member_data *md)
@@ -600,25 +652,28 @@ static void do_info_item(deark *c, lctx *d, struct member_data *md)
 		i64 dpos;
 		i64 dlen;
 		u8 rectype;
+		const struct extinfo_item_info *ei;
+		const char *ei_name;
 
 		recpos = pos;
 		if(pos+3 > endpos) goto done;
 		reclen = de_getu16le_p(&pos);
-		rectype = de_getbyte_p(&pos);
 		if(reclen<3 || recpos+reclen > endpos) goto done;
+		rectype = de_getbyte_p(&pos);
+		ei = find_extinfo_item(md->cmpr_meth, rectype);
+		if(ei && ei->name) ei_name = ei->name;
+		else ei_name = "?";
+
 		dpos = recpos + 3;
 		dlen = reclen - 3;
-		de_dbg(c, "record type %d at %"I64_FMT", len=%"I64_FMT, (int)rectype, recpos, reclen);
+		de_dbg(c, "record type %d (%s) at %"I64_FMT", dpos=%"I64_FMT", dlen=%"I64_FMT,
+			(int)rectype, ei_name, recpos, dpos, dlen);
 		de_dbg_indent(c, 1);
-		if(md->cmpr_meth==20) {
-			if(rectype==0) {
-				do_info_record_string(c, d, dpos, dlen, "archive comment");
-			}
+		if(ei && (ei->flags & 0x01)) {
+			do_info_record_string(c, d, dpos, dlen, ei_name);
 		}
-		else if(md->cmpr_meth==21) {
-			if(rectype==0) {
-				do_info_record_string(c, d, dpos, dlen, "file comment");
-			}
+		else {
+			de_dbg_hexdump(c, c->infile, dpos, dlen, 256, NULL, 0x1);
 		}
 		de_dbg_indent(c, -1);
 		pos = recpos + reclen;
@@ -832,6 +887,10 @@ static void member_cb_for_prescan(deark *c, lctx *d, struct member_parser_data *
 		d->prescan_pos_after_eoa = mpd->member_pos + mpd->member_len;
 		de_dbg2(c, "end of member sequence at %"I64_FMT, d->prescan_pos_after_eoa);
 		return;
+	}
+	if(mpd->cmpr_meth==20 || mpd->cmpr_meth==21 || mpd->cmpr_meth==30) {
+		// Features we're pretty sure aren't used by PAK.
+		d->has_arc_extensions = 1;
 	}
 	d->num_top_level_members++;
 	de_dbg2(c, "member at %"I64_FMT, mpd->member_pos);

@@ -4,8 +4,8 @@ $(OBJDIR)/modules/afcp.o: modules/afcp.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/alphabmp.o: modules/alphabmp.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
-$(OBJDIR)/modules/amiga-dsk.o: modules/amiga-dsk.c src/deark-config.h \
- src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/amiga-dsk.o: modules/amiga-dsk.c src/deark-private.h \
+ src/deark.h src/deark-config.h
 $(OBJDIR)/modules/amigaicon.o: modules/amigaicon.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/ansiart.o: modules/ansiart.c src/deark-config.h \
@@ -23,7 +23,7 @@ $(OBJDIR)/modules/arc.o: modules/arc.c src/deark-config.h \
 $(OBJDIR)/modules/arcfs.o: modules/arcfs.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/arj.o: modules/arj.c src/deark-config.h \
- src/deark-private.h src/deark.h
+ src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/asf.o: modules/asf.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/atari-dsk.o: modules/atari-dsk.c src/deark-config.h \
@@ -64,6 +64,8 @@ $(OBJDIR)/modules/crush.o: modules/crush.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/d64.o: modules/d64.c src/deark-config.h \
  src/deark-private.h src/deark.h
+$(OBJDIR)/modules/dms.o: modules/dms.c src/deark-private.h src/deark.h \
+ src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/drhalo.o: modules/drhalo.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/dsstore.o: modules/dsstore.c src/deark-config.h \
@@ -303,6 +305,8 @@ $(OBJDIR)/src/fmtutil-cmpr.o: src/fmtutil-cmpr.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/src/fmtutil-huffman.o: src/fmtutil-huffman.c \
  src/deark-private.h src/deark.h src/deark-config.h src/deark-fmtutil.h
+$(OBJDIR)/src/fmtutil-lzh.o: src/fmtutil-lzh.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/src/fmtutil-lzw.o: src/fmtutil-lzw.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h \
  src/../foreign/delzw.h
@@ -312,8 +316,6 @@ $(OBJDIR)/src/fmtutil-miniz.o: src/fmtutil-miniz.c src/deark-config.h \
 $(OBJDIR)/src/fmtutil-zip.o: src/fmtutil-zip.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h \
  src/../foreign/ozunreduce.h src/../foreign/unimplode6a.h
-$(OBJDIR)/src/fmtutil-zoo.o: src/fmtutil-zoo.c src/deark-config.h \
- src/deark-private.h src/deark.h src/deark-fmtutil.h \
- src/../foreign/unzoo-lzh.h
+$(OBJDIR)/src/fmtutil-zoo.o: src/fmtutil-zoo.c src/deark-config.h
 $(OBJDIR)/src/fmtutil.o: src/fmtutil.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h

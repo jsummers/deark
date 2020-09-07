@@ -2250,3 +2250,86 @@ int dbuf_is_all_zeroes(dbuf *f, i64 pos, i64 len)
 {
 	return dbuf_buffered_read(f, pos, len, is_all_zeroes_cbfn, NULL);
 }
+
+void de_bitbuf_lowelevel_add_byte(struct de_bitbuf_lowlevel *bbll, u8 n)
+{
+	if(bbll->nbits_in_bitbuf>56) return;
+	if(bbll->is_lsb==0) {
+		bbll->bit_buf = (bbll->bit_buf<<8) | n;
+	}
+	else {
+		bbll->bit_buf |= (u64)n << bbll->nbits_in_bitbuf;
+	}
+	bbll->nbits_in_bitbuf += 8;
+}
+
+u64 de_bitbuf_lowelevel_get_bits(struct de_bitbuf_lowlevel *bbll, UI nbits)
+{
+	u64 n;
+	u64 mask;
+
+	if(nbits > bbll->nbits_in_bitbuf) return 0;
+	mask = ((u64)1 << nbits)-1;
+	if(bbll->is_lsb==0) {
+		bbll->nbits_in_bitbuf -= nbits;
+		n = (bbll->bit_buf >> bbll->nbits_in_bitbuf) & mask;
+	}
+	else {
+		n = bbll->bit_buf & mask;
+		bbll->bit_buf >>= nbits;
+		bbll->nbits_in_bitbuf -= nbits;
+	}
+	return n;
+}
+
+void de_bitbuf_lowelevel_empty(struct de_bitbuf_lowlevel *bbll)
+{
+	bbll->bit_buf = 0;
+	bbll->nbits_in_bitbuf = 0;
+}
+
+u64 de_bitreader_getbits(struct de_bitreader *bitrd, UI nbits)
+{
+	if(bitrd->eof_flag) return 0;
+	if(nbits==0) {
+		// TODO: Decide if we always want to do this. Could risk infinite loops
+		// with this successful no-op.
+		return 0;
+	}
+	if(nbits > 57) {
+		bitrd->eof_flag = 1;
+		return 0;
+	}
+
+	while(bitrd->bbll.nbits_in_bitbuf < nbits) {
+		u8 b;
+
+		if(bitrd->curpos >= bitrd->endpos) {
+			bitrd->eof_flag = 1;
+			return 0;
+		}
+		b = dbuf_getbyte_p(bitrd->f, &bitrd->curpos);
+		de_bitbuf_lowelevel_add_byte(&bitrd->bbll, b);
+	}
+
+	return de_bitbuf_lowelevel_get_bits(&bitrd->bbll, nbits);
+}
+
+char *de_bitreader_describe_curpos(struct de_bitreader *bitrd, char *buf, size_t buf_len)
+{
+	i64 curpos;
+	UI nwholebytes;
+	UI nbits;
+
+	nwholebytes = (i64)(bitrd->bbll.nbits_in_bitbuf / 8);
+	nbits = bitrd->bbll.nbits_in_bitbuf % 8;
+	curpos = bitrd->curpos - (i64)nwholebytes;
+
+	if(nbits==0) {
+		de_snprintf(buf, buf_len, "%"I64_FMT, curpos);
+	}
+	else {
+		de_snprintf(buf, buf_len, "%"I64_FMT"+%ubits", curpos-1, (UI)(8-nbits));
+	}
+	return buf;
+}
