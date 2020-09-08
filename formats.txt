@@ -927,6 +927,13 @@ Deark -- Information about supported formats
   Metaformat used by WAV, AVI, WebP, etc.
   - RIFF can be parsed, but in many cases nothing can be extracted from it.
 
+* Split (module="split")
+  Split the file into equal-sized chunks.
+  Options
+   -opt split:size=<n> - The size of each chunk, in bytes.
+   -opt split:stride=<n> - The distance between the start of one chunk and the
+    start of the next chunk, in bytes.
+
 * WRI - Microsoft Write (module="wri") (incomplete)
   - Extract raw text to an HTML file. Very little formatting, etc.
   - Extract most pictures.

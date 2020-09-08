@@ -10,6 +10,7 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_copy);
 DE_DECLARE_MODULE(de_module_null);
+DE_DECLARE_MODULE(de_module_split);
 DE_DECLARE_MODULE(de_module_plaintext);
 DE_DECLARE_MODULE(de_module_cp437);
 DE_DECLARE_MODULE(de_module_crc);
@@ -84,6 +85,89 @@ void de_module_null(deark *c, struct deark_module_info *mi)
 	mi->desc = "Do nothing";
 	mi->run_fn = de_run_null;
 	mi->flags |= DE_MODFLAG_NOEXTRACT;
+}
+
+// **************************************************************************
+// split
+// Split the input file into equal-sized chunks.
+// **************************************************************************
+
+static void do_split_onechunk(deark *c, i64 chunknum, i64 offset, i64 size)
+{
+	dbuf *outf = NULL;
+	char ext[32];
+
+	de_snprintf(ext, sizeof(ext), "part%"I64_FMT, chunknum);
+	outf = dbuf_create_output_file(c, ext, NULL, 0);
+	dbuf_copy(c->infile, offset, size, outf);
+	dbuf_close(outf);
+}
+
+static void de_run_split(deark *c, de_module_params *mparams)
+{
+	const char *s;
+	i64 pos;
+	i64 chunknum;
+	i64 chunksize, chunkstride;
+	i64 chunkcount;
+
+	s = de_get_ext_option(c, "split:size");
+	if(!s) {
+		de_err(c, "\"-opt split:size=<n>\" is required.");
+		goto done;
+	}
+	chunksize = de_atoi64(s);
+	if(chunksize<1) {
+		de_err(c, "Invalid chunk size");
+		goto done;
+	}
+
+	s = de_get_ext_option(c, "split:stride");
+	if(s) {
+		chunkstride = de_atoi64(s);
+		if(chunkstride<chunksize) {
+			de_err(c, "Stride must be "DE_CHAR_GEQ" size");
+			goto done;
+		}
+	}
+	else {
+		chunkstride = chunksize;
+	}
+
+	chunkcount = (c->infile->len + (chunkstride-1)) / chunkstride;
+
+	if((chunkcount>256) && (c->max_output_files<0)) {
+		de_err(c, "Large number of chunks; use \"-maxfiles %"I64_FMT"\" if you "
+			"really want to do this.", chunkcount);
+		goto done;
+	}
+
+	pos = 0;
+	for(chunknum = 0; chunknum<chunkcount; chunknum++) {
+		i64 this_chunk_size;
+
+		this_chunk_size = de_min_int(chunksize, c->infile->len-pos);
+		do_split_onechunk(c, chunknum, pos, this_chunk_size);
+
+		pos += chunkstride;
+	}
+
+done:
+	;
+}
+
+static void de_help_split(deark *c)
+{
+	de_msg(c, "-opt split:size=<n> : The size of each chunk, in bytes");
+	de_msg(c, "-opt split:stride=<n> : Source distance between chunks");
+}
+
+void de_module_split(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "split";
+	mi->desc = "Split the file into equal-sized chunks";
+	mi->run_fn = de_run_split;
+	mi->help_fn = de_help_split;
 }
 
 // **************************************************************************
