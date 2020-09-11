@@ -37,6 +37,7 @@ DE_DECLARE_MODULE(de_module_arx);
 #define CODE_lhd 0x2d6c6864U
 #define CODE_lhe 0x2d6c6865U
 #define CODE_lhx 0x2d6c6878U
+#define CODE_lx1 0x2d6c7831U
 #define CODE_lz2 0x2d6c7a32U
 #define CODE_lz3 0x2d6c7a33U
 #define CODE_lz4 0x2d6c7a34U
@@ -744,11 +745,11 @@ struct cmpr_meth_array_item {
 static const struct cmpr_meth_array_item cmpr_meth_arr[] = {
 	{ 0x00, CODE_lhd, "directory", NULL },
 	{ 0x00, CODE_lh0, "uncompressed", decompress_uncompressed },
-	{ 0x00, CODE_lh1, "LZ77, 4K, codes = dynamic Huffman", NULL },
-	{ 0x00, CODE_lh5, "LZ77, 8K, static Huffman", decompress_lh5 },
-	{ 0x00, CODE_lh6, "LZ77, 32K, static Huffman", decompress_lh6 },
+	{ 0x00, CODE_lh1, "LZ77-4K, adaptive Huffman", NULL },
+	{ 0x00, CODE_lh5, "LZ77-8K, static Huffman", decompress_lh5 },
+	{ 0x00, CODE_lh6, "LZ77-32K, static Huffman", decompress_lh6 },
 	{ 0x00, CODE_lz4, "uncompressed (LArc)", decompress_uncompressed },
-	{ 0x00, CODE_lz5, "LZSS, 4K (LArc)", decompress_lz5 },
+	{ 0x00, CODE_lz5, "LZSS-4K (LArc)", decompress_lz5 },
 	{ 0x00, CODE_pm0, "uncompressed (PMArc)", decompress_uncompressed },
 	{ 0x00, CODE_lZ0, "uncompressed (MicroFox PUT)", decompress_uncompressed },
 	{ 0x00, CODE_lZ1, "MicroFox PUT lZ1", NULL },
@@ -760,7 +761,7 @@ static const struct cmpr_meth_array_item cmpr_meth_arr[] = {
 static const u32 other_known_cmpr_methods[] = {
 	CODE_ah0, CODE_ari, CODE_hf0,
 	CODE_lh2, CODE_lh3, CODE_lh4, CODE_lh7, CODE_lh8, CODE_lh9,
-	CODE_lha, CODE_lhb, CODE_lhc, CODE_lhe, CODE_lhx,
+	CODE_lha, CODE_lhb, CODE_lhc, CODE_lhe, CODE_lhx, CODE_lx1,
 	CODE_lz2, CODE_lz3, CODE_lz7, CODE_lz8, CODE_lzs,
 	CODE_pc1, CODE_pm1, CODE_pm2 };
 
