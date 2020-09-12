@@ -1024,7 +1024,7 @@ void de_module_hr(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
-// RIPterm icon (.ICN)
+// BGI Image/RIPterm icon (.ICN, .MSK, .HOT, .BGI etc.)
 // **************************************************************************
 
 static void de_run_ripicon(deark *c, de_module_params *mparams)
@@ -1037,27 +1037,36 @@ static void de_run_ripicon(deark *c, de_module_params *mparams)
 	u8 x;
 	u32 palent;
 
-	width = 1 + de_getu16le(0);
-	height = 1 + de_getu16le(2);
-	de_dbg_dimensions(c, width, height);
-	if(!de_good_image_dimensions(c, width, height)) goto done;
+	i64 len = c->infile->len;
+	i64 pos = 0;
 
-	img = de_bitmap_create(c, width, height, 3);
-	chunk_span = (width+7)/8;
-	src_rowspan = 4*chunk_span;
+	while(pos<len) {	
+		width = 1 + de_getu16le(pos);
+		pos += 2;
+		height = 1 + de_getu16le(pos);
+		pos += 2;
 
-	for(j=0; j<height; j++) {
-		for(i=0; i<width; i++) {
-			palent = 0;
-			for(k=0; k<4; k++) {
-				x = de_get_bits_symbol(c->infile, 1, 4 + j*src_rowspan + k*chunk_span, i);
-				palent = (palent<<1)|x;
+		de_dbg_dimensions(c, width, height);
+		if(!de_good_image_dimensions(c, width, height)) goto done;
+
+		img = de_bitmap_create(c, width, height, 3);
+		chunk_span = (width+7)/8;
+		src_rowspan = 4*chunk_span;
+
+		for(j=0; j<height; j++) {
+			for(i=0; i<width; i++) {
+				palent = 0;
+				for(k=0; k<4; k++) {
+					x = de_get_bits_symbol(c->infile, 1, pos + j*src_rowspan + k*chunk_span, i);
+					palent = (palent<<1)|x;
+				}
+				de_bitmap_setpixel_rgb(img, i, j, de_palette_pc16(palent));
 			}
-			de_bitmap_setpixel_rgb(img, i, j, de_palette_pc16(palent));
 		}
-	}
+		pos += height*(4*((width+7)/8)) + 2;
 
-	de_bitmap_write_to_file(img, NULL, 0);
+		de_bitmap_write_to_file(img, NULL, 0);
+	}
 done:
 	de_bitmap_destroy(img);
 }
@@ -1065,24 +1074,35 @@ done:
 static int de_identify_ripicon(deark *c)
 {
 	u8 buf[4];
-	i64 expected_size;
 	i64 width, height;
+ 
+	if(!(de_input_file_has_ext(c, "icn")
+		||de_input_file_has_ext(c, "hot")
+		||de_input_file_has_ext(c, "msk")
+		||de_input_file_has_ext(c, "bgi")))
+			return 0;
 
-	if(!de_input_file_has_ext(c, "icn")) return 0;
 	de_read(buf, 0, sizeof(buf));
-	width = 1 + de_getu16le(0);
-	height = 1 + de_getu16le(2);
-	expected_size = 4 + height*(4*((width+7)/8)) + 1;
-	if(c->infile->len >= expected_size && c->infile->len <= expected_size+1) {
-		return 50;
+
+	i64 len = c->infile->len;
+	i64 pos = 0;
+
+	while(pos<len) {
+		width = 1 + de_getu16le(pos);
+		pos += 2;
+		height = 1 + de_getu16le(pos);
+		pos += 2;
+		i64 img_size = height*(4*((width+7)/8)) + 2;
+		pos += img_size;
 	}
-	return 0;
+
+	return (pos == len) ? 50 : 0;
 }
 
 void de_module_ripicon(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ripicon";
-	mi->desc = "RIP/RIPscrip/RIPterm Icon";
+	mi->desc = "Borland BGI or RIP/RIPscrip/RIPterm Icon";
 	mi->run_fn = de_run_ripicon;
 	mi->identify_fn = de_identify_ripicon;
 }
