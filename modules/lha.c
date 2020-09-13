@@ -89,6 +89,8 @@ struct member_data {
 typedef struct localctx_struct {
 	de_encoding input_encoding;
 	u8 unsupp_warned;
+	u8 lh7_success_flag;
+	u8 lh7_failed_flag;
 	int member_count;
 	struct de_crcobj *crco;
 } lctx;
@@ -101,6 +103,7 @@ struct cmpr_meth_info {
 	u8 is_recognized;
 	u32 uniq_id;
 	decompressor_fn decompressor;
+	u8 id_raw[5];
 	char id_printable_sz[6];
 	char descr[80];
 };
@@ -701,6 +704,20 @@ static void decompress_uncompressed(deark *c, lctx *d, struct member_data *md,
 	fmtutil_decompress_uncompressed(c, dcmpri, dcmpro, dres, 0);
 }
 
+// Compression method will be selected based on id_raw[3], which
+// should be '4'...'8'.
+static void decompress_lh5x(deark *c, lctx *d, struct member_data *md,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	struct de_lzh_params lzhparams;
+
+	de_zeromem(&lzhparams, sizeof(struct de_lzh_params));
+	lzhparams.fmt = DE_LZH_FMT_LH5LIKE;
+	lzhparams.subfmt = md->cmi->id_raw[3];
+	fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres, &lzhparams);
+}
+
 static void decompress_lh5(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
@@ -710,18 +727,6 @@ static void decompress_lh5(deark *c, lctx *d, struct member_data *md,
 	de_zeromem(&lzhparams, sizeof(struct de_lzh_params));
 	lzhparams.fmt = DE_LZH_FMT_LH5LIKE;
 	lzhparams.subfmt = '5';
-	fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres, &lzhparams);
-}
-
-static void decompress_lh6(deark *c, lctx *d, struct member_data *md,
-	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
-	struct de_dfilter_results *dres)
-{
-	struct de_lzh_params lzhparams;
-
-	de_zeromem(&lzhparams, sizeof(struct de_lzh_params));
-	lzhparams.fmt = DE_LZH_FMT_LH5LIKE;
-	lzhparams.subfmt = '6';
 	fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres, &lzhparams);
 }
 
@@ -746,8 +751,11 @@ static const struct cmpr_meth_array_item cmpr_meth_arr[] = {
 	{ 0x00, CODE_lhd, "directory", NULL },
 	{ 0x00, CODE_lh0, "uncompressed", decompress_uncompressed },
 	{ 0x00, CODE_lh1, "LZ77-4K, adaptive Huffman", NULL },
+	{ 0x00, CODE_lh4, NULL, decompress_lh5x },
 	{ 0x00, CODE_lh5, "LZ77-8K, static Huffman", decompress_lh5 },
-	{ 0x00, CODE_lh6, "LZ77-32K, static Huffman", decompress_lh6 },
+	{ 0x00, CODE_lh6, "LZ77-32K, static Huffman", decompress_lh5x },
+	{ 0x00, CODE_lh7, NULL, decompress_lh5x },
+	{ 0x00, CODE_lh8, NULL, decompress_lh5x },
 	{ 0x00, CODE_lz4, "uncompressed (LArc)", decompress_uncompressed },
 	{ 0x00, CODE_lz5, "LZSS-4K (LArc)", decompress_lz5 },
 	{ 0x00, CODE_pm0, "uncompressed (PMArc)", decompress_uncompressed },
@@ -774,6 +782,8 @@ static void get_cmpr_meth_info(const u8 idbuf[5], struct cmpr_meth_info *cmi)
 
 	// The first 4 bytes are unique for all known methods.
 	cmi->uniq_id = (u32)de_getu32be_direct(idbuf);
+
+	de_memcpy(cmi->id_raw, idbuf, 5);
 
 	// All "possible" methods only use printable characters.
 	de_memcpy(cmi->id_printable_sz, idbuf, 5);
@@ -822,6 +832,8 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	dbuf *outf = NULL;
 	u32 crc_calc;
 	int tsidx;
+	u8 dcmpr_attempted = 0;
+	u8 dcmpr_ok = 0;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
@@ -880,6 +892,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 
 	if(md->is_dir) goto done; // For directories, we're done.
 
+	dcmpr_attempted = 1;
 	if(md->cmi->decompressor) {
 		md->cmi->decompressor(c, d, md, &dcmpri, &dcmpro, &dres);
 	}
@@ -896,7 +909,15 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		de_err(c, "%s: CRC check failed", ucstring_getpsz_d(md->fullfilename));
 	}
 
+	dcmpr_ok = 1;
+
 done:
+	if(dcmpr_attempted && md->cmi && md->cmi->uniq_id==CODE_lh7) {
+		if(dcmpr_ok)
+			d->lh7_success_flag = 1;
+		else
+			d->lh7_failed_flag = 1;
+	}
 	dbuf_close(outf);
 	de_finfo_destroy(c, fi);
 }
@@ -1275,6 +1296,11 @@ static void de_run_lha(deark *c, de_module_params *mparams)
 done:
 	destroy_member_data(c, md);
 	if(d) {
+		if(d->lh7_failed_flag && !d->lh7_success_flag) {
+			de_info(c, "Note: 'lh7' decompression failed. Maybe this file uses "
+				"LHARK compression, which is not supported.");
+		}
+
 		de_crcobj_destroy(d->crco);
 		de_free(c, d);
 	}

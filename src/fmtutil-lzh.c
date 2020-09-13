@@ -475,7 +475,12 @@ static void decompress_lha_lh5like(struct lzh_ctx *cctx, struct de_lzh_params *l
 		cctx->lh5x_offset_nbits = 5;
 		cctx->lh5x_offsets_tree_max_codes = 16;
 	}
-	else { // assume lh5
+	else if(lzhp->subfmt=='7' || lzhp->subfmt=='8') {
+		rb_size = 65536;
+		cctx->lh5x_offset_nbits = 5;
+		cctx->lh5x_offsets_tree_max_codes = 17;
+	}
+	else { // assume lh5 (or lh4, for which these params should also work)
 		rb_size = 8192;
 		cctx->lh5x_offset_nbits = 4;
 		cctx->lh5x_offsets_tree_max_codes = 14;
@@ -521,7 +526,7 @@ void fmtutil_decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 	cctx->bitrd.curpos = dcmpri->pos;
 	cctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
 
-	if(lzhp->fmt==DE_LZH_FMT_LH5LIKE && (lzhp->subfmt=='5' || lzhp->subfmt=='6'))
+	if(lzhp->fmt==DE_LZH_FMT_LH5LIKE && (lzhp->subfmt>='4' && lzhp->subfmt<='8'))
 	{
 		decompress_lha_lh5like(cctx, lzhp);
 	}
