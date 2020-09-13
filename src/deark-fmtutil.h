@@ -169,7 +169,10 @@ struct de_lzh_params {
 #define DE_LZH_FMT_LH5LIKE       1 // subfmt=='5' (etc.)
 	int fmt;
 	int subfmt;
-	u8 stop_on_zero_codes_block;
+	// How to handle a block with "0" codes:
+	//   0 = treat as 65536, with warning
+	//   1 = stop, no warning
+	u8 zero_codes_block_behavior;
 	u8 use_history_fill_val;
 	u8 history_fill_val;
 };

@@ -25,7 +25,8 @@ struct lzh_ctx {
 	// bitrd.eof_flag: Always set if err_flag is set.
 	struct de_bitreader bitrd;
 
-	u8 stop_on_zero_codes_block;
+	u8 zero_codes_block_behavior;
+	u8 zero_codes_block_warned;
 
 	struct de_lz77buffer *ringbuf;
 
@@ -317,6 +318,31 @@ done:
 	return retval;
 }
 
+static int lh5x_do_read_trees(struct lzh_ctx *cctx)
+{
+	int retval = 0;
+
+	if(cctx->codelengths_tree.ht) {
+		fmtutil_huffman_destroy_tree(cctx->c, cctx->codelengths_tree.ht);
+		cctx->codelengths_tree.ht = NULL;
+	}
+	if(cctx->codes_tree.ht) {
+		fmtutil_huffman_destroy_tree(cctx->c, cctx->codes_tree.ht);
+		cctx->codes_tree.ht = NULL;
+	}
+	if(cctx->offsets_tree.ht) {
+		fmtutil_huffman_destroy_tree(cctx->c, cctx->offsets_tree.ht);
+		cctx->offsets_tree.ht = NULL;
+	}
+
+	if(!lh5x_read_codelengths_tree(cctx, &cctx->codelengths_tree, "code-lengths")) goto done;
+	if(!lh5x_read_codes_tree(cctx, &cctx->codes_tree, "codes")) goto done;
+	if(!lh5x_read_offsets_tree(cctx, &cctx->offsets_tree, "offsets")) goto done;
+	retval = 1;
+done:
+	return retval;
+}
+
 static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 {
 	deark *c = cctx->c;
@@ -338,34 +364,31 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 	de_dbg(cctx->c, "num codes in block: %u", (UI)ncodes_in_this_block);
 
 	if(ncodes_in_this_block==0) {
-		if(cctx->stop_on_zero_codes_block) {
+		if(cctx->zero_codes_block_behavior==0) {
+			// I suspect that LHA for DOS treats 0 as 65536, but I haven't
+			// fully confirmed it. Other LHA software does other things.
+			if(!cctx->zero_codes_block_warned) {
+				de_warn(c, "Block with \"0\" codes found. This file might not be portable.");
+				cctx->zero_codes_block_warned = 1;
+			}
+			ncodes_in_this_block = 65536;
+		}
+		else if(cctx->zero_codes_block_behavior==1) {
 			de_dbg2(c, "stopping, 'stop' code found");
+			cctx->bitrd.eof_flag = 1;
+			goto done;
 		}
 		else {
-			// blocksize==0 does not seem to have a well-defined meaning in LHA,
-			// in general.
 			de_dbg(c, "stopping, 0-code block found (error?)");
+			cctx->bitrd.eof_flag = 1;
+			goto done;
 		}
-		cctx->bitrd.eof_flag = 1;
+	}
+
+	if(!lh5x_do_read_trees(cctx)) {
+		de_dfilter_set_errorf(c, cctx->dres, cctx->modname, "Bad Huffman tree definitions");
 		goto done;
 	}
-
-	if(cctx->codelengths_tree.ht) {
-		fmtutil_huffman_destroy_tree(c, cctx->codelengths_tree.ht);
-		cctx->codelengths_tree.ht = NULL;
-	}
-	if(cctx->codes_tree.ht) {
-		fmtutil_huffman_destroy_tree(c, cctx->codes_tree.ht);
-		cctx->codes_tree.ht = NULL;
-	}
-	if(cctx->offsets_tree.ht) {
-		fmtutil_huffman_destroy_tree(c, cctx->offsets_tree.ht);
-		cctx->offsets_tree.ht = NULL;
-	}
-
-	if(!lh5x_read_codelengths_tree(cctx, &cctx->codelengths_tree, "code-lengths")) goto done;
-	if(!lh5x_read_codes_tree(cctx, &cctx->codes_tree, "codes")) goto done;
-	if(!lh5x_read_offsets_tree(cctx, &cctx->offsets_tree, "offsets")) goto done;
 
 	de_bitreader_describe_curpos(&cctx->bitrd, pos_descr, sizeof(pos_descr));
 	de_dbg(c, "cmpr data codes at %s", pos_descr);
@@ -458,7 +481,7 @@ static void decompress_lha_lh5like(struct lzh_ctx *cctx, struct de_lzh_params *l
 		cctx->lh5x_offsets_tree_max_codes = 14;
 	}
 
-	cctx->stop_on_zero_codes_block = lzhp->stop_on_zero_codes_block;
+	cctx->zero_codes_block_behavior = lzhp->zero_codes_block_behavior;
 
 	cctx->ringbuf = de_lz77buffer_create(cctx->c, rb_size);
 	cctx->ringbuf->userdata = (void*)cctx;
