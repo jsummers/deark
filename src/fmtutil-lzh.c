@@ -72,7 +72,7 @@ static UI lh5x_read_a_code_length(struct lzh_ctx *cctx)
 
 static UI read_next_code_using_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *tree)
 {
-	i32 val = 0;
+	fmtutil_huffman_valtype val = 0;
 	UI bitcount = 0;
 	int ret;
 
@@ -125,7 +125,7 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx, struct lzh_tree_wrap
 	de_dbg_indent(c, 1);
 
 	ncodes = (UI)lzh_getbits(cctx, 5);
-	de_dbg2(c, "num codes: %u", ncodes);
+	de_dbg2(c, "num codes in %s tree: %u", name, ncodes);
 
 	if(ncodes>LH5X_CODELENGTHS_TREE_MAX_CODES) {
 		ncodes = LH5X_CODELENGTHS_TREE_MAX_CODES;
@@ -137,7 +137,7 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx, struct lzh_tree_wrap
 		UI null_val;
 
 		null_val = (UI)lzh_getbits(cctx, 5);
-		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (i32)null_val);
+		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
 		de_dbg2(c, "val0: %u", null_val);
 		retval = 1;
 		goto done;
@@ -149,7 +149,7 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx, struct lzh_tree_wrap
 
 		symlen = lh5x_read_a_code_length(cctx);
 		de_dbg2(c, "len[%u] = %u", curr_idx, symlen);
-		fmtutil_huffman_record_a_code_length(c, tree->ht, (i32)curr_idx, symlen);
+		fmtutil_huffman_record_a_code_length(c, tree->ht, (fmtutil_huffman_valtype)curr_idx, symlen);
 		curr_idx++;
 
 		if(curr_idx==3) {
@@ -208,7 +208,7 @@ static int lh5x_read_codes_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *t
 	de_dbg_indent(c, 1);
 
 	ncodes = (UI)lzh_getbits(cctx, 9);
-	de_dbg2(c, "num codes: %u", ncodes);
+	de_dbg2(c, "num codes in %s tree: %u", name, ncodes);
 
 	tree->ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
 
@@ -219,7 +219,7 @@ static int lh5x_read_codes_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *t
 		UI null_val;
 
 		null_val = (UI)lzh_getbits(cctx, 9);
-		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (i32)null_val);
+		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
 		de_dbg2(c, "val0: %u", null_val);
 		retval = 1;
 		goto done;
@@ -244,7 +244,7 @@ static int lh5x_read_codes_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *t
 
 			symlen = x-2;
 			de_dbg2(c, "len[%u]: code=%u => len=%u", curr_idx, x, symlen);
-			fmtutil_huffman_record_a_code_length(c, tree->ht, (i32)curr_idx, symlen);
+			fmtutil_huffman_record_a_code_length(c, tree->ht, (fmtutil_huffman_valtype)curr_idx, symlen);
 			curr_idx++;
 		}
 	}
@@ -277,7 +277,7 @@ static int lh5x_read_offsets_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper 
 	de_dbg_indent(c, 1);
 
 	ncodes = (UI)lzh_getbits(cctx, cctx->lh5x_offset_nbits);
-	de_dbg2(c, "num codes: %u", ncodes);
+	de_dbg2(c, "num codes in %s tree: %u", name, ncodes);
 
 	if(ncodes>cctx->lh5x_offsets_tree_max_codes) { // TODO: Is this an error?
 		ncodes = cctx->lh5x_offsets_tree_max_codes;
@@ -289,7 +289,7 @@ static int lh5x_read_offsets_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper 
 		UI null_val;
 
 		null_val = (UI)lzh_getbits(cctx, cctx->lh5x_offset_nbits);
-		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (i32)null_val);
+		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
 		de_dbg2(c, "val0: %u", null_val);
 		retval = 1;
 		goto done;
@@ -301,7 +301,7 @@ static int lh5x_read_offsets_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper 
 
 		symlen = lh5x_read_a_code_length(cctx);
 		de_dbg2(c, "len[%u] = %u", curr_idx, symlen);
-		fmtutil_huffman_record_a_code_length(c, tree->ht, (i32)curr_idx, symlen);
+		fmtutil_huffman_record_a_code_length(c, tree->ht, (fmtutil_huffman_valtype)curr_idx, symlen);
 		curr_idx++;
 	}
 	if(cctx->bitrd.eof_flag) goto done;
@@ -335,7 +335,7 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 	}
 	de_dbg(c, "block#%d at %s", blk_idx, pos_descr);
 	de_dbg_indent(c, 1);
-	de_dbg(cctx->c, "num codes: %u", (UI)ncodes_in_this_block);
+	de_dbg(cctx->c, "num codes in block: %u", (UI)ncodes_in_this_block);
 
 	if(ncodes_in_this_block==0) {
 		if(cctx->stop_on_zero_codes_block) {

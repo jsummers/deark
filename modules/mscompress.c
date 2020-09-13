@@ -314,7 +314,7 @@ done:
 static MSLZH_VALUE_TYPE mslzh_getnextcode(struct mslzh_context *lzhctx,
 	struct mslzh_tree *htr)
 {
-	i32 val = 0;
+	fmtutil_huffman_valtype val = 0;
 	int ret;
 
 	fmtutil_huffman_reset_cursor(htr->fmtuht); // Should be unnecessary
@@ -364,7 +364,8 @@ static void mslzh_read_huffman_tree(struct mslzh_context *lzhctx, UI idx)
 
 	for(i=0; i<htr->num_symbols; i++) {
 		de_dbg2(c, "length[%u] = %u", i, (UI)htr->symlengths[i]);
-		fmtutil_huffman_record_a_code_length(c, htr->fmtuht, (i32)i, (UI)htr->symlengths[i]);
+		fmtutil_huffman_record_a_code_length(c, htr->fmtuht, (fmtutil_huffman_valtype)i,
+			(UI)htr->symlengths[i]);
 	}
 
 	if(!fmtutil_huffman_make_canonical_tree(c, htr->fmtuht)) {

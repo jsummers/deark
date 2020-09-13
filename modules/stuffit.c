@@ -137,9 +137,9 @@ static void sit_huff_read_tree(struct sit_huffctx *hctx, u64 curr_code, UI curr_
 	}
 	else {
 		int ret;
-		i32 val;
+		fmtutil_huffman_valtype val;
 
-		val = (i32)de_bitreader_getbits(&hctx->bitrd, 8);
+		val = (fmtutil_huffman_valtype)de_bitreader_getbits(&hctx->bitrd, 8);
 		ret = fmtutil_huffman_add_code(hctx->c, hctx->ht, curr_code, curr_code_nbits, val);
 		if(!ret) {
 			hctx->errflag = 1;
@@ -186,7 +186,7 @@ static void do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
 	de_dbg(c, "cmpr data codes at %s", pos_descr);
 	while(1) {
 		int ret;
-		i32 val = 0;
+		fmtutil_huffman_valtype val = 0;
 
 		if(dcmpro->len_known) {
 			if(nbytes_written >= dcmpro->expected_len) break;

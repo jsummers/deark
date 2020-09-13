@@ -198,7 +198,7 @@ static void lha5like_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 
 static UI read_next_code_using_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *tree)
 {
-	i32 val = 0;
+	fmtutil_huffman_valtype val = 0;
 	int ret;
 
 	if(!tree->ht) {
@@ -244,7 +244,7 @@ static int dmsheavy_read_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *htw
 		UI null_val;
 
 		null_val = (UI)lzh_getbits(cctx, ncodes_nbits);
-		fmtutil_huffman_add_code(c, htw->ht, 0, 0, (i32)null_val);
+		fmtutil_huffman_add_code(c, htw->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
 		de_dbg2(c, "val0: %u", null_val);
 		retval = 1;
 		goto done;
@@ -256,7 +256,7 @@ static int dmsheavy_read_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *htw
 
 		symlen = (UI)lzh_getbits(cctx, symlen_nbits);
 		de_dbg2(c, "len[%u] = %u", curr_idx, symlen);
-		fmtutil_huffman_record_a_code_length(c, htw->ht, (i32)curr_idx, symlen);
+		fmtutil_huffman_record_a_code_length(c, htw->ht, (fmtutil_huffman_valtype)curr_idx, symlen);
 		curr_idx++;
 	}
 	if(cctx->bitrd.eof_flag) goto done;
