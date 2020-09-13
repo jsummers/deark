@@ -880,6 +880,8 @@ i64 de_pow2(i64 x);
 // Returns a minimum of 1, maximum of 32.
 i64 de_log2_rounded_up(i64 n);
 
+char *de_print_base2_fixed(char *buf, size_t buf_len, u64 n, UI bitcount);
+
 // Test if the image dimensions are valid and supported.
 int de_good_image_dimensions_noerr(deark *c, i64 w, i64 h);
 

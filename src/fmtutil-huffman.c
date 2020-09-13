@@ -352,6 +352,7 @@ int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *h
 	u64 prev_code = 0; // valid if prev_code_bit_length>0
 	int retval = 0;
 	int saved_indent_level;
+	char b2buf[72];
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg2(c, "constructing huffman tree:");
@@ -399,7 +400,8 @@ int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *h
 			prev_code = thiscode;
 
 			if(c->debug_level>=2) {
-				de_dbg2(c, "addcode 0x%"U64_FMTx" [%u bits] = %d", thiscode, symlen,
+				de_dbg2(c, "adding code \"%s\" = %d",
+					de_print_base2_fixed(b2buf, sizeof(b2buf), thiscode, symlen),
 					(int)ht->lengths_arr[k].val);
 			}
 			ret = fmtutil_huffman_add_code(c, ht, thiscode, symlen, ht->lengths_arr[k].val);
@@ -495,6 +497,8 @@ static void squeeze_interpret_node(struct squeeze_ctx *sqctx,
 static void squeeze_interpret_dval(struct squeeze_ctx *sqctx,
 	i16 dval, u64 currcode, UI currcode_nbits)
 {
+	char b2buf[72];
+
 	if(dval>=0) { // a pointer to a node
 		if((i64)dval < sqctx->nodecount) {
 			squeeze_interpret_node(sqctx, (i64)dval, currcode, currcode_nbits);
@@ -510,7 +514,9 @@ static void squeeze_interpret_dval(struct squeeze_ctx *sqctx,
 		//  -1   => 0   (byte value)
 		adj_value = -(((i32)dval)+1);
 		if(sqctx->c->debug_level>=2) {
-			de_dbg2(sqctx->c, "adding code 0x%x [%u bits]: %d", (UI)currcode, currcode_nbits, (int)adj_value);
+			de_dbg2(sqctx->c, "adding code \"%s\" = %d",
+				de_print_base2_fixed(b2buf, sizeof(b2buf), currcode, currcode_nbits),
+				(int)adj_value);
 		}
 		fmtutil_huffman_add_code(sqctx->c, sqctx->ht, currcode, currcode_nbits, adj_value);
 	}
