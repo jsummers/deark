@@ -349,6 +349,10 @@ Thanks to Mark Adler for the ZIP "implode" decompression code.
 
 Thanks to countless others who have documented the supported file formats.
 
+## Contributions ##
+
+Pull Requests are appreciated but will not be merged.
+
 ## Authors ##
 
 Written by Jason Summers, 2014-2020.<br>
