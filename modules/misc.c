@@ -49,6 +49,7 @@ DE_DECLARE_MODULE(de_module_deskmate_pnt);
 DE_DECLARE_MODULE(de_module_corel_bmf);
 DE_DECLARE_MODULE(de_module_hpi);
 DE_DECLARE_MODULE(de_module_dwc);
+DE_DECLARE_MODULE(de_module_mdesk_icn);
 
 // **************************************************************************
 // "copy" module
@@ -2620,4 +2621,65 @@ void de_module_dwc(deark *c, struct deark_module_info *mi)
 	mi->desc = "DWC compressed archive";
 	mi->run_fn = de_run_dwc;
 	mi->identify_fn = de_identify_dwc;
+}
+
+// **************************************************************************
+// Magic Desk icon (.ICN)
+// **************************************************************************
+
+// Transpose (flip over the line y=x) a square bitmap.
+static void do_bitmap_transpose(de_bitmap *img)
+{
+	i64 i, j;
+
+	if(img->height != img->width) return;
+
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<j; i++) {
+			de_color tmp1, tmp2;
+
+			tmp1 = de_bitmap_getpixel(img, i, j);
+			tmp2 = de_bitmap_getpixel(img, j, i);
+			if(tmp1==tmp2) continue;
+			de_bitmap_setpixel_rgba(img, j, i, tmp1);
+			de_bitmap_setpixel_rgba(img, i, j, tmp2);
+		}
+	}
+}
+
+static void de_run_mdesk_icn(deark *c, de_module_params *mparams)
+{
+	de_bitmap *img = NULL;
+	static const de_color pal[16] = {
+		0xff000000U, 0xffaa0000U, 0xff00aa00U, 0xffaaaa00U,
+		0xff0000aaU, 0xffaa00aaU, 0xff00aaaaU, 0xff7d7d7dU,
+		0xffbababaU, 0xffff5555U, 0xff55ff55U, 0xffffff55U,
+		0xff5555ffU, 0xffff55ffU, 0xff55ffffU, 0xffffffffU
+	};
+
+	img = de_bitmap_create(c, 32, 32, 3);
+	de_convert_image_paletted(c->infile, 3, 4, 16, pal, img, 0);
+	do_bitmap_transpose(img);
+	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_mdesk_icn(deark *c)
+{
+	if(c->infile->len!=515) return 0;
+	if(de_getu16be(0)!=0x1f1f) return 0;
+	if(de_input_file_has_ext(c, "icn") ||
+		de_input_file_has_ext(c, "tbi"))
+	{
+		return 90;
+	}
+	return 20;
+}
+
+void de_module_mdesk_icn(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "mdesk_icn";
+	mi->desc = "Magic Desk icon";
+	mi->run_fn = de_run_mdesk_icn;
+	mi->identify_fn = de_identify_mdesk_icn;
 }
