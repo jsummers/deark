@@ -442,8 +442,9 @@ Deark -- Information about supported formats
   - Extract embedded JPEG, TIFF, and other image files.
   - Decode some "raw" (uncompressed) images.
 
-* RIPscrip icon (.ICN) (module="ripicon") (experimental)
-  - Not autodetected. Must use "-m ripicon".
+* RIPscrip icon (.ICN) or BGI image (module="ripicon") (experimental)
+  - Not all files are autodetected. You may need "-m ripicon".
+  - Only 16-color images are supported.
 
 * RISC OS / Acorn Sprite (module="rosprite")
   - Autodetection may not always work. May need "-m rosprite".

@@ -1028,30 +1028,49 @@ void de_module_hr(deark *c, struct deark_module_info *mi)
 // RIPterm icon (.ICN)
 // **************************************************************************
 
-static void de_run_ripicon(deark *c, de_module_params *mparams)
+// Don't know what this should be, but a limit will help us decide what is
+// and isn't an image.
+#define MAX_RIPICON_DIMENSION 2048
+
+static int do_one_ripicon(deark *c, i64 pos1, i64 *pbytes_consumed, int scan_mode)
 {
-	de_bitmap *img = NULL;
 	i64 width, height;
+	de_bitmap *img = NULL;
 	i64 chunk_span;
 	i64 src_rowspan;
+	i64 bitmap_len;
 	i64 i, j, k;
+	i64 pos = pos1;
 	u8 x;
 	u32 palent;
+	int saved_indent_level;
 
-	width = 1 + de_getu16le(0);
-	height = 1 + de_getu16le(2);
-	de_dbg_dimensions(c, width, height);
-	if(!de_good_image_dimensions(c, width, height)) goto done;
-
-	img = de_bitmap_create(c, width, height, 3);
+	if(pos1+8 > c->infile->len) return 0;
+	width = 1 + de_getu16le_p(&pos);
+	height = 1 + de_getu16le_p(&pos);
+	if(width>MAX_RIPICON_DIMENSION || height>MAX_RIPICON_DIMENSION) return 0;
 	chunk_span = (width+7)/8;
 	src_rowspan = 4*chunk_span;
+	bitmap_len = src_rowspan * height;
+	if(pos+bitmap_len > c->infile->len) return 0;
+
+	*pbytes_consumed = 4 + bitmap_len + 2;
+	if(scan_mode) return 1;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "image at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	de_dbg_dimensions(c, width, height);
+
+	de_dbg(c, "bitmap at %"I64_FMT", len=%"I64_FMT, pos, bitmap_len);
+	if(!de_good_image_dimensions(c, width, height)) goto done;
+	img = de_bitmap_create(c, width, height, 3);
 
 	for(j=0; j<height; j++) {
 		for(i=0; i<width; i++) {
 			palent = 0;
 			for(k=0; k<4; k++) {
-				x = de_get_bits_symbol(c->infile, 1, 4 + j*src_rowspan + k*chunk_span, i);
+				x = de_get_bits_symbol(c->infile, 1, pos + j*src_rowspan + k*chunk_span, i);
 				palent = (palent<<1)|x;
 			}
 			de_bitmap_setpixel_rgb(img, i, j, de_palette_pc16(palent));
@@ -1059,23 +1078,46 @@ static void de_run_ripicon(deark *c, de_module_params *mparams)
 	}
 
 	de_bitmap_write_to_file(img, NULL, 0);
+
 done:
-	de_bitmap_destroy(img);
+	if(img) de_bitmap_destroy(img);
+	de_dbg_indent_restore(c, saved_indent_level);
+	return 1;
+}
+
+static void de_run_ripicon(deark *c, de_module_params *mparams)
+{
+	i64 pos = 0;
+
+	while(1) {
+		i64 bytes_consumed = 0;
+
+		if(!do_one_ripicon(c, pos, &bytes_consumed, 0)) break;
+		pos += bytes_consumed;
+	}
 }
 
 static int de_identify_ripicon(deark *c)
 {
-	u8 buf[4];
-	i64 expected_size;
-	i64 width, height;
+	int has_ext = 0;
+	i64 pos = 0;
+	size_t i;
+	static const char *exts[] = { "icn", "hot", "msk", "bgi" };
 
-	if(!de_input_file_has_ext(c, "icn")) return 0;
-	de_read(buf, 0, sizeof(buf));
-	width = 1 + de_getu16le(0);
-	height = 1 + de_getu16le(2);
-	expected_size = 4 + height*(4*((width+7)/8)) + 1;
-	if(c->infile->len >= expected_size && c->infile->len <= expected_size+1) {
-		return 50;
+	for(i=0; i<DE_ARRAYCOUNT(exts); i++) {
+		if(de_input_file_has_ext(c, exts[i])) {
+			has_ext = 1;
+			break;
+		}
+	}
+	if(!has_ext) return 0;
+
+	while(1) {
+		i64 bytes_consumed = 0;
+
+		if(!do_one_ripicon(c, pos, &bytes_consumed, 1)) break;
+		pos += bytes_consumed;
+		if(pos == c->infile->len) return 50;
 	}
 	return 0;
 }
@@ -1083,7 +1125,7 @@ static int de_identify_ripicon(deark *c)
 void de_module_ripicon(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ripicon";
-	mi->desc = "RIP/RIPscrip/RIPterm Icon";
+	mi->desc = "RIP/RIPscrip/RIPterm Icon / BGI image";
 	mi->run_fn = de_run_ripicon;
 	mi->identify_fn = de_identify_ripicon;
 }
