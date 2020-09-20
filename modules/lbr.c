@@ -9,6 +9,8 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_lbr);
 DE_DECLARE_MODULE(de_module_squeeze);
+DE_DECLARE_MODULE(de_module_crunch);
+DE_DECLARE_MODULE(de_module_crlzh);
 
 #define LBR_DIRENT_SIZE 32
 #define LBR_SECTOR_SIZE 128
@@ -340,6 +342,8 @@ static void read_squeeze_checksum(deark *c, struct squeeze_ctx *sqctx, i64 pos)
 	de_dbg(c, "checksum (reported): %u", (UI)sqctx->checksum_reported);
 }
 
+// Note: No evidence found that Squeeze filenames can have comments or timestamps
+// stuffed into them, like Crunch and CRLZH can.
 static int read_squeeze_filename(deark *c, struct squeeze_ctx *sqctx, i64 pos, i64 *pbytes_consumed)
 {
 	int retval = 0;
@@ -533,4 +537,217 @@ void de_module_squeeze(deark *c, struct deark_module_info *mi)
 	mi->desc = "Squeeze (CP/M)";
 	mi->run_fn = de_run_squeeze;
 	mi->identify_fn = de_identify_squeeze;
+}
+
+///////////////////////////////////////////////
+// Crunch - CP/M compressed file format
+
+// For Crunch/CRLZH filename fields
+struct crcr_filename_data {
+	de_ucstring *fn;
+	de_ucstring *comment;
+	i64 size;
+};
+
+static int crcr_read_filename_etc(deark *c, i64 pos1, struct crcr_filename_data *fnd)
+{
+	int retval = 0;
+	i64 pos = pos1;
+	enum crcrfnstate {
+		CRCRFNST_NEUTRAL, CRCRFNST_FILENAME, CRCRFNST_COMMENT, CRCRFNST_DATE
+	};
+	enum crcrfnstate state = CRCRFNST_FILENAME;
+
+	// Note: Only ASCII can really be supported, because the characters are 7-bit.
+	// Normally, we'd use ucstring_append_bytes_ex() for something like this, but
+	// it's pointless here.
+	fnd->fn = ucstring_create(c);
+
+	while(1) {
+		u8 b;
+
+		// Note: CFX limits this entire field to about 80 bytes.
+		if(pos-pos1 > 300) goto done;
+		if(pos >= c->infile->len) goto done;
+
+		b = de_getbyte_p(&pos) & 0x7f;
+		if(b==0) {
+			break;
+		}
+
+		if(b==0x01) {
+			state = CRCRFNST_DATE; // TODO: Figure this field out
+		}
+		else if(state==CRCRFNST_FILENAME && b=='[') {
+			state = CRCRFNST_COMMENT;
+		}
+		else if(state==CRCRFNST_FILENAME) {
+			ucstring_append_char(fnd->fn, (de_rune)b);
+		}
+		else if(state==CRCRFNST_COMMENT && b==']') {
+			state = CRCRFNST_NEUTRAL;
+		}
+		else if(state==CRCRFNST_COMMENT) {
+			if(!fnd->comment) {
+				fnd->comment = ucstring_create(c);
+			}
+			ucstring_append_char(fnd->comment, (de_rune)b);
+		}
+	}
+
+	ucstring_strip_trailing_spaces(fnd->fn);
+	fnd->size = pos - pos1;
+	retval = 1;
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(fnd->fn));
+	if(fnd->comment) {
+		de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(fnd->comment));
+	}
+
+done:
+	return retval;
+}
+
+static void crcr_filename_data_freecontents(deark *c, struct crcr_filename_data *fnd)
+{
+	ucstring_destroy(fnd->fn);
+	ucstring_destroy(fnd->comment);
+}
+
+struct crunch_ctx {
+	struct crcr_filename_data fnd;
+};
+
+static void de_run_crunch(deark *c, de_module_params *mparams)
+{
+	struct crunch_ctx *crunchctx = NULL;
+	i64 pos = 0;
+	u8 b;
+	u8 fmtver;
+	u8 no_cksum_flag;
+	const char *verstr;
+
+	crunchctx = de_malloc(c, sizeof(struct squeeze_ctx));
+
+	pos += 2;
+	if(!crcr_read_filename_etc(c, pos, &crunchctx->fnd)) goto done;
+	pos += crunchctx->fnd.size;
+
+	b = de_getbyte_p(&pos);
+	de_dbg(c, "encoder version: 0x%02x", (UI)b);
+
+	fmtver = de_getbyte_p(&pos);
+	if(fmtver>=0x10 && fmtver<=0x1f) {
+		verstr = "old";
+	}
+	else if(fmtver>=0x20 && fmtver<=0x2f) {
+		verstr = "new";
+	}
+	else {
+		verstr = "?";
+	}
+	de_dbg(c, "format version: 0x%02x (%s)", (UI)fmtver, verstr);
+
+	no_cksum_flag = de_getbyte_p(&pos);
+	de_dbg(c, "checksum flag: 0x%02x (%s checksum)", (UI)no_cksum_flag,
+		(no_cksum_flag?"no":"has"));
+
+	b = de_getbyte_p(&pos);
+	de_dbg(c, "unused info byte: 0x%02x", (UI)b);
+
+	de_dbg(c, "compressed data at %"I64_FMT, pos);
+
+done:
+	if(crunchctx) {
+		crcr_filename_data_freecontents(c, &crunchctx->fnd);
+		de_free(c, crunchctx);
+	}
+}
+
+static int de_identify_crunch(deark *c)
+{
+	i64 id;
+
+	id = de_getu16le(0);
+	if(id==0xfe76) return 70;
+	return 0;
+}
+
+void de_module_crunch(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "crunch";
+	mi->desc = "Crunch (CP/M)";
+	mi->run_fn = de_run_crunch;
+	mi->identify_fn = de_identify_crunch;
+	mi->flags |= DE_MODFLAG_NONWORKING;
+}
+
+///////////////////////////////////////////////
+// CRLZH - CP/M compressed file format
+
+struct crlzh_ctx {
+	struct crcr_filename_data fnd;
+};
+
+static void de_run_crlzh(deark *c, de_module_params *mparams)
+{
+	struct crlzh_ctx *crlzhctx = NULL;
+	i64 pos = 0;
+	u8 b;
+	u8 fmtver;
+	u8 cksum_type;
+	const char *verstr;
+
+	crlzhctx = de_malloc(c, sizeof(struct squeeze_ctx));
+
+	pos += 2;
+	if(!crcr_read_filename_etc(c, pos, &crlzhctx->fnd)) goto done;
+	pos += crlzhctx->fnd.size;
+	b = de_getbyte_p(&pos);
+	de_dbg(c, "encoder version: 0x%02x", (UI)b);
+
+	fmtver = de_getbyte_p(&pos);
+	if(fmtver<=0x1f) {
+		verstr = "old";
+	}
+	else if(fmtver>=0x20 && fmtver<=0x2f) {
+		// Note: Alternatives are ==0x20 (CFX), and >=0x20 (lbrate).
+		verstr = "new";
+	}
+	else {
+		verstr = "?";
+	}
+	de_dbg(c, "format version: 0x%02x (%s)", (UI)fmtver, verstr);
+
+	cksum_type = de_getbyte_p(&pos);
+	de_dbg(c, "checksum type: 0x%02x (%s)", (UI)cksum_type,
+		(cksum_type==0?"standard":"?"));
+
+	b = de_getbyte_p(&pos);
+	de_dbg(c, "unused info byte: 0x%02x", (UI)b);
+
+	de_dbg(c, "compressed data at %"I64_FMT, pos);
+
+done:
+	if(crlzhctx) {
+		crcr_filename_data_freecontents(c, &crlzhctx->fnd);
+		de_free(c, crlzhctx);
+	}
+}
+
+static int de_identify_crlzh(deark *c)
+{
+	i64 id;
+
+	id = de_getu16le(0);
+	if(id==0xfd76) return 70;
+	return 0;
+}
+
+void de_module_crlzh(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "crlzh";
+	mi->desc = "CRLZH (CP/M)";
+	mi->run_fn = de_run_crlzh;
+	mi->identify_fn = de_identify_crlzh;
+	mi->flags |= DE_MODFLAG_NONWORKING;
 }
