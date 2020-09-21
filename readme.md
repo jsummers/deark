@@ -335,6 +335,24 @@ really should use a battle-hardened application like GNU Tar, not Deark.
 Deark's support for such formats is often incomplete, and it does not always
 do integrity checking.
 
+## Feedback and contributions ##
+
+(As of 2020-09.) Suggestions and bug reports are welcome. This can be done by
+opening a GitHub issue, or by email. If you prefer to do it in the form of a
+GitHub "pull request", that's fine too, but as a general rule, such requests
+won't be merged directly.
+
+Deark is not really a collaborative project at this time. Unsolicited
+contributions of more than a few lines of code are unlikely to be accepted.
+It's okay to offer them, but please don't do a lot of work with the
+expectation that it will be accepted.
+
+Any code copyrighted by someone other than the main Deark developer(s) is only
+allowed in the "foreign" section of the project. Pointers to existing open
+source format decoders, that might be useful in Deark, are welcome. However,
+most such code will be rejected for one reason or another (incompatible
+license, too large, too trivial, etc.).
+
 ## How to build ##
 
 See the [technical.md](technical.md) file.
