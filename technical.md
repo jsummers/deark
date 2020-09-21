@@ -276,8 +276,14 @@ or
     $ sudo make install
 
 For Microsoft Windows, the project files in proj/vs2019 should work for
-sufficiently new versions of Micrsoft Visual Studio. Alternatively, you can use
-Cygwin.
+sufficiently new versions of Microsoft Visual Studio. Alternatively, you can
+use Cygwin.
+
+When doing a Windows (Win32 API) build, the Makefile is not intended to be used
+directly (without configuration). For MinGW and similar compilers, it is
+recommended to use a script, e.g. scripts/example-build-mingw.sh. There are
+changes planned that may make this easier, but it might never "just work"
+automatically.
 
 ## Developer notes ##
 
