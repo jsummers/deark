@@ -95,7 +95,7 @@ static int do_header_SZDD(deark *c, lctx *d, i64 pos1)
 	d->uncmpr_len = de_getu32le(pos);
 	d->uncmpr_len_known = 1;
 	de_dbg(c, "uncompressed len: %"I64_FMT"", d->uncmpr_len);
-	pos += 4;
+	//pos += 4;
 
 	retval = 1;
 done:

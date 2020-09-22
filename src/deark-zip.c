@@ -228,7 +228,7 @@ static int my_deflate_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 		goto done;
 	}
 
-	ret = fmtutil_tdefl_compress_buffer(tdctx, buf, buf_len, FMTUTIL_TDEFL_FINISH);
+	ret = fmtutil_tdefl_compress_buffer(tdctx, buf, (size_t)buf_len, FMTUTIL_TDEFL_FINISH);
 	if(ret != FMTUTIL_TDEFL_STATUS_DONE) goto done;
 	retval = 1;
 
