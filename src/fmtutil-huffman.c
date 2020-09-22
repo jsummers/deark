@@ -356,7 +356,7 @@ int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *h
 	char b2buf[72];
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg2(c, "constructing huffman tree:");
+	de_dbg3(c, "constructing huffman tree:");
 	de_dbg_indent(c, 1);
 
 	if(!ht->lengths_arr) {
@@ -400,8 +400,8 @@ int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *h
 			prev_code_bit_length = symlen;
 			prev_code = thiscode;
 
-			if(c->debug_level>=2) {
-				de_dbg2(c, "adding code \"%s\" = %d",
+			if(c->debug_level>=3) {
+				de_dbg3(c, "adding code \"%s\" = %d",
 					de_print_base2_fixed(b2buf, sizeof(b2buf), thiscode, symlen),
 					(int)ht->lengths_arr[k].val);
 			}

@@ -236,7 +236,7 @@ static int dmsheavy_read_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *htw
 	if(htw->ht) goto done;
 
 	ncodes = (UI)lzh_getbits(cctx, ncodes_nbits);
-	de_dbg(c, "num codes: %u", ncodes);
+	de_dbg2(c, "num codes: %u", ncodes);
 
 	htw->ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
 
@@ -245,7 +245,7 @@ static int dmsheavy_read_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *htw
 
 		null_val = (UI)lzh_getbits(cctx, ncodes_nbits);
 		fmtutil_huffman_add_code(c, htw->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
-		de_dbg2(c, "val0: %u", null_val);
+		de_dbg3(c, "val0: %u", null_val);
 		retval = 1;
 		goto done;
 	}
@@ -255,7 +255,7 @@ static int dmsheavy_read_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *htw
 		UI symlen;
 
 		symlen = (UI)lzh_getbits(cctx, symlen_nbits);
-		de_dbg2(c, "len[%u] = %u", curr_idx, symlen);
+		de_dbg3(c, "len[%u] = %u", curr_idx, symlen);
 		fmtutil_huffman_record_a_code_length(c, htw->ht, (fmtutil_huffman_valtype)curr_idx, symlen);
 		curr_idx++;
 	}
@@ -327,13 +327,13 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 
 	if(!hvst->trees_exist) {
 		hvst->trees_exist = 1;
-		de_dbg(c, "c tree");
+		de_dbg2(c, "c tree");
 		de_dbg_indent(c, 1);
 		ret = dmsheavy_read_tree(cctx, &hvst->codes_tree, 9, 5);
 		de_dbg_indent(c, -1);
 		if(!ret) goto done;
 
-		de_dbg(c, "p tree");
+		de_dbg2(c, "p tree");
 		de_dbg_indent(c, 1);
 		ret = dmsheavy_read_tree(cctx, &hvst->offsets_tree, 5, 4);
 		de_dbg_indent(c, -1);
@@ -341,7 +341,7 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 	}
 
 	de_bitreader_describe_curpos(&cctx->bitrd, pos_descr, sizeof(pos_descr));
-	de_dbg(c, "cmpr data codes at %s", pos_descr);
+	de_dbg2(c, "cmpr data codes at %s", pos_descr);
 	de_dbg_indent(c, 1);
 	while(1) {
 		UI code;
@@ -1003,9 +1003,10 @@ static int dms_read_and_decompress_track(deark *c, struct dmsctx *d,
 	de_dbg(c, "crc of header (reported): 0x%04x", (UI)tri->crc_header_reported);
 
 	tri->dpos = pos1 + DMS_TRACK_HDR_LEN;
-	de_dbg(c, "cmpr data pos: %"I64_FMT, tri->dpos);
-
+	de_dbg(c, "cmpr data at %"I64_FMT, tri->dpos);
+	de_dbg_indent(c, 1);
 	if(!dms_decompress_track(c, d, tri, outf)) goto done;
+	de_dbg_indent(c, -1);
 
 	tri->cksum_calc = dms_calc_checksum(c, outf);
 	de_dbg(c, "checksum (calculated): 0x%04x", (UI)tri->cksum_calc);

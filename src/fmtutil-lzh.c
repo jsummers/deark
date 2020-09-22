@@ -122,7 +122,7 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx, struct lzh_tree_wrap
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_bitreader_describe_curpos(&cctx->bitrd, pos_descr, sizeof(pos_descr));
-	de_dbg(c, "%s tree at %s", name, pos_descr);
+	de_dbg2(c, "%s tree at %s", name, pos_descr);
 	de_dbg_indent(c, 1);
 
 	ncodes = (UI)lzh_getbits(cctx, 5);
@@ -139,7 +139,7 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx, struct lzh_tree_wrap
 
 		null_val = (UI)lzh_getbits(cctx, 5);
 		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
-		de_dbg2(c, "val0: %u", null_val);
+		de_dbg3(c, "val0: %u", null_val);
 		retval = 1;
 		goto done;
 	}
@@ -149,7 +149,7 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx, struct lzh_tree_wrap
 		UI symlen;
 
 		symlen = lh5x_read_a_code_length(cctx);
-		de_dbg2(c, "len[%u] = %u", curr_idx, symlen);
+		de_dbg3(c, "len[%u] = %u", curr_idx, symlen);
 		fmtutil_huffman_record_a_code_length(c, tree->ht, (fmtutil_huffman_valtype)curr_idx, symlen);
 		curr_idx++;
 
@@ -161,7 +161,7 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx, struct lzh_tree_wrap
 			// TODO: Verify that it exists when the number of lengths is exactly 3.
 			extraskip = (UI)lzh_getbits(cctx, 2);
 			if(extraskip>0) {
-				de_dbg2(c, "extra skip: %u", extraskip);
+				de_dbg3(c, "extra skip: %u", extraskip);
 				curr_idx += extraskip;
 			}
 		}
@@ -205,7 +205,7 @@ static int lh5x_read_codes_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *t
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_bitreader_describe_curpos(&cctx->bitrd, pos_descr, sizeof(pos_descr));
-	de_dbg(c, "%s tree at %s", name, pos_descr);
+	de_dbg2(c, "%s tree at %s", name, pos_descr);
 	de_dbg_indent(c, 1);
 
 	ncodes = (UI)lzh_getbits(cctx, 9);
@@ -221,7 +221,7 @@ static int lh5x_read_codes_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *t
 
 		null_val = (UI)lzh_getbits(cctx, 9);
 		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
-		de_dbg2(c, "val0: %u", null_val);
+		de_dbg3(c, "val0: %u", null_val);
 		retval = 1;
 		goto done;
 	}
@@ -236,7 +236,7 @@ static int lh5x_read_codes_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *t
 			UI sk;
 
 			sk = lh5x_read_a_skip_length(cctx, x);
-			de_dbg2(c, "len[%u]: code=%u => skip:range_code=%u,extra_skip=%u",
+			de_dbg3(c, "len[%u]: code=%u => skip:range_code=%u,extra_skip=%u",
 				curr_idx, x, x, sk);
 			curr_idx += 1 + sk;
 		}
@@ -244,7 +244,7 @@ static int lh5x_read_codes_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *t
 			UI symlen;
 
 			symlen = x-2;
-			de_dbg2(c, "len[%u]: code=%u => len=%u", curr_idx, x, symlen);
+			de_dbg3(c, "len[%u]: code=%u => len=%u", curr_idx, x, symlen);
 			fmtutil_huffman_record_a_code_length(c, tree->ht, (fmtutil_huffman_valtype)curr_idx, symlen);
 			curr_idx++;
 		}
@@ -274,7 +274,7 @@ static int lh5x_read_offsets_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper 
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_bitreader_describe_curpos(&cctx->bitrd, pos_descr, sizeof(pos_descr));
-	de_dbg(c, "%s tree at %s", name, pos_descr);
+	de_dbg2(c, "%s tree at %s", name, pos_descr);
 	de_dbg_indent(c, 1);
 
 	ncodes = (UI)lzh_getbits(cctx, cctx->lh5x_offset_nbits);
@@ -291,7 +291,7 @@ static int lh5x_read_offsets_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper 
 
 		null_val = (UI)lzh_getbits(cctx, cctx->lh5x_offset_nbits);
 		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
-		de_dbg2(c, "val0: %u", null_val);
+		de_dbg3(c, "val0: %u", null_val);
 		retval = 1;
 		goto done;
 	}
@@ -301,7 +301,7 @@ static int lh5x_read_offsets_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper 
 		UI symlen;
 
 		symlen = lh5x_read_a_code_length(cctx);
-		de_dbg2(c, "len[%u] = %u", curr_idx, symlen);
+		de_dbg3(c, "len[%u] = %u", curr_idx, symlen);
 		fmtutil_huffman_record_a_code_length(c, tree->ht, (fmtutil_huffman_valtype)curr_idx, symlen);
 		curr_idx++;
 	}
@@ -359,9 +359,9 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 		de_dbg2(c, "stopping, not enough room for a block at %s", pos_descr);
 		goto done;
 	}
-	de_dbg(c, "block#%d at %s", blk_idx, pos_descr);
+	de_dbg2(c, "block#%d at %s", blk_idx, pos_descr);
 	de_dbg_indent(c, 1);
-	de_dbg(cctx->c, "num codes in block: %u", (UI)ncodes_in_this_block);
+	de_dbg2(cctx->c, "num codes in block: %u", (UI)ncodes_in_this_block);
 
 	if(ncodes_in_this_block==0) {
 		if(cctx->zero_codes_block_behavior==0) {
@@ -379,7 +379,7 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 			goto done;
 		}
 		else {
-			de_dbg(c, "stopping, 0-code block found (error?)");
+			de_dbg2(c, "stopping, 0-code block found (error?)");
 			cctx->bitrd.eof_flag = 1;
 			goto done;
 		}
@@ -391,7 +391,7 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 	}
 
 	de_bitreader_describe_curpos(&cctx->bitrd, pos_descr, sizeof(pos_descr));
-	de_dbg(c, "cmpr data codes at %s", pos_descr);
+	de_dbg2(c, "cmpr data codes at %s", pos_descr);
 	ncodes_remaining_this_block = ncodes_in_this_block;
 	while(1) {
 		UI code;

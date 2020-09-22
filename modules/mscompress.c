@@ -374,7 +374,7 @@ static void mslzh_read_huffman_tree(struct mslzh_context *lzhctx, UI idx)
 		goto done;
 	}
 
-	if(c->debug_level>=2) {
+	if(c->debug_level>=3) {
 		de_dbg(c, "constructed huffman tree:");
 		de_dbg_indent(c, 1);
 		fmtutil_huffman_dump(c, htr->fmtuht);
