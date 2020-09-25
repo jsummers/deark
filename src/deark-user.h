@@ -33,7 +33,9 @@ enum de_stdoptions_enum {
 	// DE_OVERWRITEMODE_DEFAULT = Overwrite, unless the filename is a symlink, in which case fail.
 	// ..._NEVER = Fail if the output file exists (or if the filename is a symlink).
 	// ..._STANDARD = Do whatever fopen() normally does (overwrite, and follow symlinks).
-	DE_STDOPT_OVERWRITE_MODE
+	DE_STDOPT_OVERWRITE_MODE,
+
+	DE_STDOPT_PADPIX
 };
 
 void de_set_std_option_int(deark *c, enum de_stdoptions_enum o, int x);

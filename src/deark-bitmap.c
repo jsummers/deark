@@ -380,6 +380,22 @@ de_bitmap *de_bitmap_create(deark *c, i64 width, i64 height, int bypp)
 	return img;
 }
 
+de_bitmap *de_bitmap_create2(deark *c, i64 npwidth, i64 pdwidth, i64 height, int bypp)
+{
+	de_bitmap *img;
+
+	img = de_bitmap_create(c, pdwidth, height, bypp);
+
+	if(npwidth>0 && npwidth<img->width) {
+		img->unpadded_width = npwidth;
+	}
+	else {
+		img->unpadded_width = img->width;
+	}
+
+	return img;
+}
+
 void de_bitmap_destroy(de_bitmap *b)
 {
 	if(b) {
@@ -514,6 +530,9 @@ void de_convert_image_bilevel(dbuf *f, i64 fpos, i64 rowspan,
 	}
 }
 
+// TODO: Review everything using this function, and convert to ..._bilevel2()
+// when appropriate.
+// Maybe remove/rename this function.
 void de_convert_and_write_image_bilevel(dbuf *f, i64 fpos,
 	i64 width, i64 height, i64 rowspan, unsigned int cvtflags,
 	de_finfo *fi, unsigned int createflags)
@@ -524,6 +543,23 @@ void de_convert_and_write_image_bilevel(dbuf *f, i64 fpos,
 	if(!de_good_image_dimensions(c, width, height)) return;
 
 	img = de_bitmap_create(c, width, height, 1);
+	de_convert_image_bilevel(f, fpos, rowspan, img, cvtflags);
+	de_bitmap_write_to_file_finfo(img, fi, createflags);
+	de_bitmap_destroy(img);
+}
+
+// This function automatically handles padding pixels, for the -padpix option.
+// This means the "rowspan" param cannot be used to do clever things --
+// there cannot be any data between the rows, other than padding bits.
+void de_convert_and_write_image_bilevel2(dbuf *f, i64 fpos,
+	i64 width, i64 height, i64 rowspan, unsigned int cvtflags,
+	de_finfo *fi, unsigned int createflags)
+{
+	de_bitmap *img = NULL;
+	deark *c = f->c;
+
+	if(!de_good_image_dimensions(c, width, height)) return;
+	img = de_bitmap_create2(c, width, rowspan*8, height, 1);
 	de_convert_image_bilevel(f, fpos, rowspan, img, cvtflags);
 	de_bitmap_write_to_file_finfo(img, fi, createflags);
 	de_bitmap_destroy(img);

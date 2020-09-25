@@ -392,6 +392,7 @@ enum opt_id_enum {
  DE_OPT_NULL=0, DE_OPT_D, DE_OPT_D2, DE_OPT_D3, DE_OPT_L,
  DE_OPT_NOINFO, DE_OPT_NOWARN,
  DE_OPT_NOBOM, DE_OPT_NODENS, DE_OPT_ASCIIHTML, DE_OPT_NONAMES,
+ DE_OPT_PADPIX,
  DE_OPT_NOOVERWRITE, DE_OPT_MODTIME, DE_OPT_NOMODTIME,
  DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP, DE_OPT_LICENSE, DE_OPT_ID,
  DE_OPT_MAINONLY, DE_OPT_AUXONLY, DE_OPT_EXTRACTALL, DE_OPT_ZIP, DE_OPT_TAR,
@@ -427,6 +428,7 @@ struct opt_struct option_array[] = {
 	{ "n",            DE_OPT_NOOVERWRITE,  0 },
 	{ "modtime",      DE_OPT_MODTIME,      0 },
 	{ "nomodtime",    DE_OPT_NOMODTIME,    0 },
+	{ "padpix",       DE_OPT_PADPIX,       0 },
 	{ "q",            DE_OPT_Q,            0 },
 	{ "version",      DE_OPT_VERSION,      0 },
 	{ "h",            DE_OPT_HELP,         0 },
@@ -666,6 +668,9 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_NONAMES:
 				de_set_std_option_int(c, DE_STDOPT_FILENAMES_FROM_FILE, 0);
+				break;
+			case DE_OPT_PADPIX:
+				de_set_std_option_int(c, DE_STDOPT_PADPIX, 1);
 				break;
 			case DE_OPT_NOOVERWRITE:
 				de_set_std_option_int(c, DE_STDOPT_OVERWRITE_MODE, DE_OVERWRITEMODE_NEVER);

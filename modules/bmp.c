@@ -35,7 +35,7 @@ typedef struct localctx_struct {
 	i64 bitcount;
 	u32 compression_field;
 	i64 size_image; // biSizeImage
-	i64 width, height;
+	i64 width, pdwidth, height;
 	int top_down;
 	i64 pal_entries; // Actual number stored in file. 0 means no palette.
 	i64 pal_pos;
@@ -230,6 +230,7 @@ static int read_infoheader(deark *c, lctx *d, i64 pos)
 		}
 		nplanes = de_getu16le(pos+12);
 	}
+	d->pdwidth = d->width; // Default "padded width"
 	de_dbg_dimensions(c, d->width, d->height);
 	if(!de_good_image_dimensions(c, d->width, d->height)) {
 		goto done;
@@ -509,7 +510,7 @@ static de_bitmap *bmp_bitmap_create(deark *c, lctx *d, int bypp)
 {
 	de_bitmap *img;
 
-	img = de_bitmap_create(c, d->width, d->height, bypp);
+	img = de_bitmap_create2(c, d->width, d->pdwidth, d->height, bypp);
 	img->flipped = !d->top_down;
 	return img;
 }
@@ -533,9 +534,24 @@ static void do_image_24bit(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 
 	img = bmp_bitmap_create(c, d, 3);
 	for(j=0; j<d->height; j++) {
-		for(i=0; i<d->width; i++) {
-			clr = dbuf_getRGB(bits, bits_offset + j*d->rowspan + 3*i, DE_GETRGBFLAG_BGR);
+		i64 rowpos = bits_offset + j*d->rowspan;
+		i64 pos_in_this_row = 0;
+		u8 cbuf[3];
+
+		for(i=0; i<d->pdwidth; i++) {
+			dbuf_read(bits, cbuf, rowpos + pos_in_this_row, 3);
+			if(pos_in_this_row+3 > d->rowspan) {
+				// If -padpix was used, a partial pixel at the end of the row is
+				// possible. Happens when width == 1 or 2 (mod 4).
+				// To handle that, zero out the byte(s) that we shouldn't have read.
+				cbuf[2] = 0;
+				if(pos_in_this_row+2 > d->rowspan) {
+					cbuf[1] = 0;
+				}
+			}
+			clr = DE_MAKE_RGB(cbuf[2], cbuf[1], cbuf[0]);
 			de_bitmap_setpixel_rgb(img, i, j, clr);
+			pos_in_this_row += 3;
 		}
 	}
 	de_bitmap_write_to_file_finfo(img, d->fi, 0);
@@ -563,7 +579,7 @@ static void do_image_16_32bit(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 
 	img = bmp_bitmap_create(c, d, has_transparency?4:3);
 	for(j=0; j<d->height; j++) {
-		for(i=0; i<d->width; i++) {
+		for(i=0; i<d->pdwidth; i++) {
 			if(d->bitcount==16) {
 				v = (u32)dbuf_getu16le(bits, bits_offset + j*d->rowspan + 2*i);
 			}
@@ -621,7 +637,7 @@ static void do_image_rle_4_8_24(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 
 		// Stop if we reach the end of the output image.
 		if(ypos>=d->height) break;
-		if(ypos==(d->height-1) && xpos>=d->width) break;
+		if(ypos==(d->height-1) && xpos>=d->pdwidth) break;
 
 		// Read the next two bytes from the input file.
 		b1 = dbuf_getbyte(bits, pos++);
@@ -738,6 +754,17 @@ static void do_image(deark *c, lctx *d)
 	}
 
 	d->rowspan = ((d->bitcount*d->width +31)/32)*4;
+	if(d->compression_type==CMPR_NONE) {
+		if(c->padpix && d->bitcount==24) {
+			// The 24-bit decoder can handle partial pixels.
+			d->pdwidth = (d->rowspan+2)/3;
+		}
+		else {
+			// By default, ignore a partial-pixel's worth of padding.
+			// bits-per-row / bits-per-pixel
+			d->pdwidth = (d->rowspan*8) / d->bitcount;
+		}
+	}
 
 	if(d->bitcount>=1 && d->bitcount<=8 && d->compression_type==CMPR_NONE) {
 		do_image_paletted(c, d, c->infile, d->bits_offset);

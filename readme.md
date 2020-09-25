@@ -134,6 +134,11 @@ Command-line options:
    Increase the limit at your own risk. Deark does not generate large images
    efficiently. In practice, a large dimension will only work if the other
    dimension is very small.
+-padpix
+   Include "padding" pixels/bits in the image output.
+   Some images have extra bits at the end of each row that are used for
+   alignment, and are not normally made visible.
+   This option is not implemented for all formats.
 -nobom
    Do not add a BOM to UTF-8 output files generated or converted by Deark. Note
    that if a BOM already exists in the source data, it will not necessarily be

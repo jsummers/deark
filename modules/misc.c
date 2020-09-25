@@ -570,7 +570,7 @@ static void de_run_hpicn(deark *c, de_module_params *mparams)
 
 	width = de_getu16le(4);
 	height = de_getu16le(6);
-	de_convert_and_write_image_bilevel(c->infile, 8, width, height, (width+7)/8,
+	de_convert_and_write_image_bilevel2(c->infile, 8, width, height, (width+7)/8,
 		DE_CVTF_WHITEISZERO, NULL, 0);
 }
 
@@ -1269,7 +1269,7 @@ static void de_run_vbm(deark *c, de_module_params *mparams)
 	}
 	width = de_getu16be(4);
 	height = de_getu16be(6);
-	de_convert_and_write_image_bilevel(c->infile, 8, width, height, (width+7)/8,
+	de_convert_and_write_image_bilevel2(c->infile, 8, width, height, (width+7)/8,
 		DE_CVTF_WHITEISZERO, NULL, 0);
 }
 
@@ -1304,7 +1304,7 @@ static void de_run_fp_art(deark *c, de_module_params *mparams)
 	width = de_getu16le(2);
 	height = de_getu16le(6);
 	rowspan = ((width+15)/16)*2;
-	de_convert_and_write_image_bilevel(c->infile, 8, width, height, rowspan, 0, NULL, 0);
+	de_convert_and_write_image_bilevel2(c->infile, 8, width, height, rowspan, 0, NULL, 0);
 }
 
 static int de_identify_fp_art(deark *c)
@@ -1647,7 +1647,7 @@ static void de_run_crg(deark *c, de_module_params *mparams)
 	}
 	de_dbg(c, "decompressed to %d bytes", (int)unc_pixels->len);
 
-	de_convert_and_write_image_bilevel(unc_pixels, 0, width, height, rowspan,
+	de_convert_and_write_image_bilevel2(unc_pixels, 0, width, height, rowspan,
 		DE_CVTF_WHITEISZERO, NULL, 0);
 
 done:
@@ -2242,7 +2242,7 @@ static void de_run_cdr_wl(deark *c, de_module_params *mparams)
 	pos += 4; // bmBits
 
 	if(!de_good_image_dimensions(c, w, h)) goto done;
-	img = de_bitmap_create(c, w, h, 1);
+	img = de_bitmap_create2(c, w, rowspan*8, h, 1);
 	de_convert_image_bilevel(c->infile, pos, rowspan, img, 0);
 	de_bitmap_write_to_file(img, "preview", DE_CREATEFLAG_IS_AUX);
 

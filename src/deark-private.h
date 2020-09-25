@@ -240,6 +240,7 @@ struct deark_bitmap_struct {
 	deark *c;
 	i64 width;
 	i64 height;
+	i64 unpadded_width;
 	int invalid_image_flag;
 	int bytes_per_pixel;
 	// 'flipped' changes the coordinate system when writing the bitmap to a file.
@@ -391,6 +392,7 @@ struct deark_struct {
 	u8 filenames_from_file;
 	u8 macformat_known;
 	u8 macformat;
+	u8 padpix;
 	int overwrite_mode;
 	u8 preserve_file_times;
 	u8 preserve_file_times_archives;
@@ -811,6 +813,7 @@ void de_bitmap_setpixel_rgba(de_bitmap *img, i64 x, i64 y, de_color color);
 de_color de_bitmap_getpixel(de_bitmap *img, i64 x, i64 y);
 
 de_bitmap *de_bitmap_create(deark *c, i64 width, i64 height, int bypp);
+de_bitmap *de_bitmap_create2(deark *c, i64 npwidth, i64 pdwidth, i64 height, int bypp);
 void de_bitmap_destroy(de_bitmap *b);
 
 #define DE_COLOR_A(x)  ((de_colorsample)(((x)>>24)&0xff))
@@ -850,6 +853,9 @@ void de_convert_image_bilevel(dbuf *f, i64 fpos, i64 rowspan,
 	de_bitmap *img, unsigned int flags);
 
 void de_convert_and_write_image_bilevel(dbuf *f, i64 fpos,
+	i64 w, i64 h, i64 rowspan, unsigned int cvtflags,
+	de_finfo *fi, unsigned int createflags);
+void de_convert_and_write_image_bilevel2(dbuf *f, i64 fpos,
 	i64 w, i64 h, i64 rowspan, unsigned int cvtflags,
 	de_finfo *fi, unsigned int createflags);
 

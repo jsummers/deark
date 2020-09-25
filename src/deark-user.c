@@ -715,6 +715,9 @@ void de_set_std_option_int(deark *c, enum de_stdoptions_enum o, int x)
 	case DE_STDOPT_OVERWRITE_MODE:
 		c->overwrite_mode = x;
 		break;
+	case DE_STDOPT_PADPIX:
+		c->padpix = (u8)x;
+		break;
 	default:
 		de_err(c, "Internal error");
 		de_fatalerror(c);

@@ -25,6 +25,7 @@ struct deark_png_encode_info {
 	deark *c;
 	dbuf *outf;
 	int width, height;
+	int rowspan;
 	int num_chans;
 	int flip;
 	unsigned int level;
@@ -131,7 +132,6 @@ static void write_png_chunk_tEXt(struct deark_png_encode_info *pei,
 static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, dbuf *cdbuf,
 	const u8 *src_pixels)
 {
-	int bpl = pei->width * pei->num_chans; // bytes per row in src_pixels
 	int y;
 	static const char nulbyte = '\0';
 	int retval = 0;
@@ -145,8 +145,8 @@ static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, dbuf *cdbuf,
 
 	for (y = 0; y < pei->height; ++y) {
 		fmtutil_tdefl_compress_buffer(tdctx, &nulbyte, 1, FMTUTIL_TDEFL_NO_FLUSH);
-		fmtutil_tdefl_compress_buffer(tdctx, &src_pixels[(pei->flip ? (pei->height - 1 - y) : y) * bpl],
-			bpl, FMTUTIL_TDEFL_NO_FLUSH);
+		fmtutil_tdefl_compress_buffer(tdctx, &src_pixels[(pei->flip ? (pei->height - 1 - y) : y) * pei->rowspan],
+			(size_t)pei->width * (size_t)pei->num_chans, FMTUTIL_TDEFL_NO_FLUSH);
 	}
 	if (fmtutil_tdefl_compress_buffer(tdctx, NULL, 0, FMTUTIL_TDEFL_FINISH) !=
 		FMTUTIL_TDEFL_STATUS_DONE)
@@ -257,7 +257,13 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f)
 	}
 
 	pei->outf = f;
-	pei->width = (int)img->width;
+	if(!c->padpix && img->unpadded_width>0 && img->unpadded_width<img->width) {
+		pei->width = (int)img->unpadded_width;
+	}
+	else {
+		pei->width = (int)img->width;
+	}
+	pei->rowspan = (int)(img->width * img->bytes_per_pixel);
 	pei->height = (int)img->height;
 	pei->flip = img->flipped;
 	pei->num_chans = img->bytes_per_pixel;
