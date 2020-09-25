@@ -810,9 +810,7 @@ void de_bitmap_setpixel_rgba(de_bitmap *img, i64 x, i64 y, de_color color);
 
 de_color de_bitmap_getpixel(de_bitmap *img, i64 x, i64 y);
 
-de_bitmap *de_bitmap_create_noinit(deark *c);
 de_bitmap *de_bitmap_create(deark *c, i64 width, i64 height, int bypp);
-
 void de_bitmap_destroy(de_bitmap *b);
 
 #define DE_COLOR_A(x)  ((de_colorsample)(((x)>>24)&0xff))

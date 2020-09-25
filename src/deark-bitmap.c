@@ -135,6 +135,8 @@ static void scan_image(de_bitmap *img, struct image_scan_results *isres)
 	}
 }
 
+static de_bitmap *de_bitmap_create_noinit(deark *c);
+
 // Clone an existing bitmap's metadata, but don't allocate the new pixels.
 // The caller can then change the bytes_per_pixel if desired.
 static de_bitmap *de_bitmap_clone_noalloc(de_bitmap *img1)
@@ -359,7 +361,7 @@ de_color de_bitmap_getpixel(de_bitmap *img, i64 x, i64 y)
 	return 0;
 }
 
-de_bitmap *de_bitmap_create_noinit(deark *c)
+static de_bitmap *de_bitmap_create_noinit(deark *c)
 {
 	de_bitmap *img;
 	img = de_malloc(c, sizeof(de_bitmap));
