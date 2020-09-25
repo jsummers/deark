@@ -79,14 +79,17 @@ static void do_decode_newicons(deark *c, lctx *d,
 	u8 b0, b1, tmpb;
 	de_bitmap *img = NULL;
 	int has_trns;
+	i64 width, height;
 	i64 ncolors;
 	dbuf *decoded = NULL;
 	i64 srcpos;
 	i64 bitmap_start_pos = 0;
 	i64 i;
 	i64 rle_len;
+	int saved_indent_level;
 	u32 pal[256];
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "decoding NewIcons[%d], len=%"I64_FMT, newicons_num, f->len);
 	de_dbg_indent(c, 1);
 
@@ -101,12 +104,11 @@ static void do_decode_newicons(deark *c, lctx *d,
 	if(ncolors<1) ncolors=1;
 	if(ncolors>256) ncolors=256;
 
-	img = de_bitmap_create_noinit(c);
-	img->width = (i64)width_code - 0x21;
-	img->height = (i64)height_code - 0x21;
-	img->bytes_per_pixel = 4;
+	width = (i64)width_code - 0x21;
+	height = (i64)height_code - 0x21;
 
-	de_dbg_dimensions(c, img->width, img->height);
+	de_dbg_dimensions(c, width, height);
+	if(!de_good_image_dimensions(c, width, height)) goto done;
 	de_dbg(c, "transparency: %d", has_trns);
 	de_dbg(c, "colors: %d", (int)ncolors);
 
@@ -174,14 +176,16 @@ static void do_decode_newicons(deark *c, lctx *d,
 	}
 	de_dbg_indent(c, -1);
 
+	img = de_bitmap_create(c, width, height, 4);
 	de_convert_image_paletted(decoded, bitmap_start_pos,
-		8, img->width, pal, img, 0);
+		8, width, pal, img, 0);
 	de_bitmap_write_to_file(img, c->filenames_from_file?"n":NULL,
 		d->has_glowicons?DE_CREATEFLAG_IS_AUX:0);
 
-	if(decoded) dbuf_close(decoded);
-	if(img) de_bitmap_destroy(img);
-	de_dbg_indent(c, -1);
+done:
+	dbuf_close(decoded);
+	de_bitmap_destroy(img);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 // Read enough of a main icon's header to determine how many bytes it uses.
