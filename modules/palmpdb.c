@@ -821,7 +821,6 @@ static void do_pqa_app_info_block(deark *c, lctx *d, i64 pos1, i64 len)
 	de_ucstring *s = NULL;
 	i64 pos = pos1;
 
-	de_dbg(c, "hello");
 	sig = (u32)de_getu32be_p(&pos);
 	if(sig!=CODE_lnch) return; // Apparently not a PQA appinfo block
 	de_dbg(c, "PQA sig: 0x%08x", (unsigned int)sig);
