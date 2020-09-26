@@ -454,9 +454,6 @@
     <ClCompile Include="..\..\src\fmtutil-miniz.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\fmtutil-zoo.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\modules\packdir.c">
       <Filter>Modules</Filter>
     </ClCompile>
