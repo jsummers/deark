@@ -1064,10 +1064,10 @@ static int do_one_ripicon(deark *c, i64 pos1, i64 *pbytes_consumed, int scan_mod
 
 	de_dbg(c, "bitmap at %"I64_FMT", len=%"I64_FMT, pos, bitmap_len);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
-	img = de_bitmap_create(c, width, height, 3);
+	img = de_bitmap_create2(c, width, chunk_span*8, height, 3);
 
 	for(j=0; j<height; j++) {
-		for(i=0; i<width; i++) {
+		for(i=0; i<img->width; i++) { // Must use img->width, for -padpix
 			palent = 0;
 			for(k=0; k<4; k++) {
 				x = de_get_bits_symbol(c->infile, 1, pos + j*src_rowspan + k*chunk_span, i);
@@ -1339,20 +1339,22 @@ void de_module_fp_art(deark *c, struct deark_module_info *mi)
 static void de_run_ybm(deark *c, de_module_params *mparams)
 {
 	de_bitmap *img = NULL;
-	i64 width, height;
+	i64 npwidth, pdwidth, height;
 	i64 i, j;
 	i64 rowspan;
 	u8 x;
 
-	width = de_getu16be(2);
+	npwidth = de_getu16be(2);
 	height = de_getu16be(4);
-	if(!de_good_image_dimensions(c, width, height)) goto done;;
-	rowspan = ((width+15)/16)*2;
+	de_dbg_dimensions(c, npwidth, height);
+	if(!de_good_image_dimensions(c, npwidth, height)) goto done;
+	pdwidth = de_pad_to_n(npwidth, 16);
+	rowspan = pdwidth/8;
 
-	img = de_bitmap_create(c, width, height, 1);
+	img = de_bitmap_create2(c, npwidth, pdwidth, height, 1);
 
 	for(j=0; j<height; j++) {
-		for(i=0; i<width; i++) {
+		for(i=0; i<pdwidth; i++) {
 			// This encoding is unusual: LSB-first 16-bit integers.
 			x = de_get_bits_symbol(c->infile, 1, 6 + j*rowspan,
 				(i-i%16) + (15-i%16));
@@ -1951,7 +1953,7 @@ void de_module_qdv(deark *c, struct deark_module_info *mi)
 
 static void de_run_vitec(deark *c, de_module_params *mparams)
 {
-	i64 w, h;
+	i64 npwidth, pdwidth, h;
 	i64 i, j, plane;
 	de_bitmap *img = NULL;
 	i64 samplesperpixel;
@@ -1980,10 +1982,10 @@ static void de_run_vitec(deark *c, de_module_params *mparams)
 	// pos+4: Bits size?
 	// pos+24: Unknown field, usually 7
 
-	w = de_getu32be(pos+36);
+	npwidth = de_getu32be(pos+36);
 	h = de_getu32be(pos+40);
-	de_dbg_dimensions(c, w, h);
-	if(!de_good_image_dimensions(c, w, h)) goto done;
+	de_dbg_dimensions(c, npwidth, h);
+	if(!de_good_image_dimensions(c, npwidth, h)) goto done;
 
 	// pos+52: Unknown field, 1 in grayscale images
 
@@ -1999,13 +2001,14 @@ static void de_run_vitec(deark *c, de_module_params *mparams)
 	de_dbg_indent(c, -1);
 
 	de_dbg(c, "bitmap at %d", (int)pos);
-	img = de_bitmap_create(c, w, h, (int)samplesperpixel);
-	rowspan = ((w+7)/8)*8;
+	pdwidth = de_pad_to_n(npwidth, 8);
+	img = de_bitmap_create2(c, npwidth, pdwidth, h, (int)samplesperpixel);
+	rowspan = pdwidth;
 	planespan = rowspan*h;
 
 	for(plane=0; plane<samplesperpixel; plane++) {
 		for(j=0; j<h; j++) {
-			for(i=0; i<w; i++) {
+			for(i=0; i<pdwidth; i++) {
 				b = de_getbyte(pos + plane*planespan + j*rowspan + i);
 				if(samplesperpixel==3) {
 					de_bitmap_setsample(img, i, j, plane, b);

@@ -64,7 +64,7 @@ static void do_bitmap_mgc(deark *c, lctx *d, struct page_ctx *pg)
 	img = de_bitmap_create(c, w, h, 1);
 	src_rowspan = ((w+15)/16)*2;
 
-	de_convert_and_write_image_bilevel(c->infile, pg->datapos+10,
+	de_convert_and_write_image_bilevel2(c->infile, pg->datapos+10,
 		w, h, src_rowspan, 0, fi_bitmap, 0);
 
 	de_bitmap_destroy(img);
