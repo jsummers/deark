@@ -52,6 +52,7 @@ static void de_run_nol(deark *c, de_module_params *mparams)
 
 	d->w = de_getu16le(10);
 	d->h = de_getu16le(12);
+	de_dbg_dimensions(c, d->w, d->h);
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
 
 	nol_ngg_read_bitmap(c, d, 20);
@@ -87,6 +88,7 @@ static void de_run_ngg(deark *c, de_module_params *mparams)
 
 	d->w = de_getu16le(6);
 	d->h = de_getu16le(8);
+	de_dbg_dimensions(c, d->w, d->h);
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
 
 	nol_ngg_read_bitmap(c, d, 16);
@@ -116,7 +118,7 @@ void de_module_ngg(deark *c, struct deark_module_info *mi)
 
 static void npm_nlm_read_bitmap(deark *c, lctx *d, i64 pos)
 {
-	de_convert_and_write_image_bilevel(c->infile, pos, d->w, d->h, (d->w+7)/8,
+	de_convert_and_write_image_bilevel2(c->infile, pos, d->w, d->h, (d->w+7)/8,
 		DE_CVTF_WHITEISZERO, NULL, 0);
 }
 
@@ -125,26 +127,29 @@ static void de_run_npm(deark *c, de_module_params *mparams)
 	i64 txt_len;
 	i64 pos;
 	lctx *d = NULL;
+	de_ucstring *s = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
 
 	pos = 4;
-	txt_len = (i64)de_getbyte(pos);
-	pos += txt_len;
-	if(txt_len>0) de_dbg(c, "text length: %d", (int)txt_len);
-	// TODO: Maybe write the text to a file.
-
-	pos += 2;
-
-	d->w = (i64)de_getbyte(pos);
+	txt_len = (i64)de_getbyte_p(&pos);
+	de_dbg(c, "text length: %d", (int)txt_len);
+	if(txt_len>0) {
+		s = ucstring_create(c);
+		dbuf_read_to_ucstring(c->infile, pos, txt_len, s, 0, DE_ENCODING_ASCII);
+		de_dbg(c, "text: \"%s\"", ucstring_getpsz_d(s));
+		pos += txt_len;
+	}
 	pos += 1;
-	d->h = (i64)de_getbyte(pos);
-	pos += 1;
+
+	d->w = (i64)de_getbyte_p(&pos);
+	d->h = (i64)de_getbyte_p(&pos);
 	de_dbg_dimensions(c, d->w, d->h);
 
 	pos += 3;
 	npm_nlm_read_bitmap(c, d, pos);
 
+	ucstring_destroy(s);
 	de_free(c, d);
 }
 
