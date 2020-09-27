@@ -1084,6 +1084,7 @@ static void do_ddb_bitmap(deark *c, struct ddbctx_struct *d, i64 pos1)
 	i64 pos = pos1;
 	unsigned int bmType;
 	i64 bmWidth, bmHeight;
+	i64 pdwidth;
 	i64 bmPlanes;
 	i64 bmBitsPixel;
 	i64 src_realbitsperpixel;
@@ -1123,7 +1124,9 @@ static void do_ddb_bitmap(deark *c, struct ddbctx_struct *d, i64 pos1)
 
 	src_realbitsperpixel = bmBitsPixel * bmPlanes;
 	if(!de_good_image_dimensions(c, bmWidth, bmHeight)) goto done;
-	img = de_bitmap_create(c, bmWidth, bmHeight, (src_realbitsperpixel==1)?1:3);
+
+	pdwidth = (d->bmWidthBytes*8) / bmBitsPixel;
+	img = de_bitmap_create2(c, bmWidth, pdwidth, bmHeight, (src_realbitsperpixel==1)?1:3);
 
 	if(bmBitsPixel==1 && bmPlanes==1) {
 		de_convert_image_bilevel(c->infile, pos, d->bmWidthBytes, img, 0);
