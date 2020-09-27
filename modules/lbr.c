@@ -283,12 +283,94 @@ void de_module_lbr(deark *c, struct deark_module_info *mi)
 ///////////////////////////////////////////////
 // Squeeze - CP/M compressed file format
 
+// For Crunch/CRLZH(/Squeeze?) filename fields
+struct crcr_filename_data {
+	de_ucstring *fn;
+	de_ucstring *comment;
+	i64 size;
+};
+
+static int crcr_read_filename_etc(deark *c, i64 pos1, struct crcr_filename_data *fnd)
+{
+	int retval = 0;
+	i64 pos = pos1;
+	enum crcrfnstate {
+		CRCRFNST_NEUTRAL, CRCRFNST_FILENAME, CRCRFNST_COMMENT, CRCRFNST_DATE
+	};
+	enum crcrfnstate state = CRCRFNST_FILENAME;
+	int found_dot = 0;
+	int extension_char_count = 0;
+
+	// Note: Only ASCII can really be supported, because the characters are 7-bit.
+	// Normally, we'd use ucstring_append_bytes_ex() for something like this, but
+	// it's pointless here.
+	fnd->fn = ucstring_create(c);
+
+	while(1) {
+		u8 b;
+
+		// Note: CFX limits this entire field to about 80 bytes.
+		if(pos-pos1 > 300) goto done;
+		if(pos >= c->infile->len) goto done;
+
+		b = de_getbyte_p(&pos) & 0x7f;
+		if(b==0) {
+			break;
+		}
+
+		if(b==0x01) {
+			state = CRCRFNST_DATE; // TODO: Figure this field out
+		}
+		else if(state==CRCRFNST_FILENAME && b=='[') {
+			state = CRCRFNST_COMMENT;
+		}
+		else if(state==CRCRFNST_FILENAME && extension_char_count>=3) {
+			state = CRCRFNST_NEUTRAL;
+		}
+		else if(state==CRCRFNST_FILENAME) {
+			if(found_dot) {
+				extension_char_count++;
+			}
+			else {
+				if(b=='.') found_dot = 1;
+			}
+			ucstring_append_char(fnd->fn, (de_rune)b);
+		}
+		else if(state==CRCRFNST_COMMENT && b==']') {
+			state = CRCRFNST_NEUTRAL;
+		}
+		else if(state==CRCRFNST_COMMENT) {
+			if(!fnd->comment) {
+				fnd->comment = ucstring_create(c);
+			}
+			ucstring_append_char(fnd->comment, (de_rune)b);
+		}
+	}
+
+	ucstring_strip_trailing_spaces(fnd->fn);
+	fnd->size = pos - pos1;
+	retval = 1;
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(fnd->fn));
+	if(fnd->comment) {
+		de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(fnd->comment));
+	}
+
+done:
+	return retval;
+}
+
+static void crcr_filename_data_freecontents(deark *c, struct crcr_filename_data *fnd)
+{
+	ucstring_destroy(fnd->fn);
+	ucstring_destroy(fnd->comment);
+}
+
 struct squeeze_ctx {
 	u8 is_sq2;
 	de_encoding input_encoding;
-	struct de_stringreaderdata *fn;
-	struct de_stringreaderdata *timestamp_string;
-	struct de_stringreaderdata *comment;
+	struct crcr_filename_data fnd;
+	struct de_stringreaderdata *sq2_timestamp_string;
+	struct de_stringreaderdata *sq2_comment;
 	UI checksum_reported;
 	UI checksum_calc;
 	i64 cmpr_data_pos;
@@ -342,34 +424,22 @@ static void read_squeeze_checksum(deark *c, struct squeeze_ctx *sqctx, i64 pos)
 	de_dbg(c, "checksum (reported): %u", (UI)sqctx->checksum_reported);
 }
 
-// Note: No evidence found that Squeeze filenames can have comments or timestamps
-// stuffed into them, like Crunch and CRLZH can.
-static int read_squeeze_filename(deark *c, struct squeeze_ctx *sqctx, i64 pos, i64 *pbytes_consumed)
-{
-	int retval = 0;
-
-	sqctx->fn = dbuf_read_string(c->infile, pos, 300, 300, DE_CONVFLAG_STOP_AT_NUL,
-		sqctx->input_encoding);
-	if(!sqctx->fn->found_nul)goto done;
-	de_dbg(c, "original filename: \"%s\"", ucstring_getpsz_d(sqctx->fn->str));
-	*pbytes_consumed = sqctx->fn->bytes_consumed;
-	retval = 1;
-
-done:
-	return retval;
-}
-
 static int read_squeeze_headers(deark *c, struct squeeze_ctx *sqctx, i64 pos1)
 {
 	i64 pos = pos1;
 	int retval = 0;
-	i64 bytes_consumed = 0;
 
 	read_squeeze_checksum(c, sqctx, pos);
 	pos += 2;
 
-	if(!read_squeeze_filename(c, sqctx, pos, &bytes_consumed)) goto done;
-	pos += bytes_consumed;
+	// I don't know the correct way to interpret the Squeeze filename field, if
+	// there even is such a way.
+	// Some Unsqueeze utilities accept it as-is, some truncate it after the third
+	// filename extension byte, some interpret it the same as Crunch format
+	// (including ignoring the high bit of every byte, for some reason).
+	// Doing it the Crunch way is probably safe.
+	if(!crcr_read_filename_etc(c, pos, &sqctx->fnd)) goto done;
+	pos += sqctx->fnd.size;
 
 	sqctx->cmpr_data_pos = pos;
 	retval = 1;
@@ -383,24 +453,23 @@ done:
 static int read_sq2_headers(deark *c, struct squeeze_ctx *sqctx, i64 pos1)
 {
 	i64 pos = pos1;
-	i64 bytes_consumed = 0;
 	u8 b;
 	int retval = 0;
 
-	if(!read_squeeze_filename(c, sqctx, pos, &bytes_consumed)) goto done;
-	pos += bytes_consumed;
+	if(!crcr_read_filename_etc(c, pos, &sqctx->fnd)) goto done;
+	pos += sqctx->fnd.size;
 
-	sqctx->timestamp_string = dbuf_read_string(c->infile, pos, 300, 300,
+	sqctx->sq2_timestamp_string = dbuf_read_string(c->infile, pos, 300, 300,
 		DE_CONVFLAG_STOP_AT_NUL, sqctx->input_encoding);
-	if(!sqctx->timestamp_string->found_nul) goto done;
-	de_dbg(c, "timestamp_string: \"%s\"", ucstring_getpsz_d(sqctx->timestamp_string->str));
-	pos += sqctx->timestamp_string->bytes_consumed;
+	if(!sqctx->sq2_timestamp_string->found_nul) goto done;
+	de_dbg(c, "timestamp_string: \"%s\"", ucstring_getpsz_d(sqctx->sq2_timestamp_string->str));
+	pos += sqctx->sq2_timestamp_string->bytes_consumed;
 
-	sqctx->comment = dbuf_read_string(c->infile, pos, 300, 300,
+	sqctx->sq2_comment = dbuf_read_string(c->infile, pos, 300, 300,
 		DE_CONVFLAG_STOP_AT_NUL, sqctx->input_encoding);
-	if(!sqctx->comment->found_nul) goto done;
-	de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(sqctx->comment->str));
-	pos += sqctx->comment->bytes_consumed;
+	if(!sqctx->sq2_comment->found_nul) goto done;
+	de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(sqctx->sq2_comment->str));
+	pos += sqctx->sq2_comment->bytes_consumed;
 
 	b = de_getbyte_p(&pos);
 	if(b != 0x1a) goto done;
@@ -459,7 +528,7 @@ static void de_run_squeeze(deark *c, de_module_params *mparams)
 	pos = sqctx->cmpr_data_pos;
 
 	fi = de_finfo_create(c);
-	de_finfo_set_name_from_ucstring(c, fi, sqctx->fn->str, 0);
+	de_finfo_set_name_from_ucstring(c, fi, sqctx->fnd.fn, 0);
 	fi->original_filename_flag = 1;
 
 	de_dbg(c, "squeeze-compressed data at %"I64_FMT, pos);
@@ -511,9 +580,9 @@ static void de_run_squeeze(deark *c, de_module_params *mparams)
 
 done:
 	if(sqctx) {
-		de_destroy_stringreaderdata(c, sqctx->fn);
-		de_destroy_stringreaderdata(c, sqctx->timestamp_string);
-		de_destroy_stringreaderdata(c, sqctx->comment);
+		crcr_filename_data_freecontents(c, &sqctx->fnd);
+		de_destroy_stringreaderdata(c, sqctx->sq2_timestamp_string);
+		de_destroy_stringreaderdata(c, sqctx->sq2_comment);
 		de_free(c, sqctx);
 	}
 	dbuf_close(outf_final);
@@ -542,77 +611,6 @@ void de_module_squeeze(deark *c, struct deark_module_info *mi)
 ///////////////////////////////////////////////
 // Crunch - CP/M compressed file format
 
-// For Crunch/CRLZH filename fields
-struct crcr_filename_data {
-	de_ucstring *fn;
-	de_ucstring *comment;
-	i64 size;
-};
-
-static int crcr_read_filename_etc(deark *c, i64 pos1, struct crcr_filename_data *fnd)
-{
-	int retval = 0;
-	i64 pos = pos1;
-	enum crcrfnstate {
-		CRCRFNST_NEUTRAL, CRCRFNST_FILENAME, CRCRFNST_COMMENT, CRCRFNST_DATE
-	};
-	enum crcrfnstate state = CRCRFNST_FILENAME;
-
-	// Note: Only ASCII can really be supported, because the characters are 7-bit.
-	// Normally, we'd use ucstring_append_bytes_ex() for something like this, but
-	// it's pointless here.
-	fnd->fn = ucstring_create(c);
-
-	while(1) {
-		u8 b;
-
-		// Note: CFX limits this entire field to about 80 bytes.
-		if(pos-pos1 > 300) goto done;
-		if(pos >= c->infile->len) goto done;
-
-		b = de_getbyte_p(&pos) & 0x7f;
-		if(b==0) {
-			break;
-		}
-
-		if(b==0x01) {
-			state = CRCRFNST_DATE; // TODO: Figure this field out
-		}
-		else if(state==CRCRFNST_FILENAME && b=='[') {
-			state = CRCRFNST_COMMENT;
-		}
-		else if(state==CRCRFNST_FILENAME) {
-			ucstring_append_char(fnd->fn, (de_rune)b);
-		}
-		else if(state==CRCRFNST_COMMENT && b==']') {
-			state = CRCRFNST_NEUTRAL;
-		}
-		else if(state==CRCRFNST_COMMENT) {
-			if(!fnd->comment) {
-				fnd->comment = ucstring_create(c);
-			}
-			ucstring_append_char(fnd->comment, (de_rune)b);
-		}
-	}
-
-	ucstring_strip_trailing_spaces(fnd->fn);
-	fnd->size = pos - pos1;
-	retval = 1;
-	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(fnd->fn));
-	if(fnd->comment) {
-		de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(fnd->comment));
-	}
-
-done:
-	return retval;
-}
-
-static void crcr_filename_data_freecontents(deark *c, struct crcr_filename_data *fnd)
-{
-	ucstring_destroy(fnd->fn);
-	ucstring_destroy(fnd->comment);
-}
-
 struct crunch_ctx {
 	struct crcr_filename_data fnd;
 };
@@ -623,7 +621,7 @@ static void de_run_crunch(deark *c, de_module_params *mparams)
 	i64 pos = 0;
 	u8 b;
 	u8 fmtver;
-	u8 no_cksum_flag;
+	u8 cksum_type;
 	const char *verstr;
 
 	crunchctx = de_malloc(c, sizeof(struct squeeze_ctx));
@@ -647,9 +645,9 @@ static void de_run_crunch(deark *c, de_module_params *mparams)
 	}
 	de_dbg(c, "format version: 0x%02x (%s)", (UI)fmtver, verstr);
 
-	no_cksum_flag = de_getbyte_p(&pos);
-	de_dbg(c, "checksum flag: 0x%02x (%s checksum)", (UI)no_cksum_flag,
-		(no_cksum_flag?"no":"has"));
+	cksum_type = de_getbyte_p(&pos);
+	de_dbg(c, "checksum type: 0x%02x (%s)", (UI)cksum_type,
+		(cksum_type==0?"standard":"?"));
 
 	b = de_getbyte_p(&pos);
 	de_dbg(c, "unused info byte: 0x%02x", (UI)b);
