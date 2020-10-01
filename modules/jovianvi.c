@@ -11,7 +11,8 @@ DE_DECLARE_MODULE(de_module_jovianvi);
 typedef struct localctx_struct {
 	u8 imgtype;
 	u8 pal_code;
-	i64 w, h;
+	i64 npwidth, h;
+	i64 pdwidth;
 	i64 bitdepth;
 	i64 bits_alloc;
 	i64 rowspan;
@@ -73,7 +74,7 @@ static void do_convert_grayscale(deark *c, lctx *d, de_bitmap *img)
 	}
 
 	for(j=0; j<d->h; j++) {
-		for(i=0; i<d->w; i++) {
+		for(i=0; i<d->pdwidth; i++) {
 			v = de_get_bits_symbol(c->infile, d->bits_alloc, d->bitspos + j*d->rowspan, i);
 			if(d->bitdepth==4) v *= 17;
 			else if(d->bitdepth==6) {
@@ -95,7 +96,7 @@ static void do_convert_rgb(deark *c, lctx *d, de_bitmap *img)
 	u8 b0, b1;
 
 	for(j=0; j<d->h; j++) {
-		for(i=0; i<d->w; i++) {
+		for(i=0; i<d->pdwidth; i++) {
 			if(d->bitdepth==16) {
 				b0 = de_getbyte(d->bitspos + j*d->rowspan + i*2);
 				b1 = de_getbyte(d->bitspos + j*d->rowspan + i*2 + 1);
@@ -179,11 +180,10 @@ static void de_run_jovianvi(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	d->w = de_getu16le(3);
+	d->npwidth = de_getu16le(3);
 	d->h = de_getu16le(5);
-	de_dbg_dimensions(c, d->w, d->h);
-	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
-
+	de_dbg_dimensions(c, d->npwidth, d->h);
+	if(!de_good_image_dimensions(c, d->npwidth, d->h)) goto done;
 
 	if(has_palette) {
 		d->pal_code = de_getbyte(9);
@@ -207,8 +207,12 @@ static void de_run_jovianvi(deark *c, de_module_params *mparams)
 
 	// Convert the image
 	de_dbg(c, "bitmap at %d", (int)d->bitspos);
-	d->rowspan = (d->w*d->bits_alloc + 7)/8;
-	img = de_bitmap_create(c, d->w, d->h, is_grayscale?1:3);
+	d->rowspan = (d->npwidth*d->bits_alloc + 7)/8;
+	// Note that a partial pixel's worth of padding is possible in some cases, but
+	// it's not worth the trouble to make -padpix support it.
+	d->pdwidth = (d->rowspan*8)/(d->bits_alloc);
+
+	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->h, is_grayscale?1:3);
 	if(has_palette) {
 		de_convert_image_paletted(c->infile, d->bitspos, d->bitdepth, d->rowspan, d->pal, img, 0);
 	}
