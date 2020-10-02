@@ -30,6 +30,8 @@ struct localctx_struct {
 #define FMT_CLP 2
 	int file_fmt;
 	int ver;
+	de_encoding input_encoding;
+	int opt_keep_invis_chars;
 	de_finfo *fi;
 	i64 header_size;
 	i64 npwidth, height;
@@ -117,7 +119,7 @@ static void decode_text(deark *c, lctx *d)
 	if(screen->height<1) goto done;
 
 	screen->cell_rows = de_mallocarray(c, screen->height, sizeof(struct de_char_cell*));
-	de_encconv_init(&es, DE_ENCODING_CP437_G);
+	de_encconv_init(&es, d->input_encoding);
 
 	for(j=0; j<screen->height; j++) {
 		i64 j2;
@@ -131,8 +133,21 @@ static void decode_text(deark *c, lctx *d)
 
 			screen->cell_rows[j2][i].fgcol = (u32)(attr & 0x0f);
 			screen->cell_rows[j2][i].bgcol = (u32)((attr & 0xf0) >> 4);
-			screen->cell_rows[j2][i].codepoint = (i32)ch;
-			screen->cell_rows[j2][i].codepoint_unicode = de_char_to_unicode_ex((i32)ch, &es);
+
+			// In "blank" regions, some files have nonsense characters, with the fg
+			// and bg colors the same. We turn them into spaces, so that copy/paste
+			// works right with our HTML output.
+			if(ch==0 ||
+				(screen->cell_rows[j2][i].fgcol==screen->cell_rows[j2][i].bgcol &&
+					!d->opt_keep_invis_chars))
+			{
+				screen->cell_rows[j2][i].codepoint = 32;
+				screen->cell_rows[j2][i].codepoint_unicode = 32;
+			}
+			else {
+				screen->cell_rows[j2][i].codepoint = (i32)ch;
+				screen->cell_rows[j2][i].codepoint_unicode = de_char_to_unicode_ex((i32)ch, &es);
+			}
 		}
 	}
 
@@ -780,6 +795,8 @@ static void de_run_pcpaint(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437_G);
+
 	pcpaintfmt = de_get_ext_option(c, "pcpaint:fmt");
 	if(pcpaintfmt) {
 		if(!de_strcmp(pcpaintfmt, "pic")) {
@@ -815,6 +832,8 @@ static void de_run_pcpaint(deark *c, de_module_params *mparams)
 			d->file_fmt = FMT_CLP;
 		}
 	}
+
+	d->opt_keep_invis_chars = de_get_ext_option_bool(c, "pcpaint:invistext", 0);
 
 	if(d->file_fmt==FMT_CLP) {
 		de_run_pcpaint_clp(c, d, mparams);
