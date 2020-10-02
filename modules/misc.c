@@ -10,6 +10,7 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_copy);
 DE_DECLARE_MODULE(de_module_null);
+DE_DECLARE_MODULE(de_module_split);
 DE_DECLARE_MODULE(de_module_plaintext);
 DE_DECLARE_MODULE(de_module_cp437);
 DE_DECLARE_MODULE(de_module_crc);
@@ -48,6 +49,7 @@ DE_DECLARE_MODULE(de_module_deskmate_pnt);
 DE_DECLARE_MODULE(de_module_corel_bmf);
 DE_DECLARE_MODULE(de_module_hpi);
 DE_DECLARE_MODULE(de_module_dwc);
+DE_DECLARE_MODULE(de_module_mdesk_icn);
 
 // **************************************************************************
 // "copy" module
@@ -84,6 +86,89 @@ void de_module_null(deark *c, struct deark_module_info *mi)
 	mi->desc = "Do nothing";
 	mi->run_fn = de_run_null;
 	mi->flags |= DE_MODFLAG_NOEXTRACT;
+}
+
+// **************************************************************************
+// split
+// Split the input file into equal-sized chunks.
+// **************************************************************************
+
+static void do_split_onechunk(deark *c, i64 chunknum, i64 offset, i64 size)
+{
+	dbuf *outf = NULL;
+	char ext[32];
+
+	de_snprintf(ext, sizeof(ext), "part%"I64_FMT, chunknum);
+	outf = dbuf_create_output_file(c, ext, NULL, 0);
+	dbuf_copy(c->infile, offset, size, outf);
+	dbuf_close(outf);
+}
+
+static void de_run_split(deark *c, de_module_params *mparams)
+{
+	const char *s;
+	i64 pos;
+	i64 chunknum;
+	i64 chunksize, chunkstride;
+	i64 chunkcount;
+
+	s = de_get_ext_option(c, "split:size");
+	if(!s) {
+		de_err(c, "\"-opt split:size=<n>\" is required.");
+		goto done;
+	}
+	chunksize = de_atoi64(s);
+	if(chunksize<1) {
+		de_err(c, "Invalid chunk size");
+		goto done;
+	}
+
+	s = de_get_ext_option(c, "split:stride");
+	if(s) {
+		chunkstride = de_atoi64(s);
+		if(chunkstride<chunksize) {
+			de_err(c, "Stride must be "DE_CHAR_GEQ" size");
+			goto done;
+		}
+	}
+	else {
+		chunkstride = chunksize;
+	}
+
+	chunkcount = (c->infile->len + (chunkstride-1)) / chunkstride;
+
+	if((chunkcount>256) && (c->max_output_files<0)) {
+		de_err(c, "Large number of chunks; use \"-maxfiles %"I64_FMT"\" if you "
+			"really want to do this.", chunkcount);
+		goto done;
+	}
+
+	pos = 0;
+	for(chunknum = 0; chunknum<chunkcount; chunknum++) {
+		i64 this_chunk_size;
+
+		this_chunk_size = de_min_int(chunksize, c->infile->len-pos);
+		do_split_onechunk(c, chunknum, pos, this_chunk_size);
+
+		pos += chunkstride;
+	}
+
+done:
+	;
+}
+
+static void de_help_split(deark *c)
+{
+	de_msg(c, "-opt split:size=<n> : The size of each chunk, in bytes");
+	de_msg(c, "-opt split:stride=<n> : Source distance between chunks");
+}
+
+void de_module_split(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "split";
+	mi->desc = "Split the file into equal-sized chunks";
+	mi->run_fn = de_run_split;
+	mi->help_fn = de_help_split;
 }
 
 // **************************************************************************
@@ -485,7 +570,7 @@ static void de_run_hpicn(deark *c, de_module_params *mparams)
 
 	width = de_getu16le(4);
 	height = de_getu16le(6);
-	de_convert_and_write_image_bilevel(c->infile, 8, width, height, (width+7)/8,
+	de_convert_and_write_image_bilevel2(c->infile, 8, width, height, (width+7)/8,
 		DE_CVTF_WHITEISZERO, NULL, 0);
 }
 
@@ -943,30 +1028,49 @@ void de_module_hr(deark *c, struct deark_module_info *mi)
 // RIPterm icon (.ICN)
 // **************************************************************************
 
-static void de_run_ripicon(deark *c, de_module_params *mparams)
+// Don't know what this should be, but a limit will help us decide what is
+// and isn't an image.
+#define MAX_RIPICON_DIMENSION 2048
+
+static int do_one_ripicon(deark *c, i64 pos1, i64 *pbytes_consumed, int scan_mode)
 {
-	de_bitmap *img = NULL;
 	i64 width, height;
+	de_bitmap *img = NULL;
 	i64 chunk_span;
 	i64 src_rowspan;
+	i64 bitmap_len;
 	i64 i, j, k;
+	i64 pos = pos1;
 	u8 x;
 	u32 palent;
+	int saved_indent_level;
 
-	width = 1 + de_getu16le(0);
-	height = 1 + de_getu16le(2);
-	de_dbg_dimensions(c, width, height);
-	if(!de_good_image_dimensions(c, width, height)) goto done;
-
-	img = de_bitmap_create(c, width, height, 3);
+	if(pos1+8 > c->infile->len) return 0;
+	width = 1 + de_getu16le_p(&pos);
+	height = 1 + de_getu16le_p(&pos);
+	if(width>MAX_RIPICON_DIMENSION || height>MAX_RIPICON_DIMENSION) return 0;
 	chunk_span = (width+7)/8;
 	src_rowspan = 4*chunk_span;
+	bitmap_len = src_rowspan * height;
+	if(pos+bitmap_len > c->infile->len) return 0;
+
+	*pbytes_consumed = 4 + bitmap_len + 2;
+	if(scan_mode) return 1;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "image at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	de_dbg_dimensions(c, width, height);
+
+	de_dbg(c, "bitmap at %"I64_FMT", len=%"I64_FMT, pos, bitmap_len);
+	if(!de_good_image_dimensions(c, width, height)) goto done;
+	img = de_bitmap_create2(c, width, chunk_span*8, height, 3);
 
 	for(j=0; j<height; j++) {
-		for(i=0; i<width; i++) {
+		for(i=0; i<img->width; i++) { // Must use img->width, for -padpix
 			palent = 0;
 			for(k=0; k<4; k++) {
-				x = de_get_bits_symbol(c->infile, 1, 4 + j*src_rowspan + k*chunk_span, i);
+				x = de_get_bits_symbol(c->infile, 1, pos + j*src_rowspan + k*chunk_span, i);
 				palent = (palent<<1)|x;
 			}
 			de_bitmap_setpixel_rgb(img, i, j, de_palette_pc16(palent));
@@ -974,23 +1078,46 @@ static void de_run_ripicon(deark *c, de_module_params *mparams)
 	}
 
 	de_bitmap_write_to_file(img, NULL, 0);
+
 done:
-	de_bitmap_destroy(img);
+	if(img) de_bitmap_destroy(img);
+	de_dbg_indent_restore(c, saved_indent_level);
+	return 1;
+}
+
+static void de_run_ripicon(deark *c, de_module_params *mparams)
+{
+	i64 pos = 0;
+
+	while(1) {
+		i64 bytes_consumed = 0;
+
+		if(!do_one_ripicon(c, pos, &bytes_consumed, 0)) break;
+		pos += bytes_consumed;
+	}
 }
 
 static int de_identify_ripicon(deark *c)
 {
-	u8 buf[4];
-	i64 expected_size;
-	i64 width, height;
+	int has_ext = 0;
+	i64 pos = 0;
+	size_t i;
+	static const char *exts[] = { "icn", "hot", "msk", "bgi" };
 
-	if(!de_input_file_has_ext(c, "icn")) return 0;
-	de_read(buf, 0, sizeof(buf));
-	width = 1 + de_getu16le(0);
-	height = 1 + de_getu16le(2);
-	expected_size = 4 + height*(4*((width+7)/8)) + 1;
-	if(c->infile->len >= expected_size && c->infile->len <= expected_size+1) {
-		return 50;
+	for(i=0; i<DE_ARRAYCOUNT(exts); i++) {
+		if(de_input_file_has_ext(c, exts[i])) {
+			has_ext = 1;
+			break;
+		}
+	}
+	if(!has_ext) return 0;
+
+	while(1) {
+		i64 bytes_consumed = 0;
+
+		if(!do_one_ripicon(c, pos, &bytes_consumed, 1)) break;
+		pos += bytes_consumed;
+		if(pos == c->infile->len) return 50;
 	}
 	return 0;
 }
@@ -998,7 +1125,7 @@ static int de_identify_ripicon(deark *c)
 void de_module_ripicon(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ripicon";
-	mi->desc = "RIP/RIPscrip/RIPterm Icon";
+	mi->desc = "RIP/RIPscrip/RIPterm Icon / BGI image";
 	mi->run_fn = de_run_ripicon;
 	mi->identify_fn = de_identify_ripicon;
 }
@@ -1142,7 +1269,7 @@ static void de_run_vbm(deark *c, de_module_params *mparams)
 	}
 	width = de_getu16be(4);
 	height = de_getu16be(6);
-	de_convert_and_write_image_bilevel(c->infile, 8, width, height, (width+7)/8,
+	de_convert_and_write_image_bilevel2(c->infile, 8, width, height, (width+7)/8,
 		DE_CVTF_WHITEISZERO, NULL, 0);
 }
 
@@ -1177,7 +1304,7 @@ static void de_run_fp_art(deark *c, de_module_params *mparams)
 	width = de_getu16le(2);
 	height = de_getu16le(6);
 	rowspan = ((width+15)/16)*2;
-	de_convert_and_write_image_bilevel(c->infile, 8, width, height, rowspan, 0, NULL, 0);
+	de_convert_and_write_image_bilevel2(c->infile, 8, width, height, rowspan, 0, NULL, 0);
 }
 
 static int de_identify_fp_art(deark *c)
@@ -1212,20 +1339,22 @@ void de_module_fp_art(deark *c, struct deark_module_info *mi)
 static void de_run_ybm(deark *c, de_module_params *mparams)
 {
 	de_bitmap *img = NULL;
-	i64 width, height;
+	i64 npwidth, pdwidth, height;
 	i64 i, j;
 	i64 rowspan;
 	u8 x;
 
-	width = de_getu16be(2);
+	npwidth = de_getu16be(2);
 	height = de_getu16be(4);
-	if(!de_good_image_dimensions(c, width, height)) goto done;;
-	rowspan = ((width+15)/16)*2;
+	de_dbg_dimensions(c, npwidth, height);
+	if(!de_good_image_dimensions(c, npwidth, height)) goto done;
+	pdwidth = de_pad_to_n(npwidth, 16);
+	rowspan = pdwidth/8;
 
-	img = de_bitmap_create(c, width, height, 1);
+	img = de_bitmap_create2(c, npwidth, pdwidth, height, 1);
 
 	for(j=0; j<height; j++) {
-		for(i=0; i<width; i++) {
+		for(i=0; i<pdwidth; i++) {
 			// This encoding is unusual: LSB-first 16-bit integers.
 			x = de_get_bits_symbol(c->infile, 1, 6 + j*rowspan,
 				(i-i%16) + (15-i%16));
@@ -1520,7 +1649,7 @@ static void de_run_crg(deark *c, de_module_params *mparams)
 	}
 	de_dbg(c, "decompressed to %d bytes", (int)unc_pixels->len);
 
-	de_convert_and_write_image_bilevel(unc_pixels, 0, width, height, rowspan,
+	de_convert_and_write_image_bilevel2(unc_pixels, 0, width, height, rowspan,
 		DE_CVTF_WHITEISZERO, NULL, 0);
 
 done:
@@ -1824,7 +1953,7 @@ void de_module_qdv(deark *c, struct deark_module_info *mi)
 
 static void de_run_vitec(deark *c, de_module_params *mparams)
 {
-	i64 w, h;
+	i64 npwidth, pdwidth, h;
 	i64 i, j, plane;
 	de_bitmap *img = NULL;
 	i64 samplesperpixel;
@@ -1853,10 +1982,10 @@ static void de_run_vitec(deark *c, de_module_params *mparams)
 	// pos+4: Bits size?
 	// pos+24: Unknown field, usually 7
 
-	w = de_getu32be(pos+36);
+	npwidth = de_getu32be(pos+36);
 	h = de_getu32be(pos+40);
-	de_dbg_dimensions(c, w, h);
-	if(!de_good_image_dimensions(c, w, h)) goto done;
+	de_dbg_dimensions(c, npwidth, h);
+	if(!de_good_image_dimensions(c, npwidth, h)) goto done;
 
 	// pos+52: Unknown field, 1 in grayscale images
 
@@ -1872,13 +2001,14 @@ static void de_run_vitec(deark *c, de_module_params *mparams)
 	de_dbg_indent(c, -1);
 
 	de_dbg(c, "bitmap at %d", (int)pos);
-	img = de_bitmap_create(c, w, h, (int)samplesperpixel);
-	rowspan = ((w+7)/8)*8;
+	pdwidth = de_pad_to_n(npwidth, 8);
+	img = de_bitmap_create2(c, npwidth, pdwidth, h, (int)samplesperpixel);
+	rowspan = pdwidth;
 	planespan = rowspan*h;
 
 	for(plane=0; plane<samplesperpixel; plane++) {
 		for(j=0; j<h; j++) {
-			for(i=0; i<w; i++) {
+			for(i=0; i<pdwidth; i++) {
 				b = de_getbyte(pos + plane*planespan + j*rowspan + i);
 				if(samplesperpixel==3) {
 					de_bitmap_setsample(img, i, j, plane, b);
@@ -2115,7 +2245,7 @@ static void de_run_cdr_wl(deark *c, de_module_params *mparams)
 	pos += 4; // bmBits
 
 	if(!de_good_image_dimensions(c, w, h)) goto done;
-	img = de_bitmap_create(c, w, h, 1);
+	img = de_bitmap_create2(c, w, rowspan*8, h, 1);
 	de_convert_image_bilevel(c->infile, pos, rowspan, img, 0);
 	de_bitmap_write_to_file(img, "preview", DE_CREATEFLAG_IS_AUX);
 
@@ -2536,4 +2666,65 @@ void de_module_dwc(deark *c, struct deark_module_info *mi)
 	mi->desc = "DWC compressed archive";
 	mi->run_fn = de_run_dwc;
 	mi->identify_fn = de_identify_dwc;
+}
+
+// **************************************************************************
+// Magic Desk icon (.ICN)
+// **************************************************************************
+
+// Transpose (flip over the line y=x) a square bitmap.
+static void do_bitmap_transpose(de_bitmap *img)
+{
+	i64 i, j;
+
+	if(img->height != img->width) return;
+
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<j; i++) {
+			de_color tmp1, tmp2;
+
+			tmp1 = de_bitmap_getpixel(img, i, j);
+			tmp2 = de_bitmap_getpixel(img, j, i);
+			if(tmp1==tmp2) continue;
+			de_bitmap_setpixel_rgba(img, j, i, tmp1);
+			de_bitmap_setpixel_rgba(img, i, j, tmp2);
+		}
+	}
+}
+
+static void de_run_mdesk_icn(deark *c, de_module_params *mparams)
+{
+	de_bitmap *img = NULL;
+	static const de_color pal[16] = {
+		0xff000000U, 0xffaa0000U, 0xff00aa00U, 0xffaaaa00U,
+		0xff0000aaU, 0xffaa00aaU, 0xff00aaaaU, 0xff7d7d7dU,
+		0xffbababaU, 0xffff5555U, 0xff55ff55U, 0xffffff55U,
+		0xff5555ffU, 0xffff55ffU, 0xff55ffffU, 0xffffffffU
+	};
+
+	img = de_bitmap_create(c, 32, 32, 3);
+	de_convert_image_paletted(c->infile, 3, 4, 16, pal, img, 0);
+	do_bitmap_transpose(img);
+	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_mdesk_icn(deark *c)
+{
+	if(c->infile->len!=515) return 0;
+	if(de_getu16be(0)!=0x1f1f) return 0;
+	if(de_input_file_has_ext(c, "icn") ||
+		de_input_file_has_ext(c, "tbi"))
+	{
+		return 90;
+	}
+	return 20;
+}
+
+void de_module_mdesk_icn(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "mdesk_icn";
+	mi->desc = "Magic Desk icon";
+	mi->run_fn = de_run_mdesk_icn;
+	mi->identify_fn = de_identify_mdesk_icn;
 }

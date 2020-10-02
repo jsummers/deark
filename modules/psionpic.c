@@ -44,7 +44,7 @@ static void do_bitmap_1plane(deark *c, lctx *d, i64 plane_num)
 
 	de_dbg(c, "making a bilevel image from plane %d", (int)plane_num);
 
-	de_convert_and_write_image_bilevel(c->infile, pi->image_pos, pi->width, pi->height,
+	de_convert_and_write_image_bilevel2(c->infile, pi->image_pos, pi->width, pi->height,
 		pi->rowspan, DE_CVTF_WHITEISZERO|DE_CVTF_LSBFIRST, NULL, 0);
 }
 
@@ -56,6 +56,7 @@ static void do_bitmap_2planes(deark *c, lctx *d, i64 pn1, i64 pn2)
 
 	de_dbg(c, "making a grayscale image from planes %d and %d", (int)pn1, (int)pn2);
 
+	// TODO: Support -padpix (need samples with width not a multiple of 16)
 	img = de_bitmap_create(c, d->plane_info[pn1].width, d->plane_info[pn1].height, 1);
 
 	for(j=0; j<d->plane_info[pn1].height; j++) {

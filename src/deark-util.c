@@ -940,6 +940,23 @@ i64 de_log2_rounded_up(i64 n)
 	return 32;
 }
 
+char *de_print_base2_fixed(char *buf, size_t buf_len, u64 n, UI bitcount)
+{
+	UI x;
+	size_t bpos = 0;
+
+	if(buf_len<(size_t)bitcount+1) {
+		goto done;
+	}
+
+	for(x=0; x<bitcount; x++) {
+		buf[bpos++] = (n & (1ULL<<(bitcount-1-x))) ? '1' : '0';
+	}
+done:
+	buf[bpos] = '\0';
+	return buf;
+}
+
 static const char g_empty_string[] = "";
 
 const char *de_get_sz_ext(const char *sz)

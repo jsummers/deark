@@ -116,6 +116,11 @@ static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginf
 			cur_rownum = interleave_pass;
 		}
 
+		if(d->pixel_depth==1) {
+			de_convert_row_bilevel(unc_pixels, j*rowspan, img, j_adj, 0);
+			continue;
+		}
+
 		for(i=0; i<imginfo->width; i++) {
 			i64 i_adj;
 
@@ -124,10 +129,7 @@ static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginf
 			else
 				i_adj = i;
 
-			if(d->pixel_depth==1) {
-				de_convert_row_bilevel(unc_pixels, j*rowspan, img, j_adj, 0);
-			}
-			else if(d->color_type==TGA_CLRTYPE_TRUECOLOR && (d->pixel_depth==15 || d->pixel_depth==16)) {
+			if(d->color_type==TGA_CLRTYPE_TRUECOLOR && (d->pixel_depth==15 || d->pixel_depth==16)) {
 				clr = (u32)dbuf_getu16le(unc_pixels, j*rowspan + i*d->bytes_per_pixel);
 				clr = de_rgb555_to_888(clr);
 				de_bitmap_setpixel_rgb(img, i_adj, j_adj, clr);

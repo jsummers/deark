@@ -431,7 +431,7 @@ static void decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 	de_zeromem(&lzhparams, sizeof(struct de_lzh_params));
 	lzhparams.fmt = DE_LZH_FMT_LH5LIKE;
 	lzhparams.subfmt = '5';
-	lzhparams.stop_on_zero_codes_block = 1;
+	lzhparams.zero_codes_block_behavior = 1;
 
 	// Zoo does not appear to allow LZ77 offsets that point to data before
 	// the beginning of the file, so it doesn't matter what we initialize the

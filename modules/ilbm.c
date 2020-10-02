@@ -1128,6 +1128,15 @@ static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is
 		ibi->width = d->width;
 		ibi->height = d->height;
 	}
+
+	// Quick & dirty support for -padpix.
+	// TODO: Some of these conditions could be removed, with care.
+	if(c->padpix && (d->width%16) && !is_thumb && !d->is_anim && d->formtype==CODE_ILBM &&
+		!d->ham_flag)
+	{
+		ibi->width = de_pad_to_n(ibi->width, 16);
+	}
+
 	ibi->compression = d->compression;
 
 	ibi->masking_code = d->masking_code;

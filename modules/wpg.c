@@ -271,7 +271,7 @@ static void handler_bitmap(deark *c, lctx *d, u8 rectype, i64 dpos1, i64 dlen)
 		goto done;
 	}
 
-	img = de_bitmap_create(c, w, h, output_bypp);
+	img = de_bitmap_create2(c, w, (rowspan*8)/bpp, h, output_bypp);
 
 	fi = de_finfo_create(c);
 

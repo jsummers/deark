@@ -17,16 +17,22 @@ struct pal_info {
 struct localctx_struct;
 typedef struct localctx_struct lctx;
 
-typedef int (*decoder_fn_type)(deark *c, lctx *d);
+enum screen_mode_type_enum {
+	SCREENMODETYPE_UNKNOWN = 0,
+	SCREENMODETYPE_BITMAP,
+	SCREENMODETYPE_TEXT
+};
+
+typedef void (*decoder_fn_type)(deark *c, lctx *d);
 
 struct localctx_struct {
 #define FMT_PIC 1
 #define FMT_CLP 2
 	int file_fmt;
 	int ver;
-	de_bitmap *img;
 	de_finfo *fi;
 	i64 header_size;
+	i64 width, height;
 	u8 plane_info;
 	u8 palette_flag;
 	u8 video_mode; // 0 = unknown
@@ -36,6 +42,7 @@ struct localctx_struct {
 	i64 num_rle_blocks;
 	dbuf *unc_pixels;
 	decoder_fn_type decoder_fn;
+	enum screen_mode_type_enum screen_mode_type;
 };
 
 static void set_density(deark *c, lctx *d)
@@ -81,19 +88,18 @@ static void set_density(deark *c, lctx *d)
 	}
 }
 
-static int decode_text(deark *c, lctx *d)
+static void decode_text(deark *c, lctx *d)
 {
 	i64 width_in_chars;
 	struct de_char_context *charctx = NULL;
 	struct de_char_screen *screen;
 	i64 i, j, k;
 	u8 ch, attr;
-	int retval = 0;
 	struct de_encconv_state es;
 
 	// TODO: This might not work for monochrome text mode (d->video_mode==0x32).
 
-	width_in_chars = d->img->width / 2;
+	width_in_chars = d->width / 2;
 
 	charctx = de_malloc(c, sizeof(struct de_char_context));
 	charctx->no_density = 1;
@@ -103,7 +109,7 @@ static int decode_text(deark *c, lctx *d)
 	screen = charctx->screens[0];
 
 	screen->width = width_in_chars;
-	screen->height = d->img->height;
+	screen->height = d->height;
 
 	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d characters", (int)screen->width, (int)screen->height);
 
@@ -119,8 +125,8 @@ static int decode_text(deark *c, lctx *d)
 		screen->cell_rows[j2] = de_mallocarray(c, screen->width, sizeof(struct de_char_cell));
 
 		for(i=0; i<screen->width; i++) {
-			ch = dbuf_getbyte(d->unc_pixels, j*d->img->width + i*2);
-			attr = dbuf_getbyte(d->unc_pixels, j*d->img->width + i*2 + 1);
+			ch = dbuf_getbyte(d->unc_pixels, j*d->width + i*2);
+			attr = dbuf_getbyte(d->unc_pixels, j*d->width + i*2 + 1);
 
 			screen->cell_rows[j2][i].fgcol = (u32)(attr & 0x0f);
 			screen->cell_rows[j2][i].bgcol = (u32)((attr & 0xf0) >> 4);
@@ -138,7 +144,6 @@ static int decode_text(deark *c, lctx *d)
 
 done:
 	de_free_charctx(c, charctx);
-	return retval;
 }
 
 // Create a standard RGB palette from raw RGB palette data
@@ -191,7 +196,7 @@ static void make_rgb_palette(deark *c, lctx *d, u32 *pal, i64 num_entries)
 	de_dbg_indent(c, -1);
 }
 
-static int decode_egavga16(deark *c, lctx *d)
+static void decode_egavga16(deark *c, lctx *d)
 {
 	u32 pal[16];
 	i64 i, j;
@@ -201,6 +206,7 @@ static int decode_egavga16(deark *c, lctx *d)
 	i64 src_rowspan;
 	i64 src_planespan;
 	int palent;
+	de_bitmap *img = NULL;
 	char tmps[32];
 
 	de_dbg(c, "image type: 16-color EGA/VGA");
@@ -230,19 +236,19 @@ static int decode_egavga16(deark *c, lctx *d)
 	}
 
 	if(d->plane_info==0x31) {
-		src_rowspan = (d->img->width +7)/8;
-		src_planespan = src_rowspan*d->img->height;
+		src_rowspan = (d->width +7)/8;
+		src_planespan = src_rowspan*d->height;
 	}
 	else {
-		src_rowspan = (d->img->width +1)/2;
+		src_rowspan = (d->width +1)/2;
 		src_planespan = 0;
 	}
 
-	d->img->bytes_per_pixel = 3;
-	d->img->flipped = 1;
+	img = de_bitmap_create(c, d->width, d->height, 3);
+	img->flipped = 1;
 
-	for(j=0; j<d->img->height; j++) {
-		for(i=0; i<d->img->width; i++) {
+	for(j=0; j<d->height; j++) {
+		for(i=0; i<d->width; i++) {
 			if(d->plane_info==0x31) {
 				for(plane=0; plane<4; plane++) {
 					z[plane] = de_get_bits_symbol(d->unc_pixels, 1, plane*src_planespan + j*src_rowspan, i);
@@ -252,18 +258,20 @@ static int decode_egavga16(deark *c, lctx *d)
 			else {
 				palent = de_get_bits_symbol(d->unc_pixels, 4, j*src_rowspan, i);
 			}
-			de_bitmap_setpixel_rgb(d->img, i, j, pal[palent]);
+			de_bitmap_setpixel_rgb(img, i, j, pal[palent]);
 		}
 	}
 
-	de_bitmap_write_to_file_finfo(d->img, d->fi, 0);
-	return 1;
+	de_bitmap_write_to_file_finfo(img, d->fi, 0);
+
+	de_bitmap_destroy(img);
 }
 
-static int decode_vga256(deark *c, lctx *d)
+static void decode_vga256(deark *c, lctx *d)
 {
 	u32 pal[256];
 	i64 k;
+	de_bitmap *img = NULL;
 
 	de_dbg(c, "image type: 256-color");
 	de_zeromem(pal, sizeof(pal));
@@ -280,26 +288,28 @@ static int decode_vga256(deark *c, lctx *d)
 		make_rgb_palette(c, d, pal, 256);
 	}
 
-	d->img->bytes_per_pixel = 3;
-	d->img->flipped = 1;
+	img = de_bitmap_create(c, d->width, d->height, 3);
+	img->flipped = 1;
 
 	de_convert_image_paletted(d->unc_pixels, 0,
-		8, d->img->width, pal, d->img, 0);
+		8, img->width, pal, img, 0);
 
-	de_bitmap_write_to_file_finfo(d->img, d->fi, 0);
-	return 1;
+	de_bitmap_write_to_file_finfo(img, d->fi, 0);
+
+	de_bitmap_destroy(img);
 }
 
-static int decode_bilevel(deark *c, lctx *d)
+static void decode_bilevel(deark *c, lctx *d)
 {
 	i64 src_rowspan;
 	u32 pal[2];
 	int is_grayscale;
 	i64 edesc = d->pal_info_to_use->edesc;
+	de_bitmap *img = NULL;
 
 	de_dbg(c, "image type: bilevel");
 
-	if(!d->unc_pixels) return 0;
+	if(!d->unc_pixels) goto done;
 
 	pal[0] = DE_STOCKCOLOR_BLACK;
 	pal[1] = DE_STOCKCOLOR_WHITE; // default
@@ -321,29 +331,32 @@ static int decode_bilevel(deark *c, lctx *d)
 	}
 
 	is_grayscale = de_is_grayscale_palette(pal, 2);
-	d->img->bytes_per_pixel = is_grayscale?1:3;
-	d->img->flipped = 1;
+	img = de_bitmap_create(c, d->width, d->height, is_grayscale?1:3);
+	img->flipped = 1;
 
-	src_rowspan = (d->img->width +7)/8;
+	src_rowspan = (img->width +7)/8;
 
 	de_convert_image_paletted(d->unc_pixels, 0,
-		1, src_rowspan, pal, d->img, 0);
+		1, src_rowspan, pal, img, 0);
 
-	de_bitmap_write_to_file_finfo(d->img, d->fi, 0);
-	return 1;
+	de_bitmap_write_to_file_finfo(img, d->fi, 0);
+
+done:
+	de_bitmap_destroy(img);
 }
 
-static int decode_cga4(deark *c, lctx *d)
+static void decode_cga4(deark *c, lctx *d)
 {
 	i64 k;
 	i64 src_rowspan;
 	u32 pal[4];
 	u8 pal_id = 0;
 	u8 border_col = 0;
+	de_bitmap *img = NULL;
 
 	de_dbg(c, "image type: CGA 4-color");
 
-	if(!d->unc_pixels) return 0;
+	if(!d->unc_pixels) goto done;
 
 	if(d->pal_info_to_use->edesc==1) {
 		// Image includes information about which CGA 4-color palette it uses.
@@ -371,15 +384,17 @@ static int decode_cga4(deark *c, lctx *d)
 		}
 	}
 
-	d->img->bytes_per_pixel = 3;
-	d->img->flipped = 1;
+	img = de_bitmap_create(c, d->width, d->height, 3);
+	img->flipped = 1;
 
-	src_rowspan = (d->img->width +3)/4;
+	src_rowspan = (img->width +3)/4;
 	de_convert_image_paletted(d->unc_pixels, 0,
-		2, src_rowspan, pal, d->img, 0);
+		2, src_rowspan, pal, img, 0);
 
-	de_bitmap_write_to_file_finfo(d->img, d->fi, 0);
-	return 1;
+	de_bitmap_write_to_file_finfo(img, d->fi, 0);
+
+done:
+	de_bitmap_destroy(img);
 }
 
 // decompress one block
@@ -445,7 +460,7 @@ static int uncompress_pixels(deark *c, lctx *d)
 	}
 
 	d->unc_pixels = dbuf_create_membuf(c, 16384, 0);
-	dbuf_set_length_limit(d->unc_pixels, d->img->width * d->img->height);
+	dbuf_set_length_limit(d->unc_pixels, d->width * d->height);
 
 	de_dbg(c, "uncompressing image");
 	pos = d->header_size;
@@ -536,7 +551,7 @@ done:
 }
 
 // Determine if we can decode this type of image.
-// Sets d->decoder_fn.
+// Sets d->decoder_fn and d->screen_mode_type.
 // If image can't be decoded, prints an error and returns 0.
 static int do_set_up_decoder(deark *c, lctx *d)
 {
@@ -545,28 +560,34 @@ static int do_set_up_decoder(deark *c, lctx *d)
 	edesc = d->pal_info_to_use->edesc; // For brevity
 
 	if(d->video_mode>='0' && d->video_mode<='3') {
+		d->screen_mode_type = SCREENMODETYPE_TEXT;
 		d->decoder_fn = decode_text;
 	}
 	else if(d->plane_info==0x01) {
 		// Expected video mode(s): 0x43, 0x45, 0x48, 0x4f, 0x50, 0x55
 		// CGA or EGA or VGA or Hercules 2-color
+		d->screen_mode_type = SCREENMODETYPE_BITMAP;
 		d->decoder_fn = decode_bilevel;
 	}
 	else if(d->plane_info==0x02 && (edesc==0 || edesc==1)) {
 		// Expected video mode(s): 0x41
+		d->screen_mode_type = SCREENMODETYPE_BITMAP;
 		d->decoder_fn = decode_cga4;
 	}
 	else if(d->plane_info==0x04 && edesc==3) {
+		d->screen_mode_type = SCREENMODETYPE_BITMAP;
 		d->decoder_fn = decode_egavga16;
 	}
 	else if((d->plane_info==0x04 || d->plane_info==0x31) &&
 		(edesc==0 || edesc==3 || edesc==5))
 	{
 		// Expected video mode(s): 0x4d, 0x47
+		d->screen_mode_type = SCREENMODETYPE_BITMAP;
 		d->decoder_fn = decode_egavga16;
 	}
 	else if(d->plane_info==0x08 && (edesc==0 || edesc==4)) {
 		// Expected video mode(s): 0x4c
+		d->screen_mode_type = SCREENMODETYPE_BITMAP;
 		d->decoder_fn = decode_vga256;
 	}
 
@@ -591,18 +612,14 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 
 	de_declare_fmt(c, "PCPaint PIC");
 
-	// Note that this bitmap will not be rendered in the case of character
-	// graphics, but it's still needed to store the width and height.
-	d->img = de_bitmap_create_noinit(c);
-
 	d->fi = de_finfo_create(c);
 
 	de_dbg(c, "header at %d", 0);
 	de_dbg_indent(c, 1);
 
-	d->img->width = de_getu16le(2);
-	d->img->height = de_getu16le(4);
-	de_dbg_dimensions(c, d->img->width, d->img->height);
+	d->width = de_getu16le(2);
+	d->height = de_getu16le(4);
+	de_dbg_dimensions(c, d->width, d->height);
 
 	d->plane_info = de_getbyte(10);
 	d->palette_flag = de_getbyte(11);
@@ -645,6 +662,9 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 	de_dbg(c, "image data at %d", (int)d->header_size);
 	de_dbg_indent(c, 1);
 	if(!do_set_up_decoder(c, d)) goto done;
+	if(d->screen_mode_type==SCREENMODETYPE_BITMAP) {
+		if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
+	}
 
 	if(d->num_rle_blocks>0) {
 		// Image is compressed.
@@ -673,8 +693,6 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 
 	de_declare_fmt(c, "PCPaint CLP");
 
-	d->img = de_bitmap_create_noinit(c);
-
 	de_dbg(c, "header at %d", 0);
 	de_dbg_indent(c, 1);
 
@@ -690,9 +708,9 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 		}
 	}
 
-	d->img->width = de_getu16le(2);
-	d->img->height = de_getu16le(4);
-	de_dbg_dimensions(c, d->img->width, d->img->height);
+	d->width = de_getu16le(2);
+	d->height = de_getu16le(4);
+	de_dbg_dimensions(c, d->width, d->height);
 
 	d->plane_info = de_getbyte(10);
 
@@ -726,7 +744,7 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 	if(is_compressed) {
 		run_marker = de_getbyte(12);
 		d->unc_pixels = dbuf_create_membuf(c, 16384, 0);
-		dbuf_set_length_limit(d->unc_pixels, d->img->width * d->img->height);
+		dbuf_set_length_limit(d->unc_pixels, d->width * d->height);
 
 		if(!uncompress_block(c, d, d->header_size,
 			c->infile->len - d->header_size, run_marker))
@@ -800,7 +818,6 @@ static void de_run_pcpaint(deark *c, de_module_params *mparams)
 	}
 
 	if(d->unc_pixels) dbuf_close(d->unc_pixels);
-	de_bitmap_destroy(d->img);
 	de_finfo_destroy(c, d->fi);
 	de_free(c, d->pal_info_mainfile.data);
 	de_free(c, d->pal_info_palfile.data);

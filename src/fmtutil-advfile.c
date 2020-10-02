@@ -363,7 +363,8 @@ static void de_advfile_run_macbinary(deark *c, struct de_advfile *advf)
 	struct de_advfile_cbparams *afp_rsrc = NULL;
 	dbuf *outf = NULL;
 	de_ucstring *fname = NULL;
-	i64 main_amt_padding, rsrc_amt_padding;
+	i64 main_amt_padding;
+	//i64 rsrc_amt_padding;
 	i64 main_fork_len, rsrc_fork_len;
 	dbuf *hdr = NULL;
 	struct de_crcobj *crco = NULL;
@@ -389,8 +390,8 @@ static void de_advfile_run_macbinary(deark *c, struct de_advfile *advf)
 
 	main_amt_padding = advf->mainfork.fork_len % 128;
 	if(main_amt_padding > 0) main_amt_padding = 128-main_amt_padding;
-	rsrc_amt_padding = advf->rsrcfork.fork_len % 128;
-	if(rsrc_amt_padding > 0) rsrc_amt_padding = 128-rsrc_amt_padding;
+	//rsrc_amt_padding = advf->rsrcfork.fork_len % 128;
+	//if(rsrc_amt_padding > 0) rsrc_amt_padding = 128-rsrc_amt_padding;
 
 	fname = ucstring_create(c);
 	ucstring_append_ucstring(fname, advf->filename);

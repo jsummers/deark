@@ -16,7 +16,7 @@ struct huffman_nval_pointer_data {
 	NODE_REF_TYPE noderef;
 };
 struct huffman_nval_value_data {
-	i32 value;
+	fmtutil_huffman_valtype value;
 };
 
 union huffman_nval_data {
@@ -34,7 +34,7 @@ struct huffman_node {
 };
 
 struct huffman_lengths_arr_item {
-	i32 val;
+	fmtutil_huffman_valtype val;
 	UI len;
 };
 
@@ -53,7 +53,7 @@ struct fmtutil_huffman_tree {
 	NODE_REF_TYPE nodes_alloc;
 	struct huffman_node *nodes; // array[nodes_alloc]
 	u8 has_null_code;
-	i32 value_of_null_code;
+	fmtutil_huffman_valtype value_of_null_code;
 
 	i64 num_codes;
 	UI max_bits;
@@ -130,7 +130,7 @@ void fmtutil_huffman_reset_cursor(struct fmtutil_huffman_tree *ht)
 //
 // Note that adding the 0-length code is allowed.
 int fmtutil_huffman_add_code(deark *c, struct fmtutil_huffman_tree *ht,
-	u64 code, UI code_nbits, i32 val)
+	u64 code, UI code_nbits, fmtutil_huffman_valtype val)
 {
 	UI k;
 	NODE_REF_TYPE curr_noderef = 0; // Note that this may temporarily point to an unallocated node
@@ -203,7 +203,7 @@ done:
 //  0 = Error (*pval unchanged)
 // If return value is not 2, resets the cursor before returning.
 // Note that, by itself, this function cannot read the zero-length code.
-int fmtutil_huffman_decode_bit(struct fmtutil_huffman_tree *ht, u8 bitval, i32 *pval)
+int fmtutil_huffman_decode_bit(struct fmtutil_huffman_tree *ht, u8 bitval, fmtutil_huffman_valtype *pval)
 {
 	UI child_idx;
 	int retval = 0;
@@ -239,7 +239,7 @@ done:
 //  0 on error - Can happen if the tree was not constructed properly, or on EOF
 //    (bitrd->eof_flag can distinguish these cases).
 int fmtutil_huffman_read_next_value(struct fmtutil_huffman_tree *ht,
-	struct de_bitreader *bitrd, i32 *pval, UI *pnbits)
+	struct de_bitreader *bitrd, fmtutil_huffman_valtype *pval, UI *pnbits)
 {
 	int bitcount = 0;
 	int retval = 0;
@@ -323,7 +323,8 @@ void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_tree *ht)
 // The order that you supply the items matters, at least within the set of items
 // having the same length.
 // Cannot be used for zero-length items. If len==0, it's a successful no-op.
-int fmtutil_huffman_record_a_code_length(deark *c, struct fmtutil_huffman_tree *ht, i32 val, UI len)
+int fmtutil_huffman_record_a_code_length(deark *c, struct fmtutil_huffman_tree *ht,
+	fmtutil_huffman_valtype val, UI len)
 {
 	if(len==0) return 1;
 	if(ht->lengths_arr_numused > MAX_MAX_NODES) return 0;
@@ -352,9 +353,10 @@ int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *h
 	u64 prev_code = 0; // valid if prev_code_bit_length>0
 	int retval = 0;
 	int saved_indent_level;
+	char b2buf[72];
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg2(c, "constructing huffman tree:");
+	de_dbg3(c, "constructing huffman tree:");
 	de_dbg_indent(c, 1);
 
 	if(!ht->lengths_arr) {
@@ -398,8 +400,9 @@ int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *h
 			prev_code_bit_length = symlen;
 			prev_code = thiscode;
 
-			if(c->debug_level>=2) {
-				de_dbg2(c, "addcode 0x%"U64_FMTx" [%u bits] = %d", thiscode, symlen,
+			if(c->debug_level>=3) {
+				de_dbg3(c, "adding code \"%s\" = %d",
+					de_print_base2_fixed(b2buf, sizeof(b2buf), thiscode, symlen),
 					(int)ht->lengths_arr[k].val);
 			}
 			ret = fmtutil_huffman_add_code(c, ht, thiscode, symlen, ht->lengths_arr[k].val);
@@ -495,22 +498,26 @@ static void squeeze_interpret_node(struct squeeze_ctx *sqctx,
 static void squeeze_interpret_dval(struct squeeze_ctx *sqctx,
 	i16 dval, u64 currcode, UI currcode_nbits)
 {
+	char b2buf[72];
+
 	if(dval>=0) { // a pointer to a node
 		if((i64)dval < sqctx->nodecount) {
 			squeeze_interpret_node(sqctx, (i64)dval, currcode, currcode_nbits);
 		}
 	}
 	else if(dval>=(-257) && dval<=(-1)) {
-		i32 adj_value;
+		fmtutil_huffman_valtype adj_value;
 
 		//  -257 => 256 (stop code)
 		//  -256 => 255 (byte value)
 		//  -255 => 254 (byte value)
 		//  ...
 		//  -1   => 0   (byte value)
-		adj_value = -(((i32)dval)+1);
+		adj_value = -(((fmtutil_huffman_valtype)dval)+1);
 		if(sqctx->c->debug_level>=2) {
-			de_dbg2(sqctx->c, "adding code 0x%x [%u bits]: %d", (UI)currcode, currcode_nbits, (int)adj_value);
+			de_dbg2(sqctx->c, "adding code \"%s\" = %d",
+				de_print_base2_fixed(b2buf, sizeof(b2buf), currcode, currcode_nbits),
+				(int)adj_value);
 		}
 		fmtutil_huffman_add_code(sqctx->c, sqctx->ht, currcode, currcode_nbits, adj_value);
 	}
@@ -604,7 +611,7 @@ static int squeeze_read_codes(deark *c, struct squeeze_ctx *sqctx)
 
 	while(1) {
 		int ret;
-		i32 val = 0;
+		fmtutil_huffman_valtype val = 0;
 
 		ret = fmtutil_huffman_read_next_value(sqctx->ht, &sqctx->bitrd, &val, NULL);
 		if(!ret || val<0 || val>256) {

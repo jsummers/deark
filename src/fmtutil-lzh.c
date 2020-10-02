@@ -25,7 +25,8 @@ struct lzh_ctx {
 	// bitrd.eof_flag: Always set if err_flag is set.
 	struct de_bitreader bitrd;
 
-	u8 stop_on_zero_codes_block;
+	u8 zero_codes_block_behavior;
+	u8 zero_codes_block_warned;
 
 	struct de_lz77buffer *ringbuf;
 
@@ -72,7 +73,7 @@ static UI lh5x_read_a_code_length(struct lzh_ctx *cctx)
 
 static UI read_next_code_using_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *tree)
 {
-	i32 val = 0;
+	fmtutil_huffman_valtype val = 0;
 	UI bitcount = 0;
 	int ret;
 
@@ -121,11 +122,11 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx, struct lzh_tree_wrap
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_bitreader_describe_curpos(&cctx->bitrd, pos_descr, sizeof(pos_descr));
-	de_dbg(c, "%s tree at %s", name, pos_descr);
+	de_dbg2(c, "%s tree at %s", name, pos_descr);
 	de_dbg_indent(c, 1);
 
 	ncodes = (UI)lzh_getbits(cctx, 5);
-	de_dbg2(c, "num codes: %u", ncodes);
+	de_dbg2(c, "num codes in %s tree: %u", name, ncodes);
 
 	if(ncodes>LH5X_CODELENGTHS_TREE_MAX_CODES) {
 		ncodes = LH5X_CODELENGTHS_TREE_MAX_CODES;
@@ -137,8 +138,8 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx, struct lzh_tree_wrap
 		UI null_val;
 
 		null_val = (UI)lzh_getbits(cctx, 5);
-		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (i32)null_val);
-		de_dbg2(c, "val0: %u", null_val);
+		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
+		de_dbg3(c, "val0: %u", null_val);
 		retval = 1;
 		goto done;
 	}
@@ -148,8 +149,8 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx, struct lzh_tree_wrap
 		UI symlen;
 
 		symlen = lh5x_read_a_code_length(cctx);
-		de_dbg2(c, "len[%u] = %u", curr_idx, symlen);
-		fmtutil_huffman_record_a_code_length(c, tree->ht, (i32)curr_idx, symlen);
+		de_dbg3(c, "len[%u] = %u", curr_idx, symlen);
+		fmtutil_huffman_record_a_code_length(c, tree->ht, (fmtutil_huffman_valtype)curr_idx, symlen);
 		curr_idx++;
 
 		if(curr_idx==3) {
@@ -160,7 +161,7 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx, struct lzh_tree_wrap
 			// TODO: Verify that it exists when the number of lengths is exactly 3.
 			extraskip = (UI)lzh_getbits(cctx, 2);
 			if(extraskip>0) {
-				de_dbg2(c, "extra skip: %u", extraskip);
+				de_dbg3(c, "extra skip: %u", extraskip);
 				curr_idx += extraskip;
 			}
 		}
@@ -204,11 +205,11 @@ static int lh5x_read_codes_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *t
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_bitreader_describe_curpos(&cctx->bitrd, pos_descr, sizeof(pos_descr));
-	de_dbg(c, "%s tree at %s", name, pos_descr);
+	de_dbg2(c, "%s tree at %s", name, pos_descr);
 	de_dbg_indent(c, 1);
 
 	ncodes = (UI)lzh_getbits(cctx, 9);
-	de_dbg2(c, "num codes: %u", ncodes);
+	de_dbg2(c, "num codes in %s tree: %u", name, ncodes);
 
 	tree->ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
 
@@ -219,8 +220,8 @@ static int lh5x_read_codes_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *t
 		UI null_val;
 
 		null_val = (UI)lzh_getbits(cctx, 9);
-		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (i32)null_val);
-		de_dbg2(c, "val0: %u", null_val);
+		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
+		de_dbg3(c, "val0: %u", null_val);
 		retval = 1;
 		goto done;
 	}
@@ -235,7 +236,7 @@ static int lh5x_read_codes_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *t
 			UI sk;
 
 			sk = lh5x_read_a_skip_length(cctx, x);
-			de_dbg2(c, "len[%u]: code=%u => skip:range_code=%u,extra_skip=%u",
+			de_dbg3(c, "len[%u]: code=%u => skip:range_code=%u,extra_skip=%u",
 				curr_idx, x, x, sk);
 			curr_idx += 1 + sk;
 		}
@@ -243,8 +244,8 @@ static int lh5x_read_codes_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *t
 			UI symlen;
 
 			symlen = x-2;
-			de_dbg2(c, "len[%u]: code=%u => len=%u", curr_idx, x, symlen);
-			fmtutil_huffman_record_a_code_length(c, tree->ht, (i32)curr_idx, symlen);
+			de_dbg3(c, "len[%u]: code=%u => len=%u", curr_idx, x, symlen);
+			fmtutil_huffman_record_a_code_length(c, tree->ht, (fmtutil_huffman_valtype)curr_idx, symlen);
 			curr_idx++;
 		}
 	}
@@ -273,11 +274,11 @@ static int lh5x_read_offsets_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper 
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_bitreader_describe_curpos(&cctx->bitrd, pos_descr, sizeof(pos_descr));
-	de_dbg(c, "%s tree at %s", name, pos_descr);
+	de_dbg2(c, "%s tree at %s", name, pos_descr);
 	de_dbg_indent(c, 1);
 
 	ncodes = (UI)lzh_getbits(cctx, cctx->lh5x_offset_nbits);
-	de_dbg2(c, "num codes: %u", ncodes);
+	de_dbg2(c, "num codes in %s tree: %u", name, ncodes);
 
 	if(ncodes>cctx->lh5x_offsets_tree_max_codes) { // TODO: Is this an error?
 		ncodes = cctx->lh5x_offsets_tree_max_codes;
@@ -289,8 +290,8 @@ static int lh5x_read_offsets_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper 
 		UI null_val;
 
 		null_val = (UI)lzh_getbits(cctx, cctx->lh5x_offset_nbits);
-		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (i32)null_val);
-		de_dbg2(c, "val0: %u", null_val);
+		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
+		de_dbg3(c, "val0: %u", null_val);
 		retval = 1;
 		goto done;
 	}
@@ -300,8 +301,8 @@ static int lh5x_read_offsets_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper 
 		UI symlen;
 
 		symlen = lh5x_read_a_code_length(cctx);
-		de_dbg2(c, "len[%u] = %u", curr_idx, symlen);
-		fmtutil_huffman_record_a_code_length(c, tree->ht, (i32)curr_idx, symlen);
+		de_dbg3(c, "len[%u] = %u", curr_idx, symlen);
+		fmtutil_huffman_record_a_code_length(c, tree->ht, (fmtutil_huffman_valtype)curr_idx, symlen);
 		curr_idx++;
 	}
 	if(cctx->bitrd.eof_flag) goto done;
@@ -314,6 +315,31 @@ done:
 		lzh_set_err_flag(cctx);
 	}
 	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static int lh5x_do_read_trees(struct lzh_ctx *cctx)
+{
+	int retval = 0;
+
+	if(cctx->codelengths_tree.ht) {
+		fmtutil_huffman_destroy_tree(cctx->c, cctx->codelengths_tree.ht);
+		cctx->codelengths_tree.ht = NULL;
+	}
+	if(cctx->codes_tree.ht) {
+		fmtutil_huffman_destroy_tree(cctx->c, cctx->codes_tree.ht);
+		cctx->codes_tree.ht = NULL;
+	}
+	if(cctx->offsets_tree.ht) {
+		fmtutil_huffman_destroy_tree(cctx->c, cctx->offsets_tree.ht);
+		cctx->offsets_tree.ht = NULL;
+	}
+
+	if(!lh5x_read_codelengths_tree(cctx, &cctx->codelengths_tree, "code-lengths")) goto done;
+	if(!lh5x_read_codes_tree(cctx, &cctx->codes_tree, "codes")) goto done;
+	if(!lh5x_read_offsets_tree(cctx, &cctx->offsets_tree, "offsets")) goto done;
+	retval = 1;
+done:
 	return retval;
 }
 
@@ -333,42 +359,39 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 		de_dbg2(c, "stopping, not enough room for a block at %s", pos_descr);
 		goto done;
 	}
-	de_dbg(c, "block#%d at %s", blk_idx, pos_descr);
+	de_dbg2(c, "block#%d at %s", blk_idx, pos_descr);
 	de_dbg_indent(c, 1);
-	de_dbg(cctx->c, "num codes: %u", (UI)ncodes_in_this_block);
+	de_dbg2(cctx->c, "num codes in block: %u", (UI)ncodes_in_this_block);
 
 	if(ncodes_in_this_block==0) {
-		if(cctx->stop_on_zero_codes_block) {
+		if(cctx->zero_codes_block_behavior==0) {
+			// I suspect that LHA for DOS treats 0 as 65536, but I haven't
+			// fully confirmed it. Other LHA software does other things.
+			if(!cctx->zero_codes_block_warned) {
+				de_warn(c, "Block with \"0\" codes found. This file might not be portable.");
+				cctx->zero_codes_block_warned = 1;
+			}
+			ncodes_in_this_block = 65536;
+		}
+		else if(cctx->zero_codes_block_behavior==1) {
 			de_dbg2(c, "stopping, 'stop' code found");
+			cctx->bitrd.eof_flag = 1;
+			goto done;
 		}
 		else {
-			// blocksize==0 does not seem to have a well-defined meaning in LHA,
-			// in general.
-			de_dbg(c, "stopping, 0-code block found (error?)");
+			de_dbg2(c, "stopping, 0-code block found (error?)");
+			cctx->bitrd.eof_flag = 1;
+			goto done;
 		}
-		cctx->bitrd.eof_flag = 1;
+	}
+
+	if(!lh5x_do_read_trees(cctx)) {
+		de_dfilter_set_errorf(c, cctx->dres, cctx->modname, "Bad Huffman tree definitions");
 		goto done;
 	}
 
-	if(cctx->codelengths_tree.ht) {
-		fmtutil_huffman_destroy_tree(c, cctx->codelengths_tree.ht);
-		cctx->codelengths_tree.ht = NULL;
-	}
-	if(cctx->codes_tree.ht) {
-		fmtutil_huffman_destroy_tree(c, cctx->codes_tree.ht);
-		cctx->codes_tree.ht = NULL;
-	}
-	if(cctx->offsets_tree.ht) {
-		fmtutil_huffman_destroy_tree(c, cctx->offsets_tree.ht);
-		cctx->offsets_tree.ht = NULL;
-	}
-
-	if(!lh5x_read_codelengths_tree(cctx, &cctx->codelengths_tree, "code-lengths")) goto done;
-	if(!lh5x_read_codes_tree(cctx, &cctx->codes_tree, "codes")) goto done;
-	if(!lh5x_read_offsets_tree(cctx, &cctx->offsets_tree, "offsets")) goto done;
-
 	de_bitreader_describe_curpos(&cctx->bitrd, pos_descr, sizeof(pos_descr));
-	de_dbg(c, "cmpr data codes at %s", pos_descr);
+	de_dbg2(c, "cmpr data codes at %s", pos_descr);
 	ncodes_remaining_this_block = ncodes_in_this_block;
 	while(1) {
 		UI code;
@@ -452,13 +475,18 @@ static void decompress_lha_lh5like(struct lzh_ctx *cctx, struct de_lzh_params *l
 		cctx->lh5x_offset_nbits = 5;
 		cctx->lh5x_offsets_tree_max_codes = 16;
 	}
-	else { // assume lh5
+	else if(lzhp->subfmt=='7' || lzhp->subfmt=='8') {
+		rb_size = 65536;
+		cctx->lh5x_offset_nbits = 5;
+		cctx->lh5x_offsets_tree_max_codes = 17;
+	}
+	else { // assume lh5 (or lh4, for which these params should also work)
 		rb_size = 8192;
 		cctx->lh5x_offset_nbits = 4;
 		cctx->lh5x_offsets_tree_max_codes = 14;
 	}
 
-	cctx->stop_on_zero_codes_block = lzhp->stop_on_zero_codes_block;
+	cctx->zero_codes_block_behavior = lzhp->zero_codes_block_behavior;
 
 	cctx->ringbuf = de_lz77buffer_create(cctx->c, rb_size);
 	cctx->ringbuf->userdata = (void*)cctx;
@@ -498,7 +526,7 @@ void fmtutil_decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 	cctx->bitrd.curpos = dcmpri->pos;
 	cctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
 
-	if(lzhp->fmt==DE_LZH_FMT_LH5LIKE && (lzhp->subfmt=='5' || lzhp->subfmt=='6'))
+	if(lzhp->fmt==DE_LZH_FMT_LH5LIKE && (lzhp->subfmt>='4' && lzhp->subfmt<='8'))
 	{
 		decompress_lha_lh5like(cctx, lzhp);
 	}

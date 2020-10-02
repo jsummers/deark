@@ -472,22 +472,26 @@ static void do_bitmap_1bpp(deark *c, lctx *d)
 {
 	// The paletted algorithm would work here (if we construct a palette),
 	// but this special case is easy and efficient.
-	de_convert_and_write_image_bilevel(d->unc_pixels, 0,
-		d->width, d->height, d->rowspan, 0, d->fi, 0);
+	de_convert_and_write_image_bilevel2(d->unc_pixels, 0,
+		d->width, d->height, d->rowspan_raw, 0, d->fi, 0);
 }
 
 static void do_bitmap_paletted(deark *c, lctx *d)
 {
 	de_bitmap *img = NULL;
+	i64 pdwidth;
 	i64 i, j;
 	i64 plane;
 	u8 b;
 	unsigned int palent;
 
-	img = de_bitmap_create(c, d->width, d->height, 3);
+	// bits_per_plane(_per_row) / bits_per_pixel_per_plane
+	pdwidth = (d->rowspan_raw*8) / d->bits;
+
+	img = de_bitmap_create2(c, d->width, pdwidth, d->height, 3);
 
 	for(j=0; j<d->height; j++) {
-		for(i=0; i<d->width; i++) {
+		for(i=0; i<pdwidth; i++) {
 			palent = 0;
 			for(plane=0; plane<d->planes; plane++) {
 				b = de_get_bits_symbol(d->unc_pixels, d->bits,
@@ -506,15 +510,17 @@ static void do_bitmap_paletted(deark *c, lctx *d)
 static void do_bitmap_24bpp(deark *c, lctx *d)
 {
 	de_bitmap *img = NULL;
+	i64 pdwidth;
 	i64 i, j;
 	i64 plane;
 	u8 s[4];
 
 	de_memset(s, 0xff, sizeof(s));
-	img = de_bitmap_create(c, d->width, d->height, d->has_transparency?4:3);
+	pdwidth = (d->rowspan_raw*8) / d->bits;
+	img = de_bitmap_create2(c, d->width, pdwidth, d->height, d->has_transparency?4:3);
 
 	for(j=0; j<d->height; j++) {
-		for(i=0; i<d->width; i++) {
+		for(i=0; i<pdwidth; i++) {
 			for(plane=0; plane<d->planes; plane++) {
 				s[plane] = dbuf_getbyte(d->unc_pixels, j*d->rowspan + plane*d->rowspan_raw +i);
 			}

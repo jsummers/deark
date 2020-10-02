@@ -392,6 +392,7 @@ enum opt_id_enum {
  DE_OPT_NULL=0, DE_OPT_D, DE_OPT_D2, DE_OPT_D3, DE_OPT_L,
  DE_OPT_NOINFO, DE_OPT_NOWARN,
  DE_OPT_NOBOM, DE_OPT_NODENS, DE_OPT_ASCIIHTML, DE_OPT_NONAMES,
+ DE_OPT_PADPIX,
  DE_OPT_NOOVERWRITE, DE_OPT_MODTIME, DE_OPT_NOMODTIME,
  DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP, DE_OPT_LICENSE, DE_OPT_ID,
  DE_OPT_MAINONLY, DE_OPT_AUXONLY, DE_OPT_EXTRACTALL, DE_OPT_ZIP, DE_OPT_TAR,
@@ -427,6 +428,7 @@ struct opt_struct option_array[] = {
 	{ "n",            DE_OPT_NOOVERWRITE,  0 },
 	{ "modtime",      DE_OPT_MODTIME,      0 },
 	{ "nomodtime",    DE_OPT_NOMODTIME,    0 },
+	{ "padpix",       DE_OPT_PADPIX,       0 },
 	{ "q",            DE_OPT_Q,            0 },
 	{ "version",      DE_OPT_VERSION,      0 },
 	{ "h",            DE_OPT_HELP,         0 },
@@ -638,37 +640,40 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 
 			switch(opt->id) {
 			case DE_OPT_D:
-				de_set_debug_level(c, 1);
+				de_set_std_option_int(c, DE_STDOPT_DEBUG_LEVEL, 1);
 				break;
 			case DE_OPT_D2:
-				de_set_debug_level(c, 2);
+				de_set_std_option_int(c, DE_STDOPT_DEBUG_LEVEL, 2);
 				break;
 			case DE_OPT_D3:
-				de_set_debug_level(c, 3);
+				de_set_std_option_int(c, DE_STDOPT_DEBUG_LEVEL, 3);
 				break;
 			case DE_OPT_L:
-				de_set_listmode(c, 1);
+				de_set_std_option_int(c, DE_STDOPT_LISTMODE, 1);
 				break;
 			case DE_OPT_NOINFO:
-				de_set_infomessages(c, 0);
+				de_set_std_option_int(c, DE_STDOPT_INFOMESSAGES, 0);
 				break;
 			case DE_OPT_NOWARN:
-				de_set_warnings(c, 0);
+				de_set_std_option_int(c, DE_STDOPT_WARNINGS, 0);
 				break;
 			case DE_OPT_NOBOM:
-				de_set_write_bom(c, 0);
+				de_set_std_option_int(c, DE_STDOPT_WRITE_BOM, 0);
 				break;
 			case DE_OPT_NODENS:
-				de_set_write_density(c, 0);
+				de_set_std_option_int(c, DE_STDOPT_WRITE_DENSITY, 0);
 				break;
 			case DE_OPT_ASCIIHTML:
-				de_set_ascii_html(c, 1);
+				de_set_std_option_int(c, DE_STDOPT_ASCII_HTML, 1);
 				break;
 			case DE_OPT_NONAMES:
-				de_set_filenames_from_file(c, 0);
+				de_set_std_option_int(c, DE_STDOPT_FILENAMES_FROM_FILE, 0);
+				break;
+			case DE_OPT_PADPIX:
+				de_set_std_option_int(c, DE_STDOPT_PADPIX, 1);
 				break;
 			case DE_OPT_NOOVERWRITE:
-				de_set_overwrite_mode(c, DE_OVERWRITEMODE_NEVER);
+				de_set_std_option_int(c, DE_STDOPT_OVERWRITE_MODE, DE_OVERWRITEMODE_NEVER);
 				break;
 			case DE_OPT_MODTIME:
 				de_set_preserve_file_times(c, 0, 1);
@@ -679,8 +684,8 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				de_set_preserve_file_times(c, 1, 0);
 				break;
 			case DE_OPT_Q:
-				de_set_infomessages(c, 0);
-				de_set_warnings(c, 0);
+				de_set_std_option_int(c, DE_STDOPT_INFOMESSAGES, 0);
+				de_set_std_option_int(c, DE_STDOPT_WARNINGS, 0);
 				break;
 			case DE_OPT_VERSION:
 				cc->special_command_flag = 1;
@@ -700,19 +705,19 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				cc->special_command_code = CMD_PRINTLICENSE;
 				break;
 			case DE_OPT_ID:
-				de_set_id_mode(c, 1);
+				de_set_std_option_int(c, DE_STDOPT_ID_MODE, 1);
 				break;
 			case DE_OPT_NOCHCP:
 				cc->no_chcp = 1;
 				break;
 			case DE_OPT_MAINONLY:
-				de_set_extract_policy(c, DE_EXTRACTPOLICY_MAINONLY);
+				de_set_std_option_int(c, DE_STDOPT_EXTRACT_POLICY, DE_EXTRACTPOLICY_MAINONLY);
 				break;
 			case DE_OPT_AUXONLY:
-				de_set_extract_policy(c, DE_EXTRACTPOLICY_AUXONLY);
+				de_set_std_option_int(c, DE_STDOPT_EXTRACT_POLICY, DE_EXTRACTPOLICY_AUXONLY);
 				break;
 			case DE_OPT_EXTRACTALL:
-				de_set_extract_level(c, 2);
+				de_set_std_option_int(c, DE_STDOPT_EXTRACT_LEVEL, 2);
 				break;
 			case DE_OPT_ZIP:
 				de_set_output_style(c, DE_OUTPUTSTYLE_ARCHIVE, DE_ARCHIVEFMT_ZIP);
@@ -866,7 +871,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 
 	if(help_flag) {
 		if(module_flag || cc->input_filename || cc->from_stdin) {
-			de_set_want_modhelp(c, 1);
+			de_set_std_option_int(c, DE_STDOPT_WANT_MODHELP, 1);
 		}
 		else {
 			cc->special_command_flag = 1;

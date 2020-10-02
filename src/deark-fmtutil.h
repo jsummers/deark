@@ -169,7 +169,10 @@ struct de_lzh_params {
 #define DE_LZH_FMT_LH5LIKE       1 // subfmt=='5' (etc.)
 	int fmt;
 	int subfmt;
-	u8 stop_on_zero_codes_block;
+	// How to handle a block with "0" codes:
+	//   0 = treat as 65536, with warning
+	//   1 = stop, no warning
+	u8 zero_codes_block_behavior;
 	u8 use_history_fill_val;
 	u8 history_fill_val;
 };
@@ -531,19 +534,21 @@ i64 fmtutil_hlp_get_css_p(dbuf *f, i64 *ppos);
 i64 fmtutil_hlp_get_cul_p(dbuf *f, i64 *ppos);
 i64 fmtutil_hlp_get_csl_p(dbuf *f, i64 *ppos);
 
+typedef i32 fmtutil_huffman_valtype;
 struct fmtutil_huffman_tree;
 struct fmtutil_huffman_tree *fmtutil_huffman_create_tree(deark *c, i64 initial_codes, i64 max_codes);
 void fmtutil_huffman_destroy_tree(deark *c, struct fmtutil_huffman_tree *ht);
 void fmtutil_huffman_reset_cursor(struct fmtutil_huffman_tree *ht);
 int fmtutil_huffman_add_code(deark *c, struct fmtutil_huffman_tree *ht,
-	u64 code, UI code_nbits, i32 val);
-int fmtutil_huffman_decode_bit(struct fmtutil_huffman_tree *ht, u8 bitval, i32 *pval);
+	u64 code, UI code_nbits, fmtutil_huffman_valtype val);
+int fmtutil_huffman_decode_bit(struct fmtutil_huffman_tree *ht, u8 bitval, fmtutil_huffman_valtype *pval);
 int fmtutil_huffman_read_next_value(struct fmtutil_huffman_tree *ht,
-	struct de_bitreader *bitrd, i32 *pval, UI *pnbits);
+	struct de_bitreader *bitrd, fmtutil_huffman_valtype *pval, UI *pnbits);
 UI fmtutil_huffman_get_max_bits(struct fmtutil_huffman_tree *ht);
 i64 fmtutil_huffman_get_num_codes(struct fmtutil_huffman_tree *ht);
 void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_tree *ht);
-int fmtutil_huffman_record_a_code_length(deark *c, struct fmtutil_huffman_tree *ht, i32 val, UI len);
+int fmtutil_huffman_record_a_code_length(deark *c, struct fmtutil_huffman_tree *ht,
+	fmtutil_huffman_valtype val, UI len);
 int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *ht);
 
 struct de_lz77buffer;

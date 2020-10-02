@@ -13,6 +13,33 @@ void de_destroy(deark *c);
 
 void de_register_modules(deark *c);
 
+enum de_stdoptions_enum {
+	DE_STDOPT_DEBUG_LEVEL = 1, // 0=off  1=normal  2=verbose  3=more verbose
+	DE_STDOPT_EXTRACT_POLICY, // See DE_EXTRACTPOLICY_ in deark.h
+	DE_STDOPT_EXTRACT_LEVEL, // 1=normal. 2=extract everything
+	DE_STDOPT_LISTMODE,
+	DE_STDOPT_WANT_MODHELP,
+	DE_STDOPT_ID_MODE,
+	DE_STDOPT_WARNINGS,
+	DE_STDOPT_INFOMESSAGES,
+	DE_STDOPT_WRITE_BOM, // When we write a UTF-8 text file, should we start it with a BOM?
+	DE_STDOPT_WRITE_DENSITY,
+	DE_STDOPT_ASCII_HTML, // Use only ASCII in HTML documents.
+
+	// If a file contains a name that we can use as part of the output filename,
+	// should we use it?
+	DE_STDOPT_FILENAMES_FROM_FILE,
+
+	// DE_OVERWRITEMODE_DEFAULT = Overwrite, unless the filename is a symlink, in which case fail.
+	// ..._NEVER = Fail if the output file exists (or if the filename is a symlink).
+	// ..._STANDARD = Do whatever fopen() normally does (overwrite, and follow symlinks).
+	DE_STDOPT_OVERWRITE_MODE,
+
+	DE_STDOPT_PADPIX
+};
+
+void de_set_std_option_int(deark *c, enum de_stdoptions_enum o, int x);
+
 #define DE_INPUTSTYLE_FILE    0
 #define DE_INPUTSTYLE_STDIN   1
 void de_set_input_style(deark *c, int x);
@@ -30,41 +57,13 @@ void de_print_module_list(deark *c);
 void de_set_userdata(deark *c, void *x);
 void *de_get_userdata(deark *c);
 
-// 0=off  1=normal  2=verbose
-void de_set_debug_level(deark *c, int x);
 void de_set_dprefix(deark *c, const char *s);
 
-// See DE_EXTRACTPOLICY_ in deark.h
-void de_set_extract_policy(deark *c, int x);
-
-// 1=normal. 2=extract everything we can, no matter how useless
-void de_set_extract_level(deark *c, int x);
-
-void de_set_listmode(deark *c, int x);
-void de_set_want_modhelp(deark *c, int x);
-void de_set_id_mode(deark *c, int x);
 void de_set_first_output_file(deark *c, int x);
 void de_set_max_output_files(deark *c, int n);
 void de_set_max_output_file_size(deark *c, i64 n);
 void de_set_max_total_output_size(deark *c, i64 n);
 void de_set_max_image_dimension(deark *c, i64 n);
-void de_set_infomessages(deark *c, int x);
-void de_set_warnings(deark *c, int x);
-
-// When we write a UTF-8 text file, should we start it with a BOM?
-void de_set_write_bom(deark *c, int x);
-
-void de_set_write_density(deark *c, int x);
-
-// Use only ASCII in HTML documents.
-void de_set_ascii_html(deark *c, int x);
-
-// If a file contains a name that we can use as part of the output filename,
-// should we use it?
-void de_set_filenames_from_file(deark *c, int x);
-
-// See DE_OVERWRITEMODE_ in deark.h
-void de_set_overwrite_mode(deark *c, int x);
 
 void de_set_preserve_file_times(deark *c, int setting, int x);
 

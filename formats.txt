@@ -285,6 +285,8 @@ Deark -- Information about supported formats
   Options
    -opt macpaint:macbinary=<0|1>
 
+* Magic Desk icon (module="mdesk_icn")
+
 * MAKIchan graphics (module="makichan")
   - Supports most 16- and 256-color .MAG images
   - Supports most 16-color .MKI images
@@ -440,8 +442,9 @@ Deark -- Information about supported formats
   - Extract embedded JPEG, TIFF, and other image files.
   - Decode some "raw" (uncompressed) images.
 
-* RIPscrip icon (.ICN) (module="ripicon") (experimental)
-  - Not autodetected. Must use "-m ripicon".
+* RIPscrip icon (.ICN) or BGI image (module="ripicon") (experimental)
+  - Not all files are autodetected. You may need "-m ripicon".
+  - Only 16-color images are supported.
 
 * RISC OS / Acorn Sprite (module="rosprite")
   - Autodetection may not always work. May need "-m rosprite".
@@ -616,6 +619,9 @@ Deark -- Information about supported formats
 * CAB (Microsoft Cabinet) (module="cab")
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
+
+* ARX (module="arx") (experimental)
+  Variant of LHA. Deark tries to convert it to LHA.
 
 * CAR (module="car_lha")
   Variant of LHA by MylesHi! Software. Deark tries to convert it to LHA.
@@ -910,6 +916,7 @@ Deark -- Information about supported formats
 * Plain text (module="plaintext")
   Read a plain text file, and write it as UTF-8.
   - Not autodetected. Use "-m plaintext".
+  - See also the "cp437" module, which works better on some files.
 
 * .plist Property List (module="plist")
   - Supports binary .plist format only
@@ -923,6 +930,13 @@ Deark -- Information about supported formats
 * RIFF (module="riff")
   Metaformat used by WAV, AVI, WebP, etc.
   - RIFF can be parsed, but in many cases nothing can be extracted from it.
+
+* Split (module="split")
+  Split the file into equal-sized chunks.
+  Options
+   -opt split:size=<n> - The size of each chunk, in bytes.
+   -opt split:stride=<n> - The distance between the start of one chunk and the
+    start of the next chunk, in bytes.
 
 * WRI - Microsoft Write (module="wri") (incomplete)
   - Extract raw text to an HTML file. Very little formatting, etc.

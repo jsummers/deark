@@ -46,6 +46,7 @@ static i64 get_height(deark *c, lctx *d, i64 default_height)
 static int do_cga16(deark *c, lctx *d)
 {
 	de_bitmap *img = NULL;
+	i64 w, h;
 	i64 max_possible_height;
 	i64 i, j;
 	int retval = 0;
@@ -56,25 +57,24 @@ static int do_cga16(deark *c, lctx *d)
 
 	de_declare_fmt(c, "BSAVE-PC 16-color CGA pseudo-graphics");
 
-	img = de_bitmap_create_noinit(c);
-	img->width = get_width(c, d, 160);
-	img->height = get_height(c, d, 100);
-
-	img->bytes_per_pixel = 3;
+	w = get_width(c, d, 160);
+	h = get_height(c, d, 100);
 
 	// Every pair of bytes codes for two pixels; i.e. one byte per pixel.
-	src_rowspan = img->width;
+	src_rowspan = w;
 	max_possible_height = (d->data_size+src_rowspan-1)/src_rowspan;
-	if(img->height > max_possible_height)
-		img->height = max_possible_height;
+	if(h > max_possible_height)
+		h = max_possible_height;
 
-	if(img->height < 1) {
+	if(h < 1) {
 		de_err(c, "Not enough data for this format");
 		goto done;
 	}
 
-	for(j=0; j<img->height; j++) {
-		for(i=0; i<img->width; i+=2) {
+	img = de_bitmap_create(c, w, h, 3);
+
+	for(j=0; j<h; j++) {
+		for(i=0; i<w; i+=2) {
 			charcode = de_getbyte(BSAVE_HDRSIZE + j*src_rowspan + i);
 			colorcode = de_getbyte(BSAVE_HDRSIZE + j*src_rowspan + i+1);
 
@@ -117,6 +117,7 @@ static int do_4color(deark *c, lctx *d)
 	static const u32 default_palette[4] = { 0x000000, 0x55ffff, 0xff55ff, 0xffffff };
 	u32 palette[4];
 	int palent;
+	i64 w, h;
 	i64 i,j;
 	i64 pos;
 	i64 src_rowspan;
@@ -135,20 +136,17 @@ static int do_4color(deark *c, lctx *d)
 			de_declare_fmt(c, "BSAVE-PC 4-color, noninterlaced");
 	}
 
-	img = de_bitmap_create_noinit(c);
-	img->bytes_per_pixel = 3;
-
 	pos = BSAVE_HDRSIZE;
 
 	if(d->has_dimension_fields) {
 		// 11-byte header that includes width & height
-		img->width = (de_getu16le(pos) + 1)/2; // width = number of bits??
-		img->height = de_getu16le(pos+2);
+		w = (de_getu16le(pos) + 1)/2; // width = number of bits??
+		h = de_getu16le(pos+2);
 		pos+=4;
 	}
 	else {
-		img->width = get_width(c, d, 320);
-		img->height = get_height(c, d, 200);	// TODO: Calculate this?
+		w = get_width(c, d, 320);
+		h = get_height(c, d, 200);	// TODO: Calculate this?
 	}
 
 	// Set the palette
@@ -164,10 +162,11 @@ static int do_4color(deark *c, lctx *d)
 		}
 	}
 
-	src_rowspan = (img->width+3)/4;
+	src_rowspan = (w+3)/4;
+	img = de_bitmap_create(c, w, h, 3);
 
-	for(j=0;j<img->height;j++) {
-		for(i=0;i<img->width;i++) {
+	for(j=0;j<h;j++) {
+		for(i=0;i<w;i++) {
 			if(d->interlaced) {
 				// Image is interlaced. Even-numbered scanlines are stored first.
 				palent = (int)de_get_bits_symbol(c->infile, 2,
@@ -191,13 +190,12 @@ static int do_4color(deark *c, lctx *d)
 // "wh2": http://cd.textfiles.com/bthevhell/200/112/
 static int do_2color(deark *c, lctx *d)
 {
+	i64 w, h;
 	i64 j;
 	i64 src_rowspan;
 	i64 pos;
 	de_bitmap *img = NULL;
 
-	img = de_bitmap_create_noinit(c);
-	img->bytes_per_pixel = 1;
 	pos = BSAVE_HDRSIZE;
 
 	if(d->has_dimension_fields) {
@@ -215,19 +213,21 @@ static int do_2color(deark *c, lctx *d)
 
 	if(d->has_dimension_fields) {
 		// 11-byte header that includes width & height
-		img->width = de_getu16le(pos);
-		img->height = de_getu16le(pos+2);
+		w = de_getu16le(pos);
+		h = de_getu16le(pos+2);
 		pos+=4;
 	}
 	else {
-		img->width = get_width(c, d, 640);
-		img->height = get_height(c, d, 200); // TODO: calculate this?
+		w = get_width(c, d, 640);
+		h = get_height(c, d, 200); // TODO: calculate this?
 	}
 
-	de_dbg_dimensions(c, img->width, img->height);
-	src_rowspan = (img->width+7)/8;
+	de_dbg_dimensions(c, w, h);
+	src_rowspan = (w+7)/8;
 
-	for(j=0; j<img->height; j++) {
+	img = de_bitmap_create(c, w, h, 1);
+
+	for(j=0; j<h; j++) {
 		if(d->interlaced) {
 			de_convert_row_bilevel(c->infile, pos + (j%2)*8192 + (j/2)*src_rowspan,
 				img, j, 0);
@@ -246,6 +246,7 @@ static int do_2color(deark *c, lctx *d)
 // http://cd.textfiles.com/advheaven2/PUZZLES/DRCODE12/
 static int do_256color(deark *c, lctx *d)
 {
+	i64 w, h;
 	i64 i, j;
 	u8 palent;
 	u32 clr;
@@ -253,16 +254,14 @@ static int do_256color(deark *c, lctx *d)
 
 	de_declare_fmt(c, "BSAVE-PC 256-color");
 
-	img = de_bitmap_create_noinit(c);
+	w = get_width(c, d, 320);
+	h = get_height(c, d, 200);
 
-	img->width = get_width(c, d, 320);
-	img->height = get_height(c, d, 200);
+	img = de_bitmap_create(c, w, h, 3);
 
-	img->bytes_per_pixel = 3;
-
-	for(j=0; j<img->height; j++) {
-		for(i=0; i<img->width; i++) {
-			palent = de_getbyte(BSAVE_HDRSIZE + j*img->width + i);
+	for(j=0; j<h; j++) {
+		for(i=0; i<w; i++) {
+			palent = de_getbyte(BSAVE_HDRSIZE + j*w + i);
 			if(d->pal_valid) {
 				clr = d->pal[(int)palent];
 			}
@@ -284,6 +283,7 @@ static int do_wh16(deark *c, lctx *d)
 {
 	i64 i, j;
 	de_bitmap *img = NULL;
+	i64 w, h;
 	i64 src_rowspan1;
 	i64 src_rowspan;
 	i64 pos;
@@ -293,20 +293,18 @@ static int do_wh16(deark *c, lctx *d)
 	de_declare_fmt(c, "BSAVE-PC 16-color, interlaced, 11-byte header");
 
 	pos = BSAVE_HDRSIZE;
-	img = de_bitmap_create_noinit(c);
-	img->bytes_per_pixel = 3;
-
-	img->width = de_getu16le(pos);
-	img->height = de_getu16le(pos+2);
+	w = de_getu16le(pos);
+	h = de_getu16le(pos+2);
 	pos+=4;
 
-	de_dbg_dimensions(c, img->width, img->height);
+	de_dbg_dimensions(c, w, h);
+	img = de_bitmap_create(c, w, h, 3);
 
-	src_rowspan1 = (img->width+7)/8;
+	src_rowspan1 = (w+7)/8;
 	src_rowspan = src_rowspan1*4;
 
-	for(j=0; j<img->height; j++) {
-		for(i=0; i<img->width; i++) {
+	for(j=0; j<h; j++) {
+		for(i=0; i<w; i++) {
 			b0 = de_get_bits_symbol(c->infile, 1, pos + j*src_rowspan + src_rowspan1*0, i);
 			b1 = de_get_bits_symbol(c->infile, 1, pos + j*src_rowspan + src_rowspan1*1, i);
 			b2 = de_get_bits_symbol(c->infile, 1, pos + j*src_rowspan + src_rowspan1*2, i);
@@ -329,6 +327,7 @@ static int do_b265(deark *c, lctx *d)
 	static const u32 palette1[4] = { 0xffffff, 0x55ffff, 0x000000, 0xffffff };
 	static const u32 palette2[4] = { 0xffffff, 0x000000, 0x000000, 0x000000 };
 	int palent;
+	i64 w, h;
 	i64 i,j;
 	i64 bits_per_scanline;
 	de_bitmap *img = NULL;
@@ -337,15 +336,14 @@ static int do_b265(deark *c, lctx *d)
 
 	de_declare_fmt(c, "BSAVE-PC special");
 
-	img = de_bitmap_create_noinit(c);
+	w = 320;
+	fakewidth = w/2;
+	h = d->data_size * 4 / fakewidth;
+	bits_per_scanline = w;
 
-	img->width = 320;
-	fakewidth = img->width/2;
-	img->height = d->data_size * 4 / fakewidth;
-	img->bytes_per_pixel = 3;
-	bits_per_scanline = img->width;
+	img = de_bitmap_create(c, w, h, 3);
 
-	for(j=0; j<img->height; j++) {
+	for(j=0; j<h; j++) {
 		for(i=0; i<fakewidth; i++) {
 			palent = (int)de_get_bits_symbol(c->infile, 2,
 				BSAVE_HDRSIZE + (j/8)*bits_per_scanline + (i/4)*8 + j%8, i%4);

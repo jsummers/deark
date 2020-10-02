@@ -673,6 +673,57 @@ void de_set_extrlist_filename(deark *c, const char *fn)
 	}
 }
 
+void de_set_std_option_int(deark *c, enum de_stdoptions_enum o, int x)
+{
+	switch(o) {
+	case DE_STDOPT_DEBUG_LEVEL:
+		c->debug_level = x;
+		break;
+	case DE_STDOPT_EXTRACT_POLICY:
+		c->extract_policy = x;
+		break;
+	case DE_STDOPT_EXTRACT_LEVEL:
+		c->extract_level = x;
+		break;
+	case DE_STDOPT_LISTMODE:
+		c->list_mode = x?1:0;
+		break;
+	case DE_STDOPT_WANT_MODHELP:
+		c->modhelp_req = x?1:0;
+		break;
+	case DE_STDOPT_ID_MODE:
+		c->identify_only = x?1:0;
+		break;
+	case DE_STDOPT_WARNINGS:
+		c->show_warnings = x;
+		break;
+	case DE_STDOPT_INFOMESSAGES:
+		c->show_infomessages = x;
+		break;
+	case DE_STDOPT_WRITE_BOM:
+		c->write_bom = (u8)x;
+		break;
+	case DE_STDOPT_WRITE_DENSITY:
+		c->write_density = (u8)x;
+		break;
+	case DE_STDOPT_ASCII_HTML:
+		c->ascii_html = (u8)x;
+		break;
+	case DE_STDOPT_FILENAMES_FROM_FILE:
+		c->filenames_from_file = (u8)x;
+		break;
+	case DE_STDOPT_OVERWRITE_MODE:
+		c->overwrite_mode = x;
+		break;
+	case DE_STDOPT_PADPIX:
+		c->padpix = (u8)x;
+		break;
+	default:
+		de_err(c, "Internal error");
+		de_fatalerror(c);
+	}
+}
+
 void de_set_input_style(deark *c, int x)
 {
 	c->input_style = x;
@@ -724,39 +775,9 @@ void de_set_output_style(deark *c, int x, int subtype)
 	}
 }
 
-void de_set_debug_level(deark *c, int x)
-{
-	c->debug_level = x;
-}
-
 void de_set_dprefix(deark *c, const char *s)
 {
 	c->dprefix = s;
-}
-
-void de_set_extract_policy(deark *c, int x)
-{
-	c->extract_policy = x;
-}
-
-void de_set_extract_level(deark *c, int x)
-{
-	c->extract_level = x;
-}
-
-void de_set_listmode(deark *c, int x)
-{
-	c->list_mode = x?1:0;
-}
-
-void de_set_want_modhelp(deark *c, int x)
-{
-	c->modhelp_req = x?1:0;
-}
-
-void de_set_id_mode(deark *c, int x)
-{
-	c->identify_only = x?1:0;
 }
 
 void de_set_first_output_file(deark *c, int x)
@@ -789,47 +810,6 @@ void de_set_max_image_dimension(deark *c, i64 n)
 	if(n<0) n=0;
 	else if (n>0x7fffffff) n=0x7fffffff;
 	c->max_image_dimension = n;
-}
-
-void de_set_infomessages(deark *c, int x)
-{
-	c->show_infomessages = x;
-}
-
-void de_set_warnings(deark *c, int x)
-{
-	c->show_warnings = x;
-}
-
-void de_set_write_bom(deark *c, int x)
-{
-	c->write_bom = (u8)x;
-}
-
-void de_set_write_density(deark *c, int x)
-{
-	c->write_density = (u8)x;
-}
-
-void de_set_ascii_html(deark *c, int x)
-{
-	c->ascii_html = (u8)x;
-}
-
-void de_set_filenames_from_file(deark *c, int x)
-{
-	c->filenames_from_file = (u8)x;
-}
-
-// DE_OVERWRITEMODE_DEFAULT =
-//   Overwrite, unless the filename is a symlink, in which case fail.
-// DE_OVERWRITEMODE_NEVER =
-//   Fail if the output file exists (or if the filename is a symlink).
-// DE_OVERWRITEMODE_STANDARD =
-//   Do whatever fopen() normally does (overwrite, and follow symlinks).
-void de_set_overwrite_mode(deark *c, int x)
-{
-	c->overwrite_mode = x;
 }
 
 void de_set_preserve_file_times(deark *c, int setting, int x)

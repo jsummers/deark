@@ -3587,7 +3587,7 @@ static void do_bitmap(deark *c, lctx *d, const struct image_info *iinfo, dbuf *f
 	if(iinfo->color_mode==PSD_CM_BITMAP && iinfo->bits_per_channel==1 &&
 		iinfo->num_channels==1)
 	{
-		de_convert_and_write_image_bilevel(f, 0, iinfo->width, iinfo->height,
+		de_convert_and_write_image_bilevel2(f, 0, iinfo->width, iinfo->height,
 			(iinfo->width+7)/8, DE_CVTF_WHITEISZERO, NULL, 0);
 		goto done;
 	}
