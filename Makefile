@@ -91,11 +91,11 @@ OFILES_ALL:=$(OFILES_DEARK1) $(OFILES_DEARK2) $(OFILES_MODS) $(OBJDIR)/src/deark
 
 DEARK1_A:=$(OBJDIR)/src/deark1.a
 $(DEARK1_A): $(OFILES_DEARK1)
-	$(AR) rcs $@ $^
+	$(AR) $(ARFLAGS) $@ $^
 
 DEARK2_A:=$(OBJDIR)/src/deark2.a
 $(DEARK2_A): $(OFILES_DEARK2)
-	$(AR) rcs $@ $^
+	$(AR) $(ARFLAGS) $@ $^
 
 MODS_AB_A:=$(OBJDIR)/modules/mods-ab.a
 MODS_CH_A:=$(OBJDIR)/modules/mods-ch.a
