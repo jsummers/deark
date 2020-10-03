@@ -10,9 +10,11 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_arc);
 DE_DECLARE_MODULE(de_module_spark);
+DE_DECLARE_MODULE(de_module_arcmac);
 
 #define FMT_ARC 1
 #define FMT_SPARK 2
+#define FMT_ARCMAC 3
 
 #define MAX_NESTING_LEVEL 24
 
@@ -58,6 +60,7 @@ struct localctx_struct {
 	de_ext_encoding input_encoding_for_comments;
 	int append_type;
 	int recurse_subdirs;
+	u8 sig_byte;
 	u8 prescan_found_eoa;
 	u8 has_trailer_data;
 	u8 has_pak_trailer;
@@ -102,7 +105,7 @@ static void parse_member_sequence(deark *c, lctx *d, i64 pos1, i64 len, int nest
 		mpd->member_pos = pos;
 
 		mpd->magic = de_getbyte_p(&pos);
-		if(mpd->magic!=0x1a) {
+		if(mpd->magic!=d->sig_byte) {
 			mpd->member_len = 1;
 			mpd->cmpr_data_pos = mpd->member_pos; // dummy value
 			member_cbfn(c, d, mpd);
@@ -117,6 +120,9 @@ static void parse_member_sequence(deark *c, lctx *d, i64 pos1, i64 len, int nest
 			member_cbfn(c, d, mpd);
 			break;
 		}
+
+		if(d->fmt==FMT_ARCMAC) pos += 59;
+		// TODO: ARCMAC: Check for 0x1a signature, and reread cmpr_meth
 
 		pos += 13;
 		mpd->cmpr_data_len = de_getu32le_p(&pos);
@@ -715,10 +721,13 @@ static void member_cb_main(deark *c, lctx *d, struct member_parser_data *mpd)
 	}
 
 	pos++; // 'magic' byte, already read by the parser
-	if(mpd->magic != 0x1a) {
+	if(mpd->magic != d->sig_byte) {
 		de_err(c, "Failed to find %s member at %"I64_FMT, d->fmtname, pos1);
 		goto done;
 	}
+
+	// TODO: Proper ArcMac support
+	if(d->fmt==FMT_ARCMAC) pos += 59;
 
 	pos++; // compression ID, already read by the parser
 	md->cmpr_meth = mpd->cmpr_meth;
@@ -881,7 +890,7 @@ static void do_sequence_of_members(deark *c, lctx *d, i64 pos1, i64 len, int nes
 
 static void member_cb_for_prescan(deark *c, lctx *d, struct member_parser_data *mpd)
 {
-	if(mpd->magic!=0x1a) return;
+	if(mpd->magic!=d->sig_byte) return;
 	if(mpd->cmpr_meth_masked==0x00) { // end of archive
 		d->prescan_found_eoa = 1;
 		d->prescan_pos_after_eoa = mpd->member_pos + mpd->member_len;
@@ -944,13 +953,18 @@ static void do_run_arc_spark_internal(deark *c, lctx *d)
 {
 	i64 members_endpos;
 	i64 pos = 0;
-	u8 buf[33];
 
-	// Tolerate up to sizeof(buf)-1 bytes of initial junk
-	de_read(buf, 0, sizeof(buf));
-	if(!find_arc_marker(c, buf, sizeof(buf), &pos)) {
-		de_err(c, "Not a(n) %s file", d->fmtname);
-		goto done;
+	d->sig_byte = (d->fmt==FMT_ARCMAC) ? 0x1b : 0x1a;
+
+	if(d->sig_byte==0x1a) {
+		u8 buf[33];
+
+		// Tolerate up to sizeof(buf)-1 bytes of initial junk
+		de_read(buf, 0, sizeof(buf));
+		if(!find_arc_marker(c, buf, sizeof(buf), &pos)) {
+			de_err(c, "Not a(n) %s file", d->fmtname);
+			goto done;
+		}
 	}
 
 	de_declare_fmt(c, d->fmtname);
@@ -1146,4 +1160,43 @@ void de_module_arc(deark *c, struct deark_module_info *mi)
 	mi->desc = "ARC compressed archive";
 	mi->run_fn = de_run_arc;
 	mi->identify_fn = de_identify_arc;
+}
+
+static void de_run_arcmac(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+
+	d = de_malloc(c, sizeof(lctx));
+	d->fmt = FMT_ARCMAC;
+	d->fmtname = "ArcMac";
+	d->recurse_subdirs = 1;
+	d->input_encoding_for_filenames = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->input_encoding_for_comments = DE_EXTENC_MAKE(d->input_encoding_for_filenames,
+		DE_ENCSUBTYPE_HYBRID);
+
+	do_run_arc_spark_internal(c, d);
+	destroy_lctx(c, d);
+}
+
+static int de_identify_arcmac(deark *c)
+{
+	u8 buf1[2];
+	u8 buf2[2];
+
+	de_read(buf1, 0, 2);
+	if(buf1[0]!=0x1b) return 0;
+	if(!(buf1[1]>=1 && buf1[1]<=9)) return 0;
+	de_read(buf2, 59, 2);
+	if(buf2[0]!=0x1a) return 0;
+	if(buf2[1]!=buf1[1]) return 0;
+	return 80;
+}
+
+void de_module_arcmac(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "arcmac";
+	mi->desc = "ArcMac compressed archive";
+	mi->run_fn = de_run_arcmac;
+	mi->identify_fn = de_identify_arcmac;
+	mi->flags |= DE_MODFLAG_NONWORKING;
 }
