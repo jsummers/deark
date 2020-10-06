@@ -53,10 +53,11 @@ typedef struct localctx_struct {
 	struct de_timestamp mod_time;
 } lctx;
 
-static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf *unc_pixels,
-	de_finfo *fi, unsigned int createflags)
+static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf *unc_pixels,
+	const char *token, unsigned int createflags)
 {
 	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
 	i64 i, j;
 	u8 b;
 	u32 clr;
@@ -67,6 +68,15 @@ static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginf
 	i64 interleave_stride;
 	i64 interleave_pass;
 	i64 cur_rownum; // 0-based, does not account for bottom-up orientation
+
+	fi = de_finfo_create(c);
+
+	if(token) {
+		de_finfo_set_name_from_sz(c, fi, token, 0, DE_ENCODING_LATIN1);
+	}
+	if(d->mod_time.is_valid) {
+		fi->internal_mod_time = d->mod_time;
+	}
 
 	if(d->pixel_depth==1) {
 		de_warn(c, "1-bit TGA images are not portable, and may not be decoded correctly");
@@ -158,25 +168,6 @@ static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginf
 	de_bitmap_write_to_file_finfo(img, fi, createflags);
 
 	de_bitmap_destroy(img);
-}
-
-static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf *unc_pixels,
-	const char *token, unsigned int createflags)
-{
-	de_finfo *fi = NULL;
-
-	fi = de_finfo_create(c);
-
-	if(token) {
-		de_finfo_set_name_from_sz(c, fi, token, 0, DE_ENCODING_LATIN1);
-	}
-
-	if(d->mod_time.is_valid) {
-		fi->internal_mod_time = d->mod_time;
-	}
-
-	do_decode_image_default(c, d, imginfo, unc_pixels, fi, createflags);
-
 	de_finfo_destroy(c, fi);
 }
 
