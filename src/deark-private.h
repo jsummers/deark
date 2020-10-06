@@ -441,6 +441,10 @@ struct deark_struct {
 };
 
 void de_fatalerror(deark *c);
+void de_internal_err_fatal(deark *c, const char *fmt, ...)
+  de_gnuc_attribute ((format (printf, 2, 3)));
+void de_internal_err_nonfatal(deark *c, const char *fmt, ...)
+  de_gnuc_attribute ((format (printf, 2, 3)));
 
 deark *de_create_internal(void);
 int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mparams,

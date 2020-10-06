@@ -647,6 +647,29 @@ void de_fatalerror(deark *c)
 	de_exitprocess(1);
 }
 
+void de_internal_err_fatal(deark *c, const char *fmt, ...)
+{
+	va_list ap;
+
+	de_puts(c, DE_MSGTYPE_ERROR, "Internal error: ");
+	va_start(ap, fmt);
+	de_vprintf(c, DE_MSGTYPE_ERROR, fmt, ap);
+	va_end(ap);
+	de_puts(c, DE_MSGTYPE_ERROR, "\n");
+	de_fatalerror(c);
+}
+
+void de_internal_err_nonfatal(deark *c, const char *fmt, ...)
+{
+	va_list ap;
+	char buf[200];
+
+	va_start(ap, fmt);
+	de_vsnprintf(buf, sizeof(buf), fmt, ap);
+	va_end(ap);
+	de_err(c, "Internal: %s", buf);
+}
+
 // TODO: Make de_malloc use de_mallocarray internally, instead of vice versa.
 void *de_mallocarray(deark *c, i64 nmemb, size_t membsize)
 {

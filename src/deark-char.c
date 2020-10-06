@@ -74,8 +74,7 @@ void de_destroy_charctx(deark *c, struct de_char_context *charctx)
 	if(!charctx) return;
 
 	if(charctx->screens) {
-		de_err(c, "internal: charctx");
-		de_fatalerror(c);
+		de_internal_err_fatal(c, "charctx");
 	}
 	de_free(c, charctx);
 }

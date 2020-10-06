@@ -698,7 +698,7 @@ static void de_run_epocimage(deark *c, de_module_params *mparams)
 		de_run_epocaif(c, d);
 		break;
 	default:
-		de_err(c, "Internal: Unidentified format");
+		de_internal_err_nonfatal(c, "Unidentified format");
 	}
 
 	de_free(c, d);
