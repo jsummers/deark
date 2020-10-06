@@ -900,6 +900,7 @@ int de_is_grayscale_palette(const de_color *pal, i64 num_entries);
 #define DE_BITMAPFLAG_WHITEISTRNS 0x1
 #define DE_BITMAPFLAG_MERGE       0x2
 
+void de_bitmap_transpose(de_bitmap *img);
 void de_bitmap_rect(de_bitmap *img,
 	i64 xpos, i64 ypos, i64 width, i64 height,
 	de_color clr, unsigned int flags);
@@ -909,8 +910,8 @@ void de_bitmap_copy_rect(de_bitmap *srcimg, de_bitmap *dstimg,
 
 void de_bitmap_apply_mask(de_bitmap *fg, de_bitmap *mask,
 	unsigned int flags);
-
-void de_optimize_image_alpha(de_bitmap *img, unsigned int flags);
+void de_bitmap_remove_alpha(de_bitmap *img);
+void de_bitmap_optimize_alpha(de_bitmap *img, unsigned int flags);
 
 void de_make_grayscale_palette(de_color *pal, i64 num_entries, unsigned int flags);
 

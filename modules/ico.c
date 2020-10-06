@@ -203,7 +203,7 @@ static void do_image_data(deark *c, lctx *d, struct page_ctx *pg)
 		warn_inv_bkgd(c);
 	}
 
-	de_optimize_image_alpha(img, (bi.bitcount==32)?0x1:0x0);
+	de_bitmap_optimize_alpha(img, (bi.bitcount==32)?0x1:0x0);
 
 	fi = de_finfo_create(c);
 

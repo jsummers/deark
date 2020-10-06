@@ -165,7 +165,7 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 	}
 
 	if(d->depth==32 && d->color32desc.has_alpha==2) { // autodetect alpha
-		de_optimize_image_alpha(img, 0x1);
+		de_bitmap_optimize_alpha(img, 0x1);
 	}
 
 	de_bitmap_write_to_file(img, NULL, 0);

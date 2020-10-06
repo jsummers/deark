@@ -613,6 +613,26 @@ void de_convert_image_rgb(dbuf *f, i64 fpos,
 	}
 }
 
+// Transpose (flip over the line y=x) a square bitmap.
+void de_bitmap_transpose(de_bitmap *img)
+{
+	i64 i, j;
+
+	if(img->height != img->width) return;
+
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<j; i++) {
+			de_color tmp1, tmp2;
+
+			tmp1 = de_bitmap_getpixel(img, i, j);
+			tmp2 = de_bitmap_getpixel(img, j, i);
+			if(tmp1==tmp2) continue;
+			de_bitmap_setpixel_rgba(img, j, i, tmp1);
+			de_bitmap_setpixel_rgba(img, i, j, tmp2);
+		}
+	}
+}
+
 // Paint a solid, solid-color rectangle onto an image.
 // (Pixels will be replaced, not merged.)
 void de_bitmap_rect(de_bitmap *img,
@@ -682,6 +702,27 @@ void de_bitmap_apply_mask(de_bitmap *fg, de_bitmap *mask,
 	}
 }
 
+void de_bitmap_remove_alpha(de_bitmap *img)
+{
+	i64 i, j;
+	i64 k;
+
+	if(img->bytes_per_pixel!=2 && img->bytes_per_pixel!=4) return;
+
+	// Note that the format conversion is done in-place. The extra memory used
+	// by the alpha channel is not de-allocated.
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<img->width; i++) {
+			for(k=0; k<(i64)img->bytes_per_pixel-1; k++) {
+				img->bitmap[(j*img->width+i)*((i64)img->bytes_per_pixel-1) + k] =
+					img->bitmap[(j*img->width+i)*(img->bytes_per_pixel) + k];
+			}
+		}
+	}
+
+	img->bytes_per_pixel--;
+}
+
 // Note: This function's features overlap with the DE_CREATEFLAG_OPT_IMAGE
 //  flag supported by de_bitmap_write_to_file().
 // If the image is 100% opaque, remove the alpha channel.
@@ -689,10 +730,8 @@ void de_bitmap_apply_mask(de_bitmap *fg, de_bitmap *mask,
 // flags:
 //  0x1: Make 100% invisible images 100% opaque
 //  0x2: Warn if an invisible image was made opaque
-void de_optimize_image_alpha(de_bitmap *img, unsigned int flags)
+void de_bitmap_optimize_alpha(de_bitmap *img, unsigned int flags)
 {
-	i64 i, j;
-	i64 k;
 	struct image_scan_results isres;
 
 	if(img->bytes_per_pixel!=2 && img->bytes_per_pixel!=4) return;
@@ -711,18 +750,7 @@ void de_optimize_image_alpha(de_bitmap *img, unsigned int flags)
 	// No meaningful transparency found.
 	de_dbg3(img->c, "Removing alpha channel from image");
 
-	// Note that the format conversion is done in-place. The extra memory used
-	// by the alpha channel is not de-allocated.
-	for(j=0; j<img->height; j++) {
-		for(i=0; i<img->width; i++) {
-			for(k=0; k<(i64)img->bytes_per_pixel-1; k++) {
-				img->bitmap[(j*img->width+i)*((i64)img->bytes_per_pixel-1) + k] =
-					img->bitmap[(j*img->width+i)*(img->bytes_per_pixel) + k];
-			}
-		}
-	}
-
-	img->bytes_per_pixel--;
+	de_bitmap_remove_alpha(img);
 }
 
 // flag 0x1: white-is-min
