@@ -77,8 +77,15 @@ struct page_ctx {
 	i64 width_in_words;
 	i64 first_bit, last_bit;
 	i64 width, height;
+
+	i64 x_idx_of_first_src_fg_pixel_to_convert; // dstfg[0] <- srcfg[x.i.o.f.s.f.p.t.c]
+	i64 num_fg_x_pixels_to_convert;
+	i64 x_idx_of_first_src_mask_pixel_to_convert;
+	i64 mask_x_offset; // dstmask[m.x.o] <- srcmask[x.i.o.f.s.m.p.t.c]
+	i64 num_mask_x_pixels_to_convert;
+
 	i64 xdpi, ydpi;
-	i64 pixels_to_ignore_at_start_of_row;
+	i64 num_padding_pixels_at_start_of_row;
 	u32 mode;
 	int has_mask;
 #define MASK_TYPE_OLD    1 // Binary transparency, fgbpp bits/pixel
@@ -153,7 +160,37 @@ static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
 	bypp = is_grayscale?1:3;
 	if(pg->has_mask) bypp++;
 
-	img = de_bitmap_create(c, pg->width, pg->height, bypp);
+	if(c->padpix) {
+		pg->num_fg_x_pixels_to_convert = (pg->width_in_words*32)/pg->fgbpp;
+		pg->x_idx_of_first_src_fg_pixel_to_convert = 0;
+		if(pg->mask_type==MASK_TYPE_OLD) {
+			pg->x_idx_of_first_src_mask_pixel_to_convert = 0;
+			pg->mask_x_offset = 0;
+			pg->num_mask_x_pixels_to_convert = pg->num_fg_x_pixels_to_convert;
+		}
+		else {
+			pg->x_idx_of_first_src_mask_pixel_to_convert = 0;
+			// Best guess is that new-style masks don't have initial padding pixels
+			pg->mask_x_offset = pg->num_padding_pixels_at_start_of_row;
+			pg->num_mask_x_pixels_to_convert = pg->mask_rowspan;
+		}
+	}
+	else {
+		pg->num_fg_x_pixels_to_convert = pg->width;
+		pg->x_idx_of_first_src_fg_pixel_to_convert = pg->num_padding_pixels_at_start_of_row;
+		if(pg->mask_type==MASK_TYPE_OLD) {
+			pg->x_idx_of_first_src_mask_pixel_to_convert = pg->x_idx_of_first_src_fg_pixel_to_convert;
+			pg->mask_x_offset = 0;
+			pg->num_mask_x_pixels_to_convert = pg->num_fg_x_pixels_to_convert;
+		}
+		else {
+			pg->x_idx_of_first_src_mask_pixel_to_convert = 0;
+			pg->mask_x_offset = 0;
+			pg->num_mask_x_pixels_to_convert = pg->num_fg_x_pixels_to_convert;
+		}
+	}
+
+	img = de_bitmap_create(c, pg->num_fg_x_pixels_to_convert, pg->height, bypp);
 
 	if(pg->xdpi>0) {
 		fi->density.code = DE_DENSITY_DPI;
@@ -164,17 +201,21 @@ static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
 	de_dbg(c, "image data at %d", (int)pg->image_offset);
 
 	for(j=0; j<pg->height; j++) {
-		for(i=0; i<pg->width; i++) {
+		for(i=0; i<pg->num_fg_x_pixels_to_convert; i++) {
+			i64 i_adj;
+
+			i_adj = i+pg->x_idx_of_first_src_fg_pixel_to_convert;
+
 			if(pg->fgbpp==32) {
-				clr = dbuf_getRGB(c->infile, pg->image_offset + 4*pg->width_in_words*j + 4*i, 0);
+				clr = dbuf_getRGB(c->infile, pg->image_offset + 4*pg->width_in_words*j + 4*i_adj, 0);
 			}
 			else if(pg->fgbpp==16) {
-				clr = (u32)de_getu16le(pg->image_offset + 4*pg->width_in_words*j + i*2);
+				clr = (de_color)de_getu16le(pg->image_offset + 4*pg->width_in_words*j + i_adj*2);
 				clr = de_bgr555_to_888(clr);
 			}
 			else {
 				n = de_get_bits_symbol_lsb(c->infile, pg->fgbpp, pg->image_offset + 4*pg->width_in_words*j,
-					i+pg->pixels_to_ignore_at_start_of_row);
+					i_adj);
 				clr = DE_MAKE_OPAQUE(pg->pal[(int)n]);
 			}
 
@@ -190,14 +231,20 @@ static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
 			goto after_mask;
 		}
 
-		mask = de_bitmap_create(c, pg->width, pg->height, 1);
+		mask = de_bitmap_create(c, pg->num_fg_x_pixels_to_convert, pg->height, 1);
+		// Start with an opaque mask.
+		de_bitmap_rect(mask, 0, 0, mask->width, mask->height, DE_STOCKCOLOR_WHITE, 0);
 
 		for(j=0; j<pg->height; j++) {
-			for(i=0; i<pg->width; i++) {
+			for(i=0; i<pg->num_mask_x_pixels_to_convert; i++) {
+				i64 src_xpos, dst_xpos;
 				de_colorsample a = 255;
 
+				src_xpos = i + pg->x_idx_of_first_src_mask_pixel_to_convert;
+				dst_xpos = i + pg->mask_x_offset;
+
 				n = de_get_bits_symbol_lsb(c->infile, pg->maskbpp, pg->mask_offset + pg->mask_rowspan*j,
-					i+pg->pixels_to_ignore_at_start_of_row);
+					src_xpos);
 
 				if(pg->mask_type==MASK_TYPE_OLD || pg->mask_type==MASK_TYPE_NEW_1) {
 					if(n==0)
@@ -208,7 +255,7 @@ static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
 				else if(pg->mask_type==MASK_TYPE_NEW_8) {
 					a = n;
 				}
-				de_bitmap_setpixel_gray(mask, i, j, a);
+				de_bitmap_setpixel_gray(mask, dst_xpos, j, a);
 			}
 		}
 
@@ -424,14 +471,14 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 	de_dbg_indent(c, -1);
 
 	pg->width = ((pg->width_in_words-1) * 4 * 8 + (pg->last_bit+1)) / pg->fgbpp;
-	pg->pixels_to_ignore_at_start_of_row = pg->first_bit / pg->fgbpp;
-	pg->width -= pg->pixels_to_ignore_at_start_of_row;
+	pg->num_padding_pixels_at_start_of_row = pg->first_bit / pg->fgbpp;
+	pg->width -= pg->num_padding_pixels_at_start_of_row;
 	de_dbg(c, "calculated width: %d", (int)pg->width);
 
 	if(!de_good_image_dimensions(c, pg->width, pg->height)) goto done;
 
 	if(pg->mask_type==MASK_TYPE_NEW_1 || pg->mask_type==MASK_TYPE_NEW_8) {
-		if(pg->pixels_to_ignore_at_start_of_row>0) {
+		if(pg->num_padding_pixels_at_start_of_row>0) {
 			de_warn(c, "This image has a new-style transparency mask, and a "
 				"nonzero \"first bit\" field. This combination might not be "
 				"handled correctly.");
