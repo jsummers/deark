@@ -67,7 +67,7 @@ static void do_image_data(deark *c, lctx *d, struct page_ctx *pg)
 	int has_inv_bkgd = 0;
 	int use_mask;
 	int has_alpha_channel = 0;
-	i64 bitcount_color;
+	i64 pdwidth, mask_pdwidth;
 	char filename_token[32];
 	i64 pos1 = pg->data_offset;
 	i64 len = pg->data_size;
@@ -115,14 +115,13 @@ static void do_image_data(deark *c, lctx *d, struct page_ctx *pg)
 		use_mask = 1;
 	}
 
-	// In the filename, we use the bitcount just for the color data,
-	// ignoring any masks or alpha channel.
-	bitcount_color = bi.bitcount;
-	if(bi.bitcount==32) bitcount_color = 24;
 	de_snprintf(filename_token, sizeof(filename_token), "%dx%dx%d",
-		(int)bi.width, (int)bi.height, (int)bitcount_color);
+		(int)bi.width, (int)bi.height, (int)bi.bitcount);
 
-	img = de_bitmap_create(c, bi.width, bi.height, 4);
+	pdwidth = (bi.rowspan * 8)/bi.bitcount;
+	mask_pdwidth = bi.mask_rowspan * 8;
+
+	img = de_bitmap_create2(c, bi.width, pdwidth, bi.height, 4);
 	img->flipped = 1;
 
 	// Read palette
@@ -140,12 +139,26 @@ static void do_image_data(deark *c, lctx *d, struct page_ctx *pg)
 
 	de_dbg(c, "foreground at %d, mask at %d", (int)fg_start, (int)bg_start);
 
-	mask_img = de_bitmap_create(c, bi.width, bi.height, 1);
+	// Foreground padding pixels exist if the width times the bitcount is not a
+	// multiple of 32. This is rare.
+	// Mask padding pixels exist if the width is not a multiple of 32. This is
+	// common (when width=16 or 48).
+
+	// Note: For the -padpix feature, we never combine the mask image's padding
+	// pixels with the foreground image's padding pixels.
+	// Issues:
+	//   (1) There may be more mask padding pixels than image padding pixels.
+	//   (2) Inverse background pixels, and the warning about them.
+	// The mask's padding will be normally be ignored, but the padded mask will
+	// be written to a separate file if d->extract_unused_masks is enabled.
+
+	mask_img = de_bitmap_create2(c, bi.width, mask_pdwidth, bi.height, 1);
 	mask_img->flipped = 1;
 	de_convert_image_bilevel(c->infile, bg_start, bi.mask_rowspan, mask_img, 0);
 
 	for(j=0; j<img->height; j++) {
-		for(i=0; i<img->width; i++) {
+		for(i=0; i<pdwidth; i++) {
+			ca = 0xff;
 
 			if(bi.bitcount<=8) {
 				p = fg_start + bi.rowspan*j;
@@ -173,7 +186,7 @@ static void do_image_data(deark *c, lctx *d, struct page_ctx *pg)
 				}
 			}
 
-			if(use_mask) {
+			if(use_mask && i<bi.width) {
 				u8 maskclr;
 				// Refer to the mask, if the main bitmap didn't already
 				// have transparency.
@@ -217,11 +230,11 @@ static void do_image_data(deark *c, lctx *d, struct page_ctx *pg)
 
 	de_bitmap_write_to_file_finfo(img, fi, 0);
 
-	if(!use_mask && d->extract_unused_masks) {
+	if(d->extract_unused_masks && (!use_mask || (c->padpix && mask_pdwidth>bi.width))) {
 		char maskname_token[32];
 
-		de_snprintf(maskname_token, sizeof(maskname_token), "%dx%dmask",
-			(int)bi.width, (int)bi.height);
+		de_snprintf(maskname_token, sizeof(maskname_token), "%dx%dx%dmask",
+			(int)bi.width, (int)bi.height, (int)bi.bitcount);
 		de_bitmap_write_to_file(mask_img, maskname_token, DE_CREATEFLAG_IS_AUX);
 	}
 
