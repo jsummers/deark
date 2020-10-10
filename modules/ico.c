@@ -369,7 +369,8 @@ static int decode_win1_icon(deark *c, win1ctx *d, i64 pos1)
 	de_bitmap *mask = NULL;
 	de_bitmap *img = NULL;
 	de_finfo *fi = NULL;
-	i64 w, h;
+	i64 npwidth, h;
+	i64 pdwidth;
 	i64 rowspan;
 	i64 i, j;
 	i64 pos = pos1;
@@ -392,13 +393,14 @@ static int decode_win1_icon(deark *c, win1ctx *d, i64 pos1)
 	}
 	pos += 4;
 
-	w = de_getu16le_p(&pos);
+	npwidth = de_getu16le_p(&pos);
 	h = de_getu16le_p(&pos);
-	de_dbg_dimensions(c, w, h);
-	if(!de_good_image_dimensions(c, w, h)) goto done;
+	de_dbg_dimensions(c, npwidth, h);
+	if(!de_good_image_dimensions(c, npwidth, h)) goto done;
 
 	rowspan = de_getu16le_p(&pos);
 	de_dbg(c, "bytes/row: %d", (int)rowspan);
+	pdwidth = rowspan*8;
 
 	if(d->is_cur) {
 		unsigned int csColor;
@@ -407,8 +409,8 @@ static int decode_win1_icon(deark *c, win1ctx *d, i64 pos1)
 	}
 	pos += 2;
 
-	mask = de_bitmap_create(c, w, h, 1);
-	img = de_bitmap_create(c, w, h, 4);
+	mask = de_bitmap_create2(c, npwidth, pdwidth, h, 1);
+	img = de_bitmap_create2(c, npwidth, pdwidth, h, 4);
 	de_dbg(c, "mask at %"I64_FMT, pos);
 	de_convert_image_bilevel(c->infile, pos, rowspan, mask, 0);
 	pos += rowspan*h;
@@ -420,7 +422,7 @@ static int decode_win1_icon(deark *c, win1ctx *d, i64 pos1)
 	// pixels. But we have to do something, because such pixels are not
 	// uncommon.
 	for(j=0; j<h; j++) {
-		for(i=0; i<w; i++) {
+		for(i=0; i<pdwidth; i++) {
 			u8 fgclr, maskclr;
 			u32 newclr;
 
@@ -432,7 +434,9 @@ static int decode_win1_icon(deark *c, win1ctx *d, i64 pos1)
 			newclr = get_inv_bkgd_replacement_clr(i, j);
 			de_bitmap_setpixel_gray(mask, i, j, 255-DE_COLOR_A(newclr));
 			de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_OPAQUE(newclr));
-			has_inv_bkgd = 1;
+			if(i<npwidth) {
+				has_inv_bkgd = 1;
+			}
 		}
 	}
 	if(has_inv_bkgd) {
