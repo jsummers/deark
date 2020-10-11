@@ -384,6 +384,8 @@ de_bitmap *de_bitmap_create2(deark *c, i64 npwidth, i64 pdwidth, i64 height, int
 {
 	de_bitmap *img;
 
+	if(pdwidth<npwidth) pdwidth = npwidth;
+
 	img = de_bitmap_create(c, pdwidth, height, bypp);
 
 	if(npwidth>0 && npwidth<img->width) {
