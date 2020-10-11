@@ -8,6 +8,11 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_epocimage);
 
+#define DE_PFMT_MBM           1
+#define DE_PFMT_EXPORTED_MBM  2
+#define DE_PFMT_SKETCH        3
+#define DE_PFMT_AIF           4
+
 static const u32 supplpal[40] = {
 	0x111111,0x222222,0x444444,0x555555,0x777777,
 	0x110000,0x220000,0x440000,0x550000,0x770000,
@@ -24,14 +29,14 @@ static u32 getpal256(int k)
 	int x;
 	u8 r, g, b;
 
-	if(k<0 || k>255) return 0;
+	if(k<0 || k>255) return DE_STOCKCOLOR_BLACK;
 
 	// The first and last 108 entries together make up the simple palette once
 	// known as the "web safe" palette. The middle 40 entries are
 	// supplementary grayscale and red/green/blue shades.
 
 	if(k>=108 && k<148) {
-		return supplpal[k-108];
+		return DE_MAKE_OPAQUE(supplpal[k-108]);
 	}
 
 	x = k<108 ? k : k-40;
@@ -56,6 +61,7 @@ struct page_ctx {
 };
 
 typedef struct localctx_struct {
+	int fmt;
 	i64 paint_data_section_size;
 	int warned_exp;
 
@@ -73,11 +79,7 @@ static de_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
 	u8 cr;
 	u32 n;
 	u32 clr;
-
-	img = de_bitmap_create(c, pg->width, pg->height, pg->color_type ? 3 : 1);
-
-	img->orig_colortype = (int)pg->color_type;
-	img->orig_bitdepth = (int)pg->bits_per_pixel;
+	int bypp;
 
 	if(pg->bits_per_pixel==24) {
 		// 24-bit images seem to be 12-byte aligned
@@ -95,6 +97,11 @@ static de_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
 		src_rowspan = ((pg->bits_per_pixel*pg->width +31)/32)*4;
 	}
 
+	bypp = pg->color_type ? 3 : 1;
+	img = de_bitmap_create(c, pg->width, pg->height, bypp);
+	img->orig_colortype = (int)pg->color_type;
+	img->orig_bitdepth = (int)pg->bits_per_pixel;
+
 	for(j=0; j<pg->height; j++) {
 		for(i=0; i<pg->width; i++) {
 			switch(pg->bits_per_pixel) {
@@ -109,7 +116,7 @@ static de_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
 			case 4:
 				b = de_get_bits_symbol_lsb(unc_pixels, pg->bits_per_pixel, j*src_rowspan, i);
 				if(pg->color_type)
-					de_bitmap_setpixel_rgb(img, i, j, pal16[(unsigned int)b]);
+					de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_OPAQUE(pal16[(unsigned int)b]));
 				else
 					de_bitmap_setpixel_gray(img, i, j, b*17);
 				break;
@@ -640,11 +647,6 @@ static void de_run_epocmbm(deark *c, lctx *d)
 	do_epocmbm_jumptable(c, d, d->jumptable_offset);
 }
 
-#define DE_PFMT_MBM     1
-#define DE_PFMT_EXPORTED_MBM 2
-#define DE_PFMT_SKETCH  3
-#define DE_PFMT_AIF     4
-
 static int de_identify_epocimage_internal(deark *c)
 {
 	u8 b[12];
@@ -673,14 +675,12 @@ static int de_identify_epocimage_internal(deark *c)
 
 static void de_run_epocimage(deark *c, de_module_params *mparams)
 {
-	int fmt;
 	lctx *d = NULL;
 
-	fmt = de_identify_epocimage_internal(c);
-
 	d = de_malloc(c, sizeof(lctx));
+	d->fmt = de_identify_epocimage_internal(c);
 
-	switch(fmt) {
+	switch(d->fmt) {
 	case DE_PFMT_SKETCH:
 		de_declare_fmt(c, "EPOC Sketch");
 		de_run_epocsketch(c, d);
