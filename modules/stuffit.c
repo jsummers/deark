@@ -114,7 +114,6 @@ struct sit_huffctx {
 	struct fmtutil_huffman_tree *ht;
 	int errflag;
 	struct de_bitreader bitrd;
-	struct de_bitbuf_lowlevel bbll;
 };
 
 // A recursive function to read the tree definition.
@@ -215,13 +214,275 @@ done:
 	}
 }
 
+// -------- "Fixed Huffman" (type 6) decompression --------
+
+// There are FIXEDHUFF_NUMCODES Huffman codes, whose low-level decoded values
+// are 0...(FIXEDHUFF_NUMCODES-1).
+// The fixed Huffman encoding is not canonical. The codes are ordered by their
+// low-level decoded value, not by their bit length.
+// While the set of Huffman codes is fixed, the interpretation of those codes
+// is different in each block. We don't actually change the Huffman "values",
+// though -- instead we use a translation table (hctx->translation).
+
+// This compression type doesn't seem to be very common. A sample file:
+// http://cd.textfiles.com/thegreatunsorted/old_apps/archivers/zipit.sea
+
+// Credit: I used the macunpack program from the macutil software as
+// documentation for this format, though none of its source code is used here.
+
+#define FIXEDHUFF_NUMCODES 257
+
+struct sit_fixedhuffctx {
+	deark *c;
+	const char *modname;
+	struct de_dfilter_in_params *dcmpri;
+	struct de_dfilter_out_params *dcmpro;
+	struct de_dfilter_results *dres;
+	struct fmtutil_huffman_tree *ht;
+	int errflag;
+	u8 translation[256];
+};
+
+static void sit_fixedhuff_init_tree(struct sit_fixedhuffctx *hctx)
+{
+	deark *c = hctx->c;
+	size_t i, k;
+	size_t cdlen_curpos;
+	UI prev_code_bit_length = 0;
+	u64 prev_code = 0; // valid if prev_code_bit_length>0
+	char b2buf[72];
+	static const u8 cdlen_RLEcounts [13] = {1, 1, 4,12,32,16,49, 2,2,40,95, 2, 1};
+	static const u8 cdlen_RLElengths[13] = {3, 4, 5, 6, 7, 8, 9,10,9,10,11,13,12};
+	u8 code_lengths[FIXEDHUFF_NUMCODES];
+
+	// "Decompress" cdlen_RLE*[] to code_lengths[].
+	cdlen_curpos = 0;
+	for(i=0; i<DE_ARRAYCOUNT(cdlen_RLEcounts); i++) {
+		for(k=0; k<(size_t)cdlen_RLEcounts[i]; k++) {
+			if(cdlen_curpos>=FIXEDHUFF_NUMCODES) goto done;
+			code_lengths[cdlen_curpos++] = cdlen_RLElengths[i];
+		}
+	}
+
+	// This is similar to fmtutil_huffman_make_canonical_tree(), but different.
+	// Maybe it would be a useful library function.
+	for(i=0; i<FIXEDHUFF_NUMCODES; i++) {
+		u64 thiscode;
+		UI symlen;
+		int ret;
+
+		symlen = (UI)code_lengths[i];
+
+		if(prev_code_bit_length==0) { // this is the first code
+			thiscode = 0;
+		}
+		else if(symlen < prev_code_bit_length) {
+			thiscode = prev_code >> (prev_code_bit_length - symlen);
+			thiscode++;
+		}
+		else {
+			thiscode = prev_code + 1;
+			if(symlen > prev_code_bit_length) {
+				thiscode <<= (symlen - prev_code_bit_length);
+			}
+		}
+
+		prev_code_bit_length = symlen;
+		prev_code = thiscode;
+
+		if(c->debug_level>=3) {
+			de_dbg3(c, "adding code \"%s\" = %d",
+				de_print_base2_fixed(b2buf, sizeof(b2buf), thiscode, symlen), (int)i);
+		}
+		ret = fmtutil_huffman_add_code(c, hctx->ht, thiscode, symlen, (fmtutil_huffman_valtype)i);
+		if(!ret) {
+			hctx->errflag = 1;
+			goto done;
+		}
+	}
+
+done:
+	;
+}
+
+static void do_decompr_fixedhuff(deark *c, lctx *d, struct member_data *md,
+	struct fork_data *frk, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
+{
+	struct sit_fixedhuffctx *hctx = NULL;
+	i64 i;
+	dbuf *outf = NULL;
+	i64 pos, endpos;
+	i64 nbytes_written = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	hctx = de_malloc(c, sizeof(struct sit_fixedhuffctx));
+	hctx->c = c;
+	hctx->modname = "fixedhuffman";
+	hctx->dcmpri = dcmpri;
+	hctx->dcmpro = dcmpro;
+	hctx->dres = dres;
+	hctx->ht = fmtutil_huffman_create_tree(c, FIXEDHUFF_NUMCODES, 0);
+
+	sit_fixedhuff_init_tree(hctx);
+	if(hctx->errflag) goto done;
+
+	if(c->debug_level>=3) {
+		fmtutil_huffman_dump(c, hctx->ht);
+	}
+
+	// TODO: We don't really need this temporary buffer. Maybe need a more
+	// streamable PackBits decompressor.
+	outf = dbuf_create_membuf(c, 0, 0);
+
+	pos = dcmpri->pos;
+	endpos = dcmpri->pos + dcmpri->len;
+
+	while(1) {
+		i64 blocksize_raw;
+		i64 blocksize;
+		i64 block_endpos;
+		i64 ndefs;
+		i64 prev_len;
+		i64 nbytes_written_this_block;
+
+		if(hctx->errflag) goto done;
+		if(dcmpro->len_known && (nbytes_written>=dcmpro->expected_len)) {
+			de_dbg2(c, "[stopping due to sufficient output]");
+			goto done;
+		}
+		if(pos + 4 > endpos) {
+			de_dbg2(c, "[stopping, no room for a block at %"I64_FMT"]", pos);
+			goto done;
+		}
+		de_dbg2(c, "block at %"I64_FMT, pos);
+		de_dbg_indent(c, 1);
+
+		dbuf_empty(outf);
+
+		blocksize_raw = dbuf_geti32be_p(dcmpri->f, &pos);
+		de_dbg2(c, "block size code: %"I64_FMT, blocksize_raw);
+
+		if(blocksize_raw >= 0) { // PackBits + Huffman
+			i64 intermediate_len;
+			struct de_bitreader bitrd;
+
+			blocksize = blocksize_raw;
+			if(blocksize<10) {
+				goto done;
+			}
+
+			block_endpos = pos - 4 + blocksize;
+			if(block_endpos > endpos) {
+				hctx->errflag = 1;
+				goto done;
+			}
+
+			// This field seems to be the 'size in bytes' after Huffman decompression,
+			// as opposed to (say) the number of Huffman codes, which should be one
+			// larger (for the STOP code).
+			intermediate_len = dbuf_getu32be_p(dcmpri->f, &pos);
+			de_dbg2(c, "intermediate len: %"I64_FMT, intermediate_len);
+			if(intermediate_len > DE_MAX_SANE_OBJECT_SIZE) { // TODO what should the limit be?
+				hctx->errflag = 1;
+				goto done;
+			}
+
+			ndefs = dbuf_geti16be_p(dcmpri->f, &pos);
+			de_dbg2(c, "num code defs: %d", (int)ndefs);
+
+			if(ndefs<0 || ndefs>256) {
+				de_dfilter_set_errorf(c, dres, hctx->modname, "Can't handle num_defs=%d", (int)ndefs);
+				goto done;
+			}
+
+			for(i=0; i<ndefs; i++) {
+				hctx->translation[i] = dbuf_getbyte_p(dcmpri->f, &pos);
+				if(c->debug_level>=3) {
+					de_dbg3(c, "ll:%d = hl:%u", (int)i, (UI)hctx->translation[i]);
+				}
+			}
+
+			de_dbg2(c, "compressed data (PackBits+Huffman) at %"I64_FMT, pos);
+			de_zeromem(&bitrd, sizeof(struct de_bitreader));
+			bitrd.f = dcmpri->f;
+			bitrd.curpos = pos;
+			bitrd.endpos = block_endpos;
+
+			while(1) {
+				int ret;
+				fmtutil_huffman_valtype val = 0;
+
+				if(outf->len >= intermediate_len) break; // Have enough output data
+
+				ret = fmtutil_huffman_read_next_value(hctx->ht, &bitrd, &val, NULL);
+				if(bitrd.eof_flag) break;
+				if(!ret) {
+					de_dfilter_set_errorf(c, dres, hctx->modname, "Error reading Huffman codes");
+					goto done;
+				}
+				if(val<0 || val>255) {
+					break; // "stop" code
+				}
+
+				dbuf_writebyte(outf, hctx->translation[(int)val]);
+			}
+
+			dbuf_truncate(outf, intermediate_len);
+		}
+		else { // just PackBits
+			blocksize = -blocksize_raw;
+
+			if(blocksize<4) {
+				goto done;
+			}
+
+			block_endpos = pos - 4 + blocksize;
+			if(block_endpos > endpos) {
+				hctx->errflag = 1;
+				goto done;
+			}
+
+			de_dbg2(c, "compressed data (PackBits) at %"I64_FMT, pos);
+			dbuf_copy(dcmpri->f, pos, blocksize-4, outf);
+		}
+
+		// Note: I'm assuming that each block is compressed independently (with
+		// PackBits), but I'm not 100% sure. It could be that the whole file is
+		// first compressed with PackBits, and then split into segments. If so,
+		// this won't always work.
+		prev_len = dcmpro->f->len;
+		fmtutil_decompress_packbits(outf, 0, outf->len, dcmpro->f, NULL);
+		nbytes_written_this_block = dcmpro->f->len - prev_len;
+		de_dbg2(c, "decompressed to %"I64_FMT" bytes", nbytes_written_this_block);
+		nbytes_written += nbytes_written_this_block;
+
+		pos = block_endpos;
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	dbuf_close(outf);
+
+	if(hctx) {
+		if(hctx->errflag) {
+			de_dfilter_set_generic_error(c, dres, hctx->modname);
+		}
+
+		fmtutil_huffman_destroy_tree(c, hctx->ht);
+		de_free(c, hctx);
+	}
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ CMPR_NONE, "uncompressed", do_decompr_uncompressed },
 	{ CMPR_RLE, "RLE",  do_decompr_rle },
 	{ CMPR_LZW, "LZW", do_decompr_lzw },
 	{ CMPR_HUFFMAN, "Huffman", do_decompr_huffman },
 	{ CMPR_LZAH, "LZAH", NULL },
-	{ CMPR_FIXEDHUFF, "fixed Huffman", NULL },
+	{ CMPR_FIXEDHUFF, "fixed Huffman", do_decompr_fixedhuff },
 	{ CMPR_MW, "MW", NULL },
 	{ CMPR_LZHUFF, "LZ+Huffman", NULL },
 	{ 14, "installer", NULL },
