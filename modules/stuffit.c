@@ -781,6 +781,7 @@ static void do_extract_folder(deark *c, lctx *d, struct member_data *md)
 	de_finfo_set_name_from_ucstring(c, fi, md->full_fname, DE_SNFLAG_FULLPATH);
 	fi->original_filename_flag = 1;
 	fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->mod_time;
+	fi->timestamp[DE_TIMESTAMPIDX_CREATE] = md->create_time;
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
 done:
 	dbuf_close(outf);
