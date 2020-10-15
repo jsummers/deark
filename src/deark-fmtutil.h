@@ -164,6 +164,7 @@ void fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 
 void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
+void dfilter_packbits_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 
 struct de_lzh_params {
 #define DE_LZH_FMT_LH5LIKE       1 // subfmt=='5' (etc.)

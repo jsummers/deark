@@ -170,52 +170,102 @@ void fmtutil_decompress_uncompressed(deark *c, struct de_dfilter_in_params *dcmp
 	dres->bytes_consumed_valid = 1;
 }
 
+struct packbitsctx {
+	i64 total_nbytes_processed;
+	i64 nbytes_written;
+	int state; // 0 = neutral,  1=copying literal bytes,  2=waiting for byte to repeat
+	i64 nliteral_bytes_remaining;
+	i64 repeat_count;
+};
+
+static void my_packbits_codec_addbuf(struct de_dfilter_ctx *dfctx,
+	const u8 *buf, i64 buf_len)
+{
+	int i;
+	u8 b;
+	struct packbitsctx *rctx = (struct packbitsctx*)dfctx->codec_private;
+
+	if(!rctx) return;
+
+	for(i=0; i<buf_len; i++) {
+		if(dfctx->dcmpro->len_known &&
+			(rctx->nbytes_written >= dfctx->dcmpro->expected_len))
+		{
+			dfctx->finished_flag = 1;
+			break;
+		}
+
+		b = buf[i];
+		rctx->total_nbytes_processed++;
+
+		switch(rctx->state) {
+		case 0: // this is a code byte
+			if(b>128) { // A compressed run
+				rctx->repeat_count = 257 - (i64)b;
+				rctx->state = 2;
+			}
+			else if(b<128) { // An uncompressed run
+				rctx->nliteral_bytes_remaining = 1 + (i64)b;
+				rctx->state = 1;
+			}
+			// Else b==128. No-op.
+			// TODO: Some (but not most) ILBM specs say that code 128 is used to
+			// mark the end of compressed data, so maybe there should be options to
+			// tell us what to do when code 128 is encountered.
+			break;
+		case 1: // This byte is uncompressed
+			dbuf_writebyte(dfctx->dcmpro->f, b);
+			rctx->nbytes_written++;
+			rctx->nliteral_bytes_remaining--;
+			if(rctx->nliteral_bytes_remaining<=0) {
+				rctx->state = 0;
+			}
+			break;
+		case 2: // This is the byte to repeat
+			dbuf_write_run(dfctx->dcmpro->f, b, rctx->repeat_count);
+			rctx->nbytes_written += rctx->repeat_count;
+			rctx->state = 0;
+			break;
+		}
+	}
+}
+
+static void my_packbits_codec_finish(struct de_dfilter_ctx *dfctx)
+{
+	struct packbitsctx *rctx = (struct packbitsctx*)dfctx->codec_private;
+
+	if(!rctx) return;
+	dfctx->dres->bytes_consumed = rctx->total_nbytes_processed;
+	dfctx->dres->bytes_consumed_valid = 1;
+}
+
+static void my_packbits_codec_destroy(struct de_dfilter_ctx *dfctx)
+{
+	struct packbitsctx *rctx = (struct packbitsctx*)dfctx->codec_private;
+
+	if(rctx) {
+		de_free(dfctx->c, rctx);
+	}
+	dfctx->codec_private = NULL;
+}
+
+// codec_private_params: Unused
+void dfilter_packbits_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
+{
+	struct packbitsctx *rctx = NULL;
+
+	rctx = de_malloc(dfctx->c, sizeof(struct packbitsctx));
+	dfctx->codec_private = (void*)rctx;
+	dfctx->codec_addbuf_fn = my_packbits_codec_addbuf;
+	dfctx->codec_finish_fn = my_packbits_codec_finish;
+	dfctx->codec_destroy_fn = my_packbits_codec_destroy;
+}
+
 void fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	i64 pos;
-	u8 b, b2;
-	i64 count;
-	i64 endpos;
-	i64 outf_len_limit = 0;
-	dbuf *f = dcmpri->f;
-	dbuf *unc_pixels = dcmpro->f;
-
-	pos = dcmpri->pos;
-	endpos = dcmpri->pos + dcmpri->len;
-
-	if(dcmpro->len_known) {
-		outf_len_limit = unc_pixels->len + dcmpro->expected_len;
-	}
-
-	while(1) {
-		if(dcmpro->len_known && unc_pixels->len >= outf_len_limit) {
-			break; // Decompressed the requested amount of dst data.
-		}
-
-		if(pos>=endpos) {
-			break; // Reached the end of source data
-		}
-		b = dbuf_getbyte(f, pos++);
-
-		if(b>128) { // A compressed run
-			count = 257 - (i64)b;
-			b2 = dbuf_getbyte(f, pos++);
-			dbuf_write_run(unc_pixels, b2, count);
-		}
-		else if(b<128) { // An uncompressed run
-			count = 1 + (i64)b;
-			dbuf_copy(f, pos, count, unc_pixels);
-			pos += count;
-		}
-		// Else b==128. No-op.
-		// TODO: Some (but not most) ILBM specs say that code 128 is used to
-		// mark the end of compressed data, so maybe there should be options to
-		// tell us what to do when code 128 is encountered.
-	}
-
-	dres->bytes_consumed = pos - dcmpri->pos;
-	dres->bytes_consumed_valid = 1;
+	de_dfilter_decompress_oneshot(c, dfilter_packbits_codec, NULL,
+		dcmpri, dcmpro, dres);
 }
 
 // Returns 0 on failure (currently impossible).
@@ -238,7 +288,8 @@ int fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
 		dcmpro.expected_len = unc_pixels->len_limit - unc_pixels->len;
 	}
 
-	fmtutil_decompress_packbits_ex(f->c, &dcmpri, &dcmpro, &dres);
+	de_dfilter_decompress_oneshot(f->c, dfilter_packbits_codec, NULL,
+		&dcmpri, &dcmpro, &dres);
 
 	if(cmpr_bytes_consumed && dres.bytes_consumed_valid) {
 		*cmpr_bytes_consumed = dres.bytes_consumed;
