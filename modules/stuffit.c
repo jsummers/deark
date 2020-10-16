@@ -311,10 +311,12 @@ static void do_decompr_fixedhuff(deark *c, lctx *d, struct member_data *md,
 {
 	struct sit_fixedhuffctx *hctx = NULL;
 	i64 i;
-	dbuf *outf = NULL;
 	i64 pos, endpos;
 	i64 nbytes_written = 0;
 	int saved_indent_level;
+	struct de_dfilter_ctx *pb_dfctx = NULL;
+	struct de_dfilter_out_params pb_dcmpro;
+	struct de_dfilter_results pb_dres;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	hctx = de_malloc(c, sizeof(struct sit_fixedhuffctx));
@@ -332,14 +334,10 @@ static void do_decompr_fixedhuff(deark *c, lctx *d, struct member_data *md,
 		fmtutil_huffman_dump(c, hctx->ht);
 	}
 
-	// TODO: We don't really need this temporary buffer. Maybe need a more
-	// streamable PackBits decompressor.
-	outf = dbuf_create_membuf(c, 0, 0);
-
 	pos = dcmpri->pos;
 	endpos = dcmpri->pos + dcmpri->len;
 
-	while(1) {
+	while(1) { // For each block...
 		i64 blocksize_raw;
 		i64 blocksize;
 		i64 block_endpos;
@@ -359,13 +357,30 @@ static void do_decompr_fixedhuff(deark *c, lctx *d, struct member_data *md,
 		de_dbg2(c, "block at %"I64_FMT, pos);
 		de_dbg_indent(c, 1);
 
-		dbuf_empty(outf);
-
 		blocksize_raw = dbuf_geti32be_p(dcmpri->f, &pos);
 		de_dbg2(c, "block size code: %"I64_FMT, blocksize_raw);
 
+		if(pb_dfctx) {
+			de_dfilter_destroy(pb_dfctx);
+			pb_dfctx = NULL;
+		}
+		de_dfilter_init_objects(c, NULL, &pb_dcmpro, &pb_dres);
+		pb_dcmpro.f = dcmpro->f;
+		if(dcmpro->len_known) {
+			// We apparently aren't told this block's decompressed size after PackBits
+			// decompression.
+			// Set the PackBits decoder's expected output len (really max len)
+			// to the maximum possible number of decompressed bytes still needed.
+			pb_dcmpro.expected_len = dcmpro->expected_len - nbytes_written;
+			pb_dcmpro.len_known = 1;
+		}
+		pb_dfctx = de_dfilter_create(c, dfilter_packbits_codec, NULL, &pb_dcmpro, &pb_dres);
+
+		prev_len = dcmpro->f->len;
+
 		if(blocksize_raw >= 0) { // PackBits + Huffman
 			i64 intermediate_len;
+			i64 nbytes_decoded_intermed = 0; // After Huffman decompression, before packbits
 			struct de_bitreader bitrd;
 
 			blocksize = blocksize_raw;
@@ -414,7 +429,7 @@ static void do_decompr_fixedhuff(deark *c, lctx *d, struct member_data *md,
 				int ret;
 				fmtutil_huffman_valtype val = 0;
 
-				if(outf->len >= intermediate_len) break; // Have enough output data
+				if(nbytes_decoded_intermed >= intermediate_len) break; // Have enough output data
 
 				ret = fmtutil_huffman_read_next_value(hctx->ht, &bitrd, &val, NULL);
 				if(bitrd.eof_flag) break;
@@ -426,10 +441,9 @@ static void do_decompr_fixedhuff(deark *c, lctx *d, struct member_data *md,
 					break; // "stop" code
 				}
 
-				dbuf_writebyte(outf, hctx->translation[(int)val]);
+				de_dfilter_addbuf(pb_dfctx, &hctx->translation[(int)val], 1);
+				nbytes_decoded_intermed++;
 			}
-
-			dbuf_truncate(outf, intermediate_len);
 		}
 		else { // just PackBits
 			blocksize = -blocksize_raw;
@@ -445,15 +459,13 @@ static void do_decompr_fixedhuff(deark *c, lctx *d, struct member_data *md,
 			}
 
 			de_dbg2(c, "compressed data (PackBits) at %"I64_FMT, pos);
-			dbuf_copy(dcmpri->f, pos, blocksize-4, outf);
+			de_dfilter_addslice(pb_dfctx, dcmpri->f, pos, blocksize-4);
 		}
 
 		// Note: I'm assuming that each block is compressed independently (with
 		// PackBits), but I'm not 100% sure. It could be that the whole file is
 		// first compressed with PackBits, and then split into segments. If so,
 		// this won't always work.
-		prev_len = dcmpro->f->len;
-		fmtutil_decompress_packbits(outf, 0, outf->len, dcmpro->f, NULL);
 		nbytes_written_this_block = dcmpro->f->len - prev_len;
 		de_dbg2(c, "decompressed to %"I64_FMT" bytes", nbytes_written_this_block);
 		nbytes_written += nbytes_written_this_block;
@@ -463,7 +475,7 @@ static void do_decompr_fixedhuff(deark *c, lctx *d, struct member_data *md,
 	}
 
 done:
-	dbuf_close(outf);
+	if(pb_dfctx) de_dfilter_destroy(pb_dfctx);
 
 	if(hctx) {
 		if(hctx->errflag) {
@@ -473,6 +485,7 @@ done:
 		fmtutil_huffman_destroy_tree(c, hctx->ht);
 		de_free(c, hctx);
 	}
+
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 

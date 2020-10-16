@@ -120,7 +120,7 @@ void de_dfilter_destroy(struct de_dfilter_ctx *dfctx)
 	de_free(c, dfctx);
 }
 
-static int my_dfilter_oneshot_buffered_read_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
+static int my_dfilter_addslice_buffered_read_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 	i64 buf_len)
 {
 	struct de_dfilter_ctx *dfctx = (struct de_dfilter_ctx *)brctx->userdata;
@@ -128,6 +128,13 @@ static int my_dfilter_oneshot_buffered_read_cbfn(struct de_bufferedreadctx *brct
 	de_dfilter_addbuf(dfctx, buf, buf_len);
 	if(dfctx->finished_flag) return 0;
 	return 1;
+}
+
+void de_dfilter_addslice(struct de_dfilter_ctx *dfctx,
+	dbuf *inf, i64 pos, i64 len)
+{
+	dbuf_buffered_read(inf, pos, len,
+		my_dfilter_addslice_buffered_read_cbfn, (void*)dfctx);
 }
 
 // Use a "pushable" codec in a non-pushable way.
@@ -140,8 +147,7 @@ void de_dfilter_decompress_oneshot(deark *c,
 
 	dfctx = de_dfilter_create(c, codec_init_fn, codec_private_params,
 		dcmpro, dres);
-	dbuf_buffered_read(dcmpri->f, dcmpri->pos, dcmpri->len,
-		my_dfilter_oneshot_buffered_read_cbfn, (void*)dfctx);
+	de_dfilter_addslice(dfctx, dcmpri->f, dcmpri->pos, dcmpri->len);
 	de_dfilter_finish(dfctx);
 	de_dfilter_destroy(dfctx);
 }

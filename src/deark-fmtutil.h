@@ -189,6 +189,8 @@ struct de_dfilter_ctx *de_dfilter_create(deark *c,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
 void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
 	const u8 *buf, i64 buf_len);
+void de_dfilter_addslice(struct de_dfilter_ctx *dfctx,
+	dbuf *inf, i64 pos, i64 len);
 void de_dfilter_finish(struct de_dfilter_ctx *dfctx);
 void de_dfilter_destroy(struct de_dfilter_ctx *dfctx);
 
