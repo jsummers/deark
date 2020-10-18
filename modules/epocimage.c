@@ -410,15 +410,7 @@ static void do_combine_and_write_images(deark *c, lctx *d,
 				a = 0xff;
 			}
 
-			// White is background, black is foreground.
-			if(a==0xff) {
-				clr = DE_MAKE_RGBA(255,128,255,0);
-			}
-			else if(a!=0) {
-				// Make this pixel transparent or partly transparent.
-				clr = DE_SET_ALPHA(clr, 255-a);
-			}
-			de_bitmap_setpixel_rgba(img, i, j, clr);
+			de_bitmap_setpixel_rgba(img, i, j, DE_SET_ALPHA(clr, 255-a));
 		}
 	}
 	de_bitmap_write_to_file(img, NULL, 0);
