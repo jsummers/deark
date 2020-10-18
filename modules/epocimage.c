@@ -372,8 +372,6 @@ static void do_combine_and_write_images(deark *c, lctx *d,
 {
 	de_bitmap *img = NULL; // The combined image
 	i64 i, j;
-	u32 clr;
-	u8 a;
 
 	if(!fg_img) goto done;
 	if(!mask_img) {
@@ -386,10 +384,22 @@ static void do_combine_and_write_images(deark *c, lctx *d,
 
 	for(j=0; j<img->height; j++) {
 		for(i=0; i<img->width; i++) {
+			de_color clr;
+			de_colorsample a;
+
 			clr = de_bitmap_getpixel(fg_img, i, j);
 
 			if(i<mask_img->width && j<mask_img->height) {
-				a = DE_COLOR_G(de_bitmap_getpixel(mask_img, i, j));
+				de_color clrm;
+				i64 a1;
+
+				clrm = de_bitmap_getpixel(mask_img, i, j);
+
+				// Some masks have colors that are not quite grayscale.
+				// Guess we'll use the average of the sample values.
+				a1 = (i64)DE_COLOR_R(clrm) + (i64)DE_COLOR_G(clrm) + (i64)DE_COLOR_B(clrm);
+				a = de_scale_n_to_255(255*3, a1);
+
 				if(mask_img->orig_colortype==0 && mask_img->orig_bitdepth==8) {
 					a = 255-a;
 				}
