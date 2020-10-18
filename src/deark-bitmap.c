@@ -374,6 +374,7 @@ de_bitmap *de_bitmap_create(deark *c, i64 width, i64 height, int bypp)
 	de_bitmap *img;
 	img = de_bitmap_create_noinit(c);
 	img->width = width;
+	img->unpadded_width = width;
 	img->height = height;
 	img->bytes_per_pixel = bypp;
 	//img->rowspan = img->width * img->bytes_per_pixel;
@@ -390,9 +391,6 @@ de_bitmap *de_bitmap_create2(deark *c, i64 npwidth, i64 pdwidth, i64 height, int
 
 	if(npwidth>0 && npwidth<img->width) {
 		img->unpadded_width = npwidth;
-	}
-	else {
-		img->unpadded_width = img->width;
 	}
 
 	return img;

@@ -75,11 +75,14 @@ static de_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
 	de_bitmap *img = NULL;
 	i64 i, j;
 	i64 src_rowspan;
+	i64 pdwidth;
 	u8 b;
 	u8 cr;
 	u32 n;
 	u32 clr;
 	int bypp;
+
+	pdwidth = pg->width;
 
 	if(pg->bits_per_pixel==24) {
 		// 24-bit images seem to be 12-byte aligned
@@ -93,12 +96,16 @@ static de_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
 		if(pg->width%2) src_rowspan += 3;
 	}
 	else {
+		i64 bits_per_row;
 		// Rows are 4-byte aligned
-		src_rowspan = ((pg->bits_per_pixel*pg->width +31)/32)*4;
+
+		bits_per_row = de_pad_to_n(pg->bits_per_pixel*pg->width, 32);
+		src_rowspan = bits_per_row / 8;
+		pdwidth = bits_per_row / pg->bits_per_pixel;
 	}
 
 	bypp = pg->color_type ? 3 : 1;
-	img = de_bitmap_create(c, pg->width, pg->height, bypp);
+	img = de_bitmap_create2(c, pg->width, pdwidth, pg->height, bypp);
 	img->orig_colortype = (int)pg->color_type;
 	img->orig_bitdepth = (int)pg->bits_per_pixel;
 
@@ -380,7 +387,8 @@ static void do_combine_and_write_images(deark *c, lctx *d,
 	}
 
 	// Create a new image (which supports transparency).
-	img = de_bitmap_create(c, fg_img->width, fg_img->height, fg_img->bytes_per_pixel<=2 ? 2 : 4);
+	img = de_bitmap_create2(c, fg_img->unpadded_width, fg_img->width, fg_img->height,
+		(fg_img->bytes_per_pixel<=2 ? 2 : 4));
 
 	for(j=0; j<img->height; j++) {
 		for(i=0; i<img->width; i++) {
@@ -389,7 +397,11 @@ static void do_combine_and_write_images(deark *c, lctx *d,
 
 			clr = de_bitmap_getpixel(fg_img, i, j);
 
-			if(i<mask_img->width && j<mask_img->height) {
+			if(i>=fg_img->unpadded_width) {
+				// Make all padding pixels opaque. (We don't preserve the mask's padding pixels.)
+				a = 0;
+			}
+			else if(i<mask_img->unpadded_width && j<mask_img->height) {
 				de_color clrm;
 				i64 a1;
 
