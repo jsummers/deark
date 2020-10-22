@@ -56,6 +56,14 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define IFDTYPE_MASKSUBIFD   9
 #define IFDTYPE_FUJIFILMMN   10
 
+#define TAG_IMAGEWIDTH          256
+#define TAG_IMAGELENGTH         257
+#define TAG_COMPRESSION         259
+#define TAG_ORIENTATION         274
+#define TAG_JPEGINTERCHANGEFORMAT 513
+#define TAG_JPEGINTERCHANGEFORMATLENGTH 514
+#define TAG_YCBCRPOSITIONING    531
+
 struct localctx_struct;
 typedef struct localctx_struct lctx;
 struct taginfo;
@@ -111,9 +119,13 @@ struct page_ctx {
 	i64 ifd_idx;
 	i64 ifdpos;
 	int ifdtype;
+	u32 compression;
 	u32 orientation;
 	u32 ycbcrpositioning;
 	i64 imagewidth, imagelength; // Raw tag values, before considering Orientation
+	u8 have_jpeglength;
+	i64 jpegoffset;
+	i64 jpeglength;
 };
 
 // Data associated with an actual tag in an IFD in the file
@@ -492,28 +504,30 @@ static i64 getfpos(deark *c, lctx *d, i64 pos)
 	return dbuf_getu32x(c->infile, pos, d->is_le);
 }
 
-static void do_oldjpeg(deark *c, lctx *d, i64 jpegoffset, i64 jpeglength)
+static void do_oldjpeg(deark *c, lctx *d, struct page_ctx *pg)
 {
 	const char *extension;
 	unsigned int createflags;
+	i64 jpeglength = pg->jpeglength;
 
-	if(jpeglength<0) {
+	if(pg->jpegoffset==0) return;
+	if(!pg->have_jpeglength) {
 		// Missing JPEGInterchangeFormatLength tag. Assume it goes to the end
 		// of the file.
-		jpeglength = c->infile->len - jpegoffset;
+		jpeglength = c->infile->len - pg->jpegoffset;
 	}
-	if(jpeglength>DE_MAX_SANE_OBJECT_SIZE) {
+	if(jpeglength<1 || jpeglength>DE_MAX_SANE_OBJECT_SIZE) {
 		return;
 	}
 
-	if(jpegoffset+jpeglength>c->infile->len) {
+	if(pg->jpegoffset+jpeglength>c->infile->len) {
 		detiff_warn(c, d, "Invalid offset/length of embedded JPEG data (offset=%"I64_FMT
-			", len=%"I64_FMT")", jpegoffset, jpeglength);
+			", len=%"I64_FMT")", pg->jpegoffset, jpeglength);
 		return;
 	}
 
-	if(dbuf_memcmp(c->infile, jpegoffset, "\xff\xd8\xff", 3)) {
-		detiff_warn(c, d, "Expected JPEG data at %"I64_FMT" not found", jpegoffset);
+	if(dbuf_memcmp(c->infile, pg->jpegoffset, "\xff\xd8\xff", 3)) {
+		detiff_warn(c, d, "Expected JPEG data at %"I64_FMT" not found", pg->jpegoffset);
 		return;
 	}
 
@@ -531,7 +545,7 @@ static void do_oldjpeg(deark *c, lctx *d, i64 jpegoffset, i64 jpeglength)
 		// TODO: Should createflags be set to DE_CREATEFLAG_IS_AUX in some cases?
 		createflags = 0;
 	}
-	dbuf_create_file_from_slice(c->infile, jpegoffset, jpeglength, extension, NULL, createflags);
+	dbuf_create_file_from_slice(c->infile, pg->jpegoffset, jpeglength, extension, NULL, createflags);
 }
 
 static void do_leaf_metadata(deark *c, lctx *d, i64 pos1, i64 len)
@@ -1052,32 +1066,6 @@ static void handler_bplist(deark *c, lctx *d, const struct taginfo *tg, const st
 	}
 }
 
-static void handler_imagewidth(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
-{
-	if(tg->valcount!=1) return;
-	read_tag_value_as_int64(c, d, tg, 0, &tg->pg->imagewidth);
-}
-
-static void handler_imagelength(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
-{
-	if(tg->valcount!=1) return;
-	read_tag_value_as_int64(c, d, tg, 0, &tg->pg->imagelength);
-}
-
-static void handler_orientation(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
-{
-	i64 tmpval;
-
-	if(tg->valcount!=1) return;
-	read_tag_value_as_int64(c, d, tg, 0, &tmpval);
-	if(tmpval>=1 && tmpval<=8) {
-		tg->pg->orientation = (u32)tmpval;
-		if(tg->pg->ifd_idx==0) { // FIXME: Don't do this here.
-			d->first_ifd_orientation = tg->pg->orientation;
-		}
-	}
-}
-
 static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
 	i64 num_entries;
@@ -1124,15 +1112,6 @@ static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const st
 		de_dbg(c, "offset of %s: %d", tni->tagname, (int)tmpoffset);
 		push_ifd(c, d, tmpoffset, ifdtype);
 	}
-}
-
-static void handler_ycbcrpositioning(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
-{
-	i64 tmpval;
-
-	if(tg->valcount!=1) return;
-	read_tag_value_as_int64(c, d, tg, 0, &tmpval);
-	tg->pg->ycbcrpositioning = (u32)tmpval;
 }
 
 static void handler_xmp(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
@@ -1568,13 +1547,55 @@ static void handler_panasonicjpg(deark *c, lctx *d, const struct taginfo *tg, co
 		"thumb.jpg", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
+static void handler_leafdata(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	do_leaf_metadata(c, d, tg->val_offset, tg->total_size);
+}
+
+// Handler for some tags expected to have a single integer value
+static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	struct page_ctx *pg = tg->pg;
+	i64 val;
+
+	if(tg->valcount!=1) return;
+	read_tag_value_as_int64(c, d, tg, 0, &val);
+
+	switch(tg->tagnum) {
+	case TAG_IMAGEWIDTH:
+		pg->imagewidth = val;
+		break;
+	case TAG_IMAGELENGTH:
+		pg->imagelength = val;
+		break;
+	case TAG_COMPRESSION:
+		pg->compression = (u32)val;
+		break;
+	case TAG_ORIENTATION:
+		if(val>=1 && val<=8) {
+			pg->orientation = (u32)val;
+		}
+		break;
+	case TAG_JPEGINTERCHANGEFORMAT:
+		pg->jpegoffset = val;
+		break;
+	case TAG_JPEGINTERCHANGEFORMATLENGTH:
+		pg->have_jpeglength = 1;
+		pg->jpeglength = val;
+		break;
+	case TAG_YCBCRPOSITIONING:
+		pg->ycbcrpositioning = (u32)val;
+		break;
+	}
+}
+
 static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 254, 0x00, "NewSubfileType", NULL, valdec_newsubfiletype },
 	{ 255, 0x00, "OldSubfileType", NULL, valdec_oldsubfiletype },
-	{ 256, 0x00, "ImageWidth", handler_imagewidth, NULL },
-	{ 257, 0x00, "ImageLength", handler_imagelength, NULL },
+	{ /* 256 */ TAG_IMAGEWIDTH, 0x0000, "ImageWidth", handler_various, NULL },
+	{ /* 257 */ TAG_IMAGELENGTH, 0x0000, "ImageLength", handler_various, NULL },
 	{ 258, 0x00, "BitsPerSample", NULL, NULL },
-	{ 259, 0x00, "Compression", NULL, valdec_compression },
+	{ /* 259 */ TAG_COMPRESSION, 0x0000, "Compression", handler_various, valdec_compression },
 	{ 262, 0x00, "PhotometricInterpretation", NULL, valdec_photometric },
 	{ 263, 0x00, "Threshholding", NULL, valdec_threshholding },
 	{ 264, 0x00, "CellWidth", NULL, NULL },
@@ -1585,7 +1606,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 271, 0x0400, "Make", NULL, NULL },
 	{ 272, 0x0400, "Model", NULL, NULL },
 	{ 273, 0x00, "StripOffsets", NULL, NULL },
-	{ 274, 0x00, "Orientation", handler_orientation, valdec_orientation },
+	{ /* 274 */ TAG_ORIENTATION, 0x0000, "Orientation", handler_various, valdec_orientation },
 	{ 277, 0x00, "SamplesPerPixel", NULL, NULL },
 	{ 278, 0x00, "RowsPerStrip", NULL, NULL },
 	{ 279, 0x00, "StripByteCounts", NULL, NULL },
@@ -1650,10 +1671,8 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 434, 0x0000, "DefaultImageColor", NULL, NULL },
 	{ 435, 0x0000, "T82Options", NULL, NULL },
 	{ 512, 0x00, "JPEGProc", NULL, valdec_jpegproc },
-#define TAG_JPEGINTERCHANGEFORMAT 513
-	{ TAG_JPEGINTERCHANGEFORMAT, 0x00, "JPEGInterchangeFormat", NULL, NULL },
-#define TAG_JPEGINTERCHANGEFORMATLENGTH 514
-	{ TAG_JPEGINTERCHANGEFORMATLENGTH, 0x00, "JPEGInterchangeFormatLength", NULL, NULL },
+	{ /* 513 */ TAG_JPEGINTERCHANGEFORMAT, 0x0000, "JPEGInterchangeFormat", handler_various, NULL },
+	{ /* 514 */ TAG_JPEGINTERCHANGEFORMATLENGTH, 0x0000, "JPEGInterchangeFormatLength", handler_various, NULL },
 	{ 515, 0x00, "JPEGRestartInterval", NULL, NULL },
 	{ 517, 0x00, "JPEGLosslessPredictors", NULL, NULL },
 	{ 518, 0x00, "JPEGPointTransforms", NULL, NULL },
@@ -1662,7 +1681,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 521, 0x00, "JPEGACTables", NULL, NULL },
 	{ 529, 0x00, "YCbCrCoefficients", NULL, NULL },
 	{ 530, 0x00, "YCbCrSubSampling", NULL, NULL },
-	{ 531, 0x00, "YCbCrPositioning", handler_ycbcrpositioning, valdec_ycbcrpositioning },
+	{ /* 531 */ TAG_YCBCRPOSITIONING, 0x0000, "YCbCrPositioning", handler_various, valdec_ycbcrpositioning },
 	{ 532, 0x00, "ReferenceBlackWhite", NULL, NULL },
 	{ 559, 0x0000, "StripRowCounts", NULL, NULL },
 	{ 700, 0x0408, "XMP", handler_xmp, NULL },
@@ -1747,7 +1766,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 34263, 0x0000, "JPLCartoIFD", NULL, NULL },
 	{ 34264, 0x0000, "ModelTransformationTag", NULL, NULL },
 	//{ 34306, 0x0000, "WB_GRGBLevels", NULL, NULL },
-	//{ 34310, 0x0000, "LeafData", NULL, NULL },
+	{ 34310, 0x0008, "LeafData", handler_leafdata, NULL },
 	{ 34377, 0x0408, "PhotoshopImageResources", handler_photoshoprsrc, NULL },
 	{ 34665, 0x0408, "Exif IFD", handler_subifd, NULL },
 	{ 34675, 0x0408, "ICC Profile", handler_iccprofile, NULL },
@@ -2440,13 +2459,19 @@ static const struct tagnuminfo *find_tagnuminfo(int tagnum, int filefmt, int ifd
 	return NULL;
 }
 
+static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
+{
+	// TODO: Should we check pg->compression?
+	if(pg->jpegoffset>0) {
+		do_oldjpeg(c, d, pg);
+	}
+}
+
 static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtype1)
 {
 	struct page_ctx *pg = NULL;
 	int num_tags;
 	int i;
-	i64 jpegoffset = 0;
-	i64 jpeglength = -1;
 	i64 tmpoffset;
 	de_ucstring *dbgline = NULL;
 	struct taginfo tg;
@@ -2567,38 +2592,19 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 		de_dbg(c, "%s", ucstring_getpsz_n(dbgline, 500+DE_DBG_MAX_STRLEN));
 		de_dbg_indent(c, 1);
 
-		switch(tg.tagnum) {
-		case TAG_JPEGINTERCHANGEFORMAT:
-			if(tg.valcount<1) break;
-			read_tag_value_as_int64(c, d, &tg, 0, &jpegoffset);
-			break;
-
-		case TAG_JPEGINTERCHANGEFORMATLENGTH:
-			if(tg.valcount<1) break;
-			read_tag_value_as_int64(c, d, &tg, 0, &jpeglength);
-			break;
-
-		case 34310: // Leaf MOS metadata / "PKTS"
-			do_leaf_metadata(c, d, tg.val_offset, tg.total_size);
-			break;
-
-		default:
-			if(tni->hfn) {
-				tni->hfn(c, d, &tg, tni);
-			}
+		if(tni->hfn) {
+			tni->hfn(c, d, &tg, tni);
 		}
 
 		de_dbg_indent(c, -1);
-	}
-
-	if(jpegoffset>0 && jpeglength!=0) {
-		do_oldjpeg(c, d, jpegoffset, jpeglength);
 	}
 
 	if(pg->ifd_idx==0) {
 		d->first_ifd_orientation = pg->orientation;
 		d->first_ifd_cosited = (pg->ycbcrpositioning==2);
 	}
+
+	do_process_ifd_image(c, d, pg);
 
 done:
 	de_dbg_indent(c, -1);
