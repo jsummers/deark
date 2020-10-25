@@ -11,6 +11,7 @@ DE_DECLARE_MODULE(de_module_tiff);
 
 #define ITEMS_IN_ARRAY DE_ARRAYCOUNT
 #define MAX_IFDS 1000
+#define MAX_STRILES 65536
 
 #define DE_TIFF_MAX_VALUES_TO_PRINT 100
 #define DE_TIFF_MAX_CHARS_TO_PRINT  DE_DBG_MAX_STRLEN
@@ -58,8 +59,14 @@ DE_DECLARE_MODULE(de_module_tiff);
 
 #define TAG_IMAGEWIDTH          256
 #define TAG_IMAGELENGTH         257
+#define TAG_BITSPERSAMPLE       258
 #define TAG_COMPRESSION         259
+#define TAG_PHOTOMETRIC         262
+#define TAG_STRIPOFFSETS        273
 #define TAG_ORIENTATION         274
+#define TAG_SAMPLESPERPIXEL     277
+#define TAG_ROWSPERSTRIP        278
+#define TAG_STRIPBYTECOUNTS     279
 #define TAG_JPEGINTERCHANGEFORMAT 513
 #define TAG_JPEGINTERCHANGEFORMATLENGTH 514
 #define TAG_YCBCRPOSITIONING    531
@@ -115,17 +122,33 @@ struct tagnuminfo {
 	val_decoder_fn_type vdfn;
 };
 
+struct strile_data_struct {
+	i64 pos;
+	i64 len;
+};
+
 struct page_ctx {
 	i64 ifd_idx;
 	i64 ifdpos;
 	int ifdtype;
+
+	u8 have_imagewidth;
+	u8 have_jpeglength;
+
 	u32 compression;
 	u32 orientation;
 	u32 ycbcrpositioning;
+	u32 bits_per_sample;
+	u32 samples_per_pixel;
+	u32 photometric;
 	i64 imagewidth, imagelength; // Raw tag values, before considering Orientation
-	u8 have_jpeglength;
 	i64 jpegoffset;
 	i64 jpeglength;
+	i64 rows_per_strip;
+
+	i64 strile_count;
+	struct strile_data_struct *strile_data; // array[strile_count]
+	de_color pal[256];
 };
 
 // Data associated with an actual tag in an IFD in the file
@@ -149,6 +172,7 @@ struct localctx_struct {
 	int is_exif_submodule;
 	int host_is_le;
 	int can_decode_fltpt;
+	int opt_test;
 	u8 is_deark_iptc, is_deark_8bim;
 	const char *errmsgprefix;
 
@@ -1070,26 +1094,32 @@ static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const 
 {
 	i64 num_entries;
 	i64 i;
+	struct page_ctx *pg = tg->pg;
 
+	if(tg->datatype!=3) return;
 	num_entries = tg->valcount / 3;
 	de_dbg(c, "ColorMap with %d entries", (int)num_entries);
-	if(c->debug_level<2) return;
 	for(i=0; i<num_entries; i++) {
 		i64 r1, g1, b1;
-		u8 r2, g2, b2;
-		u32 clr;
+		de_colorsample r2, g2, b2;
+		de_color clr;
 		char tmps[80];
 
 		read_tag_value_as_int64(c, d, tg, num_entries*0 + i, &r1);
 		read_tag_value_as_int64(c, d, tg, num_entries*1 + i, &g1);
 		read_tag_value_as_int64(c, d, tg, num_entries*2 + i, &b1);
-		r2 = (u8)(r1>>8);
-		g2 = (u8)(g1>>8);
-		b2 = (u8)(b1>>8);
+		r2 = (de_colorsample)(r1>>8);
+		g2 = (de_colorsample)(g1>>8);
+		b2 = (de_colorsample)(b1>>8);
 		clr = DE_MAKE_RGB(r2, g2, b2);
-		de_snprintf(tmps, sizeof(tmps), "(%5d,%5d,%5d) "DE_CHAR_RIGHTARROW" ",
-			(int)r1, (int)g1, (int)b1);
-		de_dbg_pal_entry2(c, i, clr, tmps, NULL, NULL);
+		if(c->debug_level>=2) {
+			de_snprintf(tmps, sizeof(tmps), "(%5d,%5d,%5d) "DE_CHAR_RIGHTARROW" ",
+				(int)r1, (int)g1, (int)b1);
+			de_dbg_pal_entry2(c, i, clr, tmps, NULL, NULL);
+		}
+		if(i<256) {
+			pg->pal[i] = clr;
+		}
 	}
 }
 
@@ -1552,6 +1582,40 @@ static void handler_leafdata(deark *c, lctx *d, const struct taginfo *tg, const 
 	do_leaf_metadata(c, d, tg->val_offset, tg->total_size);
 }
 
+static int alloc_striledata(deark *c, struct page_ctx *pg, i64 nstriles)
+{
+	if(nstriles<1) nstriles = 1;
+	if(pg->strile_count >= nstriles) return 1;
+	if(nstriles>MAX_STRILES) return 0;
+	pg->strile_data = de_reallocarray(c, pg->strile_data, pg->strile_count, sizeof(struct strile_data_struct), nstriles);
+	pg->strile_count = nstriles;
+	return 1;
+}
+
+static void handler_stripoffsets(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	struct page_ctx *pg = tg->pg;
+	i64 i;
+
+	if(!alloc_striledata(c, pg, tg->valcount)) return;
+
+	for(i=0; i<tg->valcount; i++) {
+		read_tag_value_as_int64(c, d, tg, i, &pg->strile_data[i].pos);
+	}
+}
+
+static void handler_stripbytecounts(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	struct page_ctx *pg = tg->pg;
+	i64 i;
+
+	if(!alloc_striledata(c, pg, tg->valcount)) return;
+
+	for(i=0; i<tg->valcount; i++) {
+		read_tag_value_as_int64(c, d, tg, i, &pg->strile_data[i].len);
+	}
+}
+
 // Handler for some tags expected to have a single integer value
 static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
@@ -1563,6 +1627,7 @@ static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const s
 
 	switch(tg->tagnum) {
 	case TAG_IMAGEWIDTH:
+		pg->have_imagewidth = 1;
 		pg->imagewidth = val;
 		break;
 	case TAG_IMAGELENGTH:
@@ -1570,6 +1635,19 @@ static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const s
 		break;
 	case TAG_COMPRESSION:
 		pg->compression = (u32)val;
+		break;
+	case TAG_PHOTOMETRIC:
+		pg->photometric = (u32)val;
+		break;
+	case TAG_BITSPERSAMPLE:
+		// FIXME: This is a multi-valued field.
+		pg->bits_per_sample = (u32)val;
+		break;
+	case TAG_SAMPLESPERPIXEL:
+		pg->samples_per_pixel = (u32)val;
+		break;
+	case TAG_ROWSPERSTRIP:
+		pg->rows_per_strip = val;
 		break;
 	case TAG_ORIENTATION:
 		if(val>=1 && val<=8) {
@@ -1594,9 +1672,9 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 255, 0x00, "OldSubfileType", NULL, valdec_oldsubfiletype },
 	{ /* 256 */ TAG_IMAGEWIDTH, 0x0000, "ImageWidth", handler_various, NULL },
 	{ /* 257 */ TAG_IMAGELENGTH, 0x0000, "ImageLength", handler_various, NULL },
-	{ 258, 0x00, "BitsPerSample", NULL, NULL },
+	{ /* 258 */ TAG_BITSPERSAMPLE, 0x00, "BitsPerSample", handler_various, NULL },
 	{ /* 259 */ TAG_COMPRESSION, 0x0000, "Compression", handler_various, valdec_compression },
-	{ 262, 0x00, "PhotometricInterpretation", NULL, valdec_photometric },
+	{ /* 262 */ TAG_PHOTOMETRIC, 0x00, "PhotometricInterpretation", handler_various, valdec_photometric },
 	{ 263, 0x00, "Threshholding", NULL, valdec_threshholding },
 	{ 264, 0x00, "CellWidth", NULL, NULL },
 	{ 265, 0x00, "CellLength", NULL, NULL },
@@ -1605,11 +1683,11 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 270, 0x0400, "ImageDescription", NULL, NULL },
 	{ 271, 0x0400, "Make", NULL, NULL },
 	{ 272, 0x0400, "Model", NULL, NULL },
-	{ 273, 0x00, "StripOffsets", NULL, NULL },
+	{ /* 273 */ TAG_STRIPOFFSETS, 0x00, "StripOffsets", handler_stripoffsets, NULL },
 	{ /* 274 */ TAG_ORIENTATION, 0x0000, "Orientation", handler_various, valdec_orientation },
-	{ 277, 0x00, "SamplesPerPixel", NULL, NULL },
-	{ 278, 0x00, "RowsPerStrip", NULL, NULL },
-	{ 279, 0x00, "StripByteCounts", NULL, NULL },
+	{ /* 277 */ TAG_SAMPLESPERPIXEL, 0x00, "SamplesPerPixel", handler_various, NULL },
+	{ /* 278 */ TAG_ROWSPERSTRIP, 0x00, "RowsPerStrip", handler_various, NULL },
+	{ /* 279 */ TAG_STRIPBYTECOUNTS, 0x00, "StripByteCounts", handler_stripbytecounts, NULL },
 	{ 280, 0x00, "MinSampleValue", NULL, NULL },
 	{ 281, 0x00, "MaxSampleValue", NULL, NULL },
 	{ 282, 0x00, "XResolution", NULL, NULL },
@@ -2459,12 +2537,104 @@ static const struct tagnuminfo *find_tagnuminfo(int tagnum, int filefmt, int ifd
 	return NULL;
 }
 
+static void decompress_strile_uncmpr(deark *c, lctx *d, struct page_ctx *pg,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	fmtutil_decompress_uncompressed(c, dcmpri, dcmpro, dres, 0);
+}
+
 static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 {
+	de_bitmap *img = NULL;
+	dbuf *unc_strile = NULL;
+	i64 strile_idx;
+	i64 strile_max_w, strile_max_h;
+	i64 strile_max_rowspan;
+	i64 ypos;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
 	// TODO: Should we check pg->compression?
 	if(pg->jpegoffset>0) {
 		do_oldjpeg(c, d, pg);
+		goto done;
 	}
+
+	// Decent TIFF decoding support is planned eventually, but for now this is
+	// just a testbed for some things.
+	if(!d->opt_test) goto done;
+
+	if(!pg->have_imagewidth) goto done;
+	if(!de_good_image_dimensions(c, pg->imagewidth, pg->imagelength)) goto done;
+	if(pg->bits_per_sample!=8) goto done;
+	if(pg->samples_per_pixel<1) goto done;
+	if(pg->photometric!=3) goto done;
+	if(pg->strile_count<1) goto done;
+	if(pg->compression!=1) goto done;
+	if(pg->rows_per_strip<1) goto done;
+
+	img = de_bitmap_create(c, pg->imagewidth, pg->imagelength, 3);
+
+	strile_max_w = pg->imagewidth;
+	strile_max_h = pg->imagelength;
+	strile_max_rowspan = strile_max_w;
+	unc_strile = dbuf_create_membuf(c, 0, 0);
+	dbuf_set_length_limit(unc_strile, strile_max_h * strile_max_rowspan);
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, NULL);
+	dcmpri.f = c->infile;
+	dcmpro.f = unc_strile;
+
+	ypos = 0;
+	for(strile_idx=0; strile_idx<pg->strile_count; strile_idx++) {
+		i64 strile_height;
+		i64 strile_width;
+		i64 strile_rowspan;
+		i64 i, j;
+
+		dbuf_empty(unc_strile);
+
+		ypos = strile_idx * pg->rows_per_strip;
+		strile_width = pg->imagewidth;
+		strile_height = de_min_int(pg->rows_per_strip, pg->imagelength - ypos);
+		strile_rowspan = strile_width;
+
+		dcmpri.pos = pg->strile_data[strile_idx].pos;
+		dcmpri.len = pg->strile_data[strile_idx].len;
+		dcmpro.len_known = 1;
+		dcmpro.expected_len = strile_rowspan * strile_height;
+		de_dfilter_init_objects(c, NULL, NULL, &dres);
+
+		decompress_strile_uncmpr(c, d, pg, &dcmpri, &dcmpro, &dres);
+
+		if(dres.errcode) {
+			de_err(c, "Decompression failed (IFD@%"I64_FMT", strip@(%d,%d)): %s",
+				pg->ifdpos, 0, (int)ypos, de_dfilter_get_errmsg(c, &dres));
+			// TODO?: Better handling of partial failure
+			if(strile_idx>0) goto partial_failure;
+			goto done;
+		}
+
+		for(j=0; j<strile_height; j++) {
+			for(i=0; i<strile_width; i++) {
+				u8 b;
+				de_color clr;
+
+				b = dbuf_getbyte(unc_strile, strile_rowspan*j + i);
+				clr = pg->pal[(UI)b];
+				de_bitmap_setpixel_rgb(img, i, ypos+j, clr);
+			}
+		}
+	}
+
+partial_failure:
+	de_bitmap_write_to_file(img, NULL, 0);
+
+done:
+	dbuf_close(unc_strile);
+	de_bitmap_destroy(img);
 }
 
 static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtype1)
@@ -2609,7 +2779,10 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 done:
 	de_dbg_indent(c, -1);
 	ucstring_destroy(dbgline);
-	de_free(c, pg);
+	if(pg) {
+		de_free(c, pg->strile_data);
+		de_free(c, pg);
+	}
 }
 
 static void do_tiff(deark *c, lctx *d)
@@ -2753,6 +2926,8 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	d->opt_test = de_get_ext_option_bool(c, "tiff:test", 0);
 
 	if(mparams) {
 		d->in_params = &mparams->in_params;
