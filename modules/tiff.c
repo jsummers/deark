@@ -2589,8 +2589,8 @@ static void detect_lzw_version(deark *c, lctx *d, struct page_ctx *pg)
 	u8 buf[2];
 
 	if(pg->strile_count<1) return;
-	// The first LZW code is supposed to be a clear code. If it is little-endian
-	// presumably this is the old LZW version.
+	// The first LZW code is supposed to be a clear code (=256; 9 bits). If it is
+	// little-endian, presumably this is the old LZW version.
 	// So old version should start: 00000000 xxxxxxx1
 	// And new version:             10000000 0xxxxxxx
 	de_read(buf, pg->strile_data[0].pos, 2);
@@ -2611,18 +2611,118 @@ static int is_cmpr_meth_supported(u32 n)
 	return 0;
 }
 
+struct decode_page_ctx {
+	i64 strile_max_w, strile_max_h;
+	i64 strile_max_rowspan;
+	int use_pal;
+
+	i64 strile_idx;
+	i64 strile_ypos;
+	i64 strile_height;
+	i64 strile_width;
+	i64 strile_rowspan;
+
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+};
+
+static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
+	struct decode_page_ctx *dctx, dbuf *unc_strile)
+{
+	dctx->strile_width = pg->imagewidth;
+	dctx->strile_height = de_min_int(pg->rows_per_strip, pg->imagelength - dctx->strile_ypos);
+	dctx->strile_rowspan = dctx->strile_width * pg->samples_per_pixel;
+
+	// TODO: Some of our decompressors have significant overhead. This can
+	// be a performance issue with TIFF format, which likes to chop up an
+	// image into lots of tiny pieces, each of which is compressed
+	// independently.
+	// We ought to have a way to efficiently reset a decompressor, without
+	// having to recreate it entirely.
+	dctx->dcmpri.pos = pg->strile_data[dctx->strile_idx].pos;
+	dctx->dcmpri.len = pg->strile_data[dctx->strile_idx].len;
+	if(dctx->dcmpri.pos + dctx->dcmpri.len > dctx->dcmpri.f->len) {
+		dctx->dcmpri.len = dctx->dcmpri.f->len - dctx->dcmpri.pos;
+	}
+	if(dctx->dcmpri.len<0) dctx->dcmpri.len = 0;
+	dctx->dcmpro.len_known = 1;
+	dctx->dcmpro.expected_len = dctx->strile_rowspan * dctx->strile_height;
+	de_dfilter_init_objects(c, NULL, NULL, &dctx->dres);
+
+	switch(pg->compression) {
+	case 5:
+		decompress_strile_lzw(c, d, pg, &dctx->dcmpri, &dctx->dcmpro, &dctx->dres);
+		break;
+	case 32773:
+		decompress_strile_packbits(c, d, pg, &dctx->dcmpri, &dctx->dcmpro, &dctx->dres);
+		break;
+	default:
+		decompress_strile_uncmpr(c, d, pg, &dctx->dcmpri, &dctx->dcmpro, &dctx->dres);
+	}
+
+	if(dctx->dres.errcode) {
+		de_err(c, "Decompression failed (IFD@%"I64_FMT", strip@(%d,%d)): %s",
+			pg->ifdpos, 0, (int)dctx->strile_ypos, de_dfilter_get_errmsg(c, &dctx->dres));
+		// TODO?: Better handling of partial failure
+		return 0;
+	}
+	return 1;
+}
+
+static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ctx *pg,
+	struct decode_page_ctx *dctx, dbuf *unc_strile, de_bitmap *img)
+{
+	i64 i, j;
+	u32 s_idx;
+	u32 prev_sample[DE_TIFF_MAX_SAMPLES];
+	u32 sample[DE_TIFF_MAX_SAMPLES];
+
+	de_zeromem(&prev_sample, sizeof(prev_sample));
+	de_zeromem(&sample, sizeof(sample));
+
+	for(j=0; j<dctx->strile_height; j++) {
+
+		for(s_idx=0; s_idx<pg->samples_per_pixel; s_idx++) {
+			prev_sample[s_idx] = 0;
+		}
+
+		for(i=0; i<dctx->strile_width; i++) {
+			de_color clr;
+
+			for(s_idx=0; s_idx<pg->samples_per_pixel; s_idx++) {
+				sample[s_idx] = dbuf_getbyte(unc_strile, dctx->strile_rowspan*j +
+					(i*(i64)pg->samples_per_pixel) + (i64)s_idx);
+			}
+
+			if(pg->predictor==2) {
+				for(s_idx=0; s_idx<pg->samples_per_pixel; s_idx++) {
+					sample[s_idx] = (sample[s_idx] + prev_sample[s_idx]) & 0xffU;
+					prev_sample[s_idx] = sample[s_idx];
+				}
+			}
+
+			if(dctx->use_pal) {
+				clr = pg->pal[sample[0] & 0xff];
+			}
+			else {
+				clr = DE_MAKE_RGB(sample[0], sample[1], sample[2]);
+			}
+
+			de_bitmap_setpixel_rgba(img, i, dctx->strile_ypos+j, clr);
+		}
+	}
+}
+
 static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 {
 	de_bitmap *img = NULL;
 	dbuf *unc_strile = NULL;
-	i64 strile_idx;
-	i64 strile_max_w, strile_max_h;
-	i64 strile_max_rowspan;
-	i64 ypos;
-	int use_pal = 0;
-	struct de_dfilter_in_params dcmpri;
-	struct de_dfilter_out_params dcmpro;
-	struct de_dfilter_results dres;
+	struct decode_page_ctx dctx;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_zeromem(&dctx, sizeof(struct decode_page_ctx));
 
 	// TODO: Should we check pg->compression?
 	if(pg->jpegoffset>0) {
@@ -2634,6 +2734,9 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	// just a testbed for some things.
 	if(!d->opt_test) goto done;
 
+	de_dbg(c, "decoding ifd image");
+	de_dbg_indent(c, 1);
+
 	if(!pg->have_imagewidth) goto done;
 	if(!de_good_image_dimensions(c, pg->imagewidth, pg->imagelength)) goto done;
 	if(pg->strile_count<1) goto done;
@@ -2644,7 +2747,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		;
 	}
 	else if(pg->photometric==3 && pg->samples_per_pixel==1) {
-		use_pal = 1;
+		dctx.use_pal = 1;
 	}
 	else {
 		goto done;
@@ -2659,98 +2762,35 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 
 	img = de_bitmap_create(c, pg->imagewidth, pg->imagelength, 3);
 
-	strile_max_w = pg->imagewidth;
-	strile_max_h = pg->imagelength;
-	strile_max_rowspan = strile_max_w * pg->samples_per_pixel;
+	dctx.strile_max_w = pg->imagewidth;
+	dctx.strile_max_h = pg->imagelength;
+	dctx.strile_max_rowspan = dctx.strile_max_w * pg->samples_per_pixel;
 	unc_strile = dbuf_create_membuf(c, 0, 0);
-	dbuf_set_length_limit(unc_strile, strile_max_h * strile_max_rowspan);
+	dbuf_set_length_limit(unc_strile, dctx.strile_max_h * dctx.strile_max_rowspan);
 
-	de_dfilter_init_objects(c, &dcmpri, &dcmpro, NULL);
-	dcmpri.f = c->infile;
-	dcmpro.f = unc_strile;
+	de_dfilter_init_objects(c, &dctx.dcmpri, &dctx.dcmpro, NULL);
+	dctx.dcmpri.f = c->infile;
+	dctx.dcmpro.f = unc_strile;
 
-	ypos = 0;
-	for(strile_idx=0; strile_idx<pg->strile_count; strile_idx++) {
-		i64 strile_height;
-		i64 strile_width;
-		i64 strile_rowspan;
-		i64 i, j;
-		u32 s_idx;
+	for(dctx.strile_idx=0; dctx.strile_idx<pg->strile_count; dctx.strile_idx++) {
+		int ret;
+
+		dctx.strile_ypos = dctx.strile_idx * pg->rows_per_strip;
+		de_dbg(c, "strip #%d (0,%d) at %"I64_FMT", dlen=%"I64_FMT,
+			(int)dctx.strile_idx, (int)dctx.strile_ypos,
+			pg->strile_data[dctx.strile_idx].pos, pg->strile_data[dctx.strile_idx].len);
+		de_dbg_indent(c, 1);
 
 		dbuf_empty(unc_strile);
-
-		ypos = strile_idx * pg->rows_per_strip;
-		strile_width = pg->imagewidth;
-		strile_height = de_min_int(pg->rows_per_strip, pg->imagelength - ypos);
-		strile_rowspan = strile_width * pg->samples_per_pixel;
-
-		// TODO: Some of our decompressors have significant overhead. This can
-		// be a performance issue with TIFF format, which likes to chop up an
-		// image into lots of tiny pieces, each of which is compressed
-		// independently.
-		// We ought to have a way to efficiently reset a decompressor, without
-		// having to recreate it entirely.
-		dcmpri.pos = pg->strile_data[strile_idx].pos;
-		dcmpri.len = pg->strile_data[strile_idx].len;
-		if(dcmpri.pos + dcmpri.len > dcmpri.f->len) {
-			dcmpri.len = dcmpri.f->len - dcmpri.pos;
-		}
-		if(dcmpri.len<0) dcmpri.len = 0;
-		dcmpro.len_known = 1;
-		dcmpro.expected_len = strile_rowspan * strile_height;
-		de_dfilter_init_objects(c, NULL, NULL, &dres);
-
-		switch(pg->compression) {
-		case 5:
-			decompress_strile_lzw(c, d, pg, &dcmpri, &dcmpro, &dres);
-			break;
-		case 32773:
-			decompress_strile_packbits(c, d, pg, &dcmpri, &dcmpro, &dres);
-			break;
-		default:
-			decompress_strile_uncmpr(c, d, pg, &dcmpri, &dcmpro, &dres);
-		}
-
-		if(dres.errcode) {
-			de_err(c, "Decompression failed (IFD@%"I64_FMT", strip@(%d,%d)): %s",
-				pg->ifdpos, 0, (int)ypos, de_dfilter_get_errmsg(c, &dres));
+		ret = decompress_strile(c, d, pg, &dctx, unc_strile);
+		if(!ret) {
 			// TODO?: Better handling of partial failure
-			if(strile_idx>0) goto partial_failure;
+			if(dctx.strile_idx>0) goto partial_failure;
 			goto done;
 		}
 
-		for(j=0; j<strile_height; j++) {
-			u32 prev_sample[DE_TIFF_MAX_SAMPLES];
-
-			for(s_idx=0; s_idx<pg->samples_per_pixel; s_idx++) {
-				prev_sample[s_idx] = 0;
-			}
-
-			for(i=0; i<strile_width; i++) {
-				de_color clr;
-				u32 sample[DE_TIFF_MAX_SAMPLES];
-
-				for(s_idx=0; s_idx<pg->samples_per_pixel; s_idx++) {
-					sample[s_idx] = dbuf_getbyte(unc_strile, strile_rowspan*j + (i*(i64)pg->samples_per_pixel) + (i64)s_idx);
-				}
-
-				if(pg->predictor==2) {
-					for(s_idx=0; s_idx<pg->samples_per_pixel; s_idx++) {
-						sample[s_idx] = (sample[s_idx] + prev_sample[s_idx]) & 0xffU;
-						prev_sample[s_idx] = sample[s_idx];
-					}
-				}
-
-				if(use_pal) {
-					clr = pg->pal[sample[0] & 0xff];
-				}
-				else {
-					clr = DE_MAKE_RGB(sample[0], sample[1], sample[2]);
-				}
-
-				de_bitmap_setpixel_rgba(img, i, ypos+j, clr);
-			}
-		}
+		paint_decompressed_strile_to_image(c, d, pg, &dctx, unc_strile, img);
+		de_dbg_indent(c, -1);
 	}
 
 partial_failure:
@@ -2759,6 +2799,7 @@ partial_failure:
 done:
 	dbuf_close(unc_strile);
 	de_bitmap_destroy(img);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtype1)
