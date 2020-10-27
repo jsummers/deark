@@ -11,7 +11,8 @@ DE_DECLARE_MODULE(de_module_tiff);
 
 #define ITEMS_IN_ARRAY DE_ARRAYCOUNT
 #define MAX_IFDS 1000
-#define MAX_STRILES 65536
+#define DE_TIFF_MAX_STRILES 65536
+#define DE_TIFF_MAX_SAMPLES 10
 
 #define DE_TIFF_MAX_VALUES_TO_PRINT 100
 #define DE_TIFF_MAX_CHARS_TO_PRINT  DE_DBG_MAX_STRLEN
@@ -68,6 +69,7 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define TAG_ROWSPERSTRIP        278
 #define TAG_STRIPBYTECOUNTS     279
 #define TAG_PLANARCONFIG        284
+#define TAG_PREDICTOR           317
 #define TAG_JPEGINTERCHANGEFORMAT 513
 #define TAG_JPEGINTERCHANGEFORMATLENGTH 514
 #define TAG_YCBCRPOSITIONING    531
@@ -143,10 +145,12 @@ struct page_ctx {
 	u32 samples_per_pixel;
 	u32 photometric;
 	u32 planarconfig;
+	u32 predictor;
 	i64 imagewidth, imagelength; // Raw tag values, before considering Orientation
 	i64 jpegoffset;
 	i64 jpeglength;
 	i64 rows_per_strip;
+	u8 is_old_lzw;
 
 	i64 strile_count;
 	struct strile_data_struct *strile_data; // array[strile_count]
@@ -1588,7 +1592,7 @@ static int alloc_striledata(deark *c, struct page_ctx *pg, i64 nstriles)
 {
 	if(nstriles<1) nstriles = 1;
 	if(pg->strile_count >= nstriles) return 1;
-	if(nstriles>MAX_STRILES) return 0;
+	if(nstriles>DE_TIFF_MAX_STRILES) return 0;
 	pg->strile_data = de_reallocarray(c, pg->strile_data, pg->strile_count, sizeof(struct strile_data_struct), nstriles);
 	pg->strile_count = nstriles;
 	return 1;
@@ -1666,6 +1670,9 @@ static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const s
 	case TAG_PLANARCONFIG:
 		pg->planarconfig = (u32)val;
 		break;
+	case TAG_PREDICTOR:
+		pg->predictor = (u32)val;
+		break;
 	case TAG_JPEGINTERCHANGEFORMAT:
 		pg->jpegoffset = val;
 		break;
@@ -1722,7 +1729,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 306, 0x0400, "DateTime", NULL, NULL },
 	{ 315, 0x0400, "Artist", NULL, NULL },
 	{ 316, 0x0400, "HostComputer", NULL, NULL },
-	{ 317, 0x00, "Predictor", NULL, valdec_predictor },
+	{ /* 317 */ TAG_PREDICTOR, 0x00, "Predictor", handler_various, valdec_predictor },
 	{ 318, 0x00, "WhitePoint", NULL, NULL },
 	{ 319, 0x00, "PrimaryChromaticities", NULL, NULL },
 	{ 320, 0x08, "ColorMap", handler_colormap, NULL },
@@ -2556,6 +2563,19 @@ static void decompress_strile_uncmpr(deark *c, lctx *d, struct page_ctx *pg,
 	fmtutil_decompress_uncompressed(c, dcmpri, dcmpro, dres, 0);
 }
 
+static void decompress_strile_lzw(deark *c, lctx *d, struct page_ctx *pg,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	struct de_lzw_params delzwp;
+
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
+	delzwp.fmt = DE_LZWFMT_TIFF;
+	delzwp.max_code_size = 12;
+	delzwp.tifflzw_oldversion = (pg->is_old_lzw)?1:0;
+	fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
+}
+
 static void decompress_strile_packbits(deark *c, lctx *d, struct page_ctx *pg,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
@@ -2563,10 +2583,29 @@ static void decompress_strile_packbits(deark *c, lctx *d, struct page_ctx *pg,
 	fmtutil_decompress_packbits_ex(c, dcmpri, dcmpro, dres);
 }
 
+// If old LZW version, sets pg->is_old_lzw.
+static void detect_lzw_version(deark *c, lctx *d, struct page_ctx *pg)
+{
+	u8 buf[2];
+
+	if(pg->strile_count<1) return;
+	// The first LZW code is supposed to be a clear code. If it is little-endian
+	// presumably this is the old LZW version.
+	// So old version should start: 00000000 xxxxxxx1
+	// And new version:             10000000 0xxxxxxx
+	de_read(buf, pg->strile_data[0].pos, 2);
+	if(buf[0]==0x00 && (buf[1]&0x01)) {
+		pg->is_old_lzw = 1;
+	}
+	de_dbg(c, "lzw version: %s", pg->is_old_lzw?"old":"new");
+}
+
 static int is_cmpr_meth_supported(u32 n)
 {
 	switch(n) {
-	case 1: case 32773:
+	case 1:
+	case 5:
+	case 32773:
 		return 1;
 	}
 	return 0;
@@ -2599,7 +2638,9 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	if(!de_good_image_dimensions(c, pg->imagewidth, pg->imagelength)) goto done;
 	if(pg->strile_count<1) goto done;
 	if(pg->bits_per_sample!=8) goto done;
-	if(pg->photometric==2 && pg->samples_per_pixel==3) {
+	if(pg->predictor>2) goto done;
+	if(pg->samples_per_pixel<1 || pg->samples_per_pixel>DE_TIFF_MAX_SAMPLES) goto done;
+	if(pg->photometric==2 && pg->samples_per_pixel>=3) {
 		;
 	}
 	else if(pg->photometric==3 && pg->samples_per_pixel==1) {
@@ -2611,6 +2652,10 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	if(!is_cmpr_meth_supported(pg->compression)) goto done;
 	if(pg->rows_per_strip<1) goto done;
 	if(pg->samples_per_pixel>1 && pg->planarconfig>1) goto done;
+
+	if(pg->compression==5) {
+		detect_lzw_version(c, d, pg);
+	}
 
 	img = de_bitmap_create(c, pg->imagewidth, pg->imagelength, 3);
 
@@ -2630,6 +2675,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		i64 strile_width;
 		i64 strile_rowspan;
 		i64 i, j;
+		u32 s_idx;
 
 		dbuf_empty(unc_strile);
 
@@ -2638,6 +2684,12 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		strile_height = de_min_int(pg->rows_per_strip, pg->imagelength - ypos);
 		strile_rowspan = strile_width * pg->samples_per_pixel;
 
+		// TODO: Some of our decompressors have significant overhead. This can
+		// be a performance issue with TIFF format, which likes to chop up an
+		// image into lots of tiny pieces, each of which is compressed
+		// independently.
+		// We ought to have a way to efficiently reset a decompressor, without
+		// having to recreate it entirely.
 		dcmpri.pos = pg->strile_data[strile_idx].pos;
 		dcmpri.len = pg->strile_data[strile_idx].len;
 		if(dcmpri.pos + dcmpri.len > dcmpri.f->len) {
@@ -2649,6 +2701,9 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		de_dfilter_init_objects(c, NULL, NULL, &dres);
 
 		switch(pg->compression) {
+		case 5:
+			decompress_strile_lzw(c, d, pg, &dcmpri, &dcmpro, &dres);
+			break;
 		case 32773:
 			decompress_strile_packbits(c, d, pg, &dcmpri, &dcmpro, &dres);
 			break;
@@ -2665,20 +2720,35 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		}
 
 		for(j=0; j<strile_height; j++) {
+			u32 prev_sample[DE_TIFF_MAX_SAMPLES];
+
+			for(s_idx=0; s_idx<pg->samples_per_pixel; s_idx++) {
+				prev_sample[s_idx] = 0;
+			}
+
 			for(i=0; i<strile_width; i++) {
 				de_color clr;
+				u32 sample[DE_TIFF_MAX_SAMPLES];
+
+				for(s_idx=0; s_idx<pg->samples_per_pixel; s_idx++) {
+					sample[s_idx] = dbuf_getbyte(unc_strile, strile_rowspan*j + (i*(i64)pg->samples_per_pixel) + (i64)s_idx);
+				}
+
+				if(pg->predictor==2) {
+					for(s_idx=0; s_idx<pg->samples_per_pixel; s_idx++) {
+						sample[s_idx] = (sample[s_idx] + prev_sample[s_idx]) & 0xffU;
+						prev_sample[s_idx] = sample[s_idx];
+					}
+				}
 
 				if(use_pal) {
-					u8 b;
-
-					b = dbuf_getbyte(unc_strile, strile_rowspan*j + i);
-					clr = pg->pal[(UI)b];
+					clr = pg->pal[sample[0] & 0xff];
 				}
 				else {
-					clr = dbuf_getRGB(unc_strile, strile_rowspan*j + pg->samples_per_pixel*i, 0);
+					clr = DE_MAKE_RGB(sample[0], sample[1], sample[2]);
 				}
 
-				de_bitmap_setpixel_rgb(img, i, ypos+j, clr);
+				de_bitmap_setpixel_rgba(img, i, ypos+j, clr);
 			}
 		}
 	}

@@ -84,6 +84,8 @@ struct delzwctx_struct {
 #define DELZW_BASEFMT_GIF          2
 #define DELZW_BASEFMT_ZIPSHRINK    3
 #define DELZW_BASEFMT_ZOOLZD       4
+#define DELZW_BASEFMT_TIFFOLD      5
+#define DELZW_BASEFMT_TIFF         6
 	int basefmt;
 
 #define DELZW_HEADERTYPE_NONE  0
@@ -91,7 +93,7 @@ struct delzwctx_struct {
 #define DELZW_HEADERTYPE_ARC1BYTE 2
 	int header_type;
 
-	unsigned gif_root_codesize;
+	unsigned int gif_root_codesize;
 
 	int stop_on_invalid_code;
 
@@ -106,6 +108,8 @@ struct delzwctx_struct {
 
 	// Derived fields:
 	size_t header_size;
+	int is_msb;
+	int early_codesize_inc;
 	int has_partial_clearing;
 
 	// Informational:
@@ -336,7 +340,12 @@ static void delzw_clear_bitbuf(delzwctx *dc)
 static void delzw_add_byte_to_bitbuf(delzwctx *dc, DELZW_UINT8 b)
 {
 	// Add a byte's worth of bits to the pending code
-	dc->bitreader_buf |= ((unsigned int)b)<<dc->bitreader_nbits_in_buf;
+	if(dc->is_msb==0) {
+		dc->bitreader_buf |= ((unsigned int)b)<<dc->bitreader_nbits_in_buf;
+	}
+	else {
+		dc->bitreader_buf = (dc->bitreader_buf<<8) | b;
+	}
 	dc->bitreader_nbits_in_buf += 8;
 }
 
@@ -344,9 +353,15 @@ static DELZW_CODE delzw_get_code(delzwctx *dc, unsigned int nbits)
 {
 	unsigned int n;
 
-	n = dc->bitreader_buf & ((1U<<nbits)-1U);
-	dc->bitreader_buf >>= nbits;
-	dc->bitreader_nbits_in_buf -= nbits;
+	if(dc->is_msb==0) {
+		n = dc->bitreader_buf & ((1U<<nbits)-1U);
+		dc->bitreader_buf >>= nbits;
+		dc->bitreader_nbits_in_buf -= nbits;
+	}
+	else {
+		dc->bitreader_nbits_in_buf -= nbits;
+		n = (dc->bitreader_buf >> dc->bitreader_nbits_in_buf) & ((1U<<nbits)-1U);
+	}
 	return (DELZW_CODE)n;
 }
 
@@ -520,10 +535,17 @@ static void delzw_add_to_dict(delzwctx *dc, DELZW_CODE parent, DELZW_UINT8 value
 		dc->highest_code_ever_used = newpos;
 	}
 
-	if(dc->auto_inc_codesize &&
-		dc->free_code_search_start>DELZW_NBITS_TO_MAXCODE(dc->curr_codesize))
-	{
-		delzw_increase_codesize(dc);
+	if(dc->auto_inc_codesize) {
+		if(dc->early_codesize_inc) {
+			if(dc->free_code_search_start>=DELZW_NBITS_TO_MAXCODE(dc->curr_codesize)) {
+				delzw_increase_codesize(dc);
+			}
+		}
+		else {
+			if(dc->free_code_search_start>DELZW_NBITS_TO_MAXCODE(dc->curr_codesize)) {
+				delzw_increase_codesize(dc);
+			}
+		}
 	}
 }
 
@@ -690,7 +712,9 @@ static void delzw_on_decompression_start(delzwctx *dc)
 	if(dc->basefmt!=DELZW_BASEFMT_ZIPSHRINK &&
 		dc->basefmt!=DELZW_BASEFMT_GIF &&
 		dc->basefmt!=DELZW_BASEFMT_UNIXCOMPRESS &&
-		dc->basefmt!=DELZW_BASEFMT_ZOOLZD)
+		dc->basefmt!=DELZW_BASEFMT_ZOOLZD &&
+		dc->basefmt!=DELZW_BASEFMT_TIFF &&
+		dc->basefmt!=DELZW_BASEFMT_TIFFOLD)
 	{
 		delzw_set_error(dc, DELZW_ERRCODE_UNSUPPORTED_OPTION, "Unsupported LZW format");
 		goto done;
@@ -756,6 +780,20 @@ static void delzw_on_codes_start(delzwctx *dc)
 			dc->max_codesize = 13;
 		}
 	}
+	else if(dc->basefmt==DELZW_BASEFMT_TIFF) {
+		dc->is_msb = 1;
+		dc->early_codesize_inc = 1;
+		dc->min_codesize = 9;
+		if(dc->max_codesize==0) {
+			dc->max_codesize = 12;
+		}
+	}
+	else if(dc->basefmt==DELZW_BASEFMT_TIFFOLD) {
+		dc->min_codesize = 9;
+		if(dc->max_codesize==0) {
+			dc->max_codesize = 12;
+		}
+	}
 
 	if(dc->min_codesize<DELZW_MINMINCODESIZE || dc->min_codesize>DELZW_MAXMAXCODESIZE ||
 		dc->max_codesize<DELZW_MINMINCODESIZE || dc->max_codesize>DELZW_MAXMAXCODESIZE ||
@@ -811,6 +849,15 @@ static void delzw_on_codes_start(delzwctx *dc)
 		dc->ct[256].codetype = DELZW_CODETYPE_SPECIAL;
 	}
 	else if(dc->basefmt==DELZW_BASEFMT_ZOOLZD) {
+		for(i=0; i<256; i++) {
+			dc->ct[i].codetype = DELZW_CODETYPE_STATIC;
+			dc->ct[i].value = (DELZW_UINT8)i;
+		}
+		dc->ct[256].codetype = DELZW_CODETYPE_CLEAR;
+		dc->ct[257].codetype = DELZW_CODETYPE_STOP;
+		dc->first_dynamic_code = 258;
+	}
+	else if(dc->basefmt==DELZW_BASEFMT_TIFF || dc->basefmt==DELZW_BASEFMT_TIFFOLD) {
 		for(i=0; i<256; i++) {
 			dc->ct[i].codetype = DELZW_CODETYPE_STATIC;
 			dc->ct[i].value = (DELZW_UINT8)i;

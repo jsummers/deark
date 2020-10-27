@@ -144,7 +144,8 @@ enum de_lzwfmt_enum {
 	DE_LZWFMT_UNIXCOMPRESS,
 	DE_LZWFMT_GIF,
 	DE_LZWFMT_ZIPSHRINK,
-	DE_LZWFMT_ZOOLZD
+	DE_LZWFMT_ZOOLZD,
+	DE_LZWFMT_TIFF
 };
 
 struct de_lzw_params {
@@ -155,6 +156,7 @@ struct de_lzw_params {
 	UI flags;
 	unsigned int gif_root_code_size;
 	unsigned int max_code_size; // 0 = no info
+	u8 tifflzw_oldversion; // 1 = old version
 };
 void fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
