@@ -180,7 +180,6 @@ struct localctx_struct {
 	int can_decode_fltpt;
 	int opt_test;
 	u8 is_deark_iptc, is_deark_8bim;
-	const char *errmsgprefix;
 
 	u32 first_ifd_orientation; // Valid if != 0
 	u32 exif_version_as_uint32; // Valid if != 0
@@ -203,6 +202,9 @@ struct localctx_struct {
 	const struct de_module_in_params *in_params;
 
 	unsigned int mpf_main_image_count;
+
+	char errmsgtoken_module[40];
+	char errmsgtoken_ifd[40];
 };
 
 static void detiff_err(deark *c, lctx *d, const char *fmt, ...)
@@ -211,12 +213,20 @@ static void detiff_err(deark *c, lctx *d, const char *fmt, ...)
 static void detiff_err(deark *c, lctx *d, const char *fmt, ...)
 {
 	va_list ap;
+	char buf[256];
 
 	va_start(ap, fmt);
-	if(d && d->errmsgprefix) {
-		char buf[256];
+	if(d && d->errmsgtoken_module[0] && d->errmsgtoken_ifd[0]) {
 		de_vsnprintf(buf, sizeof(buf), fmt, ap);
-		de_err(c, "%s%s", d->errmsgprefix, buf);
+		de_err(c, "[%s:%s] %s", d->errmsgtoken_module, d->errmsgtoken_ifd, buf);
+	}
+	else if(d && d->errmsgtoken_module[0]) {
+		de_vsnprintf(buf, sizeof(buf), fmt, ap);
+		de_err(c, "[%s] %s", d->errmsgtoken_module, buf);
+	}
+	else if(d && d->errmsgtoken_ifd[0]) {
+		de_vsnprintf(buf, sizeof(buf), fmt, ap);
+		de_err(c, "[%s] %s", d->errmsgtoken_ifd, buf);
 	}
 	else {
 		de_verr(c, fmt, ap);
@@ -230,12 +240,20 @@ static void detiff_warn(deark *c, lctx *d, const char *fmt, ...)
 static void detiff_warn(deark *c, lctx *d, const char *fmt, ...)
 {
 	va_list ap;
+	char buf[256];
 
 	va_start(ap, fmt);
-	if(d && d->errmsgprefix) {
-		char buf[256];
+	if(d && d->errmsgtoken_module[0] && d->errmsgtoken_ifd[0]) {
 		de_vsnprintf(buf, sizeof(buf), fmt, ap);
-		de_warn(c, "%s%s", d->errmsgprefix, buf);
+		de_warn(c, "[%s:%s] %s", d->errmsgtoken_module, d->errmsgtoken_ifd, buf);
+	}
+	else if(d && d->errmsgtoken_module[0]) {
+		de_vsnprintf(buf, sizeof(buf), fmt, ap);
+		de_warn(c, "[%s] %s", d->errmsgtoken_module, buf);
+	}
+	else if(d && d->errmsgtoken_ifd[0]) {
+		de_vsnprintf(buf, sizeof(buf), fmt, ap);
+		de_warn(c, "[%s] %s", d->errmsgtoken_ifd, buf);
 	}
 	else {
 		de_vwarn(c, fmt, ap);
@@ -1418,14 +1436,14 @@ static void try_to_extract_mpf_image(deark *c, lctx *d, struct mpfctx_struct *mp
 	if(mpfctx->imgoffs_abs + mpfctx->imgsize > inf->len) {
 		if(mpfctx->warned) goto done;
 		mpfctx->warned = 1;
-		de_warn(c, "Invalid MPF multi-picture data. File size should be at "
+		detiff_warn(c, d, "Invalid MPF multi-picture data. File size should be at "
 			"least %"I64_FMT", is %"I64_FMT".",
 			mpfctx->imgoffs_abs+mpfctx->imgsize, inf->len);
 		goto done;
 	}
 
 	if(dbuf_memcmp(inf, mpfctx->imgoffs_abs, "\xff\xd8\xff", 3)) {
-		de_warn(c, "Invalid or unsupported MPF multi-picture data. Expected image at "
+		detiff_warn(c, d, "Invalid or unsupported MPF multi-picture data. Expected image at "
 			"%"I64_FMT" not found.", mpfctx->imgoffs_abs);
 		goto done;
 	}
@@ -2662,7 +2680,7 @@ static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
 	}
 
 	if(dctx->dres.errcode) {
-		de_err(c, "Decompression failed (IFD@%"I64_FMT", strip@(%d,%d)): %s",
+		detiff_err(c, d, "Decompression failed (IFD@%"I64_FMT", strip@(%d,%d)): %s",
 			pg->ifdpos, 0, (int)dctx->strile_ypos, de_dfilter_get_errmsg(c, &dctx->dres));
 		// TODO?: Better handling of partial failure
 		return 0;
@@ -2719,6 +2737,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	de_bitmap *img = NULL;
 	dbuf *unc_strile = NULL;
 	struct decode_page_ctx dctx;
+	int need_errmsg = 0;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -2734,14 +2753,21 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	// just a testbed for some things.
 	if(!d->opt_test) goto done;
 
+	if(!pg->have_imagewidth) {
+		de_dbg(c, "[non-image IFD]");
+		goto done;
+	}
+
 	de_dbg(c, "decoding ifd image");
 	de_dbg_indent(c, 1);
 
-	if(!pg->have_imagewidth) goto done;
 	if(!de_good_image_dimensions(c, pg->imagewidth, pg->imagelength)) goto done;
-	if(pg->strile_count<1) goto done;
-	if(pg->bits_per_sample!=8) goto done;
-	if(pg->predictor>2) goto done;
+	if(pg->strile_count<1) { need_errmsg = 1; goto done; }
+	if(pg->bits_per_sample!=8) {
+		detiff_err(c, d, "Unsupported bits/sample (%d)", (int)pg->bits_per_sample);
+		goto done;
+	}
+	if(pg->predictor>2) { need_errmsg = 1; goto done; }
 	if(pg->samples_per_pixel<1 || pg->samples_per_pixel>DE_TIFF_MAX_SAMPLES) goto done;
 	if(pg->photometric==2 && pg->samples_per_pixel>=3) {
 		;
@@ -2750,11 +2776,18 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		dctx.use_pal = 1;
 	}
 	else {
+		detiff_err(c, d, "Unsupported color type or image type");
 		goto done;
 	}
-	if(!is_cmpr_meth_supported(pg->compression)) goto done;
-	if(pg->rows_per_strip<1) goto done;
-	if(pg->samples_per_pixel>1 && pg->planarconfig>1) goto done;
+	if(!is_cmpr_meth_supported(pg->compression)) {
+		detiff_err(c, d, "Unsupported compression method (%d)", (int)pg->compression);
+		goto done;
+	}
+	if(pg->rows_per_strip<1) { need_errmsg = 1; goto done; }
+	if(pg->samples_per_pixel>1 && pg->planarconfig>1) {
+		detiff_err(c, d, "Unsupported PlanarConfiguration");
+		goto done;
+	}
 
 	if(pg->compression==5) {
 		detect_lzw_version(c, d, pg);
@@ -2799,6 +2832,9 @@ partial_failure:
 done:
 	dbuf_close(unc_strile);
 	de_bitmap_destroy(img);
+	if(need_errmsg) {
+		detiff_err(c, d, "Unsupported image type or bad image");
+	}
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -2864,6 +2900,10 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 		detiff_warn(c, d, "Invalid IFD offset (%"I64_FMT")", pg->ifdpos);
 		goto done;
 	}
+
+	// TODO: Improve the format of this token.
+	de_snprintf(d->errmsgtoken_ifd, sizeof(d->errmsgtoken_ifd),
+		"IFD#%d@%"I64_FMT, (int)pg->ifd_idx, pg->ifdpos);
 
 	if(d->is_bigtiff) {
 		num_tags = (int)dbuf_geti64x(c->infile, pg->ifdpos, d->is_le);
@@ -2948,6 +2988,7 @@ done:
 		de_free(c, pg->strile_data);
 		de_free(c, pg);
 	}
+	d->errmsgtoken_ifd[0] = '\0';
 }
 
 static void do_tiff(deark *c, lctx *d)
@@ -3101,29 +3142,30 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 	if(de_havemodcode(c, mparams, 'A')) {
 		d->fmt = DE_TIFFFMT_APPLEMN;
 		d->is_le = 0;
-		d->errmsgprefix = "[Apple MakerNote] ";
+		de_strlcpy(d->errmsgtoken_module, "Apple MakerNote", sizeof(d->errmsgtoken_module));
 	}
 	else if(de_havemodcode(c, mparams, 'F')) {
 		d->fmt = DE_TIFFFMT_FUJIFILMMN;
 		d->is_le = 1;
-		d->errmsgprefix = "[FujiFilm MakerNote] ";
+		de_strlcpy(d->errmsgtoken_module, "FujiFilm MakerNote", sizeof(d->errmsgtoken_module));
 	}
 	else {
 		d->fmt = de_identify_tiff_internal(c, &d->is_le);
 	}
 
 	if(de_havemodcode(c, mparams, 'N')) {
-		d->errmsgprefix = "[Nikon MakerNote] ";
+		de_strlcpy(d->errmsgtoken_module, "Nikon MakerNote", sizeof(d->errmsgtoken_module));
 		d->fmt = DE_TIFFFMT_NIKONMN;
 	}
 
 	if(de_havemodcode(c, mparams, 'M') && (d->fmt==DE_TIFFFMT_TIFF)) {
+		de_strlcpy(d->errmsgtoken_module, "MPF", sizeof(d->errmsgtoken_module));
 		d->fmt = DE_TIFFFMT_MPEXT;
 	}
 
 	if(de_havemodcode(c, mparams, 'E')) {
 		d->is_exif_submodule = 1;
-		d->errmsgprefix = "[Exif] ";
+		de_strlcpy(d->errmsgtoken_module, "Exif", sizeof(d->errmsgtoken_module));
 	}
 
 	if(d->fmt==DE_TIFFFMT_TIFF) {
