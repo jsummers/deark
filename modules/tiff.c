@@ -151,6 +151,8 @@ struct page_ctx {
 	i64 jpeglength;
 	i64 rows_per_strip;
 	u8 is_old_lzw;
+	u8 extrasamples_count;
+	u8 extrasample_type[DE_TIFF_MAX_SAMPLES]; // [0] = first *extra* sample, not first sample
 
 	i64 strile_count;
 	struct strile_data_struct *strile_data; // array[strile_count]
@@ -1651,6 +1653,24 @@ static void handler_bitspersample(deark *c, lctx *d, const struct taginfo *tg, c
 	tg->pg->bits_per_sample = (u32)val;
 }
 
+static void handler_extrasamples(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	struct page_ctx *pg = tg->pg;
+	u8 i;
+
+	pg->extrasamples_count = (u8)tg->valcount;
+	if(pg->extrasamples_count>DE_TIFF_MAX_SAMPLES) {
+		pg->extrasamples_count = DE_TIFF_MAX_SAMPLES;
+	}
+
+	for(i=0; i<pg->extrasamples_count; i++) {
+		i64 val;
+
+		read_tag_value_as_int64(c, d, tg, 0, &val);
+		pg->extrasample_type[(size_t)i] = (u8)val;
+	}
+}
+
 // Handler for some tags expected to have a single integer value
 static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
@@ -1765,7 +1785,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 334, 0x00, "NumberOfInks", NULL, NULL },
 	{ 336, 0x00, "DotRange", NULL, NULL },
 	{ 337, 0x00, "TargetPrinter", NULL, NULL },
-	{ 338, 0x00, "ExtraSamples", NULL, valdec_extrasamples },
+	{ 338, 0x00, "ExtraSamples", handler_extrasamples, valdec_extrasamples },
 	{ 339, 0x00, "SampleFormat", NULL, valdec_sampleformat },
 	{ 340, 0x00, "SMinSampleValue", NULL, NULL },
 	{ 341, 0x00, "SMaxSampleValue", NULL, NULL },
@@ -2641,6 +2661,11 @@ struct decode_page_ctx {
 	i64 strile_rowspan;
 	dbuf *unc_strile_dbuf[DE_TIFF_MAX_SAMPLES]; // Pointers to other dbufs; do not free
 
+	UI base_samples_per_pixel;
+	u8 has_alpha;
+	u8 is_assoc_alpha;
+	UI alpha_sample_idx;
+
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
@@ -2686,6 +2711,34 @@ static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
 	return 1;
 }
 
+static de_colorsample unpremultiply_alpha1(de_colorsample cval, de_colorsample a)
+{
+	if(a==0xff) {
+		return cval;
+	}
+	if(a==0 || cval==0) {
+		return 0;
+	}
+	if(cval>=a) {
+		return 0xff;
+	}
+	return (de_colorsample)(0.5 + (double)cval / ((double)a/255.0));
+}
+
+static de_color unpremultiply_alpha(de_color clr)
+{
+	de_colorsample r, g, b, a;
+
+	r = DE_COLOR_R(clr);
+	g = DE_COLOR_G(clr);
+	b = DE_COLOR_B(clr);
+	a = DE_COLOR_A(clr);
+	r = unpremultiply_alpha1(r, a);
+	g = unpremultiply_alpha1(g, a);
+	b = unpremultiply_alpha1(b, a);
+	return DE_MAKE_RGBA(r, g, b, a);
+}
+
 static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ctx *pg,
 	struct decode_page_ctx *dctx, de_bitmap *img)
 {
@@ -2724,6 +2777,12 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 			}
 			else {
 				clr = DE_MAKE_RGB(sample[0], sample[1], sample[2]);
+			}
+			if(dctx->has_alpha) {
+				clr = DE_SET_ALPHA(clr, sample[dctx->alpha_sample_idx]);
+				if(dctx->is_assoc_alpha) {
+					clr = unpremultiply_alpha(clr);
+				}
 			}
 
 			de_bitmap_setpixel_rgba(img, i, dctx->strile_ypos+j, clr);
@@ -2774,9 +2833,10 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	if(pg->predictor>2) { need_errmsg = 1; goto done; }
 	if(pg->samples_per_pixel<1 || pg->samples_per_pixel>DE_TIFF_MAX_SAMPLES) goto done;
 	if(pg->photometric==2 && pg->samples_per_pixel>=3) {
-		;
+		dctx.base_samples_per_pixel = 3;
 	}
-	else if(pg->photometric==3 && pg->samples_per_pixel==1) {
+	else if(pg->photometric==3 && pg->samples_per_pixel>=1) {
+		dctx.base_samples_per_pixel = 1;
 		dctx.use_pal = 1;
 	}
 	else {
@@ -2797,7 +2857,23 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		detect_lzw_version(c, d, pg);
 	}
 
-	img = de_bitmap_create(c, pg->imagewidth, pg->imagelength, 3);
+	for(i=0; i<(i64)pg->extrasamples_count; i++) {
+		if((i64)dctx.base_samples_per_pixel + i >= (i64)pg->samples_per_pixel) break;
+		if(pg->extrasample_type[i]==1) { // Assoc. alpha
+			dctx.has_alpha = 1;
+			dctx.is_assoc_alpha = 1;
+			dctx.alpha_sample_idx = (UI)dctx.base_samples_per_pixel + (UI)i;
+			break;
+		}
+		else if(pg->extrasample_type[i]==2) { // Unassoc. alpha
+			dctx.has_alpha = 1;
+			dctx.is_assoc_alpha = 0;
+			dctx.alpha_sample_idx = (UI)dctx.base_samples_per_pixel + (UI)i;
+			break;
+		}
+	}
+
+	img = de_bitmap_create(c, pg->imagewidth, pg->imagelength, dctx.has_alpha?4:3);
 
 	dctx.strile_max_w = pg->imagewidth;
 	dctx.strile_max_h = pg->imagelength;
