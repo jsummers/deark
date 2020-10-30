@@ -2639,6 +2639,7 @@ struct decode_page_ctx {
 	i64 strile_height;
 	i64 strile_width;
 	i64 strile_rowspan;
+	dbuf *unc_strile_dbuf[DE_TIFF_MAX_SAMPLES]; // Pointers to other dbufs; do not free
 
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
@@ -2646,12 +2647,8 @@ struct decode_page_ctx {
 };
 
 static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
-	struct decode_page_ctx *dctx, dbuf *unc_strile)
+	struct decode_page_ctx *dctx)
 {
-	dctx->strile_width = pg->imagewidth;
-	dctx->strile_height = de_min_int(pg->rows_per_strip, pg->imagelength - dctx->strile_ypos);
-	dctx->strile_rowspan = dctx->strile_width * pg->samples_per_pixel;
-
 	// TODO: Some of our decompressors have significant overhead. This can
 	// be a performance issue with TIFF format, which likes to chop up an
 	// image into lots of tiny pieces, each of which is compressed
@@ -2664,6 +2661,7 @@ static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
 		dctx->dcmpri.len = dctx->dcmpri.f->len - dctx->dcmpri.pos;
 	}
 	if(dctx->dcmpri.len<0) dctx->dcmpri.len = 0;
+	dctx->dcmpro.f = dctx->unc_strile_dbuf[0];
 	dctx->dcmpro.len_known = 1;
 	dctx->dcmpro.expected_len = dctx->strile_rowspan * dctx->strile_height;
 	de_dfilter_init_objects(c, NULL, NULL, &dctx->dres);
@@ -2689,10 +2687,11 @@ static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
 }
 
 static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ctx *pg,
-	struct decode_page_ctx *dctx, dbuf *unc_strile, de_bitmap *img)
+	struct decode_page_ctx *dctx, de_bitmap *img)
 {
 	i64 i, j;
 	u32 s_idx;
+	dbuf *unc_strile = dctx->unc_strile_dbuf[0];
 	u32 prev_sample[DE_TIFF_MAX_SAMPLES];
 	u32 sample[DE_TIFF_MAX_SAMPLES];
 
@@ -2735,13 +2734,18 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 {
 	de_bitmap *img = NULL;
-	dbuf *unc_strile = NULL;
 	struct decode_page_ctx dctx;
 	int need_errmsg = 0;
 	int saved_indent_level;
+	i64 i;
+	// (Multiple dbufs will be needed for PlanarConfig=separated.)
+	dbuf *tmp_membuf[DE_TIFF_MAX_SAMPLES];
+	dbuf *tmp_subfile[DE_TIFF_MAX_SAMPLES];
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_zeromem(&dctx, sizeof(struct decode_page_ctx));
+	de_zeromem(tmp_membuf, sizeof(tmp_membuf));
+	de_zeromem(tmp_subfile, sizeof(tmp_subfile));
 
 	// TODO: Should we check pg->compression?
 	if(pg->jpegoffset>0) {
@@ -2798,12 +2802,9 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	dctx.strile_max_w = pg->imagewidth;
 	dctx.strile_max_h = pg->imagelength;
 	dctx.strile_max_rowspan = dctx.strile_max_w * pg->samples_per_pixel;
-	unc_strile = dbuf_create_membuf(c, 0, 0);
-	dbuf_set_length_limit(unc_strile, dctx.strile_max_h * dctx.strile_max_rowspan);
 
 	de_dfilter_init_objects(c, &dctx.dcmpri, &dctx.dcmpro, NULL);
 	dctx.dcmpri.f = c->infile;
-	dctx.dcmpro.f = unc_strile;
 
 	for(dctx.strile_idx=0; dctx.strile_idx<pg->strile_count; dctx.strile_idx++) {
 		int ret;
@@ -2814,15 +2815,36 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 			pg->strile_data[dctx.strile_idx].pos, pg->strile_data[dctx.strile_idx].len);
 		de_dbg_indent(c, 1);
 
-		dbuf_empty(unc_strile);
-		ret = decompress_strile(c, d, pg, &dctx, unc_strile);
-		if(!ret) {
-			// TODO?: Better handling of partial failure
-			if(dctx.strile_idx>0) goto partial_failure;
-			goto done;
+		dctx.strile_width = pg->imagewidth;
+		dctx.strile_rowspan = dctx.strile_width * pg->samples_per_pixel;
+		dctx.strile_height = de_min_int(pg->rows_per_strip, pg->imagelength - dctx.strile_ypos);
+
+		if(pg->compression==1) { // Optimization for uncompressed images
+			if(tmp_subfile[0]) {
+				dbuf_close(tmp_subfile[0]);
+			}
+			tmp_subfile[0] = dbuf_open_input_subfile(c->infile, pg->strile_data[dctx.strile_idx].pos,
+				pg->strile_data[dctx.strile_idx].len);
+			dctx.unc_strile_dbuf[0] = tmp_subfile[0];
+		}
+		else {
+			if(tmp_membuf[0]) {
+				dbuf_empty(tmp_membuf[0]);
+			}
+			else {
+				tmp_membuf[0] = dbuf_create_membuf(c, 0, 0);
+				dbuf_set_length_limit(tmp_membuf[0], dctx.strile_max_h * dctx.strile_max_rowspan);
+			}
+			dctx.unc_strile_dbuf[0] = tmp_membuf[0];
+			ret = decompress_strile(c, d, pg, &dctx);
+			if(!ret) {
+				// TODO?: Better handling of partial failure
+				if(dctx.strile_idx>0) goto partial_failure;
+				goto done;
+			}
 		}
 
-		paint_decompressed_strile_to_image(c, d, pg, &dctx, unc_strile, img);
+		paint_decompressed_strile_to_image(c, d, pg, &dctx, img);
 		de_dbg_indent(c, -1);
 	}
 
@@ -2830,7 +2852,10 @@ partial_failure:
 	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
-	dbuf_close(unc_strile);
+	for(i=0; i<DE_TIFF_MAX_SAMPLES; i++) {
+		if(tmp_membuf[i]) dbuf_close(tmp_membuf[i]);
+		if(tmp_subfile[i]) dbuf_close(tmp_subfile[i]);
+	}
 	de_bitmap_destroy(img);
 	if(need_errmsg) {
 		detiff_err(c, d, "Unsupported image type or bad image");
