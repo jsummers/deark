@@ -2652,7 +2652,6 @@ static int is_cmpr_meth_supported(u32 n)
 struct decode_page_ctx {
 	i64 strile_max_w, strile_max_h;
 	i64 strile_max_rowspan;
-	int use_pal;
 
 	i64 strile_idx;
 	i64 strile_ypos;
@@ -2662,6 +2661,9 @@ struct decode_page_ctx {
 	dbuf *unc_strile_dbuf[DE_TIFF_MAX_SAMPLES]; // Pointers to other dbufs; do not free
 
 	UI base_samples_per_pixel;
+	u8 is_grayscale;
+	u8 grayscale_reverse_polarity;
+	u8 use_pal;
 	u8 has_alpha;
 	u8 is_assoc_alpha;
 	UI alpha_sample_idx;
@@ -2775,6 +2777,12 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 			if(dctx->use_pal) {
 				clr = pg->pal[sample[0] & 0xff];
 			}
+			else if(dctx->is_grayscale) {
+				if(dctx->grayscale_reverse_polarity) {
+					sample[0] = 0xff - sample[0];
+				}
+				clr = DE_MAKE_GRAY(sample[0]);
+			}
 			else {
 				clr = DE_MAKE_RGB(sample[0], sample[1], sample[2]);
 			}
@@ -2797,6 +2805,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	int need_errmsg = 0;
 	int saved_indent_level;
 	i64 i;
+	int output_bypp;
 	// (Multiple dbufs will be needed for PlanarConfig=separated.)
 	dbuf *tmp_membuf[DE_TIFF_MAX_SAMPLES];
 	dbuf *tmp_subfile[DE_TIFF_MAX_SAMPLES];
@@ -2826,16 +2835,24 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 
 	if(!de_good_image_dimensions(c, pg->imagewidth, pg->imagelength)) goto done;
 	if(pg->strile_count<1) { need_errmsg = 1; goto done; }
-	if(pg->bits_per_sample!=8) {
-		detiff_err(c, d, "Unsupported bits/sample (%d)", (int)pg->bits_per_sample);
-		goto done;
+
+	if(pg->compression==0) {
+		pg->compression = 1;
 	}
-	if(pg->predictor>2) { need_errmsg = 1; goto done; }
-	if(pg->samples_per_pixel<1 || pg->samples_per_pixel>DE_TIFF_MAX_SAMPLES) goto done;
-	if(pg->photometric==2 && pg->samples_per_pixel>=3) {
+
+	if(pg->photometric==0) {
+		dctx.is_grayscale = 1;
+		dctx.grayscale_reverse_polarity = 1;
+		dctx.base_samples_per_pixel = 1;
+	}
+	else if(pg->photometric==1) {
+		dctx.is_grayscale = 1;
+		dctx.base_samples_per_pixel = 1;
+	}
+	else if(pg->photometric==2 && pg->samples_per_pixel>=3) { // RGB
 		dctx.base_samples_per_pixel = 3;
 	}
-	else if(pg->photometric==3 && pg->samples_per_pixel>=1) {
+	else if(pg->photometric==3) { // paletted
 		dctx.base_samples_per_pixel = 1;
 		dctx.use_pal = 1;
 	}
@@ -2843,6 +2860,19 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		detiff_err(c, d, "Unsupported color type or image type");
 		goto done;
 	}
+
+	if(pg->samples_per_pixel==0) {
+		pg->samples_per_pixel = dctx.base_samples_per_pixel;
+	}
+
+	if(pg->bits_per_sample!=8) {
+		detiff_err(c, d, "Unsupported bits/sample (%d)", (int)pg->bits_per_sample);
+		goto done;
+	}
+	if(pg->predictor>2) { need_errmsg = 1; goto done; }
+	// FIXME: It should be ok if samples/pixel>MAX_SAMPLES.
+	if(pg->samples_per_pixel<1 || pg->samples_per_pixel>DE_TIFF_MAX_SAMPLES) { need_errmsg = 1; goto done; }
+
 	if(!is_cmpr_meth_supported(pg->compression)) {
 		detiff_err(c, d, "Unsupported compression method (%d)", (int)pg->compression);
 		goto done;
@@ -2873,7 +2903,10 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		}
 	}
 
-	img = de_bitmap_create(c, pg->imagewidth, pg->imagelength, dctx.has_alpha?4:3);
+	if(dctx.is_grayscale) output_bypp = 1;
+	else output_bypp = 3;
+	if(dctx.has_alpha) output_bypp++;
+	img = de_bitmap_create(c, pg->imagewidth, pg->imagelength, output_bypp);
 
 	dctx.strile_max_w = pg->imagewidth;
 	dctx.strile_max_h = pg->imagelength;
