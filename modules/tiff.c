@@ -2660,6 +2660,7 @@ struct decode_page_ctx {
 	i64 strile_rowspan;
 	dbuf *unc_strile_dbuf[DE_TIFF_MAX_SAMPLES]; // Pointers to other dbufs; do not free
 
+	i64 samples_per_pixel_to_decode;
 	UI base_samples_per_pixel;
 	u8 is_grayscale;
 	u8 grayscale_reverse_polarity;
@@ -2755,20 +2756,20 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 
 	for(j=0; j<dctx->strile_height; j++) {
 
-		for(s_idx=0; s_idx<pg->samples_per_pixel; s_idx++) {
+		for(s_idx=0; s_idx<dctx->samples_per_pixel_to_decode; s_idx++) {
 			prev_sample[s_idx] = 0;
 		}
 
 		for(i=0; i<dctx->strile_width; i++) {
 			de_color clr;
 
-			for(s_idx=0; s_idx<pg->samples_per_pixel; s_idx++) {
+			for(s_idx=0; s_idx<dctx->samples_per_pixel_to_decode; s_idx++) {
 				sample[s_idx] = dbuf_getbyte(unc_strile, dctx->strile_rowspan*j +
 					(i*(i64)pg->samples_per_pixel) + (i64)s_idx);
 			}
 
 			if(pg->predictor==2) {
-				for(s_idx=0; s_idx<pg->samples_per_pixel; s_idx++) {
+				for(s_idx=0; s_idx<dctx->samples_per_pixel_to_decode; s_idx++) {
 					sample[s_idx] = (sample[s_idx] + prev_sample[s_idx]) & 0xffU;
 					prev_sample[s_idx] = sample[s_idx];
 				}
@@ -2861,8 +2862,14 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		goto done;
 	}
 
-	if(pg->samples_per_pixel==0) {
+	if(pg->samples_per_pixel<1) {
 		pg->samples_per_pixel = dctx.base_samples_per_pixel;
+	}
+	dctx.samples_per_pixel_to_decode = pg->samples_per_pixel;
+
+	if(dctx.samples_per_pixel_to_decode>DE_TIFF_MAX_SAMPLES) {
+		de_warn(c, "Large number of SamplesPerPixel (%d). Some samples ignored.", (int)pg->samples_per_pixel);
+		dctx.samples_per_pixel_to_decode = DE_TIFF_MAX_SAMPLES;
 	}
 
 	if(pg->bits_per_sample!=8) {
@@ -2870,8 +2877,6 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		goto done;
 	}
 	if(pg->predictor>2) { need_errmsg = 1; goto done; }
-	// FIXME: It should be ok if samples/pixel>MAX_SAMPLES.
-	if(pg->samples_per_pixel<1 || pg->samples_per_pixel>DE_TIFF_MAX_SAMPLES) { need_errmsg = 1; goto done; }
 
 	if(!is_cmpr_meth_supported(pg->compression)) {
 		detiff_err(c, d, "Unsupported compression method (%d)", (int)pg->compression);
@@ -2888,7 +2893,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	}
 
 	for(i=0; i<(i64)pg->extrasamples_count; i++) {
-		if((i64)dctx.base_samples_per_pixel + i >= (i64)pg->samples_per_pixel) break;
+		if((i64)dctx.base_samples_per_pixel + i >= (i64)dctx.samples_per_pixel_to_decode) break;
 		if(pg->extrasample_type[i]==1) { // Assoc. alpha
 			dctx.has_alpha = 1;
 			dctx.is_assoc_alpha = 1;
