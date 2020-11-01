@@ -70,6 +70,7 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define TAG_STRIPBYTECOUNTS     279
 #define TAG_PLANARCONFIG        284
 #define TAG_PREDICTOR           317
+#define TAG_SAMPLEFORMAT        339
 #define TAG_JPEGINTERCHANGEFORMAT 513
 #define TAG_JPEGINTERCHANGEFORMATLENGTH 514
 #define TAG_YCBCRPOSITIONING    531
@@ -146,6 +147,7 @@ struct page_ctx {
 	u32 photometric;
 	u32 planarconfig;
 	u32 predictor;
+	u32 sample_format;
 	i64 imagewidth, imagelength; // Raw tag values, before considering Orientation
 	i64 jpegoffset;
 	i64 jpeglength;
@@ -180,7 +182,7 @@ struct localctx_struct {
 	int is_exif_submodule;
 	int host_is_le;
 	int can_decode_fltpt;
-	int opt_test;
+	int opt_decode;
 	u8 is_deark_iptc, is_deark_8bim;
 
 	u32 first_ifd_orientation; // Valid if != 0
@@ -1671,6 +1673,17 @@ static void handler_extrasamples(deark *c, lctx *d, const struct taginfo *tg, co
 	}
 }
 
+static void handler_sampleformat(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	i64 val;
+
+	if(tg->valcount<1) return;
+
+	// FIXME: This is a multi-valued field.
+	read_tag_value_as_int64(c, d, tg, 0, &val);
+	tg->pg->sample_format = (u32)val;
+}
+
 // Handler for some tags expected to have a single integer value
 static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
@@ -1786,7 +1799,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 336, 0x00, "DotRange", NULL, NULL },
 	{ 337, 0x00, "TargetPrinter", NULL, NULL },
 	{ 338, 0x00, "ExtraSamples", handler_extrasamples, valdec_extrasamples },
-	{ 339, 0x00, "SampleFormat", NULL, valdec_sampleformat },
+	{ /* 339 */ TAG_SAMPLEFORMAT, 0x00, "SampleFormat", handler_sampleformat, valdec_sampleformat },
 	{ 340, 0x00, "SMinSampleValue", NULL, NULL },
 	{ 341, 0x00, "SMaxSampleValue", NULL, NULL },
 	{ 342, 0x00, "TransferRange", NULL, NULL },
@@ -2650,6 +2663,8 @@ static int is_cmpr_meth_supported(u32 n)
 }
 
 struct decode_page_ctx {
+	i64 width; // = ImageWidth + padding
+	i64 height; // = ImageLength
 	i64 strile_max_w, strile_max_h;
 	i64 strile_max_rowspan;
 
@@ -2662,6 +2677,7 @@ struct decode_page_ctx {
 
 	i64 samples_per_pixel_to_decode;
 	UI base_samples_per_pixel;
+	u8 is_tiled;
 	u8 is_grayscale;
 	u8 grayscale_reverse_polarity;
 	u8 use_pal;
@@ -2748,11 +2764,16 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 	i64 i, j;
 	u32 s_idx;
 	dbuf *unc_strile = dctx->unc_strile_dbuf[0];
+	u32 sample_mask;
+	u32 sample_scalefactor;
 	u32 prev_sample[DE_TIFF_MAX_SAMPLES];
 	u32 sample[DE_TIFF_MAX_SAMPLES];
 
 	de_zeromem(&prev_sample, sizeof(prev_sample));
 	de_zeromem(&sample, sizeof(sample));
+
+	sample_mask = (1U<<(u32)pg->bits_per_sample)-1U;
+	sample_scalefactor = 255/sample_mask;
 
 	for(j=0; j<dctx->strile_height; j++) {
 
@@ -2764,14 +2785,30 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 			de_color clr;
 
 			for(s_idx=0; s_idx<dctx->samples_per_pixel_to_decode; s_idx++) {
-				sample[s_idx] = dbuf_getbyte(unc_strile, dctx->strile_rowspan*j +
-					(i*(i64)pg->samples_per_pixel) + (i64)s_idx);
+				switch(pg->bits_per_sample) {
+				case 1: case 4:
+					sample[s_idx] = de_get_bits_symbol(unc_strile, (i64)pg->bits_per_sample,
+						dctx->strile_rowspan*j, (i64)s_idx + i*(i64)pg->samples_per_pixel);
+					break;
+				case 8:
+					sample[s_idx] = dbuf_getbyte(unc_strile, dctx->strile_rowspan*j +
+						(i*(i64)pg->samples_per_pixel) + (i64)s_idx);
+					break;
+				default:
+					sample[s_idx] = 0;
+				}
 			}
 
 			if(pg->predictor==2) {
 				for(s_idx=0; s_idx<dctx->samples_per_pixel_to_decode; s_idx++) {
-					sample[s_idx] = (sample[s_idx] + prev_sample[s_idx]) & 0xffU;
+					sample[s_idx] = (sample[s_idx] + prev_sample[s_idx]) & sample_mask;
 					prev_sample[s_idx] = sample[s_idx];
+				}
+			}
+
+			if(!dctx->use_pal && sample_scalefactor>1) { // Scale samples to 255
+				for(s_idx=0; s_idx<dctx->samples_per_pixel_to_decode; s_idx++) {
+					sample[s_idx] *= sample_scalefactor;
 				}
 			}
 
@@ -2802,17 +2839,18 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 {
 	de_bitmap *img = NULL;
-	struct decode_page_ctx dctx;
+	struct decode_page_ctx *dctx = NULL;
 	int need_errmsg = 0;
 	int saved_indent_level;
 	i64 i;
 	int output_bypp;
+	int ok_bps = 0;
 	// (Multiple dbufs will be needed for PlanarConfig=separated.)
 	dbuf *tmp_membuf[DE_TIFF_MAX_SAMPLES];
 	dbuf *tmp_subfile[DE_TIFF_MAX_SAMPLES];
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_zeromem(&dctx, sizeof(struct decode_page_ctx));
+	dctx = de_malloc(c, sizeof(struct decode_page_ctx));
 	de_zeromem(tmp_membuf, sizeof(tmp_membuf));
 	de_zeromem(tmp_subfile, sizeof(tmp_subfile));
 
@@ -2824,7 +2862,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 
 	// Decent TIFF decoding support is planned eventually, but for now this is
 	// just a testbed for some things.
-	if(!d->opt_test) goto done;
+	if(!d->opt_decode) goto done;
 
 	if(!pg->have_imagewidth) {
 		de_dbg(c, "[non-image IFD]");
@@ -2834,49 +2872,78 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	de_dbg(c, "decoding ifd image");
 	de_dbg_indent(c, 1);
 
-	if(!de_good_image_dimensions(c, pg->imagewidth, pg->imagelength)) goto done;
-	if(pg->strile_count<1) { need_errmsg = 1; goto done; }
-
-	if(pg->compression==0) {
+	if(pg->compression<1) {
 		pg->compression = 1;
 	}
+	if(pg->planarconfig<1) {
+		pg->planarconfig = 1;
+	}
+	if(pg->predictor<1) {
+		pg->predictor = 1;
+	}
+	if(pg->sample_format<1) {
+		pg->sample_format = 1;
+	}
 
-	if(pg->photometric==0) {
-		dctx.is_grayscale = 1;
-		dctx.grayscale_reverse_polarity = 1;
-		dctx.base_samples_per_pixel = 1;
+	dctx->width = pg->imagewidth;
+	dctx->height = pg->imagelength;
+	if(!de_good_image_dimensions(c, dctx->width, dctx->height)) goto done;
+
+	if(pg->strile_count<1) { need_errmsg = 1; goto done; }
+
+	if(pg->sample_format!=1) {
+		detiff_err(c, d, "Unsupported sample format (%d)", (int)pg->sample_format);
+		goto done;
 	}
-	else if(pg->photometric==1) {
-		dctx.is_grayscale = 1;
-		dctx.base_samples_per_pixel = 1;
+
+	if(pg->photometric==0 || pg->photometric==1) {
+		dctx->is_grayscale = 1;
+		dctx->grayscale_reverse_polarity = (pg->photometric==0);
+		dctx->base_samples_per_pixel = 1;
+		if(pg->bits_per_sample==1 || pg->bits_per_sample==4 || pg->bits_per_sample==8) {
+			ok_bps = 1;
+		}
 	}
-	else if(pg->photometric==2 && pg->samples_per_pixel>=3) { // RGB
-		dctx.base_samples_per_pixel = 3;
+	else if(pg->photometric==2) { // RGB
+		dctx->base_samples_per_pixel = 3;
+		if(pg->bits_per_sample==8) {
+			ok_bps = 1;
+		}
 	}
 	else if(pg->photometric==3) { // paletted
-		dctx.base_samples_per_pixel = 1;
-		dctx.use_pal = 1;
+		dctx->base_samples_per_pixel = 1;
+		dctx->use_pal = 1;
+		if(pg->bits_per_sample==1 || pg->bits_per_sample==4 || pg->bits_per_sample==8) {
+			ok_bps = 1;
+		}
 	}
 	else {
-		detiff_err(c, d, "Unsupported color type or image type");
+		detiff_err(c, d, "Unsupported color type (%d)", (int)pg->photometric);
+		goto done;
+	}
+
+	if(!ok_bps) {
+		detiff_err(c, d, "Unsupported bits/sample (%d) for this color type", (int)pg->bits_per_sample);
 		goto done;
 	}
 
 	if(pg->samples_per_pixel<1) {
-		pg->samples_per_pixel = dctx.base_samples_per_pixel;
+		pg->samples_per_pixel = dctx->base_samples_per_pixel;
 	}
-	dctx.samples_per_pixel_to_decode = pg->samples_per_pixel;
-
-	if(dctx.samples_per_pixel_to_decode>DE_TIFF_MAX_SAMPLES) {
-		de_warn(c, "Large number of SamplesPerPixel (%d). Some samples ignored.", (int)pg->samples_per_pixel);
-		dctx.samples_per_pixel_to_decode = DE_TIFF_MAX_SAMPLES;
-	}
-
-	if(pg->bits_per_sample!=8) {
-		detiff_err(c, d, "Unsupported bits/sample (%d)", (int)pg->bits_per_sample);
+	if(pg->samples_per_pixel < dctx->base_samples_per_pixel) {
+		detiff_err(c, d, "Bad samples/pixel (%d) for this color type", (int)pg->samples_per_pixel);
 		goto done;
 	}
-	if(pg->predictor>2) { need_errmsg = 1; goto done; }
+	dctx->samples_per_pixel_to_decode = pg->samples_per_pixel;
+	if(dctx->samples_per_pixel_to_decode>DE_TIFF_MAX_SAMPLES) {
+		de_warn(c, "Large number of SamplesPerPixel (%d). Some samples ignored.", (int)pg->samples_per_pixel);
+		dctx->samples_per_pixel_to_decode = DE_TIFF_MAX_SAMPLES;
+	}
+
+	if(pg->predictor!=1 && pg->predictor!=2) {
+		detiff_err(c, d, "Unsupported prediction method (%d)", (int)pg->predictor);
+		goto done;
+	}
 
 	if(!is_cmpr_meth_supported(pg->compression)) {
 		detiff_err(c, d, "Unsupported compression method (%d)", (int)pg->compression);
@@ -2888,58 +2955,66 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		goto done;
 	}
 
+	if(c->padpix && !dctx->is_tiled) {
+		if(pg->samples_per_pixel==1 && pg->bits_per_sample<8) {
+			dctx->width = de_pad_to_n(dctx->width * pg->samples_per_pixel * pg->bits_per_sample, 8) /
+				((i64)pg->samples_per_pixel * pg->bits_per_sample);
+		}
+	}
+
 	if(pg->compression==5) {
 		detect_lzw_version(c, d, pg);
 	}
 
+	// Look for an alpha sample
 	for(i=0; i<(i64)pg->extrasamples_count; i++) {
-		if((i64)dctx.base_samples_per_pixel + i >= (i64)dctx.samples_per_pixel_to_decode) break;
+		if((i64)dctx->base_samples_per_pixel + i >= (i64)dctx->samples_per_pixel_to_decode) break;
 		if(pg->extrasample_type[i]==1) { // Assoc. alpha
-			dctx.has_alpha = 1;
-			dctx.is_assoc_alpha = 1;
-			dctx.alpha_sample_idx = (UI)dctx.base_samples_per_pixel + (UI)i;
+			dctx->has_alpha = 1;
+			dctx->is_assoc_alpha = 1;
+			dctx->alpha_sample_idx = (UI)dctx->base_samples_per_pixel + (UI)i;
 			break;
 		}
 		else if(pg->extrasample_type[i]==2) { // Unassoc. alpha
-			dctx.has_alpha = 1;
-			dctx.is_assoc_alpha = 0;
-			dctx.alpha_sample_idx = (UI)dctx.base_samples_per_pixel + (UI)i;
+			dctx->has_alpha = 1;
+			dctx->is_assoc_alpha = 0;
+			dctx->alpha_sample_idx = (UI)dctx->base_samples_per_pixel + (UI)i;
 			break;
 		}
 	}
 
-	if(dctx.is_grayscale) output_bypp = 1;
+	if(dctx->is_grayscale) output_bypp = 1;
 	else output_bypp = 3;
-	if(dctx.has_alpha) output_bypp++;
-	img = de_bitmap_create(c, pg->imagewidth, pg->imagelength, output_bypp);
+	if(dctx->has_alpha) output_bypp++;
+	img = de_bitmap_create(c, dctx->width, dctx->height, output_bypp);
 
-	dctx.strile_max_w = pg->imagewidth;
-	dctx.strile_max_h = pg->imagelength;
-	dctx.strile_max_rowspan = dctx.strile_max_w * pg->samples_per_pixel;
+	dctx->strile_max_w = dctx->width;
+	dctx->strile_max_h = dctx->height;
+	dctx->strile_max_rowspan = (dctx->strile_max_w * pg->samples_per_pixel * pg->bits_per_sample + 7)/8;
 
-	de_dfilter_init_objects(c, &dctx.dcmpri, &dctx.dcmpro, NULL);
-	dctx.dcmpri.f = c->infile;
+	de_dfilter_init_objects(c, &dctx->dcmpri, &dctx->dcmpro, NULL);
+	dctx->dcmpri.f = c->infile;
 
-	for(dctx.strile_idx=0; dctx.strile_idx<pg->strile_count; dctx.strile_idx++) {
+	for(dctx->strile_idx=0; dctx->strile_idx<pg->strile_count; dctx->strile_idx++) {
 		int ret;
 
-		dctx.strile_ypos = dctx.strile_idx * pg->rows_per_strip;
+		dctx->strile_ypos = dctx->strile_idx * pg->rows_per_strip;
 		de_dbg(c, "strip #%d (0,%d) at %"I64_FMT", dlen=%"I64_FMT,
-			(int)dctx.strile_idx, (int)dctx.strile_ypos,
-			pg->strile_data[dctx.strile_idx].pos, pg->strile_data[dctx.strile_idx].len);
+			(int)dctx->strile_idx, (int)dctx->strile_ypos,
+			pg->strile_data[dctx->strile_idx].pos, pg->strile_data[dctx->strile_idx].len);
 		de_dbg_indent(c, 1);
 
-		dctx.strile_width = pg->imagewidth;
-		dctx.strile_rowspan = dctx.strile_width * pg->samples_per_pixel;
-		dctx.strile_height = de_min_int(pg->rows_per_strip, pg->imagelength - dctx.strile_ypos);
+		dctx->strile_width = dctx->width;
+		dctx->strile_rowspan = (dctx->strile_width * pg->samples_per_pixel * pg->bits_per_sample + 7)/8;
+		dctx->strile_height = de_min_int(pg->rows_per_strip, dctx->height - dctx->strile_ypos);
 
 		if(pg->compression==1) { // Optimization for uncompressed images
 			if(tmp_subfile[0]) {
 				dbuf_close(tmp_subfile[0]);
 			}
-			tmp_subfile[0] = dbuf_open_input_subfile(c->infile, pg->strile_data[dctx.strile_idx].pos,
-				pg->strile_data[dctx.strile_idx].len);
-			dctx.unc_strile_dbuf[0] = tmp_subfile[0];
+			tmp_subfile[0] = dbuf_open_input_subfile(c->infile, pg->strile_data[dctx->strile_idx].pos,
+				pg->strile_data[dctx->strile_idx].len);
+			dctx->unc_strile_dbuf[0] = tmp_subfile[0];
 		}
 		else {
 			if(tmp_membuf[0]) {
@@ -2947,18 +3022,18 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 			}
 			else {
 				tmp_membuf[0] = dbuf_create_membuf(c, 0, 0);
-				dbuf_set_length_limit(tmp_membuf[0], dctx.strile_max_h * dctx.strile_max_rowspan);
+				dbuf_set_length_limit(tmp_membuf[0], dctx->strile_max_h * dctx->strile_max_rowspan);
 			}
-			dctx.unc_strile_dbuf[0] = tmp_membuf[0];
-			ret = decompress_strile(c, d, pg, &dctx);
+			dctx->unc_strile_dbuf[0] = tmp_membuf[0];
+			ret = decompress_strile(c, d, pg, dctx);
 			if(!ret) {
 				// TODO?: Better handling of partial failure
-				if(dctx.strile_idx>0) goto partial_failure;
+				if(dctx->strile_idx>0) goto partial_failure;
 				goto done;
 			}
 		}
 
-		paint_decompressed_strile_to_image(c, d, pg, &dctx, img);
+		paint_decompressed_strile_to_image(c, d, pg, dctx, img);
 		de_dbg_indent(c, -1);
 	}
 
@@ -2973,6 +3048,9 @@ done:
 	de_bitmap_destroy(img);
 	if(need_errmsg) {
 		detiff_err(c, d, "Unsupported image type or bad image");
+	}
+	if(dctx) {
+		de_free(c, dctx);
 	}
 	de_dbg_indent_restore(c, saved_indent_level);
 }
@@ -3272,7 +3350,7 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	d->opt_test = de_get_ext_option_bool(c, "tiff:test", 0);
+	d->opt_decode = de_get_ext_option_bool(c, "tiff:decode", 0);
 
 	if(mparams) {
 		d->in_params = &mparams->in_params;
