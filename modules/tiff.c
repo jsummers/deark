@@ -68,7 +68,10 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define TAG_SAMPLESPERPIXEL     277
 #define TAG_ROWSPERSTRIP        278
 #define TAG_STRIPBYTECOUNTS     279
+#define TAG_XRESOLUTION         282
+#define TAG_YRESOLUTION         283
 #define TAG_PLANARCONFIG        284
+#define TAG_RESOLUTIONUNIT      296
 #define TAG_PREDICTOR           317
 #define TAG_SAMPLEFORMAT        339
 #define TAG_JPEGINTERCHANGEFORMAT 513
@@ -148,6 +151,8 @@ struct page_ctx {
 	u32 planarconfig;
 	u32 predictor;
 	u32 sample_format;
+	u32 resolution_unit;
+	double density_x, density_y;
 	i64 imagewidth, imagelength; // Raw tag values, before considering Orientation
 	i64 jpegoffset;
 	i64 jpeglength;
@@ -1684,6 +1689,21 @@ static void handler_sampleformat(deark *c, lctx *d, const struct taginfo *tg, co
 	tg->pg->sample_format = (u32)val;
 }
 
+static void handler_resolution(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	struct numeric_value nv;
+
+	if(tg->valcount<1) return;
+	read_numeric_value(c, d, tg, 0, &nv, NULL);
+	if(!nv.isvalid) return;
+	if(tg->tagnum==TAG_XRESOLUTION) {
+		tg->pg->density_x = nv.val_double;
+	}
+	else if(tg->tagnum==TAG_YRESOLUTION) {
+		tg->pg->density_y = nv.val_double;
+	}
+}
+
 // Handler for some tags expected to have a single integer value
 static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
@@ -1720,6 +1740,9 @@ static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const s
 		break;
 	case TAG_PLANARCONFIG:
 		pg->planarconfig = (u32)val;
+		break;
+	case TAG_RESOLUTIONUNIT:
+		pg->resolution_unit = (u32)val;
 		break;
 	case TAG_PREDICTOR:
 		pg->predictor = (u32)val;
@@ -1760,8 +1783,8 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ /* 279 */ TAG_STRIPBYTECOUNTS, 0x00, "StripByteCounts", handler_stripbytecounts, NULL },
 	{ 280, 0x00, "MinSampleValue", NULL, NULL },
 	{ 281, 0x00, "MaxSampleValue", NULL, NULL },
-	{ 282, 0x00, "XResolution", NULL, NULL },
-	{ 283, 0x00, "YResolution", NULL, NULL },
+	{ /* 282 */ TAG_XRESOLUTION, 0x00, "XResolution", handler_resolution, NULL },
+	{ /* 283 */ TAG_YRESOLUTION, 0x00, "YResolution", handler_resolution, NULL },
 	{ /* 284 */ TAG_PLANARCONFIG, 0x00, "PlanarConfiguration", handler_various, valdec_planarconfiguration },
 	{ 285, 0x0400, "PageName", NULL, NULL },
 	{ 286, 0x00, "XPosition", NULL, NULL },
@@ -1772,7 +1795,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 291, 0x00, "GrayResponseCurve", NULL, NULL },
 	{ 292, 0x00, "T4Options", NULL, valdec_t4options },
 	{ 293, 0x00, "T6Options", NULL, valdec_t6options },
-	{ 296, 0x00, "ResolutionUnit", NULL, valdec_resolutionunit },
+	{ /* 296 */ TAG_RESOLUTIONUNIT, 0x00, "ResolutionUnit", handler_various, valdec_resolutionunit },
 	{ 297, 0x0400, "PageNumber", NULL, valdec_pagenumber },
 	{ 300, 0x0000, "ColorResponseUnit", NULL, NULL },
 	{ 301, 0x00, "TransferFunction", NULL, NULL },
@@ -2836,10 +2859,31 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 	}
 }
 
+static void set_image_density(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
+{
+	if(pg->resolution_unit<1) return;
+
+	// TODO: Respect orientation
+	fi->density.xdens = pg->density_x;
+	fi->density.ydens = pg->density_y;
+	if(pg->resolution_unit==1) {
+		fi->density.code = DE_DENSITY_UNK_UNITS;
+	}
+	else if(pg->resolution_unit==2) {
+		fi->density.code = DE_DENSITY_DPI;
+	}
+	else if(pg->resolution_unit==3) { // pixels/cm
+		fi->density.xdens *= 2.54;
+		fi->density.ydens *= 2.54;
+		fi->density.code = DE_DENSITY_DPI;
+	}
+}
+
 static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 {
 	de_bitmap *img = NULL;
 	struct decode_page_ctx *dctx = NULL;
+	de_finfo *fi = NULL;
 	int need_errmsg = 0;
 	int saved_indent_level;
 	i64 i;
@@ -3038,7 +3082,10 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	}
 
 partial_failure:
-	de_bitmap_write_to_file(img, NULL, 0);
+	fi = de_finfo_create(c);
+	set_image_density(c, d, pg, fi);
+
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 
 done:
 	for(i=0; i<DE_TIFF_MAX_SAMPLES; i++) {
@@ -3046,6 +3093,7 @@ done:
 		if(tmp_subfile[i]) dbuf_close(tmp_subfile[i]);
 	}
 	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
 	if(need_errmsg) {
 		detiff_err(c, d, "Unsupported image type or bad image");
 	}
@@ -3067,6 +3115,8 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 	static const struct tagnuminfo default_tni = { 0, 0x00, "?", NULL, NULL };
 
 	pg = de_malloc(c, sizeof(struct page_ctx));
+	pg->density_x = 0.0;
+	pg->density_y = 0.0;
 	pg->ifd_idx = ifd_idx1;
 	pg->ifdpos = ifdpos1;
 	pg->ifdtype = ifdtype1;
