@@ -208,7 +208,7 @@ done:
 	return retval;
 }
 
-int de_write_png(deark *c, de_bitmap *img, dbuf *f)
+int de_write_png(deark *c, de_bitmap *img, dbuf *f, UI createflags)
 {
 	const char *opt_level;
 	int retval = 0;
@@ -265,7 +265,7 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f)
 	}
 	pei->rowspan = (int)(img->width * img->bytes_per_pixel);
 	pei->height = (int)img->height;
-	pei->flip = img->flipped;
+	pei->flip = (createflags & DE_CREATEFLAG_FLIP_IMAGE)?1:0;
 	pei->num_chans = img->bytes_per_pixel;
 	pei->include_text_chunk_software = 0;
 

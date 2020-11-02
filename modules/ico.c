@@ -122,7 +122,6 @@ static void do_image_data(deark *c, lctx *d, struct page_ctx *pg)
 	mask_pdwidth = bi.mask_rowspan * 8;
 
 	img = de_bitmap_create2(c, bi.width, pdwidth, bi.height, 4);
-	img->flipped = 1;
 
 	// Read palette
 	de_zeromem(pal, sizeof(pal));
@@ -153,7 +152,6 @@ static void do_image_data(deark *c, lctx *d, struct page_ctx *pg)
 	// be written to a separate file if d->extract_unused_masks is enabled.
 
 	mask_img = de_bitmap_create2(c, bi.width, mask_pdwidth, bi.height, 1);
-	mask_img->flipped = 1;
 	de_convert_image_bilevel(c->infile, bg_start, bi.mask_rowspan, mask_img, 0);
 
 	for(j=0; j<img->height; j++) {
@@ -228,14 +226,14 @@ static void do_image_data(deark *c, lctx *d, struct page_ctx *pg)
 		fi->hotspot_y = pg->hotspot_y;
 	}
 
-	de_bitmap_write_to_file_finfo(img, fi, 0);
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_FLIP_IMAGE);
 
 	if(d->extract_unused_masks && (!use_mask || (c->padpix && mask_pdwidth>bi.width))) {
 		char maskname_token[32];
 
 		de_snprintf(maskname_token, sizeof(maskname_token), "%dx%dx%dmask",
 			(int)bi.width, (int)bi.height, (int)bi.bitcount);
-		de_bitmap_write_to_file(mask_img, maskname_token, DE_CREATEFLAG_IS_AUX);
+		de_bitmap_write_to_file(mask_img, maskname_token, DE_CREATEFLAG_IS_AUX | DE_CREATEFLAG_FLIP_IMAGE);
 	}
 
 done:

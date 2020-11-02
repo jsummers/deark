@@ -173,6 +173,12 @@ static de_bitmap *get_optimized_image(de_bitmap *img1)
 
 // When calling this function, the "name" data associated with fi, if set, should
 // be set to something like a filename, but *without* a final ".png" extension.
+// Image-specific createflags:
+//  - DE_CREATEFLAG_OPT_IMAGE
+//  - DE_CREATEFLAG_FLIP_IMAGE
+//     Write the rows in reverse order ("bottom-up"). This affects only the pixels,
+//     not the finfo metadata (e.g. hotspot). It's equivalent to flipping the image
+//     immediately before writing it, then flipping it back immediately after.
 void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi,
 	unsigned int createflags)
 {
@@ -198,10 +204,10 @@ void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi,
 
 	f = dbuf_create_output_file(c, "png", fi, createflags);
 	if(optimg) {
-		de_write_png(c, optimg, f);
+		de_write_png(c, optimg, f, createflags);
 	}
 	else {
-		de_write_png(c, img, f);
+		de_write_png(c, img, f, createflags);
 	}
 	dbuf_close(f);
 

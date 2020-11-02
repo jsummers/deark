@@ -263,7 +263,6 @@ static void decode_egavga16(deark *c, lctx *d)
 	}
 
 	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, 3);
-	img->flipped = 1;
 
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->pdwidth; i++) {
@@ -280,7 +279,7 @@ static void decode_egavga16(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file_finfo(img, d->fi, 0);
+	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
 
 	de_bitmap_destroy(img);
 }
@@ -307,12 +306,11 @@ static void decode_vga256(deark *c, lctx *d)
 	}
 
 	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, 3);
-	img->flipped = 1;
 
 	de_convert_image_paletted(d->unc_pixels, 0,
 		8, img->width, pal, img, 0);
 
-	de_bitmap_write_to_file_finfo(img, d->fi, 0);
+	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
 
 	de_bitmap_destroy(img);
 }
@@ -352,12 +350,11 @@ static void decode_bilevel(deark *c, lctx *d)
 	src_rowspan = d->pdwidth/8;
 	is_grayscale = de_is_grayscale_palette(pal, 2);
 	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, is_grayscale?1:3);
-	img->flipped = 1;
 
 	de_convert_image_paletted(d->unc_pixels, 0,
 		1, src_rowspan, pal, img, 0);
 
-	de_bitmap_write_to_file_finfo(img, d->fi, 0);
+	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
 
 done:
 	de_bitmap_destroy(img);
@@ -405,12 +402,11 @@ static void decode_cga4(deark *c, lctx *d)
 	d->pdwidth = de_pad_to_4(d->npwidth);
 	src_rowspan = d->pdwidth/4;
 	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, 3);
-	img->flipped = 1;
 
 	de_convert_image_paletted(d->unc_pixels, 0,
 		2, src_rowspan, pal, img, 0);
 
-	de_bitmap_write_to_file_finfo(img, d->fi, 0);
+	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
 
 done:
 	de_bitmap_destroy(img);

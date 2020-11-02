@@ -2111,7 +2111,6 @@ static void de_run_lumena_cel(deark *c, de_module_params *mparams)
 	rowspan = width * bypp;
 
 	img = de_bitmap_create(c, width, height, is_32bit?4:3);
-	img->flipped = 1;
 
 	for(j=0; j<height; j++) {
 		for(i=0; i<width; i++) {
@@ -2130,7 +2129,7 @@ static void de_run_lumena_cel(deark *c, de_module_params *mparams)
 	}
 
 	de_bitmap_optimize_alpha(img, 0x3);
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_FLIP_IMAGE);
 
 done:
 	de_bitmap_destroy(img);
@@ -2388,8 +2387,7 @@ static void de_run_gws_thn(deark *c, de_module_params *mparams)
 
 	img = de_bitmap_create(c, w, h, 3);
 	de_convert_image_paletted(c->infile, pos, 8, w, pal, img, 0);
-	img->flipped = 1;
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_FLIP_IMAGE);
 	de_bitmap_destroy(img);
 	ucstring_destroy(s);
 }

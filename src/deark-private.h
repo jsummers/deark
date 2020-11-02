@@ -243,9 +243,6 @@ struct deark_bitmap_struct {
 	i64 unpadded_width;
 	int invalid_image_flag;
 	int bytes_per_pixel;
-	// 'flipped' changes the coordinate system when writing the bitmap to a file.
-	// It is ignored by most other functions.
-	int flipped;
 	u8 *bitmap;
 	i64 bitmap_size; // bytes allocated for bitmap
 	int orig_colortype; // Optional; can be used by modules
@@ -554,7 +551,7 @@ int de_zip_create_file(deark *c);
 void de_zip_add_file_to_archive(deark *c, dbuf *f);
 void de_zip_close_file(deark *c);
 
-int de_write_png(deark *c, de_bitmap *img, dbuf *f);
+int de_write_png(deark *c, de_bitmap *img, dbuf *f, UI createflags);
 
 ///////////////////////////////////////////
 
@@ -658,6 +655,7 @@ void dbuf_read_to_ucstring_n(dbuf *f, i64 pos, i64 len, i64 max_len,
 // At least one of 'ext' or 'fi' should be non-NULL.
 #define DE_CREATEFLAG_IS_AUX   0x1
 #define DE_CREATEFLAG_OPT_IMAGE 0x2
+#define DE_CREATEFLAG_FLIP_IMAGE 0x4
 dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi, unsigned int createflags);
 
 dbuf *dbuf_create_unmanaged_file(deark *c, const char *fname, int overwrite_mode, unsigned int flags);
