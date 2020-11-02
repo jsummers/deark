@@ -152,7 +152,7 @@ struct page_ctx {
 	u32 predictor;
 	u32 sample_format;
 	u32 resolution_unit;
-	double density_x, density_y;
+	double density_ImageWidth, density_ImageLength;
 	i64 imagewidth, imagelength; // Raw tag values, before considering Orientation
 	i64 jpegoffset;
 	i64 jpeglength;
@@ -1697,10 +1697,10 @@ static void handler_resolution(deark *c, lctx *d, const struct taginfo *tg, cons
 	read_numeric_value(c, d, tg, 0, &nv, NULL);
 	if(!nv.isvalid) return;
 	if(tg->tagnum==TAG_XRESOLUTION) {
-		tg->pg->density_x = nv.val_double;
+		tg->pg->density_ImageWidth = nv.val_double;
 	}
 	else if(tg->tagnum==TAG_YRESOLUTION) {
-		tg->pg->density_y = nv.val_double;
+		tg->pg->density_ImageLength = nv.val_double;
 	}
 }
 
@@ -2863,9 +2863,15 @@ static void set_image_density(deark *c, lctx *d, struct page_ctx *pg, de_finfo *
 {
 	if(pg->resolution_unit<1) return;
 
-	// TODO: Respect orientation
-	fi->density.xdens = pg->density_x;
-	fi->density.ydens = pg->density_y;
+	if(pg->orientation>=5 && pg->orientation<=8) {
+		// For some orientations, the x dimension is the ImageLength dimension.
+		fi->density.xdens = pg->density_ImageLength;
+		fi->density.ydens = pg->density_ImageWidth;
+	}
+	else {
+		fi->density.xdens = pg->density_ImageWidth;
+		fi->density.ydens = pg->density_ImageLength;
+	}
 	if(pg->resolution_unit==1) {
 		fi->density.code = DE_DENSITY_UNK_UNITS;
 	}
@@ -3083,6 +3089,18 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 
 partial_failure:
 	fi = de_finfo_create(c);
+
+	if(pg->orientation>=5 && pg->orientation<=8) {
+		de_bitmap_transpose(img);
+	}
+	if(pg->orientation==2 || pg->orientation==3 || pg->orientation==6 || pg->orientation==7) {
+		de_bitmap_mirror(img);
+	}
+	if(pg->orientation==3 || pg->orientation==4 || pg->orientation==7 || pg->orientation==8) {
+		// Could use DE_CREATEFLAG_FLIP_IMAGE instead.
+		de_bitmap_flip(img);
+	}
+
 	set_image_density(c, d, pg, fi);
 
 	de_bitmap_write_to_file_finfo(img, fi, 0);
@@ -3115,8 +3133,8 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 	static const struct tagnuminfo default_tni = { 0, 0x00, "?", NULL, NULL };
 
 	pg = de_malloc(c, sizeof(struct page_ctx));
-	pg->density_x = 0.0;
-	pg->density_y = 0.0;
+	pg->density_ImageWidth = 0.0;
+	pg->density_ImageLength = 0.0;
 	pg->ifd_idx = ifd_idx1;
 	pg->ifdpos = ifdpos1;
 	pg->ifdtype = ifdtype1;

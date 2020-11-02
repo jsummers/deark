@@ -902,6 +902,8 @@ int de_is_grayscale_palette(const de_color *pal, i64 num_entries);
 #define DE_BITMAPFLAG_WHITEISTRNS 0x1
 #define DE_BITMAPFLAG_MERGE       0x2
 
+void de_bitmap_flip(de_bitmap *img);
+void de_bitmap_mirror(de_bitmap *img);
 void de_bitmap_transpose(de_bitmap *img);
 void de_bitmap_rect(de_bitmap *img,
 	i64 xpos, i64 ypos, i64 width, i64 height,
