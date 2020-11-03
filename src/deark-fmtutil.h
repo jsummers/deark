@@ -513,7 +513,7 @@ void fmtutil_riscos_read_attribs_field(deark *c, dbuf *f, struct de_riscos_file_
 struct fmtutil_macbitmap_info {
 	i64 rowbytes; // The rowBytes field
 	i64 rowspan; // Actual number of bytes/row
-	i64 width, height;
+	i64 npwidth, pdwidth, height;
 	int is_uncompressed;
 	i64 packing_type;
 	i64 pixeltype, pixelsize;
