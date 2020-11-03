@@ -58,11 +58,14 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define IFDTYPE_MASKSUBIFD   9
 #define IFDTYPE_FUJIFILMMN   10
 
+#define TAG_NEWSUBFILETYPE      254
+#define TAG_OLDSUBFILETYPE      255
 #define TAG_IMAGEWIDTH          256
 #define TAG_IMAGELENGTH         257
 #define TAG_BITSPERSAMPLE       258
 #define TAG_COMPRESSION         259
 #define TAG_PHOTOMETRIC         262
+#define TAG_FILLORDER           266
 #define TAG_STRIPOFFSETS        273
 #define TAG_ORIENTATION         274
 #define TAG_SAMPLESPERPIXEL     277
@@ -73,6 +76,10 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define TAG_PLANARCONFIG        284
 #define TAG_RESOLUTIONUNIT      296
 #define TAG_PREDICTOR           317
+#define TAG_TILEWIDTH           322
+#define TAG_TILELENGTH          323
+#define TAG_TILEOFFSETS         324
+#define TAG_TILEBYTECOUNTS      325
 #define TAG_SAMPLEFORMAT        339
 #define TAG_JPEGINTERCHANGEFORMAT 513
 #define TAG_JPEGINTERCHANGEFORMATLENGTH 514
@@ -141,6 +148,9 @@ struct page_ctx {
 
 	u8 have_imagewidth;
 	u8 have_jpeglength;
+	u8 is_thumb;
+	u8 have_density;
+	u8 have_strip_tags, have_tile_tags;
 
 	u32 compression;
 	u32 orientation;
@@ -148,6 +158,7 @@ struct page_ctx {
 	u32 bits_per_sample;
 	u32 samples_per_pixel;
 	u32 photometric;
+	u32 fill_order;
 	u32 planarconfig;
 	u32 predictor;
 	u32 sample_format;
@@ -168,6 +179,10 @@ struct page_ctx {
 
 // Data associated with an actual tag in an IFD in the file
 struct taginfo {
+	// Might be more logical for us to have a separate struct for page_ctx, but
+	// I don't want to add a param to every "handler" function
+	struct page_ctx *pg;
+
 	int tagnum;
 	int datatype;
 	int tag_known;
@@ -175,9 +190,6 @@ struct taginfo {
 	i64 val_offset;
 	i64 unit_size;
 	i64 total_size;
-	// Might be more logical for us to have a separate struct for page_ctx, but
-	// I don't want to add a param to every "handler" function
-	struct page_ctx *pg;
 };
 
 struct localctx_struct {
@@ -1630,6 +1642,7 @@ static void handler_stripoffsets(deark *c, lctx *d, const struct taginfo *tg, co
 	struct page_ctx *pg = tg->pg;
 	i64 i;
 
+	pg->have_strip_tags = 1;
 	if(!alloc_striledata(c, pg, tg->valcount)) return;
 
 	for(i=0; i<tg->valcount; i++) {
@@ -1642,6 +1655,7 @@ static void handler_stripbytecounts(deark *c, lctx *d, const struct taginfo *tg,
 	struct page_ctx *pg = tg->pg;
 	i64 i;
 
+	pg->have_strip_tags = 1;
 	if(!alloc_striledata(c, pg, tg->valcount)) return;
 
 	for(i=0; i<tg->valcount; i++) {
@@ -1696,11 +1710,26 @@ static void handler_resolution(deark *c, lctx *d, const struct taginfo *tg, cons
 	if(tg->valcount<1) return;
 	read_numeric_value(c, d, tg, 0, &nv, NULL);
 	if(!nv.isvalid) return;
+	tg->pg->have_density = 1;
 	if(tg->tagnum==TAG_XRESOLUTION) {
 		tg->pg->density_ImageWidth = nv.val_double;
 	}
 	else if(tg->tagnum==TAG_YRESOLUTION) {
 		tg->pg->density_ImageLength = nv.val_double;
+	}
+}
+
+static void handler_tagtracker(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	struct page_ctx *pg = tg->pg;
+
+	switch(tg->tagnum) {
+	case TAG_TILEWIDTH:
+	case TAG_TILELENGTH:
+	case TAG_TILEOFFSETS:
+	case TAG_TILEBYTECOUNTS:
+		pg->have_tile_tags = 1;
+		break;
 	}
 }
 
@@ -1710,10 +1739,16 @@ static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const s
 	struct page_ctx *pg = tg->pg;
 	i64 val;
 
-	if(tg->valcount!=1) return;
+	if(tg->valcount<1) return;
 	read_tag_value_as_int64(c, d, tg, 0, &val);
 
 	switch(tg->tagnum) {
+	case TAG_NEWSUBFILETYPE:
+		if(val & 0x1) pg->is_thumb = 1;
+		break;
+	case TAG_OLDSUBFILETYPE:
+		if(val==2) pg->is_thumb = 1;
+		break;
 	case TAG_IMAGEWIDTH:
 		pg->have_imagewidth = 1;
 		pg->imagewidth = val;
@@ -1727,10 +1762,14 @@ static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const s
 	case TAG_PHOTOMETRIC:
 		pg->photometric = (u32)val;
 		break;
+	case TAG_FILLORDER:
+		pg->fill_order = (u32)val;
+		break;
 	case TAG_SAMPLESPERPIXEL:
 		pg->samples_per_pixel = (u32)val;
 		break;
 	case TAG_ROWSPERSTRIP:
+		pg->have_strip_tags = 1;
 		pg->rows_per_strip = val;
 		break;
 	case TAG_ORIENTATION:
@@ -1761,8 +1800,8 @@ static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const s
 }
 
 static const struct tagnuminfo tagnuminfo_arr[] = {
-	{ 254, 0x00, "NewSubfileType", NULL, valdec_newsubfiletype },
-	{ 255, 0x00, "OldSubfileType", NULL, valdec_oldsubfiletype },
+	{ /* 254 */ TAG_NEWSUBFILETYPE, 0x00, "NewSubfileType", handler_various, valdec_newsubfiletype },
+	{ /* 255 */ TAG_OLDSUBFILETYPE, 0x00, "OldSubfileType", handler_various, valdec_oldsubfiletype },
 	{ /* 256 */ TAG_IMAGEWIDTH, 0x0000, "ImageWidth", handler_various, NULL },
 	{ /* 257 */ TAG_IMAGELENGTH, 0x0000, "ImageLength", handler_various, NULL },
 	{ /* 258 */ TAG_BITSPERSAMPLE, 0x00, "BitsPerSample", handler_bitspersample, NULL },
@@ -1771,7 +1810,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 263, 0x00, "Threshholding", NULL, valdec_threshholding },
 	{ 264, 0x00, "CellWidth", NULL, NULL },
 	{ 265, 0x00, "CellLength", NULL, NULL },
-	{ 266, 0x00, "FillOrder", NULL, valdec_fillorder },
+	{ /* 266 */ TAG_FILLORDER, 0x00, "FillOrder", handler_various, valdec_fillorder },
 	{ 269, 0x0400, "DocumentName", NULL, NULL },
 	{ 270, 0x0400, "ImageDescription", NULL, NULL },
 	{ 271, 0x0400, "Make", NULL, NULL },
@@ -1808,10 +1847,10 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 319, 0x00, "PrimaryChromaticities", NULL, NULL },
 	{ 320, 0x08, "ColorMap", handler_colormap, NULL },
 	{ 321, 0x00, "HalftoneHints", NULL, NULL },
-	{ 322, 0x00, "TileWidth", NULL, NULL },
-	{ 323, 0x00, "TileLength", NULL, NULL },
-	{ 324, 0x00, "TileOffsets", NULL, NULL },
-	{ 325, 0x00, "TileByteCounts", NULL, NULL },
+	{ /* 322 */ TAG_TILEWIDTH, 0x00, "TileWidth", handler_tagtracker, NULL },
+	{ /* 323 */ TAG_TILELENGTH, 0x00, "TileLength", handler_tagtracker, NULL },
+	{ /* 324 */ TAG_TILEOFFSETS, 0x00, "TileOffsets", handler_tagtracker, NULL },
+	{ /* 325 */ TAG_TILEBYTECOUNTS, 0x00, "TileByteCounts", handler_tagtracker, NULL },
 	{ 326, 0x00, "BadFaxLines", NULL, NULL },
 	{ 327, 0x00, "CleanFaxData", NULL, NULL },
 	{ 328, 0x00, "ConsecutiveBadFaxLines", NULL, NULL },
@@ -2861,7 +2900,7 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 
 static void set_image_density(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
 {
-	if(pg->resolution_unit<1) return;
+	if(!pg->have_density) return;
 
 	if(pg->orientation>=5 && pg->orientation<=8) {
 		// For some orientations, the x dimension is the ImageLength dimension.
@@ -2895,6 +2934,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	i64 i;
 	int output_bypp;
 	int ok_bps = 0;
+	UI createflags = 0;
 	// (Multiple dbufs will be needed for PlanarConfig=separated.)
 	dbuf *tmp_membuf[DE_TIFF_MAX_SAMPLES];
 	dbuf *tmp_subfile[DE_TIFF_MAX_SAMPLES];
@@ -2914,7 +2954,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	// just a testbed for some things.
 	if(!d->opt_decode) goto done;
 
-	if(!pg->have_imagewidth) {
+	if(!pg->have_imagewidth || pg->imagewidth<1 || pg->imagelength<1) {
 		de_dbg(c, "[non-image IFD]");
 		goto done;
 	}
@@ -2925,6 +2965,9 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	if(pg->compression<1) {
 		pg->compression = 1;
 	}
+	if(pg->bits_per_sample<1) {
+		pg->bits_per_sample = 1;
+	}
 	if(pg->planarconfig<1) {
 		pg->planarconfig = 1;
 	}
@@ -2934,10 +2977,26 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	if(pg->sample_format<1) {
 		pg->sample_format = 1;
 	}
+	if(pg->resolution_unit<1) {
+		pg->resolution_unit = 2;
+	}
+	if(pg->rows_per_strip<1) {
+		pg->rows_per_strip = pg->imagelength;
+	}
 
 	dctx->width = pg->imagewidth;
 	dctx->height = pg->imagelength;
 	if(!de_good_image_dimensions(c, dctx->width, dctx->height)) goto done;
+
+	if(pg->have_strip_tags && pg->have_tile_tags) {
+		detiff_err(c, d, "Image seems to have both strips and tiles");
+		goto done;
+	}
+	if(pg->have_tile_tags) {
+		dctx->is_tiled = 1;
+		detiff_err(c, d, "Tiled images are not supported");
+		goto done;
+	}
 
 	if(pg->strile_count<1) { need_errmsg = 1; goto done; }
 
@@ -2986,7 +3045,8 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	}
 	dctx->samples_per_pixel_to_decode = pg->samples_per_pixel;
 	if(dctx->samples_per_pixel_to_decode>DE_TIFF_MAX_SAMPLES) {
-		de_warn(c, "Large number of SamplesPerPixel (%d). Some samples ignored.", (int)pg->samples_per_pixel);
+		detiff_warn(c, d, "Large number of SamplesPerPixel (%d). Some samples ignored.",
+			(int)pg->samples_per_pixel);
 		dctx->samples_per_pixel_to_decode = DE_TIFF_MAX_SAMPLES;
 	}
 
@@ -2999,7 +3059,6 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		detiff_err(c, d, "Unsupported compression method (%d)", (int)pg->compression);
 		goto done;
 	}
-	if(pg->rows_per_strip<1) { need_errmsg = 1; goto done; }
 	if(pg->samples_per_pixel>1 && pg->planarconfig>1) {
 		detiff_err(c, d, "Unsupported PlanarConfiguration");
 		goto done;
@@ -3101,9 +3160,14 @@ partial_failure:
 		de_bitmap_flip(img);
 	}
 
+	if(pg->is_thumb) {
+		createflags |= DE_CREATEFLAG_IS_AUX;
+		de_finfo_set_name_from_sz(c, fi, "thumb", 0, DE_ENCODING_LATIN1);
+	}
+
 	set_image_density(c, d, pg, fi);
 
-	de_bitmap_write_to_file_finfo(img, fi, 0);
+	de_bitmap_write_to_file_finfo(img, fi, createflags);
 
 done:
 	for(i=0; i<DE_TIFF_MAX_SAMPLES; i++) {
@@ -3547,11 +3611,16 @@ static int de_identify_tiff(deark *c)
 	return 0;
 }
 
+static void de_help_tiff(deark *c)
+{
+	de_msg(c, "-opt tiff:decode=<0|1> : Don't/Do attempt to decode images");
+}
+
 void de_module_tiff(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "tiff";
 	mi->desc = "TIFF image";
-	mi->desc2 = "resources only";
 	mi->run_fn = de_run_tiff;
 	mi->identify_fn = de_identify_tiff;
+	mi->help_fn = de_help_tiff;
 }
