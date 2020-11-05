@@ -77,31 +77,35 @@ static int do_uncompress_image(deark *c, lctx *d, i64 pos1, dbuf *unc_pixels)
 	i64 bytes_in_this_line;
 	i64 pos = pos1;
 	i64 j;
-	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_ctx *dfctx = NULL;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
 
 	de_dbg(c, "decompressing bitmap");
 
 	// Each line is compressed independently, using PackBits.
-	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
-	dcmpri.f = c->infile;
+	de_dfilter_init_objects(c, NULL, &dcmpro, &dres);
 	dcmpro.f = unc_pixels;
+	dfctx = de_dfilter_create(c, dfilter_packbits_codec, NULL, &dcmpro, &dres);
 
 	for(j=0; j<d->h; j++) {
 		bytes_in_this_line = de_getu16le(pos);
 		pos += 2;
-		dcmpri.pos = pos;
-		dcmpri.len = bytes_in_this_line;
-		fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres);
-		if(dres.errcode) {
-			de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
-			return 0;
-		}
+		de_dfilter_addslice(dfctx, c->infile, pos, bytes_in_this_line);
+		de_dfilter_command(dfctx, DE_DFILTER_COMMAND_SOFTRESET);
 		pos += bytes_in_this_line;
 	}
+
+	de_dfilter_finish(dfctx);
+	if(dres.errcode) {
+		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
+		return 0;
+	}
+
 	de_dbg(c, "decompressed %d bytes to %d bytes", (int)(pos-pos1),
 		(int)unc_pixels->len);
+
+	de_dfilter_destroy(dfctx);
 	return 1;
 }
 

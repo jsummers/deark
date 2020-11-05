@@ -24,7 +24,10 @@ const char *de_dfilter_get_errmsg(deark *c, struct de_dfilter_results *dres)
 // Initialize or reset a dfilter results struct
 void de_dfilter_results_clear(deark *c, struct de_dfilter_results *dres)
 {
-	de_zeromem(dres, sizeof(struct de_dfilter_results));
+	dres->errcode = 0;
+	dres->bytes_consumed_valid = 0;
+	dres->bytes_consumed = 0;
+	dres->errmsg[0] = '\0';
 }
 
 // Note: It is also okay to init these objects by zeroing out their bytes.
@@ -72,6 +75,7 @@ void de_dfilter_set_generic_error(deark *c, struct de_dfilter_results *dres, con
 // immediately.)
 // This model makes it easier to chain multiple codecs together, and to handle
 // input data that is not contiguous.
+// TODO: There's no reason this couldn't be extended to work with "type1" codecs.
 
 struct de_dfilter_ctx *de_dfilter_create(deark *c,
 	dfilter_codec_type codec_init_fn, void *codec_private_params,
@@ -100,6 +104,22 @@ void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
 	}
 }
 
+void de_dfilter_command(struct de_dfilter_ctx *dfctx, int cmd)
+{
+	if(cmd==DE_DFILTER_COMMAND_REINITIALIZE) {
+		de_dfilter_results_clear(dfctx->c, dfctx->dres);
+	}
+
+	if(dfctx->codec_command_fn) {
+		dfctx->codec_command_fn(dfctx, cmd);
+	}
+}
+
+// Call this to inform the codec that there are no more compressed bytes.
+// The codec's 'finish' function should flush any pending output,
+// and update the decompression results in dfctx->dres.
+// Some codecs can still be used after this, provided you then call
+// de_dfilter_command(...,DE_DFILTER_COMMAND_REINITIALIZE).
 void de_dfilter_finish(struct de_dfilter_ctx *dfctx)
 {
 	if(dfctx->codec_finish_fn) {
@@ -260,6 +280,24 @@ static void my_packbits_codec_addbuf(struct de_dfilter_ctx *dfctx,
 	}
 }
 
+static void my_packbits_codec_command(struct de_dfilter_ctx *dfctx, int cmd)
+{
+	struct packbitsctx *rctx = (struct packbitsctx*)dfctx->codec_private;
+
+	if(cmd==DE_DFILTER_COMMAND_SOFTRESET || cmd==DE_DFILTER_COMMAND_REINITIALIZE) {
+		// "soft reset" - reset the low-level compression state, but don't update
+		// dres, or the total-bytes counters, etc.
+		rctx->state = PACKBITS_STATE_NEUTRAL;
+		rctx->nbytes_in_unitbuf = 0;
+		rctx->nliteral_bytes_remaining = 0;
+		rctx->repeat_count = 0;
+	}
+	if(cmd==DE_DFILTER_COMMAND_REINITIALIZE) {
+		rctx->total_nbytes_processed = 0;
+		rctx->nbytes_written = 0;
+	}
+}
+
 static void my_packbits_codec_finish(struct de_dfilter_ctx *dfctx)
 {
 	struct packbitsctx *rctx = (struct packbitsctx*)dfctx->codec_private;
@@ -293,6 +331,7 @@ void dfilter_packbits_codec(struct de_dfilter_ctx *dfctx, void *codec_private_pa
 	dfctx->codec_private = (void*)rctx;
 	dfctx->codec_addbuf_fn = my_packbits_codec_addbuf;
 	dfctx->codec_finish_fn = my_packbits_codec_finish;
+	dfctx->codec_command_fn = my_packbits_codec_command;
 	dfctx->codec_destroy_fn = my_packbits_codec_destroy;
 }
 

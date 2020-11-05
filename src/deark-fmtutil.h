@@ -15,6 +15,7 @@ struct de_dfilter_out_params {
 };
 
 struct de_dfilter_results {
+	// Note: If this struct is changed, also update de_dfilter_results_clear().
 	int errcode;
 	u8 bytes_consumed_valid;
 	i64 bytes_consumed;
@@ -125,6 +126,7 @@ struct de_dfilter_ctx;
 typedef void (*dfilter_codec_type)(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 typedef void (*dfilter_codec_addbuf_type)(struct de_dfilter_ctx *dfctx,
 	const u8 *buf, i64 buf_len);
+typedef void (*dfilter_codec_command_type)(struct de_dfilter_ctx *dfctx, int cmd);
 typedef void (*dfilter_codec_finish_type)(struct de_dfilter_ctx *dfctx);
 typedef void (*dfilter_codec_destroy_type)(struct de_dfilter_ctx *dfctx);
 
@@ -135,6 +137,7 @@ struct de_dfilter_ctx {
 	u8 finished_flag;
 	void *codec_private;
 	dfilter_codec_addbuf_type codec_addbuf_fn;
+	dfilter_codec_command_type codec_command_fn;
 	dfilter_codec_finish_type codec_finish_fn;
 	dfilter_codec_destroy_type codec_destroy_fn;
 };
@@ -193,6 +196,9 @@ struct de_dfilter_ctx *de_dfilter_create(deark *c,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
 void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
 	const u8 *buf, i64 buf_len);
+#define DE_DFILTER_COMMAND_SOFTRESET      1
+#define DE_DFILTER_COMMAND_REINITIALIZE   2
+void de_dfilter_command(struct de_dfilter_ctx *dfctx, int cmd);
 void de_dfilter_addslice(struct de_dfilter_ctx *dfctx,
 	dbuf *inf, i64 pos, i64 len);
 void de_dfilter_finish(struct de_dfilter_ctx *dfctx);
