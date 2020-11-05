@@ -92,7 +92,7 @@ static int do_uncompress_image(deark *c, lctx *d, i64 pos1, dbuf *unc_pixels)
 		bytes_in_this_line = de_getu16le(pos);
 		pos += 2;
 		de_dfilter_addslice(dfctx, c->infile, pos, bytes_in_this_line);
-		de_dfilter_command(dfctx, DE_DFILTER_COMMAND_SOFTRESET);
+		de_dfilter_command(dfctx, DE_DFILTER_COMMAND_SOFTRESET, 0);
 		pos += bytes_in_this_line;
 	}
 

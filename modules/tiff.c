@@ -2669,61 +2669,6 @@ static const struct tagnuminfo *find_tagnuminfo(int tagnum, int filefmt, int ifd
 	return NULL;
 }
 
-static void decompress_strile_uncmpr(deark *c, lctx *d, struct page_ctx *pg,
-	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
-	struct de_dfilter_results *dres)
-{
-	fmtutil_decompress_uncompressed(c, dcmpri, dcmpro, dres, 0);
-}
-
-static void decompress_strile_lzw(deark *c, lctx *d, struct page_ctx *pg,
-	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
-	struct de_dfilter_results *dres)
-{
-	struct de_lzw_params delzwp;
-
-	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
-	delzwp.fmt = DE_LZWFMT_TIFF;
-	delzwp.max_code_size = 12;
-	delzwp.tifflzw_oldversion = (pg->is_old_lzw)?1:0;
-	fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
-}
-
-static void decompress_strile_packbits(deark *c, lctx *d, struct page_ctx *pg,
-	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
-	struct de_dfilter_results *dres)
-{
-	fmtutil_decompress_packbits_ex(c, dcmpri, dcmpro, dres);
-}
-
-// If old LZW version, sets pg->is_old_lzw.
-static void detect_lzw_version(deark *c, lctx *d, struct page_ctx *pg)
-{
-	u8 buf[2];
-
-	if(pg->strile_count<1) return;
-	// The first LZW code is supposed to be a clear code (=256; 9 bits). If it is
-	// little-endian, presumably this is the old LZW version.
-	// So old version should start: 00000000 xxxxxxx1
-	// And new version:             10000000 0xxxxxxx
-	de_read(buf, pg->strile_data[0].pos, 2);
-	if(buf[0]==0x00 && (buf[1]&0x01)) {
-		pg->is_old_lzw = 1;
-	}
-	de_dbg(c, "lzw version: %s", pg->is_old_lzw?"old":"new");
-}
-
-static int is_cmpr_meth_supported(u32 n)
-{
-	switch(n) {
-	case 1:
-	case 5:
-	case 32773:
-		return 1;
-	}
-	return 0;
-}
-
 struct decode_page_ctx {
 	i64 width; // = ImageWidth + padding
 	i64 height; // = ImageLength
@@ -2747,10 +2692,97 @@ struct decode_page_ctx {
 	u8 is_assoc_alpha;
 	UI alpha_sample_idx;
 
+	struct de_dfilter_ctx *dfctx; // Decompressor that can be shared between striles
+
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
 };
+
+static void decompress_strile_uncmpr(deark *c, lctx *d, struct page_ctx *pg,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	fmtutil_decompress_uncompressed(c, dcmpri, dcmpro, dres, 0);
+}
+
+// If old LZW version, sets pg->is_old_lzw.
+static void detect_lzw_version(deark *c, lctx *d, struct page_ctx *pg)
+{
+	u8 buf[2];
+
+	if(pg->strile_count<1) return;
+	// The first LZW code is supposed to be a clear code (=256; 9 bits). If it is
+	// little-endian, presumably this is the old LZW version.
+	// So old version should start: 00000000 xxxxxxx1
+	// And new version:             10000000 0xxxxxxx
+	de_read(buf, pg->strile_data[0].pos, 2);
+	if(buf[0]==0x00 && (buf[1]&0x01)) {
+		pg->is_old_lzw = 1;
+	}
+	de_dbg(c, "lzw version: %s", pg->is_old_lzw?"old":"new");
+}
+
+static void decompress_strile_lzw(deark *c, lctx *d, struct page_ctx *pg,
+	struct decode_page_ctx *dctx)
+{
+	struct de_lzw_params delzwp;
+
+	if(dctx->strile_idx==0) {
+		detect_lzw_version(c, d, pg);
+	}
+
+	if(dctx->dfctx) {
+		de_dfilter_destroy(dctx->dfctx);
+		dctx->dfctx = NULL;
+		// TODO: Make the LZW decoder support DE_DFILTER_COMMAND_REINITIALIZE
+	}
+
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
+	delzwp.fmt = DE_LZWFMT_TIFF;
+	delzwp.max_code_size = 12;
+	delzwp.tifflzw_oldversion = (pg->is_old_lzw)?1:0;
+
+	dctx->dfctx = de_dfilter_create(c, dfilter_lzw_codec, (void*)&delzwp, &dctx->dcmpro, &dctx->dres);
+
+	de_dfilter_addslice(dctx->dfctx, dctx->dcmpri.f, dctx->dcmpri.pos, dctx->dcmpri.len);
+	de_dfilter_finish(dctx->dfctx);
+}
+
+static void decompress_strile_packbits(deark *c, lctx *d, struct page_ctx *pg,
+	struct decode_page_ctx *dctx)
+{
+	if(dctx->dfctx) {
+		de_dfilter_command(dctx->dfctx, DE_DFILTER_COMMAND_REINITIALIZE, 0);
+	}
+	else {
+		dctx->dfctx = de_dfilter_create(c, dfilter_packbits_codec, NULL,
+			&dctx->dcmpro, &dctx->dres);
+	}
+
+	de_dfilter_addslice(dctx->dfctx, dctx->dcmpri.f, dctx->dcmpri.pos, dctx->dcmpri.len);
+	de_dfilter_finish(dctx->dfctx);
+}
+
+static void decompress_strile_deflate(deark *c, lctx *d, struct page_ctx *pg,
+	struct decode_page_ctx *dctx)
+{
+	fmtutil_decompress_deflate_ex(c, &dctx->dcmpri, &dctx->dcmpro, &dctx->dres,
+		 DE_DEFLATEFLAG_ISZLIB);
+}
+
+static int is_cmpr_meth_supported(u32 n)
+{
+	switch(n) {
+	case 1:
+	case 5:
+	case 8:
+	case 32773:
+	case 32946:
+		return 1;
+	}
+	return 0;
+}
 
 static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
 	struct decode_page_ctx *dctx)
@@ -2774,10 +2806,14 @@ static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
 
 	switch(pg->compression) {
 	case 5:
-		decompress_strile_lzw(c, d, pg, &dctx->dcmpri, &dctx->dcmpro, &dctx->dres);
+		decompress_strile_lzw(c, d, pg, dctx);
+		break;
+	case 8:
+	case 32946:
+		decompress_strile_deflate(c, d, pg, dctx);
 		break;
 	case 32773:
-		decompress_strile_packbits(c, d, pg, &dctx->dcmpri, &dctx->dcmpro, &dctx->dres);
+		decompress_strile_packbits(c, d, pg, dctx);
 		break;
 	default:
 		decompress_strile_uncmpr(c, d, pg, &dctx->dcmpri, &dctx->dcmpro, &dctx->dres);
@@ -3071,10 +3107,6 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		}
 	}
 
-	if(pg->compression==5) {
-		detect_lzw_version(c, d, pg);
-	}
-
 	// Look for an alpha sample
 	for(i=0; i<(i64)pg->extrasamples_count; i++) {
 		if((i64)dctx->base_samples_per_pixel + i >= (i64)dctx->samples_per_pixel_to_decode) break;
@@ -3180,6 +3212,7 @@ done:
 		detiff_err(c, d, "Unsupported image type or bad image");
 	}
 	if(dctx) {
+		if(dctx->dfctx) de_dfilter_destroy(dctx->dfctx);
 		de_free(c, dctx);
 	}
 	de_dbg_indent_restore(c, saved_indent_level);

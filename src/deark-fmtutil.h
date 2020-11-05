@@ -198,7 +198,7 @@ void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
 	const u8 *buf, i64 buf_len);
 #define DE_DFILTER_COMMAND_SOFTRESET      1
 #define DE_DFILTER_COMMAND_REINITIALIZE   2
-void de_dfilter_command(struct de_dfilter_ctx *dfctx, int cmd);
+void de_dfilter_command(struct de_dfilter_ctx *dfctx, int cmd, UI flags);
 void de_dfilter_addslice(struct de_dfilter_ctx *dfctx,
 	dbuf *inf, i64 pos, i64 len);
 void de_dfilter_finish(struct de_dfilter_ctx *dfctx);

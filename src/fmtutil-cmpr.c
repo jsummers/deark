@@ -104,11 +104,27 @@ void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
 	}
 }
 
-void de_dfilter_command(struct de_dfilter_ctx *dfctx, int cmd)
+// Commands:  (Commands are not supported by all codecs)
+//   DE_DFILTER_COMMAND_SOFTRESET
+//    Reset the decompressor state. Exact function depends on the codec.
+//
+//   DE_DFILTER_COMMAND_REINITIALIZE
+//    Reinitialize a codec, so you don't have to destroy and recreate it in
+//    in order to use it again. Typically used after _finish().
+//    Before using this command, it is okay to change the internal paramters of
+//    the dcmpro and dres given to de_dfilter_create(). You should call
+//    de_dfilter_results_clear or the equivalent if you have already handled
+//    previous errors.
+void de_dfilter_command(struct de_dfilter_ctx *dfctx, int cmd, UI flags)
 {
+	// Non-codec-specific things:
+
 	if(cmd==DE_DFILTER_COMMAND_REINITIALIZE) {
-		de_dfilter_results_clear(dfctx->c, dfctx->dres);
+		dfctx->finished_flag = 0;
+		dfctx->dres->bytes_consumed_valid = 0;
 	}
+
+	// Codec-specific things:
 
 	if(dfctx->codec_command_fn) {
 		dfctx->codec_command_fn(dfctx, cmd);
