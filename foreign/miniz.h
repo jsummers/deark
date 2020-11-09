@@ -1059,8 +1059,8 @@ void mz_free(void *p)
 
 #ifndef MINIZ_NO_ZLIB_APIS
 
-static void *def_alloc_func(void *opaque, size_t items, size_t size) { (void)opaque, (void)items, (void)size; return MZ_MALLOC(items * size); }
-static void def_free_func(void *opaque, void *address) { (void)opaque, (void)address; MZ_FREE(address); }
+static void *def_alloc_func(void *opaque, size_t items, size_t size) { /* (void)opaque, (void)items, (void)size; */ return MZ_MALLOC(items * size); }
+static void def_free_func(void *opaque, void *address) { /* (void)opaque, (void)address; */ MZ_FREE(address); }
 #ifndef MINIZ_NO_ARCHIVE_APIS
 static void *def_realloc_func(void *opaque, void *address, size_t items, size_t size) { (void)opaque, (void)address, (void)items, (void)size; return MZ_REALLOC(address, items * size); }
 #endif
@@ -1177,7 +1177,7 @@ int mz_deflateEnd(mz_streamp pStream)
 
 mz_ulong mz_deflateBound(mz_streamp pStream, mz_ulong source_len)
 {
-  (void)pStream;
+  /* (void)pStream; */
   // This is really over conservative. (And lame, but it's actually pretty tricky to compute a true upper bound given the way tdefl's blocking works.)
   return MZ_MAX(128 + (source_len * 110) / 100, 128 + source_len + ((source_len / (31 * 1024)) + 1) * 5);
 }

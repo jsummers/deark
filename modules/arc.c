@@ -10,9 +10,11 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_arc);
 DE_DECLARE_MODULE(de_module_spark);
+DE_DECLARE_MODULE(de_module_arcmac);
 
 #define FMT_ARC 1
 #define FMT_SPARK 2
+#define FMT_ARCMAC 3
 
 #define MAX_NESTING_LEVEL 24
 
@@ -36,6 +38,9 @@ struct persistent_member_data {
 };
 
 struct member_data {
+	deark *c;
+	lctx *d;
+
 	u8 cmpr_meth;
 	u8 cmpr_meth_masked;
 	const struct cmpr_meth_info *cmi;
@@ -49,6 +54,11 @@ struct member_data {
 	struct de_timestamp arc_timestamp;
 	struct de_riscos_file_attrs rfa;
 	int is_dir;
+
+	i64 arcmac_dforklen;
+	i64 arcmac_rforklen;
+	struct de_stringreaderdata *arcmac_fn;
+	struct de_advfile *arcmac_advf;
 };
 
 struct localctx_struct {
@@ -56,8 +66,10 @@ struct localctx_struct {
 	const char *fmtname;
 	de_ext_encoding input_encoding_for_filenames;
 	de_ext_encoding input_encoding_for_comments;
+	de_ext_encoding input_encoding_for_arcmac_fn;
 	int append_type;
 	int recurse_subdirs;
+	u8 sig_byte;
 	u8 prescan_found_eoa;
 	u8 has_trailer_data;
 	u8 has_pak_trailer;
@@ -102,7 +114,7 @@ static void parse_member_sequence(deark *c, lctx *d, i64 pos1, i64 len, int nest
 		mpd->member_pos = pos;
 
 		mpd->magic = de_getbyte_p(&pos);
-		if(mpd->magic!=0x1a) {
+		if(mpd->magic!=d->sig_byte) {
 			mpd->member_len = 1;
 			mpd->cmpr_data_pos = mpd->member_pos; // dummy value
 			member_cbfn(c, d, mpd);
@@ -116,6 +128,22 @@ static void parse_member_sequence(deark *c, lctx *d, i64 pos1, i64 len, int nest
 			mpd->cmpr_data_pos = mpd->member_pos+2; // dummy value
 			member_cbfn(c, d, mpd);
 			break;
+		}
+
+		if(d->fmt==FMT_ARCMAC) {
+			u8 magic2;
+
+			// TODO: Check for EOF?
+			pos += 57; // Skip remainder of 59-byte ArcMac preheader
+			magic2 = de_getbyte_p(&pos);
+			if(magic2 != 0x1a) { // Error
+				// TODO: Call member_cbfn()?
+				break;
+			}
+
+			// Read the "real" compression method field (should be the same?).
+			mpd->cmpr_meth = de_getbyte_p(&pos);
+			mpd->cmpr_meth_masked = mpd->cmpr_meth & 0x7f;
 		}
 
 		pos += 13;
@@ -498,6 +526,121 @@ static void fixup_path(deark *c, lctx *d, de_ucstring *s)
 	}
 }
 
+static void do_decompress_fork_arcmac(struct member_data *md,
+	dbuf *outf, const char *fork_name)
+{
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	deark *c = md->c;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(md->orig_size==0) goto done;
+
+	de_dbg(c, "decompressing %s fork", fork_name);
+	de_dbg_indent(c, 1);
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = md->cmpr_data_pos;
+	dcmpri.len = md->cmpr_size;
+	dcmpro.f = outf;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = md->orig_size;
+
+	if(dcmpri.pos + dcmpri.len > dcmpri.f->len) {
+		de_err(c, "%s: Data goes beyond end of file", ucstring_getpsz_d(md->arcmac_fn->str));
+		goto done;
+	}
+
+	md->cmi->decompressor(c, md->d, md, &dcmpri, &dcmpro, &dres);
+	if(dres.errcode) {
+		de_err(c, "Decompression failed for file %s[%s fork]: %s",
+			ucstring_getpsz_d(md->arcmac_fn->str),
+			fork_name, de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
+
+	md->crc_calc = de_crcobj_getval(md->d->crco);
+	de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)md->crc_calc);
+
+	if(md->crc_calc!=md->crc_reported) {
+		de_err(c, "%s: CRC check failed", ucstring_getpsz_d(md->arcmac_fn->str));
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static int my_advfile_cbfn(deark *c, struct de_advfile *advf,
+	struct de_advfile_cbparams *afp)
+{
+	struct member_data *md = (struct member_data*)advf->userdata;
+
+	if(afp->whattodo == DE_ADVFILE_WRITEMAIN) {
+		do_decompress_fork_arcmac(md, afp->outf, "data");
+	}
+	else if(afp->whattodo == DE_ADVFILE_WRITERSRC) {
+		do_decompress_fork_arcmac(md, afp->outf, "rsrc");
+	}
+
+	return 1;
+}
+
+// TODO: Reduce code duplication with do_extract_member_file(), etc.
+// Retrofitting the arc module for arcmac format made some things messy.
+// It could be made somewhat cleaner by using the "advfile" system unconditionally
+// -- there are pros and cons of doing that.
+static void do_extract_member_file_arcmac(deark *c, lctx *d, struct member_data *md,
+	de_finfo *fi)
+{
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	if(!md->cmi || !md->cmi->decompressor) {
+		de_err(c, "%s: Compression type 0x%02x (%s) is not supported.",
+			ucstring_getpsz_d(md->fn), (unsigned int)md->cmpr_meth, md->cmpr_meth_name);
+		goto done;
+	}
+
+	if(md->arcmac_dforklen && md->arcmac_rforklen) {
+		// This seems to be allowed, but I need sample files.
+		de_err(c, "Can't handle multi-fork ArcMac file");
+		goto done;
+	}
+	if(md->arcmac_dforklen + md->arcmac_rforklen != md->orig_size) {
+		de_err(c, "Inconsistent ArcMac fork size");
+		goto done;
+	}
+
+	if(md->arcmac_fn && ucstring_isnonempty(md->arcmac_fn->str)) {
+		ucstring_append_ucstring(md->arcmac_advf->filename, md->arcmac_fn->str);
+	}
+	else {
+		ucstring_append_ucstring(md->arcmac_advf->filename, md->fn);
+	}
+	md->arcmac_advf->original_filename_flag = 1;
+
+	md->arcmac_advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_MODIFY] =
+		fi->timestamp[DE_TIMESTAMPIDX_MODIFY];
+
+	md->arcmac_advf->userdata = (void*)md;
+	md->arcmac_advf->writefork_cbfn = my_advfile_cbfn;
+
+	md->arcmac_advf->mainfork.writelistener_cb = our_writelistener_cb;
+	md->arcmac_advf->mainfork.userdata_for_writelistener = (void*)d->crco;
+	md->arcmac_advf->rsrcfork.writelistener_cb = our_writelistener_cb;
+	md->arcmac_advf->rsrcfork.userdata_for_writelistener = (void*)d->crco;
+	de_crcobj_reset(d->crco);
+
+	de_advfile_run(md->arcmac_advf);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
 	struct persistent_member_data *pmd, de_finfo *fi, i64 pos)
 {
@@ -685,10 +828,59 @@ done:
 
 static void do_sequence_of_members(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level);
 
+static void do_arcmac_preheader(deark *c, lctx *d, struct member_data *md, i64 pos1)
+{
+	i64 pos = pos1;
+	u16 finder_flags;
+	struct de_fourcc filetype;
+	struct de_fourcc creator;
+
+	if(md->arcmac_advf) return;
+	md->arcmac_advf = de_advfile_create(c);
+
+	pos += 2; // magic / cmprtype
+
+	md->arcmac_fn = dbuf_read_string(c->infile, pos, 31, 31, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding_for_arcmac_fn);
+	de_dbg(c, "ArcMac filename: \"%s\"", ucstring_getpsz_d(md->arcmac_fn->str));
+	if(md->arcmac_fn->sz_strlen>0) {
+		md->arcmac_advf->original_filename_flag = 1;
+		de_advfile_set_orig_filename(md->arcmac_advf, md->arcmac_fn->sz, md->arcmac_fn->sz_strlen);
+	}
+	pos += 32;
+
+	dbuf_read_fourcc(c->infile, pos, &filetype, 4, 0x0);
+	de_dbg(c, "filetype: '%s'", filetype.id_dbgstr);
+	de_memcpy(md->arcmac_advf->typecode, filetype.bytes, 4);
+	md->arcmac_advf->has_typecode = 1;
+	pos += 4;
+
+	dbuf_read_fourcc(c->infile, pos, &creator, 4, 0x0);
+	de_dbg(c, "creator: '%s'", creator.id_dbgstr);
+	de_memcpy(md->arcmac_advf->creatorcode, creator.bytes, 4);
+	md->arcmac_advf->has_creatorcode = 1;
+	pos += 4;
+
+	finder_flags = (u16)de_getu16be_p(&pos);
+	de_dbg(c, "finder flags: 0x%04x", finder_flags);
+	md->arcmac_advf->finderflags = finder_flags;
+	md->arcmac_advf->has_finderflags = 1;
+	pos += 6; // remainder of finfo
+
+	md->arcmac_dforklen = de_getu32le_p(&pos);
+	de_dbg(c, "data fork len: %"I64_FMT, md->arcmac_dforklen);
+	md->arcmac_rforklen = de_getu32le_p(&pos);
+	de_dbg(c, "rsrc fork len: %"I64_FMT, md->arcmac_rforklen);
+
+	md->arcmac_advf->mainfork.fork_exists = (md->arcmac_dforklen!=0);
+	md->arcmac_advf->mainfork.fork_len = md->arcmac_dforklen;
+	md->arcmac_advf->rsrcfork.fork_exists = (md->arcmac_rforklen!=0);
+	md->arcmac_advf->rsrcfork.fork_len = md->arcmac_rforklen;
+}
+
 // The main per-member processing function
 static void member_cb_main(deark *c, lctx *d, struct member_parser_data *mpd)
 {
-	//u8 magic;
 	int saved_indent_level;
 	i64 pos1 = mpd->member_pos;
 	i64 pos = pos1;
@@ -703,6 +895,8 @@ static void member_cb_main(deark *c, lctx *d, struct member_parser_data *mpd)
 	de_dbg(c, "member at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	md = de_malloc(c, sizeof(struct member_data));
+	md->c = c;
+	md->d = d;
 
 	if(mpd->nesting_level==0 && d->persistent_md && (mpd->member_idx < d->num_top_level_members)) {
 		pmd = &d->persistent_md[mpd->member_idx];
@@ -715,9 +909,14 @@ static void member_cb_main(deark *c, lctx *d, struct member_parser_data *mpd)
 	}
 
 	pos++; // 'magic' byte, already read by the parser
-	if(mpd->magic != 0x1a) {
+	if(mpd->magic != d->sig_byte) {
 		de_err(c, "Failed to find %s member at %"I64_FMT, d->fmtname, pos1);
 		goto done;
+	}
+
+	if(d->fmt==FMT_ARCMAC && mpd->cmpr_meth_masked!=0) {
+		do_arcmac_preheader(c, d, md, mpd->member_pos);
+		pos += 59;
 	}
 
 	pos++; // compression ID, already read by the parser
@@ -850,6 +1049,9 @@ static void member_cb_main(deark *c, lctx *d, struct member_parser_data *mpd)
 			de_warn(c, "Ignoring extension type %d at %"I64_FMT, (int)md->cmpr_meth, pos1);
 		}
 	}
+	else if(d->fmt==FMT_ARCMAC && md->arcmac_advf) {
+		do_extract_member_file_arcmac(c, d, md, fi);
+	}
 	else {
 		do_extract_member_file(c, d, md, pmd, fi, md->cmpr_data_pos);
 	}
@@ -861,6 +1063,8 @@ done:
 	if(fi) de_finfo_destroy(c, fi);
 	if(md) {
 		ucstring_destroy(md->fn);
+		if(md->arcmac_fn) de_destroy_stringreaderdata(c, md->arcmac_fn);
+		if(md->arcmac_advf) de_advfile_destroy(md->arcmac_advf);
 		de_free(c, md);
 	}
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -881,7 +1085,7 @@ static void do_sequence_of_members(deark *c, lctx *d, i64 pos1, i64 len, int nes
 
 static void member_cb_for_prescan(deark *c, lctx *d, struct member_parser_data *mpd)
 {
-	if(mpd->magic!=0x1a) return;
+	if(mpd->magic!=d->sig_byte) return;
 	if(mpd->cmpr_meth_masked==0x00) { // end of archive
 		d->prescan_found_eoa = 1;
 		d->prescan_pos_after_eoa = mpd->member_pos + mpd->member_len;
@@ -944,13 +1148,18 @@ static void do_run_arc_spark_internal(deark *c, lctx *d)
 {
 	i64 members_endpos;
 	i64 pos = 0;
-	u8 buf[33];
 
-	// Tolerate up to sizeof(buf)-1 bytes of initial junk
-	de_read(buf, 0, sizeof(buf));
-	if(!find_arc_marker(c, buf, sizeof(buf), &pos)) {
-		de_err(c, "Not a(n) %s file", d->fmtname);
-		goto done;
+	d->sig_byte = (d->fmt==FMT_ARCMAC) ? 0x1b : 0x1a;
+
+	if(d->sig_byte==0x1a) {
+		u8 buf[33];
+
+		// Tolerate up to sizeof(buf)-1 bytes of initial junk
+		de_read(buf, 0, sizeof(buf));
+		if(!find_arc_marker(c, buf, sizeof(buf), &pos)) {
+			de_err(c, "Not a(n) %s file", d->fmtname);
+			goto done;
+		}
 	}
 
 	de_declare_fmt(c, d->fmtname);
@@ -1146,4 +1355,43 @@ void de_module_arc(deark *c, struct deark_module_info *mi)
 	mi->desc = "ARC compressed archive";
 	mi->run_fn = de_run_arc;
 	mi->identify_fn = de_identify_arc;
+}
+
+static void de_run_arcmac(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+
+	d = de_malloc(c, sizeof(lctx));
+	d->fmt = FMT_ARCMAC;
+	d->fmtname = "ArcMac";
+	d->recurse_subdirs = 1;
+	d->input_encoding_for_arcmac_fn = de_get_input_encoding(c, NULL, DE_ENCODING_MACROMAN);
+	d->input_encoding_for_filenames = DE_ENCODING_CP437;
+	d->input_encoding_for_comments = DE_EXTENC_MAKE(d->input_encoding_for_filenames,
+		DE_ENCSUBTYPE_HYBRID);
+
+	do_run_arc_spark_internal(c, d);
+	destroy_lctx(c, d);
+}
+
+static int de_identify_arcmac(deark *c)
+{
+	u8 buf1[2];
+	u8 buf2[2];
+
+	de_read(buf1, 0, 2);
+	if(buf1[0]!=0x1b) return 0;
+	if(!(buf1[1]>=1 && buf1[1]<=9)) return 0;
+	de_read(buf2, 59, 2);
+	if(buf2[0]!=0x1a) return 0;
+	if(buf2[1]!=buf1[1]) return 0;
+	return 80;
+}
+
+void de_module_arcmac(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "arcmac";
+	mi->desc = "ArcMac compressed archive";
+	mi->run_fn = de_run_arcmac;
+	mi->identify_fn = de_identify_arcmac;
 }

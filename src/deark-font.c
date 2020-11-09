@@ -491,8 +491,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 		rownum = fctx->codepoint_tmp[k] / chars_per_row;
 		colnum = fctx->codepoint_tmp[k] % chars_per_row;
 		if(rownum<0 || rownum>=num_table_rows_total) {
-			de_err(c, "internal: bad rownum");
-			de_fatalerror(c);
+			de_internal_err_fatal(c, "bad rownum");
 		}
 
 		// Remember that there is at least one valid character in this character's row.
@@ -595,8 +594,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 		rownum = fctx->codepoint_tmp[k] / chars_per_row;
 		colnum = fctx->codepoint_tmp[k] % chars_per_row;
 		if(rownum<0 || rownum>=num_table_rows_total) {
-			de_err(c, "internal: bad rownum");
-			de_fatalerror(c);
+			de_internal_err_fatal(c, "bad rownum");
 		}
 
 		xpos = col_info[colnum].display_pos;

@@ -231,7 +231,7 @@ static void do_crsr_CURS_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	pos += 10;
 	fmtutil_macbitmap_read_pixmap_only_fields(c, c->infile, bi, pos);
 	pos += 36;
-	if(!de_good_image_dimensions(c, bi->width, bi->height)) goto done;
+	if(!de_good_image_dimensions(c, bi->npwidth, bi->height)) goto done;
 
 	if((i64)bi->pmTable != pixdata_offs + bi->rowbytes * bi->height) {
 		de_warn(c, "Unexpected color table offset. "
@@ -247,7 +247,7 @@ static void do_crsr_CURS_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 		goto done;
 	}
 
-	img_color = de_bitmap_create(c, bi->width, bi->height, 4);
+	img_color = de_bitmap_create2(c, bi->npwidth, bi->pdwidth, bi->height, 4);
 
 	if(pixdata_offs >= dlen) goto done;
 	pos = pos1 + pixdata_offs;
@@ -348,13 +348,13 @@ static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	pos += 4; // "icon data"
 
 	// This is said to be optional, but I don't know how to tell if it exists.
-	if(bi_bw->rowbytes && bi_bw->height && bi_bw->width) {
+	if(bi_bw->rowbytes && bi_bw->height && bi_bw->npwidth) {
 		bw_exists = 1;
 	}
 
-	if(!de_good_image_dimensions_noerr(c, bi_fgcolor->width, bi_fgcolor->height)) goto done;
-	if(!de_good_image_dimensions_noerr(c, bi_mask->width, bi_mask->height)) goto done;
-	if(bw_exists && !de_good_image_dimensions_noerr(c, bi_bw->width, bi_bw->height)) goto done;
+	if(!de_good_image_dimensions_noerr(c, bi_fgcolor->npwidth, bi_fgcolor->height)) goto done;
+	if(!de_good_image_dimensions_noerr(c, bi_mask->npwidth, bi_mask->height)) goto done;
+	if(bw_exists && !de_good_image_dimensions_noerr(c, bi_bw->npwidth, bi_bw->height)) goto done;
 
 	if(bi_fgcolor->pixeltype!=0) goto done;
 	if(bi_fgcolor->pixelsize!=bi_fgcolor->cmpsize) goto done;
@@ -371,14 +371,14 @@ static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 
 	if(pos+mask_bitssize > dpos+dlen) goto done;
 	de_dbg(c, "mask bitmap at %"I64_FMT", len=%"I64_FMT, pos, mask_bitssize);
-	img_mask = de_bitmap_create(c, bi_mask->width, bi_mask->height, 1);
+	img_mask = de_bitmap_create2(c, bi_mask->npwidth, bi_mask->pdwidth, bi_mask->height, 1);
 	de_convert_image_bilevel(c->infile, pos, bi_mask->rowbytes, img_mask, 0);
 	pos += mask_bitssize;
 
 	if(bw_exists) {
 		if(pos+bw_bitssize > dpos+dlen) goto done;
 		de_dbg(c, "bw bitmap at %"I64_FMT", len=%"I64_FMT, pos, bw_bitssize);
-		img_bw = de_bitmap_create(c, bi_bw->width, bi_bw->height, 2);
+		img_bw = de_bitmap_create2(c, bi_bw->npwidth, bi_bw->pdwidth, bi_bw->height, 2);
 		de_convert_image_bilevel(c->infile, pos, bi_bw->rowbytes, img_bw,
 			DE_CVTF_WHITEISZERO);
 		de_bitmap_apply_mask(img_bw, img_mask, 0);
@@ -399,7 +399,7 @@ static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 
 	if(pos+fgcolor_bitssize > dpos+dlen) goto done;
 	de_dbg(c, "color bitmap at %"I64_FMT", len=%"I64_FMT, pos, fgcolor_bitssize);
-	img_fgcolor = de_bitmap_create(c, bi_fgcolor->width, bi_fgcolor->height, 4);
+	img_fgcolor = de_bitmap_create2(c, bi_fgcolor->npwidth, bi_fgcolor->pdwidth, bi_fgcolor->height, 4);
 	de_convert_image_paletted(c->infile, pos, bi_fgcolor->pixelsize, bi_fgcolor->rowbytes,
 		bi_fgcolor->pal, img_fgcolor, 0);
 	de_bitmap_apply_mask(img_fgcolor, img_mask, 0);

@@ -10,6 +10,8 @@ DE_DECLARE_MODULE(de_module_tga);
 struct tgaimginfo {
 	i64 width, height;
 	i64 img_size_in_bytes;
+	int is_thumb;
+	int respect_alpha_channel;
 };
 
 typedef struct localctx_struct {
@@ -32,7 +34,6 @@ typedef struct localctx_struct {
 	u8 interleave_mode;
 	int has_signature;
 	int has_extension_area;
-	int has_alpha_channel; // Our guess as to whether the image has transparency.
 #define TGA_CMPR_UNKNOWN 0
 #define TGA_CMPR_NONE    1
 #define TGA_CMPR_RLE     2
@@ -53,11 +54,84 @@ typedef struct localctx_struct {
 	struct de_timestamp mod_time;
 } lctx;
 
-static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf *unc_pixels,
-	de_finfo *fi, unsigned int createflags)
+// Figure out if the image has transparency, and emit a warning or other message if
+// appropriate.
+// TGA transparency is kind of a mess. Multiple ways of labeling it, some of
+// which are ambiguous... Files that have inconsistent labels... Files that
+// claim to have transparency but don't, or that claim not to but do...
+static int should_use_alpha_channel(deark *c, lctx *d, struct tgaimginfo *imginfo,
+	int has_alpha_0, int has_alpha_partial, int has_alpha_255)
+{
+	if(imginfo->is_thumb) {
+		// Do the same thing with the thumbnail as we did with the main image.
+		return d->main_image.respect_alpha_channel;
+	}
+
+	if(d->pixel_depth!=32 || d->color_type!=TGA_CLRTYPE_TRUECOLOR) {
+		return 0;
+	}
+
+	if(d->num_attribute_bits!=0 && d->num_attribute_bits!=8) {
+		de_warn(c, "%d-bit attribute channel not supported. Transparency disabled.",
+			(int)d->num_attribute_bits);
+		return 0;
+	}
+
+	if(d->has_extension_area) {
+		if(d->attributes_type==0) {
+			// attributes_type==0 technically also means there is no transparency,
+			// but this cannot be trusted.
+			;
+		}
+		if(d->attributes_type==1 || d->attributes_type==2) {
+			// Indicates that attribute data can be ignored.
+			return 0;
+		}
+		else if(d->attributes_type==3 && d->num_attribute_bits==8) {
+			// Alpha channel seems to be labeled correctly.
+			// Trust it.
+			return 1;
+		}
+		else if(d->attributes_type==4) {
+			// Sigh. The spec shows that Field 24 (Attributes Type) == 4 is for
+			// pre-multiplied alpha. Then the discussion section says that
+			// Field *23* ("Attributes Type") == *3* is for premultiplied alpha.
+			// I have to guess that the "23" and "3" are clerical errors, but that
+			// doesn't do me much good unless all TGA developers made the same guess.
+			de_warn(c, "Pre-multiplied alpha is not supported. Disabling transparency.");
+			return 0;
+		}
+	}
+
+	if(has_alpha_partial || (has_alpha_0 && has_alpha_255)) {
+		if(d->num_attribute_bits==0) {
+			de_warn(c, "Detected likely alpha channel. Enabling transparency, even though "
+				"the image is labeled as non-transparent.");
+		}
+		return 1;
+	}
+	else if(has_alpha_0) { // All 0x00
+		if(d->num_attribute_bits!=0) {
+			de_warn(c, "Non-visible image detected. Disabling transparency.");
+		}
+		else {
+			de_dbg(c, "potential alpha channel ignored: all 0 bits");
+		}
+		return 0;
+	}
+	else { // All 0xff
+		de_dbg(c, "potential alpha channel is moot: all 1 bits");
+		return 0;
+	}
+}
+
+static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf *unc_pixels,
+	const char *token, unsigned int createflags)
 {
 	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
 	i64 i, j;
+	i64 pdwidth;
 	u8 b;
 	u32 clr;
 	u8 a;
@@ -67,10 +141,24 @@ static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginf
 	i64 interleave_stride;
 	i64 interleave_pass;
 	i64 cur_rownum; // 0-based, does not account for bottom-up orientation
+	int has_alpha_0 = 0;
+	int has_alpha_partial = 0;
+	int has_alpha_255 = 0;
 
+	fi = de_finfo_create(c);
+
+	if(token) {
+		de_finfo_set_name_from_sz(c, fi, token, 0, DE_ENCODING_LATIN1);
+	}
+	if(d->mod_time.is_valid) {
+		fi->internal_mod_time = d->mod_time;
+	}
+
+	pdwidth = imginfo->width;
 	if(d->pixel_depth==1) {
 		de_warn(c, "1-bit TGA images are not portable, and may not be decoded correctly");
-		rowspan = (imginfo->width+7)/8;
+		pdwidth = de_pad_to_n(imginfo->width, 8);
+		rowspan = pdwidth/8;
 	}
 	else {
 		rowspan = imginfo->width*d->bytes_per_pixel;
@@ -78,18 +166,17 @@ static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginf
 
 	if(d->color_type==TGA_CLRTYPE_GRAYSCALE || d->pixel_depth==1)
 		output_bypp=1;
+	else if(d->pixel_depth==32)
+		output_bypp=4;
 	else
 		output_bypp=3;
-
-	if(d->has_alpha_channel)
-		output_bypp++;
 
 	if(d->file_format==FMT_VST)
 		getrgbflags = 0;
 	else
 		getrgbflags = DE_GETRGBFLAG_BGR;
 
-	img = de_bitmap_create(c, imginfo->width, imginfo->height, output_bypp);
+	img = de_bitmap_create2(c, imginfo->width, pdwidth, imginfo->height, output_bypp);
 
 	switch(d->interleave_mode) {
 	case 1: interleave_stride = 2; break;
@@ -121,7 +208,7 @@ static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginf
 			continue;
 		}
 
-		for(i=0; i<imginfo->width; i++) {
+		for(i=0; i<pdwidth; i++) {
 			i64 i_adj;
 
 			if(d->right_to_left)
@@ -136,9 +223,21 @@ static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginf
 			}
 			else if(d->color_type==TGA_CLRTYPE_TRUECOLOR) {
 				clr = dbuf_getRGB(unc_pixels, j*rowspan + i*d->bytes_per_pixel, getrgbflags);
-				if(d->has_alpha_channel) {
+				if(d->pixel_depth==32) {
 					a = dbuf_getbyte(unc_pixels, j*rowspan + i*d->bytes_per_pixel+3);
 					de_bitmap_setpixel_rgba(img, i_adj, j_adj, DE_SET_ALPHA(clr, a));
+
+					// Collect metrics that we may need, to decide whether to keep the
+					// might-be-alpha channel.
+					if(a==0) {
+						has_alpha_0 = 1;
+					}
+					else if(a==0xff) {
+						has_alpha_255 = 1;
+					}
+					else {
+						has_alpha_partial = 1;
+					}
 				}
 				else {
 					de_bitmap_setpixel_rgb(img, i_adj, j_adj, clr);
@@ -155,125 +254,25 @@ static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginf
 		}
 	}
 
+	// TODO: 16-bit images could theoretically have a transparency bit, but I don't
+	// know how to detect that.
+	if(d->pixel_depth==32) {
+		imginfo->respect_alpha_channel = should_use_alpha_channel(c, d, imginfo,
+			has_alpha_0, has_alpha_partial, has_alpha_255);
+
+		if(!imginfo->is_thumb) {
+			de_dbg(c, "using alpha channel: %s", imginfo->respect_alpha_channel?"yes":"no");
+		}
+
+		if(!imginfo->respect_alpha_channel) {
+			de_bitmap_remove_alpha(img);
+		}
+	}
+
 	de_bitmap_write_to_file_finfo(img, fi, createflags);
 
 	de_bitmap_destroy(img);
-}
-
-static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf *unc_pixels,
-	const char *token, unsigned int createflags)
-{
-	de_finfo *fi = NULL;
-
-	fi = de_finfo_create(c);
-
-	if(token) {
-		de_finfo_set_name_from_sz(c, fi, token, 0, DE_ENCODING_LATIN1);
-	}
-
-	if(d->mod_time.is_valid) {
-		fi->internal_mod_time = d->mod_time;
-	}
-
-	do_decode_image_default(c, d, imginfo, unc_pixels, fi, createflags);
-
 	de_finfo_destroy(c, fi);
-}
-
-// TGA transparency is kind of a mess. Multiple ways of labeling it, some of
-// which are ambiguous... Files that have inconsistent labels... Files that
-// claim to have transparency but don't, or that claim not to but do...
-static void do_prescan_image(deark *c, lctx *d, dbuf *unc_pixels)
-{
-	i64 num_pixels;
-	i64 i;
-	u8 b[4];
-	int has_alpha_0 = 0;
-	int has_alpha_partial = 0;
-	int has_alpha_255 = 0;
-
-	if(d->pixel_depth!=32 || d->color_type!=TGA_CLRTYPE_TRUECOLOR) {
-		return;
-	}
-
-	if(d->num_attribute_bits!=0 && d->num_attribute_bits!=8) {
-		de_warn(c, "%d-bit attribute channel not supported. Transparency disabled.",
-			(int)d->num_attribute_bits);
-		return;
-	}
-
-	if(d->has_extension_area) {
-		if(d->attributes_type==0) {
-			// attributes_type==0 technically also means there is no transparency,
-			// but this cannot be trusted.
-			;
-		}
-		if(d->attributes_type==1 || d->attributes_type==2) {
-			// Indicates that attribute data can be ignored.
-			return;
-		}
-		else if(d->attributes_type==3 && d->num_attribute_bits==8) {
-			// Alpha channel seems to be labeled correctly.
-			// Trust it, and don't scan the image.
-			d->has_alpha_channel = 1;
-			return;
-		}
-		else if(d->attributes_type==4) {
-			// Sigh. The spec shows that Field 24 (Attributes Type) == 4 is for
-			// pre-multiplied alpha. Then the discussion section says that
-			// Field *23* ("Attributes Type") == *3* is for premultiplied alpha.
-			// I have to guess that the "23" and "3" are clerical errors, but that
-			// doesn't do me much good unless all TGA developers made the same guess.
-			de_warn(c, "Pre-multiplied alpha is not supported. Disabling transparency.");
-			return;
-		}
-	}
-
-	de_dbg(c, "pre-scanning image");
-
-	num_pixels = d->main_image.width * d->main_image.height;
-	for(i=0; i<num_pixels; i++) {
-		// TODO: This may run a lot slower than it ought to.
-		dbuf_read(unc_pixels, b, i*4, 4);
-		// BGRA order
-		if(b[3]==0x00) {
-			has_alpha_0 = 1;
-		}
-		else if(b[3]==0xff) {
-			has_alpha_255 = 1;
-		}
-		else {
-			has_alpha_partial = 1;
-			break;
-		}
-		if(has_alpha_0 && has_alpha_255) {
-			break;
-		}
-	}
-	// Note that the has_alpha_* variables may not all be accurate at this point,
-	// because we stop scanning when we have the info we need.
-
-	if(has_alpha_partial || (has_alpha_0 && has_alpha_255)) {
-		if(d->num_attribute_bits==0) {
-			de_warn(c, "Detected likely alpha channel. Enabling transparency, even though "
-				"the image is labeled as non-transparent.");
-		}
-		d->has_alpha_channel = 1;
-		return;
-	}
-	else if(has_alpha_0) { // All 0x00
-		if(d->num_attribute_bits!=0) {
-			de_warn(c, "Non-visible image detected. Disabling transparency.");
-		}
-		else {
-			de_dbg(c, "potential alpha channel ignored: all 0 bits");
-		}
-		return;
-	}
-	else { // All 0xff
-		de_dbg(c, "potential alpha channel is moot: all 1 bits");
-		return;
-	}
 }
 
 static void do_decode_rle_internal(deark *c1, struct de_dfilter_in_params *dcmpri,
@@ -779,6 +778,8 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 		de_declare_fmt(c, "TGA");
 	}
 
+	d->thumbnail_image.is_thumb = 1;
+
 	pos = 0;
 
 	if(d->file_format==FMT_VST) {
@@ -858,16 +859,6 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 		de_err(c, "Unsupported compression type (%d, %s)", (int)d->cmpr_type, d->cmpr_name);
 		goto done;
 	}
-
-	// Maybe scan the image, to help detect transparency.
-	do_prescan_image(c, d, unc_pixels);
-
-	if(d->pixel_depth==32) {
-		de_dbg(c, "using alpha channel: %s", d->has_alpha_channel?"yes":"no");
-	}
-
-	// TODO: 16-bit images could theoretically have a transparency bit, but I don't
-	// know how to detect that.
 
 	do_decode_image(c, d, &d->main_image, unc_pixels, NULL, 0);
 

@@ -58,7 +58,7 @@ static void de_run_bld(deark *c, de_module_params *mparams)
 		unc_pixels = dbuf_open_input_subfile(c->infile, pos, c->infile->len-pos);
 	}
 
-	de_convert_and_write_image_bilevel(unc_pixels, 0, w, h, rowspan,
+	de_convert_and_write_image_bilevel2(unc_pixels, 0, w, h, rowspan,
 		DE_CVTF_WHITEISZERO, NULL, 0);
 
 done:

@@ -63,6 +63,14 @@ static void setup_delzw_common(deark *c, delzwctx *dc, struct de_lzw_params *del
 		dc->auto_inc_codesize = 1;
 		dc->max_codesize = delzwp->max_code_size;
 	}
+	else if(delzwp->fmt==DE_LZWFMT_TIFF) {
+		if(delzwp->tifflzw_oldversion)
+			dc->basefmt = DELZW_BASEFMT_TIFFOLD;
+		else
+			dc->basefmt = DELZW_BASEFMT_TIFF;
+		dc->auto_inc_codesize = 1;
+		dc->max_codesize = 12;
+	}
 }
 
 void fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,

@@ -11,6 +11,8 @@ DE_DECLARE_MODULE(de_module_tiff);
 
 #define ITEMS_IN_ARRAY DE_ARRAYCOUNT
 #define MAX_IFDS 1000
+#define DE_TIFF_MAX_STRILES 65536
+#define DE_TIFF_MAX_SAMPLES 10
 
 #define DE_TIFF_MAX_VALUES_TO_PRINT 100
 #define DE_TIFF_MAX_CHARS_TO_PRINT  DE_DBG_MAX_STRLEN
@@ -55,6 +57,33 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define IFDTYPE_APPLEMN      8
 #define IFDTYPE_MASKSUBIFD   9
 #define IFDTYPE_FUJIFILMMN   10
+
+#define TAG_NEWSUBFILETYPE      254
+#define TAG_OLDSUBFILETYPE      255
+#define TAG_IMAGEWIDTH          256
+#define TAG_IMAGELENGTH         257
+#define TAG_BITSPERSAMPLE       258
+#define TAG_COMPRESSION         259
+#define TAG_PHOTOMETRIC         262
+#define TAG_FILLORDER           266
+#define TAG_STRIPOFFSETS        273
+#define TAG_ORIENTATION         274
+#define TAG_SAMPLESPERPIXEL     277
+#define TAG_ROWSPERSTRIP        278
+#define TAG_STRIPBYTECOUNTS     279
+#define TAG_XRESOLUTION         282
+#define TAG_YRESOLUTION         283
+#define TAG_PLANARCONFIG        284
+#define TAG_RESOLUTIONUNIT      296
+#define TAG_PREDICTOR           317
+#define TAG_TILEWIDTH           322
+#define TAG_TILELENGTH          323
+#define TAG_TILEOFFSETS         324
+#define TAG_TILEBYTECOUNTS      325
+#define TAG_SAMPLEFORMAT        339
+#define TAG_JPEGINTERCHANGEFORMAT 513
+#define TAG_JPEGINTERCHANGEFORMATLENGTH 514
+#define TAG_YCBCRPOSITIONING    531
 
 struct localctx_struct;
 typedef struct localctx_struct lctx;
@@ -107,17 +136,53 @@ struct tagnuminfo {
 	val_decoder_fn_type vdfn;
 };
 
+struct strile_data_struct {
+	i64 pos;
+	i64 len;
+};
+
 struct page_ctx {
 	i64 ifd_idx;
 	i64 ifdpos;
 	int ifdtype;
+
+	u8 have_imagewidth;
+	u8 have_jpeglength;
+	u8 is_thumb;
+	u8 have_density;
+	u8 have_strip_tags, have_tile_tags;
+
+	u32 compression;
 	u32 orientation;
 	u32 ycbcrpositioning;
+	u32 bits_per_sample;
+	u32 samples_per_pixel;
+	u32 photometric;
+	u32 fill_order;
+	u32 planarconfig;
+	u32 predictor;
+	u32 sample_format;
+	u32 resolution_unit;
+	double density_ImageWidth, density_ImageLength;
 	i64 imagewidth, imagelength; // Raw tag values, before considering Orientation
+	i64 jpegoffset;
+	i64 jpeglength;
+	i64 rows_per_strip;
+	u8 is_old_lzw;
+	u8 extrasamples_count;
+	u8 extrasample_type[DE_TIFF_MAX_SAMPLES]; // [0] = first *extra* sample, not first sample
+
+	i64 strile_count;
+	struct strile_data_struct *strile_data; // array[strile_count]
+	de_color pal[256];
 };
 
 // Data associated with an actual tag in an IFD in the file
 struct taginfo {
+	// Might be more logical for us to have a separate struct for page_ctx, but
+	// I don't want to add a param to every "handler" function
+	struct page_ctx *pg;
+
 	int tagnum;
 	int datatype;
 	int tag_known;
@@ -125,9 +190,6 @@ struct taginfo {
 	i64 val_offset;
 	i64 unit_size;
 	i64 total_size;
-	// Might be more logical for us to have a separate struct for page_ctx, but
-	// I don't want to add a param to every "handler" function
-	struct page_ctx *pg;
 };
 
 struct localctx_struct {
@@ -137,8 +199,8 @@ struct localctx_struct {
 	int is_exif_submodule;
 	int host_is_le;
 	int can_decode_fltpt;
+	int opt_decode;
 	u8 is_deark_iptc, is_deark_8bim;
-	const char *errmsgprefix;
 
 	u32 first_ifd_orientation; // Valid if != 0
 	u32 exif_version_as_uint32; // Valid if != 0
@@ -161,6 +223,9 @@ struct localctx_struct {
 	const struct de_module_in_params *in_params;
 
 	unsigned int mpf_main_image_count;
+
+	char errmsgtoken_module[40];
+	char errmsgtoken_ifd[40];
 };
 
 static void detiff_err(deark *c, lctx *d, const char *fmt, ...)
@@ -169,12 +234,20 @@ static void detiff_err(deark *c, lctx *d, const char *fmt, ...)
 static void detiff_err(deark *c, lctx *d, const char *fmt, ...)
 {
 	va_list ap;
+	char buf[256];
 
 	va_start(ap, fmt);
-	if(d && d->errmsgprefix) {
-		char buf[256];
+	if(d && d->errmsgtoken_module[0] && d->errmsgtoken_ifd[0]) {
 		de_vsnprintf(buf, sizeof(buf), fmt, ap);
-		de_err(c, "%s%s", d->errmsgprefix, buf);
+		de_err(c, "[%s:%s] %s", d->errmsgtoken_module, d->errmsgtoken_ifd, buf);
+	}
+	else if(d && d->errmsgtoken_module[0]) {
+		de_vsnprintf(buf, sizeof(buf), fmt, ap);
+		de_err(c, "[%s] %s", d->errmsgtoken_module, buf);
+	}
+	else if(d && d->errmsgtoken_ifd[0]) {
+		de_vsnprintf(buf, sizeof(buf), fmt, ap);
+		de_err(c, "[%s] %s", d->errmsgtoken_ifd, buf);
 	}
 	else {
 		de_verr(c, fmt, ap);
@@ -188,12 +261,20 @@ static void detiff_warn(deark *c, lctx *d, const char *fmt, ...)
 static void detiff_warn(deark *c, lctx *d, const char *fmt, ...)
 {
 	va_list ap;
+	char buf[256];
 
 	va_start(ap, fmt);
-	if(d && d->errmsgprefix) {
-		char buf[256];
+	if(d && d->errmsgtoken_module[0] && d->errmsgtoken_ifd[0]) {
 		de_vsnprintf(buf, sizeof(buf), fmt, ap);
-		de_warn(c, "%s%s", d->errmsgprefix, buf);
+		de_warn(c, "[%s:%s] %s", d->errmsgtoken_module, d->errmsgtoken_ifd, buf);
+	}
+	else if(d && d->errmsgtoken_module[0]) {
+		de_vsnprintf(buf, sizeof(buf), fmt, ap);
+		de_warn(c, "[%s] %s", d->errmsgtoken_module, buf);
+	}
+	else if(d && d->errmsgtoken_ifd[0]) {
+		de_vsnprintf(buf, sizeof(buf), fmt, ap);
+		de_warn(c, "[%s] %s", d->errmsgtoken_ifd, buf);
 	}
 	else {
 		de_vwarn(c, fmt, ap);
@@ -492,28 +573,30 @@ static i64 getfpos(deark *c, lctx *d, i64 pos)
 	return dbuf_getu32x(c->infile, pos, d->is_le);
 }
 
-static void do_oldjpeg(deark *c, lctx *d, i64 jpegoffset, i64 jpeglength)
+static void do_oldjpeg(deark *c, lctx *d, struct page_ctx *pg)
 {
 	const char *extension;
 	unsigned int createflags;
+	i64 jpeglength = pg->jpeglength;
 
-	if(jpeglength<0) {
+	if(pg->jpegoffset==0) return;
+	if(!pg->have_jpeglength) {
 		// Missing JPEGInterchangeFormatLength tag. Assume it goes to the end
 		// of the file.
-		jpeglength = c->infile->len - jpegoffset;
+		jpeglength = c->infile->len - pg->jpegoffset;
 	}
-	if(jpeglength>DE_MAX_SANE_OBJECT_SIZE) {
+	if(jpeglength<1 || jpeglength>DE_MAX_SANE_OBJECT_SIZE) {
 		return;
 	}
 
-	if(jpegoffset+jpeglength>c->infile->len) {
+	if(pg->jpegoffset+jpeglength>c->infile->len) {
 		detiff_warn(c, d, "Invalid offset/length of embedded JPEG data (offset=%"I64_FMT
-			", len=%"I64_FMT")", jpegoffset, jpeglength);
+			", len=%"I64_FMT")", pg->jpegoffset, jpeglength);
 		return;
 	}
 
-	if(dbuf_memcmp(c->infile, jpegoffset, "\xff\xd8\xff", 3)) {
-		detiff_warn(c, d, "Expected JPEG data at %"I64_FMT" not found", jpegoffset);
+	if(dbuf_memcmp(c->infile, pg->jpegoffset, "\xff\xd8\xff", 3)) {
+		detiff_warn(c, d, "Expected JPEG data at %"I64_FMT" not found", pg->jpegoffset);
 		return;
 	}
 
@@ -531,7 +614,7 @@ static void do_oldjpeg(deark *c, lctx *d, i64 jpegoffset, i64 jpeglength)
 		// TODO: Should createflags be set to DE_CREATEFLAG_IS_AUX in some cases?
 		createflags = 0;
 	}
-	dbuf_create_file_from_slice(c->infile, jpegoffset, jpeglength, extension, NULL, createflags);
+	dbuf_create_file_from_slice(c->infile, pg->jpegoffset, jpeglength, extension, NULL, createflags);
 }
 
 static void do_leaf_metadata(deark *c, lctx *d, i64 pos1, i64 len)
@@ -1052,56 +1135,36 @@ static void handler_bplist(deark *c, lctx *d, const struct taginfo *tg, const st
 	}
 }
 
-static void handler_imagewidth(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
-{
-	if(tg->valcount!=1) return;
-	read_tag_value_as_int64(c, d, tg, 0, &tg->pg->imagewidth);
-}
-
-static void handler_imagelength(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
-{
-	if(tg->valcount!=1) return;
-	read_tag_value_as_int64(c, d, tg, 0, &tg->pg->imagelength);
-}
-
-static void handler_orientation(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
-{
-	i64 tmpval;
-
-	if(tg->valcount!=1) return;
-	read_tag_value_as_int64(c, d, tg, 0, &tmpval);
-	if(tmpval>=1 && tmpval<=8) {
-		tg->pg->orientation = (u32)tmpval;
-		if(tg->pg->ifd_idx==0) { // FIXME: Don't do this here.
-			d->first_ifd_orientation = tg->pg->orientation;
-		}
-	}
-}
-
 static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
 	i64 num_entries;
 	i64 i;
+	struct page_ctx *pg = tg->pg;
 
+	if(tg->datatype!=3) return;
 	num_entries = tg->valcount / 3;
 	de_dbg(c, "ColorMap with %d entries", (int)num_entries);
-	if(c->debug_level<2) return;
 	for(i=0; i<num_entries; i++) {
 		i64 r1, g1, b1;
-		u8 r2, g2, b2;
-		u32 clr;
+		de_colorsample r2, g2, b2;
+		de_color clr;
 		char tmps[80];
 
 		read_tag_value_as_int64(c, d, tg, num_entries*0 + i, &r1);
 		read_tag_value_as_int64(c, d, tg, num_entries*1 + i, &g1);
 		read_tag_value_as_int64(c, d, tg, num_entries*2 + i, &b1);
-		r2 = (u8)(r1>>8);
-		g2 = (u8)(g1>>8);
-		b2 = (u8)(b1>>8);
+		r2 = (de_colorsample)(r1>>8);
+		g2 = (de_colorsample)(g1>>8);
+		b2 = (de_colorsample)(b1>>8);
 		clr = DE_MAKE_RGB(r2, g2, b2);
-		de_snprintf(tmps, sizeof(tmps), "(%5d,%5d,%5d) "DE_CHAR_RIGHTARROW" ",
-			(int)r1, (int)g1, (int)b1);
-		de_dbg_pal_entry2(c, i, clr, tmps, NULL, NULL);
+		if(c->debug_level>=2) {
+			de_snprintf(tmps, sizeof(tmps), "(%5d,%5d,%5d) "DE_CHAR_RIGHTARROW" ",
+				(int)r1, (int)g1, (int)b1);
+			de_dbg_pal_entry2(c, i, clr, tmps, NULL, NULL);
+		}
+		if(i<256) {
+			pg->pal[i] = clr;
+		}
 	}
 }
 
@@ -1124,15 +1187,6 @@ static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const st
 		de_dbg(c, "offset of %s: %d", tni->tagname, (int)tmpoffset);
 		push_ifd(c, d, tmpoffset, ifdtype);
 	}
-}
-
-static void handler_ycbcrpositioning(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
-{
-	i64 tmpval;
-
-	if(tg->valcount!=1) return;
-	read_tag_value_as_int64(c, d, tg, 0, &tmpval);
-	tg->pg->ycbcrpositioning = (u32)tmpval;
 }
 
 static void handler_xmp(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
@@ -1403,14 +1457,14 @@ static void try_to_extract_mpf_image(deark *c, lctx *d, struct mpfctx_struct *mp
 	if(mpfctx->imgoffs_abs + mpfctx->imgsize > inf->len) {
 		if(mpfctx->warned) goto done;
 		mpfctx->warned = 1;
-		de_warn(c, "Invalid MPF multi-picture data. File size should be at "
+		detiff_warn(c, d, "Invalid MPF multi-picture data. File size should be at "
 			"least %"I64_FMT", is %"I64_FMT".",
 			mpfctx->imgoffs_abs+mpfctx->imgsize, inf->len);
 		goto done;
 	}
 
 	if(dbuf_memcmp(inf, mpfctx->imgoffs_abs, "\xff\xd8\xff", 3)) {
-		de_warn(c, "Invalid or unsupported MPF multi-picture data. Expected image at "
+		detiff_warn(c, d, "Invalid or unsupported MPF multi-picture data. Expected image at "
 			"%"I64_FMT" not found.", mpfctx->imgoffs_abs);
 		goto done;
 	}
@@ -1568,32 +1622,209 @@ static void handler_panasonicjpg(deark *c, lctx *d, const struct taginfo *tg, co
 		"thumb.jpg", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
+static void handler_leafdata(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	do_leaf_metadata(c, d, tg->val_offset, tg->total_size);
+}
+
+static int alloc_striledata(deark *c, struct page_ctx *pg, i64 nstriles)
+{
+	if(nstriles<1) nstriles = 1;
+	if(pg->strile_count >= nstriles) return 1;
+	if(nstriles>DE_TIFF_MAX_STRILES) return 0;
+	pg->strile_data = de_reallocarray(c, pg->strile_data, pg->strile_count, sizeof(struct strile_data_struct), nstriles);
+	pg->strile_count = nstriles;
+	return 1;
+}
+
+static void handler_stripoffsets(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	struct page_ctx *pg = tg->pg;
+	i64 i;
+
+	pg->have_strip_tags = 1;
+	if(!alloc_striledata(c, pg, tg->valcount)) return;
+
+	for(i=0; i<tg->valcount; i++) {
+		read_tag_value_as_int64(c, d, tg, i, &pg->strile_data[i].pos);
+	}
+}
+
+static void handler_stripbytecounts(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	struct page_ctx *pg = tg->pg;
+	i64 i;
+
+	pg->have_strip_tags = 1;
+	if(!alloc_striledata(c, pg, tg->valcount)) return;
+
+	for(i=0; i<tg->valcount; i++) {
+		read_tag_value_as_int64(c, d, tg, i, &pg->strile_data[i].len);
+	}
+}
+
+static void handler_bitspersample(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	i64 val;
+
+	if(tg->valcount<1) return;
+
+	// FIXME: This is a multi-valued field.
+	read_tag_value_as_int64(c, d, tg, 0, &val);
+	tg->pg->bits_per_sample = (u32)val;
+}
+
+static void handler_extrasamples(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	struct page_ctx *pg = tg->pg;
+	u8 i;
+
+	pg->extrasamples_count = (u8)tg->valcount;
+	if(pg->extrasamples_count>DE_TIFF_MAX_SAMPLES) {
+		pg->extrasamples_count = DE_TIFF_MAX_SAMPLES;
+	}
+
+	for(i=0; i<pg->extrasamples_count; i++) {
+		i64 val;
+
+		read_tag_value_as_int64(c, d, tg, 0, &val);
+		pg->extrasample_type[(size_t)i] = (u8)val;
+	}
+}
+
+static void handler_sampleformat(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	i64 val;
+
+	if(tg->valcount<1) return;
+
+	// FIXME: This is a multi-valued field.
+	read_tag_value_as_int64(c, d, tg, 0, &val);
+	tg->pg->sample_format = (u32)val;
+}
+
+static void handler_resolution(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	struct numeric_value nv;
+
+	if(tg->valcount<1) return;
+	read_numeric_value(c, d, tg, 0, &nv, NULL);
+	if(!nv.isvalid) return;
+	tg->pg->have_density = 1;
+	if(tg->tagnum==TAG_XRESOLUTION) {
+		tg->pg->density_ImageWidth = nv.val_double;
+	}
+	else if(tg->tagnum==TAG_YRESOLUTION) {
+		tg->pg->density_ImageLength = nv.val_double;
+	}
+}
+
+static void handler_tagtracker(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	struct page_ctx *pg = tg->pg;
+
+	switch(tg->tagnum) {
+	case TAG_TILEWIDTH:
+	case TAG_TILELENGTH:
+	case TAG_TILEOFFSETS:
+	case TAG_TILEBYTECOUNTS:
+		pg->have_tile_tags = 1;
+		break;
+	}
+}
+
+// Handler for some tags expected to have a single integer value
+static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	struct page_ctx *pg = tg->pg;
+	i64 val;
+
+	if(tg->valcount<1) return;
+	read_tag_value_as_int64(c, d, tg, 0, &val);
+
+	switch(tg->tagnum) {
+	case TAG_NEWSUBFILETYPE:
+		if(val & 0x1) pg->is_thumb = 1;
+		break;
+	case TAG_OLDSUBFILETYPE:
+		if(val==2) pg->is_thumb = 1;
+		break;
+	case TAG_IMAGEWIDTH:
+		pg->have_imagewidth = 1;
+		pg->imagewidth = val;
+		break;
+	case TAG_IMAGELENGTH:
+		pg->imagelength = val;
+		break;
+	case TAG_COMPRESSION:
+		pg->compression = (u32)val;
+		break;
+	case TAG_PHOTOMETRIC:
+		pg->photometric = (u32)val;
+		break;
+	case TAG_FILLORDER:
+		pg->fill_order = (u32)val;
+		break;
+	case TAG_SAMPLESPERPIXEL:
+		pg->samples_per_pixel = (u32)val;
+		break;
+	case TAG_ROWSPERSTRIP:
+		pg->have_strip_tags = 1;
+		pg->rows_per_strip = val;
+		break;
+	case TAG_ORIENTATION:
+		if(val>=1 && val<=8) {
+			pg->orientation = (u32)val;
+		}
+		break;
+	case TAG_PLANARCONFIG:
+		pg->planarconfig = (u32)val;
+		break;
+	case TAG_RESOLUTIONUNIT:
+		pg->resolution_unit = (u32)val;
+		break;
+	case TAG_PREDICTOR:
+		pg->predictor = (u32)val;
+		break;
+	case TAG_JPEGINTERCHANGEFORMAT:
+		pg->jpegoffset = val;
+		break;
+	case TAG_JPEGINTERCHANGEFORMATLENGTH:
+		pg->have_jpeglength = 1;
+		pg->jpeglength = val;
+		break;
+	case TAG_YCBCRPOSITIONING:
+		pg->ycbcrpositioning = (u32)val;
+		break;
+	}
+}
+
 static const struct tagnuminfo tagnuminfo_arr[] = {
-	{ 254, 0x00, "NewSubfileType", NULL, valdec_newsubfiletype },
-	{ 255, 0x00, "OldSubfileType", NULL, valdec_oldsubfiletype },
-	{ 256, 0x00, "ImageWidth", handler_imagewidth, NULL },
-	{ 257, 0x00, "ImageLength", handler_imagelength, NULL },
-	{ 258, 0x00, "BitsPerSample", NULL, NULL },
-	{ 259, 0x00, "Compression", NULL, valdec_compression },
-	{ 262, 0x00, "PhotometricInterpretation", NULL, valdec_photometric },
+	{ /* 254 */ TAG_NEWSUBFILETYPE, 0x00, "NewSubfileType", handler_various, valdec_newsubfiletype },
+	{ /* 255 */ TAG_OLDSUBFILETYPE, 0x00, "OldSubfileType", handler_various, valdec_oldsubfiletype },
+	{ /* 256 */ TAG_IMAGEWIDTH, 0x0000, "ImageWidth", handler_various, NULL },
+	{ /* 257 */ TAG_IMAGELENGTH, 0x0000, "ImageLength", handler_various, NULL },
+	{ /* 258 */ TAG_BITSPERSAMPLE, 0x00, "BitsPerSample", handler_bitspersample, NULL },
+	{ /* 259 */ TAG_COMPRESSION, 0x0000, "Compression", handler_various, valdec_compression },
+	{ /* 262 */ TAG_PHOTOMETRIC, 0x00, "PhotometricInterpretation", handler_various, valdec_photometric },
 	{ 263, 0x00, "Threshholding", NULL, valdec_threshholding },
 	{ 264, 0x00, "CellWidth", NULL, NULL },
 	{ 265, 0x00, "CellLength", NULL, NULL },
-	{ 266, 0x00, "FillOrder", NULL, valdec_fillorder },
+	{ /* 266 */ TAG_FILLORDER, 0x00, "FillOrder", handler_various, valdec_fillorder },
 	{ 269, 0x0400, "DocumentName", NULL, NULL },
 	{ 270, 0x0400, "ImageDescription", NULL, NULL },
 	{ 271, 0x0400, "Make", NULL, NULL },
 	{ 272, 0x0400, "Model", NULL, NULL },
-	{ 273, 0x00, "StripOffsets", NULL, NULL },
-	{ 274, 0x00, "Orientation", handler_orientation, valdec_orientation },
-	{ 277, 0x00, "SamplesPerPixel", NULL, NULL },
-	{ 278, 0x00, "RowsPerStrip", NULL, NULL },
-	{ 279, 0x00, "StripByteCounts", NULL, NULL },
+	{ /* 273 */ TAG_STRIPOFFSETS, 0x00, "StripOffsets", handler_stripoffsets, NULL },
+	{ /* 274 */ TAG_ORIENTATION, 0x0000, "Orientation", handler_various, valdec_orientation },
+	{ /* 277 */ TAG_SAMPLESPERPIXEL, 0x00, "SamplesPerPixel", handler_various, NULL },
+	{ /* 278 */ TAG_ROWSPERSTRIP, 0x00, "RowsPerStrip", handler_various, NULL },
+	{ /* 279 */ TAG_STRIPBYTECOUNTS, 0x00, "StripByteCounts", handler_stripbytecounts, NULL },
 	{ 280, 0x00, "MinSampleValue", NULL, NULL },
 	{ 281, 0x00, "MaxSampleValue", NULL, NULL },
-	{ 282, 0x00, "XResolution", NULL, NULL },
-	{ 283, 0x00, "YResolution", NULL, NULL },
-	{ 284, 0x00, "PlanarConfiguration", NULL, valdec_planarconfiguration },
+	{ /* 282 */ TAG_XRESOLUTION, 0x00, "XResolution", handler_resolution, NULL },
+	{ /* 283 */ TAG_YRESOLUTION, 0x00, "YResolution", handler_resolution, NULL },
+	{ /* 284 */ TAG_PLANARCONFIG, 0x00, "PlanarConfiguration", handler_various, valdec_planarconfiguration },
 	{ 285, 0x0400, "PageName", NULL, NULL },
 	{ 286, 0x00, "XPosition", NULL, NULL },
 	{ 287, 0x00, "YPosition", NULL, NULL },
@@ -1603,7 +1834,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 291, 0x00, "GrayResponseCurve", NULL, NULL },
 	{ 292, 0x00, "T4Options", NULL, valdec_t4options },
 	{ 293, 0x00, "T6Options", NULL, valdec_t6options },
-	{ 296, 0x00, "ResolutionUnit", NULL, valdec_resolutionunit },
+	{ /* 296 */ TAG_RESOLUTIONUNIT, 0x00, "ResolutionUnit", handler_various, valdec_resolutionunit },
 	{ 297, 0x0400, "PageNumber", NULL, valdec_pagenumber },
 	{ 300, 0x0000, "ColorResponseUnit", NULL, NULL },
 	{ 301, 0x00, "TransferFunction", NULL, NULL },
@@ -1611,15 +1842,15 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 306, 0x0400, "DateTime", NULL, NULL },
 	{ 315, 0x0400, "Artist", NULL, NULL },
 	{ 316, 0x0400, "HostComputer", NULL, NULL },
-	{ 317, 0x00, "Predictor", NULL, valdec_predictor },
+	{ /* 317 */ TAG_PREDICTOR, 0x00, "Predictor", handler_various, valdec_predictor },
 	{ 318, 0x00, "WhitePoint", NULL, NULL },
 	{ 319, 0x00, "PrimaryChromaticities", NULL, NULL },
 	{ 320, 0x08, "ColorMap", handler_colormap, NULL },
 	{ 321, 0x00, "HalftoneHints", NULL, NULL },
-	{ 322, 0x00, "TileWidth", NULL, NULL },
-	{ 323, 0x00, "TileLength", NULL, NULL },
-	{ 324, 0x00, "TileOffsets", NULL, NULL },
-	{ 325, 0x00, "TileByteCounts", NULL, NULL },
+	{ /* 322 */ TAG_TILEWIDTH, 0x00, "TileWidth", handler_tagtracker, NULL },
+	{ /* 323 */ TAG_TILELENGTH, 0x00, "TileLength", handler_tagtracker, NULL },
+	{ /* 324 */ TAG_TILEOFFSETS, 0x00, "TileOffsets", handler_tagtracker, NULL },
+	{ /* 325 */ TAG_TILEBYTECOUNTS, 0x00, "TileByteCounts", handler_tagtracker, NULL },
 	{ 326, 0x00, "BadFaxLines", NULL, NULL },
 	{ 327, 0x00, "CleanFaxData", NULL, NULL },
 	{ 328, 0x00, "ConsecutiveBadFaxLines", NULL, NULL },
@@ -1629,8 +1860,8 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 334, 0x00, "NumberOfInks", NULL, NULL },
 	{ 336, 0x00, "DotRange", NULL, NULL },
 	{ 337, 0x00, "TargetPrinter", NULL, NULL },
-	{ 338, 0x00, "ExtraSamples", NULL, valdec_extrasamples },
-	{ 339, 0x00, "SampleFormat", NULL, valdec_sampleformat },
+	{ 338, 0x00, "ExtraSamples", handler_extrasamples, valdec_extrasamples },
+	{ /* 339 */ TAG_SAMPLEFORMAT, 0x00, "SampleFormat", handler_sampleformat, valdec_sampleformat },
 	{ 340, 0x00, "SMinSampleValue", NULL, NULL },
 	{ 341, 0x00, "SMaxSampleValue", NULL, NULL },
 	{ 342, 0x00, "TransferRange", NULL, NULL },
@@ -1650,10 +1881,8 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 434, 0x0000, "DefaultImageColor", NULL, NULL },
 	{ 435, 0x0000, "T82Options", NULL, NULL },
 	{ 512, 0x00, "JPEGProc", NULL, valdec_jpegproc },
-#define TAG_JPEGINTERCHANGEFORMAT 513
-	{ TAG_JPEGINTERCHANGEFORMAT, 0x00, "JPEGInterchangeFormat", NULL, NULL },
-#define TAG_JPEGINTERCHANGEFORMATLENGTH 514
-	{ TAG_JPEGINTERCHANGEFORMATLENGTH, 0x00, "JPEGInterchangeFormatLength", NULL, NULL },
+	{ /* 513 */ TAG_JPEGINTERCHANGEFORMAT, 0x0000, "JPEGInterchangeFormat", handler_various, NULL },
+	{ /* 514 */ TAG_JPEGINTERCHANGEFORMATLENGTH, 0x0000, "JPEGInterchangeFormatLength", handler_various, NULL },
 	{ 515, 0x00, "JPEGRestartInterval", NULL, NULL },
 	{ 517, 0x00, "JPEGLosslessPredictors", NULL, NULL },
 	{ 518, 0x00, "JPEGPointTransforms", NULL, NULL },
@@ -1662,7 +1891,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 521, 0x00, "JPEGACTables", NULL, NULL },
 	{ 529, 0x00, "YCbCrCoefficients", NULL, NULL },
 	{ 530, 0x00, "YCbCrSubSampling", NULL, NULL },
-	{ 531, 0x00, "YCbCrPositioning", handler_ycbcrpositioning, valdec_ycbcrpositioning },
+	{ /* 531 */ TAG_YCBCRPOSITIONING, 0x0000, "YCbCrPositioning", handler_various, valdec_ycbcrpositioning },
 	{ 532, 0x00, "ReferenceBlackWhite", NULL, NULL },
 	{ 559, 0x0000, "StripRowCounts", NULL, NULL },
 	{ 700, 0x0408, "XMP", handler_xmp, NULL },
@@ -1747,7 +1976,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 34263, 0x0000, "JPLCartoIFD", NULL, NULL },
 	{ 34264, 0x0000, "ModelTransformationTag", NULL, NULL },
 	//{ 34306, 0x0000, "WB_GRGBLevels", NULL, NULL },
-	//{ 34310, 0x0000, "LeafData", NULL, NULL },
+	{ 34310, 0x0008, "LeafData", handler_leafdata, NULL },
 	{ 34377, 0x0408, "PhotoshopImageResources", handler_photoshoprsrc, NULL },
 	{ 34665, 0x0408, "Exif IFD", handler_subifd, NULL },
 	{ 34675, 0x0408, "ICC Profile", handler_iccprofile, NULL },
@@ -2440,13 +2669,560 @@ static const struct tagnuminfo *find_tagnuminfo(int tagnum, int filefmt, int ifd
 	return NULL;
 }
 
+struct decode_page_ctx {
+	i64 width; // = ImageWidth + padding
+	i64 height; // = ImageLength
+	i64 strile_max_w, strile_max_h;
+	i64 strile_max_rowspan;
+
+	i64 strile_idx;
+	i64 strile_ypos;
+	i64 strile_height;
+	i64 strile_width;
+	i64 strile_rowspan;
+	dbuf *unc_strile_dbuf[DE_TIFF_MAX_SAMPLES]; // Pointers to other dbufs; do not free
+
+	i64 samples_per_pixel_to_decode;
+	UI base_samples_per_pixel;
+	u8 is_tiled;
+	u8 is_grayscale;
+	u8 grayscale_reverse_polarity;
+	u8 use_pal;
+	u8 has_alpha;
+	u8 is_assoc_alpha;
+	UI alpha_sample_idx;
+
+	struct de_dfilter_ctx *dfctx; // Decompressor that can be shared between striles
+
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+};
+
+static void decompress_strile_uncmpr(deark *c, lctx *d, struct page_ctx *pg,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	fmtutil_decompress_uncompressed(c, dcmpri, dcmpro, dres, 0);
+}
+
+// If old LZW version, sets pg->is_old_lzw.
+static void detect_lzw_version(deark *c, lctx *d, struct page_ctx *pg)
+{
+	u8 buf[2];
+
+	if(pg->strile_count<1) return;
+	// The first LZW code is supposed to be a clear code (=256; 9 bits). If it is
+	// little-endian, presumably this is the old LZW version.
+	// So old version should start: 00000000 xxxxxxx1
+	// And new version:             10000000 0xxxxxxx
+	de_read(buf, pg->strile_data[0].pos, 2);
+	if(buf[0]==0x00 && (buf[1]&0x01)) {
+		pg->is_old_lzw = 1;
+	}
+	de_dbg(c, "lzw version: %s", pg->is_old_lzw?"old":"new");
+}
+
+static void decompress_strile_lzw(deark *c, lctx *d, struct page_ctx *pg,
+	struct decode_page_ctx *dctx)
+{
+	struct de_lzw_params delzwp;
+
+	if(dctx->strile_idx==0) {
+		detect_lzw_version(c, d, pg);
+	}
+
+	if(dctx->dfctx) {
+		de_dfilter_destroy(dctx->dfctx);
+		dctx->dfctx = NULL;
+		// TODO: Make the LZW decoder support DE_DFILTER_COMMAND_REINITIALIZE
+	}
+
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
+	delzwp.fmt = DE_LZWFMT_TIFF;
+	delzwp.max_code_size = 12;
+	delzwp.tifflzw_oldversion = (pg->is_old_lzw)?1:0;
+
+	dctx->dfctx = de_dfilter_create(c, dfilter_lzw_codec, (void*)&delzwp, &dctx->dcmpro, &dctx->dres);
+
+	de_dfilter_addslice(dctx->dfctx, dctx->dcmpri.f, dctx->dcmpri.pos, dctx->dcmpri.len);
+	de_dfilter_finish(dctx->dfctx);
+}
+
+static void decompress_strile_packbits(deark *c, lctx *d, struct page_ctx *pg,
+	struct decode_page_ctx *dctx)
+{
+	if(dctx->dfctx) {
+		de_dfilter_command(dctx->dfctx, DE_DFILTER_COMMAND_REINITIALIZE, 0);
+	}
+	else {
+		dctx->dfctx = de_dfilter_create(c, dfilter_packbits_codec, NULL,
+			&dctx->dcmpro, &dctx->dres);
+	}
+
+	de_dfilter_addslice(dctx->dfctx, dctx->dcmpri.f, dctx->dcmpri.pos, dctx->dcmpri.len);
+	de_dfilter_finish(dctx->dfctx);
+}
+
+static void decompress_strile_deflate(deark *c, lctx *d, struct page_ctx *pg,
+	struct decode_page_ctx *dctx)
+{
+	fmtutil_decompress_deflate_ex(c, &dctx->dcmpri, &dctx->dcmpro, &dctx->dres,
+		 DE_DEFLATEFLAG_ISZLIB);
+}
+
+static int is_cmpr_meth_supported(u32 n)
+{
+	switch(n) {
+	case 1:
+	case 5:
+	case 8:
+	case 32773:
+	case 32946:
+		return 1;
+	}
+	return 0;
+}
+
+static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
+	struct decode_page_ctx *dctx)
+{
+	// TODO: Some of our decompressors have significant overhead. This can
+	// be a performance issue with TIFF format, which likes to chop up an
+	// image into lots of tiny pieces, each of which is compressed
+	// independently.
+	// We ought to have a way to efficiently reset a decompressor, without
+	// having to recreate it entirely.
+	dctx->dcmpri.pos = pg->strile_data[dctx->strile_idx].pos;
+	dctx->dcmpri.len = pg->strile_data[dctx->strile_idx].len;
+	if(dctx->dcmpri.pos + dctx->dcmpri.len > dctx->dcmpri.f->len) {
+		dctx->dcmpri.len = dctx->dcmpri.f->len - dctx->dcmpri.pos;
+	}
+	if(dctx->dcmpri.len<0) dctx->dcmpri.len = 0;
+	dctx->dcmpro.f = dctx->unc_strile_dbuf[0];
+	dctx->dcmpro.len_known = 1;
+	dctx->dcmpro.expected_len = dctx->strile_rowspan * dctx->strile_height;
+	de_dfilter_init_objects(c, NULL, NULL, &dctx->dres);
+
+	switch(pg->compression) {
+	case 5:
+		decompress_strile_lzw(c, d, pg, dctx);
+		break;
+	case 8:
+	case 32946:
+		decompress_strile_deflate(c, d, pg, dctx);
+		break;
+	case 32773:
+		decompress_strile_packbits(c, d, pg, dctx);
+		break;
+	default:
+		decompress_strile_uncmpr(c, d, pg, &dctx->dcmpri, &dctx->dcmpro, &dctx->dres);
+	}
+
+	if(dctx->dres.errcode) {
+		detiff_err(c, d, "Decompression failed (IFD@%"I64_FMT", strip@(%d,%d)): %s",
+			pg->ifdpos, 0, (int)dctx->strile_ypos, de_dfilter_get_errmsg(c, &dctx->dres));
+		// TODO?: Better handling of partial failure
+		return 0;
+	}
+	return 1;
+}
+
+static de_colorsample unpremultiply_alpha1(de_colorsample cval, de_colorsample a)
+{
+	if(a==0xff) {
+		return cval;
+	}
+	if(a==0 || cval==0) {
+		return 0;
+	}
+	if(cval>=a) {
+		return 0xff;
+	}
+	return (de_colorsample)(0.5 + (double)cval / ((double)a/255.0));
+}
+
+static de_color unpremultiply_alpha(de_color clr)
+{
+	de_colorsample r, g, b, a;
+
+	r = DE_COLOR_R(clr);
+	g = DE_COLOR_G(clr);
+	b = DE_COLOR_B(clr);
+	a = DE_COLOR_A(clr);
+	r = unpremultiply_alpha1(r, a);
+	g = unpremultiply_alpha1(g, a);
+	b = unpremultiply_alpha1(b, a);
+	return DE_MAKE_RGBA(r, g, b, a);
+}
+
+static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ctx *pg,
+	struct decode_page_ctx *dctx, de_bitmap *img)
+{
+	i64 i, j;
+	u32 s_idx;
+	dbuf *unc_strile = dctx->unc_strile_dbuf[0];
+	u32 sample_mask;
+	u32 sample_scalefactor;
+	u32 prev_sample[DE_TIFF_MAX_SAMPLES];
+	u32 sample[DE_TIFF_MAX_SAMPLES];
+
+	de_zeromem(&prev_sample, sizeof(prev_sample));
+	de_zeromem(&sample, sizeof(sample));
+
+	sample_mask = (1U<<(u32)pg->bits_per_sample)-1U;
+	sample_scalefactor = 255/sample_mask;
+
+	for(j=0; j<dctx->strile_height; j++) {
+
+		for(s_idx=0; s_idx<dctx->samples_per_pixel_to_decode; s_idx++) {
+			prev_sample[s_idx] = 0;
+		}
+
+		for(i=0; i<dctx->strile_width; i++) {
+			de_color clr;
+
+			for(s_idx=0; s_idx<dctx->samples_per_pixel_to_decode; s_idx++) {
+				switch(pg->bits_per_sample) {
+				case 1: case 4:
+					sample[s_idx] = de_get_bits_symbol(unc_strile, (i64)pg->bits_per_sample,
+						dctx->strile_rowspan*j, (i64)s_idx + i*(i64)pg->samples_per_pixel);
+					break;
+				case 8:
+					sample[s_idx] = dbuf_getbyte(unc_strile, dctx->strile_rowspan*j +
+						(i*(i64)pg->samples_per_pixel) + (i64)s_idx);
+					break;
+				default:
+					sample[s_idx] = 0;
+				}
+			}
+
+			if(pg->predictor==2) {
+				for(s_idx=0; s_idx<dctx->samples_per_pixel_to_decode; s_idx++) {
+					sample[s_idx] = (sample[s_idx] + prev_sample[s_idx]) & sample_mask;
+					prev_sample[s_idx] = sample[s_idx];
+				}
+			}
+
+			if(!dctx->use_pal && sample_scalefactor>1) { // Scale samples to 255
+				for(s_idx=0; s_idx<dctx->samples_per_pixel_to_decode; s_idx++) {
+					sample[s_idx] *= sample_scalefactor;
+				}
+			}
+
+			if(dctx->use_pal) {
+				clr = pg->pal[sample[0] & 0xff];
+			}
+			else if(dctx->is_grayscale) {
+				if(dctx->grayscale_reverse_polarity) {
+					sample[0] = 0xff - sample[0];
+				}
+				clr = DE_MAKE_GRAY(sample[0]);
+			}
+			else {
+				clr = DE_MAKE_RGB(sample[0], sample[1], sample[2]);
+			}
+			if(dctx->has_alpha) {
+				clr = DE_SET_ALPHA(clr, sample[dctx->alpha_sample_idx]);
+				if(dctx->is_assoc_alpha) {
+					clr = unpremultiply_alpha(clr);
+				}
+			}
+
+			de_bitmap_setpixel_rgba(img, i, dctx->strile_ypos+j, clr);
+		}
+	}
+}
+
+static void set_image_density(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
+{
+	if(!pg->have_density) return;
+
+	if(pg->orientation>=5 && pg->orientation<=8) {
+		// For some orientations, the x dimension is the ImageLength dimension.
+		fi->density.xdens = pg->density_ImageLength;
+		fi->density.ydens = pg->density_ImageWidth;
+	}
+	else {
+		fi->density.xdens = pg->density_ImageWidth;
+		fi->density.ydens = pg->density_ImageLength;
+	}
+	if(pg->resolution_unit==1) {
+		fi->density.code = DE_DENSITY_UNK_UNITS;
+	}
+	else if(pg->resolution_unit==2) {
+		fi->density.code = DE_DENSITY_DPI;
+	}
+	else if(pg->resolution_unit==3) { // pixels/cm
+		fi->density.xdens *= 2.54;
+		fi->density.ydens *= 2.54;
+		fi->density.code = DE_DENSITY_DPI;
+	}
+}
+
+static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
+{
+	de_bitmap *img = NULL;
+	struct decode_page_ctx *dctx = NULL;
+	de_finfo *fi = NULL;
+	int need_errmsg = 0;
+	int saved_indent_level;
+	i64 i;
+	int output_bypp;
+	int ok_bps = 0;
+	UI createflags = 0;
+	// (Multiple dbufs will be needed for PlanarConfig=separated.)
+	dbuf *tmp_membuf[DE_TIFF_MAX_SAMPLES];
+	dbuf *tmp_subfile[DE_TIFF_MAX_SAMPLES];
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	dctx = de_malloc(c, sizeof(struct decode_page_ctx));
+	de_zeromem(tmp_membuf, sizeof(tmp_membuf));
+	de_zeromem(tmp_subfile, sizeof(tmp_subfile));
+
+	// TODO: Should we check pg->compression?
+	if(pg->jpegoffset>0) {
+		do_oldjpeg(c, d, pg);
+		goto done;
+	}
+
+	// Decent TIFF decoding support is planned eventually, but for now this is
+	// just a testbed for some things.
+	if(!d->opt_decode) goto done;
+
+	if(!pg->have_imagewidth || pg->imagewidth<1 || pg->imagelength<1) {
+		de_dbg(c, "[non-image IFD]");
+		goto done;
+	}
+
+	de_dbg(c, "decoding ifd image");
+	de_dbg_indent(c, 1);
+
+	if(pg->compression<1) {
+		pg->compression = 1;
+	}
+	if(pg->bits_per_sample<1) {
+		pg->bits_per_sample = 1;
+	}
+	if(pg->planarconfig<1) {
+		pg->planarconfig = 1;
+	}
+	if(pg->predictor<1) {
+		pg->predictor = 1;
+	}
+	if(pg->sample_format<1) {
+		pg->sample_format = 1;
+	}
+	if(pg->resolution_unit<1) {
+		pg->resolution_unit = 2;
+	}
+	if(pg->rows_per_strip<1) {
+		pg->rows_per_strip = pg->imagelength;
+	}
+
+	dctx->width = pg->imagewidth;
+	dctx->height = pg->imagelength;
+	if(!de_good_image_dimensions(c, dctx->width, dctx->height)) goto done;
+
+	if(pg->have_strip_tags && pg->have_tile_tags) {
+		detiff_err(c, d, "Image seems to have both strips and tiles");
+		goto done;
+	}
+	if(pg->have_tile_tags) {
+		dctx->is_tiled = 1;
+		detiff_err(c, d, "Tiled images are not supported");
+		goto done;
+	}
+
+	if(pg->strile_count<1) { need_errmsg = 1; goto done; }
+
+	if(pg->sample_format!=1) {
+		detiff_err(c, d, "Unsupported sample format (%d)", (int)pg->sample_format);
+		goto done;
+	}
+
+	if(pg->photometric==0 || pg->photometric==1) {
+		dctx->is_grayscale = 1;
+		dctx->grayscale_reverse_polarity = (pg->photometric==0);
+		dctx->base_samples_per_pixel = 1;
+		if(pg->bits_per_sample==1 || pg->bits_per_sample==4 || pg->bits_per_sample==8) {
+			ok_bps = 1;
+		}
+	}
+	else if(pg->photometric==2) { // RGB
+		dctx->base_samples_per_pixel = 3;
+		if(pg->bits_per_sample==8) {
+			ok_bps = 1;
+		}
+	}
+	else if(pg->photometric==3) { // paletted
+		dctx->base_samples_per_pixel = 1;
+		dctx->use_pal = 1;
+		if(pg->bits_per_sample==1 || pg->bits_per_sample==4 || pg->bits_per_sample==8) {
+			ok_bps = 1;
+		}
+	}
+	else {
+		detiff_err(c, d, "Unsupported color type (%d)", (int)pg->photometric);
+		goto done;
+	}
+
+	if(!ok_bps) {
+		detiff_err(c, d, "Unsupported bits/sample (%d) for this color type", (int)pg->bits_per_sample);
+		goto done;
+	}
+
+	if(pg->samples_per_pixel<1) {
+		pg->samples_per_pixel = dctx->base_samples_per_pixel;
+	}
+	if(pg->samples_per_pixel < dctx->base_samples_per_pixel) {
+		detiff_err(c, d, "Bad samples/pixel (%d) for this color type", (int)pg->samples_per_pixel);
+		goto done;
+	}
+	dctx->samples_per_pixel_to_decode = pg->samples_per_pixel;
+	if(dctx->samples_per_pixel_to_decode>DE_TIFF_MAX_SAMPLES) {
+		detiff_warn(c, d, "Large number of SamplesPerPixel (%d). Some samples ignored.",
+			(int)pg->samples_per_pixel);
+		dctx->samples_per_pixel_to_decode = DE_TIFF_MAX_SAMPLES;
+	}
+
+	if(pg->predictor!=1 && pg->predictor!=2) {
+		detiff_err(c, d, "Unsupported prediction method (%d)", (int)pg->predictor);
+		goto done;
+	}
+
+	if(!is_cmpr_meth_supported(pg->compression)) {
+		detiff_err(c, d, "Unsupported compression method (%d)", (int)pg->compression);
+		goto done;
+	}
+	if(pg->samples_per_pixel>1 && pg->planarconfig>1) {
+		detiff_err(c, d, "Unsupported PlanarConfiguration");
+		goto done;
+	}
+
+	if(c->padpix && !dctx->is_tiled) {
+		if(pg->samples_per_pixel==1 && pg->bits_per_sample<8) {
+			dctx->width = de_pad_to_n(dctx->width * pg->samples_per_pixel * pg->bits_per_sample, 8) /
+				((i64)pg->samples_per_pixel * pg->bits_per_sample);
+		}
+	}
+
+	// Look for an alpha sample
+	for(i=0; i<(i64)pg->extrasamples_count; i++) {
+		if((i64)dctx->base_samples_per_pixel + i >= (i64)dctx->samples_per_pixel_to_decode) break;
+		if(pg->extrasample_type[i]==1) { // Assoc. alpha
+			dctx->has_alpha = 1;
+			dctx->is_assoc_alpha = 1;
+			dctx->alpha_sample_idx = (UI)dctx->base_samples_per_pixel + (UI)i;
+			break;
+		}
+		else if(pg->extrasample_type[i]==2) { // Unassoc. alpha
+			dctx->has_alpha = 1;
+			dctx->is_assoc_alpha = 0;
+			dctx->alpha_sample_idx = (UI)dctx->base_samples_per_pixel + (UI)i;
+			break;
+		}
+	}
+
+	if(dctx->is_grayscale) output_bypp = 1;
+	else output_bypp = 3;
+	if(dctx->has_alpha) output_bypp++;
+	img = de_bitmap_create(c, dctx->width, dctx->height, output_bypp);
+
+	dctx->strile_max_w = dctx->width;
+	dctx->strile_max_h = dctx->height;
+	dctx->strile_max_rowspan = (dctx->strile_max_w * pg->samples_per_pixel * pg->bits_per_sample + 7)/8;
+
+	de_dfilter_init_objects(c, &dctx->dcmpri, &dctx->dcmpro, NULL);
+	dctx->dcmpri.f = c->infile;
+
+	for(dctx->strile_idx=0; dctx->strile_idx<pg->strile_count; dctx->strile_idx++) {
+		int ret;
+
+		dctx->strile_ypos = dctx->strile_idx * pg->rows_per_strip;
+		de_dbg(c, "strip #%d (0,%d) at %"I64_FMT", dlen=%"I64_FMT,
+			(int)dctx->strile_idx, (int)dctx->strile_ypos,
+			pg->strile_data[dctx->strile_idx].pos, pg->strile_data[dctx->strile_idx].len);
+		de_dbg_indent(c, 1);
+
+		dctx->strile_width = dctx->width;
+		dctx->strile_rowspan = (dctx->strile_width * pg->samples_per_pixel * pg->bits_per_sample + 7)/8;
+		dctx->strile_height = de_min_int(pg->rows_per_strip, dctx->height - dctx->strile_ypos);
+
+		if(pg->compression==1) { // Optimization for uncompressed images
+			if(tmp_subfile[0]) {
+				dbuf_close(tmp_subfile[0]);
+			}
+			tmp_subfile[0] = dbuf_open_input_subfile(c->infile, pg->strile_data[dctx->strile_idx].pos,
+				pg->strile_data[dctx->strile_idx].len);
+			dctx->unc_strile_dbuf[0] = tmp_subfile[0];
+		}
+		else {
+			if(tmp_membuf[0]) {
+				dbuf_empty(tmp_membuf[0]);
+			}
+			else {
+				tmp_membuf[0] = dbuf_create_membuf(c, 0, 0);
+				dbuf_set_length_limit(tmp_membuf[0], dctx->strile_max_h * dctx->strile_max_rowspan);
+			}
+			dctx->unc_strile_dbuf[0] = tmp_membuf[0];
+			ret = decompress_strile(c, d, pg, dctx);
+			if(!ret) {
+				// TODO?: Better handling of partial failure
+				if(dctx->strile_idx>0) goto partial_failure;
+				goto done;
+			}
+		}
+
+		paint_decompressed_strile_to_image(c, d, pg, dctx, img);
+		de_dbg_indent(c, -1);
+	}
+
+partial_failure:
+	fi = de_finfo_create(c);
+
+	if(pg->orientation>=5 && pg->orientation<=8) {
+		de_bitmap_transpose(img);
+	}
+	if(pg->orientation==2 || pg->orientation==3 || pg->orientation==6 || pg->orientation==7) {
+		de_bitmap_mirror(img);
+	}
+	if(pg->orientation==3 || pg->orientation==4 || pg->orientation==7 || pg->orientation==8) {
+		// Could use DE_CREATEFLAG_FLIP_IMAGE instead.
+		de_bitmap_flip(img);
+	}
+
+	if(pg->is_thumb) {
+		createflags |= DE_CREATEFLAG_IS_AUX;
+		de_finfo_set_name_from_sz(c, fi, "thumb", 0, DE_ENCODING_LATIN1);
+	}
+
+	set_image_density(c, d, pg, fi);
+
+	de_bitmap_write_to_file_finfo(img, fi, createflags);
+
+done:
+	for(i=0; i<DE_TIFF_MAX_SAMPLES; i++) {
+		if(tmp_membuf[i]) dbuf_close(tmp_membuf[i]);
+		if(tmp_subfile[i]) dbuf_close(tmp_subfile[i]);
+	}
+	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
+	if(need_errmsg) {
+		detiff_err(c, d, "Unsupported image type or bad image");
+	}
+	if(dctx) {
+		if(dctx->dfctx) de_dfilter_destroy(dctx->dfctx);
+		de_free(c, dctx);
+	}
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtype1)
 {
 	struct page_ctx *pg = NULL;
 	int num_tags;
 	int i;
-	i64 jpegoffset = 0;
-	i64 jpeglength = -1;
 	i64 tmpoffset;
 	de_ucstring *dbgline = NULL;
 	struct taginfo tg;
@@ -2454,6 +3230,8 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 	static const struct tagnuminfo default_tni = { 0, 0x00, "?", NULL, NULL };
 
 	pg = de_malloc(c, sizeof(struct page_ctx));
+	pg->density_ImageWidth = 0.0;
+	pg->density_ImageLength = 0.0;
 	pg->ifd_idx = ifd_idx1;
 	pg->ifdpos = ifdpos1;
 	pg->ifdtype = ifdtype1;
@@ -2504,6 +3282,10 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 		detiff_warn(c, d, "Invalid IFD offset (%"I64_FMT")", pg->ifdpos);
 		goto done;
 	}
+
+	// TODO: Improve the format of this token.
+	de_snprintf(d->errmsgtoken_ifd, sizeof(d->errmsgtoken_ifd),
+		"IFD#%d@%"I64_FMT, (int)pg->ifd_idx, pg->ifdpos);
 
 	if(d->is_bigtiff) {
 		num_tags = (int)dbuf_geti64x(c->infile, pg->ifdpos, d->is_le);
@@ -2567,32 +3349,11 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 		de_dbg(c, "%s", ucstring_getpsz_n(dbgline, 500+DE_DBG_MAX_STRLEN));
 		de_dbg_indent(c, 1);
 
-		switch(tg.tagnum) {
-		case TAG_JPEGINTERCHANGEFORMAT:
-			if(tg.valcount<1) break;
-			read_tag_value_as_int64(c, d, &tg, 0, &jpegoffset);
-			break;
-
-		case TAG_JPEGINTERCHANGEFORMATLENGTH:
-			if(tg.valcount<1) break;
-			read_tag_value_as_int64(c, d, &tg, 0, &jpeglength);
-			break;
-
-		case 34310: // Leaf MOS metadata / "PKTS"
-			do_leaf_metadata(c, d, tg.val_offset, tg.total_size);
-			break;
-
-		default:
-			if(tni->hfn) {
-				tni->hfn(c, d, &tg, tni);
-			}
+		if(tni->hfn) {
+			tni->hfn(c, d, &tg, tni);
 		}
 
 		de_dbg_indent(c, -1);
-	}
-
-	if(jpegoffset>0 && jpeglength!=0) {
-		do_oldjpeg(c, d, jpegoffset, jpeglength);
 	}
 
 	if(pg->ifd_idx==0) {
@@ -2600,10 +3361,16 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 		d->first_ifd_cosited = (pg->ycbcrpositioning==2);
 	}
 
+	do_process_ifd_image(c, d, pg);
+
 done:
 	de_dbg_indent(c, -1);
 	ucstring_destroy(dbgline);
-	de_free(c, pg);
+	if(pg) {
+		de_free(c, pg->strile_data);
+		de_free(c, pg);
+	}
+	d->errmsgtoken_ifd[0] = '\0';
 }
 
 static void do_tiff(deark *c, lctx *d)
@@ -2748,6 +3515,8 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
+	d->opt_decode = de_get_ext_option_bool(c, "tiff:decode", 0);
+
 	if(mparams) {
 		d->in_params = &mparams->in_params;
 	}
@@ -2755,29 +3524,30 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 	if(de_havemodcode(c, mparams, 'A')) {
 		d->fmt = DE_TIFFFMT_APPLEMN;
 		d->is_le = 0;
-		d->errmsgprefix = "[Apple MakerNote] ";
+		de_strlcpy(d->errmsgtoken_module, "Apple MakerNote", sizeof(d->errmsgtoken_module));
 	}
 	else if(de_havemodcode(c, mparams, 'F')) {
 		d->fmt = DE_TIFFFMT_FUJIFILMMN;
 		d->is_le = 1;
-		d->errmsgprefix = "[FujiFilm MakerNote] ";
+		de_strlcpy(d->errmsgtoken_module, "FujiFilm MakerNote", sizeof(d->errmsgtoken_module));
 	}
 	else {
 		d->fmt = de_identify_tiff_internal(c, &d->is_le);
 	}
 
 	if(de_havemodcode(c, mparams, 'N')) {
-		d->errmsgprefix = "[Nikon MakerNote] ";
+		de_strlcpy(d->errmsgtoken_module, "Nikon MakerNote", sizeof(d->errmsgtoken_module));
 		d->fmt = DE_TIFFFMT_NIKONMN;
 	}
 
 	if(de_havemodcode(c, mparams, 'M') && (d->fmt==DE_TIFFFMT_TIFF)) {
+		de_strlcpy(d->errmsgtoken_module, "MPF", sizeof(d->errmsgtoken_module));
 		d->fmt = DE_TIFFFMT_MPEXT;
 	}
 
 	if(de_havemodcode(c, mparams, 'E')) {
 		d->is_exif_submodule = 1;
-		d->errmsgprefix = "[Exif] ";
+		de_strlcpy(d->errmsgtoken_module, "Exif", sizeof(d->errmsgtoken_module));
 	}
 
 	if(d->fmt==DE_TIFFFMT_TIFF) {
@@ -2874,11 +3644,16 @@ static int de_identify_tiff(deark *c)
 	return 0;
 }
 
+static void de_help_tiff(deark *c)
+{
+	de_msg(c, "-opt tiff:decode=<0|1> : Don't/Do attempt to decode images");
+}
+
 void de_module_tiff(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "tiff";
 	mi->desc = "TIFF image";
-	mi->desc2 = "resources only";
 	mi->run_fn = de_run_tiff;
 	mi->identify_fn = de_identify_tiff;
+	mi->help_fn = de_help_tiff;
 }

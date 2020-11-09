@@ -592,6 +592,9 @@ Deark -- Information about supported formats
   Options
    -opt arcfs:appendtype - Append the file type to the filename
 
+* ArcMac (module="arcmac") (experimental)
+  Variant of ARC.
+
 * ARJ (module="arj") (experimental)
 
 * AmBs (AMOS "Banks" aggregate format) (module="abk")

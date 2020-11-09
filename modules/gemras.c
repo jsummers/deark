@@ -11,7 +11,8 @@ DE_DECLARE_MODULE(de_module_gemraster);
 
 typedef struct localctx_struct {
 	int is_ximg;
-	i64 w, h;
+	i64 npwidth, h;
+	i64 pdwidth;
 	i64 nplanes;
 	i64 patlen;
 	i64 rowspan_per_plane;
@@ -150,7 +151,7 @@ static void read_paletted_image(deark *c, lctx *d, dbuf *unc_pixels, de_bitmap *
 	if(d->nplanes<1 || d->nplanes>8) return;
 
 	for(j=0; j<d->h; j++) {
-		for(i=0; i<d->w; i++) {
+		for(i=0; i<d->pdwidth; i++) {
 			n = 0;
 			for(plane=0; plane<d->nplanes; plane++) {
 				x = de_get_bits_symbol(unc_pixels, 1, j*d->rowspan_total + plane*d->rowspan_per_plane, i);
@@ -199,7 +200,7 @@ static int do_gem_img(deark *c, lctx *d)
 
 	uncompress_pixels(c, d, unc_pixels, d->header_size_in_bytes, c->infile->len-d->header_size_in_bytes);
 
-	img = de_bitmap_create(c, d->w, d->h, is_color?3:1);
+	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->h, is_color?3:1);
 
 	fi = de_finfo_create(c);
 	set_density(c, d, fi);
@@ -333,7 +334,7 @@ static int do_gem_ximg(deark *c, lctx *d)
 	unc_pixels = dbuf_create_membuf(c, d->rowspan_total*d->h, 0);
 	uncompress_pixels(c, d, unc_pixels, d->header_size_in_bytes, c->infile->len-d->header_size_in_bytes);
 
-	img = de_bitmap_create(c, d->w, d->h, 3);
+	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->h, 3);
 
 	fi = de_finfo_create(c);
 	set_density(c, d, fi);
@@ -388,9 +389,10 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 	d->pixwidth = de_getu16be(8);
 	d->pixheight = de_getu16be(10);
 	de_dbg(c, "pixel size: %d"DE_CHAR_TIMES"%d microns", (int)d->pixwidth, (int)d->pixheight);
-	d->w = de_getu16be(12);
+	d->npwidth = de_getu16be(12);
+	d->pdwidth = de_pad_to_n(d->npwidth, 8);
 	d->h = de_getu16be(14);
-	de_dbg_dimensions(c, d->w, d->h);
+	de_dbg_dimensions(c, d->npwidth, d->h);
 	de_dbg_indent(c, -1);
 
 	if(d->header_size_in_words>=9) {
@@ -431,9 +433,9 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 			"not be handled correctly.");
 	}
 
-	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
+	if(!de_good_image_dimensions(c, d->npwidth, d->h)) goto done;
 
-	d->rowspan_per_plane = (d->w+7)/8;
+	d->rowspan_per_plane = d->pdwidth/8;
 	d->rowspan_total = d->rowspan_per_plane * d->nplanes;
 
 	// If we haven't declared the format yet, do so.

@@ -92,9 +92,6 @@ static void my_ozur_post_follower_sets_hook(ozur_ctx *ozur)
 	de_dbg2(uctx->c, "finished reading follower sets, pos=%"I64_FMT, uctx->inf_curpos);
 }
 
-//static void do_decompress_reduce(deark *c, lctx *d, struct compression_params *cparams,
-//	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
-//	struct de_dfilter_results *dres)
 void fmtutil_decompress_zip_reduce(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int cmpr_factor, unsigned int flags)
@@ -225,9 +222,6 @@ static void my_zipexpl_cb_post_read_trees(ui6a_ctx *ui6a, struct ui6a_htables *t
 	}
 }
 
-//static void do_decompress_implode(deark *c, lctx *d, struct compression_params *cparams,
-//	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
-//	struct de_dfilter_results *dres)
 void fmtutil_decompress_zip_implode(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int bit_flags, unsigned int flags)

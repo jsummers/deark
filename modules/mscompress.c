@@ -196,9 +196,6 @@ struct mslzh_tree {
 
 struct mslzh_context {
 	deark *c;
-	unsigned int bitreader_buf;
-	unsigned int bitreader_nbits_in_buf;
-	dbuf *inf;
 	struct de_dfilter_out_params *dcmpro;
 	i64 nbytes_written;
 	int error_flag; // Bad data in the LZ77 part should not set this flag. Set eof_flag instead.
@@ -477,7 +474,6 @@ static void do_decompress_LZHUFF(deark *c, struct de_dfilter_in_params *dcmpri,
 	lzhctx = de_malloc(c, sizeof(struct mslzh_context));
 	lzhctx->c = c;
 	lzhctx->modname = "lzhuff";
-	lzhctx->inf = dcmpri->f;
 	lzhctx->dcmpro = dcmpro;
 	lzhctx->dres = dres;
 

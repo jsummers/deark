@@ -207,7 +207,8 @@ static void get_main_icon_size(deark *c, lctx *d, i64 pos, i64 *pbytesused)
 static int do_read_main_icon(deark *c, lctx *d,
 	i64 pos, i64 icon_index)
 {
-	i64 width, height;
+	i64 npwidth, height;
+	i64 pdwidth;
 	i64 depth;
 	i64 src_rowspan, src_planespan;
 	i64 i, j, plane;
@@ -220,10 +221,10 @@ static int do_read_main_icon(deark *c, lctx *d,
 	de_dbg_indent(c, 1);
 
 	// 20-byte header, followed by one or more bitmap "planes".
-	width = de_getu16be(pos+4);
+	npwidth = de_getu16be(pos+4);
 	height = de_getu16be(pos+6);
 	depth = de_getu16be(pos+8);
-	de_dbg_dimensions(c, width, height);
+	de_dbg_dimensions(c, npwidth, height);
 	de_dbg(c, "depth: %d", (int)depth);
 
 	if(depth<1 || depth>8) {
@@ -231,10 +232,11 @@ static int do_read_main_icon(deark *c, lctx *d,
 		goto done;
 	}
 
-	src_rowspan = ((width+15)/16)*2;
+	pdwidth = de_pad_to_n(npwidth, 16);
+	src_rowspan = pdwidth/8;
 	src_planespan = src_rowspan * height;
 
-	img = de_bitmap_create(c, width, height, 3);
+	img = de_bitmap_create2(c, npwidth, pdwidth, height, 3);
 
 	// Figure out what palette to use
 
@@ -274,7 +276,7 @@ static int do_read_main_icon(deark *c, lctx *d,
 	pos += 20;
 
 	for(j=0; j<height; j++) {
-		for(i=0; i<width; i++) {
+		for(i=0; i<pdwidth; i++) {
 			b = 0x00;
 			for(plane=0; plane<depth; plane++) {
 				b1 = de_get_bits_symbol(c->infile, 1, pos+plane*src_planespan + j*src_rowspan, i);

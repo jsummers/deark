@@ -347,13 +347,13 @@ static int do_header(deark *c, lctx *d)
 	d->num_minifat_sectors = de_getu32le(pos+64);
 	de_dbg(c, "number of MiniFAT sectors: %d", (int)d->num_minifat_sectors);
 
-	// SecID of first (extra??) sector of the DIFAT
+	// SecID of first (extra?) sector of the DIFAT
 	// (also called the Master Sector Allocation Table (MSAT))
 	d->first_difat_sec_id = de_geti32le(pos+68);
 	describe_sec_id(c, d, d->first_difat_sec_id, buf, sizeof(buf));
 	de_dbg(c, "first extended DIFAT sector: %d (%s)", (int)d->first_difat_sec_id, buf);
 
-	// Number of (extra??) sectors used by the DIFAT
+	// Number of (extra?) sectors used by the DIFAT
 	d->num_difat_sectors = de_getu32le(pos+72);
 	de_dbg(c, "number of extended DIFAT sectors: %d", (int)d->num_difat_sectors);
 
@@ -794,8 +794,7 @@ static void do_Corel_simple_image(deark *c, lctx *d, struct dir_entry_info *dei,
 		}
 	}
 
-	img->flipped = 1;
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_FLIP_IMAGE);
 
 done:
 	de_bitmap_destroy(img);
@@ -900,8 +899,7 @@ static void do_Corel_UIformat(deark *c, lctx *d, struct dir_entry_info *dei,
 		de_convert_image_rgb(f, pos, rowspan, 3, img, DE_GETRGBFLAG_BGR);
 	}
 
-	img->flipped = 1;
-	de_bitmap_write_to_file(img, is_thumb?"thumb":NULL, 0);
+	de_bitmap_write_to_file(img, is_thumb?"thumb":NULL, DE_CREATEFLAG_FLIP_IMAGE);
 
 	ok = 1;
 

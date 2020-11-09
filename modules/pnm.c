@@ -457,7 +457,7 @@ static int do_image_pbm_binary(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 	rowspan = (pg->width+7)/8;
 	pg->image_data_len = rowspan * pg->height;
 
-	de_convert_and_write_image_bilevel(c->infile, pos1, pg->width, pg->height,
+	de_convert_and_write_image_bilevel2(c->infile, pos1, pg->width, pg->height,
 		rowspan, DE_CVTF_WHITEISZERO, NULL, 0);
 	return 1;
 }

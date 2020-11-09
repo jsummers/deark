@@ -24,7 +24,10 @@ const char *de_dfilter_get_errmsg(deark *c, struct de_dfilter_results *dres)
 // Initialize or reset a dfilter results struct
 void de_dfilter_results_clear(deark *c, struct de_dfilter_results *dres)
 {
-	de_zeromem(dres, sizeof(struct de_dfilter_results));
+	dres->errcode = 0;
+	dres->bytes_consumed_valid = 0;
+	dres->bytes_consumed = 0;
+	dres->errmsg[0] = '\0';
 }
 
 // Note: It is also okay to init these objects by zeroing out their bytes.
@@ -72,6 +75,7 @@ void de_dfilter_set_generic_error(deark *c, struct de_dfilter_results *dres, con
 // immediately.)
 // This model makes it easier to chain multiple codecs together, and to handle
 // input data that is not contiguous.
+// TODO: There's no reason this couldn't be extended to work with "type1" codecs.
 
 struct de_dfilter_ctx *de_dfilter_create(deark *c,
 	dfilter_codec_type codec_init_fn, void *codec_private_params,
@@ -100,6 +104,38 @@ void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
 	}
 }
 
+// Commands:  (Commands are not supported by all codecs)
+//   DE_DFILTER_COMMAND_SOFTRESET
+//    Reset the decompressor state. Exact function depends on the codec.
+//
+//   DE_DFILTER_COMMAND_REINITIALIZE
+//    Reinitialize a codec, so you don't have to destroy and recreate it in
+//    in order to use it again. Typically used after _finish().
+//    Before using this command, it is okay to change the internal paramters of
+//    the dcmpro and dres given to de_dfilter_create(). You should call
+//    de_dfilter_results_clear or the equivalent if you have already handled
+//    previous errors.
+void de_dfilter_command(struct de_dfilter_ctx *dfctx, int cmd, UI flags)
+{
+	// Non-codec-specific things:
+
+	if(cmd==DE_DFILTER_COMMAND_REINITIALIZE) {
+		dfctx->finished_flag = 0;
+		dfctx->dres->bytes_consumed_valid = 0;
+	}
+
+	// Codec-specific things:
+
+	if(dfctx->codec_command_fn) {
+		dfctx->codec_command_fn(dfctx, cmd);
+	}
+}
+
+// Call this to inform the codec that there are no more compressed bytes.
+// The codec's 'finish' function should flush any pending output,
+// and update the decompression results in dfctx->dres.
+// Some codecs can still be used after this, provided you then call
+// de_dfilter_command(...,DE_DFILTER_COMMAND_REINITIALIZE).
 void de_dfilter_finish(struct de_dfilter_ctx *dfctx)
 {
 	if(dfctx->codec_finish_fn) {
@@ -120,7 +156,7 @@ void de_dfilter_destroy(struct de_dfilter_ctx *dfctx)
 	de_free(c, dfctx);
 }
 
-static int my_dfilter_oneshot_buffered_read_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
+static int my_dfilter_addslice_buffered_read_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 	i64 buf_len)
 {
 	struct de_dfilter_ctx *dfctx = (struct de_dfilter_ctx *)brctx->userdata;
@@ -128,6 +164,13 @@ static int my_dfilter_oneshot_buffered_read_cbfn(struct de_bufferedreadctx *brct
 	de_dfilter_addbuf(dfctx, buf, buf_len);
 	if(dfctx->finished_flag) return 0;
 	return 1;
+}
+
+void de_dfilter_addslice(struct de_dfilter_ctx *dfctx,
+	dbuf *inf, i64 pos, i64 len)
+{
+	dbuf_buffered_read(inf, pos, len,
+		my_dfilter_addslice_buffered_read_cbfn, (void*)dfctx);
 }
 
 // Use a "pushable" codec in a non-pushable way.
@@ -140,8 +183,7 @@ void de_dfilter_decompress_oneshot(deark *c,
 
 	dfctx = de_dfilter_create(c, codec_init_fn, codec_private_params,
 		dcmpro, dres);
-	dbuf_buffered_read(dcmpri->f, dcmpri->pos, dcmpri->len,
-		my_dfilter_oneshot_buffered_read_cbfn, (void*)dfctx);
+	de_dfilter_addslice(dfctx, dcmpri->f, dcmpri->pos, dcmpri->len);
 	de_dfilter_finish(dfctx);
 	de_dfilter_destroy(dfctx);
 }
@@ -170,52 +212,150 @@ void fmtutil_decompress_uncompressed(deark *c, struct de_dfilter_in_params *dcmp
 	dres->bytes_consumed_valid = 1;
 }
 
+enum packbits_state_enum {
+	PACKBITS_STATE_NEUTRAL = 0,
+	PACKBITS_STATE_COPYING_LITERAL,
+	PACKBITS_STATE_READING_UNIT_TO_REPEAT
+};
+
+struct packbitsctx {
+	size_t nbytes_per_unit;
+	size_t nbytes_in_unitbuf;
+	u8 unitbuf[2];
+	i64 total_nbytes_processed;
+	i64 nbytes_written;
+	enum packbits_state_enum state;
+	i64 nliteral_bytes_remaining;
+	i64 repeat_count;
+};
+
+static void my_packbits_codec_addbuf(struct de_dfilter_ctx *dfctx,
+	const u8 *buf, i64 buf_len)
+{
+	int i;
+	u8 b;
+	struct packbitsctx *rctx = (struct packbitsctx*)dfctx->codec_private;
+
+	if(!rctx) return;
+
+	for(i=0; i<buf_len; i++) {
+		if(dfctx->dcmpro->len_known &&
+			(rctx->nbytes_written >= dfctx->dcmpro->expected_len))
+		{
+			dfctx->finished_flag = 1;
+			break;
+		}
+
+		b = buf[i];
+		rctx->total_nbytes_processed++;
+
+		switch(rctx->state) {
+		case PACKBITS_STATE_NEUTRAL: // this is a code byte
+			if(b>128) { // A compressed run
+				rctx->repeat_count = 257 - (i64)b;
+				rctx->state = PACKBITS_STATE_READING_UNIT_TO_REPEAT;
+			}
+			else if(b<128) { // An uncompressed run
+				rctx->nliteral_bytes_remaining = (1 + (i64)b) * (i64)rctx->nbytes_per_unit;
+				rctx->state = PACKBITS_STATE_COPYING_LITERAL;
+			}
+			// Else b==128. No-op.
+			// TODO: Some (but not most) ILBM specs say that code 128 is used to
+			// mark the end of compressed data, so maybe there should be options to
+			// tell us what to do when code 128 is encountered.
+			break;
+		case PACKBITS_STATE_COPYING_LITERAL: // This byte is uncompressed
+			dbuf_writebyte(dfctx->dcmpro->f, b);
+			rctx->nbytes_written++;
+			rctx->nliteral_bytes_remaining--;
+			if(rctx->nliteral_bytes_remaining<=0) {
+				rctx->state = PACKBITS_STATE_NEUTRAL;
+			}
+			break;
+		case PACKBITS_STATE_READING_UNIT_TO_REPEAT:
+			if(rctx->nbytes_per_unit==1) { // Optimization for standard PackBits
+				dbuf_write_run(dfctx->dcmpro->f, b, rctx->repeat_count);
+				rctx->nbytes_written += rctx->repeat_count;
+				rctx->state = PACKBITS_STATE_NEUTRAL;
+			}
+			else {
+				rctx->unitbuf[rctx->nbytes_in_unitbuf++] = b;
+				if(rctx->nbytes_in_unitbuf >= rctx->nbytes_per_unit) {
+					i64 k;
+
+					for(k=0; k<rctx->repeat_count; k++) {
+						dbuf_write(dfctx->dcmpro->f, rctx->unitbuf, (i64)rctx->nbytes_per_unit);
+					}
+					rctx->nbytes_in_unitbuf = 0;
+					rctx->nbytes_written += rctx->repeat_count * (i64)rctx->nbytes_per_unit;
+					rctx->state = PACKBITS_STATE_NEUTRAL;
+				}
+			}
+			break;
+		}
+	}
+}
+
+static void my_packbits_codec_command(struct de_dfilter_ctx *dfctx, int cmd)
+{
+	struct packbitsctx *rctx = (struct packbitsctx*)dfctx->codec_private;
+
+	if(cmd==DE_DFILTER_COMMAND_SOFTRESET || cmd==DE_DFILTER_COMMAND_REINITIALIZE) {
+		// "soft reset" - reset the low-level compression state, but don't update
+		// dres, or the total-bytes counters, etc.
+		rctx->state = PACKBITS_STATE_NEUTRAL;
+		rctx->nbytes_in_unitbuf = 0;
+		rctx->nliteral_bytes_remaining = 0;
+		rctx->repeat_count = 0;
+	}
+	if(cmd==DE_DFILTER_COMMAND_REINITIALIZE) {
+		rctx->total_nbytes_processed = 0;
+		rctx->nbytes_written = 0;
+	}
+}
+
+static void my_packbits_codec_finish(struct de_dfilter_ctx *dfctx)
+{
+	struct packbitsctx *rctx = (struct packbitsctx*)dfctx->codec_private;
+
+	if(!rctx) return;
+	dfctx->dres->bytes_consumed = rctx->total_nbytes_processed;
+	dfctx->dres->bytes_consumed_valid = 1;
+}
+
+static void my_packbits_codec_destroy(struct de_dfilter_ctx *dfctx)
+{
+	struct packbitsctx *rctx = (struct packbitsctx*)dfctx->codec_private;
+
+	if(rctx) {
+		de_free(dfctx->c, rctx);
+	}
+	dfctx->codec_private = NULL;
+}
+
+// codec_private_params: de_packbits_params, or NULL for default params.
+void dfilter_packbits_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
+{
+	struct packbitsctx *rctx = NULL;
+	struct de_packbits_params *pbparams = (struct de_packbits_params*)codec_private_params;
+
+	rctx = de_malloc(dfctx->c, sizeof(struct packbitsctx));
+	rctx->nbytes_per_unit = 1;
+	if(pbparams && pbparams->is_packbits16) {
+		rctx->nbytes_per_unit = 2;
+	}
+	dfctx->codec_private = (void*)rctx;
+	dfctx->codec_addbuf_fn = my_packbits_codec_addbuf;
+	dfctx->codec_finish_fn = my_packbits_codec_finish;
+	dfctx->codec_command_fn = my_packbits_codec_command;
+	dfctx->codec_destroy_fn = my_packbits_codec_destroy;
+}
+
 void fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	i64 pos;
-	u8 b, b2;
-	i64 count;
-	i64 endpos;
-	i64 outf_len_limit = 0;
-	dbuf *f = dcmpri->f;
-	dbuf *unc_pixels = dcmpro->f;
-
-	pos = dcmpri->pos;
-	endpos = dcmpri->pos + dcmpri->len;
-
-	if(dcmpro->len_known) {
-		outf_len_limit = unc_pixels->len + dcmpro->expected_len;
-	}
-
-	while(1) {
-		if(dcmpro->len_known && unc_pixels->len >= outf_len_limit) {
-			break; // Decompressed the requested amount of dst data.
-		}
-
-		if(pos>=endpos) {
-			break; // Reached the end of source data
-		}
-		b = dbuf_getbyte(f, pos++);
-
-		if(b>128) { // A compressed run
-			count = 257 - (i64)b;
-			b2 = dbuf_getbyte(f, pos++);
-			dbuf_write_run(unc_pixels, b2, count);
-		}
-		else if(b<128) { // An uncompressed run
-			count = 1 + (i64)b;
-			dbuf_copy(f, pos, count, unc_pixels);
-			pos += count;
-		}
-		// Else b==128. No-op.
-		// TODO: Some (but not most) ILBM specs say that code 128 is used to
-		// mark the end of compressed data, so maybe there should be options to
-		// tell us what to do when code 128 is encountered.
-	}
-
-	dres->bytes_consumed = pos - dcmpri->pos;
-	dres->bytes_consumed_valid = 1;
+	de_dfilter_decompress_oneshot(c, dfilter_packbits_codec, NULL,
+		dcmpri, dcmpro, dres);
 }
 
 // Returns 0 on failure (currently impossible).
@@ -238,7 +378,8 @@ int fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
 		dcmpro.expected_len = unc_pixels->len_limit - unc_pixels->len;
 	}
 
-	fmtutil_decompress_packbits_ex(f->c, &dcmpri, &dcmpro, &dres);
+	de_dfilter_decompress_oneshot(f->c, dfilter_packbits_codec, NULL,
+		&dcmpri, &dcmpro, &dres);
 
 	if(cmpr_bytes_consumed && dres.bytes_consumed_valid) {
 		*cmpr_bytes_consumed = dres.bytes_consumed;
@@ -251,79 +392,13 @@ int fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
 void fmtutil_decompress_packbits16_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	i64 pos;
-	u8 b, b1, b2;
-	i64 k;
-	i64 count;
-	i64 endpos;
-	i64 outf_len_limit = 0;
-	dbuf *f = dcmpri->f;
-	dbuf *unc_pixels = dcmpro->f;
+	struct de_packbits_params pbparams;
 
-	pos = dcmpri->pos;
-	endpos = dcmpri->pos + dcmpri->len;
+	de_zeromem(&pbparams, sizeof(struct de_packbits_params));
+	pbparams.is_packbits16 = 1;
 
-	if(dcmpro->len_known) {
-		outf_len_limit = unc_pixels->len + dcmpro->expected_len;
-	}
-
-	while(1) {
-		if(dcmpro->len_known && unc_pixels->len >= outf_len_limit) {
-			break; // Decompressed the requested amount of dst data.
-		}
-
-		if(pos>=endpos) {
-			break; // Reached the end of source data
-		}
-		b = dbuf_getbyte(f, pos++);
-
-		if(b>128) { // A compressed run
-			count = 257 - (i64)b;
-			b1 = dbuf_getbyte(f, pos++);
-			b2 = dbuf_getbyte(f, pos++);
-			for(k=0; k<count; k++) {
-				dbuf_writebyte(unc_pixels, b1);
-				dbuf_writebyte(unc_pixels, b2);
-			}
-		}
-		else if(b<128) { // An uncompressed run
-			count = 1 + (i64)b;
-			dbuf_copy(f, pos, count*2, unc_pixels);
-			pos += count*2;
-		}
-		// Else b==128. No-op.
-	}
-
-	dres->bytes_consumed = pos - dcmpri->pos;
-	dres->bytes_consumed_valid = 1;
-}
-
-int fmtutil_decompress_packbits16(dbuf *f, i64 pos1, i64 len,
-	dbuf *unc_pixels, i64 *cmpr_bytes_consumed)
-{
-	struct de_dfilter_results dres;
-	struct de_dfilter_in_params dcmpri;
-	struct de_dfilter_out_params dcmpro;
-
-	if(cmpr_bytes_consumed) *cmpr_bytes_consumed = 0;
-	de_dfilter_init_objects(f->c, &dcmpri, &dcmpro, &dres);
-
-	dcmpri.f = f;
-	dcmpri.pos = pos1;
-	dcmpri.len = len;
-	dcmpro.f = unc_pixels;
-	if(unc_pixels->has_len_limit) {
-		dcmpro.len_known = 1;
-		dcmpro.expected_len = unc_pixels->len_limit - unc_pixels->len;
-	}
-
-	fmtutil_decompress_packbits16_ex(f->c, &dcmpri, &dcmpro, &dres);
-
-	if(cmpr_bytes_consumed && dres.bytes_consumed_valid) {
-		*cmpr_bytes_consumed = dres.bytes_consumed;
-	}
-	if(dres.errcode != 0) return 0;
-	return 1;
+	de_dfilter_decompress_oneshot(c, dfilter_packbits_codec, (void*)&pbparams,
+		dcmpri, dcmpro, dres);
 }
 
 void fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpri,

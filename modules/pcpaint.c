@@ -30,9 +30,12 @@ struct localctx_struct {
 #define FMT_CLP 2
 	int file_fmt;
 	int ver;
+	de_encoding input_encoding;
+	int opt_keep_invis_chars;
 	de_finfo *fi;
 	i64 header_size;
-	i64 width, height;
+	i64 npwidth, height;
+	i64 pdwidth;
 	u8 plane_info;
 	u8 palette_flag;
 	u8 video_mode; // 0 = unknown
@@ -99,7 +102,7 @@ static void decode_text(deark *c, lctx *d)
 
 	// TODO: This might not work for monochrome text mode (d->video_mode==0x32).
 
-	width_in_chars = d->width / 2;
+	width_in_chars = d->npwidth / 2;
 
 	charctx = de_malloc(c, sizeof(struct de_char_context));
 	charctx->no_density = 1;
@@ -116,7 +119,7 @@ static void decode_text(deark *c, lctx *d)
 	if(screen->height<1) goto done;
 
 	screen->cell_rows = de_mallocarray(c, screen->height, sizeof(struct de_char_cell*));
-	de_encconv_init(&es, DE_ENCODING_CP437_G);
+	de_encconv_init(&es, d->input_encoding);
 
 	for(j=0; j<screen->height; j++) {
 		i64 j2;
@@ -125,13 +128,26 @@ static void decode_text(deark *c, lctx *d)
 		screen->cell_rows[j2] = de_mallocarray(c, screen->width, sizeof(struct de_char_cell));
 
 		for(i=0; i<screen->width; i++) {
-			ch = dbuf_getbyte(d->unc_pixels, j*d->width + i*2);
-			attr = dbuf_getbyte(d->unc_pixels, j*d->width + i*2 + 1);
+			ch = dbuf_getbyte(d->unc_pixels, j*d->npwidth + i*2);
+			attr = dbuf_getbyte(d->unc_pixels, j*d->npwidth + i*2 + 1);
 
 			screen->cell_rows[j2][i].fgcol = (u32)(attr & 0x0f);
 			screen->cell_rows[j2][i].bgcol = (u32)((attr & 0xf0) >> 4);
-			screen->cell_rows[j2][i].codepoint = (i32)ch;
-			screen->cell_rows[j2][i].codepoint_unicode = de_char_to_unicode_ex((i32)ch, &es);
+
+			// In "blank" regions, some files have nonsense characters, with the fg
+			// and bg colors the same. We turn them into spaces, so that copy/paste
+			// works right with our HTML output.
+			if(ch==0 ||
+				(screen->cell_rows[j2][i].fgcol==screen->cell_rows[j2][i].bgcol &&
+					!d->opt_keep_invis_chars))
+			{
+				screen->cell_rows[j2][i].codepoint = 32;
+				screen->cell_rows[j2][i].codepoint_unicode = 32;
+			}
+			else {
+				screen->cell_rows[j2][i].codepoint = (i32)ch;
+				screen->cell_rows[j2][i].codepoint_unicode = de_char_to_unicode_ex((i32)ch, &es);
+			}
 		}
 	}
 
@@ -236,19 +252,20 @@ static void decode_egavga16(deark *c, lctx *d)
 	}
 
 	if(d->plane_info==0x31) {
-		src_rowspan = (d->width +7)/8;
+		d->pdwidth = de_pad_to_n(d->npwidth, 8);
+		src_rowspan = d->pdwidth/8;
 		src_planespan = src_rowspan*d->height;
 	}
 	else {
-		src_rowspan = (d->width +1)/2;
+		d->pdwidth = de_pad_to_2(d->npwidth);
+		src_rowspan = d->pdwidth/2;
 		src_planespan = 0;
 	}
 
-	img = de_bitmap_create(c, d->width, d->height, 3);
-	img->flipped = 1;
+	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, 3);
 
 	for(j=0; j<d->height; j++) {
-		for(i=0; i<d->width; i++) {
+		for(i=0; i<d->pdwidth; i++) {
 			if(d->plane_info==0x31) {
 				for(plane=0; plane<4; plane++) {
 					z[plane] = de_get_bits_symbol(d->unc_pixels, 1, plane*src_planespan + j*src_rowspan, i);
@@ -262,7 +279,7 @@ static void decode_egavga16(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file_finfo(img, d->fi, 0);
+	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
 
 	de_bitmap_destroy(img);
 }
@@ -288,13 +305,12 @@ static void decode_vga256(deark *c, lctx *d)
 		make_rgb_palette(c, d, pal, 256);
 	}
 
-	img = de_bitmap_create(c, d->width, d->height, 3);
-	img->flipped = 1;
+	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, 3);
 
 	de_convert_image_paletted(d->unc_pixels, 0,
 		8, img->width, pal, img, 0);
 
-	de_bitmap_write_to_file_finfo(img, d->fi, 0);
+	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
 
 	de_bitmap_destroy(img);
 }
@@ -330,16 +346,15 @@ static void decode_bilevel(deark *c, lctx *d)
 		pal[1] = DE_MAKE_GRAY(170);
 	}
 
+	d->pdwidth = de_pad_to_n(d->npwidth, 8);
+	src_rowspan = d->pdwidth/8;
 	is_grayscale = de_is_grayscale_palette(pal, 2);
-	img = de_bitmap_create(c, d->width, d->height, is_grayscale?1:3);
-	img->flipped = 1;
-
-	src_rowspan = (img->width +7)/8;
+	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, is_grayscale?1:3);
 
 	de_convert_image_paletted(d->unc_pixels, 0,
 		1, src_rowspan, pal, img, 0);
 
-	de_bitmap_write_to_file_finfo(img, d->fi, 0);
+	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
 
 done:
 	de_bitmap_destroy(img);
@@ -384,14 +399,14 @@ static void decode_cga4(deark *c, lctx *d)
 		}
 	}
 
-	img = de_bitmap_create(c, d->width, d->height, 3);
-	img->flipped = 1;
+	d->pdwidth = de_pad_to_4(d->npwidth);
+	src_rowspan = d->pdwidth/4;
+	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, 3);
 
-	src_rowspan = (img->width +3)/4;
 	de_convert_image_paletted(d->unc_pixels, 0,
 		2, src_rowspan, pal, img, 0);
 
-	de_bitmap_write_to_file_finfo(img, d->fi, 0);
+	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
 
 done:
 	de_bitmap_destroy(img);
@@ -460,7 +475,7 @@ static int uncompress_pixels(deark *c, lctx *d)
 	}
 
 	d->unc_pixels = dbuf_create_membuf(c, 16384, 0);
-	dbuf_set_length_limit(d->unc_pixels, d->width * d->height);
+	dbuf_set_length_limit(d->unc_pixels, (d->pdwidth+7) * d->height);
 
 	de_dbg(c, "uncompressing image");
 	pos = d->header_size;
@@ -617,9 +632,10 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 	de_dbg(c, "header at %d", 0);
 	de_dbg_indent(c, 1);
 
-	d->width = de_getu16le(2);
+	d->npwidth = de_getu16le(2);
+	d->pdwidth = d->npwidth; // default
 	d->height = de_getu16le(4);
-	de_dbg_dimensions(c, d->width, d->height);
+	de_dbg_dimensions(c, d->npwidth, d->height);
 
 	d->plane_info = de_getbyte(10);
 	d->palette_flag = de_getbyte(11);
@@ -663,7 +679,7 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 	de_dbg_indent(c, 1);
 	if(!do_set_up_decoder(c, d)) goto done;
 	if(d->screen_mode_type==SCREENMODETYPE_BITMAP) {
-		if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
+		if(!de_good_image_dimensions(c, d->npwidth, d->height)) goto done;
 	}
 
 	if(d->num_rle_blocks>0) {
@@ -708,9 +724,10 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 		}
 	}
 
-	d->width = de_getu16le(2);
+	d->npwidth = de_getu16le(2);
+	d->pdwidth = d->npwidth; // default
 	d->height = de_getu16le(4);
-	de_dbg_dimensions(c, d->width, d->height);
+	de_dbg_dimensions(c, d->npwidth, d->height);
 
 	d->plane_info = de_getbyte(10);
 
@@ -744,7 +761,7 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 	if(is_compressed) {
 		run_marker = de_getbyte(12);
 		d->unc_pixels = dbuf_create_membuf(c, 16384, 0);
-		dbuf_set_length_limit(d->unc_pixels, d->width * d->height);
+		dbuf_set_length_limit(d->unc_pixels, (d->pdwidth+7) * d->height);
 
 		if(!uncompress_block(c, d, d->header_size,
 			c->infile->len - d->header_size, run_marker))
@@ -773,6 +790,8 @@ static void de_run_pcpaint(deark *c, de_module_params *mparams)
 	lctx *d;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437_G);
 
 	pcpaintfmt = de_get_ext_option(c, "pcpaint:fmt");
 	if(pcpaintfmt) {
@@ -809,6 +828,8 @@ static void de_run_pcpaint(deark *c, de_module_params *mparams)
 			d->file_fmt = FMT_CLP;
 		}
 	}
+
+	d->opt_keep_invis_chars = de_get_ext_option_bool(c, "pcpaint:invistext", 0);
 
 	if(d->file_fmt==FMT_CLP) {
 		de_run_pcpaint_clp(c, d, mparams);

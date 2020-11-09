@@ -63,11 +63,23 @@ int de_is_grayscale_palette(const de_color *pal, i64 num_entries)
 	return 1;
 }
 
+static void de_bitmap_free_pixels(de_bitmap *b)
+{
+	if(b) {
+		deark *c = b->c;
+
+		if(b->bitmap) {
+			de_free(c, b->bitmap);
+			b->bitmap = NULL;
+		}
+		b->bitmap_size = 0;
+	}
+}
+
 static void de_bitmap_alloc_pixels(de_bitmap *img)
 {
 	if(img->bitmap) {
-		de_free(img->c, img->bitmap);
-		img->bitmap = NULL;
+		de_bitmap_free_pixels(img);
 	}
 
 	if(!de_good_image_dimensions(img->c, img->width, img->height)) {
@@ -145,8 +157,20 @@ static de_bitmap *de_bitmap_clone_noalloc(de_bitmap *img1)
 
 	img2 = de_bitmap_create_noinit(img1->c);
 	de_memcpy(img2, img1, sizeof(de_bitmap));
-	img2->bitmap = 0;
+	img2->bitmap = NULL;
 	img2->bitmap_size = 0;
+	return img2;
+}
+
+static de_bitmap *de_bitmap_clone(de_bitmap *img1)
+{
+	de_bitmap *img2;
+	i64 nbytes_to_copy;
+
+	img2 = de_bitmap_clone_noalloc(img1);
+	de_bitmap_alloc_pixels(img2);
+	nbytes_to_copy = de_min_int(img2->bitmap_size, img1->bitmap_size);
+	de_memcpy(img2->bitmap, img1->bitmap, nbytes_to_copy);
 	return img2;
 }
 
@@ -173,6 +197,12 @@ static de_bitmap *get_optimized_image(de_bitmap *img1)
 
 // When calling this function, the "name" data associated with fi, if set, should
 // be set to something like a filename, but *without* a final ".png" extension.
+// Image-specific createflags:
+//  - DE_CREATEFLAG_OPT_IMAGE
+//  - DE_CREATEFLAG_FLIP_IMAGE
+//     Write the rows in reverse order ("bottom-up"). This affects only the pixels,
+//     not the finfo metadata (e.g. hotspot). It's equivalent to flipping the image
+//     immediately before writing it, then flipping it back immediately after.
 void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi,
 	unsigned int createflags)
 {
@@ -198,10 +228,10 @@ void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi,
 
 	f = dbuf_create_output_file(c, "png", fi, createflags);
 	if(optimg) {
-		de_write_png(c, optimg, f);
+		de_write_png(c, optimg, f, createflags);
 	}
 	else {
-		de_write_png(c, img, f);
+		de_write_png(c, img, f, createflags);
 	}
 	dbuf_close(f);
 
@@ -374,6 +404,7 @@ de_bitmap *de_bitmap_create(deark *c, i64 width, i64 height, int bypp)
 	de_bitmap *img;
 	img = de_bitmap_create_noinit(c);
 	img->width = width;
+	img->unpadded_width = width;
 	img->height = height;
 	img->bytes_per_pixel = bypp;
 	//img->rowspan = img->width * img->bytes_per_pixel;
@@ -384,13 +415,12 @@ de_bitmap *de_bitmap_create2(deark *c, i64 npwidth, i64 pdwidth, i64 height, int
 {
 	de_bitmap *img;
 
+	if(pdwidth<npwidth) pdwidth = npwidth;
+
 	img = de_bitmap_create(c, pdwidth, height, bypp);
 
 	if(npwidth>0 && npwidth<img->width) {
 		img->unpadded_width = npwidth;
-	}
-	else {
-		img->unpadded_width = img->width;
 	}
 
 	return img;
@@ -400,7 +430,8 @@ void de_bitmap_destroy(de_bitmap *b)
 {
 	if(b) {
 		deark *c = b->c;
-		if(b->bitmap) de_free(c, b->bitmap);
+
+		de_bitmap_free_pixels(b);
 		de_free(c, b);
 	}
 }
@@ -613,6 +644,122 @@ void de_convert_image_rgb(dbuf *f, i64 fpos,
 	}
 }
 
+// Turn padding pixels into real pixels.
+static void de_bitmap_apply_padding(de_bitmap *img)
+{
+	if(img->unpadded_width != img->width) {
+		img->unpadded_width = img->width;
+	}
+}
+
+// TODO: This function could be made more efficient.
+void de_bitmap_flip(de_bitmap *img)
+{
+	i64 i, j;
+	i64 nr;
+
+	nr = img->height/2;
+
+	for(j=0; j<nr; j++) {
+		i64 row1, row2;
+
+		row1 = j;
+		row2 = img->height-1-j;
+
+		for(i=0; i<img->width; i++) {
+			de_color tmp1, tmp2;
+
+			tmp1 = de_bitmap_getpixel(img, i, row1);
+			tmp2 = de_bitmap_getpixel(img, i, row2);
+			if(tmp1==tmp2) continue;
+			de_bitmap_setpixel_rgba(img, i, row2, tmp1);
+			de_bitmap_setpixel_rgba(img, i, row1, tmp2);
+		}
+	}
+}
+
+// Not recommended for use with padded bitmaps (e.g. those created with
+// de_bitmap_create2()). We don't support padding pixels on the left, so we can't
+// truly mirror such an image. Current behavior is to turn padding pixels into
+// real pixels.
+void de_bitmap_mirror(de_bitmap *img)
+{
+	i64 i, j;
+	i64 nc;
+
+	de_bitmap_apply_padding(img);
+	nc = img->width/2;
+
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<nc; i++) {
+			i64 col1, col2;
+			de_color tmp1, tmp2;
+
+			col1 = i;
+			col2 = img->width-1-i;
+
+			tmp1 = de_bitmap_getpixel(img, col1, j);
+			tmp2 = de_bitmap_getpixel(img, col2, j);
+			if(tmp1==tmp2) continue;
+			de_bitmap_setpixel_rgba(img, col2, j, tmp1);
+			de_bitmap_setpixel_rgba(img, col1, j, tmp2);
+		}
+	}
+}
+
+// Transpose (flip over the line y=x) a square bitmap.
+static void bitmap_transpose_square(de_bitmap *img)
+{
+	i64 i, j;
+
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<j; i++) {
+			de_color tmp1, tmp2;
+
+			tmp1 = de_bitmap_getpixel(img, i, j);
+			tmp2 = de_bitmap_getpixel(img, j, i);
+			if(tmp1==tmp2) continue;
+			de_bitmap_setpixel_rgba(img, j, i, tmp1);
+			de_bitmap_setpixel_rgba(img, i, j, tmp2);
+		}
+	}
+}
+
+// Transpose (flip over the line y=x) a bitmap.
+// Not recommended for use with padded bitmaps (e.g. those created with
+// de_bitmap_create2()).
+void de_bitmap_transpose(de_bitmap *img)
+{
+	i64 i, j;
+	de_bitmap *imgtmp = NULL;
+
+	de_bitmap_apply_padding(img);
+
+	if(img->width == img->height) {
+		bitmap_transpose_square(img);
+		goto done;
+	}
+
+	imgtmp = de_bitmap_clone(img);
+
+	de_bitmap_free_pixels(img);
+	img->width = imgtmp->height;
+	img->unpadded_width = imgtmp->height;
+	img->height = imgtmp->width;
+
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<img->width; i++) {
+			de_color tmp1;
+
+			tmp1 = de_bitmap_getpixel(imgtmp, j, i);
+			de_bitmap_setpixel_rgba(img, i, j, tmp1);
+		}
+	}
+
+done:
+	if(imgtmp) de_bitmap_destroy(imgtmp);
+}
+
 // Paint a solid, solid-color rectangle onto an image.
 // (Pixels will be replaced, not merged.)
 void de_bitmap_rect(de_bitmap *img,
@@ -682,6 +829,27 @@ void de_bitmap_apply_mask(de_bitmap *fg, de_bitmap *mask,
 	}
 }
 
+void de_bitmap_remove_alpha(de_bitmap *img)
+{
+	i64 i, j;
+	i64 k;
+
+	if(img->bytes_per_pixel!=2 && img->bytes_per_pixel!=4) return;
+
+	// Note that the format conversion is done in-place. The extra memory used
+	// by the alpha channel is not de-allocated.
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<img->width; i++) {
+			for(k=0; k<(i64)img->bytes_per_pixel-1; k++) {
+				img->bitmap[(j*img->width+i)*((i64)img->bytes_per_pixel-1) + k] =
+					img->bitmap[(j*img->width+i)*(img->bytes_per_pixel) + k];
+			}
+		}
+	}
+
+	img->bytes_per_pixel--;
+}
+
 // Note: This function's features overlap with the DE_CREATEFLAG_OPT_IMAGE
 //  flag supported by de_bitmap_write_to_file().
 // If the image is 100% opaque, remove the alpha channel.
@@ -689,10 +857,8 @@ void de_bitmap_apply_mask(de_bitmap *fg, de_bitmap *mask,
 // flags:
 //  0x1: Make 100% invisible images 100% opaque
 //  0x2: Warn if an invisible image was made opaque
-void de_optimize_image_alpha(de_bitmap *img, unsigned int flags)
+void de_bitmap_optimize_alpha(de_bitmap *img, unsigned int flags)
 {
-	i64 i, j;
-	i64 k;
 	struct image_scan_results isres;
 
 	if(img->bytes_per_pixel!=2 && img->bytes_per_pixel!=4) return;
@@ -711,18 +877,7 @@ void de_optimize_image_alpha(de_bitmap *img, unsigned int flags)
 	// No meaningful transparency found.
 	de_dbg3(img->c, "Removing alpha channel from image");
 
-	// Note that the format conversion is done in-place. The extra memory used
-	// by the alpha channel is not de-allocated.
-	for(j=0; j<img->height; j++) {
-		for(i=0; i<img->width; i++) {
-			for(k=0; k<(i64)img->bytes_per_pixel-1; k++) {
-				img->bitmap[(j*img->width+i)*((i64)img->bytes_per_pixel-1) + k] =
-					img->bitmap[(j*img->width+i)*(img->bytes_per_pixel) + k];
-			}
-		}
-	}
-
-	img->bytes_per_pixel--;
+	de_bitmap_remove_alpha(img);
 }
 
 // flag 0x1: white-is-min

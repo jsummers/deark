@@ -37,6 +37,7 @@ typedef struct localctx_struct {
 	i64 size_image; // biSizeImage
 	i64 width, pdwidth, height;
 	int top_down;
+	UI extra_createflags;
 	i64 pal_entries; // Actual number stored in file. 0 means no palette.
 	i64 pal_pos;
 	i64 bytes_per_pal_entry;
@@ -237,6 +238,9 @@ static int read_infoheader(deark *c, lctx *d, i64 pos)
 	}
 	if(d->top_down) {
 		de_dbg(c, "orientation: top-down");
+	}
+	else {
+		d->extra_createflags |= DE_CREATEFLAG_FLIP_IMAGE;
 	}
 
 	de_dbg(c, "planes: %d", (int)nplanes);
@@ -511,7 +515,6 @@ static de_bitmap *bmp_bitmap_create(deark *c, lctx *d, int bypp)
 	de_bitmap *img;
 
 	img = de_bitmap_create2(c, d->width, d->pdwidth, d->height, bypp);
-	img->flipped = !d->top_down;
 	return img;
 }
 
@@ -522,7 +525,7 @@ static void do_image_paletted(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 	img = bmp_bitmap_create(c, d, d->pal_is_grayscale?1:3);
 	de_convert_image_paletted(bits, bits_offset,
 		d->bitcount, d->rowspan, d->pal, img, 0);
-	de_bitmap_write_to_file_finfo(img, d->fi, 0);
+	de_bitmap_write_to_file_finfo(img, d->fi, d->extra_createflags);
 	de_bitmap_destroy(img);
 }
 
@@ -554,7 +557,8 @@ static void do_image_24bit(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 			pos_in_this_row += 3;
 		}
 	}
-	de_bitmap_write_to_file_finfo(img, d->fi, 0);
+
+	de_bitmap_write_to_file_finfo(img, d->fi, d->extra_createflags);
 	de_bitmap_destroy(img);
 }
 
@@ -601,7 +605,8 @@ static void do_image_16_32bit(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 			de_bitmap_setpixel_rgba(img, i, j, DE_MAKE_RGBA(sm[0], sm[1], sm[2], sm[3]));
 		}
 	}
-	de_bitmap_write_to_file_finfo(img, d->fi, 0);
+
+	de_bitmap_write_to_file_finfo(img, d->fi, d->extra_createflags);
 	de_bitmap_destroy(img);
 }
 
@@ -726,7 +731,7 @@ static void do_image_rle_4_8_24(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 		}
 	}
 
-	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_OPT_IMAGE);
+	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_OPT_IMAGE | d->extra_createflags);
 	de_bitmap_destroy(img);
 }
 

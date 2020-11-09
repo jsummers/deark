@@ -107,7 +107,6 @@ static int do_bitmap_8ca(deark *c, lctx *d, i64 pos)
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
 
 	img = de_bitmap_create(c, d->w, d->h, 3);
-	img->flipped = 1;
 
 	for(j=0; j<d->h; j++) {
 		for(i=0; i<d->w; i++) {
@@ -120,7 +119,7 @@ static int do_bitmap_8ca(deark *c, lctx *d, i64 pos)
 
 	}
 
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_FLIP_IMAGE);
 	retval = 1;
 done:
 	de_bitmap_destroy(img);

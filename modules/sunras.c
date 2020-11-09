@@ -15,7 +15,8 @@ struct color32desc_type {
 };
 
 typedef struct localctx_struct {
-	i64 width, height;
+	i64 npwidth, height;
+	i64 pdwidth;
 	i64 depth;
 
 #define RT_OLD          0
@@ -109,7 +110,7 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 		d->color32desc.has_alpha = 2;
 	}
 
-	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
+	if(!de_good_image_dimensions(c, d->npwidth, d->height)) goto done;
 
 	src_bypp = d->depth/8;
 
@@ -138,10 +139,10 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 		getrgbflags = DE_GETRGBFLAG_BGR;
 	}
 
-	img = de_bitmap_create(c, d->width, d->height, (int)dst_bypp);
+	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, (int)dst_bypp);
 
 	for(j=0; j<d->height; j++) {
-		for(i=0; i<d->width; i++) {
+		for(i=0; i<d->pdwidth; i++) {
 			if(d->is_paletted || d->is_grayscale) {
 				b = de_get_bits_symbol(unc_pixels, d->depth, d->rowspan*j, i);
 				clr = d->pal[(unsigned int)b];
@@ -165,7 +166,7 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 	}
 
 	if(d->depth==32 && d->color32desc.has_alpha==2) { // autodetect alpha
-		de_optimize_image_alpha(img, 0x1);
+		de_bitmap_optimize_alpha(img, 0x1);
 	}
 
 	de_bitmap_write_to_file(img, NULL, 0);
@@ -209,9 +210,9 @@ static void read_header(deark *c, lctx *d, i64 pos)
 	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	d->width = de_getu32be(pos+4);
+	d->npwidth = de_getu32be(pos+4);
 	d->height = de_getu32be(pos+8);
-	de_dbg_dimensions(c, d->width, d->height);
+	de_dbg_dimensions(c, d->npwidth, d->height);
 
 	d->depth = de_getu32be(pos+12);
 	de_dbg(c, "depth: %d", (int)d->depth);
@@ -295,6 +296,7 @@ static void de_run_sunras(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	dbuf *unc_pixels = NULL;
 	i64 pos;
+	i64 bits_per_row;
 	int saved_indent_level;
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -340,7 +342,9 @@ static void de_run_sunras(deark *c, de_module_params *mparams)
 	de_dbg(c, "image data at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	d->rowspan = (((d->width * d->depth)+15)/16)*2;
+	bits_per_row = de_pad_to_n(d->npwidth * d->depth, 16);
+	d->rowspan = bits_per_row / 8;
+	d->pdwidth = bits_per_row / d->depth;
 	d->unc_pixels_size = d->rowspan * d->height;
 
 	if(d->imgtype>5) {

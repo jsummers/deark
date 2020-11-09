@@ -184,8 +184,7 @@ void de_register_modules(deark *c)
 	// The real register_modules function (de_register_modules_internal) is
 	// only called indirectly, to help simplify dependencies.
 	if(!c->module_register_fn) {
-		de_err(c, "Internal: module_register_fn not set");
-		de_fatalerror(c);
+		de_internal_err_fatal(c, "module_register_fn not set");
 		return;
 	}
 	c->module_register_fn(c);
@@ -236,7 +235,7 @@ int de_run(deark *c)
 	}
 	else {
 		if(!c->input_filename) {
-			de_err(c, "Internal: Input file not set");
+			de_internal_err_nonfatal(c, "Input file not set");
 			c->serious_error_flag = 1;
 			goto done;
 		}
@@ -719,8 +718,7 @@ void de_set_std_option_int(deark *c, enum de_stdoptions_enum o, int x)
 		c->padpix = (u8)x;
 		break;
 	default:
-		de_err(c, "Internal error");
-		de_fatalerror(c);
+		de_internal_err_fatal(c, "set_std_option");
 	}
 }
 

@@ -131,8 +131,7 @@ void dbuf_read(dbuf *f, u8 *buf, i64 pos, i64 len)
 	switch(f->btype) {
 	case DBUF_TYPE_IFILE:
 		if(!f->fp) {
-			de_err(c, "Internal: File not open");
-			de_fatalerror(c);
+			de_internal_err_fatal(c, "File not open");
 			goto done_read;
 		}
 
@@ -162,8 +161,7 @@ void dbuf_read(dbuf *f, u8 *buf, i64 pos, i64 len)
 		break;
 
 	default:
-		de_err(c, "Internal: getbytes from this I/O type not implemented");
-		de_fatalerror(c);
+		de_internal_err_fatal(c, "getbytes from this I/O type not implemented");
 		goto done_read;
 	}
 
@@ -1405,8 +1403,7 @@ void dbuf_write(dbuf *f, const u8 *m, i64 len)
 		return;
 	}
 
-	de_err(f->c, "Internal: Invalid output file type (%d)", f->btype);
-	de_fatalerror(f->c);
+	de_internal_err_fatal(f->c, "Invalid output file type (%d)", f->btype);
 }
 
 void dbuf_writebyte(dbuf *f, u8 n)
@@ -1471,8 +1468,7 @@ void dbuf_write_at(dbuf *f, i64 pos, const u8 *m, i64 len)
 		}
 	}
 	else {
-		de_err(f->c, "internal: Attempt to seek on non-seekable stream");
-		de_fatalerror(f->c);
+		de_internal_err_fatal(f->c, "Attempt to seek on non-seekable stream");
 	}
 }
 
@@ -1794,7 +1790,7 @@ void dbuf_close(dbuf *f)
 	case DBUF_TYPE_NULL:
 		break;
 	default:
-		de_err(c, "Internal: Don't know how to close this type of file (%d)", f->btype);
+		de_internal_err_nonfatal(c, "Don't know how to close this type of file (%d)", f->btype);
 	}
 
 	de_free(c, f->membuf_buf);

@@ -922,10 +922,7 @@ static void callback_for_image_subblock(deark *c, lctx *d, struct subblock_reade
 	de_dbg2(c, "sub-block at %"I64_FMT", size=%"I64_FMT, sbrd->subblkpos, sbrd->reported_dlen);
 
 	if(!gi->failure_flag && !gi->dfctx->finished_flag) {
-		u8 buf[255];
-
-		dbuf_read(sbrd->inf, buf, sbrd->dpos, sbrd->dlen);
-		de_dfilter_addbuf(gi->dfctx, buf, sbrd->dlen);
+		de_dfilter_addslice(gi->dfctx, sbrd->inf, sbrd->dpos, sbrd->dlen);
 	}
 }
 

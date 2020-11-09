@@ -29,8 +29,8 @@
 //    used if the fork lengths are not known in advance.
 //  - Set advf->rsrcfork.fork_exists, if there is an rsrc fork.
 //  - Set advf->rsrcfork.fork_len, if there is an rsrc fork.
-//  - Set advf->mainfork.mod_time, if known, even if there is no main fork. Mac
-//    files do not use advf->rsrcfork.mod_time.
+//  - Set advf->mainfork.fi->timestamp[*], if known, even if there is no main fork.
+//    Mac files do not use advf->rsrcfork.fi->timestamp[].
 //  - (Same for advf->mainfork.create_time, etc.)
 //  - If appropriate, set other fields potentially advf->mainfork.fi and/or
 //    advf->rsrcfork.fi, such as ->is_directory. But verify that they work
@@ -89,8 +89,14 @@ void de_advfile_set_orig_filename(struct de_advfile *advf, const char *fn, size_
 
 static void setup_rsrc_finfo(struct de_advfile *advf)
 {
+	i64 i;
 	deark *c = advf->c;
 	de_ucstring *fname_rsrc = NULL;
+
+	// Only the .mainfork timestamps are used.
+	for(i=0; i<DE_TIMESTAMPIDX_COUNT; i++) {
+		advf->rsrcfork.fi->timestamp[i] = advf->mainfork.fi->timestamp[i];
+	}
 
 	fname_rsrc = ucstring_create(c);
 	ucstring_append_ucstring(fname_rsrc, advf->filename);
@@ -133,8 +139,6 @@ static void de_advfile_run_rawfiles(deark *c, struct de_advfile *advf, int is_ap
 		afp_rsrc = de_malloc(c, sizeof(struct de_advfile_cbparams));
 		setup_rsrc_finfo(advf);
 		afp_rsrc->whattodo = DE_ADVFILE_WRITERSRC;
-		// Note: It is intentional to use mainfork in the next line.
-		advf->rsrcfork.fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_MODIFY];
 		afp_rsrc->outf = dbuf_create_output_file(c, NULL, advf->rsrcfork.fi, advf->createflags);
 		dbuf_set_writelistener(afp_rsrc->outf, advf->rsrcfork.writelistener_cb,
 			advf->rsrcfork.userdata_for_writelistener);

@@ -176,8 +176,6 @@ static void do_write_final_image(deark *c, struct os2icoctx *d, de_bitmap *img)
 {
 	de_finfo *fi = NULL;
 
-	img->flipped = 1;
-
 	fi = de_finfo_create(c);
 	if(d->srcbmp) {
 		if(d->srcbmp->has_hotspot) {
@@ -194,7 +192,7 @@ static void do_write_final_image(deark *c, struct os2icoctx *d, de_bitmap *img)
 		}
 	}
 
-	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE | DE_CREATEFLAG_FLIP_IMAGE);
 
 	de_finfo_destroy(c, fi);
 }

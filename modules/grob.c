@@ -21,13 +21,14 @@ static void grob_read_binary_bitmap(deark *c, lctx *d, dbuf *inf, i64 pos)
 	i64 i, j;
 	i64 plane;
 	i64 rowspan;
+	i64 pdwidth;
 	u8 b;
 	unsigned int v;
 	u8 v2;
 	de_bitmap *img = NULL;
 
 	if(d->num_planes<=1) {
-		de_convert_and_write_image_bilevel(inf, pos, d->w, d->h_phys, (d->w+7)/8,
+		de_convert_and_write_image_bilevel2(inf, pos, d->w, d->h_phys, (d->w+7)/8,
 			DE_CVTF_WHITEISZERO|DE_CVTF_LSBFIRST, NULL, 0);
 		return;
 	}
@@ -44,10 +45,11 @@ static void grob_read_binary_bitmap(deark *c, lctx *d, dbuf *inf, i64 pos)
 	de_dbg(c, "logical dimensions: %d"DE_CHAR_TIMES"%d", (int)d->w, (int)h_logical);
 
 	rowspan = (d->w+7)/8;
-	img = de_bitmap_create(c, d->w, h_logical, 1);
+	pdwidth = rowspan * 8;
+	img = de_bitmap_create2(c, d->w, pdwidth, h_logical, 1);
 
 	for(j=0; j<h_logical; j++) {
-		for(i=0; i<d->w; i++) {
+		for(i=0; i<pdwidth; i++) {
 			v = 0;
 			for(plane=0; plane<d->num_planes; plane++) {
 				b = de_get_bits_symbol_lsb(inf, 1,

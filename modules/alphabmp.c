@@ -10,7 +10,8 @@
 DE_DECLARE_MODULE(de_module_alphabmp);
 
 typedef struct localctx_struct {
-	i64 w, h;
+	i64 npwidth, h;
+	i64 pdwidth;
 	i64 bpp;
 	unsigned int has_palette;
 	unsigned int palette_is_hls;
@@ -42,16 +43,19 @@ static void do_bitmap(deark *c, lctx *d, dbuf *unc_pixels)
 {
 	i64 i, j;
 	i64 rowspan;
+	i64 bits_per_row;
 	u32 clr;
 	de_bitmap *img = NULL;
 	u8 b;
 
-	rowspan = (d->w * d->bpp +7)/8;
+	bits_per_row = de_pad_to_n(d->npwidth * d->bpp, 8);
+	rowspan = bits_per_row/8;
+	d->pdwidth = bits_per_row / d->bpp;
 
-	img = de_bitmap_create(c, d->w, d->h, 3);
+	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->h, 3);
 
 	for(j=0; j<d->h; j++) {
-		for(i=0; i<d->w; i++) {
+		for(i=0; i<d->pdwidth; i++) {
 			if(d->bpp<=8) {
 				b = de_get_bits_symbol(unc_pixels, d->bpp, j*rowspan, i);
 				clr = d->pal[(unsigned int)b];
@@ -73,31 +77,35 @@ static int do_uncompress_image(deark *c, lctx *d, i64 pos1, dbuf *unc_pixels)
 	i64 bytes_in_this_line;
 	i64 pos = pos1;
 	i64 j;
-	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_ctx *dfctx = NULL;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
 
 	de_dbg(c, "decompressing bitmap");
 
 	// Each line is compressed independently, using PackBits.
-	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
-	dcmpri.f = c->infile;
+	de_dfilter_init_objects(c, NULL, &dcmpro, &dres);
 	dcmpro.f = unc_pixels;
+	dfctx = de_dfilter_create(c, dfilter_packbits_codec, NULL, &dcmpro, &dres);
 
 	for(j=0; j<d->h; j++) {
 		bytes_in_this_line = de_getu16le(pos);
 		pos += 2;
-		dcmpri.pos = pos;
-		dcmpri.len = bytes_in_this_line;
-		fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres);
-		if(dres.errcode) {
-			de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
-			return 0;
-		}
+		de_dfilter_addslice(dfctx, c->infile, pos, bytes_in_this_line);
+		de_dfilter_command(dfctx, DE_DFILTER_COMMAND_SOFTRESET, 0);
 		pos += bytes_in_this_line;
 	}
+
+	de_dfilter_finish(dfctx);
+	if(dres.errcode) {
+		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
+		return 0;
+	}
+
 	de_dbg(c, "decompressed %d bytes to %d bytes", (int)(pos-pos1),
 		(int)unc_pixels->len);
+
+	de_dfilter_destroy(dfctx);
 	return 1;
 }
 
@@ -120,10 +128,10 @@ static void de_run_alphabmp(deark *c, de_module_params *mparams)
 	de_dbg(c, "bitmap image definition block at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	d->w = de_getu16le(pos);
+	d->npwidth = de_getu16le(pos);
 	d->h = de_getu16le(pos+2);
-	de_dbg_dimensions(c, d->w, d->h);
-	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
+	de_dbg_dimensions(c, d->npwidth, d->h);
+	if(!de_good_image_dimensions(c, d->npwidth, d->h)) goto done;
 
 	d->bpp = de_getu16le(pos+4);
 	de_dbg(c, "bits/pixel: %d", (int)d->bpp);

@@ -15,6 +15,7 @@ struct de_dfilter_out_params {
 };
 
 struct de_dfilter_results {
+	// Note: If this struct is changed, also update de_dfilter_results_clear().
 	int errcode;
 	u8 bytes_consumed_valid;
 	i64 bytes_consumed;
@@ -108,8 +109,6 @@ int fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
 	dbuf *unc_pixels, i64 *cmpr_bytes_consumed);
 void fmtutil_decompress_packbits16_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
-int fmtutil_decompress_packbits16(dbuf *f, i64 pos1, i64 len,
-	dbuf *unc_pixels, i64 *cmpr_bytes_consumed);
 void fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags);
@@ -127,6 +126,7 @@ struct de_dfilter_ctx;
 typedef void (*dfilter_codec_type)(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 typedef void (*dfilter_codec_addbuf_type)(struct de_dfilter_ctx *dfctx,
 	const u8 *buf, i64 buf_len);
+typedef void (*dfilter_codec_command_type)(struct de_dfilter_ctx *dfctx, int cmd);
 typedef void (*dfilter_codec_finish_type)(struct de_dfilter_ctx *dfctx);
 typedef void (*dfilter_codec_destroy_type)(struct de_dfilter_ctx *dfctx);
 
@@ -137,6 +137,7 @@ struct de_dfilter_ctx {
 	u8 finished_flag;
 	void *codec_private;
 	dfilter_codec_addbuf_type codec_addbuf_fn;
+	dfilter_codec_command_type codec_command_fn;
 	dfilter_codec_finish_type codec_finish_fn;
 	dfilter_codec_destroy_type codec_destroy_fn;
 };
@@ -146,7 +147,8 @@ enum de_lzwfmt_enum {
 	DE_LZWFMT_UNIXCOMPRESS,
 	DE_LZWFMT_GIF,
 	DE_LZWFMT_ZIPSHRINK,
-	DE_LZWFMT_ZOOLZD
+	DE_LZWFMT_ZOOLZD,
+	DE_LZWFMT_TIFF
 };
 
 struct de_lzw_params {
@@ -157,6 +159,7 @@ struct de_lzw_params {
 	UI flags;
 	unsigned int gif_root_code_size;
 	unsigned int max_code_size; // 0 = no info
+	u8 tifflzw_oldversion; // 1 = old version
 };
 void fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
@@ -164,6 +167,11 @@ void fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 
 void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
+
+struct de_packbits_params {
+	u8 is_packbits16;
+};
+void dfilter_packbits_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 
 struct de_lzh_params {
 #define DE_LZH_FMT_LH5LIKE       1 // subfmt=='5' (etc.)
@@ -188,6 +196,11 @@ struct de_dfilter_ctx *de_dfilter_create(deark *c,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
 void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
 	const u8 *buf, i64 buf_len);
+#define DE_DFILTER_COMMAND_SOFTRESET      1
+#define DE_DFILTER_COMMAND_REINITIALIZE   2
+void de_dfilter_command(struct de_dfilter_ctx *dfctx, int cmd, UI flags);
+void de_dfilter_addslice(struct de_dfilter_ctx *dfctx,
+	dbuf *inf, i64 pos, i64 len);
 void de_dfilter_finish(struct de_dfilter_ctx *dfctx);
 void de_dfilter_destroy(struct de_dfilter_ctx *dfctx);
 
@@ -506,7 +519,7 @@ void fmtutil_riscos_read_attribs_field(deark *c, dbuf *f, struct de_riscos_file_
 struct fmtutil_macbitmap_info {
 	i64 rowbytes; // The rowBytes field
 	i64 rowspan; // Actual number of bytes/row
-	i64 width, height;
+	i64 npwidth, pdwidth, height;
 	int is_uncompressed;
 	i64 packing_type;
 	i64 pixeltype, pixelsize;

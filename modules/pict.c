@@ -251,7 +251,7 @@ static int get_pixdata_size(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi
 
 	// Make sure rowbytes is sane. We use it to decide how much memory to allocate.
 	// Note: I've seen valid bitmaps with as many as 284 extra bytes per row.
-	if(bi->rowbytes > (bi->width * bi->pixelsize)/8 + 1000) {
+	if(bi->rowbytes > (bi->npwidth * bi->pixelsize)/8 + 1000) {
 		de_err(c, "Bad rowBytes value (%d)", (int)bi->rowbytes);
 		goto done;
 	}
@@ -293,10 +293,10 @@ static void decode_bitmap_rgb24(deark *c, lctx *d, struct fmtutil_macbitmap_info
 	u8 cr, cg, cb;
 
 	for(j=0; j<bi->height; j++) {
-		for(i=0; i<bi->width; i++) {
-			cr = dbuf_getbyte(unc_pixels, j*bi->rowspan + (bi->cmpcount-3+0)*bi->width + i);
-			cg = dbuf_getbyte(unc_pixels, j*bi->rowspan + (bi->cmpcount-3+1)*bi->width + i);
-			cb = dbuf_getbyte(unc_pixels, j*bi->rowspan + (bi->cmpcount-3+2)*bi->width + i);
+		for(i=0; i<bi->pdwidth; i++) {
+			cr = dbuf_getbyte(unc_pixels, j*bi->rowspan + (bi->cmpcount-3+0)*bi->pdwidth + i);
+			cg = dbuf_getbyte(unc_pixels, j*bi->rowspan + (bi->cmpcount-3+1)*bi->pdwidth + i);
+			cb = dbuf_getbyte(unc_pixels, j*bi->rowspan + (bi->cmpcount-3+2)*bi->pdwidth + i);
 			de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_RGB(cr,cg,cb));
 		}
 	}
@@ -310,7 +310,7 @@ static void decode_bitmap_rgb16(deark *c, lctx *d, struct fmtutil_macbitmap_info
 	u32 clr;
 
 	for(j=0; j<bi->height; j++) {
-		for(i=0; i<bi->width; i++) {
+		for(i=0; i<bi->pdwidth; i++) {
 			c0 = dbuf_getbyte(unc_pixels, j*bi->rowspan + i*2);
 			c1 = dbuf_getbyte(unc_pixels, j*bi->rowspan + i*2+1);
 			clr = ((u32)c0 << 8)|c1;
@@ -328,7 +328,7 @@ static void decode_bitmap_paletted(deark *c, lctx *d, struct fmtutil_macbitmap_i
 	u32 clr;
 
 	for(j=0; j<bi->height; j++) {
-		for(i=0; i<bi->width; i++) {
+		for(i=0; i<bi->pdwidth; i++) {
 			b = de_get_bits_symbol(unc_pixels, bi->pixelsize, j*bi->rowspan, i);
 			clr = bi->pal[(unsigned int)b];
 			de_bitmap_setpixel_rgb(img, i, j, clr);
@@ -404,7 +404,7 @@ static int decode_bitmap(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi, i
 		}
 	}
 
-	img = de_bitmap_create(c, bi->width, bi->height, dst_nsamples);
+	img = de_bitmap_create2(c, bi->npwidth, bi->pdwidth, bi->height, dst_nsamples);
 
 	fi = de_finfo_create(c);
 
@@ -440,12 +440,12 @@ static int decode_pixdata(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi, 
 
 	de_dbg_indent(c, 1);
 
-	if(bi->width==0 || bi->height==0) {
+	if(bi->npwidth==0 || bi->height==0) {
 		de_warn(c, "Ignoring zero-size bitmap (%d"DE_CHAR_TIMES"%d)",
-			(int)bi->width, (int)bi->height);
+			(int)bi->npwidth, (int)bi->height);
 		goto done;
 	}
-	if(!de_good_image_dimensions(c, bi->width, bi->height)) goto done;
+	if(!de_good_image_dimensions(c, bi->npwidth, bi->height)) goto done;
 
 	if(bi->pixelsize!=1 && bi->pixelsize!=2 && bi->pixelsize!=4 && bi->pixelsize!=8 &&
 		bi->pixelsize!=16 && bi->pixelsize!=24 && bi->pixelsize!=32)
@@ -560,8 +560,10 @@ static int handler_98_9a(deark *c, lctx *d, i64 opcode, i64 pos1, i64 *bytes_use
 		de_dbg_indent(c, -1);
 		if(rgnsize<2) goto done;
 		pos += rgnsize;
-		de_info(c, "Note: Ignoring clipping region. Output image might have "
-			"extraneous pixels.");
+		if(!c->padpix) {
+			de_info(c, "Note: Ignoring clipping region. Output image might have "
+				"extraneous pixels.");
+		}
 	}
 
 	if(!get_pixdata_size(c, d, bi, pos, &pixdata_size)) {

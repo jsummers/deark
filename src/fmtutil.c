@@ -1572,7 +1572,8 @@ void fmtutil_macbitmap_read_rowbytes_and_bounds(deark *c, dbuf *f,
 	de_dbg(c, "pixmap flag: %d", bi->pixmap_flag);
 
 	pict_read_rect(f, pos+2, &tmprect, "rect");
-	bi->width = tmprect.r - tmprect.l;
+	bi->npwidth = tmprect.r - tmprect.l;
+	bi->pdwidth = bi->npwidth; // default
 	bi->height = tmprect.b - tmprect.t;
 
 	de_dbg_indent(c, -1);
@@ -1610,6 +1611,11 @@ void fmtutil_macbitmap_read_pixmap_only_fields(deark *c, dbuf *f, struct fmtutil
 	bi->cmpsize = dbuf_getu16be(f, pos+22);
 	de_dbg(c, "pixel type=%d, bits/pixel=%d, components/pixel=%d, bits/comp=%d",
 		(int)bi->pixeltype, (int)bi->pixelsize, (int)bi->cmpcount, (int)bi->cmpsize);
+
+	bi->pdwidth = (bi->rowbytes*8)/bi->pixelsize;
+	if(bi->pdwidth < bi->npwidth) {
+		bi->pdwidth = bi->npwidth;
+	}
 
 	plane_bytes = dbuf_getu32be(f, pos+24);
 	de_dbg(c, "plane bytes: %d", (int)plane_bytes);

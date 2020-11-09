@@ -159,6 +159,7 @@ static void do_generate_unc_image(deark *c, lctx *d, struct page_ctx *pg,
 	dbuf *unc_pixels)
 {
 	i64 i, j;
+	i64 pdwidth;
 	u8 b;
 	u8 b_adj;
 	u32 clr;
@@ -169,18 +170,21 @@ static void do_generate_unc_image(deark *c, lctx *d, struct page_ctx *pg,
 	has_color = (pg->bitsperpixel>4 || pg->has_custom_pal);
 
 	if(pg->bitsperpixel==1 && !has_color) {
-		de_convert_and_write_image_bilevel(unc_pixels, 0, pg->w, pg->h, pg->rowbytes,
+		de_convert_and_write_image_bilevel2(unc_pixels, 0, pg->w, pg->h, pg->rowbytes,
 			DE_CVTF_WHITEISZERO, NULL, 0);
 		goto done;
 	}
 
 	make_stdpal256(c, d, stdpal);
 
-	img = de_bitmap_create(c, pg->w, pg->h,
+	pdwidth = (pg->rowbytes*8) / pg->bitsperpixel;
+	if(pdwidth<pg->w) pdwidth = pg->w;
+
+	img = de_bitmap_create2(c, pg->w, pdwidth, pg->h,
 		(has_color?3:1) + (pg->has_trns?1:0));
 
 	for(j=0; j<pg->h; j++) {
-		for(i=0; i<pg->w; i++) {
+		for(i=0; i<pdwidth; i++) {
 			if(pg->bitsperpixel==16) {
 				u32 clr1;
 				clr1 = (u32)dbuf_getu16be(unc_pixels, pg->rowbytes*j + 2*i);

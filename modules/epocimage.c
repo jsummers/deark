@@ -8,6 +8,11 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_epocimage);
 
+#define DE_PFMT_MBM           1
+#define DE_PFMT_EXPORTED_MBM  2
+#define DE_PFMT_SKETCH        3
+#define DE_PFMT_AIF           4
+
 static const u32 supplpal[40] = {
 	0x111111,0x222222,0x444444,0x555555,0x777777,
 	0x110000,0x220000,0x440000,0x550000,0x770000,
@@ -24,14 +29,14 @@ static u32 getpal256(int k)
 	int x;
 	u8 r, g, b;
 
-	if(k<0 || k>255) return 0;
+	if(k<0 || k>255) return DE_STOCKCOLOR_BLACK;
 
 	// The first and last 108 entries together make up the simple palette once
 	// known as the "web safe" palette. The middle 40 entries are
 	// supplementary grayscale and red/green/blue shades.
 
 	if(k>=108 && k<148) {
-		return supplpal[k-108];
+		return DE_MAKE_OPAQUE(supplpal[k-108]);
 	}
 
 	x = k<108 ? k : k-40;
@@ -56,6 +61,7 @@ struct page_ctx {
 };
 
 typedef struct localctx_struct {
+	int fmt;
 	i64 paint_data_section_size;
 	int warned_exp;
 
@@ -69,15 +75,14 @@ static de_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
 	de_bitmap *img = NULL;
 	i64 i, j;
 	i64 src_rowspan;
+	i64 pdwidth;
 	u8 b;
 	u8 cr;
 	u32 n;
 	u32 clr;
+	int bypp;
 
-	img = de_bitmap_create(c, pg->width, pg->height, pg->color_type ? 3 : 1);
-
-	img->orig_colortype = (int)pg->color_type;
-	img->orig_bitdepth = (int)pg->bits_per_pixel;
+	pdwidth = pg->width;
 
 	if(pg->bits_per_pixel==24) {
 		// 24-bit images seem to be 12-byte aligned
@@ -91,9 +96,18 @@ static de_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
 		if(pg->width%2) src_rowspan += 3;
 	}
 	else {
+		i64 bits_per_row;
 		// Rows are 4-byte aligned
-		src_rowspan = ((pg->bits_per_pixel*pg->width +31)/32)*4;
+
+		bits_per_row = de_pad_to_n(pg->bits_per_pixel*pg->width, 32);
+		src_rowspan = bits_per_row / 8;
+		pdwidth = bits_per_row / pg->bits_per_pixel;
 	}
+
+	bypp = pg->color_type ? 3 : 1;
+	img = de_bitmap_create2(c, pg->width, pdwidth, pg->height, bypp);
+	img->orig_colortype = (int)pg->color_type;
+	img->orig_bitdepth = (int)pg->bits_per_pixel;
 
 	for(j=0; j<pg->height; j++) {
 		for(i=0; i<pg->width; i++) {
@@ -109,7 +123,7 @@ static de_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
 			case 4:
 				b = de_get_bits_symbol_lsb(unc_pixels, pg->bits_per_pixel, j*src_rowspan, i);
 				if(pg->color_type)
-					de_bitmap_setpixel_rgb(img, i, j, pal16[(unsigned int)b]);
+					de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_OPAQUE(pal16[(unsigned int)b]));
 				else
 					de_bitmap_setpixel_gray(img, i, j, b*17);
 				break;
@@ -365,8 +379,6 @@ static void do_combine_and_write_images(deark *c, lctx *d,
 {
 	de_bitmap *img = NULL; // The combined image
 	i64 i, j;
-	u32 clr;
-	u8 a;
 
 	if(!fg_img) goto done;
 	if(!mask_img) {
@@ -375,14 +387,31 @@ static void do_combine_and_write_images(deark *c, lctx *d,
 	}
 
 	// Create a new image (which supports transparency).
-	img = de_bitmap_create(c, fg_img->width, fg_img->height, fg_img->bytes_per_pixel<=2 ? 2 : 4);
+	img = de_bitmap_create2(c, fg_img->unpadded_width, fg_img->width, fg_img->height,
+		(fg_img->bytes_per_pixel<=2 ? 2 : 4));
 
 	for(j=0; j<img->height; j++) {
 		for(i=0; i<img->width; i++) {
+			de_color clr;
+			de_colorsample a;
+
 			clr = de_bitmap_getpixel(fg_img, i, j);
 
-			if(i<mask_img->width && j<mask_img->height) {
-				a = DE_COLOR_G(de_bitmap_getpixel(mask_img, i, j));
+			if(i>=fg_img->unpadded_width) {
+				// Make all padding pixels opaque. (We don't preserve the mask's padding pixels.)
+				a = 0;
+			}
+			else if(i<mask_img->unpadded_width && j<mask_img->height) {
+				de_color clrm;
+				i64 a1;
+
+				clrm = de_bitmap_getpixel(mask_img, i, j);
+
+				// Some masks have colors that are not quite grayscale.
+				// Guess we'll use the average of the sample values.
+				a1 = (i64)DE_COLOR_R(clrm) + (i64)DE_COLOR_G(clrm) + (i64)DE_COLOR_B(clrm);
+				a = de_scale_n_to_255(255*3, a1);
+
 				if(mask_img->orig_colortype==0 && mask_img->orig_bitdepth==8) {
 					a = 255-a;
 				}
@@ -393,15 +422,7 @@ static void do_combine_and_write_images(deark *c, lctx *d,
 				a = 0xff;
 			}
 
-			// White is background, black is foreground.
-			if(a==0xff) {
-				clr = DE_MAKE_RGBA(255,128,255,0);
-			}
-			else if(a!=0) {
-				// Make this pixel transparent or partly transparent.
-				clr = DE_SET_ALPHA(clr, 255-a);
-			}
-			de_bitmap_setpixel_rgba(img, i, j, clr);
+			de_bitmap_setpixel_rgba(img, i, j, DE_SET_ALPHA(clr, 255-a));
 		}
 	}
 	de_bitmap_write_to_file(img, NULL, 0);
@@ -640,11 +661,6 @@ static void de_run_epocmbm(deark *c, lctx *d)
 	do_epocmbm_jumptable(c, d, d->jumptable_offset);
 }
 
-#define DE_PFMT_MBM     1
-#define DE_PFMT_EXPORTED_MBM 2
-#define DE_PFMT_SKETCH  3
-#define DE_PFMT_AIF     4
-
 static int de_identify_epocimage_internal(deark *c)
 {
 	u8 b[12];
@@ -673,14 +689,12 @@ static int de_identify_epocimage_internal(deark *c)
 
 static void de_run_epocimage(deark *c, de_module_params *mparams)
 {
-	int fmt;
 	lctx *d = NULL;
 
-	fmt = de_identify_epocimage_internal(c);
-
 	d = de_malloc(c, sizeof(lctx));
+	d->fmt = de_identify_epocimage_internal(c);
 
-	switch(fmt) {
+	switch(d->fmt) {
 	case DE_PFMT_SKETCH:
 		de_declare_fmt(c, "EPOC Sketch");
 		de_run_epocsketch(c, d);
@@ -698,7 +712,7 @@ static void de_run_epocimage(deark *c, de_module_params *mparams)
 		de_run_epocaif(c, d);
 		break;
 	default:
-		de_err(c, "Internal: Unidentified format");
+		de_internal_err_nonfatal(c, "Unidentified format");
 	}
 
 	de_free(c, d);
