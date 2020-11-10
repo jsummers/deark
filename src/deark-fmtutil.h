@@ -191,6 +191,17 @@ void fmtutil_lzh_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params);
 
+struct de_fax34_params {
+	i64 image_width;
+	i64 image_height;
+	UI tiff_cmpr_meth;
+	u32 t4options;
+	u32 t6options;
+};
+void fmtutil_fax34_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params);
+
 struct de_dfilter_ctx *de_dfilter_create(deark *c,
 	dfilter_codec_type codec_init_fn, void *codec_private_params,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);

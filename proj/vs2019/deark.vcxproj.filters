@@ -499,6 +499,9 @@
     <ClCompile Include="..\..\modules\dms.c">
       <Filter>Modules</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\fmtutil-fax.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\deark-config.h">

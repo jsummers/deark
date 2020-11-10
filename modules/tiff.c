@@ -74,6 +74,8 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define TAG_XRESOLUTION         282
 #define TAG_YRESOLUTION         283
 #define TAG_PLANARCONFIG        284
+#define TAG_T4OPTIONS           292
+#define TAG_T6OPTIONS           293
 #define TAG_RESOLUTIONUNIT      296
 #define TAG_PREDICTOR           317
 #define TAG_TILEWIDTH           322
@@ -163,6 +165,7 @@ struct page_ctx {
 	u32 predictor;
 	u32 sample_format;
 	u32 resolution_unit;
+	u32 t4options, t6options;
 	double density_ImageWidth, density_ImageLength;
 	i64 imagewidth, imagelength; // Raw tag values, before considering Orientation
 	i64 jpegoffset;
@@ -1780,6 +1783,12 @@ static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const s
 	case TAG_PLANARCONFIG:
 		pg->planarconfig = (u32)val;
 		break;
+	case TAG_T4OPTIONS:
+		pg->t4options = (u32)val;
+		break;
+	case TAG_T6OPTIONS:
+		pg->t6options = (u32)val;
+		break;
 	case TAG_RESOLUTIONUNIT:
 		pg->resolution_unit = (u32)val;
 		break;
@@ -1832,8 +1841,8 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 289, 0x00, "FreeByteCounts", NULL, NULL },
 	{ 290, 0x00, "GrayResponseUnit", NULL, NULL },
 	{ 291, 0x00, "GrayResponseCurve", NULL, NULL },
-	{ 292, 0x00, "T4Options", NULL, valdec_t4options },
-	{ 293, 0x00, "T6Options", NULL, valdec_t6options },
+	{ /* 292 */ TAG_T4OPTIONS, 0x00, "T4Options", handler_various, valdec_t4options },
+	{ /* 293 */ TAG_T6OPTIONS, 0x00, "T6Options", handler_various, valdec_t6options },
 	{ /* 296 */ TAG_RESOLUTIONUNIT, 0x00, "ResolutionUnit", handler_various, valdec_resolutionunit },
 	{ 297, 0x0400, "PageNumber", NULL, valdec_pagenumber },
 	{ 300, 0x0000, "ColorResponseUnit", NULL, NULL },
@@ -2771,10 +2780,29 @@ static void decompress_strile_deflate(deark *c, lctx *d, struct page_ctx *pg,
 		 DE_DEFLATEFLAG_ISZLIB);
 }
 
+static void decompress_strile_fax34(deark *c, lctx *d, struct page_ctx *pg,
+	struct decode_page_ctx *dctx)
+{
+	struct de_fax34_params fax34params;
+
+	de_zeromem(&fax34params, sizeof(struct de_fax34_params));
+	fax34params.image_width = dctx->strile_width;
+	fax34params.image_height = dctx->strile_height;
+	fax34params.tiff_cmpr_meth = (UI)pg->compression;
+	fax34params.t4options = pg->t4options;
+	fax34params.t6options = pg->t6options;
+
+	fmtutil_fax34_codectype1(c, &dctx->dcmpri, &dctx->dcmpro, &dctx->dres,
+		 (void*)&fax34params);
+}
+
 static int is_cmpr_meth_supported(u32 n)
 {
 	switch(n) {
 	case 1:
+	case 2:
+	case 3:
+	case 4:
 	case 5:
 	case 8:
 	case 32773:
@@ -2805,6 +2833,11 @@ static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
 	de_dfilter_init_objects(c, NULL, NULL, &dctx->dres);
 
 	switch(pg->compression) {
+	case 2:
+	case 3:
+	case 4:
+		decompress_strile_fax34(c, d, pg, dctx);
+		break;
 	case 5:
 		decompress_strile_lzw(c, d, pg, dctx);
 		break;
