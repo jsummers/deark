@@ -988,8 +988,18 @@ static void do_sequence_of_members(deark *c, lctx *d, i64 pos1)
 		int is_root_member;
 		i64 bytes_consumed = 0;
 
-		if((d->subdir_level==0) && (root_member_count >= d->nmembers)) break;
-		if(pos >= c->infile->len) break;
+		if(pos+112 > c->infile->len) {
+			if(d->subdir_level==0 && root_member_count!=d->nmembers) {
+				de_warn(c, "Expected %d top-level member file(s), found %d",
+					d->nmembers, root_member_count);
+			}
+			break;
+		}
+
+		// The "number of files" field appears to be untrustworthy, or its meaning
+		// is not correctly understood.
+		// FWIW, The Unarchiver also ignores it.
+		//if((d->subdir_level==0) && (root_member_count >= d->nmembers)) break;
 
 		is_root_member = (d->subdir_level==0);
 		ret = do_member(c, d, pos, &bytes_consumed);
