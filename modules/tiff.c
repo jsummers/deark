@@ -2791,6 +2791,7 @@ static void decompress_strile_fax34(deark *c, lctx *d, struct page_ctx *pg,
 	fax34params.tiff_cmpr_meth = (UI)pg->compression;
 	fax34params.t4options = pg->t4options;
 	fax34params.t6options = pg->t6options;
+	fax34params.is_lsb = (pg->fill_order==2)?1:0;
 
 	fmtutil_fax34_codectype1(c, &dctx->dcmpri, &dctx->dcmpro, &dctx->dres,
 		 (void*)&fax34params);
@@ -2802,7 +2803,6 @@ static int is_cmpr_meth_supported(u32 n)
 	case 1:
 	case 2:
 	case 3:
-	case 4:
 	case 5:
 	case 8:
 	case 32773:
@@ -2853,8 +2853,8 @@ static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
 	}
 
 	if(dctx->dres.errcode) {
-		detiff_err(c, d, "Decompression failed (IFD@%"I64_FMT", strip@(%d,%d)): %s",
-			pg->ifdpos, 0, (int)dctx->strile_ypos, de_dfilter_get_errmsg(c, &dctx->dres));
+		detiff_err(c, d, "Decompression failed (strip@(%d,%d)): %s",
+			0, (int)dctx->strile_ypos, de_dfilter_get_errmsg(c, &dctx->dres));
 		// TODO?: Better handling of partial failure
 		return 0;
 	}
@@ -3057,6 +3057,10 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	dctx->height = pg->imagelength;
 	if(!de_good_image_dimensions(c, dctx->width, dctx->height)) goto done;
 
+	if(!is_cmpr_meth_supported(pg->compression)) {
+		detiff_err(c, d, "Unsupported compression method (%d)", (int)pg->compression);
+		goto done;
+	}
 	if(pg->have_strip_tags && pg->have_tile_tags) {
 		detiff_err(c, d, "Image seems to have both strips and tiles");
 		goto done;
@@ -3124,10 +3128,6 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		goto done;
 	}
 
-	if(!is_cmpr_meth_supported(pg->compression)) {
-		detiff_err(c, d, "Unsupported compression method (%d)", (int)pg->compression);
-		goto done;
-	}
 	if(pg->samples_per_pixel>1 && pg->planarconfig>1) {
 		detiff_err(c, d, "Unsupported PlanarConfiguration");
 		goto done;

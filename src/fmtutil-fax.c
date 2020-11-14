@@ -19,6 +19,10 @@ struct fax_ctx {
 	struct de_dfilter_results *dres;
 	const char *modname;
 	struct de_fax34_params *fax34params;
+	u8 has_eol_codes;
+	u8 rows_padded_to_next_byte;
+	u8 is_2d;
+
 	i64 nbytes_written;
 	struct de_bitreader bitrd;
 
@@ -122,8 +126,6 @@ static void fax34_on_eol(deark *c, struct fax_ctx *fc)
 		return;
 	}
 
-	// [If necessary, apply prev_row to curr_row.]
-
 	// [Pack curr_row into bits (tmp_row_packed)]
 	de_zeromem(fc->tmp_row_packed, fc->rowspan_final);
 	for(i=0; i<fc->fax34params->image_width; i++) {
@@ -135,8 +137,6 @@ static void fax34_on_eol(deark *c, struct fax_ctx *fc)
 	// [Write tmp_row_packed to fc->dcmpro]
 	dbuf_write(fc->dcmpro->f, fc->tmp_row_packed, fc->rowspan_final);
 
-	// prev_row := curr_row
-	de_memcpy(fc->prev_row, fc->curr_row, fc->fax34params->image_width);
 	// initialize curr_row
 	de_zeromem(fc->curr_row, fc->fax34params->image_width);
 
@@ -159,7 +159,7 @@ static void init_fax34_bitreader(deark *c, struct fax_ctx *fc)
 	fc->bitrd.f = fc->dcmpri->f;
 	fc->bitrd.curpos = fc->dcmpri->pos;
 	fc->bitrd.endpos = fc->dcmpri->pos + fc->dcmpri->len;
-	fc->bitrd.bbll.is_lsb = 1;
+	fc->bitrd.bbll.is_lsb = fc->fax34params->is_lsb;
 	de_bitbuf_lowelevel_empty(&fc->bitrd.bbll);
 }
 
@@ -207,7 +207,9 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 
 	init_fax34_bitreader(c, fc);
 
-	fax34_full_sync(c, fc);
+	if(fc->has_eol_codes) {
+		fax34_full_sync(c, fc);
+	}
 
 	fc->xpos = 0;
 	fc->ypos = 0;
@@ -228,6 +230,15 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 			goto done;
 		}
 
+		if(!fc->has_eol_codes && (fc->xpos >= fc->fax34params->image_width)) {
+			if(fc->rows_padded_to_next_byte) {
+				de_bitbuf_lowelevel_empty(&fc->bitrd.bbll);
+			}
+			fax34_on_eol(c, fc);
+			pending_run_len = 0;
+			tree_to_use = 0;
+		}
+
 		ret = fmtutil_huffman_read_next_value(f34ht->htwb[tree_to_use], &fc->bitrd, &val, NULL);
 		if(!ret) {
 			de_dfilter_set_errorf(c, fc->dres, fc->modname, "Huffman decode error");
@@ -235,6 +246,11 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 		}
 
 		if(val<0) {
+			if(!fc->has_eol_codes) {
+				de_dfilter_set_errorf(c, fc->dres, fc->modname, "Huffman decode error");
+				goto done;
+			}
+
 			fax34_finish_sync(c, fc);
 			fax34_on_eol(c, fc);
 			pending_run_len = 0;
@@ -274,6 +290,26 @@ void fmtutil_fax34_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	fc->dcmpro = dcmpro;
 	fc->dres = dres;
 
+	if((fc->fax34params->tiff_cmpr_meth==3 && (fc->fax34params->t4options & 0x1)) ||
+		(fc->fax34params->tiff_cmpr_meth==4))
+	{
+		fc->is_2d = 1;
+	}
+
+	if(fc->fax34params->tiff_cmpr_meth==2) {
+		fc->has_eol_codes = 0;
+		fc->rows_padded_to_next_byte = 1;
+	}
+	else {
+		fc->has_eol_codes = 1;
+	}
+
+	if(fc->is_2d) {
+		de_dfilter_set_errorf(c, fc->dres, fc->modname, "This type of fax compression "
+			"is not supported");
+		goto done;
+	}
+
 	if(fc->fax34params->image_width < 1 ||
 		fc->fax34params->image_width > c->max_image_dimension)
 	{
@@ -282,7 +318,6 @@ void fmtutil_fax34_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	fc->rowspan_final = (fc->fax34params->image_width+7)/8;
 
 	fc->curr_row = de_malloc(c, fc->fax34params->image_width);
-	fc->prev_row =  de_malloc(c, fc->fax34params->image_width);
 	fc->tmp_row_packed = de_malloc(c, fc->rowspan_final);
 
 	f34ht = create_fax34_huffman_tree(c);

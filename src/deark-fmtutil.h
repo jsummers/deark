@@ -195,6 +195,7 @@ struct de_fax34_params {
 	i64 image_width;
 	i64 image_height;
 	UI tiff_cmpr_meth;
+	u8 is_lsb;
 	u32 t4options;
 	u32 t6options;
 };
