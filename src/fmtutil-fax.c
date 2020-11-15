@@ -127,7 +127,7 @@ static void fax34_on_eol(deark *c, struct fax_ctx *fc)
 	}
 
 	// [Pack curr_row into bits (tmp_row_packed)]
-	de_zeromem(fc->tmp_row_packed, fc->rowspan_final);
+	de_zeromem(fc->tmp_row_packed, (size_t)fc->rowspan_final);
 	for(i=0; i<fc->fax34params->image_width; i++) {
 		if(fc->curr_row[i]) {
 			fc->tmp_row_packed[i/8] |= 1U<<(7-i%8);
@@ -138,7 +138,7 @@ static void fax34_on_eol(deark *c, struct fax_ctx *fc)
 	dbuf_write(fc->dcmpro->f, fc->tmp_row_packed, fc->rowspan_final);
 
 	// initialize curr_row
-	de_zeromem(fc->curr_row, fc->fax34params->image_width);
+	de_zeromem(fc->curr_row, (size_t)fc->fax34params->image_width);
 
 	fc->ypos++;
 	fc->xpos = 0;
@@ -156,35 +156,55 @@ static void fax34_record_run(deark *c, struct fax_ctx *fc, UI color, UI run_len)
 
 static void init_fax34_bitreader(deark *c, struct fax_ctx *fc)
 {
+	de_zeromem(&fc->bitrd, sizeof(struct de_bitreader));
 	fc->bitrd.f = fc->dcmpri->f;
 	fc->bitrd.curpos = fc->dcmpri->pos;
 	fc->bitrd.endpos = fc->dcmpri->pos + fc->dcmpri->len;
 	fc->bitrd.bbll.is_lsb = fc->fax34params->is_lsb;
-	de_bitbuf_lowelevel_empty(&fc->bitrd.bbll);
 }
 
 // Read up to and including the next '1' bit
-static void fax34_finish_sync(deark *c, struct fax_ctx *fc)
+static int fax34_finish_sync(deark *c, struct fax_ctx *fc, i64 max_bits_to_search)
 {
+	i64 nbits_searched = 0;
+	int retval = 0;
+
 	while(1) {
 		u64 n;
 
+		if(nbits_searched >= max_bits_to_search) {
+			goto done;
+		}
+
 		n = de_bitreader_getbits(&fc->bitrd, 1);
-		if(fc->bitrd.eof_flag) return;
-		if(n!=0) return;
+		if(fc->bitrd.eof_flag) goto done;
+		nbits_searched++;
+		if(n!=0) {
+			retval = 1;
+			goto done;
+		}
 	}
+done:
+	return retval;
 }
 
 // Read up to and including run of 8 or more '0' bits, followed by a '1' bit.
-static void fax34_full_sync(deark *c, struct fax_ctx *fc)
+static int fax34_full_sync(deark *c, struct fax_ctx *fc, i64 max_bits_to_search)
 {
+	i64 nbits_searched = 0;
 	UI zcount = 0;
+	int retval = 0;
 
 	while(1) {
 		u64 n;
 
+		if(nbits_searched >= max_bits_to_search) {
+			goto done;
+		}
 		n = de_bitreader_getbits(&fc->bitrd, 1);
-		if(fc->bitrd.eof_flag) return;
+		if(fc->bitrd.eof_flag) goto done;
+		nbits_searched++;
+
 		if(n!=0) {
 			zcount = 0;
 			continue;
@@ -195,20 +215,35 @@ static void fax34_full_sync(deark *c, struct fax_ctx *fc)
 		}
 	}
 
-	fax34_finish_sync(c, fc);
+	retval = fax34_finish_sync(c, fc, max_bits_to_search-nbits_searched);
+
+done:
+	return retval;
 }
 
 static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 	struct fax34_huffman_tree *f34ht)
 {
-	int retval = 0;
 	UI tree_to_use = 0; // white
 	UI pending_run_len = 0;
+	char errmsg[100];
 
+	errmsg[0] = '\0';
 	init_fax34_bitreader(c, fc);
 
 	if(fc->has_eol_codes) {
-		fax34_full_sync(c, fc);
+		if(!fax34_full_sync(c, fc, 1024)) {
+			if(fc->fax34params->tiff_cmpr_meth==3) {
+				de_dbg(c, "[no sync mark found, trying to compensate]");
+				fc->has_eol_codes = 0;
+				fc->rows_padded_to_next_byte = 0;
+				init_fax34_bitreader(c, fc);
+			}
+			else {
+				de_snprintf(errmsg, sizeof(errmsg), "Failed to find sync mark");
+				goto done;
+			}
+		}
 	}
 
 	fc->xpos = 0;
@@ -221,12 +256,11 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 		if(fc->ypos >= fc->fax34params->image_height ||
 			((fc->ypos == fc->fax34params->image_height-1) && (fc->xpos >= fc->fax34params->image_width)))
 		{
-			retval = 1;
-			goto done;
+			goto done; // Normal completion
 		}
 
 		if(fc->bitrd.eof_flag) {
-			de_dfilter_set_errorf(c, fc->dres, fc->modname, "Unexpected end of compressed data");
+			de_snprintf(errmsg, sizeof(errmsg), "Unexpected end of compressed data");
 			goto done;
 		}
 
@@ -241,17 +275,25 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 
 		ret = fmtutil_huffman_read_next_value(f34ht->htwb[tree_to_use], &fc->bitrd, &val, NULL);
 		if(!ret) {
-			de_dfilter_set_errorf(c, fc->dres, fc->modname, "Huffman decode error");
+			if(fc->bitrd.eof_flag) {
+				de_snprintf(errmsg, sizeof(errmsg), "Unexpected end of compressed data");
+			}
+			else {
+				de_snprintf(errmsg, sizeof(errmsg), "Huffman decode error");
+			}
 			goto done;
 		}
 
 		if(val<0) {
 			if(!fc->has_eol_codes) {
-				de_dfilter_set_errorf(c, fc->dres, fc->modname, "Huffman decode error");
+				de_snprintf(errmsg, sizeof(errmsg), "Huffman decode error");
 				goto done;
 			}
 
-			fax34_finish_sync(c, fc);
+			if(!fax34_finish_sync(c, fc, 64)) {
+				de_snprintf(errmsg, sizeof(errmsg), "Failed to find EOL mark");
+				goto done;
+			}
 			fax34_on_eol(c, fc);
 			pending_run_len = 0;
 			tree_to_use = 0;
@@ -270,10 +312,14 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 done:
 	fax34_on_eol(c, fc); // Make sure we emit the last row
 
-	if(!retval) {
-		de_dfilter_set_errorf(c, fc->dres, fc->modname, "Fax3/4 not implemented");
+	if(errmsg[0]) {
+		if(fc->ypos>0) {
+			de_warn(c, "[%s] Failed to decode entire strip: %s", fc->modname, errmsg);
+		}
+		else {
+			de_dfilter_set_errorf(c, fc->dres, fc->modname, "%s", errmsg);
+		}
 	}
-	//fc->dres->errcode = 0;
 }
 
 void fmtutil_fax34_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
@@ -284,7 +330,7 @@ void fmtutil_fax34_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct fax34_huffman_tree *f34ht = NULL;
 
 	fc = de_malloc(c, sizeof(struct fax_ctx));
-	fc->modname = "fax3/4";
+	fc->modname = "fax_decode";
 	fc->fax34params = (struct de_fax34_params*)codec_private_params;
 	fc->dcmpri = dcmpri;
 	fc->dcmpro = dcmpro;
