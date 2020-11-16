@@ -94,7 +94,8 @@ struct tagnuminfo;
 
 struct ifdstack_item {
 	i64 offset;
-	int ifdtype;
+	u8 ifdtype;
+	u8 is_in_main_ifd_list;
 };
 
 typedef void (*handler_fn_type)(deark *c, lctx *d, const struct taginfo *tg,
@@ -144,9 +145,10 @@ struct strile_data_struct {
 };
 
 struct page_ctx {
-	i64 ifd_idx;
 	i64 ifdpos;
-	int ifdtype;
+	int ifd_idx;
+	int ifd_idx_in_main_list; // -1 if not in main list
+	u8 ifdtype;
 
 	u8 have_imagewidth;
 	u8 have_jpeglength;
@@ -178,6 +180,7 @@ struct page_ctx {
 	i64 strile_count;
 	struct strile_data_struct *strile_data; // array[strile_count]
 	de_color pal[256];
+	char errmsgtoken_ifd[40];
 };
 
 // Data associated with an actual tag in an IFD in the file
@@ -216,7 +219,8 @@ struct localctx_struct {
 	int current_textfield_encoding;
 
 	struct de_inthashtable *ifds_seen;
-	i64 ifd_count; // Number of IFDs that we currently know of
+	int ifd_count; // Number of IFDs that we currently know of
+	int num_main_ifds_processed;
 
 	i64 ifdhdrsize;
 	i64 ifditemsize;
@@ -228,29 +232,29 @@ struct localctx_struct {
 	unsigned int mpf_main_image_count;
 
 	char errmsgtoken_module[40];
-	char errmsgtoken_ifd[40];
 };
 
-static void detiff_err(deark *c, lctx *d, const char *fmt, ...)
-	de_gnuc_attribute ((format (printf, 3, 4)));
+static void detiff_err(deark *c, lctx *d, struct page_ctx *pg, const char *fmt, ...)
+	de_gnuc_attribute ((format (printf, 4, 5)));
 
-static void detiff_err(deark *c, lctx *d, const char *fmt, ...)
+// pg can be NULL (if not in IFD context)
+static void detiff_err(deark *c, lctx *d, struct page_ctx *pg, const char *fmt, ...)
 {
 	va_list ap;
 	char buf[256];
 
 	va_start(ap, fmt);
-	if(d && d->errmsgtoken_module[0] && d->errmsgtoken_ifd[0]) {
+	if(d->errmsgtoken_module[0] && pg) {
 		de_vsnprintf(buf, sizeof(buf), fmt, ap);
-		de_err(c, "[%s:%s] %s", d->errmsgtoken_module, d->errmsgtoken_ifd, buf);
+		de_err(c, "[%s:%s] %s", d->errmsgtoken_module, pg->errmsgtoken_ifd, buf);
 	}
-	else if(d && d->errmsgtoken_module[0]) {
+	else if(d->errmsgtoken_module[0]) {
 		de_vsnprintf(buf, sizeof(buf), fmt, ap);
 		de_err(c, "[%s] %s", d->errmsgtoken_module, buf);
 	}
-	else if(d && d->errmsgtoken_ifd[0]) {
+	else if(pg) {
 		de_vsnprintf(buf, sizeof(buf), fmt, ap);
-		de_err(c, "[%s] %s", d->errmsgtoken_ifd, buf);
+		de_err(c, "[%s] %s", pg->errmsgtoken_ifd, buf);
 	}
 	else {
 		de_verr(c, fmt, ap);
@@ -258,26 +262,26 @@ static void detiff_err(deark *c, lctx *d, const char *fmt, ...)
 	va_end(ap);
 }
 
-static void detiff_warn(deark *c, lctx *d, const char *fmt, ...)
-	de_gnuc_attribute ((format (printf, 3, 4)));
+static void detiff_warn(deark *c, lctx *d, struct page_ctx *pg, const char *fmt, ...)
+	de_gnuc_attribute ((format (printf, 4, 5)));
 
-static void detiff_warn(deark *c, lctx *d, const char *fmt, ...)
+static void detiff_warn(deark *c, lctx *d, struct page_ctx *pg, const char *fmt, ...)
 {
 	va_list ap;
 	char buf[256];
 
 	va_start(ap, fmt);
-	if(d && d->errmsgtoken_module[0] && d->errmsgtoken_ifd[0]) {
+	if(d->errmsgtoken_module[0] && pg) {
 		de_vsnprintf(buf, sizeof(buf), fmt, ap);
-		de_warn(c, "[%s:%s] %s", d->errmsgtoken_module, d->errmsgtoken_ifd, buf);
+		de_warn(c, "[%s:%s] %s", d->errmsgtoken_module, pg->errmsgtoken_ifd, buf);
 	}
-	else if(d && d->errmsgtoken_module[0]) {
+	else if(d->errmsgtoken_module[0]) {
 		de_vsnprintf(buf, sizeof(buf), fmt, ap);
 		de_warn(c, "[%s] %s", d->errmsgtoken_module, buf);
 	}
-	else if(d && d->errmsgtoken_ifd[0]) {
+	else if(pg) {
 		de_vsnprintf(buf, sizeof(buf), fmt, ap);
-		de_warn(c, "[%s] %s", d->errmsgtoken_ifd, buf);
+		de_warn(c, "[%s] %s", pg->errmsgtoken_ifd, buf);
 	}
 	else {
 		de_vwarn(c, fmt, ap);
@@ -286,18 +290,19 @@ static void detiff_warn(deark *c, lctx *d, const char *fmt, ...)
 }
 
 // Returns 0 if stack is empty.
-static i64 pop_ifd(deark *c, lctx *d, int *ifdtype)
+static i64 pop_ifd(deark *c, lctx *d, u8 *ifdtype, u8 *is_in_main_ifd_list)
 {
 	i64 ifdpos;
 	if(!d->ifdstack) return 0;
 	if(d->ifdstack_numused<1) return 0;
 	ifdpos = d->ifdstack[d->ifdstack_numused-1].offset;
 	*ifdtype = d->ifdstack[d->ifdstack_numused-1].ifdtype;
+	*is_in_main_ifd_list = d->ifdstack[d->ifdstack_numused-1].is_in_main_ifd_list;
 	d->ifdstack_numused--;
 	return ifdpos;
 }
 
-static void push_ifd(deark *c, lctx *d, i64 ifdpos, int ifdtype)
+static void push_ifd(deark *c, lctx *d, i64 ifdpos, u8 ifdtype, u8 is_in_main_ifd_list)
 {
 	if(ifdpos==0) return;
 
@@ -306,11 +311,11 @@ static void push_ifd(deark *c, lctx *d, i64 ifdpos, int ifdtype)
 		d->ifds_seen = de_inthashtable_create(c);
 	}
 	if(d->ifd_count >= MAX_IFDS) {
-		detiff_warn(c, d, "Too many TIFF IFDs");
+		detiff_warn(c, d, NULL, "Too many TIFF IFDs");
 		return;
 	}
 	if(!de_inthashtable_add_item(c, d->ifds_seen, ifdpos, NULL)) {
-		detiff_err(c, d, "IFD loop detected");
+		detiff_err(c, d, NULL, "IFD loop detected");
 		return;
 	}
 	d->ifd_count++;
@@ -322,11 +327,12 @@ static void push_ifd(deark *c, lctx *d, i64 ifdpos, int ifdtype)
 		d->ifdstack_numused = 0;
 	}
 	if(d->ifdstack_numused >= d->ifdstack_capacity) {
-		detiff_warn(c, d, "Too many TIFF IFDs");
+		detiff_warn(c, d, NULL, "Too many TIFF IFDs");
 		return;
 	}
 	d->ifdstack[d->ifdstack_numused].offset = ifdpos;
 	d->ifdstack[d->ifdstack_numused].ifdtype = ifdtype;
+	d->ifdstack[d->ifdstack_numused].is_in_main_ifd_list = is_in_main_ifd_list;
 	d->ifdstack_numused++;
 }
 
@@ -593,13 +599,13 @@ static void do_oldjpeg(deark *c, lctx *d, struct page_ctx *pg)
 	}
 
 	if(pg->jpegoffset+jpeglength>c->infile->len) {
-		detiff_warn(c, d, "Invalid offset/length of embedded JPEG data (offset=%"I64_FMT
+		detiff_warn(c, d, pg, "Invalid offset/length of embedded JPEG data (offset=%"I64_FMT
 			", len=%"I64_FMT")", pg->jpegoffset, jpeglength);
 		return;
 	}
 
 	if(dbuf_memcmp(c->infile, pg->jpegoffset, "\xff\xd8\xff", 3)) {
-		detiff_warn(c, d, "Expected JPEG data at %"I64_FMT" not found", pg->jpegoffset);
+		detiff_warn(c, d, pg, "Expected JPEG data at %"I64_FMT" not found", pg->jpegoffset);
 		return;
 	}
 
@@ -1175,7 +1181,7 @@ static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const st
 {
 	i64 j;
 	i64 tmpoffset;
-	int ifdtype = IFDTYPE_NORMAL;
+	u8 ifdtype = IFDTYPE_NORMAL;
 
 	if(d->fmt==DE_TIFFFMT_NIKONMN && tg->tagnum==0x11) ifdtype = IFDTYPE_NIKONPREVIEW;
 	else if(tg->tagnum==330) ifdtype = IFDTYPE_SUBIFD;
@@ -1188,7 +1194,7 @@ static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const st
 	for(j=0; j<tg->valcount;j++) {
 		read_tag_value_as_int64(c, d, tg, j, &tmpoffset);
 		de_dbg(c, "offset of %s: %d", tni->tagname, (int)tmpoffset);
-		push_ifd(c, d, tmpoffset, ifdtype);
+		push_ifd(c, d, tmpoffset, ifdtype, 0);
 	}
 }
 
@@ -1405,7 +1411,7 @@ static void handler_37724(deark *c, lctx *d, const struct taginfo *tg, const str
 	}
 
 	if(psdver==0) {
-		detiff_warn(c, d, "Bad or unsupported ImageSourceData tag at %d", (int)tg->val_offset);
+		detiff_warn(c, d, tg->pg, "Bad or unsupported ImageSourceData tag at %d", (int)tg->val_offset);
 		goto done;
 	}
 
@@ -1445,7 +1451,8 @@ struct mpfctx_struct {
 	i64 imgsize;
 };
 
-static void try_to_extract_mpf_image(deark *c, lctx *d, struct mpfctx_struct *mpfctx)
+static void try_to_extract_mpf_image(deark *c, lctx *d, struct page_ctx *pg,
+	struct mpfctx_struct *mpfctx)
 {
 	dbuf *inf;
 
@@ -1460,14 +1467,14 @@ static void try_to_extract_mpf_image(deark *c, lctx *d, struct mpfctx_struct *mp
 	if(mpfctx->imgoffs_abs + mpfctx->imgsize > inf->len) {
 		if(mpfctx->warned) goto done;
 		mpfctx->warned = 1;
-		detiff_warn(c, d, "Invalid MPF multi-picture data. File size should be at "
+		detiff_warn(c, d, pg, "Invalid MPF multi-picture data. File size should be at "
 			"least %"I64_FMT", is %"I64_FMT".",
 			mpfctx->imgoffs_abs+mpfctx->imgsize, inf->len);
 		goto done;
 	}
 
 	if(dbuf_memcmp(inf, mpfctx->imgoffs_abs, "\xff\xd8\xff", 3)) {
-		detiff_warn(c, d, "Invalid or unsupported MPF multi-picture data. Expected image at "
+		detiff_warn(c, d, pg, "Invalid or unsupported MPF multi-picture data. Expected image at "
 			"%"I64_FMT" not found.", mpfctx->imgoffs_abs);
 		goto done;
 	}
@@ -1558,7 +1565,7 @@ static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const s
 		if(imgoffs_rel>0) {
 			mpfctx.imgoffs_abs = imgoffs_abs;
 			mpfctx.imgsize = imgsize;
-			try_to_extract_mpf_image(c, d, &mpfctx);
+			try_to_extract_mpf_image(c, d, tg->pg, &mpfctx);
 		}
 
 		n = dbuf_getu16x(c->infile, pos+12, d->is_le);
@@ -2607,7 +2614,7 @@ static void do_dbg_print_values(deark *c, lctx *d, const struct taginfo *tg, con
 	}
 }
 
-static const struct tagnuminfo *find_tagnuminfo(int tagnum, int filefmt, int ifdtype)
+static const struct tagnuminfo *find_tagnuminfo(int tagnum, int filefmt, u8 ifdtype)
 {
 	size_t i;
 
@@ -2853,7 +2860,7 @@ static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
 	}
 
 	if(dctx->dres.errcode) {
-		detiff_err(c, d, "Decompression failed (strip@(%d,%d)): %s",
+		detiff_err(c, d, pg, "Decompression failed (strip@(%d,%d)): %s",
 			0, (int)dctx->strile_ypos, de_dfilter_get_errmsg(c, &dctx->dres));
 		// TODO?: Better handling of partial failure
 		return 0;
@@ -3058,23 +3065,23 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	if(!de_good_image_dimensions(c, dctx->width, dctx->height)) goto done;
 
 	if(!is_cmpr_meth_supported(pg->compression)) {
-		detiff_err(c, d, "Unsupported compression method (%d)", (int)pg->compression);
+		detiff_err(c, d, pg, "Unsupported compression method: %d", (int)pg->compression);
 		goto done;
 	}
 	if(pg->have_strip_tags && pg->have_tile_tags) {
-		detiff_err(c, d, "Image seems to have both strips and tiles");
+		detiff_err(c, d, pg, "Image seems to have both strips and tiles");
 		goto done;
 	}
 	if(pg->have_tile_tags) {
 		dctx->is_tiled = 1;
-		detiff_err(c, d, "Tiled images are not supported");
+		detiff_err(c, d, pg, "Tiled images are not supported");
 		goto done;
 	}
 
 	if(pg->strile_count<1) { need_errmsg = 1; goto done; }
 
 	if(pg->sample_format!=1) {
-		detiff_err(c, d, "Unsupported sample format (%d)", (int)pg->sample_format);
+		detiff_err(c, d, pg, "Unsupported sample format (%d)", (int)pg->sample_format);
 		goto done;
 	}
 
@@ -3100,12 +3107,12 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		}
 	}
 	else {
-		detiff_err(c, d, "Unsupported color type (%d)", (int)pg->photometric);
+		detiff_err(c, d, pg, "Unsupported color type (%d)", (int)pg->photometric);
 		goto done;
 	}
 
 	if(!ok_bps) {
-		detiff_err(c, d, "Unsupported bits/sample (%d) for this color type", (int)pg->bits_per_sample);
+		detiff_err(c, d, pg, "Unsupported bits/sample (%d) for this color type", (int)pg->bits_per_sample);
 		goto done;
 	}
 
@@ -3113,23 +3120,23 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		pg->samples_per_pixel = dctx->base_samples_per_pixel;
 	}
 	if(pg->samples_per_pixel < dctx->base_samples_per_pixel) {
-		detiff_err(c, d, "Bad samples/pixel (%d) for this color type", (int)pg->samples_per_pixel);
+		detiff_err(c, d, pg, "Bad samples/pixel (%d) for this color type", (int)pg->samples_per_pixel);
 		goto done;
 	}
 	dctx->samples_per_pixel_to_decode = pg->samples_per_pixel;
 	if(dctx->samples_per_pixel_to_decode>DE_TIFF_MAX_SAMPLES) {
-		detiff_warn(c, d, "Large number of SamplesPerPixel (%d). Some samples ignored.",
+		detiff_warn(c, d, pg, "Large number of SamplesPerPixel (%d). Some samples ignored.",
 			(int)pg->samples_per_pixel);
 		dctx->samples_per_pixel_to_decode = DE_TIFF_MAX_SAMPLES;
 	}
 
 	if(pg->predictor!=1 && pg->predictor!=2) {
-		detiff_err(c, d, "Unsupported prediction method (%d)", (int)pg->predictor);
+		detiff_err(c, d, pg, "Unsupported prediction method (%d)", (int)pg->predictor);
 		goto done;
 	}
 
 	if(pg->samples_per_pixel>1 && pg->planarconfig>1) {
-		detiff_err(c, d, "Unsupported PlanarConfiguration");
+		detiff_err(c, d, pg, "Unsupported PlanarConfiguration");
 		goto done;
 	}
 
@@ -3242,7 +3249,7 @@ done:
 	de_bitmap_destroy(img);
 	de_finfo_destroy(c, fi);
 	if(need_errmsg) {
-		detiff_err(c, d, "Unsupported image type or bad image");
+		detiff_err(c, d, pg, "Unsupported image type or bad image");
 	}
 	if(dctx) {
 		if(dctx->dfctx) de_dfilter_destroy(dctx->dfctx);
@@ -3251,7 +3258,8 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtype1)
+static void process_ifd(deark *c, lctx *d, int ifd_idx1, i64 ifdpos1, u8 ifdtype1,
+	u8 is_in_main_ifd_list)
 {
 	struct page_ctx *pg = NULL;
 	int num_tags;
@@ -3268,6 +3276,16 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 	pg->ifd_idx = ifd_idx1;
 	pg->ifdpos = ifdpos1;
 	pg->ifdtype = ifdtype1;
+	if(is_in_main_ifd_list) {
+		pg->ifd_idx_in_main_list = d->num_main_ifds_processed++;
+		de_snprintf(pg->errmsgtoken_ifd, sizeof(pg->errmsgtoken_ifd),
+			"IFD#%d@%"I64_FMT, pg->ifd_idx_in_main_list+1, pg->ifdpos);
+	}
+	else {
+		pg->ifd_idx_in_main_list = -1;
+		de_snprintf(pg->errmsgtoken_ifd, sizeof(pg->errmsgtoken_ifd),
+			"IFD#n/a@%"I64_FMT, pg->ifdpos);
+	}
 
 	// NOTE: Some TIFF apps (e.g. Windows Photo Viewer) have been observed to encode
 	// ASCII fields (e.g. ImageDescription) in UTF-8, in violation of the TIFF spec.
@@ -3311,14 +3329,12 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 	de_dbg(c, "IFD at %"I64_FMT"%s", pg->ifdpos, name);
 	de_dbg_indent(c, 1);
 
+	de_dbg2(c, "ifd id: \"%s\"", pg->errmsgtoken_ifd);
+
 	if(pg->ifdpos >= c->infile->len || pg->ifdpos<8) {
-		detiff_warn(c, d, "Invalid IFD offset (%"I64_FMT")", pg->ifdpos);
+		detiff_warn(c, d, NULL, "Invalid IFD offset (%"I64_FMT")", pg->ifdpos);
 		goto done;
 	}
-
-	// TODO: Improve the format of this token.
-	de_snprintf(d->errmsgtoken_ifd, sizeof(d->errmsgtoken_ifd),
-		"IFD#%d@%"I64_FMT, (int)pg->ifd_idx, pg->ifdpos);
 
 	if(d->is_bigtiff) {
 		num_tags = (int)dbuf_geti64x(c->infile, pg->ifdpos, d->is_le);
@@ -3329,14 +3345,14 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 
 	de_dbg(c, "number of tags: %d", num_tags);
 	if(num_tags>200) {
-		detiff_warn(c, d, "Invalid or excessive number of TIFF tags (%d)", num_tags);
+		detiff_warn(c, d, pg, "Invalid or excessive number of TIFF tags (%d)", num_tags);
 		goto done;
 	}
 
 	// Record the next IFD in the main list.
 	tmpoffset = getfpos(c, d, pg->ifdpos+d->ifdhdrsize+num_tags*d->ifditemsize);
 	de_dbg(c, "offset of next IFD: %"I64_FMT"%s", tmpoffset, tmpoffset==0?" (none)":"");
-	push_ifd(c, d, tmpoffset, IFDTYPE_NORMAL);
+	push_ifd(c, d, tmpoffset, IFDTYPE_NORMAL, 1);
 
 	dbgline = ucstring_create(c);
 
@@ -3403,25 +3419,25 @@ done:
 		de_free(c, pg->strile_data);
 		de_free(c, pg);
 	}
-	d->errmsgtoken_ifd[0] = '\0';
+	//d->errmsgtoken_ifd[0] = '\0';
 }
 
 static void do_tiff(deark *c, lctx *d)
 {
 	i64 pos;
 	i64 ifdoffs;
-	i64 ifd_idx;
+	int ifd_idx;
 	int need_to_read_header = 1;
 
 	pos = 0;
 
 	if(d->fmt==DE_TIFFFMT_APPLEMN) {
-		push_ifd(c, d, 14, IFDTYPE_APPLEMN);
+		push_ifd(c, d, 14, IFDTYPE_APPLEMN, 1);
 		need_to_read_header = 0;
 	}
 	else if(d->fmt==DE_TIFFFMT_FUJIFILMMN) {
 		ifdoffs = getfpos(c, d, 8);
-		push_ifd(c, d, ifdoffs, IFDTYPE_FUJIFILMMN);
+		push_ifd(c, d, ifdoffs, IFDTYPE_FUJIFILMMN, 1);
 		need_to_read_header = 0;
 	}
 
@@ -3443,10 +3459,10 @@ static void do_tiff(deark *c, lctx *d)
 		ifdoffs = getfpos(c, d, pos);
 		de_dbg(c, "offset of first IFD: %d", (int)ifdoffs);
 		if(d->fmt==DE_TIFFFMT_NIKONMN) {
-			push_ifd(c, d, ifdoffs, IFDTYPE_NIKONMN);
+			push_ifd(c, d, ifdoffs, IFDTYPE_NIKONMN, 1);
 		}
 		else {
-			push_ifd(c, d, ifdoffs, IFDTYPE_NORMAL);
+			push_ifd(c, d, ifdoffs, IFDTYPE_NORMAL, 1);
 		}
 
 		de_dbg_indent(c, -1);
@@ -3458,12 +3474,16 @@ static void do_tiff(deark *c, lctx *d)
 	// TODO: It might be useful to count just the IFDs in the main IFD list.
 	ifd_idx = 0;
 	while(1) {
-		int ifdtype = IFDTYPE_NORMAL;
-		ifdoffs = pop_ifd(c, d, &ifdtype);
+		u8 ifdtype = IFDTYPE_NORMAL;
+		u8 is_in_main_ifd_list = 0;
+
+		ifdoffs = pop_ifd(c, d, &ifdtype, &is_in_main_ifd_list);
 		if(ifdoffs==0) break;
-		process_ifd(c, d, ifd_idx, ifdoffs, ifdtype);
+		process_ifd(c, d, ifd_idx, ifdoffs, ifdtype, is_in_main_ifd_list);
 		ifd_idx++;
 	}
+
+	de_dbg(c, "number of IFDs: %d (%d in main list)", d->ifd_count, d->num_main_ifds_processed);
 }
 
 static int de_identify_tiff_internal(deark *c, int *is_le)
@@ -3613,7 +3633,7 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 	}
 
 	if(d->fmt==0) {
-		detiff_warn(c, d, "This is not a known/supported TIFF or TIFF-like format.");
+		detiff_warn(c, d, NULL, "This is not a known/supported TIFF or TIFF-like format.");
 	}
 
 	if(d->is_bigtiff) {
