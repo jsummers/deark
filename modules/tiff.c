@@ -2703,6 +2703,7 @@ struct decode_page_ctx {
 	u8 is_tiled;
 	u8 is_grayscale;
 	u8 grayscale_reverse_polarity;
+	u8 need_to_reverse_bits;
 	u8 use_pal;
 	u8 has_alpha;
 	u8 is_assoc_alpha;
@@ -2715,11 +2716,34 @@ struct decode_page_ctx {
 	struct de_dfilter_results dres;
 };
 
-static void decompress_strile_uncmpr(deark *c, lctx *d, struct page_ctx *pg,
-	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
-	struct de_dfilter_results *dres)
+static void reverse_bits_in_membuf(dbuf *f)
 {
-	fmtutil_decompress_uncompressed(c, dcmpri, dcmpro, dres, 0);
+	i64 len = f->len;
+	i64 i;
+
+	for(i=0; i<len; i++) {
+		u8 b, b2;
+		size_t k;
+
+		b = dbuf_getbyte(f, i);
+		if(b==0x00 || b==0xff) continue;
+		b2 = 0;
+		for(k=0; k<8; k++) {
+			if(b & (1U<<k)) {
+				b2 |= (1U<<(7-k));
+			}
+		}
+		dbuf_writebyte_at(f, i, b2);
+	}
+}
+
+static void decompress_strile_uncmpr(deark *c, lctx *d, struct page_ctx *pg,
+	struct decode_page_ctx *dctx)
+{
+	fmtutil_decompress_uncompressed(c, &dctx->dcmpri, &dctx->dcmpro, &dctx->dres, 0);
+	if(dctx->need_to_reverse_bits) {
+		reverse_bits_in_membuf(dctx->dcmpro.f);
+	}
 }
 
 // If old LZW version, sets pg->is_old_lzw.
@@ -2856,7 +2880,7 @@ static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
 		decompress_strile_packbits(c, d, pg, dctx);
 		break;
 	default:
-		decompress_strile_uncmpr(c, d, pg, &dctx->dcmpri, &dctx->dcmpro, &dctx->dres);
+		decompress_strile_uncmpr(c, d, pg, dctx);
 	}
 
 	if(dctx->dres.errcode) {
@@ -3140,6 +3164,19 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		goto done;
 	}
 
+	if(pg->fill_order==2) {
+		// FillOrder=LSB is ambiguous in general, but we allow it in some special cases.
+		if(pg->compression==1 && pg->samples_per_pixel==1 && pg->bits_per_sample==1) {
+			dctx->need_to_reverse_bits = 1;
+		}
+		else if(pg->compression>=2 && pg->compression<=5) {
+			;
+		}
+		else {
+			detiff_warn(c, d, pg, "Unexpected FillOrder for this image type. Ignoring.");
+		}
+	}
+
 	if(c->padpix && !dctx->is_tiled) {
 		if(pg->samples_per_pixel==1 && pg->bits_per_sample<8) {
 			dctx->width = de_pad_to_n(dctx->width * pg->samples_per_pixel * pg->bits_per_sample, 8) /
@@ -3189,7 +3226,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		dctx->strile_rowspan = (dctx->strile_width * pg->samples_per_pixel * pg->bits_per_sample + 7)/8;
 		dctx->strile_height = de_min_int(pg->rows_per_strip, dctx->height - dctx->strile_ypos);
 
-		if(pg->compression==1) { // Optimization for uncompressed images
+		if(pg->compression==1 && !dctx->need_to_reverse_bits) { // Optimization for uncompressed images
 			if(tmp_subfile[0]) {
 				dbuf_close(tmp_subfile[0]);
 			}
