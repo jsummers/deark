@@ -715,6 +715,8 @@ static void decompress_lh5x(deark *c, lctx *d, struct member_data *md,
 	de_zeromem(&lzhparams, sizeof(struct de_lzh_params));
 	lzhparams.fmt = DE_LZH_FMT_LH5LIKE;
 	lzhparams.subfmt = md->cmi->id_raw[3];
+	lzhparams.zero_codes_block_behavior = DE_LZH_ZCB_65536;
+	lzhparams.warn_about_zero_codes_block = 1;
 	fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres, &lzhparams);
 }
 
@@ -727,6 +729,8 @@ static void decompress_lh5(deark *c, lctx *d, struct member_data *md,
 	de_zeromem(&lzhparams, sizeof(struct de_lzh_params));
 	lzhparams.fmt = DE_LZH_FMT_LH5LIKE;
 	lzhparams.subfmt = '5';
+	lzhparams.zero_codes_block_behavior = DE_LZH_ZCB_0; //65536;
+	lzhparams.warn_about_zero_codes_block = 1;
 	fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres, &lzhparams);
 }
 

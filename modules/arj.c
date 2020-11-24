@@ -294,7 +294,8 @@ static void decompress_method_1(deark *c, lctx *d, struct member_data *md,
 	// buffer with spaces.
 	lzhparams.use_history_fill_val = 1;
 	lzhparams.history_fill_val = 0x00;
-
+	lzhparams.zero_codes_block_behavior = DE_LZH_ZCB_65536;
+	lzhparams.warn_about_zero_codes_block = 1;
 	fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres, &lzhparams);
 }
 

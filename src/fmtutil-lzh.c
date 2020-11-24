@@ -25,7 +25,8 @@ struct lzh_ctx {
 	// bitrd.eof_flag: Always set if err_flag is set.
 	struct de_bitreader bitrd;
 
-	u8 zero_codes_block_behavior;
+	u8 zero_codes_block_behavior; // DE_LZH_ZCB_*
+	u8 warn_about_zero_codes_block;
 	u8 zero_codes_block_warned;
 
 	struct de_lz77buffer *ringbuf;
@@ -364,22 +365,24 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 	de_dbg2(cctx->c, "num codes in block: %u", (UI)ncodes_in_this_block);
 
 	if(ncodes_in_this_block==0) {
-		if(cctx->zero_codes_block_behavior==0) {
-			// I suspect that LHA for DOS treats 0 as 65536, but I haven't
-			// fully confirmed it. Other LHA software does other things.
-			if(!cctx->zero_codes_block_warned) {
-				de_warn(c, "Block with \"0\" codes found. This file might not be portable.");
-				cctx->zero_codes_block_warned = 1;
-			}
+		if(cctx->warn_about_zero_codes_block && !cctx->zero_codes_block_warned) {
+			de_warn(c, "Block with \"0\" codes found. This file might not be portable.");
+			cctx->zero_codes_block_warned = 1;
+		}
+
+		if(cctx->zero_codes_block_behavior==DE_LZH_ZCB_0) {
+			;
+		}
+		else if(cctx->zero_codes_block_behavior==DE_LZH_ZCB_65536) {
 			ncodes_in_this_block = 65536;
 		}
-		else if(cctx->zero_codes_block_behavior==1) {
+		else if(cctx->zero_codes_block_behavior==DE_LZH_ZCB_STOP) {
 			de_dbg2(c, "stopping, 'stop' code found");
 			cctx->bitrd.eof_flag = 1;
 			goto done;
 		}
 		else {
-			de_dbg2(c, "stopping, 0-code block found (error?)");
+			de_dfilter_set_errorf(c, cctx->dres, cctx->modname, "Bad LZH 'blocksize'");
 			cctx->bitrd.eof_flag = 1;
 			goto done;
 		}
@@ -441,6 +444,9 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 	}
 
 done:
+	de_bitreader_describe_curpos(&cctx->bitrd, pos_descr, sizeof(pos_descr));
+	de_dbg3(c, "block ends at %s", pos_descr);
+
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -487,6 +493,7 @@ static void decompress_lha_lh5like(struct lzh_ctx *cctx, struct de_lzh_params *l
 	}
 
 	cctx->zero_codes_block_behavior = lzhp->zero_codes_block_behavior;
+	cctx->warn_about_zero_codes_block = lzhp->warn_about_zero_codes_block;
 
 	cctx->ringbuf = de_lz77buffer_create(cctx->c, rb_size);
 	cctx->ringbuf->userdata = (void*)cctx;
