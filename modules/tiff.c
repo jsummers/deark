@@ -173,6 +173,7 @@ struct page_ctx {
 	i64 jpegoffset;
 	i64 jpeglength;
 	i64 rows_per_strip;
+	i64 tile_width, tile_height;
 	u8 is_old_lzw;
 	u8 extrasamples_count;
 	u8 extrasample_type[DE_TIFF_MAX_SAMPLES]; // [0] = first *extra* sample, not first sample
@@ -305,6 +306,11 @@ static i64 pop_ifd(deark *c, lctx *d, u8 *ifdtype, u8 *is_in_main_ifd_list)
 static void push_ifd(deark *c, lctx *d, i64 ifdpos, u8 ifdtype, u8 is_in_main_ifd_list)
 {
 	if(ifdpos==0) return;
+
+	if(ifdpos < 0 || ifdpos >= c->infile->len) {
+		detiff_warn(c, d, NULL, "Invalid IFD offset: %"I64_FMT, ifdpos);
+		return;
+	}
 
 	// Append to the IFD list (of all IFDs). This is only used for loop detection.
 	if(!d->ifds_seen) {
@@ -670,19 +676,25 @@ struct int_and_str {
 	const char *s;
 };
 
-static int lookup_str_and_append_to_ucstring(const struct int_and_str *items, size_t num_items,
-	i64 n, de_ucstring *s)
+static const char *lookup_str(const struct int_and_str *items, size_t num_items, i64 n)
 {
 	i64 i;
 
 	for(i=0; i<(i64)num_items; i++) {
 		if(items[i].n==n) {
-			ucstring_append_sz(s, items[i].s, DE_ENCODING_UTF8);
-			return 1;
+			return items[i].s;
 		}
 	}
-	ucstring_append_sz(s, "?", DE_ENCODING_LATIN1);
-	return 0;
+	return "?";
+}
+
+static void lookup_str_and_append_to_ucstring(const struct int_and_str *items, size_t num_items,
+	i64 n, de_ucstring *s)
+{
+	const char *sz;
+
+	sz = lookup_str(items, num_items, n);
+	ucstring_append_sz(s, sz, DE_ENCODING_UTF8);
 }
 
 static int valdec_newsubfiletype(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
@@ -1647,12 +1659,17 @@ static int alloc_striledata(deark *c, struct page_ctx *pg, i64 nstriles)
 	return 1;
 }
 
-static void handler_stripoffsets(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+static void handler_strileoffsets(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
 	struct page_ctx *pg = tg->pg;
 	i64 i;
 
-	pg->have_strip_tags = 1;
+	if(tni->tagnum==TAG_TILEOFFSETS) {
+		pg->have_tile_tags = 1;
+	}
+	else {
+		pg->have_strip_tags = 1;
+	}
 	if(!alloc_striledata(c, pg, tg->valcount)) return;
 
 	for(i=0; i<tg->valcount; i++) {
@@ -1660,12 +1677,17 @@ static void handler_stripoffsets(deark *c, lctx *d, const struct taginfo *tg, co
 	}
 }
 
-static void handler_stripbytecounts(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+static void handler_strilebytecounts(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
 	struct page_ctx *pg = tg->pg;
 	i64 i;
 
-	pg->have_strip_tags = 1;
+	if(tni->tagnum==TAG_TILEBYTECOUNTS) {
+		pg->have_tile_tags = 1;
+	}
+	else {
+		pg->have_strip_tags = 1;
+	}
 	if(!alloc_striledata(c, pg, tg->valcount)) return;
 
 	for(i=0; i<tg->valcount; i++) {
@@ -1729,20 +1751,6 @@ static void handler_resolution(deark *c, lctx *d, const struct taginfo *tg, cons
 	}
 }
 
-static void handler_tagtracker(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
-{
-	struct page_ctx *pg = tg->pg;
-
-	switch(tg->tagnum) {
-	case TAG_TILEWIDTH:
-	case TAG_TILELENGTH:
-	case TAG_TILEOFFSETS:
-	case TAG_TILEBYTECOUNTS:
-		pg->have_tile_tags = 1;
-		break;
-	}
-}
-
 // Handler for some tags expected to have a single integer value
 static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
@@ -1781,6 +1789,14 @@ static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const s
 	case TAG_ROWSPERSTRIP:
 		pg->have_strip_tags = 1;
 		pg->rows_per_strip = val;
+		break;
+	case TAG_TILEWIDTH:
+		pg->have_tile_tags = 1;
+		pg->tile_width = val;
+		break;
+	case TAG_TILELENGTH:
+		pg->have_tile_tags = 1;
+		pg->tile_height = val;
 		break;
 	case TAG_ORIENTATION:
 		if(val>=1 && val<=8) {
@@ -1831,11 +1847,11 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 270, 0x0400, "ImageDescription", NULL, NULL },
 	{ 271, 0x0400, "Make", NULL, NULL },
 	{ 272, 0x0400, "Model", NULL, NULL },
-	{ /* 273 */ TAG_STRIPOFFSETS, 0x00, "StripOffsets", handler_stripoffsets, NULL },
+	{ /* 273 */ TAG_STRIPOFFSETS, 0x00, "StripOffsets", handler_strileoffsets, NULL },
 	{ /* 274 */ TAG_ORIENTATION, 0x0000, "Orientation", handler_various, valdec_orientation },
 	{ /* 277 */ TAG_SAMPLESPERPIXEL, 0x00, "SamplesPerPixel", handler_various, NULL },
 	{ /* 278 */ TAG_ROWSPERSTRIP, 0x00, "RowsPerStrip", handler_various, NULL },
-	{ /* 279 */ TAG_STRIPBYTECOUNTS, 0x00, "StripByteCounts", handler_stripbytecounts, NULL },
+	{ /* 279 */ TAG_STRIPBYTECOUNTS, 0x00, "StripByteCounts", handler_strilebytecounts, NULL },
 	{ 280, 0x00, "MinSampleValue", NULL, NULL },
 	{ 281, 0x00, "MaxSampleValue", NULL, NULL },
 	{ /* 282 */ TAG_XRESOLUTION, 0x00, "XResolution", handler_resolution, NULL },
@@ -1863,10 +1879,10 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 319, 0x00, "PrimaryChromaticities", NULL, NULL },
 	{ 320, 0x08, "ColorMap", handler_colormap, NULL },
 	{ 321, 0x00, "HalftoneHints", NULL, NULL },
-	{ /* 322 */ TAG_TILEWIDTH, 0x00, "TileWidth", handler_tagtracker, NULL },
-	{ /* 323 */ TAG_TILELENGTH, 0x00, "TileLength", handler_tagtracker, NULL },
-	{ /* 324 */ TAG_TILEOFFSETS, 0x00, "TileOffsets", handler_tagtracker, NULL },
-	{ /* 325 */ TAG_TILEBYTECOUNTS, 0x00, "TileByteCounts", handler_tagtracker, NULL },
+	{ /* 322 */ TAG_TILEWIDTH, 0x00, "TileWidth", handler_various, NULL },
+	{ /* 323 */ TAG_TILELENGTH, 0x00, "TileLength", handler_various, NULL },
+	{ /* 324 */ TAG_TILEOFFSETS, 0x00, "TileOffsets", handler_strileoffsets, NULL },
+	{ /* 325 */ TAG_TILEBYTECOUNTS, 0x00, "TileByteCounts", handler_strilebytecounts, NULL },
 	{ 326, 0x00, "BadFaxLines", NULL, NULL },
 	{ 327, 0x00, "CleanFaxData", NULL, NULL },
 	{ 328, 0x00, "ConsecutiveBadFaxLines", NULL, NULL },
@@ -3031,7 +3047,7 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 				}
 			}
 
-			de_bitmap_setpixel_rgba(img, i, dctx->strileset_ypos+j, clr);
+			de_bitmap_setpixel_rgba(img, dctx->strileset_xpos+i, dctx->strileset_ypos+j, clr);
 		}
 	}
 }
@@ -3069,7 +3085,9 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	de_finfo *fi = NULL;
 	int need_errmsg = 0;
 	int saved_indent_level;
+	int saved_indent_level2;
 	i64 i;
+	i64 striles_across;
 	int output_bypp;
 	int ok_bps = 0;
 	int can_optimize_uncompressed = 0;
@@ -3119,7 +3137,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	if(pg->resolution_unit<1) {
 		pg->resolution_unit = 2;
 	}
-	if(pg->rows_per_strip<1) {
+	if(pg->rows_per_strip<1 || pg->rows_per_strip>pg->imagelength) {
 		pg->rows_per_strip = pg->imagelength;
 	}
 
@@ -3133,7 +3151,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		need_errmsg = 1; goto done;
 	}
 
-	dctx->width = pg->imagewidth;
+	dctx->width = pg->imagewidth; // tentative dimensions
 	dctx->height = pg->imagelength;
 	if(!de_good_image_dimensions(c, dctx->width, dctx->height)) goto done;
 
@@ -3147,13 +3165,15 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	}
 	if(pg->have_tile_tags) {
 		dctx->is_tiled = 1;
-		detiff_err(c, d, pg, "Tiled images are not supported");
-		goto done;
 	}
 
 	if(pg->strile_count<1) {
 		detiff_err(c, d, pg, "No image data found");
 		goto done;
+	}
+	if(pg->strile_count==1 && pg->strile_data[0].len==0) {
+		// Tolerate missing StripByteCounts tag in some cases
+		pg->strile_data[0].len = c->infile->len - pg->strile_data[0].pos;
 	}
 
 	if(pg->sample_format!=1) {
@@ -3256,11 +3276,6 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		dctx->samples_per_pixel_to_decode = dctx->base_samples_per_pixel;
 	}
 
-	if(dctx->is_grayscale) output_bypp = 1;
-	else output_bypp = 3;
-	if(dctx->has_alpha) output_bypp++;
-	img = de_bitmap_create(c, dctx->width, dctx->height, output_bypp);
-
 	if(dctx->is_separated) {
 		dctx->striles_per_plane = pg->strile_count / pg->samples_per_pixel;
 		dctx->num_planes_to_decode = dctx->samples_per_pixel_to_decode;
@@ -3272,8 +3287,29 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		dctx->samples_per_pixel_per_plane = pg->samples_per_pixel;
 	}
 
-	dctx->strile_max_w = dctx->width;
-	dctx->strile_max_h = dctx->height;
+	if(dctx->is_tiled) {
+		i64 striles_down;
+
+		if(pg->tile_width<1 || pg->tile_height<1 || pg->tile_width>c->max_image_dimension ||
+			pg->tile_height>c->max_image_dimension)
+		{
+			need_errmsg = 1; goto done;
+		}
+		dctx->strile_max_w = pg->tile_width;
+		dctx->strile_max_h = pg->tile_height;
+		striles_across = (dctx->width + pg->tile_width - 1) / pg->tile_width;
+		striles_down = (dctx->height + pg->tile_height - 1) / pg->tile_height;
+
+		if(c->padpix) {
+			dctx->width = striles_across * pg->tile_width;
+			dctx->height = striles_down * pg->tile_height;
+		}
+	}
+	else {
+		dctx->strile_max_w = dctx->width;
+		dctx->strile_max_h = pg->rows_per_strip;
+		striles_across = 1;
+	}
 	dctx->strile_max_rowspan = (dctx->strile_max_w * (i64)dctx->samples_per_pixel_per_plane *
 		pg->bits_per_sample + 7)/8;
 
@@ -3284,22 +3320,37 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		can_optimize_uncompressed = 1;
 	}
 
+	if(dctx->is_grayscale) output_bypp = 1;
+	else output_bypp = 3;
+	if(dctx->has_alpha) output_bypp++;
+	img = de_bitmap_create(c, dctx->width, dctx->height, output_bypp);
+
+	de_dbg_indent_save(c, &saved_indent_level2);
+
 	for(dctx->strileset_idx=0; dctx->strileset_idx<dctx->striles_per_plane; dctx->strileset_idx++) {
 		int ret;
 		i64 first_strile_idx;
 
 		first_strile_idx = dctx->strileset_idx;
-		dctx->strileset_ypos = dctx->strileset_idx * pg->rows_per_strip;
+		dctx->strileset_xpos = (dctx->strileset_idx % striles_across) * dctx->strile_max_w;
+		dctx->strileset_ypos = (dctx->strileset_idx / striles_across) * dctx->strile_max_h;
+		if(dctx->strileset_ypos >= dctx->height) goto after_paint;
+
 		de_dbg(c, "strip #%d (%d,%d) at %"I64_FMT"%s, dlen=%"I64_FMT,
 			(int)dctx->strileset_idx, (int)dctx->strileset_xpos, (int)dctx->strileset_ypos,
 			pg->strile_data[first_strile_idx].pos, (dctx->is_separated?"...":""),
 			pg->strile_data[first_strile_idx].len);
 		de_dbg_indent(c, 1);
 
-		dctx->strileset_width = dctx->width;
+		dctx->strileset_width = dctx->strile_max_w;
+		if(dctx->is_tiled) { // Tiles are all the same width and height.
+			dctx->strileset_height = dctx->strile_max_h;
+		}
+		else { // The last strip may have a smaller height.
+			dctx->strileset_height = de_min_int(dctx->strile_max_h, dctx->height - dctx->strileset_ypos);
+		}
 		dctx->strileset_rowspan = (dctx->strileset_width * (i64)dctx->samples_per_pixel_per_plane *
 			pg->bits_per_sample + 7)/8;
-		dctx->strileset_height = de_min_int(pg->rows_per_strip, dctx->height - dctx->strileset_ypos);
 		if(dctx->strileset_height<1) goto after_paint;
 
 		if(can_optimize_uncompressed) {
@@ -3337,6 +3388,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	}
 
 after_paint:
+	de_dbg_indent_restore(c, saved_indent_level2);
 	fi = de_finfo_create(c);
 
 	if(pg->orientation>=5 && pg->orientation<=8) {
@@ -3450,7 +3502,7 @@ static void process_ifd(deark *c, lctx *d, int ifd_idx1, i64 ifdpos1, u8 ifdtype
 	de_dbg2(c, "ifd id: \"%s\"", pg->errmsgtoken_ifd);
 
 	if(pg->ifdpos >= c->infile->len || pg->ifdpos<8) {
-		detiff_warn(c, d, NULL, "Invalid IFD offset (%"I64_FMT")", pg->ifdpos);
+		detiff_warn(c, d, NULL, "Invalid IFD offset: %"I64_FMT, pg->ifdpos);
 		goto done;
 	}
 
