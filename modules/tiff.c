@@ -201,8 +201,9 @@ struct taginfo {
 
 struct localctx_struct {
 	int is_le;
-	int is_bigtiff;
 	int fmt;
+	u8 is_bigtiff;
+	u8 is_xiff;
 	int is_exif_submodule;
 	int host_is_le;
 	int can_decode_fltpt;
@@ -681,7 +682,7 @@ static const char *lookup_str(const struct int_and_str *items, size_t num_items,
 	i64 i;
 
 	for(i=0; i<(i64)num_items; i++) {
-		if(items[i].n==n) {
+		if(items[i].n==n && items[i].s!=NULL) {
 			return items[i].s;
 		}
 	}
@@ -735,36 +736,34 @@ static int valdec_oldsubfiletype(deark *c, const struct valdec_params *vp, struc
 	return 1;
 }
 
+static const struct int_and_str compression_name_map[] = {
+	{1, "uncompressed"}, {2, "CCITTRLE"}, {3, "Fax3"}, {4, "Fax4"},
+	{5, "LZW"}, {6, "OldJPEG"}, {7, "NewJPEG"}, {8, "DEFLATE"},
+	{9, "T.85 JBIG"}, {10, "T.43 JBIG"},
+	{32766, "NeXT 2-bit RLE"}, {32771, "CCITTRLEW"},
+	{32773, "PackBits"}, {32809, "ThunderScan"},
+	{32895, "IT8CTPAD"}, {32896, "IT8LW"}, {32897, "IT8MP/HC"}, {32898, "IT8BL"},
+	{32908, "PIXARFILM"}, {32909, "PIXARLOG"}, {32946, "DEFLATE"}, {32947, "DCS"},
+	{34661, "ISO JBIG"}, {34676, "SGILOG"}, {34677, "SGILOG24"},
+	{34712, "JPEG2000"}, {34715, "JBIG2"}, {34887, "LERC"}, {34892, "Lossy JPEG(DNG)"},
+	{34925, "LZMA2"}, {50000, "Zstd"}, {50001, "WebP"}
+};
 static int valdec_compression(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
-	static const struct int_and_str name_map[] = {
-		{1, "uncompressed"}, {2, "CCITTRLE"}, {3, "Fax3"}, {4, "Fax4"},
-		{5, "LZW"}, {6, "OldJPEG"}, {7, "NewJPEG"}, {8, "DEFLATE"},
-		{9, "T.85 JBIG"}, {10, "T.43 JBIG"},
-		{32766, "NeXT 2-bit RLE"}, {32771, "CCITTRLEW"},
-		{32773, "PackBits"}, {32809, "ThunderScan"},
-		{32895, "IT8CTPAD"}, {32896, "IT8LW"}, {32897, "IT8MP/HC"},
-		{32898, "IT8BL"},
-		{32908, "PIXARFILM"}, {32909, "PIXARLOG"}, {32946, "DEFLATE"},
-		{32947, "DCS"},
-		{34661, "ISO JBIG"}, {34676, "SGILOG"}, {34677, "SGILOG24"},
-		{34712, "JPEG2000"}, {34715, "JBIG2"}, {34892, "Lossy JPEG(DNG)"},
-		{34925, "LZMA2"}
-	};
-	lookup_str_and_append_to_ucstring(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->s);
+	lookup_str_and_append_to_ucstring(compression_name_map, ITEMS_IN_ARRAY(compression_name_map), vp->n, vr->s);
 	return 1;
 }
 
+static const struct int_and_str photometric_name_map[] = {
+	{0, "grayscale/white-is-0"}, {1, "grayscale/black-is-0"},
+	{2, "RGB"}, {3, "palette"}, {4, "Holdout Mask"}, {5, "CMYK"}, {6, "YCbCr"},
+	{8, "CIELab"}, {9, "ICCLab"}, {10, "ITULab"},
+	{32803, "CFA"}, {32844, "CIELog2L"}, {32845, "CIELog2Luv"},
+	{34892, "LinearRaw"}
+};
 static int valdec_photometric(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
-	static const struct int_and_str name_map[] = {
-		{0, "grayscale/white-is-0"}, {1, "grayscale/black-is-0"},
-		{2, "RGB"}, {3, "palette"}, {4, "Holdout Mask"}, {5, "CMYK"}, {6, "YCbCr"},
-		{8, "CIELab"}, {9, "ICCLab"}, {10, "ITULab"},
-		{32803, "CFA"}, {32844, "CIELog2L"}, {32845, "CIELog2Luv"},
-		{34892, "LinearRaw"}
-	};
-	lookup_str_and_append_to_ucstring(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->s);
+	lookup_str_and_append_to_ucstring(photometric_name_map, ITEMS_IN_ARRAY(photometric_name_map), vp->n, vr->s);
 	return 1;
 }
 
@@ -3156,7 +3155,8 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	if(!de_good_image_dimensions(c, dctx->width, dctx->height)) goto done;
 
 	if(!is_cmpr_meth_supported(pg->compression)) {
-		detiff_err(c, d, pg, "Unsupported compression method: %d", (int)pg->compression);
+		detiff_err(c, d, pg, "Unsupported compression method: %d (%s)", (int)pg->compression,
+			lookup_str(compression_name_map, DE_ARRAYCOUNT(compression_name_map), (i64)pg->compression));
 		goto done;
 	}
 	if(pg->have_strip_tags && pg->have_tile_tags) {
@@ -3203,7 +3203,8 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		}
 	}
 	else {
-		detiff_err(c, d, pg, "Unsupported color type (%d)", (int)pg->photometric);
+		detiff_err(c, d, pg, "Unsupported color type: %d (%s)", (int)pg->photometric,
+			lookup_str(photometric_name_map, DE_ARRAYCOUNT(photometric_name_map), (i64)pg->photometric));
 		goto done;
 	}
 
@@ -3611,7 +3612,8 @@ static void do_tiff(deark *c, lctx *d)
 	}
 
 	if(need_to_read_header) {
-		de_dbg(c, "TIFF file header at %d", (int)pos);
+		de_dbg(c, "TIFF%s file header at %"I64_FMT,
+			(d->is_exif_submodule?"/Exif":""), pos);
 		de_dbg_indent(c, 1);
 
 		de_dbg(c, "byte order: %s-endian", d->is_le?"little":"big");
@@ -3640,7 +3642,6 @@ static void do_tiff(deark *c, lctx *d)
 	// Process IFDs until we run out of them.
 	// ifd_idx tracks how many IFDs we have finished processing, but it's not
 	// really meaningful except when it's 0.
-	// TODO: It might be useful to count just the IFDs in the main IFD list.
 	ifd_idx = 0;
 	while(1) {
 		u8 ifdtype = IFDTYPE_NORMAL;
@@ -3724,10 +3725,12 @@ static void identify_more_formats(deark *c, lctx *d)
 
 	if(!de_memcmp(buf, "XEROX DIFF", 10)) {
 		de_dbg(c, "XIFF/XEROX DIFF format detected");
+		d->is_xiff = 1;
 		return;
 	}
 	if(!de_memcmp(buf, " eXtended ", 10)) {
 		de_dbg(c, "XIFF/eXtended format detected");
+		d->is_xiff = 1;
 	}
 }
 
@@ -3778,7 +3781,10 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 
 	switch(d->fmt) {
 	case DE_TIFFFMT_TIFF:
-		de_declare_fmt(c, "TIFF");
+		if(d->is_xiff)
+			de_declare_fmt(c, "XIFF");
+		else
+			de_declare_fmt(c, "TIFF");
 		break;
 	case DE_TIFFFMT_BIGTIFF:
 		de_declare_fmt(c, "BigTIFF");
