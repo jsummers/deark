@@ -177,10 +177,15 @@ struct de_lzh_params {
 #define DE_LZH_FMT_LH5LIKE       1 // subfmt=='5' (etc.)
 	int fmt;
 	int subfmt;
+
 	// How to handle a block with "0" codes:
-	//   0 = treat as 65536, with warning
-	//   1 = stop, no warning
+#define DE_LZH_ZCB_ERROR 0
+#define DE_LZH_ZCB_STOP  1
+#define DE_LZH_ZCB_0     2
+#define DE_LZH_ZCB_65536 3
 	u8 zero_codes_block_behavior;
+	u8 warn_about_zero_codes_block;
+
 	u8 use_history_fill_val;
 	u8 history_fill_val;
 };
@@ -188,6 +193,18 @@ void fmtutil_decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	struct de_lzh_params *lzhp);
 void fmtutil_lzh_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params);
+
+struct de_fax34_params {
+	i64 image_width;
+	i64 image_height;
+	UI tiff_cmpr_meth;
+	u8 is_lsb;
+	u32 t4options;
+	u32 t6options;
+};
+void fmtutil_fax34_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params);
 

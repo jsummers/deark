@@ -74,6 +74,8 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define TAG_XRESOLUTION         282
 #define TAG_YRESOLUTION         283
 #define TAG_PLANARCONFIG        284
+#define TAG_T4OPTIONS           292
+#define TAG_T6OPTIONS           293
 #define TAG_RESOLUTIONUNIT      296
 #define TAG_PREDICTOR           317
 #define TAG_TILEWIDTH           322
@@ -92,7 +94,8 @@ struct tagnuminfo;
 
 struct ifdstack_item {
 	i64 offset;
-	int ifdtype;
+	u8 ifdtype;
+	u8 is_in_main_ifd_list;
 };
 
 typedef void (*handler_fn_type)(deark *c, lctx *d, const struct taginfo *tg,
@@ -142,9 +145,10 @@ struct strile_data_struct {
 };
 
 struct page_ctx {
-	i64 ifd_idx;
 	i64 ifdpos;
-	int ifdtype;
+	int ifd_idx;
+	int ifd_idx_in_main_list; // -1 if not in main list
+	u8 ifdtype;
 
 	u8 have_imagewidth;
 	u8 have_jpeglength;
@@ -163,11 +167,13 @@ struct page_ctx {
 	u32 predictor;
 	u32 sample_format;
 	u32 resolution_unit;
+	u32 t4options, t6options;
 	double density_ImageWidth, density_ImageLength;
 	i64 imagewidth, imagelength; // Raw tag values, before considering Orientation
 	i64 jpegoffset;
 	i64 jpeglength;
 	i64 rows_per_strip;
+	i64 tile_width, tile_height;
 	u8 is_old_lzw;
 	u8 extrasamples_count;
 	u8 extrasample_type[DE_TIFF_MAX_SAMPLES]; // [0] = first *extra* sample, not first sample
@@ -175,6 +181,7 @@ struct page_ctx {
 	i64 strile_count;
 	struct strile_data_struct *strile_data; // array[strile_count]
 	de_color pal[256];
+	char errmsgtoken_ifd[40];
 };
 
 // Data associated with an actual tag in an IFD in the file
@@ -194,8 +201,9 @@ struct taginfo {
 
 struct localctx_struct {
 	int is_le;
-	int is_bigtiff;
 	int fmt;
+	u8 is_bigtiff;
+	u8 is_xiff;
 	int is_exif_submodule;
 	int host_is_le;
 	int can_decode_fltpt;
@@ -213,7 +221,8 @@ struct localctx_struct {
 	int current_textfield_encoding;
 
 	struct de_inthashtable *ifds_seen;
-	i64 ifd_count; // Number of IFDs that we currently know of
+	int ifd_count; // Number of IFDs that we currently know of
+	int num_main_ifds_processed;
 
 	i64 ifdhdrsize;
 	i64 ifditemsize;
@@ -225,29 +234,29 @@ struct localctx_struct {
 	unsigned int mpf_main_image_count;
 
 	char errmsgtoken_module[40];
-	char errmsgtoken_ifd[40];
 };
 
-static void detiff_err(deark *c, lctx *d, const char *fmt, ...)
-	de_gnuc_attribute ((format (printf, 3, 4)));
+static void detiff_err(deark *c, lctx *d, struct page_ctx *pg, const char *fmt, ...)
+	de_gnuc_attribute ((format (printf, 4, 5)));
 
-static void detiff_err(deark *c, lctx *d, const char *fmt, ...)
+// pg can be NULL (if not in IFD context)
+static void detiff_err(deark *c, lctx *d, struct page_ctx *pg, const char *fmt, ...)
 {
 	va_list ap;
 	char buf[256];
 
 	va_start(ap, fmt);
-	if(d && d->errmsgtoken_module[0] && d->errmsgtoken_ifd[0]) {
+	if(d->errmsgtoken_module[0] && pg) {
 		de_vsnprintf(buf, sizeof(buf), fmt, ap);
-		de_err(c, "[%s:%s] %s", d->errmsgtoken_module, d->errmsgtoken_ifd, buf);
+		de_err(c, "[%s:%s] %s", d->errmsgtoken_module, pg->errmsgtoken_ifd, buf);
 	}
-	else if(d && d->errmsgtoken_module[0]) {
+	else if(d->errmsgtoken_module[0]) {
 		de_vsnprintf(buf, sizeof(buf), fmt, ap);
 		de_err(c, "[%s] %s", d->errmsgtoken_module, buf);
 	}
-	else if(d && d->errmsgtoken_ifd[0]) {
+	else if(pg) {
 		de_vsnprintf(buf, sizeof(buf), fmt, ap);
-		de_err(c, "[%s] %s", d->errmsgtoken_ifd, buf);
+		de_err(c, "[%s] %s", pg->errmsgtoken_ifd, buf);
 	}
 	else {
 		de_verr(c, fmt, ap);
@@ -255,26 +264,26 @@ static void detiff_err(deark *c, lctx *d, const char *fmt, ...)
 	va_end(ap);
 }
 
-static void detiff_warn(deark *c, lctx *d, const char *fmt, ...)
-	de_gnuc_attribute ((format (printf, 3, 4)));
+static void detiff_warn(deark *c, lctx *d, struct page_ctx *pg, const char *fmt, ...)
+	de_gnuc_attribute ((format (printf, 4, 5)));
 
-static void detiff_warn(deark *c, lctx *d, const char *fmt, ...)
+static void detiff_warn(deark *c, lctx *d, struct page_ctx *pg, const char *fmt, ...)
 {
 	va_list ap;
 	char buf[256];
 
 	va_start(ap, fmt);
-	if(d && d->errmsgtoken_module[0] && d->errmsgtoken_ifd[0]) {
+	if(d->errmsgtoken_module[0] && pg) {
 		de_vsnprintf(buf, sizeof(buf), fmt, ap);
-		de_warn(c, "[%s:%s] %s", d->errmsgtoken_module, d->errmsgtoken_ifd, buf);
+		de_warn(c, "[%s:%s] %s", d->errmsgtoken_module, pg->errmsgtoken_ifd, buf);
 	}
-	else if(d && d->errmsgtoken_module[0]) {
+	else if(d->errmsgtoken_module[0]) {
 		de_vsnprintf(buf, sizeof(buf), fmt, ap);
 		de_warn(c, "[%s] %s", d->errmsgtoken_module, buf);
 	}
-	else if(d && d->errmsgtoken_ifd[0]) {
+	else if(pg) {
 		de_vsnprintf(buf, sizeof(buf), fmt, ap);
-		de_warn(c, "[%s] %s", d->errmsgtoken_ifd, buf);
+		de_warn(c, "[%s] %s", pg->errmsgtoken_ifd, buf);
 	}
 	else {
 		de_vwarn(c, fmt, ap);
@@ -283,31 +292,37 @@ static void detiff_warn(deark *c, lctx *d, const char *fmt, ...)
 }
 
 // Returns 0 if stack is empty.
-static i64 pop_ifd(deark *c, lctx *d, int *ifdtype)
+static i64 pop_ifd(deark *c, lctx *d, u8 *ifdtype, u8 *is_in_main_ifd_list)
 {
 	i64 ifdpos;
 	if(!d->ifdstack) return 0;
 	if(d->ifdstack_numused<1) return 0;
 	ifdpos = d->ifdstack[d->ifdstack_numused-1].offset;
 	*ifdtype = d->ifdstack[d->ifdstack_numused-1].ifdtype;
+	*is_in_main_ifd_list = d->ifdstack[d->ifdstack_numused-1].is_in_main_ifd_list;
 	d->ifdstack_numused--;
 	return ifdpos;
 }
 
-static void push_ifd(deark *c, lctx *d, i64 ifdpos, int ifdtype)
+static void push_ifd(deark *c, lctx *d, i64 ifdpos, u8 ifdtype, u8 is_in_main_ifd_list)
 {
 	if(ifdpos==0) return;
+
+	if(ifdpos < 0 || ifdpos >= c->infile->len) {
+		detiff_warn(c, d, NULL, "Invalid IFD offset: %"I64_FMT, ifdpos);
+		return;
+	}
 
 	// Append to the IFD list (of all IFDs). This is only used for loop detection.
 	if(!d->ifds_seen) {
 		d->ifds_seen = de_inthashtable_create(c);
 	}
 	if(d->ifd_count >= MAX_IFDS) {
-		detiff_warn(c, d, "Too many TIFF IFDs");
+		detiff_warn(c, d, NULL, "Too many TIFF IFDs");
 		return;
 	}
 	if(!de_inthashtable_add_item(c, d->ifds_seen, ifdpos, NULL)) {
-		detiff_err(c, d, "IFD loop detected");
+		detiff_err(c, d, NULL, "IFD loop detected");
 		return;
 	}
 	d->ifd_count++;
@@ -319,11 +334,12 @@ static void push_ifd(deark *c, lctx *d, i64 ifdpos, int ifdtype)
 		d->ifdstack_numused = 0;
 	}
 	if(d->ifdstack_numused >= d->ifdstack_capacity) {
-		detiff_warn(c, d, "Too many TIFF IFDs");
+		detiff_warn(c, d, NULL, "Too many TIFF IFDs");
 		return;
 	}
 	d->ifdstack[d->ifdstack_numused].offset = ifdpos;
 	d->ifdstack[d->ifdstack_numused].ifdtype = ifdtype;
+	d->ifdstack[d->ifdstack_numused].is_in_main_ifd_list = is_in_main_ifd_list;
 	d->ifdstack_numused++;
 }
 
@@ -590,13 +606,13 @@ static void do_oldjpeg(deark *c, lctx *d, struct page_ctx *pg)
 	}
 
 	if(pg->jpegoffset+jpeglength>c->infile->len) {
-		detiff_warn(c, d, "Invalid offset/length of embedded JPEG data (offset=%"I64_FMT
+		detiff_warn(c, d, pg, "Invalid offset/length of embedded JPEG data (offset=%"I64_FMT
 			", len=%"I64_FMT")", pg->jpegoffset, jpeglength);
 		return;
 	}
 
 	if(dbuf_memcmp(c->infile, pg->jpegoffset, "\xff\xd8\xff", 3)) {
-		detiff_warn(c, d, "Expected JPEG data at %"I64_FMT" not found", pg->jpegoffset);
+		detiff_warn(c, d, pg, "Expected JPEG data at %"I64_FMT" not found", pg->jpegoffset);
 		return;
 	}
 
@@ -661,19 +677,25 @@ struct int_and_str {
 	const char *s;
 };
 
-static int lookup_str_and_append_to_ucstring(const struct int_and_str *items, size_t num_items,
-	i64 n, de_ucstring *s)
+static const char *lookup_str(const struct int_and_str *items, size_t num_items, i64 n)
 {
 	i64 i;
 
 	for(i=0; i<(i64)num_items; i++) {
-		if(items[i].n==n) {
-			ucstring_append_sz(s, items[i].s, DE_ENCODING_UTF8);
-			return 1;
+		if(items[i].n==n && items[i].s!=NULL) {
+			return items[i].s;
 		}
 	}
-	ucstring_append_sz(s, "?", DE_ENCODING_LATIN1);
-	return 0;
+	return "?";
+}
+
+static void lookup_str_and_append_to_ucstring(const struct int_and_str *items, size_t num_items,
+	i64 n, de_ucstring *s)
+{
+	const char *sz;
+
+	sz = lookup_str(items, num_items, n);
+	ucstring_append_sz(s, sz, DE_ENCODING_UTF8);
 }
 
 static int valdec_newsubfiletype(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
@@ -714,36 +736,34 @@ static int valdec_oldsubfiletype(deark *c, const struct valdec_params *vp, struc
 	return 1;
 }
 
+static const struct int_and_str compression_name_map[] = {
+	{1, "uncompressed"}, {2, "CCITTRLE"}, {3, "Fax3"}, {4, "Fax4"},
+	{5, "LZW"}, {6, "OldJPEG"}, {7, "NewJPEG"}, {8, "DEFLATE"},
+	{9, "T.85 JBIG"}, {10, "T.43 JBIG"},
+	{32766, "NeXT 2-bit RLE"}, {32771, "CCITTRLEW"},
+	{32773, "PackBits"}, {32809, "ThunderScan"},
+	{32895, "IT8CTPAD"}, {32896, "IT8LW"}, {32897, "IT8MP/HC"}, {32898, "IT8BL"},
+	{32908, "PIXARFILM"}, {32909, "PIXARLOG"}, {32946, "DEFLATE"}, {32947, "DCS"},
+	{34661, "ISO JBIG"}, {34676, "SGILOG"}, {34677, "SGILOG24"},
+	{34712, "JPEG2000"}, {34715, "JBIG2"}, {34887, "LERC"}, {34892, "Lossy JPEG(DNG)"},
+	{34925, "LZMA2"}, {50000, "Zstd"}, {50001, "WebP"}
+};
 static int valdec_compression(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
-	static const struct int_and_str name_map[] = {
-		{1, "uncompressed"}, {2, "CCITTRLE"}, {3, "Fax3"}, {4, "Fax4"},
-		{5, "LZW"}, {6, "OldJPEG"}, {7, "NewJPEG"}, {8, "DEFLATE"},
-		{9, "T.85 JBIG"}, {10, "T.43 JBIG"},
-		{32766, "NeXT 2-bit RLE"}, {32771, "CCITTRLEW"},
-		{32773, "PackBits"}, {32809, "ThunderScan"},
-		{32895, "IT8CTPAD"}, {32896, "IT8LW"}, {32897, "IT8MP/HC"},
-		{32898, "IT8BL"},
-		{32908, "PIXARFILM"}, {32909, "PIXARLOG"}, {32946, "DEFLATE"},
-		{32947, "DCS"},
-		{34661, "ISO JBIG"}, {34676, "SGILOG"}, {34677, "SGILOG24"},
-		{34712, "JPEG2000"}, {34715, "JBIG2"}, {34892, "Lossy JPEG(DNG)"},
-		{34925, "LZMA2"}
-	};
-	lookup_str_and_append_to_ucstring(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->s);
+	lookup_str_and_append_to_ucstring(compression_name_map, ITEMS_IN_ARRAY(compression_name_map), vp->n, vr->s);
 	return 1;
 }
 
+static const struct int_and_str photometric_name_map[] = {
+	{0, "grayscale/white-is-0"}, {1, "grayscale/black-is-0"},
+	{2, "RGB"}, {3, "palette"}, {4, "Holdout Mask"}, {5, "CMYK"}, {6, "YCbCr"},
+	{8, "CIELab"}, {9, "ICCLab"}, {10, "ITULab"},
+	{32803, "CFA"}, {32844, "CIELog2L"}, {32845, "CIELog2Luv"},
+	{34892, "LinearRaw"}
+};
 static int valdec_photometric(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
-	static const struct int_and_str name_map[] = {
-		{0, "grayscale/white-is-0"}, {1, "grayscale/black-is-0"},
-		{2, "RGB"}, {3, "palette"}, {4, "Holdout Mask"}, {5, "CMYK"}, {6, "YCbCr"},
-		{8, "CIELab"}, {9, "ICCLab"}, {10, "ITULab"},
-		{32803, "CFA"}, {32844, "CIELog2L"}, {32845, "CIELog2Luv"},
-		{34892, "LinearRaw"}
-	};
-	lookup_str_and_append_to_ucstring(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->s);
+	lookup_str_and_append_to_ucstring(photometric_name_map, ITEMS_IN_ARRAY(photometric_name_map), vp->n, vr->s);
 	return 1;
 }
 
@@ -1172,7 +1192,7 @@ static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const st
 {
 	i64 j;
 	i64 tmpoffset;
-	int ifdtype = IFDTYPE_NORMAL;
+	u8 ifdtype = IFDTYPE_NORMAL;
 
 	if(d->fmt==DE_TIFFFMT_NIKONMN && tg->tagnum==0x11) ifdtype = IFDTYPE_NIKONPREVIEW;
 	else if(tg->tagnum==330) ifdtype = IFDTYPE_SUBIFD;
@@ -1185,7 +1205,7 @@ static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const st
 	for(j=0; j<tg->valcount;j++) {
 		read_tag_value_as_int64(c, d, tg, j, &tmpoffset);
 		de_dbg(c, "offset of %s: %d", tni->tagname, (int)tmpoffset);
-		push_ifd(c, d, tmpoffset, ifdtype);
+		push_ifd(c, d, tmpoffset, ifdtype, 0);
 	}
 }
 
@@ -1402,7 +1422,7 @@ static void handler_37724(deark *c, lctx *d, const struct taginfo *tg, const str
 	}
 
 	if(psdver==0) {
-		detiff_warn(c, d, "Bad or unsupported ImageSourceData tag at %d", (int)tg->val_offset);
+		detiff_warn(c, d, tg->pg, "Bad or unsupported ImageSourceData tag at %d", (int)tg->val_offset);
 		goto done;
 	}
 
@@ -1442,7 +1462,8 @@ struct mpfctx_struct {
 	i64 imgsize;
 };
 
-static void try_to_extract_mpf_image(deark *c, lctx *d, struct mpfctx_struct *mpfctx)
+static void try_to_extract_mpf_image(deark *c, lctx *d, struct page_ctx *pg,
+	struct mpfctx_struct *mpfctx)
 {
 	dbuf *inf;
 
@@ -1457,14 +1478,14 @@ static void try_to_extract_mpf_image(deark *c, lctx *d, struct mpfctx_struct *mp
 	if(mpfctx->imgoffs_abs + mpfctx->imgsize > inf->len) {
 		if(mpfctx->warned) goto done;
 		mpfctx->warned = 1;
-		detiff_warn(c, d, "Invalid MPF multi-picture data. File size should be at "
+		detiff_warn(c, d, pg, "Invalid MPF multi-picture data. File size should be at "
 			"least %"I64_FMT", is %"I64_FMT".",
 			mpfctx->imgoffs_abs+mpfctx->imgsize, inf->len);
 		goto done;
 	}
 
 	if(dbuf_memcmp(inf, mpfctx->imgoffs_abs, "\xff\xd8\xff", 3)) {
-		detiff_warn(c, d, "Invalid or unsupported MPF multi-picture data. Expected image at "
+		detiff_warn(c, d, pg, "Invalid or unsupported MPF multi-picture data. Expected image at "
 			"%"I64_FMT" not found.", mpfctx->imgoffs_abs);
 		goto done;
 	}
@@ -1555,7 +1576,7 @@ static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const s
 		if(imgoffs_rel>0) {
 			mpfctx.imgoffs_abs = imgoffs_abs;
 			mpfctx.imgsize = imgsize;
-			try_to_extract_mpf_image(c, d, &mpfctx);
+			try_to_extract_mpf_image(c, d, tg->pg, &mpfctx);
 		}
 
 		n = dbuf_getu16x(c->infile, pos+12, d->is_le);
@@ -1637,12 +1658,17 @@ static int alloc_striledata(deark *c, struct page_ctx *pg, i64 nstriles)
 	return 1;
 }
 
-static void handler_stripoffsets(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+static void handler_strileoffsets(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
 	struct page_ctx *pg = tg->pg;
 	i64 i;
 
-	pg->have_strip_tags = 1;
+	if(tni->tagnum==TAG_TILEOFFSETS) {
+		pg->have_tile_tags = 1;
+	}
+	else {
+		pg->have_strip_tags = 1;
+	}
 	if(!alloc_striledata(c, pg, tg->valcount)) return;
 
 	for(i=0; i<tg->valcount; i++) {
@@ -1650,12 +1676,17 @@ static void handler_stripoffsets(deark *c, lctx *d, const struct taginfo *tg, co
 	}
 }
 
-static void handler_stripbytecounts(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+static void handler_strilebytecounts(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
 	struct page_ctx *pg = tg->pg;
 	i64 i;
 
-	pg->have_strip_tags = 1;
+	if(tni->tagnum==TAG_TILEBYTECOUNTS) {
+		pg->have_tile_tags = 1;
+	}
+	else {
+		pg->have_strip_tags = 1;
+	}
 	if(!alloc_striledata(c, pg, tg->valcount)) return;
 
 	for(i=0; i<tg->valcount; i++) {
@@ -1719,20 +1750,6 @@ static void handler_resolution(deark *c, lctx *d, const struct taginfo *tg, cons
 	}
 }
 
-static void handler_tagtracker(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
-{
-	struct page_ctx *pg = tg->pg;
-
-	switch(tg->tagnum) {
-	case TAG_TILEWIDTH:
-	case TAG_TILELENGTH:
-	case TAG_TILEOFFSETS:
-	case TAG_TILEBYTECOUNTS:
-		pg->have_tile_tags = 1;
-		break;
-	}
-}
-
 // Handler for some tags expected to have a single integer value
 static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
@@ -1772,6 +1789,14 @@ static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const s
 		pg->have_strip_tags = 1;
 		pg->rows_per_strip = val;
 		break;
+	case TAG_TILEWIDTH:
+		pg->have_tile_tags = 1;
+		pg->tile_width = val;
+		break;
+	case TAG_TILELENGTH:
+		pg->have_tile_tags = 1;
+		pg->tile_height = val;
+		break;
 	case TAG_ORIENTATION:
 		if(val>=1 && val<=8) {
 			pg->orientation = (u32)val;
@@ -1779,6 +1804,12 @@ static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const s
 		break;
 	case TAG_PLANARCONFIG:
 		pg->planarconfig = (u32)val;
+		break;
+	case TAG_T4OPTIONS:
+		pg->t4options = (u32)val;
+		break;
+	case TAG_T6OPTIONS:
+		pg->t6options = (u32)val;
 		break;
 	case TAG_RESOLUTIONUNIT:
 		pg->resolution_unit = (u32)val;
@@ -1815,11 +1846,11 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 270, 0x0400, "ImageDescription", NULL, NULL },
 	{ 271, 0x0400, "Make", NULL, NULL },
 	{ 272, 0x0400, "Model", NULL, NULL },
-	{ /* 273 */ TAG_STRIPOFFSETS, 0x00, "StripOffsets", handler_stripoffsets, NULL },
+	{ /* 273 */ TAG_STRIPOFFSETS, 0x00, "StripOffsets", handler_strileoffsets, NULL },
 	{ /* 274 */ TAG_ORIENTATION, 0x0000, "Orientation", handler_various, valdec_orientation },
 	{ /* 277 */ TAG_SAMPLESPERPIXEL, 0x00, "SamplesPerPixel", handler_various, NULL },
 	{ /* 278 */ TAG_ROWSPERSTRIP, 0x00, "RowsPerStrip", handler_various, NULL },
-	{ /* 279 */ TAG_STRIPBYTECOUNTS, 0x00, "StripByteCounts", handler_stripbytecounts, NULL },
+	{ /* 279 */ TAG_STRIPBYTECOUNTS, 0x00, "StripByteCounts", handler_strilebytecounts, NULL },
 	{ 280, 0x00, "MinSampleValue", NULL, NULL },
 	{ 281, 0x00, "MaxSampleValue", NULL, NULL },
 	{ /* 282 */ TAG_XRESOLUTION, 0x00, "XResolution", handler_resolution, NULL },
@@ -1832,8 +1863,8 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 289, 0x00, "FreeByteCounts", NULL, NULL },
 	{ 290, 0x00, "GrayResponseUnit", NULL, NULL },
 	{ 291, 0x00, "GrayResponseCurve", NULL, NULL },
-	{ 292, 0x00, "T4Options", NULL, valdec_t4options },
-	{ 293, 0x00, "T6Options", NULL, valdec_t6options },
+	{ /* 292 */ TAG_T4OPTIONS, 0x00, "T4Options", handler_various, valdec_t4options },
+	{ /* 293 */ TAG_T6OPTIONS, 0x00, "T6Options", handler_various, valdec_t6options },
 	{ /* 296 */ TAG_RESOLUTIONUNIT, 0x00, "ResolutionUnit", handler_various, valdec_resolutionunit },
 	{ 297, 0x0400, "PageNumber", NULL, valdec_pagenumber },
 	{ 300, 0x0000, "ColorResponseUnit", NULL, NULL },
@@ -1847,10 +1878,10 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 319, 0x00, "PrimaryChromaticities", NULL, NULL },
 	{ 320, 0x08, "ColorMap", handler_colormap, NULL },
 	{ 321, 0x00, "HalftoneHints", NULL, NULL },
-	{ /* 322 */ TAG_TILEWIDTH, 0x00, "TileWidth", handler_tagtracker, NULL },
-	{ /* 323 */ TAG_TILELENGTH, 0x00, "TileLength", handler_tagtracker, NULL },
-	{ /* 324 */ TAG_TILEOFFSETS, 0x00, "TileOffsets", handler_tagtracker, NULL },
-	{ /* 325 */ TAG_TILEBYTECOUNTS, 0x00, "TileByteCounts", handler_tagtracker, NULL },
+	{ /* 322 */ TAG_TILEWIDTH, 0x00, "TileWidth", handler_various, NULL },
+	{ /* 323 */ TAG_TILELENGTH, 0x00, "TileLength", handler_various, NULL },
+	{ /* 324 */ TAG_TILEOFFSETS, 0x00, "TileOffsets", handler_strileoffsets, NULL },
+	{ /* 325 */ TAG_TILEBYTECOUNTS, 0x00, "TileByteCounts", handler_strilebytecounts, NULL },
 	{ 326, 0x00, "BadFaxLines", NULL, NULL },
 	{ 327, 0x00, "CleanFaxData", NULL, NULL },
 	{ 328, 0x00, "ConsecutiveBadFaxLines", NULL, NULL },
@@ -2598,7 +2629,7 @@ static void do_dbg_print_values(deark *c, lctx *d, const struct taginfo *tg, con
 	}
 }
 
-static const struct tagnuminfo *find_tagnuminfo(int tagnum, int filefmt, int ifdtype)
+static const struct tagnuminfo *find_tagnuminfo(int tagnum, int filefmt, u8 ifdtype)
 {
 	size_t i;
 
@@ -2674,19 +2705,25 @@ struct decode_page_ctx {
 	i64 height; // = ImageLength
 	i64 strile_max_w, strile_max_h;
 	i64 strile_max_rowspan;
+	i64 striles_per_plane;
+	u32 samples_per_pixel_per_plane;
 
+	i64 strileset_idx;
+	i64 strileset_xpos, strileset_ypos;
+	i64 strileset_height;
+	i64 strileset_width;
+	i64 strileset_rowspan;
 	i64 strile_idx;
-	i64 strile_ypos;
-	i64 strile_height;
-	i64 strile_width;
-	i64 strile_rowspan;
 	dbuf *unc_strile_dbuf[DE_TIFF_MAX_SAMPLES]; // Pointers to other dbufs; do not free
 
-	i64 samples_per_pixel_to_decode;
+	UI num_planes_to_decode;
+	UI samples_per_pixel_to_decode;
 	UI base_samples_per_pixel;
 	u8 is_tiled;
+	u8 is_separated;
 	u8 is_grayscale;
 	u8 grayscale_reverse_polarity;
+	u8 need_to_reverse_bits;
 	u8 use_pal;
 	u8 has_alpha;
 	u8 is_assoc_alpha;
@@ -2699,11 +2736,34 @@ struct decode_page_ctx {
 	struct de_dfilter_results dres;
 };
 
-static void decompress_strile_uncmpr(deark *c, lctx *d, struct page_ctx *pg,
-	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
-	struct de_dfilter_results *dres)
+static void reverse_bits_in_membuf(dbuf *f)
 {
-	fmtutil_decompress_uncompressed(c, dcmpri, dcmpro, dres, 0);
+	i64 len = f->len;
+	i64 i;
+
+	for(i=0; i<len; i++) {
+		u8 b, b2;
+		size_t k;
+
+		b = dbuf_getbyte(f, i);
+		if(b==0x00 || b==0xff) continue;
+		b2 = 0;
+		for(k=0; k<8; k++) {
+			if(b & (1U<<k)) {
+				b2 |= (1U<<(7-k));
+			}
+		}
+		dbuf_writebyte_at(f, i, b2);
+	}
+}
+
+static void decompress_strile_uncmpr(deark *c, lctx *d, struct page_ctx *pg,
+	struct decode_page_ctx *dctx)
+{
+	fmtutil_decompress_uncompressed(c, &dctx->dcmpri, &dctx->dcmpro, &dctx->dres, 0);
+	if(dctx->need_to_reverse_bits) {
+		reverse_bits_in_membuf(dctx->dcmpro.f);
+	}
 }
 
 // If old LZW version, sets pg->is_old_lzw.
@@ -2771,10 +2831,29 @@ static void decompress_strile_deflate(deark *c, lctx *d, struct page_ctx *pg,
 		 DE_DEFLATEFLAG_ISZLIB);
 }
 
+static void decompress_strile_fax34(deark *c, lctx *d, struct page_ctx *pg,
+	struct decode_page_ctx *dctx)
+{
+	struct de_fax34_params fax34params;
+
+	de_zeromem(&fax34params, sizeof(struct de_fax34_params));
+	fax34params.image_width = dctx->strileset_width;
+	fax34params.image_height = dctx->strileset_height;
+	fax34params.tiff_cmpr_meth = (UI)pg->compression;
+	fax34params.t4options = pg->t4options;
+	fax34params.t6options = pg->t6options;
+	fax34params.is_lsb = (pg->fill_order==2)?1:0;
+
+	fmtutil_fax34_codectype1(c, &dctx->dcmpri, &dctx->dcmpro, &dctx->dres,
+		 (void*)&fax34params);
+}
+
 static int is_cmpr_meth_supported(u32 n)
 {
 	switch(n) {
 	case 1:
+	case 2:
+	case 3:
 	case 5:
 	case 8:
 	case 32773:
@@ -2785,26 +2864,34 @@ static int is_cmpr_meth_supported(u32 n)
 }
 
 static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
-	struct decode_page_ctx *dctx)
+	struct decode_page_ctx *dctx, UI plane_idx)
 {
+	int retval = 0;
+
 	// TODO: Some of our decompressors have significant overhead. This can
 	// be a performance issue with TIFF format, which likes to chop up an
 	// image into lots of tiny pieces, each of which is compressed
 	// independently.
 	// We ought to have a way to efficiently reset a decompressor, without
 	// having to recreate it entirely.
+
 	dctx->dcmpri.pos = pg->strile_data[dctx->strile_idx].pos;
 	dctx->dcmpri.len = pg->strile_data[dctx->strile_idx].len;
 	if(dctx->dcmpri.pos + dctx->dcmpri.len > dctx->dcmpri.f->len) {
 		dctx->dcmpri.len = dctx->dcmpri.f->len - dctx->dcmpri.pos;
 	}
 	if(dctx->dcmpri.len<0) dctx->dcmpri.len = 0;
-	dctx->dcmpro.f = dctx->unc_strile_dbuf[0];
+	dctx->dcmpro.f = dctx->unc_strile_dbuf[plane_idx];
 	dctx->dcmpro.len_known = 1;
-	dctx->dcmpro.expected_len = dctx->strile_rowspan * dctx->strile_height;
+	dctx->dcmpro.expected_len = dctx->strileset_rowspan * dctx->strileset_height;
 	de_dfilter_init_objects(c, NULL, NULL, &dctx->dres);
 
 	switch(pg->compression) {
+	case 2:
+	case 3:
+	case 4:
+		decompress_strile_fax34(c, d, pg, dctx);
+		break;
 	case 5:
 		decompress_strile_lzw(c, d, pg, dctx);
 		break;
@@ -2816,16 +2903,35 @@ static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
 		decompress_strile_packbits(c, d, pg, dctx);
 		break;
 	default:
-		decompress_strile_uncmpr(c, d, pg, &dctx->dcmpri, &dctx->dcmpro, &dctx->dres);
+		decompress_strile_uncmpr(c, d, pg, dctx);
 	}
 
 	if(dctx->dres.errcode) {
-		detiff_err(c, d, "Decompression failed (IFD@%"I64_FMT", strip@(%d,%d)): %s",
-			pg->ifdpos, 0, (int)dctx->strile_ypos, de_dfilter_get_errmsg(c, &dctx->dres));
+		detiff_err(c, d, pg, "Decompression failed (strip@(%d,%d)): %s",
+			(int)dctx->strileset_xpos, (int)dctx->strileset_ypos,
+			de_dfilter_get_errmsg(c, &dctx->dres));
 		// TODO?: Better handling of partial failure
-		return 0;
+		goto done;
 	}
-	return 1;
+	retval = 1;
+done:
+	return retval;
+}
+
+static int decompress_strileset(deark *c, lctx *d, struct page_ctx *pg,
+	struct decode_page_ctx *dctx)
+{
+	UI sample_idx;
+	int retval = 0;
+
+	for(sample_idx=0; sample_idx<dctx->num_planes_to_decode; sample_idx++) {
+		dctx->strile_idx = dctx->strileset_idx +(i64)sample_idx * dctx->striles_per_plane;
+		retval = decompress_strile(c, d, pg, dctx, sample_idx);
+		if(!retval) goto done;
+	}
+	retval = 1;
+done:
+	return retval;
 }
 
 static de_colorsample unpremultiply_alpha1(de_colorsample cval, de_colorsample a)
@@ -2861,7 +2967,6 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 {
 	i64 i, j;
 	u32 s_idx;
-	dbuf *unc_strile = dctx->unc_strile_dbuf[0];
 	u32 sample_mask;
 	u32 sample_scalefactor;
 	u32 prev_sample[DE_TIFF_MAX_SAMPLES];
@@ -2873,24 +2978,36 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 	sample_mask = (1U<<(u32)pg->bits_per_sample)-1U;
 	sample_scalefactor = 255/sample_mask;
 
-	for(j=0; j<dctx->strile_height; j++) {
+	for(j=0; j<dctx->strileset_height; j++) {
 
 		for(s_idx=0; s_idx<dctx->samples_per_pixel_to_decode; s_idx++) {
 			prev_sample[s_idx] = 0;
 		}
 
-		for(i=0; i<dctx->strile_width; i++) {
+		for(i=0; i<dctx->strileset_width; i++) {
 			de_color clr;
 
 			for(s_idx=0; s_idx<dctx->samples_per_pixel_to_decode; s_idx++) {
+				UI dbuf_idx;
+				i64 sample_offset;
+
+				if(dctx->is_separated) {
+					dbuf_idx = s_idx;
+					sample_offset = 0;
+				}
+				else {
+					dbuf_idx = 0;
+					sample_offset = (i64)s_idx;
+				}
+
 				switch(pg->bits_per_sample) {
 				case 1: case 4:
-					sample[s_idx] = de_get_bits_symbol(unc_strile, (i64)pg->bits_per_sample,
-						dctx->strile_rowspan*j, (i64)s_idx + i*(i64)pg->samples_per_pixel);
+					sample[s_idx] = de_get_bits_symbol(dctx->unc_strile_dbuf[dbuf_idx], (i64)pg->bits_per_sample,
+						dctx->strileset_rowspan*j, i*(i64)dctx->samples_per_pixel_per_plane + sample_offset);
 					break;
 				case 8:
-					sample[s_idx] = dbuf_getbyte(unc_strile, dctx->strile_rowspan*j +
-						(i*(i64)pg->samples_per_pixel) + (i64)s_idx);
+					sample[s_idx] = dbuf_getbyte(dctx->unc_strile_dbuf[dbuf_idx], dctx->strileset_rowspan*j +
+						(i*(i64)dctx->samples_per_pixel_per_plane) + sample_offset);
 					break;
 				default:
 					sample[s_idx] = 0;
@@ -2929,7 +3046,7 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 				}
 			}
 
-			de_bitmap_setpixel_rgba(img, i, dctx->strile_ypos+j, clr);
+			de_bitmap_setpixel_rgba(img, dctx->strileset_xpos+i, dctx->strileset_ypos+j, clr);
 		}
 	}
 }
@@ -2967,9 +3084,12 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	de_finfo *fi = NULL;
 	int need_errmsg = 0;
 	int saved_indent_level;
+	int saved_indent_level2;
 	i64 i;
+	i64 striles_across;
 	int output_bypp;
 	int ok_bps = 0;
+	int can_optimize_uncompressed = 0;
 	UI createflags = 0;
 	// (Multiple dbufs will be needed for PlanarConfig=separated.)
 	dbuf *tmp_membuf[DE_TIFF_MAX_SAMPLES];
@@ -3001,11 +3121,11 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	if(pg->compression<1) {
 		pg->compression = 1;
 	}
+	if(pg->samples_per_pixel<1) {
+		pg->samples_per_pixel = 1;
+	}
 	if(pg->bits_per_sample<1) {
 		pg->bits_per_sample = 1;
-	}
-	if(pg->planarconfig<1) {
-		pg->planarconfig = 1;
 	}
 	if(pg->predictor<1) {
 		pg->predictor = 1;
@@ -3016,28 +3136,48 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	if(pg->resolution_unit<1) {
 		pg->resolution_unit = 2;
 	}
-	if(pg->rows_per_strip<1) {
+	if(pg->rows_per_strip<1 || pg->rows_per_strip>pg->imagelength) {
 		pg->rows_per_strip = pg->imagelength;
 	}
 
-	dctx->width = pg->imagewidth;
+	if(pg->planarconfig<=1 || pg->samples_per_pixel==1) {
+		dctx->is_separated = 0;
+	}
+	else if(pg->planarconfig==2) {
+		dctx->is_separated = 1;
+	}
+	else {
+		need_errmsg = 1; goto done;
+	}
+
+	dctx->width = pg->imagewidth; // tentative dimensions
 	dctx->height = pg->imagelength;
 	if(!de_good_image_dimensions(c, dctx->width, dctx->height)) goto done;
 
+	if(!is_cmpr_meth_supported(pg->compression)) {
+		detiff_err(c, d, pg, "Unsupported compression method: %d (%s)", (int)pg->compression,
+			lookup_str(compression_name_map, DE_ARRAYCOUNT(compression_name_map), (i64)pg->compression));
+		goto done;
+	}
 	if(pg->have_strip_tags && pg->have_tile_tags) {
-		detiff_err(c, d, "Image seems to have both strips and tiles");
+		detiff_err(c, d, pg, "Image seems to have both strips and tiles");
 		goto done;
 	}
 	if(pg->have_tile_tags) {
 		dctx->is_tiled = 1;
-		detiff_err(c, d, "Tiled images are not supported");
-		goto done;
 	}
 
-	if(pg->strile_count<1) { need_errmsg = 1; goto done; }
+	if(pg->strile_count<1) {
+		detiff_err(c, d, pg, "No image data found");
+		goto done;
+	}
+	if(pg->strile_count==1 && pg->strile_data[0].len==0) {
+		// Tolerate missing StripByteCounts tag in some cases
+		pg->strile_data[0].len = c->infile->len - pg->strile_data[0].pos;
+	}
 
 	if(pg->sample_format!=1) {
-		detiff_err(c, d, "Unsupported sample format (%d)", (int)pg->sample_format);
+		detiff_err(c, d, pg, "Unsupported sample format (%d)", (int)pg->sample_format);
 		goto done;
 	}
 
@@ -3063,12 +3203,13 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		}
 	}
 	else {
-		detiff_err(c, d, "Unsupported color type (%d)", (int)pg->photometric);
+		detiff_err(c, d, pg, "Unsupported color type: %d (%s)", (int)pg->photometric,
+			lookup_str(photometric_name_map, DE_ARRAYCOUNT(photometric_name_map), (i64)pg->photometric));
 		goto done;
 	}
 
 	if(!ok_bps) {
-		detiff_err(c, d, "Unsupported bits/sample (%d) for this color type", (int)pg->bits_per_sample);
+		detiff_err(c, d, pg, "Unsupported bits/sample (%d) for this color type", (int)pg->bits_per_sample);
 		goto done;
 	}
 
@@ -3076,31 +3217,36 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		pg->samples_per_pixel = dctx->base_samples_per_pixel;
 	}
 	if(pg->samples_per_pixel < dctx->base_samples_per_pixel) {
-		detiff_err(c, d, "Bad samples/pixel (%d) for this color type", (int)pg->samples_per_pixel);
+		detiff_err(c, d, pg, "Bad samples/pixel (%d) for this color type", (int)pg->samples_per_pixel);
 		goto done;
 	}
 	dctx->samples_per_pixel_to_decode = pg->samples_per_pixel;
 	if(dctx->samples_per_pixel_to_decode>DE_TIFF_MAX_SAMPLES) {
-		detiff_warn(c, d, "Large number of SamplesPerPixel (%d). Some samples ignored.",
+		detiff_warn(c, d, pg, "Large number of SamplesPerPixel (%d). Some samples ignored.",
 			(int)pg->samples_per_pixel);
 		dctx->samples_per_pixel_to_decode = DE_TIFF_MAX_SAMPLES;
 	}
 
 	if(pg->predictor!=1 && pg->predictor!=2) {
-		detiff_err(c, d, "Unsupported prediction method (%d)", (int)pg->predictor);
+		detiff_err(c, d, pg, "Unsupported prediction method (%d)", (int)pg->predictor);
 		goto done;
 	}
 
-	if(!is_cmpr_meth_supported(pg->compression)) {
-		detiff_err(c, d, "Unsupported compression method (%d)", (int)pg->compression);
-		goto done;
-	}
-	if(pg->samples_per_pixel>1 && pg->planarconfig>1) {
-		detiff_err(c, d, "Unsupported PlanarConfiguration");
-		goto done;
+	if(pg->fill_order==2) {
+		// FillOrder=LSB is ambiguous in general, but we allow it in some special cases.
+		if(pg->compression==1 && pg->samples_per_pixel==1 && pg->bits_per_sample==1) {
+			dctx->need_to_reverse_bits = 1;
+		}
+		else if(pg->compression>=2 && pg->compression<=5) {
+			;
+		}
+		else {
+			detiff_warn(c, d, pg, "Unexpected FillOrder for this image type. Ignoring.");
+		}
 	}
 
-	if(c->padpix && !dctx->is_tiled) {
+	// TODO: Support -padpix in more situations
+	if(c->padpix && !dctx->is_tiled && !dctx->is_separated && pg->compression==1) {
 		if(pg->samples_per_pixel==1 && pg->bits_per_sample<8) {
 			dctx->width = de_pad_to_n(dctx->width * pg->samples_per_pixel * pg->bits_per_sample, 8) /
 				((i64)pg->samples_per_pixel * pg->bits_per_sample);
@@ -3124,52 +3270,116 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		}
 	}
 
+	if(dctx->has_alpha) {
+		dctx->samples_per_pixel_to_decode = (UI)dctx->alpha_sample_idx+1;
+	}
+	else {
+		dctx->samples_per_pixel_to_decode = dctx->base_samples_per_pixel;
+	}
+
+	if(dctx->is_separated) {
+		dctx->striles_per_plane = pg->strile_count / pg->samples_per_pixel;
+		dctx->num_planes_to_decode = dctx->samples_per_pixel_to_decode;
+		dctx->samples_per_pixel_per_plane = 1;
+	}
+	else {
+		dctx->striles_per_plane = pg->strile_count;
+		dctx->num_planes_to_decode = 1;
+		dctx->samples_per_pixel_per_plane = pg->samples_per_pixel;
+	}
+
+	if(dctx->is_tiled) {
+		i64 striles_down;
+
+		if(pg->tile_width<1 || pg->tile_height<1 || pg->tile_width>c->max_image_dimension ||
+			pg->tile_height>c->max_image_dimension)
+		{
+			need_errmsg = 1; goto done;
+		}
+		dctx->strile_max_w = pg->tile_width;
+		dctx->strile_max_h = pg->tile_height;
+		striles_across = (dctx->width + pg->tile_width - 1) / pg->tile_width;
+		striles_down = (dctx->height + pg->tile_height - 1) / pg->tile_height;
+
+		if(c->padpix) {
+			dctx->width = striles_across * pg->tile_width;
+			dctx->height = striles_down * pg->tile_height;
+		}
+	}
+	else {
+		dctx->strile_max_w = dctx->width;
+		dctx->strile_max_h = pg->rows_per_strip;
+		striles_across = 1;
+	}
+	dctx->strile_max_rowspan = (dctx->strile_max_w * (i64)dctx->samples_per_pixel_per_plane *
+		pg->bits_per_sample + 7)/8;
+
+	de_dfilter_init_objects(c, &dctx->dcmpri, &dctx->dcmpro, NULL);
+	dctx->dcmpri.f = c->infile;
+
+	if(pg->compression==1 && !dctx->need_to_reverse_bits && !dctx->is_separated) {
+		can_optimize_uncompressed = 1;
+	}
+
 	if(dctx->is_grayscale) output_bypp = 1;
 	else output_bypp = 3;
 	if(dctx->has_alpha) output_bypp++;
 	img = de_bitmap_create(c, dctx->width, dctx->height, output_bypp);
 
-	dctx->strile_max_w = dctx->width;
-	dctx->strile_max_h = dctx->height;
-	dctx->strile_max_rowspan = (dctx->strile_max_w * pg->samples_per_pixel * pg->bits_per_sample + 7)/8;
+	de_dbg_indent_save(c, &saved_indent_level2);
 
-	de_dfilter_init_objects(c, &dctx->dcmpri, &dctx->dcmpro, NULL);
-	dctx->dcmpri.f = c->infile;
-
-	for(dctx->strile_idx=0; dctx->strile_idx<pg->strile_count; dctx->strile_idx++) {
+	for(dctx->strileset_idx=0; dctx->strileset_idx<dctx->striles_per_plane; dctx->strileset_idx++) {
 		int ret;
+		i64 first_strile_idx;
 
-		dctx->strile_ypos = dctx->strile_idx * pg->rows_per_strip;
-		de_dbg(c, "strip #%d (0,%d) at %"I64_FMT", dlen=%"I64_FMT,
-			(int)dctx->strile_idx, (int)dctx->strile_ypos,
-			pg->strile_data[dctx->strile_idx].pos, pg->strile_data[dctx->strile_idx].len);
+		first_strile_idx = dctx->strileset_idx;
+		dctx->strileset_xpos = (dctx->strileset_idx % striles_across) * dctx->strile_max_w;
+		dctx->strileset_ypos = (dctx->strileset_idx / striles_across) * dctx->strile_max_h;
+		if(dctx->strileset_ypos >= dctx->height) goto after_paint;
+
+		de_dbg(c, "strip #%d (%d,%d) at %"I64_FMT"%s, dlen=%"I64_FMT,
+			(int)dctx->strileset_idx, (int)dctx->strileset_xpos, (int)dctx->strileset_ypos,
+			pg->strile_data[first_strile_idx].pos, (dctx->is_separated?"...":""),
+			pg->strile_data[first_strile_idx].len);
 		de_dbg_indent(c, 1);
 
-		dctx->strile_width = dctx->width;
-		dctx->strile_rowspan = (dctx->strile_width * pg->samples_per_pixel * pg->bits_per_sample + 7)/8;
-		dctx->strile_height = de_min_int(pg->rows_per_strip, dctx->height - dctx->strile_ypos);
+		dctx->strileset_width = dctx->strile_max_w;
+		if(dctx->is_tiled) { // Tiles are all the same width and height.
+			dctx->strileset_height = dctx->strile_max_h;
+		}
+		else { // The last strip may have a smaller height.
+			dctx->strileset_height = de_min_int(dctx->strile_max_h, dctx->height - dctx->strileset_ypos);
+		}
+		dctx->strileset_rowspan = (dctx->strileset_width * (i64)dctx->samples_per_pixel_per_plane *
+			pg->bits_per_sample + 7)/8;
+		if(dctx->strileset_height<1) goto after_paint;
 
-		if(pg->compression==1) { // Optimization for uncompressed images
+		if(can_optimize_uncompressed) {
 			if(tmp_subfile[0]) {
 				dbuf_close(tmp_subfile[0]);
 			}
-			tmp_subfile[0] = dbuf_open_input_subfile(c->infile, pg->strile_data[dctx->strile_idx].pos,
-				pg->strile_data[dctx->strile_idx].len);
+			tmp_subfile[0] = dbuf_open_input_subfile(c->infile, pg->strile_data[first_strile_idx].pos,
+				pg->strile_data[first_strile_idx].len);
 			dctx->unc_strile_dbuf[0] = tmp_subfile[0];
 		}
 		else {
-			if(tmp_membuf[0]) {
-				dbuf_empty(tmp_membuf[0]);
+			UI k;
+
+			for(k=0; k<dctx->num_planes_to_decode; k++) {
+				if(tmp_membuf[k]) {
+					dbuf_empty(tmp_membuf[k]);
+				}
+				else {
+					tmp_membuf[k] = dbuf_create_membuf(c, 0, 0);
+					dbuf_set_length_limit(tmp_membuf[k], dctx->strile_max_h * dctx->strile_max_rowspan);
+				}
+				dctx->unc_strile_dbuf[k] = tmp_membuf[k];
 			}
-			else {
-				tmp_membuf[0] = dbuf_create_membuf(c, 0, 0);
-				dbuf_set_length_limit(tmp_membuf[0], dctx->strile_max_h * dctx->strile_max_rowspan);
-			}
-			dctx->unc_strile_dbuf[0] = tmp_membuf[0];
-			ret = decompress_strile(c, d, pg, dctx);
+
+			ret = decompress_strileset(c, d, pg, dctx);
 			if(!ret) {
 				// TODO?: Better handling of partial failure
-				if(dctx->strile_idx>0) goto partial_failure;
+				if(dctx->strileset_idx>0) goto after_paint;
 				goto done;
 			}
 		}
@@ -3178,7 +3388,8 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		de_dbg_indent(c, -1);
 	}
 
-partial_failure:
+after_paint:
+	de_dbg_indent_restore(c, saved_indent_level2);
 	fi = de_finfo_create(c);
 
 	if(pg->orientation>=5 && pg->orientation<=8) {
@@ -3209,7 +3420,7 @@ done:
 	de_bitmap_destroy(img);
 	de_finfo_destroy(c, fi);
 	if(need_errmsg) {
-		detiff_err(c, d, "Unsupported image type or bad image");
+		detiff_err(c, d, pg, "Unsupported image type or bad image");
 	}
 	if(dctx) {
 		if(dctx->dfctx) de_dfilter_destroy(dctx->dfctx);
@@ -3218,7 +3429,8 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtype1)
+static void process_ifd(deark *c, lctx *d, int ifd_idx1, i64 ifdpos1, u8 ifdtype1,
+	u8 is_in_main_ifd_list)
 {
 	struct page_ctx *pg = NULL;
 	int num_tags;
@@ -3235,6 +3447,16 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 	pg->ifd_idx = ifd_idx1;
 	pg->ifdpos = ifdpos1;
 	pg->ifdtype = ifdtype1;
+	if(is_in_main_ifd_list) {
+		pg->ifd_idx_in_main_list = d->num_main_ifds_processed++;
+		de_snprintf(pg->errmsgtoken_ifd, sizeof(pg->errmsgtoken_ifd),
+			"IFD#%d@%"I64_FMT, pg->ifd_idx_in_main_list+1, pg->ifdpos);
+	}
+	else {
+		pg->ifd_idx_in_main_list = -1;
+		de_snprintf(pg->errmsgtoken_ifd, sizeof(pg->errmsgtoken_ifd),
+			"IFD#n/a@%"I64_FMT, pg->ifdpos);
+	}
 
 	// NOTE: Some TIFF apps (e.g. Windows Photo Viewer) have been observed to encode
 	// ASCII fields (e.g. ImageDescription) in UTF-8, in violation of the TIFF spec.
@@ -3278,14 +3500,12 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 	de_dbg(c, "IFD at %"I64_FMT"%s", pg->ifdpos, name);
 	de_dbg_indent(c, 1);
 
+	de_dbg2(c, "ifd id: \"%s\"", pg->errmsgtoken_ifd);
+
 	if(pg->ifdpos >= c->infile->len || pg->ifdpos<8) {
-		detiff_warn(c, d, "Invalid IFD offset (%"I64_FMT")", pg->ifdpos);
+		detiff_warn(c, d, NULL, "Invalid IFD offset: %"I64_FMT, pg->ifdpos);
 		goto done;
 	}
-
-	// TODO: Improve the format of this token.
-	de_snprintf(d->errmsgtoken_ifd, sizeof(d->errmsgtoken_ifd),
-		"IFD#%d@%"I64_FMT, (int)pg->ifd_idx, pg->ifdpos);
 
 	if(d->is_bigtiff) {
 		num_tags = (int)dbuf_geti64x(c->infile, pg->ifdpos, d->is_le);
@@ -3296,14 +3516,14 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 
 	de_dbg(c, "number of tags: %d", num_tags);
 	if(num_tags>200) {
-		detiff_warn(c, d, "Invalid or excessive number of TIFF tags (%d)", num_tags);
+		detiff_warn(c, d, pg, "Invalid or excessive number of TIFF tags (%d)", num_tags);
 		goto done;
 	}
 
 	// Record the next IFD in the main list.
 	tmpoffset = getfpos(c, d, pg->ifdpos+d->ifdhdrsize+num_tags*d->ifditemsize);
 	de_dbg(c, "offset of next IFD: %"I64_FMT"%s", tmpoffset, tmpoffset==0?" (none)":"");
-	push_ifd(c, d, tmpoffset, IFDTYPE_NORMAL);
+	push_ifd(c, d, tmpoffset, IFDTYPE_NORMAL, 1);
 
 	dbgline = ucstring_create(c);
 
@@ -3370,30 +3590,30 @@ done:
 		de_free(c, pg->strile_data);
 		de_free(c, pg);
 	}
-	d->errmsgtoken_ifd[0] = '\0';
 }
 
 static void do_tiff(deark *c, lctx *d)
 {
 	i64 pos;
 	i64 ifdoffs;
-	i64 ifd_idx;
+	int ifd_idx;
 	int need_to_read_header = 1;
 
 	pos = 0;
 
 	if(d->fmt==DE_TIFFFMT_APPLEMN) {
-		push_ifd(c, d, 14, IFDTYPE_APPLEMN);
+		push_ifd(c, d, 14, IFDTYPE_APPLEMN, 1);
 		need_to_read_header = 0;
 	}
 	else if(d->fmt==DE_TIFFFMT_FUJIFILMMN) {
 		ifdoffs = getfpos(c, d, 8);
-		push_ifd(c, d, ifdoffs, IFDTYPE_FUJIFILMMN);
+		push_ifd(c, d, ifdoffs, IFDTYPE_FUJIFILMMN, 1);
 		need_to_read_header = 0;
 	}
 
 	if(need_to_read_header) {
-		de_dbg(c, "TIFF file header at %d", (int)pos);
+		de_dbg(c, "TIFF%s file header at %"I64_FMT,
+			(d->is_exif_submodule?"/Exif":""), pos);
 		de_dbg_indent(c, 1);
 
 		de_dbg(c, "byte order: %s-endian", d->is_le?"little":"big");
@@ -3410,10 +3630,10 @@ static void do_tiff(deark *c, lctx *d)
 		ifdoffs = getfpos(c, d, pos);
 		de_dbg(c, "offset of first IFD: %d", (int)ifdoffs);
 		if(d->fmt==DE_TIFFFMT_NIKONMN) {
-			push_ifd(c, d, ifdoffs, IFDTYPE_NIKONMN);
+			push_ifd(c, d, ifdoffs, IFDTYPE_NIKONMN, 1);
 		}
 		else {
-			push_ifd(c, d, ifdoffs, IFDTYPE_NORMAL);
+			push_ifd(c, d, ifdoffs, IFDTYPE_NORMAL, 1);
 		}
 
 		de_dbg_indent(c, -1);
@@ -3422,15 +3642,18 @@ static void do_tiff(deark *c, lctx *d)
 	// Process IFDs until we run out of them.
 	// ifd_idx tracks how many IFDs we have finished processing, but it's not
 	// really meaningful except when it's 0.
-	// TODO: It might be useful to count just the IFDs in the main IFD list.
 	ifd_idx = 0;
 	while(1) {
-		int ifdtype = IFDTYPE_NORMAL;
-		ifdoffs = pop_ifd(c, d, &ifdtype);
+		u8 ifdtype = IFDTYPE_NORMAL;
+		u8 is_in_main_ifd_list = 0;
+
+		ifdoffs = pop_ifd(c, d, &ifdtype, &is_in_main_ifd_list);
 		if(ifdoffs==0) break;
-		process_ifd(c, d, ifd_idx, ifdoffs, ifdtype);
+		process_ifd(c, d, ifd_idx, ifdoffs, ifdtype, is_in_main_ifd_list);
 		ifd_idx++;
 	}
+
+	de_dbg(c, "number of IFDs: %d (%d in main list)", d->ifd_count, d->num_main_ifds_processed);
 }
 
 static int de_identify_tiff_internal(deark *c, int *is_le)
@@ -3502,10 +3725,12 @@ static void identify_more_formats(deark *c, lctx *d)
 
 	if(!de_memcmp(buf, "XEROX DIFF", 10)) {
 		de_dbg(c, "XIFF/XEROX DIFF format detected");
+		d->is_xiff = 1;
 		return;
 	}
 	if(!de_memcmp(buf, " eXtended ", 10)) {
 		de_dbg(c, "XIFF/eXtended format detected");
+		d->is_xiff = 1;
 	}
 }
 
@@ -3556,7 +3781,10 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 
 	switch(d->fmt) {
 	case DE_TIFFFMT_TIFF:
-		de_declare_fmt(c, "TIFF");
+		if(d->is_xiff)
+			de_declare_fmt(c, "XIFF");
+		else
+			de_declare_fmt(c, "TIFF");
 		break;
 	case DE_TIFFFMT_BIGTIFF:
 		de_declare_fmt(c, "BigTIFF");
@@ -3580,7 +3808,7 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 	}
 
 	if(d->fmt==0) {
-		detiff_warn(c, d, "This is not a known/supported TIFF or TIFF-like format.");
+		detiff_warn(c, d, NULL, "This is not a known/supported TIFF or TIFF-like format.");
 	}
 
 	if(d->is_bigtiff) {
