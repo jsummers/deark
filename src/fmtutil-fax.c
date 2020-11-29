@@ -119,7 +119,7 @@ static void fax34_on_eol(deark *c, struct fax_ctx *fc)
 {
 	i64 i;
 
-	de_dbg(c, "EOL");
+	de_dbg3(c, "EOL");
 
 	if(fc->ypos >= fc->fax34params->image_height) {
 		fc->xpos = 0;
@@ -148,7 +148,7 @@ static void fax34_record_run(deark *c, struct fax_ctx *fc, UI color, UI run_len)
 {
 	UI i;
 
-	de_dbg(c, "%u:%u", color, run_len);
+	de_dbg3(c, "%u:%u", color, run_len);
 	for(i=0; (i<run_len) && (fc->xpos < fc->fax34params->image_width); i++) {
 		fc->curr_row[fc->xpos++] = (u8)color;
 	}

@@ -83,6 +83,7 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define TAG_TILEOFFSETS         324
 #define TAG_TILEBYTECOUNTS      325
 #define TAG_SAMPLEFORMAT        339
+#define TAG_JPEGTABLES          347
 #define TAG_JPEGINTERCHANGEFORMAT 513
 #define TAG_JPEGINTERCHANGEFORMATLENGTH 514
 #define TAG_YCBCRPOSITIONING    531
@@ -155,6 +156,7 @@ struct page_ctx {
 	u8 is_thumb;
 	u8 have_density;
 	u8 have_strip_tags, have_tile_tags;
+	u8 have_jpegtables;
 
 	u32 compression;
 	u32 orientation;
@@ -1827,6 +1829,9 @@ static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const s
 	case TAG_YCBCRPOSITIONING:
 		pg->ycbcrpositioning = (u32)val;
 		break;
+	case TAG_JPEGTABLES:
+		pg->have_jpegtables = 1;
+		break;
 	}
 }
 
@@ -1900,7 +1905,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 344, 0x0000, "XClipPathUnits", NULL, NULL },
 	{ 345, 0x0000, "YClipPathUnits", NULL, NULL },
 	{ 346, 0x0000, "Indexed", NULL, NULL },
-	{ 347, 0x00, "JPEGTables", NULL, NULL },
+	{ /* 347 */ TAG_JPEGTABLES, 0x00, "JPEGTables", handler_various, NULL },
 	{ 351, 0x0000, "OPIProxy", NULL, NULL },
 	{ 400, 0x0008, "GlobalParametersIFD", handler_subifd, NULL },
 	{ 401, 0x0000, "ProfileType", NULL, NULL },
@@ -3077,6 +3082,25 @@ static void set_image_density(deark *c, lctx *d, struct page_ctx *pg, de_finfo *
 	}
 }
 
+// We can extract NewJPEG images if the following conditions are true:
+// - There is just one strile.
+// - The image does not use separate JPEG tables. Presumably this corresponds to the
+//   absence of a JPEGTables tag.
+// (TODO: Reconstitute single-strile images that use separate tables.)
+static void do_newjpeg(deark *c, lctx *d, struct page_ctx *pg)
+{
+	if(pg->strile_count!=1) goto done;
+	if(pg->strile_data[0].pos + pg->strile_data[0].len > c->infile->len) goto done;
+	// TODO: Tiled images might include extra pixels for padding, which we ought to warn
+	// about. But we would have to scan the JPEG data to know for sure.
+
+	dbuf_create_file_from_slice(c->infile, pg->strile_data[0].pos, pg->strile_data[0].len,
+		"jpg", NULL, 0);
+
+done:
+	;
+}
+
 static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 {
 	de_bitmap *img = NULL;
@@ -3091,7 +3115,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	int ok_bps = 0;
 	int can_optimize_uncompressed = 0;
 	UI createflags = 0;
-	// (Multiple dbufs will be needed for PlanarConfig=separated.)
+	// (Multiple dbufs are needed for PlanarConfig=separated.)
 	dbuf *tmp_membuf[DE_TIFF_MAX_SAMPLES];
 	dbuf *tmp_subfile[DE_TIFF_MAX_SAMPLES];
 
@@ -3103,6 +3127,13 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	// TODO: Should we check pg->compression?
 	if(pg->jpegoffset>0) {
 		do_oldjpeg(c, d, pg);
+		goto done;
+	}
+
+	if(pg->compression==7 && pg->strile_count==1 && !pg->have_jpegtables) {
+		// FIXME: This should really happen *after* some of the processing below,
+		// but it's complicated.
+		do_newjpeg(c, d, pg);
 		goto done;
 	}
 
@@ -3337,11 +3368,10 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		dctx->strileset_ypos = (dctx->strileset_idx / striles_across) * dctx->strile_max_h;
 		if(dctx->strileset_ypos >= dctx->height) goto after_paint;
 
-		de_dbg(c, "strip #%d (%d,%d) at %"I64_FMT"%s, dlen=%"I64_FMT,
+		de_dbg2(c, "strip #%d (%d,%d) at %"I64_FMT"%s, dlen=%"I64_FMT,
 			(int)dctx->strileset_idx, (int)dctx->strileset_xpos, (int)dctx->strileset_ypos,
 			pg->strile_data[first_strile_idx].pos, (dctx->is_separated?"...":""),
 			pg->strile_data[first_strile_idx].len);
-		de_dbg_indent(c, 1);
 
 		dctx->strileset_width = dctx->strile_max_w;
 		if(dctx->is_tiled) { // Tiles are all the same width and height.
@@ -3385,7 +3415,6 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		}
 
 		paint_decompressed_strile_to_image(c, d, pg, dctx, img);
-		de_dbg_indent(c, -1);
 	}
 
 after_paint:
