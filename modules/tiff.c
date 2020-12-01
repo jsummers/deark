@@ -209,7 +209,7 @@ struct localctx_struct {
 	int is_exif_submodule;
 	int host_is_le;
 	int can_decode_fltpt;
-	int opt_decode;
+	u8 opt_decode;
 	u8 is_deark_iptc, is_deark_8bim;
 
 	u32 first_ifd_orientation; // Valid if != 0
@@ -2853,12 +2853,13 @@ static void decompress_strile_fax34(deark *c, lctx *d, struct page_ctx *pg,
 		 (void*)&fax34params);
 }
 
-static int is_cmpr_meth_supported(u32 n)
+static int is_cmpr_meth_supported(lctx *d, u32 n)
 {
 	switch(n) {
 	case 1:
 	case 2:
 	case 3:
+	case 4:
 	case 5:
 	case 8:
 	case 32773:
@@ -2912,7 +2913,7 @@ static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
 	}
 
 	if(dctx->dres.errcode) {
-		detiff_err(c, d, pg, "Decompression failed (strip@(%d,%d)): %s",
+		detiff_err(c, d, pg, "Decompression failed (strip@%d,%d): %s",
 			(int)dctx->strileset_xpos, (int)dctx->strileset_ypos,
 			de_dfilter_get_errmsg(c, &dctx->dres));
 		// TODO?: Better handling of partial failure
@@ -3185,7 +3186,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	dctx->height = pg->imagelength;
 	if(!de_good_image_dimensions(c, dctx->width, dctx->height)) goto done;
 
-	if(!is_cmpr_meth_supported(pg->compression)) {
+	if(!is_cmpr_meth_supported(d, pg->compression)) {
 		detiff_err(c, d, pg, "Unsupported compression method: %d (%s)", (int)pg->compression,
 			lookup_str(compression_name_map, DE_ARRAYCOUNT(compression_name_map), (i64)pg->compression));
 		goto done;
@@ -3769,7 +3770,7 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	d->opt_decode = de_get_ext_option_bool(c, "tiff:decode", 0);
+	d->opt_decode = (u8)de_get_ext_option_bool(c, "tiff:decode", 0);
 
 	if(mparams) {
 		d->in_params = &mparams->in_params;
