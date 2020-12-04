@@ -88,6 +88,17 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define TAG_JPEGINTERCHANGEFORMATLENGTH 514
 #define TAG_YCBCRPOSITIONING    531
 
+#define CMPR_NONE          1
+#define CMPR_CCITTRLE      2
+#define CMPR_FAX3          3
+#define CMPR_FAX4          4
+#define CMPR_LZW           5
+#define CMPR_OLDJPEG       6
+#define CMPR_NEWJPEG       7
+#define CMPR_DEFLATE       8
+#define CMPR_PACKBITS      32773
+#define CMPR_DEFLATE_ALT   32946
+
 struct localctx_struct;
 typedef struct localctx_struct lctx;
 struct taginfo;
@@ -739,13 +750,13 @@ static int valdec_oldsubfiletype(deark *c, const struct valdec_params *vp, struc
 }
 
 static const struct int_and_str compression_name_map[] = {
-	{1, "uncompressed"}, {2, "CCITTRLE"}, {3, "Fax3"}, {4, "Fax4"},
-	{5, "LZW"}, {6, "OldJPEG"}, {7, "NewJPEG"}, {8, "DEFLATE"},
+	{CMPR_NONE, "uncompressed"}, {CMPR_CCITTRLE, "CCITTRLE"}, {CMPR_FAX3, "Fax3"}, {CMPR_FAX4, "Fax4"},
+	{CMPR_LZW, "LZW"}, {CMPR_OLDJPEG, "OldJPEG"}, {CMPR_NEWJPEG, "NewJPEG"}, {CMPR_DEFLATE, "DEFLATE"},
 	{9, "T.85 JBIG"}, {10, "T.43 JBIG"},
 	{32766, "NeXT 2-bit RLE"}, {32771, "CCITTRLEW"},
-	{32773, "PackBits"}, {32809, "ThunderScan"},
+	{CMPR_PACKBITS, "PackBits"}, {32809, "ThunderScan"},
 	{32895, "IT8CTPAD"}, {32896, "IT8LW"}, {32897, "IT8MP/HC"}, {32898, "IT8BL"},
-	{32908, "PIXARFILM"}, {32909, "PIXARLOG"}, {32946, "DEFLATE"}, {32947, "DCS"},
+	{32908, "PIXARFILM"}, {32909, "PIXARLOG"}, {CMPR_DEFLATE_ALT, "DEFLATE"}, {32947, "DCS"},
 	{34661, "ISO JBIG"}, {34676, "SGILOG"}, {34677, "SGILOG24"},
 	{34712, "JPEG2000"}, {34715, "JBIG2"}, {34887, "LERC"}, {34892, "Lossy JPEG(DNG)"},
 	{34925, "LZMA2"}, {50000, "Zstd"}, {50001, "WebP"}
@@ -2856,14 +2867,14 @@ static void decompress_strile_fax34(deark *c, lctx *d, struct page_ctx *pg,
 static int is_cmpr_meth_supported(lctx *d, u32 n)
 {
 	switch(n) {
-	case 1:
-	case 2:
-	case 3:
-	case 4:
-	case 5:
-	case 8:
-	case 32773:
-	case 32946:
+	case CMPR_NONE:
+	case CMPR_CCITTRLE:
+	case CMPR_FAX3:
+	case CMPR_FAX4:
+	case CMPR_LZW:
+	case CMPR_DEFLATE:
+	case CMPR_PACKBITS:
+	case CMPR_DEFLATE_ALT:
 		return 1;
 	}
 	return 0;
@@ -2893,19 +2904,19 @@ static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
 	de_dfilter_init_objects(c, NULL, NULL, &dctx->dres);
 
 	switch(pg->compression) {
-	case 2:
-	case 3:
-	case 4:
+	case CMPR_CCITTRLE:
+	case CMPR_FAX3:
+	case CMPR_FAX4:
 		decompress_strile_fax34(c, d, pg, dctx);
 		break;
-	case 5:
+	case CMPR_LZW:
 		decompress_strile_lzw(c, d, pg, dctx);
 		break;
-	case 8:
-	case 32946:
+	case CMPR_DEFLATE:
+	case CMPR_DEFLATE_ALT:
 		decompress_strile_deflate(c, d, pg, dctx);
 		break;
-	case 32773:
+	case CMPR_PACKBITS:
 		decompress_strile_packbits(c, d, pg, dctx);
 		break;
 	default:
@@ -3131,7 +3142,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		goto done;
 	}
 
-	if(pg->compression==7 && pg->strile_count==1 && !pg->have_jpegtables) {
+	if(pg->compression==CMPR_NEWJPEG && pg->strile_count==1 && !pg->have_jpegtables) {
 		// FIXME: This should really happen *after* some of the processing below,
 		// but it's complicated.
 		do_newjpeg(c, d, pg);
@@ -3151,7 +3162,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	de_dbg_indent(c, 1);
 
 	if(pg->compression<1) {
-		pg->compression = 1;
+		pg->compression = CMPR_NONE;
 	}
 	if(pg->samples_per_pixel<1) {
 		pg->samples_per_pixel = 1;
@@ -3266,7 +3277,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 
 	if(pg->fill_order==2) {
 		// FillOrder=LSB is ambiguous in general, but we allow it in some special cases.
-		if(pg->compression==1 && pg->samples_per_pixel==1 && pg->bits_per_sample==1) {
+		if(pg->compression==CMPR_NONE && pg->samples_per_pixel==1 && pg->bits_per_sample==1) {
 			dctx->need_to_reverse_bits = 1;
 		}
 		else if(pg->compression>=2 && pg->compression<=5) {
@@ -3278,7 +3289,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	}
 
 	// TODO: Support -padpix in more situations
-	if(c->padpix && !dctx->is_tiled && !dctx->is_separated && pg->compression==1) {
+	if(c->padpix && !dctx->is_tiled && !dctx->is_separated && pg->compression==CMPR_NONE) {
 		if(pg->samples_per_pixel==1 && pg->bits_per_sample<8) {
 			dctx->width = de_pad_to_n(dctx->width * pg->samples_per_pixel * pg->bits_per_sample, 8) /
 				((i64)pg->samples_per_pixel * pg->bits_per_sample);
@@ -3349,7 +3360,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	de_dfilter_init_objects(c, &dctx->dcmpri, &dctx->dcmpro, NULL);
 	dctx->dcmpri.f = c->infile;
 
-	if(pg->compression==1 && !dctx->need_to_reverse_bits && !dctx->is_separated) {
+	if(pg->compression==CMPR_NONE && !dctx->need_to_reverse_bits && !dctx->is_separated) {
 		can_optimize_uncompressed = 1;
 	}
 
@@ -3429,8 +3440,8 @@ after_paint:
 		de_bitmap_mirror(img);
 	}
 	if(pg->orientation==3 || pg->orientation==4 || pg->orientation==7 || pg->orientation==8) {
-		// Could use DE_CREATEFLAG_FLIP_IMAGE instead.
-		de_bitmap_flip(img);
+		// More efficient than de_bitmap_flip(). We can do this if flipping is the last step.
+		createflags |= DE_CREATEFLAG_FLIP_IMAGE;
 	}
 
 	if(pg->is_thumb) {

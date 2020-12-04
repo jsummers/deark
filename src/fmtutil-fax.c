@@ -23,44 +23,79 @@ struct fax_ctx {
 	u8 has_eol_codes;
 	u8 rows_padded_to_next_byte;
 	u8 is_2d;
+	i64 image_width, image_height;
 
 	i64 nbytes_written;
 	struct de_bitreader bitrd;
 
-	u8 *curr_row; // array[fax34params->image_width]
-	u8 *prev_row; // array[fax34params->image_width]
+	u8 *curr_row; // array[image_width]
+	u8 *prev_row; // array[image_width]
 
 	i64 rowspan_final;
 	u8 *tmp_row_packed; // array[rowspan_final]
+
+	i64 pending_run_len;
+	UI f2d_h_codes_remaining;
 
 	i64 ypos; // Row of the next pixel to be decoded
 	i64 a0; // Next output pixel x-position. Can be -1; the 2-d decoder sometimes
 	// needs -1 and 0 to be distinct "reference pixel positions".
 
 	u8 a0_color;
+	u8 have_read_tag_bit;
+	u8 tag_bit;
 	i64 b1;
 	i64 b2;
 };
 
-static void create_fax34_huffman_tree2d(deark *c, struct fax34_huffman_tree *f34ht)
-{
-	 f34ht->two_d_codes = fmtutil_huffman_create_tree(c, 16, 16);
-#define FAX2D_EOFB       0
+#define FAX2D_7ZEROES    0
 #define FAX2D_P          1
 #define FAX2D_H          2
 #define FAX2D_EXTENSION  3
 #define FAX2D_V_BIAS     100
-	 fmtutil_huffman_add_code(c, f34ht->two_d_codes, 0x00, 7, FAX2D_EOFB); // EOFB...
-	 fmtutil_huffman_add_code(c, f34ht->two_d_codes, 0x01, 7, FAX2D_EXTENSION); // Extension...
-	 fmtutil_huffman_add_code(c, f34ht->two_d_codes, 0x02, 7, FAX2D_V_BIAS-3); // VL3
-	 fmtutil_huffman_add_code(c, f34ht->two_d_codes, 0x03, 7, FAX2D_V_BIAS+3); // VR3
-	 fmtutil_huffman_add_code(c, f34ht->two_d_codes, 0x02, 6, FAX2D_V_BIAS-2); // VL2
-	 fmtutil_huffman_add_code(c, f34ht->two_d_codes, 0x03, 6, FAX2D_V_BIAS+2); // VR2
-	 fmtutil_huffman_add_code(c, f34ht->two_d_codes, 0x1, 4, FAX2D_P); // P
-	 fmtutil_huffman_add_code(c, f34ht->two_d_codes, 0x1, 3, FAX2D_H); // H...
-	 fmtutil_huffman_add_code(c, f34ht->two_d_codes, 0x2, 3, FAX2D_V_BIAS-1); // VL1
-	 fmtutil_huffman_add_code(c, f34ht->two_d_codes, 0x3, 3, FAX2D_V_BIAS+1); // VR1
-	 fmtutil_huffman_add_code(c, f34ht->two_d_codes, 0x1, 1, FAX2D_V_BIAS); // V0
+
+static const u8 fax34_2dvals[11] = {
+	FAX2D_7ZEROES, // EOFB, etc...
+	FAX2D_EXTENSION, // Extension...
+	FAX2D_V_BIAS-3, // VL3
+	FAX2D_V_BIAS+3, // VR3
+	FAX2D_V_BIAS-2, // VL2
+	FAX2D_V_BIAS+2, // VR2
+	FAX2D_P, // P
+	FAX2D_H, // H...
+	FAX2D_V_BIAS-1, // VL1
+	FAX2D_V_BIAS+1, // VR1
+	FAX2D_V_BIAS // V0
+};
+
+static const u8 fax34_2dcodes[11] = {
+	0x00, // 0000000
+	0x01, // 0000001
+	0x02, // 0000010
+	0x03, // 0000011
+	0x02, // 000010
+	0x03, // 000011
+	0x1,  // 0001
+	0x1,  // 001
+	0x2,  // 010
+	0x3,  // 011
+	0x1   // 1
+};
+
+static const u8 fax34_2dcodelengths[11] = {
+	7, 7, 7, 7, 6, 6, 4, 3, 3, 3, 1
+};
+
+static void create_fax34_huffman_tree2d(deark *c, struct fax34_huffman_tree *f34ht)
+{
+	size_t i;
+
+	 f34ht->two_d_codes = fmtutil_huffman_create_tree(c, 16, 16);
+
+	 for(i=0; i<DE_ARRAYCOUNT(fax34_2dcodes); i++) {
+		 fmtutil_huffman_add_code(c, f34ht->two_d_codes, (u64)fax34_2dcodes[i],
+			 (UI)fax34_2dcodelengths[i], (fmtutil_huffman_valtype)fax34_2dvals[i]);
+	 }
 }
 
 static const i16 fax34whitevals[104] = {
@@ -151,15 +186,11 @@ static void fax34_on_eol(deark *c, struct fax_ctx *fc)
 
 	de_dbg3(c, "EOL");
 
-	if(fc->ypos >= fc->fax34params->image_height) {
-		fc->a0 = -1;
-		fc->a0_color = 0;
-		return;
-	}
+	if(fc->ypos >= fc->image_height) goto done;
 
 	// [Pack curr_row into bits (tmp_row_packed)]
 	de_zeromem(fc->tmp_row_packed, (size_t)fc->rowspan_final);
-	for(i=0; i<fc->fax34params->image_width; i++) {
+	for(i=0; i<fc->image_width; i++) {
 		if(fc->curr_row[i]) {
 			fc->tmp_row_packed[i/8] |= 1U<<(7-i%8);
 		}
@@ -170,41 +201,41 @@ static void fax34_on_eol(deark *c, struct fax_ctx *fc)
 	fc->nbytes_written += fc->rowspan_final;
 
 	if(fc->is_2d) {
-		de_memcpy(fc->prev_row, fc->curr_row, (size_t)fc->fax34params->image_width);
+		de_memcpy(fc->prev_row, fc->curr_row, (size_t)fc->image_width);
 	}
 
 	// initialize curr_row
-	de_zeromem(fc->curr_row, (size_t)fc->fax34params->image_width);
+	de_zeromem(fc->curr_row, (size_t)fc->image_width);
 
 	fc->ypos++;
+done:
 	fc->a0 = -1;
 	fc->a0_color = 0;
+	fc->pending_run_len = 0;
+	fc->f2d_h_codes_remaining = 0;
+	fc->have_read_tag_bit = 0;
 }
 
-// Record run_len pixels, updating fc->a0.
-// If fc->a0 == -1, sets it to 0 first.
-static void fax34_record_run(deark *c, struct fax_ctx *fc, u8 color, i64 run_len)
+// Record run_len pixels as fc0>a0_color, updating fc->a0.
+// repsect_negative_a0==0: If fc->a0 == -1, sets it to 0 first.
+// repsect_negative_a0==0: If fc->a0 == -1, only sets rec_len-1 pixels.
+static void fax34_record_run(deark *c, struct fax_ctx *fc, i64 run_len,
+	int respect_negative_a0)
 {
 	i64 i;
+	u8 color = fc->a0_color;
 
 	de_dbg3(c, "run c=%u len=%d", (UI)color, (int)run_len);
+
 	if(fc->a0<0) {
+		if(respect_negative_a0) {
+			run_len += fc->a0;
+		}
 		fc->a0 = 0;
 	}
-	for(i=0; (i<run_len) && (fc->a0 < fc->fax34params->image_width); i++) {
+	for(i=0; (i<run_len) && (fc->a0 < fc->image_width); i++) {
 		fc->curr_row[fc->a0++] = color;
 	}
-}
-
-// Record run_len pixels, updating fc->a0.
-// If fc->a0 == -1, only sets rec_len-1 pixels.
-static void fax34_record_run_using_a0(deark *c, struct fax_ctx *fc, i64 run_len)
-{
-	if(fc->a0<0) {
-		run_len += fc->a0;
-		fc->a0 = 0;
-	}
-	fax34_record_run(c, fc, fc->a0_color, run_len);
 }
 
 static void init_fax34_bitreader(deark *c, struct fax_ctx *fc)
@@ -275,12 +306,12 @@ done:
 }
 
 // Sets fc->b1 appropriately, according to fc->a0 and fc->prev_row and
-// fc->fax34params->image_width.
+// fc->image_width.
 static void find_b1(struct fax_ctx *fc)
 {
 	i64 i;
 
-	for(i=fc->a0+1; i<fc->fax34params->image_width; i++) {
+	for(i=fc->a0+1; i<fc->image_width; i++) {
 		if(i<0) continue;
 
 		// first prev_row pixel to the right of a0, of opposite color to a0_color
@@ -299,7 +330,7 @@ static void find_b1(struct fax_ctx *fc)
 		fc->b1 = i;
 		return;
 	}
-	fc->b1 = fc->fax34params->image_width;
+	fc->b1 = fc->image_width;
 }
 
 static void find_b1_and_b2(struct fax_ctx *fc)
@@ -308,21 +339,19 @@ static void find_b1_and_b2(struct fax_ctx *fc)
 
 	find_b1(fc);
 
-	for(i=fc->b1+1; i<fc->fax34params->image_width; i++) {
+	for(i=fc->b1+1; i<fc->image_width; i++) {
 		// Looking for a "changing element", i.e. one having a different color from
 		// the pixel to its left.
 		if(fc->prev_row[i-1] == fc->prev_row[i]) continue;
 		fc->b2 = i;
 		return;
 	}
-	fc->b2 = fc->fax34params->image_width;
+	fc->b2 = fc->image_width;
 }
 
 static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 	struct fax34_huffman_tree *f34ht)
 {
-	i64 pending_run_len = 0;
-	UI f2d_h_codes_remaining = 0;
 	char errmsg[100];
 
 	errmsg[0] = '\0';
@@ -343,16 +372,20 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 		}
 	}
 
+	fc->pending_run_len = 0;
+	fc->f2d_h_codes_remaining = 0;
 	fc->ypos = 0;
 	fc->a0 = -1;
 	fc->a0_color = 0;
+	fc->have_read_tag_bit = 0;
 
 	while(1) {
 		int ret;
+		int in_2d_mode;
 		fmtutil_huffman_valtype val = 0;
 
-		if(fc->ypos >= fc->fax34params->image_height ||
-			((fc->ypos == fc->fax34params->image_height-1) && (fc->a0 >= fc->fax34params->image_width)))
+		if(fc->ypos >= fc->image_height ||
+			((fc->ypos == fc->image_height-1) && (fc->a0 >= fc->image_width)))
 		{
 			goto done; // Normal completion
 		}
@@ -365,16 +398,33 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 			goto done;
 		}
 
-		if(!fc->has_eol_codes && (fc->a0 >= fc->fax34params->image_width)) {
+		if(!fc->has_eol_codes && (fc->a0 >= fc->image_width)) {
 			if(fc->rows_padded_to_next_byte) {
 				de_bitbuf_lowelevel_empty(&fc->bitrd.bbll);
 			}
 			fax34_on_eol(c, fc);
-			pending_run_len = 0;
-			f2d_h_codes_remaining = 0;
 		}
 
-		if(fc->is_2d && f2d_h_codes_remaining==0) {
+		if(fc->is_2d && fc->fax34params->tiff_cmpr_meth==3 && !fc->have_read_tag_bit) {
+			fc->tag_bit = (u8)de_bitreader_getbits(&fc->bitrd, 1);
+			fc->have_read_tag_bit = 1;
+		}
+
+		in_2d_mode = 0;
+		if(fc->is_2d) {
+			if(fc->f2d_h_codes_remaining == 0) {
+				if(fc->fax34params->tiff_cmpr_meth==3) {
+					if(fc->tag_bit==0) {
+						in_2d_mode = 1;
+					}
+				}
+				else { // (Fax4)
+					in_2d_mode = 1;
+				}
+			}
+		}
+
+		if(in_2d_mode) {
 			ret = fmtutil_huffman_read_next_value(f34ht->two_d_codes, &fc->bitrd, &val, NULL);
 			if(!ret) {
 				if(fc->bitrd.eof_flag) {
@@ -394,22 +444,32 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 				de_dbg3(c, "at %d b1=%d", (int)fc->a0, (int)fc->b1);
 				run_len = fc->b1 - fc->a0 + ((i64)val-FAX2D_V_BIAS);
 
-				fax34_record_run_using_a0(c, fc, run_len);
+				fax34_record_run(c, fc, run_len, 1);
 				fc->a0_color = fc->a0_color?0:1;
 			}
 			else if(val==FAX2D_P) {
 				find_b1_and_b2(fc);
-				fax34_record_run_using_a0(c, fc, fc->b2 - fc->a0);
+				fax34_record_run(c, fc, fc->b2 - fc->a0, 1);
 			}
 			else if(val==FAX2D_H) {
-				f2d_h_codes_remaining = 2;
+				fc->f2d_h_codes_remaining = 2;
 			}
-			else if(val==FAX2D_EOFB) {
-				de_dbg3(c, "EOFB");
-				goto done;
+			else if(val==FAX2D_7ZEROES) {
+				if(fc->has_eol_codes) {
+					if(!fax34_finish_sync(c, fc, 64)) {
+						de_snprintf(errmsg, sizeof(errmsg), "Failed to find EOL mark");
+						goto done;
+					}
+					fax34_on_eol(c, fc);
+				}
+				else {
+					// Full EOFB should be 000000000001000000000001
+					de_dbg3(c, "EOFB");
+					goto done;
+				}
 			}
 			else {
-				de_dbg3(c, "stopping (%d)", (int)val);
+				de_snprintf(errmsg, sizeof(errmsg), "Unsupported Fax-2d code (%d)", (int)val);
 				goto done;
 			}
 		}
@@ -436,19 +496,18 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 					goto done;
 				}
 				fax34_on_eol(c, fc);
-				pending_run_len = 0;
 			}
 			else if(val<64) {
-				pending_run_len += (i64)val;
-				fax34_record_run(c, fc, fc->a0_color, pending_run_len);
-				pending_run_len = 0;
+				fc->pending_run_len += (i64)val;
+				fax34_record_run(c, fc, fc->pending_run_len, 0);
+				fc->pending_run_len = 0;
 				fc->a0_color = fc->a0_color?0:1;
-				if(f2d_h_codes_remaining>0) {
-					f2d_h_codes_remaining--;
+				if(fc->f2d_h_codes_remaining>0) {
+					fc->f2d_h_codes_remaining--;
 				}
 			}
 			else { // make-up code
-				pending_run_len += (i64)val;
+				fc->pending_run_len += (i64)val;
 			}
 		}
 	}
@@ -479,6 +538,8 @@ void fmtutil_fax34_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	fc->dcmpri = dcmpri;
 	fc->dcmpro = dcmpro;
 	fc->dres = dres;
+	fc->image_width = fc->fax34params->image_width;
+	fc->image_height = fc->fax34params->image_height;
 
 	if((fc->fax34params->tiff_cmpr_meth==3 && (fc->fax34params->t4options & 0x1)) ||
 		(fc->fax34params->tiff_cmpr_meth==4))
@@ -494,24 +555,15 @@ void fmtutil_fax34_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 		fc->has_eol_codes = 1;
 	}
 
-	if(fc->is_2d && fc->fax34params->tiff_cmpr_meth==4) {
-		;
-	}
-	else if(fc->is_2d) {
-		de_dfilter_set_errorf(c, fc->dres, fc->modname, "This type of fax compression "
-			"is not supported");
-		goto done;
-	}
-
-	if(fc->fax34params->image_width < 1 ||
-		fc->fax34params->image_width > c->max_image_dimension)
+	if(fc->image_width < 1 ||
+		fc->image_width > c->max_image_dimension)
 	{
 		goto done;
 	}
-	fc->rowspan_final = (fc->fax34params->image_width+7)/8;
+	fc->rowspan_final = (fc->image_width+7)/8;
 
-	fc->curr_row = de_malloc(c, fc->fax34params->image_width);
-	fc->prev_row = de_malloc(c, fc->fax34params->image_width);
+	fc->curr_row = de_malloc(c, fc->image_width);
+	fc->prev_row = de_malloc(c, fc->image_width);
 	fc->tmp_row_packed = de_malloc(c, fc->rowspan_final);
 
 	f34ht = create_fax34_huffman_tree(c, (int)fc->is_2d);
