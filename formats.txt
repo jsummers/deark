@@ -503,11 +503,14 @@ Deark -- Information about supported formats
   - TI89/TI92/TI92+ pictures
 
 * TIFF and Exif (module="tiff")
-  - Extract JPEG-formatted Exif thumbnails, and some types of Old-style
-    JPEG-compressed images.
+  - Decode most images, excluding lossy-compressed images.
+  - Extract JPEG-formatted Exif thumbnails, and some types of JPEG-compressed
+    images.
   - Extract ICC profiles.
   - Process Photoshop-related data.
   - Extract IPTC-IIM data (use -a).
+  Options
+   -opt tiff:decode=0 - Do not decode images
 
 * TIM (Playstation graphics) (module="tim") (experimental/incomplete)
 

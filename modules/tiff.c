@@ -3781,11 +3781,11 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	d->opt_decode = (u8)de_get_ext_option_bool(c, "tiff:decode", 0);
-
 	if(mparams) {
 		d->in_params = &mparams->in_params;
 	}
+
+	d->opt_decode = (u8)de_get_ext_option_bool(c, "tiff:decode", 1);
 
 	if(de_havemodcode(c, mparams, 'A')) {
 		d->fmt = DE_TIFFFMT_APPLEMN;
