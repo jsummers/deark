@@ -170,7 +170,7 @@ static de_bitmap *de_bitmap_clone(de_bitmap *img1)
 	img2 = de_bitmap_clone_noalloc(img1);
 	de_bitmap_alloc_pixels(img2);
 	nbytes_to_copy = de_min_int(img2->bitmap_size, img1->bitmap_size);
-	de_memcpy(img2->bitmap, img1->bitmap, nbytes_to_copy);
+	de_memcpy(img2->bitmap, img1->bitmap, (size_t)nbytes_to_copy);
 	return img2;
 }
 

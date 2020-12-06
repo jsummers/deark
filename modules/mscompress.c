@@ -546,7 +546,7 @@ static int XOR_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 	dbuf *f = (dbuf*)brctx->userdata;
 
 	for(k=0; k<buf_len; k++) {
-		dbuf_writebyte(f, ~buf[k]);
+		dbuf_writebyte(f, buf[k] ^ (u8)0xff);
 	}
 	return 1;
 }
