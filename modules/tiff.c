@@ -77,6 +77,7 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define TAG_T4OPTIONS           292
 #define TAG_T6OPTIONS           293
 #define TAG_RESOLUTIONUNIT      296
+#define TAG_DATETIME            306
 #define TAG_PREDICTOR           317
 #define TAG_TILEWIDTH           322
 #define TAG_TILELENGTH          323
@@ -206,6 +207,7 @@ struct page_ctx {
 
 	i64 strile_count;
 	struct strile_data_struct *strile_data; // array[strile_count]
+	struct de_timestamp internal_mod_time;
 	de_color pal[256];
 	char errmsgtoken_ifd[40];
 };
@@ -1775,6 +1777,44 @@ static void handler_resolution(deark *c, lctx *d, const struct taginfo *tg, cons
 	}
 }
 
+static i64 read_fixed_decimal(dbuf *f, i64 pos, size_t ndigits)
+{
+	i64 n;
+	char buf[16];
+
+	if(ndigits >= sizeof(buf)) return 0;
+	dbuf_read(f, (u8*)buf, pos, ndigits);
+	buf[ndigits] = '\0';
+	n = de_atoi64(buf);
+	return n;
+}
+
+static void parse_tiff_datetime(deark *c, lctx *d, const struct taginfo *tg, struct de_timestamp *ts)
+{
+	i64 yr, mo, da;
+	i64 hr, mi, se;
+
+	if(tg->unit_size!=1) return;
+	if(tg->valcount<19) return;
+	// Format: "YYYY:MM:DD HH:MM:SS"
+	yr = read_fixed_decimal(c->infile, tg->val_offset, 4);
+	mo = read_fixed_decimal(c->infile, tg->val_offset+5, 2);
+	da = read_fixed_decimal(c->infile, tg->val_offset+8, 2);
+	hr = read_fixed_decimal(c->infile, tg->val_offset+11, 2);
+	mi = read_fixed_decimal(c->infile, tg->val_offset+14, 2);
+	se = read_fixed_decimal(c->infile, tg->val_offset+17, 2);
+	de_make_timestamp(ts, yr, mo, da, hr, mi, se);
+	if(ts->is_valid) {
+		ts->tzcode = DE_TZCODE_UNKNOWN;
+		ts->precision = DE_TSPREC_1SEC;
+	}
+}
+
+static void handler_datetime(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	 parse_tiff_datetime(c, d, tg, &tg->pg->internal_mod_time);
+}
+
 // Handler for some tags expected to have a single integer value
 static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
@@ -1898,7 +1938,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 300, 0x0000, "ColorResponseUnit", NULL, NULL },
 	{ 301, 0x00, "TransferFunction", NULL, NULL },
 	{ 305, 0x0400, "Software", NULL, NULL },
-	{ 306, 0x0400, "DateTime", NULL, NULL },
+	{ /* 306 */ TAG_DATETIME, 0x0400, "DateTime", handler_datetime, NULL },
 	{ 315, 0x0400, "Artist", NULL, NULL },
 	{ 316, 0x0400, "HostComputer", NULL, NULL },
 	{ /* 317 */ TAG_PREDICTOR, 0x00, "Predictor", handler_various, valdec_predictor },
@@ -3481,6 +3521,7 @@ after_paint:
 	}
 
 	set_image_density(c, d, pg, fi);
+	fi->internal_mod_time = pg->internal_mod_time;
 
 	de_bitmap_write_to_file_finfo(img, fi, createflags);
 
