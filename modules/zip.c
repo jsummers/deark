@@ -122,27 +122,31 @@ static void do_decompress_shrink(deark *c, lctx *d, struct compression_params *c
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	fmtutil_decompress_zip_shrink(c, dcmpri, dcmpro, dres, 0);
+	fmtutil_decompress_zip_shrink(c, dcmpri, dcmpro, dres, NULL);
 }
 
 static void do_decompress_reduce(deark *c, lctx *d, struct compression_params *cparams,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	unsigned int flags = 0;
+	struct de_zipreduce_params params;
 
-	fmtutil_decompress_zip_reduce(c, dcmpri, dcmpro, dres,
-		(unsigned int)(cparams->cmpr_meth-1), flags);
+	de_zeromem(&params, sizeof(struct de_zipreduce_params));
+	params.cmpr_factor = (unsigned int)(cparams->cmpr_meth-1);
+	fmtutil_decompress_zip_reduce(c, dcmpri, dcmpro, dres, &params);
 }
 
 static void do_decompress_implode(deark *c, lctx *d, struct compression_params *cparams,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	unsigned int flags = 0;
+	struct de_zipimplode_params params;
 
-	fmtutil_decompress_zip_implode(c, dcmpri, dcmpro, dres,
-		cparams->bit_flags, flags);
+	de_zeromem(&params, sizeof(struct de_zipimplode_params));
+	params.bit_flags = cparams->bit_flags;
+	params.dump_trees = (u8)de_get_ext_option_bool(c, "zip:dumptrees", 0);
+	params.mml_bug = (u8)de_get_ext_option_bool(c, "zip:implodebug", 0);
+	fmtutil_decompress_zip_implode(c, dcmpri, dcmpro, dres, &params);
 }
 
 static void do_decompress_deflate(deark *c, lctx *d, struct compression_params *cparams,

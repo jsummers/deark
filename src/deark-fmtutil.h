@@ -244,13 +244,23 @@ void de_dfilter_decompress_two_layer_type2(deark *c,
 
 void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	unsigned int flags);
+	void *params);
+
+struct de_zipreduce_params {
+	unsigned int cmpr_factor;
+};
 void fmtutil_decompress_zip_reduce(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	unsigned int cmpr_factor, unsigned int flags);
+	struct de_zipreduce_params *params);
+
+struct de_zipimplode_params {
+	unsigned int bit_flags;
+	u8 dump_trees;
+	u8 mml_bug;
+};
 void fmtutil_decompress_zip_implode(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	unsigned int bit_flags, unsigned int flags);
+	struct de_zipimplode_params *params);
 
 // Wrapper for miniz' tdefl functions
 

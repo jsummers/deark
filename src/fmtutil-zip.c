@@ -63,9 +63,10 @@ static size_t ozXX_write(struct ozXX_udatatype *uctx, const u8 *buf, size_t size
 	return size;
 }
 
+// params: Unused, should be NULL
 void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	unsigned int flags)
+	void *params)
 {
 	struct de_lzw_params delzwp;
 
@@ -73,7 +74,6 @@ void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri
 	delzwp.fmt = DE_LZWFMT_ZIPSHRINK;
 	fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
-
 
 static size_t my_ozur_read(ozur_ctx *ozur, OZUR_UINT8 *buf, size_t size)
 {
@@ -94,7 +94,7 @@ static void my_ozur_post_follower_sets_hook(ozur_ctx *ozur)
 
 void fmtutil_decompress_zip_reduce(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	unsigned int cmpr_factor, unsigned int flags)
+	struct de_zipreduce_params *params)
 {
 	int retval = 0;
 	ozur_ctx *ozur = NULL;
@@ -117,7 +117,7 @@ void fmtutil_decompress_zip_reduce(deark *c, struct de_dfilter_in_params *dcmpri
 
 	ozur->cmpr_size = dcmpri->len;
 	ozur->uncmpr_size = dcmpro->expected_len;
-	ozur->cmpr_factor = cmpr_factor;
+	ozur->cmpr_factor = params->cmpr_factor;
 
 	ozur_run(ozur);
 
@@ -224,7 +224,7 @@ static void my_zipexpl_cb_post_read_trees(ui6a_ctx *ui6a, struct ui6a_htables *t
 
 void fmtutil_decompress_zip_implode(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	unsigned int bit_flags, unsigned int flags)
+	struct de_zipimplode_params *params)
 {
 	ui6a_ctx *ui6a = NULL;
 	struct ozXX_udatatype zu;
@@ -235,7 +235,7 @@ void fmtutil_decompress_zip_implode(deark *c, struct de_dfilter_in_params *dcmpr
 	if(!dcmpro->len_known) goto done;
 
 	zu.c = c;
-	zu.dumptrees = de_get_ext_option_bool(c, "zip:dumptrees", 0);
+	zu.dumptrees = (int)params->dump_trees;
 	zu.inf = dcmpri->f;
 	zu.inf_curpos = dcmpri->pos;
 	zu.outf = dcmpro->f;
@@ -245,8 +245,8 @@ void fmtutil_decompress_zip_implode(deark *c, struct de_dfilter_in_params *dcmpr
 
 	ui6a->cmpr_size = dcmpri->len;
 	ui6a->uncmpr_size = dcmpro->expected_len;
-	ui6a->bit_flags = (UI6A_UINT16)bit_flags;
-	ui6a->emulate_pkzip10x = de_get_ext_option_bool(c, "zip:implodebug", 0);
+	ui6a->bit_flags = (UI6A_UINT16)params->bit_flags;
+	ui6a->emulate_pkzip10x = params->mml_bug;
 
 	ui6a->cb_read = my_zipexpl_read;
 	ui6a->cb_write =  my_zipexpl_write;
