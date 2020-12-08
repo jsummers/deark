@@ -215,44 +215,30 @@ static void do_ntfs_times(deark *c, struct zipw_md *md,
 	dbuf_writeu64le(ef, crtm);
 }
 
-static int my_deflate_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
-	i64 buf_len)
-{
-	struct fmtutil_tdefl_ctx *tdctx = (struct fmtutil_tdefl_ctx*)brctx->userdata;
-	enum fmtutil_tdefl_status ret;
-	int retval = 0;
-
-	if(!brctx->eof_flag) {
-		// We could handle this case pretty easily, but it can't happen, due to
-		// how dbuf_buffered_read() handles membufs.
-		goto done;
-	}
-
-	ret = fmtutil_tdefl_compress_buffer(tdctx, buf, (size_t)buf_len, FMTUTIL_TDEFL_FINISH);
-	if(ret != FMTUTIL_TDEFL_STATUS_DONE) goto done;
-	retval = 1;
-
-done:
-	if(retval==0) {
-		de_err(brctx->c, "Deflate compression error");
-	}
-	return retval;
-}
-
+// uncmpr_data must be a membuf
 static int zipw_deflate(deark *c, struct zipw_ctx *zzz, dbuf *uncmpr_data,
 	dbuf *cmpr_data, unsigned int level)
 {
 	int retval = 0;
 	int ret;
+	const u8 *uncmpr_mem;
 	struct fmtutil_tdefl_ctx *tdctx = NULL;
 
 	tdctx = fmtutil_tdefl_create(c, cmpr_data,
 		fmtutil_tdefl_create_comp_flags_from_zip_params(level, -15, MZ_DEFAULT_STRATEGY));
-	ret = dbuf_buffered_read(uncmpr_data, 0, uncmpr_data->len, my_deflate_cbfn, (void*)tdctx);
-	if(!ret) goto done;
+
+	uncmpr_mem = dbuf_get_membuf_direct_ptr(uncmpr_data);
+	if(uncmpr_mem==NULL && uncmpr_data->len!=0) goto done;
+
+	ret = fmtutil_tdefl_compress_buffer(tdctx, uncmpr_mem, (size_t)uncmpr_data->len,
+		FMTUTIL_TDEFL_FINISH);
+	if(ret != FMTUTIL_TDEFL_STATUS_DONE) goto done;
 	retval = 1;
 
 done:
+	if(retval==0) {
+		de_err(c, "Deflate compression error");
+	}
 	fmtutil_tdefl_destroy(tdctx);
 	return retval;
 }

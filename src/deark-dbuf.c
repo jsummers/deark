@@ -1816,6 +1816,15 @@ void dbuf_empty(dbuf *f)
 	}
 }
 
+// Provides direct (presumably read-only) access to the memory in a membuf.
+// Use with care: The memory is still owned by the dbuf.
+// Note: Another, arguably safer, way to do this is to use dbuf_buffered_read().
+const u8 *dbuf_get_membuf_direct_ptr(dbuf *f)
+{
+	if(f->btype != DBUF_TYPE_MEMBUF) return NULL;
+	return f->membuf_buf;
+}
+
 // Search a section of a dbuf for a given byte.
 // 'haystack_len' is the number of bytes to search.
 // Returns 0 if not found.

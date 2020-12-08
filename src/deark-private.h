@@ -743,16 +743,13 @@ int dbuf_dump_to_file(dbuf *inf, const char *fn);
 void dbuf_empty(dbuf *f);
 
 void dbuf_set_length_limit(dbuf *f, i64 max_len);
-
-int dbuf_search_byte(dbuf *f, const u8 b, i64 startpos,
+const u8 *dbuf_get_membuf_direct_ptr(dbuf *f);
+int dbuf_search_byte(dbuf *f, const u8 b, i64 startpos, i64 haystack_len,
+	i64 *foundpos);
+int dbuf_search(dbuf *f, const u8 *needle, i64 needle_len, i64 startpos,
 	i64 haystack_len, i64 *foundpos);
-
-int dbuf_search(dbuf *f, const u8 *needle, i64 needle_len,
-	i64 startpos, i64 haystack_len, i64 *foundpos);
-
 int dbuf_get_utf16_NULterm_len(dbuf *f, i64 pos1, i64 bytes_avail,
 	i64 *bytes_consumed);
-
 int dbuf_find_line(dbuf *f, i64 pos1, i64 *pcontent_len, i64 *ptotal_len);
 
 struct de_fourcc {
