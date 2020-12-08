@@ -379,14 +379,18 @@ static int decode_bitmap(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi, i
 			dbuf_copy(c->infile, pos, bytecount, unc_pixels);
 		}
 		else if(bi->packing_type==3 && bi->pixelsize==16) {
+			struct de_packbits_params pbparams;
+
+			de_zeromem(&pbparams, sizeof(struct de_packbits_params));
+			pbparams.is_packbits16 = 1;
 			dcmpri.pos = pos;
 			dcmpri.len = bytecount;
-			fmtutil_decompress_packbits16_ex(c, &dcmpri, &dcmpro, &dres);
+			fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres, &pbparams);
 		}
 		else {
 			dcmpri.pos = pos;
 			dcmpri.len = bytecount;
-			fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres);
+			fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres, NULL);
 		}
 
 		// Make sure the data decompressed to the right number of bytes.

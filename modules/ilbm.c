@@ -1343,7 +1343,7 @@ static int decompress_method1(deark *c, lctx *d, i64 pos, i64 len, dbuf *unc_pix
 	dcmpro.len_known = 1;
 	dcmpro.expected_len = expected_len;
 
-	fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres);
+	fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres, NULL);
 	if(dres.errcode) {
 		de_err(c, "Decompression failed: %s", dres.errmsg);
 		goto done;

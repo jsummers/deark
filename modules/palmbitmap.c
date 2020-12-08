@@ -244,10 +244,14 @@ static int de_decompress_image(deark *c, lctx *d, struct page_ctx *pg,
 		do_decompress_rle_compression(c, &dcmpri, &dcmpro, &dres);
 	}
 	else if(pg->cmpr_type==PCMPR_PACKBITS8) {
-		fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres);
+		fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres, NULL);
 	}
 	else if(pg->cmpr_type==PCMPR_PACKBITS16) {
-		fmtutil_decompress_packbits16_ex(c, &dcmpri, &dcmpro, &dres);
+			struct de_packbits_params pbparams;
+
+			de_zeromem(&pbparams, sizeof(struct de_packbits_params));
+			pbparams.is_packbits16 = 1;
+			fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres, &pbparams);
 	}
 	else {
 		de_err(c, "Unsupported compression type: %u", pg->cmpr_type_field);

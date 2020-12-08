@@ -103,12 +103,14 @@ void fmtutil_inflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params);
 
+struct de_packbits_params {
+	u8 is_packbits16;
+};
 void fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	struct de_packbits_params *pbparams);
 int fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
 	dbuf *unc_pixels, i64 *cmpr_bytes_consumed);
-void fmtutil_decompress_packbits16_ex(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
 void fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags);
@@ -167,10 +169,6 @@ void fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 
 void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
-
-struct de_packbits_params {
-	u8 is_packbits16;
-};
 void dfilter_packbits_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 
 struct de_lzh_params {

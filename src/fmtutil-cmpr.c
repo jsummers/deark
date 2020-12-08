@@ -352,9 +352,10 @@ void dfilter_packbits_codec(struct de_dfilter_ctx *dfctx, void *codec_private_pa
 }
 
 void fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	struct de_packbits_params *pbparams)
 {
-	de_dfilter_decompress_oneshot(c, dfilter_packbits_codec, NULL,
+	de_dfilter_decompress_oneshot(c, dfilter_packbits_codec, (void*)pbparams,
 		dcmpri, dcmpro, dres);
 }
 
@@ -386,19 +387,6 @@ int fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
 	}
 	if(dres.errcode != 0) return 0;
 	return 1;
-}
-
-// A 16-bit variant of de_fmtutil_uncompress_packbits().
-void fmtutil_decompress_packbits16_ex(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
-{
-	struct de_packbits_params pbparams;
-
-	de_zeromem(&pbparams, sizeof(struct de_packbits_params));
-	pbparams.is_packbits16 = 1;
-
-	de_dfilter_decompress_oneshot(c, dfilter_packbits_codec, (void*)&pbparams,
-		dcmpri, dcmpro, dres);
 }
 
 void fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpri,
