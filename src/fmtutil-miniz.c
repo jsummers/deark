@@ -14,6 +14,7 @@
 #define MINIZ_NO_ARCHIVE_APIS
 #include "../foreign/miniz.h"
 
+// codec_private_params = type de_inflate_params; cannot be NULL
 void fmtutil_inflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params)
@@ -159,6 +160,13 @@ done:
 	de_free(c, outbuf);
 }
 
+void fmtutil_decompress_deflate_ex(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	struct de_inflate_params *params)
+{
+	fmtutil_inflate_codectype1(c, dcmpri, dcmpro, dres, (void*)params);
+}
+
 // flags:
 //   DE_DEFLATEFLAG_ISZLIB
 //   DE_DEFLATEFLAG_USEMAXUNCMPRSIZE
@@ -198,19 +206,6 @@ int fmtutil_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *o
 		return 0;
 	}
 	return 1;
-}
-
-// flags:
-//   DE_DEFLATEFLAG_ISZLIB
-void fmtutil_decompress_deflate_ex(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	unsigned int flags)
-{
-	struct de_inflate_params inflparams;
-
-	de_zeromem(&inflparams, sizeof(struct de_inflate_params));
-	inflparams.flags = flags;
-	fmtutil_inflate_codectype1(c, dcmpri, dcmpro, dres, (void*)&inflparams);
 }
 
 struct fmtutil_tdefl_ctx {
