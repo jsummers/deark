@@ -522,9 +522,6 @@
     <ClInclude Include="..\..\src\deark.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\foreign\miniz.h">
-      <Filter>Foreign Code</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\foreign\uncompface.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>
@@ -539,6 +536,12 @@
     </ClInclude>
     <ClInclude Include="..\..\src\deark-version.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\foreign\miniz-c.h">
+      <Filter>Foreign Code</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\foreign\miniz.h">
+      <Filter>Foreign Code</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

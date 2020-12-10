@@ -155,8 +155,8 @@ static void print_license(deark *c)
 	"OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\n"
 	"THE SOFTWARE.\n\n"
 	"----------\n"
-	"The zlib and Deflate encoder and decoder use public domain code originally from\n"
-	"miniz v1.16 beta r1, by Rich Geldreich.\n\n"
+	"The zlib and Deflate encoder and decoder use MIT-licensed code from miniz,\n"
+	"(c) Rich Geldreich, Tenacious Software, RAD Game Tools, Valve Software.\n\n"
 	"The ZIP Implode decoder is derived from public domain code by Mark Adler, from\n"
 	"Info-ZIP UnZip v5.4.\n\n"
 	"The X-Face decoder uses code from Compface, Copyright (c) 1990 James Ashton.\n");

@@ -12,7 +12,7 @@
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
 #define MINIZ_NO_STDIO
 #define MINIZ_NO_ARCHIVE_APIS
-#include "../foreign/miniz.h"
+#include "../foreign/miniz-c.h"
 
 // codec_private_params = type de_inflate_params; cannot be NULL
 void fmtutil_inflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,

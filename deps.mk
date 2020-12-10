@@ -314,7 +314,7 @@ $(OBJDIR)/src/fmtutil-lzw.o: src/fmtutil-lzw.c src/deark-config.h \
  src/../foreign/delzw.h
 $(OBJDIR)/src/fmtutil-miniz.o: src/fmtutil-miniz.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h \
- src/../foreign/miniz.h
+ src/../foreign/miniz-c.h src/../foreign/miniz.h
 $(OBJDIR)/src/fmtutil-zip.o: src/fmtutil-zip.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h \
  src/../foreign/ozunreduce.h src/../foreign/unimplode6a.h
