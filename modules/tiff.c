@@ -3091,7 +3091,7 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 				}
 
 				switch(pg->bits_per_sample) {
-				case 1: case 4:
+				case 1: case 2: case 4:
 					sample[s_idx] = de_get_bits_symbol(dctx->unc_strile_dbuf[dbuf_idx], (i64)pg->bits_per_sample,
 						dctx->strileset_rowspan*j, i*(i64)dctx->samples_per_pixel_per_plane + sample_offset);
 					break;
@@ -3277,11 +3277,11 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 			((pg->cmi && pg->cmi->name)?pg->cmi->name:"?"));
 		goto done;
 	}
-	if(pg->have_strip_tags && pg->have_tile_tags) {
-		detiff_err(c, d, pg, "Image seems to have both strips and tiles");
-		goto done;
-	}
+
 	if(pg->have_tile_tags) {
+		if(pg->have_strip_tags) {
+			detiff_warn(c, d, pg, "Image seems to have both strips and tiles");
+		}
 		dctx->is_tiled = 1;
 	}
 
@@ -3303,7 +3303,9 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		dctx->is_grayscale = 1;
 		dctx->grayscale_reverse_polarity = (pg->photometric==0);
 		dctx->base_samples_per_pixel = 1;
-		if(pg->bits_per_sample==1 || pg->bits_per_sample==4 || pg->bits_per_sample==8) {
+		if(pg->bits_per_sample==1 || pg->bits_per_sample==2 || pg->bits_per_sample==4 ||
+			pg->bits_per_sample==8)
+		{
 			ok_bps = 1;
 		}
 	}
@@ -3316,7 +3318,9 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	else if(pg->photometric==3) { // paletted
 		dctx->base_samples_per_pixel = 1;
 		dctx->use_pal = 1;
-		if(pg->bits_per_sample==1 || pg->bits_per_sample==4 || pg->bits_per_sample==8) {
+		if(pg->bits_per_sample==1 || pg->bits_per_sample==2 || pg->bits_per_sample==4 ||
+			pg->bits_per_sample==8)
+		{
 			ok_bps = 1;
 		}
 	}
