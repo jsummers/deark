@@ -1542,7 +1542,7 @@ static int do_arx_member(deark *c, struct arx_ctx *d, struct arx_member_data *md
 	i64 compressed_data_len;
 	i64 unc_data_len;
 	i64 pos1 = md->member_pos;
-	UI hdr_checksum_calc;
+	UI hdr_checksum_calc = 0;
 	int is_uncompressed = 0;
 	int retval = 0;
 	int saved_indent_level;
