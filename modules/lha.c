@@ -729,7 +729,7 @@ static void decompress_lh5(deark *c, lctx *d, struct member_data *md,
 	de_zeromem(&lzhparams, sizeof(struct de_lzh_params));
 	lzhparams.fmt = DE_LZH_FMT_LH5LIKE;
 	lzhparams.subfmt = '5';
-	lzhparams.zero_codes_block_behavior = DE_LZH_ZCB_0; //65536;
+	lzhparams.zero_codes_block_behavior = DE_LZH_ZCB_65536;
 	lzhparams.warn_about_zero_codes_block = 1;
 	fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres, &lzhparams);
 }
@@ -911,6 +911,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)crc_calc);
 	if(crc_calc != md->crc16) {
 		de_err(c, "%s: CRC check failed", ucstring_getpsz_d(md->fullfilename));
+		goto done;
 	}
 
 	dcmpr_ok = 1;
