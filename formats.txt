@@ -675,6 +675,9 @@ Deark -- Information about supported formats
 * LHA/LZH/PMA (module="lha")
   - Not all the major compression methods are supported. Some are supported but
     experimental.
+  Options
+   -opt lha:lhark - Assume "lh7" compression is LHARK format, instead of the
+     standard lh7 format. (Unfortunately, autodetecting LHARK is impractical.)
 
 * MacBinary (module="macbinary")
   - You may have to use "-m macbinary".

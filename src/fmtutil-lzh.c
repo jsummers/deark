@@ -31,6 +31,7 @@ struct lzh_ctx {
 
 	struct de_lz77buffer *ringbuf;
 
+	u8 is_lhark_lh7;
 	UI lh5x_offset_nbits;
 	UI lh5x_offsets_tree_max_codes;
 	struct lzh_tree_wrapper codelengths_tree;
@@ -214,6 +215,7 @@ static int lh5x_read_codes_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *t
 
 	tree->ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
 
+	// Note: For lhark format, max codes is probably 289.
 	if(ncodes>LH5X_CODE_TREE_MAX_CODES) { // TODO: Is this an error?
 		ncodes = LH5X_CODE_TREE_MAX_CODES;
 	}
@@ -415,24 +417,60 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 			UI offset;
 			UI length;
 			UI ocode1;
+			UI offs_low_nbits;
+			UI ocode2;
 
-			length = code-253;
+			if(cctx->is_lhark_lh7 && code>=264) {
+				if(code==288) {
+					length = 514;
+				}
+				else if(code>288) {
+					de_dbg(c, "unknown lhark code: %u", (UI)code);
+					goto done;
+				}
+				else {
+					UI len_low;
+					UI len_low_nbits;
+
+					len_low_nbits = (code-260)/4;
+					len_low = (UI)lzh_getbits(cctx, len_low_nbits);
+					if(cctx->bitrd.eof_flag) goto done;
+					length = ((4+(code%4)) << len_low_nbits) + len_low + 3;
+				}
+				de_dbg3(c, "matchlen: %u", (UI)length);
+			}
+			else {
+				length = code-253;
+			}
 
 			ocode1 = read_next_code_using_tree(cctx, &cctx->offsets_tree);
 			if(cctx->bitrd.eof_flag) goto done;
 			de_dbg3(c, "ocode1: %u", ocode1);
 
-			if(ocode1<=1) {
-				offset = ocode1;
+			if(cctx->is_lhark_lh7) {
+				if(ocode1<=3) {
+					offset = ocode1;
+				}
+				else {
+					offs_low_nbits = (ocode1-2)/2;
+					ocode2 = (UI)lzh_getbits(cctx, offs_low_nbits);
+					if(cctx->bitrd.eof_flag) goto done;
+					de_dbg3(c, "ocode2: %u", ocode2);
+					offset = ((2+(ocode1%2))<<offs_low_nbits) + ocode2;
+
+				}
 			}
 			else {
-				UI ocode2;
-
-				ocode2 = (UI)lzh_getbits(cctx, ocode1-1);
-				if(cctx->bitrd.eof_flag) goto done;
-				de_dbg3(c, "ocode2: %u", ocode2);
-
-				offset = ocode2 + (1U<<(ocode1-1));
+				if(ocode1<=1) {
+					offset = ocode1;
+				}
+				else {
+					offs_low_nbits = ocode1-1;
+					ocode2 = (UI)lzh_getbits(cctx, offs_low_nbits);
+					if(cctx->bitrd.eof_flag) goto done;
+					de_dbg3(c, "ocode2: %u", ocode2);
+					offset = (1U<<offs_low_nbits) + ocode2;
+				}
 			}
 			de_dbg3(c, "offset: %u", offset);
 
@@ -476,7 +514,13 @@ static void decompress_lha_lh5like(struct lzh_ctx *cctx, struct de_lzh_params *l
 	int blk_idx = 0;
 	UI rb_size;
 
-	if(lzhp->subfmt=='6') {
+	if(lzhp->fmt==DE_LZH_FMT_LHARK) {
+		cctx->is_lhark_lh7 = 1;
+		rb_size = 65536;
+		cctx->lh5x_offset_nbits = 6;
+		cctx->lh5x_offsets_tree_max_codes = 63; // Max observed is 32
+	}
+	else if(lzhp->subfmt=='6') {
 		rb_size = 32768;
 		cctx->lh5x_offset_nbits = 5;
 		cctx->lh5x_offsets_tree_max_codes = 16;
@@ -535,6 +579,9 @@ void fmtutil_decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 
 	if(lzhp->fmt==DE_LZH_FMT_LH5LIKE && (lzhp->subfmt>='4' && lzhp->subfmt<='8'))
 	{
+		decompress_lha_lh5like(cctx, lzhp);
+	}
+	else if(lzhp->fmt==DE_LZH_FMT_LHARK) {
 		decompress_lha_lh5like(cctx, lzhp);
 	}
 	else {

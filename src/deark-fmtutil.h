@@ -173,6 +173,7 @@ void dfilter_packbits_codec(struct de_dfilter_ctx *dfctx, void *codec_private_pa
 
 struct de_lzh_params {
 #define DE_LZH_FMT_LH5LIKE       1 // subfmt=='5' (etc.)
+#define DE_LZH_FMT_LHARK         2 // Only use this with -lh7-
 	int fmt;
 	int subfmt;
 
