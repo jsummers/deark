@@ -32,7 +32,8 @@ struct lzh_ctx {
 	struct de_lz77buffer *ringbuf;
 
 	u8 is_lhark_lh7;
-	UI lh5x_offset_nbits;
+	UI lh5x_codes_tree_max_codes;
+	UI lh5x_offsets_tree_fields_nbits;
 	UI lh5x_offsets_tree_max_codes;
 	struct lzh_tree_wrapper codelengths_tree;
 	struct lzh_tree_wrapper codes_tree;
@@ -140,8 +141,8 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx, struct lzh_tree_wrap
 		UI null_val;
 
 		null_val = (UI)lzh_getbits(cctx, 5);
-		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
 		de_dbg3(c, "val0: %u", null_val);
+		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
 		retval = 1;
 		goto done;
 	}
@@ -193,8 +194,6 @@ static UI lh5x_read_a_skip_length(struct lzh_ctx *cctx, UI rcode)
 	return 19 + (UI)lzh_getbits(cctx, 9);
 }
 
-#define LH5X_CODE_TREE_MAX_CODES 510
-
 static int lh5x_read_codes_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *tree,
 	const char *name)
 {
@@ -215,16 +214,16 @@ static int lh5x_read_codes_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *t
 
 	tree->ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
 
-	// Note: For lhark format, max codes is probably 289.
-	if(ncodes>LH5X_CODE_TREE_MAX_CODES) { // TODO: Is this an error?
-		ncodes = LH5X_CODE_TREE_MAX_CODES;
+	if(ncodes>cctx->lh5x_codes_tree_max_codes) {
+		goto done;
 	}
 	if(ncodes==0) {
 		UI null_val;
 
 		null_val = (UI)lzh_getbits(cctx, 9);
-		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
 		de_dbg3(c, "val0: %u", null_val);
+		if(null_val >= cctx->lh5x_codes_tree_max_codes) goto done;
+		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
 		retval = 1;
 		goto done;
 	}
@@ -280,11 +279,11 @@ static int lh5x_read_offsets_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper 
 	de_dbg2(c, "%s tree at %s", name, pos_descr);
 	de_dbg_indent(c, 1);
 
-	ncodes = (UI)lzh_getbits(cctx, cctx->lh5x_offset_nbits);
+	ncodes = (UI)lzh_getbits(cctx, cctx->lh5x_offsets_tree_fields_nbits);
 	de_dbg2(c, "num codes in %s tree: %u", name, ncodes);
 
-	if(ncodes>cctx->lh5x_offsets_tree_max_codes) { // TODO: Is this an error?
-		ncodes = cctx->lh5x_offsets_tree_max_codes;
+	if(ncodes>cctx->lh5x_offsets_tree_max_codes) {
+		goto done;
 	}
 
 	tree->ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
@@ -292,9 +291,10 @@ static int lh5x_read_offsets_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper 
 	if(ncodes==0) {
 		UI null_val;
 
-		null_val = (UI)lzh_getbits(cctx, cctx->lh5x_offset_nbits);
-		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
+		null_val = (UI)lzh_getbits(cctx, cctx->lh5x_offsets_tree_fields_nbits);
 		de_dbg3(c, "val0: %u", null_val);
+		if(null_val >= cctx->lh5x_offsets_tree_max_codes) goto done;
+		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
 		retval = 1;
 		goto done;
 	}
@@ -421,14 +421,7 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 			UI ocode2;
 
 			if(cctx->is_lhark_lh7 && code>=264) {
-				if(code==288) {
-					length = 514;
-				}
-				else if(code>288) {
-					de_dbg(c, "unknown lhark code: %u", (UI)code);
-					goto done;
-				}
-				else {
+				if(code<288) {
 					UI len_low;
 					UI len_low_nbits;
 
@@ -436,6 +429,9 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 					len_low = (UI)lzh_getbits(cctx, len_low_nbits);
 					if(cctx->bitrd.eof_flag) goto done;
 					length = ((4+(code%4)) << len_low_nbits) + len_low + 3;
+				}
+				else { // presumably, code==288
+					length = 514;
 				}
 				de_dbg3(c, "matchlen: %u", (UI)length);
 			}
@@ -514,25 +510,28 @@ static void decompress_lha_lh5like(struct lzh_ctx *cctx, struct de_lzh_params *l
 	int blk_idx = 0;
 	UI rb_size;
 
+	cctx->lh5x_codes_tree_max_codes = 510;
+
 	if(lzhp->fmt==DE_LZH_FMT_LHARK) {
 		cctx->is_lhark_lh7 = 1;
 		rb_size = 65536;
-		cctx->lh5x_offset_nbits = 6;
-		cctx->lh5x_offsets_tree_max_codes = 63; // Max observed is 32
+		cctx->lh5x_codes_tree_max_codes = 289;
+		cctx->lh5x_offsets_tree_fields_nbits = 6;
+		cctx->lh5x_offsets_tree_max_codes = 32;
 	}
 	else if(lzhp->subfmt=='6') {
 		rb_size = 32768;
-		cctx->lh5x_offset_nbits = 5;
+		cctx->lh5x_offsets_tree_fields_nbits = 5;
 		cctx->lh5x_offsets_tree_max_codes = 16;
 	}
 	else if(lzhp->subfmt=='7' || lzhp->subfmt=='8') {
 		rb_size = 65536;
-		cctx->lh5x_offset_nbits = 5;
+		cctx->lh5x_offsets_tree_fields_nbits = 5;
 		cctx->lh5x_offsets_tree_max_codes = 17;
 	}
 	else { // assume lh5 (or lh4, for which these params should also work)
 		rb_size = 8192;
-		cctx->lh5x_offset_nbits = 4;
+		cctx->lh5x_offsets_tree_fields_nbits = 4;
 		cctx->lh5x_offsets_tree_max_codes = 14;
 	}
 
