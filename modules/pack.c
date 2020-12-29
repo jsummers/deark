@@ -17,7 +17,7 @@ typedef struct localctx_struct {
 	struct de_bitreader bitrd;
 
 	UI depth;
-#define PCK_MAX_LEVELS 48 // Traditional unpack maxes out at ~24
+#define PCK_MAX_LEVELS FMTUTIL_HUFFMAN_MAX_CODE_LENGTH // Traditional unpack maxes out at ~24
 	UI leaves_per_level[PCK_MAX_LEVELS];
 } lctx;
 

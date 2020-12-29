@@ -913,7 +913,7 @@ static void squeeze_interpret_node(struct squeeze_ctx *sqctx,
 	// TODO: Report errors?
 	if(nodenum<0 || nodenum>=sqctx->nodecount) return;
 	if(sqctx->tmpnodes[nodenum].in_use) return; // Loops are bad
-	if(currcode_nbits>=48) return;
+	if(currcode_nbits>=FMTUTIL_HUFFMAN_MAX_CODE_LENGTH) return;
 
 	sqctx->tmpnodes[nodenum].in_use = 1;
 	squeeze_interpret_dval(sqctx, sqctx->tmpnodes[nodenum].child[0].dval, currcode<<1, currcode_nbits+1);

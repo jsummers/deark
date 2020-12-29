@@ -121,7 +121,7 @@ static void sit_huff_read_tree(struct sit_huffctx *hctx, u64 curr_code, UI curr_
 {
 	u8 x;
 
-	if(curr_code_nbits>48) {
+	if(curr_code_nbits>FMTUTIL_HUFFMAN_MAX_CODE_LENGTH) {
 		hctx->errflag = 1;
 	}
 	if(hctx->bitrd.eof_flag || hctx->errflag) return;

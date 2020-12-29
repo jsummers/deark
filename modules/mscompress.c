@@ -179,10 +179,6 @@ header_extensions_done:
 	return retval;
 }
 
-// The max code length is *probably* 15, but some length compression methods
-// can be (mis?)used to make larger lengths possible.
-#define MSLZH_MAX_CODELENGTH  20
-
 #define MSLZH_SYMLEN_TYPE  u8  // Assumed to be unsigned
 
 #define MSLZH_VALUE_TYPE   u8  // Type of a decoded symbol

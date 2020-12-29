@@ -65,9 +65,9 @@ static UI lh5x_read_a_code_length(struct lzh_ctx *cctx)
 			if(b==0) break;
 			n++;
 			// TODO: What is the length limit?
-			if(n>48) {
+			if(n>FMTUTIL_HUFFMAN_MAX_CODE_LENGTH) {
 				lzh_set_err_flag(cctx);
-				return 48;
+				return FMTUTIL_HUFFMAN_MAX_CODE_LENGTH;
 			}
 		}
 	}

@@ -9,7 +9,6 @@
 #include "deark-fmtutil.h"
 
 #define NODE_REF_TYPE u32
-#define MAX_TREE_DEPTH 56
 #define MAX_MAX_NODES  66000
 
 struct huffman_nval_pointer_data {
@@ -136,7 +135,7 @@ int fmtutil_huffman_add_code(deark *c, struct fmtutil_huffman_tree *ht,
 	NODE_REF_TYPE curr_noderef = 0; // Note that this may temporarily point to an unallocated node
 	int retval = 0;
 
-	if(code_nbits>MAX_TREE_DEPTH) goto done;
+	if(code_nbits>FMTUTIL_HUFFMAN_MAX_CODE_LENGTH) goto done;
 
 	if(code_nbits<1) {
 		ht->value_of_null_code = val;
@@ -259,7 +258,7 @@ int fmtutil_huffman_read_next_value(struct fmtutil_huffman_tree *ht,
 		b = (u8)de_bitreader_getbits(bitrd, 1);
 		if(bitrd->eof_flag) goto done;
 		bitcount++;
-		if(bitcount>64) goto done; // Should be impossible
+		if(bitcount>FMTUTIL_HUFFMAN_MAX_CODE_LENGTH) goto done; // Should be impossible
 
 		ret = fmtutil_huffman_decode_bit(ht, b, pval);
 		if(ret==1) { // finished the code
@@ -318,7 +317,7 @@ void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_tree *ht)
 	ucstring_destroy(tmps);
 }
 
-// This only used with fmtutil_huffman_make_canonical_tree().
+// This is only used with fmtutil_huffman_make_canonical_tree().
 // Call this first, once per item.
 // The order that you supply the items matters, at least within the set of items
 // having the same length.
@@ -472,10 +471,9 @@ int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *h
 			max_sym_len_used = ht->lengths_arr[i].len;
 		}
 	}
-	if(max_sym_len_used>48) {
+	if(max_sym_len_used>FMTUTIL_HUFFMAN_MAX_CODE_LENGTH) {
 		goto done;
 	}
-
 
 	if(flags & FMTUTIL_MCTFLAG_LEFT_ALIGN_BRANCHES) {
 		retval = fmtutil_huffman_make_canonical_tree2(c, ht, max_sym_len_used);

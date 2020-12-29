@@ -573,6 +573,7 @@ i64 fmtutil_hlp_get_css_p(dbuf *f, i64 *ppos);
 i64 fmtutil_hlp_get_cul_p(dbuf *f, i64 *ppos);
 i64 fmtutil_hlp_get_csl_p(dbuf *f, i64 *ppos);
 
+#define FMTUTIL_HUFFMAN_MAX_CODE_LENGTH 48
 typedef i32 fmtutil_huffman_valtype;
 struct fmtutil_huffman_tree;
 struct fmtutil_huffman_tree *fmtutil_huffman_create_tree(deark *c, i64 initial_codes, i64 max_codes);
