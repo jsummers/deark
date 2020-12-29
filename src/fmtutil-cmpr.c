@@ -844,3 +844,224 @@ void de_lz77buffer_copy_from_hist(struct de_lz77buffer *rb,
 		frompos = (frompos+1) & rb->mask;
 	}
 }
+
+///////////////////////////////////
+// "Squeeze"-style Huffman decoder
+
+// The first node you add allows for 2 symbols, and each additional node adds 1.
+// So in general, you need one less node than the number of symbols.
+// The max number of symbols is 257: 256 byte values, plus a special "stop" code.
+#define SQUEEZE_MAX_NODES 256
+
+struct squeeze_data_item {
+	i16 dval;
+};
+
+struct squeeze_node {
+	u8 in_use;
+	struct squeeze_data_item child[2];
+};
+
+struct squeeze_ctx {
+	deark *c;
+	struct de_dfilter_in_params *dcmpri;
+	struct de_dfilter_out_params *dcmpro;
+	struct de_dfilter_results *dres;
+	const char *modname;
+	i64 nbytes_written;
+	i64 nodecount;
+	struct fmtutil_huffman_tree *ht;
+	struct de_bitreader bitrd;
+	struct squeeze_node tmpnodes[SQUEEZE_MAX_NODES]; // Temporary use when decoding the node table
+};
+
+static void squeeze_interpret_node(struct squeeze_ctx *sqctx,
+	i64 nodenum, u64 currcode, UI currcode_nbits);
+
+static void squeeze_interpret_dval(struct squeeze_ctx *sqctx,
+	i16 dval, u64 currcode, UI currcode_nbits)
+{
+	char b2buf[72];
+
+	if(dval>=0) { // a pointer to a node
+		if((i64)dval < sqctx->nodecount) {
+			squeeze_interpret_node(sqctx, (i64)dval, currcode, currcode_nbits);
+		}
+	}
+	else if(dval>=(-257) && dval<=(-1)) {
+		fmtutil_huffman_valtype adj_value;
+
+		//  -257 => 256 (stop code)
+		//  -256 => 255 (byte value)
+		//  -255 => 254 (byte value)
+		//  ...
+		//  -1   => 0   (byte value)
+		adj_value = -(((fmtutil_huffman_valtype)dval)+1);
+		if(sqctx->c->debug_level>=2) {
+			de_dbg2(sqctx->c, "adding code \"%s\" = %d",
+				de_print_base2_fixed(b2buf, sizeof(b2buf), currcode, currcode_nbits),
+				(int)adj_value);
+		}
+		fmtutil_huffman_add_code(sqctx->c, sqctx->ht, currcode, currcode_nbits, adj_value);
+	}
+	// TODO: Report errors?
+}
+
+static void squeeze_interpret_node(struct squeeze_ctx *sqctx,
+	i64 nodenum, u64 currcode, UI currcode_nbits)
+{
+	// TODO: Report errors?
+	if(nodenum<0 || nodenum>=sqctx->nodecount) return;
+	if(sqctx->tmpnodes[nodenum].in_use) return; // Loops are bad
+	if(currcode_nbits>=48) return;
+
+	sqctx->tmpnodes[nodenum].in_use = 1;
+	squeeze_interpret_dval(sqctx, sqctx->tmpnodes[nodenum].child[0].dval, currcode<<1, currcode_nbits+1);
+	squeeze_interpret_dval(sqctx, sqctx->tmpnodes[nodenum].child[1].dval, ((currcode<<1) | 1), currcode_nbits+1);
+	sqctx->tmpnodes[nodenum].in_use = 0;
+}
+
+static int squeeze_process_nodetable(deark *c, struct squeeze_ctx *sqctx)
+{
+	int retval = 0;
+
+	// It feels a little wrong to go to the trouble of decoding this node table into
+	// the form required by our Huffman library's API, when we know it's going to
+	// just convert it back into a table much like it was originally. Maybe there
+	// should be a better way to do this.
+	de_dbg2(c, "interpreting huffman table:");
+	de_dbg_indent(c, 1);
+	squeeze_interpret_node(sqctx, 0, 0, 0);
+	de_dbg_indent(c, -1);
+
+	if(c->debug_level>=2) {
+		de_dbg2(c, "constructed huffman table:");
+		de_dbg_indent(c, 1);
+		fmtutil_huffman_dump(c, sqctx->ht);
+		de_dbg_indent(c, -1);
+	}
+
+	retval = 1;
+	return retval;
+}
+
+static int squeeze_read_nodetable(deark *c, struct squeeze_ctx *sqctx)
+{
+	i64 k;
+	int retval = 0;
+
+	if(sqctx->bitrd.curpos+2 > sqctx->bitrd.endpos) goto done;
+	sqctx->nodecount = dbuf_getu16le_p(sqctx->dcmpri->f, &sqctx->bitrd.curpos);
+	de_dbg(c, "node count: %d", (int)sqctx->nodecount);
+	if(sqctx->nodecount > SQUEEZE_MAX_NODES) {
+		de_dfilter_set_errorf(c, sqctx->dres, sqctx->modname,
+			"Invalid node count");
+		goto done;
+	}
+
+	de_dbg2(c, "node table:");
+	de_dbg_indent(c, 1);
+	for(k=0; k<sqctx->nodecount; k++) {
+		sqctx->tmpnodes[k].child[0].dval = (i16)dbuf_geti16le_p(sqctx->dcmpri->f, &sqctx->bitrd.curpos);
+		sqctx->tmpnodes[k].child[1].dval = (i16)dbuf_geti16le_p(sqctx->dcmpri->f, &sqctx->bitrd.curpos);
+		if(c->debug_level >= 2) {
+			de_dbg2(c, "nodetable[%d]: %d %d", (int)k, (int)sqctx->tmpnodes[k].child[0].dval,
+				(int)sqctx->tmpnodes[k].child[1].dval);
+		}
+	}
+	de_dbg_indent(c, -1);
+	if(sqctx->bitrd.curpos > sqctx->bitrd.endpos) goto done;
+
+	if(!squeeze_process_nodetable(c, sqctx)) goto done;
+
+	retval = 1;
+done:
+	return retval;
+}
+
+static int squeeze_read_codes(deark *c, struct squeeze_ctx *sqctx)
+{
+	int retval = 0;
+
+	sqctx->bitrd.bbll.is_lsb = 1;
+	de_bitbuf_lowelevel_empty(&sqctx->bitrd.bbll);
+
+	if(fmtutil_huffman_get_max_bits(sqctx->ht) < 1) {
+		// Empty tree? Assume this is an empty file.
+		retval = 1;
+		goto done;
+	}
+
+	while(1) {
+		int ret;
+		fmtutil_huffman_valtype val = 0;
+
+		ret = fmtutil_huffman_read_next_value(sqctx->ht, &sqctx->bitrd, &val, NULL);
+		if(!ret || val<0 || val>256) {
+			if(sqctx->bitrd.eof_flag) {
+				retval = 1;
+			}
+			else {
+				de_dfilter_set_errorf(c, sqctx->dres, sqctx->modname, "Huffman decode error");
+			}
+			goto done;
+		}
+
+		if(val>=0 && val<=255) {
+			dbuf_writebyte(sqctx->dcmpro->f, (u8)val);
+			sqctx->nbytes_written++;
+			if(sqctx->dcmpro->len_known && (sqctx->nbytes_written >= sqctx->dcmpro->expected_len)) {
+				retval = 1;
+				goto done;
+			}
+		}
+		else if(val==256) { // STOP code
+			retval = 1;
+			goto done;
+		}
+	}
+
+done:
+	return retval;
+}
+
+void fmtutil_huff_squeeze_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params)
+{
+	struct squeeze_ctx *sqctx = NULL;
+	int ok = 0;
+
+	sqctx = de_malloc(c, sizeof(struct squeeze_ctx));
+	sqctx->c = c;
+	sqctx->modname = "unsqueeze";
+	sqctx->dcmpri = dcmpri;
+	sqctx->dcmpro = dcmpro;
+	sqctx->dres = dres;
+
+	sqctx->bitrd.f = dcmpri->f;
+	sqctx->bitrd.curpos = dcmpri->pos;
+	sqctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
+
+	sqctx->ht = fmtutil_huffman_create_tree(c, 257, 257);
+
+	if(!squeeze_read_nodetable(c, sqctx)) goto done;
+	if(!squeeze_read_codes(c, sqctx)) goto done;
+
+	dres->bytes_consumed = sqctx->bitrd.curpos - dcmpri->pos;
+	if(dres->bytes_consumed > dcmpri->len) {
+		dres->bytes_consumed = dcmpri->len;
+	}
+	dres->bytes_consumed_valid = 1;
+	ok = 1;
+
+done:
+	if(!ok || dres->errcode) {
+		de_dfilter_set_errorf(c, dres, sqctx->modname, "Squeeze decompression failed");
+	}
+
+	if(sqctx) {
+		fmtutil_huffman_destroy_tree(c, sqctx->ht);
+		de_free(c, sqctx);
+	}
+}
