@@ -365,7 +365,7 @@ static void mslzh_read_huffman_tree(struct mslzh_context *lzhctx, UI idx)
 			(UI)htr->symlengths[i]);
 	}
 
-	if(!fmtutil_huffman_make_canonical_tree(c, htr->fmtuht)) {
+	if(!fmtutil_huffman_make_canonical_tree(c, htr->fmtuht, 0)) {
 		de_dfilter_set_errorf(c, lzhctx->dres, lzhctx->modname, "Failed to construct Huffman tree");
 		mslzh_set_errorflag(lzhctx);
 		goto done;

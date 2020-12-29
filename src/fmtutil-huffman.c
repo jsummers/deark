@@ -342,18 +342,119 @@ int fmtutil_huffman_record_a_code_length(deark *c, struct fmtutil_huffman_tree *
 	return 1;
 }
 
+// The usual canonical format - leaves are left-aligned
+static int fmtutil_huffman_make_canonical_tree1(deark *c, struct fmtutil_huffman_tree *ht,
+	UI max_sym_len_used)
+{
+	UI symlen;
+	UI codes_count_total = 0;
+	UI prev_code_bit_length = 0;
+	u64 prev_code = 0;
+	int retval = 0;
+	char b2buf[72];
+
+	// For each possible symbol length...
+	for(symlen=1; symlen<=max_sym_len_used; symlen++) {
+		UI k;
+
+		// Find all the codes that use this symbol length, in order
+		for(k=0; k<(UI)ht->lengths_arr_numused; k++) {
+			int ret;
+			u64 thiscode;
+
+			if(ht->lengths_arr[k].len != symlen) continue;
+			// Found a code of the length we're looking for.
+
+			if(codes_count_total==0) {
+				thiscode = 0;
+			}
+			else {
+				thiscode = prev_code + 1;
+				if(symlen > prev_code_bit_length) {
+					thiscode <<= (symlen - prev_code_bit_length);
+				}
+			}
+
+			prev_code = thiscode;
+			prev_code_bit_length = symlen;
+			codes_count_total++;
+
+			if(c->debug_level>=3) {
+				de_dbg3(c, "adding code \"%s\" = %d",
+					de_print_base2_fixed(b2buf, sizeof(b2buf), thiscode, symlen),
+					(int)ht->lengths_arr[k].val);
+			}
+			ret = fmtutil_huffman_add_code(c, ht, thiscode, symlen, ht->lengths_arr[k].val);
+			if(!ret) {
+				goto done;
+			}
+		}
+	}
+	retval = 1;
+
+done:
+	return retval;
+}
+
+// "pack" style - branches are left-aligned
+static int fmtutil_huffman_make_canonical_tree2(deark *c, struct fmtutil_huffman_tree *ht,
+	UI max_sym_len_used)
+{
+	UI symlen;
+	UI codes_count_total = 0;
+	UI prev_code_bit_length = 0;
+	u64 prev_code = 0;
+	int retval = 0;
+	char b2buf[72];
+
+	// For each possible symbol length...
+	for(symlen=max_sym_len_used; symlen>=1; symlen--) {
+		UI k;
+
+		// Find all the codes that use this symbol length, in order
+		for(k=0; k<(UI)ht->lengths_arr_numused; k++) {
+			int ret;
+			u64 this_code;
+
+			if(ht->lengths_arr[k].len != symlen) continue;
+			// Found a code of the length we're looking for.
+
+			if(codes_count_total==0) {
+				this_code = 0;
+			}
+			else  {
+				this_code = (prev_code>>(prev_code_bit_length-symlen)) + 1;
+			}
+
+			prev_code = this_code;
+			prev_code_bit_length = symlen;
+			codes_count_total++;
+
+			if(c->debug_level>=3) {
+				de_dbg3(c, "adding code \"%s\" = %d",
+					de_print_base2_fixed(b2buf, sizeof(b2buf), this_code, symlen),
+					(int)ht->lengths_arr[k].val);
+			}
+			ret = fmtutil_huffman_add_code(c, ht, this_code, symlen, ht->lengths_arr[k].val);
+			if(!ret) {
+				goto done;
+			}
+		}
+	}
+	retval = 1;
+
+done:
+	return retval;
+}
+
 // Call this after calling huffman_record_item_length() (usually many times).
-// Creates the canonical Huffman tree derived from the known code lengths.
-int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *ht)
+// Creates a canonical Huffman tree derived from the known code lengths.
+int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *ht, UI flags)
 {
 	UI max_sym_len_used;
 	UI i;
-	UI symlen;
-	UI prev_code_bit_length = 0;
-	u64 prev_code = 0; // valid if prev_code_bit_length>0
-	int retval = 0;
 	int saved_indent_level;
-	char b2buf[72];
+	int retval = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg3(c, "constructing huffman tree:");
@@ -375,43 +476,13 @@ int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *h
 		goto done;
 	}
 
-	// For each possible symbol length...
-	for(symlen=1; symlen<=max_sym_len_used; symlen++) {
-		UI k;
 
-		// Find all the codes that use this symbol length, in order
-		for(k=0; k<(UI)ht->lengths_arr_numused; k++) {
-			int ret;
-			u64 thiscode;
-
-			if(ht->lengths_arr[k].len != symlen) continue;
-			// Found a code of the length we're looking for.
-
-			if(prev_code_bit_length==0) { // this is the first code
-				thiscode = 0;
-			}
-			else {
-				thiscode = prev_code + 1;
-				if(symlen > prev_code_bit_length) {
-					thiscode <<= (symlen - prev_code_bit_length);
-				}
-			}
-
-			prev_code_bit_length = symlen;
-			prev_code = thiscode;
-
-			if(c->debug_level>=3) {
-				de_dbg3(c, "adding code \"%s\" = %d",
-					de_print_base2_fixed(b2buf, sizeof(b2buf), thiscode, symlen),
-					(int)ht->lengths_arr[k].val);
-			}
-			ret = fmtutil_huffman_add_code(c, ht, thiscode, symlen, ht->lengths_arr[k].val);
-			if(!ret) {
-				goto done;
-			}
-		}
+	if(flags & FMTUTIL_MCTFLAG_LEFT_ALIGN_BRANCHES) {
+		retval = fmtutil_huffman_make_canonical_tree2(c, ht, max_sym_len_used);
 	}
-	retval = 1;
+	else {
+		retval = fmtutil_huffman_make_canonical_tree1(c, ht, max_sym_len_used);
+	}
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);

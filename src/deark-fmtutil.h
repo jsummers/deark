@@ -588,7 +588,9 @@ i64 fmtutil_huffman_get_num_codes(struct fmtutil_huffman_tree *ht);
 void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_tree *ht);
 int fmtutil_huffman_record_a_code_length(deark *c, struct fmtutil_huffman_tree *ht,
 	fmtutil_huffman_valtype val, UI len);
-int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *ht);
+#define FMTUTIL_MCTFLAG_LEFT_ALIGN_LEAVES     0x0 // default
+#define FMTUTIL_MCTFLAG_LEFT_ALIGN_BRANCHES   0x1
+int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *ht, UI flags);
 
 struct de_lz77buffer;
 typedef void (*fmtutil_lz77buffer_cb_type)(struct de_lz77buffer *rb, u8 n);

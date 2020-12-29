@@ -171,7 +171,7 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx, struct lzh_tree_wrap
 	}
 	if(cctx->bitrd.eof_flag) goto done;
 
-	if(!fmtutil_huffman_make_canonical_tree(c, tree->ht)) goto done;
+	if(!fmtutil_huffman_make_canonical_tree(c, tree->ht, 0)) goto done;
 
 	retval = 1;
 done:
@@ -253,7 +253,7 @@ static int lh5x_read_codes_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *t
 	}
 	if(cctx->bitrd.eof_flag) goto done;
 
-	if(!fmtutil_huffman_make_canonical_tree(c, tree->ht)) goto done;
+	if(!fmtutil_huffman_make_canonical_tree(c, tree->ht, 0)) goto done;
 
 	retval = 1;
 done:
@@ -310,7 +310,7 @@ static int lh5x_read_offsets_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper 
 	}
 	if(cctx->bitrd.eof_flag) goto done;
 
-	if(!fmtutil_huffman_make_canonical_tree(c, tree->ht)) goto done;
+	if(!fmtutil_huffman_make_canonical_tree(c, tree->ht, 0)) goto done;
 
 	retval = 1;
 done:

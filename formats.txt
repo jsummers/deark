@@ -704,6 +704,9 @@ Deark -- Information about supported formats
   Nero CD image format.
   - Extract or decode ISO 9660 data.
 
+* Pack (module="pack") (experimental)
+  Old Unix compressed file format (.z).
+
 * PackDir (module="packdir") (experimental)
 
 * Palm PDB/PQA (module="palmdb")
