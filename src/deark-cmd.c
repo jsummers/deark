@@ -389,7 +389,7 @@ static void set_encoding_option(deark *c, struct cmdctx *cc, const char *s)
 }
 
 enum opt_id_enum {
- DE_OPT_NULL=0, DE_OPT_D, DE_OPT_D2, DE_OPT_D3, DE_OPT_L,
+ DE_OPT_NULL=0, DE_OPT_D, DE_OPT_D2, DE_OPT_D3, DE_OPT_D4, DE_OPT_L,
  DE_OPT_NOINFO, DE_OPT_NOWARN,
  DE_OPT_NOBOM, DE_OPT_NODENS, DE_OPT_ASCIIHTML, DE_OPT_NONAMES,
  DE_OPT_PADPIX,
@@ -418,6 +418,7 @@ struct opt_struct option_array[] = {
 	{ "d",            DE_OPT_D,            0 },
 	{ "d2",           DE_OPT_D2,           0 },
 	{ "d3",           DE_OPT_D3,           0 },
+	{ "d4",           DE_OPT_D4,           0 },
 	{ "l",            DE_OPT_L,            0 },
 	{ "noinfo",       DE_OPT_NOINFO,       0 },
 	{ "nowarn",       DE_OPT_NOWARN,       0 },
@@ -647,6 +648,9 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_D3:
 				de_set_std_option_int(c, DE_STDOPT_DEBUG_LEVEL, 3);
+				break;
+			case DE_OPT_D4:
+				de_set_std_option_int(c, DE_STDOPT_DEBUG_LEVEL, 4);
 				break;
 			case DE_OPT_L:
 				de_set_std_option_int(c, DE_STDOPT_LISTMODE, 1);

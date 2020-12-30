@@ -483,6 +483,8 @@ void de_dbg2(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
 void de_dbg3(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
+void de_dbgx(deark *c, int lv, const char *fmt, ...)
+  de_gnuc_attribute ((format (printf, 3, 4)));
 void de_info(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
 void de_msg(deark *c, const char *fmt, ...)

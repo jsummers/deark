@@ -1346,8 +1346,10 @@ static void membuf_append(dbuf *f, const u8 *m, i64 mlen)
 		new_alloc_size = (f->membuf_alloc + mlen)*2;
 		if(new_alloc_size<1024) new_alloc_size=1024;
 		if(new_alloc_size > f->max_len_hard) new_alloc_size = f->max_len_hard;
-		de_dbg3(f->c, "increasing membuf size %"I64_FMT" -> %"I64_FMT,
-			f->membuf_alloc, new_alloc_size);
+		if(f->c->debug_level>=4) {
+			de_dbgx(f->c, 4, "increasing membuf size %"I64_FMT" -> %"I64_FMT,
+				f->membuf_alloc, new_alloc_size);
+		}
 		if(f->len + mlen > f->max_len_hard) {
 			do_on_dbuf_size_exceeded(f);
 		}
@@ -1376,15 +1378,15 @@ void dbuf_write(dbuf *f, const u8 *m, i64 len)
 	case DBUF_TYPE_OFILE:
 	case DBUF_TYPE_STDOUT:
 		if(!f->fp) return;
-		if(f->c->debug_level>=3) {
-			de_dbg3(f->c, "writing %"I64_FMT" bytes to %s", len, f->name);
+		if(f->c->debug_level>=4) {
+			de_dbgx(f->c, 4, "writing %"I64_FMT" bytes to %s", len, f->name);
 		}
 		fwrite(m, 1, (size_t)len, f->fp);
 		f->len += len;
 		return;
 	case DBUF_TYPE_MEMBUF:
-		if(f->c->debug_level>=3 && f->name) {
-			de_dbg3(f->c, "appending %"I64_FMT" bytes to membuf %s", len, f->name);
+		if(f->c->debug_level>=4 && f->name) {
+			de_dbgx(f->c, 4, "appending %"I64_FMT" bytes to membuf %s", len, f->name);
 		}
 		membuf_append(f, m, len);
 		return;
