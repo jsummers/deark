@@ -8,6 +8,12 @@ then
 	exit 1
 fi
 
+if [ -f src/deark-config2.h ]
+then
+	echo "Remove src/deark-config2.h first"
+	exit 1
+fi
+
 rm -rf .build-tmp
 mkdir .build-tmp
 

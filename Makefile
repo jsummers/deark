@@ -1,4 +1,6 @@
 
+-include local1.mk
+
 CFLAGS ?= -g -O2 -Wall -Wextra -Wmissing-prototypes -Wformat-security -Wno-unused-parameter
 LDFLAGS ?= -Wall
 
@@ -36,6 +38,8 @@ DEARK_EXE:=$(OBJDIR)/$(DEARK_EXE_BASENAME)
 DEARK_MAN:=$(OBJDIR)/$(DEARK_MAN)
 DEPS_MK:=$(OBJDIR)/$(DEPS_MK)
 endif
+
+-include local2.mk
 
 ifeq ($(MAKECMDGOALS),dep)
 

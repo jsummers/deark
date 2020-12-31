@@ -262,8 +262,15 @@ will (hopefully) be sufficient:
 This will build an executable file named "deark". Deark has no dependencies,
 other than the standard C libraries.
 
-It is possible to configure the build by setting certain environment variables.
-See the scripts at scripts/example-build-* for examples.
+One way to configure the build is by setting certain environment variables. See
+the scripts at scripts/example-build-* for examples.
+
+Another way is to create Makefile fragment files named local1.mk and/or
+local2.mk.
+
+Some C-language-level configuration can be done by creating a file named
+src/deark-config2.h, and adding -DDE_USE_CONFIG2_H to the CFLAGS variable in
+the Makefile.
 
 It is safe to build Deark using "parallel make", i.e. "make -j". This will
 speed up the build, in most cases.
