@@ -374,7 +374,7 @@ Thanks to countless others who have documented the supported file formats.
 
 ## Authors ##
 
-Written by Jason Summers, 2014-2020.<br>
-Copyright &copy; 2016-2020 Jason Summers<br>
+Written by Jason Summers, 2014-2021.<br>
+Copyright &copy; 2016-2021 Jason Summers<br>
 [https://entropymine.com/deark/](https://entropymine.com/deark/)<br>
 [https://github.com/jsummers/deark](https://github.com/jsummers/deark)
