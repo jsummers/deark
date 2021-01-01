@@ -139,6 +139,13 @@ static void sit_huff_read_tree(struct sit_huffctx *hctx, u64 curr_code, UI curr_
 		fmtutil_huffman_valtype val;
 
 		val = (fmtutil_huffman_valtype)de_bitreader_getbits(&hctx->bitrd, 8);
+		if(hctx->c->debug_level>=2) {
+			char b2buf[72];
+
+			de_dbg(hctx->c, "code: \"%s\" = %d",
+				de_print_base2_fixed(b2buf, sizeof(b2buf), curr_code, curr_code_nbits),
+				(int)val);
+		}
 		ret = fmtutil_huffman_add_code(hctx->c, hctx->ht, curr_code, curr_code_nbits, val);
 		if(!ret) {
 			hctx->errflag = 1;
@@ -171,9 +178,12 @@ static void do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
 	hctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
 
 	// Read the tree definition
+	de_dbg2(c, "interpreted huffman codebook:");
+	de_dbg_indent(c, 1);
 	sit_huff_read_tree(hctx, 0, 0);
+	de_dbg_indent(c, -1);
 	if(hctx->errflag) goto done;
-	if(c->debug_level>=2) {
+	if(c->debug_level>=4) {
 		fmtutil_huffman_dump(c, hctx->ht);
 	}
 	if(fmtutil_huffman_get_max_bits(hctx->ht)<1) {
@@ -250,10 +260,15 @@ static void sit_fixedhuff_init_tree(struct sit_fixedhuffctx *hctx)
 	size_t cdlen_curpos;
 	UI prev_code_bit_length = 0;
 	u64 prev_code = 0; // valid if prev_code_bit_length>0
+	int saved_indent_level;
 	char b2buf[72];
 	static const u8 cdlen_RLEcounts [13] = {1, 1, 4,12,32,16,49, 2,2,40,95, 2, 1};
 	static const u8 cdlen_RLElengths[13] = {3, 4, 5, 6, 7, 8, 9,10,9,10,11,13,12};
 	u8 code_lengths[FIXEDHUFF_NUMCODES];
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbgx(c, 4, "standard huffman codebook:");
+	de_dbg_indent(c, 1);
 
 	// "Decompress" cdlen_RLE*[] to code_lengths[].
 	cdlen_curpos = 0;
@@ -290,8 +305,8 @@ static void sit_fixedhuff_init_tree(struct sit_fixedhuffctx *hctx)
 		prev_code_bit_length = symlen;
 		prev_code = thiscode;
 
-		if(c->debug_level>=3) {
-			de_dbg3(c, "adding code \"%s\" = %d",
+		if(c->debug_level>=4) {
+			de_dbg3(c, "code: \"%s\" = %d",
 				de_print_base2_fixed(b2buf, sizeof(b2buf), thiscode, symlen), (int)i);
 		}
 		ret = fmtutil_huffman_add_code(c, hctx->ht, thiscode, symlen, (fmtutil_huffman_valtype)i);
@@ -302,7 +317,7 @@ static void sit_fixedhuff_init_tree(struct sit_fixedhuffctx *hctx)
 	}
 
 done:
-	;
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void do_decompr_fixedhuff(deark *c, lctx *d, struct member_data *md,
@@ -330,7 +345,7 @@ static void do_decompr_fixedhuff(deark *c, lctx *d, struct member_data *md,
 	sit_fixedhuff_init_tree(hctx);
 	if(hctx->errflag) goto done;
 
-	if(c->debug_level>=3) {
+	if(c->debug_level>=4) {
 		fmtutil_huffman_dump(c, hctx->ht);
 	}
 

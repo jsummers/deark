@@ -497,11 +497,13 @@ static void de_run_squeeze(deark *c, de_module_params *mparams)
 	de_finfo *fi = NULL;
 	dbuf *outf_tmp = NULL;
 	dbuf *outf_final = NULL;
+	int saved_indent_level;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
 	struct de_dcmpr_two_layer_params tlp;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	sqctx = de_malloc(c, sizeof(struct squeeze_ctx));
 	sqctx->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 
@@ -532,6 +534,7 @@ static void de_run_squeeze(deark *c, de_module_params *mparams)
 	fi->original_filename_flag = 1;
 
 	de_dbg(c, "squeeze-compressed data at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
 
 	// We have to decompress the file before we can find the timestamp. That's
 	// why we decompress to a membuf.
@@ -588,6 +591,7 @@ done:
 	dbuf_close(outf_final);
 	dbuf_close(outf_tmp);
 	de_finfo_destroy(c, fi);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static int de_identify_squeeze(deark *c)

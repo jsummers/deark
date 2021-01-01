@@ -285,6 +285,9 @@ void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_tree *ht)
 	NODE_REF_TYPE k;
 	de_ucstring *tmps = NULL;
 
+	de_dbg(c, "internal huffman table:");
+	de_dbg_indent(c, 1);
+
 	de_dbg(c, "number of codes: %"I64_FMT, fmtutil_huffman_get_num_codes(ht));
 	de_dbg(c, "max code size: %u bits", fmtutil_huffman_get_max_bits(ht));
 	tmps = ucstring_create(c);
@@ -315,6 +318,7 @@ void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_tree *ht)
 		de_dbg(c, "%s", ucstring_getpsz_d(tmps));
 	}
 	ucstring_destroy(tmps);
+	de_dbg_indent(c, -1);
 }
 
 // This is only used with fmtutil_huffman_make_canonical_tree().
@@ -379,7 +383,7 @@ static int fmtutil_huffman_make_canonical_tree1(deark *c, struct fmtutil_huffman
 			codes_count_total++;
 
 			if(c->debug_level>=3) {
-				de_dbg3(c, "adding code \"%s\" = %d",
+				de_dbg3(c, "code: \"%s\" = %d",
 					de_print_base2_fixed(b2buf, sizeof(b2buf), thiscode, symlen),
 					(int)ht->lengths_arr[k].val);
 			}
@@ -430,7 +434,7 @@ static int fmtutil_huffman_make_canonical_tree2(deark *c, struct fmtutil_huffman
 			codes_count_total++;
 
 			if(c->debug_level>=3) {
-				de_dbg3(c, "adding code \"%s\" = %d",
+				de_dbg3(c, "code: \"%s\" = %d",
 					de_print_base2_fixed(b2buf, sizeof(b2buf), this_code, symlen),
 					(int)ht->lengths_arr[k].val);
 			}
@@ -456,7 +460,7 @@ int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *h
 	int retval = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg3(c, "constructing huffman tree:");
+	de_dbg3(c, "derived huffman codebook:");
 	de_dbg_indent(c, 1);
 
 	if(!ht->lengths_arr) {

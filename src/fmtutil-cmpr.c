@@ -898,7 +898,7 @@ static void squeeze_interpret_dval(struct squeeze_ctx *sqctx,
 		//  -1   => 0   (byte value)
 		adj_value = -(((fmtutil_huffman_valtype)dval)+1);
 		if(sqctx->c->debug_level>=2) {
-			de_dbg2(sqctx->c, "adding code \"%s\" = %d",
+			de_dbg3(sqctx->c, "code: \"%s\" = %d",
 				de_print_base2_fixed(b2buf, sizeof(b2buf), currcode, currcode_nbits),
 				(int)adj_value);
 		}
@@ -929,16 +929,13 @@ static int squeeze_process_nodetable(deark *c, struct squeeze_ctx *sqctx)
 	// the form required by our Huffman library's API, when we know it's going to
 	// just convert it back into a table much like it was originally. Maybe there
 	// should be a better way to do this.
-	de_dbg2(c, "interpreting huffman table:");
+	de_dbg3(c, "interpreted huffman codebook:");
 	de_dbg_indent(c, 1);
 	squeeze_interpret_node(sqctx, 0, 0, 0);
 	de_dbg_indent(c, -1);
 
-	if(c->debug_level>=2) {
-		de_dbg2(c, "constructed huffman table:");
-		de_dbg_indent(c, 1);
+	if(c->debug_level>=4) {
 		fmtutil_huffman_dump(c, sqctx->ht);
-		de_dbg_indent(c, -1);
 	}
 
 	retval = 1;
@@ -959,7 +956,7 @@ static int squeeze_read_nodetable(deark *c, struct squeeze_ctx *sqctx)
 		goto done;
 	}
 
-	de_dbg2(c, "node table:");
+	de_dbg2(c, "node table nodes at %"I64_FMT, sqctx->bitrd.curpos);
 	de_dbg_indent(c, 1);
 	for(k=0; k<sqctx->nodecount; k++) {
 		sqctx->tmpnodes[k].child[0].dval = (i16)dbuf_geti16le_p(sqctx->dcmpri->f, &sqctx->bitrd.curpos);
@@ -983,6 +980,7 @@ static int squeeze_read_codes(deark *c, struct squeeze_ctx *sqctx)
 {
 	int retval = 0;
 
+	de_dbg(c, "huffman-compressed data at %"I64_FMT, sqctx->bitrd.curpos);
 	sqctx->bitrd.bbll.is_lsb = 1;
 	de_bitbuf_lowelevel_empty(&sqctx->bitrd.bbll);
 
