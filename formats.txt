@@ -771,6 +771,8 @@ Deark -- Information about supported formats
 
 * ZOO (module="zoo")
   - Extract comments (use -a).
+  Options
+   -opt zoo:undelete - Also extract deleted files.
 
 == Transfer encoding modules ==
 
