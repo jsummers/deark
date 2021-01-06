@@ -35,7 +35,7 @@ struct localctx_struct;
 typedef struct localctx_struct lctx;
 struct member_data;
 
-// Data associated with one ZOO member file
+// Data associated with one Zoo member file
 struct member_data {
 	de_finfo *fi;
 	de_ucstring *fullname;
@@ -134,10 +134,12 @@ static int do_global_header(deark *c, lctx *d, i64 pos1)
 	i64 i;
 	de_ucstring *txt = NULL;
 
-	de_dbg(c, "header at %"I64_FMT, pos1);
+	de_dbg(c, "archive header at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
 	// Intro text, e.g. "ZOO 2.10 Archive."
+	// Zoo source code (zoo.h) says "The contents of the text message are [...]
+	// not used by Zoo and they may be anything.".
 	txt = ucstring_create(c);
 	for(i=0; i<20; i++) {
 		u8 ch;
@@ -147,7 +149,7 @@ static int do_global_header(deark *c, lctx *d, i64 pos1)
 		if(ch<32 || ch>126) ch = '_';
 		ucstring_append_char(txt, (de_rune)ch);
 	}
-	de_dbg(c, "id text: \"%s\"", ucstring_getpsz_d(txt));
+	de_dbg(c, "header text: \"%s\"", ucstring_getpsz_d(txt));
 	pos += 20;
 
 	sig = (unsigned int)de_getu32le_p(&pos);
@@ -158,25 +160,37 @@ static int do_global_header(deark *c, lctx *d, i64 pos1)
 
 	u = (unsigned int)de_getu32le_p(&pos);
 	de_dbg(c, "2's complement of pos: %u (%d)", u, (int)u);
+
+	// Note: The version number fields are sometimes erroneously documented as
+	// "version made by" and "version needed". But (according to Zoo 2.10),
+	// there is no "version made by" field, unless you count the "header text"
+	// field.
 	d->majver = de_getbyte_p(&pos);
 	d->minver = de_getbyte_p(&pos);
-	de_dbg(c, "(global) version needed to extract: %d.%d", (int)d->majver, (int)d->minver);
+	de_dbg(c, "version needed to manipulate archive: %d.%d", (int)d->majver, (int)d->minver);
 
 	// Fields that aren't present in old versions.
 	if(d->first_member_hdr_pos > 34) {
 		d->type = de_getbyte_p(&pos);
-		de_dbg(c, "(global) type: %u", (unsigned int)d->type);
+		de_dbg(c, "archive header format version (\"type\"): %u", (unsigned int)d->type);
+		// 1 is the only value here with a known meaning, but we'll accept some slightly
+		// higher values, and assume they are backward-compatible.
+		if(d->type<1 || d->type>5) {
+			d->type = 0;
+			goto after_ext_hdr;
+		}
 
 		d->archive_comment_pos = de_getu32le_p(&pos);
 		d->archive_comment_len = de_getu16le_p(&pos);
-		de_dbg(c, "(global) comment: pos=%"I64_FMT", size=%d", d->archive_comment_pos,
+		de_dbg(c, "archive comment: pos=%"I64_FMT", size=%d", d->archive_comment_pos,
 			(int)d->archive_comment_len);
 		do_comment(c, d, d->archive_comment_pos, d->archive_comment_len, 1,
 			d->extract_comments_to_files);
 
 		d->modgen = de_getbyte_p(&pos);
-		de_dbg(c, "(global) modgen: 0x%02x", (UI)d->modgen);
+		de_dbg(c, "archive-level versioning settings (\"vdata\"): 0x%02x", (UI)d->modgen);
 	}
+after_ext_hdr:
 
 	retval = 1;
 
@@ -270,7 +284,7 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 
 	sig = (unsigned int)de_getu32le_p(&pos);
 	if(sig != ZOO_SIGNATURE) {
-		de_err(c, "Malformed ZOO file, bad magic number at %"I64_FMT, pos1);
+		de_err(c, "Malformed Zoo file, bad magic number at %"I64_FMT, pos1);
 		goto done;
 	}
 
@@ -280,12 +294,13 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	md->method = de_getbyte_p(&pos);
 	md->next_member_hdr_pos = de_getu32le_p(&pos);
 
-	de_dbg(c, "type: %d", (int)md->type);
+	de_dbg(c, "member header format version (\"type\"): %d", (int)md->type);
 	if(md->next_member_hdr_pos) {
 		de_dbg(c, "compression method: %d (%s)", (int)md->method, get_cmpr_meth_name(md->method));
 	}
 
-	de_snprintf(descrbuf, sizeof(descrbuf), (md->next_member_hdr_pos?"":" (trailer)"));
+	de_snprintf(descrbuf, sizeof(descrbuf), (md->next_member_hdr_pos?"":
+		" (none - This is the trailer record)"));
 	de_dbg(c, "next entry pos: %"I64_FMT"%s", md->next_member_hdr_pos, descrbuf);
 
 	if(md->next_member_hdr_pos==0) {
@@ -311,9 +326,14 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	de_dbg(c, "original size: %"I64_FMT, md->uncmpr_len);
 	md->cmpr_len = de_getu32le_p(&pos);
 	de_dbg(c, "compressed size: %"I64_FMT, md->cmpr_len);
+
+	// Note: The version number fields are sometimes erroneously documented as
+	// "version made by" and "version needed". But (according to Zoo 2.10),
+	// there is no "version made by" field.
 	md->majver = de_getbyte_p(&pos);
 	md->minver = de_getbyte_p(&pos);
 	de_dbg(c, "version needed to extract: %d.%d", (int)md->majver, (int)md->minver);
+
 	md->is_deleted = de_getbyte_p(&pos);
 	de_dbg(c, "is deleted: %d", (int)md->is_deleted);
 	pos++; // "file structure" (?)
@@ -323,6 +343,15 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	do_comment(c, d, md->comment_pos, md->comment_len, 0, (d->extract_comments_to_files) &&
 		(!md->is_deleted || d->undelete));
 
+	// In "type 2" header format, the shortname field is a fixed 13 bytes, and is
+	// followed by other fields.
+	// In "type 1" header format, the shortname field is (allegedly) the last field
+	// in the header, and it's supposed to be NUL-terminated, so it's hard to be
+	// *sure* what size it is.
+	// Zoo 1.21 seems to leave room for 14 bytes, instead of the 13 that would be
+	// expected. And it seemingly allows up to 14-byte filenames with no NUL -- but
+	// this could well be a bug. Or perhaps the 13-byte filename field is followed
+	// by a 1-byte field of unknown purpose.
 	shortname = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, 13, shortname, DE_CONVFLAG_STOP_AT_NUL,
 		d->input_encoding);
@@ -416,11 +445,11 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 
 	if(hdr_endpos-pos < 1) goto done_with_header;
 	md->modgen = de_getbyte_p(&pos);
-	de_dbg(c, "modgen: 0x%02x", (UI)md->modgen);
+	de_dbg(c, "versioning settings (\"vflag\"): 0x%02x", (UI)md->modgen);
 
 	if(hdr_endpos-pos < 2) goto done_with_header;
 	md->ver = (unsigned int)de_getu16le_p(&pos);
-	de_dbg(c, "member version: %u", md->ver);
+	de_dbg(c, "file version number: %u", md->ver);
 
 done_with_header:
 	// Note: Typically, there is a 5-byte "file leader" ("@)#(\0") here, between
@@ -500,7 +529,7 @@ static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf
 	de_crcobj_addbuf(crco, buf, buf_len);
 }
 
-// Process a single member file (or EOF marker).
+// Process a single member file (or "trailer" record).
 // If there are more members after this, sets *next_member_hdr_pos to nonzero.
 static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 {
@@ -590,7 +619,9 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 	de_dbg_indent(c, -1);
 
 	md->crc_calculated = de_crcobj_getval(d->crco);
-	de_dbg(c, "file data crc (calculated): 0x%04x", (unsigned int)md->crc_calculated);
+	if(!dres.errcode) {
+		de_dbg(c, "file data crc (calculated): 0x%04x", (unsigned int)md->crc_calculated);
+	}
 
 	if(dres.errcode) {
 		de_err(c, "%s: %s", get_member_name_for_msg(c, d, md),
@@ -615,7 +646,7 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-// The main function: process a ZOO file
+// The main function: process a Zoo file
 static void de_run_zoo(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -691,7 +722,7 @@ static void de_help_zoo(deark *c)
 void de_module_zoo(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "zoo";
-	mi->desc = "ZOO compressed archive format";
+	mi->desc = "Zoo compressed archive format";
 	mi->run_fn = de_run_zoo;
 	mi->identify_fn = de_identify_zoo;
 	mi->help_fn = de_help_zoo;
