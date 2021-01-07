@@ -777,6 +777,10 @@ Deark -- Information about supported formats
 * Zoo filter format (module="zoo_filter")
   Format created by "zoo fc".
 
+* Zoo Z format (module="zoo_z")
+  Format created by "zoo xz <foo.zoo> [...]". Not all Zoo programs support it.
+  - Will be translated to Zoo format.
+
 == Transfer encoding modules ==
 
 * Ascii85 (module="ascii85") (incomplete)

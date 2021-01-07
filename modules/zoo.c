@@ -25,6 +25,7 @@
 
 DE_DECLARE_MODULE(de_module_zoo);
 DE_DECLARE_MODULE(de_module_zoo_filter);
+DE_DECLARE_MODULE(de_module_zoo_z);
 
 #define ZOO_SIGNATURE  0xfdc4a7dcU
 
@@ -729,6 +730,8 @@ void de_module_zoo(deark *c, struct deark_module_info *mi)
 	mi->help_fn = de_help_zoo;
 }
 
+/////////////////////
+
 static void de_run_zoo_filter(deark *c, de_module_params *mparams)
 {
 	dbuf *outf = NULL;
@@ -825,4 +828,104 @@ void de_module_zoo_filter(deark *c, struct deark_module_info *mi)
 	mi->desc = "Zoo filter format";
 	mi->run_fn = de_run_zoo_filter;
 	mi->identify_fn = de_identify_zoo_filter;
+}
+
+/////////////////////
+
+struct zoo_z_ctx {
+	i64 outf_member_pos;
+	i64 outf_comment_pos;
+	i64 comment_len;
+	i64 outf_leader_pos;
+	i64 outf_cmpr_pos;
+	i64 cmpr_len;
+	i64 outf_trailer_pos;
+	i64 inf_comment_pos;
+	i64 inf_cmpr_pos;
+};
+
+// Convert Zoo Z format to Zoo format
+// TODO?: Write to Zoo 2.x format instead of 1.20 format. But it's more trouble.
+static void de_run_zoo_z(deark *c, de_module_params *mparams)
+{
+	dbuf *outf = NULL;
+	static const u8 archivehdr[34] = {0x5a,0x4f,0x4f,0x20,0x31,0x2e,0x32,0x30,0x20,0x41,
+		0x72,0x63,0x68,0x69,0x76,0x65,0x2e,0x1a,0x00,0x00,0xdc,0xa7,0xc4,0xfd,0x22,0x00,
+		0x00,0x00,0xde,0xff,0xff,0xff,0x01,0x01};
+	struct zoo_z_ctx *zctx = NULL;
+
+	de_declare_fmtf(c, "Zoo Z, DOS-compatible");
+
+	zctx = de_malloc(c, sizeof(struct zoo_z_ctx));
+	if(dbuf_memcmp(c->infile, 0, "\xfe\x07\x01", 3)) {
+		de_err(c, "File not in Zoo Z format, or not a supported version");
+		goto done;
+	}
+
+	zctx->cmpr_len = de_getu32le(14);
+	de_dbg(c, "compressed size: %"I64_FMT, zctx->cmpr_len);
+	zctx->comment_len = de_getu16le(20);
+	de_dbg(c, "comment: size=%d", (int)zctx->comment_len);
+
+	// Figure out where everything will go.
+	zctx->outf_member_pos = 34;
+	zctx->outf_leader_pos = zctx->outf_member_pos + 52;
+	zctx->outf_cmpr_pos = zctx->outf_leader_pos + 5;
+	zctx->outf_comment_pos = zctx->outf_cmpr_pos + zctx->cmpr_len;
+	zctx->outf_trailer_pos = zctx->outf_comment_pos + zctx->comment_len;
+	zctx->inf_comment_pos = 36;
+	zctx->inf_cmpr_pos = zctx->inf_comment_pos + zctx->comment_len;
+
+	if(zctx->inf_comment_pos+zctx->comment_len > c->infile->len) goto done;
+	if(zctx->inf_cmpr_pos+zctx->cmpr_len > c->infile->len) goto done;
+
+	outf = dbuf_create_output_file(c, "zoo", NULL, 0);
+
+	// Archive header
+	dbuf_write(outf, archivehdr, 34);
+
+	// Main member header
+	dbuf_writeu32le(outf, ZOO_SIGNATURE);
+	dbuf_writebyte(outf, 1); // "type"
+	dbuf_copy(c->infile, 3, 1, outf); // packing method
+
+	dbuf_writeu32le(outf, zctx->outf_trailer_pos);
+	dbuf_writeu32le(outf, zctx->outf_cmpr_pos);
+
+	// date, time, crc, sizeorig, sizenow, maj ver, min ver
+	dbuf_copy(c->infile, 4, 16, outf);
+
+	dbuf_writebyte(outf, 0); // "deleted" flag
+	dbuf_writebyte(outf, 0); // file structure / reserved
+	dbuf_writeu32le(outf, zctx->comment_len?zctx->outf_comment_pos:0);
+	dbuf_writeu16le(outf, zctx->comment_len);
+	dbuf_copy(c->infile, 22, 13, outf); // filename
+	dbuf_writebyte(outf, 0x4f); // ??? This seems to be what Zoo does
+
+	dbuf_write(outf, (const u8*)"@)#(\0", 5); // leader
+	dbuf_copy(c->infile, zctx->inf_cmpr_pos, zctx->cmpr_len, outf); // cmpr data
+
+	if(zctx->comment_len) {
+		dbuf_copy(c->infile, zctx->inf_comment_pos, zctx->comment_len, outf);
+	}
+
+	dbuf_writeu32le(outf, ZOO_SIGNATURE);
+	dbuf_write_zeroes(outf, 48);
+done:
+	dbuf_close(outf);
+	de_free(c, zctx);
+}
+
+static int de_identify_zoo_z(deark *c)
+{
+	if(dbuf_memcmp(c->infile, 0, "\xfe\x07\x01", 3)) return 0;
+	return 80;
+}
+
+void de_module_zoo_z(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "zoo_z";
+	mi->desc = "Zoo Z format";
+	mi->run_fn = de_run_zoo_z;
+	mi->identify_fn = de_identify_zoo_z;
 }
