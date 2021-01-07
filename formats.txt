@@ -769,10 +769,13 @@ Deark -- Information about supported formats
 * zlib (module="zlib")
   - Raw zlib files are uncompressed.
 
-* ZOO (module="zoo")
+* Zoo (module="zoo")
   - Extract comments (use -a).
   Options
    -opt zoo:undelete - Also extract deleted files.
+
+* Zoo filter format (module="zoo_filter")
+  Format created by "zoo fc".
 
 == Transfer encoding modules ==
 

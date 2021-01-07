@@ -24,6 +24,7 @@
 #include <deark-fmtutil.h>
 
 DE_DECLARE_MODULE(de_module_zoo);
+DE_DECLARE_MODULE(de_module_zoo_filter);
 
 #define ZOO_SIGNATURE  0xfdc4a7dcU
 
@@ -491,13 +492,13 @@ done:
 }
 
 static void decompress_lzd(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, int maxbits)
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
 	struct de_lzw_params delzwp;
 
 	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
 	delzwp.fmt = DE_LZWFMT_ZOOLZD;
-	delzwp.max_code_size = (unsigned int)maxbits;
+	delzwp.max_code_size = 13;
 	fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
 
@@ -608,7 +609,7 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 		fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
 		break;
 	case ZOOCMPR_LZD:
-		decompress_lzd(c, &dcmpri, &dcmpro, &dres, 13);
+		decompress_lzd(c, &dcmpri, &dcmpro, &dres);
 		break;
 	case ZOOCMPR_LZH:
 		decompress_lzh(c, &dcmpri, &dcmpro, &dres);
@@ -632,7 +633,7 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 			get_member_name_for_msg(c, d, md), md->uncmpr_len, outf->len);
 	}
 	else if (md->crc_calculated != md->crc_reported) {
-		de_err(c, "%s: CRC failed", get_member_name_for_msg(c, d, md));
+		de_err(c, "%s: CRC check failed", get_member_name_for_msg(c, d, md));
 	}
 
 done:
@@ -726,4 +727,102 @@ void de_module_zoo(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_zoo;
 	mi->identify_fn = de_identify_zoo;
 	mi->help_fn = de_help_zoo;
+}
+
+static void de_run_zoo_filter(deark *c, de_module_params *mparams)
+{
+	dbuf *outf = NULL;
+	struct de_crcobj *crco = NULL;
+	int use_lzh = 0;
+	u32 crc_reported;
+	u32 crc_calculated;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
+	if(c->infile->len<6) goto done;
+
+	use_lzh = de_get_ext_option_bool(c, "zoo_filter:lzh", -1);
+	if(use_lzh<0) {
+		if(dbuf_is_all_zeroes(c->infile, c->infile->len-4, 2)) {
+			use_lzh = 1;
+		}
+		else {
+			use_lzh = 0;
+		}
+	}
+
+	de_declare_fmtf(c, "Zoo filter, LZ%s", (use_lzh?"H":"D"));
+
+	crc_reported = (u32)de_getu32le(c->infile->len-2);
+	de_dbg(c, "crc (reported): 0x%04x", (UI)crc_reported);
+
+	outf = dbuf_create_output_file(c, "bin", NULL, 0);
+	crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
+	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)crco);
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = 2;
+	dcmpri.len = c->infile->len - 4;
+
+	dcmpro.f = outf;
+	dcmpro.len_known = 0;
+
+	if(use_lzh) {
+		decompress_lzh(c, &dcmpri, &dcmpro, &dres);
+	}
+	else {
+		decompress_lzd(c, &dcmpri, &dcmpro, &dres);
+	}
+
+	if(dres.errcode) {
+		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
+
+	crc_calculated = de_crcobj_getval(crco);
+	de_dbg(c, "crc (calculated): 0x%04x", (UI)crc_calculated);
+	if(crc_calculated != crc_reported) {
+		de_err(c, "CRC check failed");
+		goto done;
+	}
+
+done:
+	dbuf_close(outf);
+	de_crcobj_destroy(crco);
+}
+
+static int de_identify_zoo_filter(deark *c)
+{
+	u8 b[2];
+
+	if(c->infile->len<6) return 0;
+	if(de_getu16le(0) != 0x5a32) return 0;
+
+	// LZH ends with 16 0 bits, followed by 0 to 7 bits of padding that we
+	// will hope are 0. So it must end with two 0x00 bytes.
+	// LZD ends with the EOF code: 257. By my calculation, one of the 1 bits
+	// from that code must occur in the second-to-last byte. And the last byte
+	// can have at most one '1' bit.
+	de_read(b, c->infile->len-4, 2);
+	if(b[0]==0) {
+		if(b[1]==0) return 45; // Possible LZH
+	}
+	else {
+		if(b[1]<=0x02 || b[1]==0x04 || b[1]==0x08 || b[1]==0x10 ||
+			b[1]==0x20 || b[1]==0x40 || b[1]==0x80)
+		{
+			return 45; // Possible LZD
+		}
+	}
+	return 0;
+}
+
+void de_module_zoo_filter(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "zoo_filter";
+	mi->desc = "Zoo filter format";
+	mi->run_fn = de_run_zoo_filter;
+	mi->identify_fn = de_identify_zoo_filter;
 }
