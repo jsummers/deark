@@ -81,11 +81,20 @@ struct localctx_struct {
 	u8             modgen;         /* gens. on, gen. limit            */
 
 	int num_deleted_files_found;
+	i64 min_offset_found;
 
 	// Shared by all member files, so we don't have to recalculate the CRC table
 	// for each member file.
 	struct de_crcobj *crco;
 };
+
+static void on_offset_found(deark *c, lctx *d, i64 pos)
+{
+	if(pos==0) return;
+	if(d->min_offset_found==0 || pos<d->min_offset_found) {
+		d->min_offset_found = pos;
+	}
+}
 
 static const char *get_member_name_for_msg(deark *c, lctx *d, struct member_data *md)
 {
@@ -101,7 +110,8 @@ static void do_extract_comment(deark *c, lctx *d, i64 pos, i64 len, int is_main)
 		NULL, DE_CREATEFLAG_IS_AUX);
 }
 
-static void do_dbg_comment(deark *c, lctx *d, i64 pos, i64 len, int is_main)
+static void do_dbg_comment(deark *c, lctx *d, i64 pos, i64 len, const char *name,
+	int is_main)
 {
 	de_ucstring *s = NULL;
 
@@ -109,20 +119,21 @@ static void do_dbg_comment(deark *c, lctx *d, i64 pos, i64 len, int is_main)
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN, s,
 		0, d->input_encoding);
-	de_dbg(c, "%scomment: \"%s\"", is_main?"(global) ":"",
-		ucstring_getpsz_d(s));
+	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz_d(s));
 	ucstring_destroy(s);
 }
 
-static void do_comment(deark *c, lctx *d, i64 pos, i64 len, int is_main, int extract_to_file)
+static void do_comment(deark *c, lctx *d, i64 pos, i64 len, const char *name,
+	int is_main, int extract_to_file)
 {
 	if(len<1) return;
 	if(pos<0 || pos+len>c->infile->len) return;
+	on_offset_found(c, d, pos);
 	if(extract_to_file) {
 		do_extract_comment(c, d, pos, len, is_main);
 	}
 	else {
-		do_dbg_comment(c, d, pos, len, is_main);
+		do_dbg_comment(c, d, pos, len, name, is_main);
 	}
 }
 
@@ -184,10 +195,10 @@ static int do_global_header(deark *c, lctx *d, i64 pos1)
 
 		d->archive_comment_pos = de_getu32le_p(&pos);
 		d->archive_comment_len = de_getu16le_p(&pos);
-		de_dbg(c, "archive comment: pos=%"I64_FMT", size=%d", d->archive_comment_pos,
+		de_dbg(c, "archive comment pos: %"I64_FMT", len=%d", d->archive_comment_pos,
 			(int)d->archive_comment_len);
-		do_comment(c, d, d->archive_comment_pos, d->archive_comment_len, 1,
-			d->extract_comments_to_files);
+		do_comment(c, d, d->archive_comment_pos, d->archive_comment_len, "archive comment",
+			1, d->extract_comments_to_files);
 
 		d->modgen = de_getbyte_p(&pos);
 		de_dbg(c, "archive-level versioning settings (\"vdata\"): 0x%02x", (UI)d->modgen);
@@ -341,9 +352,9 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	pos++; // "file structure" (?)
 	md->comment_pos = de_getu32le_p(&pos);
 	md->comment_len = de_getu16le_p(&pos);
-	de_dbg(c, "comment: pos=%"I64_FMT", size=%d", md->comment_pos, (int)md->comment_len);
-	do_comment(c, d, md->comment_pos, md->comment_len, 0, (d->extract_comments_to_files) &&
-		(!md->is_deleted || d->undelete));
+	de_dbg(c, "comment pos: %"I64_FMT", len=%d", md->comment_pos, (int)md->comment_len);
+	do_comment(c, d, md->comment_pos, md->comment_len, "comment", 0,
+		(d->extract_comments_to_files) && (!md->is_deleted || d->undelete));
 
 	// In "type 2" header format, the shortname field is a fixed 13 bytes, and is
 	// followed by other fields.
@@ -545,6 +556,7 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	on_offset_found(c, d, pos1);
 
 	md = de_malloc(c, sizeof(struct member_data));
 	md->fi = de_finfo_create(c);
@@ -553,6 +565,7 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 	if (!do_member_header(c, d, md, pos1)) {
 		goto done;
 	}
+	if(md->cmpr_len) on_offset_found(c, d, md->cmpr_pos);
 
 	*next_member_hdr_pos = md->next_member_hdr_pos;
 
@@ -648,6 +661,27 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+// The archive comment can be anywhere in the file, but Zoo normally
+// puts it right after the archive header, at offset 42.
+// I have a number of Zoo files in which a distributor has added their
+// own comment at the end of the file, leaving the original comment
+// intact but invisible.
+static void check_for_orphaned_comment(deark *c, lctx *d)
+{
+	i64 ocpos, oclen;
+
+	if(d->type != 1) return;
+	if(d->archive_comment_pos==0 || d->archive_comment_len==0) return;
+	ocpos = 42;
+	if(d->min_offset_found <= ocpos) return;
+	oclen = d->min_offset_found - ocpos;
+	if(oclen<5 || oclen>4096) return;
+	if(de_getbyte(ocpos+oclen-1) != 0x0a) return;
+	de_dbg(c, "possible orphaned archive comment found at %"I64_FMT", len=%"I64_FMT,
+		ocpos, oclen);
+	do_comment(c, d, ocpos, oclen, "orphaned archive comment", 1, 0);
+}
+
 // The main function: process a Zoo file
 static void de_run_zoo(deark *c, de_module_params *mparams)
 {
@@ -680,12 +714,12 @@ static void de_run_zoo(deark *c, de_module_params *mparams)
 
 		if(pos >= c->infile->len) {
 			de_err(c, "Unexpected EOF, expected member header at %"I64_FMT, pos);
-			goto done;
+			goto after_members;
 		}
 
 		if(!de_inthashtable_add_item(c, d->offsets_seen, pos, NULL)) {
 			de_err(c, "Loop detected");
-			goto done;
+			goto after_members;
 		}
 
 		de_dbg(c, "entry at %"I64_FMT, pos);
@@ -696,12 +730,16 @@ static void de_run_zoo(deark *c, de_module_params *mparams)
 		pos = next_member_hdr_pos;
 	}
 
+after_members:
+	check_for_orphaned_comment(c, d);
+
+	if(d->num_deleted_files_found>0 && !d->undelete) {
+		de_info(c, "Note: %d deleted file(s) found. Use \"-opt zoo:undelete\" "
+			"to extract them.", d->num_deleted_files_found);
+	}
+
 done:
 	if(d) {
-		if(d->num_deleted_files_found>0 && !d->undelete) {
-			de_info(c, "Note: %d deleted file(s) found. Use \"-opt zoo:undelete\" "
-				"to extract them.", d->num_deleted_files_found);
-		}
 		de_inthashtable_destroy(c, d->offsets_seen);
 		de_crcobj_destroy(d->crco);
 		de_free(c, d);
@@ -853,6 +891,7 @@ static void de_run_zoo_z(deark *c, de_module_params *mparams)
 		0x72,0x63,0x68,0x69,0x76,0x65,0x2e,0x1a,0x00,0x00,0xdc,0xa7,0xc4,0xfd,0x22,0x00,
 		0x00,0x00,0xde,0xff,0xff,0xff,0x01,0x01};
 	struct zoo_z_ctx *zctx = NULL;
+	int need_errmsg = 0;
 
 	de_declare_fmtf(c, "Zoo Z, DOS-compatible");
 
@@ -862,6 +901,7 @@ static void de_run_zoo_z(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
+	need_errmsg = 1;
 	zctx->cmpr_len = de_getu32le(14);
 	de_dbg(c, "compressed size: %"I64_FMT, zctx->cmpr_len);
 	zctx->comment_len = de_getu16le(20);
@@ -911,8 +951,13 @@ static void de_run_zoo_z(deark *c, de_module_params *mparams)
 
 	dbuf_writeu32le(outf, ZOO_SIGNATURE);
 	dbuf_write_zeroes(outf, 48);
+	need_errmsg = 0;
+
 done:
 	dbuf_close(outf);
+	if(need_errmsg) {
+		de_err(c, "Conversion to Zoo format failed");
+	}
 	de_free(c, zctx);
 }
 
