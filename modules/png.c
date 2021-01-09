@@ -998,14 +998,23 @@ static void de_run_png(deark *c, de_module_params *mparams)
 	de_dbg_indent(c, 1);
 	d->fmt = do_identify_png_internal(c);
 	switch(d->fmt) {
-	case DE_PNGFMT_PNG: d->fmt_name = "PNG"; break;
+	case DE_PNGFMT_PNG:
+		d->fmt_name = "PNG";
+		if(de_getu32be(12)==CODE_CgBI) {
+			d->is_CgBI = 1;
+		}
+		break;
 	case DE_PNGFMT_JNG: d->fmt_name = "JNG"; break;
 	case DE_PNGFMT_MNG: d->fmt_name = "MNG"; break;
 	default: d->fmt_name = "?";
 	}
-	de_dbg(c, "format: %s", d->fmt_name);
 	if(d->fmt>0) {
-		de_declare_fmt(c, d->fmt_name);
+		if(d->is_CgBI) {
+			de_declare_fmt(c, "CgBI");
+		}
+		else {
+			de_declare_fmt(c, d->fmt_name);
+		}
 	}
 	de_dbg_indent(c, -1);
 
@@ -1018,7 +1027,10 @@ static void de_run_png(deark *c, de_module_params *mparams)
 
 		cctx.pos = pos;
 		cctx.hp.dlen = de_getu32be(pos);
-		if(pos + 8 + cctx.hp.dlen + 4 > c->infile->len) break;
+		if(pos + 8 + cctx.hp.dlen + 4 > c->infile->len) {
+			de_warn(c, "Truncated file, or invalid data at %"I64_FMT, pos);
+			break;
+		}
 		dbuf_read_fourcc(c->infile, pos+4, &cctx.hp.chunk4cc, 4, 0x0);
 
 		cctx.hp.cti = get_chunk_type_info(cctx.hp.chunk4cc.id);
