@@ -117,21 +117,19 @@ static void print_help(deark *c)
 	de_puts(c, DE_MSGTYPE_MESSAGE,
 		"\nCommonly used options:\n"
 		" -l: Instead of extracting, list the files that would be extracted.\n"
-		" -m <module>: Assume input file is this format, instead of autodetecting.\n"
-		" -k: Start output filenames with the input filename.\n"
+		" -k, -ka: Start output (-k) or .zip (-ka) filenames with the input filename.\n"
 		" -o <base-filename>: Start output filenames with this string.\n"
 		" -od <directory>: Write files to this directory.\n"
-		" -zip: Write output files to a .zip file.\n"
-		" -ka: Start the .zip filename with the input filename.\n"
-		" -a: Extract more data than usual.\n"
-		" -main: Extract less data than usual.\n"
+		" -zip: Write files to a .zip file (output.zip by default).\n"
+		" -a, -main: Extract more (-a) or less (-main) data than usual.\n"
 		" -get <n>: Extract only file number <n>.\n"
+		" -maxfiles <n>: Extract at most <n> files.\n"
 		" -d, -d2, -d3: Print additional information about the file.\n"
 		" -q, -noinfo, -nowarn: Print fewer messages than usual.\n"
+		" -color: Allow color in printed messages.\n"
+		" -m <module>: Assume input file is this format, instead of autodetecting.\n"
 		" -modules: Print the names of all available modules.\n"
-		" -help, -h: Print this message.\n"
-		" -license: Print the credits and terms of use.\n"
-		" -version: Print version information.\n"
+		" -h, -version, -license: Print this message / version info / terms of use.\n"
 		);
 }
 
