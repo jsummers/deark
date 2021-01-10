@@ -294,6 +294,29 @@ automatically.
 
 ## Developer notes ##
 
+### Coding style and C language ###
+
+The C language version that Deark uses is not rigidly defined, but it should
+be compatible with most modern compilers, without special options.
+
+It is mostly compatible with a rather old version of C, almost C89 but with
+"//" comments. But that's subject to change. For instance, putting declarations
+only at the beginning of functions is really only still being done due to
+inertia (it used to be tested on a compiler that required it), and is likely to
+be abandoned at some point.
+
+### Other notes ###
+
+Maximizing execution speed is not a goal of Deark. This is a deliberate
+concession. The focus is on making the code easy to write, easy to read, and to
+minimize the chance of bugs. (Serious performace issues will still be
+addressed, though.)
+
+Deark is intended to be compiled as a 64-bit application. It uses 64-bit
+integers pervasively. It can be compiled as a 32-bit app (provided the compiler
+has a 64-bit integer type), and it will operate correctly. But it will be very
+inefficient, and might run at less than half the 64-bit speed.
+
 The Deark source code is structured like a library, but it's not intended to be
 used as such. The error handling methods, and error messages, are not really
 suitable for use in a library.
