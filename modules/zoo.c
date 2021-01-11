@@ -48,8 +48,8 @@ struct member_data {
 	i64 cmpr_pos;
 	i64 cmpr_len;
 	i64 uncmpr_len;
-	i64 comment_pos; // 0 if no comment
-	i64 comment_len;
+	i64 comment_pos;
+	i64 comment_len; // 0 if no comment
 	unsigned int datdos;         /* date (in DOS format)            */
 	unsigned int timdos;         /* time (in DOS format)            */
 	u32 crc_reported;
@@ -61,7 +61,7 @@ struct member_data {
 	u8 is_deleted;        /* 1 if member is deleted, 0 else  */
 	u8             timzon;         /* time zone                       */
 	unsigned int system;         /* system identifier               */
-	u32           permis;         /* file permissions                */
+	u32 attribs;         /* file permissions                */
 	u8             modgen;         /* gens. on, last gen., gen. limit */
 	unsigned int ver;            /* version number of member        */
 };
@@ -76,8 +76,8 @@ struct localctx_struct {
 	u8             majver;         /* major version needed to extract */
 	u8             minver;         /* minor version needed to extract */
 	u8             type;  // header version (?)
-	i64 archive_comment_pos; // 0 if no comment
-	i64 archive_comment_len;
+	i64 archive_comment_pos;
+	i64 archive_comment_len; // 0 if no comment
 	u8             modgen;         /* gens. on, gen. limit            */
 
 	int num_deleted_files_found;
@@ -143,7 +143,7 @@ static int do_global_header(deark *c, lctx *d, i64 pos1)
 	i64 pos = pos1;
 	int retval = 0;
 	unsigned int sig;
-	unsigned int u;
+	u32 zoo_minus, zoo_minus_expected;
 	i64 i;
 	de_ucstring *txt = NULL;
 
@@ -171,13 +171,16 @@ static int do_global_header(deark *c, lctx *d, i64 pos1)
 	d->first_member_hdr_pos = de_getu32le_p(&pos);
 	de_dbg(c, "first entry pos: %"I64_FMT, d->first_member_hdr_pos);
 
-	u = (unsigned int)de_getu32le_p(&pos);
-	de_dbg(c, "2's complement of pos: %u (%d)", u, (int)u);
+	zoo_minus = (u32)de_getu32le_p(&pos);
+	de_dbg(c, "consistency check: 0x%08x", (UI)zoo_minus);
+	zoo_minus_expected = (u32)((~(u32)d->first_member_hdr_pos)+(u32)1);
+	if(zoo_minus!=zoo_minus_expected) {
+		de_warn(c, "Archive header failed consistency check (is 0x%08x, expected 0x%08x)",
+			(UI)zoo_minus, (UI)zoo_minus_expected);
+	}
 
 	// Note: The version number fields are sometimes erroneously documented as
-	// "version made by" and "version needed". But (according to Zoo 2.10),
-	// there is no "version made by" field, unless you count the "header text"
-	// field.
+	// "version made by" and "version needed to extract [all files]".
 	d->majver = de_getbyte_p(&pos);
 	d->minver = de_getbyte_p(&pos);
 	de_dbg(c, "version needed to manipulate archive: %d.%d", (int)d->majver, (int)d->minver);
@@ -293,6 +296,7 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	i64 lnamu;          /* length of long name             */
 	i64 ldiru;          /* length of directory             */
 	unsigned int sig;
+	UI attribs_type;
 	char descrbuf[80];
 
 	sig = (unsigned int)de_getu32le_p(&pos);
@@ -446,15 +450,22 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	de_dbg(c, "system id: %u", md->system);
 
 	if(hdr_endpos-pos < 3) goto done_with_header;
-	md->permis = (u32)dbuf_getint_ext(c->infile, pos, 3, 1, 0);
+	md->attribs = (u32)dbuf_getint_ext(c->infile, pos, 3, 1, 0);
 	pos += 3;
-	de_dbg(c, "perms: octal(%o)", (unsigned int)md->permis);
-	if((md->permis & 0111) != 0) {
-		md->fi->mode_flags |= DE_MODEFLAG_EXE;
+	de_dbg(c, "attribs: 0x%06x", (UI)md->attribs);
+	de_dbg_indent(c, 1);
+	attribs_type = (md->attribs >> 22);
+	de_dbg(c, "attribs type: %u", attribs_type);
+	if(attribs_type == 1) {
+		de_dbg(c, "perms: octal(%o)", (UI)(md->attribs & 0x1ff));
+		if((md->attribs & 0111) != 0) {
+			md->fi->mode_flags |= DE_MODEFLAG_EXE;
+		}
+		else {
+			md->fi->mode_flags |= DE_MODEFLAG_NONEXE;
+		}
 	}
-	else {
-		md->fi->mode_flags |= DE_MODEFLAG_NONEXE;
-	}
+	de_dbg_indent(c, -1);
 
 	if(hdr_endpos-pos < 1) goto done_with_header;
 	md->modgen = de_getbyte_p(&pos);
@@ -669,14 +680,16 @@ done:
 static void check_for_orphaned_comment(deark *c, lctx *d)
 {
 	i64 ocpos, oclen;
+	i64 foundpos = 0;
 
 	if(d->type != 1) return;
 	if(d->archive_comment_pos==0 || d->archive_comment_len==0) return;
 	ocpos = 42;
 	if(d->min_offset_found <= ocpos) return;
 	oclen = d->min_offset_found - ocpos;
-	if(oclen<5 || oclen>4096) return;
+	if(oclen<5 || oclen>1000) return;
 	if(de_getbyte(ocpos+oclen-1) != 0x0a) return;
+	if(dbuf_search_byte(c->infile, 0x00, ocpos, oclen, &foundpos)) return;
 	de_dbg(c, "possible orphaned archive comment found at %"I64_FMT", len=%"I64_FMT,
 		ocpos, oclen);
 	do_comment(c, d, ocpos, oclen, "orphaned archive comment", 1, 0);
