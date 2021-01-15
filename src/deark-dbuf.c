@@ -2322,6 +2322,17 @@ u64 de_bitreader_getbits(struct de_bitreader *bitrd, UI nbits)
 	return de_bitbuf_lowelevel_get_bits(&bitrd->bbll, nbits);
 }
 
+void de_bitreader_skip_to_byte_boundary(struct de_bitreader *bitrd)
+{
+	while(bitrd->bbll.nbits_in_bitbuf >= 8) {
+		// Unlikely to get here, since the current bitreader implementation reads
+		// one byte at a time.
+		bitrd->bbll.nbits_in_bitbuf -= 8;
+		bitrd->curpos--;
+	}
+	de_bitbuf_lowelevel_empty(&bitrd->bbll);
+}
+
 char *de_bitreader_describe_curpos(struct de_bitreader *bitrd, char *buf, size_t buf_len)
 {
 	i64 curpos;

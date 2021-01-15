@@ -15,7 +15,7 @@
 #include "../foreign/miniz-c.h"
 
 // codec_private_params = type de_inflate_params; cannot be NULL
-void fmtutil_inflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+void fmtutil_inflate_codectype1_miniz(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params)
 {

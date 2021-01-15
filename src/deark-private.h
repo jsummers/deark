@@ -408,6 +408,8 @@ struct deark_struct {
 	de_fatalerrorfn_type fatalerrorfn;
 	const char *dprefix;
 
+	u8 deflate_decoder_id;
+	u8 implode_decoder_id;
 	u8 tmpflag1;
 	u8 tmpflag2;
 	u8 pngcprlevel_valid;
@@ -797,6 +799,7 @@ struct de_bitreader {
 	struct de_bitbuf_lowlevel bbll;
 };
 u64 de_bitreader_getbits(struct de_bitreader *bitrd, UI nbits);
+void de_bitreader_skip_to_byte_boundary(struct de_bitreader *bitrd);
 char *de_bitreader_describe_curpos(struct de_bitreader *bitrd, char *buf, size_t buf_len);
 
 ///////////////////////////////////////////

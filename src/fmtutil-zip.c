@@ -222,7 +222,7 @@ static void my_zipexpl_cb_post_read_trees(ui6a_ctx *ui6a, struct ui6a_htables *t
 	}
 }
 
-void fmtutil_decompress_zip_implode(deark *c, struct de_dfilter_in_params *dcmpri,
+void fmtutil_decompress_zip_implode_ui6a(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	struct de_zipimplode_params *params)
 {

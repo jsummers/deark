@@ -330,6 +330,7 @@ int fmtutil_huffman_record_a_code_length(deark *c, struct fmtutil_huffman_tree *
 	fmtutil_huffman_valtype val, UI len)
 {
 	if(len==0) return 1;
+	if(len > FMTUTIL_HUFFMAN_MAX_CODE_LENGTH) return 0;
 	if(ht->lengths_arr_numused > MAX_MAX_NODES) return 0;
 
 	if(ht->lengths_arr_numused >= ht->lengths_arr_numalloc) {

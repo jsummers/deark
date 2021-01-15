@@ -99,6 +99,9 @@ int fmtutil_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *o
 void fmtutil_decompress_deflate_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	struct de_inflate_params *params);
+void fmtutil_inflate_codectype1_miniz(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params);
 void fmtutil_inflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params);
@@ -259,6 +262,9 @@ struct de_zipimplode_params {
 	u8 dump_trees;
 	u8 mml_bug;
 };
+void fmtutil_decompress_zip_implode_ui6a(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	struct de_zipimplode_params *params);
 void fmtutil_decompress_zip_implode(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	struct de_zipimplode_params *params);
