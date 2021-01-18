@@ -15,6 +15,8 @@
 #define DE_DEFAULT_MAX_FILE_SIZE 0x280000000LL // 10GiB
 #define DE_DEFAULT_MAX_TOTAL_OUTPUT_SIZE 0x3c0000000LL // 15GiB
 #define DE_DEFAULT_MAX_IMAGE_DIMENSION 10000
+#define DE_DEFAULT_MAX_OUTPUT_FILES 1000 // Limit for direct output (not ZIP)
+#define DE_MAX_OUTPUT_FILES_HARD_LIMIT 250000
 
 // Returns the best module to use, by looking at the file contents, etc.
 static struct deark_module_info *detect_module_for_file(deark *c, int *errflag)
@@ -391,6 +393,13 @@ int de_run(deark *c)
 		}
 	}
 
+	if(c->output_style==DE_OUTPUTSTYLE_DIRECT &&
+		c->max_output_files > DE_DEFAULT_MAX_OUTPUT_FILES &&
+		!c->user_set_max_output_files)
+	{
+		c->max_output_files = DE_DEFAULT_MAX_OUTPUT_FILES;
+	}
+
 	// If we're writing to a zip file, we normally defer creating that zip file
 	// until we find a file to extract, so that we never create a zip file with
 	// no member files.
@@ -456,7 +465,7 @@ deark *de_create_internal(void)
 	c->preserve_file_times = 1;
 	c->preserve_file_times_archives = 1;
 	c->preserve_file_times_internal = 1;
-	c->max_output_files = -1;
+	c->max_output_files = DE_MAX_OUTPUT_FILES_HARD_LIMIT;
 	c->max_image_dimension = DE_DEFAULT_MAX_IMAGE_DIMENSION;
 	c->max_output_file_size = DE_DEFAULT_MAX_FILE_SIZE;
 	c->max_total_output_size = DE_DEFAULT_MAX_TOTAL_OUTPUT_SIZE;
@@ -783,9 +792,18 @@ void de_set_first_output_file(deark *c, int x)
 	c->first_output_file = x;
 }
 
-void de_set_max_output_files(deark *c, int n)
+void de_set_max_output_files(deark *c, i64 n)
 {
-	c->max_output_files = n;
+	if(n>DE_MAX_OUTPUT_FILES_HARD_LIMIT) {
+		c->max_output_files = DE_MAX_OUTPUT_FILES_HARD_LIMIT;
+	}
+	else if(n<0) {
+		c->max_output_files = 0;
+	}
+	else {
+		c->max_output_files = (int)n;
+	}
+	c->user_set_max_output_files = 1;
 }
 
 void de_set_max_output_file_size(deark *c, i64 n)

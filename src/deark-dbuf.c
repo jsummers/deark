@@ -1224,10 +1224,14 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 		goto done;
 	}
 
-	if(c->max_output_files>=0 &&
-		file_index >= c->first_output_file + c->max_output_files)
+	if(file_index >= c->first_output_file + c->max_output_files)
 	{
 		f->btype = DBUF_TYPE_NULL;
+		if(file_index == c->first_output_file + c->max_output_files) {
+			if(!c->user_set_max_output_files) {
+				de_err(c, "Limit of %d output files exceeded", c->max_output_files);
+			}
+		}
 		goto done;
 	}
 

@@ -375,7 +375,8 @@ struct deark_struct {
 	u8 list_mode;
 	u8 list_mode_include_file_id;
 	int first_output_file; // first file = 0
-	int max_output_files; // -1 = no limit
+	int max_output_files;
+	u8 user_set_max_output_files;
 	i64 max_image_dimension;
 	i64 max_output_file_size;
 	i64 max_total_output_size;

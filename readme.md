@@ -109,7 +109,8 @@ Command-line options:
 -firstfile &lt;n>
    Don't extract the first &lt;n> files found.
 -maxfiles &lt;n>
-   Extract at most &lt;n> files.
+   Extract at most &lt;n> files. The normal default is 1000, or effectively
+   unlimited if using -zip.
 -get &lt;n>
    Extract only the file identifed by &lt;n>. The first file is 0.
    Equivalent to "-firstfile &lt;n> -maxfiles 1".

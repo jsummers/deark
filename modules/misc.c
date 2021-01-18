@@ -137,7 +137,7 @@ static void de_run_split(deark *c, de_module_params *mparams)
 
 	chunkcount = (c->infile->len + (chunkstride-1)) / chunkstride;
 
-	if((chunkcount>256) && (c->max_output_files<0)) {
+	if((chunkcount>256) && (!c->user_set_max_output_files)) {
 		de_err(c, "Large number of chunks; use \"-maxfiles %"I64_FMT"\" if you "
 			"really want to do this.", chunkcount);
 		goto done;

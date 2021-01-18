@@ -817,7 +817,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				de_set_first_output_file(c, de_atoi(argv[i+1]));
 				break;
 			case DE_OPT_MAXFILES:
-				de_set_max_output_files(c, de_atoi(argv[i+1]));
+				de_set_max_output_files(c, de_atoi64(argv[i+1]));
 				cc->set_MAXFILES = 1;
 				break;
 			case DE_OPT_MAXFILESIZE:

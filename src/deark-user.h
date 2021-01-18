@@ -60,7 +60,7 @@ void *de_get_userdata(deark *c);
 void de_set_dprefix(deark *c, const char *s);
 
 void de_set_first_output_file(deark *c, int x);
-void de_set_max_output_files(deark *c, int n);
+void de_set_max_output_files(deark *c, i64 n);
 void de_set_max_output_file_size(deark *c, i64 n);
 void de_set_max_total_output_size(deark *c, i64 n);
 void de_set_max_image_dimension(deark *c, i64 n);
