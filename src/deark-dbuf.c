@@ -2258,7 +2258,7 @@ int dbuf_is_all_zeroes(dbuf *f, i64 pos, i64 len)
 	return dbuf_buffered_read(f, pos, len, is_all_zeroes_cbfn, NULL);
 }
 
-void de_bitbuf_lowelevel_add_byte(struct de_bitbuf_lowlevel *bbll, u8 n)
+void de_bitbuf_lowlevel_add_byte(struct de_bitbuf_lowlevel *bbll, u8 n)
 {
 	if(bbll->nbits_in_bitbuf>56) return;
 	if(bbll->is_lsb==0) {
@@ -2270,7 +2270,7 @@ void de_bitbuf_lowelevel_add_byte(struct de_bitbuf_lowlevel *bbll, u8 n)
 	bbll->nbits_in_bitbuf += 8;
 }
 
-u64 de_bitbuf_lowelevel_get_bits(struct de_bitbuf_lowlevel *bbll, UI nbits)
+u64 de_bitbuf_lowlevel_get_bits(struct de_bitbuf_lowlevel *bbll, UI nbits)
 {
 	u64 n;
 	u64 mask;
@@ -2289,7 +2289,7 @@ u64 de_bitbuf_lowelevel_get_bits(struct de_bitbuf_lowlevel *bbll, UI nbits)
 	return n;
 }
 
-void de_bitbuf_lowelevel_empty(struct de_bitbuf_lowlevel *bbll)
+void de_bitbuf_lowlevel_empty(struct de_bitbuf_lowlevel *bbll)
 {
 	bbll->bit_buf = 0;
 	bbll->nbits_in_bitbuf = 0;
@@ -2316,10 +2316,10 @@ u64 de_bitreader_getbits(struct de_bitreader *bitrd, UI nbits)
 			return 0;
 		}
 		b = dbuf_getbyte_p(bitrd->f, &bitrd->curpos);
-		de_bitbuf_lowelevel_add_byte(&bitrd->bbll, b);
+		de_bitbuf_lowlevel_add_byte(&bitrd->bbll, b);
 	}
 
-	return de_bitbuf_lowelevel_get_bits(&bitrd->bbll, nbits);
+	return de_bitbuf_lowlevel_get_bits(&bitrd->bbll, nbits);
 }
 
 void de_bitreader_skip_to_byte_boundary(struct de_bitreader *bitrd)
@@ -2330,7 +2330,7 @@ void de_bitreader_skip_to_byte_boundary(struct de_bitreader *bitrd)
 		bitrd->bbll.nbits_in_bitbuf -= 8;
 		bitrd->curpos--;
 	}
-	de_bitbuf_lowelevel_empty(&bitrd->bbll);
+	de_bitbuf_lowlevel_empty(&bitrd->bbll);
 }
 
 char *de_bitreader_describe_curpos(struct de_bitreader *bitrd, char *buf, size_t buf_len)

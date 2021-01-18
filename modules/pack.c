@@ -89,7 +89,7 @@ static void decode_file_data(deark *c, lctx *d, i64 pos1, dbuf *outf)
 	d->bitrd.curpos = pos1;
 	d->bitrd.endpos = c->infile->len;
 	d->bitrd.bbll.is_lsb = 0;
-	de_bitbuf_lowelevel_empty(&d->bitrd.bbll);
+	de_bitbuf_lowlevel_empty(&d->bitrd.bbll);
 
 	ncodes_expected = d->unc_size + 1;
 

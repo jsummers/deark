@@ -982,7 +982,7 @@ static int squeeze_read_codes(deark *c, struct squeeze_ctx *sqctx)
 
 	de_dbg(c, "huffman-compressed data at %"I64_FMT, sqctx->bitrd.curpos);
 	sqctx->bitrd.bbll.is_lsb = 1;
-	de_bitbuf_lowelevel_empty(&sqctx->bitrd.bbll);
+	de_bitbuf_lowlevel_empty(&sqctx->bitrd.bbll);
 
 	if(fmtutil_huffman_get_max_bits(sqctx->ht) < 1) {
 		// Empty tree? Assume this is an empty file.

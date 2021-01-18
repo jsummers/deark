@@ -414,7 +414,7 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 
 		if(!fc->has_eol_codes && (fc->a0 >= fc->image_width) && fc->f2d_h_codes_remaining==0) {
 			if(fc->rows_padded_to_next_byte) {
-				de_bitbuf_lowelevel_empty(&fc->bitrd.bbll);
+				de_bitbuf_lowlevel_empty(&fc->bitrd.bbll);
 			}
 			fax34_on_eol(c, fc);
 		}

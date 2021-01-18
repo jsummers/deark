@@ -787,9 +787,9 @@ struct de_bitbuf_lowlevel {
 	UI nbits_in_bitbuf;
 	u64 bit_buf;
 };
-void de_bitbuf_lowelevel_add_byte(struct de_bitbuf_lowlevel *bbll, u8 n);
-u64 de_bitbuf_lowelevel_get_bits(struct de_bitbuf_lowlevel *bbll, UI nbits);
-void de_bitbuf_lowelevel_empty(struct de_bitbuf_lowlevel *bbll);
+void de_bitbuf_lowlevel_add_byte(struct de_bitbuf_lowlevel *bbll, u8 n);
+u64 de_bitbuf_lowlevel_get_bits(struct de_bitbuf_lowlevel *bbll, UI nbits);
+void de_bitbuf_lowlevel_empty(struct de_bitbuf_lowlevel *bbll);
 
 struct de_bitreader {
 	dbuf *f;
