@@ -597,6 +597,7 @@ int fmtutil_huffman_record_a_code_length(deark *c, struct fmtutil_huffman_tree *
 	fmtutil_huffman_valtype val, UI len);
 #define FMTUTIL_MCTFLAG_LEFT_ALIGN_LEAVES     0x0 // default
 #define FMTUTIL_MCTFLAG_LEFT_ALIGN_BRANCHES   0x1
+#define FMTUTIL_MCTFLAG_LAST_CODE_FIRST       0x2 // Pretend codes were added in the reverse order
 int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *ht, UI flags);
 
 struct de_lz77buffer;

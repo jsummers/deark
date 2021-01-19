@@ -451,6 +451,19 @@ done:
 	return retval;
 }
 
+static void reverse_lengths_array(struct fmtutil_huffman_tree *ht)
+{
+	i64 i;
+	i64 num_swaps = ht->lengths_arr_numused / 2;
+	struct huffman_lengths_arr_item tmpitem;
+
+	for(i=0; i<num_swaps; i++) {
+		tmpitem = ht->lengths_arr[i]; // struct copy
+		ht->lengths_arr[i] = ht->lengths_arr[ht->lengths_arr_numused-1-i];
+		ht->lengths_arr[ht->lengths_arr_numused-1-i] = tmpitem;
+	}
+}
+
 // Call this after calling huffman_record_item_length() (usually many times).
 // Creates a canonical Huffman tree derived from the known code lengths.
 int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *ht, UI flags)
@@ -467,6 +480,13 @@ int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *h
 	if(!ht->lengths_arr) {
 		retval = 1;
 		goto done;
+	}
+
+	if(flags & FMTUTIL_MCTFLAG_LAST_CODE_FIRST) {
+		// Bit of a hack. Instead of each worker function having to have a way
+		// to read the array from back to front, reverse the order of items in
+		// the array, so we don't have to deal with it later.
+		reverse_lengths_array(ht);
 	}
 
 	// Find the maximum length
