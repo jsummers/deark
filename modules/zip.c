@@ -67,7 +67,6 @@ struct member_data {
 	int is_executable;
 	int is_dir;
 	int is_symlink;
-	struct de_crcobj *crco; // copy of lctx::crco
 	struct timestamp_data tsdata[DE_TIMESTAMPIDX_COUNT];
 
 	struct dir_entry_data central_dir_entry_data;
@@ -260,6 +259,7 @@ static int do_decompress_member(deark *c, lctx *d, struct member_data *md,
 	return ret;
 }
 
+// outf is assumed to be a membuf.
 static int do_decompress_finder_attrib_data(deark *c, lctx *d,
 	i64 dpos, i64 dlen, dbuf *outf, i64 uncmprsize, u32 crc_reported,
 	int cmpr_meth, const struct cmpr_meth_info *cmi)
@@ -267,6 +267,8 @@ static int do_decompress_finder_attrib_data(deark *c, lctx *d,
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
+	u32 crc_calculated;
+	int retval = 0;
 	int ret;
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
@@ -277,8 +279,19 @@ static int do_decompress_finder_attrib_data(deark *c, lctx *d,
 	dcmpro.expected_len = uncmprsize;
 	dcmpro.len_known = 1;
 	ret = do_decompress_lowlevel(c, d, &dcmpri, &dcmpro, &dres, cmpr_meth, cmi, 0);
-	// TODO: Validate CRC, if cmpr_meth!=0
-	return ret;
+	if(!ret) goto done;
+
+	if(cmpr_meth != 0) {
+		de_crcobj_reset(d->crco);
+		de_crcobj_addslice(d->crco, outf, 0, outf->len);
+		crc_calculated = de_crcobj_getval(d->crco);
+		de_dbg(c, "finder attr. data crc (calculated): 0x%08x", (UI)crc_calculated);
+		if(crc_calculated != crc_reported) goto done;
+	}
+
+	retval = 1;
+done:
+	return retval;
 }
 
 // As we read a member file's attributes, we may encounter multiple timestamps,
@@ -474,7 +487,6 @@ static void ef_unicodepath(deark *c, lctx *d, struct extra_item_info_struct *eii
 	de_ucstring *fn = NULL;
 	i64 fnlen;
 	u32 crc_reported, crc_calculated;
-	struct de_crcobj *fncrco = NULL;
 
 	if(eii->dlen<1) goto done;
 	ver = de_getbyte(eii->dpos);
@@ -491,9 +503,9 @@ static void ef_unicodepath(deark *c, lctx *d, struct extra_item_info_struct *eii
 	// Need to go back and calculate a CRC of the main filename. This is
 	// protection against the case where a ZIP editor may have changed the
 	// original filename, but retained a now-orphaned Unicode Path field.
-	fncrco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-	de_crcobj_addslice(fncrco, c->infile, eii->dd->main_fname_pos, eii->dd->main_fname_len);
-	crc_calculated = de_crcobj_getval(fncrco);
+	de_crcobj_reset(d->crco);
+	de_crcobj_addslice(d->crco, c->infile, eii->dd->main_fname_pos, eii->dd->main_fname_len);
+	crc_calculated = de_crcobj_getval(d->crco);
 	de_dbg(c, "name-crc (calculated): 0x%08x", (unsigned int)crc_calculated);
 
 	if(crc_calculated == crc_reported) {
@@ -503,7 +515,6 @@ static void ef_unicodepath(deark *c, lctx *d, struct extra_item_info_struct *eii
 
 done:
 	ucstring_destroy(fn);
-	de_crcobj_destroy(fncrco);
 }
 
 // Extra field 0x7855
@@ -932,8 +943,8 @@ static void do_extra_data(deark *c, lctx *d,
 
 static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
 {
-	struct member_data *md = (struct member_data *)userdata;
-	de_crcobj_addbuf(md->crco, buf, buf_len);
+	struct de_crcobj *crco = (struct de_crcobj *)userdata;
+	de_crcobj_addbuf(crco, buf, buf_len);
 }
 
 static void do_extract_file(deark *c, lctx *d, struct member_data *md)
@@ -1001,16 +1012,15 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		goto done;
 	}
 
-	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)md);
-	md->crco = d->crco;
-	de_crcobj_reset(md->crco);
+	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
+	de_crcobj_reset(d->crco);
 
 	de_dbg_indent(c, 1);
 	ret = do_decompress_member(c, d, md, outf);
 	de_dbg_indent(c, -1);
 	if(!ret) goto done;
 
-	crc_calculated = de_crcobj_getval(md->crco);
+	crc_calculated = de_crcobj_getval(d->crco);
 	de_dbg(c, "crc (calculated): 0x%08x", (unsigned int)crc_calculated);
 
 	if(crc_calculated != md->crc_reported) {
