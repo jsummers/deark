@@ -103,21 +103,16 @@ static void create_fax34_huffman_tree2d(deark *c, struct fax34_huffman_tree *f34
 // code, the remainder of which will be handled with special logic.
 #define FAX1D_8ZEROES (-1)
 
-static const i16 fax34whitevals[105] = {
+static const i16 fax34vals[105] = { // Used with both white & black codes
 	0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,
 	32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,
 	60,61,62,63,64,128,192,256,320,384,448,512,576,640,704,768,832,896,960,1024,1088,1152,
 	1216,1280,1344,1408,1472,1536,1600,1664,1728,1792,1856,1920,1984,2048,2112,2176,2240,
 	2304,2368,2432,2496,2560,FAX1D_8ZEROES
 };
-static const i16 fax34blackvals[105] = {
-	0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,
-	32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,
-	60,61,62,63,64,128,192,256,320,384,448,512,576,640,704,768,832,896,960,1024,1088,1152,
-	1216,1280,1344,1408,1472,1536,1600,1664,1728,1792,1856,1920,1984,2048,2112,2176,2240,
-	2304,2368,2432,2496,2560,FAX1D_8ZEROES
-};
-static const u16 fax34whitecodes[105] = {
+// Some codes in the next two tables are up to 13 bits in size, but bits before the
+// last 8 are always 0, so we can use an 8-bit integer type.
+static const u8 fax34whitecodes[105] = {
 	0x35,0x7,0x7,0x8,0xb,0xc,0xe,0xf,0x13,0x14,0x7,0x8,0x8,0x3,0x34,0x35,0x2a,0x2b,0x27,
 	0xc,0x8,0x17,0x3,0x4,0x28,0x2b,0x13,0x24,0x18,0x2,0x3,0x1a,0x1b,0x12,0x13,0x14,0x15,
 	0x16,0x17,0x28,0x29,0x2a,0x2b,0x2c,0x2d,0x4,0x5,0xa,0xb,0x52,0x53,0x54,0x55,0x24,0x25,
@@ -125,7 +120,7 @@ static const u16 fax34whitecodes[105] = {
 	0x68,0x67,0xcc,0xcd,0xd2,0xd3,0xd4,0xd5,0xd6,0xd7,0xd8,0xd9,0xda,0xdb,0x98,0x99,0x9a,
 	0x18,0x9b,0x8,0xc,0xd,0x12,0x13,0x14,0x15,0x16,0x17,0x1c,0x1d,0x1e,0x1f,0
 };
-static const u16 fax34blackcodes[105] = {
+static const u8 fax34blackcodes[105] = {
 	0x37,0x2,0x3,0x2,0x3,0x3,0x2,0x3,0x5,0x4,0x4,0x5,0x7,0x4,0x7,0x18,0x17,0x18,0x8,0x67,
 	0x68,0x6c,0x37,0x28,0x17,0x18,0xca,0xcb,0xcc,0xcd,0x68,0x69,0x6a,0x6b,0xd2,0xd3,0xd4,
 	0xd5,0xd6,0xd7,0x6c,0x6d,0xda,0xdb,0x54,0x55,0x56,0x57,0x64,0x65,0x52,0x53,0x24,0x37,
@@ -162,11 +157,11 @@ static struct fax34_huffman_tree *create_fax34_huffman_tree(deark *c, int need_2
 
 	 for(i=0; i<num_white_codes; i++) {
 		 fmtutil_huffman_add_code(c, f34ht->htwb[0], (u64)fax34whitecodes[i],
-			 (UI)fax34whitecodelengths[i], (fmtutil_huffman_valtype)fax34whitevals[i]);
+			 (UI)fax34whitecodelengths[i], (fmtutil_huffman_valtype)fax34vals[i]);
 	 }
 	 for(i=0; i<num_black_codes; i++) {
 		 fmtutil_huffman_add_code(c, f34ht->htwb[1], (u64)fax34blackcodes[i],
-			 (UI)fax34blackcodelengths[i], (fmtutil_huffman_valtype)fax34blackvals[i]);
+			 (UI)fax34blackcodelengths[i], (fmtutil_huffman_valtype)fax34vals[i]);
 	 }
 
 	 return f34ht;
