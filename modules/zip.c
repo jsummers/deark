@@ -202,13 +202,11 @@ static const struct cmpr_meth_info *get_cmpr_meth_info(int cmpr_meth)
 }
 
 // Decompress some data, using the given ZIP compression method.
-// On failure, prints an error and returns 0.
-// Returns 1 on apparent success.
-static int do_decompress_lowlevel(deark *c, lctx *d, struct de_dfilter_in_params *dcmpri,
+// On failure, dres->errcode will be set.
+static void do_decompress_lowlevel(deark *c, lctx *d, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	int cmpr_meth, const struct cmpr_meth_info *cmi, unsigned int bit_flags)
 {
-	int retval = 0;
 	struct compression_params cparams;
 
 	de_zeromem(&cparams, sizeof(struct compression_params));
@@ -217,35 +215,33 @@ static int do_decompress_lowlevel(deark *c, lctx *d, struct de_dfilter_in_params
 
 	if(cmi && cmi->decompressor) {
 		cmi->decompressor(c, d, &cparams, dcmpri, dcmpro, dres);
-		if(dres->errcode) {
-			de_err(c, "%s", de_dfilter_get_errmsg(c, dres));
-		}
-		else {
-			if(dres->bytes_consumed_valid && (dres->bytes_consumed < dcmpri->len)) {
-				de_warn(c, "Decompression may have failed (used only "
-					"%"I64_FMT" of %"I64_FMT" compressed bytes)",
-					dres->bytes_consumed, dcmpri->len);
-			}
-			retval = 1;
-		}
-		goto done;
 	}
-
-	de_err(c, "Unsupported compression method: %d (%s)", cmpr_meth,
-		(cmi ? cmi->name : "?"));
-
-done:
-	return retval;
+	else {
+		de_internal_err_nonfatal(c, "Unsupported compression method (%d)", cmpr_meth);
+		de_dfilter_set_generic_error(c, dres, NULL);
+	}
 }
 
-static int do_decompress_member(deark *c, lctx *d, struct member_data *md,
-	dbuf *outf)
+static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
+{
+	struct de_crcobj *crco = (struct de_crcobj *)userdata;
+	de_crcobj_addbuf(crco, buf, buf_len);
+}
+
+// Decompress a Zip member file, writing to outf.
+// Does CRC calculation.
+// Reports errors to the user.
+// Only call this if the compression method is supported -- Call
+//   is_compression_method_supported() first.
+// Assumes ldd->cmi has been set, by calling get_cmpr_meth_info().
+static int do_decompress_member(deark *c, lctx *d, struct member_data *md, dbuf *outf)
 {
 	struct dir_entry_data *ldd = &md->local_dir_entry_data;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
-	int ret;
+	u32 crc_calculated;
+	int retval = 0;
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
@@ -254,11 +250,41 @@ static int do_decompress_member(deark *c, lctx *d, struct member_data *md,
 	dcmpro.f = outf;
 	dcmpro.expected_len = md->uncmpr_size;
 	dcmpro.len_known = 1;
-	ret = do_decompress_lowlevel(c, d, &dcmpri, &dcmpro, &dres, ldd->cmpr_meth,
+
+	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
+	de_crcobj_reset(d->crco);
+
+	do_decompress_lowlevel(c, d, &dcmpri, &dcmpro, &dres, ldd->cmpr_meth,
 		ldd->cmi, ldd->bit_flags);
-	return ret;
+
+	if(dres.errcode) {
+		de_err(c, "%s: %s", ucstring_getpsz_d(ldd->fname),
+			de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
+
+	crc_calculated = de_crcobj_getval(d->crco);
+	de_dbg(c, "crc (calculated): 0x%08x", (unsigned int)crc_calculated);
+
+	if(crc_calculated != md->crc_reported) {
+		de_err(c, "%s: CRC check failed: Expected 0x%08x, got 0x%08x",
+			ucstring_getpsz_d(ldd->fname),
+			(unsigned int)md->crc_reported, (unsigned int)crc_calculated);
+		if(dres.bytes_consumed_valid && (dres.bytes_consumed < dcmpri.len)) {
+			de_info(c, "Note: Only used %"I64_FMT" of %"I64_FMT" compressed bytes.",
+				dres.bytes_consumed, dcmpri.len);
+		}
+		goto done;
+	}
+
+	retval = 1;
+done:
+	return retval;
 }
 
+// A variation of do_decompress_member().
+// Only call this if the compression method is supported -- Call
+//   is_compression_method_supported() first.
 // outf is assumed to be a membuf.
 static int do_decompress_finder_attrib_data(deark *c, lctx *d,
 	i64 dpos, i64 dlen, dbuf *outf, i64 uncmprsize, u32 crc_reported,
@@ -269,7 +295,6 @@ static int do_decompress_finder_attrib_data(deark *c, lctx *d,
 	struct de_dfilter_results dres;
 	u32 crc_calculated;
 	int retval = 0;
-	int ret;
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
@@ -278,8 +303,11 @@ static int do_decompress_finder_attrib_data(deark *c, lctx *d,
 	dcmpro.f = outf;
 	dcmpro.expected_len = uncmprsize;
 	dcmpro.len_known = 1;
-	ret = do_decompress_lowlevel(c, d, &dcmpri, &dcmpro, &dres, cmpr_meth, cmi, 0);
-	if(!ret) goto done;
+
+	do_decompress_lowlevel(c, d, &dcmpri, &dcmpro, &dres, cmpr_meth, cmi, 0);
+	if(dres.errcode) {
+		goto done; // Could report the error, but this isn't critical data
+	}
 
 	if(cmpr_meth != 0) {
 		de_crcobj_reset(d->crco);
@@ -941,23 +969,18 @@ static void do_extra_data(deark *c, lctx *d,
 	de_dbg_indent(c, -1);
 }
 
-static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
-{
-	struct de_crcobj *crco = (struct de_crcobj *)userdata;
-	de_crcobj_addbuf(crco, buf, buf_len);
-}
-
 static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 {
 	dbuf *outf = NULL;
 	de_finfo *fi = NULL;
 	struct dir_entry_data *ldd = &md->local_dir_entry_data;
-	u32 crc_calculated;
 	int tsidx;
-	int ret;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, md->file_data_pos,
 		md->cmpr_size);
+	de_dbg_indent(c, 1);
 
 	if(ldd->bit_flags & 0x1) {
 		de_err(c, "%s: Encryption is not supported", ucstring_getpsz_d(ldd->fname));
@@ -972,7 +995,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	}
 
 	if(md->file_data_pos+md->cmpr_size > c->infile->len) {
-		de_err(c, "Member data goes beyond end of file");
+		de_err(c, "%s: Data goes beyond end of file", ucstring_getpsz_d(ldd->fname));
 		goto done;
 	}
 
@@ -1012,26 +1035,12 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		goto done;
 	}
 
-	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
-	de_crcobj_reset(d->crco);
-
-	de_dbg_indent(c, 1);
-	ret = do_decompress_member(c, d, md, outf);
-	de_dbg_indent(c, -1);
-	if(!ret) goto done;
-
-	crc_calculated = de_crcobj_getval(d->crco);
-	de_dbg(c, "crc (calculated): 0x%08x", (unsigned int)crc_calculated);
-
-	if(crc_calculated != md->crc_reported) {
-		de_err(c, "%s: CRC check failed: Expected 0x%08x, got 0x%08x",
-			ucstring_getpsz_d(ldd->fname),
-			(unsigned int)md->crc_reported, (unsigned int)crc_calculated);
-	}
+	(void)do_decompress_member(c, d, md, outf);
 
 done:
 	dbuf_close(outf);
 	de_finfo_destroy(c, fi);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static const char *get_platform_name(unsigned int ver_hi)
