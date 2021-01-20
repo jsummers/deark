@@ -202,43 +202,30 @@ static const struct cmpr_meth_info *get_cmpr_meth_info(int cmpr_meth)
 	return NULL;
 }
 
-// Decompress some data from inf, using the given ZIP compression method,
-// and append it to outf.
+// Decompress some data, using the given ZIP compression method.
 // On failure, prints an error and returns 0.
 // Returns 1 on apparent success.
-// TODO: How should this low-level function report errors and warnings?
-static int do_decompress_data(deark *c, lctx *d,
-	dbuf *inf, i64 inf_pos, i64 inf_size,
-	dbuf *outf, i64 maxuncmprsize,
+static int do_decompress_lowlevel(deark *c, lctx *d, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	int cmpr_meth, const struct cmpr_meth_info *cmi, unsigned int bit_flags)
 {
 	int retval = 0;
-	struct de_dfilter_in_params dcmpri;
-	struct de_dfilter_out_params dcmpro;
-	struct de_dfilter_results dres;
 	struct compression_params cparams;
 
 	de_zeromem(&cparams, sizeof(struct compression_params));
-	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	cparams.cmpr_meth = cmpr_meth;
 	cparams.bit_flags = bit_flags;
-	dcmpri.f = inf;
-	dcmpri.pos = inf_pos;
-	dcmpri.len = inf_size;
-	dcmpro.f = outf;
-	dcmpro.expected_len = maxuncmprsize;
-	dcmpro.len_known = 1;
 
 	if(cmi && cmi->decompressor) {
-		cmi->decompressor(c, d, &cparams, &dcmpri, &dcmpro, &dres);
-		if(dres.errcode) {
-			de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
+		cmi->decompressor(c, d, &cparams, dcmpri, dcmpro, dres);
+		if(dres->errcode) {
+			de_err(c, "%s", de_dfilter_get_errmsg(c, dres));
 		}
 		else {
-			if(dres.bytes_consumed_valid && (dres.bytes_consumed < inf_size)) {
+			if(dres->bytes_consumed_valid && (dres->bytes_consumed < dcmpri->len)) {
 				de_warn(c, "Decompression may have failed (used only "
 					"%"I64_FMT" of %"I64_FMT" compressed bytes)",
-					dres.bytes_consumed, inf_size);
+					dres->bytes_consumed, dcmpri->len);
 			}
 			retval = 1;
 		}
@@ -250,6 +237,48 @@ static int do_decompress_data(deark *c, lctx *d,
 
 done:
 	return retval;
+}
+
+static int do_decompress_member(deark *c, lctx *d, struct member_data *md,
+	dbuf *outf)
+{
+	struct dir_entry_data *ldd = &md->local_dir_entry_data;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	int ret;
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = md->file_data_pos;
+	dcmpri.len = md->cmpr_size;
+	dcmpro.f = outf;
+	dcmpro.expected_len = md->uncmpr_size;
+	dcmpro.len_known = 1;
+	ret = do_decompress_lowlevel(c, d, &dcmpri, &dcmpro, &dres, ldd->cmpr_meth,
+		ldd->cmi, ldd->bit_flags);
+	return ret;
+}
+
+static int do_decompress_finder_attrib_data(deark *c, lctx *d,
+	i64 dpos, i64 dlen, dbuf *outf, i64 uncmprsize, u32 crc_reported,
+	int cmpr_meth, const struct cmpr_meth_info *cmi)
+{
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	int ret;
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = dpos;
+	dcmpri.len = dlen;
+	dcmpro.f = outf;
+	dcmpro.expected_len = uncmprsize;
+	dcmpro.len_known = 1;
+	ret = do_decompress_lowlevel(c, d, &dcmpri, &dcmpro, &dres, cmpr_meth, cmi, 0);
+	// TODO: Validate CRC, if cmpr_meth!=0
+	return ret;
 }
 
 // As we read a member file's attributes, we may encounter multiple timestamps,
@@ -642,6 +671,7 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	i64 backup_time_offset;
 	struct de_timestamp tmp_timestamp;
 	int charset;
+	u32 crc_reported = 0;
 	struct de_stringreaderdata *srd;
 
 	if(eii->dlen<14) goto done;
@@ -672,14 +702,12 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 		cmpr_meth = 0;
 	}
 	else {
-		unsigned int crc_reported;
-
 		cmpr_meth = (int)de_getu16le_p(&pos);
 		cmi = get_cmpr_meth_info(cmpr_meth);
 		de_dbg(c, "finder attr. cmpr. method: %d (%s)", cmpr_meth, (cmi ? cmi->name : "?"));
 
-		crc_reported = (unsigned int)de_getu32le_p(&pos);
-		de_dbg(c, "finder attr. data crc (reported): 0x%08x", crc_reported);
+		crc_reported = (u32)de_getu32le_p(&pos);
+		de_dbg(c, "finder attr. data crc (reported): 0x%08x", (UI)crc_reported);
 	}
 
 	// The rest of the data is Finder attribute data
@@ -692,12 +720,13 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	if(cmpr_meth==6 || !is_compression_method_supported(d, cmi)) {
 		de_warn(c, "Finder attribute data: Unsupported compression method: %d (%s)",
 			cmpr_meth, (cmi ? cmi->name : "?"));
+		goto done;
 	}
 
 	// Decompress and decode the Finder attribute data
 	attr_data = dbuf_create_membuf(c, ulen, 0x1);
-	ret = do_decompress_data(c, d, c->infile, pos, cmpr_attr_size,
-		attr_data, 65536, cmpr_meth, cmi, 0);
+	ret = do_decompress_finder_attrib_data(c, d, pos, cmpr_attr_size,
+		attr_data, ulen, crc_reported, cmpr_meth, cmi);
 	if(!ret) {
 		de_warn(c, "Failed to decompress finder attribute data");
 		goto done;
@@ -977,8 +1006,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	de_crcobj_reset(md->crco);
 
 	de_dbg_indent(c, 1);
-	ret = do_decompress_data(c, d, c->infile, md->file_data_pos, md->cmpr_size,
-		outf, md->uncmpr_size, ldd->cmpr_meth, ldd->cmi, ldd->bit_flags);
+	ret = do_decompress_member(c, d, md, outf);
 	de_dbg_indent(c, -1);
 	if(!ret) goto done;
 
