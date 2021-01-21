@@ -36,7 +36,7 @@ struct lzh_ctx {
 	UI lh5x_codes_tree_max_codes;
 	UI lh5x_offsets_tree_fields_nbits;
 	UI lh5x_offsets_tree_max_codes;
-	struct lzh_tree_wrapper codelengths_tree;
+	struct lzh_tree_wrapper meta_tree; // Usually encodes code lengths for other table(s)
 	struct lzh_tree_wrapper codes_tree;
 	struct lzh_tree_wrapper offsets_tree;
 	struct lzh_tree_wrapper matchlengths_tree; // Usually unused
@@ -254,7 +254,7 @@ static int lh5x_read_codes_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *t
 	while(curr_idx < ncodes) {
 		UI x;
 
-		x = read_next_code_using_tree(cctx, &cctx->codelengths_tree);
+		x = read_next_code_using_tree(cctx, &cctx->meta_tree);
 
 		if(x<=2) {
 			UI sk;
@@ -345,9 +345,9 @@ done:
 
 static void lzh_destroy_trees(struct lzh_ctx *cctx)
 {
-	if(cctx->codelengths_tree.ht) {
-		fmtutil_huffman_destroy_tree(cctx->c, cctx->codelengths_tree.ht);
-		cctx->codelengths_tree.ht = NULL;
+	if(cctx->meta_tree.ht) {
+		fmtutil_huffman_destroy_tree(cctx->c, cctx->meta_tree.ht);
+		cctx->meta_tree.ht = NULL;
 	}
 	if(cctx->codes_tree.ht) {
 		fmtutil_huffman_destroy_tree(cctx->c, cctx->codes_tree.ht);
@@ -368,7 +368,7 @@ static int lh5x_do_read_trees(struct lzh_ctx *cctx)
 	int retval = 0;
 
 	lzh_destroy_trees(cctx);
-	if(!lh5x_read_codelengths_tree(cctx, &cctx->codelengths_tree, "code-lengths")) goto done;
+	if(!lh5x_read_codelengths_tree(cctx, &cctx->meta_tree, "code-lengths")) goto done;
 	if(!lh5x_read_codes_tree(cctx, &cctx->codes_tree, "codes")) goto done;
 	if(!lh5x_read_offsets_tree(cctx, &cctx->offsets_tree, "offsets")) goto done;
 	retval = 1;
@@ -671,7 +671,7 @@ static UI deflate_decode_length(deark *c, struct lzh_ctx *cctx, UI code)
 	if(more_bits_count>0) {
 		UI more_bits_val;
 
-		more_bits_val = (UI)de_bitreader_getbits(&cctx->bitrd, more_bits_count);
+		more_bits_val = (UI)lzh_getbits(cctx, more_bits_count);
 		length += more_bits_val;
 	}
 
@@ -702,7 +702,7 @@ static UI deflate_read_and_decode_distance(deark *c, struct lzh_ctx *cctx)
 	}
 
 	if(more_bits_count > 0) {
-		more_bits_val = (UI)de_bitreader_getbits(&cctx->bitrd, more_bits_count);
+		more_bits_val = (UI)lzh_getbits(cctx, more_bits_count);
 		dist += more_bits_val;
 	}
 
@@ -781,7 +781,7 @@ static int deflate_block_type2_read_trees(deark *c, struct lzh_ctx *cctx)
 	// themselves are usually code lengths) used in the rest of the tree
 	// definition section.
 
-	cctx->codelengths_tree.ht = fmtutil_huffman_create_tree(c, 19, 19);
+	cctx->meta_tree.ht = fmtutil_huffman_create_tree(c, 19, 19);
 	for(i=0; i<num_bit_length_codes; i++) {
 		n = (UI)lzh_getbits(cctx, 3);
 		cll[(UI)cll_order[i]] = n;
@@ -791,13 +791,13 @@ static int deflate_block_type2_read_trees(deark *c, struct lzh_ctx *cctx)
 	}
 	for(i=0; i<19; i++) {
 		if(cll[i]>0) {
-			fmtutil_huffman_record_a_code_length(c, cctx->codelengths_tree.ht,
+			fmtutil_huffman_record_a_code_length(c, cctx->meta_tree.ht,
 				(fmtutil_huffman_valtype)i, cll[i]);
 		}
 	}
 
 	de_dbg3(c, "[codelengths codebook]");
-	if(!fmtutil_huffman_make_canonical_tree(c, cctx->codelengths_tree.ht, 0)) goto done;
+	if(!fmtutil_huffman_make_canonical_tree(c, cctx->meta_tree.ht, 0)) goto done;
 
 	cctx->codes_tree.ht = fmtutil_huffman_create_tree(c, num_literal_codes, 286);
 	cctx->offsets_tree.ht = fmtutil_huffman_create_tree(c, num_dist_codes, 32);
@@ -824,7 +824,7 @@ static int deflate_block_type2_read_trees(deark *c, struct lzh_ctx *cctx)
 			num_rle_codes_left--;
 		}
 		else {
-			x = read_next_code_using_tree(cctx, &cctx->codelengths_tree);
+			x = read_next_code_using_tree(cctx, &cctx->meta_tree);
 
 			if(x<=15) {
 				prev_code = x;
@@ -1027,17 +1027,17 @@ static void decompress_deflate_internal(struct lzh_ctx *cctx)
 	}
 }
 
-// Maybe inflate/deflate ought to be handled by fmtutil_decompress_lzh(), but for
+// Maybe deflate ought to be handled by fmtutil_decompress_lzh(), but for
 // convenience it may be best to keep it separate.
-static void fmtutil_inflate_codectype1_native(deark *c, struct de_dfilter_in_params *dcmpri,
+static void fmtutil_deflate_codectype1_native(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params)
 {
-	struct de_inflate_params *inflparams = (struct de_inflate_params*)codec_private_params;
+	struct de_deflate_params *deflparams = (struct de_deflate_params*)codec_private_params;
 	struct lzh_ctx *cctx = NULL;
 
 	cctx = de_malloc(c, sizeof(struct lzh_ctx));
-	cctx->modname = "inflate-native";
+	cctx->modname = "deflate-native";
 	cctx->c = c;
 	cctx->dcmpri = dcmpri;
 	cctx->dcmpro = dcmpro;
@@ -1048,8 +1048,8 @@ static void fmtutil_inflate_codectype1_native(deark *c, struct de_dfilter_in_par
 	cctx->bitrd.curpos = dcmpri->pos;
 	cctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
 
-	if(inflparams && inflparams->ringbuf_to_use) {
-		cctx->ringbuf = inflparams->ringbuf_to_use;
+	if(deflparams && deflparams->ringbuf_to_use) {
+		cctx->ringbuf = deflparams->ringbuf_to_use;
 		cctx->ringbuf_owned_by_caller = 1;
 	}
 	else {
@@ -1081,32 +1081,30 @@ done:
 	destroy_lzh_ctx(cctx);
 }
 
-void fmtutil_inflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+void fmtutil_deflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params)
 {
-	struct de_inflate_params *inflparams = (struct de_inflate_params*)codec_private_params;
+	struct de_deflate_params *deflparams = (struct de_deflate_params*)codec_private_params;
 	int must_use_miniz = 0;
 	int must_use_native = 0;
 
-	// Cases where we have to use miniz:
-
-	if(inflparams->flags & DE_DEFLATEFLAG_ISZLIB) {
+	if(deflparams->flags & DE_DEFLATEFLAG_ISZLIB) {
 		must_use_miniz = 1;
 	}
 
-	if(inflparams->ringbuf_to_use) {
+	if(deflparams->ringbuf_to_use) {
 		must_use_native = 1;
 	}
 
 	if(must_use_miniz && must_use_native) return;
 
 	if(must_use_miniz) {
-		fmtutil_inflate_codectype1_miniz(c, dcmpri, dcmpro, dres, codec_private_params);
+		fmtutil_deflate_codectype1_miniz(c, dcmpri, dcmpro, dres, codec_private_params);
 		return;
 	}
 	if(must_use_native) {
-		fmtutil_inflate_codectype1_native(c, dcmpri, dcmpro, dres, codec_private_params);
+		fmtutil_deflate_codectype1_native(c, dcmpri, dcmpro, dres, codec_private_params);
 		return;
 	}
 
@@ -1123,14 +1121,14 @@ void fmtutil_inflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	}
 
 	if(c->deflate_decoder_id==2) {
-		fmtutil_inflate_codectype1_native(c, dcmpri, dcmpro, dres, codec_private_params);
+		fmtutil_deflate_codectype1_native(c, dcmpri, dcmpro, dres, codec_private_params);
 	}
 	else {
-		fmtutil_inflate_codectype1_miniz(c, dcmpri, dcmpro, dres, codec_private_params);
+		fmtutil_deflate_codectype1_miniz(c, dcmpri, dcmpro, dres, codec_private_params);
 	}
 }
 
-/////////////////////////////
+///////////////////// Implode - native decoder (not unimplode6a)
 
 // Note that trees are always constructed so that the minimum value stored
 // in them is 0. If that's not the desired minimum value, values must be de-biased
@@ -1207,7 +1205,7 @@ static int implode_read_trees(struct lzh_ctx *cctx)
 	}
 
 	cctx->matchlengths_tree.ht = fmtutil_huffman_create_tree(cctx->c, 64, 256);
-	if(!implode_read_a_tree(cctx, &cctx->matchlengths_tree, 64, "match lengths")) {
+	if(!implode_read_a_tree(cctx, &cctx->matchlengths_tree, 64, "match-lengths")) {
 		goto done;
 	}
 

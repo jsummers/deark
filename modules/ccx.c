@@ -38,9 +38,9 @@ static void do_decompress(deark *c, lctx *d)
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
-	struct de_inflate_params inflparams;
+	struct de_deflate_params inflparams;
 
-	de_zeromem(&inflparams, sizeof(struct de_inflate_params));
+	de_zeromem(&inflparams, sizeof(struct de_deflate_params));
 	if(d->pack_dlen < 12) goto done;
 	unc_len = de_getu32le_p(&pos);
 	de_dbg(c, "uncompressed len (reported): %"I64_FMT, unc_len);

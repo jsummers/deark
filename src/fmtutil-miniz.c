@@ -14,12 +14,12 @@
 #define MINIZ_NO_ARCHIVE_APIS
 #include "../foreign/miniz-c.h"
 
-// codec_private_params = type de_inflate_params; cannot be NULL
-void fmtutil_inflate_codectype1_miniz(deark *c, struct de_dfilter_in_params *dcmpri,
+// codec_private_params = type de_deflate_params; cannot be NULL
+void fmtutil_deflate_codectype1_miniz(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params)
 {
-	struct de_inflate_params *inflparams = (struct de_inflate_params*)codec_private_params;
+	struct de_deflate_params *deflparams = (struct de_deflate_params*)codec_private_params;
 	mz_stream strm;
 	int ret;
 	int ok = 0;
@@ -37,7 +37,7 @@ void fmtutil_inflate_codectype1_miniz(deark *c, struct de_dfilter_in_params *dcm
 	i64 nbytes_to_write;
 	i64 nbytes_written_total = 0;
 	int stream_open_flag = 0;
-	static const char *modname = "inflate";
+	static const char *modname = "deflate";
 
 	dres->bytes_consumed = 0;
 	if(dcmpri->len<0) {
@@ -49,7 +49,7 @@ void fmtutil_inflate_codectype1_miniz(deark *c, struct de_dfilter_in_params *dcm
 	outbuf = de_malloc(c, DE_DFL_OUTBUF_SIZE);
 
 	de_zeromem(&strm, sizeof(strm));
-	if(inflparams->flags&DE_DEFLATEFLAG_ISZLIB) {
+	if(deflparams->flags&DE_DEFLATEFLAG_ISZLIB) {
 		ret = mz_inflateInit(&strm);
 	}
 	else {
@@ -67,10 +67,10 @@ void fmtutil_inflate_codectype1_miniz(deark *c, struct de_dfilter_in_params *dcm
 	inbuf_num_valid_bytes = 0;
 	inbuf_num_consumed_bytes = 0;
 
-	de_dbg2(c, "inflating up to %d bytes", (int)dcmpri->len);
+	de_dbgx(c, 4, "inflating up to %d bytes", (int)dcmpri->len);
 
 	while(1) {
-		de_dbg3(c, "input remaining: %d", (int)(dcmpri->pos+dcmpri->len-input_cur_pos));
+		de_dbgx(c, 4, "input remaining: %d", (int)(dcmpri->pos+dcmpri->len-input_cur_pos));
 
 		// If we have written enough bytes, stop.
 		if((dcmpro->len_known) && (nbytes_written_total >= dcmpro->expected_len)) {
@@ -115,7 +115,7 @@ void fmtutil_inflate_codectype1_miniz(deark *c, struct de_dfilter_in_params *dcm
 		}
 
 		output_bytes_this_time = DE_DFL_OUTBUF_SIZE - strm.avail_out;
-		de_dbg3(c, "got %d output bytes", (int)output_bytes_this_time);
+		de_dbgx(c, 4, "got %d output bytes", (int)output_bytes_this_time);
 
 		nbytes_to_write = output_bytes_this_time;
 		if((dcmpro->len_known) &&
@@ -127,7 +127,7 @@ void fmtutil_inflate_codectype1_miniz(deark *c, struct de_dfilter_in_params *dcm
 		nbytes_written_total += nbytes_to_write;
 
 		if(ret==MZ_STREAM_END) {
-			de_dbg2(c, "inflate finished normally");
+			de_dbgx(c, 4, "inflate finished normally");
 			ok = 1;
 			goto done;
 		}
@@ -144,7 +144,7 @@ done:
 	if(ok) {
 		dres->bytes_consumed = (i64)strm.total_in;
 		dres->bytes_consumed_valid = 1;
-		de_dbg2(c, "inflated %u to %u bytes", (unsigned int)strm.total_in,
+		de_dbgx(c, 4, "inflated %u to %u bytes", (unsigned int)strm.total_in,
 			(unsigned int)strm.total_out);
 	}
 	if(stream_open_flag) {
@@ -156,9 +156,9 @@ done:
 
 void fmtutil_decompress_deflate_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	struct de_inflate_params *params)
+	struct de_deflate_params *params)
 {
-	fmtutil_inflate_codectype1(c, dcmpri, dcmpro, dres, (void*)params);
+	fmtutil_deflate_codectype1(c, dcmpri, dcmpro, dres, (void*)params);
 }
 
 // flags:
@@ -171,7 +171,7 @@ int fmtutil_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *o
 	struct de_dfilter_results dres;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
-	struct de_inflate_params inflparams;
+	struct de_deflate_params deflparams;
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	if(bytes_consumed) *bytes_consumed = 0;
@@ -187,9 +187,9 @@ int fmtutil_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *o
 		flags -= DE_DEFLATEFLAG_USEMAXUNCMPRSIZE;
 	}
 
-	de_zeromem(&inflparams, sizeof(struct de_inflate_params));
-	inflparams.flags = flags;
-	fmtutil_inflate_codectype1(c, &dcmpri, &dcmpro, &dres, (void*)&inflparams);
+	de_zeromem(&deflparams, sizeof(struct de_deflate_params));
+	deflparams.flags = flags;
+	fmtutil_deflate_codectype1(c, &dcmpri, &dcmpro, &dres, (void*)&deflparams);
 
 	if(bytes_consumed && dres.bytes_consumed_valid) {
 		*bytes_consumed = dres.bytes_consumed;

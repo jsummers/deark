@@ -562,7 +562,7 @@ static void do_decompress_MSZIP(deark *c, struct de_dfilter_in_params *dcmpri1,
 	de_dbg_indent_save(c, &saved_indent_level);
 
 	// The ring buffer has to persist between blocks. So create our own, and
-	// tell the inflate codec to use it.
+	// tell the deflate codec to use it.
 	ringbuf = de_lz77buffer_create(c, 32768);
 
 	dcmpri2.f = dcmpri1->f;
@@ -574,7 +574,7 @@ static void do_decompress_MSZIP(deark *c, struct de_dfilter_in_params *dcmpri1,
 		i64 outlen_before;
 		i64 unc_bytes_this_block;
 		UI sig;
-		struct de_inflate_params inflparams;
+		struct de_deflate_params inflparams;
 
 		if(pos > dcmpri1->pos + dcmpri1->len -4) {
 			goto done;
@@ -594,12 +594,12 @@ static void do_decompress_MSZIP(deark *c, struct de_dfilter_in_params *dcmpri1,
 		if(blk_dlen < 0) goto done;
 		dcmpri2.pos = pos;
 		dcmpri2.len = blk_dlen;
-		de_zeromem(&inflparams, sizeof(struct de_inflate_params));
+		de_zeromem(&inflparams, sizeof(struct de_deflate_params));
 		inflparams.flags = 0;
 		inflparams.ringbuf_to_use = ringbuf;
 		outlen_before = dcmpro->f->len;
 
-		fmtutil_inflate_codectype1(c, &dcmpri2, dcmpro, dres, (void*)&inflparams);
+		fmtutil_deflate_codectype1(c, &dcmpri2, dcmpro, dres, (void*)&inflparams);
 		if(dres->errcode) goto done;
 
 		pos += blk_dlen;

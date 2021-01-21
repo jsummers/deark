@@ -2895,9 +2895,9 @@ static void decompress_strile_packbits(deark *c, lctx *d, struct page_ctx *pg,
 static void decompress_strile_deflate(deark *c, lctx *d, struct page_ctx *pg,
 	struct decode_page_ctx *dctx)
 {
-	struct de_inflate_params inflparams;
+	struct de_deflate_params inflparams;
 
-	de_zeromem(&inflparams, sizeof(struct de_inflate_params));
+	de_zeromem(&inflparams, sizeof(struct de_deflate_params));
 	inflparams.flags = DE_DEFLATEFLAG_ISZLIB;
 	fmtutil_decompress_deflate_ex(c, &dctx->dcmpri, &dctx->dcmpro, &dctx->dres,
 		 &inflparams);
