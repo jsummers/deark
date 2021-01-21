@@ -60,12 +60,6 @@ void fmtutil_inflate_codectype1_miniz(deark *c, struct de_dfilter_in_params *dcm
 		goto done;
 	}
 
-	if(inflparams->starting_dict) {
-		inflate_state *pDecomp = (inflate_state *)strm.state;
-
-		de_memcpy(pDecomp->m_dict, inflparams->starting_dict, 32768);
-	}
-
 	stream_open_flag = 1;
 
 	input_cur_pos = dcmpri->pos;

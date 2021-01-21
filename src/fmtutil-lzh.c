@@ -30,6 +30,7 @@ struct lzh_ctx {
 	u8 zero_codes_block_warned;
 
 	struct de_lz77buffer *ringbuf;
+	int ringbuf_owned_by_caller; // hack
 
 	u8 is_lhark_lh7;
 	UI lh5x_codes_tree_max_codes;
@@ -44,6 +45,22 @@ struct lzh_ctx {
 	u8 implode_3_trees;
 	UI implode_min_match_len;
 };
+
+static void lzh_destroy_trees(struct lzh_ctx *cctx);
+
+static void destroy_lzh_ctx(struct lzh_ctx *cctx)
+{
+	deark *c;
+
+	if(!cctx) return;
+	c = cctx->c;
+	lzh_destroy_trees(cctx);
+	if(cctx->ringbuf && !cctx->ringbuf_owned_by_caller) {
+		de_lz77buffer_destroy(c, cctx->ringbuf);
+		cctx->ringbuf = NULL;
+	}
+	de_free(c, cctx);
+}
 
 static void lzh_set_err_flag(struct lzh_ctx *cctx)
 {
@@ -615,11 +632,7 @@ void fmtutil_decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 	cctx->dres->bytes_consumed_valid = 1;
 
 done:
-	if(cctx) {
-		lzh_destroy_trees(cctx);
-		de_lz77buffer_destroy(c, cctx->ringbuf);
-		de_free(c, cctx);
-	}
+	destroy_lzh_ctx(cctx);
 }
 
 void fmtutil_lzh_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
@@ -1001,13 +1014,7 @@ static int lzh_do_deflate_block(deark *c, struct lzh_ctx *cctx)
 
 static void decompress_deflate_internal(struct lzh_ctx *cctx)
 {
-	UI rb_size;
 	deark *c = cctx->c;
-
-	rb_size = 32768;
-	cctx->ringbuf = de_lz77buffer_create(c, rb_size);
-	cctx->ringbuf->userdata = (void*)cctx;
-	cctx->ringbuf->writebyte_cb = lzh_lz77buf_writebytecb;
 
 	while(1) {
 		int ret;
@@ -1024,8 +1031,9 @@ static void decompress_deflate_internal(struct lzh_ctx *cctx)
 // convenience it may be best to keep it separate.
 static void fmtutil_inflate_codectype1_native(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	void *codec_private_params1)
+	void *codec_private_params)
 {
+	struct de_inflate_params *inflparams = (struct de_inflate_params*)codec_private_params;
 	struct lzh_ctx *cctx = NULL;
 
 	cctx = de_malloc(c, sizeof(struct lzh_ctx));
@@ -1040,7 +1048,21 @@ static void fmtutil_inflate_codectype1_native(deark *c, struct de_dfilter_in_par
 	cctx->bitrd.curpos = dcmpri->pos;
 	cctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
 
+	if(inflparams && inflparams->ringbuf_to_use) {
+		cctx->ringbuf = inflparams->ringbuf_to_use;
+		cctx->ringbuf_owned_by_caller = 1;
+	}
+	else {
+		cctx->ringbuf = de_lz77buffer_create(c, 32768);
+	}
+
+	cctx->ringbuf->userdata = (void*)cctx;
+	cctx->ringbuf->writebyte_cb = lzh_lz77buf_writebytecb;
+
 	decompress_deflate_internal(cctx);
+
+	cctx->ringbuf->userdata = NULL;
+	cctx->ringbuf->writebyte_cb = NULL;
 
 	if(cctx->err_flag) {
 		// A default error message
@@ -1056,11 +1078,7 @@ static void fmtutil_inflate_codectype1_native(deark *c, struct de_dfilter_in_par
 	cctx->dres->bytes_consumed_valid = 1;
 
 done:
-	if(cctx) {
-		lzh_destroy_trees(cctx);
-		de_lz77buffer_destroy(c, cctx->ringbuf);
-		de_free(c, cctx);
-	}
+	destroy_lzh_ctx(cctx);
 }
 
 void fmtutil_inflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
@@ -1068,10 +1086,27 @@ void fmtutil_inflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	void *codec_private_params)
 {
 	struct de_inflate_params *inflparams = (struct de_inflate_params*)codec_private_params;
+	int must_use_miniz = 0;
+	int must_use_native = 0;
 
 	// Cases where we have to use miniz:
-	if((inflparams->flags & DE_DEFLATEFLAG_ISZLIB) || inflparams->starting_dict) {
+
+	if(inflparams->flags & DE_DEFLATEFLAG_ISZLIB) {
+		must_use_miniz = 1;
+	}
+
+	if(inflparams->ringbuf_to_use) {
+		must_use_native = 1;
+	}
+
+	if(must_use_miniz && must_use_native) return;
+
+	if(must_use_miniz) {
 		fmtutil_inflate_codectype1_miniz(c, dcmpri, dcmpro, dres, codec_private_params);
+		return;
+	}
+	if(must_use_native) {
+		fmtutil_inflate_codectype1_native(c, dcmpri, dcmpro, dres, codec_private_params);
 		return;
 	}
 
@@ -1300,11 +1335,7 @@ static void fmtutil_decompress_zip_implode_native(deark *c, struct de_dfilter_in
 	cctx->dres->bytes_consumed_valid = 1;
 
 done:
-	if(cctx) {
-		lzh_destroy_trees(cctx);
-		de_lz77buffer_destroy(c, cctx->ringbuf);
-		de_free(c, cctx);
-	}
+	destroy_lzh_ctx(cctx);
 }
 
 void fmtutil_decompress_zip_implode(deark *c, struct de_dfilter_in_params *dcmpri,

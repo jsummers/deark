@@ -2,6 +2,8 @@
 // Copyright (C) 2016 Jason Summers
 // See the file COPYING for terms of use.
 
+struct de_lz77buffer;
+
 struct de_dfilter_in_params {
 	dbuf *f;
 	i64 pos;
@@ -92,7 +94,7 @@ void fmtutil_decompress_uncompressed(deark *c, struct de_dfilter_in_params *dcmp
 #define DE_DEFLATEFLAG_USEMAXUNCMPRSIZE 0x2 // only used with fmtutil_decompress_deflate()
 struct de_inflate_params {
 	unsigned int flags;
-	const u8 *starting_dict;
+	struct de_lz77buffer *ringbuf_to_use; // (Uses the data only, not the callback)
 };
 int fmtutil_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
 	i64 maxuncmprsize, i64 *bytes_consumed, unsigned int flags);
@@ -600,7 +602,6 @@ int fmtutil_huffman_record_a_code_length(deark *c, struct fmtutil_huffman_tree *
 #define FMTUTIL_MCTFLAG_LAST_CODE_FIRST       0x2 // Pretend codes were added in the reverse order
 int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *ht, UI flags);
 
-struct de_lz77buffer;
 typedef void (*fmtutil_lz77buffer_cb_type)(struct de_lz77buffer *rb, u8 n);
 
 struct de_lz77buffer {

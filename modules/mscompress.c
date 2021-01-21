@@ -551,29 +551,28 @@ static void do_decompress_XOR(deark *c, struct de_dfilter_in_params *dcmpri,
 }
 
 static void do_decompress_MSZIP(deark *c, struct de_dfilter_in_params *dcmpri1,
-	struct de_dfilter_out_params *dcmpro1, struct de_dfilter_results *dres)
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
 	const char *modname = "mszip";
 	i64 pos = dcmpri1->pos;
 	int saved_indent_level;
-	dbuf *tmpdbuf = NULL;
 	struct de_dfilter_in_params dcmpri2;
-	struct de_dfilter_out_params dcmpro2;
-	u8 *prev_dict = NULL;
+	struct de_lz77buffer *ringbuf = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dfilter_init_objects(c, &dcmpri2, &dcmpro2, NULL);
-	tmpdbuf = dbuf_create_membuf(c, 32768, 0);
+
+	// The ring buffer has to persist between blocks. So create our own, and
+	// tell the inflate codec to use it.
+	ringbuf = de_lz77buffer_create(c, 32768);
 
 	dcmpri2.f = dcmpri1->f;
-	dcmpro2.f = tmpdbuf;
-	dcmpro2.len_known = 1;
-	dcmpro2.expected_len = 32768;
 
 	while(1) {
 		i64 blkpos;
 		i64 blklen_raw;
 		i64 blk_dlen;
+		i64 outlen_before;
+		i64 unc_bytes_this_block;
 		UI sig;
 		struct de_inflate_params inflparams;
 
@@ -597,28 +596,24 @@ static void do_decompress_MSZIP(deark *c, struct de_dfilter_in_params *dcmpri1,
 		dcmpri2.len = blk_dlen;
 		de_zeromem(&inflparams, sizeof(struct de_inflate_params));
 		inflparams.flags = 0;
-		inflparams.starting_dict = prev_dict;
-		fmtutil_inflate_codectype1(c, &dcmpri2, &dcmpro2, dres, (void*)&inflparams);
+		inflparams.ringbuf_to_use = ringbuf;
+		outlen_before = dcmpro->f->len;
+
+		fmtutil_inflate_codectype1(c, &dcmpri2, dcmpro, dres, (void*)&inflparams);
 		if(dres->errcode) goto done;
-		dbuf_copy(tmpdbuf, 0, tmpdbuf->len, dcmpro1->f);
+
 		pos += blk_dlen;
-		if(tmpdbuf->len < 32768) break; // Presumably we're done.
+		unc_bytes_this_block = dcmpro->f->len - outlen_before;
+		de_dbg(c, "decompressed to: %"I64_FMT, unc_bytes_this_block);
+		if(unc_bytes_this_block < 32768) break; // Presumably we're done.
 
-		// Save the history buffer, for the next chunk.
-		if(!prev_dict) {
-			prev_dict = de_malloc(c, 32768);
-		}
-		dbuf_read(tmpdbuf, prev_dict, 0, 32768);
-
-		dbuf_truncate(tmpdbuf, 0);
 		de_dbg_indent(c, -1);
 	}
 
 done:
 	dres->bytes_consumed_valid = 1;
 	dres->bytes_consumed = pos - dcmpri1->pos;
-	dbuf_close(tmpdbuf);
-	de_free(c, prev_dict);
+	de_lz77buffer_destroy(c, ringbuf);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
