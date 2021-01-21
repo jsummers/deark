@@ -624,8 +624,8 @@ void fmtutil_decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 		goto done;
 	}
 
+	de_bitreader_skip_to_byte_boundary(&cctx->bitrd);
 	cctx->dres->bytes_consumed = cctx->bitrd.curpos - cctx->dcmpri->pos;
-	cctx->dres->bytes_consumed -= cctx->bitrd.bbll.nbits_in_bitbuf / 8;
 	if(cctx->dres->bytes_consumed<0) {
 		cctx->dres->bytes_consumed = 0;
 	}
@@ -955,10 +955,10 @@ static int lzh_do_deflate_block_type0(deark *c, struct lzh_ctx *cctx)
 
 	// Next, two 16-bit fields
 	blk_dlen = (UI)lzh_getbits(cctx, 16);
-	de_dbg(c, "non-compressed block dlen: %u", blk_dlen);
+	de_dbg2(c, "non-compressed block dlen: %u", blk_dlen);
 	blk_check_expected = blk_dlen ^ 0xffff;
 	blk_check = (UI)lzh_getbits(cctx, 16);
-	de_dbg(c, "consistency check: 0x%04u", blk_check);
+	de_dbg2(c, "consistency check: 0x%04x", blk_check);
 	if(blk_check != blk_check_expected) {
 		de_dfilter_set_errorf(c, cctx->dres, cctx->modname,
 			"Non-compressed block failed consistency check");
@@ -1070,8 +1070,8 @@ static void fmtutil_deflate_codectype1_native(deark *c, struct de_dfilter_in_par
 		goto done;
 	}
 
+	de_bitreader_skip_to_byte_boundary(&cctx->bitrd);
 	cctx->dres->bytes_consumed = cctx->bitrd.curpos - cctx->dcmpri->pos;
-	cctx->dres->bytes_consumed -= cctx->bitrd.bbll.nbits_in_bitbuf / 8;
 	if(cctx->dres->bytes_consumed<0) {
 		cctx->dres->bytes_consumed = 0;
 	}
@@ -1325,8 +1325,8 @@ static void fmtutil_decompress_zip_implode_native(deark *c, struct de_dfilter_in
 		goto done;
 	}
 
+	de_bitreader_skip_to_byte_boundary(&cctx->bitrd);
 	cctx->dres->bytes_consumed = cctx->bitrd.curpos - cctx->dcmpri->pos;
-	cctx->dres->bytes_consumed -= cctx->bitrd.bbll.nbits_in_bitbuf / 8;
 	if(cctx->dres->bytes_consumed<0) {
 		cctx->dres->bytes_consumed = 0;
 	}

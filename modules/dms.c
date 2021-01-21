@@ -449,8 +449,8 @@ static void dmslzh_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 		goto done;
 	}
 
+	de_bitreader_skip_to_byte_boundary(&cctx->bitrd);
 	cctx->dres->bytes_consumed = cctx->bitrd.curpos - cctx->dcmpri->pos;
-	cctx->dres->bytes_consumed -= cctx->bitrd.bbll.nbits_in_bitbuf / 8;
 	if(cctx->dres->bytes_consumed<0) {
 		cctx->dres->bytes_consumed = 0;
 	}

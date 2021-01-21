@@ -2326,14 +2326,16 @@ u64 de_bitreader_getbits(struct de_bitreader *bitrd, UI nbits)
 	return de_bitbuf_lowlevel_get_bits(&bitrd->bbll, nbits);
 }
 
+// Empty the bitbuffer, and set ->curpos to the position of the next byte with
+// entirely unprocessed bits.
+// In other words, make it okay for the caller to read or change the ->curpos
+// field.
 void de_bitreader_skip_to_byte_boundary(struct de_bitreader *bitrd)
 {
-	while(bitrd->bbll.nbits_in_bitbuf >= 8) {
-		// Unlikely to get here, since the current bitreader implementation reads
-		// one byte at a time.
-		bitrd->bbll.nbits_in_bitbuf -= 8;
-		bitrd->curpos--;
-	}
+	// This is unlikely to change anything, since the current bitreader
+	// implementation reads no more bytes than needed.
+	bitrd->curpos -= (i64)(bitrd->bbll.nbits_in_bitbuf/8);
+
 	de_bitbuf_lowlevel_empty(&bitrd->bbll);
 }
 
