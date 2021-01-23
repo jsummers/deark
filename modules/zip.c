@@ -155,6 +155,9 @@ static void do_decompress_deflate(deark *c, lctx *d, struct compression_params *
 	struct de_deflate_params inflparams;
 
 	de_zeromem(&inflparams, sizeof(struct de_deflate_params));
+	if(cparams->cmpr_meth==9) {
+		inflparams.flags |= DE_DEFLATEFLAG_DEFLATE64;
+	};
 	fmtutil_decompress_deflate_ex(c, dcmpri, dcmpro, dres, &inflparams);
 }
 
@@ -174,7 +177,7 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 5, 0x00, "reduce, CF=4", do_decompress_reduce },
 	{ 6, 0x00, "implode", do_decompress_implode },
 	{ 8, 0x00, "deflate", do_decompress_deflate },
-	{ 9, 0x00, "deflate64", NULL },
+	{ 9, 0x00, "deflate64", do_decompress_deflate },
 	{ 10, 0x00, "PKWARE DCL implode", NULL },
 	{ 12, 0x00, "bzip2", NULL },
 	{ 14, 0x00, "LZMA", NULL },

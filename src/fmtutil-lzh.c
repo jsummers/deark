@@ -32,6 +32,7 @@ struct lzh_ctx {
 	struct de_lz77buffer *ringbuf;
 	int ringbuf_owned_by_caller; // hack
 
+	u8 is_deflate64;
 	u8 is_lhark_lh7;
 	UI lh5x_codes_tree_max_codes;
 	UI lh5x_offsets_tree_fields_nbits;
@@ -659,8 +660,14 @@ static UI deflate_decode_length(deark *c, struct lzh_ctx *cctx, UI code)
 		length = ((4 + (code+3)%4) << more_bits_count) + 3;
 	}
 	else if(code==285) {
-		length = 258;
-		more_bits_count = 0;
+		if(cctx->is_deflate64) {
+			length = 3;
+			more_bits_count = 16;
+		}
+		else {
+			length = 258;
+			more_bits_count = 0;
+		}
 	}
 	else {
 		de_dfilter_set_errorf(c, cctx->dres, cctx->modname, "Bad length code");
@@ -691,7 +698,7 @@ static UI deflate_read_and_decode_distance(deark *c, struct lzh_ctx *cctx)
 		dist = dist_code + 1;
 		more_bits_count = 0;
 	}
-	else if(dist_code<=29) {
+	else if(dist_code<=29 || (cctx->is_deflate64 && dist_code<=31)) {
 		more_bits_count = (dist_code/2)-1;
 		dist = ((2 + dist_code%2) << more_bits_count) + 1;
 	}
@@ -1043,6 +1050,8 @@ static void fmtutil_deflate_codectype1_native(deark *c, struct de_dfilter_in_par
 	cctx->dcmpro = dcmpro;
 	cctx->dres = dres;
 
+	cctx->is_deflate64 = (deflparams->flags & DE_DEFLATEFLAG_DEFLATE64)?1:0;
+
 	cctx->bitrd.bbll.is_lsb = 1;
 	cctx->bitrd.f = dcmpri->f;
 	cctx->bitrd.curpos = dcmpri->pos;
@@ -1053,7 +1062,7 @@ static void fmtutil_deflate_codectype1_native(deark *c, struct de_dfilter_in_par
 		cctx->ringbuf_owned_by_caller = 1;
 	}
 	else {
-		cctx->ringbuf = de_lz77buffer_create(c, 32768);
+		cctx->ringbuf = de_lz77buffer_create(c, (cctx->is_deflate64 ? 65536 : 32768));
 	}
 
 	cctx->ringbuf->userdata = (void*)cctx;
@@ -1093,7 +1102,7 @@ void fmtutil_deflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 		must_use_miniz = 1;
 	}
 
-	if(deflparams->ringbuf_to_use) {
+	if(deflparams->ringbuf_to_use || (deflparams->flags & DE_DEFLATEFLAG_DEFLATE64)) {
 		must_use_native = 1;
 	}
 

@@ -92,6 +92,7 @@ void fmtutil_decompress_uncompressed(deark *c, struct de_dfilter_in_params *dcmp
 
 #define DE_DEFLATEFLAG_ISZLIB 0x1
 #define DE_DEFLATEFLAG_USEMAXUNCMPRSIZE 0x2 // only used with fmtutil_decompress_deflate()
+#define DE_DEFLATEFLAG_DEFLATE64 0x4
 struct de_deflate_params {
 	unsigned int flags;
 	struct de_lz77buffer *ringbuf_to_use; // (Uses the data only, not the callback)
