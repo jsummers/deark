@@ -39,7 +39,11 @@ struct datatypeinfo {
 
 struct taginfo {
 	u32 id;
-	u32 reserved1;
+
+	// 0x1 = ignore if version >= 4.0.0
+	// 0x2 = ignore if version < 4.0.0
+	u32 flags;
+
 	const char *name;
 	void *reserved2;
 };
@@ -260,6 +264,70 @@ done:
 	;
 }
 
+static void typedec_tagArray_tagStruct(deark *c, struct typedec_params *p)
+{
+	struct de_fourcc ty4cc;
+	struct de_fourcc tmp4cc;
+	char tmpbuf[80];
+	i64 pos = p->pos1 + 8;
+	i64 num_elems;
+	i64 endpos = p->pos1 + p->len;
+	int is_struct = (p->type_id == 0x74737472U);
+	i64 array_item_size;
+	const char *struct_name;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(is_struct) {
+		array_item_size = 12;
+		struct_name = "struct";
+	}
+	else {
+		array_item_size = 8;
+		struct_name = "array";
+	}
+
+	dbuf_read_fourcc(c->infile, pos, &ty4cc, 4, 0x0);
+	pos += 4;
+	de_dbg(c, "%s type: %s", struct_name,
+		format_4cc_dbgstr(&ty4cc, tmpbuf, sizeof(tmpbuf), 0));
+	num_elems = de_getu32be_p(&pos);
+	de_dbg(c, "number of elements: %"I64_FMT, num_elems);
+	for(i64 i=0; i<num_elems && i<100; i++) {
+		i64 elem_pos_rel, elem_pos_abs;
+		i64 elem_dlen;
+
+		if(pos+array_item_size > endpos) break;
+
+		de_dbg(c, "elem #%d", (int)(i+1));
+		de_dbg_indent(c, 1);
+		if(is_struct) {
+			dbuf_read_fourcc(c->infile, pos, &tmp4cc, 4, 0x0);
+			pos += 4;
+			de_dbg(c, "type: %s",
+				format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0));
+		}
+		elem_pos_rel = de_getu32be_p(&pos);
+		elem_dlen = de_getu32be_p(&pos);
+		elem_pos_abs = p->pos1 + elem_pos_rel;
+		de_dbg(c, "data: offs=%"I64_FMT" (+%"I64_FMT"=%"I64_FMT"), dlen=%"I64_FMT,
+			elem_pos_rel, p->pos1, elem_pos_abs, elem_dlen);
+		de_dbg_indent(c, -1);
+	}
+
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void typedec_hexdump(deark *c, struct typedec_params *p)
+{
+	UI rsvd;
+
+	if(p->len<8) return;
+	rsvd = (UI)de_getu32be(p->pos1+4);
+	de_dbg(c, "reserved/etc.: 0x%08x", rsvd);
+	de_dbg_hexdump(c, c->infile, p->pos1+8, p->len-8, 256, NULL, 0x1);
+}
+
 static const struct datatypeinfo datatypeinfo_arr[] = {
 	{ 0x58595a20U, 0, "XYZ", typedec_XYZ }, // XYZ
 	{ 0x62666420U, 0, "ucrbg", NULL }, // bfd
@@ -293,9 +361,9 @@ static const struct datatypeinfo datatypeinfo_arr[] = {
 	{ 0x7363726eU, 0, "screening", NULL }, // scrn
 	{ 0x73696720U, 0, "signature", NULL }, // sig
 	{ 0x7376636eU, 0, "spectralViewingConditions", NULL }, // svcn
-	{ 0x74617279U, 0, "tagArray", NULL }, // tary
+	{ 0x74617279U, 0, "tagArray", typedec_tagArray_tagStruct }, // tary
 	{ 0x74657874U, 0, "text", typedec_text }, // text
-	{ 0x74737472U, 0, "tagStruct", NULL}, // tstr
+	{ 0x74737472U, 0, "tagStruct", typedec_tagArray_tagStruct }, // tstr
 	{ 0x75663332U, 0, "u16Fixed16Array", NULL }, // uf32
 	{ 0x75693038U, 0, "uInt8Array", NULL }, // ui08
 	{ 0x75693136U, 0, "uInt16Array", NULL }, // ui16
@@ -325,7 +393,8 @@ static const struct taginfo taginfo_arr[] = {
 	{ 0x44324232U, 0, "DToB2", NULL }, // D2B2
 	{ 0x44324233U, 0, "DToB3", NULL }, // D2B3
 	{ 0x62545243U, 0, "blueTRC", NULL }, // bTRC
-	{ 0x6258595aU, 0, "blueColorant/blueMatrixColumn", NULL }, // bXYZ
+	{ 0x6258595aU, 0x1, "blueColorant", NULL }, // bXYZ
+	{ 0x6258595aU, 0x2, "blueMatrixColumn", NULL }, // bXYZ
 	{ 0x62666420U, 0, "ucrbg", NULL }, // bfd
 	{ 0x626b7074U, 0, "mediaBlackPoint", NULL }, // bkpt
 	{ 0x63327370U, 0, "customToStandardPcc", NULL }, // c2sp
@@ -347,7 +416,8 @@ static const struct taginfo taginfo_arr[] = {
 	{ 0x67616d74U, 0, "gamut", NULL }, // gamt
 	{ 0x67626431U, 0, "amutBoundaryDescription1", NULL }, // gbd1
 	{ 0x67545243U, 0, "greenTRC", NULL }, // gTRC
-	{ 0x6758595aU, 0, "greenColorant/greenMatrixColumn", NULL }, // gXYZ
+	{ 0x6758595aU, 0x1, "greenColorant", NULL }, // gXYZ
+	{ 0x6758595aU, 0x2, "greenMatrixColumn", NULL }, // gXYZ
 	{ 0x6b545243U, 0, "grayTRC", NULL }, // kTRC
 	{ 0x6c756d69U, 0, "luminance", NULL }, // lumi
 	{ 0x6d656173U, 0, "measurement", NULL }, // meas
@@ -365,7 +435,8 @@ static const struct taginfo taginfo_arr[] = {
 	{ 0x70736571U, 0, "profileSequenceDesc", NULL }, // pseq
 	{ 0x70736964U, 0, "profileSequenceIdentifier", NULL }, // psid
 	{ 0x72545243U, 0, "redTRC", NULL }, // rTRC
-	{ 0x7258595aU, 0, "redColorant/redMatrixColumn", NULL }, // rXYZ
+	{ 0x7258595aU, 0x1, "redColorant", NULL }, // rXYZ
+	{ 0x7258595aU, 0x2, "redMatrixColumn", NULL }, // rXYZ
 	{ 0x72657370U, 0, "outputResponse", NULL }, // resp
 	{ 0x72666e6dU, 0, "referenceName", NULL }, // rfnm
 	{ 0x72696730U, 0, "perceptualRenderingIntentGamut", NULL }, // rig0
@@ -387,6 +458,7 @@ static void do_read_header(deark *c, lctx *d, i64 pos)
 	u32 profile_ver_raw;
 	i64 x;
 	struct de_fourcc tmp4cc;
+	UI tmpflags;
 	char tmpbuf[80];
 	const char *name;
 
@@ -398,7 +470,7 @@ static void do_read_header(deark *c, lctx *d, i64 pos)
 
 	dbuf_read_fourcc(c->infile, pos+4, &tmp4cc, 4, 0x0);
 	de_dbg(c, "preferred CMM type: %s",
-		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
+		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x3));
 
 	profile_ver_raw = (u32)de_getu32be(pos+8);
 	d->profile_ver_major = 10*((profile_ver_raw&0xf0000000U)>>28) +
@@ -413,12 +485,16 @@ static void do_read_header(deark *c, lctx *d, i64 pos)
 		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
 
 	dbuf_read_fourcc(c->infile, pos+16, &tmp4cc, 4, 0x0);
+	tmpflags = 0x1;
+	if(d->profile_ver_major>=5) tmpflags |= 0x2;
 	de_dbg(c, "colour space: %s",
-		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
+		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), tmpflags));
 
 	dbuf_read_fourcc(c->infile, pos+20, &tmp4cc, 4, 0x0);
+	tmpflags = 0x1;
+	if(d->profile_ver_major>=5) tmpflags |= 0x2;
 	de_dbg(c, "PCS: %s",
-		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
+		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), tmpflags));
 
 	// TODO: pos=24-35 Date & time
 
@@ -474,10 +550,12 @@ static const struct datatypeinfo *lookup_datatypeinfo(u32 id)
 	return NULL;
 }
 
-static const struct taginfo *lookup_taginfo(u32 id)
+static const struct taginfo *lookup_taginfo(lctx *d, u32 id)
 {
 	size_t k;
 	for(k=0; k<DE_ARRAYCOUNT(taginfo_arr); k++) {
+		if((taginfo_arr[k].flags & 0x1) && d->profile_ver_major>=4) continue;
+		if((taginfo_arr[k].flags & 0x2) && d->profile_ver_major<4) continue;
 		if(taginfo_arr[k].id == id) {
 			return &taginfo_arr[k];
 		}
@@ -533,17 +611,18 @@ static void do_tag_data(deark *c, lctx *d, i64 tagindex,
 	de_dbg(c, "data type: %s (%s)",
 		format_4cc_dbgstr(&tagtype4cc, tmpbuf, sizeof(tmpbuf), 0x0), dtname);
 
-	if(!dti) return;
+	struct typedec_params tdp;
+	de_zeromem(&tdp, sizeof(struct typedec_params));
+	tdp.d = d;
+	tdp.pos1 = tagdataoffset;
+	tdp.len = tagdatalen;
+	tdp.type_id = tagtype4cc.id;
 
-	if(dti->dtdfn) {
-		struct typedec_params tdp;
-
-		de_zeromem(&tdp, sizeof(struct typedec_params));
-		tdp.d = d;
-		tdp.pos1 = tagdataoffset;
-		tdp.len = tagdatalen;
-		tdp.type_id = tagtype4cc.id;
+	if(dti && dti->dtdfn) {
 		dti->dtdfn(c, &tdp);
+	}
+	else if(c->debug_level>=2) {
+		typedec_hexdump(c, &tdp);
 	}
 }
 
@@ -559,7 +638,7 @@ static void do_tag(deark *c, lctx *d, i64 tagindex, i64 pos_in_tagtable)
 	dbuf_read_fourcc(c->infile, pos_in_tagtable, &tag4cc, 4, 0x0);
 	tagdataoffset = de_getu32be(pos_in_tagtable+4);
 	tagdatalen = de_getu32be(pos_in_tagtable+8);
-	ti = lookup_taginfo(tag4cc.id);
+	ti = lookup_taginfo(d, tag4cc.id);
 	if(ti && ti->name)
 		tname = ti->name;
 	else
