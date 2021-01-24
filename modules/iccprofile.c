@@ -30,141 +30,18 @@ struct typedec_params {
 };
 typedef void (*datatype_decoder_fn_type)(deark *c, struct typedec_params *p);
 
-static void typedec_XYZ(deark *c, struct typedec_params *params);
-static void typedec_text(deark *c, struct typedec_params *params);
-static void typedec_desc(deark *c, struct typedec_params *params);
-static void typedec_mluc(deark *c, struct typedec_params *params);
-
 struct datatypeinfo {
 	u32 id;
+	u32 reserved;
 	const char *name;
 	datatype_decoder_fn_type dtdfn;
-};
-static const struct datatypeinfo datatypeinfo_arr[] = {
-	{ 0x58595A20U, "XYZ", typedec_XYZ }, // XYZ
-	{ 0x62666420U, "ucrbg", NULL }, // bfd
-	{ 0x6368726DU, "chromaticity", NULL }, // chrm
-	{ 0x636c726fU, "colorantOrder", NULL }, // clro
-	{ 0x636C7274U, "colorantTable", NULL }, // clrt
-	{ 0x63726469U, "crdInfo", NULL }, // crdi
-	{ 0x63757276U, "curve", NULL }, // curv
-	{ 0x64657363U, "textDescription", typedec_desc }, // desc
-	{ 0x64617461U, "data", NULL }, // data
-	{ 0x64657673U, "deviceSettings", NULL }, // devs
-	{ 0x6474696DU, "dateTime", NULL }, // dtim
-	{ 0x666c3136U, "float16Array", NULL }, // fl16
-	{ 0x666c3332U, "float32Array", NULL }, // fl32
-	{ 0x666c3634U, "float64Array", NULL }, // fl64
-	{ 0x67626420U, "gamutBoundaryDescription", NULL }, // gbd
-	{ 0x6D414220U, "lutAToB", NULL }, // mAB
-	{ 0x6D424120U, "lutBToA", NULL }, // mBA
-	{ 0x6D656173U, "measurement", NULL }, // meas
-	{ 0x6D667431U, "lut8", NULL }, // mft1
-	{ 0x6D667432U, "lut16", NULL }, // mft2
-	{ 0x6D6C7563U, "multiLocalizedUnicode", typedec_mluc }, // mluc
-	{ 0x6D706574U, "multiProcessElements", NULL }, // mpet
-	{ 0x6E636C32U, "namedColor2", NULL }, // ncl2
-	{ 0x6E636F6CU, "namedColor", NULL }, // ncol
-	{ 0x70617261U, "parametricCurve", NULL }, // para
-	{ 0x70736571U, "profileSequenceDesc", NULL }, // pseq
-	{ 0x70736964U, "profileSequenceIdentifier", NULL }, // psid
-	{ 0x72637332U, "responseCurveSet16", NULL }, // rcs2
-	{ 0x73663332U, "s15Fixed16Array", NULL }, // sf32
-	{ 0x7363726EU, "screening", NULL }, // scrn
-	{ 0x73696720U, "signature", NULL }, // sig
-	{ 0x7376636eU, "spectralViewingConditions", NULL }, // svcn
-	{ 0x74617279U, "tagArray", NULL }, // tary
-	{ 0x74657874U, "text", typedec_text }, // text
-	{ 0x74737472U, "tagStruct", NULL}, // tstr
-	{ 0x75663332U, "u16Fixed16Array", NULL }, // uf32
-	{ 0x75693038U, "uInt8Array", NULL }, // ui08
-	{ 0x75693136U, "uInt16Array", NULL }, // ui16
-	{ 0x75693332U, "uInt32Array", NULL }, // ui32
-	{ 0x75693634U, "uInt64Array", NULL }, // ui64
-	{ 0x75743136U, "utf16", NULL }, // ut16
-	{ 0x75746638U, "utf8", typedec_text }, // utf8
-	{ 0x76636774U, "Video Card Gamma Type", NULL }, // vcgt (Apple)
-	{ 0x76696577U, "viewingConditions", NULL } // view
 };
 
 struct taginfo {
 	u32 id;
+	u32 reserved1;
 	const char *name;
-	void *reserved;
-};
-static const struct taginfo taginfo_arr[] = {
-	{ 0x41324230U, "AToB0", NULL }, // A2B0
-	{ 0x41324231U, "AToB1", NULL }, // A2B1
-	{ 0x41324232U, "AToB2", NULL }, // A2B2
-	{ 0x41324233U, "AToB3", NULL }, // A2B3
-	{ 0x42324130U, "BToA0", NULL }, // B2A0
-	{ 0x42324131U, "BToA1", NULL }, // B2A1
-	{ 0x42324132U, "BToA2", NULL }, // B2A2
-	{ 0x42324133U, "BToA3", NULL }, // B2A3
-	{ 0x42324430U, "BToD0", NULL }, // B2D0
-	{ 0x42324431U, "BToD1", NULL }, // B2D1
-	{ 0x42324432U, "BToD2", NULL }, // B2D2
-	{ 0x42324433U, "BToD3", NULL }, // B2D3
-	{ 0x44324230U, "DToB0", NULL }, // D2B0
-	{ 0x44324231U, "DToB1", NULL }, // D2B1
-	{ 0x44324232U, "DToB2", NULL }, // D2B2
-	{ 0x44324233U, "DToB3", NULL }, // D2B3
-	{ 0x62545243U, "blueTRC", NULL }, // bTRC
-	{ 0x6258595AU, "blueColorant/blueMatrixColumn", NULL }, // bXYZ
-	{ 0x62666420U, "ucrbg", NULL }, // bfd
-	{ 0x626B7074U, "mediaBlackPoint", NULL }, // bkpt
-	{ 0x63327370U, "customToStandardPcc", NULL }, // c2sp
-	{ 0x63616C74U, "calibrationDateTime", NULL }, // calt
-	{ 0x63657074U, "colorEncodingParams", NULL }, // cept
-	{ 0x63686164U, "chromaticAdaptation", NULL }, // chad
-	{ 0x6368726DU, "chromaticity", NULL }, // chrm
-	{ 0x63696973U, "colorimetricIntentImageState", NULL }, // ciis
-	{ 0x636C6F74U, "colorantTableOut", NULL }, // clot
-	{ 0x636C726FU, "colorantOrder", NULL }, // clro
-	{ 0x636C7274U, "colorantTable", NULL }, // clrt
-	{ 0x63707274U, "copyright", NULL }, // cprt
-	{ 0x63726469U, "crdInfo", NULL }, // crdi
-	{ 0x63736e6dU, "colorSpaceName", NULL }, // csnm
-	{ 0x64657363U, "profileDescription", NULL }, // desc
-	{ 0x64657673U, "deviceSettings", NULL }, // devs
-	{ 0x646D6464U, "deviceModelDesc", NULL }, // dmdd
-	{ 0x646D6E64U, "deviceMfgDesc", NULL }, // dmnd
-	{ 0x67616D74U, "gamut", NULL }, // gamt
-	{ 0x67626431U, "amutBoundaryDescription1", NULL }, // gbd1
-	{ 0x67545243U, "greenTRC", NULL }, // gTRC
-	{ 0x6758595AU, "greenColorant/greenMatrixColumn", NULL }, // gXYZ
-	{ 0x6B545243U, "grayTRC", NULL }, // kTRC
-	{ 0x6C756D69U, "luminance", NULL }, // lumi
-	{ 0x6D656173U, "measurement", NULL }, // meas
-	{ 0x6E636C32U, "namedColor2", NULL }, // ncl2
-	{ 0x6E636F6CU, "namedColor", NULL }, // ncol
-	{ 0x70726530U, "preview0", NULL }, // pre0
-	{ 0x70726531U, "preview1", NULL }, // pre1
-	{ 0x70726532U, "preview2", NULL }, // pre2
-	{ 0x70733269U, "ps2RenderingIntent", NULL }, // ps2i
-	{ 0x70733273U, "ps2CSA", NULL }, // ps2s
-	{ 0x70736430U, "ps2CRD0", NULL }, // psd0
-	{ 0x70736431U, "ps2CRD1", NULL }, // psd1
-	{ 0x70736432U, "ps2CRD2", NULL }, // psd2
-	{ 0x70736433U, "ps2CRD3", NULL }, // psd3
-	{ 0x70736571U, "profileSequenceDesc", NULL }, // pseq
-	{ 0x70736964U, "profileSequenceIdentifier", NULL }, // psid
-	{ 0x72545243U, "redTRC", NULL }, // rTRC
-	{ 0x7258595AU, "redColorant/redMatrixColumn", NULL }, // rXYZ
-	{ 0x72657370U, "outputResponse", NULL }, // resp
-	{ 0x72666e6dU, "referenceName", NULL }, // rfnm
-	{ 0x72696730U, "perceptualRenderingIntentGamut", NULL }, // rig0
-	{ 0x72696732U, "saturationRenderingIntentGamut", NULL }, // rig2
-	{ 0x73326370U, "standardToCustomPcc", NULL }, // s2cp
-	{ 0x73637264U, "screeningDesc", NULL }, // scrd
-	{ 0x7363726EU, "screening", NULL }, // scrn
-	{ 0x7376636eU, "spectralViewingConditions", NULL }, // svcn
-	{ 0x74617267U, "charTarget", NULL }, // targ
-	{ 0x74656368U, "technology", NULL }, // tech
-	{ 0x76636774U, "Video Card Gamma Type", NULL }, // vcgt (Apple)
-	{ 0x76696577U, "viewingConditions", NULL }, // view
-	{ 0x76756564U, "viewingCondDesc", NULL }, // vued
-	{ 0x77747074U, "mediaWhitePoint", NULL } // wtpt
+	void *reserved2;
 };
 
 // flag 0x1: Include the hex value
@@ -382,6 +259,128 @@ static void typedec_mluc(deark *c, struct typedec_params *p)
 done:
 	;
 }
+
+static const struct datatypeinfo datatypeinfo_arr[] = {
+	{ 0x58595a20U, 0, "XYZ", typedec_XYZ }, // XYZ
+	{ 0x62666420U, 0, "ucrbg", NULL }, // bfd
+	{ 0x6368726dU, 0, "chromaticity", NULL }, // chrm
+	{ 0x636c726fU, 0, "colorantOrder", NULL }, // clro
+	{ 0x636c7274U, 0, "colorantTable", NULL }, // clrt
+	{ 0x63726469U, 0, "crdInfo", NULL }, // crdi
+	{ 0x63757276U, 0, "curve", NULL }, // curv
+	{ 0x64657363U, 0, "textDescription", typedec_desc }, // desc
+	{ 0x64617461U, 0, "data", NULL }, // data
+	{ 0x64657673U, 0, "deviceSettings", NULL }, // devs
+	{ 0x6474696dU, 0, "dateTime", NULL }, // dtim
+	{ 0x666c3136U, 0, "float16Array", NULL }, // fl16
+	{ 0x666c3332U, 0, "float32Array", NULL }, // fl32
+	{ 0x666c3634U, 0, "float64Array", NULL }, // fl64
+	{ 0x67626420U, 0, "gamutBoundaryDescription", NULL }, // gbd
+	{ 0x6d414220U, 0, "lutAToB", NULL }, // mAB
+	{ 0x6d424120U, 0, "lutBToA", NULL }, // mBA
+	{ 0x6d656173U, 0, "measurement", NULL }, // meas
+	{ 0x6d667431U, 0, "lut8", NULL }, // mft1
+	{ 0x6d667432U, 0, "lut16", NULL }, // mft2
+	{ 0x6d6c7563U, 0, "multiLocalizedUnicode", typedec_mluc }, // mluc
+	{ 0x6d706574U, 0, "multiProcessElements", NULL }, // mpet
+	{ 0x6e636c32U, 0, "namedColor2", NULL }, // ncl2
+	{ 0x6e636f6cU, 0, "namedColor", NULL }, // ncol
+	{ 0x70617261U, 0, "parametricCurve", NULL }, // para
+	{ 0x70736571U, 0, "profileSequenceDesc", NULL }, // pseq
+	{ 0x70736964U, 0, "profileSequenceIdentifier", NULL }, // psid
+	{ 0x72637332U, 0, "responseCurveSet16", NULL }, // rcs2
+	{ 0x73663332U, 0, "s15Fixed16Array", NULL }, // sf32
+	{ 0x7363726eU, 0, "screening", NULL }, // scrn
+	{ 0x73696720U, 0, "signature", NULL }, // sig
+	{ 0x7376636eU, 0, "spectralViewingConditions", NULL }, // svcn
+	{ 0x74617279U, 0, "tagArray", NULL }, // tary
+	{ 0x74657874U, 0, "text", typedec_text }, // text
+	{ 0x74737472U, 0, "tagStruct", NULL}, // tstr
+	{ 0x75663332U, 0, "u16Fixed16Array", NULL }, // uf32
+	{ 0x75693038U, 0, "uInt8Array", NULL }, // ui08
+	{ 0x75693136U, 0, "uInt16Array", NULL }, // ui16
+	{ 0x75693332U, 0, "uInt32Array", NULL }, // ui32
+	{ 0x75693634U, 0, "uInt64Array", NULL }, // ui64
+	{ 0x75743136U, 0, "utf16", NULL }, // ut16
+	{ 0x75746638U, 0, "utf8", typedec_text }, // utf8
+	{ 0x76636774U, 0, "Video Card Gamma Type", NULL }, // vcgt (Apple)
+	{ 0x76696577U, 0, "viewingConditions", NULL } // view
+};
+
+static const struct taginfo taginfo_arr[] = {
+	{ 0x41324230U, 0, "AToB0", NULL }, // A2B0
+	{ 0x41324231U, 0, "AToB1", NULL }, // A2B1
+	{ 0x41324232U, 0, "AToB2", NULL }, // A2B2
+	{ 0x41324233U, 0, "AToB3", NULL }, // A2B3
+	{ 0x42324130U, 0, "BToA0", NULL }, // B2A0
+	{ 0x42324131U, 0, "BToA1", NULL }, // B2A1
+	{ 0x42324132U, 0, "BToA2", NULL }, // B2A2
+	{ 0x42324133U, 0, "BToA3", NULL }, // B2A3
+	{ 0x42324430U, 0, "BToD0", NULL }, // B2D0
+	{ 0x42324431U, 0, "BToD1", NULL }, // B2D1
+	{ 0x42324432U, 0, "BToD2", NULL }, // B2D2
+	{ 0x42324433U, 0, "BToD3", NULL }, // B2D3
+	{ 0x44324230U, 0, "DToB0", NULL }, // D2B0
+	{ 0x44324231U, 0, "DToB1", NULL }, // D2B1
+	{ 0x44324232U, 0, "DToB2", NULL }, // D2B2
+	{ 0x44324233U, 0, "DToB3", NULL }, // D2B3
+	{ 0x62545243U, 0, "blueTRC", NULL }, // bTRC
+	{ 0x6258595aU, 0, "blueColorant/blueMatrixColumn", NULL }, // bXYZ
+	{ 0x62666420U, 0, "ucrbg", NULL }, // bfd
+	{ 0x626b7074U, 0, "mediaBlackPoint", NULL }, // bkpt
+	{ 0x63327370U, 0, "customToStandardPcc", NULL }, // c2sp
+	{ 0x63616c74U, 0, "calibrationDateTime", NULL }, // calt
+	{ 0x63657074U, 0, "colorEncodingParams", NULL }, // cept
+	{ 0x63686164U, 0, "chromaticAdaptation", NULL }, // chad
+	{ 0x6368726dU, 0, "chromaticity", NULL }, // chrm
+	{ 0x63696973U, 0, "colorimetricIntentImageState", NULL }, // ciis
+	{ 0x636c6f74U, 0, "colorantTableOut", NULL }, // clot
+	{ 0x636c726fU, 0, "colorantOrder", NULL }, // clro
+	{ 0x636c7274U, 0, "colorantTable", NULL }, // clrt
+	{ 0x63707274U, 0, "copyright", NULL }, // cprt
+	{ 0x63726469U, 0, "crdInfo", NULL }, // crdi
+	{ 0x63736e6dU, 0, "colorSpaceName", NULL }, // csnm
+	{ 0x64657363U, 0, "profileDescription", NULL }, // desc
+	{ 0x64657673U, 0, "deviceSettings", NULL }, // devs
+	{ 0x646d6464U, 0, "deviceModelDesc", NULL }, // dmdd
+	{ 0x646d6e64U, 0, "deviceMfgDesc", NULL }, // dmnd
+	{ 0x67616d74U, 0, "gamut", NULL }, // gamt
+	{ 0x67626431U, 0, "amutBoundaryDescription1", NULL }, // gbd1
+	{ 0x67545243U, 0, "greenTRC", NULL }, // gTRC
+	{ 0x6758595aU, 0, "greenColorant/greenMatrixColumn", NULL }, // gXYZ
+	{ 0x6b545243U, 0, "grayTRC", NULL }, // kTRC
+	{ 0x6c756d69U, 0, "luminance", NULL }, // lumi
+	{ 0x6d656173U, 0, "measurement", NULL }, // meas
+	{ 0x6e636c32U, 0, "namedColor2", NULL }, // ncl2
+	{ 0x6e636f6cU, 0, "namedColor", NULL }, // ncol
+	{ 0x70726530U, 0, "preview0", NULL }, // pre0
+	{ 0x70726531U, 0, "preview1", NULL }, // pre1
+	{ 0x70726532U, 0, "preview2", NULL }, // pre2
+	{ 0x70733269U, 0, "ps2RenderingIntent", NULL }, // ps2i
+	{ 0x70733273U, 0, "ps2CSA", NULL }, // ps2s
+	{ 0x70736430U, 0, "ps2CRD0", NULL }, // psd0
+	{ 0x70736431U, 0, "ps2CRD1", NULL }, // psd1
+	{ 0x70736432U, 0, "ps2CRD2", NULL }, // psd2
+	{ 0x70736433U, 0, "ps2CRD3", NULL }, // psd3
+	{ 0x70736571U, 0, "profileSequenceDesc", NULL }, // pseq
+	{ 0x70736964U, 0, "profileSequenceIdentifier", NULL }, // psid
+	{ 0x72545243U, 0, "redTRC", NULL }, // rTRC
+	{ 0x7258595aU, 0, "redColorant/redMatrixColumn", NULL }, // rXYZ
+	{ 0x72657370U, 0, "outputResponse", NULL }, // resp
+	{ 0x72666e6dU, 0, "referenceName", NULL }, // rfnm
+	{ 0x72696730U, 0, "perceptualRenderingIntentGamut", NULL }, // rig0
+	{ 0x72696732U, 0, "saturationRenderingIntentGamut", NULL }, // rig2
+	{ 0x73326370U, 0, "standardToCustomPcc", NULL }, // s2cp
+	{ 0x73637264U, 0, "screeningDesc", NULL }, // scrd
+	{ 0x7363726eU, 0, "screening", NULL }, // scrn
+	{ 0x7376636eU, 0, "spectralViewingConditions", NULL }, // svcn
+	{ 0x74617267U, 0, "charTarget", NULL }, // targ
+	{ 0x74656368U, 0, "technology", NULL }, // tech
+	{ 0x76636774U, 0, "Video Card Gamma Type", NULL }, // vcgt (Apple)
+	{ 0x76696577U, 0, "viewingConditions", NULL }, // view
+	{ 0x76756564U, 0, "viewingCondDesc", NULL }, // vued
+	{ 0x77747074U, 0, "mediaWhitePoint", NULL } // wtpt
+};
 
 static void do_read_header(deark *c, lctx *d, i64 pos)
 {
