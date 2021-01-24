@@ -1782,7 +1782,16 @@ static void de_run_zip_normally(deark *c, lctx *d)
 		eocd_found = fmtutil_find_zip_eocd(c, c->infile, &d->end_of_central_dir_pos);
 	}
 	if(!eocd_found) {
-		de_err(c, "Not a ZIP file");
+		if(c->module_disposition==DE_MODDISP_AUTODETECT ||
+			c->module_disposition==DE_MODDISP_EXPLICIT)
+		{
+			if(de_getu32le(0)==CODE_PK34) {
+				de_err(c, "ZIP central directory not found. "
+					"You could try \"-opt zip:scanmode\".");
+				goto done;
+			}
+		}
+		de_err(c, "Not a valid ZIP file");
 		goto done;
 	}
 
