@@ -22,12 +22,18 @@ typedef struct localctx_struct {
 	struct tag_seen_type *tags_seen;
 } lctx;
 
-typedef void (*datatype_decoder_fn_type)(deark *c, lctx *d, i64 pos, i64 len);
+struct typedec_params {
+	lctx *d;
+	i64 pos1;
+	i64 len;
+	u32 type_id;
+};
+typedef void (*datatype_decoder_fn_type)(deark *c, struct typedec_params *p);
 
-static void typedec_XYZ(deark *c, lctx *d, i64 pos, i64 len);
-static void typedec_text(deark *c, lctx *d, i64 pos, i64 len);
-static void typedec_desc(deark *c, lctx *d, i64 pos, i64 len);
-static void typedec_mluc(deark *c, lctx *d, i64 pos, i64 len);
+static void typedec_XYZ(deark *c, struct typedec_params *params);
+static void typedec_text(deark *c, struct typedec_params *params);
+static void typedec_desc(deark *c, struct typedec_params *params);
+static void typedec_mluc(deark *c, struct typedec_params *params);
 
 struct datatypeinfo {
 	u32 id;
@@ -41,11 +47,15 @@ static const struct datatypeinfo datatypeinfo_arr[] = {
 	{ 0x636c726fU, "colorantOrder", NULL }, // clro
 	{ 0x636C7274U, "colorantTable", NULL }, // clrt
 	{ 0x63726469U, "crdInfo", NULL }, // crdi
+	{ 0x63757276U, "curve", NULL }, // curv
+	{ 0x64657363U, "textDescription", typedec_desc }, // desc
+	{ 0x64617461U, "data", NULL }, // data
 	{ 0x64657673U, "deviceSettings", NULL }, // devs
 	{ 0x6474696DU, "dateTime", NULL }, // dtim
-	{ 0x63757276U, "curve", NULL }, // curv
-	{ 0x64617461U, "data", NULL }, // data
-	{ 0x64657363U, "textDescription", typedec_desc }, // desc
+	{ 0x666c3136U, "float16Array", NULL }, // fl16
+	{ 0x666c3332U, "float32Array", NULL }, // fl32
+	{ 0x666c3634U, "float64Array", NULL }, // fl64
+	{ 0x67626420U, "gamutBoundaryDescription", NULL }, // gbd
 	{ 0x6D414220U, "lutAToB", NULL }, // mAB
 	{ 0x6D424120U, "lutBToA", NULL }, // mBA
 	{ 0x6D656173U, "measurement", NULL }, // meas
@@ -62,12 +72,17 @@ static const struct datatypeinfo datatypeinfo_arr[] = {
 	{ 0x73663332U, "s15Fixed16Array", NULL }, // sf32
 	{ 0x7363726EU, "screening", NULL }, // scrn
 	{ 0x73696720U, "signature", NULL }, // sig
+	{ 0x7376636eU, "spectralViewingConditions", NULL }, // svcn
+	{ 0x74617279U, "tagArray", NULL }, // tary
 	{ 0x74657874U, "text", typedec_text }, // text
+	{ 0x74737472U, "tagStruct", NULL}, // tstr
 	{ 0x75663332U, "u16Fixed16Array", NULL }, // uf32
 	{ 0x75693038U, "uInt8Array", NULL }, // ui08
 	{ 0x75693136U, "uInt16Array", NULL }, // ui16
 	{ 0x75693332U, "uInt32Array", NULL }, // ui32
 	{ 0x75693634U, "uInt64Array", NULL }, // ui64
+	{ 0x75743136U, "utf16", NULL }, // ut16
+	{ 0x75746638U, "utf8", typedec_text }, // utf8
 	{ 0x76636774U, "Video Card Gamma Type", NULL }, // vcgt (Apple)
 	{ 0x76696577U, "viewingConditions", NULL } // view
 };
@@ -81,9 +96,11 @@ static const struct taginfo taginfo_arr[] = {
 	{ 0x41324230U, "AToB0", NULL }, // A2B0
 	{ 0x41324231U, "AToB1", NULL }, // A2B1
 	{ 0x41324232U, "AToB2", NULL }, // A2B2
+	{ 0x41324233U, "AToB3", NULL }, // A2B3
 	{ 0x42324130U, "BToA0", NULL }, // B2A0
 	{ 0x42324131U, "BToA1", NULL }, // B2A1
 	{ 0x42324132U, "BToA2", NULL }, // B2A2
+	{ 0x42324133U, "BToA3", NULL }, // B2A3
 	{ 0x42324430U, "BToD0", NULL }, // B2D0
 	{ 0x42324431U, "BToD1", NULL }, // B2D1
 	{ 0x42324432U, "BToD2", NULL }, // B2D2
@@ -96,7 +113,9 @@ static const struct taginfo taginfo_arr[] = {
 	{ 0x6258595AU, "blueColorant/blueMatrixColumn", NULL }, // bXYZ
 	{ 0x62666420U, "ucrbg", NULL }, // bfd
 	{ 0x626B7074U, "mediaBlackPoint", NULL }, // bkpt
+	{ 0x63327370U, "customToStandardPcc", NULL }, // c2sp
 	{ 0x63616C74U, "calibrationDateTime", NULL }, // calt
+	{ 0x63657074U, "colorEncodingParams", NULL }, // cept
 	{ 0x63686164U, "chromaticAdaptation", NULL }, // chad
 	{ 0x6368726DU, "chromaticity", NULL }, // chrm
 	{ 0x63696973U, "colorimetricIntentImageState", NULL }, // ciis
@@ -105,11 +124,13 @@ static const struct taginfo taginfo_arr[] = {
 	{ 0x636C7274U, "colorantTable", NULL }, // clrt
 	{ 0x63707274U, "copyright", NULL }, // cprt
 	{ 0x63726469U, "crdInfo", NULL }, // crdi
+	{ 0x63736e6dU, "colorSpaceName", NULL }, // csnm
 	{ 0x64657363U, "profileDescription", NULL }, // desc
 	{ 0x64657673U, "deviceSettings", NULL }, // devs
 	{ 0x646D6464U, "deviceModelDesc", NULL }, // dmdd
 	{ 0x646D6E64U, "deviceMfgDesc", NULL }, // dmnd
 	{ 0x67616D74U, "gamut", NULL }, // gamt
+	{ 0x67626431U, "amutBoundaryDescription1", NULL }, // gbd1
 	{ 0x67545243U, "greenTRC", NULL }, // gTRC
 	{ 0x6758595AU, "greenColorant/greenMatrixColumn", NULL }, // gXYZ
 	{ 0x6B545243U, "grayTRC", NULL }, // kTRC
@@ -131,10 +152,13 @@ static const struct taginfo taginfo_arr[] = {
 	{ 0x72545243U, "redTRC", NULL }, // rTRC
 	{ 0x7258595AU, "redColorant/redMatrixColumn", NULL }, // rXYZ
 	{ 0x72657370U, "outputResponse", NULL }, // resp
+	{ 0x72666e6dU, "referenceName", NULL }, // rfnm
 	{ 0x72696730U, "perceptualRenderingIntentGamut", NULL }, // rig0
 	{ 0x72696732U, "saturationRenderingIntentGamut", NULL }, // rig2
+	{ 0x73326370U, "standardToCustomPcc", NULL }, // s2cp
 	{ 0x73637264U, "screeningDesc", NULL }, // scrd
 	{ 0x7363726EU, "screening", NULL }, // scrn
+	{ 0x7376636eU, "spectralViewingConditions", NULL }, // svcn
 	{ 0x74617267U, "charTarget", NULL }, // targ
 	{ 0x74656368U, "technology", NULL }, // tech
 	{ 0x76636774U, "Video Card Gamma Type", NULL }, // vcgt (Apple)
@@ -173,33 +197,41 @@ static double read_s15Fixed16Number(dbuf *f, i64 pos)
 	return (double)n + ((double)frac)/65536.0;
 }
 
-static void typedec_XYZ(deark *c, lctx *d, i64 pos, i64 len)
+static void typedec_XYZ(deark *c, struct typedec_params *p)
 {
 	i64 xyz_count;
 	i64 k;
 	double v[3];
 
-	if(len<8) return;
-	xyz_count = (len-8)/12;
+	if(p->len<8) return;
+	xyz_count = (p->len-8)/12;
 	for(k=0; k<xyz_count; k++) {
-		v[0] = read_s15Fixed16Number(c->infile, pos+8+12*k);
-		v[1] = read_s15Fixed16Number(c->infile, pos+8+12*k+4);
-		v[2] = read_s15Fixed16Number(c->infile, pos+8+12*k+8);
+		v[0] = read_s15Fixed16Number(c->infile, p->pos1+8+12*k);
+		v[1] = read_s15Fixed16Number(c->infile, p->pos1+8+12*k+4);
+		v[2] = read_s15Fixed16Number(c->infile, p->pos1+8+12*k+8);
 		de_dbg(c, "XYZ[%d]: %.5f, %.5f, %.5f", (int)k,
 			v[0], v[1], v[2]);
 	}
 }
 
-static void typedec_text(deark *c, lctx *d, i64 pos, i64 len)
+static void typedec_text(deark *c, struct typedec_params *p)
 {
 	de_ucstring *s = NULL;
-	i64 textlen = len-8;
+	i64 textlen = p->len-8;
+	de_ext_encoding enc;
 
 	if(textlen<0) goto done;
 
+	if(p->type_id==0x75746638U) {
+		enc = DE_ENCODING_UTF8;
+	}
+	else {
+		enc = DE_ENCODING_ASCII;
+	}
+
 	s = ucstring_create(c);
-	dbuf_read_to_ucstring_n(c->infile, pos+8, textlen, DE_DBG_MAX_STRLEN,
-		s, 0, DE_ENCODING_ASCII);
+	dbuf_read_to_ucstring_n(c->infile, p->pos1+8, textlen, DE_DBG_MAX_STRLEN,
+		s, 0, enc);
 	ucstring_truncate_at_NUL(s);
 	de_dbg(c, "text: \"%s\"", ucstring_getpsz(s));
 
@@ -208,7 +240,7 @@ done:
 	return;
 }
 
-static void typedec_desc(deark *c, lctx *d, i64 pos1, i64 len)
+static void typedec_desc(deark *c, struct typedec_params *p)
 {
 	de_ucstring *s = NULL;
 	i64 invdesclen, uloclen;
@@ -216,9 +248,9 @@ static void typedec_desc(deark *c, lctx *d, i64 pos1, i64 len)
 	i64 lstrstartpos;
 	i64 bytes_to_read;
 	de_encoding encoding;
-	i64 pos = pos1;
+	i64 pos = p->pos1;
 
-	if(len<12) goto done;
+	if(p->len<12) goto done;
 
 	pos += 8;
 
@@ -231,7 +263,7 @@ static void typedec_desc(deark *c, lctx *d, i64 pos1, i64 len)
 	ucstring_truncate_at_NUL(s);
 	de_dbg(c, "invariant desc.: \"%s\"", ucstring_getpsz(s));
 	pos += invdesclen;
-	if(pos >= pos1+len) goto done;
+	if(pos >= p->pos1+p->len) goto done;
 
 	// Unicode localizable description
 	ucstring_empty(s);
@@ -276,7 +308,7 @@ static void typedec_desc(deark *c, lctx *d, i64 pos1, i64 len)
 		de_dbg(c, "localizable desc.: \"%s\"", ucstring_getpsz(s));
 	}
 	pos += uloclen*2;
-	if(pos >= pos1+len) goto done;
+	if(pos >= p->pos1+p->len) goto done;
 
 	// Macintosh localizable description
 	// (not implemented)
@@ -315,15 +347,15 @@ static void do_mluc_record(deark *c, lctx *d, i64 tagstartpos,
 	ucstring_destroy(s);
 }
 
-static void typedec_mluc(deark *c, lctx *d, i64 pos1, i64 len)
+static void typedec_mluc(deark *c, struct typedec_params *p)
 {
-	i64 pos = pos1;
+	i64 pos = p->pos1;
 	i64 num_recs;
 	i64 recsize;
 	i64 rec_array_startpos;
 	i64 rec;
 
-	if(len<12) goto done;
+	if(p->len<12) goto done;
 	pos += 8;
 
 	num_recs = de_getu32be(pos);
@@ -338,11 +370,11 @@ static void typedec_mluc(deark *c, lctx *d, i64 pos1, i64 len)
 	rec_array_startpos = pos;
 
 	for(rec=0; rec<num_recs; rec++) {
-		if(rec_array_startpos+rec*recsize > pos1+len) break;
+		if(rec_array_startpos+rec*recsize > p->pos1+p->len) break;
 
 		de_dbg(c, "record #%d at %d", (int)rec, (int)pos);
 		de_dbg_indent(c, 1);
-		do_mluc_record(c, d, pos1, pos, recsize);
+		do_mluc_record(c, p->d, p->pos1, pos, recsize);
 		de_dbg_indent(c, -1);
 		pos += recsize;
 	}
@@ -505,7 +537,14 @@ static void do_tag_data(deark *c, lctx *d, i64 tagindex,
 	if(!dti) return;
 
 	if(dti->dtdfn) {
-		dti->dtdfn(c, d, tagdataoffset, tagdatalen);
+		struct typedec_params tdp;
+
+		de_zeromem(&tdp, sizeof(struct typedec_params));
+		tdp.d = d;
+		tdp.pos1 = tagdataoffset;
+		tdp.len = tagdatalen;
+		tdp.type_id = tagtype4cc.id;
+		dti->dtdfn(c, &tdp);
 	}
 }
 
