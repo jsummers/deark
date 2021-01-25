@@ -230,7 +230,7 @@ static void decode_egavga16(deark *c, lctx *d)
 
 	// Read the palette
 	if(d->pal_info_to_use->edesc==0) {
-		de_dbg(c, "No palette in file. Using standard 16-color palette.");
+		de_dbg(c, "palette type: standard 16-color palette (no palette in file)");
 		for(k=0; k<16; k++) {
 			pal[k] = de_palette_pc16((int)k);
 		}
@@ -238,7 +238,7 @@ static void decode_egavga16(deark *c, lctx *d)
 	else if(d->pal_info_to_use->edesc==3) {
 		// An EGA palette. Indexes into the standard EGA
 		// 64-color palette.
-		de_dbg(c, "Palette is 16 indices into standard EGA 64-color palette.");
+		de_dbg(c, "palette type: 16 indices into standard EGA 64-color palette");
 		for(k=0; k<16; k++) {
 			if(k >= d->pal_info_to_use->esize) break;
 			pal[k] = de_palette_ega64(d->pal_info_to_use->data[k]);
@@ -247,7 +247,7 @@ static void decode_egavga16(deark *c, lctx *d)
 		}
 	}
 	else { // assuming edesc==5
-		de_dbg(c, "Reading 16-color palette from file.");
+		de_dbg(c, "palette type: 16-color palette (in file)");
 		make_rgb_palette(c, d, pal, 16);
 	}
 
@@ -295,13 +295,14 @@ static void decode_vga256(deark *c, lctx *d)
 
 	// Read the palette
 	if(d->pal_info_to_use->edesc==0) {
-		de_dbg(c, "No palette in file. Using standard 256-color palette.");
+		de_dbg(c, "palette type: standard 256-color palette (no palette in file)");
 		for(k=0; k<256; k++) {
 			pal[k] = de_palette_vga256((int)k);
 		}
 	}
 	else {
-		de_dbg(c, "Reading palette.");
+		de_dbg(c, "palette type: 256-color palette (in file)");
+		de_dbg(c, "decoding palette");
 		make_rgb_palette(c, d, pal, 256);
 	}
 
@@ -413,44 +414,40 @@ done:
 }
 
 // decompress one block
-// Writes uncompressed bytes to d->unc_pixels.
+// Writes decompressed bytes to d->unc_pixels.
 // packed_data_size does not include header size.
 // Returns 0 on error.
-static int uncompress_block(deark *c, lctx *d,
-	i64 pos, i64 packed_data_size, u8 run_marker)
+static int decompress_block(deark *c, lctx *d,
+	i64 pos1, i64 packed_data_size, u8 run_marker)
 {
+	i64 pos = pos1;
 	i64 end_of_this_block;
 	u8 x;
 	i64 run_length;
 
-	end_of_this_block = pos + packed_data_size;
+	end_of_this_block = pos1 + packed_data_size;
 
 	while(pos<end_of_this_block) {
-		x = de_getbyte(pos);
-		pos++;
+		x = de_getbyte_p(&pos);
 		if(x!=run_marker) {
-			// An uncompressed part of the image
+			// An non-compressed part of the image
 			dbuf_writebyte(d->unc_pixels, x);
 			continue;
 		}
 
 		// A compressed run.
-		x = de_getbyte(pos);
-		pos++;
+		x = de_getbyte_p(&pos);
 		if(x!=0) {
 			// If nonzero, this byte is the run length.
 			run_length = (i64)x;
 		}
 		else {
 			// If zero, it is followed by a 16-bit run length
-			run_length = de_getu16le(pos);
-			pos+=2;
+			run_length = de_getu16le_p(&pos);
 		}
 
 		// Read the byte value to repeat (run_length) times.
-		x = de_getbyte(pos);
-		pos++;
-		//de_dbg(c, "run of length %d (value 0x%02x)", (int)run_length, (int)x);
+		x = de_getbyte_p(&pos);
 		dbuf_write_run(d->unc_pixels, x, run_length);
 	}
 
@@ -459,29 +456,34 @@ static int uncompress_block(deark *c, lctx *d,
 
 // Decompress multiple blocks of compressed pixels.
 // This is for PIC format only.
-static int uncompress_pixels(deark *c, lctx *d)
+static int decompress_pixels(deark *c, lctx *d)
 {
 	i64 pos;
-	i64 n;
+	i64 i;
 	i64 packed_block_size;
 	i64 unpacked_block_size;
 	u8 run_marker;
 	int retval = 1;
 	i64 end_of_this_block;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	if(d->num_rle_blocks<1) {
 		// Not compressed
-		return 1;
+		retval = 1;
+		goto done;
 	}
 
 	d->unc_pixels = dbuf_create_membuf(c, 16384, 0);
 	dbuf_set_length_limit(d->unc_pixels, (d->pdwidth+7) * d->height);
 
-	de_dbg(c, "uncompressing image");
+	de_dbg(c, "decompressing image");
+	de_dbg_indent(c, 1);
 	pos = d->header_size;
 
-	for(n=0; n<d->num_rle_blocks; n++) {
-		de_dbg3(c, "-- block %d --", (int)n);
+	for(i=0; i<d->num_rle_blocks; i++) {
+		de_dbg3(c, "block #%d at %"I64_FMT, (int)i, pos);
+		de_dbg_indent(c, 1);
 		// start_of_this_block = pos;
 		packed_block_size = de_getu16le(pos);
 		// block size includes the 5-byte header, so it can't be < 5.
@@ -491,21 +493,24 @@ static int uncompress_pixels(deark *c, lctx *d)
 		run_marker = de_getbyte(pos+4);
 		pos+=5;
 
-		de_dbg3(c, "packed block size (+5)=%d", (int)packed_block_size);
-		de_dbg3(c, "unpacked block size=%d", (int)unpacked_block_size);
-		de_dbg3(c, "run marker=0x%02x", (int)run_marker);
+		de_dbg3(c, "packed size: %"I64_FMT, packed_block_size);
+		de_dbg3(c, "unpacked size: %"I64_FMT, unpacked_block_size);
+		de_dbg3(c, "run marker: 0x%02x", (UI)run_marker);
 
-		if(!uncompress_block(c, d, pos, packed_block_size-5, run_marker)) {
+		if(!decompress_block(c, d, pos, packed_block_size-5, run_marker)) {
 			goto done;
 		}
+		de_dbg_indent(c, -1);
 
 		pos = end_of_this_block;
 	}
 
-	de_dbg(c, "uncompressed to %d bytes", (int)d->unc_pixels->len);
+	de_dbg_indent(c, -1);
+	de_dbg(c, "decompressed to %"I64_FMT" bytes", d->unc_pixels->len);
 	retval = 1;
 
 done:
+	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
 
@@ -536,7 +541,7 @@ static int do_read_alt_palette_file(deark *c, lctx *d)
 		goto done;
 	}
 
-	de_dbg(c, "reading palette file %s", palfn);
+	de_dbg(c, "[reading palette from alternate file]");
 
 	palfile = dbuf_open_input_file(c, palfn);
 	if(!palfile) {
@@ -640,8 +645,8 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 	d->plane_info = de_getbyte(10);
 	d->palette_flag = de_getbyte(11);
 
-	de_dbg(c, "plane info: 0x%02x",(int)d->plane_info);
-	de_dbg(c, "palette flag: 0x%02x",(int)d->palette_flag);
+	de_dbg(c, "plane info: 0x%02x", (int)d->plane_info);
+	de_dbg(c, "palette flag: 0x%02x", (int)d->palette_flag);
 
 	if(d->palette_flag==0xff) {
 		d->ver = 2;
@@ -653,11 +658,11 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 	}
 
 	d->video_mode = de_getbyte(12);
-	de_dbg(c, "video_mode: 0x%02x",(int)d->video_mode);
+	de_dbg(c, "video mode: 0x%02x", (int)d->video_mode);
 
 	do_read_palette_data(c, d, c->infile, &d->pal_info_mainfile);
-	de_dbg(c, "edesc: %d",(int)d->pal_info_mainfile.edesc);
-	de_dbg(c, "esize: %d",(int)d->pal_info_mainfile.esize);
+	de_dbg(c, "edesc: %d", (int)d->pal_info_mainfile.edesc);
+	de_dbg(c, "esize: %d", (int)d->pal_info_mainfile.esize);
 
 	if(d->pal_info_mainfile.esize>0) {
 		de_dbg(c, "palette or other info at %d", 17);
@@ -684,10 +689,10 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 
 	if(d->num_rle_blocks>0) {
 		// Image is compressed.
-		uncompress_pixels(c, d);
+		decompress_pixels(c, d);
 	}
 	else {
-		// Image is uncompressed.
+		// Image is not compressed.
 		d->unc_pixels = dbuf_open_input_subfile(c->infile, d->header_size,
 			c->infile->len-d->header_size);
 	}
@@ -713,14 +718,14 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 	de_dbg_indent(c, 1);
 
 	file_size = de_getu16le(0);
-	de_dbg(c, "reported file size: %d", (int)file_size);
+	de_dbg(c, "reported file size: %"I64_FMT, file_size);
 	if(file_size != c->infile->len) {
 		if(file_size==0x1234) {
 			de_warn(c, "This is probably a .PIC file, not a CLIP file.");
 		}
 		else {
-			de_warn(c, "Reported file size (%d) does not equal actual file size (%d). "
-				"Format may not be correct.", (int)file_size, (int)c->infile->len);
+			de_warn(c, "Reported file size (%"I64_FMT") does not equal actual file size (%"I64_FMT"). "
+				"Format may not be correct.", file_size, c->infile->len);
 		}
 	}
 
@@ -741,7 +746,7 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 		d->header_size = 11;
 	}
 	de_dbg(c, "compressed: %d", (int)is_compressed);
-	de_dbg(c, "plane info: 0x%02x",(int)d->plane_info);
+	de_dbg(c, "plane info: 0x%02x", (int)d->plane_info);
 
 	de_dbg_indent(c, -1);
 
@@ -754,23 +759,28 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 	d->pal_info_to_use = &d->pal_info_mainfile; // tentative
 	if(!do_read_alt_palette_file(c, d)) goto done;
 
-	de_dbg(c, "image data at %d", (int)d->header_size);
+	de_dbg(c, "image data at %"I64_FMT, d->header_size);
 	de_dbg_indent(c, 1);
 	if(!do_set_up_decoder(c, d)) goto done;
 
 	if(is_compressed) {
 		run_marker = de_getbyte(12);
+		de_dbg3(c, "run marker: 0x%02x", (UI)run_marker);
+
+		de_dbg(c, "decompressing image");
+		de_dbg_indent(c, 1);
 		d->unc_pixels = dbuf_create_membuf(c, 16384, 0);
 		dbuf_set_length_limit(d->unc_pixels, (d->pdwidth+7) * d->height);
 
-		if(!uncompress_block(c, d, d->header_size,
+		if(!decompress_block(c, d, d->header_size,
 			c->infile->len - d->header_size, run_marker))
 		{
 			goto done;
 		}
+		de_dbg_indent(c, -1);
+		de_dbg(c, "decompressed to %"I64_FMT" bytes", d->unc_pixels->len);
 	}
 	else {
-		// Uncompressed.
 		d->unc_pixels = dbuf_open_input_subfile(c->infile,
 			d->header_size, c->infile->len-d->header_size);
 	}
