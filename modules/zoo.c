@@ -62,7 +62,7 @@ struct member_data {
 	u8             timzon;         /* time zone                       */
 	unsigned int system;         /* system identifier               */
 	u32 attribs;         /* file permissions                */
-	u8             modgen;         /* gens. on, last gen., gen. limit */
+	u8 vflag;         /* gens. on, last gen., gen. limit */
 	unsigned int ver;            /* version number of member        */
 };
 
@@ -73,12 +73,12 @@ struct localctx_struct {
 	struct de_inthashtable *offsets_seen;
 
 	i64 first_member_hdr_pos;
-	u8             majver;         /* major version needed to extract */
-	u8             minver;         /* minor version needed to extract */
-	u8             type;  // header version (?)
+	u8 majver;
+	u8 minver;
+	u8 type;  // archive header version
 	i64 archive_comment_pos;
 	i64 archive_comment_len; // 0 if no comment
-	u8             modgen;         /* gens. on, gen. limit            */
+	u8 vdata;         /* gens. on, gen. limit            */
 
 	int num_deleted_files_found;
 	i64 min_offset_found;
@@ -88,10 +88,11 @@ struct localctx_struct {
 	struct de_crcobj *crco;
 };
 
-static void on_offset_found(deark *c, lctx *d, i64 pos)
+// An offset is considered meaningful if len!=0.
+static void on_offset_found(deark *c, lctx *d, i64 pos, i64 len)
 {
-	if(pos==0) return;
-	if(d->min_offset_found==0 || pos<d->min_offset_found) {
+	if(len==0 || pos<0) return;
+	if(pos<d->min_offset_found) {
 		d->min_offset_found = pos;
 	}
 }
@@ -126,9 +127,9 @@ static void do_dbg_comment(deark *c, lctx *d, i64 pos, i64 len, const char *name
 static void do_comment(deark *c, lctx *d, i64 pos, i64 len, const char *name,
 	int is_main, int extract_to_file)
 {
+	on_offset_found(c, d, pos, len);
 	if(len<1) return;
 	if(pos<0 || pos+len>c->infile->len) return;
-	on_offset_found(c, d, pos);
 	if(extract_to_file) {
 		do_extract_comment(c, d, pos, len, is_main);
 	}
@@ -203,8 +204,8 @@ static int do_global_header(deark *c, lctx *d, i64 pos1)
 		do_comment(c, d, d->archive_comment_pos, d->archive_comment_len, "archive comment",
 			1, d->extract_comments_to_files);
 
-		d->modgen = de_getbyte_p(&pos);
-		de_dbg(c, "archive-level versioning settings (\"vdata\"): 0x%02x", (UI)d->modgen);
+		d->vdata = de_getbyte_p(&pos);
+		de_dbg(c, "archive-level versioning settings (\"vdata\"): 0x%02x", (UI)d->vdata);
 	}
 after_ext_hdr:
 
@@ -468,8 +469,8 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	de_dbg_indent(c, -1);
 
 	if(hdr_endpos-pos < 1) goto done_with_header;
-	md->modgen = de_getbyte_p(&pos);
-	de_dbg(c, "versioning settings (\"vflag\"): 0x%02x", (UI)md->modgen);
+	md->vflag = de_getbyte_p(&pos);
+	de_dbg(c, "versioning settings (\"vflag\"): 0x%02x", (UI)md->vflag);
 
 	if(hdr_endpos-pos < 2) goto done_with_header;
 	md->ver = (unsigned int)de_getu16le_p(&pos);
@@ -567,7 +568,7 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
-	on_offset_found(c, d, pos1);
+	on_offset_found(c, d, pos1, 1);
 
 	md = de_malloc(c, sizeof(struct member_data));
 	md->fi = de_finfo_create(c);
@@ -576,7 +577,7 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 	if (!do_member_header(c, d, md, pos1)) {
 		goto done;
 	}
-	if(md->cmpr_len) on_offset_found(c, d, md->cmpr_pos);
+	on_offset_found(c, d, md->cmpr_pos, md->cmpr_len);
 
 	*next_member_hdr_pos = md->next_member_hdr_pos;
 
@@ -590,7 +591,8 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 	}
 
 	if ( (md->majver>2) || (md->majver==2 && md->minver>1) ) {
-		de_err(c, "Unsupported format version: %d.%d",
+		de_err(c, "%s: Unsupported format version: %d.%d",
+			get_member_name_for_msg(c, d, md),
 			(int)md->majver, (int)md->minver);
 		goto done;
 	}
@@ -709,6 +711,7 @@ static void de_run_zoo(deark *c, de_module_params *mparams)
 	d->extract_comments_to_files = (c->extract_level>=2);
 
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
+	d->min_offset_found = c->infile->len;
 
 	if(!do_global_header(c, d, pos)) {
 		de_err(c, "Bad global header");
