@@ -395,7 +395,7 @@ int de_run(deark *c)
 
 	if(c->output_style==DE_OUTPUTSTYLE_DIRECT &&
 		c->max_output_files > DE_DEFAULT_MAX_OUTPUT_FILES &&
-		!c->user_set_max_output_files)
+		!c->list_mode && !c->user_set_max_output_files)
 	{
 		c->max_output_files = DE_DEFAULT_MAX_OUTPUT_FILES;
 	}
@@ -411,8 +411,10 @@ int de_run(deark *c)
 		}
 	}
 
-	if(de_get_ext_option_bool(c, "list:fileid", 0)) {
-		c->list_mode_include_file_id = 1;
+	if(c->list_mode) {
+		if(de_get_ext_option_bool(c, "list:fileid", 0)) {
+			c->list_mode_include_file_id = 1;
+		}
 	}
 
 	if(c->modcodes_req) {
