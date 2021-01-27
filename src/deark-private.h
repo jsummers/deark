@@ -410,7 +410,6 @@ struct deark_struct {
 	const char *dprefix;
 
 	u8 deflate_decoder_id;
-	u8 implode_decoder_id;
 	u8 tmpflag1;
 	u8 tmpflag2;
 	u8 pngcprlevel_valid;

@@ -156,8 +156,6 @@ static void print_license(deark *c)
 	"----------\n"
 	"The zlib and Deflate encoder and decoder use MIT-licensed code from miniz,\n"
 	"(c) Rich Geldreich, Tenacious Software, RAD Game Tools, Valve Software.\n\n"
-	"The ZIP Implode decoder is derived from public domain code by Mark Adler, from\n"
-	"Info-ZIP UnZip v5.4.\n\n"
 	"The X-Face decoder uses code from Compface, Copyright (c) 1990 James Ashton.\n");
 }
 

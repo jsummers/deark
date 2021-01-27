@@ -1295,7 +1295,7 @@ done:
 #define IMPLODE_FLAG_8KDICT 0x0002
 #define IMPLODE_FLAG_3TREES 0x0004
 
-static void fmtutil_decompress_zip_implode_native(deark *c, struct de_dfilter_in_params *dcmpri,
+void fmtutil_decompress_zip_implode(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	struct de_zipimplode_params *params)
 {
@@ -1343,28 +1343,4 @@ static void fmtutil_decompress_zip_implode_native(deark *c, struct de_dfilter_in
 
 done:
 	destroy_lzh_ctx(cctx);
-}
-
-void fmtutil_decompress_zip_implode(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	struct de_zipimplode_params *params)
-{
-	if(c->implode_decoder_id==0) {
-		const char *o;
-
-		o = de_get_ext_option(c, "implodecodec");
-		if(o && !de_strcmp(o, "native")) {
-			c->implode_decoder_id = 2;
-		}
-		else {
-			c->implode_decoder_id = 1;
-		}
-	}
-
-	if(c->implode_decoder_id==2) {
-		fmtutil_decompress_zip_implode_native(c, dcmpri, dcmpro, dres, params);
-	}
-	else {
-		fmtutil_decompress_zip_implode_ui6a(c, dcmpri, dcmpro, dres, params);
-	}
 }
