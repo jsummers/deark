@@ -46,6 +46,10 @@ Command-line options:
 -o &lt;name>
    Output filenames begin with this string. This can include a directory
    path. Default is "output", except in some cases when using -zip/-tar.
+-t &lt;name>
+   Use exactly this filename for the first (and presumably only) output file.
+   The "-maxfiles 1" option is enabled automatically. Including the -main
+   option is suggested.
 -k, -k2, -k3
    "Keep" the input filename, and use it as the initial part of the output
    filename(s). Incompatible with -o.
@@ -74,7 +78,7 @@ Command-line options:
    Write output files to a .tar file, instead of to individual files.
    Similar to -zip, but may work better with large files.
    The -tostdout option is not currently supported when using -tar.
--arcfn &lt;filename>
+-ta &lt;filename> (alias: -arcfn)
    When using -zip/-tar, use this name for the output file. Default is
    "output.zip" or "output.tar".
 -ka, -ka2, -ka3

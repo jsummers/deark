@@ -81,8 +81,9 @@ void de_set_module_init_codes(deark *c, const char *codes);
 // See DE_OUTPUTSTYLE_ defs in deark.h
 void de_set_output_style(deark *c, int x, int subtype);
 
-void de_set_base_output_filename(deark *c, const char *dirname, const char *fn,
+void de_set_output_filename_pattern(deark *c, const char *dirname, const char *fn,
 	unsigned int flags);
+void de_set_output_special_1st_filename(deark *c, const char *dirname, const char *fn);
 
 void de_set_output_archive_filename(deark *c, const char *dirname, const char *fn,
 	unsigned int flags);

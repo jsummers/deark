@@ -48,6 +48,7 @@ struct cmdctx {
 
 	const char *output_dirname;
 	const char *base_output_filename;
+	const char *output_special_1st_filename;
 	const char *archive_filename;
 	int option_k_level; // Use input filename in output filenames
 	int option_ka_level; // Use input filename in output archive filenames
@@ -399,7 +400,7 @@ enum opt_id_enum {
  DE_OPT_EXTOPT, DE_OPT_FILE, DE_OPT_FILE2, DE_OPT_INENC, DE_OPT_INTZ,
  DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_MODCODES, DE_OPT_O, DE_OPT_OD,
  DE_OPT_K, DE_OPT_K2, DE_OPT_K3, DE_OPT_KA, DE_OPT_KA2, DE_OPT_KA3,
- DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES,
+ DE_OPT_T, DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES,
  DE_OPT_MAXFILESIZE, DE_OPT_MAXTOTALSIZE, DE_OPT_MAXIMGDIM,
  DE_OPT_PRINTMODULES, DE_OPT_DPREFIX, DE_OPT_EXTRLIST,
  DE_OPT_ONLYMODS, DE_OPT_DISABLEMODS, DE_OPT_ONLYDETECT, DE_OPT_NODETECT,
@@ -466,6 +467,8 @@ struct opt_struct option_array[] = {
 	{ "o",            DE_OPT_O,            1 },
 	{ "basefn",       DE_OPT_O,            1 }, // Deprecated
 	{ "od",           DE_OPT_OD,           1 },
+	{ "t",            DE_OPT_T,            1 },
+	{ "ta",           DE_OPT_ARCFN,        1 },
 	{ "arcfn",        DE_OPT_ARCFN,        1 },
 	{ "get",          DE_OPT_GET,          1 },
 	{ "firstfile",    DE_OPT_FIRSTFILE,    1 },
@@ -565,7 +568,7 @@ static void set_output_basename(struct cmdctx *cc)
 		outdirname = cc->output_dirname;
 	}
 
-	de_set_base_output_filename(cc->c, outdirname, outputbasefn, flags);
+	de_set_output_filename_pattern(cc->c, outdirname, outputbasefn, flags);
 }
 
 static void set_output_archive_name(struct cmdctx *cc)
@@ -601,6 +604,17 @@ static void set_output_archive_name(struct cmdctx *cc)
 	}
 
 	de_set_output_archive_filename(cc->c, cc->output_dirname, arcfn, flags);
+}
+
+static void handle_special_1st_filename(struct cmdctx *cc)
+{
+	if(!cc->output_special_1st_filename) return;
+	de_set_output_special_1st_filename(cc->c,
+		((cc->to_zip || cc->to_tar || cc->to_stdout) ? NULL : cc->output_dirname),
+		cc->output_special_1st_filename);
+	if(!cc->set_MAXFILES) {
+		de_set_max_output_files(cc->c, 1);
+	}
 }
 
 static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
@@ -805,6 +819,9 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 			case DE_OPT_OD:
 				cc->output_dirname = argv[i+1];
 				break;
+			case DE_OPT_T:
+				cc->output_special_1st_filename = argv[i+1];
+				break;
 			case DE_OPT_ARCFN:
 				// Relevant e.g. if the -zip option is used.
 				cc->archive_filename = argv[i+1];
@@ -903,6 +920,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 
 	set_output_basename(cc);
 	set_output_archive_name(cc);
+	handle_special_1st_filename(cc);
 }
 
 static int main2(int argc, char **argv)

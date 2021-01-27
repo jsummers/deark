@@ -489,6 +489,7 @@ void de_destroy(deark *c)
 		de_free(c, c->ext_option[i].val);
 	}
 	if(c->base_output_filename) { de_free(c, c->base_output_filename); }
+	if(c->special_1st_filename) { de_free(c, c->special_1st_filename); }
 	if(c->output_archive_filename) { de_free(c, c->output_archive_filename); }
 	if(c->extrlist_filename) { de_free(c, c->extrlist_filename); }
 	if(c->detection_data) { de_free(c, c->detection_data); }
@@ -632,7 +633,7 @@ done:
 // flags:
 //  0x1 = use base filename only
 //  0x2 = remove path separators
-void de_set_base_output_filename(deark *c, const char *dirname, const char *fn,
+void de_set_output_filename_pattern(deark *c, const char *dirname, const char *fn,
 	unsigned int flags)
 {
 	if(c->base_output_filename) de_free(c, c->base_output_filename);
@@ -640,6 +641,18 @@ void de_set_base_output_filename(deark *c, const char *dirname, const char *fn,
 	if(!fn && !dirname) return;
 	if(!fn) fn = "output";
 	c->base_output_filename = make_output_filename(c, dirname, fn, NULL, flags);
+}
+
+//  Use exactly fn for the first output file (no ".000.")
+void de_set_output_special_1st_filename(deark *c, const char *dirname, const char *fn)
+{
+	if(c->special_1st_filename) {
+		de_free(c, c->special_1st_filename);
+		c->special_1st_filename = NULL;
+	}
+	if(fn) {
+		c->special_1st_filename = make_output_filename(c, dirname, fn, NULL, 0);
+	}
 }
 
 // If flags&0x10, configure the archive file to be written to stdout.

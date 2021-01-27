@@ -1159,6 +1159,11 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 	{
 		de_strlcpy(nbuf, ".", sizeof(nbuf));
 	}
+	else if(c->special_1st_filename && (file_index==c->first_output_file) &&
+		!is_directory)
+	{
+		de_strlcpy(nbuf, c->special_1st_filename, sizeof(nbuf));
+	}
 	else if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE && !c->base_output_filename &&
 		fi && fi->original_filename_flag && name_from_finfo)
 	{

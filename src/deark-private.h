@@ -420,6 +420,7 @@ struct deark_struct {
 	dbuf *extrlist_dbuf;
 
 	char *base_output_filename;
+	char *special_1st_filename;
 	char *output_archive_filename;
 	char *extrlist_filename;
 
