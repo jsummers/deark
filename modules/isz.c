@@ -5,6 +5,7 @@
 // InstallShield Z
 
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_is_z);
 
 #define ISZ_MAX_DIRS          1000 // arbitrary
@@ -16,7 +17,7 @@ struct dir_array_item {
 };
 
 struct member_data {
-	i64 unc_size;
+	i64 orig_size;
 	i64 cmpr_size;
 	i64 cmpr_data_pos;
 	UI dir_id;
@@ -33,6 +34,46 @@ typedef struct localctx_struct {
 
 	struct dir_array_item *dir_array; // array[num_dirs]
 } lctx;
+
+static void extract_file(deark *c, lctx *d, struct member_data *md)
+{
+	dbuf *outf = NULL;
+	de_finfo *fi = NULL;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
+	if(md->cmpr_data_pos + md->cmpr_size > c->infile->len) {
+		de_err(c, "%s: Data goes beyond end of file",
+			ucstring_getpsz_d(md->fname));
+		goto done;
+	}
+
+	fi = de_finfo_create(c);
+	de_finfo_set_name_from_ucstring(c, fi, md->full_fname, DE_SNFLAG_FULLPATH);
+	fi->original_filename_flag = 1;
+
+	outf = dbuf_create_output_file(c, NULL, fi, 0);
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = md->cmpr_data_pos;
+	dcmpri.len = md->cmpr_size;
+	dcmpro.f = outf;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = md->orig_size;
+
+	fmtutil_dclimplode_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
+	if(dres.errcode) {
+		de_err(c, "%s: Decompression failed: %s", ucstring_getpsz_d(md->fname),
+			de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
+
+done:
+	dbuf_close(outf);
+	de_finfo_destroy(c, fi);
+}
 
 static int do_one_file(deark *c, lctx *d, i64 pos1, i64 *pbytes_consumed)
 {
@@ -59,9 +100,9 @@ static int do_one_file(deark *c, lctx *d, i64 pos1, i64 *pbytes_consumed)
 		goto done;
 	}
 	di = &d->dir_array[md->dir_id];
-	
-	md->unc_size = de_getu32le_p(&pos); // 3
-	de_dbg(c, "orig size: %"I64_FMT, md->unc_size);
+
+	md->orig_size = de_getu32le_p(&pos); // 3
+	de_dbg(c, "orig size: %"I64_FMT, md->orig_size);
 	md->cmpr_size = de_getu32le_p(&pos); // 7
 	de_dbg(c, "cmpr size: %"I64_FMT, md->cmpr_size);
 	md->cmpr_data_pos = de_getu32le_p(&pos); // 11
@@ -87,11 +128,12 @@ static int do_one_file(deark *c, lctx *d, i64 pos1, i64 *pbytes_consumed)
 	}
 	md->full_fname = ucstring_clone(di->dname);
 	ucstring_append_ucstring(md->full_fname, md->fname);
-
 	de_dbg(c, "full name: \"%s\"", ucstring_getpsz_d(md->full_fname));
 
 	*pbytes_consumed = segment_size;
 	retval = 1;
+
+	extract_file(c, d, md);
 
 done:
 	if(md) {

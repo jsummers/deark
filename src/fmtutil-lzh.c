@@ -45,6 +45,7 @@ struct lzh_ctx {
 	u8 implode_8k_buffer;
 	u8 implode_3_trees;
 	UI implode_min_match_len;
+	UI dist_code_extra_bits;
 };
 
 static void lzh_destroy_trees(struct lzh_ctx *cctx);
@@ -529,6 +530,18 @@ static void lzh_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 	struct lzh_ctx *cctx = (struct lzh_ctx*)rb->userdata;
 
 	if(lzh_have_enough_output(cctx)) {
+		return;
+	}
+	dbuf_writebyte(cctx->dcmpro->f, n);
+	cctx->nbytes_written++;
+}
+
+static void lzh_lz77buf_writebytecb_flagerrors(struct de_lz77buffer *rb, u8 n)
+{
+	struct lzh_ctx *cctx = (struct lzh_ctx*)rb->userdata;
+
+	if(lzh_have_enough_output(cctx)) {
+		cctx->err_flag = 1;
 		return;
 	}
 	dbuf_writebyte(cctx->dcmpro->f, n);
@@ -1331,6 +1344,177 @@ void fmtutil_decompress_zip_implode(deark *c, struct de_dfilter_in_params *dcmpr
 	if(cctx->err_flag) {
 		// A default error message
 		de_dfilter_set_errorf(c, dres, cctx->modname, "Implode decoding error");
+		goto done;
+	}
+
+	de_bitreader_skip_to_byte_boundary(&cctx->bitrd);
+	cctx->dres->bytes_consumed = cctx->bitrd.curpos - cctx->dcmpri->pos;
+	if(cctx->dres->bytes_consumed<0) {
+		cctx->dres->bytes_consumed = 0;
+	}
+	cctx->dres->bytes_consumed_valid = 1;
+
+done:
+	destroy_lzh_ctx(cctx);
+}
+
+///////////////////// PKWARE DCL Implode
+
+static const u8 dclimpl_litlengths[256] = {
+	11,12,12,12,12,12,12,12,12,8,7,12,12,7,12,12,12,12,12,12,12,12,12,12,12,12,
+	13,12,12,12,12,12,4,10,8,12,10,12,10,8,7,7,8,9,7,6,7,8,7,6,7,7,7,7,8,7,7,8,
+	8,12,11,7,9,11,12,6,7,6,6,5,7,8,8,6,11,9,6,7,6,6,7,11,6,6,6,7,9,8,9,9,11,8,
+	11,9,12,8,12,5,6,6,6,5,6,6,6,5,11,7,5,6,5,5,6,10,5,5,5,5,8,7,8,8,10,11,11,
+	12,12,12,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,
+	13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,
+	13,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,
+	12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,13,
+	12,13,13,13,12,13,13,13,12,13,13,13,13,12,13,13,13,12,12,12,13,13,13,13,13,
+	13,13,13,13,13,13 } ;
+static const u8 dclimpl_lenlengths[16] = { 2,3,3,3,4,4,4,5,5,5,5,6,6,6,7,7 };
+static const u8 dclimpl_distlengths[64] = {
+	2,4,4,5,5,5,5,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+	7,7,7,7,7,7,7,7,7,7,7,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8 };
+
+static void make_dclimplode_tree(deark *c, struct lzh_ctx *cctx, struct lzh_tree_wrapper *tree,
+	i64 num_codes, const u8 *codelengths)
+{
+	i64 i;
+
+	tree->ht = fmtutil_huffman_create_tree(c, num_codes, num_codes);
+
+	for(i=0; i<num_codes; i++) {
+		fmtutil_huffman_record_a_code_length(c, tree->ht, (fmtutil_huffman_valtype)i,
+			(UI)codelengths[i]);
+	}
+
+	fmtutil_huffman_make_canonical_tree(c, tree->ht,
+		FMTUTIL_MCTFLAG_LEFT_ALIGN_BRANCHES | FMTUTIL_MCTFLAG_LAST_CODE_FIRST);
+}
+
+static void dclimplode_internal(struct lzh_ctx *cctx)
+{
+	deark *c = cctx->c;
+	u8 b;
+
+	b = (u8)lzh_getbits(cctx, 8);
+	if(b==1) {
+		cctx->implode_3_trees = 1;
+	}
+	else if(b!=0) {
+		cctx->err_flag = 1;
+		goto done;
+	}
+	de_dbg2(c, "has literals tree: %u", (UI)cctx->implode_3_trees);
+
+	cctx->dist_code_extra_bits = (UI)lzh_getbits(cctx, 8);
+	de_dbg2(c, "dist code extra bits: %u", cctx->dist_code_extra_bits);
+	if(cctx->dist_code_extra_bits<4 || cctx->dist_code_extra_bits>6) {
+		cctx->err_flag = 1;
+		goto done;
+	}
+
+	if(cctx->implode_3_trees) {
+		make_dclimplode_tree(c, cctx, &cctx->codes_tree, 256, dclimpl_litlengths);
+	}
+	make_dclimplode_tree(c, cctx, &cctx->matchlengths_tree, 16, dclimpl_lenlengths);
+	make_dclimplode_tree(c, cctx, &cctx->offsets_tree, 64, dclimpl_distlengths);
+
+	// Need at least:
+	//  1024 if dist_code_extra_bits==4
+	//  2048 if dist_code_extra_bits==5
+	//  4096 if dist_code_extra_bits==6
+	cctx->ringbuf = de_lz77buffer_create(cctx->c, 4096);
+	cctx->ringbuf->userdata = (void*)cctx;
+	cctx->ringbuf->writebyte_cb = lzh_lz77buf_writebytecb_flagerrors;
+
+	while(1) {
+		UI n;
+
+		if(cctx->bitrd.eof_flag || cctx->err_flag) {
+			cctx->err_flag = 1;
+			goto done;
+		}
+
+		n = (UI)lzh_getbits(cctx, 1);
+		if(n==0) { // literal
+			u8 b;
+
+			if(cctx->codes_tree.ht) {
+				b = (u8)read_next_code_using_tree(cctx, &cctx->codes_tree);
+			}
+			else {
+				b = (u8)lzh_getbits(cctx, 8);
+			}
+			de_lz77buffer_add_literal_byte(cctx->ringbuf, b);
+		}
+		else {
+			UI matchlen_code, matchlen;
+			UI more_bits_count;
+			UI more_bits;
+			UI offset_code, offset;
+
+			matchlen_code = (UI)read_next_code_using_tree(cctx, &cctx->matchlengths_tree);
+			if(matchlen_code>=16) goto done;
+
+			if(matchlen_code==0) {
+				matchlen = 3;
+			}
+			else if(matchlen_code==1) {
+				matchlen = 2;
+			}
+			else if(matchlen_code<=7) {
+				matchlen = matchlen_code + 2;
+			}
+			else { // 8..15
+				more_bits_count = matchlen_code - 7;
+				more_bits = (UI)lzh_getbits(cctx, more_bits_count);
+				matchlen = (1U << more_bits_count) + more_bits + 8;
+			}
+			if(matchlen==519) goto done;
+
+			offset_code = (UI)read_next_code_using_tree(cctx, &cctx->offsets_tree);
+			if(matchlen==2) {
+				more_bits_count = 2;
+			}
+			else {
+				more_bits_count = cctx->dist_code_extra_bits;
+			}
+			more_bits = (UI)lzh_getbits(cctx, more_bits_count);
+			offset = (offset_code << more_bits_count) + more_bits;
+
+			de_lz77buffer_copy_from_hist(cctx->ringbuf,
+				(UI)(cctx->ringbuf->curpos-1-offset), matchlen);
+		}
+	}
+
+done:
+	;
+}
+
+void fmtutil_dclimplode_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params)
+{
+	struct lzh_ctx *cctx = NULL;
+
+	cctx = de_malloc(c, sizeof(struct lzh_ctx));
+	cctx->modname = "dclimplode";
+	cctx->c = c;
+	cctx->dcmpri = dcmpri;
+	cctx->dcmpro = dcmpro;
+	cctx->dres = dres;
+
+	cctx->bitrd.bbll.is_lsb = 1;
+	cctx->bitrd.f = dcmpri->f;
+	cctx->bitrd.curpos = dcmpri->pos;
+	cctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
+
+	dclimplode_internal(cctx);
+
+	if(cctx->err_flag) {
+		// A default error message
+		de_dfilter_set_errorf(c, dres, cctx->modname, "Decoding error");
 		goto done;
 	}
 

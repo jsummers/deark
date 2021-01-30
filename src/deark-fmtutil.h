@@ -269,6 +269,10 @@ void fmtutil_decompress_zip_implode(deark *c, struct de_dfilter_in_params *dcmpr
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	struct de_zipimplode_params *params);
 
+void fmtutil_dclimplode_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params);
+
 // Wrapper for miniz' tdefl functions
 
 enum fmtutil_tdefl_status {
