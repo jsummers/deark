@@ -754,6 +754,9 @@ Deark -- Information about supported formats
 * tar (module="tar")
   - Rare files may need "-m tar", as tar is difficult to autodetect.
 
+* TTComp (module="ttcomp")
+  - In rare cases, you may have to use "-m ttcomp".
+
 * WOZ (module="woz") (incomplete)
   Apple II disk image format.
   - Some metadata is parsed, but the disk contents are not extracted or listed.

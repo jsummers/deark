@@ -50,6 +50,7 @@ DE_DECLARE_MODULE(de_module_corel_bmf);
 DE_DECLARE_MODULE(de_module_hpi);
 DE_DECLARE_MODULE(de_module_dwc);
 DE_DECLARE_MODULE(de_module_mdesk_icn);
+DE_DECLARE_MODULE(de_module_ttcomp);
 
 // **************************************************************************
 // "copy" module
@@ -2705,4 +2706,62 @@ void de_module_mdesk_icn(deark *c, struct deark_module_info *mi)
 	mi->desc = "Magic Desk icon";
 	mi->run_fn = de_run_mdesk_icn;
 	mi->identify_fn = de_identify_mdesk_icn;
+}
+
+// **************************************************************************
+// TTComp
+// **************************************************************************
+
+static void de_run_ttcomp(deark *c, de_module_params *mparams)
+{
+	dbuf *outf = NULL;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
+	outf = dbuf_create_output_file(c, "unc", NULL, 0);
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = 0;
+	dcmpri.len = c->infile->len;
+	dcmpro.f = outf;
+
+	fmtutil_dclimplode_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
+	}
+
+	dbuf_close(outf);
+}
+
+static int de_identify_ttcomp(deark *c)
+{
+	u8 b0, b1;
+
+	if(c->infile->len<5) return 0;
+	b0 = de_getbyte(0);
+	if(b0>1) return 0;
+	b1 = de_getbyte(1);
+	if(b1<4 || b1>6) return 0;
+
+	// Look for the end-of-data code in the last 2 or 3 bytes.
+	// Assumes the last byte is padded with '0' bits, and there are
+	// no extraneous bytes after that.
+	u32 x = (u32)de_getu32le(c->infile->len-4);
+	for(int i=0; i<8; i++) {
+		if((x & 0xfffffc00U)==0x01fe0000U) {
+			if(b0==0 && b1==6) return 40;
+			return 10;
+		}
+		x >>= 1;
+	}
+	return 0;
+}
+
+void de_module_ttcomp(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "ttcomp";
+	mi->desc = "TTComp";
+	mi->run_fn = de_run_ttcomp;
+	mi->identify_fn = de_identify_ttcomp;
 }
