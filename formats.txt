@@ -660,6 +660,8 @@ Deark -- Information about supported formats
 * HFS filesystem image (module="hfs") (experimental/incomplete)
   - Incomplete support, but should be enough for most CD-ROM images.
 
+* InstallShield Z archive (module="is_z") (experimental)
+
 * ISO 9660 CD-ROM image (module="iso9660")
   Options
    -opt iso9660:tolower - Convert filenames to lowercase. Does not affect Rock
