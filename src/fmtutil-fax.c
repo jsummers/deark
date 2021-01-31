@@ -90,12 +90,12 @@ static void create_fax34_huffman_tree2d(deark *c, struct fax34_huffman_tree *f34
 {
 	size_t i;
 
-	 f34ht->two_d_codes = fmtutil_huffman_create_tree(c, 16, 16);
+	f34ht->two_d_codes = fmtutil_huffman_create_tree(c, 16, 16);
 
-	 for(i=0; i<DE_ARRAYCOUNT(fax34_2dcodes); i++) {
-		 fmtutil_huffman_add_code(c, f34ht->two_d_codes, (u64)fax34_2dcodes[i],
-			 (UI)fax34_2dcodelengths[i], (fmtutil_huffman_valtype)fax34_2dvals[i]);
-	 }
+	for(i=0; i<DE_ARRAYCOUNT(fax34_2dcodes); i++) {
+		fmtutil_huffman_add_code(c, f34ht->two_d_codes, (u64)fax34_2dcodes[i],
+			(UI)fax34_2dcodelengths[i], (fmtutil_huffman_valtype)fax34_2dvals[i]);
+	}
 }
 
 // To make a well-formed Huffman tree, we need to account for all the codes
@@ -142,29 +142,29 @@ static const u8 fax34blackcodelengths[105] = {
 
 static struct fax34_huffman_tree *create_fax34_huffman_tree(deark *c, int need_2d)
 {
-	 struct fax34_huffman_tree *f34ht;
-	 i64 i;
-	 static const i64 num_white_codes = (i64)DE_ARRAYCOUNT(fax34whitecodes);
-	 static const i64 num_black_codes = (i64)DE_ARRAYCOUNT(fax34blackcodes);
+	struct fax34_huffman_tree *f34ht;
+	i64 i;
+	static const i64 num_white_codes = (i64)DE_ARRAYCOUNT(fax34whitecodes);
+	static const i64 num_black_codes = (i64)DE_ARRAYCOUNT(fax34blackcodes);
 
-	 f34ht = de_malloc(c, sizeof(struct fax34_huffman_tree));
-	 f34ht->htwb[0] = fmtutil_huffman_create_tree(c, num_white_codes+10, 0);
-	 f34ht->htwb[1] = fmtutil_huffman_create_tree(c, num_black_codes+10, 0);
+	f34ht = de_malloc(c, sizeof(struct fax34_huffman_tree));
+	f34ht->htwb[0] = fmtutil_huffman_create_tree(c, num_white_codes+10, 0);
+	f34ht->htwb[1] = fmtutil_huffman_create_tree(c, num_black_codes+10, 0);
 
-	 if(need_2d) {
-		 create_fax34_huffman_tree2d(c, f34ht);
-	 }
+	if(need_2d) {
+		create_fax34_huffman_tree2d(c, f34ht);
+	}
 
-	 for(i=0; i<num_white_codes; i++) {
-		 fmtutil_huffman_add_code(c, f34ht->htwb[0], (u64)fax34whitecodes[i],
-			 (UI)fax34whitecodelengths[i], (fmtutil_huffman_valtype)fax34vals[i]);
-	 }
-	 for(i=0; i<num_black_codes; i++) {
-		 fmtutil_huffman_add_code(c, f34ht->htwb[1], (u64)fax34blackcodes[i],
-			 (UI)fax34blackcodelengths[i], (fmtutil_huffman_valtype)fax34vals[i]);
-	 }
+	for(i=0; i<num_white_codes; i++) {
+		fmtutil_huffman_add_code(c, f34ht->htwb[0], (u64)fax34whitecodes[i],
+			(UI)fax34whitecodelengths[i], (fmtutil_huffman_valtype)fax34vals[i]);
+	}
+	for(i=0; i<num_black_codes; i++) {
+		fmtutil_huffman_add_code(c, f34ht->htwb[1], (u64)fax34blackcodes[i],
+			(UI)fax34blackcodelengths[i], (fmtutil_huffman_valtype)fax34vals[i]);
+	}
 
-	 return f34ht;
+	return f34ht;
 }
 
 static void destroy_fax34_huffman_tree(deark *c, struct fax34_huffman_tree *f34ht)
