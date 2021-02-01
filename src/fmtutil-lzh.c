@@ -404,13 +404,13 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 			cctx->zero_codes_block_warned = 1;
 		}
 
-		if(cctx->zero_codes_block_behavior==DE_LZH_ZCB_0) {
+		if(cctx->zero_codes_block_behavior==DE_LH5X_ZCB_0) {
 			;
 		}
-		else if(cctx->zero_codes_block_behavior==DE_LZH_ZCB_65536) {
+		else if(cctx->zero_codes_block_behavior==DE_LH5X_ZCB_65536) {
 			ncodes_in_this_block = 65536;
 		}
-		else if(cctx->zero_codes_block_behavior==DE_LZH_ZCB_STOP) {
+		else if(cctx->zero_codes_block_behavior==DE_LH5X_ZCB_STOP) {
 			de_dbg2(c, "stopping, 'stop' code found");
 			cctx->bitrd.eof_flag = 1;
 			goto done;
@@ -548,34 +548,39 @@ static void lzh_lz77buf_writebytecb_flagerrors(struct de_lz77buffer *rb, u8 n)
 	cctx->nbytes_written++;
 }
 
-static void decompress_lha_lh5like(struct lzh_ctx *cctx, struct de_lzh_params *lzhp)
+static void decompress_lh5x_internal(struct lzh_ctx *cctx, struct de_lh5x_params *lzhp)
 {
 	int blk_idx = 0;
 	UI rb_size;
 
 	cctx->lh5x_literals_tree_max_codes = 510;
 
-	if(lzhp->fmt==DE_LZH_FMT_LHARK) {
+	if(lzhp->fmt==DE_LH5X_FMT_LH5) {
+		rb_size = 8192;
+		cctx->lh5x_offsets_tree_fields_nbits = 4;
+		cctx->lh5x_offsets_tree_max_codes = 14;
+	}
+	else if(lzhp->fmt==DE_LH5X_FMT_LH6) {
+		rb_size = 32768;
+		cctx->lh5x_offsets_tree_fields_nbits = 5;
+		cctx->lh5x_offsets_tree_max_codes = 16;
+	}
+	else if(lzhp->fmt==DE_LH5X_FMT_LH7) {
+		rb_size = 65536;
+		cctx->lh5x_offsets_tree_fields_nbits = 5;
+		cctx->lh5x_offsets_tree_max_codes = 17;
+	}
+	else if(lzhp->fmt==DE_LH5X_FMT_LHARK) {
 		cctx->is_lhark_lh7 = 1;
 		rb_size = 65536;
 		cctx->lh5x_literals_tree_max_codes = 289;
 		cctx->lh5x_offsets_tree_fields_nbits = 6;
 		cctx->lh5x_offsets_tree_max_codes = 32;
 	}
-	else if(lzhp->subfmt=='6') {
-		rb_size = 32768;
-		cctx->lh5x_offsets_tree_fields_nbits = 5;
-		cctx->lh5x_offsets_tree_max_codes = 16;
-	}
-	else if(lzhp->subfmt=='7' || lzhp->subfmt=='8') {
-		rb_size = 65536;
-		cctx->lh5x_offsets_tree_fields_nbits = 5;
-		cctx->lh5x_offsets_tree_max_codes = 17;
-	}
-	else { // assume lh5 (or lh4, for which these params should also work)
-		rb_size = 8192;
-		cctx->lh5x_offsets_tree_fields_nbits = 4;
-		cctx->lh5x_offsets_tree_max_codes = 14;
+	else {
+		de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
+			"Don't know how to decompress this LZH format");
+		goto done;
 	}
 
 	cctx->zero_codes_block_behavior = lzhp->zero_codes_block_behavior;
@@ -584,13 +589,8 @@ static void decompress_lha_lh5like(struct lzh_ctx *cctx, struct de_lzh_params *l
 	cctx->ringbuf = de_lz77buffer_create(cctx->c, rb_size);
 	cctx->ringbuf->userdata = (void*)cctx;
 	cctx->ringbuf->writebyte_cb = lzh_lz77buf_writebytecb;
-	if(lzhp->use_history_fill_val) {
-		if(lzhp->history_fill_val!=0x00) {
-			de_lz77buffer_clear(cctx->ringbuf, lzhp->history_fill_val);
-		}
-	}
-	else {
-		de_lz77buffer_clear(cctx->ringbuf, 0x20);
+	if(lzhp->history_fill_val!=0x00) {
+		de_lz77buffer_clear(cctx->ringbuf, lzhp->history_fill_val);
 	}
 
 	while(1) {
@@ -600,11 +600,14 @@ static void decompress_lha_lh5like(struct lzh_ctx *cctx, struct de_lzh_params *l
 		lh5x_do_lzh_block(cctx, blk_idx);
 		blk_idx++;
 	}
+
+done:
+	;
 }
 
-void fmtutil_decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
+void fmtutil_decompress_lh5x(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	struct de_lzh_params *lzhp)
+	struct de_lh5x_params *lzhp)
 {
 	struct lzh_ctx *cctx = NULL;
 
@@ -619,18 +622,7 @@ void fmtutil_decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 	cctx->bitrd.curpos = dcmpri->pos;
 	cctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
 
-	if(lzhp->fmt==DE_LZH_FMT_LH5LIKE && (lzhp->subfmt>='4' && lzhp->subfmt<='8'))
-	{
-		decompress_lha_lh5like(cctx, lzhp);
-	}
-	else if(lzhp->fmt==DE_LZH_FMT_LHARK) {
-		decompress_lha_lh5like(cctx, lzhp);
-	}
-	else {
-		de_dfilter_set_errorf(c, dres, cctx->modname,
-			"Don't know how to decompress this LZH format");
-		goto done;
-	}
+	decompress_lh5x_internal(cctx, lzhp);
 
 	if(cctx->err_flag) {
 		// A default error message
@@ -649,12 +641,12 @@ done:
 	destroy_lzh_ctx(cctx);
 }
 
-void fmtutil_lzh_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+void fmtutil_lh5x_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params)
 {
-	fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres,
-		(struct de_lzh_params *)codec_private_params);
+	fmtutil_decompress_lh5x(c, dcmpri, dcmpro, dres,
+		(struct de_lh5x_params *)codec_private_params);
 }
 
 //////////////////// Deflate - native decoder (not miniz)
@@ -1047,8 +1039,6 @@ static void decompress_deflate_internal(struct lzh_ctx *cctx)
 	}
 }
 
-// Maybe deflate ought to be handled by fmtutil_decompress_lzh(), but for
-// convenience it may be best to keep it separate.
 static void fmtutil_deflate_codectype1_native(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params)

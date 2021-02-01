@@ -706,52 +706,59 @@ static void decompress_uncompressed(deark *c, lctx *d, struct member_data *md,
 	fmtutil_decompress_uncompressed(c, dcmpri, dcmpro, dres, 0);
 }
 
-static void decompress_lhark_lh7(deark *c, lctx *d, struct member_data *md,
+// Caller supplies fmt (DE_LH5X_FMT_*).
+static void decompress_lh5x_internal(deark *c, lctx *d,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
-	struct de_dfilter_results *dres)
+	struct de_dfilter_results *dres, int fmt)
 {
-	struct de_lzh_params lzhparams;
+	struct de_lh5x_params lzhparams;
 
-	de_zeromem(&lzhparams, sizeof(struct de_lzh_params));
-	lzhparams.fmt = DE_LZH_FMT_LHARK;
-	lzhparams.zero_codes_block_behavior = DE_LZH_ZCB_65536;
+	de_zeromem(&lzhparams, sizeof(struct de_lh5x_params));
+	lzhparams.fmt = fmt;
+	lzhparams.zero_codes_block_behavior = DE_LH5X_ZCB_65536;
 	lzhparams.warn_about_zero_codes_block = 1;
-	fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres, &lzhparams);
+	lzhparams.history_fill_val = 0x20;
+	fmtutil_decompress_lh5x(c, dcmpri, dcmpro, dres, &lzhparams);
 }
 
-// Compression method will be selected based on id_raw[3], which
-// should be '4'...'8'.
-static void decompress_lh5x(deark *c, lctx *d, struct member_data *md,
+// Compression method will be selected based on id_raw[3] (which
+// should be '4'...'8'), etc.
+static void decompress_lh5x_auto(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	struct de_lzh_params lzhparams;
+	int fmt;
 
-	if(d->lhark_fmt && md->cmi->id_raw[3]=='7') {
-		decompress_lhark_lh7(c, d, md, dcmpri, dcmpro, dres);
+	switch(md->cmi->id_raw[3]) {
+	case '4': case '5':
+		fmt = DE_LH5X_FMT_LH5;
+		break;
+	case '6':
+		fmt = DE_LH5X_FMT_LH6;
+		break;
+	case '7':
+		if(d->lhark_fmt) {
+			fmt = DE_LH5X_FMT_LHARK;
+		}
+		else {
+			fmt = DE_LH5X_FMT_LH7;
+		}
+		break;
+	case '8':
+		fmt = DE_LH5X_FMT_LH7;
+		break;
+	default:
 		return;
 	}
 
-	de_zeromem(&lzhparams, sizeof(struct de_lzh_params));
-	lzhparams.fmt = DE_LZH_FMT_LH5LIKE;
-	lzhparams.subfmt = md->cmi->id_raw[3];
-	lzhparams.zero_codes_block_behavior = DE_LZH_ZCB_65536;
-	lzhparams.warn_about_zero_codes_block = 1;
-	fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres, &lzhparams);
+	decompress_lh5x_internal(c, d, dcmpri, dcmpro, dres, fmt);
 }
 
 static void decompress_lh5(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	struct de_lzh_params lzhparams;
-
-	de_zeromem(&lzhparams, sizeof(struct de_lzh_params));
-	lzhparams.fmt = DE_LZH_FMT_LH5LIKE;
-	lzhparams.subfmt = '5';
-	lzhparams.zero_codes_block_behavior = DE_LZH_ZCB_65536;
-	lzhparams.warn_about_zero_codes_block = 1;
-	fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres, &lzhparams);
+	decompress_lh5x_internal(c, d, dcmpri, dcmpro, dres, DE_LH5X_FMT_LH5);
 }
 
 static void decompress_lz5(deark *c, lctx *d, struct member_data *md,
@@ -775,11 +782,11 @@ static const struct cmpr_meth_array_item cmpr_meth_arr[] = {
 	{ 0x00, CODE_lhd, "directory", NULL },
 	{ 0x00, CODE_lh0, "uncompressed", decompress_uncompressed },
 	{ 0x00, CODE_lh1, "LZ77-4K, adaptive Huffman", NULL },
-	{ 0x00, CODE_lh4, NULL, decompress_lh5x },
+	{ 0x00, CODE_lh4, NULL, decompress_lh5x_auto },
 	{ 0x00, CODE_lh5, "LZ77-8K, static Huffman", decompress_lh5 },
-	{ 0x00, CODE_lh6, "LZ77-32K, static Huffman", decompress_lh5x },
-	{ 0x00, CODE_lh7, NULL, decompress_lh5x },
-	{ 0x00, CODE_lh8, NULL, decompress_lh5x },
+	{ 0x00, CODE_lh6, "LZ77-32K, static Huffman", decompress_lh5x_auto },
+	{ 0x00, CODE_lh7, NULL, decompress_lh5x_auto },
+	{ 0x00, CODE_lh8, NULL, decompress_lh5x_auto },
 	{ 0x00, CODE_lz4, "uncompressed (LArc)", decompress_uncompressed },
 	{ 0x00, CODE_lz5, "LZSS-4K (LArc)", decompress_lz5 },
 	{ 0x00, CODE_pm0, "uncompressed (PMArc)", decompress_uncompressed },

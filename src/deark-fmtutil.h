@@ -177,27 +177,27 @@ void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
 void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 void dfilter_packbits_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 
-struct de_lzh_params {
-#define DE_LZH_FMT_LH5LIKE       1 // subfmt=='5' (etc.)
-#define DE_LZH_FMT_LHARK         2 // Only use this with -lh7-
+struct de_lh5x_params {
+#define DE_LH5X_FMT_LH5     5
+#define DE_LH5X_FMT_LH6     6
+#define DE_LH5X_FMT_LH7     7
+#define DE_LH5X_FMT_LHARK   100
 	int fmt;
-	int subfmt;
 
 	// How to handle a block with "0" codes:
-#define DE_LZH_ZCB_ERROR 0
-#define DE_LZH_ZCB_STOP  1
-#define DE_LZH_ZCB_0     2
-#define DE_LZH_ZCB_65536 3
+#define DE_LH5X_ZCB_ERROR 0
+#define DE_LH5X_ZCB_STOP  1
+#define DE_LH5X_ZCB_0     2
+#define DE_LH5X_ZCB_65536 3
 	u8 zero_codes_block_behavior;
 	u8 warn_about_zero_codes_block;
 
-	u8 use_history_fill_val;
-	u8 history_fill_val;
+	u8 history_fill_val; // Set to 0x20 (space) if not sure.
 };
-void fmtutil_decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
+void fmtutil_decompress_lh5x(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	struct de_lzh_params *lzhp);
-void fmtutil_lzh_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_lh5x_params *lzhp);
+void fmtutil_lh5x_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params);
 
