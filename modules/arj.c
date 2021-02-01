@@ -699,7 +699,7 @@ done:
 		de_destroy_stringreaderdata(c, md->name_srd);
 		de_free(c, md);
 	}
-	de_dbg_indent(c, -1);
+	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
 
