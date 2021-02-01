@@ -132,7 +132,7 @@ struct dmsheavy_cmpr_state {
 	UI heavy_prev_offset;
 	struct de_lz77buffer *ringbuf;
 	u8 trees_exist;
-	struct lzh_tree_wrapper codes_tree;
+	struct lzh_tree_wrapper literals_tree;
 	struct lzh_tree_wrapper offsets_tree;
 };
 
@@ -313,7 +313,7 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 	}
 
 	if(lzhp->dms_track_flags & 0x02) {
-		dmsheavy_discard_tree(c, &hvst->codes_tree);
+		dmsheavy_discard_tree(c, &hvst->literals_tree);
 		dmsheavy_discard_tree(c, &hvst->offsets_tree);
 		hvst->trees_exist = 0;
 	}
@@ -322,7 +322,7 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 		hvst->trees_exist = 1;
 		de_dbg2(c, "c tree");
 		de_dbg_indent(c, 1);
-		ret = dmsheavy_read_tree(cctx, &hvst->codes_tree, 9, 5);
+		ret = dmsheavy_read_tree(cctx, &hvst->literals_tree, 9, 5);
 		de_dbg_indent(c, -1);
 		if(!ret) goto done;
 
@@ -342,7 +342,7 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 		if(cctx->bitrd.eof_flag) goto done;
 		if(lzh_have_enough_output(cctx)) goto done;
 
-		code = read_next_code_using_tree(cctx, &hvst->codes_tree);
+		code = read_next_code_using_tree(cctx, &hvst->literals_tree);
 		if(cctx->bitrd.eof_flag) goto done;
 		if(c->debug_level>=3) {
 			de_dbg3(c, "code: %u (opos=%"I64_FMT")", code, cctx->dcmpro->f->len);
@@ -389,7 +389,7 @@ done:
 static void destroy_heavy_state(deark *c, struct dmsheavy_cmpr_state *hvst)
 {
 	if(!hvst) return;
-	dmsheavy_discard_tree(c, &hvst->codes_tree);
+	dmsheavy_discard_tree(c, &hvst->literals_tree);
 	dmsheavy_discard_tree(c, &hvst->offsets_tree);
 	de_lz77buffer_destroy(c, hvst->ringbuf);
 }
