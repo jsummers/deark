@@ -161,6 +161,13 @@ static void do_decompress_deflate(deark *c, lctx *d, struct compression_params *
 	fmtutil_decompress_deflate_ex(c, dcmpri, dcmpro, dres, &inflparams);
 }
 
+static void do_decompress_dclimplode(deark *c, lctx *d, struct compression_params *cparams,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	fmtutil_dclimplode_codectype1(c, dcmpri, dcmpro, dres, NULL);
+}
+
 static void do_decompress_stored(deark *c, lctx *d, struct compression_params *cparams,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
@@ -178,7 +185,7 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 6, 0x00, "implode", do_decompress_implode },
 	{ 8, 0x00, "deflate", do_decompress_deflate },
 	{ 9, 0x00, "deflate64", do_decompress_deflate },
-	{ 10, 0x00, "PKWARE DCL implode", NULL },
+	{ 10, 0x00, "PKWARE DCL implode", do_decompress_dclimplode },
 	{ 12, 0x00, "bzip2", NULL },
 	{ 14, 0x00, "LZMA", NULL },
 	{ 16, 0x00, "IBM z/OS CMPSC", NULL },
