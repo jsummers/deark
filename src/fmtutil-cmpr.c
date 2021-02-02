@@ -870,7 +870,7 @@ struct squeeze_ctx {
 	const char *modname;
 	i64 nbytes_written;
 	i64 nodecount;
-	struct fmtutil_huffman_tree *ht;
+	struct fmtutil_huffman_decoder *ht;
 	struct de_bitreader bitrd;
 	struct squeeze_node tmpnodes[SQUEEZE_MAX_NODES]; // Temporary use when decoding the node table
 };
@@ -1041,7 +1041,7 @@ void fmtutil_huff_squeeze_codectype1(deark *c, struct de_dfilter_in_params *dcmp
 	sqctx->bitrd.curpos = dcmpri->pos;
 	sqctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
 
-	sqctx->ht = fmtutil_huffman_create_tree(c, 257, 257);
+	sqctx->ht = fmtutil_huffman_create_decoder(c, 257, 257);
 
 	if(!squeeze_read_nodetable(c, sqctx)) goto done;
 	if(!squeeze_read_codes(c, sqctx)) goto done;
@@ -1059,7 +1059,7 @@ done:
 	}
 
 	if(sqctx) {
-		fmtutil_huffman_destroy_tree(c, sqctx->ht);
+		fmtutil_huffman_destroy_decoder(c, sqctx->ht);
 		de_free(c, sqctx);
 	}
 }

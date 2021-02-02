@@ -187,7 +187,7 @@ struct mslzh_tree {
 	UI enctype;
 	UI num_symbols;
 	MSLZH_SYMLEN_TYPE *symlengths; // array[num_symbols]
-	struct fmtutil_huffman_tree *fmtuht;
+	struct fmtutil_huffman_decoder *fmtuht;
 };
 
 struct mslzh_context {
@@ -481,7 +481,7 @@ static void do_decompress_LZHUFF(deark *c, struct de_dfilter_in_params *dcmpri,
 	lzhctx->htree[MSLZH_TREE_IDX_LITERAL].num_symbols = 256;
 
 	for(k=0; k<MSLZH_NUM_TREES; k++) {
-		lzhctx->htree[k].fmtuht = fmtutil_huffman_create_tree(c,
+		lzhctx->htree[k].fmtuht = fmtutil_huffman_create_decoder(c,
 				lzhctx->htree[k].num_symbols, lzhctx->htree[k].num_symbols);
 	}
 
@@ -525,7 +525,7 @@ done:
 		de_lz77buffer_destroy(c, lzhctx->ringbuf);
 
 		for(tr=0; tr<MSLZH_NUM_TREES; tr++) {
-			fmtutil_huffman_destroy_tree(c, lzhctx->htree[tr].fmtuht);
+			fmtutil_huffman_destroy_decoder(c, lzhctx->htree[tr].fmtuht);
 		}
 		de_free(c, lzhctx);
 	}

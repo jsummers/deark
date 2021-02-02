@@ -13,7 +13,7 @@ DE_DECLARE_MODULE(de_module_pack);
 typedef struct localctx_struct {
 	i64 unc_size;
 	i64 tree_def_size;
-	struct fmtutil_huffman_tree *ht;
+	struct fmtutil_huffman_decoder *ht;
 	struct de_bitreader bitrd;
 
 	UI depth;
@@ -144,7 +144,7 @@ static void de_run_pack(deark *c, de_module_params *mparams)
 	de_dbg(c, "uncompressed size: %"I64_FMT, d->unc_size);
 
 	if(d->unc_size!=0) {
-		d->ht = fmtutil_huffman_create_tree(c, 257, 257);
+		d->ht = fmtutil_huffman_create_decoder(c, 257, 257);
 		if(!read_tree(c, d, pos)) goto done;
 		pos += d->tree_def_size;
 	}
@@ -159,7 +159,7 @@ done:
 	dbuf_close(outf);
 	if(d) {
 		if(d->ht) {
-			fmtutil_huffman_destroy_tree(c, d->ht);
+			fmtutil_huffman_destroy_decoder(c, d->ht);
 		}
 		de_free(c, d);
 	}

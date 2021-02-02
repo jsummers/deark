@@ -1340,7 +1340,7 @@ static void dump_htable_summary(deark *c, lctx *d, const u8 *codecounts)
 static void dump_htable_details(deark *c, lctx *d, i64 pos1, const u8 *codecounts,
 	i64 num_huff_codes)
 {
-	struct fmtutil_huffman_tree *ht = NULL;
+	struct fmtutil_huffman_decoder *ht = NULL;
 	UI symlen;
 	i64 pos = pos1;
 
@@ -1352,7 +1352,7 @@ static void dump_htable_details(deark *c, lctx *d, i64 pos1, const u8 *codecount
 		return;
 	}
 
-	ht = fmtutil_huffman_create_tree(c, 0, 0);
+	ht = fmtutil_huffman_create_decoder(c, 0, 0);
 
 	// Note: Per the JPEG spec, "the all-1-bits code word of any length is
 	// reserved as a prefix for longer code words". So we should not expect to
@@ -1374,7 +1374,7 @@ static void dump_htable_details(deark *c, lctx *d, i64 pos1, const u8 *codecount
 	// We do this only for the side effect of the debug messages.
 	(void)fmtutil_huffman_make_canonical_tree(c, ht, 0);
 
-	fmtutil_huffman_destroy_tree(c, ht);
+	fmtutil_huffman_destroy_decoder(c, ht);
 }
 
 static void handler_dht(deark *c, lctx *d,

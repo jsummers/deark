@@ -123,7 +123,7 @@ static void read_unix_timestamp(deark *c, i64 pos, struct de_timestamp *ts, cons
 // decompressing it.
 
 struct lzh_tree_wrapper {
-	struct fmtutil_huffman_tree *ht;
+	struct fmtutil_huffman_decoder *ht;
 };
 
 // The portion of the Heavy decompression context that can persist between tracks.
@@ -231,7 +231,7 @@ static int dmsheavy_read_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *htw
 	ncodes = (UI)de_bitreader_getbits(&cctx->bitrd, ncodes_nbits);
 	de_dbg2(c, "num codes: %u", ncodes);
 
-	htw->ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
+	htw->ht = fmtutil_huffman_create_decoder(c, (i64)ncodes, (i64)ncodes);
 
 	if(ncodes==0) {
 		UI null_val;
@@ -267,7 +267,7 @@ done:
 static void dmsheavy_discard_tree(deark *c, struct lzh_tree_wrapper *htw)
 {
 	if(htw->ht) {
-		fmtutil_huffman_destroy_tree(c, htw->ht);
+		fmtutil_huffman_destroy_decoder(c, htw->ht);
 		htw->ht = NULL;
 	}
 }

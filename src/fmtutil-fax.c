@@ -10,8 +10,8 @@
 #include "deark-fmtutil.h"
 
 struct fax34_huffman_tree {
-	struct fmtutil_huffman_tree *htwb[2]; // [0]=white, [1]=black
-	struct fmtutil_huffman_tree *_2d_codes;
+	struct fmtutil_huffman_decoder *htwb[2]; // [0]=white, [1]=black
+	struct fmtutil_huffman_decoder *_2d_codes;
 };
 
 struct fax_ctx {
@@ -90,7 +90,7 @@ static void create_fax34_huffman_tree2d(deark *c, struct fax34_huffman_tree *f34
 {
 	size_t i;
 
-	f34ht->_2d_codes = fmtutil_huffman_create_tree(c, 11, 11);
+	f34ht->_2d_codes = fmtutil_huffman_create_decoder(c, 11, 11);
 
 	// Note that this tree could be constructed using
 	//  fmtutil_huffman_make_canonical_tree(..., FMTUTIL_MCTFLAG_LEFT_ALIGN_BRANCHES),
@@ -169,8 +169,8 @@ static struct fax34_huffman_tree *create_fax34_huffman_tree(deark *c, int need_2
 	static const size_t num_black_codes = DE_ARRAYCOUNT(fax34blackcodes);
 
 	f34ht = de_malloc(c, sizeof(struct fax34_huffman_tree));
-	f34ht->htwb[0] = fmtutil_huffman_create_tree(c, (i64)num_white_codes+10, 0);
-	f34ht->htwb[1] = fmtutil_huffman_create_tree(c, (i64)num_black_codes+10, 0);
+	f34ht->htwb[0] = fmtutil_huffman_create_decoder(c, (i64)num_white_codes+10, 0);
+	f34ht->htwb[1] = fmtutil_huffman_create_decoder(c, (i64)num_black_codes+10, 0);
 
 	if(need_2d) {
 		create_fax34_huffman_tree2d(c, f34ht);
@@ -191,9 +191,9 @@ static struct fax34_huffman_tree *create_fax34_huffman_tree(deark *c, int need_2
 static void destroy_fax34_huffman_tree(deark *c, struct fax34_huffman_tree *f34ht)
 {
 	if(!f34ht) return;
-	fmtutil_huffman_destroy_tree(c, f34ht->htwb[0]);
-	fmtutil_huffman_destroy_tree(c, f34ht->htwb[1]);
-	if(f34ht->_2d_codes) fmtutil_huffman_destroy_tree(c, f34ht->_2d_codes);
+	fmtutil_huffman_destroy_decoder(c, f34ht->htwb[0]);
+	fmtutil_huffman_destroy_decoder(c, f34ht->htwb[1]);
+	if(f34ht->_2d_codes) fmtutil_huffman_destroy_decoder(c, f34ht->_2d_codes);
 	de_free(c, f34ht);
 }
 
@@ -233,9 +233,9 @@ done:
 	fc->have_read_tag_bit = 0;
 }
 
-// Record run_len pixels as fc0>a0_color, updating fc->a0.
-// repsect_negative_a0==0: If fc->a0 == -1, sets it to 0 first.
-// repsect_negative_a0==0: If fc->a0 == -1, only sets rec_len-1 pixels.
+// Record run_len pixels as fc0->a0_color, updating fc->a0.
+// respect_negative_a0==0: If fc->a0 == -1, sets it to 0 first.
+// respect_negative_a0==1: If fc->a0 == -1, only sets rec_len-1 pixels.
 static void fax34_record_run(deark *c, struct fax_ctx *fc, i64 run_len,
 	int respect_negative_a0)
 {

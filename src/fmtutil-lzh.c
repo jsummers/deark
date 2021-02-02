@@ -9,7 +9,7 @@
 #include "deark-fmtutil.h"
 
 struct lzh_tree_wrapper {
-	struct fmtutil_huffman_tree *ht;
+	struct fmtutil_huffman_decoder *ht;
 };
 
 struct lzh_ctx {
@@ -159,7 +159,7 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx, struct lzh_tree_wrap
 		ncodes = LH5X_CODELENGTHS_TREE_MAX_CODES;
 	}
 
-	tree->ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
+	tree->ht = fmtutil_huffman_create_decoder(c, (i64)ncodes, (i64)ncodes);
 
 	if(ncodes==0) {
 		UI null_val;
@@ -236,7 +236,7 @@ static int lh5x_read_literals_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper
 	ncodes = (UI)lzh_getbits(cctx, 9);
 	de_dbg2(c, "num codes in %s tree: %u", name, ncodes);
 
-	tree->ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
+	tree->ht = fmtutil_huffman_create_decoder(c, (i64)ncodes, (i64)ncodes);
 
 	if(ncodes>cctx->lh5x_literals_tree_max_codes) {
 		goto done;
@@ -310,7 +310,7 @@ static int lh5x_read_offsets_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper 
 		goto done;
 	}
 
-	tree->ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
+	tree->ht = fmtutil_huffman_create_decoder(c, (i64)ncodes, (i64)ncodes);
 
 	if(ncodes==0) {
 		UI null_val;
@@ -348,19 +348,19 @@ done:
 static void lzh_destroy_trees(struct lzh_ctx *cctx)
 {
 	if(cctx->meta_tree.ht) {
-		fmtutil_huffman_destroy_tree(cctx->c, cctx->meta_tree.ht);
+		fmtutil_huffman_destroy_decoder(cctx->c, cctx->meta_tree.ht);
 		cctx->meta_tree.ht = NULL;
 	}
 	if(cctx->literals_tree.ht) {
-		fmtutil_huffman_destroy_tree(cctx->c, cctx->literals_tree.ht);
+		fmtutil_huffman_destroy_decoder(cctx->c, cctx->literals_tree.ht);
 		cctx->literals_tree.ht = NULL;
 	}
 	if(cctx->offsets_tree.ht) {
-		fmtutil_huffman_destroy_tree(cctx->c, cctx->offsets_tree.ht);
+		fmtutil_huffman_destroy_decoder(cctx->c, cctx->offsets_tree.ht);
 		cctx->offsets_tree.ht = NULL;
 	}
 	if(cctx->matchlengths_tree.ht) {
-		fmtutil_huffman_destroy_tree(cctx->c, cctx->matchlengths_tree.ht);
+		fmtutil_huffman_destroy_decoder(cctx->c, cctx->matchlengths_tree.ht);
 		cctx->matchlengths_tree.ht = NULL;
 	}
 }
@@ -723,7 +723,7 @@ done:
 }
 
 // Call record_a_code_length() for a range of codes, all the same length
-static int huffman_record_len_for_range(deark *c, struct fmtutil_huffman_tree *ht,
+static int huffman_record_len_for_range(deark *c, struct fmtutil_huffman_decoder *ht,
 	fmtutil_huffman_valtype range_start, i64 count, UI codelen)
 {
 	for(i64 i=0; i<count; i++) {
@@ -738,7 +738,7 @@ static int deflate_block_type1_make_fixed_trees(deark *c, struct lzh_ctx *cctx)
 {
 	int retval = 0;
 
-	cctx->literals_tree.ht =  fmtutil_huffman_create_tree(c, 288, 288);
+	cctx->literals_tree.ht =  fmtutil_huffman_create_decoder(c, 288, 288);
 	huffman_record_len_for_range(c, cctx->literals_tree.ht, 0, 144, 8); // 0..143
 	huffman_record_len_for_range(c, cctx->literals_tree.ht, 144, 112, 9); // 144..255
 	huffman_record_len_for_range(c, cctx->literals_tree.ht, 256, 24, 7); // 256..279
@@ -748,7 +748,7 @@ static int deflate_block_type1_make_fixed_trees(deark *c, struct lzh_ctx *cctx)
 
 	// This is a trivial Huffman tree -- We could do without it and just read
 	// 5 bits directly, though we'd have to reverse the order of the bits.
-	cctx->offsets_tree.ht =  fmtutil_huffman_create_tree(c, 32, 32);
+	cctx->offsets_tree.ht =  fmtutil_huffman_create_decoder(c, 32, 32);
 	huffman_record_len_for_range(c, cctx->offsets_tree.ht, 0, 32, 5);
 	de_dbg3(c, "[offsets codebook]");
 	if(!fmtutil_huffman_make_canonical_tree(c, cctx->offsets_tree.ht, 0)) goto done;
@@ -793,7 +793,7 @@ static int deflate_block_type2_read_trees(deark *c, struct lzh_ctx *cctx)
 	// themselves are usually code lengths) used in the rest of the tree
 	// definition section.
 
-	cctx->meta_tree.ht = fmtutil_huffman_create_tree(c, 19, 19);
+	cctx->meta_tree.ht = fmtutil_huffman_create_decoder(c, 19, 19);
 	for(i=0; i<num_bit_length_codes; i++) {
 		n = (UI)lzh_getbits(cctx, 3);
 		cll[(UI)cll_order[i]] = n;
@@ -811,8 +811,8 @@ static int deflate_block_type2_read_trees(deark *c, struct lzh_ctx *cctx)
 	de_dbg3(c, "[codelengths codebook]");
 	if(!fmtutil_huffman_make_canonical_tree(c, cctx->meta_tree.ht, 0)) goto done;
 
-	cctx->literals_tree.ht = fmtutil_huffman_create_tree(c, num_literal_codes, 286);
-	cctx->offsets_tree.ht = fmtutil_huffman_create_tree(c, num_dist_codes, 32);
+	cctx->literals_tree.ht = fmtutil_huffman_create_decoder(c, num_literal_codes, 286);
+	cctx->offsets_tree.ht = fmtutil_huffman_create_decoder(c, num_dist_codes, 32);
 
 	de_dbg3(c, "[main lit/len/offsets definition table]");
 	de_dbg_indent(c, 1);
@@ -1210,18 +1210,18 @@ static int implode_read_trees(struct lzh_ctx *cctx)
 	int retval = 0;
 
 	if(cctx->implode_3_trees) {
-		cctx->literals_tree.ht = fmtutil_huffman_create_tree(cctx->c, 256, 256);
+		cctx->literals_tree.ht = fmtutil_huffman_create_decoder(cctx->c, 256, 256);
 		if(!implode_read_a_tree(cctx, &cctx->literals_tree, 256, "literals")) {
 			goto done;
 		}
 	}
 
-	cctx->matchlengths_tree.ht = fmtutil_huffman_create_tree(cctx->c, 64, 256);
+	cctx->matchlengths_tree.ht = fmtutil_huffman_create_decoder(cctx->c, 64, 256);
 	if(!implode_read_a_tree(cctx, &cctx->matchlengths_tree, 64, "match-lengths")) {
 		goto done;
 	}
 
-	cctx->offsets_tree.ht = fmtutil_huffman_create_tree(cctx->c, 64, 256);
+	cctx->offsets_tree.ht = fmtutil_huffman_create_decoder(cctx->c, 64, 256);
 	if(!implode_read_a_tree(cctx, &cctx->offsets_tree, 64, "offsets")) {
 		goto done;
 	}
@@ -1380,7 +1380,7 @@ static void make_dclimplode_tree(deark *c, struct lzh_ctx *cctx, struct lzh_tree
 {
 	i64 i;
 
-	tree->ht = fmtutil_huffman_create_tree(c, num_codes, num_codes);
+	tree->ht = fmtutil_huffman_create_decoder(c, num_codes, num_codes);
 
 	for(i=0; i<num_codes; i++) {
 		fmtutil_huffman_record_a_code_length(c, tree->ht, (fmtutil_huffman_valtype)i,

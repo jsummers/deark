@@ -585,24 +585,24 @@ i64 fmtutil_hlp_get_csl_p(dbuf *f, i64 *ppos);
 
 #define FMTUTIL_HUFFMAN_MAX_CODE_LENGTH 48
 typedef i32 fmtutil_huffman_valtype;
-struct fmtutil_huffman_tree;
-struct fmtutil_huffman_tree *fmtutil_huffman_create_tree(deark *c, i64 initial_codes, i64 max_codes);
-void fmtutil_huffman_destroy_tree(deark *c, struct fmtutil_huffman_tree *ht);
-void fmtutil_huffman_reset_cursor(struct fmtutil_huffman_tree *ht);
-int fmtutil_huffman_add_code(deark *c, struct fmtutil_huffman_tree *ht,
+struct fmtutil_huffman_decoder;
+struct fmtutil_huffman_decoder *fmtutil_huffman_create_decoder(deark *c, i64 initial_codes, i64 max_codes);
+void fmtutil_huffman_destroy_decoder(deark *c, struct fmtutil_huffman_decoder *ht);
+void fmtutil_huffman_reset_cursor(struct fmtutil_huffman_decoder *ht);
+int fmtutil_huffman_add_code(deark *c, struct fmtutil_huffman_decoder *ht,
 	u64 code, UI code_nbits, fmtutil_huffman_valtype val);
-int fmtutil_huffman_decode_bit(struct fmtutil_huffman_tree *ht, u8 bitval, fmtutil_huffman_valtype *pval);
-int fmtutil_huffman_read_next_value(struct fmtutil_huffman_tree *ht,
+int fmtutil_huffman_decode_bit(struct fmtutil_huffman_decoder *ht, u8 bitval, fmtutil_huffman_valtype *pval);
+int fmtutil_huffman_read_next_value(struct fmtutil_huffman_decoder *ht,
 	struct de_bitreader *bitrd, fmtutil_huffman_valtype *pval, UI *pnbits);
-UI fmtutil_huffman_get_max_bits(struct fmtutil_huffman_tree *ht);
-i64 fmtutil_huffman_get_num_codes(struct fmtutil_huffman_tree *ht);
-void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_tree *ht);
-int fmtutil_huffman_record_a_code_length(deark *c, struct fmtutil_huffman_tree *ht,
+UI fmtutil_huffman_get_max_bits(struct fmtutil_huffman_decoder *ht);
+i64 fmtutil_huffman_get_num_codes(struct fmtutil_huffman_decoder *ht);
+void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_decoder *ht);
+int fmtutil_huffman_record_a_code_length(deark *c, struct fmtutil_huffman_decoder *ht,
 	fmtutil_huffman_valtype val, UI len);
 #define FMTUTIL_MCTFLAG_LEFT_ALIGN_LEAVES     0x0 // default
 #define FMTUTIL_MCTFLAG_LEFT_ALIGN_BRANCHES   0x1
 #define FMTUTIL_MCTFLAG_LAST_CODE_FIRST       0x2 // Pretend codes were added in the reverse order
-int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_tree *ht, UI flags);
+int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_decoder *ht, UI flags);
 
 typedef void (*fmtutil_lz77buffer_cb_type)(struct de_lz77buffer *rb, u8 n);
 

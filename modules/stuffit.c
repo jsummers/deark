@@ -111,7 +111,7 @@ struct sit_huffctx {
 	struct de_dfilter_in_params *dcmpri;
 	struct de_dfilter_out_params *dcmpro;
 	struct de_dfilter_results *dres;
-	struct fmtutil_huffman_tree *ht;
+	struct fmtutil_huffman_decoder *ht;
 	int errflag;
 	struct de_bitreader bitrd;
 };
@@ -171,7 +171,7 @@ static void do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
 	hctx->dcmpri = dcmpri;
 	hctx->dcmpro = dcmpro;
 	hctx->dres = dres;
-	hctx->ht = fmtutil_huffman_create_tree(c, 256, 512);
+	hctx->ht = fmtutil_huffman_create_decoder(c, 256, 512);
 
 	hctx->bitrd.f = dcmpri->f;
 	hctx->bitrd.curpos = dcmpri->pos;
@@ -219,7 +219,7 @@ done:
 		de_dfilter_set_generic_error(c, dres, hctx->modname);
 	}
 	if(hctx) {
-		fmtutil_huffman_destroy_tree(c, hctx->ht);
+		fmtutil_huffman_destroy_decoder(c, hctx->ht);
 		de_free(c, hctx);
 	}
 }
@@ -248,7 +248,7 @@ struct sit_fixedhuffctx {
 	struct de_dfilter_in_params *dcmpri;
 	struct de_dfilter_out_params *dcmpro;
 	struct de_dfilter_results *dres;
-	struct fmtutil_huffman_tree *ht;
+	struct fmtutil_huffman_decoder *ht;
 	int errflag;
 	u8 translation[256];
 };
@@ -340,7 +340,7 @@ static void do_decompr_fixedhuff(deark *c, lctx *d, struct member_data *md,
 	hctx->dcmpri = dcmpri;
 	hctx->dcmpro = dcmpro;
 	hctx->dres = dres;
-	hctx->ht = fmtutil_huffman_create_tree(c, FIXEDHUFF_NUMCODES, 0);
+	hctx->ht = fmtutil_huffman_create_decoder(c, FIXEDHUFF_NUMCODES, 0);
 
 	sit_fixedhuff_init_tree(hctx);
 	if(hctx->errflag) goto done;
@@ -497,7 +497,7 @@ done:
 			de_dfilter_set_generic_error(c, dres, hctx->modname);
 		}
 
-		fmtutil_huffman_destroy_tree(c, hctx->ht);
+		fmtutil_huffman_destroy_decoder(c, hctx->ht);
 		de_free(c, hctx);
 	}
 
