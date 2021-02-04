@@ -146,7 +146,7 @@ static void sit_huff_read_tree(struct sit_huffctx *hctx, u64 curr_code, UI curr_
 				de_print_base2_fixed(b2buf, sizeof(b2buf), curr_code, curr_code_nbits),
 				(int)val);
 		}
-		ret = fmtutil_huffman_add_code(hctx->c, hctx->ht, curr_code, curr_code_nbits, val);
+		ret = fmtutil_huffman_add_code(hctx->c, hctx->ht->bk, curr_code, curr_code_nbits, val);
 		if(!ret) {
 			hctx->errflag = 1;
 		}
@@ -186,7 +186,7 @@ static void do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
 	if(c->debug_level>=4) {
 		fmtutil_huffman_dump(c, hctx->ht);
 	}
-	if(fmtutil_huffman_get_max_bits(hctx->ht)<1) {
+	if(fmtutil_huffman_get_max_bits(hctx->ht->bk)<1) {
 		goto done;
 	}
 
@@ -203,7 +203,7 @@ static void do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
 
 		if(hctx->bitrd.eof_flag || hctx->errflag) break;
 
-		ret = fmtutil_huffman_read_next_value(hctx->ht, &hctx->bitrd, &val, NULL);
+		ret = fmtutil_huffman_read_next_value(hctx->ht->bk, &hctx->bitrd, &val, NULL);
 		if(!ret) {
 			if(hctx->bitrd.eof_flag) break;
 			hctx->errflag = 1;
@@ -309,7 +309,7 @@ static void sit_fixedhuff_init_tree(struct sit_fixedhuffctx *hctx)
 			de_dbg3(c, "code: \"%s\" = %d",
 				de_print_base2_fixed(b2buf, sizeof(b2buf), thiscode, symlen), (int)i);
 		}
-		ret = fmtutil_huffman_add_code(c, hctx->ht, thiscode, symlen, (fmtutil_huffman_valtype)i);
+		ret = fmtutil_huffman_add_code(c, hctx->ht->bk, thiscode, symlen, (fmtutil_huffman_valtype)i);
 		if(!ret) {
 			hctx->errflag = 1;
 			goto done;
@@ -446,7 +446,7 @@ static void do_decompr_fixedhuff(deark *c, lctx *d, struct member_data *md,
 
 				if(nbytes_decoded_intermed >= intermediate_len) break; // Have enough output data
 
-				ret = fmtutil_huffman_read_next_value(hctx->ht, &bitrd, &val, NULL);
+				ret = fmtutil_huffman_read_next_value(hctx->ht->bk, &bitrd, &val, NULL);
 				if(bitrd.eof_flag) break;
 				if(!ret) {
 					de_dfilter_set_errorf(c, dres, hctx->modname, "Error reading Huffman codes");

@@ -198,7 +198,7 @@ static UI read_next_code_using_tree(struct lzh_ctx *cctx, struct lzh_tree_wrappe
 
 	if(!tree->ht) goto done;
 
-	ret = fmtutil_huffman_read_next_value(tree->ht, &cctx->bitrd, &val, NULL);
+	ret = fmtutil_huffman_read_next_value(tree->ht->bk, &cctx->bitrd, &val, NULL);
 	if(cctx->bitrd.eof_flag) {
 		de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
 			"Unexpected end of compressed data");
@@ -237,7 +237,7 @@ static int dmsheavy_read_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *htw
 		UI null_val;
 
 		null_val = (UI)de_bitreader_getbits(&cctx->bitrd, ncodes_nbits);
-		fmtutil_huffman_add_code(c, htw->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
+		fmtutil_huffman_add_code(c, htw->ht->bk, 0, 0, (fmtutil_huffman_valtype)null_val);
 		de_dbg3(c, "val0: %u", null_val);
 		retval = 1;
 		goto done;
@@ -249,12 +249,12 @@ static int dmsheavy_read_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *htw
 
 		symlen = (UI)de_bitreader_getbits(&cctx->bitrd, symlen_nbits);
 		de_dbg3(c, "len[%u] = %u", curr_idx, symlen);
-		fmtutil_huffman_record_a_code_length(c, htw->ht, (fmtutil_huffman_valtype)curr_idx, symlen);
+		fmtutil_huffman_record_a_code_length(c, htw->ht->builder, (fmtutil_huffman_valtype)curr_idx, symlen);
 		curr_idx++;
 	}
 	if(cctx->bitrd.eof_flag) goto done;
 
-	if(!fmtutil_huffman_make_canonical_tree(c, htw->ht, 0)) goto done;
+	if(!fmtutil_huffman_make_canonical_code(c, htw->ht->bk, htw->ht->builder, 0)) goto done;
 
 	retval = 1;
 done:

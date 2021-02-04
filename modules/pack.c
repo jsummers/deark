@@ -59,16 +59,16 @@ static int read_tree(deark *c, lctx *d, i64 pos1)
 
 			ch = de_getbyte_p(&pos);
 			de_dbg3(c, "lv=%u ch=%u", lv, (UI)ch);
-			fmtutil_huffman_record_a_code_length(c, d->ht, (fmtutil_huffman_valtype)ch, lv+1);
+			fmtutil_huffman_record_a_code_length(c, d->ht->builder, (fmtutil_huffman_valtype)ch, lv+1);
 		}
 
 		if(lv==d->depth-1) {
 			de_dbg3(c, "lv=%u EOF", lv);
-			fmtutil_huffman_record_a_code_length(c, d->ht, (fmtutil_huffman_valtype)PCK_EOF_CODE, lv+1);
+			fmtutil_huffman_record_a_code_length(c, d->ht->builder, (fmtutil_huffman_valtype)PCK_EOF_CODE, lv+1);
 		}
 	}
 
-	if(!fmtutil_huffman_make_canonical_tree(c, d->ht, FMTUTIL_MCTFLAG_LEFT_ALIGN_BRANCHES)) {
+	if(!fmtutil_huffman_make_canonical_code(c, d->ht->bk, d->ht->builder, FMTUTIL_MCTFLAG_LEFT_ALIGN_BRANCHES)) {
 		de_err(c, "Failed to decode Huffman tree");
 	}
 
@@ -97,7 +97,7 @@ static void decode_file_data(deark *c, lctx *d, i64 pos1, dbuf *outf)
 		int ret;
 		fmtutil_huffman_valtype val = 0;
 
-		ret = fmtutil_huffman_read_next_value(d->ht, &d->bitrd, &val, NULL);
+		ret = fmtutil_huffman_read_next_value(d->ht->bk, &d->bitrd, &val, NULL);
 		if(ret && c->debug_level>=3) {
 			de_dbg3(c, "val: %d", (int)val);
 		}

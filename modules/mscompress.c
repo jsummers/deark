@@ -310,9 +310,9 @@ static MSLZH_VALUE_TYPE mslzh_getnextcode(struct mslzh_context *lzhctx,
 	fmtutil_huffman_valtype val = 0;
 	int ret;
 
-	fmtutil_huffman_reset_cursor(htr->fmtuht); // Should be unnecessary
+	fmtutil_huffman_reset_cursor(htr->fmtuht->cursor); // Should be unnecessary
 
-	ret = fmtutil_huffman_read_next_value(htr->fmtuht, &lzhctx->bitrd, &val, NULL);
+	ret = fmtutil_huffman_read_next_value(htr->fmtuht->bk, &lzhctx->bitrd, &val, NULL);
 	if(!ret) return 0;
 	return (MSLZH_VALUE_TYPE)val;
 }
@@ -357,11 +357,11 @@ static void mslzh_read_huffman_tree(struct mslzh_context *lzhctx, UI idx)
 
 	for(i=0; i<htr->num_symbols; i++) {
 		de_dbg2(c, "length[%u] = %u", i, (UI)htr->symlengths[i]);
-		fmtutil_huffman_record_a_code_length(c, htr->fmtuht, (fmtutil_huffman_valtype)i,
+		fmtutil_huffman_record_a_code_length(c, htr->fmtuht->builder, (fmtutil_huffman_valtype)i,
 			(UI)htr->symlengths[i]);
 	}
 
-	if(!fmtutil_huffman_make_canonical_tree(c, htr->fmtuht, 0)) {
+	if(!fmtutil_huffman_make_canonical_code(c, htr->fmtuht->bk, htr->fmtuht->builder, 0)) {
 		de_dfilter_set_errorf(c, lzhctx->dres, lzhctx->modname, "Failed to construct Huffman tree");
 		mslzh_set_errorflag(lzhctx);
 		goto done;

@@ -59,12 +59,6 @@ struct fmtutil_huffman_codebook {
 	UI max_bits;
 };
 
-struct fmtutil_huffman_decoder {
-	struct fmtutil_huffman_cursor *cursor;
-	struct fmtutil_huffman_codebook *bk;
-	struct fmtutil_huffman_code_builder *builder;
-};
-
 // Ensure that at least n nodes are allocated (0 through n-1)
 static int huffman_ensure_alloc(deark *c, struct fmtutil_huffman_codebook *bk, NODE_REF_TYPE n)
 {
@@ -104,23 +98,23 @@ static void huffman_setchildstatus(struct fmtutil_huffman_codebook *bk, NODE_REF
 // The size of the longest current code.
 // This is mainly for debugging info -- it is not guaranteed to be correct if
 // the tree was constructed improperly.
-UI fmtutil_huffman_get_max_bits(struct fmtutil_huffman_decoder *ht)
+UI fmtutil_huffman_get_max_bits(struct fmtutil_huffman_codebook *bk)
 {
-	return ht->bk->max_bits;
+	return bk->max_bits;
 }
 
 // The number of codes (symbols) in the the tree.
 // This is mainly for debugging info -- it is not guaranteed to be correct if
 // the tree was constructed improperly.
-i64 fmtutil_huffman_get_num_codes(struct fmtutil_huffman_decoder *ht)
+i64 fmtutil_huffman_get_num_codes(struct fmtutil_huffman_codebook *bk)
 {
-	if(ht->bk->num_codes>=0) return ht->bk->num_codes;
+	if(bk->num_codes>=0) return bk->num_codes;
 	return 0;
 }
 
-void fmtutil_huffman_reset_cursor(struct fmtutil_huffman_decoder *ht)
+void fmtutil_huffman_reset_cursor(struct fmtutil_huffman_cursor *cursor)
 {
-	ht->cursor->curr_noderef = 0;
+	cursor->curr_noderef = 0;
 }
 
 // Add a code, adding to the current tree structure as needed. Codes can be
@@ -131,7 +125,7 @@ void fmtutil_huffman_reset_cursor(struct fmtutil_huffman_decoder *ht)
 // the decoding functions. Such errors will not necessarily be detected.
 //
 // Note that adding the 0-length code is allowed.
-static int fmtutil_huffman_add_code_cb(deark *c, struct fmtutil_huffman_codebook *bk,
+int fmtutil_huffman_add_code(deark *c, struct fmtutil_huffman_codebook *bk,
 	u64 code, UI code_nbits, fmtutil_huffman_valtype val)
 {
 	UI k;
@@ -198,12 +192,6 @@ done:
 	return retval;
 }
 
-int fmtutil_huffman_add_code(deark *c, struct fmtutil_huffman_decoder *ht,
-	u64 code, UI code_nbits, fmtutil_huffman_valtype val)
-{
-	return fmtutil_huffman_add_code_cb(c, ht->bk, code, code_nbits, val);
-}
-
 // Caller supplies one bit of data to the decoder (the low bit of bitval).
 // Returns:
 //  1 = This was the last bit of a code; value returned in *pval
@@ -211,12 +199,12 @@ int fmtutil_huffman_add_code(deark *c, struct fmtutil_huffman_decoder *ht,
 //  0 = Error (*pval unchanged)
 // If return value is not 2, resets the cursor before returning.
 // Note that, by itself, this function cannot read the zero-length code.
-int fmtutil_huffman_decode_bit(struct fmtutil_huffman_decoder *ht, u8 bitval, fmtutil_huffman_valtype *pval)
+int fmtutil_huffman_decode_bit(struct fmtutil_huffman_codebook *bk, struct fmtutil_huffman_cursor *cursor,
+	u8 bitval, fmtutil_huffman_valtype *pval)
 {
 	UI child_idx;
 	int retval = 0;
-	struct fmtutil_huffman_codebook *bk = ht->bk;
-	NODE_REF_TYPE curr_noderef = ht->cursor->curr_noderef;
+	NODE_REF_TYPE curr_noderef = cursor->curr_noderef;
 
 	if(curr_noderef >= bk->nodes_alloc) goto done;
 	if(curr_noderef >= bk->next_avail_node) goto done;
@@ -228,14 +216,14 @@ int fmtutil_huffman_decode_bit(struct fmtutil_huffman_decoder *ht, u8 bitval, fm
 		goto done;
 	}
 	else if(bk->nodes[curr_noderef].child_status[child_idx]==CHILDSTATUS_POINTER) {
-		ht->cursor->curr_noderef = bk->nodes[curr_noderef].child[child_idx].hnpd.noderef;
+		cursor->curr_noderef = bk->nodes[curr_noderef].child[child_idx].hnpd.noderef;
 		retval = 2;
 		goto done;
 	}
 
 done:
 	if(retval!=2) {
-		fmtutil_huffman_reset_cursor(ht);
+		fmtutil_huffman_reset_cursor(cursor);
 	}
 	return retval;
 }
@@ -247,16 +235,18 @@ done:
 //  nonzero on success
 //  0 on error - Can happen if the tree was not constructed properly, or on EOF
 //    (bitrd->eof_flag can distinguish these cases).
-int fmtutil_huffman_read_next_value(struct fmtutil_huffman_decoder *ht,
+int fmtutil_huffman_read_next_value(struct fmtutil_huffman_codebook *bk,
 	struct de_bitreader *bitrd, fmtutil_huffman_valtype *pval, UI *pnbits)
 {
 	int bitcount = 0;
 	int retval = 0;
+	struct fmtutil_huffman_cursor tmpcursor;
 
 	if(bitrd->eof_flag) goto done;
+	tmpcursor.curr_noderef = 0;
 
-	if(ht->bk->has_null_code) {
-		*pval = ht->bk->value_of_null_code;
+	if(bk->has_null_code) {
+		*pval = bk->value_of_null_code;
 		retval = 1;
 		goto done;
 	}
@@ -270,7 +260,7 @@ int fmtutil_huffman_read_next_value(struct fmtutil_huffman_decoder *ht,
 		bitcount++;
 		if(bitcount>FMTUTIL_HUFFMAN_MAX_CODE_LENGTH) goto done; // Should be impossible
 
-		ret = fmtutil_huffman_decode_bit(ht, b, pval);
+		ret = fmtutil_huffman_decode_bit(bk, &tmpcursor, b, pval);
 		if(ret==1) { // finished the code
 			retval = 1;
 			goto done;
@@ -298,8 +288,8 @@ void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_decoder *ht)
 	de_dbg(c, "internal huffman table:");
 	de_dbg_indent(c, 1);
 
-	de_dbg(c, "number of codes: %"I64_FMT, fmtutil_huffman_get_num_codes(ht));
-	de_dbg(c, "max code size: %u bits", fmtutil_huffman_get_max_bits(ht));
+	de_dbg(c, "number of codes: %"I64_FMT, fmtutil_huffman_get_num_codes(ht->bk));
+	de_dbg(c, "max code size: %u bits", fmtutil_huffman_get_max_bits(ht->bk));
 	tmps = ucstring_create(c);
 	for(k=0; k<ht->bk->next_avail_node && k<ht->bk->nodes_alloc; k++) {
 		UI child_idx;
@@ -336,11 +326,9 @@ void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_decoder *ht)
 // The order that you supply the items matters, at least within the set of items
 // having the same length.
 // Cannot be used for zero-length items. If len==0, it's a successful no-op.
-int fmtutil_huffman_record_a_code_length(deark *c, struct fmtutil_huffman_decoder *ht,
+int fmtutil_huffman_record_a_code_length(deark *c, struct fmtutil_huffman_code_builder *builder,
 	fmtutil_huffman_valtype val, UI len)
 {
-	struct fmtutil_huffman_code_builder *builder = ht->builder;
-
 	if(len==0) return 1;
 	if(len > FMTUTIL_HUFFMAN_MAX_CODE_LENGTH) return 0;
 	if(builder->lengths_arr_numused > MAX_MAX_NODES) return 0;
@@ -400,7 +388,7 @@ static int fmtutil_huffman_make_canonical_tree1(deark *c, struct fmtutil_huffman
 					de_print_base2_fixed(b2buf, sizeof(b2buf), thiscode, symlen),
 					(int)builder->lengths_arr[k].val);
 			}
-			ret = fmtutil_huffman_add_code_cb(c, bk, thiscode, symlen, builder->lengths_arr[k].val);
+			ret = fmtutil_huffman_add_code(c, bk, thiscode, symlen, builder->lengths_arr[k].val);
 			if(!ret) {
 				goto done;
 			}
@@ -451,7 +439,7 @@ static int fmtutil_huffman_make_canonical_tree2(deark *c, struct fmtutil_huffman
 					de_print_base2_fixed(b2buf, sizeof(b2buf), this_code, symlen),
 					(int)builder->lengths_arr[k].val);
 			}
-			ret = fmtutil_huffman_add_code_cb(c, bk, this_code, symlen, builder->lengths_arr[k].val);
+			ret = fmtutil_huffman_add_code(c, bk, this_code, symlen, builder->lengths_arr[k].val);
 			if(!ret) {
 				goto done;
 			}
@@ -478,10 +466,9 @@ static void reverse_lengths_array(struct fmtutil_huffman_code_builder *builder)
 
 // Call this after calling huffman_record_item_length() (usually many times).
 // Creates a canonical Huffman tree derived from the known code lengths.
-int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_decoder *ht, UI flags)
+int fmtutil_huffman_make_canonical_code(deark *c, struct fmtutil_huffman_codebook *bk,
+	struct fmtutil_huffman_code_builder *builder, UI flags)
 {
-	struct fmtutil_huffman_codebook *bk = ht->bk;
-	struct fmtutil_huffman_code_builder *builder = ht->builder;
 	UI max_sym_len_used;
 	UI i;
 	int saved_indent_level;
@@ -577,7 +564,7 @@ struct fmtutil_huffman_decoder *fmtutil_huffman_create_decoder(deark *c, i64 ini
 	ht->cursor = de_malloc(c, sizeof(struct fmtutil_huffman_cursor));
 	ht->bk = huffman_create_codebook(c, initial_codes, max_codes);
 	ht->builder = de_malloc(c, sizeof(struct fmtutil_huffman_code_builder));
-	fmtutil_huffman_reset_cursor(ht);
+	fmtutil_huffman_reset_cursor(ht->cursor);
 	return ht;
 }
 

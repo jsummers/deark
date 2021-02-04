@@ -98,7 +98,7 @@ static void create_fax34_huffman_tree2d(deark *c, struct fax34_huffman_tree *f34
 	// get rid of an 11-byte table.
 
 	for(i=0; i<DE_ARRAYCOUNT(fax34_2dcodes); i++) {
-		fmtutil_huffman_add_code(c, f34ht->_2d_codes, (u64)fax34_2dcodes[i],
+		fmtutil_huffman_add_code(c, f34ht->_2d_codes->bk, (u64)fax34_2dcodes[i],
 			(UI)fax34_2dcodelengths[i], (fmtutil_huffman_valtype)fax34_2dvals[i]);
 	}
 }
@@ -177,11 +177,11 @@ static struct fax34_huffman_tree *create_fax34_huffman_tree(deark *c, int need_2
 	}
 
 	for(i=0; i<num_white_codes; i++) {
-		fmtutil_huffman_add_code(c, f34ht->htwb[0], (u64)fax34whitecodes[i],
+		fmtutil_huffman_add_code(c, f34ht->htwb[0]->bk, (u64)fax34whitecodes[i],
 			getfax34codelength(0, i), getfax34val(i));
 	}
 	for(i=0; i<num_black_codes; i++) {
-		fmtutil_huffman_add_code(c, f34ht->htwb[1], (u64)fax34blackcodes[i],
+		fmtutil_huffman_add_code(c, f34ht->htwb[1]->bk, (u64)fax34blackcodes[i],
 			getfax34codelength(1, i), getfax34val(i));
 	}
 
@@ -455,7 +455,7 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 		}
 
 		if(in_2d_mode) {
-			ret = fmtutil_huffman_read_next_value(f34ht->_2d_codes, &fc->bitrd, &val, NULL);
+			ret = fmtutil_huffman_read_next_value(f34ht->_2d_codes->bk, &fc->bitrd, &val, NULL);
 			if(!ret) {
 				if(fc->bitrd.eof_flag) {
 					de_snprintf(errmsg, sizeof(errmsg), errmsg_UNEXPECTEDEOD);
@@ -511,7 +511,7 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 			}
 		}
 		else {
-			ret = fmtutil_huffman_read_next_value(f34ht->htwb[(UI)fc->a0_color], &fc->bitrd, &val, NULL);
+			ret = fmtutil_huffman_read_next_value(f34ht->htwb[(UI)fc->a0_color]->bk, &fc->bitrd, &val, NULL);
 			if(!ret) {
 				if(fc->bitrd.eof_flag) {
 					de_snprintf(errmsg, sizeof(errmsg), errmsg_UNEXPECTEDEOD);

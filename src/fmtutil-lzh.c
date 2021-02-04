@@ -108,7 +108,7 @@ static UI read_next_code_using_tree(struct lzh_ctx *cctx, struct lzh_tree_wrappe
 		return 0;
 	}
 
-	ret = fmtutil_huffman_read_next_value(tree->ht, &cctx->bitrd, &val, &bitcount);
+	ret = fmtutil_huffman_read_next_value(tree->ht->bk, &cctx->bitrd, &val, &bitcount);
 	if(cctx->bitrd.eof_flag) {
 		de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
 			"Unexpected end of compressed data");
@@ -166,7 +166,7 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx, struct lzh_tree_wrap
 
 		null_val = (UI)lzh_getbits(cctx, 5);
 		de_dbg3(c, "val0: %u", null_val);
-		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
+		fmtutil_huffman_add_code(c, tree->ht->bk, 0, 0, (fmtutil_huffman_valtype)null_val);
 		retval = 1;
 		goto done;
 	}
@@ -177,7 +177,7 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx, struct lzh_tree_wrap
 
 		symlen = lh5x_read_a_code_length(cctx);
 		de_dbg3(c, "len[%u] = %u", curr_idx, symlen);
-		fmtutil_huffman_record_a_code_length(c, tree->ht, (fmtutil_huffman_valtype)curr_idx, symlen);
+		fmtutil_huffman_record_a_code_length(c, tree->ht->builder, (fmtutil_huffman_valtype)curr_idx, symlen);
 		curr_idx++;
 
 		if(curr_idx==3) {
@@ -195,7 +195,7 @@ static int lh5x_read_codelengths_tree(struct lzh_ctx *cctx, struct lzh_tree_wrap
 	}
 	if(cctx->bitrd.eof_flag) goto done;
 
-	if(!fmtutil_huffman_make_canonical_tree(c, tree->ht, 0)) goto done;
+	if(!fmtutil_huffman_make_canonical_code(c, tree->ht->bk, tree->ht->builder, 0)) goto done;
 
 	retval = 1;
 done:
@@ -247,7 +247,7 @@ static int lh5x_read_literals_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper
 		null_val = (UI)lzh_getbits(cctx, 9);
 		de_dbg3(c, "val0: %u", null_val);
 		if(null_val >= cctx->lh5x_literals_tree_max_codes) goto done;
-		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
+		fmtutil_huffman_add_code(c, tree->ht->bk, 0, 0, (fmtutil_huffman_valtype)null_val);
 		retval = 1;
 		goto done;
 	}
@@ -271,13 +271,13 @@ static int lh5x_read_literals_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper
 
 			symlen = x-2;
 			de_dbg3(c, "len[%u]: code=%u => len=%u", curr_idx, x, symlen);
-			fmtutil_huffman_record_a_code_length(c, tree->ht, (fmtutil_huffman_valtype)curr_idx, symlen);
+			fmtutil_huffman_record_a_code_length(c, tree->ht->builder, (fmtutil_huffman_valtype)curr_idx, symlen);
 			curr_idx++;
 		}
 	}
 	if(cctx->bitrd.eof_flag) goto done;
 
-	if(!fmtutil_huffman_make_canonical_tree(c, tree->ht, 0)) goto done;
+	if(!fmtutil_huffman_make_canonical_code(c, tree->ht->bk, tree->ht->builder, 0)) goto done;
 
 	retval = 1;
 done:
@@ -318,7 +318,7 @@ static int lh5x_read_offsets_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper 
 		null_val = (UI)lzh_getbits(cctx, cctx->lh5x_offsets_tree_fields_nbits);
 		de_dbg3(c, "val0: %u", null_val);
 		if(null_val >= cctx->lh5x_offsets_tree_max_codes) goto done;
-		fmtutil_huffman_add_code(c, tree->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
+		fmtutil_huffman_add_code(c, tree->ht->bk, 0, 0, (fmtutil_huffman_valtype)null_val);
 		retval = 1;
 		goto done;
 	}
@@ -329,12 +329,12 @@ static int lh5x_read_offsets_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper 
 
 		symlen = lh5x_read_a_code_length(cctx);
 		de_dbg3(c, "len[%u] = %u", curr_idx, symlen);
-		fmtutil_huffman_record_a_code_length(c, tree->ht, (fmtutil_huffman_valtype)curr_idx, symlen);
+		fmtutil_huffman_record_a_code_length(c, tree->ht->builder, (fmtutil_huffman_valtype)curr_idx, symlen);
 		curr_idx++;
 	}
 	if(cctx->bitrd.eof_flag) goto done;
 
-	if(!fmtutil_huffman_make_canonical_tree(c, tree->ht, 0)) goto done;
+	if(!fmtutil_huffman_make_canonical_code(c, tree->ht->bk, tree->ht->builder, 0)) goto done;
 
 	retval = 1;
 done:
@@ -727,7 +727,7 @@ static int huffman_record_len_for_range(deark *c, struct fmtutil_huffman_decoder
 	fmtutil_huffman_valtype range_start, i64 count, UI codelen)
 {
 	for(i64 i=0; i<count; i++) {
-		int ret = fmtutil_huffman_record_a_code_length(c, ht,
+		int ret = fmtutil_huffman_record_a_code_length(c, ht->builder,
 			range_start+(fmtutil_huffman_valtype)i, codelen);
 		if(!ret) return 0;
 	}
@@ -744,14 +744,14 @@ static int deflate_block_type1_make_fixed_trees(deark *c, struct lzh_ctx *cctx)
 	huffman_record_len_for_range(c, cctx->literals_tree.ht, 256, 24, 7); // 256..279
 	huffman_record_len_for_range(c, cctx->literals_tree.ht, 280, 8, 8); // 280..287
 	de_dbg3(c, "[lit/len codebook]");
-	if(!fmtutil_huffman_make_canonical_tree(c, cctx->literals_tree.ht, 0)) goto done;
+	if(!fmtutil_huffman_make_canonical_code(c, cctx->literals_tree.ht->bk, cctx->literals_tree.ht->builder, 0)) goto done;
 
 	// This is a trivial Huffman tree -- We could do without it and just read
 	// 5 bits directly, though we'd have to reverse the order of the bits.
 	cctx->offsets_tree.ht =  fmtutil_huffman_create_decoder(c, 32, 32);
 	huffman_record_len_for_range(c, cctx->offsets_tree.ht, 0, 32, 5);
 	de_dbg3(c, "[offsets codebook]");
-	if(!fmtutil_huffman_make_canonical_tree(c, cctx->offsets_tree.ht, 0)) goto done;
+	if(!fmtutil_huffman_make_canonical_code(c, cctx->offsets_tree.ht->bk, cctx->offsets_tree.ht->builder, 0)) goto done;
 
 	retval = 1;
 done:
@@ -803,13 +803,13 @@ static int deflate_block_type2_read_trees(deark *c, struct lzh_ctx *cctx)
 	}
 	for(i=0; i<19; i++) {
 		if(cll[i]>0) {
-			fmtutil_huffman_record_a_code_length(c, cctx->meta_tree.ht,
+			fmtutil_huffman_record_a_code_length(c, cctx->meta_tree.ht->builder,
 				(fmtutil_huffman_valtype)i, cll[i]);
 		}
 	}
 
 	de_dbg3(c, "[codelengths codebook]");
-	if(!fmtutil_huffman_make_canonical_tree(c, cctx->meta_tree.ht, 0)) goto done;
+	if(!fmtutil_huffman_make_canonical_code(c, cctx->meta_tree.ht->bk, cctx->meta_tree.ht->builder, 0)) goto done;
 
 	cctx->literals_tree.ht = fmtutil_huffman_create_decoder(c, num_literal_codes, 286);
 	cctx->offsets_tree.ht = fmtutil_huffman_create_decoder(c, num_dist_codes, 32);
@@ -868,11 +868,11 @@ static int deflate_block_type2_read_trees(deark *c, struct lzh_ctx *cctx)
 		}
 
 		if(i<num_literal_codes) {
-			ret = fmtutil_huffman_record_a_code_length(c, cctx->literals_tree.ht,
+			ret = fmtutil_huffman_record_a_code_length(c, cctx->literals_tree.ht->builder,
 				(fmtutil_huffman_valtype)i, x);
 		}
 		else {
-			ret = fmtutil_huffman_record_a_code_length(c, cctx->offsets_tree.ht,
+			ret = fmtutil_huffman_record_a_code_length(c, cctx->offsets_tree.ht->builder,
 				(fmtutil_huffman_valtype)(i-code_bias), x);
 		}
 		if(!ret) goto done;
@@ -881,10 +881,10 @@ static int deflate_block_type2_read_trees(deark *c, struct lzh_ctx *cctx)
 	de_dbg_indent(c, -1);
 
 	de_dbg3(c, "[lit/len codebook]");
-	if(!fmtutil_huffman_make_canonical_tree(c, cctx->literals_tree.ht, 0)) goto done;
+	if(!fmtutil_huffman_make_canonical_code(c, cctx->literals_tree.ht->bk, cctx->literals_tree.ht->builder, 0)) goto done;
 
 	de_dbg3(c, "[offsets codebook]");
-	if(!fmtutil_huffman_make_canonical_tree(c, cctx->offsets_tree.ht, 0)) goto done;
+	if(!fmtutil_huffman_make_canonical_code(c, cctx->offsets_tree.ht->bk, cctx->offsets_tree.ht->builder, 0)) goto done;
 
 	retval = 1;
 done:
@@ -1193,7 +1193,7 @@ static int implode_read_a_tree(struct lzh_ctx *cctx,
 	// nothing about the format that really demands it.
 	de_dbg2(c, "number of items: %u (expected %u)", next_val, num_values_expected);
 
-	if(!fmtutil_huffman_make_canonical_tree(c, tree->ht,
+	if(!fmtutil_huffman_make_canonical_code(c, tree->ht->bk, tree->ht->builder,
 		FMTUTIL_MCTFLAG_LEFT_ALIGN_BRANCHES | FMTUTIL_MCTFLAG_LAST_CODE_FIRST))
 	{
 		goto done;
@@ -1383,11 +1383,11 @@ static void make_dclimplode_tree(deark *c, struct lzh_ctx *cctx, struct lzh_tree
 	tree->ht = fmtutil_huffman_create_decoder(c, num_codes, num_codes);
 
 	for(i=0; i<num_codes; i++) {
-		fmtutil_huffman_record_a_code_length(c, tree->ht, (fmtutil_huffman_valtype)i,
+		fmtutil_huffman_record_a_code_length(c, tree->ht->builder, (fmtutil_huffman_valtype)i,
 			dclimplode_getcodelenfromarray(codelengths, (UI)i));
 	}
 
-	fmtutil_huffman_make_canonical_tree(c, tree->ht,
+	fmtutil_huffman_make_canonical_code(c, tree->ht->bk, tree->ht->builder,
 		FMTUTIL_MCTFLAG_LEFT_ALIGN_BRANCHES | FMTUTIL_MCTFLAG_LAST_CODE_FIRST);
 }
 

@@ -1367,12 +1367,12 @@ static void dump_htable_details(deark *c, lctx *d, i64 pos1, const u8 *codecount
 			u8 sym;
 
 			sym = de_getbyte_p(&pos);
-			fmtutil_huffman_record_a_code_length(c, ht, (fmtutil_huffman_valtype)sym, symlen);
+			fmtutil_huffman_record_a_code_length(c, ht->builder, (fmtutil_huffman_valtype)sym, symlen);
 		}
 	}
 
 	// We do this only for the side effect of the debug messages.
-	(void)fmtutil_huffman_make_canonical_tree(c, ht, 0);
+	(void)fmtutil_huffman_make_canonical_code(c, ht->bk, ht->builder, 0);
 
 	fmtutil_huffman_destroy_decoder(c, ht);
 }

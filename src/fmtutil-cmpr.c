@@ -902,7 +902,7 @@ static void squeeze_interpret_dval(struct squeeze_ctx *sqctx,
 				de_print_base2_fixed(b2buf, sizeof(b2buf), currcode, currcode_nbits),
 				(int)adj_value);
 		}
-		fmtutil_huffman_add_code(sqctx->c, sqctx->ht, currcode, currcode_nbits, adj_value);
+		fmtutil_huffman_add_code(sqctx->c, sqctx->ht->bk, currcode, currcode_nbits, adj_value);
 	}
 	// TODO: Report errors?
 }
@@ -984,7 +984,7 @@ static int squeeze_read_codes(deark *c, struct squeeze_ctx *sqctx)
 	sqctx->bitrd.bbll.is_lsb = 1;
 	de_bitbuf_lowlevel_empty(&sqctx->bitrd.bbll);
 
-	if(fmtutil_huffman_get_max_bits(sqctx->ht) < 1) {
+	if(fmtutil_huffman_get_max_bits(sqctx->ht->bk) < 1) {
 		// Empty tree? Assume this is an empty file.
 		retval = 1;
 		goto done;
@@ -994,7 +994,7 @@ static int squeeze_read_codes(deark *c, struct squeeze_ctx *sqctx)
 		int ret;
 		fmtutil_huffman_valtype val = 0;
 
-		ret = fmtutil_huffman_read_next_value(sqctx->ht, &sqctx->bitrd, &val, NULL);
+		ret = fmtutil_huffman_read_next_value(sqctx->ht->bk, &sqctx->bitrd, &val, NULL);
 		if(!ret || val<0 || val>256) {
 			if(sqctx->bitrd.eof_flag) {
 				retval = 1;
