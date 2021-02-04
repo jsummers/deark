@@ -60,9 +60,9 @@ struct fmtutil_huffman_codebook {
 };
 
 struct fmtutil_huffman_decoder {
-	struct fmtutil_huffman_cursor cursor;
-	struct fmtutil_huffman_codebook bk;
-	struct fmtutil_huffman_code_builder builder;
+	struct fmtutil_huffman_cursor *cursor;
+	struct fmtutil_huffman_codebook *bk;
+	struct fmtutil_huffman_code_builder *builder;
 };
 
 // Ensure that at least n nodes are allocated (0 through n-1)
@@ -106,7 +106,7 @@ static void huffman_setchildstatus(struct fmtutil_huffman_codebook *bk, NODE_REF
 // the tree was constructed improperly.
 UI fmtutil_huffman_get_max_bits(struct fmtutil_huffman_decoder *ht)
 {
-	return ht->bk.max_bits;
+	return ht->bk->max_bits;
 }
 
 // The number of codes (symbols) in the the tree.
@@ -114,13 +114,13 @@ UI fmtutil_huffman_get_max_bits(struct fmtutil_huffman_decoder *ht)
 // the tree was constructed improperly.
 i64 fmtutil_huffman_get_num_codes(struct fmtutil_huffman_decoder *ht)
 {
-	if(ht->bk.num_codes>=0) return ht->bk.num_codes;
+	if(ht->bk->num_codes>=0) return ht->bk->num_codes;
 	return 0;
 }
 
 void fmtutil_huffman_reset_cursor(struct fmtutil_huffman_decoder *ht)
 {
-	ht->cursor.curr_noderef = 0;
+	ht->cursor->curr_noderef = 0;
 }
 
 // Add a code, adding to the current tree structure as needed. Codes can be
@@ -201,7 +201,7 @@ done:
 int fmtutil_huffman_add_code(deark *c, struct fmtutil_huffman_decoder *ht,
 	u64 code, UI code_nbits, fmtutil_huffman_valtype val)
 {
-	return fmtutil_huffman_add_code_cb(c, &ht->bk, code, code_nbits, val);
+	return fmtutil_huffman_add_code_cb(c, ht->bk, code, code_nbits, val);
 }
 
 // Caller supplies one bit of data to the decoder (the low bit of bitval).
@@ -215,8 +215,8 @@ int fmtutil_huffman_decode_bit(struct fmtutil_huffman_decoder *ht, u8 bitval, fm
 {
 	UI child_idx;
 	int retval = 0;
-	struct fmtutil_huffman_codebook *bk = &ht->bk;
-	NODE_REF_TYPE curr_noderef = ht->cursor.curr_noderef;
+	struct fmtutil_huffman_codebook *bk = ht->bk;
+	NODE_REF_TYPE curr_noderef = ht->cursor->curr_noderef;
 
 	if(curr_noderef >= bk->nodes_alloc) goto done;
 	if(curr_noderef >= bk->next_avail_node) goto done;
@@ -228,7 +228,7 @@ int fmtutil_huffman_decode_bit(struct fmtutil_huffman_decoder *ht, u8 bitval, fm
 		goto done;
 	}
 	else if(bk->nodes[curr_noderef].child_status[child_idx]==CHILDSTATUS_POINTER) {
-		ht->cursor.curr_noderef = bk->nodes[curr_noderef].child[child_idx].hnpd.noderef;
+		ht->cursor->curr_noderef = bk->nodes[curr_noderef].child[child_idx].hnpd.noderef;
 		retval = 2;
 		goto done;
 	}
@@ -255,8 +255,8 @@ int fmtutil_huffman_read_next_value(struct fmtutil_huffman_decoder *ht,
 
 	if(bitrd->eof_flag) goto done;
 
-	if(ht->bk.has_null_code) {
-		*pval = ht->bk.value_of_null_code;
+	if(ht->bk->has_null_code) {
+		*pval = ht->bk->value_of_null_code;
 		retval = 1;
 		goto done;
 	}
@@ -301,9 +301,9 @@ void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_decoder *ht)
 	de_dbg(c, "number of codes: %"I64_FMT, fmtutil_huffman_get_num_codes(ht));
 	de_dbg(c, "max code size: %u bits", fmtutil_huffman_get_max_bits(ht));
 	tmps = ucstring_create(c);
-	for(k=0; k<ht->bk.next_avail_node && k<ht->bk.nodes_alloc; k++) {
+	for(k=0; k<ht->bk->next_avail_node && k<ht->bk->nodes_alloc; k++) {
 		UI child_idx;
-		struct huffman_node *nd = &ht->bk.nodes[k];
+		struct huffman_node *nd = &ht->bk->nodes[k];
 
 		ucstring_empty(tmps);
 		ucstring_printf(tmps, DE_ENCODING_LATIN1, "node[%u]: depth=%u (", (UI)k, (UI)nd->depth);
@@ -339,7 +339,7 @@ void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_decoder *ht)
 int fmtutil_huffman_record_a_code_length(deark *c, struct fmtutil_huffman_decoder *ht,
 	fmtutil_huffman_valtype val, UI len)
 {
-	struct fmtutil_huffman_code_builder *builder = &ht->builder;
+	struct fmtutil_huffman_code_builder *builder = ht->builder;
 
 	if(len==0) return 1;
 	if(len > FMTUTIL_HUFFMAN_MAX_CODE_LENGTH) return 0;
@@ -480,8 +480,8 @@ static void reverse_lengths_array(struct fmtutil_huffman_code_builder *builder)
 // Creates a canonical Huffman tree derived from the known code lengths.
 int fmtutil_huffman_make_canonical_tree(deark *c, struct fmtutil_huffman_decoder *ht, UI flags)
 {
-	struct fmtutil_huffman_codebook *bk = &ht->bk;
-	struct fmtutil_huffman_code_builder *builder = &ht->builder;
+	struct fmtutil_huffman_codebook *bk = ht->bk;
+	struct fmtutil_huffman_code_builder *builder = ht->builder;
 	UI max_sym_len_used;
 	UI i;
 	int saved_indent_level;
@@ -526,11 +526,13 @@ done:
 	return retval;
 }
 
-static void huffman_init_codebook(deark *c,  struct fmtutil_huffman_codebook *bk,
+static struct fmtutil_huffman_codebook *huffman_create_codebook(deark *c,
 	i64 initial_codes, i64 max_codes)
 {
+	struct fmtutil_huffman_codebook *bk;
 	i64 initial_nodes;
 
+	bk = de_malloc(c, sizeof(struct fmtutil_huffman_codebook));
 	if(max_codes>0) {
 		bk->max_nodes = max_codes;
 	}
@@ -555,6 +557,14 @@ static void huffman_init_codebook(deark *c,  struct fmtutil_huffman_codebook *bk
 	bk->next_avail_node = 0;
 	bk->num_codes = 0;
 	bk->max_bits = 0;
+	return bk;
+}
+
+static void huffman_destroy_codebook(deark *c, struct fmtutil_huffman_codebook *bk)
+{
+	if(!bk) return;
+	de_free(c, bk->nodes);
+	de_free(c, bk);
 }
 
 // initial_codes: If not 0, pre-allocate enough nodes for this many codes.
@@ -564,14 +574,20 @@ struct fmtutil_huffman_decoder *fmtutil_huffman_create_decoder(deark *c, i64 ini
 	struct fmtutil_huffman_decoder *ht = NULL;
 
 	ht = de_malloc(c, sizeof(struct fmtutil_huffman_decoder));
-	huffman_init_codebook(c, &ht->bk, initial_codes, max_codes);
+	ht->cursor = de_malloc(c, sizeof(struct fmtutil_huffman_cursor));
+	ht->bk = huffman_create_codebook(c, initial_codes, max_codes);
+	ht->builder = de_malloc(c, sizeof(struct fmtutil_huffman_code_builder));
+	fmtutil_huffman_reset_cursor(ht);
 	return ht;
 }
 
 void fmtutil_huffman_destroy_decoder(deark *c, struct fmtutil_huffman_decoder *ht)
 {
 	if(!ht) return;
-	de_free(c, ht->bk.nodes);
-	de_free(c, ht->builder.lengths_arr);
+	huffman_destroy_codebook(c, ht->bk);
+	ht->bk = NULL;
+	de_free(c, ht->builder->lengths_arr);
+	de_free(c, ht->builder);
+	de_free(c, ht->cursor);
 	de_free(c, ht);
 }
