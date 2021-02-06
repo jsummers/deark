@@ -35,7 +35,11 @@
 #endif
 
 #ifdef DE_UNIX
+#ifndef __INTSIZE
 #define DE_USE_FSEEKO
+#else
+#define lstat(fn, stbuf) stat(fn, stbuf) // because of vbcc's PosixLib
+#endif
 #endif
 
 // Post-system-header platform-specific things can optionally go in a
