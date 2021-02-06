@@ -626,7 +626,7 @@ Deark -- Information about supported formats
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
 
-* ARX (module="arx") (experimental)
+* ARX (module="arx") (experimental/incomplete)
   Variant of LHA. Deark tries to convert it to LHA.
 
 * CAR (module="car_lha")
@@ -660,6 +660,8 @@ Deark -- Information about supported formats
 * HFS filesystem image (module="hfs") (experimental/incomplete)
   - Incomplete support, but should be enough for most CD-ROM images.
 
+* InstallShield Z archive (module="is_z") (experimental)
+
 * ISO 9660 CD-ROM image (module="iso9660")
   Options
    -opt iso9660:tolower - Convert filenames to lowercase. Does not affect Rock
@@ -675,6 +677,9 @@ Deark -- Information about supported formats
 * LHA/LZH/PMA (module="lha")
   - Not all the major compression methods are supported. Some are supported but
     experimental.
+  Options
+   -opt lha:lhark - Assume "lh7" compression is LHARK format, instead of the
+     standard lh7 format. (Unfortunately, autodetecting LHARK is impractical.)
 
 * MacBinary (module="macbinary")
   - You may have to use "-m macbinary".
@@ -700,6 +705,9 @@ Deark -- Information about supported formats
 * NRG (module="nrg") (experimental)
   Nero CD image format.
   - Extract or decode ISO 9660 data.
+
+* Pack (module="pack") (experimental)
+  Old Unix compressed file format (.z).
 
 * PackDir (module="packdir") (experimental)
 
@@ -748,6 +756,9 @@ Deark -- Information about supported formats
 * tar (module="tar")
   - Rare files may need "-m tar", as tar is difficult to autodetect.
 
+* TTComp (module="ttcomp")
+  - In rare cases, you may have to use "-m ttcomp".
+
 * WOZ (module="woz") (incomplete)
   Apple II disk image format.
   - Some metadata is parsed, but the disk contents are not extracted or listed.
@@ -763,8 +774,17 @@ Deark -- Information about supported formats
 * zlib (module="zlib")
   - Raw zlib files are uncompressed.
 
-* ZOO (module="zoo")
+* Zoo (module="zoo")
   - Extract comments (use -a).
+  Options
+   -opt zoo:undelete - Also extract deleted files.
+
+* Zoo filter format (module="zoo_filter")
+  Format created by "zoo fc".
+
+* Zoo Z format (module="zoo_z")
+  Format created by "zoo xz <foo.zoo> [...]". Not all Zoo programs support it.
+  - Will be translated to Zoo format.
 
 == Transfer encoding modules ==
 

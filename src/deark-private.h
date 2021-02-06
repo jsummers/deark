@@ -375,7 +375,8 @@ struct deark_struct {
 	u8 list_mode;
 	u8 list_mode_include_file_id;
 	int first_output_file; // first file = 0
-	int max_output_files; // -1 = no limit
+	int max_output_files;
+	u8 user_set_max_output_files;
 	i64 max_image_dimension;
 	i64 max_output_file_size;
 	i64 max_total_output_size;
@@ -408,6 +409,7 @@ struct deark_struct {
 	de_fatalerrorfn_type fatalerrorfn;
 	const char *dprefix;
 
+	u8 deflate_decoder_id;
 	u8 tmpflag1;
 	u8 tmpflag2;
 	u8 pngcprlevel_valid;
@@ -417,6 +419,7 @@ struct deark_struct {
 	dbuf *extrlist_dbuf;
 
 	char *base_output_filename;
+	char *special_1st_filename;
 	char *output_archive_filename;
 	char *extrlist_filename;
 
@@ -483,6 +486,8 @@ void de_dbg2(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
 void de_dbg3(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
+void de_dbgx(deark *c, int lv, const char *fmt, ...)
+  de_gnuc_attribute ((format (printf, 3, 4)));
 void de_info(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
 void de_msg(deark *c, const char *fmt, ...)
@@ -743,16 +748,13 @@ int dbuf_dump_to_file(dbuf *inf, const char *fn);
 void dbuf_empty(dbuf *f);
 
 void dbuf_set_length_limit(dbuf *f, i64 max_len);
-
-int dbuf_search_byte(dbuf *f, const u8 b, i64 startpos,
+const u8 *dbuf_get_membuf_direct_ptr(dbuf *f);
+int dbuf_search_byte(dbuf *f, const u8 b, i64 startpos, i64 haystack_len,
+	i64 *foundpos);
+int dbuf_search(dbuf *f, const u8 *needle, i64 needle_len, i64 startpos,
 	i64 haystack_len, i64 *foundpos);
-
-int dbuf_search(dbuf *f, const u8 *needle, i64 needle_len,
-	i64 startpos, i64 haystack_len, i64 *foundpos);
-
 int dbuf_get_utf16_NULterm_len(dbuf *f, i64 pos1, i64 bytes_avail,
 	i64 *bytes_consumed);
-
 int dbuf_find_line(dbuf *f, i64 pos1, i64 *pcontent_len, i64 *ptotal_len);
 
 struct de_fourcc {
@@ -786,9 +788,9 @@ struct de_bitbuf_lowlevel {
 	UI nbits_in_bitbuf;
 	u64 bit_buf;
 };
-void de_bitbuf_lowelevel_add_byte(struct de_bitbuf_lowlevel *bbll, u8 n);
-u64 de_bitbuf_lowelevel_get_bits(struct de_bitbuf_lowlevel *bbll, UI nbits);
-void de_bitbuf_lowelevel_empty(struct de_bitbuf_lowlevel *bbll);
+void de_bitbuf_lowlevel_add_byte(struct de_bitbuf_lowlevel *bbll, u8 n);
+u64 de_bitbuf_lowlevel_get_bits(struct de_bitbuf_lowlevel *bbll, UI nbits);
+void de_bitbuf_lowlevel_empty(struct de_bitbuf_lowlevel *bbll);
 
 struct de_bitreader {
 	dbuf *f;
@@ -798,6 +800,7 @@ struct de_bitreader {
 	struct de_bitbuf_lowlevel bbll;
 };
 u64 de_bitreader_getbits(struct de_bitreader *bitrd, UI nbits);
+void de_bitreader_skip_to_byte_boundary(struct de_bitreader *bitrd);
 char *de_bitreader_describe_curpos(struct de_bitreader *bitrd, char *buf, size_t buf_len);
 
 ///////////////////////////////////////////

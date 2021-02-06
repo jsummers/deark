@@ -295,6 +295,16 @@ void de_dbg3(deark *c, const char *fmt, ...)
 	va_end(ap);
 }
 
+void de_dbgx(deark *c, int lv, const char *fmt, ...)
+{
+	va_list ap;
+
+	if(c && c->debug_level<lv) return;
+	va_start(ap, fmt);
+	de_vdbg_internal(c, fmt, ap);
+	va_end(ap);
+}
+
 void de_dbg_indent(deark *c, int n)
 {
 	c->dbg_indent_amount += n;
@@ -1177,7 +1187,7 @@ static void de_finfo_set_name_internal(deark *c, de_finfo *fi, de_ucstring *s,
 	allow_slashes = (c->allow_subdirs && (flags&DE_SNFLAG_FULLPATH));
 
 	if(allow_slashes && s->len==1 && s->str[0]=='.') {
-		// Remember if this file was named ".", which can be a valid subdir
+		// Remember that this file was named ".", which can be a valid subdir
 		// name in some cases (but at this point we don't even know whether it
 		// is a directory).
 		fi->orig_name_was_dot = 1;
@@ -1378,7 +1388,7 @@ void de_riscos_loadexec_to_timestamp(u32 load_addr,
 // While an option to round might be useful for *something*, it could
 // cause problems if you're not really careful. It invites double-rounding,
 // and the creation of timestamps that are slightly in the future, both of
-// which can be problematical.
+// which can be problematic.
 i64 de_timestamp_to_unix_time(const struct de_timestamp *ts)
 {
 	if(!ts->is_valid) return 0;
@@ -1821,7 +1831,7 @@ int de_inthashtable_remove_any_item(deark *c, struct de_inthashtable *ht, i64 *p
 }
 
 // crcobj: Functions for performing CRC calculations, and other checksum-like
-// functions for which the result can fit in a 32-bit int.l
+// functions for which the result can fit in a 32-bit int.
 
 struct de_crcobj {
 	u32 val;
@@ -1928,7 +1938,7 @@ static void de_crc16arc_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_
 	}
 }
 
-// Allocate, initializes, and resets a new object
+// Allocates, initializes, and resets a new object.
 struct de_crcobj *de_crcobj_create(deark *c, unsigned int flags)
 {
 	struct de_crcobj *crco;

@@ -79,15 +79,15 @@ static i64 do_base64_flush(deark *c, lctx *d, dbuf *f, i64 max_to_write)
 	i64 bytes_written = 0;
 
 	if(d->cbuf_count>=2 && bytes_written<max_to_write) {
-		dbuf_writebyte(f, (d->cbuf[0]<<2)|(d->cbuf[1]>>4));
+		dbuf_writebyte(f, (u8)((d->cbuf[0]<<2)|(d->cbuf[1]>>4)));
 		bytes_written++;
 	}
 	if(d->cbuf_count>=3 && bytes_written<max_to_write) {
-		dbuf_writebyte(f, (d->cbuf[1]<<4)|(d->cbuf[2]>>2));
+		dbuf_writebyte(f, (u8)((d->cbuf[1]<<4)|(d->cbuf[2]>>2)));
 		bytes_written++;
 	}
 	if(d->cbuf_count>=4 && bytes_written<max_to_write) {
-		dbuf_writebyte(f, (d->cbuf[2]<<6)|(d->cbuf[3]));
+		dbuf_writebyte(f, (u8)((d->cbuf[2]<<6)|d->cbuf[3]));
 		bytes_written++;
 	}
 	d->cbuf_count=0;

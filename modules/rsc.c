@@ -13,6 +13,9 @@ DE_DECLARE_MODULE(de_module_rsc);
 #define RSCFMT_ATARI   1
 #define RSCFMT_PC      2
 
+#define MAX_RSC_ICON_WIDTH 1024
+#define MAX_RSC_ICON_HEIGHT 1024
+
 typedef struct localctx_struct {
 	deark *c;
 	int fmt;
@@ -26,6 +29,8 @@ typedef struct localctx_struct {
 	i64 imagedata_offs;
 	i64 imagepointertable_offs;
 	i64 rssize;
+	i64 reported_file_size;
+	i64 avail_file_size;
 
 	i64 num_ciconblk;
 } lctx;
@@ -74,9 +79,14 @@ static void do_decode_and_write_bilevel_image(deark *c, lctx *d, i64 bits_pos,
 {
 	de_bitmap *img = NULL;
 
+	if(!de_good_image_dimensions(c, width, height)) {
+		goto done;
+	}
+
 	img = de_bitmap_create(c, width, height, 1);
 	do_decode_bilevel_image(c, d, img, bits_pos, rowspan);
 	de_bitmap_write_to_file(img, NULL, 0);
+done:
 	de_bitmap_destroy(img);
 }
 
@@ -91,7 +101,10 @@ static int do_scan_iconblk(deark *c, lctx *d, i64 pos1, struct iconinfo *ii)
 	ii->width = gem_getu16(d, pos+22);
 	ii->height = gem_getu16(d, pos+24);
 	de_dbg_dimensions(c, ii->width, ii->height);
-	if(!de_good_image_dimensions(c, ii->width, ii->height)) {
+	if(ii->width<1 || ii->width>MAX_RSC_ICON_WIDTH ||
+		ii->height<1 || ii->height>MAX_RSC_ICON_HEIGHT)
+	{
+		de_dbg(c, "bad or unexpected icon dimensions");
 		return 0;
 	}
 	return 1;
@@ -103,12 +116,17 @@ static void do_bilevel_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 	de_bitmap *img = NULL;
 	de_bitmap *mask = NULL;
 
+	if(!de_good_image_dimensions(c, ii->width, ii->height)) {
+		goto done;
+	}
+
 	img = de_bitmap_create(c, ii->width, ii->height, 2);
 	mask = de_bitmap_create(c, ii->width, ii->height, 1);
 	do_decode_bilevel_image(c, d, img, fg_pos, ii->mono_rowspan);
 	do_decode_bilevel_image(c, d, mask, mask_pos, ii->mono_rowspan);
 	de_bitmap_apply_mask(img, mask, DE_BITMAPFLAG_WHITEISTRNS);
 	de_bitmap_write_to_file(img, token, 0);
+done:
 	de_bitmap_destroy(img);
 	de_bitmap_destroy(mask);
 }
@@ -200,7 +218,10 @@ static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 
 	if(ii->nplanes!=4 && ii->nplanes!=8) {
 		de_warn(c, "%d-plane icons not supported", (int)ii->nplanes);
-		return;
+		goto done;
+	}
+	if(!de_good_image_dimensions(c, ii->width, ii->height)) {
+		goto done;
 	}
 
 	img = de_bitmap_create(c, ii->width, ii->height, 4);
@@ -228,6 +249,7 @@ static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 	}
 
 	de_bitmap_write_to_file(img, token, 0);
+done:
 	de_bitmap_destroy(img);
 }
 
@@ -336,7 +358,7 @@ static int do_cicon_ptr_table(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	*bytes_consumed = 0;
 
 	while(1) {
-		if(pos>=c->infile->len) {
+		if(pos>=d->avail_file_size) {
 			// error
 			return 0;
 		}
@@ -379,15 +401,15 @@ static int do_cicon(deark *c, lctx *d, i64 pos1)
 static void do_newformat(deark *c, lctx *d)
 {
 	i64 pos;
-	i64 rsc_file_size;
 	i64 cicon_offs;
 
 	de_dbg(c, "extension array offset: %d", (int)d->rssize);
 
 	pos = d->rssize;
 
-	rsc_file_size = gem_getu32(d, pos);
-	de_dbg(c, "reported rsc file size: %d", (int)rsc_file_size);
+	d->reported_file_size = gem_getu32(d, pos);
+	de_dbg(c, "reported file size: %"I64_FMT, d->reported_file_size);
+	d->avail_file_size = de_min_int(d->reported_file_size, c->infile->len);
 
 	cicon_offs = gem_getu32(d, pos+4);
 	if(cicon_offs!=0 && cicon_offs!=0xffffffffU) {
@@ -499,23 +521,28 @@ static void do_oldformat(deark *c, lctx *d)
 {
 	i64 i;
 
-	de_dbg(c, "reported resource file size: %d", (int)d->rssize);
+	d->reported_file_size = d->rssize;
+	de_dbg(c, "reported file size: %"I64_FMT, d->reported_file_size);
+	d->avail_file_size = de_min_int(d->reported_file_size, c->infile->len);
 
 	// OBJECT
 	if(d->decode_objects) {
 		for(i=0; i<d->object_num; i++) {
+			if(d->object_offs + 24*(i+1) > d->avail_file_size) break;
 			do_object(c, d, i, d->object_offs + 24*i);
 		}
 	}
 
 	// BITBLK
 	for(i=0; i<d->bitblk_num; i++) {
+		if(d->bitblk_offs + 14*(i+1) > d->avail_file_size) break;
 		do_bitblk(c, d, d->bitblk_offs + 14*i);
 	}
 
 	// ICONBLK
 	if(d->iconblk_num>0) {
 		for(i=0; i<d->iconblk_num; i++) {
+			if(d->iconblk_offs + 34*(i+1) > d->avail_file_size) break;
 			do_old_iconblk(c, d, d->iconblk_offs + 34*i);
 		}
 	}
@@ -644,6 +671,7 @@ static void de_run_rsc(deark *c, de_module_params *mparams)
 	de_free(c, d);
 }
 
+// TODO: This needs to be improved, but it's complicated.
 static int de_identify_rsc(deark *c)
 {
 	i64 ver;

@@ -502,6 +502,12 @@
     <ClCompile Include="..\..\src\fmtutil-fax.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\modules\pack.c">
+      <Filter>Modules</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\modules\isz.c">
+      <Filter>Modules</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\deark-config.h">
@@ -522,13 +528,7 @@
     <ClInclude Include="..\..\src\deark.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\foreign\miniz.h">
-      <Filter>Foreign Code</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\foreign\uncompface.h">
-      <Filter>Foreign Code</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\foreign\unimplode6a.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>
     <ClInclude Include="..\..\foreign\ozunreduce.h">
@@ -539,6 +539,12 @@
     </ClInclude>
     <ClInclude Include="..\..\src\deark-version.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\foreign\miniz-c.h">
+      <Filter>Foreign Code</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\foreign\miniz.h">
+      <Filter>Foreign Code</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

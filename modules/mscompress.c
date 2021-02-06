@@ -179,10 +179,6 @@ header_extensions_done:
 	return retval;
 }
 
-// The max code length is *probably* 15, but some length compression methods
-// can be (mis?)used to make larger lengths possible.
-#define MSLZH_MAX_CODELENGTH  20
-
 #define MSLZH_SYMLEN_TYPE  u8  // Assumed to be unsigned
 
 #define MSLZH_VALUE_TYPE   u8  // Type of a decoded symbol
@@ -191,7 +187,7 @@ struct mslzh_tree {
 	UI enctype;
 	UI num_symbols;
 	MSLZH_SYMLEN_TYPE *symlengths; // array[num_symbols]
-	struct fmtutil_huffman_tree *fmtuht;
+	struct fmtutil_huffman_decoder *fmtuht;
 };
 
 struct mslzh_context {
@@ -314,9 +310,9 @@ static MSLZH_VALUE_TYPE mslzh_getnextcode(struct mslzh_context *lzhctx,
 	fmtutil_huffman_valtype val = 0;
 	int ret;
 
-	fmtutil_huffman_reset_cursor(htr->fmtuht); // Should be unnecessary
+	fmtutil_huffman_reset_cursor(htr->fmtuht->cursor); // Should be unnecessary
 
-	ret = fmtutil_huffman_read_next_value(htr->fmtuht, &lzhctx->bitrd, &val, NULL);
+	ret = fmtutil_huffman_read_next_value(htr->fmtuht->bk, &lzhctx->bitrd, &val, NULL);
 	if(!ret) return 0;
 	return (MSLZH_VALUE_TYPE)val;
 }
@@ -361,21 +357,18 @@ static void mslzh_read_huffman_tree(struct mslzh_context *lzhctx, UI idx)
 
 	for(i=0; i<htr->num_symbols; i++) {
 		de_dbg2(c, "length[%u] = %u", i, (UI)htr->symlengths[i]);
-		fmtutil_huffman_record_a_code_length(c, htr->fmtuht, (fmtutil_huffman_valtype)i,
+		fmtutil_huffman_record_a_code_length(c, htr->fmtuht->builder, (fmtutil_huffman_valtype)i,
 			(UI)htr->symlengths[i]);
 	}
 
-	if(!fmtutil_huffman_make_canonical_tree(c, htr->fmtuht)) {
+	if(!fmtutil_huffman_make_canonical_code(c, htr->fmtuht->bk, htr->fmtuht->builder, 0)) {
 		de_dfilter_set_errorf(c, lzhctx->dres, lzhctx->modname, "Failed to construct Huffman tree");
 		mslzh_set_errorflag(lzhctx);
 		goto done;
 	}
 
-	if(c->debug_level>=3) {
-		de_dbg(c, "constructed huffman tree:");
-		de_dbg_indent(c, 1);
+	if(c->debug_level>=4) {
 		fmtutil_huffman_dump(c, htr->fmtuht);
-		de_dbg_indent(c, -1);
 	}
 
 done:
@@ -488,7 +481,7 @@ static void do_decompress_LZHUFF(deark *c, struct de_dfilter_in_params *dcmpri,
 	lzhctx->htree[MSLZH_TREE_IDX_LITERAL].num_symbols = 256;
 
 	for(k=0; k<MSLZH_NUM_TREES; k++) {
-		lzhctx->htree[k].fmtuht = fmtutil_huffman_create_tree(c,
+		lzhctx->htree[k].fmtuht = fmtutil_huffman_create_decoder(c,
 				lzhctx->htree[k].num_symbols, lzhctx->htree[k].num_symbols);
 	}
 
@@ -532,7 +525,7 @@ done:
 		de_lz77buffer_destroy(c, lzhctx->ringbuf);
 
 		for(tr=0; tr<MSLZH_NUM_TREES; tr++) {
-			fmtutil_huffman_destroy_tree(c, lzhctx->htree[tr].fmtuht);
+			fmtutil_huffman_destroy_decoder(c, lzhctx->htree[tr].fmtuht);
 		}
 		de_free(c, lzhctx);
 	}
@@ -546,7 +539,7 @@ static int XOR_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 	dbuf *f = (dbuf*)brctx->userdata;
 
 	for(k=0; k<buf_len; k++) {
-		dbuf_writebyte(f, ~buf[k]);
+		dbuf_writebyte(f, buf[k] ^ (u8)0xff);
 	}
 	return 1;
 }
@@ -558,31 +551,30 @@ static void do_decompress_XOR(deark *c, struct de_dfilter_in_params *dcmpri,
 }
 
 static void do_decompress_MSZIP(deark *c, struct de_dfilter_in_params *dcmpri1,
-	struct de_dfilter_out_params *dcmpro1, struct de_dfilter_results *dres)
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
 	const char *modname = "mszip";
 	i64 pos = dcmpri1->pos;
 	int saved_indent_level;
-	dbuf *tmpdbuf = NULL;
 	struct de_dfilter_in_params dcmpri2;
-	struct de_dfilter_out_params dcmpro2;
-	u8 *prev_dict = NULL;
+	struct de_lz77buffer *ringbuf = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dfilter_init_objects(c, &dcmpri2, &dcmpro2, NULL);
-	tmpdbuf = dbuf_create_membuf(c, 32768, 0);
+
+	// The ring buffer has to persist between blocks. So create our own, and
+	// tell the deflate codec to use it.
+	ringbuf = de_lz77buffer_create(c, 32768);
 
 	dcmpri2.f = dcmpri1->f;
-	dcmpro2.f = tmpdbuf;
-	dcmpro2.len_known = 1;
-	dcmpro2.expected_len = 32768;
 
 	while(1) {
 		i64 blkpos;
 		i64 blklen_raw;
 		i64 blk_dlen;
+		i64 outlen_before;
+		i64 unc_bytes_this_block;
 		UI sig;
-		struct de_inflate_params inflparams;
+		struct de_deflate_params inflparams;
 
 		if(pos > dcmpri1->pos + dcmpri1->len -4) {
 			goto done;
@@ -602,30 +594,26 @@ static void do_decompress_MSZIP(deark *c, struct de_dfilter_in_params *dcmpri1,
 		if(blk_dlen < 0) goto done;
 		dcmpri2.pos = pos;
 		dcmpri2.len = blk_dlen;
-		de_zeromem(&inflparams, sizeof(struct de_inflate_params));
+		de_zeromem(&inflparams, sizeof(struct de_deflate_params));
 		inflparams.flags = 0;
-		inflparams.starting_dict = prev_dict;
-		fmtutil_inflate_codectype1(c, &dcmpri2, &dcmpro2, dres, (void*)&inflparams);
+		inflparams.ringbuf_to_use = ringbuf;
+		outlen_before = dcmpro->f->len;
+
+		fmtutil_deflate_codectype1(c, &dcmpri2, dcmpro, dres, (void*)&inflparams);
 		if(dres->errcode) goto done;
-		dbuf_copy(tmpdbuf, 0, tmpdbuf->len, dcmpro1->f);
+
 		pos += blk_dlen;
-		if(tmpdbuf->len < 32768) break; // Presumably we're done.
+		unc_bytes_this_block = dcmpro->f->len - outlen_before;
+		de_dbg(c, "decompressed to: %"I64_FMT, unc_bytes_this_block);
+		if(unc_bytes_this_block < 32768) break; // Presumably we're done.
 
-		// Save the history buffer, for the next chunk.
-		if(!prev_dict) {
-			prev_dict = de_malloc(c, 32768);
-		}
-		dbuf_read(tmpdbuf, prev_dict, 0, 32768);
-
-		dbuf_truncate(tmpdbuf, 0);
 		de_dbg_indent(c, -1);
 	}
 
 done:
 	dres->bytes_consumed_valid = 1;
 	dres->bytes_consumed = pos - dcmpri1->pos;
-	dbuf_close(tmpdbuf);
-	de_free(c, prev_dict);
+	de_lz77buffer_destroy(c, ringbuf);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 

@@ -1314,7 +1314,7 @@ static void handler_dri(deark *c, lctx *d,
 	if(ri!=0) d->has_restart_markers = 1;
 }
 
-static void dump_htable_data(deark *c, lctx *d, const u8 *codecounts)
+static void dump_htable_summary(deark *c, lctx *d, const u8 *codecounts)
 {
 	i64 k;
 	de_ucstring *s = NULL;
@@ -1333,6 +1333,48 @@ static void dump_htable_data(deark *c, lctx *d, const u8 *codecounts)
 		}
 	}
 	ucstring_destroy(s);
+}
+
+// Just because we can, derive and display the Huffman code table (at
+// sufficiently high debug levels).
+static void dump_htable_details(deark *c, lctx *d, i64 pos1, const u8 *codecounts,
+	i64 num_huff_codes)
+{
+	struct fmtutil_huffman_decoder *ht = NULL;
+	UI symlen;
+	i64 pos = pos1;
+
+	// TODO: Is there any case (e.g. lossless) where >162 codes are allowed?
+	if(c->debug_level>=3 && (num_huff_codes>=1 && num_huff_codes<=162)) {
+		;
+	}
+	else {
+		return;
+	}
+
+	ht = fmtutil_huffman_create_decoder(c, 0, 0);
+
+	// Note: Per the JPEG spec, "the all-1-bits code word of any length is
+	// reserved as a prefix for longer code words". So we should not expect to
+	// see such a code in the derived codebook.
+
+	for(symlen=1; symlen<=16; symlen++) {
+		UI num_syms_of_this_length;
+		UI k;
+
+		num_syms_of_this_length = (UI)codecounts[symlen-1];
+		for(k=0; k<num_syms_of_this_length; k++) {
+			u8 sym;
+
+			sym = de_getbyte_p(&pos);
+			fmtutil_huffman_record_a_code_length(c, ht->builder, (fmtutil_huffman_valtype)sym, symlen);
+		}
+	}
+
+	// We do this only for the side effect of the debug messages.
+	(void)fmtutil_huffman_make_canonical_code(c, ht->bk, ht->builder, 0);
+
+	fmtutil_huffman_destroy_decoder(c, ht);
 }
 
 static void handler_dht(deark *c, lctx *d,
@@ -1361,10 +1403,12 @@ static void handler_dht(deark *c, lctx *d,
 			num_huff_codes += (i64)codecounts[k];
 		}
 		de_dbg_indent(c, 1);
-		dump_htable_data(c, d, codecounts);
+		dump_htable_summary(c, d, codecounts);
 		de_dbg(c, "number of codes: %d", (int)num_huff_codes);
+		pos += 1 + 16;
+		dump_htable_details(c, d, pos, codecounts, num_huff_codes);
 		de_dbg_indent(c, -1);
-		pos += 1 + 16 + num_huff_codes;
+		pos += num_huff_codes;
 	}
 
 done:

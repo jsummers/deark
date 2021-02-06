@@ -10,8 +10,8 @@
 #include "deark-fmtutil.h"
 
 struct fax34_huffman_tree {
-	struct fmtutil_huffman_tree *htwb[2]; // [0]=white, [1]=black
-	struct fmtutil_huffman_tree *two_d_codes;
+	struct fmtutil_huffman_decoder *htwb[2]; // [0]=white, [1]=black
+	struct fmtutil_huffman_decoder *_2d_codes;
 };
 
 struct fax_ctx {
@@ -90,93 +90,110 @@ static void create_fax34_huffman_tree2d(deark *c, struct fax34_huffman_tree *f34
 {
 	size_t i;
 
-	 f34ht->two_d_codes = fmtutil_huffman_create_tree(c, 16, 16);
+	f34ht->_2d_codes = fmtutil_huffman_create_decoder(c, 11, 11);
 
-	 for(i=0; i<DE_ARRAYCOUNT(fax34_2dcodes); i++) {
-		 fmtutil_huffman_add_code(c, f34ht->two_d_codes, (u64)fax34_2dcodes[i],
-			 (UI)fax34_2dcodelengths[i], (fmtutil_huffman_valtype)fax34_2dvals[i]);
-	 }
+	// Note that this tree could be constructed using
+	//  fmtutil_huffman_make_canonical_tree(..., FMTUTIL_MCTFLAG_LEFT_ALIGN_BRANCHES),
+	// so we don't actually need the fax34_2dcodes table. But it's not worth it, to
+	// get rid of an 11-byte table.
+
+	for(i=0; i<DE_ARRAYCOUNT(fax34_2dcodes); i++) {
+		fmtutil_huffman_add_code(c, f34ht->_2d_codes->bk, (u64)fax34_2dcodes[i],
+			(UI)fax34_2dcodelengths[i], (fmtutil_huffman_valtype)fax34_2dvals[i]);
+	}
 }
 
-static const i16 fax34whitevals[104] = {
-	0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,
-	32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,
-	60,61,62,63,64,128,192,256,320,384,448,512,576,640,704,768,832,896,960,1024,1088,1152,
-	1216,1280,1344,1408,1472,1536,1600,1664,1728,1792,1856,1920,1984,2048,2112,2176,2240,
-	2304,2368,2432,2496,2560
-};
-static const i16 fax34blackvals[104] = {
-	0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,
-	32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,
-	60,61,62,63,64,128,192,256,320,384,448,512,576,640,704,768,832,896,960,1024,1088,1152,
-	1216,1280,1344,1408,1472,1536,1600,1664,1728,1792,1856,1920,1984,2048,2112,2176,2240,
-	2304,2368,2432,2496,2560
-};
-static const u16 fax34whitecodes[104] = {
+// To make a well-formed Huffman tree, we need to account for all the codes
+// beginning with 8 zeroes. Generally, this will be the start of an EOL or sync
+// code, the remainder of which will be handled with special logic.
+#define FAX1D_8ZEROES (-1)
+
+// Same for both white & black codes. 0 <= i <= 104
+static fmtutil_huffman_valtype getfax34val(size_t i)
+{
+	if(i<=64) {
+		return (fmtutil_huffman_valtype)i;
+	}
+	else if(i<=103) {
+		return (fmtutil_huffman_valtype)((i-63)*64);
+	}
+	return FAX1D_8ZEROES; // i==104, presumably
+}
+
+// Some codes in the next two tables are up to 13 bits in size, but bits before the
+// last 8 are always 0, so we can use an 8-bit integer type.
+static const u8 fax34whitecodes[105] = {
 	0x35,0x7,0x7,0x8,0xb,0xc,0xe,0xf,0x13,0x14,0x7,0x8,0x8,0x3,0x34,0x35,0x2a,0x2b,0x27,
 	0xc,0x8,0x17,0x3,0x4,0x28,0x2b,0x13,0x24,0x18,0x2,0x3,0x1a,0x1b,0x12,0x13,0x14,0x15,
 	0x16,0x17,0x28,0x29,0x2a,0x2b,0x2c,0x2d,0x4,0x5,0xa,0xb,0x52,0x53,0x54,0x55,0x24,0x25,
 	0x58,0x59,0x5a,0x5b,0x4a,0x4b,0x32,0x33,0x34,0x1b,0x12,0x17,0x37,0x36,0x37,0x64,0x65,
 	0x68,0x67,0xcc,0xcd,0xd2,0xd3,0xd4,0xd5,0xd6,0xd7,0xd8,0xd9,0xda,0xdb,0x98,0x99,0x9a,
-	0x18,0x9b,0x8,0xc,0xd,0x12,0x13,0x14,0x15,0x16,0x17,0x1c,0x1d,0x1e,0x1f
+	0x18,0x9b,0x8,0xc,0xd,0x12,0x13,0x14,0x15,0x16,0x17,0x1c,0x1d,0x1e,0x1f,0
 };
-static const u16 fax34blackcodes[104] = {
+static const u8 fax34blackcodes[105] = {
 	0x37,0x2,0x3,0x2,0x3,0x3,0x2,0x3,0x5,0x4,0x4,0x5,0x7,0x4,0x7,0x18,0x17,0x18,0x8,0x67,
 	0x68,0x6c,0x37,0x28,0x17,0x18,0xca,0xcb,0xcc,0xcd,0x68,0x69,0x6a,0x6b,0xd2,0xd3,0xd4,
 	0xd5,0xd6,0xd7,0x6c,0x6d,0xda,0xdb,0x54,0x55,0x56,0x57,0x64,0x65,0x52,0x53,0x24,0x37,
 	0x38,0x27,0x28,0x58,0x59,0x2b,0x2c,0x5a,0x66,0x67,0xf,0xc8,0xc9,0x5b,0x33,0x34,0x35,
 	0x6c,0x6d,0x4a,0x4b,0x4c,0x4d,0x72,0x73,0x74,0x75,0x76,0x77,0x52,0x53,0x54,0x55,0x5a,
-	0x5b,0x64,0x65,0x8,0xc,0xd,0x12,0x13,0x14,0x15,0x16,0x17,0x1c,0x1d,0x1e,0x1f
+	0x5b,0x64,0x65,0x8,0xc,0xd,0x12,0x13,0x14,0x15,0x16,0x17,0x1c,0x1d,0x1e,0x1f,0
 };
-static const u8 fax34whitecodelengths[104] = {
-	8,6,4,4,4,4,4,4,5,5,5,5,6,6,6,6,6,6,7,7,7,7,7,7,7,7,7,7,7,8,8,8,8,8,8,8,8,8,8,8,8,8,8,
-	8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,5,5,6,7,8,8,8,8,8,8,9,9,9,9,9,9,9,9,9,9,9,9,
-	9,9,9,6,9,11,11,11,12,12,12,12,12,12,12,12,12,12
+
+// High 4 bits is the length of the white code.
+// Low 4 bits is the length of the black code.
+static const u8 fax34codelengths[105] = {
+	0x8a,0x63,0x42,0x42,0x43,0x44,0x44,0x45,0x56,0x56,0x57,0x57,0x67,0x68,0x68,0x69,
+	0x6a,0x6a,0x7a,0x7b,0x7b,0x7b,0x7b,0x7b,0x7b,0x7b,0x7c,0x7c,0x7c,0x8c,0x8c,0x8c,
+	0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,
+	0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,0x8c,
+	0x5a,0x5c,0x6c,0x7c,0x8c,0x8c,0x8c,0x8d,0x8d,0x8d,0x9d,0x9d,0x9d,0x9d,0x9d,0x9d,
+	0x9d,0x9d,0x9d,0x9d,0x9d,0x9d,0x9d,0x9d,0x9d,0x6d,0x9d,0xbb,0xbb,0xbb,0xcc,0xcc,
+	0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0x88
 };
-static const u8 fax34blackcodelengths[104] = {
-	10,3,2,2,3,4,4,5,6,6,7,7,7,8,8,9,10,10,10,11,11,11,11,11,11,11,12,12,12,12,12,12,12,
-	12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,
-	12,12,12,10,12,12,12,12,12,12,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,
-	13,13,11,11,11,12,12,12,12,12,12,12,12,12,12
-};
+
+static UI getfax34codelength(UI isblack, size_t i)
+{
+	if(i<105) {
+		if(isblack)
+			return (UI)(fax34codelengths[i] & 0x0f);
+		return (UI)(fax34codelengths[i] >> 4);
+	}
+	return 0;
+}
 
 static struct fax34_huffman_tree *create_fax34_huffman_tree(deark *c, int need_2d)
 {
-	 struct fax34_huffman_tree *f34ht;
-	 i64 i;
-	 static const i64 num_white_codes = (i64)DE_ARRAYCOUNT(fax34whitecodes);
-	 static const i64 num_black_codes = (i64)DE_ARRAYCOUNT(fax34blackcodes);
+	struct fax34_huffman_tree *f34ht;
+	size_t i;
+	static const size_t num_white_codes = DE_ARRAYCOUNT(fax34whitecodes);
+	static const size_t num_black_codes = DE_ARRAYCOUNT(fax34blackcodes);
 
-	 f34ht = de_malloc(c, sizeof(struct fax34_huffman_tree));
-	 f34ht->htwb[0] = fmtutil_huffman_create_tree(c, num_white_codes+10, 0);
-	 f34ht->htwb[1] = fmtutil_huffman_create_tree(c, num_black_codes+10, 0);
+	f34ht = de_malloc(c, sizeof(struct fax34_huffman_tree));
+	f34ht->htwb[0] = fmtutil_huffman_create_decoder(c, (i64)num_white_codes+10, 0);
+	f34ht->htwb[1] = fmtutil_huffman_create_decoder(c, (i64)num_black_codes+10, 0);
 
-	 if(need_2d) {
-		 create_fax34_huffman_tree2d(c, f34ht);
-	 }
+	if(need_2d) {
+		create_fax34_huffman_tree2d(c, f34ht);
+	}
 
-	 for(i=0; i<num_white_codes; i++) {
-		 fmtutil_huffman_add_code(c, f34ht->htwb[0], (u64)fax34whitecodes[i],
-			 (UI)fax34whitecodelengths[i], (fmtutil_huffman_valtype)fax34whitevals[i]);
-	 }
-	 for(i=0; i<num_black_codes; i++) {
-		 fmtutil_huffman_add_code(c, f34ht->htwb[1], (u64)fax34blackcodes[i],
-			 (UI)fax34blackcodelengths[i], (fmtutil_huffman_valtype)fax34blackvals[i]);
-	 }
+	for(i=0; i<num_white_codes; i++) {
+		fmtutil_huffman_add_code(c, f34ht->htwb[0]->bk, (u64)fax34whitecodes[i],
+			getfax34codelength(0, i), getfax34val(i));
+	}
+	for(i=0; i<num_black_codes; i++) {
+		fmtutil_huffman_add_code(c, f34ht->htwb[1]->bk, (u64)fax34blackcodes[i],
+			getfax34codelength(1, i), getfax34val(i));
+	}
 
-	 // 8 or more 0s = EOL or sync bits
-	 fmtutil_huffman_add_code(c, f34ht->htwb[0], 0, 8, -1);
-	 fmtutil_huffman_add_code(c, f34ht->htwb[1], 0, 8, -1);
-
-	 return f34ht;
+	return f34ht;
 }
 
 static void destroy_fax34_huffman_tree(deark *c, struct fax34_huffman_tree *f34ht)
 {
 	if(!f34ht) return;
-	fmtutil_huffman_destroy_tree(c, f34ht->htwb[0]);
-	fmtutil_huffman_destroy_tree(c, f34ht->htwb[1]);
-	if(f34ht->two_d_codes) fmtutil_huffman_destroy_tree(c, f34ht->two_d_codes);
+	fmtutil_huffman_destroy_decoder(c, f34ht->htwb[0]);
+	fmtutil_huffman_destroy_decoder(c, f34ht->htwb[1]);
+	if(f34ht->_2d_codes) fmtutil_huffman_destroy_decoder(c, f34ht->_2d_codes);
 	de_free(c, f34ht);
 }
 
@@ -216,9 +233,9 @@ done:
 	fc->have_read_tag_bit = 0;
 }
 
-// Record run_len pixels as fc0>a0_color, updating fc->a0.
-// repsect_negative_a0==0: If fc->a0 == -1, sets it to 0 first.
-// repsect_negative_a0==0: If fc->a0 == -1, only sets rec_len-1 pixels.
+// Record run_len pixels as fc0->a0_color, updating fc->a0.
+// respect_negative_a0==0: If fc->a0 == -1, sets it to 0 first.
+// respect_negative_a0==1: If fc->a0 == -1, only sets rec_len-1 pixels.
 static void fax34_record_run(deark *c, struct fax_ctx *fc, i64 run_len,
 	int respect_negative_a0)
 {
@@ -413,7 +430,7 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 
 		if(!fc->has_eol_codes && (fc->a0 >= fc->image_width) && fc->f2d_h_codes_remaining==0) {
 			if(fc->rows_padded_to_next_byte) {
-				de_bitbuf_lowelevel_empty(&fc->bitrd.bbll);
+				de_bitbuf_lowlevel_empty(&fc->bitrd.bbll);
 			}
 			fax34_on_eol(c, fc);
 		}
@@ -438,7 +455,7 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 		}
 
 		if(in_2d_mode) {
-			ret = fmtutil_huffman_read_next_value(f34ht->two_d_codes, &fc->bitrd, &val, NULL);
+			ret = fmtutil_huffman_read_next_value(f34ht->_2d_codes->bk, &fc->bitrd, &val, NULL);
 			if(!ret) {
 				if(fc->bitrd.eof_flag) {
 					de_snprintf(errmsg, sizeof(errmsg), errmsg_UNEXPECTEDEOD);
@@ -494,7 +511,7 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 			}
 		}
 		else {
-			ret = fmtutil_huffman_read_next_value(f34ht->htwb[(UI)fc->a0_color], &fc->bitrd, &val, NULL);
+			ret = fmtutil_huffman_read_next_value(f34ht->htwb[(UI)fc->a0_color]->bk, &fc->bitrd, &val, NULL);
 			if(!ret) {
 				if(fc->bitrd.eof_flag) {
 					de_snprintf(errmsg, sizeof(errmsg), errmsg_UNEXPECTEDEOD);
@@ -505,8 +522,8 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 				goto done;
 			}
 
-			if(val<0) {
-				if(!fc->has_eol_codes) {
+			if(val==FAX1D_8ZEROES) {
+				if(!fc->has_eol_codes || fc->f2d_h_codes_remaining!=0) {
 					de_snprintf(errmsg, sizeof(errmsg), errmsg_HUFFDECODEERR);
 					goto done;
 				}

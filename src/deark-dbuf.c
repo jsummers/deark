@@ -1159,6 +1159,11 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 	{
 		de_strlcpy(nbuf, ".", sizeof(nbuf));
 	}
+	else if(c->special_1st_filename && (file_index==c->first_output_file) &&
+		!is_directory)
+	{
+		de_strlcpy(nbuf, c->special_1st_filename, sizeof(nbuf));
+	}
 	else if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE && !c->base_output_filename &&
 		fi && fi->original_filename_flag && name_from_finfo)
 	{
@@ -1224,10 +1229,14 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 		goto done;
 	}
 
-	if(c->max_output_files>=0 &&
-		file_index >= c->first_output_file + c->max_output_files)
+	if(file_index >= c->first_output_file + c->max_output_files)
 	{
 		f->btype = DBUF_TYPE_NULL;
+		if(file_index == c->first_output_file + c->max_output_files) {
+			if(!c->user_set_max_output_files) {
+				de_err(c, "Limit of %d output files exceeded", c->max_output_files);
+			}
+		}
 		goto done;
 	}
 
@@ -1346,8 +1355,10 @@ static void membuf_append(dbuf *f, const u8 *m, i64 mlen)
 		new_alloc_size = (f->membuf_alloc + mlen)*2;
 		if(new_alloc_size<1024) new_alloc_size=1024;
 		if(new_alloc_size > f->max_len_hard) new_alloc_size = f->max_len_hard;
-		de_dbg3(f->c, "increasing membuf size %"I64_FMT" -> %"I64_FMT,
-			f->membuf_alloc, new_alloc_size);
+		if(f->c->debug_level>=4) {
+			de_dbgx(f->c, 4, "increasing membuf size %"I64_FMT" -> %"I64_FMT,
+				f->membuf_alloc, new_alloc_size);
+		}
 		if(f->len + mlen > f->max_len_hard) {
 			do_on_dbuf_size_exceeded(f);
 		}
@@ -1376,15 +1387,15 @@ void dbuf_write(dbuf *f, const u8 *m, i64 len)
 	case DBUF_TYPE_OFILE:
 	case DBUF_TYPE_STDOUT:
 		if(!f->fp) return;
-		if(f->c->debug_level>=3) {
-			de_dbg3(f->c, "writing %"I64_FMT" bytes to %s", len, f->name);
+		if(f->c->debug_level>=4) {
+			de_dbgx(f->c, 4, "writing %"I64_FMT" bytes to %s", len, f->name);
 		}
 		fwrite(m, 1, (size_t)len, f->fp);
 		f->len += len;
 		return;
 	case DBUF_TYPE_MEMBUF:
-		if(f->c->debug_level>=3 && f->name) {
-			de_dbg3(f->c, "appending %"I64_FMT" bytes to membuf %s", len, f->name);
+		if(f->c->debug_level>=4 && f->name) {
+			de_dbgx(f->c, 4, "appending %"I64_FMT" bytes to membuf %s", len, f->name);
 		}
 		membuf_append(f, m, len);
 		return;
@@ -1814,6 +1825,15 @@ void dbuf_empty(dbuf *f)
 	if(f->btype == DBUF_TYPE_MEMBUF) {
 		f->len = 0;
 	}
+}
+
+// Provides direct (presumably read-only) access to the memory in a membuf.
+// Use with care: The memory is still owned by the dbuf.
+// Note: Another, arguably safer, way to do this is to use dbuf_buffered_read().
+const u8 *dbuf_get_membuf_direct_ptr(dbuf *f)
+{
+	if(f->btype != DBUF_TYPE_MEMBUF) return NULL;
+	return f->membuf_buf;
 }
 
 // Search a section of a dbuf for a given byte.
@@ -2247,7 +2267,7 @@ int dbuf_is_all_zeroes(dbuf *f, i64 pos, i64 len)
 	return dbuf_buffered_read(f, pos, len, is_all_zeroes_cbfn, NULL);
 }
 
-void de_bitbuf_lowelevel_add_byte(struct de_bitbuf_lowlevel *bbll, u8 n)
+void de_bitbuf_lowlevel_add_byte(struct de_bitbuf_lowlevel *bbll, u8 n)
 {
 	if(bbll->nbits_in_bitbuf>56) return;
 	if(bbll->is_lsb==0) {
@@ -2259,7 +2279,7 @@ void de_bitbuf_lowelevel_add_byte(struct de_bitbuf_lowlevel *bbll, u8 n)
 	bbll->nbits_in_bitbuf += 8;
 }
 
-u64 de_bitbuf_lowelevel_get_bits(struct de_bitbuf_lowlevel *bbll, UI nbits)
+u64 de_bitbuf_lowlevel_get_bits(struct de_bitbuf_lowlevel *bbll, UI nbits)
 {
 	u64 n;
 	u64 mask;
@@ -2278,7 +2298,7 @@ u64 de_bitbuf_lowelevel_get_bits(struct de_bitbuf_lowlevel *bbll, UI nbits)
 	return n;
 }
 
-void de_bitbuf_lowelevel_empty(struct de_bitbuf_lowlevel *bbll)
+void de_bitbuf_lowlevel_empty(struct de_bitbuf_lowlevel *bbll)
 {
 	bbll->bit_buf = 0;
 	bbll->nbits_in_bitbuf = 0;
@@ -2305,10 +2325,23 @@ u64 de_bitreader_getbits(struct de_bitreader *bitrd, UI nbits)
 			return 0;
 		}
 		b = dbuf_getbyte_p(bitrd->f, &bitrd->curpos);
-		de_bitbuf_lowelevel_add_byte(&bitrd->bbll, b);
+		de_bitbuf_lowlevel_add_byte(&bitrd->bbll, b);
 	}
 
-	return de_bitbuf_lowelevel_get_bits(&bitrd->bbll, nbits);
+	return de_bitbuf_lowlevel_get_bits(&bitrd->bbll, nbits);
+}
+
+// Empty the bitbuffer, and set ->curpos to the position of the next byte with
+// entirely unprocessed bits.
+// In other words, make it okay for the caller to read or change the ->curpos
+// field.
+void de_bitreader_skip_to_byte_boundary(struct de_bitreader *bitrd)
+{
+	// This is unlikely to change anything, since the current bitreader
+	// implementation reads no more bytes than needed.
+	bitrd->curpos -= (i64)(bitrd->bbll.nbits_in_bitbuf/8);
+
+	de_bitbuf_lowlevel_empty(&bitrd->bbll);
 }
 
 char *de_bitreader_describe_curpos(struct de_bitreader *bitrd, char *buf, size_t buf_len)

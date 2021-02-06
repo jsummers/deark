@@ -60,7 +60,7 @@ void *de_get_userdata(deark *c);
 void de_set_dprefix(deark *c, const char *s);
 
 void de_set_first_output_file(deark *c, int x);
-void de_set_max_output_files(deark *c, int n);
+void de_set_max_output_files(deark *c, i64 n);
 void de_set_max_output_file_size(deark *c, i64 n);
 void de_set_max_total_output_size(deark *c, i64 n);
 void de_set_max_image_dimension(deark *c, i64 n);
@@ -81,8 +81,9 @@ void de_set_module_init_codes(deark *c, const char *codes);
 // See DE_OUTPUTSTYLE_ defs in deark.h
 void de_set_output_style(deark *c, int x, int subtype);
 
-void de_set_base_output_filename(deark *c, const char *dirname, const char *fn,
+void de_set_output_filename_pattern(deark *c, const char *dirname, const char *fn,
 	unsigned int flags);
+void de_set_output_special_1st_filename(deark *c, const char *dirname, const char *fn);
 
 void de_set_output_archive_filename(deark *c, const char *dirname, const char *fn,
 	unsigned int flags);

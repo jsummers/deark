@@ -123,7 +123,7 @@ static void read_unix_timestamp(deark *c, i64 pos, struct de_timestamp *ts, cons
 // decompressing it.
 
 struct lzh_tree_wrapper {
-	struct fmtutil_huffman_tree *ht;
+	struct fmtutil_huffman_decoder *ht;
 };
 
 // The portion of the Heavy decompression context that can persist between tracks.
@@ -132,7 +132,7 @@ struct dmsheavy_cmpr_state {
 	UI heavy_prev_offset;
 	struct de_lz77buffer *ringbuf;
 	u8 trees_exist;
-	struct lzh_tree_wrapper codes_tree;
+	struct lzh_tree_wrapper literals_tree;
 	struct lzh_tree_wrapper offsets_tree;
 };
 
@@ -170,11 +170,6 @@ static void lzh_set_err_flag(struct lzh_ctx *cctx)
 	cctx->err_flag = 1;
 }
 
-static u64 lzh_getbits(struct lzh_ctx *cctx, UI nbits)
-{
-	return de_bitreader_getbits(&cctx->bitrd, nbits);
-}
-
 static int lzh_have_enough_output(struct lzh_ctx *cctx)
 {
 	if(cctx->dcmpro->len_known) {
@@ -201,11 +196,9 @@ static UI read_next_code_using_tree(struct lzh_ctx *cctx, struct lzh_tree_wrappe
 	fmtutil_huffman_valtype val = 0;
 	int ret;
 
-	if(!tree->ht) {
-		return 0;
-	}
+	if(!tree->ht) goto done;
 
-	ret = fmtutil_huffman_read_next_value(tree->ht, &cctx->bitrd, &val, NULL);
+	ret = fmtutil_huffman_read_next_value(tree->ht->bk, &cctx->bitrd, &val, NULL);
 	if(cctx->bitrd.eof_flag) {
 		de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
 			"Unexpected end of compressed data");
@@ -235,16 +228,16 @@ static int dmsheavy_read_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *htw
 
 	if(htw->ht) goto done;
 
-	ncodes = (UI)lzh_getbits(cctx, ncodes_nbits);
+	ncodes = (UI)de_bitreader_getbits(&cctx->bitrd, ncodes_nbits);
 	de_dbg2(c, "num codes: %u", ncodes);
 
-	htw->ht = fmtutil_huffman_create_tree(c, (i64)ncodes, (i64)ncodes);
+	htw->ht = fmtutil_huffman_create_decoder(c, (i64)ncodes, (i64)ncodes);
 
 	if(ncodes==0) {
 		UI null_val;
 
-		null_val = (UI)lzh_getbits(cctx, ncodes_nbits);
-		fmtutil_huffman_add_code(c, htw->ht, 0, 0, (fmtutil_huffman_valtype)null_val);
+		null_val = (UI)de_bitreader_getbits(&cctx->bitrd, ncodes_nbits);
+		fmtutil_huffman_add_code(c, htw->ht->bk, 0, 0, (fmtutil_huffman_valtype)null_val);
 		de_dbg3(c, "val0: %u", null_val);
 		retval = 1;
 		goto done;
@@ -254,14 +247,14 @@ static int dmsheavy_read_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *htw
 	while(curr_idx < ncodes) {
 		UI symlen;
 
-		symlen = (UI)lzh_getbits(cctx, symlen_nbits);
+		symlen = (UI)de_bitreader_getbits(&cctx->bitrd, symlen_nbits);
 		de_dbg3(c, "len[%u] = %u", curr_idx, symlen);
-		fmtutil_huffman_record_a_code_length(c, htw->ht, (fmtutil_huffman_valtype)curr_idx, symlen);
+		fmtutil_huffman_record_a_code_length(c, htw->ht->builder, (fmtutil_huffman_valtype)curr_idx, symlen);
 		curr_idx++;
 	}
 	if(cctx->bitrd.eof_flag) goto done;
 
-	if(!fmtutil_huffman_make_canonical_tree(c, htw->ht)) goto done;
+	if(!fmtutil_huffman_make_canonical_code(c, htw->ht->bk, htw->ht->builder, 0)) goto done;
 
 	retval = 1;
 done:
@@ -274,7 +267,7 @@ done:
 static void dmsheavy_discard_tree(deark *c, struct lzh_tree_wrapper *htw)
 {
 	if(htw->ht) {
-		fmtutil_huffman_destroy_tree(c, htw->ht);
+		fmtutil_huffman_destroy_decoder(c, htw->ht);
 		htw->ht = NULL;
 	}
 }
@@ -320,7 +313,7 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 	}
 
 	if(lzhp->dms_track_flags & 0x02) {
-		dmsheavy_discard_tree(c, &hvst->codes_tree);
+		dmsheavy_discard_tree(c, &hvst->literals_tree);
 		dmsheavy_discard_tree(c, &hvst->offsets_tree);
 		hvst->trees_exist = 0;
 	}
@@ -329,7 +322,7 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 		hvst->trees_exist = 1;
 		de_dbg2(c, "c tree");
 		de_dbg_indent(c, 1);
-		ret = dmsheavy_read_tree(cctx, &hvst->codes_tree, 9, 5);
+		ret = dmsheavy_read_tree(cctx, &hvst->literals_tree, 9, 5);
 		de_dbg_indent(c, -1);
 		if(!ret) goto done;
 
@@ -349,7 +342,7 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 		if(cctx->bitrd.eof_flag) goto done;
 		if(lzh_have_enough_output(cctx)) goto done;
 
-		code = read_next_code_using_tree(cctx, &hvst->codes_tree);
+		code = read_next_code_using_tree(cctx, &hvst->literals_tree);
 		if(cctx->bitrd.eof_flag) goto done;
 		if(c->debug_level>=3) {
 			de_dbg3(c, "code: %u (opos=%"I64_FMT")", code, cctx->dcmpro->f->len);
@@ -364,11 +357,8 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 			UI ocode1;
 
 			length = code-253;
-			de_dbg3(c, "length: %u", length);
-
 			ocode1 = read_next_code_using_tree(cctx, &hvst->offsets_tree);
 			if(cctx->bitrd.eof_flag) goto done;
-			de_dbg3(c, "ocode1: %u", ocode1);
 
 			if(ocode1 == cctx->heavy_np-1) {
 				offset = hvst->heavy_prev_offset;
@@ -380,16 +370,12 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 				else {
 					UI ocode2;
 
-					ocode2 = (UI)lzh_getbits(cctx, ocode1-1);
+					ocode2 = (UI)de_bitreader_getbits(&cctx->bitrd, ocode1-1);
 					if(cctx->bitrd.eof_flag) goto done;
-					de_dbg3(c, "ocode2: %u", ocode2);
-
 					offset = ocode2 | (1U<<(ocode1-1));
 				}
 				hvst->heavy_prev_offset = offset;
 			}
-
-			de_dbg3(c, "offset: %u", offset);
 
 			de_lz77buffer_copy_from_hist(hvst->ringbuf,
 				(UI)(hvst->ringbuf->curpos-offset-1), length);
@@ -403,7 +389,7 @@ done:
 static void destroy_heavy_state(deark *c, struct dmsheavy_cmpr_state *hvst)
 {
 	if(!hvst) return;
-	dmsheavy_discard_tree(c, &hvst->codes_tree);
+	dmsheavy_discard_tree(c, &hvst->literals_tree);
 	dmsheavy_discard_tree(c, &hvst->offsets_tree);
 	de_lz77buffer_destroy(c, hvst->ringbuf);
 }
@@ -449,8 +435,8 @@ static void dmslzh_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 		goto done;
 	}
 
+	de_bitreader_skip_to_byte_boundary(&cctx->bitrd);
 	cctx->dres->bytes_consumed = cctx->bitrd.curpos - cctx->dcmpri->pos;
-	cctx->dres->bytes_consumed -= cctx->bitrd.bbll.nbits_in_bitbuf / 8;
 	if(cctx->dres->bytes_consumed<0) {
 		cctx->dres->bytes_consumed = 0;
 	}
@@ -591,45 +577,34 @@ static void destroy_medium_state(deark *c, struct dmsmedium_cmpr_state *mdst)
 	de_free(c, mdst);
 }
 
-static const u8 g_medium_d_code[256] = {
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
-    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
-    0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
-    0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
-    0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03,
-    0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03,
-    0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04,
-    0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05,
-    0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06,
-    0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07,
-    0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08,
-    0x09, 0x09, 0x09, 0x09, 0x09, 0x09, 0x09, 0x09,
-    0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a,
-    0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
-    0x0c, 0x0c, 0x0c, 0x0c, 0x0d, 0x0d, 0x0d, 0x0d,
-    0x0e, 0x0e, 0x0e, 0x0e, 0x0f, 0x0f, 0x0f, 0x0f,
-    0x10, 0x10, 0x10, 0x10, 0x11, 0x11, 0x11, 0x11,
-    0x12, 0x12, 0x12, 0x12, 0x13, 0x13, 0x13, 0x13,
-    0x14, 0x14, 0x14, 0x14, 0x15, 0x15, 0x15, 0x15,
-    0x16, 0x16, 0x16, 0x16, 0x17, 0x17, 0x17, 0x17,
-    0x18, 0x18, 0x19, 0x19, 0x1a, 0x1a, 0x1b, 0x1b,
-    0x1c, 0x1c, 0x1d, 0x1d, 0x1e, 0x1e, 0x1f, 0x1f,
-    0x20, 0x20, 0x21, 0x21, 0x22, 0x22, 0x23, 0x23,
-    0x24, 0x24, 0x25, 0x25, 0x26, 0x26, 0x27, 0x27,
-    0x28, 0x28, 0x29, 0x29, 0x2a, 0x2a, 0x2b, 0x2b,
-    0x2c, 0x2c, 0x2d, 0x2d, 0x2e, 0x2e, 0x2f, 0x2f,
-    0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
-    0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f
-};
+static UI get_medium_d_code(UI n)
+{
+	static const u8 medium_d_code[256] = {
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
+		3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4,5,5,5,5,5,5,5,5,
+		6,6,6,6,6,6,6,6,7,7,7,7,7,7,7,7,8,8,8,8,8,8,8,8,9,9,9,9,9,9,9,9,
+		0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,
+		0x0c,0x0c,0x0c,0x0c,0x0d,0x0d,0x0d,0x0d,0x0e,0x0e,0x0e,0x0e,0x0f,0x0f,0x0f,0x0f,
+		0x10,0x10,0x10,0x10,0x11,0x11,0x11,0x11,0x12,0x12,0x12,0x12,0x13,0x13,0x13,0x13,
+		0x14,0x14,0x14,0x14,0x15,0x15,0x15,0x15,0x16,0x16,0x16,0x16,0x17,0x17,0x17,0x17,
+		0x18,0x18,0x19,0x19,0x1a,0x1a,0x1b,0x1b,0x1c,0x1c,0x1d,0x1d,0x1e,0x1e,0x1f,0x1f,
+		0x20,0x20,0x21,0x21,0x22,0x22,0x23,0x23,0x24,0x24,0x25,0x25,0x26,0x26,0x27,0x27,
+		0x28,0x28,0x29,0x29,0x2a,0x2a,0x2b,0x2b,0x2c,0x2c,0x2d,0x2d,0x2e,0x2e,0x2f,0x2f,
+		0x30,0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39,0x3a,0x3b,0x3c,0x3d,0x3e,0x3f
+	};
 
-static const u8 g_medium_d_len[16] = {
-    0x03, 0x03, 0x04, 0x04, 0x04, 0x05, 0x05, 0x05,
-    0x05, 0x06, 0x06, 0x06, 0x07, 0x07, 0x07, 0x08
-};
+	return (UI)medium_d_code[(n&0xff)];
+}
+
+static UI get_medium_d_len(UI n)
+{
+	static const u8 medium_d_len[16] = {
+		3,3,4,4,4,5,5,5,5,6,6,6,7,7,7,8
+	};
+
+	return (UI)medium_d_len[(n&0xff)/16];
+}
 
 static int medium_have_enough_output(struct medium_ctx *mctx)
 {
@@ -669,16 +644,16 @@ static void do_mediumlz77_internal(struct medium_ctx *mctx, struct dmsmedium_cmp
 			// implement this?
 
 			first_code = (UI)de_bitreader_getbits(&mctx->bitrd, 8);
-			length = (UI)g_medium_d_code[first_code] + 3;
+			length = (UI)get_medium_d_code(first_code) + 3;
 
-			ocode1_nbits = (UI)g_medium_d_len[first_code / 16];
+			ocode1_nbits = (UI)get_medium_d_len(first_code);
 			ocode1 = (UI)de_bitreader_getbits(&mctx->bitrd, ocode1_nbits);
 
 			tmp_code = ((first_code << ocode1_nbits) | ocode1) & 0xff;
-			ocode2_nbits = (UI)g_medium_d_len[tmp_code / 16];
+			ocode2_nbits = (UI)get_medium_d_len(tmp_code);
 			ocode2 = (UI)de_bitreader_getbits(&mctx->bitrd, ocode2_nbits);
 
-			offset_rel = ((UI)g_medium_d_code[tmp_code] << 8) | (((tmp_code << ocode2_nbits) | ocode2) & 0xff);
+			offset_rel = ((UI)get_medium_d_code(tmp_code) << 8) | (((tmp_code << ocode2_nbits) | ocode2) & 0xff);
 			de_lz77buffer_copy_from_hist(mdst->ringbuf, mdst->ringbuf->curpos - 1 - offset_rel, length);
 		}
 	}

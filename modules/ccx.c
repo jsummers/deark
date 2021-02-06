@@ -38,7 +38,9 @@ static void do_decompress(deark *c, lctx *d)
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
+	struct de_deflate_params inflparams;
 
+	de_zeromem(&inflparams, sizeof(struct de_deflate_params));
 	if(d->pack_dlen < 12) goto done;
 	unc_len = de_getu32le_p(&pos);
 	de_dbg(c, "uncompressed len (reported): %"I64_FMT, unc_len);
@@ -67,7 +69,9 @@ static void do_decompress(deark *c, lctx *d)
 	dcmpro.f = unc_data;
 	dcmpro.len_known = 1;
 	dcmpro.expected_len = unc_len;
-	fmtutil_decompress_deflate_ex(c, &dcmpri, &dcmpro, &dres, DE_DEFLATEFLAG_ISZLIB);
+	inflparams.flags = DE_DEFLATEFLAG_ISZLIB;
+	fmtutil_decompress_deflate_ex(c, &dcmpri, &dcmpro, &dres, &inflparams);
+
 	if(dres.errcode) {
 		de_err(c, "%s", dres.errmsg);
 		goto done;

@@ -9,6 +9,8 @@
 #include "deark-private.h"
 #include "deark-fmtutil.h"
 
+#define DE_MAX_IDAT_CHUNKSIZE 1048576
+
 // TODO: Finish removing the "mz" symbols, and other miniz things.
 #define MY_MZ_MIN(a,b) (((a)<(b))?(a):(b))
 #define MY_TDEFL_WRITE_ZLIB_HEADER  0x01000
@@ -40,29 +42,42 @@ struct deark_png_encode_info {
 	struct de_crcobj *crco;
 };
 
-static void write_png_chunk_from_cdbuf(struct deark_png_encode_info *pei,
-	dbuf *cdbuf, u32 chunktype)
+static void write_png_chunk_from_mem(struct deark_png_encode_info *pei,
+	const u8 *mem, i64 memlen, u32 chunktype)
 {
 	u32 crc;
-	u8 buf[4];
+	u8 tmpbuf[4];
 
 	de_crcobj_reset(pei->crco);
 
 	// length field
-	dbuf_writeu32be(pei->outf, cdbuf->len);
+	dbuf_writeu32be(pei->outf, memlen);
 
 	// chunk type field
-	de_writeu32be_direct(buf, (i64)chunktype);
-	de_crcobj_addbuf(pei->crco, buf, 4);
-	dbuf_write(pei->outf, buf, 4);
+	de_writeu32be_direct(tmpbuf, (i64)chunktype);
+	de_crcobj_addbuf(pei->crco, tmpbuf, 4);
+	dbuf_write(pei->outf, tmpbuf, 4);
 
 	// data field
-	de_crcobj_addslice(pei->crco, cdbuf, 0, cdbuf->len);
-	dbuf_copy(cdbuf, 0, cdbuf->len, pei->outf);
+	de_crcobj_addbuf(pei->crco, mem, memlen);
+	dbuf_write(pei->outf, mem, memlen);
 
 	// CRC field
 	crc = de_crcobj_getval(pei->crco);
 	dbuf_writeu32be(pei->outf, (i64)crc);
+}
+
+static void write_png_chunk_from_cdbuf(struct deark_png_encode_info *pei,
+	dbuf *cdbuf, u32 chunktype)
+{
+	const u8 *mem;
+
+	mem = dbuf_get_membuf_direct_ptr(cdbuf);
+	if(mem==NULL && cdbuf->len!=0) goto done;
+	write_png_chunk_from_mem(pei, mem, cdbuf->len, chunktype);
+
+done:
+	;
 }
 
 static void write_png_chunk_IHDR(struct deark_png_encode_info *pei,
@@ -129,7 +144,52 @@ static void write_png_chunk_tEXt(struct deark_png_encode_info *pei,
 	write_png_chunk_from_cdbuf(pei, cdbuf, CODE_tEXt);
 }
 
-static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, dbuf *cdbuf,
+struct IDAT_write_userdata_struct {
+	struct deark_png_encode_info *pei;
+	dbuf *cdbuf;
+	int IDAT_count;
+};
+
+static void my_IDAT_write_cb(dbuf *f, void *userdata,
+	const u8 *mem_orig, i64 memsize_orig)
+{
+	struct IDAT_write_userdata_struct *iwu = (struct IDAT_write_userdata_struct*)userdata;
+	const u8 *mem = mem_orig;
+	i64 memsize = memsize_orig;
+
+	// We *could* just write a single IDAT chunk for each call to this function.
+	// We would get a PNG with IDATs having various random-ish sizes.
+	// I want the PNG output to be more predictable and stable than that, though,
+	// so we'll do some buffering to make each chunk (except the last) have
+	// DE_MAX_IDAT_CHUNKSIZE bytes.
+
+	while(iwu->cdbuf->len + memsize >= DE_MAX_IDAT_CHUNKSIZE) {
+		i64 amt_to_use_from_membuf;
+
+		if(iwu->cdbuf->len >= DE_MAX_IDAT_CHUNKSIZE) {
+			amt_to_use_from_membuf = 0;
+		}
+		else {
+			amt_to_use_from_membuf = DE_MAX_IDAT_CHUNKSIZE - iwu->cdbuf->len;
+		}
+
+		dbuf_write(iwu->cdbuf, mem, amt_to_use_from_membuf);
+		mem += amt_to_use_from_membuf;
+		memsize -= amt_to_use_from_membuf;
+		// cdbuf should now have exactly DE_MAX_IDAT_CHUNKSIZE bytes in it.
+
+		write_png_chunk_from_cdbuf(iwu->pei, iwu->cdbuf, CODE_IDAT);
+		iwu->IDAT_count++;
+		dbuf_empty(iwu->cdbuf);
+	}
+
+	// Save any remaining compressed pixel data for next time.
+	if(memsize > 0) {
+		dbuf_write(iwu->cdbuf, mem, memsize);
+	}
+}
+
+static int write_png_chunk_IDATs(struct deark_png_encode_info *pei, dbuf *cdbuf,
 	const u8 *src_pixels)
 {
 	int y;
@@ -138,9 +198,19 @@ static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, dbuf *cdbuf,
 	deark *c = pei->c;
 	struct fmtutil_tdefl_ctx *tdctx = NULL;
 	static const unsigned int my_s_tdefl_num_probes[11] = { 0, 1, 6, 32,  16, 32, 128, 256,  512, 768, 1500 };
+	dbuf *outf_IDAT = NULL;
+	struct IDAT_write_userdata_struct iwu;
+
+	de_zeromem(&iwu, sizeof(struct IDAT_write_userdata_struct));
+	iwu.pei = pei;
+	iwu.cdbuf = cdbuf;
+
+	outf_IDAT = dbuf_create_custom_dbuf(c, 0, 0);
+	outf_IDAT->userdata_for_customwrite = (void*)&iwu;
+	outf_IDAT->customwrite_fn = my_IDAT_write_cb;
 
 	// compress image data
-	tdctx = fmtutil_tdefl_create(c, cdbuf,
+	tdctx = fmtutil_tdefl_create(c, outf_IDAT,
 		my_s_tdefl_num_probes[MY_MZ_MIN(10, pei->level)] | MY_TDEFL_WRITE_ZLIB_HEADER);
 
 	for (y = 0; y < pei->height; ++y) {
@@ -154,12 +224,15 @@ static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, dbuf *cdbuf,
 		goto done;
 	}
 
-	write_png_chunk_from_cdbuf(pei, cdbuf, CODE_IDAT);
+	if(cdbuf->len>0 || iwu.IDAT_count==0) {
+		write_png_chunk_from_cdbuf(pei, cdbuf, CODE_IDAT);
+	}
 
 	retval = 1;
 
 done:
 	fmtutil_tdefl_destroy(tdctx);
+	dbuf_close(outf_IDAT);
 	return retval;
 }
 
@@ -197,7 +270,7 @@ static int do_generate_png(struct deark_png_encode_info *pei, const u8 *src_pixe
 	}
 
 	dbuf_truncate(cdbuf, 0);
-	if(!write_png_chunk_IDAT(pei, cdbuf, src_pixels)) goto done;
+	if(!write_png_chunk_IDATs(pei, cdbuf, src_pixels)) goto done;
 
 	dbuf_truncate(cdbuf, 0);
 	write_png_chunk_from_cdbuf(pei, cdbuf, CODE_IEND);

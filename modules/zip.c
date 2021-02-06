@@ -67,7 +67,6 @@ struct member_data {
 	int is_executable;
 	int is_dir;
 	int is_symlink;
-	struct de_crcobj *crco; // copy of lctx::crco
 	struct timestamp_data tsdata[DE_TIMESTAMPIDX_COUNT];
 
 	struct dir_entry_data central_dir_entry_data;
@@ -122,34 +121,51 @@ static void do_decompress_shrink(deark *c, lctx *d, struct compression_params *c
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	fmtutil_decompress_zip_shrink(c, dcmpri, dcmpro, dres, 0);
+	fmtutil_decompress_zip_shrink(c, dcmpri, dcmpro, dres, NULL);
 }
 
 static void do_decompress_reduce(deark *c, lctx *d, struct compression_params *cparams,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	unsigned int flags = 0;
+	struct de_zipreduce_params params;
 
-	fmtutil_decompress_zip_reduce(c, dcmpri, dcmpro, dres,
-		(unsigned int)(cparams->cmpr_meth-1), flags);
+	de_zeromem(&params, sizeof(struct de_zipreduce_params));
+	params.cmpr_factor = (unsigned int)(cparams->cmpr_meth-1);
+	fmtutil_decompress_zip_reduce(c, dcmpri, dcmpro, dres, &params);
 }
 
 static void do_decompress_implode(deark *c, lctx *d, struct compression_params *cparams,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	unsigned int flags = 0;
+	struct de_zipimplode_params params;
 
-	fmtutil_decompress_zip_implode(c, dcmpri, dcmpro, dres,
-		cparams->bit_flags, flags);
+	de_zeromem(&params, sizeof(struct de_zipimplode_params));
+	params.bit_flags = cparams->bit_flags;
+	params.dump_trees = (u8)de_get_ext_option_bool(c, "zip:dumptrees", 0);
+	params.mml_bug = (u8)de_get_ext_option_bool(c, "zip:implodebug", 0);
+	fmtutil_decompress_zip_implode(c, dcmpri, dcmpro, dres, &params);
 }
 
 static void do_decompress_deflate(deark *c, lctx *d, struct compression_params *cparams,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	fmtutil_decompress_deflate_ex(c, dcmpri, dcmpro, dres, 0);
+	struct de_deflate_params inflparams;
+
+	de_zeromem(&inflparams, sizeof(struct de_deflate_params));
+	if(cparams->cmpr_meth==9) {
+		inflparams.flags |= DE_DEFLATEFLAG_DEFLATE64;
+	};
+	fmtutil_decompress_deflate_ex(c, dcmpri, dcmpro, dres, &inflparams);
+}
+
+static void do_decompress_dclimplode(deark *c, lctx *d, struct compression_params *cparams,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	fmtutil_dclimplode_codectype1(c, dcmpri, dcmpro, dres, NULL);
 }
 
 static void do_decompress_stored(deark *c, lctx *d, struct compression_params *cparams,
@@ -168,8 +184,8 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 5, 0x00, "reduce, CF=4", do_decompress_reduce },
 	{ 6, 0x00, "implode", do_decompress_implode },
 	{ 8, 0x00, "deflate", do_decompress_deflate },
-	{ 9, 0x00, "deflate64", NULL },
-	{ 10, 0x00, "PKWARE DCL implode", NULL },
+	{ 9, 0x00, "deflate64", do_decompress_deflate },
+	{ 10, 0x00, "PKWARE DCL implode", do_decompress_dclimplode },
 	{ 12, 0x00, "bzip2", NULL },
 	{ 14, 0x00, "LZMA", NULL },
 	{ 16, 0x00, "IBM z/OS CMPSC", NULL },
@@ -195,52 +211,123 @@ static const struct cmpr_meth_info *get_cmpr_meth_info(int cmpr_meth)
 	return NULL;
 }
 
-// Decompress some data from inf, using the given ZIP compression method,
-// and append it to outf.
-// On failure, prints an error and returns 0.
-// Returns 1 on apparent success.
-// TODO: How should this low-level function report errors and warnings?
-static int do_decompress_data(deark *c, lctx *d,
-	dbuf *inf, i64 inf_pos, i64 inf_size,
-	dbuf *outf, i64 maxuncmprsize,
+// Decompress some data, using the given ZIP compression method.
+// On failure, dres->errcode will be set.
+static void do_decompress_lowlevel(deark *c, lctx *d, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	int cmpr_meth, const struct cmpr_meth_info *cmi, unsigned int bit_flags)
 {
-	int retval = 0;
-	struct de_dfilter_in_params dcmpri;
-	struct de_dfilter_out_params dcmpro;
-	struct de_dfilter_results dres;
 	struct compression_params cparams;
 
 	de_zeromem(&cparams, sizeof(struct compression_params));
-	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	cparams.cmpr_meth = cmpr_meth;
 	cparams.bit_flags = bit_flags;
-	dcmpri.f = inf;
-	dcmpri.pos = inf_pos;
-	dcmpri.len = inf_size;
-	dcmpro.f = outf;
-	dcmpro.expected_len = maxuncmprsize;
-	dcmpro.len_known = 1;
 
 	if(cmi && cmi->decompressor) {
-		cmi->decompressor(c, d, &cparams, &dcmpri, &dcmpro, &dres);
-		if(dres.errcode) {
-			de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
-		}
-		else {
-			if(dres.bytes_consumed_valid && (dres.bytes_consumed < inf_size)) {
-				de_warn(c, "Decompression may have failed (used only "
-					"%"I64_FMT" of %"I64_FMT" compressed bytes)",
-					dres.bytes_consumed, inf_size);
-			}
-			retval = 1;
+		cmi->decompressor(c, d, &cparams, dcmpri, dcmpro, dres);
+	}
+	else {
+		de_internal_err_nonfatal(c, "Unsupported compression method (%d)", cmpr_meth);
+		de_dfilter_set_generic_error(c, dres, NULL);
+	}
+}
+
+static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
+{
+	struct de_crcobj *crco = (struct de_crcobj *)userdata;
+	de_crcobj_addbuf(crco, buf, buf_len);
+}
+
+// Decompress a Zip member file, writing to outf.
+// Does CRC calculation.
+// Reports errors to the user.
+// Only call this if the compression method is supported -- Call
+//   is_compression_method_supported() first.
+// Assumes ldd->cmi has been set, by calling get_cmpr_meth_info().
+static int do_decompress_member(deark *c, lctx *d, struct member_data *md, dbuf *outf)
+{
+	struct dir_entry_data *ldd = &md->local_dir_entry_data;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	u32 crc_calculated;
+	int retval = 0;
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = md->file_data_pos;
+	dcmpri.len = md->cmpr_size;
+	dcmpro.f = outf;
+	dcmpro.expected_len = md->uncmpr_size;
+	dcmpro.len_known = 1;
+
+	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
+	de_crcobj_reset(d->crco);
+
+	do_decompress_lowlevel(c, d, &dcmpri, &dcmpro, &dres, ldd->cmpr_meth,
+		ldd->cmi, ldd->bit_flags);
+
+	if(dres.errcode) {
+		de_err(c, "%s: %s", ucstring_getpsz_d(ldd->fname),
+			de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
+
+	crc_calculated = de_crcobj_getval(d->crco);
+	de_dbg(c, "crc (calculated): 0x%08x", (unsigned int)crc_calculated);
+
+	if(crc_calculated != md->crc_reported) {
+		de_err(c, "%s: CRC check failed: Expected 0x%08x, got 0x%08x",
+			ucstring_getpsz_d(ldd->fname),
+			(unsigned int)md->crc_reported, (unsigned int)crc_calculated);
+		if(dres.bytes_consumed_valid && (dres.bytes_consumed < dcmpri.len)) {
+			de_info(c, "Note: Only used %"I64_FMT" of %"I64_FMT" compressed bytes.",
+				dres.bytes_consumed, dcmpri.len);
 		}
 		goto done;
 	}
 
-	de_err(c, "Unsupported compression method: %d (%s)", cmpr_meth,
-		(cmi ? cmi->name : "?"));
+	retval = 1;
+done:
+	return retval;
+}
 
+// A variation of do_decompress_member().
+// Only call this if the compression method is supported -- Call
+//   is_compression_method_supported() first.
+// outf is assumed to be a membuf.
+static int do_decompress_finder_attrib_data(deark *c, lctx *d,
+	i64 dpos, i64 dlen, dbuf *outf, i64 uncmprsize, u32 crc_reported,
+	int cmpr_meth, const struct cmpr_meth_info *cmi)
+{
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	u32 crc_calculated;
+	int retval = 0;
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = dpos;
+	dcmpri.len = dlen;
+	dcmpro.f = outf;
+	dcmpro.expected_len = uncmprsize;
+	dcmpro.len_known = 1;
+
+	do_decompress_lowlevel(c, d, &dcmpri, &dcmpro, &dres, cmpr_meth, cmi, 0);
+	if(dres.errcode) {
+		goto done; // Could report the error, but this isn't critical data
+	}
+
+	if(cmpr_meth != 0) {
+		de_crcobj_reset(d->crco);
+		de_crcobj_addslice(d->crco, outf, 0, outf->len);
+		crc_calculated = de_crcobj_getval(d->crco);
+		de_dbg(c, "finder attr. data crc (calculated): 0x%08x", (UI)crc_calculated);
+		if(crc_calculated != crc_reported) goto done;
+	}
+
+	retval = 1;
 done:
 	return retval;
 }
@@ -438,7 +525,6 @@ static void ef_unicodepath(deark *c, lctx *d, struct extra_item_info_struct *eii
 	de_ucstring *fn = NULL;
 	i64 fnlen;
 	u32 crc_reported, crc_calculated;
-	struct de_crcobj *fncrco = NULL;
 
 	if(eii->dlen<1) goto done;
 	ver = de_getbyte(eii->dpos);
@@ -455,9 +541,9 @@ static void ef_unicodepath(deark *c, lctx *d, struct extra_item_info_struct *eii
 	// Need to go back and calculate a CRC of the main filename. This is
 	// protection against the case where a ZIP editor may have changed the
 	// original filename, but retained a now-orphaned Unicode Path field.
-	fncrco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-	de_crcobj_addslice(fncrco, c->infile, eii->dd->main_fname_pos, eii->dd->main_fname_len);
-	crc_calculated = de_crcobj_getval(fncrco);
+	de_crcobj_reset(d->crco);
+	de_crcobj_addslice(d->crco, c->infile, eii->dd->main_fname_pos, eii->dd->main_fname_len);
+	crc_calculated = de_crcobj_getval(d->crco);
 	de_dbg(c, "name-crc (calculated): 0x%08x", (unsigned int)crc_calculated);
 
 	if(crc_calculated == crc_reported) {
@@ -467,7 +553,6 @@ static void ef_unicodepath(deark *c, lctx *d, struct extra_item_info_struct *eii
 
 done:
 	ucstring_destroy(fn);
-	de_crcobj_destroy(fncrco);
 }
 
 // Extra field 0x7855
@@ -635,6 +720,7 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	i64 backup_time_offset;
 	struct de_timestamp tmp_timestamp;
 	int charset;
+	u32 crc_reported = 0;
 	struct de_stringreaderdata *srd;
 
 	if(eii->dlen<14) goto done;
@@ -665,14 +751,12 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 		cmpr_meth = 0;
 	}
 	else {
-		unsigned int crc_reported;
-
 		cmpr_meth = (int)de_getu16le_p(&pos);
 		cmi = get_cmpr_meth_info(cmpr_meth);
 		de_dbg(c, "finder attr. cmpr. method: %d (%s)", cmpr_meth, (cmi ? cmi->name : "?"));
 
-		crc_reported = (unsigned int)de_getu32le_p(&pos);
-		de_dbg(c, "finder attr. data crc (reported): 0x%08x", crc_reported);
+		crc_reported = (u32)de_getu32le_p(&pos);
+		de_dbg(c, "finder attr. data crc (reported): 0x%08x", (UI)crc_reported);
 	}
 
 	// The rest of the data is Finder attribute data
@@ -685,12 +769,13 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	if(cmpr_meth==6 || !is_compression_method_supported(d, cmi)) {
 		de_warn(c, "Finder attribute data: Unsupported compression method: %d (%s)",
 			cmpr_meth, (cmi ? cmi->name : "?"));
+		goto done;
 	}
 
 	// Decompress and decode the Finder attribute data
 	attr_data = dbuf_create_membuf(c, ulen, 0x1);
-	ret = do_decompress_data(c, d, c->infile, pos, cmpr_attr_size,
-		attr_data, 65536, cmpr_meth, cmi, 0);
+	ret = do_decompress_finder_attrib_data(c, d, pos, cmpr_attr_size,
+		attr_data, ulen, crc_reported, cmpr_meth, cmi);
 	if(!ret) {
 		de_warn(c, "Failed to decompress finder attribute data");
 		goto done;
@@ -894,23 +979,18 @@ static void do_extra_data(deark *c, lctx *d,
 	de_dbg_indent(c, -1);
 }
 
-static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
-{
-	struct member_data *md = (struct member_data *)userdata;
-	de_crcobj_addbuf(md->crco, buf, buf_len);
-}
-
 static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 {
 	dbuf *outf = NULL;
 	de_finfo *fi = NULL;
 	struct dir_entry_data *ldd = &md->local_dir_entry_data;
-	u32 crc_calculated;
 	int tsidx;
-	int ret;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, md->file_data_pos,
 		md->cmpr_size);
+	de_dbg_indent(c, 1);
 
 	if(ldd->bit_flags & 0x1) {
 		de_err(c, "%s: Encryption is not supported", ucstring_getpsz_d(ldd->fname));
@@ -925,7 +1005,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	}
 
 	if(md->file_data_pos+md->cmpr_size > c->infile->len) {
-		de_err(c, "Member data goes beyond end of file");
+		de_err(c, "%s: Data goes beyond end of file", ucstring_getpsz_d(ldd->fname));
 		goto done;
 	}
 
@@ -965,28 +1045,12 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		goto done;
 	}
 
-	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)md);
-	md->crco = d->crco;
-	de_crcobj_reset(md->crco);
-
-	de_dbg_indent(c, 1);
-	ret = do_decompress_data(c, d, c->infile, md->file_data_pos, md->cmpr_size,
-		outf, md->uncmpr_size, ldd->cmpr_meth, ldd->cmi, ldd->bit_flags);
-	de_dbg_indent(c, -1);
-	if(!ret) goto done;
-
-	crc_calculated = de_crcobj_getval(md->crco);
-	de_dbg(c, "crc (calculated): 0x%08x", (unsigned int)crc_calculated);
-
-	if(crc_calculated != md->crc_reported) {
-		de_err(c, "%s: CRC check failed: Expected 0x%08x, got 0x%08x",
-			ucstring_getpsz_d(ldd->fname),
-			(unsigned int)md->crc_reported, (unsigned int)crc_calculated);
-	}
+	(void)do_decompress_member(c, d, md, outf);
 
 done:
 	dbuf_close(outf);
 	de_finfo_destroy(c, fi);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static const char *get_platform_name(unsigned int ver_hi)
@@ -1725,7 +1789,16 @@ static void de_run_zip_normally(deark *c, lctx *d)
 		eocd_found = fmtutil_find_zip_eocd(c, c->infile, &d->end_of_central_dir_pos);
 	}
 	if(!eocd_found) {
-		de_err(c, "Not a ZIP file");
+		if(c->module_disposition==DE_MODDISP_AUTODETECT ||
+			c->module_disposition==DE_MODDISP_EXPLICIT)
+		{
+			if(de_getu32le(0)==CODE_PK34) {
+				de_err(c, "ZIP central directory not found. "
+					"You could try \"-opt zip:scanmode\".");
+				goto done;
+			}
+		}
+		de_err(c, "Not a valid ZIP file");
 		goto done;
 	}
 

@@ -318,21 +318,24 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 			is_blank_char = (n==0x20 || n==0xa0) &&
 				!cell->underline && !cell->strikethru;
 
-			// Optimization: If this is a blank character, ignore a foreground color
-			// mismatch, because it won't be visible anyway. (Many other similar
-			// optimizations are also possible, but that could get very complex.)
-			if(in_span==0 ||
-				(cell->fgcol!=active_fgcol && !is_blank_char) ||
-				cell->bgcol!=active_bgcol ||
-				cell->underline!=active_underline ||
-				cell->strikethru!=active_strikethru ||
-				cell->blink!=active_blink)
-			{
-				if(in_span) {
+			if(in_span) {
+				// If we're in an incompatible 'span' context, close it.
+
+				// Optimization: If this is a blank character, ignore a foreground color
+				// mismatch, because it won't be visible anyway. (Many other similar
+				// optimizations are also possible, but that could get very complex.)
+				if((cell->fgcol!=active_fgcol && !is_blank_char) ||
+					cell->bgcol!=active_bgcol ||
+					cell->underline!=active_underline ||
+					cell->strikethru!=active_strikethru ||
+					cell->blink!=active_blink)
+				{
 					span_close(c, ofile, &cur_span);
 					in_span=0;
 				}
+			}
 
+			if(in_span==0) {
 				if(need_newline) {
 					dbuf_puts(ofile, "\n");
 					need_newline = 0;

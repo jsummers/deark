@@ -46,6 +46,10 @@ Command-line options:
 -o &lt;name>
    Output filenames begin with this string. This can include a directory
    path. Default is "output", except in some cases when using -zip/-tar.
+-t &lt;name>
+   Use exactly this filename for the first (and presumably only) output file.
+   The "-maxfiles 1" option is enabled automatically. Including the -main
+   option is suggested.
 -k, -k2, -k3
    "Keep" the input filename, and use it as the initial part of the output
    filename(s). Incompatible with -o.
@@ -74,7 +78,7 @@ Command-line options:
    Write output files to a .tar file, instead of to individual files.
    Similar to -zip, but may work better with large files.
    The -tostdout option is not currently supported when using -tar.
--arcfn &lt;filename>
+-ta &lt;filename> (alias: -arcfn)
    When using -zip/-tar, use this name for the output file. Default is
    "output.zip" or "output.tar".
 -ka, -ka2, -ka3
@@ -109,7 +113,8 @@ Command-line options:
 -firstfile &lt;n>
    Don't extract the first &lt;n> files found.
 -maxfiles &lt;n>
-   Extract at most &lt;n> files.
+   Extract at most &lt;n> files. The normal default is 1000, or effectively
+   unlimited if using -zip.
 -get &lt;n>
    Extract only the file identifed by &lt;n>. The first file is 0.
    Equivalent to "-firstfile &lt;n> -maxfiles 1".
@@ -217,6 +222,10 @@ Command-line options:
         mbin = Put both forks in a MacBinary container.
        For input files already in AppleDouble or AppleSingle format, see the
        formats.txt file for more information.
+    -opt deflatecodec=native
+       Use Deark's native "Deflate" decompressor when possible, instead of
+       miniz. It is experimental and much slower, but could be useful for
+       debugging and educational purposes.
 -id
    Stop after the format identification phase. This can be used to show what
    module Deark will run, without actually running it.
@@ -368,13 +377,11 @@ Thanks to Rich Geldreich for the miniz library.
 
 Thanks to James Ashton for much of the code used by the X-Face format decoder.
 
-Thanks to Mark Adler for the ZIP "implode" decompression code.
-
 Thanks to countless others who have documented the supported file formats.
 
 ## Authors ##
 
-Written by Jason Summers, 2014-2020.<br>
-Copyright &copy; 2016-2020 Jason Summers<br>
+Written by Jason Summers, 2014-2021.<br>
+Copyright &copy; 2016-2021 Jason Summers<br>
 [https://entropymine.com/deark/](https://entropymine.com/deark/)<br>
 [https://github.com/jsummers/deark](https://github.com/jsummers/deark)

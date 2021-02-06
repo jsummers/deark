@@ -126,6 +126,8 @@ $(OBJDIR)/modules/iptc.o: modules/iptc.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/iso9660.o: modules/iso9660.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/isz.o: modules/isz.c src/deark-private.h src/deark.h \
+ src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/j2c.o: modules/j2c.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/jbf.o: modules/jbf.c src/deark-config.h \
@@ -172,6 +174,8 @@ $(OBJDIR)/modules/olepropset.o: modules/olepropset.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/os2bmp.o: modules/os2bmp.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/pack.o: modules/pack.c src/deark-private.h src/deark.h \
+ src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/packdir.o: modules/packdir.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/palmbitmap.o: modules/palmbitmap.c src/deark-config.h \
@@ -314,9 +318,9 @@ $(OBJDIR)/src/fmtutil-lzw.o: src/fmtutil-lzw.c src/deark-config.h \
  src/../foreign/delzw.h
 $(OBJDIR)/src/fmtutil-miniz.o: src/fmtutil-miniz.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h \
- src/../foreign/miniz.h
+ src/../foreign/miniz-c.h src/../foreign/miniz.h
 $(OBJDIR)/src/fmtutil-zip.o: src/fmtutil-zip.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h \
- src/../foreign/ozunreduce.h src/../foreign/unimplode6a.h
+ src/../foreign/ozunreduce.h
 $(OBJDIR)/src/fmtutil.o: src/fmtutil.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h

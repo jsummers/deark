@@ -15,6 +15,8 @@
 #define DE_DEFAULT_MAX_FILE_SIZE 0x280000000LL // 10GiB
 #define DE_DEFAULT_MAX_TOTAL_OUTPUT_SIZE 0x3c0000000LL // 15GiB
 #define DE_DEFAULT_MAX_IMAGE_DIMENSION 10000
+#define DE_DEFAULT_MAX_OUTPUT_FILES 1000 // Limit for direct output (not ZIP)
+#define DE_MAX_OUTPUT_FILES_HARD_LIMIT 250000
 
 // Returns the best module to use, by looking at the file contents, etc.
 static struct deark_module_info *detect_module_for_file(deark *c, int *errflag)
@@ -391,6 +393,13 @@ int de_run(deark *c)
 		}
 	}
 
+	if(c->output_style==DE_OUTPUTSTYLE_DIRECT &&
+		c->max_output_files > DE_DEFAULT_MAX_OUTPUT_FILES &&
+		!c->list_mode && !c->user_set_max_output_files)
+	{
+		c->max_output_files = DE_DEFAULT_MAX_OUTPUT_FILES;
+	}
+
 	// If we're writing to a zip file, we normally defer creating that zip file
 	// until we find a file to extract, so that we never create a zip file with
 	// no member files.
@@ -402,8 +411,10 @@ int de_run(deark *c)
 		}
 	}
 
-	if(de_get_ext_option_bool(c, "list:fileid", 0)) {
-		c->list_mode_include_file_id = 1;
+	if(c->list_mode) {
+		if(de_get_ext_option_bool(c, "list:fileid", 0)) {
+			c->list_mode_include_file_id = 1;
+		}
 	}
 
 	if(c->modcodes_req) {
@@ -456,7 +467,7 @@ deark *de_create_internal(void)
 	c->preserve_file_times = 1;
 	c->preserve_file_times_archives = 1;
 	c->preserve_file_times_internal = 1;
-	c->max_output_files = -1;
+	c->max_output_files = DE_MAX_OUTPUT_FILES_HARD_LIMIT;
 	c->max_image_dimension = DE_DEFAULT_MAX_IMAGE_DIMENSION;
 	c->max_output_file_size = DE_DEFAULT_MAX_FILE_SIZE;
 	c->max_total_output_size = DE_DEFAULT_MAX_TOTAL_OUTPUT_SIZE;
@@ -480,6 +491,7 @@ void de_destroy(deark *c)
 		de_free(c, c->ext_option[i].val);
 	}
 	if(c->base_output_filename) { de_free(c, c->base_output_filename); }
+	if(c->special_1st_filename) { de_free(c, c->special_1st_filename); }
 	if(c->output_archive_filename) { de_free(c, c->output_archive_filename); }
 	if(c->extrlist_filename) { de_free(c, c->extrlist_filename); }
 	if(c->detection_data) { de_free(c, c->detection_data); }
@@ -623,7 +635,7 @@ done:
 // flags:
 //  0x1 = use base filename only
 //  0x2 = remove path separators
-void de_set_base_output_filename(deark *c, const char *dirname, const char *fn,
+void de_set_output_filename_pattern(deark *c, const char *dirname, const char *fn,
 	unsigned int flags)
 {
 	if(c->base_output_filename) de_free(c, c->base_output_filename);
@@ -631,6 +643,18 @@ void de_set_base_output_filename(deark *c, const char *dirname, const char *fn,
 	if(!fn && !dirname) return;
 	if(!fn) fn = "output";
 	c->base_output_filename = make_output_filename(c, dirname, fn, NULL, flags);
+}
+
+//  Use exactly fn for the first output file (no ".000.")
+void de_set_output_special_1st_filename(deark *c, const char *dirname, const char *fn)
+{
+	if(c->special_1st_filename) {
+		de_free(c, c->special_1st_filename);
+		c->special_1st_filename = NULL;
+	}
+	if(fn) {
+		c->special_1st_filename = make_output_filename(c, dirname, fn, NULL, 0);
+	}
 }
 
 // If flags&0x10, configure the archive file to be written to stdout.
@@ -783,9 +807,18 @@ void de_set_first_output_file(deark *c, int x)
 	c->first_output_file = x;
 }
 
-void de_set_max_output_files(deark *c, int n)
+void de_set_max_output_files(deark *c, i64 n)
 {
-	c->max_output_files = n;
+	if(n>DE_MAX_OUTPUT_FILES_HARD_LIMIT) {
+		c->max_output_files = DE_MAX_OUTPUT_FILES_HARD_LIMIT;
+	}
+	else if(n<0) {
+		c->max_output_files = 0;
+	}
+	else {
+		c->max_output_files = (int)n;
+	}
+	c->user_set_max_output_files = 1;
 }
 
 void de_set_max_output_file_size(deark *c, i64 n)

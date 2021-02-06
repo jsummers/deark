@@ -88,6 +88,8 @@ struct member_data {
 
 typedef struct localctx_struct {
 	de_encoding input_encoding;
+	u8 hlev_of_first_member;
+	u8 lhark_fmt;
 	u8 unsupp_warned;
 	u8 lh7_success_flag;
 	u8 lh7_failed_flag;
@@ -704,34 +706,59 @@ static void decompress_uncompressed(deark *c, lctx *d, struct member_data *md,
 	fmtutil_decompress_uncompressed(c, dcmpri, dcmpro, dres, 0);
 }
 
-// Compression method will be selected based on id_raw[3], which
-// should be '4'...'8'.
-static void decompress_lh5x(deark *c, lctx *d, struct member_data *md,
+// Caller supplies fmt (DE_LH5X_FMT_*).
+static void decompress_lh5x_internal(deark *c, lctx *d,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres, int fmt)
+{
+	struct de_lh5x_params lzhparams;
+
+	de_zeromem(&lzhparams, sizeof(struct de_lh5x_params));
+	lzhparams.fmt = fmt;
+	lzhparams.zero_codes_block_behavior = DE_LH5X_ZCB_65536;
+	lzhparams.warn_about_zero_codes_block = 1;
+	lzhparams.history_fill_val = 0x20;
+	fmtutil_decompress_lh5x(c, dcmpri, dcmpro, dres, &lzhparams);
+}
+
+// Compression method will be selected based on id_raw[3] (which
+// should be '4'...'8'), etc.
+static void decompress_lh5x_auto(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	struct de_lzh_params lzhparams;
+	int fmt;
 
-	de_zeromem(&lzhparams, sizeof(struct de_lzh_params));
-	lzhparams.fmt = DE_LZH_FMT_LH5LIKE;
-	lzhparams.subfmt = md->cmi->id_raw[3];
-	lzhparams.zero_codes_block_behavior = DE_LZH_ZCB_65536;
-	lzhparams.warn_about_zero_codes_block = 1;
-	fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres, &lzhparams);
+	switch(md->cmi->id_raw[3]) {
+	case '4': case '5':
+		fmt = DE_LH5X_FMT_LH5;
+		break;
+	case '6':
+		fmt = DE_LH5X_FMT_LH6;
+		break;
+	case '7':
+		if(d->lhark_fmt) {
+			fmt = DE_LH5X_FMT_LHARK;
+		}
+		else {
+			fmt = DE_LH5X_FMT_LH7;
+		}
+		break;
+	case '8':
+		fmt = DE_LH5X_FMT_LH7;
+		break;
+	default:
+		return;
+	}
+
+	decompress_lh5x_internal(c, d, dcmpri, dcmpro, dres, fmt);
 }
 
 static void decompress_lh5(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	struct de_lzh_params lzhparams;
-
-	de_zeromem(&lzhparams, sizeof(struct de_lzh_params));
-	lzhparams.fmt = DE_LZH_FMT_LH5LIKE;
-	lzhparams.subfmt = '5';
-	lzhparams.zero_codes_block_behavior = DE_LZH_ZCB_0; //65536;
-	lzhparams.warn_about_zero_codes_block = 1;
-	fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres, &lzhparams);
+	decompress_lh5x_internal(c, d, dcmpri, dcmpro, dres, DE_LH5X_FMT_LH5);
 }
 
 static void decompress_lz5(deark *c, lctx *d, struct member_data *md,
@@ -755,11 +782,11 @@ static const struct cmpr_meth_array_item cmpr_meth_arr[] = {
 	{ 0x00, CODE_lhd, "directory", NULL },
 	{ 0x00, CODE_lh0, "uncompressed", decompress_uncompressed },
 	{ 0x00, CODE_lh1, "LZ77-4K, adaptive Huffman", NULL },
-	{ 0x00, CODE_lh4, NULL, decompress_lh5x },
+	{ 0x00, CODE_lh4, NULL, decompress_lh5x_auto },
 	{ 0x00, CODE_lh5, "LZ77-8K, static Huffman", decompress_lh5 },
-	{ 0x00, CODE_lh6, "LZ77-32K, static Huffman", decompress_lh5x },
-	{ 0x00, CODE_lh7, NULL, decompress_lh5x },
-	{ 0x00, CODE_lh8, NULL, decompress_lh5x },
+	{ 0x00, CODE_lh6, "LZ77-32K, static Huffman", decompress_lh5x_auto },
+	{ 0x00, CODE_lh7, NULL, decompress_lh5x_auto },
+	{ 0x00, CODE_lh8, NULL, decompress_lh5x_auto },
 	{ 0x00, CODE_lz4, "uncompressed (LArc)", decompress_uncompressed },
 	{ 0x00, CODE_lz5, "LZSS-4K (LArc)", decompress_lz5 },
 	{ 0x00, CODE_pm0, "uncompressed (PMArc)", decompress_uncompressed },
@@ -911,6 +938,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)crc_calc);
 	if(crc_calc != md->crc16) {
 		de_err(c, "%s: CRC check failed", ucstring_getpsz_d(md->fullfilename));
+		goto done;
 	}
 
 	dcmpr_ok = 1;
@@ -1051,6 +1079,10 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 	de_dbg(c, "header level: %d", (int)md->hlev);
 	if(md->hlev>3) {
 		goto done; // Shouldn't be possible; checked in lha_classify_whats_next().
+	}
+
+	if(d->member_count==0) {
+		d->hlev_of_first_member = md->hlev;
 	}
 
 	if(md->hlev==0) {
@@ -1274,10 +1306,14 @@ static void de_run_lha(deark *c, de_module_params *mparams)
 	struct member_data *md = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	d->lhark_fmt = (u8)de_get_ext_option_bool(c, "lha:lhark", 0);
+
 	// It's not really safe to guess CP437, because Japanese-encoded (CP932?)
 	// filenames are common.
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
 
+	d->hlev_of_first_member = 0xff;
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 
 	pos = 0;
@@ -1300,9 +1336,11 @@ static void de_run_lha(deark *c, de_module_params *mparams)
 done:
 	destroy_member_data(c, md);
 	if(d) {
-		if(d->lh7_failed_flag && !d->lh7_success_flag) {
+		if(!d->lhark_fmt && d->hlev_of_first_member==1 && d->lh7_failed_flag &&
+			!d->lh7_success_flag)
+		{
 			de_info(c, "Note: 'lh7' decompression failed. Maybe this file uses "
-				"LHARK compression, which is not supported.");
+				"LHARK compression. Try \"-opt lha:lhark\".");
 		}
 
 		de_crcobj_destroy(d->crco);
@@ -1353,12 +1391,18 @@ static int de_identify_lha(deark *c)
 	return 80; // Must be less than car_lha
 }
 
+static void de_help_lha(deark *c)
+{
+	de_msg(c, "-opt lha:lhark : Enable LHARK mode (for 'lh7' compression)");
+}
+
 void de_module_lha(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "lha";
 	mi->desc = "LHA/LZH/PMA archive";
 	mi->run_fn = de_run_lha;
 	mi->identify_fn = de_identify_lha;
+	mi->help_fn = de_help_lha;
 }
 
 /////////////////////// CAR (MylesHi!)
@@ -1542,7 +1586,7 @@ static int do_arx_member(deark *c, struct arx_ctx *d, struct arx_member_data *md
 	i64 compressed_data_len;
 	i64 unc_data_len;
 	i64 pos1 = md->member_pos;
-	UI hdr_checksum_calc;
+	UI hdr_checksum_calc = 0;
 	int is_uncompressed = 0;
 	int retval = 0;
 	int saved_indent_level;

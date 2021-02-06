@@ -282,21 +282,19 @@ static void decompress_method_1(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	struct de_lzh_params lzhparams;
+	struct de_lh5x_params lzhparams;
 
-	de_zeromem(&lzhparams, sizeof(struct de_lzh_params));
-	lzhparams.fmt = DE_LZH_FMT_LH5LIKE;
-	lzhparams.subfmt = '6';
+	de_zeromem(&lzhparams, sizeof(struct de_lh5x_params));
+	lzhparams.fmt = DE_LH5X_FMT_LH6;
 
 	// ARJ does not appear to allow LZ77 offsets that point to data before
 	// the beginning of the file, so it doesn't matter what we initialize the
-	// history buffer to. If don't do this, LZH_FMT_LH5LIKE will pre-fill the
-	// buffer with spaces.
-	lzhparams.use_history_fill_val = 1;
+	// history buffer to.
 	lzhparams.history_fill_val = 0x00;
-	lzhparams.zero_codes_block_behavior = DE_LZH_ZCB_65536;
+
+	lzhparams.zero_codes_block_behavior = DE_LH5X_ZCB_65536;
 	lzhparams.warn_about_zero_codes_block = 1;
-	fmtutil_decompress_lzh(c, dcmpri, dcmpro, dres, &lzhparams);
+	fmtutil_decompress_lh5x(c, dcmpri, dcmpro, dres, &lzhparams);
 }
 
 static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
@@ -699,7 +697,7 @@ done:
 		de_destroy_stringreaderdata(c, md->name_srd);
 		de_free(c, md);
 	}
-	de_dbg_indent(c, -1);
+	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
 

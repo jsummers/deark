@@ -48,6 +48,7 @@ struct cmdctx {
 
 	const char *output_dirname;
 	const char *base_output_filename;
+	const char *output_special_1st_filename;
 	const char *archive_filename;
 	int option_k_level; // Use input filename in output filenames
 	int option_ka_level; // Use input filename in output archive filenames
@@ -117,21 +118,19 @@ static void print_help(deark *c)
 	de_puts(c, DE_MSGTYPE_MESSAGE,
 		"\nCommonly used options:\n"
 		" -l: Instead of extracting, list the files that would be extracted.\n"
-		" -m <module>: Assume input file is this format, instead of autodetecting.\n"
-		" -k: Start output filenames with the input filename.\n"
+		" -k, -ka: Start output (-k) or .zip (-ka) filenames with the input filename.\n"
 		" -o <base-filename>: Start output filenames with this string.\n"
 		" -od <directory>: Write files to this directory.\n"
-		" -zip: Write output files to a .zip file.\n"
-		" -ka: Start the .zip filename with the input filename.\n"
-		" -a: Extract more data than usual.\n"
-		" -main: Extract less data than usual.\n"
+		" -zip: Write files to a .zip file (output.zip by default).\n"
+		" -a, -main: Extract more (-a) or less (-main) data than usual.\n"
 		" -get <n>: Extract only file number <n>.\n"
+		" -maxfiles <n>: Extract at most <n> files.\n"
 		" -d, -d2, -d3: Print additional information about the file.\n"
 		" -q, -noinfo, -nowarn: Print fewer messages than usual.\n"
+		" -color: Allow color in printed messages.\n"
+		" -m <module>: Assume input file is this format, instead of autodetecting.\n"
 		" -modules: Print the names of all available modules.\n"
-		" -help, -h: Print this message.\n"
-		" -license: Print the credits and terms of use.\n"
-		" -version: Print version information.\n"
+		" -h, -version, -license: Print this message / version info / terms of use.\n"
 		);
 }
 
@@ -155,10 +154,8 @@ static void print_license(deark *c)
 	"OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\n"
 	"THE SOFTWARE.\n\n"
 	"----------\n"
-	"The zlib and Deflate encoder and decoder use public domain code originally from\n"
-	"miniz v1.16 beta r1, by Rich Geldreich.\n\n"
-	"The ZIP Implode decoder is derived from public domain code by Mark Adler, from\n"
-	"Info-ZIP UnZip v5.4.\n\n"
+	"The zlib and Deflate encoder and decoder use MIT-licensed code from miniz,\n"
+	"(c) Rich Geldreich, Tenacious Software, RAD Game Tools, Valve Software.\n\n"
 	"The X-Face decoder uses code from Compface, Copyright (c) 1990 James Ashton.\n");
 }
 
@@ -389,7 +386,7 @@ static void set_encoding_option(deark *c, struct cmdctx *cc, const char *s)
 }
 
 enum opt_id_enum {
- DE_OPT_NULL=0, DE_OPT_D, DE_OPT_D2, DE_OPT_D3, DE_OPT_L,
+ DE_OPT_NULL=0, DE_OPT_D, DE_OPT_D2, DE_OPT_D3, DE_OPT_D4, DE_OPT_L,
  DE_OPT_NOINFO, DE_OPT_NOWARN,
  DE_OPT_NOBOM, DE_OPT_NODENS, DE_OPT_ASCIIHTML, DE_OPT_NONAMES,
  DE_OPT_PADPIX,
@@ -401,7 +398,7 @@ enum opt_id_enum {
  DE_OPT_EXTOPT, DE_OPT_FILE, DE_OPT_FILE2, DE_OPT_INENC, DE_OPT_INTZ,
  DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_MODCODES, DE_OPT_O, DE_OPT_OD,
  DE_OPT_K, DE_OPT_K2, DE_OPT_K3, DE_OPT_KA, DE_OPT_KA2, DE_OPT_KA3,
- DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES,
+ DE_OPT_T, DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES,
  DE_OPT_MAXFILESIZE, DE_OPT_MAXTOTALSIZE, DE_OPT_MAXIMGDIM,
  DE_OPT_PRINTMODULES, DE_OPT_DPREFIX, DE_OPT_EXTRLIST,
  DE_OPT_ONLYMODS, DE_OPT_DISABLEMODS, DE_OPT_ONLYDETECT, DE_OPT_NODETECT,
@@ -418,6 +415,7 @@ struct opt_struct option_array[] = {
 	{ "d",            DE_OPT_D,            0 },
 	{ "d2",           DE_OPT_D2,           0 },
 	{ "d3",           DE_OPT_D3,           0 },
+	{ "d4",           DE_OPT_D4,           0 },
 	{ "l",            DE_OPT_L,            0 },
 	{ "noinfo",       DE_OPT_NOINFO,       0 },
 	{ "nowarn",       DE_OPT_NOWARN,       0 },
@@ -467,6 +465,8 @@ struct opt_struct option_array[] = {
 	{ "o",            DE_OPT_O,            1 },
 	{ "basefn",       DE_OPT_O,            1 }, // Deprecated
 	{ "od",           DE_OPT_OD,           1 },
+	{ "t",            DE_OPT_T,            1 },
+	{ "ta",           DE_OPT_ARCFN,        1 },
 	{ "arcfn",        DE_OPT_ARCFN,        1 },
 	{ "get",          DE_OPT_GET,          1 },
 	{ "firstfile",    DE_OPT_FIRSTFILE,    1 },
@@ -566,7 +566,7 @@ static void set_output_basename(struct cmdctx *cc)
 		outdirname = cc->output_dirname;
 	}
 
-	de_set_base_output_filename(cc->c, outdirname, outputbasefn, flags);
+	de_set_output_filename_pattern(cc->c, outdirname, outputbasefn, flags);
 }
 
 static void set_output_archive_name(struct cmdctx *cc)
@@ -602,6 +602,17 @@ static void set_output_archive_name(struct cmdctx *cc)
 	}
 
 	de_set_output_archive_filename(cc->c, cc->output_dirname, arcfn, flags);
+}
+
+static void handle_special_1st_filename(struct cmdctx *cc)
+{
+	if(!cc->output_special_1st_filename) return;
+	de_set_output_special_1st_filename(cc->c,
+		((cc->to_zip || cc->to_tar || cc->to_stdout) ? NULL : cc->output_dirname),
+		cc->output_special_1st_filename);
+	if(!cc->set_MAXFILES) {
+		de_set_max_output_files(cc->c, 1);
+	}
 }
 
 static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
@@ -647,6 +658,9 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_D3:
 				de_set_std_option_int(c, DE_STDOPT_DEBUG_LEVEL, 3);
+				break;
+			case DE_OPT_D4:
+				de_set_std_option_int(c, DE_STDOPT_DEBUG_LEVEL, 4);
 				break;
 			case DE_OPT_L:
 				de_set_std_option_int(c, DE_STDOPT_LISTMODE, 1);
@@ -803,6 +817,9 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 			case DE_OPT_OD:
 				cc->output_dirname = argv[i+1];
 				break;
+			case DE_OPT_T:
+				cc->output_special_1st_filename = argv[i+1];
+				break;
 			case DE_OPT_ARCFN:
 				// Relevant e.g. if the -zip option is used.
 				cc->archive_filename = argv[i+1];
@@ -815,7 +832,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				de_set_first_output_file(c, de_atoi(argv[i+1]));
 				break;
 			case DE_OPT_MAXFILES:
-				de_set_max_output_files(c, de_atoi(argv[i+1]));
+				de_set_max_output_files(c, de_atoi64(argv[i+1]));
 				cc->set_MAXFILES = 1;
 				break;
 			case DE_OPT_MAXFILESIZE:
@@ -901,6 +918,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 
 	set_output_basename(cc);
 	set_output_archive_name(cc);
+	handle_special_1st_filename(cc);
 }
 
 static int main2(int argc, char **argv)

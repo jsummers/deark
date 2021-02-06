@@ -111,7 +111,7 @@ struct sit_huffctx {
 	struct de_dfilter_in_params *dcmpri;
 	struct de_dfilter_out_params *dcmpro;
 	struct de_dfilter_results *dres;
-	struct fmtutil_huffman_tree *ht;
+	struct fmtutil_huffman_decoder *ht;
 	int errflag;
 	struct de_bitreader bitrd;
 };
@@ -121,7 +121,7 @@ static void sit_huff_read_tree(struct sit_huffctx *hctx, u64 curr_code, UI curr_
 {
 	u8 x;
 
-	if(curr_code_nbits>48) {
+	if(curr_code_nbits>FMTUTIL_HUFFMAN_MAX_CODE_LENGTH) {
 		hctx->errflag = 1;
 	}
 	if(hctx->bitrd.eof_flag || hctx->errflag) return;
@@ -139,7 +139,14 @@ static void sit_huff_read_tree(struct sit_huffctx *hctx, u64 curr_code, UI curr_
 		fmtutil_huffman_valtype val;
 
 		val = (fmtutil_huffman_valtype)de_bitreader_getbits(&hctx->bitrd, 8);
-		ret = fmtutil_huffman_add_code(hctx->c, hctx->ht, curr_code, curr_code_nbits, val);
+		if(hctx->c->debug_level>=2) {
+			char b2buf[72];
+
+			de_dbg(hctx->c, "code: \"%s\" = %d",
+				de_print_base2_fixed(b2buf, sizeof(b2buf), curr_code, curr_code_nbits),
+				(int)val);
+		}
+		ret = fmtutil_huffman_add_code(hctx->c, hctx->ht->bk, curr_code, curr_code_nbits, val);
 		if(!ret) {
 			hctx->errflag = 1;
 		}
@@ -164,19 +171,22 @@ static void do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
 	hctx->dcmpri = dcmpri;
 	hctx->dcmpro = dcmpro;
 	hctx->dres = dres;
-	hctx->ht = fmtutil_huffman_create_tree(c, 256, 512);
+	hctx->ht = fmtutil_huffman_create_decoder(c, 256, 512);
 
 	hctx->bitrd.f = dcmpri->f;
 	hctx->bitrd.curpos = dcmpri->pos;
 	hctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
 
 	// Read the tree definition
+	de_dbg2(c, "interpreted huffman codebook:");
+	de_dbg_indent(c, 1);
 	sit_huff_read_tree(hctx, 0, 0);
+	de_dbg_indent(c, -1);
 	if(hctx->errflag) goto done;
-	if(c->debug_level>=2) {
+	if(c->debug_level>=4) {
 		fmtutil_huffman_dump(c, hctx->ht);
 	}
-	if(fmtutil_huffman_get_max_bits(hctx->ht)<1) {
+	if(fmtutil_huffman_get_max_bits(hctx->ht->bk)<1) {
 		goto done;
 	}
 
@@ -193,7 +203,7 @@ static void do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
 
 		if(hctx->bitrd.eof_flag || hctx->errflag) break;
 
-		ret = fmtutil_huffman_read_next_value(hctx->ht, &hctx->bitrd, &val, NULL);
+		ret = fmtutil_huffman_read_next_value(hctx->ht->bk, &hctx->bitrd, &val, NULL);
 		if(!ret) {
 			if(hctx->bitrd.eof_flag) break;
 			hctx->errflag = 1;
@@ -209,7 +219,7 @@ done:
 		de_dfilter_set_generic_error(c, dres, hctx->modname);
 	}
 	if(hctx) {
-		fmtutil_huffman_destroy_tree(c, hctx->ht);
+		fmtutil_huffman_destroy_decoder(c, hctx->ht);
 		de_free(c, hctx);
 	}
 }
@@ -238,7 +248,7 @@ struct sit_fixedhuffctx {
 	struct de_dfilter_in_params *dcmpri;
 	struct de_dfilter_out_params *dcmpro;
 	struct de_dfilter_results *dres;
-	struct fmtutil_huffman_tree *ht;
+	struct fmtutil_huffman_decoder *ht;
 	int errflag;
 	u8 translation[256];
 };
@@ -250,10 +260,15 @@ static void sit_fixedhuff_init_tree(struct sit_fixedhuffctx *hctx)
 	size_t cdlen_curpos;
 	UI prev_code_bit_length = 0;
 	u64 prev_code = 0; // valid if prev_code_bit_length>0
+	int saved_indent_level;
 	char b2buf[72];
 	static const u8 cdlen_RLEcounts [13] = {1, 1, 4,12,32,16,49, 2,2,40,95, 2, 1};
 	static const u8 cdlen_RLElengths[13] = {3, 4, 5, 6, 7, 8, 9,10,9,10,11,13,12};
 	u8 code_lengths[FIXEDHUFF_NUMCODES];
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbgx(c, 4, "standard huffman codebook:");
+	de_dbg_indent(c, 1);
 
 	// "Decompress" cdlen_RLE*[] to code_lengths[].
 	cdlen_curpos = 0;
@@ -290,11 +305,11 @@ static void sit_fixedhuff_init_tree(struct sit_fixedhuffctx *hctx)
 		prev_code_bit_length = symlen;
 		prev_code = thiscode;
 
-		if(c->debug_level>=3) {
-			de_dbg3(c, "adding code \"%s\" = %d",
+		if(c->debug_level>=4) {
+			de_dbg3(c, "code: \"%s\" = %d",
 				de_print_base2_fixed(b2buf, sizeof(b2buf), thiscode, symlen), (int)i);
 		}
-		ret = fmtutil_huffman_add_code(c, hctx->ht, thiscode, symlen, (fmtutil_huffman_valtype)i);
+		ret = fmtutil_huffman_add_code(c, hctx->ht->bk, thiscode, symlen, (fmtutil_huffman_valtype)i);
 		if(!ret) {
 			hctx->errflag = 1;
 			goto done;
@@ -302,7 +317,7 @@ static void sit_fixedhuff_init_tree(struct sit_fixedhuffctx *hctx)
 	}
 
 done:
-	;
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void do_decompr_fixedhuff(deark *c, lctx *d, struct member_data *md,
@@ -325,12 +340,12 @@ static void do_decompr_fixedhuff(deark *c, lctx *d, struct member_data *md,
 	hctx->dcmpri = dcmpri;
 	hctx->dcmpro = dcmpro;
 	hctx->dres = dres;
-	hctx->ht = fmtutil_huffman_create_tree(c, FIXEDHUFF_NUMCODES, 0);
+	hctx->ht = fmtutil_huffman_create_decoder(c, FIXEDHUFF_NUMCODES, 0);
 
 	sit_fixedhuff_init_tree(hctx);
 	if(hctx->errflag) goto done;
 
-	if(c->debug_level>=3) {
+	if(c->debug_level>=4) {
 		fmtutil_huffman_dump(c, hctx->ht);
 	}
 
@@ -431,7 +446,7 @@ static void do_decompr_fixedhuff(deark *c, lctx *d, struct member_data *md,
 
 				if(nbytes_decoded_intermed >= intermediate_len) break; // Have enough output data
 
-				ret = fmtutil_huffman_read_next_value(hctx->ht, &bitrd, &val, NULL);
+				ret = fmtutil_huffman_read_next_value(hctx->ht->bk, &bitrd, &val, NULL);
 				if(bitrd.eof_flag) break;
 				if(!ret) {
 					de_dfilter_set_errorf(c, dres, hctx->modname, "Error reading Huffman codes");
@@ -482,7 +497,7 @@ done:
 			de_dfilter_set_generic_error(c, dres, hctx->modname);
 		}
 
-		fmtutil_huffman_destroy_tree(c, hctx->ht);
+		fmtutil_huffman_destroy_decoder(c, hctx->ht);
 		de_free(c, hctx);
 	}
 

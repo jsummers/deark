@@ -77,6 +77,7 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define TAG_T4OPTIONS           292
 #define TAG_T6OPTIONS           293
 #define TAG_RESOLUTIONUNIT      296
+#define TAG_DATETIME            306
 #define TAG_PREDICTOR           317
 #define TAG_TILEWIDTH           322
 #define TAG_TILELENGTH          323
@@ -99,6 +100,8 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define CMPR_PACKBITS      32773
 #define CMPR_DEFLATE_ALT   32946
 
+struct page_ctx;
+struct decode_page_ctx;
 struct localctx_struct;
 typedef struct localctx_struct lctx;
 struct taginfo;
@@ -151,6 +154,16 @@ struct tagnuminfo {
 	val_decoder_fn_type vdfn;
 };
 
+typedef void (*decompressor_fn)(deark *c, lctx *d, struct page_ctx *pg,
+	struct decode_page_ctx *dctx);
+
+struct cmpr_meth_info {
+	u32 id;
+	UI flags;
+	const char *name;
+	decompressor_fn decompressor;
+};
+
 struct strile_data_struct {
 	i64 pos;
 	i64 len;
@@ -190,9 +203,11 @@ struct page_ctx {
 	u8 is_old_lzw;
 	u8 extrasamples_count;
 	u8 extrasample_type[DE_TIFF_MAX_SAMPLES]; // [0] = first *extra* sample, not first sample
+	const struct cmpr_meth_info *cmi;
 
 	i64 strile_count;
 	struct strile_data_struct *strile_data; // array[strile_count]
+	struct de_timestamp internal_mod_time;
 	de_color pal[256];
 	char errmsgtoken_ifd[40];
 };
@@ -749,21 +764,20 @@ static int valdec_oldsubfiletype(deark *c, const struct valdec_params *vp, struc
 	return 1;
 }
 
-static const struct int_and_str compression_name_map[] = {
-	{CMPR_NONE, "uncompressed"}, {CMPR_CCITTRLE, "CCITTRLE"}, {CMPR_FAX3, "Fax3"}, {CMPR_FAX4, "Fax4"},
-	{CMPR_LZW, "LZW"}, {CMPR_OLDJPEG, "OldJPEG"}, {CMPR_NEWJPEG, "NewJPEG"}, {CMPR_DEFLATE, "DEFLATE"},
-	{9, "T.85 JBIG"}, {10, "T.43 JBIG"},
-	{32766, "NeXT 2-bit RLE"}, {32771, "CCITTRLEW"},
-	{CMPR_PACKBITS, "PackBits"}, {32809, "ThunderScan"},
-	{32895, "IT8CTPAD"}, {32896, "IT8LW"}, {32897, "IT8MP/HC"}, {32898, "IT8BL"},
-	{32908, "PIXARFILM"}, {32909, "PIXARLOG"}, {CMPR_DEFLATE_ALT, "DEFLATE"}, {32947, "DCS"},
-	{34661, "ISO JBIG"}, {34676, "SGILOG"}, {34677, "SGILOG24"},
-	{34712, "JPEG2000"}, {34715, "JBIG2"}, {34887, "LERC"}, {34892, "Lossy JPEG(DNG)"},
-	{34925, "LZMA2"}, {50000, "Zstd"}, {50001, "WebP"}
-};
+static const struct cmpr_meth_info *find_cmpr_meth_info(u32 id);
+
 static int valdec_compression(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
-	lookup_str_and_append_to_ucstring(compression_name_map, ITEMS_IN_ARRAY(compression_name_map), vp->n, vr->s);
+	const struct cmpr_meth_info *cmi;
+
+	cmi = find_cmpr_meth_info((u32)vp->n);
+
+	if(cmi && cmi->name) {
+		ucstring_append_sz(vr->s, cmi->name, DE_ENCODING_UTF8);
+	}
+	else {
+		ucstring_append_sz(vr->s, "?", DE_ENCODING_LATIN1);
+	}
 	return 1;
 }
 
@@ -1763,6 +1777,44 @@ static void handler_resolution(deark *c, lctx *d, const struct taginfo *tg, cons
 	}
 }
 
+static i64 read_fixed_decimal(dbuf *f, i64 pos, size_t ndigits)
+{
+	i64 n;
+	char buf[16];
+
+	if(ndigits >= sizeof(buf)) return 0;
+	dbuf_read(f, (u8*)buf, pos, ndigits);
+	buf[ndigits] = '\0';
+	n = de_atoi64(buf);
+	return n;
+}
+
+static void parse_tiff_datetime(deark *c, lctx *d, const struct taginfo *tg, struct de_timestamp *ts)
+{
+	i64 yr, mo, da;
+	i64 hr, mi, se;
+
+	if(tg->unit_size!=1) return;
+	if(tg->valcount<19) return;
+	// Format: "YYYY:MM:DD HH:MM:SS"
+	yr = read_fixed_decimal(c->infile, tg->val_offset, 4);
+	mo = read_fixed_decimal(c->infile, tg->val_offset+5, 2);
+	da = read_fixed_decimal(c->infile, tg->val_offset+8, 2);
+	hr = read_fixed_decimal(c->infile, tg->val_offset+11, 2);
+	mi = read_fixed_decimal(c->infile, tg->val_offset+14, 2);
+	se = read_fixed_decimal(c->infile, tg->val_offset+17, 2);
+	de_make_timestamp(ts, yr, mo, da, hr, mi, se);
+	if(ts->is_valid) {
+		ts->tzcode = DE_TZCODE_UNKNOWN;
+		ts->precision = DE_TSPREC_1SEC;
+	}
+}
+
+static void handler_datetime(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	 parse_tiff_datetime(c, d, tg, &tg->pg->internal_mod_time);
+}
+
 // Handler for some tags expected to have a single integer value
 static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
@@ -1886,7 +1938,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 300, 0x0000, "ColorResponseUnit", NULL, NULL },
 	{ 301, 0x00, "TransferFunction", NULL, NULL },
 	{ 305, 0x0400, "Software", NULL, NULL },
-	{ 306, 0x0400, "DateTime", NULL, NULL },
+	{ /* 306 */ TAG_DATETIME, 0x0400, "DateTime", handler_datetime, NULL },
 	{ 315, 0x0400, "Artist", NULL, NULL },
 	{ 316, 0x0400, "HostComputer", NULL, NULL },
 	{ /* 317 */ TAG_PREDICTOR, 0x00, "Predictor", handler_various, valdec_predictor },
@@ -2843,8 +2895,12 @@ static void decompress_strile_packbits(deark *c, lctx *d, struct page_ctx *pg,
 static void decompress_strile_deflate(deark *c, lctx *d, struct page_ctx *pg,
 	struct decode_page_ctx *dctx)
 {
+	struct de_deflate_params inflparams;
+
+	de_zeromem(&inflparams, sizeof(struct de_deflate_params));
+	inflparams.flags = DE_DEFLATEFLAG_ISZLIB;
 	fmtutil_decompress_deflate_ex(c, &dctx->dcmpri, &dctx->dcmpro, &dctx->dres,
-		 DE_DEFLATEFLAG_ISZLIB);
+		 &inflparams);
 }
 
 static void decompress_strile_fax34(deark *c, lctx *d, struct page_ctx *pg,
@@ -2864,20 +2920,50 @@ static void decompress_strile_fax34(deark *c, lctx *d, struct page_ctx *pg,
 		 (void*)&fax34params);
 }
 
-static int is_cmpr_meth_supported(lctx *d, u32 n)
+static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
+	{ CMPR_NONE, 0x0, "uncompressed", decompress_strile_uncmpr },
+	{ CMPR_CCITTRLE, 0x0, "CCITTRLE", decompress_strile_fax34 },
+	{ CMPR_FAX3, 0x0, "Fax3", decompress_strile_fax34 },
+	{ CMPR_FAX4, 0x0, "Fax4", decompress_strile_fax34 },
+	{ CMPR_LZW, 0x0, "LZW", decompress_strile_lzw },
+	{ CMPR_OLDJPEG, 0x0, "OldJPEG", NULL},
+	{ CMPR_NEWJPEG, 0x0, "NewJPEG", NULL},
+	{ CMPR_DEFLATE, 0x0, "DEFLATE", decompress_strile_deflate },
+	{ 9, 0x0, "T.85 JBIG", NULL},
+	{ 10, 0x0, "T.43 JBIG", NULL},
+	{ 32766, 0x0, "NeXT 2-bit RLE", NULL},
+	{ 32771, 0x0, "CCITTRLEW", NULL},
+	{ CMPR_PACKBITS, 0x0, "PackBits", decompress_strile_packbits },
+	{ 32809, 0x0, "ThunderScan", NULL},
+	{ 32895, 0x0, "IT8CTPAD", NULL},
+	{ 32896, 0x0, "IT8LW", NULL},
+	{ 32897, 0x0, "IT8MP/HC", NULL},
+	{ 32898, 0x0, "IT8BL", NULL},
+	{ 32908, 0x0, "PIXARFILM", NULL},
+	{ 32909, 0x0, "PIXARLOG", NULL},
+	{ CMPR_DEFLATE_ALT, 0x0, "DEFLATE", decompress_strile_deflate },
+	{ 32947, 0x0, "DCS", NULL},
+	{ 34661, 0x0, "ISO JBIG", NULL},
+	{ 34676, 0x0, "SGILOG", NULL},
+	{ 34677, 0x0, "SGILOG24", NULL},
+	{ 34712, 0x0, "JPEG2000", NULL},
+	{ 34715, 0x0, "JBIG2", NULL},
+	{ 34887, 0x0, "LERC", NULL},
+	{ 34892, 0x0, "Lossy JPEG(DNG)", NULL},
+	{ 34925, 0x0, "LZMA2", NULL},
+	{ 50000, 0x0, "Zstd", NULL},
+	{ 50001, 0x0, "WebP", NULL}
+};
+
+static const struct cmpr_meth_info *find_cmpr_meth_info(u32 id)
 {
-	switch(n) {
-	case CMPR_NONE:
-	case CMPR_CCITTRLE:
-	case CMPR_FAX3:
-	case CMPR_FAX4:
-	case CMPR_LZW:
-	case CMPR_DEFLATE:
-	case CMPR_PACKBITS:
-	case CMPR_DEFLATE_ALT:
-		return 1;
+	size_t k;
+
+	for(k=0; k<DE_ARRAYCOUNT(cmpr_meth_info_arr); k++) {
+		if(id == cmpr_meth_info_arr[k].id)
+			return &cmpr_meth_info_arr[k];
 	}
-	return 0;
+	return NULL;
 }
 
 static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
@@ -2903,23 +2989,10 @@ static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
 	dctx->dcmpro.expected_len = dctx->strileset_rowspan * dctx->strileset_height;
 	de_dfilter_init_objects(c, NULL, NULL, &dctx->dres);
 
-	switch(pg->compression) {
-	case CMPR_CCITTRLE:
-	case CMPR_FAX3:
-	case CMPR_FAX4:
-		decompress_strile_fax34(c, d, pg, dctx);
-		break;
-	case CMPR_LZW:
-		decompress_strile_lzw(c, d, pg, dctx);
-		break;
-	case CMPR_DEFLATE:
-	case CMPR_DEFLATE_ALT:
-		decompress_strile_deflate(c, d, pg, dctx);
-		break;
-	case CMPR_PACKBITS:
-		decompress_strile_packbits(c, d, pg, dctx);
-		break;
-	default:
+	if(pg->cmi && pg->cmi->decompressor) {
+		pg->cmi->decompressor(c, d, pg, dctx);
+	}
+	else {
 		decompress_strile_uncmpr(c, d, pg, dctx);
 	}
 
@@ -3018,7 +3091,7 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 				}
 
 				switch(pg->bits_per_sample) {
-				case 1: case 4:
+				case 1: case 2: case 4:
 					sample[s_idx] = de_get_bits_symbol(dctx->unc_strile_dbuf[dbuf_idx], (i64)pg->bits_per_sample,
 						dctx->strileset_rowspan*j, i*(i64)dctx->samples_per_pixel_per_plane + sample_offset);
 					break;
@@ -3164,6 +3237,8 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	if(pg->compression<1) {
 		pg->compression = CMPR_NONE;
 	}
+	pg->cmi = find_cmpr_meth_info(pg->compression);
+
 	if(pg->samples_per_pixel<1) {
 		pg->samples_per_pixel = 1;
 	}
@@ -3197,16 +3272,16 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	dctx->height = pg->imagelength;
 	if(!de_good_image_dimensions(c, dctx->width, dctx->height)) goto done;
 
-	if(!is_cmpr_meth_supported(d, pg->compression)) {
+	if(!pg->cmi || !pg->cmi->decompressor) {
 		detiff_err(c, d, pg, "Unsupported compression method: %d (%s)", (int)pg->compression,
-			lookup_str(compression_name_map, DE_ARRAYCOUNT(compression_name_map), (i64)pg->compression));
+			((pg->cmi && pg->cmi->name)?pg->cmi->name:"?"));
 		goto done;
 	}
-	if(pg->have_strip_tags && pg->have_tile_tags) {
-		detiff_err(c, d, pg, "Image seems to have both strips and tiles");
-		goto done;
-	}
+
 	if(pg->have_tile_tags) {
+		if(pg->have_strip_tags) {
+			detiff_warn(c, d, pg, "Image seems to have both strips and tiles");
+		}
 		dctx->is_tiled = 1;
 	}
 
@@ -3228,7 +3303,9 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		dctx->is_grayscale = 1;
 		dctx->grayscale_reverse_polarity = (pg->photometric==0);
 		dctx->base_samples_per_pixel = 1;
-		if(pg->bits_per_sample==1 || pg->bits_per_sample==4 || pg->bits_per_sample==8) {
+		if(pg->bits_per_sample==1 || pg->bits_per_sample==2 || pg->bits_per_sample==4 ||
+			pg->bits_per_sample==8)
+		{
 			ok_bps = 1;
 		}
 	}
@@ -3241,7 +3318,9 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	else if(pg->photometric==3) { // paletted
 		dctx->base_samples_per_pixel = 1;
 		dctx->use_pal = 1;
-		if(pg->bits_per_sample==1 || pg->bits_per_sample==4 || pg->bits_per_sample==8) {
+		if(pg->bits_per_sample==1 || pg->bits_per_sample==2 || pg->bits_per_sample==4 ||
+			pg->bits_per_sample==8)
+		{
 			ok_bps = 1;
 		}
 	}
@@ -3450,6 +3529,7 @@ after_paint:
 	}
 
 	set_image_density(c, d, pg, fi);
+	fi->internal_mod_time = pg->internal_mod_time;
 
 	de_bitmap_write_to_file_finfo(img, fi, createflags);
 
