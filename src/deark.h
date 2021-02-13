@@ -19,7 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
-#ifndef DE_USE_WINDOWS_INTTYPES
+#if !DE_USE_WINDOWS_INTTYPES
 #include <inttypes.h>
 #endif
 
@@ -42,7 +42,7 @@
 #define de_gnuc_attribute(x)
 #endif
 
-#ifdef DE_USE_WINDOWS_INTTYPES
+#if DE_USE_WINDOWS_INTTYPES
 
 #define i64 __int64
 #define u64 unsigned __int64

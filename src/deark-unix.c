@@ -139,7 +139,11 @@ FILE* de_fopen_for_write(deark *c, const char *fn,
 		int s_ret;
 
 		de_zeromem(&stbuf, sizeof(struct stat));
+#if DE_USE_LSTAT
 		s_ret = lstat(fn, &stbuf);
+#else
+		s_ret = stat(fn, &stbuf);
+#endif
 
 		 // s_ret==0 = "success"
 		if(s_ret==0 && overwrite_mode==DE_OVERWRITEMODE_NEVER) {
@@ -163,7 +167,7 @@ int de_fseek(FILE *fp, i64 offs, int whence)
 {
 	int ret;
 
-#ifdef DE_USE_FSEEKO
+#if DE_USE_FSEEKO
 	ret = fseeko(fp, (off_t)offs, whence);
 #else
 	ret = fseek(fp, (long)offs, whence);
@@ -175,7 +179,7 @@ i64 de_ftell(FILE *fp)
 {
 	i64 ret;
 
-#ifdef DE_USE_FSEEKO
+#if DE_USE_FSEEKO
 	ret = (i64)ftello(fp);
 #else
 	ret = (i64)ftell(fp);
