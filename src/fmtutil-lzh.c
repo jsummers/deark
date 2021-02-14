@@ -1053,14 +1053,14 @@ static void fmtutil_deflate_codectype1_native(deark *c, struct de_dfilter_in_par
 	cctx->dcmpro = dcmpro;
 	cctx->dres = dres;
 
-	cctx->is_deflate64 = (deflparams->flags & DE_DEFLATEFLAG_DEFLATE64)?1:0;
+	if(deflparams->flags & DE_DEFLATEFLAG_DEFLATE64) cctx->is_deflate64 = 1;
 
 	cctx->bitrd.bbll.is_lsb = 1;
 	cctx->bitrd.f = dcmpri->f;
 	cctx->bitrd.curpos = dcmpri->pos;
 	cctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
 
-	if(deflparams && deflparams->ringbuf_to_use) {
+	if(deflparams->ringbuf_to_use) {
 		cctx->ringbuf = deflparams->ringbuf_to_use;
 		cctx->ringbuf_owned_by_caller = 1;
 	}
@@ -1093,6 +1093,7 @@ done:
 	destroy_lzh_ctx(cctx);
 }
 
+// codec_private_params is type de_deflate_params. Cannot be NULL.
 void fmtutil_deflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params)
@@ -1101,6 +1102,7 @@ void fmtutil_deflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	int must_use_miniz = 0;
 	int must_use_native = 0;
 
+	if(!deflparams) return;
 	if(deflparams->flags & DE_DEFLATEFLAG_ISZLIB) {
 		must_use_miniz = 1;
 	}
@@ -1140,7 +1142,55 @@ void fmtutil_deflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	}
 }
 
-///////////////////// Implode - native decoder (not unimplode6a)
+void fmtutil_decompress_deflate_ex(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	struct de_deflate_params *params)
+{
+	fmtutil_deflate_codectype1(c, dcmpri, dcmpro, dres, (void*)params);
+}
+
+// flags:
+//   DE_DEFLATEFLAG_ISZLIB
+//   DE_DEFLATEFLAG_USEMAXUNCMPRSIZE
+int fmtutil_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
+	i64 maxuncmprsize, i64 *bytes_consumed, unsigned int flags)
+{
+	deark *c = inf->c;
+	struct de_dfilter_results dres;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_deflate_params deflparams;
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	if(bytes_consumed) *bytes_consumed = 0;
+
+	dcmpri.f = inf;
+	dcmpri.pos = inputstart;
+	dcmpri.len = inputsize;
+
+	dcmpro.f = outf;
+	if(flags & DE_DEFLATEFLAG_USEMAXUNCMPRSIZE) {
+		dcmpro.len_known = 1;
+		dcmpro.expected_len = maxuncmprsize;
+		flags -= DE_DEFLATEFLAG_USEMAXUNCMPRSIZE;
+	}
+
+	de_zeromem(&deflparams, sizeof(struct de_deflate_params));
+	deflparams.flags = flags;
+	fmtutil_deflate_codectype1(c, &dcmpri, &dcmpro, &dres, (void*)&deflparams);
+
+	if(bytes_consumed && dres.bytes_consumed_valid) {
+		*bytes_consumed = dres.bytes_consumed;
+	}
+
+	if(dres.errcode != 0) {
+		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
+		return 0;
+	}
+	return 1;
+}
+
+///////////////////// Implode (ZIP method #6)
 
 // Note that trees are always constructed so that the minimum value stored
 // in them is 0. If that's not the desired minimum value, values must be de-biased
@@ -1305,7 +1355,7 @@ void fmtutil_decompress_zip_implode(deark *c, struct de_dfilter_in_params *dcmpr
 	struct lzh_ctx *cctx = NULL;
 
 	cctx = de_malloc(c, sizeof(struct lzh_ctx));
-	cctx->modname = "implode-native";
+	cctx->modname = "implode";
 	cctx->c = c;
 	cctx->dcmpri = dcmpri;
 	cctx->dcmpro = dcmpro;

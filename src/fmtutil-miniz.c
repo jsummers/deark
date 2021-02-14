@@ -2,7 +2,7 @@
 // Copyright (C) 2016-2019 Jason Summers
 // See the file COPYING for terms of use.
 
-// Compression and decompression of Deflate and zlib
+// Compression and decompression of Deflate and zlib, using miniz
 
 #define DE_NOT_IN_MODULE
 #include "deark-config.h"
@@ -152,54 +152,6 @@ done:
 	}
 	de_free(c, inbuf);
 	de_free(c, outbuf);
-}
-
-void fmtutil_decompress_deflate_ex(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	struct de_deflate_params *params)
-{
-	fmtutil_deflate_codectype1(c, dcmpri, dcmpro, dres, (void*)params);
-}
-
-// flags:
-//   DE_DEFLATEFLAG_ISZLIB
-//   DE_DEFLATEFLAG_USEMAXUNCMPRSIZE
-int fmtutil_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
-	i64 maxuncmprsize, i64 *bytes_consumed, unsigned int flags)
-{
-	deark *c = inf->c;
-	struct de_dfilter_results dres;
-	struct de_dfilter_in_params dcmpri;
-	struct de_dfilter_out_params dcmpro;
-	struct de_deflate_params deflparams;
-
-	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
-	if(bytes_consumed) *bytes_consumed = 0;
-
-	dcmpri.f = inf;
-	dcmpri.pos = inputstart;
-	dcmpri.len = inputsize;
-
-	dcmpro.f = outf;
-	if(flags & DE_DEFLATEFLAG_USEMAXUNCMPRSIZE) {
-		dcmpro.len_known = 1;
-		dcmpro.expected_len = maxuncmprsize;
-		flags -= DE_DEFLATEFLAG_USEMAXUNCMPRSIZE;
-	}
-
-	de_zeromem(&deflparams, sizeof(struct de_deflate_params));
-	deflparams.flags = flags;
-	fmtutil_deflate_codectype1(c, &dcmpri, &dcmpro, &dres, (void*)&deflparams);
-
-	if(bytes_consumed && dres.bytes_consumed_valid) {
-		*bytes_consumed = dres.bytes_consumed;
-	}
-
-	if(dres.errcode != 0) {
-		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
-		return 0;
-	}
-	return 1;
 }
 
 struct fmtutil_tdefl_ctx {
