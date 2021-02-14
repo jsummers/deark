@@ -46,6 +46,7 @@ struct lzh_ctx {
 	u8 implode_3_trees;
 	UI implode_min_match_len;
 	UI dist_code_extra_bits;
+	struct de_crcobj *crco;
 };
 
 static void lzh_destroy_trees(struct lzh_ctx *cctx);
@@ -61,6 +62,7 @@ static void destroy_lzh_ctx(struct lzh_ctx *cctx)
 		de_lz77buffer_destroy(c, cctx->ringbuf);
 		cctx->ringbuf = NULL;
 	}
+	if(cctx->crco) de_crcobj_destroy(cctx->crco);
 	de_free(c, cctx);
 }
 
@@ -525,6 +527,11 @@ static int lzh_have_enough_output(struct lzh_ctx *cctx)
 	return 0;
 }
 
+static void lzh_update_crc(struct lzh_ctx *cctx, u8 n)
+{
+	de_crcobj_addbuf(cctx->crco, &n, 1);
+}
+
 static void lzh_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 {
 	struct lzh_ctx *cctx = (struct lzh_ctx*)rb->userdata;
@@ -533,6 +540,7 @@ static void lzh_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 		return;
 	}
 	dbuf_writebyte(cctx->dcmpro->f, n);
+	if(cctx->crco) lzh_update_crc(cctx, n);
 	cctx->nbytes_written++;
 }
 
@@ -545,6 +553,7 @@ static void lzh_lz77buf_writebytecb_flagerrors(struct de_lz77buffer *rb, u8 n)
 		return;
 	}
 	dbuf_writebyte(cctx->dcmpro->f, n);
+	if(cctx->crco) lzh_update_crc(cctx, n);
 	cctx->nbytes_written++;
 }
 
@@ -1039,12 +1048,78 @@ static void decompress_deflate_internal(struct lzh_ctx *cctx)
 	}
 }
 
+static int lzh_read_zlib_header(deark *c, struct lzh_ctx *cctx)
+{
+	u8 h[2];
+	UI meth, cinfo;
+	UI fcheck, fdict, flevel;
+	UI chk;
+	int retval = 0;
+
+	de_dbg(c, "zlib header at %"I64_FMT, cctx->bitrd.curpos);
+	de_dbg_indent(c, 1);
+	h[0] = (u8)lzh_getbits(cctx, 8);
+	h[1] = (u8)lzh_getbits(cctx, 8);
+
+	meth = (UI)(h[0]&0x0f);
+	de_dbg2(c, "CM: %u", meth);
+	cinfo = (UI)(h[0]>>4);
+	de_dbg2(c, "CINFO: %u", cinfo);
+
+	fcheck = (UI)(h[1]&0x1f);
+	de_dbg2(c, "FCHECK: %u", fcheck);
+	fdict = (UI)((h[1]>>5)&0x1);
+	de_dbg2(c, "FDICT: %u", fdict);
+	flevel = (UI)((h[1]>>6)&0x3);
+	de_dbg2(c, "FLEVEL: %u", flevel);
+
+	chk = (((UI)h[0])<<8) | (UI)h[1];
+	if(chk%31 != 0) goto done;
+	if(meth!=8) goto done;
+	if(cinfo>7) goto done;
+	if(fdict) goto done;
+	retval = 1;
+
+done:
+	if(!retval) {
+		de_dfilter_set_errorf(c, cctx->dres, cctx->modname, "Bad or unsupported zlib parameters");
+	}
+	de_dbg_indent(c, -1);
+	return retval;
+}
+
+static int lzh_read_zlib_trailer(deark *c, struct lzh_ctx *cctx)
+{
+	u32 cs_reported;
+	u32 cs_calc;
+	int retval = 0;
+
+	de_bitreader_skip_to_byte_boundary(&cctx->bitrd);
+	de_dbg(c, "zlib trailer at %"I64_FMT, cctx->bitrd.curpos);
+	de_dbg_indent(c, 1);
+	if(cctx->bitrd.curpos + 4 > cctx->bitrd.endpos) goto done;
+	cs_reported = (u32)dbuf_getu32be_p(cctx->bitrd.f, &cctx->bitrd.curpos);
+	de_dbg2(c, "checksum (reported): 0x%08x", (UI)cs_reported);
+	cs_calc = de_crcobj_getval(cctx->crco);
+	de_dbg2(c, "checksum (calculated): 0x%08x", (UI)cs_calc);
+	if(cs_calc != cs_reported) goto done;
+	retval = 1;
+
+done:
+	if(!retval) {
+		de_dfilter_set_errorf(c, cctx->dres, cctx->modname, "Bad zlib trailer");
+	}
+	de_dbg_indent(c, -1);
+	return retval;
+}
+
 static void fmtutil_deflate_codectype1_native(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params)
 {
 	struct de_deflate_params *deflparams = (struct de_deflate_params*)codec_private_params;
 	struct lzh_ctx *cctx = NULL;
+	u8 is_zlib = 0;
 
 	cctx = de_malloc(c, sizeof(struct lzh_ctx));
 	cctx->modname = "deflate-native";
@@ -1053,12 +1128,19 @@ static void fmtutil_deflate_codectype1_native(deark *c, struct de_dfilter_in_par
 	cctx->dcmpro = dcmpro;
 	cctx->dres = dres;
 
+	if(deflparams->flags & DE_DEFLATEFLAG_ISZLIB) is_zlib = 1;
 	if(deflparams->flags & DE_DEFLATEFLAG_DEFLATE64) cctx->is_deflate64 = 1;
 
 	cctx->bitrd.bbll.is_lsb = 1;
 	cctx->bitrd.f = dcmpri->f;
 	cctx->bitrd.curpos = dcmpri->pos;
 	cctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
+
+	if(is_zlib) {
+		if(!lzh_read_zlib_header(c, cctx)) goto done;
+
+		cctx->crco = de_crcobj_create(c, DE_CRCOBJ_ADLER32);
+	}
 
 	if(deflparams->ringbuf_to_use) {
 		cctx->ringbuf = deflparams->ringbuf_to_use;
@@ -1075,6 +1157,10 @@ static void fmtutil_deflate_codectype1_native(deark *c, struct de_dfilter_in_par
 
 	cctx->ringbuf->userdata = NULL;
 	cctx->ringbuf->writebyte_cb = NULL;
+
+	if(!cctx->err_flag && is_zlib) {
+		if(!lzh_read_zlib_trailer(c, cctx)) goto done;
+	}
 
 	if(cctx->err_flag) {
 		// A default error message
@@ -1103,9 +1189,6 @@ void fmtutil_deflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	int must_use_native = 0;
 
 	if(!deflparams) return;
-	if(deflparams->flags & DE_DEFLATEFLAG_ISZLIB) {
-		must_use_miniz = 1;
-	}
 
 	if(deflparams->ringbuf_to_use || (deflparams->flags & DE_DEFLATEFLAG_DEFLATE64)) {
 		must_use_native = 1;
