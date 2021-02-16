@@ -219,6 +219,30 @@ static void decompressor_squeezed(deark *c, lctx *d, struct member_data *md,
 	de_dfilter_decompress_two_layer(c, &tlp);
 }
 
+static void decompressor_crunched5(deark *c, lctx *d, struct member_data *md,
+	struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
+{
+	struct de_lzw_params delzwp;
+
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
+	delzwp.fmt = DE_LZWFMT_ARC5;
+	fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
+}
+
+static void decompressor_crunched6(deark *c, lctx *d, struct member_data *md,
+	struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
+{
+	struct de_lzw_params delzwp;
+
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
+	delzwp.fmt = DE_LZWFMT_ARC5;
+
+	de_dfilter_decompress_two_layer_type2(c, dfilter_lzw_codec, (void*)&delzwp,
+		dfilter_rle90_codec, NULL, dcmpri, dcmpro, dres);
+}
+
 static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
@@ -247,8 +271,8 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 0x02, 0x83, "stored", decompressor_stored },
 	{ 0x03, 0x83, "packed (RLE)", decompressor_packed },
 	{ 0x04, 0x83, "squeezed (RLE + Huffman)", decompressor_squeezed },
-	{ 0x05, 0x83, "crunched5 (static LZW)", NULL },
-	{ 0x06, 0x83, "crunched6 (RLE + static LZW)", NULL },
+	{ 0x05, 0x83, "crunched5 (static LZW)", decompressor_crunched5 },
+	{ 0x06, 0x83, "crunched6 (RLE + static LZW)", decompressor_crunched6 },
 	{ 0x07, 0x83, "crunched7 (ARC 4.6)", NULL },
 	{ 0x08, 0x83, "crunched8 (RLE + dynamic LZW)", decompressor_crunched8 },
 	{ 0x09, 0x83, "squashed (dynamic LZW)", decompressor_squashed },
