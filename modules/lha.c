@@ -8,6 +8,7 @@
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_lha);
+DE_DECLARE_MODULE(de_module_swg);
 DE_DECLARE_MODULE(de_module_car_lha);
 DE_DECLARE_MODULE(de_module_arx);
 
@@ -49,6 +50,8 @@ DE_DECLARE_MODULE(de_module_arx);
 #define CODE_pm0 0x2d706d30U
 #define CODE_pm1 0x2d706d31U
 #define CODE_pm2 0x2d706d32U
+#define CODE_sw0 0x2d737730U
+#define CODE_sw1 0x2d737731U
 
 #define TIMESTAMPIDX_INVALID (-1)
 struct timestamp_data {
@@ -89,11 +92,14 @@ struct member_data {
 typedef struct localctx_struct {
 	de_encoding input_encoding;
 	u8 hlev_of_first_member;
+	u8 swg_fmt;
 	u8 lhark_fmt;
 	u8 unsupp_warned;
 	u8 lh7_success_flag;
 	u8 lh7_failed_flag;
+	u8 trailer_found;
 	int member_count;
+	i64 trailer_pos;
 	struct de_crcobj *crco;
 } lctx;
 
@@ -794,7 +800,9 @@ static const struct cmpr_meth_array_item cmpr_meth_arr[] = {
 	{ 0x00, CODE_lZ1, "MicroFox PUT lZ1", NULL },
 	{ 0x00, CODE_lZ5, "MicroFox PUT lZ5", decompress_lh5 },
 	{ 0x00, CODE_S_LH0, "uncompressed (SAR)", decompress_uncompressed },
-	{ 0x00, CODE_S_LH5, "SAR LH5", decompress_lh5 }
+	{ 0x00, CODE_S_LH5, "SAR LH5", decompress_lh5 },
+	{ 0x00, CODE_sw0, NULL, decompress_uncompressed },
+	{ 0x00, CODE_sw1, NULL, NULL }
 };
 
 static const u32 other_known_cmpr_methods[] = {
@@ -995,7 +1003,7 @@ static void do_check_header_crc(deark *c, lctx *d, struct member_data *md)
 enum lha_whats_next_enum {
 	LHA_WN_MEMBER,
 	LHA_WN_TRAILER,
-	LHA_WN_TRAILER_AND_JUNK,
+	LHA_WN_TRAILER_AND_JUNK, // Note: No longer handled differently from TRAILER
 	LHA_WN_JUNK,
 	LHA_WN_NOTHING
 };
@@ -1003,17 +1011,50 @@ enum lha_whats_next_enum {
 static enum lha_whats_next_enum lha_classify_whats_next(deark *c, lctx *d, i64 pos, i64 len)
 {
 	u8 b[21];
+	u8 hlev;
 
 	if(len<=0) return LHA_WN_NOTHING;
 	b[0] = de_getbyte(pos);
 	if(b[0]==0 && len<=2) return LHA_WN_TRAILER;
 	if(b[0]==0 && len<21) return LHA_WN_TRAILER_AND_JUNK;
 	de_read(&b[1], pos+1, sizeof(b)-1);
+	if(d->swg_fmt) hlev = 0;
+	else hlev = b[20];
 	if(b[0]==0 && b[1]==0) return LHA_WN_TRAILER_AND_JUNK;
-	if(b[0]==0 && b[20]!=2) return LHA_WN_TRAILER_AND_JUNK;
-	if(b[20]>3) return LHA_WN_JUNK;
+	if(b[0]==0 && hlev!=2) return LHA_WN_TRAILER_AND_JUNK;
+	if(hlev>3) return LHA_WN_JUNK;
 	if(is_possible_cmpr_meth(&b[2])) return LHA_WN_MEMBER;
 	return LHA_WN_JUNK;
+}
+
+static void do_swg_string_field(deark *c, lctx *d,
+	de_ucstring *s, i64 pos, i64 fldlen, const char *name)
+{
+	i64 dlen = (i64)de_getbyte(pos);
+	if(dlen>fldlen-1) dlen = fldlen-1;
+	ucstring_empty(s);
+	dbuf_read_to_ucstring(c->infile, pos+1, dlen, s, 0, d->input_encoding);
+	ucstring_strip_trailing_spaces(s);
+	de_dbg(c, "SWG %s: \"%s\"", name, ucstring_getpsz_d(s));
+}
+
+static void do_special_swg_fields(deark *c, lctx *d, struct member_data *md, i64 pos1)
+{
+	i64 pos = pos1;
+	u32 crc32;
+	de_ucstring *s = NULL;
+
+	crc32 = (u32)de_getu32le_p(&pos);
+	de_dbg(c, "SWG crc32 (reported): 0x%08x", (UI)crc32);
+	s = ucstring_create(c);
+	do_swg_string_field(c, d, s, pos, 13, "stored filename");
+	pos += 13;
+	do_swg_string_field(c, d, s, pos, 41, "subject");
+	pos += 41;
+	do_swg_string_field(c, d, s, pos, 36, "contributor");
+	pos += 36;
+	do_swg_string_field(c, d, s, pos, 71, "search keys");
+	ucstring_destroy(s);
 }
 
 // This single function parses all the different header formats, using lots of
@@ -1054,11 +1095,9 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 			de_err(c, "Not an LHA file");
 		}
 		else if(wn==LHA_WN_TRAILER || wn==LHA_WN_TRAILER_AND_JUNK) {
-			de_dbg(c, "trailer at %"I64_FMT, pos1);
-			if(wn==LHA_WN_TRAILER_AND_JUNK) {
-				de_info(c, "Note: %"I64_FMT" extra bytes at end of file (offset %"I64_FMT")",
-					nbytes_avail-1, pos1+1);
-			}
+			d->trailer_found = 1;
+			d->trailer_pos = pos1;
+			de_dbg(c, "trailer at %"I64_FMT, d->trailer_pos);
 		}
 		else if(wn==LHA_WN_JUNK) {
 			de_warn(c, "%"I64_FMT" bytes of non-LHA data found at end of file (offset %"I64_FMT")",
@@ -1075,7 +1114,12 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 	// which happened to always be zero.
 	// In later LHA versions, it is overloaded to identify the header format
 	// version (called "header level" in LHA jargon).
-	md->hlev = de_getbyte(pos1+20);
+	if(d->swg_fmt) {
+		md->hlev = 0; // SWG is most similar to header level 0
+	}
+	else {
+		md->hlev = de_getbyte(pos1+20);
+	}
 	de_dbg(c, "header level: %d", (int)md->hlev);
 	if(md->hlev>3) {
 		goto done; // Shouldn't be possible; checked in lha_classify_whats_next().
@@ -1172,21 +1216,28 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 		pos += 4; // Unix time
 	}
 
-	attribs = (UI)de_getbyte_p(&pos);
 	if(md->hlev==0) {
 		de_ucstring *attr_descr;
 
-		// This is a 2-byte field, but the high byte must be 0 here because it's
+		// Normally, the high byte can only be 0 here, because it's
 		// also the header level.
+		attribs = (UI)de_getu16le_p(&pos);
+
 		attr_descr = ucstring_create(c);
 		de_describe_dos_attribs(c, attribs, attr_descr, 0);
 		de_dbg(c, "attribs: 0x%04x (%s)", attribs, ucstring_getpsz_d(attr_descr));
 		ucstring_destroy(attr_descr);
 	}
 	else {
+		attribs = (UI)de_getbyte_p(&pos);
 		de_dbg(c, "obsolete attribs low byte: 0x%02x", attribs);
+		pos++; // header level, already handled
 	}
-	pos++; // header level or high byte of attribs, already handled
+
+	if(d->swg_fmt) {
+		do_special_swg_fields(c, d, md, pos);
+		pos += 165;
+	}
 
 	if(md->hlev<=1) {
 		fnlen = de_getbyte(pos++);
@@ -1299,13 +1350,53 @@ done:
 	return retval;
 }
 
-static void de_run_lha(deark *c, de_module_params *mparams)
+static void do_swg_footer(deark *c, lctx *d, i64 pos1)
+{
+	i64 pos = pos1;
+	i64 n;
+	de_ucstring *s = NULL;
+
+	de_dbg(c, "SWG footer at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	s = ucstring_create(c);
+	do_swg_string_field(c, d, s, pos, 61, "message");
+	pos += 61;
+	do_swg_string_field(c, d, s, pos, 66, "title");
+	pos += 66;
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "SWG number of items: %d", (int)n);
+	de_dbg_indent(c, -1);
+	ucstring_destroy(s);
+}
+
+static void do_lha_footer(deark *c, lctx *d)
+{
+	i64 extra_bytes_pos, extra_bytes_len;
+
+	if(!d->trailer_found) goto done;
+	extra_bytes_pos = d->trailer_pos+1;
+	extra_bytes_len = c->infile->len - extra_bytes_pos;
+	if(extra_bytes_len<=1) goto done;
+
+	if(d->swg_fmt && extra_bytes_len==129) {
+		do_swg_footer(c, d, extra_bytes_pos);
+		goto done;
+	}
+
+	de_info(c, "Note: %"I64_FMT" extra bytes at end of file (offset %"I64_FMT")",
+		extra_bytes_len, extra_bytes_pos);
+done:
+	;
+}
+
+static void do_run_lha_internal(deark *c, de_module_params *mparams, int is_swg)
 {
 	lctx *d = NULL;
 	i64 pos;
 	struct member_data *md = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+	if(is_swg) d->swg_fmt = 1;
 
 	d->lhark_fmt = (u8)de_get_ext_option_bool(c, "lha:lhark", 0);
 
@@ -1334,6 +1425,8 @@ static void de_run_lha(deark *c, de_module_params *mparams)
 	}
 
 done:
+	do_lha_footer(c, d);
+
 	destroy_member_data(c, md);
 	if(d) {
 		if(!d->lhark_fmt && d->hlev_of_first_member==1 && d->lh7_failed_flag &&
@@ -1348,6 +1441,17 @@ done:
 	}
 }
 
+static void de_run_lha(deark *c, de_module_params *mparams)
+{
+	do_run_lha_internal(c, mparams, 0);
+}
+
+static int is_swg_sig(const u8 *b)
+{
+	return b[0]=='-' && b[1]=='s' && b[2]=='w' &&
+		(b[3]=='0' || b[3]=='1') && b[4]=='-';
+}
+
 static int de_identify_lha(deark *c)
 {
 	int has_ext = 0;
@@ -1358,6 +1462,7 @@ static int de_identify_lha(deark *c)
 	if(b[20]>3) return 0; // header level
 
 	if(!is_possible_cmpr_meth(&b[2])) return 0;
+	if(is_swg_sig(&b[2])) return 0; // Handled by the swg module
 
 	if(b[20]==0) {
 		if(b[0]<22) return 0;
@@ -1403,6 +1508,40 @@ void de_module_lha(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_lha;
 	mi->identify_fn = de_identify_lha;
 	mi->help_fn = de_help_lha;
+}
+
+/////////////////////// SWG / SWAG
+
+// This module works almost just like lha, except that all members are assumed
+// to use the SWG header format. (For lha, the SWG header format is never used.)
+
+static void de_run_swg(deark *c, de_module_params *mparams)
+{
+	de_declare_fmt(c, "SWAG packet (LHA-like)");
+	// TODO?: Some diagnostic messages in the LHA module are hardcoded to
+	// say "LHA", which is likely to be confusing to uses who know this as
+	// SWG format.
+	do_run_lha_internal(c, mparams, 1);
+}
+
+static int de_identify_swg(deark *c)
+{
+	u8 b[5];
+
+	de_read(b, 2, sizeof(b));
+	if(is_swg_sig(b)) {
+		if(de_input_file_has_ext(c, "swg")) return 100;
+		return 90;
+	}
+	return 0;
+}
+
+void de_module_swg(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "swg";
+	mi->desc = "SWAG packet";
+	mi->run_fn = de_run_swg;
+	mi->identify_fn = de_identify_swg;
 }
 
 /////////////////////// CAR (MylesHi!)
