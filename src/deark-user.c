@@ -559,10 +559,24 @@ static i32 ucstring_char_at(de_ucstring *s, i64 pos)
 	return 0;
 }
 
+#ifdef DE_WINDOWS
+static void backslashes_to_slashes(de_ucstring *s)
+{
+	i64 i;
+
+	for(i=0; i<s->len; i++) {
+		if(s->str[i]=='\\') {
+			s->str[i] = '/';
+		}
+	}
+}
+#endif
+
 // Construct a basename for output files, or a filename for archives.
 // flags:
 //  0x1 = use base filename only
 //  0x2 = remove path separators
+//  0x4 = this is an "internal" filename for a zip/tar archive
 // Returns an allocated string, which the caller must eventually free.
 // Returns NULL if it can't make a decent filename.
 static char *make_output_filename(deark *c, const char *dirname, const char *fn,
@@ -620,6 +634,21 @@ static char *make_output_filename(deark *c, const char *dirname, const char *fn,
 		}
 	}
 
+#ifdef DE_WINDOWS
+	if(flags & 0x4) {
+		// When a filename-like option is supplied on the command line, there are
+		// cases where we can't be agnostic about which characters are path
+		// separators. One of them is when that name is written to an archive
+		// (zip/tar) file.
+		// Our rule is that, for Windows builds, both "\" and "/" are path
+		// separators. For Unix builds, only "/" is, and "\" will be treated as
+		// an ordinary filename character, if allowed by the archive format.
+		// This difference in behavior on different platforms is unfortunate, but
+		// I think it's the least bad thing to do.
+		backslashes_to_slashes(tmps);
+	}
+#endif
+
 	// Don't allow empty filename
 	if(tmps->len<1) goto done;
 
@@ -632,6 +661,7 @@ done:
 	return newfn;
 }
 
+// Must call de_set_output_style() before this, if at all.
 // flags:
 //  0x1 = use base filename only
 //  0x2 = remove path separators
@@ -642,10 +672,14 @@ void de_set_output_filename_pattern(deark *c, const char *dirname, const char *f
 	c->base_output_filename = NULL;
 	if(!fn && !dirname) return;
 	if(!fn) fn = "output";
+	if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE) {
+		flags |= 0x4;
+	}
 	c->base_output_filename = make_output_filename(c, dirname, fn, NULL, flags);
 }
 
-//  Use exactly fn for the first output file (no ".000.")
+// Use exactly fn for the first output file (no ".000.")
+// Must call de_set_output_style() before this, if at all.
 void de_set_output_special_1st_filename(deark *c, const char *dirname, const char *fn)
 {
 	if(c->special_1st_filename) {
@@ -653,7 +687,13 @@ void de_set_output_special_1st_filename(deark *c, const char *dirname, const cha
 		c->special_1st_filename = NULL;
 	}
 	if(fn) {
-		c->special_1st_filename = make_output_filename(c, dirname, fn, NULL, 0);
+		UI flags = 0;
+
+		if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE) {
+			flags |= 0x4;
+		}
+
+		c->special_1st_filename = make_output_filename(c, dirname, fn, NULL, flags);
 	}
 }
 

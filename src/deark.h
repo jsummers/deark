@@ -19,7 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
-#ifndef DE_USE_WINDOWS_INTTYPES
+#if !DE_USE_WINDOWS_INTTYPES
 #include <inttypes.h>
 #endif
 
@@ -42,7 +42,7 @@
 #define de_gnuc_attribute(x)
 #endif
 
-#ifdef DE_USE_WINDOWS_INTTYPES
+#if DE_USE_WINDOWS_INTTYPES
 
 #define i64 __int64
 #define u64 unsigned __int64
@@ -103,11 +103,12 @@ void de_vsnprintf(char *buf, size_t buflen, const char *fmt, va_list ap);
 void de_snprintf(char *buf, size_t buflen, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 3, 4)));
 
-// Used by de_set_extract_policy()
+// Used with de_stdoptions_enum::DE_STDOPT_EXTRACT_POLICY
 #define DE_EXTRACTPOLICY_DEFAULT  0
 #define DE_EXTRACTPOLICY_MAINONLY 1
 #define DE_EXTRACTPOLICY_AUXONLY  2
 
+// Used with de_stdoptions_enum::DE_STDOPT_OVERWRITE_MODE
 #define DE_OVERWRITEMODE_DEFAULT  0
 #define DE_OVERWRITEMODE_NEVER    1
 #define DE_OVERWRITEMODE_STANDARD 2

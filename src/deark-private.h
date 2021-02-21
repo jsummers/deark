@@ -1058,12 +1058,13 @@ int de_inthashtable_remove_item(deark *c, struct de_inthashtable *ht, i64 key, v
 int de_inthashtable_remove_any_item(deark *c, struct de_inthashtable *ht, i64 *pkey, void **pvalue);
 
 #define DE_CRCOBJ_CRC32_IEEE   0x10
+#define DE_CRCOBJ_ADLER32      0x11
 #define DE_CRCOBJ_CRC16_CCITT  0x20
 #define DE_CRCOBJ_CRC16_ARC    0x21
 
 struct de_crcobj;
 
-struct de_crcobj *de_crcobj_create(deark *c, unsigned int flags);
+struct de_crcobj *de_crcobj_create(deark *c, UI type_and_flags);
 void de_crcobj_destroy(struct de_crcobj *crco);
 void de_crcobj_reset(struct de_crcobj *crco);
 u32 de_crcobj_getval(struct de_crcobj *crco);

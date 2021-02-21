@@ -1881,6 +1881,19 @@ static u32 de_crc32_continue(u32 prev_crc, const void *buf, i64 buf_len)
 	return (u32)crc32_calc((const u8*)buf, (size_t)buf_len, prev_crc);
 }
 
+static void adler32_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
+{
+	u32 s1 = crco->val & 0xffff;
+	u32 s2 = (crco->val >> 16) & 0xffff;
+	i64 i;
+
+	for(i = 0; i<buf_len; i++) {
+		s1 = (s1 + buf[i]) % 65521;
+		s2 = (s2 + s1) % 65521;
+	}
+	crco->val = (s2 << 16) + s1;
+}
+
 // This is the CRC-16 algorithm used in MacBinary.
 // It is in the x^16 + x^12 + x^5 + 1 family.
 // CRC-16-CCITT is probably the best name for it, though I'm not completely
@@ -1939,13 +1952,13 @@ static void de_crc16arc_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_
 }
 
 // Allocates, initializes, and resets a new object.
-struct de_crcobj *de_crcobj_create(deark *c, unsigned int flags)
+struct de_crcobj *de_crcobj_create(deark *c, UI type_and_flags)
 {
 	struct de_crcobj *crco;
 
 	crco = de_malloc(c, sizeof(struct de_crcobj));
 	crco->c = c;
-	crco->crctype = flags;
+	crco->crctype = type_and_flags;
 
 	switch(crco->crctype) {
 	case DE_CRCOBJ_CRC16_CCITT:
@@ -1978,6 +1991,9 @@ void de_crcobj_reset(struct de_crcobj *crco)
 	case DE_CRCOBJ_CRC32_IEEE:
 		crco->val = de_crc32(NULL, 0);
 		break;
+	case DE_CRCOBJ_ADLER32:
+		crco->val = 1;
+		break;
 	}
 }
 
@@ -1999,6 +2015,9 @@ void de_crcobj_addbuf(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
 		break;
 	case DE_CRCOBJ_CRC16_ARC:
 		de_crc16arc_continue(crco, buf, buf_len);
+		break;
+	case DE_CRCOBJ_ADLER32:
+		adler32_continue(crco, buf, buf_len);
 		break;
 	}
 }

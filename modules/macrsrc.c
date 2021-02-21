@@ -20,6 +20,11 @@ DE_DECLARE_MODULE(de_module_macrsrc);
 #define CODE_icns 0x69636e73U
 #define CODE_moov 0x6d6f6f76U
 
+struct icns_stream_item {
+	int id;
+	dbuf *tmpf;
+};
+
 typedef struct localctx_struct {
 	u8 extract_raw;
 	i64 data_offs, map_offs;
@@ -27,9 +32,12 @@ typedef struct localctx_struct {
 
 	i64 typeListOffset_abs;
 	i64 nameListOffset_abs;
-	dbuf *icns_stream;
 	dbuf *psrc_stream;
 	const char *errmsgprefix;
+
+#define MAX_ICNS_STREAMS 64
+	size_t num_icns_streams_used;
+	struct icns_stream_item icns_strm[MAX_ICNS_STREAMS];
 } lctx;
 
 struct rsrctypeinfo {
@@ -40,6 +48,7 @@ struct rsrctypeinfo {
 
 struct rsrcinstanceinfo {
 	int id;
+	UI idx;
 	u8 attribs;
 	u8 has_name;
 	i64 data_offset;
@@ -94,28 +103,62 @@ static int is_icns_icon(deark *c, lctx *d, struct rsrctypeinfo *rti)
 	return 0;
 }
 
-static void open_icns_stream(deark *c, lctx *d)
+// Some resource files have multiple icons of the same type, but I don't think
+// an icns file is supposed to have multiple icons of the same type.
+// So, simply writing all icons to the same icns file is not the right thing to
+// do.
+// What *is* the right thing to do is not clear to me. But separating the
+// icons by resource ID (up to some limit) is at least an improvement.
+static dbuf *get_icns_stream(deark *c, lctx *d, int id)
 {
-	if(d->icns_stream) return;
-	d->icns_stream = dbuf_create_membuf(c, 0, 0);
+	size_t entry = 0;
+	size_t i;
+
+	for(i=0; i<d->num_icns_streams_used; i++) {
+		if(d->icns_strm[i].id == id) {
+			entry = i;
+			goto found;
+		}
+	}
+
+	if(d->num_icns_streams_used >= MAX_ICNS_STREAMS) {
+		entry = MAX_ICNS_STREAMS - 1; // stream of last resort
+	}
+	else {
+		entry = d->num_icns_streams_used++;
+		d->icns_strm[entry].id = id;
+	}
+
+found:
+	if(!d->icns_strm[entry].tmpf) {
+		d->icns_strm[entry].tmpf = dbuf_create_membuf(c, 0, 0);
+	}
+	return d->icns_strm[entry].tmpf;
 }
 
 // Construct an .icns file from the suitable icon resources found
 // in this file.
-static void finalize_icns_stream(deark *c, lctx *d)
+static void finalize_icns_stream(deark *c, lctx *d, dbuf *tmpf)
 {
 	dbuf *outf = NULL;
 
-	if(!d->icns_stream) return;
-
+	if(!tmpf) return;
 	outf = dbuf_create_output_file(c, "icns", NULL, 0);
 	dbuf_writeu32be(outf, CODE_icns);
-	dbuf_writeu32be(outf, 8+d->icns_stream->len);
-	dbuf_copy(d->icns_stream, 0, d->icns_stream->len, outf);
+	dbuf_writeu32be(outf, 8+tmpf->len);
+	dbuf_copy(tmpf, 0, tmpf->len, outf);
 	dbuf_close(outf);
+}
 
-	dbuf_close(d->icns_stream);
-	d->icns_stream = NULL;
+static void finalize_icns_streams(deark *c, lctx *d)
+{
+	for(size_t i=0; i<d->num_icns_streams_used; i++) {
+		if(d->icns_strm[i].tmpf) {
+			finalize_icns_stream(c, d, d->icns_strm[i].tmpf);
+			dbuf_close(d->icns_strm[i].tmpf);
+			d->icns_strm[i].tmpf = NULL;
+		}
+	}
 }
 
 static void open_psrc_stream(deark *c, lctx *d)
@@ -510,11 +553,13 @@ static void do_resource_data(deark *c, lctx *d, struct rsrctypeinfo *rti,
 		handled = 1;
 	}
 	else if(rti->is_icns_type) {
+		dbuf *icns_dbuf;
+
 		de_dbg(c, "[icns resource]");
-		open_icns_stream(c, d);
-		dbuf_write(d->icns_stream, rti->fcc.bytes, 4);
-		dbuf_writeu32be(d->icns_stream, 8+dlen);
-		dbuf_copy(c->infile, dpos, dlen, d->icns_stream);
+		icns_dbuf = get_icns_stream(c, d, rii->id);
+		dbuf_write(icns_dbuf, rti->fcc.bytes, 4);
+		dbuf_writeu32be(icns_dbuf, 8+dlen);
+		dbuf_copy(c->infile, dpos, dlen, icns_dbuf);
 		handled = 1;
 	}
 	else if(rti->is_psrc_type) {
@@ -572,7 +617,7 @@ static void do_resource_name(deark *c, lctx *d, struct rsrcinstanceinfo *rii)
 }
 
 static void do_resource_record(deark *c, lctx *d, struct rsrctypeinfo *rti,
-	i64 pos1)
+	i64 pos1, UI idx)
 {
 	i64 dataOffset_rel;
 	i64 nameOffset_rel;
@@ -580,6 +625,7 @@ static void do_resource_record(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	struct rsrcinstanceinfo rii;
 
 	de_zeromem(&rii, sizeof(struct rsrcinstanceinfo));
+	rii.idx = idx;
 	rii.id = (int)de_geti16be_p(&pos);
 	de_dbg(c, "id: %d", rii.id);
 	nameOffset_rel = de_getu16be_p(&pos);
@@ -616,18 +662,18 @@ static void do_resource_record(deark *c, lctx *d, struct rsrctypeinfo *rti,
 }
 
 static void do_resource_list(deark *c, lctx *d, struct rsrctypeinfo *rti,
-	i64 rsrc_list_offs, i64 count)
+	i64 rsrc_list_offs, UI count)
 {
-	i64 k;
+	UI idx;
 	i64 pos = rsrc_list_offs;
 
 	de_dbg(c, "resource list at %d", (int)rsrc_list_offs);
 	de_dbg_indent(c, 1);
-	for(k=0; k<count; k++) {
-		de_dbg(c, "resource record[%d] at %"I64_FMT" (type '%s')", (int)k, pos,
+	for(idx=0; idx<count; idx++) {
+		de_dbg(c, "resource record[%u] at %"I64_FMT" (type '%s')", idx, pos,
 			rti->fcc.id_dbgstr);
 		de_dbg_indent(c, 1);
-		do_resource_record(c, d, rti, pos);
+		do_resource_record(c, d, rti, pos, idx);
 		de_dbg_indent(c, -1);
 		pos += 12;
 	}
@@ -638,7 +684,7 @@ static void do_type_item(deark *c, lctx *d, i64 type_list_offs,
 	i64 idx, i64 pos1)
 {
 	i64 pos = pos1;
-	i64 count;
+	UI count;
 	i64 list_offs_rel;
 	struct rsrctypeinfo rti;
 
@@ -653,8 +699,8 @@ static void do_type_item(deark *c, lctx *d, i64 type_list_offs,
 		rti.is_psrc_type = 1;
 	}
 
-	count = 1+de_getu16be_p(&pos);
-	de_dbg(c, "count: %d", (int)count);
+	count = (UI)(1+de_getu16be_p(&pos));
+	de_dbg(c, "resource count: %u", count);
 	list_offs_rel = de_getu16be_p(&pos);
 	de_dbg(c, "list offset: (%d+)%d", (int)type_list_offs, (int)list_offs_rel);
 
@@ -673,7 +719,7 @@ static void do_type_list(deark *c, lctx *d)
 	de_dbg_indent(c, 1);
 	type_count_raw = de_getu16be_p(&pos);
 	type_count = (type_count_raw==0xffff)?0:(type_count_raw+1);
-	de_dbg(c, "count: %d", (int)type_count);
+	de_dbg(c, "type count: %d", (int)type_count);
 
 	for(k=0; k<type_count; k++) {
 		de_dbg(c, "type record[%d] at %d", (int)k, (int)pos);
@@ -759,7 +805,7 @@ static void de_run_macrsrc(deark *c, de_module_params *mparams)
 	do_map(c, d, d->map_offs, d->map_size);
 
 done:
-	finalize_icns_stream(c, d);
+	finalize_icns_streams(c, d);
 	finalize_psrc_stream(c, d);
 	de_free(c, d);
 }

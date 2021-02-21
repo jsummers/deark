@@ -11,10 +11,12 @@
 #endif
 #define DEARK_CONFIG_H_INC
 
+#if !defined(DE_WINDOWS) && !defined(DE_UNIX)
 #ifdef _WIN32
 #define DE_WINDOWS
 #else
 #define DE_UNIX
+#endif
 #endif
 
 #ifdef DE_WINDOWS
@@ -30,12 +32,26 @@
 #define _UNICODE
 #endif
 
-#define DE_USE_WINDOWS_INTTYPES
+#ifndef DE_USE_WINDOWS_INTTYPES
+#define DE_USE_WINDOWS_INTTYPES 1
+#endif
 
 #endif
 
 #ifdef DE_UNIX
-#define DE_USE_FSEEKO
+
+#ifndef DE_USE_FSEEKO
+#define DE_USE_FSEEKO 1
+#endif
+
+#ifndef DE_USE_LSTAT
+#define DE_USE_LSTAT 1
+#endif
+
+#ifndef DE_USE_WINDOWS_INTTYPES
+#define DE_USE_WINDOWS_INTTYPES 0
+#endif
+
 #endif
 
 // Post-system-header platform-specific things can optionally go in a

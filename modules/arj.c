@@ -49,9 +49,14 @@ static void read_arj_datetime(deark *c, lctx *d, i64 pos, struct de_timestamp *t
 
 	dostm = de_getu16le(pos);
 	dosdt = de_getu16le(pos+2);
-	de_dos_datetime_to_timestamp(ts1, dosdt, dostm);
-	ts1->tzcode = DE_TZCODE_LOCAL;
-	de_timestamp_to_string(ts1, timestamp_buf, sizeof(timestamp_buf), 0);
+	if(dostm==0 && dosdt==0) {
+		de_snprintf(timestamp_buf, sizeof(timestamp_buf), "[not set]");
+	}
+	else {
+		de_dos_datetime_to_timestamp(ts1, dosdt, dostm);
+		ts1->tzcode = DE_TZCODE_LOCAL;
+		de_timestamp_to_string(ts1, timestamp_buf, sizeof(timestamp_buf), 0);
+	}
 	de_dbg(c, "%s time: %s", name, timestamp_buf);
 }
 
