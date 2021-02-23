@@ -4,6 +4,7 @@
 
 // LBR - uncompressed CP/M archive format
 // Squeeze compressed file
+// LZWCOM compressed file
 
 #include <deark-private.h>
 #include <deark-fmtutil.h>
@@ -11,6 +12,7 @@ DE_DECLARE_MODULE(de_module_lbr);
 DE_DECLARE_MODULE(de_module_squeeze);
 DE_DECLARE_MODULE(de_module_crunch);
 DE_DECLARE_MODULE(de_module_crlzh);
+DE_DECLARE_MODULE(de_module_lzwcom);
 
 #define LBR_DIRENT_SIZE 32
 #define LBR_SECTOR_SIZE 128
@@ -752,4 +754,137 @@ void de_module_crlzh(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_crlzh;
 	mi->identify_fn = de_identify_crlzh;
 	mi->flags |= DE_MODFLAG_NONWORKING;
+}
+
+// **************************************************************************
+// LZWCOM
+// **************************************************************************
+
+static void lzwcom_declare_version(deark *c, int ver)
+{
+	if(ver!=1 && ver!=2) return;
+	de_declare_fmtf(c, "LZWCOM v%d", ver);
+}
+
+static void de_run_lzwcom(deark *c, de_module_params *mparams)
+{
+	struct de_dfilter_ctx *dfctx = NULL;
+	struct de_crcobj *crco = NULL;
+	dbuf *outf = NULL;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	struct de_lzw_params delzwp;
+	int errflag = 0;
+	i64 pos = 0;
+	int saved_indent_level;
+	int ver = -1; // 1, 2, or -1 if unknown
+	const char *s;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	s = de_get_ext_option(c, "lzwcom:version");
+	if(s) {
+		ver = de_atoi(s);
+	}
+	if(ver>=2) ver = 2;
+	else if(ver!=1) ver = -1;
+	lzwcom_declare_version(c, ver);
+
+	outf = dbuf_create_output_file(c, "unc", NULL, 0);
+	crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
+
+	de_dfilter_init_objects(c, NULL, &dcmpro, &dres);
+	dcmpro.f = outf;
+
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
+	delzwp.fmt = DE_LZWFMT_ARC5;
+	delzwp.flags |= DE_LZWFLAG_TOLERATETRAILINGJUNK;
+
+	dfctx = de_dfilter_create(c, dfilter_lzw_codec, (void*)&delzwp,
+		&dcmpro, &dres);
+
+	while(1) {
+		u32 crc_reported, crc_calc;
+		i64 nbytes_left;
+		i64 block_dlen;
+		i64 block_pos = pos;
+
+		if(dres.errcode) break;
+		if(dfctx->finished_flag) break;
+		if(pos >= c->infile->len) break;
+		block_dlen = de_min_int(1024, c->infile->len - pos);
+
+		de_dfilter_addslice(dfctx, c->infile, pos, block_dlen);
+
+		// Oddly, this format includes CRCs of the *compressed* bytes, instead of
+		// of the decompressed bytes. So it doesn't detect incorrect decompression.
+		if(ver != 1) {
+			de_crcobj_reset(crco);
+			de_crcobj_addslice(crco, c->infile, pos, block_dlen);
+		}
+
+		pos += block_dlen;
+
+		nbytes_left = c->infile->len - pos;
+		if(nbytes_left<1) break;
+
+		if(ver == -1 && nbytes_left<2) {
+			ver = 1;
+			lzwcom_declare_version(c, ver);
+		}
+		if(ver==1) continue;
+
+		crc_calc = de_crcobj_getval(crco); // Field only exists in v2 format
+		crc_reported = (u32)de_getu16le(pos);
+		if(ver == -1) {
+			if(crc_reported==crc_calc) {
+				ver = 2;
+			}
+			else {
+				ver = 1;
+			}
+			lzwcom_declare_version(c, ver);
+		}
+		if(ver==1) continue;
+		pos += 2; // For the crc field
+
+		de_dbg(c, "block at %"I64_FMT", dlen=%"I64_FMT, block_pos, block_dlen);
+		de_dbg_indent(c, 1);
+		de_dbg(c, "crc (reported): 0x%04x", (UI)crc_reported);
+		de_dbg(c, "crc (calculated): 0x%04x", (UI)crc_calc);
+		if(!errflag && crc_calc!=crc_reported) {
+			de_warn(c, "CRC check failed at %"I64_FMT". This might not be an LZWCOM v2 file.", pos-2);
+			errflag = 1;
+		}
+		de_dbg_indent(c,- 1);
+	}
+
+	if(ver == -1) {
+		de_declare_fmt(c, "LZWCOM (unknown version)");
+	}
+
+	de_dfilter_finish(dfctx);
+	de_dfilter_destroy(dfctx);
+
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
+	}
+
+	dbuf_close(outf);
+	de_crcobj_destroy(crco);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void de_help_lzwcom(deark *c)
+{
+	de_msg(c, "-opt lzwcom:version=<1|2> : The format version");
+}
+
+void de_module_lzwcom(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "lzwcom";
+	mi->desc = "LZWCOM compressed file";
+	mi->run_fn = de_run_lzwcom;
+	mi->identify_fn = NULL;
+	mi->help_fn = de_help_lzwcom;
 }

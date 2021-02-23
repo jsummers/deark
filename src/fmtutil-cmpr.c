@@ -169,6 +169,7 @@ static int my_dfilter_addslice_buffered_read_cbfn(struct de_bufferedreadctx *brc
 void de_dfilter_addslice(struct de_dfilter_ctx *dfctx,
 	dbuf *inf, i64 pos, i64 len)
 {
+	if(dfctx->finished_flag) return;
 	dbuf_buffered_read(inf, pos, len,
 		my_dfilter_addslice_buffered_read_cbfn, (void*)dfctx);
 }

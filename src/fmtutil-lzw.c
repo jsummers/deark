@@ -73,9 +73,6 @@ static void setup_delzw_common(deark *c, delzwctx *dc, struct de_lzw_params *del
 	}
 	else if(delzwp->fmt==DE_LZWFMT_ARC5) {
 		dc->basefmt = DELZW_BASEFMT_ARC5;
-		dc->auto_inc_codesize = 0;
-		dc->min_codesize = 12;
-		dc->max_codesize = 12;
 	}
 }
 
