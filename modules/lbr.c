@@ -4,6 +4,7 @@
 
 // LBR - uncompressed CP/M archive format
 // Squeeze compressed file
+// ZSQ compressed file
 // LZWCOM compressed file
 
 #include <deark-private.h>
@@ -12,6 +13,7 @@ DE_DECLARE_MODULE(de_module_lbr);
 DE_DECLARE_MODULE(de_module_squeeze);
 DE_DECLARE_MODULE(de_module_crunch);
 DE_DECLARE_MODULE(de_module_crlzh);
+DE_DECLARE_MODULE(de_module_zsq);
 DE_DECLARE_MODULE(de_module_lzwcom);
 
 #define LBR_DIRENT_SIZE 32
@@ -630,7 +632,7 @@ static void de_run_crunch(deark *c, de_module_params *mparams)
 	u8 cksum_type;
 	const char *verstr;
 
-	crunchctx = de_malloc(c, sizeof(struct squeeze_ctx));
+	crunchctx = de_malloc(c, sizeof(struct crunch_ctx));
 
 	pos += 2;
 	if(!crcr_read_filename_etc(c, pos, &crunchctx->fnd)) goto done;
@@ -701,7 +703,7 @@ static void de_run_crlzh(deark *c, de_module_params *mparams)
 	u8 cksum_type;
 	const char *verstr;
 
-	crlzhctx = de_malloc(c, sizeof(struct squeeze_ctx));
+	crlzhctx = de_malloc(c, sizeof(struct crlzh_ctx));
 
 	pos += 2;
 	if(!crcr_read_filename_etc(c, pos, &crlzhctx->fnd)) goto done;
@@ -754,6 +756,144 @@ void de_module_crlzh(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_crlzh;
 	mi->identify_fn = de_identify_crlzh;
 	mi->flags |= DE_MODFLAG_NONWORKING;
+}
+
+///////////////////////////////////////////////
+// ZSQ (ZSQUSQ)
+// LZW compression utility by W. Chin, A. Kumar.
+// Format used by v1.0, 1985-10-26.
+
+#define CODE_WACK 0x5741434bU
+
+struct zsq_ctx {
+	de_encoding input_encoding;
+	de_ucstring *fn;
+	UI checksum_reported;
+	UI checksum_calc;
+	struct de_timestamp timestamp;
+};
+
+static void zsq_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
+{
+	struct zsq_ctx *zsqctx = (struct zsq_ctx*)userdata;
+	i64 i;
+
+	for(i=0; i<buf_len; i++) {
+		zsqctx->checksum_calc += buf[i];
+	}
+}
+
+static void do_zsq_decompress(deark *c, struct zsq_ctx *zsqctx, i64 pos, dbuf *outf)
+{
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	struct de_lzw_params delzwp;
+
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
+	delzwp.fmt = DE_LZWFMT_ARC5;
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = pos;
+	dcmpri.len = c->infile->len - pos;
+	dcmpro.f = outf;
+
+	dbuf_set_writelistener(outf, zsq_writelistener_cb, (void*)zsqctx);
+
+	fmtutil_decompress_lzw(c, &dcmpri, &dcmpro, &dres, &delzwp);
+
+	zsqctx->checksum_calc &= 0xffff;
+	de_dbg(c, "checksum (calculated): %u", (UI)zsqctx->checksum_calc);
+	if(zsqctx->checksum_calc != zsqctx->checksum_reported) {
+		de_err(c, "Checksum error. Decompression probably failed.");
+	}
+}
+
+static void zsq_read_timestamp(deark *c, struct zsq_ctx *zsqctx, i64 pos)
+{
+	i64 dt_raw, tm_raw;
+	char timestamp_buf[64];
+
+	dt_raw = de_getu16le(pos);
+	tm_raw = de_getu16le(pos+2);
+	de_dos_datetime_to_timestamp(&zsqctx->timestamp, dt_raw, tm_raw);
+	de_timestamp_to_string(&zsqctx->timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "timestamp: %s", timestamp_buf);
+}
+
+static void de_run_zsq(deark *c, de_module_params *mparams)
+{
+	struct zsq_ctx *zsqctx = NULL;
+	i64 pos = 0;
+	i64 hdr_len;
+	i64 hdr_endpos;
+	u32 id;
+	dbuf *outf = NULL;
+	de_finfo *fi = NULL;
+
+	zsqctx = de_malloc(c, sizeof(struct zsq_ctx));
+	zsqctx->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+
+	id = (u32)de_getu32be_p(&pos);
+	if(id != CODE_WACK) {
+		de_err(c, "Not a ZSQ file");
+		goto done;
+	}
+
+	fi = de_finfo_create(c);
+
+	zsqctx->checksum_reported = (u32)de_getu16le_p(&pos);
+	de_dbg(c, "checksum (reported): %u", (UI)zsqctx->checksum_reported);
+
+	hdr_len = de_getu16le_p(&pos);
+	hdr_endpos = pos + hdr_len;
+	if(hdr_endpos > c->infile->len) {
+		de_err(c, "Bad header length");
+		goto done;
+	}
+
+	zsq_read_timestamp(c, zsqctx, pos);
+	pos += 4;
+
+	zsqctx->fn = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pos, hdr_endpos-pos, 255, zsqctx->fn,
+		DE_CONVFLAG_STOP_AT_NUL, zsqctx->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(zsqctx->fn));
+
+	de_finfo_set_name_from_ucstring(c, fi, zsqctx->fn, 0);
+	fi->original_filename_flag = 1;
+
+	pos = hdr_endpos;
+	de_dbg(c, "compressed data at %"I64_FMT, pos);
+
+	outf = dbuf_create_output_file(c, NULL, fi, 0);
+
+	do_zsq_decompress(c, zsqctx, pos, outf);
+
+done:
+	dbuf_close(outf);
+	de_finfo_destroy(c, fi);
+	if(zsqctx) {
+		ucstring_destroy(zsqctx->fn);
+		de_free(c, zsqctx);
+	}
+}
+
+static int de_identify_zsq(deark *c)
+{
+	if(de_getu32be(0)==CODE_WACK) {
+		return 90;
+	}
+	return 0;
+}
+
+void de_module_zsq(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "zsq";
+	mi->desc = "ZSQ (ZSQUSQ, LZW-compressed file)";
+	mi->run_fn = de_run_zsq;
+	mi->identify_fn = de_identify_zsq;
 }
 
 // **************************************************************************
