@@ -134,6 +134,7 @@ struct delzwctx_struct {
 #define DELZW_ERRCODE_UNSUPPORTED_OPTION    9
 #define DELZW_ERRCODE_INTERNAL_ERROR        10
 	int errcode;
+	int stop_writing_flag;
 
 #define DELZW_STATE_INIT            0
 #define DELZW_STATE_READING_HEADER  1
@@ -263,7 +264,7 @@ static void delzw_write_unbuffered(delzwctx *dc, const DELZW_UINT8 *buf, size_t 
 	unsigned int outflags = 0;
 	DELZW_OFF_T n = (DELZW_OFF_T)n1;
 
-	if(dc->errcode) return;
+	if(dc->stop_writing_flag) return;
 	if(dc->output_len_known) {
 		if(dc->uncmpr_nbytes_written + n > dc->output_expected_len) {
 			n = dc->output_expected_len - dc->uncmpr_nbytes_written;
@@ -272,6 +273,7 @@ static void delzw_write_unbuffered(delzwctx *dc, const DELZW_UINT8 *buf, size_t 
 	if(n<1) return;
 	nbytes_written = (DELZW_OFF_T)dc->cb_write(dc, buf, (size_t)n, &outflags);
 	if((outflags & 0x1) && (nbytes_written<=n)) {
+		dc->stop_writing_flag = 1;
 		delzw_stop(dc, "client request");
 	}
 	else if(nbytes_written != n) {
@@ -301,7 +303,7 @@ static void delzw_write(delzwctx *dc, const DELZW_UINT8 *buf, size_t n)
 
 	// Flush anything currently in outbuf.
 	delzw_flush(dc);
-	if(dc->errcode) return;
+	if(dc->stop_writing_flag) return;
 
 	// If too big for outbuf, write without buffering.
 	if(n > DELZW_OUTBUF_SIZE) {
