@@ -73,6 +73,7 @@ static void setup_delzw_common(deark *c, delzwctx *dc, struct de_lzw_params *del
 	}
 	else if(delzwp->fmt==DE_LZWFMT_ARC5) {
 		dc->basefmt = DELZW_BASEFMT_ARC5;
+		dc->arc5_has_stop_code = (int)delzwp->arc5_has_stop_code;
 	}
 }
 

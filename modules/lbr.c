@@ -621,7 +621,86 @@ void de_module_squeeze(deark *c, struct deark_module_info *mi)
 
 struct crunch_ctx {
 	struct crcr_filename_data fnd;
+	u8 cksum_type;
+	UI checksum_reported;
+	UI checksum_calc;
 };
+
+static void crunch_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
+{
+	struct crunch_ctx *crunchctx = (struct crunch_ctx*)userdata;
+	i64 i;
+
+	for(i=0; i<buf_len; i++) {
+		crunchctx->checksum_calc += buf[i];
+	}
+}
+
+static void decompress_crunch_v1(deark *c, struct crunch_ctx *crunchctx, i64 pos1)
+{
+	de_finfo *fi = NULL;
+	dbuf *outf = NULL;
+	i64 pos = pos1;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	struct de_lzw_params delzwp;
+	struct de_dcmpr_two_layer_params tlp;
+
+	de_dbg_indent(c, 1);
+	fi = de_finfo_create(c);
+	de_finfo_set_name_from_ucstring(c, fi, crunchctx->fnd.fn, 0);
+	fi->original_filename_flag = 1;
+
+	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
+	dbuf_set_writelistener(outf, crunch_writelistener_cb, (void*)crunchctx);
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = pos;
+	dcmpri.len = c->infile->len - pos;
+	dcmpro.f = outf;
+
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
+	delzwp.fmt = DE_LZWFMT_ARC5;
+	delzwp.arc5_has_stop_code = 1;
+
+	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
+	tlp.codec1_pushable = dfilter_lzw_codec;
+	tlp.codec1_private_params = (void*)&delzwp;
+	tlp.codec2 = dfilter_rle90_codec;
+	tlp.dcmpri = &dcmpri;
+	tlp.dcmpro = &dcmpro;
+	tlp.dres = &dres;
+	de_dfilter_decompress_two_layer(c, &tlp);
+
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
+
+	if(dres.bytes_consumed_valid) {
+		de_dbg(c, "compressed data size: %"I64_FMT", ends at %"I64_FMT, dres.bytes_consumed,
+			dcmpri.pos+dres.bytes_consumed);
+		pos += dres.bytes_consumed;
+
+		if(crunchctx->cksum_type==0) {
+			crunchctx->checksum_calc &= 0xffff;
+			crunchctx->checksum_reported = (UI)de_getu16le_p(&pos);
+			de_dbg(c, "checksum (calculated): %u", crunchctx->checksum_calc);
+			de_dbg(c, "checksum (reported): %u", crunchctx->checksum_reported);
+			if(crunchctx->checksum_calc != crunchctx->checksum_reported) {
+				de_err(c, "Checksum error. Decompression probably failed.");
+				goto done;
+			}
+		}
+	}
+
+done:
+	de_finfo_destroy(c, fi);
+	dbuf_close(outf);
+	de_dbg_indent(c, -1);
+}
 
 static void de_run_crunch(deark *c, de_module_params *mparams)
 {
@@ -629,7 +708,6 @@ static void de_run_crunch(deark *c, de_module_params *mparams)
 	i64 pos = 0;
 	u8 b;
 	u8 fmtver;
-	u8 cksum_type;
 	const char *verstr;
 
 	crunchctx = de_malloc(c, sizeof(struct crunch_ctx));
@@ -653,14 +731,21 @@ static void de_run_crunch(deark *c, de_module_params *mparams)
 	}
 	de_dbg(c, "format version: 0x%02x (%s)", (UI)fmtver, verstr);
 
-	cksum_type = de_getbyte_p(&pos);
-	de_dbg(c, "checksum type: 0x%02x (%s)", (UI)cksum_type,
-		(cksum_type==0?"standard":"?"));
+	crunchctx->cksum_type = de_getbyte_p(&pos);
+	de_dbg(c, "checksum type: 0x%02x (%s)", (UI)crunchctx->cksum_type,
+		(crunchctx->cksum_type==0?"standard":"?"));
 
 	b = de_getbyte_p(&pos);
 	de_dbg(c, "unused info byte: 0x%02x", (UI)b);
 
 	de_dbg(c, "compressed data at %"I64_FMT, pos);
+	if(fmtver>=0x20) {
+		// v2 is by far the most common version, but it's not easy to support.
+		// We support v1, only because it's easy.
+		de_err(c, "This version of Crunch is not supported");
+	}
+
+	decompress_crunch_v1(c, crunchctx, pos);
 
 done:
 	if(crunchctx) {
@@ -684,7 +769,6 @@ void de_module_crunch(deark *c, struct deark_module_info *mi)
 	mi->desc = "Crunch (CP/M)";
 	mi->run_fn = de_run_crunch;
 	mi->identify_fn = de_identify_crunch;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }
 
 ///////////////////////////////////////////////
@@ -999,8 +1083,8 @@ static void de_run_lzwcom(deark *c, de_module_params *mparams)
 			crc_calc = de_crcobj_getval(d->crco);
 			crc_reported = (u32)de_getu16le_p(&pos);
 			de_dbg_indent(c, 1);
-			de_dbg(c, "crc (reported): 0x%04x", (UI)crc_reported);
 			de_dbg(c, "crc (calculated): 0x%04x", (UI)crc_calc);
+			de_dbg(c, "crc (reported): 0x%04x", (UI)crc_reported);
 			de_dbg_indent(c,- 1);
 			if(!errflag && crc_calc!=crc_reported) {
 				de_warn(c, "CRC check failed at %"I64_FMT". This might not be an LZWCOM v2 file.", pos-2);

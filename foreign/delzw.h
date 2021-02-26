@@ -109,6 +109,7 @@ struct delzwctx_struct {
 	// Fields that may be set by the user, or derived from other fields:
 	int auto_inc_codesize;
 	int unixcompress_has_clear_code;
+	int arc5_has_stop_code;
 	unsigned int min_codesize;
 	unsigned int max_codesize;
 
@@ -994,6 +995,11 @@ static void delzw_on_codes_start(delzwctx *dc)
 	dc->free_code_search_start = dc->first_dynamic_code;
 
 	if(dc->is_hashed) {
+		if(dc->arc5_has_stop_code) {
+			dc->ct[0].codetype = DELZW_CODETYPE_STOP;
+			dc->ct_code_count++;
+		}
+
 		for(i=0; i<256; i++) {
 			delzw_hashed_add_root_code_to_dict(dc, (DELZW_UINT8)i);
 		}

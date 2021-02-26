@@ -641,6 +641,11 @@ Deark -- Information about supported formats
 
 * cpio (module="cpio")
 
+* Crunch (module="crunch")
+  An old compressed file format used mainly on CP/M.
+  - The header can be parsed, but only the rare v1.x format can be
+    decompressed.
+
 * CRUSH (.cru) (module="crush")
   CRUSH is a DOS archive utility by PocketWare.
 

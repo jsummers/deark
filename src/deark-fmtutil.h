@@ -169,6 +169,7 @@ struct de_lzw_params {
 	unsigned int gif_root_code_size;
 	unsigned int max_code_size; // 0 = no info
 	u8 tifflzw_oldversion; // 1 = old version
+	u8 arc5_has_stop_code;
 };
 void fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
