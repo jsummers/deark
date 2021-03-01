@@ -60,6 +60,11 @@ struct delzw_tableentry {
 	DELZW_UINT8 flags;
 };
 
+struct delzw_tableentry2 {
+#define DELZW_NEXTPTR_NONE 0xffff // Note - This table is only used with 12-bit codes
+	DELZW_CODE_MINRANGE next;
+};
+
 // Normally, the client must consume all the bytes in 'buf', and return 'size'.
 // The other options are:
 // - Set *outflags to 1, and return a number <='size'. This indicates that
@@ -86,6 +91,7 @@ struct delzwctx_struct {
 #define DELZW_BASEFMT_ZOOLZD       4
 #define DELZW_BASEFMT_TIFFOLD      5
 #define DELZW_BASEFMT_TIFF         6
+#define DELZW_BASEFMT_ARC5         7
 	int basefmt;
 
 #define DELZW_HEADERTYPE_NONE  0
@@ -103,6 +109,7 @@ struct delzwctx_struct {
 	// Fields that may be set by the user, or derived from other fields:
 	int auto_inc_codesize;
 	int unixcompress_has_clear_code;
+	int arc5_has_stop_code;
 	unsigned int min_codesize;
 	unsigned int max_codesize;
 
@@ -111,6 +118,7 @@ struct delzwctx_struct {
 	int is_msb;
 	int early_codesize_inc;
 	int has_partial_clearing;
+	int is_hashed;
 
 	// Informational:
 	DELZW_UINT8 header_unixcompress_mode;
@@ -127,6 +135,7 @@ struct delzwctx_struct {
 #define DELZW_ERRCODE_UNSUPPORTED_OPTION    9
 #define DELZW_ERRCODE_INTERNAL_ERROR        10
 	int errcode;
+	int stop_writing_flag;
 
 #define DELZW_STATE_INIT            0
 #define DELZW_STATE_READING_HEADER  1
@@ -157,7 +166,9 @@ struct delzwctx_struct {
 	size_t outbuf_nbytes_used;
 
 	DELZW_CODE ct_capacity;
+	DELZW_CODE ct_code_count; // Note - Not always maintained if not needed
 	struct delzw_tableentry *ct;
+	struct delzw_tableentry2 *ct2;
 
 	DELZW_UINT8 header_buf[3];
 
@@ -243,6 +254,7 @@ static void delzw_destroy(delzwctx *dc)
 {
 	if(!dc) return;
 	DELZW_FREE(dc->userdata, dc->ct);
+	if(dc->ct2) DELZW_FREE(dc->userdata, dc->ct2);
 	DELZW_FREE(dc->userdata, dc->valbuf);
 	DELZW_FREE(dc->userdata, dc);
 }
@@ -253,7 +265,7 @@ static void delzw_write_unbuffered(delzwctx *dc, const DELZW_UINT8 *buf, size_t 
 	unsigned int outflags = 0;
 	DELZW_OFF_T n = (DELZW_OFF_T)n1;
 
-	if(dc->errcode) return;
+	if(dc->stop_writing_flag) return;
 	if(dc->output_len_known) {
 		if(dc->uncmpr_nbytes_written + n > dc->output_expected_len) {
 			n = dc->output_expected_len - dc->uncmpr_nbytes_written;
@@ -262,6 +274,7 @@ static void delzw_write_unbuffered(delzwctx *dc, const DELZW_UINT8 *buf, size_t 
 	if(n<1) return;
 	nbytes_written = (DELZW_OFF_T)dc->cb_write(dc, buf, (size_t)n, &outflags);
 	if((outflags & 0x1) && (nbytes_written<=n)) {
+		dc->stop_writing_flag = 1;
 		delzw_stop(dc, "client request");
 	}
 	else if(nbytes_written != n) {
@@ -291,7 +304,7 @@ static void delzw_write(delzwctx *dc, const DELZW_UINT8 *buf, size_t n)
 
 	// Flush anything currently in outbuf.
 	delzw_flush(dc);
-	if(dc->errcode) return;
+	if(dc->stop_writing_flag) return;
 
 	// If too big for outbuf, write without buffering.
 	if(n > DELZW_OUTBUF_SIZE) {
@@ -504,11 +517,97 @@ static void delzw_increase_codesize(delzwctx *dc)
 	}
 }
 
+static DELZW_CODE delzw_get_hashed_code(delzwctx *dc, DELZW_CODE code,
+	DELZW_UINT8 value)
+{
+	DELZW_CODE h;
+	DELZW_CODE saved_h;
+	DELZW_UINT32 count;
+
+	h = ((code+(DELZW_CODE)value) | 0x0800) & 0xffff;
+	h = ((h*h) >> 6) % dc->ct_capacity;
+
+	if(dc->ct[h].codetype==DELZW_CODETYPE_DYN_UNUSED) {
+		return h;
+	}
+
+	// Collision - First, walk to the end of the duplicates list
+	count = 0;
+	while(dc->ct2[h].next != DELZW_NEXTPTR_NONE) {
+		h = dc->ct2[h].next;
+
+		count++;
+		if(count > dc->ct_capacity) {
+			delzw_set_error(dc, DELZW_ERRCODE_GENERIC_ERROR, NULL);
+			return 0;
+		}
+	}
+
+	saved_h = h;
+
+	// Then search for an open slot
+	count = 0;
+	while(1) {
+		if(count==0)
+			h += 101;
+		else
+			h += 1;
+		h %= dc->ct_capacity;
+
+		if(dc->ct[h].codetype==DELZW_CODETYPE_DYN_UNUSED)
+			break;
+
+		count++;
+		if(count > dc->ct_capacity) {
+			delzw_set_error(dc, DELZW_ERRCODE_GENERIC_ERROR, NULL);
+			return 0;
+		}
+	}
+
+	dc->ct2[saved_h].next = h;
+	return h;
+}
+
+static void delzw_hashed_add_code_to_dict(delzwctx *dc, DELZW_CODE code, DELZW_UINT8 value)
+{
+	DELZW_CODE idx;
+
+	if(dc->ct_code_count >= dc->ct_capacity) {
+		return;
+	}
+
+	idx = delzw_get_hashed_code(dc, code, value);
+	if(dc->errcode) return;
+
+	dc->ct[idx].parent = (DELZW_CODE_MINRANGE)dc->oldcode;
+	dc->ct[idx].value = value;
+	dc->ct[idx].codetype = DELZW_CODETYPE_DYN_USED;
+	dc->ct_code_count++;
+	dc->last_code_added = idx;
+}
+
+static void delzw_hashed_add_root_code_to_dict(delzwctx *dc, DELZW_UINT8 value)
+{
+	int idx;
+
+	idx = delzw_get_hashed_code(dc, 0xffff, value);
+	if(dc->errcode) return;
+
+	dc->ct[idx].value = value;
+	dc->ct[idx].codetype = DELZW_CODETYPE_STATIC;
+	dc->ct_code_count++;
+}
+
 // Add a code to the dictionary.
 // Sets delzw->last_code_added to the position where it was added.
 static void delzw_add_to_dict(delzwctx *dc, DELZW_CODE parent, DELZW_UINT8 value)
 {
 	DELZW_CODE newpos;
+
+	if(dc->is_hashed) {
+		delzw_hashed_add_code_to_dict(dc, parent, value);
+		return;
+	}
 
 	if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK) {
 		delzw_find_first_free_entry(dc, &newpos);
@@ -529,6 +628,7 @@ static void delzw_add_to_dict(delzwctx *dc, DELZW_CODE parent, DELZW_UINT8 value
 	dc->ct[newpos].parent = (DELZW_CODE_MINRANGE)parent;
 	dc->ct[newpos].value = value;
 	dc->ct[newpos].codetype = DELZW_CODETYPE_DYN_USED;
+	dc->ct_code_count++;
 	dc->last_code_added = newpos;
 	dc->free_code_search_start = newpos+1;
 	if(newpos > dc->highest_code_ever_used) {
@@ -560,7 +660,7 @@ static void delzw_process_data_code(delzwctx *dc, DELZW_CODE code)
 		delzw_emit_code(dc, code);
 		dc->oldcode = code;
 		dc->have_oldcode = 1;
-		dc->last_value = (DELZW_UINT8)dc->oldcode;
+		dc->last_value = dc->ct[code].value;
 		return;
 	}
 
@@ -573,7 +673,7 @@ static void delzw_process_data_code(delzwctx *dc, DELZW_CODE code)
 		delzw_add_to_dict(dc, dc->oldcode, dc->last_value);
 	}
 	else {
-		if(code>dc->free_code_search_start && !dc->has_partial_clearing) {
+		if(code>dc->free_code_search_start && !dc->has_partial_clearing && !dc->is_hashed) {
 			if(dc->stop_on_invalid_code) {
 				delzw_debugmsg(dc, 1, "bad code: %d when max=%d (assuming data stops here)",
 					(int)code, (int)dc->free_code_search_start);
@@ -714,7 +814,8 @@ static void delzw_on_decompression_start(delzwctx *dc)
 		dc->basefmt!=DELZW_BASEFMT_UNIXCOMPRESS &&
 		dc->basefmt!=DELZW_BASEFMT_ZOOLZD &&
 		dc->basefmt!=DELZW_BASEFMT_TIFF &&
-		dc->basefmt!=DELZW_BASEFMT_TIFFOLD)
+		dc->basefmt!=DELZW_BASEFMT_TIFFOLD &&
+		dc->basefmt!=DELZW_BASEFMT_ARC5)
 	{
 		delzw_set_error(dc, DELZW_ERRCODE_UNSUPPORTED_OPTION, "Unsupported LZW format");
 		goto done;
@@ -722,6 +823,9 @@ static void delzw_on_decompression_start(delzwctx *dc)
 
 	if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK) {
 		dc->has_partial_clearing = 1;
+	}
+	else if(dc->basefmt==DELZW_BASEFMT_ARC5) {
+		dc->is_hashed = 1;
 	}
 
 	if(dc->header_type==DELZW_HEADERTYPE_UNIXCOMPRESS3BYTE) {
@@ -794,6 +898,14 @@ static void delzw_on_codes_start(delzwctx *dc)
 			dc->max_codesize = 12;
 		}
 	}
+	else if(dc->basefmt==DELZW_BASEFMT_ARC5) {
+		dc->is_msb = 1;
+		dc->auto_inc_codesize = 0;
+		if(dc->max_codesize==0) {
+			dc->max_codesize = 12;
+		}
+		dc->min_codesize = dc->max_codesize;
+	}
 
 	if(dc->min_codesize<DELZW_MINMINCODESIZE || dc->min_codesize>DELZW_MAXMAXCODESIZE ||
 		dc->max_codesize<DELZW_MINMINCODESIZE || dc->max_codesize>DELZW_MAXMAXCODESIZE ||
@@ -811,6 +923,10 @@ static void delzw_on_codes_start(delzwctx *dc)
 	dc->ct_capacity = ((DELZW_CODE)1)<<dc->max_codesize;
 	dc->ct = DELZW_CALLOC(dc->userdata, dc->ct_capacity, sizeof(struct delzw_tableentry),
 		struct delzw_tableentry *);
+	if(dc->is_hashed) {
+		dc->ct2 = DELZW_CALLOC(dc->userdata, dc->ct_capacity, sizeof(struct delzw_tableentry2),
+			struct delzw_tableentry2 *);
+	}
 	dc->valbuf_capacity = dc->ct_capacity;
 	dc->valbuf = DELZW_CALLOC(dc->userdata, dc->valbuf_capacity, 1, DELZW_UINT8 *);
 
@@ -867,11 +983,27 @@ static void delzw_on_codes_start(delzwctx *dc)
 		dc->first_dynamic_code = 258;
 	}
 
+	if(dc->is_hashed) {
+		for(i=0; i<dc->ct_capacity; i++) {
+			dc->ct2[i].next = DELZW_NEXTPTR_NONE;
+		}
+	}
+
 	for(i=dc->first_dynamic_code; i<dc->ct_capacity; i++) {
 		dc->ct[i].codetype = DELZW_CODETYPE_DYN_UNUSED;
 	}
-
 	dc->free_code_search_start = dc->first_dynamic_code;
+
+	if(dc->is_hashed) {
+		if(dc->arc5_has_stop_code) {
+			dc->ct[0].codetype = DELZW_CODETYPE_STOP;
+			dc->ct_code_count++;
+		}
+
+		for(i=0; i<256; i++) {
+			delzw_hashed_add_root_code_to_dict(dc, (DELZW_UINT8)i);
+		}
+	}
 
 done:
 	;

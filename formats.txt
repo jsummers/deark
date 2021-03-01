@@ -589,7 +589,7 @@ Deark -- Information about supported formats
 * ADF (Amiga disk image) (module="amiga_adf") (experimental)
 
 * ARC archive (module="arc")
-  - Limited support.
+  - Some rare compression methods are not supported.
 
 * ArcFS (module="arcfs")
   Options
@@ -641,6 +641,11 @@ Deark -- Information about supported formats
 
 * cpio (module="cpio")
 
+* Crunch (module="crunch")
+  An old compressed file format used mainly on CP/M.
+  - The header can be parsed, but only the rare v1.x format can be
+    decompressed.
+
 * CRUSH (.cru) (module="crush")
   CRUSH is a DOS archive utility by PocketWare.
 
@@ -680,6 +685,13 @@ Deark -- Information about supported formats
   Options
    -opt lha:lhark - Assume "lh7" compression is LHARK format, instead of the
      standard lh7 format. (Unfortunately, autodetecting LHARK is impractical.)
+
+* LZWCOM (module="lzwcom")
+  LZWCOM/LZWUNC is an old file compression utility.
+  - Not autodetected; you must use "-m lzwcom". In rare cases, you must also
+    specify the version.
+  Options
+  -opt lzwcom:version=<1|2> : The format version.
 
 * MacBinary (module="macbinary")
   - You may have to use "-m macbinary".
@@ -785,6 +797,9 @@ Deark -- Information about supported formats
 * Zoo Z format (module="zoo_z")
   Format created by "zoo xz <foo.zoo> [...]". Not all Zoo programs support it.
   - Will be translated to Zoo format.
+
+* ZSQ (module="zsq")
+  Compressed file format related to LZWCOM.
 
 == Transfer encoding modules ==
 
