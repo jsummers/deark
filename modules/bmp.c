@@ -71,6 +71,14 @@ typedef struct localctx_struct {
 	u32 pal[256];
 } lctx;
 
+static i64 get_bits_size(deark *c, lctx *d)
+{
+	if(d->size_image>0 && d->bits_offset+d->size_image <= c->infile->len) {
+		return d->size_image;
+	}
+	return c->infile->len - d->bits_offset;
+}
+
 // Sets d->version, and certain header fields.
 static int detect_bmp_version(deark *c, lctx *d)
 {
@@ -735,15 +743,46 @@ static void do_image_rle_4_8_24(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 	de_bitmap_destroy(img);
 }
 
+static void do_image_huffman1d(deark *c, lctx *d)
+{
+	dbuf *unc_pixels = NULL;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	struct de_fax34_params fax34params;
+
+	// Caution: These settings might be wrong. I need more information about this format.
+	de_zeromem(&fax34params, sizeof(struct de_fax34_params));
+	fax34params.image_width = d->width;
+	fax34params.image_height = d->height;
+	fax34params.out_rowspan = d->rowspan;
+	fax34params.tiff_cmpr_meth = 3;
+	fax34params.t4options = 0;
+	fax34params.is_lsb = 0;
+
+	unc_pixels = dbuf_create_membuf(c, d->rowspan*d->height, 0x1);
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = d->bits_offset;
+	dcmpri.len = get_bits_size(c, d);
+	dcmpro.f = unc_pixels;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = d->rowspan*d->height;
+
+	fmtutil_fax34_codectype1(c, &dcmpri, &dcmpro, &dres,
+		 (void*)&fax34params);
+
+	do_image_paletted(c, d, unc_pixels, 0);
+
+	dbuf_close(unc_pixels);
+}
+
 static void extract_embedded_image(deark *c, lctx *d, const char *ext)
 {
 	i64 nbytes;
 
-	nbytes = d->size_image;
-
-	if(nbytes<1 || nbytes>(c->infile->len - d->bits_offset)) {
-		nbytes = c->infile->len - d->bits_offset;
-	}
+	nbytes = get_bits_size(c, d);
 	if(nbytes<1) return;
 
 	dbuf_create_file_from_slice(c->infile, d->bits_offset, nbytes, ext, NULL, 0);
@@ -794,6 +833,9 @@ static void do_image(deark *c, lctx *d)
 	}
 	else if(d->compression_type==CMPR_PNG) {
 		extract_embedded_image(c, d, "png");
+	}
+	else if(d->bitcount==1 && d->compression_type==CMPR_HUFFMAN1D) {
+		do_image_huffman1d(c, d);
 	}
 	else {
 		de_err(c, "This type of BMP image is not supported");
