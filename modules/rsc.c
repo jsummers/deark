@@ -21,7 +21,8 @@ typedef struct localctx_struct {
 	de_ext_encoding input_encoding;
 	int fmt;
 	int is_le;
-	int decode_objects;
+	u8 decode_objects;
+	u8 allow_unaligned_offsets;
 	i64 version;
 	i64 object_offs, object_num;
 	i64 objecttree_num;
@@ -43,6 +44,26 @@ struct iconinfo {
 	i64 nplanes;
 	de_ucstring *icon_text;
 };
+
+static int is_valid_segment_pos(deark *c, lctx *d, i64 pos, i64 len, const char *name)
+{
+	int ok_start = 1;
+	int ok_end = 1;
+
+	if(pos<36 && len>0) ok_start = 0;
+	if(pos>d->avail_file_size) ok_start = 0;
+	if(!d->allow_unaligned_offsets && (pos%2)) ok_start = 0;
+	if(pos+len > d->avail_file_size) ok_end = 0;
+
+	if(ok_start && ok_end) return 1;
+	if(ok_start && !ok_end && len>=2) {
+		de_err(c, "Invalid %s location: %"I64_FMT"-%"I64_FMT, name, pos, pos+len-1);
+	}
+	else {
+		de_err(c, "Invalid %s location: %"I64_FMT, name, pos);
+	}
+	return 0;
+}
 
 static void destroy_iconinfo(deark *c, struct iconinfo *ii)
 {
@@ -105,6 +126,9 @@ static void do_decode_and_write_bilevel_image(deark *c, lctx *d, i64 bits_pos,
 {
 	de_bitmap *img = NULL;
 
+	if(!is_valid_segment_pos(c, d, bits_pos, rowspan*height, "bitmap")) {
+		goto done;
+	}
 	if(!de_good_image_dimensions(c, width, height)) {
 		goto done;
 	}
@@ -164,6 +188,12 @@ static void do_bilevel_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 	de_bitmap *mask = NULL;
 	de_finfo *fi = NULL;
 
+	if(!is_valid_segment_pos(c, d, fg_pos, ii->height*ii->mono_rowspan, "bitmap")) {
+		goto done;
+	}
+	if(!is_valid_segment_pos(c, d, mask_pos, ii->height*ii->mono_rowspan, "mask")) {
+		goto done;
+	}
 	if(!de_good_image_dimensions(c, ii->width, ii->height)) {
 		goto done;
 	}
@@ -188,15 +218,19 @@ static int do_old_iconblk(deark *c, lctx *d, i64 pos)
 	i64 mask_pos, fg_pos;
 	int retval = 0;
 	struct iconinfo *ii = NULL;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	ii = de_malloc(c, sizeof(struct iconinfo));
 
 	de_dbg(c, "ICONBLK at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
 	if(!do_scan_iconblk(c, d, pos, ii)) goto done;
 
 	mask_pos = gem_getu32(d, pos);
 	fg_pos = gem_getu32(d, pos+4);
-	de_dbg(c, "bitmap at %d, mask at %d", (int)fg_pos, (int)mask_pos);
+	de_dbg(c, "fg at %"I64_FMT, fg_pos);
+	de_dbg(c, "mask at %"I64_FMT, mask_pos);
 
 	ii->mono_rowspan = ((ii->width+15)/16)*2;
 	do_bilevel_icon(c, d, ii, fg_pos, mask_pos, "1");
@@ -204,6 +238,7 @@ static int do_old_iconblk(deark *c, lctx *d, i64 pos)
 	retval = 1;
 done:
 	destroy_iconinfo(c, ii);
+	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
 
@@ -324,8 +359,10 @@ static int do_ciconblk_struct(deark *c, lctx *d, i64 icon_idx, i64 pos1,
 	int retval = 0;
 	i64 i;
 	i64 mono_fgpos, mono_maskpos;
+	int saved_indent_level;
 	char token[16];
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "CICONBLK[%d] at %"I64_FMT, (int)icon_idx, pos1);
 	de_dbg_indent(c, 1);
 
@@ -369,6 +406,7 @@ static int do_ciconblk_struct(deark *c, lctx *d, i64 icon_idx, i64 pos1,
 	de_dbg_indent(c, -1);
 
 	for(i=0; i<n_cicons; i++) {
+		if(pos >= c->infile->len) goto done;
 		de_dbg(c, "color depth %d of %d, at %"I64_FMT, (int)(i+1), (int)n_cicons, pos);
 		de_dbg_indent(c, 1);
 
@@ -386,7 +424,7 @@ static int do_ciconblk_struct(deark *c, lctx *d, i64 icon_idx, i64 pos1,
 		pos += 4; // sel_mask (placeholder)
 
 		next_res = gem_getu32(d, pos);
-		de_dbg(c, "next_res_flag: %d", (int)next_res);
+		de_dbg(c, "next_res flag: %d", (int)next_res);
 		pos += 4;
 
 		color_bitmapsize = mono_bitmapsize * ii->nplanes;
@@ -421,7 +459,7 @@ static int do_ciconblk_struct(deark *c, lctx *d, i64 icon_idx, i64 pos1,
 	retval = 1;
 done:
 	destroy_iconinfo(c, ii);
-	de_dbg_indent(c, -1);
+	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
 
@@ -468,27 +506,39 @@ done:
 	return retval;
 }
 
-static int do_cicon(deark *c, lctx *d, i64 pos1)
+static int do_cicon(deark *c, lctx *d)
 {
 	i64 bytes_consumed;
 	int ret;
+	i64 pos1;
 	i64 pos;
 	i64 i;
+	int retval = 0;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(!is_valid_segment_pos(c, d, d->cicon_offs, 1, "CICON segment")) {
+		goto done;
+	}
+	pos1 = d->cicon_offs;
 	de_dbg(c, "CICON file segment at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	pos = pos1;
 	ret = do_cicon_ptr_table(c, d, pos, &bytes_consumed);
-	if(!ret) return 0;
+	if(!ret) goto done;
 	pos += bytes_consumed;
 
 	for(i=0; i<d->num_ciconblk; i++) {
+		if(pos>=d->avail_file_size) goto done;
 		ret = do_ciconblk_struct(c, d, i, pos, &bytes_consumed);
-		if(!ret) return 0;
+		if(!ret) goto done;
 		pos += bytes_consumed;
 	}
-	de_dbg_indent(c, -1);
-	return 1;
+	retval = 1;
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
 }
 
 static void do_extension_array(deark *c, lctx *d)
@@ -498,6 +548,7 @@ static void do_extension_array(deark *c, lctx *d)
 	pos = d->rssize;
 	de_dbg(c, "extension array at %"I64_FMT, d->rssize);
 	de_dbg_indent(c, 1);
+	if(!is_valid_segment_pos(c, d, d->rssize, 8, "Extension Array")) goto done;
 
 	d->reported_file_size = gem_getu32(d, pos);
 	de_dbg(c, "reported file size: %"I64_FMT, d->reported_file_size);
@@ -587,11 +638,11 @@ static int do_bitblk(deark *c, lctx *d, i64 pos)
 	i64 width, height;
 	i64 fgcol;
 
-	de_dbg(c, "BITBLK struct at %d", (int)pos);
+	de_dbg(c, "BITBLK at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	bits_pos = gem_getu32(d, pos);
-	de_dbg(c, "bitmap pos: %d", (int)bits_pos);
+	de_dbg(c, "bitmap pos: %"I64_FMT, bits_pos);
 	width_in_bytes = gem_getu16(d, pos+4);
 	width = width_in_bytes*8;
 	de_dbg(c, "width in bytes: %d", (int)width_in_bytes);
@@ -607,35 +658,57 @@ static int do_bitblk(deark *c, lctx *d, i64 pos)
 	return 1;
 }
 
-static void do_rsc_main(deark *c, lctx *d)
+static void do_OBJECTs(deark *c, lctx *d)
 {
 	i64 i;
 
-	// OBJECT
-	if(d->decode_objects) {
-		for(i=0; i<d->object_num; i++) {
-			if(d->object_offs + 24*(i+1) > d->avail_file_size) break;
-			do_object(c, d, i, d->object_offs + 24*i);
-		}
+	if(d->object_num<=0) return;
+	de_dbg(c, "OBJECTs at %"I64_FMT, d->object_offs);
+	if(!is_valid_segment_pos(c, d, d->object_offs, 24*d->object_num, "OBJECT table")) {
+		return;
 	}
+	if(!d->decode_objects) return;
 
-	// BITBLK
+	de_dbg_indent(c, 1);
+	for(i=0; i<d->object_num; i++) {
+		if(d->object_offs + 24*(i+1) > d->avail_file_size) break;
+		do_object(c, d, i, d->object_offs + 24*i);
+	}
+	de_dbg_indent(c, -1);
+}
+
+static void do_BITBLKs(deark *c, lctx *d)
+{
+	i64 i;
+
+	if(d->bitblk_num<=0) return;
+	de_dbg(c, "BITBLKs at %"I64_FMT, d->bitblk_offs);
+	if(!is_valid_segment_pos(c, d, d->bitblk_offs, 14*d->bitblk_num, "BITBLK table")) {
+		return;
+	}
+	de_dbg_indent(c, 1);
 	for(i=0; i<d->bitblk_num; i++) {
 		if(d->bitblk_offs + 14*(i+1) > d->avail_file_size) break;
 		do_bitblk(c, d, d->bitblk_offs + 14*i);
 	}
+	de_dbg_indent(c, -1);
+}
 
-	// ICONBLK
-	if(d->iconblk_num>0) {
-		for(i=0; i<d->iconblk_num; i++) {
-			if(d->iconblk_offs + 34*(i+1) > d->avail_file_size) break;
-			do_old_iconblk(c, d, d->iconblk_offs + 34*i);
-		}
-	}
+static void do_ICONBLKs(deark *c, lctx *d)
+{
+	i64 i;
 
-	if(d->cicon_offs>0) {
-		do_cicon(c, d, d->cicon_offs);
+	if(d->iconblk_num<=0) return;
+	de_dbg(c, "ICONBLKs at %"I64_FMT, d->iconblk_offs);
+	if(!is_valid_segment_pos(c, d, d->iconblk_offs, 34*d->iconblk_num, "ICONBLK table")) {
+		return;
 	}
+	de_dbg_indent(c, 1);
+	for(i=0; i<d->iconblk_num; i++) {
+		if(d->iconblk_offs + 34*(i+1) > d->avail_file_size) break;
+		do_old_iconblk(c, d, d->iconblk_offs + 34*i);
+	}
+	de_dbg_indent(c, -1);
 }
 
 static void detect_rsc_format(deark *c, lctx *d)
@@ -696,10 +769,9 @@ static void de_run_rsc(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	const char *tmps;
 
-	de_warn(c, "RSC support is experimental and incomplete. Images may not be decoded correctly.");
-
 	d = de_malloc(c, sizeof(lctx));
 	d->c = c;
+	d->avail_file_size = c->infile->len; // Starting value. Will be adjusted later.
 
 	d->fmt = RSCFMT_UNKNOWN;
 	tmps = de_get_ext_option(c, "rsc:fmt");
@@ -741,6 +813,8 @@ static void de_run_rsc(deark *c, de_module_params *mparams)
 	}
 
 	d->decode_objects = 1;
+	// TODO: For Atari format, maybe we can disallow unaligned offsets.
+	d->allow_unaligned_offsets = 1;
 
 	de_dbg(c, "header at %d", 0);
 	de_dbg_indent(c, 1);
@@ -785,7 +859,12 @@ static void de_run_rsc(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	do_rsc_main(c, d);
+	do_OBJECTs(c, d);
+	do_BITBLKs(c, d);
+	do_ICONBLKs(c, d);
+	if(d->version & 0x0004) {
+		do_cicon(c, d);
+	}
 
 done:
 	de_free(c, d);
