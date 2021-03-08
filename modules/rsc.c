@@ -29,6 +29,7 @@ typedef struct localctx_struct {
 	i64 imagedata_offs;
 	i64 imagepointertable_offs;
 	i64 rssize;
+	i64 cicon_offs;
 	i64 reported_file_size;
 	i64 avail_file_size;
 
@@ -46,9 +47,23 @@ static i64 gem_getu16(lctx *d, i64 pos)
 	return dbuf_getu16x(d->c->infile, pos, d->is_le);
 }
 
+static i64 gem_getu16m1(lctx *d, i64 pos)
+{
+	i64 n = gem_getu16(d, pos);
+	if(n==0xffff) n = -1;
+	return n;
+}
+
 static i64 gem_getu32(lctx *d, i64 pos)
 {
 	return dbuf_getu32x(d->c->infile, pos, d->is_le);
+}
+
+static i64 gem_getu32m1(lctx *d, i64 pos)
+{
+	i64 n = gem_getu32(d, pos);
+	if(n==0xffffffffLL) n = -1;
+	return n;
 }
 
 static void do_decode_bilevel_image(deark *c, lctx *d, de_bitmap *img, i64 bits_pos,
@@ -96,7 +111,6 @@ static int do_scan_iconblk(deark *c, lctx *d, i64 pos1, struct iconinfo *ii)
 
 	// TODO: Refactor this code to better share it with old- and new-style RSC.
 
-	de_dbg(c, "ICONBLK at %d", (int)pos1);
 	pos = pos1;
 	ii->width = gem_getu16(d, pos+22);
 	ii->height = gem_getu16(d, pos+24);
@@ -139,6 +153,7 @@ static int do_old_iconblk(deark *c, lctx *d, i64 pos)
 
 	ii = de_malloc(c, sizeof(struct iconinfo));
 
+	de_dbg(c, "ICONBLK at %"I64_FMT, pos);
 	if(!do_scan_iconblk(c, d, pos, ii)) goto done;
 
 	mask_pos = gem_getu32(d, pos);
@@ -267,7 +282,7 @@ static int do_ciconblk_struct(deark *c, lctx *d, i64 icon_idx, i64 pos1,
 	i64 i;
 	char token[16];
 
-	de_dbg(c, "-- icon #%d --", (int)icon_idx);
+	de_dbg(c, "CICONBLK[%d] at %"I64_FMT, (int)icon_idx, pos1);
 	de_dbg_indent(c, 1);
 
 	ii = de_malloc(c, sizeof(struct iconinfo));
@@ -286,8 +301,12 @@ static int do_ciconblk_struct(deark *c, lctx *d, i64 icon_idx, i64 pos1,
 
 	mono_bitmapsize = ii->mono_rowspan * ii->height;
 
-	de_dbg(c, "-- bilevel image --");
+	de_dbg(c, "bilevel image data at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "fg at %"I64_FMT, pos);
+	de_dbg(c, "mask at %"I64_FMT, pos+mono_bitmapsize);
 	do_bilevel_icon(c, d, ii, pos, pos+mono_bitmapsize, "1");
+	de_dbg_indent(c, -1);
 
 	pos += mono_bitmapsize; // foreground
 	pos += mono_bitmapsize; // mask
@@ -296,7 +315,7 @@ static int do_ciconblk_struct(deark *c, lctx *d, i64 icon_idx, i64 pos1,
 	pos += 12; // icon_text
 
 	for(i=0; i<n_cicons; i++) {
-		de_dbg(c, "-- color depth %d of %d --", (int)(i+1), (int)n_cicons);
+		de_dbg(c, "color depth %d of %d, at %"I64_FMT, (int)(i+1), (int)n_cicons, pos);
 		de_dbg_indent(c, 1);
 
 		ii->nplanes = gem_getu16(d, pos);
@@ -318,8 +337,10 @@ static int do_ciconblk_struct(deark *c, lctx *d, i64 icon_idx, i64 pos1,
 
 		color_bitmapsize = mono_bitmapsize * ii->nplanes;
 
-		de_dbg(c, "-- unselected image --");
+		de_dbg(c, "unselected image at %"I64_FMT, pos);
 		de_dbg_indent(c, 1);
+		de_dbg(c, "fg at %"I64_FMT, pos);
+		de_dbg(c, "mask at %"I64_FMT, pos+color_bitmapsize);
 		de_snprintf(token, sizeof(token), "%d", (int)ii->nplanes);
 		do_color_icon(c, d, ii, pos, pos+color_bitmapsize, token);
 		pos += color_bitmapsize; // color_data
@@ -327,8 +348,10 @@ static int do_ciconblk_struct(deark *c, lctx *d, i64 icon_idx, i64 pos1,
 		de_dbg_indent(c, -1);
 
 		if(sel_data_flag) {
-			de_dbg(c, "-- selected image --");
+			de_dbg(c, "selected image at %"I64_FMT, pos);
 			de_dbg_indent(c, 1);
+			de_dbg(c, "fg at %"I64_FMT, pos);
+			de_dbg(c, "mask at %"I64_FMT, pos+color_bitmapsize);
 			de_snprintf(token, sizeof(token), "%d.sel", (int)ii->nplanes);
 			do_color_icon(c, d, ii, pos, pos+color_bitmapsize, token);
 			pos += color_bitmapsize; // select_data
@@ -353,29 +376,42 @@ static int do_cicon_ptr_table(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	i64 n;
 	i64 count = 0;
 	i64 pos;
+	int retval = 0;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	pos = pos1;
 	*bytes_consumed = 0;
+
+	de_dbg(c, "CICONBLK pointer table at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
 
 	while(1) {
 		if(pos>=d->avail_file_size) {
 			// error
-			return 0;
+			goto done;
 		}
 
-		n = gem_getu32(d, pos);
+		// Values are expected to be 0. We just have to find the -1 that marks
+		// the end of this scratch space.
+		n = gem_getu32m1(d, pos);
+		de_dbg3(c, "item[%d]: %"I64_FMT, (int)count, n);
 		pos+=4;
 
-		if(n==0xffffffffU) {
+		if(n<0) {
 			break;
 		}
 		count++;
 	}
 
 	d->num_ciconblk = count;
-	de_dbg(c, "CICONBLK pointer table at %d indicates %d CICONBLKs", (int)pos1, (int)d->num_ciconblk);
+	de_dbg(c, "count of CICONBLKs: %d", (int)d->num_ciconblk);
 	*bytes_consumed = pos - pos1;
-	return 1;
+	retval = 1;
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
 }
 
 static int do_cicon(deark *c, lctx *d, i64 pos1)
@@ -385,6 +421,8 @@ static int do_cicon(deark *c, lctx *d, i64 pos1)
 	i64 pos;
 	i64 i;
 
+	de_dbg(c, "CICON file segment at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
 	pos = pos1;
 	ret = do_cicon_ptr_table(c, d, pos, &bytes_consumed);
 	if(!ret) return 0;
@@ -395,27 +433,28 @@ static int do_cicon(deark *c, lctx *d, i64 pos1)
 		if(!ret) return 0;
 		pos += bytes_consumed;
 	}
+	de_dbg_indent(c, -1);
 	return 1;
 }
 
-static void do_newformat(deark *c, lctx *d)
+static void do_extension_array(deark *c, lctx *d)
 {
 	i64 pos;
-	i64 cicon_offs;
-
-	de_dbg(c, "extension array offset: %d", (int)d->rssize);
 
 	pos = d->rssize;
+	de_dbg(c, "extension array at %"I64_FMT, d->rssize);
+	de_dbg_indent(c, 1);
 
 	d->reported_file_size = gem_getu32(d, pos);
 	de_dbg(c, "reported file size: %"I64_FMT, d->reported_file_size);
 	d->avail_file_size = de_min_int(d->reported_file_size, c->infile->len);
 
-	cicon_offs = gem_getu32(d, pos+4);
-	if(cicon_offs!=0 && cicon_offs!=0xffffffffU) {
-		de_dbg(c, "CICON offset: %d", (int)cicon_offs);
-		do_cicon(c, d, cicon_offs);
-	}
+	d->cicon_offs = gem_getu32m1(d, pos+4);
+	if(d->cicon_offs==0) goto done;
+	de_dbg(c, "CICON offset: %"I64_FMT, d->cicon_offs);
+
+done:
+	de_dbg_indent(c, -1);
 }
 
 #define OBJTYPE_IMAGE   23
@@ -461,12 +500,9 @@ static int do_object(deark *c, lctx *d, i64 obj_index, i64 pos)
 	de_dbg(c, "OBJECT #%d at %d", (int)obj_index, (int)pos);
 	de_dbg_indent(c, 1);
 
-	next_sibling = gem_getu16(d, pos);
-	if(next_sibling==0xffff) next_sibling = -1;
-	first_child = gem_getu16(d, pos+2);
-	if(first_child==0xffff) first_child = -1;
-	last_child = gem_getu16(d, pos+4);
-	if(last_child==0xffff) last_child = -1;
+	next_sibling = gem_getu16m1(d, pos);
+	first_child = gem_getu16m1(d, pos+2);
+	last_child = gem_getu16m1(d, pos+4);
 	de_dbg(c, "next sibling: %d, first child: %d, last child: %d",
 		(int)next_sibling, (int)first_child, (int)last_child);
 
@@ -517,13 +553,9 @@ static int do_bitblk(deark *c, lctx *d, i64 pos)
 	return 1;
 }
 
-static void do_oldformat(deark *c, lctx *d)
+static void do_rsc_main(deark *c, lctx *d)
 {
 	i64 i;
-
-	d->reported_file_size = d->rssize;
-	de_dbg(c, "reported file size: %"I64_FMT, d->reported_file_size);
-	d->avail_file_size = de_min_int(d->reported_file_size, c->infile->len);
 
 	// OBJECT
 	if(d->decode_objects) {
@@ -545,6 +577,10 @@ static void do_oldformat(deark *c, lctx *d)
 			if(d->iconblk_offs + 34*(i+1) > d->avail_file_size) break;
 			do_old_iconblk(c, d, d->iconblk_offs + 34*i);
 		}
+	}
+
+	if(d->cicon_offs>0) {
+		do_cicon(c, d, d->cicon_offs);
 	}
 }
 
@@ -640,6 +676,8 @@ static void de_run_rsc(deark *c, de_module_params *mparams)
 
 	d->decode_objects = 1;
 
+	de_dbg(c, "header at %d", 0);
+	de_dbg_indent(c, 1);
 	d->version = gem_getu16(d, 0);
 	de_dbg(c, "version: 0x%04x", (int)d->version);
 
@@ -660,14 +698,30 @@ static void de_run_rsc(deark *c, de_module_params *mparams)
 	de_dbg(c, "BITBLK: %d at %d", (int)d->bitblk_num, (int)d->bitblk_offs);
 	de_dbg(c, "imagedata: at %d", (int)d->imagedata_offs);
 	de_dbg(c, "imagepointertable: at %d", (int)d->imagepointertable_offs);
+	if(d->version & 0x0004) {
+		de_dbg(c, "extension array offset: %"I64_FMT, d->rssize);
+	}
+	else {
+		de_dbg(c, "reported file size: %"I64_FMT, d->rssize);
+		d->reported_file_size = d->rssize;
+		d->avail_file_size = de_min_int(d->reported_file_size, c->infile->len);
+	}
+	de_dbg_indent(c, -1);
 
 	if(d->version & 0x0004) {
-		do_newformat(c, d);
+		do_extension_array(c, d);
 	}
 	else if(d->version==0 || d->version==1) {
-		do_oldformat(c, d);
+		;
+	}
+	else {
+		de_err(c, "Unknown or unsupported version of RSC");
+		goto done;
 	}
 
+	do_rsc_main(c, d);
+
+done:
 	de_free(c, d);
 }
 
