@@ -18,6 +18,7 @@ DE_DECLARE_MODULE(de_module_rsc);
 
 typedef struct localctx_struct {
 	deark *c;
+	de_ext_encoding input_encoding;
 	int fmt;
 	int is_le;
 	int decode_objects;
@@ -40,7 +41,17 @@ struct iconinfo {
 	i64 width, height;
 	i64 mono_rowspan;
 	i64 nplanes;
+	de_ucstring *icon_text;
 };
+
+static void destroy_iconinfo(deark *c, struct iconinfo *ii)
+{
+	if(!ii) return;
+	if(ii->icon_text) {
+		ucstring_destroy(ii->icon_text);
+	}
+	de_free(c, ii);
+}
 
 static i64 gem_getu16(lctx *d, i64 pos)
 {
@@ -124,11 +135,34 @@ static int do_scan_iconblk(deark *c, lctx *d, i64 pos1, struct iconinfo *ii)
 	return 1;
 }
 
+static void set_icon_finfo(deark *c, lctx *d, de_finfo *fi, struct iconinfo *ii,
+	const char *token)
+{
+	de_ucstring *s = NULL;
+
+	s = ucstring_create(c);
+
+	if(ucstring_isnonempty(ii->icon_text)) {
+		ucstring_append_ucstring(s, ii->icon_text);
+	}
+
+	if(token) {
+		if(ucstring_isnonempty(s)) {
+			ucstring_append_char(s, '.');
+		}
+		ucstring_append_sz(s, token, DE_ENCODING_UTF8);
+	}
+
+	de_finfo_set_name_from_ucstring(c, fi, s, 0x0);
+	ucstring_destroy(s);
+}
+
 static void do_bilevel_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 	i64 mask_pos, const char *token)
 {
 	de_bitmap *img = NULL;
 	de_bitmap *mask = NULL;
+	de_finfo *fi = NULL;
 
 	if(!de_good_image_dimensions(c, ii->width, ii->height)) {
 		goto done;
@@ -139,10 +173,14 @@ static void do_bilevel_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 	do_decode_bilevel_image(c, d, img, fg_pos, ii->mono_rowspan);
 	do_decode_bilevel_image(c, d, mask, mask_pos, ii->mono_rowspan);
 	de_bitmap_apply_mask(img, mask, DE_BITMAPFLAG_WHITEISTRNS);
-	de_bitmap_write_to_file(img, token, 0);
+	fi = de_finfo_create(c);
+	set_icon_finfo(c, d, fi, ii, token);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
+
 done:
 	de_bitmap_destroy(img);
 	de_bitmap_destroy(mask);
+	de_finfo_destroy(c, fi);
 }
 
 static int do_old_iconblk(deark *c, lctx *d, i64 pos)
@@ -165,7 +203,7 @@ static int do_old_iconblk(deark *c, lctx *d, i64 pos)
 
 	retval = 1;
 done:
-	de_free(c, ii);
+	destroy_iconinfo(c, ii);
 	return retval;
 }
 
@@ -225,6 +263,7 @@ static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 	i64 i, j;
 	u8 a;
 	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
 	i64 plane;
 	i64 planespan;
 	u8 b;
@@ -263,9 +302,13 @@ static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 		}
 	}
 
-	de_bitmap_write_to_file(img, token, 0);
+	fi = de_finfo_create(c);
+	set_icon_finfo(c, d, fi, ii, token);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
+
 done:
 	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
 }
 
 static int do_ciconblk_struct(deark *c, lctx *d, i64 icon_idx, i64 pos1,
@@ -280,6 +323,7 @@ static int do_ciconblk_struct(deark *c, lctx *d, i64 icon_idx, i64 pos1,
 	i64 sel_data_flag;
 	int retval = 0;
 	i64 i;
+	i64 mono_fgpos, mono_maskpos;
 	char token[16];
 
 	de_dbg(c, "CICONBLK[%d] at %"I64_FMT, (int)icon_idx, pos1);
@@ -299,20 +343,30 @@ static int do_ciconblk_struct(deark *c, lctx *d, i64 icon_idx, i64 pos1,
 
 	ii->mono_rowspan = ((ii->width+15)/16)*2; // guess
 
+	de_dbg2(c, "bilevel image data at %"I64_FMT" (deferred)", pos);
 	mono_bitmapsize = ii->mono_rowspan * ii->height;
-
-	de_dbg(c, "bilevel image data at %"I64_FMT, pos);
-	de_dbg_indent(c, 1);
-	de_dbg(c, "fg at %"I64_FMT, pos);
-	de_dbg(c, "mask at %"I64_FMT, pos+mono_bitmapsize);
-	do_bilevel_icon(c, d, ii, pos, pos+mono_bitmapsize, "1");
-	de_dbg_indent(c, -1);
-
+	mono_fgpos = pos;
 	pos += mono_bitmapsize; // foreground
+	mono_maskpos = pos;
 	pos += mono_bitmapsize; // mask
+	de_dbg2(c, "bilevel image data ends at %"I64_FMT, pos);
 
-	// TODO: Use the text in the filename?
-	pos += 12; // icon_text
+	if(!ii->icon_text) {
+		ii->icon_text = ucstring_create(c);
+	}
+	ucstring_empty(ii->icon_text);
+	dbuf_read_to_ucstring(c->infile, pos, 12, ii->icon_text, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "icon text: \"%s\"", ucstring_getpsz_d(ii->icon_text));
+	pos += 12;
+
+	// Go back and read the bilevel icon. (We wanted to read the icon text first.)
+	de_dbg(c, "bilevel image data at %"I64_FMT, mono_fgpos);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "fg at %"I64_FMT, mono_fgpos);
+	de_dbg(c, "mask at %"I64_FMT, mono_maskpos);
+	do_bilevel_icon(c, d, ii, mono_fgpos, mono_maskpos, "1");
+	de_dbg_indent(c, -1);
 
 	for(i=0; i<n_cicons; i++) {
 		de_dbg(c, "color depth %d of %d, at %"I64_FMT, (int)(i+1), (int)n_cicons, pos);
@@ -366,7 +420,7 @@ static int do_ciconblk_struct(deark *c, lctx *d, i64 icon_idx, i64 pos1,
 
 	retval = 1;
 done:
-	de_free(c, ii);
+	destroy_iconinfo(c, ii);
 	de_dbg_indent(c, -1);
 	return retval;
 }
@@ -672,6 +726,18 @@ static void de_run_rsc(deark *c, de_module_params *mparams)
 	}
 	else {
 		de_declare_fmt(c, "GEM RSC, Atari");
+	}
+
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
+	if(d->input_encoding==DE_ENCODING_UNKNOWN) {
+		if(d->fmt==RSCFMT_ATARI) {
+			d->input_encoding = DE_ENCODING_ATARIST;
+		}
+		else {
+			// TODO?: This should probably be the "GEM character set", but we don't
+			// support that.
+			d->input_encoding = DE_ENCODING_ASCII;
+		}
 	}
 
 	d->decode_objects = 1;
