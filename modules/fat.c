@@ -7,6 +7,7 @@
 #include <deark-config.h>
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_fat);
+DE_DECLARE_MODULE(de_module_loaddskf);
 
 #define MAX_NESTING_LEVEL 16
 
@@ -965,4 +966,96 @@ void de_module_fat(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_fat;
 	mi->identify_fn = de_identify_fat;
 	mi->help_fn = de_help_fat;
+}
+
+///////////////////////// LoadDskF/SaveDskF format (OS/2-centric)
+
+// We barely support this format, but if it's uncompressed, we'll try to skip
+// past the header, and pretend it's FAT.
+
+struct skf_ctx {
+	int new_fmt;
+	i64 hdr_size;
+};
+
+static void loaddskf_decode_as_fat(deark *c, struct skf_ctx *d)
+{
+	i64 dlen = c->infile->len - d->hdr_size;
+
+	de_dbg(c, "decoding as FAT, pos=%"I64_FMT", len=%"I64_FMT, d->hdr_size, dlen);
+	if(dlen<=0) goto done;
+
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice(c, "fat", NULL, c->infile, d->hdr_size, dlen);
+	de_dbg_indent(c, -1);
+done:
+	;
+}
+
+static int loaddskf_read_header(deark *c, struct skf_ctx *d)
+{
+	int retval = 0;
+
+	d->hdr_size = de_getu16le(38);
+	de_dbg(c, "header size: %"I64_FMT, d->hdr_size);
+	if((UI)de_getu16be(d->hdr_size + 510) != 0x55aa) {
+		goto done;
+	}
+	retval = 1;
+
+done:
+	if(!retval) {
+		de_err(c, "Failed to parse LoadDskF file");
+	}
+	return retval;
+}
+
+static void de_run_loaddskf(deark *c, de_module_params *mparams)
+{
+	struct skf_ctx *d = NULL;
+	UI sig;
+
+	d = de_malloc(c, sizeof(struct skf_ctx));
+	sig = (UI)de_getu16be(0);
+	switch(sig) {
+	case 0xaa58:
+		break;
+	case 0xaa59:
+		d->new_fmt = 1;
+		break;
+	case 0xaa5a:
+		de_err(c, "Compressed LoadDskF files are not supported");
+		goto done;
+	default:
+		de_err(c, "Not a LoadDskF file");
+		goto done;
+	}
+
+	if(!loaddskf_read_header(c, d)) goto done;
+	loaddskf_decode_as_fat(c, d);
+
+done:
+	de_free(c, d);
+}
+
+static int de_identify_loaddskf(deark *c)
+{
+	UI sig;
+
+	sig = (UI)de_getu16be(0);
+	if(sig==0xaa58 || sig==0xaa59 || sig==0xaa5a) {
+		if((UI)de_getu16be(2)==0xf000) {
+			return 100;
+		}
+		return 9;
+	}
+	return 0;
+}
+
+void de_module_loaddskf(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "loaddskf";
+	mi->desc = "LoadDskF/SaveDskF disk image";
+	mi->run_fn = de_run_loaddskf;
+	mi->identify_fn = de_identify_loaddskf;
 }
