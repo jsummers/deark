@@ -275,7 +275,8 @@ static void init_fax34_bitreader(deark *c, struct fax_ctx *fc)
 }
 
 // Read up to and including the next '1' bit
-static int fax34_finish_sync(deark *c, struct fax_ctx *fc, i64 max_bits_to_search)
+static int fax34_finish_sync(deark *c, struct fax_ctx *fc, i64 max_bits_to_search,
+	i64 *pnbits_read)
 {
 	i64 nbits_searched = 0;
 	int retval = 0;
@@ -296,6 +297,7 @@ static int fax34_finish_sync(deark *c, struct fax_ctx *fc, i64 max_bits_to_searc
 		}
 	}
 done:
+	if(pnbits_read) *pnbits_read = nbits_searched;
 	return retval;
 }
 
@@ -326,7 +328,7 @@ static int fax34_full_sync(deark *c, struct fax_ctx *fc, i64 max_bits_to_search)
 		}
 	}
 
-	retval = fax34_finish_sync(c, fc, max_bits_to_search-nbits_searched);
+	retval = fax34_finish_sync(c, fc, max_bits_to_search-nbits_searched, NULL);
 
 done:
 	return retval;
@@ -383,6 +385,7 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 	static const char errmsg_UNEXPECTEDEOD[] = "Unexpected end of compressed data";
 	static const char errmsg_HUFFDECODEERR[] = "Huffman decode error";
 	static const char errmsg_NOEOL[] = "Failed to find EOL mark";
+	static const char errmsg_UNSUPPEXT[] = "Decoding error or unsupported Fax extension";
 
 	errmsg[0] = '\0';
 	init_fax34_bitreader(c, fc);
@@ -396,7 +399,7 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 				init_fax34_bitreader(c, fc);
 			}
 			else {
-				de_snprintf(errmsg, sizeof(errmsg), "Failed to find sync mark");
+				de_strlcpy(errmsg, "Failed to find sync mark", sizeof(errmsg));
 				goto done;
 			}
 		}
@@ -424,7 +427,7 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 		}
 
 		if(fc->bitrd.eof_flag) {
-			de_snprintf(errmsg, sizeof(errmsg), errmsg_UNEXPECTEDEOD);
+			de_strlcpy(errmsg, errmsg_UNEXPECTEDEOD, sizeof(errmsg));
 			goto done;
 		}
 
@@ -458,10 +461,10 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 			ret = fmtutil_huffman_read_next_value(f34ht->_2d_codes->bk, &fc->bitrd, &val, NULL);
 			if(!ret) {
 				if(fc->bitrd.eof_flag) {
-					de_snprintf(errmsg, sizeof(errmsg), errmsg_UNEXPECTEDEOD);
+					de_strlcpy(errmsg, errmsg_UNEXPECTEDEOD, sizeof(errmsg));
 				}
 				else {
-					de_snprintf(errmsg, sizeof(errmsg), errmsg_HUFFDECODEERR);
+					de_strlcpy(errmsg, errmsg_HUFFDECODEERR, sizeof(errmsg));
 				}
 				goto done;
 			}
@@ -486,8 +489,8 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 			}
 			else if(val==FAX2D_7ZEROES) {
 				if(fc->has_eol_codes) {
-					if(!fax34_finish_sync(c, fc, 64)) {
-						de_snprintf(errmsg, sizeof(errmsg), errmsg_NOEOL);
+					if(!fax34_finish_sync(c, fc, 64, NULL)) {
+						de_strlcpy(errmsg, errmsg_NOEOL, sizeof(errmsg));
 						goto done;
 					}
 					fax34_on_eol(c, fc);
@@ -503,7 +506,7 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 
 				extnum = (UI)de_bitreader_getbits(&fc->bitrd, 3);
 				// TODO?: Support uncompressed mode
-				de_snprintf(errmsg, sizeof(errmsg), "Decoding error or unsupported Fax extension (%u)", extnum);
+				de_snprintf(errmsg, sizeof(errmsg), "%s (%u)", errmsg_UNSUPPEXT, extnum);
 				goto done;
 			}
 			else {
@@ -514,24 +517,31 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 			ret = fmtutil_huffman_read_next_value(f34ht->htwb[(UI)fc->a0_color]->bk, &fc->bitrd, &val, NULL);
 			if(!ret) {
 				if(fc->bitrd.eof_flag) {
-					de_snprintf(errmsg, sizeof(errmsg), errmsg_UNEXPECTEDEOD);
+					de_strlcpy(errmsg, errmsg_UNEXPECTEDEOD, sizeof(errmsg));
 				}
 				else {
-					de_snprintf(errmsg, sizeof(errmsg), errmsg_HUFFDECODEERR);
+					de_strlcpy(errmsg, errmsg_HUFFDECODEERR, sizeof(errmsg));
 				}
 				goto done;
 			}
 
 			if(val==FAX1D_8ZEROES) {
 				if(!fc->has_eol_codes || fc->f2d_h_codes_remaining!=0) {
-					de_snprintf(errmsg, sizeof(errmsg), errmsg_HUFFDECODEERR);
+					de_strlcpy(errmsg, errmsg_HUFFDECODEERR, sizeof(errmsg));
 					goto done;
 				}
 
-				if(!fax34_finish_sync(c, fc, 64)) {
-					de_snprintf(errmsg, sizeof(errmsg), errmsg_NOEOL);
+				i64 nbits_read;
+				if(!fax34_finish_sync(c, fc, 64, &nbits_read)) {
+					de_strlcpy(errmsg, errmsg_NOEOL, sizeof(errmsg));
 					goto done;
 				}
+				if(nbits_read<4) {
+					de_strlcpy(errmsg, errmsg_UNSUPPEXT, sizeof(errmsg));
+					// TODO: Attempt error recovery?
+					goto done;
+				}
+				// TODO: Check for premature EOL?
 				fax34_on_eol(c, fc);
 			}
 			else if(val<64) {
@@ -564,6 +574,7 @@ done:
 	}
 }
 
+// Note - This always decodes white pixels to bit value 0, and black to 1.
 void fmtutil_fax34_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params)
@@ -599,7 +610,11 @@ void fmtutil_fax34_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	{
 		goto done;
 	}
+
 	fc->rowspan_final = (fc->image_width+7)/8;
+	if(fc->rowspan_final < fc->fax34params->out_rowspan) {
+		fc->rowspan_final = fc->fax34params->out_rowspan;
+	}
 
 	fc->curr_row = de_malloc(c, fc->image_width);
 	fc->prev_row = de_malloc(c, fc->image_width);

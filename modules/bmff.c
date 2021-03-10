@@ -932,6 +932,15 @@ static void do_box_jp2c(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 	de_dbg(c, "JPEG 2000 codestream at %d, len=%d",
 		(int)curbox->payload_pos, (int)curbox->payload_len);
+
+	// I think this box is used regardless of the compression format, so make
+	// sure it seems to be in "JPEG 2000" format.
+	// This is a hack -- we could track the compression method instead.
+	if((u32)dbuf_getu32be(bctx->f, curbox->payload_pos) != 0xff4fff51U) {
+		de_dbg(c, "[non-J2C]");
+		return;
+	}
+
 	dbuf_create_file_from_slice(bctx->f, curbox->payload_pos, curbox->payload_len,
 		"j2c", NULL, 0);
 }

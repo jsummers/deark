@@ -744,8 +744,9 @@ static void de_run_crunch(deark *c, de_module_params *mparams)
 		// We support v1, only because it's easy.
 		de_err(c, "This version of Crunch is not supported");
 	}
-
-	decompress_crunch_v1(c, crunchctx, pos);
+	else {
+		decompress_crunch_v1(c, crunchctx, pos);
+	}
 
 done:
 	if(crunchctx) {

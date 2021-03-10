@@ -206,6 +206,7 @@ void fmtutil_lh5x_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 struct de_fax34_params {
 	i64 image_width;
 	i64 image_height;
+	i64 out_rowspan;
 	UI tiff_cmpr_meth;
 	u8 is_lsb;
 	u32 t4options;
