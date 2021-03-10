@@ -980,6 +980,81 @@ static void do_box_resc_resd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_dbg(c, "horz. %s grid res.: %s", name, res_buf);
 }
 
+static const char *get_rreq_sf_name(UI n)
+{
+	static const u8 ids[11] = {1, 2, 5, 8, 12, 18, 19, 20, 31, 45, 46};
+	static const char *names[11] = { "no extensions", "has layers",
+		"cmpr=JPEG 2000/15444-1", "no opacity", "contiguous",
+		"layers not req'd", "discrete layers", "1 codestream per layer",
+		"scaling not req'd", "sRGB", "sRGB-gray" };
+	size_t i;
+
+	for(i=0; i<DE_ARRAYCOUNT(ids); i++) {
+		if((UI)ids[i]==n) return names[i];
+	}
+	return "?";
+}
+
+static void do_box_rreq(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	i64 pos = bctx->curbox->payload_pos;
+	i64 endpos = pos + bctx->curbox->payload_len;
+	UI ml;
+	i64 nsf, nvf;
+	u64 msk;
+	i64 i;
+
+	if(pos>=endpos) goto done;
+	ml = (UI)dbuf_getbyte_p(bctx->f, &pos);
+	de_dbg(c, "ml: %u bytes", ml);
+	if(ml<1 || ml>8) goto done;
+
+	msk = (u64)dbuf_getint_ext(bctx->f, pos, ml, 0, 0);
+	pos += (i64)ml;
+	de_dbg(c, "fuam: 0x%"U64_FMTx, msk);
+
+	msk = (u64)dbuf_getint_ext(bctx->f, pos, ml, 0, 0);
+	pos += (i64)ml;
+	de_dbg(c, "dcm: 0x%"U64_FMTx, msk);
+
+	nsf = dbuf_getu16be_p(bctx->f, &pos);
+	de_dbg(c, "nsf: %d", (int)nsf);
+
+	for(i=0; i<nsf; i++) {
+		UI sf;
+
+		if(pos>=endpos) goto done;
+		sf = (UI)dbuf_getu16be_p(bctx->f, &pos);
+		de_dbg(c, "sf[%d]: %u (%s)", (int)i, sf, get_rreq_sf_name(sf));
+
+		msk = (u64)dbuf_getint_ext(bctx->f, pos, ml, 0, 0);
+		pos += (i64)ml;
+		de_dbg(c, "sm[%d]: 0x%"U64_FMTx, (int)i, msk);
+	}
+
+	if(pos>=endpos) goto done;
+	nvf = dbuf_getu16be_p(bctx->f, &pos);
+	de_dbg(c, "nvf: %d", (int)nvf);
+
+	for(i=0; i<nvf; i++) {
+		u8 ubuf[16];
+		char uuid_string[50];
+
+		if(pos>=endpos) goto done;
+		dbuf_read(bctx->f, ubuf, pos, 16);
+		fmtutil_render_uuid(c, ubuf, uuid_string, sizeof(uuid_string));
+		de_dbg(c, "vf[%d]: {%s}", (int)i, uuid_string);
+		pos += 16;
+
+		msk = (u64)dbuf_getint_ext(bctx->f, pos, ml, 0, 0);
+		pos += (i64)ml;
+		de_dbg(c, "vm[%d]: 0x%"U64_FMTx, (int)i, msk);
+	}
+
+done:
+	;
+}
+
 static const char *get_jpeg2000_cmpr_name(deark *c, lctx *d, u8 ct)
 {
 	const char *name = NULL;
@@ -1573,7 +1648,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_res , 0x00010000, 0x00000001, "resolution", NULL},
 	{BOX_resc, 0x00010000, 0x00000000, "capture resolution", do_box_resc_resd},
 	{BOX_resd, 0x00010000, 0x00000000, "default display resolution", do_box_resc_resd},
-	{BOX_rreq, 0x00010000, 0x00000000, "reader requirements", NULL},
+	{BOX_rreq, 0x00010000, 0x00000000, "reader requirements", do_box_rreq},
 	{BOX_scal, 0x00010000, 0x00000000, "object scale", NULL},
 	{BOX_sdat, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_uinf, 0x00010000, 0x00000001, "UUID info", NULL},
