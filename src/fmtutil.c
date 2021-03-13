@@ -1618,7 +1618,9 @@ void fmtutil_macbitmap_read_pixmap_only_fields(deark *c, dbuf *f, struct fmtutil
 	de_dbg(c, "pixel type=%d, bits/pixel=%d, components/pixel=%d, bits/comp=%d",
 		(int)bi->pixeltype, (int)bi->pixelsize, (int)bi->cmpcount, (int)bi->cmpsize);
 
-	bi->pdwidth = (bi->rowbytes*8)/bi->pixelsize;
+	if(bi->pixelsize>0) {
+		bi->pdwidth = (bi->rowbytes*8)/bi->pixelsize;
+	}
 	if(bi->pdwidth < bi->npwidth) {
 		bi->pdwidth = bi->npwidth;
 	}
