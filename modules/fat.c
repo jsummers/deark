@@ -17,6 +17,7 @@ struct member_data {
 	u8 is_subdir;
 	u8 is_special;
 	UI attribs;
+	UI ea_handle;
 	i64 fn_base_len, fn_ext_len;
 	i64 filesize;
 	i64 first_cluster;
@@ -406,6 +407,13 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 		de_strarray_push(d->curpath, md->short_fn);
 	}
 	need_curpath_pop = 1;
+
+	if(d->num_fat_bits<32) {
+		md->ea_handle = (UI)de_getu16le(pos1+20);
+		if(md->ea_handle) {
+			de_dbg(c, "EA handle (if OS/2): %u", md->ea_handle);
+		}
+	}
 
 	dtime = de_getu16le(pos1+22);
 	ddate = de_getu16le(pos1+24);
