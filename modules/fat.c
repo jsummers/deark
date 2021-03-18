@@ -8,6 +8,7 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_fat);
 DE_DECLARE_MODULE(de_module_loaddskf);
+DE_DECLARE_MODULE(de_module_ea_data);
 
 #define MAX_NESTING_LEVEL 16
 
@@ -1066,4 +1067,189 @@ void de_module_loaddskf(deark *c, struct deark_module_info *mi)
 	mi->desc = "LoadDskF/SaveDskF disk image";
 	mi->run_fn = de_run_loaddskf;
 	mi->identify_fn = de_identify_loaddskf;
+}
+
+//---------------------- "EA DATA. SF"
+
+struct eadata_ctx {
+	de_encoding input_encoding;
+	i64 bytes_per_cluster;
+};
+
+static int eadata_is_ea_sector_at_offset(deark *c, struct eadata_ctx *d, i64 pos, int strictmode)
+{
+	u8 b;
+
+	if((UI)de_getu16be(pos)!=0x4541) return 0;
+	if(strictmode) {
+		if((UI)de_getu32be(pos+4)!=0) return 0;
+		b = de_getbyte(pos+8);
+		if(b<32) return 0;
+		if((UI)de_getu32be(pos+22)!=0) return 0;
+	}
+	return 1;
+}
+
+static void eadata_do_ea_data(deark *c, struct eadata_ctx *d, i64 pos1, i64 *pbytes_consumed)
+{
+	i64 pos = pos1;
+	i64 ealen;
+	int saved_indent_level;
+
+	*pbytes_consumed = 0;
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "EA data at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	ealen = de_getu16le_p(&pos);
+	*pbytes_consumed = ealen;
+	de_dbg(c, "data len: %"I64_FMT, ealen);
+
+	de_dbg_hexdump(c, c->infile, pos, ealen-2, 256, NULL, 0x1);
+
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void eadata_do_ea_sector_by_offset(deark *c, struct eadata_ctx *d, i64 pos1,
+	i64 *pbytes_consumed1)
+{
+	i64 n;
+	i64 pos;
+	i64 bytes_consumed2 = 0;
+	de_ucstring *fn = NULL;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	if(!eadata_is_ea_sector_at_offset(c, d, pos1, 0)) {
+		de_err(c, "EA sector not found at %"I64_FMT, pos1);
+		goto done;
+	}
+
+	de_dbg(c, "EA sector at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	pos = pos1+2;
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "sector number (consistency check): %u", (UI)n);
+
+	pos += 4;
+
+	fn = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, 12, fn, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+	de_dbg(c, "file name: \"%s\"", ucstring_getpsz_d(fn));
+	pos += 12;
+
+	pos += 2;
+	pos += 4;
+
+	eadata_do_ea_data(c, d, pos, &bytes_consumed2);
+	pos += bytes_consumed2;
+
+	if(pbytes_consumed1) {
+		*pbytes_consumed1 = pos - pos1;
+	}
+
+done:
+	ucstring_destroy(fn);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static int eadata_id_to_offset(deark *c, struct eadata_ctx *d, UI id, i64 *poffset)
+{
+	int retval = 0;
+	UI a_idx;
+	UI a_val;
+	UI b_val;
+	i64 cluster_num;
+
+	*poffset = 0;
+
+	a_idx = id>>7;
+	if(a_idx>=240) goto done;
+	a_val = (UI)de_getu16le(32+2*(i64)a_idx);
+	b_val = (UI)de_getu16le(512+2*(i64)id);
+	if(b_val==0xffff) goto done;
+
+	cluster_num = (i64)b_val + (i64)a_val;
+	*poffset = d->bytes_per_cluster * cluster_num;
+
+	if(eadata_is_ea_sector_at_offset(c, d, *poffset, 0)) {
+		retval = 1;
+	}
+
+done:
+	return retval;
+}
+
+static void eadata_scan_file(deark *c, struct eadata_ctx *d)
+{
+	i64 pos = 1024;
+
+	while(pos < c->infile->len) {
+		if(eadata_is_ea_sector_at_offset(c, d, pos, 1)) {
+			i64 bytes_consumed;
+
+			eadata_do_ea_sector_by_offset(c, d, pos, &bytes_consumed);
+
+			if(bytes_consumed<1) bytes_consumed = 1;
+			pos = de_pad_to_n(pos+bytes_consumed, 512);
+		}
+		else {
+			pos += 512;
+		}
+	}
+}
+
+static void de_run_eadata(deark *c, de_module_params *mparams)
+{
+	int ret;
+	UI ea_id = 0;
+	i64 pos;
+	const char *s;
+
+	de_declare_fmt(c, "OS/2 extended attributes data");
+
+	struct eadata_ctx *d = de_malloc(c, sizeof(struct eadata_ctx));
+	s = de_get_ext_option(c, "ea_data:handle");
+	if(s) {
+		ea_id = (UI)de_atoi(s);
+	}
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->bytes_per_cluster = 512;
+
+	if(ea_id==0) {
+		eadata_scan_file(c, d);
+	}
+	else {
+		ret = eadata_id_to_offset(c, d, ea_id, &pos);
+		if(!ret) goto done;
+		eadata_do_ea_sector_by_offset(c, d, pos, NULL);
+	}
+
+done:
+	de_free(c, d);
+}
+
+static int de_identify_eadata(deark *c)
+{
+	if(de_getu16be(0)!=0x4544) return 0;
+	if(de_input_file_has_ext(c, " sf")) return 100;
+	if(dbuf_is_all_zeroes(c->infile, 2, 30)) {
+		return 20;
+	}
+	return 0;
+}
+
+static void de_help_eadata(deark *c)
+{
+	de_msg(c, "-opt ea_data:handle=<n> : Decode only EA handle/pointer <n>");
+}
+
+void de_module_ea_data(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "ea_data";
+	mi->desc = "EA DATA (OS/2 extended attributes)";
+	mi->run_fn = de_run_eadata;
+	mi->identify_fn = de_identify_eadata;
+	mi->help_fn = de_help_eadata;
 }
