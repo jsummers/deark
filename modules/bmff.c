@@ -8,6 +8,7 @@
 #include <deark-config.h>
 #include <deark-private.h>
 #include <deark-fmtutil.h>
+
 // TODO: Rethink how to subdivide these formats into modules.
 DE_DECLARE_MODULE(de_module_bmff);
 DE_DECLARE_MODULE(de_module_jpeg2000);
@@ -945,12 +946,46 @@ static void do_box_jp2c(deark *c, lctx *d, struct de_boxesctx *bctx)
 		"j2c", NULL, 0);
 }
 
+#define POW10_MAX_E 12
+static i64 limited_ipow10(int e)
+{
+	i64 n = 1;
+
+	if(e < 0 || e > POW10_MAX_E) return 1;
+	while(e>0) {
+		n *= 10;
+		e--;
+	}
+	return n;
+}
+
+// TODO: Decide whether to use pow()/libm.
+static double limited_pow10(int e)
+{
+	if(e < -POW10_MAX_E || e > POW10_MAX_E) return 0.0;
+	if(e < 0) {
+		return 1.0 / (double)limited_ipow10(e);
+	}
+	return (double)limited_ipow10(e);
+}
+
 static void format_jp2_res(char *buf, size_t buflen,
 	i64 num, i64 denom, int exponent)
 {
-	// TODO: Format this better
-	de_snprintf(buf, buflen, "(%d/%d)"DE_CHAR_TIMES"10^%d points/meter",
-		(int)num, (int)denom, exponent);
+	char descr[100];
+
+	if(denom != 0 && exponent >= -POW10_MAX_E && exponent <= POW10_MAX_E) {
+		double dpm, dpi;
+
+		dpm = ((double)num / (double)denom) * limited_pow10(exponent);
+		dpi = dpm * 0.0254;
+		de_snprintf(descr, sizeof(descr),  " = %f points/meter (%f dpi)", dpm, dpi);
+	}
+	else {
+		descr[0] = '\0';
+	}
+	de_snprintf(buf, buflen, "(%"I64_FMT",%"I64_FMT",%d)%s",
+		num, denom, exponent, descr);
 }
 
 static void do_box_resc_resd(deark *c, lctx *d, struct de_boxesctx *bctx)
@@ -1006,7 +1041,7 @@ static void do_box_rreq(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 	if(pos>=endpos) goto done;
 	ml = (UI)dbuf_getbyte_p(bctx->f, &pos);
-	de_dbg(c, "ml: %u bytes", ml);
+	de_dbg(c, "ml: %u byte(s)", ml);
 	if(ml<1 || ml>8) goto done;
 
 	msk = (u64)dbuf_getint_ext(bctx->f, pos, ml, 0, 0);
@@ -1025,16 +1060,18 @@ static void do_box_rreq(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 		if(pos>=endpos) goto done;
 		sf = (UI)dbuf_getu16be_p(bctx->f, &pos);
-		de_dbg(c, "sf[%d]: %u (%s)", (int)i, sf, get_rreq_sf_name(sf));
+		de_dbg(c, "standard feature[%d]: %u (%s)", (int)i, sf, get_rreq_sf_name(sf));
 
 		msk = (u64)dbuf_getint_ext(bctx->f, pos, ml, 0, 0);
 		pos += (i64)ml;
-		de_dbg(c, "sm[%d]: 0x%"U64_FMTx, (int)i, msk);
+		de_dbg_indent(c, 1);
+		de_dbg(c, "mask: 0x%"U64_FMTx, msk);
+		de_dbg_indent(c, -1);
 	}
 
 	if(pos>=endpos) goto done;
 	nvf = dbuf_getu16be_p(bctx->f, &pos);
-	de_dbg(c, "nvf: %d", (int)nvf);
+	de_dbg(c, "num. vendor features: %d", (int)nvf);
 
 	for(i=0; i<nvf; i++) {
 		u8 ubuf[16];
@@ -1043,12 +1080,14 @@ static void do_box_rreq(deark *c, lctx *d, struct de_boxesctx *bctx)
 		if(pos>=endpos) goto done;
 		dbuf_read(bctx->f, ubuf, pos, 16);
 		fmtutil_render_uuid(c, ubuf, uuid_string, sizeof(uuid_string));
-		de_dbg(c, "vf[%d]: {%s}", (int)i, uuid_string);
+		de_dbg(c, "vendor feature[%d]: {%s}", (int)i, uuid_string);
 		pos += 16;
 
 		msk = (u64)dbuf_getint_ext(bctx->f, pos, ml, 0, 0);
 		pos += (i64)ml;
-		de_dbg(c, "vm[%d]: 0x%"U64_FMTx, (int)i, msk);
+		de_dbg_indent(c, 1);
+		de_dbg(c, "mask: 0x%"U64_FMTx, msk);
+		de_dbg_indent(c, -1);
 	}
 
 done:
@@ -1181,6 +1220,7 @@ done:
 static void do_box_colr_jp2(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	u8 meth;
+	u8 n;
 	struct de_boxdata *curbox = bctx->curbox;
 	i64 pos = curbox->payload_pos;
 	const char *s;
@@ -1196,8 +1236,10 @@ static void do_box_colr_jp2(deark *c, lctx *d, struct de_boxesctx *bctx)
 	}
 	de_dbg(c, "specification method: %d (%s)", (int)meth, s);
 
-	pos++; // PREC
-	pos++; // APPROX
+	n = dbuf_getbyte_p(bctx->f, &pos);
+	de_dbg(c, "precedence: %u", (UI)n);
+	n = dbuf_getbyte_p(bctx->f, &pos);
+	de_dbg(c, "approximation code: %u", (UI)n);
 
 	if(meth==1) {
 		unsigned int enumcs;
