@@ -1104,6 +1104,10 @@ void de_module_loaddskf(deark *c, struct deark_module_info *mi)
 
 //---------------------- "EA DATA. SF"
 
+struct easector_ctx {
+	i64 ea_data_len;
+};
+
 struct eadata_ctx {
 	de_encoding input_encoding;
 	i64 bytes_per_cluster;
@@ -1123,23 +1127,90 @@ static int eadata_is_ea_sector_at_offset(deark *c, struct eadata_ctx *d, i64 pos
 	return 1;
 }
 
-static void eadata_do_ea_data(deark *c, struct eadata_ctx *d, i64 pos1, i64 *pbytes_consumed)
+static const char *eadata_get_data_type_name(UI t)
+{
+	const char *name = NULL;
+	switch(t) {
+	case 0xfffe: name ="binary"; break;
+	case 0xfffd: name ="text"; break;
+	case 0xfff9: name ="icon"; break;
+	}
+
+	return name?name:"?";
+}
+
+static int eadata_extract_icon(deark *c, struct eadata_ctx *d, struct easector_ctx *md,
+	i64 pos1, i64 nbytes_avail)
+{
+	i64 ipos, ilen;
+	int retval = 0;
+
+	ilen = de_getu16le(pos1);
+	de_dbg(c, "icon len: %"I64_FMT, ilen);
+	ipos = pos1 + 2;
+	if(ipos + ilen > pos1 + nbytes_avail) goto done;
+
+	dbuf_create_file_from_slice(c->infile, ipos, ilen, "os2.ico", NULL, 0);
+	retval = 1;
+done:
+	return retval;
+}
+
+// Sets md->ea_data_len.
+static void eadata_do_ea_data(deark *c, struct eadata_ctx *d, struct easector_ctx *md,
+	i64 pos1)
 {
 	i64 pos = pos1;
-	i64 ealen;
+	i64 endpos;
 	int saved_indent_level;
+	de_ucstring *s = NULL;
 
-	*pbytes_consumed = 0;
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "EA data at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
-	ealen = de_getu16le_p(&pos);
-	*pbytes_consumed = ealen;
-	de_dbg(c, "data len: %"I64_FMT, ealen);
+	md->ea_data_len = de_getu16le_p(&pos); // TODO: Is this actually a 4-byte field?
+	de_dbg(c, "data len: %"I64_FMT, md->ea_data_len);
 
-	de_dbg_hexdump(c, c->infile, pos, ealen-2, 256, NULL, 0x1);
+	pos += 2; // ?
+	endpos = pos1 + md->ea_data_len;
+	s = ucstring_create(c);
 
+	while(pos < endpos-4) {
+		i64 namelen;
+		i64 attr_dpos;
+		i64 attr_dlen;
+		UI attr_dtype;
+		int handled = 0;
+
+		de_dbg(c, "attribute at %"I64_FMT, pos);
+		de_dbg_indent(c, 1);
+		pos++; // ?
+		namelen = (i64)de_getbyte_p(&pos);
+
+		attr_dlen = (i64)de_getu16le_p(&pos);
+		ucstring_empty(s);
+		dbuf_read_to_ucstring(c->infile, pos, namelen, s, 0, DE_ENCODING_ASCII);
+		de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(s));
+		pos += namelen + 1;
+		attr_dpos = pos;
+		de_dbg(c, "outer data len: %"I64_FMT, attr_dlen);
+		attr_dtype = (UI)de_getu16le_p(&pos);
+		de_dbg(c, "data type: 0x%04x (%s)", attr_dtype, eadata_get_data_type_name(attr_dtype));
+
+		if(attr_dtype==0xfff9) {
+			handled = eadata_extract_icon(c, d, md, attr_dpos+2, attr_dlen-2);
+		}
+
+		if(!handled) {
+			de_dbg_hexdump(c, c->infile, attr_dpos+2, attr_dlen-2, 256, NULL, 0x1);
+		}
+
+		pos = attr_dpos + attr_dlen;
+		de_dbg_indent(c, -1);
+	}
+
+	ucstring_destroy(s);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -1148,11 +1219,12 @@ static void eadata_do_ea_sector_by_offset(deark *c, struct eadata_ctx *d, i64 po
 {
 	i64 n;
 	i64 pos;
-	i64 bytes_consumed2 = 0;
 	de_ucstring *fn = NULL;
+	struct easector_ctx *md = NULL;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
+	md = de_malloc(c, sizeof(struct easector_ctx));
 
 	if(!eadata_is_ea_sector_at_offset(c, d, pos1, 0)) {
 		de_err(c, "EA sector not found at %"I64_FMT, pos1);
@@ -1175,8 +1247,8 @@ static void eadata_do_ea_sector_by_offset(deark *c, struct eadata_ctx *d, i64 po
 	pos += 2;
 	pos += 4;
 
-	eadata_do_ea_data(c, d, pos, &bytes_consumed2);
-	pos += bytes_consumed2;
+	eadata_do_ea_data(c, d, md, pos);
+	pos += md->ea_data_len;
 
 	if(pbytes_consumed1) {
 		*pbytes_consumed1 = pos - pos1;
@@ -1184,6 +1256,7 @@ static void eadata_do_ea_sector_by_offset(deark *c, struct eadata_ctx *d, i64 po
 
 done:
 	ucstring_destroy(fn);
+	de_free(c, md);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
