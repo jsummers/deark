@@ -660,6 +660,11 @@ static void do_iccprofile_item(deark *c, lctx *d, i64 pos, i64 len)
 	if(selector==0 || selector==1) {
 		// Beginning and Continuation segments normally have profile data.
 		// End segments (selector==2) are not allowed to include data.
+
+		if(!d->iccprofile_file) {
+			de_warn(c, "Bad ICC profile segment");
+			return;
+		}
 		dbuf_copy(c->infile, pos+4, data_len, d->iccprofile_file);
 	}
 }

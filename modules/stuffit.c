@@ -32,6 +32,7 @@ struct fork_data {
 	i64 cmpr_len;
 	const char *forkname;
 	const struct cmpr_meth_info *cmi;
+	u8 decompress_succeeded;
 };
 
 struct member_data {
@@ -775,6 +776,7 @@ static void do_main_decompress_fork(deark *c, lctx *d, struct member_data *md,
 			frk->forkname, de_dfilter_get_errmsg(c, &dres));
 		goto done;
 	}
+	frk->decompress_succeeded = 1;
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -784,6 +786,8 @@ static void do_post_decompress_fork(deark *c, lctx *d, struct member_data *md,
 	struct fork_data *frk)
 {
 	u32 crc_calc;
+
+	if(!frk->decompress_succeeded) goto done;
 
 	if(frk->is_rsrc_fork) {
 		crc_calc = de_crcobj_getval(d->crco_rfork);
@@ -796,6 +800,8 @@ static void do_post_decompress_fork(deark *c, lctx *d, struct member_data *md,
 		de_err(c, "CRC check failed for file %s[%s fork]", ucstring_getpsz_d(md->full_fname),
 			frk->forkname);
 	}
+done:
+	;
 }
 
 static void do_extract_folder(deark *c, lctx *d, struct member_data *md)

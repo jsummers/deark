@@ -7,6 +7,8 @@
 #include <deark-config.h>
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_fat);
+DE_DECLARE_MODULE(de_module_loaddskf);
+DE_DECLARE_MODULE(de_module_ea_data);
 
 #define MAX_NESTING_LEVEL 16
 
@@ -16,6 +18,7 @@ struct member_data {
 	u8 is_subdir;
 	u8 is_special;
 	UI attribs;
+	UI ea_handle;
 	i64 fn_base_len, fn_ext_len;
 	i64 filesize;
 	i64 first_cluster;
@@ -405,6 +408,13 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 		de_strarray_push(d->curpath, md->short_fn);
 	}
 	need_curpath_pop = 1;
+
+	if(d->num_fat_bits<32) {
+		md->ea_handle = (UI)de_getu16le(pos1+20);
+		if(md->ea_handle) {
+			de_dbg(c, "EA handle (if OS/2): %u", md->ea_handle);
+		}
+	}
 
 	dtime = de_getu16le(pos1+22);
 	ddate = de_getu16le(pos1+24);
@@ -965,4 +975,281 @@ void de_module_fat(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_fat;
 	mi->identify_fn = de_identify_fat;
 	mi->help_fn = de_help_fat;
+}
+
+///////////////////////// LoadDskF/SaveDskF format (OS/2-centric)
+
+// We barely support this format, but if it's uncompressed, we'll try to skip
+// past the header, and pretend it's FAT.
+
+struct skf_ctx {
+	int new_fmt;
+	i64 hdr_size;
+};
+
+static void loaddskf_decode_as_fat(deark *c, struct skf_ctx *d)
+{
+	i64 dlen = c->infile->len - d->hdr_size;
+
+	de_dbg(c, "decoding as FAT, pos=%"I64_FMT", len=%"I64_FMT, d->hdr_size, dlen);
+	if(dlen<=0) goto done;
+
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice(c, "fat", NULL, c->infile, d->hdr_size, dlen);
+	de_dbg_indent(c, -1);
+done:
+	;
+}
+
+static int loaddskf_read_header(deark *c, struct skf_ctx *d)
+{
+	int retval = 0;
+
+	d->hdr_size = de_getu16le(38);
+	de_dbg(c, "header size: %"I64_FMT, d->hdr_size);
+	if((UI)de_getu16be(d->hdr_size + 510) != 0x55aa) {
+		goto done;
+	}
+	retval = 1;
+
+done:
+	if(!retval) {
+		de_err(c, "Failed to parse LoadDskF file");
+	}
+	return retval;
+}
+
+static void de_run_loaddskf(deark *c, de_module_params *mparams)
+{
+	struct skf_ctx *d = NULL;
+	UI sig;
+
+	d = de_malloc(c, sizeof(struct skf_ctx));
+	sig = (UI)de_getu16be(0);
+	switch(sig) {
+	case 0xaa58:
+		break;
+	case 0xaa59:
+		d->new_fmt = 1;
+		break;
+	case 0xaa5a:
+		de_err(c, "Compressed LoadDskF files are not supported");
+		goto done;
+	default:
+		de_err(c, "Not a LoadDskF file");
+		goto done;
+	}
+
+	if(!loaddskf_read_header(c, d)) goto done;
+	loaddskf_decode_as_fat(c, d);
+
+done:
+	de_free(c, d);
+}
+
+static int de_identify_loaddskf(deark *c)
+{
+	UI sig;
+
+	sig = (UI)de_getu16be(0);
+	if(sig==0xaa58 || sig==0xaa59 || sig==0xaa5a) {
+		if((UI)de_getu16be(2)==0xf000) {
+			return 100;
+		}
+		return 9;
+	}
+	return 0;
+}
+
+void de_module_loaddskf(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "loaddskf";
+	mi->desc = "LoadDskF/SaveDskF disk image";
+	mi->run_fn = de_run_loaddskf;
+	mi->identify_fn = de_identify_loaddskf;
+}
+
+//---------------------- "EA DATA. SF"
+
+struct eadata_ctx {
+	de_encoding input_encoding;
+	i64 bytes_per_cluster;
+};
+
+static int eadata_is_ea_sector_at_offset(deark *c, struct eadata_ctx *d, i64 pos, int strictmode)
+{
+	u8 b;
+
+	if((UI)de_getu16be(pos)!=0x4541) return 0;
+	if(strictmode) {
+		if((UI)de_getu32be(pos+4)!=0) return 0;
+		b = de_getbyte(pos+8);
+		if(b<32) return 0;
+		if((UI)de_getu32be(pos+22)!=0) return 0;
+	}
+	return 1;
+}
+
+static void eadata_do_ea_data(deark *c, struct eadata_ctx *d, i64 pos1, i64 *pbytes_consumed)
+{
+	i64 pos = pos1;
+	i64 ealen;
+	int saved_indent_level;
+
+	*pbytes_consumed = 0;
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "EA data at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	ealen = de_getu16le_p(&pos);
+	*pbytes_consumed = ealen;
+	de_dbg(c, "data len: %"I64_FMT, ealen);
+
+	de_dbg_hexdump(c, c->infile, pos, ealen-2, 256, NULL, 0x1);
+
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void eadata_do_ea_sector_by_offset(deark *c, struct eadata_ctx *d, i64 pos1,
+	i64 *pbytes_consumed1)
+{
+	i64 n;
+	i64 pos;
+	i64 bytes_consumed2 = 0;
+	de_ucstring *fn = NULL;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	if(!eadata_is_ea_sector_at_offset(c, d, pos1, 0)) {
+		de_err(c, "EA sector not found at %"I64_FMT, pos1);
+		goto done;
+	}
+
+	de_dbg(c, "EA sector at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	pos = pos1+2;
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "sector number (consistency check): %u", (UI)n);
+
+	pos += 4;
+
+	fn = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, 12, fn, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+	de_dbg(c, "file name: \"%s\"", ucstring_getpsz_d(fn));
+	pos += 12;
+
+	pos += 2;
+	pos += 4;
+
+	eadata_do_ea_data(c, d, pos, &bytes_consumed2);
+	pos += bytes_consumed2;
+
+	if(pbytes_consumed1) {
+		*pbytes_consumed1 = pos - pos1;
+	}
+
+done:
+	ucstring_destroy(fn);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static int eadata_id_to_offset(deark *c, struct eadata_ctx *d, UI id, i64 *poffset)
+{
+	int retval = 0;
+	UI a_idx;
+	UI a_val;
+	UI b_val;
+	i64 cluster_num;
+
+	*poffset = 0;
+
+	a_idx = id>>7;
+	if(a_idx>=240) goto done;
+	a_val = (UI)de_getu16le(32+2*(i64)a_idx);
+	b_val = (UI)de_getu16le(512+2*(i64)id);
+	if(b_val==0xffff) goto done;
+
+	cluster_num = (i64)b_val + (i64)a_val;
+	*poffset = d->bytes_per_cluster * cluster_num;
+
+	if(eadata_is_ea_sector_at_offset(c, d, *poffset, 0)) {
+		retval = 1;
+	}
+
+done:
+	return retval;
+}
+
+static void eadata_scan_file(deark *c, struct eadata_ctx *d)
+{
+	i64 pos = 1024;
+
+	while(pos < c->infile->len) {
+		if(eadata_is_ea_sector_at_offset(c, d, pos, 1)) {
+			i64 bytes_consumed;
+
+			eadata_do_ea_sector_by_offset(c, d, pos, &bytes_consumed);
+
+			if(bytes_consumed<1) bytes_consumed = 1;
+			pos = de_pad_to_n(pos+bytes_consumed, 512);
+		}
+		else {
+			pos += 512;
+		}
+	}
+}
+
+static void de_run_eadata(deark *c, de_module_params *mparams)
+{
+	int ret;
+	UI ea_id = 0;
+	i64 pos;
+	const char *s;
+
+	de_declare_fmt(c, "OS/2 extended attributes data");
+
+	struct eadata_ctx *d = de_malloc(c, sizeof(struct eadata_ctx));
+	s = de_get_ext_option(c, "ea_data:handle");
+	if(s) {
+		ea_id = (UI)de_atoi(s);
+	}
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->bytes_per_cluster = 512;
+
+	if(ea_id==0) {
+		eadata_scan_file(c, d);
+	}
+	else {
+		ret = eadata_id_to_offset(c, d, ea_id, &pos);
+		if(!ret) goto done;
+		eadata_do_ea_sector_by_offset(c, d, pos, NULL);
+	}
+
+done:
+	de_free(c, d);
+}
+
+static int de_identify_eadata(deark *c)
+{
+	if(de_getu16be(0)!=0x4544) return 0;
+	if(de_input_file_has_ext(c, " sf")) return 100;
+	if(dbuf_is_all_zeroes(c->infile, 2, 30)) {
+		return 20;
+	}
+	return 0;
+}
+
+static void de_help_eadata(deark *c)
+{
+	de_msg(c, "-opt ea_data:handle=<n> : Decode only EA handle/pointer <n>");
+}
+
+void de_module_ea_data(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "ea_data";
+	mi->desc = "EA DATA (OS/2 extended attributes)";
+	mi->run_fn = de_run_eadata;
+	mi->identify_fn = de_identify_eadata;
+	mi->help_fn = de_help_eadata;
 }
