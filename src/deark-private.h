@@ -281,6 +281,7 @@ struct de_module_in_params {
 	// Module-specific fields:
 	u32 flags;
 	de_encoding input_encoding;
+	u32 uint1;
 	i64 offset_in_parent;
 	dbuf *parent_dbuf;
 	de_finfo *fi;
