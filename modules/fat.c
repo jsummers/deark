@@ -41,7 +41,8 @@ struct dirctx {
 
 typedef struct localctx_struct {
 	de_encoding input_encoding;
-	int opt_check_rootdir;
+	u8 opt_check_root_dir;
+	u8 prescan_root_dir;
 
 	// TODO: Decide how to handle different variants of FAT.
 #define FAT_SUBFMT_UNKNOWN   0
@@ -348,9 +349,14 @@ static void decode_volume_label_name(deark *c, lctx *d, struct member_data *md)
 	}
 }
 
+static void do_fat_eadata(deark *c, lctx *d, struct member_data *md)
+{
+	de_dbg(c, "[found EA DATA]");
+}
+
 // Returns 0 if this is the end-of-directory marker.
 static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
-	i64 pos1, int nesting_level)
+	i64 pos1, int nesting_level, int scanmode)
 {
 	u8 firstbyte;
 	i64 ddate, dtime;
@@ -442,7 +448,7 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 	}
 	need_curpath_pop = 1;
 
-	if(d->num_fat_bits<32) {
+	if(!scanmode && d->num_fat_bits<32) {
 		md->ea_handle = (UI)de_getu16le(pos1+20);
 		if(md->ea_handle) {
 			de_dbg(c, "EA handle (if OS/2): %u", md->ea_handle);
@@ -460,6 +466,19 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 
 	md->filesize = de_getu32le(pos1+28);
 	de_dbg(c, "file size: %"I64_FMT, md->filesize);
+
+	if(scanmode) {
+		if(!is_deleted && !md->is_subdir && (md->attribs&0x04) &&
+			md->fn_base_len==7 && md->fn_ext_len==3 &&
+			!de_memcmp(md->fn_base, "EA DATA", 7) &&
+			!de_memcmp(md->fn_ext, " SF", 3) )
+		{
+			do_fat_eadata(c, d, md);
+			goto done;
+		}
+		de_dbg(c, "[scan mode - not extracting]");
+		goto done;
+	}
 
 	if(!is_deleted && !md->is_subdir && !md->is_special) {
 		do_extract_file(c, d, md);
@@ -485,7 +504,7 @@ done:
 // Process a contiguous block of directory entries
 // Returns 0 if an end-of-dir marker was found.
 static int do_dir_entries(deark *c, lctx *d, struct dirctx *dctx,
-	i64 pos1, i64 len, int nesting_level)
+	i64 pos1, i64 len, int nesting_level, int scanmode)
 {
 	i64 num_entries;
 	i64 i;
@@ -495,7 +514,7 @@ static int do_dir_entries(deark *c, lctx *d, struct dirctx *dctx,
 	de_dbg(c, "num entries: %"I64_FMT, num_entries);
 
 	for(i=0; i<num_entries; i++) {
-		if(!do_dir_entry(c, d, dctx, pos1+32*i, nesting_level)) {
+		if(!do_dir_entry(c, d, dctx, pos1+32*i, nesting_level, scanmode)) {
 			goto done;
 		}
 		dctx->dir_entry_count++;
@@ -549,7 +568,7 @@ static void do_subdir(deark *c, lctx *d, struct member_data *md, int nesting_lev
 		}
 		d->cluster_used_flags[cur_cluster_num] = 1;
 
-		if(!do_dir_entries(c, d, dctx, cur_cluster_pos, d->bytes_per_cluster, nesting_level)) {
+		if(!do_dir_entries(c, d, dctx, cur_cluster_pos, d->bytes_per_cluster, nesting_level, 0)) {
 			break;
 		};
 
@@ -571,7 +590,14 @@ static void do_root_dir(deark *c, lctx *d)
 	de_dbg(c, "dir at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	if(pos1<d->bytes_per_sector) goto done;
-	(void)do_dir_entries(c, d, dctx, pos1, d->max_root_dir_entries16 * 32, 0);
+	if(d->prescan_root_dir) {
+		de_dbg(c, "[scanning root dir]");
+		de_dbg_indent(c, 1);
+		(void)do_dir_entries(c, d, dctx, pos1, d->max_root_dir_entries16 * 32, 0, 1);
+		de_dbg_indent(c, -1);
+		de_dbg(c, "[done scanning root dir]");
+	}
+	(void)do_dir_entries(c, d, dctx, pos1, d->max_root_dir_entries16 * 32, 0, 0);
 done:
 	destroy_dirctx(c, dctx);
 	de_dbg_indent(c, -1);
@@ -796,7 +822,7 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 		d->num_fat_bits = 32;
 	}
 
-	de_dbg(c, "bits per cluster id: %u", (UI)d->num_fat_bits);
+	de_dbg(c, "bits per cluster id (calculated): %u", (UI)d->num_fat_bits);
 
 	retval = 1;
 
@@ -877,7 +903,8 @@ static void de_run_fat(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	d->opt_check_rootdir = de_get_ext_option_bool(c, "fat:checkroot", 1);
+	d->prescan_root_dir = (u8)de_get_ext_option_bool(c, "fat:scanroot", 0);
+	d->opt_check_root_dir = (u8)de_get_ext_option_bool(c, "fat:checkroot", 1);
 	s = de_get_ext_option(c, "fat:subfmt");
 	if(s) {
 		if(!de_strcmp(s, "pc")) {
@@ -912,7 +939,7 @@ static void de_run_fat(deark *c, de_module_params *mparams)
 
 	if(!do_read_fat(c, d)) goto done;
 
-	if(d->opt_check_rootdir) {
+	if(d->opt_check_root_dir) {
 		if(!root_dir_seems_valid(c, d)) {
 			de_warn(c, "This file does not appear to contain a valid FAT "
 				"directory structure. (\"-opt fat:checkroot=0\" to try anyway)");
