@@ -1243,6 +1243,8 @@ static const char *eadata_get_data_type_name(UI t)
 {
 	const char *name = NULL;
 	switch(t) {
+	case 0xffde: name ="multi-val/single-type"; break;
+	case 0xffdf: name ="multi-val/multi-type"; break;
 	case 0xfffe: name ="binary"; break;
 	case 0xfffd: name ="text"; break;
 	case 0xfff9: name ="icon"; break;
@@ -1251,7 +1253,7 @@ static const char *eadata_get_data_type_name(UI t)
 	return name?name:"?";
 }
 
-static int eadata_extract_icon(deark *c, struct eadata_ctx *d, struct easector_ctx *md,
+static int eadata_extract_icon(deark *c, struct eadata_ctx *d,
 	i64 pos1, i64 nbytes_avail)
 {
 	i64 ipos, ilen;
@@ -1263,6 +1265,48 @@ static int eadata_extract_icon(deark *c, struct eadata_ctx *d, struct easector_c
 	if(ipos + ilen > pos1 + nbytes_avail) goto done;
 
 	dbuf_create_file_from_slice(c->infile, ipos, ilen, "os2.ico", NULL, d->createflags_for_icons);
+	retval = 1;
+done:
+	return retval;
+}
+
+// FEA2 structure, starting at the 'fEA' field (1 byte before the name-length byte).
+static int eadata_do_attribute(deark *c, struct eadata_ctx *d, i64 pos1, i64 maxlen,
+	de_ucstring *tmps, i64 *pbytes_consumed)
+{
+	i64 namelen;
+	i64 attr_dpos;
+	i64 attr_dlen;
+	UI attr_dtype;
+	int handled = 0;
+	i64 pos = pos1;
+	int retval = 0;
+
+	pos++; // fEA
+	namelen = (i64)de_getbyte_p(&pos);
+
+	attr_dlen = (i64)de_getu16le_p(&pos);
+	ucstring_empty(tmps);
+	dbuf_read_to_ucstring(c->infile, pos, namelen, tmps, 0, DE_ENCODING_ASCII);
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(tmps));
+	pos += namelen + 1;
+	attr_dpos = pos;
+	de_dbg(c, "outer data len: %"I64_FMT, attr_dlen);
+	if(attr_dpos + attr_dlen > pos1+maxlen) goto done;
+
+	attr_dtype = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "data type: 0x%04x (%s)", attr_dtype, eadata_get_data_type_name(attr_dtype));
+
+	if(attr_dtype==0xfff9) {
+		handled = eadata_extract_icon(c, d, attr_dpos+2, attr_dlen-2);
+	}
+
+	if(!handled) {
+		de_dbg_hexdump(c, c->infile, attr_dpos+2, attr_dlen-2, 256, NULL, 0x1);
+	}
+
+	pos = attr_dpos + attr_dlen;
+	*pbytes_consumed = pos - pos1;
 	retval = 1;
 done:
 	return retval;
@@ -1289,40 +1333,64 @@ static void eadata_do_ea_data(deark *c, struct eadata_ctx *d, struct easector_ct
 	s = ucstring_create(c);
 
 	while(pos < endpos-4) {
-		i64 namelen;
-		i64 attr_dpos;
-		i64 attr_dlen;
-		UI attr_dtype;
-		int handled = 0;
+		int ret;
+		i64 bytes_consumed = 0;
 
 		de_dbg(c, "attribute at %"I64_FMT, pos);
 		de_dbg_indent(c, 1);
-		pos++; // ?
-		namelen = (i64)de_getbyte_p(&pos);
+		ret = eadata_do_attribute(c, d, pos, endpos-pos, s, &bytes_consumed);
+		de_dbg_indent(c, -1);
+		if(!ret || bytes_consumed<1) goto done;
+		pos += bytes_consumed;
+	}
 
-		attr_dlen = (i64)de_getu16le_p(&pos);
-		ucstring_empty(s);
-		dbuf_read_to_ucstring(c->infile, pos, namelen, s, 0, DE_ENCODING_ASCII);
-		de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(s));
-		pos += namelen + 1;
-		attr_dpos = pos;
-		de_dbg(c, "outer data len: %"I64_FMT, attr_dlen);
-		attr_dtype = (UI)de_getu16le_p(&pos);
-		de_dbg(c, "data type: 0x%04x (%s)", attr_dtype, eadata_get_data_type_name(attr_dtype));
+done:
+	ucstring_destroy(s);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
 
-		if(attr_dtype==0xfff9) {
-			handled = eadata_extract_icon(c, d, md, attr_dpos+2, attr_dlen-2);
-		}
+static void eadata_do_FEA2LIST(deark *c, struct eadata_ctx *d)
+{
+	i64 fea2list_len;
+	i64 pos1 = 0;
+	i64 pos = pos1;
+	i64 endpos;
+	de_ucstring *tmps = NULL;
+	int saved_indent_level;
 
-		if(!handled) {
-			de_dbg_hexdump(c, c->infile, attr_dpos+2, attr_dlen-2, 256, NULL, 0x1);
-		}
+	de_dbg_indent_save(c, &saved_indent_level);
+	tmps = ucstring_create(c);
 
-		pos = attr_dpos + attr_dlen;
+	de_dbg(c, "FEA2LIST at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	fea2list_len = de_getu32le_p(&pos);
+	endpos = pos1 + fea2list_len;
+
+	de_dbg(c, "list len: %"I64_FMT, fea2list_len);
+	while(1) {
+		int ret;
+		i64 bytes_consumed = 0;
+		i64 offset_to_next_attr;
+		i64 attr_pos;
+
+		if(pos >= endpos) goto done;
+
+		attr_pos = pos;
+		de_dbg(c, "attribute at %"I64_FMT, attr_pos);
+		de_dbg_indent(c, 1);
+		offset_to_next_attr = de_getu32le_p(&pos);
+		de_dbg(c, "offset to next attr: %"I64_FMT, offset_to_next_attr);
+
+		ret = eadata_do_attribute(c, d, pos, endpos-pos, tmps, &bytes_consumed);
+		if(!ret || bytes_consumed<1) goto done;
+		if(offset_to_next_attr==0) goto done;
+		pos = attr_pos + offset_to_next_attr;
 		de_dbg_indent(c, -1);
 	}
 
-	ucstring_destroy(s);
+done:
+	ucstring_destroy(tmps);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -1429,7 +1497,11 @@ static void de_run_eadata(deark *c, de_module_params *mparams)
 
 	struct eadata_ctx *d = de_malloc(c, sizeof(struct eadata_ctx));
 
-	if(mparams && (mparams->in_params.flags & 0x1)) {
+	if(de_havemodcode(c, mparams, 'L')) {
+		d->createflags_for_icons = DE_CREATEFLAG_IS_AUX;
+		eadata_do_FEA2LIST(c, d);
+	}
+	else if(mparams && (mparams->in_params.flags & 0x1)) {
 		// We're being used by another module, to handle a specific ea_id.
 		ea_id = (UI)mparams->in_params.uint1;
 		if(ea_id==0) goto done;
