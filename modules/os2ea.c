@@ -45,19 +45,125 @@ static const char *eadata_get_data_type_name(UI t)
 	return name?name:"?";
 }
 
-static int eadata_extract_icon(deark *c, struct eadata_ctx *d,
-	i64 pos1, i64 nbytes_avail)
+static void eadata_extract_icon(deark *c, struct eadata_ctx *d, i64 pos, i64 len)
 {
-	i64 ipos, ilen;
+	dbuf_create_file_from_slice(c->infile, pos, len, "os2.ico", NULL, d->createflags_for_icons);
+}
+
+static void eadata_do_text_attrib(deark *c, struct eadata_ctx *d, i64 pos, i64 len)
+{
+	de_ucstring *s = NULL;
+
+	s = ucstring_create(c);
+	// Documented as "ASCII text" -- but I wonder if the actual encoding might
+	// depend on the attribute name.
+	dbuf_read_to_ucstring_n(c->infile, pos, len, 2048, s, 0, DE_ENCODING_ASCII);
+	de_dbg(c, "text: \"%s\"", ucstring_getpsz_d(s));
+	ucstring_destroy(s);
+}
+
+static int eadata_do_attribute_lowlevel_singleval(deark *c, struct eadata_ctx *d,
+	UI attr_dtype, i64 pos1, i64 maxlen, i64 *pbytes_consumed)
+{
+	i64 attr_dlen;
+	i64 dpos;
 	int retval = 0;
 
-	ilen = de_getu16le(pos1);
-	de_dbg(c, "icon len: %"I64_FMT, ilen);
-	ipos = pos1 + 2;
-	if(ipos + ilen > pos1 + nbytes_avail) goto done;
-
-	dbuf_create_file_from_slice(c->infile, ipos, ilen, "os2.ico", NULL, d->createflags_for_icons);
+	attr_dlen = de_getu16le(pos1);
+	de_dbg(c, "inner data len: %"I64_FMT, attr_dlen);
+	if(attr_dlen<2 || attr_dlen>maxlen) goto done;
+	*pbytes_consumed = 2 + attr_dlen;
 	retval = 1;
+	dpos = pos1+2;
+
+	switch(attr_dtype) {
+	case 0xfff9:
+		eadata_extract_icon(c, d, dpos, attr_dlen);
+		break;
+	case 0xfffd:
+		eadata_do_text_attrib(c, d, dpos, attr_dlen);
+		break;
+	default:
+		de_dbg_hexdump(c, c->infile, dpos, attr_dlen, 256, NULL, 0x1);
+	}
+
+done:
+	return retval;
+}
+
+static int eadata_do_attribute_lowlevel(deark *c, struct eadata_ctx *d,
+	UI attr_dtype, i64 pos1, i64 nbytes_avail, i64 *pbytes_consumed, int nesting_level);
+
+// multi-val, multi-type container attribute
+static int eadata_do_MVMT(deark *c, struct eadata_ctx *d,
+	i64 pos1, i64 nbytes_avail, i64 *pbytes_consumed, int nesting_level)
+{
+	UI codepage;
+	i64 num_entries;
+	i64 pos = pos1;
+	int retval = 0;
+	int ret;
+	i64 i;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	codepage = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "code page: %u", codepage);
+
+	num_entries = de_getu16le_p(&pos);
+	de_dbg(c, "num entries: %d", (int)num_entries);
+	for(i=0; i<num_entries; i++) {
+		UI attr_dtype;
+		i64 bytes_consumed2 = 0;
+
+		if(pos > pos1+nbytes_avail) goto done;
+		de_dbg(c, "entry %d at %"I64_FMT, (int)i, pos);
+		de_dbg_indent(c, 1);
+		attr_dtype = (UI)de_getu16le_p(&pos);
+		de_dbg(c, "data type: 0x%04x (%s)", attr_dtype, eadata_get_data_type_name(attr_dtype));
+
+		ret = eadata_do_attribute_lowlevel(c, d, attr_dtype, pos, pos1+nbytes_avail-pos,
+			&bytes_consumed2, nesting_level+1);
+		if(!ret) goto done;
+		pos += bytes_consumed2;
+		de_dbg_indent(c, -1);
+	}
+
+	*pbytes_consumed = pos - pos1;
+	retval = 1;
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static int eadata_do_attribute_lowlevel(deark *c, struct eadata_ctx *d,
+	UI attr_dtype, i64 pos1, i64 nbytes_avail, i64 *pbytes_consumed, int nesting_level)
+{
+	int retval = 0;
+
+	*pbytes_consumed = 0;
+
+	// I don't know if multi-val attributes are allowed to contain other multi-val attributes.
+	if(nesting_level>5) goto done;
+
+	switch(attr_dtype) {
+	case 0xffdf:
+		if(!eadata_do_MVMT(c, d, pos1, nbytes_avail, pbytes_consumed, nesting_level)) goto done;
+		break;
+	case 0xffde: // MVST (TODO)
+	case 0xffdd: // ASN1
+		goto done;
+	default:
+		if(!eadata_do_attribute_lowlevel_singleval(c, d, attr_dtype, pos1, nbytes_avail,
+			pbytes_consumed))
+		{
+			goto done;
+		}
+		break;
+	}
+
+	retval = 1;
+
 done:
 	return retval;
 }
@@ -70,7 +176,6 @@ static int eadata_do_attribute(deark *c, struct eadata_ctx *d, i64 pos1, i64 max
 	i64 attr_dpos;
 	i64 attr_dlen;
 	UI attr_dtype;
-	int handled = 0;
 	i64 pos = pos1;
 	int retval = 0;
 
@@ -89,13 +194,8 @@ static int eadata_do_attribute(deark *c, struct eadata_ctx *d, i64 pos1, i64 max
 	attr_dtype = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "data type: 0x%04x (%s)", attr_dtype, eadata_get_data_type_name(attr_dtype));
 
-	if(attr_dtype==0xfff9) {
-		handled = eadata_extract_icon(c, d, attr_dpos+2, attr_dlen-2);
-	}
-
-	if(!handled) {
-		de_dbg_hexdump(c, c->infile, attr_dpos+2, attr_dlen-2, 256, NULL, 0x1);
-	}
+	i64 tmpbc = 0;
+	eadata_do_attribute_lowlevel(c, d, attr_dtype, attr_dpos+2, attr_dlen-2, &tmpbc, 0);
 
 	pos = attr_dpos + attr_dlen;
 	*pbytes_consumed = pos - pos1;
