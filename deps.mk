@@ -80,8 +80,8 @@ $(OBJDIR)/modules/eps.o: modules/eps.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/exe.o: modules/exe.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
-$(OBJDIR)/modules/fat.o: modules/fat.c src/deark-config.h \
- src/deark-private.h src/deark.h
+$(OBJDIR)/modules/fat.o: modules/fat.c src/deark-private.h src/deark.h \
+ src/deark-config.h
 $(OBJDIR)/modules/flac.o: modules/flac.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/fli.o: modules/fli.c src/deark-config.h \
@@ -174,6 +174,8 @@ $(OBJDIR)/modules/olepropset.o: modules/olepropset.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/os2bmp.o: modules/os2bmp.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/os2ea.o: modules/os2ea.c src/deark-private.h \
+ src/deark.h src/deark-config.h
 $(OBJDIR)/modules/pack.o: modules/pack.c src/deark-private.h src/deark.h \
  src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/packdir.o: modules/packdir.c src/deark-config.h \
