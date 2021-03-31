@@ -41,7 +41,8 @@ struct dirctx {
 
 typedef struct localctx_struct {
 	de_encoding input_encoding;
-	int opt_check_rootdir;
+	u8 opt_check_root_dir;
+	u8 prescan_root_dir;
 
 	// TODO: Decide how to handle different variants of FAT.
 #define FAT_SUBFMT_UNKNOWN   0
@@ -74,7 +75,59 @@ typedef struct localctx_struct {
 	i64 num_fat_entries;
 	u32 *fat_nextcluster; // array[num_fat_entries]
 	u8 *cluster_used_flags; // array[num_fat_entries]
+	u8 *cluster_used_flags_saved; // array[num_fat_entries] (or NULL)
+	dbuf *ea_data; // NULL if not available
 } lctx;
+
+static void ucstring_append_hexbytes(de_ucstring *s, const u8 *buf, i64 buflen)
+{
+	i64 i;
+
+	for(i = 0; i<buflen; i++) {
+		if(i>0) ucstring_append_char(s, ' ');
+		ucstring_append_char(s, (de_rune)de_get_hexchar((int)(buf[i]/16)));
+		ucstring_append_char(s, (de_rune)de_get_hexchar((int)(buf[i]%16)));
+	}
+}
+
+static void dbg_hexbytes_oneline_mem(deark *c, const u8 *buf, i64 buflen, const char *label)
+{
+	de_ucstring *s = NULL;
+
+	if(buflen<0) buflen = 0;
+	if(buflen>64) buflen = 64;
+	s = ucstring_create(c);
+	ucstring_append_hexbytes(s, buf, buflen);
+	de_dbg(c, "%s: %s", label, ucstring_getpsz_d(s));
+	ucstring_destroy(s);
+}
+
+static void dbg_hexbytes_oneline(deark *c, dbuf *f, i64 pos, i64 len, const char *label)
+{
+	u8 buf[64];
+
+	if(len<0) len = 0;
+	if(len>(i64)sizeof(buf)) len = (i64)sizeof(buf);
+	dbuf_read(f, buf, pos, len);
+	dbg_hexbytes_oneline_mem(c, buf, len, label);
+}
+
+static void fat_save_cluster_use_flags(deark *c, lctx *d)
+{
+	if(!d->cluster_used_flags) return;
+	if(!d->cluster_used_flags_saved) {
+		d->cluster_used_flags_saved = de_malloc(c, d->num_fat_entries);
+	}
+	de_memcpy(d->cluster_used_flags_saved, d->cluster_used_flags,
+		(size_t)d->num_fat_entries);
+}
+
+static void fat_restore_cluster_use_flags(deark *c, lctx *d)
+{
+	if(!d->cluster_used_flags_saved || !d->cluster_used_flags) return;
+	de_memcpy(d->cluster_used_flags, d->cluster_used_flags_saved,
+		(size_t)d->num_fat_entries);
+}
 
 static i64 sectornum_to_offset(deark *c, lctx *d, i64 secnum)
 {
@@ -122,34 +175,11 @@ static i64 get_unpadded_len(const u8 *s, i64 len1)
 	return 0;
 }
 
-static void do_extract_file(deark *c, lctx *d, struct member_data *md)
+static int extract_file_lowlevel(deark *c, lctx *d, struct member_data *md, dbuf *outf)
 {
-	dbuf *outf = NULL;
-	de_finfo *fi = NULL;
-	de_ucstring *fullfn = NULL;
+	int retval = 0;
 	i64 cur_cluster;
 	i64 nbytes_remaining;
-
-	if(!md->is_subdir) {
-		if(md->filesize > d->num_data_region_clusters * d->bytes_per_cluster) {
-			de_err(c, "%s: Bad file size", ucstring_getpsz_d(md->short_fn));
-			goto done;
-		}
-	}
-
-	fi = de_finfo_create(c);
-	fullfn = ucstring_create(c);
-	de_strarray_make_path(d->curpath, fullfn, DE_MPFLAG_NOTRAILINGSLASH);
-	de_finfo_set_name_from_ucstring(c, fi, fullfn, DE_SNFLAG_FULLPATH);
-	fi->original_filename_flag = 1;
-	if(md->is_subdir) {
-		fi->is_directory = 1;
-	}
-	if(md->mod_time.is_valid) {
-		fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->mod_time;
-	}
-
-	outf = dbuf_create_output_file(c, NULL, fi, 0);
 
 	cur_cluster = md->first_cluster;
 	if(md->is_subdir) {
@@ -176,6 +206,42 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	}
 
 	if(nbytes_remaining>0) {
+		goto done;
+	}
+
+	retval = 1;
+done:
+	return retval;
+}
+
+static void do_extract_file(deark *c, lctx *d, struct member_data *md)
+{
+	dbuf *outf = NULL;
+	de_finfo *fi = NULL;
+	de_ucstring *fullfn = NULL;
+
+	if(!md->is_subdir) {
+		if(md->filesize > d->num_data_region_clusters * d->bytes_per_cluster) {
+			de_err(c, "%s: Bad file size", ucstring_getpsz_d(md->short_fn));
+			goto done;
+		}
+	}
+
+	fi = de_finfo_create(c);
+	fullfn = ucstring_create(c);
+	de_strarray_make_path(d->curpath, fullfn, DE_MPFLAG_NOTRAILINGSLASH);
+	de_finfo_set_name_from_ucstring(c, fi, fullfn, DE_SNFLAG_FULLPATH);
+	fi->original_filename_flag = 1;
+	if(md->is_subdir) {
+		fi->is_directory = 1;
+	}
+	if(md->mod_time.is_valid) {
+		fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->mod_time;
+	}
+
+	outf = dbuf_create_output_file(c, NULL, fi, 0);
+
+	if(!extract_file_lowlevel(c, d, md, outf)) {
 		de_err(c, "%s: File extraction failed", ucstring_getpsz_d(md->short_fn));
 		goto done;
 	}
@@ -315,9 +381,50 @@ static void decode_volume_label_name(deark *c, lctx *d, struct member_data *md)
 	}
 }
 
+// md is that of the file whose EA data is being requested.
+// Uses md->ea_handle.
+static void do_fat_eadata_item(deark *c, lctx *d, struct member_data *md)
+{
+	de_module_params *mparams = NULL;
+
+	if(!d->ea_data) goto done;
+	if(md->ea_handle==0) goto done;
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->in_params.input_encoding = d->input_encoding;
+	mparams->in_params.flags = 0x1;
+	mparams->in_params.uint1 = (u32)md->ea_handle;
+	de_dbg(c, "reading OS/2 extended attributes");
+	de_dbg_indent(c, 1);
+	// TODO: Better filenames for icons that may be extracted.
+	de_run_module_by_id_on_slice(c, "ea_data", mparams, d->ea_data, 0, d->ea_data->len);
+	de_dbg_indent(c, -1);
+
+done:
+	de_free(c, mparams);
+}
+
+// md is that of the "EA DATA" file itself.
+static void do_fat_eadata(deark *c, lctx *d, struct member_data *md)
+{
+	int ret;
+
+	if(d->ea_data) goto done;
+	d->ea_data = dbuf_create_membuf(c, 0, 0);
+	dbuf_set_length_limit(d->ea_data, c->infile->len);
+	ret = extract_file_lowlevel(c, d, md, d->ea_data);
+	if(!ret) {
+		dbuf_close(d->ea_data);
+		d->ea_data = NULL;
+		goto done;
+	}
+	de_dbg(c, "[read EA data, len=%"I64_FMT"]", d->ea_data->len);
+done:
+	;
+}
+
 // Returns 0 if this is the end-of-directory marker.
 static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
-	i64 pos1, int nesting_level)
+	i64 pos1, int nesting_level, int scanmode)
 {
 	u8 firstbyte;
 	i64 ddate, dtime;
@@ -409,7 +516,7 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 	}
 	need_curpath_pop = 1;
 
-	if(d->num_fat_bits<32) {
+	if(!scanmode && d->num_fat_bits<32) {
 		md->ea_handle = (UI)de_getu16le(pos1+20);
 		if(md->ea_handle) {
 			de_dbg(c, "EA handle (if OS/2): %u", md->ea_handle);
@@ -428,10 +535,31 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 	md->filesize = de_getu32le(pos1+28);
 	de_dbg(c, "file size: %"I64_FMT, md->filesize);
 
-	if(!is_deleted && !md->is_subdir && !md->is_special) {
+	// (Done reading dir entry)
+
+	if(is_deleted) goto done;
+
+	if(scanmode) {
+		if(!md->is_subdir && !md->is_special && (md->attribs&0x04) &&
+			md->fn_base_len==7 && md->fn_ext_len==3 &&
+			!de_memcmp(md->fn_base, "EA DATA", 7) &&
+			!de_memcmp(md->fn_ext, " SF", 3) )
+		{
+			do_fat_eadata(c, d, md);
+			goto done;
+		}
+		de_dbg2(c, "[scan mode - not extracting]");
+		goto done;
+	}
+
+	if(md->ea_handle!=0 && d->ea_data) {
+		do_fat_eadata_item(c, d, md);
+	}
+
+	if(!md->is_subdir && !md->is_special) {
 		do_extract_file(c, d, md);
 	}
-	else if(!is_deleted && md->is_subdir && !md->is_special) {
+	else if(md->is_subdir && !md->is_special) {
 		do_extract_file(c, d, md);
 		do_subdir(c, d, md, nesting_level+1);
 	}
@@ -452,7 +580,7 @@ done:
 // Process a contiguous block of directory entries
 // Returns 0 if an end-of-dir marker was found.
 static int do_dir_entries(deark *c, lctx *d, struct dirctx *dctx,
-	i64 pos1, i64 len, int nesting_level)
+	i64 pos1, i64 len, int nesting_level, int scanmode)
 {
 	i64 num_entries;
 	i64 i;
@@ -462,7 +590,7 @@ static int do_dir_entries(deark *c, lctx *d, struct dirctx *dctx,
 	de_dbg(c, "num entries: %"I64_FMT, num_entries);
 
 	for(i=0; i<num_entries; i++) {
-		if(!do_dir_entry(c, d, dctx, pos1+32*i, nesting_level)) {
+		if(!do_dir_entry(c, d, dctx, pos1+32*i, nesting_level, scanmode)) {
 			goto done;
 		}
 		dctx->dir_entry_count++;
@@ -516,7 +644,7 @@ static void do_subdir(deark *c, lctx *d, struct member_data *md, int nesting_lev
 		}
 		d->cluster_used_flags[cur_cluster_num] = 1;
 
-		if(!do_dir_entries(c, d, dctx, cur_cluster_pos, d->bytes_per_cluster, nesting_level)) {
+		if(!do_dir_entries(c, d, dctx, cur_cluster_pos, d->bytes_per_cluster, nesting_level, 0)) {
 			break;
 		};
 
@@ -538,7 +666,18 @@ static void do_root_dir(deark *c, lctx *d)
 	de_dbg(c, "dir at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	if(pos1<d->bytes_per_sector) goto done;
-	(void)do_dir_entries(c, d, dctx, pos1, d->max_root_dir_entries16 * 32, 0);
+	if(d->prescan_root_dir) {
+		de_dbg(c, "[scanning root dir]");
+		// This feature causes us to intentionally read some clusters more than once,
+		// so we have to work around our protections against doing that.
+		fat_save_cluster_use_flags(c, d);
+		de_dbg_indent(c, 1);
+		(void)do_dir_entries(c, d, dctx, pos1, d->max_root_dir_entries16 * 32, 0, 1);
+		de_dbg_indent(c, -1);
+		fat_restore_cluster_use_flags(c, d);
+		de_dbg(c, "[done scanning root dir]");
+	}
+	(void)do_dir_entries(c, d, dctx, pos1, d->max_root_dir_entries16 * 32, 0, 0);
 done:
 	destroy_dirctx(c, dctx);
 	de_dbg_indent(c, -1);
@@ -650,11 +789,11 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 
 	// BIOS parameter block
 	jmpinstrlen = (d->subfmt==FAT_SUBFMT_ATARIST)?2:3;
-	de_dbg_hexdump(c, c->infile, pos1, jmpinstrlen, jmpinstrlen, "jump instr", 0);
+	dbg_hexbytes_oneline(c, c->infile, pos1, jmpinstrlen, "jump instr");
 
 	if(d->subfmt==FAT_SUBFMT_ATARIST) {
 		do_oem_name(c, d, pos1+2, 6);
-		de_dbg_hexdump(c, c->infile, pos1+8, 3, 3, "serial num", 0);
+		dbg_hexbytes_oneline(c, c->infile, pos1+8, 3, "serial num");
 	}
 	else {
 		do_oem_name(c, d, pos1+3, 8);
@@ -694,7 +833,7 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 
 	pos = pos1+0x1fe;
 	de_read(cksum_sig, pos, 2);
-	de_dbg(c, "boot sector signature: 0x%02x 0x%02x", (UI)cksum_sig[0], (UI)cksum_sig[1]);
+	dbg_hexbytes_oneline_mem(c, cksum_sig, 2, "boot sector signature");
 
 	do_atarist_boot_checksum(c, d, pos1);
 	if(d->has_atarist_checksum) {
@@ -763,7 +902,7 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 		d->num_fat_bits = 32;
 	}
 
-	de_dbg(c, "bits per cluster id: %u", (UI)d->num_fat_bits);
+	de_dbg(c, "bits per cluster id (calculated): %u", (UI)d->num_fat_bits);
 
 	retval = 1;
 
@@ -844,7 +983,8 @@ static void de_run_fat(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	d->opt_check_rootdir = de_get_ext_option_bool(c, "fat:checkroot", 1);
+	d->prescan_root_dir = (u8)de_get_ext_option_bool(c, "fat:scanroot", 1);
+	d->opt_check_root_dir = (u8)de_get_ext_option_bool(c, "fat:checkroot", 1);
 	s = de_get_ext_option(c, "fat:subfmt");
 	if(s) {
 		if(!de_strcmp(s, "pc")) {
@@ -879,7 +1019,7 @@ static void de_run_fat(deark *c, de_module_params *mparams)
 
 	if(!do_read_fat(c, d)) goto done;
 
-	if(d->opt_check_rootdir) {
+	if(d->opt_check_root_dir) {
 		if(!root_dir_seems_valid(c, d)) {
 			de_warn(c, "This file does not appear to contain a valid FAT "
 				"directory structure. (\"-opt fat:checkroot=0\" to try anyway)");
@@ -902,7 +1042,9 @@ done:
 	if(d) {
 		de_free(c, d->fat_nextcluster);
 		de_free(c, d->cluster_used_flags);
+		de_free(c, d->cluster_used_flags_saved);
 		if(d->curpath) de_strarray_destroy(d->curpath);
+		if(d->ea_data) dbuf_close(d->ea_data);
 		de_free(c, d);
 	}
 }
@@ -966,6 +1108,8 @@ static void de_help_fat(deark *c)
 {
 	de_msg(c, "-opt fat:checkroot=0 : Read the directory structure, even if it "
 		"seems invalid");
+	de_msg(c, "-opt fat:scanroot=0 : Do not scan the root directory to look for "
+		"special files");
 }
 
 void de_module_fat(deark *c, struct deark_module_info *mi)
@@ -1071,8 +1215,13 @@ void de_module_loaddskf(deark *c, struct deark_module_info *mi)
 
 //---------------------- "EA DATA. SF"
 
+struct easector_ctx {
+	i64 ea_data_len;
+};
+
 struct eadata_ctx {
 	de_encoding input_encoding;
+	UI createflags_for_icons;
 	i64 bytes_per_cluster;
 };
 
@@ -1090,23 +1239,158 @@ static int eadata_is_ea_sector_at_offset(deark *c, struct eadata_ctx *d, i64 pos
 	return 1;
 }
 
-static void eadata_do_ea_data(deark *c, struct eadata_ctx *d, i64 pos1, i64 *pbytes_consumed)
+static const char *eadata_get_data_type_name(UI t)
+{
+	const char *name = NULL;
+	switch(t) {
+	case 0xffde: name ="multi-val/single-type"; break;
+	case 0xffdf: name ="multi-val/multi-type"; break;
+	case 0xfffe: name ="binary"; break;
+	case 0xfffd: name ="text"; break;
+	case 0xfff9: name ="icon"; break;
+	}
+
+	return name?name:"?";
+}
+
+static int eadata_extract_icon(deark *c, struct eadata_ctx *d,
+	i64 pos1, i64 nbytes_avail)
+{
+	i64 ipos, ilen;
+	int retval = 0;
+
+	ilen = de_getu16le(pos1);
+	de_dbg(c, "icon len: %"I64_FMT, ilen);
+	ipos = pos1 + 2;
+	if(ipos + ilen > pos1 + nbytes_avail) goto done;
+
+	dbuf_create_file_from_slice(c->infile, ipos, ilen, "os2.ico", NULL, d->createflags_for_icons);
+	retval = 1;
+done:
+	return retval;
+}
+
+// FEA2 structure, starting at the 'fEA' field (1 byte before the name-length byte).
+static int eadata_do_attribute(deark *c, struct eadata_ctx *d, i64 pos1, i64 maxlen,
+	de_ucstring *tmps, i64 *pbytes_consumed)
+{
+	i64 namelen;
+	i64 attr_dpos;
+	i64 attr_dlen;
+	UI attr_dtype;
+	int handled = 0;
+	i64 pos = pos1;
+	int retval = 0;
+
+	pos++; // fEA
+	namelen = (i64)de_getbyte_p(&pos);
+
+	attr_dlen = (i64)de_getu16le_p(&pos);
+	ucstring_empty(tmps);
+	dbuf_read_to_ucstring(c->infile, pos, namelen, tmps, 0, DE_ENCODING_ASCII);
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(tmps));
+	pos += namelen + 1;
+	attr_dpos = pos;
+	de_dbg(c, "outer data len: %"I64_FMT, attr_dlen);
+	if(attr_dpos + attr_dlen > pos1+maxlen) goto done;
+
+	attr_dtype = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "data type: 0x%04x (%s)", attr_dtype, eadata_get_data_type_name(attr_dtype));
+
+	if(attr_dtype==0xfff9) {
+		handled = eadata_extract_icon(c, d, attr_dpos+2, attr_dlen-2);
+	}
+
+	if(!handled) {
+		de_dbg_hexdump(c, c->infile, attr_dpos+2, attr_dlen-2, 256, NULL, 0x1);
+	}
+
+	pos = attr_dpos + attr_dlen;
+	*pbytes_consumed = pos - pos1;
+	retval = 1;
+done:
+	return retval;
+}
+
+// Sets md->ea_data_len.
+static void eadata_do_ea_data(deark *c, struct eadata_ctx *d, struct easector_ctx *md,
+	i64 pos1)
 {
 	i64 pos = pos1;
-	i64 ealen;
+	i64 endpos;
 	int saved_indent_level;
+	de_ucstring *s = NULL;
 
-	*pbytes_consumed = 0;
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "EA data at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
-	ealen = de_getu16le_p(&pos);
-	*pbytes_consumed = ealen;
-	de_dbg(c, "data len: %"I64_FMT, ealen);
+	md->ea_data_len = de_getu16le_p(&pos); // TODO: Is this actually a 4-byte field?
+	de_dbg(c, "data len: %"I64_FMT, md->ea_data_len);
 
-	de_dbg_hexdump(c, c->infile, pos, ealen-2, 256, NULL, 0x1);
+	pos += 2; // ?
+	endpos = pos1 + md->ea_data_len;
+	s = ucstring_create(c);
 
+	while(pos < endpos-4) {
+		int ret;
+		i64 bytes_consumed = 0;
+
+		de_dbg(c, "attribute at %"I64_FMT, pos);
+		de_dbg_indent(c, 1);
+		ret = eadata_do_attribute(c, d, pos, endpos-pos, s, &bytes_consumed);
+		de_dbg_indent(c, -1);
+		if(!ret || bytes_consumed<1) goto done;
+		pos += bytes_consumed;
+	}
+
+done:
+	ucstring_destroy(s);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void eadata_do_FEA2LIST(deark *c, struct eadata_ctx *d)
+{
+	i64 fea2list_len;
+	i64 pos1 = 0;
+	i64 pos = pos1;
+	i64 endpos;
+	de_ucstring *tmps = NULL;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	tmps = ucstring_create(c);
+
+	de_dbg(c, "FEA2LIST at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	fea2list_len = de_getu32le_p(&pos);
+	endpos = pos1 + fea2list_len;
+
+	de_dbg(c, "list len: %"I64_FMT, fea2list_len);
+	while(1) {
+		int ret;
+		i64 bytes_consumed = 0;
+		i64 offset_to_next_attr;
+		i64 attr_pos;
+
+		if(pos >= endpos) goto done;
+
+		attr_pos = pos;
+		de_dbg(c, "attribute at %"I64_FMT, attr_pos);
+		de_dbg_indent(c, 1);
+		offset_to_next_attr = de_getu32le_p(&pos);
+		de_dbg(c, "offset to next attr: %"I64_FMT, offset_to_next_attr);
+
+		ret = eadata_do_attribute(c, d, pos, endpos-pos, tmps, &bytes_consumed);
+		if(!ret || bytes_consumed<1) goto done;
+		if(offset_to_next_attr==0) goto done;
+		pos = attr_pos + offset_to_next_attr;
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	ucstring_destroy(tmps);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -1115,11 +1399,12 @@ static void eadata_do_ea_sector_by_offset(deark *c, struct eadata_ctx *d, i64 po
 {
 	i64 n;
 	i64 pos;
-	i64 bytes_consumed2 = 0;
 	de_ucstring *fn = NULL;
+	struct easector_ctx *md = NULL;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
+	md = de_malloc(c, sizeof(struct easector_ctx));
 
 	if(!eadata_is_ea_sector_at_offset(c, d, pos1, 0)) {
 		de_err(c, "EA sector not found at %"I64_FMT, pos1);
@@ -1142,8 +1427,8 @@ static void eadata_do_ea_sector_by_offset(deark *c, struct eadata_ctx *d, i64 po
 	pos += 2;
 	pos += 4;
 
-	eadata_do_ea_data(c, d, pos, &bytes_consumed2);
-	pos += bytes_consumed2;
+	eadata_do_ea_data(c, d, md, pos);
+	pos += md->ea_data_len;
 
 	if(pbytes_consumed1) {
 		*pbytes_consumed1 = pos - pos1;
@@ -1151,6 +1436,7 @@ static void eadata_do_ea_sector_by_offset(deark *c, struct eadata_ctx *d, i64 po
 
 done:
 	ucstring_destroy(fn);
+	de_free(c, md);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -1210,11 +1496,25 @@ static void de_run_eadata(deark *c, de_module_params *mparams)
 	de_declare_fmt(c, "OS/2 extended attributes data");
 
 	struct eadata_ctx *d = de_malloc(c, sizeof(struct eadata_ctx));
-	s = de_get_ext_option(c, "ea_data:handle");
-	if(s) {
-		ea_id = (UI)de_atoi(s);
+
+	if(de_havemodcode(c, mparams, 'L')) {
+		d->createflags_for_icons = DE_CREATEFLAG_IS_AUX;
+		eadata_do_FEA2LIST(c, d);
 	}
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	else if(mparams && (mparams->in_params.flags & 0x1)) {
+		// We're being used by another module, to handle a specific ea_id.
+		ea_id = (UI)mparams->in_params.uint1;
+		if(ea_id==0) goto done;
+		d->createflags_for_icons = DE_CREATEFLAG_IS_AUX;
+	}
+	else {
+		s = de_get_ext_option(c, "ea_data:handle");
+		if(s) {
+			ea_id = (UI)de_atoi(s);
+		}
+	}
+
+	d->input_encoding = de_get_input_encoding(c, mparams, DE_ENCODING_CP437);
 	d->bytes_per_cluster = 512;
 
 	if(ea_id==0) {

@@ -292,13 +292,14 @@ done:
 	return retval;
 }
 
-// A variation of do_decompress_member().
+// A variation of do_decompress_member() -
+// works for Finder attribute data, and OS/2 extended attributes.
 // Only call this if the compression method is supported -- Call
 //   is_compression_method_supported() first.
 // outf is assumed to be a membuf.
-static int do_decompress_finder_attrib_data(deark *c, lctx *d,
+static int do_decompress_attrib_data(deark *c, lctx *d,
 	i64 dpos, i64 dlen, dbuf *outf, i64 uncmprsize, u32 crc_reported,
-	int cmpr_meth, const struct cmpr_meth_info *cmi)
+	int cmpr_meth, const struct cmpr_meth_info *cmi, const char *name)
 {
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
@@ -323,7 +324,7 @@ static int do_decompress_finder_attrib_data(deark *c, lctx *d,
 		de_crcobj_reset(d->crco);
 		de_crcobj_addslice(d->crco, outf, 0, outf->len);
 		crc_calculated = de_crcobj_getval(d->crco);
-		de_dbg(c, "finder attr. data crc (calculated): 0x%08x", (UI)crc_calculated);
+		de_dbg(c, "%s crc (calculated): 0x%08x", name, (UI)crc_calculated);
 		if(crc_calculated != crc_reported) goto done;
 	}
 
@@ -641,26 +642,60 @@ static void ef_os2(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
 	i64 pos = eii->dpos;
 	i64 endpos;
-	i64 unc_size;
-	i64 cmpr_type;
-	i64 crc;
+	i64 ulen;
+	i64 cmpr_attr_size;
+	int cmpr_meth;
+	u32 crc_reported;
+	const struct cmpr_meth_info *cmi = NULL;
+	const char *name = "OS/2 ext. attr. data";
+	dbuf *attr_data = NULL;
+	de_module_params *mparams = NULL;
+	int ret;
 
 	endpos = pos+eii->dlen;
-	if(pos+4>endpos) return;
-	unc_size = de_getu32le_p(&pos);
-	de_dbg(c, "uncmpr ext attr data size: %d", (int)unc_size);
-	if(eii->is_central) return;
+	if(pos+4>endpos) goto done;
+	ulen = de_getu32le_p(&pos);
+	de_dbg(c, "uncmpr ext attr data size: %"I64_FMT, ulen);
+	if(eii->is_central) goto done;
 
-	if(pos+2>endpos) return;
-	cmpr_type = de_getu16le_p(&pos);
-	de_dbg(c, "ext attr cmpr method: %d", (int)cmpr_type);
+	if(pos+2>endpos) goto done;
+	cmpr_meth = (int)de_getu16le_p(&pos);
+	de_dbg(c, "ext attr cmpr method: %d", cmpr_meth);
 
-	if(pos+4>endpos) return;
-	crc = de_getu32le_p(&pos);
-	de_dbg(c, "ext attr crc: 0x%08x", (unsigned int)crc);
+	if(pos+4>endpos) goto done;
+	crc_reported = (u32)de_getu32le_p(&pos);
+	de_dbg(c, "ext attr crc (reported): 0x%08x", (unsigned int)crc_reported);
 
-	de_dbg(c, "cmpr ext attr data at %"I64_FMT", len=%d", pos, (int)(endpos-pos));
-	// TODO: Uncompress and decode OS/2 extended attribute structure (FEA2LIST)
+	cmpr_attr_size = endpos-pos;
+	de_dbg(c, "cmpr ext attr data at %"I64_FMT", len=%"I64_FMT, pos, cmpr_attr_size);
+	if(pos + cmpr_attr_size > endpos) goto done;
+
+	cmi = get_cmpr_meth_info(cmpr_meth);
+	if(cmpr_meth==6 || !is_compression_method_supported(d, cmi)) {
+		de_warn(c, "%s: Unsupported compression method: %d (%s)",
+			name, cmpr_meth, (cmi ? cmi->name : "?"));
+		goto done;
+	}
+
+	attr_data = dbuf_create_membuf(c, ulen, 0x1);
+	ret = do_decompress_attrib_data(c, d, pos, cmpr_attr_size,
+		attr_data, ulen, crc_reported, cmpr_meth, cmi, name);
+	if(!ret) {
+		de_warn(c, "Failed to decompress %s", name);
+		goto done;
+	}
+
+	// attr_data contains an OS/2 extended attribute structure (FEA2LIST)
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->in_params.codes = "L";
+	de_dbg(c, "decoding OS/2 ext. attribs., unc. len=%"I64_FMT, attr_data->len);
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice(c, "ea_data", mparams, attr_data, 0, attr_data->len);
+	de_dbg_indent(c, -1);
+
+done:
+	dbuf_close(attr_data);
+	de_free(c, mparams);
 }
 
 // Extra field 0x2705 (ZipIt Macintosh 1.3.5+)
@@ -774,8 +809,8 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 
 	// Decompress and decode the Finder attribute data
 	attr_data = dbuf_create_membuf(c, ulen, 0x1);
-	ret = do_decompress_finder_attrib_data(c, d, pos, cmpr_attr_size,
-		attr_data, ulen, crc_reported, cmpr_meth, cmi);
+	ret = do_decompress_attrib_data(c, d, pos, cmpr_attr_size,
+		attr_data, ulen, crc_reported, cmpr_meth, cmi, "finder attr. data");
 	if(!ret) {
 		de_warn(c, "Failed to decompress finder attribute data");
 		goto done;
