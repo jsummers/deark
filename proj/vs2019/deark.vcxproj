@@ -339,6 +339,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\foreign\delzw.h" />
+    <ClInclude Include="..\..\foreign\dskdcmps.h" />
     <ClInclude Include="..\..\foreign\miniz-c.h" />
     <ClInclude Include="..\..\foreign\miniz.h" />
     <ClInclude Include="..\..\foreign\ozunreduce.h" />

@@ -375,6 +375,9 @@ See the [technical.md](technical.md) file.
 
 Thanks to Rich Geldreich for the miniz library.
 
+Thanks to the author of dskdcmps for the code used to decompress LoadDskF
+files.
+
 Thanks to James Ashton for much of the code used by the X-Face format decoder.
 
 Thanks to countless others who have documented the supported file formats.

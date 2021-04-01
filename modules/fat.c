@@ -5,8 +5,11 @@
 // FAT disk image
 
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_fat);
 DE_DECLARE_MODULE(de_module_loaddskf);
+
+#include "../foreign/dskdcmps.h"
 
 #define MAX_NESTING_LEVEL 16
 
@@ -1126,6 +1129,8 @@ void de_module_fat(deark *c, struct deark_module_info *mi)
 
 struct skf_ctx {
 	int new_fmt;
+	int opt_decompress;
+	int is_compressed;
 	i64 hdr_size;
 };
 
@@ -1143,14 +1148,52 @@ done:
 	;
 }
 
+static void loaddskf_decompress(deark *c, struct skf_ctx *d)
+{
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	dbuf *outf = NULL;
+
+	d->opt_decompress = de_get_ext_option_bool(c, "loaddskf:decompress", 0);
+	if(!d->opt_decompress) {
+		de_err(c, "The LoadDskF decompressor hasn't been audited for security, and "
+			"is disabled by default. Use \"-opt loaddskf:decompress\" to enable.");
+		goto done;
+	}
+
+	if(d->hdr_size<2 || d->hdr_size > c->infile->len) goto done;
+	outf = dbuf_create_output_file(c, "unc.dsk", NULL, 0);
+
+	dbuf_write(outf, (const u8*)"\xaa\x59", 2);
+	dbuf_copy(c->infile, 2, d->hdr_size-2, outf);
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = d->hdr_size;
+	dcmpri.len = c->infile->len - dcmpri.pos;
+	dcmpro.f = outf;
+	//dcmpro.len_known = 1;
+	//dcmpro.expected_len = expected_len;
+
+	dskdcmps_run(c, &dcmpri, &dcmpro, &dres);
+done:
+	dbuf_close(outf);
+}
+
 static int loaddskf_read_header(deark *c, struct skf_ctx *d)
 {
 	int retval = 0;
 
 	d->hdr_size = de_getu16le(38);
 	de_dbg(c, "header size: %"I64_FMT, d->hdr_size);
-	if((UI)de_getu16be(d->hdr_size + 510) != 0x55aa) {
-		goto done;
+	if(d->is_compressed) {
+		;
+	}
+	else {
+		if((UI)de_getu16be(d->hdr_size + 510) != 0x55aa) {
+			goto done;
+		}
 	}
 	retval = 1;
 
@@ -1175,15 +1218,21 @@ static void de_run_loaddskf(deark *c, de_module_params *mparams)
 		d->new_fmt = 1;
 		break;
 	case 0xaa5a:
-		de_err(c, "Compressed LoadDskF files are not supported");
-		goto done;
+		d->new_fmt = 1;
+		d->is_compressed = 1;
+		break;
 	default:
 		de_err(c, "Not a LoadDskF file");
 		goto done;
 	}
 
 	if(!loaddskf_read_header(c, d)) goto done;
-	loaddskf_decode_as_fat(c, d);
+	if(d->is_compressed) {
+		loaddskf_decompress(c, d);
+	}
+	else {
+		loaddskf_decode_as_fat(c, d);
+	}
 
 done:
 	de_free(c, d);
@@ -1203,10 +1252,16 @@ static int de_identify_loaddskf(deark *c)
 	return 0;
 }
 
+static void de_help_loaddskf(deark *c)
+{
+	de_msg(c, "-opt loaddskf:decompress : Enable decompression (experimental)");
+}
+
 void de_module_loaddskf(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "loaddskf";
 	mi->desc = "LoadDskF/SaveDskF disk image";
 	mi->run_fn = de_run_loaddskf;
 	mi->identify_fn = de_identify_loaddskf;
+	mi->help_fn = de_help_loaddskf;
 }
