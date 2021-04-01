@@ -197,11 +197,11 @@ static void destroy_fax34_huffman_tree(deark *c, struct fax34_huffman_tree *f34h
 	de_free(c, f34ht);
 }
 
-static void fax34_on_eol(deark *c, struct fax_ctx *fc)
+static void fax34_on_eol(deark *c, struct fax_ctx *fc, int is_real)
 {
 	i64 i;
 
-	de_dbg3(c, "EOL");
+	de_dbg3(c, "%sEOL", is_real?"":"implicit ");
 
 	if(fc->ypos >= fc->image_height) goto done;
 
@@ -435,7 +435,7 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 			if(fc->rows_padded_to_next_byte) {
 				de_bitbuf_lowlevel_empty(&fc->bitrd.bbll);
 			}
-			fax34_on_eol(c, fc);
+			fax34_on_eol(c, fc, 0);
 		}
 
 		if(fc->is_2d && fc->fax34params->tiff_cmpr_meth==3 && !fc->have_read_tag_bit) {
@@ -493,7 +493,7 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 						de_strlcpy(errmsg, errmsg_NOEOL, sizeof(errmsg));
 						goto done;
 					}
-					fax34_on_eol(c, fc);
+					fax34_on_eol(c, fc, 1);
 				}
 				else {
 					// Full EOFB should be 000000000001000000000001
@@ -542,7 +542,7 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 					goto done;
 				}
 				// TODO: Check for premature EOL?
-				fax34_on_eol(c, fc);
+				fax34_on_eol(c, fc, 1);
 			}
 			else if(val<64) {
 				fc->pending_run_len += (i64)val;
@@ -561,7 +561,7 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 
 done:
 	if(fc->a0>0) {
-		fax34_on_eol(c, fc); // Make sure we emit the last row
+		fax34_on_eol(c, fc, 0); // Make sure we emit the last row
 	}
 
 	if(errmsg[0]) {
