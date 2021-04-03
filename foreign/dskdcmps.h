@@ -40,7 +40,7 @@ struct dd_codet {
 	u16 older[DD_MAXTABLE], newer[DD_MAXTABLE];
 	u16 charlink[DD_MAXTABLE], charlast[DD_MAXTABLE], charfirst[DD_MAXTABLE];
 	int size[DD_MAXTABLE], used[DD_MAXTABLE], usecount[DD_MAXTABLE];
-	char * code[DD_MAXTABLE];
+	u8 * code[DD_MAXTABLE];
 };
 
 struct dd_Ctl {
@@ -183,7 +183,7 @@ static struct dd_codet * dd_DInit (struct dd_Ctl *Ctl)
 		ct->charlink[code] = 0;
 		ct->charlast[code] = code;
 		ct->charfirst[code] = code;
-		ct->code[code] = (char *) de_malloc(Ctl->c, 1);
+		ct->code[code] = (u8 *) de_malloc(Ctl->c, 1);
 		ct->code[code][0] = code-1;
 		ct->size[code] = 1;
 		ct->used[code] = 0;
@@ -208,6 +208,20 @@ static struct dd_codet * dd_DInit (struct dd_Ctl *Ctl)
 	ct->oldcode = 0;
 	ct->hold = 0;
 	return (ct);
+}
+
+static void dd_DFree(struct dd_Ctl *Ctl, struct dd_codet *ct)
+{
+	UI i;
+
+	if(!ct) return;
+	for(i=0; i<DD_MAXTABLE; i++) {
+		if (ct->code[i] != NULL) {
+			de_free(Ctl->c, ct->code[i]);
+			ct->code[i] = NULL;
+		}
+	}
+	de_free(Ctl->c, ct);
 }
 
 //*******************************************************************
@@ -264,8 +278,11 @@ static u16 dd_GetLRU (struct dd_Ctl *Ctl, struct dd_codet * ct)
 		}
 	}
 
-	if (ct->code[tcode] != NULL)
+	if (ct->code[tcode] != NULL) {
 		de_free(Ctl->c, ct->code[tcode]);
+		ct->code[tcode] = NULL;
+	}
+
 	ct->used[tcode] ++;
 	return (tcode);
 }
@@ -287,11 +304,11 @@ static void dd_BuildEntry (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 newcode
 {
 	u16 lruentry, tcode;
 	int codesize;
-	char * codestr;
+	u8 * codestr;
 
 	lruentry = dd_GetLRU(Ctl, ct);
 	codesize = ct->size[ct->oldcode] + 1;
-	codestr = (char *) de_malloc(Ctl->c, codesize);
+	codestr = (u8 *) de_malloc(Ctl->c, codesize);
 	de_memcpy(codestr, ct->code[ct->oldcode], codesize - 1);
 	if (newcode != lruentry) {
 		tcode = newcode;
@@ -341,6 +358,8 @@ static void dd_Decompress (struct dd_Ctl *Ctl)
 		}
 		ct->oldcode = newcode;
 	}
+
+	dd_DFree(Ctl, ct);
 }
 
 static void dskdcmps_run(deark *c, struct de_dfilter_in_params *dcmpri,
