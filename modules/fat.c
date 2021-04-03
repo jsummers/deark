@@ -1177,6 +1177,11 @@ static void loaddskf_decompress(deark *c, struct skf_ctx *d)
 	//dcmpro.expected_len = expected_len;
 
 	dskdcmps_run(c, &dcmpri, &dcmpro, &dres);
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
+
 done:
 	dbuf_close(outf);
 }

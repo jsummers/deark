@@ -51,6 +51,7 @@ struct dd_Ctl {
 	i64 inf_pos;
 	i64 inf_endpos;
 	int eof_flag;
+	int err_flag;
 	int TraceLevel;
 	char msg[DD_MAXSTRLEN];
 #ifdef DD_EXTRADBG
@@ -149,7 +150,7 @@ static void dd_OutputString(struct dd_Ctl *Ctl, struct dd_codet * ct, u16 tcode)
 //*******************************************************************
 static u16 dd_GetNextcode (struct dd_Ctl *Ctl, struct dd_codet * ct)
 {
-	u16 code, temp;
+	u16 code;
 
 	if(Ctl->inf_pos >= Ctl->inf_endpos) {
 		Ctl->eof_flag = 1;
@@ -157,13 +158,13 @@ static u16 dd_GetNextcode (struct dd_Ctl *Ctl, struct dd_codet * ct)
 	}
 
 	if (ct->j) {
-		temp = (u16)dbuf_getbyte_p(Ctl->dcmpri->f, &Ctl->inf_pos) << 4;
+		code = (u16)dbuf_getbyte_p(Ctl->dcmpri->f, &Ctl->inf_pos) << 4;
 		ct->hold = (u16)dbuf_getbyte_p(Ctl->dcmpri->f, &Ctl->inf_pos);
-		code = temp | (ct->hold >> 4);
+		code |= (ct->hold >> 4);
 	}
 	else {
-		temp = (ct->hold & '\x0F') << 8;
-		code = temp | (u16)dbuf_getbyte_p(Ctl->dcmpri->f, &Ctl->inf_pos);
+		code = (ct->hold & 0x0f) << 8;
+		code |= (u16)dbuf_getbyte_p(Ctl->dcmpri->f, &Ctl->inf_pos);
 		ct->hold = 0;
 	}
 	ct->j = !ct->j;
@@ -184,7 +185,7 @@ static struct dd_codet * dd_DInit (struct dd_Ctl *Ctl)
 		ct->charlast[code] = code;
 		ct->charfirst[code] = code;
 		ct->code[code] = (u8 *) de_malloc(Ctl->c, 1);
-		ct->code[code][0] = code-1;
+		ct->code[code][0] = (u8)(code-1);
 		ct->size[code] = 1;
 		ct->used[code] = 0;
 		ct->usecount[code] = 1;
@@ -308,15 +309,32 @@ static void dd_BuildEntry (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 newcode
 
 	lruentry = dd_GetLRU(Ctl, ct);
 	codesize = ct->size[ct->oldcode] + 1;
+	if(codesize > DD_MAXTABLE) {
+		Ctl->err_flag = 1;
+		goto done;
+	}
+	// TODO?: This makes a huge total number of memory allocations (though only
+	// about 4096 will be active at any given time). Mabye it should be rewritten
+	// to not do that.
 	codestr = (u8 *) de_malloc(Ctl->c, codesize);
-	de_memcpy(codestr, ct->code[ct->oldcode], codesize - 1);
+	if(codesize > 1) {
+		if(!ct->code[ct->oldcode]) {
+			Ctl->err_flag = 1;
+			goto done;
+		}
+		de_memcpy(codestr, ct->code[ct->oldcode], codesize - 1);
+	}
 	if (newcode != lruentry) {
 		tcode = newcode;
 	}
 	else {
 		tcode = ct->oldcode;
 	}
-	de_memcpy(codestr + codesize - 1, ct->code[tcode], 1);
+	if(!ct->code[tcode]) {
+			Ctl->err_flag = 1;
+			goto done;
+	}
+	codestr[codesize - 1] = ct->code[tcode][0];
 	ct->code[lruentry] = codestr;
 	ct->size[lruentry] = codesize;
 	ct->charlink[lruentry] = ct->oldcode;
@@ -337,6 +355,9 @@ static void dd_BuildEntry (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 newcode
 	dd_tmsg(Ctl, 1, "offset: %4x, newcode: %4x. nused: %4x, lru: %4x, lused: %4x, size: %4d, str: %s",
 		(UI)Ctl->inf_pos, newcode, ct->used[newcode], lruentry, ct->used[lruentry], codesize, Ctl->work);
 #endif
+
+done:
+	;
 }
 
 //*******************************************************************
@@ -346,19 +367,20 @@ static void dd_Decompress (struct dd_Ctl *Ctl)
 	u16 newcode;
 
 	ct = dd_DInit(Ctl);
-	newcode = 1;
 
-	while (newcode != 0) {
+	while(1) {
 		newcode = dd_GetNextcode(Ctl, ct);
-		if(Ctl->eof_flag) break;
-		if (newcode > 0) {
-			if (ct->oldcode > 0)
-				dd_BuildEntry(Ctl, ct, newcode);
-			dd_OutputString(Ctl, ct, newcode);
-		}
+		if(newcode==0 || Ctl->eof_flag || Ctl->err_flag) break;
+		if (ct->oldcode > 0)
+			dd_BuildEntry(Ctl, ct, newcode);
+		if(Ctl->err_flag) break;
+		dd_OutputString(Ctl, ct, newcode);
 		ct->oldcode = newcode;
 	}
 
+	if(Ctl->err_flag) {
+		de_dfilter_set_errorf(Ctl->c, Ctl->dres, "dskdcmprs", "Bad compressed data");
+	}
 	dd_DFree(Ctl, ct);
 }
 
