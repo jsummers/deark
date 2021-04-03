@@ -296,6 +296,9 @@ static void eadata_do_ea_sector_by_offset(deark *c, struct eadata_ctx *d, i64 po
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
+	if(pbytes_consumed1) {
+		*pbytes_consumed1 = 0;
+	}
 	md = de_malloc(c, sizeof(struct easector_ctx));
 
 	if(!eadata_is_ea_sector_at_offset(c, d, pos1, 0)) {
