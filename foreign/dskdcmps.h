@@ -266,7 +266,8 @@ static u16 dd_GetLRU (struct dd_Ctl *Ctl, struct dd_codet * ct)
 	tcode = ct->oldest;
 	if (ct->usecount[tcode] != 0) {
 		dd_tmsg(Ctl, 1, "Usecount not zero in GetLRU, code: %4x", tcode);
-		dd_PrintEntry(Ctl, ct, tcode);}
+		dd_PrintEntry(Ctl, ct, tcode);
+	}
 	xcode = ct->charlink[tcode];
 	if (tcode <= 100)
 		tcode = tcode;
@@ -322,7 +323,7 @@ static void dd_BuildEntry (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 newcode
 			Ctl->err_flag = 1;
 			goto done;
 		}
-		de_memcpy(codestr, ct->code[ct->oldcode], codesize - 1);
+		de_memcpy(codestr, ct->code[ct->oldcode], (size_t)codesize - 1);
 	}
 	if (newcode != lruentry) {
 		tcode = newcode;
@@ -331,8 +332,8 @@ static void dd_BuildEntry (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 newcode
 		tcode = ct->oldcode;
 	}
 	if(!ct->code[tcode]) {
-			Ctl->err_flag = 1;
-			goto done;
+		Ctl->err_flag = 1;
+		goto done;
 	}
 	codestr[codesize - 1] = ct->code[tcode][0];
 	ct->code[lruentry] = codestr;

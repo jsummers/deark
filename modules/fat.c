@@ -3,6 +3,7 @@
 // See the file COPYING for terms of use.
 
 // FAT disk image
+// LoadDskF/SaveDskF/SKF OS/2 disk image
 
 #include <deark-private.h>
 #include <deark-fmtutil.h>
@@ -1124,9 +1125,6 @@ void de_module_fat(deark *c, struct deark_module_info *mi)
 
 ///////////////////////// LoadDskF/SaveDskF format (OS/2-centric)
 
-// We barely support this format, but if it's uncompressed, we'll try to skip
-// past the header, and pretend it's FAT.
-
 struct skf_ctx {
 	int new_fmt;
 	int opt_decompress;
@@ -1173,8 +1171,6 @@ static void loaddskf_decompress(deark *c, struct skf_ctx *d)
 	dcmpri.pos = d->hdr_size;
 	dcmpri.len = c->infile->len - dcmpri.pos;
 	dcmpro.f = outf;
-	//dcmpro.len_known = 1;
-	//dcmpro.expected_len = expected_len;
 
 	dskdcmps_run(c, &dcmpri, &dcmpro, &dres);
 	if(dres.errcode) {

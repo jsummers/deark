@@ -4,6 +4,7 @@
 
 // LBR - uncompressed CP/M archive format
 // Squeeze compressed file
+// Crunch v1 compressed file
 // ZSQ compressed file
 // LZWCOM compressed file
 

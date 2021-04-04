@@ -143,7 +143,6 @@ static void do_decompress_implode(deark *c, lctx *d, struct compression_params *
 
 	de_zeromem(&params, sizeof(struct de_zipimplode_params));
 	params.bit_flags = cparams->bit_flags;
-	params.dump_trees = (u8)de_get_ext_option_bool(c, "zip:dumptrees", 0);
 	params.mml_bug = (u8)de_get_ext_option_bool(c, "zip:implodebug", 0);
 	fmtutil_decompress_zip_implode(c, dcmpri, dcmpro, dres, &params);
 }
