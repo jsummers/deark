@@ -296,9 +296,10 @@ done:
 // Only call this if the compression method is supported -- Call
 //   is_compression_method_supported() first.
 // outf is assumed to be a membuf.
+// dcflags: 0x1 = Validate the crc_reported param.
 static int do_decompress_attrib_data(deark *c, lctx *d,
 	i64 dpos, i64 dlen, dbuf *outf, i64 uncmprsize, u32 crc_reported,
-	int cmpr_meth, const struct cmpr_meth_info *cmi, const char *name)
+	int cmpr_meth, const struct cmpr_meth_info *cmi, UI flags, const char *name)
 {
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
@@ -319,7 +320,7 @@ static int do_decompress_attrib_data(deark *c, lctx *d,
 		goto done; // Could report the error, but this isn't critical data
 	}
 
-	if(cmpr_meth != 0) {
+	if(flags & 0x1) {
 		de_crcobj_reset(d->crco);
 		de_crcobj_addslice(d->crco, outf, 0, outf->len);
 		crc_calculated = de_crcobj_getval(d->crco);
@@ -678,7 +679,7 @@ static void ef_os2(deark *c, lctx *d, struct extra_item_info_struct *eii)
 
 	attr_data = dbuf_create_membuf(c, ulen, 0x1);
 	ret = do_decompress_attrib_data(c, d, pos, cmpr_attr_size,
-		attr_data, ulen, crc_reported, cmpr_meth, cmi, name);
+		attr_data, ulen, crc_reported, cmpr_meth, cmi, 0x1, name);
 	if(!ret) {
 		de_warn(c, "Failed to decompress %s", name);
 		goto done;
@@ -755,6 +756,7 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	struct de_timestamp tmp_timestamp;
 	int charset;
 	u32 crc_reported = 0;
+	UI dcflags = 0;
 	struct de_stringreaderdata *srd;
 
 	if(eii->dlen<14) goto done;
@@ -785,6 +787,7 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 		cmpr_meth = 0;
 	}
 	else {
+		dcflags |= 0x1; // CRC is known
 		cmpr_meth = (int)de_getu16le_p(&pos);
 		cmi = get_cmpr_meth_info(cmpr_meth);
 		de_dbg(c, "finder attr. cmpr. method: %d (%s)", cmpr_meth, (cmi ? cmi->name : "?"));
@@ -809,7 +812,7 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	// Decompress and decode the Finder attribute data
 	attr_data = dbuf_create_membuf(c, ulen, 0x1);
 	ret = do_decompress_attrib_data(c, d, pos, cmpr_attr_size,
-		attr_data, ulen, crc_reported, cmpr_meth, cmi, "finder attr. data");
+		attr_data, ulen, crc_reported, cmpr_meth, cmi, dcflags, "finder attr. data");
 	if(!ret) {
 		de_warn(c, "Failed to decompress finder attribute data");
 		goto done;
