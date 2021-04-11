@@ -305,6 +305,9 @@ static int crcr_read_filename_etc(deark *c, i64 pos1, struct crcr_filename_data 
 	enum crcrfnstate state = CRCRFNST_FILENAME;
 	int found_dot = 0;
 	int extension_char_count = 0;
+	char attr_str[4] = "...";
+	static const char attr_codes[3] = {'R', 'S', 'A'};
+	int found_attr = 0;
 
 	// Note: Only ASCII can really be supported, because the characters are 7-bit.
 	// Normally, we'd use ucstring_append_bytes_ex() for something like this, but
@@ -312,43 +315,54 @@ static int crcr_read_filename_etc(deark *c, i64 pos1, struct crcr_filename_data 
 	fnd->fn = ucstring_create(c);
 
 	while(1) {
-		u8 b;
+		u8 b1, b2;
 
 		// Note: CFX limits this entire field to about 80 bytes.
 		if(pos-pos1 > 300) goto done;
 		if(pos >= c->infile->len) goto done;
 
-		b = de_getbyte_p(&pos) & 0x7f;
-		if(b==0) {
+		b1 = de_getbyte_p(&pos);
+		if(b1==0) {
 			break;
 		}
+		b2 = b1 & 0x7f;
 
-		if(b==0x01) {
+		if(b2==0x01) {
 			state = CRCRFNST_DATE; // TODO: Figure this field out
 		}
-		else if(state==CRCRFNST_FILENAME && b=='[') {
+		else if(state==CRCRFNST_FILENAME && b2=='[') {
 			state = CRCRFNST_COMMENT;
 		}
 		else if(state==CRCRFNST_FILENAME && extension_char_count>=3) {
 			state = CRCRFNST_NEUTRAL;
 		}
 		else if(state==CRCRFNST_FILENAME) {
+			ucstring_append_char(fnd->fn, (de_rune)b2);
 			if(found_dot) {
+				if(extension_char_count<3 && (b1 & 0x80)) {
+					// The CP/M low-level directory structure uses the high bit of
+					// the file extension bytes to store attributes. Some Crunch/
+					// CRLZH files do the same thing.
+					// CP/M also uses the high bit of the *filename*, for less-common
+					// attributes, but that doesn't seem possible here, because all 8
+					// bytes are not always stored.
+					found_attr = 1;
+					attr_str[extension_char_count] = attr_codes[extension_char_count];
+				}
 				extension_char_count++;
 			}
 			else {
-				if(b=='.') found_dot = 1;
+				if(b2=='.') found_dot = 1;
 			}
-			ucstring_append_char(fnd->fn, (de_rune)b);
 		}
-		else if(state==CRCRFNST_COMMENT && b==']') {
+		else if(state==CRCRFNST_COMMENT && b2==']') {
 			state = CRCRFNST_NEUTRAL;
 		}
 		else if(state==CRCRFNST_COMMENT) {
 			if(!fnd->comment) {
 				fnd->comment = ucstring_create(c);
 			}
-			ucstring_append_char(fnd->comment, (de_rune)b);
+			ucstring_append_char(fnd->comment, (de_rune)b2);
 		}
 	}
 
@@ -356,6 +370,11 @@ static int crcr_read_filename_etc(deark *c, i64 pos1, struct crcr_filename_data 
 	fnd->size = pos - pos1;
 	retval = 1;
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(fnd->fn));
+
+	if(found_attr) {
+		de_dbg(c, "attribs: %s", attr_str);
+	}
+
 	if(fnd->comment) {
 		de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(fnd->comment));
 	}
