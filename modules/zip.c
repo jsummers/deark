@@ -89,6 +89,8 @@ struct extra_item_info_struct {
 };
 
 struct localctx_struct {
+	de_encoding default_enc_for_filenames;
+	de_encoding default_enc_for_comments;
 	i64 end_of_central_dir_pos;
 	i64 central_dir_num_entries;
 	i64 central_dir_byte_size;
@@ -358,7 +360,7 @@ static void do_read_filename(deark *c, lctx *d,
 	de_encoding from_encoding;
 
 	ucstring_empty(dd->fname);
-	from_encoding = utf8_flag ? DE_ENCODING_UTF8 : DE_ENCODING_CP437;
+	from_encoding = utf8_flag ? DE_ENCODING_UTF8 : d->default_enc_for_filenames;
 	dbuf_read_to_ucstring(c->infile, pos, len, dd->fname, 0, from_encoding);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(dd->fname));
 }
@@ -394,7 +396,7 @@ static void do_comment(deark *c, lctx *d, i64 pos, i64 len, int utf8_flag,
 	de_ext_encoding ee;
 
 	if(len<1) return;
-	ee = utf8_flag ? DE_ENCODING_UTF8 : DE_ENCODING_CP437;
+	ee = utf8_flag ? DE_ENCODING_UTF8 : d->default_enc_for_comments;
 	ee = DE_EXTENC_MAKE(ee, DE_ENCSUBTYPE_HYBRID);
 	if(c->extract_level>=2) {
 		do_comment_extract(c, d, pos, len, ee, ext);
@@ -1868,8 +1870,13 @@ done:
 static void de_run_zip(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	de_encoding enc;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	enc = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->default_enc_for_filenames = enc;
+	d->default_enc_for_comments = enc;
 
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
 
