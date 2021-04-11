@@ -39,8 +39,9 @@ struct dd_codet {
 	u16 oldcode, oldest, newest;
 	u16 older[DD_MAXTABLE], newer[DD_MAXTABLE];
 	u16 charlink[DD_MAXTABLE], charlast[DD_MAXTABLE], charfirst[DD_MAXTABLE];
-	int size[DD_MAXTABLE], used[DD_MAXTABLE], usecount[DD_MAXTABLE];
-	u8 * code[DD_MAXTABLE];
+	int used[DD_MAXTABLE], usecount[DD_MAXTABLE];
+	int size[DD_MAXTABLE];
+	u8 *code[DD_MAXTABLE]; // Points to .size[] malloc'd bytes
 };
 
 struct dd_Ctl {
@@ -179,30 +180,21 @@ static struct dd_codet * dd_DInit (struct dd_Ctl *Ctl)
 
 	ct = (struct dd_codet *) de_malloc(Ctl->c, sizeof(struct dd_codet));
 	for (code = 1; code <= 256; code++) {
-		ct->newer[code] = 0;
-		ct->older[code] = 0;
-		ct->charlink[code] = 0;
 		ct->charlast[code] = code;
 		ct->charfirst[code] = code;
 		ct->code[code] = (u8 *) de_malloc(Ctl->c, 1);
 		ct->code[code][0] = (u8)(code-1);
 		ct->size[code] = 1;
-		ct->used[code] = 0;
 		ct->usecount[code] = 1;
 	}
 	for (code = 257; code <= 4095; code++) {
-		ct->newer[code] = code + 1;
-		ct->older[code] = code - 1;
-		ct->charlink[code] = 0;
-		ct->charlast[code] = 0;
-		ct->charfirst[code] = 0;
-		ct->code[code] = NULL;
-		ct->size[code] = 0;
-		ct->used[code] = 0;
-		ct->usecount[code] = 0;
+		if(code<4095) {
+			ct->newer[code] = code + 1;
+		}
+		if(code>257) {
+			ct->older[code] = code - 1;
+		}
 	}
-	ct->newer[4095] = 0;
-	ct->older[257] = 0;
 	ct->oldest = 257;
 	ct->newest = 4095;
 	ct->j = 1;
@@ -220,6 +212,7 @@ static void dd_DFree(struct dd_Ctl *Ctl, struct dd_codet *ct)
 		if (ct->code[i] != NULL) {
 			de_free(Ctl->c, ct->code[i]);
 			ct->code[i] = NULL;
+			ct->size[i] = 0;
 		}
 	}
 	de_free(Ctl->c, ct);
@@ -269,8 +262,6 @@ static u16 dd_GetLRU (struct dd_Ctl *Ctl, struct dd_codet * ct)
 		dd_PrintEntry(Ctl, ct, tcode);
 	}
 	xcode = ct->charlink[tcode];
-	if (tcode <= 100)
-		tcode = tcode;
 	dd_UnlinkCode (Ctl, ct, tcode);
 
 	if (xcode != 0) {
@@ -283,6 +274,7 @@ static u16 dd_GetLRU (struct dd_Ctl *Ctl, struct dd_codet * ct)
 	if (ct->code[tcode] != NULL) {
 		de_free(Ctl->c, ct->code[tcode]);
 		ct->code[tcode] = NULL;
+		ct->size[tcode] = 0;
 	}
 
 	ct->used[tcode] ++;
@@ -305,26 +297,26 @@ static void dd_ReserveEntry (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 tcode
 static void dd_BuildEntry (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 newcode)
 {
 	u16 lruentry, tcode;
-	int codesize;
-	u8 * codestr;
+	int old_codesize;
+	int new_codesize;
+	u8 *codestr = NULL;
 
 	lruentry = dd_GetLRU(Ctl, ct);
-	codesize = ct->size[ct->oldcode] + 1;
-	if(codesize > DD_MAXTABLE) {
+	old_codesize = ct->size[ct->oldcode];
+	if(old_codesize<1 || !ct->code[ct->oldcode]) {
+		Ctl->err_flag = 1;
+		goto done;
+	}
+	new_codesize = old_codesize + 1;
+	if(new_codesize > DD_MAXTABLE) {
 		Ctl->err_flag = 1;
 		goto done;
 	}
 	// TODO?: This makes a huge total number of memory allocations (though only
 	// about 4096 will be active at any given time). Mabye it should be rewritten
 	// to not do that.
-	codestr = (u8 *) de_malloc(Ctl->c, codesize);
-	if(codesize > 1) {
-		if(!ct->code[ct->oldcode]) {
-			Ctl->err_flag = 1;
-			goto done;
-		}
-		de_memcpy(codestr, ct->code[ct->oldcode], (size_t)codesize - 1);
-	}
+	codestr = (u8 *) de_malloc(Ctl->c, new_codesize);
+	de_memcpy(codestr, ct->code[ct->oldcode], (size_t)old_codesize);
 	if (newcode != lruentry) {
 		tcode = newcode;
 	}
@@ -335,9 +327,10 @@ static void dd_BuildEntry (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 newcode
 		Ctl->err_flag = 1;
 		goto done;
 	}
-	codestr[codesize - 1] = ct->code[tcode][0];
+	codestr[new_codesize - 1] = ct->code[tcode][0];
 	ct->code[lruentry] = codestr;
-	ct->size[lruentry] = codesize;
+	codestr = NULL;
+	ct->size[lruentry] = new_codesize;
 	ct->charlink[lruentry] = ct->oldcode;
 	ct->charfirst[lruentry] = ct->charfirst[ct->charlink[lruentry]];
 	ct->charlast[lruentry] = tcode;
@@ -348,17 +341,19 @@ static void dd_BuildEntry (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 newcode
 	if(Ctl->TraceLevel<1) return;
 	int test;
 	de_strlcpy(Ctl->work, "", sizeof(Ctl->work));
-	for (test = 0; test < codesize; test++) {
+	for (test = 0; test < new_codesize; test++) {
 		de_snprintf(Ctl->work2, sizeof(Ctl->work2), "%2x", codestr[test]);
 		dd_right(Ctl->work3, Ctl->work2, 2);
 		strcat(Ctl->work, Ctl->work3);
 	}
 	dd_tmsg(Ctl, 1, "offset: %4x, newcode: %4x. nused: %4x, lru: %4x, lused: %4x, size: %4d, str: %s",
-		(UI)Ctl->inf_pos, newcode, ct->used[newcode], lruentry, ct->used[lruentry], codesize, Ctl->work);
+		(UI)Ctl->inf_pos, newcode, ct->used[newcode], lruentry, ct->used[lruentry], new_codesize, Ctl->work);
 #endif
 
 done:
-	;
+	if(codestr) {
+		de_free(Ctl->c, codestr);
+	}
 }
 
 //*******************************************************************

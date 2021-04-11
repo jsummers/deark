@@ -1127,7 +1127,6 @@ void de_module_fat(deark *c, struct deark_module_info *mi)
 
 struct skf_ctx {
 	int new_fmt;
-	int opt_decompress;
 	int is_compressed;
 	i64 hdr_size;
 };
@@ -1152,13 +1151,6 @@ static void loaddskf_decompress(deark *c, struct skf_ctx *d)
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
 	dbuf *outf = NULL;
-
-	d->opt_decompress = de_get_ext_option_bool(c, "loaddskf:decompress", 0);
-	if(!d->opt_decompress) {
-		de_err(c, "The LoadDskF decompressor hasn't been audited for security, and "
-			"is disabled by default. Use \"-opt loaddskf:decompress\" to enable.");
-		goto done;
-	}
 
 	if(d->hdr_size<2 || d->hdr_size > c->infile->len) goto done;
 	outf = dbuf_create_output_file(c, "unc.dsk", NULL, 0);
@@ -1208,17 +1200,21 @@ done:
 static void de_run_loaddskf(deark *c, de_module_params *mparams)
 {
 	struct skf_ctx *d = NULL;
+	const char *subfmt_name;
 	UI sig;
 
 	d = de_malloc(c, sizeof(struct skf_ctx));
 	sig = (UI)de_getu16be(0);
 	switch(sig) {
 	case 0xaa58:
+		subfmt_name = "old";
 		break;
 	case 0xaa59:
+		subfmt_name = "new";
 		d->new_fmt = 1;
 		break;
 	case 0xaa5a:
+		subfmt_name = "new, compressed";
 		d->new_fmt = 1;
 		d->is_compressed = 1;
 		break;
@@ -1227,6 +1223,7 @@ static void de_run_loaddskf(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
+	de_declare_fmtf(c, "LoadDskF (%s)", subfmt_name);
 	if(!loaddskf_read_header(c, d)) goto done;
 	if(d->is_compressed) {
 		loaddskf_decompress(c, d);
@@ -1253,16 +1250,10 @@ static int de_identify_loaddskf(deark *c)
 	return 0;
 }
 
-static void de_help_loaddskf(deark *c)
-{
-	de_msg(c, "-opt loaddskf:decompress : Enable decompression (experimental)");
-}
-
 void de_module_loaddskf(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "loaddskf";
 	mi->desc = "LoadDskF/SaveDskF disk image";
 	mi->run_fn = de_run_loaddskf;
 	mi->identify_fn = de_identify_loaddskf;
-	mi->help_fn = de_help_loaddskf;
 }
