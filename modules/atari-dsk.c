@@ -2,7 +2,6 @@
 // Copyright (C) 2016 Jason Summers
 // See the file COPYING for terms of use.
 
-#include <deark-config.h>
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_atari_cas);
 DE_DECLARE_MODULE(de_module_atr);
@@ -58,7 +57,7 @@ static int de_identify_cas(deark *c)
 void de_module_atari_cas(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "cas";
-	mi->desc = "Atari CAS tape image format";
+	mi->desc = "Atari CAS tape image";
 	mi->run_fn = de_run_cas;
 	mi->identify_fn = de_identify_cas;
 	mi->flags |= DE_MODFLAG_NONWORKING;
@@ -280,7 +279,7 @@ static int de_identify_atr(deark *c)
 void de_module_atr(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "atr";
-	mi->desc = "ATR Atari floppy disk image format";
+	mi->desc = "ATR Atari floppy disk image";
 	mi->run_fn = de_run_atr;
 	mi->identify_fn = de_identify_atr;
 }
@@ -564,7 +563,7 @@ static void de_help_msa(deark *c)
 void de_module_msa(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "msa";
-	mi->desc = "MSA - Atari ST floppy disk image format";
+	mi->desc = "MSA - Atari ST floppy disk image";
 	mi->run_fn = de_run_msa;
 	mi->identify_fn = de_identify_msa;
 	mi->help_fn = de_help_msa;
@@ -987,7 +986,7 @@ static void de_help_pasti(deark *c)
 void de_module_pasti(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "pasti";
-	mi->desc = "Pasti - Atari ST floppy disk image format";
+	mi->desc = "Pasti - Atari ST floppy disk image";
 	mi->run_fn = de_run_pasti;
 	mi->identify_fn = de_identify_pasti;
 	mi->help_fn = de_help_pasti;

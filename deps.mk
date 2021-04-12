@@ -12,8 +12,8 @@ $(OBJDIR)/modules/ansiart.o: modules/ansiart.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/apm.o: modules/apm.c src/deark-config.h \
  src/deark-private.h src/deark.h
-$(OBJDIR)/modules/apple2-dsk.o: modules/apple2-dsk.c src/deark-config.h \
- src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/apple2-dsk.o: modules/apple2-dsk.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/applesd.o: modules/applesd.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/ar.o: modules/ar.c src/deark-config.h \
@@ -26,8 +26,8 @@ $(OBJDIR)/modules/arj.o: modules/arj.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/asf.o: modules/asf.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
-$(OBJDIR)/modules/atari-dsk.o: modules/atari-dsk.c src/deark-config.h \
- src/deark-private.h src/deark.h
+$(OBJDIR)/modules/atari-dsk.o: modules/atari-dsk.c src/deark-private.h \
+ src/deark.h src/deark-config.h
 $(OBJDIR)/modules/atari-img.o: modules/atari-img.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/autocad.o: modules/autocad.c src/deark-config.h \
@@ -74,12 +74,12 @@ $(OBJDIR)/modules/ebml.o: modules/ebml.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/emf.o: modules/emf.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
-$(OBJDIR)/modules/epocimage.o: modules/epocimage.c src/deark-config.h \
- src/deark-private.h src/deark.h
+$(OBJDIR)/modules/epocimage.o: modules/epocimage.c src/deark-private.h \
+ src/deark.h src/deark-config.h
 $(OBJDIR)/modules/eps.o: modules/eps.c src/deark-config.h \
  src/deark-private.h src/deark.h
-$(OBJDIR)/modules/exe.o: modules/exe.c src/deark-config.h \
- src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/exe.o: modules/exe.c src/deark-private.h src/deark.h \
+ src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/fat.o: modules/fat.c src/deark-private.h src/deark.h \
  src/deark-config.h src/deark-fmtutil.h modules/../foreign/dskdcmps.h
 $(OBJDIR)/modules/flac.o: modules/flac.c src/deark-config.h \
@@ -112,8 +112,8 @@ $(OBJDIR)/modules/iccprofile.o: modules/iccprofile.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/icns.o: modules/icns.c src/deark-config.h \
  src/deark-private.h src/deark.h
-$(OBJDIR)/modules/ico.o: modules/ico.c src/deark-config.h \
- src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/ico.o: modules/ico.c src/deark-private.h src/deark.h \
+ src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/id3.o: modules/id3.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/iff.o: modules/iff.c src/deark-config.h \

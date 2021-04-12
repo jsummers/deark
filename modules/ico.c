@@ -4,7 +4,6 @@
 
 // Windows ICO and CUR formats
 
-#include <deark-config.h>
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_ico);
@@ -348,7 +347,7 @@ static int de_identify_ico(deark *c)
 void de_module_ico(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ico";
-	mi->desc = "Microsoft Windows icon/cursor";
+	mi->desc = "Windows icon/cursor";
 	mi->run_fn = de_run_ico;
 	mi->identify_fn = de_identify_ico;
 }
@@ -523,7 +522,7 @@ static int de_identify_win1ico(deark *c)
 void de_module_win1ico(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "win1ico";
-	mi->desc = "Microsoft Windows 1.0 icon/cursor";
+	mi->desc = "Windows 1.0 icon/cursor";
 	mi->run_fn = de_run_win1ico;
 	mi->identify_fn = de_identify_win1ico;
 }
