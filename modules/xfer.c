@@ -23,7 +23,7 @@ struct uu_hdr_parser {
 };
 
 typedef struct localctx_struct {
-	int cbuf_count;
+	UI cbuf_count;
 	u8 cbuf[5];
 
 #define FMT_BASE64    1
@@ -610,8 +610,10 @@ static void do_ascii85_data_char_processed(deark *c, lctx *d, dbuf *f, i64 linen
 		do_ascii85_flush(c, d, f);
 	}
 
-	d->cbuf[d->cbuf_count] = x;
-	d->cbuf_count++;
+	if(d->cbuf_count<(UI)sizeof(d->cbuf)) {
+		d->cbuf[d->cbuf_count] = x;
+		d->cbuf_count++;
+	}
 }
 
 static void do_ascii85_data_char_raw(deark *c, lctx *d, dbuf *f, i64 linenum,
