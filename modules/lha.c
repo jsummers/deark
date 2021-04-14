@@ -91,6 +91,7 @@ struct member_data {
 
 typedef struct localctx_struct {
 	de_encoding input_encoding;
+	u8 lh1_enabled_code;
 	u8 hlev_of_first_member;
 	u8 swg_fmt;
 	u8 lhark_fmt;
@@ -712,6 +713,14 @@ static void decompress_uncompressed(deark *c, lctx *d, struct member_data *md,
 	fmtutil_decompress_uncompressed(c, dcmpri, dcmpro, dres, 0);
 }
 
+static void decompress_lh1(deark *c, lctx *d, struct member_data *md,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	if(d->lh1_enabled_code!=1) return;
+	fmtutil_lh1_codectype1(c, dcmpri, dcmpro, dres, NULL);
+}
+
 // Caller supplies fmt (DE_LH5X_FMT_*).
 static void decompress_lh5x_internal(deark *c, lctx *d,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
@@ -787,7 +796,7 @@ struct cmpr_meth_array_item {
 static const struct cmpr_meth_array_item cmpr_meth_arr[] = {
 	{ 0x00, CODE_lhd, "directory", NULL },
 	{ 0x00, CODE_lh0, "uncompressed", decompress_uncompressed },
-	{ 0x00, CODE_lh1, "LZ77-4K, adaptive Huffman", NULL },
+	{ 0x00, CODE_lh1, "LZ77-4K, adaptive Huffman", decompress_lh1 },
 	{ 0x00, CODE_lh4, NULL, decompress_lh5x_auto },
 	{ 0x00, CODE_lh5, "LZ77-8K, static Huffman", decompress_lh5 },
 	{ 0x00, CODE_lh6, "LZ77-32K, static Huffman", decompress_lh5x_auto },
@@ -871,6 +880,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	dbuf *outf = NULL;
 	u32 crc_calc;
 	int tsidx;
+	u8 dcmpr_disabled = 0;
 	u8 dcmpr_attempted = 0;
 	u8 dcmpr_ok = 0;
 	struct de_dfilter_in_params dcmpri;
@@ -878,6 +888,15 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	struct de_dfilter_results dres;
 
 	if(!md->cmi) goto done;
+
+	if(md->cmi->uniq_id==CODE_lh1) {
+		// Disabled by default, pending security audit and testing.
+		if(d->lh1_enabled_code==255) {
+			d->lh1_enabled_code = (u8)de_get_ext_option_bool(c, "lha:lh1", 0);
+		}
+		if(d->lh1_enabled_code!=1) dcmpr_disabled = 1;
+	}
+
 	if(md->is_special) {
 		de_dbg(c, "[not extracting special file]");
 		goto done;
@@ -885,7 +904,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	else if(md->is_dir) {
 		;
 	}
-	else if(!(md->cmi->decompressor)) {
+	else if((!md->cmi->decompressor) || dcmpr_disabled) {
 		if(!d->unsupp_warned) {
 			de_info(c, "Note: LHA support is incomplete. Some common "
 				"compression methods are not supported.");
@@ -1399,6 +1418,7 @@ static void do_run_lha_internal(deark *c, de_module_params *mparams, int is_swg)
 	if(is_swg) d->swg_fmt = 1;
 
 	d->lhark_fmt = (u8)de_get_ext_option_bool(c, "lha:lhark", 0);
+	d->lh1_enabled_code = 255; // undetermined
 
 	// It's not really safe to guess CP437, because Japanese-encoded (CP932?)
 	// filenames are common.

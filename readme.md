@@ -377,6 +377,8 @@ files.
 
 Thanks to James Ashton for much of the code used by the X-Face format decoder.
 
+Thanks to Haruyasu Yoshizaki and Haruhiko Okumura for the lzhuf.c decompressor.
+
 Thanks to countless others who have documented the supported file formats.
 
 ## Authors ##

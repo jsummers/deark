@@ -156,8 +156,10 @@ static void print_license(deark *c)
 	"----------\n"
 	"The zlib and Deflate encoder and decoder use MIT-licensed code from miniz,\n"
 	"(c) Rich Geldreich, Tenacious Software, RAD Game Tools, Valve Software.\n\n"
-	"The LoadDskF module uses public domain code from the dskdcmps utility, by an\n"
-	"unknown author.\n\n"
+	"Some adaptive Huffman decoders use code from lzhuf.c, by Haruyasu Yoshizaki\n"
+	"et al.\n\n"
+	"The LoadDskF module uses public domain code from dskdcmps, by an unknown\n"
+	"author.\n\n"
 	"The X-Face decoder uses code from Compface, Copyright (c) 1990 James Ashton.\n");
 }
 
