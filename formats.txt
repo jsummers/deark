@@ -686,6 +686,11 @@ Deark -- Information about supported formats
    -opt lha:lhark - Assume "lh7" compression is LHARK format, instead of the
      standard lh7 format. (Unfortunately, autodetecting LHARK is impractical.)
 
+* LoadDskF/SaveDskF (module=loaddskf)
+  An OS/2 floppy disk image format.
+  - Non-compressed files are interpreted as FAT.
+  - Compressed files are decompressed.
+
 * LZWCOM (module="lzwcom")
   LZWCOM/LZWUNC is an old file compression utility.
   - Not autodetected; you must use "-m lzwcom". In rare cases, you must also

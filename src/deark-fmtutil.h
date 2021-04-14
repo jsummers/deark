@@ -265,7 +265,6 @@ void fmtutil_decompress_zip_reduce(deark *c, struct de_dfilter_in_params *dcmpri
 
 struct de_zipimplode_params {
 	unsigned int bit_flags;
-	u8 dump_trees;
 	u8 mml_bug;
 };
 void fmtutil_decompress_zip_implode(deark *c, struct de_dfilter_in_params *dcmpri,

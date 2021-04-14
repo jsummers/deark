@@ -76,7 +76,7 @@ static int do_read_paths(deark *c, lctx *d)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	if(d->num_paths > 255) {
-		// Number of paths can't be than 255 in the known versions of the format,
+		// Number of paths can't be >255 in the known versions of the format,
 		// because paths are indexed by a 1-byte int.
 		d->num_paths = 255;
 	}

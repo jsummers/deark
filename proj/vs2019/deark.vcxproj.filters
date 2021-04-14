@@ -508,6 +508,9 @@
     <ClCompile Include="..\..\modules\isz.c">
       <Filter>Modules</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\modules\os2ea.c">
+      <Filter>Modules</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\deark-config.h">
@@ -544,6 +547,9 @@
       <Filter>Foreign Code</Filter>
     </ClInclude>
     <ClInclude Include="..\..\foreign\miniz.h">
+      <Filter>Foreign Code</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\foreign\dskdcmps.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>
   </ItemGroup>

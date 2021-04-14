@@ -2,9 +2,8 @@
 // Copyright (C) 2016 Jason Summers
 // See the file COPYING for terms of use.
 
-// Microsoft EXE executable formats.
+// EXE executable formats
 
-#include <deark-config.h>
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_exe);
@@ -1355,7 +1354,7 @@ static int de_identify_exe(deark *c)
 void de_module_exe(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "exe";
-	mi->desc = "Microsoft EXE executable (PE, NE, LX)";
+	mi->desc = "EXE executable (PE, NE, etc.)";
 	mi->run_fn = de_run_exe;
 	mi->identify_fn = de_identify_exe;
 }

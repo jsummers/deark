@@ -89,6 +89,8 @@ struct extra_item_info_struct {
 };
 
 struct localctx_struct {
+	de_encoding default_enc_for_filenames;
+	de_encoding default_enc_for_comments;
 	i64 end_of_central_dir_pos;
 	i64 central_dir_num_entries;
 	i64 central_dir_byte_size;
@@ -143,7 +145,6 @@ static void do_decompress_implode(deark *c, lctx *d, struct compression_params *
 
 	de_zeromem(&params, sizeof(struct de_zipimplode_params));
 	params.bit_flags = cparams->bit_flags;
-	params.dump_trees = (u8)de_get_ext_option_bool(c, "zip:dumptrees", 0);
 	params.mml_bug = (u8)de_get_ext_option_bool(c, "zip:implodebug", 0);
 	fmtutil_decompress_zip_implode(c, dcmpri, dcmpro, dres, &params);
 }
@@ -297,9 +298,10 @@ done:
 // Only call this if the compression method is supported -- Call
 //   is_compression_method_supported() first.
 // outf is assumed to be a membuf.
+// dcflags: 0x1 = Validate the crc_reported param.
 static int do_decompress_attrib_data(deark *c, lctx *d,
 	i64 dpos, i64 dlen, dbuf *outf, i64 uncmprsize, u32 crc_reported,
-	int cmpr_meth, const struct cmpr_meth_info *cmi, const char *name)
+	int cmpr_meth, const struct cmpr_meth_info *cmi, UI flags, const char *name)
 {
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
@@ -320,7 +322,7 @@ static int do_decompress_attrib_data(deark *c, lctx *d,
 		goto done; // Could report the error, but this isn't critical data
 	}
 
-	if(cmpr_meth != 0) {
+	if(flags & 0x1) {
 		de_crcobj_reset(d->crco);
 		de_crcobj_addslice(d->crco, outf, 0, outf->len);
 		crc_calculated = de_crcobj_getval(d->crco);
@@ -358,7 +360,7 @@ static void do_read_filename(deark *c, lctx *d,
 	de_encoding from_encoding;
 
 	ucstring_empty(dd->fname);
-	from_encoding = utf8_flag ? DE_ENCODING_UTF8 : DE_ENCODING_CP437;
+	from_encoding = utf8_flag ? DE_ENCODING_UTF8 : d->default_enc_for_filenames;
 	dbuf_read_to_ucstring(c->infile, pos, len, dd->fname, 0, from_encoding);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(dd->fname));
 }
@@ -394,7 +396,7 @@ static void do_comment(deark *c, lctx *d, i64 pos, i64 len, int utf8_flag,
 	de_ext_encoding ee;
 
 	if(len<1) return;
-	ee = utf8_flag ? DE_ENCODING_UTF8 : DE_ENCODING_CP437;
+	ee = utf8_flag ? DE_ENCODING_UTF8 : d->default_enc_for_comments;
 	ee = DE_EXTENC_MAKE(ee, DE_ENCSUBTYPE_HYBRID);
 	if(c->extract_level>=2) {
 		do_comment_extract(c, d, pos, len, ee, ext);
@@ -679,7 +681,7 @@ static void ef_os2(deark *c, lctx *d, struct extra_item_info_struct *eii)
 
 	attr_data = dbuf_create_membuf(c, ulen, 0x1);
 	ret = do_decompress_attrib_data(c, d, pos, cmpr_attr_size,
-		attr_data, ulen, crc_reported, cmpr_meth, cmi, name);
+		attr_data, ulen, crc_reported, cmpr_meth, cmi, 0x1, name);
 	if(!ret) {
 		de_warn(c, "Failed to decompress %s", name);
 		goto done;
@@ -756,6 +758,7 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	struct de_timestamp tmp_timestamp;
 	int charset;
 	u32 crc_reported = 0;
+	UI dcflags = 0;
 	struct de_stringreaderdata *srd;
 
 	if(eii->dlen<14) goto done;
@@ -786,6 +789,7 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 		cmpr_meth = 0;
 	}
 	else {
+		dcflags |= 0x1; // CRC is known
 		cmpr_meth = (int)de_getu16le_p(&pos);
 		cmi = get_cmpr_meth_info(cmpr_meth);
 		de_dbg(c, "finder attr. cmpr. method: %d (%s)", cmpr_meth, (cmi ? cmi->name : "?"));
@@ -810,7 +814,7 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	// Decompress and decode the Finder attribute data
 	attr_data = dbuf_create_membuf(c, ulen, 0x1);
 	ret = do_decompress_attrib_data(c, d, pos, cmpr_attr_size,
-		attr_data, ulen, crc_reported, cmpr_meth, cmi, "finder attr. data");
+		attr_data, ulen, crc_reported, cmpr_meth, cmi, dcflags, "finder attr. data");
 	if(!ret) {
 		de_warn(c, "Failed to decompress finder attribute data");
 		goto done;
@@ -1866,8 +1870,13 @@ done:
 static void de_run_zip(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	de_encoding enc;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	enc = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->default_enc_for_filenames = enc;
+	d->default_enc_for_comments = enc;
 
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
 

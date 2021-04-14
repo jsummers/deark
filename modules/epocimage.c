@@ -4,7 +4,6 @@
 
 // EPOC MBM, EPOC Sketch, EPOC AIF
 
-#include <deark-config.h>
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_epocimage);
 
@@ -729,7 +728,7 @@ static int de_identify_epocimage(deark *c)
 void de_module_epocimage(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "epocimage";
-	mi->desc = "EPOC MBM (a.k.a. Symbian Multibitmap), EPOC Sketch, EPOC AIF";
+	mi->desc = "EPOC/Symbian MBM, Sketch, AIF";
 	mi->run_fn = de_run_epocimage;
 	mi->identify_fn = de_identify_epocimage;
 }

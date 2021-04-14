@@ -758,7 +758,7 @@ static void do_image_huffman1d(deark *c, lctx *d)
 	fax34params.out_rowspan = d->rowspan;
 	fax34params.tiff_cmpr_meth = 3;
 	fax34params.t4options = 0;
-	fax34params.is_lsb = 0;
+	fax34params.is_lsb = (u8)de_get_ext_option_bool(c, "bmp:huffmanlsb", 0);
 
 	unc_pixels = dbuf_create_membuf(c, d->rowspan*d->height, 0x1);
 

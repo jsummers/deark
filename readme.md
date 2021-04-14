@@ -37,12 +37,8 @@ Command-line options:
    Extract only "auxiliary" files, such as thumbnail images.
 -a, -extractall
    Extract more data than usual, including things that are rarely of interest,
-   such as comments. See also the "-opt extract..." options.
-   Note that, as a general rule, Deark doesn't extract the same data twice.
-   In rare cases, the -a option can actually *prevent* it from extracting
-   certain data, because it may now, for example, extract a block of Exif
-   data, instead of drilling down and extracting the thumbnail image within
-   it.
+   such as comments. See also the "-opt extract..." options, and the format-
+   specific options in technical.md.
 -o &lt;name>
    Output filenames begin with this string. This can include a directory
    path. Default is "output", except in some cases when using -zip/-tar.
@@ -246,8 +242,9 @@ Command-line options:
    Suppress warning messages.
 -q
    Suppress informational and warning messages.
--d, -d2, -d3
-   Print technical and debugging information. -d2 and -d3 are more verbose.
+-d, -d2, -d3, -d4
+   Print technical information about the contents of the file. -d2 is more
+   verbose. -d3 are -d4 are mainly for debugging.
 -dprefix &lt;msg>
    Start each line printed by -d with this prefix. Default is "DEBUG: ".
 -colormode &lt;none|auto|ansi|ansi24|winconsole>
@@ -374,6 +371,9 @@ See the [technical.md](technical.md) file.
 ## Acknowledgements ##
 
 Thanks to Rich Geldreich for the miniz library.
+
+Thanks to the author of dskdcmps for the code used to decompress LoadDskF
+files.
 
 Thanks to James Ashton for much of the code used by the X-Face format decoder.
 

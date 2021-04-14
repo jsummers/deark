@@ -288,9 +288,12 @@ use Cygwin.
 
 When doing a Windows (Win32 API) build, the Makefile is not intended to be used
 directly (without configuration). For MinGW and similar compilers, it is
-recommended to use a script, e.g. scripts/example-build-mingw.sh. There are
-changes planned that may make this easier, but it might never "just work"
-automatically.
+recommended to use a script (e.g. scripts/example-build-mingw.sh) or local*.mk
+files.
+
+Note that for Windows, Deark unconditionally uses Unicode API functions like
+fputws() and GetFileAttributesW(), so it's not possible to do a "non-Unicode"
+build.
 
 ## Developer notes ##
 
@@ -301,9 +304,9 @@ be compatible with most modern compilers, without special options.
 
 It is mostly compatible with a rather old version of C, almost C89 but with
 "//" comments. But that's subject to change. For instance, putting declarations
-only at the beginning of functions is really only still being done due to
-inertia (it used to be tested on a compiler that required it), and is likely to
-be abandoned at some point.
+only at the beginning of functions is no longer required (Deark used to be
+tested on a compiler that required it), though it is still often done out of
+habit.
 
 ### Other notes ###
 
@@ -311,6 +314,9 @@ Maximizing execution speed is not a goal of Deark. This is a deliberate
 concession. The focus is on making the code easy to write, easy to read, and to
 minimize the chance of bugs. (Serious performace issues will still be
 addressed, though.)
+
+The Deark executable size is a consideration. A suggested feature might be
+declined if it would involve too much bloat.
 
 Deark is intended to be compiled as a 64-bit application. It uses 64-bit
 integers pervasively. It can be compiled as a 32-bit app (provided the compiler

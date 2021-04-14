@@ -4,7 +4,6 @@
 
 // Apple II disk image formats, etc.
 
-#include <deark-config.h>
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_woz);
@@ -216,7 +215,7 @@ static int de_identify_woz(deark *c)
 void de_module_woz(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "woz";
-	mi->desc = "WOZ floppy disk image format";
+	mi->desc = "WOZ floppy disk image";
 	mi->desc2 = "metadata only";
 	mi->run_fn = de_run_woz;
 	mi->identify_fn = de_identify_woz;
