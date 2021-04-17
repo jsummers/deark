@@ -735,7 +735,9 @@ done:
 static int huffman_record_len_for_range(deark *c, struct fmtutil_huffman_decoder *ht,
 	fmtutil_huffman_valtype range_start, i64 count, UI codelen)
 {
-	for(i64 i=0; i<count; i++) {
+	i64 i;
+
+	for(i=0; i<count; i++) {
 		int ret = fmtutil_huffman_record_a_code_length(c, ht->builder,
 			range_start+(fmtutil_huffman_valtype)i, codelen);
 		if(!ret) return 0;

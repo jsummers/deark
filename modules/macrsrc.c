@@ -152,7 +152,9 @@ static void finalize_icns_stream(deark *c, lctx *d, dbuf *tmpf)
 
 static void finalize_icns_streams(deark *c, lctx *d)
 {
-	for(size_t i=0; i<d->num_icns_streams_used; i++) {
+	size_t i;
+
+	for(i=0; i<d->num_icns_streams_used; i++) {
 		if(d->icns_strm[i].tmpf) {
 			finalize_icns_stream(c, d, d->icns_strm[i].tmpf);
 			dbuf_close(d->icns_strm[i].tmpf);

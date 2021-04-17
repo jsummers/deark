@@ -274,6 +274,7 @@ static void typedec_tagArray_tagStruct(deark *c, struct typedec_params *p)
 	i64 endpos = p->pos1 + p->len;
 	int is_struct = (p->type_id == 0x74737472U);
 	i64 array_item_size;
+	i64 i;
 	const char *struct_name;
 	int saved_indent_level;
 
@@ -293,7 +294,7 @@ static void typedec_tagArray_tagStruct(deark *c, struct typedec_params *p)
 		format_4cc_dbgstr(&ty4cc, tmpbuf, sizeof(tmpbuf), 0));
 	num_elems = de_getu32be_p(&pos);
 	de_dbg(c, "number of elements: %"I64_FMT, num_elems);
-	for(i64 i=0; i<num_elems && i<100; i++) {
+	for(i=0; i<num_elems && i<100; i++) {
 		i64 elem_pos_rel, elem_pos_abs;
 		i64 elem_dlen;
 

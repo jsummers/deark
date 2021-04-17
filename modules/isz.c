@@ -315,7 +315,9 @@ static void de_run_is_z(deark *c, de_module_params *mparams)
 done:
 	if(d) {
 		if(d->dir_array) {
-			for(i64 i=0; i<d->num_dirs; i++) {
+			i64 i;
+
+			for(i=0; i<d->num_dirs; i++) {
 				ucstring_destroy(d->dir_array[i].dname);
 			}
 			de_free(c, d->dir_array);
