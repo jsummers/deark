@@ -32,7 +32,6 @@ struct lzahuf_ctx {
 	struct de_dfilter_results *dres;
 	int errflag;
 	i64 nbytes_written;
-	i64 textsize;
 	struct de_lz77buffer *ringbuf;
 	struct de_bitreader bitrd;
 
@@ -115,12 +114,19 @@ static void lzhuf_update(struct lzahuf_ctx *cctx, int c)
 {
 	int i, j, l;
 	UI k;
+	int counter = 0;
 
 	if (cctx->freq[LZHUF_R] == LZHUF_MAX_FREQ) {
 		lzhuf_reconst(cctx);
 	}
 	c = cctx->prnt[c + LZHUF_T];
 	do {
+		counter++;
+		if(counter > LZHUF_T) { // infinite loop?
+			cctx->errflag = 1;
+			return;
+		}
+
 		k = ++cctx->freq[c];
 
 		/* if the order is disturbed, exchange nodes */
@@ -149,6 +155,7 @@ static void lzhuf_update(struct lzahuf_ctx *cctx, int c)
 static int lzhuf_DecodeChar(struct lzahuf_ctx *cctx)
 {
 	UI c;
+	int counter = 0;
 
 	c = cctx->son[LZHUF_R];
 
@@ -156,6 +163,12 @@ static int lzhuf_DecodeChar(struct lzahuf_ctx *cctx)
 	/* choosing the smaller child node (son[]) if the read bit is 0, */
 	/* the bigger (son[]+1} if 1 */
 	while (c < LZHUF_T) {
+		counter++;
+		if(counter > LZHUF_T) { // infinite loop?
+			cctx->errflag = 1;
+			return 0;
+		}
+
 		c += (UI)de_bitreader_getbits(&cctx->bitrd, 1);
 		c = cctx->son[c];
 	}
@@ -179,11 +192,21 @@ static int lzhuf_DecodePosition(struct lzahuf_ctx *cctx)
 	return c | (i & 0x3f);
 }
 
+static int lzah_have_enough_output(struct lzahuf_ctx *cctx)
+{
+	if(cctx->dcmpro->len_known) {
+		if(cctx->nbytes_written >= cctx->dcmpro->expected_len) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
 static void lzah_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 {
 	struct lzahuf_ctx *cctx = (struct lzahuf_ctx*)rb->userdata;
 
-	if(cctx->nbytes_written >= cctx->textsize) {
+	if(lzah_have_enough_output(cctx)) {
 		return;
 	}
 	dbuf_writebyte(cctx->dcmpro->f, n);
@@ -194,14 +217,6 @@ static void lzhuf_Decode(struct lzahuf_ctx *cctx)  /* recover */
 {
 	int i, j, c;
 
-	if(cctx->dcmpro->len_known) {
-		cctx->textsize = cctx->dcmpro->expected_len;
-	}
-	else {
-		de_dfilter_set_generic_error(cctx->c, cctx->dres, cctx->modname);
-		goto done;
-	}
-
 	lzhuf_StartHuff(cctx);
 
 	cctx->ringbuf = de_lz77buffer_create(cctx->c, LZHUF_N);
@@ -211,7 +226,8 @@ static void lzhuf_Decode(struct lzahuf_ctx *cctx)  /* recover */
 	de_lz77buffer_set_curpos(cctx->ringbuf, LZHUF_N - LZHUF_F);
 
 	while(1) {
-		if(cctx->nbytes_written >= cctx->textsize) {
+		if(cctx->errflag) goto done;
+		if(lzah_have_enough_output(cctx)) {
 			goto done;
 		}
 		if(cctx->bitrd.eof_flag) {
@@ -219,12 +235,15 @@ static void lzhuf_Decode(struct lzahuf_ctx *cctx)  /* recover */
 		}
 
 		c = lzhuf_DecodeChar(cctx);
+		if(cctx->errflag) goto done;
 		if (c < 256) {
 			de_lz77buffer_add_literal_byte(cctx->ringbuf, (u8)c);
 		}
 		else {
 			// i is the distance back
 			i = lzhuf_DecodePosition(cctx);
+			if(cctx->errflag) goto done;
+
 			// j is the match length
 			j = c - 255 + LZHUF_THRESHOLD;
 
@@ -234,6 +253,9 @@ static void lzhuf_Decode(struct lzahuf_ctx *cctx)  /* recover */
 	}
 
 done:
+	if(cctx->errflag) {
+		de_dfilter_set_generic_error(cctx->c, cctx->dres, cctx->modname);
+	}
 	de_lz77buffer_destroy(cctx->c, cctx->ringbuf);
 	cctx->ringbuf = NULL;
 }
