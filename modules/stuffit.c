@@ -225,6 +225,15 @@ done:
 	}
 }
 
+// -------- LZAH (type 5) decompression --------
+
+static void do_decompr_lzah(deark *c, lctx *d, struct member_data *md,
+	struct fork_data *frk, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
+{
+	fmtutil_lh1_codectype1(c, dcmpri, dcmpro, dres, NULL);
+}
+
 // -------- "Fixed Huffman" (type 6) decompression --------
 
 // There are FIXEDHUFF_NUMCODES Huffman codes, whose low-level decoded values
@@ -510,7 +519,7 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ CMPR_RLE, "RLE",  do_decompr_rle },
 	{ CMPR_LZW, "LZW", do_decompr_lzw },
 	{ CMPR_HUFFMAN, "Huffman", do_decompr_huffman },
-	{ CMPR_LZAH, "LZAH", NULL },
+	{ CMPR_LZAH, "LZAH", do_decompr_lzah },
 	{ CMPR_FIXEDHUFF, "fixed Huffman", do_decompr_fixedhuff },
 	{ CMPR_MW, "MW", NULL },
 	{ CMPR_LZHUFF, "LZ+Huffman", NULL },
