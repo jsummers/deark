@@ -44,6 +44,50 @@ struct lzahuf_ctx {
 	u16 son[LZHUF_T];             /* pointers to child nodes (son[], son[] + 1) */
 };
 
+// These getters/setters are ugly, but it's too difficult for me to follow the
+// dancing variables in the lzhuf code, and convince myself that there are no
+// array overruns.
+// Assuming the code is safe, these functions can be replaced by simple macros.
+
+static u16 get_freq(struct lzahuf_ctx *cctx, UI idx)
+{
+	if(idx < (UI)DE_ARRAYCOUNT(cctx->freq)) return cctx->freq[idx];
+	cctx->errflag = 1;
+	return 0;
+}
+
+static void set_freq(struct lzahuf_ctx *cctx, UI idx, u16 val)
+{
+	if(idx < (UI)DE_ARRAYCOUNT(cctx->freq)) cctx->freq[idx] = val;
+	else cctx->errflag = 1;
+}
+
+static u16 get_son(struct lzahuf_ctx *cctx, UI idx)
+{
+	if(idx < (UI)DE_ARRAYCOUNT(cctx->son)) return cctx->son[idx];
+	cctx->errflag = 1;
+	return 0;
+}
+
+static void set_son(struct lzahuf_ctx *cctx, UI idx, u16 val)
+{
+	if(idx < (UI)DE_ARRAYCOUNT(cctx->son)) cctx->son[idx] = val;
+	else cctx->errflag = 1;
+}
+
+static u16 get_prnt(struct lzahuf_ctx *cctx, UI idx)
+{
+	if(idx < (UI)DE_ARRAYCOUNT(cctx->prnt)) return cctx->prnt[idx];
+	cctx->errflag = 1;
+	return 0;
+}
+
+static void set_prnt(struct lzahuf_ctx *cctx, UI idx, u16 val)
+{
+	if(idx < (UI)DE_ARRAYCOUNT(cctx->prnt)) cctx->prnt[idx] = val;
+	else cctx->errflag = 1;
+}
+
 
 /* initialization of tree */
 
@@ -52,22 +96,22 @@ static void lzhuf_StartHuff(struct lzahuf_ctx *cctx)
 	UI i, j;
 
 	for (i = 0; i < LZHUF_N_CHAR; i++) {
-		cctx->freq[i] = 1;
-		cctx->son[i] = i + LZHUF_T;
-		cctx->prnt[i + LZHUF_T] = i;
+		set_freq(cctx, i, 1);
+		set_son(cctx, i, i + LZHUF_T);
+		set_prnt(cctx, i + LZHUF_T, i);
 	}
 	i = 0;
 	j = LZHUF_N_CHAR;
 	while (j <= LZHUF_R) {
-		cctx->freq[j] = cctx->freq[i] + cctx->freq[i + 1];
-		cctx->son[j] = i;
-		cctx->prnt[i] = j;
-		cctx->prnt[i + 1] = j;
+		set_freq(cctx, j, get_freq(cctx, i) + get_freq(cctx, i + 1));
+		set_son(cctx, j, i);
+		set_prnt(cctx, i, j);
+		set_prnt(cctx, i + 1, j);
 		i += 2;
 		j++;
 	}
-	cctx->freq[LZHUF_T] = 0xffff;
-	cctx->prnt[LZHUF_R] = 0;
+	set_freq(cctx, LZHUF_T, 0xffff);
+	set_prnt(cctx, LZHUF_R, 0);
 }
 
 
@@ -82,38 +126,47 @@ static void lzhuf_reconst(struct lzahuf_ctx *cctx)
 	/* and replace the freq by (freq + 1) / 2. */
 	j = 0;
 	for (i = 0; i < LZHUF_T; i++) {
-		if (cctx->son[i] >= LZHUF_T) {
-			cctx->freq[j] = (cctx->freq[i] + 1) / 2;
-			cctx->son[j] = cctx->son[i];
+		if (get_son(cctx, i) >= LZHUF_T) {
+			set_freq(cctx, j, (get_freq(cctx, i) + 1) / 2);
+			set_son(cctx, j, get_son(cctx, i));
 			j++;
 		}
 	}
 	/* begin constructing tree by connecting sons */
 	for (i = 0, j = LZHUF_N_CHAR; j < LZHUF_T; i += 2, j++) {
 		k = i + 1;
-		cctx->freq[j] = cctx->freq[i] + cctx->freq[k];
-		f = cctx->freq[j];
+		set_freq(cctx, j, get_freq(cctx, i) + get_freq(cctx, k));
+		f = get_freq(cctx, j);
 
 		k = j - 1;
-		while(f < cctx->freq[k]) {
+		while(f < get_freq(cctx, k)) {
 			k--;
 		}
 
 		k++;
+
 		l = (j - k);
+		// son[] is smaller than freq[], so bounds check uses son[].
+		if(l > (UI)DE_ARRAYCOUNT(cctx->son) ||
+			k+1+l > (UI)DE_ARRAYCOUNT(cctx->son))
+		{
+			cctx->errflag = 1;
+			return;
+		}
+
 		de_memmove(&cctx->freq[k + 1], &cctx->freq[k], l*sizeof(cctx->freq[0]));
-		cctx->freq[k] = f;
+		set_freq(cctx, k, f);
 		de_memmove(&cctx->son[k + 1], &cctx->son[k], l*sizeof(cctx->son[0]));
-		cctx->son[k] = i;
+		set_son(cctx, k, i);
 	}
 	/* connect prnt */
 	for (i = 0; i < LZHUF_T; i++) {
-		k = cctx->son[i];
+		k = get_son(cctx, i);
 		if (k >= LZHUF_T) {
-			cctx->prnt[k] = i;
+			set_prnt(cctx, k, i);
 		} else {
-			cctx->prnt[k] = i;
-			cctx->prnt[k + 1] = i;
+			set_prnt(cctx, k, i);
+			set_prnt(cctx, k + 1, i);
 		}
 	}
 }
@@ -126,15 +179,18 @@ static void lzhuf_update(struct lzahuf_ctx *cctx, UI c)
 	UI i, j, l;
 	UI k;
 	UI counter = 0;
+	UI r_freq;
 
-	if(cctx->freq[LZHUF_R] > LZHUF_MAX_FREQ) {
+	r_freq = get_freq(cctx, LZHUF_R);
+	if(r_freq > LZHUF_MAX_FREQ) {
 		cctx->errflag = 1;
 		return;
 	}
-	if (cctx->freq[LZHUF_R] == LZHUF_MAX_FREQ) {
+	if (r_freq == LZHUF_MAX_FREQ) {
 		lzhuf_reconst(cctx);
+		if(cctx->errflag) return;
 	}
-	c = cctx->prnt[c + LZHUF_T];
+	c = get_prnt(cctx, c + LZHUF_T);
 	do {
 		if(counter > (UI)DE_ARRAYCOUNT(cctx->prnt)) { // infinite loop?
 			cctx->errflag = 1;
@@ -142,35 +198,35 @@ static void lzhuf_update(struct lzahuf_ctx *cctx, UI c)
 		}
 		counter++;
 
-		cctx->freq[c]++;
-		k = cctx->freq[c];
+		set_freq(cctx, c, get_freq(cctx, c)+1);
+		k = get_freq(cctx, c);
 
 		/* if the order is disturbed, exchange nodes */
 		l = c + 1;
-		if (k > cctx->freq[l]) {
+		if (k > get_freq(cctx, l)) {
 
 			do {
 				l++;
-			} while(k > cctx->freq[l]);
+			} while(k > get_freq(cctx, l));
 
 			l--;
-			cctx->freq[c] = cctx->freq[l];
-			cctx->freq[l] = k;
+			set_freq(cctx, c, get_freq(cctx, l));
+			set_freq(cctx, l, k);
 
-			i = cctx->son[c];
-			cctx->prnt[i] = l;
-			if (i < LZHUF_T) cctx->prnt[i + 1] = l;
+			i = get_son(cctx, c);
+			set_prnt(cctx, i, l);
+			if (i < LZHUF_T) set_prnt(cctx, i + 1, l);
 
-			j = cctx->son[l];
-			cctx->son[l] = i;
+			j = get_son(cctx, l);
+			set_son(cctx, l, i);
 
-			cctx->prnt[j] = c;
-			if (j < LZHUF_T) cctx->prnt[j + 1] = c;
-			cctx->son[c] = j;
+			set_prnt(cctx, j, c);
+			if (j < LZHUF_T) set_prnt(cctx, j + 1, c);
+			set_son(cctx, c, j);
 
 			c = l;
 		}
-		c = cctx->prnt[c];
+		c = get_prnt(cctx, c);
 	} while (c != 0);   /* repeat up to root */
 }
 
@@ -179,7 +235,7 @@ static UI lzhuf_DecodeChar(struct lzahuf_ctx *cctx)
 	UI c;
 	UI counter = 0;
 
-	c = cctx->son[LZHUF_R];
+	c = get_son(cctx, LZHUF_R);
 
 	/* travel from root to leaf, */
 	/* choosing the smaller child node (son[]) if the read bit is 0, */
@@ -192,7 +248,7 @@ static UI lzhuf_DecodeChar(struct lzahuf_ctx *cctx)
 		counter++;
 
 		c += (UI)de_bitreader_getbits(&cctx->bitrd, 1);
-		c = cctx->son[c];
+		c = get_son(cctx, c);
 	}
 	c -= LZHUF_T;
 	lzhuf_update(cctx, c);
