@@ -91,11 +91,9 @@ struct member_data {
 
 typedef struct localctx_struct {
 	de_encoding input_encoding;
-	u8 lh1_enabled_code;
 	u8 hlev_of_first_member;
 	u8 swg_fmt;
 	u8 lhark_fmt;
-	u8 unsupp_warned;
 	u8 lh7_success_flag;
 	u8 lh7_failed_flag;
 	u8 trailer_found;
@@ -717,7 +715,6 @@ static void decompress_lh1(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	if(d->lh1_enabled_code!=1) return;
 	fmtutil_lh1_codectype1(c, dcmpri, dcmpro, dres, NULL);
 }
 
@@ -806,7 +803,7 @@ static const struct cmpr_meth_array_item cmpr_meth_arr[] = {
 	{ 0x00, CODE_lz5, "LZSS-4K (LArc)", decompress_lz5 },
 	{ 0x00, CODE_pm0, "uncompressed (PMArc)", decompress_uncompressed },
 	{ 0x00, CODE_lZ0, "uncompressed (MicroFox PUT)", decompress_uncompressed },
-	{ 0x00, CODE_lZ1, "MicroFox PUT lZ1", NULL },
+	{ 0x00, CODE_lZ1, "MicroFox PUT lZ1", decompress_lh1 },
 	{ 0x00, CODE_lZ5, "MicroFox PUT lZ5", decompress_lh5 },
 	{ 0x00, CODE_S_LH0, "uncompressed (SAR)", decompress_uncompressed },
 	{ 0x00, CODE_S_LH5, "SAR LH5", decompress_lh5 },
@@ -889,14 +886,6 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 
 	if(!md->cmi) goto done;
 
-	if(md->cmi->uniq_id==CODE_lh1) {
-		// Disabled by default, pending security audit and testing.
-		if(d->lh1_enabled_code==255) {
-			d->lh1_enabled_code = (u8)de_get_ext_option_bool(c, "lha:lh1", 0);
-		}
-		if(d->lh1_enabled_code!=1) dcmpr_disabled = 1;
-	}
-
 	if(md->is_special) {
 		de_dbg(c, "[not extracting special file]");
 		goto done;
@@ -905,11 +894,6 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		;
 	}
 	else if((!md->cmi->decompressor) || dcmpr_disabled) {
-		if(!d->unsupp_warned) {
-			de_info(c, "Note: LHA support is incomplete. Some common "
-				"compression methods are not supported.");
-			d->unsupp_warned = 1;
-		}
 		de_err(c, "%s: Unsupported compression method '%s'",
 			ucstring_getpsz_d(md->fullfilename), md->cmi->id_printable_sz);
 		goto done;
@@ -1418,7 +1402,6 @@ static void do_run_lha_internal(deark *c, de_module_params *mparams, int is_swg)
 	if(is_swg) d->swg_fmt = 1;
 
 	d->lhark_fmt = (u8)de_get_ext_option_bool(c, "lha:lhark", 0);
-	d->lh1_enabled_code = 255; // undetermined
 
 	// It's not really safe to guess CP437, because Japanese-encoded (CP932?)
 	// filenames are common.
@@ -1787,8 +1770,7 @@ static int do_arx_member(deark *c, struct arx_ctx *d, struct arx_member_data *md
 
 	// No source for the low byte of CRC. ARX doesn't save it.
 	// (The extra byte after the compression method is not it.)
-	// Until we support lh1 decompression, we have no way to recalculate it.
-	// TODO: We could recalculate it for uncompressed files.
+	// TODO: Calculate the correct value.
 	dbuf_writebyte(d->hdr_tmp, 00);
 
 	if(is_uncompressed) {

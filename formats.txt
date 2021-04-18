@@ -680,8 +680,7 @@ Deark -- Information about supported formats
   and CrLZH. Deark doesn't necessarily support all of those formats.
 
 * LHA/LZH/PMA (module="lha")
-  - Not all the major compression methods are supported. Some are supported but
-    experimental.
+  - All common compression methods are supported.
   Options
    -opt lha:lhark - Assume "lh7" compression is LHARK format, instead of the
      standard lh7 format. (Unfortunately, autodetecting LHARK is impractical.)
