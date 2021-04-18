@@ -37,11 +37,11 @@ struct lzahuf_ctx {
 
 	u16 freq[LZHUF_T + 1];   /* frequency table */
 
-	i16 prnt[LZHUF_T + LZHUF_N_CHAR];   /* pointers to parent nodes, except for the */
+	u16 prnt[LZHUF_T + LZHUF_N_CHAR];   /* pointers to parent nodes, except for the */
 							/* elements [T..T + N_CHAR - 1] which are used to get */
 							/* the positions of leaves corresponding to the codes. */
 
-	i16 son[LZHUF_T];             /* pointers to child nodes (son[], son[] + 1) */
+	u16 son[LZHUF_T];             /* pointers to child nodes (son[], son[] + 1) */
 };
 
 
@@ -49,7 +49,7 @@ struct lzahuf_ctx {
 
 static void lzhuf_StartHuff(struct lzahuf_ctx *cctx)
 {
-	int i, j;
+	UI i, j;
 
 	for (i = 0; i < LZHUF_N_CHAR; i++) {
 		cctx->freq[i] = 1;
@@ -75,7 +75,7 @@ static void lzhuf_StartHuff(struct lzahuf_ctx *cctx)
 
 static void lzhuf_reconst(struct lzahuf_ctx *cctx)
 {
-	int i, j, k;
+	UI i, j, k;
 	UI f, l;
 
 	/* collect leaf nodes in the first half of the table */
@@ -121,9 +121,9 @@ static void lzhuf_reconst(struct lzahuf_ctx *cctx)
 
 /* increment frequency of given code by one, and update tree */
 
-static void lzhuf_update(struct lzahuf_ctx *cctx, int c)
+static void lzhuf_update(struct lzahuf_ctx *cctx, UI c)
 {
-	int i, j, l;
+	UI i, j, l;
 	UI k;
 	UI counter = 0;
 
@@ -174,7 +174,7 @@ static void lzhuf_update(struct lzahuf_ctx *cctx, int c)
 	} while (c != 0);   /* repeat up to root */
 }
 
-static int lzhuf_DecodeChar(struct lzahuf_ctx *cctx)
+static UI lzhuf_DecodeChar(struct lzahuf_ctx *cctx)
 {
 	UI c;
 	UI counter = 0;
@@ -199,7 +199,7 @@ static int lzhuf_DecodeChar(struct lzahuf_ctx *cctx)
 	return c;
 }
 
-static int lzhuf_DecodePosition(struct lzahuf_ctx *cctx)
+static UI lzhuf_DecodePosition(struct lzahuf_ctx *cctx)
 {
 	UI i, j, c;
 
@@ -237,7 +237,7 @@ static void lzah_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 
 static void lzhuf_Decode(struct lzahuf_ctx *cctx)  /* recover */
 {
-	int i, j, c;
+	UI i, j, c;
 
 	lzhuf_StartHuff(cctx);
 
