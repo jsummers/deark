@@ -626,7 +626,7 @@ Deark -- Information about supported formats
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
 
-* ARX (module="arx") (experimental/incomplete)
+* ARX (module="arx") (experimental)
   Variant of LHA. Deark tries to convert it to LHA.
 
 * CAR (module="car_lha")
