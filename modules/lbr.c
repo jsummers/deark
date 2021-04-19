@@ -797,7 +797,84 @@ void de_module_crunch(deark *c, struct deark_module_info *mi)
 
 struct crlzh_ctx {
 	struct crcr_filename_data fnd;
+	u8 old_fmt;
+	u8 cksum_type;
+	UI checksum_reported;
+	UI checksum_calc;
 };
+
+static void crlzh_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
+{
+	struct crlzh_ctx *crlzhctx = (struct crlzh_ctx*)userdata;
+	i64 i;
+
+	for(i=0; i<buf_len; i++) {
+		crlzhctx->checksum_calc += buf[i];
+	}
+}
+
+static void decompress_crlzh(deark *c, struct crlzh_ctx *crlzhctx, i64 pos1)
+{
+	de_finfo *fi = NULL;
+	dbuf *outf = NULL;
+	i64 pos = pos1;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	struct de_lh1_params lh1p;
+
+	de_dbg_indent(c, 1);
+	fi = de_finfo_create(c);
+	de_finfo_set_name_from_ucstring(c, fi, crlzhctx->fnd.fn, 0);
+	fi->original_filename_flag = 1;
+
+	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
+	dbuf_set_writelistener(outf, crlzh_writelistener_cb, (void*)crlzhctx);
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = pos;
+	dcmpri.len = c->infile->len - pos;
+	dcmpro.f = outf;
+
+	de_zeromem(&lh1p, sizeof(struct de_lh1_params));
+	if(crlzhctx->old_fmt) {
+		lh1p.is_crlzh11 = 1;
+	}
+	else {
+		lh1p.is_crlzh20 = 1;
+	}
+	lh1p.history_fill_val = 0x20;
+
+	fmtutil_lh1_codectype1(c, &dcmpri, &dcmpro, &dres, (void*)&lh1p);
+
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
+
+	if(dres.bytes_consumed_valid) {
+		de_dbg(c, "compressed data size: %"I64_FMT", ends at %"I64_FMT, dres.bytes_consumed,
+			dcmpri.pos+dres.bytes_consumed);
+		pos += dres.bytes_consumed;
+
+		if(crlzhctx->cksum_type==0) {
+			crlzhctx->checksum_calc &= 0xffff;
+			crlzhctx->checksum_reported = (UI)de_getu16le_p(&pos);
+			de_dbg(c, "checksum (calculated): %u", crlzhctx->checksum_calc);
+			de_dbg(c, "checksum (reported): %u", crlzhctx->checksum_reported);
+			if(crlzhctx->checksum_calc != crlzhctx->checksum_reported) {
+				de_err(c, "Checksum error. Decompression probably failed.");
+				goto done;
+			}
+		}
+	}
+
+done:
+	de_finfo_destroy(c, fi);
+	dbuf_close(outf);
+	de_dbg_indent(c, -1);
+}
 
 static void de_run_crlzh(deark *c, de_module_params *mparams)
 {
@@ -805,7 +882,6 @@ static void de_run_crlzh(deark *c, de_module_params *mparams)
 	i64 pos = 0;
 	u8 b;
 	u8 fmtver;
-	u8 cksum_type;
 	const char *verstr;
 
 	crlzhctx = de_malloc(c, sizeof(struct crlzh_ctx));
@@ -818,6 +894,7 @@ static void de_run_crlzh(deark *c, de_module_params *mparams)
 
 	fmtver = de_getbyte_p(&pos);
 	if(fmtver<=0x1f) {
+		crlzhctx->old_fmt = 1;
 		verstr = "old";
 	}
 	else if(fmtver>=0x20 && fmtver<=0x2f) {
@@ -829,14 +906,15 @@ static void de_run_crlzh(deark *c, de_module_params *mparams)
 	}
 	de_dbg(c, "format version: 0x%02x (%s)", (UI)fmtver, verstr);
 
-	cksum_type = de_getbyte_p(&pos);
-	de_dbg(c, "checksum type: 0x%02x (%s)", (UI)cksum_type,
-		(cksum_type==0?"standard":"?"));
+	crlzhctx->cksum_type = de_getbyte_p(&pos);
+	de_dbg(c, "checksum type: 0x%02x (%s)", (UI)crlzhctx->cksum_type,
+		(crlzhctx->cksum_type==0?"standard":"?"));
 
 	b = de_getbyte_p(&pos);
 	de_dbg(c, "unused info byte: 0x%02x", (UI)b);
 
 	de_dbg(c, "compressed data at %"I64_FMT, pos);
+	decompress_crlzh(c, crlzhctx, pos);
 
 done:
 	if(crlzhctx) {
@@ -860,7 +938,6 @@ void de_module_crlzh(deark *c, struct deark_module_info *mi)
 	mi->desc = "CRLZH (CP/M)";
 	mi->run_fn = de_run_crlzh;
 	mi->identify_fn = de_identify_crlzh;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }
 
 ///////////////////////////////////////////////

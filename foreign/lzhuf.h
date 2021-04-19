@@ -14,34 +14,39 @@
 **************************************************************/
 
 
-#define LZHUF_N               4096    /* buffer size */
 #define LZHUF_F               60      /* lookahead buffer size */
 #define LZHUF_THRESHOLD       2
-#define LZHUF_N_CHAR          (256 - LZHUF_THRESHOLD + LZHUF_F)
-							/* kinds of characters (character code = 0..N_CHAR-1) */
-#define LZHUF_T               (LZHUF_N_CHAR * 2 - 1)        /* size of table */
-#define LZHUF_R               (LZHUF_T - 1)                 /* position of root */
+#define LZHUF_MAX_NUM_SPECIAL_CODES  1
+#define LZHUF_MAX_N_CHAR      (256 + LZHUF_MAX_NUM_SPECIAL_CODES - LZHUF_THRESHOLD + LZHUF_F)
+#define LZHUF_MAX_T           (LZHUF_MAX_N_CHAR * 2 - 1)        /* size of table */
 #define LZHUF_MAX_FREQ        0x8000		/* updates tree when the */
 									/* root frequency comes to this value. */
 
 struct lzahuf_ctx {
 	deark *c;
 	const char *modname;
+	struct de_lh1_params lh1p;
 	struct de_dfilter_in_params *dcmpri;
 	struct de_dfilter_out_params *dcmpro;
 	struct de_dfilter_results *dres;
+
+	UI lzhuf_N_CHAR; /* kinds of characters (character code = 0..N_CHAR-1) */
+	UI lzhuf_T;
+	UI lzhuf_R; /* position of root */ /* (LZHUF_T - 1) */
+	UI num_special_codes;
+
 	int errflag;
 	i64 nbytes_written;
 	struct de_lz77buffer *ringbuf;
 	struct de_bitreader bitrd;
 
-	u16 freq[LZHUF_T + 1];   /* frequency table */
+	u16 freq[LZHUF_MAX_T + 1];   /* frequency table */
 
-	u16 prnt[LZHUF_T + LZHUF_N_CHAR];   /* pointers to parent nodes, except for the */
+	u16 prnt[LZHUF_MAX_T + LZHUF_MAX_N_CHAR];   /* pointers to parent nodes, except for the */
 							/* elements [T..T + N_CHAR - 1] which are used to get */
 							/* the positions of leaves corresponding to the codes. */
 
-	u16 son[LZHUF_T];             /* pointers to child nodes (son[], son[] + 1) */
+	u16 son[LZHUF_MAX_T];             /* pointers to child nodes (son[], son[] + 1) */
 };
 
 // These getters/setters are ugly, but it's too difficult for me to follow the
@@ -95,14 +100,14 @@ static void lzhuf_StartHuff(struct lzahuf_ctx *cctx)
 {
 	UI i, j;
 
-	for (i = 0; i < LZHUF_N_CHAR; i++) {
+	for (i = 0; i < cctx->lzhuf_N_CHAR; i++) {
 		set_freq(cctx, i, 1);
-		set_son(cctx, i, i + LZHUF_T);
-		set_prnt(cctx, i + LZHUF_T, i);
+		set_son(cctx, i, i + cctx->lzhuf_T);
+		set_prnt(cctx, i + cctx->lzhuf_T, i);
 	}
 	i = 0;
-	j = LZHUF_N_CHAR;
-	while (j <= LZHUF_R) {
+	j = cctx->lzhuf_N_CHAR;
+	while (j <= cctx->lzhuf_R) {
 		set_freq(cctx, j, get_freq(cctx, i) + get_freq(cctx, i + 1));
 		set_son(cctx, j, i);
 		set_prnt(cctx, i, j);
@@ -110,8 +115,8 @@ static void lzhuf_StartHuff(struct lzahuf_ctx *cctx)
 		i += 2;
 		j++;
 	}
-	set_freq(cctx, LZHUF_T, 0xffff);
-	set_prnt(cctx, LZHUF_R, 0);
+	set_freq(cctx, cctx->lzhuf_T, 0xffff);
+	set_prnt(cctx, cctx->lzhuf_R, 0);
 }
 
 
@@ -125,15 +130,15 @@ static void lzhuf_reconst(struct lzahuf_ctx *cctx)
 	/* collect leaf nodes in the first half of the table */
 	/* and replace the freq by (freq + 1) / 2. */
 	j = 0;
-	for (i = 0; i < LZHUF_T; i++) {
-		if (get_son(cctx, i) >= LZHUF_T) {
+	for (i = 0; i < cctx->lzhuf_T; i++) {
+		if (get_son(cctx, i) >= cctx->lzhuf_T) {
 			set_freq(cctx, j, (get_freq(cctx, i) + 1) / 2);
 			set_son(cctx, j, get_son(cctx, i));
 			j++;
 		}
 	}
 	/* begin constructing tree by connecting sons */
-	for (i = 0, j = LZHUF_N_CHAR; j < LZHUF_T; i += 2, j++) {
+	for (i = 0, j = cctx->lzhuf_N_CHAR; j < cctx->lzhuf_T; i += 2, j++) {
 		k = i + 1;
 		set_freq(cctx, j, get_freq(cctx, i) + get_freq(cctx, k));
 		f = get_freq(cctx, j);
@@ -160,9 +165,9 @@ static void lzhuf_reconst(struct lzahuf_ctx *cctx)
 		set_son(cctx, k, i);
 	}
 	/* connect prnt */
-	for (i = 0; i < LZHUF_T; i++) {
+	for (i = 0; i < cctx->lzhuf_T; i++) {
 		k = get_son(cctx, i);
-		if (k >= LZHUF_T) {
+		if (k >= cctx->lzhuf_T) {
 			set_prnt(cctx, k, i);
 		} else {
 			set_prnt(cctx, k, i);
@@ -181,7 +186,7 @@ static void lzhuf_update(struct lzahuf_ctx *cctx, UI c)
 	UI counter = 0;
 	UI r_freq;
 
-	r_freq = get_freq(cctx, LZHUF_R);
+	r_freq = get_freq(cctx, cctx->lzhuf_R);
 	if(r_freq > LZHUF_MAX_FREQ) {
 		cctx->errflag = 1;
 		return;
@@ -190,7 +195,7 @@ static void lzhuf_update(struct lzahuf_ctx *cctx, UI c)
 		lzhuf_reconst(cctx);
 		if(cctx->errflag) return;
 	}
-	c = get_prnt(cctx, c + LZHUF_T);
+	c = get_prnt(cctx, c + cctx->lzhuf_T);
 	do {
 		if(counter > (UI)DE_ARRAYCOUNT(cctx->prnt)) { // infinite loop?
 			cctx->errflag = 1;
@@ -215,13 +220,13 @@ static void lzhuf_update(struct lzahuf_ctx *cctx, UI c)
 
 			i = get_son(cctx, c);
 			set_prnt(cctx, i, l);
-			if (i < LZHUF_T) set_prnt(cctx, i + 1, l);
+			if (i < cctx->lzhuf_T) set_prnt(cctx, i + 1, l);
 
 			j = get_son(cctx, l);
 			set_son(cctx, l, i);
 
 			set_prnt(cctx, j, c);
-			if (j < LZHUF_T) set_prnt(cctx, j + 1, c);
+			if (j < cctx->lzhuf_T) set_prnt(cctx, j + 1, c);
 			set_son(cctx, c, j);
 
 			c = l;
@@ -235,12 +240,12 @@ static UI lzhuf_DecodeChar(struct lzahuf_ctx *cctx)
 	UI c;
 	UI counter = 0;
 
-	c = get_son(cctx, LZHUF_R);
+	c = get_son(cctx, cctx->lzhuf_R);
 
 	/* travel from root to leaf, */
 	/* choosing the smaller child node (son[]) if the read bit is 0, */
 	/* the bigger (son[]+1) if 1 */
-	while (c < LZHUF_T) {
+	while (c < cctx->lzhuf_T) {
 		if(counter > (UI)DE_ARRAYCOUNT(cctx->son)) { // infinite loop?
 			cctx->errflag = 1;
 			return 0;
@@ -250,7 +255,7 @@ static UI lzhuf_DecodeChar(struct lzahuf_ctx *cctx)
 		c += (UI)de_bitreader_getbits(&cctx->bitrd, 1);
 		c = get_son(cctx, c);
 	}
-	c -= LZHUF_T;
+	c -= cctx->lzhuf_T;
 	lzhuf_update(cctx, c);
 	return c;
 }
@@ -259,15 +264,17 @@ static UI lzhuf_DecodePosition(struct lzahuf_ctx *cctx)
 {
 	UI i, j, c;
 
-	/* recover upper 6 bits from table */
+	/* recover upper bits from table */
 	i = (UI)de_bitreader_getbits(&cctx->bitrd, 8);
-	c = (UI)fmtutil_get_lzhuf_d_code(i) << 6;
+	c = (UI)fmtutil_get_lzhuf_d_code(i);
+	c <<= (cctx->lh1p.is_crlzh20 ? 5 : 6);
 	j = fmtutil_get_lzhuf_d_len(i);
 
-	/* read lower 6 bits verbatim */
-	j -= 2;
+	/* read lower bits verbatim */
+	j -= (cctx->lh1p.is_crlzh20 ? 3 : 2);
 	i = (i<<j) | (UI)de_bitreader_getbits(&cctx->bitrd, j);
-	return c | (i & 0x3f);
+	i &= (cctx->lh1p.is_crlzh20 ? 0x1f : 0x3f);
+	return c | i;
 }
 
 static int lzah_have_enough_output(struct lzahuf_ctx *cctx)
@@ -294,13 +301,28 @@ static void lzah_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 static void lzhuf_Decode(struct lzahuf_ctx *cctx)  /* recover */
 {
 	UI i, j, c;
+	UI rb_size; // LZHUF_N
 
-	lzhuf_StartHuff(cctx);
+	if(cctx->lh1p.is_crlzh11 || cctx->lh1p.is_crlzh20) {
+		cctx->num_special_codes = 1;
+		rb_size = 2048;
+	}
+	else {
+		rb_size = 4096;
+	}
 
-	cctx->ringbuf = de_lz77buffer_create(cctx->c, LZHUF_N);
+	cctx->lzhuf_N_CHAR = 256 + cctx->num_special_codes - LZHUF_THRESHOLD + LZHUF_F;
+	cctx->lzhuf_T = cctx->lzhuf_N_CHAR * 2 - 1;
+	cctx->lzhuf_R = cctx->lzhuf_T  - 1;
+
+	cctx->ringbuf = de_lz77buffer_create(cctx->c, rb_size);
 	cctx->ringbuf->userdata = (void*)cctx;
 	cctx->ringbuf->writebyte_cb = lzah_lz77buf_writebytecb;
-	de_lz77buffer_clear(cctx->ringbuf, 0x20);
+	if(cctx->lh1p.history_fill_val!=0) {
+		de_lz77buffer_clear(cctx->ringbuf, cctx->lh1p.history_fill_val);
+	}
+
+	lzhuf_StartHuff(cctx);
 
 	while(1) {
 		if(cctx->errflag) goto done;
@@ -313,6 +335,7 @@ static void lzhuf_Decode(struct lzahuf_ctx *cctx)  /* recover */
 
 		c = lzhuf_DecodeChar(cctx);
 		if(cctx->errflag) goto done;
+		if(c==256 && cctx->num_special_codes>=1) goto done;
 		if (c < 256) {
 			de_lz77buffer_add_literal_byte(cctx->ringbuf, (u8)c);
 		}
@@ -322,7 +345,7 @@ static void lzhuf_Decode(struct lzahuf_ctx *cctx)  /* recover */
 			if(cctx->errflag) goto done;
 
 			// j is the match length
-			j = c - (255 - LZHUF_THRESHOLD);
+			j = c - (255 + cctx->num_special_codes - LZHUF_THRESHOLD);
 
 			de_lz77buffer_copy_from_hist(cctx->ringbuf,
 				(UI)(cctx->ringbuf->curpos - (UI)i - 1), j);

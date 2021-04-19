@@ -29,6 +29,7 @@ UI fmtutil_get_lzhuf_d_len(UI n)
 	return (UI)d_len[(n&0xff)/16];
 }
 
+// codec_private_params: 'struct de_lh1_params'. Can be NULL.
 void fmtutil_lh1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params)
@@ -41,6 +42,15 @@ void fmtutil_lh1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	cctx->dcmpri = dcmpri;
 	cctx->dcmpro = dcmpro;
 	cctx->dres = dres;
+
+	if(codec_private_params) {
+		// Use params from caller, if present.
+		de_memcpy(&cctx->lh1p, codec_private_params, sizeof(struct de_lh1_params));
+	}
+	else {
+		// Set default params.
+		cctx->lh1p.history_fill_val = 0x20;
+	}
 
 	cctx->bitrd.f = dcmpri->f;
 	cctx->bitrd.curpos = dcmpri->pos;
