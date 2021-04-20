@@ -1126,10 +1126,42 @@ void de_module_fat(deark *c, struct deark_module_info *mi)
 ///////////////////////// LoadDskF/SaveDskF format (OS/2-centric)
 
 struct skf_ctx {
+	int to_raw;
 	int new_fmt;
 	int is_compressed;
+	u32 checksum_reported;
 	i64 hdr_size;
+	i64 expected_dcmpr_size; // 0 if unknown
+	i64 padded_size; // 0 if unknown
 };
+
+static void loaddskf_pad_ima_file(deark *c, struct skf_ctx *d, dbuf *outf)
+{
+	i64 num_padding_bytes;
+	u8 padding_value;
+
+	if(d->padded_size<=0) goto done;
+	num_padding_bytes = d->padded_size - outf->len;
+	if(num_padding_bytes<=0) goto done;
+	de_dbg(c, "[adding padding]");
+
+	// TODO: Does it matter what we pad with? Possibilities include 0x00, 0xe5, 0xf6.
+	padding_value = 0x00;
+	dbuf_write_run(outf, padding_value, num_padding_bytes);
+done:
+	;
+}
+
+static void loaddskf_convert_noncmpr_to_ima(deark *c, struct skf_ctx *d)
+{
+	dbuf *outf = NULL;
+
+	outf = dbuf_create_output_file(c, "ima", NULL, 0);
+	de_dbg(c, "[copying]");
+	dbuf_copy(c->infile, d->hdr_size, c->infile->len - d->hdr_size, outf);
+	loaddskf_pad_ima_file(c, d, outf);
+	dbuf_close(outf);
+}
 
 static void loaddskf_decode_as_fat(deark *c, struct skf_ctx *d)
 {
@@ -1152,11 +1184,14 @@ static void loaddskf_decompress(deark *c, struct skf_ctx *d)
 	struct de_dfilter_results dres;
 	dbuf *outf = NULL;
 
-	if(d->hdr_size<2 || d->hdr_size > c->infile->len) goto done;
-	outf = dbuf_create_output_file(c, "unc.dsk", NULL, 0);
-
-	dbuf_write(outf, (const u8*)"\xaa\x59", 2);
-	dbuf_copy(c->infile, 2, d->hdr_size-2, outf);
+	if(d->to_raw) {
+		outf = dbuf_create_output_file(c, "ima", NULL, 0);
+	}
+	else {
+		outf = dbuf_create_output_file(c, "unc.dsk", NULL, 0);
+		dbuf_write(outf, (const u8*)"\xaa\x59", 2);
+		dbuf_copy(c->infile, 2, d->hdr_size-2, outf);
+	}
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
@@ -1164,11 +1199,18 @@ static void loaddskf_decompress(deark *c, struct skf_ctx *d)
 	dcmpri.len = c->infile->len - dcmpri.pos;
 	dcmpro.f = outf;
 
+	de_dbg(c, "[decompressing]");
 	dskdcmps_run(c, &dcmpri, &dcmpro, &dres);
 	if(dres.errcode) {
 		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
 		goto done;
 	}
+
+	if(d->to_raw) {
+		loaddskf_pad_ima_file(c, d, outf);
+	}
+	// TODO: If !d->to_raw, maybe we should still ensure it decompressed to
+	// the expected size.
 
 done:
 	dbuf_close(outf);
@@ -1176,24 +1218,59 @@ done:
 
 static int loaddskf_read_header(deark *c, struct skf_ctx *d)
 {
+	i64 bytes_per_sector;
+	i64 num_sectors_per_track;
+	i64 num_cylinders;
+	i64 num_heads;
+	i64 num_sectors_in_image;
 	int retval = 0;
 
+	de_dbg(c, "header");
+	de_dbg_indent(c, 1);
+
+	bytes_per_sector = de_getu16le(4);
+	de_dbg(c, "bytes per sector: %u", (UI)bytes_per_sector);
+	d->checksum_reported = (u32)de_getu32le(20); // TODO: What is this?
+	de_dbg(c, "checksum (reported): 0x%08x", (UI)d->checksum_reported);
+	num_cylinders = de_getu16le(24);
+	de_dbg(c, "cylinders: %u", (UI)num_cylinders);
+	num_heads = de_getu16le(26);
+	de_dbg(c, "number of heads: %u", (UI)num_heads);
+	num_sectors_per_track = de_getu16le(28);
+	de_dbg(c, "sectors per track: %u", (UI)num_sectors_per_track);
+	num_sectors_in_image = de_getu16le(34);
+	de_dbg(c, "num sectors in image: %u", (UI)num_sectors_in_image);
+
 	d->hdr_size = de_getu16le(38);
+	if(d->hdr_size==0) d->hdr_size = 512;
 	de_dbg(c, "header size: %"I64_FMT, d->hdr_size);
-	if(d->is_compressed) {
-		;
+	if(d->hdr_size<40 || d->hdr_size>c->infile->len) {
+		goto done;
 	}
-	else {
-		if((UI)de_getu16be(d->hdr_size + 510) != 0x55aa) {
-			goto done;
-		}
+
+	retval = 1;
+
+	if(num_cylinders<20 || num_cylinders>200 ||
+		num_heads<1 || num_heads>2 ||
+		num_sectors_per_track<8 || num_sectors_per_track>200 ||
+		bytes_per_sector<128 || bytes_per_sector>2048)
+	{
+		de_warn(c, "Unexpected disk geometry. Something may have failed.");
+		goto done;
 	}
+
+	d->expected_dcmpr_size = num_sectors_in_image * bytes_per_sector;
+	d->padded_size = num_cylinders * num_heads * num_sectors_per_track * bytes_per_sector;
+	de_dbg(c, "expected uncmpr image size: %"I64_FMT", padded=%"I64_FMT,
+		d->expected_dcmpr_size, d->padded_size);
+
 	retval = 1;
 
 done:
 	if(!retval) {
 		de_err(c, "Failed to parse LoadDskF file");
 	}
+	de_dbg_indent(c, -1);
 	return retval;
 }
 
@@ -1204,6 +1281,8 @@ static void de_run_loaddskf(deark *c, de_module_params *mparams)
 	UI sig;
 
 	d = de_malloc(c, sizeof(struct skf_ctx));
+	d->to_raw = de_get_ext_option_bool(c, "loaddskf:toraw", 0);
+
 	sig = (UI)de_getu16be(0);
 	switch(sig) {
 	case 0xaa58:
@@ -1229,7 +1308,12 @@ static void de_run_loaddskf(deark *c, de_module_params *mparams)
 		loaddskf_decompress(c, d);
 	}
 	else {
-		loaddskf_decode_as_fat(c, d);
+		if(d->to_raw) {
+			loaddskf_convert_noncmpr_to_ima(c, d);
+		}
+		else {
+			loaddskf_decode_as_fat(c, d);
+		}
 	}
 
 done:
@@ -1250,10 +1334,16 @@ static int de_identify_loaddskf(deark *c)
 	return 0;
 }
 
+static void de_help_loaddskf(deark *c)
+{
+	de_msg(c, "-opt loaddskf:toraw : Convert to raw FAT/IMA format");
+}
+
 void de_module_loaddskf(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "loaddskf";
 	mi->desc = "LoadDskF/SaveDskF disk image";
 	mi->run_fn = de_run_loaddskf;
 	mi->identify_fn = de_identify_loaddskf;
+	mi->help_fn = de_help_loaddskf;
 }

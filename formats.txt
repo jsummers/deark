@@ -690,8 +690,10 @@ Deark -- Information about supported formats
 
 * LoadDskF/SaveDskF (module=loaddskf)
   An OS/2 floppy disk image format.
-  - Non-compressed files are interpreted as FAT.
+  - By default, non-compressed files are interpreted (as with FAT).
   - Compressed files are decompressed.
+  Options
+   -opt loaddskf:toraw - Convert to raw FAT/IMA format.
 
 * LZWCOM (module="lzwcom")
   LZWCOM/LZWUNC is an old file compression utility.
