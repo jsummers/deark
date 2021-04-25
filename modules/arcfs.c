@@ -96,6 +96,7 @@ static void do_arcfs_crunched(deark *c, lctx *d, struct arcfs_member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
+	struct de_dcmpr_two_layer_params tlp;
 	struct de_lzw_params delzwp;
 
 	// "Crunched" means "packed", then "compressed".
@@ -116,8 +117,17 @@ static void do_arcfs_crunched(deark *c, lctx *d, struct arcfs_member_data *md,
 	// don't have that.
 	delzwp.flags |= DE_LZWFLAG_TOLERATETRAILINGJUNK;
 
-	de_dfilter_decompress_two_layer_type2(c, dfilter_lzw_codec, (void*)&delzwp,
-		dfilter_rle90_codec, NULL, dcmpri, dcmpro, dres);
+	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
+	tlp.codec1_pushable = dfilter_lzw_codec;
+	tlp.codec1_private_params = (void*)&delzwp;
+
+	tlp.codec2 = dfilter_rle90_codec;
+
+	tlp.dcmpri = dcmpri;
+	tlp.dcmpro = dcmpro;
+	tlp.dres = dres;
+
+	de_dfilter_decompress_two_layer(c, &tlp);
 }
 
 static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)

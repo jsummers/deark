@@ -246,11 +246,6 @@ struct de_dcmpr_two_layer_params {
 	i64 intermed_expected_len;
 };
 void de_dfilter_decompress_two_layer(deark *c, struct de_dcmpr_two_layer_params *tlp);
-void de_dfilter_decompress_two_layer_type2(deark *c,
-	dfilter_codec_type codec1, void *codec1_private_params,
-	dfilter_codec_type codec2, void *codec2_private_params,
-	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
-	struct de_dfilter_results *dres);
 
 void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,

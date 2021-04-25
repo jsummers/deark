@@ -234,19 +234,30 @@ static void decompressor_crunched6(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
+	struct de_dcmpr_two_layer_params tlp;
 	struct de_lzw_params delzwp;
 
 	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
 	delzwp.fmt = DE_LZWFMT_ARC5;
 
-	de_dfilter_decompress_two_layer_type2(c, dfilter_lzw_codec, (void*)&delzwp,
-		dfilter_rle90_codec, NULL, dcmpri, dcmpro, dres);
+	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
+	tlp.codec1_pushable = dfilter_lzw_codec;
+	tlp.codec1_private_params = (void*)&delzwp;
+
+	tlp.codec2 = dfilter_rle90_codec;
+
+	tlp.dcmpri = dcmpri;
+	tlp.dcmpro = dcmpro;
+	tlp.dres = dres;
+
+	de_dfilter_decompress_two_layer(c, &tlp);
 }
 
 static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
+	struct de_dcmpr_two_layer_params tlp;
 	struct de_lzw_params delzwp;
 
 	// "Crunched" means "packed", then "compressed".
@@ -256,8 +267,17 @@ static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
 	delzwp.flags |= DE_LZWFLAG_HAS1BYTEHEADER;
 
-	de_dfilter_decompress_two_layer_type2(c, dfilter_lzw_codec, (void*)&delzwp,
-		dfilter_rle90_codec, NULL, dcmpri, dcmpro, dres);
+	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
+	tlp.codec1_pushable = dfilter_lzw_codec;
+	tlp.codec1_private_params = (void*)&delzwp;
+
+	tlp.codec2 = dfilter_rle90_codec;
+
+	tlp.dcmpri = dcmpri;
+	tlp.dcmpro = dcmpro;
+	tlp.dres = dres;
+
+	de_dfilter_decompress_two_layer(c, &tlp);
 }
 
 // Flags:

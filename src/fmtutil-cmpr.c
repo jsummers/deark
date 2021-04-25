@@ -776,27 +776,7 @@ done:
 	dbuf_close(outf_codec1);
 }
 
-// TODO: Retire this function.
-void de_dfilter_decompress_two_layer_type2(deark *c,
-	dfilter_codec_type codec1, void *codec1_private_params,
-	dfilter_codec_type codec2, void *codec2_private_params,
-	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
-	struct de_dfilter_results *dres)
-{
-	struct de_dcmpr_two_layer_params tlp;
-
-	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
-	tlp.codec1_pushable = codec1;
-	tlp.codec1_private_params = codec1_private_params;
-	tlp.codec2 = codec2;
-	tlp.codec2_private_params = codec2_private_params;
-	tlp.dcmpri = dcmpri;
-	tlp.dcmpro = dcmpro;
-	tlp.dres = dres;
-	de_dfilter_decompress_two_layer(c, &tlp);
-}
-
- struct de_lz77buffer *de_lz77buffer_create(deark *c, UI bufsize)
+struct de_lz77buffer *de_lz77buffer_create(deark *c, UI bufsize)
 {
 	struct de_lz77buffer *rb;
 
