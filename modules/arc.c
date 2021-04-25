@@ -280,6 +280,30 @@ static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
 	de_dfilter_decompress_two_layer(c, &tlp);
 }
 
+static void decompressor_trimmed(deark *c, lctx *d, struct member_data *md,
+	struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
+{
+	struct de_dcmpr_two_layer_params tlp;
+	struct de_lh1_params lh1p;
+
+	de_zeromem(&lh1p, sizeof(struct de_lh1_params));
+	lh1p.is_arc_trimmed = 1;
+	lh1p.history_fill_val = 0x00;
+
+	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
+	tlp.codec1_type1 = fmtutil_lh1_codectype1;
+	tlp.codec1_private_params = (void*)&lh1p;
+
+	tlp.codec2 = dfilter_rle90_codec;
+
+	tlp.dcmpri = dcmpri;
+	tlp.dcmpro = dcmpro;
+	tlp.dres = dres;
+
+	de_dfilter_decompress_two_layer(c, &tlp);
+}
+
 // Flags:
 //  0x01 = valid in ARC
 //  0x02 = valid in Spark
@@ -296,7 +320,7 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 0x07, 0x83, "crunched7 (ARC 4.6)", NULL },
 	{ 0x08, 0x83, "crunched8 (RLE + dynamic LZW)", decompressor_crunched8 },
 	{ 0x09, 0x83, "squashed (dynamic LZW)", decompressor_squashed },
-	{ 10,  0x101, "trimmed", NULL },
+	{ 10,  0x101, "trimmed", decompressor_trimmed },
 	{ 10,  0x201, "crushed", NULL },
 	{ 10,   0x01, "trimmed or crushed", NULL },
 	{ 0x0b, 0x01, "distilled", NULL },

@@ -275,6 +275,7 @@ UI fmtutil_get_lzhuf_d_len(UI n);
 
 struct de_lh1_params {
 	u8 is_crlzh11, is_crlzh20;
+	u8 is_arc_trimmed; // (The LZH part of the scheme. Does not do RLE.)
 	u8 history_fill_val; // Set to 0x20 (space) if not sure.
 };
 
