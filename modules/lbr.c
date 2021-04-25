@@ -5,6 +5,7 @@
 // LBR - uncompressed CP/M archive format
 // Squeeze compressed file
 // Crunch v1 compressed file
+// CRLZH compressed file
 // ZSQ compressed file
 // LZWCOM compressed file
 
@@ -641,6 +642,7 @@ void de_module_squeeze(deark *c, struct deark_module_info *mi)
 
 struct crunch_ctx {
 	struct crcr_filename_data fnd;
+	u8 fmtver; // 1 or 2, 0 if unknown
 	u8 cksum_type;
 	UI checksum_reported;
 	UI checksum_calc;
@@ -727,7 +729,7 @@ static void de_run_crunch(deark *c, de_module_params *mparams)
 	struct crunch_ctx *crunchctx = NULL;
 	i64 pos = 0;
 	u8 b;
-	u8 fmtver;
+	u8 fmtver_raw;
 	const char *verstr;
 
 	crunchctx = de_malloc(c, sizeof(struct crunch_ctx));
@@ -739,17 +741,22 @@ static void de_run_crunch(deark *c, de_module_params *mparams)
 	b = de_getbyte_p(&pos);
 	de_dbg(c, "encoder version: 0x%02x", (UI)b);
 
-	fmtver = de_getbyte_p(&pos);
-	if(fmtver>=0x10 && fmtver<=0x1f) {
+	fmtver_raw = de_getbyte_p(&pos);
+	if(fmtver_raw>=0x10 && fmtver_raw<=0x1f) {
+		crunchctx->fmtver = 1;
 		verstr = "old";
 	}
-	else if(fmtver>=0x20 && fmtver<=0x2f) {
+	else if(fmtver_raw>=0x20 && fmtver_raw<=0x2f) {
+		crunchctx->fmtver = 2;
 		verstr = "new";
 	}
 	else {
 		verstr = "?";
 	}
-	de_dbg(c, "format version: 0x%02x (%s)", (UI)fmtver, verstr);
+	de_dbg(c, "format version: 0x%02x (%s)", (UI)fmtver_raw, verstr);
+	if(crunchctx->fmtver!=0) {
+		de_declare_fmtf(c, "Crunch (v%d)", (int)crunchctx->fmtver);
+	}
 
 	crunchctx->cksum_type = de_getbyte_p(&pos);
 	de_dbg(c, "checksum type: 0x%02x (%s)", (UI)crunchctx->cksum_type,
@@ -759,13 +766,13 @@ static void de_run_crunch(deark *c, de_module_params *mparams)
 	de_dbg(c, "unused info byte: 0x%02x", (UI)b);
 
 	de_dbg(c, "compressed data at %"I64_FMT, pos);
-	if(fmtver>=0x20) {
+	if(crunchctx->fmtver==1) {
+		decompress_crunch_v1(c, crunchctx, pos);
+	}
+	else {
 		// v2 is by far the most common version, but it's not easy to support.
 		// We support v1, only because it's easy.
 		de_err(c, "This version of Crunch is not supported");
-	}
-	else {
-		decompress_crunch_v1(c, crunchctx, pos);
 	}
 
 done:
@@ -797,7 +804,7 @@ void de_module_crunch(deark *c, struct deark_module_info *mi)
 
 struct crlzh_ctx {
 	struct crcr_filename_data fnd;
-	u8 old_fmt;
+	u8 fmtver; // 1 or 2, 0 if unknown
 	u8 cksum_type;
 	UI checksum_reported;
 	UI checksum_calc;
@@ -838,7 +845,7 @@ static void decompress_crlzh(deark *c, struct crlzh_ctx *crlzhctx, i64 pos1)
 	dcmpro.f = outf;
 
 	de_zeromem(&lh1p, sizeof(struct de_lh1_params));
-	if(crlzhctx->old_fmt) {
+	if(crlzhctx->fmtver==1) {
 		lh1p.is_crlzh11 = 1;
 	}
 	else {
@@ -881,7 +888,7 @@ static void de_run_crlzh(deark *c, de_module_params *mparams)
 	struct crlzh_ctx *crlzhctx = NULL;
 	i64 pos = 0;
 	u8 b;
-	u8 fmtver;
+	u8 fmtver_raw;
 	const char *verstr;
 
 	crlzhctx = de_malloc(c, sizeof(struct crlzh_ctx));
@@ -892,19 +899,23 @@ static void de_run_crlzh(deark *c, de_module_params *mparams)
 	b = de_getbyte_p(&pos);
 	de_dbg(c, "encoder version: 0x%02x", (UI)b);
 
-	fmtver = de_getbyte_p(&pos);
-	if(fmtver<=0x1f) {
-		crlzhctx->old_fmt = 1;
+	fmtver_raw = de_getbyte_p(&pos);
+	if(fmtver_raw<=0x1f) {
+		crlzhctx->fmtver = 1;
 		verstr = "old";
 	}
-	else if(fmtver>=0x20 && fmtver<=0x2f) {
+	else if(fmtver_raw>=0x20 && fmtver_raw<=0x2f) {
 		// Note: Alternatives are ==0x20 (CFX), and >=0x20 (lbrate).
+		crlzhctx->fmtver = 2;
 		verstr = "new";
 	}
 	else {
 		verstr = "?";
 	}
-	de_dbg(c, "format version: 0x%02x (%s)", (UI)fmtver, verstr);
+	de_dbg(c, "format version: 0x%02x (%s)", (UI)fmtver_raw, verstr);
+	if(crlzhctx->fmtver!=0) {
+		de_declare_fmtf(c, "CRLZH (v%d)", (int)crlzhctx->fmtver);
+	}
 
 	crlzhctx->cksum_type = de_getbyte_p(&pos);
 	de_dbg(c, "checksum type: 0x%02x (%s)", (UI)crlzhctx->cksum_type,
