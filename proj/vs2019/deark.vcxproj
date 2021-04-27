@@ -318,6 +318,7 @@
     <ClCompile Include="..\..\src\fmtutil-cmpr.c" />
     <ClCompile Include="..\..\src\fmtutil-fax.c" />
     <ClCompile Include="..\..\src\fmtutil-huffman.c" />
+    <ClCompile Include="..\..\src\fmtutil-lzah.c" />
     <ClCompile Include="..\..\src\fmtutil-lzh.c" />
     <ClCompile Include="..\..\src\fmtutil-lzw.c" />
     <ClCompile Include="..\..\src\fmtutil-miniz.c" />
@@ -340,6 +341,7 @@
   <ItemGroup>
     <ClInclude Include="..\..\foreign\delzw.h" />
     <ClInclude Include="..\..\foreign\dskdcmps.h" />
+    <ClInclude Include="..\..\foreign\lzhuf.h" />
     <ClInclude Include="..\..\foreign\miniz-c.h" />
     <ClInclude Include="..\..\foreign\miniz.h" />
     <ClInclude Include="..\..\foreign\ozunreduce.h" />

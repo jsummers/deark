@@ -626,7 +626,7 @@ Deark -- Information about supported formats
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
 
-* ARX (module="arx") (experimental/incomplete)
+* ARX (module="arx") (experimental)
   Variant of LHA. Deark tries to convert it to LHA.
 
 * CAR (module="car_lha")
@@ -640,6 +640,9 @@ Deark -- Information about supported formats
 * compress (legacy Unix .Z format) (module="compress")
 
 * cpio (module="cpio")
+
+* CRLZH (module="crlzh")
+  An old compressed file format used mainly on CP/M.
 
 * Crunch (module="crunch")
   An old compressed file format used mainly on CP/M.
@@ -680,16 +683,17 @@ Deark -- Information about supported formats
   and CrLZH. Deark doesn't necessarily support all of those formats.
 
 * LHA/LZH/PMA (module="lha")
-  - Not all the major compression methods are supported. Some are supported but
-    experimental.
+  - All common compression methods are supported.
   Options
    -opt lha:lhark - Assume "lh7" compression is LHARK format, instead of the
      standard lh7 format. (Unfortunately, autodetecting LHARK is impractical.)
 
 * LoadDskF/SaveDskF (module=loaddskf)
   An OS/2 floppy disk image format.
-  - Non-compressed files are interpreted as FAT.
+  - By default, non-compressed files are interpreted (as with FAT).
   - Compressed files are decompressed.
+  Options
+   -opt loaddskf:toraw - Convert to raw FAT/IMA format.
 
 * LZWCOM (module="lzwcom")
   LZWCOM/LZWUNC is an old file compression utility.

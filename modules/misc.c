@@ -2748,7 +2748,8 @@ static int de_identify_ttcomp(deark *c)
 	// Assumes the last byte is padded with '0' bits, and there are
 	// no extraneous bytes after that.
 	u32 x = (u32)de_getu32le(c->infile->len-4);
-	for(int i=0; i<8; i++) {
+	int i;
+	for(i=0; i<8; i++) {
 		if((x & 0xfffffc00U)==0x01fe0000U) {
 			if(b0==0 && b1==6) return 40;
 			return 10;

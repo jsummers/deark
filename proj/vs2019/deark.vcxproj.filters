@@ -511,6 +511,9 @@
     <ClCompile Include="..\..\modules\os2ea.c">
       <Filter>Modules</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\fmtutil-lzah.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\deark-config.h">
@@ -550,6 +553,9 @@
       <Filter>Foreign Code</Filter>
     </ClInclude>
     <ClInclude Include="..\..\foreign\dskdcmps.h">
+      <Filter>Foreign Code</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\foreign\lzhuf.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>
   </ItemGroup>
