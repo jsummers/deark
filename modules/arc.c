@@ -326,6 +326,7 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 0x0b, 0x01, "distilled", NULL },
 	{ 20,   0x01, "archive info", NULL },
 	{ 21,   0x01, "extended file info", NULL },
+	{ 22,   0x01, "OS info", NULL },
 	{ 0x1e, 0x01, "subdir", NULL },
 	{ 0x1f, 0x01, "end of subdir marker", NULL },
 	{ 0x80, 0x02, "end of archive marker", NULL },
@@ -827,9 +828,13 @@ static void do_info_record_string(deark *c, lctx *d, i64 pos, i64 len, const cha
 }
 
 static const struct extinfo_item_info extinfo_arr[] = {
-	{ 20, 0, 0x01, "archive comment", NULL },
-	{ 20, 1, 0x01, "created by", NULL },
-	{ 21, 0, 0x01, "file comment", NULL },
+	{ 20, 0, 0x01, "archive description", NULL },
+	{ 20, 1, 0x01, "archive created by", NULL },
+	{ 20, 2, 0x01, "archive last modified by", NULL },
+	{ 21, 0, 0x01, "file description", NULL },
+	{ 21, 1, 0x01, "long name", NULL },
+	{ 21, 2, 0x00, "timestamps", NULL },
+	{ 21, 3, 0x00, "icon", NULL },
 	{ 21, 4, 0x01, "attributes", NULL },
 	{ 21, 5, 0x01, "full path", NULL }
 };
@@ -1109,13 +1114,12 @@ static void member_cb_main(deark *c, lctx *d, struct member_parser_data *mpd)
 		// Here, we use the recursive method.
 		do_sequence_of_members(c, d, md->cmpr_data_pos, md->cmpr_size, mpd->nesting_level+1);
 	}
+	else if(md->cmpr_meth>=30 && md->cmpr_meth<=39) {
+		de_warn(c, "Unknown control item type %d at %"I64_FMT, (int)md->cmpr_meth, pos1);
+		goto done;
+	}
 	else if(md->cmpr_meth>=20 && md->cmpr_meth<=29) {
-		if(md->cmpr_meth==20 || md->cmpr_meth==21) {
-			do_info_item(c, d, md);
-		}
-		else {
-			de_warn(c, "Ignoring extension type %d at %"I64_FMT, (int)md->cmpr_meth, pos1);
-		}
+		do_info_item(c, d, md);
 	}
 	else if(d->fmt==FMT_ARCMAC && md->arcmac_advf) {
 		do_extract_member_file_arcmac(c, d, md, fi);
@@ -1368,7 +1372,9 @@ static int de_identify_arc(deark *c)
 	}
 
 	cmpr_meth = buf[arc_start+1];
-	if(cmpr_meth>11 && cmpr_meth!=20 && cmpr_meth!=21 && cmpr_meth!=30) return 0;
+	if(cmpr_meth>11 && cmpr_meth!=20 && cmpr_meth!=21 && cmpr_meth!=22 && cmpr_meth!=30) {
+		return 0;
+	}
 	if(cmpr_meth==0) starts_with_trailer = 1;
 
 	for(k=0; k<DE_ARRAYCOUNT(exts); k++) {
