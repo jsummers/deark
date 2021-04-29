@@ -270,8 +270,7 @@ void fmtutil_dclimplode_codectype1(deark *c, struct de_dfilter_in_params *dcmpri
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params);
 
-UI fmtutil_get_lzhuf_d_code(UI n);
-UI fmtutil_get_lzhuf_d_len(UI n);
+void fmtutil_get_lzhuf_d_code_and_len(UI n, UI *pd_code, UI *pd_len);
 
 struct de_lh1_params {
 	u8 is_crlzh11, is_crlzh20;

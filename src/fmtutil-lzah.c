@@ -10,23 +10,14 @@
 
 #include "../foreign/lzhuf.h"
 
-UI fmtutil_get_lzhuf_d_code(UI n)
+void fmtutil_get_lzhuf_d_code_and_len(UI n, UI *pd_code, UI *pd_len)
 {
-	if(n<32 || n>=256) return 0;
-	if(n<80) return (n-16)>>4;
-	if(n<144) return (n-48)>>3;
-	if(n<192) return (n-96)>>2;
-	if(n<240) return (n-144)>>1;
-	return n-192;
-}
-
-UI fmtutil_get_lzhuf_d_len(UI n)
-{
-	static const u8 d_len[16] = {
-		3,3,4,4,4,5,5,5,5,6,6,6,7,7,7,8
-	};
-
-	return (UI)d_len[(n&0xff)/16];
+	if(n<32 || n>=256) { *pd_code = 0; *pd_len = 3; }
+	else if(n<80) { *pd_code = (n-16)>>4; *pd_len = 4; }
+	else if(n<144) { *pd_code = (n-48)>>3; *pd_len = 5; }
+	else if(n<192) { *pd_code = (n-96)>>2; *pd_len = 6; }
+	else if(n<240) { *pd_code = (n-144)>>1; *pd_len = 7; }
+	else { *pd_code = n-192; *pd_len = 8; };
 }
 
 // codec_private_params: 'struct de_lh1_params'. Can be NULL.

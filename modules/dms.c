@@ -610,21 +610,25 @@ static void do_mediumlz77_internal(struct medium_ctx *mctx, struct dmsmedium_cmp
 			UI tmp_code;
 			UI length;
 			UI offset_rel;
+			UI d_code1, d_len1;
+			UI d_code2, d_len2;
 
 			// TODO: This seems overly complicated. Is there a simpler way to
 			// implement this?
 
 			first_code = (UI)de_bitreader_getbits(&mctx->bitrd, 8);
-			length = (UI)fmtutil_get_lzhuf_d_code(first_code) + 3;
+			fmtutil_get_lzhuf_d_code_and_len(first_code, &d_code1, &d_len1);
+			length = d_code1 + 3;
 
-			ocode1_nbits = (UI)fmtutil_get_lzhuf_d_len(first_code);
+			ocode1_nbits = d_len1;
 			ocode1 = (UI)de_bitreader_getbits(&mctx->bitrd, ocode1_nbits);
 
 			tmp_code = ((first_code << ocode1_nbits) | ocode1) & 0xff;
-			ocode2_nbits = (UI)fmtutil_get_lzhuf_d_len(tmp_code);
+			fmtutil_get_lzhuf_d_code_and_len(first_code, &d_code2, &d_len2);
+			ocode2_nbits = d_len2;
 			ocode2 = (UI)de_bitreader_getbits(&mctx->bitrd, ocode2_nbits);
 
-			offset_rel = ((UI)fmtutil_get_lzhuf_d_code(tmp_code) << 8) | (((tmp_code << ocode2_nbits) | ocode2) & 0xff);
+			offset_rel = (d_code2 << 8) | (((tmp_code << ocode2_nbits) | ocode2) & 0xff);
 			de_lz77buffer_copy_from_hist(mdst->ringbuf, mdst->ringbuf->curpos - 1 - offset_rel, length);
 		}
 	}

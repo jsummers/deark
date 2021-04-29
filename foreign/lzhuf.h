@@ -36,6 +36,7 @@ struct lzahuf_ctx {
 	UI lzhuf_T;
 	UI lzhuf_R; /* position of root */ /* (LZHUF_T - 1) */
 	UI num_special_codes;
+	u8 crlzh20_style_positions;
 
 	int errflag;
 	i64 nbytes_written;
@@ -268,17 +269,17 @@ static UI lzhuf_DecodeChar(struct lzahuf_ctx *cctx)
 static UI lzhuf_DecodePosition(struct lzahuf_ctx *cctx)
 {
 	UI i, j, c;
+	UI d_code, d_len;
 
 	/* recover upper bits from table */
 	i = (UI)de_bitreader_getbits(&cctx->bitrd, 8);
-	c = (UI)fmtutil_get_lzhuf_d_code(i);
-	c <<= (cctx->lh1p.is_crlzh20 ? 5 : 6);
-	j = fmtutil_get_lzhuf_d_len(i);
+	fmtutil_get_lzhuf_d_code_and_len(i, &d_code, &d_len);
+	c = d_code << (cctx->crlzh20_style_positions ? 5 : 6);
 
 	/* read lower bits verbatim */
-	j -= (cctx->lh1p.is_crlzh20 ? 3 : 2);
+	j = d_len - (cctx->crlzh20_style_positions ? 3 : 2);
 	i = (i<<j) | (UI)de_bitreader_getbits(&cctx->bitrd, j);
-	i &= (cctx->lh1p.is_crlzh20 ? 0x1f : 0x3f);
+	i &= (cctx->crlzh20_style_positions ? 0x1f : 0x3f);
 	if(cctx->bitrd.eof_flag) {
 		cctx->errflag = 1;
 	}
@@ -368,6 +369,9 @@ static void lzhuf_Decode(struct lzahuf_ctx *cctx)  /* recover */
 		cctx->num_length_codes = 58;
 		cctx->match_length_bias = 254;
 		rb_size = 2048;
+		if(cctx->lh1p.is_crlzh20) {
+			cctx->crlzh20_style_positions = 1;
+		}
 	}
 	else if(cctx->lh1p.is_arc_trimmed) {
 		// codes 0-255 = literals 0x00-0xff
