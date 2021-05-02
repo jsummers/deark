@@ -20,19 +20,69 @@ void fmtutil_get_lzhuf_d_code_and_len(UI n, UI *pd_code, UI *pd_len)
 	else { *pd_code = n-192; *pd_len = 8; };
 }
 
+static void my_lh1_codec_addbuf(struct de_dfilter_ctx *dfctx,
+	const u8 *buf, i64 buf_len)
+{
+	struct lzahuf_ctx *cctx = (struct lzahuf_ctx*)dfctx->codec_private;
+
+	if(dfctx->finished_flag || cctx->errflag) {
+		goto done;
+	}
+
+	cctx->ibuf2 = buf;
+	cctx->ibuf2_len = (size_t)buf_len;
+	lzhuf_Decode_continue(cctx, 0);
+
+done:
+	if(cctx->errflag) {
+		dfctx->finished_flag = 1;
+	}
+}
+
+static void my_lh1_codec_finish(struct de_dfilter_ctx *dfctx)
+{
+	struct lzahuf_ctx *cctx = (struct lzahuf_ctx*)dfctx->codec_private;
+
+	cctx->ibuf2 = NULL;
+	cctx->ibuf2_len = 0;
+	lzhuf_Decode_continue(cctx, 1);
+
+	dfctx->dres->bytes_consumed = cctx->total_nbytes_processed;
+	dfctx->dres->bytes_consumed_valid = 1;
+
+	if(cctx->errflag) {
+		de_dfilter_set_generic_error(cctx->c, dfctx->dres, cctx->modname);
+	}
+}
+
+static void my_lh1_codec_destroy(struct de_dfilter_ctx *dfctx)
+{
+	struct lzahuf_ctx *cctx = (struct lzahuf_ctx*)dfctx->codec_private;
+
+	if(cctx) {
+		de_lz77buffer_destroy(cctx->c, cctx->ringbuf);
+		cctx->ringbuf = NULL;
+		de_free(dfctx->c, cctx);
+	}
+	dfctx->codec_private = NULL;
+}
+
 // codec_private_params: 'struct de_lh1_params'. Can be NULL.
-void fmtutil_lh1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	void *codec_private_params)
+void dfilter_lh1_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
 {
 	struct lzahuf_ctx *cctx = NULL;
 
-	cctx = de_malloc(c, sizeof(struct lzahuf_ctx));
-	cctx->c = c;
+	cctx = de_malloc(dfctx->c, sizeof(struct lzahuf_ctx));
+	cctx->c = dfctx->c;
 	cctx->modname = "lzhuf";
-	cctx->dcmpri = dcmpri;
-	cctx->dcmpro = dcmpro;
-	cctx->dres = dres;
+	cctx->dfctx = dfctx;
+	cctx->dcmpro = dfctx->dcmpro;
+	cctx->dres = dfctx->dres;
+
+	dfctx->codec_private = (void*)cctx;
+	dfctx->codec_addbuf_fn = my_lh1_codec_addbuf;
+	dfctx->codec_finish_fn = my_lh1_codec_finish;
+	dfctx->codec_destroy_fn = my_lh1_codec_destroy;
 
 	if(codec_private_params) {
 		// Use params from caller, if present.
@@ -43,18 +93,14 @@ void fmtutil_lh1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 		cctx->lh1p.history_fill_val = 0x20;
 	}
 
-	cctx->bitrd.f = dcmpri->f;
-	cctx->bitrd.curpos = dcmpri->pos;
-	cctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
+	lzhuf_Decode_init(cctx);
+}
 
-	lzhuf_Decode(cctx);
-
-	de_bitreader_skip_to_byte_boundary(&cctx->bitrd);
-	cctx->dres->bytes_consumed = cctx->bitrd.curpos - cctx->dcmpri->pos;
-	if(cctx->dres->bytes_consumed<0) {
-		cctx->dres->bytes_consumed = 0;
-	}
-	cctx->dres->bytes_consumed_valid = 1;
-
-	de_free(c, cctx);
+// codec_private_params: 'struct de_lh1_params'. Can be NULL.
+void fmtutil_lh1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params)
+{
+	de_dfilter_decompress_oneshot(c, dfilter_lh1_codec, codec_private_params,
+		dcmpri, dcmpro, dres);
 }

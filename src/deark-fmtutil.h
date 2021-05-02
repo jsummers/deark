@@ -281,6 +281,7 @@ struct de_lh1_params {
 void fmtutil_lh1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params);
+void dfilter_lh1_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 
 // Wrapper for miniz' tdefl functions
 

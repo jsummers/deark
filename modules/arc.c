@@ -292,7 +292,7 @@ static void decompressor_trimmed(deark *c, lctx *d, struct member_data *md,
 	lh1p.history_fill_val = 0x00;
 
 	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
-	tlp.codec1_type1 = fmtutil_lh1_codectype1;
+	tlp.codec1_pushable = dfilter_lh1_codec;
 	tlp.codec1_private_params = (void*)&lh1p;
 
 	tlp.codec2 = dfilter_rle90_codec;
