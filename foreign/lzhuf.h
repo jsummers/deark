@@ -111,25 +111,6 @@ static void set_prnt(struct lzahuf_ctx *cctx, UI idx, u16 val)
 	else cctx->errflag = 1;
 }
 
-static char *bbll_describe_curpos(struct de_bitbuf_lowlevel *bbll, i64 pos1, char *buf, size_t buf_len)
-{
-	i64 curpos;
-	UI nwholebytes;
-	UI nbits;
-
-	nwholebytes = (i64)(bbll->nbits_in_bitbuf / 8);
-	nbits = bbll->nbits_in_bitbuf % 8;
-	curpos = pos1 - (i64)nwholebytes;
-
-	if(nbits==0) {
-		de_snprintf(buf, buf_len, "%"I64_FMT, curpos);
-	}
-	else {
-		de_snprintf(buf, buf_len, "%"I64_FMT"+%ubits", curpos-1, (UI)(8-nbits));
-	}
-	return buf;
-}
-
 static UI lzhuf_getbits(struct lzahuf_ctx *cctx, UI nbits)
 {
 	while(cctx->bbll.nbits_in_bitbuf < nbits) {
@@ -494,7 +475,8 @@ static void lzhuf_Decode_continue(struct lzahuf_ctx *cctx, int flush)
 		}
 
 		if(cctx->c->debug_level>=4) {
-			bbll_describe_curpos(&cctx->bbll, cctx->total_nbytes_processed,
+			de_bitbuf_describe_curpos(&cctx->bbll,
+				cctx->dfctx->input_file_offset+cctx->total_nbytes_processed,
 				pos_descr, sizeof(pos_descr));
 		}
 
@@ -502,10 +484,16 @@ static void lzhuf_Decode_continue(struct lzahuf_ctx *cctx, int flush)
 		if(cctx->errflag) goto done;
 
 		if(c==256 && cctx->num_special_codes>=1) {
+			if(cctx->c->debug_level>=4) {
+				de_dbg(cctx->c, "special @%s =%u", pos_descr, c);
+			}
 			cctx->dfctx->finished_flag = 1;
 			goto done;
 		}
 		if (c < 256) {
+			if(cctx->c->debug_level>=4) {
+				de_dbg(cctx->c, "lit @%s =%u", pos_descr, c);
+			}
 			de_lz77buffer_add_literal_byte(cctx->ringbuf, (u8)c);
 		}
 		else {

@@ -111,7 +111,7 @@ void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
 //   DE_DFILTER_COMMAND_REINITIALIZE
 //    Reinitialize a codec, so you don't have to destroy and recreate it in
 //    in order to use it again. Typically used after _finish().
-//    Before using this command, it is okay to change the internal paramters of
+//    Before using this command, it is okay to change the internal parameters of
 //    the dcmpro and dres given to de_dfilter_create(). You should call
 //    de_dfilter_results_clear or the equivalent if you have already handled
 //    previous errors.
@@ -184,6 +184,7 @@ void de_dfilter_decompress_oneshot(deark *c,
 
 	dfctx = de_dfilter_create(c, codec_init_fn, codec_private_params,
 		dcmpro, dres);
+	dfctx->input_file_offset = dcmpri->pos;
 	de_dfilter_addslice(dfctx, dcmpri->f, dcmpri->pos, dcmpri->len);
 	de_dfilter_finish(dfctx);
 	de_dfilter_destroy(dfctx);

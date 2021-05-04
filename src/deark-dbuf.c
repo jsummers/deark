@@ -2344,15 +2344,17 @@ void de_bitreader_skip_to_byte_boundary(struct de_bitreader *bitrd)
 	de_bitbuf_lowlevel_empty(&bitrd->bbll);
 }
 
-char *de_bitreader_describe_curpos(struct de_bitreader *bitrd, char *buf, size_t buf_len)
+// pos is the offset of the next whole byte that may be added to the bitbuf.
+char *de_bitbuf_describe_curpos(struct de_bitbuf_lowlevel *bbll, i64 pos1,
+	 char *buf, size_t buf_len)
 {
 	i64 curpos;
 	UI nwholebytes;
 	UI nbits;
 
-	nwholebytes = (i64)(bitrd->bbll.nbits_in_bitbuf / 8);
-	nbits = bitrd->bbll.nbits_in_bitbuf % 8;
-	curpos = bitrd->curpos - (i64)nwholebytes;
+	nwholebytes = (i64)(bbll->nbits_in_bitbuf / 8);
+	nbits = bbll->nbits_in_bitbuf % 8;
+	curpos = pos1 - (i64)nwholebytes;
 
 	if(nbits==0) {
 		de_snprintf(buf, buf_len, "%"I64_FMT, curpos);
@@ -2361,4 +2363,9 @@ char *de_bitreader_describe_curpos(struct de_bitreader *bitrd, char *buf, size_t
 		de_snprintf(buf, buf_len, "%"I64_FMT"+%ubits", curpos-1, (UI)(8-nbits));
 	}
 	return buf;
+}
+
+char *de_bitreader_describe_curpos(struct de_bitreader *bitrd, char *buf, size_t buf_len)
+{
+	return de_bitbuf_describe_curpos(&bitrd->bbll, bitrd->curpos, buf, buf_len);
 }

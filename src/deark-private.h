@@ -802,6 +802,8 @@ struct de_bitreader {
 };
 u64 de_bitreader_getbits(struct de_bitreader *bitrd, UI nbits);
 void de_bitreader_skip_to_byte_boundary(struct de_bitreader *bitrd);
+char *de_bitbuf_describe_curpos(struct de_bitbuf_lowlevel *bbll, i64 pos,
+	char *buf, size_t buf_len);
 char *de_bitreader_describe_curpos(struct de_bitreader *bitrd, char *buf, size_t buf_len);
 
 ///////////////////////////////////////////

@@ -142,6 +142,7 @@ struct de_dfilter_ctx {
 	deark *c;
 	struct de_dfilter_results *dres;
 	struct de_dfilter_out_params *dcmpro;
+	i64 input_file_offset; // Non-critical, may be used by dbg messages
 	u8 finished_flag;
 	void *codec_private;
 	dfilter_codec_addbuf_type codec_addbuf_fn;
