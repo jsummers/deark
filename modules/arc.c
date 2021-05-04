@@ -4,6 +4,7 @@
 
 // ARC compressed archive
 // Spark
+// ArcMac
 
 #include <deark-config.h>
 #include <deark-private.h>
@@ -1267,71 +1268,7 @@ done:
 	;
 }
 
-static void de_run_spark(deark *c, de_module_params *mparams)
-{
-	lctx *d = NULL;
-
-	d = de_malloc(c, sizeof(lctx));
-	d->fmt = FMT_SPARK;
-	d->fmtname = "Spark";
-	d->input_encoding_for_filenames = de_get_input_encoding(c, NULL, DE_ENCODING_RISCOS);
-	d->input_encoding_for_comments = DE_EXTENC_MAKE(d->input_encoding_for_filenames,
-		DE_ENCSUBTYPE_HYBRID);
-	d->recurse_subdirs = de_get_ext_option_bool(c, "spark:recurse", 1);
-	d->append_type = de_get_ext_option_bool(c, "spark:appendtype", 0);
-
-	do_run_arc_spark_internal(c, d);
-	destroy_lctx(c, d);
-}
-
-static int de_identify_spark(deark *c)
-{
-	u8 b;
-	u32 load_addr;
-	int ldaddrcheck = 0;
-	int has_trailer = 0;
-
-	if(de_getbyte(0) != 0x1a) return 0;
-	b = de_getbyte(1); // compression method
-	if(b==0x82 || b==0x83 || b==0x88 || b==0x89 || b==0xff) {
-		;
-	}
-	else if(b==0x81 || b==0x84 || b==0x85 || b==0x86) {
-		; // TODO: Verify that these are possible in Spark.
-	}
-	else {
-		return 0;
-	}
-
-	load_addr = (u32)de_getu32le(29);
-	if((load_addr & 0xfff00000) == 0xfff00000) {
-		ldaddrcheck = 1;
-	}
-
-	if(de_getu16be(c->infile->len-2) == 0x1a80) {
-		has_trailer = 1;
-	}
-
-	if(has_trailer && ldaddrcheck) return 85;
-	if(ldaddrcheck) return 30;
-	if(has_trailer) return 10;
-	return 0;
-}
-
-static void de_help_spark(deark *c)
-{
-	de_msg(c, "-opt spark:appendtype : Append the file type to the filename");
-	de_msg(c, "-opt spark:recurse=0 : Extract subdirs as Spark files");
-}
-
-void de_module_spark(deark *c, struct deark_module_info *mi)
-{
-	mi->id = "spark";
-	mi->desc = "Spark archive";
-	mi->run_fn = de_run_spark;
-	mi->identify_fn = de_identify_spark;
-	mi->help_fn = de_help_spark;
-}
+/////////////////////// ARC (core ARC-only functions)
 
 static void de_run_arc(deark *c, de_module_params *mparams)
 {
@@ -1430,6 +1367,76 @@ void de_module_arc(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_arc;
 	mi->identify_fn = de_identify_arc;
 }
+
+/////////////////////// Spark
+
+static void de_run_spark(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+
+	d = de_malloc(c, sizeof(lctx));
+	d->fmt = FMT_SPARK;
+	d->fmtname = "Spark";
+	d->input_encoding_for_filenames = de_get_input_encoding(c, NULL, DE_ENCODING_RISCOS);
+	d->input_encoding_for_comments = DE_EXTENC_MAKE(d->input_encoding_for_filenames,
+		DE_ENCSUBTYPE_HYBRID);
+	d->recurse_subdirs = de_get_ext_option_bool(c, "spark:recurse", 1);
+	d->append_type = de_get_ext_option_bool(c, "spark:appendtype", 0);
+
+	do_run_arc_spark_internal(c, d);
+	destroy_lctx(c, d);
+}
+
+static int de_identify_spark(deark *c)
+{
+	u8 b;
+	u32 load_addr;
+	int ldaddrcheck = 0;
+	int has_trailer = 0;
+
+	if(de_getbyte(0) != 0x1a) return 0;
+	b = de_getbyte(1); // compression method
+	if(b==0x82 || b==0x83 || b==0x88 || b==0x89 || b==0xff) {
+		;
+	}
+	else if(b==0x81 || b==0x84 || b==0x85 || b==0x86) {
+		; // TODO: Verify that these are possible in Spark.
+	}
+	else {
+		return 0;
+	}
+
+	load_addr = (u32)de_getu32le(29);
+	if((load_addr & 0xfff00000) == 0xfff00000) {
+		ldaddrcheck = 1;
+	}
+
+	if(de_getu16be(c->infile->len-2) == 0x1a80) {
+		has_trailer = 1;
+	}
+
+	if(has_trailer && ldaddrcheck) return 85;
+	if(ldaddrcheck) return 30;
+	if(has_trailer) return 10;
+	return 0;
+}
+
+static void de_help_spark(deark *c)
+{
+	de_msg(c, "-opt spark:appendtype : Append the file type to the filename");
+	de_msg(c, "-opt spark:recurse=0 : Extract subdirs as Spark files");
+}
+
+void de_module_spark(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "spark";
+	mi->desc = "Spark archive";
+	mi->run_fn = de_run_spark;
+	mi->identify_fn = de_identify_spark;
+	mi->help_fn = de_help_spark;
+}
+
+/////////////////////// ArcMac
 
 static void de_run_arcmac(deark *c, de_module_params *mparams)
 {
