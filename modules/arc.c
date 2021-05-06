@@ -68,6 +68,7 @@ struct localctx_struct {
 	de_ext_encoding input_encoding_for_filenames;
 	de_ext_encoding input_encoding_for_comments;
 	de_ext_encoding input_encoding_for_arcmac_fn;
+	u8 method10; // 1=trimmed, 2=crushed
 	int append_type;
 	int recurse_subdirs;
 	u8 sig_byte;
@@ -355,10 +356,14 @@ static const struct cmpr_meth_info *get_cmpr_meth_info(lctx *d, u8 cmpr_meth)
 			// Method 10 has a conflict -- it could be either Trimmed (ARC7)
 			// or Crushed (PAK).
 			if(p->flags&0x100) { // Skip this unless we're sure it's Trimmed
-				if(d->has_pak_trailer || !d->has_arc_extensions) continue;
+				if(d->method10!=1) {
+					if(d->has_pak_trailer || !d->has_arc_extensions) continue;
+				}
 			}
 			else if(p->flags&0x200) { // Skip this unless we're sure it's Crushed
-				if(!d->has_pak_trailer || d->has_arc_extensions) continue;
+				if(d->method10!=2) {
+					if(!d->has_pak_trailer || d->has_arc_extensions) continue;
+				}
 			}
 		}
 		return p;
@@ -1273,6 +1278,7 @@ done:
 static void de_run_arc(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	const char *s;
 
 	d = de_malloc(c, sizeof(lctx));
 	d->fmt = FMT_ARC;
@@ -1283,6 +1289,21 @@ static void de_run_arc(deark *c, de_module_params *mparams)
 	d->input_encoding_for_filenames = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 	d->input_encoding_for_comments = DE_EXTENC_MAKE(d->input_encoding_for_filenames,
 		DE_ENCSUBTYPE_HYBRID);
+
+	// TODO: It would probably be worth it to have a separate module for PAK, so we
+	// can take the .PAK file extension into account when guessing what method #10
+	// is. It's complicated, though, and not very useful until we support Crushed
+	// decompression.
+
+	s = de_get_ext_option(c, "arc:method10");
+	if(s) {
+		if(!de_strcmp(s, "trimmed")) {
+			d->method10 = 1;
+		}
+		else if(!de_strcmp(s, "crushed")) {
+			d->method10 = 2;
+		}
+	}
 
 	do_run_arc_spark_internal(c, d);
 	destroy_lctx(c, d);
@@ -1360,12 +1381,19 @@ static int de_identify_arc(deark *c)
 	return 0;
 }
 
+static void de_help_arc(deark *c)
+{
+	de_msg(c, "-opt arc:method10=<trimmed|crushed|auto> : How to interpret compression "
+		"method #10");
+}
+
 void de_module_arc(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "arc";
 	mi->desc = "ARC compressed archive";
 	mi->run_fn = de_run_arc;
 	mi->identify_fn = de_identify_arc;
+	mi->help_fn = de_help_arc;
 }
 
 /////////////////////// Spark
