@@ -70,6 +70,7 @@ struct dms_tracks_by_track_num_entry {
 	u8 in_use;
 };
 
+struct dmsdeep_cmpr_state;
 struct dmsheavy_cmpr_state;
 
 struct dmsctx {
@@ -85,6 +86,7 @@ struct dmsctx {
 	struct dms_tracks_by_track_num_entry tracks_by_track_num[DMS_MAX_TRACKS];
 
 	struct dmsmedium_cmpr_state *saved_medium_state;
+	struct dmsdeep_cmpr_state *saved_deep_cmpr_state;
 	struct dmsheavy_cmpr_state *saved_heavy_state;
 };
 
@@ -723,6 +725,125 @@ static void do_decompress_medium(deark *c, struct dmsctx *d, struct dms_track_in
 	}
 }
 
+///////////////// "Deep" decompression //////////////
+
+// Note: The "Deep" decompressor has a different design than Heavy and (currently,
+// at least) Medium.
+// Both the codecs it uses are "pushable", which is a good thing for DMS's
+// segmented compression. The Deep decompressor may look more complicated, but
+// ultimately it's cleaner and less hacky.
+
+struct dmsdeep_cmpr_state {
+	struct de_dfilter_ctx *dfctx_lzah;
+	struct de_dfilter_ctx *dfctx_rle;
+	i64 intermediate_nbytes;
+
+	dbuf *outf_codec1;
+	struct de_dfilter_out_params dcmpro1;
+	struct de_dfilter_results dres1;
+};
+
+static void destroy_deep_cmpr_state(deark *c, struct dmsdeep_cmpr_state *dpst)
+{
+	if(!dpst) return;
+	if(dpst->dfctx_lzah) {
+		de_dfilter_destroy(dpst->dfctx_lzah);
+	}
+	if(dpst->dfctx_rle) {
+		de_dfilter_destroy(dpst->dfctx_rle);
+	}
+	dbuf_close(dpst->outf_codec1);
+	de_free(c, dpst);
+}
+
+static void my_deep1_write_cb(dbuf *f, void *userdata,
+	const u8 *buf, i64 size)
+{
+	struct dmsdeep_cmpr_state *u = (struct dmsdeep_cmpr_state*)userdata;
+
+	if(!u->dfctx_rle) {
+		de_internal_err_fatal(f->c, "deepcmpr");
+	}
+	de_dfilter_addbuf(u->dfctx_rle, buf, size);
+	u->intermediate_nbytes += size;
+}
+
+static void do_decompress_track_deep(deark *c, struct dmsctx *d, struct dms_track_info *tri,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	struct dmsdeep_cmpr_state *dpst = NULL;
+
+	if(d->saved_deep_cmpr_state) {
+		if(tri->is_real) {
+			// Reclaim saved decompression state, if any
+			dpst = d->saved_deep_cmpr_state;
+			d->saved_deep_cmpr_state = NULL;
+
+			dpst->dcmpro1.len_known = 1;
+			dpst->dcmpro1.expected_len = tri->intermediate_len;
+
+			de_dfilter_command(dpst->dfctx_lzah, DE_DFILTER_COMMAND_RESET_COUNTERS, 0);
+		}
+		else {
+			destroy_deep_cmpr_state(c, d->saved_deep_cmpr_state);
+			d->saved_deep_cmpr_state = NULL;
+		}
+	}
+
+	if(!dpst) {
+
+		dpst = de_malloc(c, sizeof(struct dmsdeep_cmpr_state));
+
+		dpst->outf_codec1 = dbuf_create_custom_dbuf(c, 0, 0);
+		dpst->outf_codec1->userdata_for_customwrite = (void*)dpst;
+		dpst->outf_codec1->customwrite_fn = my_deep1_write_cb;
+
+		dpst->dcmpro1.f = dpst->outf_codec1;
+		dpst->dcmpro1.len_known = 1;
+		dpst->dcmpro1.expected_len = tri->intermediate_len;
+	}
+
+	// Reset the "length" of this virtual dbuf.
+	dbuf_truncate(dpst->outf_codec1, 0);
+
+	if(dpst->dfctx_rle) {
+		de_dfilter_destroy(dpst->dfctx_rle);
+		dpst->dfctx_rle = NULL;
+	}
+	dpst->dfctx_rle = de_dfilter_create(c, dmsrle_codec, NULL, dcmpro, dres);
+
+	if(!dpst->dfctx_lzah) {
+		struct de_lh1_params lh1p;
+
+		de_zeromem(&lh1p, sizeof(struct de_lh1_params));
+		lh1p.is_dms_deep = 1;
+		dpst->dfctx_lzah = de_dfilter_create(c, dfilter_lh1_codec,
+			(void*)&lh1p, &dpst->dcmpro1, &dpst->dres1);
+
+	}
+
+	dpst->dfctx_lzah->input_file_offset = dcmpri->pos;
+	dpst->intermediate_nbytes = 0;
+
+	de_dfilter_addslice(dpst->dfctx_lzah, dcmpri->f, dcmpri->pos, dcmpri->len);
+
+	de_dfilter_command(dpst->dfctx_lzah, DE_DFILTER_COMMAND_FINISH_BLOCK, 0);
+	de_dfilter_finish(dpst->dfctx_rle);
+
+	// If dpst->dfctx_lzah->dres has the error message we need, copy it to the
+	// real dres.
+	de_dfilter_transfer_error(c, dpst->dfctx_lzah->dres, dres);
+
+	if(tri->is_real) {
+		// Note that this saved state may be deleted soon, in dms_decompress_track().
+		d->saved_deep_cmpr_state = dpst;
+	}
+	else {
+		destroy_deep_cmpr_state(c, dpst);
+	}
+}
+
 ///////////////////////////////////
 
 static void do_decompress_heavy_lzh_rle(deark *c, struct dmsctx *d, struct dms_track_info *tri,
@@ -779,6 +900,10 @@ static void destroy_saved_dcrmpr_state(deark *c, struct dmsctx *d)
 		destroy_medium_state(c, d->saved_medium_state);
 		d->saved_medium_state = NULL;
 	}
+	if(d->saved_deep_cmpr_state) {
+		destroy_deep_cmpr_state(c, d->saved_deep_cmpr_state);
+		d->saved_deep_cmpr_state = NULL;
+	}
 	if(d->saved_heavy_state) {
 		destroy_heavy_state(c, d->saved_heavy_state);
 		d->saved_heavy_state = NULL;
@@ -820,6 +945,9 @@ static int dms_decompress_track(deark *c, struct dmsctx *d, struct dms_track_inf
 	}
 	else if(tri->cmpr_type==DMSCMPR_MEDIUM) {
 		do_decompress_medium(c, d, tri, &dcmpri, &dcmpro, &dres);
+	}
+	else if(tri->cmpr_type==DMSCMPR_DEEP) {
+		do_decompress_track_deep(c, d, tri, &dcmpri, &dcmpro, &dres);
 	}
 	else if(tri->cmpr_type==DMSCMPR_HEAVY1 || tri->cmpr_type==DMSCMPR_HEAVY2) {
 		do_decompress_heavy(c, d, tri, &dcmpri, &dcmpro, &dres);

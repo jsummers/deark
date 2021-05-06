@@ -99,8 +99,14 @@ struct de_dfilter_ctx *de_dfilter_create(deark *c,
 void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
 	const u8 *buf, i64 buf_len)
 {
+	if(dfctx->finished_flag) return;
+
 	if(dfctx->codec_addbuf_fn && (buf_len>0)) {
 		dfctx->codec_addbuf_fn(dfctx, buf, buf_len);
+
+		if(dfctx->dres->errcode) {
+			dfctx->finished_flag = 1;
+		}
 	}
 }
 
@@ -708,10 +714,11 @@ static void my_2layer_write_cb(dbuf *f, void *userdata,
 	u->intermediate_nbytes += size;
 }
 
-static void dres_transfer_error(deark *c, struct de_dfilter_results *src,
+// If src indicates error and dst does not, copy the error from src to dst.
+void de_dfilter_transfer_error(deark *c, struct de_dfilter_results *src,
 	struct de_dfilter_results *dst)
 {
-	if(src->errcode) {
+	if(src->errcode && !dst->errcode) {
 		dst->errcode = src->errcode;
 		de_strlcpy(dst->errmsg, src->errmsg, sizeof(dst->errmsg));
 	}
@@ -767,8 +774,7 @@ void de_dfilter_decompress_two_layer(deark *c, struct de_dcmpr_two_layer_params 
 	if(dres_codec2.errcode) {
 		// An error occurred in codec2, and not in codec1.
 		// Copy the error info to the dres that will be returned to the caller.
-		// TODO: Make a cleaner way to do this.
-		dres_transfer_error(c, &dres_codec2, tlp->dres);
+		de_dfilter_transfer_error(c, &dres_codec2, tlp->dres);
 		goto done;
 	}
 

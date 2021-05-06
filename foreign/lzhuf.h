@@ -36,7 +36,9 @@ struct lzahuf_ctx {
 	UI lzhuf_T;
 	UI lzhuf_R; /* position of root */ /* (LZHUF_T - 1) */
 	UI num_special_codes;
-	u8 crlzh20_style_positions;
+	UI dpparam_dcode_shift;
+	UI dpparam_dlen_bias;
+	UI dpparam_mask;
 
 	int errflag;
 	i64 total_nbytes_processed;
@@ -310,12 +312,12 @@ static UI lzhuf_DecodePosition(struct lzahuf_ctx *cctx)
 	/* recover upper bits from table */
 	i = lzhuf_getbits(cctx, 8);
 	fmtutil_get_lzhuf_d_code_and_len(i, &d_code, &d_len);
-	c = d_code << (cctx->crlzh20_style_positions ? 5 : 6);
+	c = d_code << cctx->dpparam_dcode_shift;
 
 	/* read lower bits verbatim */
-	j = d_len - (cctx->crlzh20_style_positions ? 3 : 2);
+	j = d_len - cctx->dpparam_dlen_bias;
 	i = (i<<j) | lzhuf_getbits(cctx, j);
-	i &= (cctx->crlzh20_style_positions ? 0x1f : 0x3f);
+	i &= cctx->dpparam_mask;
 	return c | i;
 }
 
@@ -389,6 +391,9 @@ static void lzhuf_Decode_init(struct lzahuf_ctx *cctx)
 	cctx->num_special_codes = 0;
 	cctx->num_length_codes = 58;
 	cctx->match_length_bias = 253;
+	cctx->dpparam_dcode_shift = 6;
+	cctx->dpparam_dlen_bias = 2;
+	cctx->dpparam_mask = 0x3f;
 	rb_size = 4096;
 
 	if(cctx->lh1p.is_crlzh11 || cctx->lh1p.is_crlzh20) {
@@ -400,7 +405,9 @@ static void lzhuf_Decode_init(struct lzahuf_ctx *cctx)
 		cctx->match_length_bias = 254;
 		rb_size = 2048;
 		if(cctx->lh1p.is_crlzh20) {
-			cctx->crlzh20_style_positions = 1;
+			cctx->dpparam_dcode_shift = 5;
+			cctx->dpparam_dlen_bias = 3;
+			cctx->dpparam_mask = 0x1f;
 		}
 	}
 	else if(cctx->lh1p.is_arc_trimmed) {
@@ -410,6 +417,12 @@ static void lzhuf_Decode_init(struct lzahuf_ctx *cctx)
 		cctx->num_special_codes = 1;
 		cctx->num_length_codes = 57;
 		cctx->match_length_bias = 254;
+	}
+	else if(cctx->lh1p.is_dms_deep) {
+		rb_size = 16*1024;
+		cctx->dpparam_dcode_shift = 8;
+		cctx->dpparam_dlen_bias = 0;
+		cctx->dpparam_mask = 0xff;
 	}
 
 	cctx->lzhuf_N_CHAR = 256 + cctx->num_special_codes + cctx->num_length_codes;

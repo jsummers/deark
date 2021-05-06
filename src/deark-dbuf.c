@@ -1525,7 +1525,7 @@ void dbuf_truncate(dbuf *f, i64 desired_len)
 		dbuf_write_zeroes(f, desired_len - f->len);
 	}
 	else if(desired_len<f->len) {
-		if(f->btype==DBUF_TYPE_MEMBUF) {
+		if(f->btype==DBUF_TYPE_MEMBUF || f->btype==DBUF_TYPE_CUSTOM) {
 			f->len = desired_len;
 		}
 	}

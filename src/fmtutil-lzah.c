@@ -46,12 +46,37 @@ static void my_lh1_codec_finish(struct de_dfilter_ctx *dfctx)
 	cctx->ibuf2 = NULL;
 	cctx->ibuf2_len = 0;
 	lzhuf_Decode_continue(cctx, 1);
+	cctx->ibuf1_curpos = 0;
+	cctx->ibuf1_len = 0;
 
 	dfctx->dres->bytes_consumed = cctx->total_nbytes_processed;
 	dfctx->dres->bytes_consumed_valid = 1;
 
 	if(cctx->errflag) {
 		de_dfilter_set_generic_error(cctx->c, dfctx->dres, cctx->modname);
+	}
+}
+
+static void my_lh1_codec_command(struct de_dfilter_ctx *dfctx, int cmd)
+{
+	struct lzahuf_ctx *cctx = (struct lzahuf_ctx*)dfctx->codec_private;
+
+	if(cmd==DE_DFILTER_COMMAND_FINISH_BLOCK) {
+		cctx->ibuf2 = NULL;
+		cctx->ibuf2_len = 0;
+		lzhuf_Decode_continue(cctx, 1);
+		cctx->ibuf1_curpos = 0;
+		cctx->ibuf1_len = 0;
+		de_bitbuf_lowlevel_empty(&cctx->bbll);
+		if(cctx->lh1p.is_dms_deep) {
+			de_lz77buffer_set_curpos(cctx->ringbuf, cctx->ringbuf->curpos + 60);
+		}
+	}
+	else if(cmd==DE_DFILTER_COMMAND_RESET_COUNTERS) {
+		cctx->nbytes_written = 0;
+		cctx->total_nbytes_processed = 0;
+		cctx->errflag = 0;
+		dfctx->finished_flag = 0;
 	}
 }
 
@@ -82,6 +107,7 @@ void dfilter_lh1_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
 	dfctx->codec_private = (void*)cctx;
 	dfctx->codec_addbuf_fn = my_lh1_codec_addbuf;
 	dfctx->codec_finish_fn = my_lh1_codec_finish;
+	dfctx->codec_command_fn = my_lh1_codec_command;
 	dfctx->codec_destroy_fn = my_lh1_codec_destroy;
 
 	if(codec_private_params) {

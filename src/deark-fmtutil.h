@@ -224,11 +224,15 @@ void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
 	const u8 *buf, i64 buf_len);
 #define DE_DFILTER_COMMAND_SOFTRESET      1
 #define DE_DFILTER_COMMAND_REINITIALIZE   2
+#define DE_DFILTER_COMMAND_FINISH_BLOCK   3
+#define DE_DFILTER_COMMAND_RESET_COUNTERS 4
 void de_dfilter_command(struct de_dfilter_ctx *dfctx, int cmd, UI flags);
 void de_dfilter_addslice(struct de_dfilter_ctx *dfctx,
 	dbuf *inf, i64 pos, i64 len);
 void de_dfilter_finish(struct de_dfilter_ctx *dfctx);
 void de_dfilter_destroy(struct de_dfilter_ctx *dfctx);
+void de_dfilter_transfer_error(deark *c, struct de_dfilter_results *src,
+	struct de_dfilter_results *dst);
 
 void de_dfilter_decompress_oneshot(deark *c,
 	dfilter_codec_type codec_init_fn, void *codec_private_params,
@@ -276,6 +280,7 @@ void fmtutil_get_lzhuf_d_code_and_len(UI n, UI *pd_code, UI *pd_len);
 struct de_lh1_params {
 	u8 is_crlzh11, is_crlzh20;
 	u8 is_arc_trimmed; // (The LZH part of the scheme. Does not do RLE.)
+	u8 is_dms_deep; // (The LZH part of the scheme.)
 	u8 history_fill_val; // Set to 0x20 (space) if not sure.
 };
 
