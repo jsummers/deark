@@ -624,7 +624,7 @@ static void do_mediumlz77_internal(struct medium_ctx *mctx, struct dmsmedium_cmp
 			ocode1 = (UI)de_bitreader_getbits(&mctx->bitrd, ocode1_nbits);
 
 			tmp_code = ((first_code << ocode1_nbits) | ocode1) & 0xff;
-			fmtutil_get_lzhuf_d_code_and_len(first_code, &d_code2, &d_len2);
+			fmtutil_get_lzhuf_d_code_and_len(tmp_code, &d_code2, &d_len2);
 			ocode2_nbits = d_len2;
 			ocode2 = (UI)de_bitreader_getbits(&mctx->bitrd, ocode2_nbits);
 
