@@ -1000,6 +1000,8 @@ static void finfo_shallow_copy(deark *c, de_finfo *src, de_finfo *dst)
 	UI k;
 
 	dst->is_directory = src->is_directory;
+	dst->has_riscos_data = src->has_riscos_data;
+	dst->riscos_attribs = src->riscos_attribs;
 	dst->mode_flags = src->mode_flags;
 	for(k=0; k<DE_TIMESTAMPIDX_COUNT; k++) {
 		dst->timestamp[k] = src->timestamp[k];
@@ -1009,6 +1011,8 @@ static void finfo_shallow_copy(deark *c, de_finfo *src, de_finfo *dst)
 	dst->has_hotspot = src->has_hotspot;
 	dst->hotspot_x = src->hotspot_x;
 	dst->hotspot_y = src->hotspot_y;
+	dst->load_addr = src->load_addr;
+	dst->exec_addr = src->exec_addr;
 }
 
 static dbuf *create_dbuf_lowlevel(deark *c)

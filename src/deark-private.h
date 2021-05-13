@@ -217,6 +217,7 @@ struct de_finfo_struct {
 	u8 detect_root_dot_dir; // Directories named "." are special.
 	u8 orig_name_was_dot; // Internal use
 	u8 has_hotspot;
+	u8 has_riscos_data; // attribs, load_addr, exec_addr
 
 #define DE_MODEFLAG_NONEXE 0x01 // Make the output file non-executable.
 #define DE_MODEFLAG_EXE    0x02 // Make the output file executable.
@@ -234,6 +235,8 @@ struct de_finfo_struct {
 	struct de_density_info density;
 	de_ucstring *name_other; // Modules can use this field as needed.
 	int hotspot_x, hotspot_y; // Measured from upper-left pixel (after handling 'flipped')
+	u32 riscos_attribs;
+	u32 load_addr, exec_addr;
 };
 
 struct deark_bitmap_struct {

@@ -256,6 +256,11 @@ static void do_arcfs_extract_member(deark *c, lctx *d, struct arcfs_member_data 
 		fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->rfa.mod_time;
 	}
 
+	fi->has_riscos_data = 1;
+	fi->riscos_attribs = md->rfa.attribs;
+	fi->load_addr = md->rfa.load_addr;
+	fi->exec_addr = md->rfa.exec_addr;
+
 	if(md->is_regular_file) {
 		do_arcfs_extract_member_file(c, d, md, fi);
 	}

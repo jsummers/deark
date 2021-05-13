@@ -44,6 +44,7 @@ struct member_data {
 
 	u8 cmpr_meth;
 	u8 cmpr_meth_masked;
+	u8 has_spark_attribs;
 	const struct cmpr_meth_info *cmi;
 	const char *cmpr_meth_name;
 	i64 orig_size;
@@ -1062,9 +1063,9 @@ static void member_cb_main(deark *c, lctx *d, struct member_parser_data *mpd)
 	}
 
 	if(d->fmt == FMT_SPARK) {
+		md->has_spark_attribs = 1;
 		fmtutil_riscos_read_load_exec(c, c->infile, &md->rfa, pos);
 		pos += 8;
-
 		fmtutil_riscos_read_attribs_field(c, c->infile, &md->rfa, pos, 0);
 		pos += 4;
 	}
@@ -1101,6 +1102,13 @@ static void member_cb_main(deark *c, lctx *d, struct member_parser_data *mpd)
 	}
 	else if(md->arc_timestamp.is_valid) {
 		fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->arc_timestamp;
+	}
+
+	if(md->has_spark_attribs) {
+		fi->has_riscos_data = 1;
+		fi->riscos_attribs = md->rfa.attribs;
+		fi->load_addr = md->rfa.load_addr;
+		fi->exec_addr = md->rfa.exec_addr;
 	}
 
 	if(md->is_dir) {
