@@ -529,7 +529,7 @@ static void de_run_rosprite(deark *c, de_module_params *mparams)
 			(int)implied_file_size, (int)c->infile->len);
 	}
 
-	pos = 12;
+	pos = first_sprite_offset;
 	for(k=0; k<d->num_images; k++) {
 		if(pos>=c->infile->len) break;
 		sprite_size = de_getu32le(pos);
