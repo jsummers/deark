@@ -4,6 +4,7 @@
 
 // ARC compressed archive
 // Spark
+// ArcMac
 
 #include <deark-config.h>
 #include <deark-private.h>
@@ -43,6 +44,7 @@ struct member_data {
 
 	u8 cmpr_meth;
 	u8 cmpr_meth_masked;
+	u8 has_spark_attribs;
 	const struct cmpr_meth_info *cmi;
 	const char *cmpr_meth_name;
 	i64 orig_size;
@@ -67,6 +69,7 @@ struct localctx_struct {
 	de_ext_encoding input_encoding_for_filenames;
 	de_ext_encoding input_encoding_for_comments;
 	de_ext_encoding input_encoding_for_arcmac_fn;
+	u8 method10; // 1=trimmed, 2=crushed
 	int append_type;
 	int recurse_subdirs;
 	u8 sig_byte;
@@ -234,19 +237,30 @@ static void decompressor_crunched6(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
+	struct de_dcmpr_two_layer_params tlp;
 	struct de_lzw_params delzwp;
 
 	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
 	delzwp.fmt = DE_LZWFMT_ARC5;
 
-	de_dfilter_decompress_two_layer_type2(c, dfilter_lzw_codec, (void*)&delzwp,
-		dfilter_rle90_codec, NULL, dcmpri, dcmpro, dres);
+	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
+	tlp.codec1_pushable = dfilter_lzw_codec;
+	tlp.codec1_private_params = (void*)&delzwp;
+
+	tlp.codec2 = dfilter_rle90_codec;
+
+	tlp.dcmpri = dcmpri;
+	tlp.dcmpro = dcmpro;
+	tlp.dres = dres;
+
+	de_dfilter_decompress_two_layer(c, &tlp);
 }
 
 static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
+	struct de_dcmpr_two_layer_params tlp;
 	struct de_lzw_params delzwp;
 
 	// "Crunched" means "packed", then "compressed".
@@ -256,8 +270,41 @@ static void decompressor_crunched8(deark *c, lctx *d, struct member_data *md,
 	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
 	delzwp.flags |= DE_LZWFLAG_HAS1BYTEHEADER;
 
-	de_dfilter_decompress_two_layer_type2(c, dfilter_lzw_codec, (void*)&delzwp,
-		dfilter_rle90_codec, NULL, dcmpri, dcmpro, dres);
+	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
+	tlp.codec1_pushable = dfilter_lzw_codec;
+	tlp.codec1_private_params = (void*)&delzwp;
+
+	tlp.codec2 = dfilter_rle90_codec;
+
+	tlp.dcmpri = dcmpri;
+	tlp.dcmpro = dcmpro;
+	tlp.dres = dres;
+
+	de_dfilter_decompress_two_layer(c, &tlp);
+}
+
+static void decompressor_trimmed(deark *c, lctx *d, struct member_data *md,
+	struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
+{
+	struct de_dcmpr_two_layer_params tlp;
+	struct de_lh1_params lh1p;
+
+	de_zeromem(&lh1p, sizeof(struct de_lh1_params));
+	lh1p.is_arc_trimmed = 1;
+	lh1p.history_fill_val = 0x00;
+
+	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
+	tlp.codec1_pushable = dfilter_lh1_codec;
+	tlp.codec1_private_params = (void*)&lh1p;
+
+	tlp.codec2 = dfilter_rle90_codec;
+
+	tlp.dcmpri = dcmpri;
+	tlp.dcmpro = dcmpro;
+	tlp.dres = dres;
+
+	de_dfilter_decompress_two_layer(c, &tlp);
 }
 
 // Flags:
@@ -276,12 +323,13 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 0x07, 0x83, "crunched7 (ARC 4.6)", NULL },
 	{ 0x08, 0x83, "crunched8 (RLE + dynamic LZW)", decompressor_crunched8 },
 	{ 0x09, 0x83, "squashed (dynamic LZW)", decompressor_squashed },
-	{ 10,  0x101, "trimmed", NULL },
+	{ 10,  0x101, "trimmed", decompressor_trimmed },
 	{ 10,  0x201, "crushed", NULL },
 	{ 10,   0x01, "trimmed or crushed", NULL },
 	{ 0x0b, 0x01, "distilled", NULL },
 	{ 20,   0x01, "archive info", NULL },
 	{ 21,   0x01, "extended file info", NULL },
+	{ 22,   0x01, "OS info", NULL },
 	{ 0x1e, 0x01, "subdir", NULL },
 	{ 0x1f, 0x01, "end of subdir marker", NULL },
 	{ 0x80, 0x02, "end of archive marker", NULL },
@@ -309,10 +357,14 @@ static const struct cmpr_meth_info *get_cmpr_meth_info(lctx *d, u8 cmpr_meth)
 			// Method 10 has a conflict -- it could be either Trimmed (ARC7)
 			// or Crushed (PAK).
 			if(p->flags&0x100) { // Skip this unless we're sure it's Trimmed
-				if(d->has_pak_trailer || !d->has_arc_extensions) continue;
+				if(d->method10!=1) {
+					if(d->has_pak_trailer || !d->has_arc_extensions) continue;
+				}
 			}
 			else if(p->flags&0x200) { // Skip this unless we're sure it's Crushed
-				if(!d->has_pak_trailer || d->has_arc_extensions) continue;
+				if(d->method10!=2) {
+					if(!d->has_pak_trailer || d->has_arc_extensions) continue;
+				}
 			}
 		}
 		return p;
@@ -783,9 +835,13 @@ static void do_info_record_string(deark *c, lctx *d, i64 pos, i64 len, const cha
 }
 
 static const struct extinfo_item_info extinfo_arr[] = {
-	{ 20, 0, 0x01, "archive comment", NULL },
-	{ 20, 1, 0x01, "created by", NULL },
-	{ 21, 0, 0x01, "file comment", NULL },
+	{ 20, 0, 0x01, "archive description", NULL },
+	{ 20, 1, 0x01, "archive created by", NULL },
+	{ 20, 2, 0x01, "archive last modified by", NULL },
+	{ 21, 0, 0x01, "file description", NULL },
+	{ 21, 1, 0x01, "long name", NULL },
+	{ 21, 2, 0x00, "timestamps", NULL },
+	{ 21, 3, 0x00, "icon", NULL },
 	{ 21, 4, 0x01, "attributes", NULL },
 	{ 21, 5, 0x01, "full path", NULL }
 };
@@ -1007,9 +1063,9 @@ static void member_cb_main(deark *c, lctx *d, struct member_parser_data *mpd)
 	}
 
 	if(d->fmt == FMT_SPARK) {
+		md->has_spark_attribs = 1;
 		fmtutil_riscos_read_load_exec(c, c->infile, &md->rfa, pos);
 		pos += 8;
-
 		fmtutil_riscos_read_attribs_field(c, c->infile, &md->rfa, pos, 0);
 		pos += 4;
 	}
@@ -1048,6 +1104,13 @@ static void member_cb_main(deark *c, lctx *d, struct member_parser_data *mpd)
 		fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->arc_timestamp;
 	}
 
+	if(md->has_spark_attribs) {
+		fi->has_riscos_data = 1;
+		fi->riscos_attribs = md->rfa.attribs;
+		fi->load_addr = md->rfa.load_addr;
+		fi->exec_addr = md->rfa.exec_addr;
+	}
+
 	if(md->is_dir) {
 		fi->is_directory = 1;
 	}
@@ -1065,13 +1128,12 @@ static void member_cb_main(deark *c, lctx *d, struct member_parser_data *mpd)
 		// Here, we use the recursive method.
 		do_sequence_of_members(c, d, md->cmpr_data_pos, md->cmpr_size, mpd->nesting_level+1);
 	}
+	else if(md->cmpr_meth>=30 && md->cmpr_meth<=39) {
+		de_warn(c, "Unknown control item type %d at %"I64_FMT, (int)md->cmpr_meth, pos1);
+		goto done;
+	}
 	else if(md->cmpr_meth>=20 && md->cmpr_meth<=29) {
-		if(md->cmpr_meth==20 || md->cmpr_meth==21) {
-			do_info_item(c, d, md);
-		}
-		else {
-			de_warn(c, "Ignoring extension type %d at %"I64_FMT, (int)md->cmpr_meth, pos1);
-		}
+		do_info_item(c, d, md);
 	}
 	else if(d->fmt==FMT_ARCMAC && md->arcmac_advf) {
 		do_extract_member_file_arcmac(c, d, md, fi);
@@ -1219,6 +1281,131 @@ done:
 	;
 }
 
+/////////////////////// ARC (core ARC-only functions)
+
+static void de_run_arc(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	const char *s;
+
+	d = de_malloc(c, sizeof(lctx));
+	d->fmt = FMT_ARC;
+	d->fmtname = "ARC";
+	// TODO: Make 'recurse' configurable. Would require us to make the embedded
+	// archives end with the correct marker.
+	d->recurse_subdirs = 1;
+	d->input_encoding_for_filenames = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->input_encoding_for_comments = DE_EXTENC_MAKE(d->input_encoding_for_filenames,
+		DE_ENCSUBTYPE_HYBRID);
+
+	// TODO: It would probably be worth it to have a separate module for PAK, so we
+	// can take the .PAK file extension into account when guessing what method #10
+	// is. It's complicated, though, and not very useful until we support Crushed
+	// decompression.
+
+	s = de_get_ext_option(c, "arc:method10");
+	if(s) {
+		if(!de_strcmp(s, "trimmed")) {
+			d->method10 = 1;
+		}
+		else if(!de_strcmp(s, "crushed")) {
+			d->method10 = 2;
+		}
+	}
+
+	do_run_arc_spark_internal(c, d);
+	destroy_lctx(c, d);
+}
+
+static int de_identify_arc(deark *c)
+{
+	static const char *exts[] = {"arc", "ark", "pak", "spk", "sdn", "com"};
+	int has_ext = 0;
+	int ends_with_trailer = 0;
+	int ends_with_comments = 0;
+	int starts_with_trailer = 0;
+	i64 arc_start = 0;
+	size_t k;
+	u8 cmpr_meth;
+	u8 buf[5];
+
+	de_read(buf, 0, sizeof(buf));
+
+	// Look for 0x1a in the first 4 bytes. Some .COM-style self-extracting
+	// archives start with 1-3 bytes of code before the ARC marker.
+	if(!find_arc_marker(c, buf, sizeof(buf)-1, &arc_start)) {
+		return 0;
+	}
+
+	cmpr_meth = buf[arc_start+1];
+	if(cmpr_meth>11 && cmpr_meth!=20 && cmpr_meth!=21 && cmpr_meth!=22 && cmpr_meth!=30) {
+		return 0;
+	}
+	if(cmpr_meth==0) starts_with_trailer = 1;
+
+	for(k=0; k<DE_ARRAYCOUNT(exts); k++) {
+		if(de_input_file_has_ext(c, exts[k])) {
+			has_ext = (int)(k+1);
+			break;
+		}
+	}
+
+	if(arc_start>0) {
+		if(has_ext==1 || has_ext==2 || has_ext==6) { // .arc, .ark, .com
+			;
+		}
+		else {
+			return 0;
+		}
+	}
+
+	if(starts_with_trailer && c->infile->len==2) {
+		if(has_ext>=1 && has_ext<=4) return 15; // Empty archive, 2-byte file
+		return 0;
+	}
+
+	if((!starts_with_trailer) && (de_getu16be(c->infile->len-2) == 0x1a00)) {
+		ends_with_trailer = 1;
+	}
+	if(de_getu32be(c->infile->len-8) == 0x504baa55) {
+		// PKARC trailer, for files with comments
+		ends_with_comments = 1;
+	}
+
+	if(!ends_with_trailer && !ends_with_comments) {
+		// PAK-style extensions
+		if(de_getu16be(c->infile->len-2) == 0xfe00) {
+			ends_with_comments = 1;
+		}
+	}
+
+	if(starts_with_trailer) {
+		if(ends_with_comments) return 25;
+		else return 0;
+	}
+	if(has_ext && (ends_with_trailer || ends_with_comments)) return 90;
+	if(ends_with_trailer || ends_with_comments) return 25;
+	if(has_ext) return 15;
+	return 0;
+}
+
+static void de_help_arc(deark *c)
+{
+	de_msg(c, "-opt arc:method10=<trimmed|crushed|auto> : How to interpret compression "
+		"method #10");
+}
+
+void de_module_arc(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "arc";
+	mi->desc = "ARC compressed archive";
+	mi->run_fn = de_run_arc;
+	mi->identify_fn = de_identify_arc;
+	mi->help_fn = de_help_arc;
+}
+
+/////////////////////// Spark
+
 static void de_run_spark(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -1285,101 +1472,7 @@ void de_module_spark(deark *c, struct deark_module_info *mi)
 	mi->help_fn = de_help_spark;
 }
 
-static void de_run_arc(deark *c, de_module_params *mparams)
-{
-	lctx *d = NULL;
-
-	d = de_malloc(c, sizeof(lctx));
-	d->fmt = FMT_ARC;
-	d->fmtname = "ARC";
-	// TODO: Make 'recurse' configurable. Would require us to make the embedded
-	// archives end with the correct marker.
-	d->recurse_subdirs = 1;
-	d->input_encoding_for_filenames = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
-	d->input_encoding_for_comments = DE_EXTENC_MAKE(d->input_encoding_for_filenames,
-		DE_ENCSUBTYPE_HYBRID);
-
-	do_run_arc_spark_internal(c, d);
-	destroy_lctx(c, d);
-}
-
-static int de_identify_arc(deark *c)
-{
-	static const char *exts[] = {"arc", "ark", "pak", "spk", "sdn", "com"};
-	int has_ext = 0;
-	int ends_with_trailer = 0;
-	int ends_with_comments = 0;
-	int starts_with_trailer = 0;
-	i64 arc_start = 0;
-	size_t k;
-	u8 cmpr_meth;
-	u8 buf[5];
-
-	de_read(buf, 0, sizeof(buf));
-
-	// Look for 0x1a in the first 4 bytes. Some .COM-style self-extracting
-	// archives start with 1-3 bytes of code before the ARC marker.
-	if(!find_arc_marker(c, buf, sizeof(buf)-1, &arc_start)) {
-		return 0;
-	}
-
-	cmpr_meth = buf[arc_start+1];
-	if(cmpr_meth>11 && cmpr_meth!=20 && cmpr_meth!=21 && cmpr_meth!=30) return 0;
-	if(cmpr_meth==0) starts_with_trailer = 1;
-
-	for(k=0; k<DE_ARRAYCOUNT(exts); k++) {
-		if(de_input_file_has_ext(c, exts[k])) {
-			has_ext = (int)(k+1);
-			break;
-		}
-	}
-
-	if(arc_start>0) {
-		if(has_ext==1 || has_ext==2 || has_ext==6) { // .arc, .ark, .com
-			;
-		}
-		else {
-			return 0;
-		}
-	}
-
-	if(starts_with_trailer && c->infile->len==2) {
-		if(has_ext>=1 && has_ext<=4) return 15; // Empty archive, 2-byte file
-		return 0;
-	}
-
-	if((!starts_with_trailer) && (de_getu16be(c->infile->len-2) == 0x1a00)) {
-		ends_with_trailer = 1;
-	}
-	if(de_getu32be(c->infile->len-8) == 0x504baa55) {
-		// PKARC trailer, for files with comments
-		ends_with_comments = 1;
-	}
-
-	if(!ends_with_trailer && !ends_with_comments) {
-		// PAK-style extensions
-		if(de_getu16be(c->infile->len-2) == 0xfe00) {
-			ends_with_comments = 1;
-		}
-	}
-
-	if(starts_with_trailer) {
-		if(ends_with_comments) return 25;
-		else return 0;
-	}
-	if(has_ext && (ends_with_trailer || ends_with_comments)) return 90;
-	if(ends_with_trailer || ends_with_comments) return 25;
-	if(has_ext) return 15;
-	return 0;
-}
-
-void de_module_arc(deark *c, struct deark_module_info *mi)
-{
-	mi->id = "arc";
-	mi->desc = "ARC compressed archive";
-	mi->run_fn = de_run_arc;
-	mi->identify_fn = de_identify_arc;
-}
+/////////////////////// ArcMac
 
 static void de_run_arcmac(deark *c, de_module_params *mparams)
 {

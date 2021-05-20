@@ -68,6 +68,9 @@ struct member_data {
 	int is_dir;
 	int is_symlink;
 	struct timestamp_data tsdata[DE_TIMESTAMPIDX_COUNT];
+	u8 has_riscos_data;
+	u32 riscos_attribs;
+	u32 riscos_load_addr, riscos_exec_addr;
 
 	struct dir_entry_data central_dir_entry_data;
 	struct dir_entry_data local_dir_entry_data;
@@ -898,8 +901,13 @@ static void ef_acorn(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	}
 
 	fmtutil_riscos_read_attribs_field(c, c->infile, &rfa, pos, 0);
-	// Note: attribs does not have any information that we care about (no
-	// 'executable' or 'is-directory' flag).
+
+	if(!eii->is_central && !eii->md->has_riscos_data) {
+		eii->md->has_riscos_data = 1;
+		eii->md->riscos_attribs = rfa.attribs;
+		eii->md->riscos_load_addr = rfa.load_addr;
+		eii->md->riscos_exec_addr = rfa.exec_addr;
+	}
 }
 
 struct extra_item_type_info_struct {
@@ -1067,6 +1075,13 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		if(md->tsdata[tsidx].ts.is_valid) {
 			fi->timestamp[tsidx] = md->tsdata[tsidx].ts;
 		}
+	}
+
+	if(md->has_riscos_data) {
+		fi->has_riscos_data = 1;
+		fi->riscos_attribs = md->riscos_attribs;
+		fi->load_addr = md->riscos_load_addr;
+		fi->exec_addr = md->riscos_exec_addr;
 	}
 
 	if(md->is_dir) {

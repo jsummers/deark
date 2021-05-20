@@ -142,6 +142,7 @@ struct de_dfilter_ctx {
 	deark *c;
 	struct de_dfilter_results *dres;
 	struct de_dfilter_out_params *dcmpro;
+	i64 input_file_offset; // Non-critical, may be used by dbg messages
 	u8 finished_flag;
 	void *codec_private;
 	dfilter_codec_addbuf_type codec_addbuf_fn;
@@ -223,11 +224,15 @@ void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
 	const u8 *buf, i64 buf_len);
 #define DE_DFILTER_COMMAND_SOFTRESET      1
 #define DE_DFILTER_COMMAND_REINITIALIZE   2
+#define DE_DFILTER_COMMAND_FINISH_BLOCK   3
+#define DE_DFILTER_COMMAND_RESET_COUNTERS 4
 void de_dfilter_command(struct de_dfilter_ctx *dfctx, int cmd, UI flags);
 void de_dfilter_addslice(struct de_dfilter_ctx *dfctx,
 	dbuf *inf, i64 pos, i64 len);
 void de_dfilter_finish(struct de_dfilter_ctx *dfctx);
 void de_dfilter_destroy(struct de_dfilter_ctx *dfctx);
+void de_dfilter_transfer_error(deark *c, struct de_dfilter_results *src,
+	struct de_dfilter_results *dst);
 
 void de_dfilter_decompress_oneshot(deark *c,
 	dfilter_codec_type codec_init_fn, void *codec_private_params,
@@ -246,11 +251,6 @@ struct de_dcmpr_two_layer_params {
 	i64 intermed_expected_len;
 };
 void de_dfilter_decompress_two_layer(deark *c, struct de_dcmpr_two_layer_params *tlp);
-void de_dfilter_decompress_two_layer_type2(deark *c,
-	dfilter_codec_type codec1, void *codec1_private_params,
-	dfilter_codec_type codec2, void *codec2_private_params,
-	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
-	struct de_dfilter_results *dres);
 
 void fmtutil_decompress_zip_shrink(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
@@ -275,17 +275,19 @@ void fmtutil_dclimplode_codectype1(deark *c, struct de_dfilter_in_params *dcmpri
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params);
 
-UI fmtutil_get_lzhuf_d_code(UI n);
-UI fmtutil_get_lzhuf_d_len(UI n);
+void fmtutil_get_lzhuf_d_code_and_len(UI n, UI *pd_code, UI *pd_len);
 
 struct de_lh1_params {
 	u8 is_crlzh11, is_crlzh20;
+	u8 is_arc_trimmed; // (The LZH part of the scheme. Does not do RLE.)
+	u8 is_dms_deep; // (The LZH part of the scheme.)
 	u8 history_fill_val; // Set to 0x20 (space) if not sure.
 };
 
 void fmtutil_lh1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params);
+void dfilter_lh1_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 
 // Wrapper for miniz' tdefl functions
 

@@ -48,6 +48,7 @@ struct dir_record {
 	struct de_timestamp rr_modtime;
 	struct de_timestamp riscos_timestamp;
 	u32 archimedes_attribs;
+	u32 load_addr, exec_addr;
 };
 
 struct vol_record {
@@ -322,6 +323,13 @@ static void do_extract_file(deark *c, lctx *d, struct dir_record *dr)
 		fi->mode_flags |= DE_MODEFLAG_NONEXE;
 	}
 
+	if(dr->has_archimedes_ext) {
+		fi->has_riscos_data = 1;
+		fi->riscos_attribs = dr->archimedes_attribs;
+		fi->load_addr = dr->load_addr;
+		fi->exec_addr = dr->exec_addr;
+	}
+
 	if(dpos+dlen > c->infile->len) {
 		de_err(c, "%s goes beyond end of file", ucstring_getpsz(final_name));
 		goto done;
@@ -560,6 +568,8 @@ static void do_ARCHIMEDES(deark *c, lctx *d, struct dir_record *dr, i64 pos1, i6
 
 	fmtutil_riscos_read_attribs_field(c, c->infile, &rfa, pos, 0);
 	dr->archimedes_attribs = rfa.attribs;
+	dr->load_addr = rfa.load_addr;
+	dr->exec_addr = rfa.exec_addr;
 
 done:
 	de_dbg_indent(c, -1);

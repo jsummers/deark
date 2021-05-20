@@ -13,7 +13,6 @@ DE_DECLARE_MODULE(de_module_packdir);
 #define MAX_NESTING_LEVEL 32
 
 struct pdctx_object {
-	u32 attribs;
 	u32 object_type;
 	u8 is_dir;
 	i64 num_children; //  valid if is_dir
@@ -21,7 +20,7 @@ struct pdctx_object {
 	i64 cmpr_len;
 	int is_compressed;
 	de_ucstring *name;
-	struct de_timestamp mod_time;
+	struct de_riscos_file_attrs rfa;
 };
 
 struct pdctx_struct {
@@ -117,7 +116,12 @@ static void do_packdir_extract_file(deark *c, struct pdctx_struct *d,
 	de_finfo_set_name_from_ucstring(c, fi, fullfn, DE_SNFLAG_FULLPATH);
 	fi->original_filename_flag = 1;
 
-	fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->mod_time;
+	fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->rfa.mod_time;
+
+	fi->has_riscos_data = 1;
+	fi->riscos_attribs = md->rfa.attribs;
+	fi->load_addr = md->rfa.load_addr;
+	fi->exec_addr = md->rfa.exec_addr;
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
 
@@ -166,7 +170,6 @@ static int do_packdir_object(deark *c, struct pdctx_struct *d, i64 pos1,
 	struct pdctx_object *md = NULL;
 	int retval = 0;
 	int need_dirname_pop = 0;
-	struct de_riscos_file_attrs rfa;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -188,16 +191,13 @@ static int do_packdir_object(deark *c, struct pdctx_struct *d, i64 pos1,
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(md->name));
 	pos += name_len + 1;
 
-	de_zeromem(&rfa, sizeof(struct de_riscos_file_attrs));
-	fmtutil_riscos_read_load_exec(c, c->infile, &rfa, pos);
+	fmtutil_riscos_read_load_exec(c, c->infile, &md->rfa, pos);
 	pos += 8;
-	md->mod_time = rfa.mod_time;
 
 	length_raw = de_getu32le_p(&pos);
 
-	fmtutil_riscos_read_attribs_field(c, c->infile, &rfa, pos, 0);
+	fmtutil_riscos_read_attribs_field(c, c->infile, &md->rfa, pos, 0);
 	pos += 4;
-	md->attribs = rfa.attribs;
 
 	if(level==0) {
 		md->object_type = 1;

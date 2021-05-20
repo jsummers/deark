@@ -13,11 +13,10 @@
 		comments translated by Haruhiko Okumura 4/7/1989
 **************************************************************/
 
+// Max of #literals + #special_codes + #match_lengths.
+// Must be at least 256+59 (lh1:58, CRLZH:59)
+#define LZHUF_MAX_N_CHAR      (256 + 60)
 
-#define LZHUF_F               60      /* lookahead buffer size */
-#define LZHUF_THRESHOLD       2
-#define LZHUF_MAX_NUM_SPECIAL_CODES  1
-#define LZHUF_MAX_N_CHAR      (256 + LZHUF_MAX_NUM_SPECIAL_CODES - LZHUF_THRESHOLD + LZHUF_F)
 #define LZHUF_MAX_T           (LZHUF_MAX_N_CHAR * 2 - 1)        /* size of table */
 #define LZHUF_MAX_FREQ        0x8000		/* updates tree when the */
 									/* root frequency comes to this value. */
@@ -25,20 +24,28 @@
 struct lzahuf_ctx {
 	deark *c;
 	const char *modname;
+	u8 dbg_mode;
 	struct de_lh1_params lh1p;
-	struct de_dfilter_in_params *dcmpri;
-	struct de_dfilter_out_params *dcmpro;
-	struct de_dfilter_results *dres;
+	struct de_dfilter_ctx *dfctx;
+	struct de_dfilter_out_params *dcmpro; // same as dfctx->dcmpro
+	struct de_dfilter_results *dres; // same as dfctx->dres
 
+	UI num_length_codes;
+	UI match_length_bias;
 	UI lzhuf_N_CHAR; /* kinds of characters (character code = 0..N_CHAR-1) */
 	UI lzhuf_T;
 	UI lzhuf_R; /* position of root */ /* (LZHUF_T - 1) */
 	UI num_special_codes;
+	UI dpparam_dcode_shift;
+	UI dpparam_dlen_bias;
+	UI dpparam_mask;
 
 	int errflag;
+	i64 total_nbytes_processed;
 	i64 nbytes_written;
+
 	struct de_lz77buffer *ringbuf;
-	struct de_bitreader bitrd;
+	struct de_bitbuf_lowlevel bbll;
 
 	u16 freq[LZHUF_MAX_T + 1];   /* frequency table */
 
@@ -47,6 +54,19 @@ struct lzahuf_ctx {
 							/* the positions of leaves corresponding to the codes. */
 
 	u16 son[LZHUF_MAX_T];             /* pointers to child nodes (son[], son[] + 1) */
+
+	// ibuf1 contains unprocessed leftover bytes from last time.
+	// It's to help make the decoder "pushable". We won't start to decode an
+	// "instruction" unless we're sure all the bits we might need are in memory.
+	// 30 to 40 bits should be sufficient.
+#define LZHUF_IBUF_LOW_WATER_MARK 8 // Can leave up to this many bytes in ibuf1
+	size_t ibuf1_curpos;
+	size_t ibuf1_len;
+	u8 ibuf1[LZHUF_IBUF_LOW_WATER_MARK];
+
+	size_t ibuf2_curpos;
+	size_t ibuf2_len;
+	const u8 *ibuf2;
 };
 
 // These getters/setters are ugly, but it's too difficult for me to follow the
@@ -93,6 +113,30 @@ static void set_prnt(struct lzahuf_ctx *cctx, UI idx, u16 val)
 	else cctx->errflag = 1;
 }
 
+static UI lzhuf_getbits(struct lzahuf_ctx *cctx, UI nbits)
+{
+	while(cctx->bbll.nbits_in_bitbuf < nbits) {
+		// Need another byte
+		if(cctx->ibuf1_curpos < cctx->ibuf1_len) { // Can we get it from ibuf1?
+			de_bitbuf_lowlevel_add_byte(&cctx->bbll, cctx->ibuf1[cctx->ibuf1_curpos]);
+			cctx->ibuf1_curpos++;
+		}
+		else if(cctx->ibuf2_curpos < cctx->ibuf2_len) { // Or from ibuf2?
+			de_bitbuf_lowlevel_add_byte(&cctx->bbll, cctx->ibuf2[cctx->ibuf2_curpos]);
+			cctx->ibuf2_curpos++;
+		}
+		else {
+			de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
+				"Unexpected end of compressed data");
+			cctx->errflag = 1;
+			return 0;
+		}
+
+		cctx->total_nbytes_processed++;
+	}
+
+	return (UI)de_bitbuf_lowlevel_get_bits(&cctx->bbll, nbits);
+}
 
 /* initialization of tree */
 
@@ -252,7 +296,7 @@ static UI lzhuf_DecodeChar(struct lzahuf_ctx *cctx)
 		}
 		counter++;
 
-		c += (UI)de_bitreader_getbits(&cctx->bitrd, 1);
+		c += lzhuf_getbits(cctx, 1);
 		c = get_son(cctx, c);
 	}
 	c -= cctx->lzhuf_T;
@@ -263,17 +307,17 @@ static UI lzhuf_DecodeChar(struct lzahuf_ctx *cctx)
 static UI lzhuf_DecodePosition(struct lzahuf_ctx *cctx)
 {
 	UI i, j, c;
+	UI d_code, d_len;
 
 	/* recover upper bits from table */
-	i = (UI)de_bitreader_getbits(&cctx->bitrd, 8);
-	c = (UI)fmtutil_get_lzhuf_d_code(i);
-	c <<= (cctx->lh1p.is_crlzh20 ? 5 : 6);
-	j = fmtutil_get_lzhuf_d_len(i);
+	i = lzhuf_getbits(cctx, 8);
+	fmtutil_get_lzhuf_d_code_and_len(i, &d_code, &d_len);
+	c = d_code << cctx->dpparam_dcode_shift;
 
 	/* read lower bits verbatim */
-	j -= (cctx->lh1p.is_crlzh20 ? 3 : 2);
-	i = (i<<j) | (UI)de_bitreader_getbits(&cctx->bitrd, j);
-	i &= (cctx->lh1p.is_crlzh20 ? 0x1f : 0x3f);
+	j = d_len - cctx->dpparam_dlen_bias;
+	i = (i<<j) | lzhuf_getbits(cctx, j);
+	i &= cctx->dpparam_mask;
 	return c | i;
 }
 
@@ -281,6 +325,7 @@ static int lzah_have_enough_output(struct lzahuf_ctx *cctx)
 {
 	if(cctx->dcmpro->len_known) {
 		if(cctx->nbytes_written >= cctx->dcmpro->expected_len) {
+			cctx->dfctx->finished_flag = 1;
 			return 1;
 		}
 	}
@@ -298,20 +343,93 @@ static void lzah_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 	cctx->nbytes_written++;
 }
 
-static void lzhuf_Decode(struct lzahuf_ctx *cctx)  /* recover */
+static void lzhuf_decodesubtree_nodepair(struct lzahuf_ctx *cctx, UI p1, u64 val, UI val_nbits,
+	char *b2buf, size_t b2buf_len);
+
+static void lzhuf_decodesubtree_node(struct lzahuf_ctx *cctx, UI p1, u64 val, UI val_nbits,
+	char *b2buf, size_t b2buf_len)
 {
-	UI i, j, c;
+	if(cctx->son[p1] < cctx->lzhuf_T) { // [pointer node]
+		lzhuf_decodesubtree_nodepair(cctx, cctx->son[p1], val, val_nbits, b2buf, b2buf_len);
+	}
+	else { // [leaf node]
+		de_dbg(cctx->c, "code: \"%s\" = %d [%u]",
+			de_print_base2_fixed(b2buf, b2buf_len, val, val_nbits),
+			(int)cctx->son[p1], (UI)(cctx->son[p1]-cctx->lzhuf_T));
+	}
+}
+
+// Interpret son[p1] and son[p1+1]
+static void lzhuf_decodesubtree_nodepair(struct lzahuf_ctx *cctx, UI p1, u64 val, UI val_nbits,
+	char *b2buf, size_t b2buf_len)
+{
+	if(p1 >= cctx->lzhuf_T) return; // error
+	lzhuf_decodesubtree_node(cctx, p1, (val<<1), val_nbits+1, b2buf, b2buf_len);
+	lzhuf_decodesubtree_node(cctx, p1+1, (val<<1)|1, val_nbits+1, b2buf, b2buf_len);
+}
+
+static void lzhuf_dumptree(struct lzahuf_ctx *cctx)
+{
+	UI i;
+	char b2buf[72];
+
+	de_dbg(cctx->c, "R: %u", (UI)cctx->lzhuf_R);
+	de_dbg(cctx->c, "T: %u", (UI)cctx->lzhuf_T);
+	lzhuf_decodesubtree_node(cctx, cctx->lzhuf_R, 0, 0, b2buf, sizeof(b2buf));
+	for(i=0; i<DE_ARRAYCOUNT(cctx->son); i++) {
+		de_dbg(cctx->c, "son[%u]: %u", i, (UI)cctx->son[i]);
+	}
+}
+
+static void lzhuf_Decode_init(struct lzahuf_ctx *cctx)
+{
 	UI rb_size; // LZHUF_N
 
+	// Defaults, for standard LHarc -lh1-:
+	// codes 0-255 = literals 0x00-0xff
+	// codes 256-313 = match lengths 3-60
+	cctx->num_special_codes = 0;
+	cctx->num_length_codes = 58;
+	cctx->match_length_bias = 253;
+	cctx->dpparam_dcode_shift = 6;
+	cctx->dpparam_dlen_bias = 2;
+	cctx->dpparam_mask = 0x3f;
+	rb_size = 4096;
+
 	if(cctx->lh1p.is_crlzh11 || cctx->lh1p.is_crlzh20) {
+		// codes 0-255 = literals 0x00-0xff
+		// code 256 = "stop"
+		// codes 257-314 = match lengths 3-60
 		cctx->num_special_codes = 1;
+		cctx->num_length_codes = 58;
+		cctx->match_length_bias = 254;
 		rb_size = 2048;
+		if(cctx->lh1p.is_crlzh20) {
+			cctx->dpparam_dcode_shift = 5;
+			cctx->dpparam_dlen_bias = 3;
+			cctx->dpparam_mask = 0x1f;
+		}
 	}
-	else {
-		rb_size = 4096;
+	else if(cctx->lh1p.is_arc_trimmed) {
+		// codes 0-255 = literals 0x00-0xff
+		// code 256 = "stop"
+		// codes 257-313 = match lengths 3-59
+		cctx->num_special_codes = 1;
+		cctx->num_length_codes = 57;
+		cctx->match_length_bias = 254;
+	}
+	else if(cctx->lh1p.is_dms_deep) {
+		rb_size = 16*1024;
+		cctx->dpparam_dcode_shift = 8;
+		cctx->dpparam_dlen_bias = 0;
+		cctx->dpparam_mask = 0xff;
 	}
 
-	cctx->lzhuf_N_CHAR = 256 + cctx->num_special_codes - LZHUF_THRESHOLD + LZHUF_F;
+	cctx->lzhuf_N_CHAR = 256 + cctx->num_special_codes + cctx->num_length_codes;
+	if(cctx->lzhuf_N_CHAR > LZHUF_MAX_N_CHAR) {
+		cctx->errflag = 1;
+		goto done;
+	}
 	cctx->lzhuf_T = cctx->lzhuf_N_CHAR * 2 - 1;
 	cctx->lzhuf_R = cctx->lzhuf_T  - 1;
 
@@ -322,21 +440,73 @@ static void lzhuf_Decode(struct lzahuf_ctx *cctx)  /* recover */
 		de_lz77buffer_clear(cctx->ringbuf, cctx->lh1p.history_fill_val);
 	}
 
+	cctx->bbll.is_lsb = 0;
+	de_bitbuf_lowlevel_empty(&cctx->bbll);
+
 	lzhuf_StartHuff(cctx);
 
+	if(cctx->dbg_mode) {
+		lzhuf_dumptree(cctx);
+	}
+
+done:
+	;
+}
+
+// Caller sets cctx->ibuf2 and ibuf2_len to refer to the new bytes to be processed.
+static void lzhuf_Decode_continue(struct lzahuf_ctx *cctx, int flush)
+{
+	UI i, j, c;
+	char pos_descr[32];
+
+	pos_descr[0] = '\0';
+	cctx->ibuf2_curpos = 0;
+	if(cctx->dfctx->finished_flag) goto done;
+
 	while(1) {
+		size_t left_in_ibuf1; // # of remaining unprocessed bytes
+		size_t left_in_ibuf2;
+
 		if(cctx->errflag) goto done;
 		if(lzah_have_enough_output(cctx)) {
 			goto done;
 		}
-		if(cctx->bitrd.eof_flag) {
+
+		left_in_ibuf1 = cctx->ibuf1_len - cctx->ibuf1_curpos;
+		left_in_ibuf2 = cctx->ibuf2_len - cctx->ibuf2_curpos;
+		if(!flush && left_in_ibuf1==0 && left_in_ibuf2 <= LZHUF_IBUF_LOW_WATER_MARK) {
+			// Not enough bits remaining to be sure we can decode the next
+			// Char+Position. Suspend operations, and wait to be called again with
+			// more input bytes.
+			// Save leftover bytes in cctx->ibuf1
+			de_memcpy(&cctx->ibuf1, &cctx->ibuf2[cctx->ibuf2_curpos], left_in_ibuf2);
+			cctx->ibuf1_len = left_in_ibuf2;
+			cctx->ibuf1_curpos = 0;
+			// (caller is responsible for ibuf2)
+
 			goto done;
+		}
+
+		if(cctx->c->debug_level>=4) {
+			de_bitbuf_describe_curpos(&cctx->bbll,
+				cctx->dfctx->input_file_offset+cctx->total_nbytes_processed,
+				pos_descr, sizeof(pos_descr));
 		}
 
 		c = lzhuf_DecodeChar(cctx);
 		if(cctx->errflag) goto done;
-		if(c==256 && cctx->num_special_codes>=1) goto done;
+
+		if(c==256 && cctx->num_special_codes>=1) {
+			if(cctx->c->debug_level>=4) {
+				de_dbg(cctx->c, "special @%s =%u", pos_descr, c);
+			}
+			cctx->dfctx->finished_flag = 1;
+			goto done;
+		}
 		if (c < 256) {
+			if(cctx->c->debug_level>=4) {
+				de_dbg(cctx->c, "lit @%s =%u", pos_descr, c);
+			}
 			de_lz77buffer_add_literal_byte(cctx->ringbuf, (u8)c);
 		}
 		else {
@@ -345,7 +515,11 @@ static void lzhuf_Decode(struct lzahuf_ctx *cctx)  /* recover */
 			if(cctx->errflag) goto done;
 
 			// j is the match length
-			j = c - (255 + cctx->num_special_codes - LZHUF_THRESHOLD);
+			j = c - cctx->match_length_bias;
+
+			if(cctx->c->debug_level>=4) {
+				de_dbg(cctx->c, "match @%s dist=%u len=%u", pos_descr, i, j);
+			}
 
 			de_lz77buffer_copy_from_hist(cctx->ringbuf,
 				(UI)(cctx->ringbuf->curpos - (UI)i - 1), j);
@@ -353,9 +527,5 @@ static void lzhuf_Decode(struct lzahuf_ctx *cctx)  /* recover */
 	}
 
 done:
-	if(cctx->errflag) {
-		de_dfilter_set_generic_error(cctx->c, cctx->dres, cctx->modname);
-	}
-	de_lz77buffer_destroy(cctx->c, cctx->ringbuf);
-	cctx->ringbuf = NULL;
+	;
 }

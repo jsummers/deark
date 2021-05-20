@@ -96,6 +96,7 @@ static void do_arcfs_crunched(deark *c, lctx *d, struct arcfs_member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
+	struct de_dcmpr_two_layer_params tlp;
 	struct de_lzw_params delzwp;
 
 	// "Crunched" means "packed", then "compressed".
@@ -116,8 +117,17 @@ static void do_arcfs_crunched(deark *c, lctx *d, struct arcfs_member_data *md,
 	// don't have that.
 	delzwp.flags |= DE_LZWFLAG_TOLERATETRAILINGJUNK;
 
-	de_dfilter_decompress_two_layer_type2(c, dfilter_lzw_codec, (void*)&delzwp,
-		dfilter_rle90_codec, NULL, dcmpri, dcmpro, dres);
+	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
+	tlp.codec1_pushable = dfilter_lzw_codec;
+	tlp.codec1_private_params = (void*)&delzwp;
+
+	tlp.codec2 = dfilter_rle90_codec;
+
+	tlp.dcmpri = dcmpri;
+	tlp.dcmpro = dcmpro;
+	tlp.dres = dres;
+
+	de_dfilter_decompress_two_layer(c, &tlp);
 }
 
 static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
@@ -245,6 +255,11 @@ static void do_arcfs_extract_member(deark *c, lctx *d, struct arcfs_member_data 
 	if(md->rfa.mod_time.is_valid) {
 		fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->rfa.mod_time;
 	}
+
+	fi->has_riscos_data = 1;
+	fi->riscos_attribs = md->rfa.attribs;
+	fi->load_addr = md->rfa.load_addr;
+	fi->exec_addr = md->rfa.exec_addr;
 
 	if(md->is_regular_file) {
 		do_arcfs_extract_member_file(c, d, md, fi);

@@ -215,6 +215,32 @@ static void do_ntfs_times(deark *c, struct zipw_md *md,
 	dbuf_writeu64le(ef, crtm);
 }
 
+static void do_riscos_attribs(deark *c, struct zipw_md *md, de_finfo *fi, dbuf *ef)
+{
+	 if(!fi) return;
+	 if(!fi->has_riscos_data) return;
+	 if(md->is_directory) return;
+	 dbuf_writeu16le(ef, 0x4341); // AC
+	 dbuf_writeu16le(ef, 20); // data size
+	 dbuf_write(ef, (const u8*)"ARC0", 4);
+
+	 // The only thing we really want to write is the file type (part of
+	 // the load_addr), but unfortunately there's no way to do just that.
+	 dbuf_writeu32le(ef, fi->load_addr);
+	 dbuf_writeu32le(ef, fi->exec_addr);
+
+	 // The attributes field has a "gotcha" and/or error: The ZIP documentation
+	 // (from Info-Zip zip/unzip) has the Readable and Writable bits swapped
+	 // from the standard RISC OS format. I can't assume that all other
+	 // programmers will notice that and respect it.
+	 // This just sets the file to be user-readable and user-writable.
+	 // I'd like to make it public-readable (and not writable), but I don't
+	 // see a safe way to do that.
+	 dbuf_writeu32le(ef, 0x00000003);
+
+	 dbuf_writeu32le(ef, 0); // reserved
+}
+
 // uncmpr_data must be a membuf
 static int zipw_deflate(deark *c, struct zipw_ctx *zzz, dbuf *uncmpr_data,
 	dbuf *cmpr_data, unsigned int level)
@@ -487,6 +513,11 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 		// So we'll write both.
 		do_ntfs_times(c, md, md->eflocal, 0);
 		do_ntfs_times(c, md, md->efcentral, 1);
+	}
+
+	if(f->fi_copy && f->fi_copy->has_riscos_data) {
+		do_riscos_attribs(c, md, f->fi_copy, md->eflocal);
+		do_riscos_attribs(c, md, f->fi_copy, md->efcentral);
 	}
 
 	if(md->is_directory) {

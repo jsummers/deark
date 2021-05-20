@@ -99,8 +99,14 @@ struct de_dfilter_ctx *de_dfilter_create(deark *c,
 void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
 	const u8 *buf, i64 buf_len)
 {
+	if(dfctx->finished_flag) return;
+
 	if(dfctx->codec_addbuf_fn && (buf_len>0)) {
 		dfctx->codec_addbuf_fn(dfctx, buf, buf_len);
+
+		if(dfctx->dres->errcode) {
+			dfctx->finished_flag = 1;
+		}
 	}
 }
 
@@ -111,7 +117,7 @@ void de_dfilter_addbuf(struct de_dfilter_ctx *dfctx,
 //   DE_DFILTER_COMMAND_REINITIALIZE
 //    Reinitialize a codec, so you don't have to destroy and recreate it in
 //    in order to use it again. Typically used after _finish().
-//    Before using this command, it is okay to change the internal paramters of
+//    Before using this command, it is okay to change the internal parameters of
 //    the dcmpro and dres given to de_dfilter_create(). You should call
 //    de_dfilter_results_clear or the equivalent if you have already handled
 //    previous errors.
@@ -184,6 +190,7 @@ void de_dfilter_decompress_oneshot(deark *c,
 
 	dfctx = de_dfilter_create(c, codec_init_fn, codec_private_params,
 		dcmpro, dres);
+	dfctx->input_file_offset = dcmpri->pos;
 	de_dfilter_addslice(dfctx, dcmpri->f, dcmpri->pos, dcmpri->len);
 	de_dfilter_finish(dfctx);
 	de_dfilter_destroy(dfctx);
@@ -707,10 +714,11 @@ static void my_2layer_write_cb(dbuf *f, void *userdata,
 	u->intermediate_nbytes += size;
 }
 
-static void dres_transfer_error(deark *c, struct de_dfilter_results *src,
+// If src indicates error and dst does not, copy the error from src to dst.
+void de_dfilter_transfer_error(deark *c, struct de_dfilter_results *src,
 	struct de_dfilter_results *dst)
 {
-	if(src->errcode) {
+	if(src->errcode && !dst->errcode) {
 		dst->errcode = src->errcode;
 		de_strlcpy(dst->errmsg, src->errmsg, sizeof(dst->errmsg));
 	}
@@ -766,8 +774,7 @@ void de_dfilter_decompress_two_layer(deark *c, struct de_dcmpr_two_layer_params 
 	if(dres_codec2.errcode) {
 		// An error occurred in codec2, and not in codec1.
 		// Copy the error info to the dres that will be returned to the caller.
-		// TODO: Make a cleaner way to do this.
-		dres_transfer_error(c, &dres_codec2, tlp->dres);
+		de_dfilter_transfer_error(c, &dres_codec2, tlp->dres);
 		goto done;
 	}
 
@@ -776,27 +783,7 @@ done:
 	dbuf_close(outf_codec1);
 }
 
-// TODO: Retire this function.
-void de_dfilter_decompress_two_layer_type2(deark *c,
-	dfilter_codec_type codec1, void *codec1_private_params,
-	dfilter_codec_type codec2, void *codec2_private_params,
-	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
-	struct de_dfilter_results *dres)
-{
-	struct de_dcmpr_two_layer_params tlp;
-
-	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
-	tlp.codec1_pushable = codec1;
-	tlp.codec1_private_params = codec1_private_params;
-	tlp.codec2 = codec2;
-	tlp.codec2_private_params = codec2_private_params;
-	tlp.dcmpri = dcmpri;
-	tlp.dcmpro = dcmpro;
-	tlp.dres = dres;
-	de_dfilter_decompress_two_layer(c, &tlp);
-}
-
- struct de_lz77buffer *de_lz77buffer_create(deark *c, UI bufsize)
+struct de_lz77buffer *de_lz77buffer_create(deark *c, UI bufsize)
 {
 	struct de_lz77buffer *rb;
 

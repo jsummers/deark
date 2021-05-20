@@ -1000,6 +1000,8 @@ static void finfo_shallow_copy(deark *c, de_finfo *src, de_finfo *dst)
 	UI k;
 
 	dst->is_directory = src->is_directory;
+	dst->has_riscos_data = src->has_riscos_data;
+	dst->riscos_attribs = src->riscos_attribs;
 	dst->mode_flags = src->mode_flags;
 	for(k=0; k<DE_TIMESTAMPIDX_COUNT; k++) {
 		dst->timestamp[k] = src->timestamp[k];
@@ -1009,6 +1011,8 @@ static void finfo_shallow_copy(deark *c, de_finfo *src, de_finfo *dst)
 	dst->has_hotspot = src->has_hotspot;
 	dst->hotspot_x = src->hotspot_x;
 	dst->hotspot_y = src->hotspot_y;
+	dst->load_addr = src->load_addr;
+	dst->exec_addr = src->exec_addr;
 }
 
 static dbuf *create_dbuf_lowlevel(deark *c)
@@ -1525,7 +1529,7 @@ void dbuf_truncate(dbuf *f, i64 desired_len)
 		dbuf_write_zeroes(f, desired_len - f->len);
 	}
 	else if(desired_len<f->len) {
-		if(f->btype==DBUF_TYPE_MEMBUF) {
+		if(f->btype==DBUF_TYPE_MEMBUF || f->btype==DBUF_TYPE_CUSTOM) {
 			f->len = desired_len;
 		}
 	}
@@ -2344,15 +2348,17 @@ void de_bitreader_skip_to_byte_boundary(struct de_bitreader *bitrd)
 	de_bitbuf_lowlevel_empty(&bitrd->bbll);
 }
 
-char *de_bitreader_describe_curpos(struct de_bitreader *bitrd, char *buf, size_t buf_len)
+// pos is the offset of the next whole byte that may be added to the bitbuf.
+char *de_bitbuf_describe_curpos(struct de_bitbuf_lowlevel *bbll, i64 pos1,
+	 char *buf, size_t buf_len)
 {
 	i64 curpos;
 	UI nwholebytes;
 	UI nbits;
 
-	nwholebytes = (i64)(bitrd->bbll.nbits_in_bitbuf / 8);
-	nbits = bitrd->bbll.nbits_in_bitbuf % 8;
-	curpos = bitrd->curpos - (i64)nwholebytes;
+	nwholebytes = (i64)(bbll->nbits_in_bitbuf / 8);
+	nbits = bbll->nbits_in_bitbuf % 8;
+	curpos = pos1 - (i64)nwholebytes;
 
 	if(nbits==0) {
 		de_snprintf(buf, buf_len, "%"I64_FMT, curpos);
@@ -2361,4 +2367,9 @@ char *de_bitreader_describe_curpos(struct de_bitreader *bitrd, char *buf, size_t
 		de_snprintf(buf, buf_len, "%"I64_FMT"+%ubits", curpos-1, (UI)(8-nbits));
 	}
 	return buf;
+}
+
+char *de_bitreader_describe_curpos(struct de_bitreader *bitrd, char *buf, size_t buf_len)
+{
+	return de_bitbuf_describe_curpos(&bitrd->bbll, bitrd->curpos, buf, buf_len);
 }
