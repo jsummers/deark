@@ -854,12 +854,14 @@ u8 de_get_bits_symbol2(dbuf *f, int nbits, i64 bytepos, i64 bitpos);
 // Conversion flags used by some functions.
 #define DE_CVTF_WHITEISZERO 0x1
 #define DE_CVTF_LSBFIRST    0x2
+#define DE_CVTF_ONLYWHITE   0x4
 
-// Utility function for the common case of reading a packed bi-level row, and
-// writing to a bitmap.
+void de_unpack_pixels_bilevel_from_byte(de_bitmap *img, i64 xpos, i64 ypos,
+	u8 val, UI npixels, unsigned int flags);
+void de_convert_pixels_bilevel(dbuf *f, i64 fpos, de_bitmap *img,
+	i64 xpos, i64 ypos, i64 npixels, unsigned int flags);
 void de_convert_row_bilevel(dbuf *f, i64 fpos, de_bitmap *img,
 	i64 rownum, unsigned int flags);
-
 void de_convert_image_bilevel(dbuf *f, i64 fpos, i64 rowspan,
 	de_bitmap *img, unsigned int flags);
 
