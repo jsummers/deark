@@ -198,33 +198,24 @@ done:
 static void handle_2_125(deark *c, lctx *d, const struct ds_info *dsi,
 	i64 pos, i64 len)
 {
-	dbuf *unc_pixels = NULL;
 	de_bitmap *img = NULL;
-	i64 i, j;
-	u8 b;
 	i64 rowspan;
-	i64 width, height;
+	i64 width1, height1;
 
 	// I can't find any examples of this field, so this may not be correct.
 	// The format seems to be well-documented, though the pixels are in an
 	// unusual order.
 
-	unc_pixels = dbuf_open_input_subfile(c->infile, pos, len);
-	width = 460;
-	height = 128;
-	img = de_bitmap_create(c, width, height, 1);
-	rowspan = height/8;
-
-	for(j=0; j<width; j++) {
-		for(i=0; i<height; i++) {
-			b = de_get_bits_symbol(unc_pixels, 1, rowspan*j, i);
-			de_bitmap_setpixel_gray(img, j, (height-1-i), b?0:255);
-		}
-	}
-
-	de_bitmap_write_to_file(img, "caption", DE_CREATEFLAG_IS_AUX);
+	width1 = 128; // (Will be rotated to be 460x128)
+	height1 = 460;
+	rowspan = width1/8;
+	if(len < rowspan * height1) goto done;
+	img = de_bitmap_create(c, width1, height1, 1);
+	de_convert_image_bilevel(c->infile, pos, rowspan, img, DE_CVTF_WHITEISZERO);
+	de_bitmap_transpose(img);
+	de_bitmap_write_to_file(img, "caption", DE_CREATEFLAG_IS_AUX|DE_CREATEFLAG_FLIP_IMAGE);
+done:
 	de_bitmap_destroy(img);
-	dbuf_close(unc_pixels);
 }
 
 // Caller supplies dsi. This function will set its fields.

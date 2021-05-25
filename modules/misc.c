@@ -1342,24 +1342,30 @@ static void de_run_ybm(deark *c, de_module_params *mparams)
 	de_bitmap *img = NULL;
 	i64 npwidth, pdwidth, height;
 	i64 i, j;
-	i64 rowspan;
-	u8 x;
+	i64 words_per_row;
+	i64 pos;
 
-	npwidth = de_getu16be(2);
-	height = de_getu16be(4);
+	pos = 2;
+	npwidth = de_getu16be_p(&pos);
+	height = de_getu16be_p(&pos);
 	de_dbg_dimensions(c, npwidth, height);
 	if(!de_good_image_dimensions(c, npwidth, height)) goto done;
 	pdwidth = de_pad_to_n(npwidth, 16);
-	rowspan = pdwidth/8;
+	words_per_row = pdwidth/16;
 
 	img = de_bitmap_create2(c, npwidth, pdwidth, height, 1);
 
 	for(j=0; j<height; j++) {
-		for(i=0; i<pdwidth; i++) {
+		for(i=0; i<words_per_row; i++) {
+			u8 x;
+
 			// This encoding is unusual: LSB-first 16-bit integers.
-			x = de_get_bits_symbol(c->infile, 1, 6 + j*rowspan,
-				(i-i%16) + (15-i%16));
-			de_bitmap_setpixel_gray(img, i, j, x ? 0 : 255);
+			x = de_getbyte_p(&pos);
+			de_unpack_pixels_bilevel_from_byte(img, i*16+8, j, x, 8,
+				DE_CVTF_WHITEISZERO|DE_CVTF_LSBFIRST|DE_CVTF_ONLYWHITE);
+			x = de_getbyte_p(&pos);
+			de_unpack_pixels_bilevel_from_byte(img, i*16, j, x, 8,
+				DE_CVTF_WHITEISZERO|DE_CVTF_LSBFIRST|DE_CVTF_ONLYWHITE);
 		}
 	}
 	de_bitmap_write_to_file(img, NULL, 0);

@@ -169,13 +169,8 @@ static int cfi_get_next_token(deark *c, struct compfacei_ctx *cfictx)
 
 static void cfi_set_image_byte(deark *c, struct compfacei_ctx *cfictx, u8 ch)
 {
-	unsigned int k;
-	for(k=0; k<8; k++) {
-		if(((ch>>(7-k))&0x1)==0) {
-			de_bitmap_setpixel_gray(cfictx->img,
-				cfictx->imgpos_x+(i64)k, cfictx->imgpos_y, 255);
-		}
-	}
+	de_unpack_pixels_bilevel_from_byte(cfictx->img, cfictx->imgpos_x, cfictx->imgpos_y,
+		ch, 8, DE_CVTF_WHITEISZERO);
 	cfictx->imgpos_x += 8;
 	if(cfictx->imgpos_x>=XFACE_WIDTH) {
 		cfictx->imgpos_x=0;
