@@ -54,19 +54,6 @@ struct lzahuf_ctx {
 							/* the positions of leaves corresponding to the codes. */
 
 	u16 son[LZHUF_MAX_T];             /* pointers to child nodes (son[], son[] + 1) */
-
-	// ibuf1 contains unprocessed leftover bytes from last time.
-	// It's to help make the decoder "pushable". We won't start to decode an
-	// "instruction" unless we're sure all the bits we might need are in memory.
-	// 30 to 40 bits should be sufficient.
-#define LZHUF_IBUF_LOW_WATER_MARK 8 // Can leave up to this many bytes in ibuf1
-	size_t ibuf1_curpos;
-	size_t ibuf1_len;
-	u8 ibuf1[LZHUF_IBUF_LOW_WATER_MARK];
-
-	size_t ibuf2_curpos;
-	size_t ibuf2_len;
-	const u8 *ibuf2;
 };
 
 // These getters/setters are ugly, but it's too difficult for me to follow the
@@ -115,26 +102,10 @@ static void set_prnt(struct lzahuf_ctx *cctx, UI idx, u16 val)
 
 static UI lzhuf_getbits(struct lzahuf_ctx *cctx, UI nbits)
 {
-	while(cctx->bbll.nbits_in_bitbuf < nbits) {
-		// Need another byte
-		if(cctx->ibuf1_curpos < cctx->ibuf1_len) { // Can we get it from ibuf1?
-			de_bitbuf_lowlevel_add_byte(&cctx->bbll, cctx->ibuf1[cctx->ibuf1_curpos]);
-			cctx->ibuf1_curpos++;
-		}
-		else if(cctx->ibuf2_curpos < cctx->ibuf2_len) { // Or from ibuf2?
-			de_bitbuf_lowlevel_add_byte(&cctx->bbll, cctx->ibuf2[cctx->ibuf2_curpos]);
-			cctx->ibuf2_curpos++;
-		}
-		else {
-			de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
-				"Unexpected end of compressed data");
-			cctx->errflag = 1;
-			return 0;
-		}
-
-		cctx->total_nbytes_processed++;
+	if(cctx->bbll.nbits_in_bitbuf < nbits) {
+		cctx->errflag = 1;
+		return 0;
 	}
-
 	return (UI)de_bitbuf_lowlevel_get_bits(&cctx->bbll, nbits);
 }
 
@@ -282,7 +253,6 @@ static void lzhuf_update(struct lzahuf_ctx *cctx, UI c)
 static UI lzhuf_DecodeChar(struct lzahuf_ctx *cctx)
 {
 	UI c;
-	UI counter = 0;
 
 	c = get_son(cctx, cctx->lzhuf_R);
 
@@ -290,13 +260,10 @@ static UI lzhuf_DecodeChar(struct lzahuf_ctx *cctx)
 	/* choosing the smaller child node (son[]) if the read bit is 0, */
 	/* the bigger (son[]+1) if 1 */
 	while (c < cctx->lzhuf_T) {
-		if(counter > (UI)DE_ARRAYCOUNT(cctx->son)) { // infinite loop?
-			cctx->errflag = 1;
-			return 0;
-		}
-		counter++;
-
 		c += lzhuf_getbits(cctx, 1);
+		// There will never be more than 64 bits available, so a hypothetical
+		// infinite loop would be caught here.
+		if(cctx->errflag) return 0;
 		c = get_son(cctx, c);
 	}
 	c -= cctx->lzhuf_T;
@@ -311,12 +278,14 @@ static UI lzhuf_DecodePosition(struct lzahuf_ctx *cctx)
 
 	/* recover upper bits from table */
 	i = lzhuf_getbits(cctx, 8);
+	if(cctx->errflag) return 0;
 	fmtutil_get_lzhuf_d_code_and_len(i, &d_code, &d_len);
 	c = d_code << cctx->dpparam_dcode_shift;
 
 	/* read lower bits verbatim */
 	j = d_len - cctx->dpparam_dlen_bias;
 	i = (i<<j) | lzhuf_getbits(cctx, j);
+	if(cctx->errflag) return 0;
 	i &= cctx->dpparam_mask;
 	return c | i;
 }
@@ -453,37 +422,39 @@ done:
 	;
 }
 
-// Caller sets cctx->ibuf2 and ibuf2_len to refer to the new bytes to be processed.
-static void lzhuf_Decode_continue(struct lzahuf_ctx *cctx, int flush)
+static void lzhuf_Decode_continue(struct lzahuf_ctx *cctx, const u8 *buf, i64 buf_len, int flush)
 {
 	UI i, j, c;
+	i64 bufpos = 0;
 	char pos_descr[32];
 
 	pos_descr[0] = '\0';
-	cctx->ibuf2_curpos = 0;
 	if(cctx->dfctx->finished_flag) goto done;
 
 	while(1) {
-		size_t left_in_ibuf1; // # of remaining unprocessed bytes
-		size_t left_in_ibuf2;
-
 		if(cctx->errflag) goto done;
 		if(lzah_have_enough_output(cctx)) {
 			goto done;
 		}
 
-		left_in_ibuf1 = cctx->ibuf1_len - cctx->ibuf1_curpos;
-		left_in_ibuf2 = cctx->ibuf2_len - cctx->ibuf2_curpos;
-		if(!flush && left_in_ibuf1==0 && left_in_ibuf2 <= LZHUF_IBUF_LOW_WATER_MARK) {
-			// Not enough bits remaining to be sure we can decode the next
-			// Char+Position. Suspend operations, and wait to be called again with
-			// more input bytes.
-			// Save leftover bytes in cctx->ibuf1
-			de_memcpy(&cctx->ibuf1, &cctx->ibuf2[cctx->ibuf2_curpos], left_in_ibuf2);
-			cctx->ibuf1_len = left_in_ibuf2;
-			cctx->ibuf1_curpos = 0;
-			// (caller is responsible for ibuf2)
+		// We're relying on the assumption that a compression instruction can
+		// never be more than 57 bits in size.
+		// The Huffman-encoded "character" maxes out, I think, at around 15 or
+		// 16 bits -- this follows indirectly from MAX_FREQ, which reduces the
+		// tree depth perdiodically.
+		// For a "match" instruction, an 8-bit code is then read.
+		// Then, some additional bits are read -- the most possible for the
+		// supported formats is 8, for DMS-Deep.
+		// So, about 16+8+8 = 32 bits should be sufficient.
 
+		// Top off the bitbuf, if possible.
+		while(bufpos<buf_len && cctx->bbll.nbits_in_bitbuf<=(64-8)) {
+			de_bitbuf_lowlevel_add_byte(&cctx->bbll, buf[bufpos++]);
+			cctx->total_nbytes_processed++;
+		}
+
+		if(!flush && cctx->bbll.nbits_in_bitbuf<=(64-8)) {
+			// Wait for more data before trying to continue
 			goto done;
 		}
 
@@ -527,5 +498,12 @@ static void lzhuf_Decode_continue(struct lzahuf_ctx *cctx, int flush)
 	}
 
 done:
-	;
+	if(!cctx->dfctx->finished_flag && !cctx->errflag) {
+		if(bufpos<buf_len) {
+			// It shouldn't be possible to get here. If we do, it means some input
+			// bytes will be lost.
+			de_dfilter_set_generic_error(cctx->dfctx->c, cctx->dres, cctx->modname);
+			cctx->errflag = 1;
+		}
+	}
 }
