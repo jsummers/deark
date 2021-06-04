@@ -70,8 +70,12 @@ struct dms_tracks_by_track_num_entry {
 	u8 in_use;
 };
 
-struct dmsdeep_cmpr_state;
+struct dms_std_cmpr_state;
 struct dmsheavy_cmpr_state;
+
+struct std_saved_state_wrapper {
+	struct dms_std_cmpr_state *saved_state;
+};
 
 struct dmsctx {
 	UI info_bits;
@@ -85,9 +89,24 @@ struct dmsctx {
 	// Entries potentially in use: .first_track <= n <= .last_track
 	struct dms_tracks_by_track_num_entry tracks_by_track_num[DMS_MAX_TRACKS];
 
-	struct dmsmedium_cmpr_state *saved_medium_state;
-	struct dmsdeep_cmpr_state *saved_deep_cmpr_state;
+	struct std_saved_state_wrapper saved_medium_state;
+	struct std_saved_state_wrapper saved_deep_cmpr_state;
 	struct dmsheavy_cmpr_state *saved_heavy_state;
+};
+
+// For some decompressors, the portion of the decompression context that can
+// persist between tracks
+struct dms_std_cmpr_state {
+	UI cmpr_meth;
+	const char *cmpr_meth_name;
+
+	struct de_dfilter_ctx *dfctx_codec1;
+	struct de_dfilter_ctx *dfctx_rle;
+	i64 intermediate_nbytes;
+
+	dbuf *outf_codec1;
+	struct de_dfilter_out_params dcmpro1;
+	struct de_dfilter_results dres1;
 };
 
 static const char *dms_get_cmprtype_name(UI n)
@@ -114,6 +133,31 @@ static void read_unix_timestamp(deark *c, i64 pos, struct de_timestamp *ts, cons
 	de_unix_time_to_timestamp(t, ts, 0x1);
 	de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "%s: %"I64_FMT" (%s)", name, t, timestamp_buf);
+}
+
+static void destroy_std_cmpr_state(deark *c, struct dms_std_cmpr_state *cst)
+{
+	if(!cst) return;
+	if(cst->dfctx_codec1) {
+		de_dfilter_destroy(cst->dfctx_codec1);
+	}
+	if(cst->dfctx_rle) {
+		de_dfilter_destroy(cst->dfctx_rle);
+	}
+	dbuf_close(cst->outf_codec1);
+	de_free(c, cst);
+}
+
+static void my_std1_write_cb(dbuf *f, void *userdata,
+	const u8 *buf, i64 size)
+{
+	struct dms_std_cmpr_state *u = (struct dms_std_cmpr_state*)userdata;
+
+	if(!u->dfctx_rle) {
+		de_internal_err_fatal(f->c, "%s", u->cmpr_meth_name);
+	}
+	de_dfilter_addbuf(u->dfctx_rle, buf, size);
+	u->intermediate_nbytes += size;
 }
 
 /////// Heavy (LZH) compression ///////
@@ -554,30 +598,38 @@ static void dmsrle_codec(struct de_dfilter_ctx *dfctx, void *codec_private_param
 	dfctx->codec_destroy_fn = dmsrle_codec_destroy;
 }
 
-///////////////// "Medium" decompression //////////////
+///////////////// Codec for the LZ77 part of "Medium" decompression //////////////
 
-// The portion of the Medium decompression context that can persist between tracks.
-struct dmsmedium_cmpr_state {
-	struct de_lz77buffer *ringbuf;
+enum medlzst_enum {
+	MEDLZST_NEUTRAL=0,
+	MEDLZST_WAITING_FOR_OCODE1,
+	MEDLZST_WAITING_FOR_OCODE2
 };
 
-struct dmsmedium_params {
-	struct dmsmedium_cmpr_state *medium_state;
+struct medium_state_machine {
+	enum medlzst_enum state;
+	// TODO: We don't really need this much state.
+	UI first_code;
+	UI ocode1_nbits;
+	UI ocode1;
+	UI ocode2_nbits;
+	UI ocode2;
+	UI tmp_code;
+	UI d_code1, d_len1;
+	UI d_code2, d_len2;
 };
 
 struct medium_ctx {
 	deark *c;
+	const char *modname;
 	struct de_dfilter_out_params *dcmpro;
+	struct de_dfilter_results *dres;
+	int errflag;
 	i64 nbytes_written;
-	struct de_bitreader bitrd;
+	struct de_lz77buffer *ringbuf;
+	struct de_bitbuf_lowlevel bbll;
+	struct medium_state_machine mdst;
 };
-
-static void destroy_medium_state(deark *c, struct dmsmedium_cmpr_state *mdst)
-{
-	if(!mdst) return;
-	de_lz77buffer_destroy(c, mdst->ringbuf);
-	de_free(c, mdst);
-}
 
 static int medium_have_enough_output(struct medium_ctx *mctx)
 {
@@ -589,53 +641,89 @@ static int medium_have_enough_output(struct medium_ctx *mctx)
 	return 0;
 }
 
-static void do_mediumlz77_internal(struct medium_ctx *mctx, struct dmsmedium_cmpr_state *mdst)
+static void mediumlz77_codec_addbuf(struct de_dfilter_ctx *dfctx,
+	const u8 *buf, i64 buf_len)
 {
-	while(1) {
-		UI n;
+	struct medium_ctx *mctx = (struct medium_ctx *)dfctx->codec_private;
+	struct medium_state_machine *mdst = &mctx->mdst;
+	i64 bufpos = 0;
+	UI n;
+	UI offset_rel;
+	UI length;
 
-		if(mctx->bitrd.eof_flag) break;
-		if(medium_have_enough_output(mctx)) break;
-
-		n = (UI)de_bitreader_getbits(&mctx->bitrd, 1);
-		if(n) {
-			u8 b;
-
-			b = (u8)de_bitreader_getbits(&mctx->bitrd, 8);
-			de_lz77buffer_add_literal_byte(mdst->ringbuf, (u8)b);
-		} else {
-			UI first_code;
-			UI ocode1_nbits;
-			UI ocode1;
-			UI ocode2_nbits;
-			UI ocode2;
-			UI tmp_code;
-			UI length;
-			UI offset_rel;
-			UI d_code1, d_len1;
-			UI d_code2, d_len2;
-
-			// TODO: This seems overly complicated. Is there a simpler way to
-			// implement this?
-
-			first_code = (UI)de_bitreader_getbits(&mctx->bitrd, 8);
-			fmtutil_get_lzhuf_d_code_and_len(first_code, &d_code1, &d_len1);
-			length = d_code1 + 3;
-
-			ocode1_nbits = d_len1;
-			ocode1 = (UI)de_bitreader_getbits(&mctx->bitrd, ocode1_nbits);
-
-			tmp_code = ((first_code << ocode1_nbits) | ocode1) & 0xff;
-			fmtutil_get_lzhuf_d_code_and_len(tmp_code, &d_code2, &d_len2);
-			ocode2_nbits = d_len2;
-			ocode2 = (UI)de_bitreader_getbits(&mctx->bitrd, ocode2_nbits);
-
-			offset_rel = (d_code2 << 8) | (((tmp_code << ocode2_nbits) | ocode2) & 0xff);
-			de_lz77buffer_copy_from_hist(mdst->ringbuf, mdst->ringbuf->curpos - 1 - offset_rel, length);
-		}
+	if(dfctx->finished_flag || mctx->errflag) {
+		goto done;
 	}
 
-	de_lz77buffer_set_curpos(mdst->ringbuf, mdst->ringbuf->curpos + 66);
+	while(1) {
+		if(medium_have_enough_output(mctx)) {
+			dfctx->finished_flag = 1;
+			goto done;
+		}
+
+		// Top off the bitbuf, if possible. 32 is an arbitrary number that's
+		// large enough for this format.
+		while(bufpos<buf_len && mctx->bbll.nbits_in_bitbuf<32) {
+			de_bitbuf_lowlevel_add_byte(&mctx->bbll, buf[bufpos++]);
+		}
+
+		if(mdst->state==MEDLZST_WAITING_FOR_OCODE1) goto read_ocode1;
+		if(mdst->state==MEDLZST_WAITING_FOR_OCODE2) goto read_ocode2;
+
+		// Make sure we have enough source data to read the flag bit,
+		// plus either the literal byte or the first_code.
+		if(mctx->bbll.nbits_in_bitbuf < 9) goto done;
+
+		n = (UI)de_bitbuf_lowlevel_get_bits(&mctx->bbll, 1);
+
+		if(n) { // literal byte
+			u8 b;
+
+			b = (u8)de_bitbuf_lowlevel_get_bits(&mctx->bbll, 8);
+			de_lz77buffer_add_literal_byte(mctx->ringbuf, (u8)b);
+			continue;
+		}
+
+		// TODO: This seems overly complicated. Is there a simpler way to
+		// implement this?
+
+		mdst->first_code = (UI)de_bitbuf_lowlevel_get_bits(&mctx->bbll, 8);
+		fmtutil_get_lzhuf_d_code_and_len(mdst->first_code, &mdst->d_code1, &mdst->d_len1);
+
+	read_ocode1:
+		mdst->ocode1_nbits = mdst->d_len1;
+		if(mctx->bbll.nbits_in_bitbuf < mdst->ocode1_nbits) {
+			mdst->state = MEDLZST_WAITING_FOR_OCODE1;
+			goto done;
+		}
+		mdst->ocode1 = (UI)de_bitbuf_lowlevel_get_bits(&mctx->bbll, mdst->ocode1_nbits);
+
+		mdst->tmp_code = ((mdst->first_code << mdst->ocode1_nbits) | mdst->ocode1) & 0xff;
+		fmtutil_get_lzhuf_d_code_and_len(mdst->tmp_code, &mdst->d_code2, &mdst->d_len2);
+
+	read_ocode2:
+		mdst->ocode2_nbits = mdst->d_len2;
+		if(mctx->bbll.nbits_in_bitbuf < mdst->ocode2_nbits) {
+			mdst->state = MEDLZST_WAITING_FOR_OCODE2;
+			goto done;
+		}
+		mdst->ocode2 = (UI)de_bitbuf_lowlevel_get_bits(&mctx->bbll, mdst->ocode2_nbits);
+
+		offset_rel = (mdst->d_code2 << 8) | (((mdst->tmp_code << mdst->ocode2_nbits) | mdst->ocode2) & 0xff);
+		length = mdst->d_code1 + 3;
+		de_lz77buffer_copy_from_hist(mctx->ringbuf, mctx->ringbuf->curpos - 1 - offset_rel, length);
+		mdst->state = MEDLZST_NEUTRAL;
+	}
+
+done:
+	if(!dfctx->finished_flag && !mctx->errflag) {
+		if(bufpos<buf_len) {
+			// It shouldn't be possible to get here. If we do, it means some input
+			// bytes will be lost.
+			de_dfilter_set_generic_error(dfctx->c, mctx->dres, mctx->modname);
+			mctx->errflag = 1;
+		}
+	}
 }
 
 static void medium_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
@@ -649,198 +737,156 @@ static void medium_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 	mctx->nbytes_written++;
 }
 
-static void mediumlz77_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	void *codec_private_params)
+static void mediumlz77_codec_command(struct de_dfilter_ctx *dfctx, int cmd)
 {
-	struct medium_ctx *mctx = NULL;
-	struct dmsmedium_params *mdparams = (struct dmsmedium_params*)codec_private_params;
-	struct dmsmedium_cmpr_state *mdst = NULL;
+	struct medium_ctx *mctx = (struct medium_ctx*)dfctx->codec_private;
 
-	mctx = de_malloc(c, sizeof(struct medium_ctx));
-	mctx->c = c;
-	mctx->dcmpro = dcmpro;
-	mctx->bitrd.f = dcmpri->f;
-	mctx->bitrd.curpos = dcmpri->pos;
-	mctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
-
-	if(mdparams->medium_state) {
-		// Acquire the previous 'state' object from the caller
-		mdst = mdparams->medium_state;
-		mdparams->medium_state = NULL;
+	if(cmd==DE_DFILTER_COMMAND_FINISH_BLOCK) {
+		de_bitbuf_lowlevel_empty(&mctx->bbll);
+		mctx->mdst.state = MEDLZST_NEUTRAL;
+		de_lz77buffer_set_curpos(mctx->ringbuf, mctx->ringbuf->curpos + 66);
 	}
-	else {
-		mdst = de_malloc(c, sizeof(struct dmsmedium_cmpr_state));
-		mdst->ringbuf = de_lz77buffer_create(c, 16*1024);
-		de_lz77buffer_set_curpos(mdst->ringbuf, 0x3fbe);
+	else if(cmd==DE_DFILTER_COMMAND_RESET_COUNTERS) {
+		mctx->nbytes_written = 0;
+		mctx->errflag = 0;
+		dfctx->finished_flag = 0;
 	}
-	mdst->ringbuf->userdata = (void*)mctx;
-	mdst->ringbuf->writebyte_cb = medium_lz77buf_writebytecb;
+}
 
-	do_mediumlz77_internal(mctx, mdst);
-
-	// Give the 'state' object back to the caller.
-	mdst->ringbuf->writebyte_cb = NULL;
-	mdst->ringbuf->userdata = NULL;
-	mdparams->medium_state = mdst;
-	mdst = NULL;
+static void mediumlz77_codec_destroy(struct de_dfilter_ctx *dfctx)
+{
+	struct medium_ctx *mctx = (struct medium_ctx*)dfctx->codec_private;
 
 	if(mctx) {
-		de_free(c, mctx);
+		de_lz77buffer_destroy(dfctx->c, mctx->ringbuf);
+		de_free(dfctx->c, mctx);
 	}
-	if(mdst) {
-		destroy_medium_state(c, mdst);
-	}
+	dfctx->codec_private = NULL;
 }
 
-static void do_decompress_medium(deark *c, struct dmsctx *d, struct dms_track_info *tri,
+// codec_private_params: unused
+static void dmsmediumlz77_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
+{
+	struct medium_ctx *mctx = NULL;
+
+	mctx = de_malloc(dfctx->c, sizeof(struct medium_ctx));
+	mctx->c = dfctx->c;
+	mctx->modname = "dmsmedium_lz77";
+	mctx->dcmpro = dfctx->dcmpro;
+	mctx->dres = dfctx->dres;
+
+	dfctx->codec_private = (void*)mctx;
+	dfctx->codec_addbuf_fn = mediumlz77_codec_addbuf;
+	dfctx->codec_command_fn = mediumlz77_codec_command;
+	dfctx->codec_destroy_fn = mediumlz77_codec_destroy;
+
+	mctx->ringbuf = de_lz77buffer_create(dfctx->c, 16*1024);
+	// The set_curpos isn't needed, but could help with debugging. It makes our
+	// internal state the same as most other DMS software.
+	de_lz77buffer_set_curpos(mctx->ringbuf, 0x3fbe);
+
+	mctx->ringbuf->userdata = (void*)mctx;
+	mctx->ringbuf->writebyte_cb = medium_lz77buf_writebytecb;
+}
+
+///////////////// "Medium" and "Deep" decompression //////////////
+
+// Note: The Medium and Deep decompressors have a different design than Heavy.
+// Both the codecs are "pushable", which is a good thing for DMS's segmented
+// format.
+// It may look more complicated, but ultimately it's cleaner and less hacky.
+
+static void do_decompress_track_medium_or_deep(deark *c, struct dmsctx *d, struct dms_track_info *tri,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	struct de_dcmpr_two_layer_params tlp;
-	struct dmsmedium_params mdparams;
+	struct dms_std_cmpr_state *cst = NULL;
+	struct std_saved_state_wrapper *ssw;
 
-	de_zeromem(&mdparams, sizeof(struct dmsmedium_params));
-	if(tri->is_real) {
-		mdparams.medium_state = d->saved_medium_state;
-		d->saved_medium_state = NULL;
-	}
-
-	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
-	tlp.codec1_type1 = mediumlz77_codectype1;
-	tlp.codec1_private_params = (void*)&mdparams;
-	tlp.codec2 = dmsrle_codec;
-	tlp.dcmpri = dcmpri;
-	tlp.dcmpro = dcmpro;
-	tlp.dres = dres;
-	tlp.intermed_expected_len = tri->intermediate_len;
-	tlp.intermed_len_known = 1;
-	de_dfilter_decompress_two_layer(c, &tlp);
-
-	if(tri->is_real) {
-		d->saved_medium_state = mdparams.medium_state;
+	if(tri->cmpr_type==DMSCMPR_DEEP) {
+		ssw = &d->saved_deep_cmpr_state;
 	}
 	else {
-		destroy_medium_state(c, mdparams.medium_state);
+		ssw = &d->saved_medium_state;
 	}
-}
 
-///////////////// "Deep" decompression //////////////
-
-// Note: The "Deep" decompressor has a different design than Heavy and (currently,
-// at least) Medium.
-// Both the codecs it uses are "pushable", which is a good thing for DMS's
-// segmented compression. The Deep decompressor may look more complicated, but
-// ultimately it's cleaner and less hacky.
-
-struct dmsdeep_cmpr_state {
-	struct de_dfilter_ctx *dfctx_lzah;
-	struct de_dfilter_ctx *dfctx_rle;
-	i64 intermediate_nbytes;
-
-	dbuf *outf_codec1;
-	struct de_dfilter_out_params dcmpro1;
-	struct de_dfilter_results dres1;
-};
-
-static void destroy_deep_cmpr_state(deark *c, struct dmsdeep_cmpr_state *dpst)
-{
-	if(!dpst) return;
-	if(dpst->dfctx_lzah) {
-		de_dfilter_destroy(dpst->dfctx_lzah);
-	}
-	if(dpst->dfctx_rle) {
-		de_dfilter_destroy(dpst->dfctx_rle);
-	}
-	dbuf_close(dpst->outf_codec1);
-	de_free(c, dpst);
-}
-
-static void my_deep1_write_cb(dbuf *f, void *userdata,
-	const u8 *buf, i64 size)
-{
-	struct dmsdeep_cmpr_state *u = (struct dmsdeep_cmpr_state*)userdata;
-
-	if(!u->dfctx_rle) {
-		de_internal_err_fatal(f->c, "deepcmpr");
-	}
-	de_dfilter_addbuf(u->dfctx_rle, buf, size);
-	u->intermediate_nbytes += size;
-}
-
-static void do_decompress_track_deep(deark *c, struct dmsctx *d, struct dms_track_info *tri,
-	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
-	struct de_dfilter_results *dres)
-{
-	struct dmsdeep_cmpr_state *dpst = NULL;
-
-	if(d->saved_deep_cmpr_state) {
+	if(ssw->saved_state) {
 		if(tri->is_real) {
 			// Reclaim saved decompression state, if any
-			dpst = d->saved_deep_cmpr_state;
-			d->saved_deep_cmpr_state = NULL;
+			cst = ssw->saved_state;
+			ssw->saved_state = NULL;
 
-			dpst->dcmpro1.len_known = 1;
-			dpst->dcmpro1.expected_len = tri->intermediate_len;
+			cst->dcmpro1.len_known = 1;
+			cst->dcmpro1.expected_len = tri->intermediate_len;
 
-			de_dfilter_command(dpst->dfctx_lzah, DE_DFILTER_COMMAND_RESET_COUNTERS, 0);
+			de_dfilter_command(cst->dfctx_codec1, DE_DFILTER_COMMAND_RESET_COUNTERS, 0);
 		}
 		else {
-			destroy_deep_cmpr_state(c, d->saved_deep_cmpr_state);
-			d->saved_deep_cmpr_state = NULL;
+			destroy_std_cmpr_state(c, ssw->saved_state);
+			ssw->saved_state = NULL;
 		}
 	}
 
-	if(!dpst) {
+	if(!cst) {
+		cst = de_malloc(c, sizeof(struct dms_std_cmpr_state));
+		cst->cmpr_meth = tri->cmpr_type;
+		if(cst->cmpr_meth==DMSCMPR_DEEP) {
+			cst->cmpr_meth_name = "deepcmpr";
+		}
+		else {
+			cst->cmpr_meth_name = "mediumcmpr";
+		}
 
-		dpst = de_malloc(c, sizeof(struct dmsdeep_cmpr_state));
+		cst->outf_codec1 = dbuf_create_custom_dbuf(c, 0, 0);
+		cst->outf_codec1->userdata_for_customwrite = (void*)cst;
+		cst->outf_codec1->customwrite_fn = my_std1_write_cb;
 
-		dpst->outf_codec1 = dbuf_create_custom_dbuf(c, 0, 0);
-		dpst->outf_codec1->userdata_for_customwrite = (void*)dpst;
-		dpst->outf_codec1->customwrite_fn = my_deep1_write_cb;
-
-		dpst->dcmpro1.f = dpst->outf_codec1;
-		dpst->dcmpro1.len_known = 1;
-		dpst->dcmpro1.expected_len = tri->intermediate_len;
+		cst->dcmpro1.f = cst->outf_codec1;
+		cst->dcmpro1.len_known = 1;
+		cst->dcmpro1.expected_len = tri->intermediate_len;
 	}
 
 	// Reset the "length" of this virtual dbuf.
-	dbuf_truncate(dpst->outf_codec1, 0);
+	dbuf_truncate(cst->outf_codec1, 0);
 
-	if(dpst->dfctx_rle) {
-		de_dfilter_destroy(dpst->dfctx_rle);
-		dpst->dfctx_rle = NULL;
+	if(cst->dfctx_rle) {
+		de_dfilter_destroy(cst->dfctx_rle);
+		cst->dfctx_rle = NULL;
 	}
-	dpst->dfctx_rle = de_dfilter_create(c, dmsrle_codec, NULL, dcmpro, dres);
+	cst->dfctx_rle = de_dfilter_create(c, dmsrle_codec, NULL, dcmpro, dres);
 
-	if(!dpst->dfctx_lzah) {
-		struct de_lh1_params lh1p;
+	if(!cst->dfctx_codec1) {
+		if(cst->cmpr_meth==DMSCMPR_DEEP) {
+			struct de_lh1_params lh1p;
 
-		de_zeromem(&lh1p, sizeof(struct de_lh1_params));
-		lh1p.is_dms_deep = 1;
-		dpst->dfctx_lzah = de_dfilter_create(c, dfilter_lh1_codec,
-			(void*)&lh1p, &dpst->dcmpro1, &dpst->dres1);
-
+			de_zeromem(&lh1p, sizeof(struct de_lh1_params));
+			lh1p.is_dms_deep = 1;
+			cst->dfctx_codec1 = de_dfilter_create(c, dfilter_lh1_codec,
+				(void*)&lh1p, &cst->dcmpro1, &cst->dres1);
+		}
+		else {
+			cst->dfctx_codec1 = de_dfilter_create(c, dmsmediumlz77_codec,
+				NULL, &cst->dcmpro1, &cst->dres1);
+		}
 	}
 
-	dpst->dfctx_lzah->input_file_offset = dcmpri->pos;
-	dpst->intermediate_nbytes = 0;
+	cst->dfctx_codec1->input_file_offset = dcmpri->pos;
+	cst->intermediate_nbytes = 0;
 
-	de_dfilter_addslice(dpst->dfctx_lzah, dcmpri->f, dcmpri->pos, dcmpri->len);
+	de_dfilter_addslice(cst->dfctx_codec1, dcmpri->f, dcmpri->pos, dcmpri->len);
+	de_dfilter_command(cst->dfctx_codec1, DE_DFILTER_COMMAND_FINISH_BLOCK, 0);
+	de_dfilter_finish(cst->dfctx_rle);
 
-	de_dfilter_command(dpst->dfctx_lzah, DE_DFILTER_COMMAND_FINISH_BLOCK, 0);
-	de_dfilter_finish(dpst->dfctx_rle);
-
-	// If dpst->dfctx_lzah->dres has the error message we need, copy it to the
+	// If cst->dfctx_lzah->dres has the error message we need, copy it to the
 	// real dres.
-	de_dfilter_transfer_error(c, dpst->dfctx_lzah->dres, dres);
+	de_dfilter_transfer_error(c, cst->dfctx_codec1->dres, dres);
 
 	if(tri->is_real) {
 		// Note that this saved state may be deleted soon, in dms_decompress_track().
-		d->saved_deep_cmpr_state = dpst;
+		ssw->saved_state = cst;
 	}
 	else {
-		destroy_deep_cmpr_state(c, dpst);
+		destroy_std_cmpr_state(c, cst);
 	}
 }
 
@@ -896,13 +942,13 @@ static void do_decompress_heavy(deark *c, struct dmsctx *d, struct dms_track_inf
 
 static void destroy_saved_dcrmpr_state(deark *c, struct dmsctx *d)
 {
-	if(d->saved_medium_state) {
-		destroy_medium_state(c, d->saved_medium_state);
-		d->saved_medium_state = NULL;
+	if(d->saved_medium_state.saved_state) {
+		destroy_std_cmpr_state(c, d->saved_medium_state.saved_state);
+		d->saved_medium_state.saved_state = NULL;
 	}
-	if(d->saved_deep_cmpr_state) {
-		destroy_deep_cmpr_state(c, d->saved_deep_cmpr_state);
-		d->saved_deep_cmpr_state = NULL;
+	if(d->saved_deep_cmpr_state.saved_state) {
+		destroy_std_cmpr_state(c, d->saved_deep_cmpr_state.saved_state);
+		d->saved_deep_cmpr_state.saved_state = NULL;
 	}
 	if(d->saved_heavy_state) {
 		destroy_heavy_state(c, d->saved_heavy_state);
@@ -944,10 +990,10 @@ static int dms_decompress_track(deark *c, struct dmsctx *d, struct dms_track_inf
 			&dcmpri, &dcmpro, &dres);
 	}
 	else if(tri->cmpr_type==DMSCMPR_MEDIUM) {
-		do_decompress_medium(c, d, tri, &dcmpri, &dcmpro, &dres);
+		do_decompress_track_medium_or_deep(c, d, tri, &dcmpri, &dcmpro, &dres);
 	}
 	else if(tri->cmpr_type==DMSCMPR_DEEP) {
-		do_decompress_track_deep(c, d, tri, &dcmpri, &dcmpro, &dres);
+		do_decompress_track_medium_or_deep(c, d, tri, &dcmpri, &dcmpro, &dres);
 	}
 	else if(tri->cmpr_type==DMSCMPR_HEAVY1 || tri->cmpr_type==DMSCMPR_HEAVY2) {
 		do_decompress_heavy(c, d, tri, &dcmpri, &dcmpro, &dres);

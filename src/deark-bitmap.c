@@ -526,29 +526,60 @@ u8 de_get_bits_symbol2(dbuf *f, int nbits, i64 bytepos, i64 bitpos)
 	return (b0<<bits_in_second_byte) | (b1>>(8-bits_in_second_byte));
 }
 
+// DE_CVTF_ONLYWHITE = Don't paint the black pixels (presumably because
+//   they are already black). Use with caution if the format supports transparency.
+void de_unpack_pixels_bilevel_from_byte(de_bitmap *img, i64 xpos, i64 ypos,
+	u8 val, UI npixels, unsigned int flags)
+{
+	UI i;
+	u8 xv;
+
+	if(npixels>8) return;
+	xv = (flags & DE_CVTF_WHITEISZERO) ? 0xff : 0x00;
+
+	for(i=0; i<npixels; i++) {
+		u8 x;
+
+		if(flags & DE_CVTF_LSBFIRST) {
+			x = (val & 0x01) ? 0xff : 0x00;
+			val >>= 1;
+		}
+		else {
+			x = (val & 0x80) ? 0xff : 0x00;
+			val <<= 1;
+		}
+
+		x ^= xv;
+		if(x==0x00 && DE_CVTF_ONLYWHITE) continue;
+		de_bitmap_setpixel_gray(img, xpos+(i64)i, ypos, x);
+	}
+}
+
+// Generalization of de_convert_row_bilevel(), to support just part of a row.
+void de_convert_pixels_bilevel(dbuf *f, i64 pos1, de_bitmap *img,
+	i64 xpos1, i64 ypos, i64 npixels, unsigned int flags)
+{
+	i64 pos = pos1;
+	i64 xpos = xpos1;
+	i64 npixels_remaining = npixels;
+	i64 npixels_this_time;
+
+	while(npixels_remaining>0) {
+		u8 b;
+
+		b = dbuf_getbyte_p(f, &pos);
+		npixels_this_time = de_min_int(npixels_remaining, 8);
+		de_unpack_pixels_bilevel_from_byte(img, xpos, ypos, b,
+			(UI)npixels_this_time, flags);
+		npixels_remaining -= npixels_this_time;
+		xpos += 8;
+	}
+}
+
 void de_convert_row_bilevel(dbuf *f, i64 fpos, de_bitmap *img,
 	i64 rownum, unsigned int flags)
 {
-	i64 i;
-	u8 x;
-	u8 b;
-	u8 black, white;
-
-	if(flags & DE_CVTF_WHITEISZERO) {
-		white = 0; black = 255;
-	}
-	else {
-		black = 0; white = 255;
-	}
-
-	for(i=0; i<img->width; i++) {
-		b = dbuf_getbyte(f, fpos + i/8);
-		if(flags & DE_CVTF_LSBFIRST)
-			x = (b >> (i%8)) & 0x01;
-		else
-			x = (b >> (7 - i%8)) & 0x01;
-		de_bitmap_setpixel_gray(img, i, rownum, x ? white : black);
-	}
+	de_convert_pixels_bilevel(f, fpos, img, 0, rownum, img->width, flags);
 }
 
 void de_convert_image_bilevel(dbuf *f, i64 fpos, i64 rowspan,
