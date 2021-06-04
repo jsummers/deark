@@ -67,7 +67,7 @@ OFILES_MODS_AB:=$(addprefix $(OBJDIR)/modules/,abk.o alphabmp.o amigaicon.o \
 OFILES_MODS_CH:=$(addprefix $(OBJDIR)/modules/,cab.o cardfile.o cfb.o \
  cpio.o d64.o drhalo.o ebml.o emf.o epocimage.o eps.o exe.o dms.o \
  flif.o fnt.o gemfont.o gemmeta.o gemras.o gif.o grasp.o grob.o gzip.o \
- hfs.o hlp.o dsstore.o fli.o fat.o flac.o ccx.o crush.o)
+ hfs.o hlp.o dsstore.o fli.o fat.o flac.o dlmaker.o ccx.o crush.o)
 OFILES_MODS_IO:=$(addprefix $(OBJDIR)/modules/,misc.o iccprofile.o icns.o \
  id3.o ico.o iff.o ilbm.o insetpix.o iptc.o jbf.o jovianvi.o jpeg.o lha.o \
  j2c.o ogg.o olepropset.o iso9660.o macbinary.o macrsrc.o \

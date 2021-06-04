@@ -142,6 +142,11 @@ Deark -- Information about supported formats
 
 * DeskMate Paint .PNT (module="deskmate_pnt")
 
+* DL animation (DL MAKER) (module="dlmaker")
+  - Format versions 1 & 2 only. No support for v3 yet.
+  - Extracts all images, in the order they appear in the file, even if they
+     aren't used in the animation.
+
 * Doodle (Atari) (module="doodle")
   - Supports high resolution (640x400) only
 
