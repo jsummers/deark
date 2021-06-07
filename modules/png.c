@@ -110,8 +110,8 @@ typedef void (*chunk_handler_fn)(deark *c, lctx *d, struct handler_params *hp);
 
 struct chunk_type_info_struct {
 	u32 id;
-	// The low 8 bits of flags are reserved, and should be to 0xff.
-	// They may someday be used to, for example, make MNG-only chunk table entries.
+	// The low 8 bits of flags tell which formats the chunk is valid in.
+	// Can be set to 0xff for most ancillary chunks.
 	u32 flags;
 	const char *name;
 	chunk_handler_fn handler_fn;
@@ -937,20 +937,24 @@ static void do_check_chunk_crc(deark *c, lctx *d, struct chunk_ctx *cctx, int su
 	}
 }
 
+// flags:
+//  0x0001 = Valid in files with a PNG signature
+//  0x0002 = ... JNG
+//  0x0004 = ... MNG
 static const struct chunk_type_info_struct chunk_type_info_arr[] = {
-	{ CODE_CgBI, 0x00ff, NULL, handler_CgBI },
+	{ CODE_CgBI, 0x0001, NULL, handler_CgBI },
 	{ CODE_IDAT, 0x00ff, NULL, handler_IDAT },
 	{ CODE_IEND, 0x00ff, NULL, NULL },
-	{ CODE_IHDR, 0x00ff, NULL, handler_IHDR },
+	{ CODE_IHDR, 0x0005, NULL, handler_IHDR },
 	{ CODE_PLTE, 0x00ff, "palette", handler_PLTE },
 	{ CODE_bKGD, 0x00ff, "background color", handler_bKGD },
-	{ CODE_acTL, 0x00ff, "APNG animation control", handler_acTL },
+	{ CODE_acTL, 0x0001, "APNG animation control", handler_acTL },
 	{ CODE_cHRM, 0x00ff, "chromaticities", handler_cHRM },
 	{ CODE_caNv, 0x00ff, "virtual canvas info", handler_caNv },
 	{ CODE_eXIf, 0x00ff, NULL, handler_eXIf },
 	{ CODE_exIf, 0x00ff, NULL, handler_eXIf },
-	{ CODE_fcTL, 0x00ff, "APNG frame control", handler_fcTL },
-	{ CODE_fdAT, 0x00ff, "APNG frame data", handler_fdAT },
+	{ CODE_fcTL, 0x0001, "APNG frame control", handler_fcTL },
+	{ CODE_fdAT, 0x0001, "APNG frame data", handler_fdAT },
 	{ CODE_gAMA, 0x00ff, "image gamma", handler_gAMA },
 	{ CODE_hIST, 0x00ff, "histogram", handler_hIST },
 	{ CODE_htSP, 0x00ff, "Deark-style hotspot", handler_htSP },
@@ -979,10 +983,10 @@ static const struct chunk_type_info_struct chunk_type_info_arr[] = {
 	{ CODE_FRAM, 0x0004, NULL, NULL },
 	{ CODE_IJNG, 0x0004, NULL, NULL },
 	{ CODE_IPNG, 0x0004, NULL, NULL },
-	{ CODE_JDAA, 0x00ff, "JNG JPEG-encoded alpha data", NULL },
-	{ CODE_JDAT, 0x00ff, "JNG image data", NULL },
-	{ CODE_JHDR, 0x00ff, "JNG header", NULL },
-	{ CODE_JSEP, 0x00ff, "8-bit/12-bit image separator", NULL },
+	{ CODE_JDAA, 0x0006, "JNG JPEG-encoded alpha data", NULL },
+	{ CODE_JDAT, 0x0006, "JNG image data", NULL },
+	{ CODE_JHDR, 0x0006, "JNG header", NULL },
+	{ CODE_JSEP, 0x0006, "8-bit/12-bit image separator", NULL },
 	{ CODE_LOOP, 0x0004, NULL, NULL },
 	{ CODE_MAGN, 0x0004, NULL, NULL },
 	{ CODE_MEND, 0x0004, "end of MNG datastream", NULL },
@@ -1002,12 +1006,19 @@ static const struct chunk_type_info_struct chunk_type_info_arr[] = {
 	{ CODE_pHYg, 0x0004, NULL, NULL }
 };
 
-static const struct chunk_type_info_struct *get_chunk_type_info(u32 id)
+static const struct chunk_type_info_struct *get_chunk_type_info(lctx *d, u32 id)
 {
 	size_t i;
+	u32 flags_mask;
+
+	switch(d->fmt) {
+	case DE_PNGFMT_MNG: flags_mask = 0x4; break;
+	case DE_PNGFMT_JNG: flags_mask = 0x2; break;
+	default: flags_mask = 0x1; break;
+	}
 
 	for(i=0; i<DE_ARRAYCOUNT(chunk_type_info_arr); i++) {
-		if(id == chunk_type_info_arr[i].id) {
+		if(id == chunk_type_info_arr[i].id && (chunk_type_info_arr[i].flags & flags_mask)) {
 			return &chunk_type_info_arr[i];
 		}
 	}
@@ -1053,7 +1064,7 @@ static void de_run_png(deark *c, de_module_params *mparams)
 		}
 		dbuf_read_fourcc(c->infile, pos+4, &cctx.hp.chunk4cc, 4, 0x0);
 
-		cctx.hp.cti = get_chunk_type_info(cctx.hp.chunk4cc.id);
+		cctx.hp.cti = get_chunk_type_info(d, cctx.hp.chunk4cc.id);
 
 		if(cctx.hp.chunk4cc.id==CODE_IDAT && suppress_idat_dbg) {
 			;
