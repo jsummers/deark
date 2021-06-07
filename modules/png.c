@@ -77,10 +77,11 @@ typedef struct localctx_struct {
 #define DE_PNGFMT_JNG 2
 #define DE_PNGFMT_MNG 3
 	int fmt;
-	int is_CgBI;
+	u8 is_CgBI;
+	u8 is_APNG;
 	u8 check_crcs;
 	u8 color_type;
-	const char *fmt_name;
+	u8 found_IDAT;
 	struct de_crcobj *crco;
 } lctx;
 
@@ -130,6 +131,29 @@ struct chunk_ctx {
 	u32 crc_reported;
 	u32 crc_calc;
 };
+
+static void declare_png_fmt(deark *c, lctx *d)
+{
+	if(d->fmt==DE_PNGFMT_JNG) {
+		de_declare_fmt(c, "JNG");
+		return;
+	}
+	if(d->fmt==DE_PNGFMT_MNG) {
+		de_declare_fmt(c, "MNG");
+		return;
+	}
+	if(d->fmt!=DE_PNGFMT_PNG) return;
+	if(d->is_APNG) {
+		de_declare_fmt(c, "APNG");
+		return;
+	}
+	if(d->is_CgBI) {
+		de_declare_fmt(c, "CgBI");
+		return;
+	}
+	if(!d->found_IDAT) return;
+	de_declare_fmt(c, "PNG");
+}
 
 static void handler_hexdump(deark *c, lctx *d, struct handler_params *hp)
 {
@@ -439,7 +463,10 @@ done:
 
 static void handler_CgBI(deark *c, lctx *d, struct handler_params *hp)
 {
-	d->is_CgBI = 1;
+	if(!d->found_IDAT) {
+		d->is_CgBI = 1;
+		declare_png_fmt(c, d);
+	}
 }
 
 static void handler_IHDR(deark *c, lctx *d, struct handler_params *hp)
@@ -469,6 +496,15 @@ static void handler_IHDR(deark *c, lctx *d, struct handler_params *hp)
 
 	n = de_getbyte(hp->dpos+12);
 	de_dbg(c, "interlaced: %d", (int)n);
+}
+
+static void handler_IDAT(deark *c, lctx *d, struct handler_params *hp)
+{
+	if(!d->found_IDAT) {
+		d->found_IDAT = 1;
+		// In case format declaration was deferred, do it now.
+		declare_png_fmt(c, d);
+	}
 }
 
 static void handler_PLTE(deark *c, lctx *d, struct handler_params *hp)
@@ -823,6 +859,10 @@ static void handler_acTL(deark *c, lctx *d, struct handler_params *hp)
 	unsigned int n;
 	i64 pos = hp->dpos;
 
+	if(!d->found_IDAT) {
+		d->is_APNG = 1;
+		declare_png_fmt(c, d);
+	}
 	if(hp->dlen<8) return;
 	n = (unsigned int)de_getu32be_p(&pos);
 	de_dbg(c, "num frames: %u", n);
@@ -899,7 +939,7 @@ static void do_check_chunk_crc(deark *c, lctx *d, struct chunk_ctx *cctx, int su
 
 static const struct chunk_type_info_struct chunk_type_info_arr[] = {
 	{ CODE_CgBI, 0x00ff, NULL, handler_CgBI },
-	{ CODE_IDAT, 0x00ff, NULL, NULL },
+	{ CODE_IDAT, 0x00ff, NULL, handler_IDAT },
 	{ CODE_IEND, 0x00ff, NULL, NULL },
 	{ CODE_IHDR, 0x00ff, NULL, handler_IHDR },
 	{ CODE_PLTE, 0x00ff, "palette", handler_PLTE },
@@ -995,28 +1035,8 @@ static void de_run_png(deark *c, de_module_params *mparams)
 
 	d->check_crcs = (u8)de_get_ext_option_bool(c, "png:checkcrc", 1);
 	de_dbg(c, "signature at %d", 0);
-	de_dbg_indent(c, 1);
 	d->fmt = do_identify_png_internal(c);
-	switch(d->fmt) {
-	case DE_PNGFMT_PNG:
-		d->fmt_name = "PNG";
-		if(de_getu32be(12)==CODE_CgBI) {
-			d->is_CgBI = 1;
-		}
-		break;
-	case DE_PNGFMT_JNG: d->fmt_name = "JNG"; break;
-	case DE_PNGFMT_MNG: d->fmt_name = "MNG"; break;
-	default: d->fmt_name = "?";
-	}
-	if(d->fmt>0) {
-		if(d->is_CgBI) {
-			de_declare_fmt(c, "CgBI");
-		}
-		else {
-			de_declare_fmt(c, d->fmt_name);
-		}
-	}
-	de_dbg_indent(c, -1);
+	declare_png_fmt(c, d);
 
 	pos = 8;
 	while(pos < c->infile->len) {
