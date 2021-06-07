@@ -401,6 +401,9 @@ Deark -- Information about supported formats
   - Extract XMP data.
   - Extract ICC profiles.
   - Extract or process various other metadata formats.
+  - Extract frame images (may be image fragments) from APNG files.
+  Options
+   -opt png:extractapng=0 - Do not extract APNG frames
 
 * PNM/PBM/PGM/PPM/PAM (module="pnm")
 

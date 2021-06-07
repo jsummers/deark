@@ -72,17 +72,31 @@ DE_DECLARE_MODULE(de_module_png);
 #define CODE_nEED 0x6e454544U
 #define CODE_pHYg 0x70485967U
 
+static const u8 g_png_sig[8] = {0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a};
+
 typedef struct localctx_struct {
 #define DE_PNGFMT_PNG 1
 #define DE_PNGFMT_JNG 2
 #define DE_PNGFMT_MNG 3
 	int fmt;
+
+	u8 check_crcs;
+	u8 opt_extract_from_APNG;
+
 	u8 is_CgBI;
 	u8 is_APNG;
-	u8 check_crcs;
 	u8 color_type;
+	u8 extract_from_APNG_enabled;
+	u8 extracted_main_APNG_image;
 	u8 found_IDAT;
+	u8 found_fcTL;
 	struct de_crcobj *crco;
+	struct de_crcobj *crco_for_write;
+
+	i64 curr_fcTL_width, curr_fcTL_height;
+	i64 APNG_prefix_IHDR_pos;
+	dbuf *APNG_prefix;
+	dbuf *curr_APNG_frame;
 } lctx;
 
 struct text_chunk_ctx {
@@ -498,12 +512,113 @@ static void handler_IHDR(deark *c, lctx *d, struct handler_params *hp)
 	de_dbg(c, "interlaced: %d", (int)n);
 }
 
+// Extract the main APNG image, and prepare data that will allow us to extract
+// the frames we encounter later.
+static void prepare_PNG_extraction_from_APNG(deark *c, lctx *d)
+{
+	dbuf *outf = NULL;
+	i64 srcpos;
+	int found_IDAT = 0;
+
+	if(!d->is_APNG) return;
+	if(!d->extract_from_APNG_enabled) return;
+	if(d->extracted_main_APNG_image) return;
+	if(d->APNG_prefix) return;
+	d->extracted_main_APNG_image = 1;
+
+	d->APNG_prefix = dbuf_create_membuf(c, 0, 0);
+#define MAX_APNG_PREFIX_LEN 4000
+	dbuf_set_length_limit(d->APNG_prefix, MAX_APNG_PREFIX_LEN+1);
+
+	dbuf_write(d->APNG_prefix, g_png_sig, 8);
+
+	// This is a bit crude, but simple enough. Just read the entire file in a
+	// separate pass, copying everything that isn't a special APNG chunk.
+	de_dbg2(c, "[extracting main image from APNG]");
+
+	// If an fcTL chunk has not appeared yet, then this is the fallback image
+	// that will only be seen if the viewer does not support APNG.
+	outf = dbuf_create_output_file(c, (d->found_fcTL ? "png" : "default.png"), NULL, 0);
+
+	dbuf_write(outf, g_png_sig, 8);
+	srcpos = 8;
+	while(1) {
+		i64 ck_dlen;
+		i64 ck_len;
+		u32 ck_id;
+		int copy_chunk_to_default;
+		int copy_chunk_to_prefix = 0;
+
+		if(srcpos+12 > c->infile->len) goto done;
+		ck_dlen = de_getu32be(srcpos);
+		ck_len = ck_dlen + 12;
+		ck_id = (u32)de_getu32be(srcpos+4);
+		if(srcpos + ck_len > c->infile->len) goto done;
+
+		if(ck_id==CODE_IDAT) {
+			found_IDAT = 1;
+		}
+
+		if(ck_id==CODE_acTL || ck_id==CODE_fcTL || ck_id==CODE_fdAT) {
+			copy_chunk_to_default = 0;
+		}
+		else {
+			copy_chunk_to_default = 1;
+		}
+
+		if(d->extract_from_APNG_enabled && !found_IDAT) {
+			// This prefix could be written to many frame files, so we want it
+			// to be small. We'll be selective about which chunks we put in it
+			// (no iCCP -- too big).
+			// Note that the main image file will still include all the chunks we
+			// filter out.
+			switch(ck_id) {
+			case CODE_PLTE:
+			case CODE_tRNS:
+			case CODE_cHRM:
+			case CODE_gAMA:
+			case CODE_sBIT:
+			case CODE_sRGB:
+			case CODE_bKGD:
+			case CODE_pHYs:
+				copy_chunk_to_prefix = 1;
+				break;
+			case CODE_IHDR:
+				if(ck_dlen==13 && d->APNG_prefix_IHDR_pos==0) {
+					d->APNG_prefix_IHDR_pos = d->APNG_prefix->len;
+					copy_chunk_to_prefix = 1;
+				}
+				break;
+			}
+		}
+
+		if(copy_chunk_to_default) {
+			dbuf_copy(c->infile, srcpos, ck_len, outf);
+		}
+
+		if(copy_chunk_to_prefix) {
+			dbuf_copy(c->infile, srcpos, ck_len, d->APNG_prefix);
+		}
+		srcpos += ck_len;
+	}
+
+done:
+	if(d->APNG_prefix) {
+		if(d->APNG_prefix->len > MAX_APNG_PREFIX_LEN) {
+			d->extract_from_APNG_enabled = 0;
+		}
+	}
+	dbuf_close(outf);
+}
+
 static void handler_IDAT(deark *c, lctx *d, struct handler_params *hp)
 {
 	if(!d->found_IDAT) {
 		d->found_IDAT = 1;
 		// In case format declaration was deferred, do it now.
 		declare_png_fmt(c, d);
+
+		prepare_PNG_extraction_from_APNG(c, d);
 	}
 }
 
@@ -889,18 +1004,33 @@ static const char *get_apng_blend_name(u8 t)
 	return "?";
 }
 
+static void finish_APNG_frame(deark *c, lctx *d)
+{
+	static const u8 IEND_data[12] = {0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
+
+	if(!d->curr_APNG_frame) return;
+
+	dbuf_write(d->curr_APNG_frame, IEND_data, 12);
+	dbuf_close(d->curr_APNG_frame);
+	d->curr_APNG_frame = NULL;
+	d->curr_fcTL_width = 0;
+	d->curr_fcTL_height = 0;
+}
+
 static void handler_fcTL(deark *c, lctx *d, struct handler_params *hp)
 {
 	i64 n1, n2;
 	i64 pos = hp->dpos;
 	u8 b;
 
+	d->found_fcTL = 1;
+	finish_APNG_frame(c, d); // Finished previous frame
 	if(hp->dlen<26) return;
 	do_APNG_seqno(c, d, pos);
 	pos += 4;
-	n1 = de_getu32be_p(&pos);
-	n2 = de_getu32be_p(&pos);
-	de_dbg_dimensions(c, n1, n2);
+	d->curr_fcTL_width = de_getu32be_p(&pos);
+	d->curr_fcTL_height = de_getu32be_p(&pos);
+	de_dbg_dimensions(c, d->curr_fcTL_width, d->curr_fcTL_height);
 	n1 = de_getu32be_p(&pos);
 	n2 = de_getu32be_p(&pos);
 	de_dbg(c, "offset: (%u, %u)", (unsigned int)n1, (unsigned int)n2);
@@ -913,10 +1043,68 @@ static void handler_fcTL(deark *c, lctx *d, struct handler_params *hp)
 	de_dbg(c, "blend type: %u (%s)", (unsigned int)b, get_apng_blend_name(b));
 }
 
+static void writelistener_for_crc_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
+{
+	struct de_crcobj *crco = (struct de_crcobj *)userdata;
+
+	de_crcobj_addbuf(crco, buf, buf_len);
+}
+
+static void writeu32be_at(dbuf *f, i64 pos, i64 n)
+{
+	u8 m[4];
+
+	de_writeu32be_direct(m, n);
+	dbuf_write_at(f, pos, m, 4);
+}
+
 static void handler_fdAT(deark *c, lctx *d, struct handler_params *hp)
 {
+	i64 IDAT_dlen;
+
 	if(hp->dlen<4) return;
 	do_APNG_seqno(c, d, hp->dpos);
+
+	if(!d->found_fcTL) return;
+	if(d->curr_fcTL_width==0 || d->curr_fcTL_height==0) return;
+	if(!d->extract_from_APNG_enabled) return;
+	if(!d->APNG_prefix || d->APNG_prefix_IHDR_pos==0) {
+		d->extract_from_APNG_enabled = 0;
+		return;
+	}
+
+	// Convert the fdAT chunk to an IDAT chunk, and write it to d->curr_APNG_frame.
+
+	if(!d->crco_for_write) {
+		d->crco_for_write = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	}
+
+	if(!d->curr_APNG_frame) {
+		d->curr_APNG_frame = dbuf_create_output_file(c, "png", NULL, 0);
+
+		// Update the width & height in the APNG_prefix membuf, in-place.
+
+		writeu32be_at(d->APNG_prefix, d->APNG_prefix_IHDR_pos+8, d->curr_fcTL_width);
+		writeu32be_at(d->APNG_prefix, d->APNG_prefix_IHDR_pos+8+4, d->curr_fcTL_height);
+
+		de_crcobj_reset(d->crco_for_write);
+		de_crcobj_addslice(d->crco_for_write, d->APNG_prefix, d->APNG_prefix_IHDR_pos+4, 4+13);
+		writeu32be_at(d->APNG_prefix, d->APNG_prefix_IHDR_pos+8+13,
+			(i64)de_crcobj_getval(d->crco_for_write));
+
+		dbuf_copy(d->APNG_prefix, 0, d->APNG_prefix->len, d->curr_APNG_frame);
+	}
+
+	IDAT_dlen = hp->dlen-4;
+	dbuf_writeu32be(d->curr_APNG_frame, IDAT_dlen);
+
+	de_crcobj_reset(d->crco_for_write);
+	dbuf_set_writelistener(d->curr_APNG_frame, writelistener_for_crc_cb, (void*)d->crco_for_write);
+
+	dbuf_writeu32be(d->curr_APNG_frame, (i64)CODE_IDAT);
+	dbuf_copy(c->infile, hp->dpos+4, IDAT_dlen, d->curr_APNG_frame);
+	dbuf_set_writelistener(d->curr_APNG_frame, NULL, NULL);
+	dbuf_writeu32be(d->curr_APNG_frame, (i64)de_crcobj_getval(d->crco_for_write));
 }
 
 static void do_check_chunk_crc(deark *c, lctx *d, struct chunk_ctx *cctx, int suppress_idat_dbg)
@@ -1029,7 +1217,7 @@ static int do_identify_png_internal(deark *c)
 {
 	u8 buf[8];
 	de_read(buf, 0, sizeof(buf));
-	if(!de_memcmp(buf, "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a", 8)) return DE_PNGFMT_PNG;
+	if(!de_memcmp(buf, g_png_sig, 8)) return DE_PNGFMT_PNG;
 	if(!de_memcmp(buf, "\x8b\x4a\x4e\x47\x0d\x0a\x1a\x0a", 8)) return DE_PNGFMT_JNG;
 	if(!de_memcmp(buf, "\x8a\x4d\x4e\x47\x0d\x0a\x1a\x0a", 8)) return DE_PNGFMT_MNG;
 	return 0;
@@ -1045,9 +1233,15 @@ static void de_run_png(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 
 	d->check_crcs = (u8)de_get_ext_option_bool(c, "png:checkcrc", 1);
+	d->opt_extract_from_APNG = (u8)de_get_ext_option_bool(c, "png:extractapng", 1);
+
 	de_dbg(c, "signature at %d", 0);
 	d->fmt = do_identify_png_internal(c);
 	declare_png_fmt(c, d);
+
+	if(d->fmt==DE_PNGFMT_PNG && d->opt_extract_from_APNG) {
+		d->extract_from_APNG_enabled = 1;
+	}
 
 	pos = 8;
 	while(pos < c->infile->len) {
@@ -1131,7 +1325,12 @@ static void de_run_png(deark *c, de_module_params *mparams)
 	}
 
 	if(d) {
+		if(d->curr_APNG_frame) {
+			finish_APNG_frame(c, d);
+		}
+		dbuf_close(d->APNG_prefix);
 		de_crcobj_destroy(d->crco);
+		de_crcobj_destroy(d->crco_for_write);
 		de_free(c, d);
 	}
 }
@@ -1144,6 +1343,11 @@ static int de_identify_png(deark *c)
 	return 0;
 }
 
+static void de_help_png(deark *c)
+{
+	de_msg(c, "-opt png:extractapng=0 : Do not extract APNG frames");
+}
+
 void de_module_png(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "png";
@@ -1151,5 +1355,6 @@ void de_module_png(deark *c, struct deark_module_info *mi)
 	mi->desc2 = "resources only";
 	mi->run_fn = de_run_png;
 	mi->identify_fn = de_identify_png;
+	mi->help_fn = de_help_png;
 }
 
