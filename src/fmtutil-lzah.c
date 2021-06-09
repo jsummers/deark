@@ -53,7 +53,7 @@ static void my_lh1_codec_finish(struct de_dfilter_ctx *dfctx)
 	}
 }
 
-static void my_lh1_codec_command(struct de_dfilter_ctx *dfctx, int cmd)
+static void my_lh1_codec_command(struct de_dfilter_ctx *dfctx, int cmd, UI flags)
 {
 	struct lzahuf_ctx *cctx = (struct lzahuf_ctx*)dfctx->codec_private;
 

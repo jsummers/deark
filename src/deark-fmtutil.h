@@ -134,7 +134,7 @@ struct de_dfilter_ctx;
 typedef void (*dfilter_codec_type)(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 typedef void (*dfilter_codec_addbuf_type)(struct de_dfilter_ctx *dfctx,
 	const u8 *buf, i64 buf_len);
-typedef void (*dfilter_codec_command_type)(struct de_dfilter_ctx *dfctx, int cmd);
+typedef void (*dfilter_codec_command_type)(struct de_dfilter_ctx *dfctx, int cmd, UI flags);
 typedef void (*dfilter_codec_finish_type)(struct de_dfilter_ctx *dfctx);
 typedef void (*dfilter_codec_destroy_type)(struct de_dfilter_ctx *dfctx);
 
