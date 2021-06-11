@@ -307,6 +307,13 @@ static void decompressor_trimmed(deark *c, lctx *d, struct member_data *md,
 	de_dfilter_decompress_two_layer(c, &tlp);
 }
 
+static void decompressor_distilled(deark *c, lctx *d, struct member_data *md,
+	struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
+{
+	fmtutil_distilled_codectype1(c, dcmpri, dcmpro, dres, NULL);
+}
+
 // Flags:
 //  0x01 = valid in ARC
 //  0x02 = valid in Spark
@@ -326,7 +333,7 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 10,  0x101, "trimmed", decompressor_trimmed },
 	{ 10,  0x201, "crushed", NULL },
 	{ 10,   0x01, "trimmed or crushed", NULL },
-	{ 0x0b, 0x01, "distilled", NULL },
+	{ 0x0b, 0x01, "distilled", decompressor_distilled },
 	{ 20,   0x01, "archive info", NULL },
 	{ 21,   0x01, "extended file info", NULL },
 	{ 22,   0x01, "OS info", NULL },
