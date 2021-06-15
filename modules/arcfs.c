@@ -27,7 +27,6 @@ struct arcfs_member_data {
 };
 
 typedef struct localctx_struct {
-	int append_type;
 	int subdir_level;
 	i64 nmembers;
 	i64 data_offs;
@@ -156,10 +155,7 @@ static void do_arcfs_extract_member_file(deark *c, lctx *d, struct arcfs_member_
 	fullfn = ucstring_create(c);
 	de_strarray_make_path(d->curpath, fullfn, 0);
 	ucstring_append_ucstring(fullfn, md->fn);
-	if(d->append_type && md->rfa.file_type_known) {
-		// Append the file type to the filename, like nspark's -X option.
-		ucstring_printf(fullfn, DE_ENCODING_LATIN1, ",%03X", md->rfa.file_type);
-	}
+	fmtutil_riscos_append_type_to_filename(c, fi, fullfn, &md->rfa, md->is_dir, 0);
 
 	if(md->cmpr_method!=0x82 && md->cmpr_method!=0x83 && md->cmpr_method!=0x88 &&
 		md->cmpr_method!=0xff)
@@ -408,9 +404,6 @@ static void de_run_arcfs(deark *c, de_module_params *mparams)
 	i64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
-
-	d->append_type = de_get_ext_option_bool(c, "arcfs:appendtype", 0);
-
 	pos = 0;
 	if(!do_arcfs_file_header(c, d, pos)) goto done;
 	pos += 96;
@@ -434,18 +427,12 @@ static int de_identify_arcfs(deark *c)
 	return 0;
 }
 
-static void de_help_arcfs(deark *c)
-{
-	de_msg(c, "-opt arcfs:appendtype : Append the file type to the filename");
-}
-
 void de_module_arcfs(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "arcfs";
 	mi->desc = "ArcFS (RISC OS archive)";
 	mi->run_fn = de_run_arcfs;
 	mi->identify_fn = de_identify_arcfs;
-	mi->help_fn = de_help_arcfs;
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -495,10 +482,14 @@ static void do_squash_main(deark *c, sqctx *d)
 	fi = de_finfo_create(c);
 
 	fn = ucstring_create(c);
+
+	fi->has_riscos_data = 1;
+	fi->riscos_attribs = d->rfa.attribs;
+	fi->load_addr = d->rfa.load_addr;
+	fi->exec_addr = d->rfa.exec_addr;
+
 	ucstring_append_sz(fn, "bin", DE_ENCODING_LATIN1);
-	if(d->rfa.file_type_known && c->filenames_from_file) {
-		ucstring_printf(fn, DE_ENCODING_LATIN1, ",%03X", d->rfa.file_type);
-	}
+	fmtutil_riscos_append_type_to_filename(c, fi, fn, &d->rfa, 0, 1);
 	de_finfo_set_name_from_ucstring(c, fi, fn, 0);
 
 	if(d->rfa.mod_time.is_valid) {

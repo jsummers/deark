@@ -70,7 +70,6 @@ struct localctx_struct {
 	de_ext_encoding input_encoding_for_comments;
 	de_ext_encoding input_encoding_for_arcmac_fn;
 	u8 method10; // 1=trimmed, 2=crushed
-	int append_type;
 	int recurse_subdirs;
 	u8 sig_byte;
 	u8 prescan_found_eoa;
@@ -749,8 +748,8 @@ static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
 
 	de_strarray_make_path(d->curpath, fullfn, DE_MPFLAG_NOTRAILINGSLASH);
 
-	if(d->append_type && md->rfa.file_type_known) {
-		ucstring_printf(fullfn, DE_ENCODING_LATIN1, ",%03X", md->rfa.file_type);
+	if(md->rfa.file_type_known) {
+		fmtutil_riscos_append_type_to_filename(c, fi, fullfn, &md->rfa, md->is_dir, 0);
 	}
 	de_finfo_set_name_from_ucstring(c, fi, fullfn, DE_SNFLAG_FULLPATH);
 
@@ -1424,7 +1423,6 @@ static void de_run_spark(deark *c, de_module_params *mparams)
 	d->input_encoding_for_comments = DE_EXTENC_MAKE(d->input_encoding_for_filenames,
 		DE_ENCSUBTYPE_HYBRID);
 	d->recurse_subdirs = de_get_ext_option_bool(c, "spark:recurse", 1);
-	d->append_type = de_get_ext_option_bool(c, "spark:appendtype", 0);
 
 	do_run_arc_spark_internal(c, d);
 	destroy_lctx(c, d);
@@ -1466,7 +1464,6 @@ static int de_identify_spark(deark *c)
 
 static void de_help_spark(deark *c)
 {
-	de_msg(c, "-opt spark:appendtype : Append the file type to the filename");
 	de_msg(c, "-opt spark:recurse=0 : Extract subdirs as Spark files");
 }
 

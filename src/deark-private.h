@@ -218,6 +218,7 @@ struct de_finfo_struct {
 	u8 orig_name_was_dot; // Internal use
 	u8 has_hotspot;
 	u8 has_riscos_data; // attribs, load_addr, exec_addr
+	u8 riscos_appended_type; // Internal use
 
 #define DE_MODEFLAG_NONEXE 0x01 // Make the output file non-executable.
 #define DE_MODEFLAG_EXE    0x02 // Make the output file executable.
@@ -394,6 +395,7 @@ struct deark_struct {
 	u8 filenames_from_file;
 	u8 macformat_known;
 	u8 macformat;
+	u8 append_riscos_type;
 	u8 padpix;
 	int overwrite_mode;
 	u8 preserve_file_times;

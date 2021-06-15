@@ -36,7 +36,6 @@ struct dir_record {
 	u8 is_symlink;
 	u8 is_specialfiletype;
 	u8 is_specialfileformat;
-	u8 has_archimedes_ext;
 	i64 len_dir_rec;
 	i64 len_ext_attr_rec;
 	i64 data_len;
@@ -47,8 +46,8 @@ struct dir_record {
 	struct de_timestamp recording_time;
 	struct de_timestamp rr_modtime;
 	struct de_timestamp riscos_timestamp;
-	u32 archimedes_attribs;
-	u32 load_addr, exec_addr;
+	u8 has_riscos_data;
+	struct de_riscos_file_attrs rfa;
 };
 
 struct vol_record {
@@ -291,12 +290,18 @@ static void do_extract_file(deark *c, lctx *d, struct dir_record *dr)
 	}
 	else if(ucstring_isnonempty(dr->rr_name)) {
 		ucstring_append_ucstring(final_name, dr->rr_name);
+		if(dr->has_riscos_data) {
+			fmtutil_riscos_append_type_to_filename(c, fi, final_name, &dr->rfa, dr->is_dir, 0);
+		}
 		de_finfo_set_name_from_ucstring(c, fi, final_name, DE_SNFLAG_FULLPATH);
 		fi->original_filename_flag = 1;
 	}
 	else if(ucstring_isnonempty(dr->fname)) {
 		ucstring_append_ucstring(final_name, dr->fname);
 		fixup_filename(c, d, final_name);
+		if(dr->has_riscos_data) {
+			fmtutil_riscos_append_type_to_filename(c, fi, final_name, &dr->rfa, dr->is_dir, 0);
+		}
 		de_finfo_set_name_from_ucstring(c, fi, final_name, DE_SNFLAG_FULLPATH);
 		fi->original_filename_flag = 1;
 	}
@@ -323,11 +328,11 @@ static void do_extract_file(deark *c, lctx *d, struct dir_record *dr)
 		fi->mode_flags |= DE_MODEFLAG_NONEXE;
 	}
 
-	if(dr->has_archimedes_ext) {
+	if(dr->has_riscos_data) {
 		fi->has_riscos_data = 1;
-		fi->riscos_attribs = dr->archimedes_attribs;
-		fi->load_addr = dr->load_addr;
-		fi->exec_addr = dr->exec_addr;
+		fi->riscos_attribs = dr->rfa.attribs;
+		fi->load_addr = dr->rfa.load_addr;
+		fi->exec_addr = dr->rfa.exec_addr;
 	}
 
 	if(dpos+dlen > c->infile->len) {
@@ -558,7 +563,6 @@ static void do_ARCHIMEDES(deark *c, lctx *d, struct dir_record *dr, i64 pos1, i6
 	de_dbg(c, "ARCHIMEDES extension at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	if(len<10+12) goto done;
-	dr->has_archimedes_ext = 1;
 	pos += 10; // signature
 
 	de_zeromem(&rfa, sizeof(struct de_riscos_file_attrs));
@@ -567,9 +571,8 @@ static void do_ARCHIMEDES(deark *c, lctx *d, struct dir_record *dr, i64 pos1, i6
 	pos += 8;
 
 	fmtutil_riscos_read_attribs_field(c, c->infile, &rfa, pos, 0);
-	dr->archimedes_attribs = rfa.attribs;
-	dr->load_addr = rfa.load_addr;
-	dr->exec_addr = rfa.exec_addr;
+	dr->has_riscos_data = 1;
+	dr->rfa = rfa;
 
 done:
 	de_dbg_indent(c, -1);
@@ -892,7 +895,7 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 		do_dir_rec_system_use_area(c, d, dr, pos, sys_use_len);
 	}
 
-	if(dr->has_archimedes_ext && (dr->archimedes_attribs&0x100)) {
+	if(dr->has_riscos_data && (dr->rfa.attribs&0x100)) {
 		// Based on what Linux does, and other evidence: If a certain attribute bit
 		// is set, the filename is supposed to start with an exclamation point.
 		if(ucstring_isnonempty(dr->fname)) {

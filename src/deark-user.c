@@ -464,6 +464,7 @@ deark *de_create_internal(void)
 	c->write_bom = 1;
 	c->write_density = 1;
 	c->filenames_from_file = 1;
+	c->append_riscos_type = 0xff;
 	c->preserve_file_times = 1;
 	c->preserve_file_times_archives = 1;
 	c->preserve_file_times_internal = 1;

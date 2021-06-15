@@ -218,6 +218,7 @@ static void do_ntfs_times(deark *c, struct zipw_md *md,
 static void do_riscos_attribs(deark *c, struct zipw_md *md, de_finfo *fi, dbuf *ef)
 {
 	 if(!fi) return;
+	 if(fi->riscos_appended_type) return; // Already handled attribs in a different way
 	 if(!fi->has_riscos_data) return;
 	 if(md->is_directory) return;
 	 dbuf_writeu16le(ef, 0x4341); // AC

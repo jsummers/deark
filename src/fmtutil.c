@@ -1521,6 +1521,39 @@ void fmtutil_riscos_read_attribs_field(deark *c, dbuf *f, struct de_riscos_file_
 	de_dbg_indent(c, -1);
 }
 
+// This function probably shouldn't exist, as this could be done automatically
+// when an output file is created. But our file naming logic makes it too
+// difficult to do that without major changes.
+//
+// The 'fi' param is used only as a place to record whether we appended the type.
+void fmtutil_riscos_append_type_to_filename(deark *c, de_finfo *fi, de_ucstring *fn,
+	struct de_riscos_file_attrs *rfa, int is_dir, int enabled_by_default)
+{
+	if(is_dir || !rfa->file_type_known) return;
+	if(ucstring_isempty(fn)) return;
+
+	// 0xff = Haven't looked for this opt
+	// 0xfe = We looked, it's not there
+	// 0 = Requested to be off
+	// 1 = Requested to be on
+	if(c->append_riscos_type==0xff) {
+		c->append_riscos_type = (u8)de_get_ext_option_bool(c, "riscos:appendtype", 0xfe);
+	}
+	if(c->append_riscos_type==0) return;
+	if(c->append_riscos_type==0xfe) {
+		if(!enabled_by_default) return;
+		if(!c->filenames_from_file) return;
+
+		// By default, with ZIP output, we'll use extended fields instead of
+		// mangling the filename.
+		if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE && c->archive_fmt==DE_ARCHIVEFMT_ZIP)
+			return;
+	}
+
+	ucstring_printf(fn, DE_ENCODING_LATIN1, ",%03X", rfa->file_type);
+	fi->riscos_appended_type = 1;
+}
+
 struct pict_rect {
 	i64 t, l, b, r;
 };

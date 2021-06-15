@@ -1001,6 +1001,7 @@ static void finfo_shallow_copy(deark *c, de_finfo *src, de_finfo *dst)
 
 	dst->is_directory = src->is_directory;
 	dst->has_riscos_data = src->has_riscos_data;
+	dst->riscos_appended_type = src->riscos_appended_type;
 	dst->riscos_attribs = src->riscos_attribs;
 	dst->mode_flags = src->mode_flags;
 	for(k=0; k<DE_TIMESTAMPIDX_COUNT; k++) {
@@ -1212,6 +1213,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 		// later.
 		f->fi_copy = de_finfo_create(c);
 		finfo_shallow_copy(c, fi, f->fi_copy);
+		fi->riscos_appended_type = 0;
 
 		// Here's where we respect the -intz option, by using it to convert to
 		// UTC in some cases.

@@ -69,8 +69,7 @@ struct member_data {
 	int is_symlink;
 	struct timestamp_data tsdata[DE_TIMESTAMPIDX_COUNT];
 	u8 has_riscos_data;
-	u32 riscos_attribs;
-	u32 riscos_load_addr, riscos_exec_addr;
+	struct de_riscos_file_attrs rfa;
 
 	struct dir_entry_data central_dir_entry_data;
 	struct dir_entry_data local_dir_entry_data;
@@ -904,9 +903,7 @@ static void ef_acorn(deark *c, lctx *d, struct extra_item_info_struct *eii)
 
 	if(!eii->is_central && !eii->md->has_riscos_data) {
 		eii->md->has_riscos_data = 1;
-		eii->md->riscos_attribs = rfa.attribs;
-		eii->md->riscos_load_addr = rfa.load_addr;
-		eii->md->riscos_exec_addr = rfa.exec_addr;
+		eii->md->rfa = rfa;
 	}
 }
 
@@ -1066,6 +1063,10 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 
 	if(ucstring_isnonempty(ldd->fname)) {
 		unsigned int snflags = DE_SNFLAG_FULLPATH;
+
+		if(md->has_riscos_data) {
+			fmtutil_riscos_append_type_to_filename(c, fi, ldd->fname, &md->rfa, md->is_dir, 0);
+		}
 		if(md->is_dir) snflags |= DE_SNFLAG_STRIPTRAILINGSLASH;
 		de_finfo_set_name_from_ucstring(c, fi, ldd->fname, snflags);
 		fi->original_filename_flag = 1;
@@ -1079,9 +1080,9 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 
 	if(md->has_riscos_data) {
 		fi->has_riscos_data = 1;
-		fi->riscos_attribs = md->riscos_attribs;
-		fi->load_addr = md->riscos_load_addr;
-		fi->exec_addr = md->riscos_exec_addr;
+		fi->riscos_attribs = md->rfa.attribs;
+		fi->load_addr = md->rfa.load_addr;
+		fi->exec_addr = md->rfa.exec_addr;
 	}
 
 	if(md->is_dir) {

@@ -599,8 +599,6 @@ Deark -- Information about supported formats
   - Some rare compression methods are not supported.
 
 * ArcFS (module="arcfs")
-  Options
-   -opt arcfs:appendtype - Append the file type to the filename
 
 * ArcMac (module="arcmac") (experimental)
   Variant of ARC.
@@ -766,9 +764,7 @@ Deark -- Information about supported formats
   - EPOC release 3/4/5/6
 
 * Spark archive (module="spark")
-  - Limited support.
   Options
-   -opt spark:appendtype - Append the file type to the filename
    -opt spark:recurse=0 - Extract subdirectories as Spark files
 
 * Squash (module="squash")

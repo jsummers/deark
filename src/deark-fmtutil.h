@@ -570,6 +570,8 @@ void fmtutil_riscos_read_load_exec(deark *c, dbuf *f, struct de_riscos_file_attr
 #define DE_RISCOS_FLAG_HAS_LZWMAXBITS   0x2
 void fmtutil_riscos_read_attribs_field(deark *c, dbuf *f, struct de_riscos_file_attrs *rfa,
 	i64 pos, unsigned int flags);
+void fmtutil_riscos_append_type_to_filename(deark *c, de_finfo *fi, de_ucstring *fn,
+	struct de_riscos_file_attrs *rfa, int is_dir, int enabled_by_default);
 
 struct fmtutil_macbitmap_info {
 	i64 rowbytes; // The rowBytes field
