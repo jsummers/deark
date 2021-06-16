@@ -474,6 +474,7 @@ static void ef_extended_timestamp(deark *c, lctx *d, struct extra_item_info_stru
 	endpos = pos + eii->dlen;
 	if(pos+1>endpos) return;
 	flags = de_getbyte_p(&pos);
+	de_dbg2(c, "flags: 0x%02x", (UI)flags);
 	if(eii->is_central) {
 		has_mtime = (eii->dlen>=5);
 		has_atime = 0;

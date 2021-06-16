@@ -144,28 +144,24 @@ static void set_dos_modtime(struct zipw_md *md)
 static void do_UT_times(deark *c, struct zipw_md *md,
 	dbuf *ef, int is_central)
 {
-	int write_crtime = 0;
-	int write_actime = 0;
-	i64 num_timestamps = 0;
+	int have_crtime = 0;
+	int have_actime = 0;
+	i64 num_timestamps = 0; // Number to write
 	i64 actime_unix = 0;
 	i64 crtime_unix = 0;
 	u8 flags = 0;
-	// Note: Although our 0x5455 central and local extra data fields happen to
-	// be identical, that is not generally the case.
 
-	if(!is_central) {
-		if(md->actime.is_valid) {
-			actime_unix = de_timestamp_to_unix_time(&md->actime);
-			if(is_valid_32bit_unix_time(actime_unix)) {
-				write_actime = 1;
-			}
+	if(md->actime.is_valid) {
+		actime_unix = de_timestamp_to_unix_time(&md->actime);
+		if(is_valid_32bit_unix_time(actime_unix)) {
+			have_actime = 1;
 		}
+	}
 
-		if(md->crtime.is_valid) {
-			crtime_unix = de_timestamp_to_unix_time(&md->crtime);
-			if(is_valid_32bit_unix_time(crtime_unix)) {
-				write_crtime = 1;
-			}
+	if(md->crtime.is_valid) {
+		crtime_unix = de_timestamp_to_unix_time(&md->crtime);
+		if(is_valid_32bit_unix_time(crtime_unix)) {
+			have_crtime = 1;
 		}
 	}
 
@@ -173,24 +169,24 @@ static void do_UT_times(deark *c, struct zipw_md *md,
 	num_timestamps++;
 	flags |= 0x01;
 
-	if(write_actime) {
-		num_timestamps++;
+	if(have_actime) {
+		if(!is_central) num_timestamps++;
 		flags |= 0x02;
 	}
 
-	if(write_crtime) {
-		num_timestamps++;
+	if(have_crtime) {
+		if(!is_central) num_timestamps++;
 		flags |= 0x04;
 	}
 
 	dbuf_writeu16le(ef, 0x5455);
 	dbuf_writeu16le(ef, (i64)(1+4*num_timestamps));
-	dbuf_writebyte(ef, flags); // tells which fields are present
+	dbuf_writebyte(ef, flags); // tells which fields are present in local header
 	dbuf_writei32le(ef, md->modtime_unix);
-	if(write_actime) {
+	if(have_actime && !is_central) {
 		dbuf_writei32le(ef, actime_unix);
 	}
-	if(write_crtime) {
+	if(have_crtime && !is_central) {
 		dbuf_writei32le(ef, crtime_unix);
 	}
 }
