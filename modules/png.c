@@ -479,6 +479,7 @@ static void handler_CgBI(deark *c, lctx *d, struct handler_params *hp)
 {
 	if(!d->found_IDAT) {
 		d->is_CgBI = 1;
+		d->extract_from_APNG_enabled = 0;
 		declare_png_fmt(c, d);
 	}
 }
@@ -779,6 +780,10 @@ static void handler_pHYs(deark *c, lctx *d, struct handler_params *hp)
 	default: name="?";
 	}
 	de_dbg(c, "units: %d (%s)", (int)u, name);
+	if(u==1) {
+		de_dbg(c, "approx. dpi: %.3f"DE_CHAR_TIMES"%.3f",
+			(double)dx*0.0254, (double)dy*0.0254);
+	}
 }
 
 static void handler_sBIT(deark *c, lctx *d, struct handler_params *hp)
@@ -950,16 +955,23 @@ static void handler_orNT(deark *c, lctx *d, struct handler_params *hp)
 static void handler_htSP(deark *c, lctx *d, struct handler_params *hp)
 {
 	i64 hotspot_x, hotspot_y;
+
+	if(hp->dlen<24) return;
+	hotspot_x = de_geti32be(hp->dpos+16);
+	hotspot_y = de_geti32be(hp->dpos+20);
+	de_dbg(c, "hotspot: (%d, %d)", (int)hotspot_x, (int)hotspot_y);
+}
+
+static int chunk_is_deark_htSP(deark *c, struct handler_params *hp)
+{
 	u8 buf[16];
 	static const u8 uuid[16] = {0xb9,0xfe,0x4f,0x3d,0x8f,0x32,0x45,0x6f,
 		0xaa,0x02,0xdc,0xd7,0x9c,0xce,0x0e,0x24};
 
-	if(hp->dlen<24) return;
+	if(hp->dlen<24) return 0;
 	de_read(buf, hp->dpos, 16);
-	if(de_memcmp(buf, uuid, 16)) return;
-	hotspot_x = de_geti32be(hp->dpos+16);
-	hotspot_y = de_geti32be(hp->dpos+20);
-	de_dbg(c, "hotspot: (%d, %d)", (int)hotspot_x, (int)hotspot_y);
+	if(de_memcmp(buf, uuid, 16)) return 0;
+	return 1;
 }
 
 static void do_APNG_seqno(deark *c, lctx *d, i64 pos)
@@ -1194,7 +1206,9 @@ static const struct chunk_type_info_struct chunk_type_info_arr[] = {
 	{ CODE_pHYg, 0x0004, NULL, NULL }
 };
 
-static const struct chunk_type_info_struct *get_chunk_type_info(lctx *d, u32 id)
+// If found, sets hp->cti;
+static void get_chunk_type_info(deark *c, lctx *d,
+	struct handler_params *hp)
 {
 	size_t i;
 	u32 flags_mask;
@@ -1206,11 +1220,19 @@ static const struct chunk_type_info_struct *get_chunk_type_info(lctx *d, u32 id)
 	}
 
 	for(i=0; i<DE_ARRAYCOUNT(chunk_type_info_arr); i++) {
-		if(id == chunk_type_info_arr[i].id && (chunk_type_info_arr[i].flags & flags_mask)) {
-			return &chunk_type_info_arr[i];
+		const struct chunk_type_info_struct *cti = &chunk_type_info_arr[i];
+
+		if(cti->id != hp->chunk4cc.id) continue;
+		if(!(cti->flags & flags_mask)) continue;
+
+		// Chunks needing further tests are hardcoded here
+		if(cti->id==CODE_htSP) {
+			if(!chunk_is_deark_htSP(c, hp)) continue;
 		}
+
+		hp->cti = cti;
+		return;
 	}
-	return NULL;
 }
 
 static int do_identify_png_internal(deark *c)
@@ -1251,14 +1273,15 @@ static void de_run_png(deark *c, de_module_params *mparams)
 		de_zeromem(&cctx, sizeof(struct chunk_ctx));
 
 		cctx.pos = pos;
+		cctx.hp.dpos = pos + 8;
 		cctx.hp.dlen = de_getu32be(pos);
-		if(pos + 8 + cctx.hp.dlen + 4 > c->infile->len) {
+		if(cctx.hp.dpos + cctx.hp.dlen + 4 > c->infile->len) {
 			de_warn(c, "Truncated file, or invalid data at %"I64_FMT, pos);
 			break;
 		}
 		dbuf_read_fourcc(c->infile, pos+4, &cctx.hp.chunk4cc, 4, 0x0);
 
-		cctx.hp.cti = get_chunk_type_info(d, cctx.hp.chunk4cc.id);
+		get_chunk_type_info(c, d, &cctx.hp);
 
 		if(cctx.hp.chunk4cc.id==CODE_IDAT && suppress_idat_dbg) {
 			;
@@ -1289,8 +1312,6 @@ static void de_run_png(deark *c, de_module_params *mparams)
 		pos += 8;
 
 		de_dbg_indent(c, 1);
-
-		cctx.hp.dpos = pos;
 
 		if(cctx.hp.cti) {
 			if(cctx.hp.cti->handler_fn) {
