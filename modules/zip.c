@@ -511,13 +511,12 @@ static void ef_infozip1(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	i64 uidnum, gidnum;
 	struct de_timestamp timestamp_tmp;
 
-	if(eii->is_central && eii->dlen<8) return;
-	if(!eii->is_central && eii->dlen<12) return;
+	if(eii->dlen<8) return;
 	read_unix_timestamp(c, d, eii->dpos, &timestamp_tmp, "atime");
 	apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_ACCESS, &timestamp_tmp, 45);
 	read_unix_timestamp(c, d, eii->dpos+4, &timestamp_tmp, "mtime");
 	apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_MODIFY, &timestamp_tmp, 45);
-	if(!eii->is_central) {
+	if(!eii->is_central && eii->dlen>=12) {
 		uidnum = de_getu16le(eii->dpos+8);
 		gidnum = de_getu16le(eii->dpos+10);
 		de_dbg(c, "uid: %d, gid: %d", (int)uidnum, (int)gidnum);
