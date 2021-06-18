@@ -737,7 +737,7 @@ static void medium_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 	mctx->nbytes_written++;
 }
 
-static void mediumlz77_codec_command(struct de_dfilter_ctx *dfctx, int cmd)
+static void mediumlz77_codec_command(struct de_dfilter_ctx *dfctx, int cmd, UI flags)
 {
 	struct medium_ctx *mctx = (struct medium_ctx*)dfctx->codec_private;
 

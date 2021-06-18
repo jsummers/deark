@@ -134,7 +134,7 @@ struct de_dfilter_ctx;
 typedef void (*dfilter_codec_type)(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 typedef void (*dfilter_codec_addbuf_type)(struct de_dfilter_ctx *dfctx,
 	const u8 *buf, i64 buf_len);
-typedef void (*dfilter_codec_command_type)(struct de_dfilter_ctx *dfctx, int cmd);
+typedef void (*dfilter_codec_command_type)(struct de_dfilter_ctx *dfctx, int cmd, UI flags);
 typedef void (*dfilter_codec_finish_type)(struct de_dfilter_ctx *dfctx);
 typedef void (*dfilter_codec_destroy_type)(struct de_dfilter_ctx *dfctx);
 
@@ -272,6 +272,9 @@ void fmtutil_decompress_zip_implode(deark *c, struct de_dfilter_in_params *dcmpr
 	struct de_zipimplode_params *params);
 
 void fmtutil_dclimplode_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params);
+void fmtutil_distilled_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params);
 
@@ -567,6 +570,8 @@ void fmtutil_riscos_read_load_exec(deark *c, dbuf *f, struct de_riscos_file_attr
 #define DE_RISCOS_FLAG_HAS_LZWMAXBITS   0x2
 void fmtutil_riscos_read_attribs_field(deark *c, dbuf *f, struct de_riscos_file_attrs *rfa,
 	i64 pos, unsigned int flags);
+void fmtutil_riscos_append_type_to_filename(deark *c, de_finfo *fi, de_ucstring *fn,
+	struct de_riscos_file_attrs *rfa, int is_dir, int enabled_by_default);
 
 struct fmtutil_macbitmap_info {
 	i64 rowbytes; // The rowBytes field

@@ -1666,3 +1666,288 @@ void fmtutil_dclimplode_codectype1(deark *c, struct de_dfilter_in_params *dcmpri
 done:
 	destroy_lzh_ctx(cctx);
 }
+
+//-------------------------- PAK/ARC "Distilled" --------------------------
+
+#define DISTILLED_MAX_NODES 628
+
+struct distilled_node {
+	u8 in_use;
+	u16 dval;
+};
+
+struct distilled_nodetable_decoder {
+	deark *c;
+	UI nodecount;
+	u8 err_flag;
+	struct fmtutil_huffman_decoder *ht; // An extra pointer; do not destroy
+	struct distilled_node node[DISTILLED_MAX_NODES];
+	char b2buf[72];
+};
+
+static void distilled_interpret_node_pair(struct distilled_nodetable_decoder *ntd,
+	UI nodenum, u64 currcode, UI currcode_nbits);
+
+static void distilled_interpret_dval(struct distilled_nodetable_decoder *ntd,
+	UI dval, u64 currcode, UI currcode_nbits)
+{
+	if(ntd->err_flag) return;
+	if(currcode_nbits>=FMTUTIL_HUFFMAN_MAX_CODE_LENGTH) {
+		ntd->err_flag = 1;
+		return;
+	}
+
+	if(dval < ntd->nodecount) {
+		distilled_interpret_node_pair(ntd, dval, currcode, currcode_nbits);
+	}
+	else { // a leaf node
+		fmtutil_huffman_valtype adj_value;
+
+		adj_value = (fmtutil_huffman_valtype)(dval - ntd->nodecount);
+		if(ntd->c->debug_level>=3) {
+			de_dbg3(ntd->c, "code: \"%s\" = %d",
+				de_print_base2_fixed(ntd->b2buf, sizeof(ntd->b2buf), currcode, currcode_nbits),
+				(int)adj_value);
+		}
+		fmtutil_huffman_add_code(ntd->c, ntd->ht->bk, currcode, currcode_nbits, adj_value);
+	}
+}
+
+static void distilled_interpret_node_pair(struct distilled_nodetable_decoder *ntd,
+	UI nodenum, u64 currcode, UI currcode_nbits)
+{
+	if(ntd->err_flag) return;
+	if(currcode_nbits >= FMTUTIL_HUFFMAN_MAX_CODE_LENGTH) {
+		ntd->err_flag = 1;
+		return;
+	}
+	if(nodenum > ntd->nodecount-2) {
+		ntd->err_flag = 1;
+		return;
+	}
+
+	if(ntd->node[nodenum].in_use || ntd->node[nodenum+1].in_use) {
+		ntd->err_flag = 1;
+		return;
+	}
+
+	ntd->node[nodenum].in_use = 1;
+	ntd->node[nodenum+1].in_use = 1;
+	distilled_interpret_dval(ntd, ntd->node[nodenum].dval, currcode<<1, currcode_nbits+1);
+	distilled_interpret_dval(ntd, ntd->node[nodenum+1].dval, (currcode<<1) | 1, currcode_nbits+1);
+	ntd->node[nodenum].in_use = 0;
+	ntd->node[nodenum+1].in_use = 0;
+}
+
+static void distilled_read_nodetable(deark *c, struct lzh_ctx *cctx)
+{
+	struct distilled_nodetable_decoder *ntd = NULL;
+
+	UI k;
+	UI code_len;
+	UI num_codes_in_tree;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	ntd = de_malloc(c, sizeof(struct distilled_nodetable_decoder));
+	ntd->c = c;
+
+	de_dbg2(c, "[node table]");
+	de_dbg_indent(c, 1);
+
+	ntd->nodecount = (UI)de_bitreader_getbits(&cctx->bitrd, 16);
+	de_dbg2(c, "node count: %u", ntd->nodecount);
+	// Expected to be an even number from 2 to 628.
+	// There are 315 codes: 256 literal, 1 special, 58 distance (3..60).
+	// Max table entries needed is (315-1)*2 = 628.
+	if(ntd->nodecount<2 || ntd->nodecount>DISTILLED_MAX_NODES ||
+		(ntd->nodecount & 0x1))
+	{
+		cctx->err_flag = 1;
+		goto done;
+	}
+
+	num_codes_in_tree = 1 + ntd->nodecount/2;
+
+	code_len = (UI)de_bitreader_getbits(&cctx->bitrd, 8);
+	de_dbg2(c, "code len: %u", code_len);
+	if(code_len<1 || code_len>12) { // Expecting 9 or 10
+		cctx->err_flag = 1;
+		goto done;
+	}
+
+	de_dbg2(c, "[note table entries]");
+	de_dbg_indent(c, 1);
+	for(k=0; k<ntd->nodecount; k++) {
+		UI val;
+
+		val = (UI)de_bitreader_getbits(&cctx->bitrd, code_len);
+		ntd->node[k].dval = val;
+		de_dbg2(c, "node[%u] = %u", k, val);
+	}
+	de_dbg_indent(c, -1);
+
+	de_dbg_indent(c, -1);
+	de_dbg3(c, "[codebook for literals/lengths]");
+	de_dbg_indent(c, 1);
+
+	cctx->literals_tree.ht = fmtutil_huffman_create_decoder(c,
+		(i64)num_codes_in_tree, (i64)num_codes_in_tree);
+
+	ntd->ht = cctx->literals_tree.ht;
+	distilled_interpret_node_pair(ntd, ntd->nodecount-2, 0, 0);
+
+done:
+	if(ntd) {
+		de_free(c, ntd);
+	}
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static UI get_lzhuf_p_len(UI n)
+{
+	UI p_len;
+
+	if(n==0) p_len = 3;
+	else if(n<4) p_len = 4;
+	else if(n<12) p_len = 5;
+	else if(n<24) p_len = 6;
+	else if(n<48) p_len = 7;
+	else p_len = 8;
+	return p_len;
+}
+
+static void distilled_make_offsets_tree(deark *c, struct lzh_ctx *cctx)
+{
+	UI n;
+	static const u8 distilled_offsetcodes[64] = {
+		0x00,0x04,0x02,0x03,0x10,0x0c,0x0a,0x0e,0x11,0x0d,0x0b,0x0f,0x28,0x24,0x2c,0x2a,
+		0x26,0x2e,0x29,0x25,0x2d,0x2b,0x27,0x2f,0x60,0x70,0x68,0x64,0x74,0x6c,0x62,0x72,
+		0x6a,0x66,0x76,0x6e,0x61,0x71,0x69,0x65,0x75,0x6d,0x63,0x73,0x6b,0x67,0x77,0x6f,
+		0xf0,0xf8,0xf4,0xfc,0xf2,0xfa,0xf6,0xfe,0xf1,0xf9,0xf5,0xfd,0xf3,0xfb,0xf7,0xff
+	};
+	char b2buf[72];
+
+	cctx->offsets_tree.ht = fmtutil_huffman_create_decoder(c, 64, 64);
+	de_dbg3(c, "[standard codebook for offsets]");
+	de_dbg_indent(c, 1);
+	for(n=0; n<64; n++) {
+		UI nbits;
+		u64 code;
+
+		nbits = get_lzhuf_p_len(n);
+		code = (u64)distilled_offsetcodes[n];
+
+		if(c->debug_level>=3) {
+			de_dbg3(c, "code: \"%s\" = %d",
+				de_print_base2_fixed(b2buf, sizeof(b2buf), code, nbits), (int)n);
+		}
+		fmtutil_huffman_add_code(c, cctx->offsets_tree.ht->bk, code, nbits, (fmtutil_huffman_valtype)n);
+	}
+	de_dbg_indent(c, -1);
+}
+
+static UI distilled_get_num_extra_bits(struct lzh_ctx *cctx)
+{
+	UI x;
+	i64 n = cctx->nbytes_written + 60;
+
+	for(x=12; x>=6; x--) {
+		if(n >= ((i64)1 << x)) return x-5;
+	}
+	return 0;
+}
+
+static void distilled_main(deark *c, struct lzh_ctx *cctx)
+{
+	int expecting_stop_code = 0;
+
+	while(1) {
+		UI code;
+
+		if(cctx->bitrd.eof_flag) goto done;
+		if(lzh_have_enough_output(cctx)) {
+			// Try to make sure we read the STOP code, so we can report the
+			// proper number of bytes consumed.
+			if(expecting_stop_code) goto done;
+			expecting_stop_code = 1;
+		}
+
+		code = read_next_code_using_tree(cctx, &cctx->literals_tree);
+
+		if(code<256) { // literal
+			de_lz77buffer_add_literal_byte(cctx->ringbuf, (u8)code);
+		}
+		else if(code==256) {
+			goto done;
+		}
+		else { // match
+			UI matchlen;
+			UI matchdist;
+			UI ocode1, ocode2;
+			UI num_extra_bits;
+
+			matchlen = code-254;
+			ocode1 = read_next_code_using_tree(cctx, &cctx->offsets_tree);
+			num_extra_bits = distilled_get_num_extra_bits(cctx);
+			ocode2 = (UI)lzh_getbits(cctx, num_extra_bits);
+			matchdist = (ocode1<<num_extra_bits)|ocode2;
+			de_lz77buffer_copy_from_hist(cctx->ringbuf,
+				(UI)(cctx->ringbuf->curpos-1-matchdist),  matchlen);
+		}
+	}
+
+done:
+	;
+}
+
+void fmtutil_distilled_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params)
+{
+	struct lzh_ctx *cctx = NULL;
+	char pos_descr[32];
+
+	cctx = de_malloc(c, sizeof(struct lzh_ctx));
+	cctx->modname = "distilled";
+	cctx->c = c;
+	cctx->dcmpri = dcmpri;
+	cctx->dcmpro = dcmpro;
+	cctx->dres = dres;
+
+	cctx->bitrd.bbll.is_lsb = 1;
+	cctx->bitrd.f = dcmpri->f;
+	cctx->bitrd.curpos = dcmpri->pos;
+	cctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
+
+	cctx->ringbuf = de_lz77buffer_create(cctx->c, 8192);
+	cctx->ringbuf->userdata = (void*)cctx;
+	cctx->ringbuf->writebyte_cb = lzh_lz77buf_writebytecb;
+	de_lz77buffer_clear(cctx->ringbuf, 0x20);
+
+	distilled_read_nodetable(c, cctx);
+	if(cctx->err_flag) goto done;
+
+	distilled_make_offsets_tree(c, cctx);
+
+	de_bitreader_describe_curpos(&cctx->bitrd, pos_descr, sizeof(pos_descr));
+	de_dbg2(c, "cmpr data codes at %s", pos_descr);
+	de_dbg_indent(c, 1);
+	distilled_main(c, cctx);
+	de_dbg_indent(c, -1);
+
+	de_bitreader_skip_to_byte_boundary(&cctx->bitrd);
+	cctx->dres->bytes_consumed = cctx->bitrd.curpos - cctx->dcmpri->pos;
+	if(cctx->dres->bytes_consumed<0) {
+		cctx->dres->bytes_consumed = 0;
+	}
+	cctx->dres->bytes_consumed_valid = 1;
+
+done:
+	if(cctx) {
+		if(cctx->err_flag) {
+			de_dfilter_set_generic_error(c, dres, cctx->modname);
+		}
+		destroy_lzh_ctx(cctx);
+	}
+}

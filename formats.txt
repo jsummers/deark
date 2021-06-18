@@ -142,6 +142,10 @@ Deark -- Information about supported formats
 
 * DeskMate Paint .PNT (module="deskmate_pnt")
 
+* DL animation (DL MAKER) (module="dlmaker")
+  - Extracts all images and audio clips, in the order they appear in the file.
+  - File extension must be ".dl".
+
 * Doodle (Atari) (module="doodle")
   - Supports high resolution (640x400) only
 
@@ -397,6 +401,9 @@ Deark -- Information about supported formats
   - Extract XMP data.
   - Extract ICC profiles.
   - Extract or process various other metadata formats.
+  - Extract frame images (may be image fragments) from APNG files.
+  Options
+   -opt png:extractapng=0 - Do not extract APNG frames
 
 * PNM/PBM/PGM/PPM/PAM (module="pnm")
 
@@ -592,8 +599,6 @@ Deark -- Information about supported formats
   - Some rare compression methods are not supported.
 
 * ArcFS (module="arcfs")
-  Options
-   -opt arcfs:appendtype - Append the file type to the filename
 
 * ArcMac (module="arcmac") (experimental)
   Variant of ARC.
@@ -759,9 +764,7 @@ Deark -- Information about supported formats
   - EPOC release 3/4/5/6
 
 * Spark archive (module="spark")
-  - Limited support.
   Options
-   -opt spark:appendtype - Append the file type to the filename
    -opt spark:recurse=0 - Extract subdirectories as Spark files
 
 * Squash (module="squash")

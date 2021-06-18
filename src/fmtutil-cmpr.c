@@ -133,7 +133,7 @@ void de_dfilter_command(struct de_dfilter_ctx *dfctx, int cmd, UI flags)
 	// Codec-specific things:
 
 	if(dfctx->codec_command_fn) {
-		dfctx->codec_command_fn(dfctx, cmd);
+		dfctx->codec_command_fn(dfctx, cmd, flags);
 	}
 }
 
@@ -304,7 +304,7 @@ static void my_packbits_codec_addbuf(struct de_dfilter_ctx *dfctx,
 	}
 }
 
-static void my_packbits_codec_command(struct de_dfilter_ctx *dfctx, int cmd)
+static void my_packbits_codec_command(struct de_dfilter_ctx *dfctx, int cmd, UI flags)
 {
 	struct packbitsctx *rctx = (struct packbitsctx*)dfctx->codec_private;
 

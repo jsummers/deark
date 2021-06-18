@@ -29,9 +29,7 @@ static void my_lh1_codec_addbuf(struct de_dfilter_ctx *dfctx,
 		goto done;
 	}
 
-	cctx->ibuf2 = buf;
-	cctx->ibuf2_len = (size_t)buf_len;
-	lzhuf_Decode_continue(cctx, 0);
+	lzhuf_Decode_continue(cctx, buf, buf_len, 0);
 
 done:
 	if(cctx->errflag) {
@@ -43,12 +41,10 @@ static void my_lh1_codec_finish(struct de_dfilter_ctx *dfctx)
 {
 	struct lzahuf_ctx *cctx = (struct lzahuf_ctx*)dfctx->codec_private;
 
-	cctx->ibuf2 = NULL;
-	cctx->ibuf2_len = 0;
-	lzhuf_Decode_continue(cctx, 1);
-	cctx->ibuf1_curpos = 0;
-	cctx->ibuf1_len = 0;
+	lzhuf_Decode_continue(cctx, NULL, 0, 1);
 
+	cctx->total_nbytes_processed -= (i64)(cctx->bbll.nbits_in_bitbuf/8);
+	de_bitbuf_lowlevel_empty(&cctx->bbll);
 	dfctx->dres->bytes_consumed = cctx->total_nbytes_processed;
 	dfctx->dres->bytes_consumed_valid = 1;
 
@@ -57,16 +53,13 @@ static void my_lh1_codec_finish(struct de_dfilter_ctx *dfctx)
 	}
 }
 
-static void my_lh1_codec_command(struct de_dfilter_ctx *dfctx, int cmd)
+static void my_lh1_codec_command(struct de_dfilter_ctx *dfctx, int cmd, UI flags)
 {
 	struct lzahuf_ctx *cctx = (struct lzahuf_ctx*)dfctx->codec_private;
 
 	if(cmd==DE_DFILTER_COMMAND_FINISH_BLOCK) {
-		cctx->ibuf2 = NULL;
-		cctx->ibuf2_len = 0;
-		lzhuf_Decode_continue(cctx, 1);
-		cctx->ibuf1_curpos = 0;
-		cctx->ibuf1_len = 0;
+		lzhuf_Decode_continue(cctx, NULL, 0, 1);
+		cctx->total_nbytes_processed -= (i64)(cctx->bbll.nbits_in_bitbuf/8);
 		de_bitbuf_lowlevel_empty(&cctx->bbll);
 		if(cctx->lh1p.is_dms_deep) {
 			de_lz77buffer_set_curpos(cctx->ringbuf, cctx->ringbuf->curpos + 60);

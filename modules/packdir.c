@@ -113,6 +113,8 @@ static void do_packdir_extract_file(deark *c, struct pdctx_struct *d,
 		de_strarray_make_path(d->curpath, fullfn, 0);
 		ucstring_append_ucstring(fullfn, md->name);
 	}
+
+	fmtutil_riscos_append_type_to_filename(c, fi, fullfn, &md->rfa, md->is_dir, 0);
 	de_finfo_set_name_from_ucstring(c, fi, fullfn, DE_SNFLAG_FULLPATH);
 	fi->original_filename_flag = 1;
 
