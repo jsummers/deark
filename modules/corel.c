@@ -7,6 +7,7 @@
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_cdr_wl);
+DE_DECLARE_MODULE(de_module_corel_clb);
 DE_DECLARE_MODULE(de_module_corel_bmf);
 DE_DECLARE_MODULE(de_module_corel_ccx);
 
@@ -63,6 +64,127 @@ void de_module_cdr_wl(deark *c, struct deark_module_info *mi)
 	mi->desc2 = "extract preview image";
 	mi->run_fn = de_run_cdr_wl;
 	mi->identify_fn = de_identify_cdr_wl;
+}
+
+// **************************************************************************
+// CorelMOSAIC .CLB
+// **************************************************************************
+
+struct clb_ctx {
+	de_encoding input_encoding;
+	i64 bytes_consumed;
+};
+
+static int do_clb_item(deark *c, struct clb_ctx *d, i64 pos1)
+{
+	i64 pos = pos1;
+	i64 nlen;
+	i64 imglen;
+	i64 n;
+	de_ucstring *name = NULL;
+	de_finfo *fi = NULL;
+	int retval = 0;
+	int saved_indent_level;
+	int bitmap_ok = 1;
+	de_module_params *mparams2 = NULL;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "item at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	nlen = de_getu16le_p(&pos);
+	if(nlen<1 || nlen>63) goto done;
+	name = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, nlen, name, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(name));
+	pos += nlen;
+
+	imglen = de_getu32le_p(&pos);
+	de_dbg(c, "bitmap size: %"I64_FMT, imglen);
+
+	// Look ahead at the DDB bmBits field.
+	// It seems to be used, and it seems to be an absolute file position.
+	// Bail out if it's not what we expect.
+	n = de_getu32le(pos+12);
+	if(n!=0 && n!=pos+16) {
+		de_err(c, "Unexpected value for bmBits field");
+		bitmap_ok = 0;
+	}
+
+	if(bitmap_ok) {
+		de_dbg(c, "bitmap at %"I64_FMT, pos);
+		de_dbg_indent(c, 1);
+		fi = de_finfo_create(c);
+		ucstring_append_sz(name, ".preview", DE_ENCODING_LATIN1);
+		de_finfo_set_name_from_ucstring(c, fi, name, 0);
+
+		mparams2 = de_malloc(c, sizeof(de_module_params));
+		mparams2->in_params.codes = "N";
+		mparams2->in_params.fi = fi;
+		de_run_module_by_id_on_slice(c, "ddb", mparams2, c->infile, pos+2, imglen-2);
+		de_dbg_indent(c, -1);
+	}
+
+	pos += imglen;
+
+	// There are 9 bytes after the bitmap.
+	pos += 5; // ?
+	n = de_getu32le_p(&pos);
+	// This is a reference to the original file from which this preview was derived
+	// (should be in the companion .CLH file).
+	de_dbg(c, "original file size: %"I64_FMT, n);
+
+	d->bytes_consumed = pos-pos1;
+	retval = 1;
+done:
+	de_free(c, mparams2);
+	de_finfo_destroy(c, fi);
+	ucstring_destroy(name);
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static void de_run_corel_clb(deark *c, de_module_params *mparams)
+{
+	struct clb_ctx *d = NULL;
+	i64 pos = 0;
+
+	d = de_malloc(c, sizeof(struct clb_ctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
+	while(1) {
+		if(pos+18 > c->infile->len) goto done;
+		d->bytes_consumed = 0;
+		if(!do_clb_item(c, d, pos)) goto done;
+		if(d->bytes_consumed<=0) goto done;
+		pos += d->bytes_consumed;
+	}
+done:
+	de_free(c, d);
+}
+
+static int de_identify_corel_clb(deark *c)
+{
+	i64 nlen, n;
+
+	// This might be too strict. Need more samples.
+	if(!de_input_file_has_ext(c, "clb")) return 0;
+	nlen = de_getu16le(0);
+	if(nlen<1 || nlen>63) return 0;
+	if(de_getbyte(2+nlen-1)!=0x00) return 0;
+	n = de_getu32le(2+nlen+4);
+	if(n!=0x00000001) return 0;
+	n = de_getu32le(2+nlen+16);
+	if(n!=2+nlen+20 && n!=0) return 0;
+	return 100;
+}
+
+void de_module_corel_clb(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "corel_clb";
+	mi->desc = "CorelMOSAIC .CLB library";
+	mi->run_fn = de_run_corel_clb;
+	mi->identify_fn = de_identify_corel_clb;
 }
 
 // **************************************************************************
