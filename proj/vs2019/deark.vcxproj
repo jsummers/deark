@@ -198,6 +198,7 @@
     <ClCompile Include="..\..\modules\cardfile.c" />
     <ClCompile Include="..\..\modules\ccx.c" />
     <ClCompile Include="..\..\modules\cfb.c" />
+    <ClCompile Include="..\..\modules\corel.c" />
     <ClCompile Include="..\..\modules\cpio.c" />
     <ClCompile Include="..\..\modules\crush.c" />
     <ClCompile Include="..\..\modules\d64.c" />

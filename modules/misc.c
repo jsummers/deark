@@ -42,11 +42,9 @@ DE_DECLARE_MODULE(de_module_vitec);
 DE_DECLARE_MODULE(de_module_hs2);
 DE_DECLARE_MODULE(de_module_lumena_cel);
 DE_DECLARE_MODULE(de_module_zbr);
-DE_DECLARE_MODULE(de_module_cdr_wl);
 DE_DECLARE_MODULE(de_module_compress);
 DE_DECLARE_MODULE(de_module_gws_thn);
 DE_DECLARE_MODULE(de_module_deskmate_pnt);
-DE_DECLARE_MODULE(de_module_corel_bmf);
 DE_DECLARE_MODULE(de_module_hpi);
 DE_DECLARE_MODULE(de_module_dwc);
 DE_DECLARE_MODULE(de_module_mdesk_icn);
@@ -2214,61 +2212,6 @@ void de_module_zbr(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
-// CorelDRAW CDR - old "WL" format
-// **************************************************************************
-
-static void de_run_cdr_wl(deark *c, de_module_params *mparams)
-{
-	u8 version;
-	i64 pos = 0;
-	de_bitmap *img = NULL;
-	de_finfo *fi = NULL;
-	de_module_params *mparams2 = NULL;
-
-	de_declare_fmt(c, "CorelDRAW (WL format)");
-	version = de_getbyte(2);
-	de_dbg(c, "version code: 0x%02x", (unsigned int)version);
-	if(version <= (u8)'e') goto done;
-
-	pos = de_getu32le(28);
-	de_dbg(c, "preview image at %"I64_FMT, pos);
-	de_dbg_indent(c, 1);
-	fi = de_finfo_create(c);
-	de_finfo_set_name_from_sz(c, fi, "preview", 0, DE_ENCODING_LATIN1);
-
-	pos += 2; // ?
-	// Seems to be Windows DDB format, or something like it.
-	mparams2 = de_malloc(c, sizeof(de_module_params));
-	mparams2->in_params.codes = "NX";
-	mparams2->in_params.fi = fi;
-	de_run_module_by_id_on_slice(c, "ddb", mparams2, c->infile, pos, c->infile->len-pos);
-	de_dbg_indent(c, -1);
-
-done:
-	de_bitmap_destroy(img);
-	de_finfo_destroy(c, fi);
-	de_free(c, mparams2);
-}
-
-static int de_identify_cdr_wl(deark *c)
-{
-	if(!dbuf_memcmp(c->infile, 0, "WL", 2)) {
-		if(de_input_file_has_ext(c, "cdr")) return 100;
-		return 6;
-	}
-	return 0;
-}
-
-void de_module_cdr_wl(deark *c, struct deark_module_info *mi)
-{
-	mi->id = "cdr_wl";
-	mi->desc = "CorelDRAW (old WL format)";
-	mi->desc2 = "extract preview image";
-	mi->run_fn = de_run_cdr_wl;
-	mi->identify_fn = de_identify_cdr_wl;
-}
-
-// **************************************************************************
 // compress (.Z)
 // **************************************************************************
 
@@ -2471,62 +2414,6 @@ void de_module_deskmate_pnt(deark *c, struct deark_module_info *mi)
 	mi->desc = "Tandy DeskMate Paint";
 	mi->run_fn = de_run_deskmate_pnt;
 	mi->identify_fn = de_identify_deskmate_pnt;
-}
-
-
-// **************************************************************************
-// Corel Gallery .BMF
-// **************************************************************************
-
-// Warning: The BMF preview image decoder is based on reverse engineering, may not
-// be correct.
-
-static void de_run_corel_bmf(deark *c, de_module_params *mparams1)
-{
-	de_module_params *mparams2 = NULL;
-	int saved_indent_level;
-	i64 pos;
-	i64 n;
-	i64 seg_size;
-
-	de_dbg_indent_save(c, &saved_indent_level);
-	pos = 65;
-	seg_size = de_getu32le_p(&pos);
-	de_dbg(c, "preview image segment at %"I64_FMT", len=%"I64_FMT, pos, seg_size);
-	de_dbg_indent(c, 1);
-
-	if(pos + seg_size > c->infile->len) {
-		seg_size = c->infile->len - pos;
-	}
-
-	n = de_getu32le(pos);
-	if(n!=40) {
-		de_err(c, "Unsupported Corel BMF version");
-		goto done;
-	}
-
-	mparams2 = de_malloc(c, sizeof(de_module_params));
-	mparams2->in_params.codes = "X";
-	mparams2->in_params.flags = 0x81;
-	de_run_module_by_id_on_slice(c, "dib", mparams2, c->infile, pos, seg_size);
-
-done:
-	de_free(c, mparams2);
-	de_dbg_indent_restore(c, saved_indent_level);
-}
-
-static int de_identify_corel_bmf(deark *c)
-{
-	if(!dbuf_memcmp(c->infile, 0, "@CorelBMF\x0a\x0d", 11)) return 100;
-	return 0;
-}
-
-void de_module_corel_bmf(deark *c, struct deark_module_info *mi)
-{
-	mi->id = "corel_bmf";
-	mi->desc = "Corel Gallery BMF";
-	mi->run_fn = de_run_corel_bmf;
-	mi->identify_fn = de_identify_corel_bmf;
 }
 
 // **************************************************************************
