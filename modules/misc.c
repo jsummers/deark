@@ -2220,44 +2220,34 @@ void de_module_zbr(deark *c, struct deark_module_info *mi)
 static void de_run_cdr_wl(deark *c, de_module_params *mparams)
 {
 	u8 version;
-	u8 b;
-	i64 w, h;
-	i64 rowspan;
 	i64 pos = 0;
 	de_bitmap *img = NULL;
-	int saved_indent_level;
+	de_finfo *fi = NULL;
+	de_module_params *mparams2 = NULL;
 
-	de_dbg_indent_save(c, &saved_indent_level);
 	de_declare_fmt(c, "CorelDRAW (WL format)");
 	version = de_getbyte(2);
 	de_dbg(c, "version code: 0x%02x", (unsigned int)version);
 	if(version <= (u8)'e') goto done;
 
 	pos = de_getu32le(28);
-	de_dbg(c, "preview image at %d", (int)pos);
+	de_dbg(c, "preview image at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
+	fi = de_finfo_create(c);
+	de_finfo_set_name_from_sz(c, fi, "preview", 0, DE_ENCODING_LATIN1);
 
+	pos += 2; // ?
 	// Seems to be Windows DDB format, or something like it.
-	pos += 2;
-	pos += 2;
-	w = de_getu16le_p(&pos);
-	h = de_getu16le_p(&pos);
-	de_dbg_dimensions(c, w, h);
-	rowspan = de_getu16le_p(&pos);
-	b = de_getbyte_p(&pos); // planes
-	if(b!=1) goto done;
-	b = de_getbyte_p(&pos); // bits/pixel
-	if(b!=1) goto done;
-	pos += 4; // bmBits
-
-	if(!de_good_image_dimensions(c, w, h)) goto done;
-	img = de_bitmap_create2(c, w, rowspan*8, h, 1);
-	de_convert_image_bilevel(c->infile, pos, rowspan, img, 0);
-	de_bitmap_write_to_file(img, "preview", DE_CREATEFLAG_IS_AUX);
+	mparams2 = de_malloc(c, sizeof(de_module_params));
+	mparams2->in_params.codes = "NX";
+	mparams2->in_params.fi = fi;
+	de_run_module_by_id_on_slice(c, "ddb", mparams2, c->infile, pos, c->infile->len-pos);
+	de_dbg_indent(c, -1);
 
 done:
 	de_bitmap_destroy(img);
-	de_dbg_indent_restore(c, saved_indent_level);
+	de_finfo_destroy(c, fi);
+	de_free(c, mparams2);
 }
 
 static int de_identify_cdr_wl(deark *c)
