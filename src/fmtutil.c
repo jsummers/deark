@@ -1225,6 +1225,7 @@ static int do_iff_chunk_sequence(deark *c, struct de_iffctx *ictx,
 
 		if(ictx->handle_nonchunk_data_fn) {
 			i64 skip_len = 0;
+			ictx->level = level;
 			ret = ictx->handle_nonchunk_data_fn(c, ictx, pos, &skip_len);
 			if(ret && skip_len>0) {
 				pos += de_pad_to_n(skip_len, ictx->alignment);

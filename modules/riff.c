@@ -21,6 +21,7 @@ DE_DECLARE_MODULE(de_module_riff);
 #define CODE_WEBP  0x57454250U
 #define CODE_auds  0x61756473U
 #define CODE_bmpt  0x626d7074U
+#define CODE_cmov  0x636d6f76U
 #define CODE_cmpr  0x636d7072U
 #define CODE_movi  0x6d6f7669U
 #define CODE_vids  0x76696473U
@@ -52,6 +53,7 @@ typedef struct localctx_struct {
 	int is_cdr;
 	u32 curr_avi_stream_type;
 	u8 cmx_parse_hack;
+	u8 cmv_parse_hack;
 	u8 in_movi;
 	int in_movi_level;
 } lctx;
@@ -346,6 +348,19 @@ static int do_cmx_parse_hack(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos,
 	return 0;
 }
 
+// CMV files seem to consist of two RIFF chunks, separated by four 0x00 bytes.
+// (Maybe some sort of scan-for-the-next-RIFF-chunk logic should happen by
+// default, but it's hard to be sure we won't break something.)
+static int do_cmv_parse_hack(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 *plen)
+{
+	if(ictx->level!=0) return 0;
+	if(dbuf_getu32be(ictx->f, pos)!=0) return 0;
+	if(dbuf_getu32be(ictx->f, pos+4)!=CHUNK_RIFF) return 0;
+	de_dbg(c, "[%d non-RIFF bytes at %"I64_FMT"]", 4, pos);
+	*plen = 4;
+	return 1;
+}
+
 static int my_handle_nonchunk_riff_data_fn(deark *c, struct de_iffctx *ictx,
 	i64 pos, i64 *plen)
 {
@@ -353,6 +368,9 @@ static int my_handle_nonchunk_riff_data_fn(deark *c, struct de_iffctx *ictx,
 
 	if(d->cmx_parse_hack) {
 		return do_cmx_parse_hack(c, d, ictx, pos, plen);
+	}
+	else if(d->cmv_parse_hack) {
+		return do_cmv_parse_hack(c, d, ictx, pos, plen);
 	}
 	return 0;
 }
@@ -372,6 +390,11 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 			fmtname = "Corel CMX";
 			ictx->handle_nonchunk_data_fn = my_handle_nonchunk_riff_data_fn;
 			d->cmx_parse_hack = 1;
+			break;
+		case CODE_cmov:
+			fmtname = "CorelMOVE";
+			ictx->handle_nonchunk_data_fn = my_handle_nonchunk_riff_data_fn;
+			d->cmv_parse_hack = 1;
 			break;
 		case CODE_WAVE: fmtname = "WAVE"; break;
 		case CODE_WEBP: fmtname = "WebP"; break;
