@@ -885,7 +885,7 @@ static void squeeze_interpret_dval(struct squeeze_ctx *sqctx,
 		//  ...
 		//  -1   => 0   (byte value)
 		adj_value = -(((fmtutil_huffman_valtype)dval)+1);
-		if(sqctx->c->debug_level>=2) {
+		if(sqctx->c->debug_level>=3) {
 			de_dbg3(sqctx->c, "code: \"%s\" = %d",
 				de_print_base2_fixed(b2buf, sizeof(b2buf), currcode, currcode_nbits),
 				(int)adj_value);
