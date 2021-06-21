@@ -258,9 +258,15 @@ static void do_palette(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 l
 
 static void do_DISP_DIB(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 {
+	de_module_params *mparams = NULL;
+
 	if(len<12) return;
-	// "X" = Tell the dib module to mark the output file as "auxiliary".
-	de_run_module_by_id_on_slice2(c, "dib", "X", ictx->f, pos, len);
+
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->in_params.codes = "X"; // "auxiliary"
+	mparams->in_params.flags = 0x80; // ".preview.bmp"
+	de_run_module_by_id_on_slice(c, "dib", mparams, ictx->f, pos, len);
+	de_free(c, mparams);
 }
 
 static void do_DISP_TEXT(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len1)
