@@ -16,6 +16,7 @@ DE_DECLARE_MODULE(de_module_riff);
 #define CODE_CMX1  0x434d5831U
 #define CODE_INFO  0x494e464fU
 #define CODE_PAL   0x50414c20U
+#define CODE_RDIB  0x52444942U
 #define CODE_RMID  0x524d4944U
 #define CODE_WAVE  0x57415645U
 #define CODE_WEBP  0x57454250U
@@ -41,6 +42,7 @@ DE_DECLARE_MODULE(de_module_riff);
 #define CHUNK_XMP  0x584d5020U
 #define CHUNK__PMX 0x5f504d58U
 #define CHUNK_avih 0x61766968U
+#define CHUNK_bmhd 0x626d6864U
 #define CHUNK_bmp  0x626d7020U
 #define CHUNK_data 0x64617461U
 #define CHUNK_fact 0x66616374U
@@ -300,6 +302,23 @@ static void do_XMP(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 	dbuf_create_file_from_slice(ictx->f, pos, len, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
+static void do_RDIB_data(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
+{
+	if(!ictx->chunkctx->parent) return;
+	if(ictx->chunkctx->parent->user_flags & 0x1) return; // Extraction suppressed, or already done
+	ictx->chunkctx->parent->user_flags |= 0x1;
+	do_extract_raw(c, d, ictx, pos, len, "bmp", 0);
+}
+
+static void do_RDIB_bmhd(deark *c, lctx *d, struct de_iffctx *ictx)
+{
+	if(!ictx->chunkctx->parent) return;
+	// AFAICT, a 'bmhd' chunk means we're dealing with "extended RDIB", which we
+	// don't support. There may still be a 'data' chunk after this, but it will presumably
+	// be in a format we can't handle. Set a flag to remember that.
+	ictx->chunkctx->parent->user_flags |= 0x1;
+}
+
 static void do_DISP(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 {
 	unsigned int ty;
@@ -541,6 +560,12 @@ static int my_riff_chunk_handler(deark *c, struct de_iffctx *ictx)
 		do_XMP(c, d, ictx, dpos, dlen);
 		break;
 
+	case CHUNK_bmhd:
+		if(list_type==CODE_RDIB) {
+			do_RDIB_bmhd(c, d, ictx);
+		}
+		break;
+
 	case CHUNK_icon:
 		if(ictx->main_contentstype4cc.id==CODE_ACON) {
 			extract_ani_frame(c, d, ictx, dpos, dlen);
@@ -553,6 +578,9 @@ static int my_riff_chunk_handler(deark *c, struct de_iffctx *ictx)
 		}
 		else if(list_type==CODE_PAL) {
 			do_palette(c, d, ictx, dpos, dlen);
+		}
+		else if(list_type==CODE_RDIB) {
+			do_RDIB_data(c, d, ictx, dpos, dlen);
 		}
 		break;
 
