@@ -372,6 +372,7 @@ struct de_boxdata {
 
 struct de_boxesctx {
 	void *userdata;
+	void *private_data; // Used by the parser
 	dbuf *f; // Input file
 	de_identify_box_fn identify_box_fn;
 	de_handle_box_fn handle_box_fn;
@@ -441,14 +442,19 @@ struct de_iffchunkctx {
 	i64 len;
 	i64 dpos;
 	i64 dlen;
+	struct de_iffchunkctx *parent;
 
 	// To be filled in by identify_chunk_fn:
 	void *chunk_userdata;
 	const char *chunk_name;
+
+	// Other use:
+	u32 user_flags;
 };
 
 struct de_iffctx {
 	void *userdata;
+	void *private_data; // Used by the parser
 	dbuf *f; // Input file
 	de_handle_iff_chunk_fn handle_chunk_fn;
 	de_preprocess_iff_chunk_fn preprocess_chunk_fn;

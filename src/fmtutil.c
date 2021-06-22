@@ -429,6 +429,11 @@ double dbuf_fmtutil_read_fixed_16_16(dbuf *f, i64 pos)
 	return ((double)n)/65536.0;
 }
 
+struct boxes_parser_data {
+	char name_str[80];
+	char uuid_string[50];
+};
+
 static void do_box_sequence(deark *c, struct de_boxesctx *bctx,
 	i64 pos1, i64 len, i64 max_nboxes, int level);
 
@@ -461,11 +466,11 @@ static int do_box(deark *c, struct de_boxesctx *bctx, i64 pos, i64 len,
 	i64 payload_len; // Including UUIDs
 	i64 total_len;
 	struct de_fourcc box4cc;
-	char uuid_string[50];
 	int ret;
 	int retval = 0;
 	struct de_boxdata *parentbox;
 	struct de_boxdata *curbox;
+	struct boxes_parser_data *pctx = (struct boxes_parser_data*)bctx->private_data;
 
 	parentbox = bctx->curbox;
 	bctx->curbox = de_malloc(c, sizeof(struct de_boxdata));
@@ -526,24 +531,22 @@ static int do_box(deark *c, struct de_boxesctx *bctx, i64 pos, i64 len,
 	}
 
 	if(c->debug_level>0) {
-		char name_str[80];
-
 		if(curbox->box_name) {
-			de_snprintf(name_str, sizeof(name_str), " (%s)", curbox->box_name);
+			de_snprintf(pctx->name_str, sizeof(pctx->name_str), " (%s)", curbox->box_name);
 		}
 		else {
-			name_str[0] = '\0';
+			pctx->name_str[0] = '\0';
 		}
 
 		if(curbox->is_uuid) {
-			fmtutil_render_uuid(c, curbox->uuid, uuid_string, sizeof(uuid_string));
+			fmtutil_render_uuid(c, curbox->uuid, pctx->uuid_string, sizeof(pctx->uuid_string));
 			de_dbg(c, "box '%s'{%s}%s at %"I64_FMT", len=%"I64_FMT,
-				box4cc.id_dbgstr, uuid_string, name_str,
+				box4cc.id_dbgstr, pctx->uuid_string, pctx->name_str,
 				pos, total_len);
 		}
 		else {
 			de_dbg(c, "box '%s'%s at %"I64_FMT", len=%"I64_FMT", dlen=%"I64_FMT,
-				box4cc.id_dbgstr, name_str, pos,
+				box4cc.id_dbgstr, pctx->name_str, pos,
 				total_len, payload_len);
 		}
 	}
@@ -644,9 +647,16 @@ int fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx)
 
 void fmtutil_read_boxes_format(deark *c, struct de_boxesctx *bctx)
 {
+	struct boxes_parser_data *pctx = NULL;
+
 	if(!bctx->f || !bctx->handle_box_fn) return; // Internal error
 	if(bctx->curbox) return; // Internal error
+
+	pctx = de_malloc(c, sizeof(struct boxes_parser_data));
+	bctx->private_data = (void*)pctx;
 	do_box_sequence(c, bctx, 0, bctx->f->len, -1, 0);
+	bctx->private_data = NULL;
+	de_free(c, pctx);
 }
 
 static u8 scale_7_to_255(u8 x)
@@ -921,6 +931,10 @@ void fmtutil_atari_help_palbits(deark *c)
 #define CODE_TEXT  0x54455854U
 #define CODE_RIFF  0x52494646U
 
+struct iff_parser_data {
+	char name_str[80];
+};
+
 static void do_iff_text_chunk(deark *c, struct de_iffctx *ictx, i64 dpos, i64 dlen,
 	const char *name)
 {
@@ -1029,11 +1043,12 @@ static void fourcc_clear(struct de_fourcc *fourcc)
 }
 
 static int do_iff_chunk_sequence(deark *c, struct de_iffctx *ictx,
-	i64 pos1, i64 len, int level);
+	struct de_iffchunkctx *parent, i64 pos1, i64 len, int level);
 
 // Returns 0 if we can't continue
-static int do_iff_chunk(deark *c, struct de_iffctx *ictx, i64 pos, i64 bytes_avail,
-	int level, i64 *pbytes_consumed)
+static int do_iff_chunk(deark *c, struct de_iffctx *ictx,
+	struct de_iffchunkctx *parent,
+	i64 pos, i64 bytes_avail, int level, i64 *pbytes_consumed)
 {
 	int ret;
 	i64 chunk_dlen_raw;
@@ -1043,11 +1058,11 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, i64 pos, i64 bytes_ava
 	struct de_iffchunkctx chunkctx;
 	int saved_indent_level;
 	int retval = 0;
-	char name_str[80];
-
-	de_zeromem(&chunkctx, sizeof(struct de_iffchunkctx));
+	struct iff_parser_data *pctx = (struct iff_parser_data*)ictx->private_data;
 
 	de_dbg_indent_save(c, &saved_indent_level);
+	de_zeromem(&chunkctx, sizeof(struct de_iffchunkctx));
+	chunkctx.parent = parent;
 
 	hdrsize = 4+ictx->sizeof_len;
 	if(bytes_avail<hdrsize) {
@@ -1084,14 +1099,14 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, i64 pos, i64 bytes_ava
 	}
 
 	if(chunkctx.chunk_name) {
-		de_snprintf(name_str, sizeof(name_str), " (%s)", chunkctx.chunk_name);
+		de_snprintf(pctx->name_str, sizeof(pctx->name_str), " (%s)", chunkctx.chunk_name);
 	}
 	else {
-		name_str[0] = '\0';
+		pctx->name_str[0] = '\0';
 	}
 
 	de_dbg(c, "chunk '%s'%s at %"I64_FMT", dpos=%"I64_FMT", dlen=%"I64_FMT,
-		chunkctx.chunk4cc.id_dbgstr, name_str, pos,
+		chunkctx.chunk4cc.id_dbgstr, pctx->name_str, pos,
 		chunkctx.dpos, chunkctx.dlen);
 	de_dbg_indent(c, 1);
 
@@ -1168,7 +1183,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, i64 pos, i64 bytes_ava
 			contents_dlen = chunkctx.dlen;
 		}
 
-		ret = do_iff_chunk_sequence(c, ictx, contents_dpos, contents_dlen, level+1);
+		ret = do_iff_chunk_sequence(c, ictx, &chunkctx, contents_dpos, contents_dlen, level+1);
 		if(!ret) {
 			retval = 0;
 			goto done;
@@ -1201,7 +1216,7 @@ done:
 }
 
 static int do_iff_chunk_sequence(deark *c, struct de_iffctx *ictx,
-	i64 pos1, i64 len, int level)
+	struct de_iffchunkctx *parent, i64 pos1, i64 len, int level)
 {
 	i64 pos;
 	i64 endpos;
@@ -1233,7 +1248,7 @@ static int do_iff_chunk_sequence(deark *c, struct de_iffctx *ictx,
 			}
 		}
 
-		ret = do_iff_chunk(c, ictx, pos, endpos-pos, level, &chunk_len);
+		ret = do_iff_chunk(c, ictx, parent, pos, endpos-pos, level, &chunk_len);
 		if(!ret) return 0;
 		pos += chunk_len;
 	}
@@ -1247,6 +1262,8 @@ static int do_iff_chunk_sequence(deark *c, struct de_iffctx *ictx,
 void fmtutil_read_iff_format(deark *c, struct de_iffctx *ictx,
 	i64 pos, i64 len)
 {
+	struct iff_parser_data *pctx = NULL;
+
 	if(!ictx->f || !ictx->handle_chunk_fn) return; // Internal error
 
 	ictx->level = 0;
@@ -1265,7 +1282,11 @@ void fmtutil_read_iff_format(deark *c, struct de_iffctx *ictx,
 		ictx->input_encoding = DE_ENCODING_ASCII;
 	}
 
-	do_iff_chunk_sequence(c, ictx, pos, len, 0);
+	pctx = de_malloc(c, sizeof(struct iff_parser_data));
+	ictx->private_data = (void*)pctx;
+	do_iff_chunk_sequence(c, ictx, NULL, pos, len, 0);
+	ictx->private_data = NULL;
+	de_free(c, pctx);
 }
 
 const char *fmtutil_tiff_orientation_name(i64 n)
