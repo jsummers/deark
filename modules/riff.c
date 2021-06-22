@@ -50,6 +50,7 @@ DE_DECLARE_MODULE(de_module_riff);
 #define CHUNK_strh 0x73747268U
 
 typedef struct localctx_struct {
+	UI top_level_chunk_count;
 	int is_cdr;
 	u32 curr_avi_stream_type;
 	u8 cmx_parse_hack;
@@ -384,11 +385,16 @@ static int my_handle_nonchunk_riff_data_fn(deark *c, struct de_iffctx *ictx,
 static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 {
 	lctx *d = (lctx*)ictx->userdata;
+	u32 chunktype = ictx->curr_container_fmt4cc.id;
+	u32 formtype = ictx->curr_container_contentstype4cc.id;
+	int suppress_decoding = 0;
 
-	if(ictx->level==0) {
+	if(ictx->level==0 && (chunktype==CHUNK_RIFF || chunktype==CHUNK_RIFX) &&
+		d->top_level_chunk_count==0)
+	{
 		const char *fmtname = NULL;
 
-		switch(ictx->main_contentstype4cc.id) {
+		switch(formtype) {
 		case CODE_ACON: fmtname = "Windows animated cursor"; break;
 		case CODE_AVI: fmtname = "AVI"; break;
 		case CODE_CDRX: fmtname = "Corel CCX"; break;
@@ -407,7 +413,7 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 		}
 
 		// Special check for CorelDraw formats.
-		if(!fmtname && !de_memcmp(ictx->main_contentstype4cc.bytes, (const void*)"CDR", 3)) {
+		if(!fmtname && (formtype>>8 == 0x434452U) /* "CDR" */) {
 			d->is_cdr = 1;
 			fmtname = "CorelDRAW (RIFF-based)";
 		}
@@ -417,34 +423,39 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 		}
 	}
 
-	if(d->is_cdr && ictx->curr_container_fmt4cc.id==CHUNK_LIST) {
+	if(d->is_cdr && chunktype==CHUNK_LIST) {
 		// 'cmpr' LISTs in CorelDraw files are not correctly formed.
 		// Tell the parser not to process them.
-		if(ictx->curr_container_contentstype4cc.id==CODE_cmpr) {
+		if(formtype==CODE_cmpr) {
 			de_dbg(c, "[not decoding CDR cmpr list]");
-			return 0;
+			suppress_decoding = 1;
+			goto done;
 		}
 	}
 
-	if(ictx->main_contentstype4cc.id==CODE_AVI &&
-		ictx->curr_container_contentstype4cc.id==CODE_movi &&
-		c->debug_level<2)
+	if(ictx->main_contentstype4cc.id==CODE_AVI && chunktype==CHUNK_LIST &&
+		formtype==CODE_movi)
 	{
 		// There are often a huge number of these chunks, and we can't do
 		// anything interesting with them, so skip them by default.
-		de_dbg(c, "[not decoding movi chunks]");
-		return 0;
+		if(c->debug_level<2) {
+			de_dbg(c, "[not decoding movi chunks]");
+			suppress_decoding = 1;
+			goto done;
+		}
+
+		if(!d->in_movi) {
+			// Keep track of when we are inside a 'movi' container.
+			d->in_movi = 1;
+			d->in_movi_level = ictx->level;
+		}
 	}
 
-	if(ictx->main_contentstype4cc.id==CODE_AVI &&
-		ictx->curr_container_contentstype4cc.id==CODE_movi && !d->in_movi)
-	{
-		// Keep track of when we are inside a 'movi' container.
-		d->in_movi = 1;
-		d->in_movi_level = ictx->level;
+done:
+	if(ictx->level==0) {
+		d->top_level_chunk_count++;
 	}
-
-	return 1;
+	return !suppress_decoding;
 }
 
 static int my_on_container_end_fn(deark *c, struct de_iffctx *ictx)
