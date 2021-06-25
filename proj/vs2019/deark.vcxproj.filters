@@ -520,6 +520,9 @@
     <ClCompile Include="..\..\modules\corel.c">
       <Filter>Modules</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\fmtutil-iff.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\deark-config.h">

@@ -5,7 +5,7 @@
 // IFF (Interchange File Format)
 // MIDI
 
-// Note that the IFF parser is actually implemented in fmtutil.c, not here.
+// Note that the IFF parser is actually implemented in fmtutil-iff.c, not here.
 // This module uses fmtutil to support unknown IFF formats, and IFF formats
 // for which we have very little format-specific logic.
 
