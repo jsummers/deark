@@ -19,6 +19,21 @@ struct iff_parser_data {
 	char name_str[80];
 };
 
+struct de_iffctx *fmtutil_create_iff_decoder(deark *c)
+{
+	struct de_iffctx *ictx;
+
+	ictx = de_malloc(c, sizeof(struct de_iffctx));
+	ictx->c = c;
+	return ictx;
+}
+
+void fmtutil_destroy_iff_decoder(struct de_iffctx *ictx)
+{
+	if(!ictx) return;
+	de_free(ictx->c, ictx);
+}
+
 static void do_iff_text_chunk(deark *c, struct de_iffctx *ictx, i64 dpos, i64 dlen,
 	const char *name)
 {
@@ -57,7 +72,7 @@ static void do_iff_anno(deark *c, struct de_iffctx *ictx, i64 pos, i64 len)
 	}
 }
 
-void fmtutil_default_iff_chunk_identify(deark *c, struct de_iffctx *ictx)
+void fmtutil_default_iff_chunk_identify(struct de_iffctx *ictx)
 {
 	const char *name = NULL;
 
@@ -76,8 +91,9 @@ void fmtutil_default_iff_chunk_identify(deark *c, struct de_iffctx *ictx)
 // specification.
 // They might be defined in the 8SVX specification. They seem to have
 // become unofficial standard chunks.
-static int de_fmtutil_default_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
+static int de_fmtutil_default_iff_chunk_handler(struct de_iffctx *ictx)
 {
+	deark *c = ictx->c;
 	i64 dpos = ictx->chunkctx->dpos;
 	i64 dlen = ictx->chunkctx->dlen;
 	u32 chunktype = ictx->chunkctx->chunk4cc.id;
@@ -107,7 +123,7 @@ static int de_fmtutil_default_iff_chunk_handler(deark *c, struct de_iffctx *ictx
 }
 
 // ictx can be NULL
-int fmtutil_is_standard_iff_chunk(deark *c, struct de_iffctx *ictx,
+int fmtutil_is_standard_iff_chunk(struct de_iffctx *ictx,
 	u32 ct)
 {
 	switch(ct) {
@@ -179,7 +195,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx,
 	ictx->chunkctx = &chunkctx;
 
 	if(ictx->preprocess_chunk_fn) {
-		ictx->preprocess_chunk_fn(c, ictx);
+		ictx->preprocess_chunk_fn(ictx);
 	}
 
 	if(chunkctx.chunk_name) {
@@ -229,7 +245,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx,
 	ictx->is_std_container = 0;
 	ictx->is_raw_container = 0;
 
-	ret = ictx->handle_chunk_fn(c, ictx);
+	ret = ictx->handle_chunk_fn(ictx);
 	if(!ret) {
 		retval = 0;
 		goto done;
@@ -258,7 +274,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx,
 
 			if(ictx->on_std_container_start_fn) {
 				// Call only for standard-format containers.
-				ret = ictx->on_std_container_start_fn(c, ictx);
+				ret = ictx->on_std_container_start_fn(ictx);
 				if(!ret) goto done;
 			}
 		}
@@ -280,7 +296,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx,
 			ictx->level = level;
 
 			ictx->chunkctx = NULL;
-			ret = ictx->on_container_end_fn(c, ictx);
+			ret = ictx->on_container_end_fn(ictx);
 			if(!ret) {
 				retval = 0;
 				goto done;
@@ -288,7 +304,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx,
 		}
 	}
 	else if(!ictx->handled) {
-		de_fmtutil_default_iff_chunk_handler(c, ictx);
+		de_fmtutil_default_iff_chunk_handler(ictx);
 	}
 
 done:
@@ -325,7 +341,7 @@ static int do_iff_chunk_sequence(deark *c, struct de_iffctx *ictx,
 		if(ictx->handle_nonchunk_data_fn) {
 			i64 skip_len = 0;
 			ictx->level = level;
-			ret = ictx->handle_nonchunk_data_fn(c, ictx, pos, &skip_len);
+			ret = ictx->handle_nonchunk_data_fn(ictx, pos, &skip_len);
 			if(ret && skip_len>0) {
 				pos += de_pad_to_n(skip_len, ictx->alignment);
 				continue;
@@ -343,9 +359,9 @@ static int do_iff_chunk_sequence(deark *c, struct de_iffctx *ictx,
 	return 1;
 }
 
-void fmtutil_read_iff_format(deark *c, struct de_iffctx *ictx,
-	i64 pos, i64 len)
+void fmtutil_read_iff_format(struct de_iffctx *ictx, i64 pos, i64 len)
 {
+	deark *c = ictx->c;
 	struct iff_parser_data *pctx = NULL;
 
 	if(!ictx->f || !ictx->handle_chunk_fn) return; // Internal error

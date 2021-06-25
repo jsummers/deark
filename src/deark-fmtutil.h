@@ -417,23 +417,23 @@ struct de_iffctx;
 // - Do nothing, in which case standard IFF chunks (ANNO, at least) will
 //   handled by the IFF parser.
 // Return value: Normally 1; 0 to immediately stop processing the entire file.
-typedef int (*de_handle_iff_chunk_fn)(deark *c, struct de_iffctx *ictx);
+typedef int (*de_handle_iff_chunk_fn)(struct de_iffctx *ictx);
 
 // Mainly for identifying the chunk.
 // The user can also adjust ictx->chunkctx->dlen.
 // Return value: Normally 1 (reserved)
-typedef int (*de_preprocess_iff_chunk_fn)(deark *c, struct de_iffctx *ictx);
+typedef int (*de_preprocess_iff_chunk_fn)(struct de_iffctx *ictx);
 
 // Return value: Normally 1; 0 to immediately stop processing the entire file.
-typedef int (*de_on_iff_container_end_fn)(deark *c, struct de_iffctx *ictx);
+typedef int (*de_on_iff_container_end_fn)(struct de_iffctx *ictx);
 
 // Return value: Normally 1; 0 to stop processing this container (the
 // on_container_end_fn will not be called).
-typedef int (*de_on_std_iff_container_start_fn)(deark *c, struct de_iffctx *ictx);
+typedef int (*de_on_std_iff_container_start_fn)(struct de_iffctx *ictx);
 
 // Caller can check for nonstandard non-chunk data at 'pos'. If found, set *plen
 // to its length, process it if desired, and return 1.
-typedef int (*de_handle_nonchunk_iff_data_fn)(deark *c, struct de_iffctx *ictx,
+typedef int (*de_handle_nonchunk_iff_data_fn)(struct de_iffctx *ictx,
 	i64 pos, i64 *plen);
 
 struct de_iffchunkctx {
@@ -453,8 +453,10 @@ struct de_iffchunkctx {
 };
 
 struct de_iffctx {
-	void *userdata;
+	deark *c;
 	void *private_data; // Used by the parser
+
+	void *userdata;
 	dbuf *f; // Input file
 	de_handle_iff_chunk_fn handle_chunk_fn;
 	de_preprocess_iff_chunk_fn preprocess_chunk_fn;
@@ -486,11 +488,11 @@ struct de_iffctx {
 	int is_raw_container;
 };
 
-void fmtutil_read_iff_format(deark *c, struct de_iffctx *ictx,
-	i64 pos, i64 len);
-int fmtutil_is_standard_iff_chunk(deark *c, struct de_iffctx *ictx,
-	u32 ct);
-void fmtutil_default_iff_chunk_identify(deark *c, struct de_iffctx *ictx);
+struct de_iffctx *fmtutil_create_iff_decoder(deark *c);
+void fmtutil_destroy_iff_decoder(struct de_iffctx *ictx);
+void fmtutil_read_iff_format(struct de_iffctx *ictx, i64 pos, i64 len);
+int fmtutil_is_standard_iff_chunk(struct de_iffctx *ictx, u32 ct);
+void fmtutil_default_iff_chunk_identify(struct de_iffctx *ictx);
 
 const char *fmtutil_tiff_orientation_name(i64 n);
 const char *fmtutil_get_windows_charset_name(u8 cs);

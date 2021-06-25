@@ -1455,8 +1455,9 @@ done:
 	de_free(c, cmds);
 }
 
-static int my_vdat_chunk_handler(deark *c, struct de_iffctx *ictx)
+static int my_vdat_chunk_handler(struct de_iffctx *ictx)
 {
+	deark *c = ictx->c;
 	struct vdat_ctx *vdctx = (struct vdat_ctx*)ictx->userdata;
 
 	ictx->handled = 1;
@@ -1486,13 +1487,13 @@ static int decompress_method2(deark *c, lctx *d, struct imgbody_info *ibi,
 	vdctx.ibi = ibi;
 	vdctx.unc_pixels = unc_pixels;
 
-	ictx_vdat = de_malloc(c, sizeof(struct de_iffctx));
+	ictx_vdat = fmtutil_create_iff_decoder(c);
 	ictx_vdat->userdata = (void*)&vdctx;
 	ictx_vdat->handle_chunk_fn = my_vdat_chunk_handler;
 	ictx_vdat->f = c->infile;
-	fmtutil_read_iff_format(c, ictx_vdat, pos, len);
+	fmtutil_read_iff_format(ictx_vdat, pos, len);
 
-	de_free(c, ictx_vdat);
+	fmtutil_destroy_iff_decoder(ictx_vdat);
 	return 1;
 }
 
@@ -2225,8 +2226,9 @@ static void on_frame_end(deark *c, lctx *d)
 	d->num_frames_finished++;
 }
 
-static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
+static int my_iff_chunk_handler(struct de_iffctx *ictx)
 {
+	deark *c = ictx->c;
 	int quitflag = 0;
 	int saved_indent_level;
 	lctx *d = (lctx*)ictx->userdata;
@@ -2239,7 +2241,7 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 	}
 
 	// Pretend we can handle all nonstandard chunks
-	if(!fmtutil_is_standard_iff_chunk(c, ictx, ictx->chunkctx->chunk4cc.id)) {
+	if(!fmtutil_is_standard_iff_chunk(ictx, ictx->chunkctx->chunk4cc.id)) {
 		ictx->handled = 1;
 	}
 
@@ -2351,7 +2353,7 @@ done:
 	return (quitflag) ? 0 : 1;
 }
 
-static int my_preprocess_iff_chunk_fn(deark *c, struct de_iffctx *ictx)
+static int my_preprocess_iff_chunk_fn(struct de_iffctx *ictx)
 {
 	lctx *d = (lctx*)ictx->userdata;
 	const char *name = NULL;
@@ -2379,13 +2381,14 @@ static int my_preprocess_iff_chunk_fn(deark *c, struct de_iffctx *ictx)
 		ictx->chunkctx->chunk_name = name;
 	}
 	else {
-		fmtutil_default_iff_chunk_identify(c, ictx);
+		fmtutil_default_iff_chunk_identify(ictx);
 	}
 	return 1;
 }
 
-static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
+static int my_on_std_container_start_fn(struct de_iffctx *ictx)
 {
+	deark *c = ictx->c;
 	lctx *d = (lctx*)ictx->userdata;
 
 	if(ictx->level==d->FORM_level) {
@@ -2449,7 +2452,7 @@ static void do_eof_stuff(deark *c, lctx *d)
 	}
 }
 
-static int my_on_container_end_fn(deark *c, struct de_iffctx *ictx)
+static int my_on_container_end_fn(struct de_iffctx *ictx)
 {
 	if(ictx->level==0) {
 		// Stop after the first top-level chunk (the FORM chunk).
@@ -2567,7 +2570,7 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 
 	d->FORM_level = d->is_anim ? 1 : 0;
 
-	ictx = de_malloc(c, sizeof(struct de_iffctx));
+	ictx = fmtutil_create_iff_decoder(c);
 	ictx->userdata = (void*)d;
 	ictx->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
 	ictx->handle_chunk_fn = my_iff_chunk_handler;
@@ -2575,7 +2578,7 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 	ictx->on_std_container_start_fn = my_on_std_container_start_fn;
 	ictx->on_container_end_fn = my_on_container_end_fn;
 	ictx->f = c->infile;
-	fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
+	fmtutil_read_iff_format(ictx, 0, c->infile->len);
 
 	if(d->frctx) {
 		on_frame_end(c, d);
@@ -2584,7 +2587,7 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 	print_summary(c, d);
 
 done:
-	de_free(c, ictx);
+	fmtutil_destroy_iff_decoder(ictx);
 	if(d) {
 		destroy_frame(c, d, d->frctx);
 		destroy_frame(c, d, d->oldfrctx[0]);

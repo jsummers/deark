@@ -1680,7 +1680,7 @@ static void do_nrg_ETNF(deark *c, struct de_iffctx *ictx,
 	}
 }
 
-static int my_preprocess_nrg_chunk_fn(deark *c, struct de_iffctx *ictx)
+static int my_preprocess_nrg_chunk_fn(struct de_iffctx *ictx)
 {
 	const char *name = NULL;
 
@@ -1699,8 +1699,10 @@ static int my_preprocess_nrg_chunk_fn(deark *c, struct de_iffctx *ictx)
 }
 
 
-static int my_nrg_chunk_handler(deark *c, struct de_iffctx *ictx)
+static int my_nrg_chunk_handler(struct de_iffctx *ictx)
 {
+	deark *c = ictx->c;
+
 	// Always set this, because we never want the IFF parser to try to handle
 	// a chunk itself.
 	ictx->handled = 1;
@@ -1721,7 +1723,7 @@ static void do_nrg_chunks(deark *c, struct nrg_ctx *nrg)
 {
 	struct de_iffctx *ictx = NULL;
 
-	ictx = de_malloc(c, sizeof(struct de_iffctx));
+	ictx = fmtutil_create_iff_decoder(c);
 	ictx->userdata = (void*)nrg;
 	ictx->preprocess_chunk_fn = my_preprocess_nrg_chunk_fn;
 	ictx->handle_chunk_fn = my_nrg_chunk_handler;
@@ -1729,7 +1731,8 @@ static void do_nrg_chunks(deark *c, struct nrg_ctx *nrg)
 	ictx->is_le = 0;
 	ictx->reversed_4cc = 0;
 
-	fmtutil_read_iff_format(c, ictx, nrg->chunk_list_start, nrg->chunk_list_size);
+	fmtutil_read_iff_format(ictx, nrg->chunk_list_start, nrg->chunk_list_size);
+	fmtutil_destroy_iff_decoder(ictx);
 }
 
 static void de_run_nrg(deark *c, de_module_params *mparams)

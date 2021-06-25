@@ -110,8 +110,10 @@ static int is_container_chunk(deark *c, lctx *d, u32 ct)
 	return 0;
 }
 
-static int my_std_container_start_fn(deark *c, struct de_iffctx *ictx)
+static int my_std_container_start_fn(struct de_iffctx *ictx)
 {
+	deark *c = ictx->c;
+
 	if(ictx->level==0 &&
 		ictx->curr_container_fmt4cc.id==CODE_FORM &&
 		ictx->main_fmt4cc.id==CODE_FORM)
@@ -131,8 +133,9 @@ static int my_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 	return 1;
 }
 
-static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
+static int my_iff_chunk_handler(struct de_iffctx *ictx)
 {
+	deark *c = ictx->c;
 	lctx *d = (lctx*)ictx->userdata;
 
 	ictx->is_std_container = is_container_chunk(c, d, ictx->chunkctx->chunk4cc.id);
@@ -194,7 +197,7 @@ static void de_run_iff(deark *c, de_module_params *mparams)
 
 
 	d = de_malloc(c, sizeof(lctx));
-	ictx = de_malloc(c, sizeof(struct de_iffctx));
+	ictx = fmtutil_create_iff_decoder(c);
 
 	ictx->alignment = 2; // default
 
@@ -223,9 +226,9 @@ static void de_run_iff(deark *c, de_module_params *mparams)
 	ictx->on_std_container_start_fn = my_std_container_start_fn;
 	ictx->f = c->infile;
 
-	fmtutil_read_iff_format(c, ictx, pos, c->infile->len - pos);
+	fmtutil_read_iff_format(ictx, pos, c->infile->len - pos);
 
-	de_free(c, ictx);
+	fmtutil_destroy_iff_decoder(ictx);
 	de_free(c, d);
 }
 
@@ -272,8 +275,10 @@ static void do_midi_MThd(deark *c, struct de_iffctx *ictx,
 	de_dbg(c, "division: %d", (int)division_field);
 }
 
-static int my_midi_chunk_handler(deark *c, struct de_iffctx *ictx)
+static int my_midi_chunk_handler(struct de_iffctx *ictx)
 {
+	deark *c = ictx->c;
+
 	switch(ictx->chunkctx->chunk4cc.id) {
 	case CODE_MThd:
 		do_midi_MThd(c, ictx, ictx->chunkctx);
@@ -290,15 +295,15 @@ static void de_run_midi(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	ictx = de_malloc(c, sizeof(struct de_iffctx));
+	ictx = fmtutil_create_iff_decoder(c);
 	ictx->alignment = 1;
 	ictx->userdata = (void*)d;
 	ictx->handle_chunk_fn = my_midi_chunk_handler;
 	ictx->f = c->infile;
 
-	fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
+	fmtutil_read_iff_format(ictx, 0, c->infile->len);
 
-	de_free(c, ictx);
+	fmtutil_destroy_iff_decoder(ictx);
 	de_free(c, d);
 }
 

@@ -387,9 +387,10 @@ static int do_cmv_parse_hack(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos,
 	return 1;
 }
 
-static int my_handle_nonchunk_riff_data_fn(deark *c, struct de_iffctx *ictx,
+static int my_handle_nonchunk_riff_data_fn(struct de_iffctx *ictx,
 	i64 pos, i64 *plen)
 {
+	deark *c = ictx->c;
 	lctx *d = (lctx*)ictx->userdata;
 
 	if(d->cmx_parse_hack) {
@@ -401,8 +402,9 @@ static int my_handle_nonchunk_riff_data_fn(deark *c, struct de_iffctx *ictx,
 	return 0;
 }
 
-static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
+static int my_on_std_container_start_fn(struct de_iffctx *ictx)
 {
+	deark *c = ictx->c;
 	lctx *d = (lctx*)ictx->userdata;
 	u32 chunktype = ictx->curr_container_fmt4cc.id;
 	u32 formtype = ictx->curr_container_contentstype4cc.id;
@@ -477,7 +479,7 @@ done:
 	return !suppress_decoding;
 }
 
-static int my_on_container_end_fn(deark *c, struct de_iffctx *ictx)
+static int my_on_container_end_fn(struct de_iffctx *ictx)
 {
 	lctx *d = (lctx*)ictx->userdata;
 
@@ -490,7 +492,7 @@ static int my_on_container_end_fn(deark *c, struct de_iffctx *ictx)
 	return 1;
 }
 
-static int my_preprocess_riff_chunk_fn(deark *c, struct de_iffctx *ictx)
+static int my_preprocess_riff_chunk_fn(struct de_iffctx *ictx)
 {
 	const char *name = NULL;
 
@@ -512,10 +514,11 @@ static int my_preprocess_riff_chunk_fn(deark *c, struct de_iffctx *ictx)
 	return 1;
 }
 
-static int my_riff_chunk_handler(deark *c, struct de_iffctx *ictx)
+static int my_riff_chunk_handler(struct de_iffctx *ictx)
 {
 	i64 dpos, dlen;
 	u32 list_type;
+	deark *c = ictx->c;
 	lctx *d = (lctx*)ictx->userdata;
 
 	// We should always set this flag for formats (like RIFF) that aren't standard IFF.
@@ -639,7 +642,7 @@ static void de_run_riff(deark *c, de_module_params *mparams)
 	u8 buf[4];
 
 	d = de_malloc(c, sizeof(lctx));
-	ictx = de_malloc(c, sizeof(struct de_iffctx));
+	ictx = fmtutil_create_iff_decoder(c);
 
 	ictx->userdata = (void*)d;
 	ictx->preprocess_chunk_fn = my_preprocess_riff_chunk_fn;
@@ -668,9 +671,9 @@ static void de_run_riff(deark *c, de_module_params *mparams)
 		ictx->reversed_4cc = 0;
 	}
 
-	fmtutil_read_iff_format(c, ictx, 0, ictx->f->len);
+	fmtutil_read_iff_format(ictx, 0, ictx->f->len);
 
-	de_free(c, ictx);
+	fmtutil_destroy_iff_decoder(ictx);
 	de_free(c, d);
 }
 

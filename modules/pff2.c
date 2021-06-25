@@ -139,8 +139,9 @@ static const struct pff2_sectiontype_info *find_pffs_sectiontype_info(u32 id)
 	return NULL;
 }
 
-static int my_pff2_chunk_handler(deark *c, struct de_iffctx *ictx)
+static int my_pff2_chunk_handler(struct de_iffctx *ictx)
 {
+	deark *c = ictx->c;
 	lctx *d = (lctx*)ictx->userdata;
 	const struct pff2_sectiontype_info *si;
 
@@ -173,7 +174,7 @@ done:
 	return 1;
 }
 
-static int my_preprocess_pff2_chunk_fn(deark *c, struct de_iffctx *ictx)
+static int my_preprocess_pff2_chunk_fn(struct de_iffctx *ictx)
 {
 	const struct pff2_sectiontype_info *si;
 
@@ -197,7 +198,7 @@ static void de_run_pff2(deark *c, de_module_params *mparams)
 	i64 i;
 
 	d = de_malloc(c, sizeof(lctx));
-	ictx = de_malloc(c, sizeof(struct de_iffctx));
+	ictx = fmtutil_create_iff_decoder(c);
 
 	ictx->userdata = (void*)d;
 	ictx->alignment = 1;
@@ -210,7 +211,7 @@ static void de_run_pff2(deark *c, de_module_params *mparams)
 	d->font->has_unicode_codepoints = 1;
 	d->font->prefer_unicode = 1;
 
-	fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
+	fmtutil_read_iff_format(ictx, 0, c->infile->len);
 
 	if(d->font) {
 		if(d->font->char_array) {
@@ -222,7 +223,7 @@ static void de_run_pff2(deark *c, de_module_params *mparams)
 		de_destroy_bitmap_font(c, d->font);
 	}
 
-	de_free(c, ictx);
+	fmtutil_destroy_iff_decoder(ictx);
 	de_free(c, d);
 }
 

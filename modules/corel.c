@@ -347,7 +347,7 @@ done:
 	dbuf_close(outf);
 }
 
-static int my_ccx_chunk_handler(deark *c, struct de_iffctx *ictx)
+static int my_ccx_chunk_handler(struct de_iffctx *ictx)
 {
 	lctx *d = (lctx*)ictx->userdata;
 
@@ -374,14 +374,14 @@ static void de_run_corel_ccx(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	ictx = de_malloc(c, sizeof(struct de_iffctx));
+	ictx = fmtutil_create_iff_decoder(c);
 	ictx->is_le = 1;
 	ictx->reversed_4cc = 0;
 	ictx->userdata = (void*)d;
 	ictx->handle_chunk_fn = my_ccx_chunk_handler;
 	ictx->f = c->infile;
 
-	fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
+	fmtutil_read_iff_format(ictx, 0, c->infile->len);
 	if(d->pack_pos) {
 		de_dbg(c, "pack chunk found at %"I64_FMT, d->pack_pos);
 		de_dbg_indent(c, 1);
@@ -389,7 +389,7 @@ static void de_run_corel_ccx(deark *c, de_module_params *mparams)
 		de_dbg_indent(c, -1);
 	}
 
-	de_free(c, ictx);
+	fmtutil_destroy_iff_decoder(ictx);
 	if(d) {
 		if(!d->wrote_cmx_file) {
 			de_err(c, "Cannot convert this CCX file. Try \"-m riff\" to decode.");
