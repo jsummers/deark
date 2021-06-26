@@ -1717,22 +1717,19 @@ static int my_nrg_chunk_handler(struct de_iffctx *ictx)
 	deark *c = ictx->c;
 	struct nrg_ctx *nrg = (struct nrg_ctx*)ictx->userdata;
 
-	// Always set this, because we never want the IFF parser to try to handle
-	// a chunk itself.
-	ictx->handled = 1;
-
 	switch(ictx->chunkctx->chunk4cc.id) {
 	case CODE_ETNF:
 		do_nrg_ETNF(c, ictx, ictx->chunkctx);
+		ictx->handled = 1;
 		break;
 	case CODE_DAOX:
 		do_nrg_DAOX(c, ictx, nrg);
+		ictx->handled = 1;
 		break;
-	}
-
-	if(ictx->chunkctx->chunk4cc.id==CODE_END_) {
+	case CODE_END_:
 		return 0;
 	}
+
 	return 1;
 }
 

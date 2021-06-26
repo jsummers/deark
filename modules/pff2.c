@@ -146,8 +146,8 @@ static int my_pff2_chunk_handler(struct de_iffctx *ictx)
 	const struct pff2_sectiontype_info *si;
 
 	si = find_pffs_sectiontype_info(ictx->chunkctx->chunk4cc.id);
-
 	if(!si) goto done;
+	ictx->handled = 1;
 
 	// Default value decoders:
 	if(si->flags&0x1) {
@@ -170,7 +170,6 @@ static int my_pff2_chunk_handler(struct de_iffctx *ictx)
 	}
 
 done:
-	ictx->handled = 1;
 	return 1;
 }
 

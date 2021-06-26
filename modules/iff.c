@@ -40,7 +40,6 @@ static void do_text_chunk(deark *c, struct de_iffctx *ictx, const char *name)
 {
 	de_ucstring *s = NULL;
 
-	ictx->handled = 1;
 	s = ucstring_create(c);
 	// TODO: Sometimes this text is clearly not ASCII, but I've never seen
 	// a file with a "CSET" chunk, and I don't know how else I would know
@@ -147,6 +146,7 @@ static int my_iff_chunk_handler(struct de_iffctx *ictx)
 			// In 8SVX, the NAME chunk means "voice name". In other types
 			// of files, it presumably means some other sort of name.
 			do_text_chunk(c, ictx, "voice name");
+			ictx->handled = 1;
 			break;
 		}
 	}
@@ -154,9 +154,11 @@ static int my_iff_chunk_handler(struct de_iffctx *ictx)
 		switch(ictx->chunkctx->chunk4cc.id) {
 		case CODE_COMT:
 			do_aiff_comt_chunk(c, ictx);
+			ictx->handled = 1;
 			break;
 		case CODE_ID3:
 			do_id3_chunk(c, ictx);
+			ictx->handled = 1;
 			break;
 		}
 	}
@@ -195,10 +197,10 @@ static void de_run_iff(deark *c, de_module_params *mparams)
 	const char *s;
 	i64 pos;
 
-
 	d = de_malloc(c, sizeof(lctx));
-	ictx = fmtutil_create_iff_decoder(c);
 
+	ictx = fmtutil_create_iff_decoder(c);
+	ictx->has_standard_iff_chunks = 1;
 	ictx->alignment = 2; // default
 
 	d->fmt = identify_internal(c, NULL);
@@ -267,6 +269,7 @@ static void do_midi_MThd(deark *c, struct de_iffctx *ictx,
 	i64 format_field, ntrks_field, division_field;
 
 	if(chunkctx->dlen<6) return;
+	ictx->handled = 1;
 	format_field = dbuf_getu16be(ictx->f, chunkctx->dpos);
 	de_dbg(c, "format: %d", (int)format_field);
 	ntrks_field = dbuf_getu16be(ictx->f, chunkctx->dpos+2);
@@ -284,7 +287,7 @@ static int my_midi_chunk_handler(struct de_iffctx *ictx)
 		do_midi_MThd(c, ictx, ictx->chunkctx);
 		break;
 	}
-	ictx->handled = 1;
+
 	return 1;
 }
 

@@ -521,9 +521,6 @@ static int my_riff_chunk_handler(struct de_iffctx *ictx)
 	deark *c = ictx->c;
 	lctx *d = (lctx*)ictx->userdata;
 
-	// We should always set this flag for formats (like RIFF) that aren't standard IFF.
-	ictx->handled = 1;
-
 	list_type = ictx->curr_container_contentstype4cc.id;
 	dpos = ictx->chunkctx->dpos;
 	dlen = ictx->chunkctx->dlen;
@@ -538,100 +535,106 @@ static int my_riff_chunk_handler(struct de_iffctx *ictx)
 
 	if(list_type==CODE_INFO) {
 		do_INFO_item(c, d, ictx, dpos, dlen, ictx->chunkctx->chunk4cc.id);
-		goto chunk_handled;
+		ictx->handled = 1;
+		goto done;
 	}
 
 	switch(ictx->chunkctx->chunk4cc.id) {
 
 	case CHUNK_DISP:
 		do_DISP(c, d, ictx, dpos, dlen);
-		break;
-
-	case CHUNK_JUNK:
+		ictx->handled = 1;
 		break;
 
 	case CHUNK_ICCP: // Used by WebP
 		do_ICCP(c, d, ictx, dpos, dlen);
+		ictx->handled = 1;
 		break;
 
 	case CHUNK_EXIF: // Used by WebP
 		do_EXIF(c, d, ictx, dpos, dlen);
+		ictx->handled = 1;
 		break;
 
 	case CHUNK_XMP: // Used by WebP
 	case CHUNK__PMX: // Used by WAVE, AVI
 		do_XMP(c, d, ictx, dpos, dlen);
+		ictx->handled = 1;
 		break;
 
 	case CHUNK_bmhd:
 		if(list_type==CODE_RDIB) {
 			do_RDIB_bmhd(c, d, ictx);
+			ictx->handled = 1;
 		}
 		break;
 
 	case CHUNK_icon:
 		if(ictx->main_contentstype4cc.id==CODE_ACON) {
 			extract_ani_frame(c, d, ictx, dpos, dlen);
+			ictx->handled = 1;
 		}
 		break;
 
 	case CHUNK_data:
 		if(list_type==CODE_RMID) {
 			do_extract_raw(c, d, ictx, dpos, dlen, "mid", 0);
+			ictx->handled = 1;
 		}
 		else if(list_type==CODE_PAL) {
 			do_palette(c, d, ictx, dpos, dlen);
+			ictx->handled = 1;
 		}
 		else if(list_type==CODE_RDIB) {
 			do_RDIB_data(c, d, ictx, dpos, dlen);
+			ictx->handled = 1;
 		}
 		break;
 
 	case CHUNK_fmt:
 		if(ictx->main_contentstype4cc.id==CODE_WAVE) {
 			do_wav_fmt(c, d, ictx, dpos, dlen);
+			ictx->handled = 1;
 		}
 		break;
 
 	case CHUNK_fact:
 		if(ictx->main_contentstype4cc.id==CODE_WAVE) {
 			do_wav_fact(c, d, ictx, dpos, dlen);
+			ictx->handled = 1;
 		}
 		break;
 
 	case CHUNK_avih:
 		if(ictx->main_contentstype4cc.id==CODE_AVI) {
 			do_avi_avih(c, d, ictx, dpos, dlen);
+			ictx->handled = 1;
 		}
 		break;
 
 	case CHUNK_strh:
 		if(ictx->main_contentstype4cc.id==CODE_AVI) {
 			do_avi_strh(c, d, ictx, dpos, dlen);
+			ictx->handled = 1;
 		}
 		break;
 
 	case CHUNK_strf:
 		if(ictx->main_contentstype4cc.id==CODE_AVI) {
 			do_avi_strf(c, d, ictx, dpos, dlen);
+			ictx->handled = 1;
 		}
 		break;
 
 	case CHUNK_bmp:
 		if(d->is_cdr && ictx->curr_container_contentstype4cc.id==CODE_bmpt) {
 			do_cdr_bmp(c, d, ictx, dpos, dlen);
+			ictx->handled = 1;
 		}
 		break;
-
-	default:
-		if(c->debug_level>=2 &&
-			ictx->main_contentstype4cc.id==CODE_AVI && !d->in_movi)
-		{
-			de_dbg_hexdump(c, ictx->f, dpos, dlen, 256, NULL, 0x1);
-		}
 	}
 
-chunk_handled:
+done:
 	return 1;
 }
 

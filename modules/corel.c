@@ -363,7 +363,7 @@ static int my_ccx_chunk_handler(struct de_iffctx *ictx)
 		return 0;
 	}
 
-	ictx->handled = 1;
+	ictx->handled = 1; // We're just scanning the file, so suppress default chunk handling
 	return 1;
 }
 

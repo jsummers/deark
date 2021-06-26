@@ -590,8 +590,6 @@ static int my_iff_chunk_handler(struct de_iffctx *ictx)
 		return 1;
 	}
 
-	ictx->handled = 1;
-
 	if(ictx->level!=1) {
 		return 1;
 	}
@@ -605,11 +603,13 @@ static int my_iff_chunk_handler(struct de_iffctx *ictx)
 
 	switch(ictx->chunkctx->chunk4cc.id) {
 	case CODE_FACE: // FACE (parameters)
+		ictx->handled = 1;
 		d->glowicons_width = 1+(i64)dbuf_getbyte(ictx->f, dpos);
 		d->glowicons_height = 1+(i64)dbuf_getbyte(ictx->f, dpos+1);
 		de_dbg_dimensions(c, d->glowicons_width, d->glowicons_height);
 		break;
 	case CODE_IMAG: // IMAG (one of the images that make up this icon)
+		ictx->handled = 1;
 		do_glowicons_IMAG(c, d, dpos, dlen);
 		break;
 	}

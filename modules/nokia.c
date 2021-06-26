@@ -273,10 +273,10 @@ static int my_nsl_chunk_handler(struct de_iffctx *ictx)
 		if(ictx->level==1 && !d->done_flag) {
 			nsl_read_bitmap(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		}
+		ictx->handled = 1;
 		break;
 	}
 
-	ictx->handled = 1;
 	return 1;
 }
 

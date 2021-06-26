@@ -72,7 +72,7 @@ static void do_iff_anno(deark *c, struct de_iffctx *ictx, i64 pos, i64 len)
 	}
 }
 
-void fmtutil_default_iff_chunk_identify(struct de_iffctx *ictx)
+static void fmtutil_default_iff_chunk_identify(struct de_iffctx *ictx)
 {
 	const char *name = NULL;
 
@@ -98,43 +98,43 @@ static int de_fmtutil_default_iff_chunk_handler(struct de_iffctx *ictx)
 	i64 dlen = ictx->chunkctx->dlen;
 	u32 chunktype = ictx->chunkctx->chunk4cc.id;
 
-	switch(chunktype) {
-		// Note that chunks appearing here should also be listed below,
-		// in de_fmtutil_is_standard_iff_chunk().
-	case CODE__c_:
-		do_iff_text_chunk(c, ictx, dpos, dlen, "copyright");
-		break;
-	case CODE_ANNO:
-		do_iff_anno(c, ictx, dpos, dlen);
-		break;
-	case CODE_AUTH:
-		do_iff_text_chunk(c, ictx, dpos, dlen, "author");
-		break;
-	case CODE_NAME:
-		do_iff_text_chunk(c, ictx, dpos, dlen, "name");
-		break;
-	case CODE_TEXT:
-		do_iff_text_chunk(c, ictx, dpos, dlen, "text");
-		break;
+	if(ictx->handled) goto done;
+	if(ictx->is_std_container || ictx->is_raw_container) goto done;
+
+	if(ictx->has_standard_iff_chunks) {
+		switch(chunktype) {
+		case CODE__c_:
+			do_iff_text_chunk(c, ictx, dpos, dlen, "copyright");
+			ictx->handled = 1;
+			break;
+		case CODE_ANNO:
+			do_iff_anno(c, ictx, dpos, dlen);
+			ictx->handled = 1;
+			break;
+		case CODE_AUTH:
+			do_iff_text_chunk(c, ictx, dpos, dlen, "author");
+			ictx->handled = 1;
+			break;
+		case CODE_NAME:
+			do_iff_text_chunk(c, ictx, dpos, dlen, "name");
+			ictx->handled = 1;
+			break;
+		case CODE_TEXT:
+			do_iff_text_chunk(c, ictx, dpos, dlen, "text");
+			ictx->handled = 1;
+			break;
+		}
 	}
 
-	// Note we do not set ictx->handled. The caller is responsible for that.
+	if(!ictx->handled) {
+		if(c->debug_level>=3) {
+			de_dbg_hexdump(c, ictx->f, ictx->chunkctx->dpos, ictx->chunkctx->dlen,
+				256, NULL, 0x1);
+		}
+		ictx->handled = 1;
+	}
+done:
 	return 1;
-}
-
-// ictx can be NULL
-int fmtutil_is_standard_iff_chunk(struct de_iffctx *ictx,
-	u32 ct)
-{
-	switch(ct) {
-	case CODE__c_:
-	case CODE_ANNO:
-	case CODE_AUTH:
-	case CODE_NAME:
-	case CODE_TEXT:
-		return 1;
-	}
-	return 0;
 }
 
 static void fourcc_clear(struct de_fourcc *fourcc)
@@ -196,6 +196,10 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx,
 
 	if(ictx->preprocess_chunk_fn) {
 		ictx->preprocess_chunk_fn(ictx);
+	}
+
+	if(!chunkctx.chunk_name && ictx->has_standard_iff_chunks) {
+		fmtutil_default_iff_chunk_identify(ictx);
 	}
 
 	if(chunkctx.chunk_name) {

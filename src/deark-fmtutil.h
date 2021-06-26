@@ -409,13 +409,15 @@ void fmtutil_atari_help_palbits(deark *c);
 // The IFF parser supports IFF and similar formats, including RIFF.
 struct de_iffctx;
 
-// An IFF chunk handler is expected to do one of the following:
+// An IFF chunk handler is expected to do one of the following (if it returns 1):
 // - Set ictx->is_std_container (ictx->handled is ignored).
 // - Set ictx->is_raw_container (ictx->handled is ignored).
 // - Handle the chunk, and set ictx->handled.
 // - Do nothing, and set ictx->handled, to suppress default handling.
-// - Do nothing, in which case standard IFF chunks (ANNO, at least) will
-//   handled by the IFF parser.
+// - Do nothing, which will result in the default chunk handler being used.
+//    Usually the default handler will do nothing, or a hex dump if the
+//    debug_level is high enough. If the format is known to have standard
+//    IFF chunks or something like that, they may be parsed.
 // Return value: Normally 1; 0 to immediately stop processing the entire file.
 typedef int (*de_handle_iff_chunk_fn)(struct de_iffctx *ictx);
 
@@ -466,8 +468,9 @@ struct de_iffctx {
 	i64 alignment; // 0 = default
 	i64 sizeof_len; // 0 = default
 	int is_le; // For RIFF format
-	int reversed_4cc;
-	int input_encoding;
+	u8 reversed_4cc;
+	u8 has_standard_iff_chunks;
+	de_encoding input_encoding;
 
 	int level;
 
@@ -491,8 +494,6 @@ struct de_iffctx {
 struct de_iffctx *fmtutil_create_iff_decoder(deark *c);
 void fmtutil_destroy_iff_decoder(struct de_iffctx *ictx);
 void fmtutil_read_iff_format(struct de_iffctx *ictx, i64 pos, i64 len);
-int fmtutil_is_standard_iff_chunk(struct de_iffctx *ictx, u32 ct);
-void fmtutil_default_iff_chunk_identify(struct de_iffctx *ictx);
 
 const char *fmtutil_tiff_orientation_name(i64 n);
 const char *fmtutil_get_windows_charset_name(u8 cs);

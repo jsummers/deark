@@ -149,16 +149,15 @@ static int my_woz_chunk_handler(struct de_iffctx *ictx)
 {
 	deark *c = ictx->c;
 
-	// Always set this, because we never want the IFF parser to try to handle
-	// a chunk itself.
-	ictx->handled = 1;
-
 	switch(ictx->chunkctx->chunk4cc.id) {
 	case CODE_INFO:
+		ictx->handled = 1;
 		do_woz_INFO(c, ictx, ictx->chunkctx);
 		break;
 	case CODE_META:
+		ictx->handled = 1;
 		do_woz_META(c, ictx, ictx->chunkctx);
+		break;
 	}
 
 	return 1;
