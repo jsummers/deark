@@ -12,6 +12,7 @@
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
 #define MINIZ_NO_STDIO
 #define MINIZ_NO_ARCHIVE_APIS
+#define USE_EXTERNAL_MZCRC
 #include "../foreign/miniz-c.h"
 
 // codec_private_params = type de_deflate_params; cannot be NULL

@@ -372,7 +372,7 @@ See the [technical.md](technical.md) file.
 
 ## Acknowledgements ##
 
-Thanks to Rich Geldreich for the miniz library.
+Thanks to Rich Geldreich and others for the miniz library.
 
 Thanks to the author of dskdcmps for the code used to decompress LoadDskF
 files.
