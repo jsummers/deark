@@ -51,7 +51,7 @@ static void do_newicons_append_bit(deark *c, lctx *d, dbuf *f, u8 b)
 	if(d->pending_data_bits_used==0) {
 		d->pending_data = 0;
 	}
-	d->pending_data = (d->pending_data<<1) | b;
+	d->pending_data = (d->pending_data<<1) | (b & 0x1);
 	d->pending_data_bits_used++;
 
 	if(d->newicons_line_count==0) {
@@ -280,7 +280,7 @@ static int do_read_main_icon(deark *c, lctx *d,
 			b = 0x00;
 			for(plane=0; plane<depth; plane++) {
 				b1 = de_get_bits_symbol(c->infile, 1, pos+plane*src_planespan + j*src_rowspan, i);
-				b = (b<<1) | b1;
+				b = (b<<1) | (b1 & 0x1);
 			}
 			de_bitmap_setpixel_rgb(img, i, j, pal[b]);
 		}
