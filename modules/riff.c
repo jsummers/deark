@@ -34,6 +34,7 @@ DE_DECLARE_MODULE(de_module_riff);
 #define CHUNK_ICCP 0x49434350U
 #define CHUNK_ICMT 0x49434d54U
 #define CHUNK_IKEY 0x494b4559U
+#define CHUNK_INAM 0x494e414dU
 #define CHUNK_ISBJ 0x4953424aU
 #define CHUNK_JUNK 0x4a554e4bU
 #define CHUNK_LIST 0x4c495354U
@@ -59,12 +60,13 @@ typedef struct localctx_struct {
 	u8 cmv_parse_hack;
 	u8 in_movi;
 	int in_movi_level;
+	de_ucstring *INAM_data;
 } lctx;
 
 static void do_extract_raw(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len, const char *ext,
-	unsigned int createflags)
+	de_finfo *fi, unsigned int createflags)
 {
-	dbuf_create_file_from_slice(ictx->f, pos, len, ext, NULL, createflags);
+	dbuf_create_file_from_slice(ictx->f, pos, len, ext, fi, createflags);
 }
 
 static void do_INFO_item(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len, u32 chunk_id)
@@ -76,9 +78,22 @@ static void do_INFO_item(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64
 	// TODO: Decode the chunk_id (e.g. ICRD = Creation date).
 
 	// TODO: Support the CSET chunk
-	dbuf_read_to_ucstring_n(ictx->f, pos, len, DE_DBG_MAX_STRLEN, s,
-		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_LATIN1);
-	de_dbg(c, "value: \"%s\"", ucstring_getpsz(s));
+	dbuf_read_to_ucstring_n(ictx->f, pos, len, 500, s,
+		DE_CONVFLAG_STOP_AT_NUL, ictx->input_encoding);
+	de_dbg(c, "value: \"%s\"", ucstring_getpsz_d(s));
+
+	if(chunk_id==CHUNK_INAM) { // Save for possible later use
+		if(d->INAM_data) {
+			ucstring_empty(d->INAM_data);
+		}
+		else {
+			d->INAM_data = ucstring_create(c);
+		}
+		if(s->len>64) {
+			ucstring_truncate(s, 64);
+		}
+		ucstring_append_ucstring(d->INAM_data, s);
+	}
 
 	ucstring_destroy(s);
 }
@@ -284,7 +299,7 @@ static void do_DISP_TEXT(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64
 	de_dbg(c, "text length: %d", (int)len);
 	if(len<1) return;
 
-	do_extract_raw(c, d, ictx, pos, len, "disp.txt", DE_CREATEFLAG_IS_AUX);
+	do_extract_raw(c, d, ictx, pos, len, "disp.txt", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
 static void do_ICCP(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
@@ -304,10 +319,22 @@ static void do_XMP(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 
 static void do_RDIB_data(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 {
-	if(!ictx->chunkctx->parent) return;
-	if(ictx->chunkctx->parent->user_flags & 0x1) return; // Extraction suppressed, or already done
+	de_finfo *fi = NULL;
+
+	if(!ictx->chunkctx->parent) goto done;
+	if(ictx->chunkctx->parent->user_flags & 0x1) goto done; // Extraction suppressed, or already done
 	ictx->chunkctx->parent->user_flags |= 0x1;
-	do_extract_raw(c, d, ictx, pos, len, "bmp", 0);
+
+	fi = de_finfo_create(c);
+	if(ucstring_isnonempty(d->INAM_data)) {
+		// In CorelMOVE format, at least, the INAM chunk seems to have a usable
+		// name for the RDIB bitmap.
+		de_finfo_set_name_from_ucstring(c, fi, d->INAM_data, 0);
+		ucstring_empty(d->INAM_data);
+	}
+	do_extract_raw(c, d, ictx, pos, len, "bmp", fi, 0);
+done:
+	de_finfo_destroy(c, fi);
 }
 
 static void do_RDIB_bmhd(deark *c, lctx *d, struct de_iffctx *ictx)
@@ -454,6 +481,13 @@ static int my_on_std_container_start_fn(struct de_iffctx *ictx)
 		}
 	}
 
+	if(chunktype==CHUNK_RIFF || chunktype==CHUNK_RIFX) {
+		// TODO: INAM data is probably not scoped entirely correctly.
+		if(d->INAM_data) {
+			ucstring_empty(d->INAM_data);
+		}
+	}
+
 	if(ictx->main_contentstype4cc.id==CODE_AVI && chunktype==CHUNK_LIST &&
 		formtype==CODE_movi)
 	{
@@ -578,7 +612,7 @@ static int my_riff_chunk_handler(struct de_iffctx *ictx)
 
 	case CHUNK_data:
 		if(list_type==CODE_RMID) {
-			do_extract_raw(c, d, ictx, dpos, dlen, "mid", 0);
+			do_extract_raw(c, d, ictx, dpos, dlen, "mid", NULL, 0);
 			ictx->handled = 1;
 		}
 		else if(list_type==CODE_PAL) {
@@ -645,13 +679,14 @@ static void de_run_riff(deark *c, de_module_params *mparams)
 	u8 buf[4];
 
 	d = de_malloc(c, sizeof(lctx));
-	ictx = fmtutil_create_iff_decoder(c);
 
+	ictx = fmtutil_create_iff_decoder(c);
 	ictx->userdata = (void*)d;
 	ictx->preprocess_chunk_fn = my_preprocess_riff_chunk_fn;
 	ictx->handle_chunk_fn = my_riff_chunk_handler;
 	ictx->on_std_container_start_fn = my_on_std_container_start_fn;
 	ictx->on_container_end_fn = my_on_container_end_fn;
+	ictx->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 	ictx->f = c->infile;
 
 	de_read(buf, 0, 4);
@@ -677,7 +712,10 @@ static void de_run_riff(deark *c, de_module_params *mparams)
 	fmtutil_read_iff_format(ictx, 0, ictx->f->len);
 
 	fmtutil_destroy_iff_decoder(ictx);
-	de_free(c, d);
+	if(d) {
+		ucstring_destroy(d->INAM_data);
+		de_free(c, d);
+	}
 }
 
 static int de_identify_riff(deark *c)
