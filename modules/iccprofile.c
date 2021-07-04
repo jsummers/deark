@@ -366,6 +366,60 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+static void do_dict_string(deark *c, struct typedec_params *p, i64 itempos, const char *itemname)
+{
+	de_ucstring *s = NULL;
+	i64 dpos_rel, dpos_abs, dlen;
+
+	dpos_rel = de_getu32be(itempos);
+	dpos_abs = p->pos1 + dpos_rel;
+	dlen = de_getu32be(itempos+4);
+	if(dpos_abs + dlen > p->pos1 + p->len) goto done;
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, dpos_abs, dlen, DE_DBG_MAX_STRLEN, s, 0, DE_ENCODING_UTF16BE);
+	de_dbg(c, "%s: dpos=%"I64_FMT", dlen=%"I64_FMT", string=\"%s\"", itemname, dpos_abs, dlen,
+		ucstring_getpsz_d(s));
+
+done:
+	ucstring_destroy(s);
+}
+
+static void typedec_dict(deark *c, struct typedec_params *p)
+{
+	i64 pos = p->pos1 + 8;
+	i64 nrec;
+	i64 reclen;
+	i64 i;
+
+	if(p->len<16) goto done;
+
+	nrec = de_getu32be_p(&pos);
+	de_dbg(c, "num records: %u", (UI)nrec);
+	reclen = de_getu32be_p(&pos);
+	de_dbg(c, "rec len: %u", (UI)reclen);
+	if(reclen!=16 && reclen!=24 && reclen!=32) goto done;
+	if(pos+nrec*reclen > p->pos1 + p->len) goto done;
+	if(nrec>MAX_TAGS_PER_TAGSET) goto done;
+
+	for(i=0; i<nrec; i++) {
+		do_dict_string(c, p, pos, "name");
+		pos += 8;
+		do_dict_string(c, p, pos, "value");
+		pos += 8;
+		if(reclen>=24) {
+			do_dict_string(c, p, pos, "display name");
+			pos += 8;
+		}
+		if(reclen>=32) {
+			do_dict_string(c, p, pos, "display value");
+			pos += 8;
+		}
+	}
+
+done:
+	;
+}
+
 static void typedec_hexdump(deark *c, struct typedec_params *p)
 {
 	UI rsvd;
@@ -388,7 +442,7 @@ static const struct datatypeinfo datatypeinfo_arr[] = {
 	{ 0x64657363U, 0, "textDescription", typedec_desc }, // desc
 	{ 0x64617461U, 0, "data", NULL }, // data
 	{ 0x64657673U, 0, "deviceSettings", NULL }, // devs
-	{ 0x64696374U, 0, "dictionary array", NULL }, // dict
+	{ 0x64696374U, 0, "dictionary array", typedec_dict }, // dict
 	{ 0x6474696dU, 0, "dateTime", NULL }, // dtim
 	{ 0x666c3136U, 0, "float16Array", NULL }, // fl16
 	{ 0x666c3332U, 0, "float32Array", NULL }, // fl32
