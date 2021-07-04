@@ -8,18 +8,24 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_iccprofile);
 
+#define MAX_TAGS_PER_TAGSET 500
+
 struct tag_seen_type {
-	i64 offset;
+	i64 offset; // relative to tagset_type::data_area_pos
 	i64 len;
+};
+
+struct tagset_type {
+	i64 data_area_pos;
+	i64 data_area_len;
+	i64 num_tags;
+	struct tag_seen_type *tags_seen;
 };
 
 typedef struct localctx_struct {
 	unsigned int profile_ver_major;
 	unsigned int profile_ver_minor;
 	unsigned int profile_ver_bugfix;
-
-	i64 num_tags;
-	struct tag_seen_type *tags_seen;
 } lctx;
 
 struct typedec_params {
@@ -47,6 +53,13 @@ struct taginfo {
 	const char *name;
 	void *reserved2;
 };
+
+static void destroy_tagset(deark *c, struct tagset_type *tgs)
+{
+	if(!tgs) return;
+	de_free(c, tgs->tags_seen);
+	de_free(c, tgs);
+}
 
 // flag 0x1: Include the hex value
 // flag 0x2: Interpret 0 as (none)
@@ -564,15 +577,15 @@ static const struct taginfo *lookup_taginfo(lctx *d, u32 id)
 	return NULL;
 }
 
-static int is_duplicate_data(deark *c, lctx *d, i64 tagindex,
-	i64 tagdataoffset, i64 tagdatalen,
+static int is_duplicate_data(deark *c, lctx *d, struct tagset_type *tgs,
+	i64 tagindex, i64 tagdataoffset, i64 tagdatalen,
 	i64 *idx_of_dup)
 {
 	i64 k;
 
-	for(k=0; k<tagindex; k++) {
-		if(d->tags_seen[k].offset==tagdataoffset &&
-			d->tags_seen[k].len==tagdatalen)
+	for(k=0; k<tagindex && k<tgs->num_tags; k++) {
+		if(tgs->tags_seen[k].offset==tagdataoffset &&
+			tgs->tags_seen[k].len==tagdatalen)
 		{
 			*idx_of_dup = k;
 			return 1;
@@ -583,8 +596,8 @@ static int is_duplicate_data(deark *c, lctx *d, i64 tagindex,
 	return 0;
 }
 
-static void do_tag_data(deark *c, lctx *d, i64 tagindex,
-	const struct de_fourcc *tag4cc, const struct taginfo *ti,
+// tagdataoffset is relative to tgs->data_area_pos
+static void do_tag_data(deark *c, lctx *d, struct tagset_type *tgs, i64 tagindex,
 	i64 tagdataoffset, i64 tagdatalen)
 {
 	struct de_fourcc tagtype4cc;
@@ -593,19 +606,20 @@ static void do_tag_data(deark *c, lctx *d, i64 tagindex,
 	i64 idx_of_dup;
 	char tmpbuf[80];
 
-	if(tagdatalen<1) return;
-	if(tagdataoffset+tagdatalen > c->infile->len) {
-		de_err(c, "Tag #%d data goes beyond end of file", (int)tagindex);
-		return;
+	if(tagindex >= tgs->num_tags) return;
+	if(tagdatalen<1) goto done;
+	if(tagdataoffset+tagdatalen > tgs->data_area_len) {
+		de_err(c, "Tag #%d data exceeds its bounds", (int)tagindex);
+		goto done;
 	}
-	if(is_duplicate_data(c, d, tagindex, tagdataoffset, tagdatalen, &idx_of_dup)) {
+	if(is_duplicate_data(c, d, tgs, tagindex, tagdataoffset, tagdatalen, &idx_of_dup)) {
 		de_dbg(c, "[data is a duplicate of tag #%d]", (int)idx_of_dup);
-		return;
+		goto done;
 	}
 
-	if(tagdatalen<4) return;
+	if(tagdatalen<4) goto done;
 
-	dbuf_read_fourcc(c->infile, tagdataoffset, &tagtype4cc, 4, 0x0);
+	dbuf_read_fourcc(c->infile, tgs->data_area_pos+tagdataoffset, &tagtype4cc, 4, 0x0);
 	dti = lookup_datatypeinfo(tagtype4cc.id);
 	if(dti && dti->name) dtname=dti->name;
 	else dtname="?";
@@ -615,7 +629,7 @@ static void do_tag_data(deark *c, lctx *d, i64 tagindex,
 	struct typedec_params tdp;
 	de_zeromem(&tdp, sizeof(struct typedec_params));
 	tdp.d = d;
-	tdp.pos1 = tagdataoffset;
+	tdp.pos1 = tgs->data_area_pos+tagdataoffset;
 	tdp.len = tagdatalen;
 	tdp.type_id = tagtype4cc.id;
 
@@ -625,9 +639,14 @@ static void do_tag_data(deark *c, lctx *d, i64 tagindex,
 	else if(c->debug_level>=2) {
 		typedec_hexdump(c, &tdp);
 	}
+
+done:
+	tgs->tags_seen[tagindex].offset = tagdataoffset;
+	tgs->tags_seen[tagindex].len = tagdatalen;
 }
 
-static void do_tag(deark *c, lctx *d, i64 tagindex, i64 pos_in_tagtable)
+static void do_main_tag(deark *c, lctx *d, struct tagset_type *tgs,
+	i64 tagindex, i64 pos_in_tagtable)
 {
 	struct de_fourcc tag4cc;
 	const struct taginfo *ti;
@@ -644,42 +663,43 @@ static void do_tag(deark *c, lctx *d, i64 tagindex, i64 pos_in_tagtable)
 		tname = ti->name;
 	else
 		tname = "?";
-	de_dbg(c, "tag #%d %s (%s) offs=%d dlen=%d", (int)tagindex,
+	de_dbg(c, "tag #%d %s (%s) tpos=%"I64_FMT" dpos=%"I64_FMT" dlen=%"I64_FMT, (int)tagindex,
 		format_4cc_dbgstr(&tag4cc, tmpbuf, sizeof(tmpbuf), 0x0), tname,
-		(int)tagdataoffset, (int)tagdatalen);
+		pos_in_tagtable, tgs->data_area_pos+tagdataoffset, tagdatalen);
 
 	de_dbg_indent(c, 1);
-	do_tag_data(c, d, tagindex, &tag4cc, ti, tagdataoffset, tagdatalen);
+	do_tag_data(c, d, tgs, tagindex, tagdataoffset, tagdatalen);
 	de_dbg_indent(c, -1);
-
-	d->tags_seen[tagindex].offset = tagdataoffset;
-	d->tags_seen[tagindex].len = tagdatalen;
 }
 
-static void do_read_tags(deark *c, lctx *d, i64 pos1)
+static void do_read_main_tags(deark *c, lctx *d, i64 pos1)
 {
 	i64 tagindex;
+	struct tagset_type *tgs = NULL;
 
-	de_dbg(c, "tag table at %d", (int)pos1);
+	de_dbg(c, "tag table at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
-	d->num_tags = de_getu32be(pos1);
-	de_dbg(c, "number of tags: %d", (int)d->num_tags);
-	if(d->num_tags>500) {
-		de_err(c, "Invalid or excessive number of tags: %d", (int)d->num_tags);
+	tgs = de_malloc(c, sizeof(struct tagset_type));
+	tgs->data_area_pos = 0;
+	tgs->data_area_len = c->infile->len;
+	tgs->num_tags = de_getu32be(pos1);
+	de_dbg(c, "number of tags: %d", (int)tgs->num_tags);
+	if(tgs->num_tags>MAX_TAGS_PER_TAGSET) {
+		de_err(c, "Invalid or excessive number of tags: %d", (int)tgs->num_tags);
 		goto done;
 	}
-	de_dbg(c, "expected start of data segment: %d", (int)(pos1+4+12*d->num_tags));
+	de_dbg(c, "expected start of data segment: %d", (int)(pos1+4+12*tgs->num_tags));
 
 	// Make a place to record some information about each tag we encounter in the table.
-	d->tags_seen = de_mallocarray(c, d->num_tags, sizeof(struct tag_seen_type));
+	tgs->tags_seen = de_mallocarray(c, tgs->num_tags, sizeof(struct tag_seen_type));
 
-	for(tagindex=0; tagindex<d->num_tags; tagindex++) {
-		do_tag(c, d, tagindex, pos1+4+12*tagindex);
+	for(tagindex=0; tagindex<tgs->num_tags; tagindex++) {
+		do_main_tag(c, d, tgs, tagindex, pos1+4+12*tagindex);
 	}
 
 done:
-	de_free(c, d->tags_seen);
+	destroy_tagset(c, tgs);
 	de_dbg_indent(c, -1);
 }
 
@@ -693,7 +713,7 @@ static void de_run_iccprofile(deark *c, de_module_params *mparams)
 	pos = 0;
 	do_read_header(c, d, pos);
 	pos += 128;
-	do_read_tags(c, d, pos);
+	do_read_main_tags(c, d, pos);
 
 	de_free(c, d);
 }
