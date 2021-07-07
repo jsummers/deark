@@ -24,10 +24,15 @@ struct tagset_type {
 	struct tag_seen_type *tags_seen;
 };
 
+struct XYZ_type {
+	double v[3];
+};
+
 typedef struct localctx_struct {
 	unsigned int profile_ver_major;
 	unsigned int profile_ver_minor;
 	unsigned int profile_ver_bugfix;
+	i64 profile_size;
 	char tmpbuf1[80];
 	char tmpbuf2[80];
 } lctx;
@@ -59,6 +64,47 @@ struct taginfo {
 	void *reserved2;
 };
 
+static double read_s15Fixed16Number(dbuf *f, i64 pos)
+{
+	i64 n, frac;
+
+	n = dbuf_geti16be(f, pos);
+	frac = dbuf_getu16be(f, pos+2);
+	return (double)n + ((double)frac)/65536.0;
+}
+
+static void dbg_timestamp(deark *c, i64 pos1, const char *name)
+{
+	i64 n[6];
+	i64 pos = pos1;
+	i64 i;
+	char timestamp_buf[64];
+
+	for(i=0; i<6; i++) {
+		n[i] = de_getu16be_p(&pos);
+	}
+
+	if(n[0]!=0) {
+		struct de_timestamp ts;
+
+		de_make_timestamp(&ts, n[0], n[1], n[2], n[3], n[4], n[5]);
+		ts.tzcode = DE_TZCODE_UTC;
+		de_dbg_timestamp_to_string(c, &ts, timestamp_buf, sizeof(timestamp_buf), 0);
+	}
+	else {
+		de_strlcpy(timestamp_buf, "(none)", sizeof(timestamp_buf));
+	}
+
+	de_dbg(c, "%s: %s", name, timestamp_buf);
+}
+
+static void read_XYZ(deark *c, i64 pos, struct XYZ_type *xyz)
+{
+	xyz->v[0] = read_s15Fixed16Number(c->infile, pos);
+	xyz->v[1] = read_s15Fixed16Number(c->infile, pos+4);
+	xyz->v[2] = read_s15Fixed16Number(c->infile, pos+8);
+}
+
 static void destroy_tagset(deark *c, struct tagset_type *tgs)
 {
 	if(!tgs) return;
@@ -87,29 +133,19 @@ static const char *format_4cc_dbgstr(const struct de_fourcc *tmp4cc,
 	return buf;
 }
 
-static double read_s15Fixed16Number(dbuf *f, i64 pos)
-{
-	i64 n, frac;
-
-	n = dbuf_geti16be(f, pos);
-	frac = dbuf_getu16be(f, pos+2);
-	return (double)n + ((double)frac)/65536.0;
-}
-
 static void typedec_XYZ(deark *c, struct typedec_params *p)
 {
 	i64 xyz_count;
 	i64 k;
-	double v[3];
 
 	if(p->len<8) return;
 	xyz_count = (p->len-8)/12;
 	for(k=0; k<xyz_count; k++) {
-		v[0] = read_s15Fixed16Number(c->infile, p->pos1+8+12*k);
-		v[1] = read_s15Fixed16Number(c->infile, p->pos1+8+12*k+4);
-		v[2] = read_s15Fixed16Number(c->infile, p->pos1+8+12*k+8);
+		struct XYZ_type xyz;
+
+		read_XYZ(c, p->pos1+8+12*k, &xyz);
 		de_dbg(c, "XYZ[%d]: %.5f, %.5f, %.5f", (int)k,
-			v[0], v[1], v[2]);
+			xyz.v[0], xyz.v[1], xyz.v[2]);
 	}
 }
 
@@ -561,15 +597,17 @@ static void do_read_header(deark *c, lctx *d, i64 pos)
 {
 	u32 profile_ver_raw;
 	i64 x;
+	u64 xu;
 	struct de_fourcc tmp4cc;
 	UI tmpflags;
 	const char *name;
+	struct XYZ_type xyz;
 
 	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	x = de_getu32be(pos+0);
-	de_dbg(c, "profile size: %d", (int)x);
+	d->profile_size = de_getu32be(pos+0);
+	de_dbg(c, "profile size: %"I64_FMT, d->profile_size);
 
 	dbuf_read_fourcc(c->infile, pos+4, &tmp4cc, 4, 0x0);
 	de_dbg(c, "preferred CMM type: %s",
@@ -599,7 +637,7 @@ static void do_read_header(deark *c, lctx *d, i64 pos)
 	de_dbg(c, "PCS: %s",
 		format_4cc_dbgstr(&tmp4cc, d->tmpbuf1, sizeof(d->tmpbuf1), tmpflags));
 
-	// TODO: pos=24-35 Date & time
+	dbg_timestamp(c, pos+24, "creation time");
 
 	dbuf_read_fourcc(c->infile, pos+36, &tmp4cc, 4, 0x0);
 	de_dbg(c, "file signature: %s",
@@ -609,7 +647,9 @@ static void do_read_header(deark *c, lctx *d, i64 pos)
 	de_dbg(c, "primary platform: %s",
 		format_4cc_dbgstr(&tmp4cc, d->tmpbuf1, sizeof(d->tmpbuf1), 0x3));
 
-	// TODO: pos=44-47 Profile flags
+	// TODO: Decode profile flags
+	x = de_getu32be(pos+44);
+	de_dbg(c, "profile flags: 0x%08x", (UI)x);
 
 	dbuf_read_fourcc(c->infile, pos+48, &tmp4cc, 4, 0x0);
 	de_dbg(c, "device manufacturer: %s",
@@ -619,7 +659,9 @@ static void do_read_header(deark *c, lctx *d, i64 pos)
 	de_dbg(c, "device model: %s",
 		format_4cc_dbgstr(&tmp4cc, d->tmpbuf1, sizeof(d->tmpbuf1), 0x3));
 
-	// TODO: pos=56-63 Device attributes
+	// TODO: Decode device attributes
+	xu = dbuf_getu64be(c->infile, pos+56);
+	de_dbg(c, "device attribs: 0x%016"U64_FMTx, xu);
 
 	x = de_getu32be(pos+64);
 	switch(x) {
@@ -631,7 +673,8 @@ static void do_read_header(deark *c, lctx *d, i64 pos)
 	}
 	de_dbg(c, "rendering intent: %d (%s)", (int)x, name);
 
-	// TODO: pos=68-79 PCS illuminant
+	read_XYZ(c, pos+68, &xyz);
+	de_dbg(c, "illuminant: %.5f, %.5f, %.5f", xyz.v[0], xyz.v[1], xyz.v[2]);
 
 	dbuf_read_fourcc(c->infile, pos+80, &tmp4cc, 4, 0x0);
 	de_dbg(c, "profile creator: %s",
@@ -770,7 +813,12 @@ static void do_read_main_tags(deark *c, lctx *d, i64 pos1)
 
 	tgs = de_malloc(c, sizeof(struct tagset_type));
 	tgs->data_area_pos = 0;
-	tgs->data_area_len = c->infile->len;
+	if(d->profile_size!=0) {
+		tgs->data_area_len = de_min_int(d->profile_size, c->infile->len);
+	}
+	else {
+		tgs->data_area_len = c->infile->len;
+	}
 	tgs->num_tags = de_getu32be(pos1);
 	de_dbg(c, "number of tags: %d", (int)tgs->num_tags);
 	if(tgs->num_tags>MAX_TAGS_PER_TAGSET) {
