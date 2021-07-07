@@ -447,7 +447,6 @@ struct de_iffchunkctx {
 	struct de_iffchunkctx *parent;
 
 	// To be filled in by identify_chunk_fn:
-	void *chunk_userdata;
 	const char *chunk_name;
 
 	// Other use:
@@ -462,7 +461,10 @@ struct de_iffctx {
 	dbuf *f; // Input file
 	de_handle_iff_chunk_fn handle_chunk_fn;
 	de_preprocess_iff_chunk_fn preprocess_chunk_fn;
+
+	// Called after the "FORM type" is read
 	de_on_std_iff_container_start_fn on_std_container_start_fn;
+
 	de_on_iff_container_end_fn on_container_end_fn;
 	de_handle_nonchunk_iff_data_fn handle_nonchunk_data_fn;
 	i64 alignment; // 0 = default
@@ -474,15 +476,15 @@ struct de_iffctx {
 
 	int level;
 
-	// Top-level container type:
+	// Info about the most-recent top-level container:
 	struct de_fourcc main_fmt4cc; // E.g. "FORM"
 	struct de_fourcc main_contentstype4cc; // E.g. "ILBM"
 
-	// Current container type:
+	// Current container:
 	struct de_fourcc curr_container_fmt4cc;
 	struct de_fourcc curr_container_contentstype4cc;
 
-	// Per-chunk info supplied to handle_chunk_fn:
+	// Per-chunk info supplied to chunk handling functions:
 	struct de_iffchunkctx *chunkctx;
 
 	// To be filled in by handle_chunk_fn:

@@ -278,7 +278,9 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx,
 
 			if(ictx->on_std_container_start_fn) {
 				// Call only for standard-format containers.
+				ictx->chunkctx = &chunkctx;
 				ret = ictx->on_std_container_start_fn(ictx);
+				ictx->chunkctx = NULL;
 				if(!ret) goto done;
 			}
 		}
@@ -299,8 +301,9 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx,
 			// TODO: Decide exactly what ictx->* fields to set here.
 			ictx->level = level;
 
-			ictx->chunkctx = NULL;
+			ictx->chunkctx = &chunkctx;
 			ret = ictx->on_container_end_fn(ictx);
+			ictx->chunkctx = NULL;
 			if(!ret) {
 				retval = 0;
 				goto done;
@@ -344,7 +347,10 @@ static int do_iff_chunk_sequence(deark *c, struct de_iffctx *ictx,
 
 		if(ictx->handle_nonchunk_data_fn) {
 			i64 skip_len = 0;
+
 			ictx->level = level;
+			// TODO: Currently, this is called unconditionally. Maybe we should
+			// only call it when it looks like there is non-chunk data.
 			ret = ictx->handle_nonchunk_data_fn(ictx, pos, &skip_len);
 			if(ret && skip_len>0) {
 				pos += de_pad_to_n(skip_len, ictx->alignment);
