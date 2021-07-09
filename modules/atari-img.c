@@ -21,6 +21,7 @@ DE_DECLARE_MODULE(de_module_atari_pi7);
 DE_DECLARE_MODULE(de_module_falcon_xga);
 DE_DECLARE_MODULE(de_module_coke);
 DE_DECLARE_MODULE(de_module_animatic);
+DE_DECLARE_MODULE(de_module_videomaster);
 
 static void fix_dark_pal(deark *c, struct atari_img_decode_data *adata);
 
@@ -1491,4 +1492,104 @@ void de_module_coke(deark *c, struct deark_module_info *mi)
 	mi->desc = "Atari Falcon COKE image (.TG1)";
 	mi->run_fn = de_run_coke;
 	mi->identify_fn = de_identify_coke;
+}
+
+// **************************************************************************
+// Video Master .FLM, etc. (Amiga & Atari ST)
+// **************************************************************************
+
+static void read_amiga_palette(deark *c, dbuf *f, i64 pos, de_color *dstpal)
+{
+	i64 i;
+
+	// This more-or-less duplicates code in abk.c, and may be worth consolidating
+	// someday.
+	for(i=0; i<16; i++) {
+		UI n;
+		u8 cr, cg, cb;
+		char tmps[64];
+
+		n = (UI)dbuf_getu16be(f, pos + 2*i);
+		cr = 17*(u8)((n>>8)&0x0f);
+		cg = 17*(u8)((n>>4)&0x0f);
+		cb = 17*(u8)(n&0x0f);
+		dstpal[i] = DE_MAKE_RGB(cr, cg, cb);
+		de_snprintf(tmps, sizeof(tmps), "0x%04x "DE_CHAR_RIGHTARROW" ", n);
+		de_dbg_pal_entry2(c, i, dstpal[i], tmps, NULL, NULL);
+	}
+}
+
+#define VMAS_FRAME_PAL_SIZE     32
+#define VMAS_FRAME_BITMAP_SIZE  8000
+#define VMAS_FRAME_TOTAL_SIZE   (VMAS_FRAME_PAL_SIZE+VMAS_FRAME_BITMAP_SIZE)
+
+static void de_run_videomaster(deark *c, de_module_params *mparams)
+{
+	struct atari_img_decode_data *adata = NULL;
+	de_finfo *fi = NULL;
+	i64 nframes;
+	i64 frameidx;
+	i64 frames_startpos;
+	i64 pos;
+	de_color pal[16];
+
+	nframes = de_getu16be(6);
+	de_dbg(c, "num frames: %u", (UI)nframes);
+	frames_startpos = 32;
+	if(frames_startpos + nframes*VMAS_FRAME_TOTAL_SIZE > c->infile->len) {
+		de_err(c, "Invalid or truncated file");
+		goto done;
+	}
+
+	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
+	adata->bpp = 4;
+	adata->w = 160;
+	adata->h = 100;
+	adata->pal = pal;
+	adata->ncolors = 16;
+	adata->unc_pixels = dbuf_create_membuf(c, VMAS_FRAME_BITMAP_SIZE, 0x1);
+	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
+	fi = de_finfo_create(c);
+	// This might not be the right aspect ratio in all cases, but I think it's
+	// probably better than nothing.
+	fmtutil_atari_set_standard_density(c, adata, fi);
+
+	pos = frames_startpos;
+	for(frameidx=0; frameidx<nframes; frameidx++) {
+		de_dbg(c, "frame #%d at %"I64_FMT, (int)frameidx, pos);
+
+		read_amiga_palette(c, c->infile, pos, adata->pal);
+		pos += VMAS_FRAME_PAL_SIZE;
+
+		dbuf_truncate(adata->unc_pixels, 0);
+		dbuf_copy(c->infile, pos, VMAS_FRAME_BITMAP_SIZE, adata->unc_pixels);
+		pos += VMAS_FRAME_BITMAP_SIZE;
+
+		fmtutil_atari_decode_image(c, adata);
+		de_bitmap_write_to_file_finfo(adata->img, fi, DE_CREATEFLAG_OPT_IMAGE);
+	}
+
+done:
+	if(adata) {
+		dbuf_close(adata->unc_pixels);
+		de_bitmap_destroy(adata->img);
+		de_free(c, adata);
+	}
+	de_finfo_destroy(c, fi);
+}
+
+static int de_identify_videomaster(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, (const void*)"VMAS1", 5)) {
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_videomaster(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "videomaster";
+	mi->desc = "Video Master (.flm/.vid/.vsq)";
+	mi->run_fn = de_run_videomaster;
+	mi->identify_fn = de_identify_videomaster;
 }
