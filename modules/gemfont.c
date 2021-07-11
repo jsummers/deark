@@ -43,6 +43,23 @@ static int do_characters(deark *c, lctx *d)
 	font_data = de_malloc(c, form_nbytes);
 	de_read(font_data, d->font_data_pos, form_nbytes);
 
+	if(d->byte_swap_flag) {
+		i64 z;
+
+		if(d->form_width_bytes%2) {
+			de_err(c, "Bad form width");
+			goto done;
+		}
+
+		for(z=0; z+1<form_nbytes; z+=2) {
+			u8 tmpb;
+
+			tmpb = font_data[z];
+			font_data[z] = font_data[z+1];
+			font_data[z+1] = tmpb;
+		}
+	}
+
 	for(i=0; i<d->font->num_chars; i++) {
 		ch = &d->font->char_array[i];
 		char_startpos = de_getu16le(d->char_offset_table_pos + 2*i);
@@ -130,13 +147,11 @@ static int do_header(deark *c, lctx *d)
 	de_dbg(c, "lightening mask: 0x%04x", (unsigned int)n);
 
 	font_flags = (unsigned int)de_getu16le(66);
+	de_dbg(c, "flags: 0x%04x", (UI)font_flags);
+	de_dbg_indent(c, 1);
 	d->byte_swap_flag = (font_flags & 0x04) ? 1 : 0;
-
 	de_dbg(c, "byte swap flag: %d", (int)d->byte_swap_flag);
-	if(d->byte_swap_flag) {
-		de_warn(c, "This font uses an unsupported byte-swap option, and might not be "
-			"decoded correctly.");
-	}
+	de_dbg_indent(c, -1);
 
 	n = de_getu32le(68);
 	de_dbg(c, "horiz. offset table offset: %u", (unsigned int)n);
