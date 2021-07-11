@@ -248,6 +248,7 @@
     <ClCompile Include="..\..\modules\mbk.c" />
     <ClCompile Include="..\..\modules\megapaint.c" />
     <ClCompile Include="..\..\modules\misc.c" />
+    <ClCompile Include="..\..\modules\misc2.c" />
     <ClCompile Include="..\..\modules\mp3.c" />
     <ClCompile Include="..\..\modules\mscompress.c" />
     <ClCompile Include="..\..\modules\msp.c" />
