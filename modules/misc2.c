@@ -157,9 +157,8 @@ static void de_run_bob(deark *c, de_module_params *mparams)
 	img = de_bitmap_create(c, w, h, 3);
 
 	// Read the palette
-	de_zeromem(pal, sizeof(pal));
 	p = 4;
-	de_read_palette_rgb(c->infile, p, 256, 3, pal, 256, 0);
+	de_read_simple_palette(c, c->infile, p, 256, 3, pal, 256, DE_RDPALTYPE_24BIT, 0);
 	p += 256*3;
 
 	// Read the bitmap
@@ -542,10 +541,7 @@ static void de_run_lss16(deark *c, de_module_params *mparams)
 	u8 n;
 	u8 prev;
 	i64 run_len;
-	u8 cr1, cg1, cb1;
-	u8 cr2, cg2, cb2;
 	u32 pal[16];
-	char tmps[64];
 
 	d = de_malloc(c, sizeof(struct lss16ctx));
 
@@ -556,20 +552,8 @@ static void de_run_lss16(deark *c, de_module_params *mparams)
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 
 	d->pos += 4;
-	for(i=0; i<16; i++) {
-		cr1 = de_getbyte(d->pos);
-		cg1 = de_getbyte(d->pos+1);
-		cb1 = de_getbyte(d->pos+2);
-		// Palette samples are from [0 to 63]. Convert to [0 to 255].
-		cr2 = de_scale_63_to_255(cr1);
-		cg2 = de_scale_63_to_255(cg1);
-		cb2 = de_scale_63_to_255(cb1);
-		pal[i] = DE_MAKE_RGB(cr2, cg2, cb2);
-		de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) "DE_CHAR_RIGHTARROW" ",
-			(int)cr1, (int)cg1, (int)cb1);
-		de_dbg_pal_entry2(c, i, pal[i], tmps, NULL, NULL);
-		d->pos+=3;
-	}
+	de_read_simple_palette(c, c->infile, d->pos, 16, 3, pal, 16, DE_RDPALTYPE_VGA18BIT, 0);
+	d->pos += 16*3;
 
 	img = de_bitmap_create(c, width, height, 3);
 

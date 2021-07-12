@@ -874,10 +874,19 @@ void de_convert_and_write_image_bilevel2(dbuf *f, i64 fpos,
 	i64 w, i64 h, i64 rowspan, unsigned int cvtflags,
 	de_finfo *fi, unsigned int createflags);
 
-void de_read_palette_rgb(dbuf *f,
+void de_read_palette_rgb(dbuf *f, // deprecated, use de_read_simple_palette
 	i64 fpos, i64 num_entries, i64 entryspan,
 	de_color *pal, i64 ncolors_in_pal,
 	unsigned int flags);
+#define DE_RDPALTYPE_24BIT       1
+#define DE_RDPALTYPE_VGA18BIT    2
+#define DE_RDPALTYPE_AMIGA12BIT  3
+#define DE_RDPALFLAG_BGR         0x01
+#define DE_RDPALFLAG_NOHEADER    0x08
+#define DE_RDPALFLAG_INITPAL     0x10
+void de_read_simple_palette(deark *c, dbuf *f, i64 fpos,
+	i64 num_entries_in_file, i64 entryspan,
+	de_color *pal, i64 ncolors_in_pal, UI paltype, UI flags);
 
 // Utility function that will work for many of the common kinds of paletted images.
 void de_convert_image_paletted(dbuf *f, i64 fpos,

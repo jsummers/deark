@@ -1498,27 +1498,6 @@ void de_module_coke(deark *c, struct deark_module_info *mi)
 // Video Master .FLM, etc. (Amiga & Atari ST)
 // **************************************************************************
 
-static void read_amiga_palette(deark *c, dbuf *f, i64 pos, de_color *dstpal)
-{
-	i64 i;
-
-	// This more-or-less duplicates code in abk.c, and may be worth consolidating
-	// someday.
-	for(i=0; i<16; i++) {
-		UI n;
-		u8 cr, cg, cb;
-		char tmps[64];
-
-		n = (UI)dbuf_getu16be(f, pos + 2*i);
-		cr = 17*(u8)((n>>8)&0x0f);
-		cg = 17*(u8)((n>>4)&0x0f);
-		cb = 17*(u8)(n&0x0f);
-		dstpal[i] = DE_MAKE_RGB(cr, cg, cb);
-		de_snprintf(tmps, sizeof(tmps), "0x%04x "DE_CHAR_RIGHTARROW" ", n);
-		de_dbg_pal_entry2(c, i, dstpal[i], tmps, NULL, NULL);
-	}
-}
-
 #define VMAS_FRAME_PAL_SIZE     32
 #define VMAS_FRAME_BITMAP_SIZE  8000
 #define VMAS_FRAME_TOTAL_SIZE   (VMAS_FRAME_PAL_SIZE+VMAS_FRAME_BITMAP_SIZE)
@@ -1557,16 +1536,18 @@ static void de_run_videomaster(deark *c, de_module_params *mparams)
 	pos = frames_startpos;
 	for(frameidx=0; frameidx<nframes; frameidx++) {
 		de_dbg(c, "frame #%d at %"I64_FMT, (int)frameidx, pos);
-
-		read_amiga_palette(c, c->infile, pos, adata->pal);
+		de_dbg_indent(c, 1);
+		de_read_simple_palette(c, c->infile, pos, 16, 2, adata->pal, 16, DE_RDPALTYPE_AMIGA12BIT, 0);
 		pos += VMAS_FRAME_PAL_SIZE;
 
+		de_dbg(c, "bitmap at %"I64_FMT, pos);
 		dbuf_truncate(adata->unc_pixels, 0);
 		dbuf_copy(c->infile, pos, VMAS_FRAME_BITMAP_SIZE, adata->unc_pixels);
 		pos += VMAS_FRAME_BITMAP_SIZE;
 
 		fmtutil_atari_decode_image(c, adata);
 		de_bitmap_write_to_file_finfo(adata->img, fi, DE_CREATEFLAG_OPT_IMAGE);
+		de_dbg_indent(c, -1);
 	}
 
 done:
