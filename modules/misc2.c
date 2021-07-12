@@ -88,7 +88,7 @@ static void de_run_xpuzzle(deark *c, de_module_params *mparams)
 {
 	struct xpuzzctx *d = NULL;
 	de_bitmap *img = NULL;
-	u32 pal[256];
+	de_color pal[256];
 	i64 p;
 
 	d = de_malloc(c, sizeof(struct xpuzzctx));
@@ -98,9 +98,9 @@ static void de_run_xpuzzle(deark *c, de_module_params *mparams)
 	img = de_bitmap_create(c, d->w, d->h, 3);
 
 	// Read the palette
-	de_zeromem(pal, sizeof(pal));
 	p = 9;
-	de_read_palette_rgb(c->infile, p, d->palentries, 3, pal, 256, 0);
+	de_read_simple_palette(c, c->infile, p, d->palentries, 3, pal, 256,
+		DE_RDPALTYPE_24BIT, DE_RDPALFLAG_INITPAL);
 	p += 3*d->palentries;
 
 	// Read the bitmap
@@ -1099,7 +1099,7 @@ static void de_run_hsiraw(deark *c, de_module_params *mparams)
 	i64 cmpr;
 	i64 alpha_info;
 	de_bitmap *img = NULL;
-	u32 pal[256];
+	de_color pal[256];
 	int is_grayscale;
 
 	ver = de_getu16be(6);
@@ -1140,7 +1140,8 @@ static void de_run_hsiraw(deark *c, de_module_params *mparams)
 		is_grayscale = 0;
 	}
 	else { // 8-bit paletted
-		de_read_palette_rgb(c->infile, pos, num_pal_colors, 3, pal, 256, 0);
+		de_read_simple_palette(c, c->infile, pos, num_pal_colors, 3, pal, 256,
+			DE_RDPALTYPE_24BIT, 0);
 		pos += 3*num_pal_colors;
 		is_grayscale = de_is_grayscale_palette(pal, num_pal_colors);
 	}
@@ -1185,7 +1186,7 @@ static void de_run_qdv(deark *c, de_module_params *mparams)
 	i64 num_pal_colors;
 	i64 pos;
 	de_bitmap *img = NULL;
-	u32 pal[256];
+	de_color pal[256];
 
 	// Warning: This decoder is based on reverse engineering, and may be
 	// incorrect or incomplete.
@@ -1199,8 +1200,8 @@ static void de_run_qdv(deark *c, de_module_params *mparams)
 	de_dbg(c, "number of palette colors: %d", (int)num_pal_colors);
 
 	pos = 5;
-	de_zeromem(pal, sizeof(pal));
-	de_read_palette_rgb(c->infile, pos, num_pal_colors, 3, pal, 256, 0);
+	de_read_simple_palette(c, c->infile, pos, num_pal_colors, 3, pal, 256,
+		DE_RDPALTYPE_24BIT, DE_RDPALFLAG_INITPAL);
 	pos += 3*num_pal_colors;
 
 	img = de_bitmap_create(c, w, h, 3);
