@@ -29,6 +29,7 @@ DE_DECLARE_MODULE(de_module_lumena_cel);
 DE_DECLARE_MODULE(de_module_gws_thn);
 DE_DECLARE_MODULE(de_module_deskmate_pnt);
 DE_DECLARE_MODULE(de_module_mdesk_icn);
+DE_DECLARE_MODULE(de_module_animator_pic);
 
 // **************************************************************************
 // HP 100LX / HP 200LX .ICN icon format
@@ -1647,4 +1648,64 @@ void de_module_mdesk_icn(deark *c, struct deark_module_info *mi)
 	mi->desc = "Magic Desk icon";
 	mi->run_fn = de_run_mdesk_icn;
 	mi->identify_fn = de_identify_mdesk_icn;
+}
+
+// **************************************************************************
+// Autodesk Animator PIC/CEL
+// **************************************************************************
+
+static void de_run_animator_pic(deark *c, de_module_params *mparams)
+{
+	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
+	i64 pos = 2;
+	i64 w, h;
+	i64 imgsize;
+	de_color pal[256];
+
+	w = de_getu16le_p(&pos);
+	h = de_getu16le_p(&pos);
+	de_dbg_dimensions(c, w, h);
+	if(!de_good_image_dimensions(c, w, h)) goto done;
+	pos += 4; // xcoord/ycoord
+	pos += 1; // depth
+	pos += 1; // compression type
+	imgsize = de_getu32le_p(&pos);
+	de_dbg(c, "image size: %"I64_FMT, imgsize);
+	pos += 16;
+	de_read_simple_palette(c, c->infile, pos, 256, 3, pal, 256, DE_RDPALTYPE_VGA18BIT, 0);
+	pos += 3*256;
+
+	fi = de_finfo_create(c);
+	fi->density.code = DE_DENSITY_UNK_UNITS;
+	fi->density.xdens = 240.0;
+	fi->density.ydens = 200.0;
+	img = de_bitmap_create(c, w, h, 3);
+	de_convert_image_paletted(c->infile, pos, 8, w, pal, img, 0);;
+	de_bitmap_write_to_file_finfo(img, fi, 0);
+
+done:
+	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
+}
+
+static int de_identify_animator_pic(deark *c)
+{
+	if(de_getu16le(0)!=0x9119) return 0;
+	if(de_getbyte(10)!=0x08) return 0;
+	if(de_getbyte(11)!=0x00) return 0;
+	if(de_input_file_has_ext(c, "pic") ||
+		de_input_file_has_ext(c, "cel"))
+	{
+		return 100;
+	}
+	return 80;
+}
+
+void de_module_animator_pic(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "animator_pic";
+	mi->desc = "Autodesk Animator PIC/CEL";
+	mi->run_fn = de_run_animator_pic;
+	mi->identify_fn = de_identify_animator_pic;
 }

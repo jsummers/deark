@@ -35,6 +35,9 @@ Deark -- Information about supported formats
   Options
    -opt atari:palbits=<n> (refer to readme.md)
 
+* Animator PIC/CEL (module="animator_pic")
+  Format used by the original Autodesk Animator.
+
 * ANSI Art (module="ansiart")
   - Autodetection usually works, but not always. You may have to use
      "-m ansiart" or "-m ansi".
