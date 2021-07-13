@@ -133,6 +133,22 @@ static const char *format_4cc_dbgstr(const struct de_fourcc *tmp4cc,
 	return buf;
 }
 
+static void typedec_sf32(deark *c, struct typedec_params *p)
+{
+	i64 count;
+	i64 i;
+	i64 pos = p->pos1 + 8;
+	double val;
+
+	if(p->len<8) return;
+	count = (p->len-8)/4;
+	for(i=0; i<count && i<64; i++) {
+		val = read_s15Fixed16Number(c->infile, pos);
+		pos += 4;
+		de_dbg(c, "arr[%d] = %.5f", (int)i, val);
+	}
+}
+
 static void typedec_XYZ(deark *c, struct typedec_params *p)
 {
 	i64 xyz_count;
@@ -497,7 +513,7 @@ static const struct datatypeinfo datatypeinfo_arr[] = {
 	{ 0x70736571U, 0, "profileSequenceDesc", NULL }, // pseq
 	{ 0x70736964U, 0, "profileSequenceIdentifier", NULL }, // psid
 	{ 0x72637332U, 0, "responseCurveSet16", NULL }, // rcs2
-	{ 0x73663332U, 0, "s15Fixed16Array", NULL }, // sf32
+	{ 0x73663332U, 0, "s15Fixed16Array", typedec_sf32 }, // sf32
 	{ 0x7363726eU, 0, "screening", NULL }, // scrn
 	{ 0x73696720U, 0, "signature", NULL }, // sig
 	{ 0x7376636eU, 0, "spectralViewingConditions", NULL }, // svcn
@@ -554,7 +570,7 @@ static const struct taginfo taginfo_arr[] = {
 	{ 0x646d6464U, 0, "deviceModelDesc", NULL }, // dmdd
 	{ 0x646d6e64U, 0, "deviceMfgDesc", NULL }, // dmnd
 	{ 0x67616d74U, 0, "gamut", NULL }, // gamt
-	{ 0x67626431U, 0, "amutBoundaryDescription1", NULL }, // gbd1
+	{ 0x67626431U, 0, "gamutBoundaryDescription1", NULL }, // gbd1
 	{ 0x67545243U, 0, "greenTRC", NULL }, // gTRC
 	{ 0x6758595aU, 0x1, "greenColorant", NULL }, // gXYZ
 	{ 0x6758595aU, 0x2, "greenMatrixColumn", NULL }, // gXYZ
