@@ -196,7 +196,6 @@
     <ClCompile Include="..\..\modules\bsave.c" />
     <ClCompile Include="..\..\modules\cab.c" />
     <ClCompile Include="..\..\modules\cardfile.c" />
-    <ClCompile Include="..\..\modules\ccx.c" />
     <ClCompile Include="..\..\modules\cfb.c" />
     <ClCompile Include="..\..\modules\corel.c" />
     <ClCompile Include="..\..\modules\cpio.c" />

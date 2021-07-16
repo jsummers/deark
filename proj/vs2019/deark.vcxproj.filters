@@ -460,9 +460,6 @@
     <ClCompile Include="..\..\src\fmtutil-zip.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\modules\ccx.c">
-      <Filter>Modules</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\src\fmtutil-lzw.c">
       <Filter>Source Files</Filter>
     </ClCompile>
