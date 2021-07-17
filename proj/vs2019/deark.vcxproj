@@ -269,6 +269,7 @@
     <ClCompile Include="..\..\modules\pff2.c" />
     <ClCompile Include="..\..\modules\pict.c" />
     <ClCompile Include="..\..\modules\pkfont.c" />
+    <ClCompile Include="..\..\modules\pkm.c" />
     <ClCompile Include="..\..\modules\plist.c" />
     <ClCompile Include="..\..\modules\png.c" />
     <ClCompile Include="..\..\modules\pnm.c" />

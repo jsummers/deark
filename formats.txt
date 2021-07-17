@@ -399,9 +399,7 @@ Deark -- Information about supported formats
 * PICT (Macintosh image) (module="pict")
   - Extract bitmap images.
 
-* PM (module="pm_xv") (experimental/incomplete)
-  This is an obscure format supported by XV and XnView.
-  - Supports 24-bit truecolor, and 8-bit grayscale
+* PKM (GrafX2 image) (module="pkm")
 
 * PNG / MNG / JNG (module="png")
   - Extract XMP data.
