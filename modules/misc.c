@@ -22,7 +22,7 @@ DE_DECLARE_MODULE(de_module_zbr);
 DE_DECLARE_MODULE(de_module_compress);
 DE_DECLARE_MODULE(de_module_hpi);
 DE_DECLARE_MODULE(de_module_dwc);
-DE_DECLARE_MODULE(de_module_ttcomp);
+DE_DECLARE_MODULE(de_module_dclimplode);
 
 // **************************************************************************
 // "copy" module
@@ -932,10 +932,10 @@ void de_module_dwc(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
-// TTComp
+// PKWARE DCL Implode compressed file
 // **************************************************************************
 
-static void de_run_ttcomp(deark *c, de_module_params *mparams)
+static void de_run_dclimplode(deark *c, de_module_params *mparams)
 {
 	dbuf *outf = NULL;
 	struct de_dfilter_in_params dcmpri;
@@ -957,7 +957,7 @@ static void de_run_ttcomp(deark *c, de_module_params *mparams)
 	dbuf_close(outf);
 }
 
-static int de_identify_ttcomp(deark *c)
+static int de_identify_dclimplode(deark *c)
 {
 	u8 b0, b1;
 
@@ -982,10 +982,11 @@ static int de_identify_ttcomp(deark *c)
 	return 0;
 }
 
-void de_module_ttcomp(deark *c, struct deark_module_info *mi)
+void de_module_dclimplode(deark *c, struct deark_module_info *mi)
 {
-	mi->id = "ttcomp";
-	mi->desc = "TTComp";
-	mi->run_fn = de_run_ttcomp;
-	mi->identify_fn = de_identify_ttcomp;
+	mi->id = "dclimplode";
+	mi->id_alias[0] = "ttcomp";
+	mi->desc = "PKWARE DCL Implode compressed file";
+	mi->run_fn = de_run_dclimplode;
+	mi->identify_fn = de_identify_dclimplode;
 }
