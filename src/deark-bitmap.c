@@ -550,7 +550,7 @@ void de_unpack_pixels_bilevel_from_byte(de_bitmap *img, i64 xpos, i64 ypos,
 		}
 
 		x ^= xv;
-		if(x==0x00 && DE_CVTF_ONLYWHITE) continue;
+		if(x==0x00 && (flags & DE_CVTF_ONLYWHITE)) continue;
 		de_bitmap_setpixel_gray(img, xpos+(i64)i, ypos, x);
 	}
 }
@@ -665,7 +665,7 @@ void de_read_simple_palette(deark *c, dbuf *f, i64 fpos,
 	char tmps[64];
 
 	if(flags & DE_RDPALFLAG_INITPAL) {
-		de_zeromem(pal, ncolors_to_save*sizeof(de_color));
+		de_zeromem(pal, (size_t)ncolors_to_save*sizeof(de_color));
 	}
 
 	if(!(flags & DE_RDPALFLAG_NOHEADER)) {
