@@ -774,6 +774,9 @@ static int deflate_block_type2_read_trees(deark *c, struct lzh_ctx *cctx)
 	UI n;
 	UI i;
 	UI num_total_codes;
+	UI num_literal_codes;
+	UI num_dist_codes;
+	UI num_bit_length_codes;
 	int retval = 0;
 	int ret;
 	static const u8 cll_order[19] = {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11,
@@ -788,15 +791,15 @@ static int deflate_block_type2_read_trees(deark *c, struct lzh_ctx *cctx)
 	de_zeromem(cll, sizeof(cll));
 
 	n = (UI)lzh_getbits(cctx, 5);
-	UI num_literal_codes = n + 257;
+	num_literal_codes = n + 257;
 	de_dbg2(c, "num lit/len codes: %u", num_literal_codes);
 
 	n = (UI)lzh_getbits(cctx, 5);
-	UI num_dist_codes = n + 1;
+	num_dist_codes = n + 1;
 	de_dbg2(c, "num dist codes: %u", num_dist_codes);
 
 	n = (UI)lzh_getbits(cctx, 4);
-	UI num_bit_length_codes = n + 4;
+	num_bit_length_codes = n + 4;
 	de_dbg2(c, "num bit-length codes: %u", num_bit_length_codes);
 
 	// "Meta" tree - An unencoded sequence of Huffman code lengths, used
@@ -951,11 +954,13 @@ static int lzh_copy_aligned_bytes(deark *c, struct lzh_ctx *cctx, i64 nbytes_to_
 
 	de_bitreader_skip_to_byte_boundary(&cctx->bitrd);
 	while(nbytes_left_to_copy>0) {
+		u8 b;
+
 		if(cctx->bitrd.curpos >= cctx->bitrd.endpos) {
 			cctx->bitrd.eof_flag = 1;
 			goto done;
 		}
-		u8 b = dbuf_getbyte_p(cctx->bitrd.f, &cctx->bitrd.curpos);
+		b = dbuf_getbyte_p(cctx->bitrd.f, &cctx->bitrd.curpos);
 		de_lz77buffer_add_literal_byte(cctx->ringbuf, b);
 		nbytes_left_to_copy--;
 	}

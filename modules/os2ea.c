@@ -175,6 +175,7 @@ static int eadata_do_attribute(deark *c, struct eadata_ctx *d, i64 pos1, i64 max
 	i64 namelen;
 	i64 attr_dpos;
 	i64 attr_dlen;
+	i64 tmpbc;
 	UI attr_dtype;
 	i64 pos = pos1;
 	int retval = 0;
@@ -194,7 +195,7 @@ static int eadata_do_attribute(deark *c, struct eadata_ctx *d, i64 pos1, i64 max
 	attr_dtype = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "data type: 0x%04x (%s)", attr_dtype, eadata_get_data_type_name(attr_dtype));
 
-	i64 tmpbc = 0;
+	tmpbc = 0;
 	eadata_do_attribute_lowlevel(c, d, attr_dtype, attr_dpos+2, attr_dlen-2, &tmpbc, 0);
 
 	pos = attr_dpos + attr_dlen;
@@ -387,10 +388,11 @@ static void de_run_eadata(deark *c, de_module_params *mparams)
 	UI ea_id = 0;
 	i64 pos;
 	const char *s;
+	struct eadata_ctx *d = NULL;
 
 	de_declare_fmt(c, "OS/2 extended attributes data");
 
-	struct eadata_ctx *d = de_malloc(c, sizeof(struct eadata_ctx));
+	d = de_malloc(c, sizeof(struct eadata_ctx));
 
 	if(de_havemodcode(c, mparams, 'L')) {
 		d->createflags_for_icons = DE_CREATEFLAG_IS_AUX;

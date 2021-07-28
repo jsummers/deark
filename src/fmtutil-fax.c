@@ -526,12 +526,13 @@ static void do_decompress_fax34(deark *c, struct fax_ctx *fc,
 			}
 
 			if(val==FAX1D_8ZEROES) {
+				i64 nbits_read;
+
 				if(!fc->has_eol_codes || fc->f2d_h_codes_remaining!=0) {
 					de_strlcpy(errmsg, errmsg_HUFFDECODEERR, sizeof(errmsg));
 					goto done;
 				}
 
-				i64 nbits_read;
 				if(!fax34_finish_sync(c, fc, 64, &nbits_read)) {
 					de_strlcpy(errmsg, errmsg_NOEOL, sizeof(errmsg));
 					goto done;

@@ -303,10 +303,8 @@ The C language version that Deark uses is not rigidly defined, but it should
 be compatible with most modern compilers, without special options.
 
 It is mostly compatible with a rather old version of C, almost C89 but with
-"//" comments. But that's subject to change. For instance, putting declarations
-only at the beginning of functions is no longer required (Deark used to be
-tested on a compiler that required it), though it is still often done out of
-habit.
+"//" comments. But that's subject to change. Using "-std=c99", and allowing
+declarations after code, is being considered.
 
 ### Other notes ###
 
