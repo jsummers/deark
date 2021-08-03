@@ -643,7 +643,7 @@ int fmtutil_huffman_record_a_code_length(deark *c, struct fmtutil_huffman_code_b
 #define FMTUTIL_MCTFLAG_LEFT_ALIGN_BRANCHES   0x1
 #define FMTUTIL_MCTFLAG_LAST_CODE_FIRST       0x2 // Pretend codes were added in the reverse order
 int fmtutil_huffman_make_canonical_code(deark *c, struct fmtutil_huffman_codebook *bk,
-	struct fmtutil_huffman_code_builder *builder, UI flags);
+	struct fmtutil_huffman_code_builder *builder, UI flags, const char *title);
 
 typedef void (*fmtutil_lz77buffer_cb_type)(struct de_lz77buffer *rb, u8 n);
 
