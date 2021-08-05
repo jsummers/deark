@@ -1455,14 +1455,15 @@ done:
 	de_free(c, cmds);
 }
 
-static int my_vdat_chunk_handler(deark *c, struct de_iffctx *ictx)
+static int my_vdat_chunk_handler(struct de_iffctx *ictx)
 {
+	deark *c = ictx->c;
 	struct vdat_ctx *vdctx = (struct vdat_ctx*)ictx->userdata;
 
-	ictx->handled = 1;
 	if(ictx->chunkctx->chunk4cc.id != CODE_VDAT) {
 		goto done;
 	}
+	ictx->handled = 1;
 
 	if(vdctx->vdat_chunk_count >= vdctx->ibi->planes_total) goto done;
 	do_vdat_chunk(c, vdctx, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
@@ -1486,13 +1487,13 @@ static int decompress_method2(deark *c, lctx *d, struct imgbody_info *ibi,
 	vdctx.ibi = ibi;
 	vdctx.unc_pixels = unc_pixels;
 
-	ictx_vdat = de_malloc(c, sizeof(struct de_iffctx));
+	ictx_vdat = fmtutil_create_iff_decoder(c);
 	ictx_vdat->userdata = (void*)&vdctx;
 	ictx_vdat->handle_chunk_fn = my_vdat_chunk_handler;
 	ictx_vdat->f = c->infile;
-	fmtutil_read_iff_format(c, ictx_vdat, pos, len);
+	fmtutil_read_iff_format(ictx_vdat, pos, len);
 
-	de_free(c, ictx_vdat);
+	fmtutil_destroy_iff_decoder(ictx_vdat);
 	return 1;
 }
 
@@ -2225,22 +2226,15 @@ static void on_frame_end(deark *c, lctx *d)
 	d->num_frames_finished++;
 }
 
-static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
+static int my_iff_chunk_handler(struct de_iffctx *ictx)
 {
+	deark *c = ictx->c;
 	int quitflag = 0;
-	int saved_indent_level;
 	lctx *d = (lctx*)ictx->userdata;
-
-	de_dbg_indent_save(c, &saved_indent_level);
 
 	if(d->num_frames_finished >= ANIM_MAX_FRAMES) {
 		quitflag = 1;
 		goto done;
-	}
-
-	// Pretend we can handle all nonstandard chunks
-	if(!fmtutil_is_standard_iff_chunk(c, ictx, ictx->chunkctx->chunk4cc.id)) {
-		ictx->handled = 1;
 	}
 
 	// Chunks that we support even if they are not in FORM:ILBM, FORM:PBM, etc. chunk.
@@ -2262,6 +2256,7 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	switch(ictx->chunkctx->chunk4cc.id) {
 	case CODE_BMHD:
+		ictx->handled = 1;
 		if(!do_bmhd(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen)) {
 			d->errflag = 1;
 			goto done;
@@ -2270,22 +2265,27 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	case CODE_ANHD:
 		do_anim_anhd(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		ictx->handled = 1;
 		break;
 
 	case CODE_CMAP:
 		do_cmap(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		ictx->handled = 1;
 		break;
 
 	case CODE_CAMG:
 		do_camg(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		ictx->handled = 1;
 		break;
 
 	case CODE_BODY:
 	case CODE_ABIT:
+		ictx->handled = 1;
 		do_body_or_abit(c, d, ictx, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		break;
 
 	case CODE_DLTA:
+		ictx->handled = 1;
 		if(ictx->curr_container_contentstype4cc.id != CODE_ILBM) {
 			d->errflag = 1;
 			goto done;
@@ -2295,25 +2295,32 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	case CODE_TINY:
 		do_tiny(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		ictx->handled = 1;
 		break;
 
 	case CODE_DPI:
 		do_dpi(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		ictx->handled = 1;
 		break;
 	case CODE_GRAB:
 		do_grab(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		ictx->handled = 1;
 		break;
 	case CODE_DPAN:
 		do_dpan(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		ictx->handled = 1;
 		break;
 	case CODE_CRNG:
 		do_crng(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		ictx->handled = 1;
 		break;
 	case CODE_DRNG:
 		do_drng(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		ictx->handled = 1;
 		break;
 	case CODE_CCRT:
 		do_ccrt(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		ictx->handled = 1;
 		break;
 	case CODE_SHAM:
 		d->is_sham = 1;
@@ -2336,6 +2343,7 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 		break;
 	case CODE_ANSQ:
 		do_ansq(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		ictx->handled = 1;
 		break;
 	case CODE_SBDY:
 		if(d->is_anim && !d->found_audio) {
@@ -2347,11 +2355,10 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 	}
 
 done:
-	de_dbg_indent_restore(c, saved_indent_level);
 	return (quitflag) ? 0 : 1;
 }
 
-static int my_preprocess_iff_chunk_fn(deark *c, struct de_iffctx *ictx)
+static int my_preprocess_iff_chunk_fn(struct de_iffctx *ictx)
 {
 	lctx *d = (lctx*)ictx->userdata;
 	const char *name = NULL;
@@ -2378,14 +2385,12 @@ static int my_preprocess_iff_chunk_fn(deark *c, struct de_iffctx *ictx)
 	if(name) {
 		ictx->chunkctx->chunk_name = name;
 	}
-	else {
-		fmtutil_default_iff_chunk_identify(c, ictx);
-	}
 	return 1;
 }
 
-static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
+static int my_on_std_container_start_fn(struct de_iffctx *ictx)
 {
+	deark *c = ictx->c;
 	lctx *d = (lctx*)ictx->userdata;
 
 	if(ictx->level==d->FORM_level) {
@@ -2449,7 +2454,7 @@ static void do_eof_stuff(deark *c, lctx *d)
 	}
 }
 
-static int my_on_container_end_fn(deark *c, struct de_iffctx *ictx)
+static int my_on_container_end_fn(struct de_iffctx *ictx)
 {
 	if(ictx->level==0) {
 		// Stop after the first top-level chunk (the FORM chunk).
@@ -2567,7 +2572,8 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 
 	d->FORM_level = d->is_anim ? 1 : 0;
 
-	ictx = de_malloc(c, sizeof(struct de_iffctx));
+	ictx = fmtutil_create_iff_decoder(c);
+	ictx->has_standard_iff_chunks = 1;
 	ictx->userdata = (void*)d;
 	ictx->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
 	ictx->handle_chunk_fn = my_iff_chunk_handler;
@@ -2575,7 +2581,7 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 	ictx->on_std_container_start_fn = my_on_std_container_start_fn;
 	ictx->on_container_end_fn = my_on_container_end_fn;
 	ictx->f = c->infile;
-	fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
+	fmtutil_read_iff_format(ictx, 0, c->infile->len);
 
 	if(d->frctx) {
 		on_frame_end(c, d);
@@ -2584,7 +2590,7 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 	print_summary(c, d);
 
 done:
-	de_free(c, ictx);
+	fmtutil_destroy_iff_decoder(ictx);
 	if(d) {
 		destroy_frame(c, d, d->frctx);
 		destroy_frame(c, d, d->oldfrctx[0]);

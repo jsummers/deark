@@ -460,9 +460,6 @@
     <ClCompile Include="..\..\src\fmtutil-zip.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\modules\ccx.c">
-      <Filter>Modules</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\src\fmtutil-lzw.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -515,6 +512,18 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\..\modules\dlmaker.c">
+      <Filter>Modules</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\modules\corel.c">
+      <Filter>Modules</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\fmtutil-iff.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\modules\misc2.c">
+      <Filter>Modules</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\modules\pkm.c">
       <Filter>Modules</Filter>
     </ClCompile>
   </ItemGroup>

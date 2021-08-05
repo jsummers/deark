@@ -8,22 +8,38 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_iccprofile);
 
+#define MAX_TAGS_PER_TAGSET 500
+#define MAX_NESTING_LEVEL 16
+
 struct tag_seen_type {
-	i64 offset;
+	i64 offset; // relative to tagset_type::data_area_pos
 	i64 len;
+};
+
+struct tagset_type {
+	int nesting_level;
+	i64 data_area_pos;
+	i64 data_area_len;
+	i64 num_tags;
+	struct tag_seen_type *tags_seen;
+};
+
+struct XYZ_type {
+	double v[3];
 };
 
 typedef struct localctx_struct {
 	unsigned int profile_ver_major;
 	unsigned int profile_ver_minor;
 	unsigned int profile_ver_bugfix;
-
-	i64 num_tags;
-	struct tag_seen_type *tags_seen;
+	i64 profile_size;
+	char tmpbuf1[80];
+	char tmpbuf2[80];
 } lctx;
 
 struct typedec_params {
 	lctx *d;
+	struct tagset_type *tgs;
 	i64 pos1;
 	i64 len;
 	u32 type_id;
@@ -48,6 +64,54 @@ struct taginfo {
 	void *reserved2;
 };
 
+static double read_s15Fixed16Number(dbuf *f, i64 pos)
+{
+	i64 n, frac;
+
+	n = dbuf_geti16be(f, pos);
+	frac = dbuf_getu16be(f, pos+2);
+	return (double)n + ((double)frac)/65536.0;
+}
+
+static void dbg_timestamp(deark *c, i64 pos1, const char *name)
+{
+	i64 n[6];
+	i64 pos = pos1;
+	i64 i;
+	char timestamp_buf[64];
+
+	for(i=0; i<6; i++) {
+		n[i] = de_getu16be_p(&pos);
+	}
+
+	if(n[0]!=0) {
+		struct de_timestamp ts;
+
+		de_make_timestamp(&ts, n[0], n[1], n[2], n[3], n[4], n[5]);
+		ts.tzcode = DE_TZCODE_UTC;
+		de_dbg_timestamp_to_string(c, &ts, timestamp_buf, sizeof(timestamp_buf), 0);
+	}
+	else {
+		de_strlcpy(timestamp_buf, "(none)", sizeof(timestamp_buf));
+	}
+
+	de_dbg(c, "%s: %s", name, timestamp_buf);
+}
+
+static void read_XYZ(deark *c, i64 pos, struct XYZ_type *xyz)
+{
+	xyz->v[0] = read_s15Fixed16Number(c->infile, pos);
+	xyz->v[1] = read_s15Fixed16Number(c->infile, pos+4);
+	xyz->v[2] = read_s15Fixed16Number(c->infile, pos+8);
+}
+
+static void destroy_tagset(deark *c, struct tagset_type *tgs)
+{
+	if(!tgs) return;
+	de_free(c, tgs->tags_seen);
+	de_free(c, tgs);
+}
+
 // flag 0x1: Include the hex value
 // flag 0x2: Interpret 0 as (none)
 // Returns a copy of the buf pointer.
@@ -69,29 +133,35 @@ static const char *format_4cc_dbgstr(const struct de_fourcc *tmp4cc,
 	return buf;
 }
 
-static double read_s15Fixed16Number(dbuf *f, i64 pos)
+static void typedec_sf32(deark *c, struct typedec_params *p)
 {
-	i64 n, frac;
+	i64 count;
+	i64 i;
+	i64 pos = p->pos1 + 8;
+	double val;
 
-	n = dbuf_geti16be(f, pos);
-	frac = dbuf_getu16be(f, pos+2);
-	return (double)n + ((double)frac)/65536.0;
+	if(p->len<8) return;
+	count = (p->len-8)/4;
+	for(i=0; i<count && i<64; i++) {
+		val = read_s15Fixed16Number(c->infile, pos);
+		pos += 4;
+		de_dbg(c, "arr[%d] = %.5f", (int)i, val);
+	}
 }
 
 static void typedec_XYZ(deark *c, struct typedec_params *p)
 {
 	i64 xyz_count;
 	i64 k;
-	double v[3];
 
 	if(p->len<8) return;
 	xyz_count = (p->len-8)/12;
 	for(k=0; k<xyz_count; k++) {
-		v[0] = read_s15Fixed16Number(c->infile, p->pos1+8+12*k);
-		v[1] = read_s15Fixed16Number(c->infile, p->pos1+8+12*k+4);
-		v[2] = read_s15Fixed16Number(c->infile, p->pos1+8+12*k+8);
+		struct XYZ_type xyz;
+
+		read_XYZ(c, p->pos1+8+12*k, &xyz);
 		de_dbg(c, "XYZ[%d]: %.5f, %.5f, %.5f", (int)k,
-			v[0], v[1], v[2]);
+			xyz.v[0], xyz.v[1], xyz.v[2]);
 	}
 }
 
@@ -264,13 +334,16 @@ done:
 	;
 }
 
+static void do_tag_data(deark *c, lctx *d, struct tagset_type *tgs, i64 tagindex,
+	i64 tagdataoffset, i64 tagdatalen);
+
 static void typedec_tagArray_tagStruct(deark *c, struct typedec_params *p)
 {
 	struct de_fourcc ty4cc;
 	struct de_fourcc tmp4cc;
-	char tmpbuf[80];
+	lctx *d = p->d;
+	struct tagset_type *tgs = NULL;
 	i64 pos = p->pos1 + 8;
-	i64 num_elems;
 	i64 endpos = p->pos1 + p->len;
 	int is_struct = (p->type_id == 0x74737472U);
 	i64 array_item_size;
@@ -279,6 +352,14 @@ static void typedec_tagArray_tagStruct(deark *c, struct typedec_params *p)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
+	de_zeromem(&tmp4cc, sizeof(struct de_fourcc));
+
+	tgs = de_malloc(c, sizeof(struct tagset_type));
+	tgs->data_area_pos = p->pos1;
+	tgs->data_area_len = p->len;
+	tgs->nesting_level = p->tgs->nesting_level+1;
+	if(tgs->nesting_level > MAX_NESTING_LEVEL) goto done;
+
 	if(is_struct) {
 		array_item_size = 12;
 		struct_name = "struct";
@@ -291,32 +372,104 @@ static void typedec_tagArray_tagStruct(deark *c, struct typedec_params *p)
 	dbuf_read_fourcc(c->infile, pos, &ty4cc, 4, 0x0);
 	pos += 4;
 	de_dbg(c, "%s type: %s", struct_name,
-		format_4cc_dbgstr(&ty4cc, tmpbuf, sizeof(tmpbuf), 0));
-	num_elems = de_getu32be_p(&pos);
-	de_dbg(c, "number of elements: %"I64_FMT, num_elems);
-	for(i=0; i<num_elems && i<100; i++) {
+		format_4cc_dbgstr(&ty4cc, d->tmpbuf1, sizeof(d->tmpbuf1), 0));
+	tgs->num_tags = de_getu32be_p(&pos);
+	de_dbg(c, "number of elements: %"I64_FMT, tgs->num_tags);
+	if(tgs->num_tags>MAX_TAGS_PER_TAGSET) {
+		de_err(c, "Invalid or excessive number of elements: %u", (UI)tgs->num_tags);
+		goto done;
+	}
+
+	tgs->tags_seen = de_mallocarray(c, tgs->num_tags, sizeof(struct tag_seen_type));
+
+	for(i=0; i<tgs->num_tags; i++) {
 		i64 elem_pos_rel, elem_pos_abs;
 		i64 elem_dlen;
+		i64 tpos = pos;
 
 		if(pos+array_item_size > endpos) break;
 
-		de_dbg(c, "elem #%d", (int)(i+1));
-		de_dbg_indent(c, 1);
 		if(is_struct) {
 			dbuf_read_fourcc(c->infile, pos, &tmp4cc, 4, 0x0);
 			pos += 4;
-			de_dbg(c, "type: %s",
-				format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0));
 		}
+
 		elem_pos_rel = de_getu32be_p(&pos);
 		elem_dlen = de_getu32be_p(&pos);
 		elem_pos_abs = p->pos1 + elem_pos_rel;
-		de_dbg(c, "data: offs=%"I64_FMT" (+%"I64_FMT"=%"I64_FMT"), dlen=%"I64_FMT,
-			elem_pos_rel, p->pos1, elem_pos_abs, elem_dlen);
+
+		if(is_struct) {
+			format_4cc_dbgstr(&tmp4cc, d->tmpbuf1, sizeof(d->tmpbuf1), 0);
+			de_snprintf(d->tmpbuf2, sizeof(d->tmpbuf2), " %s", d->tmpbuf1);
+		}
+		else {
+			d->tmpbuf2[0] = '\0';
+		}
+		de_dbg(c, "elem #%d%s tpos=%"I64_FMT" dpos=%"I64_FMT" (%"I64_FMT"+%"I64_FMT"), dlen=%"I64_FMT,
+			(int)i, d->tmpbuf2, tpos, elem_pos_abs, p->pos1, elem_pos_rel, elem_dlen);
+
+		de_dbg_indent(c, 1);
+		do_tag_data(c, d, tgs, i, elem_pos_rel, elem_dlen);
 		de_dbg_indent(c, -1);
 	}
 
+done:
+	destroy_tagset(c, tgs);
 	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_dict_string(deark *c, struct typedec_params *p, i64 itempos, const char *itemname)
+{
+	de_ucstring *s = NULL;
+	i64 dpos_rel, dpos_abs, dlen;
+
+	dpos_rel = de_getu32be(itempos);
+	dpos_abs = p->pos1 + dpos_rel;
+	dlen = de_getu32be(itempos+4);
+	if(dpos_abs + dlen > p->pos1 + p->len) goto done;
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, dpos_abs, dlen, DE_DBG_MAX_STRLEN, s, 0, DE_ENCODING_UTF16BE);
+	de_dbg(c, "%s: dpos=%"I64_FMT", dlen=%"I64_FMT", string=\"%s\"", itemname, dpos_abs, dlen,
+		ucstring_getpsz_d(s));
+
+done:
+	ucstring_destroy(s);
+}
+
+static void typedec_dict(deark *c, struct typedec_params *p)
+{
+	i64 pos = p->pos1 + 8;
+	i64 nrec;
+	i64 reclen;
+	i64 i;
+
+	if(p->len<16) goto done;
+
+	nrec = de_getu32be_p(&pos);
+	de_dbg(c, "num records: %u", (UI)nrec);
+	reclen = de_getu32be_p(&pos);
+	de_dbg(c, "rec len: %u", (UI)reclen);
+	if(reclen!=16 && reclen!=24 && reclen!=32) goto done;
+	if(pos+nrec*reclen > p->pos1 + p->len) goto done;
+	if(nrec>MAX_TAGS_PER_TAGSET) goto done;
+
+	for(i=0; i<nrec; i++) {
+		do_dict_string(c, p, pos, "name");
+		pos += 8;
+		do_dict_string(c, p, pos, "value");
+		pos += 8;
+		if(reclen>=24) {
+			do_dict_string(c, p, pos, "display name");
+			pos += 8;
+		}
+		if(reclen>=32) {
+			do_dict_string(c, p, pos, "display value");
+			pos += 8;
+		}
+	}
+
+done:
+	;
 }
 
 static void typedec_hexdump(deark *c, struct typedec_params *p)
@@ -336,10 +489,12 @@ static const struct datatypeinfo datatypeinfo_arr[] = {
 	{ 0x636c726fU, 0, "colorantOrder", NULL }, // clro
 	{ 0x636c7274U, 0, "colorantTable", NULL }, // clrt
 	{ 0x63726469U, 0, "crdInfo", NULL }, // crdi
+	{ 0x63757266U, 0, "segmentedCurve", NULL}, // curf
 	{ 0x63757276U, 0, "curve", NULL }, // curv
 	{ 0x64657363U, 0, "textDescription", typedec_desc }, // desc
 	{ 0x64617461U, 0, "data", NULL }, // data
 	{ 0x64657673U, 0, "deviceSettings", NULL }, // devs
+	{ 0x64696374U, 0, "dictionary array", typedec_dict }, // dict
 	{ 0x6474696dU, 0, "dateTime", NULL }, // dtim
 	{ 0x666c3136U, 0, "float16Array", NULL }, // fl16
 	{ 0x666c3332U, 0, "float32Array", NULL }, // fl32
@@ -358,7 +513,7 @@ static const struct datatypeinfo datatypeinfo_arr[] = {
 	{ 0x70736571U, 0, "profileSequenceDesc", NULL }, // pseq
 	{ 0x70736964U, 0, "profileSequenceIdentifier", NULL }, // psid
 	{ 0x72637332U, 0, "responseCurveSet16", NULL }, // rcs2
-	{ 0x73663332U, 0, "s15Fixed16Array", NULL }, // sf32
+	{ 0x73663332U, 0, "s15Fixed16Array", typedec_sf32 }, // sf32
 	{ 0x7363726eU, 0, "screening", NULL }, // scrn
 	{ 0x73696720U, 0, "signature", NULL }, // sig
 	{ 0x7376636eU, 0, "spectralViewingConditions", NULL }, // svcn
@@ -415,7 +570,7 @@ static const struct taginfo taginfo_arr[] = {
 	{ 0x646d6464U, 0, "deviceModelDesc", NULL }, // dmdd
 	{ 0x646d6e64U, 0, "deviceMfgDesc", NULL }, // dmnd
 	{ 0x67616d74U, 0, "gamut", NULL }, // gamt
-	{ 0x67626431U, 0, "amutBoundaryDescription1", NULL }, // gbd1
+	{ 0x67626431U, 0, "gamutBoundaryDescription1", NULL }, // gbd1
 	{ 0x67545243U, 0, "greenTRC", NULL }, // gTRC
 	{ 0x6758595aU, 0x1, "greenColorant", NULL }, // gXYZ
 	{ 0x6758595aU, 0x2, "greenMatrixColumn", NULL }, // gXYZ
@@ -458,20 +613,21 @@ static void do_read_header(deark *c, lctx *d, i64 pos)
 {
 	u32 profile_ver_raw;
 	i64 x;
+	u64 xu;
 	struct de_fourcc tmp4cc;
 	UI tmpflags;
-	char tmpbuf[80];
 	const char *name;
+	struct XYZ_type xyz;
 
 	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	x = de_getu32be(pos+0);
-	de_dbg(c, "profile size: %d", (int)x);
+	d->profile_size = de_getu32be(pos+0);
+	de_dbg(c, "profile size: %"I64_FMT, d->profile_size);
 
 	dbuf_read_fourcc(c->infile, pos+4, &tmp4cc, 4, 0x0);
 	de_dbg(c, "preferred CMM type: %s",
-		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x3));
+		format_4cc_dbgstr(&tmp4cc, d->tmpbuf1, sizeof(d->tmpbuf1), 0x3));
 
 	profile_ver_raw = (u32)de_getu32be(pos+8);
 	d->profile_ver_major = 10*((profile_ver_raw&0xf0000000U)>>28) +
@@ -483,41 +639,45 @@ static void do_read_header(deark *c, lctx *d, i64 pos)
 
 	dbuf_read_fourcc(c->infile, pos+12, &tmp4cc, 4, 0x0);
 	de_dbg(c, "profile/device class: %s",
-		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
+		format_4cc_dbgstr(&tmp4cc, d->tmpbuf1, sizeof(d->tmpbuf1), 0x1));
 
 	dbuf_read_fourcc(c->infile, pos+16, &tmp4cc, 4, 0x0);
 	tmpflags = 0x1;
 	if(d->profile_ver_major>=5) tmpflags |= 0x2;
 	de_dbg(c, "colour space: %s",
-		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), tmpflags));
+		format_4cc_dbgstr(&tmp4cc, d->tmpbuf1, sizeof(d->tmpbuf1), tmpflags));
 
 	dbuf_read_fourcc(c->infile, pos+20, &tmp4cc, 4, 0x0);
 	tmpflags = 0x1;
 	if(d->profile_ver_major>=5) tmpflags |= 0x2;
 	de_dbg(c, "PCS: %s",
-		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), tmpflags));
+		format_4cc_dbgstr(&tmp4cc, d->tmpbuf1, sizeof(d->tmpbuf1), tmpflags));
 
-	// TODO: pos=24-35 Date & time
+	dbg_timestamp(c, pos+24, "creation time");
 
 	dbuf_read_fourcc(c->infile, pos+36, &tmp4cc, 4, 0x0);
 	de_dbg(c, "file signature: %s",
-		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
+		format_4cc_dbgstr(&tmp4cc, d->tmpbuf1, sizeof(d->tmpbuf1), 0x1));
 
 	dbuf_read_fourcc(c->infile, pos+40, &tmp4cc, 4, 0x0);
 	de_dbg(c, "primary platform: %s",
-		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x3));
+		format_4cc_dbgstr(&tmp4cc, d->tmpbuf1, sizeof(d->tmpbuf1), 0x3));
 
-	// TODO: pos=44-47 Profile flags
+	// TODO: Decode profile flags
+	x = de_getu32be(pos+44);
+	de_dbg(c, "profile flags: 0x%08x", (UI)x);
 
 	dbuf_read_fourcc(c->infile, pos+48, &tmp4cc, 4, 0x0);
 	de_dbg(c, "device manufacturer: %s",
-		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x3));
+		format_4cc_dbgstr(&tmp4cc, d->tmpbuf1, sizeof(d->tmpbuf1), 0x3));
 
 	dbuf_read_fourcc(c->infile, pos+52, &tmp4cc, 4, 0x0);
 	de_dbg(c, "device model: %s",
-		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x3));
+		format_4cc_dbgstr(&tmp4cc, d->tmpbuf1, sizeof(d->tmpbuf1), 0x3));
 
-	// TODO: pos=56-63 Device attributes
+	// TODO: Decode device attributes
+	xu = dbuf_getu64be(c->infile, pos+56);
+	de_dbg(c, "device attribs: 0x%016"U64_FMTx, xu);
 
 	x = de_getu32be(pos+64);
 	switch(x) {
@@ -529,11 +689,12 @@ static void do_read_header(deark *c, lctx *d, i64 pos)
 	}
 	de_dbg(c, "rendering intent: %d (%s)", (int)x, name);
 
-	// TODO: pos=68-79 PCS illuminant
+	read_XYZ(c, pos+68, &xyz);
+	de_dbg(c, "illuminant: %.5f, %.5f, %.5f", xyz.v[0], xyz.v[1], xyz.v[2]);
 
 	dbuf_read_fourcc(c->infile, pos+80, &tmp4cc, 4, 0x0);
 	de_dbg(c, "profile creator: %s",
-		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x3));
+		format_4cc_dbgstr(&tmp4cc, d->tmpbuf1, sizeof(d->tmpbuf1), 0x3));
 
 	// TODO: pos=84-99 Profile ID
 
@@ -564,15 +725,15 @@ static const struct taginfo *lookup_taginfo(lctx *d, u32 id)
 	return NULL;
 }
 
-static int is_duplicate_data(deark *c, lctx *d, i64 tagindex,
-	i64 tagdataoffset, i64 tagdatalen,
+static int is_duplicate_data(deark *c, lctx *d, struct tagset_type *tgs,
+	i64 tagindex, i64 tagdataoffset, i64 tagdatalen,
 	i64 *idx_of_dup)
 {
 	i64 k;
 
-	for(k=0; k<tagindex; k++) {
-		if(d->tags_seen[k].offset==tagdataoffset &&
-			d->tags_seen[k].len==tagdatalen)
+	for(k=0; k<tagindex && k<tgs->num_tags; k++) {
+		if(tgs->tags_seen[k].offset==tagdataoffset &&
+			tgs->tags_seen[k].len==tagdatalen)
 		{
 			*idx_of_dup = k;
 			return 1;
@@ -583,39 +744,40 @@ static int is_duplicate_data(deark *c, lctx *d, i64 tagindex,
 	return 0;
 }
 
-static void do_tag_data(deark *c, lctx *d, i64 tagindex,
-	const struct de_fourcc *tag4cc, const struct taginfo *ti,
+// tagdataoffset is relative to tgs->data_area_pos
+static void do_tag_data(deark *c, lctx *d, struct tagset_type *tgs, i64 tagindex,
 	i64 tagdataoffset, i64 tagdatalen)
 {
 	struct de_fourcc tagtype4cc;
+	struct typedec_params tdp;
 	const struct datatypeinfo *dti;
 	const char *dtname;
 	i64 idx_of_dup;
-	char tmpbuf[80];
 
-	if(tagdatalen<1) return;
-	if(tagdataoffset+tagdatalen > c->infile->len) {
-		de_err(c, "Tag #%d data goes beyond end of file", (int)tagindex);
-		return;
+	if(tagindex >= tgs->num_tags) return;
+	if(tagdatalen<1) goto done;
+	if(tagdataoffset+tagdatalen > tgs->data_area_len) {
+		de_err(c, "Tag #%d data exceeds its bounds", (int)tagindex);
+		goto done;
 	}
-	if(is_duplicate_data(c, d, tagindex, tagdataoffset, tagdatalen, &idx_of_dup)) {
+	if(is_duplicate_data(c, d, tgs, tagindex, tagdataoffset, tagdatalen, &idx_of_dup)) {
 		de_dbg(c, "[data is a duplicate of tag #%d]", (int)idx_of_dup);
-		return;
+		goto done;
 	}
 
-	if(tagdatalen<4) return;
+	if(tagdatalen<4) goto done;
 
-	dbuf_read_fourcc(c->infile, tagdataoffset, &tagtype4cc, 4, 0x0);
+	dbuf_read_fourcc(c->infile, tgs->data_area_pos+tagdataoffset, &tagtype4cc, 4, 0x0);
 	dti = lookup_datatypeinfo(tagtype4cc.id);
 	if(dti && dti->name) dtname=dti->name;
 	else dtname="?";
 	de_dbg(c, "data type: %s (%s)",
-		format_4cc_dbgstr(&tagtype4cc, tmpbuf, sizeof(tmpbuf), 0x0), dtname);
+		format_4cc_dbgstr(&tagtype4cc, d->tmpbuf1, sizeof(d->tmpbuf1), 0x0), dtname);
 
-	struct typedec_params tdp;
 	de_zeromem(&tdp, sizeof(struct typedec_params));
 	tdp.d = d;
-	tdp.pos1 = tagdataoffset;
+	tdp.tgs = tgs;
+	tdp.pos1 = tgs->data_area_pos+tagdataoffset;
 	tdp.len = tagdatalen;
 	tdp.type_id = tagtype4cc.id;
 
@@ -625,16 +787,20 @@ static void do_tag_data(deark *c, lctx *d, i64 tagindex,
 	else if(c->debug_level>=2) {
 		typedec_hexdump(c, &tdp);
 	}
+
+done:
+	tgs->tags_seen[tagindex].offset = tagdataoffset;
+	tgs->tags_seen[tagindex].len = tagdatalen;
 }
 
-static void do_tag(deark *c, lctx *d, i64 tagindex, i64 pos_in_tagtable)
+static void do_main_tag(deark *c, lctx *d, struct tagset_type *tgs,
+	i64 tagindex, i64 pos_in_tagtable)
 {
 	struct de_fourcc tag4cc;
 	const struct taginfo *ti;
 	const char *tname;
 	i64 tagdataoffset;
 	i64 tagdatalen;
-	char tmpbuf[80];
 
 	dbuf_read_fourcc(c->infile, pos_in_tagtable, &tag4cc, 4, 0x0);
 	tagdataoffset = de_getu32be(pos_in_tagtable+4);
@@ -644,42 +810,48 @@ static void do_tag(deark *c, lctx *d, i64 tagindex, i64 pos_in_tagtable)
 		tname = ti->name;
 	else
 		tname = "?";
-	de_dbg(c, "tag #%d %s (%s) offs=%d dlen=%d", (int)tagindex,
-		format_4cc_dbgstr(&tag4cc, tmpbuf, sizeof(tmpbuf), 0x0), tname,
-		(int)tagdataoffset, (int)tagdatalen);
+	de_dbg(c, "tag #%d %s (%s) tpos=%"I64_FMT" dpos=%"I64_FMT" dlen=%"I64_FMT, (int)tagindex,
+		format_4cc_dbgstr(&tag4cc, d->tmpbuf1, sizeof(d->tmpbuf1), 0x0), tname,
+		pos_in_tagtable, tgs->data_area_pos+tagdataoffset, tagdatalen);
 
 	de_dbg_indent(c, 1);
-	do_tag_data(c, d, tagindex, &tag4cc, ti, tagdataoffset, tagdatalen);
+	do_tag_data(c, d, tgs, tagindex, tagdataoffset, tagdatalen);
 	de_dbg_indent(c, -1);
-
-	d->tags_seen[tagindex].offset = tagdataoffset;
-	d->tags_seen[tagindex].len = tagdatalen;
 }
 
-static void do_read_tags(deark *c, lctx *d, i64 pos1)
+static void do_read_main_tags(deark *c, lctx *d, i64 pos1)
 {
 	i64 tagindex;
+	struct tagset_type *tgs = NULL;
 
-	de_dbg(c, "tag table at %d", (int)pos1);
+	de_dbg(c, "tag table at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
-	d->num_tags = de_getu32be(pos1);
-	de_dbg(c, "number of tags: %d", (int)d->num_tags);
-	if(d->num_tags>500) {
-		de_err(c, "Invalid or excessive number of tags: %d", (int)d->num_tags);
+	tgs = de_malloc(c, sizeof(struct tagset_type));
+	tgs->data_area_pos = 0;
+	if(d->profile_size!=0) {
+		tgs->data_area_len = de_min_int(d->profile_size, c->infile->len);
+	}
+	else {
+		tgs->data_area_len = c->infile->len;
+	}
+	tgs->num_tags = de_getu32be(pos1);
+	de_dbg(c, "number of tags: %d", (int)tgs->num_tags);
+	if(tgs->num_tags>MAX_TAGS_PER_TAGSET) {
+		de_err(c, "Invalid or excessive number of tags: %d", (int)tgs->num_tags);
 		goto done;
 	}
-	de_dbg(c, "expected start of data segment: %d", (int)(pos1+4+12*d->num_tags));
+	de_dbg(c, "expected start of data segment: %d", (int)(pos1+4+12*tgs->num_tags));
 
 	// Make a place to record some information about each tag we encounter in the table.
-	d->tags_seen = de_mallocarray(c, d->num_tags, sizeof(struct tag_seen_type));
+	tgs->tags_seen = de_mallocarray(c, tgs->num_tags, sizeof(struct tag_seen_type));
 
-	for(tagindex=0; tagindex<d->num_tags; tagindex++) {
-		do_tag(c, d, tagindex, pos1+4+12*tagindex);
+	for(tagindex=0; tagindex<tgs->num_tags; tagindex++) {
+		do_main_tag(c, d, tgs, tagindex, pos1+4+12*tagindex);
 	}
 
 done:
-	de_free(c, d->tags_seen);
+	destroy_tagset(c, tgs);
 	de_dbg_indent(c, -1);
 }
 
@@ -693,7 +865,7 @@ static void de_run_iccprofile(deark *c, de_module_params *mparams)
 	pos = 0;
 	do_read_header(c, d, pos);
 	pos += 128;
-	do_read_tags(c, d, pos);
+	do_read_main_tags(c, d, pos);
 
 	de_free(c, d);
 }

@@ -196,8 +196,8 @@
     <ClCompile Include="..\..\modules\bsave.c" />
     <ClCompile Include="..\..\modules\cab.c" />
     <ClCompile Include="..\..\modules\cardfile.c" />
-    <ClCompile Include="..\..\modules\ccx.c" />
     <ClCompile Include="..\..\modules\cfb.c" />
+    <ClCompile Include="..\..\modules\corel.c" />
     <ClCompile Include="..\..\modules\cpio.c" />
     <ClCompile Include="..\..\modules\crush.c" />
     <ClCompile Include="..\..\modules\d64.c" />
@@ -247,6 +247,7 @@
     <ClCompile Include="..\..\modules\mbk.c" />
     <ClCompile Include="..\..\modules\megapaint.c" />
     <ClCompile Include="..\..\modules\misc.c" />
+    <ClCompile Include="..\..\modules\misc2.c" />
     <ClCompile Include="..\..\modules\mp3.c" />
     <ClCompile Include="..\..\modules\mscompress.c" />
     <ClCompile Include="..\..\modules\msp.c" />
@@ -268,6 +269,7 @@
     <ClCompile Include="..\..\modules\pff2.c" />
     <ClCompile Include="..\..\modules\pict.c" />
     <ClCompile Include="..\..\modules\pkfont.c" />
+    <ClCompile Include="..\..\modules\pkm.c" />
     <ClCompile Include="..\..\modules\plist.c" />
     <ClCompile Include="..\..\modules\png.c" />
     <ClCompile Include="..\..\modules\pnm.c" />
@@ -319,6 +321,7 @@
     <ClCompile Include="..\..\src\fmtutil-cmpr.c" />
     <ClCompile Include="..\..\src\fmtutil-fax.c" />
     <ClCompile Include="..\..\src\fmtutil-huffman.c" />
+    <ClCompile Include="..\..\src\fmtutil-iff.c" />
     <ClCompile Include="..\..\src\fmtutil-lzah.c" />
     <ClCompile Include="..\..\src\fmtutil-lzh.c" />
     <ClCompile Include="..\..\src\fmtutil-lzw.c" />

@@ -258,8 +258,9 @@ done:
 #define CODE_FORM  0x464f524dU
 #define CODE_NSLD  0x4e534c44U
 
-static int my_nsl_chunk_handler(deark *c, struct de_iffctx *ictx)
+static int my_nsl_chunk_handler(struct de_iffctx *ictx)
 {
+	deark *c = ictx->c;
 	lctx *d = (lctx*)ictx->userdata;
 
 	if(ictx->chunkctx->chunk4cc.id == CODE_FORM) {
@@ -272,10 +273,10 @@ static int my_nsl_chunk_handler(deark *c, struct de_iffctx *ictx)
 		if(ictx->level==1 && !d->done_flag) {
 			nsl_read_bitmap(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		}
+		ictx->handled = 1;
 		break;
 	}
 
-	ictx->handled = 1;
 	return 1;
 }
 
@@ -285,16 +286,16 @@ static void de_run_nsl(deark *c, de_module_params *mparams)
 	struct de_iffctx *ictx = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
-	ictx = de_malloc(c, sizeof(struct de_iffctx));
+	ictx = fmtutil_create_iff_decoder(c);
 
 	ictx->userdata = (void*)d;
 	ictx->handle_chunk_fn = my_nsl_chunk_handler;
 	ictx->f = c->infile;
 	ictx->sizeof_len = 2;
 
-	fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
+	fmtutil_read_iff_format(ictx, 0, c->infile->len);
 
-	de_free(c, ictx);
+	fmtutil_destroy_iff_decoder(ictx);
 	de_free(c, d);
 }
 

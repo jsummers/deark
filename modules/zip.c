@@ -76,6 +76,8 @@ struct member_data {
 
 	i64 cmpr_size, uncmpr_size;
 	u32 crc_reported;
+	u8 has_extts, has_extts_atime, has_extts_crtime;
+	u8 questionable_atime, questionable_crtime;
 };
 
 struct extra_item_type_info_struct;
@@ -114,6 +116,14 @@ struct localctx_struct {
 
 typedef void (*extrafield_decoder_fn)(deark *c, lctx *d,
 	struct extra_item_info_struct *eii);
+
+// (Timezone info and precision are ignored.)
+static int timestamps_are_valid_and_equal(const struct de_timestamp *ts1,
+	const struct de_timestamp *ts2)
+{
+	if(!ts1->is_valid || !ts2->is_valid) return 0;
+	return (ts1->ts_FILETIME == ts2->ts_FILETIME);
+}
 
 static int is_compression_method_supported(lctx *d, const struct cmpr_meth_info *cmi)
 {
@@ -481,6 +491,7 @@ static void ef_extended_timestamp(deark *c, lctx *d, struct extra_item_info_stru
 		has_ctime = 0;
 	}
 	else {
+		eii->md->has_extts = 1;
 		has_mtime = (flags & 0x01)?1:0;
 		has_atime = (flags & 0x02)?1:0;
 		has_ctime = (flags & 0x04)?1:0;
@@ -495,12 +506,14 @@ static void ef_extended_timestamp(deark *c, lctx *d, struct extra_item_info_stru
 		if(pos+4>endpos) return;
 		read_unix_timestamp(c, d, pos, &timestamp_tmp, "atime");
 		apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_ACCESS, &timestamp_tmp, 50);
+		eii->md->has_extts_atime = 1;
 		pos+=4;
 	}
 	if(has_ctime) {
 		if(pos+4>endpos) return;
 		read_unix_timestamp(c, d, pos, &timestamp_tmp, "creation time");
 		apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_CREATE, &timestamp_tmp, 50);
+		eii->md->has_extts_crtime = 1;
 		pos+=4;
 	}
 }
@@ -611,6 +624,7 @@ static void ef_ntfs(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	i64 attr_tag;
 	i64 attr_size;
 	const char *name;
+	struct de_timestamp timestamp_tmp_m;
 	struct de_timestamp timestamp_tmp;
 
 	endpos = pos+eii->dlen;
@@ -628,12 +642,20 @@ static void ef_ntfs(deark *c, lctx *d, struct extra_item_info_struct *eii)
 
 		de_dbg_indent(c, 1);
 		if(attr_tag==0x0001 && attr_size>=24) {
-			read_FILETIME(c, d, pos, &timestamp_tmp, "mtime");
-			apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_MODIFY, &timestamp_tmp, 90);
+			read_FILETIME(c, d, pos, &timestamp_tmp_m, "mtime");
+			apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_MODIFY, &timestamp_tmp_m, 90);
+
 			read_FILETIME(c, d, pos+8, &timestamp_tmp, "atime");
 			apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_ACCESS, &timestamp_tmp, 90);
+			if(timestamps_are_valid_and_equal(&timestamp_tmp, &timestamp_tmp_m)) {
+				eii->md->questionable_atime = 1;
+			}
+
 			read_FILETIME(c, d, pos+16, &timestamp_tmp, "creation time");
 			apply_timestamp(c, d, eii->md, DE_TIMESTAMPIDX_CREATE, &timestamp_tmp, 90);
+			if(timestamps_are_valid_and_equal(&timestamp_tmp, &timestamp_tmp_m)) {
+				eii->md->questionable_crtime = 1;
+			}
 		}
 		de_dbg_indent(c, -1);
 
@@ -1070,6 +1092,20 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		if(md->is_dir) snflags |= DE_SNFLAG_STRIPTRAILINGSLASH;
 		de_finfo_set_name_from_ucstring(c, fi, ldd->fname, snflags);
 		fi->original_filename_flag = 1;
+	}
+
+	// This is basically a hack to better deal with Deark's ZIP writer's habit of
+	// using the NTFS field to store high resolution timestamps. The problem is
+	// that there seems to be no standard way to indicate the lack of a particular
+	// timestamp.
+	// We disregard the NTFS Access or Creation timestamp in some cases, to make it
+	// more likely that a ZIP file can be round-tripped through Deark, without
+	// spurious timestamps appearing in the 0x5455 (extended timestamp) field.
+	if(md->questionable_atime && md->has_extts && !md->has_extts_atime) {
+		md->tsdata[DE_TIMESTAMPIDX_ACCESS].ts.is_valid = 0;
+	}
+	if(md->questionable_crtime && md->has_extts && !md->has_extts_crtime) {
+		md->tsdata[DE_TIMESTAMPIDX_CREATE].ts.is_valid = 0;
 	}
 
 	for(tsidx=0; tsidx<DE_TIMESTAMPIDX_COUNT; tsidx++) {

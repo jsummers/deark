@@ -1038,6 +1038,7 @@ void de_module_dib(deark *c, struct deark_module_info *mi)
 
 struct ddbctx_struct {
 	i64 bmWidthBytes;
+	UI createflags;
 	de_finfo *fi;
 };
 
@@ -1185,7 +1186,7 @@ static void do_ddb_bitmap(deark *c, struct ddbctx_struct *d, i64 pos1)
 		ddb_convert_pal8(c, d, pos, img);
 	}
 
-	de_bitmap_write_to_file_finfo(img, d->fi, 0);
+	de_bitmap_write_to_file_finfo(img, d->fi, d->createflags);
 
 done:
 	de_bitmap_destroy(img);
@@ -1199,9 +1200,13 @@ static void de_run_ddb(deark *c, de_module_params *mparams)
 	i64 pos = 0;
 
 	d = de_malloc(c, sizeof(struct ddbctx_struct));
+	d->createflags = 0;
 
 	if(de_havemodcode(c, mparams, 'N')) {
 		has_filetype = 0;
+	}
+	if(de_havemodcode(c, mparams, 'X')) {
+		d->createflags |= DE_CREATEFLAG_IS_AUX;
 	}
 	if(mparams && mparams->in_params.fi) {
 		d->fi = mparams->in_params.fi;

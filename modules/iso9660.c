@@ -1632,6 +1632,7 @@ struct nrg_ctx {
 	int ver;
 	i64 chunk_list_start;
 	i64 chunk_list_size;
+	i64 pre_gap;
 };
 
 #define CODE_CDTX 0x43445458U
@@ -1680,7 +1681,19 @@ static void do_nrg_ETNF(deark *c, struct de_iffctx *ictx,
 	}
 }
 
-static int my_preprocess_nrg_chunk_fn(deark *c, struct de_iffctx *ictx)
+static void do_nrg_DAOX(deark *c, struct de_iffctx *ictx, struct nrg_ctx *nrg)
+{
+	i64 pos1 = ictx->chunkctx->dpos;
+
+	if(ictx->chunkctx->dpos<56) return;
+	nrg->pre_gap = dbuf_geti64be(ictx->f, pos1+48);
+	de_dbg(c, "pre-gap: %"I64_FMT, nrg->pre_gap);
+	if(nrg->pre_gap<0 || nrg->pre_gap>c->infile->len) {
+		nrg->pre_gap = 0;
+	}
+}
+
+static int my_preprocess_nrg_chunk_fn(struct de_iffctx *ictx)
 {
 	const char *name = NULL;
 
@@ -1699,21 +1712,24 @@ static int my_preprocess_nrg_chunk_fn(deark *c, struct de_iffctx *ictx)
 }
 
 
-static int my_nrg_chunk_handler(deark *c, struct de_iffctx *ictx)
+static int my_nrg_chunk_handler(struct de_iffctx *ictx)
 {
-	// Always set this, because we never want the IFF parser to try to handle
-	// a chunk itself.
-	ictx->handled = 1;
+	deark *c = ictx->c;
+	struct nrg_ctx *nrg = (struct nrg_ctx*)ictx->userdata;
 
 	switch(ictx->chunkctx->chunk4cc.id) {
 	case CODE_ETNF:
 		do_nrg_ETNF(c, ictx, ictx->chunkctx);
+		ictx->handled = 1;
 		break;
-	}
-
-	if(ictx->chunkctx->chunk4cc.id==CODE_END_) {
+	case CODE_DAOX:
+		do_nrg_DAOX(c, ictx, nrg);
+		ictx->handled = 1;
+		break;
+	case CODE_END_:
 		return 0;
 	}
+
 	return 1;
 }
 
@@ -1721,7 +1737,7 @@ static void do_nrg_chunks(deark *c, struct nrg_ctx *nrg)
 {
 	struct de_iffctx *ictx = NULL;
 
-	ictx = de_malloc(c, sizeof(struct de_iffctx));
+	ictx = fmtutil_create_iff_decoder(c);
 	ictx->userdata = (void*)nrg;
 	ictx->preprocess_chunk_fn = my_preprocess_nrg_chunk_fn;
 	ictx->handle_chunk_fn = my_nrg_chunk_handler;
@@ -1729,13 +1745,15 @@ static void do_nrg_chunks(deark *c, struct nrg_ctx *nrg)
 	ictx->is_le = 0;
 	ictx->reversed_4cc = 0;
 
-	fmtutil_read_iff_format(c, ictx, nrg->chunk_list_start, nrg->chunk_list_size);
+	fmtutil_read_iff_format(ictx, nrg->chunk_list_start, nrg->chunk_list_size);
+	fmtutil_destroy_iff_decoder(ictx);
 }
 
 static void de_run_nrg(deark *c, de_module_params *mparams)
 {
 	struct cdraw_params cdrp;
 	struct nrg_ctx *nrg = NULL;
+	i64 startpos;
 
 	nrg = de_malloc(c, sizeof(struct nrg_ctx));
 
@@ -1761,10 +1779,12 @@ static void de_run_nrg(deark *c, de_module_params *mparams)
 	// TODO: The NRG data we just read probably tells us the image format,
 	// somehow, so it seems wrong to autodetect it.
 
-	if(cdsig_at2(c->infile, 32768, 32768+2048)) {
-		de_dbg(c, "ISO 9660 image at %d", 0);
+	startpos = nrg->pre_gap;
+	if(cdsig_at2(c->infile, nrg->pre_gap+32768, nrg->pre_gap+32768+2048)) {
+		de_dbg(c, "ISO 9660 image at %"I64_FMT, nrg->pre_gap);
 		de_dbg_indent(c, 1);
-		de_run_module_by_id_on_slice(c, "iso9660", NULL, c->infile, 0, nrg->chunk_list_start);
+		de_run_module_by_id_on_slice(c, "iso9660", NULL, c->infile, startpos,
+			nrg->chunk_list_start-startpos);
 		de_dbg_indent(c, -1);
 		goto done;
 	}

@@ -5,7 +5,7 @@
 // IFF (Interchange File Format)
 // MIDI
 
-// Note that the IFF parser is actually implemented in fmtutil.c, not here.
+// Note that the IFF parser is actually implemented in fmtutil-iff.c, not here.
 // This module uses fmtutil to support unknown IFF formats, and IFF formats
 // for which we have very little format-specific logic.
 
@@ -40,7 +40,6 @@ static void do_text_chunk(deark *c, struct de_iffctx *ictx, const char *name)
 {
 	de_ucstring *s = NULL;
 
-	ictx->handled = 1;
 	s = ucstring_create(c);
 	// TODO: Sometimes this text is clearly not ASCII, but I've never seen
 	// a file with a "CSET" chunk, and I don't know how else I would know
@@ -110,8 +109,10 @@ static int is_container_chunk(deark *c, lctx *d, u32 ct)
 	return 0;
 }
 
-static int my_std_container_start_fn(deark *c, struct de_iffctx *ictx)
+static int my_std_container_start_fn(struct de_iffctx *ictx)
 {
+	deark *c = ictx->c;
+
 	if(ictx->level==0 &&
 		ictx->curr_container_fmt4cc.id==CODE_FORM &&
 		ictx->main_fmt4cc.id==CODE_FORM)
@@ -131,8 +132,9 @@ static int my_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 	return 1;
 }
 
-static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
+static int my_iff_chunk_handler(struct de_iffctx *ictx)
 {
+	deark *c = ictx->c;
 	lctx *d = (lctx*)ictx->userdata;
 
 	ictx->is_std_container = is_container_chunk(c, d, ictx->chunkctx->chunk4cc.id);
@@ -144,6 +146,7 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 			// In 8SVX, the NAME chunk means "voice name". In other types
 			// of files, it presumably means some other sort of name.
 			do_text_chunk(c, ictx, "voice name");
+			ictx->handled = 1;
 			break;
 		}
 	}
@@ -151,9 +154,11 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 		switch(ictx->chunkctx->chunk4cc.id) {
 		case CODE_COMT:
 			do_aiff_comt_chunk(c, ictx);
+			ictx->handled = 1;
 			break;
 		case CODE_ID3:
 			do_id3_chunk(c, ictx);
+			ictx->handled = 1;
 			break;
 		}
 	}
@@ -192,10 +197,10 @@ static void de_run_iff(deark *c, de_module_params *mparams)
 	const char *s;
 	i64 pos;
 
-
 	d = de_malloc(c, sizeof(lctx));
-	ictx = de_malloc(c, sizeof(struct de_iffctx));
 
+	ictx = fmtutil_create_iff_decoder(c);
+	ictx->has_standard_iff_chunks = 1;
 	ictx->alignment = 2; // default
 
 	d->fmt = identify_internal(c, NULL);
@@ -223,9 +228,9 @@ static void de_run_iff(deark *c, de_module_params *mparams)
 	ictx->on_std_container_start_fn = my_std_container_start_fn;
 	ictx->f = c->infile;
 
-	fmtutil_read_iff_format(c, ictx, pos, c->infile->len - pos);
+	fmtutil_read_iff_format(ictx, pos, c->infile->len - pos);
 
-	de_free(c, ictx);
+	fmtutil_destroy_iff_decoder(ictx);
 	de_free(c, d);
 }
 
@@ -264,6 +269,7 @@ static void do_midi_MThd(deark *c, struct de_iffctx *ictx,
 	i64 format_field, ntrks_field, division_field;
 
 	if(chunkctx->dlen<6) return;
+	ictx->handled = 1;
 	format_field = dbuf_getu16be(ictx->f, chunkctx->dpos);
 	de_dbg(c, "format: %d", (int)format_field);
 	ntrks_field = dbuf_getu16be(ictx->f, chunkctx->dpos+2);
@@ -272,14 +278,16 @@ static void do_midi_MThd(deark *c, struct de_iffctx *ictx,
 	de_dbg(c, "division: %d", (int)division_field);
 }
 
-static int my_midi_chunk_handler(deark *c, struct de_iffctx *ictx)
+static int my_midi_chunk_handler(struct de_iffctx *ictx)
 {
+	deark *c = ictx->c;
+
 	switch(ictx->chunkctx->chunk4cc.id) {
 	case CODE_MThd:
 		do_midi_MThd(c, ictx, ictx->chunkctx);
 		break;
 	}
-	ictx->handled = 1;
+
 	return 1;
 }
 
@@ -290,15 +298,15 @@ static void de_run_midi(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	ictx = de_malloc(c, sizeof(struct de_iffctx));
+	ictx = fmtutil_create_iff_decoder(c);
 	ictx->alignment = 1;
 	ictx->userdata = (void*)d;
 	ictx->handle_chunk_fn = my_midi_chunk_handler;
 	ictx->f = c->infile;
 
-	fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
+	fmtutil_read_iff_format(ictx, 0, c->infile->len);
 
-	de_free(c, ictx);
+	fmtutil_destroy_iff_decoder(ictx);
 	de_free(c, d);
 }
 

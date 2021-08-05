@@ -372,6 +372,7 @@ struct de_boxdata {
 
 struct de_boxesctx {
 	void *userdata;
+	void *private_data; // Used by the parser
 	dbuf *f; // Input file
 	de_identify_box_fn identify_box_fn;
 	de_handle_box_fn handle_box_fn;
@@ -408,31 +409,33 @@ void fmtutil_atari_help_palbits(deark *c);
 // The IFF parser supports IFF and similar formats, including RIFF.
 struct de_iffctx;
 
-// An IFF chunk handler is expected to do one of the following:
+// An IFF chunk handler is expected to do one of the following (if it returns 1):
 // - Set ictx->is_std_container (ictx->handled is ignored).
 // - Set ictx->is_raw_container (ictx->handled is ignored).
 // - Handle the chunk, and set ictx->handled.
 // - Do nothing, and set ictx->handled, to suppress default handling.
-// - Do nothing, in which case standard IFF chunks (ANNO, at least) will
-//   handled by the IFF parser.
+// - Do nothing, which will result in the default chunk handler being used.
+//    Usually the default handler will do nothing, or a hex dump if the
+//    debug_level is high enough. If the format is known to have standard
+//    IFF chunks or something like that, they may be parsed.
 // Return value: Normally 1; 0 to immediately stop processing the entire file.
-typedef int (*de_handle_iff_chunk_fn)(deark *c, struct de_iffctx *ictx);
+typedef int (*de_handle_iff_chunk_fn)(struct de_iffctx *ictx);
 
 // Mainly for identifying the chunk.
 // The user can also adjust ictx->chunkctx->dlen.
 // Return value: Normally 1 (reserved)
-typedef int (*de_preprocess_iff_chunk_fn)(deark *c, struct de_iffctx *ictx);
+typedef int (*de_preprocess_iff_chunk_fn)(struct de_iffctx *ictx);
 
 // Return value: Normally 1; 0 to immediately stop processing the entire file.
-typedef int (*de_on_iff_container_end_fn)(deark *c, struct de_iffctx *ictx);
+typedef int (*de_on_iff_container_end_fn)(struct de_iffctx *ictx);
 
 // Return value: Normally 1; 0 to stop processing this container (the
 // on_container_end_fn will not be called).
-typedef int (*de_on_std_iff_container_start_fn)(deark *c, struct de_iffctx *ictx);
+typedef int (*de_on_std_iff_container_start_fn)(struct de_iffctx *ictx);
 
 // Caller can check for nonstandard non-chunk data at 'pos'. If found, set *plen
 // to its length, process it if desired, and return 1.
-typedef int (*de_handle_nonchunk_iff_data_fn)(deark *c, struct de_iffctx *ictx,
+typedef int (*de_handle_nonchunk_iff_data_fn)(struct de_iffctx *ictx,
 	i64 pos, i64 *plen);
 
 struct de_iffchunkctx {
@@ -441,37 +444,47 @@ struct de_iffchunkctx {
 	i64 len;
 	i64 dpos;
 	i64 dlen;
+	struct de_iffchunkctx *parent;
 
 	// To be filled in by identify_chunk_fn:
-	void *chunk_userdata;
 	const char *chunk_name;
+
+	// Other use:
+	u32 user_flags;
 };
 
 struct de_iffctx {
+	deark *c;
+	void *private_data; // Used by the parser
+
 	void *userdata;
 	dbuf *f; // Input file
 	de_handle_iff_chunk_fn handle_chunk_fn;
 	de_preprocess_iff_chunk_fn preprocess_chunk_fn;
+
+	// Called after the "FORM type" is read
 	de_on_std_iff_container_start_fn on_std_container_start_fn;
+
 	de_on_iff_container_end_fn on_container_end_fn;
 	de_handle_nonchunk_iff_data_fn handle_nonchunk_data_fn;
 	i64 alignment; // 0 = default
 	i64 sizeof_len; // 0 = default
 	int is_le; // For RIFF format
-	int reversed_4cc;
-	int input_encoding;
+	u8 reversed_4cc;
+	u8 has_standard_iff_chunks;
+	de_encoding input_encoding;
 
 	int level;
 
-	// Top-level container type:
+	// Info about the most-recent top-level container:
 	struct de_fourcc main_fmt4cc; // E.g. "FORM"
 	struct de_fourcc main_contentstype4cc; // E.g. "ILBM"
 
-	// Current container type:
+	// Current container:
 	struct de_fourcc curr_container_fmt4cc;
 	struct de_fourcc curr_container_contentstype4cc;
 
-	// Per-chunk info supplied to handle_chunk_fn:
+	// Per-chunk info supplied to chunk handling functions:
 	struct de_iffchunkctx *chunkctx;
 
 	// To be filled in by handle_chunk_fn:
@@ -480,11 +493,9 @@ struct de_iffctx {
 	int is_raw_container;
 };
 
-void fmtutil_read_iff_format(deark *c, struct de_iffctx *ictx,
-	i64 pos, i64 len);
-int fmtutil_is_standard_iff_chunk(deark *c, struct de_iffctx *ictx,
-	u32 ct);
-void fmtutil_default_iff_chunk_identify(deark *c, struct de_iffctx *ictx);
+struct de_iffctx *fmtutil_create_iff_decoder(deark *c);
+void fmtutil_destroy_iff_decoder(struct de_iffctx *ictx);
+void fmtutil_read_iff_format(struct de_iffctx *ictx, i64 pos, i64 len);
 
 const char *fmtutil_tiff_orientation_name(i64 n);
 const char *fmtutil_get_windows_charset_name(u8 cs);

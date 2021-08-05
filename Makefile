@@ -67,15 +67,16 @@ OFILES_MODS_AB:=$(addprefix $(OBJDIR)/modules/,abk.o alphabmp.o amigaicon.o \
 OFILES_MODS_CH:=$(addprefix $(OBJDIR)/modules/,cab.o cardfile.o cfb.o \
  cpio.o d64.o drhalo.o ebml.o emf.o epocimage.o eps.o exe.o dms.o \
  flif.o fnt.o gemfont.o gemmeta.o gemras.o gif.o grasp.o grob.o gzip.o \
- hfs.o hlp.o dsstore.o fli.o fat.o flac.o dlmaker.o ccx.o crush.o)
-OFILES_MODS_IO:=$(addprefix $(OBJDIR)/modules/,misc.o iccprofile.o icns.o \
+ corel.o hfs.o hlp.o dsstore.o fli.o fat.o flac.o dlmaker.o crush.o)
+OFILES_MODS_IO:=$(addprefix $(OBJDIR)/modules/,misc.o misc2.o \
+ iccprofile.o icns.o \
  id3.o ico.o iff.o ilbm.o insetpix.o iptc.o jbf.o jovianvi.o jpeg.o lha.o \
  j2c.o ogg.o olepropset.o iso9660.o macbinary.o macrsrc.o \
  macpaint.o makichan.o mbk.o mp3.o mscompress.o msp.o nokia.o os2bmp.o ole1.o \
  officeart.o lbr.o megapaint.o nie.o isz.o os2ea.o)
 OFILES_MODS_PQ:=$(addprefix $(OBJDIR)/modules/,psd.o palmbitmap.o palmpdb.o \
  pcpaint.o pcx.o pff2.o pict.o pkfont.o png.o pnm.o portfolio.o printptnr.o \
- packdir.o pack.o \
+ packdir.o pack.o pkm.o \
  printshop.o psf.o psionapp.o psionpic.o pcf.o plist.o qtif.o)
 OFILES_MODS_RZ:=$(addprefix $(OBJDIR)/modules/,riff.o rosprite.o rpm.o \
  rsc.o shg.o spectrum512.o sunras.o t64.o tar.o tga.o tiff.o tim.o \
@@ -89,7 +90,7 @@ OFILES_DEARK1:=$(addprefix $(OBJDIR)/src/,fmtutil-miniz.o deark-util.o \
  deark-dbuf.o deark-bitmap.o deark-char.o deark-font.o deark-ucstring.o \
  fmtutil.o fmtutil-cmpr.o fmtutil-advfile.o fmtutil-zip.o \
  fmtutil-fax.o fmtutil-lzh.o fmtutil-lzw.o fmtutil-huffman.o \
- fmtutil-lzah.o \
+ fmtutil-lzah.o fmtutil-iff.o \
  deark-user.o deark-unix.o deark-win.o)
 OFILES_DEARK2:=$(addprefix $(OBJDIR)/src/,deark-modules.o)
 OFILES_ALL:=$(OFILES_DEARK1) $(OFILES_DEARK2) $(OFILES_MODS) $(OBJDIR)/src/deark-cmd.o $(DEARK_RC_O)

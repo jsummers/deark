@@ -51,7 +51,7 @@ static void do_newicons_append_bit(deark *c, lctx *d, dbuf *f, u8 b)
 	if(d->pending_data_bits_used==0) {
 		d->pending_data = 0;
 	}
-	d->pending_data = (d->pending_data<<1) | b;
+	d->pending_data = (d->pending_data<<1) | (b & 0x1);
 	d->pending_data_bits_used++;
 
 	if(d->newicons_line_count==0) {
@@ -280,7 +280,7 @@ static int do_read_main_icon(deark *c, lctx *d,
 			b = 0x00;
 			for(plane=0; plane<depth; plane++) {
 				b1 = de_get_bits_symbol(c->infile, 1, pos+plane*src_planespan + j*src_rowspan, i);
-				b = (b<<1) | b1;
+				b = (b<<1) | (b1 & 0x1);
 			}
 			de_bitmap_setpixel_rgb(img, i, j, pal[b]);
 		}
@@ -579,8 +579,9 @@ static int do_detect_glowicons(deark *c, lctx *d, i64 pos)
 	return 0;
 }
 
-static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
+static int my_iff_chunk_handler(struct de_iffctx *ictx)
 {
+	deark *c = ictx->c;
 	lctx *d = (lctx*)ictx->userdata;
 	i64 dpos, dlen;
 
@@ -588,8 +589,6 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 		ictx->is_std_container = 1;
 		return 1;
 	}
-
-	ictx->handled = 1;
 
 	if(ictx->level!=1) {
 		return 1;
@@ -604,11 +603,13 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	switch(ictx->chunkctx->chunk4cc.id) {
 	case CODE_FACE: // FACE (parameters)
-		d->glowicons_width = 1+(i64)de_getbyte(dpos);
-		d->glowicons_height = 1+(i64)de_getbyte(dpos+1);
+		ictx->handled = 1;
+		d->glowicons_width = 1+(i64)dbuf_getbyte(ictx->f, dpos);
+		d->glowicons_height = 1+(i64)dbuf_getbyte(ictx->f, dpos+1);
 		de_dbg_dimensions(c, d->glowicons_width, d->glowicons_height);
 		break;
 	case CODE_IMAG: // IMAG (one of the images that make up this icon)
+		ictx->handled = 1;
 		do_glowicons_IMAG(c, d, dpos, dlen);
 		break;
 	}
@@ -621,7 +622,7 @@ static void do_glowicons(deark *c, lctx *d, i64 pos1)
 	struct de_iffctx *ictx = NULL;
 	int saved_indent_level;
 
-	ictx = de_malloc(c, sizeof(struct de_iffctx));
+	ictx = fmtutil_create_iff_decoder(c);
 	de_dbg_indent_save(c, &saved_indent_level);
 
 	de_dbg(c, "GlowIcons data at offset %d", (int)pos1);
@@ -630,10 +631,10 @@ static void do_glowicons(deark *c, lctx *d, i64 pos1)
 	ictx->userdata = (void*)d;
 	ictx->handle_chunk_fn = my_iff_chunk_handler;
 	ictx->f = c->infile;
-	fmtutil_read_iff_format(c, ictx, pos1, c->infile->len - pos1);
+	fmtutil_read_iff_format(ictx, pos1, c->infile->len - pos1);
 
 	de_dbg_indent_restore(c, saved_indent_level);
-	de_free(c, ictx);
+	fmtutil_destroy_iff_decoder(ictx);
 }
 
 static const char *get_icon_type_name(u8 t)

@@ -800,7 +800,15 @@ int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mpar
 	struct de_detection_data_struct *old_detection_data;
 
 	if(!mi) return 0;
-	if(!mi->run_fn) return 0;
+	if(!mi->run_fn) {
+		if(moddisp==DE_MODDISP_EXPLICIT) {
+			de_err(c, "Module '%s' is disabled", mi->id);
+		}
+		else { // presumably DE_MODDISP_INTERNAL
+			de_dbg(c, "[module '%s' is disabled]", mi->id);
+		}
+		return 0;
+	}
 	// Note that c->module_nesting_level is 0 when we are not in a module,
 	// 1 when in the top-level module, 2 for a first-level submodule, etc.
 	if(c->module_nesting_level >= 1+DE_MAX_SUBMODULE_NESTING_LEVEL) {

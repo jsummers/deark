@@ -899,6 +899,11 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		goto done;
 	}
 
+	if(md->compressed_data_pos+md->compressed_data_len > c->infile->len) {
+		de_err(c, "%s: Data goes beyond end of file", ucstring_getpsz_d(md->fullfilename));
+		goto done;
+	}
+
 	fi = de_finfo_create(c);
 
 	for(tsidx=0; tsidx<DE_TIMESTAMPIDX_COUNT; tsidx++) {

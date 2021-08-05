@@ -1688,6 +1688,7 @@ struct distilled_nodetable_decoder {
 static void distilled_interpret_node_pair(struct distilled_nodetable_decoder *ntd,
 	UI nodenum, u64 currcode, UI currcode_nbits);
 
+// (This is similar to the code for Squeeze format.)
 static void distilled_interpret_dval(struct distilled_nodetable_decoder *ntd,
 	UI dval, u64 currcode, UI currcode_nbits)
 {
@@ -1776,7 +1777,7 @@ static void distilled_read_nodetable(deark *c, struct lzh_ctx *cctx)
 		goto done;
 	}
 
-	de_dbg2(c, "[note table entries]");
+	de_dbg2(c, "[node table entries]");
 	de_dbg_indent(c, 1);
 	for(k=0; k<ntd->nodecount; k++) {
 		UI val;

@@ -131,32 +131,6 @@ done:
 	;
 }
 
-static void do_read_palette(deark *c, lctx *d, i64 pos1)
-{
-	i64 k;
-	i64 pos = pos1;
-
-	de_dbg(c, "palette at %"I64_FMT, pos1);
-	de_dbg_indent(c, 1);
-	for(k=0; k<256; k++) {
-		u8 cr1, cg1, cb1;
-		u8 cr2, cg2, cb2;
-		char tmps[64];
-
-		cr1 = de_getbyte_p(&pos);
-		cg1 = de_getbyte_p(&pos);
-		cb1 = de_getbyte_p(&pos);
-		cr2 = de_scale_63_to_255(cr1 & 0x3f);
-		cg2 = de_scale_63_to_255(cg1 & 0x3f);
-		cb2 = de_scale_63_to_255(cb1 & 0x3f);
-		d->pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
-		de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) "DE_CHAR_RIGHTARROW" ",
-			(int)cr1, (int)cg1, (int)cb1);
-		de_dbg_pal_entry2(c, k, d->pal[k], tmps, NULL, NULL);
-	}
-	de_dbg_indent(c, -1);
-}
-
 static int do_read_header(deark *c, lctx *d)
 {
 	int retval = 0;
@@ -256,7 +230,7 @@ static int do_read_header(deark *c, lctx *d)
 		de_dbg(c, "num audio components: %"I64_FMT, d->num_audio_components);
 	}
 
-	do_read_palette(c, d, pos);
+	de_read_simple_palette(c, c->infile, pos, 256, 3, d->pal, 256, DE_RDPALTYPE_VGA18BIT, 0);
 	pos += 256*3;
 	d->hdr_size = pos;
 	retval = 1;

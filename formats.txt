@@ -35,6 +35,9 @@ Deark -- Information about supported formats
   Options
    -opt atari:palbits=<n> (refer to readme.md)
 
+* Animator PIC/CEL (module="animator_pic")
+  Format used by the original Autodesk Animator.
+
 * ANSI Art (module="ansiart")
   - Autodetection usually works, but not always. You may have to use
      "-m ansiart" or "-m ansi".
@@ -127,6 +130,9 @@ Deark -- Information about supported formats
 
 * Corel Gallery BMF (module="corel_bmf") (experimental)
   - Extracts preview image.
+
+* CorelMOSAIC CLB (module="corel_clb") (experimental)
+  A thumbnail image library, companion to a CLH file.
 
 * DIB (module="dib")
   - Adds a BMP file header to a raw Windows DIB file.
@@ -393,9 +399,7 @@ Deark -- Information about supported formats
 * PICT (Macintosh image) (module="pict")
   - Extract bitmap images.
 
-* PM (module="pm_xv") (experimental/incomplete)
-  This is an obscure format supported by XV and XnView.
-  - Supports 24-bit truecolor, and 8-bit grayscale
+* PKM (GrafX2 image) (module="pkm")
 
 * PNG / MNG / JNG (module="png")
   - Extract XMP data.
@@ -529,6 +533,9 @@ Deark -- Information about supported formats
 * VBM (VDC BitMap) (module="vbm")
   - Version 2 only
 
+* Video Master (.flm/.vid/.vsq) (module="videomaster") (experimental)
+  - Minimal support. Extracts the video frames.
+
 * VITec image format (module="vitec) (experimental/incomplete)
 
 * VORT ray tracer .pix image (module="vort") (experimental/incomplete)
@@ -653,6 +660,9 @@ Deark -- Information about supported formats
   An old compressed file format used mainly on CP/M.
   - The header can be parsed, but only the rare v1.x format can be
     decompressed.
+
+* DCL Implode (module="dclimplode")
+  Raw PKWARE DCL Implode compressed file. Also known as TTCOMP.
 
 * CRUSH (.cru) (module="crush")
   CRUSH is a DOS archive utility by PocketWare.
@@ -779,9 +789,6 @@ Deark -- Information about supported formats
 
 * tar (module="tar")
   - Rare files may need "-m tar", as tar is difficult to autodetect.
-
-* TTComp (module="ttcomp")
-  - In rare cases, you may have to use "-m ttcomp".
 
 * WOZ (module="woz") (incomplete)
   Apple II disk image format.

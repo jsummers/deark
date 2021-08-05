@@ -54,10 +54,10 @@ $(OBJDIR)/modules/cab.o: modules/cab.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/cardfile.o: modules/cardfile.c src/deark-config.h \
  src/deark-private.h src/deark.h
-$(OBJDIR)/modules/ccx.o: modules/ccx.c src/deark-config.h \
- src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/cfb.o: modules/cfb.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/corel.o: modules/corel.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/cpio.o: modules/cpio.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/crush.o: modules/crush.c src/deark-config.h \
@@ -154,8 +154,10 @@ $(OBJDIR)/modules/mbk.o: modules/mbk.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/megapaint.o: modules/megapaint.c src/deark-config.h \
  src/deark-private.h src/deark.h
-$(OBJDIR)/modules/misc.o: modules/misc.c src/deark-config.h \
- src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/misc.o: modules/misc.c src/deark-private.h src/deark.h \
+ src/deark-config.h src/deark-fmtutil.h
+$(OBJDIR)/modules/misc2.o: modules/misc2.c src/deark-private.h \
+ src/deark.h src/deark-config.h
 $(OBJDIR)/modules/mp3.o: modules/mp3.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/mscompress.o: modules/mscompress.c src/deark-private.h \
@@ -198,6 +200,8 @@ $(OBJDIR)/modules/pict.o: modules/pict.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/pkfont.o: modules/pkfont.c src/deark-config.h \
  src/deark-private.h src/deark.h
+$(OBJDIR)/modules/pkm.o: modules/pkm.c src/deark-private.h src/deark.h \
+ src/deark-config.h
 $(OBJDIR)/modules/plist.o: modules/plist.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/png.o: modules/png.c src/deark-config.h \
@@ -315,6 +319,8 @@ $(OBJDIR)/src/fmtutil-fax.o: src/fmtutil-fax.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/src/fmtutil-huffman.o: src/fmtutil-huffman.c \
  src/deark-private.h src/deark.h src/deark-config.h src/deark-fmtutil.h
+$(OBJDIR)/src/fmtutil-iff.o: src/fmtutil-iff.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/src/fmtutil-lzah.o: src/fmtutil-lzah.c src/deark-private.h \
  src/deark.h src/deark-config.h src/deark-fmtutil.h \
  src/../foreign/lzhuf.h

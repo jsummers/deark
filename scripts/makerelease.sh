@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VER=1.5.8
+VER=1.5.9
 
 if [ ! -f formats.txt ]
 then

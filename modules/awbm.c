@@ -124,7 +124,6 @@ static void do_v2(deark *c, lctx *d)
 	i64 palette_start;
 	i64 i, j;
 	i64 k;
-	u8 cr, cg, cb;
 	u8 b;
 	u8 b1;
 	const char *s;
@@ -173,16 +172,8 @@ static void do_v2(deark *c, lctx *d)
 
 	palette_start = bitmap_start+bitmap_size+4;
 
-	// Read the palette
-	for(i=0; i<ncolors; i++) {
-		cr = de_scale_63_to_255(de_getbyte(palette_start+i*3+0));
-		cg = de_scale_63_to_255(de_getbyte(palette_start+i*3+1));
-		cb = de_scale_63_to_255(de_getbyte(palette_start+i*3+2));
-		if(d->rgb_order)
-			pal[i] = DE_MAKE_RGB(cr, cg, cb);
-		else
-			pal[i] = DE_MAKE_RGB(cb, cg, cr);
-	}
+	de_read_simple_palette(c, c->infile, palette_start, ncolors, 3, pal, ncolors, DE_RDPALTYPE_VGA18BIT,
+		((d->rgb_order)?0:DE_RDPALFLAG_BGR));
 
 	img = de_bitmap_create(c, d->w, d->h, 3);
 	for(j=0; j<d->h; j++) {

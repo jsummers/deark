@@ -550,7 +550,7 @@ void de_unpack_pixels_bilevel_from_byte(de_bitmap *img, i64 xpos, i64 ypos,
 		}
 
 		x ^= xv;
-		if(x==0x00 && DE_CVTF_ONLYWHITE) continue;
+		if(x==0x00 && (flags & DE_CVTF_ONLYWHITE)) continue;
 		de_bitmap_setpixel_gray(img, xpos+(i64)i, ypos, x);
 	}
 }
@@ -640,6 +640,124 @@ void de_read_palette_rgb(dbuf *f,
 	for(k=0; k<num_entries; k++) {
 		pal[k] = dbuf_getRGB(f, fpos + k*entryspan, flags);
 		de_dbg_pal_entry(f->c, k, pal[k]);
+	}
+}
+
+// Can be used if:
+//  - First palette index is "0".
+//  - You don't need to detect invalid colors or other errors.
+//  - You don't need an indication of the transparent "color key".
+//  - You don't need any annotations like "[unused]".
+//  - No other unusual features needed.
+// If DE_RDPALFLAG_INITPAL is used, exactly 'ncolors_to_save' colors will be
+// written to pal[].
+// Otherwise, the min of (ncolors_to_read, ncolors_to_save) will be written to pal[].
+void de_read_simple_palette(deark *c, dbuf *f, i64 fpos,
+	i64 ncolors_to_read, i64 entryspan,
+	de_color *pal, i64 ncolors_to_save, UI paltype, UI flags)
+{
+	i64 k;
+	i64 i;
+	i64 pos = fpos;
+	UI clr1 = 0;
+	u8 samp1[3];
+	u8 samp2[3];
+	char tmps[64];
+
+	if(flags & DE_RDPALFLAG_INITPAL) {
+		de_zeromem(pal, (size_t)ncolors_to_save*sizeof(de_color));
+	}
+
+	if(!(flags & DE_RDPALFLAG_NOHEADER)) {
+		de_dbg(c, "palette at %"I64_FMT, fpos);
+		de_dbg_indent(c, 1);
+	}
+
+	if(ncolors_to_save < ncolors_to_read) {
+		ncolors_to_save = ncolors_to_read;
+	}
+
+	for(k=0; k<ncolors_to_read; k++) {
+		de_color clr;
+
+		pos = fpos + k*entryspan;
+		if(pos >= f->len) {
+			if(k < ncolors_to_save) {
+				pal[k] = 0;
+				continue;
+			}
+			goto done;
+		}
+
+		switch(paltype) {
+		case DE_RDPALTYPE_24BIT:
+		case DE_RDPALTYPE_VGA18BIT:
+			for(i=0; i<3; i++) {
+				samp1[i] = dbuf_getbyte(f, pos+i);
+			}
+			break;
+		case DE_RDPALTYPE_AMIGA12BIT:
+			clr1 = (UI)dbuf_getu16be(f, pos);
+			samp1[0] = (u8)((clr1>>8)&0x0f);
+			samp1[1] = (u8)((clr1>>4)&0x0f);
+			samp1[2] = (u8)(clr1&0x0f);
+			break;
+		default:
+			for(i=0; i<3; i++) {
+				samp1[i] = 0;
+			}
+		}
+
+		if(flags & DE_RDPALFLAG_BGR) {
+			u8 tmpsamp;
+			tmpsamp = samp1[0];
+			samp1[0] = samp1[2];
+			samp1[2] = tmpsamp;
+		}
+
+		switch(paltype) {
+		case DE_RDPALTYPE_VGA18BIT:
+			for(i=0; i<3; i++) {
+				samp2[i] = de_scale_63_to_255(samp1[i] & 0x3f);
+			}
+			break;
+		case DE_RDPALTYPE_AMIGA12BIT:
+			for(i=0; i<3; i++) {
+				samp2[i] = 17 * samp1[i];
+			}
+			break;
+		default:
+			for(i=0; i<3; i++) {
+				samp2[i] = samp1[i];
+			}
+			break;
+		}
+
+		clr = DE_MAKE_RGB(samp2[0], samp2[1], samp2[2]);
+
+		switch(paltype) {
+		case DE_RDPALTYPE_VGA18BIT:
+			de_snprintf(tmps, sizeof(tmps), "(%2u,%2u,%2u) "DE_CHAR_RIGHTARROW" ",
+				(UI)samp1[0], (UI)samp1[1], (UI)samp1[2]);
+			de_dbg_pal_entry2(c, k, clr, tmps, NULL, NULL);
+			break;
+		case DE_RDPALTYPE_AMIGA12BIT:
+			de_snprintf(tmps, sizeof(tmps), "0x%04x "DE_CHAR_RIGHTARROW" ", clr1);
+			de_dbg_pal_entry2(c, k, clr, tmps, NULL, NULL);
+			break;
+		default:
+			de_dbg_pal_entry(c, k, clr);
+			break;
+		}
+
+		if(k < ncolors_to_save) {
+			pal[k] = clr;
+		}
+	}
+
+done:
+	if(!(flags & DE_RDPALFLAG_NOHEADER)) {
+		de_dbg_indent(c, -1);
 	}
 }
 

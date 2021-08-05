@@ -16,11 +16,13 @@ DE_DECLARE_MODULE(de_module_riff);
 #define CODE_CMX1  0x434d5831U
 #define CODE_INFO  0x494e464fU
 #define CODE_PAL   0x50414c20U
+#define CODE_RDIB  0x52444942U
 #define CODE_RMID  0x524d4944U
 #define CODE_WAVE  0x57415645U
 #define CODE_WEBP  0x57454250U
 #define CODE_auds  0x61756473U
 #define CODE_bmpt  0x626d7074U
+#define CODE_cmov  0x636d6f76U
 #define CODE_cmpr  0x636d7072U
 #define CODE_movi  0x6d6f7669U
 #define CODE_vids  0x76696473U
@@ -32,6 +34,7 @@ DE_DECLARE_MODULE(de_module_riff);
 #define CHUNK_ICCP 0x49434350U
 #define CHUNK_ICMT 0x49434d54U
 #define CHUNK_IKEY 0x494b4559U
+#define CHUNK_INAM 0x494e414dU
 #define CHUNK_ISBJ 0x4953424aU
 #define CHUNK_JUNK 0x4a554e4bU
 #define CHUNK_LIST 0x4c495354U
@@ -40,6 +43,7 @@ DE_DECLARE_MODULE(de_module_riff);
 #define CHUNK_XMP  0x584d5020U
 #define CHUNK__PMX 0x5f504d58U
 #define CHUNK_avih 0x61766968U
+#define CHUNK_bmhd 0x626d6864U
 #define CHUNK_bmp  0x626d7020U
 #define CHUNK_data 0x64617461U
 #define CHUNK_fact 0x66616374U
@@ -49,17 +53,20 @@ DE_DECLARE_MODULE(de_module_riff);
 #define CHUNK_strh 0x73747268U
 
 typedef struct localctx_struct {
+	UI top_level_chunk_count;
 	int is_cdr;
 	u32 curr_avi_stream_type;
 	u8 cmx_parse_hack;
+	u8 cmv_parse_hack;
 	u8 in_movi;
 	int in_movi_level;
+	de_ucstring *INAM_data;
 } lctx;
 
 static void do_extract_raw(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len, const char *ext,
-	unsigned int createflags)
+	de_finfo *fi, unsigned int createflags)
 {
-	dbuf_create_file_from_slice(ictx->f, pos, len, ext, NULL, createflags);
+	dbuf_create_file_from_slice(ictx->f, pos, len, ext, fi, createflags);
 }
 
 static void do_INFO_item(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len, u32 chunk_id)
@@ -71,9 +78,22 @@ static void do_INFO_item(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64
 	// TODO: Decode the chunk_id (e.g. ICRD = Creation date).
 
 	// TODO: Support the CSET chunk
-	dbuf_read_to_ucstring_n(ictx->f, pos, len, DE_DBG_MAX_STRLEN, s,
-		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_LATIN1);
-	de_dbg(c, "value: \"%s\"", ucstring_getpsz(s));
+	dbuf_read_to_ucstring_n(ictx->f, pos, len, 500, s,
+		DE_CONVFLAG_STOP_AT_NUL, ictx->input_encoding);
+	de_dbg(c, "value: \"%s\"", ucstring_getpsz_d(s));
+
+	if(chunk_id==CHUNK_INAM) { // Save for possible later use
+		if(d->INAM_data) {
+			ucstring_empty(d->INAM_data);
+		}
+		else {
+			d->INAM_data = ucstring_create(c);
+		}
+		if(s->len>64) {
+			ucstring_truncate(s, 64);
+		}
+		ucstring_append_ucstring(d->INAM_data, s);
+	}
 
 	ucstring_destroy(s);
 }
@@ -256,9 +276,15 @@ static void do_palette(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 l
 
 static void do_DISP_DIB(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 {
+	de_module_params *mparams = NULL;
+
 	if(len<12) return;
-	// "X" = Tell the dib module to mark the output file as "auxiliary".
-	de_run_module_by_id_on_slice2(c, "dib", "X", ictx->f, pos, len);
+
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->in_params.codes = "X"; // "auxiliary"
+	mparams->in_params.flags = 0x80; // ".preview.bmp"
+	de_run_module_by_id_on_slice(c, "dib", mparams, ictx->f, pos, len);
+	de_free(c, mparams);
 }
 
 static void do_DISP_TEXT(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len1)
@@ -273,7 +299,7 @@ static void do_DISP_TEXT(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64
 	de_dbg(c, "text length: %d", (int)len);
 	if(len<1) return;
 
-	do_extract_raw(c, d, ictx, pos, len, "disp.txt", DE_CREATEFLAG_IS_AUX);
+	do_extract_raw(c, d, ictx, pos, len, "disp.txt", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
 static void do_ICCP(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
@@ -289,6 +315,35 @@ static void do_EXIF(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 static void do_XMP(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 {
 	dbuf_create_file_from_slice(ictx->f, pos, len, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
+}
+
+static void do_RDIB_data(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
+{
+	de_finfo *fi = NULL;
+
+	if(!ictx->chunkctx->parent) goto done;
+	if(ictx->chunkctx->parent->user_flags & 0x1) goto done; // Extraction suppressed, or already done
+	ictx->chunkctx->parent->user_flags |= 0x1;
+
+	fi = de_finfo_create(c);
+	if(ucstring_isnonempty(d->INAM_data)) {
+		// In CorelMOVE format, at least, the INAM chunk seems to have a usable
+		// name for the RDIB bitmap.
+		de_finfo_set_name_from_ucstring(c, fi, d->INAM_data, 0);
+		ucstring_empty(d->INAM_data);
+	}
+	do_extract_raw(c, d, ictx, pos, len, "bmp", fi, 0);
+done:
+	de_finfo_destroy(c, fi);
+}
+
+static void do_RDIB_bmhd(deark *c, lctx *d, struct de_iffctx *ictx)
+{
+	if(!ictx->chunkctx->parent) return;
+	// AFAICT, a 'bmhd' chunk means we're dealing with "extended RDIB", which we
+	// don't support. There may still be a 'data' chunk after this, but it will presumably
+	// be in a format we can't handle. Set a flag to remember that.
+	ictx->chunkctx->parent->user_flags |= 0x1;
 }
 
 static void do_DISP(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
@@ -346,25 +401,48 @@ static int do_cmx_parse_hack(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos,
 	return 0;
 }
 
-static int my_handle_nonchunk_riff_data_fn(deark *c, struct de_iffctx *ictx,
+// CMV files seem to consist of two RIFF chunks, separated by four 0x00 bytes.
+// (Maybe some sort of scan-for-the-next-RIFF-chunk logic should happen by
+// default, but it's hard to be sure we won't break something.)
+static int do_cmv_parse_hack(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 *plen)
+{
+	if(ictx->level!=0) return 0;
+	if(dbuf_getu32be(ictx->f, pos)!=0) return 0;
+	if(dbuf_getu32be(ictx->f, pos+4)!=CHUNK_RIFF) return 0;
+	de_dbg(c, "[%d non-RIFF bytes at %"I64_FMT"]", 4, pos);
+	*plen = 4;
+	return 1;
+}
+
+static int my_handle_nonchunk_riff_data_fn(struct de_iffctx *ictx,
 	i64 pos, i64 *plen)
 {
+	deark *c = ictx->c;
 	lctx *d = (lctx*)ictx->userdata;
 
 	if(d->cmx_parse_hack) {
 		return do_cmx_parse_hack(c, d, ictx, pos, plen);
 	}
+	else if(d->cmv_parse_hack) {
+		return do_cmv_parse_hack(c, d, ictx, pos, plen);
+	}
 	return 0;
 }
 
-static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
+static int my_on_std_container_start_fn(struct de_iffctx *ictx)
 {
+	deark *c = ictx->c;
 	lctx *d = (lctx*)ictx->userdata;
+	u32 chunktype = ictx->curr_container_fmt4cc.id;
+	u32 formtype = ictx->curr_container_contentstype4cc.id;
+	int suppress_decoding = 0;
 
-	if(ictx->level==0) {
+	if(ictx->level==0 && (chunktype==CHUNK_RIFF || chunktype==CHUNK_RIFX) &&
+		d->top_level_chunk_count==0)
+	{
 		const char *fmtname = NULL;
 
-		switch(ictx->main_contentstype4cc.id) {
+		switch(formtype) {
 		case CODE_ACON: fmtname = "Windows animated cursor"; break;
 		case CODE_AVI: fmtname = "AVI"; break;
 		case CODE_CDRX: fmtname = "Corel CCX"; break;
@@ -373,12 +451,17 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 			ictx->handle_nonchunk_data_fn = my_handle_nonchunk_riff_data_fn;
 			d->cmx_parse_hack = 1;
 			break;
+		case CODE_cmov:
+			fmtname = "CorelMOVE";
+			ictx->handle_nonchunk_data_fn = my_handle_nonchunk_riff_data_fn;
+			d->cmv_parse_hack = 1;
+			break;
 		case CODE_WAVE: fmtname = "WAVE"; break;
 		case CODE_WEBP: fmtname = "WebP"; break;
 		}
 
 		// Special check for CorelDraw formats.
-		if(!fmtname && !de_memcmp(ictx->main_contentstype4cc.bytes, (const void*)"CDR", 3)) {
+		if(!fmtname && (formtype>>8 == 0x434452U) /* "CDR" */) {
 			d->is_cdr = 1;
 			fmtname = "CorelDRAW (RIFF-based)";
 		}
@@ -388,37 +471,49 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 		}
 	}
 
-	if(d->is_cdr && ictx->curr_container_fmt4cc.id==CHUNK_LIST) {
+	if(d->is_cdr && chunktype==CHUNK_LIST) {
 		// 'cmpr' LISTs in CorelDraw files are not correctly formed.
 		// Tell the parser not to process them.
-		if(ictx->curr_container_contentstype4cc.id==CODE_cmpr) {
+		if(formtype==CODE_cmpr) {
 			de_dbg(c, "[not decoding CDR cmpr list]");
-			return 0;
+			suppress_decoding = 1;
+			goto done;
 		}
 	}
 
-	if(ictx->main_contentstype4cc.id==CODE_AVI &&
-		ictx->curr_container_contentstype4cc.id==CODE_movi &&
-		c->debug_level<2)
+	if(chunktype==CHUNK_RIFF || chunktype==CHUNK_RIFX) {
+		// TODO: INAM data is probably not scoped entirely correctly.
+		if(d->INAM_data) {
+			ucstring_empty(d->INAM_data);
+		}
+	}
+
+	if(ictx->main_contentstype4cc.id==CODE_AVI && chunktype==CHUNK_LIST &&
+		formtype==CODE_movi)
 	{
 		// There are often a huge number of these chunks, and we can't do
 		// anything interesting with them, so skip them by default.
-		de_dbg(c, "[not decoding movi chunks]");
-		return 0;
+		if(c->debug_level<2) {
+			de_dbg(c, "[not decoding movi chunks]");
+			suppress_decoding = 1;
+			goto done;
+		}
+
+		if(!d->in_movi) {
+			// Keep track of when we are inside a 'movi' container.
+			d->in_movi = 1;
+			d->in_movi_level = ictx->level;
+		}
 	}
 
-	if(ictx->main_contentstype4cc.id==CODE_AVI &&
-		ictx->curr_container_contentstype4cc.id==CODE_movi && !d->in_movi)
-	{
-		// Keep track of when we are inside a 'movi' container.
-		d->in_movi = 1;
-		d->in_movi_level = ictx->level;
+done:
+	if(ictx->level==0) {
+		d->top_level_chunk_count++;
 	}
-
-	return 1;
+	return !suppress_decoding;
 }
 
-static int my_on_container_end_fn(deark *c, struct de_iffctx *ictx)
+static int my_on_container_end_fn(struct de_iffctx *ictx)
 {
 	lctx *d = (lctx*)ictx->userdata;
 
@@ -431,7 +526,7 @@ static int my_on_container_end_fn(deark *c, struct de_iffctx *ictx)
 	return 1;
 }
 
-static int my_preprocess_riff_chunk_fn(deark *c, struct de_iffctx *ictx)
+static int my_preprocess_riff_chunk_fn(struct de_iffctx *ictx)
 {
 	const char *name = NULL;
 
@@ -453,14 +548,12 @@ static int my_preprocess_riff_chunk_fn(deark *c, struct de_iffctx *ictx)
 	return 1;
 }
 
-static int my_riff_chunk_handler(deark *c, struct de_iffctx *ictx)
+static int my_riff_chunk_handler(struct de_iffctx *ictx)
 {
 	i64 dpos, dlen;
 	u32 list_type;
+	deark *c = ictx->c;
 	lctx *d = (lctx*)ictx->userdata;
-
-	// We should always set this flag for formats (like RIFF) that aren't standard IFF.
-	ictx->handled = 1;
 
 	list_type = ictx->curr_container_contentstype4cc.id;
 	dpos = ictx->chunkctx->dpos;
@@ -476,91 +569,106 @@ static int my_riff_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	if(list_type==CODE_INFO) {
 		do_INFO_item(c, d, ictx, dpos, dlen, ictx->chunkctx->chunk4cc.id);
-		goto chunk_handled;
+		ictx->handled = 1;
+		goto done;
 	}
 
 	switch(ictx->chunkctx->chunk4cc.id) {
 
 	case CHUNK_DISP:
 		do_DISP(c, d, ictx, dpos, dlen);
-		break;
-
-	case CHUNK_JUNK:
+		ictx->handled = 1;
 		break;
 
 	case CHUNK_ICCP: // Used by WebP
 		do_ICCP(c, d, ictx, dpos, dlen);
+		ictx->handled = 1;
 		break;
 
 	case CHUNK_EXIF: // Used by WebP
 		do_EXIF(c, d, ictx, dpos, dlen);
+		ictx->handled = 1;
 		break;
 
 	case CHUNK_XMP: // Used by WebP
 	case CHUNK__PMX: // Used by WAVE, AVI
 		do_XMP(c, d, ictx, dpos, dlen);
+		ictx->handled = 1;
+		break;
+
+	case CHUNK_bmhd:
+		if(list_type==CODE_RDIB) {
+			do_RDIB_bmhd(c, d, ictx);
+			ictx->handled = 1;
+		}
 		break;
 
 	case CHUNK_icon:
 		if(ictx->main_contentstype4cc.id==CODE_ACON) {
 			extract_ani_frame(c, d, ictx, dpos, dlen);
+			ictx->handled = 1;
 		}
 		break;
 
 	case CHUNK_data:
 		if(list_type==CODE_RMID) {
-			do_extract_raw(c, d, ictx, dpos, dlen, "mid", 0);
+			do_extract_raw(c, d, ictx, dpos, dlen, "mid", NULL, 0);
+			ictx->handled = 1;
 		}
 		else if(list_type==CODE_PAL) {
 			do_palette(c, d, ictx, dpos, dlen);
+			ictx->handled = 1;
+		}
+		else if(list_type==CODE_RDIB) {
+			do_RDIB_data(c, d, ictx, dpos, dlen);
+			ictx->handled = 1;
 		}
 		break;
 
 	case CHUNK_fmt:
 		if(ictx->main_contentstype4cc.id==CODE_WAVE) {
 			do_wav_fmt(c, d, ictx, dpos, dlen);
+			ictx->handled = 1;
 		}
 		break;
 
 	case CHUNK_fact:
 		if(ictx->main_contentstype4cc.id==CODE_WAVE) {
 			do_wav_fact(c, d, ictx, dpos, dlen);
+			ictx->handled = 1;
 		}
 		break;
 
 	case CHUNK_avih:
 		if(ictx->main_contentstype4cc.id==CODE_AVI) {
 			do_avi_avih(c, d, ictx, dpos, dlen);
+			ictx->handled = 1;
 		}
 		break;
 
 	case CHUNK_strh:
 		if(ictx->main_contentstype4cc.id==CODE_AVI) {
 			do_avi_strh(c, d, ictx, dpos, dlen);
+			ictx->handled = 1;
 		}
 		break;
 
 	case CHUNK_strf:
 		if(ictx->main_contentstype4cc.id==CODE_AVI) {
 			do_avi_strf(c, d, ictx, dpos, dlen);
+			ictx->handled = 1;
 		}
 		break;
 
 	case CHUNK_bmp:
 		if(d->is_cdr && ictx->curr_container_contentstype4cc.id==CODE_bmpt) {
 			do_cdr_bmp(c, d, ictx, dpos, dlen);
+			ictx->handled = 1;
 		}
 		break;
-
-	default:
-		if(c->debug_level>=2 &&
-			ictx->main_contentstype4cc.id==CODE_AVI && !d->in_movi)
-		{
-			de_dbg_hexdump(c, ictx->f, dpos, dlen, 256, NULL, 0x1);
-		}
 	}
 
-chunk_handled:
+done:
 	return 1;
 }
 
@@ -571,13 +679,14 @@ static void de_run_riff(deark *c, de_module_params *mparams)
 	u8 buf[4];
 
 	d = de_malloc(c, sizeof(lctx));
-	ictx = de_malloc(c, sizeof(struct de_iffctx));
 
+	ictx = fmtutil_create_iff_decoder(c);
 	ictx->userdata = (void*)d;
 	ictx->preprocess_chunk_fn = my_preprocess_riff_chunk_fn;
 	ictx->handle_chunk_fn = my_riff_chunk_handler;
 	ictx->on_std_container_start_fn = my_on_std_container_start_fn;
 	ictx->on_container_end_fn = my_on_container_end_fn;
+	ictx->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 	ictx->f = c->infile;
 
 	de_read(buf, 0, 4);
@@ -600,10 +709,13 @@ static void de_run_riff(deark *c, de_module_params *mparams)
 		ictx->reversed_4cc = 0;
 	}
 
-	fmtutil_read_iff_format(c, ictx, 0, ictx->f->len);
+	fmtutil_read_iff_format(ictx, 0, ictx->f->len);
 
-	de_free(c, ictx);
-	de_free(c, d);
+	fmtutil_destroy_iff_decoder(ictx);
+	if(d) {
+		ucstring_destroy(d->INAM_data);
+		de_free(c, d);
+	}
 }
 
 static int de_identify_riff(deark *c)

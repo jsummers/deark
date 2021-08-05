@@ -128,7 +128,7 @@ static void do_woz_META(deark *c, struct de_iffctx *ictx,
 	ucstring_destroy(val);
 }
 
-static int my_preprocess_woz_chunk_fn(deark *c, struct de_iffctx *ictx)
+static int my_preprocess_woz_chunk_fn(struct de_iffctx *ictx)
 {
 	const char *name = NULL;
 
@@ -145,18 +145,19 @@ static int my_preprocess_woz_chunk_fn(deark *c, struct de_iffctx *ictx)
 	return 1;
 }
 
-static int my_woz_chunk_handler(deark *c, struct de_iffctx *ictx)
+static int my_woz_chunk_handler(struct de_iffctx *ictx)
 {
-	// Always set this, because we never want the IFF parser to try to handle
-	// a chunk itself.
-	ictx->handled = 1;
+	deark *c = ictx->c;
 
 	switch(ictx->chunkctx->chunk4cc.id) {
 	case CODE_INFO:
+		ictx->handled = 1;
 		do_woz_INFO(c, ictx, ictx->chunkctx);
 		break;
 	case CODE_META:
+		ictx->handled = 1;
 		do_woz_META(c, ictx, ictx->chunkctx);
+		break;
 	}
 
 	return 1;
@@ -172,7 +173,7 @@ static void de_run_woz(deark *c, de_module_params *mparams)
 	// WOZ has a 12-byte header, then sequence of chunks that are basically the
 	// same format as RIFF.
 	d = de_malloc(c, sizeof(lctx));
-	ictx = de_malloc(c, sizeof(struct de_iffctx));
+	ictx = fmtutil_create_iff_decoder(c);
 
 	ictx->userdata = (void*)d;
 	ictx->preprocess_chunk_fn = my_preprocess_woz_chunk_fn;
@@ -196,10 +197,10 @@ static void de_run_woz(deark *c, de_module_params *mparams)
 	de_dbg(c, "crc: 0x%08x", (unsigned int)crc);
 	de_dbg_indent(c, -1);
 
-	fmtutil_read_iff_format(c, ictx, pos, ictx->f->len-pos);
+	fmtutil_read_iff_format(ictx, pos, ictx->f->len-pos);
 
 done:
-	de_free(c, ictx);
+	fmtutil_destroy_iff_decoder(ictx);
 	de_free(c, d);
 }
 
