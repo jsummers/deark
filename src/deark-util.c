@@ -1936,7 +1936,7 @@ static void de_crc16ccitt_continue(struct de_crcobj *crco, const u8 *buf, i64 bu
 // It is in the x^16 + x^15 + x^2 + 1 family.
 // It's some variant of CRC-16-IBM, and sometimes simply called "CRC-16". But
 // both these names are more ambiguous than I'd like, so I'm calling it "ARC".
-static void de_crc16arc_init(struct de_crcobj *crco)
+static void de_crc16arc_init(struct de_crcobj *crco, u16 poly)
 {
 	u32 i, k;
 
@@ -1944,7 +1944,7 @@ static void de_crc16arc_init(struct de_crcobj *crco)
 	for(i=0; i<256; i++) {
 		crco->table16[i] = i;
 		for(k=0; k<8; k++)
-			crco->table16[i] = (crco->table16[i]>>1) ^ ((crco->table16[i] & 1) ? 0xa001 : 0);
+			crco->table16[i] = (crco->table16[i]>>1) ^ ((crco->table16[i] & 1) ? poly : 0);
 	}
 }
 
@@ -1973,7 +1973,10 @@ struct de_crcobj *de_crcobj_create(deark *c, UI type_and_flags)
 		de_crc16ccitt_init(crco);
 		break;
 	case DE_CRCOBJ_CRC16_ARC:
-		de_crc16arc_init(crco);
+		de_crc16arc_init(crco, 0xa001);
+		break;
+	case DE_CRCOBJ_CRC16_IBMSDLC:
+		de_crc16arc_init(crco, 0x8408);
 		break;
 	}
 
@@ -2002,11 +2005,18 @@ void de_crcobj_reset(struct de_crcobj *crco)
 	case DE_CRCOBJ_ADLER32:
 		crco->val = 1;
 		break;
+	case DE_CRCOBJ_CRC16_IBMSDLC:
+		crco->val = 0xffff;
+		break;
 	}
 }
 
 u32 de_crcobj_getval(struct de_crcobj *crco)
 {
+	switch(crco->crctype) {
+	case DE_CRCOBJ_CRC16_IBMSDLC:
+		return crco->val ^ 0xffff;
+	}
 	return crco->val;
 }
 
@@ -2022,6 +2032,7 @@ void de_crcobj_addbuf(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
 		de_crc16ccitt_continue(crco, buf, buf_len);
 		break;
 	case DE_CRCOBJ_CRC16_ARC:
+	case DE_CRCOBJ_CRC16_IBMSDLC:
 		de_crc16arc_continue(crco, buf, buf_len);
 		break;
 	case DE_CRCOBJ_ADLER32:

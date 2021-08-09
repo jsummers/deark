@@ -602,6 +602,9 @@ Deark -- Information about supported formats
 
 * ADF (Amiga disk image) (module="amiga_adf") (experimental)
 
+* ar001 (module="ar001")
+  "ar" archiver by Haruhiko Okumura, first version.
+
 * ARC archive (module="arc")
   - Some rare compression methods are not supported.
 

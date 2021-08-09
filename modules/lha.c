@@ -11,6 +11,7 @@ DE_DECLARE_MODULE(de_module_lha);
 DE_DECLARE_MODULE(de_module_swg);
 DE_DECLARE_MODULE(de_module_car_lha);
 DE_DECLARE_MODULE(de_module_arx);
+DE_DECLARE_MODULE(de_module_ar001);
 
 #define MAX_SUBDIR_LEVEL 32
 
@@ -794,7 +795,7 @@ static const struct cmpr_meth_array_item cmpr_meth_arr[] = {
 	{ 0x00, CODE_lhd, "directory", NULL },
 	{ 0x00, CODE_lh0, "uncompressed", decompress_uncompressed },
 	{ 0x00, CODE_lh1, "LZ77-4K, adaptive Huffman", decompress_lh1 },
-	{ 0x00, CODE_lh4, NULL, decompress_lh5x_auto },
+	{ 0x00, CODE_lh4, "LZ77-4K, static Huffman", decompress_lh5x_auto },
 	{ 0x00, CODE_lh5, "LZ77-8K, static Huffman", decompress_lh5 },
 	{ 0x00, CODE_lh6, "LZ77-32K, static Huffman", decompress_lh5x_auto },
 	{ 0x00, CODE_lh7, NULL, decompress_lh5x_auto },
@@ -1917,4 +1918,206 @@ void de_module_arx(deark *c, struct deark_module_info *mi)
 	mi->desc = "ARX LHA-like archive";
 	mi->run_fn = de_run_arx;
 	mi->identify_fn = de_identify_arx;
+}
+
+
+/////////////////////// ar (Haruhiko Okumura) version "ar001"
+
+static void do_check_ar001_header_crc(deark *c, lctx *d, struct member_data *md, i64 basic_hdr_size)
+{
+	//if(!md->have_hdr_crc_reported) return;
+	de_crcobj_reset(d->crco);
+
+	// Everything before the CRC field:
+	de_crcobj_addslice(d->crco, c->infile, md->member_pos+2, basic_hdr_size);
+
+	md->hdr_crc_calc = de_crcobj_getval(d->crco);
+	de_dbg(c, "header crc (calculated): 0x%04x", (UI)md->hdr_crc_calc);
+	if(md->hdr_crc_calc != md->hdr_crc_reported) {
+		de_err(c, "Wrong header CRC: reported=0x%04x, calculated=0x%04x",
+				(UI)md->hdr_crc_reported, (UI)md->hdr_crc_calc);
+	}
+}
+
+// Caller allocates and initializes md.
+// If the member was successfully parsed, sets md->total_size and returns nonzero.
+static int do_read_ar001_member(deark *c, lctx *d, struct member_data *md)
+{
+	int saved_indent_level;
+	int retval = 0;
+	i64 pos1 = md->member_pos;
+	i64 pos = pos1;
+	i64 basic_hdr_size;
+	i64 fnlen;
+	i64 first_ext_hdr_size;
+	UI cmpr_method;
+	u8 cmpr_meth_raw[5];
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "member at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	md->hlev = 0; // (hack)
+	basic_hdr_size = de_getu16le_p(&pos);
+	if(basic_hdr_size==0) {
+		de_dbg(c, "end of archive");
+		goto done;
+	}
+	de_dbg(c, "basic header size: %u", (UI)basic_hdr_size);
+	if(basic_hdr_size<18) goto done;
+	fnlen = basic_hdr_size-18;
+
+	cmpr_method = (UI)de_getu16le_p(&pos);
+
+	de_zeromem(cmpr_meth_raw, 5);
+	switch(cmpr_method) {
+	case 0: de_memcpy(cmpr_meth_raw, (const void*)"-lh0-", 5); break; // (hack)
+	case 1: de_memcpy(cmpr_meth_raw, (const void*)"-lh4-", 5); break; // ...
+	}
+	md->cmi = de_malloc(c, sizeof(struct cmpr_meth_info));
+	get_cmpr_meth_info(cmpr_meth_raw, md->cmi);
+	de_dbg(c, "cmpr method: %u (%s)", cmpr_method, md->cmi->descr);
+
+	pos += 1; // file type
+
+	// timestamp: This is the time the file was added to the archive, not its
+	// last-modified timestamp, so it's not very useful.
+	pos += 5;
+
+	md->compressed_data_len = de_getu32le_p(&pos);
+	de_dbg(c, "compressed size: %"I64_FMT, md->compressed_data_len);
+
+	md->orig_size = de_getu32le_p(&pos);
+	de_dbg(c, "original size: %"I64_FMT, md->orig_size);
+
+	md->crc16 = (u32)de_getu16le_p(&pos);
+	de_dbg(c, "crc16 (reported): 0x%04x", (UI)md->crc16);
+
+	read_filename_hlev0(c, d, md, pos, fnlen);
+	pos += fnlen;
+	make_fullfilename(c, d, md);
+
+	md->hdr_crc_reported = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "basic header crc (reported): 0x%04x", (UI)md->hdr_crc_reported);
+
+	do_check_ar001_header_crc(c, d, md, basic_hdr_size);
+
+	first_ext_hdr_size = de_getu16le_p(&pos);
+	de_dbg(c, "first ext header size: %"I64_FMT, first_ext_hdr_size);
+	if(first_ext_hdr_size) {
+		// The ar001 software never uses this feature, so I'm not going to try to
+		// support it.
+		de_err(c, "Files with extended headers aren't supported");
+		goto done;
+	}
+
+	md->total_size = pos + md->compressed_data_len - pos1;
+	retval = 1;
+
+	md->compressed_data_pos = pos;
+
+	de_dbg(c, "member data at %"I64_FMT", len=%"I64_FMT,
+		md->compressed_data_pos, md->compressed_data_len);
+
+	if(!md->cmi->decompressor) {
+		de_err(c, "%s: Unsupported compression method: %u",
+			ucstring_getpsz_d(md->fullfilename), cmpr_method);
+		goto done;
+	}
+
+	de_dbg_indent(c, 1);
+	do_extract_file(c, d, md);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static void de_run_ar001(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	i64 pos;
+	struct member_data *md = NULL;
+
+	d = de_malloc(c, sizeof(lctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
+
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_IBMSDLC);
+
+	pos = 0;
+	while(1) {
+		if(pos >= c->infile->len) break;
+
+		md = de_malloc(c, sizeof(struct member_data));
+		md->encoding = d->input_encoding;
+		md->member_pos = pos;
+		if(!do_read_ar001_member(c, d, md)) goto done;
+		if(md->total_size<1) goto done;
+
+		d->member_count++;
+		pos += md->total_size;
+
+		destroy_member_data(c, md);
+		md = NULL;
+	}
+
+done:
+	destroy_member_data(c, md);
+	if(d) {
+		de_crcobj_destroy(d->crco);
+		de_free(c, d);
+	}
+}
+
+static int slice_is_printable_ascii(dbuf *f, i64 pos, i64 len)
+{
+	i64 i;
+
+	for(i=0; i<len; i++) {
+		u8 b;
+
+		b = dbuf_getbyte(f, pos+i);
+		if(b<32 || b>126) return 0;
+	}
+	return 1;
+}
+
+static int de_identify_ar001(deark *c)
+{
+	i64 n;
+	i64 bhlen;
+	i64 nlen;
+	u32 bhcrc_r, bhcrc_c;
+	u8 b;
+	int conf = 0;
+	struct de_crcobj *crco = NULL;
+
+	bhlen = de_getu16le(0); // basic header size
+	if(bhlen<(18+1) || bhlen>(18+1024)) goto done;
+	if(c->infile->len < bhlen+8) goto done;
+	nlen = bhlen-18;
+	n = de_getu16le(2); // cmpr method
+	if(n>1) goto done;
+	b = de_getbyte(4); // file type
+	if(b!=0) goto done; // 1 (text) is also defined, but not used by ar001
+	n = de_getu16le(2+bhlen+2); // first ext hdr len
+	if(n!=0) goto done;
+	if(!slice_is_printable_ascii(c->infile, 20, nlen)) goto done;
+	bhcrc_r = (u32)de_getu16le(2+bhlen);
+	crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_IBMSDLC);
+	de_crcobj_addslice(crco, c->infile, 2, bhlen);
+	bhcrc_c = de_crcobj_getval(crco);
+	if(bhcrc_c == bhcrc_r) conf = 91;
+
+done:
+	if(crco) de_crcobj_destroy(crco);
+	return conf;
+}
+
+void de_module_ar001(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "ar001";
+	mi->desc = "ar001 archive (Okumura)";
+	mi->run_fn = de_run_ar001;
+	mi->identify_fn = de_identify_ar001;
 }
