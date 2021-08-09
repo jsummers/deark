@@ -341,7 +341,7 @@ static void de_run_crc(deark *c, de_module_params *mparams)
 	de_zeromem(&crcctx, sizeof(struct crcctx_struct));
 	crcctx.crco_32ieee = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
 	crcctx.crco_16arc = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
-	crcctx.crco_16ccitt = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
+	crcctx.crco_16ccitt = de_crcobj_create(c, DE_CRCOBJ_CRC16_XMODEM);
 
 	dbuf_buffered_read(c->infile, 0, c->infile->len, crc_cbfn, (void*)&crcctx);
 

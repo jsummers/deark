@@ -184,7 +184,7 @@ static void do_header(deark *c, lctx *d, struct de_advfile *advf)
 
 		de_dbg(c, "crc of header (reported%s): 0x%04x",
 			(d->is_v23)?"":", hypothetical", (unsigned int)crc_reported);
-		crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
+		crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_XMODEM);
 		de_crcobj_addslice(crco, c->infile, 0, 124);
 		crc_calc = de_crcobj_getval(crco);
 		de_crcobj_destroy(crco);
@@ -455,7 +455,7 @@ static int de_identify_macbinary(deark *c)
 	if(crc_reported!=0 || is_v23) {
 		struct de_crcobj *crco;
 
-		crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
+		crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_XMODEM);
 		de_crcobj_addbuf(crco, b, 124);
 		crc_calc = de_crcobj_getval(crco);
 		de_crcobj_destroy(crco);

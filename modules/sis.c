@@ -71,7 +71,7 @@ static int do_file_header(deark *c, lctx *d, i64 pos1)
 	// Pre-read the first 12 bytes, to calculate some CRCs for later.
 	de_read(tmpbuf, pos, 12);
 
-	crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
+	crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_XMODEM);
 	for(k=0; k<12; k+=2) {
 		de_crcobj_addbuf(crco, &tmpbuf[k], 1);
 	}

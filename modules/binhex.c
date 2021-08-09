@@ -221,8 +221,8 @@ static void do_extract_forks(deark *c, lctx *d)
 	// [d->fki_rsrc.len bytes here]
 	// [2 bytes here, for the CRC]
 
-	d->fki_data.crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
-	d->fki_rsrc.crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
+	d->fki_data.crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_XMODEM);
+	d->fki_rsrc.crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_XMODEM);
 
 	if(!do_pre_extract_fork(c, d, inf, &d->fki_data, &d->advf->mainfork)) {
 		goto done;

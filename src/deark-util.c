@@ -1902,11 +1902,7 @@ static void adler32_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
 	crco->val = (s2 << 16) + s1;
 }
 
-// This is the CRC-16 algorithm used in MacBinary.
-// It is in the x^16 + x^12 + x^5 + 1 family.
-// CRC-16-CCITT is probably the best name for it, though I'm not completely
-// sure, and there are several algorithms that have been called "CRC-16-CCITT".
-static void de_crc16ccitt_init(struct de_crcobj *crco)
+static void de_crc16xmodem_init(struct de_crcobj *crco)
 {
 	const unsigned int polynomial = 0x1021;
 	unsigned int index;
@@ -1921,7 +1917,7 @@ static void de_crc16ccitt_init(struct de_crcobj *crco)
 	}
 }
 
-static void de_crc16ccitt_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
+static void de_crc16xmodem_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
 {
 	i64 k;
 
@@ -1932,10 +1928,6 @@ static void de_crc16ccitt_continue(struct de_crcobj *crco, const u8 *buf, i64 bu
 	}
 }
 
-// This is the CRC-16 algorithm used in ARC, LHA, ZOO, etc.
-// It is in the x^16 + x^15 + x^2 + 1 family.
-// It's some variant of CRC-16-IBM, and sometimes simply called "CRC-16". But
-// both these names are more ambiguous than I'd like, so I'm calling it "ARC".
 static void de_crc16arc_init(struct de_crcobj *crco, u16 poly)
 {
 	u32 i, k;
@@ -1969,13 +1961,20 @@ struct de_crcobj *de_crcobj_create(deark *c, UI type_and_flags)
 	crco->crctype = type_and_flags;
 
 	switch(crco->crctype) {
-	case DE_CRCOBJ_CRC16_CCITT:
-		de_crc16ccitt_init(crco);
+	case DE_CRCOBJ_CRC16_XMODEM:
+		// This is the CRC-16 algorithm used in MacBinary.
+		// The CRC RevEng catalogue calls it "CRC-16/XMODEM".
+		de_crc16xmodem_init(crco);
 		break;
 	case DE_CRCOBJ_CRC16_ARC:
+		// This is the CRC-16 algorithm used in ARC, LHA, ZOO, etc.
+		// The CRC RevEng catalogue calls it "CRC-16/ARC".
 		de_crc16arc_init(crco, 0xa001);
 		break;
 	case DE_CRCOBJ_CRC16_IBMSDLC:
+		// This is the CRC-16 algorithm used in ar001.
+		// I'm pretty sure it is equivalent to the one the CRC RevEng catalogue
+		// calls "CRC-16/IBM-SDLC".
 		de_crc16arc_init(crco, 0x8408);
 		break;
 	}
@@ -2028,8 +2027,8 @@ void de_crcobj_addbuf(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
 	case DE_CRCOBJ_CRC32_IEEE:
 		crco->val = de_crc32_continue(crco->val, buf, buf_len);
 		break;
-	case DE_CRCOBJ_CRC16_CCITT:
-		de_crc16ccitt_continue(crco, buf, buf_len);
+	case DE_CRCOBJ_CRC16_XMODEM:
+		de_crc16xmodem_continue(crco, buf, buf_len);
 		break;
 	case DE_CRCOBJ_CRC16_ARC:
 	case DE_CRCOBJ_CRC16_IBMSDLC:

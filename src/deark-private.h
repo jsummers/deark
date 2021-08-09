@@ -1078,7 +1078,7 @@ int de_inthashtable_remove_any_item(deark *c, struct de_inthashtable *ht, i64 *p
 
 #define DE_CRCOBJ_CRC32_IEEE   0x10
 #define DE_CRCOBJ_ADLER32      0x11
-#define DE_CRCOBJ_CRC16_CCITT  0x20
+#define DE_CRCOBJ_CRC16_XMODEM 0x20
 #define DE_CRCOBJ_CRC16_ARC    0x21
 #define DE_CRCOBJ_CRC16_IBMSDLC 0x22
 

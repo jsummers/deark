@@ -248,7 +248,7 @@ static void de_run_lbr(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
 
-	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_XMODEM);
 
 	// Read directory
 	if(!do_entry(c, d, pos, 1)) goto done;
