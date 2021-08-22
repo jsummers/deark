@@ -142,6 +142,12 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
+	if(!de_memcmp(b, (const void*)"Creative Voice File\x1a", 20)) {
+		fmti->confidence = 90;
+		fmti->descr = "a Creative Voice audio file";
+		return;
+	}
+
 	// We're not trying to detect every HTML file, but we want to make sure
 	// we can detect the ones we generate.
 	if(!de_memcmp(b, "<!DOCTYPE html", 14) ||
