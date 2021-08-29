@@ -10,6 +10,9 @@
 DE_DECLARE_MODULE(de_module_qtif);
 
 typedef struct localctx_struct {
+	u8 fail_gracefully_mode;
+	u8 decoded_ok;
+
 	int idat_found;
 	i64 idat_pos;
 	i64 idat_size;
@@ -68,10 +71,17 @@ static void do_decode_raw(deark *c, lctx *d)
 	u32 clr;
 
 	if(d->bitdepth != 32) {
-		de_err(c, "Unsupported bit depth for raw image (%d)", (int)d->bitdepth);
+		if(!d->fail_gracefully_mode)
+			de_err(c, "Unsupported bit depth for raw image (%d)", (int)d->bitdepth);
 		goto done;
 	}
-	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
+
+	if(d->fail_gracefully_mode) {
+		if(!de_good_image_dimensions_noerr(c, d->width, d->height)) goto done;
+	}
+	else {
+		if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
+	}
 
 	img = de_bitmap_create(c, d->width, d->height, 3);
 
@@ -98,6 +108,8 @@ static void do_decode_raw(deark *c, lctx *d)
 	}
 
 	de_bitmap_write_to_file_finfo(img, fi, 0);
+	d->decoded_ok = 1;
+
 done:
 	de_bitmap_destroy(img);
 	de_finfo_destroy(c, fi);
@@ -108,7 +120,8 @@ static void do_write_image(deark *c, lctx *d)
 	i64 dsize;
 
 	if(!d->idsc_found) {
-		de_err(c, "Missing idsc atom");
+		if(!d->fail_gracefully_mode)
+			de_err(c, "Missing idsc atom");
 		return;
 	}
 
@@ -120,21 +133,31 @@ static void do_write_image(deark *c, lctx *d)
 	}
 	else if(!de_memcmp(d->cmpr4cc.bytes, "jpeg", 4)) {
 		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "jpg", NULL, 0);
+		d->decoded_ok = 1;
 	}
 	else if(!de_memcmp(d->cmpr4cc.bytes, "tiff", 4)) {
 		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "tif", NULL, 0);
+		d->decoded_ok = 1;
 	}
 	else if(!de_memcmp(d->cmpr4cc.bytes, "gif ", 4)) {
 		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "gif", NULL, 0);
+		d->decoded_ok = 1;
 	}
 	else if(!de_memcmp(d->cmpr4cc.bytes, "png ", 4)) {
 		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "png", NULL, 0);
+		d->decoded_ok = 1;
 	}
 	else if(!de_memcmp(d->cmpr4cc.bytes, "kpcd", 4)) { // Kodak Photo CD
 		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "pcd", NULL, 0);
+		d->decoded_ok = 1;
 	}
 	else {
-		de_err(c, "Unsupported compression type: \"%s\"", d->cmpr4cc.id_sanitized_sz);
+		if(d->fail_gracefully_mode) {
+			de_dbg(c, "Unsupported compression type: \"%s\"", d->cmpr4cc.id_sanitized_sz);
+		}
+		else {
+			de_err(c, "Unsupported compression type: \"%s\"", d->cmpr4cc.id_sanitized_sz);
+		}
 	}
 }
 
@@ -196,11 +219,22 @@ static void do_raw_idsc_data(deark *c, lctx *d)
 	do_write_image(c, d);
 }
 
+// mparams->codes "I": Read raw 'idsc' data.
+// (mparams->in_params.flags & 0x1) = "fail gracefully mode": If we don't think
+//    we can decode the image, give up quickly and don't report an error. Used
+//    by the PICT module.
+// (mparams->out_params.flags & 0x1) = Image decoding was apparently successful
 static void de_run_qtif(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	if(mparams) {
+		if(mparams->in_params.flags & 0x1) {
+			d->fail_gracefully_mode = 1;
+		}
+	}
 
 	if(de_havemodcode(c, mparams, 'I')) {
 		// Raw data from a PICT file
@@ -208,6 +242,10 @@ static void de_run_qtif(deark *c, de_module_params *mparams)
 	}
 	else {
 		do_qtif_file_format(c, d);
+	}
+
+	if(mparams && d->decoded_ok) {
+		mparams->out_params.flags |= 0x1;
 	}
 
 	de_free(c, d);
