@@ -397,7 +397,10 @@ Deark -- Information about supported formats
 * PI9 (Atari Falcon 320x200) (module="fpaint_pi9")
 
 * PICT (Macintosh image) (module="pict")
-  - Extract bitmap images.
+  - Extract bitmap images, etc.
+  Options
+   -opt pict:decodeqt - Try to decode embedded "QuickTime" images directly,
+    instead of always extracting to .qtif format.
 
 * PKM (GrafX2 image) (module="pkm")
 
@@ -601,6 +604,9 @@ Deark -- Information about supported formats
 === Compression, archive, installer, disk image modules ===
 
 * ADF (Amiga disk image) (module="amiga_adf") (experimental)
+
+* ar001 (module="ar001")
+  "ar" archiver by Haruhiko Okumura, first version.
 
 * ARC archive (module="arc")
   - Some rare compression methods are not supported.

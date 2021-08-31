@@ -68,7 +68,7 @@ static int read_tree(deark *c, lctx *d, i64 pos1)
 		}
 	}
 
-	if(!fmtutil_huffman_make_canonical_code(c, d->ht->bk, d->ht->builder, FMTUTIL_MCTFLAG_LEFT_ALIGN_BRANCHES)) {
+	if(!fmtutil_huffman_make_canonical_code(c, d->ht->bk, d->ht->builder, FMTUTIL_MCTFLAG_LEFT_ALIGN_BRANCHES, NULL)) {
 		de_err(c, "Failed to decode Huffman tree");
 	}
 

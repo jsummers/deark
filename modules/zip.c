@@ -204,6 +204,7 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ 16, 0x00, "IBM z/OS CMPSC", NULL },
 	{ 18, 0x00, "IBM TERSE (new)", NULL },
 	{ 19, 0x00, "IBM LZ77 z Architecture", NULL },
+	{ 93, 0x00, "Zstandard", NULL },
 	{ 94, 0x00, "MP3", NULL },
 	{ 95, 0x00, "XZ", NULL },
 	{ 96, 0x00, "JPEG", NULL },
@@ -985,6 +986,7 @@ static const struct extra_item_type_info_struct extra_item_type_info_arr[] = {
 	{ 0x756e /* nu */, "ASi Unix", NULL },
 	{ 0x7855 /* Ux */, "Info-ZIP Unix, second version", ef_infozip2 },
 	{ 0x7875 /* ux */, "Info-ZIP Unix, third version", ef_infozip3 },
+	{ 0xa11e /*    */, "Data Stream Alignment", NULL },
 	{ 0xa220 /*    */, "Microsoft Open Packaging Growth Hint", NULL },
 	{ 0xfb4a /*    */, "SMS/QDOS", NULL }, // according to Info-ZIP zip 3.0
 	{ 0xfd4a /*    */, "SMS/QDOS", NULL }  // according to ZIP v6.3.4 APPNOTE

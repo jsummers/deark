@@ -300,7 +300,7 @@ static int dmsheavy_read_tree(struct lzh_ctx *cctx, struct lzh_tree_wrapper *htw
 	}
 	if(cctx->bitrd.eof_flag) goto done;
 
-	if(!fmtutil_huffman_make_canonical_code(c, htw->ht->bk, htw->ht->builder, 0)) goto done;
+	if(!fmtutil_huffman_make_canonical_code(c, htw->ht->bk, htw->ht->builder, 0, NULL)) goto done;
 
 	retval = 1;
 done:

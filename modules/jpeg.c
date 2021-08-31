@@ -1372,7 +1372,7 @@ static void dump_htable_details(deark *c, lctx *d, i64 pos1, const u8 *codecount
 	}
 
 	// We do this only for the side effect of the debug messages.
-	(void)fmtutil_huffman_make_canonical_code(c, ht->bk, ht->builder, 0);
+	(void)fmtutil_huffman_make_canonical_code(c, ht->bk, ht->builder, 0, NULL);
 
 	fmtutil_huffman_destroy_decoder(c, ht);
 }

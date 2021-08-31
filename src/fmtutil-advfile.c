@@ -459,7 +459,7 @@ static void de_advfile_run_macbinary(deark *c, struct de_advfile *advf)
 	dbuf_writebyte(hdr, 130); // version (III)
 	dbuf_writebyte(hdr, 129); // compatible version (II)
 
-	crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
+	crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_XMODEM);
 	de_crcobj_addslice(crco, hdr, 0, 124);
 	crc_calc = de_crcobj_getval(crco);
 	dbuf_writeu16be(hdr, (i64)crc_calc);

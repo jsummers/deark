@@ -466,8 +466,9 @@ static void reverse_lengths_array(struct fmtutil_huffman_code_builder *builder)
 
 // Call this after calling huffman_record_item_length() (usually many times).
 // Creates a canonical Huffman tree derived from the known code lengths.
+// 'title' is just for the dbg messages, and can be NULL.
 int fmtutil_huffman_make_canonical_code(deark *c, struct fmtutil_huffman_codebook *bk,
-	struct fmtutil_huffman_code_builder *builder, UI flags)
+	struct fmtutil_huffman_code_builder *builder, UI flags, const char *title)
 {
 	UI max_sym_len_used;
 	UI i;
@@ -475,7 +476,7 @@ int fmtutil_huffman_make_canonical_code(deark *c, struct fmtutil_huffman_codeboo
 	int retval = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg3(c, "derived huffman codebook:");
+	de_dbg3(c, "%s:", (title?title:"derived huffman codebook"));
 	de_dbg_indent(c, 1);
 
 	if(!builder->lengths_arr) {

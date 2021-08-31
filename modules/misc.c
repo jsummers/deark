@@ -341,7 +341,7 @@ static void de_run_crc(deark *c, de_module_params *mparams)
 	de_zeromem(&crcctx, sizeof(struct crcctx_struct));
 	crcctx.crco_32ieee = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
 	crcctx.crco_16arc = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
-	crcctx.crco_16ccitt = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
+	crcctx.crco_16ccitt = de_crcobj_create(c, DE_CRCOBJ_CRC16_XMODEM);
 
 	dbuf_buffered_read(c->infile, 0, c->infile->len, crc_cbfn, (void*)&crcctx);
 
@@ -960,6 +960,8 @@ static void de_run_dclimplode(deark *c, de_module_params *mparams)
 static int de_identify_dclimplode(deark *c)
 {
 	u8 b0, b1;
+	int i;
+	u32 x;
 
 	if(c->infile->len<5) return 0;
 	b0 = de_getbyte(0);
@@ -970,8 +972,7 @@ static int de_identify_dclimplode(deark *c)
 	// Look for the end-of-data code in the last 2 or 3 bytes.
 	// Assumes the last byte is padded with '0' bits, and there are
 	// no extraneous bytes after that.
-	u32 x = (u32)de_getu32le(c->infile->len-4);
-	int i;
+	x = (u32)de_getu32le(c->infile->len-4);
 	for(i=0; i<8; i++) {
 		if((x & 0xfffffc00U)==0x01fe0000U) {
 			if(b0==0 && b1==6) return 40;

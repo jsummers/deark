@@ -26,7 +26,7 @@ typedef struct localctx_struct {
 	struct detection_info dti;
 	int version; // 1 or 2: The version mode that the parser is currently using
 	int is_extended_v2;
-	int decode_qtif;
+	int decode_qt;
 	dbuf *iccprofile_file;
 } lctx;
 
@@ -728,6 +728,26 @@ static int handler_0c00(deark *c, lctx *d, i64 opcode, i64 data_pos, i64 *bytes_
 	return 1;
 }
 
+// Returns 1 if image decoding was successul,
+// 0 if (e.g.) unsupported compression type.
+static int do_decode_qt(deark *c, lctx *d, i64 pos, i64 len)
+{
+	de_module_params *mparams = NULL;
+	int retval = 0;
+
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->in_params.codes = "I";
+	mparams->in_params.flags |= 0x01;
+
+	de_run_module_by_id_on_slice(c, "qtif", mparams, c->infile, pos, len);
+	if(mparams->out_params.flags & 0x1) {
+		retval = 1;
+	}
+
+	de_free(c, mparams);
+	return retval;
+}
+
 static void do_handle_qtif_idsc(deark *c, lctx *d, i64 pos, i64 len)
 {
 	i64 idsc_dpos, idsc_dlen;
@@ -735,9 +755,11 @@ static void do_handle_qtif_idsc(deark *c, lctx *d, i64 pos, i64 len)
 	dbuf *outf = NULL;
 	struct de_fourcc cmpr4cc;
 
-	if(d->decode_qtif) {
-		de_run_module_by_id_on_slice2(c, "qtif", "I", c->infile, pos, len);
-		return;
+	if(d->decode_qt) {
+		if(do_decode_qt(c, d, pos, len)) {
+			goto done;
+		}
+		de_dbg(c, "[failed to decode QuickTime image, extracting to .qtif instead]");
 	}
 
 	// Try to construct a .qtif file.
@@ -1098,6 +1120,8 @@ static void de_run_pict(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
+	d->decode_qt = de_get_ext_option_bool(c, "pict:decodeqt", 0);
+
 	do_detect_version(c, &d->dti, 1);
 	if(d->dti.file_version>0) {
 		de_declare_fmtf(c, "PICT v%d%s", d->dti.file_version,
@@ -1137,10 +1161,16 @@ static int de_identify_pict(deark *c)
 	return 0;
 }
 
+static void de_help_pict(deark *c)
+{
+	de_msg(c, "-opt pict:decodeqt : Try to decode QuickTime images directly");
+}
+
 void de_module_pict(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "pict";
 	mi->desc = "Macintosh PICT";
 	mi->run_fn = de_run_pict;
 	mi->identify_fn = de_identify_pict;
+	mi->help_fn = de_help_pict;
 }

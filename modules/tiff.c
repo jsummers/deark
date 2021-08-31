@@ -209,6 +209,7 @@ struct page_ctx {
 	struct strile_data_struct *strile_data; // array[strile_count]
 	struct de_timestamp internal_mod_time;
 	de_color pal[256];
+	char ifdnum_string[20];
 	char errmsgtoken_ifd[40];
 };
 
@@ -3186,6 +3187,27 @@ done:
 	;
 }
 
+// Decide whether to try to decode this IFD as an image.
+// A return value of 1 doesn't guarantee that it contains an image, but means
+// we can report an error if it turns out not to.
+static int is_image_ifd(deark *c, lctx *d, struct page_ctx *pg)
+{
+	if(!pg->have_imagewidth || pg->imagewidth<1 || pg->imagelength<1) {
+		return 0;
+	}
+
+	// The Exif spec says of ImageWidth: "In JPEG compressed data, this tag
+	// shall not be used because a JPEG marker is used instead".
+	// However, a fair number of JPEG/Exif files use it anyway (in IFD#0).
+	if(d->is_exif_submodule && pg->ifd_idx_in_main_list==0) {
+		if(!pg->have_strip_tags && !pg->have_tile_tags && pg->jpegoffset==0) {
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
 static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 {
 	de_bitmap *img = NULL;
@@ -3222,15 +3244,12 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		goto done;
 	}
 
-	// Decent TIFF decoding support is planned eventually, but for now this is
-	// just a testbed for some things.
-	if(!d->opt_decode) goto done;
-
-	if(!pg->have_imagewidth || pg->imagewidth<1 || pg->imagelength<1) {
+	if(!is_image_ifd(c, d, pg)) {
 		de_dbg(c, "[non-image IFD]");
 		goto done;
 	}
 
+	if(!d->opt_decode) goto done;
 	de_dbg(c, "decoding ifd image");
 	de_dbg_indent(c, 1);
 
@@ -3570,14 +3589,17 @@ static void process_ifd(deark *c, lctx *d, int ifd_idx1, i64 ifdpos1, u8 ifdtype
 	pg->ifdtype = ifdtype1;
 	if(is_in_main_ifd_list) {
 		pg->ifd_idx_in_main_list = d->num_main_ifds_processed++;
-		de_snprintf(pg->errmsgtoken_ifd, sizeof(pg->errmsgtoken_ifd),
-			"IFD#%d@%"I64_FMT, pg->ifd_idx_in_main_list+1, pg->ifdpos);
+		// Calling the first IFD "#0" is consistent with Exif, though not
+		// necessarily with all other TIFF literature.
+		de_snprintf(pg->ifdnum_string, sizeof(pg->ifdnum_string), "%d",
+			pg->ifd_idx_in_main_list);
 	}
 	else {
 		pg->ifd_idx_in_main_list = -1;
-		de_snprintf(pg->errmsgtoken_ifd, sizeof(pg->errmsgtoken_ifd),
-			"IFD#n/a@%"I64_FMT, pg->ifdpos);
+		de_strlcpy(pg->ifdnum_string, "special", sizeof(pg->ifdnum_string));
 	}
+	de_snprintf(pg->errmsgtoken_ifd, sizeof(pg->errmsgtoken_ifd),
+		"IFD#%s@%"I64_FMT, pg->ifdnum_string, pg->ifdpos);
 
 	// NOTE: Some TIFF apps (e.g. Windows Photo Viewer) have been observed to encode
 	// ASCII fields (e.g. ImageDescription) in UTF-8, in violation of the TIFF spec.
@@ -3618,10 +3640,8 @@ static void process_ifd(deark *c, lctx *d, int ifd_idx1, i64 ifdpos1, u8 ifdtype
 		name="";
 	}
 
-	de_dbg(c, "IFD at %"I64_FMT"%s", pg->ifdpos, name);
+	de_dbg(c, "IFD#%s at %"I64_FMT"%s", pg->ifdnum_string, pg->ifdpos, name);
 	de_dbg_indent(c, 1);
-
-	de_dbg2(c, "ifd id: \"%s\"", pg->errmsgtoken_ifd);
 
 	if(pg->ifdpos >= c->infile->len || pg->ifdpos<8) {
 		detiff_warn(c, d, NULL, "Invalid IFD offset: %"I64_FMT, pg->ifdpos);
