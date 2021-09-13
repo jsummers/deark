@@ -929,6 +929,12 @@ Deark -- Information about supported formats
   - This module tries to find and extract embedded JPEG and JPEG-LS files from
     otherwise-unsupported formats. Use "-m jpegscan".
 
+* LZEXE (module="lzexe") (experimental/incomplete)
+  Decompress an LZEXE-compressed DOS EXE file.
+  - Not autodetected. Use "-m lzexe".
+  - The decompressed file will usually not be byte-for-byte the same as the
+    original, because LZEXE discards some information.
+
 * Macintosh Resource Manager (module="macrsrc") (experimental/incomplete)
   This is the format generally used by Mac resource forks.
   Options
