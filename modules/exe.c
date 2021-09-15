@@ -32,6 +32,10 @@ struct rsrc_type_info_struct;
 
 typedef struct localctx_struct {
 	int fmt;
+
+	i64 reloc_tbl_offset;
+	i64 file_hdr_size;
+	i64 num_relocs;
 	i64 ext_header_offset;
 
 	i64 ne_rsrc_tbl_offset;
@@ -534,23 +538,112 @@ static void do_ext_header(deark *c, lctx *d)
 
 done:
 	// If we still don't know the format...
-	de_declare_fmt(c, "Unknown EXE format (maybe MS-DOS)");
+	de_declare_fmt(c, "Unknown EXE format (maybe DOS)");
 }
 
-static void do_fileheader(deark *c, lctx *d)
+static void do_reloc_table(deark *c, lctx *d)
 {
-	i64 reloc_tbl_offset;
+	i64 reloc_tbl_endpos;
 
-	reloc_tbl_offset = de_getu16le(24);
-	de_dbg(c, "relocation table offset: %d", (int)reloc_tbl_offset);
+	if(d->num_relocs<1) goto done;
+	if(d->num_relocs > 320*1024) goto done;
+	if(d->reloc_tbl_offset<1) goto done;
+	reloc_tbl_endpos = d->reloc_tbl_offset + d->num_relocs*4;
+	if(reloc_tbl_endpos > d->file_hdr_size) goto done;
+	if(reloc_tbl_endpos > c->infile->len) goto done;
 
-	if(reloc_tbl_offset>=28 && reloc_tbl_offset<64) {
-		de_declare_fmt(c, "MS-DOS EXE");
+	de_dbg(c, "reloc table at %"I64_FMT, d->reloc_tbl_offset);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "%u entries, ends at %"I64_FMT, (UI)d->num_relocs, reloc_tbl_endpos);
+
+	if(c->debug_level>=2) {
+		i64 i;
+		i64 pos = d->reloc_tbl_offset;
+		i64 num_to_dbg = d->num_relocs;
+
+		if(num_to_dbg > 5000) num_to_dbg = 5000;
+
+		for(i=0; i<num_to_dbg; i++) {
+			i64 offs, para;
+
+			offs = de_getu16le_p(&pos);
+			para = de_getu16le_p(&pos);
+			de_dbg(c, "reloc[%u]: %04x:%04x (0x%05x)", (UI)i, (UI)para, (UI)offs,
+				(UI)(para*16+offs));
+		}
+	}
+
+	de_dbg_indent(c, -1);
+done:
+	;
+}
+
+static void do_fileheader(deark *c, lctx *d, i64 pos1)
+{
+	i64 n;
+	i64 lfb, nblocks, eomc;
+	i64 pos = pos1;
+
+	de_dbg(c, "DOS file header at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	pos += 2; // signature
+	lfb = de_getu16le_p(&pos);
+	de_dbg(c, "length of final block: %u%s", (UI)lfb, ((lfb==0)?" (=512)":""));
+	nblocks = de_getu16le_p(&pos);
+	de_dbg(c, "num blocks: %u", (UI)nblocks);
+	eomc = nblocks*512;
+	if(lfb>=1 && lfb<=511) {
+		eomc = eomc - 512 + lfb;
+	}
+	de_dbg(c, "end of executable code (calculated): %"I64_FMT, eomc);
+
+	d->num_relocs = de_getu16le_p(&pos);
+	de_dbg(c, "num reloc table entries: %u", (UI)d->num_relocs);
+	n = de_getu16le_p(&pos);
+	d->file_hdr_size = n*16;
+	de_dbg(c, "file hdr size: %u ("DE_CHAR_TIMES"16=%"I64_FMT")", (UI)n, d->file_hdr_size);
+
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "min mem: %u ("DE_CHAR_TIMES"16=%"I64_FMT")", (UI)n, (i64)n*16);
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "max mem: %u ("DE_CHAR_TIMES"16=%"I64_FMT")", (UI)n, (i64)n*16);
+
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "regSS: %u", (UI)n);
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "regSP: %u", (UI)n);
+
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "checksum: 0x%04x", (UI)n);
+
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "regIP: %u", (UI)n);
+	n = de_geti16le_p(&pos);
+	de_dbg(c, "regCS: %d ("DE_CHAR_TIMES"16=%d)", (int)n, (int)(16*n));
+
+	d->reloc_tbl_offset = de_getu16le_p(&pos);
+	de_dbg(c, "reloc table offset: %d%s", (int)d->reloc_tbl_offset,
+		(d->num_relocs==0)?" (unused)":"");
+
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "overlay: %u", (UI)n);
+
+	de_dbg_indent(c, -1);
+
+	do_reloc_table(c, d);
+
+	if(d->reloc_tbl_offset>=28 && d->reloc_tbl_offset<64) {
 		d->fmt = EXE_FMT_DOS;
 	}
-	else {
-		d->ext_header_offset = de_getu32le(60);
-		de_dbg(c, "extended header offset: %d", (int)d->ext_header_offset);
+
+	if(d->fmt==EXE_FMT_DOS) {
+		de_declare_fmt(c, "DOS EXE");
+	}
+
+	if(d->fmt!=EXE_FMT_DOS) {
+		d->ext_header_offset = de_getu32le(pos1+60);
+		de_dbg(c, "extended header offset: %"I64_FMT, d->ext_header_offset);
 		do_ext_header(c, d);
 	}
 }
@@ -1314,7 +1407,7 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	do_fileheader(c, d);
+	do_fileheader(c, d, 0);
 
 	if((d->fmt==EXE_FMT_PE32 || d->fmt==EXE_FMT_PE32PLUS) && d->pe_sections_offset>0) {
 		do_pe_section_table(c, d);
