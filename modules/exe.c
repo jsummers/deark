@@ -583,6 +583,7 @@ static void do_fileheader(deark *c, lctx *d, i64 pos1)
 	i64 n;
 	i64 lfb, nblocks, eomc;
 	i64 pos = pos1;
+	i64 regCS, regIP;
 
 	de_dbg(c, "DOS file header at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
@@ -592,11 +593,6 @@ static void do_fileheader(deark *c, lctx *d, i64 pos1)
 	de_dbg(c, "length of final block: %u%s", (UI)lfb, ((lfb==0)?" (=512)":""));
 	nblocks = de_getu16le_p(&pos);
 	de_dbg(c, "num blocks: %u", (UI)nblocks);
-	eomc = nblocks*512;
-	if(lfb>=1 && lfb<=511) {
-		eomc = eomc - 512 + lfb;
-	}
-	de_dbg(c, "end of executable code (calculated): %"I64_FMT, eomc);
 
 	d->num_relocs = de_getu16le_p(&pos);
 	de_dbg(c, "num reloc table entries: %u", (UI)d->num_relocs);
@@ -617,17 +613,28 @@ static void do_fileheader(deark *c, lctx *d, i64 pos1)
 	n = de_getu16le_p(&pos);
 	de_dbg(c, "checksum: 0x%04x", (UI)n);
 
-	n = de_getu16le_p(&pos);
-	de_dbg(c, "regIP: %u", (UI)n);
-	n = de_geti16le_p(&pos);
-	de_dbg(c, "regCS: %d ("DE_CHAR_TIMES"16=%d)", (int)n, (int)(16*n));
+	regIP = de_getu16le_p(&pos);
+	de_dbg(c, "regIP: %u", (UI)regIP);
+	regCS = de_geti16le_p(&pos);
+	de_dbg(c, "regCS: %d ("DE_CHAR_TIMES"16=%d)", (int)regCS, (int)(16*regCS));
 
 	d->reloc_tbl_offset = de_getu16le_p(&pos);
 	de_dbg(c, "reloc table offset: %d%s", (int)d->reloc_tbl_offset,
 		(d->num_relocs==0)?" (unused)":"");
 
 	n = de_getu16le_p(&pos);
-	de_dbg(c, "overlay: %u", (UI)n);
+	de_dbg(c, "overlay indicator: %u", (UI)n);
+
+	de_dbg(c, "start of DOS executable code: %"I64_FMT, d->file_hdr_size);
+	de_dbg(c, "DOS entry point: %"I64_FMT, d->file_hdr_size + 16*regCS + regIP);
+	eomc = nblocks*512;
+	if(lfb>=1 && lfb<=511) {
+		eomc = eomc - 512 + lfb;
+	}
+	de_dbg(c, "end of DOS executable code: %"I64_FMT, eomc);
+	if(eomc < c->infile->len) {
+		de_dbg(c, "bytes after DOS executable code: %"I64_FMT, c->infile->len - eomc);
+	}
 
 	de_dbg_indent(c, -1);
 
@@ -1400,6 +1407,21 @@ static void do_lx_or_le_rsrc_tbl(deark *c, lctx *d)
 	}
 }
 
+static void check_for_execomp(deark *c)
+{
+	struct fmtutil_execomp_detection_data edd;
+
+	if((!c->show_infomessages) && (c->debug_level<1)) return;
+	de_zeromem(&edd, sizeof(struct fmtutil_execomp_detection_data));
+	fmtutil_detect_execomp(c, &edd);
+	if(!edd.detected_fmt) return;
+	de_dbg(c, "detected executable compression: %s", edd.detected_fmt_name);
+	if(edd.modname) {
+		de_info(c, "Note: File seems to be compressed with %s. Use \"-m %s\" "
+			"to attempt decompression.", edd.detected_fmt_name, edd.modname);
+	}
+}
+
 static void de_run_exe(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -1431,6 +1453,8 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 	if(zip_eocd_found) {
 		de_info(c, "Note: This might be a self-extracting ZIP file (try \"-m zip\").");
 	}
+
+	check_for_execomp(c);
 
 	de_free(c, d);
 }

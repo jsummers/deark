@@ -1449,3 +1449,67 @@ i64 fmtutil_hlp_get_csl_p(dbuf *f, i64 *ppos)
 	x1 -= 67108864;
 	return x1;
 }
+
+// Caller initializes edd
+void fmtutil_detect_execomp(deark *c, struct fmtutil_execomp_detection_data *edd)
+{
+	dbuf *f = c->infile;
+	const char *shortname = NULL;
+	const char *verstr = NULL;
+	i64 ihdr_hdrsize;
+	i64 ihdr_CS;
+	i64 ihdr_IP;
+	i64 code_start;
+	struct de_crcobj *crco = NULL;
+	u32 crc1, crc2;
+
+	if(edd->restrict_to_fmt) {
+		if(edd->restrict_to_fmt!=DE_EXECOMP_FMT_LZEXE) goto done;
+	}
+
+	ihdr_hdrsize = dbuf_getu16le(f, 8);
+	ihdr_IP = dbuf_getu16le(f, 20);
+	ihdr_CS = dbuf_geti16le(f, 22);
+	code_start = (ihdr_hdrsize + ihdr_CS)*16 + ihdr_IP;
+
+	// Sniff some bytes, starting at the code entry point.
+	// (This fingerprinting method isn't going to work in general, but
+	// it seems okay for LZEXE.)
+	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	de_crcobj_addslice(crco, c->infile, code_start, 32);
+	crc1 = de_crcobj_getval(crco);
+	de_crcobj_reset(crco);
+	de_crcobj_addslice(crco, c->infile, code_start+32, 32);
+	crc2 = de_crcobj_getval(crco);
+
+	if(crc1==0x4b6802c9U && crc2==0xcf419437U) {
+		edd->detected_fmt = DE_EXECOMP_FMT_LZEXE;
+		edd->detected_subfmt = 1;
+		verstr = "0.90";
+	}
+	else if(crc1==0x246655c5U && crc2==0x0ae99574U) {
+		edd->detected_fmt = DE_EXECOMP_FMT_LZEXE;
+		edd->detected_subfmt = 2;
+		verstr = "0.91";
+	}
+	else if(crc1==0xd8a60f13U && crc2==0x8f680f0cU) {
+		edd->detected_fmt = DE_EXECOMP_FMT_LZEXE;
+		edd->detected_subfmt = 3;
+		verstr = "0.91e";
+	}
+
+	if(edd->detected_fmt == DE_EXECOMP_FMT_LZEXE) {
+		shortname = "LZEXE";
+		edd->modname = "lzexe";
+	}
+
+done:
+	if(shortname && verstr) {
+		de_snprintf(edd->detected_fmt_name, sizeof(edd->detected_fmt_name), "%s %s", shortname, verstr);
+	}
+	else {
+		de_strlcpy(edd->detected_fmt_name, "unknown", sizeof(edd->detected_fmt_name));
+	}
+
+	if(crco) de_crcobj_destroy(crco);
+}

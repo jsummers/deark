@@ -8,13 +8,8 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_lzexe);
 
-#define LZEXE_VER_090   1
-#define LZEXE_VER_091   2
-#define LZEXE_VER_091E  3
-
 typedef struct localctx_struct {
 	int ver;
-	const char *ver_str;
 	int errflag;
 	int errmsg_handled;
 
@@ -56,7 +51,7 @@ static void read_special_hdr(deark *c, lctx *d, i64 ipos1)
 	de_dbg_indent(c, 1);
 	for(i=0; i<8; i++) {
 		d->special_hdr[i] = de_getu16le_p(&ipos);
-		de_dbg(c, "special hdr[%u]: 0x%04x %u", i, (UI)d->special_hdr[i],
+		de_dbg(c, "special hdr[%u]: 0x%04x (%u)", i, (UI)d->special_hdr[i],
 			(UI)d->special_hdr[i]);
 	}
 	de_dbg_indent(c, -1);
@@ -74,7 +69,7 @@ static void do_decode_reloc_tbl_v090(deark *c, lctx *d, i64 ipos1)
 	de_dbg_indent_save(c, &saved_indent_level);
 	ipos = ipos1 + 413;
 
-	de_dbg(c, "decompressing v0.90 reloc table at %"I64_FMT, ipos);
+	de_dbg(c, "decompressing reloc table at %"I64_FMT, ipos);
 	de_dbg_indent(c, 1);
 
 	for(seg=0; seg<0x10000; seg+=0x1000) {
@@ -120,7 +115,7 @@ static void do_decode_reloc_tbl_v091(deark *c, lctx *d, i64 ipos1)
 	UI reloc = 0;
 
 	ipos = ipos1 + 344;
-	de_dbg(c, "decompressing v0.91 reloc table at %"I64_FMT, ipos);
+	de_dbg(c, "decompressing reloc table at %"I64_FMT, ipos);
 	de_dbg_indent(c, 1);
 
 	while(1) {
@@ -285,7 +280,8 @@ static void do_decompress_code(deark *c, lctx *d)
 	}
 
 after_decompress:
-	de_dbg(c, "decompression complete");
+	de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT, (d->dcmpr_cur_ipos-ipos1),
+		d->o_dcmpr_code->len);
 
 done:
 	de_lz77buffer_destroy(c, ringbuf);
@@ -306,7 +302,9 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	outf = dbuf_create_output_file(c, "exe", NULL, 0);
 
 #define O_RELOC_POS 28
-	o_start_of_code = de_pad_to_n(O_RELOC_POS + d->o_reloc_table->len, 512);
+#define O_CODE_ALIGNMENT 512 // Multiple of 16. Sensible values are 16 and 512.
+
+	o_start_of_code = de_pad_to_n(O_RELOC_POS + d->o_reloc_table->len, O_CODE_ALIGNMENT);
 
 	// Generate 28-byte header
 	dbuf_writeu16le(outf, 0x5a4d); // 0  signature
@@ -355,29 +353,20 @@ static void do_write_dcmpr(deark *c, lctx *d)
 static void de_run_lzexe(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	u8 buf[4];
 	i64 ipos1;
+	struct fmtutil_execomp_detection_data edd;
 
 	d = de_malloc(c, sizeof(lctx));
-	d->ver_str = "";
 
-	// TODO: Better detection
-	de_read(buf, 28, 4);
-	if(!de_memcmp(buf, (const void*)"LZ91", 4)) {
-		d->ver = LZEXE_VER_091;
-		d->ver_str = "0.91";
-	}
-	else if(!de_memcmp(buf, (const void*)"LZ09", 4)) {
-		d->ver = LZEXE_VER_090;
-		d->ver_str = "0.90";
-	}
-
+	de_zeromem(&edd, sizeof(struct fmtutil_execomp_detection_data));
+	edd.restrict_to_fmt = DE_EXECOMP_FMT_LZEXE;
+	fmtutil_detect_execomp(c, &edd);
+	d->ver = (int)edd.detected_subfmt;
 	if(d->ver==0) {
 		de_err(c, "Not an LZEXE file");
 		goto done;
 	}
-
-	de_declare_fmtf(c, "LZEXE %s", d->ver_str);
+	de_declare_fmt(c, edd.detected_fmt_name);
 
 	d->o_reloc_table = dbuf_create_membuf(c, 0, 0);
 	d->o_dcmpr_code = dbuf_create_membuf(c, 0, 0);
@@ -387,7 +376,7 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 	ipos1 = (d->ihdr_hdrsize + d->ihdr_CS) * 16;
 	read_special_hdr(c, d, ipos1);
 	if(d->errflag) goto done;
-	if(d->ver==LZEXE_VER_090) {
+	if(d->ver==1) {
 		do_decode_reloc_tbl_v090(c, d, ipos1);
 	}
 	else {
