@@ -929,7 +929,7 @@ Deark -- Information about supported formats
   - This module tries to find and extract embedded JPEG and JPEG-LS files from
     otherwise-unsupported formats. Use "-m jpegscan".
 
-* LZEXE (module="lzexe") (experimental/incomplete)
+* LZEXE (module="lzexe") (experimental)
   Decompress an LZEXE-compressed DOS EXE file.
   - Not autodetected. Use "-m lzexe".
   - The decompressed file will usually not be byte-for-byte the same as the

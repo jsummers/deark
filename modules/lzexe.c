@@ -62,20 +62,70 @@ static void read_special_hdr(deark *c, lctx *d, i64 ipos1)
 	de_dbg_indent(c, -1);
 }
 
-static void do_decode_reloc_tbl(deark *c, lctx *d, i64 ipos1)
+#define MAX_RELOCS (320*1024)
+
+static void do_decode_reloc_tbl_v090(deark *c, lctx *d, i64 ipos1)
+{
+	i64 ipos;
+	i64 seg = 0;
+	int reloc_count = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	ipos = ipos1 + 413;
+
+	de_dbg(c, "decompressing v0.90 reloc table at %"I64_FMT, ipos);
+	de_dbg_indent(c, 1);
+
+	for(seg=0; seg<0x10000; seg+=0x1000) {
+		i64 count;
+		i64 i;
+
+		if(ipos>=c->infile->len) {
+			d->errflag = 1;
+			goto done;
+		}
+
+		count = de_getu16le_p(&ipos);
+		de_dbg2(c, "seg %04x count: %u", (UI)seg, (UI)count);
+
+		de_dbg_indent(c, 1);
+		for(i=0; i<count; i++) {
+			i64 offs;
+
+			if(ipos>=c->infile->len || reloc_count>MAX_RELOCS) {
+				d->errflag = 1;
+				goto done;
+			}
+
+			offs = de_getu16le_p(&ipos);
+			de_dbg2(c, "reloc: %04x:%04x", (UI)seg, (UI)offs);
+			dbuf_writeu16le(d->o_reloc_table, offs);
+			dbuf_writeu16le(d->o_reloc_table, seg);
+			reloc_count++;
+		}
+		de_dbg_indent(c, -1);
+	}
+
+	de_dbg(c, "reloc count: %d", (int)reloc_count);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_decode_reloc_tbl_v091(deark *c, lctx *d, i64 ipos1)
 {
 	i64 ipos;
 	int reloc_count = 0;
 	UI reloc = 0;
 
 	ipos = ipos1 + 344;
-	de_dbg(c, "decompressing reloc table at %"I64_FMT, ipos);
+	de_dbg(c, "decompressing v0.91 reloc table at %"I64_FMT, ipos);
 	de_dbg_indent(c, 1);
 
 	while(1) {
 		u8 x;
 
-#define MAX_RELOCS (320*1024)
 		if(ipos>=c->infile->len || reloc_count>MAX_RELOCS) {
 			d->errflag = 1;
 			goto done;
@@ -321,18 +371,13 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 		d->ver = LZEXE_VER_090;
 		d->ver_str = "0.90";
 	}
-	else {
+
+	if(d->ver==0) {
 		de_err(c, "Not an LZEXE file");
 		goto done;
 	}
 
 	de_declare_fmtf(c, "LZEXE %s", d->ver_str);
-
-	if(d->ver!=LZEXE_VER_091 && d->ver!=LZEXE_VER_091E) {
-		// TODO: Support v0.90
-		de_err(c, "This version of LZEXE is not supported");
-		goto done;
-	}
 
 	d->o_reloc_table = dbuf_create_membuf(c, 0, 0);
 	d->o_dcmpr_code = dbuf_create_membuf(c, 0, 0);
@@ -342,7 +387,12 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 	ipos1 = (d->ihdr_hdrsize + d->ihdr_CS) * 16;
 	read_special_hdr(c, d, ipos1);
 	if(d->errflag) goto done;
-	do_decode_reloc_tbl(c, d, ipos1);
+	if(d->ver==LZEXE_VER_090) {
+		do_decode_reloc_tbl_v090(c, d, ipos1);
+	}
+	else {
+		do_decode_reloc_tbl_v091(c, d, ipos1);
+	}
 	if(d->errflag) goto done;
 	do_decompress_code(c, d);
 	if(d->errflag) goto done;
@@ -352,9 +402,8 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 done:
 
 	if(d) {
-		if(d->errflag && d->errmsg_handled) {
+		if(d->errflag && !d->errmsg_handled) {
 			de_err(c, "LZEXE decompression failed");
-			goto done;
 		}
 
 		dbuf_close(d->o_reloc_table);
@@ -368,5 +417,4 @@ void de_module_lzexe(deark *c, struct deark_module_info *mi)
 	mi->id = "lzexe";
 	mi->desc = "LZEXE executable compression";
 	mi->run_fn = de_run_lzexe;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }
