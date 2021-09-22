@@ -214,7 +214,8 @@ static int read_infoheader(deark *c, lctx *d, i64 pos)
 {
 	i64 height_raw;
 	i64 clr_used_raw;
-	int cmpr_ok;
+	int bitcount_ok = 0;
+	int cmpr_ok = 0;
 	int retval = 0;
 	i64 nplanes;
 
@@ -241,9 +242,6 @@ static int read_infoheader(deark *c, lctx *d, i64 pos)
 	}
 	d->pdwidth = d->width; // Default "padded width"
 	de_dbg_dimensions(c, d->width, d->height);
-	if(!de_good_image_dimensions(c, d->width, d->height)) {
-		goto done;
-	}
 	if(d->top_down) {
 		de_dbg(c, "orientation: top-down");
 	}
@@ -256,11 +254,10 @@ static int read_infoheader(deark *c, lctx *d, i64 pos)
 	// Already read, in detect_bmp_version()
 	de_dbg(c, "bits/pixel: %d", (int)d->bitcount);
 
-	if(d->bitcount!=0 && d->bitcount!=1 && d->bitcount!=2 && d->bitcount!=4 &&
-		d->bitcount!=8 && d->bitcount!=16 && d->bitcount!=24 && d->bitcount!=32)
+	if(d->bitcount==0 || d->bitcount==1 || d->bitcount==2 || d->bitcount==4 ||
+		d->bitcount==8 || d->bitcount==16 || d->bitcount==24 || d->bitcount==32)
 	{
-		de_err(c, "Bad bits/pixel: %d", (int)d->bitcount);
-		goto done;
+		bitcount_ok = 1;
 	}
 
 	if(d->version==DE_BMPVER_OS2V1) {
@@ -277,7 +274,6 @@ static int read_infoheader(deark *c, lctx *d, i64 pos)
 
 	d->compression_type = CMPR_NONE; // Temporary default
 
-	cmpr_ok = 0;
 	switch(d->compression_field) {
 	case 0: // BI_RGB
 		if(d->bitcount==16 || d->bitcount==32) {
@@ -344,11 +340,6 @@ static int read_infoheader(deark *c, lctx *d, i64 pos)
 		break;
 	}
 
-	if(!cmpr_ok) {
-		de_err(c, "Unsupported compression type: %d", (int)d->compression_field);
-		goto done;
-	}
-
 	if(d->infohdrsize>=24) {
 		d->size_image = de_getu32le(pos+20);
 		de_dbg(c, "biSizeImage: %d", (int)d->size_image);
@@ -410,6 +401,18 @@ static int read_infoheader(deark *c, lctx *d, i64 pos)
 			(int)d->profile_offset_raw);
 		d->profile_size = de_getu32le(pos+116);
 		de_dbg(c, "profile size: %d", (int)d->profile_size);
+	}
+
+	if(!bitcount_ok) {
+		de_err(c, "Bad or unsupported bits/pixel: %d", (int)d->bitcount);
+		goto done;
+	}
+	if(!cmpr_ok) {
+		de_err(c, "Unsupported compression type: %d", (int)d->compression_field);
+		goto done;
+	}
+	if(!de_good_image_dimensions(c, d->width, d->height)) {
+		goto done;
 	}
 
 	retval = 1;
