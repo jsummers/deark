@@ -36,6 +36,7 @@ typedef struct localctx_struct {
 	i64 reloc_tbl_offset;
 	i64 file_hdr_size;
 	i64 num_relocs;
+	i64 end_of_dos_code;
 	i64 ext_header_offset;
 
 	i64 ne_rsrc_tbl_offset;
@@ -503,6 +504,12 @@ static void do_lx_or_le_ext_header(deark *c, lctx *d, i64 pos)
 	de_dbg(c, "data pages offset=%d", (int)d->lx_data_pages_offset);
 }
 
+static void identify_as_dos(deark *c, lctx *d)
+{
+	d->fmt = EXE_FMT_DOS;
+	de_declare_fmt(c, "DOS EXE");
+}
+
 static void do_ext_header(deark *c, lctx *d)
 {
 	u8 buf[4];
@@ -537,6 +544,12 @@ static void do_ext_header(deark *c, lctx *d)
 	}
 
 done:
+	if(d->fmt==0) {
+		if(d->end_of_dos_code == c->infile->len) {
+			identify_as_dos(c, d);
+		}
+	}
+
 	// If we still don't know the format...
 	de_declare_fmt(c, "Unknown EXE format (maybe DOS)");
 }
@@ -581,7 +594,7 @@ done:
 static void do_fileheader(deark *c, lctx *d, i64 pos1)
 {
 	i64 n;
-	i64 lfb, nblocks, eomc;
+	i64 lfb, nblocks;
 	i64 pos = pos1;
 	i64 regCS, regIP;
 
@@ -627,13 +640,13 @@ static void do_fileheader(deark *c, lctx *d, i64 pos1)
 
 	de_dbg(c, "start of DOS executable code: %"I64_FMT, d->file_hdr_size);
 	de_dbg(c, "DOS entry point: %"I64_FMT, d->file_hdr_size + 16*regCS + regIP);
-	eomc = nblocks*512;
+	d->end_of_dos_code = nblocks*512;
 	if(lfb>=1 && lfb<=511) {
-		eomc = eomc - 512 + lfb;
+		d->end_of_dos_code = d->end_of_dos_code - 512 + lfb;
 	}
-	de_dbg(c, "end of DOS executable code: %"I64_FMT, eomc);
-	if(eomc < c->infile->len) {
-		de_dbg(c, "bytes after DOS executable code: %"I64_FMT, c->infile->len - eomc);
+	de_dbg(c, "end of DOS executable code: %"I64_FMT, d->end_of_dos_code);
+	if(d->end_of_dos_code < c->infile->len) {
+		de_dbg(c, "bytes after DOS executable code: %"I64_FMT, c->infile->len - d->end_of_dos_code);
 	}
 
 	de_dbg_indent(c, -1);
@@ -641,11 +654,7 @@ static void do_fileheader(deark *c, lctx *d, i64 pos1)
 	do_reloc_table(c, d);
 
 	if(d->reloc_tbl_offset>=28 && d->reloc_tbl_offset<64) {
-		d->fmt = EXE_FMT_DOS;
-	}
-
-	if(d->fmt==EXE_FMT_DOS) {
-		de_declare_fmt(c, "DOS EXE");
+		identify_as_dos(c, d);
 	}
 
 	if(d->fmt!=EXE_FMT_DOS) {

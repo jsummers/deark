@@ -1450,65 +1450,173 @@ i64 fmtutil_hlp_get_csl_p(dbuf *f, i64 *ppos)
 	return x1;
 }
 
-// Caller initializes edd
-void fmtutil_detect_execomp(deark *c, struct fmtutil_execomp_detection_data *edd)
-{
-	dbuf *f = c->infile;
-	const char *shortname = NULL;
-	const char *verstr = NULL;
+struct execomp_ctx {
+	dbuf *f;
+	i64 num_relocs;
 	i64 ihdr_hdrsize;
 	i64 ihdr_CS;
 	i64 ihdr_IP;
 	i64 code_start;
-	struct de_crcobj *crco = NULL;
 	u32 crc1, crc2;
+	char shortname[40];
+	char verstr[40];
+};
+
+static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_execomp_detection_data *edd)
+{
+	int has_sig = 0;
+	UI maj_ver = 0;
+	UI min_ver = 0;
+	u8 is_beta = 0;
+	u8 flag_e = 0;
+	u8 flag_large = 0;
+	u8 sb[8];
+
+	if(ectx->num_relocs > 1) return;
+	dbuf_read(ectx->f, sb, 28, sizeof(sb));
+
+	// This is equivalent to what CHK4LITE does. Only the P must be capitalized.
+	if((sb[2]=='P') && (sb[3]=='K' || sb[3]=='k') &&
+		(sb[4]=='L' || sb[4]=='l') && (sb[5]=='I' || sb[5]=='i'))
+	{
+		has_sig = 1;
+	}
+
+	if(has_sig) {
+		maj_ver = sb[1] & 0x0f;
+		min_ver = sb[0];
+		if(min_ver>99 || maj_ver<1 || maj_ver>2) {
+			has_sig = 0;
+		}
+	}
+
+	if(has_sig) {
+		if(sb[1] & 0x10) flag_e = 1;
+		if(sb[1] & 0x20) flag_large = 1;
+	}
+
+	if(has_sig && ectx->num_relocs==0 && maj_ver==1 && min_ver==0) {
+		edd->detected_fmt = DE_EXECOMP_FMT_PKLITE;
+		is_beta = 1;
+		goto done;
+	}
+
+	// This is basically what CHK4LITE does, if the signature check fails.
+	if(ectx->num_relocs != 1) goto done;
+	if(ectx->ihdr_IP != 256) goto done;
+	if(ectx->ihdr_CS != -16) goto done;
+
+	if(!has_sig) { // If signature is present, that's good enough. Otherwise...
+		u8 cb[8];
+
+		// TODO: This fingerprint might not always work, but I want to reduce false
+		// positives somehow.
+		dbuf_read(ectx->f, cb, ectx->code_start, sizeof(cb));
+		if(cb[0]==0xb8 && cb[3]==0xba) {
+			;
+		}
+		else if(cb[0]==0x50 && cb[1]==0xb8 && cb[4]==0xba) {
+			; // v2.01
+		}
+		else {
+			goto done;
+		}
+	}
+
+	edd->detected_fmt = DE_EXECOMP_FMT_PKLITE;
+
+done:
+	if(edd->detected_fmt==DE_EXECOMP_FMT_PKLITE) {
+		de_strlcpy(ectx->shortname, "PKLITE", sizeof(ectx->shortname));
+		if(has_sig) {
+			// TODO: A better way to deal with this info. This function probably
+			// shouldn't emit dbg messages unconditionally.
+			de_dbg2(c, "PKLITE vers: %u.%02u%s%s%s",
+				maj_ver, min_ver, (is_beta?"beta":""),
+				(flag_e?"/e":""), (flag_large?"/large":""));
+		}
+	}
+}
+
+static void detect_execomp_lzexe(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_execomp_detection_data *edd)
+{
+	const char *vs = NULL;
+
+	if(ectx->crc1==0x4b6802c9U && ectx->crc2==0xcf419437U) {
+		edd->detected_subfmt = 1;
+		vs = "0.90";
+	}
+	else if(ectx->crc1==0x246655c5U && ectx->crc2==0x0ae99574U) {
+		edd->detected_subfmt = 2;
+		vs = "0.91";
+	}
+	else if(ectx->crc1==0xd8a60f13U && ectx->crc2==0x8f680f0cU) {
+		edd->detected_subfmt = 3;
+		vs = "0.91e";
+	}
+
+	if(vs) {
+		edd->detected_fmt = DE_EXECOMP_FMT_LZEXE;
+		de_strlcpy(ectx->shortname, "LZEXE", sizeof(ectx->shortname));
+		de_strlcpy(ectx->verstr, vs, sizeof(ectx->verstr));
+		edd->modname = "lzexe";
+	}
+}
+
+// Caller initializes edd.
+// If success, sets edd->detected_fmt to nonzero.
+// Always sets edd->detected_fmt_name to something, even if "unknown".
+// If we think we can decompress the format, sets edd->modname.
+void fmtutil_detect_execomp(deark *c, struct fmtutil_execomp_detection_data *edd)
+{
+	struct execomp_ctx ectx;
+	struct de_crcobj *crco = NULL;
+
+	de_zeromem(&ectx, sizeof(struct execomp_ctx));
+	ectx.f = c->infile;
+	edd->detected_fmt = 0;
+	edd->detected_subfmt = 0;
 
 	if(edd->restrict_to_fmt) {
 		if(edd->restrict_to_fmt!=DE_EXECOMP_FMT_LZEXE) goto done;
 	}
 
-	ihdr_hdrsize = dbuf_getu16le(f, 8);
-	ihdr_IP = dbuf_getu16le(f, 20);
-	ihdr_CS = dbuf_geti16le(f, 22);
-	code_start = (ihdr_hdrsize + ihdr_CS)*16 + ihdr_IP;
+	ectx.num_relocs = dbuf_getu16le(ectx.f, 6);
+	ectx.ihdr_hdrsize = dbuf_getu16le(ectx.f, 8);
+	ectx.ihdr_IP = dbuf_getu16le(ectx.f, 20);
+	ectx.ihdr_CS = dbuf_geti16le(ectx.f, 22);
+	ectx.code_start = (ectx.ihdr_hdrsize + ectx.ihdr_CS)*16 + ectx.ihdr_IP;
+
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_EXECOMP_FMT_PKLITE) {
+		detect_execomp_pklite(c, &ectx, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
 
 	// Sniff some bytes, starting at the code entry point.
-	// (This fingerprinting method isn't going to work in general, but
-	// it seems okay for LZEXE.)
+	// (This fingerprinting method isn't always suitable, but it seems okay
+	// for LZEXE.)
 	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-	de_crcobj_addslice(crco, c->infile, code_start, 32);
-	crc1 = de_crcobj_getval(crco);
+	de_crcobj_addslice(crco, c->infile, ectx.code_start, 32);
+	ectx.crc1 = de_crcobj_getval(crco);
 	de_crcobj_reset(crco);
-	de_crcobj_addslice(crco, c->infile, code_start+32, 32);
-	crc2 = de_crcobj_getval(crco);
+	de_crcobj_addslice(crco, c->infile, ectx.code_start+32, 32);
+	ectx.crc2 = de_crcobj_getval(crco);
 
-	if(crc1==0x4b6802c9U && crc2==0xcf419437U) {
-		edd->detected_fmt = DE_EXECOMP_FMT_LZEXE;
-		edd->detected_subfmt = 1;
-		verstr = "0.90";
-	}
-	else if(crc1==0x246655c5U && crc2==0x0ae99574U) {
-		edd->detected_fmt = DE_EXECOMP_FMT_LZEXE;
-		edd->detected_subfmt = 2;
-		verstr = "0.91";
-	}
-	else if(crc1==0xd8a60f13U && crc2==0x8f680f0cU) {
-		edd->detected_fmt = DE_EXECOMP_FMT_LZEXE;
-		edd->detected_subfmt = 3;
-		verstr = "0.91e";
-	}
-
-	if(edd->detected_fmt == DE_EXECOMP_FMT_LZEXE) {
-		shortname = "LZEXE";
-		edd->modname = "lzexe";
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_EXECOMP_FMT_LZEXE) {
+		detect_execomp_lzexe(c, &ectx, edd);
+		if(edd->detected_fmt!=0) goto done;
 	}
 
 done:
-	if(shortname && verstr) {
-		de_snprintf(edd->detected_fmt_name, sizeof(edd->detected_fmt_name), "%s %s", shortname, verstr);
+	if(ectx.shortname[0] && ectx.verstr[0]) {
+		de_snprintf(edd->detected_fmt_name, sizeof(edd->detected_fmt_name), "%s %s",
+			ectx.shortname, ectx.verstr);
 	}
 	else {
-		de_strlcpy(edd->detected_fmt_name, "unknown", sizeof(edd->detected_fmt_name));
+		de_strlcpy(edd->detected_fmt_name, (ectx.shortname[0]?ectx.shortname:"unknown"),
+			sizeof(edd->detected_fmt_name));
 	}
 
 	if(crco) de_crcobj_destroy(crco);

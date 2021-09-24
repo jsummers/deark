@@ -662,7 +662,9 @@ struct de_lz77buffer {
  void de_lz77buffer_add_literal_byte(struct de_lz77buffer *rb, u8 b);
  void de_lz77buffer_copy_from_hist(struct de_lz77buffer *rb, UI startpos, UI count);
 
-#define DE_EXECOMP_FMT_LZEXE 1
+#define DE_EXECOMP_FMT_LZEXE     1
+#define DE_EXECOMP_FMT_PKLITE    2
+#define DE_EXECOMP_FMT_EXEPACK   3
  struct fmtutil_execomp_detection_data {
 	u8 restrict_to_fmt; // DE_EXECOMP_FMT_*; 0 = any
 	u8 detected_fmt; // DE_EXECOMP_FMT_*; 0 = unknown
