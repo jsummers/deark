@@ -1452,9 +1452,11 @@ i64 fmtutil_hlp_get_csl_p(dbuf *f, i64 *ppos)
 
 struct execomp_ctx {
 	dbuf *f;
+	u8 devmode;
 	i64 num_relocs;
 	i64 ihdr_hdrsize;
 	i64 ihdr_CS;
+	i64 ihdr_SP;
 	i64 ihdr_IP;
 	i64 code_start;
 	u32 crc1, crc2;
@@ -1565,6 +1567,51 @@ static void detect_execomp_lzexe(deark *c, struct execomp_ctx *ectx,
 	}
 }
 
+static void detect_execomp_exepack(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_execomp_detection_data *edd)
+{
+	int has_RB = 0;
+
+	if(ectx->num_relocs!=0) goto done;
+	if(ectx->ihdr_IP!=16 && ectx->ihdr_IP!=18) goto done;
+
+	if(dbuf_getu16be(ectx->f, ectx->code_start-2) == 0x5242) {
+		has_RB = 1;
+	}
+
+	if(ectx->crc1==0xa6ea214eU && ectx->crc2==0x6c16ee72U) {
+		edd->detected_subfmt = 1;
+		goto done;
+	}
+	else if(ectx->crc1==0x4e04abaaU && ectx->crc2==0xc5d3b465U) {
+		edd->detected_subfmt = 2;
+		goto done;
+	}
+	else if(ectx->crc1==0x1f449ca7U && ectx->crc2==0x3852e197U) {
+		edd->detected_subfmt = 3;
+		goto done;
+	}
+	// (There are probably more EXEPACK variants.)
+
+	// TODO: Is SP always 128?
+	if(ectx->ihdr_SP==128 && has_RB) {
+		edd->detected_fmt = DE_EXECOMP_FMT_EXEPACK;
+		goto done;
+	}
+
+done:
+	if(edd->detected_subfmt!=0) {
+		edd->detected_fmt = DE_EXECOMP_FMT_EXEPACK;
+	}
+
+	if(edd->detected_fmt==DE_EXECOMP_FMT_EXEPACK) {
+		if(ectx->devmode) {
+			de_dbg(c, "epvar: %u", (UI)edd->detected_subfmt);
+		}
+		de_strlcpy(ectx->shortname, "EXEPACK", sizeof(ectx->shortname));
+	}
+}
+
 // Caller initializes edd.
 // If success, sets edd->detected_fmt to nonzero.
 // Always sets edd->detected_fmt_name to something, even if "unknown".
@@ -1585,6 +1632,7 @@ void fmtutil_detect_execomp(deark *c, struct fmtutil_execomp_detection_data *edd
 
 	ectx.num_relocs = dbuf_getu16le(ectx.f, 6);
 	ectx.ihdr_hdrsize = dbuf_getu16le(ectx.f, 8);
+	ectx.ihdr_SP = dbuf_getu16le(ectx.f, 16);
 	ectx.ihdr_IP = dbuf_getu16le(ectx.f, 20);
 	ectx.ihdr_CS = dbuf_geti16le(ectx.f, 22);
 	ectx.code_start = (ectx.ihdr_hdrsize + ectx.ihdr_CS)*16 + ectx.ihdr_IP;
@@ -1603,9 +1651,17 @@ void fmtutil_detect_execomp(deark *c, struct fmtutil_execomp_detection_data *edd
 	de_crcobj_reset(crco);
 	de_crcobj_addslice(crco, c->infile, ectx.code_start+32, 32);
 	ectx.crc2 = de_crcobj_getval(crco);
+	if(ectx.devmode) {
+		de_dbg(c, "execomp crc: %08x %08x", (UI)ectx.crc1, (UI)ectx.crc2);
+	}
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_EXECOMP_FMT_LZEXE) {
 		detect_execomp_lzexe(c, &ectx, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
+
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_EXECOMP_FMT_EXEPACK) {
+		detect_execomp_exepack(c, &ectx, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
