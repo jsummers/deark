@@ -662,6 +662,19 @@ struct de_lz77buffer {
  void de_lz77buffer_add_literal_byte(struct de_lz77buffer *rb, u8 b);
  void de_lz77buffer_copy_from_hist(struct de_lz77buffer *rb, UI startpos, UI count);
 
+ struct fmtutil_exe_info {
+	dbuf *f;
+	i64 num_relocs;
+	i64 regCS;
+	i64 regSP;
+	i64 regIP;
+	i64 start_of_dos_code;
+	i64 entry_point;
+	i64 end_of_dos_code;
+	u64 entrypoint_crcs;
+};
+void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei);
+
 #define DE_EXECOMP_FMT_LZEXE     1
 #define DE_EXECOMP_FMT_PKLITE    2
 #define DE_EXECOMP_FMT_EXEPACK   3
@@ -672,4 +685,5 @@ struct de_lz77buffer {
 	const char *modname; // Non-NULL if we think we can decompress
 	char detected_fmt_name[40];
 };
-void fmtutil_detect_execomp(deark *c, struct fmtutil_execomp_detection_data *edd);
+void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
+	struct fmtutil_execomp_detection_data *edd);

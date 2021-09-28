@@ -1416,13 +1416,13 @@ static void do_lx_or_le_rsrc_tbl(deark *c, lctx *d)
 	}
 }
 
-static void check_for_execomp(deark *c)
+static void check_for_execomp(deark *c, struct fmtutil_exe_info *ei)
 {
 	struct fmtutil_execomp_detection_data edd;
 
 	if((!c->show_infomessages) && (c->debug_level<1)) return;
 	de_zeromem(&edd, sizeof(struct fmtutil_execomp_detection_data));
-	fmtutil_detect_execomp(c, &edd);
+	fmtutil_detect_execomp(c, ei, &edd);
 	if(!edd.detected_fmt) return;
 	de_dbg(c, "detected executable compression: %s", edd.detected_fmt_name);
 	if(edd.modname) {
@@ -1434,6 +1434,7 @@ static void check_for_execomp(deark *c)
 static void de_run_exe(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	struct fmtutil_exe_info *ei = NULL;
 	int zip_eocd_found;
 
 	d = de_malloc(c, sizeof(lctx));
@@ -1463,8 +1464,11 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 		de_info(c, "Note: This might be a self-extracting ZIP file (try \"-m zip\").");
 	}
 
-	check_for_execomp(c);
+	ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
+	fmtutil_collect_exe_info(c, c->infile, ei);
+	check_for_execomp(c, ei);
 
+	de_free(c, ei);
 	de_free(c, d);
 }
 

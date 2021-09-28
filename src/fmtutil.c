@@ -1451,21 +1451,13 @@ i64 fmtutil_hlp_get_csl_p(dbuf *f, i64 *ppos)
 }
 
 struct execomp_ctx {
-	dbuf *f;
 	u8 devmode;
-	i64 num_relocs;
-	i64 ihdr_hdrsize;
-	i64 ihdr_CS;
-	i64 ihdr_SP;
-	i64 ihdr_IP;
-	i64 code_start;
-	u32 crc1, crc2;
 	char shortname[40];
 	char verstr[40];
 };
 
 static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
-	struct fmtutil_execomp_detection_data *edd)
+	struct fmtutil_exe_info *ei, struct fmtutil_execomp_detection_data *edd)
 {
 	int has_sig = 0;
 	UI maj_ver = 0;
@@ -1475,8 +1467,8 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 	u8 flag_large = 0;
 	u8 sb[8];
 
-	if(ectx->num_relocs > 1) return;
-	dbuf_read(ectx->f, sb, 28, sizeof(sb));
+	if(ei->num_relocs > 1) return;
+	dbuf_read(ei->f, sb, 28, sizeof(sb));
 
 	// This is equivalent to what CHK4LITE does. Only the P must be capitalized.
 	if((sb[2]=='P') && (sb[3]=='K' || sb[3]=='k') &&
@@ -1498,23 +1490,23 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 		if(sb[1] & 0x20) flag_large = 1;
 	}
 
-	if(has_sig && ectx->num_relocs==0 && maj_ver==1 && min_ver==0) {
+	if(has_sig && ei->num_relocs==0 && maj_ver==1 && min_ver==0) {
 		edd->detected_fmt = DE_EXECOMP_FMT_PKLITE;
 		is_beta = 1;
 		goto done;
 	}
 
 	// This is basically what CHK4LITE does, if the signature check fails.
-	if(ectx->num_relocs != 1) goto done;
-	if(ectx->ihdr_IP != 256) goto done;
-	if(ectx->ihdr_CS != -16) goto done;
+	if(ei->num_relocs != 1) goto done;
+	if(ei->regIP != 256) goto done;
+	if(ei->regCS != -16) goto done;
 
 	if(!has_sig) { // If signature is present, that's good enough. Otherwise...
 		u8 cb[8];
 
 		// TODO: This fingerprint might not always work, but I want to reduce false
 		// positives somehow.
-		dbuf_read(ectx->f, cb, ectx->code_start, sizeof(cb));
+		dbuf_read(ei->f, cb, ei->entry_point, sizeof(cb));
 		if(cb[0]==0xb8 && cb[3]==0xba) {
 			;
 		}
@@ -1542,19 +1534,19 @@ done:
 }
 
 static void detect_execomp_lzexe(deark *c, struct execomp_ctx *ectx,
-	struct fmtutil_execomp_detection_data *edd)
+	struct fmtutil_exe_info *ei, struct fmtutil_execomp_detection_data *edd)
 {
 	const char *vs = NULL;
 
-	if(ectx->crc1==0x4b6802c9U && ectx->crc2==0xcf419437U) {
+	if(ei->entrypoint_crcs==0x4b6802c9cf419437LLU) {
 		edd->detected_subfmt = 1;
 		vs = "0.90";
 	}
-	else if(ectx->crc1==0x246655c5U && ectx->crc2==0x0ae99574U) {
+	else if(ei->entrypoint_crcs==0x246655c50ae99574LLU) {
 		edd->detected_subfmt = 2;
 		vs = "0.91";
 	}
-	else if(ectx->crc1==0xd8a60f13U && ectx->crc2==0x8f680f0cU) {
+	else if(ei->entrypoint_crcs==0xd8a60f138f680f0cLLU) {
 		edd->detected_subfmt = 3;
 		vs = "0.91e";
 	}
@@ -1568,33 +1560,33 @@ static void detect_execomp_lzexe(deark *c, struct execomp_ctx *ectx,
 }
 
 static void detect_execomp_exepack(deark *c, struct execomp_ctx *ectx,
-	struct fmtutil_execomp_detection_data *edd)
+	struct fmtutil_exe_info *ei, struct fmtutil_execomp_detection_data *edd)
 {
 	int has_RB = 0;
 
-	if(ectx->num_relocs!=0) goto done;
-	if(ectx->ihdr_IP!=16 && ectx->ihdr_IP!=18) goto done;
+	if(ei->num_relocs!=0) goto done;
+	if(ei->regIP!=16 && ei->regIP!=18) goto done;
 
-	if(dbuf_getu16be(ectx->f, ectx->code_start-2) == 0x5242) {
+	if(dbuf_getu16be(ei->f, ei->entry_point-2) == 0x5242) {
 		has_RB = 1;
 	}
 
-	if(ectx->crc1==0xa6ea214eU && ectx->crc2==0x6c16ee72U) {
+	if(ei->entrypoint_crcs==0xa6ea214e6c16ee72LLU) {
 		edd->detected_subfmt = 1;
 		goto done;
 	}
-	else if(ectx->crc1==0x4e04abaaU && ectx->crc2==0xc5d3b465U) {
+	else if(ei->entrypoint_crcs==0x4e04abaac5d3b465LLU) {
 		edd->detected_subfmt = 2;
 		goto done;
 	}
-	else if(ectx->crc1==0x1f449ca7U && ectx->crc2==0x3852e197U) {
+	else if(ei->entrypoint_crcs==0x1f449ca73852e197LLU) {
 		edd->detected_subfmt = 3;
 		goto done;
 	}
 	// (There are probably more EXEPACK variants.)
 
 	// TODO: Is SP always 128?
-	if(ectx->ihdr_SP==128 && has_RB) {
+	if(ei->regSP==128 && has_RB) {
 		edd->detected_fmt = DE_EXECOMP_FMT_EXEPACK;
 		goto done;
 	}
@@ -1612,56 +1604,74 @@ done:
 	}
 }
 
-// Caller initializes edd.
+// Caller initializes ei (to zeroes).
+// Records some basic information about an EXE file, to be used by routines that
+// detect special EXE formats.
+// The input file (f) must stay open after this. The detection routines will need
+// to read more of it.
+void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei)
+{
+	i64 hdrsize; // in 16-byte units
+
+	ei->f = f;
+	ei->num_relocs = dbuf_getu16le(f, 6);
+	hdrsize = dbuf_getu16le(f, 8);
+	ei->regSP = dbuf_getu16le(f, 16);
+	ei->regIP = dbuf_getu16le(f, 20);
+	ei->regCS = dbuf_geti16le(f, 22);
+	ei->entry_point = (hdrsize + ei->regCS)*16 + ei->regIP;
+}
+
+static void calc_entrypoint_crc(deark *c, struct execomp_ctx *ectx, struct fmtutil_exe_info *ei)
+{
+	struct de_crcobj *crco = NULL;
+	u32 crc1, crc2;
+
+	if(ei->entrypoint_crcs!=0) return;
+
+	// Sniff some bytes, starting at the code entry point.
+	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	de_crcobj_addslice(crco, ei->f, ei->entry_point, 32);
+	crc1 = de_crcobj_getval(crco);
+	de_crcobj_reset(crco);
+	de_crcobj_addslice(crco, ei->f, ei->entry_point+32, 32);
+	crc2 = de_crcobj_getval(crco);
+	ei->entrypoint_crcs = ((u64)crc1 << 32) | crc2;
+	if(ectx->devmode) {
+		de_dbg(c, "execomp crc: %016"U64_FMTx, ei->entrypoint_crcs);
+	}
+
+	de_crcobj_destroy(crco);
+}
+
+// Caller supplies ei -- must call fmtutil_collect_exe_info() first.
+// Caller initializes edd, to receive the results.
 // If success, sets edd->detected_fmt to nonzero.
 // Always sets edd->detected_fmt_name to something, even if "unknown".
 // If we think we can decompress the format, sets edd->modname.
-void fmtutil_detect_execomp(deark *c, struct fmtutil_execomp_detection_data *edd)
+void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
+	struct fmtutil_execomp_detection_data *edd)
 {
 	struct execomp_ctx ectx;
-	struct de_crcobj *crco = NULL;
 
 	de_zeromem(&ectx, sizeof(struct execomp_ctx));
-	ectx.f = c->infile;
 	edd->detected_fmt = 0;
 	edd->detected_subfmt = 0;
 
-	if(edd->restrict_to_fmt) {
-		if(edd->restrict_to_fmt!=DE_EXECOMP_FMT_LZEXE) goto done;
-	}
-
-	ectx.num_relocs = dbuf_getu16le(ectx.f, 6);
-	ectx.ihdr_hdrsize = dbuf_getu16le(ectx.f, 8);
-	ectx.ihdr_SP = dbuf_getu16le(ectx.f, 16);
-	ectx.ihdr_IP = dbuf_getu16le(ectx.f, 20);
-	ectx.ihdr_CS = dbuf_geti16le(ectx.f, 22);
-	ectx.code_start = (ectx.ihdr_hdrsize + ectx.ihdr_CS)*16 + ectx.ihdr_IP;
-
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_EXECOMP_FMT_PKLITE) {
-		detect_execomp_pklite(c, &ectx, edd);
+		detect_execomp_pklite(c, &ectx, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
-	// Sniff some bytes, starting at the code entry point.
-	// (This fingerprinting method isn't always suitable, but it seems okay
-	// for LZEXE.)
-	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-	de_crcobj_addslice(crco, c->infile, ectx.code_start, 32);
-	ectx.crc1 = de_crcobj_getval(crco);
-	de_crcobj_reset(crco);
-	de_crcobj_addslice(crco, c->infile, ectx.code_start+32, 32);
-	ectx.crc2 = de_crcobj_getval(crco);
-	if(ectx.devmode) {
-		de_dbg(c, "execomp crc: %08x %08x", (UI)ectx.crc1, (UI)ectx.crc2);
-	}
+	calc_entrypoint_crc(c, &ectx, ei);
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_EXECOMP_FMT_LZEXE) {
-		detect_execomp_lzexe(c, &ectx, edd);
+		detect_execomp_lzexe(c, &ectx, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_EXECOMP_FMT_EXEPACK) {
-		detect_execomp_exepack(c, &ectx, edd);
+		detect_execomp_exepack(c, &ectx, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
@@ -1674,6 +1684,4 @@ done:
 		de_strlcpy(edd->detected_fmt_name, (ectx.shortname[0]?ectx.shortname:"unknown"),
 			sizeof(edd->detected_fmt_name));
 	}
-
-	if(crco) de_crcobj_destroy(crco);
 }

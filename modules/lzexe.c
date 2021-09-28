@@ -353,14 +353,18 @@ static void do_write_dcmpr(deark *c, lctx *d)
 static void de_run_lzexe(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	struct fmtutil_exe_info *ei = NULL;
 	i64 ipos1;
 	struct fmtutil_execomp_detection_data edd;
 
 	d = de_malloc(c, sizeof(lctx));
 
+	ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
+	fmtutil_collect_exe_info(c, c->infile, ei);
+
 	de_zeromem(&edd, sizeof(struct fmtutil_execomp_detection_data));
 	edd.restrict_to_fmt = DE_EXECOMP_FMT_LZEXE;
-	fmtutil_detect_execomp(c, &edd);
+	fmtutil_detect_execomp(c, ei, &edd);
 	d->ver = (int)edd.detected_subfmt;
 	if(d->ver==0) {
 		de_err(c, "Not an LZEXE file");
@@ -399,6 +403,7 @@ done:
 		dbuf_close(d->o_dcmpr_code);
 		de_free(c, d);
 	}
+	de_free(c, ei);
 }
 
 void de_module_lzexe(deark *c, struct deark_module_info *mi)
