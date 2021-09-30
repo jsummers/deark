@@ -355,15 +355,15 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	struct fmtutil_exe_info *ei = NULL;
 	i64 ipos1;
-	struct fmtutil_execomp_detection_data edd;
+	struct fmtutil_specialexe_detection_data edd;
 
 	d = de_malloc(c, sizeof(lctx));
 
 	ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
 	fmtutil_collect_exe_info(c, c->infile, ei);
 
-	de_zeromem(&edd, sizeof(struct fmtutil_execomp_detection_data));
-	edd.restrict_to_fmt = DE_EXECOMP_FMT_LZEXE;
+	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
+	edd.restrict_to_fmt = DE_SPECIALEXEFMT_LZEXE;
 	fmtutil_detect_execomp(c, ei, &edd);
 	d->ver = (int)edd.detected_subfmt;
 	if(d->ver==0) {

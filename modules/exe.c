@@ -618,8 +618,8 @@ static void do_fileheader(deark *c, lctx *d, i64 pos1)
 	n = de_getu16le_p(&pos);
 	de_dbg(c, "max mem: %u ("DE_CHAR_TIMES"16=%"I64_FMT")", (UI)n, (i64)n*16);
 
-	n = de_getu16le_p(&pos);
-	de_dbg(c, "regSS: %u", (UI)n);
+	n = de_geti16le_p(&pos);
+	de_dbg(c, "regSS: %d", (int)n);
 	n = de_getu16le_p(&pos);
 	de_dbg(c, "regSP: %u", (UI)n);
 
@@ -1416,12 +1416,25 @@ static void do_lx_or_le_rsrc_tbl(deark *c, lctx *d)
 	}
 }
 
+static void do_exesfx(deark *c, struct fmtutil_exe_info *ei)
+{
+	struct fmtutil_specialexe_detection_data edd;
+
+	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
+	fmtutil_detect_exesfx(c, ei, &edd);
+	if(!edd.detected_fmt) return;
+	de_dbg(c, "detected self-extracting exe: %s", edd.detected_fmt_name);
+	if(edd.payload_valid) {
+		dbuf_create_file_from_slice(ei->f, edd.payload_pos, edd.payload_len, edd.payload_file_ext, NULL, 0);
+	}
+}
+
 static void check_for_execomp(deark *c, struct fmtutil_exe_info *ei)
 {
-	struct fmtutil_execomp_detection_data edd;
+	struct fmtutil_specialexe_detection_data edd;
 
 	if((!c->show_infomessages) && (c->debug_level<1)) return;
-	de_zeromem(&edd, sizeof(struct fmtutil_execomp_detection_data));
+	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
 	fmtutil_detect_execomp(c, ei, &edd);
 	if(!edd.detected_fmt) return;
 	de_dbg(c, "detected executable compression: %s", edd.detected_fmt_name);
@@ -1466,6 +1479,7 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 
 	ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
 	fmtutil_collect_exe_info(c, c->infile, ei);
+	do_exesfx(c, ei);
 	check_for_execomp(c, ei);
 
 	de_free(c, ei);

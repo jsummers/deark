@@ -1457,7 +1457,7 @@ struct execomp_ctx {
 };
 
 static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
-	struct fmtutil_exe_info *ei, struct fmtutil_execomp_detection_data *edd)
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	int has_sig = 0;
 	UI maj_ver = 0;
@@ -1491,7 +1491,7 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 	}
 
 	if(has_sig && ei->num_relocs==0 && maj_ver==1 && min_ver==0) {
-		edd->detected_fmt = DE_EXECOMP_FMT_PKLITE;
+		edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE;
 		is_beta = 1;
 		goto done;
 	}
@@ -1518,10 +1518,10 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 		}
 	}
 
-	edd->detected_fmt = DE_EXECOMP_FMT_PKLITE;
+	edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE;
 
 done:
-	if(edd->detected_fmt==DE_EXECOMP_FMT_PKLITE) {
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_PKLITE) {
 		de_strlcpy(ectx->shortname, "PKLITE", sizeof(ectx->shortname));
 		if(has_sig) {
 			// TODO: A better way to deal with this info. This function probably
@@ -1534,7 +1534,7 @@ done:
 }
 
 static void detect_execomp_lzexe(deark *c, struct execomp_ctx *ectx,
-	struct fmtutil_exe_info *ei, struct fmtutil_execomp_detection_data *edd)
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	const char *vs = NULL;
 
@@ -1552,7 +1552,7 @@ static void detect_execomp_lzexe(deark *c, struct execomp_ctx *ectx,
 	}
 
 	if(vs) {
-		edd->detected_fmt = DE_EXECOMP_FMT_LZEXE;
+		edd->detected_fmt = DE_SPECIALEXEFMT_LZEXE;
 		de_strlcpy(ectx->shortname, "LZEXE", sizeof(ectx->shortname));
 		de_strlcpy(ectx->verstr, vs, sizeof(ectx->verstr));
 		edd->modname = "lzexe";
@@ -1560,7 +1560,7 @@ static void detect_execomp_lzexe(deark *c, struct execomp_ctx *ectx,
 }
 
 static void detect_execomp_exepack(deark *c, struct execomp_ctx *ectx,
-	struct fmtutil_exe_info *ei, struct fmtutil_execomp_detection_data *edd)
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	int has_RB = 0;
 
@@ -1587,16 +1587,16 @@ static void detect_execomp_exepack(deark *c, struct execomp_ctx *ectx,
 
 	// TODO: Is SP always 128?
 	if(ei->regSP==128 && has_RB) {
-		edd->detected_fmt = DE_EXECOMP_FMT_EXEPACK;
+		edd->detected_fmt = DE_SPECIALEXEFMT_EXEPACK;
 		goto done;
 	}
 
 done:
 	if(edd->detected_subfmt!=0) {
-		edd->detected_fmt = DE_EXECOMP_FMT_EXEPACK;
+		edd->detected_fmt = DE_SPECIALEXEFMT_EXEPACK;
 	}
 
-	if(edd->detected_fmt==DE_EXECOMP_FMT_EXEPACK) {
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_EXEPACK) {
 		if(ectx->devmode) {
 			de_dbg(c, "epvar: %u", (UI)edd->detected_subfmt);
 		}
@@ -1612,14 +1612,23 @@ done:
 void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei)
 {
 	i64 hdrsize; // in 16-byte units
+	i64 lfb, nblocks;
 
 	ei->f = f;
+	lfb = dbuf_getu16le(f, 2);
+	nblocks = dbuf_getu16le(f, 4);
 	ei->num_relocs = dbuf_getu16le(f, 6);
 	hdrsize = dbuf_getu16le(f, 8);
+	ei->regSS = dbuf_geti16le(f, 14);
 	ei->regSP = dbuf_getu16le(f, 16);
 	ei->regIP = dbuf_getu16le(f, 20);
 	ei->regCS = dbuf_geti16le(f, 22);
 	ei->entry_point = (hdrsize + ei->regCS)*16 + ei->regIP;
+
+	ei->end_of_dos_code = nblocks*512;
+	if(lfb>=1 && lfb<=511) {
+		ei->end_of_dos_code = ei->end_of_dos_code - 512 + lfb;
+	}
 }
 
 static void calc_entrypoint_crc(deark *c, struct execomp_ctx *ectx, struct fmtutil_exe_info *ei)
@@ -1650,7 +1659,7 @@ static void calc_entrypoint_crc(deark *c, struct execomp_ctx *ectx, struct fmtut
 // Always sets edd->detected_fmt_name to something, even if "unknown".
 // If we think we can decompress the format, sets edd->modname.
 void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
-	struct fmtutil_execomp_detection_data *edd)
+	struct fmtutil_specialexe_detection_data *edd)
 {
 	struct execomp_ctx ectx;
 
@@ -1658,24 +1667,116 @@ void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
 	edd->detected_fmt = 0;
 	edd->detected_subfmt = 0;
 
-	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_EXECOMP_FMT_PKLITE) {
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_PKLITE) {
 		detect_execomp_pklite(c, &ectx, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
 	calc_entrypoint_crc(c, &ectx, ei);
 
-	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_EXECOMP_FMT_LZEXE) {
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_LZEXE) {
 		detect_execomp_lzexe(c, &ectx, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
-	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_EXECOMP_FMT_EXEPACK) {
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_EXEPACK) {
 		detect_execomp_exepack(c, &ectx, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
 done:
+	if(ectx.shortname[0] && ectx.verstr[0]) {
+		de_snprintf(edd->detected_fmt_name, sizeof(edd->detected_fmt_name), "%s %s",
+			ectx.shortname, ectx.verstr);
+	}
+	else {
+		de_strlcpy(edd->detected_fmt_name, (ectx.shortname[0]?ectx.shortname:"unknown"),
+			sizeof(edd->detected_fmt_name));
+	}
+}
+
+// If found, writes a copy of pos to *pfoundpos.
+static int is_lha_data_at(struct fmtutil_exe_info *ei, i64 pos, i64 *pfoundpos)
+{
+	u8 b2[8];
+
+	if(pos+21 > ei->f->len) return 0;
+	dbuf_read(ei->f, b2, pos, sizeof(b2));
+	if(b2[2]!='-' || b2[6]!='-') return 0;
+	if(b2[3]=='l' && b2[4]=='h') {
+		*pfoundpos = pos;
+		return 1;
+	}
+	return 0;
+}
+
+// Detect LHA/LHarc self-extracting DOS EXE formats.
+// TODO: This is a work in progress.
+static void detect_exesfx_lha(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	u8 b[16];
+	u8 x;
+	int found;
+	i64 foundpos = 0;
+
+	if(ei->regSS != -16) goto done;
+	if(ei->regSP != 256) goto done;
+	if(ei->regCS != -16) goto done;
+	if(ei->regIP != 256) goto done;
+
+	dbuf_read(ei->f, b, 28, sizeof(b));
+	if(b[4]!=0xeb && b[4]!=0xe9) goto done;
+	if(b[8]=='L' && b[9]=='H') {
+		;
+	}
+	else if(b[9]=='L' && b[10]=='H') {
+		;
+	}
+	else if(b[10]=='L' && b[11]=='H') {
+		;
+	}
+	else if(b[10]=='S' && b[11]=='F') { // v1.00
+		;
+	}
+	else {
+		goto done;
+	}
+
+	found =
+		is_lha_data_at(ei, ei->end_of_dos_code, &foundpos) ||
+		is_lha_data_at(ei, ei->end_of_dos_code+3, &foundpos) ||
+		is_lha_data_at(ei, ei->entry_point + 1292-32, &foundpos) ||
+		is_lha_data_at(ei, ei->entry_point + 1295-32, &foundpos) ||
+		is_lha_data_at(ei, ei->entry_point + 1322-32, &foundpos);
+	if(!found) goto done;
+
+	edd->payload_pos = foundpos;
+	edd->payload_len = ei->f->len - edd->payload_pos;
+	if(edd->payload_len<21) goto done;
+
+	x = dbuf_getbyte(ei->f, edd->payload_pos+edd->payload_len-1); // archive trailer
+	if(x != 0x00) goto done;
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_LHASFX;
+	edd->payload_valid = 1;
+	edd->payload_file_ext = "lha";
+
+done:
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_LHASFX) {
+		de_strlcpy(ectx->shortname, "LHA", sizeof(ectx->shortname));
+	}
+}
+
+void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
+	struct fmtutil_specialexe_detection_data *edd)
+{
+	struct execomp_ctx ectx;
+
+	de_zeromem(&ectx, sizeof(struct execomp_ctx));
+
+	detect_exesfx_lha(c, &ectx, ei, edd);
+
 	if(ectx.shortname[0] && ectx.verstr[0]) {
 		de_snprintf(edd->detected_fmt_name, sizeof(edd->detected_fmt_name), "%s %s",
 			ectx.shortname, ectx.verstr);

@@ -665,8 +665,9 @@ struct de_lz77buffer {
  struct fmtutil_exe_info {
 	dbuf *f;
 	i64 num_relocs;
-	i64 regCS;
+	i64 regSS;
 	i64 regSP;
+	i64 regCS;
 	i64 regIP;
 	i64 start_of_dos_code;
 	i64 entry_point;
@@ -675,15 +676,25 @@ struct de_lz77buffer {
 };
 void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei);
 
-#define DE_EXECOMP_FMT_LZEXE     1
-#define DE_EXECOMP_FMT_PKLITE    2
-#define DE_EXECOMP_FMT_EXEPACK   3
- struct fmtutil_execomp_detection_data {
-	u8 restrict_to_fmt; // DE_EXECOMP_FMT_*; 0 = any
-	u8 detected_fmt; // DE_EXECOMP_FMT_*; 0 = unknown
+#define DE_SPECIALEXEFMT_LZEXE     1
+#define DE_SPECIALEXEFMT_PKLITE    2
+#define DE_SPECIALEXEFMT_EXEPACK   3
+ struct fmtutil_specialexe_detection_data {
+	u8 restrict_to_fmt; // DE_SPECIALEXEFMT_*; 0 = any
+	u8 detected_fmt; // DE_SPECIALEXEFMT_*; 0 = unknown
 	u8 detected_subfmt;
+	u8 payload_valid;
+	i64 payload_pos;
+	i64 payload_len;
+	const char *payload_file_ext;
 	const char *modname; // Non-NULL if we think we can decompress
 	char detected_fmt_name[40];
 };
 void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
-	struct fmtutil_execomp_detection_data *edd);
+	struct fmtutil_specialexe_detection_data *edd);
+
+
+#define DE_SPECIALEXEFMT_ZIPSFX     101
+#define DE_SPECIALEXEFMT_LHASFX     102
+void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
+	struct fmtutil_specialexe_detection_data *edd);
