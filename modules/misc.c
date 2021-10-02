@@ -23,6 +23,7 @@ DE_DECLARE_MODULE(de_module_compress);
 DE_DECLARE_MODULE(de_module_hpi);
 DE_DECLARE_MODULE(de_module_dwc);
 DE_DECLARE_MODULE(de_module_dclimplode);
+DE_DECLARE_MODULE(de_module_lzhuf);
 
 // **************************************************************************
 // "copy" module
@@ -990,4 +991,49 @@ void de_module_dclimplode(deark *c, struct deark_module_info *mi)
 	mi->desc = "PKWARE DCL Implode compressed file";
 	mi->run_fn = de_run_dclimplode;
 	mi->identify_fn = de_identify_dclimplode;
+}
+
+// **************************************************************************
+// LZHUF (Haruyasu Yoshizaki) compressed file
+// **************************************************************************
+
+static void de_run_lzhuf(deark *c, de_module_params *mparams)
+{
+	i64 unc_filesize;
+	dbuf *outf = NULL;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
+	// We're assuming the size field is 4 bytes, little-endian. (But it could
+	// be platform-specific.)
+#define LZHUF_HDRSIZE 4
+#define LZHUF_IS_LE   1
+
+	if(c->infile->len<LZHUF_HDRSIZE) goto done;
+	unc_filesize = dbuf_getint_ext(c->infile, 0, LZHUF_HDRSIZE, LZHUF_IS_LE, 0);
+	de_dbg(c, "orig filesize: %"I64_FMT, unc_filesize);
+
+	outf = dbuf_create_output_file(c, "unc", NULL, 0);
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = LZHUF_HDRSIZE;
+	dcmpri.len = c->infile->len-LZHUF_HDRSIZE;
+	dcmpro.f = outf;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = unc_filesize;
+
+	fmtutil_lh1_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
+	}
+done:
+	dbuf_close(outf);
+}
+
+void de_module_lzhuf(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "lzhuf";
+	mi->desc = "LZHUF compressed file";
+	mi->run_fn = de_run_lzhuf;
 }

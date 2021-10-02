@@ -703,7 +703,7 @@ Deark -- Information about supported formats
   - These often contain files in compressed formats known as Squeeze, Crunch,
   and CrLZH. Deark doesn't necessarily support all of those formats.
 
-* LHA/LZH/PMA (module="lha")
+* LHA/LHarc/LZH/PMA (module="lha")
   - All common compression methods are supported.
   Options
    -opt lha:lhark - Assume "lh7" compression is LHARK format, instead of the
@@ -715,6 +715,11 @@ Deark -- Information about supported formats
   - Compressed files are decompressed.
   Options
    -opt loaddskf:toraw - Convert to raw FAT/IMA format.
+
+* LZHUF (module="lzhuf")
+  Compression software by Haruyasu Yoshizaki. A bare-bones container for
+  LHarc's "lh1" compression.
+  - Not autodetected; you must use "-m lzhuf".
 
 * LZWCOM (module="lzwcom")
   LZWCOM/LZWUNC is an old file compression utility.
