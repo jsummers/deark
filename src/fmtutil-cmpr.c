@@ -588,6 +588,9 @@ void fmtutil_decompress_szdd(deark *c, struct de_dfilter_in_params *dcmpri,
 
 				if(pos+1 > endpos) goto unc_done;
 				b = dbuf_getbyte(dcmpri->f, pos++);
+				if(c->debug_level>=4) {
+					de_dbg(c, "bpos=%u lit %u", sctx->ringbuf->curpos, (UI)b);
+				}
 				de_lz77buffer_add_literal_byte(sctx->ringbuf, b);
 				if(sctx->stop_flag) goto unc_done;
 			}
@@ -601,6 +604,10 @@ void fmtutil_decompress_szdd(deark *c, struct de_dfilter_in_params *dcmpri,
 				x1 = (UI)dbuf_getbyte_p(dcmpri->f, &pos);
 				matchpos = ((x1 & 0xf0) << 4) | x0;
 				matchlen = (x1 & 0x0f) + 3;
+				if(c->debug_level>=4) {
+					de_dbg(c, "bpos=%u match mpos=%u(%u) len=%u", sctx->ringbuf->curpos,
+						matchpos, (UI)(4095&(sctx->ringbuf->curpos-matchpos)), matchlen);
+				}
 				de_lz77buffer_copy_from_hist(sctx->ringbuf, matchpos, matchlen);
 				if(sctx->stop_flag) goto unc_done;
 			}

@@ -273,7 +273,7 @@ static void do_decompress_code(deark *c, lctx *d)
 		}
 
 		if(c->debug_level>=3) {
-			de_dbg3(c, "match (%u) pos=%u len=%u", (UI)matchtype, matchpos, matchlen);
+			de_dbg3(c, "match (%u) pos=%u len=%u", (UI)matchtype, matchpos+1, matchlen);
 		}
 		de_lz77buffer_copy_from_hist(ringbuf,
 				(UI)(ringbuf->curpos-1-matchpos), matchlen);
