@@ -23,6 +23,7 @@ DE_DECLARE_MODULE(de_module_compress);
 DE_DECLARE_MODULE(de_module_hpi);
 DE_DECLARE_MODULE(de_module_dwc);
 DE_DECLARE_MODULE(de_module_dclimplode);
+DE_DECLARE_MODULE(de_module_lzss_oku);
 DE_DECLARE_MODULE(de_module_lzhuf);
 
 // **************************************************************************
@@ -991,6 +992,39 @@ void de_module_dclimplode(deark *c, struct deark_module_info *mi)
 	mi->desc = "PKWARE DCL Implode compressed file";
 	mi->run_fn = de_run_dclimplode;
 	mi->identify_fn = de_identify_dclimplode;
+}
+
+// **************************************************************************
+// LZSS (Haruhiko Okumura) compressed file
+// **************************************************************************
+
+static void de_run_lzss_oku(deark *c, de_module_params *mparams)
+{
+	dbuf *outf = NULL;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
+	outf = dbuf_create_output_file(c, "unc", NULL, 0);
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = 0;
+	dcmpri.len = c->infile->len;
+	dcmpro.f = outf;
+
+	fmtutil_decompress_szdd(c, &dcmpri, &dcmpro, &dres, 0x1);
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
+	}
+
+	dbuf_close(outf);
+}
+
+void de_module_lzss_oku(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "lzss_oku";
+	mi->desc = "LZSS.C by Haruhiko Okumura";
+	mi->run_fn = de_run_lzss_oku;
 }
 
 // **************************************************************************

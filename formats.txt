@@ -721,6 +721,10 @@ Deark -- Information about supported formats
   LHarc's "lh1" compression.
   - Not autodetected; you must use "-m lzhuf".
 
+* LZSS(Okumura) (module="lzss_oku")
+  LZSS.C compression software by Haruhiko Okumura.
+  - Not autodetected; you must use "-m lzhuf_oku".
+
 * LZWCOM (module="lzwcom")
   LZWCOM/LZWUNC is an old file compression utility.
   - Not autodetected; you must use "-m lzwcom". In rare cases, you must also
