@@ -489,7 +489,7 @@ static void lzhuf_Decode_continue(struct lzahuf_ctx *cctx, const u8 *buf, i64 bu
 			j = c - cctx->match_length_bias;
 
 			if(cctx->c->debug_level>=4) {
-				de_dbg(cctx->c, "match @%s dist=%u len=%u", pos_descr, i, j);
+				de_dbg(cctx->c, "match @%s dist=%u len=%u", pos_descr, i+1, j);
 			}
 
 			de_lz77buffer_copy_from_hist(cctx->ringbuf,

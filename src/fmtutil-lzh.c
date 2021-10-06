@@ -436,11 +436,11 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 
 		code = read_next_code_using_tree(cctx, &cctx->literals_tree);
 		if(cctx->bitrd.eof_flag) goto done;
-		if(c->debug_level>=3) {
-			de_dbg3(c, "code: %u (opos=%"I64_FMT")", code, cctx->dcmpro->f->len);
-		}
 
 		if(code < 256) { // literal
+			if(c->debug_level>=4) {
+				de_dbg(c, "lit %u", code);
+			}
 			de_lz77buffer_add_literal_byte(cctx->ringbuf, (u8)code);
 		}
 		else { // repeat previous bytes
@@ -463,7 +463,6 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 				else { // presumably, code==288
 					length = 514;
 				}
-				de_dbg3(c, "matchlen: %u", (UI)length);
 			}
 			else {
 				length = code-253;
@@ -471,7 +470,6 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 
 			ocode1 = read_next_code_using_tree(cctx, &cctx->offsets_tree);
 			if(cctx->bitrd.eof_flag) goto done;
-			de_dbg3(c, "ocode1: %u", ocode1);
 
 			if(cctx->is_lhark_lh7) {
 				if(ocode1<=3) {
@@ -481,7 +479,6 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 					offs_low_nbits = (ocode1-2)/2;
 					ocode2 = (UI)lzh_getbits(cctx, offs_low_nbits);
 					if(cctx->bitrd.eof_flag) goto done;
-					de_dbg3(c, "ocode2: %u", ocode2);
 					offset = ((2+(ocode1%2))<<offs_low_nbits) + ocode2;
 				}
 			}
@@ -493,12 +490,13 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 					offs_low_nbits = ocode1-1;
 					ocode2 = (UI)lzh_getbits(cctx, offs_low_nbits);
 					if(cctx->bitrd.eof_flag) goto done;
-					de_dbg3(c, "ocode2: %u", ocode2);
 					offset = (1U<<offs_low_nbits) + ocode2;
 				}
 			}
-			de_dbg3(c, "offset: %u", offset+1);
 
+			if(c->debug_level>=4) {
+				de_dbg(c, "match d=%u l=%u", offset+1, length);
+			}
 			de_lz77buffer_copy_from_hist(cctx->ringbuf,
 				(UI)(cctx->ringbuf->curpos-offset-1), length);
 		}
@@ -1427,6 +1425,9 @@ static void decompress_implode_internal(struct lzh_ctx *cctx)
 			else {
 				b = (u8)lzh_getbits(cctx, 8);
 			}
+			if(cctx->c->debug_level>=4) {
+				de_dbg(c, "lit %u", (UI)b);
+			}
 			de_lz77buffer_add_literal_byte(cctx->ringbuf, b);
 		}
 		else { // match
@@ -1446,6 +1447,9 @@ static void decompress_implode_internal(struct lzh_ctx *cctx)
 				matchlen = cctx->implode_min_match_len + matchlen_code;
 			}
 
+			if(c->debug_level>=4) {
+				de_dbg(c, "match d=%u l=%u", offset+1, matchlen);
+			}
 			de_lz77buffer_copy_from_hist(cctx->ringbuf,
 				(UI)(cctx->ringbuf->curpos-1-offset), matchlen);
 		}
