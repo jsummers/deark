@@ -522,12 +522,6 @@ static void szdd_lz77buf_writebytecb(struct de_lz77buffer *rb, const u8 n)
 	sctx->nbytes_written++;
 }
 
-static void szdd_init_window_default(struct de_lz77buffer *ringbuf)
-{
-	de_lz77buffer_clear(ringbuf, 0x20);
-	ringbuf->curpos = 4096 - 16;
-}
-
 static void szdd_init_window_lz5(struct de_lz77buffer *ringbuf)
 {
 	size_t wpos;
@@ -547,33 +541,35 @@ static void szdd_init_window_lz5(struct de_lz77buffer *ringbuf)
 	}
 	wpos += 128;
 	de_memset(&ringbuf->buf[wpos], 0x20, 110);
-	wpos += 110;
-	ringbuf->curpos = (UI)wpos;
+	//wpos += 110;
 }
 
 // Partially based on the libmspack's format documentation at
 // <https://www.cabextract.org.uk/libmspack/doc/szdd_kwaj_format.html>
 // flags:
-//   0x1: LArc lz5 mode
+//   0x01: 0 = starting position=4096-16, 1 = starting position=4096-18
+//   0x02: 0 = init to all spaces, 1 = LArc lz5 mode
 void fmtutil_decompress_szdd(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, unsigned int flags)
 {
+#define SZDD_BUFSIZE 4096
 	i64 pos = dcmpri->pos;
 	i64 endpos = dcmpri->pos + dcmpri->len;
 	struct szdd_ctx *sctx = NULL;
 
 	sctx = de_malloc(c, sizeof(struct szdd_ctx));
 	sctx->dcmpro = dcmpro;
-	sctx->ringbuf = de_lz77buffer_create(c, 4096);
+	sctx->ringbuf = de_lz77buffer_create(c, SZDD_BUFSIZE);
 	sctx->ringbuf->writebyte_cb = szdd_lz77buf_writebytecb;
 	sctx->ringbuf->userdata = (void*)sctx;
 
-	if(flags & 0x1) {
+	if(flags & 0x2) {
 		szdd_init_window_lz5(sctx->ringbuf);
 	}
 	else {
-		szdd_init_window_default(sctx->ringbuf);
+		de_lz77buffer_clear(sctx->ringbuf, 0x20);
 	}
+	sctx->ringbuf->curpos = (flags & 0x1) ? (SZDD_BUFSIZE-18) : (SZDD_BUFSIZE-16);
 
 	while(1) {
 		UI control;
@@ -588,6 +584,9 @@ void fmtutil_decompress_szdd(deark *c, struct de_dfilter_in_params *dcmpri,
 
 				if(pos+1 > endpos) goto unc_done;
 				b = dbuf_getbyte(dcmpri->f, pos++);
+				if(c->debug_level>=4) {
+					de_dbg(c, "bpos=%u lit %u", sctx->ringbuf->curpos, (UI)b);
+				}
 				de_lz77buffer_add_literal_byte(sctx->ringbuf, b);
 				if(sctx->stop_flag) goto unc_done;
 			}
@@ -601,6 +600,10 @@ void fmtutil_decompress_szdd(deark *c, struct de_dfilter_in_params *dcmpri,
 				x1 = (UI)dbuf_getbyte_p(dcmpri->f, &pos);
 				matchpos = ((x1 & 0xf0) << 4) | x0;
 				matchlen = (x1 & 0x0f) + 3;
+				if(c->debug_level>=4) {
+					de_dbg(c, "bpos=%u match mpos=%u(%u) len=%u", sctx->ringbuf->curpos,
+						matchpos, (UI)((SZDD_BUFSIZE-1)&(sctx->ringbuf->curpos-matchpos)), matchlen);
+				}
 				de_lz77buffer_copy_from_hist(sctx->ringbuf, matchpos, matchlen);
 				if(sctx->stop_flag) goto unc_done;
 			}

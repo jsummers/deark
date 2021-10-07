@@ -703,7 +703,7 @@ Deark -- Information about supported formats
   - These often contain files in compressed formats known as Squeeze, Crunch,
   and CrLZH. Deark doesn't necessarily support all of those formats.
 
-* LHA/LZH/PMA (module="lha")
+* LHA/LHarc/LZH/PMA (module="lha")
   - All common compression methods are supported.
   Options
    -opt lha:lhark - Assume "lh7" compression is LHARK format, instead of the
@@ -715,6 +715,15 @@ Deark -- Information about supported formats
   - Compressed files are decompressed.
   Options
    -opt loaddskf:toraw - Convert to raw FAT/IMA format.
+
+* LZHUF (module="lzhuf")
+  Compression software by Haruyasu Yoshizaki. A bare-bones container for
+  LHarc's "lh1" compression.
+  - Not autodetected; you must use "-m lzhuf".
+
+* LZSS(Okumura) (module="lzss_oku")
+  LZSS.C compression software by Haruhiko Okumura.
+  - Not autodetected; you must use "-m lzhuf_oku".
 
 * LZWCOM (module="lzwcom")
   LZWCOM/LZWUNC is an old file compression utility.
@@ -894,6 +903,7 @@ Deark -- Information about supported formats
     actual BMP file(s).
   - Extract icons and cursors from LX files. Note that these will use OS/2
     format. Reprocess them with Deark to convert to PNG.
+  - In some cases, extract the arhive from a self-extracting archive.
 
 * FLAC audio (module="flac")
 
@@ -928,6 +938,12 @@ Deark -- Information about supported formats
 * JPEG scan (module="jpegscan")
   - This module tries to find and extract embedded JPEG and JPEG-LS files from
     otherwise-unsupported formats. Use "-m jpegscan".
+
+* LZEXE (module="lzexe") (experimental)
+  Decompress an LZEXE-compressed DOS EXE file.
+  - Not autodetected. Use "-m lzexe".
+  - The decompressed file will usually not be byte-for-byte the same as the
+    original, because LZEXE discards some information.
 
 * Macintosh Resource Manager (module="macrsrc") (experimental/incomplete)
   This is the format generally used by Mac resource forks.

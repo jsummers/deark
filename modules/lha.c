@@ -778,7 +778,7 @@ static void decompress_lz5(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	fmtutil_decompress_szdd(c, dcmpri, dcmpro, dres, 0x1);
+	fmtutil_decompress_szdd(c, dcmpri, dcmpro, dres, 0x3);
 }
 
 struct cmpr_meth_array_item {

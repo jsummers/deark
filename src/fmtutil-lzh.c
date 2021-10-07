@@ -497,7 +497,7 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 					offset = (1U<<offs_low_nbits) + ocode2;
 				}
 			}
-			de_dbg3(c, "offset: %u", offset);
+			de_dbg3(c, "offset: %u", offset+1);
 
 			de_lz77buffer_copy_from_hist(cctx->ringbuf,
 				(UI)(cctx->ringbuf->curpos-offset-1), length);
@@ -699,18 +699,18 @@ done:
 static UI deflate_read_and_decode_distance(deark *c, struct lzh_ctx *cctx)
 {
 	UI dist_code;
-	UI dist = 1;
+	UI dist = 0;
 	UI more_bits_count;
 	UI more_bits_val;
 
 	dist_code = read_next_code_using_tree(cctx, &cctx->offsets_tree);
 	if(dist_code<=3) {
-		dist = dist_code + 1;
+		dist = dist_code;
 		more_bits_count = 0;
 	}
 	else if(dist_code<=29 || (cctx->is_deflate64 && dist_code<=31)) {
 		more_bits_count = (dist_code/2)-1;
-		dist = ((2 + dist_code%2) << more_bits_count) + 1;
+		dist = (2 + dist_code%2) << more_bits_count;
 	}
 	else {
 		de_dfilter_set_errorf(c, cctx->dres, cctx->modname, "Bad distance code");
@@ -944,10 +944,10 @@ static int lzh_do_deflate_block_type1_2(deark *c, struct lzh_ctx *cctx, UI blkty
 			UI length = deflate_decode_length(c, cctx, code);
 			UI dist = deflate_read_and_decode_distance(c, cctx);
 			if(cctx->c->debug_level>=4) {
-				de_dbg(c, "%u match d=%u l=%u", code, dist, length);
+				de_dbg(c, "%u match d=%u l=%u", code, dist+1, length);
 			}
 			de_lz77buffer_copy_from_hist(cctx->ringbuf,
-				(UI)(cctx->ringbuf->curpos-dist), length);
+				(UI)(cctx->ringbuf->curpos-1-dist), length);
 		}
 		else if(code==256) { // end of block
 			if(cctx->c->debug_level>=4) {
@@ -1650,7 +1650,7 @@ static void dclimplode_internal(struct lzh_ctx *cctx)
 			offset = (offset_code << more_bits_count) + more_bits;
 
 			if(cctx->c->debug_level>=4) {
-				de_dbg(c, "match d=%u l=%u", offset, matchlen);
+				de_dbg(c, "match d=%u l=%u", offset+1, matchlen);
 			}
 			de_lz77buffer_copy_from_hist(cctx->ringbuf,
 				(UI)(cctx->ringbuf->curpos-1-offset), matchlen);
