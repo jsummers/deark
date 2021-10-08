@@ -679,6 +679,8 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei);
 #define DE_SPECIALEXEFMT_LZEXE     1
 #define DE_SPECIALEXEFMT_PKLITE    2
 #define DE_SPECIALEXEFMT_EXEPACK   3
+#define DE_SPECIALEXEFMT_DIET      4
+#define DE_SPECIALEXEFMT_TINYPROG  5
  struct fmtutil_specialexe_detection_data {
 	u8 restrict_to_fmt; // DE_SPECIALEXEFMT_*; 0 = any
 	u8 detected_fmt; // DE_SPECIALEXEFMT_*; 0 = unknown

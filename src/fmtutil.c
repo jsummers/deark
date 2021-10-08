@@ -1456,6 +1456,28 @@ struct execomp_ctx {
 	char verstr[40];
 };
 
+static void calc_entrypoint_crc(deark *c, struct execomp_ctx *ectx, struct fmtutil_exe_info *ei)
+{
+	struct de_crcobj *crco = NULL;
+	u32 crc1, crc2;
+
+	if(ei->entrypoint_crcs!=0) return;
+
+	// Sniff some bytes, starting at the code entry point.
+	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	de_crcobj_addslice(crco, ei->f, ei->entry_point, 32);
+	crc1 = de_crcobj_getval(crco);
+	de_crcobj_reset(crco);
+	de_crcobj_addslice(crco, ei->f, ei->entry_point+32, 32);
+	crc2 = de_crcobj_getval(crco);
+	ei->entrypoint_crcs = ((u64)crc1 << 32) | crc2;
+	if(ectx->devmode) {
+		de_dbg(c, "execomp crc: %016"U64_FMTx, ei->entrypoint_crcs);
+	}
+
+	de_crcobj_destroy(crco);
+}
+
 static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
@@ -1604,6 +1626,38 @@ done:
 	}
 }
 
+static void detect_execomp_tinyprog(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	i64 pos;
+	i64 j;
+	u8 x;
+
+	if(ei->num_relocs!=0) goto done;
+	pos = ei->entry_point;
+	x = dbuf_getbyte(ei->f, pos);
+	if(x!=0xe9) goto done;
+	j = dbuf_getu16le(ei->f, pos+1);
+	pos += 3+j; // Jump over user data
+
+	x = dbuf_getbyte(ei->f, pos);
+	if(x != 0xeb) goto done;
+	j = dbuf_geti8(ei->f, pos+1);
+	pos += 2+j; // Jump over (some sort of) data
+
+	// This part seems consistent, but I'm really just guessing. Need to test more versions.
+	if(dbuf_memcmp(ei->f, pos,
+		(const void*)"\x83\xec\x10\x83\xe4\xe0\x8b\xec\x50\xbe\x05\x01\x03\x36\x01\x01", 16))
+	{
+		goto done;
+	}
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_TINYPROG;
+	de_strlcpy(ectx->shortname, "TINYPROG", sizeof(ectx->shortname));
+done:
+	;
+}
+
 // Caller initializes ei (to zeroes).
 // Records some basic information about an EXE file, to be used by routines that
 // detect special EXE formats.
@@ -1631,28 +1685,6 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei)
 	}
 }
 
-static void calc_entrypoint_crc(deark *c, struct execomp_ctx *ectx, struct fmtutil_exe_info *ei)
-{
-	struct de_crcobj *crco = NULL;
-	u32 crc1, crc2;
-
-	if(ei->entrypoint_crcs!=0) return;
-
-	// Sniff some bytes, starting at the code entry point.
-	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-	de_crcobj_addslice(crco, ei->f, ei->entry_point, 32);
-	crc1 = de_crcobj_getval(crco);
-	de_crcobj_reset(crco);
-	de_crcobj_addslice(crco, ei->f, ei->entry_point+32, 32);
-	crc2 = de_crcobj_getval(crco);
-	ei->entrypoint_crcs = ((u64)crc1 << 32) | crc2;
-	if(ectx->devmode) {
-		de_dbg(c, "execomp crc: %016"U64_FMTx, ei->entrypoint_crcs);
-	}
-
-	de_crcobj_destroy(crco);
-}
-
 // Caller supplies ei -- must call fmtutil_collect_exe_info() first.
 // Caller initializes edd, to receive the results.
 // If success, sets edd->detected_fmt to nonzero.
@@ -1669,6 +1701,11 @@ void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_PKLITE) {
 		detect_execomp_pklite(c, &ectx, ei, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
+
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_TINYPROG) {
+		detect_execomp_tinyprog(c, &ectx, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
