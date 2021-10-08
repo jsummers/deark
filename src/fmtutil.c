@@ -1658,6 +1658,38 @@ done:
 	;
 }
 
+static int execomp_diet_check_fingerprint(dbuf *f, i64 pos)
+{
+	return !dbuf_memcmp(f, pos,
+		(const u8*)"\x8e\xdb\x8e\xc0\x33\xf6\x33\xff\xb9\x08\x00\xf3\xa5\x4b\x48\x4a", 16);
+}
+
+static void detect_execomp_diet(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	static const u8 offsets[] = {20, 40, 45};
+	i64 foundpos = 0;
+	size_t i;
+
+	if(ei->regCS!=0) goto done;
+	if(ei->regIP!=0 && ei->regIP!=3) goto done;
+	if(ei->num_relocs>1) goto done;
+
+	// Haven't figured out a good way to detect DIET. More research needed.
+	for(i=0; i<DE_ARRAYCOUNT(offsets); i++) {
+		if(execomp_diet_check_fingerprint(ei->f, ei->entry_point+(i64)offsets[i])) {
+			foundpos = (i64)offsets[i];
+			break;
+		}
+	}
+	if(foundpos==0) goto done;
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_DIET;
+	de_strlcpy(ectx->shortname, "DIET", sizeof(ectx->shortname));
+done:
+	;
+}
+
 // Caller initializes ei (to zeroes).
 // Records some basic information about an EXE file, to be used by routines that
 // detect special EXE formats.
@@ -1706,6 +1738,11 @@ void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_TINYPROG) {
 		detect_execomp_tinyprog(c, &ectx, ei, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
+
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_DIET) {
+		detect_execomp_diet(c, &ectx, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
