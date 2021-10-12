@@ -1518,16 +1518,14 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 		goto done;
 	}
 
-	// This is basically what CHK4LITE does, if the signature check fails.
-	if(ei->num_relocs != 1) goto done;
 	if(ei->regIP != 256) goto done;
 	if(ei->regCS != -16) goto done;
 
 	if(!has_sig) { // If signature is present, that's good enough. Otherwise...
 		u8 cb[8];
 
-		// TODO: This fingerprint might not always work, but I want to reduce false
-		// positives somehow.
+		// TODO: Find a stricter way to do fingerprinting
+
 		dbuf_read(ei->f, cb, ei->entry_point, sizeof(cb));
 		if(cb[0]==0xb8 && cb[3]==0xba) {
 			;
@@ -1790,7 +1788,6 @@ static void detect_exesfx_lha(deark *c, struct execomp_ctx *ectx,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	u8 b[16];
-	u8 x;
 	int found;
 	i64 foundpos = 0;
 
@@ -1819,6 +1816,7 @@ static void detect_exesfx_lha(deark *c, struct execomp_ctx *ectx,
 
 	found =
 		is_lha_data_at(ei, ei->end_of_dos_code, &foundpos) ||
+		is_lha_data_at(ei, ei->end_of_dos_code+1, &foundpos) ||
 		is_lha_data_at(ei, ei->end_of_dos_code+3, &foundpos) ||
 		is_lha_data_at(ei, ei->entry_point + 1292-32, &foundpos) ||
 		is_lha_data_at(ei, ei->entry_point + 1295-32, &foundpos) ||
@@ -1829,16 +1827,81 @@ static void detect_exesfx_lha(deark *c, struct execomp_ctx *ectx,
 	edd->payload_len = ei->f->len - edd->payload_pos;
 	if(edd->payload_len<21) goto done;
 
-	x = dbuf_getbyte(ei->f, edd->payload_pos+edd->payload_len-1); // archive trailer
-	if(x != 0x00) goto done;
-
-	edd->detected_fmt = DE_SPECIALEXEFMT_LHASFX;
+	edd->detected_fmt = DE_SPECIALEXEFMT_SFX;
 	edd->payload_valid = 1;
 	edd->payload_file_ext = "lha";
 
 done:
-	if(edd->detected_fmt==DE_SPECIALEXEFMT_LHASFX) {
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
 		de_strlcpy(ectx->shortname, "LHA", sizeof(ectx->shortname));
+	}
+}
+
+static int is_arc_data_at(struct fmtutil_exe_info *ei, i64 pos)
+{
+	u8 b[2];
+
+	dbuf_read(ei->f, b, pos, 2);
+	if(b[0]!=0x1a) return 0;
+	if(b[1]>30) return 0;
+	return 1;
+}
+
+// Detect some ARC self-extracting DOS EXE formats.
+// TODO: This is pretty fragile. It only detects files made by known versions of
+// MKSARC (from the ARC distribution).
+static void detect_exesfx_arc(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	int found = 0;
+	i64 foundpos = 0;
+
+	calc_entrypoint_crc(c, ectx, ei);
+	if(ei->entrypoint_crcs==0x057db6d8be3c4895ULL) { // MKSARC v1.00 from ARC v6.01
+		found = 1;
+		foundpos = ei->end_of_dos_code;
+	}
+	else if(ei->entrypoint_crcs==0x8542182a98613fe0ULL ||
+		ei->entrypoint_crcs==0x6bd653c8edd98eedULL)
+	{
+		// MKSARC v1.01 from ARC v6.02
+		// (Found two different versions with the same version number.)
+		// This version of MKSARC has a bug. Compared to the v1.00, the start of DOS
+		// code was reduced by 480, from 512 to 32. But the *end* of DOS code was not
+		// adjusted accordingly, leaving it 480 higher than it should be. This is
+		// important, because the end of DOS code is where we expect the ARC data to
+		// start.
+		found = 1;
+		foundpos = ei->end_of_dos_code - 480;
+		if(!is_arc_data_at(ei, foundpos)) {
+			foundpos = ei->end_of_dos_code; // In case there's a version without the bug
+		}
+	}
+	else if(ei->entrypoint_crcs==0x3230b4d5fca84644ULL) { // MKSARC v7.12, from ARC v7.12
+		found = 1;
+		foundpos = ei->end_of_dos_code;
+	}
+	// TODO: Detect MKSARC v7.12 with the /P option (OS/2 protected mode).
+	// Extraction would work, if we could detect it.
+
+	if(!found) goto done;
+	if(!is_arc_data_at(ei, foundpos)) {
+		goto done;
+	}
+
+	edd->payload_pos = foundpos;
+	edd->payload_len = ei->f->len - edd->payload_pos;
+	if(edd->payload_len<2) goto done;
+	// TODO: It would be nice to strip any padding from the end of the extracted ARC
+	// file, but that could be more trouble than it's worth.
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_SFX;
+	edd->payload_valid = 1;
+	edd->payload_file_ext = "arc";
+
+done:
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
+		de_strlcpy(ectx->shortname, "ARC", sizeof(ectx->shortname));
 	}
 }
 
@@ -1850,7 +1913,11 @@ void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	de_zeromem(&ectx, sizeof(struct execomp_ctx));
 
 	detect_exesfx_lha(c, &ectx, ei, edd);
+	if(edd->detected_fmt) goto done;
 
+	detect_exesfx_arc(c, &ectx, ei, edd);
+
+done:
 	if(ectx.shortname[0] && ectx.verstr[0]) {
 		de_snprintf(edd->detected_fmt_name, sizeof(edd->detected_fmt_name), "%s %s",
 			ectx.shortname, ectx.verstr);

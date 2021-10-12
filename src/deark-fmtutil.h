@@ -681,6 +681,8 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei);
 #define DE_SPECIALEXEFMT_EXEPACK   3
 #define DE_SPECIALEXEFMT_DIET      4
 #define DE_SPECIALEXEFMT_TINYPROG  5
+#define DE_SPECIALEXEFMT_SFX       100 // Generic extractable self-extracting archive
+
  struct fmtutil_specialexe_detection_data {
 	u8 restrict_to_fmt; // DE_SPECIALEXEFMT_*; 0 = any
 	u8 detected_fmt; // DE_SPECIALEXEFMT_*; 0 = unknown
@@ -694,9 +696,5 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei);
 };
 void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
 	struct fmtutil_specialexe_detection_data *edd);
-
-
-#define DE_SPECIALEXEFMT_ZIPSFX     101
-#define DE_SPECIALEXEFMT_LHASFX     102
 void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	struct fmtutil_specialexe_detection_data *edd);
