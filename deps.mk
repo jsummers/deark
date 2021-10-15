@@ -202,6 +202,8 @@ $(OBJDIR)/modules/pict.o: modules/pict.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/pkfont.o: modules/pkfont.c src/deark-config.h \
  src/deark-private.h src/deark.h
+$(OBJDIR)/modules/pklite.o: modules/pklite.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/pkm.o: modules/pkm.c src/deark-private.h src/deark.h \
  src/deark-config.h
 $(OBJDIR)/modules/plist.o: modules/plist.c src/deark-config.h \

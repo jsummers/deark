@@ -1703,10 +1703,12 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei)
 	nblocks = dbuf_getu16le(f, 4);
 	ei->num_relocs = dbuf_getu16le(f, 6);
 	hdrsize = dbuf_getu16le(f, 8);
+	ei->start_of_dos_code = hdrsize*16;
 	ei->regSS = dbuf_geti16le(f, 14);
 	ei->regSP = dbuf_getu16le(f, 16);
 	ei->regIP = dbuf_getu16le(f, 20);
 	ei->regCS = dbuf_geti16le(f, 22);
+	ei->reloc_table_pos = dbuf_getu16le(f, 24);
 	ei->entry_point = (hdrsize + ei->regCS)*16 + ei->regIP;
 
 	ei->end_of_dos_code = nblocks*512;

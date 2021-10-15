@@ -76,7 +76,7 @@ OFILES_MODS_IO:=$(addprefix $(OBJDIR)/modules/,misc.o misc2.o \
  officeart.o lbr.o megapaint.o nie.o isz.o os2ea.o)
 OFILES_MODS_PQ:=$(addprefix $(OBJDIR)/modules/,psd.o palmbitmap.o palmpdb.o \
  pcpaint.o pcx.o pff2.o pict.o pkfont.o png.o pnm.o portfolio.o printptnr.o \
- packdir.o pack.o pkm.o \
+ packdir.o pack.o pkm.o pklite.o \
  printshop.o psf.o psionapp.o psionpic.o pcf.o plist.o qtif.o)
 OFILES_MODS_RZ:=$(addprefix $(OBJDIR)/modules/,riff.o rosprite.o rpm.o \
  rsc.o shg.o spectrum512.o sunras.o t64.o tar.o tga.o tiff.o tim.o \

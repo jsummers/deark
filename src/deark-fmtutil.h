@@ -669,6 +669,7 @@ struct de_lz77buffer {
 	i64 regSP;
 	i64 regCS;
 	i64 regIP;
+	i64 reloc_table_pos;
 	i64 start_of_dos_code;
 	i64 entry_point;
 	i64 end_of_dos_code;
