@@ -8,17 +8,29 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_pklite);
 
-typedef struct localctx_struct {
-	UI pklver; // e.g. 0x103 = 1.03
+struct ver_info_struct {
+	u8 valid;
+	UI ver_info; // e.g. 0x3103 = 1.03/l/e
+	UI flags; // 0x1 = beta
+	const char *suffix;
+
+	UI ver_only; // e.g. 0x103 = 1.03
 	u8 extra_cmpr;
 	u8 large_cmpr;
+	char pklver_str[32];
+};
 
-	struct fmtutil_exe_info *ei;
-	struct fmtutil_exe_info *o_ei;
-	i64 orig_hdr_pos; // position of original header in the PKLITE'd file
-	i64 orig_hdr_len;
+typedef struct localctx_struct {
+	struct ver_info_struct ver_reported;
+	struct ver_info_struct ver_detected;
+	struct ver_info_struct ver;
+
+	struct fmtutil_exe_info *ei; // For the PKLITE file
+	struct fmtutil_exe_info *o_ei; // For the decompressed file
+	u8 have_orig_header;
 	i64 cmpr_data_pos;
 	i64 cmpr_data_endpos;
+	i64 footer_pos;
 
 	int errflag;
 	int errmsg_handled;
@@ -31,97 +43,201 @@ typedef struct localctx_struct {
 
 	struct fmtutil_huffman_decoder *lengths_tree;
 	struct fmtutil_huffman_decoder *offsets_tree;
-	char pklver_str[12];
 } lctx;
 
-static void find_cmprdata_pos(deark *c, lctx *d)
+// Sets d->cmpr_data_pos.
+// This function also serves to decide whether we think we support the given
+// variety of PKLITEd file. If not, leaves d->cmpr_data_pos set to 0.
+static void find_cmprdata_pos(deark *c, lctx *d, struct ver_info_struct *v)
 {
-	// TODO: This is incomplete
+	if(!v->valid) goto done;
+	if(v->flags) goto done; // beta, or some other special version - not yet supported
 
-	if(d->pklver<0x100 || d->pklver>0x10f) goto done;
-
-	if(!d->extra_cmpr && !d->large_cmpr) {
+	switch(v->ver_info) {
+	case 0x0100: case 0x0103: case 0x0105:
+	case 0x010c: case 0x010d: case 0x010e: case 0x010f:
 		d->cmpr_data_pos = d->ei->entry_point + 0x1d0;
-	}
-	else if(!d->extra_cmpr && d->large_cmpr) {
+		break;
+	case 0x110c: case 0x110d:
+		d->cmpr_data_pos = d->ei->entry_point + 0x1e0;
+		break;
+	case 0x110f:
+		d->cmpr_data_pos = d->ei->entry_point + 0x200;
+		break;
+	case 0x2100: case 0x2103: case 0x2105: case 0x210a:
+	case 0x210c: case 0x210d: case 0x210e: case 0x210f:
 		d->cmpr_data_pos = d->ei->entry_point + 0x290;
+		break;
+	case 0x310c: case 0x310d:
+		d->cmpr_data_pos = d->ei->entry_point + 0x290;
+		break;
+	case 0x310f:
+		d->cmpr_data_pos = d->ei->entry_point + 0x2c0;
+		break;
 	}
-	else if(d->extra_cmpr && !d->large_cmpr) {
-		if(d->pklver>=0x10e) {
-			d->cmpr_data_pos = d->ei->entry_point + 0x200;
-		}
-		else {
-			d->cmpr_data_pos = d->ei->entry_point + 0x1e0;
-		}
-	}
-	else {
-		if(d->pklver>=0x10e) {
-			d->cmpr_data_pos = d->ei->entry_point + 0x2c0;
-		}
-		else if(d->pklver>=0x10c) {
-			d->cmpr_data_pos = d->ei->entry_point + 0x290;
-		}
-		else {
-			d->cmpr_data_pos = d->ei->entry_point + 0x2a0;
-		}
-	}
+	// TODO: Support for more versions is planned, but may need special processing
+	// to find the compressed data.
 
 done:
 	if(d->cmpr_data_pos!=0) {
 		de_dbg(c, "cmpr data pos: %"I64_FMT, d->cmpr_data_pos);
 	}
-	else {
-		de_err(c, "PKLITE version %s not supported", d->pklver_str);
-		d->errflag = 1;
-		d->errmsg_handled = 1;
+}
+
+// Caller first sets (at least) .valid and .ver_info
+static void derive_version_fields(deark *c, lctx *d, struct ver_info_struct *v)
+{
+	if(!v->valid) {
+		de_strlcpy(v->pklver_str, "unknown", sizeof(v->pklver_str));
+		return;
 	}
+
+	v->ver_info &= 0x3fff;
+	v->ver_only = v->ver_info & 0x0fff;
+	v->extra_cmpr = (v->ver_info & 0x1000)?1:0;
+	v->large_cmpr = (v->ver_info & 0x2000)?1:0;
+	de_snprintf(v->pklver_str, sizeof(v->pklver_str), "%u.%02u%s%s%s",
+		(UI)(v->ver_only>>8), (UI)(v->ver_only&0xff),
+		(v->suffix?v->suffix:""),
+		(v->large_cmpr?"/l":"/s"),
+		(v->extra_cmpr?"/e":""));
+}
+
+struct ver_fingerprint_item {
+	u32 crc;
+	UI ver_info;
+	UI flags;
+	const char *suffix;
+};
+static const struct ver_fingerprint_item ver_fingerprint_arr[] = {
+	{0xb1083464U, 0x0100, 1, "beta"},
+	{0xf1ee04cfU, 0x0100, 0, "-1.03"},
+	{0x4c8409f4U, 0x0105, 0, NULL},
+	{0x705fd509U, 0x010c, 0, NULL},
+	{0x750a2002U, 0x010d, 0, NULL},
+	{0x25481db5U, 0x010e, 0, NULL},
+	{0x5e3413ffU, 0x010f, 0, NULL},
+	{0x1f735486U, 0x0132, 0, "-2.01"},
+	{0xb5153795U, 0x110c, 0, NULL},
+	{0xfa91a037U, 0x110d, 0, NULL},
+	{0xc12bb6cfU, 0x2100, 1, "beta"},
+	{0xd8441452U, 0x2100, 0, NULL},
+	{0x77f75f9dU, 0x2103, 0, NULL},
+	{0xabdd9ef2U, 0x2105, 0, NULL},
+	{0x0e0e1602U, 0x210c, 0, NULL},
+	{0xc51830b1U, 0x210d, 0, NULL},
+	{0xbc75491dU, 0x210e, 0, NULL},
+	{0xd332a6e7U, 0x210f, 0, NULL},
+	{0x43eb077fU, 0x2132, 0, "-2.01"},
+	{0xbc0ec35eU, 0x310c, 0, NULL},
+	{0x61a65992U, 0x310d, 0, NULL}
+	// TODO: Some "-e" versions are missing.
+	// Note: "-e" files starting with v1.14 or 1.15 seem to be obfuscated
+	// in a way that prevents this kind of fingerprinting.
+};
+
+static void detect_pklite_version(deark *c, lctx *d)
+{
+	struct de_crcobj *crco = NULL;
+	u32 crc1;
+	size_t i;
+	const struct ver_fingerprint_item *fi = NULL;
+
+	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	de_crcobj_addslice(crco, c->infile, d->ei->entry_point+80, 240);
+	crc1 = de_crcobj_getval(crco);
+	de_dbg3(c, "CRC fingerprint: %08x", (UI)crc1);
+	de_crcobj_destroy(crco);
+
+	for(i=0; i<DE_ARRAYCOUNT(ver_fingerprint_arr); i++) {
+		if(ver_fingerprint_arr[i].crc==crc1) {
+			fi = &ver_fingerprint_arr[i];
+			break;
+		}
+	}
+
+	if(fi) {
+		d->ver_detected.ver_info = fi->ver_info;
+		d->ver_detected.suffix = fi->suffix;
+		d->ver_detected.flags = fi->flags;
+
+		if((d->ver_detected.ver_info&0xfff)==0x10c && !d->ver_detected.suffix) {
+			if(!dbuf_memcmp(c->infile, 45, "90-92 PK", 8)) {
+				d->ver_detected.suffix = "[fake v1.20]";
+			}
+		}
+	}
+
+	if(d->ver_detected.ver_info!=0) {
+		d->ver_detected.valid = 1;
+	}
+
+	derive_version_fields(c, d, &d->ver_detected);
 }
 
 // Read what we need, before we can decompress
 static void do_read_header(deark *c, lctx *d)
 {
-	UI n;
+	i64 reloc_table_endpos;
 
 	// Start to reconstruct the original header
 	d->o_orig_header = dbuf_create_membuf(c, 0, 0);
 	dbuf_writeu16le(d->o_orig_header, 0x5a4d); // "MZ"
 
-	n = (UI)de_getu16le(28);
-	d->pklver = n & 0x0fff;
-	de_snprintf(d->pklver_str, sizeof(d->pklver_str), "%u.%02u",
-		(UI)(d->pklver>>8), (UI)(d->pklver&0xff));
-	d->extra_cmpr = (n&0x1000)?1:0;
-	d->large_cmpr = (n&0x2000)?1:0;
-	de_dbg(c, "reported PKLITE version: %s", d->pklver_str);
-	de_dbg(c, "'extra' compression: %u", (UI)d->extra_cmpr);
-	de_dbg(c, "'large' compression: %u", (UI)d->large_cmpr);
+	d->ver_reported.ver_info = (UI)de_getu16le(28);
+	d->ver_reported.valid = 1;
+	derive_version_fields(c, d, &d->ver_reported);
 
-	if(d->extra_cmpr) {
-		de_err(c, "PKLITE 'extra' compression not supported");
-		d->errflag = 1;
-		d->errmsg_handled = 1;
-		goto done;
+	de_dbg(c, "reported PKLITE version: %s", d->ver_reported.pklver_str);
+
+	de_dbg(c, "start of executable code: %"I64_FMT, d->ei->start_of_dos_code);
+
+	detect_pklite_version(c, d);
+	de_dbg(c, "detected PKLITE version: %s", d->ver_detected.pklver_str);
+	if(d->ver_detected.valid) {
+		d->ver = d->ver_detected; // struct copy
 	}
-
-	d->orig_hdr_pos = d->ei->reloc_table_pos + 4*d->ei->num_relocs;
-	d->orig_hdr_len = d->ei->start_of_dos_code - d->orig_hdr_pos;
-	de_dbg(c, "orig. hdr: at %"I64_FMT", len=%"I64_FMT, d->orig_hdr_pos, d->orig_hdr_len);
-	if(d->orig_hdr_len<26) {
-		d->errflag = 1;
-		goto done;
+	else {
+		d->ver = d->ver_reported;
 	}
-
-	// This is expected to also copy some PKLITE-specific data after the
-	// original header, that we may not need.
-	dbuf_copy(c->infile, d->orig_hdr_pos, d->orig_hdr_len, d->o_orig_header);
 
 	d->o_ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
-	fmtutil_collect_exe_info(c, d->o_orig_header, d->o_ei);
 
-	find_cmprdata_pos(c, d);
+	reloc_table_endpos = d->ei->reloc_table_pos + 4*d->ei->num_relocs;
+	if(d->ei->start_of_dos_code - reloc_table_endpos < 26) {
+		d->have_orig_header = 0;
+	}
+	else if(d->ver.ver_only>=0x10a && d->ver.extra_cmpr) {
+		d->have_orig_header = 0;
+	}
+	else {
+		d->have_orig_header = 1;
+	}
 
-done:
-	;
+	if(d->have_orig_header) {
+		i64 orig_hdr_pos, orig_hdr_len;
+		i64 orig_reloc_pos;
+
+		orig_hdr_pos = reloc_table_endpos;
+		orig_hdr_len = d->ei->start_of_dos_code - orig_hdr_pos; // tentative
+		// Peek at the reloc table offs field to figure out how much to read
+		orig_reloc_pos = de_getu16le(orig_hdr_pos + 22);
+		if(orig_reloc_pos>=28 && orig_reloc_pos<2+orig_hdr_len) {
+			orig_hdr_len = orig_reloc_pos-2;
+		}
+
+		de_dbg(c, "orig. hdr: at %"I64_FMT", len=(2+)%"I64_FMT, orig_hdr_pos, orig_hdr_len);
+		dbuf_copy(c->infile, orig_hdr_pos, orig_hdr_len, d->o_orig_header);
+
+		fmtutil_collect_exe_info(c, d->o_orig_header, d->o_ei);
+	}
+
+	find_cmprdata_pos(c, d, &d->ver);
+	if(d->cmpr_data_pos==0) {
+		de_err(c, "This PKLITE version (%s) is not supported", d->ver.pklver_str);
+		d->errflag = 1;
+		d->errmsg_handled = 1;
+	}
 }
 
 static void fill_bitbuf(deark *c, lctx *d)
@@ -130,7 +246,9 @@ static void fill_bitbuf(deark *c, lctx *d)
 
 	if(d->errflag) return;
 	if(d->dcmpr_cur_ipos+2 > c->infile->len) {
+		de_err(c, "Unexpected end of file during decompression");
 		d->errflag = 1;
+		d->errmsg_handled = 1;
 		return;
 	}
 
@@ -184,7 +302,7 @@ static void make_matchlengths_tree(deark *c, lctx *d)
 	i64 num_codes;
 
 	if(d->lengths_tree) return;
-	if(d->large_cmpr) {
+	if(d->ver.large_cmpr) {
 		num_codes = (i64)DE_ARRAYCOUNT(matchlength_codelengths_lg);
 		ml_codelengths = matchlength_codelengths_lg;
 		ml_codes = matchlength_codes_lg;
@@ -262,10 +380,17 @@ done:
 static void do_decompress(deark *c, lctx *d)
 {
 	struct de_lz77buffer *ringbuf = NULL;
+	i64 dcmpr_bytes_expected = 0;
+	int dcmpr_len_known = 0;
 	u8 b;
 
 	de_dbg(c, "decompressing cmpr code at %"I64_FMT, d->cmpr_data_pos);
 	de_dbg_indent(c, 1);
+
+	if(d->have_orig_header) {
+		dcmpr_len_known = 1;
+		dcmpr_bytes_expected = d->o_ei->end_of_dos_code - d->o_ei->start_of_dos_code;
+	}
 
 	make_matchlengths_tree(c, d);
 	make_offsets_tree(c, d);
@@ -290,11 +415,14 @@ static void do_decompress(deark *c, lctx *d)
 		u8 offs_lo_byte;
 		UI matchpos;
 
-		if(d->errflag) goto done;
+		if(d->errflag) goto after_dcmpr;
 
 		x = pklite_getbit(c, d);
 		if(x==0) {
 			b = de_getbyte_p(&d->dcmpr_cur_ipos);
+			if(d->ver.extra_cmpr) {
+				b ^= (u8)(d->bbll.nbits_in_bitbuf);
+			}
 			if(c->debug_level>=3) {
 				de_dbg3(c, "lit 0x%02x", (UI)b);
 			}
@@ -303,9 +431,9 @@ static void do_decompress(deark *c, lctx *d)
 		}
 
 		len_raw = read_pklite_code_using_tree(c, d, d->lengths_tree);
-		if(d->errflag) goto done;
+		if(d->errflag) goto after_dcmpr;
 
-		if((len_raw==23 && d->large_cmpr) || (len_raw==8 && !d->large_cmpr)) {
+		if((len_raw==23 && d->ver.large_cmpr) || (len_raw==8 && !d->ver.large_cmpr)) {
 			b = de_getbyte_p(&d->dcmpr_cur_ipos);
 			if(b==0xfe) {
 				// TODO - Do we have to do anything here?
@@ -314,9 +442,9 @@ static void do_decompress(deark *c, lctx *d)
 			}
 			if(b==0xff) {
 				de_dbg3(c, "stop code");
-				goto done; // Normal completion
+				goto after_dcmpr; // Normal completion
 			}
-			matchlen = (UI)b+(d->large_cmpr?25:10);
+			matchlen = (UI)b+(d->ver.large_cmpr?25:10);
 		}
 		else {
 			matchlen = len_raw+2;
@@ -330,7 +458,7 @@ static void do_decompress(deark *c, lctx *d)
 		}
 
 		offs_lo_byte = de_getbyte_p(&d->dcmpr_cur_ipos);
-		if(d->errflag) goto done;
+		if(d->errflag) goto after_dcmpr;
 
 		// Weird. Usually with LZ77, a matchpos of "0" means the most recently
 		// written byte.
@@ -345,13 +473,26 @@ static void do_decompress(deark *c, lctx *d)
 				(UI)(ringbuf->curpos-matchpos), matchlen);
 	}
 
-done:
-	if(!d->errflag && d->o_dcmpr_code) {
+after_dcmpr:
+	if(!d->o_dcmpr_code) goto done;
+
+	if(!d->errflag) {
 		d->cmpr_data_endpos = d->dcmpr_cur_ipos;
 		de_dbg(c, "cmpr data end: %"I64_FMT, d->cmpr_data_endpos);
 		de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT,
 			d->cmpr_data_endpos-d->cmpr_data_pos, d->o_dcmpr_code->len);
 	}
+
+	if(!d->errflag && dcmpr_len_known) {
+		if(d->o_dcmpr_code->len != dcmpr_bytes_expected) {
+			de_err(c, "Expected %"I64_FMT" decompressed bytes, got %"I64_FMT, dcmpr_bytes_expected,
+				d->o_dcmpr_code->len);
+			d->errflag = 1;
+			d->errmsg_handled = 1;
+		}
+	}
+
+done:
 	de_dbg_indent(c, -1);
 }
 
@@ -382,22 +523,60 @@ static void do_read_reloc_table_short(deark *c, lctx *d)
 	}
 
 done:
-	if(reloc_count !=d->o_ei->num_relocs) {
+	if(d->have_orig_header && (reloc_count!=d->o_ei->num_relocs)) {
 		d->errflag = 1;
 	}
 }
 
+#define MAX_RELOCS (320*1024)
 static void do_read_reloc_table_long(deark *c, lctx *d)
 {
-	// TODO: Implement this
-	d->errflag = 1;
+	i64 reloc_count = 0;
+	i64 pos = d->cmpr_data_endpos;
+	i64 seg = 0;
+
+	while(1) {
+		UI i;
+		UI count;
+		i64 offs;
+
+		if(pos > c->infile->len-2) {
+			d->errflag = 1;
+			goto done;
+		}
+
+		count = (UI)de_getu16le_p(&pos);
+		if(count==0xffff) goto done; // normal completion
+
+		for(i=0; i<count; i++) {
+			if(reloc_count>=MAX_RELOCS) {
+				d->errflag = 1;
+				goto done;
+			}
+			offs = de_getu16le_p(&pos);
+			dbuf_writeu16le(d->o_reloc_table, offs);
+			dbuf_writeu16le(d->o_reloc_table, seg);
+			reloc_count++;
+		}
+		seg += 0x0fff;
+	}
+
+done:
+	if(!d->errflag) {
+		d->footer_pos = pos;
+	}
 }
 
 static void do_read_reloc_table(deark *c, lctx *d)
 {
-	d->o_reloc_table = dbuf_create_membuf(c, d->o_ei->num_relocs*4, 0x1);
+	if(d->have_orig_header) {
+		d->o_reloc_table = dbuf_create_membuf(c, d->o_ei->num_relocs*4, 0x1);
+	}
+	else {
+		d->o_reloc_table = dbuf_create_membuf(c, 0, 0);
+	}
 
-	if(d->extra_cmpr && d->pklver>=0x112) {
+	if(d->ver.extra_cmpr && d->ver.ver_only>=0x10c) {
 		do_read_reloc_table_long(c, d);
 	}
 	else {
@@ -405,20 +584,60 @@ static void do_read_reloc_table(deark *c, lctx *d)
 	}
 }
 
+static void reconstruct_header(deark *c, lctx *d)
+{
+	i64 num_relocs;
+	const i64 reloc_table_start = 28;
+	i64 start_of_dos_code;
+	i64 end_of_dos_code;
+
+	de_warn(c, "This EXE file may not be reconstructed perfectly");
+
+	// "MZ" should already be written
+	if(d->o_orig_header->len != 2) {
+		d->errflag = 1;
+		return;
+	}
+
+	num_relocs = d->o_reloc_table->len / 4;
+	start_of_dos_code = de_pad_to_n(reloc_table_start + num_relocs*4, 16);
+	end_of_dos_code = start_of_dos_code + d->o_dcmpr_code->len;
+	dbuf_writeu16le(d->o_orig_header, end_of_dos_code%512);
+	dbuf_writeu16le(d->o_orig_header, (end_of_dos_code+511)/512);
+	dbuf_writeu16le(d->o_orig_header, num_relocs);
+	dbuf_writeu16le(d->o_orig_header, start_of_dos_code/16);
+	dbuf_writeu16le(d->o_orig_header, 0); // TODO - minmem
+	dbuf_writeu16le(d->o_orig_header, 65535); // TODO - maxmem
+	dbuf_copy(c->infile, d->footer_pos, 4, d->o_orig_header); // SS, SP
+	dbuf_writeu16le(d->o_orig_header, 0); // checksum
+	dbuf_copy(c->infile, d->footer_pos+6, 2, d->o_orig_header); // IP
+	dbuf_copy(c->infile, d->footer_pos+4, 2, d->o_orig_header); // CS
+	dbuf_writeu16le(d->o_orig_header, reloc_table_start);
+	dbuf_writeu16le(d->o_orig_header, 0); // overlay idicator
+
+	fmtutil_collect_exe_info(c, d->o_orig_header, d->o_ei);
+}
+
 // Generate the decompressed file
 static void do_write_dcmpr(deark *c, lctx *d)
 {
 	dbuf *outf = NULL;
 	i64 amt_to_copy;
+	i64 overlay_len;
 
 	if(d->errflag || !d->o_ei || !d->o_orig_header || !d->o_dcmpr_code || !d->o_reloc_table) return;
 	de_dbg(c, "generating output file");
 	de_dbg_indent(c, 1);
 
+	if(!d->have_orig_header) {
+		reconstruct_header(c, d);
+		if(d->errflag) goto done;
+	}
+
 	outf = dbuf_create_output_file(c, "exe", NULL, 0);
 
 	// Write the original header, up to the relocation table
-	amt_to_copy = de_min_int(d->orig_hdr_len, d->o_ei->reloc_table_pos);
+	amt_to_copy = de_min_int(d->o_orig_header->len, d->o_ei->reloc_table_pos);
 	dbuf_copy(d->o_orig_header, 0, amt_to_copy, outf);
 	dbuf_truncate(outf, d->o_ei->reloc_table_pos);
 
@@ -430,8 +649,16 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	// table, and the start of DOS code, so we can't reconstruct that.)
 	dbuf_truncate(outf, d->o_ei->start_of_dos_code);
 
+	// Write the decompressed program code
 	dbuf_copy(d->o_dcmpr_code, 0, d->o_dcmpr_code->len, outf);
 
+	// "Overlay" segment
+	overlay_len = c->infile->len - d->ei->end_of_dos_code;
+	if(overlay_len>0) {
+		dbuf_copy(c->infile, d->ei->end_of_dos_code, overlay_len, outf);
+	}
+
+done:
 	dbuf_close(outf);
 	de_dbg_indent(c, -1);
 }
@@ -453,7 +680,7 @@ static void de_run_pklite(deark *c, de_module_params *mparams)
 		de_err(c, "Not a PKLITE file");
 		goto done;
 	}
-	de_declare_fmt(c, edd.detected_fmt_name);
+	de_declare_fmt(c, "PKLITE-compressed EXE");
 
 	do_read_header(c, d);
 	if(d->errflag) goto done;
