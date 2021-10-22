@@ -10,13 +10,14 @@ DE_DECLARE_MODULE(de_module_pklite);
 
 struct ver_info_struct {
 	u8 valid;
+	u8 isbeta;
 	UI ver_info; // e.g. 0x3103 = 1.03/l/e
-	UI flags; // 0x1 = beta
 	const char *suffix;
 
 	UI ver_only; // e.g. 0x103 = 1.03
 	u8 extra_cmpr;
 	u8 large_cmpr;
+	u8 load_high;
 	char pklver_str[32];
 };
 
@@ -28,6 +29,9 @@ typedef struct localctx_struct {
 	struct fmtutil_exe_info *ei; // For the PKLITE file
 	struct fmtutil_exe_info *o_ei; // For the decompressed file
 	u8 have_orig_header;
+	u8 uncompressed_region;
+	u8 dcmpr_ok;
+	u8 wrote_exe;
 	i64 cmpr_data_pos;
 	i64 cmpr_data_endpos;
 	i64 footer_pos;
@@ -45,42 +49,122 @@ typedef struct localctx_struct {
 	struct fmtutil_huffman_decoder *offsets_tree;
 } lctx;
 
-// Sets d->cmpr_data_pos.
-// This function also serves to decide whether we think we support the given
-// variety of PKLITEd file. If not, leaves d->cmpr_data_pos set to 0.
+static void find_offset_2132(deark *c, lctx *d)
+{
+	i64 n;
+
+	n = de_getu16le(d->ei->entry_point+72);
+	n = ((n*2+98)>>4)<<4;
+	d->cmpr_data_pos = d->ei->entry_point + n;
+}
+
+static void find_offset_3132(deark *c, lctx *d)
+{
+	i64 n;
+
+	// This is guesswork, with a hint from mz-explode that the byte @89 is
+	// important (but mz-explode's formula doesn't seem to work).
+	n = de_getu16le(d->ei->entry_point+89);
+	n = n>>4;
+	if(n<0x0f) return;
+	n = (n-0x0f)<<4;
+	d->cmpr_data_pos = d->ei->entry_point + n;
+}
+
+// Sets d->cmpr_data_pos, or reports an error.
 static void find_cmprdata_pos(deark *c, lctx *d, struct ver_info_struct *v)
 {
-	if(!v->valid) goto done;
-	if(v->flags) goto done; // beta, or some other special version - not yet supported
+	int unsupp_ver_flag = 0;
+	UI adj_ver = v->ver_info;
 
-	switch(v->ver_info) {
+	if(d->errflag) return;
+	if(!v->valid || v->isbeta) {
+		unsupp_ver_flag = 1;
+		goto done;
+	}
+
+	// Try to handle some versions we can't fully detect.
+	if(adj_ver>=0x1132 && adj_ver<=0x1201) {
+		adj_ver = 0x1132;
+	}
+	else if(adj_ver>=0x3132 && adj_ver<=0x3201) {
+		adj_ver = 0x3132;
+	}
+
+	switch(adj_ver) {
 	case 0x0100: case 0x0103: case 0x0105:
 	case 0x010c: case 0x010d: case 0x010e: case 0x010f:
 		d->cmpr_data_pos = d->ei->entry_point + 0x1d0;
 		break;
+	case 0x0132: case 0x0201:
+		find_offset_2132(c, d);
+		break;
 	case 0x110c: case 0x110d:
 		d->cmpr_data_pos = d->ei->entry_point + 0x1e0;
 		break;
-	case 0x110f:
+	case 0x110e: case 0x110f:
 		d->cmpr_data_pos = d->ei->entry_point + 0x200;
+		break;
+	case 0x1132: case 0x1201:
+		find_offset_3132(c, d);
 		break;
 	case 0x2100: case 0x2103: case 0x2105: case 0x210a:
 	case 0x210c: case 0x210d: case 0x210e: case 0x210f:
 		d->cmpr_data_pos = d->ei->entry_point + 0x290;
 		break;
+	case 0x2132: case 0x2201:
+		find_offset_2132(c, d);
+		break;
 	case 0x310c: case 0x310d:
 		d->cmpr_data_pos = d->ei->entry_point + 0x290;
 		break;
-	case 0x310f:
+	case 0x310e: case 0x310f:
 		d->cmpr_data_pos = d->ei->entry_point + 0x2c0;
 		break;
+	case 0x3132: case 0x3201:
+		find_offset_3132(c, d);
+		break;
+	default:
+		unsupp_ver_flag = 1;
 	}
-	// TODO: Support for more versions is planned, but may need special processing
-	// to find the compressed data.
 
 done:
+	if(d->errflag) return;
+
+	if(d->uncompressed_region) {
+		// TODO: Detect if uncompressed regions are used.
+		d->cmpr_data_pos = 0;
+	}
+
+	if(d->cmpr_data_pos!=0) {
+		if(d->cmpr_data_pos >= c->infile->len) {
+			d->cmpr_data_pos = 0;
+		}
+	}
+
+	if(d->cmpr_data_pos!=0) {
+		// The first byte of compressed data can't be odd, because the first instruction must
+		// be a literal.
+		// This is just an extra sanity check that might improve the error message.
+		if(de_getbyte(d->cmpr_data_pos) & 0x01) {
+			d->cmpr_data_pos = 0;
+		}
+	}
+
 	if(d->cmpr_data_pos!=0) {
 		de_dbg(c, "cmpr data pos: %"I64_FMT, d->cmpr_data_pos);
+	}
+
+	if(unsupp_ver_flag) {
+		de_err(c, "This PKLITE version (%s) is not supported", d->ver.pklver_str);
+		d->errflag = 1;
+		d->errmsg_handled = 1;
+	}
+	else if(d->cmpr_data_pos==0) {
+		de_err(c, "Can't figure out where the compressed data starts. "
+			"This variety of PKLITE is not supported.");
+		d->errflag = 1;
+		d->errmsg_handled = 1;
 	}
 }
 
@@ -92,13 +176,20 @@ static void derive_version_fields(deark *c, lctx *d, struct ver_info_struct *v)
 		return;
 	}
 
-	v->ver_info &= 0x3fff;
 	v->ver_only = v->ver_info & 0x0fff;
+	if(v->ver_only==0x100) {
+		v->ver_info &= 0x7fff;
+	}
+	else {
+		v->ver_info &= 0x3fff;
+	}
 	v->extra_cmpr = (v->ver_info & 0x1000)?1:0;
 	v->large_cmpr = (v->ver_info & 0x2000)?1:0;
-	de_snprintf(v->pklver_str, sizeof(v->pklver_str), "%u.%02u%s%s%s",
+	if(v->ver_only==0x100 && (v->ver_info & 0x4000)) v->load_high = 1;
+	de_snprintf(v->pklver_str, sizeof(v->pklver_str), "%u.%02u%s%s%s%s",
 		(UI)(v->ver_only>>8), (UI)(v->ver_only&0xff),
 		(v->suffix?v->suffix:""),
+		(v->load_high?"/h":""),
 		(v->large_cmpr?"/l":"/s"),
 		(v->extra_cmpr?"/e":""));
 }
@@ -130,8 +221,9 @@ static const struct ver_fingerprint_item ver_fingerprint_arr[] = {
 	{0xd332a6e7U, 0x210f, 0, NULL},
 	{0x43eb077fU, 0x2132, 0, "-2.01"},
 	{0xbc0ec35eU, 0x310c, 0, NULL},
-	{0x61a65992U, 0x310d, 0, NULL}
-	// TODO: Some "-e" versions are missing.
+	{0x61a65992U, 0x310d, 0, NULL},
+	{0xd9911c85U, 0x4100, 1, "beta"}, // -l (load high) option
+	{0x89cb9e7fU, 0x6100, 1, "beta"}  // -l
 	// Note: "-e" files starting with v1.14 or 1.15 seem to be obfuscated
 	// in a way that prevents this kind of fingerprinting.
 };
@@ -159,7 +251,7 @@ static void detect_pklite_version(deark *c, lctx *d)
 	if(fi) {
 		d->ver_detected.ver_info = fi->ver_info;
 		d->ver_detected.suffix = fi->suffix;
-		d->ver_detected.flags = fi->flags;
+		d->ver_detected.isbeta = (fi->flags & 0x1)?1:0;
 
 		if((d->ver_detected.ver_info&0xfff)==0x10c && !d->ver_detected.suffix) {
 			if(!dbuf_memcmp(c->infile, 45, "90-92 PK", 8)) {
@@ -233,11 +325,6 @@ static void do_read_header(deark *c, lctx *d)
 	}
 
 	find_cmprdata_pos(c, d, &d->ver);
-	if(d->cmpr_data_pos==0) {
-		de_err(c, "This PKLITE version (%s) is not supported", d->ver.pklver_str);
-		d->errflag = 1;
-		d->errmsg_handled = 1;
-	}
 }
 
 static void fill_bitbuf(deark *c, lctx *d)
@@ -388,6 +475,7 @@ static void do_decompress(deark *c, lctx *d)
 	de_dbg_indent(c, 1);
 
 	if(d->have_orig_header) {
+		// TODO: This is probably not the best way to get this info
 		dcmpr_len_known = 1;
 		dcmpr_bytes_expected = d->o_ei->end_of_dos_code - d->o_ei->start_of_dos_code;
 	}
@@ -460,14 +548,21 @@ static void do_decompress(deark *c, lctx *d)
 		offs_lo_byte = de_getbyte_p(&d->dcmpr_cur_ipos);
 		if(d->errflag) goto after_dcmpr;
 
-		// Weird. Usually with LZ77, a matchpos of "0" means the most recently
-		// written byte.
-		// In PKLITE, "1" means the most recently written byte, and "0" means...
-		// I don't know. (TODO)
 		matchpos = (offs_hi_bits<<8) | (UI)offs_lo_byte;
 
 		if(c->debug_level>=3) {
 			de_dbg3(c, "match pos=%u len=%u", matchpos, matchlen);
+		}
+
+		// PKLITE confirmed to use distances 1 to 8191. Have not observed matchpos=0.
+		// Have not observed it to use distances larger than the number of bytes
+		// decompressed so far.
+		if(matchpos==0 || (i64)matchpos>d->o_dcmpr_code->len) {
+			de_err(c, "Bad or unsupported compressed data (dist=%u, expected 1 to %"I64_FMT")",
+				matchpos, d->o_dcmpr_code->len);
+			d->errflag = 1;
+			d->errmsg_handled = 1;
+			goto after_dcmpr;
 		}
 		de_lz77buffer_copy_from_hist(ringbuf,
 				(UI)(ringbuf->curpos-matchpos), matchlen);
@@ -485,10 +580,8 @@ after_dcmpr:
 
 	if(!d->errflag && dcmpr_len_known) {
 		if(d->o_dcmpr_code->len != dcmpr_bytes_expected) {
-			de_err(c, "Expected %"I64_FMT" decompressed bytes, got %"I64_FMT, dcmpr_bytes_expected,
+			de_warn(c, "Expected %"I64_FMT" decompressed bytes, got %"I64_FMT, dcmpr_bytes_expected,
 				d->o_dcmpr_code->len);
-			d->errflag = 1;
-			d->errmsg_handled = 1;
 		}
 	}
 
@@ -540,13 +633,17 @@ static void do_read_reloc_table_long(deark *c, lctx *d)
 		UI count;
 		i64 offs;
 
-		if(pos > c->infile->len-2) {
+		if(pos+2 > c->infile->len) {
 			d->errflag = 1;
 			goto done;
 		}
 
 		count = (UI)de_getu16le_p(&pos);
 		if(count==0xffff) goto done; // normal completion
+		if(pos+(i64)count*2 > c->infile->len) {
+			d->errflag = 1;
+			goto done;
+		}
 
 		for(i=0; i<count; i++) {
 			if(reloc_count>=MAX_RELOCS) {
@@ -582,6 +679,11 @@ static void do_read_reloc_table(deark *c, lctx *d)
 	else {
 		do_read_reloc_table_short(c, d);
 	}
+
+	if(d->errflag) {
+		de_err(c, "Failed to decode relocation table");
+		d->errmsg_handled = 1;
+	}
 }
 
 static void reconstruct_header(deark *c, lctx *d)
@@ -591,7 +693,7 @@ static void reconstruct_header(deark *c, lctx *d)
 	i64 start_of_dos_code;
 	i64 end_of_dos_code;
 
-	de_warn(c, "This EXE file may not be reconstructed perfectly");
+	de_warn(c, "This EXE file might not be reconstructed perfectly");
 
 	// "MZ" should already be written
 	if(d->o_orig_header->len != 2) {
@@ -618,6 +720,15 @@ static void reconstruct_header(deark *c, lctx *d)
 	fmtutil_collect_exe_info(c, d->o_orig_header, d->o_ei);
 }
 
+static void do_write_data_only(deark *c, lctx *d)
+{
+	if(!d->o_dcmpr_code) return;
+
+	de_info(c, "Low-level decompression may have succeeded, but something else failed. "
+		"Writing the decompressed code only.");
+	dbuf_create_file_from_slice(d->o_dcmpr_code, 0, d->o_dcmpr_code->len, "bin", NULL, 0);
+}
+
 // Generate the decompressed file
 static void do_write_dcmpr(deark *c, lctx *d)
 {
@@ -626,15 +737,11 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	i64 overlay_len;
 
 	if(d->errflag || !d->o_ei || !d->o_orig_header || !d->o_dcmpr_code || !d->o_reloc_table) return;
-	de_dbg(c, "generating output file");
+	de_dbg(c, "generating decompressed EXE file");
 	de_dbg_indent(c, 1);
 
-	if(!d->have_orig_header) {
-		reconstruct_header(c, d);
-		if(d->errflag) goto done;
-	}
-
 	outf = dbuf_create_output_file(c, "exe", NULL, 0);
+	d->wrote_exe = 1;
 
 	// Write the original header, up to the relocation table
 	amt_to_copy = de_min_int(d->o_orig_header->len, d->o_ei->reloc_table_pos);
@@ -658,7 +765,6 @@ static void do_write_dcmpr(deark *c, lctx *d)
 		dbuf_copy(c->infile, d->ei->end_of_dos_code, overlay_len, outf);
 	}
 
-done:
 	dbuf_close(outf);
 	de_dbg_indent(c, -1);
 }
@@ -686,17 +792,26 @@ static void de_run_pklite(deark *c, de_module_params *mparams)
 	if(d->errflag) goto done;
 	do_decompress(c, d);
 	if(d->errflag) goto done;
+	d->dcmpr_ok = 1;
 
 	do_read_reloc_table(c, d);
 	if(d->errflag) goto done;
 
+	if(!d->have_orig_header) {
+		reconstruct_header(c, d);
+		if(d->errflag) goto done;
+	}
+
 	do_write_dcmpr(c, d);
 
 done:
-
 	if(d) {
 		if(d->errflag && !d->errmsg_handled) {
 			de_err(c, "PKLITE decompression failed");
+		}
+
+		if(d->dcmpr_ok && !d->wrote_exe) {
+			do_write_data_only(c, d);
 		}
 
 		dbuf_close(d->o_orig_header);
