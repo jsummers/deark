@@ -1512,7 +1512,7 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 		if(sb[1] & 0x20) flag_large = 1;
 	}
 
-	if(has_sig && ei->num_relocs==0 && maj_ver==1 && min_ver==0) {
+	if(has_sig && (ei->entry_point>ei->start_of_dos_code) && maj_ver==1 && min_ver==0) {
 		edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE;
 		is_beta = 1;
 		goto done;
@@ -1548,7 +1548,7 @@ done:
 			// shouldn't emit dbg messages unconditionally.
 			de_dbg2(c, "PKLITE vers: %u.%02u%s%s%s",
 				maj_ver, min_ver, (is_beta?"beta":""),
-				(flag_e?"/e":""), (flag_large?"/large":""));
+				(flag_large?"/l":"/s"), (flag_e?"/e":""));
 		}
 	}
 }

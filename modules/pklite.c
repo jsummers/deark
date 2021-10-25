@@ -18,7 +18,7 @@ struct ver_info_struct {
 	u8 extra_cmpr;
 	u8 large_cmpr;
 	u8 load_high;
-	char pklver_str[32];
+	char pklver_str[40];
 };
 
 typedef struct localctx_struct {
@@ -28,13 +28,14 @@ typedef struct localctx_struct {
 
 	struct fmtutil_exe_info *ei; // For the PKLITE file
 	struct fmtutil_exe_info *o_ei; // For the decompressed file
+	u8 data_before_decoder;
 	u8 have_orig_header;
 	u8 uncompressed_region;
 	u8 dcmpr_ok;
 	u8 wrote_exe;
 	i64 cmpr_data_pos;
 	i64 cmpr_data_endpos;
-	i64 footer_pos;
+	i64 footer_pos; // 0 if unknown
 
 	int errflag;
 	int errmsg_handled;
@@ -78,9 +79,20 @@ static void find_cmprdata_pos(deark *c, lctx *d, struct ver_info_struct *v)
 	UI adj_ver = v->ver_info;
 
 	if(d->errflag) return;
-	if(!v->valid || v->isbeta) {
+	if(!v->valid) {
 		unsupp_ver_flag = 1;
 		goto done;
+	}
+
+	if(v->isbeta) {
+		if(v->ver_only==0x100) {
+			d->cmpr_data_pos = d->ei->start_of_dos_code;
+			goto done;
+		}
+		else {
+			unsupp_ver_flag = 1;
+			goto done;
+		}
 	}
 
 	// Try to handle some versions we can't fully detect.
@@ -89,6 +101,11 @@ static void find_cmprdata_pos(deark *c, lctx *d, struct ver_info_struct *v)
 	}
 	else if(adj_ver>=0x3132 && adj_ver<=0x3201) {
 		adj_ver = 0x3132;
+	}
+	else if(adj_ver==0x010a || adj_ver==0x210a) {
+		// Suspect there was a pro version that produced "v1.10" files.
+		// For now at least, treat v1.10 like v1.05.
+		adj_ver -= 5;
 	}
 
 	switch(adj_ver) {
@@ -108,7 +125,7 @@ static void find_cmprdata_pos(deark *c, lctx *d, struct ver_info_struct *v)
 	case 0x1132: case 0x1201:
 		find_offset_3132(c, d);
 		break;
-	case 0x2100: case 0x2103: case 0x2105: case 0x210a:
+	case 0x2100: case 0x2103: case 0x2105:
 	case 0x210c: case 0x210d: case 0x210e: case 0x210f:
 		d->cmpr_data_pos = d->ei->entry_point + 0x290;
 		break;
@@ -211,6 +228,10 @@ static const struct ver_fingerprint_item ver_fingerprint_arr[] = {
 	{0x1f735486U, 0x0132, 0, "-2.01"},
 	{0xb5153795U, 0x110c, 0, NULL},
 	{0xfa91a037U, 0x110d, 0, NULL},
+	{0x9f8d6c74U, 0x1114, 0, "[ZIP2EXEv2.04c-e]"},
+	{0xdf1595baU, 0x1114, 0, "[ZIP2EXEv2.04cReg]"}, // unconfirmed
+	{0xe95a2c43U, 0x1114, 0, "[ZIP2EXEv2.04g]"},
+	{0xa218a5f3U, 0x1114, 0, "[ZIP2EXEv2.04gReg]"},
 	{0xc12bb6cfU, 0x2100, 1, "beta"},
 	{0xd8441452U, 0x2100, 0, NULL},
 	{0x77f75f9dU, 0x2103, 0, NULL},
@@ -260,6 +281,15 @@ static void detect_pklite_version(deark *c, lctx *d)
 		}
 	}
 
+	if(!fi) {
+		if(d->ver_reported.ver_only==0x100 && d->data_before_decoder) {
+			// Assume this is an undetected v1.00 beta file.
+			d->ver_detected.ver_info = d->ver_reported.ver_info;
+			d->ver_detected.suffix = "beta";
+			d->ver_detected.isbeta = 1;
+		}
+	}
+
 	if(d->ver_detected.ver_info!=0) {
 		d->ver_detected.valid = 1;
 	}
@@ -282,6 +312,9 @@ static void do_read_header(deark *c, lctx *d)
 
 	de_dbg(c, "reported PKLITE version: %s", d->ver_reported.pklver_str);
 
+	if(d->ei->entry_point > d->ei->start_of_dos_code) {
+		d->data_before_decoder = 1;
+	}
 	de_dbg(c, "start of executable code: %"I64_FMT, d->ei->start_of_dos_code);
 
 	detect_pklite_version(c, d);
@@ -594,6 +627,8 @@ static void do_read_reloc_table_short(deark *c, lctx *d)
 	i64 reloc_count = 0;
 	i64 pos = d->cmpr_data_endpos;
 
+	de_dbg(c, "reading 'short' reloc table at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
 	while(1) {
 		UI i;
 		UI count;
@@ -619,6 +654,11 @@ done:
 	if(d->have_orig_header && (reloc_count!=d->o_ei->num_relocs)) {
 		d->errflag = 1;
 	}
+	if(!d->errflag) {
+		de_dbg(c, "reloc table ends at %"I64_FMT, pos);
+		d->footer_pos = pos;
+	}
+	de_dbg_indent(c, -1);
 }
 
 #define MAX_RELOCS (320*1024)
@@ -628,6 +668,8 @@ static void do_read_reloc_table_long(deark *c, lctx *d)
 	i64 pos = d->cmpr_data_endpos;
 	i64 seg = 0;
 
+	de_dbg(c, "reading 'long' reloc table at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
 	while(1) {
 		UI i;
 		UI count;
@@ -639,7 +681,9 @@ static void do_read_reloc_table_long(deark *c, lctx *d)
 		}
 
 		count = (UI)de_getu16le_p(&pos);
-		if(count==0xffff) goto done; // normal completion
+		if(count==0xffff) {
+			goto done; // normal completion
+		}
 		if(pos+(i64)count*2 > c->infile->len) {
 			d->errflag = 1;
 			goto done;
@@ -660,8 +704,10 @@ static void do_read_reloc_table_long(deark *c, lctx *d)
 
 done:
 	if(!d->errflag) {
+		de_dbg(c, "reloc table ends at %"I64_FMT, pos);
 		d->footer_pos = pos;
 	}
+	de_dbg_indent(c, -1);
 }
 
 static void do_read_reloc_table(deark *c, lctx *d)
@@ -686,20 +732,51 @@ static void do_read_reloc_table(deark *c, lctx *d)
 	}
 }
 
+static void find_min_mem_needed(deark *c, lctx *d, i64 *pminmem)
+{
+	i64 pos;
+	i64 n;
+	u8 b;
+
+	if(d->data_before_decoder) {
+		// File from a registered v1.00beta?
+		return;
+	}
+
+	pos = d->ei->entry_point;
+	b = de_getbyte_p(&pos);
+	if(b==0x50) {
+		b = de_getbyte_p(&pos);
+	}
+	if(b==0xb8) {
+		// This is not always exactly right. Not sure that's possible.
+		n = de_getu16le_p(&pos);
+		n = (n<<4) + 0x100 - d->o_dcmpr_code->len;
+		if(n>=0) {
+			*pminmem = (n+0xf)>>4;
+		}
+	}
+}
+
 static void reconstruct_header(deark *c, lctx *d)
 {
 	i64 num_relocs;
 	const i64 reloc_table_start = 28;
 	i64 start_of_dos_code;
 	i64 end_of_dos_code;
-
-	de_warn(c, "This EXE file might not be reconstructed perfectly");
+	i64 minmem; // in 16-byte units
+	i64 maxmem;
 
 	// "MZ" should already be written
-	if(d->o_orig_header->len != 2) {
+	if(d->o_orig_header->len!=2 || !d->footer_pos) {
 		d->errflag = 1;
 		return;
 	}
+
+	minmem = 0;
+	maxmem = 0xffff; // TODO: Is this the best we can do?
+	find_min_mem_needed(c, d, &minmem);
+	if(minmem>maxmem) minmem = maxmem; // TODO: What's the max sane value?
 
 	num_relocs = d->o_reloc_table->len / 4;
 	start_of_dos_code = de_pad_to_n(reloc_table_start + num_relocs*4, 16);
@@ -708,14 +785,14 @@ static void reconstruct_header(deark *c, lctx *d)
 	dbuf_writeu16le(d->o_orig_header, (end_of_dos_code+511)/512);
 	dbuf_writeu16le(d->o_orig_header, num_relocs);
 	dbuf_writeu16le(d->o_orig_header, start_of_dos_code/16);
-	dbuf_writeu16le(d->o_orig_header, 0); // TODO - minmem
-	dbuf_writeu16le(d->o_orig_header, 65535); // TODO - maxmem
+	dbuf_writeu16le(d->o_orig_header, minmem);
+	dbuf_writeu16le(d->o_orig_header, maxmem);
 	dbuf_copy(c->infile, d->footer_pos, 4, d->o_orig_header); // SS, SP
 	dbuf_writeu16le(d->o_orig_header, 0); // checksum
 	dbuf_copy(c->infile, d->footer_pos+6, 2, d->o_orig_header); // IP
 	dbuf_copy(c->infile, d->footer_pos+4, 2, d->o_orig_header); // CS
 	dbuf_writeu16le(d->o_orig_header, reloc_table_start);
-	dbuf_writeu16le(d->o_orig_header, 0); // overlay idicator
+	dbuf_writeu16le(d->o_orig_header, 0); // overlay indicator
 
 	fmtutil_collect_exe_info(c, d->o_orig_header, d->o_ei);
 }
@@ -796,6 +873,30 @@ static void de_run_pklite(deark *c, de_module_params *mparams)
 
 	do_read_reloc_table(c, d);
 	if(d->errflag) goto done;
+
+	if(d->footer_pos!=0) {
+		i64 footer_capacity;
+
+		if(d->data_before_decoder) {
+			footer_capacity = d->ei->entry_point - d->footer_pos;
+		}
+		else {
+			footer_capacity = d->ei->end_of_dos_code - d->footer_pos;
+		}
+
+		de_dbg(c, "footer at %"I64_FMT", len=%"I64_FMT, d->footer_pos, footer_capacity);
+		de_dbg_indent(c, 1);
+
+		if(c->debug_level>=3) {
+			de_dbg_hexdump(c, c->infile, d->footer_pos, footer_capacity, 32, "footer", 0);
+		}
+
+		if(footer_capacity!=8 || d->data_before_decoder) {
+			// Not sure we have a valid footer.
+			d->footer_pos = 0;
+		}
+		de_dbg_indent(c, -1);
+	}
 
 	if(!d->have_orig_header) {
 		reconstruct_header(c, d);
