@@ -1484,9 +1484,6 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 	int has_sig = 0;
 	UI maj_ver = 0;
 	UI min_ver = 0;
-	u8 is_beta = 0;
-	u8 flag_e = 0;
-	u8 flag_large = 0;
 	u8 sb[8];
 
 	if(ei->num_relocs > 1) return;
@@ -1507,14 +1504,8 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 		}
 	}
 
-	if(has_sig) {
-		if(sb[1] & 0x10) flag_e = 1;
-		if(sb[1] & 0x20) flag_large = 1;
-	}
-
 	if(has_sig && (ei->entry_point>ei->start_of_dos_code) && maj_ver==1 && min_ver==0) {
-		edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE;
-		is_beta = 1;
+		edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE; // (beta)
 		goto done;
 	}
 
@@ -1543,13 +1534,7 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 done:
 	if(edd->detected_fmt==DE_SPECIALEXEFMT_PKLITE) {
 		de_strlcpy(ectx->shortname, "PKLITE", sizeof(ectx->shortname));
-		if(has_sig) {
-			// TODO: A better way to deal with this info. This function probably
-			// shouldn't emit dbg messages unconditionally.
-			de_dbg2(c, "PKLITE vers: %u.%02u%s%s%s",
-				maj_ver, min_ver, (is_beta?"beta":""),
-				(flag_large?"/l":"/s"), (flag_e?"/e":""));
-		}
+		edd->modname = "pklite";
 	}
 }
 

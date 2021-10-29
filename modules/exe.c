@@ -633,7 +633,7 @@ static void do_fileheader(deark *c, lctx *d, i64 pos1)
 
 	d->reloc_tbl_offset = de_getu16le_p(&pos);
 	de_dbg(c, "reloc table offset: %d%s", (int)d->reloc_tbl_offset,
-		(d->num_relocs==0)?" (unused)":"");
+		(d->num_relocs==0)?" (no entries)":"");
 
 	n = de_getu16le_p(&pos);
 	de_dbg(c, "overlay indicator: %u", (UI)n);

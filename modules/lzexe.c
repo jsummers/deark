@@ -409,6 +409,6 @@ done:
 void de_module_lzexe(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "lzexe";
-	mi->desc = "LZEXE executable compression";
+	mi->desc = "LZEXE-compressed EXE";
 	mi->run_fn = de_run_lzexe;
 }

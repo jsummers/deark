@@ -716,6 +716,12 @@ Deark -- Information about supported formats
   Options
    -opt loaddskf:toraw - Convert to raw FAT/IMA format.
 
+* LZEXE (module="lzexe") (experimental)
+  Decompress an LZEXE-compressed DOS EXE file.
+  - Not autodetected. Use "-m lzexe".
+  - The decompressed file will usually not be byte-for-byte the same as the
+    original, because LZEXE discards some information.
+
 * LZHUF (module="lzhuf")
   Compression software by Haruyasu Yoshizaki. A bare-bones container for
   LHarc's "lh1" compression.
@@ -781,6 +787,11 @@ Deark -- Information about supported formats
   Options
    -opt pasti:toraw - Instead of decoding, extract to raw ".ST" format (this is
      usually a FAT format).
+
+* PKLITE (module="pklite") (experimental)
+  Decompress a PKLITE-compressed DOS EXE file.
+  - Not autodetected. Use "-m pklite".
+  - Not all PKLITE format variants are supported.
 
 * RPM (package manager) (module="rpm")
   - Extract compressed cpio file.
@@ -938,12 +949,6 @@ Deark -- Information about supported formats
 * JPEG scan (module="jpegscan")
   - This module tries to find and extract embedded JPEG and JPEG-LS files from
     otherwise-unsupported formats. Use "-m jpegscan".
-
-* LZEXE (module="lzexe") (experimental)
-  Decompress an LZEXE-compressed DOS EXE file.
-  - Not autodetected. Use "-m lzexe".
-  - The decompressed file will usually not be byte-for-byte the same as the
-    original, because LZEXE discards some information.
 
 * Macintosh Resource Manager (module="macrsrc") (experimental/incomplete)
   This is the format generally used by Mac resource forks.

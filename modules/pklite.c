@@ -34,7 +34,9 @@ typedef struct localctx_struct {
 	u8 dcmpr_ok;
 	u8 wrote_exe;
 	i64 cmpr_data_pos;
-	i64 cmpr_data_endpos;
+	i64 cmpr_data_endpos; // = reloc_tbl_pos
+	i64 reloc_tbl_endpos;
+	i64 cmpr_data_area_endpos; // where the footer ends
 	i64 footer_pos; // 0 if unknown
 
 	int errflag;
@@ -72,7 +74,7 @@ static void find_offset_3132(deark *c, lctx *d)
 	d->cmpr_data_pos = d->ei->entry_point + n;
 }
 
-// Sets d->cmpr_data_pos, or reports an error.
+// Sets d->cmpr_data_pos and d->cmpr_data_area_endpos, or reports an error.
 static void find_cmprdata_pos(deark *c, lctx *d, struct ver_info_struct *v)
 {
 	int unsupp_ver_flag = 0;
@@ -116,6 +118,7 @@ static void find_cmprdata_pos(deark *c, lctx *d, struct ver_info_struct *v)
 	case 0x0132: case 0x0201:
 		find_offset_2132(c, d);
 		break;
+	case 0x1100: case 0x1103: case 0x1105:
 	case 0x110c: case 0x110d:
 		d->cmpr_data_pos = d->ei->entry_point + 0x1e0;
 		break;
@@ -170,6 +173,13 @@ done:
 
 	if(d->cmpr_data_pos!=0) {
 		de_dbg(c, "cmpr data pos: %"I64_FMT, d->cmpr_data_pos);
+
+		if(d->data_before_decoder) {
+			d->cmpr_data_area_endpos = d->ei->entry_point;
+		}
+		else {
+			d->cmpr_data_area_endpos = d->ei->end_of_dos_code;
+		}
 	}
 
 	if(unsupp_ver_flag) {
@@ -297,6 +307,31 @@ static void detect_pklite_version(deark *c, lctx *d)
 	derive_version_fields(c, d, &d->ver_detected);
 }
 
+static void read_orig_header(deark *c, lctx *d, i64 orig_hdr_pos)
+{
+	i64 orig_hdr_len;
+	i64 orig_reloc_pos;
+
+	orig_hdr_len = d->ei->start_of_dos_code - orig_hdr_pos; // tentative
+	// Peek at the reloc table offs field to figure out how much to read
+	orig_reloc_pos = de_getu16le(orig_hdr_pos + 22);
+	if(orig_reloc_pos>=28 && orig_reloc_pos<2+orig_hdr_len) {
+		orig_hdr_len = orig_reloc_pos-2;
+	}
+
+	de_dbg(c, "orig. hdr: at %"I64_FMT", len=(2+)%"I64_FMT, orig_hdr_pos, orig_hdr_len);
+
+	if(de_getu16le(orig_hdr_pos+2)==0) { // the numBlocks field
+		de_warn(c, "Original header seems bad. Ignoring it.");
+		d->have_orig_header = 0;
+		return;
+	}
+
+	dbuf_copy(c->infile, orig_hdr_pos, orig_hdr_len, d->o_orig_header);
+
+	fmtutil_collect_exe_info(c, d->o_orig_header, d->o_ei);
+}
+
 // Read what we need, before we can decompress
 static void do_read_header(deark *c, lctx *d)
 {
@@ -340,21 +375,7 @@ static void do_read_header(deark *c, lctx *d)
 	}
 
 	if(d->have_orig_header) {
-		i64 orig_hdr_pos, orig_hdr_len;
-		i64 orig_reloc_pos;
-
-		orig_hdr_pos = reloc_table_endpos;
-		orig_hdr_len = d->ei->start_of_dos_code - orig_hdr_pos; // tentative
-		// Peek at the reloc table offs field to figure out how much to read
-		orig_reloc_pos = de_getu16le(orig_hdr_pos + 22);
-		if(orig_reloc_pos>=28 && orig_reloc_pos<2+orig_hdr_len) {
-			orig_hdr_len = orig_reloc_pos-2;
-		}
-
-		de_dbg(c, "orig. hdr: at %"I64_FMT", len=(2+)%"I64_FMT, orig_hdr_pos, orig_hdr_len);
-		dbuf_copy(c->infile, orig_hdr_pos, orig_hdr_len, d->o_orig_header);
-
-		fmtutil_collect_exe_info(c, d->o_orig_header, d->o_ei);
+		read_orig_header(c, d, reloc_table_endpos);
 	}
 
 	find_cmprdata_pos(c, d, &d->ver);
@@ -622,24 +643,37 @@ done:
 	de_dbg_indent(c, -1);
 }
 
-static void do_read_reloc_table_short(deark *c, lctx *d)
+#define MAX_RELOCS (320*1024)
+
+static void do_read_reloc_table_short(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	i64 reloc_count = 0;
-	i64 pos = d->cmpr_data_endpos;
+	i64 pos = pos1;
+	i64 endpos = pos1+len;
 
-	de_dbg(c, "reading 'short' reloc table at %"I64_FMT, pos);
+	de_dbg(c, "reading 'short' reloc table at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	while(1) {
 		UI i;
 		UI count;
 		i64 seg, offs;
 
+		if(pos+1 > endpos) {
+			d->errflag = 1;
+			goto done;
+		}
 		count = (UI)de_getbyte_p(&pos);
 		if(count==0) goto done; // normal completion
 
+		if(pos+2+(i64)count*2 > endpos) {
+			d->errflag = 1;
+			goto done;
+		}
 		seg = de_getu16le_p(&pos);
 		for(i=0; i<count; i++) {
-			if(reloc_count>=d->o_ei->num_relocs) {
+			if(reloc_count>=MAX_RELOCS ||
+				(d->have_orig_header && reloc_count>=d->o_ei->num_relocs))
+			{
 				d->errflag = 1;
 				goto done;
 			}
@@ -655,27 +689,27 @@ done:
 		d->errflag = 1;
 	}
 	if(!d->errflag) {
-		de_dbg(c, "reloc table ends at %"I64_FMT, pos);
-		d->footer_pos = pos;
+		d->reloc_tbl_endpos = pos;
+		de_dbg(c, "reloc table ends at %"I64_FMT, d->reloc_tbl_endpos);
 	}
 	de_dbg_indent(c, -1);
 }
 
-#define MAX_RELOCS (320*1024)
-static void do_read_reloc_table_long(deark *c, lctx *d)
+static void do_read_reloc_table_long(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	i64 reloc_count = 0;
-	i64 pos = d->cmpr_data_endpos;
+	i64 pos = pos1;
 	i64 seg = 0;
+	i64 endpos = pos1+len;
 
-	de_dbg(c, "reading 'long' reloc table at %"I64_FMT, pos);
+	de_dbg(c, "reading 'long' reloc table at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	while(1) {
 		UI i;
 		UI count;
 		i64 offs;
 
-		if(pos+2 > c->infile->len) {
+		if(pos+2 > endpos) {
 			d->errflag = 1;
 			goto done;
 		}
@@ -684,7 +718,7 @@ static void do_read_reloc_table_long(deark *c, lctx *d)
 		if(count==0xffff) {
 			goto done; // normal completion
 		}
-		if(pos+(i64)count*2 > c->infile->len) {
+		if(pos+(i64)count*2 > endpos) {
 			d->errflag = 1;
 			goto done;
 		}
@@ -704,26 +738,25 @@ static void do_read_reloc_table_long(deark *c, lctx *d)
 
 done:
 	if(!d->errflag) {
-		de_dbg(c, "reloc table ends at %"I64_FMT, pos);
-		d->footer_pos = pos;
+		d->reloc_tbl_endpos = pos;
+		de_dbg(c, "reloc table ends at %"I64_FMT, d->reloc_tbl_endpos);
 	}
 	de_dbg_indent(c, -1);
 }
 
 static void do_read_reloc_table(deark *c, lctx *d)
 {
-	if(d->have_orig_header) {
-		d->o_reloc_table = dbuf_create_membuf(c, d->o_ei->num_relocs*4, 0x1);
-	}
-	else {
-		d->o_reloc_table = dbuf_create_membuf(c, 0, 0);
-	}
+	i64 reloc_tbl_len; // number of bytes available for encoded table
 
-	if(d->ver.extra_cmpr && d->ver.ver_only>=0x10c) {
-		do_read_reloc_table_long(c, d);
+	d->o_reloc_table = dbuf_create_membuf(c, 0, 0);
+
+	reloc_tbl_len = d->cmpr_data_area_endpos - 8 - d->cmpr_data_endpos;
+
+	if(d->ver.extra_cmpr /* && d->ver.ver_only>=0x10c */) {
+		do_read_reloc_table_long(c, d, d->cmpr_data_endpos, reloc_tbl_len);
 	}
 	else {
-		do_read_reloc_table_short(c, d);
+		do_read_reloc_table_short(c, d, d->cmpr_data_endpos, reloc_tbl_len);
 	}
 
 	if(d->errflag) {
@@ -874,16 +907,11 @@ static void de_run_pklite(deark *c, de_module_params *mparams)
 	do_read_reloc_table(c, d);
 	if(d->errflag) goto done;
 
+	d->footer_pos = d->reloc_tbl_endpos;
 	if(d->footer_pos!=0) {
 		i64 footer_capacity;
 
-		if(d->data_before_decoder) {
-			footer_capacity = d->ei->entry_point - d->footer_pos;
-		}
-		else {
-			footer_capacity = d->ei->end_of_dos_code - d->footer_pos;
-		}
-
+		footer_capacity = d->cmpr_data_area_endpos - d->footer_pos;
 		de_dbg(c, "footer at %"I64_FMT", len=%"I64_FMT, d->footer_pos, footer_capacity);
 		de_dbg_indent(c, 1);
 
@@ -929,7 +957,6 @@ done:
 void de_module_pklite(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "pklite";
-	mi->desc = "PKLITE executable compression";
+	mi->desc = "PKLITE-compressed EXE";
 	mi->run_fn = de_run_pklite;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }
