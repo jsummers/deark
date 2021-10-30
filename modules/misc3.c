@@ -7,6 +7,7 @@
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_cpshrink);
+DE_DECLARE_MODULE(de_module_dwc);
 
 struct localctx_struct;
 typedef struct localctx_struct lctx;
@@ -26,7 +27,7 @@ struct member_data {
 	struct de_timestamp tmstamp[DE_TIMESTAMPIDX_COUNT];
 
 	// Private use fields for the format decoder:
-	UI cmpr_method;
+	UI cmpr_meth;
 
 	// The extract_member_file() will temporarily set dcmpri/dcmpro/dres,
 	// and call ->dfn() if it is set.
@@ -110,33 +111,42 @@ static void read_field_cmpr_len_p(struct member_data *md, i64 *ppos)
 	handle_field_cmpr_len(md, n);
 }
 
+// tstype:
+//   1 = Unix
+//   2 = DOS,date first
 static void read_field_dos_dttm_mod_p(struct member_data *md,
 	struct de_timestamp *ts, const char *name,
-	int tmfirst, i64 *ppos)
+	int tstype, i64 *ppos)
 {
 	i64 n1, n2;
-	i64 dosdt, dostm;
 	char timestamp_buf[64];
+	int is_set = 0;
 
-	n1 = dbuf_getu16x(md->c->infile, *ppos, md->d->is_le);
-	n2 = dbuf_getu16x(md->c->infile, *ppos, md->d->is_le);
-
-	if(tmfirst) {
-		dostm = n1;
-		dosdt = n2;
+	if(tstype==1) {
+		n1 = dbuf_getu32x(md->c->infile, *ppos, md->d->is_le);
+		de_unix_time_to_timestamp(n1, ts, 0x1);
+		is_set = 1;
 	}
-	else {
+	else if(tstype==2) {
+		i64 dosdt, dostm;
+
+		n1 = dbuf_getu16x(md->c->infile, *ppos, md->d->is_le);
+		n2 = dbuf_getu16x(md->c->infile, *ppos+2, md->d->is_le);
 		dosdt = n1;
 		dostm = n2;
+
+		if(dostm!=0 || dosdt!=0) {
+			is_set = 1;
+			de_dos_datetime_to_timestamp(ts, dosdt, dostm);
+			ts->tzcode = DE_TZCODE_LOCAL;
+		}
 	}
 
-	if(dostm==0 && dosdt==0) {
-		de_snprintf(timestamp_buf, sizeof(timestamp_buf), "[not set]");
+	if(is_set) {
+		de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
 	}
 	else {
-		de_dos_datetime_to_timestamp(ts, dosdt, dostm);
-		ts->tzcode = DE_TZCODE_LOCAL;
-		de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
+		de_snprintf(timestamp_buf, sizeof(timestamp_buf), "[not set]");
 	}
 	de_dbg(md->c, "%s time: %s", name, timestamp_buf);
 
@@ -217,7 +227,7 @@ static void cpshrink_decompressor_fn(struct member_data *md)
 {
 	deark *c = md->c;
 
-	switch(md->cmpr_method) {
+	switch(md->cmpr_meth) {
 	case 0:
 	case 1:
 		fmtutil_dclimplode_codectype1(c, md->dcmpri, md->dcmpro, md->dres, NULL);
@@ -254,14 +264,14 @@ static void cpshrink_do_member(deark *c, lctx *d, struct member_data *md)
 	pos += 15;
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
 
-	md->cmpr_method = de_getbyte_p(&pos);
-	de_dbg(c, "compression method: %u", md->cmpr_method);
+	md->cmpr_meth = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "cmpr. method: %u", md->cmpr_meth);
 
 	read_field_orig_len_p(md, &pos);
 	read_field_cmpr_len_p(md, &pos);
 	d->cmpr_data_curpos += md->cmpr_len;
 
-	read_field_dos_dttm_mod_p(md, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 0, &pos);
+	read_field_dos_dttm_mod_p(md, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 2, &pos);
 
 	if(!good_cmpr_data_pos(md)) {
 		d->errflag = 1;
@@ -369,4 +379,90 @@ void de_module_cpshrink(deark *c, struct deark_module_info *mi)
 	mi->desc = "CP Shrink .CPZ";
 	mi->run_fn = de_run_cpshrink;
 	mi->identify_fn = de_identify_cpshrink;
+}
+
+// **************************************************************************
+// DWC archive
+// **************************************************************************
+
+static void do_dwc_member(deark *c, lctx *d, i64 pos1)
+{
+	i64 pos = pos1;
+	struct member_data *md = NULL;
+
+	md = create_md(c, d);
+
+	de_dbg(c, "member header at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	dbuf_read_to_ucstring(c->infile, pos, 12, md->filename, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+	pos += 13;
+
+	read_field_orig_len_p(md, &pos);
+	read_field_dos_dttm_mod_p(md, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 1, &pos);
+	read_field_cmpr_len_p(md, &pos);
+	md->cmpr_pos = de_getu32le_p(&pos);
+	de_dbg(c, "cmpr. data pos: %"I64_FMT, md->cmpr_pos);
+	md->cmpr_meth = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "cmpr. method: %u", md->cmpr_meth);
+	// pos += 2; // ?
+	// pos += 2; // CRC
+	de_dbg_indent(c, -1);
+	destroy_md(c, md);
+}
+
+static void de_run_dwc(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	i64 trailer_pos;
+	i64 nmembers;
+	i64 fhsize; // size of each file header
+	i64 pos;
+	i64 i;
+
+	de_info(c, "Note: DWC files can be parsed, but no files can be extracted from them.");
+	d = create_lctx(c);
+	d->is_le = 1;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+
+	trailer_pos = c->infile->len - 27;
+	pos = trailer_pos;
+	de_dbg(c, "trailer at %"I64_FMT, trailer_pos);
+	de_dbg_indent(c, 1);
+	pos += 2; // trailer length (27)
+	fhsize = de_getu16le_p(&pos);
+	pos += 16;
+	nmembers = de_getu16le_p(&pos);
+	de_dbg(c, "number of member files: %d", (int)nmembers);
+	de_dbg_indent(c, -1);
+
+	pos = trailer_pos - fhsize*nmembers;
+	for(i=0; i<nmembers; i++) {
+		if(pos<0 || pos>(trailer_pos-fhsize)) break;
+		do_dwc_member(c, d, pos);
+		pos += fhsize;
+	}
+
+	destroy_lctx(c, d);
+}
+
+static int de_identify_dwc(deark *c)
+{
+	if(!de_input_file_has_ext(c, "dwc")) return 0;
+	if(dbuf_memcmp(c->infile, c->infile->len-3, (const u8*)"DWC", 3)) {
+		return 0;
+	}
+	if(de_getu16le(c->infile->len-27) != 27) {
+		return 0;
+	}
+	return 70;
+}
+
+void de_module_dwc(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "dwc";
+	mi->desc = "DWC compressed archive";
+	mi->run_fn = de_run_dwc;
+	mi->identify_fn = de_identify_dwc;
 }
