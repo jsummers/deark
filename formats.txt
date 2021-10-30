@@ -659,6 +659,9 @@ Deark -- Information about supported formats
 
 * cpio (module="cpio")
 
+* CP Shrink (.cpz) (module="cpshrink")
+  - File extension must be ".cpz" (or use "-m cpshrink").
+
 * CRLZH (module="crlzh")
   An old compressed file format used mainly on CP/M.
 
