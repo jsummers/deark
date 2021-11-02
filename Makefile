@@ -68,7 +68,7 @@ OFILES_MODS_CH:=$(addprefix $(OBJDIR)/modules/,cab.o cardfile.o cfb.o \
  cpio.o d64.o drhalo.o ebml.o emf.o epocimage.o eps.o exe.o dms.o \
  flif.o fnt.o gemfont.o gemmeta.o gemras.o gif.o grasp.o grob.o gzip.o \
  corel.o hfs.o hlp.o dsstore.o fli.o fat.o flac.o dlmaker.o crush.o)
-OFILES_MODS_IO:=$(addprefix $(OBJDIR)/modules/,misc.o misc2.o \
+OFILES_MODS_IO:=$(addprefix $(OBJDIR)/modules/,misc.o misc2.o misc3.o \
  iccprofile.o icns.o \
  id3.o ico.o iff.o ilbm.o insetpix.o iptc.o jbf.o jovianvi.o jpeg.o lha.o \
  j2c.o ogg.o olepropset.o iso9660.o macbinary.o macrsrc.o lzexe.o \
@@ -76,7 +76,7 @@ OFILES_MODS_IO:=$(addprefix $(OBJDIR)/modules/,misc.o misc2.o \
  officeart.o lbr.o megapaint.o nie.o isz.o os2ea.o)
 OFILES_MODS_PQ:=$(addprefix $(OBJDIR)/modules/,psd.o palmbitmap.o palmpdb.o \
  pcpaint.o pcx.o pff2.o pict.o pkfont.o png.o pnm.o portfolio.o printptnr.o \
- packdir.o pack.o pkm.o \
+ packdir.o pack.o pkm.o pklite.o \
  printshop.o psf.o psionapp.o psionpic.o pcf.o plist.o qtif.o)
 OFILES_MODS_RZ:=$(addprefix $(OBJDIR)/modules/,riff.o rosprite.o rpm.o \
  rsc.o shg.o spectrum512.o sunras.o t64.o tar.o tga.o tiff.o tim.o \

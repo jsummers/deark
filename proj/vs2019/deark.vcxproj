@@ -249,6 +249,7 @@
     <ClCompile Include="..\..\modules\megapaint.c" />
     <ClCompile Include="..\..\modules\misc.c" />
     <ClCompile Include="..\..\modules\misc2.c" />
+    <ClCompile Include="..\..\modules\misc3.c" />
     <ClCompile Include="..\..\modules\mp3.c" />
     <ClCompile Include="..\..\modules\mscompress.c" />
     <ClCompile Include="..\..\modules\msp.c" />
@@ -270,6 +271,7 @@
     <ClCompile Include="..\..\modules\pff2.c" />
     <ClCompile Include="..\..\modules\pict.c" />
     <ClCompile Include="..\..\modules\pkfont.c" />
+    <ClCompile Include="..\..\modules\pklite.c" />
     <ClCompile Include="..\..\modules\pkm.c" />
     <ClCompile Include="..\..\modules\plist.c" />
     <ClCompile Include="..\..\modules\png.c" />

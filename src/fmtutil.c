@@ -1456,15 +1456,34 @@ struct execomp_ctx {
 	char verstr[40];
 };
 
+static void calc_entrypoint_crc(deark *c, struct execomp_ctx *ectx, struct fmtutil_exe_info *ei)
+{
+	struct de_crcobj *crco = NULL;
+	u32 crc1, crc2;
+
+	if(ei->entrypoint_crcs!=0) return;
+
+	// Sniff some bytes, starting at the code entry point.
+	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	de_crcobj_addslice(crco, ei->f, ei->entry_point, 32);
+	crc1 = de_crcobj_getval(crco);
+	de_crcobj_reset(crco);
+	de_crcobj_addslice(crco, ei->f, ei->entry_point+32, 32);
+	crc2 = de_crcobj_getval(crco);
+	ei->entrypoint_crcs = ((u64)crc1 << 32) | crc2;
+	if(ectx->devmode) {
+		de_dbg(c, "execomp crc: %016"U64_FMTx, ei->entrypoint_crcs);
+	}
+
+	de_crcobj_destroy(crco);
+}
+
 static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	int has_sig = 0;
 	UI maj_ver = 0;
 	UI min_ver = 0;
-	u8 is_beta = 0;
-	u8 flag_e = 0;
-	u8 flag_large = 0;
 	u8 sb[8];
 
 	if(ei->num_relocs > 1) return;
@@ -1485,27 +1504,19 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 		}
 	}
 
-	if(has_sig) {
-		if(sb[1] & 0x10) flag_e = 1;
-		if(sb[1] & 0x20) flag_large = 1;
-	}
-
-	if(has_sig && ei->num_relocs==0 && maj_ver==1 && min_ver==0) {
-		edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE;
-		is_beta = 1;
+	if(has_sig && (ei->entry_point>ei->start_of_dos_code) && maj_ver==1 && min_ver==0) {
+		edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE; // (beta)
 		goto done;
 	}
 
-	// This is basically what CHK4LITE does, if the signature check fails.
-	if(ei->num_relocs != 1) goto done;
 	if(ei->regIP != 256) goto done;
 	if(ei->regCS != -16) goto done;
 
 	if(!has_sig) { // If signature is present, that's good enough. Otherwise...
 		u8 cb[8];
 
-		// TODO: This fingerprint might not always work, but I want to reduce false
-		// positives somehow.
+		// TODO: Find a stricter way to do fingerprinting
+
 		dbuf_read(ei->f, cb, ei->entry_point, sizeof(cb));
 		if(cb[0]==0xb8 && cb[3]==0xba) {
 			;
@@ -1523,13 +1534,7 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 done:
 	if(edd->detected_fmt==DE_SPECIALEXEFMT_PKLITE) {
 		de_strlcpy(ectx->shortname, "PKLITE", sizeof(ectx->shortname));
-		if(has_sig) {
-			// TODO: A better way to deal with this info. This function probably
-			// shouldn't emit dbg messages unconditionally.
-			de_dbg2(c, "PKLITE vers: %u.%02u%s%s%s",
-				maj_ver, min_ver, (is_beta?"beta":""),
-				(flag_e?"/e":""), (flag_large?"/large":""));
-		}
+		edd->modname = "pklite";
 	}
 }
 
@@ -1604,6 +1609,70 @@ done:
 	}
 }
 
+static void detect_execomp_tinyprog(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	i64 pos;
+	i64 j;
+	u8 x;
+
+	if(ei->num_relocs!=0) goto done;
+	pos = ei->entry_point;
+	x = dbuf_getbyte(ei->f, pos);
+	if(x!=0xe9) goto done;
+	j = dbuf_getu16le(ei->f, pos+1);
+	pos += 3+j; // Jump over user data
+
+	x = dbuf_getbyte(ei->f, pos);
+	if(x != 0xeb) goto done;
+	j = dbuf_geti8(ei->f, pos+1);
+	pos += 2+j; // Jump over (some sort of) data
+
+	// This part seems consistent, but I'm really just guessing. Need to test more versions.
+	if(dbuf_memcmp(ei->f, pos,
+		(const void*)"\x83\xec\x10\x83\xe4\xe0\x8b\xec\x50\xbe\x05\x01\x03\x36\x01\x01", 16))
+	{
+		goto done;
+	}
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_TINYPROG;
+	de_strlcpy(ectx->shortname, "TINYPROG", sizeof(ectx->shortname));
+done:
+	;
+}
+
+static int execomp_diet_check_fingerprint(dbuf *f, i64 pos)
+{
+	return !dbuf_memcmp(f, pos,
+		(const u8*)"\x8e\xdb\x8e\xc0\x33\xf6\x33\xff\xb9\x08\x00\xf3\xa5\x4b\x48\x4a", 16);
+}
+
+static void detect_execomp_diet(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	static const u8 offsets[] = {20, 40, 45};
+	i64 foundpos = 0;
+	size_t i;
+
+	if(ei->regCS!=0) goto done;
+	if(ei->regIP!=0 && ei->regIP!=3) goto done;
+	if(ei->num_relocs>1) goto done;
+
+	// Haven't figured out a good way to detect DIET. More research needed.
+	for(i=0; i<DE_ARRAYCOUNT(offsets); i++) {
+		if(execomp_diet_check_fingerprint(ei->f, ei->entry_point+(i64)offsets[i])) {
+			foundpos = (i64)offsets[i];
+			break;
+		}
+	}
+	if(foundpos==0) goto done;
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_DIET;
+	de_strlcpy(ectx->shortname, "DIET", sizeof(ectx->shortname));
+done:
+	;
+}
+
 // Caller initializes ei (to zeroes).
 // Records some basic information about an EXE file, to be used by routines that
 // detect special EXE formats.
@@ -1619,38 +1688,18 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei)
 	nblocks = dbuf_getu16le(f, 4);
 	ei->num_relocs = dbuf_getu16le(f, 6);
 	hdrsize = dbuf_getu16le(f, 8);
+	ei->start_of_dos_code = hdrsize*16;
 	ei->regSS = dbuf_geti16le(f, 14);
 	ei->regSP = dbuf_getu16le(f, 16);
 	ei->regIP = dbuf_getu16le(f, 20);
 	ei->regCS = dbuf_geti16le(f, 22);
+	ei->reloc_table_pos = dbuf_getu16le(f, 24);
 	ei->entry_point = (hdrsize + ei->regCS)*16 + ei->regIP;
 
 	ei->end_of_dos_code = nblocks*512;
 	if(lfb>=1 && lfb<=511) {
 		ei->end_of_dos_code = ei->end_of_dos_code - 512 + lfb;
 	}
-}
-
-static void calc_entrypoint_crc(deark *c, struct execomp_ctx *ectx, struct fmtutil_exe_info *ei)
-{
-	struct de_crcobj *crco = NULL;
-	u32 crc1, crc2;
-
-	if(ei->entrypoint_crcs!=0) return;
-
-	// Sniff some bytes, starting at the code entry point.
-	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-	de_crcobj_addslice(crco, ei->f, ei->entry_point, 32);
-	crc1 = de_crcobj_getval(crco);
-	de_crcobj_reset(crco);
-	de_crcobj_addslice(crco, ei->f, ei->entry_point+32, 32);
-	crc2 = de_crcobj_getval(crco);
-	ei->entrypoint_crcs = ((u64)crc1 << 32) | crc2;
-	if(ectx->devmode) {
-		de_dbg(c, "execomp crc: %016"U64_FMTx, ei->entrypoint_crcs);
-	}
-
-	de_crcobj_destroy(crco);
 }
 
 // Caller supplies ei -- must call fmtutil_collect_exe_info() first.
@@ -1669,6 +1718,16 @@ void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_PKLITE) {
 		detect_execomp_pklite(c, &ectx, ei, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
+
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_TINYPROG) {
+		detect_execomp_tinyprog(c, &ectx, ei, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
+
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_DIET) {
+		detect_execomp_diet(c, &ectx, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
@@ -1716,7 +1775,6 @@ static void detect_exesfx_lha(deark *c, struct execomp_ctx *ectx,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	u8 b[16];
-	u8 x;
 	int found;
 	i64 foundpos = 0;
 
@@ -1745,6 +1803,7 @@ static void detect_exesfx_lha(deark *c, struct execomp_ctx *ectx,
 
 	found =
 		is_lha_data_at(ei, ei->end_of_dos_code, &foundpos) ||
+		is_lha_data_at(ei, ei->end_of_dos_code+1, &foundpos) ||
 		is_lha_data_at(ei, ei->end_of_dos_code+3, &foundpos) ||
 		is_lha_data_at(ei, ei->entry_point + 1292-32, &foundpos) ||
 		is_lha_data_at(ei, ei->entry_point + 1295-32, &foundpos) ||
@@ -1755,16 +1814,81 @@ static void detect_exesfx_lha(deark *c, struct execomp_ctx *ectx,
 	edd->payload_len = ei->f->len - edd->payload_pos;
 	if(edd->payload_len<21) goto done;
 
-	x = dbuf_getbyte(ei->f, edd->payload_pos+edd->payload_len-1); // archive trailer
-	if(x != 0x00) goto done;
-
-	edd->detected_fmt = DE_SPECIALEXEFMT_LHASFX;
+	edd->detected_fmt = DE_SPECIALEXEFMT_SFX;
 	edd->payload_valid = 1;
 	edd->payload_file_ext = "lha";
 
 done:
-	if(edd->detected_fmt==DE_SPECIALEXEFMT_LHASFX) {
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
 		de_strlcpy(ectx->shortname, "LHA", sizeof(ectx->shortname));
+	}
+}
+
+static int is_arc_data_at(struct fmtutil_exe_info *ei, i64 pos)
+{
+	u8 b[2];
+
+	dbuf_read(ei->f, b, pos, 2);
+	if(b[0]!=0x1a) return 0;
+	if(b[1]>30) return 0;
+	return 1;
+}
+
+// Detect some ARC self-extracting DOS EXE formats.
+// TODO: This is pretty fragile. It only detects files made by known versions of
+// MKSARC (from the ARC distribution).
+static void detect_exesfx_arc(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	int found = 0;
+	i64 foundpos = 0;
+
+	calc_entrypoint_crc(c, ectx, ei);
+	if(ei->entrypoint_crcs==0x057db6d8be3c4895ULL) { // MKSARC v1.00 from ARC v6.01
+		found = 1;
+		foundpos = ei->end_of_dos_code;
+	}
+	else if(ei->entrypoint_crcs==0x8542182a98613fe0ULL ||
+		ei->entrypoint_crcs==0x6bd653c8edd98eedULL)
+	{
+		// MKSARC v1.01 from ARC v6.02
+		// (Found two different versions with the same version number.)
+		// This version of MKSARC has a bug. Compared to the v1.00, the start of DOS
+		// code was reduced by 480, from 512 to 32. But the *end* of DOS code was not
+		// adjusted accordingly, leaving it 480 higher than it should be. This is
+		// important, because the end of DOS code is where we expect the ARC data to
+		// start.
+		found = 1;
+		foundpos = ei->end_of_dos_code - 480;
+		if(!is_arc_data_at(ei, foundpos)) {
+			foundpos = ei->end_of_dos_code; // In case there's a version without the bug
+		}
+	}
+	else if(ei->entrypoint_crcs==0x3230b4d5fca84644ULL) { // MKSARC v7.12, from ARC v7.12
+		found = 1;
+		foundpos = ei->end_of_dos_code;
+	}
+	// TODO: Detect MKSARC v7.12 with the /P option (OS/2 protected mode).
+	// Extraction would work, if we could detect it.
+
+	if(!found) goto done;
+	if(!is_arc_data_at(ei, foundpos)) {
+		goto done;
+	}
+
+	edd->payload_pos = foundpos;
+	edd->payload_len = ei->f->len - edd->payload_pos;
+	if(edd->payload_len<2) goto done;
+	// TODO: It would be nice to strip any padding from the end of the extracted ARC
+	// file, but that could be more trouble than it's worth.
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_SFX;
+	edd->payload_valid = 1;
+	edd->payload_file_ext = "arc";
+
+done:
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
+		de_strlcpy(ectx->shortname, "ARC", sizeof(ectx->shortname));
 	}
 }
 
@@ -1776,7 +1900,11 @@ void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	de_zeromem(&ectx, sizeof(struct execomp_ctx));
 
 	detect_exesfx_lha(c, &ectx, ei, edd);
+	if(edd->detected_fmt) goto done;
 
+	detect_exesfx_arc(c, &ectx, ei, edd);
+
+done:
 	if(ectx.shortname[0] && ectx.verstr[0]) {
 		de_snprintf(edd->detected_fmt_name, sizeof(edd->detected_fmt_name), "%s %s",
 			ectx.shortname, ectx.verstr);

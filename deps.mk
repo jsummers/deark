@@ -160,6 +160,8 @@ $(OBJDIR)/modules/misc.o: modules/misc.c src/deark-private.h src/deark.h \
  src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/misc2.o: modules/misc2.c src/deark-private.h \
  src/deark.h src/deark-config.h
+$(OBJDIR)/modules/misc3.o: modules/misc3.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/mp3.o: modules/mp3.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/mscompress.o: modules/mscompress.c src/deark-private.h \
@@ -202,6 +204,8 @@ $(OBJDIR)/modules/pict.o: modules/pict.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/pkfont.o: modules/pkfont.c src/deark-config.h \
  src/deark-private.h src/deark.h
+$(OBJDIR)/modules/pklite.o: modules/pklite.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/pkm.o: modules/pkm.c src/deark-private.h src/deark.h \
  src/deark-config.h
 $(OBJDIR)/modules/plist.o: modules/plist.c src/deark-config.h \
