@@ -92,6 +92,7 @@ struct delzwctx_struct {
 #define DELZW_BASEFMT_TIFFOLD      5
 #define DELZW_BASEFMT_TIFF         6
 #define DELZW_BASEFMT_ARC5         7
+#define DELZW_BASEFMT_DWC          8
 	int basefmt;
 
 #define DELZW_HEADERTYPE_NONE  0
@@ -148,6 +149,7 @@ struct delzwctx_struct {
 
 	DELZW_OFF_T ncodes_in_this_bitgroup;
 	DELZW_OFF_T nbytes_left_to_skip;
+	DELZW_OFF_T code_counter;
 
 	unsigned int curr_codesize;
 
@@ -158,7 +160,7 @@ struct delzwctx_struct {
 	DELZW_CODE highest_code_ever_used;
 	DELZW_CODE free_code_search_start;
 	DELZW_CODE first_dynamic_code;
-	int escaped_code_is_pending;
+	int special_code_is_pending;
 
 	unsigned int bitreader_buf;
 	unsigned int bitreader_nbits_in_buf;
@@ -763,14 +765,15 @@ static void delzw_partial_clear(delzwctx *dc)
 static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 {
 	if(dc->debug_level>=3) {
-		delzw_debugmsg(dc, 3, "code=%d oc=%d lca=%d lv=%d next=%d",
+		delzw_debugmsg(dc, 3, "%scode=%d oc=%d lca=%d lv=%d next=%d",
+			(dc->special_code_is_pending?"special":""),
 			(int)code,
 			(int)dc->oldcode, (int)dc->last_code_added, (int)dc->last_value,
 			(int)dc->free_code_search_start);
 	}
 
-	if(dc->escaped_code_is_pending) {
-		dc->escaped_code_is_pending = 0;
+	if(dc->special_code_is_pending) {
+		dc->special_code_is_pending = 0;
 		if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK) {
 			if(code==1 && (dc->curr_codesize<dc->max_codesize)) {
 				delzw_increase_codesize(dc);
@@ -780,6 +783,16 @@ static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 			}
 			else {
 				delzw_set_error(dc, DELZW_ERRCODE_BAD_CDATA, NULL);
+			}
+		}
+		else if(dc->basefmt==DELZW_BASEFMT_DWC) {
+			if(code==0) { // no-op?
+				;
+			}
+			else {
+				// TODO: Find out what DWC special codes do
+				delzw_set_errorf(dc, DELZW_ERRCODE_UNSUPPORTED_OPTION,
+					"Unsupported special code: %u", (unsigned int)code);
 			}
 		}
 		return;
@@ -801,9 +814,16 @@ static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 		break;
 	case DELZW_CODETYPE_SPECIAL:
 		if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK && code==256) {
-			dc->escaped_code_is_pending = 1;
+			dc->special_code_is_pending = 1; // next code is an "escaped" code
 		}
 		break;
+	}
+
+	dc->code_counter++;
+	if(dc->basefmt==DELZW_BASEFMT_DWC) {
+		if((dc->code_counter%512)==256) {
+			dc->special_code_is_pending = 1;
+		}
 	}
 }
 
@@ -815,7 +835,8 @@ static void delzw_on_decompression_start(delzwctx *dc)
 		dc->basefmt!=DELZW_BASEFMT_ZOOLZD &&
 		dc->basefmt!=DELZW_BASEFMT_TIFF &&
 		dc->basefmt!=DELZW_BASEFMT_TIFFOLD &&
-		dc->basefmt!=DELZW_BASEFMT_ARC5)
+		dc->basefmt!=DELZW_BASEFMT_ARC5 &&
+		dc->basefmt!=DELZW_BASEFMT_DWC)
 	{
 		delzw_set_error(dc, DELZW_ERRCODE_UNSUPPORTED_OPTION, "Unsupported LZW format");
 		goto done;
@@ -906,6 +927,15 @@ static void delzw_on_codes_start(delzwctx *dc)
 		}
 		dc->min_codesize = dc->max_codesize;
 	}
+	else if(dc->basefmt==DELZW_BASEFMT_DWC) {
+		dc->is_msb = 1;
+		dc->early_codesize_inc = 1;
+		dc->auto_inc_codesize = 1;
+		dc->min_codesize = 9;
+		if(dc->max_codesize==0) {
+			dc->max_codesize = 14;
+		}
+	}
 
 	if(dc->min_codesize<DELZW_MINMINCODESIZE || dc->min_codesize>DELZW_MAXMAXCODESIZE ||
 		dc->max_codesize<DELZW_MINMINCODESIZE || dc->max_codesize>DELZW_MAXMAXCODESIZE ||
@@ -982,6 +1012,13 @@ static void delzw_on_codes_start(delzwctx *dc)
 		dc->ct[257].codetype = DELZW_CODETYPE_STOP;
 		dc->first_dynamic_code = 258;
 	}
+	else if(dc->basefmt==DELZW_BASEFMT_DWC) {
+		for(i=0; i<256; i++) {
+			dc->ct[i].codetype = DELZW_CODETYPE_STATIC;
+			dc->ct[i].value = (DELZW_UINT8)i;
+		}
+		dc->first_dynamic_code = 256;
+	}
 
 	if(dc->is_hashed) {
 		for(i=0; i<dc->ct_capacity; i++) {
@@ -1049,13 +1086,22 @@ static void delzw_process_byte(delzwctx *dc, DELZW_UINT8 b)
 
 		while(1) {
 			DELZW_CODE code;
+			unsigned int this_codesize;
 
 			if(dc->errcode) break;
-			if(dc->bitreader_nbits_in_buf < dc->curr_codesize) {
+
+			if(dc->special_code_is_pending && dc->basefmt==DELZW_BASEFMT_DWC) {
+				this_codesize = 3;
+			}
+			else {
+				this_codesize = dc->curr_codesize;
+			}
+
+			if(dc->bitreader_nbits_in_buf < this_codesize) {
 				break;
 			}
 
-			code = delzw_get_code(dc, dc->curr_codesize);
+			code = delzw_get_code(dc, this_codesize);
 			dc->ncodes_in_this_bitgroup++;
 			delzw_process_code(dc, code);
 
