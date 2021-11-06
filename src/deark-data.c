@@ -283,6 +283,13 @@ static de_rune de_petscii_to_unicode(struct de_encconv_state *es, i32 a)
 	if(a<=0xff) n = petscii1table[a];
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
+	if(a==0x0a) {
+		// This is a hack to make "-m plaintext -inenc petscii" work with the
+		// output from the basic_c64 module.
+		if(DE_EXTENC_GET_SUBTYPE(es->ee)==DE_ENCSUBTYPE_HYBRID) {
+			n = 0x0a;
+		}
+	}
 	return n;
 }
 
