@@ -320,6 +320,38 @@ done:
 	;
 }
 
+// Try to detect versions 1132, 3132, 1201, 3201.
+static void detect_pklite_version_part3(deark *c, lctx *d, struct de_crcobj *crco)
+{
+	u32 crc3;
+	u8 b;
+	i64 pos;
+
+	if(de_getbyte(d->ei->entry_point) != 0x50) goto done;
+	pos = d->ei->entry_point+58;
+	de_crcobj_reset(crco);
+	de_crcobj_addslice(crco, c->infile, pos, 16);
+	de_crcobj_addslice(crco, c->infile, pos+18, 10);
+	crc3 = de_crcobj_getval(crco);
+	de_dbg3(c, "CRC3: %08x", (UI)crc3);
+	if(crc3 != 0xff6f0596U) goto done;
+
+	b = de_getbyte(pos+29);
+	if(b==0x00) {
+		d->ver_detected.ver_info = 0x1132;
+	}
+	else if(b==0x01) {
+		d->ver_detected.ver_info = 0x3132;
+	}
+	else {
+		goto done;
+	}
+	d->ver_detected.suffix = "-2.01";
+
+done:
+	;
+}
+
 static void detect_pklite_version(deark *c, lctx *d)
 {
 	struct de_crcobj *crco = NULL;
@@ -330,6 +362,10 @@ static void detect_pklite_version(deark *c, lctx *d)
 
 	if(d->ver_detected.ver_info==0) {
 		detect_pklite_version_part2(c, d, crco);
+	}
+
+	if(d->ver_detected.ver_info==0) {
+		detect_pklite_version_part3(c, d, crco);
 	}
 
 	if(d->ver_detected.ver_info==0) {
@@ -963,7 +999,7 @@ static void de_run_pklite(deark *c, de_module_params *mparams)
 
 		// Expecting 8, but some v2.x files have seem to have larger footers (10,
 		// 11, 20, ...). Don't know why.
-		if(footer_capacity<8 || footer_capacity>100 || d->data_before_decoder) {
+		if(footer_capacity<8 || footer_capacity>100) {
 			// Not sure we have a valid footer.
 			d->footer_pos = 0;
 		}
