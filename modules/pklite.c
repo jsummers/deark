@@ -135,6 +135,9 @@ static void find_cmprdata_pos(deark *c, lctx *d, struct ver_info_struct *v)
 	case 0x2132: case 0x2201:
 		find_offset_2132(c, d);
 		break;
+	case 0x3105:
+		d->cmpr_data_pos = d->ei->entry_point + 0x2a0; // needs confirmation
+		break;
 	case 0x310c: case 0x310d:
 		d->cmpr_data_pos = d->ei->entry_point + 0x290;
 		break;
@@ -189,7 +192,7 @@ done:
 	}
 	else if(d->cmpr_data_pos==0) {
 		de_err(c, "Can't figure out where the compressed data starts. "
-			"This variety of PKLITE is not supported.");
+			"This PKLITE file is not supported.");
 		d->errflag = 1;
 		d->errmsg_handled = 1;
 	}
@@ -255,22 +258,18 @@ static const struct ver_fingerprint_item ver_fingerprint_arr[] = {
 	{0x61a65992U, 0x310d, 0, NULL},
 	{0xd9911c85U, 0x4100, 1, "beta"}, // -l (load high) option
 	{0x89cb9e7fU, 0x6100, 1, "beta"}  // -l
-	// Note: "-e" files starting with v1.14 or 1.15 seem to be obfuscated
-	// in a way that prevents this kind of fingerprinting.
 };
 
-static void detect_pklite_version(deark *c, lctx *d)
+static void detect_pklite_version_part1(deark *c, lctx *d, struct de_crcobj *crco)
 {
-	struct de_crcobj *crco = NULL;
 	u32 crc1;
 	size_t i;
 	const struct ver_fingerprint_item *fi = NULL;
 
-	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	de_crcobj_reset(crco);
 	de_crcobj_addslice(crco, c->infile, d->ei->entry_point+80, 240);
 	crc1 = de_crcobj_getval(crco);
 	de_dbg3(c, "CRC fingerprint: %08x", (UI)crc1);
-	de_crcobj_destroy(crco);
 
 	for(i=0; i<DE_ARRAYCOUNT(ver_fingerprint_arr); i++) {
 		if(ver_fingerprint_arr[i].crc==crc1) {
@@ -290,8 +289,50 @@ static void detect_pklite_version(deark *c, lctx *d)
 			}
 		}
 	}
+}
 
-	if(!fi) {
+// Try to detect versions 110e, 310e, 110f, 310f.
+// These are among the versions that have most of the decompression code obfuscated.
+static void detect_pklite_version_part2(deark *c, lctx *d, struct de_crcobj *crco)
+{
+	u32 crc2;
+	u8 b;
+	i64 pos;
+
+	pos = d->ei->entry_point+13;
+	if(de_getbyte_p(&pos) != 0x72) goto done;
+	b = de_getbyte(pos);
+	// This byte seems to locate the end of the "Not enough memory" message.
+	// We want to fingerprint some bytes right after that.
+	pos += (i64)b;
+
+	de_crcobj_reset(crco);
+	de_crcobj_addslice(crco, c->infile, pos, 30);
+	crc2 = de_crcobj_getval(crco);
+	de_dbg3(c, "CRC2: %08x", (UI)crc2);
+	switch(crc2) {
+	case 0x40d95670U: d->ver_detected.ver_info = 0x110e; break;
+	case 0xd388219aU: d->ver_detected.ver_info = 0x110f; break;
+	case 0x9d8d46f8U: d->ver_detected.ver_info = 0x310e; break;
+	case 0xda594188U: d->ver_detected.ver_info = 0x310f; break;
+	}
+done:
+	;
+}
+
+static void detect_pklite_version(deark *c, lctx *d)
+{
+	struct de_crcobj *crco = NULL;
+
+	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+
+	detect_pklite_version_part1(c, d, crco);
+
+	if(d->ver_detected.ver_info==0) {
+		detect_pklite_version_part2(c, d, crco);
+	}
+
+	if(d->ver_detected.ver_info==0) {
 		if(d->ver_reported.ver_only==0x100 && d->data_before_decoder) {
 			// Assume this is an undetected v1.00 beta file.
 			d->ver_detected.ver_info = d->ver_reported.ver_info;
@@ -305,6 +346,7 @@ static void detect_pklite_version(deark *c, lctx *d)
 	}
 
 	derive_version_fields(c, d, &d->ver_detected);
+	de_crcobj_destroy(crco);
 }
 
 static void read_orig_header(deark *c, lctx *d, i64 orig_hdr_pos)
@@ -919,7 +961,9 @@ static void de_run_pklite(deark *c, de_module_params *mparams)
 			de_dbg_hexdump(c, c->infile, d->footer_pos, footer_capacity, 32, "footer", 0);
 		}
 
-		if(footer_capacity!=8 || d->data_before_decoder) {
+		// Expecting 8, but some v2.x files have seem to have larger footers (10,
+		// 11, 20, ...). Don't know why.
+		if(footer_capacity<8 || footer_capacity>100 || d->data_before_decoder) {
 			// Not sure we have a valid footer.
 			d->footer_pos = 0;
 		}
