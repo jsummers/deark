@@ -12,6 +12,7 @@ DE_DECLARE_MODULE(de_module_swg);
 DE_DECLARE_MODULE(de_module_car_lha);
 DE_DECLARE_MODULE(de_module_arx);
 DE_DECLARE_MODULE(de_module_ar001);
+DE_DECLARE_MODULE(de_module_lharc_sfx_com);
 
 #define MAX_SUBDIR_LEVEL 32
 
@@ -1496,7 +1497,8 @@ static int de_identify_lha(deark *c)
 	}
 
 	if(de_input_file_has_ext(c, "lzh") ||
-		de_input_file_has_ext(c, "lha"))
+		de_input_file_has_ext(c, "lha") ||
+		((b[4]=='z') && de_input_file_has_ext(c, "lzs")))
 	{
 		has_ext = 1;
 	}
@@ -2120,4 +2122,134 @@ void de_module_ar001(deark *c, struct deark_module_info *mi)
 	mi->desc = "ar001 archive (Okumura)";
 	mi->run_fn = de_run_ar001;
 	mi->identify_fn = de_identify_ar001;
+}
+
+// **************************************************************************
+// LHarc & LArc SFX - COM format
+// **************************************************************************
+// Note that EXE SFX format is handled by the exe module.
+
+struct lhasfx_context {
+	u8 errflag;
+	u8 need_errmsg;
+	int sfx_container_is_larc;
+	i64 payload_offs;
+};
+
+static int looks_like_lharc_sfx_com(deark *c, int *is_larc)
+{
+	u64 v;
+	i64 pos = 0;
+	u8 b;
+
+	b = de_getbyte_p(&pos);
+	if(b!=0xeb) return 0;
+	b = de_getbyte_p(&pos);
+	pos += (i64)b;
+	// I don't know how good this test is, but I don't trust the text signature.
+	// It's not formatted consistently. And because the source code was released,
+	// who knows what weirdness is out there?
+	if(b==0x60 || b==0x6c) {
+		v = dbuf_getu64be(c->infile, pos);
+		if(v==0xfcbc0001bb0601e8ULL) {
+			return 1;
+		}
+	}
+	else if(b==0x1c) {
+		v = dbuf_getu64be(c->infile, pos);
+		if(v==0xfc8cc8030602018eULL) {
+			*is_larc = 1;
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+// Probe for LHarc (v1.x) or LArc data
+static int is_lharc_data_at(deark *c, i64 pos, i64 *pfoundpos)
+{
+	u8 b[5];
+
+	if(pos+21 > c->infile->len) return 0;
+	de_read(b, pos+2, sizeof(b));
+	if(b[0]!='-' || b[1]!='l' || b[4]!='-') return 0;
+	if(b[2]!='h' && b[2]!='z') return 0;
+	*pfoundpos = pos;
+	return 1;
+}
+
+static void lhasfx_find_payload(deark *c, struct lhasfx_context *d)
+{
+	if(d->sfx_container_is_larc) {
+		if(is_lharc_data_at(c, 594, &d->payload_offs)) {
+			goto done;
+		}
+	}
+	else {
+		if(is_lharc_data_at(c, 1260, &d->payload_offs) || // LHarc 1.12
+			is_lharc_data_at(c, 1263, &d->payload_offs) || // LHarc 1.13-1.14
+			is_lharc_data_at(c, 1290, &d->payload_offs)) // LHarc 1.00
+		{
+			goto done;
+		}
+	}
+
+done:
+	if(d->payload_offs==0) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+	}
+}
+
+static void de_run_lharc_sfx_com(deark *c, de_module_params *mparams)
+{
+	struct lhasfx_context *d = NULL;
+	int ret;
+
+	d = de_malloc(c, sizeof(struct lhasfx_context));
+
+	ret = looks_like_lharc_sfx_com(c, &d->sfx_container_is_larc);
+	if(!ret) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	de_declare_fmtf(c, "%s self-extracting archive (COM)",
+		(d->sfx_container_is_larc ? "LArc":"LHarc"));
+
+	lhasfx_find_payload(c, d);
+	if(d->errflag) goto done;
+
+	de_dbg(c, "payload found at: %"I64_FMT, d->payload_offs);
+
+	dbuf_create_file_from_slice(c->infile, d->payload_offs,
+		c->infile->len-d->payload_offs,
+		(d->sfx_container_is_larc ? "lzs" : "lha"), NULL, 0);
+
+done:
+	if(d->errflag && d->need_errmsg) {
+		de_err(c, "Not a known LHarc/LArc SFX format");
+	}
+	de_free(c, d);
+}
+
+static int de_identify_lharc_sfx_com(deark *c)
+{
+	int is_larc = 0;
+	int ret;
+
+	if(!de_input_file_has_ext(c, "com")) return 0;
+	ret = looks_like_lharc_sfx_com(c, &is_larc);
+	if(ret) return 70;
+	return 0;
+}
+
+void de_module_lharc_sfx_com(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "lharc_sfx_com";
+	mi->desc = "LHarc/LArc self-extracting archive (COM)";
+	mi->run_fn = de_run_lharc_sfx_com;
+	mi->identify_fn = de_identify_lharc_sfx_com;
 }
