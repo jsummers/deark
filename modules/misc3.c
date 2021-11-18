@@ -24,8 +24,11 @@ struct member_data {
 	i64 orig_len;
 	i64 cmpr_pos;
 	u8 orig_len_known;
-	de_ucstring *filename;
+	de_ucstring *filename; // Allocated by create_md().
+	de_ucstring *tmpfn_base; // Client allocates, freed automatically.
+	de_ucstring *tmpfn_path; // Client allocates, freed automatically.
 	struct de_timestamp tmstamp[DE_TIMESTAMPIDX_COUNT];
+	UI set_name_flags; // e.g. DE_SNFLAG_FULLPATH
 	u8 is_encrypted;
 
 	// Private use fields for the format decoder:
@@ -68,6 +71,8 @@ static void destroy_md(deark *c, struct member_data *md)
 {
 	if(!md) return;
 	ucstring_destroy(md->filename);
+	ucstring_destroy(md->tmpfn_base);
+	ucstring_destroy(md->tmpfn_path);
 	de_free(c, md);
 }
 
@@ -195,7 +200,7 @@ static void extract_member_file(struct member_data *md)
 
 	fi = de_finfo_create(c);
 
-	de_finfo_set_name_from_ucstring(c, fi, md->filename, 0);
+	de_finfo_set_name_from_ucstring(c, fi, md->filename, md->set_name_flags);
 	fi->original_filename_flag = 1;
 
 	for(k=0; k<DE_TIMESTAMPIDX_COUNT; k++) {
@@ -431,6 +436,56 @@ static void dwc_decompressor_fn(struct member_data *md)
 	}
 }
 
+static void squash_slashes(de_ucstring *s)
+{
+	i64 i;
+
+	for(i=0; i<s->len; i++) {
+		if(s->str[i]=='/') {
+			s->str[i] = '_';
+		}
+	}
+}
+
+// Convert backslashes to slashes, and make sure the string ends with a /.
+static void fixup_path(de_ucstring *s)
+{
+	i64 i;
+
+	if(s->len<1) return;
+
+	for(i=0; i<s->len; i++) {
+		if(s->str[i]=='\\') {
+			s->str[i] = '/';
+		}
+	}
+
+	if(s->str[s->len-1]!='/') {
+		ucstring_append_char(s, '/');
+	}
+}
+
+// Set md->filename to the full-path filename, using tmpfn_path + tmpfn_base.
+static void dwc_process_filename(deark *c, lctx *d, struct member_data *md)
+{
+	ucstring_empty(md->filename);
+	squash_slashes(md->tmpfn_base);
+	if(ucstring_isempty(md->tmpfn_path)) {
+		ucstring_append_ucstring(md->filename, md->tmpfn_base);
+		return;
+	}
+
+	md->set_name_flags |= DE_SNFLAG_FULLPATH;
+	ucstring_append_ucstring(md->filename, md->tmpfn_path);
+	fixup_path(md->filename);
+	if(ucstring_isempty(md->tmpfn_base)) {
+		ucstring_append_char(md->filename, '_');
+	}
+	else {
+		ucstring_append_ucstring(md->filename, md->tmpfn_base);
+	}
+}
+
 static void do_dwc_member(deark *c, lctx *d, i64 pos1, i64 fhsize)
 {
 	i64 pos = pos1;
@@ -441,14 +496,18 @@ static void do_dwc_member(deark *c, lctx *d, i64 pos1, i64 fhsize)
 	UI cdata_crc_calc;
 	u8 have_cdata_crc = 0;
 	u8 b;
+	de_ucstring *comment = NULL;
 
 	md = create_md(c, d);
 
 	de_dbg(c, "member header at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
-	dbuf_read_to_ucstring(c->infile, pos, 12, md->filename, DE_CONVFLAG_STOP_AT_NUL,
+	md->tmpfn_base = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, 12, md->tmpfn_base, DE_CONVFLAG_STOP_AT_NUL,
 		d->input_encoding);
-	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->tmpfn_base));
+	// tentative md->filename (could be used by error messages)
+	ucstring_append_ucstring(md->filename, md->tmpfn_base);
 	pos += 13;
 
 	read_field_orig_len_p(md, &pos);
@@ -484,6 +543,22 @@ static void do_dwc_member(deark *c, lctx *d, i64 pos1, i64 fhsize)
 		goto done;
 	}
 
+	if(path_len>1) {
+		md->tmpfn_path = ucstring_create(c);
+		dbuf_read_to_ucstring(c->infile, md->cmpr_pos+md->cmpr_len,
+			path_len-1,
+			md->tmpfn_path, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+		de_dbg(c, "path: \"%s\"", ucstring_getpsz_d(md->tmpfn_path));
+	}
+	if(cmt_len>1) {
+		comment = ucstring_create(c);
+		dbuf_read_to_ucstring(c->infile, md->cmpr_pos+md->cmpr_len+path_len,
+			cmt_len-1, comment, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+		de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(comment));
+	}
+
+	dwc_process_filename(c, d, md);
+
 	if(have_cdata_crc) {
 		if(!d->crco) {
 			d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
@@ -507,6 +582,7 @@ static void do_dwc_member(deark *c, lctx *d, i64 pos1, i64 fhsize)
 done:
 	de_dbg_indent(c, -1);
 	destroy_md(c, md);
+	ucstring_destroy(comment);
 }
 
 static int has_dwc_sig(deark *c)
