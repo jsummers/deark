@@ -638,13 +638,14 @@ static void do_fileheader(deark *c, lctx *d, i64 pos1)
 	n = de_getu16le_p(&pos);
 	de_dbg(c, "overlay indicator: %u", (UI)n);
 
-	de_dbg(c, "start of DOS executable code: %"I64_FMT, d->file_hdr_size);
-	de_dbg(c, "DOS entry point: %"I64_FMT, d->file_hdr_size + 16*regCS + regIP);
 	d->end_of_dos_code = nblocks*512;
 	if(lfb>=1 && lfb<=511) {
 		d->end_of_dos_code = d->end_of_dos_code - 512 + lfb;
 	}
-	de_dbg(c, "end of DOS executable code: %"I64_FMT, d->end_of_dos_code);
+
+	de_dbg(c, "DOS executable code: start=%"I64_FMT", len=%"I64_FMT", end=%"I64_FMT"",
+		d->file_hdr_size, d->end_of_dos_code-d->file_hdr_size, d->end_of_dos_code);
+	de_dbg(c, "DOS entry point: %"I64_FMT, d->file_hdr_size + 16*regCS + regIP);
 	if(d->end_of_dos_code < c->infile->len) {
 		de_dbg(c, "bytes after DOS executable code: %"I64_FMT, c->infile->len - d->end_of_dos_code);
 	}
@@ -1488,11 +1489,13 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 
 static int de_identify_exe(deark *c)
 {
-	u8 buf[2];
-	de_read(buf, 0, 2);
+	UI x;
 
-	if(buf[0]=='M' && buf[1]=='Z') return 80;
-	return 0;
+	x = (UI)de_getu16be(0);
+	if(x!=0x4d5aU) return 0; // "MZ"
+	x = (UI)de_getu16le(2); // lenFinal
+	if(x>511) return 0;
+	return 80;
 }
 
 void de_module_exe(deark *c, struct deark_module_info *mi)
