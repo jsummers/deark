@@ -132,14 +132,14 @@ static void do_decode_reloc_tbl_v091(deark *c, lctx *d, i64 ipos1)
 
 			x2 = (UI)de_getu16le_p(&ipos);
 			if(x2==0) {
-				reloc += 0xfff; // TODO: test this
+				reloc += 0xfff0;
 				continue;
 			}
 			else if(x2==1) {
 				break;
 			}
 			else {
-				reloc += x2; // TODO: test this
+				reloc += x2;
 			}
 		}
 		else {
@@ -289,11 +289,12 @@ done:
 }
 
 // Generate the decompressed file
-static void do_write_dcmpr(deark *c, lctx *d)
+static void do_write_dcmpr(deark *c, lctx *d, struct fmtutil_exe_info *ei)
 {
 	dbuf *outf = NULL;
 	i64 o_file_size;
 	i64 o_start_of_code;
+	i64 overlay_len;
 	UI minmem, maxmem;
 
 	de_dbg(c, "generating output file");
@@ -346,6 +347,15 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	dbuf_truncate(outf, o_start_of_code);
 	dbuf_copy(d->o_dcmpr_code, 0, d->o_dcmpr_code->len, outf);
 
+	// Some LZEXE-compressed files have an "overlay" segment that should be
+	// retained. (Not sure where such files come from.)
+	overlay_len = c->infile->len - ei->end_of_dos_code;
+	if(overlay_len>0) {
+		de_dbg(c, "overlay data at %"I64_FMT", len=%"I64_FMT, ei->end_of_dos_code,
+			overlay_len);
+		dbuf_copy(c->infile, ei->end_of_dos_code, overlay_len, outf);
+	}
+
 	dbuf_close(outf);
 	de_dbg_indent(c, -1);
 }
@@ -390,7 +400,7 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 	do_decompress_code(c, d);
 	if(d->errflag) goto done;
 
-	do_write_dcmpr(c, d);
+	do_write_dcmpr(c, d, ei);
 
 done:
 

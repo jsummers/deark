@@ -4,14 +4,12 @@
 
 // Detokenize Commodore 64 BASIC programs.
 //
-// For now at least, it emits a text file having PETSCII encoding.
+// For now at least, it emits a text file having (mostly) PETSCII encoding.
 //
-// It might be nice to use UTF-8 instead, but that's not really possible,
-// because not all PETSCII characters are represented in Unicode, and for
-// various other reasons.
-//
-// Another idea is to write it to HTML format, but that will require some
-// wizardry to do well.
+// As of 2020, PETSCII is pretty well supported by Unicode. But a plain text
+// UTF-8 file is still not a good output format, due to the need for reverse-
+// video characters, if nothing else. Using HTML as the output format would
+// probably be a better idea.
 
 #include <deark-config.h>
 #include <deark-private.h>

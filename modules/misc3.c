@@ -23,8 +23,13 @@ struct member_data {
 	i64 cmpr_len;
 	i64 orig_len;
 	i64 cmpr_pos;
-	de_ucstring *filename;
+	u8 orig_len_known;
+	de_ucstring *filename; // Allocated by create_md().
+	de_ucstring *tmpfn_base; // Client allocates, freed automatically.
+	de_ucstring *tmpfn_path; // Client allocates, freed automatically.
 	struct de_timestamp tmstamp[DE_TIMESTAMPIDX_COUNT];
+	UI set_name_flags; // e.g. DE_SNFLAG_FULLPATH
+	u8 is_encrypted;
 
 	// Private use fields for the format decoder:
 	UI cmpr_meth;
@@ -44,8 +49,11 @@ struct localctx_struct {
 	de_encoding input_encoding;
 	i64 num_members;
 	i64 cmpr_data_curpos;
-	struct de_crcobj *crco;
-	int errflag; // set on fatal error
+	struct de_crcobj *crco; // decoder must create; is destroyed automatically
+	int fatalerrflag;
+
+	// Private use fields for the format decoder:
+	int private1;
 };
 
 static struct member_data *create_md(deark *c, lctx *d)
@@ -63,6 +71,8 @@ static void destroy_md(deark *c, struct member_data *md)
 {
 	if(!md) return;
 	ucstring_destroy(md->filename);
+	ucstring_destroy(md->tmpfn_base);
+	ucstring_destroy(md->tmpfn_path);
 	de_free(c, md);
 }
 
@@ -85,6 +95,7 @@ static void destroy_lctx(deark *c, lctx *d)
 static void handle_field_orig_len(struct member_data *md, i64 n)
 {
 	md->orig_len = n;
+	md->orig_len_known = 1;
 	de_dbg(md->c, "original size: %"I64_FMT, md->orig_len);
 }
 
@@ -115,7 +126,7 @@ static void read_field_cmpr_len_p(struct member_data *md, i64 *ppos)
 // tstype:
 //   1 = Unix
 //   2 = DOS,date first
-static void read_field_dttm_mod_p(lctx *d,
+static void read_field_dttm_p(lctx *d,
 	struct de_timestamp *ts, const char *name,
 	int tstype, i64 *ppos)
 {
@@ -178,9 +189,18 @@ static void extract_member_file(struct member_data *md)
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
 
+	if(md->orig_len>0 && !md->orig_len_known) goto done; // sanity check
+	if(md->is_encrypted) {
+		de_err(c, "%s: Encrypted files are not supported", ucstring_getpsz_d(md->filename));
+		goto done;
+	}
+	if(!good_cmpr_data_pos(md)) {
+		goto done;
+	}
+
 	fi = de_finfo_create(c);
 
-	de_finfo_set_name_from_ucstring(c, fi, md->filename, 0);
+	de_finfo_set_name_from_ucstring(c, fi, md->filename, md->set_name_flags);
 	fi->original_filename_flag = 1;
 
 	for(k=0; k<DE_TIMESTAMPIDX_COUNT; k++) {
@@ -194,13 +214,16 @@ static void extract_member_file(struct member_data *md)
 	dcmpri.pos = md->cmpr_pos;
 	dcmpri.len = md->cmpr_len;
 	dcmpro.f = outf;
-	dcmpro.len_known = 1;
+	dcmpro.len_known = md->orig_len_known;
 	dcmpro.expected_len = md->orig_len;
 	md->dcmpri = &dcmpri;
 	md->dcmpro = &dcmpro;
 	md->dres = &dres;
 
-	if(md->dfn) {
+	if(md->orig_len_known && md->orig_len==0) {
+		;
+	}
+	else if(md->dfn) {
 		md->dfn(md);
 	}
 	else {
@@ -210,6 +233,12 @@ static void extract_member_file(struct member_data *md)
 	if(dres.errcode) {
 		de_err(c, "%s: Decompression failed: %s", ucstring_getpsz_d(md->filename),
 			de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
+
+	if(md->orig_len_known && (outf->len != md->orig_len)) {
+		de_err(c, "%s: Expected %"I64_FMT" decompressed bytes, got %"I64_FMT,
+			ucstring_getpsz_d(md->filename), md->orig_len, outf->len);
 		goto done;
 	}
 
@@ -273,10 +302,10 @@ static void cpshrink_do_member(deark *c, lctx *d, struct member_data *md)
 	read_field_cmpr_len_p(md, &pos);
 	d->cmpr_data_curpos += md->cmpr_len;
 
-	read_field_dttm_mod_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 2, &pos);
+	read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 2, &pos);
 
 	if(!good_cmpr_data_pos(md)) {
-		d->errflag = 1;
+		d->fatalerrflag = 1;
 		goto done;
 	}
 
@@ -357,7 +386,7 @@ static void de_run_cpshrink(deark *c, de_module_params *mparams)
 
 		cpshrink_do_member(c, d, md);
 		destroy_md(c, md);
-		if(d->errflag) goto done;
+		if(d->fatalerrflag) goto done;
 	}
 
 done:
@@ -388,6 +417,75 @@ void de_module_cpshrink(deark *c, struct deark_module_info *mi)
 // DWC archive
 // **************************************************************************
 
+static void dwc_decompressor_fn(struct member_data *md)
+{
+	deark *c = md->c;
+
+	if(md->cmpr_meth==1) {
+		struct de_lzw_params delzwp;
+
+		de_zeromem(&delzwp, sizeof(struct de_lzw_params));
+		delzwp.fmt = DE_LZWFMT_DWC;
+		fmtutil_decompress_lzw(c, md->dcmpri, md->dcmpro, md->dres, &delzwp);
+	}
+	else if(md->cmpr_meth==2) {
+		fmtutil_decompress_uncompressed(c, md->dcmpri, md->dcmpro, md->dres, 0);
+	}
+	else {
+		de_dfilter_set_generic_error(c, md->dres, NULL);
+	}
+}
+
+static void squash_slashes(de_ucstring *s)
+{
+	i64 i;
+
+	for(i=0; i<s->len; i++) {
+		if(s->str[i]=='/') {
+			s->str[i] = '_';
+		}
+	}
+}
+
+// Convert backslashes to slashes, and make sure the string ends with a /.
+static void fixup_path(de_ucstring *s)
+{
+	i64 i;
+
+	if(s->len<1) return;
+
+	for(i=0; i<s->len; i++) {
+		if(s->str[i]=='\\') {
+			s->str[i] = '/';
+		}
+	}
+
+	if(s->str[s->len-1]!='/') {
+		ucstring_append_char(s, '/');
+	}
+}
+
+// Set md->filename to the full-path filename, using tmpfn_path + tmpfn_base.
+static void dwc_process_filename(deark *c, lctx *d, struct member_data *md)
+{
+	ucstring_empty(md->filename);
+	squash_slashes(md->tmpfn_base);
+	if(ucstring_isempty(md->tmpfn_path)) {
+		ucstring_append_ucstring(md->filename, md->tmpfn_base);
+		return;
+	}
+
+	md->set_name_flags |= DE_SNFLAG_FULLPATH;
+	ucstring_append_ucstring(md->filename, md->tmpfn_path);
+	fixup_path(md->filename);
+	if(ucstring_isempty(md->tmpfn_base)) {
+		ucstring_append_char(md->filename, '_');
+	}
+	else {
+		ucstring_append_ucstring(md->filename, md->tmpfn_base);
+	}
+}
+
 static void do_dwc_member(deark *c, lctx *d, i64 pos1, i64 fhsize)
 {
 	i64 pos = pos1;
@@ -398,27 +496,34 @@ static void do_dwc_member(deark *c, lctx *d, i64 pos1, i64 fhsize)
 	UI cdata_crc_calc;
 	u8 have_cdata_crc = 0;
 	u8 b;
+	de_ucstring *comment = NULL;
 
 	md = create_md(c, d);
 
 	de_dbg(c, "member header at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
-	dbuf_read_to_ucstring(c->infile, pos, 12, md->filename, DE_CONVFLAG_STOP_AT_NUL,
+	md->tmpfn_base = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, 12, md->tmpfn_base, DE_CONVFLAG_STOP_AT_NUL,
 		d->input_encoding);
-	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->tmpfn_base));
+	// tentative md->filename (could be used by error messages)
+	ucstring_append_ucstring(md->filename, md->tmpfn_base);
 	pos += 13;
 
 	read_field_orig_len_p(md, &pos);
-	read_field_dttm_mod_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 1, &pos);
+	read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 1, &pos);
 	read_field_cmpr_len_p(md, &pos);
 	md->cmpr_pos = de_getu32le_p(&pos);
 	de_dbg(c, "cmpr. data pos: %"I64_FMT, md->cmpr_pos);
 
 	b = de_getbyte_p(&pos);
 	md->cmpr_meth = ((UI)b) & 0x0f;
-	md->file_flags = ((UI)b) >> 4;
 	de_dbg(c, "cmpr. method: %u", md->cmpr_meth);
+	md->file_flags = ((UI)b) >> 4;
 	de_dbg(c, "flags: 0x%x", md->file_flags);
+	if(md->file_flags & 0x4) {
+		md->is_encrypted = 1;
+	}
 
 	if(fhsize>=31) {
 		cmt_len = (i64)de_getbyte_p(&pos);
@@ -435,9 +540,24 @@ static void do_dwc_member(deark *c, lctx *d, i64 pos1, i64 fhsize)
 	}
 
 	if(!good_cmpr_data_pos(md)) {
-		d->errflag = 1;
 		goto done;
 	}
+
+	if(path_len>1) {
+		md->tmpfn_path = ucstring_create(c);
+		dbuf_read_to_ucstring(c->infile, md->cmpr_pos+md->cmpr_len,
+			path_len-1,
+			md->tmpfn_path, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+		de_dbg(c, "path: \"%s\"", ucstring_getpsz_d(md->tmpfn_path));
+	}
+	if(cmt_len>1) {
+		comment = ucstring_create(c);
+		dbuf_read_to_ucstring(c->infile, md->cmpr_pos+md->cmpr_len+path_len,
+			cmt_len-1, comment, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+		de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(comment));
+	}
+
+	dwc_process_filename(c, d, md);
 
 	if(have_cdata_crc) {
 		if(!d->crco) {
@@ -454,9 +574,15 @@ static void do_dwc_member(deark *c, lctx *d, i64 pos1, i64 fhsize)
 		}
 	}
 
+	if(d->private1) {
+		md->dfn = dwc_decompressor_fn;
+		extract_member_file(md);
+	}
+
 done:
 	de_dbg_indent(c, -1);
 	destroy_md(c, md);
+	ucstring_destroy(comment);
 }
 
 static int has_dwc_sig(deark *c)
@@ -478,18 +604,25 @@ static void de_run_dwc(deark *c, de_module_params *mparams)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_info(c, "Note: DWC files can be parsed, but no files can be extracted from them.");
+
 	d = create_lctx(c);
 	d->is_le = 1;
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
-
-	de_dbg(c, "trailer");
-	de_dbg_indent(c, 1);
+	d->private1 = de_get_ext_option_bool(c, "dwc:extract", 0);
 
 	if(!has_dwc_sig(c)) {
 		de_err(c, "Not a DWC file");
 		goto done;
 	}
+	de_declare_fmt(c, "DWC archive");
+
+	if(!d->private1) {
+		de_info(c, "Note: Use \"-opt dwc:extract\" to attempt decompression "
+			"(works for most small files).");
+	}
+
+	de_dbg(c, "trailer");
+	de_dbg_indent(c, 1);
 
 	pos = c->infile->len - 27; // Position of the "trailer size" field
 	trailer_len = de_getu16le_p(&pos); // Usually 27
@@ -508,7 +641,7 @@ static void de_run_dwc(deark *c, de_module_params *mparams)
 	}
 
 	pos += 13; // TODO?: name of header file ("h" command)
-	read_field_dttm_mod_p(d, &tmpts, "archive last-modified", 1, &pos);
+	read_field_dttm_p(d, &tmpts, "archive last-modified", 1, &pos);
 
 	nmembers = de_getu16le_p(&pos);
 	de_dbg(c, "number of member files: %d", (int)nmembers);
@@ -521,7 +654,7 @@ static void de_run_dwc(deark *c, de_module_params *mparams)
 	}
 	for(i=0; i<nmembers; i++) {
 		do_dwc_member(c, d, pos, fhsize);
-		if(d->errflag) goto done;
+		if(d->fatalerrflag) goto done;
 		pos += fhsize;
 	}
 
@@ -553,10 +686,17 @@ static int de_identify_dwc(deark *c)
 	return 0;
 }
 
+static void de_help_dwc(deark *c)
+{
+	de_msg(c, "-opt dwc:extract : Try to decompress");
+}
+
 void de_module_dwc(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "dwc";
 	mi->desc = "DWC compressed archive";
 	mi->run_fn = de_run_dwc;
 	mi->identify_fn = de_identify_dwc;
+	mi->help_fn = de_help_dwc;
+	mi->flags |= DE_MODFLAG_NONWORKING;
 }

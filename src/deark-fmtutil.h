@@ -158,7 +158,8 @@ enum de_lzwfmt_enum {
 	DE_LZWFMT_ZIPSHRINK,
 	DE_LZWFMT_ZOOLZD,
 	DE_LZWFMT_TIFF,
-	DE_LZWFMT_ARC5
+	DE_LZWFMT_ARC5,
+	DE_LZWFMT_DWC
 };
 
 struct de_lzw_params {
