@@ -241,10 +241,11 @@ static const struct ver_fingerprint_item ver_fingerprint_arr[] = {
 	{0x1f735486U, 0x0132, 0, "-2.01"},
 	{0xb5153795U, 0x110c, 0, NULL},
 	{0xfa91a037U, 0x110d, 0, NULL},
-	{0x9f8d6c74U, 0x1114, 0, "[ZIP2EXEv2.04c-e]"},
+	{0x9f8d6c74U, 0x1114, 0, "[ZIP2EXEv2.04c]"},
 	{0xdf1595baU, 0x1114, 0, "[ZIP2EXEv2.04cReg]"}, // unconfirmed
-	{0xe95a2c43U, 0x1114, 0, "[ZIP2EXEv2.04g]"},
+	{0xe95a2c43U, 0x1114, 0, "[ZIP2EXEv2.04e-g]"},
 	{0xa218a5f3U, 0x1114, 0, "[ZIP2EXEv2.04gReg]"},
+	{0x9debdd68U, 0x1114, 0, "[ZIP2EXEv2.50]"},
 	{0xc12bb6cfU, 0x2100, 1, "beta"},
 	{0xd8441452U, 0x2100, 0, NULL},
 	{0x77f75f9dU, 0x2103, 0, NULL},
