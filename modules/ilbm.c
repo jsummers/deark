@@ -88,6 +88,7 @@ struct frame_ctx {
 typedef struct localctx_struct {
 	int is_anim;
 	u32 formtype;
+	char formtype_sanitized_sz[8];
 	i64 main_chunk_endpos;
 	int FORM_level; // nesting level of the frames' FORM chunks
 	int errflag;
@@ -2487,14 +2488,7 @@ static void print_summary(deark *c, lctx *d)
 
 	s = ucstring_create(c);
 
-	switch(d->formtype) {
-	case CODE_ANIM: summary_append(s, "ANIM"); break;
-	case CODE_ILBM: summary_append(s, "ILBM"); break;
-	case CODE_PBM:  summary_append(s, "PBM"); break;
-	case CODE_ACBM: summary_append(s, "ACBM"); break;
-	default: summary_append(s, "???"); break;
-	}
-
+	summary_append(s,"%s", d->formtype_sanitized_sz);
 	summary_append(s, "planes=%d", (int)d->planes_raw);
 	if(d->masking_code!=0) summary_append(s, "masking=%d", (int)d->masking_code);
 	summary_append(s, "cmpr=%d", (int)d->compression);
@@ -2526,11 +2520,22 @@ done:
 	ucstring_destroy(s);
 }
 
+static void strip_trailing_space_sz(char *sz)
+{
+	size_t n;
+
+	n = de_strlen(sz);
+	if(n>1 && sz[n-1]==0x20) {
+		sz[n-1] = '\0';
+	}
+}
+
 static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 {
 	u32 id;
 	lctx *d = NULL;
 	struct de_iffctx *ictx = NULL;
+	struct de_fourcc formtype_4cc;
 
 	d = de_malloc(c, sizeof(lctx));
 	d->opt_fixpal = (u8)de_get_ext_option_bool(c, "ilbm:fixpal", 1);
@@ -2546,25 +2551,28 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 		de_err(c, "Not an IFF file");
 		goto done;
 	}
-	d->formtype = (u32)de_getu32be(8);
+
+	dbuf_read_fourcc(c->infile, 8, &formtype_4cc, 4, 0);
+	d->formtype = formtype_4cc.id;
+	de_strlcpy(d->formtype_sanitized_sz, formtype_4cc.id_sanitized_sz, sizeof(d->formtype_sanitized_sz));
+
+	// A quick hack, so we have "PBM" instead of "PBM ".
+	// TODO: Maybe dbuf_read_fourcc should do this, or have an option to.
+	strip_trailing_space_sz(d->formtype_sanitized_sz);
+
 	switch(d->formtype) {
 	case CODE_ANIM:
-		de_declare_fmt(c, "IFF-ANIM");
 		d->is_anim = 1;
 		break;
 	case CODE_ILBM:
-		de_declare_fmt(c, "IFF-ILBM");
-		break;
 	case CODE_ACBM:
-		de_declare_fmt(c, "IFF-ACBM");
-		break;
 	case CODE_PBM:
-		de_declare_fmt(c, "IFF-PBM");
 		break;
 	default:
-		de_err(c, "Not a supported IFF format");
+		de_err(c, "Not a supported ILBM-like format (%s)", d->formtype_sanitized_sz);
 		goto done;
 	}
+	de_declare_fmtf(c, "IFF-%s", d->formtype_sanitized_sz);
 
 	if(d->is_anim) {
 		d->opt_anim_includedups = (u8)de_get_ext_option_bool(c, "anim:includedups", 0);
@@ -2616,9 +2624,12 @@ static int de_identify_ilbm(deark *c)
 	id = (u32)de_getu32be(0);
 	if(id!=CODE_FORM) return 0;
 	id = (u32)de_getu32be(8);
-	if(id==CODE_ILBM) return 100;
-	if(id==CODE_PBM ) return 100;
-	if(id==CODE_ACBM) return 100;
+	switch(id) {
+	case CODE_ILBM:
+	case CODE_PBM:
+	case CODE_ACBM:
+		return 100;
+	}
 	return 0;
 }
 
