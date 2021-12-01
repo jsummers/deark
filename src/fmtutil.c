@@ -1755,18 +1755,23 @@ done:
 }
 
 // If found, writes a copy of pos to *pfoundpos.
-static int is_lha_data_at(struct fmtutil_exe_info *ei, i64 pos, i64 *pfoundpos)
+static int is_lhalike_data_at(struct fmtutil_exe_info *ei, i64 pos, u8 h_or_z, i64 *pfoundpos)
 {
 	u8 b2[8];
 
 	if(pos+21 > ei->f->len) return 0;
 	dbuf_read(ei->f, b2, pos, sizeof(b2));
 	if(b2[2]!='-' || b2[6]!='-') return 0;
-	if(b2[3]=='l' && b2[4]=='h') {
+	if(b2[3]=='l' && b2[4]==h_or_z) {
 		*pfoundpos = pos;
 		return 1;
 	}
 	return 0;
+}
+
+static int is_lha_data_at(struct fmtutil_exe_info *ei, i64 pos, i64 *pfoundpos)
+{
+	return is_lhalike_data_at(ei, pos, 'h', pfoundpos);
 }
 
 // Detect LHA/LHarc self-extracting DOS EXE formats.
@@ -1821,6 +1826,34 @@ static void detect_exesfx_lha(deark *c, struct execomp_ctx *ectx,
 done:
 	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
 		de_strlcpy(ectx->shortname, "LHA", sizeof(ectx->shortname));
+	}
+}
+
+static void detect_exesfx_larc(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	int found;
+	i64 foundpos = 0;
+
+	calc_entrypoint_crc(c, ectx, ei);
+	if(ei->entrypoint_crcs!=0x81681852d3882b18ULL) {
+		goto done;
+	}
+
+	found = is_lhalike_data_at(ei, ei->entry_point+525, 'z', &foundpos);
+	if(!found) goto done;
+
+	edd->payload_pos = foundpos;
+	edd->payload_len = ei->f->len - edd->payload_pos;
+	if(edd->payload_len<21) goto done;
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_SFX;
+	edd->payload_valid = 1;
+	edd->payload_file_ext = "lzs";
+
+done:
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
+		de_strlcpy(ectx->shortname, "LArc", sizeof(ectx->shortname));
 	}
 }
 
@@ -1903,6 +1936,9 @@ void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	if(edd->detected_fmt) goto done;
 
 	detect_exesfx_arc(c, &ectx, ei, edd);
+	if(edd->detected_fmt) goto done;
+
+	detect_exesfx_larc(c, &ectx, ei, edd);
 
 done:
 	if(ectx.shortname[0] && ectx.verstr[0]) {
