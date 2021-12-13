@@ -921,7 +921,7 @@ void dbuf_read_to_ucstring_ex(dbuf *f, i64 pos1, i64 len,
 
 		conv_flags_to_use_this_time = conv_flags;
 		if(nbytes_remaining>0) {
-			// The caller may have aleady set this flag, in which case we will use
+			// The caller may have already set this flag, in which case we will use
 			// it every time.
 			// If not, we still use it for all but the final call to ucstring_append_bytes_ex().
 			conv_flags_to_use_this_time |= DE_CONVFLAG_PARTIAL_DATA;
@@ -1819,7 +1819,7 @@ void dbuf_close(dbuf *f)
 	if(c->total_output_size > c->max_total_output_size) {
 		// FIXME: Since we only do this check when a file is closed, it can
 		// potentially be subverted in the (rare) case that Deark has multiple
-		// output files open simultanously.
+		// output files open simultaneously.
 		de_err(c, "Maximum total output size of %"I64_FMT" bytes exceeded",
 			c->max_total_output_size);
 		de_fatalerror(c);
