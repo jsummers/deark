@@ -467,7 +467,7 @@ static void render_plaintext_char(deark *c, lctx *d, u8 ch,
 
 struct plaintext_ext_ctx {
 	int header_ok;
-	int ok_to_render; // If 0, something's wrong, and we should't draw the pixels
+	int ok_to_render; // If 0, something's wrong, and we shouldn't draw the pixels
 	i64 textarea_xpos_in_pixels, textarea_ypos_in_pixels;
 	i64 textarea_xsize_in_pixels, textarea_ysize_in_pixels;
 	i64 text_width_in_chars;
@@ -1261,7 +1261,7 @@ static void de_help_gif(deark *c)
 {
 	de_msg(c, "-opt gif:raw : Extract individual component images");
 	de_msg(c, "-opt gif:dumpplaintext : Also extract plain text extensions to text files");
-	de_msg(c, "-opt gif:dumpscreen : Also extact the final \"screen\" contents");
+	de_msg(c, "-opt gif:dumpscreen : Also extract the final \"screen\" contents");
 }
 
 void de_module_gif(deark *c, struct deark_module_info *mi)
