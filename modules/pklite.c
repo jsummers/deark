@@ -175,7 +175,8 @@ done:
 	}
 
 	if(d->cmpr_data_pos!=0) {
-		de_dbg(c, "cmpr data pos: %"I64_FMT, d->cmpr_data_pos);
+		de_dbg(c, "cmpr data pos: %"I64_FMT" (%"I64_FMT" from code start)", d->cmpr_data_pos,
+			d->cmpr_data_pos - d->ei->start_of_dos_code);
 
 		if(d->data_before_decoder) {
 			d->cmpr_data_area_endpos = d->ei->entry_point;
