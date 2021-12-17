@@ -41,7 +41,7 @@ static int do_packdir_header(deark *c, struct pdctx_struct *d)
 	d->lzw_maxbits = maxbits_raw + 12;
 	de_dbg(c, "lzw maxbits: %u (+12=%u)", maxbits_raw, d->lzw_maxbits);
 	if(d->lzw_maxbits>16) {
-		de_err(c, "Unspported \"maxbits\" value: %u", d->lzw_maxbits);
+		de_err(c, "Unsupported \"maxbits\" value: %u", d->lzw_maxbits);
 		goto done;
 	}
 	retval = 1;
