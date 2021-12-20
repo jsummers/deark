@@ -32,8 +32,9 @@ typedef struct localctx_struct {
 	u8 attributes_type;
 	u8 top_down, right_to_left;
 	u8 interleave_mode;
-	int has_signature;
-	int has_extension_area;
+	i64 v2_footer_pos;
+	int has_v2_signature;
+	int has_ext_area_attribs_type;
 #define TGA_CMPR_UNKNOWN 0
 #define TGA_CMPR_NONE    1
 #define TGA_CMPR_RLE     2
@@ -77,7 +78,7 @@ static int should_use_alpha_channel(deark *c, lctx *d, struct tgaimginfo *imginf
 		return 0;
 	}
 
-	if(d->has_extension_area) {
+	if(d->has_ext_area_attribs_type) {
 		if(d->attributes_type==0) {
 			// attributes_type==0 technically also means there is no transparency,
 			// but this cannot be trusted.
@@ -126,7 +127,7 @@ static int should_use_alpha_channel(deark *c, lctx *d, struct tgaimginfo *imginf
 }
 
 static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf *unc_pixels,
-	const char *token, unsigned int createflags)
+	const char *token, UI createflags)
 {
 	de_bitmap *img = NULL;
 	de_finfo *fi = NULL;
@@ -137,7 +138,7 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 	u8 a;
 	i64 rowspan;
 	int output_bypp;
-	unsigned int getrgbflags;
+	UI getrgbflags;
 	i64 interleave_stride;
 	i64 interleave_pass;
 	i64 cur_rownum; // 0-based, does not account for bottom-up orientation
@@ -249,7 +250,7 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 			}
 			else if(d->color_type==TGA_CLRTYPE_PALETTE) {
 				b = dbuf_getbyte(unc_pixels, j*rowspan + i*d->bytes_per_pixel);
-				de_bitmap_setpixel_rgb(img, i_adj, j_adj, d->pal[(unsigned int)b]);
+				de_bitmap_setpixel_rgb(img, i_adj, j_adj, d->pal[(UI)b]);
 			}
 		}
 	}
@@ -380,7 +381,7 @@ static int do_read_palette(deark *c, lctx *d, i64 pos)
 {
 	i64 i;
 	i64 idx;
-	unsigned int getrgbflags;
+	UI getrgbflags;
 
 	if(d->color_type != TGA_CLRTYPE_PALETTE) {
 		return 1; // don't care about the palette
@@ -409,17 +410,19 @@ static int do_read_palette(deark *c, lctx *d, i64 pos)
 	return 1;
 }
 
-static void do_read_extension_area(deark *c, lctx *d, i64 pos)
+static void do_read_extension_area(deark *c, lctx *d, i64 pos1)
 {
 	i64 ext_area_size;
+	i64 endpos;
 	i64 k;
 	int has_date;
 	de_ucstring *s = NULL;
+	i64 pos = pos1;
 	i64 val[6];
 
-	de_dbg(c, "extension area at %d", (int)pos);
-	if(pos > c->infile->len - 2) {
-		de_warn(c, "Bad extension area offset: %u", (unsigned int)pos);
+	de_dbg(c, "extension area at %"I64_FMT, pos1);
+	if(pos1 > c->infile->len - 2) {
+		de_warn(c, "Bad extension area offset: %"I64_FMT, pos1);
 		return;
 	}
 
@@ -427,28 +430,31 @@ static void do_read_extension_area(deark *c, lctx *d, i64 pos)
 
 	s = ucstring_create(c);
 
-	ext_area_size = de_getu16le(pos);
+	ext_area_size = de_getu16le_p(&pos);
 	de_dbg(c, "extension area size: %d", (int)ext_area_size);
-	if(ext_area_size<495) goto done;
+	endpos = pos1+ext_area_size;
 
-	d->has_extension_area = 1;
-
+	if(pos+41>endpos) goto done;
 	ucstring_empty(s);
-	dbuf_read_to_ucstring(c->infile, pos+2, 41, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	dbuf_read_to_ucstring(c->infile, pos, 41, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	ucstring_strip_trailing_spaces(s);
 	de_dbg(c, "author: \"%s\"", ucstring_getpsz_d(s));
+	pos += 41;
 
 	for(k=0; k<4; k++) {
+		if(pos+81>endpos) goto done;
 		ucstring_empty(s);
-		dbuf_read_to_ucstring(c->infile, pos+43+81*k, 81, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+		dbuf_read_to_ucstring(c->infile, pos, 81, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 		ucstring_strip_trailing_spaces(s);
 		de_dbg(c, "comment line %d: \"%s\"", (int)k, ucstring_getpsz_d(s));
+		pos += 81;
 	}
 
 	// date/time: pos=367, size=12
+	if(pos+12>endpos) goto done;
 	has_date = 0;
 	for(k=0; k<6; k++) {
-		val[k] = de_getu16le(pos+367+2*k);
+		val[k] = de_getu16le_p(&pos);
 		if(val[k]!=0) has_date = 1;
 	}
 	if(has_date) {
@@ -461,48 +467,61 @@ static void do_read_extension_area(deark *c, lctx *d, i64 pos)
 	}
 
 	// Job name: pos=379, size=41 (not implemented)
+	pos += 41;
 	// Job time: pos=420, size=6 (not implemented)
+	pos += 6;
 
+	if(pos+41>endpos) goto done;
 	ucstring_empty(s);
-	dbuf_read_to_ucstring(c->infile, pos+426, 41, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	dbuf_read_to_ucstring(c->infile, pos, 41, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	ucstring_strip_trailing_spaces(s);
 	de_dbg(c, "software id: \"%s\"", ucstring_getpsz_d(s));
+	pos += 41;
 
-	val[0] = de_getu16le(pos+467);
-	val[1] = (i64)de_getbyte(pos+469);
+	if(pos+3>endpos) goto done;
+	val[0] = de_getu16le_p(&pos);
+	val[1] = (i64)de_getbyte_p(&pos);
 	if(val[0]!=0 || val[1]!=32) {
 		de_dbg(c, "software version: %u,%u,%u",
-			(unsigned int)(val[0]/100), (unsigned int)(val[0]%100),
-			(unsigned int)val[1]);
+			(UI)(val[0]/100), (UI)(val[0]%100),
+			(UI)val[1]);
 	}
 
-	val[0] = de_getu32le(pos+470);
+	if(pos+4>endpos) goto done;
+	val[0] = de_getu32le_p(&pos);
 	if(val[0]!=0) {
-		de_dbg(c, "background color: 0x%08x", (unsigned int)val[0]);
+		de_dbg(c, "background color: 0x%08x", (UI)val[0]);
 	}
 
 	// TODO: Retain the aspect ratio. (Need sample files. Nobody seems to use this field.)
-	d->aspect_ratio_num = de_getu16le(pos+474);
-	d->aspect_ratio_den = de_getu16le(pos+476);
+	if(pos+4>endpos) goto done;
+	d->aspect_ratio_num = de_getu16le_p(&pos);
+	d->aspect_ratio_den = de_getu16le_p(&pos);
 	if(d->aspect_ratio_den!=0) {
 		de_dbg(c, "aspect ratio: %d/%d", (int)d->aspect_ratio_num, (int)d->aspect_ratio_den);
 	}
 
 	// Gamma: pos=478, size=4 (not implemented)
+	pos += 4;
 	// Color correction table offset: pos=482, size=4 (not implemented)
+	pos += 4;
 
-	d->thumbnail_offset = de_getu32le(pos+486);
-	de_dbg(c, "thumbnail image offset: %d", (int)d->thumbnail_offset);
+	if(pos+4>endpos) goto done;
+	d->thumbnail_offset = de_getu32le_p(&pos);
+	de_dbg(c, "thumbnail image offset: %"I64_FMT, d->thumbnail_offset);
 
-	val[0] = de_getu32le(pos+490);
+	if(pos+4>endpos) goto done;
+	val[0] = de_getu32le_p(&pos);
 	de_dbg(c, "scan line table offset: %"I64_FMT, val[0]);
 
-	d->attributes_type = de_getbyte(pos+494);
-	de_dbg(c, "attributes type: %d", (int)d->attributes_type);
+	if(pos+1>endpos) goto done;
+	d->attributes_type = de_getbyte_p(&pos);
+	d->has_ext_area_attribs_type = 1;
+	de_dbg(c, "attributes type: %u", (UI)d->attributes_type);
 	if(d->attributes_type==0 && d->num_attribute_bits!=0) {
 		de_warn(c, "Incompatible \"number of attribute bits\" (%d) and \"attributes type\" "
-			"(%d) fields. Transparency may not be handled correctly.",
-			(int)d->num_attribute_bits, (int)d->attributes_type);
+			"(%u) fields. Transparency may not be handled correctly.",
+			(int)d->num_attribute_bits, (UI)d->attributes_type);
 	}
 
 done:
@@ -516,9 +535,9 @@ static void do_read_developer_area(deark *c, lctx *d, i64 pos)
 	i64 i;
 	i64 tag_id, tag_data_pos, tag_data_size;
 
-	de_dbg(c, "developer area at %d", (int)pos);
+	de_dbg(c, "developer area at %"I64_FMT, pos);
 	if(pos > c->infile->len - 2) {
-		de_warn(c, "Bad developer area offset: %u", (unsigned int)pos);
+		de_warn(c, "Bad developer area offset: %"I64_FMT, pos);
 		return;
 	}
 
@@ -547,16 +566,15 @@ static void do_read_developer_area(deark *c, lctx *d, i64 pos)
 
 static void do_read_footer(deark *c, lctx *d)
 {
-	i64 footerpos;
 	i64 ext_offset, dev_offset;
+	i64 pos = d->v2_footer_pos;
 
-	footerpos = c->infile->len - 26;
-	de_dbg(c, "v2 footer at %d", (int)footerpos);
+	de_dbg(c, "v2 footer at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
-	ext_offset = de_getu32le(footerpos);
-	de_dbg(c, "extension area offset: %d", (int)ext_offset);
-	dev_offset = de_getu32le(footerpos+4);
-	de_dbg(c, "developer area offset: %d", (int)dev_offset);
+	ext_offset = de_getu32le_p(&pos);
+	de_dbg(c, "extension area offset: %"I64_FMT, ext_offset);
+	dev_offset = de_getu32le_p(&pos);
+	de_dbg(c, "developer area offset: %"I64_FMT, dev_offset);
 	de_dbg_indent(c, -1);
 
 	if(ext_offset!=0) {
@@ -571,7 +589,7 @@ static void do_read_footer(deark *c, lctx *d)
 static void do_read_image_descriptor(deark *c, lctx *d)
 {
 	d->image_descriptor = de_getbyte(17);
-	de_dbg(c, "descriptor: 0x%02x", (unsigned int)d->image_descriptor);
+	de_dbg(c, "descriptor: 0x%02x", (UI)d->image_descriptor);
 
 	de_dbg_indent(c, 1);
 	d->num_attribute_bits = (i64)(d->image_descriptor & 0x0f);
@@ -661,7 +679,7 @@ static int do_read_tga_headers(deark *c, lctx *d)
 
 	de_dbg_indent(c, -1);
 
-	if(d->has_signature) {
+	if(d->has_v2_signature) {
 		do_read_footer(c, d);
 	}
 
@@ -724,12 +742,53 @@ done:
 	return retval;
 }
 
-static int has_signature(deark *c)
+// A v2 TGA file should end with the signature, but I've seen some that are padded
+// with NUL bytes. This function helps find the signature in such a case.
+static i64 find_last_nonNUL_byte_for_sig_search(deark *c)
 {
+	i64 i;
+	i64 searchstartpos;
+	u8 buf[2048+18];
+
+	// (It's OK if this is negative; de_read tolerates that.)
+	searchstartpos = c->infile->len-(i64)sizeof(buf);
+	de_read(buf, searchstartpos, (i64)sizeof(buf));
+	for(i=(i64)sizeof(buf)-1; i>=0; i--) {
+		if(buf[i]!=0x00) {
+			if(buf[i]=='.') return searchstartpos+i;
+			return 0;
+		}
+	}
+	return 0;
+}
+
+// If found, returns 1 and sets *pfooterpos
+static int look_for_v2_signature(deark *c, int idmode, i64 *pfooterpos)
+{
+	i64 x;
+	i64 possible_sig_pos;
+	static const u8 v2sig[18] = "TRUEVISION-XFILE."; // size 18 includes trailing NUL
+
 	if(c->infile->len<18+26) return 0;
-	if(!dbuf_memcmp(c->infile, c->infile->len-18, "TRUEVISION-XFILE.\0", 18)) {
+	if(de_getbyte(c->infile->len-1) != 0x00) return 0;
+	possible_sig_pos = c->infile->len-18;
+	if(!dbuf_memcmp(c->infile, possible_sig_pos, v2sig, 18)) {
+		*pfooterpos = possible_sig_pos-8;
 		return 1;
 	}
+	if(idmode) return 0;
+
+	x = find_last_nonNUL_byte_for_sig_search(c);
+	if(x<=0) return 0;
+	possible_sig_pos = x-16;
+	if(!dbuf_memcmp(c->infile, possible_sig_pos, v2sig, 18)) {
+		de_warn(c, "v2 signature found at %"I64_FMT"; ignoring %"I64_FMT" extra "
+			"bytes at end of file",
+			possible_sig_pos, c->infile->len-(possible_sig_pos+18));
+		*pfooterpos = possible_sig_pos-8;
+		return 1;
+	}
+
 	return 0;
 }
 
@@ -739,9 +798,9 @@ static void detect_file_format(deark *c, lctx *d)
 	int has_igch;
 	u8 img_type;
 
-	d->has_signature = has_signature(c);
-	de_dbg(c, "has v2 signature: %s", d->has_signature?"yes":"no");
-	if(d->has_signature) {
+	d->has_v2_signature = look_for_v2_signature(c, 0, &d->v2_footer_pos);
+	de_dbg(c, "has v2 signature: %s", d->has_v2_signature?"yes":"no");
+	if(d->has_v2_signature) {
 		d->file_format = FMT_TGA;
 		return;
 	}
@@ -879,8 +938,9 @@ static int de_identify_tga(deark *c)
 	u8 b[18];
 	u8 x;
 	int has_tga_ext;
+	i64 v2_footer_pos = 0;
 
-	if(has_signature(c)) {
+	if(look_for_v2_signature(c, 1, &v2_footer_pos)) {
 		return 100;
 	}
 

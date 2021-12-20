@@ -591,17 +591,28 @@ done:
 	;
 }
 
-static void do_fileheader(deark *c, lctx *d, i64 pos1)
+static int do_fileheader(deark *c, lctx *d, i64 pos1)
 {
 	i64 n;
 	i64 lfb, nblocks;
 	i64 pos = pos1;
 	i64 regCS, regIP;
+	int retval = 0;
+	int saved_indent_level;
+	struct de_fourcc sig;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "DOS file header at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
-	pos += 2; // signature
+	dbuf_read_fourcc(c->infile, pos, &sig, 2, 0x0);
+	de_dbg(c, "signature: '%s'", sig.id_dbgstr);
+	if(sig.id!=0x4d5aU && sig.id!=0x5a4dU) {
+		de_err(c, "Not an EXE file");
+		goto done;
+	}
+	pos += 2;
+
 	lfb = de_getu16le_p(&pos);
 	de_dbg(c, "length of final block: %u%s", (UI)lfb, ((lfb==0)?" (=512)":""));
 	nblocks = de_getu16le_p(&pos);
@@ -663,6 +674,11 @@ static void do_fileheader(deark *c, lctx *d, i64 pos1)
 		de_dbg(c, "extended header offset: %"I64_FMT, d->ext_header_offset);
 		do_ext_header(c, d);
 	}
+	retval = 1;
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
 }
 
 static void do_decode_ddb(deark *c, lctx *d, i64 pos1, i64 len, de_finfo *fi)
@@ -1453,7 +1469,7 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	do_fileheader(c, d, 0);
+	if(!do_fileheader(c, d, 0)) goto done;
 
 	if((d->fmt==EXE_FMT_PE32 || d->fmt==EXE_FMT_PE32PLUS) && d->pe_sections_offset>0) {
 		do_pe_section_table(c, d);
@@ -1483,19 +1499,25 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 	do_exesfx(c, ei);
 	check_for_execomp(c, ei);
 
+done:
 	de_free(c, ei);
 	de_free(c, d);
 }
 
+// Note - This needs to be coordinated with de_identify_zip, so that self-extracting
+// ZIP files are identified as exe and not zip (assuming all modules are enabled).
 static int de_identify_exe(deark *c)
 {
 	UI x;
+	int sigMZ;
 
 	x = (UI)de_getu16be(0);
-	if(x!=0x4d5aU) return 0; // "MZ"
+	if(x==0x4d5aU) { sigMZ = 1; }
+	else if(x==0x5a4d) { sigMZ = 0; }
+	else { return 0; }
 	x = (UI)de_getu16le(2); // lenFinal
 	if(x>511) return 0;
-	return 80;
+	return sigMZ ? 80 : 50;
 }
 
 void de_module_exe(deark *c, struct deark_module_info *mi)

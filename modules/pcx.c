@@ -33,7 +33,8 @@ typedef struct localctx_struct {
 	u8 palette_info;
 	u8 reserved1;
 	i64 width, height;
-	int is_mswordscr;
+	u8 is_mswordscr;
+	u8 is_pcxsfx;
 	int has_vga_pal;
 	int has_transparency;
 
@@ -120,6 +121,7 @@ static void do_decode_resolution(deark *c, lctx *d, i64 hres, i64 vres)
 
 static int do_read_header(deark *c, lctx *d)
 {
+	u8 initialbyte;
 	int retval = 0;
 	i64 hres, vres;
 	const char *imgtypename = "";
@@ -127,7 +129,25 @@ static int do_read_header(deark *c, lctx *d)
 	de_dbg(c, "header at %d", 0);
 	de_dbg_indent(c, 1);
 
+	initialbyte = de_getbyte(0);
 	d->version = de_getbyte(1);
+	if(!d->is_mswordscr) {
+		if(initialbyte==0xeb && d->version==0x0e) {
+			d->is_pcxsfx = 1;
+			d->version = 5;
+		}
+	}
+
+	if(d->is_mswordscr) {
+		de_declare_fmt(c, "Word for DOS screen capture");
+	}
+	else if(d->is_pcxsfx) {
+		de_declare_fmt(c, "VGAPaint 386 PCX-SFX");
+	}
+	else {
+		de_declare_fmt(c, "PCX");
+	}
+
 	d->encoding = de_getbyte(2);
 	d->bits = (i64)de_getbyte(3); // Bits per pixel per plane
 	d->margin_L = de_getu16le(4);
@@ -625,9 +645,18 @@ static int de_identify_pcx(deark *c)
 	{
 		if(de_input_file_has_ext(c, "pcx"))
 			return 100;
-
 		return 16;
 	}
+
+	// VGAPaint 386 PCX SFX
+	if(buf[0]==0xeb && buf[1]==0x0e && buf[2]==1 && buf[3]==8 &&
+		(de_getbyte(16)==0xe8))
+	{
+		if(de_input_file_has_ext(c, "pcx"))
+			return 80;
+		return 8;
+	}
+
 	return 0;
 }
 
