@@ -888,6 +888,10 @@ Deark -- Information about supported formats
   This module is unfinished, and doesn't work very well. Reprocessing the
   output with "-m plaintext -inenc petscii" may make it more readable.
 
+* CLP - Saved Windows clipboard (module="clp") (experimental)
+  Options
+   -opt clp:extractall - Extract all data items
+
 * Copy (module="copy")
   - "Extract" the entire file. Use with -start and -size to extract part of
     the file.

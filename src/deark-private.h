@@ -289,6 +289,7 @@ struct de_module_in_params {
 	i64 offset_in_parent;
 	dbuf *parent_dbuf;
 	de_finfo *fi;
+	void *obj1;
 };
 
 struct de_module_out_params {
