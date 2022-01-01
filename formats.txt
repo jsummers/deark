@@ -891,6 +891,8 @@ Deark -- Information about supported formats
 * CLP - Saved Windows clipboard (module="clp") (experimental)
   Options
    -opt clp:extractall - Extract all data items
+   -opt clp:oemenc=<...> - The encoding for OEM Text items. Same options as
+     -inenc.
 
 * Copy (module="copy")
   - "Extract" the entire file. Use with -start and -size to extract part of

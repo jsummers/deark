@@ -19,6 +19,7 @@ struct member_data {
 	i64 hpos;
 	de_finfo *fi;
 	de_ucstring *name;
+	u8 clpfmtname_known;
 	char clpfmtname_sz[32];
 };
 
@@ -45,7 +46,7 @@ static void destroy_md(deark *c, struct member_data *md)
 	de_free(c, md);
 }
 
-static void get_cf_name(deark *c, lctx *d, UI clpfmt, char *buf, size_t buflen)
+static int get_cf_name(deark *c, lctx *d, UI clpfmt, char *buf, size_t buflen)
 {
 	static const char *names[18] = { NULL, "TEXT", "BITMAP", "METAFILEPICT",
 		"SYLK", "DIF", "TIFF", "OEMTEXT", "DIB", "PALETTE", "PENDATA", "RIFF",
@@ -53,10 +54,11 @@ static void get_cf_name(deark *c, lctx *d, UI clpfmt, char *buf, size_t buflen)
 
 	if((size_t)clpfmt<DE_ARRAYCOUNT(names) && names[clpfmt]) {
 		de_snprintf(buf, buflen, "CF_%s", names[clpfmt]);
-		return;
+		return 1;
 	}
 	// TODO: CF_OWNERDISPLAY, etc.
 	de_strlcpy(buf, "?", buflen);
+	return 0;
 }
 
 static void extract_binary(deark *c, lctx *d, struct member_data *md, struct index_item *ii)
@@ -231,6 +233,10 @@ static void set_output_filename(deark *c, lctx *d, struct member_data *md, struc
 		ucstring_append_sz(s, "ddb", DE_ENCODING_LATIN1);
 	}
 
+	if(ucstring_isempty(s) && md->clpfmtname_known) {
+		ucstring_append_sz(s, md->clpfmtname_sz, DE_ENCODING_UTF8);
+	}
+
 	if(ucstring_isnonempty(s)) {
 		de_finfo_set_name_from_ucstring(c, md->fi, s, 0);
 	}
@@ -263,7 +269,7 @@ static void do_item(deark *c, lctx *d, UI idx)
 	else {
 		pos += 4;
 	}
-	get_cf_name(c, d, ii->clpfmt, md->clpfmtname_sz, sizeof(md->clpfmtname_sz));
+	md->clpfmtname_known = get_cf_name(c, d, ii->clpfmt, md->clpfmtname_sz, sizeof(md->clpfmtname_sz));
 	de_dbg(c, "format: 0x%04x (%s)", ii->clpfmt, md->clpfmtname_sz);
 	if(ii->clpfmt==0) goto done;
 	pos += 4; // dlen, already read
@@ -395,14 +401,22 @@ done:
 static void de_run_clp(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	const char *tmps;
 	int ret;
 	i64 pos = 0;
 
 	d = de_malloc(c, sizeof(lctx));
 
 	d->input_encoding_ansi = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
-	// TODO: Need a way to change this
-	d->input_encoding_oem = DE_ENCODING_CP437;
+
+	d->input_encoding_oem = DE_ENCODING_CP437; // default
+	tmps = de_get_ext_option(c, "clp:oemenc");
+	if(tmps) {
+		d->input_encoding_oem = de_encoding_name_to_code(tmps);
+		if(d->input_encoding_oem == DE_ENCODING_UNKNOWN) {
+			d->input_encoding_oem = DE_ENCODING_CP437;
+		}
+	}
 
 	ret =  de_get_ext_option_bool(c, "clp:extractall", -1);
 	if(ret>0 || (c->extract_level>=2 && ret!=0)) {
@@ -448,6 +462,7 @@ static int de_identify_clp(deark *c)
 static void de_help_clp(deark *c)
 {
 	de_msg(c, "-opt clp:extractall : Extract all items");
+	de_msg(c, "-opt clp:oemenc=... : The encoding for OEM Text items");
 }
 
 void de_module_clp(deark *c, struct deark_module_info *mi)
