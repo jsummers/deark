@@ -289,6 +289,7 @@ struct de_module_in_params {
 	i64 offset_in_parent;
 	dbuf *parent_dbuf;
 	de_finfo *fi;
+	void *obj1;
 };
 
 struct de_module_out_params {
@@ -788,6 +789,9 @@ int dbuf_buffered_read(dbuf *f, i64 pos, i64 len,
 
 int de_is_all_zeroes(const u8 *b, i64 n);
 int dbuf_is_all_zeroes(dbuf *f, i64 pos, i64 len);
+
+void dbuf_copy_slice_convert_to_utf8(dbuf *inf, i64 pos1, i64 len,
+	de_ext_encoding input_ee, dbuf *outf, UI flags);
 
 struct de_bitbuf_lowlevel {
 	u8 is_lsb;

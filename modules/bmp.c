@@ -972,6 +972,7 @@ static void de_run_dib(deark *c, de_module_params *mparams)
 	int implicit_size = 0;
 	i64 dib_len;
 	const char *ext = "bmp";
+	de_finfo *fi_to_use = NULL;
 
 	if(mparams) {
 		// If flags&0x01, try to calculate the proper file size, instead of trusting
@@ -979,6 +980,8 @@ static void de_run_dib(deark *c, de_module_params *mparams)
 		if(mparams->in_params.flags & 0x01) implicit_size = 1;
 
 		if(mparams->in_params.flags & 0x80) ext = "preview.bmp";
+
+		fi_to_use = mparams->in_params.fi;
 	}
 
 	if(de_havemodcode(c, mparams, 'X')) {
@@ -1000,7 +1003,7 @@ static void de_run_dib(deark *c, de_module_params *mparams)
 		dib_len = c->infile->len;
 	}
 
-	outf = dbuf_create_output_file(c, ext, NULL, createflags);
+	outf = dbuf_create_output_file(c, ext, fi_to_use, createflags);
 
 	de_dbg(c, "writing a BMP FILEHEADER");
 	fmtutil_generate_bmpfileheader(c, outf, &bi, 14+dib_len);
@@ -1043,6 +1046,8 @@ struct ddbctx_struct {
 	i64 bmWidthBytes;
 	UI createflags;
 	de_finfo *fi;
+	u8 have_custom_pal;
+	de_color pal[256];
 };
 
 static void ddb_convert_pal4planar(deark *c, struct ddbctx_struct *d,
@@ -1099,34 +1104,58 @@ static void ddb_convert_pal8(deark *c, struct ddbctx_struct *d,
 	int badcolorflag = 0;
 	// Palette is from libwps (except I might have red/blue swapped it).
 	// I haven't confirmed that it's correct.
-	static const u32 pal_part1[8] = {
+	static const de_color pal_part1[8] = {
 		0x000000,0x800000,0x008000,0x808000,0x000080,0x800080,0x008080,0xc0c0c0
 	};
-	static const u32 pal_part2[8] = {
+	static const de_color pal_part2[8] = {
 		0x808080,0xff0000,0x00ff00,0xffff00,0x0000ff,0xff00ff,0x00ffff,0xffffff
 	};
+
+	de_memcpy(&d->pal[0], pal_part1, 8*sizeof(de_color));
+	de_memcpy(&d->pal[248], pal_part2, 8*sizeof(de_color));
 
 	for(j=0; j<img->height; j++) {
 		for(i=0; i<img->width; i++) {
 			unsigned int palent;
-			u32 clr;
+			de_color clr;
 
 			palent = de_getbyte(fpos+j*d->bmWidthBytes+i);
-			if(palent<8) {
-				clr = pal_part1[palent];
-			}
-			else if(palent>=248) {
-				clr = pal_part2[palent-248];
-			}
-			else {
+			if(!d->have_custom_pal && palent>=8 && palent<248) {
 				clr = DE_MAKE_RGB(254,palent,254); // Just an arbitrary color
 				badcolorflag = 1;
 			}
+			else {
+				clr = DE_MAKE_OPAQUE(d->pal[(UI)palent]);
+			}
+
 			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
 	}
 	if(badcolorflag) {
 		de_warn(c, "Image uses nonportable colors");
+	}
+}
+
+static void ddb_convert_32bit(deark *c, struct ddbctx_struct *d,
+	i64 fpos, de_bitmap *img)
+{
+	i64 i, j;
+
+	for(j=0; j<img->height; j++) {
+		i64 pos;
+
+		pos = fpos + j*d->bmWidthBytes;
+
+		for(i=0; i<img->width; i++) {
+			u8 sm[4];
+			u32 clr;
+
+			de_read(sm, pos, 4);
+			pos += 4;
+
+			clr = DE_MAKE_RGB(sm[2], sm[1] , sm[0]);
+			de_bitmap_setpixel_rgb(img, i, j, clr);
+		}
 	}
 }
 
@@ -1161,7 +1190,8 @@ static void do_ddb_bitmap(deark *c, struct ddbctx_struct *d, i64 pos1)
 
 	if((bmBitsPixel==1 && bmPlanes==1) ||
 		(bmBitsPixel==1 && bmPlanes==4) ||
-		(bmBitsPixel==8 && bmPlanes==1))
+		(bmBitsPixel==8 && bmPlanes==1) ||
+		(bmBitsPixel==32 && bmPlanes==1))
 	{
 		;
 	}
@@ -1182,11 +1212,14 @@ static void do_ddb_bitmap(deark *c, struct ddbctx_struct *d, i64 pos1)
 	if(bmBitsPixel==1 && bmPlanes==1) {
 		de_convert_image_bilevel(c->infile, pos, d->bmWidthBytes, img, 0);
 	}
-	else if(bmBitsPixel==1 || bmPlanes==4) {
+	else if(bmBitsPixel==1 && bmPlanes==4) {
 		ddb_convert_pal4planar(c, d, pos, img);
 	}
-	else if(bmBitsPixel==8 || bmPlanes==1) {
+	else if(bmBitsPixel==8 && bmPlanes==1) {
 		ddb_convert_pal8(c, d, pos, img);
+	}
+	else if(bmBitsPixel==32 && bmPlanes==1) {
+		ddb_convert_32bit(c, d, pos, img);
 	}
 
 	de_bitmap_write_to_file_finfo(img, d->fi, d->createflags);
@@ -1211,8 +1244,15 @@ static void de_run_ddb(deark *c, de_module_params *mparams)
 	if(de_havemodcode(c, mparams, 'X')) {
 		d->createflags |= DE_CREATEFLAG_IS_AUX;
 	}
-	if(mparams && mparams->in_params.fi) {
-		d->fi = mparams->in_params.fi;
+	if(mparams) {
+		if(mparams->in_params.fi) {
+			d->fi = mparams->in_params.fi;
+		}
+		// If not NULL, obj1 points to the  palette to use (must be de_color[256]).
+		if(mparams->in_params.obj1) {
+			d->have_custom_pal = 1;
+			de_memcpy(d->pal, mparams->in_params.obj1, 256*sizeof(de_color));
+		}
 	}
 
 	if(has_filetype) {
