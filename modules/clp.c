@@ -7,6 +7,30 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_clp);
 
+// TODO: Support ENHMETAFILE, TIFF, RIFF, WAVE
+#define CFMT_TEXT          1
+#define CFMT_BITMAP        2
+#define CFMT_METAFILEPICT  3
+//#define CFMT_SYLK          4
+//#define CFMT_DIF           5
+//#define CFMT_TIFF          6
+#define CFMT_OEMTEXT       7
+#define CFMT_DIB           8
+#define CFMT_PALETTE       9
+//#define CFMT_PENDATA       10
+//#define CFMT_RIFF          11
+//#define CFMT_WAVE          12
+#define CFMT_UNICODETEXT   13
+//#define CFMT_ENHMETAFILE   14
+//#define CFMT_HDROP         15
+#define CFMT_LOCALE        16
+#define CFMT_DIBV5         17
+//#define CFMT_OWNERDISPLAY     0x80
+#define CFMT_DSPTEXT          0x81
+#define CFMT_DSPBITMAP        0x82
+#define CFMT_DSPMETAFILEPICT  0x83
+//#define CFMT_DSPENHMETAFILE   0x8e
+
 struct index_item {
 	u8 handled;
 	UI clpfmt;
@@ -89,13 +113,13 @@ static void extract_text(deark *c, lctx *d, struct member_data *md, struct index
 	i64 dlen = ii->dlen;
 
 	ext = "txt";
-	if(ii->clpfmt==1) {
+	if(ii->clpfmt==CFMT_TEXT || ii->clpfmt==CFMT_DSPTEXT) {
 		ee = DE_EXTENC_MAKE(d->input_encoding_ansi, DE_ENCSUBTYPE_HYBRID);
 	}
-	else if(ii->clpfmt==7) {
+	else if(ii->clpfmt==CFMT_OEMTEXT) {
 		ee = DE_EXTENC_MAKE(d->input_encoding_oem, DE_ENCSUBTYPE_HYBRID);
 	}
-	else if(ii->clpfmt==13) {
+	else if(ii->clpfmt==CFMT_UNICODETEXT) {
 		ee = DE_ENCODING_UTF16LE;
 	}
 	else {
@@ -103,18 +127,18 @@ static void extract_text(deark *c, lctx *d, struct member_data *md, struct index
 	}
 
 	// Search for the NUL terminator, to refine the data len.
-	if(ii->clpfmt==1 || ii->clpfmt==7) {
-		i64 foundpos = 0;
-
-		if(dbuf_search_byte(c->infile, 0x00, ii->dpos, ii->dlen, &foundpos)) {
-			dlen = foundpos - ii->dpos;
-		}
-	}
-	else if(ii->clpfmt==13) {
+	if(ii->clpfmt==CFMT_UNICODETEXT) {
 		i64 bytes_consumed = 0;
 
 		if(dbuf_get_utf16_NULterm_len(c->infile, ii->dpos, ii->dlen, &bytes_consumed)) {
 			dlen = bytes_consumed - 2;
+		}
+	}
+	else {
+		i64 foundpos = 0;
+
+		if(dbuf_search_byte(c->infile, 0x00, ii->dpos, ii->dlen, &foundpos)) {
+			dlen = foundpos - ii->dpos;
 		}
 	}
 
@@ -190,16 +214,21 @@ done:
 static void set_output_filename(deark *c, lctx *d, struct member_data *md, struct index_item *ii)
 {
 	i64 i;
+	int escape_flag = 0;
 	de_ucstring *s = NULL;
 
 	s = ucstring_create(c);
 	for(i=0; i<md->name->len; i++) {
-		if(md->name->str[i] != '&') {
+		if(md->name->str[i]=='&' && !escape_flag) {
+			escape_flag = 1;
+		}
+		else {
 			ucstring_append_char(s, md->name->str[i]);
+			escape_flag = 0;
 		}
 	}
 
-	if(ii->clpfmt==2 || ii->clpfmt==0x82) {
+	if(ii->clpfmt==CFMT_BITMAP || ii->clpfmt==CFMT_DSPBITMAP) {
 		// Add an indication that this was a device-dependent bitmap
 		if(ucstring_isnonempty(s)) {
 			ucstring_append_char(s, '.');
@@ -270,29 +299,21 @@ static void do_item(deark *c, lctx *d, UI idx)
 	old_extract_count = c->num_files_extracted;
 
 	switch(ii->clpfmt) {
-	case 2:
+	case CFMT_BITMAP: case CFMT_DSPBITMAP:
 		extract_ddb(c, d, md, ii);
 		break;
-	case 8: case 17:
+	case CFMT_DIB: case CFMT_DIBV5:
 		extract_dib(c, d, md, ii);
 		break;
-	case 1:
-	case 7:
-	case 13:
+	case CFMT_TEXT: case CFMT_OEMTEXT: case CFMT_UNICODETEXT: case CFMT_DSPTEXT:
 		extract_text(c, d, md, ii);
 		break;
-	case 9:
+	case CFMT_PALETTE:
 		read_palette(c, d, md, ii);
 		break;
-	case 3:
+	case CFMT_METAFILEPICT: case CFMT_DSPMETAFILEPICT:
 		extract_wmf(c, d, md, ii);
 		break;
-
-		// TODO:
-		//  - ENHMETAFILE
-		//  - LOCALE
-		//  - CF_DSP...
-		//  - TIFF, RIFF, WAVE
 	}
 
 	if(c->num_files_extracted==old_extract_count) {
@@ -315,7 +336,7 @@ static void do_process_items(deark *c, lctx *d)
 
 	// Items to read first (PALETTE, LOCALE)
 	for(i=0; i<(UI)d->num_items; i++) {
-		if(d->index_array[i].clpfmt==9 || d->index_array[i].clpfmt==16) {
+		if(d->index_array[i].clpfmt==CFMT_PALETTE || d->index_array[i].clpfmt==CFMT_LOCALE) {
 			do_item(c, d, i);
 			d->index_array[i].handled = 1;
 		}
