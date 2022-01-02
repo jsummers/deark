@@ -150,36 +150,6 @@ void de_module_split(deark *c, struct deark_module_info *mi)
 // Convert text files to UTF-8.
 // **************************************************************************
 
-struct plaintextctx_struct {
-	dbuf *outf;
-	de_ucstring *tmpstr;
-	struct de_encconv_state es;
-};
-
-static int plaintext_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
-	i64 buf_len)
-{
-	struct plaintextctx_struct *ptctx = (struct plaintextctx_struct*)brctx->userdata;
-	UI conv_flags;
-
-	// There's no limit to how much data dbuf_buffered_read() could send us
-	// at once, so we won't try to put it all in a ucstring at once.
-	brctx->bytes_consumed = de_min_int(buf_len, 4096);
-
-	// For best results, ucstring_append_bytes_ex() needs to be told whether there will
-	// be any more bytes after this.
-	if(brctx->eof_flag && brctx->bytes_consumed==buf_len)
-		conv_flags = 0;
-	else
-		conv_flags = DE_CONVFLAG_PARTIAL_DATA;
-
-	ucstring_empty(ptctx->tmpstr);
-	ucstring_append_bytes_ex(ptctx->tmpstr, buf, brctx->bytes_consumed, conv_flags,
-		&ptctx->es);
-	ucstring_write_as_utf8(brctx->c, ptctx->tmpstr, ptctx->outf, 0);
-	return 1;
-}
-
 static de_encoding get_bom_enc(deark *c, UI *blen)
 {
 	u8 buf[3];
@@ -203,11 +173,11 @@ static de_encoding get_bom_enc(deark *c, UI *blen)
 
 static void de_run_plaintext(deark *c, de_module_params *mparams)
 {
-	struct plaintextctx_struct ptctx;
 	de_encoding input_encoding;
 	de_encoding enc_from_bom;
 	UI existing_bom_len = 0;
 	i64 dpos, dlen;
+	dbuf *outf = NULL;
 
 	enc_from_bom = get_bom_enc(c, &existing_bom_len);
 	input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
@@ -227,17 +197,17 @@ static void de_run_plaintext(deark *c, de_module_params *mparams)
 	dpos = (i64)existing_bom_len;
 	dlen = c->infile->len - dpos;
 
-	de_encconv_init(&ptctx.es, DE_EXTENC_MAKE(input_encoding, DE_ENCSUBTYPE_HYBRID));
-	ptctx.tmpstr = ucstring_create(c);
-	ptctx.outf = dbuf_create_output_file(c, "txt", NULL, 0);
+	outf = dbuf_create_output_file(c, "txt", NULL, 0);
 
 	if(c->write_bom) {
-		dbuf_write_uchar_as_utf8(ptctx.outf, 0xfeff);
+		dbuf_write_uchar_as_utf8(outf, 0xfeff);
 	}
 
-	dbuf_buffered_read(c->infile, dpos, dlen, plaintext_cbfn, (void*)&ptctx);
-	dbuf_close(ptctx.outf);
-	ucstring_destroy(ptctx.tmpstr);
+	dbuf_copy_slice_convert_to_utf8(c->infile, dpos, dlen,
+		DE_EXTENC_MAKE(input_encoding, DE_ENCSUBTYPE_HYBRID),
+		outf, 0);
+
+	dbuf_close(outf);
 }
 
 void de_module_plaintext(deark *c, struct deark_module_info *mi)

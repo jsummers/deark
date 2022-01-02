@@ -2273,6 +2273,53 @@ int dbuf_is_all_zeroes(dbuf *f, i64 pos, i64 len)
 	return dbuf_buffered_read(f, pos, len, is_all_zeroes_cbfn, NULL);
 }
 
+struct text2utf8ctx_struct {
+	dbuf *outf;
+	de_ucstring *tmpstr;
+	struct de_encconv_state es;
+};
+
+static int text2utf8_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
+	i64 buf_len)
+{
+	struct text2utf8ctx_struct *t2uctx = (struct text2utf8ctx_struct*)brctx->userdata;
+	UI conv_flags;
+
+	// There's no limit to how much data dbuf_buffered_read() could send us
+	// at once, so we won't try to put it all in a ucstring at once.
+	brctx->bytes_consumed = de_min_int(buf_len, 4096);
+
+	// For best results, ucstring_append_bytes_ex() needs to be told whether there will
+	// be any more bytes after this.
+	if(brctx->eof_flag && brctx->bytes_consumed==buf_len)
+		conv_flags = 0;
+	else
+		conv_flags = DE_CONVFLAG_PARTIAL_DATA;
+
+	ucstring_empty(t2uctx->tmpstr);
+	ucstring_append_bytes_ex(t2uctx->tmpstr, buf, brctx->bytes_consumed, conv_flags,
+		&t2uctx->es);
+	ucstring_write_as_utf8(brctx->c, t2uctx->tmpstr, t2uctx->outf, 0);
+	return 1;
+}
+
+// Write a slice with a known encoding, to an output file, as UTF-8.
+void dbuf_copy_slice_convert_to_utf8(dbuf *inf, i64 pos1, i64 len,
+	de_ext_encoding input_ee, dbuf *outf, UI flags)
+{
+	deark *c = inf->c;
+	struct text2utf8ctx_struct t2uctx;
+
+	de_zeromem(&t2uctx, sizeof(struct text2utf8ctx_struct));
+	t2uctx.outf = outf;
+	de_encconv_init(&t2uctx.es, input_ee);
+	t2uctx.tmpstr = ucstring_create(c);
+
+	dbuf_buffered_read(inf, pos1, len, text2utf8_cbfn, (void*)&t2uctx);
+
+	ucstring_destroy(t2uctx.tmpstr);
+}
+
 void de_bitbuf_lowlevel_add_byte(struct de_bitbuf_lowlevel *bbll, u8 n)
 {
 	if(bbll->nbits_in_bitbuf>56) return;

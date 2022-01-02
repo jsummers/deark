@@ -69,43 +69,17 @@ done:
 	;
 }
 
-// Write a slice with a known encoding, to a new UTF-8 output file.
-// TODO: There should be a library function to do this.
 static void create_text_file_from_slice(dbuf *inf, i64 pos1, i64 len,
-	de_encoding input_encoding, const char *ext, de_finfo *fi)
+	de_ext_encoding ee, const char *ext, de_finfo *fi)
 {
 	dbuf *outf = NULL;
-	deark *c = inf->c;
-	de_ucstring *s = NULL;
-	struct de_encconv_state es;
-	i64 pos  = pos1;
-	i64 endpos = pos1+len;
 
-	outf = dbuf_create_output_file(c, ext, fi, 0);
-
-	de_encconv_init(&es, input_encoding);
-	if(c->write_bom) {
+	outf = dbuf_create_output_file(inf->c, ext, fi, 0);
+	if(inf->c->write_bom) {
 		dbuf_write_uchar_as_utf8(outf, 0xfeff);
 	}
-
-	s = ucstring_create(c);
-
-	while(pos < endpos) {
-		u8 b;
-
-		b = dbuf_getbyte_p(inf, &pos);
-		ucstring_append_bytes_ex(s, &b, 1,
-			(pos<endpos)?DE_CONVFLAG_PARTIAL_DATA:0, &es);
-
-		if(s->len >= 256) {
-			ucstring_write_as_utf8(c, s, outf, 0);
-			ucstring_empty(s);
-		}
-	}
-	ucstring_write_as_utf8(c, s, outf, 0);
-
+	dbuf_copy_slice_convert_to_utf8(inf, pos1, len, ee, outf, 0);
 	dbuf_close(outf);
-	ucstring_destroy(s);
 }
 
 static void extract_text(deark *c, lctx *d, struct member_data *md, struct index_item *ii)
