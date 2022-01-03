@@ -1027,6 +1027,7 @@ void ucstring_append_sz(de_ucstring *s, const char *sz, de_ext_encoding ee);
 
 void ucstring_write_as_utf8(deark *c, de_ucstring *s, dbuf *outf, int add_bom_if_needed);
 int de_is_printable_uchar(de_rune ch);
+int ucstring_is_ascii(const de_ucstring *s);
 i64 ucstring_count_utf8_bytes(de_ucstring *s);
 
 // Supported encodings are DE_ENCODING_UTF8, DE_ENCODING_ASCII, DE_ENCODING_LATIN1.

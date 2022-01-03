@@ -2273,16 +2273,57 @@ int dbuf_is_all_zeroes(dbuf *f, i64 pos, i64 len)
 	return dbuf_buffered_read(f, pos, len, is_all_zeroes_cbfn, NULL);
 }
 
-struct text2utf8ctx_struct {
+// A struct sometimes used with dbuf_buffered_read().
+struct textconvctx_struct {
 	dbuf *outf;
 	de_ucstring *tmpstr;
 	struct de_encconv_state es;
 };
 
+static int slice_is_ascii_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
+	i64 buf_len)
+{
+	struct textconvctx_struct *tcctx = (struct textconvctx_struct*)brctx->userdata;
+	UI conv_flags;
+
+	brctx->bytes_consumed = de_min_int(buf_len, 4096);
+
+	if(brctx->eof_flag && brctx->bytes_consumed==buf_len)
+		conv_flags = 0;
+	else
+		conv_flags = DE_CONVFLAG_PARTIAL_DATA;
+
+	ucstring_empty(tcctx->tmpstr);
+	ucstring_append_bytes_ex(tcctx->tmpstr, buf, brctx->bytes_consumed, conv_flags,
+		&tcctx->es);
+	if(!ucstring_is_ascii(tcctx->tmpstr)) {
+		return 0;
+	}
+	return 1;
+}
+
+static int slice_is_ascii_compatible(dbuf *inf, i64 pos1, i64 len,
+	de_ext_encoding input_ee)
+{
+	deark *c = inf->c;
+	struct textconvctx_struct tcctx;
+	int retval = 1;
+
+	de_zeromem(&tcctx, sizeof(struct textconvctx_struct));
+	tcctx.outf = NULL;
+	de_encconv_init(&tcctx.es, input_ee);
+	tcctx.tmpstr = ucstring_create(c);
+
+	retval = dbuf_buffered_read(inf, pos1, len, slice_is_ascii_cbfn, (void*)&tcctx);
+
+	ucstring_destroy(tcctx.tmpstr);
+	return retval;
+}
+
 static int text2utf8_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 	i64 buf_len)
 {
-	struct text2utf8ctx_struct *t2uctx = (struct text2utf8ctx_struct*)brctx->userdata;
+	struct textconvctx_struct *tcctx = (struct textconvctx_struct*)brctx->userdata;
 	UI conv_flags;
 
 	// There's no limit to how much data dbuf_buffered_read() could send us
@@ -2296,28 +2337,123 @@ static int text2utf8_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 	else
 		conv_flags = DE_CONVFLAG_PARTIAL_DATA;
 
-	ucstring_empty(t2uctx->tmpstr);
-	ucstring_append_bytes_ex(t2uctx->tmpstr, buf, brctx->bytes_consumed, conv_flags,
-		&t2uctx->es);
-	ucstring_write_as_utf8(brctx->c, t2uctx->tmpstr, t2uctx->outf, 0);
+	ucstring_empty(tcctx->tmpstr);
+	ucstring_append_bytes_ex(tcctx->tmpstr, buf, brctx->bytes_consumed, conv_flags,
+		&tcctx->es);
+	ucstring_write_as_utf8(brctx->c, tcctx->tmpstr, tcctx->outf, 0);
 	return 1;
 }
 
-// Write a slice with a known encoding, to an output file, as UTF-8.
-void dbuf_copy_slice_convert_to_utf8(dbuf *inf, i64 pos1, i64 len,
+static int slice_has_BOM(dbuf *inf, i64 pos, i64 len, de_encoding enc)
+{
+	i64 len_to_read;
+	u8 buf[3] = {0, 0, 0};
+
+	switch(enc) {
+	case DE_ENCODING_UTF8:
+		len_to_read = 3;
+		break;
+	case DE_ENCODING_UTF16BE:
+	case DE_ENCODING_UTF16LE:
+		len_to_read = 2;
+		break;
+	default:
+		return 0;
+	}
+
+	if(len < len_to_read) return 0;
+
+	dbuf_read(inf, buf, pos, len_to_read);
+
+	switch(enc) {
+	case DE_ENCODING_UTF16BE:
+		if(buf[0]==0xfe && buf[1]==0xff) {
+			return 1;
+		}
+		break;
+	case DE_ENCODING_UTF16LE:
+		if(buf[0]==0xff && buf[1]==0xfe) {
+			return 1;
+		}
+		break;
+	default: // UTF8
+		if(buf[0]==0xef && buf[1]==0xbb && buf[2]==0xbf) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static void constrain_slice_to_file(dbuf *f, i64 pos, i64 *plen)
+{
+	if(*plen < 0 || pos < 0 || pos > f->len) {
+		*plen = 0;
+		return;
+	}
+
+	if(*plen > f->len - pos) {
+		*plen = f->len - pos;
+	}
+}
+
+// Write a slice with a known encoding, to an output file, generally as UTF-8.
+//
+// This is a messy function intended to be used when extracting a text segment
+// to its own file.
+//
+// flags 0x1: Add BOM unless BOM is already present.
+// flags 0x2: Add BOM only if needed, and slice has non-ASCII characters
+//  (can be slow).
+// flags 0x4: If input encoding is UNKNOWN or ASCII, just copy the bytes unchanged.
+//
+// Except: A BOM will never be added if the -nobom option was used, or if
+//  outf has already been written to.
+// A pre-existing BOM will never be removed.
+// (See also ucstring_write_as_utf8().)
+void dbuf_copy_slice_convert_to_utf8(dbuf *inf, i64 pos, i64 len,
 	de_ext_encoding input_ee, dbuf *outf, UI flags)
 {
 	deark *c = inf->c;
-	struct text2utf8ctx_struct t2uctx;
+	de_encoding enc =  DE_EXTENC_GET_BASE(input_ee);
+	int prepend_BOM = 0;
+	int already_has_BOM = 0;
+	struct textconvctx_struct tcctx;
 
-	de_zeromem(&t2uctx, sizeof(struct text2utf8ctx_struct));
-	t2uctx.outf = outf;
-	de_encconv_init(&t2uctx.es, input_ee);
-	t2uctx.tmpstr = ucstring_create(c);
+	de_zeromem(&tcctx, sizeof(struct textconvctx_struct));
+	constrain_slice_to_file(inf, pos, &len);
 
-	dbuf_buffered_read(inf, pos1, len, text2utf8_cbfn, (void*)&t2uctx);
+	if((flags & 0x4) && (enc==DE_ENCODING_UNKNOWN || enc==DE_ENCODING_ASCII)) {
+		dbuf_copy(inf, pos, len, outf);
+		goto done;
+	}
 
-	ucstring_destroy(t2uctx.tmpstr);
+	tcctx.outf = outf;
+	de_encconv_init(&tcctx.es, input_ee);
+	tcctx.tmpstr = ucstring_create(c);
+
+	if(c->write_bom && outf->len==0) {
+		if((flags & 0x3)!=0) {
+			already_has_BOM = slice_has_BOM(inf, pos, len, enc);
+		}
+
+		if(flags & 0x1) {
+			prepend_BOM = !already_has_BOM;
+		}
+		else if(flags & 0x2) {
+			if(!already_has_BOM) {
+				prepend_BOM = !slice_is_ascii_compatible(inf, pos, len, input_ee);
+			}
+		}
+	}
+
+	if(prepend_BOM) {
+		dbuf_write_uchar_as_utf8(outf, 0xfeff);
+	}
+
+	dbuf_buffered_read(inf, pos, len, text2utf8_cbfn, (void*)&tcctx);
+
+done:
+	ucstring_destroy(tcctx.tmpstr);
 }
 
 void de_bitbuf_lowlevel_add_byte(struct de_bitbuf_lowlevel *bbll, u8 n)

@@ -384,7 +384,7 @@ static void do_comment_display(deark *c, lctx *d, i64 pos, i64 len, de_ext_encod
 	de_ucstring *s = NULL;
 
 	s = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos, len, s, 0, ee);
+	dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN, s, 0, ee);
 	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz_d(s));
 	ucstring_destroy(s);
 }
@@ -393,13 +393,9 @@ static void do_comment_extract(deark *c, lctx *d, i64 pos, i64 len, de_ext_encod
 	const char *ext)
 {
 	dbuf *f = NULL;
-	de_ucstring *s = NULL;
 
 	f = dbuf_create_output_file(c, ext, NULL, DE_CREATEFLAG_IS_AUX);
-	s = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos, len, s, 0, ee);
-	ucstring_write_as_utf8(c, s, f, 1);
-	ucstring_destroy(s);
+	dbuf_copy_slice_convert_to_utf8(c->infile, pos, len, ee, f, 0x2|0x4);
 	dbuf_close(f);
 }
 

@@ -408,7 +408,7 @@ void ucstring_append_sz(de_ucstring *s, const char *sz, de_ext_encoding ee)
 	ucstring_append_bytes(s, (const u8*)sz, len, 0, ee);
 }
 
-static int ucstring_is_ascii(const de_ucstring *s)
+int ucstring_is_ascii(const de_ucstring *s)
 {
 	i64 i;
 	for(i=0; i<s->len; i++) {
@@ -435,6 +435,7 @@ i64 ucstring_count_utf8_bytes(de_ucstring *s)
 // If add_bom_if_needed is set, we'll prepend a BOM if the global c->write_bom
 // option is enabled, and 's' has any non-ASCII characters, and 's' doesn't already
 // start with a BOM.
+// (See also dbuf_copy_slice_convert_to_utf8().)
 void ucstring_write_as_utf8(deark *c, de_ucstring *s, dbuf *outf, int add_bom_if_needed)
 {
 	i64 i;
