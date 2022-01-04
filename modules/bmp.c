@@ -1139,24 +1139,7 @@ static void ddb_convert_pal8(deark *c, struct ddbctx_struct *d,
 static void ddb_convert_32bit(deark *c, struct ddbctx_struct *d,
 	i64 fpos, de_bitmap *img)
 {
-	i64 i, j;
-
-	for(j=0; j<img->height; j++) {
-		i64 pos;
-
-		pos = fpos + j*d->bmWidthBytes;
-
-		for(i=0; i<img->width; i++) {
-			u8 sm[4];
-			u32 clr;
-
-			de_read(sm, pos, 4);
-			pos += 4;
-
-			clr = DE_MAKE_RGB(sm[2], sm[1] , sm[0]);
-			de_bitmap_setpixel_rgb(img, i, j, clr);
-		}
-	}
+	de_convert_image_rgb(c->infile, fpos, d->bmWidthBytes, 4, img, DE_GETRGBFLAG_BGR);
 }
 
 static void do_ddb_bitmap(deark *c, struct ddbctx_struct *d, i64 pos1)
@@ -1227,7 +1210,6 @@ static void do_ddb_bitmap(deark *c, struct ddbctx_struct *d, i64 pos1)
 done:
 	de_bitmap_destroy(img);
 }
-
 
 static void de_run_ddb(deark *c, de_module_params *mparams)
 {
