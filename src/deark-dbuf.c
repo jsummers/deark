@@ -1169,8 +1169,8 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 	{
 		de_strlcpy(nbuf, c->special_1st_filename, sizeof(nbuf));
 	}
-	else if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE && !c->base_output_filename &&
-		fi && fi->original_filename_flag && name_from_finfo)
+	else if((c->output_style==DE_OUTPUTSTYLE_ARCHIVE || !c->filenames_from_file) && 
+	    !c->base_output_filename && fi && fi->original_filename_flag && name_from_finfo)
 	{
 		// TODO: This is a "temporary" hack to allow us to, when both reading from
 		// and writing to an archive format, use some semblance of the correct
