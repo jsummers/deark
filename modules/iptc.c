@@ -157,10 +157,8 @@ static void handle_1_90(deark *c, lctx *d, const struct ds_info *dsi,
 static void handle_2_120(deark *c, lctx *d, const struct ds_info *dsi,
 	i64 pos, i64 len)
 {
-	de_ucstring *s = NULL;
 	dbuf *outf = NULL;
 	de_encoding encoding;
-	const char *fntoken;
 
 	if(c->extract_level<2) {
 		handle_text(c, d, dsi, pos, len);
@@ -173,25 +171,16 @@ static void handle_2_120(deark *c, lctx *d, const struct ds_info *dsi,
 	// It can be reached when reading a raw IPTC file, or when using
 	// "-a -opt extractiptc=0".
 
-	fntoken = "caption.txt";
-
 	encoding = get_ds_encoding(c, d, dsi->recnum);
-	if(encoding==DE_ENCODING_UNKNOWN) {
-		// If the encoding is unknown, copy the raw bytes.
-		dbuf_create_file_from_slice(c->infile, pos, len, fntoken,
-			NULL, DE_CREATEFLAG_IS_AUX);
-		goto done;
-	}
 
-	// If the encoding is known, convert to UTF-8.
-	s = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos, len, s, 0, encoding);
-	outf = dbuf_create_output_file(c, fntoken, NULL, DE_CREATEFLAG_IS_AUX);
-	ucstring_write_as_utf8(c, s, outf, 1);
+	outf = dbuf_create_output_file(c, "caption.txt", NULL, DE_CREATEFLAG_IS_AUX);
+
+	dbuf_copy_slice_convert_to_utf8(c->infile, pos, len,
+		DE_EXTENC_MAKE(encoding, DE_ENCSUBTYPE_HYBRID),
+		outf, 0x1|0x4);
 
 done:
 	if(outf) dbuf_close(outf);
-	if(s) ucstring_destroy(s);
 }
 
 // Rasterized caption

@@ -149,6 +149,7 @@ done:
 
 static void extract_ddb(deark *c, lctx *d, struct member_data *md, struct index_item *ii)
 {
+	int old_extract_count;
 	de_module_params *mparams = NULL;
 
 	mparams = de_malloc(c, sizeof(de_module_params));
@@ -159,10 +160,11 @@ static void extract_ddb(deark *c, lctx *d, struct member_data *md, struct index_
 	if(d->have_pal) {
 		mparams->in_params.obj1 = (void*)d->pal;
 	}
+	old_extract_count = c->num_files_extracted;
 	de_run_module_by_id_on_slice(c, "ddb", mparams, c->infile, ii->dpos, ii->dlen);
 	de_dbg_indent(c, -1);
 
-	if(!d->ddb_warned) {
+	if(c->num_files_extracted>old_extract_count && !d->ddb_warned) {
 		de_warn(c, "Nonportable DDB images might not be decoded correctly");
 		d->ddb_warned = 1;
 	}
@@ -218,13 +220,16 @@ static void set_output_filename(deark *c, lctx *d, struct member_data *md, struc
 	de_ucstring *s = NULL;
 
 	s = ucstring_create(c);
-	for(i=0; i<md->name->len; i++) {
-		if(md->name->str[i]=='&' && !escape_flag) {
-			escape_flag = 1;
-		}
-		else {
-			ucstring_append_char(s, md->name->str[i]);
-			escape_flag = 0;
+
+	if(c->filenames_from_file) {
+		for(i=0; i<md->name->len; i++) {
+			if(md->name->str[i]=='&' && !escape_flag) {
+				escape_flag = 1;
+			}
+			else {
+				ucstring_append_char(s, md->name->str[i]);
+				escape_flag = 0;
+			}
 		}
 	}
 

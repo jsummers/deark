@@ -44,7 +44,6 @@ struct marker_info1 {
 
 static void handle_comment(deark *c, lctx *d, i64 pos, i64 comment_size)
 {
-	de_ucstring *s = NULL;
 	int write_to_file;
 
 	// If c->extract_level>=2, write the comment to a file;
@@ -57,20 +56,23 @@ static void handle_comment(deark *c, lctx *d, i64 pos, i64 comment_size)
 
 	write_to_file = (c->extract_level>=2);
 
-	s = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos, comment_size, s, 0, DE_ENCODING_LATIN1);
-
 	if(write_to_file) {
 		dbuf *outf = NULL;
+
 		outf = dbuf_create_output_file(c, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
-		ucstring_write_as_utf8(c, s, outf, 1);
+		dbuf_copy_slice_convert_to_utf8(c->infile, pos, comment_size,
+			DE_ENCODING_LATIN1, outf, 0x2);
 		dbuf_close(outf);
 	}
 	else {
-		de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(s));
-	}
+		de_ucstring *s = NULL;
 
-	ucstring_destroy(s);
+		s = ucstring_create(c);
+		dbuf_read_to_ucstring_n(c->infile, pos, comment_size, DE_DBG_MAX_STRLEN,
+			s, 0, DE_ENCODING_LATIN1);
+		de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(s));
+		ucstring_destroy(s);
+	}
 }
 
 static void handler_cme(deark *c, lctx *d, struct page_ctx *pg,
