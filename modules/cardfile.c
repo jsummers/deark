@@ -19,20 +19,25 @@ typedef struct localctx_struct {
 #define DE_CRDFMT_RRG 2
 #define DE_CRDFMT_DKO 3
 	int fmt;
-	int crd_encoding;
-	int ole_encoding;
+	de_encoding crd_encoding;
+	de_encoding ole_encoding;
 	const char *signature;
 	i64 numcards;
 } lctx;
 
 static void do_extract_text_data(deark *c, lctx *d, de_finfo *fi, i64 text_pos, i64 text_len)
 {
-	if(text_len<1) return;
-	if(text_pos + text_len > c->infile->len) return;
+	dbuf *outf = NULL;
 
-	// TODO: Consider trying to convert to UTF-8, especially if the user used the
-	// "inenc" option.
-	dbuf_create_file_from_slice(c->infile, text_pos, text_len, "txt", fi, 0);
+	if(text_len<1) goto done;
+	if(text_pos + text_len > c->infile->len) goto done;
+
+	outf = dbuf_create_output_file(c, "txt", fi, 0);
+	dbuf_copy_slice_convert_to_utf8(c->infile, text_pos, text_len,
+		DE_EXTENC_MAKE(d->crd_encoding, DE_ENCSUBTYPE_HYBRID),
+		outf, 0x2|0x4);
+done:
+	dbuf_close(outf);
 }
 
 static void do_dbg_text_data(deark *c, lctx *d, i64 text_pos, i64 text_len)

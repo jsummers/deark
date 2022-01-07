@@ -107,8 +107,13 @@ static const char *get_member_name_for_msg(deark *c, lctx *d, struct member_data
 
 static void do_extract_comment(deark *c, lctx *d, i64 pos, i64 len, int is_main)
 {
-	dbuf_create_file_from_slice(c->infile, pos, len, "comment.txt",
-		NULL, DE_CREATEFLAG_IS_AUX);
+	dbuf *outf = NULL;
+
+	outf = dbuf_create_output_file(c, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
+	dbuf_copy_slice_convert_to_utf8(c->infile, pos, len,
+		DE_EXTENC_MAKE(d->input_encoding, DE_ENCSUBTYPE_HYBRID),
+		outf, 0x2|0x4);
+	dbuf_close(outf);
 }
 
 static void do_dbg_comment(deark *c, lctx *d, i64 pos, i64 len, const char *name,
@@ -119,7 +124,7 @@ static void do_dbg_comment(deark *c, lctx *d, i64 pos, i64 len, const char *name
 	if(c->debug_level<1) return;
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN, s,
-		0, d->input_encoding);
+		0, DE_EXTENC_MAKE(d->input_encoding, DE_ENCSUBTYPE_HYBRID));
 	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz_d(s));
 	ucstring_destroy(s);
 }
