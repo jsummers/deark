@@ -166,6 +166,9 @@ struct dbuf_struct {
 	int file_pos_known;
 	i64 file_pos;
 
+	i64 wbuffer_bytes_used;
+	u8 *wbuffer;
+
 	struct dbuf_struct *parent_dbuf; // used for DBUF_TYPE_DBUF
 	i64 offset_into_parent_dbuf; // used for DBUF_TYPE_DBUF
 
@@ -183,15 +186,15 @@ struct dbuf_struct {
 	void *userdata_for_customwrite;
 	de_dbufcustomwrite_type customwrite_fn; // used for DBUF_TYPE_CUSTOM
 
-#define DE_CACHE_POLICY_NONE    0
-#define DE_CACHE_POLICY_ENABLED 1
-	int cache_policy;
-	i64 cache_bytes_used;
-	u8 *cache; // first 'cache_bytes_used' bytes of the file
+#define DE_RCACHE_POLICY_NONE    0
+#define DE_RCACHE_POLICY_ENABLED 1
+	int rcache_policy;
+	i64 rcache_bytes_used;
+	u8 *rcache; // first 'cache_bytes_used' bytes of the file
 
 	// cache2 is a simple 1-byte cache, mainly to speed up de_get_bits_symbol().
-	i64 cache2_pos;
-	u8 cache2;
+	i64 rcache2_pos;
+	u8 rcache2;
 
 	// Things copied from the de_finfo object at file creation
 	de_finfo *fi_copy;
@@ -418,7 +421,7 @@ struct deark_struct {
 
 	u8 deflate_decoder_id;
 	u8 tmpflag1;
-	u8 tmpflag2;
+	u8 enable_wbuffer_test;
 	u8 pngcprlevel_valid;
 	unsigned int pngcmprlevel;
 	void *zip_data;
@@ -668,6 +671,7 @@ void dbuf_read_to_ucstring_n(dbuf *f, i64 pos, i64 len, i64 max_len,
 #define DE_CREATEFLAG_IS_AUX   0x1
 #define DE_CREATEFLAG_OPT_IMAGE 0x2
 #define DE_CREATEFLAG_FLIP_IMAGE 0x4
+#define DE_CREATEFLAG_NO_WBUFFER 0x200
 dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi, unsigned int createflags);
 
 dbuf *dbuf_create_unmanaged_file(deark *c, const char *fname, int overwrite_mode, unsigned int flags);
@@ -684,6 +688,7 @@ dbuf *dbuf_create_membuf(deark *c, i64 initialsize, unsigned int flags);
 // If f is NULL, this is a no-op.
 void dbuf_close(dbuf *f);
 
+void dbuf_enable_wbuffer(dbuf *f);
 void dbuf_set_writelistener(dbuf *f, de_writelistener_cb_type fn, void *userdata);
 
 void dbuf_write(dbuf *f, const u8 *m, i64 len);
@@ -712,6 +717,7 @@ void dbuf_writeu64le(dbuf *f, u64 n);
 void dbuf_puts(dbuf *f, const char *sz);
 void dbuf_printf(dbuf *f, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
+void dbuf_flush_lowlevel(dbuf *f);
 void dbuf_flush(dbuf *f);
 
 // Read a slice of one dbuf, and append it to another dbuf.

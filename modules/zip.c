@@ -239,6 +239,7 @@ static void do_decompress_lowlevel(deark *c, lctx *d, struct de_dfilter_in_param
 
 	if(cmi && cmi->decompressor) {
 		cmi->decompressor(c, d, &cparams, dcmpri, dcmpro, dres);
+		dbuf_flush(dcmpro->f);
 	}
 	else {
 		de_internal_err_nonfatal(c, "Unsupported compression method (%d)", cmpr_meth);
@@ -1130,6 +1131,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	}
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
+	dbuf_enable_wbuffer(outf);
 	if(md->is_dir) {
 		goto done;
 	}
