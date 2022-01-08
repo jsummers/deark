@@ -1024,6 +1024,7 @@ static dbuf *create_dbuf_lowlevel(deark *c)
 	f = de_malloc(c, sizeof(dbuf));
 	f->c = c;
 	f->rcache2_pos = -1; // Any offset outside the bounds of the file will do.
+	f->file_id = -1;
 	return f;
 }
 
@@ -1113,7 +1114,6 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 	int have_ext;
 	dbuf *f;
 	const char *basefn;
-	int file_index;
 	u8 is_directory = 0;
 	char *name_from_finfo = NULL;
 	i64 name_from_finfo_len = 0;
@@ -1160,7 +1160,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 		}
 	}
 
-	file_index = c->file_count;
+	f->file_id = c->file_count;
 	c->file_count++;
 
 	basefn = c->base_output_filename ? c->base_output_filename : "output";
@@ -1178,7 +1178,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 	{
 		de_strlcpy(nbuf, ".", sizeof(nbuf));
 	}
-	else if(c->special_1st_filename && (file_index==c->first_output_file) &&
+	else if(c->special_1st_filename && (f->file_id==c->first_output_file) &&
 		!is_directory)
 	{
 		de_strlcpy(nbuf, c->special_1st_filename, sizeof(nbuf));
@@ -1216,7 +1216,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 			de_strlcpy(fn_suffix, "bin", sizeof(fn_suffix));
 		}
 
-		de_snprintf(nbuf, sizeof(nbuf), "%s.%03d.%s", basefn, file_index, fn_suffix);
+		de_snprintf(nbuf, sizeof(nbuf), "%s.%03d.%s", basefn, f->file_id, fn_suffix);
 	}
 
 	f->name = de_strdup(c, nbuf);
@@ -1244,15 +1244,15 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 		}
 	}
 
-	if(file_index < c->first_output_file) {
+	if(f->file_id < c->first_output_file) {
 		f->btype = DBUF_TYPE_NULL;
 		goto done;
 	}
 
-	if(file_index >= c->first_output_file + c->max_output_files)
+	if(f->file_id >= c->first_output_file + c->max_output_files)
 	{
 		f->btype = DBUF_TYPE_NULL;
-		if(file_index == c->first_output_file + c->max_output_files) {
+		if(f->file_id == c->first_output_file + c->max_output_files) {
 			if(!c->user_set_max_output_files) {
 				de_err(c, "Limit of %d output files exceeded", c->max_output_files);
 			}
@@ -1272,10 +1272,14 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 		dbuf_enable_wbuffer(f);
 	}
 
+	if(c->enable_oinfo) {
+		f->crco_for_oinfo = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	}
+
 	if(c->list_mode) {
 		f->btype = DBUF_TYPE_NULL;
 		if(c->list_mode_include_file_id) {
-			de_msg(c, "%d:%s", file_index, f->name);
+			de_msg(c, "%d:%s", f->file_id, f->name);
 		}
 		else {
 			de_msg(c, "%s", f->name);
@@ -1403,6 +1407,9 @@ static void dbuf_write_unbuffered(dbuf *f, const u8 *m, i64 len)
 		do_on_dbuf_size_exceeded(f);
 	}
 
+	if(f->crco_for_oinfo) {
+		de_crcobj_addbuf(f->crco_for_oinfo, m, len);
+	}
 	if(f->writelistener_cb) {
 		// Note that the callback function can be changed at any time
 		// (via dbuf_set_writelistener()), so if we
@@ -1833,6 +1840,16 @@ void dbuf_close(dbuf *f)
 
 	if(f->wbuffer_bytes_used!=0) dbuf_flush(f);
 
+	if(c->enable_oinfo && f->is_managed) {
+		u32 crc = 0;
+
+		if(f->crco_for_oinfo) {
+			crc = de_crcobj_getval(f->crco_for_oinfo);
+		}
+		de_msg(c, "Output file info: ID=%d CRC=%08x size=%"I64_FMT, f->file_id,
+			crc, f->len);
+	}
+
 	if(f->btype==DBUF_TYPE_OFILE || f->btype==DBUF_TYPE_STDOUT) {
 		c->total_output_size += f->len;
 	}
@@ -1888,6 +1905,7 @@ void dbuf_close(dbuf *f)
 	de_free(c, f->name);
 	de_free(c, f->rcache);
 	de_free(c, f->wbuffer);
+	if(f->crco_for_oinfo) de_crcobj_destroy(f->crco_for_oinfo);
 	if(f->fi_copy) de_finfo_destroy(c, f->fi_copy);
 	de_free(c, f);
 

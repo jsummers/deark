@@ -69,6 +69,7 @@ struct dbuf_struct;
 typedef struct dbuf_struct dbuf;
 struct de_finfo_struct;
 typedef struct de_finfo_struct de_finfo;
+struct de_crcobj;
 
 struct de_module_params_struct;
 typedef struct de_module_params_struct de_module_params;
@@ -174,10 +175,13 @@ struct dbuf_struct {
 
 	u8 write_memfile_to_zip_archive;
 	u8 writing_to_tar_archive;
+	int file_id; // if managed
 	char *name; // used for DBUF_TYPE_OFILE (utf-8)
 
 	i64 membuf_alloc;
 	u8 *membuf_buf;
+
+	struct de_crcobj *crco_for_oinfo;
 
 	void *userdata_for_writelistener;
 	de_writelistener_cb_type writelistener_cb;
@@ -383,6 +387,7 @@ struct deark_struct {
 	int extract_level;
 	u8 list_mode;
 	u8 list_mode_include_file_id;
+	u8 enable_oinfo;
 	int first_output_file; // first file = 0
 	int max_output_files;
 	u8 user_set_max_output_files;
@@ -1092,8 +1097,6 @@ int de_inthashtable_remove_any_item(deark *c, struct de_inthashtable *ht, i64 *p
 #define DE_CRCOBJ_CRC16_XMODEM 0x20
 #define DE_CRCOBJ_CRC16_ARC    0x21
 #define DE_CRCOBJ_CRC16_IBMSDLC 0x22
-
-struct de_crcobj;
 
 struct de_crcobj *de_crcobj_create(deark *c, UI type_and_flags);
 void de_crcobj_destroy(struct de_crcobj *crco);
