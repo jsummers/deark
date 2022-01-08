@@ -127,6 +127,7 @@ static void de_advfile_run_rawfiles(deark *c, struct de_advfile *advf, int is_ap
 		de_finfo_set_name_from_ucstring(c, advf->mainfork.fi, advf->filename, advf->snflags);
 		advf->mainfork.fi->original_filename_flag = advf->original_filename_flag;
 		afp_main->outf = dbuf_create_output_file(c, NULL, advf->mainfork.fi, advf->createflags);
+		if(advf->enable_wbuffer) dbuf_enable_wbuffer(afp_main->outf);
 		dbuf_set_writelistener(afp_main->outf, advf->mainfork.writelistener_cb,
 			advf->mainfork.userdata_for_writelistener);
 		if(advf->writefork_cbfn && advf->mainfork.fork_len>0) {
@@ -140,6 +141,7 @@ static void de_advfile_run_rawfiles(deark *c, struct de_advfile *advf, int is_ap
 		setup_rsrc_finfo(advf);
 		afp_rsrc->whattodo = DE_ADVFILE_WRITERSRC;
 		afp_rsrc->outf = dbuf_create_output_file(c, NULL, advf->rsrcfork.fi, advf->createflags);
+		if(advf->enable_wbuffer) dbuf_enable_wbuffer(afp_rsrc->outf);
 		dbuf_set_writelistener(afp_rsrc->outf, advf->rsrcfork.writelistener_cb,
 			advf->rsrcfork.userdata_for_writelistener);
 		if(advf->writefork_cbfn) {
@@ -209,6 +211,7 @@ static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_app
 	de_finfo_set_name_from_ucstring(c, advf->mainfork.fi, fname, advf->snflags);
 	advf->mainfork.fi->original_filename_flag = advf->original_filename_flag;
 	outf = dbuf_create_output_file(c, NULL, advf->mainfork.fi, advf->createflags);
+	if(advf->enable_wbuffer) dbuf_enable_wbuffer(outf);
 
 	if(is_appledouble) { // signature
 		dbuf_writeu32be(outf, 0x00051607U);
@@ -466,6 +469,7 @@ static void de_advfile_run_macbinary(deark *c, struct de_advfile *advf)
 
 	dbuf_truncate(hdr, 128);
 	outf = dbuf_create_output_file(c, NULL, advf->mainfork.fi, advf->createflags);
+	if(advf->enable_wbuffer) dbuf_enable_wbuffer(outf);
 	dbuf_copy(hdr, 0, 128, outf);
 
 	afp_main = de_malloc(c, sizeof(struct de_advfile_cbparams));

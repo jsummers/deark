@@ -384,6 +384,7 @@ int fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
 	dcmpro.f = unc_pixels;
 	if(unc_pixels->has_len_limit) {
 		dcmpro.len_known = 1;
+		dbuf_flush(unc_pixels);
 		dcmpro.expected_len = unc_pixels->len_limit - unc_pixels->len;
 	}
 

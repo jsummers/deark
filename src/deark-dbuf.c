@@ -1411,9 +1411,6 @@ static void dbuf_write_unbuffered(dbuf *f, const u8 *m, i64 len)
 		de_crcobj_addbuf(f->crco_for_oinfo, m, len);
 	}
 	if(f->writelistener_cb) {
-		// Note that the callback function can be changed at any time
-		// (via dbuf_set_writelistener()), so if we
-		// ever decide to buffer these calls, precautions will be needed.
 		f->writelistener_cb(f, f->userdata_for_writelistener, m, len);
 	}
 

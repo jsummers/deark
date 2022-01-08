@@ -928,6 +928,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	fi->original_filename_flag = 1;
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
+	dbuf_enable_wbuffer(outf);
 	de_crcobj_reset(d->crco);
 	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
 
@@ -945,6 +946,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	if(md->cmi->decompressor) {
 		md->cmi->decompressor(c, d, md, &dcmpri, &dcmpro, &dres);
 	}
+	dbuf_flush(dcmpro.f);
 
 	if(dres.errcode) {
 		de_err(c, "%s: Decompression failed: %s", ucstring_getpsz_d(md->fullfilename),

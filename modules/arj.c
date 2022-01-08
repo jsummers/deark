@@ -355,6 +355,7 @@ static void extract_member_file(deark *c, lctx *d, struct member_data *md)
 	}
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
+	dbuf_enable_wbuffer(outf);
 
 	if(is_dir) goto done;
 
@@ -381,6 +382,7 @@ static void extract_member_file(deark *c, lctx *d, struct member_data *md)
 	else if(md->method==4) {
 		decompress_method_4(c, d, md, &dcmpri, &dcmpro, &dres);
 	}
+	dbuf_flush(dcmpro.f);
 
 	if(dres.errcode) {
 		de_err(c, "%s: Decompression failed: %s", ucstring_getpsz_d(md->name_srd->str),

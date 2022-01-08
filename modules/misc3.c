@@ -208,6 +208,7 @@ static void extract_member_file(struct member_data *md)
 	}
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
+	dbuf_enable_wbuffer(outf);
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
@@ -229,6 +230,7 @@ static void extract_member_file(struct member_data *md)
 	else {
 		de_dfilter_set_generic_error(c, &dres, NULL);
 	}
+	dbuf_flush(dcmpro.f);
 
 	if(dres.errcode) {
 		de_err(c, "%s: Decompression failed: %s", ucstring_getpsz_d(md->filename),
