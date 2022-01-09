@@ -400,6 +400,14 @@ int de_run(deark *c)
 		c->max_output_files = DE_DEFAULT_MAX_OUTPUT_FILES;
 	}
 
+	if(de_get_ext_option_bool(c, "oinfo", 0)) {
+		c->enable_oinfo = 1;
+	}
+
+	if(de_get_ext_option_bool(c, "wbuffer", 0)) { // Temporary, for testing
+		c->enable_wbuffer_test = 1;
+	}
+
 	// If we're writing to a zip file, we normally defer creating that zip file
 	// until we find a file to extract, so that we never create a zip file with
 	// no member files.

@@ -145,10 +145,11 @@ $(INSTALL_TARGET): $(DEARK_EXE)
 	install -s $(DEARK_EXE) $(DEARK_INSTALLDIR)
 
 # Quick & dirty man page generation. (experimental/temporary)
+# Note that this assumes DEARK_EXE does not have an absolute path.
 .PHONY: man install-man
 man: $(DEARK_MAN)
 $(DEARK_MAN): $(DEARK_EXE)
-	help2man -n "extract data from various file formats" -o $@ -N $(DEARK_EXE)
+	help2man -n "extract data from various file formats" -o $@ -N ./$(DEARK_EXE)
 install-man: $(DEARK_MAN)
 	install $(DEARK_MAN) /usr/share/man/man1
 

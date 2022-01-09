@@ -12,32 +12,33 @@
 
 #define DE_DUMMY_MAX_FILE_SIZE (1LL<<56)
 #define DE_MAX_MEMBUF_SIZE 2000000000
-#define DE_CACHE_SIZE 262144
+#define DE_RCACHE_SIZE 262144
+#define DE_WBUFFER_SIZE 128
 
 // Fill the cache that remembers the first part of the file.
 // TODO: We should probably use memory-mapped files instead when possible,
 // but this is simple and portable, and does most of what we need.
-static void populate_cache(dbuf *f)
+static void populate_rcache(dbuf *f)
 {
 	i64 bytes_to_read;
 	i64 bytes_read;
 
 	if(f->btype!=DBUF_TYPE_IFILE) return;
 
-	bytes_to_read = DE_CACHE_SIZE;
+	bytes_to_read = DE_RCACHE_SIZE;
 	if(f->len < bytes_to_read) {
 		bytes_to_read = f->len;
 	}
 
-	f->cache = de_malloc(f->c, DE_CACHE_SIZE);
+	f->rcache = de_malloc(f->c, DE_RCACHE_SIZE);
 	de_fseek(f->fp, 0, SEEK_SET);
-	bytes_read = fread(f->cache, 1, (size_t)bytes_to_read, f->fp);
-	f->cache_bytes_used = bytes_read;
+	bytes_read = fread(f->rcache, 1, (size_t)bytes_to_read, f->fp);
+	f->rcache_bytes_used = bytes_read;
 	f->file_pos_known = 0;
 }
 
 // Read all data from stdin (or a named pipe) into memory.
-static void populate_cache_from_pipe(dbuf *f)
+static void populate_rcache_from_pipe(dbuf *f)
 {
 	FILE *fp;
 	i64 cache_bytes_alloc = 0;
@@ -52,33 +53,33 @@ static void populate_cache_from_pipe(dbuf *f)
 		return;
 	}
 
-	f->cache_bytes_used = 0;
+	f->rcache_bytes_used = 0;
 
 	while(1) {
 		i64 bytes_to_read, bytes_read;
 
-		if(f->cache_bytes_used >= cache_bytes_alloc) {
+		if(f->rcache_bytes_used >= cache_bytes_alloc) {
 			i64 old_cache_size, new_cache_size;
 
 			// Cache is full. Increase its size.
 			old_cache_size = cache_bytes_alloc;
 			new_cache_size = old_cache_size*2;
-			if(new_cache_size<DE_CACHE_SIZE) new_cache_size = DE_CACHE_SIZE;
-			f->cache = de_realloc(f->c, f->cache, old_cache_size, new_cache_size);
+			if(new_cache_size<DE_RCACHE_SIZE) new_cache_size = DE_RCACHE_SIZE;
+			f->rcache = de_realloc(f->c, f->rcache, old_cache_size, new_cache_size);
 			cache_bytes_alloc = new_cache_size;
 		}
 
 		// Try to read as many bytes as it would take to fill the cache.
-		bytes_to_read = cache_bytes_alloc - f->cache_bytes_used;
+		bytes_to_read = cache_bytes_alloc - f->rcache_bytes_used;
 		if(bytes_to_read<1) break; // Shouldn't happen
 
-		bytes_read = fread(&f->cache[f->cache_bytes_used], 1, (size_t)bytes_to_read, fp);
+		bytes_read = fread(&f->rcache[f->rcache_bytes_used], 1, (size_t)bytes_to_read, fp);
 		if(bytes_read<1 || bytes_read>bytes_to_read) break;
-		f->cache_bytes_used += bytes_read;
+		f->rcache_bytes_used += bytes_read;
 		if(feof(fp) || ferror(fp)) break;
 	}
 
-	f->len = f->cache_bytes_used;
+	f->len = f->rcache_bytes_used;
 }
 
 // Read len bytes, starting at file position pos, into buf.
@@ -119,11 +120,11 @@ void dbuf_read(dbuf *f, u8 *buf, i64 pos, i64 len)
 	}
 
 	// If the data we need is all cached, get it from cache.
-	if(f->cache &&
+	if(f->rcache &&
 		pos >= 0 &&
-		pos + bytes_to_read <= f->cache_bytes_used)
+		pos + bytes_to_read <= f->rcache_bytes_used)
 	{
-		de_memcpy(buf, &f->cache[pos], (size_t)bytes_to_read);
+		de_memcpy(buf, &f->rcache[pos], (size_t)bytes_to_read);
 		bytes_read = bytes_to_read;
 		goto done_read;
 	}
@@ -192,24 +193,24 @@ u8 dbuf_getbyte(dbuf *f, i64 pos)
 {
 	if(pos<0 || pos>=f->len) return 0x00;
 
-	if(pos<f->cache_bytes_used) {
-		return f->cache[pos];
+	if(pos<f->rcache_bytes_used) {
+		return f->rcache[pos];
 	}
 	if(f->btype==DBUF_TYPE_MEMBUF) {
 		// Note that it is necessary to handle read+write dbuf types specially,
-		// so that the "cache2" feature isn't used.
+		// so that the "rcache2" feature isn't used.
 		return f->membuf_buf[pos];
 	}
 
-	// TODO: I don't like that cache2 exists, but without it some large images
+	// TODO: I don't like that rcache2 exists, but without it some large images
 	// are decoded too slowly (especially on Windows), and I haven't figured out
 	// a solution I like better.
-	if(pos==f->cache2_pos) {
-		return f->cache2;
+	if(pos==f->rcache2_pos) {
+		return f->rcache2;
 	}
-	f->cache2_pos = pos;
-	dbuf_read(f, &f->cache2, pos, 1);
-	return f->cache2;
+	f->rcache2_pos = pos;
+	dbuf_read(f, &f->rcache2, pos, 1);
+	return f->rcache2;
 }
 
 i64 de_geti8_direct(const u8 *m)
@@ -703,10 +704,10 @@ void dbuf_copy(dbuf *inf, i64 input_offset, i64 input_len, dbuf *outf)
 
 	// Fast paths, if the data to copy is all in memory
 
-	if(inf->cache &&
-		(input_offset>=0) && (input_offset+input_len<=inf->cache_bytes_used))
+	if(inf->rcache &&
+		(input_offset>=0) && (input_offset+input_len<=inf->rcache_bytes_used))
 	{
-		dbuf_write(outf, &inf->cache[input_offset], input_len);
+		dbuf_write(outf, &inf->rcache[input_offset], input_len);
 		return;
 	}
 
@@ -966,12 +967,12 @@ int dbuf_memcmp(dbuf *f, i64 pos, const void *s, size_t n)
 {
 	u8 buf1[128];
 
-	if(f->cache &&
+	if(f->rcache &&
 		pos >= 0 &&
-		pos + (i64)n <= f->cache_bytes_used)
+		pos + (i64)n <= f->rcache_bytes_used)
 	{
 		// Fastest path: Compare directly to cache.
-		return de_memcmp(s, &f->cache[pos], n);
+		return de_memcmp(s, &f->rcache[pos], n);
 	}
 
 	if(n<=sizeof(buf1)) {
@@ -1022,7 +1023,8 @@ static dbuf *create_dbuf_lowlevel(deark *c)
 
 	f = de_malloc(c, sizeof(dbuf));
 	f->c = c;
-	f->cache2_pos = -1; // Any offset outside the bounds of the file will do.
+	f->rcache2_pos = -1; // Any offset outside the bounds of the file will do.
+	f->file_id = -1;
 	return f;
 }
 
@@ -1090,6 +1092,19 @@ static void sanitize_ext(const char *ext1, char *ext, size_t extlen)
 	}
 }
 
+// Allow small writes to be coalesced, for more efficient callbacks, etc.
+// This may make writes less efficient in general, though, since FILE* I/O is
+// already buffered, and our membufs don't need caching.
+//
+// Warning - Do not use unless the this file is going to be written
+// strictly sequentially (no write_at()...), and you call
+// dbuf_flush() when needed.
+void dbuf_enable_wbuffer(dbuf *f)
+{
+	if(f->wbuffer) return;
+	f->wbuffer = de_malloc(f->c, DE_WBUFFER_SIZE);
+}
+
 dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 	unsigned int createflags)
 {
@@ -1099,7 +1114,6 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 	int have_ext;
 	dbuf *f;
 	const char *basefn;
-	int file_index;
 	u8 is_directory = 0;
 	char *name_from_finfo = NULL;
 	i64 name_from_finfo_len = 0;
@@ -1146,7 +1160,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 		}
 	}
 
-	file_index = c->file_count;
+	f->file_id = c->file_count;
 	c->file_count++;
 
 	basefn = c->base_output_filename ? c->base_output_filename : "output";
@@ -1164,7 +1178,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 	{
 		de_strlcpy(nbuf, ".", sizeof(nbuf));
 	}
-	else if(c->special_1st_filename && (file_index==c->first_output_file) &&
+	else if(c->special_1st_filename && (f->file_id==c->first_output_file) &&
 		!is_directory)
 	{
 		de_strlcpy(nbuf, c->special_1st_filename, sizeof(nbuf));
@@ -1202,7 +1216,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 			de_strlcpy(fn_suffix, "bin", sizeof(fn_suffix));
 		}
 
-		de_snprintf(nbuf, sizeof(nbuf), "%s.%03d.%s", basefn, file_index, fn_suffix);
+		de_snprintf(nbuf, sizeof(nbuf), "%s.%03d.%s", basefn, f->file_id, fn_suffix);
 	}
 
 	f->name = de_strdup(c, nbuf);
@@ -1230,15 +1244,15 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 		}
 	}
 
-	if(file_index < c->first_output_file) {
+	if(f->file_id < c->first_output_file) {
 		f->btype = DBUF_TYPE_NULL;
 		goto done;
 	}
 
-	if(file_index >= c->first_output_file + c->max_output_files)
+	if(f->file_id >= c->first_output_file + c->max_output_files)
 	{
 		f->btype = DBUF_TYPE_NULL;
-		if(file_index == c->first_output_file + c->max_output_files) {
+		if(f->file_id == c->first_output_file + c->max_output_files) {
 			if(!c->user_set_max_output_files) {
 				de_err(c, "Limit of %d output files exceeded", c->max_output_files);
 			}
@@ -1250,13 +1264,22 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 
 	if(c->extrlist_dbuf) {
 		dbuf_printf(c->extrlist_dbuf, "%s\n", f->name);
-		dbuf_flush(c->extrlist_dbuf);
+		dbuf_flush_lowlevel(c->extrlist_dbuf);
+	}
+
+	if(c->enable_wbuffer_test && !(createflags & DE_CREATEFLAG_NO_WBUFFER))
+	{
+		dbuf_enable_wbuffer(f);
+	}
+
+	if(c->enable_oinfo) {
+		f->crco_for_oinfo = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
 	}
 
 	if(c->list_mode) {
 		f->btype = DBUF_TYPE_NULL;
 		if(c->list_mode_include_file_id) {
-			de_msg(c, "%d:%s", file_index, f->name);
+			de_msg(c, "%d:%s", f->file_id, f->name);
 		}
 		else {
 			de_msg(c, "%s", f->name);
@@ -1376,15 +1399,20 @@ static void membuf_append(dbuf *f, const u8 *m, i64 mlen)
 	f->len += mlen;
 }
 
-void dbuf_write(dbuf *f, const u8 *m, i64 len)
+// Not to be called directly. Used only by dbuf_write/dbuf_flush.
+static void dbuf_write_unbuffered(dbuf *f, const u8 *m, i64 len)
 {
 	if(len<=0) return;
 	if(f->len + len > f->max_len_hard) {
 		do_on_dbuf_size_exceeded(f);
 	}
 
+	if(f->crco_for_oinfo) {
+		de_crcobj_addbuf(f->crco_for_oinfo, m, len);
+	}
 	if(f->writelistener_cb) {
-		// Note that the callback function can be changed at any time, so if we
+		// Note that the callback function can be changed at any time
+		// (via dbuf_set_writelistener()), so if we
 		// ever decide to buffer these calls, precautions will be needed.
 		f->writelistener_cb(f, f->userdata_for_writelistener, m, len);
 	}
@@ -1423,8 +1451,56 @@ void dbuf_write(dbuf *f, const u8 *m, i64 len)
 	de_internal_err_fatal(f->c, "Invalid output file type (%d)", f->btype);
 }
 
+// High-level flush. Updates fields in f, calls the writelistener function, etc.
+// (Use dbuf_flush_lowlevel to flush to the actual disk file.)
+void dbuf_flush(dbuf *f)
+{
+	if(f->wbuffer_bytes_used==0) return;
+	dbuf_write_unbuffered(f, f->wbuffer, f->wbuffer_bytes_used);
+	f->wbuffer_bytes_used = 0;
+}
+
+void dbuf_write(dbuf *f, const u8 *m, i64 len)
+{
+	if(!f->wbuffer) {
+		dbuf_write_unbuffered(f, m, len);
+		return;
+	}
+
+	if(len<=0) return;
+
+	if(len > DE_WBUFFER_SIZE/2) {
+		// This item doesn't fit in the buffer, even by itself, or we
+		// consider it "large".
+		// Flush the buffer, write the item, done.
+		if(f->wbuffer_bytes_used!=0) dbuf_flush(f);
+		dbuf_write_unbuffered(f, m, len);
+		return;
+	}
+
+	if(f->wbuffer_bytes_used + len > DE_WBUFFER_SIZE) {
+		// This item fits in the buffer by itself, but currently the buffer
+		// is too full.
+		// Flush the buffer, copy the item to the buffer, done.
+		dbuf_flush(f);
+		de_memcpy(f->wbuffer, m, len);
+		f->wbuffer_bytes_used = len;
+		return;
+	}
+
+	// There is room for this item in the buffer, even without flushing it first.
+	de_memcpy(&f->wbuffer[f->wbuffer_bytes_used], m, len);
+	f->wbuffer_bytes_used += len;
+}
+
 void dbuf_writebyte(dbuf *f, u8 n)
 {
+	// Optimization
+	if(f->wbuffer && f->wbuffer_bytes_used<DE_WBUFFER_SIZE) {
+		f->wbuffer[f->wbuffer_bytes_used++] = n;
+		return;
+	}
+
 	dbuf_write(f, &n, 1);
 }
 
@@ -1526,6 +1602,7 @@ void dbuf_write_zeroes(dbuf *f, i64 len)
 // Make the membuf have exactly len bytes of content.
 void dbuf_truncate(dbuf *f, i64 desired_len)
 {
+	dbuf_flush(f);
 	if(desired_len<0) desired_len=0;
 	if(desired_len>f->len) {
 		dbuf_write_zeroes(f, desired_len - f->len);
@@ -1663,8 +1740,9 @@ void dbuf_printf(dbuf *f, const char *fmt, ...)
 	dbuf_puts(f, buf);
 }
 
-void dbuf_flush(dbuf *f)
+void dbuf_flush_lowlevel(dbuf *f)
 {
+	dbuf_flush(f);
 	if(f->btype==DBUF_TYPE_OFILE) {
 		fflush(f->fp);
 	}
@@ -1682,7 +1760,7 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 	}
 	f = create_dbuf_lowlevel(c);
 	f->btype = DBUF_TYPE_IFILE;
-	f->cache_policy = DE_CACHE_POLICY_ENABLED;
+	f->rcache_policy = DE_RCACHE_POLICY_ENABLED;
 
 	f->fp = de_fopen_for_read(c, fn, &f->len, msgbuf, sizeof(msgbuf), &returned_flags);
 
@@ -1696,12 +1774,12 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 	if(returned_flags & 0x1) {
 		// This "file" is actually a pipe.
 		f->btype = DBUF_TYPE_FIFO;
-		f->cache_policy = DE_CACHE_POLICY_NONE;
-		populate_cache_from_pipe(f);
+		f->rcache_policy = DE_RCACHE_POLICY_NONE;
+		populate_rcache_from_pipe(f);
 	}
 
-	if(!f->cache && f->cache_policy==DE_CACHE_POLICY_ENABLED) {
-		populate_cache(f);
+	if(!f->rcache && f->rcache_policy==DE_RCACHE_POLICY_ENABLED) {
+		populate_rcache(f);
 	}
 
 	return f;
@@ -1715,9 +1793,9 @@ dbuf *dbuf_open_input_stdin(deark *c)
 	f->btype = DBUF_TYPE_STDIN;
 
 	// Set to NONE, to make sure we don't try to auto-populate the cache later.
-	f->cache_policy = DE_CACHE_POLICY_NONE;
+	f->rcache_policy = DE_RCACHE_POLICY_NONE;
 
-	populate_cache_from_pipe(f);
+	populate_rcache_from_pipe(f);
 
 	return f;
 }
@@ -1749,6 +1827,7 @@ dbuf *dbuf_create_custom_dbuf(deark *c, i64 apparent_size, unsigned int flags)
 
 void dbuf_set_writelistener(dbuf *f, de_writelistener_cb_type fn, void *userdata)
 {
+	dbuf_flush(f);
 	f->userdata_for_writelistener = userdata;
 	f->writelistener_cb = fn;
 }
@@ -1758,6 +1837,18 @@ void dbuf_close(dbuf *f)
 	deark *c;
 	if(!f) return;
 	c = f->c;
+
+	if(f->wbuffer_bytes_used!=0) dbuf_flush(f);
+
+	if(c->enable_oinfo && f->is_managed) {
+		u32 crc = 0;
+
+		if(f->crco_for_oinfo) {
+			crc = de_crcobj_getval(f->crco_for_oinfo);
+		}
+		de_msg(c, "Output file info: ID=%d CRC=%08x size=%"I64_FMT, f->file_id,
+			crc, f->len);
+	}
 
 	if(f->btype==DBUF_TYPE_OFILE || f->btype==DBUF_TYPE_STDOUT) {
 		c->total_output_size += f->len;
@@ -1812,7 +1903,9 @@ void dbuf_close(dbuf *f)
 
 	de_free(c, f->membuf_buf);
 	de_free(c, f->name);
-	de_free(c, f->cache);
+	de_free(c, f->rcache);
+	de_free(c, f->wbuffer);
+	if(f->crco_for_oinfo) de_crcobj_destroy(f->crco_for_oinfo);
 	if(f->fi_copy) de_finfo_destroy(c, f->fi_copy);
 	de_free(c, f);
 
@@ -1829,6 +1922,7 @@ void dbuf_close(dbuf *f)
 void dbuf_empty(dbuf *f)
 {
 	if(f->btype == DBUF_TYPE_MEMBUF) {
+		dbuf_flush(f);
 		f->len = 0;
 	}
 }
@@ -2239,8 +2333,8 @@ int dbuf_buffered_read(dbuf *f, i64 pos1, i64 len,
 	}
 
 	// Use an optimized routine if all the data we need to read is already in memory.
-	if(f->cache && (pos1>=0) && (pos1+len<=f->cache_bytes_used)) {
-		return buffered_read_from_mem(&brctx, f, f->cache, pos1, len, cbfn);
+	if(f->rcache && (pos1>=0) && (pos1+len<=f->rcache_bytes_used)) {
+		return buffered_read_from_mem(&brctx, f, f->rcache, pos1, len, cbfn);
 	}
 
 	// Not an "optimization", since we promise this behavior for MEMBUFs.
