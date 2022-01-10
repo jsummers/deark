@@ -25,6 +25,7 @@ struct pkm_ctx {
 static void pkm_decompress_image(deark *c, struct pkm_ctx *d, i64 pos1)
 {
 	i64 pos = pos1;
+	i64 nbytes_dcmpr = 0;
 
 	de_dbg(c, "compressed image at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
@@ -34,7 +35,7 @@ static void pkm_decompress_image(deark *c, struct pkm_ctx *d, i64 pos1)
 		u8 b2;
 		i64 count;
 
-		if(d->unc_pixels->len >= d->unc_image_size) goto done; // Sufficient output
+		if(nbytes_dcmpr >= d->unc_image_size) goto done; // Sufficient output
 		if(pos >= c->infile->len) goto done; // No more input
 
 		b = de_getbyte_p(&pos);
@@ -42,19 +43,22 @@ static void pkm_decompress_image(deark *c, struct pkm_ctx *d, i64 pos1)
 			b2 = de_getbyte_p(&pos);
 			count = (i64)de_getbyte_p(&pos);
 			dbuf_write_run(d->unc_pixels, b2, count);
+			nbytes_dcmpr += count;
 		}
 		else if(b==d->pack_word) {
 			b2 = de_getbyte_p(&pos);
 			count = de_getu16be_p(&pos);
 			dbuf_write_run(d->unc_pixels, b2, count);
+			nbytes_dcmpr += count;
 		}
 		else {
 			dbuf_writebyte(d->unc_pixels, b);
+			nbytes_dcmpr++;
 		}
 	}
 
 done:
-	de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT, pos-pos1, d->unc_pixels->len);
+	de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT, pos-pos1, nbytes_dcmpr);
 	de_dbg_indent(c, -1);
 }
 
@@ -166,7 +170,9 @@ static void de_run_pkm(deark *c, de_module_params *mparams)
 
 	d->unc_image_size = d->w * d->h;
 	d->unc_pixels = dbuf_create_membuf(c, d->unc_image_size, 0x1);
+	dbuf_enable_wbuffer(d->unc_pixels);
 	pkm_decompress_image(c, d, pos);
+	dbuf_flush(d->unc_pixels);
 
 	if(d->respect_trns && d->has_back_clr) {
 		bypp = 4;

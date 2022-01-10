@@ -280,6 +280,7 @@ static void do_decompress_code(deark *c, lctx *d)
 	}
 
 after_decompress:
+	dbuf_flush(d->o_dcmpr_code);
 	de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT, (d->dcmpr_cur_ipos-ipos1),
 		d->o_dcmpr_code->len);
 
@@ -384,6 +385,7 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 
 	d->o_reloc_table = dbuf_create_membuf(c, 0, 0);
 	d->o_dcmpr_code = dbuf_create_membuf(c, 0, 0);
+	dbuf_enable_wbuffer(d->o_dcmpr_code);
 
 	do_read_header(c, d);
 	if(d->errflag) goto done;
@@ -398,6 +400,7 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 	}
 	if(d->errflag) goto done;
 	do_decompress_code(c, d);
+	dbuf_flush(d->o_dcmpr_code);
 	if(d->errflag) goto done;
 
 	do_write_dcmpr(c, d, ei);

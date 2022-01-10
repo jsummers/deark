@@ -1101,6 +1101,7 @@ static void sanitize_ext(const char *ext1, char *ext, size_t extlen)
 // dbuf_flush() when needed.
 void dbuf_enable_wbuffer(dbuf *f)
 {
+	if(f->c->disable_wbuffer) return; // Feature is disabled globally
 	if(f->wbuffer) return;
 	f->wbuffer = de_malloc(f->c, DE_WBUFFER_SIZE);
 }

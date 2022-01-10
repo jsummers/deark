@@ -44,6 +44,7 @@ typedef struct localctx_struct {
 	dbuf *o_orig_header;
 	dbuf *o_reloc_table;
 	dbuf *o_dcmpr_code;
+	i64 o_dcmpr_code_nbytes_written;
 
 	i64 dcmpr_cur_ipos;
 	struct de_bitbuf_lowlevel bbll;
@@ -499,6 +500,7 @@ static void my_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 	lctx *d = (lctx*)rb->userdata;
 
 	dbuf_writebyte(d->o_dcmpr_code, n);
+	d->o_dcmpr_code_nbytes_written++;
 }
 
 static void make_matchlengths_tree(deark *c, lctx *d)
@@ -618,6 +620,7 @@ static void do_decompress(deark *c, lctx *d)
 	make_offsets_tree(c, d);
 
 	d->o_dcmpr_code = dbuf_create_membuf(c, 0, 0);
+	dbuf_enable_wbuffer(d->o_dcmpr_code);
 
 	ringbuf = de_lz77buffer_create(c, 8192);
 	ringbuf->userdata = (void*)d;
@@ -691,9 +694,9 @@ static void do_decompress(deark *c, lctx *d)
 		// PKLITE confirmed to use distances 1 to 8191. Have not observed matchpos=0.
 		// Have not observed it to use distances larger than the number of bytes
 		// decompressed so far.
-		if(matchpos==0 || (i64)matchpos>d->o_dcmpr_code->len) {
+		if(matchpos==0 || (i64)matchpos>d->o_dcmpr_code_nbytes_written) {
 			de_err(c, "Bad or unsupported compressed data (dist=%u, expected 1 to %"I64_FMT")",
-				matchpos, d->o_dcmpr_code->len);
+				matchpos, d->o_dcmpr_code_nbytes_written);
 			d->errflag = 1;
 			d->errmsg_handled = 1;
 			goto after_dcmpr;
@@ -704,6 +707,7 @@ static void do_decompress(deark *c, lctx *d)
 
 after_dcmpr:
 	if(!d->o_dcmpr_code) goto done;
+	dbuf_flush(d->o_dcmpr_code);
 
 	if(!d->errflag) {
 		d->cmpr_data_endpos = d->dcmpr_cur_ipos;
@@ -981,6 +985,7 @@ static void de_run_pklite(deark *c, de_module_params *mparams)
 	do_read_header(c, d);
 	if(d->errflag) goto done;
 	do_decompress(c, d);
+	dbuf_flush(d->o_dcmpr_code);
 	if(d->errflag) goto done;
 	d->dcmpr_ok = 1;
 

@@ -426,7 +426,9 @@ struct deark_struct {
 
 	u8 deflate_decoder_id;
 	u8 tmpflag1;
+	u8 tmpflag2;
 	u8 enable_wbuffer_test;
+	u8 disable_wbuffer;
 	u8 pngcprlevel_valid;
 	unsigned int pngcmprlevel;
 	void *zip_data;

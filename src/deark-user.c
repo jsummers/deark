@@ -217,6 +217,7 @@ int de_run(deark *c)
 	int moddisp;
 	int subdirs_opt;
 	int keepdirentries_opt;
+	int tmp_opt;
 	de_module_params *mparams = NULL;
 	de_ucstring *friendly_infn = NULL;
 
@@ -404,8 +405,14 @@ int de_run(deark *c)
 		c->enable_oinfo = 1;
 	}
 
-	if(de_get_ext_option_bool(c, "wbuffer", 0)) { // Temporary, for testing
+	tmp_opt = de_get_ext_option_bool(c, "wbuffer", -1);
+	if(tmp_opt>0) {
+		// For testing(?), enable wbuffer feature automatically in some cases.
 		c->enable_wbuffer_test = 1;
+	}
+	else if(tmp_opt==0) {
+		// Always disable wbuffer, even if a module wants to use it.
+		c->disable_wbuffer = 1;
 	}
 
 	// If we're writing to a zip file, we normally defer creating that zip file
