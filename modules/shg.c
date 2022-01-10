@@ -175,6 +175,7 @@ static int do_uncompress_picture_data(deark *c, lctx *d,
 	default: // 0, uncompressed
 		fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
 	}
+	dbuf_flush(dcmpro.f);
 
 	if(dres.errcode) {
 		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
@@ -388,6 +389,7 @@ static int do_dib_ddb(deark *c, lctx *d, struct picture_ctx *pctx, i64 pos1)
 	pctx->final_image_size = pctx->height * pctx->planes * pctx->rowspan;
 
 	pixels_final = dbuf_create_membuf(c, 0, 0);
+	dbuf_enable_wbuffer(pixels_final);
 	if(!do_uncompress_picture_data(c, d, pctx,
 		compressed_offset_abs, compressed_size,
 		pixels_final, pctx->final_image_size))
@@ -451,6 +453,7 @@ static int do_wmf(deark *c, lctx *d, struct picture_ctx *pctx, i64 pos1)
 	}
 
 	pixels_final = dbuf_create_membuf(c, decompressed_size, 0x1);
+	dbuf_enable_wbuffer(pixels_final);
 	if(!do_uncompress_picture_data(c, d, pctx, compressed_offset, compressed_size,
 		pixels_final, decompressed_size))
 	{

@@ -391,7 +391,7 @@ static void decompress_dms_heavy(struct lzh_ctx *cctx, struct dmslzh_params *lzh
 		code = read_next_code_using_tree(cctx, &hvst->literals_tree);
 		if(cctx->bitrd.eof_flag) goto done;
 		if(c->debug_level>=3) {
-			de_dbg3(c, "code: %u (opos=%"I64_FMT")", code, cctx->dcmpro->f->len);
+			de_dbg3(c, "code: %u (opos=%"I64_FMT")", code, cctx->nbytes_written);
 		}
 
 		if(code < 256) { // literal
@@ -1004,6 +1004,7 @@ static int dms_decompress_track(deark *c, struct dmsctx *d, struct dms_track_inf
 			dms_get_cmprtype_name(tri->cmpr_type));
 		goto done;
 	}
+	dbuf_flush(dcmpro.f);
 
 	if(dres.errcode) {
 		de_err(c, "[%s] Decompression failed: %s", tri->shortname,
@@ -1168,6 +1169,7 @@ static void do_dms_main(deark *c, struct dmsctx *d)
 	dbuf *trackbuf = NULL;
 
 	trackbuf = dbuf_create_membuf(c, 11264, 0);
+	dbuf_enable_wbuffer(trackbuf);
 	outf = dbuf_create_output_file(c, "adf", NULL, 0);
 
 	for(i=0; i<d->num_tracks_in_file; i++) {

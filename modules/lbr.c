@@ -677,6 +677,7 @@ static void decompress_crunch_v1(deark *c, struct crunch_ctx *crunchctx, i64 pos
 	fi->original_filename_flag = 1;
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
+	dbuf_enable_wbuffer(outf);
 	dbuf_set_writelistener(outf, crunch_writelistener_cb, (void*)crunchctx);
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
@@ -697,6 +698,7 @@ static void decompress_crunch_v1(deark *c, struct crunch_ctx *crunchctx, i64 pos
 	tlp.dcmpro = &dcmpro;
 	tlp.dres = &dres;
 	de_dfilter_decompress_two_layer(c, &tlp);
+	dbuf_flush(dcmpro.f);
 
 	if(dres.errcode) {
 		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
