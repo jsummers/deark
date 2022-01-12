@@ -192,7 +192,7 @@ done:
 	dbuf_close(outf);
 }
 
-static void do_disk_image(deark *c, lctx *d, dbuf *f)
+static void do_atr_disk_image(deark *c, lctx *d, dbuf *f)
 {
 	i64 sector_pos;
 	i64 entrypos;
@@ -249,7 +249,7 @@ static void do_atr(deark *c, lctx *d)
 
 	diskimg = dbuf_open_input_subfile(c->infile, 16, c->infile->len-16);
 
-	do_disk_image(c, d, diskimg);
+	do_atr_disk_image(c, d, diskimg);
 
 	dbuf_close(diskimg);
 }
@@ -387,6 +387,7 @@ static int do_msa_track(deark *c, struct msactx *d, i64 tk, i64 sd, i64 pos1, i6
 	retval = 1;
 
 done:
+	dbuf_flush(outf);
 	de_dbg_indent(c, -1);
 	return retval;
 }
@@ -519,6 +520,7 @@ static void de_run_msa(deark *c, de_module_params *mparams)
 	if(!do_msa_header(c, d, 0)) goto done;
 
 	diskbuf = dbuf_create_membuf(c, d->disk_size, 0x1);
+	dbuf_enable_wbuffer(diskbuf);
 
 	if(!do_msa_tracks(c, d, 10, diskbuf)) goto done;
 

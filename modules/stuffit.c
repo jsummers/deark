@@ -401,6 +401,7 @@ static void do_decompr_fixedhuff(deark *c, lctx *d, struct member_data *md,
 		}
 		pb_dfctx = de_dfilter_create(c, dfilter_packbits_codec, NULL, &pb_dcmpro, &pb_dres);
 
+		dbuf_flush(dcmpro->f);
 		prev_len = dcmpro->f->len;
 
 		if(blocksize_raw >= 0) { // PackBits + Huffman
@@ -491,6 +492,7 @@ static void do_decompr_fixedhuff(deark *c, lctx *d, struct member_data *md,
 		// PackBits), but I'm not 100% sure. It could be that the whole file is
 		// first compressed with PackBits, and then split into segments. If so,
 		// this won't always work.
+		dbuf_flush(dcmpro->f);
 		nbytes_written_this_block = dcmpro->f->len - prev_len;
 		de_dbg2(c, "decompressed to %"I64_FMT" bytes", nbytes_written_this_block);
 		nbytes_written += nbytes_written_this_block;
@@ -780,6 +782,7 @@ static void do_main_decompress_fork(deark *c, lctx *d, struct member_data *md,
 	dcmpro.len_known = 1;
 	dcmpro.expected_len = frk->unc_len;
 	frk->cmi->decompressor(c, d, md, frk, &dcmpri, &dcmpro, &dres);
+	dbuf_flush(dcmpro.f);
 	if(dres.errcode) {
 		de_err(c, "Decompression failed for file %s[%s fork]: %s", ucstring_getpsz_d(md->full_fname),
 			frk->forkname, de_dfilter_get_errmsg(c, &dres));
@@ -918,6 +921,7 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	de_dbg_indent(c, 1);
 
 	md->advf = de_advfile_create(c);
+	md->advf->enable_wbuffer = 1;
 
 	if(!do_member_header(c, d, md, pos)) goto done;
 
@@ -1308,6 +1312,7 @@ static int do_v5_member(deark *c, lctx *d, i64 member_idx,
 	}
 
 	md->advf = de_advfile_create(c);
+	md->advf->enable_wbuffer = 1;
 
 	if(!do_v5_member_header(c, d, md, pos1)) goto done;
 	*pnext_member_pos = md->v5_next_member_pos;

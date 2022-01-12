@@ -57,6 +57,7 @@ static void extract_file(deark *c, lctx *d, struct member_data *md)
 	fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->mod_time;
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
+	dbuf_enable_wbuffer(outf);
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
@@ -67,6 +68,7 @@ static void extract_file(deark *c, lctx *d, struct member_data *md)
 	dcmpro.expected_len = md->orig_size;
 
 	fmtutil_dclimplode_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
+	dbuf_flush(dcmpro.f);
 	if(dres.errcode) {
 		de_err(c, "%s: Decompression failed: %s", ucstring_getpsz_d(md->fname),
 			de_dfilter_get_errmsg(c, &dres));
