@@ -606,9 +606,20 @@ static void do_decompress(deark *c, lctx *d)
 	i64 dcmpr_bytes_expected = 0;
 	int dcmpr_len_known = 0;
 	u8 b;
+	UI value_of_special_code;
+	UI large_matchlen_bias;
 
 	de_dbg(c, "decompressing cmpr code at %"I64_FMT, d->cmpr_data_pos);
 	de_dbg_indent(c, 1);
+
+	if(d->ver.large_cmpr) {
+		value_of_special_code = 23;
+		large_matchlen_bias = 25;
+	}
+	else {
+		value_of_special_code = 8;
+		large_matchlen_bias = 10;
+	}
 
 	if(d->have_orig_header) {
 		// TODO: This is probably not the best way to get this info
@@ -658,18 +669,25 @@ static void do_decompress(deark *c, lctx *d)
 		len_raw = read_pklite_code_using_tree(c, d, d->lengths_tree);
 		if(d->errflag) goto after_dcmpr;
 
-		if((len_raw==23 && d->ver.large_cmpr) || (len_raw==8 && !d->ver.large_cmpr)) {
+		if(len_raw==value_of_special_code) {
 			b = de_getbyte_p(&d->dcmpr_cur_ipos);
-			if(b==0xfe) {
-				// TODO - Do we have to do anything here?
-				de_dbg3(c, "code 0xfe");
-				continue;
+
+			if(b >= 0xfd) {
+				if(b==0xfe && d->ver.large_cmpr) {
+					// Just a no-op?
+					de_dbg3(c, "code 0xfe");
+					continue;
+				}
+				if(b==0xff) {
+					de_dbg3(c, "stop code");
+					goto after_dcmpr; // Normal completion
+				}
+				de_err(c, "Unexpected code (0x%02x) or unsupported feature", (UI)b);
+				d->errflag = 1;
+				d->errmsg_handled = 1;
+				goto after_dcmpr;
 			}
-			if(b==0xff) {
-				de_dbg3(c, "stop code");
-				goto after_dcmpr; // Normal completion
-			}
-			matchlen = (UI)b+(d->ver.large_cmpr?25:10);
+			matchlen = (UI)b+large_matchlen_bias;
 		}
 		else {
 			matchlen = len_raw+2;
@@ -727,7 +745,7 @@ done:
 	de_dbg_indent(c, -1);
 }
 
-#define MAX_RELOCS (320*1024)
+#define MAX_RELOCS 65535
 
 static void do_read_reloc_table_short(deark *c, lctx *d, i64 pos1, i64 len)
 {
