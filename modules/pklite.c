@@ -750,11 +750,17 @@ done:
 static void do_read_reloc_table_short(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	i64 reloc_count = 0;
+	i64 max_relocs;
 	i64 pos = pos1;
 	i64 endpos = pos1+len;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "reading 'short' reloc table at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
+
+	max_relocs = d->have_orig_header ? d->o_ei->num_relocs : MAX_RELOCS;
+
 	while(1) {
 		UI i;
 		UI count;
@@ -765,13 +771,23 @@ static void do_read_reloc_table_short(deark *c, lctx *d, i64 pos1, i64 len)
 			goto done;
 		}
 		count = (UI)de_getbyte_p(&pos);
-		if(count==0) goto done; // normal completion
+		if(count==0) {
+			de_dbg2(c, "end-of-data");
+			break; // normal completion
+		}
+		de_dbg2(c, "count: %u", count);
 
+		if(reloc_count+count > max_relocs) {
+			d->errflag = 1;
+			goto done;
+		}
 		if(pos+2+(i64)count*2 > endpos) {
 			d->errflag = 1;
 			goto done;
 		}
 		seg = de_getu16le_p(&pos);
+		de_dbg2(c, "seg: 0x%04x", (UI)seg);
+		de_dbg_indent(c, 1);
 		for(i=0; i<count; i++) {
 			if(reloc_count>=MAX_RELOCS ||
 				(d->have_orig_header && reloc_count>=d->o_ei->num_relocs))
@@ -780,21 +796,23 @@ static void do_read_reloc_table_short(deark *c, lctx *d, i64 pos1, i64 len)
 				goto done;
 			}
 			offs = de_getu16le_p(&pos);
+			de_dbg2(c, "offs: 0x%04x", (UI)offs);
 			dbuf_writeu16le(d->o_reloc_table, offs);
 			dbuf_writeu16le(d->o_reloc_table, seg);
 			reloc_count++;
 		}
+		de_dbg_indent(c, -1);
 	}
+
+	d->reloc_tbl_endpos = pos;
+	de_dbg(c, "cmpr reloc table ends at %"I64_FMT", entries=%d", d->reloc_tbl_endpos,
+		(int)reloc_count);
 
 done:
 	if(d->have_orig_header && (reloc_count!=d->o_ei->num_relocs)) {
 		d->errflag = 1;
 	}
-	if(!d->errflag) {
-		d->reloc_tbl_endpos = pos;
-		de_dbg(c, "reloc table ends at %"I64_FMT, d->reloc_tbl_endpos);
-	}
-	de_dbg_indent(c, -1);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void do_read_reloc_table_long(deark *c, lctx *d, i64 pos1, i64 len)
@@ -803,7 +821,9 @@ static void do_read_reloc_table_long(deark *c, lctx *d, i64 pos1, i64 len)
 	i64 pos = pos1;
 	i64 seg = 0;
 	i64 endpos = pos1+len;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "reading 'long' reloc table at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	while(1) {
@@ -818,32 +838,44 @@ static void do_read_reloc_table_long(deark *c, lctx *d, i64 pos1, i64 len)
 
 		count = (UI)de_getu16le_p(&pos);
 		if(count==0xffff) {
-			goto done; // normal completion
+			de_dbg2(c, "end-of-data");
+			break; // normal completion
+		}
+		de_dbg2(c, "count: %u", count);
+
+		if(seg > 0xffff) {
+			d->errflag = 1;
+			goto done;
+		}
+		de_dbg2(c, "seg: 0x%04x", (UI)seg);
+
+		if(reloc_count+count > MAX_RELOCS) {
+			d->errflag = 1;
+			goto done;
 		}
 		if(pos+(i64)count*2 > endpos) {
 			d->errflag = 1;
 			goto done;
 		}
 
+		de_dbg_indent(c, 1);
 		for(i=0; i<count; i++) {
-			if(reloc_count>=MAX_RELOCS) {
-				d->errflag = 1;
-				goto done;
-			}
 			offs = de_getu16le_p(&pos);
+			de_dbg2(c, "offs: 0x%04x", (UI)offs);
 			dbuf_writeu16le(d->o_reloc_table, offs);
 			dbuf_writeu16le(d->o_reloc_table, seg);
 			reloc_count++;
 		}
+		de_dbg_indent(c, -1);
 		seg += 0x0fff;
 	}
 
+	d->reloc_tbl_endpos = pos;
+	de_dbg(c, "cmpr reloc table ends at %"I64_FMT", entries=%d", d->reloc_tbl_endpos,
+		(int)reloc_count);
+
 done:
-	if(!d->errflag) {
-		d->reloc_tbl_endpos = pos;
-		de_dbg(c, "reloc table ends at %"I64_FMT, d->reloc_tbl_endpos);
-	}
-	de_dbg_indent(c, -1);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void do_read_reloc_table(deark *c, lctx *d)

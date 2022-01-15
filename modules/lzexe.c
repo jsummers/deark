@@ -57,7 +57,7 @@ static void read_special_hdr(deark *c, lctx *d, i64 ipos1)
 	de_dbg_indent(c, -1);
 }
 
-#define MAX_RELOCS (320*1024)
+#define MAX_RELOCS 65535
 
 static void do_decode_reloc_tbl_v090(deark *c, lctx *d, i64 ipos1)
 {
@@ -381,7 +381,7 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 		de_err(c, "Not an LZEXE file");
 		goto done;
 	}
-	de_declare_fmt(c, edd.detected_fmt_name);
+	de_declare_fmtf(c, "LZEXE-compressed EXE, %s", edd.detected_fmt_name);
 
 	d->o_reloc_table = dbuf_create_membuf(c, 0, 0);
 	d->o_dcmpr_code = dbuf_create_membuf(c, 0, 0);
