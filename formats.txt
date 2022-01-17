@@ -285,6 +285,10 @@ Deark -- Information about supported formats
 * JPEG XR (HD Photo) (part of module "tiff")
   - Minimal support.
 
+* KQP (Konica) (module="kqp") (incomplete)
+  - Incomplete; almost certainly does not support all KQP files.
+  - Convert to JPEG.
+
 * LSS16 (SYSLINUX image) (module="lss16")
 
 * Lumena CEL (module="lumena_cel")
