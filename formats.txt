@@ -713,8 +713,9 @@ Deark -- Information about supported formats
 * LHA/LHarc/LZH/PMA (module="lha")
   - All common compression methods are supported.
   Options
-   -opt lha:lhark - Assume "lh7" compression is LHARK format, instead of the
-     standard lh7 format. (Unfortunately, autodetecting LHARK is impractical.)
+   -opt lha:lhark=<0|1> - Specify whether "lh7" compression should be assumed
+     to be standard lh7 format, or LHARK format. The default is to autodetect,
+     which can be slow for large files.
 
 * LHarc/LArc self-extracting archive - COM format (module="lharc_sfx_com")
 

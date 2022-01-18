@@ -93,11 +93,12 @@ struct member_data {
 
 typedef struct localctx_struct {
 	de_encoding input_encoding;
+	int lhark_policy; // -1=detect, 0=no, 1=yes
+	int lhark_req;
 	u8 hlev_of_first_member;
 	u8 swg_fmt;
-	u8 lhark_fmt;
-	u8 lh7_success_flag;
-	u8 lh7_failed_flag;
+	u8 lh7_success_flag; // currently unused
+	u8 lh7_failed_flag; // currently unused
 	u8 trailer_found;
 	int member_count;
 	i64 trailer_pos;
@@ -157,6 +158,12 @@ static int is_possible_cmpr_meth(const u8 m[5])
 		return 0;
 	}
 	return 1;
+}
+
+static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
+{
+	struct de_crcobj *crco = (struct de_crcobj*)userdata;
+	de_crcobj_addbuf(crco, buf, buf_len);
 }
 
 static void apply_timestamp(deark *c, lctx *d, struct member_data *md,
@@ -735,6 +742,106 @@ static void decompress_lh5x_internal(deark *c, lctx *d,
 	fmtutil_decompress_lh5x(c, dcmpri, dcmpro, dres, &lzhparams);
 }
 
+static int decompress_lh5x_dry_run(deark *c, lctx *d, struct member_data *md,
+	struct de_dfilter_in_params *dcmpri, int fmt)
+{
+	int retval = 0;
+	dbuf *outf = NULL;
+	struct de_crcobj *crco = NULL;
+	u32 crc_calc;
+	int old_debug_level;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
+	// Make a "dummy" dbuf to write to, which doesn't store the data, but
+	// tracks the size and CRC.
+	outf = dbuf_create_custom_dbuf(c, 0, 0);
+	dbuf_enable_wbuffer(outf);
+	crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
+	dbuf_set_writelistener(outf, our_writelistener_cb, crco);
+
+	de_dfilter_init_objects(c, NULL, &dcmpro, &dres);
+	dcmpro.f = outf;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = md->orig_size;
+
+	old_debug_level = c->debug_level;
+	c->debug_level = 0; // hack
+	decompress_lh5x_internal(c, d, dcmpri, &dcmpro, &dres, fmt);
+	c->debug_level = old_debug_level;
+	dbuf_flush(outf);
+
+	if(dres.errcode) goto done;
+	if(outf->len != md->orig_size) goto done;
+	// Note: Another possible test would be if
+	//  (dres.bytes_consumed == md->compressed_data_len).
+	crc_calc = de_crcobj_getval(crco);
+	if(crc_calc != md->crc16) goto done;
+	retval = 1;
+
+done:
+	dbuf_close(outf);
+	de_crcobj_destroy(crco);
+	return retval;
+}
+
+// Sets d->lhark_policy.
+// This detection is slow, so we only do it for the first lh7 member in a file,
+// and assume all other lh7 members use the same format.
+static void detect_lhark(deark *c, lctx *d, struct member_data *md,
+	struct de_dfilter_in_params *dcmpri)
+{
+	int ret;
+	int ok = 0;
+	const char *fmt_name;
+
+	if(d->lhark_policy>=0) goto done; // shouldn't get here
+	if(d->lhark_req>=0) {
+		d->lhark_policy = d->lhark_req; // shouldn't get here
+		goto done;
+	}
+
+	de_dbg(c, "[detecting lh7 format]");
+	de_dbg_indent(c, 1);
+
+	if(md->hlev != 1) {
+		d->lhark_policy = 0;
+		ok = 1;
+		goto done;
+	}
+
+	ret = decompress_lh5x_dry_run(c, d, md, dcmpri, DE_LH5X_FMT_LH7);
+	if(ret) {
+		d->lhark_policy = 0;
+		ok = 1;
+		fmt_name = "standard lh7";
+		goto done;
+	}
+
+	ret = decompress_lh5x_dry_run(c, d, md, dcmpri, DE_LH5X_FMT_LHARK);
+	if(ret) {
+		d->lhark_policy = 1;
+		ok = 1;
+		fmt_name = "LHARK";
+		goto done;
+	}
+
+	d->lhark_policy = 0;
+
+done:
+	if(ok) {
+		if(d->lhark_policy>0)
+			fmt_name = "LHARK";
+		else
+			fmt_name = "standard lh7";
+	}
+	else {
+		fmt_name = "unknown, assuming standard lh7";
+	}
+	de_dbg(c, "detected lh7 format: %s", fmt_name);
+	de_dbg_indent(c, -1);
+}
+
 // Compression method will be selected based on id_raw[3] (which
 // should be '4'...'8'), etc.
 static void decompress_lh5x_auto(deark *c, lctx *d, struct member_data *md,
@@ -751,7 +858,10 @@ static void decompress_lh5x_auto(deark *c, lctx *d, struct member_data *md,
 		fmt = DE_LH5X_FMT_LH6;
 		break;
 	case '7':
-		if(d->lhark_fmt) {
+		if(d->lhark_policy<0) {
+			detect_lhark(c, d, md, dcmpri);
+		}
+		if(d->lhark_policy>0) {
 			fmt = DE_LH5X_FMT_LHARK;
 		}
 		else {
@@ -865,12 +975,6 @@ static void get_cmpr_meth_info(const u8 idbuf[5], struct cmpr_meth_info *cmi)
 	else {
 		de_strlcpy(cmi->descr, "?", sizeof(cmi->descr));
 	}
-}
-
-static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
-{
-	struct de_crcobj *crco = (struct de_crcobj*)userdata;
-	de_crcobj_addbuf(crco, buf, buf_len);
 }
 
 static void do_extract_file(deark *c, lctx *d, struct member_data *md)
@@ -1410,7 +1514,8 @@ static void do_run_lha_internal(deark *c, de_module_params *mparams, int is_swg)
 	d = de_malloc(c, sizeof(lctx));
 	if(is_swg) d->swg_fmt = 1;
 
-	d->lhark_fmt = (u8)de_get_ext_option_bool(c, "lha:lhark", 0);
+	d->lhark_req = de_get_ext_option_bool(c, "lha:lhark", -1);
+	d->lhark_policy = d->lhark_req;
 
 	// It's not really safe to guess CP437, because Japanese-encoded (CP932?)
 	// filenames are common.
@@ -1441,13 +1546,6 @@ done:
 
 	destroy_member_data(c, md);
 	if(d) {
-		if(!d->lhark_fmt && d->hlev_of_first_member==1 && d->lh7_failed_flag &&
-			!d->lh7_success_flag)
-		{
-			de_info(c, "Note: 'lh7' decompression failed. Maybe this file uses "
-				"LHARK compression. Try \"-opt lha:lhark\".");
-		}
-
 		de_crcobj_destroy(d->crco);
 		de_free(c, d);
 	}
@@ -1511,7 +1609,7 @@ static int de_identify_lha(deark *c)
 
 static void de_help_lha(deark *c)
 {
-	de_msg(c, "-opt lha:lhark : Enable LHARK mode (for 'lh7' compression)");
+	de_msg(c, "-opt lha:lhark=<0|1> : LHARK mode (for 'lh7' compression)");
 }
 
 void de_module_lha(deark *c, struct deark_module_info *mi)
