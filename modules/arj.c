@@ -302,12 +302,6 @@ static void decompress_method_1(deark *c, lctx *d, struct member_data *md,
 	fmtutil_decompress_lh5x(c, dcmpri, dcmpro, dres, &lzhparams);
 }
 
-static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
-{
-	struct de_crcobj *crco = (struct de_crcobj*)userdata;
-	de_crcobj_addbuf(crco, buf, buf_len);
-}
-
 static void extract_member_file(deark *c, lctx *d, struct member_data *md)
 {
 	de_finfo *fi = NULL;
@@ -368,7 +362,7 @@ static void extract_member_file(deark *c, lctx *d, struct member_data *md)
 	dcmpro.expected_len = md->orig_len;
 
 	de_crcobj_reset(d->crco);
-	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
+	dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)d->crco);
 
 	if(md->orig_len==0) {
 		;

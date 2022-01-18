@@ -1830,6 +1830,15 @@ void dbuf_set_writelistener(dbuf *f, de_writelistener_cb_type fn, void *userdata
 	f->writelistener_cb = fn;
 }
 
+// A shared writelister callback function that just calculates the CRC.
+// To use, set userdata to your 'struct de_crcobj *' object.
+void de_writelistener_for_crc(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
+{
+	struct de_crcobj *crco = (struct de_crcobj*)userdata;
+
+	de_crcobj_addbuf(crco, buf, buf_len);
+}
+
 void dbuf_close(dbuf *f)
 {
 	deark *c;

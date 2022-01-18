@@ -247,12 +247,6 @@ static void do_decompress_lowlevel(deark *c, lctx *d, struct de_dfilter_in_param
 	}
 }
 
-static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
-{
-	struct de_crcobj *crco = (struct de_crcobj *)userdata;
-	de_crcobj_addbuf(crco, buf, buf_len);
-}
-
 // Decompress a Zip member file, writing to outf.
 // Does CRC calculation.
 // Reports errors to the user.
@@ -276,7 +270,7 @@ static int do_decompress_member(deark *c, lctx *d, struct member_data *md, dbuf 
 	dcmpro.expected_len = md->uncmpr_size;
 	dcmpro.len_known = 1;
 
-	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
+	dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)d->crco);
 	de_crcobj_reset(d->crco);
 
 	do_decompress_lowlevel(c, d, &dcmpri, &dcmpro, &dres, ldd->cmpr_meth,

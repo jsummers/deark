@@ -697,6 +697,7 @@ void dbuf_close(dbuf *f);
 
 void dbuf_enable_wbuffer(dbuf *f);
 void dbuf_set_writelistener(dbuf *f, de_writelistener_cb_type fn, void *userdata);
+void de_writelistener_for_crc(dbuf *f, void *userdata, const u8 *buf, i64 buf_len);
 
 void dbuf_write(dbuf *f, const u8 *m, i64 len);
 void dbuf_write_at(dbuf *f, i64 pos, const u8 *m, i64 len);

@@ -1055,13 +1055,6 @@ static void handler_fcTL(deark *c, lctx *d, struct handler_params *hp)
 	de_dbg(c, "blend type: %u (%s)", (unsigned int)b, get_apng_blend_name(b));
 }
 
-static void writelistener_for_crc_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
-{
-	struct de_crcobj *crco = (struct de_crcobj *)userdata;
-
-	de_crcobj_addbuf(crco, buf, buf_len);
-}
-
 static void writeu32be_at(dbuf *f, i64 pos, i64 n)
 {
 	u8 m[4];
@@ -1111,7 +1104,7 @@ static void handler_fdAT(deark *c, lctx *d, struct handler_params *hp)
 	dbuf_writeu32be(d->curr_APNG_frame, IDAT_dlen);
 
 	de_crcobj_reset(d->crco_for_write);
-	dbuf_set_writelistener(d->curr_APNG_frame, writelistener_for_crc_cb, (void*)d->crco_for_write);
+	dbuf_set_writelistener(d->curr_APNG_frame, de_writelistener_for_crc, (void*)d->crco_for_write);
 
 	dbuf_writeu32be(d->curr_APNG_frame, (i64)CODE_IDAT);
 	dbuf_copy(c->infile, hp->dpos+4, IDAT_dlen, d->curr_APNG_frame);

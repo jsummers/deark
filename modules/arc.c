@@ -584,12 +584,6 @@ static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *name)
 	de_dbg(c, "%s: %s", name, timestamp_buf);
 }
 
-static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
-{
-	struct de_crcobj *crco = (struct de_crcobj*)userdata;
-	de_crcobj_addbuf(crco, buf, buf_len);
-}
-
 // Convert backslashes to slashes, and make sure the string ends with a /.
 static void fixup_path(deark *c, lctx *d, de_ucstring *s)
 {
@@ -712,9 +706,9 @@ static void do_extract_member_file_arcmac(deark *c, lctx *d, struct member_data 
 	md->arcmac_advf->userdata = (void*)md;
 	md->arcmac_advf->writefork_cbfn = my_advfile_cbfn;
 
-	md->arcmac_advf->mainfork.writelistener_cb = our_writelistener_cb;
+	md->arcmac_advf->mainfork.writelistener_cb = de_writelistener_for_crc;
 	md->arcmac_advf->mainfork.userdata_for_writelistener = (void*)d->crco;
-	md->arcmac_advf->rsrcfork.writelistener_cb = our_writelistener_cb;
+	md->arcmac_advf->rsrcfork.writelistener_cb = de_writelistener_for_crc;
 	md->arcmac_advf->rsrcfork.userdata_for_writelistener = (void*)d->crco;
 	de_crcobj_reset(d->crco);
 
@@ -765,7 +759,7 @@ static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
 	dbuf_enable_wbuffer(outf);
 
-	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
+	dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)d->crco);
 	de_crcobj_reset(d->crco);
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);

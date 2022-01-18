@@ -21,8 +21,6 @@ struct member_data {
 	u32 crc32_reported;
 	i64 isize;
 	struct de_timestamp mod_time_ts;
-
-	struct de_crcobj *crco; // A copy of lctx->crco
 };
 
 typedef struct lctx_struct {
@@ -41,12 +39,6 @@ static const char *get_os_name(u8 n)
 		name = names[(unsigned int)n];
 	}
 	return name;
-}
-
-static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
-{
-	struct member_data *md = (struct member_data *)userdata;
-	de_crcobj_addbuf(md->crco, buf, buf_len);
 }
 
 static int do_gzip_read_member(deark *c, lctx *d, i64 pos1, i64 *member_size)
@@ -175,15 +167,14 @@ static int do_gzip_read_member(deark *c, lctx *d, i64 pos1, i64 *member_size)
 		de_finfo_destroy(c, fi);
 	}
 
-	dbuf_set_writelistener(d->output_file, our_writelistener_cb, (void*)md);
-	md->crco = d->crco;
-	de_crcobj_reset(md->crco);
+	dbuf_set_writelistener(d->output_file, de_writelistener_for_crc, (void*)d->crco);
+	de_crcobj_reset(d->crco);
 
 	ret = fmtutil_decompress_deflate(c->infile, pos, c->infile->len - pos, d->output_file,
 		0, &cmpr_data_len, 0);
 	dbuf_flush(d->output_file);
 
-	crc_calculated = de_crcobj_getval(md->crco);
+	crc_calculated = de_crcobj_getval(d->crco);
 	dbuf_set_writelistener(d->output_file, NULL, NULL);
 
 	if(!ret) goto done;

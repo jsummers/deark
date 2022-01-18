@@ -549,13 +549,6 @@ static void decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 	fmtutil_decompress_lh5x(c, dcmpri, dcmpro, dres, &lzhparams);
 }
 
-static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
-{
-	struct de_crcobj *crco = (struct de_crcobj *)userdata;
-
-	de_crcobj_addbuf(crco, buf, buf_len);
-}
-
 // Process a single member file (or "trailer" record).
 // If there are more members after this, sets *next_member_hdr_pos to nonzero.
 static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
@@ -622,7 +615,7 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 	}
 	outf = dbuf_create_output_file(c, ext, md->fi, 0);
 	dbuf_enable_wbuffer(outf);
-	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
+	dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)d->crco);
 	de_crcobj_reset(d->crco);
 
 	dcmpri.f = c->infile;
@@ -821,7 +814,7 @@ static void de_run_zoo_filter(deark *c, de_module_params *mparams)
 	outf = dbuf_create_output_file(c, "bin", NULL, 0);
 	dbuf_enable_wbuffer(outf);
 	crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
-	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)crco);
+	dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)crco);
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
