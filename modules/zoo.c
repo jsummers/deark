@@ -621,6 +621,7 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 		ext = "bin";
 	}
 	outf = dbuf_create_output_file(c, ext, md->fi, 0);
+	dbuf_enable_wbuffer(outf);
 	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
 	de_crcobj_reset(d->crco);
 
@@ -646,6 +647,7 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 	default:
 		goto done; // Should be impossible
 	}
+	dbuf_flush(dcmpro.f);
 	de_dbg_indent(c, -1);
 
 	md->crc_calculated = de_crcobj_getval(d->crco);
@@ -817,6 +819,7 @@ static void de_run_zoo_filter(deark *c, de_module_params *mparams)
 	de_dbg(c, "crc (reported): 0x%04x", (UI)crc_reported);
 
 	outf = dbuf_create_output_file(c, "bin", NULL, 0);
+	dbuf_enable_wbuffer(outf);
 	crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)crco);
 
@@ -834,6 +837,7 @@ static void de_run_zoo_filter(deark *c, de_module_params *mparams)
 	else {
 		decompress_lzd(c, &dcmpri, &dcmpro, &dres);
 	}
+	dbuf_flush(dcmpro.f);
 
 	if(dres.errcode) {
 		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));

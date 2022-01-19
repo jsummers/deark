@@ -1140,6 +1140,7 @@ static void loaddskf_pad_ima_file(deark *c, struct skf_ctx *d, dbuf *outf)
 	i64 num_padding_bytes;
 	u8 padding_value;
 
+	dbuf_flush(outf);
 	if(d->padded_size<=0) goto done;
 	num_padding_bytes = d->padded_size - outf->len;
 	if(num_padding_bytes<=0) goto done;
@@ -1186,9 +1187,11 @@ static void loaddskf_decompress(deark *c, struct skf_ctx *d)
 
 	if(d->to_raw) {
 		outf = dbuf_create_output_file(c, "ima", NULL, 0);
+		dbuf_enable_wbuffer(outf);
 	}
 	else {
 		outf = dbuf_create_output_file(c, "unc.dsk", NULL, 0);
+		dbuf_enable_wbuffer(outf);
 		dbuf_write(outf, (const u8*)"\xaa\x59", 2);
 		dbuf_copy(c->infile, 2, d->hdr_size-2, outf);
 	}
@@ -1201,6 +1204,7 @@ static void loaddskf_decompress(deark *c, struct skf_ctx *d)
 
 	de_dbg(c, "[decompressing]");
 	dskdcmps_run(c, &dcmpri, &dcmpro, &dres);
+	dbuf_flush(dcmpro.f);
 	if(dres.errcode) {
 		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
 		goto done;

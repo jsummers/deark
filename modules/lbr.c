@@ -564,6 +564,7 @@ static void de_run_squeeze(deark *c, de_module_params *mparams)
 	// We have to decompress the file before we can find the timestamp. That's
 	// why we decompress to a membuf.
 	outf_tmp = dbuf_create_membuf(c, 0, 0);
+	dbuf_enable_wbuffer(outf_tmp);
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
@@ -580,6 +581,7 @@ static void de_run_squeeze(deark *c, de_module_params *mparams)
 	tlp.dcmpro = &dcmpro;
 	tlp.dres = &dres;
 	de_dfilter_decompress_two_layer(c, &tlp);
+	dbuf_flush(dcmpro.f);
 
 	if(dres.bytes_consumed_valid) {
 		de_dbg(c, "compressed data size: %"I64_FMT", ends at %"I64_FMT, dres.bytes_consumed,
@@ -675,6 +677,7 @@ static void decompress_crunch_v1(deark *c, struct crunch_ctx *crunchctx, i64 pos
 	fi->original_filename_flag = 1;
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
+	dbuf_enable_wbuffer(outf);
 	dbuf_set_writelistener(outf, crunch_writelistener_cb, (void*)crunchctx);
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
@@ -695,6 +698,7 @@ static void decompress_crunch_v1(deark *c, struct crunch_ctx *crunchctx, i64 pos
 	tlp.dcmpro = &dcmpro;
 	tlp.dres = &dres;
 	de_dfilter_decompress_two_layer(c, &tlp);
+	dbuf_flush(dcmpro.f);
 
 	if(dres.errcode) {
 		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
@@ -836,6 +840,7 @@ static void decompress_crlzh(deark *c, struct crlzh_ctx *crlzhctx, i64 pos1)
 	fi->original_filename_flag = 1;
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
+	dbuf_enable_wbuffer(outf);
 	dbuf_set_writelistener(outf, crlzh_writelistener_cb, (void*)crlzhctx);
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
@@ -854,6 +859,7 @@ static void decompress_crlzh(deark *c, struct crlzh_ctx *crlzhctx, i64 pos1)
 	lh1p.history_fill_val = 0x20;
 
 	fmtutil_lh1_codectype1(c, &dcmpri, &dcmpro, &dres, (void*)&lh1p);
+	dbuf_flush(dcmpro.f);
 
 	if(dres.errcode) {
 		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));

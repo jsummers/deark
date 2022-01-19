@@ -297,7 +297,8 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f, UI createflags)
 		goto done;
 	}
 
-	if(f->btype==DBUF_TYPE_NULL) {
+	// Optimization to speed up list mode
+	if(f->btype==DBUF_TYPE_NULL && !c->enable_oinfo) {
 		goto done;
 	}
 

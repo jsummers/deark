@@ -384,6 +384,7 @@ int fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
 	dcmpro.f = unc_pixels;
 	if(unc_pixels->has_len_limit) {
 		dcmpro.len_known = 1;
+		dbuf_flush(unc_pixels);
 		dcmpro.expected_len = unc_pixels->len_limit - unc_pixels->len;
 	}
 
@@ -745,6 +746,7 @@ void de_dfilter_decompress_two_layer(deark *c, struct de_dcmpr_two_layer_params 
 	// Make a custom dbuf. The output from the first decompressor will be written
 	// to it, and it will relay that output to the second decompressor.
 	outf_codec1 = dbuf_create_custom_dbuf(c, 0, 0);
+	dbuf_enable_wbuffer(outf_codec1);
 	outf_codec1->userdata_for_customwrite = (void*)&u;
 	outf_codec1->customwrite_fn = my_2layer_write_cb;
 
@@ -769,6 +771,7 @@ void de_dfilter_decompress_two_layer(deark *c, struct de_dcmpr_two_layer_params 
 		de_dfilter_decompress_oneshot(c, tlp->codec1_pushable, tlp->codec1_private_params,
 			tlp->dcmpri, &dcmpro_codec1, tlp->dres);
 	}
+	dbuf_flush(outf_codec1);
 	de_dfilter_finish(dfctx_codec2);
 
 	if(tlp->dres->errcode) goto done;

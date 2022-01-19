@@ -150,6 +150,7 @@ static void de_run_pack(deark *c, de_module_params *mparams)
 	}
 
 	outf = dbuf_create_output_file(c, "bin", NULL, 0);
+	dbuf_enable_wbuffer(outf);
 
 	if(d->unc_size!=0) {
 		decode_file_data(c, d, pos, outf);

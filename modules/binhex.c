@@ -90,6 +90,7 @@ static int do_decode_main(deark *c, lctx *d, i64 pos)
 		}
 	}
 
+	dbuf_flush(d->decoded);
 	de_dbg(c, "size after decoding: %d", (int)d->decoded->len);
 	return 1;
 }
@@ -259,9 +260,12 @@ static void do_binhex(deark *c, lctx *d, i64 pos)
 	de_dbg(c, "BinHex data starts at %d", (int)pos);
 
 	d->decoded = dbuf_create_membuf(c, 65536, 0);
+	dbuf_enable_wbuffer(d->decoded);
 	d->decompressed = dbuf_create_membuf(c, 65536, 0);
+	dbuf_enable_wbuffer(d->decompressed);
 
 	ret = do_decode_main(c, d, pos);
+	dbuf_flush(d->decoded);
 	if(!ret) goto done;
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
@@ -270,6 +274,7 @@ static void do_binhex(deark *c, lctx *d, i64 pos)
 	dcmpri.len = d->decoded->len;
 	dcmpro.f = d->decompressed;
 	fmtutil_decompress_rle90_ex(c, &dcmpri, &dcmpro, &dres, 0);
+	dbuf_flush(dcmpro.f);
 	if(dres.errcode) {
 		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
 		goto done;

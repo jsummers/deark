@@ -637,6 +637,7 @@ static void do_decompress_fork_arcmac(struct member_data *md,
 	}
 
 	md->cmi->decompressor(c, md->d, md, &dcmpri, &dcmpro, &dres);
+	dbuf_flush(dcmpro.f);
 	if(dres.errcode) {
 		de_err(c, "Decompression failed for file %s[%s fork]: %s",
 			ucstring_getpsz_d(md->arcmac_fn->str),
@@ -762,6 +763,7 @@ static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
 	}
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
+	dbuf_enable_wbuffer(outf);
 
 	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
 	de_crcobj_reset(d->crco);
@@ -780,6 +782,7 @@ static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
 	}
 
 	md->cmi->decompressor(c, d, md, &dcmpri, &dcmpro, &dres);
+	dbuf_flush(dcmpro.f);
 	if(dres.errcode) {
 		de_err(c, "%s: Decompression failed: %s", ucstring_getpsz_d(md->fn),
 			de_dfilter_get_errmsg(c, &dres));
@@ -923,6 +926,7 @@ static void do_arcmac_preheader(deark *c, lctx *d, struct member_data *md, i64 p
 
 	if(md->arcmac_advf) return;
 	md->arcmac_advf = de_advfile_create(c);
+	md->arcmac_advf->enable_wbuffer = 1;
 
 	pos += 2; // magic / cmprtype
 

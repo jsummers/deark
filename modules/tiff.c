@@ -2810,6 +2810,9 @@ static void reverse_bits_in_membuf(dbuf *f)
 	i64 len = f->len;
 	i64 i;
 
+	dbuf_flush(f);
+	len = f->len;
+
 	for(i=0; i<len; i++) {
 		u8 b, b2;
 		size_t k;
@@ -2996,6 +2999,7 @@ static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
 	else {
 		decompress_strile_uncmpr(c, d, pg, dctx);
 	}
+	dbuf_flush(dctx->dcmpro.f);
 
 	if(dctx->dres.errcode) {
 		detiff_err(c, d, pg, "Decompression failed (strip@%d,%d): %s",
@@ -3511,6 +3515,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 				}
 				else {
 					tmp_membuf[k] = dbuf_create_membuf(c, 0, 0);
+					dbuf_enable_wbuffer(tmp_membuf[k]);
 					dbuf_set_length_limit(tmp_membuf[k], dctx->strile_max_h * dctx->strile_max_rowspan);
 				}
 				dctx->unc_strile_dbuf[k] = tmp_membuf[k];

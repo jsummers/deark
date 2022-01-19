@@ -600,6 +600,7 @@ static void do_decompress_MSZIP(deark *c, struct de_dfilter_in_params *dcmpri1,
 		outlen_before = dcmpro->f->len;
 
 		fmtutil_deflate_codectype1(c, &dcmpri2, dcmpro, dres, (void*)&inflparams);
+		dbuf_flush(dcmpro->f);
 		if(dres->errcode) goto done;
 
 		pos += blk_dlen;
@@ -649,6 +650,7 @@ static void do_decompress(deark *c, lctx *d, dbuf *outf)
 		do_decompress_MSZIP(c, &dcmpri, &dcmpro, &dres);
 		break;
 	}
+	dbuf_flush(dcmpro.f);
 
 	if(dres.errcode) {
 		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
@@ -692,6 +694,7 @@ static void do_extract_file(deark *c, lctx *d)
 		de_finfo_set_name_from_sz(c, fi, "bin", 0, DE_ENCODING_LATIN1);
 	}
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
+	dbuf_enable_wbuffer(outf);
 	do_decompress(c, d, outf);
 	de_dbg_indent(c, -1);
 

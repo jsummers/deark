@@ -44,6 +44,7 @@ typedef struct localctx_struct {
 	dbuf *o_orig_header;
 	dbuf *o_reloc_table;
 	dbuf *o_dcmpr_code;
+	i64 o_dcmpr_code_nbytes_written;
 
 	i64 dcmpr_cur_ipos;
 	struct de_bitbuf_lowlevel bbll;
@@ -499,6 +500,7 @@ static void my_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 	lctx *d = (lctx*)rb->userdata;
 
 	dbuf_writebyte(d->o_dcmpr_code, n);
+	d->o_dcmpr_code_nbytes_written++;
 }
 
 static void make_matchlengths_tree(deark *c, lctx *d)
@@ -604,9 +606,20 @@ static void do_decompress(deark *c, lctx *d)
 	i64 dcmpr_bytes_expected = 0;
 	int dcmpr_len_known = 0;
 	u8 b;
+	UI value_of_special_code;
+	UI large_matchlen_bias;
 
 	de_dbg(c, "decompressing cmpr code at %"I64_FMT, d->cmpr_data_pos);
 	de_dbg_indent(c, 1);
+
+	if(d->ver.large_cmpr) {
+		value_of_special_code = 23;
+		large_matchlen_bias = 25;
+	}
+	else {
+		value_of_special_code = 8;
+		large_matchlen_bias = 10;
+	}
 
 	if(d->have_orig_header) {
 		// TODO: This is probably not the best way to get this info
@@ -618,6 +631,7 @@ static void do_decompress(deark *c, lctx *d)
 	make_offsets_tree(c, d);
 
 	d->o_dcmpr_code = dbuf_create_membuf(c, 0, 0);
+	dbuf_enable_wbuffer(d->o_dcmpr_code);
 
 	ringbuf = de_lz77buffer_create(c, 8192);
 	ringbuf->userdata = (void*)d;
@@ -655,18 +669,25 @@ static void do_decompress(deark *c, lctx *d)
 		len_raw = read_pklite_code_using_tree(c, d, d->lengths_tree);
 		if(d->errflag) goto after_dcmpr;
 
-		if((len_raw==23 && d->ver.large_cmpr) || (len_raw==8 && !d->ver.large_cmpr)) {
+		if(len_raw==value_of_special_code) {
 			b = de_getbyte_p(&d->dcmpr_cur_ipos);
-			if(b==0xfe) {
-				// TODO - Do we have to do anything here?
-				de_dbg3(c, "code 0xfe");
-				continue;
+
+			if(b >= 0xfd) {
+				if(b==0xfe && d->ver.large_cmpr) {
+					// Just a no-op?
+					de_dbg3(c, "code 0xfe");
+					continue;
+				}
+				if(b==0xff) {
+					de_dbg3(c, "stop code");
+					goto after_dcmpr; // Normal completion
+				}
+				de_err(c, "Unexpected code (0x%02x) or unsupported feature", (UI)b);
+				d->errflag = 1;
+				d->errmsg_handled = 1;
+				goto after_dcmpr;
 			}
-			if(b==0xff) {
-				de_dbg3(c, "stop code");
-				goto after_dcmpr; // Normal completion
-			}
-			matchlen = (UI)b+(d->ver.large_cmpr?25:10);
+			matchlen = (UI)b+large_matchlen_bias;
 		}
 		else {
 			matchlen = len_raw+2;
@@ -691,9 +712,9 @@ static void do_decompress(deark *c, lctx *d)
 		// PKLITE confirmed to use distances 1 to 8191. Have not observed matchpos=0.
 		// Have not observed it to use distances larger than the number of bytes
 		// decompressed so far.
-		if(matchpos==0 || (i64)matchpos>d->o_dcmpr_code->len) {
+		if(matchpos==0 || (i64)matchpos>d->o_dcmpr_code_nbytes_written) {
 			de_err(c, "Bad or unsupported compressed data (dist=%u, expected 1 to %"I64_FMT")",
-				matchpos, d->o_dcmpr_code->len);
+				matchpos, d->o_dcmpr_code_nbytes_written);
 			d->errflag = 1;
 			d->errmsg_handled = 1;
 			goto after_dcmpr;
@@ -704,6 +725,7 @@ static void do_decompress(deark *c, lctx *d)
 
 after_dcmpr:
 	if(!d->o_dcmpr_code) goto done;
+	dbuf_flush(d->o_dcmpr_code);
 
 	if(!d->errflag) {
 		d->cmpr_data_endpos = d->dcmpr_cur_ipos;
@@ -723,16 +745,22 @@ done:
 	de_dbg_indent(c, -1);
 }
 
-#define MAX_RELOCS (320*1024)
+#define MAX_RELOCS 65535
 
 static void do_read_reloc_table_short(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	i64 reloc_count = 0;
+	i64 max_relocs;
 	i64 pos = pos1;
 	i64 endpos = pos1+len;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "reading 'short' reloc table at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
+
+	max_relocs = d->have_orig_header ? d->o_ei->num_relocs : MAX_RELOCS;
+
 	while(1) {
 		UI i;
 		UI count;
@@ -743,13 +771,23 @@ static void do_read_reloc_table_short(deark *c, lctx *d, i64 pos1, i64 len)
 			goto done;
 		}
 		count = (UI)de_getbyte_p(&pos);
-		if(count==0) goto done; // normal completion
+		if(count==0) {
+			de_dbg2(c, "end-of-data");
+			break; // normal completion
+		}
+		de_dbg2(c, "count: %u", count);
 
+		if(reloc_count+count > max_relocs) {
+			d->errflag = 1;
+			goto done;
+		}
 		if(pos+2+(i64)count*2 > endpos) {
 			d->errflag = 1;
 			goto done;
 		}
 		seg = de_getu16le_p(&pos);
+		de_dbg2(c, "seg: 0x%04x", (UI)seg);
+		de_dbg_indent(c, 1);
 		for(i=0; i<count; i++) {
 			if(reloc_count>=MAX_RELOCS ||
 				(d->have_orig_header && reloc_count>=d->o_ei->num_relocs))
@@ -758,21 +796,23 @@ static void do_read_reloc_table_short(deark *c, lctx *d, i64 pos1, i64 len)
 				goto done;
 			}
 			offs = de_getu16le_p(&pos);
+			de_dbg2(c, "offs: 0x%04x", (UI)offs);
 			dbuf_writeu16le(d->o_reloc_table, offs);
 			dbuf_writeu16le(d->o_reloc_table, seg);
 			reloc_count++;
 		}
+		de_dbg_indent(c, -1);
 	}
+
+	d->reloc_tbl_endpos = pos;
+	de_dbg(c, "cmpr reloc table ends at %"I64_FMT", entries=%d", d->reloc_tbl_endpos,
+		(int)reloc_count);
 
 done:
 	if(d->have_orig_header && (reloc_count!=d->o_ei->num_relocs)) {
 		d->errflag = 1;
 	}
-	if(!d->errflag) {
-		d->reloc_tbl_endpos = pos;
-		de_dbg(c, "reloc table ends at %"I64_FMT, d->reloc_tbl_endpos);
-	}
-	de_dbg_indent(c, -1);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void do_read_reloc_table_long(deark *c, lctx *d, i64 pos1, i64 len)
@@ -781,7 +821,9 @@ static void do_read_reloc_table_long(deark *c, lctx *d, i64 pos1, i64 len)
 	i64 pos = pos1;
 	i64 seg = 0;
 	i64 endpos = pos1+len;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "reading 'long' reloc table at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	while(1) {
@@ -796,32 +838,44 @@ static void do_read_reloc_table_long(deark *c, lctx *d, i64 pos1, i64 len)
 
 		count = (UI)de_getu16le_p(&pos);
 		if(count==0xffff) {
-			goto done; // normal completion
+			de_dbg2(c, "end-of-data");
+			break; // normal completion
+		}
+		de_dbg2(c, "count: %u", count);
+
+		if(seg > 0xffff) {
+			d->errflag = 1;
+			goto done;
+		}
+		de_dbg2(c, "seg: 0x%04x", (UI)seg);
+
+		if(reloc_count+count > MAX_RELOCS) {
+			d->errflag = 1;
+			goto done;
 		}
 		if(pos+(i64)count*2 > endpos) {
 			d->errflag = 1;
 			goto done;
 		}
 
+		de_dbg_indent(c, 1);
 		for(i=0; i<count; i++) {
-			if(reloc_count>=MAX_RELOCS) {
-				d->errflag = 1;
-				goto done;
-			}
 			offs = de_getu16le_p(&pos);
+			de_dbg2(c, "offs: 0x%04x", (UI)offs);
 			dbuf_writeu16le(d->o_reloc_table, offs);
 			dbuf_writeu16le(d->o_reloc_table, seg);
 			reloc_count++;
 		}
+		de_dbg_indent(c, -1);
 		seg += 0x0fff;
 	}
 
+	d->reloc_tbl_endpos = pos;
+	de_dbg(c, "cmpr reloc table ends at %"I64_FMT", entries=%d", d->reloc_tbl_endpos,
+		(int)reloc_count);
+
 done:
-	if(!d->errflag) {
-		d->reloc_tbl_endpos = pos;
-		de_dbg(c, "reloc table ends at %"I64_FMT, d->reloc_tbl_endpos);
-	}
-	de_dbg_indent(c, -1);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void do_read_reloc_table(deark *c, lctx *d)
@@ -981,6 +1035,7 @@ static void de_run_pklite(deark *c, de_module_params *mparams)
 	do_read_header(c, d);
 	if(d->errflag) goto done;
 	do_decompress(c, d);
+	dbuf_flush(d->o_dcmpr_code);
 	if(d->errflag) goto done;
 	d->dcmpr_ok = 1;
 

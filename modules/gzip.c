@@ -170,6 +170,7 @@ static int do_gzip_read_member(deark *c, lctx *d, i64 pos1, i64 *member_size)
 		}
 
 		d->output_file = dbuf_create_output_file(c, member_name?NULL:"bin", fi, 0);
+		dbuf_enable_wbuffer(d->output_file);
 
 		de_finfo_destroy(c, fi);
 	}
@@ -180,6 +181,7 @@ static int do_gzip_read_member(deark *c, lctx *d, i64 pos1, i64 *member_size)
 
 	ret = fmtutil_decompress_deflate(c->infile, pos, c->infile->len - pos, d->output_file,
 		0, &cmpr_data_len, 0);
+	dbuf_flush(d->output_file);
 
 	crc_calculated = de_crcobj_getval(md->crco);
 	dbuf_set_writelistener(d->output_file, NULL, NULL);

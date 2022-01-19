@@ -453,6 +453,7 @@ static int do_uncompress(deark *c, lctx *d)
 
 	expected_bytes = d->rowspan * d->height;
 	d->unc_pixels = dbuf_create_membuf(c, expected_bytes, 0);
+	dbuf_enable_wbuffer(d->unc_pixels);
 
 	endpos = c->infile->len;
 	if(d->has_vga_pal) {
@@ -480,6 +481,7 @@ static int do_uncompress(deark *c, lctx *d)
 		}
 	}
 
+	dbuf_flush(d->unc_pixels);
 	if(d->unc_pixels->len < expected_bytes) {
 		de_warn(c, "Expected %d bytes of image data, only found %d",
 			(int)expected_bytes, (int)d->unc_pixels->len);
@@ -615,6 +617,7 @@ static void de_run_pcx_internal(deark *c, lctx *d, de_module_params *mparams)
 			goto done;
 		}
 	}
+	dbuf_flush(d->unc_pixels);
 
 	do_bitmap(c, d);
 

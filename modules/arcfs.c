@@ -168,6 +168,7 @@ static void do_arcfs_extract_member_file(deark *c, lctx *d, struct arcfs_member_
 	de_finfo_set_name_from_ucstring(c, fi, fullfn, DE_SNFLAG_FULLPATH);
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
+	dbuf_enable_wbuffer(outf);
 
 	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
 	de_crcobj_reset(d->crco);
@@ -194,6 +195,7 @@ static void do_arcfs_extract_member_file(deark *c, lctx *d, struct arcfs_member_
 		do_arcfs_crunched(c, d, md, &dcmpri, &dcmpro, &dres);
 		have_dres = 1;
 	}
+	dbuf_flush(dcmpro.f);
 
 	if(have_dres && dres.errcode!=0) {
 		de_err(c, "%s: Decompression failed: %s",
@@ -497,6 +499,7 @@ static void do_squash_main(deark *c, sqctx *d)
 	}
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
+	dbuf_enable_wbuffer(outf);
 	dcmpro.f = outf;
 	dcmpro.len_known = 0;
 
@@ -505,6 +508,7 @@ static void do_squash_main(deark *c, sqctx *d)
 	delzwp.flags |= DE_LZWFLAG_HAS3BYTEHEADER;
 
 	fmtutil_decompress_lzw(c, &dcmpri, &dcmpro, &dres, &delzwp);
+	dbuf_flush(dcmpro.f);
 
 	if(dres.errcode) {
 		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
