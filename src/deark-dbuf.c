@@ -13,7 +13,7 @@
 #define DE_DUMMY_MAX_FILE_SIZE (1LL<<56)
 #define DE_MAX_MEMBUF_SIZE 2000000000
 #define DE_RCACHE_SIZE 262144
-#define DE_WBUFFER_SIZE 128
+#define DE_WBUFFER_SIZE 512
 
 // Fill the cache that remembers the first part of the file.
 // TODO: We should probably use memory-mapped files instead when possible,
@@ -1471,6 +1471,8 @@ void dbuf_write(dbuf *f, const u8 *m, i64 len)
 		// This item doesn't fit in the buffer, even by itself, or we
 		// consider it "large".
 		// Flush the buffer, write the item, done.
+		// TODO: Decide what the "large" threshold should be, or if there should
+		// even be one.
 		if(f->wbuffer_bytes_used!=0) dbuf_flush(f);
 		dbuf_write_unbuffered(f, m, len);
 		return;

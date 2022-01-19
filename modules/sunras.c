@@ -359,7 +359,9 @@ static void de_run_sunras(deark *c, de_module_params *mparams)
 
 	if(d->is_compressed) {
 		unc_pixels = dbuf_create_membuf(c, d->unc_pixels_size, 0x1);
+		dbuf_enable_wbuffer(unc_pixels);
 		do_uncompress_image(c, d, pos, c->infile->len - pos, unc_pixels);
+		dbuf_flush(unc_pixels);
 	}
 	else {
 		unc_pixels = dbuf_open_input_subfile(c->infile, pos, c->infile->len - pos);

@@ -285,12 +285,13 @@ static void do_decode_rle_internal(deark *c1, struct de_dfilter_in_params *dcmpr
 	i64 k;
 	u8 buf[8];
 	i64 pos = dcmpri->pos;
+	i64 nbytes_written = 0;
 
 	if(bytes_per_pixel<1 || bytes_per_pixel>8) return;
 
 	while(1) {
 		if(pos >= dcmpri->pos + dcmpri->len) break;
-		if(dcmpro->f->len >= dcmpro->expected_len) break;
+		if(nbytes_written >= dcmpro->expected_len) break;
 
 		b = dbuf_getbyte(dcmpri->f, pos);
 		pos++;
@@ -302,11 +303,13 @@ static void do_decode_rle_internal(deark *c1, struct de_dfilter_in_params *dcmpr
 			for(k=0; k<count; k++) {
 				dbuf_write(dcmpro->f, buf, bytes_per_pixel);
 			}
+			nbytes_written += count * bytes_per_pixel;
 		}
 		else { // uncompressed block
 			count = (i64)(b) + 1;
 			dbuf_copy(dcmpri->f, pos, count * bytes_per_pixel, dcmpro->f);
 			pos += count * bytes_per_pixel;
+			nbytes_written += count * bytes_per_pixel;
 		}
 	}
 	dres->bytes_consumed = pos - dcmpri->pos;
@@ -328,6 +331,7 @@ static int do_decode_rle(deark *c, lctx *d, i64 pos1, dbuf *unc_pixels)
 	dcmpro.expected_len = d->main_image.img_size_in_bytes;
 
 	do_decode_rle_internal(c, &dcmpri, &dcmpro, &dres, d->bytes_per_pixel);
+	dbuf_flush(dcmpro.f);
 
 	if(dres.errcode) {
 		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
@@ -909,6 +913,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 			goto done;
 		}
 		unc_pixels = dbuf_create_membuf(c, d->main_image.img_size_in_bytes, 1);
+		dbuf_enable_wbuffer(unc_pixels);
 		if(!do_decode_rle(c, d, pos, unc_pixels)) goto done;
 	}
 	else if(d->cmpr_type==TGA_CMPR_NONE) {
