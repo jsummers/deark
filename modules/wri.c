@@ -685,6 +685,7 @@ static void do_html_begin(deark *c, lctx *d)
 	dbuf *f;
 	if(d->html_outf) return;
 	d->html_outf = dbuf_create_output_file(c, "html", NULL, 0);
+	dbuf_enable_wbuffer(d->html_outf);
 	f = d->html_outf;
 	if(c->write_bom && !c->ascii_html) dbuf_write_uchar_as_utf8(f, 0xfeff);
 	dbuf_puts(f, "<!DOCTYPE html>\n");

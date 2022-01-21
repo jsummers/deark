@@ -1106,6 +1106,14 @@ void dbuf_enable_wbuffer(dbuf *f)
 	f->wbuffer = de_malloc(f->c, DE_WBUFFER_SIZE);
 }
 
+void dbuf_disable_wbuffer(dbuf *f)
+{
+	if(!f->wbuffer) return;
+	dbuf_flush(f);
+	de_free(f->c, f->wbuffer);
+	f->wbuffer = NULL;
+}
+
 dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 	unsigned int createflags)
 {
@@ -1539,7 +1547,6 @@ void dbuf_write_at(dbuf *f, i64 pos, const u8 *m, i64 len)
 		}
 		if(amt_newzeroes>0) {
 			dbuf_write_zeroes(f, amt_newzeroes);
-
 		}
 		if(amt_append>0) {
 			membuf_append(f, &m[amt_overwrite], amt_append);
@@ -2133,6 +2140,14 @@ int dbuf_find_line(dbuf *f, i64 pos1, i64 *pcontent_len, i64 *ptotal_len)
 	*ptotal_len = *pcontent_len + eol_size;
 
 	return (*ptotal_len > 0);
+}
+
+// Returns the length of the dbuf's data, including bytes that have been written
+// but not flushed.
+// Unless wbuffer is enabled, it is also okay to access f->len directly.
+i64 dbuf_get_length(dbuf *f)
+{
+	return f->len + f->wbuffer_bytes_used;
 }
 
 // Enforce a maximum size when writing to a dbuf.

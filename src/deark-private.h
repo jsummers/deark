@@ -696,6 +696,7 @@ dbuf *dbuf_create_membuf(deark *c, i64 initialsize, unsigned int flags);
 void dbuf_close(dbuf *f);
 
 void dbuf_enable_wbuffer(dbuf *f);
+void dbuf_disable_wbuffer(dbuf *f);
 void dbuf_set_writelistener(dbuf *f, de_writelistener_cb_type fn, void *userdata);
 void de_writelistener_for_crc(dbuf *f, void *userdata, const u8 *buf, i64 buf_len);
 
@@ -768,6 +769,7 @@ int dbuf_dump_to_file(dbuf *inf, const char *fn);
 // May be valid only for memory buffers.
 void dbuf_empty(dbuf *f);
 
+i64 dbuf_get_length(dbuf *f);
 void dbuf_set_length_limit(dbuf *f, i64 max_len);
 const u8 *dbuf_get_membuf_direct_ptr(dbuf *f);
 int dbuf_search_byte(dbuf *f, const u8 b, i64 startpos, i64 haystack_len,

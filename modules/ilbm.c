@@ -1345,6 +1345,7 @@ static int decompress_method1(deark *c, lctx *d, i64 pos, i64 len, dbuf *unc_pix
 	dcmpro.expected_len = expected_len;
 
 	fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres, NULL);
+	dbuf_flush(dcmpro.f);
 	if(dres.errcode) {
 		de_err(c, "Decompression failed: %s", dres.errmsg);
 		goto done;
@@ -1598,6 +1599,7 @@ static void detect_dctv(deark *c, lctx *d, struct imgbody_info *ibi,
 static int do_image_chunk_internal(deark *c, lctx *d, struct frame_ctx *frctx, i64 pos1, i64 len, int is_thumb)
 {
 	struct imgbody_info *ibi = NULL;
+	int ret;
 	int retval = 0;
 
 	if(d->errflag) goto done;
@@ -1626,7 +1628,10 @@ static int do_image_chunk_internal(deark *c, lctx *d, struct frame_ctx *frctx, i
 		if(!decompress_method0(c, d, pos1, len, frctx->frame_buffer, ibi->frame_buffer_size)) goto done;
 	}
 	else if(ibi->compression==1) {
-		if(!decompress_method1(c, d, pos1, len, frctx->frame_buffer, ibi->frame_buffer_size)) goto done;
+		dbuf_enable_wbuffer(frctx->frame_buffer);
+		ret = decompress_method1(c, d, pos1, len, frctx->frame_buffer, ibi->frame_buffer_size);
+		dbuf_disable_wbuffer(frctx->frame_buffer);
+		if(!ret) goto done;
 	}
 	else if(ibi->compression==2) {
 		if(!decompress_method2(c, d, ibi, pos1, len, frctx->frame_buffer, ibi->frame_buffer_size)) goto done;
