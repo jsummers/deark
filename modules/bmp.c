@@ -1021,11 +1021,13 @@ static void de_run_kqp(deark *c, de_module_params *mparams)
 	i64 jpeg_data_len;
 	int need_errmsg = 0;
 	dbuf *outf = NULL;
+	struct de_bmpinfo bi;
 
 	de_declare_fmt(c, "KQP (Konica)");
 
-	// TODO: It'd be nice to parse/debug the header and palette, using the BMP
-	// parser, but it would be messy.
+	(void)fmtutil_get_bmpinfo(c, c->infile, &bi, 0, c->infile->len,
+		DE_BMPINFO_HAS_FILEHEADER|DE_BMPINFO_CMPR_IS_4CC|DE_BMPINFO_NOERR);
+	// TODO?: Read the palette (for dbg info)
 
 	bits_offset = de_getu32le(10);
 	jpeg_data_len = c->infile->len - bits_offset;
@@ -1102,7 +1104,6 @@ void de_module_kqp(deark *c, struct deark_module_info *mi)
 	mi->desc = "KQP (Konica)";
 	mi->run_fn = de_run_kqp;
 	mi->identify_fn = de_identify_kqp;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }
 
 // **************************************************************************

@@ -39,6 +39,7 @@ void fmtutil_get_bmp_compression_name(u32 code, char *s, size_t s_len,
 // Otherwise, it points to the BITMAPINFOHEADER.
 // Caller allocates bi.
 // Returns 0 if BMP is invalid.
+// If DE_BMPINFO_NOERR is set, will not report errors, but may still return 0.
 int fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, i64 pos,
 	i64 len, unsigned int flags)
 {
@@ -158,8 +159,15 @@ int fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, i64 pos,
 	bi->is_compressed = !((bi->compression_field==0) ||
 		(bi->compression_field==3 && bi->bitcount>1));
 
-	if(!de_good_image_dimensions(c, bi->width, bi->height)) {
-		return 0;
+	if(flags & DE_BMPINFO_NOERR) {
+		if(!de_good_image_dimensions_noerr(c, bi->width, bi->height)) {
+			return 0;
+		}
+	}
+	else {
+		if(!de_good_image_dimensions(c, bi->width, bi->height)) {
+			return 0;
+		}
 	}
 
 	// TODO: This needs work, to decide how to handle compressed images.

@@ -59,6 +59,7 @@ struct de_bmpinfo {
 #define DE_BMPINFO_ICO_FORMAT     0x2
 #define DE_BMPINFO_HAS_HOTSPOT    0x4
 #define DE_BMPINFO_CMPR_IS_4CC    0x8
+#define DE_BMPINFO_NOERR          0x10
 
 void fmtutil_get_bmp_compression_name(u32 code, char *s, size_t s_len,
 	int is_os2v2);
