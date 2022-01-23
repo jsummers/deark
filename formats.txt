@@ -682,6 +682,11 @@ Deark -- Information about supported formats
 * DCL Implode (module="dclimplode")
   Raw PKWARE DCL Implode compressed file. Also known as TTCOMP.
 
+* Deflate (module="deflate")
+  Raw Deflate-compressed (not zlib) data.
+  Options
+   -opt deflate:deflate64 - Decode as Deflate64 format.
+
 * DMS (Amiga disk image) (module="amiga_adf") (experimental)
   - Decompresses to ADF format.
 
