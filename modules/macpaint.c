@@ -38,10 +38,12 @@ static void do_read_bitmap(deark *c, lctx *d, i64 pos)
 	pos += 512;
 
 	unc_pixels = dbuf_create_membuf(c, MACPAINT_IMAGE_BYTES, 1);
+	dbuf_enable_wbuffer(unc_pixels);
 
 	fmtutil_decompress_packbits(c->infile, pos, c->infile->len - pos,
 		unc_pixels, &cmpr_bytes_consumed);
 
+	dbuf_flush(unc_pixels);
 	de_dbg(c, "decompressed %d to %d bytes", (int)cmpr_bytes_consumed,
 		(int)unc_pixels->len);
 

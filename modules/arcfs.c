@@ -129,12 +129,6 @@ static void do_arcfs_crunched(deark *c, lctx *d, struct arcfs_member_data *md,
 	de_dfilter_decompress_two_layer(c, &tlp);
 }
 
-static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
-{
-	struct de_crcobj *crco = (struct de_crcobj*)userdata;
-	de_crcobj_addbuf(crco, buf, buf_len);
-}
-
 static void do_arcfs_extract_member_file(deark *c, lctx *d, struct arcfs_member_data *md,
 	de_finfo *fi)
 {
@@ -170,7 +164,7 @@ static void do_arcfs_extract_member_file(deark *c, lctx *d, struct arcfs_member_
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
 	dbuf_enable_wbuffer(outf);
 
-	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
+	dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)d->crco);
 	de_crcobj_reset(d->crco);
 
 	dcmpri.f = c->infile;

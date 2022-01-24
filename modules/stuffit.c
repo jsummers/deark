@@ -687,12 +687,6 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	return 1;
 }
 
-static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
-{
-	struct de_crcobj *crco = (struct de_crcobj*)userdata;
-	de_crcobj_addbuf(crco, buf, buf_len);
-}
-
 // Sets md->advf->*fork.fork_exists, according to whether we think we
 // can decompress the fork.
 static void do_pre_decompress_fork(deark *c, lctx *d, struct member_data *md,
@@ -744,7 +738,7 @@ static void do_pre_decompress_fork(deark *c, lctx *d, struct member_data *md,
 
 	ok = 1;
 
-	advfki->writelistener_cb = our_writelistener_cb;
+	advfki->writelistener_cb = de_writelistener_for_crc;
 	if(frk->is_rsrc_fork) {
 		advfki->userdata_for_writelistener = (void*)d->crco_rfork;
 		de_crcobj_reset(d->crco_rfork);

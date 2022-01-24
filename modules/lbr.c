@@ -43,12 +43,6 @@ typedef struct localctx_struct {
 	struct de_crcobj *crco;
 } lctx;
 
-static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
-{
-	struct de_crcobj *crco = (struct de_crcobj*)userdata;
-	de_crcobj_addbuf(crco, buf, buf_len);
-}
-
 static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 {
 	de_finfo *fi = NULL;
@@ -80,7 +74,7 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 		de_crcobj_addslice(d->crco, c->infile, md->pos_in_bytes+18, md->len_in_bytes_withpadding-18);
 	}
 	else {
-		dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
+		dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)d->crco);
 		dbuf_copy(c->infile, md->pos_in_bytes, md->len_in_bytes_nopadding, outf);
 		// CRC calculation includes padding bytes:
 		de_crcobj_addslice(d->crco, c->infile,

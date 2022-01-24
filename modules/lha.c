@@ -160,12 +160,6 @@ static int is_possible_cmpr_meth(const u8 m[5])
 	return 1;
 }
 
-static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
-{
-	struct de_crcobj *crco = (struct de_crcobj*)userdata;
-	de_crcobj_addbuf(crco, buf, buf_len);
-}
-
 static void apply_timestamp(deark *c, lctx *d, struct member_data *md,
 	int tsidx, const struct de_timestamp *ts, int quality)
 {
@@ -758,7 +752,7 @@ static int decompress_lh5x_dry_run(deark *c, lctx *d, struct member_data *md,
 	outf = dbuf_create_custom_dbuf(c, 0, 0);
 	dbuf_enable_wbuffer(outf);
 	crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
-	dbuf_set_writelistener(outf, our_writelistener_cb, crco);
+	dbuf_set_writelistener(outf, de_writelistener_for_crc, crco);
 
 	de_dfilter_init_objects(c, NULL, &dcmpro, &dres);
 	dcmpro.f = outf;
@@ -1034,7 +1028,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
 	dbuf_enable_wbuffer(outf);
 	de_crcobj_reset(d->crco);
-	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
+	dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)d->crco);
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
@@ -1844,7 +1838,7 @@ static void arx_recalc_lh1(deark *c, struct arx_ctx *d, struct arx_member_data *
 	struct de_dfilter_results dres;
 
 	outf = dbuf_create_custom_dbuf(c, md->unc_data_len, 0);
-	dbuf_set_writelistener(outf, our_writelistener_cb, (void*)d->crco);
+	dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)d->crco);
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;

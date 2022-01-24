@@ -824,6 +824,7 @@ static void de_run_dclimplode(deark *c, de_module_params *mparams)
 	struct de_dfilter_results dres;
 
 	outf = dbuf_create_output_file(c, "unc", NULL, 0);
+	dbuf_enable_wbuffer(outf);
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
 	dcmpri.pos = 0;
@@ -831,6 +832,7 @@ static void de_run_dclimplode(deark *c, de_module_params *mparams)
 	dcmpro.f = outf;
 
 	fmtutil_dclimplode_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
+	dbuf_flush(outf);
 	if(dres.errcode) {
 		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
 	}
@@ -885,6 +887,7 @@ static void de_run_lzss_oku(deark *c, de_module_params *mparams)
 	struct de_dfilter_results dres;
 
 	outf = dbuf_create_output_file(c, "unc", NULL, 0);
+	dbuf_enable_wbuffer(outf);
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
 	dcmpri.pos = 0;
@@ -892,6 +895,7 @@ static void de_run_lzss_oku(deark *c, de_module_params *mparams)
 	dcmpro.f = outf;
 
 	fmtutil_decompress_szdd(c, &dcmpri, &dcmpro, &dres, 0x1);
+	dbuf_flush(outf);
 	if(dres.errcode) {
 		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
 	}
@@ -928,6 +932,7 @@ static void de_run_lzhuf(deark *c, de_module_params *mparams)
 	de_dbg(c, "orig filesize: %"I64_FMT, unc_filesize);
 
 	outf = dbuf_create_output_file(c, "unc", NULL, 0);
+	dbuf_enable_wbuffer(outf);
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
 	dcmpri.pos = LZHUF_HDRSIZE;
@@ -937,6 +942,7 @@ static void de_run_lzhuf(deark *c, de_module_params *mparams)
 	dcmpro.expected_len = unc_filesize;
 
 	fmtutil_lh1_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
+	dbuf_flush(outf);
 	if(dres.errcode) {
 		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
 	}

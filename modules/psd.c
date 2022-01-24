@@ -3686,7 +3686,9 @@ static void do_bitmap_packbits(deark *c, lctx *d, zztype *zz, const struct image
 	}
 
 	unc_pixels = dbuf_create_membuf(c, 1024, 0);
+	dbuf_enable_wbuffer(unc_pixels);
 	fmtutil_decompress_packbits(c->infile, zz->pos, cmpr_data_size, unc_pixels, NULL);
+	dbuf_flush(unc_pixels);
 	zz->pos += cmpr_data_size;
 	de_dbg_indent(c, 1);
 	de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT"", cmpr_data_size, unc_pixels->len);
