@@ -1120,7 +1120,7 @@ static int detect_pklite_com_quick(dbuf *f, i64 *pverpos, i64 *pdatapos)
 
 static void read_and_process_com_version_number(deark *c, lctx *d, i64 verpos)
 {
-	const char *s;
+	const char *s = "?";
 
 	d->ver.extra_cmpr = 0;
 	d->ver.large_cmpr = 0;
@@ -1136,7 +1136,11 @@ static void read_and_process_com_version_number(deark *c, lctx *d, i64 verpos)
 		s = "1.00beta";
 	}
 	else if(d->cmpr_data_pos==448) {
-		s = "1.00-1.14";
+		switch(de_getbyte(260)) {
+		case 0x1d: s = "1.00-1.03"; break;
+		case 0x1c: s = "1.05-1.14"; break;
+		default: s = "1.00-1.14"; break;
+		}
 	}
 	else if(d->cmpr_data_pos==450) {
 		s = "1.15";
@@ -1144,11 +1148,8 @@ static void read_and_process_com_version_number(deark *c, lctx *d, i64 verpos)
 	else if(d->cmpr_data_pos==464) {
 		s = "1.50-2.01";
 	}
-	else {
-		s = "?";
-	}
-	de_strlcpy(d->ver_detected.pklver_str, s, sizeof(d->ver_detected.pklver_str));
 
+	de_strlcpy(d->ver_detected.pklver_str, s, sizeof(d->ver_detected.pklver_str));
 	de_dbg(c, "detected PKLITE version: %s", d->ver_detected.pklver_str);
 }
 
