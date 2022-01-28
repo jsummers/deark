@@ -397,13 +397,15 @@ static void output_css_color_block(deark *c, dbuf *ofile, u32 *pal,
 static void write_ucstring_to_html(deark *c, const de_ucstring *s, dbuf *f)
 {
 	i64 i;
+	i64 f_len;
 	i64 len_at_last_linebreak;
 	int prev_space = 0;
 	i32 ch;
 
 	if(!s) return;
 
-	len_at_last_linebreak = f->len;
+	f_len = dbuf_get_length(f);
+	len_at_last_linebreak = f_len;
 
 	for(i=0; i<s->len; i++) {
 		ch = s->str[i];
@@ -422,15 +424,18 @@ static void write_ucstring_to_html(deark *c, const de_ucstring *s, dbuf *f)
 
 		if(ch==0x0a) {
 			dbuf_puts(f, "<br>\n");
-			len_at_last_linebreak = f->len;
+			f_len = dbuf_get_length(f);
+			len_at_last_linebreak = f_len;
 		}
-		else if(ch==0x20 && (f->len - len_at_last_linebreak > 70)) {
+		else if(ch==0x20 && (f_len - len_at_last_linebreak > 70)) { // zzz
 			// Low-quality attempt at word wrapping
 			dbuf_puts(f, "\n");
-			len_at_last_linebreak = f->len;
+			f_len = dbuf_get_length(f);
+			len_at_last_linebreak = f_len;
 		}
 		else {
 			de_write_codepoint_to_html(c, f, ch);
+			f_len = dbuf_get_length(f);
 		}
 	}
 }
@@ -588,6 +593,7 @@ static void de_char_output_to_html_file(deark *c, struct de_char_context *charct
 	}
 
 	ofile = dbuf_create_output_file(c, "html", NULL, 0);
+	dbuf_enable_wbuffer(ofile);
 
 	do_output_html_header(c, charctx, ectx, ofile);
 	for(i=0; i<charctx->nscreens; i++) {

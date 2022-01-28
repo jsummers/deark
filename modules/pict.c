@@ -358,6 +358,7 @@ static int decode_bitmap(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi, i
 
 	bitmapsize = bi->height * bi->rowspan;
 	unc_pixels = dbuf_create_membuf(c, bitmapsize, 1);
+	dbuf_enable_wbuffer(unc_pixels);
 
 	dcmpri.f = c->infile;
 	dcmpro.f = unc_pixels;
@@ -394,12 +395,13 @@ static int decode_bitmap(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi, i
 		}
 
 		// Make sure the data decompressed to the right number of bytes.
-		if(unc_pixels->len != (j+1)*bi->rowspan) {
+		if(dbuf_get_length(unc_pixels) != (j+1)*bi->rowspan) {
 			dbuf_truncate(unc_pixels, (j+1)*bi->rowspan);
 		}
 
 		pos += bytecount;
 	}
+	dbuf_flush(unc_pixels);
 
 	dst_nsamples = 3;
 	if(bi->uses_pal) {

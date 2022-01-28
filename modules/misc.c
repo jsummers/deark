@@ -14,6 +14,7 @@ DE_DECLARE_MODULE(de_module_cp437);
 DE_DECLARE_MODULE(de_module_crc);
 DE_DECLARE_MODULE(de_module_hexdump);
 DE_DECLARE_MODULE(de_module_bytefreq);
+DE_DECLARE_MODULE(de_module_deflate);
 DE_DECLARE_MODULE(de_module_zlib);
 DE_DECLARE_MODULE(de_module_winzle);
 DE_DECLARE_MODULE(de_module_mrw);
@@ -465,6 +466,61 @@ void de_module_bytefreq(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
+// Raw "Deflate"-compressed data
+// **************************************************************************
+
+static void run_deflate_internal(deark *c, UI flags)
+{
+	dbuf *outf = NULL;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	struct de_deflate_params deflparams;
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	de_zeromem(&deflparams, sizeof(struct de_deflate_params));
+	deflparams.flags = flags;
+
+	outf = dbuf_create_output_file(c, "unc", NULL, 0);
+	dbuf_enable_wbuffer(outf);
+	dcmpri.f = c->infile;
+	dcmpri.pos = 0;
+	dcmpri.len = c->infile->len;
+	dcmpro.f = outf;
+	fmtutil_decompress_deflate_ex(c, &dcmpri, &dcmpro, &dres, &deflparams);
+	dbuf_flush(outf);
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
+	if(dres.bytes_consumed_valid) {
+		de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT, dres.bytes_consumed,
+			outf->len);
+	}
+
+done:
+	dbuf_close(outf);
+}
+
+static void de_run_deflate(deark *c, de_module_params *mparams)
+{
+	UI flags = 0;
+
+	if(de_get_ext_option_bool(c, "deflate:deflate64", 0)) {
+		flags |= DE_DEFLATEFLAG_DEFLATE64;
+	}
+
+	run_deflate_internal(c, flags);
+}
+
+void de_module_deflate(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "deflate";
+	mi->desc = "Raw Deflate compressed data";
+	mi->run_fn = de_run_deflate;
+}
+
+// **************************************************************************
 // zlib module
 //
 // This module is for decompressing zlib-compressed files.
@@ -472,11 +528,7 @@ void de_module_bytefreq(deark *c, struct deark_module_info *mi)
 
 static void de_run_zlib(deark *c, de_module_params *mparams)
 {
-	dbuf *f = NULL;
-
-	f = dbuf_create_output_file(c, "unc", NULL, 0);
-	fmtutil_decompress_deflate(c->infile, 0, c->infile->len, f, 0, NULL, DE_DEFLATEFLAG_ISZLIB);
-	dbuf_close(f);
+	run_deflate_internal(c, DE_DEFLATEFLAG_ISZLIB);
 }
 
 static int de_identify_zlib(deark *c)

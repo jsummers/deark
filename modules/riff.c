@@ -223,7 +223,8 @@ static void do_avi_strf(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 
 	if(d->curr_avi_stream_type==CODE_vids) {
 		struct de_bmpinfo bi;
 		// For video streams, this is a BITMAPINFO.
-		fmtutil_get_bmpinfo(c, ictx->f, &bi, pos, len, DE_BMPINFO_CMPR_IS_4CC);
+		fmtutil_get_bmpinfo(c, ictx->f, &bi, pos, len,
+			DE_BMPINFO_CMPR_IS_4CC | DE_BMPINFO_NOERR);
 		// This chunk contains just a bitmap header, so we can't extract a bitmap.
 	}
 	else if(d->curr_avi_stream_type==CODE_auds) {

@@ -28,6 +28,7 @@ typedef struct localctx_struct {
 
 	struct fmtutil_exe_info *ei; // For the PKLITE file
 	struct fmtutil_exe_info *o_ei; // For the decompressed file
+	u8 is_com;
 	u8 data_before_decoder;
 	u8 have_orig_header;
 	u8 uncompressed_region;
@@ -1013,14 +1014,10 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	de_dbg_indent(c, -1);
 }
 
-static void de_run_pklite(deark *c, de_module_params *mparams)
+static void do_pklite_exe(deark *c, lctx *d)
 {
-	lctx *d = NULL;
 	struct fmtutil_specialexe_detection_data edd;
 
-	d = de_malloc(c, sizeof(lctx));
-
-	d->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
 	fmtutil_collect_exe_info(c, c->infile, d->ei);
 
 	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
@@ -1071,12 +1068,140 @@ static void de_run_pklite(deark *c, de_module_params *mparams)
 	do_write_dcmpr(c, d);
 
 done:
+	;
+}
+
+static int pklite_com_has_copyright_string(dbuf *f, i64 verpos)
+{
+	u8 buf[4];
+
+	if(verpos==38) {
+		return !dbuf_memcmp(f, verpos+2, (const void*)"PK Copyr", 8);
+	}
+	dbuf_read(f, buf, verpos+2, sizeof(buf));
+
+	if((buf[0]=='P') && (buf[1]=='K' || buf[1]=='k') &&
+		(buf[2]=='L' || buf[2]=='l') && (buf[3]=='I' || buf[3]=='i'))
+	{
+		return 1;
+	}
+	return 0;
+}
+
+static int detect_pklite_com_quick(dbuf *f, i64 *pverpos, i64 *pdatapos)
+{
+	u8 b[10];
+
+	dbuf_read(f, b, 0, sizeof(b));
+	if(b[0]==0xb8 && b[3]==0xba && b[6]==0x3b && b[7]==0xc4) {
+		if(b[9]==0x67) { // Probably v1.00-1.14
+			*pverpos = 44;
+			*pdatapos = 448;
+			return 1;
+		}
+		else if(b[9]==0x69) { // Probably v1.15 (usually mislabeled as 1.14)
+			*pverpos = 46;
+			*pdatapos = 450;
+			return 1;
+		}
+	}
+	else if(b[0]==0x50 && b[1]==0xb8 && b[4]==0xba && b[7]==0x3b) {
+		*pverpos = 46; // v1.50-2.01
+		*pdatapos = 464;
+		return 1;
+	}
+	else if(b[0]==0xba && b[3]==0xa1 && b[6]==0x2d && b[7]==0x20) {
+		*pverpos = 36; // v1.00beta
+		*pdatapos = 500;
+		return 1;
+	}
+	return 0;
+}
+
+static void read_and_process_com_version_number(deark *c, lctx *d, i64 verpos)
+{
+	const char *s;
+
+	d->ver.extra_cmpr = 0;
+	d->ver.large_cmpr = 0;
+
+	de_dbg(c, "version number pos: %"I64_FMT, verpos);
+	d->ver_reported.ver_info = (UI)de_getu16le(verpos);
+
+	de_dbg(c, "reported PKLITE version: %u.%02u",
+		(UI)((d->ver_reported.ver_info&0xf00)>>8),
+		(UI)(d->ver_reported.ver_info&0x00ff));
+
+	if(d->cmpr_data_pos==500) {
+		s = "1.00beta";
+	}
+	else if(d->cmpr_data_pos==448) {
+		s = "1.00-1.14";
+	}
+	else if(d->cmpr_data_pos==450) {
+		s = "1.15";
+	}
+	else if(d->cmpr_data_pos==464) {
+		s = "1.50-2.01";
+	}
+	else {
+		s = "?";
+	}
+	de_strlcpy(d->ver_detected.pklver_str, s, sizeof(d->ver_detected.pklver_str));
+
+	de_dbg(c, "detected PKLITE version: %s", d->ver_detected.pklver_str);
+}
+
+static void do_pklite_com(deark *c, lctx *d)
+{
+	i64 verpos = 0;
+
+	if(!detect_pklite_com_quick(c->infile, &verpos, &d->cmpr_data_pos)) {
+		de_err(c, "Not a known/supported PKLITE format");
+		goto done;
+	}
+
+	d->is_com = 1;
+	d->ei->f = c->infile;
+	de_declare_fmt(c, "PKLITE-compressed COM");
+
+	read_and_process_com_version_number(c, d, verpos);
+
+	// TODO: COM support was added in a way that's a bit of a hack. Ought to clean
+	// it up.
+	do_decompress(c, d);
+	if(!d->o_dcmpr_code) goto done;
+	dbuf_flush(d->o_dcmpr_code);
+	if(d->errflag) goto done;
+	d->dcmpr_ok = 1;
+
+	dbuf_create_file_from_slice(d->o_dcmpr_code, 0, d->o_dcmpr_code->len, "com", NULL, 0);
+done:
+	;
+}
+
+static void de_run_pklite(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	u8 buf[2];
+
+	d = de_malloc(c, sizeof(lctx));
+	d->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
+
+	de_read(buf, 0, 2);
+	if((buf[0]=='M' && buf[1]=='Z') || (buf[0]=='Z' && buf[1]=='M')) {
+		do_pklite_exe(c, d);
+	}
+	else {
+		do_pklite_com(c, d);
+	}
+
 	if(d) {
 		if(d->errflag && !d->errmsg_handled) {
 			de_err(c, "PKLITE decompression failed");
 		}
 
-		if(d->dcmpr_ok && !d->wrote_exe) {
+		if(!d->is_com && d->dcmpr_ok && !d->wrote_exe) {
 			do_write_data_only(c, d);
 		}
 
@@ -1091,9 +1216,27 @@ done:
 	}
 }
 
+// By design, only detects COM format.
+// EXE files are handled by the "exe" module by default.
+static int de_identify_pklite(deark *c)
+{
+	i64 verpos, datapos;
+
+	 if(detect_pklite_com_quick(c->infile, &verpos, &datapos)) {
+		 if(pklite_com_has_copyright_string(c->infile, verpos)) {
+			 return 100;
+		 }
+		 // TODO: False positives may be possible. Maybe we should be more
+		 // discriminating.
+		 return 15;
+	 }
+	 return 0;
+}
+
 void de_module_pklite(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "pklite";
 	mi->desc = "PKLITE-compressed EXE";
 	mi->run_fn = de_run_pklite;
+	mi->identify_fn = de_identify_pklite;
 }
