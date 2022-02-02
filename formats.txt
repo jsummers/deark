@@ -5,6 +5,8 @@ Deark -- Information about supported formats
 
 (Images that are not "extracted" will be converted to PNG, except as noted.)
 
+* ADEX .IMG (module="adex") (experimental)
+
 * Alias PIX, a.k.a. Vivid ray tracer bitmap (module="alias_pix")
   - Truecolor only. Grayscale not supported.
 
