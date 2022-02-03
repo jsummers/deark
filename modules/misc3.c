@@ -8,6 +8,7 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_cpshrink);
 DE_DECLARE_MODULE(de_module_dwc);
+DE_DECLARE_MODULE(de_module_tscomp);
 
 struct localctx_struct;
 typedef struct localctx_struct lctx;
@@ -20,6 +21,7 @@ struct member_data {
 	lctx *d;
 	i64 member_idx;
 	i64 member_hdr_pos;
+	i64 member_total_size;
 	i64 cmpr_len;
 	i64 orig_len;
 	i64 cmpr_pos;
@@ -46,6 +48,7 @@ struct member_data {
 struct localctx_struct {
 	deark *c;
 	int is_le;
+	u8 need_errmsg;
 	de_encoding input_encoding;
 	i64 num_members;
 	i64 cmpr_data_curpos;
@@ -701,4 +704,134 @@ void de_module_dwc(deark *c, struct deark_module_info *mi)
 	mi->identify_fn = de_identify_dwc;
 	mi->help_fn = de_help_dwc;
 	mi->flags |= DE_MODFLAG_NONWORKING;
+}
+
+// **************************************************************************
+// The Stirling Compressor" ("TSComp")
+// **************************************************************************
+
+// Probably only TSComp v1.3 is supported.
+
+static void tscomp_decompressor_fn(struct member_data *md)
+{
+	fmtutil_dclimplode_codectype1(md->c, md->dcmpri, md->dcmpro, md->dres, NULL);
+}
+
+// Caller creates/destroys md, and sets a few fields.
+static void tscomp_do_member(deark *c, lctx *d, struct member_data *md)
+{
+	i64 pos = md->member_hdr_pos;
+	i64 fnlen;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "member #%u at %"I64_FMT, (UI)md->member_idx,
+		md->member_hdr_pos);
+	de_dbg_indent(c, 1);
+
+	pos += 1;
+	read_field_cmpr_len_p(md, &pos);
+	pos += 4; // ??
+	read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 2, &pos);
+	pos += 2; // ??
+
+	fnlen = de_getbyte_p(&pos);
+
+	// STOP_AT_NUL is probably not needed.
+	dbuf_read_to_ucstring(c->infile, pos, fnlen, md->filename, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+	pos += fnlen;
+	pos += 1; // ??
+
+	md->cmpr_pos = pos;
+	md->dfn = tscomp_decompressor_fn;
+	extract_member_file(md);
+
+	pos += md->cmpr_len;
+	md->member_total_size = pos - md->member_hdr_pos;
+
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void de_run_tscomp(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	i64 pos;
+	i64 i;
+	int saved_indent_level;
+	u8 b;
+	const char *name;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	d = create_lctx(c);
+	d->is_le = 1;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+
+	pos = 0;
+	de_dbg(c, "archive header at %d", (int)pos);
+	de_dbg_indent(c, 1);
+	pos += 4;
+
+	b = de_getbyte_p(&pos);
+	if(b!=0x08) { d->need_errmsg = 1; goto done; }
+	pos += 3; // version?? (01 03 00)
+	b = de_getbyte_p(&pos);
+	switch(b) {
+	case 0: name = "old version"; break;
+	case 1: name = "without wildcard"; break;
+	case 2: name = "with wildcard"; break;
+	default: name = "?";
+	}
+	de_dbg(c, "filename style: %u (%s)", (UI)b, name);
+	if(b!=1 && b!=2) { d->need_errmsg = 1; goto done; }
+
+	pos += 4; // ??
+	de_dbg_indent(c, -1);
+
+	i = 0;
+	while(1) {
+		struct member_data *md;
+
+		if(d->fatalerrflag) goto done;
+		if(pos+17 > c->infile->len) goto done;
+		if(de_getbyte(pos) != 0x12) { d->need_errmsg = 1; goto done; }
+
+		md = create_md(c, d);
+		md->member_idx = i;
+		md->member_hdr_pos = pos;
+
+		tscomp_do_member(c, d, md);
+		if(md->member_total_size<=0) d->fatalerrflag = 1;
+
+		pos += md->member_total_size;
+		destroy_md(c, md);
+		i++;
+	}
+
+done:
+	if(d->need_errmsg) {
+		de_err(c, "Bad or unsupported TSComp format");
+	}
+	destroy_lctx(c, d);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static int de_identify_tscomp(deark *c)
+{
+	i64 n;
+
+	n = de_getu32be(0);
+	// Note: The "13" might be a version number. The "8c" is a mystery,
+	// and seems to be ignored.
+	if(n == 0x655d138cU) return 100;
+	return 0;
+}
+
+void de_module_tscomp(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "tscomp";
+	mi->desc = "The Stirling Compressor";
+	mi->run_fn = de_run_tscomp;
+	mi->identify_fn = de_identify_tscomp;
 }
