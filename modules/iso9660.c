@@ -27,6 +27,7 @@ DE_DECLARE_MODULE(de_module_nrg);
 
 static const char *g_sig_CD001 = "CD001";
 static const char *g_sig_CD_I  = "CD-I ";
+static const char *g_sig_CDROM = "CDROM";
 
 struct dir_record {
 	u8 file_flags;
@@ -83,6 +84,7 @@ typedef struct localctx_struct {
 	u8 uses_SUSP;
 	u8 is_udf;
 	u8 is_cdi;
+	u8 is_hsf;
 	i64 SUSP_default_bytes_to_skip;
 	struct vol_record *vol; // Volume descriptor to use
 	struct de_crcobj *crco;
@@ -1349,6 +1351,18 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 	}
 
 	if(vdt==VOLDESCTYPE_UNKNOWN) {
+		// FIXME: Checking for High Sierra here is kind of a hack.
+		// TODO: Support High Sierra format.
+		if(!dbuf_memcmp(c->infile, pos1+9, (const void*)g_sig_CDROM, 5)) {
+			de_dbg(c, "High Sierra volume descriptor at %"I64_FMT, pos1);
+			if(secnum==16) d->is_hsf = 1;
+			dtype = de_getbyte(pos1+8);
+			retval = (dtype!=0xff);
+			goto done;
+		}
+	}
+
+	if(vdt==VOLDESCTYPE_UNKNOWN) {
 		de_warn(c, "Expected volume descriptor at %"I64_FMT" not found", pos1);
 		goto done;
 	}
@@ -1447,7 +1461,12 @@ static void de_run_iso9660(deark *c, de_module_params *mparams)
 	}
 
 	if(!d->vol) {
-		de_err(c, "No usable volume descriptor found");
+		if(d->is_hsf) {
+			de_err(c, "File uses High Sierra format, which is not supported");
+		}
+		else {
+			de_err(c, "No usable volume descriptor found");
+		}
 		goto done;
 	}
 
@@ -1480,12 +1499,23 @@ done:
 
 static int cdsig_at(dbuf *f, i64 pos)
 {
-	u8 buf[6];
+	u8 buf[14];
+	u8 ty;
 
 	dbuf_read(f, buf, pos, sizeof(buf));
-	if(de_memcmp(&buf[1], g_sig_CD001, 5) &&
-		de_memcmp(&buf[1], g_sig_CD_I, 5)) return 0;
-	if(buf[0]>3 && buf[0]<255) return 0;
+	if(!de_memcmp(&buf[1], g_sig_CD001, 5)) {
+		ty = buf[0];
+	}
+	else if(!de_memcmp(&buf[1], g_sig_CD_I, 5)) {
+		ty = buf[0];
+	}
+	else if(!de_memcmp(&buf[9], g_sig_CDROM, 5)) {
+		ty = buf[8];
+	}
+	else {
+		return 0;
+	}
+	if(ty>3 && ty<255) return 0;
 	return 1;
 }
 
