@@ -199,6 +199,7 @@ static void de_run_plaintext(deark *c, de_module_params *mparams)
 	dlen = c->infile->len - dpos;
 
 	outf = dbuf_create_output_file(c, "txt", NULL, 0);
+	dbuf_enable_wbuffer(outf);
 
 	if(c->write_bom) {
 		dbuf_write_uchar_as_utf8(outf, 0xfeff);
@@ -264,6 +265,7 @@ static void de_run_cp437(deark *c, de_module_params *mparams)
 	struct cp437ctx_struct cp437ctx;
 
 	cp437ctx.outf = dbuf_create_output_file(c, "txt", NULL, 0);
+	dbuf_enable_wbuffer(cp437ctx.outf);
 	de_encconv_init(&cp437ctx.es, DE_ENCODING_CP437_G);
 	if(c->write_bom) {
 		dbuf_write_uchar_as_utf8(cp437ctx.outf, 0xfeff);
