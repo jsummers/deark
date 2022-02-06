@@ -16,7 +16,8 @@ struct storyboard_ctx {
 	i64 width, height;
 	i64 rowspan;
 	i64 width_in_chars, height_in_chars;
-	i64 expected_unc_size;
+	i64 max_unc_size;
+	i64 attribs_pos;
 	i64 img_endpos;
 	de_color pal[256];
 };
@@ -27,16 +28,18 @@ static int decompress_storyboard(deark *c, struct storyboard_ctx *d, i64 pos1,
 	i64 pos = pos1;
 	i64 nbytes_written = 0;
 	i64 img_seg_size;
+	int found_attribs = 0;
+	int element_count = 0;
 	int retval = 0;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	de_dbg(c, "compressed data at %"I64_FMT, pos1);
+	de_dbg(c, "compressed data segment at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
 	img_seg_size = de_getu16le_p(&pos);
-	d->img_endpos = pos1 + img_seg_size;
+	d->img_endpos = pos + img_seg_size;
 	de_dbg(c, "segment size: %"I64_FMT" (ends at %"I64_FMT")", img_seg_size, d->img_endpos);
 	if(img_seg_size<2) {
 		d->need_errmsg = 1;
@@ -47,11 +50,25 @@ static int decompress_storyboard(deark *c, struct storyboard_ctx *d, i64 pos1,
 		UI n;
 		i64 count;
 
-		if(nbytes_written >= d->expected_unc_size) break;
+		if(nbytes_written >= d->max_unc_size) break;
 		if(pos >= c->infile->len) break;
 
 		n = (UI)de_getu16le_p(&pos);
-		if(n < 0x8000) {
+		if(n == 0x0000) { // Seems to be a special stop/separator code
+			element_count++;
+			if(element_count==1 && d->is_text) {
+				// End of foreground, start of attributes.
+				// Kind of a hack, but it's easiest just to decompress everything
+				// in one go.
+				dbuf_flush(outf);
+				d->attribs_pos = outf->len;
+				found_attribs = 1;
+			}
+			else {
+				break;
+			}
+		}
+		else if(n < 0x8000) {
 			count = (i64)n;
 			dbuf_copy(c->infile, pos, count, outf);
 			pos += count;
@@ -67,7 +84,12 @@ static int decompress_storyboard(deark *c, struct storyboard_ctx *d, i64 pos1,
 		}
 	}
 
-	retval = 1;
+	if(d->is_text && !found_attribs) {
+		d->need_errmsg = 1;
+	}
+	else {
+		retval = 1;
+	}
 	de_dbg(c, "decompressed to %"I64_FMT" bytes", nbytes_written);
 
 done:
@@ -80,7 +102,6 @@ static void do_text_main(deark *c, struct storyboard_ctx *d, dbuf *unc_data, str
 	i64 i, j;
 	u8 ccode, acode;
 	u8 fgcol, bgcol;
-	i64 acode_start;
 	struct de_char_screen *screen;
 	struct de_encconv_state es;
 
@@ -93,13 +114,12 @@ static void do_text_main(deark *c, struct storyboard_ctx *d, dbuf *unc_data, str
 	screen->cell_rows = de_mallocarray(c, d->height_in_chars, sizeof(struct de_char_cell*));
 	de_encconv_init(&es, d->input_encoding);
 
-	acode_start = d->height_in_chars * d->width_in_chars;
 	for(j=0; j<d->height_in_chars; j++) {
 		screen->cell_rows[j] = de_mallocarray(c, d->width_in_chars, sizeof(struct de_char_cell));
 
 		for(i=0; i<d->width_in_chars; i++) {
 			ccode = dbuf_getbyte(unc_data, j*d->width_in_chars + i);
-			acode = dbuf_getbyte(unc_data, acode_start + j*d->width_in_chars + i);
+			acode = dbuf_getbyte(unc_data, d->attribs_pos + j*d->width_in_chars + i);
 
 			fgcol = (acode & 0x0f);
 			bgcol = acode >> 4;
@@ -121,9 +141,9 @@ static void do_text(deark *c, struct storyboard_ctx *d, i64 pos)
 	int k;
 
 	if(d->mode != 3) goto done;
-	d->expected_unc_size = 65536; // max
+	d->max_unc_size = 65536;
 
-	unc_data = dbuf_create_membuf(c, d->expected_unc_size, 0);
+	unc_data = dbuf_create_membuf(c, 4000, 0);
 	dbuf_enable_wbuffer(unc_data);
 
 	if(!decompress_storyboard(c, d, pos, unc_data)) goto done;
@@ -166,14 +186,14 @@ static void do_image(deark *c, struct storyboard_ctx *d, i64 pos)
 	de_bitmap *img = NULL;
 	de_finfo *fi = NULL;
 
-	d->expected_unc_size = d->height * d->rowspan;
+	d->max_unc_size = d->height * d->rowspan;
 	d->width = d->rowspan * (8/d->bpp);
 	de_dbg_dimensions(c, d->width, d->height);
 	if(!de_good_image_dimensions(c, d->width, d->height)) {
 		goto done;
 	}
 
-	unc_data = dbuf_create_membuf(c, d->expected_unc_size, 0x1);
+	unc_data = dbuf_create_membuf(c, d->max_unc_size, 0x1);
 	dbuf_enable_wbuffer(unc_data);
 
 	if(!decompress_storyboard(c, d, pos, unc_data)) goto done;
@@ -281,7 +301,7 @@ static int de_identify_storyboard(deark *c)
 void de_module_storyboard(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "storyboard";
-	mi->desc = "Storyboard PIC/CAP (old)";
+	mi->desc = "Storyboard PIC/CAP (old format)";
 	mi->run_fn = de_run_storyboard;
 	mi->identify_fn = de_identify_storyboard;
 }
