@@ -296,6 +296,7 @@
     <ClCompile Include="..\..\modules\shg.c" />
     <ClCompile Include="..\..\modules\sis.c" />
     <ClCompile Include="..\..\modules\spectrum512.c" />
+    <ClCompile Include="..\..\modules\storyboard.c" />
     <ClCompile Include="..\..\modules\stuffit.c" />
     <ClCompile Include="..\..\modules\sunras.c" />
     <ClCompile Include="..\..\modules\t64.c" />

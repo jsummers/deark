@@ -498,6 +498,9 @@ Deark -- Information about supported formats
   Options
    -opt atari:palbits=<n> (refer to readme.md)
 
+* Storyboard PIC/CAP (module="storyboard") (experimental)
+  - Only the old format from IBM PC Storyboard is supported.
+
 * STOS Memory Bank (.mbk) (module="stos")
   - Decode "sprite bank" images
   - Decode "icon bank" images
@@ -826,6 +829,8 @@ Deark -- Information about supported formats
 * Squeeze (module="squeeze")
   An old compressed file format used mainly on CP/M.
   - SQ2 variant is also supported (experimental).
+
+* Stirling Compressor, The (module="tscomp") (experimental)
 
 * StuffIt (.sit) (module="stuffit")
   - Limited support. Old format only.

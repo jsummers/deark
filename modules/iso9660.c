@@ -25,6 +25,10 @@ DE_DECLARE_MODULE(de_module_nrg);
 
 #define MAX_NESTING_LEVEL 32
 
+static const char *g_sig_CD001 = "CD001";
+static const char *g_sig_CD_I  = "CD-I ";
+static const char *g_sig_CDROM = "CDROM";
+
 struct dir_record {
 	u8 file_flags;
 	u8 is_dir;
@@ -36,6 +40,7 @@ struct dir_record {
 	u8 is_symlink;
 	u8 is_specialfiletype;
 	u8 is_specialfileformat;
+	UI cdi_attribs;
 	i64 len_dir_rec;
 	i64 len_ext_attr_rec;
 	i64 data_len;
@@ -78,6 +83,8 @@ typedef struct localctx_struct {
 	struct de_inthashtable *voldesc_crc_hash;
 	u8 uses_SUSP;
 	u8 is_udf;
+	u8 is_cdi;
+	u8 is_hsf;
 	i64 SUSP_default_bytes_to_skip;
 	struct vol_record *vol; // Volume descriptor to use
 	struct de_crcobj *crco;
@@ -87,6 +94,9 @@ static i64 sector_dpos(lctx *d, i64 secnum)
 {
 	return secnum * d->secsize;
 }
+
+// Caution - If the "bbo" functions were to be changed to use the
+// little-endian bytes instead, it will break CD-i support.
 
 static i64 getu16bbo_p(dbuf *f, i64 *ppos)
 {
@@ -841,6 +851,14 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 	de_dbg(c, "volume sequence number: %u", (unsigned int)n);
 	dr->file_id_len = (i64)de_getbyte_p(&pos);
 
+	if(d->is_cdi) {
+		dr->cdi_attribs = (UI)de_getu16be(pos1 + 37 + dr->file_id_len);
+		de_dbg(c, "CD-i attribs: 0x%04x", (UI)dr->cdi_attribs);
+		if(dr->cdi_attribs & 0x8000) {
+			dr->is_dir = 1;
+		}
+	}
+
 	if(dr->is_dir && dr->file_id_len==1) {
 		// Peek at the first (& only) byte of the filename.
 		specialfnbyte = de_getbyte(pos);
@@ -891,7 +909,7 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 
 	// System Use area
 	sys_use_len = pos1+dr->len_dir_rec-pos;
-	if(sys_use_len>0) {
+	if(sys_use_len>0 && !d->is_cdi) {
 		do_dir_rec_system_use_area(c, d, dr, pos, sys_use_len);
 	}
 
@@ -1061,6 +1079,29 @@ static void read_escape_sequences(deark *c, lctx *d, struct vol_record *vol, i64
 	de_dbg_indent(c, -1);
 }
 
+// CD-i doesn't put root dir info in the volume desciptor. This is a hack to
+// get the info we need from the path table, and the root dir, instead.
+static void find_CDi_root_dir(deark *c, lctx *d, struct vol_record *vol,
+	i64 path_tbl_M_loc)
+{
+	i64 ptpos;
+	i64 rootpos;
+
+	// Look at the first item in the path table, assume it is for the root dir.
+	ptpos = sector_dpos(d, path_tbl_M_loc);
+	de_dbg(c, "path table at %"I64_FMT, ptpos);
+	de_dbg_indent(c, 1);
+	vol->root_dir_extent_blk = de_getu32be(ptpos+2);
+	de_dbg(c, "root dir pos: block #%u", (UI)vol->root_dir_extent_blk);
+
+	// Peek at the first item in the root dir, to get the length of the root dir.
+	rootpos = sector_dpos(d, vol->root_dir_extent_blk);
+	vol->root_dir_data_len = de_getu32be(rootpos+14);
+	vol->root_dir_data_len = 0xd88;
+	de_dbg(c, "root dir len: %u", (unsigned int)vol->root_dir_data_len);
+	de_dbg_indent(c, -1);
+}
+
 static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 	struct vol_record *vol, i64 secnum, i64 pos1, int is_primary)
 {
@@ -1068,6 +1109,7 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 	i64 vol_space_size;
 	i64 vol_set_size;
 	i64 vol_seq_num;
+	i64 path_tbl_M_loc;
 	i64 n;
 	unsigned int vol_flags;
 	u32 crc;
@@ -1154,8 +1196,8 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 	de_dbg(c, "loc. of type L path table: block #%u", (unsigned int)n);
 	n = de_getu32le_p(&pos);
 	de_dbg(c, "loc. of optional type L path table: block #%u", (unsigned int)n);
-	n = de_getu32be_p(&pos);
-	de_dbg(c, "loc. of type M path table: block #%u", (unsigned int)n);
+	path_tbl_M_loc = de_getu32be_p(&pos);
+	de_dbg(c, "loc. of type M path table: block #%u", (unsigned int)path_tbl_M_loc);
 	n = de_getu32be_p(&pos);
 	de_dbg(c, "loc. of optional type M path table: block #%u", (unsigned int)n);
 
@@ -1172,6 +1214,10 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 
 	de_dbg_indent(c, -1);
 	pos += 34;
+
+	if(d->is_cdi && path_tbl_M_loc!=0) {
+		find_CDi_root_dir(c, d, vol, path_tbl_M_loc);
+	}
 
 	handle_iso_string_p(c, d, vol, "volume set id", &pos, 128, tmpstr);
 	handle_iso_string_p(c, d, vol, "publisher id", &pos, 128, tmpstr);
@@ -1270,7 +1316,7 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 	pos += 5;
 	dvers = de_getbyte_p(&pos);
 
-	if(!de_strcmp(standard_id->sz, "CD001")) {
+	if(!de_strcmp(standard_id->sz, g_sig_CD001)) {
 		switch(dtype) {
 		case 0: vdt = VOLDESCTYPE_CD_BOOT; break;
 		case 1: vdt = VOLDESCTYPE_CD_PRIMARY; break;
@@ -1279,6 +1325,14 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 		case 0xff: vdt = VOLDESCTYPE_CD_TERM; break;
 		default: vdt = VOLDESCTYPE_OTHERVALID; break;
 		}
+	}
+	else if(!de_strcmp(standard_id->sz, g_sig_CD_I)) {
+		switch(dtype) {
+		case 1: vdt = VOLDESCTYPE_CD_PRIMARY; d->is_cdi = 1; break;
+		case 0xff: vdt = VOLDESCTYPE_CD_TERM; break;
+		default: vdt = VOLDESCTYPE_OTHERVALID; break;
+		}
+		// TODO: 2 = Coded Character Set File Structure Vol. Descr.
 	}
 	else if(!de_strncmp(standard_id->sz, "NSR0", 4))
 	{
@@ -1294,6 +1348,18 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 		!de_strncmp(standard_id->sz, "CDW0", 4))
 	{
 		vdt = VOLDESCTYPE_OTHERVALID;
+	}
+
+	if(vdt==VOLDESCTYPE_UNKNOWN) {
+		// FIXME: Checking for High Sierra here is kind of a hack.
+		// TODO: Support High Sierra format.
+		if(!dbuf_memcmp(c->infile, pos1+9, (const void*)g_sig_CDROM, 5)) {
+			de_dbg(c, "High Sierra volume descriptor at %"I64_FMT, pos1);
+			if(secnum==16) d->is_hsf = 1;
+			dtype = de_getbyte(pos1+8);
+			retval = (dtype!=0xff);
+			goto done;
+		}
 	}
 
 	if(vdt==VOLDESCTYPE_UNKNOWN) {
@@ -1395,7 +1461,12 @@ static void de_run_iso9660(deark *c, de_module_params *mparams)
 	}
 
 	if(!d->vol) {
-		de_err(c, "No usable volume descriptor found");
+		if(d->is_hsf) {
+			de_err(c, "File uses High Sierra format, which is not supported");
+		}
+		else {
+			de_err(c, "No usable volume descriptor found");
+		}
 		goto done;
 	}
 
@@ -1428,11 +1499,23 @@ done:
 
 static int cdsig_at(dbuf *f, i64 pos)
 {
-	u8 buf[6];
+	u8 buf[14];
+	u8 ty;
 
 	dbuf_read(f, buf, pos, sizeof(buf));
-	if(de_memcmp(&buf[1], "CD001", 5)) return 0;
-	if(buf[0]>3 && buf[0]<255) return 0;
+	if(!de_memcmp(&buf[1], g_sig_CD001, 5)) {
+		ty = buf[0];
+	}
+	else if(!de_memcmp(&buf[1], g_sig_CD_I, 5)) {
+		ty = buf[0];
+	}
+	else if(!de_memcmp(&buf[9], g_sig_CDROM, 5)) {
+		ty = buf[8];
+	}
+	else {
+		return 0;
+	}
+	if(ty>3 && ty<255) return 0;
 	return 1;
 }
 

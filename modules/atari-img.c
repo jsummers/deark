@@ -175,9 +175,11 @@ static void de_run_degas(deark *c, de_module_params *mparams)
 	if(d->compression_code) {
 		adata->was_compressed = 1;
 		adata->unc_pixels = dbuf_create_membuf(c, 32000, 1);
+		dbuf_enable_wbuffer(adata->unc_pixels);
 
 		if(!fmtutil_decompress_packbits(c->infile, pos, c->infile->len-pos, adata->unc_pixels, &cmpr_bytes_consumed))
 			goto done;
+		dbuf_flush(adata->unc_pixels);
 
 		de_dbg(c, "Compressed bytes found: %d", (int)cmpr_bytes_consumed);
 		pos += cmpr_bytes_consumed;
@@ -385,9 +387,11 @@ static void de_run_prismpaint(deark *c, de_module_params *mparams)
 		// TODO: Calculate the initial size more accurately.
 		adata->unc_pixels = dbuf_create_membuf(c, adata->w*adata->h, 0);
 		//dbuf_set_max_length(unc_pixels, ...);
+		dbuf_enable_wbuffer(adata->unc_pixels);
 
 		fmtutil_decompress_packbits(c->infile, pixels_start, c->infile->len - pixels_start,
 			adata->unc_pixels, NULL);
+		dbuf_flush(adata->unc_pixels);
 		de_dbg(c, "decompressed to %d bytes", (int)adata->unc_pixels->len);
 	}
 
