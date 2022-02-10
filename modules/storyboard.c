@@ -2,7 +2,9 @@
 // Copyright (C) 2022 Jason Summers
 // See the file COPYING for terms of use.
 
-// IBM Storyboard .PIC/.CAP, old "EP_CAP" format
+// IBM Storyboard .PIC/.CAP
+// - Old "EP_CAP" format
+// - Some newer formats may be partially supported.
 
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_storyboard);
@@ -22,7 +24,7 @@ struct storyboard_ctx {
 	de_color pal[256];
 };
 
-static int decompress_storyboard(deark *c, struct storyboard_ctx *d, i64 pos1,
+static int decompress_oldfmt(deark *c, struct storyboard_ctx *d, i64 pos1,
 	dbuf *outf)
 {
 	i64 pos = pos1;
@@ -97,7 +99,8 @@ done:
 	return retval;
 }
 
-static void do_text_main(deark *c, struct storyboard_ctx *d, dbuf *unc_data, struct de_char_context *charctx)
+static void do_oldfmt_text_main(deark *c, struct storyboard_ctx *d, dbuf *unc_data,
+	struct de_char_context *charctx)
 {
 	i64 i, j;
 	u8 ccode, acode;
@@ -134,7 +137,7 @@ static void do_text_main(deark *c, struct storyboard_ctx *d, dbuf *unc_data, str
 	de_char_output_to_file(c, charctx);
 }
 
-static void do_text(deark *c, struct storyboard_ctx *d, i64 pos)
+static void do_oldfmt_text(deark *c, struct storyboard_ctx *d, i64 pos)
 {
 	dbuf *unc_data = NULL;
 	struct de_char_context *charctx = NULL;
@@ -146,7 +149,7 @@ static void do_text(deark *c, struct storyboard_ctx *d, i64 pos)
 	unc_data = dbuf_create_membuf(c, 4000, 0);
 	dbuf_enable_wbuffer(unc_data);
 
-	if(!decompress_storyboard(c, d, pos, unc_data)) goto done;
+	if(!decompress_oldfmt(c, d, pos, unc_data)) goto done;
 	dbuf_flush(unc_data);
 
 	// Not sure how to figure out the dimensions. The files in the distribution
@@ -170,7 +173,7 @@ static void do_text(deark *c, struct storyboard_ctx *d, i64 pos)
 		charctx->pal[k] = de_palette_pc16(k);
 	}
 
-	do_text_main(c, d, unc_data, charctx);
+	do_oldfmt_text_main(c, d, unc_data, charctx);
 
 done:
 	if(charctx) {
@@ -180,7 +183,7 @@ done:
 	dbuf_close(unc_data);
 }
 
-static void do_image(deark *c, struct storyboard_ctx *d, i64 pos)
+static void do_oldfmt_image(deark *c, struct storyboard_ctx *d, i64 pos)
 {
 	dbuf *unc_data = NULL;
 	de_bitmap *img = NULL;
@@ -196,7 +199,7 @@ static void do_image(deark *c, struct storyboard_ctx *d, i64 pos)
 	unc_data = dbuf_create_membuf(c, d->max_unc_size, 0x1);
 	dbuf_enable_wbuffer(unc_data);
 
-	if(!decompress_storyboard(c, d, pos, unc_data)) goto done;
+	if(!decompress_oldfmt(c, d, pos, unc_data)) goto done;
 	dbuf_flush(unc_data);
 
 	fi = de_finfo_create(c);
@@ -235,13 +238,10 @@ done:
 	;
 }
 
-static void de_run_storyboard(deark *c, de_module_params *mparams)
+static void de_run_storyboard_oldfmt(deark *c, struct storyboard_ctx *d,
+	de_module_params *mparams)
 {
-	struct storyboard_ctx *d = NULL;
 	i64 pos;
-
-	d = de_malloc(c, sizeof(struct storyboard_ctx));
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 
 	pos = 6;
 	if(de_getbyte_p(&pos) != 0) {
@@ -274,14 +274,128 @@ static void de_run_storyboard(deark *c, de_module_params *mparams)
 	}
 
 	if(d->is_text) {
-		do_text(c, d, pos);
+		do_oldfmt_text(c, d, pos);
 	}
 	else {
-		do_image(c, d, pos);
+		do_oldfmt_image(c, d, pos);
 	}
 	// TODO: Is it possible for a file to contain multiple images?
 
 done:
+	;
+}
+
+static void do_decompress_newfmt(deark *c, struct storyboard_ctx *d,
+	dbuf *outf)
+{
+	i64 pos = 2048;
+	i64 endpos = c->infile->len;
+
+	while(1) {
+		i64 count;
+		u8 b, b2;
+
+		if(pos>=endpos) break;
+
+		b = de_getbyte_p(&pos);
+		count = (i64)(b & 0x7f);
+		if(b & 0x80) { // compressed run
+			b2 = de_getbyte_p(&pos);
+			dbuf_write_run(outf, b2, count);
+		}
+		else { // uncompressed run
+			dbuf_copy(c->infile, pos, count, outf);
+			pos += count;
+		}
+	}
+}
+
+static void render_newfmt_image_1(deark *c, struct storyboard_ctx *d, dbuf *unc_data,
+	de_bitmap *img)
+{
+	i64 nstrips_per_plane;
+	i64 planespan;
+	i64 n;
+
+	nstrips_per_plane = de_pad_to_n(d->width, 8) / 8;
+	planespan = nstrips_per_plane * d->height;
+
+	for(n=0; n<planespan; n++) {
+		u8 x0, x1;
+		UI k;
+		i64 xpos, ypos;
+
+		x0 = dbuf_getbyte(unc_data, n);
+		x1 = dbuf_getbyte(unc_data, planespan+n);
+		ypos = n%d->height;
+		for(k=0; k<8; k++) {
+			UI b0, b1;
+
+			xpos = 8*(n/d->height) + (i64)(7-k);
+			b0 = (x0 & (1U<<k)) ? 0 : 1;
+			b1 = (x1 & (1U<<k)) ? 0 : 1;
+			de_bitmap_setpixel_rgb(img, xpos, ypos, d->pal[(b0<<1)|b1]);
+		}
+	}
+}
+
+// Support for "new" format is highly experimental. I don't know what any of
+// the first 2048 bytes in the file are for.
+static void de_run_storyboard_newfmt(deark *c, struct storyboard_ctx *d,
+	de_module_params *mparams)
+{
+	dbuf *unc_data = NULL;
+	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
+	i64 i;
+
+	d->width = 320;
+	d->height = 200;
+	d->bpp = 2;
+
+	for(i=0; i<4; i++) {
+		d->pal[i] = de_palette_pcpaint_cga4(3, (int)i);
+	}
+
+	unc_data = dbuf_create_membuf(c, 16000, 0x1);
+	dbuf_enable_wbuffer(unc_data);
+
+	do_decompress_newfmt(c, d, unc_data);
+	dbuf_flush(unc_data);
+
+	fi = de_finfo_create(c);
+	fi->density.code = DE_DENSITY_UNK_UNITS;
+	fi->density.xdens = 6.0;
+	fi->density.ydens = 5.0;
+
+	img = de_bitmap_create(c, d->width, d->height, 3);
+	// TODO: There are other types of images; at least, images captured by Picture
+	// Taker are different.
+	render_newfmt_image_1(c, d, unc_data, img);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
+
+	dbuf_close(unc_data);
+}
+
+static void de_run_storyboard(deark *c, de_module_params *mparams)
+{
+	struct storyboard_ctx *d = NULL;
+	u8 b;
+
+	d = de_malloc(c, sizeof(struct storyboard_ctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+
+	b = de_getbyte(2);
+	if(b=='_') {
+		de_run_storyboard_oldfmt(c, d, mparams);
+	}
+	else if(b==0xc1) {
+		de_run_storyboard_newfmt(c, d, mparams);
+	}
+	else {
+		d->need_errmsg = 1;
+	}
+
 	if(d) {
 		if(d->need_errmsg) {
 			de_err(c, "Bad or unsupported Storyboard image");
