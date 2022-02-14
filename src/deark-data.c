@@ -631,9 +631,9 @@ static const u32 pc16pal[16] = {
 de_color de_palette_vga256(int index)
 {
 	if(index>=0 && index<256) {
-		return vga256pal[index];
+		return DE_MAKE_OPAQUE(vga256pal[index]);
 	}
-	return 0;
+	return DE_STOCKCOLOR_BLACK;
 }
 
 de_color de_palette_ega64(int index)
@@ -642,15 +642,15 @@ de_color de_palette_ega64(int index)
 	if(index>=0 && index<64) {
 		return DE_MAKE_OPAQUE(ega64pal[index]);
 	}
-	return 0;
+	return DE_STOCKCOLOR_BLACK;
 }
 
 de_color de_palette_pc16(int index)
 {
 	if(index>=0 && index<16) {
-		return pc16pal[index];
+		return DE_MAKE_OPAQUE(pc16pal[index]);
 	}
-	return 0;
+	return DE_STOCKCOLOR_BLACK;
 }
 
 static const de_color pcpaint_cga_pals[6][4] = {
@@ -666,9 +666,9 @@ de_color de_palette_pcpaint_cga4(int palnum, int index)
 {
 	if(palnum<0 || palnum>5) palnum=2;
 	if(index>=0 && index<4) {
-		return pcpaint_cga_pals[palnum][index];
+		return DE_MAKE_OPAQUE(pcpaint_cga_pals[palnum][index]);
 	}
-	return 0;
+	return DE_STOCKCOLOR_BLACK;
 }
 
 // Only codepoints 32-127 are included here.
