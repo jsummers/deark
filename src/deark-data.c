@@ -576,7 +576,7 @@ int de_is_ascii(const u8 *buf, i64 buflen)
 	return 1;
 }
 
-static const u32 vga256pal[256] = {
+static const de_color stdpal_vga256_colors[256] = {
 	0x000000,0x0000aa,0x00aa00,0x00aaaa,0xaa0000,0xaa00aa,0xaa5500,0xaaaaaa,
 	0x555555,0x5555ff,0x55ff55,0x55ffff,0xff5555,0xff55ff,0xffff55,0xffffff,
 	0x000000,0x141414,0x202020,0x2d2d2d,0x393939,0x454545,0x515151,0x616161,
@@ -611,7 +611,7 @@ static const u32 vga256pal[256] = {
 	0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,0x000000
 };
 
-static const u32 ega64pal[64] = {
+static const de_color stdpal_ega64_colors[64] = {
 	0x000000,0x0000aa,0x00aa00,0x00aaaa,0xaa0000,0xaa00aa,0xaaaa00,0xaaaaaa,
 	0x000055,0x0000ff,0x00aa55,0x00aaff,0xaa0055,0xaa00ff,0xaaaa55,0xaaaaff,
 	0x005500,0x0055aa,0x00ff00,0x00ffaa,0xaa5500,0xaa55aa,0xaaff00,0xaaffaa,
@@ -622,25 +622,24 @@ static const u32 ega64pal[64] = {
 	0x555555,0x5555ff,0x55ff55,0x55ffff,0xff5555,0xff55ff,0xffff55,0xffffff
 };
 
-static const u32 pc16pal[16] = {
+static const de_color stdpal_pc16_colors[16] = {
 	0x000000,0x0000aa,0x00aa00,0x00aaaa,0xaa0000,0xaa00aa,0xaa5500,0xaaaaaa,
 	0x555555,0x5555ff,0x55ff55,0x55ffff,0xff5555,0xff55ff,0xffff55,0xffffff
 };
 
+static const de_color stdpals_cga[6][4] = {
+	{ 0x000000, 0x00aaaa, 0xaa00aa, 0xaaaaaa }, // 0 = palette 1 low
+	{ 0x000000, 0x00aa00, 0xaa0000, 0xaa5500 }, // 1 = palette 0 low
+	{ 0x000000, 0x00aaaa, 0xaa0000, 0xaaaaaa }, // 2 = 3rd palette low
+	{ 0x000000, 0x55ffff, 0xff55ff, 0xffffff }, // 3 = palette 1 high
+	{ 0x000000, 0x55ff55, 0xff5555, 0xffff55 }, // 4 = palette 0 high
+	{ 0x000000, 0x55ffff, 0xff5555, 0xffffff }  // 5 = 3rd palette high
+};
 
 de_color de_palette_vga256(int index)
 {
 	if(index>=0 && index<256) {
-		return DE_MAKE_OPAQUE(vga256pal[index]);
-	}
-	return DE_STOCKCOLOR_BLACK;
-}
-
-de_color de_palette_ega64(int index)
-{
-
-	if(index>=0 && index<64) {
-		return DE_MAKE_OPAQUE(ega64pal[index]);
+		return DE_MAKE_OPAQUE(stdpal_vga256_colors[index]);
 	}
 	return DE_STOCKCOLOR_BLACK;
 }
@@ -648,27 +647,87 @@ de_color de_palette_ega64(int index)
 de_color de_palette_pc16(int index)
 {
 	if(index>=0 && index<16) {
-		return DE_MAKE_OPAQUE(pc16pal[index]);
+		return DE_MAKE_OPAQUE(stdpal_pc16_colors[index]);
 	}
 	return DE_STOCKCOLOR_BLACK;
 }
 
-static const de_color pcpaint_cga_pals[6][4] = {
-	{ 0x000000, 0x00aaaa, 0xaa00aa, 0xaaaaaa }, // palette 1 low
-	{ 0x000000, 0x00aa00, 0xaa0000, 0xaa5500 }, // palette 0 low
-	{ 0x000000, 0x00aaaa, 0xaa0000, 0xaaaaaa }, // 3rd palette low
-	{ 0x000000, 0x55ffff, 0xff55ff, 0xffffff }, // palette 1 high
-	{ 0x000000, 0x55ff55, 0xff5555, 0xffff55 }, // palette 0 high
-	{ 0x000000, 0x55ffff, 0xff5555, 0xffffff }  // 3rd palette high
-};
-
-de_color de_palette_pcpaint_cga4(int palnum, int index)
+de_color de_palette_pcpaint_cga4(int pal_subid, int index)
 {
-	if(palnum<0 || palnum>5) palnum=2;
+	if(pal_subid<0 || pal_subid>5) pal_subid=2;
 	if(index>=0 && index<4) {
-		return DE_MAKE_OPAQUE(pcpaint_cga_pals[palnum][index]);
+		return DE_MAKE_OPAQUE(stdpals_cga[pal_subid][index]);
 	}
 	return DE_STOCKCOLOR_BLACK;
+}
+
+static const de_color *get_stdpal_colors(int pal_id, int pal_subid, i64 *pncolors)
+{
+	const de_color *p = NULL;
+
+	*pncolors = 0;
+
+	switch(pal_id) {
+	case DE_PALID_CGA:
+		*pncolors = 4;
+		if(pal_subid>=0 && pal_subid<=5) {
+			p = stdpals_cga[pal_subid];
+		}
+		else {
+			p = stdpals_cga[2];
+		}
+		break;
+	case DE_PALID_PC16:
+		*pncolors = 16;
+		p = stdpal_pc16_colors;
+		break;
+	case DE_PALID_EGA64:
+		*pncolors = 64;
+		p = stdpal_ega64_colors;
+		break;
+	case DE_PALID_VGA256:
+		*pncolors = 256;
+		p = stdpal_vga256_colors;
+		break;
+	}
+	return p;
+}
+
+// May be inefficient. de_copy_std_palette() is preferred.
+de_color de_get_std_palette_entry(int pal_id, int pal_subid, int index)
+{
+	const de_color *pal;
+	i64 stdpal_ncolors;
+
+	pal = get_stdpal_colors(pal_id, pal_subid, &stdpal_ncolors);
+	if(!pal || index<0 || index>=(int)stdpal_ncolors) {
+		return DE_STOCKCOLOR_BLACK;
+	}
+	return DE_MAKE_OPAQUE(pal[index]);
+}
+
+void de_copy_std_palette(int pal_id, int pal_subid, i64 starting_idx,
+	i64 count, de_color *dstpal, size_t dstpal_capacity, UI flags)
+{
+	const de_color *pal;
+	i64 n_to_copy;
+	i64 stdpal_ncolors;
+	i64 i;
+
+	if(flags & DE_COPYPALFLAG_INITPAL) {
+		de_zeromem(dstpal, dstpal_capacity*sizeof(de_color));
+	}
+
+	pal = get_stdpal_colors(pal_id, pal_subid, &stdpal_ncolors);
+	if(!pal) goto done;
+	if(starting_idx >= stdpal_ncolors) goto done;
+
+	n_to_copy = de_min_int((i64)dstpal_capacity, stdpal_ncolors - starting_idx);
+	for(i=0; i<n_to_copy; i++) {
+		dstpal[i] = DE_MAKE_OPAQUE(pal[starting_idx+i]);
+	}
+done:
+	;
 }
 
 // Only codepoints 32-127 are included here.

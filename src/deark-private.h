@@ -966,10 +966,18 @@ void de_make_grayscale_palette(de_color *pal, i64 num_entries, unsigned int flag
 char de_get_hexchar(int n);
 u8 de_decode_hex_digit(u8 x, int *errorflag);
 
+#define DE_PALID_CGA    10
+#define DE_PALID_PC16   20
+#define DE_PALID_EGA64  30
+#define DE_PALID_VGA256 40
+
 de_color de_palette_vga256(int index);
-de_color de_palette_ega64(int index);
 de_color de_palette_pc16(int index);
-de_color de_palette_pcpaint_cga4(int palnum, int index);
+de_color de_palette_pcpaint_cga4(int pal_subid, int index);
+de_color de_get_std_palette_entry(int pal_id, int pal_subid, int index);
+#define DE_COPYPALFLAG_INITPAL 0x10
+void de_copy_std_palette(int pal_id, int pal_subid, i64 starting_idx, i64 count,
+	de_color *dstpal, size_t dstpal_capacity, UI flags);
 
 const u8 *de_get_8x8ascii_font_ptr(void);
 const u8 *de_get_vga_cp437_font_ptr(void);
