@@ -9,6 +9,7 @@
 DE_DECLARE_MODULE(de_module_cpshrink);
 DE_DECLARE_MODULE(de_module_dwc);
 DE_DECLARE_MODULE(de_module_tscomp);
+DE_DECLARE_MODULE(de_module_edi_pack);
 
 struct localctx_struct;
 typedef struct localctx_struct lctx;
@@ -56,6 +57,7 @@ struct localctx_struct {
 	int fatalerrflag;
 
 	// Private use fields for the format decoder:
+	int private_fmtver;
 	int private1;
 };
 
@@ -203,8 +205,10 @@ static void extract_member_file(struct member_data *md)
 
 	fi = de_finfo_create(c);
 
-	de_finfo_set_name_from_ucstring(c, fi, md->filename, md->set_name_flags);
-	fi->original_filename_flag = 1;
+	if(ucstring_isnonempty(md->filename)) {
+		de_finfo_set_name_from_ucstring(c, fi, md->filename, md->set_name_flags);
+		fi->original_filename_flag = 1;
+	}
 
 	for(k=0; k<DE_TIMESTAMPIDX_COUNT; k++) {
 		fi->timestamp[k] = md->tmstamp[k];
@@ -834,4 +838,168 @@ void de_module_tscomp(deark *c, struct deark_module_info *mi)
 	mi->desc = "The Stirling Compressor";
 	mi->run_fn = de_run_tscomp;
 	mi->identify_fn = de_identify_tscomp;
+}
+
+// **************************************************************************
+// EDI Install [Pro] packed file / EDI Pack / EDI LZSS / EDI LZSSLib
+// **************************************************************************
+
+static const u8 *g_edilzss_sig = (const u8*)"EDILZSS";
+
+static void edi_pack_decompressor_fn(struct member_data *md)
+{
+	fmtutil_decompress_szdd(md->c, md->dcmpri, md->dcmpro, md->dres, 0x1);
+}
+
+// This basically checks for a valid DOS filename.
+// EDI Pack is primarily a Windows 3.x format -- I'm not sure what filenames are
+// allowed.
+static int edi_is_filename_at(deark *c, lctx *d, i64 pos)
+{
+	u8 buf[13];
+	size_t i;
+	int found_nul = 0;
+	int found_dot = 0;
+	int base_len = 0;
+	int ext_len = 0;
+
+	if(pos+13 > c->infile->len) return 0;
+	de_read(buf, pos, 13);
+
+	for(i=0; i<13; i++) {
+		u8 b;
+
+		b = buf[i];
+		if(b==0) {
+			found_nul = 1;
+			break;
+		}
+		else if(b=='.') {
+			if(found_dot) return 0;
+			found_dot = 1;
+		}
+		else if(b<33 || b=='"' || b=='*' || b=='+' || b==',' || b=='/' ||
+			b==':' || b==';' || b=='<' || b=='=' || b=='>' || b=='?' ||
+			b=='[' || b=='\\' || b==']' || b=='|' || b==127)
+		{
+			return 0;
+		}
+		else {
+			// TODO: Are capital letters allowed in this format? If not, that
+			// would be a good thing to check for.
+			if(found_dot) ext_len++;
+			else base_len++;
+		}
+	}
+
+	if(!found_nul || base_len<1 || base_len>8 || ext_len>3) return 0;
+	return 1;
+}
+
+// Sets d->private_fmtver to:
+//  0 = Not a known format
+//  1 = EDI Pack "EDILZSS1"
+//  2 = EDI Pack "EDILZSS2"
+//  10 = EDI LZSSLib EDILZSSA.DLL
+//  Other formats might exist, but are unlikely to ever be supported:
+//  * EDI LZSSLib EDILZSSB.DLL
+//  * EDI LZSSLib EDILZSSC.DLL
+static void edi_detect_fmt(deark *c, lctx *d)
+{
+	u8 ver;
+	i64 pos = 0;
+
+	if(dbuf_memcmp(c->infile, pos, g_edilzss_sig, 7)) {
+		d->need_errmsg = 1;
+		return;
+	}
+	pos += 7;
+
+	ver = de_getbyte_p(&pos);
+	if(ver=='1') {
+		// There's no easy way to distinguish some LZSS1 formats. This will not
+		// always work.
+		if(edi_is_filename_at(c, d, pos)) {
+			d->private_fmtver = 1;
+		}
+		else {
+			d->private_fmtver = 10;
+		}
+	}
+	else if(ver=='2') {
+		d->private_fmtver = 2;
+	}
+	else {
+		d->need_errmsg = 1;
+	}
+}
+
+static void de_run_edi_pack(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	struct member_data *md = NULL;
+	i64 pos = 0;
+
+	d = create_lctx(c);
+	d->is_le = 1;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
+
+	edi_detect_fmt(c, d);
+	if(d->private_fmtver==0) goto done;
+	else if(d->private_fmtver==10) {
+		de_declare_fmt(c, "EDI LZSSLib");
+	}
+	else {
+		de_declare_fmtf(c, "EDI Pack LZSS%d", d->private_fmtver);
+	}
+	pos = 8;
+
+	md = create_md(c, d);
+	if(d->private_fmtver==1 || d->private_fmtver==2) {
+		dbuf_read_to_ucstring(c->infile, pos, 12, md->filename, DE_CONVFLAG_STOP_AT_NUL,
+			d->input_encoding);
+		de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+		pos += 13;
+	}
+
+	if(d->private_fmtver==2) {
+		read_field_orig_len_p(md, &pos);
+	}
+
+	if(pos > c->infile->len) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	md->cmpr_pos = pos;
+	md->cmpr_len = c->infile->len - md->cmpr_pos;
+	md->dfn = edi_pack_decompressor_fn;
+	extract_member_file(md);
+
+done:
+	destroy_md(c, md);
+	if(d->need_errmsg) {
+		de_err(c, "Bad or unsupported EDI Pack format");
+	}
+	destroy_lctx(c, d);
+}
+
+static int de_identify_edi_pack(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, g_edilzss_sig, 7)) {
+		u8 v;
+
+		v = de_getbyte(7);
+		if(v=='1' || v=='2') return 100;
+		return 0;
+	}
+	return 0;
+}
+
+void de_module_edi_pack(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "edi_pack";
+	mi->desc = "EDI Install packed file";
+	mi->run_fn = de_run_edi_pack;
+	mi->identify_fn = de_identify_edi_pack;
 }

@@ -644,6 +644,9 @@ Deark -- Information about supported formats
 * ar (.a archive/library format) (module="ar") (experimental/incomplete)
   - Supports System V long filenames
 
+* ARX (module="arx") (experimental)
+  Variant of LHA. Deark tries to convert it to LHA.
+
 * ATR (Atari disk image) (module="atr") (experimental/incomplete)
 
 * BinHex (.hqx) (module="binhex")
@@ -652,9 +655,6 @@ Deark -- Information about supported formats
 * CAB (Microsoft Cabinet) (module="cab")
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
-
-* ARX (module="arx") (experimental)
-  Variant of LHA. Deark tries to convert it to LHA.
 
 * CAR (module="car_lha")
   Variant of LHA by MylesHi! Software. Deark tries to convert it to LHA.
@@ -697,6 +697,10 @@ Deark -- Information about supported formats
 
 * Doom WAD (module="wad")
   - The extracted files are usually in specialized formats.
+
+* EDI Pack (module="edi_pack")
+  Compressed file, used by EDI Install [Pro] from Eschalon Development.
+  - Supports "LZSS1" and "LZSS2" formats, and the LZSSLib format.
 
 * FAT (module="fat") (experimental/incomplete)
   - Limited support, mainly for floppy disk images.
