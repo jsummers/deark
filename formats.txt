@@ -1062,3 +1062,8 @@ Deark -- Information about supported formats
    -opt wri:extracttext=0 - Do not extract text
    -opt ole1:extractall - Extract unidentified OLE objects
 
+* XOR (module="xor")
+  Apply an XOR key to the file. By default, invert all the bits.
+  Options
+   -opt xor:key=<aabbcc...> - The key, expressed as one or more hex bytes.
+

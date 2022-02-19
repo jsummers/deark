@@ -9,6 +9,7 @@
 DE_DECLARE_MODULE(de_module_copy);
 DE_DECLARE_MODULE(de_module_null);
 DE_DECLARE_MODULE(de_module_split);
+DE_DECLARE_MODULE(de_module_xor);
 DE_DECLARE_MODULE(de_module_plaintext);
 DE_DECLARE_MODULE(de_module_cp437);
 DE_DECLARE_MODULE(de_module_crc);
@@ -144,6 +145,94 @@ void de_module_split(deark *c, struct deark_module_info *mi)
 	mi->desc = "Split the file into equal-sized chunks";
 	mi->run_fn = de_run_split;
 	mi->help_fn = de_help_split;
+}
+
+// **************************************************************************
+// xor
+// Apply an XOR key to the file. Can be used to de-obfuscate some files.
+// **************************************************************************
+
+struct xorctx_struct {
+	dbuf *outf;
+	UI key_len;
+	UI key_pos;
+	u8 key[100];
+};
+
+static int xor_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
+	i64 buf_len)
+{
+	i64 i;
+	struct xorctx_struct *xorctx = (struct xorctx_struct*)brctx->userdata;
+
+	for(i=0; i<buf_len; i++) {
+		dbuf_writebyte(xorctx->outf, buf[i] ^ xorctx->key[xorctx->key_pos]);
+		if(xorctx->key_len>1) {
+			xorctx->key_pos = (xorctx->key_pos+1) % xorctx->key_len;
+		}
+	}
+	return 1;
+}
+
+static void de_run_xor(deark *c, de_module_params *mparams)
+{
+	struct xorctx_struct *xorctx = NULL;
+	int badkey_flag = 0;
+	const char *opt_key;
+
+	xorctx = de_malloc(c, sizeof(struct xorctx_struct));
+	xorctx->key[0] = 0xff;
+	xorctx->key_len = 1;
+
+	opt_key = de_get_ext_option(c, "xor:key");
+	if(opt_key) {
+		UI key_strlen;
+		UI k;
+
+		key_strlen = (UI)de_strlen(opt_key);
+		if(key_strlen%2) { badkey_flag = 1; goto done; }
+		xorctx->key_len = key_strlen/2;
+		if(xorctx->key_len<1 || (size_t)xorctx->key_len>sizeof(xorctx->key)) {
+			badkey_flag = 1;
+			goto done;
+		}
+		for(k=0; k<xorctx->key_len; k++) {
+			u8 d1, d2;
+			int errflag1 = 0;
+			int errflag2 = 0;
+
+			d1 = de_decode_hex_digit(opt_key[k*2], &errflag1);
+			d2 = de_decode_hex_digit(opt_key[k*2+1], &errflag2);
+			if(errflag1 || errflag2) { badkey_flag = 1; goto done; }
+			xorctx->key[k] = (d1<<4) | d2;
+		}
+	}
+
+	xorctx->outf = dbuf_create_output_file(c, "bin", NULL, 0);
+	dbuf_enable_wbuffer(xorctx->outf);
+	dbuf_buffered_read(c->infile, 0, c->infile->len, xor_cbfn, (void*)xorctx);
+
+done:
+	if(badkey_flag) {
+		de_err(c, "Bad XOR key");
+	}
+	if(xorctx) {
+		dbuf_close(xorctx->outf);
+		de_free(c, xorctx);
+	}
+}
+
+static void de_help_xor(deark *c)
+{
+	de_msg(c, "-opt xor:key=<aabbcc...> : Hex bytes to use as XOR key");
+}
+
+void de_module_xor(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "xor";
+	mi->desc = "Invert bits, or XOR with a key";
+	mi->run_fn = de_run_xor;
+	mi->help_fn = de_help_xor;
 }
 
 // **************************************************************************
