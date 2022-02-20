@@ -408,7 +408,7 @@ static void do_palette_stuff(deark *c, lctx *d)
 		de_dbg(c, "using a CGA palette: palette #%d, bkgd color %d", (int)fgpal, (int)bgcolor);
 
 		// Set first pal entry to background color
-		d->pal[0] = de_palette_pc16(bgcolor);
+		d->pal[0] = de_get_std_palette_entry(DE_PALID_PC16, 0, (int)bgcolor);
 
 		// TODO: These palettes are quite possibly incorrect. I can't find good
 		// information about them.

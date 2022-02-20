@@ -13,7 +13,7 @@ typedef struct localctx_struct {
 	u8 ver_major, ver_minor;
 	int opt_fixpal;
 	int has_pal;
-	u32 pal[256];
+	de_color pal[256];
 
 	// Fields used only by the "summary" debug line:
 	i64 num_pal_entries; // 0 if no palette
@@ -110,7 +110,7 @@ static int do_uncompress_rle(deark *c, lctx *d, dbuf *f, i64 pos1, i64 len,
 
 // Make a copy of the global palette, possibly adjusting it in some way.
 // Caller supplies finalpal[256].
-static void get_final_palette(deark *c, lctx *d, u32 *finalpal, i64 bpp)
+static void get_final_palette(deark *c, lctx *d, de_color *finalpal, i64 bpp)
 {
 	i64 k;
 	u8 cr, cg, cb;
@@ -127,9 +127,7 @@ static void get_final_palette(deark *c, lctx *d, u32 *finalpal, i64 bpp)
 		// The images of this type that I've seen look correct if I use a
 		// particular CGA palette. So...
 		de_warn(c, "4-color image with no palette. Using a CGA palette.");
-		for(k=0; k<4; k++) {
-			finalpal[k] = de_palette_pcpaint_cga4(2, (int)k);
-		}
+		de_copy_std_palette(DE_PALID_CGA, 2, 0, 4, finalpal, 4, 0);
 		return;
 	}
 
@@ -201,7 +199,7 @@ static void handler_bitmap(deark *c, lctx *d, u8 rectype, i64 dpos1, i64 dlen)
 	dbuf *unc_pixels = NULL;
 	de_bitmap *img = NULL;
 	de_finfo *fi = NULL;
-	u32 finalpal[256];
+	de_color finalpal[256];
 
 	d->bitmap_count++;
 
@@ -475,13 +473,9 @@ static int do_record_area(deark *c, lctx *d, i64 pos)
 
 static void do_set_default_palette(deark *c, lctx *d)
 {
-	int k;
-
 	if(d->ver_major>1) return; // TODO: v2 files have a different palette
 
-	for(k=0; k<256; k++) {
-		d->pal[k] = de_palette_vga256(k);
-	}
+	de_copy_std_palette(DE_PALID_VGA256, 0, 0, 256, d->pal, 256, 0);
 }
 
 static void de_run_wpg(deark *c, de_module_params *mparams)

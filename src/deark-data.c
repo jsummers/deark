@@ -636,31 +636,6 @@ static const de_color stdpals_cga[6][4] = {
 	{ 0x000000, 0x55ffff, 0xff5555, 0xffffff }  // 5 = 3rd palette high
 };
 
-de_color de_palette_vga256(int index)
-{
-	if(index>=0 && index<256) {
-		return DE_MAKE_OPAQUE(stdpal_vga256_colors[index]);
-	}
-	return DE_STOCKCOLOR_BLACK;
-}
-
-de_color de_palette_pc16(int index)
-{
-	if(index>=0 && index<16) {
-		return DE_MAKE_OPAQUE(stdpal_pc16_colors[index]);
-	}
-	return DE_STOCKCOLOR_BLACK;
-}
-
-de_color de_palette_pcpaint_cga4(int pal_subid, int index)
-{
-	if(pal_subid<0 || pal_subid>5) pal_subid=2;
-	if(index>=0 && index<4) {
-		return DE_MAKE_OPAQUE(stdpals_cga[pal_subid][index]);
-	}
-	return DE_STOCKCOLOR_BLACK;
-}
-
 static const de_color *get_stdpal_colors(int pal_id, int pal_subid, i64 *pncolors)
 {
 	const de_color *p = NULL;
