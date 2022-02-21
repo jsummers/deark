@@ -96,7 +96,7 @@ static void decode_text(deark *c, lctx *d)
 	i64 width_in_chars;
 	struct de_char_context *charctx = NULL;
 	struct de_char_screen *screen;
-	i64 i, j, k;
+	i64 i, j;
 	u8 ch, attr;
 	struct de_encconv_state es;
 
@@ -131,8 +131,8 @@ static void decode_text(deark *c, lctx *d)
 			ch = dbuf_getbyte(d->unc_pixels, j*d->npwidth + i*2);
 			attr = dbuf_getbyte(d->unc_pixels, j*d->npwidth + i*2 + 1);
 
-			screen->cell_rows[j2][i].fgcol = (u32)(attr & 0x0f);
-			screen->cell_rows[j2][i].bgcol = (u32)((attr & 0xf0) >> 4);
+			screen->cell_rows[j2][i].fgcol = (de_color)(attr & 0x0f);
+			screen->cell_rows[j2][i].bgcol = (de_color)((attr & 0xf0) >> 4);
 
 			// In "blank" regions, some files have nonsense characters, with the fg
 			// and bg colors the same. We turn them into spaces, so that copy/paste
@@ -151,10 +151,8 @@ static void decode_text(deark *c, lctx *d)
 		}
 	}
 
-	for(k=0; k<16; k++) {
-		// TODO: Is this always the right palette? Maybe we can't ignore ->edesc
-		charctx->pal[k] = de_palette_pc16((int)k);
-	}
+	// TODO: Is this always the right palette? Maybe we can't ignore ->edesc
+	de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, charctx->pal, 16, 0);
 
 	de_char_output_to_file(c, charctx);
 
@@ -163,7 +161,7 @@ done:
 }
 
 // Create a standard RGB palette from raw RGB palette data
-static void make_rgb_palette(deark *c, lctx *d, u32 *pal, i64 num_entries)
+static void make_rgb_palette(deark *c, lctx *d, de_color *pal, i64 num_entries)
 {
 	i64 k;
 	u8 cr1, cg1, cb1;
@@ -214,7 +212,7 @@ static void make_rgb_palette(deark *c, lctx *d, u32 *pal, i64 num_entries)
 
 static void decode_egavga16(deark *c, lctx *d)
 {
-	u32 pal[16];
+	de_color pal[16];
 	i64 i, j;
 	i64 k;
 	i64 plane;
@@ -231,9 +229,7 @@ static void decode_egavga16(deark *c, lctx *d)
 	// Read the palette
 	if(d->pal_info_to_use->edesc==0) {
 		de_dbg(c, "palette type: standard 16-color palette (no palette in file)");
-		for(k=0; k<16; k++) {
-			pal[k] = de_palette_pc16((int)k);
-		}
+		de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, pal, 16, 0);
 	}
 	else if(d->pal_info_to_use->edesc==3) {
 		// An EGA palette. Indexes into the standard EGA
@@ -241,7 +237,7 @@ static void decode_egavga16(deark *c, lctx *d)
 		de_dbg(c, "palette type: 16 indices into standard EGA 64-color palette");
 		for(k=0; k<16; k++) {
 			if(k >= d->pal_info_to_use->esize) break;
-			pal[k] = de_palette_ega64(d->pal_info_to_use->data[k]);
+			pal[k] = de_get_std_palette_entry(DE_PALID_EGA64, 0, (int)d->pal_info_to_use->data[k]);
 			de_snprintf(tmps, sizeof(tmps), "%2d ", (int)d->pal_info_to_use->data[k]);
 			de_dbg_pal_entry2(c, k, pal[k], tmps, NULL, NULL);
 		}
@@ -286,8 +282,7 @@ static void decode_egavga16(deark *c, lctx *d)
 
 static void decode_vga256(deark *c, lctx *d)
 {
-	u32 pal[256];
-	i64 k;
+	de_color pal[256];
 	de_bitmap *img = NULL;
 
 	de_dbg(c, "image type: 256-color");
@@ -296,9 +291,7 @@ static void decode_vga256(deark *c, lctx *d)
 	// Read the palette
 	if(d->pal_info_to_use->edesc==0) {
 		de_dbg(c, "palette type: standard 256-color palette (no palette in file)");
-		for(k=0; k<256; k++) {
-			pal[k] = de_palette_vga256((int)k);
-		}
+		de_copy_std_palette(DE_PALID_VGA256, 0, 0, 256, pal, 256, 0);
 	}
 	else {
 		de_dbg(c, "palette type: 256-color palette (in file)");
@@ -319,7 +312,7 @@ static void decode_vga256(deark *c, lctx *d)
 static void decode_bilevel(deark *c, lctx *d)
 {
 	i64 src_rowspan;
-	u32 pal[2];
+	de_color pal[2];
 	int is_grayscale;
 	i64 edesc = d->pal_info_to_use->edesc;
 	de_bitmap *img = NULL;
@@ -363,10 +356,9 @@ done:
 
 static void decode_cga4(deark *c, lctx *d)
 {
-	i64 k;
 	i64 src_rowspan;
-	u32 pal[4];
-	u8 pal_id = 0;
+	de_color pal[4];
+	u8 pal_subid = 0;
 	u8 border_col = 0;
 	de_bitmap *img = NULL;
 
@@ -381,23 +373,18 @@ static void decode_cga4(deark *c, lctx *d)
 		// be zero for CLP format (unless we are reading the palette from a separate
 		// PIC file).
 		if(d->pal_info_to_use->esize >= 1)
-			pal_id = d->pal_info_to_use->data[0];
+			pal_subid = d->pal_info_to_use->data[0];
 		if(d->pal_info_to_use->esize >= 2)
 			border_col = d->pal_info_to_use->data[1];
-		de_dbg(c, "pal_id=0x%02x border=0x%02x", pal_id, border_col);
-
-		for(k=0; k<4; k++) {
-			pal[k] = de_palette_pcpaint_cga4(pal_id, (int)k);
-		}
+		de_dbg(c, "pal_id=0x%02x border=0x%02x", pal_subid, border_col);
+		de_copy_std_palette(DE_PALID_CGA, pal_subid, 0, 4, pal, 4, 0);
 
 		// Replace the first palette color with the border/background color.
-		pal[0] = de_palette_pc16(border_col);
+		pal[0] = de_get_std_palette_entry(DE_PALID_PC16, 0, (int)border_col);
 	}
 	else {
 		// No palette specified in the file. Use palette #2 by default.
-		for(k=0; k<4; k++) {
-			pal[k] = de_palette_pcpaint_cga4(2, (int)k);
-		}
+		de_copy_std_palette(DE_PALID_CGA, 2, 0, 4, pal, 4, 0);
 	}
 
 	d->pdwidth = de_pad_to_4(d->npwidth);
