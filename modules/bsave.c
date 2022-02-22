@@ -73,6 +73,8 @@ static int do_cga16(deark *c, lctx *d)
 
 	img = de_bitmap_create(c, w, h, 3);
 
+	de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, d->pal, 16, 0);
+
 	for(j=0; j<h; j++) {
 		for(i=0; i<w; i+=2) {
 			charcode = de_getbyte(BSAVE_HDRSIZE + j*src_rowspan + i);
@@ -94,8 +96,8 @@ static int do_cga16(deark *c, lctx *d)
 				color0 = colorcode&0x0f;
 			}
 
-			de_bitmap_setpixel_rgb(img, i+0, j, de_palette_pc16(color0));
-			de_bitmap_setpixel_rgb(img, i+1, j, de_palette_pc16(color1));
+			de_bitmap_setpixel_rgb(img, i+0, j, d->pal[(UI)color0]);
+			de_bitmap_setpixel_rgb(img, i+1, j, d->pal[(UI)color1]);
 		}
 	}
 
@@ -151,10 +153,8 @@ static int do_4color(deark *c, lctx *d)
 
 	// Set the palette
 	if(d->has_pcpaint_sig) {
-		for(i=0; i<4; i++) {
-			palette[i] = de_palette_pcpaint_cga4(d->pcpaint_pal_num, (int)i);
-		}
-		palette[0] = de_palette_pc16(d->pcpaint_border_col);
+		de_copy_std_palette(DE_PALID_CGA, (int)d->pcpaint_pal_num, 0, 4, palette, 4, 0);
+		palette[0] = de_get_std_palette_entry(DE_PALID_PC16, 0, (int)d->pcpaint_border_col);
 	}
 	else {
 		for(i=0; i<4; i++) {
@@ -247,9 +247,6 @@ static int do_2color(deark *c, lctx *d)
 static int do_256color(deark *c, lctx *d)
 {
 	i64 w, h;
-	i64 i, j;
-	u8 palent;
-	u32 clr;
 	de_bitmap *img = NULL;
 
 	de_declare_fmt(c, "BSAVE-PC 256-color");
@@ -257,21 +254,12 @@ static int do_256color(deark *c, lctx *d)
 	w = get_width(c, d, 320);
 	h = get_height(c, d, 200);
 
-	img = de_bitmap_create(c, w, h, 3);
-
-	for(j=0; j<h; j++) {
-		for(i=0; i<w; i++) {
-			palent = de_getbyte(BSAVE_HDRSIZE + j*w + i);
-			if(d->pal_valid) {
-				clr = d->pal[(int)palent];
-			}
-			else {
-				clr = de_palette_vga256(palent);
-			}
-			de_bitmap_setpixel_rgb(img, i, j, clr);
-		}
+	if(!d->pal_valid) {
+		de_copy_std_palette(DE_PALID_VGA256, 0, 0, 256, d->pal, 256, 0);
 	}
 
+	img = de_bitmap_create(c, w, h, 3);
+	de_convert_image_paletted(c->infile, BSAVE_HDRSIZE, 8, w, d->pal, img, 0);
 	de_bitmap_write_to_file(img, NULL, 0);
 	de_bitmap_destroy(img);
 	return 1;
@@ -303,6 +291,8 @@ static int do_wh16(deark *c, lctx *d)
 	src_rowspan1 = (w+7)/8;
 	src_rowspan = src_rowspan1*4;
 
+	de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, d->pal, 16, 0);
+
 	for(j=0; j<h; j++) {
 		for(i=0; i<w; i++) {
 			b0 = de_get_bits_symbol(c->infile, 1, pos + j*src_rowspan + src_rowspan1*0, i);
@@ -310,7 +300,7 @@ static int do_wh16(deark *c, lctx *d)
 			b2 = de_get_bits_symbol(c->infile, 1, pos + j*src_rowspan + src_rowspan1*2, i);
 			b3 = de_get_bits_symbol(c->infile, 1, pos + j*src_rowspan + src_rowspan1*3, i);
 			palent = b0 | (b1<<1) | (b2<<2) | (b3<<3);
-			de_bitmap_setpixel_rgb(img, i, j, de_palette_pc16(palent));
+			de_bitmap_setpixel_rgb(img, i, j, d->pal[(UI)palent]);
 		}
 	}
 
@@ -403,7 +393,6 @@ static int do_char(deark *c, lctx *d)
 {
 	struct de_char_context *charctx = NULL;
 	int retval = 0;
-	i64 k;
 	i64 numpages;
 	i64 pgnum;
 	i64 width, height;
@@ -443,9 +432,7 @@ static int do_char(deark *c, lctx *d)
 	charctx->nscreens = numpages;
 	charctx->screens = de_mallocarray(c, numpages, sizeof(struct de_char_screen*));
 
-	for(k=0; k<16; k++) {
-		charctx->pal[k] = de_palette_pc16((int)k);
-	}
+	de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, charctx->pal, 16, 0);
 
 	for(pgnum=0; pgnum<numpages; pgnum++) {
 		charctx->screens[pgnum] = de_malloc(c, sizeof(struct de_char_screen));

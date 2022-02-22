@@ -420,6 +420,7 @@ static int do_one_ripicon(deark *c, i64 pos1, i64 *pbytes_consumed, int scan_mod
 	u8 x;
 	u32 palent;
 	int saved_indent_level;
+	de_color pal[16];
 
 	if(pos1+8 > c->infile->len) return 0;
 	width = 1 + de_getu16le_p(&pos);
@@ -441,6 +442,7 @@ static int do_one_ripicon(deark *c, i64 pos1, i64 *pbytes_consumed, int scan_mod
 	de_dbg(c, "bitmap at %"I64_FMT", len=%"I64_FMT, pos, bitmap_len);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 	img = de_bitmap_create2(c, width, chunk_span*8, height, 3);
+	de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, pal, 16, 0);
 
 	for(j=0; j<height; j++) {
 		for(i=0; i<img->width; i++) { // Must use img->width, for -padpix
@@ -449,7 +451,7 @@ static int do_one_ripicon(deark *c, i64 pos1, i64 *pbytes_consumed, int scan_mod
 				x = de_get_bits_symbol(c->infile, 1, pos + j*src_rowspan + k*chunk_span, i);
 				palent = (palent<<1)|x;
 			}
-			de_bitmap_setpixel_rgb(img, i, j, de_palette_pc16(palent));
+			de_bitmap_setpixel_rgb(img, i, j, pal[palent]);
 		}
 	}
 
@@ -1549,12 +1551,11 @@ static void de_run_deskmate_pnt(deark *c, de_module_params *mparams)
 	i64 w, h;
 	i64 rowspan;
 	i64 pos = 0;
-	int k;
 	int is_compressed;
 	de_bitmap *img = NULL;
 	dbuf *unc_pixels = NULL;
 	i64 unc_pixels_size;
-	u32 pal[16];
+	de_color pal[16];
 
 	pos += 22;
 	de_dbg(c, "image at %"I64_FMT, pos);
@@ -1563,9 +1564,7 @@ static void de_run_deskmate_pnt(deark *c, de_module_params *mparams)
 	rowspan = w/2;
 	unc_pixels_size = rowspan * h;
 
-	for(k=0; k<16; k++) {
-		pal[k] = de_palette_pc16(k);
-	}
+	de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, pal, 16, 0);
 
 	is_compressed = (pos+unc_pixels_size != c->infile->len);
 	de_dbg(c, "compressed: %d", is_compressed);

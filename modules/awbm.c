@@ -11,11 +11,12 @@ DE_DECLARE_MODULE(de_module_awbm);
 typedef struct localctx_struct {
 	i64 w, h;
 	int rgb_order;
+	de_color pal[256];
 } lctx;
 
 #define EPA_CH 14 // "character" height (width must be 8)
 
-static int do_v1_image(deark *c, i64 pos,
+static int do_v1_image(deark *c, lctx *d, i64 pos,
 	i64 w_blocks, i64 h_blocks, int special, unsigned int createflags)
 {
 	de_bitmap *img = NULL;
@@ -40,6 +41,7 @@ static int do_v1_image(deark *c, i64 pos,
 	else {
 		colors_start = pos;
 		bitmap_start = colors_start + w_blocks*h_blocks;
+		de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, d->pal, 16, 0);
 	}
 
 	// Read the bitmap, "character by character"
@@ -60,8 +62,8 @@ static int do_v1_image(deark *c, i64 pos,
 			else {
 				// Read the color attributes for this block of pixel
 				b = de_getbyte(colors_start + j*w_blocks + i);
-				clr1 = de_palette_pc16((int)(b&0x0f));
-				clr2 = de_palette_pc16((int)((b&0xf0)>>4));
+				clr1 = d->pal[(UI)(b&0x0f)];
+				clr2 = d->pal[(UI)((b&0xf0)>>4)];
 			}
 
 			// Read each individual pixel
@@ -95,12 +97,13 @@ static void do_v1(deark *c, lctx *d)
 
 	w_blocks = (i64)de_getbyte(0);
 	h_blocks = (i64)de_getbyte(1);
-	if(!do_v1_image(c, 2, w_blocks, h_blocks, 0, 0)) goto done;
+
+	if(!do_v1_image(c, d, 2, w_blocks, h_blocks, 0, 0)) goto done;
 
 	after_bitmap = 2 + w_blocks*h_blocks + h_blocks*EPA_CH*w_blocks;
 	if(c->infile->len >= after_bitmap+70) {
 		// The file usually contains a second image: a small Award logo.
-		do_v1_image(c, after_bitmap, 3, 2, 1, DE_CREATEFLAG_IS_AUX);
+		do_v1_image(c, d, after_bitmap, 3, 2, 1, DE_CREATEFLAG_IS_AUX);
 	}
 done:
 	;
@@ -128,9 +131,7 @@ static void do_v2(deark *c, lctx *d)
 	u8 b1;
 	const char *s;
 	i64 ncolors = 0; // 16 or 256
-	u32 pal[256];
 
-	de_zeromem(pal, sizeof(pal));
 	d->w = de_getu16le(4);
 	d->h = de_getu16le(6);
 	de_dbg_dimensions(c, d->w, d->h);
@@ -172,8 +173,8 @@ static void do_v2(deark *c, lctx *d)
 
 	palette_start = bitmap_start+bitmap_size+4;
 
-	de_read_simple_palette(c, c->infile, palette_start, ncolors, 3, pal, ncolors, DE_RDPALTYPE_VGA18BIT,
-		((d->rgb_order)?0:DE_RDPALFLAG_BGR));
+	de_read_simple_palette(c, c->infile, palette_start, ncolors, 3, d->pal, ncolors,
+		DE_RDPALTYPE_VGA18BIT, ((d->rgb_order)?0:DE_RDPALFLAG_BGR));
 
 	img = de_bitmap_create(c, d->w, d->h, 3);
 	for(j=0; j<d->h; j++) {
@@ -188,7 +189,7 @@ static void do_v2(deark *c, lctx *d)
 			else {
 				b = de_getbyte(bitmap_start + j*rowspan + i);
 			}
-			de_bitmap_setpixel_rgb(img, i, j, pal[(unsigned int)b]);
+			de_bitmap_setpixel_rgb(img, i, j, d->pal[(UI)b]);
 		}
 	}
 
