@@ -398,6 +398,7 @@ static void do_palette_stuff(deark *c, lctx *d)
 		u8 p0, p3;
 		unsigned int bgcolor;
 		unsigned int fgpal;
+		int pal_subid;
 
 		de_warn(c, "4-color PCX images might not be supported correctly");
 
@@ -413,24 +414,25 @@ static void do_palette_stuff(deark *c, lctx *d)
 		// TODO: These palettes are quite possibly incorrect. I can't find good
 		// information about them.
 		switch(fgpal) {
-		case 0: case 2: // C=0 P=? I=0
-			d->pal[1]=0x00aaaa; d->pal[2]=0xaa0000; d->pal[3]=0xaaaaaa; break;
-		case 1: case 3: // C=0 P=? I=1
-			d->pal[1]=0x55ffff; d->pal[2]=0xff5555; d->pal[3]=0xffffff; break;
-		case 4: // C=1 P=0 I=0
-			d->pal[1]=0x00aa00; d->pal[2]=0xaa0000; d->pal[3]=0xaa5500; break;
-		case 5: // C=1 P=0 I=1
-			d->pal[1]=0x55ff55; d->pal[2]=0xff5555; d->pal[3]=0xffff55; break;
-		case 6: // C=1 P=1 I=0
-			d->pal[1]=0x00aaaa; d->pal[2]=0xaa00aa; d->pal[3]=0xaaaaaa; break;
-		case 7: // C=1 P=1 I=1
-			d->pal[1]=0x55ffff; d->pal[2]=0xff55ff; d->pal[3]=0xffffff; break;
+		case 1: case 3:
+			pal_subid = 5; break; // C=0 P=? I=1
+		case 4:
+			pal_subid = 1; break; // C=1 P=0 I=0
+		case 5:
+			pal_subid = 4; break; // C=1 P=0 I=1
+		case 6:
+			pal_subid = 0; break; // C=1 P=1 I=0
+		case 7:
+			pal_subid = 3; break; // C=1 P=1 I=1
+		default: // 0, 2
+			pal_subid = 2; break; // C=0 P=? I=0
 		}
+		de_copy_std_palette(DE_PALID_CGA, pal_subid, 1, 3, &d->pal[1], 3, 0);
 		return;
 	}
 
 	if(d->ncolors>16 && d->ncolors<=256) {
-		de_warn(c, "No suitable palette found");
+		de_warn(c, "%u-color image format with 16-color palette", (UI)d->ncolors);
 	}
 
 	de_dbg(c, "using 16-color palette from header");
