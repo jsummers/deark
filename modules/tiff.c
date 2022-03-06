@@ -204,7 +204,7 @@ struct page_ctx {
 	i64 rows_per_strip;
 	i64 tile_width, tile_height;
 	u8 is_old_lzw;
-	u8 is_rainbowpaint;
+	u8 is_dexxa;
 	u8 valcount_bitspersample;
 	u8 extrasamples_count;
 	u8 extrasample_type[DE_TIFF_MAX_SAMPLES]; // [0] = first *extra* sample, not first sample
@@ -3134,7 +3134,7 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 			if(dctx->use_pal) {
 				UI palidx;
 
-				if(pg->is_rainbowpaint) {
+				if(pg->is_dexxa) {
 					palidx = (sample[3]<<3) | (sample[2]<<2) | (sample[1]<<1) | sample[0];
 					if(pg->compression==CMPR_CCITTRLE) {
 						palidx = 15 - palidx;
@@ -3277,16 +3277,19 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	de_dbg(c, "decoding ifd image");
 	de_dbg_indent(c, 1);
 
-	if(pg->planarconfig==2 && pg->samples_per_pixel==4 && pg->bits_per_sample==1 &&
+	if(pg->planarconfig==2 && pg->samples_per_pixel==4 &&
+		(pg->bits_per_sample==1 || pg->bits_per_sample==4) &&
 		pg->photometric==2 && pg->have_strip_tags && pg->valcount_bitspersample==1 &&
-		pg->have_oldsubfiletype)
+		pg->extrasamples_count==0 && pg->have_oldsubfiletype)
 	{
-		// A strange broken planar paletted format used by RainBow Paint (v2.2) by Dexxa.
+		// A strange broken planar paletted format used by Paint It! (presumably) and
+		// RainBow Paint by Dexxa, and PaintShow [Plus] by Logitech.
 		// This is slightly dangerous, because these files aren't broken to the point of
 		// being nonsense -- they just need to be interpreted differently than one would
 		// logically expect. But the format is odd enough that the risk is negligible.
-		de_dbg(c, "detected RainBow Paint format");
-		pg->is_rainbowpaint = 1;
+		de_dbg(c, "detected Dexxa TIFF variant");
+		pg->is_dexxa = 1;
+		pg->bits_per_sample = 1; // [E.g. TRAIN1.TIF from PaintShow 1.1]
 	}
 
 	if(pg->compression<1) {
@@ -3366,7 +3369,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		goto done;
 	}
 
-	if(pg->is_rainbowpaint) {
+	if(pg->is_dexxa) {
 		dctx->base_samples_per_pixel = 4;
 		ok_bps = 1;
 		if(!pg->have_colormap) {
