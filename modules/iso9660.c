@@ -64,8 +64,11 @@ struct vol_record {
 	u8 file_structure_version;
 	u8 is_joliet;
 	u8 is_cdxa;
+	u8 is_cdi;
 	u8 is_hsf;
 	u8 quality;
+	u8 uses_SUSP;
+	i64 SUSP_default_bytes_to_skip;
 };
 
 typedef struct localctx_struct {
@@ -74,6 +77,7 @@ typedef struct localctx_struct {
 	u8 names_to_lowercase;
 	u8 vol_desc_sector_forced;
 	u8 blocksize_warned;
+	u8 is_udf;
 	int dirsize_hack_state; // 0=disabled, 1=in use, -1=allowed
 	i64 vol_desc_sector_to_use;
 	i64 secsize;
@@ -82,10 +86,6 @@ typedef struct localctx_struct {
 	struct de_strarray *curpath;
 	struct de_inthashtable *dirs_seen;
 	struct de_inthashtable *voldesc_crc_hash;
-	u8 uses_SUSP;
-	u8 is_udf;
-	u8 is_cdi;
-	i64 SUSP_default_bytes_to_skip;
 	struct vol_record *vol; // Volume descriptor to use
 	struct de_crcobj *crco;
 } lctx;
@@ -393,8 +393,8 @@ static void do_SUSP_SP(deark *c, lctx *d, struct dir_record *dr,
 {
 	if(!dr->is_root_dot) return;
 	if(len<7) return;
-	d->SUSP_default_bytes_to_skip = (i64)de_getbyte(pos1+6);
-	de_dbg(c, "bytes skipped: %d", (int)d->SUSP_default_bytes_to_skip);
+	d->vol->SUSP_default_bytes_to_skip = (i64)de_getbyte(pos1+6);
+	de_dbg(c, "bytes skipped: %d", (int)d->vol->SUSP_default_bytes_to_skip);
 }
 
 static void do_SUSP_CE(deark *c, lctx *d, struct dir_record *dr,
@@ -738,14 +738,14 @@ static void do_dir_rec_system_use_area(deark *c, lctx *d, struct dir_record *dr,
 
 	if(dr->is_root_dot) {
 		if(is_SUSP_indicator(c, pos, len)) {
-			d->uses_SUSP = 1;
+			d->vol->uses_SUSP = 1;
 			non_SUSP_len = 0;
 			SUSP_len = len;
 		}
 	}
-	else if(d->uses_SUSP) {
-		non_SUSP_len = d->SUSP_default_bytes_to_skip;
-		SUSP_len = len - d->SUSP_default_bytes_to_skip;
+	else if(d->vol->uses_SUSP) {
+		non_SUSP_len = d->vol->SUSP_default_bytes_to_skip;
+		SUSP_len = len - d->vol->SUSP_default_bytes_to_skip;
 	}
 
 	if(non_SUSP_len>0) {
@@ -784,7 +784,7 @@ static void do_dir_rec_system_use_area(deark *c, lctx *d, struct dir_record *dr,
 		}
 	}
 
-	if(d->uses_SUSP && SUSP_len>0) {
+	if(d->vol->uses_SUSP && SUSP_len>0) {
 		do_dir_rec_SUSP(c, d, dr, pos+non_SUSP_len, SUSP_len);
 	}
 	// TODO?: There can potentially also be non-SUSP data *after* the SUSP data,
@@ -880,7 +880,7 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 	de_dbg(c, "volume sequence number: %u", (unsigned int)n);
 	dr->file_id_len = (i64)de_getbyte_p(&pos);
 
-	if(d->is_cdi) {
+	if(d->vol->is_cdi) {
 		dr->cdi_attribs = (UI)de_getu16be(pos1 + 37 + dr->file_id_len);
 		de_dbg(c, "CD-i attribs: 0x%04x", (UI)dr->cdi_attribs);
 		if(dr->cdi_attribs & 0x8000) {
@@ -903,7 +903,7 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 	else if(d->vol->encoding!=DE_ENCODING_UNKNOWN) {
 		file_id_encoding = d->vol->encoding;
 	}
-	else if(d->uses_SUSP) {
+	else if(d->vol->uses_SUSP) {
 		// We're using the user_req_encoding for the Rock Ridge names,
 		// so don't use it here.
 		file_id_encoding = DE_ENCODING_ASCII;
@@ -938,7 +938,7 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 
 	// System Use area
 	sys_use_len = pos1+dr->len_dir_rec-pos;
-	if(sys_use_len>0 && !d->is_cdi) {
+	if(sys_use_len>0 && !d->vol->is_cdi) {
 		do_dir_rec_system_use_area(c, d, dr, pos, sys_use_len);
 	}
 
@@ -1253,7 +1253,7 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 	de_dbg_indent(c, -1);
 	pos += 34;
 
-	if(d->is_cdi && path_tbl_M_loc!=0) {
+	if(vol->is_cdi && path_tbl_M_loc!=0) {
 		find_CDi_root_dir(c, d, vol, path_tbl_M_loc);
 	}
 
@@ -1301,12 +1301,13 @@ done:
 }
 
 static void do_primary_or_suppl_volume_descr(deark *c, lctx *d, i64 secnum,
-	i64 pos1, int is_primary, u8 is_hsf)
+	i64 pos1, int is_primary, u8 is_cdi, u8 is_hsf)
 {
 	struct vol_record *newvol;
 
 	newvol = de_malloc(c, sizeof(struct vol_record));
 	newvol->secnum = secnum;
+	newvol->is_cdi = is_cdi;
 	newvol->is_hsf = is_hsf;
 
 	do_primary_or_suppl_volume_descr_internal(c, d, newvol, secnum, pos1, is_primary);
@@ -1356,6 +1357,7 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 	i64 pos1, pos;
 	const char *vdtname;
 	u8 is_hsf;
+	u8 is_cdi = 0;
 	int retval = 0;
 	enum voldesctype_enum vdt = VOLDESCTYPE_UNKNOWN;
 	struct de_stringreaderdata *standard_id = NULL;
@@ -1384,7 +1386,7 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 	}
 	else if(!de_strcmp(standard_id->sz, g_sig_CD_I)) {
 		switch(dtype) {
-		case 1: vdt = VOLDESCTYPE_CD_PRIMARY; d->is_cdi = 1; break;
+		case 1: vdt = VOLDESCTYPE_CD_PRIMARY; is_cdi = 1; break;
 		case 0xff: vdt = VOLDESCTYPE_CD_TERM; break;
 		default: vdt = VOLDESCTYPE_OTHERVALID; break;
 		}
@@ -1446,13 +1448,13 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 		do_boot_volume_descr(c, d, pos1);
 		break;
 	case VOLDESCTYPE_CD_PRIMARY:
-		do_primary_or_suppl_volume_descr(c, d, secnum, pos1, 1, 0);
+		do_primary_or_suppl_volume_descr(c, d, secnum, pos1, 1, is_cdi, 0);
 		break;
 	case VOLDESCTYPE_CD_PRIMARY_HSF:
-		do_primary_or_suppl_volume_descr(c, d, secnum, pos1, 1, 1);
+		do_primary_or_suppl_volume_descr(c, d, secnum, pos1, 1, 0, 1);
 		break;
 	case VOLDESCTYPE_CD_SUPPL: // supplementary or enhanced
-		do_primary_or_suppl_volume_descr(c, d, secnum, pos1, 0, 0);
+		do_primary_or_suppl_volume_descr(c, d, secnum, pos1, 0, is_cdi, 0);
 		break;
 	case VOLDESCTYPE_NSR:
 		d->is_udf = 1;
