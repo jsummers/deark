@@ -716,7 +716,7 @@ Deark -- Information about supported formats
 
 * InstallShield Z archive (module="is_z") (experimental)
 
-* ISO 9660 CD-ROM image (module="iso9660")
+* ISO 9660 or High Sierra CD-ROM image (module="iso9660")
   Options
    -opt iso9660:tolower - Convert filenames to lowercase. Does not affect Rock
      Ridge or Joliet filenames.
