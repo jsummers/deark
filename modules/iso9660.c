@@ -64,6 +64,7 @@ struct vol_record {
 	u8 file_structure_version;
 	u8 is_joliet;
 	u8 is_cdxa;
+	u8 is_hsf;
 	u8 quality;
 };
 
@@ -227,6 +228,7 @@ enum voldesctype_enum {
 	VOLDESCTYPE_UNKNOWN,
 	VOLDESCTYPE_OTHERVALID,
 	VOLDESCTYPE_CD_PRIMARY,
+	VOLDESCTYPE_CD_PRIMARY_HSF,
 	VOLDESCTYPE_CD_SUPPL,
 	VOLDESCTYPE_CD_BOOT,
 	VOLDESCTYPE_CD_PARTDESCR,
@@ -242,6 +244,7 @@ static const char *get_vol_descr_type_name(enum voldesctype_enum vdt)
 	switch(vdt) {
 	case VOLDESCTYPE_CD_BOOT: name="boot record"; break;
 	case VOLDESCTYPE_CD_PRIMARY: name="primary volume descriptor"; break;
+	case VOLDESCTYPE_CD_PRIMARY_HSF: name="High Sierra file structure"; break;
 	case VOLDESCTYPE_CD_SUPPL: name="supplementary or enhanced volume descriptor"; break;
 	case VOLDESCTYPE_CD_PARTDESCR: name="volume partition descriptor"; break;
 	case VOLDESCTYPE_CD_TERM: name="volume descriptor set terminator"; break;
@@ -1151,6 +1154,8 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 	}
 	/////////
 
+	if(vol->is_hsf) goto done;
+
 	vol->encoding = DE_ENCODING_UNKNOWN;
 
 	if(!is_primary) {
@@ -1261,12 +1266,13 @@ done:
 }
 
 static void do_primary_or_suppl_volume_descr(deark *c, lctx *d, i64 secnum,
-	i64 pos1, int is_primary)
+	i64 pos1, int is_primary, u8 is_hsf)
 {
 	struct vol_record *newvol;
 
 	newvol = de_malloc(c, sizeof(struct vol_record));
 	newvol->secnum = secnum;
+	newvol->is_hsf = is_hsf;
 
 	do_primary_or_suppl_volume_descr_internal(c, d, newvol, secnum, pos1, is_primary);
 
@@ -1293,6 +1299,18 @@ done:
 	if(newvol) de_free(c, newvol);
 }
 
+static u8 is_hsf_volume_descriptor(deark *c, lctx *d, i64 secnum, i64 pos1)
+{
+	i64 n;
+
+	n = getu32bbo(c->infile, pos1);
+	if(n != secnum) return 0;
+	if(dbuf_memcmp(c->infile, pos1+9, (const void*)g_sig_CDROM, 5)) {
+		return 0;
+	}
+	return 1;
+}
+
 // Returns 0 if this is a terminator, or on serious error.
 // Returns 1 normally.
 static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
@@ -1302,6 +1320,7 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 	int saved_indent_level;
 	i64 pos1, pos;
 	const char *vdtname;
+	u8 is_hsf;
 	int retval = 0;
 	enum voldesctype_enum vdt = VOLDESCTYPE_UNKNOWN;
 	struct de_stringreaderdata *standard_id = NULL;
@@ -1309,8 +1328,10 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 	de_dbg_indent_save(c, &saved_indent_level);
 
 	pos1 = sector_dpos(d, secnum);
+	is_hsf = is_hsf_volume_descriptor(c, d, secnum, pos1);
 	pos = pos1;
 
+	if(is_hsf) pos = pos1+8;
 	dtype = de_getbyte_p(&pos);
 	standard_id = dbuf_read_string(c->infile, pos, 5, 5, 0, DE_ENCODING_ASCII);
 	pos += 5;
@@ -1349,16 +1370,13 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 	{
 		vdt = VOLDESCTYPE_OTHERVALID;
 	}
-
-	if(vdt==VOLDESCTYPE_UNKNOWN) {
-		// FIXME: Checking for High Sierra here is kind of a hack.
+	else if(!de_strcmp(standard_id->sz,g_sig_CDROM)) {
 		// TODO: Support High Sierra format.
-		if(!dbuf_memcmp(c->infile, pos1+9, (const void*)g_sig_CDROM, 5)) {
-			de_dbg(c, "High Sierra volume descriptor at %"I64_FMT, pos1);
-			if(secnum==16) d->is_hsf = 1;
-			dtype = de_getbyte(pos1+8);
-			retval = (dtype!=0xff);
-			goto done;
+		if(secnum==16) d->is_hsf = 1;
+		switch(dtype) {
+		case 1: vdt = VOLDESCTYPE_CD_PRIMARY_HSF; break;
+		case 0xff: vdt = VOLDESCTYPE_CD_TERM; break;
+		default: vdt = VOLDESCTYPE_OTHERVALID; break;
 		}
 	}
 
@@ -1395,10 +1413,13 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 		do_boot_volume_descr(c, d, pos1);
 		break;
 	case VOLDESCTYPE_CD_PRIMARY:
-		do_primary_or_suppl_volume_descr(c, d, secnum, pos1, 1);
+		do_primary_or_suppl_volume_descr(c, d, secnum, pos1, 1, 0);
+		break;
+	case VOLDESCTYPE_CD_PRIMARY_HSF:
+		do_primary_or_suppl_volume_descr(c, d, secnum, pos1, 1, 1);
 		break;
 	case VOLDESCTYPE_CD_SUPPL: // supplementary or enhanced
-		do_primary_or_suppl_volume_descr(c, d, secnum, pos1, 0);
+		do_primary_or_suppl_volume_descr(c, d, secnum, pos1, 0, 0);
 		break;
 	case VOLDESCTYPE_NSR:
 		d->is_udf = 1;
