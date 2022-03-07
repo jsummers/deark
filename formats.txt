@@ -582,6 +582,10 @@ Deark -- Information about supported formats
 
 * YBM (Bennet Yee face format) (module="ybm")
 
+* Young Picasso (.YP) (module="young_picasso")
+  An old paint program by BlueBlueview Software.
+  - Early versions may not be supported, or may require "-m young_picasso".
+
 * ZBR ((Zoner) Zebra Metafile) (module="zbr")
   - Extract the preview image.
 
