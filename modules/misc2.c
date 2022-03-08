@@ -31,6 +31,7 @@ DE_DECLARE_MODULE(de_module_deskmate_pnt);
 DE_DECLARE_MODULE(de_module_mdesk_icn);
 DE_DECLARE_MODULE(de_module_animator_pic);
 DE_DECLARE_MODULE(de_module_young_picasso);
+DE_DECLARE_MODULE(de_module_dgi);
 
 // **************************************************************************
 // HP 100LX / HP 200LX .ICN icon format
@@ -1818,4 +1819,69 @@ void de_module_young_picasso(deark *c, struct deark_module_info *mi)
 	mi->desc = "Young Picasso .YP";
 	mi->run_fn = de_run_yp;
 	mi->identify_fn = de_identify_yp;
+}
+
+// **************************************************************************
+// DGI (Digi-Pic 2)
+// **************************************************************************
+
+static void do_dgi_convert_quadrant(deark *c, dbuf *imgbuf, i64 srcoffs, i64 dstoffs)
+{
+	i64 j;
+
+	for(j=0; j<50; j++) {
+		dbuf_copy_at(c->infile, srcoffs+j*160, 80, imgbuf, dstoffs+j*640);
+		dbuf_copy_at(c->infile, srcoffs+j*160+80, 80, imgbuf, dstoffs+j*640+320);
+		dbuf_copy_at(c->infile, srcoffs+8000+j*160, 80, imgbuf, dstoffs+j*640+160);
+		dbuf_copy_at(c->infile, srcoffs+8000+j*160+80, 80, imgbuf, dstoffs+j*640+480);
+	}
+}
+
+static void de_run_dgi(deark *c, de_module_params *mparams)
+{
+	dbuf *imgbuf = NULL;
+	de_bitmap *img = NULL;
+	de_color pal[4];
+
+	imgbuf = dbuf_create_membuf(c, 64000, 0x1);
+
+	// Full 640x400 image is stored as four 320x200-pixel quadrants.
+	// Each quadrant is interlaced.
+	do_dgi_convert_quadrant(c, imgbuf, 0, 0);
+	do_dgi_convert_quadrant(c, imgbuf, 16000, 80);
+	do_dgi_convert_quadrant(c, imgbuf, 32008, 32000);
+	do_dgi_convert_quadrant(c, imgbuf, 48008, 32080);
+
+	// Turbo DiGI by Basi Angulo seems to be the authority on this format, and
+	// this is the palette it uses, though it doesn't look very good.
+	// EGADGI by Craig Jensen also uses this palette by default, though it
+	// offers other palettes.
+	de_copy_std_palette(DE_PALID_CGA, 1, 0, 4, pal, 4, 0);
+
+	img = de_bitmap_create(c, 640, 400, 3);
+	de_convert_image_paletted(imgbuf, 0, 2, 160, pal, img, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
+
+	dbuf_close(imgbuf);
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_dgi(deark *c)
+{
+	int has_ext;
+
+	if(c->infile->len < 64008) return 0;
+	has_ext = de_input_file_has_ext(c, "dgi");
+	if(!has_ext && c->infile->len!=64008) return 0;
+	if(dbuf_memcmp(c->infile, 32000, (const void*)"\x01\x04\0\0\0\0\0\0", 8)) return 0;
+	if(has_ext && c->infile->len==64008) return 100;
+	return 20; // either no .dgi extension, or file unexpectedly large (but not both)
+}
+
+void de_module_dgi(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "dgi";
+	mi->desc = "DGI (Digi-Pic)";
+	mi->run_fn = de_run_dgi;
+	mi->identify_fn = de_identify_dgi;
 }
