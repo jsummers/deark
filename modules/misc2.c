@@ -30,6 +30,7 @@ DE_DECLARE_MODULE(de_module_gws_thn);
 DE_DECLARE_MODULE(de_module_deskmate_pnt);
 DE_DECLARE_MODULE(de_module_mdesk_icn);
 DE_DECLARE_MODULE(de_module_animator_pic);
+DE_DECLARE_MODULE(de_module_young_picasso);
 
 // **************************************************************************
 // HP 100LX / HP 200LX .ICN icon format
@@ -1707,4 +1708,114 @@ void de_module_animator_pic(deark *c, struct deark_module_info *mi)
 	mi->desc = "Autodesk Animator PIC/CEL";
 	mi->run_fn = de_run_animator_pic;
 	mi->identify_fn = de_identify_animator_pic;
+}
+
+// **************************************************************************
+// Young Picasso .YP
+// **************************************************************************
+
+struct yp_ctx {
+	i64 w, h;
+	i64 xpos, ypos;
+	de_color pal[16];
+};
+
+static int has_yp_sig(deark *c)
+{
+	return !dbuf_memcmp(c->infile, 0, (const u8*)"P\0\0P\0\0R\0\0", 9);
+}
+
+static void yp_emit_pixel(deark *c, struct yp_ctx *d, de_bitmap *img, UI clr)
+{
+	de_bitmap_setpixel_rgb(img, d->xpos, d->ypos, d->pal[clr%16]);
+	d->xpos++;
+	if(d->xpos >= d->w) {
+		d->xpos = 0;
+		d->ypos++;
+	}
+}
+
+static void yp_decompress_image(deark *c, struct yp_ctx *d, de_bitmap *img, i64 pos1)
+{
+	i64 pos = pos1;
+
+	d->xpos = 0;
+	d->ypos = 0;
+	while(1) {
+		u8 clrs, count1, count2;
+		i64 k;
+
+		if(pos >= c->infile->len) break;
+		if(d->ypos >= d->h) break;
+
+		clrs = de_getbyte_p(&pos);
+		count1 = de_getbyte_p(&pos);
+		count2 = de_getbyte_p(&pos);
+		for(k=0; k<(i64)count1; k++) {
+			yp_emit_pixel(c, d, img, clrs>>4);
+		}
+		for(k=0; k<(i64)count2; k++) {
+			yp_emit_pixel(c, d, img, clrs);
+		}
+	}
+}
+
+static void de_run_yp(deark *c, de_module_params *mparams)
+{
+	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
+	struct yp_ctx *d = NULL;
+	i64 pos = 0;
+
+	d = de_malloc(c, sizeof(struct yp_ctx));
+
+	if(has_yp_sig(c)) {
+		d->w = (i64)de_getbyte(9) * 256;
+		d->w += (i64)de_getbyte(12);
+		d->h = (i64)de_getbyte(15) * 256;
+		d->h += (i64)de_getbyte(18);
+		pos = 24; // (Not actually necessary)
+	}
+	else {
+		// Educated guess is that early versions of the format lack a header,
+		// and the strange header format is a hack to make new versions of the
+		// format compatible with old versions of the software.
+		d->w = 320;
+		d->h = 200;
+	}
+
+	de_dbg_dimensions(c, d->w, d->h);
+	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
+
+	fi = de_finfo_create(c);
+	fi->density.code = DE_DENSITY_UNK_UNITS;
+	fi->density.xdens = 6.0;
+	fi->density.ydens = 5.0;
+
+	de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, d->pal, 16, 0);
+	img = de_bitmap_create(c, d->w, d->h, 3);
+	yp_decompress_image(c, d, img, pos);
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_FLIP_IMAGE);
+
+done:
+	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
+	de_free(c, d);
+}
+
+static int de_identify_yp(deark *c)
+{
+	if(has_yp_sig(c)) {
+		if(de_input_file_has_ext(c, "yp")) return 100;
+		return 75;
+	}
+	return 0;
+}
+
+void de_module_young_picasso(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "young_picasso";
+	mi->desc = "Young Picasso .YP";
+	mi->run_fn = de_run_yp;
+	mi->identify_fn = de_identify_yp;
 }

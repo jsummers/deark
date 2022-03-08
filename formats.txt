@@ -582,6 +582,10 @@ Deark -- Information about supported formats
 
 * YBM (Bennet Yee face format) (module="ybm")
 
+* Young Picasso (.YP) (module="young_picasso")
+  An old paint program by BlueBlueview Software.
+  - Early versions may not be supported, or may require "-m young_picasso".
+
 * ZBR ((Zoner) Zebra Metafile) (module="zbr")
   - Extract the preview image.
 
@@ -712,7 +716,7 @@ Deark -- Information about supported formats
 
 * InstallShield Z archive (module="is_z") (experimental)
 
-* ISO 9660 CD-ROM image (module="iso9660")
+* ISO 9660 or High Sierra CD-ROM image (module="iso9660")
   Options
    -opt iso9660:tolower - Convert filenames to lowercase. Does not affect Rock
      Ridge or Joliet filenames.

@@ -180,7 +180,10 @@ struct page_ctx {
 	u8 is_thumb;
 	u8 have_density;
 	u8 have_strip_tags, have_tile_tags;
+	u8 have_strilebytecounts;
 	u8 have_jpegtables;
+	u8 have_colormap;
+	u8 have_oldsubfiletype;
 
 	u32 compression;
 	u32 orientation;
@@ -201,6 +204,8 @@ struct page_ctx {
 	i64 rows_per_strip;
 	i64 tile_width, tile_height;
 	u8 is_old_lzw;
+	u8 is_dexxa;
+	u8 valcount_bitspersample;
 	u8 extrasamples_count;
 	u8 extrasample_type[DE_TIFF_MAX_SAMPLES]; // [0] = first *extra* sample, not first sample
 	const struct cmpr_meth_info *cmi;
@@ -1189,6 +1194,7 @@ static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const 
 	i64 i;
 	struct page_ctx *pg = tg->pg;
 
+	tg->pg->have_colormap = 1;
 	if(tg->datatype!=3) return;
 	num_entries = tg->valcount / 3;
 	de_dbg(c, "ColorMap with %d entries", (int)num_entries);
@@ -1709,6 +1715,7 @@ static void handler_strilebytecounts(deark *c, lctx *d, const struct taginfo *tg
 	struct page_ctx *pg = tg->pg;
 	i64 i;
 
+	pg->have_strilebytecounts = 1;
 	if(tni->tagnum==TAG_TILEBYTECOUNTS) {
 		pg->have_tile_tags = 1;
 	}
@@ -1726,6 +1733,7 @@ static void handler_bitspersample(deark *c, lctx *d, const struct taginfo *tg, c
 {
 	i64 val;
 
+	tg->pg->valcount_bitspersample = (u8)tg->valcount;
 	if(tg->valcount<1) return;
 
 	// FIXME: This is a multi-valued field.
@@ -1830,6 +1838,7 @@ static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const s
 		if(val & 0x1) pg->is_thumb = 1;
 		break;
 	case TAG_OLDSUBFILETYPE:
+		pg->have_oldsubfiletype = 1;
 		if(val==2) pg->is_thumb = 1;
 		break;
 	case TAG_IMAGEWIDTH:
@@ -3123,7 +3132,18 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 			}
 
 			if(dctx->use_pal) {
-				clr = pg->pal[sample[0] & 0xff];
+				UI palidx;
+
+				if(pg->is_dexxa) {
+					palidx = (sample[3]<<3) | (sample[2]<<2) | (sample[1]<<1) | sample[0];
+					if(pg->compression==CMPR_CCITTRLE) {
+						palidx = 15 - palidx;
+					}
+				}
+				else {
+					palidx = sample[0];
+				}
+				clr = pg->pal[palidx & 0xff];
 			}
 			else if(dctx->is_grayscale) {
 				if(dctx->grayscale_reverse_polarity) {
@@ -3257,6 +3277,21 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	de_dbg(c, "decoding ifd image");
 	de_dbg_indent(c, 1);
 
+	if(pg->planarconfig==2 && pg->samples_per_pixel==4 &&
+		(pg->bits_per_sample==1 || pg->bits_per_sample==4) &&
+		pg->photometric==2 && pg->have_strip_tags && pg->valcount_bitspersample==1 &&
+		pg->extrasamples_count==0 && pg->have_oldsubfiletype)
+	{
+		// A strange broken planar paletted format used by Paint It! (presumably) and
+		// RainBow Paint by Dexxa, and PaintShow [Plus] by Logitech.
+		// This is slightly dangerous, because these files aren't broken to the point of
+		// being nonsense -- they just need to be interpreted differently than one would
+		// logically expect. But the format is odd enough that the risk is negligible.
+		de_dbg(c, "detected Dexxa TIFF variant");
+		pg->is_dexxa = 1;
+		pg->bits_per_sample = 1; // [E.g. TRAIN1.TIF from PaintShow 1.1]
+	}
+
 	if(pg->compression<1) {
 		pg->compression = CMPR_NONE;
 	}
@@ -3312,9 +3347,21 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		detiff_err(c, d, pg, "No image data found");
 		goto done;
 	}
-	if(pg->strile_count==1 && pg->strile_data[0].len==0) {
+	if((pg->strile_count==1 && pg->strile_data[0].len==0) ||
+		(pg->strile_count>1 && !pg->have_strilebytecounts))
+	{
+		i64 k;
+
 		// Tolerate missing StripByteCounts tag in some cases
-		pg->strile_data[0].len = c->infile->len - pg->strile_data[0].pos;
+		for(k=0; k<pg->strile_count; k++) {
+			if(k<pg->strile_count-1) {
+				pg->strile_data[k].len = pg->strile_data[k+1].pos - pg->strile_data[k].pos;
+			}
+			else {
+				pg->strile_data[k].len = c->infile->len - pg->strile_data[k].pos;
+			}
+			if(pg->strile_data[k].len<0) pg->strile_data[k].len = 0;
+		}
 	}
 
 	if(pg->sample_format!=1) {
@@ -3322,7 +3369,15 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		goto done;
 	}
 
-	if(pg->photometric==0 || pg->photometric==1) {
+	if(pg->is_dexxa) {
+		dctx->base_samples_per_pixel = 4;
+		ok_bps = 1;
+		if(!pg->have_colormap) {
+			de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, pg->pal, 16, 0);
+		}
+		dctx->use_pal = 1;
+	}
+	else if(pg->photometric==0 || pg->photometric==1) {
 		dctx->is_grayscale = 1;
 		dctx->grayscale_reverse_polarity = (pg->photometric==0);
 		dctx->base_samples_per_pixel = 1;

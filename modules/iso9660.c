@@ -64,7 +64,11 @@ struct vol_record {
 	u8 file_structure_version;
 	u8 is_joliet;
 	u8 is_cdxa;
+	u8 is_cdi;
+	u8 is_hsf;
 	u8 quality;
+	u8 uses_SUSP;
+	i64 SUSP_default_bytes_to_skip;
 };
 
 typedef struct localctx_struct {
@@ -73,6 +77,7 @@ typedef struct localctx_struct {
 	u8 names_to_lowercase;
 	u8 vol_desc_sector_forced;
 	u8 blocksize_warned;
+	u8 is_udf;
 	int dirsize_hack_state; // 0=disabled, 1=in use, -1=allowed
 	i64 vol_desc_sector_to_use;
 	i64 secsize;
@@ -81,11 +86,6 @@ typedef struct localctx_struct {
 	struct de_strarray *curpath;
 	struct de_inthashtable *dirs_seen;
 	struct de_inthashtable *voldesc_crc_hash;
-	u8 uses_SUSP;
-	u8 is_udf;
-	u8 is_cdi;
-	u8 is_hsf;
-	i64 SUSP_default_bytes_to_skip;
 	struct vol_record *vol; // Volume descriptor to use
 	struct de_crcobj *crco;
 } lctx;
@@ -173,7 +173,10 @@ static i64 read_decimal_substr(dbuf *f, i64 pos, i64 len)
 	return de_atoi64(buf);
 }
 
-static void read_datetime17(deark *c, lctx *d, i64 pos, struct de_timestamp *ts)
+// If fieldlen==16, use HSF 16-byte format.
+// Otherwise, use 17-byte format.
+static void read_datetime17(deark *c, lctx *d, i64 pos, int fieldlen,
+	struct de_timestamp *ts)
 {
 	i64 yr, mo, da;
 	i64 hr, mi, se, hs;
@@ -188,13 +191,21 @@ static void read_datetime17(deark *c, lctx *d, i64 pos, struct de_timestamp *ts)
 	mi = read_decimal_substr(c->infile, pos+10, 2);
 	se = read_decimal_substr(c->infile, pos+12, 2);
 	hs = read_decimal_substr(c->infile, pos+14, 2);
-	offs = dbuf_geti8(c->infile, pos+16);
+	if(fieldlen==16) {
+		offs = 0;
+	}
+	else {
+		offs = dbuf_geti8(c->infile, pos+16);
+	}
 	de_make_timestamp(ts, yr, mo, da, hr, mi, se);
 	de_timestamp_set_subsec(ts, ((double)hs)/100.0);
 	de_timestamp_cvt_to_utc(ts, -offs*60*15);
 }
 
-static void read_datetime7(deark *c, lctx *d, i64 pos, struct de_timestamp *ts)
+// If fieldlen==6, use HSF 6-byte format.
+// Otherwise, use 7-byte format.
+static void read_datetime7(deark *c, lctx *d, i64 pos, int fieldlen,
+	struct de_timestamp *ts)
 {
 	i64 yr, mo, da;
 	i64 hr, mi, se;
@@ -209,7 +220,12 @@ static void read_datetime7(deark *c, lctx *d, i64 pos, struct de_timestamp *ts)
 	hr = de_getbyte(pos+3);
 	mi = de_getbyte(pos+4);
 	se = de_getbyte(pos+5);
-	offs = dbuf_geti8(c->infile, pos+6);
+	if(fieldlen==6) {
+		offs = 0;
+	}
+	else {
+		offs = dbuf_geti8(c->infile, pos+6);
+	}
 
 	de_make_timestamp(ts, 1900+yr, mo, da, hr, mi, se);
 	de_timestamp_cvt_to_utc(ts, -offs*60*15);
@@ -227,6 +243,7 @@ enum voldesctype_enum {
 	VOLDESCTYPE_UNKNOWN,
 	VOLDESCTYPE_OTHERVALID,
 	VOLDESCTYPE_CD_PRIMARY,
+	VOLDESCTYPE_CD_PRIMARY_HSF,
 	VOLDESCTYPE_CD_SUPPL,
 	VOLDESCTYPE_CD_BOOT,
 	VOLDESCTYPE_CD_PARTDESCR,
@@ -242,6 +259,7 @@ static const char *get_vol_descr_type_name(enum voldesctype_enum vdt)
 	switch(vdt) {
 	case VOLDESCTYPE_CD_BOOT: name="boot record"; break;
 	case VOLDESCTYPE_CD_PRIMARY: name="primary volume descriptor"; break;
+	case VOLDESCTYPE_CD_PRIMARY_HSF: name="High Sierra file structure"; break;
 	case VOLDESCTYPE_CD_SUPPL: name="supplementary or enhanced volume descriptor"; break;
 	case VOLDESCTYPE_CD_PARTDESCR: name="volume partition descriptor"; break;
 	case VOLDESCTYPE_CD_TERM: name="volume descriptor set terminator"; break;
@@ -375,8 +393,8 @@ static void do_SUSP_SP(deark *c, lctx *d, struct dir_record *dr,
 {
 	if(!dr->is_root_dot) return;
 	if(len<7) return;
-	d->SUSP_default_bytes_to_skip = (i64)de_getbyte(pos1+6);
-	de_dbg(c, "bytes skipped: %d", (int)d->SUSP_default_bytes_to_skip);
+	d->vol->SUSP_default_bytes_to_skip = (i64)de_getbyte(pos1+6);
+	de_dbg(c, "bytes skipped: %d", (int)d->vol->SUSP_default_bytes_to_skip);
 }
 
 static void do_SUSP_CE(deark *c, lctx *d, struct dir_record *dr,
@@ -488,10 +506,10 @@ static void do_SUSP_rockridge_TF(deark *c, lctx *d, struct dir_record *dr,
 		// Flag bits indicate which timestamps are present.
 		if(flags & (1<<i)) {
 			if(bytes_per_field==17) {
-				read_datetime17(c, d, pos, &tmpts);
+				read_datetime17(c, d, pos, 0, &tmpts);
 			}
 			else {
-				read_datetime7(c, d, pos, &tmpts);
+				read_datetime7(c, d, pos, 0, &tmpts);
 			}
 			de_snprintf(tmpsz, sizeof(tmpsz), "%s time", names[i]);
 			dbg_timestamp(c, &tmpts, tmpsz);
@@ -720,14 +738,14 @@ static void do_dir_rec_system_use_area(deark *c, lctx *d, struct dir_record *dr,
 
 	if(dr->is_root_dot) {
 		if(is_SUSP_indicator(c, pos, len)) {
-			d->uses_SUSP = 1;
+			d->vol->uses_SUSP = 1;
 			non_SUSP_len = 0;
 			SUSP_len = len;
 		}
 	}
-	else if(d->uses_SUSP) {
-		non_SUSP_len = d->SUSP_default_bytes_to_skip;
-		SUSP_len = len - d->SUSP_default_bytes_to_skip;
+	else if(d->vol->uses_SUSP) {
+		non_SUSP_len = d->vol->SUSP_default_bytes_to_skip;
+		SUSP_len = len - d->vol->SUSP_default_bytes_to_skip;
 	}
 
 	if(non_SUSP_len>0) {
@@ -766,7 +784,7 @@ static void do_dir_rec_system_use_area(deark *c, lctx *d, struct dir_record *dr,
 		}
 	}
 
-	if(d->uses_SUSP && SUSP_len>0) {
+	if(d->vol->uses_SUSP && SUSP_len>0) {
 		do_dir_rec_SUSP(c, d, dr, pos+non_SUSP_len, SUSP_len);
 	}
 	// TODO?: There can potentially also be non-SUSP data *after* the SUSP data,
@@ -812,9 +830,9 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 	dr->data_len = getu32bbo_p(c->infile, &pos);
 	de_dbg(c, "data length: %u", (unsigned int)dr->data_len);
 
-	read_datetime7(c, d, pos, &dr->recording_time);
+	read_datetime7(c, d, pos, d->vol->is_hsf?6:7, &dr->recording_time);
 	dbg_timestamp(c, &dr->recording_time, "recording time");
-	pos += 7;
+	pos += d->vol->is_hsf?6:7;
 
 	dr->file_flags = de_getbyte_p(&pos);
 	tmps = ucstring_create(c);
@@ -838,20 +856,31 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 	de_dbg(c, "file flags: 0x%02x (%s)", (unsigned int)dr->file_flags,
 		ucstring_getpsz_d(tmps));
 
-	b = de_getbyte_p(&pos);
-	de_dbg(c, "file unit size: %u", (unsigned int)b);
+	if(d->vol->is_hsf) {
+		pos++; // reserved
+	}
+	else {
+		b = de_getbyte_p(&pos);
+		de_dbg(c, "file unit size: %u", (unsigned int)b);
+	}
 
-	b = de_getbyte_p(&pos);
-	de_dbg(c, "interleave gap size: %u", (unsigned int)b);
-	if(b!=0) {
-		dr->is_specialfileformat = 1;
+	if(d->vol->is_hsf) {
+		pos++; // interleave size
+		pos++; // interleave skip factor
+	}
+	else {
+		b = de_getbyte_p(&pos);
+		de_dbg(c, "interleave gap size: %u", (unsigned int)b);
+		if(b!=0) {
+			dr->is_specialfileformat = 1;
+		}
 	}
 
 	n = getu16bbo_p(c->infile, &pos);
 	de_dbg(c, "volume sequence number: %u", (unsigned int)n);
 	dr->file_id_len = (i64)de_getbyte_p(&pos);
 
-	if(d->is_cdi) {
+	if(d->vol->is_cdi) {
 		dr->cdi_attribs = (UI)de_getu16be(pos1 + 37 + dr->file_id_len);
 		de_dbg(c, "CD-i attribs: 0x%04x", (UI)dr->cdi_attribs);
 		if(dr->cdi_attribs & 0x8000) {
@@ -874,7 +903,7 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 	else if(d->vol->encoding!=DE_ENCODING_UNKNOWN) {
 		file_id_encoding = d->vol->encoding;
 	}
-	else if(d->uses_SUSP) {
+	else if(d->vol->uses_SUSP) {
 		// We're using the user_req_encoding for the Rock Ridge names,
 		// so don't use it here.
 		file_id_encoding = DE_ENCODING_ASCII;
@@ -909,7 +938,7 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 
 	// System Use area
 	sys_use_len = pos1+dr->len_dir_rec-pos;
-	if(sys_use_len>0 && !d->is_cdi) {
+	if(sys_use_len>0 && !d->vol->is_cdi) {
 		do_dir_rec_system_use_area(c, d, dr, pos, sys_use_len);
 	}
 
@@ -1109,7 +1138,8 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 	i64 vol_space_size;
 	i64 vol_set_size;
 	i64 vol_seq_num;
-	i64 path_tbl_M_loc;
+	i64 path_tbl_M_loc = 0;
+	int date_field_len;
 	i64 n;
 	unsigned int vol_flags;
 	u32 crc;
@@ -1151,6 +1181,7 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 	}
 	/////////
 
+	date_field_len = vol->is_hsf ? 16 : 17;
 	vol->encoding = DE_ENCODING_UNKNOWN;
 
 	if(!is_primary) {
@@ -1165,6 +1196,7 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 		read_escape_sequences(c, d, vol, pos1+88);
 	}
 
+	if(vol->is_hsf) pos = pos1+16;
 	tmpstr = ucstring_create(c);
 	handle_iso_string_p(c, d, vol, "system id", &pos, 32, tmpstr);
 	handle_iso_string_p(c, d, vol, "volume id", &pos, 32, tmpstr);
@@ -1192,15 +1224,21 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 	n = getu32bbo_p(c->infile, &pos);
 	de_dbg(c, "path table size: %"I64_FMT" bytes", n);
 
-	n = de_getu32le_p(&pos);
-	de_dbg(c, "loc. of type L path table: block #%u", (unsigned int)n);
-	n = de_getu32le_p(&pos);
-	de_dbg(c, "loc. of optional type L path table: block #%u", (unsigned int)n);
-	path_tbl_M_loc = de_getu32be_p(&pos);
-	de_dbg(c, "loc. of type M path table: block #%u", (unsigned int)path_tbl_M_loc);
-	n = de_getu32be_p(&pos);
-	de_dbg(c, "loc. of optional type M path table: block #%u", (unsigned int)n);
+	if(vol->is_hsf) {
+		// TODO
+	}
+	else {
+		n = de_getu32le_p(&pos);
+		de_dbg(c, "loc. of type L path table: block #%u", (unsigned int)n);
+		n = de_getu32le_p(&pos);
+		de_dbg(c, "loc. of optional type L path table: block #%u", (unsigned int)n);
+		path_tbl_M_loc = de_getu32be_p(&pos);
+		de_dbg(c, "loc. of type M path table: block #%u", (unsigned int)path_tbl_M_loc);
+		n = de_getu32be_p(&pos);
+		de_dbg(c, "loc. of optional type M path table: block #%u", (unsigned int)n);
+	}
 
+	if(vol->is_hsf) pos = pos1 + 180;
 	de_dbg(c, "dir record for root dir");
 	de_dbg_indent(c, 1);
 	// This is a copy of the main information in the root directory's
@@ -1215,7 +1253,7 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 	de_dbg_indent(c, -1);
 	pos += 34;
 
-	if(d->is_cdi && path_tbl_M_loc!=0) {
+	if(vol->is_cdi && path_tbl_M_loc!=0) {
 		find_CDi_root_dir(c, d, vol, path_tbl_M_loc);
 	}
 
@@ -1223,25 +1261,27 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 	handle_iso_string_p(c, d, vol, "publisher id", &pos, 128, tmpstr);
 	handle_iso_string_p(c, d, vol, "data preparer id", &pos, 128, tmpstr);
 	handle_iso_string_p(c, d, vol, "application id", &pos, 128, tmpstr);
-	handle_iso_string_p(c, d, vol, "copyright file id", &pos, 37, tmpstr);
-	handle_iso_string_p(c, d, vol, "abstract file id", &pos, 37, tmpstr);
-	handle_iso_string_p(c, d, vol, "bibliographic file id", &pos, 37, tmpstr);
+	handle_iso_string_p(c, d, vol, "copyright file id", &pos, vol->is_hsf?32:37, tmpstr);
+	handle_iso_string_p(c, d, vol, "abstract file id", &pos, vol->is_hsf?32:37, tmpstr);
+	if(!vol->is_hsf) {
+		handle_iso_string_p(c, d, vol, "bibliographic file id", &pos, 37, tmpstr);
+	}
 
-	read_datetime17(c, d, pos, &tmpts);
+	read_datetime17(c, d, pos, date_field_len, &tmpts);
 	dbg_timestamp(c, &tmpts, "volume creation time");
-	pos += 17;
+	pos += (i64)date_field_len;
 
-	read_datetime17(c, d, pos, &tmpts);
+	read_datetime17(c, d, pos, date_field_len, &tmpts);
 	dbg_timestamp(c, &tmpts, "volume mod time");
-	pos += 17;
+	pos += (i64)date_field_len;
 
-	read_datetime17(c, d, pos, &tmpts);
+	read_datetime17(c, d, pos, date_field_len, &tmpts);
 	dbg_timestamp(c, &tmpts, "volume expiration time");
-	pos += 17;
+	pos += (i64)date_field_len;
 
-	read_datetime17(c, d, pos, &tmpts);
+	read_datetime17(c, d, pos, date_field_len, &tmpts);
 	dbg_timestamp(c, &tmpts, "volume effective time");
-	pos += 17;
+	pos += (i64)date_field_len;
 
 	vol->file_structure_version = de_getbyte_p(&pos);
 	de_dbg(c, "file structure version: %u", (unsigned int)vol->file_structure_version);
@@ -1261,12 +1301,14 @@ done:
 }
 
 static void do_primary_or_suppl_volume_descr(deark *c, lctx *d, i64 secnum,
-	i64 pos1, int is_primary)
+	i64 pos1, int is_primary, u8 is_cdi, u8 is_hsf)
 {
 	struct vol_record *newvol;
 
 	newvol = de_malloc(c, sizeof(struct vol_record));
 	newvol->secnum = secnum;
+	newvol->is_cdi = is_cdi;
+	newvol->is_hsf = is_hsf;
 
 	do_primary_or_suppl_volume_descr_internal(c, d, newvol, secnum, pos1, is_primary);
 
@@ -1293,6 +1335,18 @@ done:
 	if(newvol) de_free(c, newvol);
 }
 
+static u8 is_hsf_volume_descriptor(deark *c, lctx *d, i64 secnum, i64 pos1)
+{
+	i64 n;
+
+	n = getu32bbo(c->infile, pos1);
+	if(n != secnum) return 0;
+	if(dbuf_memcmp(c->infile, pos1+9, (const void*)g_sig_CDROM, 5)) {
+		return 0;
+	}
+	return 1;
+}
+
 // Returns 0 if this is a terminator, or on serious error.
 // Returns 1 normally.
 static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
@@ -1302,6 +1356,8 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 	int saved_indent_level;
 	i64 pos1, pos;
 	const char *vdtname;
+	u8 is_hsf;
+	u8 is_cdi = 0;
 	int retval = 0;
 	enum voldesctype_enum vdt = VOLDESCTYPE_UNKNOWN;
 	struct de_stringreaderdata *standard_id = NULL;
@@ -1309,8 +1365,10 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 	de_dbg_indent_save(c, &saved_indent_level);
 
 	pos1 = sector_dpos(d, secnum);
+	is_hsf = is_hsf_volume_descriptor(c, d, secnum, pos1);
 	pos = pos1;
 
+	if(is_hsf) pos = pos1+8;
 	dtype = de_getbyte_p(&pos);
 	standard_id = dbuf_read_string(c->infile, pos, 5, 5, 0, DE_ENCODING_ASCII);
 	pos += 5;
@@ -1328,7 +1386,7 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 	}
 	else if(!de_strcmp(standard_id->sz, g_sig_CD_I)) {
 		switch(dtype) {
-		case 1: vdt = VOLDESCTYPE_CD_PRIMARY; d->is_cdi = 1; break;
+		case 1: vdt = VOLDESCTYPE_CD_PRIMARY; is_cdi = 1; break;
 		case 0xff: vdt = VOLDESCTYPE_CD_TERM; break;
 		default: vdt = VOLDESCTYPE_OTHERVALID; break;
 		}
@@ -1349,16 +1407,11 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 	{
 		vdt = VOLDESCTYPE_OTHERVALID;
 	}
-
-	if(vdt==VOLDESCTYPE_UNKNOWN) {
-		// FIXME: Checking for High Sierra here is kind of a hack.
-		// TODO: Support High Sierra format.
-		if(!dbuf_memcmp(c->infile, pos1+9, (const void*)g_sig_CDROM, 5)) {
-			de_dbg(c, "High Sierra volume descriptor at %"I64_FMT, pos1);
-			if(secnum==16) d->is_hsf = 1;
-			dtype = de_getbyte(pos1+8);
-			retval = (dtype!=0xff);
-			goto done;
+	else if(!de_strcmp(standard_id->sz,g_sig_CDROM)) {
+		switch(dtype) {
+		case 1: vdt = VOLDESCTYPE_CD_PRIMARY_HSF; break;
+		case 0xff: vdt = VOLDESCTYPE_CD_TERM; break;
+		default: vdt = VOLDESCTYPE_OTHERVALID; break;
 		}
 	}
 
@@ -1395,10 +1448,13 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 		do_boot_volume_descr(c, d, pos1);
 		break;
 	case VOLDESCTYPE_CD_PRIMARY:
-		do_primary_or_suppl_volume_descr(c, d, secnum, pos1, 1);
+		do_primary_or_suppl_volume_descr(c, d, secnum, pos1, 1, is_cdi, 0);
+		break;
+	case VOLDESCTYPE_CD_PRIMARY_HSF:
+		do_primary_or_suppl_volume_descr(c, d, secnum, pos1, 1, 0, 1);
 		break;
 	case VOLDESCTYPE_CD_SUPPL: // supplementary or enhanced
-		do_primary_or_suppl_volume_descr(c, d, secnum, pos1, 0);
+		do_primary_or_suppl_volume_descr(c, d, secnum, pos1, 0, is_cdi, 0);
 		break;
 	case VOLDESCTYPE_NSR:
 		d->is_udf = 1;
@@ -1461,12 +1517,7 @@ static void de_run_iso9660(deark *c, de_module_params *mparams)
 	}
 
 	if(!d->vol) {
-		if(d->is_hsf) {
-			de_err(c, "File uses High Sierra format, which is not supported");
-		}
-		else {
-			de_err(c, "No usable volume descriptor found");
-		}
+		de_err(c, "No usable volume descriptor found");
 		goto done;
 	}
 
