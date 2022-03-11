@@ -5,6 +5,7 @@
 // This file is for miscellaneous small modules that primarily do image decoding.
 
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_hpicn);
 DE_DECLARE_MODULE(de_module_xpuzzle);
 DE_DECLARE_MODULE(de_module_bob);
@@ -32,6 +33,12 @@ DE_DECLARE_MODULE(de_module_mdesk_icn);
 DE_DECLARE_MODULE(de_module_animator_pic);
 DE_DECLARE_MODULE(de_module_young_picasso);
 DE_DECLARE_MODULE(de_module_dgi);
+DE_DECLARE_MODULE(de_module_cdi_imag);
+
+#define CODE_FORM 0x464f524dU
+#define CODE_IDAT 0x49444154U
+#define CODE_IHDR 0x49484452U
+#define CODE_PLTE 0x504c5445U
 
 // **************************************************************************
 // HP 100LX / HP 200LX .ICN icon format
@@ -1884,4 +1891,128 @@ void de_module_dgi(deark *c, struct deark_module_info *mi)
 	mi->desc = "DGI (Digi-Pic)";
 	mi->run_fn = de_run_dgi;
 	mi->identify_fn = de_identify_dgi;
+}
+
+// **************************************************************************
+// IFF CDI IMAG
+// **************************************************************************
+
+struct cdi_imag_ctx {
+	i64 w, h;
+	i64 rowspan;
+	UI model;
+	UI depth;
+	u8 found_IHDR;
+	de_color pal[256];
+};
+
+static void do_cdi_imag_IHDR(deark *c, struct cdi_imag_ctx *d, struct de_iffctx *ictx)
+{
+	i64 pos = ictx->chunkctx->dpos;
+	if(ictx->chunkctx->dlen<10) return;
+	d->found_IHDR = 1;
+	d->w = dbuf_getu16be_p(ictx->f, &pos);
+	d->rowspan = dbuf_getu16be_p(ictx->f, &pos);
+	d->h = dbuf_getu16be_p(ictx->f, &pos);
+	de_dbg_dimensions(c, d->w, d->h);
+	de_dbg(c, "bytes/row: %u", (UI)d->rowspan);
+	d->model = (UI)dbuf_getu16be_p(ictx->f, &pos);
+	de_dbg(c, "model: %u", d->model);
+	d->depth = (UI)dbuf_getu16be_p(ictx->f, &pos);
+	de_dbg(c, "bits/pixel: %u", d->depth);
+}
+
+static void do_cdi_imag_PLTE(deark *c, struct cdi_imag_ctx *d, struct de_iffctx *ictx)
+{
+	i64 offset;
+	i64 count;
+
+	offset = dbuf_getu16be(ictx->f, ictx->chunkctx->dpos);
+	count = dbuf_getu16be(ictx->f, ictx->chunkctx->dpos+2);
+	de_dbg(c, "entries: %u", (UI)count);
+	if(offset>255 || count<1) return;
+	de_read_palette_rgb(ictx->f, ictx->chunkctx->dpos+4, count, 3,
+		&d->pal[offset], 256-offset, 0);
+}
+
+static void do_cdi_imag_IDAT(deark *c, struct cdi_imag_ctx *d, struct de_iffctx *ictx)
+{
+	de_bitmap *img = NULL;
+
+	if(!d->found_IHDR) goto done;
+	if(d->model!=6) {
+		de_err(c, "Unsupported image type: model=%u", d->model);
+		goto done;
+	}
+	if(d->depth!=4) {
+		de_err(c, "Unsupported bits/pixel: %u", d->depth);
+		goto done;
+	}
+
+	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
+	img = de_bitmap_create(c, d->w, d->h, 3);
+	de_convert_image_paletted(ictx->f, ictx->chunkctx->dpos, (i64)d->depth,
+		d->rowspan, d->pal, img, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
+
+done:
+	de_bitmap_destroy(img);
+}
+
+static int my_cdi_imag_chunk_handler(struct de_iffctx *ictx)
+{
+	deark *c = ictx->c;
+	struct cdi_imag_ctx *d = (struct cdi_imag_ctx*)ictx->userdata;
+
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_FORM:
+		ictx->is_std_container = 1;
+		break;
+	case CODE_IDAT:
+		do_cdi_imag_IDAT(c, d, ictx);
+		ictx->handled = 1;
+		break;
+	case CODE_IHDR:
+		do_cdi_imag_IHDR(c, d, ictx);
+		ictx->handled = 1;
+		break;
+	case CODE_PLTE:
+		do_cdi_imag_PLTE(c, d, ictx);
+		ictx->handled = 1;
+		break;
+	}
+
+	return 1;
+}
+
+static void de_run_cdi_imag(deark *c, de_module_params *mparams)
+{
+	struct cdi_imag_ctx *d = NULL;
+	struct de_iffctx *ictx = NULL;
+
+	d = de_malloc(c, sizeof(struct cdi_imag_ctx));
+	ictx = fmtutil_create_iff_decoder(c);
+	ictx->userdata = (void*)d;
+	ictx->has_standard_iff_chunks = 1;
+	ictx->handle_chunk_fn = my_cdi_imag_chunk_handler;
+	ictx->f = c->infile;
+	fmtutil_read_iff_format(ictx, 0, c->infile->len);
+	fmtutil_destroy_iff_decoder(ictx);
+	de_free(c, d);
+}
+
+static int de_identify_cdi_imag(deark *c)
+{
+	if((UI)de_getu32be(0)!=CODE_FORM) return 0;
+	if(dbuf_memcmp(c->infile, 8, (const void*)"IMAGIHDR", 8)) return 0;
+	return 100;
+}
+
+void de_module_cdi_imag(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "cdi_imag";
+	mi->desc = "CD-I IFF IMAG";
+	mi->run_fn = de_run_cdi_imag;
+	mi->identify_fn = de_identify_cdi_imag;
+	mi->flags |= DE_MODFLAG_HIDDEN;
 }
