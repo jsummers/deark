@@ -1898,7 +1898,7 @@ void de_module_dgi(deark *c, struct deark_module_info *mi)
 // **************************************************************************
 
 struct cdi_imag_ctx {
-	i64 w, h;
+	i64 npwidth, pdwidth, h;
 	i64 rowspan;
 	UI model;
 	UI depth;
@@ -1906,20 +1906,33 @@ struct cdi_imag_ctx {
 	de_color pal[256];
 };
 
+static const char *get_cdi_imag_model_name(UI n)
+{
+	static const char *names[10] = { "RGB888", "RGB555", "DYUV", "CLUT8",
+		"CLUT7", "CLUT4", "CLUT3", "RL7", "RL3", "PLTE" };
+
+	if(n>=1 && n<=10) return names[n-1];
+	return "?";
+}
+
 static void do_cdi_imag_IHDR(deark *c, struct cdi_imag_ctx *d, struct de_iffctx *ictx)
 {
 	i64 pos = ictx->chunkctx->dpos;
 	if(ictx->chunkctx->dlen<10) return;
 	d->found_IHDR = 1;
-	d->w = dbuf_getu16be_p(ictx->f, &pos);
+	d->npwidth = dbuf_getu16be_p(ictx->f, &pos);
 	d->rowspan = dbuf_getu16be_p(ictx->f, &pos);
 	d->h = dbuf_getu16be_p(ictx->f, &pos);
-	de_dbg_dimensions(c, d->w, d->h);
+	de_dbg_dimensions(c, d->npwidth, d->h);
 	de_dbg(c, "bytes/row: %u", (UI)d->rowspan);
 	d->model = (UI)dbuf_getu16be_p(ictx->f, &pos);
-	de_dbg(c, "model: %u", d->model);
+	de_dbg(c, "model: %u (%s)", d->model, get_cdi_imag_model_name(d->model));
 	d->depth = (UI)dbuf_getu16be_p(ictx->f, &pos);
 	de_dbg(c, "bits/pixel: %u", d->depth);
+
+	if(d->depth==4 || d->depth==8) {
+		d->pdwidth = (d->rowspan*8)/d->depth;
+	}
 }
 
 static void do_cdi_imag_PLTE(deark *c, struct cdi_imag_ctx *d, struct de_iffctx *ictx)
@@ -1949,8 +1962,8 @@ static void do_cdi_imag_IDAT(deark *c, struct cdi_imag_ctx *d, struct de_iffctx 
 		goto done;
 	}
 
-	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
-	img = de_bitmap_create(c, d->w, d->h, 3);
+	if(!de_good_image_dimensions(c, d->npwidth, d->h)) goto done;
+	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->h, 3);
 	de_convert_image_paletted(ictx->f, ictx->chunkctx->dpos, (i64)d->depth,
 		d->rowspan, d->pal, img, 0);
 	de_bitmap_write_to_file(img, NULL, 0);
