@@ -15,6 +15,7 @@ DE_DECLARE_MODULE(de_module_macpaint);
 
 typedef struct localctx_struct {
 	int has_macbinary_header;
+	u8 is_fmac2com;
 	u8 df_known, rf_known;
 	i64 expected_dfpos, expected_rfpos;
 	i64 expected_dflen, expected_rflen;
@@ -24,15 +25,18 @@ typedef struct localctx_struct {
 
 static void do_read_bitmap(deark *c, lctx *d, i64 pos)
 {
-	i64 ver_num;
 	i64 cmpr_bytes_consumed = 0;
 	dbuf *unc_pixels = NULL;
 	de_finfo *fi = NULL;
 
-	ver_num = de_getu32be(pos);
-	de_dbg(c, "version number: %u", (unsigned int)ver_num);
-	if(ver_num!=0 && ver_num!=2 && ver_num!=3) {
-		de_warn(c, "Unrecognized version number: %u", (unsigned int)ver_num);
+	if(!d->is_fmac2com) {
+		i64 ver_num;
+
+		ver_num = de_getu32be(pos);
+		de_dbg(c, "version number: %u", (unsigned int)ver_num);
+		if(ver_num!=0 && ver_num!=2 && ver_num!=3) {
+			de_warn(c, "Unrecognized version number: %u", (unsigned int)ver_num);
+		}
 	}
 
 	pos += 512;
@@ -315,6 +319,17 @@ done:
 	}
 }
 
+static u8 is_fmac2com(deark *c)
+{
+	if(dbuf_memcmp(c->infile, 0, (const void*)"\xeb\x79\x90", 3)) return 0;
+	if(dbuf_memcmp(c->infile, 608,
+		(const void*)"\x80\x03\x83\xc3\x0f\xb1\x04\xd3\xeb\xb4\x4a\xcd\x21\xb4\x48\xbb", 16))
+	{
+		return 0;
+	}
+	return 1;
+}
+
 static void de_run_macpaint(deark *c, de_module_params *mparams)
 {
 	lctx *d;
@@ -322,6 +337,14 @@ static void de_run_macpaint(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 	d->has_macbinary_header = de_get_ext_option_bool(c, "macpaint:macbinary", -1);
+
+	if(d->has_macbinary_header == -1) {
+		d->is_fmac2com = is_fmac2com(c);
+	}
+
+	if(d->is_fmac2com) {
+		d->has_macbinary_header = 1;
+	}
 
 	if(d->has_macbinary_header == -1) {
 		int v512;
@@ -358,7 +381,9 @@ static void de_run_macpaint(deark *c, de_module_params *mparams)
 		}
 	}
 
-	if(d->has_macbinary_header)
+	if(d->is_fmac2com)
+		de_declare_fmt(c, "FMAC2COM self-displaying MacPaint");
+	else if(d->has_macbinary_header)
 		de_declare_fmt(c, "MacPaint with MacBinary header");
 	else
 		de_declare_fmt(c, "MacPaint without MacBinary header");
@@ -371,7 +396,9 @@ static void de_run_macpaint(deark *c, de_module_params *mparams)
 
 	do_read_bitmap(c, d, pos);
 
-	do_read_patterns(c, d, pos);
+	if(!d->is_fmac2com) {
+		do_read_patterns(c, d, pos);
+	}
 
 	if(d) {
 		ucstring_destroy(d->filename);
@@ -384,6 +411,7 @@ static int de_identify_macpaint(deark *c)
 {
 	u8 buf[8];
 
+	if(is_fmac2com(c)) return 85;
 	de_read(buf, 65, 8);
 
 	// Not all MacPaint files can be easily identified, but this will work
