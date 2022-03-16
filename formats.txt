@@ -614,7 +614,11 @@ Deark -- Information about supported formats
 * PK font (Packed Font) (module="pkfont") (partial support)
 
 * Unifont HEX (module="unifont_hex")
-  - Cannot be autodetected. You must use "-m unifont_hex".
+  - Cannot be autodetected. Use "-m unifont_hex".
+
+* VGA font (module="vgafont")
+  Raw 8xN bitmapped font with 256 characters.
+  - Cannot be autodetected. Use "-m vgafont".
 
 === Compression, archive, installer, disk image modules ===
 
