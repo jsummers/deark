@@ -43,6 +43,7 @@ typedef struct localctx_struct {
 	int is_vector;
 	int has_abs_space_char;
 	de_encoding encoding;
+	de_encoding input_encoding_req;
 
 	de_finfo *fi;
 } lctx;
@@ -95,6 +96,7 @@ static void do_make_image(deark *c, lctx *d)
 {
 	struct de_bitmap_font *font = NULL;
 	i64 i;
+	de_encoding encoding_to_use;
 	struct de_encconv_state es_main;
 	struct de_encconv_state es_dec_special_gr;
 
@@ -104,15 +106,28 @@ static void do_make_image(deark *c, lctx *d)
 	font = de_create_bitmap_font(c);
 
 	font->has_nonunicode_codepoints = 1;
-	if(d->encoding!=DE_ENCODING_UNKNOWN)
+
+	if(d->input_encoding_req!=DE_ENCODING_UNKNOWN) {
+		encoding_to_use = d->input_encoding_req;
 		font->has_unicode_codepoints = 1;
-	font->prefer_unicode = 0;
+		font->prefer_unicode = 1;
+	}
+	else if(d->encoding!=DE_ENCODING_UNKNOWN) {
+		encoding_to_use = d->encoding;
+		font->has_unicode_codepoints = 1;
+		font->prefer_unicode = 0;
+	}
+	else {
+		encoding_to_use = DE_ENCODING_LATIN1;
+		font->has_unicode_codepoints = 0;
+		font->prefer_unicode = 0;
+	}
 
 	font->nominal_width = d->nominal_char_width;
 	font->nominal_height = (int)d->char_height;
 	font->num_chars = d->num_chars_stored;
 	font->char_array = de_mallocarray(c, font->num_chars, sizeof(struct de_bitmap_font_char));
-	de_encconv_init(&es_main, d->encoding);
+	de_encconv_init(&es_main, encoding_to_use);
 	de_encconv_init(&es_dec_special_gr, DE_ENCODING_DEC_SPECIAL_GRAPHICS);
 
 	for(i=0; i<d->num_chars_stored; i++) {
@@ -442,6 +457,7 @@ static void de_run_fnt(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->input_encoding_req = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
 
 	if(!do_read_header(c, d)) goto done;
 	read_face_name(c, d);
