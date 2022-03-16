@@ -20,6 +20,7 @@ DE_DECLARE_MODULE(de_module_zlib);
 DE_DECLARE_MODULE(de_module_winzle);
 DE_DECLARE_MODULE(de_module_mrw);
 DE_DECLARE_MODULE(de_module_vgafont);
+DE_DECLARE_MODULE(de_module_pcrfont);
 DE_DECLARE_MODULE(de_module_zbr);
 DE_DECLARE_MODULE(de_module_compress);
 DE_DECLARE_MODULE(de_module_hpi);
@@ -833,6 +834,61 @@ void de_module_vgafont(deark *c, struct deark_module_info *mi)
 	mi->desc = "Raw 8xN bitmap font";
 	mi->run_fn = de_run_vgafont;
 	mi->help_fn = de_help_vgafont;
+}
+
+// **************************************************************************
+// PCR font (OPTICKS)
+// **************************************************************************
+
+static void de_run_pcrfont(deark *c, de_module_params *mparams)
+{
+	u8 hdr[11];
+	i64 h;
+	int need_errmsg = 0;
+	dbuf *inf = NULL;
+
+	de_read(hdr, 0, 11);
+	// I assume either hdr[7] or hdr[10] is the high byte of the font data size,
+	// but I don't know which.
+	if(hdr[6]!=0x1 || hdr[7]!=hdr[10] || hdr[8]!=0 || hdr[9]!=0) {
+		need_errmsg = 1;
+		goto done;
+	}
+	h = (i64)hdr[7];
+	de_dbg(c, "height: %d", (int)h);
+	if(h<VGAFONT_MINH || h>VGAFONT_MAXH || c->infile->len < 11+h*256) {
+		need_errmsg = 1;
+		goto done;
+	}
+
+	inf = dbuf_open_input_subfile(c->infile, 11, h*256);
+	do_vgafont_internal(c, inf);
+
+done:
+	dbuf_close(inf);
+	if(need_errmsg) {
+		de_err(c, "Unsupported type of PCR font");
+	}
+}
+
+static int de_identify_pcrfont(deark *c)
+{
+	u8 h;
+
+	if(dbuf_memcmp(c->infile, 0, "KPG", 3)) return 0;
+	if(de_getbyte(5)!=0x20) return 0;
+	h = de_getbyte(7);
+	if(h<6 || h>16) return 0;
+	if(de_getbyte(10)!=h) return 0;
+	return 80;
+}
+
+void de_module_pcrfont(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "pcrfont";
+	mi->desc = "PCR font";
+	mi->run_fn = de_run_pcrfont;
+	mi->identify_fn = de_identify_pcrfont;
 }
 
 // **************************************************************************

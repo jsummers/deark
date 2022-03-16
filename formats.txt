@@ -605,6 +605,8 @@ Deark -- Information about supported formats
 
 * PCF font (module="pcf") (experimental/incomplete)
 
+* PCR font (module="pcrfont") (experimental)
+
 * PC Screen Font (PSF) (module="psf")
   Options
    -opt font:noaliases - Restrict to one Unicode codepoint per glyph
