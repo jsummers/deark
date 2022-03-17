@@ -150,6 +150,8 @@ Deark -- Information about supported formats
 
 * DeskMate Paint .PNT (module="deskmate_pnt")
 
+* DGI (Digi-Pic) (module="dgi")
+
 * DL animation (DL MAKER) (module="dlmaker")
   - Extracts all images and audio clips, in the order they appear in the file.
   - File extension must be ".dl".

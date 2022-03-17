@@ -5,6 +5,7 @@
 // This file is for miscellaneous small modules that primarily do image decoding.
 
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_hpicn);
 DE_DECLARE_MODULE(de_module_xpuzzle);
 DE_DECLARE_MODULE(de_module_bob);
@@ -31,6 +32,13 @@ DE_DECLARE_MODULE(de_module_deskmate_pnt);
 DE_DECLARE_MODULE(de_module_mdesk_icn);
 DE_DECLARE_MODULE(de_module_animator_pic);
 DE_DECLARE_MODULE(de_module_young_picasso);
+DE_DECLARE_MODULE(de_module_dgi);
+DE_DECLARE_MODULE(de_module_cdi_imag);
+
+#define CODE_FORM 0x464f524dU
+#define CODE_IDAT 0x49444154U
+#define CODE_IHDR 0x49484452U
+#define CODE_PLTE 0x504c5445U
 
 // **************************************************************************
 // HP 100LX / HP 200LX .ICN icon format
@@ -1818,4 +1826,206 @@ void de_module_young_picasso(deark *c, struct deark_module_info *mi)
 	mi->desc = "Young Picasso .YP";
 	mi->run_fn = de_run_yp;
 	mi->identify_fn = de_identify_yp;
+}
+
+// **************************************************************************
+// DGI (Digi-Pic 2)
+// **************************************************************************
+
+static void do_dgi_convert_quadrant(deark *c, dbuf *imgbuf, i64 srcoffs, i64 dstoffs)
+{
+	i64 j;
+
+	for(j=0; j<50; j++) {
+		dbuf_copy_at(c->infile, srcoffs+j*160, 80, imgbuf, dstoffs+j*640);
+		dbuf_copy_at(c->infile, srcoffs+j*160+80, 80, imgbuf, dstoffs+j*640+320);
+		dbuf_copy_at(c->infile, srcoffs+8000+j*160, 80, imgbuf, dstoffs+j*640+160);
+		dbuf_copy_at(c->infile, srcoffs+8000+j*160+80, 80, imgbuf, dstoffs+j*640+480);
+	}
+}
+
+static void de_run_dgi(deark *c, de_module_params *mparams)
+{
+	dbuf *imgbuf = NULL;
+	de_bitmap *img = NULL;
+	de_color pal[4];
+
+	imgbuf = dbuf_create_membuf(c, 64000, 0x1);
+
+	// Full 640x400 image is stored as four 320x200-pixel quadrants.
+	// Each quadrant is interlaced.
+	do_dgi_convert_quadrant(c, imgbuf, 0, 0);
+	do_dgi_convert_quadrant(c, imgbuf, 16000, 80);
+	do_dgi_convert_quadrant(c, imgbuf, 32008, 32000);
+	do_dgi_convert_quadrant(c, imgbuf, 48008, 32080);
+
+	// Turbo DiGI by Basi Angulo seems to be the authority on this format, and
+	// this is the palette it uses, though it doesn't look very good.
+	// EGADGI by Craig Jensen also uses this palette by default, though it
+	// offers other palettes.
+	de_copy_std_palette(DE_PALID_CGA, 1, 0, 4, pal, 4, 0);
+
+	img = de_bitmap_create(c, 640, 400, 3);
+	de_convert_image_paletted(imgbuf, 0, 2, 160, pal, img, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
+
+	dbuf_close(imgbuf);
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_dgi(deark *c)
+{
+	int has_ext;
+
+	if(c->infile->len < 64008) return 0;
+	has_ext = de_input_file_has_ext(c, "dgi");
+	if(!has_ext && c->infile->len!=64008) return 0;
+	if(dbuf_memcmp(c->infile, 32000, (const void*)"\x01\x04\0\0\0\0\0\0", 8)) return 0;
+	if(has_ext && c->infile->len==64008) return 100;
+	return 20; // either no .dgi extension, or file unexpectedly large (but not both)
+}
+
+void de_module_dgi(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "dgi";
+	mi->desc = "DGI (Digi-Pic)";
+	mi->run_fn = de_run_dgi;
+	mi->identify_fn = de_identify_dgi;
+}
+
+// **************************************************************************
+// IFF CDI IMAG
+// **************************************************************************
+
+struct cdi_imag_ctx {
+	i64 npwidth, pdwidth, h;
+	i64 rowspan;
+	UI model;
+	UI depth;
+	u8 found_IHDR;
+	de_color pal[256];
+};
+
+static const char *get_cdi_imag_model_name(UI n)
+{
+	static const char *names[10] = { "RGB888", "RGB555", "DYUV", "CLUT8",
+		"CLUT7", "CLUT4", "CLUT3", "RL7", "RL3", "PLTE" };
+
+	if(n>=1 && n<=10) return names[n-1];
+	return "?";
+}
+
+static void do_cdi_imag_IHDR(deark *c, struct cdi_imag_ctx *d, struct de_iffctx *ictx)
+{
+	i64 pos = ictx->chunkctx->dpos;
+	if(ictx->chunkctx->dlen<10) return;
+	d->found_IHDR = 1;
+	d->npwidth = dbuf_getu16be_p(ictx->f, &pos);
+	d->rowspan = dbuf_getu16be_p(ictx->f, &pos);
+	d->h = dbuf_getu16be_p(ictx->f, &pos);
+	de_dbg_dimensions(c, d->npwidth, d->h);
+	de_dbg(c, "bytes/row: %u", (UI)d->rowspan);
+	d->model = (UI)dbuf_getu16be_p(ictx->f, &pos);
+	de_dbg(c, "model: %u (%s)", d->model, get_cdi_imag_model_name(d->model));
+	d->depth = (UI)dbuf_getu16be_p(ictx->f, &pos);
+	de_dbg(c, "bits/pixel: %u", d->depth);
+
+	if(d->depth==4 || d->depth==8) {
+		d->pdwidth = (d->rowspan*8)/d->depth;
+	}
+}
+
+static void do_cdi_imag_PLTE(deark *c, struct cdi_imag_ctx *d, struct de_iffctx *ictx)
+{
+	i64 offset;
+	i64 count;
+
+	offset = dbuf_getu16be(ictx->f, ictx->chunkctx->dpos);
+	count = dbuf_getu16be(ictx->f, ictx->chunkctx->dpos+2);
+	de_dbg(c, "entries: %u", (UI)count);
+	if(offset>255 || count<1) return;
+	de_read_palette_rgb(ictx->f, ictx->chunkctx->dpos+4, count, 3,
+		&d->pal[offset], 256-offset, 0);
+}
+
+static void do_cdi_imag_IDAT(deark *c, struct cdi_imag_ctx *d, struct de_iffctx *ictx)
+{
+	de_bitmap *img = NULL;
+
+	if(!d->found_IHDR) goto done;
+	if(d->model!=6) {
+		de_err(c, "Unsupported image type: model=%u", d->model);
+		goto done;
+	}
+	if(d->depth!=4) {
+		de_err(c, "Unsupported bits/pixel: %u", d->depth);
+		goto done;
+	}
+
+	if(!de_good_image_dimensions(c, d->npwidth, d->h)) goto done;
+	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->h, 3);
+	de_convert_image_paletted(ictx->f, ictx->chunkctx->dpos, (i64)d->depth,
+		d->rowspan, d->pal, img, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
+
+done:
+	de_bitmap_destroy(img);
+}
+
+static int my_cdi_imag_chunk_handler(struct de_iffctx *ictx)
+{
+	deark *c = ictx->c;
+	struct cdi_imag_ctx *d = (struct cdi_imag_ctx*)ictx->userdata;
+
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_FORM:
+		ictx->is_std_container = 1;
+		break;
+	case CODE_IDAT:
+		do_cdi_imag_IDAT(c, d, ictx);
+		ictx->handled = 1;
+		break;
+	case CODE_IHDR:
+		do_cdi_imag_IHDR(c, d, ictx);
+		ictx->handled = 1;
+		break;
+	case CODE_PLTE:
+		do_cdi_imag_PLTE(c, d, ictx);
+		ictx->handled = 1;
+		break;
+	}
+
+	return 1;
+}
+
+static void de_run_cdi_imag(deark *c, de_module_params *mparams)
+{
+	struct cdi_imag_ctx *d = NULL;
+	struct de_iffctx *ictx = NULL;
+
+	d = de_malloc(c, sizeof(struct cdi_imag_ctx));
+	ictx = fmtutil_create_iff_decoder(c);
+	ictx->userdata = (void*)d;
+	ictx->has_standard_iff_chunks = 1;
+	ictx->handle_chunk_fn = my_cdi_imag_chunk_handler;
+	ictx->f = c->infile;
+	fmtutil_read_iff_format(ictx, 0, c->infile->len);
+	fmtutil_destroy_iff_decoder(ictx);
+	de_free(c, d);
+}
+
+static int de_identify_cdi_imag(deark *c)
+{
+	if((UI)de_getu32be(0)!=CODE_FORM) return 0;
+	if(dbuf_memcmp(c->infile, 8, (const void*)"IMAGIHDR", 8)) return 0;
+	return 100;
+}
+
+void de_module_cdi_imag(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "cdi_imag";
+	mi->desc = "CD-I IFF IMAG";
+	mi->run_fn = de_run_cdi_imag;
+	mi->identify_fn = de_identify_cdi_imag;
+	mi->flags |= DE_MODFLAG_HIDDEN;
 }

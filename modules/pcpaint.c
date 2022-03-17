@@ -51,6 +51,7 @@ struct localctx_struct {
 static void set_density(deark *c, lctx *d)
 {
 	if(!d->fi) return;
+	if(d->ver<2) return;
 
 	switch(d->video_mode) {
 	case 'A': // 320x200
@@ -638,18 +639,32 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 	if(d->palette_flag==0xff) {
 		d->ver = 2;
 	}
+	else if(d->palette_flag==0 && d->plane_info==1) {
+		d->ver = 1;
+	}
 
-	if(d->ver!=2) {
+	if(d->ver!=1 && d->ver!=2) {
 		de_err(c, "This version of PCPaint PIC is not supported");
 		goto done;
 	}
+	if(d->ver!=2) {
+		de_warn(c, "This version of PCPaint PIC might not be supported correctly");
+	}
 
-	d->video_mode = de_getbyte(12);
-	de_dbg(c, "video mode: 0x%02x", (int)d->video_mode);
+	if(d->ver==1) {
+		// V1 support is based on the behavior of Iconvert (Infinity Engineering Services)
+		d->video_mode = 0;
+		d->pal_info_mainfile.edesc = 0;
+		d->pal_info_mainfile.esize = 10;
+	}
+	else {
+		d->video_mode = de_getbyte(12);
+		de_dbg(c, "video mode: 0x%02x", (int)d->video_mode);
 
-	do_read_palette_data(c, d, c->infile, &d->pal_info_mainfile);
-	de_dbg(c, "edesc: %d", (int)d->pal_info_mainfile.edesc);
-	de_dbg(c, "esize: %d", (int)d->pal_info_mainfile.esize);
+		do_read_palette_data(c, d, c->infile, &d->pal_info_mainfile);
+		de_dbg(c, "edesc: %d", (int)d->pal_info_mainfile.edesc);
+		de_dbg(c, "esize: %d", (int)d->pal_info_mainfile.esize);
+	}
 
 	if(d->pal_info_mainfile.esize>0) {
 		de_dbg(c, "palette or other info at %d", 17);
@@ -851,8 +866,13 @@ static int de_identify_pcpaint(deark *c)
 	pic_ext = de_input_file_has_ext(c, "pic");
 
 	de_read(buf, 0, 12);
-	if(buf[0]==0x34 && buf[1]==0x12 && buf[11]==0xff) {
-		return pic_ext ? 100 : 50;
+	if(buf[0]==0x34 && buf[1]==0x12) {
+		if(buf[11]==0xff) {
+			return pic_ext ? 100 : 50;
+		}
+		if(buf[11]==0x00 && buf[10]==0x01) {
+			return pic_ext ? 60 : 10;
+		}
 	}
 
 	clp_ext = de_input_file_has_ext(c, "clp");
