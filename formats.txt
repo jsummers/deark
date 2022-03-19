@@ -293,6 +293,9 @@ Deark -- Information about supported formats
   - Incomplete; almost certainly does not support all KQP files.
   - Convert to JPEG.
 
+* Lotus Manuscript graphics (.bit, .rle) (module="lotus_mscr") (experimental)
+  - Not always autodetected. You may have to use "-m lotus_mscr".
+
 * LSS16 (SYSLINUX image) (module="lss16")
 
 * Lumena CEL (module="lumena_cel")
