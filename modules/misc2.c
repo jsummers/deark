@@ -34,6 +34,7 @@ DE_DECLARE_MODULE(de_module_animator_pic);
 DE_DECLARE_MODULE(de_module_young_picasso);
 DE_DECLARE_MODULE(de_module_dgi);
 DE_DECLARE_MODULE(de_module_cdi_imag);
+DE_DECLARE_MODULE(de_module_cserve_rle);
 
 #define CODE_FORM 0x464f524dU
 #define CODE_IDAT 0x49444154U
@@ -2028,4 +2029,121 @@ void de_module_cdi_imag(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_cdi_imag;
 	mi->identify_fn = de_identify_cdi_imag;
 	mi->flags |= DE_MODFLAG_HIDDEN;
+}
+
+// **************************************************************************
+// CompuServe RLE
+// **************************************************************************
+
+static int get_cserve_rle_fmt(deark *c)
+{
+	u8 buf[3];
+
+	de_read(buf, 0, 3);
+	if(buf[0]!=0x1b || buf[1]!=0x47) return 0;
+	if(buf[2]==0x4d) return 1;
+	if(buf[2]==0x48) return 2;
+	return 0;
+}
+
+static void de_run_cserve_rle(deark *c, de_module_params *mparams)
+{
+	int fmt;
+	i64 w, expected_h, actual_h;
+	i64 max_npixels;
+	i64 npixels_expected;
+	i64 npixels_found;
+	i64 pos;
+	u8 next_color;
+	dbuf *unc_pixels = NULL;
+	de_bitmap *img = NULL;
+	de_color pal[256];
+
+	fmt = get_cserve_rle_fmt(c);
+	if(fmt==1) {
+		w = 128;
+		expected_h = 96;
+	}
+	else if(fmt==2) {
+		w = 256;
+		expected_h = 192;
+	}
+	else {
+		de_err(c, "Not a CompuServe RLE file");
+		goto done;
+	}
+
+	de_dbg(c, "width: %"I64_FMT, w);
+	npixels_expected = w*expected_h;
+#define CSRLE_MAX_H 1920 // arbitrary
+	max_npixels = w*CSRLE_MAX_H;
+	unc_pixels = dbuf_create_membuf(c, max_npixels, 0x1);
+	dbuf_enable_wbuffer(unc_pixels);
+	pos = 3;
+	npixels_found = 0;
+	next_color = 1; // 1=black, 2=white, 0=unset
+	while(1) {
+		u8 x;
+
+		if(npixels_found >= max_npixels) {
+			break;
+		}
+		if(pos >= c->infile->len) break;
+
+		x = de_getbyte_p(&pos);
+		if(x>=0x20) {
+			i64 count;
+
+			count = (i64)x - 0x20;
+			dbuf_write_run(unc_pixels, next_color, count);
+			npixels_found += count;
+			next_color = (next_color==1)?2:1;
+		}
+		else if(x==0x1b) {
+			break;
+		}
+		// TODO: Could do more error checking
+	}
+
+	dbuf_flush(unc_pixels);
+	actual_h = expected_h;
+	if(npixels_found != npixels_expected) {
+		de_warn(c, "Expected %"I64_FMT" pixels, found %"I64_FMT"%s", npixels_expected,
+			npixels_found,
+			((npixels_found>npixels_expected && !c->padpix)?" (try -padpix)":""));
+		if(npixels_found>npixels_expected && c->padpix) {
+			actual_h = de_pad_to_n(npixels_found, w)/w;
+		}
+	}
+
+	img = de_bitmap_create(c, w, actual_h, 3);
+	de_zeromem(pal, sizeof(pal));
+	// Images that don't end cleanly are common enough that we go to
+	// the trouble of making missing pixels a special color.
+	pal[0] = DE_MAKE_RGB(255,0,255);
+	pal[1] = DE_STOCKCOLOR_BLACK;
+	pal[2] = DE_STOCKCOLOR_WHITE;
+	de_convert_image_paletted(unc_pixels, 0, 8, w, pal, img, 0);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
+
+done:
+	dbuf_close(unc_pixels);
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_cserve_rle(deark *c)
+{
+	int x;
+
+	x = get_cserve_rle_fmt(c);
+	if(x==0) return 0;
+	return 85;
+}
+
+void de_module_cserve_rle(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "cserve_rle";
+	mi->desc = "CompuServe RLE";
+	mi->run_fn = de_run_cserve_rle;
+	mi->identify_fn = de_identify_cserve_rle;
 }
