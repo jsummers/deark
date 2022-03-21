@@ -8,7 +8,6 @@
 #include <deark-config.h>
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_palmdb);
-DE_DECLARE_MODULE(de_module_palmrc);
 
 #define CODE_Tbmp 0x54626d70U
 #define CODE_View 0x56696577U
@@ -178,6 +177,12 @@ static int do_read_pdb_prc_header(deark *c, lctx *d)
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz(dname));
 
 	attribs = (u32)de_getu16be(pos1+32);
+	if(attribs & 0x0001) {
+		d->file_fmt = FMT_PRC;
+	}
+	else {
+		d->file_fmt = FMT_PDB;
+	}
 	attr_descr = ucstring_create(c);
 	get_db_attr_descr(attr_descr, attribs);
 	de_dbg(c, "attributes: 0x%04x (%s)", (unsigned int)attribs,
@@ -219,6 +224,7 @@ static int do_read_pdb_prc_header(deark *c, lctx *d)
 	}
 	else if(d->file_fmt==FMT_PRC) {
 		d->fmt_shortname = "PRC";
+		de_declare_fmt(c, "Palm PRC");
 	}
 	else {
 		goto done;
@@ -929,10 +935,12 @@ static void free_lctx(deark *c, lctx *d)
 	}
 }
 
-static void de_run_pdb_or_prc(deark *c, lctx *d, de_module_params *mparams)
+static void de_run_pdb_or_prc(deark *c, de_module_params *mparams)
 {
 	const char *s;
+	lctx *d = NULL;
 
+	d = de_malloc(c, sizeof(lctx));
 	s = de_get_ext_option(c, "palm:timestampfmt");
 	if(s) {
 		if(!de_strcmp(s, "macbe"))
@@ -948,31 +956,32 @@ static void de_run_pdb_or_prc(deark *c, lctx *d, de_module_params *mparams)
 	do_app_info_block(c, d);
 	do_sort_info_block(c, d);
 done:
-	;
-}
-
-static void de_run_palmdb(deark *c, de_module_params *mparams)
-{
-	lctx *d = NULL;
-	d = de_malloc(c, sizeof(lctx));
-	d->file_fmt = FMT_PDB;
-	de_run_pdb_or_prc(c, d, mparams);
 	free_lctx(c, d);
 }
 
-static void de_run_palmrc(deark *c, de_module_params *mparams)
+static int looks_like_a_4cc_b(const u8 *buf)
 {
-	lctx *d = NULL;
-	d = de_malloc(c, sizeof(lctx));
-	d->file_fmt = FMT_PRC;
-	de_declare_fmt(c, "Palm PRC");
-	de_run_pdb_or_prc(c, d, mparams);
-	free_lctx(c, d);
+	i64 i;
+
+	for(i=0; i<4; i++) {
+		if(buf[i]<32 || buf[i]>126) return 0;
+	}
+	return 1;
 }
 
-static int de_identify_palmdb(deark *c)
+static int looks_like_a_4cc_f(dbuf *f, i64 pos)
 {
-	int has_ext = 0;
+	u8 buf[4];
+
+	dbuf_read(f, buf, pos, 4);
+	return looks_like_a_4cc_b(buf);
+}
+
+static int de_identify_pdb_prc(deark *c)
+{
+	u8 has_ext = 0;
+	u8 is_prc;
+	u8 appl_type = 0;
 	u8 id[8];
 	u8 buf[32];
 	u32 attribs;
@@ -996,21 +1005,25 @@ static int de_identify_palmdb(deark *c)
 	if(!has_ext) return 0;
 
 	attribs = (u32)de_getu16be(32);
-	if(attribs & 0x0001) return 0; // Might be PRC, but is not PDB
+	is_prc = (attribs & 0x0001)?1:0;
 
 	// It is not easy to identify PDB format from its contents.
 	// But it's good to do what we can, because the .pdb file extension
 	// is used by several other formats.
 
-	// The type/creator codes must presumably be printable characters
+	// Check for sensible type/creator codes
 	de_read(id, 60, 8);
-	for(k=0; k<8; k++) {
-		if(id[k]<32) return 0;
-	}
+	if(!looks_like_a_4cc_b(id)) return 0;
+	if(!looks_like_a_4cc_b(&id[4])) return 0;
 
 	// Check for known file types
-	for(k=0; k<DE_ARRAYCOUNT(ids); k++) {
-		if(!de_memcmp(id, ids[k], 8)) return 100;
+	if(is_prc) {
+		if(!de_memcmp(id, (const void*)"appl", 4)) appl_type = 1;
+	}
+	else {
+		for(k=0; k<DE_ARRAYCOUNT(ids); k++) {
+			if(!de_memcmp(id, ids[k], 8)) return 100;
+		}
 	}
 
 	// There must be at least one NUL byte in the first 32 bytes,
@@ -1030,7 +1043,7 @@ static int de_identify_palmdb(deark *c)
 	sortinfo_offs = de_getu32be(56);
 	num_recs = de_getu16be(72+4);
 
-	curpos = 72 + 6 + num_recs*8;
+	curpos = 72 + 6 + num_recs*(is_prc?10:8);
 	if(curpos>c->infile->len) return 0;
 
 	if(appinfo_offs!=0) {
@@ -1048,63 +1061,23 @@ static int de_identify_palmdb(deark *c)
 	if(num_recs>0) {
 		// Sanity-check the first record.
 		// TODO? We could check more than one record.
-		recdata_offs = de_getu32be(72+6+0);
+		if(is_prc) {
+			if(!looks_like_a_4cc_f(c->infile, 72+6+0)) return 0;
+		}
+		if(is_prc)
+			recdata_offs = de_getu32be(72+6+6);
+		else
+			recdata_offs = de_getu32be(72+6+0);
 		if(recdata_offs<curpos) return 0;
 		curpos = recdata_offs;
 		if(curpos>c->infile->len) return 0;
 	}
 
-	return 25;
-}
-
-static int looks_like_a_4cc(dbuf *f, i64 pos)
-{
-	i64 i;
-	u8 buf[4];
-	dbuf_read(f, buf, pos, 4);
-	for(i=0; i<4; i++) {
-		if(buf[i]<32 || buf[i]>126) return 0;
+	if(num_recs>0) {
+		if(appl_type) return 90;
+		return 25;
 	}
-	return 1;
-}
-
-// returns 1 if it might be a pdb, 2 if it might be a prc
-// TODO: pdb
-// TODO: Improve this ID algorithm
-static int identify_pdb_prc_internal(deark *c, dbuf *f)
-{
-	i64 nrecs;
-	u32 attribs;
-	attribs = (u32)dbuf_getu16be(f, 32);
-	if(!looks_like_a_4cc(f, 60)) return 0;
-	if(!looks_like_a_4cc(f, 64)) return 0;
-	nrecs = dbuf_getu16be(f, 72+4);
-	if(nrecs<1) return 0;
-	if(!(attribs&0x0001)) return 0;
-	if(!looks_like_a_4cc(f, 72+6+0)) return 0;
-	return 2;
-}
-
-static int de_identify_palmrc(deark *c)
-{
-	int prc_ext = 0;
-	int pdb_ext = 0;
-	int x;
-	u8 id[8];
-
-	if(de_input_file_has_ext(c, "prc"))
-		prc_ext = 1;
-	else if(de_input_file_has_ext(c, "pdb"))
-		pdb_ext = 1;
-	if(!prc_ext && !pdb_ext) return 0;
-
-	de_read(id, 60, 8);
-	if(!de_memcmp(id, "appl", 4)) return 100;
-
-	x = identify_pdb_prc_internal(c, c->infile);
-	if(x==2 && prc_ext) return 90;
-	if(x==2 && pdb_ext) return 60;
-	return 0;
+	return 9;
 }
 
 static void de_help_pdb_prc(deark *c)
@@ -1116,17 +1089,9 @@ static void de_help_pdb_prc(deark *c)
 void de_module_palmdb(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "palmdb";
-	mi->desc = "Palm OS PDB";
-	mi->run_fn = de_run_palmdb;
-	mi->identify_fn = de_identify_palmdb;
-	mi->help_fn = de_help_pdb_prc;
-}
-
-void de_module_palmrc(deark *c, struct deark_module_info *mi)
-{
-	mi->id = "palmrc";
-	mi->desc = "Palm OS PRC";
-	mi->run_fn = de_run_palmrc;
-	mi->identify_fn = de_identify_palmrc;
+	mi->id_alias[0] = "palmrc";
+	mi->desc = "Palm OS PDB or PRC";
+	mi->run_fn = de_run_pdb_or_prc;
+	mi->identify_fn = de_identify_pdb_prc;
 	mi->help_fn = de_help_pdb_prc;
 }

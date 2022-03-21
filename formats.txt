@@ -807,19 +807,14 @@ Deark -- Information about supported formats
 
 * PackDir (module="packdir") (experimental)
 
-* Palm PDB/PQA (module="palmdb")
+* Palm PDB/PRC/PQA (module="palmdb")
   - You may have to use "-m palmdb".
-  - Use -a to extract the record blocks, but note that they are usually not in
-    well-known formats.
-  Options
-   -opt timestampfmt=<macbe|unixbe|macle> - The timestamp format to assume.
-
-* Palm PRC (module="palmrc")
-  - You may have to use "-m palmrc".
   - Use -a to extract the record blocks, but note that they are usually not in
     well-known formats.
   - Extracted ".palm" files are in Palm BitmapType format. Reprocess them to
     convert to PNG.
+  Options
+   -opt timestampfmt=<macbe|unixbe|macle> - The timestamp format to assume.
 
 * Pasti (.stx) (module="pasti") (experimental)
   - Atari ST disk image format.
