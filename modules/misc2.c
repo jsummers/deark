@@ -2212,22 +2212,33 @@ static void do_lotus_mscr_rle(deark *c, struct lotus_mscr_ctx *d)
 
 static void de_run_lotus_mscr(deark *c, de_module_params *mparams)
 {
-	i64 pos;
+	i64 pos = 0;
 	i64 dens1, dens2;
+	u8 x;
 	u8 is_rle;
 	struct lotus_mscr_ctx *d = NULL;
 
 	d = de_malloc(c, sizeof(struct lotus_mscr_ctx));
 	d->fi = de_finfo_create(c);
-	is_rle = (de_getbyte(0) == 'R'); // FIXME
+	x = de_getbyte_p(&pos);
+	if(x=='B') {
+		is_rle = 0;
+	}
+	else if(x=='R') {
+		is_rle = 1;
+	}
+	else {
+		de_err(c, "Not a Lotus Manuscript file");
+		goto done;
+	}
 	de_dbg(c, "compressed: %u", (UI)is_rle);
-	pos = 1;
 	dens1 = de_getu16le_p(&pos);
 	dens2 = de_getu16le_p(&pos);
-	// TODO: Figure out which dpi is which. Until then, we only proceed if they
-	// are equal.
+	de_dbg(c, "dpi: %d, %d", (int)dens1, (int)dens2);
+	// TODO: Figure out which dpi is which.
+	// ART2WP thinks x is first, but that's a little surprising when the y
+	// *dimension* is first, so I'm not trusting it.
 	if(dens1==dens2 && dens1>=50 && dens1<=1200) {
-		de_dbg(c, "dpi: %d", (int)dens1);
 		d->fi->density.code = DE_DENSITY_DPI;
 		d->fi->density.xdens = (double)dens1;
 		d->fi->density.ydens = d->fi->density.xdens;
