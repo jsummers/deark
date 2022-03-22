@@ -247,19 +247,28 @@ static int do_2color(deark *c, lctx *d)
 static int do_256color(deark *c, lctx *d)
 {
 	i64 w, h;
+	i64 pos = BSAVE_HDRSIZE;
 	de_bitmap *img = NULL;
 
 	de_declare_fmt(c, "BSAVE-PC 256-color");
 
-	w = get_width(c, d, 320);
-	h = get_height(c, d, 200);
+	if(d->has_dimension_fields) {
+		w = de_getu16le_p(&pos);
+		w = (w+7)/8;
+		h = de_getu16le_p(&pos);
+	}
+	else {
+		w = get_width(c, d, 320);
+		h = get_height(c, d, 200);
+	}
+	de_dbg_dimensions(c, w, h);
 
 	if(!d->pal_valid) {
 		de_copy_std_palette(DE_PALID_VGA256, 0, 0, 256, d->pal, 256, 0);
 	}
 
 	img = de_bitmap_create(c, w, h, 3);
-	de_convert_image_paletted(c->infile, BSAVE_HDRSIZE, 8, w, d->pal, img, 0);
+	de_convert_image_paletted(c->infile, pos, 8, w, d->pal, img, 0);
 	de_bitmap_write_to_file(img, NULL, 0);
 	de_bitmap_destroy(img);
 	return 1;
@@ -549,6 +558,10 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 		d->has_dimension_fields = 1;
 		decoder_fn = do_4color;
 	}
+	else if(!de_strcmp(bsavefmt,"wh256")) {
+		d->has_dimension_fields = 1;
+		decoder_fn = do_256color;
+	}
 	else if(!de_strcmp(bsavefmt,"wh16")) {
 		decoder_fn = do_wh16;
 	}
@@ -612,6 +625,7 @@ static void de_help_bsave(deark *c)
 	de_msg(c, " wh2   : 2-color, 11-byte header");
 	de_msg(c, " wh4   : 4-color, 11-byte header");
 	de_msg(c, " wh16  : 16-color, 11-byte header, inter-row interlaced");
+	de_msg(c, " wh256 : 256-color, 11-byte header");
 	de_msg(c, " b256  : Special");
 	de_msg(c, " 2col  : 2-color noninterlaced");
 	de_msg(c, " 4col  : 4-color noninterlaced");

@@ -103,6 +103,7 @@ Deark -- Information about supported formats
    -opt bsave:fmt=wh4   - 4 color, header includes width & height
    -opt bsave:fmt=wh16  - 16 color, header includes width & height, inter-row
      interlaced
+   -opt bsave:fmt=wh256 - 256 color, header includes width & height
    -opt bsave:fmt=b265  - Special
    -opt bsave:fmt=2col  - 2-color noninterlaced (experimental)
    -opt bsave:fmt=4col  - 4-color noninterlaced (experimental)

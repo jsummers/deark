@@ -25,6 +25,17 @@ static void de_run_bld(deark *c, de_module_params *mparams)
 	int is_compressed;
 	dbuf *unc_pixels = NULL;
 
+	if(c->module_disposition==DE_MODDISP_AUTODETECT &&
+		de_getbyte(0)==0xfd)
+	{
+		// Unfortunately, Megapaint and BSAVE may both use extension .bld.
+		// And compressed Megapaint files with a width between 514 and 769
+		// start with 0xfd, like BSAVE files do.
+		// TODO: Figure out if it's possible to distinguish them.
+		de_info(c, "Note: This might be a BLOAD/BSAVE file. "
+			"Try \"-m bsave\" if there are problems.");
+	}
+
 	w_raw = de_geti16be_p(&pos);
 	h_raw = de_geti16be_p(&pos);
 	is_compressed = (w_raw<0);
