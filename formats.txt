@@ -293,6 +293,9 @@ Deark -- Information about supported formats
   - Incomplete; almost certainly does not support all KQP files.
   - Convert to JPEG.
 
+* Lotus Manuscript graphics (.bit, .rle) (module="lotus_mscr") (experimental)
+  - Not always autodetected. You may have to use "-m lotus_mscr".
+
 * LSS16 (SYSLINUX image) (module="lss16")
 
 * Lumena CEL (module="lumena_cel")
@@ -605,6 +608,8 @@ Deark -- Information about supported formats
 
 * PCF font (module="pcf") (experimental/incomplete)
 
+* PCR font (module="pcrfont") (experimental)
+
 * PC Screen Font (PSF) (module="psf")
   Options
    -opt font:noaliases - Restrict to one Unicode codepoint per glyph
@@ -614,7 +619,11 @@ Deark -- Information about supported formats
 * PK font (Packed Font) (module="pkfont") (partial support)
 
 * Unifont HEX (module="unifont_hex")
-  - Cannot be autodetected. You must use "-m unifont_hex".
+  - Cannot be autodetected. Use "-m unifont_hex".
+
+* VGA font (module="vgafont")
+  Raw 8xN bitmapped font with 256 characters.
+  - Cannot be autodetected. Use "-m vgafont".
 
 === Compression, archive, installer, disk image modules ===
 
@@ -798,19 +807,14 @@ Deark -- Information about supported formats
 
 * PackDir (module="packdir") (experimental)
 
-* Palm PDB/PQA (module="palmdb")
+* Palm PDB/PRC/PQA (module="palmdb")
   - You may have to use "-m palmdb".
-  - Use -a to extract the record blocks, but note that they are usually not in
-    well-known formats.
-  Options
-   -opt timestampfmt=<macbe|unixbe|macle> - The timestamp format to assume.
-
-* Palm PRC (module="palmrc")
-  - You may have to use "-m palmrc".
   - Use -a to extract the record blocks, but note that they are usually not in
     well-known formats.
   - Extracted ".palm" files are in Palm BitmapType format. Reprocess them to
     convert to PNG.
+  Options
+   -opt timestampfmt=<macbe|unixbe|macle> - The timestamp format to assume.
 
 * Pasti (.stx) (module="pasti") (experimental)
   - Atari ST disk image format.

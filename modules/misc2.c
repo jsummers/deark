@@ -34,6 +34,8 @@ DE_DECLARE_MODULE(de_module_animator_pic);
 DE_DECLARE_MODULE(de_module_young_picasso);
 DE_DECLARE_MODULE(de_module_dgi);
 DE_DECLARE_MODULE(de_module_cdi_imag);
+DE_DECLARE_MODULE(de_module_cserve_rle);
+DE_DECLARE_MODULE(de_module_lotus_mscr);
 
 #define CODE_FORM 0x464f524dU
 #define CODE_IDAT 0x49444154U
@@ -2028,4 +2030,283 @@ void de_module_cdi_imag(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_cdi_imag;
 	mi->identify_fn = de_identify_cdi_imag;
 	mi->flags |= DE_MODFLAG_HIDDEN;
+}
+
+// **************************************************************************
+// CompuServe RLE
+// **************************************************************************
+
+static int get_cserve_rle_fmt(deark *c)
+{
+	u8 buf[3];
+
+	de_read(buf, 0, 3);
+	if(buf[0]!=0x1b || buf[1]!=0x47) return 0;
+	if(buf[2]==0x4d) return 1;
+	if(buf[2]==0x48) return 2;
+	return 0;
+}
+
+static void de_run_cserve_rle(deark *c, de_module_params *mparams)
+{
+	int fmt;
+	i64 w, expected_h, actual_h;
+	i64 max_npixels;
+	i64 npixels_expected;
+	i64 npixels_found;
+	i64 pos;
+	u8 next_color;
+	dbuf *unc_pixels = NULL;
+	de_bitmap *img = NULL;
+	de_color pal[256];
+
+	fmt = get_cserve_rle_fmt(c);
+	if(fmt==1) {
+		w = 128;
+		expected_h = 96;
+	}
+	else if(fmt==2) {
+		w = 256;
+		expected_h = 192;
+	}
+	else {
+		de_err(c, "Not a CompuServe RLE file");
+		goto done;
+	}
+
+	de_dbg(c, "width: %"I64_FMT, w);
+	npixels_expected = w*expected_h;
+#define CSRLE_MAX_H 1920 // arbitrary
+	max_npixels = w*CSRLE_MAX_H;
+	unc_pixels = dbuf_create_membuf(c, max_npixels, 0x1);
+	dbuf_enable_wbuffer(unc_pixels);
+	pos = 3;
+	npixels_found = 0;
+	next_color = 1; // 1=black, 2=white, 0=unset
+	while(1) {
+		u8 x;
+
+		if(npixels_found >= max_npixels) {
+			break;
+		}
+		if(pos >= c->infile->len) break;
+
+		x = de_getbyte_p(&pos);
+		if(x>=0x20) {
+			i64 count;
+
+			count = (i64)x - 0x20;
+			dbuf_write_run(unc_pixels, next_color, count);
+			npixels_found += count;
+			next_color = (next_color==1)?2:1;
+		}
+		else if(x==0x1b) {
+			break;
+		}
+		// TODO: Could do more error checking
+	}
+
+	dbuf_flush(unc_pixels);
+	actual_h = expected_h;
+	if(npixels_found != npixels_expected) {
+		de_warn(c, "Expected %"I64_FMT" pixels, found %"I64_FMT"%s", npixels_expected,
+			npixels_found,
+			((npixels_found>npixels_expected && !c->padpix)?" (try -padpix)":""));
+		if(npixels_found>npixels_expected && c->padpix) {
+			actual_h = de_pad_to_n(npixels_found, w)/w;
+		}
+	}
+
+	img = de_bitmap_create(c, w, actual_h, 3);
+	de_zeromem(pal, sizeof(pal));
+	// Images that don't end cleanly are common enough that we go to
+	// the trouble of making missing pixels a special color.
+	pal[0] = DE_MAKE_RGB(255,0,255);
+	pal[1] = DE_STOCKCOLOR_BLACK;
+	pal[2] = DE_STOCKCOLOR_WHITE;
+	de_convert_image_paletted(unc_pixels, 0, 8, w, pal, img, 0);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
+
+done:
+	dbuf_close(unc_pixels);
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_cserve_rle(deark *c)
+{
+	int x;
+
+	x = get_cserve_rle_fmt(c);
+	if(x==0) return 0;
+	return 85;
+}
+
+void de_module_cserve_rle(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "cserve_rle";
+	mi->desc = "CompuServe RLE";
+	mi->run_fn = de_run_cserve_rle;
+	mi->identify_fn = de_identify_cserve_rle;
+}
+
+// **************************************************************************
+// Lotus Manuscript graphics (.bit, .rle)
+// **************************************************************************
+
+struct lotus_mscr_ctx {
+	i64 w, h;
+	i64 rowspan;
+	de_finfo *fi;
+};
+
+// Warning: This algorithm is based on reverse engineering, and might not
+// be quite right.
+static void do_lotus_mscr_rle(deark *c, struct lotus_mscr_ctx *d)
+{
+	i64 npixels_expected;
+	i64 npixels_found;
+	i64 pos;
+	dbuf *unc_pixels = NULL;
+	de_bitmap *img = NULL;
+	de_color pal[256];
+
+	npixels_expected = d->w*d->h;
+	unc_pixels = dbuf_create_membuf(c, npixels_expected, 0x1);
+	dbuf_enable_wbuffer(unc_pixels);
+	pos = 9;
+	npixels_found = 0;
+
+	while(1) {
+		i64 count;
+		u8 color;
+		u8 x;
+
+		if(npixels_found >= npixels_expected) break;
+		if(pos >= c->infile->len) break;
+
+		x = de_getbyte_p(&pos);
+		color = x>>7;
+		count = (i64)(x & 0x7f);
+		if(count==0) count = 128;
+
+		dbuf_write_run(unc_pixels, color, count);
+		npixels_found += count;
+	}
+
+	dbuf_flush(unc_pixels);
+	if(npixels_found != npixels_expected) {
+		de_warn(c, "Expected %"I64_FMT" pixels, found %"I64_FMT, npixels_expected,
+			npixels_found);
+	}
+
+	img = de_bitmap_create(c, d->w, d->h, 1);
+	de_zeromem(pal, sizeof(pal));
+	pal[0] = DE_STOCKCOLOR_WHITE;
+	pal[1] = DE_STOCKCOLOR_BLACK;
+	de_convert_image_paletted(unc_pixels, 0, 8, d->w, pal, img, 0);
+	de_bitmap_write_to_file_finfo(img, d->fi, 0);
+
+	dbuf_close(unc_pixels);
+	de_bitmap_destroy(img);
+}
+
+static void de_run_lotus_mscr(deark *c, de_module_params *mparams)
+{
+	i64 pos = 0;
+	i64 dens1, dens2;
+	u8 x;
+	u8 is_rle;
+	struct lotus_mscr_ctx *d = NULL;
+
+	d = de_malloc(c, sizeof(struct lotus_mscr_ctx));
+	d->fi = de_finfo_create(c);
+	x = de_getbyte_p(&pos);
+	if(x=='B') {
+		is_rle = 0;
+	}
+	else if(x=='R') {
+		is_rle = 1;
+	}
+	else {
+		de_err(c, "Not a Lotus Manuscript file");
+		goto done;
+	}
+	de_dbg(c, "compressed: %u", (UI)is_rle);
+	dens1 = de_getu16le_p(&pos);
+	dens2 = de_getu16le_p(&pos);
+	de_dbg(c, "dpi: %d, %d", (int)dens1, (int)dens2);
+	// TODO: Figure out which dpi is which.
+	// ART2WP thinks x is first, but that's a little surprising when the y
+	// *dimension* is first, so I'm not trusting it.
+	if(dens1==dens2 && dens1>=50 && dens1<=1200) {
+		d->fi->density.code = DE_DENSITY_DPI;
+		d->fi->density.xdens = (double)dens1;
+		d->fi->density.ydens = d->fi->density.xdens;
+	}
+	d->h = de_getu16le_p(&pos);
+	d->rowspan = de_getu16le_p(&pos);
+	d->w = d->rowspan * 8;
+	de_dbg_dimensions(c, d->w, d->h);
+	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
+	if(is_rle) {
+		do_lotus_mscr_rle(c, d);
+	}
+	else {
+		de_convert_and_write_image_bilevel(c->infile, pos, d->w, d->h, d->rowspan,
+			DE_CVTF_WHITEISZERO, d->fi, 0);
+	}
+
+done:
+	if(d) {
+		de_finfo_destroy(c, d->fi);
+		de_free(c, d);
+	}
+}
+
+static int de_identify_lotus_mscr(deark *c)
+{
+	u8 is_rle, x;
+	i64 d1, d2, h, rb;
+
+	x = de_getbyte(0);
+	if(x=='B' && de_input_file_has_ext(c, "bit")) {
+		is_rle = 0;
+	}
+	else if(x=='R' && de_input_file_has_ext(c, "rle")) {
+		is_rle = 1;
+	}
+	else {
+		return 0;
+	}
+
+	d1 = de_getu16le(1);
+	d2 = de_getu16le(3);
+	if(is_rle) {
+		// RLE is particularly hard to detect, because we can't use the file size.
+		if(d1!=d2) return 0;
+		if(d1!=72 && d1!=300) return 0;
+	}
+	else {
+		if(d1>=600 || d2>600) return 0;
+	}
+
+	h = de_getu16le(5);
+	rb = de_getu16le(7);
+	if(h==0 || rb==0 || h>3300 || rb>320) return 0;
+	if(is_rle) {
+		return 12;
+	}
+	else {
+		if(9+h*rb == c->infile->len) return 75;
+	}
+
+	return 0;
+}
+
+void de_module_lotus_mscr(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "lotus_mscr";
+	mi->desc = "Lotus Manuscript graphics";
+	mi->run_fn = de_run_lotus_mscr;
+	mi->identify_fn = de_identify_lotus_mscr;
 }

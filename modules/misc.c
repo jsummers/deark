@@ -20,6 +20,7 @@ DE_DECLARE_MODULE(de_module_zlib);
 DE_DECLARE_MODULE(de_module_winzle);
 DE_DECLARE_MODULE(de_module_mrw);
 DE_DECLARE_MODULE(de_module_vgafont);
+DE_DECLARE_MODULE(de_module_pcrfont);
 DE_DECLARE_MODULE(de_module_zbr);
 DE_DECLARE_MODULE(de_module_compress);
 DE_DECLARE_MODULE(de_module_hpi);
@@ -742,29 +743,29 @@ void de_module_mrw(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
-// VGA font (intended for development/debugging use)
+// 8xN "VGA" font (intended for development/debugging use)
 // **************************************************************************
 
-static void de_run_vgafont(deark *c, de_module_params *mparams)
+static void do_vgafont_internal(deark *c, dbuf *inf)
 {
 	u8 *fontdata = NULL;
 	struct de_bitmap_font *font = NULL;
 	i64 i;
 	i64 height;
+	de_encoding encoding_req;
+	de_encoding encoding_to_use;
+	struct de_encconv_state es;
 
-	if(c->infile->len==16*256) {
-		height = 16;
-	}
-	else if(c->infile->len==14*256) {
-		height = 14;
-	}
-	else {
+#define VGAFONT_MINH 3
+#define VGAFONT_MAXH 20
+	height = inf->len / 256;
+	if((inf->len % 256) || height<VGAFONT_MINH || height>VGAFONT_MAXH) {
 		de_err(c, "Bad file size");
 		goto done;
 	}
 
 	fontdata = de_malloc(c, height*256);
-	de_read(fontdata, 0, height*256);
+	dbuf_read(inf, fontdata, 0, height*256);
 
 	if(de_get_ext_option(c, "vgafont:c")) {
 		dbuf *ff;
@@ -779,17 +780,28 @@ static void de_run_vgafont(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
+	encoding_req = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
+	if(encoding_req!=DE_ENCODING_UNKNOWN)
+		encoding_to_use = encoding_req;
+	else
+		encoding_to_use = DE_ENCODING_CP437;
+
 	font = de_create_bitmap_font(c);
 	font->num_chars = 256;
 	font->has_nonunicode_codepoints = 1;
-	font->has_unicode_codepoints = 0;
-	font->prefer_unicode = 0;
+	font->has_unicode_codepoints = 1;
+	font->prefer_unicode = (encoding_req!=DE_ENCODING_UNKNOWN);
 	font->nominal_width = 8;
 	font->nominal_height = (int)height;
 	font->char_array = de_mallocarray(c, font->num_chars, sizeof(struct de_bitmap_font_char));
 
+	de_encconv_init(&es, encoding_to_use);
+
 	for(i=0; i<font->num_chars; i++) {
 		font->char_array[i].codepoint_nonunicode = (i32)i;
+		if(font->has_unicode_codepoints) {
+			font->char_array[i].codepoint_unicode = de_char_to_unicode_ex((i32)i, &es);
+		}
 		font->char_array[i].width = font->nominal_width;
 		font->char_array[i].height = font->nominal_height;
 		font->char_array[i].rowspan = 1;
@@ -806,6 +818,11 @@ done:
 	de_free(c, fontdata);
 }
 
+static void de_run_vgafont(deark *c, de_module_params *mparams)
+{
+	do_vgafont_internal(c, c->infile);
+}
+
 static void de_help_vgafont(deark *c)
 {
 	de_msg(c, "-opt vgafont:c : Emit C code");
@@ -814,10 +831,64 @@ static void de_help_vgafont(deark *c)
 void de_module_vgafont(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "vgafont";
-	mi->desc = "Raw 8x16 or 8x14 VGA font";
+	mi->desc = "Raw 8xN bitmap font";
 	mi->run_fn = de_run_vgafont;
 	mi->help_fn = de_help_vgafont;
-	mi->flags |= DE_MODFLAG_HIDDEN;
+}
+
+// **************************************************************************
+// PCR font (OPTICKS)
+// **************************************************************************
+
+static void de_run_pcrfont(deark *c, de_module_params *mparams)
+{
+	u8 hdr[11];
+	i64 h;
+	int need_errmsg = 0;
+	dbuf *inf = NULL;
+
+	de_read(hdr, 0, 11);
+	// I assume either hdr[7] or hdr[10] is the high byte of the font data size,
+	// but I don't know which.
+	if(hdr[6]!=0x1 || hdr[7]!=hdr[10] || hdr[8]!=0 || hdr[9]!=0) {
+		need_errmsg = 1;
+		goto done;
+	}
+	h = (i64)hdr[7];
+	de_dbg(c, "height: %d", (int)h);
+	if(h<VGAFONT_MINH || h>VGAFONT_MAXH || c->infile->len < 11+h*256) {
+		need_errmsg = 1;
+		goto done;
+	}
+
+	inf = dbuf_open_input_subfile(c->infile, 11, h*256);
+	do_vgafont_internal(c, inf);
+
+done:
+	dbuf_close(inf);
+	if(need_errmsg) {
+		de_err(c, "Unsupported type of PCR font");
+	}
+}
+
+static int de_identify_pcrfont(deark *c)
+{
+	u8 h;
+
+	if(dbuf_memcmp(c->infile, 0, "KPG", 3)) return 0;
+	if(de_getbyte(5)!=0x20) return 0;
+	h = de_getbyte(7);
+	if(h<6 || h>16) return 0;
+	if(de_getbyte(10)!=h) return 0;
+	return 80;
+}
+
+void de_module_pcrfont(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "pcrfont";
+	mi->desc = "PCR font";
+	mi->run_fn = de_run_pcrfont;
+	mi->identify_fn = de_identify_pcrfont;
 }
 
 // **************************************************************************
