@@ -212,6 +212,7 @@
     <ClCompile Include="..\..\modules\epocimage.c" />
     <ClCompile Include="..\..\modules\eps.c" />
     <ClCompile Include="..\..\modules\exe.c" />
+    <ClCompile Include="..\..\modules\exepack.c" />
     <ClCompile Include="..\..\modules\fat.c" />
     <ClCompile Include="..\..\modules\flac.c" />
     <ClCompile Include="..\..\modules\fli.c" />
