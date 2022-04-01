@@ -1589,13 +1589,14 @@ void dbuf_write_run(dbuf *f, u8 n, i64 len)
 	i64 amt_left;
 	i64 amt_to_write;
 
+	if(len<=0) return;
 	de_memset(buf, n, (size_t)len<sizeof(buf) ? (size_t)len : sizeof(buf));
 	amt_left = len;
 	while(amt_left > 0) {
-		if((size_t)amt_left<sizeof(buf))
+		if(amt_left < (i64)sizeof(buf))
 			amt_to_write = amt_left;
 		else
-			amt_to_write = sizeof(buf);
+			amt_to_write = (i64)sizeof(buf);
 		dbuf_write(f, buf, amt_to_write);
 		amt_left -= amt_to_write;
 	}
