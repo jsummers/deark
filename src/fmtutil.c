@@ -1663,8 +1663,18 @@ done:
 
 static int execomp_diet_check_fingerprint(dbuf *f, i64 pos)
 {
-	return !dbuf_memcmp(f, pos,
-		(const u8*)"\x8e\xdb\x8e\xc0\x33\xf6\x33\xff\xb9\x08\x00\xf3\xa5\x4b\x48\x4a", 16);
+	u8 x;
+
+	if(dbuf_memcmp(f, pos,
+		(const u8*)"\x8e\xdb\x8e\xc0\x33\xf6\x33\xff\xb9\x08\x00\xf3\xa5\x4b\x48\x4a", 16))
+	{
+		return 0;
+	}
+
+	// Attempt to screen out LGLZ-compressed files (x==0x95).
+	x = dbuf_getbyte(f, pos+26);
+	if(x==0x8b) return 1;
+	return 0;
 }
 
 static void detect_execomp_diet(deark *c, struct execomp_ctx *ectx,
