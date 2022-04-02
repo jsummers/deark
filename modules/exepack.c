@@ -100,9 +100,10 @@ static void do_decompress_code(deark *c, lctx *d)
 	de_dbg(c, "compressed_len: %"I64_FMT, compressed_len);
 	de_dbg(c, "uncompressed_len: %"I64_FMT, uncompressed_len);
 
+	// TODO: It would be safer to do all the work inside a membuf, but the nature
+	// of the EXEPACK algorithm could make that inefficient.
 	buf_alloc = de_max_int(compressed_len, uncompressed_len);
 	buf = de_malloc(c, buf_alloc);
-
 	de_read(buf, mem_start, compressed_len);
 
 	src = compressed_len;
@@ -154,10 +155,6 @@ static void do_decompress_code(deark *c, lctx *d)
 
 	dbuf_write(d->o_dcmpr_code, buf, uncompressed_len);
 done:
-	if(d->errflag) {
-		de_err(c, "EXEPACK decompression failed");
-		d->errmsg_handled =1;
-	}
 	de_free(c, buf);
 }
 
@@ -216,7 +213,7 @@ static void do_read_header(deark *c, lctx *d)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	hdrpos = 512 + d->ei->regCS * 16;
+	hdrpos = d->ei->start_of_dos_code + d->ei->regCS * 16;
 	hdrsize = d->ei->regIP;
 	de_dbg(c, "exepack header at %"I64_FMT", len=%d", hdrpos, (int)hdrsize);
 	if(hdrsize!=16 && hdrsize!=18) {
@@ -252,6 +249,72 @@ done:
 
 static void do_write_dcmpr(deark *c, lctx *d)
 {
+	dbuf *outf = NULL;
+	i64 ihdr_minmem, ihdr_maxmem;
+	i64 o_minmem;
+	i64 o_start_of_code;
+	i64 o_reloc_pos;
+	i64 o_file_size;
+	i64 overlay_len;
+
+	outf = dbuf_create_output_file(c, "exe", NULL, 0);
+
+	if(d->ei->reloc_table_pos>=28 &&
+		d->ei->reloc_table_pos<=d->ei->start_of_dos_code)
+	{
+		o_reloc_pos = d->ei->reloc_table_pos;
+	}
+	else {
+		o_reloc_pos = 28;
+	}
+
+	o_start_of_code = de_pad_to_n(o_reloc_pos + d->o_reloc_table->len, 16);
+	o_file_size = o_start_of_code + d->o_dcmpr_code->len;
+
+	ihdr_minmem = de_getu16le(10);
+	ihdr_maxmem = de_getu16le(12);
+
+	// TODO: This doesn't seem to be completely accurate
+	o_minmem = ((16*d->ei->regCS - d->ei->start_of_dos_code)/16 + ihdr_minmem) -
+		d->ohdr.dest_len;
+
+	// Generate 28-byte header
+	dbuf_writeu16le(outf, 0x5a4d); // 0  signature
+	dbuf_writeu16le(outf, o_file_size%512); // 2  # of bytes in last page
+	dbuf_writeu16le(outf, (o_file_size+511)/512); // 4  # of pages
+	dbuf_writeu16le(outf, d->o_reloc_table->len/4); // 6  # of reloc tbl entries
+	dbuf_writeu16le(outf, o_start_of_code / 16); // 8  hdrsize/16
+	dbuf_writeu16le(outf, o_minmem);
+	dbuf_writeu16le(outf, ihdr_maxmem);
+	dbuf_writei16le(outf, d->ohdr.regSS); // 14  ss
+	dbuf_writeu16le(outf, d->ohdr.regSP); // 16  sp
+	dbuf_writeu16le(outf, 0); // 18  checksum
+	dbuf_writeu16le(outf, d->ohdr.regIP); // 20  ip
+	dbuf_writei16le(outf, d->ohdr.regCS); // 22  cs
+
+	dbuf_writeu16le(outf, o_reloc_pos); // 24  reloc_tbl_pos
+	dbuf_writeu16le(outf, 0); // 26  overlay indicator
+
+	// Copy extra data between header and reloc table
+	dbuf_copy(c->infile, 28, o_reloc_pos-28, outf);
+
+	// Write the relocation table
+	dbuf_truncate(outf, o_reloc_pos);
+	dbuf_copy(d->o_reloc_table, 0, d->o_reloc_table->len, outf);
+
+	// Write the decompressed code
+	dbuf_truncate(outf, o_start_of_code);
+	dbuf_copy(d->o_dcmpr_code, 0, d->o_dcmpr_code->len, outf);
+
+	// Copy overlay data
+	overlay_len = c->infile->len - d->ei->end_of_dos_code;
+	if(overlay_len>0) {
+		de_dbg(c, "overlay data at %"I64_FMT", len=%"I64_FMT, d->ei->end_of_dos_code,
+			overlay_len);
+		dbuf_copy(c->infile, d->ei->end_of_dos_code, overlay_len, outf);
+	}
+
+	dbuf_close(outf);
 }
 
 static void de_run_exepack(deark *c, de_module_params *mparams)
