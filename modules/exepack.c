@@ -24,6 +24,7 @@ typedef struct localctx_struct {
 	struct fmtutil_exe_info *ei;
 
 	u8 detected_subfmt;
+	i64 hdrpos; // Start of exepack header (i.e. the IP field)
 	i64 decoder_len;
 
 	dbuf *o_reloc_table;
@@ -35,41 +36,43 @@ typedef struct localctx_struct {
 } lctx;
 
 // TODO: This is the same format as LZEXE v090. Maybe the code should be shared.
-static void do_read_reloc_tbl(deark *c, lctx *d, i64 ipos1)
+static void do_read_reloc_tbl_internal(deark *c, lctx *d, i64 pos1, i64 endpos)
 {
-	i64 ipos;
+	i64 pos = pos1;
 	i64 seg = 0;
 	int reloc_count = 0;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	ipos = ipos1;
+	de_dbg(c, "compressed reloc table: pos=%"I64_FMT", end=%"I64_FMT, pos1, endpos);
 
-	de_dbg(c, "decompressing reloc table at %"I64_FMT, ipos);
+	if(endpos > c->infile->len) {
+		d->errflag = 1;
+		goto done;
+	}
+
 	de_dbg_indent(c, 1);
 
 	for(seg=0; seg<0x10000; seg+=0x1000) {
 		i64 count;
 		i64 i;
 
-		if(ipos>=c->infile->len) {
+		if(pos>=endpos) {
 			d->errflag = 1;
 			goto done;
 		}
-
-		count = de_getu16le_p(&ipos);
+		count = de_getu16le_p(&pos);
 		de_dbg2(c, "seg %04x count: %u", (UI)seg, (UI)count);
 
 		de_dbg_indent(c, 1);
 		for(i=0; i<count; i++) {
 			i64 offs;
 
-			if(ipos>=c->infile->len || reloc_count>=65535) {
+			if(pos>=endpos || reloc_count>=65535) {
 				d->errflag = 1;
 				goto done;
 			}
-
-			offs = de_getu16le_p(&ipos);
+			offs = de_getu16le_p(&pos);
 			de_dbg2(c, "reloc: %04x:%04x", (UI)seg, (UI)offs);
 			dbuf_writeu16le(d->o_reloc_table, offs);
 			dbuf_writeu16le(d->o_reloc_table, seg);
@@ -84,27 +87,43 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+static void do_read_reloc_tbl(deark *c, lctx *d)
+{
+	i64 reloc_pos;
+	i64 reloc_endpos;
+
+	reloc_pos = d->ei->entry_point + d->decoder_len;
+	reloc_endpos = d->hdrpos + d->ohdr.exepack_size;
+
+	do_read_reloc_tbl_internal(c, d, reloc_pos, reloc_endpos);
+}
+
 static void do_decompress_code(deark *c, lctx *d)
 {
-	i64 mem_start;
 	i64 compressed_len;
 	i64 uncompressed_len;
 	u8 *buf = NULL;
 	i64 buf_alloc;
 	i64 src, dst;
 
-	mem_start = d->ei->start_of_dos_code;
 	compressed_len = 16*(d->ei->regCS - d->ohdr.skip_len + 1);
 	uncompressed_len = 16*(d->ohdr.dest_len - d->ohdr.skip_len + 1);
-	de_dbg(c, "mem_start: %"I64_FMT, mem_start);
-	de_dbg(c, "compressed_len: %"I64_FMT, compressed_len);
-	de_dbg(c, "uncompressed_len: %"I64_FMT, uncompressed_len);
+	de_dbg(c, "compressed data: pos=%"I64_FMT", len=%"I64_FMT", end=%"I64_FMT,
+		d->ei->start_of_dos_code, compressed_len,
+		d->ei->start_of_dos_code + compressed_len);
+	de_dbg(c, "uncompressed len: %"I64_FMT, uncompressed_len);
+	if(compressed_len<0 || uncompressed_len<0 ||
+		(d->ei->start_of_dos_code+compressed_len > c->infile->len))
+	{
+		d->errflag = 1; goto done;
+	};
 
 	// TODO: It would be safer to do all the work inside a membuf, but the nature
 	// of the EXEPACK algorithm could make that inefficient.
 	buf_alloc = de_max_int(compressed_len, uncompressed_len);
+	// Though the size is untrusted, it's impossible for it to be more than about 1MB.
 	buf = de_malloc(c, buf_alloc);
-	de_read(buf, mem_start, compressed_len);
+	de_read(buf, d->ei->start_of_dos_code, compressed_len);
 
 	src = compressed_len;
 	dst = uncompressed_len;
@@ -168,6 +187,8 @@ static void find_decoder_len(deark *c, lctx *d)
 
 	haystack_pos = d->ei->entry_point+220;
 	haystack_len = 100;
+
+	// Look for the error message.
 	ret = dbuf_search(c->infile, (const u8*)"Packed file is corrupt", 22,
 		haystack_pos, haystack_len, &foundpos);
 	if(ret) {
@@ -176,7 +197,8 @@ static void find_decoder_len(deark *c, lctx *d)
 		goto done;
 	}
 
-	// Look for the byte pattern that immediately precedes the error message.
+	// If that fails, look for the byte pattern that immediately precedes the
+	// error message.
 	ret = dbuf_search(c->infile, (const u8*)"\xcd\x21\xb8\xff\x4c\xcd\x21", 7,
 		haystack_pos, haystack_len, &foundpos);
 	if(ret) {
@@ -185,11 +207,12 @@ static void find_decoder_len(deark *c, lctx *d)
 		goto done;
 	}
 
+	// Last resort: Guess the length.
 	switch(d->detected_subfmt) {
 	case 1: d->decoder_len = 258; break;
 	case 2: d->decoder_len = 279; break;
 	case 3: d->decoder_len = 277; break;
-	case 4: case 10: d->decoder_len = 258; break;
+	case 4: case 10: d->decoder_len = 283; break;
 	case 5: d->decoder_len = 290; break;
 	}
 	method = 3;
@@ -208,19 +231,18 @@ done:
 static void do_read_header(deark *c, lctx *d)
 {
 	i64 hdrsize;
-	i64 hdrpos;
 	i64 pos;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	hdrpos = d->ei->start_of_dos_code + d->ei->regCS * 16;
+	d->hdrpos = d->ei->start_of_dos_code + d->ei->regCS * 16;
 	hdrsize = d->ei->regIP;
-	de_dbg(c, "exepack header at %"I64_FMT", len=%d", hdrpos, (int)hdrsize);
+	de_dbg(c, "exepack header at %"I64_FMT", len=%d", d->hdrpos, (int)hdrsize);
 	if(hdrsize!=16 && hdrsize!=18) {
 		d->errflag = 1;
 		goto done;
 	}
-	pos = hdrpos;
+	pos = d->hdrpos;
 	de_dbg_indent(c, 1);
 	d->ohdr.regIP = de_getu16le_p(&pos);
 	de_dbg(c, "ip: %u", (UI)d->ohdr.regIP);
@@ -345,7 +367,7 @@ static void de_run_exepack(deark *c, de_module_params *mparams)
 	find_decoder_len(c, d);
 	if(d->errflag) goto done;
 
-	do_read_reloc_tbl(c, d, d->ei->entry_point + d->decoder_len);
+	do_read_reloc_tbl(c, d);
 	if(d->errflag) goto done;
 
 	do_decompress_code(c, d);
