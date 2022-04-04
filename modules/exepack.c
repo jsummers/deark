@@ -276,8 +276,9 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	i64 o_minmem;
 	i64 o_start_of_code;
 	i64 o_reloc_pos;
-	i64 o_file_size;
+	i64 o_file_size; // not including overlay
 	i64 overlay_len;
+	i64 cmprprog_mem_tot; // total memory consumed+reserved by the exepacked program
 
 	outf = dbuf_create_output_file(c, "exe", NULL, 0);
 
@@ -296,9 +297,18 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	ihdr_minmem = de_getu16le(10);
 	ihdr_maxmem = de_getu16le(12);
 
-	// TODO: This doesn't seem to be completely accurate
-	o_minmem = ((16*d->ei->regCS - d->ei->start_of_dos_code)/16 + ihdr_minmem) -
-		d->ohdr.dest_len;
+	cmprprog_mem_tot = (d->ei->end_of_dos_code - d->ei->start_of_dos_code) + ihdr_minmem*16;
+	cmprprog_mem_tot = de_pad_to_n(cmprprog_mem_tot, 16);
+
+	// Try to set minmem so that the total memory is the same, or at least does
+	// not decrease.
+	if(cmprprog_mem_tot >= d->o_dcmpr_code->len) {
+		// This could be an overestimate, for small programs.
+		o_minmem = de_pad_to_n(cmprprog_mem_tot - d->o_dcmpr_code->len, 16)/16;
+	}
+	else {
+		o_minmem = 0;
+	}
 
 	// Generate 28-byte header
 	dbuf_writeu16le(outf, 0x5a4d); // 0  signature
@@ -313,7 +323,6 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	dbuf_writeu16le(outf, 0); // 18  checksum
 	dbuf_writeu16le(outf, d->ohdr.regIP); // 20  ip
 	dbuf_writei16le(outf, d->ohdr.regCS); // 22  cs
-
 	dbuf_writeu16le(outf, o_reloc_pos); // 24  reloc_tbl_pos
 	dbuf_writeu16le(outf, 0); // 26  overlay indicator
 
@@ -392,5 +401,4 @@ void de_module_exepack(deark *c, struct deark_module_info *mi)
 	mi->id = "exepack";
 	mi->desc = "EXEPACK-compressed EXE";
 	mi->run_fn = de_run_exepack;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }

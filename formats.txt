@@ -718,6 +718,10 @@ Deark -- Information about supported formats
   Compressed file, used by EDI Install [Pro] from Eschalon Development.
   - Supports "LZSS1" and "LZSS2" formats, and the LZSSLib format.
 
+* EXEPACK (module="exepack")
+  Decompress an EXEPACK-compressed DOS EXE file.
+  - Not automatic; must use "-m exepack".
+
 * FAT (module="fat") (experimental/incomplete)
   - Limited support, mainly for floppy disk images.
 
@@ -756,11 +760,9 @@ Deark -- Information about supported formats
   Options
    -opt loaddskf:toraw - Convert to raw FAT/IMA format.
 
-* LZEXE (module="lzexe") (experimental)
+* LZEXE (module="lzexe")
   Decompress an LZEXE-compressed DOS EXE file.
-  - Not autodetected. Use "-m lzexe".
-  - The decompressed file will usually not be byte-for-byte the same as the
-    original, because LZEXE discards some information.
+  - Not automatic; must use "-m lzexe".
 
 * LZHUF (module="lzhuf")
   Compression software by Haruyasu Yoshizaki. A bare-bones container for
@@ -823,7 +825,7 @@ Deark -- Information about supported formats
    -opt pasti:toraw - Instead of decoding, extract to raw ".ST" format (this is
      usually a FAT format).
 
-* PKLITE (module="pklite") (experimental)
+* PKLITE (module="pklite")
   Decompress a PKLITE-compressed DOS EXE file or DOS COM file.
   - For EXE format, you must use "-m pklite".
   - Not all PKLITE format variants are supported.

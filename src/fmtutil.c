@@ -1607,7 +1607,10 @@ static void detect_execomp_exepack(deark *c, struct execomp_ctx *ectx,
 	else if(ei->entrypoint_crcs==0x1da67457b559a299LLU) {
 		edd->detected_subfmt = 10; // David Fifield's exepack v1.3.0
 	}
-	// (There are probably more EXEPACK variants.)
+	else if(ei->entrypoint_crcs==0x629aca0c6520250aLLU) {
+		// EXPAKFIX-patched file. Original variant undetermined (TODO?).
+		edd->detected_subfmt = 11;
+	}
 	// subfmt 2 reserved for EXEPACK 4.03 / size=279
 
 	// TODO: Is SP always 128?
@@ -1626,6 +1629,7 @@ done:
 			de_dbg(c, "epvar: %u", (UI)edd->detected_subfmt);
 		}
 		de_strlcpy(ectx->shortname, "EXEPACK", sizeof(ectx->shortname));
+		edd->modname = "exepack";
 	}
 }
 
