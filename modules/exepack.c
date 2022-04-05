@@ -35,58 +35,6 @@ typedef struct localctx_struct {
 	struct ohdr_struct ohdr;
 } lctx;
 
-// TODO: This is the same format as LZEXE v090. Maybe the code should be shared.
-static void do_read_reloc_tbl_internal(deark *c, lctx *d, i64 pos1, i64 endpos)
-{
-	i64 pos = pos1;
-	i64 seg = 0;
-	int reloc_count = 0;
-	int saved_indent_level;
-
-	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "compressed reloc table: pos=%"I64_FMT", end=%"I64_FMT, pos1, endpos);
-
-	if(endpos > c->infile->len) {
-		d->errflag = 1;
-		goto done;
-	}
-
-	de_dbg_indent(c, 1);
-
-	for(seg=0; seg<0x10000; seg+=0x1000) {
-		i64 count;
-		i64 i;
-
-		if(pos>=endpos) {
-			d->errflag = 1;
-			goto done;
-		}
-		count = de_getu16le_p(&pos);
-		de_dbg2(c, "seg %04x count: %u", (UI)seg, (UI)count);
-
-		de_dbg_indent(c, 1);
-		for(i=0; i<count; i++) {
-			i64 offs;
-
-			if(pos>=endpos || reloc_count>=65535) {
-				d->errflag = 1;
-				goto done;
-			}
-			offs = de_getu16le_p(&pos);
-			de_dbg2(c, "reloc: %04x:%04x", (UI)seg, (UI)offs);
-			dbuf_writeu16le(d->o_reloc_table, offs);
-			dbuf_writeu16le(d->o_reloc_table, seg);
-			reloc_count++;
-		}
-		de_dbg_indent(c, -1);
-	}
-
-	de_dbg(c, "reloc count: %d", (int)reloc_count);
-
-done:
-	de_dbg_indent_restore(c, saved_indent_level);
-}
-
 static void do_read_reloc_tbl(deark *c, lctx *d)
 {
 	i64 reloc_pos;
@@ -95,7 +43,9 @@ static void do_read_reloc_tbl(deark *c, lctx *d)
 	reloc_pos = d->ei->entry_point + d->decoder_len;
 	reloc_endpos = d->hdrpos + d->ohdr.exepack_size;
 
-	do_read_reloc_tbl_internal(c, d, reloc_pos, reloc_endpos);
+	if(!fmtutil_decompress_exepack_reloc_tbl(c, reloc_pos, reloc_endpos, d->o_reloc_table)) {
+		d->errflag = 1;
+	}
 }
 
 static void do_decompress_code(deark *c, lctx *d)

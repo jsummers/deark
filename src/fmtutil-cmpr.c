@@ -1057,3 +1057,51 @@ done:
 		de_free(c, sqctx);
 	}
 }
+
+// Caller supplies a dbuf to write the decompressed table to.
+// On failure, returns 0. Does not report an error.
+int fmtutil_decompress_exepack_reloc_tbl(deark *c, i64 pos1, i64 endpos, dbuf *outf)
+{
+	i64 pos = pos1;
+	i64 seg = 0;
+	int reloc_count = 0;
+	int retval = 0;
+	int saved_indent_level;
+	dbuf *inf = c->infile;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "compressed reloc table: pos=%"I64_FMT", end=%"I64_FMT, pos1, endpos);
+	if(endpos > inf->len) goto done;
+	de_dbg_indent(c, 1);
+
+	for(seg=0; seg<0x10000; seg+=0x1000) {
+		i64 count;
+		i64 i;
+
+		if(pos>=endpos) {
+			goto done;
+		}
+		count = dbuf_getu16le_p(inf, &pos);
+		de_dbg2(c, "seg %04x count: %u", (UI)seg, (UI)count);
+
+		de_dbg_indent(c, 1);
+		for(i=0; i<count; i++) {
+			i64 offs;
+
+			if(pos>=endpos || reloc_count>=65535) goto done;
+			offs = dbuf_getu16le_p(inf, &pos);
+			de_dbg2(c, "reloc: %04x:%04x", (UI)seg, (UI)offs);
+			dbuf_writeu16le(outf, offs);
+			dbuf_writeu16le(outf, seg);
+			reloc_count++;
+		}
+		de_dbg_indent(c, -1);
+	}
+
+	retval = 1;
+	de_dbg(c, "reloc count: %d", (int)reloc_count);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}

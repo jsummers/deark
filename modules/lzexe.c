@@ -12,13 +12,12 @@ typedef struct localctx_struct {
 	int ver;
 	int errflag;
 	int errmsg_handled;
+	struct fmtutil_exe_info *ei;
 
-	i64 ihdr_start_of_dos_code;
 	UI ihdr_minmem;
 	UI ihdr_maxmem;
-	i64 ihdr_CS;
 
-	i64 special_hdr[8];
+	i64 special_hdr[9];
 
 	dbuf *o_reloc_table;
 	dbuf *o_dcmpr_code;
@@ -28,14 +27,12 @@ typedef struct localctx_struct {
 } lctx;
 
 // Read what we need from the 28-byte DOS header
-static void do_read_header(deark *c, lctx *d, struct fmtutil_exe_info *ei)
+static void do_read_header(deark *c, lctx *d)
 {
-	d->ihdr_start_of_dos_code = ei->start_of_dos_code;
 	d->ihdr_minmem = (UI)de_getu16le(10);
 	d->ihdr_maxmem = (UI)de_getu16le(12);
 
-	d->ihdr_CS = ei->regCS;
-	if(d->ihdr_CS < 0) {
+	if(d->ei->regCS < 0) {
 		// CS is signed. If it's ever negative in an LZEXE'd file, I'm not sure
 		// how to handle that.
 		d->errflag = 1;
@@ -45,11 +42,14 @@ static void do_read_header(deark *c, lctx *d, struct fmtutil_exe_info *ei)
 static void read_special_hdr(deark *c, lctx *d, i64 ipos1)
 {
 	i64 ipos = ipos1;
+	UI count;
 	UI i;
 
 	de_dbg(c, "LZEXE private info at %"I64_FMT, ipos1);
 	de_dbg_indent(c, 1);
-	for(i=0; i<8; i++) {
+
+	count = (d->ver==1) ? 9 : 7;
+	for(i=0; i<count; i++) {
 		d->special_hdr[i] = de_getu16le_p(&ipos);
 		de_dbg(c, "special hdr[%u]: 0x%04x (%u)", i, (UI)d->special_hdr[i],
 			(UI)d->special_hdr[i]);
@@ -59,53 +59,16 @@ static void read_special_hdr(deark *c, lctx *d, i64 ipos1)
 
 #define MAX_RELOCS 65535
 
-static void do_decode_reloc_tbl_v090(deark *c, lctx *d, i64 ipos1)
+static void do_decode_reloc_tbl_v090(deark *c, lctx *d, i64 pos1)
 {
-	i64 ipos;
-	i64 seg = 0;
-	int reloc_count = 0;
-	int saved_indent_level;
+	i64 pos;
+	i64 endpos;
 
-	de_dbg_indent_save(c, &saved_indent_level);
-	ipos = ipos1 + 413;
-
-	de_dbg(c, "decompressing reloc table at %"I64_FMT, ipos);
-	de_dbg_indent(c, 1);
-
-	for(seg=0; seg<0x10000; seg+=0x1000) {
-		i64 count;
-		i64 i;
-
-		if(ipos>=c->infile->len) {
-			d->errflag = 1;
-			goto done;
-		}
-
-		count = de_getu16le_p(&ipos);
-		de_dbg2(c, "seg %04x count: %u", (UI)seg, (UI)count);
-
-		de_dbg_indent(c, 1);
-		for(i=0; i<count; i++) {
-			i64 offs;
-
-			if(ipos>=c->infile->len || reloc_count>MAX_RELOCS) {
-				d->errflag = 1;
-				goto done;
-			}
-
-			offs = de_getu16le_p(&ipos);
-			de_dbg2(c, "reloc: %04x:%04x", (UI)seg, (UI)offs);
-			dbuf_writeu16le(d->o_reloc_table, offs);
-			dbuf_writeu16le(d->o_reloc_table, seg);
-			reloc_count++;
-		}
-		de_dbg_indent(c, -1);
+	pos = pos1 + 413;
+	endpos = d->ei->end_of_dos_code;
+	if(!fmtutil_decompress_exepack_reloc_tbl(c, pos, endpos, d->o_reloc_table)) {
+		d->errflag = 1;
 	}
-
-	de_dbg(c, "reloc count: %d", (int)reloc_count);
-
-done:
-	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void do_decode_reloc_tbl_v091(deark *c, lctx *d, i64 ipos1)
@@ -115,7 +78,7 @@ static void do_decode_reloc_tbl_v091(deark *c, lctx *d, i64 ipos1)
 	UI reloc = 0;
 
 	ipos = ipos1 + 344;
-	de_dbg(c, "decompressing reloc table at %"I64_FMT, ipos);
+	de_dbg(c, "compressed reloc table: pos=%"I64_FMT, ipos);
 	de_dbg_indent(c, 1);
 
 	while(1) {
@@ -205,7 +168,7 @@ static void do_decompress_code(deark *c, lctx *d)
 	i64 ipos1;
 	struct de_lz77buffer *ringbuf = NULL;
 
-	ipos1 = d->ihdr_start_of_dos_code + (d->ihdr_CS - d->special_hdr[4]) * 16;
+	ipos1 = d->ei->start_of_dos_code + (d->ei->regCS - d->special_hdr[4]) * 16;
 	de_dbg(c, "decompressing cmpr code at %"I64_FMT, ipos1);
 	de_dbg_indent(c, 1);
 
@@ -290,7 +253,7 @@ done:
 }
 
 // Generate the decompressed file
-static void do_write_dcmpr(deark *c, lctx *d, struct fmtutil_exe_info *ei)
+static void do_write_dcmpr(deark *c, lctx *d)
 {
 	dbuf *outf = NULL;
 	i64 o_file_size;
@@ -348,13 +311,14 @@ static void do_write_dcmpr(deark *c, lctx *d, struct fmtutil_exe_info *ei)
 	dbuf_truncate(outf, o_start_of_code);
 	dbuf_copy(d->o_dcmpr_code, 0, d->o_dcmpr_code->len, outf);
 
-	// Some LZEXE-compressed files have an "overlay" segment that should be
-	// retained. (Not sure where such files come from.)
-	overlay_len = c->infile->len - ei->end_of_dos_code;
+	// Copy the overlay segment.
+	// Normal LZEXE files never have such a thing, but some third-party utilities
+	// construct such files.
+	overlay_len = c->infile->len - d->ei->end_of_dos_code;
 	if(overlay_len>0) {
-		de_dbg(c, "overlay data at %"I64_FMT", len=%"I64_FMT, ei->end_of_dos_code,
+		de_dbg(c, "overlay data at %"I64_FMT", len=%"I64_FMT, d->ei->end_of_dos_code,
 			overlay_len);
-		dbuf_copy(c->infile, ei->end_of_dos_code, overlay_len, outf);
+		dbuf_copy(c->infile, d->ei->end_of_dos_code, overlay_len, outf);
 	}
 
 	dbuf_close(outf);
@@ -364,18 +328,17 @@ static void do_write_dcmpr(deark *c, lctx *d, struct fmtutil_exe_info *ei)
 static void de_run_lzexe(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	struct fmtutil_exe_info *ei = NULL;
 	i64 ipos1;
 	struct fmtutil_specialexe_detection_data edd;
 
 	d = de_malloc(c, sizeof(lctx));
 
-	ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
-	fmtutil_collect_exe_info(c, c->infile, ei);
+	d->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
+	fmtutil_collect_exe_info(c, c->infile, d->ei);
 
 	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
 	edd.restrict_to_fmt = DE_SPECIALEXEFMT_LZEXE;
-	fmtutil_detect_execomp(c, ei, &edd);
+	fmtutil_detect_execomp(c, d->ei, &edd);
 	d->ver = (int)edd.detected_subfmt;
 	if(d->ver==0) {
 		de_err(c, "Not an LZEXE-compressed file");
@@ -387,9 +350,9 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 	d->o_dcmpr_code = dbuf_create_membuf(c, 0, 0);
 	dbuf_enable_wbuffer(d->o_dcmpr_code);
 
-	do_read_header(c, d, ei);
+	do_read_header(c, d);
 	if(d->errflag) goto done;
-	ipos1 = d->ihdr_start_of_dos_code + d->ihdr_CS*16;
+	ipos1 = d->ei->start_of_dos_code + d->ei->regCS*16;
 	read_special_hdr(c, d, ipos1);
 	if(d->errflag) goto done;
 	if(d->ver==1) {
@@ -403,7 +366,7 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 	dbuf_flush(d->o_dcmpr_code);
 	if(d->errflag) goto done;
 
-	do_write_dcmpr(c, d, ei);
+	do_write_dcmpr(c, d);
 
 done:
 
@@ -414,9 +377,9 @@ done:
 
 		dbuf_close(d->o_reloc_table);
 		dbuf_close(d->o_dcmpr_code);
+		de_free(c, d->ei);
 		de_free(c, d);
 	}
-	de_free(c, ei);
 }
 
 void de_module_lzexe(deark *c, struct deark_module_info *mi)
