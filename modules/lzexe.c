@@ -12,6 +12,7 @@ typedef struct localctx_struct {
 	int ver;
 	int errflag;
 	int errmsg_handled;
+	int o_code_alignment;
 	struct fmtutil_exe_info *ei;
 
 	UI ihdr_minmem;
@@ -267,9 +268,7 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	outf = dbuf_create_output_file(c, "exe", NULL, 0);
 
 #define O_RELOC_POS 28
-#define O_CODE_ALIGNMENT 512 // Multiple of 16. Sensible values are 16 and 512.
-
-	o_start_of_code = de_pad_to_n(O_RELOC_POS + d->o_reloc_table->len, O_CODE_ALIGNMENT);
+	o_start_of_code = de_pad_to_n(O_RELOC_POS + d->o_reloc_table->len, (i64)d->o_code_alignment);
 
 	// Generate 28-byte header
 	dbuf_writeu16le(outf, 0x5a4d); // 0  signature
@@ -329,11 +328,21 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	i64 ipos1;
+	const char *s;
 	struct fmtutil_specialexe_detection_data edd;
 
 	d = de_malloc(c, sizeof(lctx));
 
 	d->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
+
+	s = de_get_ext_option(c, "execomp:align");
+	if(s) {
+		d->o_code_alignment = de_atoi(s);
+	}
+	if(d->o_code_alignment != 512) {
+		d->o_code_alignment = 16;
+	}
+
 	fmtutil_collect_exe_info(c, c->infile, d->ei);
 
 	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
@@ -382,9 +391,16 @@ done:
 	}
 }
 
+static void de_help_lzexe(deark *c)
+{
+	de_msg(c, "-opt execomp:align=<16|512> : Alignment of code segment "
+		"(in output file)");
+}
+
 void de_module_lzexe(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "lzexe";
 	mi->desc = "LZEXE-compressed EXE";
 	mi->run_fn = de_run_lzexe;
+	mi->help_fn = de_help_lzexe;
 }
