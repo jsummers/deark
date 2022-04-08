@@ -86,6 +86,8 @@ $(OBJDIR)/modules/eps.o: modules/eps.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/exe.o: modules/exe.c src/deark-private.h src/deark.h \
  src/deark-config.h src/deark-fmtutil.h
+$(OBJDIR)/modules/exepack.o: modules/exepack.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/fat.o: modules/fat.c src/deark-private.h src/deark.h \
  src/deark-config.h src/deark-fmtutil.h modules/../foreign/dskdcmps.h
 $(OBJDIR)/modules/flac.o: modules/flac.c src/deark-config.h \

@@ -77,6 +77,21 @@ typedef struct localctx_struct {
 	de_ucstring *icon_name;
 } lctx;
 
+static int timestamp_is_plausible(struct de_timestamp *ts)
+{
+	i64 ts_unix;
+
+	if(!ts->is_valid) return 0;
+	ts_unix = de_timestamp_to_unix_time(ts);
+	// I assume PDB/PRC format wasn't in use until 1996 or a little before, when
+	// Palm OS was released.
+	// But it's not necessarily safe to assume all timestamps older than that
+	// are wrong -- an older file could have been converted to this format.
+	// For now at least, I'll arbitrarily draw the line at 1985.
+	if(ts_unix < 473385600) return 0; // = 01 Jan 1985
+	return 1;
+}
+
 static void handle_palm_timestamp(deark *c, lctx *d, i64 pos, const char *name,
 	struct de_timestamp *returned_ts)
 {
@@ -107,22 +122,22 @@ static void handle_palm_timestamp(deark *c, lctx *d, i64 pos, const char *name,
 		de_dbg(c, "... if Mac-BE: %"I64_FMT" (%s)", ts_int, timestamp_buf);
 	}
 
-	ts_int = de_geti32be(pos);
-	if(d->timestampfmt==TIMESTAMPFMT_UNIXBE ||
-		(d->timestampfmt==TIMESTAMPFMT_UNKNOWN && ts_int>0)) // Assume dates before 1970 are wrong
-	{
+	if(d->timestampfmt==TIMESTAMPFMT_UNIXBE || d->timestampfmt==TIMESTAMPFMT_UNKNOWN) {
+		ts_int = de_geti32be(pos);
 		de_unix_time_to_timestamp(ts_int, &ts, 0x1);
-		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
-		de_dbg(c, "... if Unix-BE: %"I64_FMT" (%s)", ts_int, timestamp_buf);
+		if(d->timestampfmt==TIMESTAMPFMT_UNIXBE || timestamp_is_plausible(&ts)) {
+			de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
+			de_dbg(c, "... if Unix-BE: %"I64_FMT" (%s)", ts_int, timestamp_buf);
+		}
 	}
 
-	ts_int = de_getu32le(pos);
-	if(d->timestampfmt==TIMESTAMPFMT_MACLE ||
-		(d->timestampfmt==TIMESTAMPFMT_UNKNOWN && ts_int>2082844800))
-	{
+	if(d->timestampfmt==TIMESTAMPFMT_MACLE || d->timestampfmt==TIMESTAMPFMT_UNKNOWN) {
+		ts_int = de_getu32le(pos);
 		de_mac_time_to_timestamp(ts_int, &ts);
-		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
-		de_dbg(c, "... if Mac-LE: %"I64_FMT" (%s)", ts_int, timestamp_buf);
+		if(d->timestampfmt==TIMESTAMPFMT_MACLE || timestamp_is_plausible(&ts)) {
+			de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
+			de_dbg(c, "... if Mac-LE: %"I64_FMT" (%s)", ts_int, timestamp_buf);
+		}
 	}
 
 	de_dbg_indent(c, -1);

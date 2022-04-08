@@ -1575,6 +1575,7 @@ static void detect_execomp_lzexe(deark *c, struct execomp_ctx *ectx,
 static void detect_execomp_exepack(deark *c, struct execomp_ctx *ectx,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
+	u8 x;
 	int has_RB = 0;
 
 	if(ei->num_relocs!=0) goto done;
@@ -1585,18 +1586,32 @@ static void detect_execomp_exepack(deark *c, struct execomp_ctx *ectx,
 	}
 
 	if(ei->entrypoint_crcs==0xa6ea214e6c16ee72LLU) {
-		edd->detected_subfmt = 1;
+		edd->detected_subfmt = 5;
 		goto done;
 	}
 	else if(ei->entrypoint_crcs==0x4e04abaac5d3b465LLU) {
-		edd->detected_subfmt = 2;
+		edd->detected_subfmt = 4;
 		goto done;
 	}
 	else if(ei->entrypoint_crcs==0x1f449ca73852e197LLU) {
-		edd->detected_subfmt = 3;
-		goto done;
+		x = dbuf_getbyte(ei->f, ei->entry_point+73);
+		if(x==0x0a) {
+			edd->detected_subfmt = 1;
+			goto done;
+		}
+		else if(x==0x09) {
+			edd->detected_subfmt = 3;
+			goto done;
+		}
 	}
-	// (There are probably more EXEPACK variants.)
+	else if(ei->entrypoint_crcs==0x1da67457b559a299LLU) {
+		edd->detected_subfmt = 10; // David Fifield's exepack v1.3.0
+	}
+	else if(ei->entrypoint_crcs==0x629aca0c6520250aLLU) {
+		// EXPAKFIX-patched file. Original variant undetermined (TODO?).
+		edd->detected_subfmt = 11;
+	}
+	// subfmt 2 reserved for EXEPACK 4.03 / size=279
 
 	// TODO: Is SP always 128?
 	if(ei->regSP==128 && has_RB) {
@@ -1614,6 +1629,7 @@ done:
 			de_dbg(c, "epvar: %u", (UI)edd->detected_subfmt);
 		}
 		de_strlcpy(ectx->shortname, "EXEPACK", sizeof(ectx->shortname));
+		edd->modname = "exepack";
 	}
 }
 
@@ -1651,8 +1667,18 @@ done:
 
 static int execomp_diet_check_fingerprint(dbuf *f, i64 pos)
 {
-	return !dbuf_memcmp(f, pos,
-		(const u8*)"\x8e\xdb\x8e\xc0\x33\xf6\x33\xff\xb9\x08\x00\xf3\xa5\x4b\x48\x4a", 16);
+	u8 x;
+
+	if(dbuf_memcmp(f, pos,
+		(const u8*)"\x8e\xdb\x8e\xc0\x33\xf6\x33\xff\xb9\x08\x00\xf3\xa5\x4b\x48\x4a", 16))
+	{
+		return 0;
+	}
+
+	// Attempt to screen out LGLZ-compressed files (x==0x95).
+	x = dbuf_getbyte(f, pos+26);
+	if(x==0x8b) return 1;
+	return 0;
 }
 
 static void detect_execomp_diet(deark *c, struct execomp_ctx *ectx,

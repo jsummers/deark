@@ -21,8 +21,10 @@ typedef struct localctx_struct {
 	int has_dimension_fields;
 
 	int pal_valid;
-	u32 pal[256];
+	de_color pal[256];
 } lctx;
+
+typedef void (*decoder_fn_type)(deark *c, lctx *d);
 
 // Return a width that might be overridden by user request.
 static i64 get_width(deark *c, lctx *d, i64 default_width)
@@ -43,13 +45,12 @@ static i64 get_height(deark *c, lctx *d, i64 default_height)
 
 // 16-color 160x100 (maybe up to 160x102) mode.
 // This is really a text mode, and can be processed by do_char() as well.
-static int do_cga16(deark *c, lctx *d)
+static void do_cga16(deark *c, lctx *d)
 {
 	de_bitmap *img = NULL;
 	i64 w, h;
 	i64 max_possible_height;
 	i64 i, j;
-	int retval = 0;
 	u8 charcode, colorcode;
 	i64 src_rowspan;
 	u8 color0, color1;
@@ -71,6 +72,8 @@ static int do_cga16(deark *c, lctx *d)
 		goto done;
 	}
 
+	de_dbg_dimensions(c, w, h);
+	if(!de_good_image_dimensions(c, w, h)) goto done;
 	img = de_bitmap_create(c, w, h, 3);
 
 	de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, d->pal, 16, 0);
@@ -83,7 +86,7 @@ static int do_cga16(deark *c, lctx *d)
 			if(charwarning==0 && charcode!=0xdd && charcode!=0xde) {
 				// TODO: We could also handle space characters and full-block characters,
 				// at least. But maybe not worth the trouble.
-				de_warn(c, "Unexpected code found (0x%02x). Format may not be correct.", (int)charcode);
+				de_warn(c, "Unexpected code found (0x%02x). Format may not be correct.", (UI)charcode);
 				charwarning=1;
 			}
 
@@ -101,23 +104,18 @@ static int do_cga16(deark *c, lctx *d)
 		}
 	}
 
-	retval = 1;
-
+	de_bitmap_write_to_file(img, NULL, 0);
 done:
-	if(retval) {
-		de_bitmap_write_to_file(img, NULL, 0);
-	}
 	de_bitmap_destroy(img);
-	return retval;
 }
 
 // 4-color interlaced or non-interlaced
 // "wh4": http://cd.textfiles.com/bthevhell/200/111/ - *.pic
-static int do_4color(deark *c, lctx *d)
+static void do_4color(deark *c, lctx *d)
 {
 	// TODO: This may not be the right palette.
-	static const u32 default_palette[4] = { 0x000000, 0x55ffff, 0xff55ff, 0xffffff };
-	u32 palette[4];
+	static const de_color default_palette[4] = { 0x000000, 0x55ffff, 0xff55ff, 0xffffff };
+	de_color palette[4];
 	int palent;
 	i64 w, h;
 	i64 i,j;
@@ -163,6 +161,8 @@ static int do_4color(deark *c, lctx *d)
 	}
 
 	src_rowspan = (w+3)/4;
+	de_dbg_dimensions(c, w, h);
+	if(!de_good_image_dimensions(c, w, h)) goto done;
 	img = de_bitmap_create(c, w, h, 3);
 
 	for(j=0;j<h;j++) {
@@ -181,14 +181,14 @@ static int do_4color(deark *c, lctx *d)
 	}
 
 	de_bitmap_write_to_file(img, NULL, 0);
+done:
 	de_bitmap_destroy(img);
-	return 1;
 }
 
 // 2-color interlaced or non-interlaced
 // "cga2": http://cd.textfiles.com/bthevhell/100/21/
 // "wh2": http://cd.textfiles.com/bthevhell/200/112/
-static int do_2color(deark *c, lctx *d)
+static void do_2color(deark *c, lctx *d)
 {
 	i64 w, h;
 	i64 j;
@@ -225,6 +225,7 @@ static int do_2color(deark *c, lctx *d)
 	de_dbg_dimensions(c, w, h);
 	src_rowspan = (w+7)/8;
 
+	if(!de_good_image_dimensions(c, w, h)) goto done;
 	img = de_bitmap_create(c, w, h, 1);
 
 	for(j=0; j<h; j++) {
@@ -238,36 +239,46 @@ static int do_2color(deark *c, lctx *d)
 	}
 
 	de_bitmap_write_to_file(img, NULL, 0);
+done:
 	de_bitmap_destroy(img);
-	return 1;
 }
 
 // 256-color
 // http://cd.textfiles.com/advheaven2/PUZZLES/DRCODE12/
-static int do_256color(deark *c, lctx *d)
+static void do_256color(deark *c, lctx *d)
 {
 	i64 w, h;
+	i64 pos = BSAVE_HDRSIZE;
 	de_bitmap *img = NULL;
 
 	de_declare_fmt(c, "BSAVE-PC 256-color");
 
-	w = get_width(c, d, 320);
-	h = get_height(c, d, 200);
+	if(d->has_dimension_fields) {
+		w = de_getu16le_p(&pos);
+		w = (w+7)/8;
+		h = de_getu16le_p(&pos);
+	}
+	else {
+		w = get_width(c, d, 320);
+		h = get_height(c, d, 200);
+	}
+	de_dbg_dimensions(c, w, h);
 
 	if(!d->pal_valid) {
 		de_copy_std_palette(DE_PALID_VGA256, 0, 0, 256, d->pal, 256, 0);
 	}
 
+	if(!de_good_image_dimensions(c, w, h)) goto done;
 	img = de_bitmap_create(c, w, h, 3);
-	de_convert_image_paletted(c->infile, BSAVE_HDRSIZE, 8, w, d->pal, img, 0);
+	de_convert_image_paletted(c->infile, pos, 8, w, d->pal, img, 0);
 	de_bitmap_write_to_file(img, NULL, 0);
+done:
 	de_bitmap_destroy(img);
-	return 1;
 }
 
 // 11-byte header that includes width & height, 16 color, inter-row interlaced
 // http://cd.textfiles.com/advheaven2/SOLITAIR/SP107/
-static int do_wh16(deark *c, lctx *d)
+static void do_wh16(deark *c, lctx *d)
 {
 	i64 i, j;
 	de_bitmap *img = NULL;
@@ -286,6 +297,7 @@ static int do_wh16(deark *c, lctx *d)
 	pos+=4;
 
 	de_dbg_dimensions(c, w, h);
+	if(!de_good_image_dimensions(c, w, h)) goto done;
 	img = de_bitmap_create(c, w, h, 3);
 
 	src_rowspan1 = (w+7)/8;
@@ -306,23 +318,22 @@ static int do_wh16(deark *c, lctx *d)
 
 	de_bitmap_write_to_file(img, NULL, 0);
 
+done:
 	de_bitmap_destroy(img);
-	return 1;
 }
 
 // Used at http://cd.textfiles.com/bthevhell/300/265/
 // A strange 2-bits/2-pixel color format.
-static int do_b265(deark *c, lctx *d)
+static void do_b265(deark *c, lctx *d)
 {
-	static const u32 palette1[4] = { 0xffffff, 0x55ffff, 0x000000, 0xffffff };
-	static const u32 palette2[4] = { 0xffffff, 0x000000, 0x000000, 0x000000 };
+	static const de_color palette1[4] = { 0xffffff, 0x55ffff, 0x000000, 0xffffff };
+	static const de_color palette2[4] = { 0xffffff, 0x000000, 0x000000, 0x000000 };
 	int palent;
 	i64 w, h;
 	i64 i,j;
 	i64 bits_per_scanline;
 	de_bitmap *img = NULL;
 	i64 fakewidth;
-	int retval = 0;
 
 	de_declare_fmt(c, "BSAVE-PC special");
 
@@ -331,6 +342,8 @@ static int do_b265(deark *c, lctx *d)
 	h = d->data_size * 4 / fakewidth;
 	bits_per_scanline = w;
 
+	de_dbg_dimensions(c, w, h);
+	if(!de_good_image_dimensions(c, w, h)) goto done;
 	img = de_bitmap_create(c, w, h, 3);
 
 	for(j=0; j<h; j++) {
@@ -344,10 +357,8 @@ static int do_b265(deark *c, lctx *d)
 
 	de_bitmap_write_to_file(img, NULL, 0);
 
-	retval = 1;
-
+done:
 	de_bitmap_destroy(img);
-	return retval;
 }
 
 static void do_char_1screen(deark *c, lctx *d, struct de_char_screen *screen, i64 pgnum,
@@ -381,18 +392,17 @@ static void do_char_1screen(deark *c, lctx *d, struct de_char_screen *screen, i6
 			fgcol = (b1 & 0x0f);
 			bgcol = (b1 & 0xf0) >> 4;
 
-			screen->cell_rows[j][i].fgcol = (u32)fgcol;
-			screen->cell_rows[j][i].bgcol = (u32)bgcol;
+			screen->cell_rows[j][i].fgcol = (de_color)fgcol;
+			screen->cell_rows[j][i].bgcol = (de_color)bgcol;
 			screen->cell_rows[j][i].codepoint = (i32)ch;
 			screen->cell_rows[j][i].codepoint_unicode = de_char_to_unicode_ex((i32)ch, &es);
 		}
 	}
 }
 
-static int do_char(deark *c, lctx *d)
+static void do_char(deark *c, lctx *d)
 {
 	struct de_char_context *charctx = NULL;
-	int retval = 0;
 	i64 numpages;
 	i64 pgnum;
 	i64 width, height;
@@ -452,11 +462,8 @@ static int do_char(deark *c, lctx *d)
 
 	de_char_output_to_file(c, charctx);
 
-	retval = 1;
-
 done:
 	de_free_charctx(c, charctx);
-	return retval;
 }
 
 static int do_read_palette_file(deark *c, lctx *d, const char *palfn)
@@ -488,14 +495,29 @@ done:
 	return retval;
 }
 
-typedef int (*decoder_fn_type)(deark *c, lctx *d);
+static void check_for_pcpaint_sig(deark *c, lctx *d)
+{
+	u8 sig[14];
+	i64 pos = 8007;
+
+	de_read(sig, pos, 14);
+	if(de_memcmp(sig, "PCPaint V1.", 11)) return;
+
+	d->has_pcpaint_sig = 1;
+	de_dbg(c, "PCPaint settings found at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
+	d->pcpaint_pal_num = sig[12];
+	de_dbg(c, "palette: %u", (UI)d->pcpaint_pal_num);
+	d->pcpaint_border_col = sig[13];
+	de_dbg(c, "border color: %u", (UI)d->pcpaint_border_col);
+	de_dbg_indent(c, -1);
+}
 
 static void de_run_bsave(deark *c, de_module_params *mparams)
 {
 	const char *bsavefmt;
 	const char *s;
 	lctx *d;
-	u8 sig[14];
 	decoder_fn_type decoder_fn = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
@@ -504,21 +526,16 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 	d->offset_from_base = de_getu16le(3);
 	d->data_size = de_getu16le(5);
 
-	de_dbg(c, "base_addr: 0x%04x", (int)d->base_addr);
-	de_dbg(c, "offset_from_base: 0x%04x", (int)d->offset_from_base);
-	de_dbg(c, "data_size: 0x%04x (%d)", (int)d->data_size, (int)d->data_size);
+	de_dbg(c, "base_addr: 0x%04x", (UI)d->base_addr);
+	de_dbg(c, "offset_from_base: 0x%04x", (UI)d->offset_from_base);
+	de_dbg(c, "data_size: 0x%04x (%d)", (UI)d->data_size, (int)d->data_size);
 
 	bsavefmt = de_get_ext_option(c, "bsave:fmt");
 	if(!bsavefmt) {
 		bsavefmt="auto";
 	}
 
-	de_read(sig,8007,14);
-	if(!de_memcmp(sig, "PCPaint V1.", 11)) {
-		d->has_pcpaint_sig = 1;
-		d->pcpaint_pal_num = sig[12];
-		d->pcpaint_border_col = sig[13];
-	}
+	check_for_pcpaint_sig(c, d);
 
 	if(!de_strcmp(bsavefmt,"cga2")) {
 		d->interlaced = 1;
@@ -548,6 +565,10 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 	else if(!de_strcmp(bsavefmt,"wh4")) {
 		d->has_dimension_fields = 1;
 		decoder_fn = do_4color;
+	}
+	else if(!de_strcmp(bsavefmt,"wh256")) {
+		d->has_dimension_fields = 1;
+		decoder_fn = do_256color;
 	}
 	else if(!de_strcmp(bsavefmt,"wh16")) {
 		decoder_fn = do_wh16;
@@ -612,7 +633,8 @@ static void de_help_bsave(deark *c)
 	de_msg(c, " wh2   : 2-color, 11-byte header");
 	de_msg(c, " wh4   : 4-color, 11-byte header");
 	de_msg(c, " wh16  : 16-color, 11-byte header, inter-row interlaced");
-	de_msg(c, " b256  : Special");
+	de_msg(c, " wh256 : 256-color, 11-byte header");
+	de_msg(c, " b265  : Special");
 	de_msg(c, " 2col  : 2-color noninterlaced");
 	de_msg(c, " 4col  : 4-color noninterlaced");
 }

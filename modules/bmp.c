@@ -807,7 +807,7 @@ static void do_image(deark *c, lctx *d)
 			// The 24-bit decoder can handle partial pixels.
 			d->pdwidth = (d->rowspan+2)/3;
 		}
-		else {
+		else if(d->bitcount>=1 && d->bitcount<=24) {
 			// By default, ignore a partial-pixel's worth of padding.
 			// bits-per-row / bits-per-pixel
 			d->pdwidth = (d->rowspan*8) / d->bitcount;

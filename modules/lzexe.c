@@ -13,7 +13,7 @@ typedef struct localctx_struct {
 	int errflag;
 	int errmsg_handled;
 
-	i64 ihdr_hdrsize;
+	i64 ihdr_start_of_dos_code;
 	UI ihdr_minmem;
 	UI ihdr_maxmem;
 	i64 ihdr_CS;
@@ -28,14 +28,14 @@ typedef struct localctx_struct {
 } lctx;
 
 // Read what we need from the 28-byte DOS header
-static void do_read_header(deark *c, lctx *d)
+static void do_read_header(deark *c, lctx *d, struct fmtutil_exe_info *ei)
 {
-	d->ihdr_hdrsize = de_getu16le(8);
+	d->ihdr_start_of_dos_code = ei->start_of_dos_code;
 	d->ihdr_minmem = (UI)de_getu16le(10);
 	d->ihdr_maxmem = (UI)de_getu16le(12);
 
-	d->ihdr_CS = de_getu16le(22);
-	if(d->ihdr_CS >= 0x8000) {
+	d->ihdr_CS = ei->regCS;
+	if(d->ihdr_CS < 0) {
 		// CS is signed. If it's ever negative in an LZEXE'd file, I'm not sure
 		// how to handle that.
 		d->errflag = 1;
@@ -205,7 +205,7 @@ static void do_decompress_code(deark *c, lctx *d)
 	i64 ipos1;
 	struct de_lz77buffer *ringbuf = NULL;
 
-	ipos1 = (d->ihdr_CS - d->special_hdr[4] + d->ihdr_hdrsize) * 16;
+	ipos1 = d->ihdr_start_of_dos_code + (d->ihdr_CS - d->special_hdr[4]) * 16;
 	de_dbg(c, "decompressing cmpr code at %"I64_FMT, ipos1);
 	de_dbg_indent(c, 1);
 
@@ -332,7 +332,7 @@ static void do_write_dcmpr(deark *c, lctx *d, struct fmtutil_exe_info *ei)
 	dbuf_writeu16le(outf, (i64)minmem); // 10  # of paragraphs required
 	dbuf_writeu16le(outf, (i64)maxmem); // 12  # of paragraphs requested
 
-	dbuf_writeu16le(outf, d->special_hdr[3]); // 14 ss
+	dbuf_writeu16le(outf, d->special_hdr[3]); // 14  ss
 	dbuf_writeu16le(outf, d->special_hdr[2]); // 16  sp
 	dbuf_writeu16le(outf, 0); // 18  checksum
 	dbuf_writeu16le(outf, d->special_hdr[0]); // 20  ip
@@ -378,7 +378,7 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 	fmtutil_detect_execomp(c, ei, &edd);
 	d->ver = (int)edd.detected_subfmt;
 	if(d->ver==0) {
-		de_err(c, "Not an LZEXE file");
+		de_err(c, "Not an LZEXE-compressed file");
 		goto done;
 	}
 	de_declare_fmtf(c, "LZEXE-compressed EXE, %s", edd.detected_fmt_name);
@@ -387,9 +387,9 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 	d->o_dcmpr_code = dbuf_create_membuf(c, 0, 0);
 	dbuf_enable_wbuffer(d->o_dcmpr_code);
 
-	do_read_header(c, d);
+	do_read_header(c, d, ei);
 	if(d->errflag) goto done;
-	ipos1 = (d->ihdr_hdrsize + d->ihdr_CS) * 16;
+	ipos1 = d->ihdr_start_of_dos_code + d->ihdr_CS*16;
 	read_special_hdr(c, d, ipos1);
 	if(d->errflag) goto done;
 	if(d->ver==1) {

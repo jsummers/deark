@@ -2944,6 +2944,7 @@ static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ CMPR_DEFLATE, 0x0, "DEFLATE", decompress_strile_deflate },
 	{ 9, 0x0, "T.85 JBIG", NULL},
 	{ 10, 0x0, "T.43 JBIG", NULL},
+	{ 103, 0x0, "Pegasus IMPACJ?", NULL},
 	{ 32766, 0x0, "NeXT 2-bit RLE", NULL},
 	{ 32771, 0x0, "CCITTRLEW", NULL},
 	{ CMPR_PACKBITS, 0x0, "PackBits", decompress_strile_packbits },
