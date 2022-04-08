@@ -18,6 +18,8 @@ typedef struct localctx_struct {
 	UI ihdr_minmem;
 	UI ihdr_maxmem;
 
+	i64 special_hdr_pos;
+	i64 end_of_reloc_tbl;
 	i64 special_hdr[9];
 
 	dbuf *o_reloc_table;
@@ -60,32 +62,32 @@ static void read_special_hdr(deark *c, lctx *d, i64 ipos1)
 
 #define MAX_RELOCS 65535
 
-static void do_decode_reloc_tbl_v090(deark *c, lctx *d, i64 pos1)
+static void do_decode_reloc_tbl_v090(deark *c, lctx *d)
 {
 	i64 pos;
 	i64 endpos;
 
-	pos = pos1 + 413;
-	endpos = d->ei->end_of_dos_code;
+	pos = d->special_hdr_pos + 413;
+	endpos = d->end_of_reloc_tbl;
 	if(!fmtutil_decompress_exepack_reloc_tbl(c, pos, endpos, d->o_reloc_table)) {
 		d->errflag = 1;
 	}
 }
 
-static void do_decode_reloc_tbl_v091(deark *c, lctx *d, i64 ipos1)
+static void do_decode_reloc_tbl_v091(deark *c, lctx *d)
 {
 	i64 ipos;
 	int reloc_count = 0;
 	UI reloc = 0;
 
-	ipos = ipos1 + 344;
+	ipos = d->special_hdr_pos + 344;
 	de_dbg(c, "compressed reloc table: pos=%"I64_FMT, ipos);
 	de_dbg_indent(c, 1);
 
 	while(1) {
 		u8 x;
 
-		if(ipos>=c->infile->len || reloc_count>MAX_RELOCS) {
+		if(ipos>=d->end_of_reloc_tbl || reloc_count>MAX_RELOCS) {
 			d->errflag = 1;
 			goto done;
 		}
@@ -126,7 +128,8 @@ static void fill_bitbuf(deark *c, lctx *d)
 	UI i;
 
 	if(d->errflag) return;
-	if(d->dcmpr_cur_ipos+2 > c->infile->len) {
+	if(d->dcmpr_cur_ipos+2 > d->special_hdr_pos)
+	{
 		d->errflag = 1;
 		return;
 	}
@@ -169,7 +172,8 @@ static void do_decompress_code(deark *c, lctx *d)
 	i64 ipos1;
 	struct de_lz77buffer *ringbuf = NULL;
 
-	ipos1 = d->ei->start_of_dos_code + (d->ei->regCS - d->special_hdr[4]) * 16;
+	// (I'd expect ipos1 to always equal d->ei->start_of_dos_code, but anyway...)
+	ipos1 = d->special_hdr_pos -  d->special_hdr[4]*16;
 	de_dbg(c, "decompressing cmpr code at %"I64_FMT, ipos1);
 	de_dbg_indent(c, 1);
 
@@ -327,7 +331,6 @@ static void do_write_dcmpr(deark *c, lctx *d)
 static void de_run_lzexe(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	i64 ipos1;
 	const char *s;
 	struct fmtutil_specialexe_detection_data edd;
 
@@ -361,16 +364,28 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 
 	do_read_header(c, d);
 	if(d->errflag) goto done;
-	ipos1 = d->ei->start_of_dos_code + d->ei->regCS*16;
-	read_special_hdr(c, d, ipos1);
+
+	d->special_hdr_pos = d->ei->start_of_dos_code + d->ei->regCS*16;
+	if(d->special_hdr_pos > c->infile->len) {
+		d->errflag = 1;
+		return;
+	}
+	read_special_hdr(c, d, d->special_hdr_pos);
 	if(d->errflag) goto done;
+
+	d->end_of_reloc_tbl = d->special_hdr_pos + d->special_hdr[6];
+	if(d->end_of_reloc_tbl > c->infile->len) {
+		d->errflag = 1;
+		goto done;
+	}
 	if(d->ver==1) {
-		do_decode_reloc_tbl_v090(c, d, ipos1);
+		do_decode_reloc_tbl_v090(c, d);
 	}
 	else {
-		do_decode_reloc_tbl_v091(c, d, ipos1);
+		do_decode_reloc_tbl_v091(c, d);
 	}
 	if(d->errflag) goto done;
+
 	do_decompress_code(c, d);
 	dbuf_flush(d->o_dcmpr_code);
 	if(d->errflag) goto done;
