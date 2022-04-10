@@ -8,6 +8,8 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_pklite);
 
+#define PKLITE_UNK_VER_NUM 0x963 // Unknown but possibly supported version
+
 struct ver_info_struct {
 	u8 valid;
 	u8 isbeta;
@@ -39,6 +41,7 @@ typedef struct localctx_struct {
 	i64 reloc_tbl_endpos;
 	i64 cmpr_data_area_endpos; // where the footer ends
 	i64 footer_pos; // 0 if unknown
+	i64 predicted_cmpr_data_pos; // used if ver=PKLITE_UNK_VER_NUM
 
 	int errflag;
 	int errmsg_handled;
@@ -97,6 +100,11 @@ static void find_cmprdata_pos(deark *c, lctx *d, struct ver_info_struct *v)
 			unsupp_ver_flag = 1;
 			goto done;
 		}
+	}
+
+	if(v->ver_only==PKLITE_UNK_VER_NUM && d->predicted_cmpr_data_pos!=0) {
+		d->cmpr_data_pos = d->predicted_cmpr_data_pos;
+		goto done;
 	}
 
 	// Try to handle some versions we can't fully detect.
@@ -204,6 +212,8 @@ done:
 // Caller first sets (at least) .valid and .ver_info
 static void derive_version_fields(deark *c, lctx *d, struct ver_info_struct *v)
 {
+	char ver_text[16];
+
 	if(!v->valid) {
 		de_strlcpy(v->pklver_str, "unknown", sizeof(v->pklver_str));
 		return;
@@ -219,8 +229,17 @@ static void derive_version_fields(deark *c, lctx *d, struct ver_info_struct *v)
 	v->extra_cmpr = (v->ver_info & 0x1000)?1:0;
 	v->large_cmpr = (v->ver_info & 0x2000)?1:0;
 	if(v->ver_only==0x100 && (v->ver_info & 0x4000)) v->load_high = 1;
-	de_snprintf(v->pklver_str, sizeof(v->pklver_str), "%u.%02u%s%s%s%s",
-		(UI)(v->ver_only>>8), (UI)(v->ver_only&0xff),
+
+	if(v->ver_only == PKLITE_UNK_VER_NUM) {
+		de_strlcpy(ver_text, "?.??", sizeof(ver_text));
+	}
+	else {
+		de_snprintf(ver_text, sizeof(ver_text), "%u.%02u",
+			(UI)(v->ver_only>>8), (UI)(v->ver_only&0xff));
+	}
+
+	de_snprintf(v->pklver_str, sizeof(v->pklver_str), "%s%s%s%s%s",
+		ver_text,
 		(v->suffix?v->suffix:""),
 		(v->load_high?"/h":""),
 		(v->large_cmpr?"/l":"/s"),
@@ -356,6 +375,113 @@ done:
 	;
 }
 
+// len is assumed to be a multiple of 2
+static void descramble_decoder_section(dbuf *inf, i64 pos1, i64 len, dbuf *outf)
+{
+	i64 i;
+	i64 pos = pos1;
+	u8 prev_b0;
+	u8 prev_b1;
+	u8 b0, b1;
+
+	prev_b0 = dbuf_getbyte(inf, pos-2);
+	prev_b1 = dbuf_getbyte(inf, pos-1);
+	for(i=0; i<len; i+=2) {
+		b0 = dbuf_getbyte_p(inf, &pos);
+		b1 = dbuf_getbyte_p(inf, &pos);
+		dbuf_writebyte(outf, (b0^prev_b0));
+		dbuf_writebyte(outf, (b1^prev_b1));
+		prev_b0 = b0;
+		prev_b1 = b1;
+	}
+}
+
+// Detection by searching for the distinctive lookup table(?) byte pattern at
+// the end of the decoder.
+// In v1.14+ with -e, this section of the code is scrambled, so we descramble
+// it and search that as well.
+static void detect_pklite_version_part4(deark *c, lctx *d)
+{
+#define PART4_NEEDLE_LEN 21
+	static const u8 *str = (const u8*)"\x01\x02\x00\x00\x03\x04\x05\x06"
+		"\x00\x00\x00\x00\x00\x00\x00\x00\x07\x08\x09\x0a\x0b";
+	i64 foundpos_abs = 0;
+	u8 prec_b;
+	int is_large;
+	int is_extra;
+	int ret;
+	dbuf *tmpdbuf = NULL;
+
+	if(d->ei->entry_point != d->ei->start_of_dos_code) {
+		// Beta?
+		// TODO: Is it worth supporting the beta version in this function?
+		goto done;
+	}
+
+	// Quick & dirty guess as to "extra" compression. TODO: A better way?
+	if(d->ei->start_of_dos_code>=112) {
+		is_extra = 0;
+	}
+	else if(d->ei->start_of_dos_code>=80 && d->ei->start_of_dos_code<=96) {
+		is_extra = 1;
+	}
+	else {
+		goto done;
+	}
+
+#define PART4_HAYSTACK_START 400 // offset from entry point
+#define PART4_HAYSTACK_LEN 432 // 400 maybe enough (assuming START=400)?
+
+	ret = dbuf_search(c->infile, str, PART4_NEEDLE_LEN,
+		d->ei->entry_point+PART4_HAYSTACK_START, PART4_HAYSTACK_LEN, &foundpos_abs);
+	if(ret) {
+		prec_b = de_getbyte(foundpos_abs-1);
+	}
+	if(!ret && is_extra) {
+		i64 foundpos2 = 0;
+
+		tmpdbuf = dbuf_create_membuf(c, 0, 0);
+		dbuf_enable_wbuffer(tmpdbuf);
+		descramble_decoder_section(c->infile, d->ei->entry_point+PART4_HAYSTACK_START,
+			PART4_HAYSTACK_LEN, tmpdbuf);
+		dbuf_flush(tmpdbuf);
+		ret = dbuf_search(tmpdbuf, str, PART4_NEEDLE_LEN, 0, tmpdbuf->len, &foundpos2);
+		if(ret) {
+			foundpos_abs = d->ei->entry_point+PART4_HAYSTACK_START+foundpos2;
+			prec_b = dbuf_getbyte(tmpdbuf, foundpos2-1);
+		}
+	}
+	if(!ret) {
+		goto done;
+	}
+
+	if(prec_b==0x09) {
+		is_large = 0;
+	}
+	else if(prec_b==0x18) {
+		is_large = 1;
+	}
+	else {
+		goto done;
+	}
+
+	// The compressed code presumably starts at the first multiple of 16 after
+	// the end of the table. But unfortunately the table doesn't always end in
+	// a consistent way.
+	// The end of the table is usually at +23, but for v1.14-e it seems
+	// to be at +21, and for v1.50+ w/o -e it might be +24.
+	// This formula happens to work for every file that I've seen, but there
+	// could be files for which it doesn't work.
+	d->predicted_cmpr_data_pos = de_pad_to_n(foundpos_abs+24, 16);
+
+	d->ver_detected.ver_info = PKLITE_UNK_VER_NUM;
+	if(is_extra) d->ver_detected.ver_info |= 0x1000;
+	if(is_large) d->ver_detected.ver_info |= 0x2000;
+	d->ver_detected.valid = 1;
+done:
+	dbuf_close(tmpdbuf);
+}
+
 static void detect_pklite_version(deark *c, lctx *d)
 {
 	struct de_crcobj *crco = NULL;
@@ -373,6 +499,10 @@ static void detect_pklite_version(deark *c, lctx *d)
 	}
 
 	if(d->ver_detected.ver_info==0) {
+		detect_pklite_version_part4(c, d);
+	}
+
+	if(d->ver_detected.ver_info==0) {
 		if(d->ver_reported.ver_only==0x100 && d->data_before_decoder) {
 			// Assume this is an undetected v1.00 beta file.
 			d->ver_detected.ver_info = d->ver_reported.ver_info;
@@ -386,6 +516,7 @@ static void detect_pklite_version(deark *c, lctx *d)
 	}
 
 	derive_version_fields(c, d, &d->ver_detected);
+
 	de_crcobj_destroy(crco);
 }
 
@@ -393,6 +524,7 @@ static void read_orig_header(deark *c, lctx *d, i64 orig_hdr_pos)
 {
 	i64 orig_hdr_len;
 	i64 orig_reloc_pos;
+	i64 n1, n2;
 
 	orig_hdr_len = d->ei->start_of_dos_code - orig_hdr_pos; // tentative
 	// Peek at the reloc table offs field to figure out how much to read
@@ -403,7 +535,9 @@ static void read_orig_header(deark *c, lctx *d, i64 orig_hdr_pos)
 
 	de_dbg(c, "orig. hdr: at %"I64_FMT", len=(2+)%"I64_FMT, orig_hdr_pos, orig_hdr_len);
 
-	if(de_getu16le(orig_hdr_pos+2)==0) { // the numBlocks field
+	n1 = de_getu16le(orig_hdr_pos); // len of final block
+	n2 = de_getu16le(orig_hdr_pos+2); // numBlocks
+	if(n1>511 || n2==0) {
 		de_warn(c, "Original header seems bad. Ignoring it.");
 		d->have_orig_header = 0;
 		return;
