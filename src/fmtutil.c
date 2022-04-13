@@ -1494,6 +1494,7 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 	UI min_ver = 0;
 	u8 sb[8];
 
+	// TODO?: I found a file with num_relocs==2
 	if(ei->num_relocs > 1) return;
 	dbuf_read(ei->f, sb, 28, sizeof(sb));
 
@@ -1517,13 +1518,16 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 		goto done;
 	}
 
+	// TODO: This fails to detect MEGALiTE files, even though we can probably
+	// decompress them.
 	if(ei->regIP != 256) goto done;
 	if(ei->regCS != -16) goto done;
 
 	if(!has_sig) { // If signature is present, that's good enough. Otherwise...
 		u8 cb[8];
 
-		// TODO: Find a stricter way to do fingerprinting
+		// TODO: Lots of room for improvement here. but it's hard to say how
+		// strict we should be.
 
 		dbuf_read(ei->f, cb, ei->entry_point, sizeof(cb));
 		if(cb[0]==0xb8 && cb[3]==0xba) {
@@ -1531,6 +1535,9 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 		}
 		else if(cb[0]==0x50 && cb[1]==0xb8 && cb[4]==0xba) {
 			; // v2.01
+		}
+		else if(cb[0]==0x9c && cb[1]==0xba && cb[4]==0x2d && cb[7]==0x81) {
+			; // Patched by UN^2PACK v2.0?
 		}
 		else {
 			goto done;
@@ -1541,6 +1548,18 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 
 done:
 	if(edd->detected_fmt==DE_SPECIALEXEFMT_PKLITE) {
+		de_strlcpy(ectx->shortname, "PKLITE", sizeof(ectx->shortname));
+		edd->modname = "pklite";
+	}
+}
+
+static void detect_execomp_pklite_withcrcs(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	if(ei->entrypoint_crcs==0x31665a39745cca56LLU || // v100beta/small
+		ei->entrypoint_crcs==0x97c47627b872be57LLU)  // v100beta/large
+	{
+		edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE;
 		de_strlcpy(ectx->shortname, "PKLITE", sizeof(ectx->shortname));
 		edd->modname = "pklite";
 	}
@@ -1774,6 +1793,11 @@ void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_EXEPACK) {
 		detect_execomp_exepack(c, &ectx, ei, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
+
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_PKLITE) {
+		detect_execomp_pklite_withcrcs(c, &ectx, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
