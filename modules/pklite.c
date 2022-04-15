@@ -520,78 +520,6 @@ static void detect_pklite_version(deark *c, lctx *d)
 	de_crcobj_destroy(crco);
 }
 
-// Try to read the copy of the original EXE header, into d->o_orig_header.
-// Returns 0 if it doesn't exist, or if it seems bad.
-static int read_orig_header(deark *c, lctx *d)
-{
-	i64 orig_hdr_len;
-	i64 orig_reloc_pos;
-	i64 n1, n2;
-	int retval = 0;
-	i64 dcmpr_bytes_expected;
-	i64 orig_hdr_pos;
-	int may_need_warning = 0;
-
-	orig_hdr_pos = d->ei->reloc_table_pos + 4*d->ei->num_relocs;
-
-	if(d->ei->start_of_dos_code - orig_hdr_pos < 26) {
-		goto done;
-	}
-	else if(d->ver.ver_only>=0x10a && d->ver.extra_cmpr) {
-		goto done;
-	}
-
-	may_need_warning = 1;
-
-	orig_hdr_len = d->ei->start_of_dos_code - orig_hdr_pos; // tentative
-	// Peek at the reloc table offs field to figure out how much to read
-	orig_reloc_pos = de_getu16le(orig_hdr_pos + 22);
-	if(orig_reloc_pos>=28 && orig_reloc_pos<2+orig_hdr_len) {
-		orig_hdr_len = orig_reloc_pos-2;
-	}
-
-	de_dbg(c, "orig. hdr: at %"I64_FMT", len=(2+)%"I64_FMT, orig_hdr_pos, orig_hdr_len);
-
-	n1 = de_getu16le(orig_hdr_pos); // len of final block
-	n2 = de_getu16le(orig_hdr_pos+2); // numBlocks
-	if(n1>511 || n2==0) {
-		goto done;
-	}
-
-	dbuf_copy(c->infile, orig_hdr_pos, orig_hdr_len, d->o_orig_header);
-
-	fmtutil_collect_exe_info(c, d->o_orig_header, d->o_ei);
-	if(d->o_ei->reloc_table_pos<28) {
-		d->o_ei->reloc_table_pos = 28;
-	}
-
-	if((d->o_ei->regSS != d->footer.regSS) ||
-		(d->o_ei->regSP != d->footer.regSP) ||
-		(d->o_ei->regCS != d->footer.regCS) ||
-		(d->o_ei->regIP != d->footer.regIP))
-	{
-		goto done;
-	}
-
-	if(d->o_ei->num_relocs != (d->o_reloc_table->len / 4)) {
-		goto done;
-	}
-
-	dcmpr_bytes_expected = d->o_ei->end_of_dos_code - d->o_ei->start_of_dos_code;
-
-	if(d->o_dcmpr_code->len != dcmpr_bytes_expected) {
-		de_warn(c, "Expected %"I64_FMT" decompressed bytes, got %"I64_FMT, dcmpr_bytes_expected,
-			d->o_dcmpr_code->len);
-	}
-
-	retval = 1;
-done:
-	if(retval==0 && may_need_warning) {
-		de_warn(c, "Original header seems bad. Ignoring it.");
-	}
-	return retval;
-}
-
 // Read what we need, before we can decompress
 static void do_read_header(deark *c, lctx *d)
 {
@@ -1058,46 +986,6 @@ static void find_min_mem_needed(deark *c, lctx *d, i64 *pminmem)
 	}
 }
 
-static void reconstruct_header(deark *c, lctx *d)
-{
-	i64 num_relocs;
-	const i64 reloc_table_start = 28;
-	i64 start_of_dos_code;
-	i64 end_of_dos_code;
-	i64 minmem; // in 16-byte units
-	i64 maxmem;
-
-	// "MZ" should already be written
-	if(d->o_orig_header->len!=2 || !d->footer_pos) {
-		d->errflag = 1;
-		return;
-	}
-
-	minmem = 0;
-	maxmem = 0xffff; // TODO: Is this the best we can do?
-	find_min_mem_needed(c, d, &minmem);
-	if(minmem>maxmem) minmem = maxmem; // TODO: What's the max sane value?
-
-	num_relocs = d->o_reloc_table->len / 4;
-	start_of_dos_code = de_pad_to_n(reloc_table_start + num_relocs*4, 16);
-	end_of_dos_code = start_of_dos_code + d->o_dcmpr_code->len;
-	dbuf_writeu16le(d->o_orig_header, end_of_dos_code%512);
-	dbuf_writeu16le(d->o_orig_header, (end_of_dos_code+511)/512);
-	dbuf_writeu16le(d->o_orig_header, num_relocs);
-	dbuf_writeu16le(d->o_orig_header, start_of_dos_code/16);
-	dbuf_writeu16le(d->o_orig_header, minmem);
-	dbuf_writeu16le(d->o_orig_header, maxmem);
-	dbuf_writei16le(d->o_orig_header, d->footer.regSS);
-	dbuf_writeu16le(d->o_orig_header, d->footer.regSP);
-	dbuf_writeu16le(d->o_orig_header, 0); // checksum
-	dbuf_writeu16le(d->o_orig_header, d->footer.regIP);
-	dbuf_writei16le(d->o_orig_header, d->footer.regCS);
-	dbuf_writeu16le(d->o_orig_header, reloc_table_start);
-	dbuf_writeu16le(d->o_orig_header, 0); // overlay indicator
-
-	fmtutil_collect_exe_info(c, d->o_orig_header, d->o_ei);
-}
-
 static void do_write_data_only(deark *c, lctx *d)
 {
 	if(!d->o_dcmpr_code) return;
@@ -1145,6 +1033,118 @@ static void do_write_dcmpr(deark *c, lctx *d)
 
 	dbuf_close(outf);
 	de_dbg_indent(c, -1);
+}
+
+// Try to read the copy of the original EXE header, into d->o_orig_header.
+// Returns 0 if it doesn't exist, or if it seems bad.
+static int read_orig_header(deark *c, lctx *d)
+{
+	i64 orig_hdr_len;
+	i64 orig_reloc_pos;
+	i64 n1, n2;
+	int retval = 0;
+	i64 dcmpr_bytes_expected;
+	i64 orig_hdr_pos;
+	int may_need_warning = 0;
+
+	orig_hdr_pos = d->ei->reloc_table_pos + 4*d->ei->num_relocs;
+
+	if(d->ei->start_of_dos_code - orig_hdr_pos < 26) {
+		goto done;
+	}
+	else if(d->ver.ver_only>=0x10a && d->ver.extra_cmpr) {
+		goto done;
+	}
+
+	may_need_warning = 1;
+
+	orig_hdr_len = d->ei->start_of_dos_code - orig_hdr_pos; // tentative
+	// Peek at the reloc table offs field to figure out how much to read
+	orig_reloc_pos = de_getu16le(orig_hdr_pos + 22);
+	if(orig_reloc_pos>=28 && orig_reloc_pos<2+orig_hdr_len) {
+		orig_hdr_len = orig_reloc_pos-2;
+	}
+
+	de_dbg(c, "orig. hdr: at %"I64_FMT", len=(2+)%"I64_FMT, orig_hdr_pos, orig_hdr_len);
+
+	n1 = de_getu16le(orig_hdr_pos); // len of final block
+	n2 = de_getu16le(orig_hdr_pos+2); // numBlocks
+	if(n1>511 || n2==0) {
+		goto done;
+	}
+
+	dbuf_copy(c->infile, orig_hdr_pos, orig_hdr_len, d->o_orig_header);
+
+	fmtutil_collect_exe_info(c, d->o_orig_header, d->o_ei);
+	if(d->o_ei->reloc_table_pos<28) {
+		d->o_ei->reloc_table_pos = 28;
+	}
+
+	if((d->o_ei->regSS != d->footer.regSS) ||
+		(d->o_ei->regSP != d->footer.regSP) ||
+		(d->o_ei->regCS != d->footer.regCS) ||
+		(d->o_ei->regIP != d->footer.regIP))
+	{
+		goto done;
+	}
+
+	if(d->o_ei->num_relocs != (d->o_reloc_table->len / 4)) {
+		goto done;
+	}
+
+	dcmpr_bytes_expected = d->o_ei->end_of_dos_code - d->o_ei->start_of_dos_code;
+
+	if(d->o_dcmpr_code->len != dcmpr_bytes_expected) {
+		de_warn(c, "Expected %"I64_FMT" decompressed bytes, got %"I64_FMT, dcmpr_bytes_expected,
+			d->o_dcmpr_code->len);
+	}
+
+	retval = 1;
+done:
+	if(retval==0 && may_need_warning) {
+		de_warn(c, "Original header seems bad. Ignoring it.");
+	}
+	return retval;
+}
+
+static void reconstruct_header(deark *c, lctx *d)
+{
+	i64 num_relocs;
+	const i64 reloc_table_start = 28;
+	i64 start_of_dos_code;
+	i64 end_of_dos_code;
+	i64 minmem; // in 16-byte units
+	i64 maxmem;
+
+	// "MZ" should already be written
+	if(d->o_orig_header->len!=2 || !d->footer_pos) {
+		d->errflag = 1;
+		return;
+	}
+
+	minmem = 0;
+	maxmem = 0xffff; // TODO: Is this the best we can do?
+	find_min_mem_needed(c, d, &minmem);
+	if(minmem>maxmem) minmem = maxmem; // TODO: What's the max sane value?
+
+	num_relocs = d->o_reloc_table->len / 4;
+	start_of_dos_code = de_pad_to_n(reloc_table_start + num_relocs*4, 16);
+	end_of_dos_code = start_of_dos_code + d->o_dcmpr_code->len;
+	dbuf_writeu16le(d->o_orig_header, end_of_dos_code%512);
+	dbuf_writeu16le(d->o_orig_header, (end_of_dos_code+511)/512);
+	dbuf_writeu16le(d->o_orig_header, num_relocs);
+	dbuf_writeu16le(d->o_orig_header, start_of_dos_code/16);
+	dbuf_writeu16le(d->o_orig_header, minmem);
+	dbuf_writeu16le(d->o_orig_header, maxmem);
+	dbuf_writei16le(d->o_orig_header, d->footer.regSS);
+	dbuf_writeu16le(d->o_orig_header, d->footer.regSP);
+	dbuf_writeu16le(d->o_orig_header, 0); // checksum
+	dbuf_writeu16le(d->o_orig_header, d->footer.regIP);
+	dbuf_writei16le(d->o_orig_header, d->footer.regCS);
+	dbuf_writeu16le(d->o_orig_header, reloc_table_start);
+	dbuf_writeu16le(d->o_orig_header, 0); // overlay indicator
+
+	fmtutil_collect_exe_info(c, d->o_orig_header, d->o_ei);
 }
 
 // Either copy the original header, or if we can't do that,
