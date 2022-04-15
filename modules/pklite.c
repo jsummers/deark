@@ -198,7 +198,14 @@ done:
 	}
 
 	if(unsupp_ver_flag) {
-		de_err(c, "This PKLITE version (%s) is not supported", d->ver.pklver_str);
+		if(d->ver_detected.valid) {
+			de_err(c, "Not a supported PKLITE version (reported=%s, detected=%s)",
+				d->ver_reported.pklver_str, d->ver_detected.pklver_str);
+		}
+		else {
+			de_err(c, "Not a PKLITE-compressed file, or not a supported version (%s)",
+				d->ver_reported.pklver_str);
+		}
 		d->errflag = 1;
 		d->errmsg_handled = 1;
 	}
@@ -542,8 +549,6 @@ static void do_read_header(deark *c, lctx *d)
 	else {
 		d->ver = d->ver_reported;
 	}
-
-	find_cmprdata_pos(c, d, &d->ver);
 }
 
 static void fill_bitbuf(deark *c, lctx *d)
@@ -1122,10 +1127,18 @@ static void reconstruct_header(deark *c, lctx *d)
 		return;
 	}
 
-	minmem = 0;
-	maxmem = 0xffff; // TODO: Is this the best we can do?
+	// By default, keep the same values as the container. These are likely to
+	// be higher than the original, but it's better to be too high than too low.
+	minmem = de_getu16le(10);
+	maxmem = de_getu16le(12);
+	if(maxmem==0) {
+		// Unlikely, but could possibly happen for beta files with the
+		// load-high option
+		maxmem = 65535;
+	}
 	find_min_mem_needed(c, d, &minmem);
-	if(minmem>maxmem) minmem = maxmem; // TODO: What's the max sane value?
+	// TODO: For maxmem, it may be possible to do better.
+	if(maxmem<minmem) maxmem = minmem;
 
 	num_relocs = d->o_reloc_table->len / 4;
 	start_of_dos_code = de_pad_to_n(reloc_table_start + num_relocs*4, 16);
@@ -1184,6 +1197,8 @@ static void do_pklite_exe(deark *c, lctx *d)
 	}
 
 	do_read_header(c, d);
+	if(d->errflag) goto done;
+	find_cmprdata_pos(c, d, &d->ver);
 	if(d->errflag) goto done;
 	do_decompress(c, d);
 	dbuf_flush(d->o_dcmpr_code);
