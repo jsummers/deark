@@ -298,6 +298,22 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	dbuf_close(outf);
 }
 
+static const char *get_variant_name(u8 v)
+{
+	const char *name = NULL;
+
+	switch(v) {
+	case 1: name="EXEPACK 3.00/4.00/etc."; break;
+	case 2: name="EXEPACK 4.03"; break;
+	case 3: name="LINK 3.60/etc."; break;
+	case 4: name="EXEPACK 4.05/4.06"; break;
+	case 5: name="LINK 5.60/etc."; break;
+	case 10: name="exepack_DF"; break;
+	case 11: name="EXPAKFIX-patched"; break;
+	}
+	return name?name:"?";
+}
+
 static void de_run_exepack(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -319,7 +335,7 @@ static void de_run_exepack(deark *c, de_module_params *mparams)
 	de_declare_fmt(c, "EXEPACK-compressed EXE");
 
 	d->detected_subfmt = edd.detected_subfmt;
-	de_dbg(c, "variant id: %u", (UI)d->detected_subfmt);
+	de_dbg(c, "variant id: %u (%s)", (UI)d->detected_subfmt, get_variant_name(d->detected_subfmt));
 
 	do_read_header(c, d);
 	if(d->errflag) goto done;

@@ -1594,7 +1594,7 @@ static void detect_execomp_lzexe(deark *c, struct execomp_ctx *ectx,
 static void detect_execomp_exepack(deark *c, struct execomp_ctx *ectx,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
-	u8 x;
+	u8 x, x2;
 	int has_RB = 0;
 
 	if(ei->num_relocs!=0) goto done;
@@ -1614,7 +1614,12 @@ static void detect_execomp_exepack(deark *c, struct execomp_ctx *ectx,
 	}
 	else if(ei->entrypoint_crcs==0x1f449ca73852e197LLU) {
 		x = dbuf_getbyte(ei->f, ei->entry_point+73);
-		if(x==0x0a) {
+		x2 = dbuf_getbyte(ei->f, ei->entry_point+137);
+		if(x==0x0a && x2==0x27) {
+			edd->detected_subfmt = 2;
+			goto done;
+		}
+		else if(x==0x0a) {
 			edd->detected_subfmt = 1;
 			goto done;
 		}
@@ -1630,7 +1635,6 @@ static void detect_execomp_exepack(deark *c, struct execomp_ctx *ectx,
 		// EXPAKFIX-patched file. Original variant undetermined (TODO?).
 		edd->detected_subfmt = 11;
 	}
-	// subfmt 2 reserved for EXEPACK 4.03 / size=279
 
 	// TODO: Is SP always 128?
 	if(ei->regSP==128 && has_RB) {
