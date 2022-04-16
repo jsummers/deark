@@ -808,7 +808,6 @@ static void detect_lhark(deark *c, lctx *d, struct member_data *md,
 	if(ret) {
 		d->lhark_policy = 0;
 		ok = 1;
-		fmt_name = "standard lh7";
 		goto done;
 	}
 
@@ -816,7 +815,6 @@ static void detect_lhark(deark *c, lctx *d, struct member_data *md,
 	if(ret) {
 		d->lhark_policy = 1;
 		ok = 1;
-		fmt_name = "LHARK";
 		goto done;
 	}
 
