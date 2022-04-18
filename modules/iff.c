@@ -21,19 +21,29 @@ DE_DECLARE_MODULE(de_module_midi);
 
 #define CODE_8SVX  0x38535658U
 #define CODE_AIFF  0x41494646U
+#define CODE_ANNO  0x414e4e4fU
+#define CODE_BODY  0x424f4459U
 #define CODE_CAT   0x43415420U
 #define CODE_CAT4  0x43415434U
 #define CODE_COMT  0x434f4d54U
 #define CODE_FOR4  0x464f5234U
 #define CODE_FORM  0x464f524dU
 #define CODE_ID3   0x49443320U
+#define CODE_INFO  0x494e464fU
 #define CODE_LIS4  0x4c495334U
 #define CODE_LIST  0x4c495354U
 #define CODE_MThd  0x4d546864U
 #define CODE_NAME  0x4e414d45U
+#define CODE_RBOD  0x52424f44U
+#define CODE_RGFX  0x52474658U
+#define CODE_RGHD  0x52474844U
+#define CODE_XPKF  0x58504b46U
+#define CODE_YAFA  0x59414641U
 
 typedef struct localctx_struct {
 	int fmt; // FMT_*
+	u32 rgfx_cmpr_meth;
+	u8 yafa_XPK;
 } lctx;
 
 static void do_text_chunk(deark *c, struct de_iffctx *ictx, const char *name)
@@ -98,6 +108,127 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+static void do_YAFA_INFO(deark *c, lctx *d, struct de_iffctx *ictx)
+{
+	i64 x1, x2;
+	i64 pos = ictx->chunkctx->dpos;
+	const char *name;
+
+	if(ictx->chunkctx->dlen<14) goto done;
+
+	x1 = dbuf_getu16be_p(ictx->f, &pos);
+	x2 = dbuf_getu16be_p(ictx->f, &pos);
+	de_dbg_dimensions(c, x1, x2);
+	pos += 2; // depth
+	pos += 2; // speed
+	x1 = dbuf_getu16be_p(ictx->f, &pos);
+	de_dbg(c, "frames: %u", (UI)x1);
+
+	x1 = dbuf_getu16be_p(ictx->f, &pos);
+	switch(x1) {
+	case 0: name="planar"; break;
+	case 1: name="planar XPK"; d->yafa_XPK=1; break;
+	case 3: name="chunky 8bit XPK"; d->yafa_XPK=1; break;
+	case 4: name="chunky 8bit"; break;
+	default: name="?";
+	}
+	de_dbg(c, "frame type: %u (%s)", (UI)x1, name);
+
+	ictx->handled = 1;
+done:
+	;
+}
+
+static void do_XPK_data_chunk(deark *c, struct de_iffctx *ictx, const char *label)
+{
+	struct de_fourcc tmp4cc;
+
+	if(ictx->chunkctx->dlen<12) goto done;
+	if((UI)dbuf_getu32be(ictx->f, ictx->chunkctx->dpos) != CODE_XPKF) goto done;
+	dbuf_read_fourcc(ictx->f, ictx->chunkctx->dpos+8, &tmp4cc, 4, 0);
+	de_dbg(c, "%s: XPK '%s'", label, tmp4cc.id_dbgstr);
+	ictx->handled = 1;
+done:
+	;
+}
+
+// Not a standard IFF ANNO chunk.
+static void do_YAFA_ANNO(deark *c, struct de_iffctx *ictx)
+{
+	i64 tlen;
+	i64 pos = ictx->chunkctx->dpos;
+	de_ucstring *s = NULL;
+
+	ictx->handled = 1;
+	if(ictx->chunkctx->dlen<4) goto done;
+	tlen = dbuf_getu32be_p(ictx->f, &pos);
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(ictx->f, pos, tlen, DE_DBG_MAX_STRLEN, s, 0, ictx->input_encoding);
+	ucstring_strip_trailing_NUL(s);
+	de_dbg(c, "annotation: \"%s\"", ucstring_getpsz(s));
+
+done:
+	ucstring_destroy(s);
+}
+
+static void do_YAFA_chunk(deark *c, lctx *d, struct de_iffctx *ictx)
+{
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_ANNO:
+		do_YAFA_ANNO(c, ictx);
+		break;
+	case CODE_BODY:
+		if(d->yafa_XPK) {
+			do_XPK_data_chunk(c, ictx, "cmpr method of 1st frame");
+		}
+		break;
+	case CODE_INFO:
+		do_YAFA_INFO(c, d, ictx);
+		break;
+	}
+}
+
+static void do_RGFX_RGHD(deark *c, lctx *d, struct de_iffctx *ictx)
+{
+	i64 x1, x2;
+	i64 pos = ictx->chunkctx->dpos;
+	const char *name;
+
+	if(ictx->chunkctx->dlen<52) goto done;
+	pos += 8;
+	x1 = dbuf_getu32be_p(ictx->f, &pos);
+	x2 = dbuf_getu32be_p(ictx->f, &pos);
+	de_dbg_dimensions(c, x1, x2);
+	pos += 20;
+	d->rgfx_cmpr_meth = (u32)dbuf_getu32be_p(ictx->f, &pos);
+	switch(d->rgfx_cmpr_meth) {
+	case 0: name="uncompressed"; break;
+	case 1: name="XPK"; break;
+	case 2: name="ZIP"; break;
+	default: name = "?";
+	}
+	de_dbg(c, "cmpr method: %u (%s)", (UI)d->rgfx_cmpr_meth, name);
+	ictx->handled = 1;
+done:
+	;
+}
+
+static void do_RGFX_chunk(deark *c, lctx *d, struct de_iffctx *ictx)
+{
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_RBOD:
+		if(d->rgfx_cmpr_meth==1) {
+			// Documentation implies that chunk might start with "XPKXPKF", but
+			// actual files start more sensibly, with "XPKF".
+			do_XPK_data_chunk(c, ictx, "cmpr method");
+		}
+		break;
+	case CODE_RGHD:
+		do_RGFX_RGHD(c, d, ictx);
+		break;
+	}
+}
+
 static int is_container_chunk(deark *c, lctx *d, u32 ct)
 {
 	if(d->fmt==FMT_FOR4) {
@@ -122,6 +253,8 @@ static int my_std_container_start_fn(struct de_iffctx *ictx)
 		switch(ictx->main_contentstype4cc.id) {
 		case CODE_8SVX: fmtname = "8SVX"; break;
 		case CODE_AIFF: fmtname = "AIFF"; break;
+		case CODE_YAFA: fmtname = "YAFA"; break;
+		case CODE_RGFX: fmtname = "IFF-RGFX"; break;
 		}
 
 		if(fmtname) {
@@ -161,6 +294,12 @@ static int my_iff_chunk_handler(struct de_iffctx *ictx)
 			ictx->handled = 1;
 			break;
 		}
+	}
+	else if(ictx->main_contentstype4cc.id==CODE_YAFA) {
+		do_YAFA_chunk(c, d, ictx);
+	}
+	else if(ictx->main_contentstype4cc.id==CODE_RGFX) {
+		do_RGFX_chunk(c, d, ictx);
 	}
 
 done:
