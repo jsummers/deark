@@ -641,7 +641,7 @@ static void do_decompress(deark *c, lctx *d, dbuf *outf)
 		do_decompress_XOR(c, &dcmpri, &dcmpro, &dres);
 		break;
 	case CMPR_SZDD:
-		fmtutil_decompress_szdd(c, &dcmpri, &dcmpro, &dres, 0);
+		fmtutil_decompress_lzss1(c, &dcmpri, &dcmpro, &dres, 0x1);
 		break;
 	case CMPR_LZHUFF:
 		do_decompress_LZHUFF(c, &dcmpri, &dcmpro, &dres);

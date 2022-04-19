@@ -500,16 +500,16 @@ void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_param
 	dfctx->codec_destroy_fn = my_rle90_codec_destroy;
 }
 
-struct szdd_ctx {
+struct lzss_ctx {
 	i64 nbytes_written;
 	int stop_flag;
 	struct de_dfilter_out_params *dcmpro;
 	struct de_lz77buffer *ringbuf;
 };
 
-static void szdd_lz77buf_writebytecb(struct de_lz77buffer *rb, const u8 n)
+static void lzss_lz77buf_writebytecb(struct de_lz77buffer *rb, const u8 n)
 {
-	struct szdd_ctx *sctx = (struct szdd_ctx*)rb->userdata;
+	struct lzss_ctx *sctx = (struct lzss_ctx*)rb->userdata;
 
 	if(sctx->stop_flag) return;
 	if(sctx->dcmpro->len_known) {
@@ -523,7 +523,7 @@ static void szdd_lz77buf_writebytecb(struct de_lz77buffer *rb, const u8 n)
 	sctx->nbytes_written++;
 }
 
-static void szdd_init_window_lz5(struct de_lz77buffer *ringbuf)
+static void lzss_init_window_lz5(struct de_lz77buffer *ringbuf)
 {
 	size_t wpos;
 	int i;
@@ -545,32 +545,33 @@ static void szdd_init_window_lz5(struct de_lz77buffer *ringbuf)
 	//wpos += 110;
 }
 
-// Partially based on the libmspack's format documentation at
-// <https://www.cabextract.org.uk/libmspack/doc/szdd_kwaj_format.html>
+// Decompress Okumura LZSS and similar formats.
 // flags:
-//   0x01: 0 = starting position=4096-16, 1 = starting position=4096-18
-//   0x02: 0 = init to all spaces, 1 = LArc lz5 mode
-void fmtutil_decompress_szdd(deark *c, struct de_dfilter_in_params *dcmpri,
+//   0x01: 0 = starting position=4096-18 [like Okumura LZSS]
+//         1 = starting position=4096-16 [like MS SZDD]
+//   0x02: 0 = init to all spaces
+//         1 = LArc lz5 mode
+void fmtutil_decompress_lzss1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, unsigned int flags)
 {
-#define SZDD_BUFSIZE 4096
+#define LZSS_BUFSIZE 4096
 	i64 pos = dcmpri->pos;
 	i64 endpos = dcmpri->pos + dcmpri->len;
-	struct szdd_ctx *sctx = NULL;
+	struct lzss_ctx *sctx = NULL;
 
-	sctx = de_malloc(c, sizeof(struct szdd_ctx));
+	sctx = de_malloc(c, sizeof(struct lzss_ctx));
 	sctx->dcmpro = dcmpro;
-	sctx->ringbuf = de_lz77buffer_create(c, SZDD_BUFSIZE);
-	sctx->ringbuf->writebyte_cb = szdd_lz77buf_writebytecb;
+	sctx->ringbuf = de_lz77buffer_create(c, LZSS_BUFSIZE);
+	sctx->ringbuf->writebyte_cb = lzss_lz77buf_writebytecb;
 	sctx->ringbuf->userdata = (void*)sctx;
 
 	if(flags & 0x2) {
-		szdd_init_window_lz5(sctx->ringbuf);
+		lzss_init_window_lz5(sctx->ringbuf);
 	}
 	else {
 		de_lz77buffer_clear(sctx->ringbuf, 0x20);
 	}
-	sctx->ringbuf->curpos = (flags & 0x1) ? (SZDD_BUFSIZE-18) : (SZDD_BUFSIZE-16);
+	sctx->ringbuf->curpos = (flags & 0x1) ? (LZSS_BUFSIZE-16) : (LZSS_BUFSIZE-18);
 
 	while(1) {
 		UI control;
@@ -603,7 +604,7 @@ void fmtutil_decompress_szdd(deark *c, struct de_dfilter_in_params *dcmpri,
 				matchlen = (x1 & 0x0f) + 3;
 				if(c->debug_level>=4) {
 					de_dbg(c, "bpos=%u match mpos=%u(%u) len=%u", sctx->ringbuf->curpos,
-						matchpos, (UI)((SZDD_BUFSIZE-1)&(sctx->ringbuf->curpos-matchpos)), matchlen);
+						matchpos, (UI)((LZSS_BUFSIZE-1)&(sctx->ringbuf->curpos-matchpos)), matchlen);
 				}
 				de_lz77buffer_copy_from_hist(sctx->ringbuf, matchpos, matchlen);
 				if(sctx->stop_flag) goto unc_done;
@@ -645,8 +646,6 @@ static void hlplz77_lz77buf_writebytecb(struct de_lz77buffer *rb, const u8 n)
 	sctx->nbytes_written++;
 }
 
-// This is very similar to the mscompress SZDD algorithm, but
-// gratuitously different.
 void fmtutil_hlp_lz77_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params)
