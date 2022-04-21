@@ -107,8 +107,8 @@ struct localctx_struct {
 	i64 zip64_centr_dir_byte_size;
 	unsigned int zip64_eocd_disknum;
 	unsigned int zip64_cd_disknum;
-	i64 offset_discrepancy;
-	int used_offset_discrepancy;
+	i64 offset_correction;
+	int used_offset_correction;
 	int is_zip64;
 	int using_scanmode;
 	struct de_crcobj *crco;
@@ -1443,24 +1443,24 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	}
 
 	if(is_central) {
-		if(d->used_offset_discrepancy) {
-			md->offset_of_local_header += d->offset_discrepancy;
+		if(d->used_offset_correction) {
+			md->offset_of_local_header += d->offset_correction;
 			de_dbg(c, "assuming local header is really at %"I64_FMT, md->offset_of_local_header);
 		}
-		else if(d->offset_discrepancy!=0) {
+		else if(d->offset_correction!=0) {
 			u32 sig1, sig2;
 			i64 alt_pos;
 
 			sig1 = (u32)de_getu32le(md->offset_of_local_header);
 			if(sig1!=CODE_PK34) {
-				alt_pos = md->offset_of_local_header + d->offset_discrepancy;
+				alt_pos = md->offset_of_local_header + d->offset_correction;
 				sig2 = (u32)de_getu32le(alt_pos);
 				if(sig2==CODE_PK34) {
 					de_warn(c, "Local file header found at %"I64_FMT" instead of %"I64_FMT". "
 						"Assuming offsets are wrong by %"I64_FMT" bytes.",
-						alt_pos, md->offset_of_local_header, d->offset_discrepancy);
-					md->offset_of_local_header += d->offset_discrepancy;
-					d->used_offset_discrepancy = 1;
+						alt_pos, md->offset_of_local_header, d->offset_correction);
+					md->offset_of_local_header += d->offset_correction;
+					d->used_offset_correction = 1;
 				}
 			}
 		}
@@ -1771,7 +1771,7 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	i64 pos;
 	i64 num_entries_this_disk;
 	i64 disk_num_with_central_dir_start;
-	i64 comment_length;
+	i64 archive_comment_len;
 	i64 alt_central_dir_offset;
 	int retval = 0;
 
@@ -1808,12 +1808,12 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 		d->central_dir_offset = d->zip64_cd_pos;
 	}
 
-	comment_length = de_getu16le(pos+20);
-	de_dbg(c, "comment length: %d", (int)comment_length);
-	if(comment_length>0) {
+	archive_comment_len = de_getu16le(pos+20);
+	de_dbg(c, "comment length: %d", (int)archive_comment_len);
+	if(archive_comment_len>0) {
 		// The comment for the whole .ZIP file presumably has to use
 		// cp437 encoding. There's no flag that could indicate otherwise.
-		do_comment(c, d, pos+22, comment_length, 0,
+		do_comment(c, d, pos+22, archive_comment_len, 0,
 			"ZIP file comment", "comment.txt");
 	}
 
@@ -1849,7 +1849,7 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 
 		sig = (u32)de_getu32le(alt_central_dir_offset);
 		if(sig==CODE_PK12) {
-			d->offset_discrepancy = alt_central_dir_offset - d->central_dir_offset;
+			d->offset_correction = alt_central_dir_offset - d->central_dir_offset;
 			de_dbg(c, "likely central dir found at %"I64_FMT, alt_central_dir_offset);
 			d->central_dir_offset = alt_central_dir_offset;
 		}
@@ -1913,10 +1913,17 @@ done:
 	;
 }
 
+static void do_run_zip_relocator(deark *c, de_module_params *mparams);
+
 static void de_run_zip(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_encoding enc;
+
+	if(de_get_ext_option(c, "zip:reloc")) {
+		do_run_zip_relocator(c, mparams);
+		return;
+	}
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -1993,6 +2000,8 @@ static void de_help_zip(deark *c)
 {
 	de_msg(c, "-opt zip:scanmode : Do not use the \"central directory\"");
 	de_msg(c, "-opt zip:implodebug : Behave like PKZIP 1.01/1.02");
+	de_msg(c, "-opt zip:reloc[=<new_offset>] : Instead of decoding, "
+		"copy/optimize the file");
 }
 
 void de_module_zip(deark *c, struct deark_module_info *mi)
@@ -2002,4 +2011,290 @@ void de_module_zip(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_zip;
 	mi->identify_fn = de_identify_zip;
 	mi->help_fn = de_help_zip;
+}
+
+/////////////////////// ZIP relocator utility
+// This routine converts a ZIP file to one that has no unused space at the
+// beginning (or end). It adjusts the offsets so that the new file is still
+// valid.
+// This is useful for "extracting" a pure ZIP file from some hybrid ZIP formats,
+// mainly self-extracting ZIP archives.
+
+struct zipreloc_ctx {
+	u8 errflag;
+	u8 need_errmsg;
+	u8 quiet;
+	i64 relocpos;
+	i64 end_of_central_dir_pos;
+	i64 central_dir_num_entries_this_disk;
+	i64 central_dir_byte_size;
+	i64 central_dir_offset_reported;
+	i64 central_dir_offset_actual;
+	i64 archive_comment_len;
+	i64 min_ldir_offset;
+	i64 offset_correction; // Amount to add to the reported offsets to get the real offsets
+	i64 offset_diff; // Amount to add to the real offsets to get the offsets in the new file
+	i64 central_dir_nbytes_converted;
+	dbuf *outf;
+};
+
+static void zipreloc_err(deark *c, struct zipreloc_ctx *d, const char *fmt, ...)
+	de_gnuc_attribute ((format (printf, 3, 4)));
+
+static void zipreloc_err(deark *c, struct zipreloc_ctx *d, const char *fmt, ...)
+{
+	va_list ap;
+
+	if(d->quiet) return;
+	va_start(ap, fmt);
+	de_verr(c, fmt, ap);
+	va_end(ap);
+}
+
+typedef void (*walk_central_dir_callback)(deark *c, struct zipreloc_ctx *d,
+	i64 pos1, i64 len);
+
+// TODO: Maybe this function, at least, should be shared with the main part of
+// the ZIP module.
+static void walk_central_dir(deark *c, struct zipreloc_ctx *d,
+	walk_central_dir_callback cbfn)
+{
+	i64 i;
+	i64 pos = d->central_dir_offset_actual;
+	i64 endpos = d->central_dir_offset_actual + d->central_dir_byte_size;
+
+	for(i=0; i<d->central_dir_num_entries_this_disk; i++) {
+		u32 sig;
+		i64 fn_len, extra_len, comment_len;
+		i64 len;
+
+		if(d->errflag) goto done;
+		sig = (u32)de_getu32le(pos);
+		if(sig!=CODE_PK12) {
+			d->errflag = 1;
+			d->need_errmsg = 1;
+			goto done;
+		}
+
+		fn_len = de_getu16le(pos+28);
+		extra_len = de_getu16le(pos+30);
+		comment_len = de_getu16le(pos+32);
+		len = 46 + fn_len + extra_len + comment_len;
+		if(pos+len > endpos) {
+			d->errflag = 1;
+			d->need_errmsg = 1;
+			goto done;
+		}
+
+		cbfn(c, d, pos, len);
+		pos += len;
+	}
+
+done:
+	;
+}
+
+// Convert a central dir entry
+static void walk_central_dir_cb2(deark *c, struct zipreloc_ctx *d, i64 pos1, i64 len)
+{
+	i64 cpstart, cplen;
+	i64 ldir_offset;
+
+	cpstart = pos1;
+	cplen = 42;
+	dbuf_copy(c->infile, cpstart, cplen, d->outf);
+
+	ldir_offset = de_getu32le(pos1+42) + d->offset_correction;
+	dbuf_writeu32le(d->outf, ldir_offset + d->offset_diff);
+
+	cpstart = pos1+46;
+	cplen = len - 46;
+	dbuf_copy(c->infile, cpstart, cplen, d->outf);
+	d->central_dir_nbytes_converted += len;
+}
+
+static void zip_relocator_main(deark *c, struct zipreloc_ctx *d)
+{
+	i64 cpstart, cplen;
+
+	d->offset_diff = d->relocpos - d->min_ldir_offset;
+
+	de_dbg(c, "[writing new file]");
+	d->outf = dbuf_create_output_file(c, "zip", NULL, 0);
+
+	// Write any extra space requested at the start of the file
+	dbuf_write_zeroes(d->outf, d->relocpos);
+
+	// Copy the main part of the ZIP file
+	cpstart = d->min_ldir_offset;
+	cplen = d->central_dir_offset_actual - cpstart;
+	dbuf_copy(c->infile, cpstart, cplen, d->outf);
+
+	// Copy/convert the central directory
+	walk_central_dir(c, d, walk_central_dir_cb2);
+	// Copy any unused bytes at the end of the central dir
+	cpstart = d->central_dir_offset_actual + d->central_dir_nbytes_converted;
+	cplen =  d->central_dir_byte_size - d->central_dir_nbytes_converted;
+	dbuf_copy(c->infile, cpstart, cplen, d->outf);
+
+	// Copy anything between the central dir and the EOCD record
+	cpstart = d->central_dir_offset_actual+d->central_dir_byte_size;
+	cplen = d->end_of_central_dir_pos - cpstart;
+	dbuf_copy(c->infile, cpstart, cplen, d->outf);
+
+	// Copy/convert the EOCD record & archive comment
+
+	// First 16 bytes
+	cpstart = d->end_of_central_dir_pos;
+	cplen = 16;
+	dbuf_copy(c->infile, cpstart, cplen, d->outf);
+
+	// Adjusted central dir offset
+	dbuf_writeu32le(d->outf, d->central_dir_offset_actual + d->offset_diff);
+
+	// Last 2 bytes of EOCD record, plus archive comment
+	cpstart = d->end_of_central_dir_pos + 20;
+	cplen = 2 + d->archive_comment_len;
+	dbuf_copy(c->infile, cpstart, cplen, d->outf);
+
+	dbuf_close(d->outf);
+	d->outf = NULL;
+}
+
+// Pre-scan a central dir entry
+static void walk_central_dir_cb1(deark *c, struct zipreloc_ctx *d, i64 pos1, i64 len)
+{
+	u32 sig;
+	i64 ldir_offset;
+
+	de_dbg2(c, "central dir entry at %"I64_FMT, pos1);
+
+	ldir_offset = de_getu32le(pos1+42) + d->offset_correction;
+	de_dbg_indent(c, 1);
+	de_dbg2(c, "local dir offset: %"I64_FMT, ldir_offset);
+	de_dbg_indent(c, -1);
+	sig = (u32)de_getu32le(ldir_offset);
+	if(sig != CODE_PK34) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	if(ldir_offset < d->min_ldir_offset) {
+		d->min_ldir_offset = ldir_offset;
+	}
+
+done:
+	;
+}
+
+static void do_run_zip_relocator(deark *c, de_module_params *mparams)
+{
+	struct zipreloc_ctx *d = NULL;
+	const char *s;
+	i64 pos;
+	u32 sig;
+	int found_cdir = 0;
+	int eocd_found;
+
+	d = de_malloc(c, sizeof(struct zipreloc_ctx));
+
+	s = de_get_ext_option(c, "zip:reloc");
+	if(s) {
+		d->relocpos = de_atoi64(s);
+	}
+	if(d->relocpos<0) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	if(c->detection_data && c->detection_data->zip_eocd_looked_for) {
+		eocd_found = (int)c->detection_data->zip_eocd_found;
+		d->end_of_central_dir_pos = c->detection_data->zip_eocd_pos;
+	}
+	else {
+		eocd_found = fmtutil_find_zip_eocd(c, c->infile, &d->end_of_central_dir_pos);
+	}
+	if(!eocd_found) {
+		zipreloc_err(c, d, "Not a ZIP file, or central directory not found.");
+		goto done;
+	}
+	de_dbg(c, "end-of-central-dir record found at %"I64_FMT,
+		d->end_of_central_dir_pos);
+
+	if(!dbuf_memcmp(c->infile, d->end_of_central_dir_pos-20, g_zipsig67, 4)) {
+		zipreloc_err(c, d, "Relocating Zip64 is not supported");
+		goto done;
+	}
+
+	pos = d->end_of_central_dir_pos;
+	d->central_dir_num_entries_this_disk = de_getu16le(pos+8);
+	d->central_dir_byte_size  = de_getu32le(pos+12);
+	d->central_dir_offset_reported = de_getu32le(pos+16);
+	d->archive_comment_len = de_getu16le(pos+20);
+
+	de_dbg_indent(c, 1);
+	de_dbg(c, "central dir num entries: %"I64_FMT, d->central_dir_num_entries_this_disk);
+	de_dbg(c, "central dir size: %"I64_FMT, d->central_dir_byte_size);
+	de_dbg(c, "central dir offset: %"I64_FMT, d->central_dir_offset_reported);
+	de_dbg_indent(c, -1);
+
+	sig = (u32)de_getu32le(d->central_dir_offset_reported);
+	if(sig==CODE_PK12) {
+		found_cdir = 1;
+		d->central_dir_offset_actual = d->central_dir_offset_reported;
+	}
+
+	if(!found_cdir) {
+		i64 pos2;
+
+		pos2 = d->end_of_central_dir_pos - d->central_dir_byte_size;
+		sig = (u32)de_getu32le(pos2);
+		if(sig==CODE_PK12) {
+			de_dbg(c, "central dir found at %"I64_FMT, pos2);
+			d->central_dir_offset_actual = pos2;
+			d->offset_correction = d->central_dir_offset_actual - d->central_dir_offset_reported;
+			found_cdir = 1;
+		}
+	}
+
+	if(!found_cdir) {
+		zipreloc_err(c, d, "Central directory not found (expected at %"I64_FMT")",
+			d->central_dir_offset_reported);
+		goto done;
+	}
+
+	if(d->central_dir_offset_actual + d->central_dir_byte_size > d->end_of_central_dir_pos) {
+		// We require the EOCD record to appear after the central dir.
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	if(d->end_of_central_dir_pos+22+d->archive_comment_len > c->infile->len) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	// Pre-scan the central dir to find the offset of the local directory that
+	// appears first in the file.
+	d->min_ldir_offset = d->central_dir_offset_actual; // initialize to max possible value
+	de_dbg(c, "[scanning central dir]");
+	de_dbg_indent(c, 1);
+	walk_central_dir(c, d, walk_central_dir_cb1);
+	de_dbg_indent(c, -1);
+	if(d->errflag) goto done;
+
+	de_dbg(c, "min ldir offs: %"I64_FMT, d->min_ldir_offset);
+	zip_relocator_main(c, d);
+
+done:
+	if(d) {
+		if(d->errflag && d->need_errmsg) {
+			zipreloc_err(c, d, "Cannot optimize/relocate this ZIP file");
+		}
+		de_free(c, d);
+	}
 }
