@@ -121,9 +121,17 @@ int fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
 void fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags);
+
+struct de_lzss1_params {
+	UI flags;
+};
 void fmtutil_decompress_lzss1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	unsigned int flags);
+	UI flags);
+void fmtutil_lzss1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params);
+
 void fmtutil_hlp_lz77_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params);

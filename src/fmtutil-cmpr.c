@@ -503,8 +503,12 @@ void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_param
 struct lzss_ctx {
 	i64 nbytes_written;
 	int stop_flag;
+	struct de_dfilter_in_params *dcmpri;
 	struct de_dfilter_out_params *dcmpro;
 	struct de_lz77buffer *ringbuf;
+	i64 cur_ipos;
+	i64 endpos;
+	struct de_bitbuf_lowlevel bbll;
 };
 
 static void lzss_lz77buf_writebytecb(struct de_lz77buffer *rb, const u8 n)
@@ -545,80 +549,107 @@ static void lzss_init_window_lz5(struct de_lz77buffer *ringbuf)
 	//wpos += 110;
 }
 
+static void lzss1_fill_bitbuf(deark *c, struct lzss_ctx *sctx)
+{
+	u8 b;
+
+	if(sctx->cur_ipos+1 > sctx->endpos) {
+		sctx->stop_flag = 1;
+		return;
+	}
+	b = dbuf_getbyte_p(sctx->dcmpri->f, &sctx->cur_ipos);
+	de_bitbuf_lowlevel_add_byte(&sctx->bbll, b);
+}
+
 // Decompress Okumura LZSS and similar formats.
-// flags:
+// codec_private_params = de_lzss1_params
+// params->flags:
 //   0x01: 0 = starting position=4096-18 [like Okumura LZSS]
 //         1 = starting position=4096-16 [like MS SZDD]
 //   0x02: 0 = init to all spaces
 //         1 = LArc lz5 mode
-void fmtutil_decompress_lzss1(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, unsigned int flags)
+void fmtutil_lzss1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params)
 {
 #define LZSS_BUFSIZE 4096
-	i64 pos = dcmpri->pos;
-	i64 endpos = dcmpri->pos + dcmpri->len;
+	struct de_lzss1_params *params = (struct de_lzss1_params*)codec_private_params;
 	struct lzss_ctx *sctx = NULL;
 
 	sctx = de_malloc(c, sizeof(struct lzss_ctx));
+	sctx->dcmpri = dcmpri;
 	sctx->dcmpro = dcmpro;
+	sctx->cur_ipos = dcmpri->pos;
+	sctx->endpos = dcmpri->pos + dcmpri->len;
 	sctx->ringbuf = de_lz77buffer_create(c, LZSS_BUFSIZE);
 	sctx->ringbuf->writebyte_cb = lzss_lz77buf_writebytecb;
 	sctx->ringbuf->userdata = (void*)sctx;
 
-	if(flags & 0x2) {
+	if(params->flags & 0x2) {
 		lzss_init_window_lz5(sctx->ringbuf);
 	}
 	else {
 		de_lz77buffer_clear(sctx->ringbuf, 0x20);
 	}
-	sctx->ringbuf->curpos = (flags & 0x1) ? (LZSS_BUFSIZE-16) : (LZSS_BUFSIZE-18);
+	sctx->ringbuf->curpos = (params->flags & 0x1) ? (LZSS_BUFSIZE-16) : (LZSS_BUFSIZE-18);
+
+	sctx->bbll.is_lsb = 1;
+	de_bitbuf_lowlevel_empty(&sctx->bbll);
 
 	while(1) {
-		UI control;
-		UI cbit;
+		u8 bit;
 
-		if(pos+1 > endpos) goto unc_done; // Out of input data
-		control = (UI)dbuf_getbyte(dcmpri->f, pos++);
+		if(sctx->bbll.nbits_in_bitbuf==0) {
+			lzss1_fill_bitbuf(c, sctx);
+			if(sctx->stop_flag) goto unc_done;
+		}
 
-		for(cbit=0x01; cbit<=0x80; cbit<<=1) {
-			if(control & cbit) { // literal
-				u8 b;
+		bit = (u8)de_bitbuf_lowlevel_get_bits(&sctx->bbll, 1);
+		if(bit) {
+			u8 b;
 
-				if(pos+1 > endpos) goto unc_done;
-				b = dbuf_getbyte(dcmpri->f, pos++);
-				if(c->debug_level>=4) {
-					de_dbg(c, "bpos=%u lit %u", sctx->ringbuf->curpos, (UI)b);
-				}
-				de_lz77buffer_add_literal_byte(sctx->ringbuf, b);
-				if(sctx->stop_flag) goto unc_done;
+			if(sctx->cur_ipos+1 > sctx->endpos) goto unc_done;
+			b = dbuf_getbyte(dcmpri->f, sctx->cur_ipos++);
+			if(c->debug_level>=4) {
+				de_dbg(c, "bpos=%u lit %u", sctx->ringbuf->curpos, (UI)b);
 			}
-			else { // match
-				UI x0, x1;
-				UI matchpos;
-				UI matchlen;
+			de_lz77buffer_add_literal_byte(sctx->ringbuf, b);
+			if(sctx->stop_flag) goto unc_done;
+		}
+		else { // match
+			UI x0, x1;
+			UI matchpos;
+			UI matchlen;
 
-				if(pos+2 > endpos) goto unc_done;
-				x0 = (UI)dbuf_getbyte_p(dcmpri->f, &pos);
-				x1 = (UI)dbuf_getbyte_p(dcmpri->f, &pos);
-				matchpos = ((x1 & 0xf0) << 4) | x0;
-				matchlen = (x1 & 0x0f) + 3;
-				if(c->debug_level>=4) {
-					de_dbg(c, "bpos=%u match mpos=%u(%u) len=%u", sctx->ringbuf->curpos,
-						matchpos, (UI)((LZSS_BUFSIZE-1)&(sctx->ringbuf->curpos-matchpos)), matchlen);
-				}
-				de_lz77buffer_copy_from_hist(sctx->ringbuf, matchpos, matchlen);
-				if(sctx->stop_flag) goto unc_done;
+			if(sctx->cur_ipos+2 > sctx->endpos) goto unc_done;
+			x0 = (UI)dbuf_getbyte_p(dcmpri->f, &sctx->cur_ipos);
+			x1 = (UI)dbuf_getbyte_p(dcmpri->f, &sctx->cur_ipos);
+			matchpos = ((x1 & 0xf0) << 4) | x0;
+			matchlen = (x1 & 0x0f) + 3;
+			if(c->debug_level>=4) {
+				de_dbg(c, "bpos=%u match mpos=%u(%u) len=%u", sctx->ringbuf->curpos,
+					matchpos, (UI)((LZSS_BUFSIZE-1)&(sctx->ringbuf->curpos-matchpos)), matchlen);
 			}
+			de_lz77buffer_copy_from_hist(sctx->ringbuf, matchpos, matchlen);
+			if(sctx->stop_flag) goto unc_done;
 		}
 	}
 
 unc_done:
 	dres->bytes_consumed_valid = 1;
-	dres->bytes_consumed = pos - dcmpri->pos;
-	if(sctx) {
-		de_lz77buffer_destroy(c, sctx->ringbuf);
-		de_free(c, sctx);
-	}
+	dres->bytes_consumed = sctx->cur_ipos - dcmpri->pos;
+	de_lz77buffer_destroy(c, sctx->ringbuf);
+	de_free(c, sctx);
+}
+
+void fmtutil_decompress_lzss1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, UI flags)
+{
+	struct de_lzss1_params params;
+
+	de_zeromem(&params, sizeof(struct de_lzss1_params));
+	params.flags = flags;
+	fmtutil_lzss1_codectype1(c, dcmpri, dcmpro, dres, &params);
 }
 
 //======================= hlp_lz77 =======================
