@@ -725,6 +725,23 @@ static void do_mgkiptc_extension(deark *c, lctx *d, i64 pos)
 	dbuf_close(tmpf);
 }
 
+static void do_giflite_extension(deark *c, lctx *d, i64 pos1)
+{
+	i64 sub_block_len;
+	i64 pos = pos1;
+	UI vmajor, vminor;
+	i64 olen;
+
+	sub_block_len = (i64)de_getbyte_p(&pos);
+	if(sub_block_len<2) return;
+	vmajor = (UI)de_getbyte_p(&pos);
+	vminor = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "GIFLITE ver: %u.%02u", vmajor, vminor);
+	if(sub_block_len<6) return;
+	olen = de_getu32le_p(&pos);
+	de_dbg(c, "orig file size: %"I64_FMT, olen);
+}
+
 static void do_unknown_extension(deark *c, lctx *d, i64 pos)
 {
 	dbuf *tmpf = NULL;
@@ -770,6 +787,9 @@ static void do_application_extension(deark *c, lctx *d, i64 pos)
 	}
 	else if(!de_memcmp(app_id, "MGKIPTC0000", 11)) {
 		do_mgkiptc_extension(c, d, pos);
+	}
+	else if(!de_memcmp(app_id, "GIFLITE    ", 11)) {
+		do_giflite_extension(c, d, pos);
 	}
 	else {
 		do_unknown_extension(c, d, pos);
