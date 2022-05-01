@@ -285,6 +285,7 @@ static const struct ver_fingerprint_item ver_fingerprint_arr[] = {
 	{0xbc75491dU, 0x210e, 0, NULL},
 	{0xd332a6e7U, 0x210f, 0, NULL},
 	{0x43eb077fU, 0x2132, 0, "-2.01"},
+	{0x2892b2bdU, 0x3105, 0, NULL},
 	{0xbc0ec35eU, 0x310c, 0, NULL},
 	{0x61a65992U, 0x310d, 0, NULL},
 	{0xd9911c85U, 0x4100, 1, "beta"}, // -l (load high) option
