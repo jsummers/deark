@@ -695,14 +695,18 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei);
 #define DE_SPECIALEXEFMT_DIET      4
 #define DE_SPECIALEXEFMT_TINYPROG  5
 #define DE_SPECIALEXEFMT_SFX       100 // Generic extractable self-extracting archive
+#define DE_SPECIALEXEFMT_ZIPSFX    101
 
  struct fmtutil_specialexe_detection_data {
 	u8 restrict_to_fmt; // DE_SPECIALEXEFMT_*; 0 = any
 	u8 detected_fmt; // DE_SPECIALEXEFMT_*; 0 = unknown
 	u8 detected_subfmt;
 	u8 payload_valid;
+	u8 zip_eocd_looked_for;
+	u8 zip_eocd_found;
 	i64 payload_pos;
 	i64 payload_len;
+	i64 zip_eocd_pos;
 	const char *payload_file_ext;
 	const char *modname; // Non-NULL if we think we can decompress
 	char detected_fmt_name[40];

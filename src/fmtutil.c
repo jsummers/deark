@@ -1987,12 +1987,50 @@ done:
 	}
 }
 
+// Also uses/updates edd->zip_eocd_* settings.
+static void detect_exesfx_zip(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	int ret;
+	i64 foundpos = 0;
+
+	if(!edd->zip_eocd_looked_for) {
+		if(c->infile==ei->f && c->detection_data && c->detection_data->zip_eocd_looked_for) {
+			edd->zip_eocd_looked_for = 1;
+			edd->zip_eocd_found = c->detection_data->zip_eocd_found;
+			edd->zip_eocd_pos = c->detection_data->zip_eocd_pos;
+		}
+		else {
+			edd->zip_eocd_found = (u8)fmtutil_find_zip_eocd(c, c->infile, &edd->zip_eocd_pos);
+			edd->zip_eocd_looked_for = 1;
+		}
+	}
+
+	if(!edd->zip_eocd_found) goto done;
+
+	// Look for a ZIP file in the overlay (approximately)
+	if(ei->f->len - ei->end_of_dos_code < 10) goto done; // Overlay too small
+
+	ret = dbuf_search(ei->f, (const u8*)"PK\x03\x04", 4, ei->end_of_dos_code-10, 20,
+		&foundpos);
+	if(!ret) goto done;
+	edd->detected_fmt = DE_SPECIALEXEFMT_ZIPSFX;
+
+done:
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_ZIPSFX) {
+		de_strlcpy(ectx->shortname, "ZIP", sizeof(ectx->shortname));
+	}
+}
+
 void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	struct fmtutil_specialexe_detection_data *edd)
 {
 	struct execomp_ctx ectx;
 
 	de_zeromem(&ectx, sizeof(struct execomp_ctx));
+
+	detect_exesfx_zip(c, &ectx, ei, edd);
+	if(edd->detected_fmt) goto done;
 
 	detect_exesfx_lha(c, &ectx, ei, edd);
 	if(edd->detected_fmt) goto done;

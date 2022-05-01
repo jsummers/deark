@@ -1913,16 +1913,25 @@ done:
 	;
 }
 
-static void do_run_zip_relocator(deark *c, de_module_params *mparams);
+static void do_run_zip_relocator(deark *c, de_module_params *mparams,
+	int internalmode, const char *reloc_opt);
 
 static void de_run_zip(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_encoding enc;
 
-	if(de_get_ext_option(c, "zip:reloc")) {
-		do_run_zip_relocator(c, mparams);
+	if(de_havemodcode(c, mparams, 'R')) {
+		do_run_zip_relocator(c, mparams, 1, NULL);
 		return;
+	}
+	else {
+		const char *s;
+		s = de_get_ext_option(c, "zip:reloc");
+		if(s) {
+			do_run_zip_relocator(c, mparams, 0, s);
+			return;
+		}
 	}
 
 	d = de_malloc(c, sizeof(lctx));
@@ -1965,6 +1974,9 @@ static int de_identify_zip(deark *c)
 	if(c->infile->len >= 22) {
 		de_read(b, c->infile->len - 22, 4);
 		if(!de_memcmp(b, g_zipsig56, 4)) {
+			c->detection_data->zip_eocd_looked_for = 1;
+			c->detection_data->zip_eocd_found = 1;
+			c->detection_data->zip_eocd_pos = c->infile->len - 22;
 			return has_zip_ext ? 100 : 19;
 		}
 	}
@@ -2188,10 +2200,11 @@ done:
 	;
 }
 
-static void do_run_zip_relocator(deark *c, de_module_params *mparams)
+static void do_run_zip_relocator(deark *c, de_module_params *mparams,
+	int internalmode, const char *reloc_opt)
 {
 	struct zipreloc_ctx *d = NULL;
-	const char *s;
+	struct fmtutil_specialexe_detection_data *edd_from_parent = NULL;
 	i64 pos;
 	u32 sig;
 	int found_cdir = 0;
@@ -2199,19 +2212,33 @@ static void do_run_zip_relocator(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(struct zipreloc_ctx));
 
-	s = de_get_ext_option(c, "zip:reloc");
-	if(s) {
-		d->relocpos = de_atoi64(s);
+	if(internalmode) {
+		d->relocpos = 0;
+		d->quiet = 1;
+		if(mparams) {
+			edd_from_parent = (struct fmtutil_specialexe_detection_data*)mparams->in_params.obj1;
+		}
 	}
-	if(d->relocpos<0) {
-		d->errflag = 1;
-		d->need_errmsg = 1;
-		goto done;
+	else {
+		if(reloc_opt) {
+			d->relocpos = de_atoi64(reloc_opt);
+		}
+		if(d->relocpos<0) d->relocpos = 0;
 	}
 
-	if(c->detection_data && c->detection_data->zip_eocd_looked_for) {
+	// (Trying to make Deark not call fmtutil_find_zip_eocd() more than once per
+	// file, and it makes a mess of things...)
+	if(edd_from_parent && edd_from_parent->zip_eocd_looked_for) {
+		eocd_found = edd_from_parent->zip_eocd_found;
+		if(eocd_found) {
+			d->end_of_central_dir_pos = edd_from_parent->zip_eocd_pos;
+		}
+	}
+	else if(c->detection_data && c->detection_data->zip_eocd_looked_for) {
 		eocd_found = (int)c->detection_data->zip_eocd_found;
-		d->end_of_central_dir_pos = c->detection_data->zip_eocd_pos;
+		if(eocd_found) {
+			d->end_of_central_dir_pos = c->detection_data->zip_eocd_pos;
+		}
 	}
 	else {
 		eocd_found = fmtutil_find_zip_eocd(c, c->infile, &d->end_of_central_dir_pos);
@@ -2289,6 +2316,11 @@ static void do_run_zip_relocator(deark *c, de_module_params *mparams)
 
 	de_dbg(c, "min ldir offs: %"I64_FMT, d->min_ldir_offset);
 	zip_relocator_main(c, d);
+
+	if(mparams) {
+		// Inform the caller of success
+		mparams->out_params.flags |= 0x1;
+	}
 
 done:
 	if(d) {

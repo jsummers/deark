@@ -1433,17 +1433,55 @@ static void do_lx_or_le_rsrc_tbl(deark *c, lctx *d)
 	}
 }
 
+static void extract_zip_from_sfx(deark *c, struct fmtutil_exe_info *ei,
+	struct fmtutil_specialexe_detection_data *edd)
+{
+	de_module_params *mparams = NULL;
+
+	de_dbg(c, "attempting zip extraction");
+	de_dbg_indent(c, 1);
+
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->in_params.codes = "R";
+	mparams->in_params.obj1 = (void*)edd;
+
+	de_run_module_by_id_on_slice(c, "zip", mparams, ei->f, 0, ei->f->len);
+
+	if(!(mparams->out_params.flags & 0x1)) {
+		de_warn(c, "This look like a self-extracting ZIP file, but an attempt to "
+			"extract the plain ZIP file failed.");
+	}
+	de_free(c, mparams);
+	de_dbg_indent(c, -1);
+}
+
 static void do_exesfx(deark *c, struct fmtutil_exe_info *ei)
 {
 	struct fmtutil_specialexe_detection_data edd;
 
 	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
+
 	fmtutil_detect_exesfx(c, ei, &edd);
-	if(!edd.detected_fmt) return;
+
+	if(edd.zip_eocd_found && !edd.detected_fmt) {
+		// Possibly a ZIP SFX that we don't know how to handle
+		de_info(c, "Note: This might be a self-extracting ZIP file (try \"-m zip\").");
+		goto done;
+	}
+
+	if(!edd.detected_fmt) goto done;
+
 	de_dbg(c, "detected self-extracting exe: %s", edd.detected_fmt_name);
 	if(edd.payload_valid) {
 		dbuf_create_file_from_slice(ei->f, edd.payload_pos, edd.payload_len, edd.payload_file_ext, NULL, 0);
 	}
+	else if(edd.detected_fmt==DE_SPECIALEXEFMT_ZIPSFX) {
+		// ZIP SFX generally needs special processing
+		extract_zip_from_sfx(c, ei, &edd);
+	}
+
+done:
+	;
 }
 
 static void check_for_execomp(deark *c, struct fmtutil_exe_info *ei)
@@ -1465,7 +1503,6 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	struct fmtutil_exe_info *ei = NULL;
-	int zip_eocd_found;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -1479,19 +1516,6 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 	}
 	else if((d->fmt==EXE_FMT_LX || d->fmt==EXE_FMT_LE) && d->lx_rsrc_tbl_offset>0) {
 		do_lx_or_le_rsrc_tbl(c, d);
-	}
-
-	if(c->detection_data && c->detection_data->zip_eocd_looked_for) {
-		// Note: It isn't necessarily possible to get here - It depends on the details
-		// of how other modules' identify() functions work.
-		zip_eocd_found = (int)c->detection_data->zip_eocd_found;
-	}
-	else {
-		i64 zip_eocd_pos = 0;
-		zip_eocd_found = fmtutil_find_zip_eocd(c, c->infile, &zip_eocd_pos);
-	}
-	if(zip_eocd_found) {
-		de_info(c, "Note: This might be a self-extracting ZIP file (try \"-m zip\").");
 	}
 
 	ei = de_malloc(c, sizeof(struct fmtutil_exe_info));

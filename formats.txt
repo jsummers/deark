@@ -866,6 +866,8 @@ Deark -- Information about supported formats
   Options
    -opt zip:scanmode - Attempt to read the file without using the ZIP "central
      directory". Not recommended, but allows some damaged ZIP files to be read.
+   -opt zip:reloc[=<new_offset>] - Instead of decoding, move the ZIP data to
+     the start of the file (or to new_offset).
 
 * zlib (module="zlib")
   - Raw zlib files are uncompressed.
