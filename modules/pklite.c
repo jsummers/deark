@@ -1349,6 +1349,14 @@ static void do_pklite_com(deark *c, lctx *d)
 
 	read_and_process_com_version_number(c, d, verpos);
 
+	if(c->module_disposition==DE_MODDISP_AUTODETECT) {
+		// Check if the user requested that we not do executable decompression.
+		// This feels like a hack. I'm not sure how it should work.
+		if(de_get_ext_option_bool(c, "execomp", 1) == 0) {
+			goto done;
+		}
+	}
+
 	// TODO: COM support was added in a way that's a bit of a hack. Ought to clean
 	// it up.
 	do_decompress(c, d);

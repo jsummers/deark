@@ -32,6 +32,7 @@ struct rsrc_type_info_struct;
 
 typedef struct localctx_struct {
 	int fmt;
+	u8 execomp_mode; // 0 or 1; 0xff=unspecified
 	struct fmtutil_exe_info *ei;
 
 	i64 reloc_tbl_offset;
@@ -592,6 +593,9 @@ done:
 	;
 }
 
+// Returns 0 only if this is not an EXE file.
+// This function is not expected to extract any files. In execomp mode, it
+// definitely should not extract anything.
 static int do_fileheader(deark *c, lctx *d, i64 pos1)
 {
 	i64 n;
@@ -613,6 +617,7 @@ static int do_fileheader(deark *c, lctx *d, i64 pos1)
 		goto done;
 	}
 	pos += 2;
+	retval = 1;
 
 	lfb = de_getu16le_p(&pos);
 	de_dbg(c, "length of final block: %u%s", (UI)lfb, ((lfb==0)?" (=512)":""));
@@ -675,7 +680,6 @@ static int do_fileheader(deark *c, lctx *d, i64 pos1)
 		de_dbg(c, "extended header offset: %"I64_FMT, d->ext_header_offset);
 		do_ext_header(c, d);
 	}
-	retval = 1;
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -1487,19 +1491,51 @@ done:
 	;
 }
 
-static void check_for_execomp(deark *c, lctx *d)
+// Used in execomp mode.
+static void do_execomp_decompress(deark *c, lctx *d, struct fmtutil_specialexe_detection_data *edd)
+{
+	if(!edd->detected_fmt_name) return;
+	if(!edd->modname) {
+		de_info(c, "Note: File seems to be compressed with %s, but that's "
+			"not a supported format.", edd->detected_fmt_name);
+		return;
+	}
+
+	de_dbg(c, "attempting %s decompression", edd->modname);
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice2(c, edd->modname, NULL, c->infile, 0, c->infile->len);
+	de_dbg_indent(c, -1);
+}
+
+// Based on d->execomp_mode, either just check for executable compression,
+// or try to decompress.
+static void do_execomp(deark *c, lctx *d)
 {
 	struct fmtutil_specialexe_detection_data edd;
 
-	if(!d->ei) return;
-	if((!c->show_infomessages) && (c->debug_level<1)) return;
+	if(d->execomp_mode!=1) {
+		if((!c->show_infomessages) && (c->debug_level<1)) return;
+	}
+
+	if(!d->ei) {
+		d->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
+		fmtutil_collect_exe_info(c, c->infile, d->ei);
+	}
+
 	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
 	fmtutil_detect_execomp(c, d->ei, &edd);
 	if(!edd.detected_fmt) return;
 	de_dbg(c, "detected executable compression: %s", edd.detected_fmt_name);
-	if(edd.modname) {
-		de_info(c, "Note: File seems to be compressed with %s. Use \"-m %s\" "
-			"to attempt decompression.", edd.detected_fmt_name, edd.modname);
+
+	if(d->execomp_mode==1) {
+		do_execomp_decompress(c, d, &edd);
+	}
+	else if(d->execomp_mode!=0) {
+		if(edd.modname) {
+			de_info(c, "Note: File seems to be compressed with %s. Use \"-m %s\" "
+				"or \"-opt execomp\" to attempt decompression.",
+				edd.detected_fmt_name, edd.modname);
+		}
 	}
 }
 
@@ -1509,7 +1545,14 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
+	d->execomp_mode = (u8)de_get_ext_option_bool(c, "execomp", 0xff);
+
 	if(!do_fileheader(c, d, 0)) goto done;
+
+	if(d->execomp_mode==1) {
+		do_execomp(c, d);
+		goto done;
+	}
 
 	if((d->fmt==EXE_FMT_PE32 || d->fmt==EXE_FMT_PE32PLUS) && d->pe_sections_offset>0) {
 		do_pe_section_table(c, d);
@@ -1526,7 +1569,7 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 		fmtutil_collect_exe_info(c, c->infile, d->ei);
 	}
 	do_exesfx(c, d);
-	check_for_execomp(c, d);
+	do_execomp(c, d);
 
 done:
 	if(d) {
@@ -1551,10 +1594,16 @@ static int de_identify_exe(deark *c)
 	return sigMZ ? 80 : 50;
 }
 
+static void de_help_exe(deark *c)
+{
+	de_msg(c, "-opt execomp : Try to decompress compressed files");
+}
+
 void de_module_exe(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "exe";
 	mi->desc = "EXE executable (PE, NE, etc.)";
 	mi->run_fn = de_run_exe;
 	mi->identify_fn = de_identify_exe;
+	mi->help_fn = de_help_exe;
 }
