@@ -2087,3 +2087,18 @@ int de_archive_initialize(deark *c)
 	}
 	return 0;
 }
+
+int de_memmatch(const u8 *mem, const u8 *pattern, size_t pattern_len,
+	u8 wildcard, UI flags)
+{
+	size_t i;
+
+	for(i=0; i<pattern_len; i++) {
+		u8 m = mem[i];
+		u8 p = pattern[i];
+
+		if(p==wildcard) continue;
+		if(p!=m) return 0;
+	}
+	return 1;
+}
