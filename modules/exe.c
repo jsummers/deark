@@ -32,6 +32,8 @@ struct rsrc_type_info_struct;
 
 typedef struct localctx_struct {
 	int fmt;
+	u8 execomp_mode; // 0 or 1; 0xff=unspecified
+	struct fmtutil_exe_info *ei;
 
 	i64 reloc_tbl_offset;
 	i64 file_hdr_size;
@@ -591,6 +593,9 @@ done:
 	;
 }
 
+// Returns 0 only if this is not an EXE file.
+// This function is not expected to extract any files. In execomp mode, it
+// definitely should not extract anything.
 static int do_fileheader(deark *c, lctx *d, i64 pos1)
 {
 	i64 n;
@@ -612,6 +617,7 @@ static int do_fileheader(deark *c, lctx *d, i64 pos1)
 		goto done;
 	}
 	pos += 2;
+	retval = 1;
 
 	lfb = de_getu16le_p(&pos);
 	de_dbg(c, "length of final block: %u%s", (UI)lfb, ((lfb==0)?" (=512)":""));
@@ -674,7 +680,6 @@ static int do_fileheader(deark *c, lctx *d, i64 pos1)
 		de_dbg(c, "extended header offset: %"I64_FMT, d->ext_header_offset);
 		do_ext_header(c, d);
 	}
-	retval = 1;
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -1433,43 +1438,121 @@ static void do_lx_or_le_rsrc_tbl(deark *c, lctx *d)
 	}
 }
 
-static void do_exesfx(deark *c, struct fmtutil_exe_info *ei)
+static void extract_zip_from_sfx(deark *c, lctx *d,
+	struct fmtutil_specialexe_detection_data *edd)
 {
-	struct fmtutil_specialexe_detection_data edd;
+	de_module_params *mparams = NULL;
 
-	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
-	fmtutil_detect_exesfx(c, ei, &edd);
-	if(!edd.detected_fmt) return;
-	de_dbg(c, "detected self-extracting exe: %s", edd.detected_fmt_name);
-	if(edd.payload_valid) {
-		dbuf_create_file_from_slice(ei->f, edd.payload_pos, edd.payload_len, edd.payload_file_ext, NULL, 0);
+	if(!d->ei) return;
+	de_dbg(c, "attempting zip extraction");
+	de_dbg_indent(c, 1);
+
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->in_params.codes = "R";
+	mparams->in_params.obj1 = (void*)edd;
+
+	de_run_module_by_id_on_slice(c, "zip", mparams, d->ei->f, 0, d->ei->f->len);
+
+	if(!(mparams->out_params.flags & 0x1)) {
+		de_warn(c, "This look like a self-extracting ZIP file, but an attempt to "
+			"extract the plain ZIP file failed.");
 	}
+	de_free(c, mparams);
+	de_dbg_indent(c, -1);
 }
 
-static void check_for_execomp(deark *c, struct fmtutil_exe_info *ei)
+static void do_exesfx(deark *c, lctx *d)
 {
 	struct fmtutil_specialexe_detection_data edd;
 
-	if((!c->show_infomessages) && (c->debug_level<1)) return;
+	if(!d->ei) return;
 	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
-	fmtutil_detect_execomp(c, ei, &edd);
+
+	fmtutil_detect_exesfx(c, d->ei, &edd);
+
+	if(edd.zip_eocd_found && !edd.detected_fmt) {
+		// Possibly a ZIP SFX that we don't know how to handle
+		de_info(c, "Note: This might be a self-extracting ZIP file (try \"-m zip\").");
+		goto done;
+	}
+
+	if(!edd.detected_fmt) goto done;
+
+	de_dbg(c, "detected self-extracting exe: %s", edd.detected_fmt_name);
+	if(edd.payload_valid) {
+		dbuf_create_file_from_slice(d->ei->f, edd.payload_pos, edd.payload_len, edd.payload_file_ext, NULL, 0);
+	}
+	else if(edd.detected_fmt==DE_SPECIALEXEFMT_ZIPSFX) {
+		// ZIP SFX generally needs special processing
+		extract_zip_from_sfx(c, d, &edd);
+	}
+
+done:
+	;
+}
+
+// Used in execomp mode.
+static void do_execomp_decompress(deark *c, lctx *d, struct fmtutil_specialexe_detection_data *edd)
+{
+	if(!edd->detected_fmt_name) return;
+	if(!edd->modname) {
+		de_info(c, "Note: File seems to be compressed with %s, but that's "
+			"not a supported format.", edd->detected_fmt_name);
+		return;
+	}
+
+	de_dbg(c, "attempting %s decompression", edd->modname);
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice2(c, edd->modname, NULL, c->infile, 0, c->infile->len);
+	de_dbg_indent(c, -1);
+}
+
+// Based on d->execomp_mode, either just check for executable compression,
+// or try to decompress.
+static void do_execomp(deark *c, lctx *d)
+{
+	struct fmtutil_specialexe_detection_data edd;
+
+	if(d->execomp_mode!=1) {
+		if((!c->show_infomessages) && (c->debug_level<1)) return;
+	}
+
+	if(!d->ei) {
+		d->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
+		fmtutil_collect_exe_info(c, c->infile, d->ei);
+	}
+
+	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
+	fmtutil_detect_execomp(c, d->ei, &edd);
 	if(!edd.detected_fmt) return;
 	de_dbg(c, "detected executable compression: %s", edd.detected_fmt_name);
-	if(edd.modname) {
-		de_info(c, "Note: File seems to be compressed with %s. Use \"-m %s\" "
-			"to attempt decompression.", edd.detected_fmt_name, edd.modname);
+
+	if(d->execomp_mode==1) {
+		do_execomp_decompress(c, d, &edd);
+	}
+	else if(d->execomp_mode!=0) {
+		if(edd.modname) {
+			de_info(c, "Note: File seems to be compressed with %s. Use \"-m %s\" "
+				"or \"-opt execomp\" to attempt decompression.",
+				edd.detected_fmt_name, edd.modname);
+		}
 	}
 }
 
 static void de_run_exe(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	struct fmtutil_exe_info *ei = NULL;
-	int zip_eocd_found;
 
 	d = de_malloc(c, sizeof(lctx));
 
+	d->execomp_mode = (u8)de_get_ext_option_bool(c, "execomp", 0xff);
+
 	if(!do_fileheader(c, d, 0)) goto done;
+
+	if(d->execomp_mode==1) {
+		do_execomp(c, d);
+		goto done;
+	}
 
 	if((d->fmt==EXE_FMT_PE32 || d->fmt==EXE_FMT_PE32PLUS) && d->pe_sections_offset>0) {
 		do_pe_section_table(c, d);
@@ -1481,27 +1564,18 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 		do_lx_or_le_rsrc_tbl(c, d);
 	}
 
-	if(c->detection_data && c->detection_data->zip_eocd_looked_for) {
-		// Note: It isn't necessarily possible to get here - It depends on the details
-		// of how other modules' identify() functions work.
-		zip_eocd_found = (int)c->detection_data->zip_eocd_found;
+	if(!d->ei) {
+		d->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
+		fmtutil_collect_exe_info(c, c->infile, d->ei);
 	}
-	else {
-		i64 zip_eocd_pos = 0;
-		zip_eocd_found = fmtutil_find_zip_eocd(c, c->infile, &zip_eocd_pos);
-	}
-	if(zip_eocd_found) {
-		de_info(c, "Note: This might be a self-extracting ZIP file (try \"-m zip\").");
-	}
-
-	ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
-	fmtutil_collect_exe_info(c, c->infile, ei);
-	do_exesfx(c, ei);
-	check_for_execomp(c, ei);
+	do_exesfx(c, d);
+	do_execomp(c, d);
 
 done:
-	de_free(c, ei);
-	de_free(c, d);
+	if(d) {
+		de_free(c, d->ei);
+		de_free(c, d);
+	}
 }
 
 // Note - This needs to be coordinated with de_identify_zip, so that self-extracting
@@ -1520,10 +1594,16 @@ static int de_identify_exe(deark *c)
 	return sigMZ ? 80 : 50;
 }
 
+static void de_help_exe(deark *c)
+{
+	de_msg(c, "-opt execomp : Try to decompress compressed files");
+}
+
 void de_module_exe(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "exe";
 	mi->desc = "EXE executable (PE, NE, etc.)";
 	mi->run_fn = de_run_exe;
 	mi->identify_fn = de_identify_exe;
+	mi->help_fn = de_help_exe;
 }

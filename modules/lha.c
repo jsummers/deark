@@ -808,7 +808,6 @@ static void detect_lhark(deark *c, lctx *d, struct member_data *md,
 	if(ret) {
 		d->lhark_policy = 0;
 		ok = 1;
-		fmt_name = "standard lh7";
 		goto done;
 	}
 
@@ -816,7 +815,6 @@ static void detect_lhark(deark *c, lctx *d, struct member_data *md,
 	if(ret) {
 		d->lhark_policy = 1;
 		ok = 1;
-		fmt_name = "LHARK";
 		goto done;
 	}
 
@@ -883,7 +881,7 @@ static void decompress_lz5(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	fmtutil_decompress_szdd(c, dcmpri, dcmpro, dres, 0x3);
+	fmtutil_decompress_lzss1(c, dcmpri, dcmpro, dres, 0x2);
 }
 
 struct cmpr_meth_array_item {

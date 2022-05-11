@@ -1108,7 +1108,7 @@ static void de_run_lzss_oku(deark *c, de_module_params *mparams)
 	dcmpri.len = c->infile->len;
 	dcmpro.f = outf;
 
-	fmtutil_decompress_szdd(c, &dcmpri, &dcmpro, &dres, 0x1);
+	fmtutil_decompress_lzss1(c, &dcmpri, &dcmpro, &dres, 0x0);
 	dbuf_flush(outf);
 	if(dres.errcode) {
 		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));

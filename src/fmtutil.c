@@ -1494,6 +1494,7 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 	UI min_ver = 0;
 	u8 sb[8];
 
+	// TODO?: I found a file with num_relocs==2
 	if(ei->num_relocs > 1) return;
 	dbuf_read(ei->f, sb, 28, sizeof(sb));
 
@@ -1517,13 +1518,16 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 		goto done;
 	}
 
+	// TODO: This fails to detect MEGALiTE files, even though we can probably
+	// decompress them.
 	if(ei->regIP != 256) goto done;
 	if(ei->regCS != -16) goto done;
 
 	if(!has_sig) { // If signature is present, that's good enough. Otherwise...
 		u8 cb[8];
 
-		// TODO: Find a stricter way to do fingerprinting
+		// TODO: Lots of room for improvement here. but it's hard to say how
+		// strict we should be.
 
 		dbuf_read(ei->f, cb, ei->entry_point, sizeof(cb));
 		if(cb[0]==0xb8 && cb[3]==0xba) {
@@ -1531,6 +1535,9 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 		}
 		else if(cb[0]==0x50 && cb[1]==0xb8 && cb[4]==0xba) {
 			; // v2.01
+		}
+		else if(cb[0]==0x9c && cb[1]==0xba && cb[4]==0x2d && cb[7]==0x81) {
+			; // Patched by UN^2PACK v2.0?
 		}
 		else {
 			goto done;
@@ -1541,6 +1548,18 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 
 done:
 	if(edd->detected_fmt==DE_SPECIALEXEFMT_PKLITE) {
+		de_strlcpy(ectx->shortname, "PKLITE", sizeof(ectx->shortname));
+		edd->modname = "pklite";
+	}
+}
+
+static void detect_execomp_pklite_withcrcs(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	if(ei->entrypoint_crcs==0x31665a39745cca56LLU || // v100beta/small
+		ei->entrypoint_crcs==0x97c47627b872be57LLU)  // v100beta/large
+	{
+		edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE;
 		de_strlcpy(ectx->shortname, "PKLITE", sizeof(ectx->shortname));
 		edd->modname = "pklite";
 	}
@@ -1575,7 +1594,7 @@ static void detect_execomp_lzexe(deark *c, struct execomp_ctx *ectx,
 static void detect_execomp_exepack(deark *c, struct execomp_ctx *ectx,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
-	u8 x;
+	u8 x, x2;
 	int has_RB = 0;
 
 	if(ei->num_relocs!=0) goto done;
@@ -1595,7 +1614,12 @@ static void detect_execomp_exepack(deark *c, struct execomp_ctx *ectx,
 	}
 	else if(ei->entrypoint_crcs==0x1f449ca73852e197LLU) {
 		x = dbuf_getbyte(ei->f, ei->entry_point+73);
-		if(x==0x0a) {
+		x2 = dbuf_getbyte(ei->f, ei->entry_point+137);
+		if(x==0x0a && x2==0x27) {
+			edd->detected_subfmt = 2;
+			goto done;
+		}
+		else if(x==0x0a) {
 			edd->detected_subfmt = 1;
 			goto done;
 		}
@@ -1611,7 +1635,6 @@ static void detect_execomp_exepack(deark *c, struct execomp_ctx *ectx,
 		// EXPAKFIX-patched file. Original variant undetermined (TODO?).
 		edd->detected_subfmt = 11;
 	}
-	// subfmt 2 reserved for EXEPACK 4.03 / size=279
 
 	// TODO: Is SP always 128?
 	if(ei->regSP==128 && has_RB) {
@@ -1774,6 +1797,11 @@ void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_EXEPACK) {
 		detect_execomp_exepack(c, &ectx, ei, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
+
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_PKLITE) {
+		detect_execomp_pklite_withcrcs(c, &ectx, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
@@ -1959,12 +1987,50 @@ done:
 	}
 }
 
+// Also uses/updates edd->zip_eocd_* settings.
+static void detect_exesfx_zip(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	int ret;
+	i64 foundpos = 0;
+
+	if(!edd->zip_eocd_looked_for) {
+		if(c->infile==ei->f && c->detection_data && c->detection_data->zip_eocd_looked_for) {
+			edd->zip_eocd_looked_for = 1;
+			edd->zip_eocd_found = c->detection_data->zip_eocd_found;
+			edd->zip_eocd_pos = c->detection_data->zip_eocd_pos;
+		}
+		else {
+			edd->zip_eocd_found = (u8)fmtutil_find_zip_eocd(c, c->infile, &edd->zip_eocd_pos);
+			edd->zip_eocd_looked_for = 1;
+		}
+	}
+
+	if(!edd->zip_eocd_found) goto done;
+
+	// Look for a ZIP file in the overlay (approximately)
+	if(ei->f->len - ei->end_of_dos_code < 10) goto done; // Overlay too small
+
+	ret = dbuf_search(ei->f, (const u8*)"PK\x03\x04", 4, ei->end_of_dos_code-10, 20,
+		&foundpos);
+	if(!ret) goto done;
+	edd->detected_fmt = DE_SPECIALEXEFMT_ZIPSFX;
+
+done:
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_ZIPSFX) {
+		de_strlcpy(ectx->shortname, "ZIP", sizeof(ectx->shortname));
+	}
+}
+
 void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	struct fmtutil_specialexe_detection_data *edd)
 {
 	struct execomp_ctx ectx;
 
 	de_zeromem(&ectx, sizeof(struct execomp_ctx));
+
+	detect_exesfx_zip(c, &ectx, ei, edd);
+	if(edd->detected_fmt) goto done;
 
 	detect_exesfx_lha(c, &ectx, ei, edd);
 	if(edd->detected_fmt) goto done;

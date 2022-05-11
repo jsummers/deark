@@ -205,6 +205,7 @@ struct page_ctx {
 	i64 tile_width, tile_height;
 	u8 is_old_lzw;
 	u8 is_dexxa;
+	u8 dexxa_ncolors;
 	u8 valcount_bitspersample;
 	u8 extrasamples_count;
 	u8 extrasample_type[DE_TIFF_MAX_SAMPLES]; // [0] = first *extra* sample, not first sample
@@ -242,6 +243,7 @@ struct localctx_struct {
 	int host_is_le;
 	int can_decode_fltpt;
 	u8 opt_decode;
+	u8 opt_dexxa; // 0xff=auto
 	u8 is_deark_iptc, is_deark_8bim;
 
 	u32 first_ifd_orientation; // Valid if != 0
@@ -3135,7 +3137,7 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 			if(dctx->use_pal) {
 				UI palidx;
 
-				if(pg->is_dexxa) {
+				if(pg->is_dexxa && pg->dexxa_ncolors==16) {
 					palidx = (sample[3]<<3) | (sample[2]<<2) | (sample[1]<<1) | sample[0];
 					if(pg->compression==CMPR_CCITTRLE) {
 						palidx = 15 - palidx;
@@ -3233,6 +3235,51 @@ static int is_image_ifd(deark *c, lctx *d, struct page_ctx *pg)
 	return 1;
 }
 
+// A strange broken planar paletted format used by Paint It! (presumably) and
+// RainBow Paint by Dexxa, and PaintShow [Plus] by Logitech.
+static void detect_and_setup_dexxa(deark *c, lctx *d, struct page_ctx *pg)
+{
+	if(d->opt_dexxa==0) goto done; // Disabled by user
+	if(pg->extrasamples_count!=0 || !pg->have_oldsubfiletype) goto done;
+	if(pg->compression!=CMPR_NONE && pg->compression!=CMPR_PACKBITS &&
+		pg->compression!=CMPR_CCITTRLE)
+	{
+		goto done;
+	}
+
+	if(pg->planarconfig==2 && pg->samples_per_pixel==4 &&
+		(pg->bits_per_sample==1 || pg->bits_per_sample==4) &&
+		pg->photometric==2 && pg->have_strip_tags && pg->valcount_bitspersample==1)
+	{
+		if(d->opt_dexxa==0xff) {
+			de_dbg(c, "detected Dexxa variant");
+		}
+		pg->is_dexxa = 1;
+		pg->dexxa_ncolors = 16;
+		pg->bits_per_sample = 1; // [E.g. TRAIN1.TIF from PaintShow 1.1]
+		goto done;
+	}
+
+	if(d->opt_dexxa==0xff) goto done; // No autodetection below this line
+
+	if(pg->planarconfig==1 && pg->samples_per_pixel==1 &&
+		pg->photometric==1 && pg->bits_per_sample==2 &&
+		pg->compression!=CMPR_CCITTRLE)
+	{
+		// TODO?: Try to support 4-color CMPR_CCITTRLE. The images are at
+		// least partially recoverable, but even the software that created them
+		// can't read them back.
+		pg->is_dexxa = 1;
+		pg->dexxa_ncolors = 4;
+		goto done;
+	}
+
+done:
+	if(pg->is_dexxa) {
+		de_dbg(c, "using Dexxa mode");
+	}
+}
+
 static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 {
 	de_bitmap *img = NULL;
@@ -3278,20 +3325,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	de_dbg(c, "decoding ifd image");
 	de_dbg_indent(c, 1);
 
-	if(pg->planarconfig==2 && pg->samples_per_pixel==4 &&
-		(pg->bits_per_sample==1 || pg->bits_per_sample==4) &&
-		pg->photometric==2 && pg->have_strip_tags && pg->valcount_bitspersample==1 &&
-		pg->extrasamples_count==0 && pg->have_oldsubfiletype)
-	{
-		// A strange broken planar paletted format used by Paint It! (presumably) and
-		// RainBow Paint by Dexxa, and PaintShow [Plus] by Logitech.
-		// This is slightly dangerous, because these files aren't broken to the point of
-		// being nonsense -- they just need to be interpreted differently than one would
-		// logically expect. But the format is odd enough that the risk is negligible.
-		de_dbg(c, "detected Dexxa TIFF variant");
-		pg->is_dexxa = 1;
-		pg->bits_per_sample = 1; // [E.g. TRAIN1.TIF from PaintShow 1.1]
-	}
+	detect_and_setup_dexxa(c, d, pg);
 
 	if(pg->compression<1) {
 		pg->compression = CMPR_NONE;
@@ -3370,11 +3404,19 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		goto done;
 	}
 
-	if(pg->is_dexxa) {
+	if(pg->is_dexxa && pg->dexxa_ncolors==16) {
 		dctx->base_samples_per_pixel = 4;
 		ok_bps = 1;
 		if(!pg->have_colormap) {
 			de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, pg->pal, 16, 0);
+		}
+		dctx->use_pal = 1;
+	}
+	else if(pg->is_dexxa && pg->dexxa_ncolors==4) {
+		dctx->base_samples_per_pixel = 1;
+		ok_bps = 1;
+		if(!pg->have_colormap) {
+			de_copy_std_palette(DE_PALID_CGA, 3, 0, 4, pg->pal, 4, 0);
 		}
 		dctx->use_pal = 1;
 	}
@@ -3947,6 +3989,7 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 	}
 
 	d->opt_decode = (u8)de_get_ext_option_bool(c, "tiff:decode", 1);
+	d->opt_dexxa = (u8)de_get_ext_option_bool(c, "tiff:dexxa", 0xff);
 
 	if(de_havemodcode(c, mparams, 'A')) {
 		d->fmt = DE_TIFFFMT_APPLEMN;
@@ -4077,6 +4120,7 @@ static int de_identify_tiff(deark *c)
 static void de_help_tiff(deark *c)
 {
 	de_msg(c, "-opt tiff:decode=<0|1> : Don't/Do attempt to decode images");
+	de_msg(c, "-opt tiff:dexxa[=0] : Enable/disable a special mode");
 }
 
 void de_module_tiff(deark *c, struct deark_module_info *mi)

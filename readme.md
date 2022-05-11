@@ -206,6 +206,10 @@ Command-line options:
        Extract the specified type of data to a file, instead of decoding it.
        For more about the ".8bimtiff" and ".iptctiff" formats, see the
        technical.md file.
+    -opt execomp
+       A hint to decompress files that use executable compression, when there
+       are multiple ways to process the file. This is not as robust as using -m
+       to select the appropriate module.
     -opt atari:palbits=&lt;9|12|15>
        For some Atari image formats, the number of significant bits per
        palette color. The default is to autodetect.

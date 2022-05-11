@@ -848,7 +848,7 @@ static const u8 *g_edilzss_sig = (const u8*)"EDILZSS";
 
 static void edi_pack_decompressor_fn(struct member_data *md)
 {
-	fmtutil_decompress_szdd(md->c, md->dcmpri, md->dcmpro, md->dres, 0x1);
+	fmtutil_decompress_lzss1(md->c, md->dcmpri, md->dcmpro, md->dres, 0x0);
 }
 
 // This basically checks for a valid DOS filename.

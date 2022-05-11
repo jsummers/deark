@@ -1491,13 +1491,13 @@ void dbuf_write(dbuf *f, const u8 *m, i64 len)
 		// is too full.
 		// Flush the buffer, copy the item to the buffer, done.
 		dbuf_flush(f);
-		de_memcpy(f->wbuffer, m, len);
+		de_memcpy(f->wbuffer, m, (size_t)len);
 		f->wbuffer_bytes_used = len;
 		return;
 	}
 
 	// There is room for this item in the buffer, even without flushing it first.
-	de_memcpy(&f->wbuffer[f->wbuffer_bytes_used], m, len);
+	de_memcpy(&f->wbuffer[f->wbuffer_bytes_used], m, (size_t)len);
 	f->wbuffer_bytes_used += len;
 }
 
