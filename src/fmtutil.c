@@ -1489,77 +1489,67 @@ static void calc_entrypoint_crc(deark *c, struct execomp_ctx *ectx, struct fmtut
 static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
-	int has_sig = 0;
-	UI maj_ver = 0;
-	UI min_ver = 0;
-	u8 sb[8];
+	u8 maybe_pklite = 0; // Any format with the usual EXE header field values
+	u8 maybe_beta = 0;
+	u8 maybe_megalite = 0;
+	u8 cb[12]; // Bytes at entry point
 
-	// TODO?: I found a file with num_relocs==2
-	if(ei->num_relocs > 1) return;
-	dbuf_read(ei->f, sb, 28, sizeof(sb));
-
-	// This is equivalent to what CHK4LITE does. Only the P must be capitalized.
-	if((sb[2]=='P') && (sb[3]=='K' || sb[3]=='k') &&
-		(sb[4]=='L' || sb[4]=='l') && (sb[5]=='I' || sb[5]=='i'))
+	if(ei->regIP==256 && ei->regCS==(-16) && ei->num_relocs<=2 &&
+		ei->entry_point==ei->start_of_dos_code)
 	{
-		has_sig = 1;
+		maybe_pklite = 1;
 	}
-
-	if(has_sig) {
-		maj_ver = sb[1] & 0x0f;
-		min_ver = sb[0];
-		if(min_ver>99 || maj_ver<1 || maj_ver>2) {
-			has_sig = 0;
-		}
+	else if(ei->regIP==256 && ei->regCS>(-16) && ei->num_relocs==0 &&
+		ei->entry_point>ei->start_of_dos_code)
+	{
+		maybe_beta = 1;
 	}
-
-	if(has_sig && (ei->entry_point>ei->start_of_dos_code) && maj_ver==1 && min_ver==0) {
-		edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE; // (beta)
+	else if(ei->regCS==0 && ei->regIP==0 && ei->num_relocs==1 && ei->reloc_table_pos==28 &&
+		ei->entry_point==ei->start_of_dos_code)
+	{
+		maybe_megalite = 1;
+	}
+	else {
 		goto done;
 	}
 
-	// TODO: This fails to detect MEGALiTE files, even though we can probably
-	// decompress them.
-	if(ei->regIP != 256) goto done;
-	if(ei->regCS != -16) goto done;
+	dbuf_read(ei->f, cb, ei->entry_point, sizeof(cb));
 
-	if(!has_sig) { // If signature is present, that's good enough. Otherwise...
-		u8 cb[8];
-
-		// TODO: Lots of room for improvement here. but it's hard to say how
-		// strict we should be.
-
-		dbuf_read(ei->f, cb, ei->entry_point, sizeof(cb));
-		if(cb[0]==0xb8 && cb[3]==0xba) {
-			;
+	if(maybe_pklite) {
+		if(de_memmatch(cb, (const u8*)"\xb8??\xba??\x8c\xdb\x03\xd8\x3b", 11, '?', 0)) {
+			edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE; // v1.00-1.05, etc.
 		}
-		else if(cb[0]==0x50 && cb[1]==0xb8 && cb[4]==0xba) {
-			; // v2.01
+		if(de_memmatch(cb, (const u8*)"\xb8??\xba??\x05\x00\x00\x3b", 10, '?', 0)) {
+			edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE; // v1.12-1.15, etc.
 		}
-		else if(cb[0]==0x9c && cb[1]==0xba && cb[4]==0x2d && cb[7]==0x81) {
-			; // Patched by UN^2PACK v2.0?
+		if(de_memmatch(cb, (const u8*)"\x50\xb8??\xba??\x05\x00\x00\x3b", 11, '?', 0)) {
+			edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE; // v2.01, etc.
 		}
-		else {
-			goto done;
+		if(de_memmatch(cb, (const u8*)"\x9c\xba?\x00\x2d?\x00\x81\xe1?\x00\x81", 12, '?', 0)) {
+			edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE; // Patched by UN^2PACK v2.0?
 		}
+		goto done;
 	}
 
-	edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE;
+	if(maybe_beta) {
+		if(de_memmatch(cb, (const u8*)"\x2e\x8c\x1e??\x8b\x1e\x02\x00\x8c\xda\x81", 12, '?', 0)) {
+			edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE; // Normal beta
+		}
+		if(de_memmatch(cb, (const u8*)"\x2e\x8c\x1e??\xfc\x8c\xc8\x2e\x2b\x06", 11, '?', 0)) {
+			edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE; // beta/loadhigh
+		}
+		goto done;
+	}
+
+	if(maybe_megalite) {
+		if(de_memmatch(cb, (const u8*)"\xb8??\xba??\x05\x00\x00\x3b\x2d", 11, '?', 0)) {
+			edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE;
+		}
+		goto done;
+	}
 
 done:
 	if(edd->detected_fmt==DE_SPECIALEXEFMT_PKLITE) {
-		de_strlcpy(ectx->shortname, "PKLITE", sizeof(ectx->shortname));
-		edd->modname = "pklite";
-	}
-}
-
-static void detect_execomp_pklite_withcrcs(deark *c, struct execomp_ctx *ectx,
-	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
-{
-	if(ei->entrypoint_crcs==0x31665a39745cca56LLU || // v100beta/small
-		ei->entrypoint_crcs==0x97c47627b872be57LLU)  // v100beta/large
-	{
-		edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE;
 		de_strlcpy(ectx->shortname, "PKLITE", sizeof(ectx->shortname));
 		edd->modname = "pklite";
 	}
@@ -1797,11 +1787,6 @@ void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_EXEPACK) {
 		detect_execomp_exepack(c, &ectx, ei, edd);
-		if(edd->detected_fmt!=0) goto done;
-	}
-
-	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_PKLITE) {
-		detect_execomp_pklite_withcrcs(c, &ectx, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 

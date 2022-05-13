@@ -827,7 +827,7 @@ Deark -- Information about supported formats
 
 * PKLITE (module="pklite")
   Decompress a PKLITE-compressed DOS EXE file or DOS COM file.
-  - For EXE format, you must use "-m pklite".
+  - For EXE format, you must use "-m pklite" or "-opt execomp".
   - Not all PKLITE format variants are supported.
 
 * RPM (package manager) (module="rpm")
