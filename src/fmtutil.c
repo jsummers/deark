@@ -2007,6 +2007,37 @@ done:
 	}
 }
 
+static void detect_exesfx_zoo(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	i64 overlay_len;
+
+	overlay_len = ei->f->len - ei->end_of_dos_code;
+	if(overlay_len < 24) goto done;
+	if((UI)dbuf_getu32le(ei->f, ei->end_of_dos_code+20) != 0xfdc4a7dc) goto done;
+
+	calc_entrypoint_crc(c, ectx, ei);
+	switch((UI)(ei->entrypoint_crcs>>32)) {
+	case 0x6d384fa1U: // SEZ 2.00
+	case 0xec5138deU: // SEZ 2.30
+		// TODO: More Zoo SFX variants
+		break;
+	default:
+		goto done;
+	}
+
+	edd->payload_pos = ei->end_of_dos_code;
+	edd->payload_len = overlay_len;
+	edd->payload_valid = 1;
+	edd->detected_fmt = DE_SPECIALEXEFMT_SFX;
+	edd->payload_file_ext = "zoo";
+
+done:
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
+		de_strlcpy(ectx->shortname, "Zoo", sizeof(ectx->shortname));
+	}
+}
+
 void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	struct fmtutil_specialexe_detection_data *edd)
 {
@@ -2024,6 +2055,9 @@ void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	if(edd->detected_fmt) goto done;
 
 	detect_exesfx_larc(c, &ectx, ei, edd);
+	if(edd->detected_fmt) goto done;
+
+	detect_exesfx_zoo(c, &ectx, ei, edd);
 
 done:
 	if(ectx.shortname[0] && ectx.verstr[0]) {
