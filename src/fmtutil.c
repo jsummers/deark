@@ -1720,6 +1720,26 @@ done:
 	;
 }
 
+static void detect_execomp_wwpack(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	u8 cb[11]; // Bytes at entry point
+
+	if(ei->num_relocs!=0) goto done;
+	if(ei->start_of_dos_code!=32) goto done;
+	if(ei->entry_point==ei->start_of_dos_code) goto done;
+
+	dbuf_read(ei->f, cb, ei->entry_point, sizeof(cb));
+	if(!de_memmatch(cb, (const u8*)"\xb8??\x8c\xca\x03\xd0\x8c\xc9\x81\xc1", 11, '?', 0)) {
+		goto done;
+	}
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_EXECOMP;
+	de_strlcpy(ectx->shortname, "WWPACK", sizeof(ectx->shortname));
+done:
+	;
+}
+
 // Caller initializes ei (to zeroes).
 // Records some basic information about an EXE file, to be used by routines that
 // detect special EXE formats.
@@ -1775,6 +1795,11 @@ void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_DIET) {
 		detect_execomp_diet(c, &ectx, ei, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
+
+	if(edd->restrict_to_fmt==0) {
+		detect_execomp_wwpack(c, &ectx, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
