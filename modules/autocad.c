@@ -50,7 +50,7 @@ static void de_run_autocad_slb(deark *c, de_module_params *mparams)
 			new_numalloc = old_numalloc*2;
 			si = de_reallocarray(c, si, old_numalloc, sizeof(struct slideinfo),
 				new_numalloc);
-			si_numalloc *= new_numalloc;
+			si_numalloc = new_numalloc;
 		}
 
 		si[k].pos = de_getu32le(pos+32);
