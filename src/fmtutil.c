@@ -1461,7 +1461,6 @@ i64 fmtutil_hlp_get_csl_p(dbuf *f, i64 *ppos)
 struct execomp_ctx {
 	u8 devmode;
 	char shortname[40];
-	char verstr[40];
 };
 
 static void calc_entrypoint_crc(deark *c, struct execomp_ctx *ectx, struct fmtutil_exe_info *ei)
@@ -1576,7 +1575,6 @@ static void detect_execomp_lzexe(deark *c, struct execomp_ctx *ectx,
 	if(vs) {
 		edd->detected_fmt = DE_SPECIALEXEFMT_LZEXE;
 		de_strlcpy(ectx->shortname, "LZEXE", sizeof(ectx->shortname));
-		de_strlcpy(ectx->verstr, vs, sizeof(ectx->verstr));
 		edd->modname = "lzexe";
 	}
 }
@@ -1816,14 +1814,8 @@ void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
 	}
 
 done:
-	if(ectx.shortname[0] && ectx.verstr[0]) {
-		de_snprintf(edd->detected_fmt_name, sizeof(edd->detected_fmt_name), "%s %s",
-			ectx.shortname, ectx.verstr);
-	}
-	else {
-		de_strlcpy(edd->detected_fmt_name, (ectx.shortname[0]?ectx.shortname:"unknown"),
-			sizeof(edd->detected_fmt_name));
-	}
+	de_strlcpy(edd->detected_fmt_name, (ectx.shortname[0]?ectx.shortname:"unknown"),
+		sizeof(edd->detected_fmt_name));
 }
 
 // If found, writes a copy of pos to *pfoundpos.
@@ -2085,12 +2077,6 @@ void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	detect_exesfx_zoo(c, &ectx, ei, edd);
 
 done:
-	if(ectx.shortname[0] && ectx.verstr[0]) {
-		de_snprintf(edd->detected_fmt_name, sizeof(edd->detected_fmt_name), "%s %s",
-			ectx.shortname, ectx.verstr);
-	}
-	else {
-		de_strlcpy(edd->detected_fmt_name, (ectx.shortname[0]?ectx.shortname:"unknown"),
-			sizeof(edd->detected_fmt_name));
-	}
+	de_strlcpy(edd->detected_fmt_name, (ectx.shortname[0]?ectx.shortname:"unknown"),
+		sizeof(edd->detected_fmt_name));
 }
