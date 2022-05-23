@@ -570,7 +570,13 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		pos += 4;
 	}
 
-	if(md->objtype==ARJ_OBJTYPE_MEMBERFILE) {
+	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
+		n = de_getu32le_p(&pos);
+		if(d->is_secured) {
+			de_dbg(c, "archive size: %"I64_FMT, n);
+		}
+	}
+	else if(md->objtype==ARJ_OBJTYPE_MEMBERFILE) {
 		md->orig_len = de_getu32le_p(&pos);
 		de_dbg(c, "original size: %"I64_FMT, md->orig_len);
 	}
@@ -958,6 +964,8 @@ static int de_identify_arj(deark *c)
 static void de_help_arj(deark *c)
 {
 	de_msg(c, "-opt arj:entrypoint=<n> : Offset of archive header");
+	de_msg(c, "-opt arj:scan[=0] : Enable/disable scanning for the ARJ data");
+	de_msg(c, "-opt arj:reloc[=<n>] : Move the ARJ data");
 }
 
 void de_module_arj(deark *c, struct deark_module_info *mi)
@@ -978,30 +986,111 @@ void de_module_arj(deark *c, struct deark_module_info *mi)
 // "security envelope" (digital signature). In such cases, we'll try to remove
 // the security envelope.
 
+struct arjreloc_ctx {
+	i64 src_startpos;
+	dbuf *ahdr;
+};
+
+// Edit the archive header to disable any v2 security envelope.
+// I don't know how to successfully edit the file, otherwise. (It may be
+// *possible*, but I couldn't get it to work just by modifying it in the
+// obvious ways.)
+//
+// Writes to d->ahdr as many bytes as should be replaced in the ARJ file.
+static int reloc_process_archive_hdr(deark *c, struct arjreloc_ctx *d)
+{
+	struct de_crcobj *crco = NULL;
+	int retval = 0;
+	i64 basic_hdr_size;
+	UI hdr_id;
+	i32 newcrc;
+	u8 flags;
+	u8 file_type;
+
+	hdr_id = (UI)de_getu16le(d->src_startpos);
+	if(hdr_id!=0xea60) goto done;
+	basic_hdr_size = de_getu16le(d->src_startpos+2);
+	if(basic_hdr_size>MAX_BASIC_HEADER_SIZE || basic_hdr_size<30) goto done;
+
+	flags = de_getbyte(d->src_startpos+8);
+	file_type = de_getbyte(d->src_startpos+10);
+	if(file_type!=2) goto done;
+	if(!(flags & 0x40)) {
+		// Not secured, or not the problematic type of security.
+		// We can just copy everything.
+		retval = 1;
+		goto done;
+	}
+
+	de_info(c, "Note: Disabling ARJ security envelope");
+
+	// Copy, with changes as needed
+	dbuf_copy(c->infile, d->src_startpos, 8, d->ahdr);
+
+	// Alter some of the bytes
+	dbuf_writebyte(d->ahdr, (flags-0x40)); // turn off SECURED_FLAG
+	dbuf_writebyte(d->ahdr, 0); // security version
+	dbuf_copy(c->infile, d->src_startpos+10, 10, d->ahdr); // filetype...modtime
+	dbuf_writeu32le(d->ahdr, 0); // archive size
+	dbuf_writeu32le(d->ahdr, 0); // security envelope pos
+	dbuf_copy(c->infile, d->src_startpos+28, 2, d->ahdr); // filespec pos
+	dbuf_writeu16le(d->ahdr, 0); // security envelope len
+	// (now at file offset 32) Copy the rest of the basic header
+	dbuf_copy(c->infile, d->src_startpos+32, (4+basic_hdr_size)-32, d->ahdr);
+
+	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	de_crcobj_addslice(crco, d->ahdr, 4, basic_hdr_size);
+	newcrc = de_crcobj_getval(crco);
+	dbuf_writeu32le(d->ahdr, newcrc); // basic hdr crc
+
+	// Note - This is not the end of the archive header, but anything after
+	// this can remain unchanged.
+	retval = 1;
+done:
+	de_crcobj_destroy(crco);
+	return retval;
+}
+
 static void do_run_arj_relocator(deark *c, struct options_struct *arj_opts)
 {
 	dbuf *outf = NULL;
-	i64 src_startpos;
 	i64 dst_startpos = 0;
 	i64 len_to_copy;
+	struct arjreloc_ctx *d = NULL;
+	int ok = 0;
 
-	de_dbg(c, "[arj relocator]");
+	de_dbg(c, "ARJ relocation mode");
+	d = de_malloc(c, sizeof(struct arjreloc_ctx));
 
 	if(arj_opts->reloc_opt) {
 		dst_startpos = de_atoi64(arj_opts->reloc_opt);
 	}
 	if(dst_startpos<0) dst_startpos = 0;
 
-	src_startpos = arj_opts->archive_start;
-	len_to_copy = c->infile->len - src_startpos;
+	d->ahdr = dbuf_create_membuf(c, 0, 0);
+
+	d->src_startpos = arj_opts->archive_start;
+	len_to_copy = c->infile->len - d->src_startpos;
 	if(len_to_copy<1) goto done;
+
+	if(!reloc_process_archive_hdr(c, d)) goto done;
 
 	outf = dbuf_create_output_file(c, "arj", NULL, 0);
 	dbuf_write_zeroes(outf, dst_startpos);
 
-	// FIXME: This is temporary
-	dbuf_copy(c->infile, src_startpos, len_to_copy, outf);
+	// Copy the potentially-changed part of the file
+	dbuf_copy(d->ahdr, 0, d->ahdr->len, outf);
+	// Copy the definitely-unchanged part of the file
+	dbuf_copy(c->infile, d->src_startpos+d->ahdr->len, len_to_copy-d->ahdr->len, outf);
+	ok = 1;
 
 done:
+	if(!ok) {
+		de_err(c, "Cannot relocate/extract this ARJ file");
+	}
 	dbuf_close(outf);
+	if(d) {
+		dbuf_close(d->ahdr);
+		de_free(c, d);
+	}
 }
