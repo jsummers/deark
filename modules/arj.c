@@ -1085,7 +1085,13 @@ static void do_run_arj_relocator(deark *c, struct options_struct *arj_opts)
 	ok = 1;
 
 done:
-	if(!ok) {
+	if(ok) {
+		if(arj_opts->mparams) {
+			// Inform the caller of success
+			arj_opts->mparams->out_params.flags |= 0x1;
+		}
+	}
+	else {
 		de_err(c, "Cannot relocate/extract this ARJ file");
 	}
 	dbuf_close(outf);

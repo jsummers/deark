@@ -2055,6 +2055,74 @@ done:
 	}
 }
 
+static int is_arj_data_at(deark *c, dbuf *f, i64 pos1)
+{
+	struct de_crcobj *crco = NULL;
+	i64 basic_hdr_size;
+	int retval = 0;
+	u32 crc_calc, crc_reported;
+
+	basic_hdr_size = dbuf_getu16le(f, pos1+2);
+	if(basic_hdr_size<30 || basic_hdr_size>2600) goto done;
+	if(dbuf_getbyte(f, pos1+10) != 2) goto done; // "file type"
+	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	de_crcobj_addslice(crco, f, pos1+4, basic_hdr_size);
+	crc_calc = de_crcobj_getval(crco);
+	crc_reported = (u32)dbuf_getu32le(f, pos1+4+basic_hdr_size);
+	if(crc_calc!=crc_reported) goto done;
+	retval = 1;
+
+done:
+	de_crcobj_destroy(crco);
+	return retval;
+}
+
+// Notes:
+// ARJ SFX was introduced in ARJ v0.15.
+// v0.15-0.20: Untested.
+// v1.00-2.00: DIET compression.
+// v2.10: LZEXE compression, "LZ91" signature at offset 28.
+// v2.20-?: LZEXE compression, "RJFX" signature at offset 28,
+//  string "aRJsfX" appears in the first 1000 bytes of the executable.
+// Each version has at least two SFX formats (-je and -je1).
+// So, it's hard to identify ARJ SFX by its decompressor. Instead, we look for
+// a valid ARJ archive starting near the beginning of the overlay segment.
+// (TODO: ARJ32)
+static void detect_exesfx_arj(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	i64 overlay_len;
+	int ret;
+	i64 foundpos = 0;
+	i64 curpos;
+	i64 endpos;
+
+	overlay_len = ei->f->len - ei->end_of_dos_code;
+	if(overlay_len < 84) goto done;
+
+	curpos = ei->end_of_dos_code;
+	// Aribrarily allow up to 16 extra bytes before the ARJ data starts.
+	// Maybe 2 is sufficient. Dunno.
+	endpos = curpos+16+2;
+
+	while(curpos<=(endpos-2)) {
+		ret = dbuf_search(ei->f, (const u8*)"\x60\xea", 2, curpos, endpos-curpos,
+			&foundpos);
+		if(!ret) goto done;
+
+		if(is_arj_data_at(c, ei->f, foundpos)) {
+			edd->detected_fmt = DE_SPECIALEXEFMT_ARJSFX;
+			goto done;
+		}
+		curpos = foundpos+2; // Continue the search here
+	}
+
+done:
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_ARJSFX) {
+		de_strlcpy(ectx->shortname, "ARJ", sizeof(ectx->shortname));
+	}
+}
+
 void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	struct fmtutil_specialexe_detection_data *edd)
 {
@@ -2075,6 +2143,9 @@ void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	if(edd->detected_fmt) goto done;
 
 	detect_exesfx_zoo(c, &ectx, ei, edd);
+	if(edd->detected_fmt) goto done;
+
+	detect_exesfx_arj(c, &ectx, ei, edd);
 
 done:
 	de_strlcpy(edd->detected_fmt_name, (ectx.shortname[0]?ectx.shortname:"unknown"),
