@@ -641,7 +641,12 @@ Deark -- Information about supported formats
 * ArcMac (module="arcmac") (experimental)
   Variant of ARC.
 
-* ARJ (module="arj") (experimental)
+* ARJ (module="arj")
+  Options
+   -opt arj:entrypoint=<n> : Specify the offset of ARJ data.
+   -opt arj:scan=0 : Disable scanning for the ARJ data.
+   -opt arj:reloc[=<n>] : Move the ARJ data, and disable any v2 security
+     envelope.
 
 * AmBs (AMOS "Banks" aggregate format) (module="abk")
   - Extract AmSp, AmIc, AmBk files.

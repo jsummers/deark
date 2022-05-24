@@ -2086,6 +2086,9 @@ static void detect_exesfx_arj(deark *c, struct execomp_ctx *ectx,
 
 	if(ret) {
 		edd->detected_fmt = DE_SPECIALEXEFMT_ARJSFX;
+		edd->payload_pos = foundpos;
+		edd->payload_len = ei->f->len - foundpos;
+		edd->payload_valid = 1;
 		goto done;
 	}
 

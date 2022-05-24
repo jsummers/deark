@@ -450,17 +450,13 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	md = de_malloc(c, sizeof(struct member_data));
 
 	md->hdr_id = (UI)de_getu16le_p(&pos);
-	if(expecting_archive_hdr) {
-		if(md->hdr_id==0xea60) {
+	if(md->hdr_id==0xea60) {
+		if(expecting_archive_hdr) {
 			md->objtype = ARJ_OBJTYPE_ARCHIVEHDR;
 		}
 		else {
-			de_err(c, "Not an ARJ file, or could not find ARJ data");
-			goto done;
+			md->objtype = ARJ_OBJTYPE_MEMBERFILE; // tentative?
 		}
-	}
-	else if(md->hdr_id==0xea60) {
-		md->objtype = ARJ_OBJTYPE_MEMBERFILE; // tentative?
 	}
 	else if(md->hdr_id==0x6000) {
 		md->objtype = ARJ_OBJTYPE_CHAPTERHDR;
@@ -764,17 +760,13 @@ static void do_security_envelope(deark *c, lctx *d)
 struct options_struct {
 	de_module_params *mparams;
 	const char *reloc_opt;
-	u8 is_exe;
-	u8 scan_for_start;
-	u8 internalmode;
-	u8 archive_start_req_flag;
-	i64 archive_start; // tentative or final start pos
+	i64 archive_start;
 };
 
 // Tries to figure out if an ARJ archive starts at the given offset.
 // It must start with the archive header.
 // Note that this is not the algorithm specified in the ARJ TECHNOTE file.
-// The reason is that we want Deark to tolerate incorrect CRC fields.
+// The function is used when we want to tolerate a bad header CRC.
 static int is_arj_data_at(deark *c, i64 pos1)
 {
 	i64 pos;
@@ -785,7 +777,6 @@ static int is_arj_data_at(deark *c, i64 pos1)
 
 	basic_hdr_size = de_getu16le_p(&pos);
 	if(basic_hdr_size>ARJ_MAX_BASIC_HEADER_SIZE || basic_hdr_size<ARJ_MIN_BASIC_HEADER_SIZE) return 0;
-	// TODO: Should we be more strict here
 	pos += basic_hdr_size + 4;
 	first_ext_hdr_size = de_getu16le_p(&pos);
 	if(first_ext_hdr_size!=0) pos += first_ext_hdr_size+4;
@@ -796,39 +787,6 @@ static int is_arj_data_at(deark *c, i64 pos1)
 		return 1;
 	}
 	return 0;
-}
-
-// arj_opts->archive_start and len define the region in which to search for the
-// first two bytes of the archive header (60 ea).
-// If successful, alters arj_opts->archive_start.
-static void scan_for_archive_start(deark *c, struct options_struct *arj_opts,
-	i64 len)
-{
-	int ret;
-	i64 curpos;
-	i64 foundpos = 0;
-	i64 endpos;
-
-	curpos = arj_opts->archive_start;
-	endpos = curpos+len;
-	if(endpos > c->infile->len) endpos = c->infile->len;
-
-	while(curpos<=(endpos-2)) {
-		ret = dbuf_search(c->infile, g_arj_hdr_id, 2, curpos, endpos-curpos, &foundpos);
-		if(!ret) goto done;
-
-		if(is_arj_data_at(c, foundpos)) {
-			if(foundpos != 0) {
-				de_dbg(c, "ARJ data found at %"I64_FMT, foundpos);
-			}
-			arj_opts->archive_start = foundpos;
-			goto done;
-		}
-		curpos = foundpos+2; // Continue the search here
-	}
-
-done:
-	;
 }
 
 static u8 is_exe_format(deark *c)
@@ -859,8 +817,12 @@ static void de_run_arj(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	i64 pos;
 	i64 bytes_consumed = 0;
-	i64 amt_to_scan = 0;
+	u8 archive_start_req_flag = 0;
+	u8 used_scan = 0;
+	i64 archive_start_req = 0;
+	i64 exact_archive_start = 0;
 	const char *s;
+	u8 scan_opt; // 0 or 1, 0xff for unset
 	int modcode_R = 0;
 	struct options_struct *arj_opts = NULL;
 
@@ -871,47 +833,94 @@ static void de_run_arj(deark *c, de_module_params *mparams)
 		modcode_R = de_havemodcode(c, mparams, 'R');
 	}
 
-	arj_opts->is_exe = is_exe_format(c);
-
-	if(modcode_R) {
-		arj_opts->internalmode = 1;
-		arj_opts->scan_for_start = 1;
+	if(c->module_disposition!=DE_MODDISP_INTERNAL) {
+		scan_opt = (u8)de_get_ext_option_bool(c, "arj:scan", 0xff);
 	}
-
-	if(c->module_disposition==DE_MODDISP_EXPLICIT) {
-		arj_opts->scan_for_start = (u8)de_get_ext_option_bool(c, "arj:scan", 1);
+	else {
+		scan_opt = 0xff;
 	}
 
 	// Starting point for the scan for the archive header
 	// (or the exact header pos if scan=0).
-	if(c->module_disposition==DE_MODDISP_EXPLICIT) {
+	if(c->module_disposition!=DE_MODDISP_INTERNAL) {
 		s = de_get_ext_option(c, "arj:entrypoint");
 		if(s) {
-			arj_opts->archive_start = de_atoi64(s);
-			arj_opts->archive_start_req_flag = 1;
+			archive_start_req_flag = 1;
+			archive_start_req = de_atoi64(s);
 		}
 	}
 
-	// Get the tentative starting position
-	amt_to_scan = 64*1024+2; // tentative, and only used if scanning
-	if(arj_opts->archive_start_req_flag) {
-		;
+	// Try various things to find the start of the ARJ archive.
+	// TODO?: This is unpleasantly complicated.
+
+	if(archive_start_req_flag && scan_opt==0) {
+		exact_archive_start = archive_start_req;
+		goto after_archive_start_known;
 	}
-	else {
-		if(arj_opts->is_exe) {
-			arj_opts->archive_start = get_exe_overlay_pos(c);
-			amt_to_scan = 1030;
+
+	if(modcode_R && mparams && mparams->in_params.obj1) {
+		struct fmtutil_specialexe_detection_data *edd;
+
+		edd = (struct fmtutil_specialexe_detection_data*)mparams->in_params.obj1;
+		if(edd->payload_valid) {
+			exact_archive_start = edd->payload_pos;
+			goto after_archive_start_known;
 		}
 	}
 
-	// Maybe adjust the start position, if scanning is enabled
-	if(arj_opts->scan_for_start) {
-		scan_for_archive_start(c, arj_opts, amt_to_scan);
+	if(c->module_disposition==DE_MODDISP_AUTODETECT) {
+		exact_archive_start = 0; // The "identify" routine only looks here
+		goto after_archive_start_known;
 	}
 
-	if(c->module_disposition==DE_MODDISP_EXPLICIT ||
-		c->module_disposition==DE_MODDISP_AUTODETECT)
-	{
+	if(scan_opt!=0) {
+		int ret;
+
+		if(is_exe_format(c)) {
+			i64 tmppos;
+
+			tmppos = get_exe_overlay_pos(c);
+
+			ret = fmtutil_scan_for_arj_data(c->infile, tmppos, c->infile->len-tmppos, 0,
+				&exact_archive_start);
+			if(ret) {
+				used_scan = 1;
+				goto after_archive_start_known;
+			}
+		}
+		else  {
+			// Special case - We don't require correct header CRC for header at offset 0.
+			if(is_arj_data_at(c, 0)) {
+				exact_archive_start = 0;
+				goto after_archive_start_known;
+			}
+
+			ret = fmtutil_scan_for_arj_data(c->infile, 0, c->infile->len, 0,
+				&exact_archive_start);
+			if(ret) {
+				used_scan = 1;
+				goto after_archive_start_known;
+			}
+		}
+	}
+
+	exact_archive_start = 0; // Give up
+
+after_archive_start_known:
+	arj_opts->archive_start = exact_archive_start;
+
+	if(dbuf_memcmp(c->infile, arj_opts->archive_start, g_arj_hdr_id, 2)) {
+		if(!modcode_R) {
+			de_err(c, "Not an ARJ file, or could not find ARJ data");
+		}
+		goto done;
+	}
+
+	if(used_scan) {
+		de_dbg(c, "ARJ data found at %"I64_FMT, arj_opts->archive_start);
+	}
+
+	if(c->module_disposition!=DE_MODDISP_INTERNAL) {
 		const char *s;
 
 		s = de_get_ext_option(c, "arj:reloc");
@@ -966,7 +975,7 @@ static int de_identify_arj(deark *c)
 static void de_help_arj(deark *c)
 {
 	de_msg(c, "-opt arj:entrypoint=<n> : Offset of archive header");
-	de_msg(c, "-opt arj:scan[=0] : Enable/disable scanning for the ARJ data");
+	de_msg(c, "-opt arj:scan=0 : Disable scanning for the ARJ data");
 	de_msg(c, "-opt arj:reloc[=<n>] : Move the ARJ data");
 }
 
@@ -982,11 +991,10 @@ void de_module_arj(deark *c, struct deark_module_info *mi)
 /////////////////////// ARJ relocator utility
 // This routine converts an ARJ file to one in which the ARJ data starts at
 // beginning of the file, or optionally after some padding.
-// This may be useful for "extracting" a pure ARJ file from a self-extracting
+// This is useful for "extracting" a pure ARJ file from a self-extracting
 // archive.
-// The operation is usually trivial. The catch is that it may damage the
-// "security envelope" (digital signature). In such cases, we'll try to remove
-// the security envelope.
+// It also disables any v2 "security envelope". If we didn't do that, the ARJ
+// software would reject the modified file.
 
 struct arjreloc_ctx {
 	i64 src_startpos;
@@ -994,10 +1002,6 @@ struct arjreloc_ctx {
 };
 
 // Edit the archive header to disable any v2 security envelope.
-// I don't know how to successfully edit the file, otherwise. (It may be
-// *possible*, but I couldn't get it to work just by modifying it in the
-// obvious ways.)
-//
 // Writes to d->ahdr as many bytes as should be replaced in the ARJ file.
 static int reloc_process_archive_hdr(deark *c, struct arjreloc_ctx *d)
 {
@@ -1057,7 +1061,7 @@ static void do_run_arj_relocator(deark *c, struct options_struct *arj_opts)
 {
 	dbuf *outf = NULL;
 	i64 dst_startpos = 0;
-	i64 len_to_copy;
+	i64 archive_size;
 	struct arjreloc_ctx *d = NULL;
 	int ok = 0;
 
@@ -1072,18 +1076,19 @@ static void do_run_arj_relocator(deark *c, struct options_struct *arj_opts)
 	d->ahdr = dbuf_create_membuf(c, 0, 0);
 
 	d->src_startpos = arj_opts->archive_start;
-	len_to_copy = c->infile->len - d->src_startpos;
-	if(len_to_copy<1) goto done;
+	archive_size = c->infile->len - d->src_startpos;
+	if(archive_size<1) goto done;
 
 	if(!reloc_process_archive_hdr(c, d)) goto done;
 
+	de_dbg(c, "reloc from %"I64_FMT" to %"I64_FMT, d->src_startpos, dst_startpos);
 	outf = dbuf_create_output_file(c, "arj", NULL, 0);
 	dbuf_write_zeroes(outf, dst_startpos);
 
 	// Copy the potentially-changed part of the file
 	dbuf_copy(d->ahdr, 0, d->ahdr->len, outf);
 	// Copy the definitely-unchanged part of the file
-	dbuf_copy(c->infile, d->src_startpos+d->ahdr->len, len_to_copy-d->ahdr->len, outf);
+	dbuf_copy(c->infile, d->src_startpos+d->ahdr->len, archive_size-d->ahdr->len, outf);
 	ok = 1;
 
 done:
