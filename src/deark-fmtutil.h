@@ -717,3 +717,5 @@ void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
 	struct fmtutil_specialexe_detection_data *edd);
 void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	struct fmtutil_specialexe_detection_data *edd);
+int fmtutil_scan_for_arj_data(dbuf *f, i64 startpos, i64 max_skip,
+	UI flags, i64 *pfoundpos);

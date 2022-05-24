@@ -2055,27 +2055,9 @@ done:
 	}
 }
 
-static int is_arj_data_at(deark *c, dbuf *f, i64 pos1)
-{
-	struct de_crcobj *crco = NULL;
-	i64 basic_hdr_size;
-	int retval = 0;
-	u32 crc_calc, crc_reported;
-
-	basic_hdr_size = dbuf_getu16le(f, pos1+2);
-	if(basic_hdr_size<30 || basic_hdr_size>2600) goto done;
-	if(dbuf_getbyte(f, pos1+10) != 2) goto done; // "file type"
-	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-	de_crcobj_addslice(crco, f, pos1+4, basic_hdr_size);
-	crc_calc = de_crcobj_getval(crco);
-	crc_reported = (u32)dbuf_getu32le(f, pos1+4+basic_hdr_size);
-	if(crc_calc!=crc_reported) goto done;
-	retval = 1;
-
-done:
-	de_crcobj_destroy(crco);
-	return retval;
-}
+#define ARJ_MIN_BASIC_HEADER_SIZE 30
+#define ARJ_MAX_BASIC_HEADER_SIZE 2600 // From the ARJ TECHNOTE file
+#define ARJ_MIN_FILE_SIZE 84
 
 // Notes:
 // ARJ SFX was introduced in ARJ v0.15.
@@ -2094,27 +2076,17 @@ static void detect_exesfx_arj(deark *c, struct execomp_ctx *ectx,
 	i64 overlay_len;
 	int ret;
 	i64 foundpos = 0;
-	i64 curpos;
-	i64 endpos;
 
 	overlay_len = ei->f->len - ei->end_of_dos_code;
-	if(overlay_len < 84) goto done;
+	if(overlay_len < ARJ_MIN_FILE_SIZE) goto done;
 
-	curpos = ei->end_of_dos_code;
 	// Aribrarily allow up to 16 extra bytes before the ARJ data starts.
 	// Maybe 2 is sufficient. Dunno.
-	endpos = curpos+16+2;
+	ret = fmtutil_scan_for_arj_data(ei->f, ei->end_of_dos_code, 16, 0, &foundpos);
 
-	while(curpos<=(endpos-2)) {
-		ret = dbuf_search(ei->f, (const u8*)"\x60\xea", 2, curpos, endpos-curpos,
-			&foundpos);
-		if(!ret) goto done;
-
-		if(is_arj_data_at(c, ei->f, foundpos)) {
-			edd->detected_fmt = DE_SPECIALEXEFMT_ARJSFX;
-			goto done;
-		}
-		curpos = foundpos+2; // Continue the search here
+	if(ret) {
+		edd->detected_fmt = DE_SPECIALEXEFMT_ARJSFX;
+		goto done;
 	}
 
 done:
@@ -2150,4 +2122,62 @@ void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 done:
 	de_strlcpy(edd->detected_fmt_name, (ectx.shortname[0]?ectx.shortname:"unknown"),
 		sizeof(edd->detected_fmt_name));
+}
+
+// Caller supplies an initialized crcobj to use.
+static int is_arj_data_at1(dbuf *f, i64 pos1, struct de_crcobj *crco)
+{
+	i64 basic_hdr_size;
+	int retval = 0;
+	u32 crc_calc, crc_reported;
+
+	basic_hdr_size = dbuf_getu16le(f, pos1+2);
+	if(basic_hdr_size>ARJ_MAX_BASIC_HEADER_SIZE || basic_hdr_size<ARJ_MIN_BASIC_HEADER_SIZE) goto done;
+	if(dbuf_getbyte(f, pos1+10) != 2) goto done; // "file type"
+	de_crcobj_addslice(crco, f, pos1+4, basic_hdr_size);
+	crc_calc = de_crcobj_getval(crco);
+	crc_reported = (u32)dbuf_getu32le(f, pos1+4+basic_hdr_size);
+	if(crc_calc!=crc_reported) goto done;
+	retval = 1;
+
+done:
+	return retval;
+}
+
+// This is a strict ARJ search, which checks the CRC.
+// It may not always be appropriate.
+int fmtutil_scan_for_arj_data(dbuf *f, i64 startpos, i64 max_skip,
+	UI flags, i64 *pfoundpos)
+{
+	struct de_crcobj *crco = NULL;
+	i64 curpos, endpos;
+	int retval = 0;
+
+	curpos = startpos;
+	endpos = startpos + max_skip + 2; // Search space includes the 2-byte signature
+	if(endpos-2 > f->len-ARJ_MIN_FILE_SIZE) endpos = (f->len-ARJ_MIN_FILE_SIZE)+2;
+
+	while(curpos<=(endpos-2)) {
+		int ret;
+
+		ret = dbuf_search(f, (const u8*)"\x60\xea", 2, curpos, endpos-curpos,
+			pfoundpos);
+		if(!ret) goto done;
+
+		if(crco) {
+			de_crcobj_reset(crco);
+		}
+		else {
+			crco = de_crcobj_create(f->c, DE_CRCOBJ_CRC32_IEEE);
+		}
+		if(is_arj_data_at1(f, *pfoundpos, crco)) {
+			retval = 1;
+			goto done;
+		}
+		curpos = *pfoundpos+2; // Continue the search here
+	}
+
+done:
+	de_crcobj_destroy(crco);
+	return retval;
 }

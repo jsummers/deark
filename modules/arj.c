@@ -9,7 +9,9 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_arj);
 
-#define MAX_BASIC_HEADER_SIZE 2600 // From the ARJ TECHNOTE file
+#define ARJ_MIN_BASIC_HEADER_SIZE 30
+#define ARJ_MAX_BASIC_HEADER_SIZE 2600 // From the ARJ TECHNOTE file
+
 static const u8 *g_arj_hdr_id = (const u8*)"\x60\xea";
 
 struct member_data {
@@ -484,7 +486,7 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		goto done;
 	}
 
-	if(basic_hdr_size>MAX_BASIC_HEADER_SIZE) {
+	if(basic_hdr_size>ARJ_MAX_BASIC_HEADER_SIZE) {
 		de_err(c, "Bad header size");
 		goto done;
 	}
@@ -782,7 +784,7 @@ static int is_arj_data_at(deark *c, i64 pos1)
 	pos = pos1+2;
 
 	basic_hdr_size = de_getu16le_p(&pos);
-	if(basic_hdr_size>MAX_BASIC_HEADER_SIZE || basic_hdr_size<30) return 0;
+	if(basic_hdr_size>ARJ_MAX_BASIC_HEADER_SIZE || basic_hdr_size<ARJ_MIN_BASIC_HEADER_SIZE) return 0;
 	// TODO: Should we be more strict here
 	pos += basic_hdr_size + 4;
 	first_ext_hdr_size = de_getu16le_p(&pos);
@@ -956,7 +958,7 @@ static int de_identify_arj(deark *c)
 
 	if(dbuf_memcmp(c->infile, 0, g_arj_hdr_id, 2)) return 0;
 	basic_hdr_size = de_getu16le(2);
-	if(basic_hdr_size>MAX_BASIC_HEADER_SIZE) return 0;
+	if(basic_hdr_size>ARJ_MAX_BASIC_HEADER_SIZE || basic_hdr_size<ARJ_MIN_BASIC_HEADER_SIZE) return 0;
 	if(de_input_file_has_ext(c, "arj")) return 100;
 	return 75;
 }
@@ -1010,7 +1012,7 @@ static int reloc_process_archive_hdr(deark *c, struct arjreloc_ctx *d)
 	hdr_id = (UI)de_getu16le(d->src_startpos);
 	if(hdr_id!=0xea60) goto done;
 	basic_hdr_size = de_getu16le(d->src_startpos+2);
-	if(basic_hdr_size>MAX_BASIC_HEADER_SIZE || basic_hdr_size<30) goto done;
+	if(basic_hdr_size>ARJ_MAX_BASIC_HEADER_SIZE || basic_hdr_size<ARJ_MIN_BASIC_HEADER_SIZE) goto done;
 
 	flags = de_getbyte(d->src_startpos+8);
 	file_type = de_getbyte(d->src_startpos+10);
