@@ -188,6 +188,8 @@ $(OBJDIR)/modules/olepropset.o: modules/olepropset.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/os2bmp.o: modules/os2bmp.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/os2bootlogo.o: modules/os2bootlogo.c \
+ src/deark-private.h src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/os2ea.o: modules/os2ea.c src/deark-private.h \
  src/deark.h src/deark-config.h
 $(OBJDIR)/modules/pack.o: modules/pack.c src/deark-private.h src/deark.h \

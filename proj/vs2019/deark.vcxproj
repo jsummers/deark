@@ -263,6 +263,7 @@
     <ClCompile Include="..\..\modules\ole1.c" />
     <ClCompile Include="..\..\modules\olepropset.c" />
     <ClCompile Include="..\..\modules\os2bmp.c" />
+    <ClCompile Include="..\..\modules\os2bootlogo.c" />
     <ClCompile Include="..\..\modules\os2ea.c" />
     <ClCompile Include="..\..\modules\pack.c" />
     <ClCompile Include="..\..\modules\packdir.c" />

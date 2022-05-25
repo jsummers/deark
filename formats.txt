@@ -353,6 +353,9 @@ Deark -- Information about supported formats
 
 * OLPC .565 firmware icon (module="olpc565")
 
+* OS/2 boot logo (module="os2bootlogo")
+  - You may have to use "-m os2bootlogo" in some cases.
+
 * OS/2 Icon, Pointer, Bitmap Array formats (module="os2bmp")
   - Converts icons & pointers to individual PNG files.
   - Icon, pointer, and BMP image files are extracted from Bitmap Array files.
