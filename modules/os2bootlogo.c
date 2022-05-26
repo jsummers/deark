@@ -8,9 +8,9 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_os2bootlogo);
 
-#define IMG_WIDTH     640
-#define IMG_HEIGHT    480
-#define NUM_PLANES    4
+#define IMG_WIDTH      640
+#define IMG_MAX_HEIGHT 480
+#define NUM_PLANES     4
 
 struct plane_struct {
 	i64 offset;
@@ -168,7 +168,7 @@ static int do_decompress_plane(deark *c, lctx *d, int pn)
 	de_dbg(c, "decompressing plane %d at %"I64_FMT, pn, pli->offset);
 	de_dbg_indent(c, 1);
 
-	max_dcmpr_nbytes = IMG_WIDTH*IMG_HEIGHT/8;
+	max_dcmpr_nbytes = IMG_WIDTH*IMG_MAX_HEIGHT/8;
 	pli->unc_pixels = dbuf_create_membuf(c, max_dcmpr_nbytes, 0x1);
 	dbuf_enable_wbuffer(pli->unc_pixels);
 
@@ -201,22 +201,32 @@ static void do_write_image(deark *c, lctx *d)
 	i64 nbytes_per_plane;
 	i64 i;
 	i64 rowspan;
+	i64 height;
+	UI pn;
 	de_bitmap *img = NULL;
 	static const de_color pal[16] = {
 		0x000000,0x000080,0x008000,0x008080,0x800000,0x800080,0x808000,0x808080,
 		0xcccccc,0x0000ff,0x00ff00,0x00ffff,0xff0000,0xff00ff,0xffff00,0xffffff
 	};
 
-	img = de_bitmap_create(c, IMG_WIDTH, IMG_HEIGHT, 3);
-
 	rowspan = IMG_WIDTH/8;
-	nbytes_per_plane = rowspan * IMG_HEIGHT;
+	height = 400;
+	for(pn=0; pn<NUM_PLANES; pn++) {
+		if(d->pl[pn].unc_pixels->len > rowspan*400) {
+			height = 480;
+			break;
+		}
+	}
+
+	de_dbg_dimensions(c, IMG_WIDTH, height);
+	img = de_bitmap_create(c, IMG_WIDTH, height, 3);
+
+	nbytes_per_plane = rowspan * height;
 
 	for(i=0; i<nbytes_per_plane; i++) {
 		u8 b[NUM_PLANES];
 		UI palent;
 		de_color clr;
-		UI pn;
 		UI k;
 
 		// Read 8 pixels worth of bytes
