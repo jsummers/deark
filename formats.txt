@@ -633,24 +633,6 @@ Deark -- Information about supported formats
 
 * ADF (Amiga disk image) (module="amiga_adf") (experimental)
 
-* ar001 (module="ar001")
-  "ar" archiver by Haruhiko Okumura, first version.
-
-* ARC archive (module="arc")
-  - Some rare compression methods are not supported.
-
-* ArcFS (module="arcfs")
-
-* ArcMac (module="arcmac") (experimental)
-  Variant of ARC.
-
-* ARJ (module="arj")
-  Options
-   -opt arj:entrypoint=<n> : Specify the offset of ARJ data.
-   -opt arj:scan=0 : Disable scanning for the ARJ data.
-   -opt arj:reloc[=<n>] : Move the ARJ data, and disable any v2 security
-     envelope.
-
 * AmBs (AMOS "Banks" aggregate format) (module="abk")
   - Extract AmSp, AmIc, AmBk files.
 
@@ -667,6 +649,24 @@ Deark -- Information about supported formats
 
 * ar (.a archive/library format) (module="ar") (experimental/incomplete)
   - Supports System V long filenames
+
+* ar001 (module="ar001")
+  "ar" archiver by Haruhiko Okumura, first version.
+
+* ARC archive (module="arc")
+  - Some rare compression methods are not supported.
+
+* ArcFS (module="arcfs")
+
+* ArcMac (module="arcmac") (experimental)
+  Variant of ARC.
+
+* ARJ (module="arj")
+  Options
+   -opt arj:entrypoint=<n> : Specify the offset of ARJ data.
+   -opt arj:scan=0 : Disable scanning for the ARJ data.
+   -opt arj:reloc[=<n>] : Move the ARJ data, and disable some types of
+     security/protection.
 
 * ARX (module="arx") (experimental)
   Variant of LHA. Deark tries to convert it to LHA.

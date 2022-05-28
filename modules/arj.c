@@ -39,8 +39,10 @@ struct member_data {
 
 typedef struct localctx_struct {
 	de_encoding input_encoding; // if DE_ENCODING_UNKNOWN, autodetect for each member
-	u8 archive_flags;
+	u8 ansipage_flag;
 	u8 is_secured;
+	u8 is_old_secured;
+	u8 arjprot_flag;
 	i64 archive_start;
 	i64 security_envelope_pos;
 	i64 security_envelope_len;
@@ -108,23 +110,15 @@ static const char *get_file_type_name(struct member_data *md, u8 n)
 {
 	const char *name = NULL;
 
-	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
-		if(n==2) name = "main header";
+	switch(n) {
+	case 0: name = "binary"; break;
+	case 1: name = "text"; break;
+	case 2: name = "main header"; break;
+	case 3: name = "directory"; break;
+	case 4: name = "volume label"; break;
+	case 5: name = "chapter"; break;
 	}
-	else {
-		switch(n) {
-		case 0: name = "binary"; break;
-		case 1: name = "text"; break;
-		case 2:
-			if(md->objtype==ARJ_OBJTYPE_CHAPTERHDR) {
-				name = "comment header";
-			}
-			break;
-		case 3: name = "directory"; break;
-		case 4: name = "volume label"; break;
-		case 5: name = "chapter label"; break;
-		}
-	}
+
 	return name?name:"?";
 }
 
@@ -138,10 +132,14 @@ static void get_flags_descr(struct member_data *md, u8 n1, de_ucstring *s)
 	}
 
 	if((n & 0x02) && (md->objtype==ARJ_OBJTYPE_ARCHIVEHDR)) {
-		if(md->os==10 || md->os==11) {
+		if(md->archiver_ver_num >= 9) {
+			// ANSIPAGE introduced around ARJ v2.62.
 			ucstring_append_flags_item(s, "ANSIPAGE");
-			n -= 0x02;
 		}
+		else {
+			ucstring_append_flags_item(s, "OLD_SECURED");
+		}
+		n -= 0x02;
 	}
 
 	if(n & 0x04) {
@@ -450,19 +448,8 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	md = de_malloc(c, sizeof(struct member_data));
 
 	md->hdr_id = (UI)de_getu16le_p(&pos);
-	if(md->hdr_id==0xea60) {
-		if(expecting_archive_hdr) {
-			md->objtype = ARJ_OBJTYPE_ARCHIVEHDR;
-		}
-		else {
-			md->objtype = ARJ_OBJTYPE_MEMBERFILE; // tentative?
-		}
-	}
-	else if(md->hdr_id==0x6000) {
-		md->objtype = ARJ_OBJTYPE_CHAPTERHDR;
-	}
-	else {
-		de_err(c, "ARJ member not found at %"I64_FMT, pos1);
+	if(md->hdr_id!=0xea60) {
+		de_err(c, "ARJ data not found at %"I64_FMT, pos1);
 		goto done;
 	}
 
@@ -473,6 +460,20 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	de_dbg(c, "basic header size: %"I64_FMT, basic_hdr_size);
 	if(basic_hdr_size==0) {
 		md->objtype = ARJ_OBJTYPE_EOA;
+	}
+	else {
+		// Skip ahead to read the file_type field. It affects some fields that appear
+		// before it.
+		md->file_type = de_getbyte(pos1+10);
+		if(md->file_type==2) {
+			md->objtype = ARJ_OBJTYPE_ARCHIVEHDR;
+		}
+		else if(md->file_type==5) {
+			md->objtype = ARJ_OBJTYPE_CHAPTERHDR;
+		}
+		else {
+			md->objtype = ARJ_OBJTYPE_MEMBERFILE; // or a directory, etc.
+		}
 	}
 	de_dbg(c, "object type: %s", get_objtype_name(md->objtype));
 
@@ -510,14 +511,24 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	get_flags_descr(md, md->flags, flags_descr);
 	de_dbg(c, "flags: 0x%02x (%s)", (UI)md->flags, ucstring_getpsz_d(flags_descr));
 	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
-		d->archive_flags = md->flags;
-		if(d->archive_flags & 0x40) d->is_secured = 1;
+		if(md->archiver_ver_num>=9 && (md->flags & 0x02)) {
+			d->ansipage_flag = 1;
+		}
+		if(md->flags & 0x40) {
+			d->is_secured = 1;
+		}
+		else if(md->archiver_ver_num<9 && (md->flags & 0x02)) {
+			d->is_old_secured = 1;
+		}
+		if(md->flags & 0x08) {
+			d->arjprot_flag = 1;
+		}
 	}
 
 	// Now we have enough information to choose a character encoding.
 	md->input_encoding = d->input_encoding;
 	if(md->input_encoding==DE_ENCODING_UNKNOWN) {
-		if((d->archive_flags&0x02) && (md->os==10 || md->os==11)) {
+		if(d->ansipage_flag) {
 			md->input_encoding = DE_ENCODING_WINDOWS1252;
 		}
 		else {
@@ -534,7 +545,7 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		de_dbg(c, "cmpr method: %u", (UI)md->method);
 	}
 
-	md->file_type = de_getbyte_p(&pos);
+	pos++; // file_type already read
 	de_dbg(c, "file type: %u (%s)", (UI)md->file_type, get_file_type_name(md, md->file_type));
 	if(expecting_archive_hdr && md->file_type!=2) {
 		de_err(c, "Invalid or missing archive header");
@@ -556,7 +567,12 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		pos += 4;
 	}
 
-	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
+	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR && d->is_old_secured) {
+		n = de_getu32le_p(&pos);
+		de_dbg(c, "archive size: %"I64_FMT, n);
+	}
+	else if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR && md->archiver_ver_num>=6) {
+		// Field present as of about ARJ v2.41.
 		read_arj_datetime(c, d, pos, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "archive mod");
 		pos += 4;
 	}
@@ -568,9 +584,13 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		pos += 4;
 	}
 
+	// TODO: If is_old_secured, probably the next 12 bytes are repurposed.
+
 	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
 		n = de_getu32le_p(&pos);
 		if(d->is_secured) {
+			// Field is documented as of about ARJ v2.41, apparently required
+			// for secured archives.
 			de_dbg(c, "archive size: %"I64_FMT, n);
 		}
 	}
@@ -614,8 +634,9 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		ucstring_destroy(mode_descr);
 	}
 
-	pos++; // first chapter / encryption ver
-	pos++; // last chapter
+	// TODO:
+	pos++; // first chapter / encryption ver / host data (byte1) / unused
+	pos++; // last chapter / host data (byte2) / unused
 
 	extra_data_len = first_hdr_endpos - pos;
 	if(extra_data_len>0) {
@@ -730,12 +751,12 @@ static void do_member_sequence(deark *c, lctx *d, i64 pos1)
 		}
 	}
 
-	if(d->security_envelope_len==0) {
-		num_extra_bytes = c->infile->len - pos;
+	if(d->security_envelope_len!=0 || d->arjprot_flag) {
+		// (TODO?) This check is not implemented in these situations.
+		num_extra_bytes = 0;
 	}
 	else {
-		// This check is not implemented in this situation
-		num_extra_bytes = 0;
+		num_extra_bytes = c->infile->len - pos;
 	}
 	if(num_extra_bytes>1) {
 		de_dbg(c, "[%"I64_FMT" extra bytes at EOF, starting at %"I64_FMT"]", num_extra_bytes, pos);
@@ -783,7 +804,7 @@ static int is_arj_data_at(deark *c, i64 pos1)
 
 	// Should now be at the start of the 1st member file (after the archive header)
 	hdr_id = (UI)de_getu16le(pos);
-	if(hdr_id==0xea60 || hdr_id==0x6000) {
+	if(hdr_id==0xea60) {
 		return 1;
 	}
 	return 0;
@@ -875,32 +896,36 @@ static void de_run_arj(deark *c, de_module_params *mparams)
 
 	if(scan_opt!=0) {
 		int ret;
+		i64 scan_startpos;
+		u8 allow_bad_crc;
 
-		if(is_exe_format(c)) {
-			i64 tmppos;
+		if(archive_start_req_flag) {
+			scan_startpos = archive_start_req;
+			allow_bad_crc = 1;
+		}
+		else if(is_exe_format(c)) {
+			scan_startpos = get_exe_overlay_pos(c);
+			allow_bad_crc = 0;
+		}
+		else {
+			scan_startpos = 0;
+			allow_bad_crc = 1;
+		}
 
-			tmppos = get_exe_overlay_pos(c);
-
-			ret = fmtutil_scan_for_arj_data(c->infile, tmppos, c->infile->len-tmppos, 0,
-				&exact_archive_start);
-			if(ret) {
-				used_scan = 1;
+		if(allow_bad_crc) {
+			if(is_arj_data_at(c, scan_startpos)) {
+				exact_archive_start = scan_startpos;
 				goto after_archive_start_known;
 			}
 		}
-		else  {
-			// Special case - We don't require correct header CRC for header at offset 0.
-			if(is_arj_data_at(c, 0)) {
-				exact_archive_start = 0;
-				goto after_archive_start_known;
-			}
 
-			ret = fmtutil_scan_for_arj_data(c->infile, 0, c->infile->len, 0,
-				&exact_archive_start);
-			if(ret) {
+		ret = fmtutil_scan_for_arj_data(c->infile, scan_startpos, c->infile->len-scan_startpos, 0,
+			&exact_archive_start);
+		if(ret) {
+			if(exact_archive_start != archive_start_req) {
 				used_scan = 1;
-				goto after_archive_start_known;
 			}
+			goto after_archive_start_known;
 		}
 	}
 
@@ -1021,20 +1046,28 @@ static int reloc_process_archive_hdr(deark *c, struct arjreloc_ctx *d)
 	flags = de_getbyte(d->src_startpos+8);
 	file_type = de_getbyte(d->src_startpos+10);
 	if(file_type!=2) goto done;
-	if(!(flags & 0x40)) {
-		// Not secured, or not the problematic type of security.
-		// We can just copy everything.
+
+	if(flags & 0x40) {
+		de_info(c, "Note: Disabling ARJ security envelope");
+		flags -= 0x40;
+	}
+	else if(flags & 0x08) {
+		de_info(c, "Note: Disabling ARJ-PROTECT");
+		flags -= 0x08;
+		// TODO: There are more fields that should probably be cleared in order
+		// to do this properly.
+	}
+	else {
+		// Not secured, or not a problematic type of security. Just copy everything.
 		retval = 1;
 		goto done;
 	}
-
-	de_info(c, "Note: Disabling ARJ security envelope");
 
 	// Copy, with changes as needed
 	dbuf_copy(c->infile, d->src_startpos, 8, d->ahdr);
 
 	// Alter some of the bytes
-	dbuf_writebyte(d->ahdr, (flags-0x40)); // turn off SECURED_FLAG
+	dbuf_writebyte(d->ahdr, flags);
 	dbuf_writebyte(d->ahdr, 0); // security version
 	dbuf_copy(c->infile, d->src_startpos+10, 10, d->ahdr); // filetype...modtime
 	dbuf_writeu32le(d->ahdr, 0); // archive size
