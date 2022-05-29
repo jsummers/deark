@@ -11,6 +11,10 @@ DE_DECLARE_MODULE(de_module_arj);
 
 #define ARJ_MIN_BASIC_HEADER_SIZE 30
 #define ARJ_MAX_BASIC_HEADER_SIZE 2600 // From the ARJ TECHNOTE file
+#define MIN_VER_WITH_ANSIPAGE_FLAG 9 // Anything from 6-9 probably works
+#define MIN_VER_WITH_ENCVER        8
+#define MIN_VER_WITH_CHAPTERS      8
+#define MIN_VER_WITH_FLAGS2        11
 
 static const u8 *g_arj_hdr_id = (const u8*)"\x60\xea";
 
@@ -22,7 +26,8 @@ struct member_data {
 #define ARJ_OBJTYPE_CHAPTERHDR  3
 #define ARJ_OBJTYPE_EOA         4
 	u8 objtype;
-	u8 archiver_ver_num;
+	u8 archiver_ver_num_raw;
+	u8 archiver_ver_num_adj;
 	u8 min_ver_to_extract;
 	u8 os;
 	u8 flags;
@@ -132,11 +137,13 @@ static void get_flags_descr(struct member_data *md, u8 n1, de_ucstring *s)
 	}
 
 	if((n & 0x02) && (md->objtype==ARJ_OBJTYPE_ARCHIVEHDR)) {
-		if(md->archiver_ver_num >= 9) {
+		if(md->archiver_ver_num_adj >= MIN_VER_WITH_ANSIPAGE_FLAG) {
 			// ANSIPAGE introduced around ARJ v2.62.
 			ucstring_append_flags_item(s, "ANSIPAGE");
 		}
 		else {
+			// Suspect this is supported thru v2.39b, and was replaced with
+			// (new) SECURED in v2.39c, with no versions that support both.
 			ucstring_append_flags_item(s, "OLD_SECURED");
 		}
 		n -= 0x02;
@@ -422,6 +429,25 @@ static void fixup_path(de_ucstring *s)
 	}
 }
 
+static char *get_archiver_ver_name(u8 v, char *buf, size_t buflen)
+{
+	const char *anames[11] = {
+		"0.13-0.14", "0.15-1.00", "1.10-2.22", "2.30", "2.39a-b",
+		"2.39c-2.41a", "2.42a-2.50a", "2.55-2.61", "2.62-2.63", "2.63-2.76",
+		"2.81+" };
+
+	if(v>=1 && v<=11) {
+		de_snprintf(buf, buflen, "ARJ %s", anames[(UI)v-1]);
+	}
+	else if(v>=100 && v<=102) {
+		de_strlcpy(buf, "ARJ32, etc.", buflen);
+	}
+	else {
+		de_strlcpy(buf, "?", buflen);
+	}
+	return buf;
+}
+
 // If successfully parsed, sets *pbytes_consumed.
 // Returns 1 normally, 2 if this is the EOA marker, 0 on fatal error.
 static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archive_hdr,
@@ -443,6 +469,7 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	int retval = 0;
 	int saved_indent_level;
 	u8 b;
+	char namebuf[32];
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	md = de_malloc(c, sizeof(struct member_data));
@@ -498,8 +525,18 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	first_hdr_size = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "first header size: %"I64_FMT, first_hdr_size);
 	first_hdr_endpos = pos1 + 4 + first_hdr_size;
-	md->archiver_ver_num = de_getbyte_p(&pos);
-	de_dbg(c, "archiver version: %u", (UI)md->archiver_ver_num);
+	md->archiver_ver_num_raw = de_getbyte_p(&pos);
+	de_dbg(c, "archiver version: %u (%s)", (UI)md->archiver_ver_num_raw,
+		get_archiver_ver_name(md->archiver_ver_num_raw, namebuf, sizeof(namebuf)));
+
+	// ARJ32 uses wacky version numbers starting with 100. Try to "correct" them.
+	if(md->archiver_ver_num_raw>=100 && md->archiver_ver_num_raw<200) {
+		md->archiver_ver_num_adj = md->archiver_ver_num_raw - 91;
+	}
+	else {
+		md->archiver_ver_num_adj = md->archiver_ver_num_raw;
+	}
+
 	md->min_ver_to_extract = de_getbyte_p(&pos);
 	de_dbg(c, "min ver to extract: %u", (UI)md->min_ver_to_extract);
 
@@ -511,13 +548,13 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	get_flags_descr(md, md->flags, flags_descr);
 	de_dbg(c, "flags: 0x%02x (%s)", (UI)md->flags, ucstring_getpsz_d(flags_descr));
 	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
-		if(md->archiver_ver_num>=9 && (md->flags & 0x02)) {
+		if(md->archiver_ver_num_adj>=MIN_VER_WITH_ANSIPAGE_FLAG && (md->flags & 0x02)) {
 			d->ansipage_flag = 1;
 		}
 		if(md->flags & 0x40) {
 			d->is_secured = 1;
 		}
-		else if(md->archiver_ver_num<9 && (md->flags & 0x02)) {
+		else if(md->archiver_ver_num_adj<MIN_VER_WITH_ANSIPAGE_FLAG && (md->flags & 0x02)) {
 			d->is_old_secured = 1;
 		}
 		if(md->flags & 0x08) {
@@ -538,7 +575,9 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 
 	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
 		b = de_getbyte_p(&pos);
-		de_dbg(c, "security version: %u", (UI)b);
+		if(d->is_secured) {
+			de_dbg(c, "security version: %u", (UI)b);
+		}
 	}
 	else {
 		md->method = de_getbyte_p(&pos);
@@ -569,9 +608,9 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 
 	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR && d->is_old_secured) {
 		n = de_getu32le_p(&pos);
-		de_dbg(c, "archive size: %"I64_FMT, n);
+		de_dbg(c, "archive size: %"I64_FMT, n); // This is a guess
 	}
-	else if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR && md->archiver_ver_num>=6) {
+	else if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR && md->archiver_ver_num_adj>=6) {
 		// Field present as of about ARJ v2.41.
 		read_arj_datetime(c, d, pos, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "archive mod");
 		pos += 4;
@@ -584,7 +623,12 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		pos += 4;
 	}
 
-	// TODO: If is_old_secured, probably the next 12 bytes are repurposed.
+	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR && d->is_old_secured) {
+		// This is a guess
+		de_dbg_hexdump(c, c->infile, pos, 12, 12, "security data", 0);
+		pos += 12;
+		goto at_offset_32;
+	}
 
 	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
 		n = de_getu32le_p(&pos);
@@ -634,9 +678,25 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		ucstring_destroy(mode_descr);
 	}
 
-	// TODO:
-	pos++; // first chapter / encryption ver / host data (byte1) / unused
-	pos++; // last chapter / host data (byte2) / unused
+at_offset_32:
+
+	b = de_getbyte_p(&pos); // first chapter / encryption ver / host data (byte1) / unused
+	if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
+		if(md->archiver_ver_num_adj>=MIN_VER_WITH_ENCVER) {
+			de_dbg(c, "encryption ver: %u", (UI)b);
+		}
+	}
+	else {
+		if(md->archiver_ver_num_adj>=MIN_VER_WITH_CHAPTERS) {
+			de_dbg(c, "first chapter: %u", (UI)b);
+		}
+	}
+
+	b = de_getbyte_p(&pos); // last chapter / host data (byte2) / unused
+	if(md->archiver_ver_num_adj>=MIN_VER_WITH_CHAPTERS)
+	{
+		de_dbg(c, "last chapter: %u", (UI)b);
+	}
 
 	extra_data_len = first_hdr_endpos - pos;
 	if(extra_data_len>0) {
@@ -646,11 +706,15 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		if(md->objtype==ARJ_OBJTYPE_ARCHIVEHDR) {
 			if(extra_data_len>=1) {
 				b = de_getbyte_p(&pos);
-				de_dbg(c, "protection factor: %u", (UI)b);
+				if(md->flags & 0x08) {
+					de_dbg(c, "protection factor: %u", (UI)b);
+				}
 			}
 			if(extra_data_len>=2) {
 				b = de_getbyte_p(&pos);
-				de_dbg(c, "flags (2nd set): 0x%02x", (UI)b);
+				if(md->archiver_ver_num_adj>=MIN_VER_WITH_FLAGS2) {
+					de_dbg(c, "flags (2nd set): 0x%02x", (UI)b);
+				}
 			}
 		}
 		else if(md->objtype==ARJ_OBJTYPE_MEMBERFILE) {
