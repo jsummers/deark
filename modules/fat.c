@@ -1166,8 +1166,9 @@ static void loaddskf_convert_noncmpr_to_ima(deark *c, struct skf_ctx *d)
 
 static void loaddskf_decode_as_fat(deark *c, struct skf_ctx *d)
 {
-	i64 dlen = c->infile->len - d->hdr_size;
+	i64 dlen;
 
+	dlen = de_max_int(c->infile->len - d->hdr_size, d->padded_size);
 	de_dbg(c, "decoding as FAT, pos=%"I64_FMT", len=%"I64_FMT, d->hdr_size, dlen);
 	if(dlen<=0) goto done;
 
