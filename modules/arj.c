@@ -319,6 +319,7 @@ static void extract_member_file(deark *c, lctx *d, struct member_data *md)
 	size_t k;
 	int is_normal_file;
 	int is_dir;
+	u8 is_volume_label;
 	u32 crc_calc;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
@@ -329,7 +330,8 @@ static void extract_member_file(deark *c, lctx *d, struct member_data *md)
 
 	is_normal_file = (md->file_type==0 || md->file_type==1);
 	is_dir = (md->file_type==3);
-	if(!is_normal_file && !is_dir) {
+	is_volume_label = (u8)(md->file_type==4);
+	if(!is_normal_file && !is_dir && !is_volume_label) {
 		goto done; // Special file type, not extracting
 	}
 
@@ -339,7 +341,7 @@ static void extract_member_file(deark *c, lctx *d, struct member_data *md)
 		goto done;
 	}
 
-	if(is_normal_file && (md->method>4) && (md->orig_len!=0)) {
+	if((is_normal_file || is_volume_label) && (md->method>4) && (md->orig_len!=0)) {
 		de_err(c, "%s: Compression method %u is not supported",
 			ucstring_getpsz_d(md->name_srd->str), (UI)md->method);
 		goto done;
@@ -352,6 +354,9 @@ static void extract_member_file(deark *c, lctx *d, struct member_data *md)
 
 	if(is_dir) {
 		fi->is_directory = 1;
+	}
+	else if(is_volume_label) {
+		fi->is_volume_label = 1;
 	}
 
 	for(k=0; k<DE_TIMESTAMPIDX_COUNT; k++) {

@@ -18,6 +18,7 @@
 // 03xx = Unix
 // 63 decimal = ZIP spec v6.3 (first version to document the UTF-8 flag)
 #define ZIPENC_VER_MADE_BY ((3<<8) | 63)
+#define ZIPENC_VOLLABEL_VER_MADE_BY 63 // Set platform=DOS in this case
 
 #define CODE_PK12 0x02014b50U
 #define CODE_PK34 0x04034b50U
@@ -37,6 +38,7 @@ struct zipw_md {
 	i64 crtime_as_FILETIME;
 	u8 is_executable;
 	u8 is_directory;
+	u8 is_volume_label;
 	dbuf *eflocal;
 	dbuf *efcentral;
 };
@@ -217,6 +219,7 @@ static void do_riscos_attribs(deark *c, struct zipw_md *md, de_finfo *fi, dbuf *
 	 if(fi->riscos_appended_type) return; // Already handled attribs in a different way
 	 if(!fi->has_riscos_data) return;
 	 if(md->is_directory) return;
+	 if(md->is_volume_label) return;
 	 dbuf_writeu16le(ef, 0x4341); // AC
 	 dbuf_writeu16le(ef, 20); // data size
 	 dbuf_write(ef, (const u8*)"ARC0", 4);
@@ -334,10 +337,12 @@ static void zipw_add_memberfile(deark *c, struct zipw_ctx *zzz, struct zipw_md *
 
 	dbuf_writeu32le(zzz->cdir, CODE_PK12);
 	dbuf_writeu32le(zzz->outf, CODE_PK34);
-	dbuf_writeu16le(zzz->cdir, ZIPENC_VER_MADE_BY);
+	dbuf_writeu16le(zzz->cdir, (md->is_volume_label ?
+		ZIPENC_VOLLABEL_VER_MADE_BY : ZIPENC_VER_MADE_BY));
 
 	if(using_compression) ver_needed = 20;
 	else if(md->is_directory) ver_needed = 20;
+	else if(md->is_volume_label) ver_needed = 11;
 	else ver_needed = 10;
 
 	dbuf_writeu16le(zzz->cdir, ver_needed);
@@ -378,6 +383,8 @@ static void zipw_add_memberfile(deark *c, struct zipw_ctx *zzz, struct zipw_md *
 	// "-rwxr-xr-x", etc.
 	if(md->is_directory)
 		ext_attributes = (0040755U << 16) | 0x10;
+	else if(md->is_volume_label)
+		ext_attributes = 0x28;
 	else if(md->is_executable)
 		ext_attributes = (0100755U << 16);
 	else
@@ -429,12 +436,17 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 
 	de_dbg(c, "adding to zip: name=%s len=%"I64_FMT, f->name, f->len);
 
-	if(f->fi_copy && f->fi_copy->is_directory) {
-		md->is_directory = 1;
-	}
+	if(f->fi_copy) {
+		if(f->fi_copy->is_directory) {
+			md->is_directory = 1;
+		}
+		else if(f->fi_copy->is_volume_label) {
+			md->is_volume_label = 1;
+		}
 
-	if(f->fi_copy && (f->fi_copy->mode_flags&DE_MODEFLAG_EXE)) {
-		md->is_executable = 1;
+		if(f->fi_copy->mode_flags&DE_MODEFLAG_EXE) {
+			md->is_executable = 1;
+		}
 	}
 
 	if(c->preserve_file_times_archives && f->fi_copy && f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY].is_valid) {

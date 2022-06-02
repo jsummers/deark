@@ -1001,6 +1001,7 @@ static void finfo_shallow_copy(deark *c, de_finfo *src, de_finfo *dst)
 	UI k;
 
 	dst->is_directory = src->is_directory;
+	dst->is_volume_label = src->is_volume_label;
 	dst->has_riscos_data = src->has_riscos_data;
 	dst->riscos_appended_type = src->riscos_appended_type;
 	dst->riscos_attribs = src->riscos_attribs;
@@ -1143,6 +1144,14 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
 	f = create_dbuf_lowlevel(c);
 	f->max_len_hard = c->max_output_file_size;
 	f->is_managed = 1;
+
+	if(fi && fi->is_volume_label) {
+		if(c->output_style!=DE_OUTPUTSTYLE_ARCHIVE || c->archive_fmt!=DE_ARCHIVEFMT_ZIP) {
+			de_dbg(c, "skipping volume label");
+			f->btype = DBUF_TYPE_NULL;
+			goto done;
+		}
+	}
 
 	if(fi && fi->is_directory) {
 		is_directory = 1;

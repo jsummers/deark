@@ -18,6 +18,7 @@ struct member_data {
 	u8 fn_base[8];
 	u8 fn_ext[3];
 	u8 is_subdir;
+	u8 is_volume_label;
 	u8 is_special;
 	UI attribs;
 	UI ea_handle;
@@ -237,6 +238,9 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	if(md->is_subdir) {
 		fi->is_directory = 1;
 	}
+	else if(md->is_volume_label) {
+		fi->is_volume_label = 1;
+	}
 	if(md->mod_time.is_valid) {
 		fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->mod_time;
 	}
@@ -432,7 +436,6 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 	i64 ddate, dtime;
 	int retval = 0;
 	int is_deleted = 0;
-	int is_volume_label = 0;
 	int need_curpath_pop = 0;
 	de_ucstring *descr = NULL;
 	struct member_data *md = NULL;
@@ -465,8 +468,7 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 		; // Normal file
 	}
 	else if((md->attribs & 0x18) == 0x08) {
-		is_volume_label = 1;
-		md->is_special = 1;
+		md->is_volume_label = 1;
 	}
 	else if((md->attribs & 0x18) == 0x10) {
 		md->is_subdir = 1;
@@ -501,7 +503,7 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 	}
 
 	md->short_fn = ucstring_create(c);
-	if(is_volume_label) {
+	if(md->is_volume_label) {
 		decode_volume_label_name(c, d, md);
 	}
 	else {
@@ -536,6 +538,7 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 
 	md->filesize = de_getu32le(pos1+28);
 	de_dbg(c, "file size: %"I64_FMT, md->filesize);
+	if(md->is_volume_label) md->filesize = 0;
 
 	// (Done reading dir entry)
 
