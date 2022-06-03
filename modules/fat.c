@@ -784,6 +784,8 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 	i64 num_sectors32 = 0;
 	i64 num_sectors_per_track;
 	i64 num_heads;
+	i64 num_sectors_per_cylinder;
+	i64 num_cylinders;
 	i64 jmpinstrlen;
 	u8 b;
 	u8 cksum_sig[2];
@@ -874,6 +876,10 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 		d->num_sectors = num_sectors16;
 	}
 
+	num_sectors_per_cylinder = num_heads * num_sectors_per_track;
+	num_cylinders = de_pad_to_n(d->num_sectors, num_sectors_per_cylinder) / num_sectors_per_cylinder;
+	de_dbg(c, "number of cylinders (calculated): %"I64_FMT, num_cylinders);
+
 	if(d->sectors_per_cluster<1) goto done;
 	if(d->bytes_per_sector<32) goto done;
 	d->bytes_per_cluster = d->bytes_per_sector * d->sectors_per_cluster;
@@ -887,7 +893,7 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 	num_data_region_sectors = d->num_sectors - (d->root_dir_sector + num_root_dir_sectors);
 	if(num_data_region_sectors<0) goto done;
 	d->num_data_region_clusters = num_data_region_sectors / d->sectors_per_cluster;
-	de_dbg(c, "num clusters (calculated): %"I64_FMT, d->num_data_region_clusters);
+	de_dbg(c, "number of clusters (calculated): %"I64_FMT, d->num_data_region_clusters);
 
 	d->data_region_sector = d->root_dir_sector + num_root_dir_sectors;
 	d->data_region_pos = d->data_region_sector * d->bytes_per_sector;
