@@ -66,6 +66,7 @@ struct member_data {
 	int is_nonexecutable;
 	int is_executable;
 	int is_dir;
+	u8 is_volume_label;
 	int is_symlink;
 	struct timestamp_data tsdata[DE_TIMESTAMPIDX_COUNT];
 	u8 has_riscos_data;
@@ -1117,6 +1118,9 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	if(md->is_dir) {
 		fi->is_directory = 1;
 	}
+	else if(md->is_volume_label) {
+		fi->is_volume_label = 1;
+	}
 	else if(md->is_executable) {
 		fi->mode_flags |= DE_MODEFLAG_EXE;
 	}
@@ -1187,6 +1191,12 @@ static void process_ext_attr(deark *c, lctx *d, struct member_data *md)
 	if(md->attr_e & 0x10) {
 		md->is_dir = 1;
 	}
+	else if(md->attr_e && 0x08) {
+		// A volume label should have min-version-needed set to 1.1 or higher,
+		// but we don't check that because even PKZIP (e.g. v2.04g) sets it
+		// to 1.0.
+		md->is_volume_label = 1;
+	}
 
 	// TODO: Support more platforms.
 	// TODO: The 0x756e (ASi Unix) extra field might be important, as it contains
@@ -1197,6 +1207,12 @@ static void process_ext_attr(deark *c, lctx *d, struct member_data *md)
 		// let's just assume we misidentified it as a subdirectory, and
 		// extract its data.
 		md->is_dir = 0;
+	}
+
+	if(md->is_volume_label && md->uncmpr_size!=0) {
+		// Though we theoretically allow volume labels to have data, this is
+		// probably a normal file that was misidentified.
+		md->is_volume_label = 0;
 	}
 }
 

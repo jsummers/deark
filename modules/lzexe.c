@@ -328,6 +328,19 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	de_dbg_indent(c, -1);
 }
 
+// Refer to detect_execomp_lzexe() (in another file).
+static const char *get_lzexe_subfmt_name(int n)
+{
+	const char *name = NULL;
+
+	switch(n) {
+	case 1: name = "v0.90"; break;
+	case 2: name = "v0.91"; break;
+	case 3: name = "v0.91e"; break;
+	}
+	return name?name:"?";
+}
+
 static void de_run_lzexe(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -351,12 +364,13 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
 	edd.restrict_to_fmt = DE_SPECIALEXEFMT_LZEXE;
 	fmtutil_detect_execomp(c, d->ei, &edd);
-	d->ver = (int)edd.detected_subfmt;
-	if(d->ver==0) {
+	if(edd.detected_fmt!=DE_SPECIALEXEFMT_LZEXE) {
 		de_err(c, "Not an LZEXE-compressed file");
 		goto done;
 	}
-	de_declare_fmtf(c, "LZEXE-compressed EXE, %s", edd.detected_fmt_name);
+	de_declare_fmt(c, "LZEXE-compressed EXE");
+	d->ver = (int)edd.detected_subfmt;
+	de_dbg(c, "LZEXE variant: %s", get_lzexe_subfmt_name(d->ver));
 
 	d->o_reloc_table = dbuf_create_membuf(c, 0, 0);
 	d->o_dcmpr_code = dbuf_create_membuf(c, 0, 0);

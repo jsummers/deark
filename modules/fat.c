@@ -18,6 +18,7 @@ struct member_data {
 	u8 fn_base[8];
 	u8 fn_ext[3];
 	u8 is_subdir;
+	u8 is_volume_label;
 	u8 is_special;
 	UI attribs;
 	UI ea_handle;
@@ -237,6 +238,9 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	if(md->is_subdir) {
 		fi->is_directory = 1;
 	}
+	else if(md->is_volume_label) {
+		fi->is_volume_label = 1;
+	}
 	if(md->mod_time.is_valid) {
 		fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->mod_time;
 	}
@@ -432,7 +436,6 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 	i64 ddate, dtime;
 	int retval = 0;
 	int is_deleted = 0;
-	int is_volume_label = 0;
 	int need_curpath_pop = 0;
 	de_ucstring *descr = NULL;
 	struct member_data *md = NULL;
@@ -465,8 +468,7 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 		; // Normal file
 	}
 	else if((md->attribs & 0x18) == 0x08) {
-		is_volume_label = 1;
-		md->is_special = 1;
+		md->is_volume_label = 1;
 	}
 	else if((md->attribs & 0x18) == 0x10) {
 		md->is_subdir = 1;
@@ -501,7 +503,7 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 	}
 
 	md->short_fn = ucstring_create(c);
-	if(is_volume_label) {
+	if(md->is_volume_label) {
 		decode_volume_label_name(c, d, md);
 	}
 	else {
@@ -536,6 +538,7 @@ static int do_dir_entry(deark *c, lctx *d, struct dirctx *dctx,
 
 	md->filesize = de_getu32le(pos1+28);
 	de_dbg(c, "file size: %"I64_FMT, md->filesize);
+	if(md->is_volume_label) md->filesize = 0;
 
 	// (Done reading dir entry)
 
@@ -781,6 +784,8 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 	i64 num_sectors32 = 0;
 	i64 num_sectors_per_track;
 	i64 num_heads;
+	i64 num_sectors_per_cylinder;
+	i64 num_cylinders;
 	i64 jmpinstrlen;
 	u8 b;
 	u8 cksum_sig[2];
@@ -871,6 +876,10 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 		d->num_sectors = num_sectors16;
 	}
 
+	num_sectors_per_cylinder = num_heads * num_sectors_per_track;
+	num_cylinders = de_pad_to_n(d->num_sectors, num_sectors_per_cylinder) / num_sectors_per_cylinder;
+	de_dbg(c, "number of cylinders (calculated): %"I64_FMT, num_cylinders);
+
 	if(d->sectors_per_cluster<1) goto done;
 	if(d->bytes_per_sector<32) goto done;
 	d->bytes_per_cluster = d->bytes_per_sector * d->sectors_per_cluster;
@@ -884,7 +893,7 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 	num_data_region_sectors = d->num_sectors - (d->root_dir_sector + num_root_dir_sectors);
 	if(num_data_region_sectors<0) goto done;
 	d->num_data_region_clusters = num_data_region_sectors / d->sectors_per_cluster;
-	de_dbg(c, "num clusters (calculated): %"I64_FMT, d->num_data_region_clusters);
+	de_dbg(c, "number of clusters (calculated): %"I64_FMT, d->num_data_region_clusters);
 
 	d->data_region_sector = d->root_dir_sector + num_root_dir_sectors;
 	d->data_region_pos = d->data_region_sector * d->bytes_per_sector;
@@ -1166,8 +1175,9 @@ static void loaddskf_convert_noncmpr_to_ima(deark *c, struct skf_ctx *d)
 
 static void loaddskf_decode_as_fat(deark *c, struct skf_ctx *d)
 {
-	i64 dlen = c->infile->len - d->hdr_size;
+	i64 dlen;
 
+	dlen = de_max_int(c->infile->len - d->hdr_size, d->padded_size);
 	de_dbg(c, "decoding as FAT, pos=%"I64_FMT", len=%"I64_FMT, d->hdr_size, dlen);
 	if(dlen<=0) goto done;
 

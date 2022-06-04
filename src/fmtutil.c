@@ -1461,7 +1461,6 @@ i64 fmtutil_hlp_get_csl_p(dbuf *f, i64 *ppos)
 struct execomp_ctx {
 	u8 devmode;
 	char shortname[40];
-	char verstr[40];
 };
 
 static void calc_entrypoint_crc(deark *c, struct execomp_ctx *ectx, struct fmtutil_exe_info *ei)
@@ -1576,7 +1575,6 @@ static void detect_execomp_lzexe(deark *c, struct execomp_ctx *ectx,
 	if(vs) {
 		edd->detected_fmt = DE_SPECIALEXEFMT_LZEXE;
 		de_strlcpy(ectx->shortname, "LZEXE", sizeof(ectx->shortname));
-		de_strlcpy(ectx->verstr, vs, sizeof(ectx->verstr));
 		edd->modname = "lzexe";
 	}
 }
@@ -1720,6 +1718,26 @@ done:
 	;
 }
 
+static void detect_execomp_wwpack(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	u8 cb[11]; // Bytes at entry point
+
+	if(ei->num_relocs!=0) goto done;
+	if(ei->start_of_dos_code!=32) goto done;
+	if(ei->entry_point==ei->start_of_dos_code) goto done;
+
+	dbuf_read(ei->f, cb, ei->entry_point, sizeof(cb));
+	if(!de_memmatch(cb, (const u8*)"\xb8??\x8c\xca\x03\xd0\x8c\xc9\x81\xc1", 11, '?', 0)) {
+		goto done;
+	}
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_EXECOMP;
+	de_strlcpy(ectx->shortname, "WWPACK", sizeof(ectx->shortname));
+done:
+	;
+}
+
 // Caller initializes ei (to zeroes).
 // Records some basic information about an EXE file, to be used by routines that
 // detect special EXE formats.
@@ -1778,6 +1796,11 @@ void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
 		if(edd->detected_fmt!=0) goto done;
 	}
 
+	if(edd->restrict_to_fmt==0) {
+		detect_execomp_wwpack(c, &ectx, ei, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
+
 	calc_entrypoint_crc(c, &ectx, ei);
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_LZEXE) {
@@ -1791,14 +1814,8 @@ void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
 	}
 
 done:
-	if(ectx.shortname[0] && ectx.verstr[0]) {
-		de_snprintf(edd->detected_fmt_name, sizeof(edd->detected_fmt_name), "%s %s",
-			ectx.shortname, ectx.verstr);
-	}
-	else {
-		de_strlcpy(edd->detected_fmt_name, (ectx.shortname[0]?ectx.shortname:"unknown"),
-			sizeof(edd->detected_fmt_name));
-	}
+	de_strlcpy(edd->detected_fmt_name, (ectx.shortname[0]?ectx.shortname:"unknown"),
+		sizeof(edd->detected_fmt_name));
 }
 
 // If found, writes a copy of pos to *pfoundpos.
@@ -2007,6 +2024,80 @@ done:
 	}
 }
 
+static void detect_exesfx_zoo(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	i64 overlay_len;
+
+	overlay_len = ei->f->len - ei->end_of_dos_code;
+	if(overlay_len < 24) goto done;
+	if((UI)dbuf_getu32le(ei->f, ei->end_of_dos_code+20) != 0xfdc4a7dc) goto done;
+
+	calc_entrypoint_crc(c, ectx, ei);
+	switch((UI)(ei->entrypoint_crcs>>32)) {
+	case 0x6d384fa1U: // SEZ 2.00
+	case 0xec5138deU: // SEZ 2.30
+		// TODO: More Zoo SFX variants
+		break;
+	default:
+		goto done;
+	}
+
+	edd->payload_pos = ei->end_of_dos_code;
+	edd->payload_len = overlay_len;
+	edd->payload_valid = 1;
+	edd->detected_fmt = DE_SPECIALEXEFMT_SFX;
+	edd->payload_file_ext = "zoo";
+
+done:
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
+		de_strlcpy(ectx->shortname, "Zoo", sizeof(ectx->shortname));
+	}
+}
+
+#define ARJ_MIN_BASIC_HEADER_SIZE 30
+#define ARJ_MAX_BASIC_HEADER_SIZE 2600 // From the ARJ TECHNOTE file
+#define ARJ_MIN_FILE_SIZE 84
+
+// Notes:
+// ARJ SFX was introduced in ARJ v0.15.
+// v0.15-0.20: Untested.
+// v1.00-2.00: DIET compression.
+// v2.10: LZEXE compression, "LZ91" signature at offset 28.
+// v2.20-?: LZEXE compression, "RJFX" signature at offset 28,
+//  string "aRJsfX" appears in the first 1000 bytes of the executable.
+// Each version has at least two SFX formats (-je and -je1).
+// So, it's hard to identify ARJ SFX by its decompressor. Instead, we look for
+// a valid ARJ archive starting near the beginning of the overlay segment.
+// (TODO: ARJ32)
+static void detect_exesfx_arj(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	i64 overlay_len;
+	int ret;
+	i64 foundpos = 0;
+
+	overlay_len = ei->f->len - ei->end_of_dos_code;
+	if(overlay_len < ARJ_MIN_FILE_SIZE) goto done;
+
+	// Aribrarily allow up to 16 extra bytes before the ARJ data starts.
+	// Maybe 2 is sufficient. Dunno.
+	ret = fmtutil_scan_for_arj_data(ei->f, ei->end_of_dos_code, 16, 0, &foundpos);
+
+	if(ret) {
+		edd->detected_fmt = DE_SPECIALEXEFMT_ARJSFX;
+		edd->payload_pos = foundpos;
+		edd->payload_len = ei->f->len - foundpos;
+		edd->payload_valid = 1;
+		goto done;
+	}
+
+done:
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_ARJSFX) {
+		de_strlcpy(ectx->shortname, "ARJ", sizeof(ectx->shortname));
+	}
+}
+
 void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	struct fmtutil_specialexe_detection_data *edd)
 {
@@ -2024,14 +2115,72 @@ void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	if(edd->detected_fmt) goto done;
 
 	detect_exesfx_larc(c, &ectx, ei, edd);
+	if(edd->detected_fmt) goto done;
+
+	detect_exesfx_zoo(c, &ectx, ei, edd);
+	if(edd->detected_fmt) goto done;
+
+	detect_exesfx_arj(c, &ectx, ei, edd);
 
 done:
-	if(ectx.shortname[0] && ectx.verstr[0]) {
-		de_snprintf(edd->detected_fmt_name, sizeof(edd->detected_fmt_name), "%s %s",
-			ectx.shortname, ectx.verstr);
+	de_strlcpy(edd->detected_fmt_name, (ectx.shortname[0]?ectx.shortname:"unknown"),
+		sizeof(edd->detected_fmt_name));
+}
+
+// Caller supplies an initialized crcobj to use.
+static int is_arj_data_at1(dbuf *f, i64 pos1, struct de_crcobj *crco)
+{
+	i64 basic_hdr_size;
+	int retval = 0;
+	u32 crc_calc, crc_reported;
+
+	basic_hdr_size = dbuf_getu16le(f, pos1+2);
+	if(basic_hdr_size>ARJ_MAX_BASIC_HEADER_SIZE || basic_hdr_size<ARJ_MIN_BASIC_HEADER_SIZE) goto done;
+	if(dbuf_getbyte(f, pos1+10) != 2) goto done; // "file type"
+	de_crcobj_addslice(crco, f, pos1+4, basic_hdr_size);
+	crc_calc = de_crcobj_getval(crco);
+	crc_reported = (u32)dbuf_getu32le(f, pos1+4+basic_hdr_size);
+	if(crc_calc!=crc_reported) goto done;
+	retval = 1;
+
+done:
+	return retval;
+}
+
+// This is a strict ARJ search, which checks the CRC.
+// It may not always be appropriate.
+int fmtutil_scan_for_arj_data(dbuf *f, i64 startpos, i64 max_skip,
+	UI flags, i64 *pfoundpos)
+{
+	struct de_crcobj *crco = NULL;
+	i64 curpos, endpos;
+	int retval = 0;
+
+	curpos = startpos;
+	endpos = startpos + max_skip + 2; // Search space includes the 2-byte signature
+	if(endpos-2 > f->len-ARJ_MIN_FILE_SIZE) endpos = (f->len-ARJ_MIN_FILE_SIZE)+2;
+
+	while(curpos<=(endpos-2)) {
+		int ret;
+
+		ret = dbuf_search(f, (const u8*)"\x60\xea", 2, curpos, endpos-curpos,
+			pfoundpos);
+		if(!ret) goto done;
+
+		if(crco) {
+			de_crcobj_reset(crco);
+		}
+		else {
+			crco = de_crcobj_create(f->c, DE_CRCOBJ_CRC32_IEEE);
+		}
+		if(is_arj_data_at1(f, *pfoundpos, crco)) {
+			retval = 1;
+			goto done;
+		}
+		curpos = *pfoundpos+2; // Continue the search here
 	}
-	else {
-		de_strlcpy(edd->detected_fmt_name, (ectx.shortname[0]?ectx.shortname:"unknown"),
-			sizeof(edd->detected_fmt_name));
-	}
+
+done:
+	de_crcobj_destroy(crco);
+	return retval;
 }

@@ -1461,6 +1461,31 @@ static void extract_zip_from_sfx(deark *c, lctx *d,
 	de_dbg_indent(c, -1);
 }
 
+static void extract_arj_from_sfx(deark *c, lctx *d,
+	struct fmtutil_specialexe_detection_data *edd)
+{
+	de_module_params *mparams = NULL;
+
+	if(!d->ei) return;
+	de_dbg(c, "attempting ARJ extraction, pos=%"I64_FMT, edd->payload_pos);
+	de_dbg_indent(c, 1);
+
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->in_params.codes = "R";
+	if(edd->payload_valid) {
+		mparams->in_params.obj1 = (void*)edd;
+	}
+
+	de_run_module_by_id_on_slice(c, "arj", mparams, d->ei->f, 0, d->ei->f->len);
+
+	if(!(mparams->out_params.flags & 0x1)) {
+		de_warn(c, "This look like a self-extracting ARJ file, but an attempt to "
+			"extract the plain ARJ file failed.");
+	}
+	de_free(c, mparams);
+	de_dbg_indent(c, -1);
+}
+
 static void do_exesfx(deark *c, lctx *d)
 {
 	struct fmtutil_specialexe_detection_data edd;
@@ -1479,12 +1504,16 @@ static void do_exesfx(deark *c, lctx *d)
 	if(!edd.detected_fmt) goto done;
 
 	de_dbg(c, "detected self-extracting exe: %s", edd.detected_fmt_name);
-	if(edd.payload_valid) {
-		dbuf_create_file_from_slice(d->ei->f, edd.payload_pos, edd.payload_len, edd.payload_file_ext, NULL, 0);
-	}
-	else if(edd.detected_fmt==DE_SPECIALEXEFMT_ZIPSFX) {
+	if(edd.detected_fmt==DE_SPECIALEXEFMT_ZIPSFX) {
 		// ZIP SFX generally needs special processing
 		extract_zip_from_sfx(c, d, &edd);
+	}
+	else if(edd.detected_fmt==DE_SPECIALEXEFMT_ARJSFX) {
+		// ARJ SFX generally needs special processing
+		extract_arj_from_sfx(c, d, &edd);
+	}
+	else if(edd.payload_valid) {
+		dbuf_create_file_from_slice(d->ei->f, edd.payload_pos, edd.payload_len, edd.payload_file_ext, NULL, 0);
 	}
 
 done:

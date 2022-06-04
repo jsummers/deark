@@ -52,6 +52,7 @@ typedef struct localctx_struct {
 	struct fmtutil_exe_info *ei; // For the PKLITE file
 	struct fmtutil_exe_info *o_ei; // For the decompressed file
 	u8 is_com;
+	u8 raw_mode;
 	u8 data_before_decoder;
 	u8 decoder_shape;
 	u8 dcmpr_ok;
@@ -585,11 +586,9 @@ static void do_read_header_and_detect_version(deark *c, lctx *d)
 {
 	UI ver_info;
 
-	//d->ver_reported.
 	ver_info = (UI)de_getu16le(28);
 	info_bytes_to_version_struct(ver_info, &d->ver_reported);
 	d->ver_reported.extra_cmpr_confidence = 10;
-	//.valid = 1;
 	derive_version_fields(c, d, &d->ver_reported);
 
 	de_dbg(c, "reported PKLITE version: %s", d->ver_reported.pklver_str);
@@ -1053,9 +1052,6 @@ static void find_min_mem_needed(deark *c, lctx *d, i64 *pminmem)
 static void do_write_data_only(deark *c, lctx *d)
 {
 	if(!d->o_dcmpr_code) return;
-
-	de_info(c, "Low-level decompression may have succeeded, but something else failed. "
-		"Writing the decompressed code only.");
 	dbuf_create_file_from_slice(d->o_dcmpr_code, 0, d->o_dcmpr_code->len, "bin", NULL, 0);
 }
 
@@ -1106,23 +1102,25 @@ static int read_orig_header(deark *c, lctx *d)
 	i64 orig_hdr_len;
 	i64 orig_reloc_pos;
 	i64 n1, n2;
-	int retval = 0;
 	i64 dcmpr_bytes_expected;
 	i64 orig_hdr_pos;
-	int may_need_warning = 0;
+	const char *name;
+	enum ohdisp_enum {
+		OHDISP_MISSING_E, OHDISP_MISSING, OHDISP_PRESENT, OHDISP_BAD
+	} ohdisp;
 
+	if(d->ver.extra_cmpr) {
+		ohdisp = OHDISP_MISSING_E;
+		goto done;
+	}
 	orig_hdr_pos = d->ei->reloc_table_pos + 4*d->ei->num_relocs;
 
-	if(d->ei->start_of_dos_code - orig_hdr_pos < 26) {
-		goto done;
-	}
-	else if(d->ver.ver_num>=0x10a && d->ver.extra_cmpr) {
-		goto done;
-	}
-
-	may_need_warning = 1;
-
 	orig_hdr_len = d->ei->start_of_dos_code - orig_hdr_pos; // tentative
+	if(orig_hdr_len < 26) {
+		ohdisp = OHDISP_MISSING;
+		goto done;
+	}
+
 	// Peek at the reloc table offs field to figure out how much to read
 	orig_reloc_pos = de_getu16le(orig_hdr_pos + 22);
 	if(orig_reloc_pos>=28 && orig_reloc_pos<2+orig_hdr_len) {
@@ -1134,6 +1132,7 @@ static int read_orig_header(deark *c, lctx *d)
 	n1 = de_getu16le(orig_hdr_pos); // len of final block
 	n2 = de_getu16le(orig_hdr_pos+2); // numBlocks
 	if(n1>511 || n2==0) {
+		ohdisp = OHDISP_BAD;
 		goto done;
 	}
 
@@ -1149,10 +1148,12 @@ static int read_orig_header(deark *c, lctx *d)
 		(d->o_ei->regCS != d->footer.regCS) ||
 		(d->o_ei->regIP != d->footer.regIP))
 	{
+		ohdisp = OHDISP_BAD;
 		goto done;
 	}
 
 	if(d->o_ei->num_relocs != (d->o_reloc_table->len / 4)) {
+		ohdisp = OHDISP_BAD;
 		goto done;
 	}
 
@@ -1163,12 +1164,20 @@ static int read_orig_header(deark *c, lctx *d)
 			d->o_dcmpr_code->len);
 	}
 
-	retval = 1;
+	ohdisp = OHDISP_PRESENT;
+
 done:
-	if(retval==0 && may_need_warning) {
+	switch(ohdisp) {
+	case OHDISP_PRESENT: name="present"; break;
+	case OHDISP_MISSING_E: name="n/a"; break;
+	case OHDISP_MISSING: name="missing"; break;
+	default: name="bad"; break;
+	}
+	de_dbg(c, "copy of orig hdr: %s", name);
+	if(ohdisp==OHDISP_BAD) {
 		de_warn(c, "Original header seems bad. Ignoring it.");
 	}
-	return retval;
+	return (ohdisp==OHDISP_PRESENT);
 }
 
 static void reconstruct_header(deark *c, lctx *d)
@@ -1243,6 +1252,8 @@ static void do_pklite_exe(deark *c, lctx *d)
 {
 	struct fmtutil_specialexe_detection_data edd;
 
+	d->raw_mode = (u8)de_get_ext_option_bool(c, "pklite:raw", 0xff);
+
 	fmtutil_collect_exe_info(c, c->infile, d->ei);
 
 	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
@@ -1263,6 +1274,11 @@ static void do_pklite_exe(deark *c, lctx *d)
 	dbuf_flush(d->o_dcmpr_code);
 	if(d->errflag) goto done;
 	d->dcmpr_ok = 1;
+
+	if(d->raw_mode==1) {
+		do_write_data_only(c, d);
+		goto done;
+	}
 
 	do_read_reloc_table(c, d);
 	if(d->errflag) goto done;
@@ -1451,8 +1467,8 @@ static void de_run_pklite(deark *c, de_module_params *mparams)
 			de_err(c, "PKLITE decompression failed");
 		}
 
-		if(!d->is_com && d->dcmpr_ok && !d->wrote_exe) {
-			do_write_data_only(c, d);
+		if(!d->is_com && d->raw_mode==0xff && d->dcmpr_ok && !d->wrote_exe) {
+			de_info(c, "Note: Try \"-opt pklite:raw\" to decompress the raw data");
 		}
 
 		dbuf_close(d->o_orig_header);
@@ -1483,10 +1499,16 @@ static int de_identify_pklite(deark *c)
 	 return 0;
 }
 
+static void de_help_pklite(deark *c)
+{
+	de_msg(c, "-opt pklite:raw : Instead of an EXE file, write raw decompressed data");
+}
+
 void de_module_pklite(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "pklite";
 	mi->desc = "PKLITE-compressed EXE/COM";
 	mi->run_fn = de_run_pklite;
 	mi->identify_fn = de_identify_pklite;
+	mi->help_fn = de_help_pklite;
 }

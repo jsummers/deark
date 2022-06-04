@@ -51,9 +51,9 @@ struct dd_Ctl {
 	struct de_dfilter_results *dres;
 	i64 inf_pos;
 	i64 inf_endpos;
+	i64 nbytes_written;
 	int eof_flag;
 	int err_flag;
-	int TraceLevel;
 	char msg[DD_MAXSTRLEN];
 #ifdef DD_EXTRADBG
 	char work [DD_MAXSTRLEN], work2[DD_MAXSTRLEN], work3[DD_MAXSTRLEN];
@@ -61,15 +61,14 @@ struct dd_Ctl {
 };
 
 //*******************************************************************
-static void dd_tmsg(struct dd_Ctl *Ctl, int tracelevel, const char *fmt, ...)
-	de_gnuc_attribute ((format (printf, 3, 4)));
+static void dd_tmsg(struct dd_Ctl *Ctl, const char *fmt, ...)
+	de_gnuc_attribute ((format (printf, 2, 3)));
 
-static void dd_tmsg(struct dd_Ctl *Ctl, int level, const char *fmt, ...)
+static void dd_tmsg(struct dd_Ctl *Ctl, const char *fmt, ...)
 {
 	va_list ap;
 
-	if (level > Ctl->TraceLevel)
-		return;
+	if (Ctl->c->debug_level<3) return;
 
 	va_start(ap, fmt);
 	de_vsnprintf(Ctl->msg, sizeof(Ctl->msg), fmt, ap);
@@ -101,10 +100,11 @@ static char *dd_right (char *target, char *source, int len)
 //*******************************************************************
 static void dd_PrintEntry (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 tcode)
 {
-	dd_tmsg(Ctl, 1, "Entry code: %4x, usecount: %4x, clink: %4x, clast: %4x, cfirst: %4x",
+	if (Ctl->c->debug_level<3) return;
+	dd_tmsg(Ctl, "Entry code: %4x, usecount: %4x, clink: %4x, clast: %4x, cfirst: %4x",
 			tcode, ct->usecount[tcode], ct->charlink[tcode], ct->charlast[tcode],
 			ct->charfirst[tcode]);
-	dd_tmsg(Ctl, 1, "older: %4x, newer: %4x, used: %4d, size: %4d",
+	dd_tmsg(Ctl, "older: %4x, newer: %4x, used: %4d, size: %4d",
 			ct->older[tcode], ct->newer[tcode], ct->used[tcode], ct->size[tcode]);
 }
 
@@ -113,30 +113,30 @@ static void dd_ValidateLinkChains (struct dd_Ctl *Ctl, struct dd_codet * ct, u16
 {
 	u16 tnewer, tolder;
 
-	if(Ctl->TraceLevel<1) return;
+	if(Ctl->c->debug_level<3) return;
 	tnewer = ct->newer[tcode];
 	tolder = ct->older[tcode];
 	if (tcode == ct->newest) {
 		if (tnewer != 0) {
-			dd_tmsg(Ctl, 1, "Newer code not zero. tcode: %4x, newer: %4x, older: %4x",
+			dd_tmsg(Ctl, "Newer code not zero. tcode: %4x, newer: %4x, older: %4x",
 				tcode, tnewer, ct->older[tnewer]);
 		}
 	}
 	else {
 		if (ct->older[tnewer] != tcode) {
-			dd_tmsg(Ctl, 1, "Older code not linked. tcode: %4x, newer: %4x, older: %4x",
+			dd_tmsg(Ctl, "Older code not linked. tcode: %4x, newer: %4x, older: %4x",
 				tcode, tnewer, ct->older[tnewer]);
 		}
 	}
 	if (tcode == ct->oldest) {
 		if (tolder != 0) {
-			dd_tmsg(Ctl, 1, "Older code not zero. tcode: %4x, older: %4x, newer: %4x",
+			dd_tmsg(Ctl, "Older code not zero. tcode: %4x, older: %4x, newer: %4x",
 				tcode, tolder, ct->newer[tolder]);
 		}
 	}
 	else {
 		if (ct->newer[tolder] != tcode) {
-			dd_tmsg(Ctl, 1, "Newer code not linked. tcode: %4x, older: %4x, newer: %4x",
+			dd_tmsg(Ctl, "Newer code not linked. tcode: %4x, older: %4x, newer: %4x",
 				tcode, tolder, ct->newer[tolder]);
 		}
 	}
@@ -146,6 +146,7 @@ static void dd_ValidateLinkChains (struct dd_Ctl *Ctl, struct dd_codet * ct, u16
 static void dd_OutputString(struct dd_Ctl *Ctl, struct dd_codet * ct, u16 tcode)
 {
 	dbuf_write(Ctl->dcmpro->f, (const u8*)ct->code[tcode], ct->size[tcode]);
+	Ctl->nbytes_written += (i64)ct->size[tcode];
 }
 
 //*******************************************************************
@@ -222,7 +223,7 @@ static void dd_DFree(struct dd_Ctl *Ctl, struct dd_codet *ct)
 static void dd_AddMRU (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 tcode)
 {
 	if (ct->usecount[tcode] != 0) {
-		dd_tmsg(Ctl, 1, "Usecount not zero in AddMRU, code: %4x", tcode);
+		dd_tmsg(Ctl, "Usecount not zero in AddMRU, code: %4x", tcode);
 		dd_PrintEntry(Ctl, ct, tcode);
 	}
 	ct->newer[ct->newest] = tcode;
@@ -258,7 +259,7 @@ static u16 dd_GetLRU (struct dd_Ctl *Ctl, struct dd_codet * ct)
 	dd_ValidateLinkChains(Ctl, ct, ct->oldest);
 	tcode = ct->oldest;
 	if (ct->usecount[tcode] != 0) {
-		dd_tmsg(Ctl, 1, "Usecount not zero in GetLRU, code: %4x", tcode);
+		dd_tmsg(Ctl, "Usecount not zero in GetLRU, code: %4x", tcode);
 		dd_PrintEntry(Ctl, ct, tcode);
 	}
 	xcode = ct->charlink[tcode];
@@ -313,7 +314,7 @@ static void dd_BuildEntry (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 newcode
 		goto done;
 	}
 	// TODO?: This makes a huge total number of memory allocations (though only
-	// about 4096 will be active at any given time). Mabye it should be rewritten
+	// about 4096 will be active at any given time). Maybe it should be rewritten
 	// to not do that.
 	codestr = (u8 *) de_malloc(Ctl->c, new_codesize);
 	de_memcpy(codestr, ct->code[ct->oldcode], (size_t)old_codesize);
@@ -338,15 +339,15 @@ static void dd_BuildEntry (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 newcode
 	dd_AddMRU (Ctl, ct, lruentry);
 
 #ifdef DD_EXTRADBG
-	if(Ctl->TraceLevel<1) return;
+	if(Ctl->c->debug_level<3) goto done;
 	int test;
 	de_strlcpy(Ctl->work, "", sizeof(Ctl->work));
 	for (test = 0; test < new_codesize; test++) {
-		de_snprintf(Ctl->work2, sizeof(Ctl->work2), "%2x", codestr[test]);
+		de_snprintf(Ctl->work2, sizeof(Ctl->work2), "%2x", ct->code[lruentry][test]);
 		dd_right(Ctl->work3, Ctl->work2, 2);
 		strcat(Ctl->work, Ctl->work3);
 	}
-	dd_tmsg(Ctl, 1, "offset: %4x, newcode: %4x. nused: %4x, lru: %4x, lused: %4x, size: %4d, str: %s",
+	dd_tmsg(Ctl, "offset: %4x, newcode: %4x. nused: %4x, lru: %4x, lused: %4x, size: %4d, str: %s",
 		(UI)Ctl->inf_pos, newcode, ct->used[newcode], lruentry, ct->used[lruentry], new_codesize, Ctl->work);
 #endif
 
@@ -366,6 +367,11 @@ static void dd_Decompress (struct dd_Ctl *Ctl)
 
 	while(1) {
 		newcode = dd_GetNextcode(Ctl, ct);
+		if(Ctl->c->debug_level>=3) {
+			de_dbg(Ctl->c, "[i%"I64_FMT"/o%"I64_FMT"] code=%u oc=%u",
+				Ctl->inf_pos, Ctl->nbytes_written,
+				(UI)newcode, (UI)ct->oldcode);
+		}
 		if(newcode==0 || Ctl->eof_flag || Ctl->err_flag) break;
 		if (ct->oldcode > 0)
 			dd_BuildEntry(Ctl, ct, newcode);
@@ -392,10 +398,6 @@ static void dskdcmps_run(deark *c, struct de_dfilter_in_params *dcmpri,
 	Ctl->dres = dres;
 	Ctl->inf_pos = dcmpri->pos;
 	Ctl->inf_endpos = dcmpri->pos + dcmpri->len;
-	Ctl->TraceLevel = 0;
-	if(c->debug_level>=3) {
-		Ctl->TraceLevel = 1;
-	}
 
 	dd_Decompress(Ctl);
 

@@ -694,8 +694,10 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei);
 #define DE_SPECIALEXEFMT_EXEPACK   3
 #define DE_SPECIALEXEFMT_DIET      4
 #define DE_SPECIALEXEFMT_TINYPROG  5
+#define DE_SPECIALEXEFMT_EXECOMP   99 // Misc. unsupported executable compression
 #define DE_SPECIALEXEFMT_SFX       100 // Generic extractable self-extracting archive
 #define DE_SPECIALEXEFMT_ZIPSFX    101
+#define DE_SPECIALEXEFMT_ARJSFX    102
 
  struct fmtutil_specialexe_detection_data {
 	u8 restrict_to_fmt; // DE_SPECIALEXEFMT_*; 0 = any
@@ -715,3 +717,5 @@ void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
 	struct fmtutil_specialexe_detection_data *edd);
 void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	struct fmtutil_specialexe_detection_data *edd);
+int fmtutil_scan_for_arj_data(dbuf *f, i64 startpos, i64 max_skip,
+	UI flags, i64 *pfoundpos);

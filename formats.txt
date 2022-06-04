@@ -353,6 +353,9 @@ Deark -- Information about supported formats
 
 * OLPC .565 firmware icon (module="olpc565")
 
+* OS/2 boot logo (module="os2bootlogo")
+  - You may have to use "-m os2bootlogo" in some cases.
+
 * OS/2 Icon, Pointer, Bitmap Array formats (module="os2bmp")
   - Converts icons & pointers to individual PNG files.
   - Icon, pointer, and BMP image files are extracted from Bitmap Array files.
@@ -630,19 +633,6 @@ Deark -- Information about supported formats
 
 * ADF (Amiga disk image) (module="amiga_adf") (experimental)
 
-* ar001 (module="ar001")
-  "ar" archiver by Haruhiko Okumura, first version.
-
-* ARC archive (module="arc")
-  - Some rare compression methods are not supported.
-
-* ArcFS (module="arcfs")
-
-* ArcMac (module="arcmac") (experimental)
-  Variant of ARC.
-
-* ARJ (module="arj") (experimental)
-
 * AmBs (AMOS "Banks" aggregate format) (module="abk")
   - Extract AmSp, AmIc, AmBk files.
 
@@ -659,6 +649,24 @@ Deark -- Information about supported formats
 
 * ar (.a archive/library format) (module="ar") (experimental/incomplete)
   - Supports System V long filenames
+
+* ar001 (module="ar001")
+  "ar" archiver by Haruhiko Okumura, first version.
+
+* ARC archive (module="arc")
+  - Some rare compression methods are not supported.
+
+* ArcFS (module="arcfs")
+
+* ArcMac (module="arcmac") (experimental)
+  Variant of ARC.
+
+* ARJ (module="arj")
+  Options
+   -opt arj:entrypoint=<n> : Specify the offset of ARJ data.
+   -opt arj:scan=0 : Disable scanning for the ARJ data.
+   -opt arj:reloc[=<n>] : Move the ARJ data, and disable some types of
+     security/protection.
 
 * ARX (module="arx") (experimental)
   Variant of LHA. Deark tries to convert it to LHA.
@@ -829,6 +837,8 @@ Deark -- Information about supported formats
   Decompress a PKLITE-compressed DOS EXE file or DOS COM file.
   - For EXE format, you must use "-m pklite" or "-opt execomp".
   - Not all PKLITE format variants are supported.
+  Options
+   -opt pklite:raw - Instead of an EXE file, write raw decompressed data
 
 * RPM (package manager) (module="rpm")
   - Extract compressed cpio file.
