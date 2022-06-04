@@ -20,6 +20,7 @@ struct plane_struct {
 
 typedef struct localctx_struct {
 	struct plane_struct pl[4];
+	u8 uses_lzss;
 } lctx;
 
 struct exepack2_ctx {
@@ -92,6 +93,7 @@ static void decompress_exepack2(deark *c, lctx *d,
 		}
 
 		opcode0 = b0 & 0x3;
+		if(opcode0!=0) d->uses_lzss = 1;
 
 		switch(opcode0) {
 		case 0: // nRoots token (uncompressed bytes only)
@@ -281,6 +283,10 @@ static void de_run_os2bootlogo(deark *c, de_module_params *mparams)
 	for(k=0; k<NUM_PLANES; k++) {
 		if(!do_decompress_plane(c, d, k)) goto done;
 	}
+
+	// There's a program that makes files that only use RLE compression.
+	// Out of curiosity, I want to identify such files.
+	de_dbg(c, "cmpr uses lzss: %u", (UI)d->uses_lzss);
 
 	do_write_image(c, d);
 
