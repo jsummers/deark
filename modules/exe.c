@@ -1521,9 +1521,9 @@ done:
 }
 
 // Used in execomp mode.
-static void do_execomp_decompress(deark *c, lctx *d, struct fmtutil_specialexe_detection_data *edd)
+static void try_execomp_decompress(deark *c, lctx *d, struct fmtutil_specialexe_detection_data *edd)
 {
-	if(!edd->detected_fmt_name) return;
+	if(edd->detected_fmt==0) return;
 	if(!edd->modname) {
 		de_info(c, "Note: File seems to be compressed with %s, but that's "
 			"not a supported format.", edd->detected_fmt_name);
@@ -1557,7 +1557,7 @@ static void do_execomp(deark *c, lctx *d)
 	de_dbg(c, "detected executable compression: %s", edd.detected_fmt_name);
 
 	if(d->execomp_mode==1) {
-		do_execomp_decompress(c, d, &edd);
+		try_execomp_decompress(c, d, &edd);
 	}
 	else if(d->execomp_mode!=0) {
 		if(edd.modname) {
