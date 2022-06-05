@@ -15,6 +15,7 @@ DE_DECLARE_MODULE(de_module_arj);
 #define MIN_VER_WITH_ENCVER        8
 #define MIN_VER_WITH_CHAPTERS      8
 #define MIN_VER_WITH_FLAGS2        11
+#define MIN_VER_WITH_ARCH_MTIME    6
 
 static const u8 *g_arj_hdr_id = (const u8*)"\x60\xea";
 
@@ -439,16 +440,18 @@ static void fixup_path(de_ucstring *s)
 
 static char *get_archiver_ver_name(u8 v, char *buf, size_t buflen)
 {
-	const char *anames[11] = {
+	static const char *anames[11] = {
 		"0.13-0.14", "0.15-1.00", "1.10-2.22", "2.30", "2.39a-b",
 		"2.39c-2.41a", "2.42a-2.50a", "2.55-2.61", "2.62-2.63", "2.63-2.76",
 		"2.81+" };
+	static const char *a32names[3] = { "3.00a-3.01a", "3.02-3.09", "3.10+" };
 
 	if(v>=1 && v<=11) {
+		// v=9 could also be ARJ32 3.00, but it's not worth listing.
 		de_snprintf(buf, buflen, "ARJ %s", anames[(UI)v-1]);
 	}
 	else if(v>=100 && v<=102) {
-		de_strlcpy(buf, "ARJ32, etc.", buflen);
+		de_snprintf(buf, buflen, "ARJ32 %s", a32names[(UI)v-100]);
 	}
 	else {
 		de_strlcpy(buf, "?", buflen);
@@ -488,7 +491,7 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		goto done;
 	}
 
-	de_dbg(c, "object at %"I64_FMT, pos1);
+	de_dbg(c, "block at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
 	basic_hdr_size = de_getu16le_p(&pos);
@@ -510,7 +513,7 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 			md->objtype = ARJ_OBJTYPE_MEMBERFILE;
 		}
 	}
-	de_dbg(c, "object type: %s", get_objtype_name(md->objtype));
+	de_dbg(c, "block type: %s", get_objtype_name(md->objtype));
 
 	if(basic_hdr_size==0) {
 		*pbytes_consumed = 4;
@@ -523,10 +526,10 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		goto done;
 	}
 
-	de_dbg(c, "[basic header]");
+	de_dbg(c, "basic header at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
-	de_dbg(c, "[first header]");
+	de_dbg(c, "first header at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	basic_hdr_endpos = pos1 + 4 + basic_hdr_size;
@@ -622,8 +625,9 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		n = de_getu32le_p(&pos);
 		de_dbg(c, "archive size: %"I64_FMT, n); // This is a guess
 	}
-	else if(md->objtype==ARJ_OBJTYPE_MAINHDR && md->archiver_ver_num_adj>=6) {
-		// Field present as of about ARJ v2.41.
+	else if(md->objtype==ARJ_OBJTYPE_MAINHDR &&
+		md->archiver_ver_num_adj>=MIN_VER_WITH_ARCH_MTIME)
+	{
 		read_arj_datetime(c, d, pos, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "archive mod");
 		pos += 4;
 	}
@@ -645,8 +649,6 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	if(md->objtype==ARJ_OBJTYPE_MAINHDR) {
 		n = de_getu32le_p(&pos);
 		if(d->is_secured) {
-			// Field is documented as of about ARJ v2.41, apparently required
-			// for secured archives.
 			de_dbg(c, "archive size: %"I64_FMT, n);
 		}
 	}
@@ -711,8 +713,8 @@ at_offset_32:
 	}
 
 	extra_data_len = first_hdr_endpos - pos;
+	de_dbg(c, "extra data at %"I64_FMT", len=%"I64_FMT, pos, extra_data_len);
 	if(extra_data_len>0) {
-		de_dbg(c, "extra data: %"I64_FMT" bytes at %"I64_FMT"", extra_data_len, pos);
 		de_dbg_indent(c, 1);
 
 		if(md->objtype==ARJ_OBJTYPE_MAINHDR) {
@@ -752,6 +754,8 @@ at_offset_32:
 	de_dbg_indent(c, -1);
 	pos = first_hdr_endpos; // Now at the offset of the filename field
 	nbytes_avail = basic_hdr_endpos - pos;
+	de_dbg(c, "filename/comment area at %"I64_FMT", len=%"I64_FMT, pos, nbytes_avail);
+	de_dbg_indent(c, 1);
 	md->name_srd = dbuf_read_string(c->infile, pos, nbytes_avail, 256, DE_CONVFLAG_STOP_AT_NUL,
 		md->input_encoding);
 	if(!(md->flags & 0x10)) {
@@ -765,6 +769,7 @@ at_offset_32:
 		nbytes_avail = basic_hdr_endpos - pos;
 		handle_comment(c, d, md, pos, nbytes_avail);
 	}
+	de_dbg_indent(c, -1);
 
 	de_dbg_indent(c, -1);
 	pos = basic_hdr_endpos; // Now at the offset just after the 'comment' field
