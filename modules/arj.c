@@ -60,9 +60,11 @@ typedef struct localctx_struct {
 	u8 is_secured;
 	u8 is_old_secured;
 	u8 arjprot_flag;
+	u8 encryption_ver;
 	i64 archive_start;
 	i64 security_envelope_pos;
 	i64 security_envelope_len;
+	i64 arjprot_pos;
 	struct de_crcobj *crco;
 } lctx;
 
@@ -344,8 +346,9 @@ static void extract_member_file(deark *c, lctx *d, struct member_data *md)
 		need_to_decompress = 1;
 
 	if((md->flags & 0x01) && need_to_decompress) {
-		de_err(c, "%s: Garbled files are not supported",
-			ucstring_getpsz_d(md->name_srd->str));
+		de_err(c, "%s: %sed files are not supported",
+			ucstring_getpsz_d(md->name_srd->str),
+			(d->encryption_ver>=2 ? "Encrypt":"Garbl"));
 		goto done;
 	}
 
@@ -666,6 +669,10 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 			d->security_envelope_pos = n;
 			de_dbg(c, "security envelope pos: %"I64_FMT, d->security_envelope_pos);
 		}
+		else if(d->arjprot_flag) {
+			d->arjprot_pos = n; // This is a guess
+			de_dbg(c, "ARJPROT data pos: %"I64_FMT, d->arjprot_pos);
+		}
 	}
 	else {
 		md->crc_reported = (u32)de_getu32le_p(&pos);
@@ -698,6 +705,9 @@ at_offset_32:
 	if(md->objtype==ARJ_OBJTYPE_MAINHDR) {
 		if(md->archiver_ver_num_adj>=MIN_VER_WITH_ENCVER) {
 			de_dbg(c, "encryption ver: %u", (UI)b);
+			// We expect the GARBLED flag to be set in the main header when this field
+			// is meaningful, but I don't think ARJ requires that.
+			d->encryption_ver = b;
 		}
 	}
 	else {
@@ -1137,8 +1147,6 @@ static int reloc_process_archive_hdr(deark *c, struct arjreloc_ctx *d)
 	else if(flags & 0x08) {
 		de_info(c, "Note: Disabling ARJ-PROTECT");
 		flags -= 0x08;
-		// TODO: There are more fields that should probably be cleared in order
-		// to do this properly.
 	}
 	else {
 		// Not secured, or not a problematic type of security. Just copy everything.
@@ -1154,7 +1162,7 @@ static int reloc_process_archive_hdr(deark *c, struct arjreloc_ctx *d)
 	dbuf_writebyte(d->ahdr, 0); // security version
 	dbuf_copy(c->infile, d->src_startpos+10, 10, d->ahdr); // filetype...modtime
 	dbuf_writeu32le(d->ahdr, 0); // archive size
-	dbuf_writeu32le(d->ahdr, 0); // security envelope pos
+	dbuf_writeu32le(d->ahdr, 0); // security envelope or ARJPROT pos
 	dbuf_copy(c->infile, d->src_startpos+28, 2, d->ahdr); // filespec pos
 	dbuf_writeu16le(d->ahdr, 0); // security envelope len
 	// (now at file offset 32) Copy the rest of the basic header
