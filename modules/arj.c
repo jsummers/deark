@@ -484,6 +484,7 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	int saved_indent_level;
 	u8 b;
 	char namebuf[32];
+	char tmpbuf[64];
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	md = de_malloc(c, sizeof(struct member_data));
@@ -644,7 +645,8 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 
 	if(md->objtype==ARJ_OBJTYPE_MAINHDR && d->is_old_secured) {
 		// This is a guess
-		de_dbg_hexdump(c, c->infile, pos, 12, 12, "security data", 0);
+		de_dbg(c, "security data: %s",
+			de_render_hexbytes_from_dbuf(c->infile, pos, 12, tmpbuf, sizeof(tmpbuf)));
 		pos += 12;
 		goto at_offset_32;
 	}

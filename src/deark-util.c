@@ -320,6 +320,46 @@ void de_dbg_indent_restore(deark *c, int saved_indent_level)
 	c->dbg_indent_amount = saved_indent_level;
 }
 
+// Caller supplies outbuf. A pointer to it is returned.
+char *de_render_hexbytes_from_mem(const u8 *inbytes, i64 ilen,
+	char *outbuf, size_t outbuf_len)
+{
+	i64 inpos;
+	size_t outpos = 0;
+
+	if(ilen<1) goto done;
+	if(ilen > (i64)(outbuf_len/3)) {
+		ilen = (i64)(outbuf_len/3);
+	}
+
+	for(inpos = 0; inpos<ilen; inpos++) {
+		if(inpos>0) outbuf[outpos++] = ' ';
+		outbuf[outpos++] = de_get_hexchar((int)(inbytes[inpos]/16));
+		outbuf[outpos++] = de_get_hexchar((int)(inbytes[inpos]%16));
+	}
+
+done:
+	outbuf[outpos] = '\0';
+	return outbuf;
+}
+
+// Caller supplies outbuf. A pointer to it is returned.
+// There is a size limit to ilen. This function is intended for debug messages and
+// the like.
+char *de_render_hexbytes_from_dbuf(dbuf *inf, i64 pos, i64 ilen,
+	char *outbuf, size_t outbuf_len)
+{
+	u8 *inbuf = 0;
+
+	if(ilen>1024) ilen = 1024;
+	inbuf = de_malloc(inf->c, ilen);
+
+	dbuf_read(inf, inbuf, pos, ilen);
+	(void)de_render_hexbytes_from_mem(inbuf, ilen, outbuf, outbuf_len);
+	de_free(inf->c, inbuf);
+	return outbuf;
+}
+
 static int get_ndigits_for_offset(i64 n)
 {
 	int nd;
@@ -410,6 +450,7 @@ static void do_hexdump_row(deark *c, struct hexdump_ctx *hctx)
 // If prefix is NULL, a default will be used.
 // flags:
 //  0x1 = Include an ASCII representation
+//  0x2 = No prefix
 static void de_hexdump_internal(deark *c, struct hexdump_ctx *hctx,
 	dbuf *f, i64 pos1,
 	i64 nbytes_avail, i64 max_nbytes_to_dump)
@@ -481,6 +522,8 @@ static void hexdump_printline_dbg(deark *c, struct hexdump_ctx *hctx)
 // flags:
 //  0x1 = Include an ASCII representation
 //  0x2 = No prefix
+//
+// Note: For a single-line dump, consider de_render_hexbytes_from_*() instead.
 void de_dbg_hexdump(deark *c, dbuf *f, i64 pos1,
 	i64 nbytes_avail, i64 max_nbytes_to_dump,
 	const char *prefix1, unsigned int flags)
