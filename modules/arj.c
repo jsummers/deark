@@ -33,6 +33,13 @@ enum objtype_enum {
 #define ARJ_FILETYPE_VOLUMELABEL  4
 #define ARJ_FILETYPE_CHAPTERLABEL 5
 
+#define ARJ_OS_DOS      0
+#define ARJ_OS_UNIX     2
+#define ARJ_OS_OS2      5
+#define ARJ_OS_NEXT     8
+#define ARJ_OS_WIN95    10
+#define ARJ_OS_WIN32    11
+
 struct member_data {
 	de_encoding input_encoding;
 	UI hdr_id;
@@ -45,6 +52,8 @@ struct member_data {
 	u8 method;
 	u8 file_type; // ARJ_FILETYPE_*
 	u8 is_dir;
+	u8 is_executable;
+	u8 is_nonexecutable;
 	UI file_mode;
 	u32 crc_reported;
 	i64 cmpr_len;
@@ -365,6 +374,14 @@ static void extract_member_file(deark *c, lctx *d, struct member_data *md)
 
 	fi->is_directory = md->is_dir;
 	fi->is_volume_label = (md->file_type==ARJ_FILETYPE_VOLUMELABEL);
+	if(!fi->is_directory && !fi->is_volume_label) {
+		if(md->is_executable) {
+			fi->mode_flags |= DE_MODEFLAG_EXE;
+		}
+		else if(md->is_nonexecutable) {
+			fi->mode_flags |= DE_MODEFLAG_NONEXE;
+		}
+	}
 
 	for(k=0; k<DE_TIMESTAMPIDX_COUNT; k++) {
 		fi->timestamp[k] = md->tmstamp[k];
@@ -696,7 +713,22 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 
 		md->file_mode = (UI)de_getu16le_p(&pos);
 		mode_descr = ucstring_create(c);
-		de_describe_dos_attribs(c, md->file_mode, mode_descr, 0);
+		if(md->os==ARJ_OS_DOS || md->os==ARJ_OS_OS2 || md->os==ARJ_OS_WIN95 || md->os==ARJ_OS_WIN32) {
+			de_describe_dos_attribs(c, md->file_mode, mode_descr, 0);
+		}
+		else if(md->os==ARJ_OS_UNIX || md->os==ARJ_OS_NEXT) {
+			ucstring_printf(mode_descr, DE_ENCODING_LATIN1, "octal %03o", md->file_mode);
+			if((md->file_mode)&0111) {
+				md->is_executable = 1;
+			}
+			else {
+				md->is_nonexecutable = 1;
+			}
+		}
+		else {
+			ucstring_append_char(mode_descr, '?');
+		}
+
 		de_dbg(c, "access mode: 0x%02x (%s)", md->file_mode, ucstring_getpsz_d(mode_descr));
 		ucstring_destroy(mode_descr);
 	}
