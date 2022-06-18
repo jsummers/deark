@@ -48,6 +48,7 @@ struct member_data {
 	u8 archiver_ver_num_adj;
 	u8 min_ver_to_extract;
 	u8 os;
+	u8 unix_timestamp_format;
 	u8 flags;
 	u8 method;
 	u8 file_type; // ARJ_FILETYPE_*
@@ -77,7 +78,8 @@ typedef struct localctx_struct {
 	struct de_crcobj *crco;
 } lctx;
 
-static void read_arj_datetime(deark *c, lctx *d, i64 pos, struct de_timestamp *ts1, const char *name)
+static void read_arj_datetime(deark *c, lctx *d, struct member_data *md,
+	i64 pos, struct de_timestamp *ts1, const char *name)
 {
 	i64 dosdt, dostm;
 	char timestamp_buf[64];
@@ -86,6 +88,15 @@ static void read_arj_datetime(deark *c, lctx *d, i64 pos, struct de_timestamp *t
 	dosdt = de_getu16le(pos+2);
 	if(dostm==0 && dosdt==0) {
 		de_snprintf(timestamp_buf, sizeof(timestamp_buf), "[not set]");
+	}
+	else if(md->unix_timestamp_format) {
+		i64 ut;
+
+		// Unix time is usually signed, but it seems that Open Source ARJ makes
+		// it unsigned, so the valid dates are from 1970-2106.
+		ut = (dosdt<<16) | dostm;
+		de_unix_time_to_timestamp(ut, ts1, 0x1);
+		de_timestamp_to_string(ts1, timestamp_buf, sizeof(timestamp_buf), 0);
 	}
 	else {
 		de_dos_datetime_to_timestamp(ts1, dosdt, dostm);
@@ -632,6 +643,13 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	md->os = de_getbyte_p(&pos);
 	de_dbg(c, "host OS: %u (%s)", (UI)md->os, get_host_os_name(md->os));
 
+	if((md->os==ARJ_OS_UNIX || md->os==ARJ_OS_NEXT) &&
+		(md->archiver_ver_num_raw>=11 && md->archiver_ver_num_raw<50))
+	{
+		// Ref: Open Source ARJ, resource/en/readme.txt
+		md->unix_timestamp_format = 1;
+	}
+
 	md->flags = de_getbyte_p(&pos);
 	flags_descr = ucstring_create(c);
 	get_flags_descr(md, md->flags, flags_descr);
@@ -687,15 +705,15 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	pos++; // reserved
 
 	if(md->objtype==ARJ_OBJTYPE_MAINHDR) {
-		read_arj_datetime(c, d, pos, &md->tmstamp[DE_TIMESTAMPIDX_CREATE], "archive creation");
+		read_arj_datetime(c, d, md, pos, &md->tmstamp[DE_TIMESTAMPIDX_CREATE], "archive creation");
 		pos += 4;
 	}
 	else if(md->objtype==ARJ_OBJTYPE_CHAPTERLABEL) {
-		read_arj_datetime(c, d, pos,  &md->tmstamp[DE_TIMESTAMPIDX_CREATE], "creation");
+		read_arj_datetime(c, d, md, pos,  &md->tmstamp[DE_TIMESTAMPIDX_CREATE], "creation");
 		pos += 4;
 	}
 	else {
-		read_arj_datetime(c, d, pos, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod");
+		read_arj_datetime(c, d, md, pos, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod");
 		pos += 4;
 	}
 
@@ -706,7 +724,7 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	else if(md->objtype==ARJ_OBJTYPE_MAINHDR &&
 		md->archiver_ver_num_adj>=MIN_VER_WITH_ARCH_MTIME)
 	{
-		read_arj_datetime(c, d, pos, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "archive mod");
+		read_arj_datetime(c, d, md, pos, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "archive mod");
 		pos += 4;
 	}
 	else if(md->objtype==ARJ_OBJTYPE_MEMBERFILE) {
@@ -838,9 +856,9 @@ at_offset_32:
 				de_dbg(c, "ext. file pos: %"I64_FMT, n);
 			}
 			if(extra_data_len>=12) {
-				read_arj_datetime(c, d, pos, &md->tmstamp[DE_TIMESTAMPIDX_ACCESS], "access");
+				read_arj_datetime(c, d, md, pos, &md->tmstamp[DE_TIMESTAMPIDX_ACCESS], "access");
 				pos += 4;
-				read_arj_datetime(c, d, pos, &md->tmstamp[DE_TIMESTAMPIDX_CREATE], "create");
+				read_arj_datetime(c, d, md, pos, &md->tmstamp[DE_TIMESTAMPIDX_CREATE], "create");
 				pos += 4;
 			}
 			if(extra_data_len>=16) {
