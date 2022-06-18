@@ -23,6 +23,7 @@ enum objtype_enum {
 	ARJ_OBJTYPE_MAINHDR = 100,
 	ARJ_OBJTYPE_MEMBERFILE, // Including directories, volume labels
 	ARJ_OBJTYPE_CHAPTERLABEL,
+	ARJ_OBJTYPE_UNKNOWN,
 	ARJ_OBJTYPE_EOA
 };
 
@@ -365,6 +366,12 @@ static void extract_member_file(deark *c, lctx *d, struct member_data *md)
 	else
 		need_to_decompress = 1;
 
+	if(md->file_type==9) { // Presumably ARJZ -t9
+		de_err(c, "%s: Unsupported file type",
+			ucstring_getpsz_d(md->name_srd->str));
+		goto done;
+	}
+
 	if((md->flags & 0x01) && need_to_decompress) {
 		de_err(c, "%s: %sed files are not supported",
 			ucstring_getpsz_d(md->name_srd->str),
@@ -454,6 +461,7 @@ static const char *get_objtype_name(enum objtype_enum t) {
 	case ARJ_OBJTYPE_MEMBERFILE: name="member file"; break;
 	case ARJ_OBJTYPE_CHAPTERLABEL: name="chapter label"; break;
 	case ARJ_OBJTYPE_EOA: name="end of archive"; break;
+	default: break;
 	}
 	return name?name:"?";
 }
@@ -483,6 +491,9 @@ static char *get_archiver_ver_name(u8 v, char *buf, size_t buflen)
 	}
 	else if(v>=100 && v<=102) {
 		de_snprintf(buf, buflen, "ARJ32 %s", a32names[(UI)v-100]);
+	}
+	else if(v>=50 && v<=51) {
+		de_strlcpy(buf, "ARJZ", buflen);
 	}
 	else {
 		de_strlcpy(buf, "?", buflen);
@@ -589,17 +600,25 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		md->objtype = ARJ_OBJTYPE_EOA;
 	}
 	else {
-		// Skip ahead to read the file_type field. It affects some fields that appear
-		// before it.
+		// Skip ahead to read some fields that can affect fields that appear
+		// before them.
+		md->archiver_ver_num_raw = de_getbyte(pos1+5);
 		md->file_type = de_getbyte(pos1+10);
+
 		if(md->file_type==ARJ_FILETYPE_MAINHDR) {
 			md->objtype = ARJ_OBJTYPE_MAINHDR;
 		}
 		else if(md->file_type==ARJ_FILETYPE_CHAPTERLABEL) {
 			md->objtype = ARJ_OBJTYPE_CHAPTERLABEL;
 		}
-		else {
+		else if(md->file_type<=4) {
 			md->objtype = ARJ_OBJTYPE_MEMBERFILE;
+		}
+		else if(md->file_type==9 && md->archiver_ver_num_raw==51) {
+			md->objtype = ARJ_OBJTYPE_MEMBERFILE; // ARJZ with -t9 option
+		}
+		else {
+			md->objtype = ARJ_OBJTYPE_UNKNOWN;
 		}
 	}
 	de_dbg(c, "block type: %s", get_objtype_name(md->objtype));
@@ -625,7 +644,7 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	first_hdr_size = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "first header size: %"I64_FMT, first_hdr_size);
 	first_hdr_endpos = pos1 + 4 + first_hdr_size;
-	md->archiver_ver_num_raw = de_getbyte_p(&pos);
+	pos++; // md->archiver_ver_num_raw, already read
 	de_dbg(c, "archiver version: %u (%s)", (UI)md->archiver_ver_num_raw,
 		get_archiver_ver_name(md->archiver_ver_num_raw, namebuf, sizeof(namebuf)));
 
@@ -697,9 +716,9 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		de_err(c, "Invalid or missing archive header");
 		goto done;
 	}
-	if(md->file_type>5) {
-		de_warn(c, "Unknown file type: %u", (UI)md->file_type);
-		goto done;
+	if(md->objtype==ARJ_OBJTYPE_UNKNOWN) {
+		de_err(c, "Unknown file type: %u", (UI)md->file_type);
+		// (try to continue)
 	}
 
 	pos++; // reserved
@@ -717,22 +736,25 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		pos += 4;
 	}
 
-	if(md->objtype==ARJ_OBJTYPE_MAINHDR && d->is_old_secured) {
-		n = de_getu32le_p(&pos);
-		de_dbg(c, "archive size: %"I64_FMT, n); // This is a guess
-	}
-	else if(md->objtype==ARJ_OBJTYPE_MAINHDR &&
-		md->archiver_ver_num_adj>=MIN_VER_WITH_ARCH_MTIME)
-	{
-		read_arj_datetime(c, d, md, pos, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "archive mod");
-		pos += 4;
-	}
-	else if(md->objtype==ARJ_OBJTYPE_MEMBERFILE) {
-		md->cmpr_len = de_getu32le_p(&pos);
-		de_dbg(c, "compressed size: %"I64_FMT, md->cmpr_len);
+	if(md->objtype==ARJ_OBJTYPE_MAINHDR) {
+		md->cmpr_len = 0;
+		if(d->is_old_secured) {
+			n = de_getu32le_p(&pos);
+			de_dbg(c, "archive size: %"I64_FMT, n); // This is a guess
+		}
+		else if(md->archiver_ver_num_adj>=MIN_VER_WITH_ARCH_MTIME) {
+			read_arj_datetime(c, d, md, pos, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "archive mod");
+			pos += 4;
+		}
+		else {
+			pos += 4;
+		}
 	}
 	else {
-		pos += 4;
+		// Assume this field always exists, except for the main header and EOA.
+		// We need it just to parse the file.
+		md->cmpr_len = de_getu32le_p(&pos);
+		de_dbg(c, "compressed size: %"I64_FMT, md->cmpr_len);
 	}
 
 	if(md->objtype==ARJ_OBJTYPE_MAINHDR && d->is_old_secured) {
@@ -911,14 +933,14 @@ at_offset_32:
 
 	md->is_dir = (md->file_type==ARJ_FILETYPE_DIR);
 
+	md->cmpr_pos = pos;
 	if(md->objtype==ARJ_OBJTYPE_MEMBERFILE) {
-		md->cmpr_pos = pos;
 		de_dbg(c, "compressed data at %"I64_FMT, md->cmpr_pos);
 		de_dbg_indent(c, 1);
 		extract_member_file(c, d, md);
 		de_dbg_indent(c, -1);
-		pos += md->cmpr_len;
 	}
+	pos += md->cmpr_len;
 
 	*pbytes_consumed = pos - pos1;
 	retval = 1;
