@@ -479,6 +479,63 @@ static char *get_archiver_ver_name(u8 v, char *buf, size_t buflen)
 	return buf;
 }
 
+static int do_extended_headers(deark *c, lctx *d, struct member_data *md,
+	i64 pos1, i64 *pbytes_consumed)
+{
+	i64 pos = pos1;
+	int idx = 0;
+	u32 crc_reported;
+	u32 crc_calc;
+	int retval = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "ext hdrs at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	while(1) {
+		i64 ext_hdr_size;
+		i64 ext_hdr_startpos = pos;
+		i64 dpos;
+
+		ext_hdr_size = de_getu16le_p(&pos);
+
+		if(ext_hdr_size==0) {
+			de_dbg(c, "end of ext hdrs at %"I64_FMT, pos);
+			retval = 1;
+			goto done;
+		}
+		de_dbg(c, "ext hdr #%d at %"I64_FMT", dlen=%"I64_FMT, idx, ext_hdr_startpos,
+			ext_hdr_size);
+		de_dbg_indent(c, 1);
+
+		if(pos+ext_hdr_size+4 > c->infile->len) goto done;
+
+		dpos = pos;
+
+		de_crcobj_reset(d->crco);
+		de_crcobj_addslice(d->crco, c->infile, dpos, ext_hdr_size);
+		crc_calc = de_crcobj_getval(d->crco);
+
+		pos = dpos + ext_hdr_size;
+		crc_reported = (u32)de_getu32le_p(&pos);
+
+		de_dbg(c, "ext hdr crc (reported): 0x%08x", (UI)crc_reported);
+		de_dbg(c, "ext hdr crc (calculated): 0x%08x", (UI)crc_calc);
+		if(crc_calc != crc_reported) goto done; // Assume we've gone off the rails
+
+		de_dbg_hexdump(c, c->infile, dpos, ext_hdr_size, 256, NULL, 0x1);
+
+		idx++;
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	*pbytes_consumed = pos - pos1;
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
 // If successfully parsed, sets *pbytes_consumed.
 // Returns 1 normally, 2 if this is the EOA marker, 0 on fatal error.
 static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archive_hdr,
@@ -488,11 +545,11 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	i64 basic_hdr_size;
 	i64 first_hdr_size;
 	i64 first_hdr_endpos;
-	i64 first_ext_hdr_size;
 	i64 extra_data_len;
 	i64 nbytes_avail;
 	i64 n;
 	i64 basic_hdr_endpos;
+	i64 bytes_consumed;
 	u32 basic_hdr_crc_reported;
 	u32 basic_hdr_crc_calc;
 	struct member_data *md = NULL;
@@ -828,12 +885,11 @@ at_offset_32:
 		de_warn(c, "Header CRC check failed");
 	}
 
-	first_ext_hdr_size = de_getu16le_p(&pos);
-	de_dbg(c, "first ext header size: %"I64_FMT, first_ext_hdr_size);
-	if(first_ext_hdr_size != 0) {
-		pos += first_ext_hdr_size;
-		pos += 4; // first ext hdr crc
+	if(!do_extended_headers(c, d, md, pos, &bytes_consumed)) {
+		de_err(c, "Bad extended headers - can't continue");
+		goto done;
 	}
+	pos += bytes_consumed;
 
 	md->is_dir = (md->file_type==ARJ_FILETYPE_DIR);
 
