@@ -222,6 +222,7 @@ static void get_flags_descr(struct member_data *md, u8 n1, de_ucstring *s)
 struct method4_ctx {
 	i64 nbytes_written;
 	int stop_flag;
+	u8 old_format;
 	struct de_dfilter_out_params *dcmpro;
 	struct de_bitreader bitrd;
 };
@@ -252,7 +253,16 @@ static UI method4_read_a_length_code(struct method4_ctx *cctx)
 		n = (UI)de_bitreader_getbits(&cctx->bitrd, 1);
 		if(n==0) break;
 		onescount++;
-		if(onescount>=7) break;
+		if(onescount>=7) {
+			if(cctx->old_format) {
+				// A small hack for ARJ v0.13-0.14.
+				// Seems to work, but not extensively tested.
+				// This extra bit is presumed to be 0. I don't know what
+				// happens if it's 1.
+				(void)de_bitreader_getbits(&cctx->bitrd, 1);
+			}
+			break;
+		}
 	}
 
 	// However many ones there were, read that number of bits.
@@ -271,7 +281,12 @@ static UI method4_read_an_offset(struct method4_ctx *cctx)
 		n = (UI)de_bitreader_getbits(&cctx->bitrd, 1);
 		if(n==0) break;
 		onescount++;
-		if(onescount>=4) break;
+		if(onescount>=4) {
+			if(cctx->old_format) {
+				(void)de_bitreader_getbits(&cctx->bitrd, 1);
+			}
+			break;
+		}
 	}
 
 	// Read {9 + the number of 1 bits} more bits.
@@ -291,6 +306,10 @@ static void decompress_method_4(deark *c, lctx *d, struct member_data *md,
 	cctx->bitrd.f = dcmpri->f;
 	cctx->bitrd.curpos = dcmpri->pos;
 	cctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
+
+	if(md->archiver_ver_num_raw==1) {
+		cctx->old_format = 1;
+	}
 
 	// The maximum offset that can be encoded is 15871, so a 16K history is enough.
 	ringbuf = de_lz77buffer_create(c, 16384);
@@ -335,7 +354,12 @@ static void decompress_method_1(deark *c, lctx *d, struct member_data *md,
 	struct de_lh5x_params lzhparams;
 
 	de_zeromem(&lzhparams, sizeof(struct de_lh5x_params));
-	lzhparams.fmt = DE_LH5X_FMT_LH6;
+	if(md->min_ver_to_extract==51) {
+		lzhparams.fmt = DE_LH5X_FMT_LH7; // For ARJZ
+	}
+	else {
+		lzhparams.fmt = DE_LH5X_FMT_LH6;
+	}
 
 	// ARJ does not appear to allow LZ77 offsets that point to data before
 	// the beginning of the file, so it doesn't matter what we initialize the
@@ -492,7 +516,7 @@ static char *get_archiver_ver_name(u8 v, char *buf, size_t buflen)
 	else if(v>=100 && v<=102) {
 		de_snprintf(buf, buflen, "ARJ32 %s", a32names[(UI)v-100]);
 	}
-	else if(v>=50 && v<=51) {
+	else if(v==51) {
 		de_strlcpy(buf, "ARJZ", buflen);
 	}
 	else {
