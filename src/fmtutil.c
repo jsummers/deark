@@ -2002,6 +2002,50 @@ done:
 	}
 }
 
+static void detect_exesfx_pak_nogate(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	int found = 0;
+	int canextract = 0;
+
+	read_exe_testbytes(ei);
+	if(ei->ovl64b[0]!=0x1a && ei->ovl64b[0]!=0xfe) goto done;
+
+	if(!de_memcmp(ei->ep64b, (const u8*)"\x55\x8b\xec\x83\xec\x50", 6)) {
+		// PAK 1.51-2.51
+		found = 1;
+
+		// There's a problem with PAK v1.6. If there are any file or archive
+		// comments, the payload will not be in proper PAK format. We can't tell
+		// if there are any file comments without scanning the whole payload.
+		// That's doable (TODO), as is converting it back to proper PAK format.
+		// But it's more trouble than it's probably worth. For now, we just don't
+		// support v1.6.
+		if(ei->entry_point != 2656) canextract = 1;
+	}
+	if(!found && !de_memcmp(ei->ep64b, (const u8*)"\xfb\xba\x53\x03\x2e\x89\x16\x65", 8)) {
+		// GSARC 1.0 and PAK 1.0
+		found = 1;
+		canextract = 1;
+	}
+
+	if(!found) goto done;
+	if(ei->ovl64b[0] != 0x1a) canextract = 0;
+
+	edd->payload_pos = ei->end_of_dos_code;
+	edd->payload_len = ei->f->len - edd->payload_pos;
+	if(edd->payload_len<2) goto done;
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_SFX;
+	edd->payload_valid = canextract;
+	edd->payload_file_ext = "pak";
+
+done:
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
+		de_strlcpy(ectx->shortname, "PAK", sizeof(ectx->shortname));
+	}
+}
+
 // Also uses/updates edd->zip_eocd_* settings.
 static void detect_exesfx_zip(deark *c, struct execomp_ctx *ectx,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
@@ -2124,6 +2168,9 @@ void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	if(edd->detected_fmt) goto done;
 
 	detect_exesfx_larc(c, &ectx, ei, edd);
+	if(edd->detected_fmt) goto done;
+
+	detect_exesfx_pak_nogate(c, &ectx, ei, edd);
 	if(edd->detected_fmt) goto done;
 
 	detect_exesfx_zoo(c, &ectx, ei, edd);

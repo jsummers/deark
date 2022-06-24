@@ -1513,7 +1513,12 @@ static void do_exesfx(deark *c, lctx *d)
 		extract_arj_from_sfx(c, d, &edd);
 	}
 	else if(edd.payload_valid) {
-		dbuf_create_file_from_slice(d->ei->f, edd.payload_pos, edd.payload_len, edd.payload_file_ext, NULL, 0);
+		dbuf_create_file_from_slice(d->ei->f, edd.payload_pos, edd.payload_len,
+			edd.payload_file_ext, NULL, 0);
+	}
+	else {
+		de_info(c, "Note: This might be a self-extracting %s archive, but it's "
+			"not a supported format or version.", edd.detected_fmt_name);
 	}
 
 done:
