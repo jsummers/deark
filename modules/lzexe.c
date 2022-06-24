@@ -263,7 +263,6 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	dbuf *outf = NULL;
 	i64 o_file_size;
 	i64 o_start_of_code;
-	i64 overlay_len;
 	UI minmem, maxmem;
 
 	de_dbg(c, "generating output file");
@@ -317,11 +316,10 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	// Copy the overlay segment.
 	// Normal LZEXE files never have such a thing, but some third-party utilities
 	// construct such files.
-	overlay_len = c->infile->len - d->ei->end_of_dos_code;
-	if(overlay_len>0) {
+	if(d->ei->overlay_len>0) {
 		de_dbg(c, "overlay data at %"I64_FMT", len=%"I64_FMT, d->ei->end_of_dos_code,
-			overlay_len);
-		dbuf_copy(c->infile, d->ei->end_of_dos_code, overlay_len, outf);
+			d->ei->overlay_len);
+		dbuf_copy(c->infile, d->ei->end_of_dos_code, d->ei->overlay_len, outf);
 	}
 
 	dbuf_close(outf);

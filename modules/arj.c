@@ -1070,12 +1070,15 @@ static u8 is_exe_format(deark *c)
 
 static i64 get_exe_overlay_pos(deark *c)
 {
-	struct fmtutil_exe_info ei;
+	i64 overlay_pos;
+	struct fmtutil_exe_info *ei;
 
-	de_zeromem(&ei, sizeof(struct fmtutil_exe_info));
+	ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
 	// TODO: Should collect_exe_info do more validation of the format?
-	fmtutil_collect_exe_info(c, c->infile, &ei);
-	return ei.end_of_dos_code;
+	fmtutil_collect_exe_info(c, c->infile, ei);
+	overlay_pos = ei->end_of_dos_code;
+	de_free(c, ei);
+	return overlay_pos;
 }
 
 static void do_run_arj_relocator(deark *c, struct options_struct *arj_opts);

@@ -685,6 +685,8 @@ struct de_lz77buffer {
 	i64 start_of_dos_code;
 	i64 entry_point;
 	i64 end_of_dos_code;
+	i64 overlay_len;
+	u8 have_epcrcs;
 	u64 entrypoint_crcs;
 };
 void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei);

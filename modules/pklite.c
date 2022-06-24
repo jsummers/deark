@@ -1060,7 +1060,6 @@ static void do_write_dcmpr(deark *c, lctx *d)
 {
 	dbuf *outf = NULL;
 	i64 amt_to_copy;
-	i64 overlay_len;
 
 	if(d->errflag || !d->o_ei || !d->o_orig_header || !d->o_dcmpr_code || !d->o_reloc_table) return;
 	de_dbg(c, "generating decompressed EXE file");
@@ -1086,9 +1085,8 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	dbuf_copy(d->o_dcmpr_code, 0, d->o_dcmpr_code->len, outf);
 
 	// "Overlay" segment
-	overlay_len = c->infile->len - d->ei->end_of_dos_code;
-	if(overlay_len>0) {
-		dbuf_copy(c->infile, d->ei->end_of_dos_code, overlay_len, outf);
+	if(d->ei->overlay_len>0) {
+		dbuf_copy(c->infile, d->ei->end_of_dos_code, d->ei->overlay_len, outf);
 	}
 
 	dbuf_close(outf);
