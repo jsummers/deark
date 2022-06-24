@@ -1464,6 +1464,14 @@ struct execomp_ctx {
 	char shortname[40];
 };
 
+static void read_exe_testbytes(struct fmtutil_exe_info *ei)
+{
+	if(ei->have_testbytes) return;
+	ei->have_testbytes = 1;
+	dbuf_read(ei->f, ei->ep64b, ei->entry_point, sizeof(ei->ep64b));
+	dbuf_read(ei->f, ei->ovl64b, ei->end_of_dos_code, sizeof(ei->ovl64b));
+}
+
 static void calc_entrypoint_crc(deark *c, struct fmtutil_exe_info *ei)
 {
 	struct de_crcobj *crco = NULL;
@@ -1472,12 +1480,14 @@ static void calc_entrypoint_crc(deark *c, struct fmtutil_exe_info *ei)
 	if(ei->have_epcrcs) return;
 	ei->have_epcrcs = 1;
 
+	read_exe_testbytes(ei);
+
 	// Sniff some bytes, starting at the code entry point.
 	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-	de_crcobj_addslice(crco, ei->f, ei->entry_point, 32);
+	de_crcobj_addbuf(crco, &ei->ep64b[0], 32);
 	crc1 = de_crcobj_getval(crco);
 	de_crcobj_reset(crco);
-	de_crcobj_addslice(crco, ei->f, ei->entry_point+32, 32);
+	de_crcobj_addbuf(crco, &ei->ep64b[32], 32);
 	crc2 = de_crcobj_getval(crco);
 	ei->entrypoint_crcs = ((u64)crc1 << 32) | crc2;
 #ifdef DE_EXECOMP_DEVMODE
@@ -1493,7 +1503,7 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 	u8 maybe_pklite = 0; // Any format with the usual EXE header field values
 	u8 maybe_beta = 0;
 	u8 maybe_megalite = 0;
-	u8 cb[12]; // Bytes at entry point
+	u8 *cb; // Bytes at entry point
 
 	if(ei->regIP==256 && ei->regCS==(-16) && ei->num_relocs<=2 &&
 		ei->entry_point==ei->start_of_dos_code)
@@ -1514,7 +1524,8 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 		goto done;
 	}
 
-	dbuf_read(ei->f, cb, ei->entry_point, sizeof(cb));
+	read_exe_testbytes(ei);
+	cb = ei->ep64b;
 
 	if(maybe_pklite) {
 		if(de_memmatch(cb, (const u8*)"\xb8??\xba??\x8c\xdb\x03\xd8\x3b", 11, '?', 0)) {
@@ -1723,14 +1734,12 @@ done:
 static void detect_execomp_wwpack(deark *c, struct execomp_ctx *ectx,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
-	u8 cb[11]; // Bytes at entry point
-
 	if(ei->num_relocs!=0) goto done;
 	if(ei->start_of_dos_code!=32) goto done;
 	if(ei->entry_point==ei->start_of_dos_code) goto done;
 
-	dbuf_read(ei->f, cb, ei->entry_point, sizeof(cb));
-	if(!de_memmatch(cb, (const u8*)"\xb8??\x8c\xca\x03\xd0\x8c\xc9\x81\xc1", 11, '?', 0)) {
+	read_exe_testbytes(ei);
+	if(!de_memmatch(ei->ep64b, (const u8*)"\xb8??\x8c\xca\x03\xd0\x8c\xc9\x81\xc1", 11, '?', 0)) {
 		goto done;
 	}
 
@@ -2032,7 +2041,8 @@ static void detect_exesfx_zoo(deark *c, struct execomp_ctx *ectx,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	if(ei->overlay_len < 24) goto done;
-	if((UI)dbuf_getu32le(ei->f, ei->end_of_dos_code+20) != 0xfdc4a7dc) goto done;
+	read_exe_testbytes(ei);
+	if((UI)de_getu32le_direct(&ei->ovl64b[20]) != 0xfdc4a7dcU) goto done;
 
 	calc_entrypoint_crc(c, ei);
 	switch((UI)(ei->entrypoint_crcs>>32)) {
