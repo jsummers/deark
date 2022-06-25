@@ -247,6 +247,14 @@ static de_rune de_windows874_to_unicode(struct de_encconv_state *es, i32 a)
 static de_rune de_atarist_to_unicode(struct de_encconv_state *es, i32 a)
 {
 	de_rune n;
+
+	if(a<=0x1f || a==0x7f) {
+		int st = DE_EXTENC_GET_SUBTYPE(es->ee);
+
+		if (st==DE_ENCSUBTYPE_HYBRID || st==DE_ENCSUBTYPE_CONTROLS) {
+			return a;
+		}
+	}
 	if(a<=0x1f) n = atarist_table_lo[a];
 	else if(a>=0xb0 && a<=0xff) n = (de_rune)atarist_table_hi[a-0xb0];
 	else if(a==0x7f) n = 0x0394;
