@@ -685,7 +685,12 @@ struct de_lz77buffer {
 	i64 start_of_dos_code;
 	i64 entry_point;
 	i64 end_of_dos_code;
+	i64 overlay_len;
+	u8 have_epcrcs;
+	u8 have_testbytes; // Are ep/ovl fields populated?
 	u64 entrypoint_crcs;
+	u8 ep64b[64]; // Some bytes at entry point
+	u8 ovl64b[64]; // Some bytes in overlay
 };
 void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei);
 

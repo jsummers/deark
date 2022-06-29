@@ -536,6 +536,10 @@ de_encoding de_get_input_encoding(deark *c, de_module_params *mparams,
 void de_dbg_indent(deark *c, int n);
 void de_dbg_indent_save(deark *c, int *saved_indent_level);
 void de_dbg_indent_restore(deark *c, int saved_indent_level);
+char *de_render_hexbytes_from_mem(const u8 *inbytes, i64 ilen,
+	char *outbuf, size_t outbuf_len);
+char *de_render_hexbytes_from_dbuf(dbuf *inf, i64 pos, i64 ilen,
+	char *outbuf, size_t outbuf_len);
 void de_dbg_hexdump(deark *c, dbuf *f, i64 pos1, i64 nbytes_avail,
 	i64 max_nbytes_to_dump, const char *prefix, unsigned int flags);
 void de_hexdump2(deark *c, dbuf *f, i64 pos1, i64 nbytes_avail,

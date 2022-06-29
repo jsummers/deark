@@ -1191,7 +1191,7 @@ static void process_ext_attr(deark *c, lctx *d, struct member_data *md)
 	if(md->attr_e & 0x10) {
 		md->is_dir = 1;
 	}
-	else if(md->attr_e && 0x08) {
+	else if(md->attr_e & 0x08) {
 		// A volume label should have min-version-needed set to 1.1 or higher,
 		// but we don't check that because even PKZIP (e.g. v2.04g) sets it
 		// to 1.0.

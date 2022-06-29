@@ -666,7 +666,8 @@ Deark -- Information about supported formats
    -opt arj:entrypoint=<n> : Specify the offset of ARJ data.
    -opt arj:scan=0 : Disable scanning for the ARJ data.
    -opt arj:reloc[=<n>] : Move the ARJ data, and disable some types of
-     security/protection.
+     security/protection. Use with "-m arj" to convert most any self-extracting
+     ARJ archive to plain ARJ.
 
 * ARX (module="arx") (experimental)
   Variant of LHA. Deark tries to convert it to LHA.

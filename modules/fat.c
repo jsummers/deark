@@ -82,39 +82,6 @@ typedef struct localctx_struct {
 	dbuf *ea_data; // NULL if not available
 } lctx;
 
-static void ucstring_append_hexbytes(de_ucstring *s, const u8 *buf, i64 buflen)
-{
-	i64 i;
-
-	for(i = 0; i<buflen; i++) {
-		if(i>0) ucstring_append_char(s, ' ');
-		ucstring_append_char(s, (de_rune)de_get_hexchar((int)(buf[i]/16)));
-		ucstring_append_char(s, (de_rune)de_get_hexchar((int)(buf[i]%16)));
-	}
-}
-
-static void dbg_hexbytes_oneline_mem(deark *c, const u8 *buf, i64 buflen, const char *label)
-{
-	de_ucstring *s = NULL;
-
-	if(buflen<0) buflen = 0;
-	if(buflen>64) buflen = 64;
-	s = ucstring_create(c);
-	ucstring_append_hexbytes(s, buf, buflen);
-	de_dbg(c, "%s: %s", label, ucstring_getpsz_d(s));
-	ucstring_destroy(s);
-}
-
-static void dbg_hexbytes_oneline(deark *c, dbuf *f, i64 pos, i64 len, const char *label)
-{
-	u8 buf[64];
-
-	if(len<0) len = 0;
-	if(len>(i64)sizeof(buf)) len = (i64)sizeof(buf);
-	dbuf_read(f, buf, pos, len);
-	dbg_hexbytes_oneline_mem(c, buf, len, label);
-}
-
 static void fat_save_cluster_use_flags(deark *c, lctx *d)
 {
 	if(!d->cluster_used_flags) return;
@@ -790,17 +757,20 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 	u8 b;
 	u8 cksum_sig[2];
 	int retval = 0;
+	char tmpbuf[16];
 
 	de_dbg(c, "boot sector at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
 	// BIOS parameter block
 	jmpinstrlen = (d->subfmt==FAT_SUBFMT_ATARIST)?2:3;
-	dbg_hexbytes_oneline(c, c->infile, pos1, jmpinstrlen, "jump instr");
+	de_dbg(c, "jump instr: %s",
+		de_render_hexbytes_from_dbuf(c->infile, pos1, jmpinstrlen, tmpbuf, sizeof(tmpbuf)));
 
 	if(d->subfmt==FAT_SUBFMT_ATARIST) {
 		do_oem_name(c, d, pos1+2, 6);
-		dbg_hexbytes_oneline(c, c->infile, pos1+8, 3, "serial num");
+		de_dbg(c, "serial num: %s",
+			de_render_hexbytes_from_dbuf(c->infile, pos1+8, 3, tmpbuf, sizeof(tmpbuf)));
 	}
 	else {
 		do_oem_name(c, d, pos1+3, 8);
@@ -840,7 +810,8 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 
 	pos = pos1+0x1fe;
 	de_read(cksum_sig, pos, 2);
-	dbg_hexbytes_oneline_mem(c, cksum_sig, 2, "boot sector signature");
+	de_dbg(c, "boot sector signature: %s",
+		de_render_hexbytes_from_mem(cksum_sig, 2, tmpbuf, sizeof(tmpbuf)));
 
 	do_atarist_boot_checksum(c, d, pos1);
 	if(d->has_atarist_checksum) {

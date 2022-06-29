@@ -9,6 +9,8 @@
 #include "deark-private.h"
 #include "deark-fmtutil.h"
 
+//#define DE_EXECOMP_DEVMODE
+
 void fmtutil_get_bmp_compression_name(u32 code, char *s, size_t s_len,
 	int is_os2v2)
 {
@@ -1459,28 +1461,38 @@ i64 fmtutil_hlp_get_csl_p(dbuf *f, i64 *ppos)
 }
 
 struct execomp_ctx {
-	u8 devmode;
 	char shortname[40];
 };
 
-static void calc_entrypoint_crc(deark *c, struct execomp_ctx *ectx, struct fmtutil_exe_info *ei)
+static void read_exe_testbytes(struct fmtutil_exe_info *ei)
+{
+	if(ei->have_testbytes) return;
+	ei->have_testbytes = 1;
+	dbuf_read(ei->f, ei->ep64b, ei->entry_point, sizeof(ei->ep64b));
+	dbuf_read(ei->f, ei->ovl64b, ei->end_of_dos_code, sizeof(ei->ovl64b));
+}
+
+static void calc_entrypoint_crc(deark *c, struct fmtutil_exe_info *ei)
 {
 	struct de_crcobj *crco = NULL;
 	u32 crc1, crc2;
 
-	if(ei->entrypoint_crcs!=0) return;
+	if(ei->have_epcrcs) return;
+	ei->have_epcrcs = 1;
+
+	read_exe_testbytes(ei);
 
 	// Sniff some bytes, starting at the code entry point.
 	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-	de_crcobj_addslice(crco, ei->f, ei->entry_point, 32);
+	de_crcobj_addbuf(crco, &ei->ep64b[0], 32);
 	crc1 = de_crcobj_getval(crco);
 	de_crcobj_reset(crco);
-	de_crcobj_addslice(crco, ei->f, ei->entry_point+32, 32);
+	de_crcobj_addbuf(crco, &ei->ep64b[32], 32);
 	crc2 = de_crcobj_getval(crco);
 	ei->entrypoint_crcs = ((u64)crc1 << 32) | crc2;
-	if(ectx->devmode) {
-		de_dbg(c, "execomp crc: %016"U64_FMTx, ei->entrypoint_crcs);
-	}
+#ifdef DE_EXECOMP_DEVMODE
+	de_dbg(c, "execomp crc: %016"U64_FMTx, ei->entrypoint_crcs);
+#endif
 
 	de_crcobj_destroy(crco);
 }
@@ -1491,7 +1503,7 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 	u8 maybe_pklite = 0; // Any format with the usual EXE header field values
 	u8 maybe_beta = 0;
 	u8 maybe_megalite = 0;
-	u8 cb[12]; // Bytes at entry point
+	u8 *cb; // Bytes at entry point
 
 	if(ei->regIP==256 && ei->regCS==(-16) && ei->num_relocs<=2 &&
 		ei->entry_point==ei->start_of_dos_code)
@@ -1512,7 +1524,8 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 		goto done;
 	}
 
-	dbuf_read(ei->f, cb, ei->entry_point, sizeof(cb));
+	read_exe_testbytes(ei);
+	cb = ei->ep64b;
 
 	if(maybe_pklite) {
 		if(de_memmatch(cb, (const u8*)"\xb8??\xba??\x8c\xdb\x03\xd8\x3b", 11, '?', 0)) {
@@ -1636,9 +1649,9 @@ done:
 	}
 
 	if(edd->detected_fmt==DE_SPECIALEXEFMT_EXEPACK) {
-		if(ectx->devmode) {
-			de_dbg(c, "epvar: %u", (UI)edd->detected_subfmt);
-		}
+#ifdef DE_EXECOMP_DEVMODE
+		de_dbg(c, "epvar: %u", (UI)edd->detected_subfmt);
+#endif
 		de_strlcpy(ectx->shortname, "EXEPACK", sizeof(ectx->shortname));
 		edd->modname = "exepack";
 	}
@@ -1721,14 +1734,12 @@ done:
 static void detect_execomp_wwpack(deark *c, struct execomp_ctx *ectx,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
-	u8 cb[11]; // Bytes at entry point
-
 	if(ei->num_relocs!=0) goto done;
 	if(ei->start_of_dos_code!=32) goto done;
 	if(ei->entry_point==ei->start_of_dos_code) goto done;
 
-	dbuf_read(ei->f, cb, ei->entry_point, sizeof(cb));
-	if(!de_memmatch(cb, (const u8*)"\xb8??\x8c\xca\x03\xd0\x8c\xc9\x81\xc1", 11, '?', 0)) {
+	read_exe_testbytes(ei);
+	if(!de_memmatch(ei->ep64b, (const u8*)"\xb8??\x8c\xca\x03\xd0\x8c\xc9\x81\xc1", 11, '?', 0)) {
 		goto done;
 	}
 
@@ -1765,6 +1776,8 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei)
 	if(lfb>=1 && lfb<=511) {
 		ei->end_of_dos_code = ei->end_of_dos_code - 512 + lfb;
 	}
+	ei->overlay_len = f->len - ei->end_of_dos_code;
+	if(ei->overlay_len<0) ei->overlay_len = 0;
 }
 
 // Caller supplies ei -- must call fmtutil_collect_exe_info() first.
@@ -1801,7 +1814,7 @@ void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
 		if(edd->detected_fmt!=0) goto done;
 	}
 
-	calc_entrypoint_crc(c, &ectx, ei);
+	calc_entrypoint_crc(c, ei);
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_LZEXE) {
 		detect_execomp_lzexe(c, &ectx, ei, edd);
@@ -1899,7 +1912,7 @@ static void detect_exesfx_larc(deark *c, struct execomp_ctx *ectx,
 	int found;
 	i64 foundpos = 0;
 
-	calc_entrypoint_crc(c, ectx, ei);
+	calc_entrypoint_crc(c, ei);
 	if(ei->entrypoint_crcs!=0x81681852d3882b18ULL) {
 		goto done;
 	}
@@ -1940,7 +1953,7 @@ static void detect_exesfx_arc(deark *c, struct execomp_ctx *ectx,
 	int found = 0;
 	i64 foundpos = 0;
 
-	calc_entrypoint_crc(c, ectx, ei);
+	calc_entrypoint_crc(c, ei);
 	if(ei->entrypoint_crcs==0x057db6d8be3c4895ULL) { // MKSARC v1.00 from ARC v6.01
 		found = 1;
 		foundpos = ei->end_of_dos_code;
@@ -1989,6 +2002,50 @@ done:
 	}
 }
 
+static void detect_exesfx_pak_nogate(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	int found = 0;
+	int canextract = 0;
+
+	read_exe_testbytes(ei);
+	if(ei->ovl64b[0]!=0x1a && ei->ovl64b[0]!=0xfe) goto done;
+
+	if(!de_memcmp(ei->ep64b, (const u8*)"\x55\x8b\xec\x83\xec\x50", 6)) {
+		// PAK 1.51-2.51
+		found = 1;
+
+		// There's a problem with PAK v1.6. If there are any file or archive
+		// comments, the payload will not be in proper PAK format. We can't tell
+		// if there are any file comments without scanning the whole payload.
+		// That's doable (TODO), as is converting it back to proper PAK format.
+		// But it's more trouble than it's probably worth. For now, we just don't
+		// support v1.6.
+		if(ei->entry_point != 2656) canextract = 1;
+	}
+	if(!found && !de_memcmp(ei->ep64b, (const u8*)"\xfb\xba\x53\x03\x2e\x89\x16\x65", 8)) {
+		// GSARC 1.0 and PAK 1.0
+		found = 1;
+		canextract = 1;
+	}
+
+	if(!found) goto done;
+	if(ei->ovl64b[0] != 0x1a) canextract = 0;
+
+	edd->payload_pos = ei->end_of_dos_code;
+	edd->payload_len = ei->f->len - edd->payload_pos;
+	if(edd->payload_len<2) goto done;
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_SFX;
+	edd->payload_valid = canextract;
+	edd->payload_file_ext = "pak";
+
+done:
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
+		de_strlcpy(ectx->shortname, "PAK", sizeof(ectx->shortname));
+	}
+}
+
 // Also uses/updates edd->zip_eocd_* settings.
 static void detect_exesfx_zip(deark *c, struct execomp_ctx *ectx,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
@@ -2011,7 +2068,7 @@ static void detect_exesfx_zip(deark *c, struct execomp_ctx *ectx,
 	if(!edd->zip_eocd_found) goto done;
 
 	// Look for a ZIP file in the overlay (approximately)
-	if(ei->f->len - ei->end_of_dos_code < 10) goto done; // Overlay too small
+	if(ei->overlay_len < 10) goto done; // Overlay too small
 
 	ret = dbuf_search(ei->f, (const u8*)"PK\x03\x04", 4, ei->end_of_dos_code-10, 20,
 		&foundpos);
@@ -2027,13 +2084,11 @@ done:
 static void detect_exesfx_zoo(deark *c, struct execomp_ctx *ectx,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
-	i64 overlay_len;
+	if(ei->overlay_len < 24) goto done;
+	read_exe_testbytes(ei);
+	if((UI)de_getu32le_direct(&ei->ovl64b[20]) != 0xfdc4a7dcU) goto done;
 
-	overlay_len = ei->f->len - ei->end_of_dos_code;
-	if(overlay_len < 24) goto done;
-	if((UI)dbuf_getu32le(ei->f, ei->end_of_dos_code+20) != 0xfdc4a7dc) goto done;
-
-	calc_entrypoint_crc(c, ectx, ei);
+	calc_entrypoint_crc(c, ei);
 	switch((UI)(ei->entrypoint_crcs>>32)) {
 	case 0x6d384fa1U: // SEZ 2.00
 	case 0xec5138deU: // SEZ 2.30
@@ -2044,7 +2099,7 @@ static void detect_exesfx_zoo(deark *c, struct execomp_ctx *ectx,
 	}
 
 	edd->payload_pos = ei->end_of_dos_code;
-	edd->payload_len = overlay_len;
+	edd->payload_len = ei->overlay_len;
 	edd->payload_valid = 1;
 	edd->detected_fmt = DE_SPECIALEXEFMT_SFX;
 	edd->payload_file_ext = "zoo";
@@ -2061,7 +2116,7 @@ done:
 
 // Notes:
 // ARJ SFX was introduced in ARJ v0.15.
-// v0.15-0.20: Untested.
+// v0.15-0.20: LZEXE compression, "LZ91" signature at offset 28.
 // v1.00-2.00: DIET compression.
 // v2.10: LZEXE compression, "LZ91" signature at offset 28.
 // v2.20-?: LZEXE compression, "RJFX" signature at offset 28,
@@ -2073,12 +2128,10 @@ done:
 static void detect_exesfx_arj(deark *c, struct execomp_ctx *ectx,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
-	i64 overlay_len;
 	int ret;
 	i64 foundpos = 0;
 
-	overlay_len = ei->f->len - ei->end_of_dos_code;
-	if(overlay_len < ARJ_MIN_FILE_SIZE) goto done;
+	if(ei->overlay_len < ARJ_MIN_FILE_SIZE) goto done;
 
 	// Aribrarily allow up to 16 extra bytes before the ARJ data starts.
 	// Maybe 2 is sufficient. Dunno.
@@ -2115,6 +2168,9 @@ void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	if(edd->detected_fmt) goto done;
 
 	detect_exesfx_larc(c, &ectx, ei, edd);
+	if(edd->detected_fmt) goto done;
+
+	detect_exesfx_pak_nogate(c, &ectx, ei, edd);
 	if(edd->detected_fmt) goto done;
 
 	detect_exesfx_zoo(c, &ectx, ei, edd);

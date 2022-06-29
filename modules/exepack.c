@@ -227,7 +227,6 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	i64 o_start_of_code;
 	i64 o_reloc_pos;
 	i64 o_file_size; // not including overlay
-	i64 overlay_len;
 	i64 cmprprog_mem_tot; // total memory consumed+reserved by the exepacked program
 
 	outf = dbuf_create_output_file(c, "exe", NULL, 0);
@@ -288,11 +287,10 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	dbuf_copy(d->o_dcmpr_code, 0, d->o_dcmpr_code->len, outf);
 
 	// Copy overlay data
-	overlay_len = c->infile->len - d->ei->end_of_dos_code;
-	if(overlay_len>0) {
+	if(d->ei->overlay_len>0) {
 		de_dbg(c, "overlay data at %"I64_FMT", len=%"I64_FMT, d->ei->end_of_dos_code,
-			overlay_len);
-		dbuf_copy(c->infile, d->ei->end_of_dos_code, overlay_len, outf);
+			d->ei->overlay_len);
+		dbuf_copy(c->infile, d->ei->end_of_dos_code, d->ei->overlay_len, outf);
 	}
 
 	dbuf_close(outf);
