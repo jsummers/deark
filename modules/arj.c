@@ -370,6 +370,16 @@ static void decompress_method_1(deark *c, lctx *d, struct member_data *md,
 	lzhparams.zero_codes_block_behavior = DE_LH5X_ZCB_65536;
 	lzhparams.warn_about_zero_codes_block = 1;
 	fmtutil_decompress_lh5x(c, dcmpri, dcmpro, dres, &lzhparams);
+
+	de_dbg3(c, "max dist: %"I64_FMT, lzhparams.max_offset_used);
+	if(!dres->errcode) {
+		if(lzhparams.max_offset_used>26624 && md->min_ver_to_extract<=11) {
+			// Open-source ARJ can make files like this, with "-hdd32750" option.
+			de_warn(c, "%s: Non-portable compression detected (max dist=%"I64_FMT", "
+				"expected "DE_CHAR_LEQ"26624)",
+				ucstring_getpsz_d(md->name_srd->str), lzhparams.max_offset_used);
+		}
+	}
 }
 
 static void extract_member_file(deark *c, lctx *d, struct member_data *md)

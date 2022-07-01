@@ -47,6 +47,7 @@ struct lzh_ctx {
 	UI implode_min_match_len;
 	UI dist_code_extra_bits;
 	struct de_crcobj *crco;
+	i64 max_offset_used;
 };
 
 static void lzh_destroy_trees(struct lzh_ctx *cctx);
@@ -499,6 +500,9 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 			}
 			de_lz77buffer_copy_from_hist(cctx->ringbuf,
 				(UI)(cctx->ringbuf->curpos-offset-1), length);
+			if(offset+1 > cctx->max_offset_used) {
+				cctx->max_offset_used = offset+1;
+			}
 		}
 
 		ncodes_remaining_this_block--;
@@ -605,7 +609,7 @@ static void decompress_lh5x_internal(struct lzh_ctx *cctx, struct de_lh5x_params
 	}
 
 done:
-	;
+	lzhp->max_offset_used = cctx->max_offset_used;
 }
 
 void fmtutil_decompress_lh5x(deark *c, struct de_dfilter_in_params *dcmpri,
