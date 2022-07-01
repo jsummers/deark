@@ -77,6 +77,7 @@ static void do_packdir_file_compressed(deark *c, struct pdctx_struct *d,
 	dcmpro.expected_len = md->orig_len;
 
 	decompress_zoo_lzd(c, &dcmpri, &dcmpro, &dres, d->lzw_maxbits);
+	dbuf_flush(outf);
 
 	if(dres.errcode) {
 		de_err(c, "%s: %s", ucstring_getpsz_d(md->name), de_dfilter_get_errmsg(c, &dres));
@@ -128,6 +129,7 @@ static void do_packdir_extract_file(deark *c, struct pdctx_struct *d,
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
 
 	if(md->is_compressed) {
+		dbuf_enable_wbuffer(outf);
 		do_packdir_file_compressed(c, d, md, pos, outf);
 	}
 	else {

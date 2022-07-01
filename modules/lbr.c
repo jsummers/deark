@@ -995,6 +995,7 @@ static void do_zsq_decompress(deark *c, struct zsq_ctx *zsqctx, i64 pos, dbuf *o
 	dbuf_set_writelistener(outf, zsq_writelistener_cb, (void*)zsqctx);
 
 	fmtutil_decompress_lzw(c, &dcmpri, &dcmpro, &dres, &delzwp);
+	dbuf_flush(outf);
 
 	zsqctx->checksum_calc &= 0xffff;
 	de_dbg(c, "checksum (calculated): %u", (UI)zsqctx->checksum_calc);
@@ -1061,6 +1062,7 @@ static void de_run_zsq(deark *c, de_module_params *mparams)
 	de_dbg(c, "compressed data at %"I64_FMT, pos);
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
+	dbuf_enable_wbuffer(outf);
 
 	do_zsq_decompress(c, zsqctx, pos, outf);
 
@@ -1153,6 +1155,7 @@ static void de_run_lzwcom(deark *c, de_module_params *mparams)
 	}
 
 	outf = dbuf_create_output_file(c, "unc", NULL, 0);
+	dbuf_enable_wbuffer(outf);
 	de_dfilter_init_objects(c, NULL, &dcmpro, &dres);
 	dcmpro.f = outf;
 
@@ -1203,6 +1206,7 @@ static void de_run_lzwcom(deark *c, de_module_params *mparams)
 	}
 
 	de_dfilter_finish(dfctx);
+	dbuf_flush(outf);
 	if(dres.errcode) {
 		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
 	}
