@@ -9,8 +9,8 @@
 #include "deark-private.h"
 #include "deark-fmtutil.h"
 
-static void *delzw_calloc(void *userdata, size_t nmemb, size_t size);
-static void delzw_free(void *userdata, void *ptr);
+static void *delzw_calloc(struct de_dfilter_ctx *dfctx, size_t nmemb, size_t size);
+static void delzw_free(struct de_dfilter_ctx *dfctx, void *ptr);
 
 // Start of delzw-main
 
@@ -43,21 +43,12 @@ struct delzw_tableentry2 {
 	DELZW_CODE_MINRANGE next;
 };
 
-// Normally, the client must consume all the bytes in 'buf', and return 'size'.
-// The other options are:
-// - Set *outflags to 1, and return a number <='size'. This indicates that
-// that decompression can stop; the client has all the data it needs.
-// - Return a number !='size'. This is interpreted as a write error, and
-// decompression will stop.
-static size_t wrapped_dfctx_write_cb(delzwctx *dc, const u8 *buf, size_t size,
-	unsigned int *outflags);
-
 typedef void (*delzw_cb_debugmsg_type)(delzwctx *dc, int level, const char *msg);
 typedef void (*delzw_cb_generic_type)(delzwctx *dc);
 
 struct delzwctx_struct {
 	// Fields the user can or must set:
-	void *userdata;
+	struct de_dfilter_ctx *dfctx;
 	int debug_level;
 	delzw_cb_debugmsg_type cb_debugmsg;
 	delzw_cb_generic_type cb_after_header_parsed;
@@ -77,7 +68,7 @@ struct delzwctx_struct {
 #define DELZW_HEADERTYPE_ARC1BYTE 2
 	int header_type;
 
-	unsigned int gif_root_codesize;
+	UI gif_root_codesize;
 
 	int stop_on_invalid_code;
 
@@ -88,8 +79,8 @@ struct delzwctx_struct {
 	int auto_inc_codesize;
 	int unixcompress_has_clear_code;
 	int arc5_has_stop_code;
-	unsigned int min_codesize;
-	unsigned int max_codesize;
+	UI min_codesize;
+	UI max_codesize;
 
 	// Derived fields:
 	size_t header_size;
@@ -113,7 +104,6 @@ struct delzwctx_struct {
 #define DELZW_ERRCODE_UNSUPPORTED_OPTION    9
 #define DELZW_ERRCODE_INTERNAL_ERROR        10
 	int errcode;
-	int stop_writing_flag;
 
 #define DELZW_STATE_INIT            0
 #define DELZW_STATE_READING_HEADER  1
@@ -121,14 +111,13 @@ struct delzwctx_struct {
 #define DELZW_STATE_FINISHED        3
 	int state;
 	i64 total_nbytes_processed;
-	i64 uncmpr_nbytes_written; // (Not including those in outbuf)
-	i64 uncmpr_nbytes_decoded; // (Including those in outbuf)
+	i64 uncmpr_nbytes_written;
 
 	i64 ncodes_in_this_bitgroup;
 	i64 nbytes_left_to_skip;
 	i64 code_counter;
 
-	unsigned int curr_codesize;
+	UI curr_codesize;
 
 	int have_oldcode;
 	DELZW_CODE oldcode;
@@ -139,10 +128,8 @@ struct delzwctx_struct {
 	DELZW_CODE first_dynamic_code;
 	int special_code_is_pending;
 
-	unsigned int bitreader_buf;
-	unsigned int bitreader_nbits_in_buf;
-
-	size_t outbuf_nbytes_used;
+	UI bitreader_buf;
+	UI bitreader_nbits_in_buf;
 
 	DELZW_CODE ct_capacity;
 	DELZW_CODE ct_code_count; // Note - Not always maintained if not needed
@@ -155,9 +142,6 @@ struct delzwctx_struct {
 	u8 *valbuf;
 
 	char errmsg[80];
-
-#define DELZW_OUTBUF_SIZE 1024
-	u8 outbuf[DELZW_OUTBUF_SIZE];
 };
 
 static void delzw_debugmsg(delzwctx *dc, int level, const char *fmt, ...)
@@ -220,80 +204,44 @@ static void delzw_set_error(delzwctx *dc, int errcode, const char *msg)
 	de_strlcpy(dc->errmsg, msg, sizeof(dc->errmsg));
 }
 
-static delzwctx *delzw_create(void *userdata)
+static delzwctx *delzw_create(struct de_dfilter_ctx *dfctx)
 {
 	delzwctx *dc;
 
-	dc = delzw_calloc(userdata, 1, sizeof(delzwctx));
-	dc->userdata = userdata;
+	dc = delzw_calloc(dfctx, 1, sizeof(delzwctx));
+	dc->dfctx = dfctx;
 	return dc;
 }
 
 static void delzw_destroy(delzwctx *dc)
 {
 	if(!dc) return;
-	delzw_free(dc->userdata, dc->ct);
-	if(dc->ct2) delzw_free(dc->userdata, dc->ct2);
-	delzw_free(dc->userdata, dc->valbuf);
-	delzw_free(dc->userdata, dc);
+	delzw_free(dc->dfctx, dc->ct);
+	if(dc->ct2) delzw_free(dc->dfctx, dc->ct2);
+	delzw_free(dc->dfctx, dc->valbuf);
+	delzw_free(dc->dfctx, dc);
 }
 
-static void delzw_write_unbuffered(delzwctx *dc, const u8 *buf, size_t n1)
+static void delzw_write(delzwctx *dc, const u8 *buf, size_t n1)
 {
-	i64 nbytes_written;
-	unsigned int outflags = 0;
-	i64 n = (i64)n1;
+	i64 n;
 
-	if(dc->stop_writing_flag) return;
+	if(dc->errcode) return;
+	n = (i64)n1;
+
 	if(dc->output_len_known) {
 		if(dc->uncmpr_nbytes_written + n > dc->output_expected_len) {
 			n = dc->output_expected_len - dc->uncmpr_nbytes_written;
 		}
 	}
 	if(n<1) return;
-	nbytes_written = (i64)wrapped_dfctx_write_cb(dc, buf, (size_t)n, &outflags);
-	if((outflags & 0x1) && (nbytes_written<=n)) {
-		dc->stop_writing_flag = 1;
-		delzw_stop(dc, "client request");
+	if(n==1) {
+		dbuf_writebyte(dc->dfctx->dcmpro->f, buf[0]);
 	}
-	else if(nbytes_written != n) {
-		delzw_set_error(dc, DELZW_ERRCODE_WRITE_FAILED, "Write failed");
-		return;
+	else {
+		dbuf_write(dc->dfctx->dcmpro->f, buf, n);
 	}
-	dc->uncmpr_nbytes_written += nbytes_written;
-}
-
-static void delzw_flush(delzwctx *dc)
-{
-	if(dc->outbuf_nbytes_used<1) return;
-	delzw_write_unbuffered(dc, dc->outbuf, dc->outbuf_nbytes_used);
-	dc->outbuf_nbytes_used = 0;
-}
-
-static void delzw_write(delzwctx *dc, const u8 *buf, size_t n)
-{
-	if(dc->errcode) return;
-
-	// If there's enough room in outbuf, copy it there, and we're done.
-	if(dc->outbuf_nbytes_used + n <= DELZW_OUTBUF_SIZE) {
-		de_memcpy(&dc->outbuf[dc->outbuf_nbytes_used], buf, n);
-		dc->outbuf_nbytes_used += n;
-		return;
-	}
-
-	// Flush anything currently in outbuf.
-	delzw_flush(dc);
-	if(dc->stop_writing_flag) return;
-
-	// If too big for outbuf, write without buffering.
-	if(n > DELZW_OUTBUF_SIZE) {
-		delzw_write_unbuffered(dc, buf, n);
-		return;
-	}
-
-	// Otherwise copy to outbuf
-	de_memcpy(dc->outbuf, buf, n);
-	dc->outbuf_nbytes_used += n;
+	dc->uncmpr_nbytes_written += n;
 }
 
 static void delzw_process_unixcompress_3byteheader(delzwctx *dc)
@@ -307,18 +255,18 @@ static void delzw_process_unixcompress_3byteheader(delzwctx *dc)
 	dc->header_unixcompress_max_codesize = (dc->header_unixcompress_mode & 0x1f);
 	dc->header_unixcompress_block_mode = (dc->header_unixcompress_mode & 0x80) ? 1 : 0;
 	delzw_debugmsg(dc, 2, "LZW mode=0x%02x, maxbits=%u, blockmode=%u",
-		(unsigned int)dc->header_unixcompress_mode,
-		(unsigned int)dc->header_unixcompress_max_codesize,
-		(unsigned int)dc->header_unixcompress_block_mode);
+		(UI)dc->header_unixcompress_mode,
+		(UI)dc->header_unixcompress_max_codesize,
+		(UI)dc->header_unixcompress_block_mode);
 
-	dc->max_codesize = (unsigned int)dc->header_unixcompress_max_codesize;
+	dc->max_codesize = (UI)dc->header_unixcompress_max_codesize;
 	dc->unixcompress_has_clear_code = (int)dc->header_unixcompress_block_mode;
 }
 
 static void delzw_process_arc_1byteheader(delzwctx *dc)
 {
 	dc->header_unixcompress_max_codesize = (dc->header_buf[0] & 0x1f);
-	dc->max_codesize = (unsigned int)dc->header_unixcompress_max_codesize;
+	dc->max_codesize = (UI)dc->header_unixcompress_max_codesize;
 	delzw_debugmsg(dc, 2, "max code size: %u", dc->max_codesize);
 	dc->unixcompress_has_clear_code = 1;
 }
@@ -333,7 +281,7 @@ static void delzw_add_byte_to_bitbuf(delzwctx *dc, u8 b)
 {
 	// Add a byte's worth of bits to the pending code
 	if(dc->is_msb==0) {
-		dc->bitreader_buf |= ((unsigned int)b)<<dc->bitreader_nbits_in_buf;
+		dc->bitreader_buf |= ((UI)b)<<dc->bitreader_nbits_in_buf;
 	}
 	else {
 		dc->bitreader_buf = (dc->bitreader_buf<<8) | b;
@@ -341,9 +289,9 @@ static void delzw_add_byte_to_bitbuf(delzwctx *dc, u8 b)
 	dc->bitreader_nbits_in_buf += 8;
 }
 
-static DELZW_CODE delzw_get_code(delzwctx *dc, unsigned int nbits)
+static DELZW_CODE delzw_get_code(delzwctx *dc, UI nbits)
 {
-	unsigned int n;
+	UI n;
 
 	if(dc->is_msb==0) {
 		n = dc->bitreader_buf & ((1U<<nbits)-1U);
@@ -412,7 +360,6 @@ static void delzw_emit_code(delzwctx *dc, DELZW_CODE code1)
 
 	// Write out the collected values.
 	delzw_write(dc, &dc->valbuf[valbuf_pos], dc->valbuf_capacity - valbuf_pos);
-	dc->uncmpr_nbytes_decoded += (i64)(dc->valbuf_capacity - valbuf_pos);
 }
 
 static void delzw_find_first_free_entry(delzwctx *dc, DELZW_CODE *pentry)
@@ -769,7 +716,7 @@ static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 			else {
 				// TODO: Find out what DWC special codes do
 				delzw_set_errorf(dc, DELZW_ERRCODE_UNSUPPORTED_OPTION,
-					"Unsupported special code: %u", (unsigned int)code);
+					"Unsupported special code: %u", (UI)code);
 			}
 		}
 		return;
@@ -928,12 +875,12 @@ static void delzw_on_codes_start(delzwctx *dc)
 	dc->curr_codesize = dc->min_codesize;
 
 	dc->ct_capacity = ((DELZW_CODE)1)<<dc->max_codesize;
-	dc->ct = delzw_calloc(dc->userdata, dc->ct_capacity, sizeof(struct delzw_tableentry));
+	dc->ct = delzw_calloc(dc->dfctx, dc->ct_capacity, sizeof(struct delzw_tableentry));
 	if(dc->is_hashed) {
-		dc->ct2 = delzw_calloc(dc->userdata, dc->ct_capacity, sizeof(struct delzw_tableentry2));
+		dc->ct2 = delzw_calloc(dc->dfctx, dc->ct_capacity, sizeof(struct delzw_tableentry2));
 	}
 	dc->valbuf_capacity = dc->ct_capacity;
-	dc->valbuf = delzw_calloc(dc->userdata, dc->valbuf_capacity, 1);
+	dc->valbuf = delzw_calloc(dc->dfctx, dc->valbuf_capacity, 1);
 
 	if(dc->basefmt==DELZW_BASEFMT_UNIXCOMPRESS) {
 		for(i=0; i<256; i++) {
@@ -1024,9 +971,7 @@ done:
 static int delzw_have_enough_output(delzwctx *dc)
 {
 	if(dc->output_len_known) {
-		if(dc->uncmpr_nbytes_written + (i64)dc->outbuf_nbytes_used >=
-			dc->output_expected_len)
-		{
+		if(dc->uncmpr_nbytes_written >= dc->output_expected_len) {
 			return 1;
 		}
 	}
@@ -1061,7 +1006,7 @@ static void delzw_process_byte(delzwctx *dc, u8 b)
 
 		while(1) {
 			DELZW_CODE code;
-			unsigned int this_codesize;
+			UI this_codesize;
 
 			if(dc->errcode) break;
 
@@ -1114,9 +1059,7 @@ static void delzw_finish(delzwctx *dc)
 {
 	const char *reason;
 
-	delzw_flush(dc);
-
-	if(dc->output_len_known && (dc->uncmpr_nbytes_decoded==dc->output_expected_len)) {
+	if(dc->output_len_known && (dc->uncmpr_nbytes_written==dc->output_expected_len)) {
 		reason = "end of input and sufficient output";
 	}
 	else {
@@ -1192,25 +1135,10 @@ void fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 		dcmpri, dcmpro, dres);
 }
 
-static size_t wrapped_dfctx_write_cb(delzwctx *dc, const u8 *buf, size_t size,
-	unsigned int *outflags)
-{
-	struct de_dfilter_ctx *dfctx = (struct de_dfilter_ctx*)dc->userdata;
-
-	// Note: We could be writing to a custom dbuf, in which case the client has
-	// a chance to examine the decompressed bytes, and might want to stop the
-	// decompression based on their contents. But there's currently no way to
-	// do that.
-	dbuf_write(dfctx->dcmpro->f, buf, (i64)size);
-	return size;
-}
-
 static void wrapped_dfctx_debugmsg(delzwctx *dc, int level, const char *msg)
 {
-	struct de_dfilter_ctx *dfctx = (struct de_dfilter_ctx*)dc->userdata;
-
-	de_dbg(dfctx->c, "[delzw:i%"I64_FMT"/o%"I64_FMT"] %s",
-		(i64)dc->total_nbytes_processed, (i64)dc->uncmpr_nbytes_decoded, msg);
+	de_dbg(dc->dfctx->c, "[delzw:i%"I64_FMT"/o%"I64_FMT"] %s",
+		(i64)dc->total_nbytes_processed, (i64)dc->uncmpr_nbytes_written, msg);
 }
 
 static void my_lzw_codec_finish(struct de_dfilter_ctx *dfctx)
@@ -1252,13 +1180,12 @@ static void my_lzw_codec_destroy(struct de_dfilter_ctx *dfctx)
 // Print dbg messages and warnings about the header
 static void my_lzw_after_header_parsed(delzwctx *dc)
 {
-	struct de_dfilter_ctx *dfctx = (struct de_dfilter_ctx *)dc->userdata;
-	deark *c = dfctx->c;
+	deark *c = dc->dfctx->c;
 
 	if(dc->header_type==DELZW_HEADERTYPE_UNIXCOMPRESS3BYTE) {
-		de_dbg(c, "LZW mode: 0x%02x", (unsigned int)dc->header_unixcompress_mode);
+		de_dbg(c, "LZW mode: 0x%02x", (UI)dc->header_unixcompress_mode);
 		de_dbg_indent(c, 1);
-		de_dbg(c, "maxbits: %u", (unsigned int)dc->header_unixcompress_max_codesize);
+		de_dbg(c, "maxbits: %u", (UI)dc->header_unixcompress_max_codesize);
 		de_dbg(c, "blockmode: %d", (int)dc->header_unixcompress_block_mode);
 		if(!dc->header_unixcompress_block_mode) {
 			de_warn(c, "This file uses an obsolete compress'd format, which "
@@ -1267,21 +1194,17 @@ static void my_lzw_after_header_parsed(delzwctx *dc)
 		de_dbg_indent(c, -1);
 	}
 	else if(dc->header_type==DELZW_HEADERTYPE_ARC1BYTE) {
-		de_dbg(c, "LZW maxbits: %u", (unsigned int)dc->header_unixcompress_max_codesize);
+		de_dbg(c, "LZW maxbits: %u", (UI)dc->header_unixcompress_max_codesize);
 	}
 }
 
-static void *delzw_calloc(void *userdata, size_t nmemb, size_t size)
+static void *delzw_calloc(struct de_dfilter_ctx *dfctx, size_t nmemb, size_t size)
 {
-	struct de_dfilter_ctx *dfctx = (struct de_dfilter_ctx*)userdata;
-
 	return de_mallocarray(dfctx->c, (i64)nmemb, size);
 }
 
-static void delzw_free(void *userdata, void *ptr)
+static void delzw_free(struct de_dfilter_ctx *dfctx, void *ptr)
 {
-	struct de_dfilter_ctx *dfctx = (struct de_dfilter_ctx*)userdata;
-
 	de_free(dfctx->c, ptr);
 }
 
@@ -1291,7 +1214,7 @@ void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
 	delzwctx *dc = NULL;
 	struct de_lzw_params *delzwp = (struct de_lzw_params*)codec_private_params;
 
-	dc = delzw_create((void*)dfctx);
+	dc = delzw_create(dfctx);
 	if(!dc) goto done;
 	dfctx->codec_private = (void*)dc;
 	dfctx->codec_finish_fn = my_lzw_codec_finish;
