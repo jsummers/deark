@@ -1132,6 +1132,7 @@ static void de_run_lzwcom(deark *c, de_module_params *mparams)
 	int errflag = 0;
 	i64 pos = 0;
 	const char *s;
+	u8 *rbuf = NULL;
 
 	d = de_malloc(c, sizeof(struct lzwcom_ctx));
 	d->ver = -1;
@@ -1163,6 +1164,7 @@ static void de_run_lzwcom(deark *c, de_module_params *mparams)
 	delzwp.fmt = DE_LZWFMT_ARC5;
 	delzwp.flags |= DE_LZWFLAG_TOLERATETRAILINGJUNK;
 	dfctx = de_dfilter_create(c, dfilter_lzw_codec, (void*)&delzwp, &dcmpro, &dres);
+	rbuf = de_malloc(c, 1024);
 
 	while(1) {
 		i64 block_dlen;
@@ -1177,13 +1179,14 @@ static void de_run_lzwcom(deark *c, de_module_params *mparams)
 			de_dbg(c, "block at %"I64_FMT", dlen=%"I64_FMT, block_pos, block_dlen);
 		}
 
-		de_dfilter_addslice(dfctx, c->infile, pos, block_dlen);
+		dbuf_read(c->infile, rbuf, pos, block_dlen);
+		de_dfilter_addbuf(dfctx, rbuf, block_dlen);
 
 		// Oddly, this format includes CRCs of the *compressed* bytes, instead of
 		// of the decompressed bytes. So it doesn't detect incorrect decompression.
 		if(d->ver==2) {
 			de_crcobj_reset(d->crco);
-			de_crcobj_addslice(d->crco, c->infile, pos, block_dlen);
+			de_crcobj_addbuf(d->crco, rbuf, block_dlen);
 		}
 
 		pos += block_dlen;
@@ -1217,6 +1220,7 @@ static void de_run_lzwcom(deark *c, de_module_params *mparams)
 		de_crcobj_destroy(d->crco);
 		de_free(c, d);
 	}
+	de_free(c, rbuf);
 }
 
 static void de_help_lzwcom(deark *c)
