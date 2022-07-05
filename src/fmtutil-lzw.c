@@ -8,8 +8,6 @@
 #include "deark-private.h"
 #include "deark-fmtutil.h"
 
-// Start of delzw-main
-
 #define DELZW_CODE           u32 // int type used in most cases
 #define DELZW_CODE_MINRANGE  u16 // int type used for parents in table entries
 #define DELZW_MINMINCODESIZE 3
@@ -40,7 +38,7 @@ struct delzw_tableentry2 {
 };
 
 struct delzwctx_struct {
-	// Fields the user can or must set:
+	// Fields the caller can or must set:
 	deark *c;
 	struct de_dfilter_ctx *dfctx;
 	int debug_level;
@@ -67,7 +65,7 @@ struct delzwctx_struct {
 	int output_len_known;
 	i64 output_expected_len;
 
-	// Fields that may be set by the user, or derived from other fields:
+	// Fields that may be set by the caller, or derived from other fields:
 	int auto_inc_codesize;
 	int unixcompress_has_clear_code;
 	int arc5_has_stop_code;
@@ -120,8 +118,7 @@ struct delzwctx_struct {
 	DELZW_CODE first_dynamic_code;
 	int special_code_is_pending;
 
-	UI bitreader_buf;
-	UI bitreader_nbits_in_buf;
+	struct de_bitbuf_lowlevel bbll;
 
 	DELZW_CODE ct_capacity;
 	DELZW_CODE ct_code_count; // Note - Not always maintained if not needed
@@ -246,40 +243,6 @@ static void delzw_process_arc_1byteheader(delzwctx *dc)
 	dc->unixcompress_has_clear_code = 1;
 }
 
-static void delzw_clear_bitbuf(delzwctx *dc)
-{
-	dc->bitreader_nbits_in_buf = 0;
-	dc->bitreader_buf = 0;
-}
-
-static void delzw_add_byte_to_bitbuf(delzwctx *dc, u8 b)
-{
-	// Add a byte's worth of bits to the pending code
-	if(dc->is_msb==0) {
-		dc->bitreader_buf |= ((UI)b)<<dc->bitreader_nbits_in_buf;
-	}
-	else {
-		dc->bitreader_buf = (dc->bitreader_buf<<8) | b;
-	}
-	dc->bitreader_nbits_in_buf += 8;
-}
-
-static DELZW_CODE delzw_get_code(delzwctx *dc, UI nbits)
-{
-	UI n;
-
-	if(dc->is_msb==0) {
-		n = dc->bitreader_buf & ((1U<<nbits)-1U);
-		dc->bitreader_buf >>= nbits;
-		dc->bitreader_nbits_in_buf -= nbits;
-	}
-	else {
-		dc->bitreader_nbits_in_buf -= nbits;
-		n = (dc->bitreader_buf >> dc->bitreader_nbits_in_buf) & ((1U<<nbits)-1U);
-	}
-	return (DELZW_CODE)n;
-}
-
 // Is this a valid code with a value (a static, or in-use dynamic code)?
 static int delzw_code_is_in_table(delzwctx *dc, DELZW_CODE code)
 {
@@ -291,7 +254,7 @@ static int delzw_code_is_in_table(delzwctx *dc, DELZW_CODE code)
 }
 
 // Decode an LZW code to one or more values, and write the values.
-// Updates ctx->last_value.
+// Updates dc->last_value.
 static void delzw_emit_code(delzwctx *dc, DELZW_CODE code1)
 {
 	DELZW_CODE code = code1;
@@ -391,18 +354,18 @@ static void delzw_unixcompress_end_bitgroup(delzwctx *dc)
 	}
 
 	dc->ncodes_in_this_bitgroup = 0;
-	if(dc->bitreader_nbits_in_buf>7 || dc->bitreader_nbits_in_buf>nbits_left_to_skip) {
+	if(dc->bbll.nbits_in_bitbuf>7 || dc->bbll.nbits_in_bitbuf>nbits_left_to_skip) {
 		delzw_set_error(dc, DELZW_ERRCODE_INTERNAL_ERROR, NULL);
 		return;
 	}
 
-	nbits_left_to_skip -= dc->bitreader_nbits_in_buf;
+	nbits_left_to_skip -= dc->bbll.nbits_in_bitbuf;
 	if(nbits_left_to_skip%8 != 0) {
 		delzw_set_error(dc, DELZW_ERRCODE_INTERNAL_ERROR, NULL);
 		return;
 	}
 
-	delzw_clear_bitbuf(dc);
+	de_bitbuf_lowlevel_empty(&dc->bbll);
 	dc->nbytes_left_to_skip = nbits_left_to_skip/8;
 }
 
@@ -958,6 +921,8 @@ static void delzw_on_codes_start(delzwctx *dc)
 		}
 	}
 
+	dc->bbll.is_lsb = !dc->is_msb;
+	de_bitbuf_lowlevel_empty(&dc->bbll);
 done:
 	;
 }
@@ -996,7 +961,8 @@ static void delzw_process_byte(delzwctx *dc, u8 b)
 			return;
 		}
 
-		delzw_add_byte_to_bitbuf(dc, b);
+		// Add a byte's worth of bits to the pending code
+		de_bitbuf_lowlevel_add_byte(&dc->bbll, b);
 
 		while(1) {
 			DELZW_CODE code;
@@ -1011,11 +977,11 @@ static void delzw_process_byte(delzwctx *dc, u8 b)
 				this_codesize = dc->curr_codesize;
 			}
 
-			if(dc->bitreader_nbits_in_buf < this_codesize) {
+			if(dc->bbll.nbits_in_bitbuf < this_codesize) {
 				break;
 			}
 
-			code = delzw_get_code(dc, this_codesize);
+			code = (DELZW_CODE)de_bitbuf_lowlevel_get_bits(&dc->bbll, this_codesize);
 			dc->ncodes_in_this_bitgroup++;
 			delzw_process_code(dc, code);
 
@@ -1029,12 +995,12 @@ static void delzw_process_byte(delzwctx *dc, u8 b)
 	}
 }
 
-static void delzw_addbuf(delzwctx *dc, const u8 *buf, size_t buf_len)
+static void delzw_addbuf(delzwctx *dc, const u8 *buf, i64 buf_len)
 {
-	size_t i;
+	i64 i;
 
 	if(dc->debug_level>=3) {
-		delzw_debugmsg(dc, 3, "received %d bytes of input", (int)buf_len);
+		delzw_debugmsg(dc, 3, "received %"I64_FMT" bytes of input", buf_len);
 	}
 
 	for(i=0; i<buf_len; i++) {
@@ -1063,11 +1029,7 @@ static void delzw_finish(delzwctx *dc)
 	delzw_stop(dc, reason);
 }
 
-// End of delzw-main
-
-///////////////////////////////////////////////////
-
-static void setup_delzw_common(deark *c, delzwctx *dc, struct de_lzw_params *delzwp)
+static void setup_delzw_common(delzwctx *dc, struct de_lzw_params *delzwp)
 {
 	if(delzwp->fmt==DE_LZWFMT_UNIXCOMPRESS) {
 		dc->basefmt = DELZW_BASEFMT_UNIXCOMPRESS;
@@ -1149,7 +1111,7 @@ static void my_lzw_codec_addbuf(struct de_dfilter_ctx *dfctx,
 	delzwctx *dc = (delzwctx*)dfctx->codec_private;
 
 	if(!dc) return;
-	delzw_addbuf(dc, buf, (size_t)buf_len);
+	delzw_addbuf(dc, buf, buf_len);
 	if(dc->state == DELZW_STATE_FINISHED) {
 		dfctx->finished_flag = 1;
 	}
@@ -1189,5 +1151,5 @@ void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
 	dc->output_len_known = dfctx->dcmpro->len_known;
 	dc->output_expected_len = dfctx->dcmpro->expected_len;
 
-	setup_delzw_common(dfctx->c, dc, delzwp);
+	setup_delzw_common(dc, delzwp);
 }
