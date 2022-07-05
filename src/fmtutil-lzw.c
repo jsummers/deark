@@ -5,12 +5,8 @@
 // LZW decompressor
 
 #define DE_NOT_IN_MODULE
-#include "deark-config.h"
 #include "deark-private.h"
 #include "deark-fmtutil.h"
-
-static void *delzw_calloc(struct de_dfilter_ctx *dfctx, size_t nmemb, size_t size);
-static void delzw_free(struct de_dfilter_ctx *dfctx, void *ptr);
 
 // Start of delzw-main
 
@@ -43,15 +39,11 @@ struct delzw_tableentry2 {
 	DELZW_CODE_MINRANGE next;
 };
 
-typedef void (*delzw_cb_debugmsg_type)(delzwctx *dc, int level, const char *msg);
-typedef void (*delzw_cb_generic_type)(delzwctx *dc);
-
 struct delzwctx_struct {
 	// Fields the user can or must set:
+	deark *c;
 	struct de_dfilter_ctx *dfctx;
 	int debug_level;
-	delzw_cb_debugmsg_type cb_debugmsg;
-	delzw_cb_generic_type cb_after_header_parsed;
 
 #define DELZW_BASEFMT_UNIXCOMPRESS 1
 #define DELZW_BASEFMT_GIF          2
@@ -152,13 +144,14 @@ static void delzw_debugmsg(delzwctx *dc, int level, const char *fmt, ...)
 	va_list ap;
 	char msg[200];
 
-	if(!dc->cb_debugmsg) return;
 	if(level>dc->debug_level) return;
 
 	va_start(ap, fmt);
 	de_vsnprintf(msg, sizeof(msg), fmt, ap);
 	va_end(ap);
-	dc->cb_debugmsg(dc, level, msg);
+
+	de_dbg(dc->c, "[delzw:i%"I64_FMT"/o%"I64_FMT"] %s",
+		(i64)dc->total_nbytes_processed, (i64)dc->uncmpr_nbytes_written, msg);
 }
 
 static void delzw_dumptable(delzwctx *dc)
@@ -202,24 +195,6 @@ static void delzw_set_error(delzwctx *dc, int errcode, const char *msg)
 		msg = "LZW decompression error";
 	}
 	de_strlcpy(dc->errmsg, msg, sizeof(dc->errmsg));
-}
-
-static delzwctx *delzw_create(struct de_dfilter_ctx *dfctx)
-{
-	delzwctx *dc;
-
-	dc = delzw_calloc(dfctx, 1, sizeof(delzwctx));
-	dc->dfctx = dfctx;
-	return dc;
-}
-
-static void delzw_destroy(delzwctx *dc)
-{
-	if(!dc) return;
-	delzw_free(dc->dfctx, dc->ct);
-	if(dc->ct2) delzw_free(dc->dfctx, dc->ct2);
-	delzw_free(dc->dfctx, dc->valbuf);
-	delzw_free(dc->dfctx, dc);
 }
 
 static void delzw_write(delzwctx *dc, const u8 *buf, size_t n1)
@@ -784,6 +759,27 @@ done:
 	;
 }
 
+// Print dbg messages and warnings about the header
+static void lzw_after_header_parsed(delzwctx *dc)
+{
+	deark *c = dc->c;
+
+	if(dc->header_type==DELZW_HEADERTYPE_UNIXCOMPRESS3BYTE) {
+		de_dbg(c, "LZW mode: 0x%02x", (UI)dc->header_unixcompress_mode);
+		de_dbg_indent(c, 1);
+		de_dbg(c, "maxbits: %u", (UI)dc->header_unixcompress_max_codesize);
+		de_dbg(c, "blockmode: %d", (int)dc->header_unixcompress_block_mode);
+		if(!dc->header_unixcompress_block_mode) {
+			de_warn(c, "This file uses an obsolete compress'd format, which "
+				"might not be decompressed correctly");
+		}
+		de_dbg_indent(c, -1);
+	}
+	else if(dc->header_type==DELZW_HEADERTYPE_ARC1BYTE) {
+		de_dbg(c, "LZW maxbits: %u", (UI)dc->header_unixcompress_max_codesize);
+	}
+}
+
 // Process the header, if any.
 // Set any remaining params needed, and validate params.
 // This is called upon encountering the first byte after the header.
@@ -804,9 +800,7 @@ static void delzw_on_codes_start(delzwctx *dc)
 			delzw_process_arc_1byteheader(dc);
 		}
 
-		if(dc->cb_after_header_parsed) {
-			dc->cb_after_header_parsed(dc);
-		}
+		lzw_after_header_parsed(dc);
 	}
 
 	delzw_debugmsg(dc, 2, "start of codes");
@@ -875,12 +869,12 @@ static void delzw_on_codes_start(delzwctx *dc)
 	dc->curr_codesize = dc->min_codesize;
 
 	dc->ct_capacity = ((DELZW_CODE)1)<<dc->max_codesize;
-	dc->ct = delzw_calloc(dc->dfctx, dc->ct_capacity, sizeof(struct delzw_tableentry));
+	dc->ct = de_mallocarray(dc->c, dc->ct_capacity, sizeof(struct delzw_tableentry));
 	if(dc->is_hashed) {
-		dc->ct2 = delzw_calloc(dc->dfctx, dc->ct_capacity, sizeof(struct delzw_tableentry2));
+		dc->ct2 = de_mallocarray(dc->c, dc->ct_capacity, sizeof(struct delzw_tableentry2));
 	}
 	dc->valbuf_capacity = dc->ct_capacity;
-	dc->valbuf = delzw_calloc(dc->dfctx, dc->valbuf_capacity, 1);
+	dc->valbuf = de_malloc(dc->c, dc->valbuf_capacity);
 
 	if(dc->basefmt==DELZW_BASEFMT_UNIXCOMPRESS) {
 		for(i=0; i<256; i++) {
@@ -1075,8 +1069,6 @@ static void delzw_finish(delzwctx *dc)
 
 static void setup_delzw_common(deark *c, delzwctx *dc, struct de_lzw_params *delzwp)
 {
-	dc->debug_level = c->debug_level;
-
 	if(delzwp->fmt==DE_LZWFMT_UNIXCOMPRESS) {
 		dc->basefmt = DELZW_BASEFMT_UNIXCOMPRESS;
 		dc->auto_inc_codesize = 1;
@@ -1135,12 +1127,6 @@ void fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 		dcmpri, dcmpro, dres);
 }
 
-static void wrapped_dfctx_debugmsg(delzwctx *dc, int level, const char *msg)
-{
-	de_dbg(dc->dfctx->c, "[delzw:i%"I64_FMT"/o%"I64_FMT"] %s",
-		(i64)dc->total_nbytes_processed, (i64)dc->uncmpr_nbytes_written, msg);
-}
-
 static void my_lzw_codec_finish(struct de_dfilter_ctx *dfctx)
 {
 	const char *modname = "delzw";
@@ -1171,41 +1157,17 @@ static void my_lzw_codec_addbuf(struct de_dfilter_ctx *dfctx,
 
 static void my_lzw_codec_destroy(struct de_dfilter_ctx *dfctx)
 {
+	deark *c = dfctx->c;
 	delzwctx *dc = (delzwctx*)dfctx->codec_private;
 
-	delzw_destroy(dc);
+	if(!dc) return;
+
+	de_free(c, dc->ct);
+	if(dc->ct2) de_free(c, dc->ct2);
+	de_free(c, dc->valbuf);
+
+	de_free(c, dc);
 	dfctx->codec_private = NULL;
-}
-
-// Print dbg messages and warnings about the header
-static void my_lzw_after_header_parsed(delzwctx *dc)
-{
-	deark *c = dc->dfctx->c;
-
-	if(dc->header_type==DELZW_HEADERTYPE_UNIXCOMPRESS3BYTE) {
-		de_dbg(c, "LZW mode: 0x%02x", (UI)dc->header_unixcompress_mode);
-		de_dbg_indent(c, 1);
-		de_dbg(c, "maxbits: %u", (UI)dc->header_unixcompress_max_codesize);
-		de_dbg(c, "blockmode: %d", (int)dc->header_unixcompress_block_mode);
-		if(!dc->header_unixcompress_block_mode) {
-			de_warn(c, "This file uses an obsolete compress'd format, which "
-				"might not be decompressed correctly");
-		}
-		de_dbg_indent(c, -1);
-	}
-	else if(dc->header_type==DELZW_HEADERTYPE_ARC1BYTE) {
-		de_dbg(c, "LZW maxbits: %u", (UI)dc->header_unixcompress_max_codesize);
-	}
-}
-
-static void *delzw_calloc(struct de_dfilter_ctx *dfctx, size_t nmemb, size_t size)
-{
-	return de_mallocarray(dfctx->c, (i64)nmemb, size);
-}
-
-static void delzw_free(struct de_dfilter_ctx *dfctx, void *ptr)
-{
-	de_free(dfctx->c, ptr);
 }
 
 // codec_private_params is type struct de_lzw_params.
@@ -1214,19 +1176,18 @@ void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
 	delzwctx *dc = NULL;
 	struct de_lzw_params *delzwp = (struct de_lzw_params*)codec_private_params;
 
-	dc = delzw_create(dfctx);
-	if(!dc) goto done;
+	dc = de_malloc(dfctx->c, sizeof(delzwctx));
+	dc->c = dfctx->c;
+	dc->dfctx = dfctx;
+	dc->debug_level = dc->c->debug_level;
+
 	dfctx->codec_private = (void*)dc;
 	dfctx->codec_finish_fn = my_lzw_codec_finish;
 	dfctx->codec_destroy_fn = my_lzw_codec_destroy;
 	dfctx->codec_addbuf_fn = my_lzw_codec_addbuf;
 
-	dc->cb_debugmsg = wrapped_dfctx_debugmsg;
-	dc->cb_after_header_parsed = my_lzw_after_header_parsed;
 	dc->output_len_known = dfctx->dcmpro->len_known;
 	dc->output_expected_len = dfctx->dcmpro->expected_len;
 
 	setup_delzw_common(dfctx->c, dc, delzwp);
-done:
-	;
 }
