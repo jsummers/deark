@@ -636,6 +636,9 @@ Deark -- Information about supported formats
 * AmBs (AMOS "Banks" aggregate format) (module="abk")
   - Extract AmSp, AmIc, AmBk files.
 
+* Apple II disk image (module="apple2_dsk") (experimental)
+  - Limited support. Only Apple DOS 16-sector.
+
 * Apple Partition Map (module="apm") (experimental)
 
 * AppleSingle/AppleDouble (module="applesd")
