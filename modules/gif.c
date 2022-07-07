@@ -1025,6 +1025,7 @@ static int do_image_internal(deark *c, lctx *d,
 	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
 	de_zeromem(&u, sizeof(struct my_giflzw_userdata));
 	custom_outf = dbuf_create_custom_dbuf(c, 0, 0);
+	dbuf_enable_wbuffer(custom_outf);
 	u.c = c;
 	u.d = d;
 	u.gi = gi;
@@ -1047,6 +1048,7 @@ static int do_image_internal(deark *c, lctx *d,
 	}
 
 	de_dfilter_finish(gi->dfctx);
+	dbuf_flush(custom_outf);
 
 	if(dres.errcode) {
 		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));

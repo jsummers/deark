@@ -207,6 +207,9 @@ struct de_lh5x_params {
 	u8 warn_about_zero_codes_block;
 
 	u8 history_fill_val; // Set to 0x20 (space) if not sure.
+
+	// Returned to caller:
+	i64 max_offset_used;
 };
 void fmtutil_decompress_lh5x(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,

@@ -4,7 +4,7 @@ It is public domain software by an anonymous author.
 
 It has been heavily modified for Deark.
 
-(Note: I don't know if the delzw module will eventually be enhanced to
+(Note: I don't know if Deark's LZW code will eventually be enhanced to
 support this format. It's not a typical LZW algorithm.)
 
 The contents of the dskdcmps_readme.txt file from the software are

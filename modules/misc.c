@@ -948,6 +948,7 @@ static void de_run_compress(deark *c, de_module_params *mparams)
 	dbuf *f = NULL;
 
 	f = dbuf_create_output_file(c, "bin", NULL, 0);
+	dbuf_enable_wbuffer(f);
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
@@ -961,6 +962,7 @@ static void de_run_compress(deark *c, de_module_params *mparams)
 	delzwp.flags |= DE_LZWFLAG_HAS3BYTEHEADER;
 
 	fmtutil_decompress_lzw(c, &dcmpri, &dcmpro, &dres, &delzwp);
+	dbuf_flush(f);
 	if(dres.errcode!=0) {
 		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
 	}

@@ -8,8 +8,20 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_lzexe);
 
+struct ohdr_struct {
+	i64 regSS;
+	i64 regSP;
+	i64 regCS;
+	i64 regIP;
+	i64 cmpr_len_para;
+	i64 field5;
+	i64 field6;
+	i64 field7;
+	i64 field8;
+};
+
 typedef struct localctx_struct {
-	int ver;
+	int ver; // 1=0.90, 2=0.91, 3=0.91e
 	int errflag;
 	int errmsg_handled;
 	int o_code_alignment;
@@ -20,7 +32,7 @@ typedef struct localctx_struct {
 
 	i64 special_hdr_pos;
 	i64 end_of_reloc_tbl;
-	i64 special_hdr[9];
+	struct ohdr_struct ohdr;
 
 	dbuf *o_reloc_table;
 	dbuf *o_dcmpr_code;
@@ -42,25 +54,39 @@ static void do_read_header(deark *c, lctx *d)
 	}
 }
 
-static void read_special_hdr(deark *c, lctx *d, i64 ipos1)
+static void read_special_hdr(deark *c, lctx *d, i64 pos1)
 {
-	i64 ipos = ipos1;
-	UI count;
-	UI i;
+	i64 pos = pos1;
 
-	de_dbg(c, "LZEXE private info at %"I64_FMT, ipos1);
+	de_dbg(c, "LZEXE private info at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
-	count = (d->ver==1) ? 9 : 7;
-	for(i=0; i<count; i++) {
-		d->special_hdr[i] = de_getu16le_p(&ipos);
-		de_dbg(c, "special hdr[%u]: 0x%04x (%u)", i, (UI)d->special_hdr[i],
-			(UI)d->special_hdr[i]);
+	d->ohdr.regIP = de_getu16le_p(&pos);
+	de_dbg(c, "ip: %u", (UI)d->ohdr.regIP);
+	d->ohdr.regCS = de_geti16le_p(&pos);
+	de_dbg(c, "cs: %d", (int)d->ohdr.regCS);
+	d->ohdr.regSP = de_getu16le_p(&pos);
+	de_dbg(c, "sp: %u", (UI)d->ohdr.regSP);
+	d->ohdr.regSS = de_geti16le_p(&pos);
+	de_dbg(c, "ss: %d", (int)d->ohdr.regSS);
+	d->ohdr.cmpr_len_para = de_getu16le_p(&pos);
+	de_dbg(c, "cmpr len: %u ("DE_CHAR_TIMES"16=%"I64_FMT")", (int)d->ohdr.cmpr_len_para,
+		(i64)(d->ohdr.cmpr_len_para*16));
+
+	// TODO: These fields could be named better
+	d->ohdr.field5 = de_getu16le_p(&pos);
+	de_dbg(c, "field5: %u", (UI)d->ohdr.field5);
+	d->ohdr.field6 = de_getu16le_p(&pos);
+	de_dbg(c, "field6: %u", (UI)d->ohdr.field6);
+	if(d->ver==1) {
+		d->ohdr.field7 = de_getu16le_p(&pos);
+		de_dbg(c, "field7: %u", (UI)d->ohdr.field7);
+		d->ohdr.field8 = de_getu16le_p(&pos);
+		de_dbg(c, "field8: %u", (UI)d->ohdr.field8);
 	}
+
 	de_dbg_indent(c, -1);
 }
-
-#define MAX_RELOCS 65535
 
 static void do_decode_reloc_tbl_v090(deark *c, lctx *d)
 {
@@ -87,7 +113,7 @@ static void do_decode_reloc_tbl_v091(deark *c, lctx *d)
 	while(1) {
 		u8 x;
 
-		if(ipos>=d->end_of_reloc_tbl || reloc_count>MAX_RELOCS) {
+		if(ipos>=d->end_of_reloc_tbl || reloc_count>65535) {
 			d->errflag = 1;
 			goto done;
 		}
@@ -173,7 +199,7 @@ static void do_decompress_code(deark *c, lctx *d)
 	struct de_lz77buffer *ringbuf = NULL;
 
 	// (I'd expect ipos1 to always equal d->ei->start_of_dos_code, but anyway...)
-	ipos1 = d->special_hdr_pos -  d->special_hdr[4]*16;
+	ipos1 = d->special_hdr_pos -  d->ohdr.cmpr_len_para*16;
 	de_dbg(c, "decompressing cmpr code at %"I64_FMT, ipos1);
 	de_dbg_indent(c, 1);
 
@@ -287,7 +313,7 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	minmem = d->ihdr_minmem;
 	maxmem = d->ihdr_maxmem;
 	if(d->ihdr_maxmem!=0) {
-		minmem -= (UI)d->special_hdr[5] + (((UI)d->special_hdr[6]+15)/16) + 9;
+		minmem -= (UI)d->ohdr.field5 + (((UI)d->ohdr.field6+15)/16) + 9;
 		minmem &= 0xffff;
 		if(d->ihdr_maxmem != 0xffff) {
 			maxmem -= (d->ihdr_minmem-minmem);
@@ -297,11 +323,11 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	dbuf_writeu16le(outf, (i64)minmem); // 10  # of paragraphs required
 	dbuf_writeu16le(outf, (i64)maxmem); // 12  # of paragraphs requested
 
-	dbuf_writeu16le(outf, d->special_hdr[3]); // 14  ss
-	dbuf_writeu16le(outf, d->special_hdr[2]); // 16  sp
+	dbuf_writei16le(outf, d->ohdr.regSS); // 14
+	dbuf_writeu16le(outf, d->ohdr.regSP); // 16
 	dbuf_writeu16le(outf, 0); // 18  checksum
-	dbuf_writeu16le(outf, d->special_hdr[0]); // 20  ip
-	dbuf_writeu16le(outf, d->special_hdr[1]); // 22  cs
+	dbuf_writeu16le(outf, d->ohdr.regIP); // 20
+	dbuf_writei16le(outf, d->ohdr.regCS); // 22
 	dbuf_writeu16le(outf, O_RELOC_POS); // 24  reloc_tbl_pos
 	dbuf_writeu16le(outf, 0); // 26  overlay indicator
 
@@ -385,7 +411,7 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 	read_special_hdr(c, d, d->special_hdr_pos);
 	if(d->errflag) goto done;
 
-	d->end_of_reloc_tbl = d->special_hdr_pos + d->special_hdr[6];
+	d->end_of_reloc_tbl = d->special_hdr_pos + d->ohdr.field6;
 	if(d->end_of_reloc_tbl > c->infile->len) {
 		d->errflag = 1;
 		goto done;

@@ -11,11 +11,6 @@ DE_DECLARE_MODULE(de_module_arj);
 
 #define ARJ_MIN_BASIC_HEADER_SIZE 30
 #define ARJ_MAX_BASIC_HEADER_SIZE 2600 // From the ARJ TECHNOTE file
-#define MIN_VER_WITH_ANSIPAGE_FLAG 9 // Anything from 6-9 probably works
-#define MIN_VER_WITH_ENCVER        8
-#define MIN_VER_WITH_CHAPTERS      8
-#define MIN_VER_WITH_FLAGS2        11
-#define MIN_VER_WITH_ARCH_MTIME    6
 
 static const u8 *g_arj_hdr_id = (const u8*)"\x60\xea";
 
@@ -45,14 +40,20 @@ struct member_data {
 	de_encoding input_encoding;
 	UI hdr_id;
 	enum objtype_enum objtype; // Artificial field; tells how to parse and process this item
-	u8 archiver_ver_num_raw;
-	u8 archiver_ver_num_adj;
+	u8 archiver_ver_num;
 	u8 min_ver_to_extract;
 	u8 os;
 	u8 unix_timestamp_format;
 	u8 flags;
 	u8 method;
 	u8 file_type; // ARJ_FILETYPE_*
+
+	u8 supports_ANSIPAGE_flag;
+	u8 supports_chapters;
+	u8 has_encrver_field;
+	u8 has_flags2_field;
+	u8 has_arch_mtime_field;
+
 	u8 is_dir;
 	u8 is_executable;
 	u8 is_nonexecutable;
@@ -172,7 +173,7 @@ static void get_flags_descr(struct member_data *md, u8 n1, de_ucstring *s)
 	}
 
 	if((n & 0x02) && (md->objtype==ARJ_OBJTYPE_MAINHDR)) {
-		if(md->archiver_ver_num_adj >= MIN_VER_WITH_ANSIPAGE_FLAG) {
+		if(md->supports_ANSIPAGE_flag) {
 			// ANSIPAGE introduced around ARJ v2.62.
 			ucstring_append_flags_item(s, "ANSIPAGE");
 		}
@@ -307,7 +308,7 @@ static void decompress_method_4(deark *c, lctx *d, struct member_data *md,
 	cctx->bitrd.curpos = dcmpri->pos;
 	cctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
 
-	if(md->archiver_ver_num_raw==1) {
+	if(md->archiver_ver_num==1) {
 		cctx->old_format = 1;
 	}
 
@@ -369,6 +370,16 @@ static void decompress_method_1(deark *c, lctx *d, struct member_data *md,
 	lzhparams.zero_codes_block_behavior = DE_LH5X_ZCB_65536;
 	lzhparams.warn_about_zero_codes_block = 1;
 	fmtutil_decompress_lh5x(c, dcmpri, dcmpro, dres, &lzhparams);
+
+	de_dbg3(c, "max dist: %"I64_FMT, lzhparams.max_offset_used);
+	if(!dres->errcode) {
+		if(lzhparams.max_offset_used>26624 && md->min_ver_to_extract<=11) {
+			// Open-source ARJ can make files like this, with "-hdd32750" option.
+			de_warn(c, "%s: Non-portable compression detected (max dist=%"I64_FMT", "
+				"expected "DE_CHAR_LEQ"26624)",
+				ucstring_getpsz_d(md->name_srd->str), lzhparams.max_offset_used);
+		}
+	}
 }
 
 static void extract_member_file(deark *c, lctx *d, struct member_data *md)
@@ -626,7 +637,7 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	else {
 		// Skip ahead to read some fields that can affect fields that appear
 		// before them.
-		md->archiver_ver_num_raw = de_getbyte(pos1+5);
+		md->archiver_ver_num = de_getbyte(pos1+5);
 		md->file_type = de_getbyte(pos1+10);
 
 		if(md->file_type==ARJ_FILETYPE_MAINHDR) {
@@ -638,7 +649,7 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		else if(md->file_type<=4) {
 			md->objtype = ARJ_OBJTYPE_MEMBERFILE;
 		}
-		else if(md->file_type==9 && md->archiver_ver_num_raw==51) {
+		else if(md->file_type==9 && md->archiver_ver_num==51) {
 			md->objtype = ARJ_OBJTYPE_MEMBERFILE; // ARJZ with -t9 option
 		}
 		else {
@@ -668,17 +679,21 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	first_hdr_size = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "first header size: %"I64_FMT, first_hdr_size);
 	first_hdr_endpos = pos1 + 4 + first_hdr_size;
-	pos++; // md->archiver_ver_num_raw, already read
-	de_dbg(c, "archiver version: %u (%s)", (UI)md->archiver_ver_num_raw,
-		get_archiver_ver_name(md->archiver_ver_num_raw, namebuf, sizeof(namebuf)));
+	pos++; // md->archiver_ver_num, already read
+	de_dbg(c, "archiver version: %u (%s)", (UI)md->archiver_ver_num,
+		get_archiver_ver_name(md->archiver_ver_num, namebuf, sizeof(namebuf)));
 
-	// ARJ32 uses wacky version numbers starting with 100. Try to "correct" them.
-	if(md->archiver_ver_num_raw>=100 && md->archiver_ver_num_raw<200) {
-		md->archiver_ver_num_adj = md->archiver_ver_num_raw - 91;
-	}
-	else {
-		md->archiver_ver_num_adj = md->archiver_ver_num_raw;
-	}
+	// Note:
+	//  ver>=100 used by ARJ32 roughly corresponds to that number minus 91.
+	//  ver=51 used by ARJZ probably corresponds to ver=6 or 7.
+	md->supports_ANSIPAGE_flag = (u8)((md->archiver_ver_num>=9 && md->archiver_ver_num<=49) ||
+		md->archiver_ver_num>=100);
+	md->supports_chapters = (u8)((md->archiver_ver_num>=8 && md->archiver_ver_num<=49) ||
+		md->archiver_ver_num>=100);
+	md->has_encrver_field = md->supports_chapters;
+	md->has_flags2_field = (u8)((md->archiver_ver_num>=11 && md->archiver_ver_num<=49) ||
+		md->archiver_ver_num>=102);
+	md->has_arch_mtime_field = (u8)(md->archiver_ver_num>=6);
 
 	md->min_ver_to_extract = de_getbyte_p(&pos);
 	de_dbg(c, "min ver to extract: %u", (UI)md->min_ver_to_extract);
@@ -687,7 +702,7 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	de_dbg(c, "host OS: %u (%s)", (UI)md->os, get_host_os_name(md->os));
 
 	if((md->os==ARJ_OS_UNIX || md->os==ARJ_OS_NEXT) &&
-		(md->archiver_ver_num_raw>=11 && md->archiver_ver_num_raw<50))
+		(md->archiver_ver_num>=11 && md->archiver_ver_num<=49))
 	{
 		// Ref: Open Source ARJ, resource/en/readme.txt
 		md->unix_timestamp_format = 1;
@@ -698,13 +713,13 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	get_flags_descr(md, md->flags, flags_descr);
 	de_dbg(c, "flags: 0x%02x (%s)", (UI)md->flags, ucstring_getpsz_d(flags_descr));
 	if(md->objtype==ARJ_OBJTYPE_MAINHDR) {
-		if(md->archiver_ver_num_adj>=MIN_VER_WITH_ANSIPAGE_FLAG && (md->flags & 0x02)) {
+		if(md->supports_ANSIPAGE_flag && (md->flags & 0x02)) {
 			d->ansipage_flag = 1;
 		}
 		if(md->flags & 0x40) {
 			d->is_secured = 1;
 		}
-		else if(md->archiver_ver_num_adj<MIN_VER_WITH_ANSIPAGE_FLAG && (md->flags & 0x02)) {
+		else if((!md->supports_ANSIPAGE_flag) && (md->flags & 0x02)) {
 			d->is_old_secured = 1;
 		}
 		if(md->flags & 0x08) {
@@ -766,7 +781,7 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 			n = de_getu32le_p(&pos);
 			de_dbg(c, "archive size: %"I64_FMT, n); // This is a guess
 		}
-		else if(md->archiver_ver_num_adj>=MIN_VER_WITH_ARCH_MTIME) {
+		else if(md->has_arch_mtime_field) {
 			read_arj_datetime(c, d, md, pos, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "archive mod");
 			pos += 4;
 		}
@@ -858,7 +873,7 @@ at_offset_32:
 
 	b = de_getbyte_p(&pos); // first chapter / encryption ver / host data (byte1) / unused
 	if(md->objtype==ARJ_OBJTYPE_MAINHDR) {
-		if(md->archiver_ver_num_adj>=MIN_VER_WITH_ENCVER) {
+		if(md->has_encrver_field) {
 			de_dbg(c, "encryption ver: %u", (UI)b);
 			// We expect the GARBLED flag to be set in the main header when this field
 			// is meaningful, but I don't think ARJ requires that.
@@ -866,14 +881,13 @@ at_offset_32:
 		}
 	}
 	else {
-		if(md->archiver_ver_num_adj>=MIN_VER_WITH_CHAPTERS) {
+		if(md->supports_chapters) {
 			de_dbg(c, "first chapter: %u", (UI)b);
 		}
 	}
 
 	b = de_getbyte_p(&pos); // last chapter / host data (byte2) / unused
-	if(md->archiver_ver_num_adj>=MIN_VER_WITH_CHAPTERS)
-	{
+	if(md->supports_chapters) {
 		de_dbg(c, "last chapter: %u", (UI)b);
 	}
 
@@ -891,7 +905,7 @@ at_offset_32:
 			}
 			if(extra_data_len>=2) {
 				b = de_getbyte_p(&pos);
-				if(md->archiver_ver_num_adj>=MIN_VER_WITH_FLAGS2) {
+				if(md->has_flags2_field) {
 					de_dbg(c, "flags (2nd set): 0x%02x", (UI)b);
 				}
 			}
