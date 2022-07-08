@@ -9,6 +9,11 @@
 DE_DECLARE_MODULE(de_module_apple2_dsk);
 DE_DECLARE_MODULE(de_module_woz);
 
+#define A2_FILETYPE_TEXT     0x00
+#define A2_FILETYPE_IBASIC   0x01
+#define A2_FILETYPE_ABASIC   0x02
+#define A2_FILETYPE_BINARY   0x04
+
 struct trksec_pair {
 	u8 tr;
 	u8 se;
@@ -20,6 +25,7 @@ struct member_data {
 	i64 len_in_sectors;
 	i64 num_data_sectors;
 	u8 file_type_and_flags;
+	u8 file_type;
 	de_ucstring *fn;
 	de_finfo *fi;
 	struct trksec_pair *sector_list; // array[len_in_sectors]
@@ -193,29 +199,83 @@ done:
 	return retval;
 }
 
+static i64 get_max_file_size(deark *c, lctx *d, struct member_data *md)
+{
+	i64 first_secpos;
+	i64 len;
+
+	if(md->num_data_sectors < 1) return 0;
+	switch(md->file_type) {
+	case A2_FILETYPE_IBASIC:
+	case A2_FILETYPE_ABASIC:
+	case A2_FILETYPE_BINARY:
+		break;
+	default:
+		return d->secsize * md->num_data_sectors;
+	}
+
+	first_secpos = trksec_to_offset(d, md->sector_list[0].tr, md->sector_list[0].se);
+
+	if(md->file_type==A2_FILETYPE_BINARY) {
+		len = de_getu16le(first_secpos+2);
+		return 4 + len;
+	}
+
+	// BASIC
+	len = de_getu16le(first_secpos);
+	return 2 + len;
+}
+
 static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 {
 	dbuf *outf = NULL;
 	i64 i;
+	i64 max_nbytes_to_extract;
+	i64 nbytes_left_to_extract;
 
 	if(!read_sector_list(c, d, md)) goto done;
 	if(!md->sector_list) goto done;
+
+	max_nbytes_to_extract = get_max_file_size(c, d, md);
+	de_dbg(c, "expected file size: %"I64_FMT, max_nbytes_to_extract);
 
 	de_finfo_set_name_from_ucstring(c, md->fi, md->fn, 0);
 	md->fi->original_filename_flag = 1;
 	outf = dbuf_create_output_file(c, NULL, md->fi, 0);
 
-	for(i=0; i<md->num_data_sectors; i++) {
+	nbytes_left_to_extract = max_nbytes_to_extract;
+	for(i=0; i<md->num_data_sectors && nbytes_left_to_extract>0; i++) {
 		i64 secpos;
+		i64 nbytes_to_copy;
 
 		secpos = trksec_to_offset(d, md->sector_list[i].tr, md->sector_list[i].se);
 		de_dbg2(c, "extracting data sector: %u,%u (%"I64_FMT")",
 			md->sector_list[i].tr, md->sector_list[i].se, secpos);
-		dbuf_copy(c->infile, secpos, 256, outf);
+
+		nbytes_to_copy = de_min_int(nbytes_left_to_extract, d->secsize);
+		dbuf_copy(c->infile, secpos, nbytes_to_copy, outf);
+		nbytes_left_to_extract -= nbytes_to_copy;
 	}
 
 done:
 	dbuf_close(outf);
+}
+
+static const char *get_filetype_name(u8 n)
+{
+	const char *name = NULL;
+
+	switch(n) {
+	case A2_FILETYPE_TEXT: name="text"; break;
+	case A2_FILETYPE_IBASIC: name="Integer BASIC"; break;
+	case A2_FILETYPE_ABASIC: name="Applesoft BASIC"; break;
+	case A2_FILETYPE_BINARY: name="binary"; break;
+	case 0x08: name="S type"; break;
+	case 0x10: name="R type"; break;
+	case 0x20: name="A type"; break;
+	case 0x40: name="B type"; break;
+	}
+	return name?name:"?";
 }
 
 static void do_file_entry(deark *c, lctx *d, i64 pos1)
@@ -247,7 +307,11 @@ static void do_file_entry(deark *c, lctx *d, i64 pos1)
 		md->first_sec_list_tr, md->first_sec_list_se);
 
 	md->file_type_and_flags = de_getbyte_p(&pos);
-	de_dbg(c, "file type/flags: 0x%02x", (UI)md->file_type_and_flags);
+	md->file_type = md->file_type_and_flags & 0x7f;
+	de_dbg(c, "type/flags: 0x%02x", (UI)md->file_type_and_flags);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "type: 0x%02x (%s)", md->file_type, get_filetype_name(md->file_type));
+	de_dbg_indent(c, -1);
 
 	md->fn = ucstring_create(c);
 	a2_read_filename(d, c->infile, pos, md->fn);
@@ -343,26 +407,31 @@ static void de_run_apple2_dsk(deark *c, de_module_params *mparams)
 	}
 }
 
-static int de_identify_apple2_dsk(deark *c)
+static int test_VTOC(deark *c, i64 vtocpos)
 {
-	i64 vtocpos;
 	u8 x;
 	UI n;
 
-	if(c->infile->len != 143360) return 0;
-	if(dbuf_memcmp(c->infile, 0, (const u8*)"\x01\xa5\x27\xc9\x09\xd0", 6)) {
-		return 0;
-	}
-
-	vtocpos = 17*16*256;
+	x = de_getbyte(vtocpos+39); // items per sector list sector
+	if(x != 122) return 0;
 	x = de_getbyte(vtocpos+52); // #tracks
 	if(x != 35) return 0;
 	x = de_getbyte(vtocpos+53); // sec/track
 	if(x != 16) return 0;
 	n = (UI)de_getu16le(vtocpos+54); // bytes/sec
 	if(n != 256) return 0;
+	return 1;
+}
 
-	return 100;
+static int de_identify_apple2_dsk(deark *c)
+{
+	int has_sig;
+
+	if(c->infile->len<143358 || c->infile->len>143362) return 0;
+	if(!test_VTOC(c, 17*16*256)) return 0;
+	has_sig = !dbuf_memcmp(c->infile, 0, (const u8*)"\x01\xa5\x27\xc9\x09\xd0", 6);
+	if(has_sig) return 100;
+	return 60;
 }
 
 void de_module_apple2_dsk(deark *c, struct deark_module_info *mi)
