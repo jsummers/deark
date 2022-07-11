@@ -1974,7 +1974,11 @@ static void detect_exesfx_arc(deark *c, struct execomp_ctx *ectx,
 			foundpos = ei->end_of_dos_code; // In case there's a version without the bug
 		}
 	}
-	else if(ei->entrypoint_crcs==0x3230b4d5fca84644ULL) { // MKSARC v7.12, from ARC v7.12
+	else if(ei->entrypoint_crcs==0x3230b4d5fca84644ULL || // MKSARC v7.12, from ARC v7.12
+		ei->entrypoint_crcs==0x003d0e01c3764195ULL || // PKARC 3.5
+		ei->entrypoint_crcs==0x1bbcf0ae0422828eULL || // PKARC 3.6
+		ei->entrypoint_crcs==0x684ca6156c27b16bULL) // PKPAK 3.61
+	{
 		found = 1;
 		foundpos = ei->end_of_dos_code;
 	}
