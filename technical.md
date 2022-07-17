@@ -279,7 +279,9 @@ If you want to install it in a convenient location, just copy the "deark" file.
 For example:
 
     $ sudo cp deark /usr/local/bin/
+
 or
+
     $ sudo make install
 
 For Microsoft Windows, the project files in proj/vs2019 should work for
@@ -305,6 +307,13 @@ be compatible with most modern compilers, without special options.
 It is mostly compatible with a rather old version of C, almost C89 but with
 "//" comments. But that's subject to change. Using "-std=c99", and allowing
 declarations after code, is being considered.
+
+### Hard-coded CRCs ###
+
+Some source code files contain hard-coded CRC-32 hashes, to help identify
+certain things. The original data associated with the hashes may be found
+in the separate
+[Deark-extras project](https://github.com/jsummers/deark-extras).
 
 ### Other notes ###
 
