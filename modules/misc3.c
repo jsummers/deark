@@ -10,6 +10,7 @@ DE_DECLARE_MODULE(de_module_cpshrink);
 DE_DECLARE_MODULE(de_module_dwc);
 DE_DECLARE_MODULE(de_module_tscomp);
 DE_DECLARE_MODULE(de_module_edi_pack);
+DE_DECLARE_MODULE(de_module_rar);
 
 struct localctx_struct;
 typedef struct localctx_struct lctx;
@@ -59,6 +60,7 @@ struct localctx_struct {
 	// Private use fields for the format decoder:
 	int private_fmtver;
 	int private1;
+	UI archive_flags;
 };
 
 static struct member_data *create_md(deark *c, lctx *d)
@@ -131,6 +133,7 @@ static void read_field_cmpr_len_p(struct member_data *md, i64 *ppos)
 // tstype:
 //   1 = Unix
 //   2 = DOS,date first
+//   3 = DOS,time first
 static void read_field_dttm_p(lctx *d,
 	struct de_timestamp *ts, const char *name,
 	int tstype, i64 *ppos)
@@ -145,13 +148,19 @@ static void read_field_dttm_p(lctx *d,
 		de_unix_time_to_timestamp(n1, ts, 0x1);
 		is_set = 1;
 	}
-	else if(tstype==2) {
+	else if(tstype==2 || tstype==3) {
 		i64 dosdt, dostm;
 
 		n1 = dbuf_getu16x(d->c->infile, *ppos, d->is_le);
 		n2 = dbuf_getu16x(d->c->infile, *ppos+2, d->is_le);
-		dosdt = n1;
-		dostm = n2;
+		if(tstype==3) {
+			dosdt = n2;
+			dostm = n1;
+		}
+		else {
+			dosdt = n1;
+			dostm = n2;
+		}
 
 		if(dostm!=0 || dosdt!=0) {
 			is_set = 1;
@@ -1002,4 +1011,178 @@ void de_module_edi_pack(deark *c, struct deark_module_info *mi)
 	mi->desc = "EDI Install packed file";
 	mi->run_fn = de_run_edi_pack;
 	mi->identify_fn = de_identify_edi_pack;
+}
+
+// **************************************************************************
+// RAR
+// **************************************************************************
+
+//static const u8 *g_rar_sig = (const u8*)"Rar!\x1a\x07\x00";
+static const u8 *g_rar_oldsig = (const u8*)"RE\x7e\x5e";
+
+static void do_rar_old_member(deark *c, lctx *d, struct member_data *md)
+{
+	i64 n;
+	u8 b;
+	i64 pos = md->member_hdr_pos;
+	i64 hdrlen;
+	i64 fnlen;
+	de_ucstring *comment = NULL;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "member file at %"I64_FMT, md->member_hdr_pos);
+	de_dbg_indent(c, 1);
+
+	read_field_cmpr_len_p(md, &pos);
+	read_field_orig_len_p(md, &pos);
+
+	// TODO: What is this a checksum of?
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "checksum: %u", (UI)n);
+
+	hdrlen = de_getu16le_p(&pos);
+	de_dbg(c, "hdr len: %u", (int)hdrlen);
+
+	if(hdrlen < 12) {
+		d->fatalerrflag = 1;
+		goto done;
+	}
+
+	md->member_total_size = hdrlen + md->cmpr_len;
+
+	read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 3, &pos);
+
+	b = de_getbyte_p(&pos);
+	de_dbg(c, "attribs: 0x%02x", (UI)b);
+
+	md->file_flags = (UI)de_getbyte_p(&pos); // status flags
+	de_dbg(c, "flags: 0x%02x", md->file_flags);
+
+	b = de_getbyte_p(&pos);
+	de_dbg(c, "min ver needed to unpack: %u", (UI)b);
+
+	fnlen = (i64)de_getbyte_p(&pos);
+
+	md->cmpr_meth = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "cmpr. method: %u", md->cmpr_meth);
+
+	// Spec says the filename occurs *after* the comment, but (for v1.40.2)
+	// it just isn't true.
+	dbuf_read_to_ucstring(c->infile, pos, fnlen, md->filename, 0,
+		d->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+	pos += fnlen;
+
+	if(md->file_flags & 0x08) {
+		i64 cmtlen;
+
+		cmtlen = de_getu16le_p(&pos);
+		de_dbg(c, "file comment at %"I64_FMT", len=%"I64_FMT, pos, cmtlen);
+		comment = ucstring_create(c);
+		dbuf_read_to_ucstring(c->infile, pos, cmtlen, comment, 0,
+			DE_EXTENC_MAKE(d->input_encoding, DE_ENCSUBTYPE_HYBRID));
+		de_dbg(c, "file comment: \"%s\"", ucstring_getpsz_d(comment));
+		pos += cmtlen;
+	}
+
+	pos = md->member_hdr_pos + hdrlen;
+	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, pos, md->cmpr_len);
+
+done:
+	ucstring_destroy(comment);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+// Intended to work for, at least, RAR v1.40.2 (RAR1_402.EXE).
+// Ref: Search for a file named RAR140DC.EXE, containing technote.doc.
+static void do_rar_old(deark *c, lctx *d)
+{
+	i64 pos = 0;
+	i64 hdrpos;
+	i64 hdrlen;
+	struct member_data *md = NULL;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_declare_fmt(c, "RAR, old format");
+	hdrpos = pos;
+	de_dbg(c, "archive header at %"I64_FMT, hdrpos);
+	de_dbg_indent(c, 1);
+	pos += 4; // header ID
+	hdrlen = de_getu16le_p(&pos);
+	de_dbg(c, "hdr len: %"I64_FMT, hdrlen);
+	d->archive_flags = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "flags: 0x%02x", d->archive_flags);
+
+	if(d->archive_flags & 0x02) {
+		i64 cmtlen;
+
+		cmtlen = de_getu16le_p(&pos);
+		de_dbg(c, "archive comment at %"I64_FMT", len=%"I64_FMT", compressed=%d",
+			pos, cmtlen, (int)((d->archive_flags & 0x10)!=0));
+		pos += cmtlen;
+	}
+
+	if(d->archive_flags & 0x20) {
+		i64 ext1len;
+
+		ext1len = de_getu16le_p(&pos);
+		de_dbg(c, "EXT1 field at %"I64_FMT", len=%"I64_FMT, pos, ext1len);
+		pos += ext1len;
+	}
+
+	de_dbg_indent_restore(c, saved_indent_level);
+
+	pos = hdrpos + hdrlen;
+	while(1) {
+		if(pos >= c->infile->len) break;
+		if(md) {
+			destroy_md(c, md);
+			md = NULL;
+		}
+		md = create_md(c, d);
+		md->member_hdr_pos = pos;
+		do_rar_old_member(c, d, md);
+
+		if(d->fatalerrflag) goto done;
+		if(md->member_total_size <= 0) goto done;
+		pos += md->member_total_size;
+	}
+
+done:
+	if(md) {
+		destroy_md(c, md);
+	}
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void de_run_rar(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+
+	d = create_lctx(c);
+	d->is_le = 1;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+
+	do_rar_old(c, d);
+
+	destroy_lctx(c, d);
+}
+
+static int de_identify_rar(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, g_rar_oldsig, 4)) {
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_rar(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "rar";
+	mi->desc = "RAR archive";
+	mi->run_fn = de_run_rar;
+	mi->identify_fn = de_identify_rar;
+	mi->flags |= DE_MODFLAG_NONWORKING;
 }
