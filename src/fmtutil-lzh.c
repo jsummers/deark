@@ -500,8 +500,8 @@ static void lh5x_do_lzh_block(struct lzh_ctx *cctx, int blk_idx)
 			}
 			de_lz77buffer_copy_from_hist(cctx->ringbuf,
 				(UI)(cctx->ringbuf->curpos-offset-1), length);
-			if(offset+1 > cctx->max_offset_used) {
-				cctx->max_offset_used = offset+1;
+			if((i64)offset+1 > cctx->max_offset_used) {
+				cctx->max_offset_used = (i64)offset+1;
 			}
 		}
 
