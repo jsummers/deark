@@ -576,9 +576,6 @@
     <ClInclude Include="..\..\foreign\ozunreduce.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\foreign\delzw.h">
-      <Filter>Foreign Code</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\src\deark-version.h">
       <Filter>Header Files</Filter>
     </ClInclude>
