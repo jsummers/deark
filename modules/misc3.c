@@ -1017,8 +1017,9 @@ void de_module_edi_pack(deark *c, struct deark_module_info *mi)
 // RAR
 // **************************************************************************
 
-//static const u8 *g_rar_sig = (const u8*)"Rar!\x1a\x07\x00";
 static const u8 *g_rar_oldsig = (const u8*)"RE\x7e\x5e";
+static const u8 *g_rar2_sig = (const u8*)"Rar!\x1a\x07\x00";
+static const u8 *g_rar5_sig = (const u8*)"Rar!\x1a\x07\x01\x00";
 
 static void do_rar_old_member(deark *c, lctx *d, struct member_data *md)
 {
@@ -1105,7 +1106,7 @@ static void do_rar_old(deark *c, lctx *d)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_declare_fmt(c, "RAR, old format");
+	de_declare_fmt(c, "RAR (<v1.50)");
 	hdrpos = pos;
 	de_dbg(c, "archive header at %"I64_FMT, hdrpos);
 	de_dbg_indent(c, 1);
@@ -1157,6 +1158,151 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+
+struct rar_block {
+	i64 block_pos;
+	u32 crc_reported;
+	UI flags;
+	u8 type;
+	i64 block_size_1;
+	i64 block_size_2;
+	i64 block_size_full;
+};
+
+static const char *rar_get_blktype_name(u8 n)
+{
+	const char *name = NULL;
+
+	switch(n) {
+	case 0x72: name = "marker"; break;
+	case 0x73: name = "archive header"; break;
+	case 0x74: name = "file header"; break;
+	case 0x75: name = "comment"; break;
+	case 0x76: name = "extra info"; break;
+	case 0x77: name = "subblock (old)"; break;
+	case 0x78: name = "recovery record"; break;
+	case 0x79: name = "auth info"; break;
+	case 0x7a: name = "subblock (new)"; break;
+	case 0x7b: name = "trailer"; break; // ?
+	}
+
+	return name?name:"?";
+}
+
+static void do_rar2_block_fileheader(deark *c, lctx *d, struct rar_block *rb)
+{
+	struct member_data *md = NULL;
+	i64 pos;
+	i64 fnlen;
+	u32 filecrc_reported;
+	UI attribs;
+	u8 b;
+
+	md = create_md(c, d);
+
+	pos = rb->block_pos + 11;
+
+	md->cmpr_len = rb->block_size_2;
+	read_field_orig_len_p(md, &pos);
+
+	b = de_getbyte_p(&pos);
+	de_dbg(c, "OS: %u", (UI)b);
+
+	filecrc_reported = (u32)de_getu32le_p(&pos);
+	de_dbg(c, "file crc: 0x%08x", (UI)filecrc_reported);
+
+	read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 3, &pos);
+
+	b = de_getbyte_p(&pos);
+	de_dbg(c, "min ver needed to unpack: %u", (UI)b);
+
+	md->cmpr_meth = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "cmpr. method: %u", md->cmpr_meth);
+
+	fnlen = de_getu16le_p(&pos);
+
+	attribs = (UI)de_getu32le_p(&pos);
+	de_dbg(c, "attribs: 0x%08x", attribs);
+
+	// TODO: Handle UTF-8 names
+	dbuf_read_to_ucstring_n(c->infile, pos, fnlen, 2048, md->filename,
+		DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+	pos += fnlen;
+
+	// TODO: Comment block
+
+	destroy_md(c, md);
+}
+
+static void rar_read_v2_block(deark *c, lctx *d, struct rar_block *rb, i64 pos1)
+{
+	int saved_indent_level;
+	i64 pos;
+	u32 crc_calc;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_zeromem(rb, sizeof(struct rar_block));
+	rb->block_pos = pos1;
+	pos = rb->block_pos;
+
+	de_dbg(c, "block at %"I64_FMT, rb->block_pos);
+	de_dbg_indent(c, 1);
+	rb->crc_reported = (u32)de_getu16le_p(&pos);
+	de_dbg(c, "crc (reported): 0x%04x", (UI)rb->crc_reported);
+
+	rb->type = de_getbyte_p(&pos);
+	de_dbg(c, "block type: 0x%02x (%s)", (UI)rb->type, rar_get_blktype_name(rb->type));
+
+	rb->flags = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "block flags: 0x%04x", (UI)rb->flags);
+
+	rb->block_size_1 = de_getu16le_p(&pos);
+	de_dbg(c, "block size (part 1): %"I64_FMT, rb->block_size_1);
+
+	de_crcobj_reset(d->crco);
+	de_crcobj_addslice(d->crco, c->infile, rb->block_pos+2, rb->block_size_1-2);
+	crc_calc = de_crcobj_getval(d->crco);
+	crc_calc &= 0xffff;
+	de_dbg(c, "crc (calculated): 0x%04x", (UI)crc_calc);
+
+	if(rb->flags & 0x8000) {
+		rb->block_size_2 = de_getu32le_p(&pos);
+		de_dbg(c, "block size (part 2): %"I64_FMT, rb->block_size_2);
+	}
+
+	rb->block_size_full = rb->block_size_1 + rb->block_size_2;
+	de_dbg(c, "block size (total): %"I64_FMT, rb->block_size_full);
+
+	switch(rb->type) {
+	case 0x74: do_rar2_block_fileheader(c, d, rb);
+	}
+
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_rar_v2(deark *c, lctx *d)
+{
+	struct rar_block *rb = NULL;
+	i64 pos = 0;
+
+	de_declare_fmt(c, "RAR (v1.50-4.20)");
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+
+	rb = de_malloc(c, sizeof(struct rar_block));
+
+	while(1) {
+		if(pos >= c->infile->len) break;
+		rar_read_v2_block(c, d, rb, pos);
+		if(d->fatalerrflag) goto done;
+		if(rb->block_size_full <= 0) goto done;
+		pos += rb->block_size_full;
+	}
+
+done:
+	de_free(c, rb);
+}
+
 static void de_run_rar(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -1165,13 +1311,41 @@ static void de_run_rar(deark *c, de_module_params *mparams)
 	d->is_le = 1;
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 
-	do_rar_old(c, d);
+	if(!dbuf_memcmp(c->infile, 0, g_rar2_sig, 7)) {
+		d->private_fmtver = 2;
+	}
+	else if(!dbuf_memcmp(c->infile, 0, g_rar5_sig, 8)) {
+		d->private_fmtver = 5;
+	}
+	else if(!dbuf_memcmp(c->infile, 0, g_rar_oldsig, 4)) {
+		d->private_fmtver = 1;
+	}
 
+	if(d->private_fmtver==0) {
+		de_err(c, "Not a RAR file");
+		goto done;
+	}
+
+	if(d->private_fmtver==1) {
+		do_rar_old(c, d);
+	}
+	else if(d->private_fmtver==2) {
+		do_rar_v2(c, d);
+	}
+	else {
+		de_err(c, "Unsupported RAR version");
+		goto done;
+	}
+
+done:
 	destroy_lctx(c, d);
 }
 
 static int de_identify_rar(deark *c)
 {
+	if(!dbuf_memcmp(c->infile, 0, g_rar2_sig, 7)) {
+		return 100;
+	}
 	if(!dbuf_memcmp(c->infile, 0, g_rar_oldsig, 4)) {
 		return 100;
 	}
