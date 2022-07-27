@@ -210,6 +210,8 @@ $(OBJDIR)/modules/pff2.o: modules/pff2.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/pict.o: modules/pict.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/pif.o: modules/pif.c src/deark-private.h src/deark.h \
+ src/deark-config.h
 $(OBJDIR)/modules/pkfont.o: modules/pkfont.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/pklite.o: modules/pklite.c src/deark-private.h \
