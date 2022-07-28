@@ -27,6 +27,11 @@ static int pif_validate_pos(deark *c, struct pif_ctx *d, i64 pos)
 	return 0;
 }
 
+static void do_pif_section_extract(deark *c, struct pif_ctx *d, i64 pos1, i64 len, const char *name)
+{
+	dbuf_create_file_from_slice(c->infile, pos1, len, name, NULL, 0);
+}
+
 static void do_pif_section_default(deark *c, struct pif_ctx *d, i64 pos1, i64 len)
 {
 	de_dbg_hexdump(c, c->infile, pos1, len, 256, NULL, 0x1);
@@ -78,6 +83,115 @@ static void do_pif_section_basic(deark *c, struct pif_ctx *d, i64 pos1, i64 len)
 	// TODO: More fields
 }
 
+static void do_pif_section_win286(deark *c, struct pif_ctx *d, i64 pos1, i64 len)
+{
+	i64 pos = pos1;
+	i64 n;
+	UI flags;
+
+	if(len<6) return;
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "max XMS: %"I64_FMT, n);
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "min XMS: %"I64_FMT, n);
+	flags = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "flags: 0x%04x", (UI)flags);
+}
+
+static void do_pif_section_win386(deark *c, struct pif_ctx *d, i64 pos1, i64 len)
+{
+	i64 pos = pos1;
+	i64 n;
+	UI flags;
+
+	if(len<104) return;
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "max conventional mem: %"I64_FMT, n);
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "min conventional mem: %"I64_FMT, n);
+	pos += 2; // fg priority
+	pos += 2; // bg priority
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "max EMS: %"I64_FMT, n);
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "min EMS: %"I64_FMT, n);
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "max XMS: %"I64_FMT, n);
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "min XMS: %"I64_FMT, n);
+	flags = (UI)de_getu32le_p(&pos);
+	de_dbg(c, "flags1: 0x%08x", (UI)flags);
+	flags = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "flags2: 0x%04x", (UI)flags);
+
+	// TODO: More fields
+
+	pos = pos1 + 40;
+	ucstring_empty(d->tmpstr);
+	// TODO: There are questions about whether this is OEM or ANSI
+	dbuf_read_to_ucstring(c->infile, pos, 64, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding_oem);
+	ucstring_strip_trailing_spaces(d->tmpstr);
+	de_dbg(c, "params: \"%s\"", ucstring_getpsz_d(d->tmpstr));
+}
+
+static void do_pif_section_winvmm(deark *c, struct pif_ctx *d, i64 pos1, i64 len)
+{
+	i64 pos = pos1;
+	i64 n;
+
+	if(len<428) return;
+	pos += 88;
+
+	ucstring_empty(d->tmpstr);
+	dbuf_read_to_ucstring(c->infile, pos, 80, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding_ansi);
+	de_dbg(c, "icon file: \"%s\"", ucstring_getpsz_d(d->tmpstr));
+	pos += 80;
+
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "icon #: %"I64_FMT, n);
+
+	pos = pos1 + 234;
+	ucstring_empty(d->tmpstr);
+	dbuf_read_to_ucstring(c->infile, pos, 32, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding_ansi);
+	de_dbg(c, "raster font: \"%s\"", ucstring_getpsz_d(d->tmpstr));
+	pos += 32;
+
+	ucstring_empty(d->tmpstr);
+	dbuf_read_to_ucstring(c->infile, pos, 32, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding_ansi);
+	de_dbg(c, "TrueType font: \"%s\"", ucstring_getpsz_d(d->tmpstr));
+
+	pos = pos1 + 342;
+	ucstring_empty(d->tmpstr);
+	dbuf_read_to_ucstring(c->infile, pos, 80, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding_oem);
+	de_dbg(c, "BAT file: \"%s\"", ucstring_getpsz_d(d->tmpstr));
+
+	// TODO: More fields
+}
+
+static void do_pif_section_winnt31(deark *c, struct pif_ctx *d, i64 pos1, i64 len)
+{
+	i64 pos = pos1;
+
+	if(len<140) return;
+	pos += 12;
+
+	ucstring_empty(d->tmpstr);
+	dbuf_read_to_ucstring(c->infile, pos, 64, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding_ansi);
+	de_dbg(c, "alt config.sys: \"%s\"", ucstring_getpsz_d(d->tmpstr));
+	pos += 64;
+
+	ucstring_empty(d->tmpstr);
+	dbuf_read_to_ucstring(c->infile, pos, 64, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding_ansi);
+	de_dbg(c, "alt autoexec.bat: \"%s\"", ucstring_getpsz_d(d->tmpstr));
+}
+
 // Returns nonzero if we should look for more sections after this.
 // Sets d->next_section_heading_pos.
 static int do_pif_section(deark *c, struct pif_ctx *d, i64 pos1)
@@ -117,9 +231,32 @@ static int do_pif_section(deark *c, struct pif_ctx *d, i64 pos1)
 	if(!de_strcmp(secname->sz, "MICROSOFT PIFEX")) {
 		do_pif_section_basic(c, d, dpos, dlen);
 	}
+	else if(!de_strcmp(secname->sz, "WINDOWS 286 3.0")) {
+		do_pif_section_win286(c, d, dpos, dlen);
+	}
+	else if(!de_strcmp(secname->sz, "WINDOWS 386 3.0")) {
+		do_pif_section_win386(c, d, dpos, dlen);
+	}
+	else if(!de_strcmp(secname->sz, "WINDOWS VMM 4.0")) {
+		do_pif_section_winvmm(c, d, dpos, dlen);
+	}
+	else if(!de_strcmp(secname->sz, "WINDOWS NT  3.1")) {
+		do_pif_section_winnt31(c, d, pos, dlen);
+	}
+	else if(!de_strcmp(secname->sz, "AUTOEXECBAT 4.0")) {
+		do_pif_section_extract(c, d, dpos, dlen, "autoexec.bat");
+	}
+	else if(!de_strcmp(secname->sz, "CONFIG  SYS 4.0")) {
+		do_pif_section_extract(c, d, dpos, dlen, "config.sys");
+	}
 	else {
 		do_pif_section_default(c, d, dpos, dlen);
 	}
+	// TODO:
+	//  WINDOWS NT  4.0
+	//  WINDOWS PIF.402
+	//  WINDOWS PIF.403
+	//  WINDOWS ICO.001
 
 done:
 	de_destroy_stringreaderdata(c, secname);
@@ -155,7 +292,7 @@ static void de_run_pif(deark *c, de_module_params *mparams)
 	d->input_encoding_ansi = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 
 	d->input_encoding_oem = DE_ENCODING_CP437; // default
-	tmps = de_get_ext_option(c, "pif:oemenc");
+	tmps = de_get_ext_option(c, "oemenc");
 	if(tmps) {
 		d->input_encoding_oem = de_encoding_name_to_code(tmps);
 		if(d->input_encoding_oem == DE_ENCODING_UNKNOWN) {
@@ -181,19 +318,29 @@ static void de_run_pif(deark *c, de_module_params *mparams)
 
 static int de_identify_pif(deark *c)
 {
+	int maybe_oldfmt = 0;
+	int has_id = 0;
 	int has_ext;
 
-	// TODO: More research on identifying PIF
-	if(c->infile->len < PIF_BASIC_SECTION_SIZE) return 0;
-	has_ext = de_input_file_has_ext(c, "pif");
-	if(!has_ext) return 0;
-	if(c->infile->len == PIF_BASIC_SECTION_SIZE) return 24;
-	if(c->infile->len < PIF_BASIC_SECTION_SIZE+22) return 0;
-	if(!dbuf_memcmp(c->infile, PIF_BASIC_SECTION_SIZE, (const u8*)"MICROSOFT PIFEX\0", 16))
-	{
-		return 91;
+	if(c->infile->len == PIF_BASIC_SECTION_SIZE) {
+		maybe_oldfmt = 1;
 	}
-	return 0;
+	else if(c->infile->len >= PIF_BASIC_SECTION_SIZE+22) {
+		has_id = !dbuf_memcmp(c->infile, PIF_BASIC_SECTION_SIZE,
+			(const u8*)"MICROSOFT PIFEX\0", 16);
+	}
+
+	if(!maybe_oldfmt && !has_id) return 0;
+	has_ext = de_input_file_has_ext(c, "pif");
+	if(maybe_oldfmt) {
+		return has_ext ? 24 : 0;
+	}
+	return has_ext ? 100 : 35;
+}
+
+static void de_help_pif(deark *c)
+{
+	de_msg(c, "-opt oemenc=... : The encoding for OEM Text items");
 }
 
 void de_module_pif(deark *c, struct deark_module_info *mi)
@@ -202,4 +349,5 @@ void de_module_pif(deark *c, struct deark_module_info *mi)
 	mi->desc = "Windows Program Information File";
 	mi->identify_fn = de_identify_pif;
 	mi->run_fn = de_run_pif;
+	mi->help_fn = de_help_pif;
 }
