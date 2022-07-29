@@ -321,6 +321,26 @@ static de_rune de_decspecialgraphics_to_unicode(struct de_encconv_state *es, i32
 	return n;
 }
 
+// Latin-1 + ROT-13.
+// Intended for testing, as an easy way to check that encoding translation is
+// working, even when the source data is plain ASCII.
+static de_rune de_rot13_to_unicode(struct de_encconv_state *es, i32 a)
+{
+	de_rune n;
+
+	if((a>='A' && a<='M') || (a>='a' && a<='m')) {
+		n = (de_rune)a+13;
+	}
+	else if((a>='N' && a<='Z') || (a>='n' && a<='z')) {
+		n = (de_rune)a-13;
+	}
+	else {
+		n = (de_rune)a;
+	}
+
+	return n;
+}
+
 // For any charset that uses 128 ASCII chars + 128 custom chars.
 static de_rune de_ext_ascii_to_unicode(struct de_encconv_state *es, i32 a)
 {
@@ -405,6 +425,9 @@ void de_encconv_init(struct de_encconv_state *es, de_ext_encoding ee)
 		break;
 	case DE_ENCODING_DEC_SPECIAL_GRAPHICS:
 		es->fn = de_decspecialgraphics_to_unicode;
+		break;
+	case DE_ENCODING_ROT13:
+		es->fn = de_rot13_to_unicode;
 		break;
 	default:
 		break;
@@ -1305,6 +1328,7 @@ static const struct de_encmap_item de_encmap_arr[] = {
 	{ 0x01, DE_ENCODING_PETSCII, "petscii" },
 	{ 0x01, DE_ENCODING_ATARIST, "atarist" },
 	{ 0x01, DE_ENCODING_APPLEII, "appleii" },
+	{ 0x01, DE_ENCODING_ROT13, "rot13" },
 	{ 0x01, DE_ENCODING_UTF16BE, "utf16be" },
 	{ 0x01, DE_ENCODING_UTF16LE, "utf16le" }
 };
