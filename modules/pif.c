@@ -2,10 +2,12 @@
 // Copyright (C) 2022 Jason Summers
 // See the file COPYING for terms of use.
 
-// PIF (Windows Program Information File)
+// Windows Program Information File (.PIF)
+// DESQview Program Information File (.DVP)
 
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_pif);
+DE_DECLARE_MODULE(de_module_desqview_dvp);
 
 #define PIF_BASIC_SECTION_SIZE 369
 #define PIF_INVALID_HEADING_POS 0xffff
@@ -16,6 +18,7 @@ struct pif_ctx {
 	de_ucstring *tmpstr;
 	i64 next_section_heading_pos;
 	struct de_inthashtable *pos_seen;
+	UI checksum_calc;
 };
 
 static int pif_validate_pos(deark *c, struct pif_ctx *d, i64 pos)
@@ -37,12 +40,40 @@ static void do_pif_section_default(deark *c, struct pif_ctx *d, i64 pos1, i64 le
 	de_dbg_hexdump(c, c->infile, pos1, len, 256, NULL, 0x1);
 }
 
+static int cksum_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
+	i64 buf_len)
+{
+	i64 i;
+	struct pif_ctx *d = (struct pif_ctx*)brctx->userdata;
+
+	for(i=0; i<buf_len; i++) {
+		d->checksum_calc += (UI)buf[i];
+	}
+	d->checksum_calc &= 0xff;
+	return 1;
+}
+
+// Sets d->checksum_calc
+static void pif_calc_checksum(deark *c, struct pif_ctx *d)
+{
+	d->checksum_calc = 0;
+	dbuf_buffered_read(c->infile, 2, PIF_BASIC_SECTION_SIZE-2, cksum_cbfn, (void*)d);
+}
+
 static void do_pif_section_basic(deark *c, struct pif_ctx *d, i64 pos1, i64 len)
 {
 	i64 pos = pos1;
 	i64 n;
+	UI checksum_reported;
 
-	pos += 2; // unused, checksum
+	pos++; // unused
+
+	checksum_reported = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "checksum (reported): 0x%02x", checksum_reported);
+	pif_calc_checksum(c, d);
+	// Note - Not all files set the checksum field. Often it's just set to 0x78,
+	// but other wrong values are common.
+	de_dbg(c, "checksum (calculated): 0x%02x", d->checksum_calc);
 
 	ucstring_empty(d->tmpstr);
 	dbuf_read_to_ucstring(c->infile, pos, 30, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
@@ -63,6 +94,7 @@ static void do_pif_section_basic(deark *c, struct pif_ctx *d, i64 pos1, i64 len)
 	de_dbg(c, "target filename: \"%s\"", ucstring_getpsz_d(d->tmpstr));
 	pos += 63;
 
+	// TODO: There's disagreement about what the next 2 bytes are.
 	n = de_getu16le_p(&pos);
 	de_dbg(c, "flags1: 0x%04x", (UI)n);
 
@@ -281,10 +313,26 @@ static void do_pif_sections(deark *c, struct pif_ctx *d)
 	}
 }
 
-static void de_run_pif(deark *c, de_module_params *mparams)
+static void do_dvp_extensions(deark *c, struct pif_ctx *d)
+{
+	i64 pos;
+	u8 dvextver;
+
+	pos = PIF_BASIC_SECTION_SIZE;
+	ucstring_empty(d->tmpstr);
+	dbuf_read_to_ucstring(c->infile, pos, 2, d->tmpstr, 0, DE_ENCODING_ASCII);
+	de_dbg(c, "keys: \"%s\"", ucstring_getpsz_d(d->tmpstr));
+
+	pos = PIF_BASIC_SECTION_SIZE + 13;
+	dvextver = de_getbyte(pos);
+	de_dbg(c, "DV extensions ver: %u", (UI)dvextver);
+}
+
+static void do_pif_main(deark *c, de_module_params *mparams, int is_dvp)
 {
 	const char *tmps;
 	struct pif_ctx *d = NULL;
+	int is_oldfmt = 0;
 
 	d = de_malloc(c, sizeof(struct pif_ctx));
 	d->tmpstr = ucstring_create(c);
@@ -302,8 +350,16 @@ static void de_run_pif(deark *c, de_module_params *mparams)
 
 	d->pos_seen = de_inthashtable_create(c);
 
-	if(c->infile->len < PIF_BASIC_SECTION_SIZE+22) {
+	if(!is_dvp && (c->infile->len < PIF_BASIC_SECTION_SIZE+22)) {
+		is_oldfmt = 1;
+	}
+
+	if(is_oldfmt) {
 		do_pif_section_basic(c, d, 0, PIF_BASIC_SECTION_SIZE);
+	}
+	else if(is_dvp) {
+		do_pif_section_basic(c, d, 0, PIF_BASIC_SECTION_SIZE);
+		do_dvp_extensions(c, d);
 	}
 	else {
 		do_pif_sections(c, d);
@@ -314,6 +370,11 @@ static void de_run_pif(deark *c, de_module_params *mparams)
 		de_inthashtable_destroy(c, d->pos_seen);
 		de_free(c, d);
 	}
+}
+
+static void de_run_pif(deark *c, de_module_params *mparams)
+{
+	do_pif_main(c, mparams, 0);
 }
 
 static int de_identify_pif(deark *c)
@@ -350,4 +411,28 @@ void de_module_pif(deark *c, struct deark_module_info *mi)
 	mi->identify_fn = de_identify_pif;
 	mi->run_fn = de_run_pif;
 	mi->help_fn = de_help_pif;
+}
+
+static void de_run_desqview_dvp(deark *c, de_module_params *mparams)
+{
+	do_pif_main(c, mparams, 1);
+}
+
+static int de_identify_desqview_dvp(deark *c)
+{
+	int has_ext;
+
+	if(c->infile->len!=416) return 0;
+	if(de_getbyte(0) != 0x00) return 0;
+	has_ext = de_input_file_has_ext(c, "dvp");
+	if(has_ext) return 40;
+	return 0;
+}
+
+void de_module_desqview_dvp(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "desqview_dvp";
+	mi->desc = "DESQview Program Information File";
+	mi->identify_fn = de_identify_desqview_dvp;
+	mi->run_fn = de_run_desqview_dvp;
 }

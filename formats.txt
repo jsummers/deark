@@ -1062,11 +1062,14 @@ Deark -- Information about supported formats
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
 
-* PIF (Program Information File) (module="pif") (incomplete)
+* PIF (Windows Program Information File) (module="pif") (incomplete)
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
   Options
    -opt oemenc=<...> - The encoding for OEM Text items. Same options as -inenc.
+
+* PIF/DESQview (module="desqview_dvp") (incomplete)
+  - Similar to PIF (Windows).
 
 * Plain text (module="plaintext")
   Read a plain text file, and write it as UTF-8.
