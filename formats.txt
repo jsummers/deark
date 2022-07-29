@@ -941,8 +941,7 @@ Deark -- Information about supported formats
 * CLP - Saved Windows clipboard (module="clp") (experimental)
   Options
    -opt clp:extractall - Extract all data items
-   -opt clp:oemenc=<...> - The encoding for OEM Text items. Same options as
-     -inenc.
+   -opt oemenc=<...> - The encoding for OEM Text items. Same options as -inenc.
 
 * Copy (module="copy")
   - "Extract" the entire file. Use with -start and -size to extract part of
@@ -1062,6 +1061,12 @@ Deark -- Information about supported formats
 * Photoshop Styles format (.asl) (module="ps_styles")
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
+
+* PIF (Program Information File) (module="pif") (incomplete)
+  - Files can be parsed, but there is usually nothing that can be extracted
+    from them.
+  Options
+   -opt oemenc=<...> - The encoding for OEM Text items. Same options as -inenc.
 
 * Plain text (module="plaintext")
   Read a plain text file, and write it as UTF-8.
