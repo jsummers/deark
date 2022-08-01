@@ -847,6 +847,9 @@ Deark -- Information about supported formats
 * RPM (package manager) (module="rpm")
   - Extract compressed cpio file.
 
+* QIP (Quarterdeck) (module="qip") (experimental)
+  An obscure installer format.
+
 * SIS (EPOC/Symbian archive) (module="sis")
   - EPOC release 3/4/5/6
 

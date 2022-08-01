@@ -10,6 +10,7 @@ DE_DECLARE_MODULE(de_module_cpshrink);
 DE_DECLARE_MODULE(de_module_dwc);
 DE_DECLARE_MODULE(de_module_tscomp);
 DE_DECLARE_MODULE(de_module_edi_pack);
+DE_DECLARE_MODULE(de_module_qip);
 DE_DECLARE_MODULE(de_module_rar);
 
 struct localctx_struct;
@@ -27,6 +28,7 @@ struct member_data {
 	i64 cmpr_len;
 	i64 orig_len;
 	i64 cmpr_pos;
+	u32 crc_reported; // CRC of decompressed file
 	u8 orig_len_known;
 	de_ucstring *filename; // Allocated by create_md().
 	de_ucstring *tmpfn_base; // Client allocates, freed automatically.
@@ -38,6 +40,9 @@ struct member_data {
 	// Private use fields for the format decoder:
 	UI cmpr_meth;
 	UI file_flags;
+
+	u8 validate_crc; // Tell extract_member_file() to check crc_reported
+	u8 extracted_ok; // Status returned by extract_member_file()
 
 	// The extract_member_file() will temporarily set dcmpri/dcmpro/dres,
 	// and call ->dfn() if it is set.
@@ -199,11 +204,14 @@ static void extract_member_file(struct member_data *md)
 	de_finfo *fi = NULL;
 	dbuf *outf = NULL;
 	size_t k;
+	u32 crc_calc;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
 
+	md->extracted_ok = 0;
 	if(md->orig_len>0 && !md->orig_len_known) goto done; // sanity check
+	if(md->validate_crc && !md->d->crco) goto done;
 	if(md->is_encrypted) {
 		de_err(c, "%s: Encrypted files are not supported", ucstring_getpsz_d(md->filename));
 		goto done;
@@ -225,6 +233,9 @@ static void extract_member_file(struct member_data *md)
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
 	dbuf_enable_wbuffer(outf);
+	if(md->validate_crc) {
+		dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)md->d->crco);
+	}
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
@@ -236,6 +247,10 @@ static void extract_member_file(struct member_data *md)
 	md->dcmpri = &dcmpri;
 	md->dcmpro = &dcmpro;
 	md->dres = &dres;
+
+	if(md->validate_crc) {
+		de_crcobj_reset(md->d->crco);
+	}
 
 	if(md->orig_len_known && md->orig_len==0) {
 		;
@@ -259,6 +274,17 @@ static void extract_member_file(struct member_data *md)
 			ucstring_getpsz_d(md->filename), md->orig_len, outf->len);
 		goto done;
 	}
+
+	if(md->validate_crc) {
+		crc_calc = de_crcobj_getval(md->d->crco);
+		de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)crc_calc);
+		if(crc_calc!=md->crc_reported) {
+			de_err(c, "%s: CRC check failed", ucstring_getpsz_d(md->filename));
+			goto done;
+		}
+	}
+
+	md->extracted_ok = 1;
 
 done:
 	dbuf_close(outf);
@@ -1011,6 +1037,212 @@ void de_module_edi_pack(deark *c, struct deark_module_info *mi)
 	mi->desc = "EDI Install packed file";
 	mi->run_fn = de_run_edi_pack;
 	mi->identify_fn = de_identify_edi_pack;
+}
+
+// **************************************************************************
+// Quarterdeck QIP
+// **************************************************************************
+
+static void qip_decompressor_fn(struct member_data *md)
+{
+	fmtutil_dclimplode_codectype1(md->c, md->dcmpri, md->dcmpro, md->dres, NULL);
+}
+
+// Returns 0 if no member was found at md->member_hdr_pos.
+static int do_qip_member(deark *c, lctx *d, struct member_data *md)
+{
+	int saved_indent_level;
+	i64 pos;
+	UI attr;
+	int retval = 0;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "member at %"I64_FMT, md->member_hdr_pos);
+	de_dbg_indent(c, 1);
+	pos = md->member_hdr_pos;
+	if(dbuf_memcmp(c->infile, pos, "QD", 2)) goto done;
+	pos += 2;
+	retval = 1;
+	pos += 2; // ?
+	read_field_cmpr_len_p(md, &pos);
+	pos += 2; // member index?
+
+	if(d->private_fmtver>=2) {
+		md->crc_reported = (u32)de_getu32le_p(&pos);
+		de_dbg(c, "crc (reported): 0x%08x", (UI)md->crc_reported);
+	}
+
+	attr = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "attribs: 0x%02x", attr);
+	read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 3, &pos);
+	read_field_orig_len_p(md, &pos);
+	dbuf_read_to_ucstring(c->infile, pos, 12, md->filename, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+	pos += 12;
+	pos += 1; // Maybe to allow the name to always be NUL terminated?
+
+	md->cmpr_pos = pos;
+	de_dbg(c, "cmpr data at %"I64_FMT, md->cmpr_pos);
+	md->dfn = qip_decompressor_fn;
+	if(d->private_fmtver>=2) {
+		md->validate_crc = 1;
+	}
+
+	extract_member_file(md);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static void qip_do_v1(deark *c, lctx *d)
+{
+	i64 pos = 0;
+	struct member_data *md = NULL;
+
+	// This version doesn't have an index, but we sort of pretend it does,
+	// so that v1 and v2 can be handled pretty much the same.
+
+	while(1) {
+		i64 cmpr_len;
+
+		if(pos+32 >= c->infile->len) goto done;
+
+		if(md) {
+			destroy_md(c, md);
+			md = NULL;
+		}
+		md = create_md(c, d);
+
+		md->member_hdr_pos = pos;
+		cmpr_len = de_getu32le(pos+4);
+		if(!do_qip_member(c, d, md)) {
+			goto done;
+		}
+		pos += 32 + cmpr_len;
+	}
+
+done:
+	if(md) {
+		destroy_md(c, md);
+	}
+}
+
+static void qip_do_v2(deark *c, lctx *d)
+{
+	i64 pos;
+	i64 index_pos;
+	i64 index_len;
+	i64 index_endpos;
+	i64 i;
+	struct member_data *md = NULL;
+
+	pos = 2;
+	d->num_members = de_getu16le_p(&pos);
+	de_dbg(c, "number of members: %"I64_FMT, d->num_members);
+	index_len = de_getu32le_p(&pos);
+	de_dbg(c, "index size: %"I64_FMT, index_len); // ??
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	index_pos = 16;
+
+	de_dbg(c, "index at %"I64_FMT, index_pos);
+	index_endpos = index_pos+index_len;
+	if(index_endpos > c->infile->len) goto done;
+	pos = index_pos;
+
+	for(i=0; i<d->num_members; i++) {
+		if(pos+16 > index_endpos) goto done;
+
+		if(md) {
+			destroy_md(c, md);
+			md = NULL;
+		}
+		md = create_md(c, d);
+
+		md->member_hdr_pos = de_getu32le_p(&pos);
+		(void)do_qip_member(c, d, md);
+		pos += 12;
+	}
+
+done:
+	if(md) {
+		destroy_md(c, md);
+	}
+}
+
+static void de_run_qip(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	u8 b;
+	int unsupp_flag = 0;
+
+	d = create_lctx(c);
+	d->is_le = 1;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+
+	b = de_getbyte(1);
+	if(b=='P') {
+		d->private_fmtver = 2;
+	}
+	else if(b=='D') {
+		d->private_fmtver = 1;
+	}
+	else {
+		unsupp_flag = 1;
+		goto done;
+	}
+
+	if(d->private_fmtver==2) {
+		if(de_getbyte(8)!=0x02) {
+			unsupp_flag = 1;
+			goto done;
+		}
+	}
+
+	if(d->private_fmtver==1) {
+		qip_do_v1(c, d);
+	}
+	else {
+		qip_do_v2(c, d);
+	}
+
+done:
+	if(unsupp_flag) {
+		de_err(c, "Not a supported QIP format");
+	}
+	destroy_lctx(c, d);
+}
+
+static int de_identify_qip(deark *c)
+{
+	u8 b;
+	i64 n;
+
+	if(de_getbyte(0)!='Q') return 0;
+	b = de_getbyte(1);
+	if(b=='P') {
+		if(de_getbyte(8)!=0x02) return 0;
+		n = de_getu32le(16);
+		if(n>c->infile->len) return 0;
+		if(!dbuf_memcmp(c->infile, n, "QD", 2)) return 100;
+	}
+	else if(b=='D') {
+		if(de_getu16le(2)==0 &&
+			de_getu16le(8)==1)
+		{
+			return 70;
+		}
+	}
+	return 0;
+}
+
+void de_module_qip(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "qip";
+	mi->desc = "QIP (Quarterdeck)";
+	mi->run_fn = de_run_qip;
+	mi->identify_fn = de_identify_qip;
 }
 
 // **************************************************************************
