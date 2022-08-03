@@ -35,7 +35,9 @@ struct member_data {
 	de_ucstring *tmpfn_path; // Client allocates, freed automatically.
 	struct de_timestamp tmstamp[DE_TIMESTAMPIDX_COUNT];
 	UI set_name_flags; // e.g. DE_SNFLAG_FULLPATH
+	UI dos_attribs;
 	u8 is_encrypted;
+	u8 has_dos_attribs;
 
 	// Private use fields for the format decoder:
 	UI cmpr_meth;
@@ -133,6 +135,27 @@ static void read_field_cmpr_len_p(struct member_data *md, i64 *ppos)
 	n = dbuf_getu32x(md->c->infile, *ppos, md->d->is_le);
 	*ppos += 4;
 	handle_field_cmpr_len(md, n);
+}
+
+static void de_arch_handle_field_dos_attr(struct member_data *md, UI attr)
+{
+	de_ucstring *descr = NULL;
+
+	md->dos_attribs = attr;
+	md->has_dos_attribs = 1;
+	descr = ucstring_create(md->c);
+	de_describe_dos_attribs(md->c, md->dos_attribs, descr, 0);
+	de_dbg(md->c, "DOS attribs: 0x%02x (%s)", md->dos_attribs, ucstring_getpsz_d(descr));
+	ucstring_destroy(descr);
+}
+
+// Read and process a 1-byte DOS attributes field
+static void de_arch_read_field_dos_attr_p(struct member_data *md, i64 *ppos)
+{
+	UI attr;
+
+	attr = (UI)dbuf_getbyte_p(md->c->infile, ppos);
+	de_arch_handle_field_dos_attr(md, attr);
 }
 
 // tstype:
@@ -1053,7 +1076,7 @@ static int do_qip_member(deark *c, lctx *d, struct member_data *md)
 {
 	int saved_indent_level;
 	i64 pos;
-	UI attr;
+	UI index;
 	int retval = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -1065,15 +1088,16 @@ static int do_qip_member(deark *c, lctx *d, struct member_data *md)
 	retval = 1;
 	pos += 2; // ?
 	read_field_cmpr_len_p(md, &pos);
-	pos += 2; // member index?
+	index = (UI)de_getu16le_p(&pos); // ?
+	de_dbg(c, "index: %u", index);
 
 	if(d->private_fmtver>=2) {
 		md->crc_reported = (u32)de_getu32le_p(&pos);
 		de_dbg(c, "crc (reported): 0x%08x", (UI)md->crc_reported);
 	}
 
-	attr = (UI)de_getbyte_p(&pos);
-	de_dbg(c, "attribs: 0x%02x", attr);
+	de_arch_read_field_dos_attr_p(md, &pos); // ?
+
 	read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 3, &pos);
 	read_field_orig_len_p(md, &pos);
 	dbuf_read_to_ucstring(c->infile, pos, 12, md->filename, DE_CONVFLAG_STOP_AT_NUL,
@@ -1285,9 +1309,7 @@ static void do_rar_old_member(deark *c, lctx *d, struct member_data *md)
 	md->member_total_size = hdrlen + md->cmpr_len;
 
 	read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 3, &pos);
-
-	b = de_getbyte_p(&pos);
-	de_dbg(c, "attribs: 0x%02x", (UI)b);
+	de_arch_read_field_dos_attr_p(md, &pos);
 
 	md->file_flags = (UI)de_getbyte_p(&pos); // status flags
 	de_dbg(c, "flags: 0x%02x", md->file_flags);
@@ -1428,6 +1450,7 @@ static void do_rar2_block_fileheader(deark *c, lctx *d, struct rar_block *rb)
 	i64 fnlen;
 	u32 filecrc_reported;
 	UI attribs;
+	u8 os;
 	u8 b;
 
 	md = create_md(c, d);
@@ -1437,8 +1460,8 @@ static void do_rar2_block_fileheader(deark *c, lctx *d, struct rar_block *rb)
 	md->cmpr_len = rb->block_size_2;
 	read_field_orig_len_p(md, &pos);
 
-	b = de_getbyte_p(&pos);
-	de_dbg(c, "OS: %u", (UI)b);
+	os = de_getbyte_p(&pos);
+	de_dbg(c, "OS: %u", (UI)os);
 
 	filecrc_reported = (u32)de_getu32le_p(&pos);
 	de_dbg(c, "file crc: 0x%08x", (UI)filecrc_reported);
@@ -1455,6 +1478,11 @@ static void do_rar2_block_fileheader(deark *c, lctx *d, struct rar_block *rb)
 
 	attribs = (UI)de_getu32le_p(&pos);
 	de_dbg(c, "attribs: 0x%08x", attribs);
+	if(os==0 || os==1 || os==2) {
+		de_dbg_indent(c, 1);
+		de_arch_handle_field_dos_attr(md, (attribs & 0xff));
+		de_dbg_indent(c, -1);
+	}
 
 	// TODO: Handle UTF-8 names
 	dbuf_read_to_ucstring_n(c->infile, pos, fnlen, 2048, md->filename,
