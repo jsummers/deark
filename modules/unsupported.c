@@ -93,12 +93,6 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
-	if(!de_memcmp(b, "Rar!\x1a\x07\x01\x00", 8)) {
-		fmti->confidence = 100;
-		fmti->descr = "a RAR 5.0 archive";
-		return;
-	}
-
 	if((!de_memcmp(b, "StuffIt", 7)) && (b[7]=='!' || b[7]=='?')) {
 		fmti->confidence = 90;
 		fmti->descr = "a StuffIt X archive";

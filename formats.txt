@@ -844,6 +844,10 @@ Deark -- Information about supported formats
   Options
    -opt pklite:raw - Instead of an EXE file, write raw decompressed data
 
+* RAR (module="rar")
+  - Files can be parsed, but there is usually nothing that can be extracted
+    from them.
+
 * RPM (package manager) (module="rpm")
   - Extract compressed cpio file.
 

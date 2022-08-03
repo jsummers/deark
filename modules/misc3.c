@@ -71,6 +71,7 @@ struct de_arch_localctx_struct {
 	int private_fmtver;
 	int private1;
 	UI archive_flags;
+	struct de_arch_member_data *cur_md;
 };
 
 static struct de_arch_member_data *de_arch_create_md(deark *c, de_arch_lctx *d)
@@ -161,30 +162,39 @@ static void de_arch_read_field_dos_attr_p(struct de_arch_member_data *md, i64 *p
 	de_arch_handle_field_dos_attr(md, attr);
 }
 
-// tstype:
-//   1 = Unix
-//   2 = DOS, date first
-//   3 = DOS, time first
+enum de_arch_tstype_enum {
+	DE_ARCH_TSTYPE_UNIX=1,
+	DE_ARCH_TSTYPE_UNIX_U,
+	DE_ARCH_TSTYPE_DOS_DT,
+	DE_ARCH_TSTYPE_DOS_TD,
+	DE_ARCH_TSTYPE_FILETIME
+};
+
 static void de_arch_read_field_dttm_p(de_arch_lctx *d,
 	struct de_timestamp *ts, const char *name,
-	int tstype, i64 *ppos)
+	enum de_arch_tstype_enum tstype, i64 *ppos)
 {
 	i64 n1, n2;
 	char timestamp_buf[64];
 	int is_set = 0;
 
 	ts->is_valid = 0;
-	if(tstype==1) {
-		n1 = dbuf_getu32x(d->c->infile, *ppos, d->is_le);
+	if(tstype==DE_ARCH_TSTYPE_UNIX || tstype==DE_ARCH_TSTYPE_UNIX_U) {
+		if(tstype==DE_ARCH_TSTYPE_UNIX_U) {
+			n1 = dbuf_getu32x(d->c->infile, *ppos, d->is_le);
+		}
+		else {
+			n1 = dbuf_geti32x(d->c->infile, *ppos, d->is_le);
+		}
 		de_unix_time_to_timestamp(n1, ts, 0x1);
 		is_set = 1;
 	}
-	else if(tstype==2 || tstype==3) {
+	else if(tstype==DE_ARCH_TSTYPE_DOS_DT || tstype==DE_ARCH_TSTYPE_DOS_TD) {
 		i64 dosdt, dostm;
 
 		n1 = dbuf_getu16x(d->c->infile, *ppos, d->is_le);
 		n2 = dbuf_getu16x(d->c->infile, *ppos+2, d->is_le);
-		if(tstype==3) {
+		if(tstype==DE_ARCH_TSTYPE_DOS_TD) {
 			dosdt = n2;
 			dostm = n1;
 		}
@@ -199,6 +209,13 @@ static void de_arch_read_field_dttm_p(de_arch_lctx *d,
 			ts->tzcode = DE_TZCODE_LOCAL;
 		}
 	}
+	else if(tstype==DE_ARCH_TSTYPE_FILETIME) {
+		n1 = dbuf_geti64x(d->c->infile, *ppos, d->is_le);
+		if(n1!=0) {
+			de_FILETIME_to_timestamp(n1, ts, 0x1);
+			is_set = 1;
+		}
+	}
 
 	if(is_set) {
 		de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
@@ -208,7 +225,12 @@ static void de_arch_read_field_dttm_p(de_arch_lctx *d,
 	}
 	de_dbg(d->c, "%s time: %s", name, timestamp_buf);
 
-	*ppos += 4;
+	if(tstype==DE_ARCH_TSTYPE_FILETIME) {
+		*ppos += 8;
+	}
+	else {
+		*ppos += 4;
+	}
 }
 
 // Assumes md->filename is set
@@ -372,7 +394,8 @@ static void cpshrink_do_member(deark *c, de_arch_lctx *d, struct de_arch_member_
 	de_arch_read_field_cmpr_len_p(md, &pos);
 	d->cmpr_data_curpos += md->cmpr_len;
 
-	de_arch_read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 2, &pos);
+	de_arch_read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		DE_ARCH_TSTYPE_DOS_DT, &pos);
 
 	if(!de_arch_good_cmpr_data_pos(md)) {
 		d->fatalerrflag = 1;
@@ -581,7 +604,8 @@ static void do_dwc_member(deark *c, de_arch_lctx *d, i64 pos1, i64 fhsize)
 	pos += 13;
 
 	de_arch_read_field_orig_len_p(md, &pos);
-	de_arch_read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 1, &pos);
+	de_arch_read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		DE_ARCH_TSTYPE_UNIX, &pos);
 	de_arch_read_field_cmpr_len_p(md, &pos);
 	md->cmpr_pos = de_getu32le_p(&pos);
 	de_dbg(c, "cmpr. data pos: %"I64_FMT, md->cmpr_pos);
@@ -711,7 +735,7 @@ static void de_run_dwc(deark *c, de_module_params *mparams)
 	}
 
 	pos += 13; // TODO?: name of header file ("h" command)
-	de_arch_read_field_dttm_p(d, &tmpts, "archive last-modified", 1, &pos);
+	de_arch_read_field_dttm_p(d, &tmpts, "archive last-modified", DE_ARCH_TSTYPE_UNIX, &pos);
 
 	nmembers = de_getu16le_p(&pos);
 	de_dbg(c, "number of member files: %d", (int)nmembers);
@@ -797,7 +821,8 @@ static void tscomp_do_member(deark *c, de_arch_lctx *d, struct de_arch_member_da
 	pos += 1;
 	de_arch_read_field_cmpr_len_p(md, &pos);
 	pos += 4; // ??
-	de_arch_read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 2, &pos);
+	de_arch_read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		DE_ARCH_TSTYPE_DOS_DT, &pos);
 	pos += 2; // ??
 
 	fnlen = de_getbyte_p(&pos);
@@ -1101,7 +1126,8 @@ static int do_qip_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *
 
 	de_arch_read_field_dos_attr_p(md, &pos); // ?
 
-	de_arch_read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 3, &pos);
+	de_arch_read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		DE_ARCH_TSTYPE_DOS_TD, &pos);
 	de_arch_read_field_orig_len_p(md, &pos);
 	dbuf_read_to_ucstring(c->infile, pos, 12, md->filename, DE_CONVFLAG_STOP_AT_NUL,
 		d->input_encoding);
@@ -1311,7 +1337,8 @@ static void do_rar_old_member(deark *c, de_arch_lctx *d, struct de_arch_member_d
 
 	md->member_total_size = hdrlen + md->cmpr_len;
 
-	de_arch_read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 3, &pos);
+	de_arch_read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		DE_ARCH_TSTYPE_DOS_TD, &pos);
 	de_arch_read_field_dos_attr_p(md, &pos);
 
 	md->file_flags = (UI)de_getbyte_p(&pos); // status flags
@@ -1415,8 +1442,7 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-
-struct rar_block {
+struct rar4_block {
 	i64 block_pos;
 	u32 crc_reported;
 	UI flags;
@@ -1426,7 +1452,20 @@ struct rar_block {
 	i64 block_size_full;
 };
 
-static const char *rar_get_blktype_name(u8 n)
+struct rar5_block {
+	i64 block_pos;
+	i64 block_size_full;
+	u32 crc_reported;
+	UI type;
+	UI hdr_flags;
+	i64 extra_area_pos;
+	i64 extra_area_size;
+	i64 data_area_pos;
+	i64 data_area_size;
+	i64 pos_after_standard_fields;
+};
+
+static const char *rar_get_v4_blktype_name(u8 n)
 {
 	const char *name = NULL;
 
@@ -1446,7 +1485,7 @@ static const char *rar_get_blktype_name(u8 n)
 	return name?name:"?";
 }
 
-static void do_rar2_block_fileheader(deark *c, de_arch_lctx *d, struct rar_block *rb)
+static void do_rar4_block_fileheader(deark *c, de_arch_lctx *d, struct rar4_block *rb)
 {
 	struct de_arch_member_data *md = NULL;
 	i64 pos;
@@ -1469,7 +1508,8 @@ static void do_rar2_block_fileheader(deark *c, de_arch_lctx *d, struct rar_block
 	filecrc_reported = (u32)de_getu32le_p(&pos);
 	de_dbg(c, "file crc: 0x%08x", (UI)filecrc_reported);
 
-	de_arch_read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 3, &pos);
+	de_arch_read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		DE_ARCH_TSTYPE_DOS_TD, &pos);
 
 	b = de_getbyte_p(&pos);
 	de_dbg(c, "min ver needed to unpack: %u", (UI)b);
@@ -1498,14 +1538,13 @@ static void do_rar2_block_fileheader(deark *c, de_arch_lctx *d, struct rar_block
 	de_arch_destroy_md(c, md);
 }
 
-static void rar_read_v2_block(deark *c, de_arch_lctx *d, struct rar_block *rb, i64 pos1)
+static void rar_read_v4_block(deark *c, de_arch_lctx *d, struct rar4_block *rb, i64 pos1)
 {
 	int saved_indent_level;
 	i64 pos;
 	u32 crc_calc;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_zeromem(rb, sizeof(struct rar_block));
 	rb->block_pos = pos1;
 	pos = rb->block_pos;
 
@@ -1515,7 +1554,7 @@ static void rar_read_v2_block(deark *c, de_arch_lctx *d, struct rar_block *rb, i
 	de_dbg(c, "crc (reported): 0x%04x", (UI)rb->crc_reported);
 
 	rb->type = de_getbyte_p(&pos);
-	de_dbg(c, "block type: 0x%02x (%s)", (UI)rb->type, rar_get_blktype_name(rb->type));
+	de_dbg(c, "block type: 0x%02x (%s)", (UI)rb->type, rar_get_v4_blktype_name(rb->type));
 
 	rb->flags = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "block flags: 0x%04x", (UI)rb->flags);
@@ -1538,32 +1577,438 @@ static void rar_read_v2_block(deark *c, de_arch_lctx *d, struct rar_block *rb, i
 	de_dbg(c, "block size (total): %"I64_FMT, rb->block_size_full);
 
 	switch(rb->type) {
-	case 0x74: do_rar2_block_fileheader(c, d, rb);
+	case 0x74: do_rar4_block_fileheader(c, d, rb);
 	}
 
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void do_rar_v2(deark *c, de_arch_lctx *d)
+static void rar4_free_block(deark *c, struct rar4_block *rb)
 {
-	struct rar_block *rb = NULL;
+	if(!rb) return;
+	de_free(c, rb);
+}
+
+static void rar5_free_block(deark *c, struct rar5_block *rb)
+{
+	if(!rb) return;
+	de_free(c, rb);
+}
+
+static void do_rar_v4(deark *c, de_arch_lctx *d)
+{
+	struct rar4_block *rb = NULL;
 	i64 pos = 0;
 
 	de_declare_fmt(c, "RAR (v1.50-4.20)");
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
 
-	rb = de_malloc(c, sizeof(struct rar_block));
-
 	while(1) {
 		if(pos >= c->infile->len) break;
-		rar_read_v2_block(c, d, rb, pos);
+
+		if(rb) {
+			rar4_free_block(c, rb);
+			rb = NULL;
+		}
+		rb = de_malloc(c, sizeof(struct rar4_block));
+		rar_read_v4_block(c, d, rb, pos);
 		if(d->fatalerrflag) goto done;
 		if(rb->block_size_full <= 0) goto done;
 		pos += rb->block_size_full;
 	}
 
 done:
-	de_free(c, rb);
+	rar4_free_block(c, rb);
+}
+
+static u64 rar_get_vint_p(de_arch_lctx *d, dbuf *f, i64 *ppos)
+{
+	u64 val = 0;
+	UI nbits_set = 0;
+
+	// TODO: Better handling of errors & oversized ints
+	while(1) {
+		u8 b;
+
+		if(nbits_set>=64) { val = 0; break; }
+		b = dbuf_getbyte_p(f, ppos);
+		if(nbits_set < 64) {
+			val |= (((u64)(b&0x7f))<<nbits_set);
+			nbits_set += 7;
+		}
+		if((b&0x80)==0) break;
+	}
+	return val;
+}
+
+static i64 rar_get_vint_i64_p(de_arch_lctx *d, dbuf *f, i64 *ppos)
+{
+	u64 v1u;
+	i64 v1i;
+
+	v1u = rar_get_vint_p(d, f, ppos);
+	v1i = (i64)v1u;
+	if(v1i<0) v1i = 0;
+	return v1i;
+}
+
+#define RAR5_HDRTYPE_ARCHIVE   1
+#define RAR5_HDRTYPE_FILE      2
+#define RAR5_HDRTYPE_SERVICE   3
+
+static const char *rar_get_v5_hdrtype_name(UI n)
+{
+	const char *name = NULL;
+
+	switch(n) {
+	case RAR5_HDRTYPE_ARCHIVE: name = "archive header"; break;
+	case RAR5_HDRTYPE_FILE: name = "file header"; break;
+	case RAR5_HDRTYPE_SERVICE: name = "service header"; break;
+	case 4: name = "encryption header"; break;
+	case 5: name = "end of archive"; break;
+	}
+
+	return name?name:"?";
+}
+
+static void on_rar5_file_end(deark *c, de_arch_lctx *d)
+{
+	if(!d->cur_md) return;
+	de_arch_destroy_md(c, d->cur_md);
+	d->cur_md = NULL;
+}
+
+static void on_rar5_file_begin(deark *c, de_arch_lctx *d)
+{
+	on_rar5_file_end(c, d);
+	d->cur_md = de_arch_create_md(c, d);
+}
+
+struct rar5_extra_data {
+	u8 have_timestamps;
+	struct de_timestamp tmstamp[DE_TIMESTAMPIDX_COUNT];
+};
+
+struct rar5_file_or_svc_hdr_data {
+	UI file_flags;
+	u64 attribs;
+	i64 orig_len;
+	u32 crc_reported;
+	UI cmpr_info;
+	UI cmpr_meth;
+	UI os;
+	struct de_timestamp mtime1;
+	struct de_stringreaderdata *name_srd;
+};
+
+static void do_rar5_comment(deark *c, de_arch_lctx *d, struct rar5_block *rb,
+	struct rar5_file_or_svc_hdr_data *hd)
+{
+	i64 cmt_len;
+	de_ucstring *comment = NULL;
+
+	if(hd->cmpr_meth!=0) goto done;
+	cmt_len = de_min_int(rb->data_area_size, hd->orig_len);
+	if(cmt_len<1) goto done;
+
+	if(c->extract_level>=2) {
+		dbuf_create_file_from_slice(c->infile, rb->data_area_pos, cmt_len, "comment.txt",
+			NULL, DE_CREATEFLAG_IS_AUX);
+	}
+	else {
+		comment = ucstring_create(c);
+		dbuf_read_to_ucstring_n(c->infile, rb->data_area_pos, cmt_len, DE_DBG_MAX_STRLEN,
+			comment, 0, DE_ENCODING_UTF8);
+		de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(comment));
+	}
+
+done:
+	ucstring_destroy(comment);
+}
+
+static const char *get_rar5_extra_record_name(struct rar5_block *rb, UI t)
+{
+	const char *name = NULL;
+
+	if(rb->type==RAR5_HDRTYPE_FILE || rb->type==RAR5_HDRTYPE_SERVICE) {
+		switch(t) {
+		case 1: name="encryption"; break;
+		case 2: name="hash"; break;
+		case 3: name="timestamps"; break;
+		case 4: name="version"; break;
+		case 5: name="redirection"; break;
+		case 6: name="owner (Unix)"; break;
+		case 7: name="service data"; break;
+		}
+	}
+	else if(rb->type==RAR5_HDRTYPE_ARCHIVE) {
+		if(t==1) name="locator";
+	}
+	return name?name:"?";
+}
+
+static void do_rar5_extrarec_timestamps(deark *c, de_arch_lctx *d, struct rar5_extra_data *ed,
+	i64 pos1, i64 len)
+{
+	UI flags;
+	enum de_arch_tstype_enum tstype;
+	i64 pos = pos1;
+
+	if(len<1) goto done;
+	ed->have_timestamps = 1;
+	flags = (UI)rar_get_vint_p(d, c->infile, &pos);
+	de_dbg(c, "flags: 0x%x", flags);
+	tstype = (flags & 0x1) ? DE_ARCH_TSTYPE_UNIX_U : DE_ARCH_TSTYPE_FILETIME;
+	if(flags & 0x2) {
+		de_arch_read_field_dttm_p(d, &ed->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		tstype, &pos);
+	}
+	if(flags & 0x4) {
+		de_arch_read_field_dttm_p(d, &ed->tmstamp[DE_TIMESTAMPIDX_CREATE], "create",
+		tstype, &pos);
+	}
+	if(flags & 0x8) {
+		de_arch_read_field_dttm_p(d, &ed->tmstamp[DE_TIMESTAMPIDX_ACCESS], "access",
+		tstype, &pos);
+	}
+	// TODO: Unix time w/nanosecond precision
+done:
+	;
+}
+
+static void do_rar5_extra_area(deark *c, de_arch_lctx *d, struct rar5_block *rb)
+{
+	int saved_indent_level;
+	i64 pos = rb->extra_area_pos;
+	i64 endpos = rb->data_area_pos;
+	struct rar5_extra_data *ed = NULL;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	ed = de_malloc(c, sizeof(struct rar5_extra_data));
+	if(rb->extra_area_size<1) goto done;
+
+	de_dbg(c, "extra area at %"I64_FMT", len=%"I64_FMT, rb->extra_area_pos,
+		rb->extra_area_size);
+	de_dbg_indent(c, 1);
+	while(1) {
+		i64 reclen;
+		i64 rec_dpos;
+		i64 rec_dlen;
+		i64 next_record_pos;
+		UI rectype;
+		int decoded;
+
+		if(pos >= endpos) break;
+		de_dbg(c, "record at %"I64_FMT, pos);
+		de_dbg_indent(c, 1);
+		reclen = rar_get_vint_i64_p(d, c->infile, &pos);
+		de_dbg(c, "record len: %"I64_FMT, reclen);
+
+		// Extra checks like the following are to guard against integer overflow.
+		if(reclen > rb->extra_area_size) goto done;
+
+		next_record_pos = pos + reclen;
+		if(next_record_pos > endpos) goto done;
+		rectype = (UI)rar_get_vint_p(d, c->infile, &pos);
+		de_dbg(c, "record type: %u (%s)", rectype,
+			get_rar5_extra_record_name(rb, rectype));
+
+		rec_dpos = pos;
+		rec_dlen = next_record_pos - rec_dpos;
+		de_dbg(c, "record dpos: %"I64_FMT", len: %"I64_FMT, rec_dpos, rec_dlen);
+
+		decoded = 0;
+		if(rb->type==RAR5_HDRTYPE_FILE || rb->type==RAR5_HDRTYPE_SERVICE) {
+			if(rectype==3) {
+				do_rar5_extrarec_timestamps(c, d, ed, rec_dpos, rec_dlen);
+				decoded = 1;
+			}
+		}
+
+		if(!decoded && rec_dlen>0) {
+			de_dbg_hexdump(c, c->infile, pos, rec_dlen, 256, NULL, 0x1);
+		}
+
+		pos = next_record_pos;
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	de_free(c, ed);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_rar5_file_or_service_hdr(deark *c, de_arch_lctx *d, struct rar5_block *rb)
+{
+	UI u;
+	i64 namelen;
+	i64 pos;
+	struct rar5_file_or_svc_hdr_data *hd = NULL;
+
+	hd = de_malloc(c, sizeof(struct rar5_file_or_svc_hdr_data));
+	pos = rb->pos_after_standard_fields;
+
+	if(rb->type==RAR5_HDRTYPE_FILE) {
+		on_rar5_file_begin(c, d);
+	}
+
+	hd->file_flags = (UI)rar_get_vint_p(d, c->infile, &pos);
+	de_dbg(c, "file flags: 0x%x", hd->file_flags);
+	hd->orig_len = rar_get_vint_i64_p(d, c->infile, &pos);
+	de_dbg(c, "original size: %"I64_FMT, hd->orig_len);
+	hd->attribs = rar_get_vint_p(d, c->infile, &pos);
+	de_dbg(c, "attribs: 0x%"U64_FMTx, hd->attribs);
+
+	if(hd->file_flags & 0x2) { // TODO: Test this
+		de_arch_read_field_dttm_p(d, &hd->mtime1, "mod", DE_ARCH_TSTYPE_UNIX_U, &pos);
+	}
+	if(hd->file_flags & 0x4) {
+		hd->crc_reported = (u32)de_getu32le_p(&pos);
+		de_dbg(c, "data crc: 0x%08x", (UI)hd->crc_reported);
+	}
+
+	hd->cmpr_info = (UI)rar_get_vint_p(d, c->infile, &pos);
+	de_dbg(c, "cmpr info: 0x%x", hd->cmpr_info);
+	de_dbg_indent(c, 1);
+	u = hd->cmpr_info & 0x3f;
+	de_dbg(c, "version: %u", u);
+	u = (hd->cmpr_info >> 6) & 0x1;
+	de_dbg(c, "solid: %u", u);
+	hd->cmpr_meth = (hd->cmpr_info >> 7) & 0x7;
+	de_dbg(c, "method: %u", hd->cmpr_meth);
+	u = (hd->cmpr_info >> 10) & 0xf;
+	de_dbg(c, "dict size: %u (%uk)", u, (UI)(128<<u));
+	de_dbg_indent(c, -1);
+
+	hd->os = (UI)rar_get_vint_p(d, c->infile, &pos);
+	de_dbg(c, "os: %u", hd->os);
+
+	namelen = rar_get_vint_i64_p(d, c->infile, &pos);
+#define RAR_MAX_NAMELEN 65535
+	if(namelen > RAR_MAX_NAMELEN) goto done;
+
+	hd->name_srd = dbuf_read_string(c->infile, pos, namelen, namelen, 0,
+		DE_ENCODING_UTF8);
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(hd->name_srd->str));
+
+	if(rb->type==RAR5_HDRTYPE_SERVICE) {
+		if(!de_strcmp(hd->name_srd->sz, "CMT")) {
+			do_rar5_comment(c, d, rb, hd);
+		}
+	}
+done:
+	if(hd) {
+		de_destroy_stringreaderdata(c, hd->name_srd);
+		de_free(c, hd);
+	}
+}
+
+static void rar_read_v5_block(deark *c, de_arch_lctx *d, struct rar5_block *rb, i64 pos1)
+{
+	i64 pos;
+	i64 hdr_size;
+	i64 pos_of_hdr_type_field;
+	u32 crc_calc;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	rb->block_pos = pos1;
+	pos = rb->block_pos;
+
+	de_dbg(c, "block at %"I64_FMT, rb->block_pos);
+	de_dbg_indent(c, 1);
+	rb->crc_reported = (u32)de_getu32le_p(&pos);
+	de_dbg(c, "hdr crc (reported): 0x%08x", (UI)rb->crc_reported);
+
+	hdr_size = rar_get_vint_i64_p(d, c->infile, &pos);
+	de_dbg(c, "hdr size: %"I64_FMT, hdr_size);
+	if(hdr_size > 0x1fffff) goto done;
+
+	pos_of_hdr_type_field = pos;
+
+	rb->type = (UI)rar_get_vint_p(d, c->infile, &pos);
+	de_dbg(c, "hdr type: %u (%s)", rb->type, rar_get_v5_hdrtype_name(rb->type));
+
+	rb->hdr_flags = (UI)rar_get_vint_p(d, c->infile, &pos);
+	de_dbg(c, "hdr flags: %u", rb->hdr_flags);
+
+	if(rb->hdr_flags & 0x1) {
+		rb->extra_area_size = rar_get_vint_i64_p(d, c->infile, &pos);
+		de_dbg(c, "extra area len: %"I64_FMT, rb->extra_area_size);
+		// Extra checks like the following are to guard against integer overflow.
+		if(rb->extra_area_size > c->infile->len) goto done;
+	}
+
+	if(rb->hdr_flags & 0x2) {
+		rb->data_area_size = rar_get_vint_i64_p(d, c->infile, &pos);
+		de_dbg(c, "data area len: %"I64_FMT, rb->data_area_size);
+		if(rb->data_area_size > c->infile->len) goto done;
+	}
+
+	rb->pos_after_standard_fields = pos;
+
+	// (If there's no data area, then this is the end of the block.)
+	rb->data_area_pos = pos_of_hdr_type_field + hdr_size;
+	if(rb->data_area_pos + rb->data_area_size > c->infile->len) goto done;
+
+	de_crcobj_reset(d->crco);
+	de_crcobj_addslice(d->crco, c->infile, rb->block_pos+4, rb->data_area_pos-(rb->block_pos+4));
+	crc_calc = de_crcobj_getval(d->crco);
+	de_dbg(c, "hdr crc (calculated): 0x%08x", (UI)crc_calc);
+	if(crc_calc != rb->crc_reported) goto done;
+
+	rb->block_size_full = (rb->data_area_pos + rb->data_area_size) - rb->block_pos;
+
+	rb->extra_area_pos = rb->data_area_pos - rb->extra_area_size;
+	if(rb->hdr_flags & 0x1) {
+		de_dbg(c, "extra area pos %"I64_FMT, rb->extra_area_pos);
+	}
+
+	if(rb->hdr_flags & 0x2) {
+		de_dbg(c, "data area pos: %"I64_FMT, rb->data_area_pos);
+	}
+
+	switch(rb->type) {
+	case RAR5_HDRTYPE_FILE:
+	case RAR5_HDRTYPE_SERVICE:
+		do_rar5_file_or_service_hdr(c, d, rb);
+		break;
+	}
+
+	do_rar5_extra_area(c, d, rb);
+
+done:
+	if(rb->block_size_full==0) {
+		d->fatalerrflag = 1;
+	}
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_rar_v5(deark *c, de_arch_lctx *d)
+{
+	struct rar5_block *rb = NULL;
+	i64 pos = 8;
+
+	de_declare_fmt(c, "RAR 5.0");
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+
+	while(1) {
+		if(pos >= c->infile->len) break;
+
+		if(rb) {
+			rar5_free_block(c, rb);
+			rb = NULL;
+		}
+		rb = de_malloc(c, sizeof(struct rar5_block));
+		rar_read_v5_block(c, d, rb, pos);
+		if(d->fatalerrflag) goto done;
+		if(rb->block_size_full <= 0) goto done;
+		pos += rb->block_size_full;
+	}
+
+done:
+	on_rar5_file_end(c, d);
+	rar5_free_block(c, rb);
 }
 
 static void de_run_rar(deark *c, de_module_params *mparams)
@@ -1588,16 +2033,18 @@ static void de_run_rar(deark *c, de_module_params *mparams)
 		de_err(c, "Not a RAR file");
 		goto done;
 	}
+	if(c->module_disposition==DE_MODDISP_AUTODETECT) {
+		de_info(c, "Note: RAR files can be parsed, but not decompressed.");
+	}
 
 	if(d->private_fmtver==1) {
 		do_rar_old(c, d);
 	}
 	else if(d->private_fmtver==2) {
-		do_rar_v2(c, d);
+		do_rar_v4(c, d);
 	}
 	else {
-		de_err(c, "Unsupported RAR version");
-		goto done;
+		do_rar_v5(c, d);
 	}
 
 done:
@@ -1607,6 +2054,9 @@ done:
 static int de_identify_rar(deark *c)
 {
 	if(!dbuf_memcmp(c->infile, 0, g_rar2_sig, 7)) {
+		return 100;
+	}
+	if(!dbuf_memcmp(c->infile, 0, g_rar5_sig, 8)) {
 		return 100;
 	}
 	if(!dbuf_memcmp(c->infile, 0, g_rar_oldsig, 4)) {
@@ -1621,5 +2071,4 @@ void de_module_rar(deark *c, struct deark_module_info *mi)
 	mi->desc = "RAR archive";
 	mi->run_fn = de_run_rar;
 	mi->identify_fn = de_identify_rar;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }
