@@ -68,7 +68,9 @@ struct de_arch_localctx_struct {
 	int fatalerrflag;
 
 	// Private use fields for the format decoder:
-	int private_fmtver;
+	i64 data_startpos;
+	int stop_flag;
+	int fmtver;
 	int private1;
 	UI archive_flags;
 	struct de_arch_member_data *cur_md;
@@ -982,7 +984,7 @@ static int edi_is_filename_at(deark *c, de_arch_lctx *d, i64 pos)
 	return 1;
 }
 
-// Sets d->private_fmtver to:
+// Sets d->fmtver to:
 //  0 = Not a known format
 //  1 = EDI Pack "EDILZSS1"
 //  2 = EDI Pack "EDILZSS2"
@@ -1006,14 +1008,14 @@ static void edi_detect_fmt(deark *c, de_arch_lctx *d)
 		// There's no easy way to distinguish some LZSS1 formats. This will not
 		// always work.
 		if(edi_is_filename_at(c, d, pos)) {
-			d->private_fmtver = 1;
+			d->fmtver = 1;
 		}
 		else {
-			d->private_fmtver = 10;
+			d->fmtver = 10;
 		}
 	}
 	else if(ver=='2') {
-		d->private_fmtver = 2;
+		d->fmtver = 2;
 	}
 	else {
 		d->need_errmsg = 1;
@@ -1031,24 +1033,24 @@ static void de_run_edi_pack(deark *c, de_module_params *mparams)
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 
 	edi_detect_fmt(c, d);
-	if(d->private_fmtver==0) goto done;
-	else if(d->private_fmtver==10) {
+	if(d->fmtver==0) goto done;
+	else if(d->fmtver==10) {
 		de_declare_fmt(c, "EDI LZSSLib");
 	}
 	else {
-		de_declare_fmtf(c, "EDI Pack LZSS%d", d->private_fmtver);
+		de_declare_fmtf(c, "EDI Pack LZSS%d", d->fmtver);
 	}
 	pos = 8;
 
 	md = de_arch_create_md(c, d);
-	if(d->private_fmtver==1 || d->private_fmtver==2) {
+	if(d->fmtver==1 || d->fmtver==2) {
 		dbuf_read_to_ucstring(c->infile, pos, 12, md->filename, DE_CONVFLAG_STOP_AT_NUL,
 			d->input_encoding);
 		de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
 		pos += 13;
 	}
 
-	if(d->private_fmtver==2) {
+	if(d->fmtver==2) {
 		de_arch_read_field_orig_len_p(md, &pos);
 	}
 
@@ -1119,7 +1121,7 @@ static int do_qip_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *
 	index = (UI)de_getu16le_p(&pos); // ?
 	de_dbg(c, "index: %u", index);
 
-	if(d->private_fmtver>=2) {
+	if(d->fmtver>=2) {
 		md->crc_reported = (u32)de_getu32le_p(&pos);
 		de_dbg(c, "crc (reported): 0x%08x", (UI)md->crc_reported);
 	}
@@ -1138,7 +1140,7 @@ static int do_qip_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *
 	md->cmpr_pos = pos;
 	de_dbg(c, "cmpr data at %"I64_FMT, md->cmpr_pos);
 	md->dfn = qip_decompressor_fn;
-	if(d->private_fmtver>=2) {
+	if(d->fmtver>=2) {
 		md->validate_crc = 1;
 	}
 
@@ -1236,24 +1238,24 @@ static void de_run_qip(deark *c, de_module_params *mparams)
 
 	b = de_getbyte(1);
 	if(b=='P') {
-		d->private_fmtver = 2;
+		d->fmtver = 2;
 	}
 	else if(b=='D') {
-		d->private_fmtver = 1;
+		d->fmtver = 1;
 	}
 	else {
 		unsupp_flag = 1;
 		goto done;
 	}
 
-	if(d->private_fmtver==2) {
+	if(d->fmtver==2) {
 		if(de_getbyte(8)!=0x02) {
 			unsupp_flag = 1;
 			goto done;
 		}
 	}
 
-	if(d->private_fmtver==1) {
+	if(d->fmtver==1) {
 		qip_do_v1(c, d);
 	}
 	else {
@@ -1303,7 +1305,7 @@ void de_module_qip(deark *c, struct deark_module_info *mi)
 // **************************************************************************
 
 static const u8 *g_rar_oldsig = (const u8*)"RE\x7e\x5e";
-static const u8 *g_rar2_sig = (const u8*)"Rar!\x1a\x07\x00";
+static const u8 *g_rar4_sig = (const u8*)"Rar!\x1a\x07\x00";
 static const u8 *g_rar5_sig = (const u8*)"Rar!\x1a\x07\x01\x00";
 
 static void do_rar_old_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *md)
@@ -1383,7 +1385,7 @@ done:
 // Ref: Search for a file named RAR140DC.EXE, containing technote.doc.
 static void do_rar_old(deark *c, de_arch_lctx *d)
 {
-	i64 pos = 0;
+	i64 pos = d->data_startpos;
 	i64 hdrpos;
 	i64 hdrlen;
 	struct de_arch_member_data *md = NULL;
@@ -1447,7 +1449,9 @@ struct rar4_block {
 	u32 crc_reported;
 	UI flags;
 	u8 type;
+	i64 data1_pos;
 	i64 block_size_1;
+	i64 data2_pos;
 	i64 block_size_2;
 	i64 block_size_full;
 };
@@ -1485,6 +1489,20 @@ static const char *rar_get_v4_blktype_name(u8 n)
 	return name?name:"?";
 }
 
+static const char *rar4_get_OS_name(u8 n)
+{
+	const char *name = NULL;
+
+	switch(n) {
+	case 0: name = "DOS"; break;
+	case 1: name = "OS/2"; break;
+	case 2: name = "Windows"; break;
+	case 3: name = "Unix"; break;
+	case 4: name = "Mac"; break;
+	}
+	return name?name:"?";
+}
+
 static void do_rar4_block_fileheader(deark *c, de_arch_lctx *d, struct rar4_block *rb)
 {
 	struct de_arch_member_data *md = NULL;
@@ -1497,13 +1515,14 @@ static void do_rar4_block_fileheader(deark *c, de_arch_lctx *d, struct rar4_bloc
 
 	md = de_arch_create_md(c, d);
 
-	pos = rb->block_pos + 11;
+	pos = rb->data1_pos;
 
+	md->cmpr_pos = rb->data2_pos;
 	md->cmpr_len = rb->block_size_2;
 	de_arch_read_field_orig_len_p(md, &pos);
 
 	os = de_getbyte_p(&pos);
-	de_dbg(c, "OS: %u", (UI)os);
+	de_dbg(c, "OS: %u (%s)", (UI)os, rar4_get_OS_name(os));
 
 	filecrc_reported = (u32)de_getu32le_p(&pos);
 	de_dbg(c, "file crc: 0x%08x", (UI)filecrc_reported);
@@ -1535,7 +1554,122 @@ static void do_rar4_block_fileheader(deark *c, de_arch_lctx *d, struct rar4_bloc
 
 	// TODO: Comment block
 
+	if(rb->flags & 0x0100) {
+		// TODO: I think this requires special processing (HIGH_PACK_SIZE)
+		d->fatalerrflag = 1;
+		goto done;
+	}
+
+	de_dbg(c, "cmpr. data at %"I64_FMT", len=%"I64_FMT, md->cmpr_pos, md->cmpr_len);
+
+done:
 	de_arch_destroy_md(c, md);
+}
+
+static const char *rar4_get_oldsubblock_name(UI t)
+{
+	const char *name = NULL;
+
+	if(t==0x100) name="OS/2 ext attribs";
+	return name?name:"?";
+}
+
+static void do_rar4_block_oldsubblock(deark *c, de_arch_lctx *d, struct rar4_block *rb)
+{
+	UI sbtype;
+	i64 pos = rb->data1_pos;
+
+	sbtype = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "subblock type: 0x%04x (%s)", sbtype, rar4_get_oldsubblock_name(sbtype));
+}
+
+// Caller supplies descr
+static void get_rar4_flags_descr(struct rar4_block *rb, de_ucstring *s)
+{
+	UI bf = rb->flags;
+	UI x;
+
+	ucstring_empty(s);
+	if(rb->type==0x73) { // archive hdr
+		if(bf & 0x0001) {
+			ucstring_append_flags_item(s, "volume");
+			bf -= 0x0001;
+		}
+		if(bf & 0x0002) {
+			ucstring_append_flags_item(s, "has comment (old)");
+			bf -= 0x0002;
+		}
+		if(bf & 0x0004) {
+			ucstring_append_flags_item(s, "locked");
+			bf -= 0x0004;
+		}
+		if(bf & 0x0008) {
+			ucstring_append_flags_item(s, "solid");
+			bf -= 0x0008;
+		}
+		if(bf & 0x0020) {
+			ucstring_append_flags_item(s, "has auth info (old)");
+			bf -= 0x0020;
+		}
+		if(bf & 0x0040) {
+			ucstring_append_flags_item(s, "has recovery record");
+			bf -= 0x0040;
+		}
+	}
+	else if(rb->type==0x74) { // file hdr
+		if(bf & 0x0001) {
+			ucstring_append_flags_item(s, "continued from prev vol");
+			bf -= 0x0001;
+		}
+		if(bf & 0x0002) {
+			ucstring_append_flags_item(s, "continued in next vol");
+			bf -= 0x0002;
+		}
+		if(bf & 0x0004) {
+			ucstring_append_flags_item(s, "encrypted");
+			bf -= 0x0004;
+		}
+		if(bf & 0x0008) {
+			ucstring_append_flags_item(s, "has comment (old)");
+			bf -= 0x0008;
+		}
+		if(bf & 0x0010) {
+			ucstring_append_flags_item(s, "solid");
+			bf -= 0x0010;
+		}
+
+		x = bf & 0x00e0;
+		bf -= x;
+		x >>= 5;
+		if(x==0x7) {
+			ucstring_append_flags_item(s, "directory");
+		}
+		else {
+			ucstring_append_flags_itemf(s, "dict=%uK", (UI)(64<<x));
+		}
+
+		if(bf & 0x0200) {
+			ucstring_append_flags_item(s, "Unicode filename");
+			bf -= 0x0200;
+		}
+		if(bf & 0x1000) {
+			ucstring_append_flags_item(s, "has ext time field");
+			bf -= 0x1000;
+		}
+		// TODO: More fields
+	}
+
+	if(bf & 0x4000) {
+		ucstring_append_flags_item(s, "unsafe to copy");
+		bf -= 0x4000;
+	}
+	if(bf & 0x8000) {
+		ucstring_append_flags_item(s, "full block");
+		bf -= 0x8000;
+	}
+	if(bf!=0) {
+		ucstring_append_flags_itemf(s, "0x%04x", bf);
+	}
 }
 
 static void rar_read_v4_block(deark *c, de_arch_lctx *d, struct rar4_block *rb, i64 pos1)
@@ -1543,6 +1677,7 @@ static void rar_read_v4_block(deark *c, de_arch_lctx *d, struct rar4_block *rb, 
 	int saved_indent_level;
 	i64 pos;
 	u32 crc_calc;
+	de_ucstring *descr = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	rb->block_pos = pos1;
@@ -1557,7 +1692,9 @@ static void rar_read_v4_block(deark *c, de_arch_lctx *d, struct rar4_block *rb, 
 	de_dbg(c, "block type: 0x%02x (%s)", (UI)rb->type, rar_get_v4_blktype_name(rb->type));
 
 	rb->flags = (UI)de_getu16le_p(&pos);
-	de_dbg(c, "block flags: 0x%04x", (UI)rb->flags);
+	descr = ucstring_create(c);
+	get_rar4_flags_descr(rb, descr);
+	de_dbg(c, "block flags: 0x%04x (%s)", (UI)rb->flags, ucstring_getpsz_d(descr));
 
 	rb->block_size_1 = de_getu16le_p(&pos);
 	de_dbg(c, "block size (part 1): %"I64_FMT, rb->block_size_1);
@@ -1573,13 +1710,22 @@ static void rar_read_v4_block(deark *c, de_arch_lctx *d, struct rar4_block *rb, 
 		de_dbg(c, "block size (part 2): %"I64_FMT, rb->block_size_2);
 	}
 
+	rb->data1_pos = pos;
+	rb->data2_pos = rb->block_pos + rb->block_size_1;
+
 	rb->block_size_full = rb->block_size_1 + rb->block_size_2;
 	de_dbg(c, "block size (total): %"I64_FMT, rb->block_size_full);
 
 	switch(rb->type) {
-	case 0x74: do_rar4_block_fileheader(c, d, rb);
+	case 0x74:
+		do_rar4_block_fileheader(c, d, rb);
+		break;
+	case 0x77:
+		do_rar4_block_oldsubblock(c, d, rb);
+		break;
 	}
 
+	ucstring_destroy(descr);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -1598,7 +1744,7 @@ static void rar5_free_block(deark *c, struct rar5_block *rb)
 static void do_rar_v4(deark *c, de_arch_lctx *d)
 {
 	struct rar4_block *rb = NULL;
-	i64 pos = 0;
+	i64 pos = d->data_startpos;
 
 	de_declare_fmt(c, "RAR (v1.50-4.20)");
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
@@ -1655,6 +1801,7 @@ static i64 rar_get_vint_i64_p(de_arch_lctx *d, dbuf *f, i64 *ppos)
 #define RAR5_HDRTYPE_ARCHIVE   1
 #define RAR5_HDRTYPE_FILE      2
 #define RAR5_HDRTYPE_SERVICE   3
+#define RAR5_HDRTYPE_EOA       5
 
 static const char *rar_get_v5_hdrtype_name(UI n)
 {
@@ -1665,7 +1812,7 @@ static const char *rar_get_v5_hdrtype_name(UI n)
 	case RAR5_HDRTYPE_FILE: name = "file header"; break;
 	case RAR5_HDRTYPE_SERVICE: name = "service header"; break;
 	case 4: name = "encryption header"; break;
-	case 5: name = "end of archive"; break;
+	case RAR5_HDRTYPE_EOA: name = "end of archive"; break;
 	}
 
 	return name?name:"?";
@@ -1928,6 +2075,9 @@ static void rar_read_v5_block(deark *c, de_arch_lctx *d, struct rar5_block *rb, 
 
 	rb->type = (UI)rar_get_vint_p(d, c->infile, &pos);
 	de_dbg(c, "hdr type: %u (%s)", rb->type, rar_get_v5_hdrtype_name(rb->type));
+	if(rb->type==RAR5_HDRTYPE_EOA) {
+		d->stop_flag = 1;
+	}
 
 	rb->hdr_flags = (UI)rar_get_vint_p(d, c->infile, &pos);
 	de_dbg(c, "hdr flags: %u", rb->hdr_flags);
@@ -1987,10 +2137,11 @@ done:
 static void do_rar_v5(deark *c, de_arch_lctx *d)
 {
 	struct rar5_block *rb = NULL;
-	i64 pos = 8;
+	i64 pos = d->data_startpos;
 
 	de_declare_fmt(c, "RAR 5.0");
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	pos += 8;
 
 	while(1) {
 		if(pos >= c->infile->len) break;
@@ -2001,7 +2152,7 @@ static void do_rar_v5(deark *c, de_arch_lctx *d)
 		}
 		rb = de_malloc(c, sizeof(struct rar5_block));
 		rar_read_v5_block(c, d, rb, pos);
-		if(d->fatalerrflag) goto done;
+		if(d->fatalerrflag || d->stop_flag) goto done;
 		if(rb->block_size_full <= 0) goto done;
 		pos += rb->block_size_full;
 	}
@@ -2011,6 +2162,36 @@ done:
 	rar5_free_block(c, rb);
 }
 
+static int rar_get_fmtver(dbuf *f, i64 pos)
+{
+	u8 buf[8];
+
+	dbuf_read(f, buf, pos, sizeof(buf));
+	if(!de_memcmp(buf, g_rar4_sig, 7)) {
+		return 4; // ver 1.5x-4.xx
+	}
+	if(!de_memcmp(buf, g_rar5_sig, 8)) {
+		return 5;
+	}
+	if(!de_memcmp(buf, g_rar_oldsig, 4)) {
+		return 1; // ver < 1.50
+	}
+	return 0;
+}
+
+static int rar_search_for_archive(deark *c, de_arch_lctx *d, i64 *pfoundpos)
+{
+	int ret;
+
+	// Search for the common prefix of g_rar4_sig & g_rar5_sig
+	ret = dbuf_search(c->infile, g_rar4_sig, 6, 0, c->infile->len, pfoundpos);
+	if(ret) return 1;
+
+	ret = dbuf_search(c->infile, g_rar_oldsig, 4, 0, c->infile->len, pfoundpos);
+	if(ret) return 1;
+	return 0;
+}
+
 static void de_run_rar(deark *c, de_module_params *mparams)
 {
 	de_arch_lctx *d = NULL;
@@ -2018,18 +2199,17 @@ static void de_run_rar(deark *c, de_module_params *mparams)
 	d = de_arch_create_lctx(c);
 	d->is_le = 1;
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->data_startpos = 0;
 
-	if(!dbuf_memcmp(c->infile, 0, g_rar2_sig, 7)) {
-		d->private_fmtver = 2;
-	}
-	else if(!dbuf_memcmp(c->infile, 0, g_rar5_sig, 8)) {
-		d->private_fmtver = 5;
-	}
-	else if(!dbuf_memcmp(c->infile, 0, g_rar_oldsig, 4)) {
-		d->private_fmtver = 1;
+	d->fmtver = rar_get_fmtver(c->infile, d->data_startpos);
+	if(d->fmtver==0 && c->module_disposition==DE_MODDISP_EXPLICIT) {
+		if(rar_search_for_archive(c, d, &d->data_startpos)) {
+			de_dbg(c, "likely RAR data found at %"I64_FMT, d->data_startpos);
+			d->fmtver = rar_get_fmtver(c->infile, d->data_startpos);
+		}
 	}
 
-	if(d->private_fmtver==0) {
+	if(d->fmtver==0) {
 		de_err(c, "Not a RAR file");
 		goto done;
 	}
@@ -2037,10 +2217,10 @@ static void de_run_rar(deark *c, de_module_params *mparams)
 		de_info(c, "Note: RAR files can be parsed, but not decompressed.");
 	}
 
-	if(d->private_fmtver==1) {
+	if(d->fmtver==1) {
 		do_rar_old(c, d);
 	}
-	else if(d->private_fmtver==2) {
+	else if(d->fmtver==4) {
 		do_rar_v4(c, d);
 	}
 	else {
@@ -2053,16 +2233,10 @@ done:
 
 static int de_identify_rar(deark *c)
 {
-	if(!dbuf_memcmp(c->infile, 0, g_rar2_sig, 7)) {
-		return 100;
-	}
-	if(!dbuf_memcmp(c->infile, 0, g_rar5_sig, 8)) {
-		return 100;
-	}
-	if(!dbuf_memcmp(c->infile, 0, g_rar_oldsig, 4)) {
-		return 100;
-	}
-	return 0;
+	int v;
+
+	v = rar_get_fmtver(c->infile, 0);
+	return v?100:0;
 }
 
 void de_module_rar(deark *c, struct deark_module_info *mi)
