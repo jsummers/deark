@@ -2,6 +2,8 @@
 // Copyright (C) 2016 Jason Summers
 // See the file COPYING for terms of use.
 
+#define DEARK_FMTUTIL_H_INC
+
 struct de_lz77buffer;
 
 struct de_dfilter_in_params {

@@ -553,6 +553,12 @@
     <ClCompile Include="..\..\modules\pif.c">
       <Filter>Modules</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\modules\rar.c">
+      <Filter>Modules</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\fmtutil-arch.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\deark-config.h">
@@ -593,6 +599,9 @@
     </ClInclude>
     <ClInclude Include="..\..\foreign\lzhuf.h">
       <Filter>Foreign Code</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\deark-fmtutil-arch.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

@@ -167,7 +167,8 @@ $(OBJDIR)/modules/misc.o: modules/misc.c src/deark-private.h src/deark.h \
 $(OBJDIR)/modules/misc2.o: modules/misc2.c src/deark-private.h \
  src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/misc3.o: modules/misc3.c src/deark-private.h \
- src/deark.h src/deark-config.h src/deark-fmtutil.h
+ src/deark.h src/deark-config.h src/deark-fmtutil.h \
+ src/deark-fmtutil-arch.h
 $(OBJDIR)/modules/mp3.o: modules/mp3.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/mscompress.o: modules/mscompress.c src/deark-private.h \
@@ -240,6 +241,8 @@ $(OBJDIR)/modules/psionpic.o: modules/psionpic.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/qtif.o: modules/qtif.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/rar.o: modules/rar.c src/deark-private.h src/deark.h \
+ src/deark-config.h src/deark-fmtutil-arch.h src/deark-fmtutil.h
 $(OBJDIR)/modules/riff.o: modules/riff.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/rm.o: modules/rm.c src/deark-config.h \
@@ -331,6 +334,9 @@ $(OBJDIR)/src/deark-zip.o: src/deark-zip.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/src/fmtutil-advfile.o: src/fmtutil-advfile.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/src/fmtutil-arch.o: src/fmtutil-arch.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil-arch.h \
+ src/deark-fmtutil.h
 $(OBJDIR)/src/fmtutil-cmpr.o: src/fmtutil-cmpr.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/src/fmtutil-fax.o: src/fmtutil-fax.c src/deark-config.h \

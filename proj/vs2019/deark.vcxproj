@@ -289,6 +289,7 @@
     <ClCompile Include="..\..\modules\psionapp.c" />
     <ClCompile Include="..\..\modules\psionpic.c" />
     <ClCompile Include="..\..\modules\qtif.c" />
+    <ClCompile Include="..\..\modules\rar.c" />
     <ClCompile Include="..\..\modules\riff.c" />
     <ClCompile Include="..\..\modules\rm.c" />
     <ClCompile Include="..\..\modules\rodraw.c" />
@@ -327,6 +328,7 @@
     <ClCompile Include="..\..\src\deark-png.c" />
     <ClCompile Include="..\..\src\deark-zip.c" />
     <ClCompile Include="..\..\src\fmtutil-advfile.c" />
+    <ClCompile Include="..\..\src\fmtutil-arch.c" />
     <ClCompile Include="..\..\src\fmtutil-cmpr.c" />
     <ClCompile Include="..\..\src\fmtutil-fax.c" />
     <ClCompile Include="..\..\src\fmtutil-huffman.c" />
@@ -359,6 +361,7 @@
     <ClInclude Include="..\..\foreign\ozunreduce.h" />
     <ClInclude Include="..\..\foreign\uncompface.h" />
     <ClInclude Include="..\..\src\deark-config.h" />
+    <ClInclude Include="..\..\src\deark-fmtutil-arch.h" />
     <ClInclude Include="..\..\src\deark-fmtutil.h" />
     <ClInclude Include="..\..\src\deark-modules.h" />
     <ClInclude Include="..\..\src\deark-private.h" />
