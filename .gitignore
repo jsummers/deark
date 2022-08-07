@@ -6,6 +6,8 @@
 /deark.1
 /proj/vs2019/*.vcxproj.user
 /proj/vs2019/.vs
+/proj/vs2022/*.vcxproj.user
+/proj/vs2022/.vs
 /Debug32/
 /Debug64/
 /Release32/

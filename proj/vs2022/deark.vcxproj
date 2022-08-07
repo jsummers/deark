@@ -1,0 +1,381 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{bd23733a-13fb-4b16-8a0f-9b9913792696}</ProjectGuid>
+    <RootNamespace>deark</RootNamespace>
+    <Keyword>Win32Proj</Keyword>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <_ProjectFileVersion>16.0.28916.169</_ProjectFileVersion>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <OutDir>$(SolutionDir)..\..\Debug32\</OutDir>
+    <IntDir>$(SolutionDir)..\..\Debug32\</IntDir>
+    <LinkIncremental>true</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <OutDir>$(SolutionDir)..\..\Debug64\</OutDir>
+    <IntDir>$(SolutionDir)..\..\Debug64\</IntDir>
+    <LinkIncremental>true</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <OutDir>$(SolutionDir)..\..\Release32\</OutDir>
+    <IntDir>$(SolutionDir)..\..\Release32\</IntDir>
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <OutDir>$(SolutionDir)..\..\Release64\</OutDir>
+    <IntDir>$(SolutionDir)..\..\Release64\</IntDir>
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <AdditionalIncludeDirectories>$(SolutionDir)..\..\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <PrecompiledHeader />
+      <WarningLevel>Level3</WarningLevel>
+      <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <SubSystem>Console</SubSystem>
+      <TargetMachine>MachineX86</TargetMachine>
+      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Midl>
+      <TargetEnvironment>X64</TargetEnvironment>
+    </Midl>
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <AdditionalIncludeDirectories>$(SolutionDir)..\..\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <PrecompiledHeader />
+      <WarningLevel>Level3</WarningLevel>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <SubSystem>Console</SubSystem>
+      <TargetMachine>MachineX64</TargetMachine>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <AdditionalIncludeDirectories>$(SolutionDir)..\..\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <PrecompiledHeader />
+      <WarningLevel>Level3</WarningLevel>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <SubSystem>Console</SubSystem>
+      <OptimizeReferences>true</OptimizeReferences>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <TargetMachine>MachineX86</TargetMachine>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Midl>
+      <TargetEnvironment>X64</TargetEnvironment>
+    </Midl>
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <AdditionalIncludeDirectories>$(SolutionDir)..\..\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <PrecompiledHeader />
+      <WarningLevel>Level3</WarningLevel>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <ControlFlowGuard>Guard</ControlFlowGuard>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <SubSystem>Console</SubSystem>
+      <OptimizeReferences>true</OptimizeReferences>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <TargetMachine>MachineX64</TargetMachine>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\modules\abk.c" />
+    <ClCompile Include="..\..\modules\adex.c" />
+    <ClCompile Include="..\..\modules\afcp.c" />
+    <ClCompile Include="..\..\modules\alphabmp.c" />
+    <ClCompile Include="..\..\modules\amiga-dsk.c" />
+    <ClCompile Include="..\..\modules\amigaicon.c" />
+    <ClCompile Include="..\..\modules\ansiart.c" />
+    <ClCompile Include="..\..\modules\apm.c" />
+    <ClCompile Include="..\..\modules\apple2-dsk.c" />
+    <ClCompile Include="..\..\modules\applesd.c" />
+    <ClCompile Include="..\..\modules\ar.c" />
+    <ClCompile Include="..\..\modules\arc.c" />
+    <ClCompile Include="..\..\modules\arcfs.c" />
+    <ClCompile Include="..\..\modules\arj.c" />
+    <ClCompile Include="..\..\modules\asf.c" />
+    <ClCompile Include="..\..\modules\atari-dsk.c" />
+    <ClCompile Include="..\..\modules\atari-img.c" />
+    <ClCompile Include="..\..\modules\autocad.c" />
+    <ClCompile Include="..\..\modules\awbm.c" />
+    <ClCompile Include="..\..\modules\basic-c64.c" />
+    <ClCompile Include="..\..\modules\binhex.c" />
+    <ClCompile Include="..\..\modules\bintext.c" />
+    <ClCompile Include="..\..\modules\bmff.c" />
+    <ClCompile Include="..\..\modules\bmi.c" />
+    <ClCompile Include="..\..\modules\bmp.c" />
+    <ClCompile Include="..\..\modules\bpg.c" />
+    <ClCompile Include="..\..\modules\bsave.c" />
+    <ClCompile Include="..\..\modules\cab.c" />
+    <ClCompile Include="..\..\modules\cardfile.c" />
+    <ClCompile Include="..\..\modules\cfb.c" />
+    <ClCompile Include="..\..\modules\clp.c" />
+    <ClCompile Include="..\..\modules\corel.c" />
+    <ClCompile Include="..\..\modules\cpio.c" />
+    <ClCompile Include="..\..\modules\crush.c" />
+    <ClCompile Include="..\..\modules\d64.c" />
+    <ClCompile Include="..\..\modules\dlmaker.c" />
+    <ClCompile Include="..\..\modules\dms.c" />
+    <ClCompile Include="..\..\modules\drhalo.c" />
+    <ClCompile Include="..\..\modules\dsstore.c" />
+    <ClCompile Include="..\..\modules\ebml.c" />
+    <ClCompile Include="..\..\modules\emf.c" />
+    <ClCompile Include="..\..\modules\epocimage.c" />
+    <ClCompile Include="..\..\modules\eps.c" />
+    <ClCompile Include="..\..\modules\exe.c" />
+    <ClCompile Include="..\..\modules\exepack.c" />
+    <ClCompile Include="..\..\modules\fat.c" />
+    <ClCompile Include="..\..\modules\flac.c" />
+    <ClCompile Include="..\..\modules\fli.c" />
+    <ClCompile Include="..\..\modules\flif.c" />
+    <ClCompile Include="..\..\modules\fnt.c" />
+    <ClCompile Include="..\..\modules\gemfont.c" />
+    <ClCompile Include="..\..\modules\gemmeta.c" />
+    <ClCompile Include="..\..\modules\gemras.c" />
+    <ClCompile Include="..\..\modules\gif.c" />
+    <ClCompile Include="..\..\modules\grasp.c" />
+    <ClCompile Include="..\..\modules\grob.c" />
+    <ClCompile Include="..\..\modules\gzip.c" />
+    <ClCompile Include="..\..\modules\hfs.c" />
+    <ClCompile Include="..\..\modules\hlp.c" />
+    <ClCompile Include="..\..\modules\iccprofile.c" />
+    <ClCompile Include="..\..\modules\icns.c" />
+    <ClCompile Include="..\..\modules\ico.c" />
+    <ClCompile Include="..\..\modules\id3.c" />
+    <ClCompile Include="..\..\modules\iff.c" />
+    <ClCompile Include="..\..\modules\ilbm.c" />
+    <ClCompile Include="..\..\modules\insetpix.c" />
+    <ClCompile Include="..\..\modules\iptc.c" />
+    <ClCompile Include="..\..\modules\iso9660.c" />
+    <ClCompile Include="..\..\modules\isz.c" />
+    <ClCompile Include="..\..\modules\j2c.c" />
+    <ClCompile Include="..\..\modules\jbf.c" />
+    <ClCompile Include="..\..\modules\jovianvi.c" />
+    <ClCompile Include="..\..\modules\jpeg.c" />
+    <ClCompile Include="..\..\modules\lbr.c" />
+    <ClCompile Include="..\..\modules\lha.c" />
+    <ClCompile Include="..\..\modules\lzexe.c" />
+    <ClCompile Include="..\..\modules\macbinary.c" />
+    <ClCompile Include="..\..\modules\macpaint.c" />
+    <ClCompile Include="..\..\modules\macrsrc.c" />
+    <ClCompile Include="..\..\modules\makichan.c" />
+    <ClCompile Include="..\..\modules\mbk.c" />
+    <ClCompile Include="..\..\modules\megapaint.c" />
+    <ClCompile Include="..\..\modules\misc.c" />
+    <ClCompile Include="..\..\modules\misc2.c" />
+    <ClCompile Include="..\..\modules\misc3.c" />
+    <ClCompile Include="..\..\modules\mp3.c" />
+    <ClCompile Include="..\..\modules\mscompress.c" />
+    <ClCompile Include="..\..\modules\msp.c" />
+    <ClCompile Include="..\..\modules\nie.c" />
+    <ClCompile Include="..\..\modules\nokia.c" />
+    <ClCompile Include="..\..\modules\officeart.c" />
+    <ClCompile Include="..\..\modules\ogg.c" />
+    <ClCompile Include="..\..\modules\ole1.c" />
+    <ClCompile Include="..\..\modules\olepropset.c" />
+    <ClCompile Include="..\..\modules\os2bmp.c" />
+    <ClCompile Include="..\..\modules\os2bootlogo.c" />
+    <ClCompile Include="..\..\modules\os2ea.c" />
+    <ClCompile Include="..\..\modules\pack.c" />
+    <ClCompile Include="..\..\modules\packdir.c" />
+    <ClCompile Include="..\..\modules\palmbitmap.c" />
+    <ClCompile Include="..\..\modules\palmpdb.c" />
+    <ClCompile Include="..\..\modules\pcf.c" />
+    <ClCompile Include="..\..\modules\pcpaint.c" />
+    <ClCompile Include="..\..\modules\pcx.c" />
+    <ClCompile Include="..\..\modules\pff2.c" />
+    <ClCompile Include="..\..\modules\pict.c" />
+    <ClCompile Include="..\..\modules\pif.c" />
+    <ClCompile Include="..\..\modules\pkfont.c" />
+    <ClCompile Include="..\..\modules\pklite.c" />
+    <ClCompile Include="..\..\modules\pkm.c" />
+    <ClCompile Include="..\..\modules\plist.c" />
+    <ClCompile Include="..\..\modules\png.c" />
+    <ClCompile Include="..\..\modules\pnm.c" />
+    <ClCompile Include="..\..\modules\portfolio.c" />
+    <ClCompile Include="..\..\modules\printptnr.c" />
+    <ClCompile Include="..\..\modules\printshop.c" />
+    <ClCompile Include="..\..\modules\psd.c" />
+    <ClCompile Include="..\..\modules\psf.c" />
+    <ClCompile Include="..\..\modules\psionapp.c" />
+    <ClCompile Include="..\..\modules\psionpic.c" />
+    <ClCompile Include="..\..\modules\qtif.c" />
+    <ClCompile Include="..\..\modules\rar.c" />
+    <ClCompile Include="..\..\modules\riff.c" />
+    <ClCompile Include="..\..\modules\rm.c" />
+    <ClCompile Include="..\..\modules\rodraw.c" />
+    <ClCompile Include="..\..\modules\rosprite.c" />
+    <ClCompile Include="..\..\modules\rpm.c" />
+    <ClCompile Include="..\..\modules\rsc.c" />
+    <ClCompile Include="..\..\modules\sauce.c" />
+    <ClCompile Include="..\..\modules\shg.c" />
+    <ClCompile Include="..\..\modules\sis.c" />
+    <ClCompile Include="..\..\modules\spectrum512.c" />
+    <ClCompile Include="..\..\modules\storyboard.c" />
+    <ClCompile Include="..\..\modules\stuffit.c" />
+    <ClCompile Include="..\..\modules\sunras.c" />
+    <ClCompile Include="..\..\modules\t64.c" />
+    <ClCompile Include="..\..\modules\tar.c" />
+    <ClCompile Include="..\..\modules\tga.c" />
+    <ClCompile Include="..\..\modules\tiff.c" />
+    <ClCompile Include="..\..\modules\tim.c" />
+    <ClCompile Include="..\..\modules\tivariable.c" />
+    <ClCompile Include="..\..\modules\unifont.c" />
+    <ClCompile Include="..\..\modules\unsupported.c" />
+    <ClCompile Include="..\..\modules\vort.c" />
+    <ClCompile Include="..\..\modules\wad.c" />
+    <ClCompile Include="..\..\modules\wmf.c" />
+    <ClCompile Include="..\..\modules\wpg.c" />
+    <ClCompile Include="..\..\modules\wri.c" />
+    <ClCompile Include="..\..\modules\xface.c" />
+    <ClCompile Include="..\..\modules\xfer.c" />
+    <ClCompile Include="..\..\modules\zip.c" />
+    <ClCompile Include="..\..\modules\zoo.c" />
+    <ClCompile Include="..\..\src\deark-bitmap.c" />
+    <ClCompile Include="..\..\src\deark-char.c" />
+    <ClCompile Include="..\..\src\deark-cmd.c" />
+    <ClCompile Include="..\..\src\deark-data.c" />
+    <ClCompile Include="..\..\src\deark-dbuf.c" />
+    <ClCompile Include="..\..\src\deark-png.c" />
+    <ClCompile Include="..\..\src\deark-zip.c" />
+    <ClCompile Include="..\..\src\fmtutil-advfile.c" />
+    <ClCompile Include="..\..\src\fmtutil-arch.c" />
+    <ClCompile Include="..\..\src\fmtutil-cmpr.c" />
+    <ClCompile Include="..\..\src\fmtutil-fax.c" />
+    <ClCompile Include="..\..\src\fmtutil-huffman.c" />
+    <ClCompile Include="..\..\src\fmtutil-iff.c" />
+    <ClCompile Include="..\..\src\fmtutil-lzah.c" />
+    <ClCompile Include="..\..\src\fmtutil-lzh.c" />
+    <ClCompile Include="..\..\src\fmtutil-lzw.c" />
+    <ClCompile Include="..\..\src\fmtutil-miniz.c" />
+    <ClCompile Include="..\..\src\fmtutil-zip.c" />
+    <ClCompile Include="..\..\src\fmtutil.c" />
+    <ClCompile Include="..\..\src\deark-font.c" />
+    <ClCompile Include="..\..\src\deark-modules.c" />
+    <ClCompile Include="..\..\src\deark-tar.c" />
+    <ClCompile Include="..\..\src\deark-ucstring.c" />
+    <ClCompile Include="..\..\src\deark-unix.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\..\src\deark-user.c" />
+    <ClCompile Include="..\..\src\deark-util.c" />
+    <ClCompile Include="..\..\src\deark-win.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\foreign\dskdcmps.h" />
+    <ClInclude Include="..\..\foreign\lzhuf.h" />
+    <ClInclude Include="..\..\foreign\miniz-c.h" />
+    <ClInclude Include="..\..\foreign\miniz.h" />
+    <ClInclude Include="..\..\foreign\ozunreduce.h" />
+    <ClInclude Include="..\..\foreign\uncompface.h" />
+    <ClInclude Include="..\..\src\deark-config.h" />
+    <ClInclude Include="..\..\src\deark-fmtutil-arch.h" />
+    <ClInclude Include="..\..\src\deark-fmtutil.h" />
+    <ClInclude Include="..\..\src\deark-modules.h" />
+    <ClInclude Include="..\..\src\deark-private.h" />
+    <ClInclude Include="..\..\src\deark-user.h" />
+    <ClInclude Include="..\..\src\deark-version.h" />
+    <ClInclude Include="..\..\src\deark.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="..\..\src\deark.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Manifest Include="..\..\src\deark.manifest" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
