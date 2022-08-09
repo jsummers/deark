@@ -394,6 +394,9 @@ static void rar_read_v4_block(deark *c, de_arch_lctx *d, struct rar4_block *rb, 
 
 	rb->type = de_getbyte_p(&pos);
 	de_dbg(c, "block type: 0x%02x (%s)", (UI)rb->type, rar_get_v4_blktype_name(rb->type));
+	if(rb->type==0x7b) {
+		d->stop_flag = 1;
+	}
 
 	rb->flags = (UI)de_getu16le_p(&pos);
 	descr = ucstring_create(c);
@@ -462,7 +465,7 @@ static void do_rar_v4(deark *c, de_arch_lctx *d)
 		}
 		rb = de_malloc(c, sizeof(struct rar4_block));
 		rar_read_v4_block(c, d, rb, pos);
-		if(d->fatalerrflag) goto done;
+		if(d->fatalerrflag || d->stop_flag) goto done;
 		if(rb->block_size_full <= 0) goto done;
 		pos += rb->block_size_full;
 	}
@@ -604,6 +607,8 @@ static void do_rar5_extrarec_timestamps(deark *c, de_arch_lctx *d, struct rar5_e
 	UI flags;
 	enum de_arch_tstype_enum tstype;
 	i64 pos = pos1;
+	i64 n;
+	double subsec;
 
 	if(len<1) goto done;
 	ed->have_timestamps = 1;
@@ -622,7 +627,25 @@ static void do_rar5_extrarec_timestamps(deark *c, de_arch_lctx *d, struct rar5_e
 		de_arch_read_field_dttm_p(d, &ed->tmstamp[DE_TIMESTAMPIDX_ACCESS], "access",
 			tstype, &pos);
 	}
-	// TODO: Unix time w/nanosecond precision
+
+	// Unix time w/nanosecond precision.
+	// FIXME: This ought to be shown in the debug message above.
+	if((flags & 0x13)==0x13) {
+		n = de_getu32le_p(&pos);
+		subsec = ((double)n) / 1000000000.0;
+		de_timestamp_set_subsec(&ed->tmstamp[DE_TIMESTAMPIDX_MODIFY], subsec);
+	}
+	if((flags & 0x15)==0x15) {
+		n = de_getu32le_p(&pos);
+		subsec = ((double)n) / 1000000000.0;
+		de_timestamp_set_subsec(&ed->tmstamp[DE_TIMESTAMPIDX_CREATE], subsec);
+	}
+	if((flags & 0x19)==0x19) {
+		n = de_getu32le_p(&pos);
+		subsec = ((double)n) / 1000000000.0;
+		de_timestamp_set_subsec(&ed->tmstamp[DE_TIMESTAMPIDX_ACCESS], subsec);
+	}
+
 done:
 	;
 }
