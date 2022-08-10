@@ -44,6 +44,26 @@ void de_arch_destroy_lctx(deark *c, de_arch_lctx *d)
 	de_free(c, d);
 }
 
+
+// Convert backslashes to slashes, and append a slash if path is not empty.
+// flags: Unused.
+void de_arch_fixup_path(de_ucstring *s, UI flags)
+{
+	i64 i;
+
+	if(s->len<1) return;
+
+	for(i=0; i<s->len; i++) {
+		if(s->str[i]=='\\') {
+			s->str[i] = '/';
+		}
+	}
+
+	if(s->str[s->len-1]!='/') {
+		ucstring_append_char(s, '/');
+	}
+}
+
 static void handle_field_orig_len(struct de_arch_member_data *md, i64 n)
 {
 	md->orig_len = n;

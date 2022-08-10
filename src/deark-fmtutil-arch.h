@@ -35,6 +35,7 @@ struct de_arch_member_data {
 	u8 has_dos_attribs;
 
 	// Private use fields for the format decoder:
+	void *userdata;
 	UI cmpr_meth;
 	UI file_flags;
 
@@ -60,6 +61,7 @@ struct de_arch_localctx_struct {
 	int fatalerrflag;
 
 	// Private use fields for the format decoder:
+	void *userdata;
 	i64 data_startpos;
 	int stop_flag;
 	int fmtver;
@@ -72,6 +74,7 @@ struct de_arch_member_data *de_arch_create_md(deark *c, de_arch_lctx *d);
 void de_arch_destroy_md(deark *c, struct de_arch_member_data *md);
 de_arch_lctx *de_arch_create_lctx(deark *c);
 void de_arch_destroy_lctx(deark *c, de_arch_lctx *d);
+void de_arch_fixup_path(de_ucstring *s, UI flags);
 void de_arch_read_field_orig_len_p(struct de_arch_member_data *md, i64 *ppos);
 void de_arch_read_field_cmpr_len_p(struct de_arch_member_data *md, i64 *ppos);
 void de_arch_handle_field_dos_attr(struct de_arch_member_data *md, UI attr);

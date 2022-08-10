@@ -211,24 +211,6 @@ static void squash_slashes(de_ucstring *s)
 	}
 }
 
-// Convert backslashes to slashes, and make sure the string ends with a /.
-static void fixup_path(de_ucstring *s)
-{
-	i64 i;
-
-	if(s->len<1) return;
-
-	for(i=0; i<s->len; i++) {
-		if(s->str[i]=='\\') {
-			s->str[i] = '/';
-		}
-	}
-
-	if(s->str[s->len-1]!='/') {
-		ucstring_append_char(s, '/');
-	}
-}
-
 // Set md->filename to the full-path filename, using tmpfn_path + tmpfn_base.
 static void dwc_process_filename(deark *c, de_arch_lctx *d, struct de_arch_member_data *md)
 {
@@ -241,7 +223,7 @@ static void dwc_process_filename(deark *c, de_arch_lctx *d, struct de_arch_membe
 
 	md->set_name_flags |= DE_SNFLAG_FULLPATH;
 	ucstring_append_ucstring(md->filename, md->tmpfn_path);
-	fixup_path(md->filename);
+	de_arch_fixup_path(md->filename, 0);
 	if(ucstring_isempty(md->tmpfn_base)) {
 		ucstring_append_char(md->filename, '_');
 	}
