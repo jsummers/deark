@@ -729,7 +729,8 @@ void *de_mallocarray(deark *c, i64 nmemb, size_t membsize)
 	if(nmemb>500000000 || nmemb<0 || membsize>500000000) {
 		de_err(c, "Out of memory");
 		de_fatalerror(c);
-		return NULL;
+		// NOTREACHED
+		return de_malloc(c, 1);
 	}
 
 	return de_malloc(c, nmemb*(i64)membsize);
@@ -737,35 +738,37 @@ void *de_mallocarray(deark *c, i64 nmemb, size_t membsize)
 
 // Memory returned is always zeroed.
 // c can be NULL.
-// Always succeeds; never returns NULL.
+// Always succeeds (or ends the program); never returns NULL.
 void *de_malloc(deark *c, i64 n)
 {
 	void *m;
+
 	if(n==0) n=1;
 	if(n<0 || n>500000000) {
-		de_err(c, "Out of memory (%d bytes requested)",(int)n);
+		de_err(c,"Out of memory (%"I64_FMT" bytes requested)", n);
 		de_fatalerror(c);
-		return NULL;
+		// NOTREACHED
+		n = 1;
 	}
 
-	m = calloc((size_t)n,1);
-	if(!m) {
-		de_err(c, "Memory allocation failed (%d bytes)",(int)n);
+	while(1) {
+		m = calloc((size_t)n, 1);
+		if(m) return m;
+
+		de_err(c, "Memory allocation failed (%"I64_FMT" bytes)", n);
 		de_fatalerror(c);
-		return NULL;
 	}
-	return m;
 }
 
 // TODO: Make de_realloc use de_reallocarray internally, instead of vice versa.
 void *de_reallocarray(deark *c, void *m, i64 oldnmemb, size_t membsize,
 	i64 newnmemb)
 {
-
 	if(newnmemb>500000000 || newnmemb<0 || oldnmemb<0 || membsize>500000000) {
 		de_err(c, "Out of memory");
 		de_fatalerror(c);
-		return NULL;
+		// NOTREACHED
+		return de_malloc(c, 1);
 	}
 
 	return de_realloc(c, m,
@@ -786,10 +789,11 @@ void *de_realloc(deark *c, void *oldmem, i64 oldsize, i64 newsize)
 
 	newmem = realloc(oldmem, (size_t)newsize);
 	if(!newmem) {
-		de_err(c, "Memory reallocation failed (%d bytes)",(int)newsize);
+		de_err(c, "Memory reallocation failed (%"I64_FMT" bytes)", newsize);
 		free(oldmem);
 		de_fatalerror(c);
-		return NULL;
+		// NOTREACHED
+		return de_malloc(c, newsize);
 	}
 
 	if(oldsize<newsize) {
