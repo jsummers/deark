@@ -12,6 +12,32 @@ static const u8 *g_rar_oldsig = (const u8*)"RE\x7e\x5e";
 static const u8 *g_rar4_sig = (const u8*)"Rar!\x1a\x07\x00";
 static const u8 *g_rar5_sig = (const u8*)"Rar!\x1a\x07\x01\x00";
 
+static void rar_handle_noncmpr_comment(deark *c, de_arch_lctx *d, i64 pos, i64 len,
+	de_encoding enc, int is_file_comment)
+{
+	de_ucstring *comment = NULL;
+	const char *ext;
+
+	if(len<1) goto done;
+
+	ext = is_file_comment?"fcomment.txt":"comment.txt";
+
+	if(c->extract_level>=2) {
+		dbuf_create_file_from_slice(c->infile, pos, len, ext,
+			NULL, DE_CREATEFLAG_IS_AUX);
+	}
+	else {
+		comment = ucstring_create(c);
+		dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN,
+			comment, 0, DE_EXTENC_MAKE(enc, DE_ENCSUBTYPE_HYBRID));
+		de_dbg(c, "%scomment: \"%s\"", (is_file_comment?"file ":""),
+			ucstring_getpsz_d(comment));
+	}
+
+done:
+	ucstring_destroy(comment);
+}
+
 static void do_rar_old_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *md)
 {
 	i64 n;
@@ -19,7 +45,6 @@ static void do_rar_old_member(deark *c, de_arch_lctx *d, struct de_arch_member_d
 	i64 pos = md->member_hdr_pos;
 	i64 hdrlen;
 	i64 fnlen;
-	de_ucstring *comment = NULL;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -29,9 +54,14 @@ static void do_rar_old_member(deark *c, de_arch_lctx *d, struct de_arch_member_d
 	de_arch_read_field_cmpr_len_p(md, &pos);
 	de_arch_read_field_orig_len_p(md, &pos);
 
-	// TODO: What is this a checksum of?
+	// Note: This is a checksum of the decompressed bytes. Algorithm:
+	//  Initialize ck = 0x0000
+	//  For each byte b:
+	//    * ck = ck + b
+	//    * Rotate ck left 1 bit,
+	//      i.e. ck = (ck & 0x7fff)<<1 | (ck & 0x8000)>>15)
 	n = de_getu16le_p(&pos);
-	de_dbg(c, "checksum: %u", (UI)n);
+	de_dbg(c, "checksum: 0x%04x", (UI)n);
 
 	hdrlen = de_getu16le_p(&pos);
 	de_dbg(c, "hdr len: %u", (int)hdrlen);
@@ -70,18 +100,14 @@ static void do_rar_old_member(deark *c, de_arch_lctx *d, struct de_arch_member_d
 
 		cmtlen = de_getu16le_p(&pos);
 		de_dbg(c, "file comment at %"I64_FMT", len=%"I64_FMT, pos, cmtlen);
-		comment = ucstring_create(c);
-		dbuf_read_to_ucstring(c->infile, pos, cmtlen, comment, 0,
-			DE_EXTENC_MAKE(d->input_encoding, DE_ENCSUBTYPE_HYBRID));
-		de_dbg(c, "file comment: \"%s\"", ucstring_getpsz_d(comment));
+		rar_handle_noncmpr_comment(c, d, pos, cmtlen, d->input_encoding, 1);
 		pos += cmtlen;
 	}
 
-	pos = md->member_hdr_pos + hdrlen;
-	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, pos, md->cmpr_len);
+	md->cmpr_pos = md->member_hdr_pos + hdrlen;
+	de_dbg(c, "cmpr. data at %"I64_FMT", len=%"I64_FMT, md->cmpr_pos, md->cmpr_len);
 
 done:
-	ucstring_destroy(comment);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -150,9 +176,13 @@ done:
 
 struct rar4_block {
 	i64 block_pos;
+	i64 block_max_endpos;
 	u32 crc_reported;
 	UI flags;
 	u8 type;
+	u8 parent_type; // 0 for none
+	u8 parsed_ok;
+	u8 last_block;
 	i64 data1_pos;
 	i64 block_size_1;
 	i64 data2_pos;
@@ -172,6 +202,18 @@ struct rar5_block {
 	i64 data_area_size;
 	i64 pos_after_standard_fields;
 };
+
+static void rar4_free_block(deark *c, struct rar4_block *rb)
+{
+	if(!rb) return;
+	de_free(c, rb);
+}
+
+static void rar5_free_block(deark *c, struct rar5_block *rb)
+{
+	if(!rb) return;
+	de_free(c, rb);
+}
 
 static const char *rar_get_v4_blktype_name(u8 n)
 {
@@ -207,6 +249,30 @@ static const char *rar4_get_OS_name(u8 n)
 	return name?name:"?";
 }
 
+static void rar_read_v4_block(deark *c, de_arch_lctx *d, struct rar4_block *rb);
+
+// Header type 0x73
+static void do_rar4_block_archiveheader(deark *c, de_arch_lctx *d, struct rar4_block *rb)
+{
+	i64 pos;
+
+	pos = rb->data1_pos;
+	pos += 2; // reserved1
+	pos += 4; // reserved2
+
+	if(rb->flags & 0x0002) {
+		struct rar4_block *cmt_rb;
+
+		cmt_rb = de_malloc(c, sizeof(struct rar4_block));
+		cmt_rb->block_pos = pos;
+		cmt_rb->block_max_endpos = rb->data2_pos;
+		cmt_rb->parent_type = rb->type;
+		rar_read_v4_block(c, d, cmt_rb);
+		rar4_free_block(c, cmt_rb);
+	}
+}
+
+// Header type 0x74
 static void do_rar4_block_fileheader(deark *c, de_arch_lctx *d, struct rar4_block *rb)
 {
 	struct de_arch_member_data *md = NULL;
@@ -250,17 +316,43 @@ static void do_rar4_block_fileheader(deark *c, de_arch_lctx *d, struct rar4_bloc
 		de_dbg_indent(c, -1);
 	}
 
+	if(rb->flags & 0x0100) {
+		pos += 8; // TODO: HIGH_PACK_SIZE
+	}
+
 	// TODO: Handle UTF-8 names
 	dbuf_read_to_ucstring_n(c->infile, pos, fnlen, 2048, md->filename,
 		DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
 	pos += fnlen;
 
-	// TODO: Comment block
+	if(rb->flags & 0x0400) {
+		pos += 8; // salt (first documented in v3.00)
+	}
 
-	if(rb->flags & 0x0100) {
-		// TODO: I think this requires special processing (HIGH_PACK_SIZE)
-		d->fatalerrflag = 1;
+	if((rb->flags & 0x1008)==0x1008) {
+		// Ext time and comment shouldn't both be present.
+		// Ext time first documented in v3.40, which is also when the docs
+		// started saying that RAR 3.x doesn't set the 0x0008 flag.
+		goto done;
+	}
+
+	// TODO: ext time (rb->flags & 0x1000)
+
+	// Old-style comment -- A nested block
+	if(rb->flags & 0x0008) {
+		struct rar4_block *cmt_rb;
+
+		cmt_rb = de_malloc(c, sizeof(struct rar4_block));
+		cmt_rb->block_pos = pos;
+		cmt_rb->block_max_endpos = rb->data2_pos;
+		cmt_rb->parent_type = rb->type;
+		rar_read_v4_block(c, d, cmt_rb);
+		pos += cmt_rb->block_size_full;
+		rar4_free_block(c, cmt_rb);
+	}
+
+	if(rb->flags & 0x0100) { // HIGH_PACK_SIZE
 		goto done;
 	}
 
@@ -268,6 +360,38 @@ static void do_rar4_block_fileheader(deark *c, de_arch_lctx *d, struct rar4_bloc
 
 done:
 	de_arch_destroy_md(c, md);
+}
+
+// Header type 0x75, expected to be nested in type 0x73 or 0x74
+static void do_rar4_block_oldcomment(deark *c, de_arch_lctx *d, struct rar4_block *rb)
+{
+	i64 cmpr_len;
+	i64 orig_len;
+	i64 pos = rb->data1_pos;
+	u8 ver_needed;
+	u8 cmpr_meth;
+	u32 crc_reported;
+	int is_file_comment;
+
+	is_file_comment = (rb->parent_type==0x74);
+	orig_len = de_getu16le_p(&pos);
+	de_dbg(c, "uncompr. comment len: %"I64_FMT, orig_len);
+	ver_needed = de_getbyte_p(&pos);
+	de_dbg(c, "ver needed to read comment: %u", (UI)ver_needed);
+	cmpr_meth = de_getbyte_p(&pos);
+	de_dbg(c, "cmpr. method: %u", cmpr_meth);
+	crc_reported = (u32)de_getu16le_p(&pos);
+	de_dbg(c, "crc (reported): 0x%04x", (UI)crc_reported);
+
+	cmpr_len = rb->data2_pos - pos;
+	de_dbg(c, "%s comment at %"I64_FMT", len=%"I64_FMT,
+		(is_file_comment?"file":"archive"), pos, cmpr_len);
+	if(cmpr_len<1) goto done;
+	if(cmpr_meth!=48) goto done; // compressed
+	rar_handle_noncmpr_comment(c, d, pos, cmpr_len, d->input_encoding, is_file_comment);
+
+done:
+	;
 }
 
 static const char *rar4_get_oldsubblock_name(UI t)
@@ -376,15 +500,19 @@ static void get_rar4_flags_descr(struct rar4_block *rb, de_ucstring *s)
 	}
 }
 
-static void rar_read_v4_block(deark *c, de_arch_lctx *d, struct rar4_block *rb, i64 pos1)
+// Caller allocates/frees rb, and sets:
+//    ->block_pos,
+//    ->block_max_endpos,
+//    ->parent_type if applicable
+static void rar_read_v4_block(deark *c, de_arch_lctx *d, struct rar4_block *rb)
 {
 	int saved_indent_level;
 	i64 pos;
+	i64 n;
 	u32 crc_calc;
 	de_ucstring *descr = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	rb->block_pos = pos1;
 	pos = rb->block_pos;
 
 	de_dbg(c, "block at %"I64_FMT, rb->block_pos);
@@ -394,8 +522,12 @@ static void rar_read_v4_block(deark *c, de_arch_lctx *d, struct rar4_block *rb, 
 
 	rb->type = de_getbyte_p(&pos);
 	de_dbg(c, "block type: 0x%02x (%s)", (UI)rb->type, rar_get_v4_blktype_name(rb->type));
+
+	// The only nested block allowed is a comment block.
+	if(rb->parent_type!=0 && rb->type!=0x75) goto done;
+
 	if(rb->type==0x7b) {
-		d->stop_flag = 1;
+		rb->last_block = 1;
 	}
 
 	rb->flags = (UI)de_getu16le_p(&pos);
@@ -405,16 +537,25 @@ static void rar_read_v4_block(deark *c, de_arch_lctx *d, struct rar4_block *rb, 
 
 	rb->block_size_1 = de_getu16le_p(&pos);
 	de_dbg(c, "block size (part 1): %"I64_FMT, rb->block_size_1);
+	if(rb->block_pos + rb->block_size_1 > rb->block_max_endpos) goto done;
 
+	if(rb->type==0x75) n = 11; // Special case for old-style comment blocks
+	else n = rb->block_size_1-2;
 	de_crcobj_reset(d->crco);
-	de_crcobj_addslice(d->crco, c->infile, rb->block_pos+2, rb->block_size_1-2);
+	de_crcobj_addslice(d->crco, c->infile, rb->block_pos+2, n);
 	crc_calc = de_crcobj_getval(d->crco);
 	crc_calc &= 0xffff;
 	de_dbg(c, "crc (calculated): 0x%04x", (UI)crc_calc);
 
+
 	if(rb->flags & 0x8000) {
 		rb->block_size_2 = de_getu32le_p(&pos);
 		de_dbg(c, "block size (part 2): %"I64_FMT, rb->block_size_2);
+	}
+
+	if(rb->type==0x74 && (rb->flags & 0x0100)) {
+		// TODO: HIGH_PACK_SIZE
+		goto done;
 	}
 
 	rb->data1_pos = pos;
@@ -422,30 +563,28 @@ static void rar_read_v4_block(deark *c, de_arch_lctx *d, struct rar4_block *rb, 
 
 	rb->block_size_full = rb->block_size_1 + rb->block_size_2;
 	de_dbg(c, "block size (total): %"I64_FMT, rb->block_size_full);
+	if(rb->block_pos + rb->block_size_full > rb->block_max_endpos) goto done;
+	rb->parsed_ok = 1;
 
 	switch(rb->type) {
+	case 0x73:
+		do_rar4_block_archiveheader(c, d, rb);
+		break;
 	case 0x74:
 		do_rar4_block_fileheader(c, d, rb);
+		break;
+	case 0x75:
+		do_rar4_block_oldcomment(c, d, rb);
 		break;
 	case 0x77:
 		do_rar4_block_oldsubblock(c, d, rb);
 		break;
+		// TODO: 0x7a (new subblock), for comments
 	}
 
+done:
 	ucstring_destroy(descr);
 	de_dbg_indent_restore(c, saved_indent_level);
-}
-
-static void rar4_free_block(deark *c, struct rar4_block *rb)
-{
-	if(!rb) return;
-	de_free(c, rb);
-}
-
-static void rar5_free_block(deark *c, struct rar5_block *rb)
-{
-	if(!rb) return;
-	de_free(c, rb);
 }
 
 static void do_rar_v4(deark *c, de_arch_lctx *d)
@@ -464,8 +603,12 @@ static void do_rar_v4(deark *c, de_arch_lctx *d)
 			rb = NULL;
 		}
 		rb = de_malloc(c, sizeof(struct rar4_block));
-		rar_read_v4_block(c, d, rb, pos);
-		if(d->fatalerrflag || d->stop_flag) goto done;
+		rb->block_pos = pos;
+		rb->block_max_endpos = c->infile->len;
+		rb->parent_type = 0;
+		rar_read_v4_block(c, d, rb);
+		if(!rb->parsed_ok) goto done;
+		if(rb->last_block) goto done;
 		if(rb->block_size_full <= 0) goto done;
 		pos += rb->block_size_full;
 	}
@@ -565,16 +708,7 @@ static void do_rar5_comment(deark *c, de_arch_lctx *d, struct rar5_block *rb,
 	cmt_len = de_min_int(rb->data_area_size, hd->orig_len);
 	if(cmt_len<1) goto done;
 
-	if(c->extract_level>=2) {
-		dbuf_create_file_from_slice(c->infile, rb->data_area_pos, cmt_len, "comment.txt",
-			NULL, DE_CREATEFLAG_IS_AUX);
-	}
-	else {
-		comment = ucstring_create(c);
-		dbuf_read_to_ucstring_n(c->infile, rb->data_area_pos, cmt_len, DE_DBG_MAX_STRLEN,
-			comment, 0, DE_ENCODING_UTF8);
-		de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(comment));
-	}
+	rar_handle_noncmpr_comment(c, d, rb->data_area_pos, cmt_len, DE_ENCODING_UTF8, 0);
 
 done:
 	ucstring_destroy(comment);
