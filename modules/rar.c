@@ -138,6 +138,11 @@ static void do_rar_old(deark *c, de_arch_lctx *d)
 		cmtlen = de_getu16le_p(&pos);
 		de_dbg(c, "archive comment at %"I64_FMT", len=%"I64_FMT", compressed=%d",
 			pos, cmtlen, (int)((d->archive_flags & 0x10)!=0));
+		if((d->archive_flags & 0x10)==0) {
+			// The old format suports a non-compressed archive comment, though for
+			// v1.4.0+ it is always(?) compressed.
+			rar_handle_noncmpr_comment(c, d, pos, cmtlen, d->input_encoding, 0);
+		}
 		pos += cmtlen;
 	}
 
@@ -187,6 +192,7 @@ struct rar4_block {
 	i64 block_size_1;
 	i64 data2_pos;
 	i64 block_size_2;
+	i64 block_size_high;
 	i64 block_size_full;
 };
 
@@ -229,7 +235,7 @@ static const char *rar_get_v4_blktype_name(u8 n)
 	case 0x78: name = "recovery record"; break;
 	case 0x79: name = "auth info"; break;
 	case 0x7a: name = "subblock (new)"; break;
-	case 0x7b: name = "trailer"; break; // ?
+	case 0x7b: name = "end of archive"; break;
 	}
 
 	return name?name:"?";
@@ -272,7 +278,7 @@ static void do_rar4_block_archiveheader(deark *c, de_arch_lctx *d, struct rar4_b
 	}
 }
 
-// Header type 0x74
+// Header type 0x74 or 0x7a
 static void do_rar4_block_fileheader(deark *c, de_arch_lctx *d, struct rar4_block *rb)
 {
 	struct de_arch_member_data *md = NULL;
@@ -288,7 +294,7 @@ static void do_rar4_block_fileheader(deark *c, de_arch_lctx *d, struct rar4_bloc
 	pos = rb->data1_pos;
 
 	md->cmpr_pos = rb->data2_pos;
-	md->cmpr_len = rb->block_size_2;
+	md->cmpr_len = rb->block_size_2 + rb->block_size_high;
 	de_arch_read_field_orig_len_p(md, &pos);
 
 	os = de_getbyte_p(&pos);
@@ -317,13 +323,14 @@ static void do_rar4_block_fileheader(deark *c, de_arch_lctx *d, struct rar4_bloc
 	}
 
 	if(rb->flags & 0x0100) {
-		pos += 8; // TODO: HIGH_PACK_SIZE
+		pos += 4; // HIGH_PACK_SIZE, already read
+		pos += 4; // TODO: HIGH_UNP_SIZE
 	}
 
 	// TODO: Handle UTF-8 names
 	dbuf_read_to_ucstring_n(c->infile, pos, fnlen, 2048, md->filename,
 		DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
-	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+	de_dbg(c, "%sname: \"%s\"", (rb->type==0x7a?"":"file"), ucstring_getpsz_d(md->filename));
 	pos += fnlen;
 
 	if(rb->flags & 0x0400) {
@@ -334,6 +341,10 @@ static void do_rar4_block_fileheader(deark *c, de_arch_lctx *d, struct rar4_bloc
 		// Ext time and comment shouldn't both be present.
 		// Ext time first documented in v3.40, which is also when the docs
 		// started saying that RAR 3.x doesn't set the 0x0008 flag.
+		goto done;
+	}
+	if(rb->type==0x7a && (rb->flags & 0x0008)) {
+		// A new subblock can't have an old comment
 		goto done;
 	}
 
@@ -350,10 +361,6 @@ static void do_rar4_block_fileheader(deark *c, de_arch_lctx *d, struct rar4_bloc
 		rar_read_v4_block(c, d, cmt_rb);
 		pos += cmt_rb->block_size_full;
 		rar4_free_block(c, cmt_rb);
-	}
-
-	if(rb->flags & 0x0100) { // HIGH_PACK_SIZE
-		goto done;
 	}
 
 	de_dbg(c, "cmpr. data at %"I64_FMT", len=%"I64_FMT, md->cmpr_pos, md->cmpr_len);
@@ -444,7 +451,7 @@ static void get_rar4_flags_descr(struct rar4_block *rb, de_ucstring *s)
 			bf -= 0x0040;
 		}
 	}
-	else if(rb->type==0x74) { // file hdr
+	else if(rb->type==0x74 || rb->type==0x7a) { // file hdr or new subblock
 		if(bf & 0x0001) {
 			ucstring_append_flags_item(s, "continued from prev vol");
 			bf -= 0x0001;
@@ -476,15 +483,26 @@ static void get_rar4_flags_descr(struct rar4_block *rb, de_ucstring *s)
 			ucstring_append_flags_itemf(s, "dict=%uK", (UI)(64<<x));
 		}
 
+		if(bf & 0x0100) {
+			ucstring_append_flags_item(s, "large");
+			bf -= 0x0100;
+		}
 		if(bf & 0x0200) {
 			ucstring_append_flags_item(s, "Unicode filename");
 			bf -= 0x0200;
+		}
+		if(bf & 0x0400) {
+			ucstring_append_flags_item(s, "salt");
+			bf -= 0x0400;
+		}
+		if(bf & 0x0800) {
+			ucstring_append_flags_item(s, "old version");
+			bf -= 0x0800;
 		}
 		if(bf & 0x1000) {
 			ucstring_append_flags_item(s, "has ext time field");
 			bf -= 0x1000;
 		}
-		// TODO: More fields
 	}
 
 	if(bf & 0x4000) {
@@ -492,7 +510,7 @@ static void get_rar4_flags_descr(struct rar4_block *rb, de_ucstring *s)
 		bf -= 0x4000;
 	}
 	if(bf & 0x8000) {
-		ucstring_append_flags_item(s, "full block");
+		ucstring_append_flags_item(s, "long block");
 		bf -= 0x8000;
 	}
 	if(bf!=0) {
@@ -547,21 +565,25 @@ static void rar_read_v4_block(deark *c, de_arch_lctx *d, struct rar4_block *rb)
 	crc_calc &= 0xffff;
 	de_dbg(c, "crc (calculated): 0x%04x", (UI)crc_calc);
 
-
 	if(rb->flags & 0x8000) {
 		rb->block_size_2 = de_getu32le_p(&pos);
 		de_dbg(c, "block size (part 2): %"I64_FMT, rb->block_size_2);
 	}
 
-	if(rb->type==0x74 && (rb->flags & 0x0100)) {
-		// TODO: HIGH_PACK_SIZE
-		goto done;
+	if((rb->type==0x74 || rb->type==0x7a) && (rb->flags & 0x0100)) {
+		rb->block_size_high = de_getu32le(pos+17); // HIGH_PACK_SIZE
+		if(rb->block_size_high > 0x7ffffffe) {
+			// Legal, but we can't allow integer overflow (after <<32
+			// then adding 0xffffffff + 0xffff).
+			goto done;
+		}
+		rb->block_size_high <<= 32;
 	}
 
 	rb->data1_pos = pos;
 	rb->data2_pos = rb->block_pos + rb->block_size_1;
 
-	rb->block_size_full = rb->block_size_1 + rb->block_size_2;
+	rb->block_size_full = rb->block_size_1 + rb->block_size_2 + rb->block_size_high;
 	de_dbg(c, "block size (total): %"I64_FMT, rb->block_size_full);
 	if(rb->block_pos + rb->block_size_full > rb->block_max_endpos) goto done;
 	rb->parsed_ok = 1;
@@ -571,6 +593,7 @@ static void rar_read_v4_block(deark *c, de_arch_lctx *d, struct rar4_block *rb)
 		do_rar4_block_archiveheader(c, d, rb);
 		break;
 	case 0x74:
+	case 0x7a:
 		do_rar4_block_fileheader(c, d, rb);
 		break;
 	case 0x75:
@@ -579,7 +602,6 @@ static void rar_read_v4_block(deark *c, de_arch_lctx *d, struct rar4_block *rb)
 	case 0x77:
 		do_rar4_block_oldsubblock(c, d, rb);
 		break;
-		// TODO: 0x7a (new subblock), for comments
 	}
 
 done:
