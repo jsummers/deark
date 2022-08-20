@@ -12,6 +12,18 @@ static const u8 *g_rar_oldsig = (const u8*)"RE\x7e\x5e";
 static const u8 *g_rar4_sig = (const u8*)"Rar!\x1a\x07\x00";
 static const u8 *g_rar5_sig = (const u8*)"Rar!\x1a\x07\x01\x00";
 
+// 0=stored through 5=max/best
+static const char *get_generic_rar_cmpr_name(UI n)
+{
+	const char *names[6] = { "stored", "fastest", "fast",
+		"normal", "good", "best" };
+
+	if(n<=5) {
+		return names[n];
+	}
+	return "?";
+}
+
 static void rar_handle_noncmpr_comment(deark *c, de_arch_lctx *d, i64 pos, i64 len,
 	de_encoding enc, int is_file_comment)
 {
@@ -86,7 +98,7 @@ static void do_rar_old_member(deark *c, de_arch_lctx *d, struct de_arch_member_d
 	fnlen = (i64)de_getbyte_p(&pos);
 
 	md->cmpr_meth = (UI)de_getbyte_p(&pos);
-	de_dbg(c, "cmpr. method: %u", md->cmpr_meth);
+	de_dbg(c, "cmpr. method: %u (%s)", md->cmpr_meth, get_generic_rar_cmpr_name(md->cmpr_meth));
 
 	// Spec says the filename occurs *after* the comment, but (for v1.40.2)
 	// it just isn't true.
@@ -255,6 +267,11 @@ static const char *rar4_get_OS_name(u8 n)
 	return name?name:"?";
 }
 
+static const char *rar4_get_cmpr_name(u8 n)
+{
+	return get_generic_rar_cmpr_name((UI)(n-0x30));
+}
+
 static void rar_read_v4_block(deark *c, de_arch_lctx *d, struct rar4_block *rb);
 
 // Header type 0x73
@@ -310,7 +327,7 @@ static void do_rar4_block_fileheader(deark *c, de_arch_lctx *d, struct rar4_bloc
 	de_dbg(c, "min ver needed to unpack: %u", (UI)b);
 
 	md->cmpr_meth = (UI)de_getbyte_p(&pos);
-	de_dbg(c, "cmpr. method: %u", md->cmpr_meth);
+	de_dbg(c, "cmpr. method: 0x%02x (%s)", md->cmpr_meth, rar4_get_cmpr_name((u8)md->cmpr_meth));
 
 	fnlen = de_getu16le_p(&pos);
 
@@ -327,7 +344,10 @@ static void do_rar4_block_fileheader(deark *c, de_arch_lctx *d, struct rar4_bloc
 		pos += 4; // TODO: HIGH_UNP_SIZE
 	}
 
-	// TODO: Handle UTF-8 names
+	// TODO: Handle Unicode filenames (flags & 0x0200).
+	// - If the name field contains a NUL byte, a Unicode name follows (but how
+	//   is it encoded?).
+	// - If there is no NUL byte, the entire filename is UTF-8.
 	dbuf_read_to_ucstring_n(c->infile, pos, fnlen, 2048, md->filename,
 		DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
 	de_dbg(c, "%sname: \"%s\"", (rb->type==0x7a?"":"file"), ucstring_getpsz_d(md->filename));
@@ -386,7 +406,7 @@ static void do_rar4_block_oldcomment(deark *c, de_arch_lctx *d, struct rar4_bloc
 	ver_needed = de_getbyte_p(&pos);
 	de_dbg(c, "ver needed to read comment: %u", (UI)ver_needed);
 	cmpr_meth = de_getbyte_p(&pos);
-	de_dbg(c, "cmpr. method: %u", cmpr_meth);
+	de_dbg(c, "cmpr. method: 0x%02x (%s)", (UI)cmpr_meth, rar4_get_cmpr_name(cmpr_meth));
 	crc_reported = (u32)de_getu16le_p(&pos);
 	de_dbg(c, "crc (reported): 0x%04x", (UI)crc_reported);
 
@@ -673,6 +693,7 @@ static i64 rar_get_vint_i64_p(de_arch_lctx *d, dbuf *f, i64 *ppos)
 #define RAR5_HDRTYPE_ARCHIVE   1
 #define RAR5_HDRTYPE_FILE      2
 #define RAR5_HDRTYPE_SERVICE   3
+#define RAR5_HDRTYPE_A_ENCR    4
 #define RAR5_HDRTYPE_EOA       5
 
 static const char *rar_get_v5_hdrtype_name(UI n)
@@ -963,6 +984,7 @@ static void rar_read_v5_block(deark *c, de_arch_lctx *d, struct rar5_block *rb, 
 	}
 
 	rb->hdr_flags = (UI)rar_get_vint_p(d, c->infile, &pos);
+	// TODO: Describe the flags
 	de_dbg(c, "hdr flags: %u", rb->hdr_flags);
 
 	if(rb->hdr_flags & 0x1) {
@@ -1005,6 +1027,10 @@ static void rar_read_v5_block(deark *c, de_arch_lctx *d, struct rar5_block *rb, 
 	case RAR5_HDRTYPE_FILE:
 	case RAR5_HDRTYPE_SERVICE:
 		do_rar5_file_or_service_hdr(c, d, rb);
+		break;
+	case RAR5_HDRTYPE_A_ENCR:
+		// The rest of the archive is encrypted.
+		d->stop_flag = 1;
 		break;
 	}
 
