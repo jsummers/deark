@@ -302,8 +302,8 @@ $(OBJDIR)/modules/xfer.o: modules/xfer.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/zip.o: modules/zip.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
-$(OBJDIR)/modules/zoo.o: modules/zoo.c src/deark-config.h \
- src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/zoo.o: modules/zoo.c src/deark-private.h src/deark.h \
+ src/deark-config.h src/deark-fmtutil.h src/deark-fmtutil-arch.h
 $(OBJDIR)/src/deark-bitmap.o: src/deark-bitmap.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/src/deark-char.o: src/deark-char.c src/deark-config.h \

@@ -8,9 +8,9 @@
 // - unzoo.c v4.4 by Martin Schoenert (public domain)
 // - The Zoo v2.10 source code by Rahul Dhesi (public domain)
 
-#include <deark-config.h>
 #include <deark-private.h>
 #include <deark-fmtutil.h>
+#include <deark-fmtutil-arch.h>
 
 DE_DECLARE_MODULE(de_module_zoo);
 DE_DECLARE_MODULE(de_module_zoo_filter);
@@ -28,19 +28,14 @@ struct zoo_member_data;
 
 struct zoo_member_data {
 	de_finfo *fi;
-	de_ucstring *fullname;
 	u8 type; // Member header format version (1 or 2)
 	u8 method; // Compression method
 	u8 has_ext_header;
 	i64 next_member_hdr_pos;
-	i64 cmpr_pos;
-	i64 cmpr_len;
-	i64 uncmpr_len;
 	i64 comment_pos;
 	i64 comment_len; // 0 if no comment
 	UI datdos;
 	UI timdos;
-	u32 crc_reported;
 	u32 crc_calculated;
 	u32 crc_hdr_reported;
 	u32 crc_hdr_calculated;
@@ -54,7 +49,7 @@ struct zoo_member_data {
 };
 
 struct localctx_struct {
-	int input_encoding;
+	struct de_arch_localctx_struct *da;
 	int extract_comments_to_files;
 	int undelete;
 	struct de_inthashtable *offsets_seen;
@@ -69,8 +64,6 @@ struct localctx_struct {
 
 	int num_deleted_files_found;
 	i64 min_offset_found;
-
-	struct de_crcobj *crco;
 };
 
 // An offset is considered meaningful if len!=0.
@@ -82,10 +75,10 @@ static void on_offset_found(deark *c, lctx *d, i64 pos, i64 len)
 	}
 }
 
-static const char *get_member_name_for_msg(deark *c, lctx *d, struct zoo_member_data *md)
+static const char *get_member_name_for_msg(deark *c, lctx *d, struct de_arch_member_data *md)
 {
-	if(md && ucstring_isnonempty(md->fullname)) {
-		return ucstring_getpsz_d(md->fullname);
+	if(md && ucstring_isnonempty(md->filename)) {
+		return ucstring_getpsz_d(md->filename);
 	}
 	return "(?)";
 }
@@ -96,7 +89,7 @@ static void do_extract_comment(deark *c, lctx *d, i64 pos, i64 len, int is_main)
 
 	outf = dbuf_create_output_file(c, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
 	dbuf_copy_slice_convert_to_utf8(c->infile, pos, len,
-		DE_EXTENC_MAKE(d->input_encoding, DE_ENCSUBTYPE_HYBRID),
+		DE_EXTENC_MAKE(d->da->input_encoding, DE_ENCSUBTYPE_HYBRID),
 		outf, 0x2|0x4);
 	dbuf_close(outf);
 }
@@ -109,7 +102,7 @@ static void do_dbg_comment(deark *c, lctx *d, i64 pos, i64 len, const char *name
 	if(c->debug_level<1) return;
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN, s,
-		0, DE_EXTENC_MAKE(d->input_encoding, DE_ENCSUBTYPE_HYBRID));
+		0, DE_EXTENC_MAKE(d->da->input_encoding, DE_ENCSUBTYPE_HYBRID));
 	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz_d(s));
 	ucstring_destroy(s);
 }
@@ -219,55 +212,59 @@ static const char *get_cmpr_meth_name(u8 t)
 }
 
 // To be called after all mod_time-related fields have been read.
-// Finish reporting the mod_time, and set md->fi->mod_time.
-static void finish_modtime_decoding(deark *c, lctx *d, struct zoo_member_data *md)
+// Finish reporting the mod_time, and set mdz->fi->mod_time.
+static void finish_modtime_decoding(deark *c, lctx *d, struct zoo_member_data *mdz)
 {
 	i64 timestamp_offset;
 	char timestamp_buf[64];
 
 	timestamp_offset = 0;
-	if      ( md->timzon < 127 )  timestamp_offset = 15*60*((i64)md->timzon      );
-	else if ( 127 < md->timzon )  timestamp_offset = 15*60*((i64)md->timzon - 256);
+	if      ( mdz->timzon < 127 )  timestamp_offset = 15*60*((i64)mdz->timzon      );
+	else if ( 127 < mdz->timzon )  timestamp_offset = 15*60*((i64)mdz->timzon - 256);
 
-	de_dos_datetime_to_timestamp(&md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], (i64)md->datdos, (i64)md->timdos);
-	de_timestamp_to_string(&md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dos_datetime_to_timestamp(&mdz->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], (i64)mdz->datdos, (i64)mdz->timdos);
+	de_timestamp_to_string(&mdz->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %s", timestamp_buf);
-	if(md->timzon == 127) {
-		md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY].tzcode = DE_TZCODE_LOCAL;
+	if(mdz->timzon == 127) {
+		mdz->fi->timestamp[DE_TIMESTAMPIDX_MODIFY].tzcode = DE_TZCODE_LOCAL;
 	}
 	else {
-		de_timestamp_cvt_to_utc(&md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], timestamp_offset);
-		de_timestamp_to_string(&md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], timestamp_buf, sizeof(timestamp_buf), 0);
+		de_timestamp_cvt_to_utc(&mdz->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], timestamp_offset);
+		de_timestamp_to_string(&mdz->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], timestamp_buf, sizeof(timestamp_buf), 0);
 		de_dbg(c, "mod time (UTC): %s", timestamp_buf);
 	}
 }
 
-static void calc_hdr_crc(deark *c, lctx *d, struct zoo_member_data *md, i64 pos1, i64 lvar)
+static void calc_hdr_crc(deark *c, lctx *d, struct de_arch_member_data *md, i64 lvar)
 {
-	de_crcobj_reset(d->crco);
-	de_crcobj_addslice(d->crco, c->infile, pos1, 54);
-	de_crcobj_addzeroes(d->crco, 2);
-	de_crcobj_addslice(d->crco, c->infile, pos1+56, lvar);
-	md->crc_hdr_calculated = de_crcobj_getval(d->crco);
+	struct zoo_member_data *mdz = (struct zoo_member_data*)md->userdata;
+
+	de_crcobj_reset(d->da->crco);
+	de_crcobj_addslice(d->da->crco, c->infile, md->member_hdr_pos, 54);
+	de_crcobj_addzeroes(d->da->crco, 2);
+	de_crcobj_addslice(d->da->crco, c->infile, md->member_hdr_pos+56, lvar);
+	mdz->crc_hdr_calculated = de_crcobj_getval(d->da->crco);
 }
 
 // Decode the trailer member. Only a few fields are potentially interesting; the
 // rest are usually zeroed out.
 // This code is duplicated in do_member_header(), but it's too much trouble to
 // share it.
-static void do_member_eof(deark *c, lctx *d, struct zoo_member_data *md, i64 pos1)
+static void do_member_eof(deark *c, lctx *d, struct de_arch_member_data *md)
 {
+	struct zoo_member_data *mdz = (struct zoo_member_data*)md->userdata;
+	i64 pos1 = md->member_hdr_pos;
 	i64 lvar;
 
-	if(!md->has_ext_header) goto done;
+	if(!mdz->has_ext_header) goto done;
 	lvar = de_getu16le(pos1+51);
 	de_dbg(c, "length of variable part: %d", (int)lvar);
 
-	md->crc_hdr_reported = (u32)de_getu16le(pos1+54);
-	de_dbg(c, "entry crc (reported): 0x%04x", (UI)md->crc_hdr_reported);
-	calc_hdr_crc(c, d, md, pos1, lvar);
-	de_dbg(c, "entry crc (calculated): 0x%04x", (UI)md->crc_hdr_calculated);
-	if(md->crc_hdr_calculated != md->crc_hdr_reported) {
+	mdz->crc_hdr_reported = (u32)de_getu16le(pos1+54);
+	de_dbg(c, "entry crc (reported): 0x%04x", (UI)mdz->crc_hdr_reported);
+	calc_hdr_crc(c, d, md, lvar);
+	de_dbg(c, "entry crc (calculated): 0x%04x", (UI)mdz->crc_hdr_calculated);
+	if(mdz->crc_hdr_calculated != mdz->crc_hdr_reported) {
 		de_warn(c, "Header CRC check failed");
 	}
 
@@ -275,13 +272,14 @@ done:
 	;
 }
 
-static int do_member_header(deark *c, lctx *d, struct zoo_member_data *md, i64 pos1)
+static int do_member_header(deark *c, lctx *d, struct de_arch_member_data *md)
 {
+	struct zoo_member_data *mdz = (struct zoo_member_data*)md->userdata;
 	de_ucstring *shortname = NULL;
 	de_ucstring *longname = NULL;
 	de_ucstring *dirname = NULL;
 	int retval = 0;
-	i64 pos = pos1;
+	i64 pos;
 	i64 hdr_endpos;
 	i64 lvar; // length of "variable part" of type-2 header
 	i64 lnamu; // length of long filename
@@ -290,28 +288,29 @@ static int do_member_header(deark *c, lctx *d, struct zoo_member_data *md, i64 p
 	UI attribs_type;
 	char descrbuf[80];
 
+	pos = md->member_hdr_pos;
 	sig = (UI)de_getu32le_p(&pos);
 	if(sig != ZOO_SIGNATURE) {
-		de_err(c, "Malformed Zoo file, bad magic number at %"I64_FMT, pos1);
+		de_err(c, "Malformed Zoo file, bad magic number at %"I64_FMT, md->member_hdr_pos);
 		goto done;
 	}
 
-	md->type   = de_getbyte_p(&pos);
-	md->has_ext_header = (u8)(md->type == 2);
-	md->method = de_getbyte_p(&pos);
-	md->next_member_hdr_pos = de_getu32le_p(&pos);
+	mdz->type   = de_getbyte_p(&pos);
+	mdz->has_ext_header = (u8)(mdz->type == 2);
+	mdz->method = de_getbyte_p(&pos);
+	mdz->next_member_hdr_pos = de_getu32le_p(&pos);
 
-	de_dbg(c, "member header format version (\"type\"): %d", (int)md->type);
-	if(md->next_member_hdr_pos) {
-		de_dbg(c, "compression method: %d (%s)", (int)md->method, get_cmpr_meth_name(md->method));
+	de_dbg(c, "member header format version (\"type\"): %d", (int)mdz->type);
+	if(mdz->next_member_hdr_pos) {
+		de_dbg(c, "compression method: %d (%s)", (int)mdz->method, get_cmpr_meth_name(mdz->method));
 	}
 
-	de_snprintf(descrbuf, sizeof(descrbuf), (md->next_member_hdr_pos?"":
+	de_snprintf(descrbuf, sizeof(descrbuf), (mdz->next_member_hdr_pos?"":
 		" (none - This is the trailer record)"));
-	de_dbg(c, "next entry pos: %"I64_FMT"%s", md->next_member_hdr_pos, descrbuf);
+	de_dbg(c, "next entry pos: %"I64_FMT"%s", mdz->next_member_hdr_pos, descrbuf);
 
-	if(md->next_member_hdr_pos==0) {
-		do_member_eof(c, d, md, pos1);
+	if(mdz->next_member_hdr_pos==0) {
+		do_member_eof(c, d, md);
 		retval = 1;
 		goto done;
 	}
@@ -319,36 +318,36 @@ static int do_member_header(deark *c, lctx *d, struct zoo_member_data *md, i64 p
 	md->cmpr_pos = de_getu32le_p(&pos);
 	de_dbg(c, "pos of file data: %"I64_FMT, md->cmpr_pos);
 
-	md->datdos = (UI)de_getu16le_p(&pos);
-	md->timdos = (UI)de_getu16le_p(&pos);
-	de_dbg2(c, "dos date,time: %u,%u", md->datdos, md->timdos);
-	if(!md->has_ext_header) {
-		md->timzon = 127;
-		finish_modtime_decoding(c, d, md);
+	mdz->datdos = (UI)de_getu16le_p(&pos);
+	mdz->timdos = (UI)de_getu16le_p(&pos);
+	de_dbg2(c, "dos date,time: %u,%u", mdz->datdos, mdz->timdos);
+	if(!mdz->has_ext_header) {
+		mdz->timzon = 127;
+		finish_modtime_decoding(c, d, mdz);
 	}
 
 	md->crc_reported = (u32)de_getu16le_p(&pos);
 	de_dbg(c, "file data crc (reported): 0x%04x", (UI)md->crc_reported);
-	md->uncmpr_len = de_getu32le_p(&pos);
-	de_dbg(c, "original size: %"I64_FMT, md->uncmpr_len);
+	md->orig_len = de_getu32le_p(&pos);
+	de_dbg(c, "original size: %"I64_FMT, md->orig_len);
 	md->cmpr_len = de_getu32le_p(&pos);
 	de_dbg(c, "compressed size: %"I64_FMT, md->cmpr_len);
 
 	// Note: The version number fields are sometimes erroneously documented as
 	// "version made by" and "version needed". But (according to Zoo 2.10),
 	// there is no "version made by" field.
-	md->majver = de_getbyte_p(&pos);
-	md->minver = de_getbyte_p(&pos);
-	de_dbg(c, "version needed to extract: %d.%d", (int)md->majver, (int)md->minver);
+	mdz->majver = de_getbyte_p(&pos);
+	mdz->minver = de_getbyte_p(&pos);
+	de_dbg(c, "version needed to extract: %d.%d", (int)mdz->majver, (int)mdz->minver);
 
-	md->is_deleted = de_getbyte_p(&pos);
-	de_dbg(c, "is deleted: %d", (int)md->is_deleted);
+	mdz->is_deleted = de_getbyte_p(&pos);
+	de_dbg(c, "is deleted: %d", (int)mdz->is_deleted);
 	pos++; // "file structure" (?)
-	md->comment_pos = de_getu32le_p(&pos);
-	md->comment_len = de_getu16le_p(&pos);
-	de_dbg(c, "comment pos: %"I64_FMT", len=%d", md->comment_pos, (int)md->comment_len);
-	do_comment(c, d, md->comment_pos, md->comment_len, "comment", 0,
-		(d->extract_comments_to_files) && (!md->is_deleted || d->undelete));
+	mdz->comment_pos = de_getu32le_p(&pos);
+	mdz->comment_len = de_getu16le_p(&pos);
+	de_dbg(c, "comment pos: %"I64_FMT", len=%d", mdz->comment_pos, (int)mdz->comment_len);
+	do_comment(c, d, mdz->comment_pos, mdz->comment_len, "comment", 0,
+		(d->extract_comments_to_files) && (!mdz->is_deleted || d->undelete));
 
 	// In "type 2" header format, the shortname field is a fixed 13 bytes, and is
 	// followed by other fields.
@@ -361,11 +360,11 @@ static int do_member_header(deark *c, lctx *d, struct zoo_member_data *md, i64 p
 	// by a 1-byte field of unknown purpose.
 	shortname = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, 13, shortname, DE_CONVFLAG_STOP_AT_NUL,
-		d->input_encoding);
+		d->da->input_encoding);
 	de_dbg(c, "short name: \"%s\"", ucstring_getpsz(shortname));
 	pos += 13;
 
-	if(!md->has_ext_header) {
+	if(!mdz->has_ext_header) {
 		goto done_with_header;
 	}
 
@@ -377,32 +376,32 @@ static int do_member_header(deark *c, lctx *d, struct zoo_member_data *md, i64 p
 	lvar   = de_getu16le_p(&pos);
 	de_dbg(c, "length of variable part: %d", (int)lvar);
 
-	md->timzon = de_getbyte_p(&pos);
+	mdz->timzon = de_getbyte_p(&pos);
 
 	// Note: The timezone field is definitely a signed byte that is the
 	// number of 15-minute units from UTC, but it is unknown to me whether
 	// a positive number means west, or east. Under either interpretation,
 	// I have multiple sample files with highly implausible timezones. The
 	// interpretation used here is based on the preponderance of evidence.
-	if(md->timzon==127) {
+	if(mdz->timzon==127) {
 		de_strlcpy(descrbuf, "unknown", sizeof(descrbuf));
 	}
-	else if(md->timzon>127) {
+	else if(mdz->timzon>127) {
 		de_snprintf(descrbuf, sizeof(descrbuf), "%.2f hours east of UTC",
-			((double)md->timzon - 256.0)/-4.0);
+			((double)mdz->timzon - 256.0)/-4.0);
 	}
 	else {
 		de_snprintf(descrbuf, sizeof(descrbuf), "%.2f hours west of UTC",
-			((double)md->timzon)/4.0);
+			((double)mdz->timzon)/4.0);
 	}
-	de_dbg(c, "time zone: %d (%s)", (int)md->timzon, descrbuf);
-	finish_modtime_decoding(c, d, md);
+	de_dbg(c, "time zone: %d (%s)", (int)mdz->timzon, descrbuf);
+	finish_modtime_decoding(c, d, mdz);
 
-	md->crc_hdr_reported = (u32)de_getu16le_p(&pos);
-	de_dbg(c, "entry crc (reported): 0x%04x", (UI)md->crc_hdr_reported);
-	calc_hdr_crc(c, d, md, pos1, lvar);
-	de_dbg(c, "entry crc (calculated): 0x%04x", (UI)md->crc_hdr_calculated);
-	if(md->crc_hdr_calculated != md->crc_hdr_reported) {
+	mdz->crc_hdr_reported = (u32)de_getu16le_p(&pos);
+	de_dbg(c, "entry crc (reported): 0x%04x", (UI)mdz->crc_hdr_reported);
+	calc_hdr_crc(c, d, md, lvar);
+	de_dbg(c, "entry crc (calculated): 0x%04x", (UI)mdz->crc_hdr_calculated);
+	if(mdz->crc_hdr_calculated != mdz->crc_hdr_reported) {
 		de_warn(c, "Header CRC check failed");
 	}
 
@@ -421,7 +420,7 @@ static int do_member_header(deark *c, lctx *d, struct zoo_member_data *md, i64 p
 	if(lnamu>0) {
 		longname = ucstring_create(c);
 		dbuf_read_to_ucstring(c->infile, pos, lnamu, longname,
-			DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+			DE_CONVFLAG_STOP_AT_NUL, d->da->input_encoding);
 		de_dbg(c, "long name: \"%s\"", ucstring_getpsz(longname));
 	}
 	pos += lnamu;
@@ -430,69 +429,69 @@ static int do_member_header(deark *c, lctx *d, struct zoo_member_data *md, i64 p
 	if(ldiru>0) {
 		dirname = ucstring_create(c);
 		dbuf_read_to_ucstring(c->infile, pos, ldiru, dirname,
-			DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+			DE_CONVFLAG_STOP_AT_NUL, d->da->input_encoding);
 		de_dbg(c, "dir name: \"%s\"", ucstring_getpsz(dirname));
 	}
 	pos += ldiru;
 
 	if(hdr_endpos-pos < 2) goto done_with_header;
-	md->system = (UI)de_getu16le_p(&pos);
-	de_dbg(c, "system id: %u", md->system);
+	mdz->system = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "system id: %u", mdz->system);
 
 	if(hdr_endpos-pos < 3) goto done_with_header;
-	md->attribs = (u32)dbuf_getint_ext(c->infile, pos, 3, 1, 0);
+	mdz->attribs = (u32)dbuf_getint_ext(c->infile, pos, 3, 1, 0);
 	pos += 3;
-	de_dbg(c, "attribs: 0x%06x", (UI)md->attribs);
+	de_dbg(c, "attribs: 0x%06x", (UI)mdz->attribs);
 	de_dbg_indent(c, 1);
-	attribs_type = (md->attribs >> 22);
+	attribs_type = (mdz->attribs >> 22);
 	de_dbg(c, "attribs type: %u", attribs_type);
 	if(attribs_type == 1) {
-		de_dbg(c, "perms: octal(%o)", (UI)(md->attribs & 0x1ff));
-		if((md->attribs & 0111) != 0) {
-			md->fi->mode_flags |= DE_MODEFLAG_EXE;
+		de_dbg(c, "perms: octal(%o)", (UI)(mdz->attribs & 0x1ff));
+		if((mdz->attribs & 0111) != 0) {
+			mdz->fi->mode_flags |= DE_MODEFLAG_EXE;
 		}
 		else {
-			md->fi->mode_flags |= DE_MODEFLAG_NONEXE;
+			mdz->fi->mode_flags |= DE_MODEFLAG_NONEXE;
 		}
 	}
 	de_dbg_indent(c, -1);
 
 	if(hdr_endpos-pos < 1) goto done_with_header;
-	md->vflag = de_getbyte_p(&pos);
-	de_dbg(c, "versioning settings (\"vflag\"): 0x%02x", (UI)md->vflag);
+	mdz->vflag = de_getbyte_p(&pos);
+	de_dbg(c, "versioning settings (\"vflag\"): 0x%02x", (UI)mdz->vflag);
 
 	if(hdr_endpos-pos < 2) goto done_with_header;
-	md->ver = (UI)de_getu16le_p(&pos);
-	de_dbg(c, "file version number: %u", md->ver);
+	mdz->ver = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "file version number: %u", mdz->ver);
 
 done_with_header:
 	// Note: Typically, there is a 5-byte "file leader" ("@)#(\0") here, between
 	// the member header and the member data, so pos is not
-	// expected to equal md->posdat.
+	// expected to equal mdz->posdat.
 
 	// Figure out the best filename to use
 	if(ucstring_isnonempty(longname) || ucstring_isnonempty(shortname)) {
 		if(ucstring_isnonempty(dirname)) {
-			ucstring_append_ucstring(md->fullname, dirname);
-			ucstring_append_sz(md->fullname, "/", DE_ENCODING_LATIN1);
+			ucstring_append_ucstring(md->filename, dirname);
+			ucstring_append_sz(md->filename, "/", DE_ENCODING_LATIN1);
 		}
 		if(ucstring_isnonempty(longname)) {
-			ucstring_append_ucstring(md->fullname, longname);
+			ucstring_append_ucstring(md->filename, longname);
 		}
 		else if(ucstring_isnonempty(shortname)) {
-			ucstring_append_ucstring(md->fullname, shortname);
+			ucstring_append_ucstring(md->filename, shortname);
 		}
 
-		if(ucstring_isempty(md->fullname)) {
-			ucstring_append_sz(md->fullname, "_", DE_ENCODING_LATIN1);
+		if(ucstring_isempty(md->filename)) {
+			ucstring_append_sz(md->filename, "_", DE_ENCODING_LATIN1);
 		}
-		if(md->is_deleted) {
-			ucstring_printf(md->fullname, DE_ENCODING_LATIN1, ".deleted%02d",
+		if(mdz->is_deleted) {
+			ucstring_printf(md->filename, DE_ENCODING_LATIN1, ".deleted%02d",
 				d->num_deleted_files_found);
 		}
 
-		de_finfo_set_name_from_ucstring(c, md->fi, md->fullname, DE_SNFLAG_FULLPATH);
-		md->fi->original_filename_flag = 1;
+		de_finfo_set_name_from_ucstring(c, mdz->fi, md->filename, DE_SNFLAG_FULLPATH);
+		mdz->fi->original_filename_flag = 1;
 	}
 
 	retval = 1;
@@ -537,7 +536,8 @@ static void decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 // If there are more members after this, sets *next_member_hdr_pos to nonzero.
 static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 {
-	struct zoo_member_data *md = NULL;
+	struct de_arch_member_data *md = NULL;
+	struct zoo_member_data *mdz = NULL;
 	dbuf *outf = NULL;
 	const char *ext;
 	struct de_dfilter_in_params dcmpri;
@@ -549,36 +549,38 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	on_offset_found(c, d, pos1, 1);
 
-	md = de_malloc(c, sizeof(struct zoo_member_data));
-	md->fi = de_finfo_create(c);
-	md->fullname = ucstring_create(c);
+	mdz = de_malloc(c, sizeof(struct zoo_member_data));
+	md = de_arch_create_md(c, d->da);
+	md->userdata = (void*)mdz;
+	mdz->fi = de_finfo_create(c);
 
-	if (!do_member_header(c, d, md, pos1)) {
+	md->member_hdr_pos = pos1;
+	if (!do_member_header(c, d, md)) {
 		goto done;
 	}
 	on_offset_found(c, d, md->cmpr_pos, md->cmpr_len);
 
-	*next_member_hdr_pos = md->next_member_hdr_pos;
+	*next_member_hdr_pos = mdz->next_member_hdr_pos;
 
-	if ( ! md->next_member_hdr_pos ) {
+	if ( ! mdz->next_member_hdr_pos ) {
 		goto done;
 	}
 
-	if(md->is_deleted && !d->undelete) {
+	if(mdz->is_deleted && !d->undelete) {
 		de_dbg(c, "ignoring deleted entry");
 		goto done;
 	}
 
-	if ( (md->majver>2) || (md->majver==2 && md->minver>1) ) {
+	if ( (mdz->majver>2) || (mdz->majver==2 && mdz->minver>1) ) {
 		de_err(c, "%s: Unsupported format version: %d.%d",
 			get_member_name_for_msg(c, d, md),
-			(int)md->majver, (int)md->minver);
+			(int)mdz->majver, (int)mdz->minver);
 		goto done;
 	}
 
-	if(md->method!=ZOOCMPR_STORED && md->method!=ZOOCMPR_LZD && md->method!=ZOOCMPR_LZH) {
+	if(mdz->method!=ZOOCMPR_STORED && mdz->method!=ZOOCMPR_LZD && mdz->method!=ZOOCMPR_LZH) {
 		de_err(c, "%s: Unsupported compression method: %d",
-			get_member_name_for_msg(c, d, md), (int)md->method);
+			get_member_name_for_msg(c, d, md), (int)mdz->method);
 		goto done;
 	}
 
@@ -591,16 +593,16 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 	}
 
 	// Ready to decompress. Set up the output file.
-	if(md->fi && md->fi->original_filename_flag) {
+	if(mdz->fi && mdz->fi->original_filename_flag) {
 		ext = NULL;
 	}
 	else {
 		ext = "bin";
 	}
-	outf = dbuf_create_output_file(c, ext, md->fi, 0);
+	outf = dbuf_create_output_file(c, ext, mdz->fi, 0);
 	dbuf_enable_wbuffer(outf);
-	dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)d->crco);
-	de_crcobj_reset(d->crco);
+	dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)d->da->crco);
+	de_crcobj_reset(d->da->crco);
 
 	dcmpri.f = c->infile;
 	dcmpri.pos = md->cmpr_pos;
@@ -608,10 +610,10 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 
 	dcmpro.f = outf;
 	dcmpro.len_known = 1;
-	dcmpro.expected_len = md->uncmpr_len;
+	dcmpro.expected_len = md->orig_len;
 
 	de_dbg_indent(c, 1);
-	switch(md->method) {
+	switch(mdz->method) {
 	case ZOOCMPR_STORED:
 		fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
 		break;
@@ -627,31 +629,31 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 	dbuf_flush(dcmpro.f);
 	de_dbg_indent(c, -1);
 
-	md->crc_calculated = de_crcobj_getval(d->crco);
+	mdz->crc_calculated = de_crcobj_getval(d->da->crco);
 	if(!dres.errcode) {
-		de_dbg(c, "file data crc (calculated): 0x%04x", (UI)md->crc_calculated);
+		de_dbg(c, "file data crc (calculated): 0x%04x", (UI)mdz->crc_calculated);
 	}
 
 	if(dres.errcode) {
 		de_err(c, "%s: %s", get_member_name_for_msg(c, d, md),
 			de_dfilter_get_errmsg(c, &dres));
 	}
-	else if(outf->len != md->uncmpr_len) {
+	else if(outf->len != md->orig_len) {
 		de_err(c, "%s: Expected %"I64_FMT" uncompressed bytes, got %"I64_FMT,
-			get_member_name_for_msg(c, d, md), md->uncmpr_len, outf->len);
+			get_member_name_for_msg(c, d, md), md->orig_len, outf->len);
 	}
-	else if (md->crc_calculated != md->crc_reported) {
+	else if (mdz->crc_calculated != md->crc_reported) {
 		de_err(c, "%s: CRC check failed", get_member_name_for_msg(c, d, md));
 	}
 
 done:
 	dbuf_close(outf);
-	if(md) {
-		if(md->is_deleted) d->num_deleted_files_found++;
-		ucstring_destroy(md->fullname);
-		de_finfo_destroy(c, md->fi);
-		de_free(c, md);
+	if(mdz) {
+		if(mdz->is_deleted) d->num_deleted_files_found++;
+		de_finfo_destroy(c, mdz->fi);
+		de_free(c, mdz);
 	}
+	de_arch_destroy_md(c, md);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -687,11 +689,15 @@ static void de_run_zoo(deark *c, de_module_params *mparams)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	d = de_malloc(c, sizeof(lctx));
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
+	d->da = de_arch_create_lctx(c);
+	d->da->userdata = (void*)d;
+	d->da->is_le = 1;
+
+	d->da->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
 	d->undelete = de_get_ext_option_bool(c, "zoo:undelete", 0);
 	d->extract_comments_to_files = (c->extract_level>=2);
 
-	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
+	d->da->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 	d->min_offset_found = c->infile->len;
 
 	if(!do_global_header(c, d, pos)) {
@@ -737,7 +743,7 @@ after_members:
 done:
 	if(d) {
 		de_inthashtable_destroy(c, d->offsets_seen);
-		de_crcobj_destroy(d->crco);
+		de_arch_destroy_lctx(c, d->da);
 		de_free(c, d);
 	}
 	de_dbg_indent_restore(c, saved_indent_level);
