@@ -85,7 +85,7 @@ static void do_rar_old_member(deark *c, de_arch_lctx *d, struct de_arch_member_d
 
 	md->member_total_size = hdrlen + md->cmpr_len;
 
-	de_arch_read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
 		DE_ARCH_TSTYPE_DOS_TD, &pos);
 	de_arch_read_field_dos_attr_p(md, &pos);
 
@@ -320,7 +320,7 @@ static void do_rar4_block_fileheader(deark *c, de_arch_lctx *d, struct rar4_bloc
 	filecrc_reported = (u32)de_getu32le_p(&pos);
 	de_dbg(c, "file crc: 0x%08x", (UI)filecrc_reported);
 
-	de_arch_read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
 		DE_ARCH_TSTYPE_DOS_TD, &pos);
 
 	b = de_getbyte_p(&pos);

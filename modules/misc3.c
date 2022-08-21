@@ -65,7 +65,7 @@ static void cpshrink_do_member(deark *c, de_arch_lctx *d, struct de_arch_member_
 	de_arch_read_field_cmpr_len_p(md, &pos);
 	d->cmpr_data_curpos += md->cmpr_len;
 
-	de_arch_read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
 		DE_ARCH_TSTYPE_DOS_DT, &pos);
 
 	if(!de_arch_good_cmpr_data_pos(md)) {
@@ -257,7 +257,7 @@ static void do_dwc_member(deark *c, de_arch_lctx *d, i64 pos1, i64 fhsize)
 	pos += 13;
 
 	de_arch_read_field_orig_len_p(md, &pos);
-	de_arch_read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
 		DE_ARCH_TSTYPE_UNIX, &pos);
 	de_arch_read_field_cmpr_len_p(md, &pos);
 	md->cmpr_pos = de_getu32le_p(&pos);
@@ -474,7 +474,7 @@ static void tscomp_do_member(deark *c, de_arch_lctx *d, struct de_arch_member_da
 	pos += 1;
 	de_arch_read_field_cmpr_len_p(md, &pos);
 	pos += 4; // ??
-	de_arch_read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
 		DE_ARCH_TSTYPE_DOS_DT, &pos);
 	pos += 2; // ??
 
@@ -779,7 +779,7 @@ static int do_qip_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *
 
 	de_arch_read_field_dos_attr_p(md, &pos); // ?
 
-	de_arch_read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
 		DE_ARCH_TSTYPE_DOS_TD, &pos);
 	de_arch_read_field_orig_len_p(md, &pos);
 	dbuf_read_to_ucstring(c->infile, pos, 12, md->filename, DE_CONVFLAG_STOP_AT_NUL,

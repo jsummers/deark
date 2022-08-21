@@ -70,7 +70,7 @@ static int do_one_file(deark *c, lctx *d, i64 pos1, i64 *pbytes_consumed)
 	de_arch_read_field_cmpr_len_p(md, &pos); // 7
 	md->cmpr_pos = de_getu32le_p(&pos); // 11
 	de_dbg(c, "cmpr data pos: %"I64_FMT, md->cmpr_pos);
-	de_arch_read_field_dttm_p(d->da, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+	de_arch_read_field_dttm_p(d->da, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
 		DE_ARCH_TSTYPE_DOS_DT, &pos);
 
 	pos += 4; // ? (maybe a bit-field?)

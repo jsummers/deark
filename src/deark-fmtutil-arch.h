@@ -25,10 +25,10 @@ struct de_arch_member_data {
 	i64 cmpr_pos;
 	u32 crc_reported; // CRC of decompressed file
 	u8 orig_len_known;
+	de_finfo *fi; // Created and destroyed automatically
 	de_ucstring *filename; // Allocated by de_arch_create_md().
 	de_ucstring *tmpfn_base; // Client allocates, freed automatically.
 	de_ucstring *tmpfn_path; // Client allocates, freed automatically.
-	struct de_timestamp tmstamp[DE_TIMESTAMPIDX_COUNT];
 	UI set_name_flags; // e.g. DE_SNFLAG_FULLPATH
 	UI dos_attribs;
 	u8 is_encrypted;

@@ -178,7 +178,7 @@ static int do_member_file(deark *c, lctx *d, i64 idx, i64 pos1)
 
 	de_arch_read_field_dos_attr_p(md, &pos);
 
-	de_arch_read_field_dttm_p(d->da, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+	de_arch_read_field_dttm_p(d->da, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
 		DE_ARCH_TSTYPE_DOS_TD, &pos);
 
 	de_arch_read_field_orig_len_p(md, &pos);

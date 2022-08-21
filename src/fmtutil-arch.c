@@ -16,6 +16,7 @@ struct de_arch_member_data *de_arch_create_md(deark *c, de_arch_lctx *d)
 	md->c = c;
 	md->d = d;
 	md->filename = ucstring_create(c);
+	md->fi = de_finfo_create(c);
 	return md;
 }
 
@@ -25,6 +26,7 @@ void de_arch_destroy_md(deark *c, struct de_arch_member_data *md)
 	ucstring_destroy(md->filename);
 	ucstring_destroy(md->tmpfn_base);
 	ucstring_destroy(md->tmpfn_path);
+	de_finfo_destroy(c, md->fi);
 	de_free(c, md);
 }
 
@@ -192,12 +194,14 @@ int de_arch_good_cmpr_data_pos(struct de_arch_member_data *md)
 	return 1;
 }
 
+// Caller should write something to the md->filename field, if possible.
+// Normally, the caller should *not* call de_finfo_set_name_* on the
+// md->fi object -- instead use md->filename and md->set_name_flags.
+// If de_finfo_set_name_* is called, though, it will be used.
 void de_arch_extract_member_file(struct de_arch_member_data *md)
 {
 	deark *c = md->c;
-	de_finfo *fi = NULL;
 	dbuf *outf = NULL;
-	size_t k;
 	u32 crc_calc;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
@@ -214,18 +218,12 @@ void de_arch_extract_member_file(struct de_arch_member_data *md)
 		goto done;
 	}
 
-	fi = de_finfo_create(c);
-
-	if(ucstring_isnonempty(md->filename)) {
-		de_finfo_set_name_from_ucstring(c, fi, md->filename, md->set_name_flags);
-		fi->original_filename_flag = 1;
+	if(!md->fi->file_name_internal && ucstring_isnonempty(md->filename)) {
+		de_finfo_set_name_from_ucstring(c, md->fi, md->filename, md->set_name_flags);
+		md->fi->original_filename_flag = 1;
 	}
 
-	for(k=0; k<DE_TIMESTAMPIDX_COUNT; k++) {
-		fi->timestamp[k] = md->tmstamp[k];
-	}
-
-	outf = dbuf_create_output_file(c, NULL, fi, 0);
+	outf = dbuf_create_output_file(c, NULL, md->fi, 0);
 	dbuf_enable_wbuffer(outf);
 	if(md->validate_crc) {
 		dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)md->d->crco);
@@ -282,7 +280,6 @@ void de_arch_extract_member_file(struct de_arch_member_data *md)
 
 done:
 	dbuf_close(outf);
-	if(fi) de_finfo_destroy(c, fi);
 	md->dcmpri = NULL;
 	md->dcmpro = NULL;
 	md->dres = NULL;
