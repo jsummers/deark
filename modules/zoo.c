@@ -1,23 +1,12 @@
 // This file is part of Deark.
-// Copyright (C) 2017 Jason Summers
+// Copyright (C) 2017-2022 Jason Summers
 // See the file COPYING for terms of use.
 
-// ZOO compressed archive format
+// Zoo compressed archive format
 
-// The ZOO parser in this file was originally derived from unzoo.c v4.4
-// by Martin Schoenert.
-// The original file had this notice:
-
-/*
-*A  unzoo.c                     Tools                        Martin Schoenert
-**
-*H  @(#)$Id: unzoo.c,v 4.4 2000/05/29 08:56:57 sal Exp $
-**
-*Y  This file is in the Public Domain.
-*/
-
-// To be clear, the code in this file (Deark's zoo.c file) is covered by
-// Deark's standard terms of use.
+// Some parts of this code were originally derived from, or influenced by:
+// - unzoo.c v4.4 by Martin Schoenert (public domain)
+// - The Zoo v2.10 source code by Rahul Dhesi (public domain)
 
 #include <deark-config.h>
 #include <deark-private.h>
@@ -35,14 +24,13 @@ DE_DECLARE_MODULE(de_module_zoo_z);
 
 struct localctx_struct;
 typedef struct localctx_struct lctx;
-struct member_data;
+struct zoo_member_data;
 
-// Data associated with one Zoo member file
-struct member_data {
+struct zoo_member_data {
 	de_finfo *fi;
 	de_ucstring *fullname;
-	u8             type;           /* type of current member (1)      */
-	u8             method;         /* packing method of member (0..2) */
+	u8 type; // Member header format version (1 or 2)
+	u8 method; // Compression method
 	u8 has_ext_header;
 	i64 next_member_hdr_pos;
 	i64 cmpr_pos;
@@ -50,20 +38,19 @@ struct member_data {
 	i64 uncmpr_len;
 	i64 comment_pos;
 	i64 comment_len; // 0 if no comment
-	unsigned int datdos;         /* date (in DOS format)            */
-	unsigned int timdos;         /* time (in DOS format)            */
+	UI datdos;
+	UI timdos;
 	u32 crc_reported;
 	u32 crc_calculated;
 	u32 crc_hdr_reported;
 	u32 crc_hdr_calculated;
-	u8             majver;         /* major version needed to extract */
-	u8             minver;         /* minor version needed to extract */
-	u8 is_deleted;        /* 1 if member is deleted, 0 else  */
-	u8             timzon;         /* time zone                       */
-	unsigned int system;         /* system identifier               */
-	u32 attribs;         /* file permissions                */
-	u8 vflag;         /* gens. on, last gen., gen. limit */
-	unsigned int ver;            /* version number of member        */
+	u8 majver, minver; // version needed to extract
+	u8 is_deleted;
+	u8 timzon;
+	UI system; // OS ID
+	u32 attribs; // Unix file permissions, etc.
+	u8 vflag; // versioning settings
+	UI ver; // version number of member
 };
 
 struct localctx_struct {
@@ -75,16 +62,14 @@ struct localctx_struct {
 	i64 first_member_hdr_pos;
 	u8 majver;
 	u8 minver;
-	u8 type;  // archive header version
+	u8 type; // archive header version
 	i64 archive_comment_pos;
 	i64 archive_comment_len; // 0 if no comment
-	u8 vdata;         /* gens. on, gen. limit            */
+	u8 vdata; // Archive-level versioning settings
 
 	int num_deleted_files_found;
 	i64 min_offset_found;
 
-	// Shared by all member files, so we don't have to recalculate the CRC table
-	// for each member file.
 	struct de_crcobj *crco;
 };
 
@@ -97,7 +82,7 @@ static void on_offset_found(deark *c, lctx *d, i64 pos, i64 len)
 	}
 }
 
-static const char *get_member_name_for_msg(deark *c, lctx *d, struct member_data *md)
+static const char *get_member_name_for_msg(deark *c, lctx *d, struct zoo_member_data *md)
 {
 	if(md && ucstring_isnonempty(md->fullname)) {
 		return ucstring_getpsz_d(md->fullname);
@@ -148,7 +133,7 @@ static int do_global_header(deark *c, lctx *d, i64 pos1)
 {
 	i64 pos = pos1;
 	int retval = 0;
-	unsigned int sig;
+	UI sig;
 	u32 zoo_minus, zoo_minus_expected;
 	i64 i;
 	de_ucstring *txt = NULL;
@@ -171,7 +156,7 @@ static int do_global_header(deark *c, lctx *d, i64 pos1)
 	de_dbg(c, "header text: \"%s\"", ucstring_getpsz_d(txt));
 	pos += 20;
 
-	sig = (unsigned int)de_getu32le_p(&pos);
+	sig = (UI)de_getu32le_p(&pos);
 	if (sig != ZOO_SIGNATURE) goto done;
 
 	d->first_member_hdr_pos = de_getu32le_p(&pos);
@@ -194,7 +179,7 @@ static int do_global_header(deark *c, lctx *d, i64 pos1)
 	// Fields that aren't present in old versions.
 	if(d->first_member_hdr_pos > 34) {
 		d->type = de_getbyte_p(&pos);
-		de_dbg(c, "archive header format version (\"type\"): %u", (unsigned int)d->type);
+		de_dbg(c, "archive header format version (\"type\"): %u", (UI)d->type);
 		// 1 is the only value here with a known meaning, but we'll accept some slightly
 		// higher values, and assume they are backward-compatible.
 		if(d->type<1 || d->type>5) {
@@ -235,7 +220,7 @@ static const char *get_cmpr_meth_name(u8 t)
 
 // To be called after all mod_time-related fields have been read.
 // Finish reporting the mod_time, and set md->fi->mod_time.
-static void finish_modtime_decoding(deark *c, lctx *d, struct member_data *md)
+static void finish_modtime_decoding(deark *c, lctx *d, struct zoo_member_data *md)
 {
 	i64 timestamp_offset;
 	char timestamp_buf[64];
@@ -257,7 +242,7 @@ static void finish_modtime_decoding(deark *c, lctx *d, struct member_data *md)
 	}
 }
 
-static void calc_hdr_crc(deark *c, lctx *d, struct member_data *md, i64 pos1, i64 lvar)
+static void calc_hdr_crc(deark *c, lctx *d, struct zoo_member_data *md, i64 pos1, i64 lvar)
 {
 	de_crcobj_reset(d->crco);
 	de_crcobj_addslice(d->crco, c->infile, pos1, 54);
@@ -270,7 +255,7 @@ static void calc_hdr_crc(deark *c, lctx *d, struct member_data *md, i64 pos1, i6
 // rest are usually zeroed out.
 // This code is duplicated in do_member_header(), but it's too much trouble to
 // share it.
-static void do_member_eof(deark *c, lctx *d, struct member_data *md, i64 pos1)
+static void do_member_eof(deark *c, lctx *d, struct zoo_member_data *md, i64 pos1)
 {
 	i64 lvar;
 
@@ -279,7 +264,7 @@ static void do_member_eof(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	de_dbg(c, "length of variable part: %d", (int)lvar);
 
 	md->crc_hdr_reported = (u32)de_getu16le(pos1+54);
-	de_dbg(c, "entry crc (reported): 0x%04x", (unsigned int)md->crc_hdr_reported);
+	de_dbg(c, "entry crc (reported): 0x%04x", (UI)md->crc_hdr_reported);
 	calc_hdr_crc(c, d, md, pos1, lvar);
 	de_dbg(c, "entry crc (calculated): 0x%04x", (UI)md->crc_hdr_calculated);
 	if(md->crc_hdr_calculated != md->crc_hdr_reported) {
@@ -290,7 +275,7 @@ done:
 	;
 }
 
-static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
+static int do_member_header(deark *c, lctx *d, struct zoo_member_data *md, i64 pos1)
 {
 	de_ucstring *shortname = NULL;
 	de_ucstring *longname = NULL;
@@ -298,20 +283,19 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	int retval = 0;
 	i64 pos = pos1;
 	i64 hdr_endpos;
-	i64 lvar;           /* length of variable part         */
-	i64 lnamu;          /* length of long name             */
-	i64 ldiru;          /* length of directory             */
-	unsigned int sig;
+	i64 lvar; // length of "variable part" of type-2 header
+	i64 lnamu; // length of long filename
+	i64 ldiru; // length of directory name
+	UI sig;
 	UI attribs_type;
 	char descrbuf[80];
 
-	sig = (unsigned int)de_getu32le_p(&pos);
+	sig = (UI)de_getu32le_p(&pos);
 	if(sig != ZOO_SIGNATURE) {
 		de_err(c, "Malformed Zoo file, bad magic number at %"I64_FMT, pos1);
 		goto done;
 	}
 
-	/* read the fixed part of the directory entry                          */
 	md->type   = de_getbyte_p(&pos);
 	md->has_ext_header = (u8)(md->type == 2);
 	md->method = de_getbyte_p(&pos);
@@ -335,8 +319,8 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	md->cmpr_pos = de_getu32le_p(&pos);
 	de_dbg(c, "pos of file data: %"I64_FMT, md->cmpr_pos);
 
-	md->datdos = (unsigned int)de_getu16le_p(&pos);
-	md->timdos = (unsigned int)de_getu16le_p(&pos);
+	md->datdos = (UI)de_getu16le_p(&pos);
+	md->timdos = (UI)de_getu16le_p(&pos);
 	de_dbg2(c, "dos date,time: %u,%u", md->datdos, md->timdos);
 	if(!md->has_ext_header) {
 		md->timzon = 127;
@@ -344,7 +328,7 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	}
 
 	md->crc_reported = (u32)de_getu16le_p(&pos);
-	de_dbg(c, "file data crc (reported): 0x%04x", (unsigned int)md->crc_reported);
+	de_dbg(c, "file data crc (reported): 0x%04x", (UI)md->crc_reported);
 	md->uncmpr_len = de_getu32le_p(&pos);
 	de_dbg(c, "original size: %"I64_FMT, md->uncmpr_len);
 	md->cmpr_len = de_getu32le_p(&pos);
@@ -415,7 +399,7 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	finish_modtime_decoding(c, d, md);
 
 	md->crc_hdr_reported = (u32)de_getu16le_p(&pos);
-	de_dbg(c, "entry crc (reported): 0x%04x", (unsigned int)md->crc_hdr_reported);
+	de_dbg(c, "entry crc (reported): 0x%04x", (UI)md->crc_hdr_reported);
 	calc_hdr_crc(c, d, md, pos1, lvar);
 	de_dbg(c, "entry crc (calculated): 0x%04x", (UI)md->crc_hdr_calculated);
 	if(md->crc_hdr_calculated != md->crc_hdr_reported) {
@@ -452,7 +436,7 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	pos += ldiru;
 
 	if(hdr_endpos-pos < 2) goto done_with_header;
-	md->system = (unsigned int)de_getu16le_p(&pos);
+	md->system = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "system id: %u", md->system);
 
 	if(hdr_endpos-pos < 3) goto done_with_header;
@@ -478,7 +462,7 @@ static int do_member_header(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	de_dbg(c, "versioning settings (\"vflag\"): 0x%02x", (UI)md->vflag);
 
 	if(hdr_endpos-pos < 2) goto done_with_header;
-	md->ver = (unsigned int)de_getu16le_p(&pos);
+	md->ver = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "file version number: %u", md->ver);
 
 done_with_header:
@@ -553,7 +537,7 @@ static void decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 // If there are more members after this, sets *next_member_hdr_pos to nonzero.
 static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 {
-	struct member_data *md = NULL;
+	struct zoo_member_data *md = NULL;
 	dbuf *outf = NULL;
 	const char *ext;
 	struct de_dfilter_in_params dcmpri;
@@ -565,7 +549,7 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	on_offset_found(c, d, pos1, 1);
 
-	md = de_malloc(c, sizeof(struct member_data));
+	md = de_malloc(c, sizeof(struct zoo_member_data));
 	md->fi = de_finfo_create(c);
 	md->fullname = ucstring_create(c);
 
@@ -645,7 +629,7 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 
 	md->crc_calculated = de_crcobj_getval(d->crco);
 	if(!dres.errcode) {
-		de_dbg(c, "file data crc (calculated): 0x%04x", (unsigned int)md->crc_calculated);
+		de_dbg(c, "file data crc (calculated): 0x%04x", (UI)md->crc_calculated);
 	}
 
 	if(dres.errcode) {
@@ -715,7 +699,6 @@ static void de_run_zoo(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	/* loop over the members of the archive                                */
 	d->offsets_seen = de_inthashtable_create(c); // For protection against infinite loops
 	pos = d->first_member_hdr_pos;
 	while ( 1 ) {
