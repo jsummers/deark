@@ -480,9 +480,6 @@ done_with_header:
 			d->num_deleted_files_found);
 	}
 
-	de_finfo_set_name_from_ucstring(c, md->fi, md->filename, DE_SNFLAG_FULLPATH);
-	md->fi->original_filename_flag = 1;
-
 	retval = 1;
 
 done:
@@ -524,21 +521,32 @@ static void decompress_lzh(deark *c, struct de_dfilter_in_params *dcmpri,
 	fmtutil_decompress_lh5x(c, dcmpri, dcmpro, dres, &lzhparams);
 }
 
+static void zoo_decompressor_fn(struct de_arch_member_data *md)
+{
+	struct zoo_member_data *mdz = (struct zoo_member_data*)md->userdata;
+
+	switch(mdz->method) {
+	case ZOOCMPR_STORED:
+		fmtutil_decompress_uncompressed(md->c, md->dcmpri, md->dcmpro, md->dres, 0);
+		break;
+	case ZOOCMPR_LZD:
+		decompress_lzd(md->c, md->dcmpri, md->dcmpro, md->dres);
+		break;
+	case ZOOCMPR_LZH:
+		decompress_lzh(md->c, md->dcmpri, md->dcmpro, md->dres);
+		break;
+	}
+}
+
 // Process a single member file (or "trailer" record).
 // If there are more members after this, sets *next_member_hdr_pos to nonzero.
 static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 {
 	struct de_arch_member_data *md = NULL;
 	struct zoo_member_data *mdz = NULL;
-	dbuf *outf = NULL;
-	const char *ext;
-	struct de_dfilter_in_params dcmpri;
-	struct de_dfilter_out_params dcmpro;
-	struct de_dfilter_results dres;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	on_offset_found(c, d, pos1, 1);
 
 	mdz = de_malloc(c, sizeof(struct zoo_member_data));
@@ -569,76 +577,22 @@ static void do_member(deark *c, lctx *d, i64 pos1, i64 *next_member_hdr_pos)
 		goto done;
 	}
 
+	de_dbg(c, "compressed data at %"I64_FMT", len=%"I64_FMT, md->cmpr_pos,
+		md->cmpr_len);
+	de_dbg_indent(c, 1);
+
 	if(mdz->method!=ZOOCMPR_STORED && mdz->method!=ZOOCMPR_LZD && mdz->method!=ZOOCMPR_LZH) {
 		de_err(c, "%s: Unsupported compression method: %d",
 			ucstring_getpsz_d(md->filename), (int)mdz->method);
 		goto done;
 	}
 
-	de_dbg(c, "compressed data at %"I64_FMT", len=%"I64_FMT, md->cmpr_pos,
-		md->cmpr_len);
-
-	if(md->cmpr_pos + md->cmpr_len > c->infile->len) {
-		de_err(c, "%s: Data goes beyond end of file", ucstring_getpsz_d(md->filename));
-		goto done;
-	}
-
-	// Ready to decompress. Set up the output file.
-	if(md->fi->original_filename_flag) {
-		ext = NULL;
-	}
-	else {
-		ext = "bin";
-	}
-	outf = dbuf_create_output_file(c, ext, md->fi, 0);
-	dbuf_enable_wbuffer(outf);
-	dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)d->da->crco);
-	de_crcobj_reset(d->da->crco);
-
-	dcmpri.f = c->infile;
-	dcmpri.pos = md->cmpr_pos;
-	dcmpri.len = md->cmpr_len;
-
-	dcmpro.f = outf;
-	dcmpro.len_known = 1;
-	dcmpro.expected_len = md->orig_len;
-
-	de_dbg_indent(c, 1);
-	switch(mdz->method) {
-	case ZOOCMPR_STORED:
-		fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
-		break;
-	case ZOOCMPR_LZD:
-		decompress_lzd(c, &dcmpri, &dcmpro, &dres);
-		break;
-	case ZOOCMPR_LZH:
-		decompress_lzh(c, &dcmpri, &dcmpro, &dres);
-		break;
-	default:
-		goto done; // Should be impossible
-	}
-	dbuf_flush(dcmpro.f);
-	de_dbg_indent(c, -1);
-
-	mdz->crc_calculated = de_crcobj_getval(d->da->crco);
-	if(!dres.errcode) {
-		de_dbg(c, "file data crc (calculated): 0x%04x", (UI)mdz->crc_calculated);
-	}
-
-	if(dres.errcode) {
-		de_err(c, "%s: %s", ucstring_getpsz_d(md->filename),
-			de_dfilter_get_errmsg(c, &dres));
-	}
-	else if(outf->len != md->orig_len) {
-		de_err(c, "%s: Expected %"I64_FMT" uncompressed bytes, got %"I64_FMT,
-			ucstring_getpsz_d(md->filename), md->orig_len, outf->len);
-	}
-	else if (mdz->crc_calculated != md->crc_reported) {
-		de_err(c, "%s: CRC check failed", ucstring_getpsz_d(md->filename));
-	}
+	md->set_name_flags |= DE_SNFLAG_FULLPATH;
+	md->validate_crc = 1;
+	md->dfn = zoo_decompressor_fn;
+	de_arch_extract_member_file(md);
 
 done:
-	dbuf_close(outf);
 	if(mdz) {
 		if(mdz->is_deleted) d->num_deleted_files_found++;
 		de_free(c, mdz);
