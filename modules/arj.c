@@ -420,6 +420,11 @@ static void extract_member_file(deark *c, lctx *d, struct member_data *md)
 		goto done;
 	}
 
+	if((md->flags & 0x0c)!=0) { // Test for VOLUME(0x4) and/or EXTFILE(0x08) flag
+		de_warn(c, "%s: Incomplete file; multi-volume archives are not supported",
+			ucstring_getpsz_d(md->name_srd->str));
+	}
+
 	fi = de_finfo_create(c);
 
 	de_finfo_set_name_from_ucstring(c, fi, md->name_srd->str, DE_SNFLAG_FULLPATH);

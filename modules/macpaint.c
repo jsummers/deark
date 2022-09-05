@@ -21,47 +21,59 @@ typedef struct localctx_struct {
 	i64 expected_dflen, expected_rflen;
 	de_ucstring *filename;
 	struct de_timestamp mod_time_from_macbinary;
+	i64 hdr_pos;
+	i64 img_data_pos;
 } lctx;
 
-static void do_read_bitmap(deark *c, lctx *d, i64 pos)
+static void do_read_bitmap(deark *c, lctx *d)
 {
 	i64 cmpr_bytes_consumed = 0;
 	dbuf *unc_pixels = NULL;
 	de_finfo *fi = NULL;
+	int saved_indent_level;
+	i64 ipos;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	if(!d->is_fmac2com) {
 		i64 ver_num;
 
-		ver_num = de_getu32be(pos);
+		de_dbg(c, "header at %"I64_FMT, d->hdr_pos);
+		de_dbg_indent(c, 1);
+		ver_num = de_getu32be(d->hdr_pos);
 		de_dbg(c, "version number: %u", (unsigned int)ver_num);
 		if(ver_num!=0 && ver_num!=2 && ver_num!=3) {
 			de_warn(c, "Unrecognized version number: %u", (unsigned int)ver_num);
 		}
+
+		// We wait until later to read the brush patterns, only so that the patterns
+		// won't be the first file extracted.
+
+		de_dbg_indent(c, -1);
 	}
 
-	pos += 512;
-
+	ipos = d->img_data_pos;
+	de_dbg(c, "image data at %"I64_FMT, ipos);
+	de_dbg_indent(c, 1);
 	unc_pixels = dbuf_create_membuf(c, MACPAINT_IMAGE_BYTES, 1);
 	dbuf_enable_wbuffer(unc_pixels);
-
-	fmtutil_decompress_packbits(c->infile, pos, c->infile->len - pos,
+	fmtutil_decompress_packbits(c->infile, ipos, c->infile->len - ipos,
 		unc_pixels, &cmpr_bytes_consumed);
 
 	dbuf_flush(unc_pixels);
-	de_dbg(c, "decompressed %d to %d bytes", (int)cmpr_bytes_consumed,
-		(int)unc_pixels->len);
+	de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", cmpr_bytes_consumed,
+		unc_pixels->len);
 
 	if(d->df_known) {
-		if(pos+cmpr_bytes_consumed > d->expected_dfpos+d->expected_dflen) {
+		if(ipos+cmpr_bytes_consumed > d->expected_dfpos+d->expected_dflen) {
 			de_warn(c, "Image (ends at %"I64_FMT") goes beyond end of "
 				"MacBinary data fork (ends at %"I64_FMT")",
-				pos+cmpr_bytes_consumed, d->expected_dfpos+d->expected_dflen);
+				ipos+cmpr_bytes_consumed, d->expected_dfpos+d->expected_dflen);
 		}
 	}
 
 	if(unc_pixels->len < MACPAINT_IMAGE_BYTES) {
-		de_warn(c, "Image decompressed to %d bytes, expected %d.",
-			(int)unc_pixels->len, (int)MACPAINT_IMAGE_BYTES);
+		de_warn(c, "Image decompressed to %"I64_FMT" bytes, expected %u.",
+			unc_pixels->len, (UI)MACPAINT_IMAGE_BYTES);
 	}
 
 	fi = de_finfo_create(c);
@@ -79,6 +91,7 @@ static void do_read_bitmap(deark *c, lctx *d, i64 pos)
 
 	dbuf_close(unc_pixels);
 	de_finfo_destroy(c, fi);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 // A function to help determine if the file has a MacBinary header.
@@ -152,7 +165,8 @@ static int valid_file_at(deark *c, lctx *d, i64 pos1)
 		return 2;
 	}
 
-	de_dbg(c, "image at offset %d: premature end of file (x=%d, y=%d)", (int)imgstart, (int)xpos, (int)ypos);
+	de_dbg(c, "image at offset %d: premature end of file (x=%d, y=%d)", (int)imgstart,
+		(int)xpos, (int)ypos);
 	return 1;
 }
 
@@ -171,8 +185,9 @@ static const char *get_pattern_set_info(u32 patcrc, int *is_blank)
 // Some MacPaint files contain a collection of brush patterns.
 // Essentially, MacPaint saves workspace settings inside image files.
 // (But these patterns are the only setting.)
-static void do_read_patterns(deark *c, lctx *d, i64 pos)
+static void do_read_patterns(deark *c, lctx *d)
 {
+	i64 pos1;
 	i64 cell;
 	i64 i, j;
 	u8 x;
@@ -186,11 +201,17 @@ static void do_read_patterns(deark *c, lctx *d, i64 pos)
 	de_finfo *fi = NULL;
 	de_ucstring *tmpname = NULL;
 	struct de_crcobj *crc32o;
+	int saved_indent_level;
 
-	pos += 4;
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "header (continued)");
+	de_dbg_indent(c, 1);
+	pos1 = d->hdr_pos + 4;
 
+	de_dbg(c, "brush patterns at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
 	crc32o = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-	de_crcobj_addslice(crc32o, c->infile, pos, 38*8);
+	de_crcobj_addslice(crc32o, c->infile, pos1, 38*8);
 	patcrc = de_crcobj_getval(crc32o);
 	de_crcobj_destroy(crc32o);
 	patsetname = get_pattern_set_info(patcrc, &is_blank);
@@ -215,7 +236,7 @@ static void do_read_patterns(deark *c, lctx *d, i64 pos)
 			for(i=0; i<dispwidth; i++) {
 				// TODO: Figure out the proper "brush origin" of these patterns.
 				// Some of them may be shifted differently than MacPaint displays them.
-				x = de_get_bits_symbol(c->infile, 1, pos+cell*8+j%8, i%8);
+				x = de_get_bits_symbol(c->infile, 1, pos1+cell*8+j%8, i%8);
 
 				// 0 = white. Only need to set the white pixels, since de_bitmap
 				// pixels default to black.
@@ -240,6 +261,7 @@ done:
 	de_bitmap_destroy(pat);
 	de_finfo_destroy(c, fi);
 	ucstring_destroy(tmpname);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 // Not many MacPaint-in-MacBinary files have a resource fork, but a few do.
@@ -271,7 +293,7 @@ static void do_macbinary(deark *c, lctx *d)
 	if(b0!=0) goto done;
 	if(b1<1 || b1>63) goto done;
 
-	de_dbg(c, "MacBinary header at %d", 0);
+	de_dbg(c, "MacBinary header");
 	de_dbg_indent(c, 1);
 	mparams = de_malloc(c, sizeof(de_module_params));
 	mparams->in_params.codes = "D"; // = decode only, don't extract
@@ -333,7 +355,6 @@ static u8 is_fmac2com(deark *c)
 static void de_run_macpaint(deark *c, de_module_params *mparams)
 {
 	lctx *d;
-	i64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
 	d->has_macbinary_header = de_get_ext_option_bool(c, "macpaint:macbinary", -1);
@@ -388,16 +409,22 @@ static void de_run_macpaint(deark *c, de_module_params *mparams)
 	else
 		de_declare_fmt(c, "MacPaint without MacBinary header");
 
-	pos = 0;
+	if(d->has_macbinary_header) {
+		d->hdr_pos = 128;
+	}
+	else {
+		d->hdr_pos = 0;
+	}
+	d->img_data_pos = d->hdr_pos + 512;
+
 	if(d->has_macbinary_header) {
 		do_macbinary(c, d);
-		pos += 128;
 	}
 
-	do_read_bitmap(c, d, pos);
+	do_read_bitmap(c, d);
 
 	if(!d->is_fmac2com) {
-		do_read_patterns(c, d, pos);
+		do_read_patterns(c, d);
 	}
 
 	if(d) {

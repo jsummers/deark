@@ -411,6 +411,9 @@ static void de_run_clp(deark *c, de_module_params *mparams)
 
 	d->input_encoding_oem = DE_ENCODING_CP437; // default
 	tmps = de_get_ext_option(c, "clp:oemenc");
+	if(!tmps) {
+		tmps = de_get_ext_option(c, "oemenc");
+	}
 	if(tmps) {
 		d->input_encoding_oem = de_encoding_name_to_code(tmps);
 		if(d->input_encoding_oem == DE_ENCODING_UNKNOWN) {
@@ -462,7 +465,7 @@ static int de_identify_clp(deark *c)
 static void de_help_clp(deark *c)
 {
 	de_msg(c, "-opt clp:extractall : Extract all items");
-	de_msg(c, "-opt clp:oemenc=... : The encoding for OEM Text items");
+	de_msg(c, "-opt oemenc=... : The encoding for OEM Text items");
 }
 
 void de_module_clp(deark *c, struct deark_module_info *mi)

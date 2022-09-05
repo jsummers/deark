@@ -636,6 +636,9 @@ Deark -- Information about supported formats
 * AmBs (AMOS "Banks" aggregate format) (module="abk")
   - Extract AmSp, AmIc, AmBk files.
 
+* Apple II disk image (module="apple2_dsk") (experimental)
+  - Limited support. Only Apple DOS 16-sector.
+
 * Apple Partition Map (module="apm") (experimental)
 
 * AppleSingle/AppleDouble (module="applesd")
@@ -841,8 +844,15 @@ Deark -- Information about supported formats
   Options
    -opt pklite:raw - Instead of an EXE file, write raw decompressed data
 
+* RAR (module="rar")
+  - Files can be parsed, but there is usually nothing that can be extracted
+    from them.
+
 * RPM (package manager) (module="rpm")
   - Extract compressed cpio file.
+
+* QIP (Quarterdeck) (module="qip") (experimental)
+  An obscure installer format.
 
 * SIS (EPOC/Symbian archive) (module="sis")
   - EPOC release 3/4/5/6
@@ -938,8 +948,7 @@ Deark -- Information about supported formats
 * CLP - Saved Windows clipboard (module="clp") (experimental)
   Options
    -opt clp:extractall - Extract all data items
-   -opt clp:oemenc=<...> - The encoding for OEM Text items. Same options as
-     -inenc.
+   -opt oemenc=<...> - The encoding for OEM Text items. Same options as -inenc.
 
 * Copy (module="copy")
   - "Extract" the entire file. Use with -start and -size to extract part of
@@ -1059,6 +1068,15 @@ Deark -- Information about supported formats
 * Photoshop Styles format (.asl) (module="ps_styles")
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
+
+* PIF (Windows Program Information File) (module="pif") (incomplete)
+  - Files can be parsed, but there is usually nothing that can be extracted
+    from them.
+  Options
+   -opt oemenc=<...> - The encoding for OEM Text items. Same options as -inenc.
+
+* PIF/DESQview (module="desqview_dvp") (incomplete)
+  - Similar to PIF (Windows).
 
 * Plain text (module="plaintext")
   Read a plain text file, and write it as UTF-8.

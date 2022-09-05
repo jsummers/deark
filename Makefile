@@ -78,12 +78,12 @@ OFILES_MODS_IO:=$(addprefix $(OBJDIR)/modules/,misc.o misc2.o misc3.o \
  officeart.o lbr.o megapaint.o nie.o isz.o os2ea.o os2bootlogo.o)
 OFILES_MODS_PQ:=$(addprefix $(OBJDIR)/modules/,psd.o palmbitmap.o palmpdb.o \
  pcpaint.o pcx.o pff2.o pict.o pkfont.o png.o pnm.o portfolio.o printptnr.o \
- packdir.o pack.o pkm.o pklite.o \
+ packdir.o pack.o pkm.o pklite.o pif.o \
  printshop.o psf.o psionapp.o psionpic.o pcf.o plist.o qtif.o)
 OFILES_MODS_RZ:=$(addprefix $(OBJDIR)/modules/,riff.o rosprite.o rpm.o \
  rsc.o shg.o spectrum512.o sunras.o t64.o tar.o tga.o tiff.o tim.o \
  tivariable.o unsupported.o vort.o wad.o wmf.o wpg.o wri.o xface.o \
- stuffit.o sis.o sauce.o xfer.o zip.o zoo.o rodraw.o unifont.o rm.o \
+ stuffit.o sis.o sauce.o xfer.o zip.o zoo.o rar.o rodraw.o unifont.o rm.o \
  storyboard.o)
 OFILES_MODS:=$(OFILES_MODS_AB) $(OFILES_MODS_CH) $(OFILES_MODS_IO) \
  $(OFILES_MODS_PQ) $(OFILES_MODS_RZ)
@@ -91,7 +91,7 @@ OFILES_MODS:=$(OFILES_MODS_AB) $(OFILES_MODS_CH) $(OFILES_MODS_IO) \
 OFILES_DEARK1:=$(addprefix $(OBJDIR)/src/,fmtutil-miniz.o deark-util.o \
  deark-data.o deark-zip.o deark-tar.o deark-png.o \
  deark-dbuf.o deark-bitmap.o deark-char.o deark-font.o deark-ucstring.o \
- fmtutil.o fmtutil-cmpr.o fmtutil-advfile.o fmtutil-zip.o \
+ fmtutil.o fmtutil-cmpr.o fmtutil-advfile.o fmtutil-arch.o fmtutil-zip.o \
  fmtutil-fax.o fmtutil-lzh.o fmtutil-lzw.o fmtutil-huffman.o \
  fmtutil-lzah.o fmtutil-iff.o \
  deark-user.o deark-unix.o deark-win.o)

@@ -78,6 +78,7 @@ struct localctx_struct {
 	u8 has_arc_extensions;
 	i64 prescan_pos_after_eoa;
 	i64 num_top_level_members; // Not including EOA marker
+	i64 end_of_known_data;
 	struct de_crcobj *crco;
 	struct de_strarray *curpath;
 	struct persistent_member_data *persistent_md; // optional array[num_top_level_members]
@@ -95,6 +96,13 @@ struct member_parser_data {
 };
 
 typedef void (*member_cb_type)(deark *c, lctx *d, struct member_parser_data *mpd);
+
+static void mark_end_of_known_data(lctx *d, i64 pos)
+{
+	if(pos > d->end_of_known_data) {
+		d->end_of_known_data = pos;
+	}
+}
 
 // Calls the supplied callback function for each ARC member found.
 // Also called for end-of-archive/directory markers.
@@ -393,8 +401,28 @@ static void init_trailer_data(deark *c, lctx *d)
 	}
 }
 
+static int is_pkcomment_sig_at(deark *c, lctx *d, i64 pos)
+{
+	i64 comments_descr_pos;
+
+	if(!d->prescan_found_eoa) return 0;
+	if(pos < d->prescan_pos_after_eoa) return 0;
+	if(pos > c->infile->len-8) return 0;
+	if((UI)de_getu32be(pos) != 0x504baa55U) {
+		return 0;
+	}
+	comments_descr_pos = de_getu32le(pos+4);
+	if((comments_descr_pos < d->prescan_pos_after_eoa) ||
+		(comments_descr_pos > pos-4))
+	{
+		return 0;
+	}
+	return 1;
+}
+
 static void do_pk_comments(deark *c, lctx *d)
 {
+	int found = 0;
 	i64 sig_pos;
 	i64 comments_descr_pos;
 	int has_file_comments = 0;
@@ -405,18 +433,44 @@ static void do_pk_comments(deark *c, lctx *d)
 
 	if(!d->prescan_found_eoa) return;
 	sig_pos = c->infile->len-8;
-	if(sig_pos < d->prescan_pos_after_eoa) return;
-	if(de_getu32be(sig_pos) != 0x504baa55) {
-		return;
+	if(is_pkcomment_sig_at(c, d, sig_pos)){
+		found = 1;
 	}
+
+	if(!found) {
+		i64 count;
+
+		// The PK signature normally appears 8 bytes from the end of the file,
+		// but we'll scan for it, in case the file has padding appended to it.
+		// The assumption is that it appears after a whole number of 32-byte
+		// records. In case of multiple signatures, we use the earliest one that
+		// looks valid.
+		sig_pos = d->prescan_pos_after_eoa+32;
+		count = 0;
+
+		while(1) {
+			if(sig_pos >= c->infile->len-8) break;
+			if(count > d->num_top_level_members+10) break;
+			if(is_pkcomment_sig_at(c, d, sig_pos)){
+				found = 1;
+				break;
+			}
+			sig_pos += 32;
+			count++;
+		}
+	}
+
+	if(!found) return;
+
+	de_dbg(c, "PKARC/PKPAK comment block found, ID at %"I64_FMT, sig_pos);
+	de_dbg_indent(c, 1);
+	mark_end_of_known_data(d, sig_pos+8);
 	init_trailer_data(c, d);
 
-	de_dbg(c, "PKARC/PKPAK comment block found");
-	de_dbg_indent(c, 1);
 	// Note: This logic is based on reverse engineering, and could be wrong.
-	comments_descr_pos = de_getu32le(c->infile->len-4);
+	comments_descr_pos = de_getu32le(sig_pos+4);
 	de_dbg(c, "descriptor pos: %"I64_FMT, comments_descr_pos);
-	if(comments_descr_pos >= sig_pos) goto done;
+	// comments_descr_pos has already been validated, by is_pkcomment_sig_at().
 
 	de_read(dscr, comments_descr_pos, 4);
 	if(dscr[0]==0x20 && dscr[1]==0x20 && dscr[2]==0x20 && dscr[3]==0x00) {
@@ -464,11 +518,12 @@ static void do_pk_comments(deark *c, lctx *d)
 		}
 	}
 
-done:
 	ucstring_destroy(archive_comment);
 	de_dbg_indent(c, -1);
 }
 
+// Always sets *pbytes_consumed.
+// Returns 0 if there are no more records after this.
 static int do_pak_ext_record(deark *c, lctx *d, i64 pos1, i64 *pbytes_consumed)
 {
 	i64 pos = pos1;
@@ -483,6 +538,7 @@ static int do_pak_ext_record(deark *c, lctx *d, i64 pos1, i64 *pbytes_consumed)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
+	*pbytes_consumed = 0;
 	if(de_getbyte_p(&pos) != 0xfe) goto done;
 	de_dbg(c, "record at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
@@ -495,7 +551,10 @@ static int do_pak_ext_record(deark *c, lctx *d, i64 pos1, i64 *pbytes_consumed)
 	case 3: rtname = "security envelope"; break;
 	}
 	de_dbg(c, "rectype: %d (%s)", (int)rectype, rtname);
-	if(rectype==0) goto done;
+	if(rectype==0) {
+		*pbytes_consumed = 2;
+		goto done;
+	}
 
 	filenum = de_getu16le_p(&pos);
 	de_dbg(c, "file num: %d", (int)filenum);
@@ -565,12 +624,14 @@ static void do_pak_trailer(deark *c, lctx *d)
 	init_trailer_data(c, d);
 
 	while(1) {
+		int ret;
 		i64 bytes_consumed = 0;
 
 		if(pos > c->infile->len-2) break;
-		if(!do_pak_ext_record(c, d, pos, &bytes_consumed)) break;
-		if(bytes_consumed<8) break;
+		ret = do_pak_ext_record(c, d, pos, &bytes_consumed);
 		pos += bytes_consumed;
+		mark_end_of_known_data(d, pos);
+		if(!ret || bytes_consumed<8) break;
 	}
 
 	de_dbg_indent(c, -1);
@@ -1237,6 +1298,7 @@ static void destroy_lctx(deark *c, lctx *d)
 static void do_run_arc_spark_internal(deark *c, lctx *d)
 {
 	i64 members_endpos;
+	i64 num_extra_bytes;
 	i64 pos = 0;
 
 	d->sig_byte = (d->fmt==FMT_ARCMAC) ? 0x1b : 0x1a;
@@ -1263,6 +1325,7 @@ static void do_run_arc_spark_internal(deark *c, lctx *d)
 	else {
 		members_endpos = c->infile->len;
 	}
+	mark_end_of_known_data(d, members_endpos);
 
 	if(d->fmt==FMT_ARC) {
 		do_pk_comments(c, d);
@@ -1271,14 +1334,10 @@ static void do_run_arc_spark_internal(deark *c, lctx *d)
 
 	do_sequence_of_members(c, d, pos, members_endpos, 0);
 
-	if(d->prescan_found_eoa && !d->has_trailer_data) {
-		i64 num_extra_bytes;
-
-		num_extra_bytes = c->infile->len - d->prescan_pos_after_eoa;
-		if(num_extra_bytes>0) {
-			de_dbg(c, "extra bytes at end of archive: %"I64_FMT" (at %"I64_FMT")",
-				num_extra_bytes, d->prescan_pos_after_eoa);
-		}
+	num_extra_bytes = c->infile->len - d->end_of_known_data;
+	if(num_extra_bytes>0) {
+		de_dbg(c, "extra bytes at end of archive: %"I64_FMT" (at %"I64_FMT")",
+			num_extra_bytes, d->end_of_known_data);
 	}
 
 done:

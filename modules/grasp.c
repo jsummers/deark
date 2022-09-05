@@ -11,90 +11,118 @@ DE_DECLARE_MODULE(de_module_graspgl);
 DE_DECLARE_MODULE(de_module_graspfont);
 
 typedef struct localctx_struct {
-	i64 dir_header_nbytes;
+	de_encoding input_encoding;
+	int is_le;
+	u8 is_amiga;
+	i64 index_pos;
+	i64 index_size;
 } lctx;
 
 // Returns 0 if there are no more files.
 static int do_extract_file(deark *c, lctx *d, i64 fnum)
 {
-	i64 pos;
-	i64 file_info_offset;
-	i64 file_data_offset;
-	i64 file_size;
+	i64 index_entry_pos;
+	i64 data_block_pos;
+	i64 dpos;
+	i64 dlen;
 	de_finfo *fi = NULL;
 	de_ucstring *fname = NULL;
 	int saved_indent_level;
-	int retval = 1;
+	int need_errmsg = 0;
+	int retval = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	pos = 2+17*fnum;
-	file_info_offset = de_getu32le(pos);
+	index_entry_pos = d->index_pos+17*fnum;
+	data_block_pos = dbuf_getu32x(c->infile, index_entry_pos, d->is_le);
 
-	// The last "file" is usually not a file, but a "NULL terminator" with
-	// an offset of 0. This is worse than useless, since we already know
-	// how long the list is.
-	if(file_info_offset==0) {
+	// The last "file" is usually not a file, but a "NULL terminator" with an
+	// offset of 0. Not very useful, since we already know how long the list is.
+	if(data_block_pos==0) {
 		de_dbg(c, "end-of-file-list marker found");
-		retval = 0;
 		goto done;
 	}
 
-	de_dbg(c, "file #%d offset: %d", (int)fnum, (int)file_info_offset);
+	de_dbg(c, "file #%d", (int)fnum);
 	de_dbg_indent(c, 1);
+	de_dbg(c, "index entry pos: %"I64_FMT, index_entry_pos);
+	de_dbg(c, "data block pos: %"I64_FMT, data_block_pos);
 
-	if(file_info_offset < d->dir_header_nbytes) {
-		de_warn(c, "Bad file offset (%d)", (int)file_info_offset);
+	if(data_block_pos < d->index_size) {
+		need_errmsg = 1;
 		goto done;
 	}
 
-	if(de_getbyte(pos+4)==0x00) {
-		de_warn(c, "Missing file name");
+	if(de_getbyte(index_entry_pos+4)==0x00) {
+		need_errmsg = 1; // missing file name?
 		goto done;
 	}
 
 	fi = de_finfo_create(c);
-
 	fname = ucstring_create(c);
 
-	// In a Grasp GL file, filenames are 13 bytes, NUL-padded.
-	dbuf_read_to_ucstring(c->infile, pos+4, 13, fname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	// Filenames are 13 bytes, NUL-padded.
+	dbuf_read_to_ucstring(c->infile, index_entry_pos+4, 13, fname, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
 	de_finfo_set_name_from_ucstring(c, fi, fname, 0);
 	fi->original_filename_flag = 1;
-	de_dbg(c, "file name: %s", ucstring_getpsz(fname));
+	de_dbg(c, "file name: \"%s\"", ucstring_getpsz_d(fname));
 
-	file_size = de_getu32le(file_info_offset);
-	de_dbg(c, "file size: %d", (int)file_size);
+	dlen = dbuf_getu32x(c->infile, data_block_pos, d->is_le);
+	dpos = data_block_pos+4;
+	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, dpos, dlen);
+	if(dpos+dlen > c->infile->len) {
+		need_errmsg = 1;
+		goto done;
+	}
 
-	file_data_offset = file_info_offset+4;
-	if(file_data_offset > c->infile->len) goto done;
-	if(file_size > DE_MAX_SANE_OBJECT_SIZE) goto done;
-
-	dbuf_create_file_from_slice(c->infile, file_data_offset, file_size, NULL, fi, 0);
+	dbuf_create_file_from_slice(c->infile, dpos, dlen, NULL, fi, 0);
+	retval = 1;
 
 done:
+	if(need_errmsg) {
+		de_err(c, "Bad file entry (#%d)", (int)fnum);
+	}
 	de_finfo_destroy(c, fi);
 	ucstring_destroy(fname);
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
 
-
 static void de_run_graspgl(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	i64 num_files;
-	i64 pos;
+	i64 pos = 0;
 	i64 i;
 
 	d = de_malloc(c, sizeof(lctx));
 
-	pos = 0;
-	d->dir_header_nbytes = de_getu16le(pos);
-	de_dbg(c, "header bytes: %d", (int)d->dir_header_nbytes);
+	if((UI)de_getu32be(0)==0x41470100U) {
+		// Ref: Aminet : gl2p1.lzh
+		d->is_amiga = 1;
+	}
+
+	if(d->is_amiga) {
+		de_declare_fmt(c, "Amiga GRASP GL");
+		pos += 4;
+	}
+	else {
+		de_declare_fmt(c, "GRASP GL");
+		d->is_le = 1;
+	}
+
+	d->input_encoding = de_get_input_encoding(c, NULL,
+		(d->is_amiga ? DE_ENCODING_LATIN1 : DE_ENCODING_CP437));
+
+	d->index_size = dbuf_getu16x(c->infile, pos, d->is_le);
+	pos += 2;
+
+	d->index_pos = pos;
+	de_dbg(c, "index size: %"I64_FMT, d->index_size);
 
 	// 17 bytes per file entry
-	num_files = (d->dir_header_nbytes+16)/17;
-	de_dbg(c, "number of files: %d", (int)num_files);
+	num_files = (d->index_size+16)/17;
+	de_dbg(c, "max number of files: %d", (int)num_files);
 
 	for(i=0; i<num_files; i++) {
 		if(!do_extract_file(c, d, i))
@@ -106,22 +134,34 @@ static void de_run_graspgl(deark *c, de_module_params *mparams)
 
 static int de_identify_graspgl(deark *c)
 {
-	i64 dir_header_nbytes;
+	i64 index_size;
+	i64 index_pos;
 	i64 first_offset;
+	int is_le = 1;
 	int gl_ext;
 
-	dir_header_nbytes = de_getu16le(0);
+	index_size = de_getu16le(0);
+	if(index_size==0x4741) {
+		if((UI)de_getu16be(2)==0x0100U) {
+			is_le = 0; // Amiga GL?
+			index_size = de_getu16be(4);
+		}
+	}
 
 	// Header should be a nonzero multiple of 17 bytes.
-	if(dir_header_nbytes==0 || (dir_header_nbytes%17 != 0)) return 0;
+	if(index_size==0 || (index_size%17 != 0)) return 0;
+	index_pos = is_le ? 2 : 6;
+	if(index_pos+index_size>c->infile->len) return 0;
 
 	gl_ext = de_input_file_has_ext(c, "gl");
 
 	// Most likely, the first embedded file immediately follows
 	// the header. If so, it's pretty good evidence this is a
 	// grasp_gl file.
-	first_offset = de_getu32le(2);
-	if(first_offset == dir_header_nbytes + 2)
+	first_offset = dbuf_getu32x(c->infile, index_pos, is_le);
+
+	if(first_offset>c->infile->len || first_offset<index_pos+index_size) return 0;
+	if(first_offset == index_pos+index_size)
 		return gl_ext ? 100 : 70;
 
 	if(gl_ext) return 5;

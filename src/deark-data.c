@@ -301,12 +301,43 @@ static de_rune de_petscii_to_unicode(struct de_encconv_state *es, i32 a)
 	return n;
 }
 
+static de_rune de_appleii_to_unicode(struct de_encconv_state *es, i32 a)
+{
+	de_rune n;
+
+	// This suffices to support some text files I've seen, but I really don't know
+	// what all is needed for Apple II text.
+	n = (de_rune)(a & 0x7f);
+	if(n==0x0d) n = 0x0a;
+	return n;
+}
+
 static de_rune de_decspecialgraphics_to_unicode(struct de_encconv_state *es, i32 a)
 {
 	de_rune n;
 	if(a>=95 && a<=126) n = (de_rune)decspecialgraphicstable[a-95];
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
+	return n;
+}
+
+// Latin-1 + ROT-13.
+// Intended for testing, as an easy way to check that encoding translation is
+// working, even when the source data is plain ASCII.
+static de_rune de_rot13_to_unicode(struct de_encconv_state *es, i32 a)
+{
+	de_rune n;
+
+	if((a>='A' && a<='M') || (a>='a' && a<='m')) {
+		n = (de_rune)a+13;
+	}
+	else if((a>='N' && a<='Z') || (a>='n' && a<='z')) {
+		n = (de_rune)a-13;
+	}
+	else {
+		n = (de_rune)a;
+	}
+
 	return n;
 }
 
@@ -389,8 +420,15 @@ void de_encconv_init(struct de_encconv_state *es, de_ext_encoding ee)
 	case DE_ENCODING_RISCOS:
 		es->fn = de_riscos_to_unicode;
 		break;
+	case DE_ENCODING_APPLEII:
+		es->fn = de_appleii_to_unicode;
+		break;
 	case DE_ENCODING_DEC_SPECIAL_GRAPHICS:
 		es->fn = de_decspecialgraphics_to_unicode;
+		break;
+	case DE_ENCODING_ROT13:
+		es->fn = de_rot13_to_unicode;
+		break;
 	default:
 		break;
 	}
@@ -1289,6 +1327,8 @@ static const struct de_encmap_item de_encmap_arr[] = {
 	{ 0x01, DE_ENCODING_RISCOS, "riscos" },
 	{ 0x01, DE_ENCODING_PETSCII, "petscii" },
 	{ 0x01, DE_ENCODING_ATARIST, "atarist" },
+	{ 0x01, DE_ENCODING_APPLEII, "appleii" },
+	{ 0x01, DE_ENCODING_ROT13, "rot13" },
 	{ 0x01, DE_ENCODING_UTF16BE, "utf16be" },
 	{ 0x01, DE_ENCODING_UTF16LE, "utf16le" }
 };

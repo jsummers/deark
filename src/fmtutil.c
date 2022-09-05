@@ -1974,7 +1974,11 @@ static void detect_exesfx_arc(deark *c, struct execomp_ctx *ectx,
 			foundpos = ei->end_of_dos_code; // In case there's a version without the bug
 		}
 	}
-	else if(ei->entrypoint_crcs==0x3230b4d5fca84644ULL) { // MKSARC v7.12, from ARC v7.12
+	else if(ei->entrypoint_crcs==0x3230b4d5fca84644ULL || // MKSARC v7.12, from ARC v7.12
+		ei->entrypoint_crcs==0x003d0e01c3764195ULL || // PKARC 3.5
+		ei->entrypoint_crcs==0x1bbcf0ae0422828eULL || // PKARC 3.6
+		ei->entrypoint_crcs==0x684ca6156c27b16bULL) // PKPAK 3.61
+	{
 		found = 1;
 		foundpos = ei->end_of_dos_code;
 	}
@@ -2151,6 +2155,36 @@ done:
 	}
 }
 
+static void detect_exesfx_rar(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	// TODO: Lots more work to do here. Maybe better to delete the RSFX test.
+	if(ei->overlay_len < 8) goto done;
+
+	read_exe_testbytes(ei);
+
+	if(de_memcmp(ei->ovl64b, "Rar!\x1a\x07", 6) &&
+		de_memcmp(ei->ovl64b, "RE\x7e\x5e", 4))
+	{
+		goto done;
+	}
+
+	if(dbuf_memcmp(ei->f, 28, (const u8*)"RSFX", 4)) {
+		goto done;
+	}
+
+	edd->payload_pos = ei->end_of_dos_code;
+	edd->payload_len = ei->overlay_len;
+	edd->payload_valid = 1;
+	edd->detected_fmt = DE_SPECIALEXEFMT_SFX;
+	edd->payload_file_ext = "rar";
+
+done:
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
+		de_strlcpy(ectx->shortname, "RAR", sizeof(ectx->shortname));
+	}
+}
+
 void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	struct fmtutil_specialexe_detection_data *edd)
 {
@@ -2171,6 +2205,9 @@ void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	if(edd->detected_fmt) goto done;
 
 	detect_exesfx_pak_nogate(c, &ectx, ei, edd);
+	if(edd->detected_fmt) goto done;
+
+	detect_exesfx_rar(c, &ectx, ei, edd);
 	if(edd->detected_fmt) goto done;
 
 	detect_exesfx_zoo(c, &ectx, ei, edd);

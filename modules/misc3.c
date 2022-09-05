@@ -6,264 +6,18 @@
 
 #include <deark-private.h>
 #include <deark-fmtutil.h>
+#include <deark-fmtutil-arch.h>
 DE_DECLARE_MODULE(de_module_cpshrink);
 DE_DECLARE_MODULE(de_module_dwc);
 DE_DECLARE_MODULE(de_module_tscomp);
 DE_DECLARE_MODULE(de_module_edi_pack);
-
-struct localctx_struct;
-typedef struct localctx_struct lctx;
-struct member_data;
-
-typedef void (*decompressor_cbfn)(struct member_data *md);
-
-struct member_data {
-	deark *c;
-	lctx *d;
-	i64 member_idx;
-	i64 member_hdr_pos;
-	i64 member_total_size;
-	i64 cmpr_len;
-	i64 orig_len;
-	i64 cmpr_pos;
-	u8 orig_len_known;
-	de_ucstring *filename; // Allocated by create_md().
-	de_ucstring *tmpfn_base; // Client allocates, freed automatically.
-	de_ucstring *tmpfn_path; // Client allocates, freed automatically.
-	struct de_timestamp tmstamp[DE_TIMESTAMPIDX_COUNT];
-	UI set_name_flags; // e.g. DE_SNFLAG_FULLPATH
-	u8 is_encrypted;
-
-	// Private use fields for the format decoder:
-	UI cmpr_meth;
-	UI file_flags;
-
-	// The extract_member_file() will temporarily set dcmpri/dcmpro/dres,
-	// and call ->dfn() if it is set.
-	decompressor_cbfn dfn;
-	struct de_dfilter_in_params *dcmpri;
-	struct de_dfilter_out_params *dcmpro;
-	struct de_dfilter_results *dres;
-};
-
-struct localctx_struct {
-	deark *c;
-	int is_le;
-	u8 need_errmsg;
-	de_encoding input_encoding;
-	i64 num_members;
-	i64 cmpr_data_curpos;
-	struct de_crcobj *crco; // decoder must create; is destroyed automatically
-	int fatalerrflag;
-
-	// Private use fields for the format decoder:
-	int private_fmtver;
-	int private1;
-};
-
-static struct member_data *create_md(deark *c, lctx *d)
-{
-	struct member_data *md;
-
-	md = de_malloc(c, sizeof(struct member_data));
-	md->c = c;
-	md->d = d;
-	md->filename = ucstring_create(c);
-	return md;
-}
-
-static void destroy_md(deark *c, struct member_data *md)
-{
-	if(!md) return;
-	ucstring_destroy(md->filename);
-	ucstring_destroy(md->tmpfn_base);
-	ucstring_destroy(md->tmpfn_path);
-	de_free(c, md);
-}
-
-static lctx *create_lctx(deark *c)
-{
-	lctx *d;
-
-	d = de_malloc(c, sizeof(lctx));
-	d->c = c;
-	return d;
-}
-
-static void destroy_lctx(deark *c, lctx *d)
-{
-	if(!d) return;
-	de_crcobj_destroy(d->crco);
-	de_free(c, d);
-}
-
-static void handle_field_orig_len(struct member_data *md, i64 n)
-{
-	md->orig_len = n;
-	md->orig_len_known = 1;
-	de_dbg(md->c, "original size: %"I64_FMT, md->orig_len);
-}
-
-static void read_field_orig_len_p(struct member_data *md, i64 *ppos)
-{
-	i64 n;
-
-	n = dbuf_getu32x(md->c->infile, *ppos, md->d->is_le);
-	*ppos += 4;
-	handle_field_orig_len(md, n);
-}
-
-static void handle_field_cmpr_len(struct member_data *md, i64 n)
-{
-	md->cmpr_len = n;
-	de_dbg(md->c, "compressed size: %"I64_FMT, md->cmpr_len);
-}
-
-static void read_field_cmpr_len_p(struct member_data *md, i64 *ppos)
-{
-	i64 n;
-
-	n = dbuf_getu32x(md->c->infile, *ppos, md->d->is_le);
-	*ppos += 4;
-	handle_field_cmpr_len(md, n);
-}
-
-// tstype:
-//   1 = Unix
-//   2 = DOS,date first
-static void read_field_dttm_p(lctx *d,
-	struct de_timestamp *ts, const char *name,
-	int tstype, i64 *ppos)
-{
-	i64 n1, n2;
-	char timestamp_buf[64];
-	int is_set = 0;
-
-	ts->is_valid = 0;
-	if(tstype==1) {
-		n1 = dbuf_getu32x(d->c->infile, *ppos, d->is_le);
-		de_unix_time_to_timestamp(n1, ts, 0x1);
-		is_set = 1;
-	}
-	else if(tstype==2) {
-		i64 dosdt, dostm;
-
-		n1 = dbuf_getu16x(d->c->infile, *ppos, d->is_le);
-		n2 = dbuf_getu16x(d->c->infile, *ppos+2, d->is_le);
-		dosdt = n1;
-		dostm = n2;
-
-		if(dostm!=0 || dosdt!=0) {
-			is_set = 1;
-			de_dos_datetime_to_timestamp(ts, dosdt, dostm);
-			ts->tzcode = DE_TZCODE_LOCAL;
-		}
-	}
-
-	if(is_set) {
-		de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
-	}
-	else {
-		de_snprintf(timestamp_buf, sizeof(timestamp_buf), "[not set]");
-	}
-	de_dbg(d->c, "%s time: %s", name, timestamp_buf);
-
-	*ppos += 4;
-}
-
-// Assumes md->filename is set
-static int good_cmpr_data_pos(struct member_data *md)
-{
-	if(md->cmpr_pos<0 || md->cmpr_len<0 ||
-		md->cmpr_pos+md->cmpr_len > md->c->infile->len)
-	{
-		de_err(md->c, "%s: Data goes beyond end of file",
-			ucstring_getpsz_d(md->filename));
-		return 0;
-	}
-	return 1;
-}
-
-static void extract_member_file(struct member_data *md)
-{
-	deark *c = md->c;
-	de_finfo *fi = NULL;
-	dbuf *outf = NULL;
-	size_t k;
-	struct de_dfilter_in_params dcmpri;
-	struct de_dfilter_out_params dcmpro;
-	struct de_dfilter_results dres;
-
-	if(md->orig_len>0 && !md->orig_len_known) goto done; // sanity check
-	if(md->is_encrypted) {
-		de_err(c, "%s: Encrypted files are not supported", ucstring_getpsz_d(md->filename));
-		goto done;
-	}
-	if(!good_cmpr_data_pos(md)) {
-		goto done;
-	}
-
-	fi = de_finfo_create(c);
-
-	if(ucstring_isnonempty(md->filename)) {
-		de_finfo_set_name_from_ucstring(c, fi, md->filename, md->set_name_flags);
-		fi->original_filename_flag = 1;
-	}
-
-	for(k=0; k<DE_TIMESTAMPIDX_COUNT; k++) {
-		fi->timestamp[k] = md->tmstamp[k];
-	}
-
-	outf = dbuf_create_output_file(c, NULL, fi, 0);
-	dbuf_enable_wbuffer(outf);
-
-	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
-	dcmpri.f = c->infile;
-	dcmpri.pos = md->cmpr_pos;
-	dcmpri.len = md->cmpr_len;
-	dcmpro.f = outf;
-	dcmpro.len_known = md->orig_len_known;
-	dcmpro.expected_len = md->orig_len;
-	md->dcmpri = &dcmpri;
-	md->dcmpro = &dcmpro;
-	md->dres = &dres;
-
-	if(md->orig_len_known && md->orig_len==0) {
-		;
-	}
-	else if(md->dfn) {
-		md->dfn(md);
-	}
-	else {
-		de_dfilter_set_generic_error(c, &dres, NULL);
-	}
-	dbuf_flush(dcmpro.f);
-
-	if(dres.errcode) {
-		de_err(c, "%s: Decompression failed: %s", ucstring_getpsz_d(md->filename),
-			de_dfilter_get_errmsg(c, &dres));
-		goto done;
-	}
-
-	if(md->orig_len_known && (outf->len != md->orig_len)) {
-		de_err(c, "%s: Expected %"I64_FMT" decompressed bytes, got %"I64_FMT,
-			ucstring_getpsz_d(md->filename), md->orig_len, outf->len);
-		goto done;
-	}
-
-done:
-	dbuf_close(outf);
-	if(fi) de_finfo_destroy(c, fi);
-	md->dcmpri = NULL;
-	md->dcmpro = NULL;
-	md->dres = NULL;
-}
+DE_DECLARE_MODULE(de_module_qip);
 
 // **************************************************************************
 // CP Shrink (.cpz)
 // **************************************************************************
 
-static void cpshrink_decompressor_fn(struct member_data *md)
+static void cpshrink_decompressor_fn(struct de_arch_member_data *md)
 {
 	deark *c = md->c;
 
@@ -281,7 +35,7 @@ static void cpshrink_decompressor_fn(struct member_data *md)
 }
 
 // Caller creates/destroys md, and sets a few fields.
-static void cpshrink_do_member(deark *c, lctx *d, struct member_data *md)
+static void cpshrink_do_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *md)
 {
 	i64 pos = md->member_hdr_pos;
 	UI cdata_crc_reported;
@@ -307,13 +61,14 @@ static void cpshrink_do_member(deark *c, lctx *d, struct member_data *md)
 	md->cmpr_meth = (UI)de_getbyte_p(&pos);
 	de_dbg(c, "cmpr. method: %u", md->cmpr_meth);
 
-	read_field_orig_len_p(md, &pos);
-	read_field_cmpr_len_p(md, &pos);
+	de_arch_read_field_orig_len_p(md, &pos);
+	de_arch_read_field_cmpr_len_p(md, &pos);
 	d->cmpr_data_curpos += md->cmpr_len;
 
-	read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 2, &pos);
+	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		DE_ARCH_TSTYPE_DOS_DT, &pos);
 
-	if(!good_cmpr_data_pos(md)) {
+	if(!de_arch_good_cmpr_data_pos(md)) {
 		d->fatalerrflag = 1;
 		goto done;
 	}
@@ -329,7 +84,7 @@ static void cpshrink_do_member(deark *c, lctx *d, struct member_data *md)
 	}
 
 	md->dfn = cpshrink_decompressor_fn;
-	extract_member_file(md);
+	de_arch_extract_member_file(md);
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -337,7 +92,7 @@ done:
 
 static void de_run_cpshrink(deark *c, de_module_params *mparams)
 {
-	lctx *d = NULL;
+	de_arch_lctx *d = NULL;
 	i64 pos;
 	i64 member_hdrs_pos;
 	i64 member_hdrs_len;
@@ -347,7 +102,7 @@ static void de_run_cpshrink(deark *c, de_module_params *mparams)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	d = create_lctx(c);
+	d = de_arch_create_lctx(c);
 	d->is_le = 1;
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 
@@ -386,20 +141,20 @@ static void de_run_cpshrink(deark *c, de_module_params *mparams)
 	de_dbg(c, "cmpr data starts at %"I64_FMT, d->cmpr_data_curpos);
 
 	for(i=0; i<d->num_members; i++) {
-		struct member_data *md;
+		struct de_arch_member_data *md;
 
-		md = create_md(c, d);
+		md = de_arch_create_md(c, d);
 		md->member_idx = i;
 		md->member_hdr_pos = pos;
 		pos += 32;
 
 		cpshrink_do_member(c, d, md);
-		destroy_md(c, md);
+		de_arch_destroy_md(c, md);
 		if(d->fatalerrflag) goto done;
 	}
 
 done:
-	destroy_lctx(c, d);
+	de_arch_destroy_lctx(c, d);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -426,7 +181,7 @@ void de_module_cpshrink(deark *c, struct deark_module_info *mi)
 // DWC archive
 // **************************************************************************
 
-static void dwc_decompressor_fn(struct member_data *md)
+static void dwc_decompressor_fn(struct de_arch_member_data *md)
 {
 	deark *c = md->c;
 
@@ -456,26 +211,8 @@ static void squash_slashes(de_ucstring *s)
 	}
 }
 
-// Convert backslashes to slashes, and make sure the string ends with a /.
-static void fixup_path(de_ucstring *s)
-{
-	i64 i;
-
-	if(s->len<1) return;
-
-	for(i=0; i<s->len; i++) {
-		if(s->str[i]=='\\') {
-			s->str[i] = '/';
-		}
-	}
-
-	if(s->str[s->len-1]!='/') {
-		ucstring_append_char(s, '/');
-	}
-}
-
 // Set md->filename to the full-path filename, using tmpfn_path + tmpfn_base.
-static void dwc_process_filename(deark *c, lctx *d, struct member_data *md)
+static void dwc_process_filename(deark *c, de_arch_lctx *d, struct de_arch_member_data *md)
 {
 	ucstring_empty(md->filename);
 	squash_slashes(md->tmpfn_base);
@@ -486,7 +223,7 @@ static void dwc_process_filename(deark *c, lctx *d, struct member_data *md)
 
 	md->set_name_flags |= DE_SNFLAG_FULLPATH;
 	ucstring_append_ucstring(md->filename, md->tmpfn_path);
-	fixup_path(md->filename);
+	de_arch_fixup_path(md->filename, 0);
 	if(ucstring_isempty(md->tmpfn_base)) {
 		ucstring_append_char(md->filename, '_');
 	}
@@ -495,10 +232,10 @@ static void dwc_process_filename(deark *c, lctx *d, struct member_data *md)
 	}
 }
 
-static void do_dwc_member(deark *c, lctx *d, i64 pos1, i64 fhsize)
+static void do_dwc_member(deark *c, de_arch_lctx *d, i64 pos1, i64 fhsize)
 {
 	i64 pos = pos1;
-	struct member_data *md = NULL;
+	struct de_arch_member_data *md = NULL;
 	i64 cmt_len = 0;
 	i64 path_len = 0;
 	UI cdata_crc_reported = 0;
@@ -507,7 +244,7 @@ static void do_dwc_member(deark *c, lctx *d, i64 pos1, i64 fhsize)
 	u8 b;
 	de_ucstring *comment = NULL;
 
-	md = create_md(c, d);
+	md = de_arch_create_md(c, d);
 
 	de_dbg(c, "member header at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
@@ -519,9 +256,10 @@ static void do_dwc_member(deark *c, lctx *d, i64 pos1, i64 fhsize)
 	ucstring_append_ucstring(md->filename, md->tmpfn_base);
 	pos += 13;
 
-	read_field_orig_len_p(md, &pos);
-	read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 1, &pos);
-	read_field_cmpr_len_p(md, &pos);
+	de_arch_read_field_orig_len_p(md, &pos);
+	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		DE_ARCH_TSTYPE_UNIX, &pos);
+	de_arch_read_field_cmpr_len_p(md, &pos);
 	md->cmpr_pos = de_getu32le_p(&pos);
 	de_dbg(c, "cmpr. data pos: %"I64_FMT, md->cmpr_pos);
 
@@ -548,7 +286,7 @@ static void do_dwc_member(deark *c, lctx *d, i64 pos1, i64 fhsize)
 		have_cdata_crc = 1;
 	}
 
-	if(!good_cmpr_data_pos(md)) {
+	if(!de_arch_good_cmpr_data_pos(md)) {
 		goto done;
 	}
 
@@ -585,12 +323,12 @@ static void do_dwc_member(deark *c, lctx *d, i64 pos1, i64 fhsize)
 
 	if(d->private1) {
 		md->dfn = dwc_decompressor_fn;
-		extract_member_file(md);
+		de_arch_extract_member_file(md);
 	}
 
 done:
 	de_dbg_indent(c, -1);
-	destroy_md(c, md);
+	de_arch_destroy_md(c, md);
 	ucstring_destroy(comment);
 }
 
@@ -601,7 +339,7 @@ static int has_dwc_sig(deark *c)
 
 static void de_run_dwc(deark *c, de_module_params *mparams)
 {
-	lctx *d = NULL;
+	de_arch_lctx *d = NULL;
 	i64 trailer_pos;
 	i64 trailer_len;
 	i64 nmembers;
@@ -614,7 +352,7 @@ static void de_run_dwc(deark *c, de_module_params *mparams)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	d = create_lctx(c);
+	d = de_arch_create_lctx(c);
 	d->is_le = 1;
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 	d->private1 = de_get_ext_option_bool(c, "dwc:extract", 0);
@@ -650,7 +388,7 @@ static void de_run_dwc(deark *c, de_module_params *mparams)
 	}
 
 	pos += 13; // TODO?: name of header file ("h" command)
-	read_field_dttm_p(d, &tmpts, "archive last-modified", 1, &pos);
+	de_arch_read_field_dttm_p(d, &tmpts, "archive last-modified", DE_ARCH_TSTYPE_UNIX, &pos);
 
 	nmembers = de_getu16le_p(&pos);
 	de_dbg(c, "number of member files: %d", (int)nmembers);
@@ -671,7 +409,7 @@ done:
 	if(need_errmsg) {
 		de_err(c, "Bad DWC file");
 	}
-	destroy_lctx(c, d);
+	de_arch_destroy_lctx(c, d);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -716,13 +454,13 @@ void de_module_dwc(deark *c, struct deark_module_info *mi)
 
 // Probably only TSComp v1.3 is supported.
 
-static void tscomp_decompressor_fn(struct member_data *md)
+static void tscomp_decompressor_fn(struct de_arch_member_data *md)
 {
 	fmtutil_dclimplode_codectype1(md->c, md->dcmpri, md->dcmpro, md->dres, NULL);
 }
 
 // Caller creates/destroys md, and sets a few fields.
-static void tscomp_do_member(deark *c, lctx *d, struct member_data *md)
+static void tscomp_do_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *md)
 {
 	i64 pos = md->member_hdr_pos;
 	i64 fnlen;
@@ -734,9 +472,10 @@ static void tscomp_do_member(deark *c, lctx *d, struct member_data *md)
 	de_dbg_indent(c, 1);
 
 	pos += 1;
-	read_field_cmpr_len_p(md, &pos);
+	de_arch_read_field_cmpr_len_p(md, &pos);
 	pos += 4; // ??
-	read_field_dttm_p(d, &md->tmstamp[DE_TIMESTAMPIDX_MODIFY], "mod", 2, &pos);
+	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		DE_ARCH_TSTYPE_DOS_DT, &pos);
 	pos += 2; // ??
 
 	fnlen = de_getbyte_p(&pos);
@@ -750,7 +489,7 @@ static void tscomp_do_member(deark *c, lctx *d, struct member_data *md)
 
 	md->cmpr_pos = pos;
 	md->dfn = tscomp_decompressor_fn;
-	extract_member_file(md);
+	de_arch_extract_member_file(md);
 
 	pos += md->cmpr_len;
 	md->member_total_size = pos - md->member_hdr_pos;
@@ -760,7 +499,7 @@ static void tscomp_do_member(deark *c, lctx *d, struct member_data *md)
 
 static void de_run_tscomp(deark *c, de_module_params *mparams)
 {
-	lctx *d = NULL;
+	de_arch_lctx *d = NULL;
 	i64 pos;
 	i64 i;
 	int saved_indent_level;
@@ -768,7 +507,7 @@ static void de_run_tscomp(deark *c, de_module_params *mparams)
 	const char *name;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	d = create_lctx(c);
+	d = de_arch_create_lctx(c);
 	d->is_le = 1;
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 
@@ -795,13 +534,13 @@ static void de_run_tscomp(deark *c, de_module_params *mparams)
 
 	i = 0;
 	while(1) {
-		struct member_data *md;
+		struct de_arch_member_data *md;
 
 		if(d->fatalerrflag) goto done;
 		if(pos+17 > c->infile->len) goto done;
 		if(de_getbyte(pos) != 0x12) { d->need_errmsg = 1; goto done; }
 
-		md = create_md(c, d);
+		md = de_arch_create_md(c, d);
 		md->member_idx = i;
 		md->member_hdr_pos = pos;
 
@@ -809,7 +548,7 @@ static void de_run_tscomp(deark *c, de_module_params *mparams)
 		if(md->member_total_size<=0) d->fatalerrflag = 1;
 
 		pos += md->member_total_size;
-		destroy_md(c, md);
+		de_arch_destroy_md(c, md);
 		i++;
 	}
 
@@ -817,7 +556,7 @@ done:
 	if(d->need_errmsg) {
 		de_err(c, "Bad or unsupported TSComp format");
 	}
-	destroy_lctx(c, d);
+	de_arch_destroy_lctx(c, d);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -846,7 +585,7 @@ void de_module_tscomp(deark *c, struct deark_module_info *mi)
 
 static const u8 *g_edilzss_sig = (const u8*)"EDILZSS";
 
-static void edi_pack_decompressor_fn(struct member_data *md)
+static void edi_pack_decompressor_fn(struct de_arch_member_data *md)
 {
 	fmtutil_decompress_lzss1(md->c, md->dcmpri, md->dcmpro, md->dres, 0x0);
 }
@@ -854,7 +593,7 @@ static void edi_pack_decompressor_fn(struct member_data *md)
 // This basically checks for a valid DOS filename.
 // EDI Pack is primarily a Windows 3.x format -- I'm not sure what filenames are
 // allowed.
-static int edi_is_filename_at(deark *c, lctx *d, i64 pos)
+static int edi_is_filename_at(deark *c, de_arch_lctx *d, i64 pos)
 {
 	u8 buf[13];
 	size_t i;
@@ -896,7 +635,7 @@ static int edi_is_filename_at(deark *c, lctx *d, i64 pos)
 	return 1;
 }
 
-// Sets d->private_fmtver to:
+// Sets d->fmtver to:
 //  0 = Not a known format
 //  1 = EDI Pack "EDILZSS1"
 //  2 = EDI Pack "EDILZSS2"
@@ -904,7 +643,7 @@ static int edi_is_filename_at(deark *c, lctx *d, i64 pos)
 //  Other formats might exist, but are unlikely to ever be supported:
 //  * EDI LZSSLib EDILZSSB.DLL
 //  * EDI LZSSLib EDILZSSC.DLL
-static void edi_detect_fmt(deark *c, lctx *d)
+static void edi_detect_fmt(deark *c, de_arch_lctx *d)
 {
 	u8 ver;
 	i64 pos = 0;
@@ -920,14 +659,14 @@ static void edi_detect_fmt(deark *c, lctx *d)
 		// There's no easy way to distinguish some LZSS1 formats. This will not
 		// always work.
 		if(edi_is_filename_at(c, d, pos)) {
-			d->private_fmtver = 1;
+			d->fmtver = 1;
 		}
 		else {
-			d->private_fmtver = 10;
+			d->fmtver = 10;
 		}
 	}
 	else if(ver=='2') {
-		d->private_fmtver = 2;
+		d->fmtver = 2;
 	}
 	else {
 		d->need_errmsg = 1;
@@ -936,34 +675,34 @@ static void edi_detect_fmt(deark *c, lctx *d)
 
 static void de_run_edi_pack(deark *c, de_module_params *mparams)
 {
-	lctx *d = NULL;
-	struct member_data *md = NULL;
+	de_arch_lctx *d = NULL;
+	struct de_arch_member_data *md = NULL;
 	i64 pos = 0;
 
-	d = create_lctx(c);
+	d = de_arch_create_lctx(c);
 	d->is_le = 1;
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 
 	edi_detect_fmt(c, d);
-	if(d->private_fmtver==0) goto done;
-	else if(d->private_fmtver==10) {
+	if(d->fmtver==0) goto done;
+	else if(d->fmtver==10) {
 		de_declare_fmt(c, "EDI LZSSLib");
 	}
 	else {
-		de_declare_fmtf(c, "EDI Pack LZSS%d", d->private_fmtver);
+		de_declare_fmtf(c, "EDI Pack LZSS%d", d->fmtver);
 	}
 	pos = 8;
 
-	md = create_md(c, d);
-	if(d->private_fmtver==1 || d->private_fmtver==2) {
+	md = de_arch_create_md(c, d);
+	if(d->fmtver==1 || d->fmtver==2) {
 		dbuf_read_to_ucstring(c->infile, pos, 12, md->filename, DE_CONVFLAG_STOP_AT_NUL,
 			d->input_encoding);
 		de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
 		pos += 13;
 	}
 
-	if(d->private_fmtver==2) {
-		read_field_orig_len_p(md, &pos);
+	if(d->fmtver==2) {
+		de_arch_read_field_orig_len_p(md, &pos);
 	}
 
 	if(pos > c->infile->len) {
@@ -974,14 +713,14 @@ static void de_run_edi_pack(deark *c, de_module_params *mparams)
 	md->cmpr_pos = pos;
 	md->cmpr_len = c->infile->len - md->cmpr_pos;
 	md->dfn = edi_pack_decompressor_fn;
-	extract_member_file(md);
+	de_arch_extract_member_file(md);
 
 done:
-	destroy_md(c, md);
+	de_arch_destroy_md(c, md);
 	if(d->need_errmsg) {
 		de_err(c, "Bad or unsupported EDI Pack format");
 	}
-	destroy_lctx(c, d);
+	de_arch_destroy_lctx(c, d);
 }
 
 static int de_identify_edi_pack(deark *c)
@@ -1002,4 +741,212 @@ void de_module_edi_pack(deark *c, struct deark_module_info *mi)
 	mi->desc = "EDI Install packed file";
 	mi->run_fn = de_run_edi_pack;
 	mi->identify_fn = de_identify_edi_pack;
+}
+
+// **************************************************************************
+// Quarterdeck QIP
+// **************************************************************************
+
+static void qip_decompressor_fn(struct de_arch_member_data *md)
+{
+	fmtutil_dclimplode_codectype1(md->c, md->dcmpri, md->dcmpro, md->dres, NULL);
+}
+
+// Returns 0 if no member was found at md->member_hdr_pos.
+static int do_qip_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *md)
+{
+	int saved_indent_level;
+	i64 pos;
+	UI index;
+	int retval = 0;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "member at %"I64_FMT, md->member_hdr_pos);
+	de_dbg_indent(c, 1);
+	pos = md->member_hdr_pos;
+	if(dbuf_memcmp(c->infile, pos, "QD", 2)) goto done;
+	pos += 2;
+	retval = 1;
+	pos += 2; // ?
+	de_arch_read_field_cmpr_len_p(md, &pos);
+	index = (UI)de_getu16le_p(&pos); // ?
+	de_dbg(c, "index: %u", index);
+
+	if(d->fmtver>=2) {
+		md->crc_reported = (u32)de_getu32le_p(&pos);
+		de_dbg(c, "crc (reported): 0x%08x", (UI)md->crc_reported);
+	}
+
+	de_arch_read_field_dos_attr_p(md, &pos); // ?
+
+	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		DE_ARCH_TSTYPE_DOS_TD, &pos);
+	de_arch_read_field_orig_len_p(md, &pos);
+	dbuf_read_to_ucstring(c->infile, pos, 12, md->filename, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+	pos += 12;
+	pos += 1; // Maybe to allow the name to always be NUL terminated?
+
+	md->cmpr_pos = pos;
+	de_dbg(c, "cmpr data at %"I64_FMT, md->cmpr_pos);
+	md->dfn = qip_decompressor_fn;
+	if(d->fmtver>=2) {
+		md->validate_crc = 1;
+	}
+
+	de_arch_extract_member_file(md);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static void qip_do_v1(deark *c, de_arch_lctx *d)
+{
+	i64 pos = 0;
+	struct de_arch_member_data *md = NULL;
+
+	// This version doesn't have an index, but we sort of pretend it does,
+	// so that v1 and v2 can be handled pretty much the same.
+
+	while(1) {
+		i64 cmpr_len;
+
+		if(pos+32 >= c->infile->len) goto done;
+
+		if(md) {
+			de_arch_destroy_md(c, md);
+			md = NULL;
+		}
+		md = de_arch_create_md(c, d);
+
+		md->member_hdr_pos = pos;
+		cmpr_len = de_getu32le(pos+4);
+		if(!do_qip_member(c, d, md)) {
+			goto done;
+		}
+		pos += 32 + cmpr_len;
+	}
+
+done:
+	if(md) {
+		de_arch_destroy_md(c, md);
+	}
+}
+
+static void qip_do_v2(deark *c, de_arch_lctx *d)
+{
+	i64 pos;
+	i64 index_pos;
+	i64 index_len;
+	i64 index_endpos;
+	i64 i;
+	struct de_arch_member_data *md = NULL;
+
+	pos = 2;
+	d->num_members = de_getu16le_p(&pos);
+	de_dbg(c, "number of members: %"I64_FMT, d->num_members);
+	index_len = de_getu32le_p(&pos);
+	de_dbg(c, "index size: %"I64_FMT, index_len); // ??
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	index_pos = 16;
+
+	de_dbg(c, "index at %"I64_FMT, index_pos);
+	index_endpos = index_pos+index_len;
+	if(index_endpos > c->infile->len) goto done;
+	pos = index_pos;
+
+	for(i=0; i<d->num_members; i++) {
+		if(pos+16 > index_endpos) goto done;
+
+		if(md) {
+			de_arch_destroy_md(c, md);
+			md = NULL;
+		}
+		md = de_arch_create_md(c, d);
+
+		md->member_hdr_pos = de_getu32le_p(&pos);
+		(void)do_qip_member(c, d, md);
+		pos += 12;
+	}
+
+done:
+	if(md) {
+		de_arch_destroy_md(c, md);
+	}
+}
+
+static void de_run_qip(deark *c, de_module_params *mparams)
+{
+	de_arch_lctx *d = NULL;
+	u8 b;
+	int unsupp_flag = 0;
+
+	d = de_arch_create_lctx(c);
+	d->is_le = 1;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+
+	b = de_getbyte(1);
+	if(b=='P') {
+		d->fmtver = 2;
+	}
+	else if(b=='D') {
+		d->fmtver = 1;
+	}
+	else {
+		unsupp_flag = 1;
+		goto done;
+	}
+
+	if(d->fmtver==2) {
+		if(de_getbyte(8)!=0x02) {
+			unsupp_flag = 1;
+			goto done;
+		}
+	}
+
+	if(d->fmtver==1) {
+		qip_do_v1(c, d);
+	}
+	else {
+		qip_do_v2(c, d);
+	}
+
+done:
+	if(unsupp_flag) {
+		de_err(c, "Not a supported QIP format");
+	}
+	de_arch_destroy_lctx(c, d);
+}
+
+static int de_identify_qip(deark *c)
+{
+	u8 b;
+	i64 n;
+
+	if(de_getbyte(0)!='Q') return 0;
+	b = de_getbyte(1);
+	if(b=='P') {
+		if(de_getbyte(8)!=0x02) return 0;
+		n = de_getu32le(16);
+		if(n>c->infile->len) return 0;
+		if(!dbuf_memcmp(c->infile, n, "QD", 2)) return 100;
+	}
+	else if(b=='D') {
+		if(de_getu16le(2)==0 &&
+			de_getu16le(8)==1)
+		{
+			return 70;
+		}
+	}
+	return 0;
+}
+
+void de_module_qip(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "qip";
+	mi->desc = "QIP (Quarterdeck)";
+	mi->run_fn = de_run_qip;
+	mi->identify_fn = de_identify_qip;
 }

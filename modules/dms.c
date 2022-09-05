@@ -8,20 +8,20 @@
 // public domain(-ish) software by Andre Rodrigues de la Rocha.
 
 // Note:
-// DMS does a thing I call "persistent decompression state".
-// Roughly speaking, the state of some decompressors is reset only after
-// processing a track for which the low bit of the track_flags field is 0.
-// Otherwise it persists, and will most likely be used with a future track.
+// DMS has a feature, which I guess is its version of a "solid" archive, whereby
+// part of the state of some decompressors is reset only after processing a
+// track for which the low bit of the track_flags field is 0. Otherwise it
+// persists, to be used by the next suitable track.
 // I don't understand the fine details of how this works, especially when it
 // comes to "extra" tracks that are not part of the main track sequence.
 // xDMS behaves as if the state from an extra track never persists into a
 // "real" track, or vice versa, even if its flag says it does. I have a file
 // that seems to confirm that that is the case.
-// But that still leaves a lot of open questions. (What's the precise
+// But that still leaves a lot of open questions. What's the precise
 // definition of an extra track? What if there are multiple compressed extra
 // tracks? Or an extra track in the middle of the real tracks? To what extent
 // can multiple compression methods be used in the same file, and how do they
-// interact?)
+// interact?
 
 #include <deark-private.h>
 #include <deark-fmtutil.h>
@@ -1072,7 +1072,7 @@ static void get_trackflags_descr(deark *c, de_ucstring *s, UI tflags1, UI cmpr)
 		}
 	}
 	if(tflags & 0x1) {
-		ucstring_append_flags_item(s, "persist decompr. state");
+		ucstring_append_flags_item(s, "solid");
 		tflags -= 0x1;
 	}
 	if(tflags>0) ucstring_append_flags_itemf(s, "0x%02x", tflags);
