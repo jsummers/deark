@@ -33,8 +33,22 @@ struct member_data {
 typedef struct localctx_struct {
 	int first_subfmt;
 	int trailer_found;
-	int input_encoding;
+	de_encoding input_encoding;
 } lctx;
+
+static const char *get_subfmt_name(int n)
+{
+	const char *name = NULL;
+
+	switch(n) {
+	case SUBFMT_BINARY_LE: name = "Binary little-endian"; break;
+	case SUBFMT_BINARY_BE: name = "Binary big-endian"; break;
+	case SUBFMT_ASCII_PORTABLE: name = "ASCII Portable"; break;
+	case SUBFMT_ASCII_NEW: name = "ASCII New"; break;
+	case SUBFMT_ASCII_NEWCRC: name = "ASCII New-CRC"; break;
+	}
+	return name?name:"?";
+}
 
 // Returns a value suitable for format identification.
 // If format is unidentified, subfmt=0
@@ -300,10 +314,10 @@ static int read_member(deark *c, lctx *d, i64 pos1,
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	de_dbg(c, "member at %d", (int)pos);
+	de_dbg(c, "member at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
-	de_dbg(c, "fixed header at %d", (int)pos);
+	de_dbg(c, "fixed header at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	md = de_malloc(c, sizeof(struct member_data));
@@ -312,10 +326,6 @@ static int read_member(deark *c, lctx *d, i64 pos1,
 	md->fi->detect_root_dot_dir = 1;
 
 	identify_cpio_internal(c, md->startpos, &md->subfmt);
-	if(md->subfmt==0) {
-		de_err(c, "Unknown cpio format at %d", (int)md->startpos);
-		goto done;
-	}
 
 	if(md->subfmt==SUBFMT_ASCII_PORTABLE) {
 		read_header_ascii_portable(c, d, md);
@@ -331,19 +341,19 @@ static int read_member(deark *c, lctx *d, i64 pos1,
 		read_header_binary(c, d, md);
 	}
 	else {
-		de_err(c, "Unsupported cpio format at %d", (int)md->startpos);
+		de_err(c, "Unknown cpio format at %"I64_FMT, md->startpos);
 		goto done;
 	}
 
 	de_dbg_indent(c, -1);
-	de_dbg(c, "member name at %d", (int)(md->startpos + md->fixed_header_size));
+	de_dbg(c, "member name at %"I64_FMT, (i64)(md->startpos + md->fixed_header_size));
 	de_dbg_indent(c, 1);
 	read_member_name(c, d, md);
 
 	pos = md->startpos + md->fixed_header_size + md->namesize_padded;
 	de_dbg_indent(c, -1);
 
-	de_dbg(c, "member data at %d, len=%d", (int)pos, (int)md->filesize);
+	de_dbg(c, "member data at %"I64_FMT", len=%"I64_FMT, pos, md->filesize);
 	de_dbg_indent(c, 1);
 
 	if(pos + md->filesize > c->infile->len) {
@@ -431,6 +441,7 @@ done:
 static void de_run_cpio(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	const char *subfmt_name;
 	i64 bytes_consumed;
 	i64 pos;
 	int ret;
@@ -446,23 +457,8 @@ static void de_run_cpio(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	switch(d->first_subfmt) {
-	case SUBFMT_BINARY_LE:
-		de_declare_fmt(c, "cpio Binary little-endian");
-		break;
-	case SUBFMT_BINARY_BE:
-		de_declare_fmt(c, "cpio Binary big-endian");
-		break;
-	case SUBFMT_ASCII_PORTABLE:
-		de_declare_fmt(c, "cpio ASCII Portable");
-		break;
-	case SUBFMT_ASCII_NEW:
-		de_declare_fmt(c, "cpio ASCII New");
-		break;
-	case SUBFMT_ASCII_NEWCRC:
-		de_declare_fmt(c, "cpio ASCII New-CRC");
-		break;
-	}
+	subfmt_name = get_subfmt_name(d->first_subfmt);
+	de_declare_fmtf(c, "cpio %s", subfmt_name);
 
 	while(1) {
 		if(d->trailer_found) break;

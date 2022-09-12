@@ -7,6 +7,7 @@
 DE_DECLARE_MODULE(de_module_ar);
 
 typedef struct localctx_struct {
+	de_encoding input_encoding;
 	i64 extended_name_table_pos; // 0=none
 	i64 extended_name_table_size;
 } lctx;
@@ -30,7 +31,7 @@ static int do_ar_item(deark *c, lctx *d, i64 pos1, i64 *p_item_len)
 	i64 foundpos;
 	i64 ext_name_len;
 
-	de_dbg(c, "archive member at %d", (int)pos1);
+	de_dbg(c, "archive member at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
 	fi = de_finfo_create(c);
@@ -45,7 +46,8 @@ static int do_ar_item(deark *c, lctx *d, i64 pos1, i64 *p_item_len)
 	name_orig_len = de_strlen(name_orig);
 
 	rawname_ucstring = ucstring_create(c);
-	ucstring_append_bytes(rawname_ucstring, (const u8*)name_orig, name_orig_len, 0, DE_ENCODING_UTF8);
+	ucstring_append_bytes(rawname_ucstring, (const u8*)name_orig, name_orig_len, 0,
+		d->input_encoding);
 
 	de_dbg(c, "member raw name: \"%s\"", ucstring_getpsz(rawname_ucstring));
 
@@ -65,8 +67,8 @@ static int do_ar_item(deark *c, lctx *d, i64 pos1, i64 *p_item_len)
 
 	file_offset = pos1 + 60;
 	(void)dbuf_read_ascii_number(c->infile, pos1+48, 10, 10, &file_size);
-	de_dbg(c, "member data at %d, size: %d",
-		(int)file_offset, (int)file_size);
+	de_dbg(c, "member data at %"I64_FMT", size: %"I64_FMT,
+		file_offset, file_size);
 
 	if(name_orig_len<1) {
 		de_warn(c, "Missing filename");
@@ -109,7 +111,7 @@ static int do_ar_item(deark *c, lctx *d, i64 pos1, i64 *p_item_len)
 
 		filename_ucstring = ucstring_create(c);
 		dbuf_read_to_ucstring(c->infile, d->extended_name_table_pos+name_offset,
-			ext_name_len, filename_ucstring, 0, DE_ENCODING_UTF8);
+			ext_name_len, filename_ucstring, 0, d->input_encoding);
 
 		de_dbg(c, "extended filename: \"%s\"", ucstring_getpsz(filename_ucstring));
 
@@ -133,7 +135,7 @@ static int do_ar_item(deark *c, lctx *d, i64 pos1, i64 *p_item_len)
 			adjusted_len--;
 		}
 		ucstring_append_bytes(filename_ucstring, (u8*)name_orig, adjusted_len,
-			0, DE_ENCODING_UTF8);
+			0, d->input_encoding);
 
 		de_dbg(c, "filename: \"%s\"", ucstring_getpsz(filename_ucstring));
 		de_finfo_set_name_from_ucstring(c, fi, filename_ucstring, 0);
@@ -161,6 +163,7 @@ static void de_run_ar(deark *c, de_module_params *mparams)
 	int ret;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_UTF8);
 
 	pos = 8;
 	while(1) {

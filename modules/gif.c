@@ -367,6 +367,7 @@ struct comment_ext_ctx {
 	dbuf *outf;
 };
 
+// Used for comments and frame names
 static void callback_for_comment_ext(deark *c, lctx *d, struct subblock_reader_data *sbrd)
 {
 	struct comment_ext_ctx *ctx = (struct comment_ext_ctx*)sbrd->userdata;
@@ -399,6 +400,21 @@ static void do_comment_extension(deark *c, lctx *d, i64 pos1)
 	de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(ctx.s));
 
 	dbuf_close(ctx.outf);
+	ucstring_destroy(ctx.s);
+}
+
+// Used by Gifsicle
+static void do_framename_extension(deark *c, lctx *d, i64 pos1)
+{
+	struct comment_ext_ctx ctx;
+	i64 pos = pos1;
+
+	de_zeromem(&ctx, sizeof(struct comment_ext_ctx));
+	ctx.s = ucstring_create(c);
+
+	do_read_subblocks_p(c, d, c->infile, callback_for_comment_ext, (void*)&ctx, &pos);
+
+	de_dbg(c, "frame name: \"%s\"", ucstring_getpsz_d(ctx.s));
 	ucstring_destroy(ctx.s);
 }
 
@@ -811,6 +827,7 @@ static int do_read_extension(deark *c, lctx *d, i64 pos1, i64 *bytesused)
 	switch(ext_type) {
 	case 0x01: ext_name="plain text"; break;
 	case 0xf9: ext_name="graphic control"; break;
+	case 0xce: ext_name="frame name"; break;
 	case 0xfe: ext_name="comment"; break;
 	case 0xff: ext_name="application"; break;
 	default: ext_name="?";
@@ -832,6 +849,9 @@ static int do_read_extension(deark *c, lctx *d, i64 pos1, i64 *bytesused)
 		break;
 	case 0xff:
 		do_application_extension(c, d, pos);
+		break;
+	case 0xce:
+		do_framename_extension(c, d, pos);
 		break;
 	}
 	de_dbg_indent(c, -1);
