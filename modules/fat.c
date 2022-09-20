@@ -752,7 +752,7 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 	i64 num_sectors_per_track;
 	i64 num_heads;
 	i64 num_sectors_per_cylinder;
-	i64 num_cylinders;
+	i64 num_cylinders = 0;
 	i64 jmpinstrlen;
 	u8 b;
 	u8 cksum_sig[2];
@@ -848,7 +848,9 @@ static int do_boot_sector(deark *c, lctx *d, i64 pos1)
 	}
 
 	num_sectors_per_cylinder = num_heads * num_sectors_per_track;
-	num_cylinders = de_pad_to_n(d->num_sectors, num_sectors_per_cylinder) / num_sectors_per_cylinder;
+	if(num_sectors_per_cylinder > 0) {
+		num_cylinders = de_pad_to_n(d->num_sectors, num_sectors_per_cylinder) / num_sectors_per_cylinder;
+	}
 	de_dbg(c, "number of cylinders (calculated): %"I64_FMT, num_cylinders);
 
 	if(d->sectors_per_cluster<1) goto done;
