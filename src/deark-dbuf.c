@@ -14,6 +14,8 @@
 #define DE_MAX_MEMBUF_SIZE 2000000000
 #define DE_RCACHE_SIZE 262144
 #define DE_WBUFFER_SIZE 512
+// Support at least this many virtual bytes before or after the actual file.
+#define DE_ALLOWED_VIRTUAL_BYTES 16384
 
 // Fill the cache that remembers the first part of the file.
 // TODO: We should probably use memory-mapped files instead when possible,
@@ -92,8 +94,14 @@ void dbuf_read(dbuf *f, u8 *buf, i64 pos, i64 len)
 
 	c = f->c;
 
+	if(len <= 0) goto done_read;
+	if(len > DE_MAX_MALLOC) {
+		de_fatalerror(c);
+		return;
+	}
+
 	if(pos < 0) {
-		if((-pos) >= len) {
+		if(pos <= (-len)) {
 			// All requested bytes are before the beginning of the file
 			de_zeromem(buf, (size_t)len);
 			return;
@@ -2353,6 +2361,8 @@ static int buffered_read_zero_len(struct de_bufferedreadctx *brctx,
 //   - If the source dbuf is a MEMBUF, and the requested bytes are all in range,
 //     then all requested bytes will be provided in the first call to the callback
 //     function.
+// As is normal for Deark, a slice may extend slightly before or after the file,
+// with nonexistent bytes getting the value 0.
 // Return value: 1 normally, 0 if the callback function ever returned 0.
 int dbuf_buffered_read(dbuf *f, i64 pos1, i64 len,
 	de_buffered_read_cbfn cbfn, void *userdata)
@@ -2361,6 +2371,14 @@ int dbuf_buffered_read(dbuf *f, i64 pos1, i64 len,
 
 	brctx.c = f->c;
 	brctx.userdata = userdata;
+
+	if((pos1 < -DE_ALLOWED_VIRTUAL_BYTES) ||
+		(pos1 > f->len+DE_ALLOWED_VIRTUAL_BYTES) ||
+		(len > f->len+DE_ALLOWED_VIRTUAL_BYTES) ||
+		(pos1+len > f->len+DE_ALLOWED_VIRTUAL_BYTES))
+	{
+		len = 0;
+	}
 
 	if(len<=0) { // Get this special case out of the way.
 		return buffered_read_zero_len(&brctx, cbfn);

@@ -726,7 +726,7 @@ void de_internal_err_nonfatal(deark *c, const char *fmt, ...)
 // TODO: Make de_malloc use de_mallocarray internally, instead of vice versa.
 void *de_mallocarray(deark *c, i64 nmemb, size_t membsize)
 {
-	if(nmemb>500000000 || nmemb<0 || membsize>500000000) {
+	if(nmemb>DE_MAX_MALLOC || nmemb<0 || membsize>DE_MAX_MALLOC) {
 		de_err(c, "Out of memory");
 		de_fatalerror(c);
 		// NOTREACHED
@@ -744,7 +744,7 @@ void *de_malloc(deark *c, i64 n)
 	void *m;
 
 	if(n==0) n=1;
-	if(n<0 || n>500000000) {
+	if(n<0 || n>DE_MAX_MALLOC) {
 		de_err(c,"Out of memory (%"I64_FMT" bytes requested)", n);
 		de_fatalerror(c);
 		// NOTREACHED
@@ -764,7 +764,7 @@ void *de_malloc(deark *c, i64 n)
 void *de_reallocarray(deark *c, void *m, i64 oldnmemb, size_t membsize,
 	i64 newnmemb)
 {
-	if(newnmemb>500000000 || newnmemb<0 || oldnmemb<0 || membsize>500000000) {
+	if(newnmemb>DE_MAX_MALLOC || newnmemb<0 || oldnmemb<0 || membsize>DE_MAX_MALLOC) {
 		de_err(c, "Out of memory");
 		de_fatalerror(c);
 		// NOTREACHED

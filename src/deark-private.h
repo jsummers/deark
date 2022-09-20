@@ -13,6 +13,7 @@
 #include "deark.h"
 #endif
 
+#define DE_MAX_MALLOC           500000000
 #define DE_MAX_SANE_OBJECT_SIZE 100000000
 
 typedef i32 de_rune; // A Unicode codepoint
