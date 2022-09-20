@@ -307,11 +307,13 @@ static void do_prism_read_palette(deark *c, prismctx *d, struct atari_img_decode
 	u8 r, g, b;
 	u32 pal1[256];
 	u32 clr;
+	i64 num_entries_to_read;
 	char tmps[32];
 
 	de_zeromem(pal1, sizeof(pal1));
+	num_entries_to_read = de_min_int(d->pal_size, 256);
 
-	for(i=0; i<d->pal_size; i++) {
+	for(i=0; i<num_entries_to_read; i++) {
 		r1 = de_getu16be(128+6*i+0);
 		g1 = de_getu16be(128+6*i+2);
 		b1 = de_getu16be(128+6*i+4);
@@ -322,12 +324,10 @@ static void do_prism_read_palette(deark *c, prismctx *d, struct atari_img_decode
 		de_snprintf(tmps, sizeof(tmps), "(%4d,%4d,%4d) "DE_CHAR_RIGHTARROW" ",
 			(int)r1, (int)g1, (int)b1);
 		de_dbg_pal_entry2(c, i, clr, tmps, NULL, NULL);
-		if(i<256) {
-			pal1[i] = clr;
-		}
+		pal1[i] = clr;
 	}
 
-	for(i=0; i<d->pal_size; i++) {
+	for(i=0; i<num_entries_to_read; i++) {
 		d->pal[i] = pal1[map_vdi_pal(adata->bpp, (unsigned int)i)];
 	}
 }
