@@ -2996,6 +2996,16 @@ static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
 
 	dctx->dcmpri.pos = pg->strile_data[dctx->strile_idx].pos;
 	dctx->dcmpri.len = pg->strile_data[dctx->strile_idx].len;
+
+	// The next two tests are mainly to prevent integer overflow. These values
+	// can come from 64-bit fields.
+	if(dctx->dcmpri.pos > dctx->dcmpri.f->len) {
+		dctx->dcmpri.pos = dctx->dcmpri.f->len;
+	}
+	if(dctx->dcmpri.len > dctx->dcmpri.f->len) {
+		dctx->dcmpri.len = dctx->dcmpri.f->len;
+	}
+
 	if(dctx->dcmpri.pos + dctx->dcmpri.len > dctx->dcmpri.f->len) {
 		dctx->dcmpri.len = dctx->dcmpri.f->len - dctx->dcmpri.pos;
 	}
