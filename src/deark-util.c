@@ -988,6 +988,25 @@ i64 de_max_int(i64 n1, i64 n2)
 	return (n1>n2) ? n1 : n2;
 }
 
+int de_int_in_range(i64 n, i64 lv, i64 hv)
+{
+	return (n>=lv && n<=hv);
+}
+
+// Returns 0 if we changed *pn.
+int de_constrain_int(i64 *pn, i64 lv, i64 hv)
+{
+	if(*pn < lv) {
+		*pn = lv;
+		return 0;
+	}
+	if(*pn > hv) {
+		*pn = hv;
+		return 0;
+	}
+	return 1;
+}
+
 i64 de_pad_to_2(i64 x)
 {
 	return (x&0x1) ? x+1 : x;
@@ -2146,6 +2165,29 @@ int de_memmatch(const u8 *mem, const u8 *pattern, size_t pattern_len,
 
 		if(p==wildcard) continue;
 		if(p!=m) return 0;
+	}
+	return 1;
+}
+
+#define DE_MAX_SANE_FILESIZE 0xffffffffffffffLL
+
+// Modifies *pn to be in the range of 0 to some arbitrary large integer that
+// is well within the range that we can safely handle (and avoid the possiblity
+// of integer overflow), while being larger than the largest file size that we
+// want to support.
+// Used to sanitize file offsets, segment lengths, and any field that counts
+// a number of things in a file (assuming each thing must use at least 1 byte).
+// Useful with fields that are 64-bit, or variable-length.
+// Returns 0 if we changed *plen.
+int de_sanitize_count(i64 *pn)
+{
+	if(*pn < 0) {
+		*pn = 0;
+		return 0;
+	}
+	if(*pn > DE_MAX_SANE_FILESIZE) {
+		*pn = DE_MAX_SANE_FILESIZE;
+		return 0;
 	}
 	return 1;
 }

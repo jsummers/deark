@@ -2050,6 +2050,7 @@ static int do_layer_record(deark *c, lctx *d, zztype *zz, struct channel_data *c
 		ch_id = psd_geti16zz(zz);
 		ch_dlen = psd_getu32or64zz(c, d, zz);
 		de_dbg(c, "channel[%d] id=%d, data len=%"I64_FMT"", (int)i, (int)ch_id, ch_dlen);
+		de_sanitize_length(&ch_dlen);
 		cd->num_channels++;
 		cd->total_len += ch_dlen;
 	}
@@ -2133,6 +2134,7 @@ static int do_layer_info_section(deark *c, lctx *d, zztype *zz, int has_len_fiel
 	if(has_len_field) {
 		layer_info_len = psd_getu32or64zz(c, d, zz);
 		de_dbg(c, "length of layer info section: %d", (int)layer_info_len);
+		de_sanitize_length(&layer_info_len);
 	}
 	else {
 		layer_info_len = zz_avail(zz);
@@ -2267,6 +2269,7 @@ static int do_one_linked_layer(deark *c, lctx *d, zztype *zz, const struct de_fo
 
 	dlen = psd_geti64zz(zz);
 	de_dbg(c, "length: %"I64_FMT"", dlen);
+	de_sanitize_length(&dlen);
 	if(dlen<8 || zz->pos+dlen>zz->endpos) {
 		de_warn(c, "Bad linked layer size %"I64_FMT" at %"I64_FMT"", dlen, zz->startpos);
 		goto done;
@@ -2301,6 +2304,7 @@ static int do_one_linked_layer(deark *c, lctx *d, zztype *zz, const struct de_fo
 
 	dlen2 = psd_geti64zz(&datazz);
 	de_dbg(c, "length2: %"I64_FMT"", dlen2);
+	de_sanitize_length(&dlen2);
 	if(dlen2<0) goto done;
 
 	file_open_descr_flag = psd_getbytezz(&datazz);
@@ -2825,6 +2829,7 @@ static void do_filter_effect_channel(deark *c, lctx *d, zztype *zz)
 
 	dlen = psd_geti64zz(zz);
 	de_dbg(c, "length: %"I64_FMT"", dlen);
+	de_sanitize_length(&dlen);
 	saved_pos = zz->pos;
 	if(dlen<=0) goto done;
 
@@ -2868,6 +2873,7 @@ static void do_filter_effect(deark *c, lctx *d, zztype *zz)
 
 	dlen2 = psd_geti64zz(zz);
 	de_dbg(c, "length: %"I64_FMT"", dlen2);
+	de_sanitize_length(&dlen2);
 	filter_effects_savedpos = zz->pos;
 
 	read_rectangle_tlbr(c, d, zz, "rectangle");
@@ -2943,6 +2949,7 @@ static void do_FXid_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 
 	dlen1 = psd_geti64zz(zz);
 	de_dbg(c, "length: %"I64_FMT"", dlen1);
+	de_sanitize_length(&dlen1);
 	main_endpos = zz->pos + dlen1;
 
 	idx = 0;
@@ -3044,6 +3051,7 @@ static int do_tagged_block(deark *c, lctx *d, zztype *zz, int tbnamespace)
 
 	if(blklen_len==8) {
 		blklen = psd_geti64zz(zz);
+		de_sanitize_length(&blklen);
 	}
 	else {
 		blklen = psd_getu32zz(zz);
@@ -3251,6 +3259,7 @@ static int do_layer_and_mask_info_section(deark *c, lctx *d, zztype *zz)
 
 	layer_and_mask_info_section_len = psd_getu32or64zz(c, d, zz);
 	de_dbg(c, "layer & mask info section total data len: %d", (int)layer_and_mask_info_section_len);
+	de_sanitize_length(&layer_and_mask_info_section_len);
 	if(zz->pos + layer_and_mask_info_section_len > zz->endpos) {
 		de_err(c, "Unexpected end of PSD file");
 		goto done;

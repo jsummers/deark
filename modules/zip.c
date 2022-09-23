@@ -444,6 +444,7 @@ static void ef_zip64extinfo(deark *c, lctx *d, struct extra_item_info_struct *ei
 	n = de_geti64le(pos); pos += 8;
 	de_dbg(c, "orig uncmpr file size: %"I64_FMT, n);
 	if(eii->dd->uncmpr_size==0xffffffffLL) {
+		de_sanitize_length(&n);
 		eii->dd->uncmpr_size = n;
 	}
 
@@ -451,6 +452,7 @@ static void ef_zip64extinfo(deark *c, lctx *d, struct extra_item_info_struct *ei
 	n = de_geti64le(pos); pos += 8;
 	de_dbg(c, "cmpr data size: %"I64_FMT, n);
 	if(eii->dd->cmpr_size==0xffffffffLL) {
+		de_sanitize_length(&n);
 		eii->dd->cmpr_size = n;
 	}
 
@@ -1747,13 +1749,17 @@ static int do_zip64_eocd(deark *c, lctx *d)
 	d->zip64_cd_disknum = (unsigned int)de_getu32le_p(&pos);
 	d->zip64_num_centr_dir_entries_this_disk = de_geti64le(pos); pos += 8;
 	de_dbg(c, "central dir num entries on this disk: %"I64_FMT, d->zip64_num_centr_dir_entries_this_disk);
+	de_sanitize_count(&d->zip64_num_centr_dir_entries_this_disk);
 	d->zip64_num_centr_dir_entries_total = de_geti64le(pos); pos += 8;
 	de_dbg(c, "central dir num entries: %"I64_FMT, d->zip64_num_centr_dir_entries_total);
+	de_sanitize_count(&d->zip64_num_centr_dir_entries_this_disk);
 	d->zip64_centr_dir_byte_size = de_geti64le(pos); pos += 8;
 	de_dbg(c, "central dir size: %"I64_FMT, d->zip64_centr_dir_byte_size);
+	de_sanitize_length(&d->zip64_centr_dir_byte_size);
 	d->zip64_cd_pos = de_geti64le(pos); pos += 8;
 	de_dbg(c, "central dir offset: %"I64_FMT", disk: %u",
 		d->zip64_cd_pos, d->zip64_cd_disknum);
+	de_sanitize_offset(&d->zip64_cd_pos);
 
 	retval = 1;
 done:
@@ -1777,6 +1783,7 @@ static void do_zip64_eocd_locator(deark *c, lctx *d)
 	d->zip64_eocd_pos = de_geti64le(pos); pos += 8;
 	de_dbg(c, "offset of zip64 eocd: %"I64_FMT", disk: %u",
 		d->zip64_eocd_pos, d->zip64_eocd_disknum);
+	de_sanitize_offset(&d->zip64_eocd_pos);
 	n = de_getu32le_p(&pos);
 	de_dbg(c, "total number of disks: %u", (unsigned int)n);
 	de_dbg_indent(c, -1);

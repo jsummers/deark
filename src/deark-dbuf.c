@@ -84,6 +84,35 @@ static void populate_rcache_from_pipe(dbuf *f)
 	f->len = f->rcache_bytes_used;
 }
 
+// Use if we read a 'offset' field representing an absolute file position.
+// Returns 0 if we changed *plen.
+int dbuf_constrain_offset(dbuf *f, i64 *ppos)
+{
+	return de_constrain_int(ppos, 0, f->len);
+}
+
+// Use if we read a 'length' field associated with a segment with a known offset.
+// pos should be a valid position for this dbuf:
+// 0 to f->len inclusive. If not, sets *plen to 0, and returns 0.
+// Returns 0 if we changed *plen.
+int dbuf_constrain_length(dbuf *f, i64 pos, i64 *plen)
+{
+	i64 maxlen;
+
+	if(*plen < 0 || pos < 0 || pos > f->len ) {
+		*plen = 0;
+		return 0;
+	}
+
+	maxlen = f->len - pos;
+	if(*plen > maxlen) {
+		*plen = maxlen;
+		return 0;
+	}
+
+	return 1;
+}
+
 // Read len bytes, starting at file position pos, into buf.
 // Unread bytes will be set to 0.
 void dbuf_read(dbuf *f, u8 *buf, i64 pos, i64 len)
@@ -2530,18 +2559,6 @@ static int slice_has_BOM(dbuf *inf, i64 pos, i64 len, de_encoding enc)
 	return 0;
 }
 
-static void constrain_slice_to_file(dbuf *f, i64 pos, i64 *plen)
-{
-	if(*plen < 0 || pos < 0 || pos > f->len) {
-		*plen = 0;
-		return;
-	}
-
-	if(*plen > f->len - pos) {
-		*plen = f->len - pos;
-	}
-}
-
 // Write a slice with a known encoding, to an output file, generally as UTF-8.
 //
 // This is a messy function intended to be used when extracting a text segment
@@ -2566,7 +2583,7 @@ void dbuf_copy_slice_convert_to_utf8(dbuf *inf, i64 pos, i64 len,
 	struct textconvctx_struct tcctx;
 
 	de_zeromem(&tcctx, sizeof(struct textconvctx_struct));
-	constrain_slice_to_file(inf, pos, &len);
+	dbuf_constrain_length(inf, pos, &len);
 
 	if((flags & 0x4) && (enc==DE_ENCODING_UNKNOWN || enc==DE_ENCODING_ASCII)) {
 		dbuf_copy(inf, pos, len, outf);

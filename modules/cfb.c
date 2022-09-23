@@ -1659,6 +1659,7 @@ static void do_read_dir_entry(deark *c, lctx *d, i64 dir_entry_idx, i64 dir_entr
 	}
 	else {
 		dei->stream_size = dbuf_geti64le(d->dir, dir_entry_offs+120);
+		de_sanitize_length(&dei->stream_size);
 	}
 
 	dei->is_mini_stream = (dei->entry_type==OBJTYPE_STREAM) && (dei->stream_size < d->std_stream_min_size);

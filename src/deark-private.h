@@ -585,6 +585,9 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f, UI createflags);
 
 ///////////////////////////////////////////
 
+int dbuf_constrain_length(dbuf *f, i64 pos, i64 *plen);
+int dbuf_constrain_offset(dbuf *f, i64 *ppos);
+
 i64 de_geti8_direct(const u8 *m);
 i64 de_getu16be_direct(const u8 *m);
 i64 de_getu16le_direct(const u8 *m);
@@ -928,6 +931,11 @@ void de_convert_image_rgb(dbuf *f, i64 fpos,
 
 i64 de_min_int(i64 n1, i64 n2);
 i64 de_max_int(i64 n1, i64 n2);
+int de_int_in_range(i64 n, i64 lv, i64 hv);
+int de_constrain_int(i64 *pn, i64 lv, i64 hv);
+int de_sanitize_count(i64 *pn);
+#define de_sanitize_length de_sanitize_count
+#define de_sanitize_offset de_sanitize_count
 i64 de_pad_to_2(i64 x);
 i64 de_pad_to_4(i64 x);
 i64 de_pad_to_n(i64 x, i64 n);

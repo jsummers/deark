@@ -679,6 +679,8 @@ static u64 rar_get_vint_p(de_arch_lctx *d, dbuf *f, i64 *ppos)
 	return val;
 }
 
+// RAR's "vint" type is always unsigned.
+// This function returns it in a signed i64, for convenience.
 static i64 rar_get_vint_i64_p(de_arch_lctx *d, dbuf *f, i64 *ppos)
 {
 	u64 v1u;
@@ -907,6 +909,7 @@ static void do_rar5_file_or_service_hdr(deark *c, de_arch_lctx *d, struct rar5_b
 	de_dbg(c, "file flags: 0x%x", hd->file_flags);
 	hd->orig_len = rar_get_vint_i64_p(d, c->infile, &pos);
 	de_dbg(c, "original size: %"I64_FMT, hd->orig_len);
+	de_sanitize_length(&hd->orig_len);
 	hd->attribs = rar_get_vint_p(d, c->infile, &pos);
 	de_dbg(c, "attribs: 0x%"U64_FMTx, hd->attribs);
 

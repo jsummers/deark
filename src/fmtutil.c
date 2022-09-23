@@ -511,6 +511,7 @@ static int do_box(deark *c, struct de_boxesctx *bctx, i64 pos, i64 len,
 		}
 		header_len = 16;
 		size64 = dbuf_geti64be(bctx->f, pos+8);
+		de_sanitize_length(&size64);
 		if(size64<16) goto done;
 		payload_len = size64-16;
 	}

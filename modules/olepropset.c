@@ -385,7 +385,7 @@ static void do_prop_any_int(deark *c, lctx *d, struct propset_struct *si,
 		// Code page is usually a *signed* 16-bit int, which means the maximum
 		// value is 32767, even though code pages can go up to 65535.
 		// Apparently, code pages over 32767 are stored as negative numbers.
-		if(n<0) {
+		if(de_int_in_range(n, -32768, -1)) {
 			si->code_page = (int)(n + 65536);
 		}
 		else {
