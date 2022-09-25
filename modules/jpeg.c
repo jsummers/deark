@@ -1034,7 +1034,8 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 		app_id_info->appsegtype = APPSEGTYPE_ICC_PROFILE;
 		app_id_info->app_type_name = "ICC profile";
 	}
-	else if(seg_type==0xe2 && !de_strcmp(ad.app_id_normalized, "FPXR")) {
+	else if((seg_type==0xe2 || seg_type==0xe4) && !de_strcmp(ad.app_id_normalized, "FPXR")) {
+		// Normally APP2. APP4 exists, but I don't know why.
 		app_id_info->appsegtype = APPSEGTYPE_FPXR;
 		app_id_info->app_type_name = "Exif Flashpix Ready";
 	}
