@@ -270,7 +270,7 @@ void de_module_degas(deark *c, struct deark_module_info *mi)
 
 typedef struct prismctx_struct {
 	i64 pal_size;
-	i64 compression_code;
+	UI compression_code;
 	i64 pic_data_size;
 	u32 pal[256];
 } prismctx;
@@ -344,30 +344,30 @@ static void de_run_prismpaint(deark *c, de_module_params *mparams)
 
 	adata->pal = d->pal;
 	d->pal_size = de_getu16be(6);
+	de_dbg(c, "pal_size: %d", (int)d->pal_size);
 	adata->w = de_getu16be(8);
 	adata->h = de_getu16be(10);
-	de_dbg(c, "pal_size: %d, dimensions: %d"DE_CHAR_TIMES"%d", (int)d->pal_size,
-		(int)adata->w, (int)adata->h);
+	de_dbg_dimensions(c, adata->w, adata->h);
 	if(!de_good_image_dimensions(c, adata->w, adata->h)) goto done;
 
 	adata->bpp = de_getu16be(12);
-	d->compression_code = de_getu16be(14);
-	de_dbg(c, "bits/pixel: %d, compression: %d", (int)adata->bpp,
-		(int)d->compression_code);
+	de_dbg(c, "bits/pixel: %d", (int)adata->bpp);
+	d->compression_code = (UI)de_getu16be(14);
+	de_dbg(c, "compression: %u", d->compression_code);
 
 	d->pic_data_size = de_getu32be(16);
-	de_dbg(c, "reported (uncompressed) picture data size: %d", (int)d->pic_data_size);
+	de_dbg(c, "reported (uncompressed) picture data size: %"I64_FMT, d->pic_data_size);
 
 	do_prism_read_palette(c, d, adata);
 
 	if(adata->bpp!=1 && adata->bpp!=2 && adata->bpp!=4
 		&& adata->bpp!=8 && adata->bpp!=16)
 	{
-		de_err(c, "Unsupported bits/pixel (%d)", (int)adata->bpp);
+		de_err(c, "Unsupported bits/pixel: %d", (int)adata->bpp);
 		goto done;
 	}
 	if(d->compression_code!=0 && d->compression_code!=1) {
-		de_err(c, "Unsupported compression (%d)", (int)d->compression_code);
+		de_err(c, "Unsupported compression: %u", d->compression_code);
 		goto done;
 	}
 	if(adata->bpp==16 && d->compression_code!=0) {
@@ -375,7 +375,7 @@ static void de_run_prismpaint(deark *c, de_module_params *mparams)
 	}
 
 	pixels_start = 128 + 2*3*d->pal_size;
-	de_dbg(c, "pixel data starts at %d", (int)pixels_start);
+	de_dbg(c, "pixel data starts at %"I64_FMT, pixels_start);
 	if(pixels_start >= c->infile->len) goto done;
 
 	if(d->compression_code==0) {
@@ -392,7 +392,7 @@ static void de_run_prismpaint(deark *c, de_module_params *mparams)
 		fmtutil_decompress_packbits(c->infile, pixels_start, c->infile->len - pixels_start,
 			adata->unc_pixels, NULL);
 		dbuf_flush(adata->unc_pixels);
-		de_dbg(c, "decompressed to %d bytes", (int)adata->unc_pixels->len);
+		de_dbg(c, "decompressed to %"I64_FMT" bytes", adata->unc_pixels->len);
 	}
 
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
