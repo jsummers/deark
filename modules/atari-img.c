@@ -603,6 +603,7 @@ typedef struct tinyctx_struct {
 	u8 res_code;
 	i64 num_control_bytes;
 	i64 num_data_words;
+	i64 data_words_nbytes;
 	u32 pal[16];
 
 	// Decompression params:
@@ -672,12 +673,12 @@ static int tiny_uncompress(deark *c, tinyctx *d, struct atari_img_decode_data *a
 		d->dst_rowspan = 160;
 	}
 
-	de_dbg(c, "RLE control bytes at %d", (int)pos);
+	de_dbg(c, "RLE control bytes at %"I64_FMT, pos);
 	control_bytes = de_malloc(c, d->num_control_bytes +2);
 	de_read(control_bytes, pos, d->num_control_bytes);
 	pos += d->num_control_bytes;
 
-	de_dbg(c, "RLE data words at %d", (int)pos);
+	de_dbg(c, "RLE data words at %"I64_FMT, pos);
 
 	cpos = 0;
 
@@ -730,9 +731,9 @@ static int tiny_uncompress(deark *c, tinyctx *d, struct atari_img_decode_data *a
 		}
 	}
 
-	de_dbg(c, "decompressed words: %d", (int)d->dcmpr_word_count);
+	de_dbg(c, "decompressed words: %"I64_FMT, d->dcmpr_word_count);
 	if(d->dcmpr_word_count<16000) {
-		de_warn(c, "Expected 16000 decompressed words, got %d", (int)d->dcmpr_word_count);
+		de_warn(c, "Expected 16000 decompressed words, got %"I64_FMT, d->dcmpr_word_count);
 	}
 
 	de_free(c, control_bytes);
@@ -836,7 +837,7 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 
 	d->res_code = de_getbyte(pos);
 	pos++;
-	de_dbg(c, "resolution code: %d", (int)d->res_code);
+	de_dbg(c, "resolution code: %u", (UI)d->res_code);
 
 	switch(d->res_code) {
 	case 0: case 3:
@@ -855,14 +856,14 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 		adata->h = 400;
 		break;
 	default:
-		de_err(c, "Invalid resolution code (%d). This is not a Tiny Stuff file.",
-			(int)d->res_code);
+		de_err(c, "Invalid resolution code (%u). This is not a Tiny Stuff file.",
+			(UI)d->res_code);
 		goto done;
 	}
 
+	de_dbg_dimensions(c, adata->w, adata->h);
 	adata->ncolors = de_pow2(adata->bpp);
-
-	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d, colors: %d", (int)adata->w, (int)adata->h, (int)adata->ncolors);
+	de_dbg(c, "colors: %d", (int)adata->ncolors);
 
 	if(d->res_code>=3) {
 		de_warn(c, "This image uses palette cycling animation, which is not supported.");
@@ -879,17 +880,19 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 
 	d->num_data_words = de_getu16be(pos);
 	pos += 2;
+	d->data_words_nbytes = 2*d->num_data_words;
 	de_dbg(c, "number of RLE data words: %d (%d bytes)", (int)d->num_data_words,
-		2*(int)(d->num_data_words));
+		(int)d->data_words_nbytes);
 
 	// It seems that files are often padded to the next multiple of 128 bytes,
 	// so don't warn about that.
-	expected_min_file_size = pos + d->num_control_bytes + 2*d->num_data_words;
-	expected_max_file_size = ((expected_min_file_size+127)/128)*128;
-	de_dbg(c, "expected file size: %d or %d", (int)expected_min_file_size, (int)expected_max_file_size);
+	expected_min_file_size = pos + d->num_control_bytes + d->data_words_nbytes;
+	expected_max_file_size = de_pad_to_n(expected_min_file_size, 128);
+	de_dbg(c, "expected file size: %"I64_FMT" or %"I64_FMT, expected_min_file_size,
+		expected_max_file_size);
 	if(c->infile->len<expected_min_file_size || c->infile->len>expected_max_file_size) {
-		de_warn(c, "Expected file size to be %d, but it is %d.", (int)expected_min_file_size,
-			(int)c->infile->len);
+		de_warn(c, "Expected file size to be %"I64_FMT", but it is %"I64_FMT".",
+			expected_min_file_size, c->infile->len);
 	}
 
 	adata->unc_pixels = dbuf_create_membuf(c, 32000, 1);
