@@ -189,6 +189,7 @@ static int read_phys_member_header(deark *c, lctx *d,
 	pos += 8;
 
 	ret = read_ascii_octal_number(c->infile, pos, 12, &pmd->filesize);
+	de_sanitize_length(&pmd->filesize);
 	if(!ret) goto done;
 	pos += 12;
 	de_dbg(c, "size: %"I64_FMT, pmd->filesize);

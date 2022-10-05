@@ -270,7 +270,7 @@ void de_module_degas(deark *c, struct deark_module_info *mi)
 
 typedef struct prismctx_struct {
 	i64 pal_size;
-	i64 compression_code;
+	UI compression_code;
 	i64 pic_data_size;
 	u32 pal[256];
 } prismctx;
@@ -307,11 +307,13 @@ static void do_prism_read_palette(deark *c, prismctx *d, struct atari_img_decode
 	u8 r, g, b;
 	u32 pal1[256];
 	u32 clr;
+	i64 num_entries_to_read;
 	char tmps[32];
 
 	de_zeromem(pal1, sizeof(pal1));
+	num_entries_to_read = de_min_int(d->pal_size, 256);
 
-	for(i=0; i<d->pal_size; i++) {
+	for(i=0; i<num_entries_to_read; i++) {
 		r1 = de_getu16be(128+6*i+0);
 		g1 = de_getu16be(128+6*i+2);
 		b1 = de_getu16be(128+6*i+4);
@@ -322,12 +324,10 @@ static void do_prism_read_palette(deark *c, prismctx *d, struct atari_img_decode
 		de_snprintf(tmps, sizeof(tmps), "(%4d,%4d,%4d) "DE_CHAR_RIGHTARROW" ",
 			(int)r1, (int)g1, (int)b1);
 		de_dbg_pal_entry2(c, i, clr, tmps, NULL, NULL);
-		if(i<256) {
-			pal1[i] = clr;
-		}
+		pal1[i] = clr;
 	}
 
-	for(i=0; i<d->pal_size; i++) {
+	for(i=0; i<num_entries_to_read; i++) {
 		d->pal[i] = pal1[map_vdi_pal(adata->bpp, (unsigned int)i)];
 	}
 }
@@ -344,30 +344,30 @@ static void de_run_prismpaint(deark *c, de_module_params *mparams)
 
 	adata->pal = d->pal;
 	d->pal_size = de_getu16be(6);
+	de_dbg(c, "pal_size: %d", (int)d->pal_size);
 	adata->w = de_getu16be(8);
 	adata->h = de_getu16be(10);
-	de_dbg(c, "pal_size: %d, dimensions: %d"DE_CHAR_TIMES"%d", (int)d->pal_size,
-		(int)adata->w, (int)adata->h);
+	de_dbg_dimensions(c, adata->w, adata->h);
 	if(!de_good_image_dimensions(c, adata->w, adata->h)) goto done;
 
 	adata->bpp = de_getu16be(12);
-	d->compression_code = de_getu16be(14);
-	de_dbg(c, "bits/pixel: %d, compression: %d", (int)adata->bpp,
-		(int)d->compression_code);
+	de_dbg(c, "bits/pixel: %d", (int)adata->bpp);
+	d->compression_code = (UI)de_getu16be(14);
+	de_dbg(c, "compression: %u", d->compression_code);
 
 	d->pic_data_size = de_getu32be(16);
-	de_dbg(c, "reported (uncompressed) picture data size: %d", (int)d->pic_data_size);
+	de_dbg(c, "reported (uncompressed) picture data size: %"I64_FMT, d->pic_data_size);
 
 	do_prism_read_palette(c, d, adata);
 
 	if(adata->bpp!=1 && adata->bpp!=2 && adata->bpp!=4
 		&& adata->bpp!=8 && adata->bpp!=16)
 	{
-		de_err(c, "Unsupported bits/pixel (%d)", (int)adata->bpp);
+		de_err(c, "Unsupported bits/pixel: %d", (int)adata->bpp);
 		goto done;
 	}
 	if(d->compression_code!=0 && d->compression_code!=1) {
-		de_err(c, "Unsupported compression (%d)", (int)d->compression_code);
+		de_err(c, "Unsupported compression: %u", d->compression_code);
 		goto done;
 	}
 	if(adata->bpp==16 && d->compression_code!=0) {
@@ -375,7 +375,7 @@ static void de_run_prismpaint(deark *c, de_module_params *mparams)
 	}
 
 	pixels_start = 128 + 2*3*d->pal_size;
-	de_dbg(c, "pixel data starts at %d", (int)pixels_start);
+	de_dbg(c, "pixel data starts at %"I64_FMT, pixels_start);
 	if(pixels_start >= c->infile->len) goto done;
 
 	if(d->compression_code==0) {
@@ -392,7 +392,7 @@ static void de_run_prismpaint(deark *c, de_module_params *mparams)
 		fmtutil_decompress_packbits(c->infile, pixels_start, c->infile->len - pixels_start,
 			adata->unc_pixels, NULL);
 		dbuf_flush(adata->unc_pixels);
-		de_dbg(c, "decompressed to %d bytes", (int)adata->unc_pixels->len);
+		de_dbg(c, "decompressed to %"I64_FMT" bytes", adata->unc_pixels->len);
 	}
 
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
@@ -603,6 +603,7 @@ typedef struct tinyctx_struct {
 	u8 res_code;
 	i64 num_control_bytes;
 	i64 num_data_words;
+	i64 data_words_nbytes;
 	u32 pal[16];
 
 	// Decompression params:
@@ -672,12 +673,12 @@ static int tiny_uncompress(deark *c, tinyctx *d, struct atari_img_decode_data *a
 		d->dst_rowspan = 160;
 	}
 
-	de_dbg(c, "RLE control bytes at %d", (int)pos);
+	de_dbg(c, "RLE control bytes at %"I64_FMT, pos);
 	control_bytes = de_malloc(c, d->num_control_bytes +2);
 	de_read(control_bytes, pos, d->num_control_bytes);
 	pos += d->num_control_bytes;
 
-	de_dbg(c, "RLE data words at %d", (int)pos);
+	de_dbg(c, "RLE data words at %"I64_FMT, pos);
 
 	cpos = 0;
 
@@ -730,9 +731,9 @@ static int tiny_uncompress(deark *c, tinyctx *d, struct atari_img_decode_data *a
 		}
 	}
 
-	de_dbg(c, "decompressed words: %d", (int)d->dcmpr_word_count);
+	de_dbg(c, "decompressed words: %"I64_FMT, d->dcmpr_word_count);
 	if(d->dcmpr_word_count<16000) {
-		de_warn(c, "Expected 16000 decompressed words, got %d", (int)d->dcmpr_word_count);
+		de_warn(c, "Expected 16000 decompressed words, got %"I64_FMT, d->dcmpr_word_count);
 	}
 
 	de_free(c, control_bytes);
@@ -836,7 +837,7 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 
 	d->res_code = de_getbyte(pos);
 	pos++;
-	de_dbg(c, "resolution code: %d", (int)d->res_code);
+	de_dbg(c, "resolution code: %u", (UI)d->res_code);
 
 	switch(d->res_code) {
 	case 0: case 3:
@@ -855,14 +856,14 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 		adata->h = 400;
 		break;
 	default:
-		de_err(c, "Invalid resolution code (%d). This is not a Tiny Stuff file.",
-			(int)d->res_code);
+		de_err(c, "Invalid resolution code (%u). This is not a Tiny Stuff file.",
+			(UI)d->res_code);
 		goto done;
 	}
 
+	de_dbg_dimensions(c, adata->w, adata->h);
 	adata->ncolors = de_pow2(adata->bpp);
-
-	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d, colors: %d", (int)adata->w, (int)adata->h, (int)adata->ncolors);
+	de_dbg(c, "colors: %d", (int)adata->ncolors);
 
 	if(d->res_code>=3) {
 		de_warn(c, "This image uses palette cycling animation, which is not supported.");
@@ -879,17 +880,19 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 
 	d->num_data_words = de_getu16be(pos);
 	pos += 2;
+	d->data_words_nbytes = 2*d->num_data_words;
 	de_dbg(c, "number of RLE data words: %d (%d bytes)", (int)d->num_data_words,
-		2*(int)(d->num_data_words));
+		(int)d->data_words_nbytes);
 
 	// It seems that files are often padded to the next multiple of 128 bytes,
 	// so don't warn about that.
-	expected_min_file_size = pos + d->num_control_bytes + 2*d->num_data_words;
-	expected_max_file_size = ((expected_min_file_size+127)/128)*128;
-	de_dbg(c, "expected file size: %d or %d", (int)expected_min_file_size, (int)expected_max_file_size);
+	expected_min_file_size = pos + d->num_control_bytes + d->data_words_nbytes;
+	expected_max_file_size = de_pad_to_n(expected_min_file_size, 128);
+	de_dbg(c, "expected file size: %"I64_FMT" or %"I64_FMT, expected_min_file_size,
+		expected_max_file_size);
 	if(c->infile->len<expected_min_file_size || c->infile->len>expected_max_file_size) {
-		de_warn(c, "Expected file size to be %d, but it is %d.", (int)expected_min_file_size,
-			(int)c->infile->len);
+		de_warn(c, "Expected file size to be %"I64_FMT", but it is %"I64_FMT".",
+			expected_min_file_size, c->infile->len);
 	}
 
 	adata->unc_pixels = dbuf_create_membuf(c, 32000, 1);

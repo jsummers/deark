@@ -1457,12 +1457,14 @@ static void do_box_iloc(deark *c, lctx *d, struct de_boxesctx *bctx)
 			if(offset_size>0) {
 				xoffs = dbuf_getint_ext(bctx->f, pos, offset_size, 0, 0);
 				de_dbg(c, "offset: %"I64_FMT, xoffs);
+				de_sanitize_offset(&xoffs);
 			}
 			pos += offset_size;
 
 			if(length_size>0) {
 				xlen = dbuf_getint_ext(bctx->f, pos, length_size, 0, 0);
 				de_dbg(c, "length: %"I64_FMT, xlen);
+				de_sanitize_length(&xlen);
 			}
 			pos += length_size;
 

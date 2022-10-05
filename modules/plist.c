@@ -78,6 +78,7 @@ static int do_trailer(deark *c, lctx *d, i64 pos1)
 
 	d->objref_table_start = de_geti64be(pos);
 	de_dbg(c, "objref table start: %"I64_FMT, d->objref_table_start);
+	dbuf_constrain_offset(c->infile, &d->objref_table_start);
 	pos += 8;
 
 	if(d->nbytes_per_objref_table_entry<1 || d->nbytes_per_objref_table_entry>8 ||
@@ -351,6 +352,7 @@ static int do_one_object_by_offset(deark *c, lctx *d, i64 pos1)
 			if(x<0x10 || x>0x13) goto done;
 			nbytes_in_len = 1U<<(unsigned int)(x-0x10);
 			dlen_raw = dbuf_getint_ext(c->infile, pos, nbytes_in_len, 0, 0);
+			dbuf_constrain_length(c->infile, 0, &dlen_raw);
 			pos += (i64)nbytes_in_len;
 		}
 		else {
@@ -425,6 +427,7 @@ static void read_offset_table(deark *c, lctx *d)
 		offs = dbuf_getint_ext(c->infile, pos, d->nbytes_per_objref_table_entry, 0, 0);
 		if(c->debug_level>=2)
 			de_dbg(c, "objref[%"I64_FMT"] offset: %"I64_FMT, k, offs);
+		dbuf_constrain_offset(c->infile, &offs);
 		d->objref_table[k].offs = (u32)offs;
 		pos += (i64)d->nbytes_per_objref_table_entry;
 	}

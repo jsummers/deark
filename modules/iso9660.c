@@ -1822,9 +1822,7 @@ static void do_nrg_DAOX(deark *c, struct de_iffctx *ictx, struct nrg_ctx *nrg)
 	if(ictx->chunkctx->dpos<56) return;
 	nrg->pre_gap = dbuf_geti64be(ictx->f, pos1+48);
 	de_dbg(c, "pre-gap: %"I64_FMT, nrg->pre_gap);
-	if(nrg->pre_gap<0 || nrg->pre_gap>c->infile->len) {
-		nrg->pre_gap = 0;
-	}
+	dbuf_constrain_offset(c->infile, &nrg->pre_gap);
 }
 
 static int my_preprocess_nrg_chunk_fn(struct de_iffctx *ictx)
@@ -1899,6 +1897,7 @@ static void de_run_nrg(deark *c, de_module_params *mparams)
 
 	if(nrg->ver==2) {
 		nrg->chunk_list_start = de_geti64be(c->infile->len-8);
+		de_sanitize_offset(&nrg->chunk_list_start);
 		nrg->chunk_list_size = c->infile->len - 12 - nrg->chunk_list_start;
 	}
 	else {

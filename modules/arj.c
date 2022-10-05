@@ -265,7 +265,6 @@ static UI method4_read_a_length_code(struct method4_ctx *cctx)
 			break;
 		}
 	}
-
 	// However many ones there were, read that number of bits.
 	if(onescount==0) return 0;
 	n = (UI)de_bitreader_getbits(&cctx->bitrd, onescount);
@@ -331,12 +330,18 @@ static void decompress_method_4(deark *c, lctx *d, struct member_data *md,
 			u8 b;
 
 			b = (u8)de_bitreader_getbits(&cctx->bitrd, 8);
+			if(c->debug_level>=4) {
+				de_dbg(c, "lit %u", (UI)b);
+			}
 			de_lz77buffer_add_literal_byte(ringbuf, b);
 		}
 		else {
 			UI offs;
 
 			offs = method4_read_an_offset(cctx);
+			if(c->debug_level>=4) {
+				de_dbg(c, "match d=%u l=%u", (UI)(offs+1), (UI)(len_code+2));
+			}
 			de_lz77buffer_copy_from_hist(ringbuf, ringbuf->curpos-1-offs, len_code+2);
 		}
 	}

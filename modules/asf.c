@@ -966,6 +966,7 @@ static int do_object(deark *c, lctx *d, i64 pos1, i64 len,
 	de_dbg(c, "guid: {%s} (%s)", id_string, id_name);
 
 	hp->objlen = de_geti64le(pos1+16);
+	de_sanitize_length(&hp->objlen);
 	hp->dpos = pos1 + 24;
 	hp->dlen = hp->objlen - 24;
 	de_dbg(c, "size: %"I64_FMT", dpos=%"I64_FMT", dlen=%"I64_FMT,

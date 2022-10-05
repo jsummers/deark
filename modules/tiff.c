@@ -13,6 +13,8 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define MAX_IFDS 1000
 #define DE_TIFF_MAX_STRILES 65536
 #define DE_TIFF_MAX_SAMPLES 10
+#define DE_TIFF_MAX_VALCOUNT (1LL<<44)
+#define DE_TIFF_ALLOWED_VIRTUAL_BYTES 1024
 
 #define DE_TIFF_MAX_VALUES_TO_PRINT 100
 #define DE_TIFF_MAX_CHARS_TO_PRINT  DE_DBG_MAX_STRLEN
@@ -398,7 +400,7 @@ static int size_of_data_type(int tt)
 	case DATATYPE_IFD64:
 		return 8;
 	}
-	return 0;
+	return 1;
 }
 
 static int read_rational_as_double(deark *c, lctx *d, i64 pos, double *n)
@@ -617,13 +619,20 @@ static void read_numeric_value(deark *c, lctx *d, const struct taginfo *tg,
 	}
 }
 
-static i64 getfpos(deark *c, lctx *d, i64 pos)
+static i64 get_u32_or_u64_count(deark *c, lctx *d, i64 pos)
 {
 	if(d->is_bigtiff) {
-		return dbuf_geti64x(c->infile, pos, d->is_le);
+		i64 n;
+
+		n = dbuf_geti64x(c->infile, pos, d->is_le);
+		de_sanitize_count(&n);
+		return n;
 	}
 	return dbuf_getu32x(c->infile, pos, d->is_le);
 }
+
+#define getfpos      get_u32_or_u64_count
+#define getvalcount  get_u32_or_u64_count
 
 static void do_oldjpeg(deark *c, lctx *d, struct page_ctx *pg)
 {
@@ -641,11 +650,8 @@ static void do_oldjpeg(deark *c, lctx *d, struct page_ctx *pg)
 		return;
 	}
 
-	if(pg->jpegoffset+jpeglength>c->infile->len) {
-		detiff_warn(c, d, pg, "Invalid offset/length of embedded JPEG data (offset=%"I64_FMT
-			", len=%"I64_FMT")", pg->jpegoffset, jpeglength);
-		return;
-	}
+	// Note that the position & length have already been validated, in
+	// postprocess_ifd_tags().
 
 	if(dbuf_memcmp(c->infile, pg->jpegoffset, "\xff\xd8\xff", 3)) {
 		detiff_warn(c, d, pg, "Expected JPEG data at %"I64_FMT" not found", pg->jpegoffset);
@@ -2996,6 +3002,7 @@ static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
 
 	dctx->dcmpri.pos = pg->strile_data[dctx->strile_idx].pos;
 	dctx->dcmpri.len = pg->strile_data[dctx->strile_idx].len;
+
 	if(dctx->dcmpri.pos + dctx->dcmpri.len > dctx->dcmpri.f->len) {
 		dctx->dcmpri.len = dctx->dcmpri.f->len - dctx->dcmpri.pos;
 	}
@@ -3672,6 +3679,28 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+// Things to do after reading the tags, and before, e.g., decoding the image.
+static void postprocess_ifd_tags(deark *c, lctx *d, struct page_ctx *pg)
+{
+	i64 i;
+
+	if(pg->ifd_idx==0) {
+		d->first_ifd_orientation = pg->orientation;
+		d->first_ifd_cosited = (pg->ycbcrpositioning==2);
+	}
+
+	if(pg->strile_data) {
+		for(i=0; i<pg->strile_count; i++) {
+			dbuf_constrain_offset(c->infile, &pg->strile_data[i].pos);
+			dbuf_constrain_length(c->infile, pg->strile_data[i].pos,
+				&pg->strile_data[i].len);
+		}
+	}
+
+	dbuf_constrain_offset(c->infile, &pg->jpegoffset);
+	dbuf_constrain_length(c->infile, pg->jpegoffset, &pg->jpeglength);
+}
+
 static void process_ifd(deark *c, lctx *d, int ifd_idx1, i64 ifdpos1, u8 ifdtype1,
 	u8 is_in_main_ifd_list)
 {
@@ -3779,8 +3808,12 @@ static void process_ifd(deark *c, lctx *d, int ifd_idx1, i64 ifdpos1, u8 ifdtype
 
 		tg.tagnum = (int)dbuf_getu16x(c->infile, pg->ifdpos+d->ifdhdrsize+i*d->ifditemsize, d->is_le);
 		tg.datatype = (int)dbuf_getu16x(c->infile, pg->ifdpos+d->ifdhdrsize+i*d->ifditemsize+2, d->is_le);
-		// Not a file pos, but getfpos() does the right thing.
-		tg.valcount = getfpos(c, d, pg->ifdpos+d->ifdhdrsize+i*d->ifditemsize+4);
+		tg.valcount = getvalcount(c, d, pg->ifdpos+d->ifdhdrsize+i*d->ifditemsize+4);
+		if(tg.valcount > DE_TIFF_MAX_VALCOUNT) {
+			// Must ensure that valcount, even after multiplying by 8 and adding to
+			// the file size, does not risk integer overflow.
+			tg.valcount = DE_TIFF_MAX_VALCOUNT;
+		}
 
 		tg.unit_size = size_of_data_type(tg.datatype);
 		tg.total_size = tg.unit_size * tg.valcount;
@@ -3789,6 +3822,18 @@ static void process_ifd(deark *c, lctx *d, int ifd_idx1, i64 ifdpos1, u8 ifdtype
 		}
 		else {
 			tg.val_offset = getfpos(c, d, pg->ifdpos+d->ifdhdrsize+i*d->ifditemsize+d->offsetoffset);
+		}
+
+		// Fixup potential bad sizes
+		if(tg.val_offset + tg.total_size > c->infile->len + DE_TIFF_ALLOWED_VIRTUAL_BYTES) {
+			if(tg.val_offset > c->infile->len) {
+				tg.valcount = 0;
+				tg.total_size = 0;
+			}
+			else {
+				tg.valcount = (c->infile->len - tg.val_offset)/tg.unit_size;
+				tg.total_size = tg.unit_size * tg.valcount;
+			}
 		}
 
 		tni = find_tagnuminfo(tg.tagnum, d->fmt, pg->ifdtype);
@@ -3811,6 +3856,7 @@ static void process_ifd(deark *c, lctx *d, int ifd_idx1, i64 ifdpos1, u8 ifdtype
 		// do_dbg_print_values() already tried to limit the line length.
 		// The "500+" in the next line is an emergency brake.
 		de_dbg(c, "%s", ucstring_getpsz_n(dbgline, 500+DE_DBG_MAX_STRLEN));
+
 		de_dbg_indent(c, 1);
 
 		if(tni->hfn) {
@@ -3820,10 +3866,7 @@ static void process_ifd(deark *c, lctx *d, int ifd_idx1, i64 ifdpos1, u8 ifdtype
 		de_dbg_indent(c, -1);
 	}
 
-	if(pg->ifd_idx==0) {
-		d->first_ifd_orientation = pg->orientation;
-		d->first_ifd_cosited = (pg->ycbcrpositioning==2);
-	}
+	postprocess_ifd_tags(c, d, pg);
 
 	do_process_ifd_image(c, d, pg);
 

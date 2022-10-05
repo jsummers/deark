@@ -13,6 +13,7 @@ DE_DECLARE_MODULE(de_module_xor);
 DE_DECLARE_MODULE(de_module_plaintext);
 DE_DECLARE_MODULE(de_module_cp437);
 DE_DECLARE_MODULE(de_module_crc);
+DE_DECLARE_MODULE(de_module_datetime);
 DE_DECLARE_MODULE(de_module_hexdump);
 DE_DECLARE_MODULE(de_module_bytefreq);
 DE_DECLARE_MODULE(de_module_deflate);
@@ -429,6 +430,60 @@ void de_module_crc(deark *c, struct deark_module_info *mi)
 	mi->desc = "Calculate various CRCs";
 	mi->run_fn = de_run_crc;
 	mi->flags |= DE_MODFLAG_NOEXTRACT;
+}
+
+// **************************************************************************
+// datetime
+// Interpret the start of the file as a date/time field, in various formats.
+// **************************************************************************
+
+static void datetime_msg(deark *c, struct de_timestamp *ts, const char *name)
+{
+	char timestamp_buf[64];
+
+	de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_msg(c, "%s: %s", name, timestamp_buf);
+}
+
+static void de_run_datetime(deark *c, de_module_params *mparams)
+{
+	struct de_timestamp timestamp;
+	i64 dtime, ddate;
+	i64 t;
+
+	dtime = de_getu16le(0);
+	ddate = de_getu16le(2);
+	de_dos_datetime_to_timestamp(&timestamp, ddate, dtime);
+	datetime_msg(c, &timestamp, "DOS time,date");
+
+	ddate = de_getu16le(0);
+	dtime = de_getu16le(2);
+	de_dos_datetime_to_timestamp(&timestamp, ddate, dtime);
+	datetime_msg(c, &timestamp, "DOS date,time");
+
+	t = de_geti32le(0);
+	de_unix_time_to_timestamp(t, &timestamp, 0x1);
+	datetime_msg(c, &timestamp, "Unix-LE");
+
+	t = de_geti32be(0);
+	de_unix_time_to_timestamp(t, &timestamp, 0x1);
+	datetime_msg(c, &timestamp, "Unix-BE");
+
+	t = de_getu32be(0);
+	de_mac_time_to_timestamp(t, &timestamp);
+	datetime_msg(c, &timestamp, "Mac/HFS-BE");
+
+	t = de_geti64le(0);
+	de_FILETIME_to_timestamp(t, &timestamp, 0x1);
+	datetime_msg(c, &timestamp, "Windows FILETIME");
+}
+
+void de_module_datetime(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "datetime";
+	mi->desc = "Interpret a date/time field";
+	mi->run_fn = de_run_datetime;
+	mi->flags |= DE_MODFLAG_HIDDEN | DE_MODFLAG_NOEXTRACT;
 }
 
 // **************************************************************************

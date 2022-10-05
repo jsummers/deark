@@ -726,7 +726,7 @@ void de_internal_err_nonfatal(deark *c, const char *fmt, ...)
 // TODO: Make de_malloc use de_mallocarray internally, instead of vice versa.
 void *de_mallocarray(deark *c, i64 nmemb, size_t membsize)
 {
-	if(nmemb>500000000 || nmemb<0 || membsize>500000000) {
+	if(nmemb>DE_MAX_MALLOC || nmemb<0 || membsize>DE_MAX_MALLOC) {
 		de_err(c, "Out of memory");
 		de_fatalerror(c);
 		// NOTREACHED
@@ -744,7 +744,7 @@ void *de_malloc(deark *c, i64 n)
 	void *m;
 
 	if(n==0) n=1;
-	if(n<0 || n>500000000) {
+	if(n<0 || n>DE_MAX_MALLOC) {
 		de_err(c,"Out of memory (%"I64_FMT" bytes requested)", n);
 		de_fatalerror(c);
 		// NOTREACHED
@@ -764,7 +764,7 @@ void *de_malloc(deark *c, i64 n)
 void *de_reallocarray(deark *c, void *m, i64 oldnmemb, size_t membsize,
 	i64 newnmemb)
 {
-	if(newnmemb>500000000 || newnmemb<0 || oldnmemb<0 || membsize>500000000) {
+	if(newnmemb>DE_MAX_MALLOC || newnmemb<0 || oldnmemb<0 || membsize>DE_MAX_MALLOC) {
 		de_err(c, "Out of memory");
 		de_fatalerror(c);
 		// NOTREACHED
@@ -986,6 +986,25 @@ i64 de_min_int(i64 n1, i64 n2)
 i64 de_max_int(i64 n1, i64 n2)
 {
 	return (n1>n2) ? n1 : n2;
+}
+
+int de_int_in_range(i64 n, i64 lv, i64 hv)
+{
+	return (n>=lv && n<=hv);
+}
+
+// Returns 0 if we changed *pn.
+int de_constrain_int(i64 *pn, i64 lv, i64 hv)
+{
+	if(*pn < lv) {
+		*pn = lv;
+		return 0;
+	}
+	if(*pn > hv) {
+		*pn = hv;
+		return 0;
+	}
+	return 1;
 }
 
 i64 de_pad_to_2(i64 x)
@@ -2146,6 +2165,29 @@ int de_memmatch(const u8 *mem, const u8 *pattern, size_t pattern_len,
 
 		if(p==wildcard) continue;
 		if(p!=m) return 0;
+	}
+	return 1;
+}
+
+#define DE_MAX_SANE_FILESIZE 0xffffffffffffffLL
+
+// Modifies *pn to be in the range of 0 to some arbitrary large integer that
+// is well within the range that we can safely handle (and avoid the possiblity
+// of integer overflow), while being larger than the largest file size that we
+// want to support.
+// Used to sanitize file offsets, segment lengths, and any field that counts
+// a number of things in a file (assuming each thing must use at least 1 byte).
+// Useful with fields that are 64-bit, or variable-length.
+// Returns 0 if we changed *plen.
+int de_sanitize_count(i64 *pn)
+{
+	if(*pn < 0) {
+		*pn = 0;
+		return 0;
+	}
+	if(*pn > DE_MAX_SANE_FILESIZE) {
+		*pn = DE_MAX_SANE_FILESIZE;
+		return 0;
 	}
 	return 1;
 }

@@ -3,11 +3,13 @@
 // See the file COPYING for terms of use.
 
 // Apple II disk image formats, etc.
+// Also MOOF, which is a Mac format, but very similar to WOZ.
 
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_apple2_dsk);
 DE_DECLARE_MODULE(de_module_woz);
+DE_DECLARE_MODULE(de_module_moof);
 
 #define A2_FILETYPE_TEXT     0x00
 #define A2_FILETYPE_IBASIC   0x01
@@ -450,7 +452,10 @@ void de_module_apple2_dsk(deark *c, struct deark_module_info *mi)
 #define CODE_TRKS 0x54524b53U
 #define CODE_WRIT 0x57524954U
 
-struct wozctx_struct {
+struct wozmoofctx_struct {
+#define FMT_WOZ   0
+#define FMT_MOOF  1
+	u8 fmt;
 	u8 wozver;
 };
 
@@ -463,13 +468,25 @@ static const char *get_woz_disk_type_name(u8 t)
 	return "?";
 }
 
+static const char *get_moof_disk_type_name(u8 t)
+{
+	const char *name = NULL;
+
+	switch(t) {
+	case 1: name = "SSDD GCR (400K)"; break;
+	case 2: name = "DSDD GCR (800K)"; break;
+	case 3: name = "DSHD MFM (1.44M)"; break;
+	}
+	return name?name:"?";
+}
+
 static void do_woz_INFO(deark *c, struct de_iffctx *ictx,
 	const struct de_iffchunkctx *chunkctx)
 {
 	u8 b;
 	i64 n;
 	i64 pos = chunkctx->dpos;
-	struct wozctx_struct *d = ictx->userdata;
+	struct wozmoofctx_struct *d = ictx->userdata;
 	de_ucstring *s = NULL;
 
 	if(chunkctx->dlen<37) return;
@@ -509,7 +526,43 @@ done:
 	ucstring_destroy(s);
 }
 
-static void do_woz_print_metadata_item(deark *c, de_ucstring *name, de_ucstring *val)
+static void do_moof_INFO(deark *c, struct de_iffctx *ictx,
+	const struct de_iffchunkctx *chunkctx)
+{
+	u8 b;
+	i64 n;
+	i64 pos = chunkctx->dpos;
+	de_ucstring *s = NULL;
+
+	if(chunkctx->dlen<44) return;
+	b = dbuf_getbyte_p(ictx->f, &pos);
+	de_dbg(c, "INFO chunk version: %d", (int)b);
+	b = dbuf_getbyte_p(ictx->f, &pos);
+	de_dbg(c, "disk type: %d (%s)", (int)b, get_moof_disk_type_name(b));
+	b = dbuf_getbyte_p(ictx->f, &pos);
+	de_dbg(c, "write protected: %d", (int)b);
+	b = dbuf_getbyte_p(ictx->f, &pos);
+	de_dbg(c, "synchronized: %d", (int)b);
+	b = dbuf_getbyte_p(ictx->f, &pos);
+	de_dbg(c, "optimal timing bit: %d", (int)b);
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring(ictx->f, pos, 32, s, 0, DE_ENCODING_UTF8);
+	ucstring_strip_trailing_spaces(s);
+	de_dbg(c, "creator: \"%s\"", ucstring_getpsz(s));
+	pos += 32;
+	pos++; // padding
+	n = dbuf_getu16le_p(ictx->f, &pos);
+	de_dbg(c, "largest track: %d blocks", (int)n);
+	n = dbuf_getu16le_p(ictx->f, &pos);
+	de_dbg(c, "flux block: %d", (int)n);
+	n = dbuf_getu16le_p(ictx->f, &pos);
+	de_dbg(c, "largest flux track: %d blocks", (int)n);
+
+	ucstring_destroy(s);
+}
+
+static void do_wozmoof_print_metadata_item(deark *c, de_ucstring *name, de_ucstring *val)
 {
 	if(name->len==0 && val->len==0) return;
 	de_dbg(c, "item: \"%s\" = \"%s\"",
@@ -517,7 +570,7 @@ static void do_woz_print_metadata_item(deark *c, de_ucstring *name, de_ucstring 
 		ucstring_getpsz_d(val));
 }
 
-static void do_woz_META(deark *c, struct de_iffctx *ictx,
+static void do_wozmoof_META(deark *c, struct de_iffctx *ictx,
 	const struct de_iffchunkctx *chunkctx)
 {
 	i64 k;
@@ -540,7 +593,7 @@ static void do_woz_META(deark *c, struct de_iffctx *ictx,
 		i32 ch = s->str[k];
 
 		if(ch==0x0a) { // End of item
-			do_woz_print_metadata_item(c, name, val);
+			do_wozmoof_print_metadata_item(c, name, val);
 			ucstring_empty(name);
 			ucstring_empty(val);
 			reading_val = 0;
@@ -557,14 +610,14 @@ static void do_woz_META(deark *c, struct de_iffctx *ictx,
 			}
 		}
 	}
-	do_woz_print_metadata_item(c, name, val);
+	do_wozmoof_print_metadata_item(c, name, val);
 
 	ucstring_destroy(s);
 	ucstring_destroy(name);
 	ucstring_destroy(val);
 }
 
-static int my_preprocess_woz_chunk_fn(struct de_iffctx *ictx)
+static int my_preprocess_wozmoof_chunk_fn(struct de_iffctx *ictx)
 {
 	const char *name = NULL;
 
@@ -592,28 +645,52 @@ static int my_woz_chunk_handler(struct de_iffctx *ictx)
 		break;
 	case CODE_META:
 		ictx->handled = 1;
-		do_woz_META(c, ictx, ictx->chunkctx);
+		do_wozmoof_META(c, ictx, ictx->chunkctx);
 		break;
 	}
 
 	return 1;
 }
 
-static void de_run_woz(deark *c, de_module_params *mparams)
+static int my_moof_chunk_handler(struct de_iffctx *ictx)
 {
-	struct wozctx_struct *d = NULL;
+	deark *c = ictx->c;
+
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_INFO:
+		ictx->handled = 1;
+		do_moof_INFO(c, ictx, ictx->chunkctx);
+		break;
+	case CODE_META:
+		ictx->handled = 1;
+		do_wozmoof_META(c, ictx, ictx->chunkctx);
+		break;
+	}
+
+	return 1;
+}
+
+static void do_run_wozmoof(deark *c, de_module_params *mparams, u8 fmt)
+{
+	struct wozmoofctx_struct *d = NULL;
 	struct de_iffctx *ictx = NULL;
 	u32 crc;
 	i64 pos = 0;
 
-	// WOZ has a 12-byte header, then sequence of chunks that are basically the
+	// WOZ/MOOF has a 12-byte header, then sequence of chunks that are basically the
 	// same format as RIFF.
-	d = de_malloc(c, sizeof(struct wozctx_struct));
+	d = de_malloc(c, sizeof(struct wozmoofctx_struct));
+	d->fmt = fmt;
 	ictx = fmtutil_create_iff_decoder(c);
 
 	ictx->userdata = (void*)d;
-	ictx->preprocess_chunk_fn = my_preprocess_woz_chunk_fn;
-	ictx->handle_chunk_fn = my_woz_chunk_handler;
+	ictx->preprocess_chunk_fn = my_preprocess_wozmoof_chunk_fn;
+	if(d->fmt==FMT_MOOF) {
+		ictx->handle_chunk_fn = my_moof_chunk_handler;
+	}
+	else {
+		ictx->handle_chunk_fn = my_woz_chunk_handler;
+	}
 	ictx->f = c->infile;
 	ictx->is_le = 1;
 	ictx->reversed_4cc = 0;
@@ -621,12 +698,17 @@ static void de_run_woz(deark *c, de_module_params *mparams)
 	if(ictx->f->len<12) goto done;
 	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
-	pos += 3; // "WOZ" part of signature
-	d->wozver = dbuf_getbyte_p(ictx->f, &pos);
-	de_dbg(c, "format version: '%c'", de_byte_to_printable_char(d->wozver));
-	if(d->wozver<'1' || d->wozver>'2') {
-		de_err(c, "Unsupported WOZ format version");
-		goto done;
+	if(d->fmt==FMT_WOZ) {
+		pos += 3; // "WOZ" part of signature
+		d->wozver = dbuf_getbyte_p(ictx->f, &pos);
+		de_dbg(c, "format version: '%c'", de_byte_to_printable_char(d->wozver));
+		if(d->wozver<'1' || d->wozver>'2') {
+			de_err(c, "Unsupported WOZ format version");
+			goto done;
+		}
+	}
+	else {
+		pos += 4;
 	}
 	pos += 4; // rest of signature
 	crc = (u32)dbuf_getu32le_p(ictx->f, &pos);
@@ -638,6 +720,11 @@ static void de_run_woz(deark *c, de_module_params *mparams)
 done:
 	fmtutil_destroy_iff_decoder(ictx);
 	de_free(c, d);
+}
+
+static void de_run_woz(deark *c, de_module_params *mparams)
+{
+	do_run_wozmoof(c, mparams, FMT_WOZ);
 }
 
 static int de_identify_woz(deark *c)
@@ -656,4 +743,25 @@ void de_module_woz(deark *c, struct deark_module_info *mi)
 	mi->desc2 = "metadata only";
 	mi->run_fn = de_run_woz;
 	mi->identify_fn = de_identify_woz;
+}
+
+static void de_run_moof(deark *c, de_module_params *mparams)
+{
+	do_run_wozmoof(c, mparams, FMT_MOOF);
+}
+
+static int de_identify_moof(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "MOOF\xff\x0a\x0d\x0a", 8))
+		return 100;
+	return 0;
+}
+
+void de_module_moof(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "moof";
+	mi->desc = "MOOF floppy disk image";
+	mi->desc2 = "metadata only";
+	mi->run_fn = de_run_moof;
+	mi->identify_fn = de_identify_moof;
 }

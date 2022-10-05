@@ -806,6 +806,10 @@ Deark -- Information about supported formats
 
 * Microsoft Installation Compression (module="mscompress")
 
+* MOOF (module="moof") (incomplete)
+  Macintosh floppy disk image format.
+  - Some metadata is parsed, but the disk contents are not extracted or listed.
+
 * MSA (Magic Shadow Archiver) (module="msa") (experimental)
   - Atari ST disk image format.
   Options
