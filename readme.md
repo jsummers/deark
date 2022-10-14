@@ -334,11 +334,14 @@ See the [COPYING](COPYING) file for the license text.
 The main Deark license does not necessarily apply to the code in the "foreign"
 subdirectory. Each file there may have its own licensing terms. In particular:
 
-miniz*.h: MIT-style license, various authors. See the foreign/*miniz* files
-for details.
+miniz*.h: MIT-style license, various authors. See the *miniz* files for
+details.
 
-uncompface.h: Copyright (c) James Ashton - Sydney University - June 1990.
-See the foreign/readme-compface.txt file for details.
+uncompface.h: Copyright (c) James Ashton - Sydney University - June 1990. See
+readme-compface.txt for details.
+
+lzhuf.h: Based on lzhuf.c by Haruyasu Yoshizaki. See readme-lzhuf.txt for
+details.
 
 By necessity, Deark contains knowledge about how to decode various
 third-party file formats. This knowledge includes data structures,

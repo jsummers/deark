@@ -284,9 +284,9 @@ or
 
     $ sudo make install
 
-For Microsoft Windows, the project files in proj/vs2019 should work for
-sufficiently new versions of Microsoft Visual Studio. Alternatively, you can
-use Cygwin.
+For Microsoft Windows, the project files in proj/vs2019 or vs2022 should work
+for sufficiently new versions of Microsoft Visual Studio. Alternatively, you
+can use Cygwin.
 
 When doing a Windows (Win32 API) build, the Makefile is not intended to be used
 directly (without configuration). For MinGW and similar compilers, it is
