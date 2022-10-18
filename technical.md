@@ -319,7 +319,7 @@ in the separate
 
 Maximizing execution speed is not a goal of Deark. This is a deliberate
 concession. The focus is on making the code easy to write, easy to read, and to
-minimize the chance of bugs. (Serious performace issues will still be
+minimize the chance of bugs. (Serious performance issues will still be
 addressed, though.)
 
 The Deark executable size is a consideration. A suggested feature might be
