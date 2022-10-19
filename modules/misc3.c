@@ -12,6 +12,8 @@ DE_DECLARE_MODULE(de_module_dwc);
 DE_DECLARE_MODULE(de_module_tscomp);
 DE_DECLARE_MODULE(de_module_edi_pack);
 DE_DECLARE_MODULE(de_module_qip);
+DE_DECLARE_MODULE(de_module_pcxlib);
+DE_DECLARE_MODULE(de_module_gxlib);
 
 // **************************************************************************
 // CP Shrink (.cpz)
@@ -949,4 +951,226 @@ void de_module_qip(deark *c, struct deark_module_info *mi)
 	mi->desc = "QIP (Quarterdeck)";
 	mi->run_fn = de_run_qip;
 	mi->identify_fn = de_identify_qip;
+}
+
+// **************************************************************************
+// PCX Library (by Genus Microprogramming)
+// **************************************************************************
+
+#define FMT_PCXLIB 0
+#define FMT_GXLIB  1
+
+static void noncompressed_decompressor_fn(struct de_arch_member_data *md)
+{
+	fmtutil_decompress_uncompressed(md->c, md->dcmpri, md->dcmpro, md->dres, 0);
+}
+
+static void read_pcxgxlib_filename(deark *c, de_arch_lctx *d, struct de_arch_member_data *md,
+	i64 pos)
+{
+	de_ucstring *tmps = NULL;
+
+	tmps = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, 8, tmps, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	ucstring_strip_trailing_spaces(tmps);
+	ucstring_append_ucstring(md->filename, tmps);
+	ucstring_empty(tmps);
+	dbuf_read_to_ucstring(c->infile, pos+8, 4, tmps, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	ucstring_strip_trailing_spaces(tmps);
+	if(tmps->len>1) {
+		// The extension part includes the dot. If len==1, there is no extension.
+		ucstring_append_ucstring(md->filename, tmps);
+	}
+	ucstring_destroy(tmps);
+}
+
+static void do_pcxgxlib_member(deark *c,  de_arch_lctx *d, struct de_arch_member_data *md)
+{
+	int saved_indent_level;
+	i64 pos = md->member_hdr_pos;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	de_dbg(c, "member file at %"I64_FMT, md->member_hdr_pos);
+	de_dbg_indent(c, 1);
+
+	if(d->fmtcode==FMT_PCXLIB) {
+		pos++; // already read
+	}
+	if(d->fmtcode==FMT_GXLIB) {
+		md->cmpr_meth = de_getbyte_p(&pos);
+	}
+
+	read_pcxgxlib_filename(c, d, md, pos);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+	pos += 13;
+
+	if(d->fmtcode==FMT_GXLIB) {
+		md->cmpr_pos = de_getu32le_p(&pos);
+		de_dbg(c, "cmpr. data pos: %"I64_FMT, md->cmpr_pos);
+	}
+
+	de_arch_read_field_cmpr_len_p(md, &pos);
+
+	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		DE_ARCH_TSTYPE_DOS_DT, &pos);
+
+	if(d->fmtcode==FMT_PCXLIB) {
+		md->cmpr_meth = (UI)de_getu16le_p(&pos);
+	}
+
+	de_dbg(c, "packing type: %u", (UI)md->cmpr_meth);
+	if(md->cmpr_meth==0) {
+		md->orig_len = md->cmpr_len;
+		md->orig_len_known = 1;
+	}
+	else {
+		de_err(c, "Unsupported compression: %u", (UI)md->cmpr_meth);
+		goto done;
+	}
+
+	if(d->fmtcode==FMT_PCXLIB) {
+		pos += 40; // note
+		pos += 20; // unused
+	}
+
+	if(d->fmtcode==FMT_PCXLIB) {
+		md->cmpr_pos = pos;
+	}
+
+	if(!de_arch_good_cmpr_data_pos(md)) {
+		d->fatalerrflag = 1;
+		goto done;
+	}
+
+	if(d->fmtcode==FMT_GXLIB) {
+		md->member_total_size = pos - md->member_hdr_pos;
+	}
+	else {
+		md->member_total_size = md->cmpr_pos + md->cmpr_len - md->member_hdr_pos;
+	}
+
+	md->dfn = noncompressed_decompressor_fn;
+	de_arch_extract_member_file(md);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_pcxgxlib_main(deark *c, de_module_params *mparams, UI fmtcode)
+{
+	i64 pos = 0;
+	i64 member_count = 0;
+	struct de_arch_member_data *md = NULL;
+	de_arch_lctx *d = NULL;
+
+	d = de_arch_create_lctx(c);
+	d->fmtcode = fmtcode;
+	d->is_le = 1;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+
+	if(d->fmtcode==FMT_GXLIB) {
+		pos += 2;
+		pos += 50; // copyright message
+		d->fmtver = (int)de_getu16le_p(&pos);
+		de_dbg(c, "gxLib ver: %d", d->fmtver);
+		pos += 40; // label
+		d->num_members = de_getu16le_p(&pos);
+		de_dbg(c, "number of members: %"I64_FMT, d->num_members);
+		pos += 32; // unused
+	}
+	else {
+		pos += 10;
+		pos += 50;
+		d->fmtver = (int)de_getu16le_p(&pos);
+		de_dbg(c, "pcxLib ver: %d", d->fmtver);
+		pos += 40; // TODO: volume label
+		pos += 20; // unused
+	}
+
+	while(1) {
+		if(pos >= c->infile->len) goto done;
+
+		if(d->fmtcode==FMT_GXLIB) {
+			if(member_count >= d->num_members) goto done;
+		}
+
+		if(d->fmtcode==FMT_PCXLIB) {
+			u8 b;
+
+			b = de_getbyte(pos);
+			if(b != 0x01) goto done;
+		}
+
+		if(md) {
+			de_arch_destroy_md(c, md);
+			md = NULL;
+		}
+		md = de_arch_create_md(c, d);
+		md->member_hdr_pos = pos;
+		do_pcxgxlib_member(c, d, md);
+		if(d->fatalerrflag) goto done;
+		if(md->member_total_size<1) goto done;
+		pos += md->member_total_size;
+		member_count++;
+	}
+
+done:
+	if(md) {
+		de_arch_destroy_md(c, md);
+	}
+	de_arch_destroy_lctx(c, d);
+}
+
+static void de_run_pcxlib(deark *c, de_module_params *mparams)
+{
+	do_pcxgxlib_main(c, mparams, FMT_PCXLIB);
+}
+
+static int de_identify_pcxlib(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "pcxLib\0", 7)) return 100;
+	return 0;
+}
+
+void de_module_pcxlib(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "pcxlib";
+	mi->desc = "PCX Library";
+	mi->run_fn = de_run_pcxlib;
+	mi->identify_fn = de_identify_pcxlib;
+}
+
+// **************************************************************************
+// GX Library / Genus Graphics Library
+// **************************************************************************
+
+static void de_run_gxlib(deark *c, de_module_params *mparams)
+{
+	do_pcxgxlib_main(c, mparams, FMT_GXLIB);
+}
+
+static int de_identify_gxlib(deark *c)
+{
+	UI n;
+	u8 has_copyr, has_ver;
+
+	n = (UI)de_getu16be(0);
+	if(n!=0x01ca) return 0;
+	has_copyr = !dbuf_memcmp(c->infile, 2, "Copyri", 6);
+	n = (UI)de_getu16le(52);
+	has_ver = (n==100);
+	if(has_copyr && has_ver) return 100;
+	if(has_copyr || has_ver) return 25;
+	return 0;
+}
+
+void de_module_gxlib(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "gxlib";
+	mi->desc = "GX Library";
+	mi->run_fn = de_run_gxlib;
+	mi->identify_fn = de_identify_gxlib;
 }

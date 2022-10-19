@@ -737,6 +737,9 @@ Deark -- Information about supported formats
 * FAT (module="fat") (experimental/incomplete)
   - Limited support, mainly for floppy disk images.
 
+* GX Library (module="gxlib")
+  Aggregate format by Genus Microprogramming.
+
 * Gzip (module="gzip")
 
 * HFS filesystem image (module="hfs") (experimental/incomplete)
@@ -840,6 +843,9 @@ Deark -- Information about supported formats
   Options
    -opt pasti:toraw - Instead of decoding, extract to raw ".ST" format (this is
      usually a FAT format).
+
+* PCX Library (module="pcxlib")
+  Aggregate format by Genus Microprogramming.
 
 * PKLITE (module="pklite")
   Decompress a PKLITE-compressed DOS EXE file or DOS COM file.

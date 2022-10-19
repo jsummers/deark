@@ -64,6 +64,7 @@ struct de_arch_localctx_struct {
 	void *userdata;
 	i64 data_startpos;
 	int stop_flag;
+	UI fmtcode;
 	int fmtver;
 	int private1;
 	UI archive_flags;
