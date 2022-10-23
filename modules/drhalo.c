@@ -7,12 +7,40 @@
 #include <deark-config.h>
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_drhalocut);
+DE_DECLARE_MODULE(de_module_drhalopic);
+
+struct pic_modeinfo_item {
+	// 0x08 = de-interlace 16k
+	// 0x10 = Mode known, but not supported
+	u16 board_id;
+	u16 mode_id; // used if hdrlen>=12
+	u16 width;
+	u16 height;
+	u16 nplanes;
+	u16 bits_per_pixel_per_plane;
+	u16 hdrlen;
+	// nominal... = Number of bytes that are typically actually stored in the file.
+	// Often includes padding at the end. We don't really need it to be correct,
+	// so long as it's big enough for the visible part.
+	u32 nominal_bytes_per_plane;
+	u32 flags;
+};
 
 typedef struct localctx_struct {
 	i64 w, h;
 	int have_pal;
 	i64 pal_entries;
 	u32 pal[256];
+
+	// PIC-only fields
+	UI offs2;
+	UI board_id;
+	UI mode_id;
+	i64 bytes_per_row_per_plane;
+	i64 ncolors;
+	i64 dcmpr_endpos;
+	const struct pic_modeinfo_item *modeinfo;
+	char modename[50];
 } lctx;
 
 static int do_read_header(deark *c, lctx *d)
@@ -281,4 +309,355 @@ void de_module_drhalocut(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_drhalocut;
 	mi->identify_fn = de_identify_drhalocut;
 	mi->help_fn = de_help_drhalocut;
+}
+
+// **************************************************************************
+// Dr. Halo .PIC
+// **************************************************************************
+
+// Sets d->dcmpr_endpos.
+static int do_decompress_pic_plane(deark *c, lctx *d,
+	i64 pos1, i64 len, dbuf *unc_pixels)
+{
+	u8 b, b2;
+	i64 count;
+	i64 pos = pos1;
+
+	dbuf_enable_wbuffer(unc_pixels);
+	while(1) {
+		if((pos-pos1) >= len) break;
+
+		b = de_getbyte_p(&pos);
+
+		if(b==0x00) {
+			pos = de_pad_to_n(pos, 512);
+			break;
+		}
+		if(b==0x80) {
+			pos = de_pad_to_n(pos, 512);
+			continue;
+		}
+
+		if(b & 0x80) { // RLE block
+			count = (i64)(b - 0x80);
+			b2 = dbuf_getbyte(c->infile, pos++);
+			dbuf_write_run(unc_pixels, b2, count);
+		}
+		else { // uncompressed block
+			count = (i64)b;
+			dbuf_copy(c->infile, pos, count, unc_pixels);
+			pos += count;
+		}
+	}
+
+	dbuf_disable_wbuffer(unc_pixels);
+	d->dcmpr_endpos = pos;
+	return 1;
+}
+
+static int do_decompress_pic(deark *c, lctx *d, dbuf *unc_pixels)
+{
+	i64 pn;
+	i64 pos;
+
+	pos = (i64)d->modeinfo->hdrlen;
+	for(pn=0; pn<(i64)d->modeinfo->nplanes; pn++) {
+		i64 old_unc_pixels_len;
+
+		dbuf_truncate(unc_pixels, pn * (i64)d->modeinfo->nominal_bytes_per_plane);
+
+		de_dbg(c, "plane[%u] at %"I64_FMT, (UI)pn, pos);
+			old_unc_pixels_len = unc_pixels->len;
+		do_decompress_pic_plane(c, d, pos, c->infile->len-pos, unc_pixels);
+
+		de_dbg(c, "plane[%u]: decompressed %"I64_FMT" bytes to %"I64_FMT" bytes",
+			(UI)pn,
+			d->dcmpr_endpos - pos, unc_pixels->len - old_unc_pixels_len);
+
+		pos = d->dcmpr_endpos;
+	}
+
+	return 1;
+}
+
+static void deinterlace_pic_16k(deark *c, lctx *d, dbuf *unc_pixels)
+{
+	dbuf *tmpdbuf = NULL;
+	i64 i;
+
+	tmpdbuf = dbuf_create_membuf(c, unc_pixels->len, 0);
+	dbuf_copy(unc_pixels, 0, unc_pixels->len, tmpdbuf);
+
+	dbuf_truncate(unc_pixels, 0);
+
+	for(i=0; i<200; i++) {
+		i64 spos;
+
+		spos = (i/2)*80 + (i%2)*8192;
+		dbuf_copy(tmpdbuf, spos, 80, unc_pixels);
+
+	}
+
+	dbuf_close(tmpdbuf);
+}
+
+static void deinterlace_pic_hercules(deark *c, lctx *d, dbuf *unc_pixels)
+{
+	dbuf *tmpdbuf = NULL;
+	i64 i;
+
+	tmpdbuf = dbuf_create_membuf(c, unc_pixels->len, 0);
+	dbuf_copy(unc_pixels, 0, unc_pixels->len, tmpdbuf);
+	dbuf_truncate(unc_pixels, 0);
+
+	for(i=0; i<348; i++) {
+		i64 spos;
+
+		spos = (i/4)*90 + (i%4)*8192;
+		dbuf_copy(tmpdbuf, spos, 90, unc_pixels);
+	}
+
+	dbuf_close(tmpdbuf);
+}
+
+// TODO: Write a library function that can be used for this.
+static void pic_convert_image_16colplanar(deark *c, lctx *d, dbuf *unc_pixels, de_bitmap *img)
+{
+	i64 nbytes_per_plane;
+	i64 i;
+	i64 rowspan;
+	UI pn;
+
+	rowspan = d->bytes_per_row_per_plane;
+	nbytes_per_plane = rowspan * d->h;
+
+	for(i=0; i<nbytes_per_plane; i++) {
+		u8 b[4];
+		UI palent;
+		de_color clr;
+		UI k;
+
+		// Read 8 pixels worth of bytes
+		for(pn=0; pn<4; pn++) {
+			b[pn] = dbuf_getbyte(unc_pixels, pn*(i64)d->modeinfo->nominal_bytes_per_plane + i);
+		}
+
+		for(k=0; k<8; k++) {
+			palent = 0;
+
+			for(pn=0; pn<4; pn++) {
+				if(b[pn] & (1U<<(7-k))) {
+					palent |= 1<<pn;
+				}
+			}
+
+			clr = DE_MAKE_OPAQUE(d->pal[(UI)palent]);
+			de_bitmap_setpixel_rgb(img, (i%rowspan)*8+k, i/rowspan, clr);
+		}
+	}
+}
+
+// We'll try to support the most standard graphics cards/modes.
+// Some editions of Dr. Halo evidently support many more.
+static const struct pic_modeinfo_item pic_modeinfo_arr[] = {
+	{0x01, 0x00, 320, 200, 1, 2, 16, 16384, 0x08}, // CGA 320x200 4c
+	{0x01, 0x01, 640, 200, 1, 1, 16, 16384, 0x08}, // CGA 640x200 2c
+	{0x07, 0x00, 720, 348, 1, 1, 10, 32768, 0x00}, // Hercules
+	{0x15, 0x02, 320, 200, 4, 1, 12,  8192, 0x00}, // EGA 320x200 16c
+	{0x15, 0x03, 640, 200, 4, 1, 12, 16384, 0x00}, // EGA 640x200 16c
+	{0x15, 0x04, 640, 350, 4, 1, 12, 28000, 0x00}, // EGA 640x350 16c
+	{0x15, 0x05, 640, 800, 4, 1, 12, 64000, 0x00}, // EGA 640x800 16c (special)
+	{0x15, 0x0a, 640, 350, 4, 1, 12, 28000, 0x00}, // EGA 640x350 4c (?)
+	{0x3c, 0x00, 320, 200, 1, 2, 16, 16384, 0x08}, // VGA 320x200 4c
+	{0x3c, 0x01, 640, 200, 1, 1, 16, 16384, 0x08}, // VGA 640x200 2c
+	{0x3c, 0x02, 640, 480, 1, 1, 16, 40960, 0x00}, // VGA 640x480 2c
+	{0x3c, 0x03, 320, 200, 1, 8, 16, 65536, 0x00}, // VGA 320x200 256c
+	{0x47, 0x04, 320, 200, 4, 1, 12,  8192, 0x00}, // VGA 320x200 16c
+	{0x47, 0x05, 640, 200, 4, 1, 12, 16384, 0x00}, // VGA 640x200 16c
+	{0x47, 0x06, 640, 350, 4, 1, 12, 28000, 0x00}, // VGA 640x350 16c
+	{0x47, 0x07, 640, 480, 4, 1, 12, 38400, 0x00}, // VGA 640x480 16c
+};
+
+static const struct pic_modeinfo_item *get_pic_modeinfo(UI board_id, UI mode_id)
+{
+	size_t i;
+
+	for(i=0; i<DE_ARRAYCOUNT(pic_modeinfo_arr); i++) {
+		const struct pic_modeinfo_item *m = &pic_modeinfo_arr[i];
+
+		if((UI)m->board_id!=board_id) continue;
+		if(m->hdrlen>=12) {
+			if((UI)m->mode_id!=mode_id) continue;
+		}
+		return m;
+	}
+	return NULL;
+}
+
+// Sets d->modename, based on d->modeinfo etc.
+static void set_pic_mode_name(deark *c, lctx *d)
+{
+	const char *m1;
+
+	switch(d->modeinfo->board_id) {
+	case 0x01: m1="CGA"; break;
+	case 0x07: m1="Hercules"; break;
+	case 0x15: m1="EGA"; break;
+	case 0x3c: case 0x47: m1="VGA"; break;
+	default: m1="?";
+	}
+
+	de_snprintf(d->modename, sizeof(d->modename), "%s %ux%u %d-color", m1,
+		(UI)d->modeinfo->width, (UI)d->modeinfo->height,
+		(int)d->ncolors);
+}
+
+static void pic_set_density(deark *c, lctx *d, de_finfo *fi)
+{
+	u16 w = d->modeinfo->width;
+	u16 h = d->modeinfo->height;
+
+	if(w==320 && h==200) {
+		fi->density.code = DE_DENSITY_UNK_UNITS;
+		fi->density.xdens = 240.0;
+		fi->density.ydens = 200.0;
+	}
+	else if(w==640 && h==350) {
+		fi->density.code = DE_DENSITY_UNK_UNITS;
+		fi->density.xdens = 480.0;
+		fi->density.ydens = 350.0;
+	}
+	else if(w==640 && h==200) {
+		fi->density.code = DE_DENSITY_UNK_UNITS;
+		fi->density.xdens = 480.0;
+		fi->density.ydens = 200.0;
+	}
+	else if(w==720 && h==348) {
+		fi->density.code = DE_DENSITY_UNK_UNITS;
+		fi->density.xdens = 155.0;
+		fi->density.ydens = 100.0;
+	}
+}
+
+static void de_run_drhalopic(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	dbuf *unc_pixels = NULL;
+	de_bitmap *img = NULL;
+	const char *palfn;
+	de_finfo *fi = NULL;
+	u8 b;
+
+	d = de_malloc(c, sizeof(lctx));
+
+	palfn = de_get_ext_option(c, "file2");
+
+	d->offs2 = (UI)de_getbyte(2);
+	d->board_id = (UI)de_getu16le(7); // Is this 2 bytes or 1?
+	de_dbg(c, "board id: 0x%02x", d->board_id);
+	if(d->board_id!=0x07) {
+		d->mode_id = (UI)de_getu16le(10); // Is this 2 bytes or 1?
+		de_dbg(c, "mode id: 0x%02x", d->mode_id);
+	}
+
+	d->modeinfo = get_pic_modeinfo(d->board_id, d->mode_id);
+	if(!d->modeinfo) {
+		de_err(c, "Unsupported image type (board=0x%04x, mode=0x%04x)",
+			d->board_id, d->mode_id);
+		goto done;
+	}
+
+	d->w = (i64)d->modeinfo->width;
+	d->h = (i64)d->modeinfo->height;
+	d->bytes_per_row_per_plane = d->w * (i64)d->modeinfo->bits_per_pixel_per_plane / 8;
+	d->ncolors = 1LL<<((UI)d->modeinfo->bits_per_pixel_per_plane * (UI)d->modeinfo->nplanes);
+
+	set_pic_mode_name(c, d);
+
+	de_dbg(c, "mode: %s", d->modename);
+
+	if((d->modeinfo->flags & 0x10)!=0) {
+		de_err(c, "Unsupported image type: %s", d->modename);
+		goto done;
+	}
+
+	if(d->ncolors==16) {
+		de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, d->pal, 16, 0);
+	}
+	else if(d->ncolors==256) {
+		// FIXME: This is probably not the default palette.
+		de_copy_std_palette(DE_PALID_VGA256, 0, 0, 256, d->pal, 256, 0);
+	}
+	else if(d->ncolors==4) {
+		if(d->modeinfo->hdrlen>=16) {
+			b = de_getbyte(14); // This is a guess
+		}
+		else {
+			b = 0x00;
+		}
+		if(b==0x00) {
+			de_copy_std_palette(DE_PALID_CGA, 1, 0, 4, d->pal, 4, 0);
+		}
+		else {
+			de_copy_std_palette(DE_PALID_CGA, 0, 0, 4, d->pal, 4, 0);
+		}
+	}
+
+	if(palfn) {
+		// FIXME: This doesn't always work right.
+		if(!do_read_pal_file(c, d, palfn)) goto done;
+	}
+
+	unc_pixels = dbuf_create_membuf(c,
+		(i64)d->modeinfo->nominal_bytes_per_plane * (i64)d->modeinfo->nplanes, 0x1);
+	if(!do_decompress_pic(c, d, unc_pixels)) goto done;
+
+	if((d->modeinfo->flags & 0x08)!=0) {
+		deinterlace_pic_16k(c, d, unc_pixels);
+	}
+	else if(d->modeinfo->board_id==0x07) {
+		deinterlace_pic_hercules(c, d, unc_pixels);
+	}
+
+	img = de_bitmap_create(c, d->w, d->h, 3);
+	// TODO: aspect ratio
+
+	if(d->modeinfo->nplanes>1) {
+		pic_convert_image_16colplanar(c, d, unc_pixels, img);
+	}
+	else if(d->modeinfo->bits_per_pixel_per_plane==1) {
+		de_convert_image_bilevel(unc_pixels, 0, d->bytes_per_row_per_plane, img, 0);
+	}
+	else {
+		de_convert_image_paletted(unc_pixels, 0, (i64)d->modeinfo->bits_per_pixel_per_plane,
+			d->bytes_per_row_per_plane, d->pal, img, 0);
+	}
+
+	fi = de_finfo_create(c);
+	pic_set_density(c, d, fi);
+
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
+
+done:
+	dbuf_close(unc_pixels);
+	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
+	de_free(c, d);
+}
+
+static int de_identify_drhalopic(deark *c)
+{
+	if((UI)de_getu16be(0)!=0x4148) return 0;
+	if(de_getbyte(6)!=0x02) return 0;
+	if(de_input_file_has_ext(c, "pic")) return 70;
+	return 30;
+}
+
+void de_module_drhalopic(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "drhalopic";
+	mi->desc = "Dr. Halo .PIC image";
+	mi->run_fn = de_run_drhalopic;
+	mi->identify_fn = de_identify_drhalopic;
+	mi->flags |= DE_MODFLAG_NONWORKING;
 }
