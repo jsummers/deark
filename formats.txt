@@ -164,6 +164,10 @@ Deark -- Information about supported formats
   Options
    -file2 <file.pal> - Read the palette from this file.
 
+* Dr. Halo .PIC (module="drhalopic")
+  Options
+   -file2 <file.pal> - Read the palette from this file.
+
 * EggPaint (*.trp) (module="eggpaint")
 
 * Enhanced Windows Metafile (module=emf)

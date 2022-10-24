@@ -304,9 +304,14 @@ static int de_identify_drhalocut(deark *c)
 	return 0;
 }
 
-static void de_help_drhalocut(deark *c)
+static void help_common(deark *c)
 {
 	de_msg(c, "-file2 <file.pal> : Read the palette from this file");
+}
+
+static void de_help_drhalocut(deark *c)
+{
+	help_common(c);
 }
 
 void de_module_drhalocut(deark *c, struct deark_module_info *mi)
@@ -519,6 +524,24 @@ static void set_pic_mode_name(deark *c, lctx *d)
 		(int)d->ncolors);
 }
 
+// Default 256-color palette is a whiteless RGB332 thing.
+static void make_stdpal_256col(deark *c, lctx *d)
+{
+	UI i;
+	static const u8 samples8[8] = {
+		0, 35, 67, 99, 131, 163, 195, 227 };
+	static const u8 samples4[4] = { 0, 67, 131, 195 };
+
+	for(i=0; i<256; i++) {
+		u8 r, g, b;
+
+		r = samples8[i%8];
+		g = samples8[(i%64)/8];
+		b = samples4[i/64];
+		d->pal[i] = DE_MAKE_RGB(r, g, b);
+	}
+}
+
 static void pic_set_density(deark *c, lctx *d, de_finfo *fi)
 {
 	u16 w = d->modeinfo->width;
@@ -590,8 +613,7 @@ static void de_run_drhalopic(deark *c, de_module_params *mparams)
 		de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, d->pal, 16, 0);
 	}
 	else if(d->ncolors==256) {
-		// FIXME: This is probably not the default palette.
-		de_copy_std_palette(DE_PALID_VGA256, 0, 0, 256, d->pal, 256, 0);
+		make_stdpal_256col(c, d);
 	}
 	else if(d->ncolors==4) {
 		u8 b12, b14;
@@ -667,11 +689,16 @@ static int de_identify_drhalopic(deark *c)
 	return 30;
 }
 
+static void de_help_drhalopic(deark *c)
+{
+	help_common(c);
+}
+
 void de_module_drhalopic(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "drhalopic";
 	mi->desc = "Dr. Halo .PIC image";
 	mi->run_fn = de_run_drhalopic;
 	mi->identify_fn = de_identify_drhalopic;
-	mi->flags |= DE_MODFLAG_NONWORKING;
+	mi->help_fn = de_help_drhalopic;
 }
