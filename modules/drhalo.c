@@ -243,7 +243,14 @@ static int do_read_pal_file(deark *c, lctx *d, const char *palfn)
 		for(z=0; z<3; z++) {
 			osamp[z] = dbuf_getu16le(palfile, pos);
 			pos += 2;
-			samp[z] = de_scale_n_to_255(maxsamp[z], osamp[z]);
+			// I think portable palette samples are always in the range 0-255,
+			// regardless of the maxsamp fields.
+			if(maxsamp[z]>255) {
+				samp[z] = de_scale_n_to_255(maxsamp[z], osamp[z]);
+			}
+			else {
+				samp[z] = (u8)osamp[z];
+			}
 		}
 		d->pal[k] = DE_MAKE_RGB(samp[0], samp[1], samp[2]);
 
@@ -613,7 +620,6 @@ static void de_run_drhalopic(deark *c, de_module_params *mparams)
 	}
 
 	if(palfn) {
-		// FIXME: This doesn't always work right.
 		if(!do_read_pal_file(c, d, palfn)) goto done;
 	}
 
