@@ -31,7 +31,7 @@ typedef struct localctx_struct {
 	i64 w, h;
 	int have_pal;
 	i64 pal_entries;
-	u32 pal[256];
+	de_color pal[256];
 
 	// PIC-only fields
 	UI board_id;
@@ -63,14 +63,14 @@ static int do_decompress_scanline(deark *c, lctx *d, i64 line_idx,
 	while(1) {
 		if((pos-pos1) >= len) break;
 
-		b = de_getbyte(pos++);
+		b = de_getbyte_p(&pos);
 
 		if(b==0 || b==0x80) { // end of row
 			break;
 		}
 		else if(b & 0x80) { // RLE block
 			count = (i64)(b - 0x80);
-			b2 = dbuf_getbyte(c->infile, pos++);
+			b2 = de_getbyte_p(&pos);
 			dbuf_write_run(unc_pixels, b2, count);
 		}
 		else { // uncompressed block
@@ -80,9 +80,10 @@ static int do_decompress_scanline(deark *c, lctx *d, i64 line_idx,
 		}
 	}
 
-	de_dbg3(c, "scanline[%d]: decompressed %d bytes (expected %d) to %d bytes",
-		(int)line_idx, (int)(pos-pos1),
-		(int)len, (int)(unc_pixels->len - opos1));
+	de_dbg3(c, "scanline[%d]: decompressed %"I64_FMT
+		" bytes (expected %"I64_FMT") to %"I64_FMT" bytes",
+		(int)line_idx, pos-pos1,
+		len, (unc_pixels->len - opos1));
 	return 1;
 }
 
@@ -98,14 +99,13 @@ static int do_decompress(deark *c, lctx *d, i64 pos1, dbuf *unc_pixels)
 		dbuf_truncate(unc_pixels, j*d->w);
 
 		if(pos > c->infile->len-2) break;
-		linebytecount = de_getu16le(pos);
-		pos += 2;
+		linebytecount = de_getu16le_p(&pos);
 		do_decompress_scanline(c, d, j, pos, linebytecount, unc_pixels);
 		pos += linebytecount;
 	}
 
-	de_dbg(c, "decompressed %d bytes to %d bytes",
-		(int)(pos-pos1), (int)unc_pixels->len);
+	de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT" bytes",
+		(pos-pos1), unc_pixels->len);
 
 	return 1;
 }
@@ -124,7 +124,7 @@ static void do_write_image_gray(deark *c, lctx *d, dbuf *unc_pixels)
 		if(b > max_val)
 			max_val = b;
 	}
-	de_dbg(c, "detected max val: %d", (int)max_val);
+	de_dbg(c, "detected max val: %u", (UI)max_val);
 	if(max_val<1) max_val=1;
 
 	img = de_bitmap_create(c, d->w, d->h, 1);
@@ -171,8 +171,8 @@ static int do_read_pal_file(deark *c, lctx *d, const char *palfn)
 	i64 num_entries;
 	i64 maxidx;
 	i64 maxsamp[3];
-	unsigned int board_id;
-	unsigned int graphics_mode;
+	UI board_id;
+	UI graphics_mode;
 	u8 filetype;
 	u8 filesubtype;
 	i64 osamp[3];
@@ -192,20 +192,20 @@ static int do_read_pal_file(deark *c, lctx *d, const char *palfn)
 	filever = dbuf_getu16le(palfile, 2);
 	de_dbg(c, "file version: %d", (int)filever);
 	datasize = dbuf_getu16le(palfile, 4);
-	de_dbg(c, "data size: %d", (int)datasize);
+	de_dbg(c, "data size: %"I64_FMT, datasize);
 	filetype = dbuf_getbyte(palfile, 6);
-	de_dbg(c, "file type: 0x%02x", (unsigned int)filever);
+	de_dbg(c, "file type: 0x%02x", (UI)filever);
 	filesubtype = dbuf_getbyte(palfile, 7);
-	de_dbg(c, "file subtype: 0x%02x", (unsigned int)filesubtype);
+	de_dbg(c, "file subtype: 0x%02x", (UI)filesubtype);
 
 	if(sig!=0x4841 /* "HA" */ || filetype!=0x0a) {
 		de_err(c, "Invalid palette file");
 		goto done;
 	}
 
-	board_id = (unsigned int)dbuf_getu16le(palfile, 8);
+	board_id = (UI)dbuf_getu16le(palfile, 8);
 	de_dbg(c, "board id: 0x%04x", board_id);
-	graphics_mode = (unsigned int)dbuf_getu16le(palfile, 10);
+	graphics_mode = (UI)dbuf_getu16le(palfile, 10);
 	de_dbg(c, "graphics mode: 0x%04x", graphics_mode);
 
 	if(filesubtype!=0) {
@@ -215,11 +215,11 @@ static int do_read_pal_file(deark *c, lctx *d, const char *palfn)
 	}
 
 	maxidx = dbuf_getu16le(palfile, 0x0c);
-	de_dbg(c, "maxidx: %u", (unsigned int)maxidx);
+	de_dbg(c, "maxidx: %u", (UI)maxidx);
 
 	for(k=0; k<3; k++) {
 		maxsamp[k] = dbuf_getu16le(palfile, 0x0e + 2*k);
-		de_dbg(c, "maxsamp[%d]: %u", (int)k, (unsigned int)maxsamp[k]);
+		de_dbg(c, "maxsamp[%d]: %u", (int)k, (UI)maxsamp[k]);
 		if(maxsamp[k]<1) maxsamp[k]=1;
 	}
 
@@ -231,18 +231,16 @@ static int do_read_pal_file(deark *c, lctx *d, const char *palfn)
 	if(num_entries>256) num_entries=256;
 
 	for(k=0; k<num_entries; k++) {
-		// As far as I can tell:
 		// If we imagine the palette file being split into 512-byte chunks, a
 		// (6-byte) palette entry is not allowed to cross a chunk boundary.
 		// If an entry would do so, it instead starts at the beginning of the
 		// next chunk.
-		while((pos%512) > 506) {
-			pos += 2;
+		if((pos%512) > 506) {
+			pos = de_pad_to_n(pos, 512);
 		}
 
 		for(z=0; z<3; z++) {
-			osamp[z] = dbuf_getu16le(palfile, pos);
-			pos += 2;
+			osamp[z] = dbuf_getu16le_p(palfile, &pos);
 			// I think portable palette samples are always in the range 0-255,
 			// regardless of the maxsamp fields.
 			if(maxsamp[z]>255) {
@@ -352,7 +350,7 @@ static int do_decompress_pic_plane(deark *c, lctx *d,
 
 		if(b & 0x80) { // RLE block
 			count = (i64)(b - 0x80);
-			b2 = dbuf_getbyte(c->infile, pos++);
+			b2 = de_getbyte_p(&pos);
 			dbuf_write_run(unc_pixels, b2, count);
 		}
 		else { // uncompressed block
