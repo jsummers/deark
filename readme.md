@@ -79,7 +79,7 @@ Command-line options:
    "output.zip" or "output.tar".
 -ka, -ka2, -ka3
    When uzing -zip/-tar, "keep" the input filename, and use it as the initial
-   part of the archive output filename. A suitable filename extenson like
+   part of the archive output filename. A suitable filename extension like
    ".zip" will be appended. Incompatible with -arcfn.
    -ka: Use only the base filename.
    -ka2: Use the full path, but not as an actual path.

@@ -993,7 +993,7 @@ Deark -- Information about supported formats
     actual BMP file(s).
   - Extract icons and cursors from LX files. Note that these will use OS/2
     format. Reprocess them with Deark to convert to PNG.
-  - In some cases, extract the arhive from a self-extracting archive.
+  - In some cases, extract the archive from a self-extracting archive.
 
 * FLAC audio (module="flac")
 
