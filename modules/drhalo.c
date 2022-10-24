@@ -3,6 +3,7 @@
 // See the file COPYING for terms of use.
 
 // Dr. Halo .CUT image
+// Dr. Halo .PIC image
 
 #include <deark-config.h>
 #include <deark-private.h>
@@ -33,7 +34,6 @@ typedef struct localctx_struct {
 	u32 pal[256];
 
 	// PIC-only fields
-	UI offs2;
 	UI board_id;
 	UI mode_id;
 	i64 bytes_per_row_per_plane;
@@ -546,13 +546,11 @@ static void de_run_drhalopic(deark *c, de_module_params *mparams)
 	de_bitmap *img = NULL;
 	const char *palfn;
 	de_finfo *fi = NULL;
-	u8 b;
 
 	d = de_malloc(c, sizeof(lctx));
 
 	palfn = de_get_ext_option(c, "file2");
 
-	d->offs2 = (UI)de_getbyte(2);
 	d->board_id = (UI)de_getu16le(7); // Is this 2 bytes or 1?
 	de_dbg(c, "board id: 0x%02x", d->board_id);
 	if(d->board_id!=0x07) {
@@ -589,18 +587,29 @@ static void de_run_drhalopic(deark *c, de_module_params *mparams)
 		de_copy_std_palette(DE_PALID_VGA256, 0, 0, 256, d->pal, 256, 0);
 	}
 	else if(d->ncolors==4) {
+		u8 b12, b14;
+		u8 palf1, palf2;
+		int pal_subifd;
+
 		if(d->modeinfo->hdrlen>=16) {
-			b = de_getbyte(14); // This is a guess
+			b12 = de_getbyte(12);
+			b14 = de_getbyte(14);
 		}
 		else {
-			b = 0x00;
+			b12 = b14 = 0x00;
 		}
-		if(b==0x00) {
-			de_copy_std_palette(DE_PALID_CGA, 1, 0, 4, d->pal, 4, 0);
-		}
-		else {
-			de_copy_std_palette(DE_PALID_CGA, 0, 0, 4, d->pal, 4, 0);
-		}
+
+		// CGA palette
+		palf1 = (b12 & 0x10)?1:0;
+		palf2 = (b14 & 0x01);
+		if(palf1 && palf2) pal_subifd = 3;
+		else if(!palf1 && palf2) pal_subifd = 0;
+		else if(palf1 && !palf2) pal_subifd = 4;
+		else pal_subifd = 1;
+		de_copy_std_palette(DE_PALID_CGA, pal_subifd, 0, 4, d->pal, 4, 0);
+
+		// "background" color
+		d->pal[0] = de_get_std_palette_entry(DE_PALID_PC16, 0, (int)(b12 & 0x0f));
 	}
 
 	if(palfn) {
@@ -620,7 +629,6 @@ static void de_run_drhalopic(deark *c, de_module_params *mparams)
 	}
 
 	img = de_bitmap_create(c, d->w, d->h, 3);
-	// TODO: aspect ratio
 
 	if(d->modeinfo->nplanes>1) {
 		pic_convert_image_16colplanar(c, d, unc_pixels, img);
