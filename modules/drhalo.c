@@ -29,8 +29,10 @@ struct pic_modeinfo_item {
 
 typedef struct localctx_struct {
 	i64 w, h;
-	int have_pal;
-	i64 pal_entries;
+	u8 have_palfile;
+	u8 opt_pal_pc16;
+	u8 max_color_val;
+	UI color_count;
 	de_color pal[256];
 
 	// PIC-only fields
@@ -110,33 +112,14 @@ static int do_decompress(deark *c, lctx *d, i64 pos1, dbuf *unc_pixels)
 	return 1;
 }
 
+// Assumes analyze_image() has already been called.
 static void do_write_image_gray(deark *c, lctx *d, dbuf *unc_pixels)
 {
 	de_bitmap *img = NULL;
-	i64 i, j;
-	u8 b;
-	i64 k;
-	u8 max_val;
 
-	max_val = 0;
-	for(k=0; k<unc_pixels->len; k++) {
-		b = dbuf_getbyte(unc_pixels, k);
-		if(b > max_val)
-			max_val = b;
-	}
-	de_dbg(c, "detected max val: %u", (UI)max_val);
-	if(max_val<1) max_val=1;
-
+	de_make_grayscale_palette(d->pal, (i64)d->max_color_val+1, 0);
 	img = de_bitmap_create(c, d->w, d->h, 1);
-
-	for(j=0; j<d->h; j++) {
-		for(i=0; i<d->w; i++) {
-			b = dbuf_getbyte(unc_pixels, j*d->w + i);
-			b = de_scale_n_to_255(max_val, (i64)b);
-			de_bitmap_setpixel_gray(img, i, j, b);
-		}
-	}
-
+	de_convert_image_paletted(unc_pixels, 0, 8, d->w, d->pal, img, 0);
 	de_bitmap_write_to_file(img, NULL, 0);
 	de_bitmap_destroy(img);
 }
@@ -144,20 +127,53 @@ static void do_write_image_gray(deark *c, lctx *d, dbuf *unc_pixels)
 static void do_write_image_pal(deark *c, lctx *d, dbuf *unc_pixels)
 {
 	de_bitmap *img = NULL;
-	i64 i, j;
-	u8 b;
 
 	img = de_bitmap_create(c, d->w, d->h, 3);
+	de_convert_image_paletted(unc_pixels, 0, 8, d->w, d->pal, img, 0);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
+	de_bitmap_destroy(img);
+}
 
-	for(j=0; j<d->h; j++) {
-		for(i=0; i<d->w; i++) {
-			b = dbuf_getbyte(unc_pixels, j*d->w + i);
-			de_bitmap_setpixel_rgb(img, i, j, d->pal[(unsigned int)b]);
+static void analyze_image(deark *c, lctx *d, dbuf *unc_pixels)
+{
+	i64 k;
+	u8 b;
+	u8 *v_used = NULL;
+
+	v_used = de_malloc(c, 256);
+	d->max_color_val = 0;
+	d->color_count = 0;
+	for(k=0; k<unc_pixels->len; k++) {
+		b = dbuf_getbyte(unc_pixels, k);
+		if(b > d->max_color_val)
+			d->max_color_val = b;
+		if(v_used[(UI)b]==0) {
+			v_used[(UI)b] = 1;
+			d->color_count++;
 		}
 	}
+	de_dbg(c, "detected max val: %u", (UI)d->max_color_val);
+	if(d->max_color_val<1) d->max_color_val=1;
+	de_dbg(c, "detected color count: %u", d->color_count);
+	de_free(c, v_used);
+}
 
-	de_bitmap_write_to_file(img, NULL, 0);
-	de_bitmap_destroy(img);
+static void write_cut_image(deark *c, lctx *d, dbuf *unc_pixels)
+{
+	if(d->have_palfile) {
+		do_write_image_pal(c, d, unc_pixels);
+		return;
+	}
+
+	analyze_image(c, d, unc_pixels);
+
+	if(d->opt_pal_pc16 && d->max_color_val<16) {
+		de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, d->pal, 16, 0);
+		do_write_image_pal(c, d, unc_pixels);
+		return;
+	}
+
+	do_write_image_gray(c, d, unc_pixels);
 }
 
 static int do_read_pal_file(deark *c, lctx *d, const char *palfn)
@@ -257,7 +273,7 @@ static int do_read_pal_file(deark *c, lctx *d, const char *palfn)
 		de_dbg_pal_entry2(c, k, d->pal[k], tmps, NULL, NULL);
 	}
 
-	d->have_pal = 1;
+	d->have_palfile = 1;
 	retval = 1;
 done:
 	dbuf_close(palfile);
@@ -271,12 +287,19 @@ static void de_run_drhalocut(deark *c, de_module_params *mparams)
 	i64 pos;
 	dbuf *unc_pixels = NULL;
 	const char *palfn;
+	const char *tmps;
 
 	d = de_malloc(c, sizeof(lctx));
 
 	palfn = de_get_ext_option(c, "file2");
 	if(palfn) {
 		if(!do_read_pal_file(c, d, palfn)) goto done;
+	}
+
+	tmps = de_get_ext_option(c, "drhalocut:pal");
+	if(tmps) {
+		if(!de_strcmp(tmps, "pc16"))
+			d->opt_pal_pc16 = 1;
 	}
 
 	pos = 0;
@@ -286,10 +309,7 @@ static void de_run_drhalocut(deark *c, de_module_params *mparams)
 	unc_pixels = dbuf_create_membuf(c, d->w*d->h, 0x1);
 	if(!do_decompress(c, d, pos, unc_pixels)) goto done;
 
-	if(d->have_pal)
-		do_write_image_pal(c, d, unc_pixels);
-	else
-		do_write_image_gray(c, d, unc_pixels);
+	write_cut_image(c, d, unc_pixels);
 
 done:
 	dbuf_close(unc_pixels);
@@ -298,8 +318,16 @@ done:
 
 static int de_identify_drhalocut(deark *c)
 {
-	if(de_input_file_has_ext(c, "cut")) return 10;
-	return 0;
+	i64 n;
+
+	if(!de_input_file_has_ext(c, "cut")) return 0;
+	n = de_getu16le(4);
+	if(n!=0) return 0;
+	n = de_getu16le(0);
+	if(n<1 || n>4096) return 0;
+	n = de_getu16le(2);
+	if(n<1 || n>4096) return 0;
+	return 10;
 }
 
 static void help_common(deark *c)
@@ -310,6 +338,7 @@ static void help_common(deark *c)
 static void de_help_drhalocut(deark *c)
 {
 	help_common(c);
+	de_msg(c, "-opt drhalocut:pal=pc16 : Use standard 16-color palette if possible");
 }
 
 void de_module_drhalocut(deark *c, struct deark_module_info *mi)
@@ -377,12 +406,13 @@ static int do_decompress_pic(deark *c, lctx *d, dbuf *unc_pixels)
 		dbuf_truncate(unc_pixels, pn * (i64)d->modeinfo->nominal_bytes_per_plane);
 
 		de_dbg(c, "plane[%u] at %"I64_FMT, (UI)pn, pos);
-			old_unc_pixels_len = unc_pixels->len;
+		de_dbg_indent(c, 1);
+		old_unc_pixels_len = unc_pixels->len;
 		do_decompress_pic_plane(c, d, pos, c->infile->len-pos, unc_pixels);
 
-		de_dbg(c, "plane[%u]: decompressed %"I64_FMT" bytes to %"I64_FMT" bytes",
-			(UI)pn,
+		de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT" bytes",
 			d->dcmpr_endpos - pos, unc_pixels->len - old_unc_pixels_len);
+		de_dbg_indent(c, -1);
 
 		pos = d->dcmpr_endpos;
 	}
@@ -517,7 +547,7 @@ static void set_pic_mode_name(deark *c, lctx *d)
 	default: m1="?";
 	}
 
-	de_snprintf(d->modename, sizeof(d->modename), "%s %ux%u %d-color", m1,
+	de_snprintf(d->modename, sizeof(d->modename), "%s %u" DE_CHAR_TIMES "%u %d-color", m1,
 		(UI)d->modeinfo->width, (UI)d->modeinfo->height,
 		(int)d->ncolors);
 }
@@ -579,16 +609,16 @@ static void de_run_drhalopic(deark *c, de_module_params *mparams)
 
 	palfn = de_get_ext_option(c, "file2");
 
-	d->board_id = (UI)de_getu16le(7); // Is this 2 bytes or 1?
+	d->board_id = (UI)de_getbyte(7);
 	de_dbg(c, "board id: 0x%02x", d->board_id);
 	if(d->board_id!=0x07) {
-		d->mode_id = (UI)de_getu16le(10); // Is this 2 bytes or 1?
-		de_dbg(c, "mode id: 0x%02x", d->mode_id);
+		d->mode_id = (UI)de_getu16le(10);
+		de_dbg(c, "mode id: 0x%04x", d->mode_id);
 	}
 
 	d->modeinfo = get_pic_modeinfo(d->board_id, d->mode_id);
 	if(!d->modeinfo) {
-		de_err(c, "Unsupported image type (board=0x%04x, mode=0x%04x)",
+		de_err(c, "Unsupported image type (board=0x%02x, mode=0x%04x)",
 			d->board_id, d->mode_id);
 		goto done;
 	}

@@ -163,8 +163,10 @@ Deark -- Information about supported formats
 * Dr. Halo .CUT (module="drhalocut")
   Options
    -file2 <file.pal> - Read the palette from this file.
+   -opt drhalocut:pal=pc16 - Use standard 16-color palette if possible.
 
 * Dr. Halo .PIC (module="drhalopic")
+  - Most of the common image types are supported.
   Options
    -file2 <file.pal> - Read the palette from this file.
 
