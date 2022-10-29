@@ -870,6 +870,9 @@ Deark -- Information about supported formats
 * QIP (Quarterdeck) (module="qip") (experimental)
   An obscure installer format.
 
+* SCO compress LZH (module="compress_lzh")
+  Variant of 'compress'.
+
 * SIS (EPOC/Symbian archive) (module="sis")
   - EPOC release 3/4/5/6
 

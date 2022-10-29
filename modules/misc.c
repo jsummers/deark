@@ -28,6 +28,7 @@ DE_DECLARE_MODULE(de_module_hpi);
 DE_DECLARE_MODULE(de_module_dclimplode);
 DE_DECLARE_MODULE(de_module_lzss_oku);
 DE_DECLARE_MODULE(de_module_lzhuf);
+DE_DECLARE_MODULE(de_module_compress_lzh);
 
 // **************************************************************************
 // "copy" module
@@ -1226,4 +1227,54 @@ void de_module_lzhuf(deark *c, struct deark_module_info *mi)
 	mi->id = "lzhuf";
 	mi->desc = "LZHUF compressed file";
 	mi->run_fn = de_run_lzhuf;
+}
+
+// **************************************************************************
+// SCO compress LZHUF
+// **************************************************************************
+
+static void de_run_compress_lzh(deark *c, de_module_params *mparams)
+{
+	dbuf *outf = NULL;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	struct de_lh5x_params lzhparams;
+
+#define SCOLZH_HDRSIZE 2
+	if(c->infile->len<SCOLZH_HDRSIZE) goto done;
+	outf = dbuf_create_output_file(c, "unc", NULL, 0);
+	dbuf_enable_wbuffer(outf);
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = SCOLZH_HDRSIZE;
+	dcmpri.len = c->infile->len-SCOLZH_HDRSIZE;
+	dcmpro.f = outf;
+
+	de_zeromem(&lzhparams, sizeof(struct de_lh5x_params));
+	lzhparams.fmt = DE_LH5X_FMT_LH5;
+	lzhparams.zero_codes_block_behavior = DE_LH5X_ZCB_STOP;
+
+	fmtutil_decompress_lh5x(c, &dcmpri, &dcmpro, &dres, &lzhparams);
+	dbuf_flush(outf);
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
+	}
+done:
+	dbuf_close(outf);
+}
+
+static int de_identify_compress_lzh(deark *c)
+{
+	if((UI)de_getu16be(0) != 0x1fa0) return 0;
+	if(de_input_file_has_ext(c, "z")) return 90;
+	return 10;
+}
+
+void de_module_compress_lzh(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "compress_lzh";
+	mi->desc = "SCO compress LZH";
+	mi->run_fn = de_run_compress_lzh;
+	mi->identify_fn = de_identify_compress_lzh;
 }
