@@ -621,8 +621,8 @@ static void do_make_font_image(deark *c, lctx *d)
 
 		ch->width = ci->width_raw;
 		ch->height = ci->height_raw;
-		if(ch->width<1) ch->width=1;
-		if(ch->height<1) ch->height=1;
+		if(ch->width<0) ch->width=0;
+		if(ch->height<0) ch->height=0;
 		ch->v_offset = max_ascent - ci->ascent;
 		ch->extraspace_l = ci->extraspace_l;
 		ch->extraspace_r = ci->extraspace_r;

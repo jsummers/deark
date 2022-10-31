@@ -14,7 +14,15 @@ static int is_valid_char(struct de_bitmap_font_char *ch)
 {
 	if(!ch) return 0;
 	if(!ch->bitmap) return 0;
-	if(ch->width<1 || ch->height<1) return 0;
+	if(ch->width<0 || ch->height<0) return 0;
+	if(ch->extraspace_l<0 || ch->extraspace_r<0) return 0;
+	if(ch->width==0 && (ch->extraspace_l>0 || ch->extraspace_r>0)) {
+		// Allow 0-width character if extraspace makes that sensible.
+		;
+	}
+	else if(ch->width<1 || ch->height<1) {
+		return 0;
+	}
 	return 1;
 }
 
@@ -123,6 +131,15 @@ void de_font_paint_character_idx(deark *c, de_bitmap *img,
 		canvas_h = ch->height;
 		// (We don't need to support both the "extraspace" and the VGA9COL
 		// feature at the same time.)
+
+		if(ch->width==0 || ch->height==0) {
+			// Bit of a hack. If we have a zero-size (spacer-only) character,
+			// paint the extraspace as the full height the cell.
+			// (In principle, maybe it should be painted this way for *all*
+			// characters, but I'm not sure how to make that look good.)
+			canvas_y = ypos;
+			canvas_h = font->nominal_height;
+		}
 
 		if(canvas_y + canvas_h > ypos + font->nominal_height) {
 			goto after_extraspace;
