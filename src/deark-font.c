@@ -124,9 +124,17 @@ void de_font_paint_character_idx(deark *c, de_bitmap *img,
 		// (We don't need to support both the "extraspace" and the VGA9COL
 		// feature at the same time.)
 
+		if(canvas_y + canvas_h > ypos + font->nominal_height) {
+			goto after_extraspace;
+		}
+
 		de_bitmap_rect(img, canvas_x, canvas_y,
 			canvas_w, canvas_h, DE_MAKE_RGB(192,255,192), 0);
 	}
+
+after_extraspace:
+
+	if(ch->width<=0 || ch->height<=0) goto after_foreground; // Nothing to do
 
 	// Paint the canvas for the main part of the character.
 	if(!(flags&DE_PAINTFLAG_TRNSBKGD)) {
@@ -141,12 +149,19 @@ void de_font_paint_character_idx(deark *c, de_bitmap *img,
 		}
 		canvas_h = ch->height;
 
+		if(canvas_y + canvas_h > ypos + font->nominal_height) {
+			goto after_foreground;
+		}
 		de_bitmap_rect(img, canvas_x, canvas_y,
 			canvas_w, canvas_h, bgcol, 0);
 	}
 
+	// Paint the character foreground.
 	paint_character_internal(c, img, ch,
 		ch->extraspace_l + xpos, ch->v_offset + ypos, fgcol, flags);
+
+after_foreground:
+	;
 }
 
 // Given a codepoint, returns the character index in the font.
