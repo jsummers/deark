@@ -36,6 +36,7 @@ DE_DECLARE_MODULE(de_module_dgi);
 DE_DECLARE_MODULE(de_module_cdi_imag);
 DE_DECLARE_MODULE(de_module_cserve_rle);
 DE_DECLARE_MODULE(de_module_lotus_mscr);
+DE_DECLARE_MODULE(de_module_fastgraph);
 
 #define CODE_FORM 0x464f524dU
 #define CODE_IDAT 0x49444154U
@@ -2413,4 +2414,100 @@ void de_module_lotus_mscr(deark *c, struct deark_module_info *mi)
 	mi->desc = "Lotus Manuscript graphics";
 	mi->run_fn = de_run_lotus_mscr;
 	mi->identify_fn = de_identify_lotus_mscr;
+}
+
+// **************************************************************************
+// Fastgraph PRF
+// Supports only 8-bit files with a header, and only as grayscale.
+// **************************************************************************
+
+struct fastgraph_ctx {
+	i64 w, h;
+	i64 max_unc_bytes;
+	de_color pal[256];
+};
+
+static void decompress_fastgraph_8bit(deark *c, struct fastgraph_ctx *d,
+	dbuf *unc_pixels, i64 pos1)
+{
+	i64 pos = pos1;
+	i64 unc_total = 0;
+
+	while(1) {
+		u8 clr;
+		i64 count;
+
+		if(pos >= c->infile->len) break;
+		if(unc_total >= d->max_unc_bytes) break;
+
+		clr = de_getbyte_p(&pos);
+		count = (i64)de_getbyte_p(&pos);
+		dbuf_write_run(unc_pixels, clr, count);
+		unc_total += count;
+	}
+
+	dbuf_flush(unc_pixels);
+}
+
+static int has_fastgraph_sig(deark *c)
+{
+	return !dbuf_memcmp(c->infile, 0, (const u8*)"F\0A\0S\0T\0G\0", 10);
+}
+
+static void de_run_fastgraph(deark *c, de_module_params *mparams)
+{
+	struct fastgraph_ctx *d = NULL;
+	dbuf *unc_pixels = NULL;
+	de_bitmap *img = NULL;
+	i64 pos = 0;
+
+	d = de_malloc(c, sizeof(struct fastgraph_ctx));
+
+	if(has_fastgraph_sig(c)) {
+		d->w = 1 + 256*(i64)de_getbyte(18) + (i64)de_getbyte(16);
+		d->h = 1 + 256*(i64)de_getbyte(22) + (i64)de_getbyte(20);
+		pos = 26;
+	}
+	else {
+		de_err(c, "Unsupported file type");
+		goto done;
+	}
+
+	de_info(c, "Note: Fastgraph images are rendered as grayscale. "
+		"Color map unknown.");
+
+	de_dbg_dimensions(c, d->w, d->h);
+	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
+
+	d->max_unc_bytes = d->w * d->h;
+	unc_pixels = dbuf_create_membuf(c, d->max_unc_bytes, 0x1);
+	dbuf_enable_wbuffer(unc_pixels);
+	decompress_fastgraph_8bit(c, d, unc_pixels, pos);
+
+	img = de_bitmap_create(c, d->w, d->h, 1);
+	de_make_grayscale_palette(d->pal, 256, 0);
+	de_convert_image_paletted(unc_pixels, 0, 8, d->w, d->pal, img, 0);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_FLIP_IMAGE);
+
+done:
+	dbuf_close(unc_pixels);
+	de_bitmap_destroy(img);
+	de_free(c, d);
+}
+
+static int de_identify_fastgraph(deark *c)
+{
+	if(has_fastgraph_sig(c)) {
+		return 90;
+	}
+	return 0;
+}
+
+void de_module_fastgraph(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "fastgraph";
+	mi->desc = "Fastgraph PRF";
+	mi->run_fn = de_run_fastgraph;
+	mi->identify_fn = de_identify_fastgraph;
+	mi->flags |= DE_MODFLAG_HIDDEN;
 }
