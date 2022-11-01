@@ -550,8 +550,15 @@ static int do_read_table_entry(deark *c, lctx *d, struct table_entry *te, i64 po
 	te->offset = de_getu32le_p(&pos);
 	de_dbg(c, "offset: %"I64_FMT", size: %"I64_FMT, te->offset, te->size);
 	if(te->offset+te->size > c->infile->len) {
-		de_warn(c, "Table entry goes beyond end of file (type=%s, at %"I64_FMT
-			", size=%"I64_FMT")", te->type_name, te->offset, te->size);
+		if(te->type==0x100) {
+			// A truncated BDF accelerators table is too common to warn about,
+			// and doesn't concern us.
+			de_dbg(c, "[table goes beyond end of file]");
+		}
+		else {
+			de_warn(c, "Table entry goes beyond end of file (type=%s, at %"I64_FMT
+				", size=%"I64_FMT")", te->type_name, te->offset, te->size);
+		}
 	}
 	if(te->offset > c->infile->len) {
 		goto done;
