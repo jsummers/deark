@@ -36,7 +36,8 @@ DE_DECLARE_MODULE(de_module_dgi);
 DE_DECLARE_MODULE(de_module_cdi_imag);
 DE_DECLARE_MODULE(de_module_cserve_rle);
 DE_DECLARE_MODULE(de_module_lotus_mscr);
-DE_DECLARE_MODULE(de_module_fastgraph);
+DE_DECLARE_MODULE(de_module_fastgraph_spr);
+DE_DECLARE_MODULE(de_module_fastgraph_ppr);
 
 #define CODE_FORM 0x464f524dU
 #define CODE_IDAT 0x49444154U
@@ -2417,21 +2418,27 @@ void de_module_lotus_mscr(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
-// Fastgraph PRF
-// Supports only 8-bit files with a header, and only as grayscale.
+// Fastgraph SPR
+// Minimal support.
 // **************************************************************************
 
 struct fastgraph_ctx {
-	i64 w, h;
+	u8 is_ppr;
+	u8 pal_is_set;
+	i64 w, h; // 0 if unknown
+	i64 img_startpos;
 	i64 max_unc_bytes;
 	de_color pal[256];
+	u8 max_color_used;
 };
 
-static void decompress_fastgraph_8bit(deark *c, struct fastgraph_ctx *d,
+static void decompress_fastgraph_spr(deark *c, struct fastgraph_ctx *d,
 	dbuf *unc_pixels, i64 pos1)
 {
 	i64 pos = pos1;
 	i64 unc_total = 0;
+
+	d->max_color_used = 1;
 
 	while(1) {
 		u8 clr;
@@ -2442,72 +2449,215 @@ static void decompress_fastgraph_8bit(deark *c, struct fastgraph_ctx *d,
 
 		clr = de_getbyte_p(&pos);
 		count = (i64)de_getbyte_p(&pos);
-		dbuf_write_run(unc_pixels, clr, count);
+		if(count>0) {
+			if(clr > d->max_color_used) {
+				d->max_color_used = clr;
+			}
+			dbuf_write_run(unc_pixels, clr, count);
+		}
 		unc_total += count;
 	}
 
 	dbuf_flush(unc_pixels);
 }
 
-static int has_fastgraph_sig(deark *c)
+static void decompress_fastgraph_ppr(deark *c, struct fastgraph_ctx *d,
+	dbuf *unc_pixels, i64 pos1)
+{
+	i64 pos = pos1;
+	i64 unc_total = 0;
+
+	d->max_color_used = 1;
+
+	while(1) {
+		u8 b;
+		u8 clr[2];
+		i64 count;
+		UI k;
+
+		if(pos >= c->infile->len) break;
+		if(unc_total >= d->max_unc_bytes) break;
+
+		b = de_getbyte_p(&pos);
+		clr[0] = b>>4;
+		clr[1] = b & 0x0f;
+
+		for(k=0; k<2; k++) {
+			count = (i64)de_getbyte_p(&pos);
+			if(count>0) {
+				if(clr[k] > d->max_color_used) {
+					d->max_color_used = clr[k];
+				}
+				dbuf_write_run(unc_pixels, clr[k], count);
+				unc_total += count;
+			}
+		}
+	}
+
+	dbuf_flush(unc_pixels);
+}
+
+static int has_fastgraph_spr_sig(deark *c)
 {
 	return !dbuf_memcmp(c->infile, 0, (const u8*)"F\0A\0S\0T\0G\0", 10);
 }
 
-static void de_run_fastgraph(deark *c, de_module_params *mparams)
+// Caller sets
+//  d->is_ppr
+//  optional: ->w, or both ->w and ->h
+//  optional: ->pal_is_set and ->pal
+//  optional: ->img_startpos
+static void do_fastgraph_internal(deark *c, struct fastgraph_ctx *d)
 {
-	struct fastgraph_ctx *d = NULL;
 	dbuf *unc_pixels = NULL;
 	de_bitmap *img = NULL;
-	i64 pos = 0;
+	const char *s;
 
-	d = de_malloc(c, sizeof(struct fastgraph_ctx));
-
-	if(has_fastgraph_sig(c)) {
-		d->w = 1 + 256*(i64)de_getbyte(18) + (i64)de_getbyte(16);
-		d->h = 1 + 256*(i64)de_getbyte(22) + (i64)de_getbyte(20);
-		pos = 26;
+	if(d->w==0) {
+		s = de_get_ext_option(c, "width");
+		if(s) {
+			d->w = de_atoi64(s);
+		}
 	}
-	else {
-		de_err(c, "Unsupported file type");
+	if(d->h==0) {
+		s = de_get_ext_option(c, "height");
+		if(s) {
+			d->h = de_atoi64(s);
+		}
+	}
+
+	if(d->w==0) {
+		de_err(c, "Image width unknown. Try \"-opt width=...\".");
 		goto done;
 	}
 
-	de_info(c, "Note: Fastgraph images are rendered as grayscale. "
-		"Color map unknown.");
+	if(d->h>0) {
+		de_dbg_dimensions(c, d->w, d->h);
+	}
+	else {
+		de_dbg(c, "width: %"I64_FMT, d->w);
+	}
 
-	de_dbg_dimensions(c, d->w, d->h);
+	if(d->w<1 || d->w>c->max_image_dimension ||
+		d->h<0 || d->h>c->max_image_dimension)
+	{
+		de_err(c, "Bad image dimensions");
+		goto done;
+	}
+
+	if(d->h==0) {
+		d->max_unc_bytes = DE_MAX_SANE_OBJECT_SIZE;
+		unc_pixels = dbuf_create_membuf(c, 0, 0);
+	}
+	else {
+		d->max_unc_bytes = d->w * d->h;
+		unc_pixels = dbuf_create_membuf(c, d->max_unc_bytes, 0x1);
+	}
+
+	if(d->is_ppr) {
+		decompress_fastgraph_ppr(c, d, unc_pixels, d->img_startpos);
+	}
+	else {
+		decompress_fastgraph_spr(c, d, unc_pixels, d->img_startpos);
+	}
+
+	de_dbg(c, "decompressed %"I64_FMT" pixels", unc_pixels->len);
+	if(d->h==0) {
+		d->h = de_pad_to_n(unc_pixels->len, d->w) / d->w;
+		de_dbg(c, "height: %"I64_FMT, d->h);
+	}
+
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
 
-	d->max_unc_bytes = d->w * d->h;
-	unc_pixels = dbuf_create_membuf(c, d->max_unc_bytes, 0x1);
-	dbuf_enable_wbuffer(unc_pixels);
-	decompress_fastgraph_8bit(c, d, unc_pixels, pos);
+	img = de_bitmap_create(c, d->w, d->h, d->pal_is_set?3:1);
+	if(!d->pal_is_set) {
+		de_info(c, "Note: Color map unknown. Rendering as grayscale.");
+		de_make_grayscale_palette(d->pal, 1+(i64)d->max_color_used, 0);
+	}
 
-	img = de_bitmap_create(c, d->w, d->h, 1);
-	de_make_grayscale_palette(d->pal, 256, 0);
 	de_convert_image_paletted(unc_pixels, 0, 8, d->w, d->pal, img, 0);
-	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_FLIP_IMAGE);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_FLIP_IMAGE |
+		DE_CREATEFLAG_OPT_IMAGE);
 
 done:
 	dbuf_close(unc_pixels);
 	de_bitmap_destroy(img);
+}
+
+static void de_run_fastgraph_spr(deark *c, de_module_params *mparams)
+{
+	struct fastgraph_ctx *d = NULL;
+
+	d = de_malloc(c, sizeof(struct fastgraph_ctx));
+	d->is_ppr = 0;
+
+	if(has_fastgraph_spr_sig(c)) {
+		d->w = 1 + 256*(i64)de_getbyte(18) + (i64)de_getbyte(16);
+		d->h = 1 + 256*(i64)de_getbyte(22) + (i64)de_getbyte(20);
+		d->img_startpos = 26;
+	}
+
+	do_fastgraph_internal(c, d);
+
 	de_free(c, d);
 }
 
-static int de_identify_fastgraph(deark *c)
+static int de_identify_fastgraph_spr(deark *c)
 {
-	if(has_fastgraph_sig(c)) {
+	if(has_fastgraph_spr_sig(c)) {
 		return 90;
 	}
 	return 0;
 }
 
-void de_module_fastgraph(deark *c, struct deark_module_info *mi)
+static void help_fastgraph_common(deark *c)
 {
-	mi->id = "fastgraph";
-	mi->desc = "Fastgraph PRF";
-	mi->run_fn = de_run_fastgraph;
-	mi->identify_fn = de_identify_fastgraph;
+	de_msg(c, "-opt width=<n> : Hint: image width");
+	de_msg(c, "-opt height=<n> : Hint: image height");
+}
+
+static void de_help_fastgraph_spr(deark *c)
+{
+	help_fastgraph_common(c);
+}
+
+void de_module_fastgraph_spr(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "fastgraph_spr";
+	mi->desc = "Fastgraph SPR";
+	mi->run_fn = de_run_fastgraph_spr;
+	mi->identify_fn = de_identify_fastgraph_spr;
+	mi->flags |= DE_MODFLAG_HIDDEN;
+}
+
+// **************************************************************************
+// Fastgraph PPR
+// Minimal support.
+// **************************************************************************
+
+static void de_run_fastgraph_ppr(deark *c, de_module_params *mparams)
+{
+	struct fastgraph_ctx *d = NULL;
+
+	d = de_malloc(c, sizeof(struct fastgraph_ctx));
+	d->is_ppr = 1;
+
+	do_fastgraph_internal(c, d);
+
+	de_free(c, d);
+}
+
+static void de_help_fastgraph_ppr(deark *c)
+{
+	help_fastgraph_common(c);
+}
+
+void de_module_fastgraph_ppr(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "fastgraph_ppr";
+	mi->desc = "Fastgraph PPR";
+	mi->run_fn = de_run_fastgraph_ppr;
+	mi->identify_fn = NULL;
+	mi->help_fn = de_help_fastgraph_ppr;
 	mi->flags |= DE_MODFLAG_HIDDEN;
 }
