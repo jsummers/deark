@@ -40,6 +40,7 @@ struct de_arch_member_data {
 	UI file_flags;
 
 	u8 validate_crc; // Tell de_arch_extract_member_file() to check crc_reported
+	u8 behavior_on_wrong_crc; // 0=error, 1="Not available" warning
 	u8 extracted_ok; // Status returned by de_arch_extract_member_file()
 
 					 // The de_arch_extract_member_file() will temporarily set dcmpri/dcmpro/dres,

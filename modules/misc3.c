@@ -14,6 +14,7 @@ DE_DECLARE_MODULE(de_module_edi_pack);
 DE_DECLARE_MODULE(de_module_qip);
 DE_DECLARE_MODULE(de_module_pcxlib);
 DE_DECLARE_MODULE(de_module_gxlib);
+DE_DECLARE_MODULE(de_module_mdcd);
 
 // **************************************************************************
 // CP Shrink (.cpz)
@@ -1173,4 +1174,217 @@ void de_module_gxlib(deark *c, struct deark_module_info *mi)
 	mi->desc = "GX Library";
 	mi->run_fn = de_run_gxlib;
 	mi->identify_fn = de_identify_gxlib;
+}
+
+// **************************************************************************
+// MDCD
+// **************************************************************************
+
+#define MDCD_MINHEADERLEN 54
+
+static int mdcd_sig_at(deark *c, i64 pos)
+{
+	return !dbuf_memcmp(c->infile, pos, (const void*)"MDmd", 4);
+}
+
+static void mdcd_decompressor_fn(struct de_arch_member_data *md)
+{
+	deark *c = md->c;
+
+	if(md->cmpr_meth==1) {
+		struct de_lzw_params delzwp;
+
+		de_zeromem(&delzwp, sizeof(struct de_lzw_params));
+		delzwp.fmt = DE_LZWFMT_ZOOLZD;
+		fmtutil_decompress_lzw(c, md->dcmpri, md->dcmpro, md->dres, &delzwp);
+	}
+	else if(md->cmpr_meth==0) {
+		fmtutil_decompress_uncompressed(c, md->dcmpri, md->dcmpro, md->dres, 0);
+	}
+	else {
+		de_dfilter_set_generic_error(c, md->dres, NULL);
+	}
+}
+
+// Returns 0 if no member was found at md->member_hdr_pos.
+static int do_mdcd_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *md)
+{
+	i64 pos;
+	i64 s_len;
+	i64 hdrlen;
+	UI attr;
+	int saved_indent_level;
+	int retval = 0;
+	int have_path = 0;
+	u8 hdrtype;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	// Note: For info about the MDCD header format, see MDCD.PAS, near the
+	// "FileHeader = Record" line.
+
+	pos = md->member_hdr_pos;
+	if(!mdcd_sig_at(c, pos)) {
+		if(md->member_hdr_pos==0) {
+			de_err(c, "Not an MDCD file");
+		}
+		else {
+			de_dbg(c, "[member not found at %"I64_FMT"]", pos);
+		}
+		goto done;
+	}
+	pos += 4;
+
+	de_dbg(c, "member at %"I64_FMT, md->member_hdr_pos);
+	de_dbg_indent(c, 1);
+	pos++; // software version?
+	hdrtype = de_getbyte_p(&pos);
+	de_dbg(c, "header type: %u", (UI)hdrtype);
+	if(hdrtype!=1) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	hdrlen = de_getu16le_p(&pos);
+	de_dbg(c, "header len: %"I64_FMT, hdrlen);
+	if(hdrlen<MDCD_MINHEADERLEN) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	pos += 16; // various
+	md->cmpr_meth = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "cmpr. method: %u", md->cmpr_meth);
+	de_arch_read_field_orig_len_p(md, &pos);
+	de_arch_read_field_cmpr_len_p(md, &pos);
+
+	md->cmpr_pos = md->member_hdr_pos + hdrlen;
+	if(!de_arch_good_cmpr_data_pos(md)) {
+		goto done;
+	}
+	md->member_total_size = hdrlen + md->cmpr_len;
+	retval = 1;
+
+	attr = (UI)de_getu16le_p(&pos);
+	de_arch_handle_field_dos_attr(md, attr);
+
+	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		DE_ARCH_TSTYPE_DOS_TD, &pos);
+
+	md->crc_reported = (u32)de_getu16le_p(&pos);
+	de_dbg(c, "crc (reported): 0x%04x", (UI)md->crc_reported);
+
+	s_len = de_getbyte_p(&pos);
+	if(s_len>12) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	md->tmpfn_base = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, s_len, md->tmpfn_base, 0, d->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->tmpfn_base));
+	pos += 12;
+
+	if(hdrlen>=55) {
+		s_len = de_getbyte_p(&pos);
+	}
+	else {
+		s_len = 0;
+	}
+	md->tmpfn_path = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, s_len, md->tmpfn_path, 0, d->input_encoding);
+	de_dbg(c, "path: \"%s\"", ucstring_getpsz_d(md->tmpfn_path));
+
+	// Ignore paths that look like absolute paths. Not sure what to do with them.
+	have_path = ucstring_isnonempty(md->tmpfn_path);
+
+	if(have_path && md->tmpfn_path->len >= 1 && (md->tmpfn_path->str[0]=='\\' ||
+		md->tmpfn_path->str[0]=='/'))
+	{
+		have_path = 0;
+	}
+	if(have_path && md->tmpfn_path->len >= 2 && md->tmpfn_path->str[1]==':') {
+		have_path = 0;
+	}
+
+	if(have_path) {
+		de_arch_fixup_path(md->tmpfn_path, 0);
+		ucstring_append_ucstring(md->filename, md->tmpfn_path);
+		md->set_name_flags |= DE_SNFLAG_FULLPATH;
+	}
+	ucstring_append_ucstring(md->filename, md->tmpfn_base);
+
+	de_dbg(c, "compressed data at %"I64_FMT", len=%"I64_FMT, md->cmpr_pos, md->cmpr_len);
+
+	if(md->cmpr_meth>1) {
+		de_err(c, "Unsupported compression: %u", (UI)md->cmpr_meth);
+		goto done;
+	}
+
+	md->dfn = mdcd_decompressor_fn;
+
+	md->validate_crc = 1;
+	// When extracting, MDCD (1.0) does not validate the CRC of files that were
+	// stored uncompressed. Some files seem to exploit this, and set the CRC to
+	// 0, so we tolerate it with a warning.
+	if(md->crc_reported==0 && md->cmpr_meth==0) {
+		md->behavior_on_wrong_crc = 1;
+	}
+
+	de_arch_extract_member_file(md);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static void de_run_mdcd(deark *c, de_module_params *mparams)
+{
+	de_arch_lctx *d = NULL;
+	i64 pos = 0;
+	struct de_arch_member_data *md = NULL;
+
+	d = de_arch_create_lctx(c);
+	d->is_le = 1;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_XMODEM);
+
+	while(1) {
+		if(pos+MDCD_MINHEADERLEN >= c->infile->len) goto done;
+
+		if(md) {
+			de_arch_destroy_md(c, md);
+			md = NULL;
+		}
+		md = de_arch_create_md(c, d);
+		md->member_hdr_pos = pos;
+		if(!do_mdcd_member(c, d, md)) goto done;
+		if(md->member_total_size<=0) goto done;
+		pos += md->member_total_size;
+	}
+
+done:
+	if(md) {
+		de_arch_destroy_md(c, md);
+	}
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported MDCD file");
+		}
+		de_arch_destroy_lctx(c, d);
+	}
+}
+
+static int de_identify_mdcd(deark *c)
+{
+	if(mdcd_sig_at(c, 0)) {
+		return 91;
+	}
+	return 0;
+}
+
+void de_module_mdcd(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "mdcd";
+	mi->desc = "MDCD archive";
+	mi->run_fn = de_run_mdcd;
+	mi->identify_fn = de_identify_mdcd;
 }

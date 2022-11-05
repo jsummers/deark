@@ -271,8 +271,13 @@ void de_arch_extract_member_file(struct de_arch_member_data *md)
 		crc_calc = de_crcobj_getval(md->d->crco);
 		de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)crc_calc);
 		if(crc_calc!=md->crc_reported) {
-			de_err(c, "%s: CRC check failed", ucstring_getpsz_d(md->filename));
-			goto done;
+			if(md->behavior_on_wrong_crc==1) {
+				de_warn(c, "%s: CRC check not available", ucstring_getpsz_d(md->filename));
+			}
+			else {
+				de_err(c, "%s: CRC check failed", ucstring_getpsz_d(md->filename));
+				goto done;
+			}
 		}
 	}
 
