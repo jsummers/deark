@@ -27,6 +27,7 @@ struct icns_stream_item {
 
 typedef struct localctx_struct {
 	u8 extract_raw;
+	u8 combine_SICN;
 	i64 data_offs, map_offs;
 	i64 data_size, map_size;
 
@@ -317,25 +318,79 @@ done:
 	de_finfo_destroy(c, fi);
 }
 
-// SICN - Small icons - One or more 16x16 images
-static void do_SICN_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
-	struct rsrcinstanceinfo *rii, i64 pos1, i64 len)
+// Write each small icon in an SICN set to an individual file.
+static void do_SICN_resource_1(deark *c, lctx *d, struct rsrctypeinfo *rti,
+	struct rsrcinstanceinfo *rii, i64 pos1, i64 numicons)
 {
 	de_finfo *fi = NULL;
-	i64 numicons;
+	de_bitmap *img = NULL;
 	i64 i;
 
-	numicons = len/32;
 	fi = de_finfo_create(c);
 	set_resource_filename(c, d, fi, rti, rii, NULL);
+	img = de_bitmap_create(c, 16, 16, 1);
+
+	for(i=0; i<numicons; i++) {
+		de_bitmap_rect(img, 0, 0, img->width, img->height, DE_STOCKCOLOR_BLACK, 0);
+		de_convert_image_bilevel(c->infile, pos1+32*i, 2, img, DE_CVTF_WHITEISZERO);
+		de_bitmap_write_to_file_finfo(img, fi, 0);
+	}
+
+	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
+}
+
+// Write all icons in an SICN set to a single "gallery" file.
+static void do_SICN_resource_gallery(deark *c, lctx *d, struct rsrctypeinfo *rti,
+	struct rsrcinstanceinfo *rii, i64 pos1, i64 numicons)
+{
+#define SICN_PER_ROW 16
+	de_finfo *fi = NULL;
+	i64 ncols, nrows;
+	i64 canvas_w, canvas_h;
+	de_bitmap *cnv = NULL;
+	i64 i;
+
+	fi = de_finfo_create(c);
+	set_resource_filename(c, d, fi, rti, rii, "SICN_gallery");
+
+	ncols = (numicons<SICN_PER_ROW) ? numicons : SICN_PER_ROW;
+	nrows = (numicons+SICN_PER_ROW-1) / SICN_PER_ROW;
+	canvas_w = 1 + ncols*17;
+	canvas_h = 1 + nrows*17;
+
+	cnv = de_bitmap_create(c, canvas_w, canvas_h, 3);
+	de_bitmap_rect(cnv, 0, 0, cnv->width, cnv->height, DE_MAKE_RGB(32,32,144), 0);
 
 	for(i=0; i<numicons; i++) {
 		de_bitmap *img = NULL;
 
 		img = de_bitmap_create(c, 16, 16, 1);
 		de_convert_image_bilevel(c->infile, pos1+32*i, 2, img, DE_CVTF_WHITEISZERO);
-		de_bitmap_write_to_file_finfo(img, fi, 0);
+		de_bitmap_copy_rect(img, cnv, 0, 0, 16, 16,
+			1 + 17*(i%SICN_PER_ROW), 1 + 17*(i/SICN_PER_ROW), 0);
 		de_bitmap_destroy(img);
+	}
+
+	de_bitmap_write_to_file_finfo(cnv, fi, 0);
+
+	de_bitmap_destroy(cnv);
+	de_finfo_destroy(c, fi);
+}
+
+// SICN - Small icons - One or more 16x16 images
+static void do_SICN_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
+	struct rsrcinstanceinfo *rii, i64 pos1, i64 len)
+{
+	i64 numicons;
+
+	numicons = len/32;
+	de_dbg(c, "num icons: %"I64_FMT, numicons);
+	if(numicons>1 && d->combine_SICN) {
+		do_SICN_resource_gallery(c, d, rti, rii, pos1, numicons);
+	}
+	else {
+		do_SICN_resource_1(c, d, rti, rii, pos1, numicons);
 	}
 }
 
@@ -357,7 +412,9 @@ static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	i64 pos = dpos;
 	int needmsg = 1;
 	int ok = 0;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	bi_fgcolor = de_malloc(c, sizeof(struct fmtutil_macbitmap_info));
 	bi_mask = de_malloc(c, sizeof(struct fmtutil_macbitmap_info));
 	bi_bw = de_malloc(c, sizeof(struct fmtutil_macbitmap_info));
@@ -472,6 +529,7 @@ done:
 	de_free(c, bi_mask);
 	de_free(c, bi_bw);
 	de_finfo_destroy(c, fi);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static int looks_like_pict(deark *c, lctx *d, struct rsrcinstanceinfo *rii,
@@ -791,6 +849,7 @@ static void de_run_macrsrc(deark *c, de_module_params *mparams)
 	if(de_get_ext_option(c, "macrsrc:extractraw")) {
 		d->extract_raw = 1;
 	}
+	d->combine_SICN = (u8)de_get_ext_option_bool(c, "macrsrc:combinesicn", 0);
 
 	if(c->infile->len<16) {
 		de_err(c, "%sFile too small to be a valid Resource file", d->errmsgprefix);
@@ -835,6 +894,7 @@ static int de_identify_macrsrc(deark *c)
 static void de_help_macrsrc(deark *c)
 {
 	de_msg(c, "-opt macrsrc:extractraw : Extract all resources to files");
+	de_msg(c, "-opt macrsrc:combinesicn : Put 'small icon' sets in a single image");
 }
 
 void de_module_macrsrc(deark *c, struct deark_module_info *mi)

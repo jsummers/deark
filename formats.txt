@@ -1044,6 +1044,7 @@ Deark -- Information about supported formats
   This is the format generally used by Mac resource forks.
   Options
    -opt macrsrc:extractraw - Extract all resources directly to files.
+   -opt macrsrc:combinesicn - Put 'small icon' (SICN) sets in a single image.
 
 * MIDI (module="midi")
   - Files can be parsed, but there is usually nothing that can be extracted
