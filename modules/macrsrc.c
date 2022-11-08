@@ -429,6 +429,15 @@ static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	pos += 10;
 	fmtutil_macbitmap_read_pixmap_only_fields(c, c->infile, bi_fgcolor, pos);
 	pos += 36;
+
+	// Some images have 0 in one or both of these fields.
+	if(bi_fgcolor->cmpcount==0) {
+		bi_fgcolor->cmpcount = 1;
+	}
+	if(bi_fgcolor->cmpsize==0) {
+		bi_fgcolor->cmpsize = bi_fgcolor->pixelsize;
+	}
+
 	de_dbg_indent(c, -1);
 
 	de_dbg(c, "[mask bitmap header]");
@@ -459,6 +468,7 @@ static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	if(bw_exists && !de_good_image_dimensions_noerr(c, bi_bw->npwidth, bi_bw->height)) goto done;
 
 	if(bi_fgcolor->pixeltype!=0) goto done;
+	// TODO: pixsize=8 w/ cmpsize=4 is possibly legal
 	if(bi_fgcolor->pixelsize!=bi_fgcolor->cmpsize) goto done;
 	if(bi_fgcolor->cmpcount!=1) goto done;
 	if(bi_fgcolor->pixelsize!=1 && bi_fgcolor->pixelsize!=2 &&
