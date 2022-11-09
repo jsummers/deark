@@ -21,7 +21,12 @@ struct storyboard_ctx {
 	i64 max_unc_size;
 	i64 attribs_pos;
 	i64 img_endpos;
+
+	i64 nstrips_per_plane;
+	i64 planespan;
+
 	de_color pal[256];
+	de_color paltmp[256];
 };
 
 static int decompress_oldfmt(deark *c, struct storyboard_ctx *d, i64 pos1,
@@ -301,68 +306,161 @@ static void do_decompress_newfmt(deark *c, struct storyboard_ctx *d,
 	}
 }
 
-static void render_newfmt_image_1(deark *c, struct storyboard_ctx *d, dbuf *unc_data,
-	de_bitmap *img)
+static void do_newfmt_render_planar(deark *c, struct storyboard_ctx *d,
+	dbuf *unc_data, de_bitmap *img)
 {
-	i64 nstrips_per_plane;
-	i64 planespan;
 	i64 n;
+#define SBPIC_MAXPLANES 4
+	u8 pbit[SBPIC_MAXPLANES];
 
-	nstrips_per_plane = de_pad_to_n(d->width, 8) / 8;
-	planespan = nstrips_per_plane * d->height;
+	de_zeromem(pbit, sizeof(pbit));
 
-	for(n=0; n<planespan; n++) {
-		u8 x0, x1;
+	for(n=0; n<d->planespan; n++) {
 		UI k;
+		UI pn;
 		i64 xpos, ypos;
 
-		x0 = dbuf_getbyte(unc_data, n);
-		x1 = dbuf_getbyte(unc_data, planespan+n);
+		for(pn=0; pn<(UI)d->bpp; pn++) {
+			pbit[pn] = dbuf_getbyte(unc_data, pn*d->planespan + n);
+		}
+
 		ypos = n%d->height;
 		for(k=0; k<8; k++) {
-			UI b0, b1;
+			UI palent;
 
 			xpos = 8*(n/d->height) + (i64)(7-k);
-			b0 = (x0 & (1U<<k)) ? 0 : 1;
-			b1 = (x1 & (1U<<k)) ? 0 : 1;
-			de_bitmap_setpixel_rgb(img, xpos, ypos, d->pal[(b0<<1)|b1]);
+			palent = 0;
+			for(pn=0; pn<(UI)d->bpp; pn++) {
+				if((pbit[pn] & (1U<<k))!=0) {
+					palent |= 1U<<pn;
+				}
+			}
+
+			de_bitmap_setpixel_rgb(img, xpos, ypos, d->pal[palent]);
 		}
 	}
 }
 
-// Support for "new" format is highly experimental. I don't know what any of
-// the first 2048 bytes in the file are for.
-static void de_run_storyboard_newfmt(deark *c, struct storyboard_ctx *d,
-	de_module_params *mparams)
+static void do_storyboard_main(deark *c, struct storyboard_ctx *d)
 {
 	dbuf *unc_data = NULL;
 	de_bitmap *img = NULL;
 	de_finfo *fi = NULL;
+	i64 max_unc_size;
+	UI i;
+	char tmps[32];
+	// I can't figure out how the image bits are mapped to palette indices.
+	// These maps make no sense to me, but it's one way to do it.
+	static const u8 palmap_cga[4] = { 3, 1, 2, 0 };
+	static const u8 palmap_ega[16] = {
+		0, 11,  6,  4, 13, 15,  2, 9, 8,  3, 14, 12,  5,  7, 10, 1 };
+	static const u8 palmap_16[16] = {
+		0, 11, 13, 15,  6,  4,  2, 9, 8,  3,  5,  7, 14, 12, 10, 1 };
 
-	d->width = 320;
-	d->height = 200;
-	d->bpp = 2;
+	if(d->bpp==2) {
+		de_copy_std_palette(DE_PALID_CGA, 3, 0, 4, d->paltmp, 4, 0);
+		for(i=0; i<4; i++) {
+			d->pal[i] = d->paltmp[(UI)palmap_cga[i]];
+		}
+	}
+	else if(d->bpp==4) {
+		for(i=0; i<16; i++) {
+			int idx;
 
-	de_copy_std_palette(DE_PALID_CGA, 3, 0, 4, d->pal, 4, 0);
+			idx = (int)de_getbyte(13+(i64)i);
+			if(idx==6 && d->height==200) {
+				// ?? hack - dark yellow vs. brown issue
+				d->paltmp[i] = de_get_std_palette_entry(DE_PALID_EGA64, 0, 20);
+			}//
+			else {
+				d->paltmp[i] = de_get_std_palette_entry(DE_PALID_EGA64, 0, idx);
+			}
+			de_snprintf(tmps, sizeof(tmps), "%2d ", (int)idx);
+			de_dbg_pal_entry2(c, i, d->paltmp[i], tmps, NULL, NULL);
+		}
+		for(i=0; i<16; i++) {
+			if(d->height==200) {
+				d->pal[i] = d->paltmp[(UI)palmap_16[i]];
+			}
+			else {
+				d->pal[i] = d->paltmp[(UI)palmap_ega[i]];
+			}
+		}
+	}
 
-	unc_data = dbuf_create_membuf(c, 16000, 0x1);
+	if(d->bpp<8) {
+		d->nstrips_per_plane = de_pad_to_n(d->width, 8) / 8;
+		d->planespan = d->nstrips_per_plane * d->height;
+		max_unc_size = d->planespan*d->bpp;
+	}
+	else {
+		max_unc_size = d->width * d->height * (d->bpp/8);
+	}
+
+	unc_data = dbuf_create_membuf(c, max_unc_size, 0x1);
 	dbuf_enable_wbuffer(unc_data);
 
 	do_decompress_newfmt(c, d, unc_data);
 	dbuf_flush(unc_data);
 
 	fi = de_finfo_create(c);
-	fi->density.code = DE_DENSITY_UNK_UNITS;
-	fi->density.xdens = 6.0;
-	fi->density.ydens = 5.0;
-
 	img = de_bitmap_create(c, d->width, d->height, 3);
-	// TODO: There are other types of images; at least, images captured by Picture
-	// Taker are different.
-	render_newfmt_image_1(c, d, unc_data, img);
+
+	do_newfmt_render_planar(c, d, unc_data, img);
+
+	if(d->width==320 && d->height==200) {
+		fi->density.code = DE_DENSITY_UNK_UNITS;
+		fi->density.xdens = 6.0;
+		fi->density.ydens = 5.0;
+	}
+	else if(d->width==640 && d->height!=480) {
+		fi->density.code = DE_DENSITY_UNK_UNITS;
+		fi->density.xdens = 480.0;
+		fi->density.ydens = (double)d->height;
+	}
+
 	de_bitmap_write_to_file_finfo(img, fi, 0);
 
 	dbuf_close(unc_data);
+	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
+}
+
+// Support for "new" format is highly experimental. I don't know what most of
+// the first 2048 bytes in the file are for.
+static void de_run_storyboard_newfmt(deark *c, struct storyboard_ctx *d,
+	de_module_params *mparams)
+{
+	u8 hdrbytes[4];
+
+	dbuf_read(c->infile, hdrbytes, 0, sizeof(hdrbytes));
+	if(hdrbytes[1]==0x84 && hdrbytes[3]==0x08) {
+		d->width = 320;
+		d->height = 200;
+		d->bpp = 2;
+		do_storyboard_main(c, d);
+	}
+	else if(hdrbytes[1]==0x84 && hdrbytes[3]==0x01) {
+		d->width = 640;
+		d->height = 200;
+		d->bpp = 4;
+		do_storyboard_main(c, d);
+	}
+	else if(hdrbytes[1]==0x84 && hdrbytes[3]==0x03) {
+		d->width = 640;
+		d->height = 350;
+		d->bpp = 4;
+		do_storyboard_main(c, d);
+	}
+	else if(hdrbytes[1]==0x84 && hdrbytes[3]==0x07) {
+		d->width = 640;
+		d->height = 480;
+		d->bpp = 4;
+		do_storyboard_main(c, d);
+	}
+	else {
+		de_err(c, "Not a supported Storyboard format");
+	}
 }
 
 static void de_run_storyboard(deark *c, de_module_params *mparams)
@@ -394,8 +492,26 @@ static void de_run_storyboard(deark *c, de_module_params *mparams)
 
 static int de_identify_storyboard(deark *c)
 {
-	if(!dbuf_memcmp(c->infile, 0, "EP_CAP", 6)) {
+	u8 b[6];
+
+	de_read(b, 0, sizeof(b));
+
+	if(!de_memcmp(b, (const void*)"EP_CAP", 6)) {
 		return 100;
+	}
+
+	if(c->infile->len<2048) return 0;
+	if(b[2]==0xc1 && b[0]==0x00) {
+		if(b[1]==0x84) {
+			if(b[3]==0x01 || b[3]==0x03 || b[3]==0x07 || b[3]==0x08) {
+				return 80;
+			}
+		}
+		else if(b[1]==0x85 || b[2]==0x86) {
+			// We don't support these 256-color modes yet, so it doesn't
+			// matter much if we identify them.
+			return 7;
+		}
 	}
 	return 0;
 }
@@ -403,7 +519,7 @@ static int de_identify_storyboard(deark *c)
 void de_module_storyboard(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "storyboard";
-	mi->desc = "Storyboard PIC/CAP (old format)";
+	mi->desc = "Storyboard PIC/CAP";
 	mi->run_fn = de_run_storyboard;
 	mi->identify_fn = de_identify_storyboard;
 }
