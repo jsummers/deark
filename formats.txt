@@ -514,8 +514,7 @@ Deark -- Information about supported formats
    -opt atari:palbits=<n> (refer to readme.md)
 
 * Storyboard PIC/CAP (module="storyboard") (experimental)
-  - The old format from IBM PC Storyboard is supported.
-  - New format is partially supported.
+  - Old ("EP_CAP") and new formats are mostly supported.
 
 * STOS Memory Bank (.mbk) (module="stos")
   - Decode "sprite bank" images

@@ -284,8 +284,15 @@ done:
 static void do_decompress_newfmt(deark *c, struct storyboard_ctx *d,
 	dbuf *outf)
 {
-	i64 pos = 2048;
+	i64 pos;
 	i64 endpos = c->infile->len;
+
+	if(d->bpp==8) {
+		pos = 1856;
+	}
+	else {
+		pos = 2048;
+	}
 
 	while(1) {
 		i64 count;
@@ -341,7 +348,31 @@ static void do_newfmt_render_planar(deark *c, struct storyboard_ctx *d,
 	}
 }
 
-static void do_storyboard_main(deark *c, struct storyboard_ctx *d)
+static void newfmt_readpal256(deark *c, struct storyboard_ctx *d)
+{
+	i64 pos = 128;
+	u8 cr1, cg1, cb1;
+	u8 cr2, cg2, cb2;
+	i64 k;
+	char tmps[64];
+
+	for(k=0; k<256; k++) {
+		cr1 = de_getbyte(pos);
+		cg1 = de_getbyte(pos+256);
+		cb1 = de_getbyte(pos+512);
+		pos++;
+
+		cr2 = de_scale_63_to_255(cr1);
+		cg2 = de_scale_63_to_255(cg1);
+		cb2 = de_scale_63_to_255(cb1);
+		d->pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
+		de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) "DE_CHAR_RIGHTARROW" ",
+			(int)cr1, (int)cg1, (int)cb1);
+		de_dbg_pal_entry2(c, k, d->pal[k], tmps, NULL, NULL);
+	}
+}
+
+static void do_newfmt_main(deark *c, struct storyboard_ctx *d)
 {
 	dbuf *unc_data = NULL;
 	de_bitmap *img = NULL;
@@ -356,6 +387,9 @@ static void do_storyboard_main(deark *c, struct storyboard_ctx *d)
 		0, 11,  6,  4, 13, 15,  2, 9, 8,  3, 14, 12,  5,  7, 10, 1 };
 	static const u8 palmap_16[16] = {
 		0, 11, 13, 15,  6,  4,  2, 9, 8,  3,  5,  7, 14, 12, 10, 1 };
+
+	de_dbg_dimensions(c, d->width, d->height);
+	de_dbg(c, "colors: %u", (UI)(1U<<d->bpp));
 
 	if(d->bpp==2) {
 		de_copy_std_palette(DE_PALID_CGA, 3, 0, 4, d->paltmp, 4, 0);
@@ -387,6 +421,9 @@ static void do_storyboard_main(deark *c, struct storyboard_ctx *d)
 			}
 		}
 	}
+	else if(d->bpp==8) {
+		newfmt_readpal256(c, d);
+	}
 
 	if(d->bpp<8) {
 		d->nstrips_per_plane = de_pad_to_n(d->width, 8) / 8;
@@ -406,7 +443,12 @@ static void do_storyboard_main(deark *c, struct storyboard_ctx *d)
 	fi = de_finfo_create(c);
 	img = de_bitmap_create(c, d->width, d->height, 3);
 
-	do_newfmt_render_planar(c, d, unc_data, img);
+	if(d->bpp<8) {
+		do_newfmt_render_planar(c, d, unc_data, img);
+	}
+	else {
+		de_convert_image_paletted(unc_data, 0, 8, d->width, d->pal, img, 0);
+	}
 
 	if(d->width==320 && d->height==200) {
 		fi->density.code = DE_DENSITY_UNK_UNITS;
@@ -438,25 +480,37 @@ static void de_run_storyboard_newfmt(deark *c, struct storyboard_ctx *d,
 		d->width = 320;
 		d->height = 200;
 		d->bpp = 2;
-		do_storyboard_main(c, d);
+		do_newfmt_main(c, d);
 	}
 	else if(hdrbytes[1]==0x84 && hdrbytes[3]==0x01) {
 		d->width = 640;
 		d->height = 200;
 		d->bpp = 4;
-		do_storyboard_main(c, d);
+		do_newfmt_main(c, d);
 	}
 	else if(hdrbytes[1]==0x84 && hdrbytes[3]==0x03) {
 		d->width = 640;
 		d->height = 350;
 		d->bpp = 4;
-		do_storyboard_main(c, d);
+		do_newfmt_main(c, d);
 	}
 	else if(hdrbytes[1]==0x84 && hdrbytes[3]==0x07) {
 		d->width = 640;
 		d->height = 480;
 		d->bpp = 4;
-		do_storyboard_main(c, d);
+		do_newfmt_main(c, d);
+	}
+	else if(hdrbytes[1]==0x85) {
+		d->width = 320;
+		d->height = 200;
+		d->bpp = 8;
+		do_newfmt_main(c, d);
+	}
+	else if(hdrbytes[1]==0x86) { // Untested
+		d->width = 640;
+		d->height = 480;
+		d->bpp = 8;
+		do_newfmt_main(c, d);
 	}
 	else {
 		de_err(c, "Not a supported Storyboard format");
@@ -473,9 +527,11 @@ static void de_run_storyboard(deark *c, de_module_params *mparams)
 
 	b = de_getbyte(2);
 	if(b=='_') {
+		de_declare_fmt(c, "Storyboard picture (old)");
 		de_run_storyboard_oldfmt(c, d, mparams);
 	}
 	else if(b==0xc1) {
+		de_declare_fmt(c, "Storyboard picture (new)");
 		de_run_storyboard_newfmt(c, d, mparams);
 	}
 	else {
@@ -493,6 +549,7 @@ static void de_run_storyboard(deark *c, de_module_params *mparams)
 static int de_identify_storyboard(deark *c)
 {
 	u8 b[6];
+	int has_ext;
 
 	de_read(b, 0, sizeof(b));
 
@@ -500,19 +557,22 @@ static int de_identify_storyboard(deark *c)
 		return 100;
 	}
 
-	if(c->infile->len<2048) return 0;
-	if(b[2]==0xc1 && b[0]==0x00) {
-		if(b[1]==0x84) {
-			if(b[3]==0x01 || b[3]==0x03 || b[3]==0x07 || b[3]==0x08) {
-				return 80;
-			}
-		}
-		else if(b[1]==0x85 || b[2]==0x86) {
-			// We don't support these 256-color modes yet, so it doesn't
-			// matter much if we identify them.
-			return 7;
+	if(c->infile->len<1856) return 0;
+	if(b[2]!=0xc1) return 0;
+	if(b[0]!=0x00) return 0;
+
+	has_ext = de_input_file_has_ext(c, "pic") ||
+		de_input_file_has_ext(c, "cap");
+
+	if(b[1]==0x84) {
+		if(b[3]==0x01 || b[3]==0x03 || b[3]==0x07 || b[3]==0x08) {
+			return has_ext ? 90 : 50;
 		}
 	}
+	else if(b[1]==0x85 || b[2]==0x86) {
+		return has_ext ? 51 : 11;
+	}
+
 	return 0;
 }
 
