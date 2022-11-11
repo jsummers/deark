@@ -22,9 +22,11 @@ struct storyboard_ctx {
 	i64 attribs_pos;
 	i64 img_endpos;
 
+	i64 sm_width, sm_height; // target screen mode
 	i64 nstrips_per_plane;
 	i64 planespan;
 
+	i64 pixels_start;
 	de_color pal[256];
 	de_color paltmp[256];
 };
@@ -281,14 +283,15 @@ done:
 	;
 }
 
-static void do_decompress_newfmt(deark *c, struct storyboard_ctx *d,
+static int do_decompress_newfmt(deark *c, struct storyboard_ctx *d,
 	dbuf *outf)
 {
 	i64 pos;
+	int failure_flag = 0;
 	i64 endpos = c->infile->len;
 
-	if(d->bpp==8) {
-		pos = 1856;
+	if(d->pixels_start>0) {
+		pos = d->pixels_start;
 	}
 	else {
 		pos = 2048;
@@ -297,20 +300,54 @@ static void do_decompress_newfmt(deark *c, struct storyboard_ctx *d,
 	while(1) {
 		i64 count;
 		u8 b, b2;
+		u8 uflag = 0;
+		u8 rflag = 0;
 
 		if(pos>=endpos) break;
 
 		b = de_getbyte_p(&pos);
-		count = (i64)(b & 0x7f);
-		if(b & 0x80) { // compressed run
+
+		if(b==0x00) {
+			goto done;
+		}
+		else if(b>=0x01 && b<=0x7d) {
+			uflag = 1;
+			count = (i64)(b & 0x7f);
+		}
+		else if(b==0x7f) {
+			uflag = 1;
+			count = de_getu16le_p(&pos);
+		}
+		else if(b>=0x81 && b<=0xfd) {
+			rflag = 1;
+			count = (i64)(b & 0x7f);
+		}
+		// TODO: 0xfe occurs in 640x480x256 files, and seems be followed by a
+		// 1-byte pixel count, but I can't figure it all out, and the
+		// decompressed image is still mostly garbage.
+		else if(b==0xff) {
+			rflag = 1;
+			count = de_getu16le_p(&pos);
+		}
+		else {
+			de_err(c, "Decompression failed: Unsupported opcode 0x%02x at %"I64_FMT,
+				(UI)b, pos-1);
+			failure_flag = 1;
+			goto done;
+		}
+
+		if(rflag) { // compressed run
 			b2 = de_getbyte_p(&pos);
 			dbuf_write_run(outf, b2, count);
 		}
-		else { // uncompressed run
+		else if(uflag) { // uncompressed run
 			dbuf_copy(c->infile, pos, count, outf);
 			pos += count;
 		}
 	}
+
+done:
+	return !failure_flag;
 }
 
 static void do_newfmt_render_planar(deark *c, struct storyboard_ctx *d,
@@ -377,7 +414,6 @@ static void do_newfmt_main(deark *c, struct storyboard_ctx *d)
 	dbuf *unc_data = NULL;
 	de_bitmap *img = NULL;
 	de_finfo *fi = NULL;
-	i64 max_unc_size;
 	UI i;
 	char tmps[32];
 	// I can't figure out how the image bits are mapped to palette indices.
@@ -388,8 +424,14 @@ static void do_newfmt_main(deark *c, struct storyboard_ctx *d)
 	static const u8 palmap_16[16] = {
 		0, 11, 13, 15,  6,  4,  2, 9, 8,  3,  5,  7, 14, 12, 10, 1 };
 
+	de_dbg(c, "screen mode: %u"DE_CHAR_TIMES"%u %u-color", (UI)d->sm_width,
+		(UI)d->sm_height, (UI)(1U<<d->bpp));
+	// The SHOWPIC utility from SB-Live ignores the reported dimensions, but
+	// the Picture Maker utility respects them.
+	d->width = de_getu16le(5);
+	d->height = de_getu16le(7);
 	de_dbg_dimensions(c, d->width, d->height);
-	de_dbg(c, "colors: %u", (UI)(1U<<d->bpp));
+	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
 	if(d->bpp==2) {
 		de_copy_std_palette(DE_PALID_CGA, 3, 0, 4, d->paltmp, 4, 0);
@@ -399,21 +441,21 @@ static void do_newfmt_main(deark *c, struct storyboard_ctx *d)
 	}
 	else if(d->bpp==4) {
 		for(i=0; i<16; i++) {
-			int idx;
+			int idx, idx_adj;
 
 			idx = (int)de_getbyte(13+(i64)i);
-			if(idx==6 && d->height==200) {
-				// ?? hack - dark yellow vs. brown issue
-				d->paltmp[i] = de_get_std_palette_entry(DE_PALID_EGA64, 0, 20);
-			}//
-			else {
-				d->paltmp[i] = de_get_std_palette_entry(DE_PALID_EGA64, 0, idx);
+			if(idx==6 && d->sm_height==200) {
+				idx_adj = 20; // ?? hack - dark yellow vs. brown issue
 			}
+			else {
+				idx_adj = idx;
+			}
+			d->paltmp[i] = de_get_std_palette_entry(DE_PALID_EGA64, 0, idx_adj);
 			de_snprintf(tmps, sizeof(tmps), "%2d ", (int)idx);
 			de_dbg_pal_entry2(c, i, d->paltmp[i], tmps, NULL, NULL);
 		}
 		for(i=0; i<16; i++) {
-			if(d->height==200) {
+			if(d->sm_height==200) {
 				d->pal[i] = d->paltmp[(UI)palmap_16[i]];
 			}
 			else {
@@ -428,16 +470,16 @@ static void do_newfmt_main(deark *c, struct storyboard_ctx *d)
 	if(d->bpp<8) {
 		d->nstrips_per_plane = de_pad_to_n(d->width, 8) / 8;
 		d->planespan = d->nstrips_per_plane * d->height;
-		max_unc_size = d->planespan*d->bpp;
+		d->max_unc_size = d->planespan*d->bpp;
 	}
 	else {
-		max_unc_size = d->width * d->height * (d->bpp/8);
+		d->max_unc_size = d->width * d->height * (d->bpp/8);
 	}
 
-	unc_data = dbuf_create_membuf(c, max_unc_size, 0x1);
+	unc_data = dbuf_create_membuf(c, d->max_unc_size, 0x1);
 	dbuf_enable_wbuffer(unc_data);
 
-	do_decompress_newfmt(c, d, unc_data);
+	if(!do_decompress_newfmt(c, d, unc_data)) goto done;
 	dbuf_flush(unc_data);
 
 	fi = de_finfo_create(c);
@@ -450,19 +492,20 @@ static void do_newfmt_main(deark *c, struct storyboard_ctx *d)
 		de_convert_image_paletted(unc_data, 0, 8, d->width, d->pal, img, 0);
 	}
 
-	if(d->width==320 && d->height==200) {
+	if(d->sm_width==320 && d->sm_height==200) {
 		fi->density.code = DE_DENSITY_UNK_UNITS;
 		fi->density.xdens = 6.0;
 		fi->density.ydens = 5.0;
 	}
-	else if(d->width==640 && d->height!=480) {
+	else if(d->sm_width==640 && d->sm_height!=480) {
 		fi->density.code = DE_DENSITY_UNK_UNITS;
 		fi->density.xdens = 480.0;
-		fi->density.ydens = (double)d->height;
+		fi->density.ydens = (double)d->sm_height;
 	}
 
 	de_bitmap_write_to_file_finfo(img, fi, 0);
 
+done:
 	dbuf_close(unc_data);
 	de_bitmap_destroy(img);
 	de_finfo_destroy(c, fi);
@@ -476,40 +519,41 @@ static void de_run_storyboard_newfmt(deark *c, struct storyboard_ctx *d,
 	u8 hdrbytes[4];
 
 	dbuf_read(c->infile, hdrbytes, 0, sizeof(hdrbytes));
+
 	if(hdrbytes[1]==0x84 && hdrbytes[3]==0x08) {
-		d->width = 320;
-		d->height = 200;
+		d->sm_width = 320;
+		d->sm_height = 200;
 		d->bpp = 2;
-		do_newfmt_main(c, d);
 	}
 	else if(hdrbytes[1]==0x84 && hdrbytes[3]==0x01) {
-		d->width = 640;
-		d->height = 200;
+		d->sm_width = 640;
+		d->sm_height = 200;
 		d->bpp = 4;
-		do_newfmt_main(c, d);
 	}
 	else if(hdrbytes[1]==0x84 && hdrbytes[3]==0x03) {
-		d->width = 640;
-		d->height = 350;
+		d->sm_width = 640;
+		d->sm_height = 350;
 		d->bpp = 4;
-		do_newfmt_main(c, d);
 	}
 	else if(hdrbytes[1]==0x84 && hdrbytes[3]==0x07) {
-		d->width = 640;
-		d->height = 480;
+		d->sm_width = 640;
+		d->sm_height = 480;
 		d->bpp = 4;
-		do_newfmt_main(c, d);
 	}
 	else if(hdrbytes[1]==0x85) {
-		d->width = 320;
-		d->height = 200;
+		d->sm_width = 320;
+		d->sm_height = 200;
 		d->bpp = 8;
-		do_newfmt_main(c, d);
+		d->pixels_start = 1856;
 	}
-	else if(hdrbytes[1]==0x86) { // Untested
-		d->width = 640;
-		d->height = 480;
+	else if(hdrbytes[1]==0x86) {
+		d->sm_width = 640;
+		d->sm_height = 480;
 		d->bpp = 8;
+		d->pixels_start = 2816;
+	}
+
+	if(d->sm_width>0) {
 		do_newfmt_main(c, d);
 	}
 	else {
@@ -559,7 +603,7 @@ static int de_identify_storyboard(deark *c)
 
 	if(c->infile->len<1856) return 0;
 	if(b[2]!=0xc1) return 0;
-	if(b[0]!=0x00) return 0;
+	if(b[0]!=0x00 && b[0]!=0x54) return 0;
 
 	has_ext = de_input_file_has_ext(c, "pic") ||
 		de_input_file_has_ext(c, "cap");
@@ -569,7 +613,7 @@ static int de_identify_storyboard(deark *c)
 			return has_ext ? 90 : 50;
 		}
 	}
-	else if(b[1]==0x85 || b[2]==0x86) {
+	else if(b[1]==0x85 || b[1]==0x86) {
 		return has_ext ? 51 : 11;
 	}
 
