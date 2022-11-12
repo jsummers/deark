@@ -27,6 +27,7 @@ struct storyboard_ctx {
 	i64 planespan;
 
 	i64 pixels_start;
+	u8 cmpr_meth; // 1 to enable "long" codes
 	de_color pal[256];
 	de_color paltmp[256];
 };
@@ -283,12 +284,37 @@ done:
 	;
 }
 
+static int newfmt_copy_from_prev_row(deark *c, struct storyboard_ctx *d,
+	dbuf *outf, i64 count)
+{
+	dbuf_flush(outf);
+	if(count > d->width) return 0;
+	dbuf_copy(outf, outf->len - d->width, count, outf);
+	return 1;
+}
+
 static int do_decompress_newfmt(deark *c, struct storyboard_ctx *d,
 	dbuf *outf)
 {
-	i64 pos;
+	i64 pos = 0;
+	i64 ntotal = 0;
 	int failure_flag = 0;
+	u8 max_ucode, max_rcode;
 	i64 endpos = c->infile->len;
+
+	// There seem to be two compression schemes, one of which supports
+	// "long" codes and other things.
+	// I don't know how to decide which one to use -- maybe long codes
+	// are only used by 640x480x256 files?
+
+	if(d->cmpr_meth==1) {
+		max_ucode = 0x7e;
+		max_rcode = 0xfc;
+	}
+	else {
+		max_ucode = 0x7f;
+		max_rcode = 0xff;
+	}
 
 	if(d->pixels_start>0) {
 		pos = d->pixels_start;
@@ -302,15 +328,21 @@ static int do_decompress_newfmt(deark *c, struct storyboard_ctx *d,
 		u8 b, b2;
 		u8 uflag = 0;
 		u8 rflag = 0;
+		u8 cflag = 0;
 
+		if(ntotal >= d->max_unc_size) break;
 		if(pos>=endpos) break;
 
 		b = de_getbyte_p(&pos);
 
 		if(b==0x00) {
-			goto done;
+			// I don't know if 0x00 is legal, but it seems to (?) disable compression
+			// for the rest of the file.
+			uflag = 1;
+			count = endpos - pos;
+			if(count<0) count = 0;
 		}
-		else if(b>=0x01 && b<=0x7d) {
+		else if(b>=0x01 && b<=max_ucode) {
 			uflag = 1;
 			count = (i64)(b & 0x7f);
 		}
@@ -318,20 +350,24 @@ static int do_decompress_newfmt(deark *c, struct storyboard_ctx *d,
 			uflag = 1;
 			count = de_getu16le_p(&pos);
 		}
-		else if(b>=0x81 && b<=0xfd) {
+		else if(b>=0x81 && b<=max_rcode) {
 			rflag = 1;
 			count = (i64)(b & 0x7f);
 		}
-		// TODO: 0xfe occurs in 640x480x256 files, and seems be followed by a
-		// 1-byte pixel count, but I can't figure it all out, and the
-		// decompressed image is still mostly garbage.
+		else if(b==0xfd) {
+			cflag = 1;
+			count = de_getu16le_p(&pos);
+		}
+		else if(b==0xfe) {
+			cflag = 1;
+			count = de_getbyte_p(&pos);
+		}
 		else if(b==0xff) {
 			rflag = 1;
 			count = de_getu16le_p(&pos);
 		}
 		else {
-			de_err(c, "Decompression failed: Unsupported opcode 0x%02x at %"I64_FMT,
-				(UI)b, pos-1);
+			d->need_errmsg = 1;
 			failure_flag = 1;
 			goto done;
 		}
@@ -339,14 +375,27 @@ static int do_decompress_newfmt(deark *c, struct storyboard_ctx *d,
 		if(rflag) { // compressed run
 			b2 = de_getbyte_p(&pos);
 			dbuf_write_run(outf, b2, count);
+			ntotal += count;
 		}
 		else if(uflag) { // uncompressed run
 			dbuf_copy(c->infile, pos, count, outf);
 			pos += count;
+			ntotal += count;
+		}
+		else if(cflag) {
+			if(!newfmt_copy_from_prev_row(c, d, outf, count)) {
+				failure_flag = 1;
+				d->need_errmsg = 1;
+				goto done;
+			}
 		}
 	}
 
 done:
+	if(d->need_errmsg) {
+		de_err(c, "Decompression failed (near %"I64_FMT")", pos);
+		d->need_errmsg = 0;
+	}
 	return !failure_flag;
 }
 
@@ -551,6 +600,7 @@ static void de_run_storyboard_newfmt(deark *c, struct storyboard_ctx *d,
 		d->sm_height = 480;
 		d->bpp = 8;
 		d->pixels_start = 2816;
+		d->cmpr_meth = 1;
 	}
 
 	if(d->sm_width>0) {
