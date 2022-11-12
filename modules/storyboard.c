@@ -483,7 +483,19 @@ static void do_newfmt_main(deark *c, struct storyboard_ctx *d)
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
 	if(d->bpp==2) {
-		de_copy_std_palette(DE_PALID_CGA, 3, 0, 4, d->paltmp, 4, 0);
+		u8 x;
+		u8 bg;
+
+		x = de_getbyte(13) & 0x0f;
+		if(x==0x06) {
+			de_copy_std_palette(DE_PALID_CGA, 4, 0, 4, d->paltmp, 4, 0);
+		}
+		else {
+			de_copy_std_palette(DE_PALID_CGA, 3, 0, 4, d->paltmp, 4, 0);
+		}
+		bg = de_getbyte(14) & 0x0f;
+		d->paltmp[0] = de_get_std_palette_entry(DE_PALID_PC16, 0, (int)bg);
+
 		for(i=0; i<4; i++) {
 			d->pal[i] = d->paltmp[(UI)palmap_cga[i]];
 		}
