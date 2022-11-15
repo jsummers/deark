@@ -121,7 +121,13 @@ static int do_clb_item(deark *c, struct clb_ctx *d, i64 pos1)
 		de_dbg(c, "bitmap at %"I64_FMT, pos);
 		de_dbg_indent(c, 1);
 		fi = de_finfo_create(c);
-		ucstring_append_sz(name, ".preview", DE_ENCODING_LATIN1);
+		if(c->filenames_from_file) {
+			ucstring_append_char(name, '.');
+		}
+		else {
+			ucstring_empty(name);
+		}
+		ucstring_append_sz(name, "preview", DE_ENCODING_LATIN1);
 		de_finfo_set_name_from_ucstring(c, fi, name, 0);
 
 		mparams2 = de_malloc(c, sizeof(de_module_params));
