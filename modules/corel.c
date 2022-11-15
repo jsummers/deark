@@ -82,10 +82,12 @@ static int do_clb_item(deark *c, struct clb_ctx *d, i64 pos1)
 	i64 imglen;
 	i64 n;
 	de_ucstring *name = NULL;
+	de_ucstring *tmps = NULL;
 	de_finfo *fi = NULL;
 	int retval = 0;
 	int saved_indent_level;
 	int bitmap_ok = 1;
+	u8 need_errmsg = 0;
 	de_module_params *mparams2 = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -93,7 +95,10 @@ static int do_clb_item(deark *c, struct clb_ctx *d, i64 pos1)
 	de_dbg_indent(c, 1);
 
 	nlen = de_getu16le_p(&pos);
-	if(nlen<1 || nlen>63) goto done;
+	if(nlen<1 || nlen>63) {
+		need_errmsg = 1;
+		goto done;
+	}
 	name = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, nlen, name, DE_CONVFLAG_STOP_AT_NUL,
 		d->input_encoding);
@@ -128,8 +133,17 @@ static int do_clb_item(deark *c, struct clb_ctx *d, i64 pos1)
 
 	pos += imglen;
 
-	// There are 9 bytes after the bitmap.
-	pos += 5; // ?
+	n = de_getu32le_p(&pos);
+	if(pos+n > c->infile->len) {
+		need_errmsg = 1;
+		goto done;
+	}
+	tmps = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pos, n, DE_DBG_MAX_STRLEN, tmps,
+		DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+	de_dbg(c, "keywords: \"%s\"", ucstring_getpsz_d(tmps));
+	pos += n;
+
 	n = de_getu32le_p(&pos);
 	// This is a reference to the original file from which this preview was derived
 	// (should be in the companion .CLH file).
@@ -138,9 +152,13 @@ static int do_clb_item(deark *c, struct clb_ctx *d, i64 pos1)
 	d->bytes_consumed = pos-pos1;
 	retval = 1;
 done:
+	if(need_errmsg) {
+		de_err(c, "Failed to parse item at %"I64_FMT, pos1);
+	}
 	de_free(c, mparams2);
 	de_finfo_destroy(c, fi);
 	ucstring_destroy(name);
+	ucstring_destroy(tmps);
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
