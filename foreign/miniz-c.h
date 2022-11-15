@@ -1288,7 +1288,6 @@ static int tdefl_flush_block(tdefl_compressor *d, int flush)
         else if (i == 6)
             flevel = 2;
 
-        flevel = 0; // Added for Deark. (Temporary hack for backward compatibility.)
         header = cmf << 8 | (flevel << 6);
         header += 31 - (header % 31);
         flg = header & 0xFF;
