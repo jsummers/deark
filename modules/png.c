@@ -97,6 +97,7 @@ typedef struct localctx_struct {
 	i64 APNG_prefix_IHDR_pos;
 	dbuf *APNG_prefix;
 	dbuf *curr_APNG_frame;
+	dbuf *IDAT_prefix; // The first few bytes of IDAT data (optional)
 } lctx;
 
 struct text_chunk_ctx {
@@ -612,6 +613,20 @@ done:
 	dbuf_close(outf);
 }
 
+static void decode_zlib_header(deark *c, lctx *d)
+{
+	u8 cmf, flg;
+
+	if(!d->IDAT_prefix) return;
+
+	// TODO: Consider consolidating this with the redundant code in
+	// lzh_read_zlib_header() (in another file). But it's a lot of trouble.
+	cmf = dbuf_getbyte(d->IDAT_prefix, 0);
+	flg = dbuf_getbyte(d->IDAT_prefix, 1);
+	de_dbg(c, "zlib window size: %u", (UI)(1U<<(((UI)cmf>>4)+8)));
+	de_dbg(c, "zlib cmpr level (0-3): %u", (UI)(flg>>6));
+}
+
 static void handler_IDAT(deark *c, lctx *d, struct handler_params *hp)
 {
 	if(!d->found_IDAT) {
@@ -620,6 +635,22 @@ static void handler_IDAT(deark *c, lctx *d, struct handler_params *hp)
 		declare_png_fmt(c, d);
 
 		prepare_PNG_extraction_from_APNG(c, d);
+
+		if(d->fmt==DE_PNGFMT_PNG && !d->is_CgBI && !d->IDAT_prefix) {
+			d->IDAT_prefix = dbuf_create_membuf(c, 8, 0x1);
+		}
+	}
+
+	// Collect at least the first 2 bytes of IDAT data for analysis.
+	// We allow for the possibility that the bytes are not all in the same chunk.
+	if(d->IDAT_prefix && d->IDAT_prefix->len<2) {
+		i64 n;
+
+		n = de_min_int(2, hp->dlen);
+		dbuf_copy(c->infile, hp->dpos, n, d->IDAT_prefix);
+		if(d->IDAT_prefix->len>=2) {
+			decode_zlib_header(c, d);
+		}
 	}
 }
 
@@ -1343,6 +1374,7 @@ static void de_run_png(deark *c, de_module_params *mparams)
 			finish_APNG_frame(c, d);
 		}
 		dbuf_close(d->APNG_prefix);
+		dbuf_close(d->IDAT_prefix);
 		de_crcobj_destroy(d->crco);
 		de_crcobj_destroy(d->crco_for_write);
 		de_free(c, d);
