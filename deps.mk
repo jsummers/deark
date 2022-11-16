@@ -56,6 +56,8 @@ $(OBJDIR)/modules/cab.o: modules/cab.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/cardfile.o: modules/cardfile.c src/deark-config.h \
  src/deark-private.h src/deark.h
+$(OBJDIR)/modules/cdiimage.o: modules/cdiimage.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/cfb.o: modules/cfb.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/clp.o: modules/clp.c src/deark-private.h src/deark.h \
