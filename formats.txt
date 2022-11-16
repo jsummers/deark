@@ -118,6 +118,9 @@ Deark -- Information about supported formats
   Options
    -opt ole1:extractall - Extract unidentified OLE objects
 
+* CD-I IFF-IMAG (module="cdi_imag") (experimental/incomplete)
+  A format used on some CD-i discs.
+
 * COKE (Atari Falcon) (*.tg1) (module="coke")
 
 * Compface intermediate format (module="compfacei")

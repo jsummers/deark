@@ -20,6 +20,8 @@ struct cdi_imag_ctx {
 	UI model;
 	UI depth;
 	u8 found_IHDR;
+	u8 dyuv_kind;
+	u8 dyuv_start[3];
 	de_color pal[256];
 };
 
@@ -46,6 +48,19 @@ static void do_cdi_imag_IHDR(deark *c, struct cdi_imag_ctx *d, struct de_iffctx 
 	de_dbg(c, "model: %u (%s)", d->model, get_cdi_imag_model_name(d->model));
 	d->depth = (UI)dbuf_getu16be_p(ictx->f, &pos);
 	de_dbg(c, "bits/pixel: %u", d->depth);
+
+	if(d->model==3 && ictx->chunkctx->dlen>=14) {
+		UI k;
+
+		d->dyuv_kind = dbuf_getbyte_p(ictx->f, &pos);
+		// 0 = IFF_DYUV_ONE, 1 = IFF_DYUV_EACH
+		de_dbg(c, "dyuv kind: %u", (UI)d->dyuv_kind);
+		for(k=0; k<3; k++) {
+			d->dyuv_start[k] = dbuf_getbyte_p(ictx->f, &pos);
+		}
+		de_dbg(c, "dyuv start: %u,%u,%u", (UI)d->dyuv_start[0],
+			(UI)d->dyuv_start[1], (UI)d->dyuv_start[2]);
+	}
 
 	if(d->depth==4 || d->depth==8) {
 		d->pdwidth = (d->rowspan*8)/d->depth;
@@ -132,6 +147,76 @@ done:
 	return (unc_pixels->len>0);
 }
 
+static u8 dbl_to_u8(double x)
+{
+	if(x<=0.0) return 0;
+	if(x>=255.0) return 255;
+	return (u8)(x+0.5);
+}
+
+static void yuv_to_rgb(UI y, UI u, UI v, de_color *rgbclr)
+{
+	double r1, g1, b1;
+
+	b1 = (double)y + ((double)u - 128.0) * 1.733;
+	r1 = (double)y + ((double)v - 128.0) * 1.371;
+	g1 = ((double)y - 0.299*r1 - 0.114*b1)/0.587;
+	*rgbclr = DE_MAKE_RGB(dbl_to_u8(r1), dbl_to_u8(g1), dbl_to_u8(b1));
+}
+
+static int do_cdi_imag_model3(deark *c, struct cdi_imag_ctx *d, struct de_iffctx *ictx,
+	de_bitmap *img)
+{
+	int retval = 0;
+	i64 i, j;
+	i64 pos;
+	UI prev[3];
+	static const u8 dtbl[16] = { 0, 1, 4, 9, 16, 27, 44, 79,
+		128, 177, 212, 229, 240, 247, 252, 255 };
+
+	for(j=0; j<d->h; j++) {
+		pos = ictx->chunkctx->dpos + j*d->rowspan;
+		prev[0] = (UI)d->dyuv_start[0];
+		prev[1] = (UI)d->dyuv_start[1];
+		prev[2] = (UI)d->dyuv_start[2];
+		for(i=0; i<d->pdwidth; i+=2) {
+			u8 b[2];
+			UI ysamp[2];
+			UI usamp, vsamp;
+			de_color clr;
+
+			b[0] = dbuf_getbyte_p(ictx->f, &pos);
+			b[1] = dbuf_getbyte_p(ictx->f, &pos);
+
+			// Each sample is a 4-bit code, which is first translated to an
+			// 8-bit value using dtbl[], then added to the previous sample
+			// value to get the real sample value.
+			ysamp[0] = (prev[0] + (UI)dtbl[(UI)(b[0] & 0x0f)])&0xff;
+			prev[0] = ysamp[0];
+			ysamp[1] = (prev[0] + (UI)dtbl[(UI)(b[1] & 0x0f)])&0xff;
+			prev[0] = ysamp[1];
+			usamp = (prev[1] + (UI)dtbl[((UI)b[0] & 0xf0)>>4])&0xff;
+			prev[1] = usamp;
+			vsamp = (prev[2] + (UI)dtbl[((UI)b[1] & 0xf0)>>4])&0xff;
+			prev[2] = vsamp;
+
+			// Each U and V sample is used for two pixels. The spec says we
+			// should interpolate to improve the image quality. But we're not
+			// going to bother.
+			yuv_to_rgb(ysamp[0], usamp, vsamp, &clr);
+			de_bitmap_setpixel_rgb(img, i+0, j, clr);
+			yuv_to_rgb(ysamp[1], usamp, vsamp, &clr);
+			de_bitmap_setpixel_rgb(img, i+1, j, clr);
+		}
+	}
+	retval = 1;
+
+	if(retval) {
+		de_info(c, "Note: Converting colorspace; image quality may be affected");
+	}
+	return retval;
+}
+
 static int do_cdi_imag_model8(deark *c, struct cdi_imag_ctx *d, struct de_iffctx *ictx,
 	de_bitmap *img)
 {
@@ -162,7 +247,8 @@ static void do_cdi_imag_IDAT(deark *c, struct cdi_imag_ctx *d, struct de_iffctx 
 
 	if(!d->found_IHDR) goto done;
 
-	if((d->model==6 && d->depth==4) ||
+	if((d->model==3 && d->depth==8) ||
+		(d->model==6 && d->depth==4) ||
 		(d->model==8 && d->depth==8))
 	{
 		;
@@ -176,7 +262,15 @@ static void do_cdi_imag_IDAT(deark *c, struct cdi_imag_ctx *d, struct de_iffctx 
 
 	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->h, 3);
 
-	if(d->model==6) {
+	if(d->model==3) {
+		if(d->dyuv_kind!=0) {
+			de_err(c, "Unsupported image type");
+		}
+		else {
+			ret = do_cdi_imag_model3(c, d, ictx, img);
+		}
+	}
+	else if(d->model==6) {
 		de_convert_image_paletted(ictx->f, ictx->chunkctx->dpos, (i64)d->depth,
 			d->rowspan, d->pal, img, 0);
 		ret = 1;
@@ -248,5 +342,4 @@ void de_module_cdi_imag(deark *c, struct deark_module_info *mi)
 	mi->desc = "CD-I IFF IMAG";
 	mi->run_fn = de_run_cdi_imag;
 	mi->identify_fn = de_identify_cdi_imag;
-	mi->flags |= DE_MODFLAG_HIDDEN;
 }
