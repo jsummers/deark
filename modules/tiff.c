@@ -242,7 +242,6 @@ struct localctx_struct {
 	u8 is_bigtiff;
 	u8 is_xiff;
 	int is_exif_submodule;
-	int host_is_le;
 	int can_decode_fltpt;
 	u8 opt_decode;
 	u8 opt_dexxa; // 0xff=auto
@@ -3118,7 +3117,12 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 	de_zeromem(&sample, sizeof(sample));
 
 	sample_mask = (1U<<(u32)pg->bits_per_sample)-1U;
-	sample_scalefactor = 255/sample_mask;
+	if(pg->bits_per_sample<=8) {
+		sample_scalefactor = 255/sample_mask;
+	}
+	else {
+		sample_scalefactor = 1;
+	}
 
 	for(j=0; j<dctx->strileset_height; j++) {
 
@@ -3132,6 +3136,7 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 			for(s_idx=0; s_idx<dctx->samples_per_pixel_to_decode; s_idx++) {
 				UI dbuf_idx;
 				i64 sample_offset;
+				i64 bytepos;
 
 				if(dctx->is_separated) {
 					dbuf_idx = s_idx;
@@ -3148,8 +3153,14 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 						dctx->strileset_rowspan*j, i*(i64)dctx->samples_per_pixel_per_plane + sample_offset);
 					break;
 				case 8:
-					sample[s_idx] = dbuf_getbyte(dctx->unc_strile_dbuf[dbuf_idx], dctx->strileset_rowspan*j +
-						(i*(i64)dctx->samples_per_pixel_per_plane) + sample_offset);
+					bytepos = dctx->strileset_rowspan*j + i*(i64)dctx->samples_per_pixel_per_plane + sample_offset;
+					sample[s_idx] = dbuf_getbyte(dctx->unc_strile_dbuf[dbuf_idx], bytepos);
+					break;
+				case 16:
+					bytepos = dctx->strileset_rowspan*j + (i*(i64)dctx->samples_per_pixel_per_plane + sample_offset)*2;
+					// Byte order for 16-bit samples is dictated by the TIFF file header -- at least
+					// for uncompressed images.
+					sample[s_idx] = (u32)dbuf_getu16x(dctx->unc_strile_dbuf[dbuf_idx], bytepos, d->is_le);
 					break;
 				default:
 					sample[s_idx] = 0;
@@ -3166,6 +3177,12 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 			if(!dctx->use_pal && sample_scalefactor>1) { // Scale samples to 255
 				for(s_idx=0; s_idx<dctx->samples_per_pixel_to_decode; s_idx++) {
 					sample[s_idx] *= sample_scalefactor;
+				}
+			}
+
+			if(pg->bits_per_sample==16) {
+				for(s_idx=0; s_idx<dctx->samples_per_pixel_to_decode; s_idx++) {
+					sample[s_idx] >>= 8;
 				}
 			}
 
@@ -3496,14 +3513,14 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		dctx->grayscale_reverse_polarity = (pg->photometric==0);
 		dctx->base_samples_per_pixel = 1;
 		if(pg->bits_per_sample==1 || pg->bits_per_sample==2 || pg->bits_per_sample==4 ||
-			pg->bits_per_sample==8)
+			pg->bits_per_sample==8 || pg->bits_per_sample==16)
 		{
 			ok_bps = 1;
 		}
 	}
 	else if(pg->photometric==2) { // RGB
 		dctx->base_samples_per_pixel = 3;
-		if(pg->bits_per_sample==8) {
+		if(pg->bits_per_sample==8 || pg->bits_per_sample==16) {
 			ok_bps = 1;
 		}
 	}
