@@ -18,12 +18,24 @@ DE_DECLARE_MODULE(de_module_corel_ccx);
 static void de_run_cdr_wl(deark *c, de_module_params *mparams)
 {
 	u8 version;
+	int adjdim_flag;
 	i64 pos = 0;
 	de_bitmap *img = NULL;
 	de_finfo *fi = NULL;
 	de_module_params *mparams2 = NULL;
 
 	de_declare_fmt(c, "CorelDRAW (WL format)");
+
+	// For unknown reasons, old CorelDraw-related preview images just have
+	// garbage in the rightmost column and bottom row.
+	// I haven't found any exceptions to this, so: Deark will crop out the
+	// garbage by default.
+	// Just in case there are exceptions, we allow the user to disable this
+	// feature.
+	// (The -padpix option is not sufficient, because, e.g., there are *3*
+	// possible rendering widths for a 90x90 image: 89, 90, or 96.
+	adjdim_flag = de_get_ext_option_bool(c, "cdr:adjdim", 1);
+
 	version = de_getbyte(2);
 	de_dbg(c, "version code: 0x%02x", (unsigned int)version);
 	if(version <= (u8)'e') goto done;
@@ -37,7 +49,15 @@ static void de_run_cdr_wl(deark *c, de_module_params *mparams)
 	pos += 2; // ?
 	// Seems to be Windows DDB format, or something like it.
 	mparams2 = de_malloc(c, sizeof(de_module_params));
-	mparams2->in_params.codes = "NX";
+	// N = Image structure starts with a "file type" field.
+	// X = Mark the output file as "aux".
+	// C = Ignore the rightmost column and bottom row (in most cases).
+	if(adjdim_flag) {
+		mparams2->in_params.codes = "NXC";
+	}
+	else {
+		mparams2->in_params.codes = "NX";
+	}
 	mparams2->in_params.fi = fi;
 	de_run_module_by_id_on_slice(c, "ddb", mparams2, c->infile, pos, c->infile->len-pos);
 	de_dbg_indent(c, -1);
@@ -57,6 +77,17 @@ static int de_identify_cdr_wl(deark *c)
 	return 0;
 }
 
+static void help_adjdim(deark *c)
+{
+	de_msg(c, "-opt cdr:adjdim=0 : Disable a hack that crops off unused "
+		"parts of the preview image");
+}
+
+static void de_help_cdr_wl(deark *c)
+{
+	help_adjdim(c);
+}
+
 void de_module_cdr_wl(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "cdr_wl";
@@ -64,6 +95,7 @@ void de_module_cdr_wl(deark *c, struct deark_module_info *mi)
 	mi->desc2 = "extract preview image";
 	mi->run_fn = de_run_cdr_wl;
 	mi->identify_fn = de_identify_cdr_wl;
+	mi->help_fn = de_help_cdr_wl;
 }
 
 // **************************************************************************
@@ -72,6 +104,7 @@ void de_module_cdr_wl(deark *c, struct deark_module_info *mi)
 
 struct clb_ctx {
 	de_encoding input_encoding;
+	int adjdim_flag;
 	i64 bytes_consumed;
 };
 
@@ -131,7 +164,14 @@ static int do_clb_item(deark *c, struct clb_ctx *d, i64 pos1)
 		de_finfo_set_name_from_ucstring(c, fi, name, 0);
 
 		mparams2 = de_malloc(c, sizeof(de_module_params));
-		mparams2->in_params.codes = "N";
+		// N = Image structure starts with a "file type" field.
+		// C = Ignore the rightmost column and bottom row (in most cases).
+		if(d->adjdim_flag) {
+			mparams2->in_params.codes = "NC";
+		}
+		else {
+			mparams2->in_params.codes = "N";
+		}
 		mparams2->in_params.fi = fi;
 		de_run_module_by_id_on_slice(c, "ddb", mparams2, c->infile, pos+2, imglen-2);
 		de_dbg_indent(c, -1);
@@ -176,6 +216,10 @@ static void de_run_corel_clb(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(struct clb_ctx));
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
+
+	// Refer to the comments in the cdr_wl module.
+	d->adjdim_flag = de_get_ext_option_bool(c, "cdr:adjdim", 1);
+
 	while(1) {
 		if(pos+18 > c->infile->len) goto done;
 		d->bytes_consumed = 0;
@@ -203,12 +247,18 @@ static int de_identify_corel_clb(deark *c)
 	return 100;
 }
 
+static void de_help_corel_clb(deark *c)
+{
+	help_adjdim(c);
+}
+
 void de_module_corel_clb(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "corel_clb";
 	mi->desc = "CorelMOSAIC .CLB library";
 	mi->run_fn = de_run_corel_clb;
 	mi->identify_fn = de_identify_corel_clb;
+	mi->help_fn = de_help_corel_clb;
 }
 
 // **************************************************************************

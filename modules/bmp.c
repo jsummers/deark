@@ -1191,6 +1191,7 @@ void de_module_dib(deark *c, struct deark_module_info *mi)
 struct ddbctx_struct {
 	i64 bmWidthBytes;
 	UI createflags;
+	u8 cdr_adjdim_flag;
 	de_finfo *fi;
 	u8 have_custom_pal;
 	de_color pal[256];
@@ -1333,6 +1334,17 @@ static void do_ddb_bitmap(deark *c, struct ddbctx_struct *d, i64 pos1)
 	de_dbg(c, "pixels at %"I64_FMT, pos);
 
 	src_realbitsperpixel = bmBitsPixel * bmPlanes;
+
+	if(d->cdr_adjdim_flag && src_realbitsperpixel==1 &&
+		bmWidth==bmHeight && (bmWidth==90 || bmWidth==128))
+	{
+		// See comments in the cdr_wl module about "adjdim".
+		bmWidth--;
+		bmHeight--;
+		de_dbg(c, "adjusted dimensions: %"I64_FMT DE_CHAR_TIMES"%"I64_FMT,
+			bmWidth, bmHeight);
+	}
+
 	if(!de_good_image_dimensions(c, bmWidth, bmHeight)) goto done;
 
 	pdwidth = (d->bmWidthBytes*8) / bmBitsPixel;
@@ -1371,6 +1383,9 @@ static void de_run_ddb(deark *c, de_module_params *mparams)
 	}
 	if(de_havemodcode(c, mparams, 'X')) {
 		d->createflags |= DE_CREATEFLAG_IS_AUX;
+	}
+	if(!c->padpix) {
+		d->cdr_adjdim_flag = (u8)de_havemodcode(c, mparams, 'C');
 	}
 	if(mparams) {
 		if(mparams->in_params.fi) {
