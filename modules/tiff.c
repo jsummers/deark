@@ -246,6 +246,12 @@ struct localctx_struct {
 	int can_decode_fltpt;
 	u8 opt_decode;
 	u8 opt_dexxa; // 0xff=auto
+
+	// 0=default
+	// 1=if in doubt, ignore
+	// 2=reverse pixels after decompressing
+	u8 fillorder_strategy;
+
 	u8 is_deark_iptc, is_deark_8bim;
 
 	u32 first_ifd_orientation; // Valid if != 0
@@ -2810,6 +2816,7 @@ struct decode_page_ctx {
 	u8 is_grayscale;
 	u8 grayscale_reverse_polarity;
 	u8 need_to_reverse_bits;
+	u8 need_to_reverse_nibbles;
 	u8 use_pal;
 	u8 has_alpha;
 	u8 is_assoc_alpha;
@@ -2846,6 +2853,25 @@ static void reverse_bits_in_membuf(dbuf *f)
 	}
 }
 
+static void reverse_nibbles_in_membuf(dbuf *f)
+{
+	i64 len = f->len;
+	i64 i;
+
+	dbuf_flush(f);
+	len = f->len;
+
+	for(i=0; i<len; i++) {
+		u8 b, b2;
+
+		b = dbuf_getbyte(f, i);
+		b2 = ((b & 0x0f)<<4) | (b>>4);
+		dbuf_writebyte_at(f, i, b2);
+	}
+
+	dbuf_flush(f);
+}
+
 static void decompress_strile_uncmpr(deark *c, lctx *d, struct page_ctx *pg,
 	struct decode_page_ctx *dctx)
 {
@@ -2862,7 +2888,7 @@ static void detect_lzw_version(deark *c, lctx *d, struct page_ctx *pg)
 
 	if(pg->strile_count<1) return;
 	// The first LZW code is supposed to be a clear code (=256; 9 bits). If it is
-	// little-endian, presumably this is the old LZW version.
+	// LSB-first, presumably this is the old LZW version.
 	// So old version should start: 00000000 xxxxxxx1
 	// And new version:             10000000 0xxxxxxx
 	de_read(buf, pg->strile_data[0].pos, 2);
@@ -2872,14 +2898,11 @@ static void detect_lzw_version(deark *c, lctx *d, struct page_ctx *pg)
 	de_dbg(c, "lzw version: %s", pg->is_old_lzw?"old":"new");
 }
 
+// Assumes that detect_lzw_version() has already been called for this pg.
 static void decompress_strile_lzw(deark *c, lctx *d, struct page_ctx *pg,
 	struct decode_page_ctx *dctx)
 {
 	struct de_lzw_params delzwp;
-
-	if(dctx->strile_idx==0) {
-		detect_lzw_version(c, d, pg);
-	}
 
 	if(dctx->dfctx) {
 		de_dfilter_destroy(dctx->dfctx);
@@ -3027,6 +3050,11 @@ static int decompress_strile(deark *c, lctx *d, struct page_ctx *pg,
 		// TODO?: Better handling of partial failure
 		goto done;
 	}
+
+	if(dctx->need_to_reverse_nibbles) {
+		reverse_nibbles_in_membuf(dctx->dcmpro.f);
+	}
+
 	retval = 1;
 done:
 	return retval;
@@ -3287,6 +3315,42 @@ done:
 	}
 }
 
+static void preprocess_fillorder_lsb(deark *c, lctx *d, struct page_ctx *pg,
+	struct decode_page_ctx *dctx)
+{
+	if(pg->fill_order!=2) return;
+
+	// FillOrder=LSB is ambiguous in general, but we allow it in some special cases.
+	if(pg->compression==CMPR_NONE && pg->samples_per_pixel==1 && pg->bits_per_sample==1) {
+		dctx->need_to_reverse_bits = 1;
+		return;
+	}
+
+	if((pg->compression>=2 && pg->compression<=4) || pg->compression==32771) {
+		return; // Fax compression - LSB is ok.
+	}
+	if(pg->compression==CMPR_LZW && pg->is_old_lzw) {
+		// We detected that the LZW data in this image uses LSB bit order, so
+		// this is probably ok.
+		return;
+	}
+
+	if(pg->samples_per_pixel==1 && pg->bits_per_sample==4 &&
+		(pg->compression==CMPR_NONE || pg->compression==CMPR_LZW))
+	{
+		// Many examples in the "FM Towns: Free Software Collection" items at
+		// <http://discmaster.textfiles.com/cd-rom/>.
+
+		detiff_warn(c, d, pg, "Ambiguous FillOrder for this image type");
+		if(d->fillorder_strategy==0 || d->fillorder_strategy==2) {
+			dctx->need_to_reverse_nibbles = 1;
+		}
+		return;
+	}
+
+	detiff_warn(c, d, pg, "Unexpected FillOrder for this image type. Ignoring.");
+}
+
 static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 {
 	de_bitmap *img = NULL;
@@ -3482,17 +3546,13 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		goto done;
 	}
 
+	if(pg->compression==CMPR_LZW) {
+		// Looking ahead to detect this may help to decipher the FillOrder tag.
+		detect_lzw_version(c, d, pg);
+	}
+
 	if(pg->fill_order==2) {
-		// FillOrder=LSB is ambiguous in general, but we allow it in some special cases.
-		if(pg->compression==CMPR_NONE && pg->samples_per_pixel==1 && pg->bits_per_sample==1) {
-			dctx->need_to_reverse_bits = 1;
-		}
-		else if(pg->compression>=2 && pg->compression<=5) {
-			;
-		}
-		else {
-			detiff_warn(c, d, pg, "Unexpected FillOrder for this image type. Ignoring.");
-		}
+		preprocess_fillorder_lsb(c, d, pg, dctx);
 	}
 
 	// TODO: Support -padpix in more situations
@@ -3567,7 +3627,9 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	de_dfilter_init_objects(c, &dctx->dcmpri, &dctx->dcmpro, NULL);
 	dctx->dcmpri.f = c->infile;
 
-	if(pg->compression==CMPR_NONE && !dctx->need_to_reverse_bits && !dctx->is_separated) {
+	if(pg->compression==CMPR_NONE && !dctx->need_to_reverse_bits &&
+		!dctx->need_to_reverse_nibbles && !dctx->is_separated)
+	{
 		can_optimize_uncompressed = 1;
 	}
 
@@ -4099,6 +4161,10 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 		detiff_warn(c, d, NULL, "This is not a known/supported TIFF or TIFF-like format.");
 	}
 
+	if(d->fmt==DE_TIFFFMT_TIFF) {
+		d->fillorder_strategy = (u8)de_get_ext_option_bool(c, "tiff:fillorderstrategy", 0);
+	}
+
 	if(d->is_bigtiff) {
 		d->ifdhdrsize = 8;
 		d->ifditemsize = 20;
@@ -4163,7 +4229,8 @@ static int de_identify_tiff(deark *c)
 static void de_help_tiff(deark *c)
 {
 	de_msg(c, "-opt tiff:decode=<0|1> : Don't/Do attempt to decode images");
-	de_msg(c, "-opt tiff:dexxa[=0] : Enable/disable a special mode");
+	de_msg(c, "-opt tiff:dexxa[=0] : Refer to documentation");
+	de_msg(c, "-opt tiff:fillorderstrategy=<0|1|2> : Refer to documentation");
 }
 
 void de_module_tiff(deark *c, struct deark_module_info *mi)

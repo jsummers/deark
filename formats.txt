@@ -552,6 +552,13 @@ Deark -- Information about supported formats
   - Extract IPTC-IIM data (use -a).
   Options
    -opt tiff:decode=0 - Do not decode images
+   -opt tiff:dexxa[=0] - Hint about whether file was made by PaintShow or
+     related software.
+   -opt tiff:fillorderstrategy=<0|1|...> - Hint about what to do with an
+     ambiguous FillOrder tag:
+      0 = Default.
+      1 = If in doubt, ignore.
+      2 = If in doubt, decompress, then reverse order of pixels within a byte.
 
 * TIM (Playstation graphics) (module="tim") (experimental/incomplete)
 
