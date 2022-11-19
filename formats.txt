@@ -672,7 +672,8 @@ Deark -- Information about supported formats
   "ar" archiver by Haruhiko Okumura, first version.
 
 * ARC archive (module="arc")
-  - Some rare compression methods are not supported.
+  - Essentially all compression methods are supported, except for the PAK
+    (NoGate) extensions.
 
 * ArcFS (module="arcfs")
 
@@ -687,7 +688,7 @@ Deark -- Information about supported formats
      security/protection. Use with "-m arj" to convert most any self-extracting
      ARJ archive to plain ARJ.
 
-* ARX (module="arx") (experimental)
+* ARX (module="arx")
   Variant of LHA. Deark tries to convert it to LHA.
 
 * ATR (Atari disk image) (module="atr") (experimental/incomplete)
@@ -760,7 +761,7 @@ Deark -- Information about supported formats
 * HFS filesystem image (module="hfs") (experimental/incomplete)
   - Incomplete support, but should be enough for most CD-ROM images.
 
-* InstallShield Z archive (module="is_z") (experimental)
+* InstallShield Z archive (module="is_z")
 
 * ISO 9660 or High Sierra CD-ROM image (module="iso9660")
   Options
@@ -839,9 +840,10 @@ Deark -- Information about supported formats
 
 * NRG (module="nrg") (experimental)
   Nero CD image format.
-  - Extract or decode ISO 9660 data.
+  - Depending on the file structure, operates like the iso9660 module, or the
+    cd_raw module.
 
-* Pack (module="pack") (experimental)
+* Pack (module="pack")
   Old Unix compressed file format (.z).
 
 * PackDir (module="packdir") (experimental)
@@ -853,7 +855,7 @@ Deark -- Information about supported formats
   - Extracted ".palm" files are in Palm BitmapType format. Reprocess them to
     convert to PNG.
   Options
-   -opt timestampfmt=<macbe|unixbe|macle> - The timestamp format to assume.
+   -opt palm:timestampfmt=<macbe|unixbe|macle> - The timestamp format to assume.
 
 * Pasti (.stx) (module="pasti") (experimental)
   - Atari ST disk image format.
@@ -898,7 +900,7 @@ Deark -- Information about supported formats
   An old compressed file format used mainly on CP/M.
   - SQ2 variant is also supported (experimental).
 
-* Stirling Compressor, The (module="tscomp") (experimental)
+* Stirling Compressor, The (module="tscomp")
 
 * StuffIt (.sit) (module="stuffit")
   - Limited support. Old format only.
@@ -991,8 +993,7 @@ Deark -- Information about supported formats
     ones are control characters.
 
 * CRC (module="crc")
-  Print various CRC hashes and checksums of the file, including the IEEE
-  CRC-32.
+  Print various CRC hashes and checksums of the file, including IEEE CRC-32.
   - You must use "-m crc".
 
 * DS_Store (module="dsstore") (experimental)
