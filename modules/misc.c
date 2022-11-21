@@ -1230,7 +1230,7 @@ void de_module_lzhuf(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
-// SCO compress LZHUF
+// SCO compress LZH
 // **************************************************************************
 
 static void de_run_compress_lzh(deark *c, de_module_params *mparams)
