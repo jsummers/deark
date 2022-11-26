@@ -925,6 +925,9 @@ void de_read_simple_palette(deark *c, dbuf *f, i64 fpos,
 void de_convert_image_paletted(dbuf *f, i64 fpos,
 	i64 bpp, i64 rowspan, const de_color *pal,
 	de_bitmap *img, unsigned int flags);
+void de_convert_image_paletted_planar(dbuf *f, i64 fpos, i64 nplanes,
+	i64 row_stride, i64 plane_stride, const de_color *pal,
+	de_bitmap *img, UI flags);
 
 void de_convert_image_rgb(dbuf *f, i64 fpos,
 	i64 rowspan, i64 pixelspan, de_bitmap *img, unsigned int flags);

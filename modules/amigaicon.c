@@ -211,10 +211,9 @@ static int do_read_main_icon(deark *c, lctx *d,
 	i64 pdwidth;
 	i64 depth;
 	i64 src_rowspan, src_planespan;
-	i64 i, j, plane;
+	i64 i;
 	int retval = 0;
 	de_bitmap *img = NULL;
-	u8 b, b1;
 	u32 pal[256];
 
 	de_dbg(c, "main icon #%d at %"I64_FMT, (int)icon_index, pos);
@@ -274,18 +273,8 @@ static int do_read_main_icon(deark *c, lctx *d,
 	}
 
 	pos += 20;
-
-	for(j=0; j<height; j++) {
-		for(i=0; i<pdwidth; i++) {
-			b = 0x00;
-			for(plane=0; plane<depth; plane++) {
-				b1 = de_get_bits_symbol(c->infile, 1, pos+plane*src_planespan + j*src_rowspan, i);
-				b = (b<<1) | (b1 & 0x1);
-			}
-			de_bitmap_setpixel_rgb(img, i, j, pal[b]);
-		}
-	}
-
+	de_convert_image_paletted_planar(c->infile, pos, depth, src_rowspan, src_planespan,
+		pal, img, 0);
 	de_bitmap_write_to_file(img, NULL, (d->has_newicons||d->has_glowicons)?DE_CREATEFLAG_IS_AUX:0);
 
 	retval = 1;

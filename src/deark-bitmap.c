@@ -779,6 +779,78 @@ void de_convert_image_paletted(dbuf *f, i64 fpos,
 	}
 }
 
+// Decode some planar paletted images.
+// Rows and planes must be byte-aligned.
+// All image data must be in the same dbuf.
+// row_stride = Dist. in bytes from first byte of row 0 plane 0 to first byte of row 1 plane 0
+// plane_stride = Dist. in bytes from first byte of row 0 plane 0 to first byte of row 0 plane 1
+// Note: row_stride may be smaller, or larger, than plane_stride.
+// Note: nplanes = bits/pixel
+// flags:
+//  0x01 = lsb bit order
+//  0x02 = lsb plane order
+void de_convert_image_paletted_planar(dbuf *f, i64 fpos, i64 nplanes,
+	i64 row_stride, i64 plane_stride, const de_color *pal, de_bitmap *img, UI flags)
+{
+	i64 ypos;
+	u8 bit_order_is_lsb = 0;
+	u8 plane_order_is_lsb = 0;
+	u8 pbit[8]; // [0] is for bits from the least-significant plane, etc.
+	i64 units_per_row; // num bytes per row per plane that we will process
+
+	if(nplanes<1 || nplanes>8) goto done;
+	de_zeromem(pbit, sizeof(pbit));
+
+	if(flags & 0x01) bit_order_is_lsb = 1;
+	if(flags & 0x02) plane_order_is_lsb = 1;
+	units_per_row = (img->width + 7)/8;
+
+	for(ypos=0; ypos<img->height; ypos++) {
+		i64 n;
+
+		// Read 8 bits from each plane, then rearrange them to make 8
+		// output pixels.
+		for(n=0; n<units_per_row; n++) {
+			UI k;
+			UI pn;
+			u8 b;
+			i64 xpos;
+
+			for(pn=0; pn<(UI)nplanes; pn++) {
+				b = dbuf_getbyte(f, fpos + ypos*row_stride + pn*plane_stride + n);
+				if(plane_order_is_lsb) {
+					pbit[pn] = b;
+				}
+				else {
+					pbit[(UI)nplanes-1-pn] = b;
+				}
+			}
+
+			for(k=0; k<8; k++) {
+				UI palent;
+
+				palent = 0;
+				for(pn=0; pn<(UI)nplanes; pn++) {
+					if((pbit[pn] & (1U<<k))!=0) {
+						palent |= 1U<<pn;
+					}
+				}
+
+				if(bit_order_is_lsb) {
+					xpos = n*8 + (i64)k;
+				}
+				else {
+					xpos = n*8 + (i64)(7-k);
+				}
+				de_bitmap_setpixel_rgba(img, xpos, ypos, pal[palent]);
+			}
+		}
+	}
+
+done:
+	;
+}
+
 void de_convert_image_rgb(dbuf *f, i64 fpos,
 	i64 rowspan, i64 pixelspan, de_bitmap *img, unsigned int flags)
 {

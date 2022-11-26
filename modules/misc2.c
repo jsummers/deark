@@ -2388,65 +2388,6 @@ void de_module_young_picasso(deark *c, struct deark_module_info *mi)
 // Image Gallery gallery file (Alchemy Mindworks)
 // **************************************************************************
 
-static void convert_image_paletted_planar(dbuf *f, i64 fpos, i64 bpp,
-	i64 byprpp, const de_color *pal, de_bitmap *img, UI flags)
-{
-	i64 ypos;
-	i64 rowspan;
-	u8 bit_order_is_lsb = 0;
-	u8 plane_order_is_lsb = 0;
-	u8 pbit[8]; // [0] is for bits from the least-significant plane, etc.
-
-	if(bpp<1 || bpp>8) goto done;
-	rowspan = byprpp * bpp;
-	de_zeromem(pbit, sizeof(pbit));
-
-	for(ypos=0; ypos<img->height; ypos++) {
-		i64 n;
-
-		// We'll read 8 bits from each plane, and rearrange them to make
-		// 8 output pixels.
-		for(n=0; n<byprpp; n++) {
-			UI k;
-			UI pn;
-			u8 b;
-			i64 xpos;
-
-			for(pn=0; pn<(UI)bpp; pn++) {
-				b = dbuf_getbyte(f, fpos + rowspan*ypos + pn*byprpp + n);
-				if(plane_order_is_lsb) {
-					pbit[pn] = b;
-				}
-				else {
-					pbit[(UI)bpp-1-pn] = b;
-				}
-			}
-
-			for(k=0; k<8; k++) {
-				UI palent;
-
-				palent = 0;
-				for(pn=0; pn<(UI)bpp; pn++) {
-					if((pbit[pn] & (1U<<k))!=0) {
-						palent |= 1U<<pn;
-					}
-				}
-
-				if(bit_order_is_lsb) {
-					xpos = n*8 + (i64)k;
-				}
-				else {
-					xpos = n*8 + (i64)(7-k);
-				}
-				de_bitmap_setpixel_rgba(img, xpos, ypos, pal[palent]);
-			}
-		}
-	}
-
-done:
-	;
-}
-
 static void datetime_dbgmsg(deark *c, struct de_timestamp *ts, const char *name)
 {
 	char timestamp_buf[64];
@@ -2577,7 +2518,8 @@ static int do_imggal_member(deark *c, struct imggal_ctx *d, i64 idx, i64 pos1)
 			md->pal[k] = DE_MAKE_GRAY((u8)((k * 65) / 4));
 		}
 	}
-	convert_image_paletted_planar(c->infile, pos, d->bpp, md->bytes_per_row_per_plane,
+	de_convert_image_paletted_planar(c->infile, pos, d->bpp,
+		md->bytes_per_row_per_plane * d->bpp, md->bytes_per_row_per_plane,
 		md->pal, img, 0);
 
 	if(c->filenames_from_file) {
