@@ -15,12 +15,16 @@ DE_DECLARE_MODULE(de_module_os2bootlogo);
 struct plane_struct {
 	i64 offset;
 	i64 len;
-	dbuf *unc_pixels;
+	i64 dcmpr_nbytes;
 };
 
 typedef struct localctx_struct {
 	struct plane_struct pl[4];
+	i64 max_bytes_per_plane;
 	u8 uses_lzss;
+
+	// Contains all planes, at intervals of ->max_bytes_per_plane
+	dbuf *unc_pixels;
 } lctx;
 
 struct exepack2_ctx {
@@ -159,9 +163,9 @@ after_dcmpr:
 
 static int do_decompress_plane(deark *c, lctx *d, int pn)
 {
-	i64 max_dcmpr_nbytes;
 	struct plane_struct *pli;
 	int retval = 0;
+	i64 orig_len;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
@@ -170,18 +174,18 @@ static int do_decompress_plane(deark *c, lctx *d, int pn)
 	de_dbg(c, "decompressing plane %d at %"I64_FMT, pn, pli->offset);
 	de_dbg_indent(c, 1);
 
-	max_dcmpr_nbytes = IMG_WIDTH*IMG_MAX_HEIGHT/8;
-	pli->unc_pixels = dbuf_create_membuf(c, max_dcmpr_nbytes, 0x1);
-	dbuf_enable_wbuffer(pli->unc_pixels);
+	dbuf_truncate(d->unc_pixels, (i64)pn*d->max_bytes_per_plane);
+	dbuf_flush(d->unc_pixels);
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
 	dcmpri.pos = pli->offset;
 	dcmpri.len = pli->len;
-	dcmpro.f = pli->unc_pixels;
-	dcmpro.expected_len = max_dcmpr_nbytes;
+	dcmpro.f = d->unc_pixels;
+	dcmpro.expected_len = d->max_bytes_per_plane;
 	dcmpro.len_known = 1;
 
+	orig_len = d->unc_pixels->len;
 	decompress_exepack2(c, d, &dcmpri, &dcmpro, &dres);
 
 	if(dres.errcode) {
@@ -190,7 +194,8 @@ static int do_decompress_plane(deark *c, lctx *d, int pn)
 		goto done;
 	}
 
-	de_dbg(c, "decompressed to %"I64_FMT" bytes", pli->unc_pixels->len);
+	pli->dcmpr_nbytes = d->unc_pixels->len - orig_len;
+	de_dbg(c, "decompressed to %"I64_FMT" bytes", pli->dcmpr_nbytes);
 
 	retval = 1;
 done:
@@ -200,21 +205,21 @@ done:
 
 static void do_write_image(deark *c, lctx *d)
 {
-	i64 nbytes_per_plane;
-	i64 i;
 	i64 rowspan;
 	i64 height;
 	UI pn;
 	de_bitmap *img = NULL;
 	static const de_color pal[16] = {
-		0x000000,0x000080,0x008000,0x008080,0x800000,0x800080,0x808000,0x808080,
-		0xcccccc,0x0000ff,0x00ff00,0x00ffff,0xff0000,0xff00ff,0xffff00,0xffffff
+		0xff000000U,0xff000080U,0xff008000U,0xff008080U,
+		0xff800000U,0xff800080U,0xff808000U,0xff808080U,
+		0xffccccccU,0xff0000ffU,0xff00ff00U,0xff00ffffU,
+		0xffff0000U,0xffff00ffU,0xffffff00U,0xffffffffU
 	};
 
 	rowspan = IMG_WIDTH/8;
 	height = 400;
 	for(pn=0; pn<NUM_PLANES; pn++) {
-		if(d->pl[pn].unc_pixels->len > rowspan*400) {
+		if(d->pl[pn].dcmpr_nbytes > rowspan*400) {
 			height = 480;
 			break;
 		}
@@ -223,32 +228,8 @@ static void do_write_image(deark *c, lctx *d)
 	de_dbg_dimensions(c, IMG_WIDTH, height);
 	img = de_bitmap_create(c, IMG_WIDTH, height, 3);
 
-	nbytes_per_plane = rowspan * height;
-
-	for(i=0; i<nbytes_per_plane; i++) {
-		u8 b[NUM_PLANES];
-		UI palent;
-		de_color clr;
-		UI k;
-
-		// Read 8 pixels worth of bytes
-		for(pn=0; pn<NUM_PLANES; pn++) {
-			b[pn] = dbuf_getbyte(d->pl[pn].unc_pixels, i);
-		}
-
-		for(k=0; k<8; k++) {
-			palent = 0;
-
-			for(pn=0; pn<NUM_PLANES; pn++) {
-				if(b[pn] & (1U<<(7-k))) {
-					palent |= 1<<pn;
-				}
-			}
-
-			clr = DE_MAKE_OPAQUE(pal[(UI)palent]);
-			de_bitmap_setpixel_rgb(img, (i%rowspan)*8+k, i/rowspan, clr);
-		}
-	}
+	de_convert_image_paletted_planar(d->unc_pixels, 0, NUM_PLANES, rowspan,
+		d->max_bytes_per_plane, pal, img, 0x02);
 
 	de_bitmap_write_to_file(img, NULL, 0);
 	de_bitmap_destroy(img);
@@ -278,8 +259,11 @@ static void de_run_os2bootlogo(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
+	d->max_bytes_per_plane = IMG_WIDTH*IMG_MAX_HEIGHT/8;
 	do_read_header(c, d, 0);
 
+	d->unc_pixels = dbuf_create_membuf(c, d->max_bytes_per_plane*NUM_PLANES, 0x1);
+	dbuf_enable_wbuffer(d->unc_pixels);
 	for(k=0; k<NUM_PLANES; k++) {
 		if(!do_decompress_plane(c, d, k)) goto done;
 	}
@@ -292,10 +276,7 @@ static void de_run_os2bootlogo(deark *c, de_module_params *mparams)
 
 done:
 	if(d) {
-		for(k=0; k<NUM_PLANES; k++) {
-			dbuf_close(d->pl[k].unc_pixels);
-		}
-
+		dbuf_close(d->unc_pixels);
 		de_free(c, d);
 	}
 }
