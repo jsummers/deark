@@ -214,13 +214,9 @@ static void make_rgb_palette(deark *c, lctx *d, de_color *pal, i64 num_entries)
 static void decode_egavga16(deark *c, lctx *d)
 {
 	de_color pal[16];
-	i64 i, j;
 	i64 k;
-	i64 plane;
-	u8 z[4];
 	i64 src_rowspan;
 	i64 src_planespan;
-	int palent;
 	de_bitmap *img = NULL;
 	char tmps[32];
 
@@ -261,19 +257,12 @@ static void decode_egavga16(deark *c, lctx *d)
 
 	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, 3);
 
-	for(j=0; j<d->height; j++) {
-		for(i=0; i<d->pdwidth; i++) {
-			if(d->plane_info==0x31) {
-				for(plane=0; plane<4; plane++) {
-					z[plane] = de_get_bits_symbol(d->unc_pixels, 1, plane*src_planespan + j*src_rowspan, i);
-				}
-				palent = z[0] + 2*z[1] + 4*z[2] + 8*z[3];
-			}
-			else {
-				palent = de_get_bits_symbol(d->unc_pixels, 4, j*src_rowspan, i);
-			}
-			de_bitmap_setpixel_rgb(img, i, j, pal[palent]);
-		}
+	if(d->plane_info==0x31) {
+		de_convert_image_paletted_planar(d->unc_pixels, 0, 4, src_rowspan,
+			src_planespan, pal, img, 0x2);
+	}
+	else {
+		de_convert_image_paletted(d->unc_pixels, 0, 4, src_rowspan, pal, img, 0);
 	}
 
 	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);

@@ -144,23 +144,10 @@ static void set_density(deark *c, lctx *d, de_finfo *fi)
 
 static void read_paletted_image(deark *c, lctx *d, dbuf *unc_pixels, de_bitmap *img)
 {
-	i64 i, j, plane;
-	unsigned int n;
-	u8 x;
-
 	if(d->nplanes<1 || d->nplanes>8) return;
 
-	for(j=0; j<d->h; j++) {
-		for(i=0; i<d->pdwidth; i++) {
-			n = 0;
-			for(plane=0; plane<d->nplanes; plane++) {
-				x = de_get_bits_symbol(unc_pixels, 1, j*d->rowspan_total + plane*d->rowspan_per_plane, i);
-				if(x) n |= 1<<plane;
-			}
-
-			de_bitmap_setpixel_rgb(img, i, j, d->pal[n]);
-		}
-	}
+	de_convert_image_paletted_planar(unc_pixels, 0, d->nplanes, d->rowspan_total,
+		d->rowspan_per_plane, d->pal, img, 0x2);
 }
 
 static void read_rgb_image(deark *c, lctx *d, dbuf *unc_pixels, de_bitmap *img)

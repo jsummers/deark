@@ -460,43 +460,6 @@ static void deinterlace_pic_hercules(deark *c, lctx *d, dbuf *unc_pixels)
 	dbuf_close(tmpdbuf);
 }
 
-// TODO: Write a library function that can be used for this.
-static void pic_convert_image_16colplanar(deark *c, lctx *d, dbuf *unc_pixels, de_bitmap *img)
-{
-	i64 nbytes_per_plane;
-	i64 i;
-	i64 rowspan;
-	UI pn;
-
-	rowspan = d->bytes_per_row_per_plane;
-	nbytes_per_plane = rowspan * d->h;
-
-	for(i=0; i<nbytes_per_plane; i++) {
-		u8 b[4];
-		UI palent;
-		de_color clr;
-		UI k;
-
-		// Read 8 pixels worth of bytes
-		for(pn=0; pn<4; pn++) {
-			b[pn] = dbuf_getbyte(unc_pixels, pn*(i64)d->modeinfo->nominal_bytes_per_plane + i);
-		}
-
-		for(k=0; k<8; k++) {
-			palent = 0;
-
-			for(pn=0; pn<4; pn++) {
-				if(b[pn] & (1U<<(7-k))) {
-					palent |= 1<<pn;
-				}
-			}
-
-			clr = DE_MAKE_OPAQUE(d->pal[(UI)palent]);
-			de_bitmap_setpixel_rgb(img, (i%rowspan)*8+k, i/rowspan, clr);
-		}
-	}
-}
-
 // We'll try to support the most standard graphics cards/modes.
 // Some editions of Dr. Halo evidently support many more.
 static const struct pic_modeinfo_item pic_modeinfo_arr[] = {
@@ -687,7 +650,8 @@ static void de_run_drhalopic(deark *c, de_module_params *mparams)
 	img = de_bitmap_create(c, d->w, d->h, 3);
 
 	if(d->modeinfo->nplanes>1) {
-		pic_convert_image_16colplanar(c, d, unc_pixels, img);
+		de_convert_image_paletted_planar(unc_pixels, 0, 4, d->bytes_per_row_per_plane,
+			d->modeinfo->nominal_bytes_per_plane, d->pal, img, 0x2);
 	}
 	else if(d->modeinfo->bits_per_pixel_per_plane==1) {
 		de_convert_image_bilevel(unc_pixels, 0, d->bytes_per_row_per_plane, img, 0);

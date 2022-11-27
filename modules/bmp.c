@@ -1201,16 +1201,15 @@ static void ddb_convert_pal4planar(deark *c, struct ddbctx_struct *d,
 	i64 fpos, de_bitmap *img)
 {
 	const i64 nplanes = 4;
-	i64 i, j, plane;
 	i64 rowspan;
-	u8 *rowbuf = NULL;
-	static const u32 pal16[16] = {
-		0x000000,0x800000,0x008000,0x808000,0x000080,0x800080,0x008080,0x808080,
-		0xc0c0c0,0xff0000,0x00ff00,0xffff00,0x0000ff,0xff00ff,0x00ffff,0xffffff
+	static const de_color pal16[16] = {
+		0xff000000U,0xff800000U,0xff008000U,0xff808000U,
+		0xff000080U,0xff800080U,0xff008080U,0xff808080U,
+		0xffc0c0c0U,0xffff0000U,0xff00ff00U,0xffffff00U,
+		0xff0000ffU,0xffff00ffU,0xff00ffffU,0xffffffffU
 	};
 
 	rowspan = d->bmWidthBytes * nplanes;
-	rowbuf = de_malloc(c, rowspan);
 
 	// The usual order seems to be
 	//  row0_plane0x1, row0_plane0x2, row0_plane0x4, row0_plane0x8,
@@ -1218,30 +1217,8 @@ static void ddb_convert_pal4planar(deark *c, struct ddbctx_struct *d,
 	//  ...
 	// But I have seen another, and I see no way to detect/support it.
 
-	for(j=0; j<img->height; j++) {
-		de_read(rowbuf, fpos+j*rowspan, rowspan);
-
-		for(i=0; i<img->width; i++) {
-			unsigned int palent = 0;
-			u32 clr;
-
-			for(plane=0; plane<nplanes; plane++) {
-				unsigned int n = 0;
-				i64 idx;
-
-				idx = d->bmWidthBytes*plane + i/8;
-				if(idx<rowspan) n = rowbuf[idx];
-				if(n & (1<<(7-i%8))) {
-					palent |= (1<<plane);
-				}
-			}
-
-			clr = DE_MAKE_OPAQUE(pal16[palent]);
-			de_bitmap_setpixel_rgb(img, i, j, clr);
-		}
-	}
-
-	de_free(c, rowbuf);
+	de_convert_image_paletted_planar(c->infile, fpos, nplanes, rowspan,
+		d->bmWidthBytes, pal16, img, 0x2);
 }
 
 static void ddb_convert_pal8(deark *c, struct ddbctx_struct *d,

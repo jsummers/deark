@@ -49,12 +49,7 @@ struct amosbank {
 static void do_read_sprite_image(deark *c, lctx *d, struct amosbank *bk, i64 pos)
 {
 	i64 width, height;
-	i64 i, j;
-	i64 plane;
-	unsigned int palent;
-	u8 b;
 	i64 rowspan, planespan;
-	u32 clr;
 	de_bitmap *img = NULL;
 
 	width = bk->xsize * 16;
@@ -72,20 +67,8 @@ static void do_read_sprite_image(deark *c, lctx *d, struct amosbank *bk, i64 pos
 
 	rowspan = bk->xsize*2;
 	planespan = rowspan*bk->ysize;
-
-	for(j=0; j<height; j++) {
-		for(i=0; i<width; i++) {
-			palent = 0;
-			for(plane=0; plane<bk->nplanes; plane++) {
-				b = de_get_bits_symbol(bk->f, 1, pos + plane*planespan + j*rowspan, i);
-				if(b) palent |= (1<<plane);
-			}
-			if(palent<=255) clr = bk->pal[palent];
-			else clr=0;
-
-			de_bitmap_setpixel_rgb(img, i, j, clr);
-		}
-	}
+	de_convert_image_paletted_planar(bk->f, pos, bk->nplanes,
+		rowspan, planespan, bk->pal, img, 0x2);
 
 	de_bitmap_write_to_file(img, NULL, 0);
 
