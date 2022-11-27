@@ -709,6 +709,7 @@ static void do_extract_BITMAP(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
 		return;
 	}
 
+	de_dbg(c, "BITMAP at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 	de_run_module_by_id_on_slice2(c, "dib", "X", c->infile, pos, len);
 	de_dbg_indent(c, -1);
