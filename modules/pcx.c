@@ -504,27 +504,20 @@ static void do_bitmap_paletted(deark *c, lctx *d)
 {
 	de_bitmap *img = NULL;
 	i64 pdwidth;
-	i64 i, j;
-	i64 plane;
-	u8 b;
-	unsigned int palent;
 
 	// bits_per_plane(_per_row) / bits_per_pixel_per_plane
 	pdwidth = (d->rowspan_raw*8) / d->bits;
 
 	img = de_bitmap_create2(c, d->width, pdwidth, d->height, 3);
 
-	for(j=0; j<d->height; j++) {
-		for(i=0; i<pdwidth; i++) {
-			palent = 0;
-			for(plane=0; plane<d->planes; plane++) {
-				b = de_get_bits_symbol(d->unc_pixels, d->bits,
-					j*d->rowspan + plane*d->rowspan_raw, i);
-				palent |= b<<(plane*d->bits);
-			}
-			if(palent>255) palent=0; // Should be impossible.
-			de_bitmap_setpixel_rgb(img, i, j, d->pal[palent]);
-		}
+	// Impossible to get here unless one of the following conditions is true.
+	if(d->planes==1) {
+		de_convert_image_paletted(d->unc_pixels, 0, d->bits, d->rowspan,
+			d->pal, img, 0);
+	}
+	else if(d->bits==1) {
+		de_convert_image_paletted_planar(d->unc_pixels, 0, d->planes, d->rowspan,
+			d->rowspan_raw, d->pal, img, 0x2);
 	}
 
 	de_bitmap_write_to_file_finfo(img, d->fi, 0);
