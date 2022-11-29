@@ -296,8 +296,8 @@ static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 	i64 mask_pos, const char *token)
 {
 	i64 i, j;
-	u8 a;
 	de_bitmap *img = NULL;
+	de_bitmap *mask = NULL;
 	de_finfo *fi = NULL;
 	i64 plane;
 	i64 planespan;
@@ -314,6 +314,7 @@ static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 	}
 
 	img = de_bitmap_create(c, ii->width, ii->height, 4);
+	mask = de_bitmap_create(c, ii->width, ii->height, 1);
 
 	planespan = ii->mono_rowspan * ii->height;
 
@@ -330,12 +331,12 @@ static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 			else
 				clr = getpal256(v);
 
-			a = de_get_bits_symbol(c->infile, 1, mask_pos + j*ii->mono_rowspan, i);
-			a = a ? 255 : 0;
-
-			de_bitmap_setpixel_rgba(img, i, j, DE_SET_ALPHA(clr, a));
+			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
 	}
+
+	do_decode_bilevel_image(c, d, mask, mask_pos, ii->mono_rowspan);
+	de_bitmap_apply_mask(img, mask, DE_BITMAPFLAG_WHITEISTRNS);
 
 	fi = de_finfo_create(c);
 	set_icon_finfo(c, d, fi, ii, token);
@@ -343,6 +344,7 @@ static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 
 done:
 	de_bitmap_destroy(img);
+	de_bitmap_destroy(mask);
 	de_finfo_destroy(c, fi);
 }
 
