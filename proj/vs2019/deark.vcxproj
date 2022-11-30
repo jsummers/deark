@@ -298,6 +298,7 @@
     <ClCompile Include="..\..\modules\rpm.c" />
     <ClCompile Include="..\..\modules\rsc.c" />
     <ClCompile Include="..\..\modules\sauce.c" />
+    <ClCompile Include="..\..\modules\sgiimage.c" />
     <ClCompile Include="..\..\modules\shg.c" />
     <ClCompile Include="..\..\modules\sis.c" />
     <ClCompile Include="..\..\modules\spectrum512.c" />

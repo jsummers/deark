@@ -260,6 +260,8 @@ $(OBJDIR)/modules/rsc.o: modules/rsc.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/sauce.o: modules/sauce.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/sgiimage.o: modules/sgiimage.c src/deark-private.h \
+ src/deark.h src/deark-config.h
 $(OBJDIR)/modules/shg.o: modules/shg.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/sis.o: modules/sis.c src/deark-config.h \

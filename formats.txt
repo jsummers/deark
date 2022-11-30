@@ -498,6 +498,8 @@ Deark -- Information about supported formats
   Options
    -opt rsc:fmt=<atari|pc> - Use this byte order. Default is to autodetect.
 
+* SGI image (module="sgiimage") (incomplete)
+
 * SHG and MRB (module="shg")
   Segmented Hypergraphics and Multi-Resolution Bitmap formats are used in
   Windows .HLP files.
