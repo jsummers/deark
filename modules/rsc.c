@@ -36,6 +36,8 @@ typedef struct localctx_struct {
 	i64 avail_file_size;
 
 	i64 num_ciconblk;
+	de_color pal16[16];
+	de_color pal256[256];
 } lctx;
 
 struct iconinfo {
@@ -243,31 +245,31 @@ done:
 }
 
 // TODO: This palette may not be correct.
-static const u32 pal16[16] = {
+static const de_color pal16[16] = {
 	0xffffff,0xff0000,0x00ff00,0xffff00,0x0000ff,0xff00ff,0x00ffff,0xc0c0c0,
 	0x808080,0xff8080,0x80ff80,0xffff80,0x8080ff,0xff80ff,0x80ffff,0x000000
 };
 
 // FIXME: This palette is incomplete, and probably inaccurate.
-static const u32 supplpal1[16] = {
+static const de_color supplpal1[16] = {
 	0xffffff,0xef0000,0x00e700,0xffff00,0x0000ef,0xcd05cd,0xcd06cd,0xd6d6d6, // 00-07
 	0x808080,0x7b0000,0x008000,0xb5a531,0x000080,0x7f007f,0x007b7b,0x101810  // 08-ff
 };
 
-static const u32 supplpal2[26] = {
+static const de_color supplpal2[26] = {
 	                                                      0xef0000,0xe70000, // e6-e7
 	0xbd0000,0xad0000,0x7b0000,0x4a0000,0x100000,0xcdedcd,0xcdeecd,0x00bd00, // e8-ef
 	0x00b500,0xcdf1cd,0x004a00,0x001800,0x000010,0x00004f,0xcdf6cd,0x0000af, // f0-f7
 	0x293194,0x0000e0,0xeff7ef,0xe7e7e7,0xc0c0c0,0xadb5ad,0x4a4a4a,0x000000  // f8-ff
 };
 
-static u32 getpal16(unsigned int k)
+static de_color getpal16(unsigned int k)
 {
 	if(k>=16) return 0;
 	return pal16[k];
 }
 
-static u32 getpal256(unsigned int k)
+static de_color getpal256(unsigned int k)
 {
 	unsigned int x;
 	u8 r, g, b;
@@ -291,24 +293,44 @@ static u32 getpal256(unsigned int k)
 	return 0;
 }
 
+static void construct_palettes(deark *c, lctx *d)
+{
+	UI k;
+
+	for(k=0; k<16; k++) {
+		d->pal16[k] = DE_MAKE_OPAQUE(getpal16(k));
+	}
+	for(k=0; k<256; k++) {
+		d->pal256[k] = DE_MAKE_OPAQUE(getpal256(k));
+	}
+}
+
 // FIXME: This probably doesn't work for PC format (little-endian).
 static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 	i64 mask_pos, const char *token)
 {
-	i64 i, j;
 	de_bitmap *img = NULL;
 	de_bitmap *mask = NULL;
 	de_finfo *fi = NULL;
-	i64 plane;
 	i64 planespan;
-	u8 b;
-	unsigned int v;
-	u32 clr;
+	const de_color *pal_to_use;
 
 	if(ii->nplanes!=4 && ii->nplanes!=8) {
 		de_warn(c, "%d-plane icons not supported", (int)ii->nplanes);
 		goto done;
 	}
+
+	if(d->pal16[0]==0) {
+		construct_palettes(c, d);
+	}
+
+	if(ii->nplanes==4) {
+		pal_to_use = d->pal16;
+	}
+	else {
+		pal_to_use = d->pal256;
+	}
+
 	if(!de_good_image_dimensions(c, ii->width, ii->height)) {
 		goto done;
 	}
@@ -317,23 +339,8 @@ static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 	mask = de_bitmap_create(c, ii->width, ii->height, 1);
 
 	planespan = ii->mono_rowspan * ii->height;
-
-	for(j=0; j<ii->height; j++) {
-		for(i=0; i<ii->width; i++) {
-			v = 0;
-			for(plane=0; plane<ii->nplanes; plane++) {
-				b = de_get_bits_symbol(c->infile, 1,
-					fg_pos + j*ii->mono_rowspan + plane*(planespan), i);
-				if(b) v |= 1<<plane;
-			}
-			if(ii->nplanes==4)
-				clr = getpal16(v);
-			else
-				clr = getpal256(v);
-
-			de_bitmap_setpixel_rgb(img, i, j, clr);
-		}
-	}
+	de_convert_image_paletted_planar(c->infile, fg_pos, ii->nplanes,
+		ii->mono_rowspan, planespan, pal_to_use, img, 0x2);
 
 	do_decode_bilevel_image(c, d, mask, mask_pos, ii->mono_rowspan);
 	de_bitmap_apply_mask(img, mask, DE_BITMAPFLAG_WHITEISTRNS);
