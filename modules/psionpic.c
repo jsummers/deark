@@ -51,21 +51,18 @@ static void do_bitmap_1plane(deark *c, lctx *d, i64 plane_num)
 static void do_bitmap_2planes(deark *c, lctx *d, i64 pn1, i64 pn2)
 {
 	de_bitmap *img = NULL;
-	i64 i, j;
-	u8 n0, n1;
+	i64 planespan;
+	de_color pal[4];
 
 	de_dbg(c, "making a grayscale image from planes %d and %d", (int)pn1, (int)pn2);
 
 	// TODO: Support -padpix (need samples with width not a multiple of 16)
 	img = de_bitmap_create(c, d->plane_info[pn1].width, d->plane_info[pn1].height, 1);
 
-	for(j=0; j<d->plane_info[pn1].height; j++) {
-		for(i=0; i<d->plane_info[pn1].width; i++) {
-			n0 = de_get_bits_symbol_lsb(c->infile, 1, d->plane_info[pn1].image_pos + j*d->plane_info[pn1].rowspan, i);
-			n1 = de_get_bits_symbol_lsb(c->infile, 1, d->plane_info[pn2].image_pos + j*d->plane_info[pn2].rowspan, i);
-			de_bitmap_setpixel_gray(img, i, j, (3-(n0*2+n1))*85);
-		}
-	}
+	de_make_grayscale_palette(pal, 4, 0x1);
+	planespan = d->plane_info[1].image_pos - d->plane_info[0].image_pos;
+	de_convert_image_paletted_planar(c->infile, d->plane_info[0].image_pos, 2,
+		d->plane_info[0].rowspan, planespan, pal, img, 0x1);
 	de_bitmap_write_to_file(img, NULL, 0);
 
 	de_bitmap_destroy(img);
