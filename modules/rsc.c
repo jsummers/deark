@@ -36,6 +36,7 @@ typedef struct localctx_struct {
 	i64 avail_file_size;
 
 	i64 num_ciconblk;
+	de_color pal2[2];
 	de_color pal16[16];
 	de_color pal256[256];
 } lctx;
@@ -297,6 +298,8 @@ static void construct_palettes(deark *c, lctx *d)
 {
 	UI k;
 
+	d->pal2[0] = DE_STOCKCOLOR_WHITE;
+	d->pal2[1] = DE_STOCKCOLOR_BLACK;
 	for(k=0; k<16; k++) {
 		d->pal16[k] = DE_MAKE_OPAQUE(getpal16(k));
 	}
@@ -307,7 +310,7 @@ static void construct_palettes(deark *c, lctx *d)
 
 // FIXME: This probably doesn't work for PC format (little-endian).
 static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
-	i64 mask_pos, const char *token)
+	i64 mask_pos, const char *token, int is_sel)
 {
 	de_bitmap *img = NULL;
 	de_bitmap *mask = NULL;
@@ -315,8 +318,15 @@ static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 	i64 planespan;
 	const de_color *pal_to_use;
 
-	if(ii->nplanes!=4 && ii->nplanes!=8) {
-		de_warn(c, "%d-plane icons not supported", (int)ii->nplanes);
+	// TODO: Images with 5, 6, or 7 planes exist, but I don't know what palettes
+	// they use.
+
+	if(ii->nplanes!=1 && ii->nplanes!=4 && ii->nplanes!=8) {
+		// The non-selected and selected images have the same # of planes, so
+		// suppress the duplicate warning message.
+		if(!is_sel) {
+			de_warn(c, "%d-plane icons not supported", (int)ii->nplanes);
+		}
 		goto done;
 	}
 
@@ -324,15 +334,10 @@ static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 		construct_palettes(c, d);
 	}
 
-	if(ii->nplanes==4) {
-		pal_to_use = d->pal16;
-	}
-	else {
-		pal_to_use = d->pal256;
-	}
-
-	if(!de_good_image_dimensions(c, ii->width, ii->height)) {
-		goto done;
+	switch(ii->nplanes) {
+	case 1: pal_to_use = d->pal2; break;
+	case 4: pal_to_use = d->pal16; break;
+	default: pal_to_use = d->pal256;
 	}
 
 	img = de_bitmap_create(c, ii->width, ii->height, 4);
@@ -406,6 +411,10 @@ static int do_ciconblk_struct(deark *c, lctx *d, i64 icon_idx, i64 pos1,
 	de_dbg(c, "icon text: \"%s\"", ucstring_getpsz_d(ii->icon_text));
 	pos += 12;
 
+	if(!de_good_image_dimensions(c, ii->width, ii->height)) {
+		goto done;
+	}
+
 	// Go back and read the bilevel icon. (We wanted to read the icon text first.)
 	de_dbg(c, "bilevel image data at %"I64_FMT, mono_fgpos);
 	de_dbg_indent(c, 1);
@@ -443,7 +452,7 @@ static int do_ciconblk_struct(deark *c, lctx *d, i64 icon_idx, i64 pos1,
 		de_dbg(c, "fg at %"I64_FMT, pos);
 		de_dbg(c, "mask at %"I64_FMT, pos+color_bitmapsize);
 		de_snprintf(token, sizeof(token), "%d", (int)ii->nplanes);
-		do_color_icon(c, d, ii, pos, pos+color_bitmapsize, token);
+		do_color_icon(c, d, ii, pos, pos+color_bitmapsize, token, 0);
 		pos += color_bitmapsize; // color_data
 		pos += mono_bitmapsize; // color_mask
 		de_dbg_indent(c, -1);
@@ -454,7 +463,7 @@ static int do_ciconblk_struct(deark *c, lctx *d, i64 icon_idx, i64 pos1,
 			de_dbg(c, "fg at %"I64_FMT, pos);
 			de_dbg(c, "mask at %"I64_FMT, pos+color_bitmapsize);
 			de_snprintf(token, sizeof(token), "%d.sel", (int)ii->nplanes);
-			do_color_icon(c, d, ii, pos, pos+color_bitmapsize, token);
+			do_color_icon(c, d, ii, pos, pos+color_bitmapsize, token, 1);
 			pos += color_bitmapsize; // select_data
 			pos += mono_bitmapsize; // select_mask
 			de_dbg_indent(c, -1);
