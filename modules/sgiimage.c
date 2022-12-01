@@ -13,17 +13,22 @@ struct sgiimage_offsettab_entry {
 };
 
 struct sgiimage_ctx {
+	de_encoding input_encoding;
 	u8 storage_fmt;
 	UI bytes_per_sample;
 	UI dimension_code;
+	u32 pix_min, pix_max;
 	u32 colormap_id;
 	i64 width;
 	i64 height;
 	i64 num_channels;
 
+	u8 is_grayscale;
+	u8 has_alpha;
 	i64 rowspan;
 	i64 num_scanlines;
 	i64 total_unc_size;
+	de_ucstring *name;
 };
 
 static void sgiimage_decode_image(deark *c, struct sgiimage_ctx *d,
@@ -34,22 +39,31 @@ static void sgiimage_decode_image(deark *c, struct sgiimage_ctx *d,
 	i64 i, j;
 
 	for(pn=0; pn<d->num_channels; pn++) {
+		int is_gray_channel;
+		i64 samplenum;
+
+		is_gray_channel = (pn==0 && d->is_grayscale);
+		if(d->has_alpha && pn==(d->num_channels-1))
+			samplenum = 3;
+		else
+			samplenum = pn;
+
 		for(j=0; j<d->height; j++) {
 			for(i=0; i<d->width; i++) {
 				de_colorsample b;
 
 				b = dbuf_getbyte_p(inf, &pos);
-				// TODO: Handle PIXMIN, PIXMAX
-				if(d->num_channels==1) {
+				if(is_gray_channel) {
 					de_bitmap_setpixel_gray(img, i, j, b);
 				}
 				else {
-					de_bitmap_setsample(img, i, j, pn, b);
+					de_bitmap_setsample(img, i, j, samplenum, b);
 				}
 			}
 		}
 	}
 }
+
 static void sgiimage_decompress_rle_scanline(deark *c,
 	struct sgiimage_ctx *d, i64 pos1, i64 len,
 	dbuf *unc_pixels)
@@ -60,6 +74,9 @@ static void sgiimage_decompress_rle_scanline(deark *c,
 
 	curpos = pos1;
 	endpos = pos1 + len;
+
+	// Some files seem to set the offset to 0 for a nonexistent alpha channel.
+	if(curpos < 512) goto done;
 
 	while(1) {
 		UI b;
@@ -83,6 +100,9 @@ static void sgiimage_decompress_rle_scanline(deark *c,
 		}
 		num_dcmpr_bytes += count;
 	}
+
+done:
+	;
 }
 
 static void sgiimage_decompress_rle(deark *c, struct sgiimage_ctx *d,
@@ -91,6 +111,7 @@ static void sgiimage_decompress_rle(deark *c, struct sgiimage_ctx *d,
 	struct sgiimage_offsettab_entry *offsettab = NULL;
 	i64 i;
 	i64 pos;
+	i64 first_alpha_scanline;
 
 	offsettab = de_mallocarray(c, d->num_scanlines,
 		sizeof(struct sgiimage_offsettab_entry));
@@ -117,16 +138,31 @@ static void sgiimage_decompress_rle(deark *c, struct sgiimage_ctx *d,
 	}
 	de_dbg_indent(c, -1);
 
+	if(d->has_alpha) {
+		first_alpha_scanline = d->height * (d->num_channels-1);
+	}
+	else {
+		first_alpha_scanline = d->num_scanlines;
+	}
+
 	for(i=0; i<d->num_scanlines; i++) {
 		i64 expected_ulen;
+		i64 actual_ulen;
 
 		sgiimage_decompress_rle_scanline(c, d,
-			(i64)offsettab[i].pos, (i64)offsettab[i].len,
-			unc_pixels);
+			(i64)offsettab[i].pos, (i64)offsettab[i].len, unc_pixels);
 
 		expected_ulen = (i+1) * d->rowspan;
-		if(dbuf_get_length(unc_pixels) != expected_ulen) {
-			dbuf_truncate(unc_pixels, expected_ulen);
+		actual_ulen = dbuf_get_length(unc_pixels);
+		if(actual_ulen != expected_ulen) {
+			if((actual_ulen < expected_ulen) && i>=first_alpha_scanline) {
+				// If we didn't decompress enough bytes, don't default to 0 (invisible)
+				// if this is the alpha channel.
+				dbuf_write_run(unc_pixels, 0xff, expected_ulen - actual_ulen);
+			}
+			else {
+				dbuf_truncate(unc_pixels, expected_ulen);
+			}
 		}
 	}
 
@@ -138,6 +174,9 @@ static void do_sgiimage_image(deark *c, struct sgiimage_ctx *d)
 {
 	dbuf *unc_pixels = NULL;
 	de_bitmap *img = NULL;
+
+	d->is_grayscale = (d->num_channels<=2);
+	d->has_alpha = (d->num_channels==2 || d->num_channels==4);
 
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
@@ -157,7 +196,15 @@ static void do_sgiimage_image(deark *c, struct sgiimage_ctx *d)
 		sgiimage_decode_image(c, d, unc_pixels, 0, img);
 	}
 
-	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_FLIP_IMAGE);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_FLIP_IMAGE |
+		DE_CREATEFLAG_OPT_IMAGE);
+
+	// TODO: Support normalizing the image brightness/contrast.
+	// Unfortunately, the spec is ambiguous as to whether the decoder should do
+	// this, and there's probably no good automatic solution.
+	if((d->pix_max > d->pix_min) && (d->pix_min==0) && (d->pix_max < 128)) {
+		de_info(c, "Note: This image may need to have its brightness increased.");
+	}
 
 done:
 	dbuf_close(unc_pixels);
@@ -168,9 +215,10 @@ static void de_run_sgiimage(deark *c, de_module_params *mparams)
 {
 	struct sgiimage_ctx *d = NULL;
 	i64 pos;
-	int ok;
+	int need_errmsg = 0;
 
 	d = de_malloc(c, sizeof(struct sgiimage_ctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
 
 	pos = 2;
 	d->storage_fmt = de_getbyte_p(&pos);
@@ -189,48 +237,66 @@ static void de_run_sgiimage(deark *c, de_module_params *mparams)
 	d->num_channels = de_getu16be_p(&pos); // a.k.a. ZSIZE
 	de_dbg(c, "num channels: %u", (UI)d->num_channels);
 
-	pos += 8; // PIXMIN, PIXMAX
+	d->pix_min = (u32)de_getu32be_p(&pos);
+	d->pix_max = (u32)de_getu32be_p(&pos);
+	de_dbg(c, "pix min, max: %u, %u", (UI)d->pix_min, (UI)d->pix_max);
+
 	pos += 4; // unused
-	pos += 80; // name (TODO)
+
+	d->name = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, 80, d->name, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(d->name));
+	pos += 80;
 
 	d->colormap_id = (u32)de_getu32be_p(&pos);
 	de_dbg(c, "colormap code: %u", (UI)d->colormap_id);
 
-	// We support these image types:
-	//
-	// dim.code     num.chan.  colormap_id
-	// (DIMENSION)  (ZSIZE)    (COLORMAP)
-	// =========    =========  ===========
-	//  2           1          0           = grayscale
-	//  3           3          0           = RGB
-	//  3           4          0           = RGBA
-
-	ok = 0;
 	if(d->storage_fmt>1) {
-		;
+		need_errmsg = 1;
+		goto done;
+	}
+	if(d->colormap_id!=0) {
+		// TODO: Support type 1 (RGB332), if such images exist.
+		need_errmsg = 1;
+		goto done;
 	}
 	else if(d->bytes_per_sample!=1) {
-		; // TODO: Support 16 bits/sample
-	}
-	else if(d->colormap_id!=0) {
-		;
-	}
-	else if((d->dimension_code==2 && d->num_channels==1) ||
-		(d->dimension_code==3 && d->num_channels==3) ||
-		(d->dimension_code==3 && d->num_channels==4))
-	{
-		ok = 1;
+		// TODO: Support 2 bytes/sample.
+		need_errmsg = 1;
+		goto done;
 	}
 
-	if(!ok) {
-		de_err(c, "This type of SGI image is not supported");
+	if(d->dimension_code==1) {
+		// Attempt to tolerate the silly 1-dimensional grayscale image type
+		// allowed by the spec.
+		// We assume that, if height>1, it's more likely that the
+		// dimension_code is wrong, than that this is actually a 1-D image.
+		if(d->height==0) {
+			d->height = 1;
+		}
+		if(d->num_channels==0) {
+			d->num_channels = 1;
+		}
+	}
+	// Note that, other than the above logic, we ignore dimension_code -- it's
+	// not trustworthy.
+
+	if(d->num_channels<1 || d->num_channels>4) {
+		need_errmsg = 1;
 		goto done;
 	}
 
 	do_sgiimage_image(c, d);
 
 done:
-	de_free(c, d);
+	if(need_errmsg) {
+		de_err(c, "This type of SGI image is not supported");
+	}
+	if(d) {
+		ucstring_destroy(d->name);
+		de_free(c, d);
+	}
 }
 
 static int de_identify_sgiimage(deark *c)
@@ -246,10 +312,16 @@ static int de_identify_sgiimage(deark *c)
 	if(n>1) return 0;
 
 	n = (UI)de_getbyte(3); // "BPC"
-	if(n<1 && n>2) return 0;
+	if(n<1 || n>2) return 0;
 
 	n = (UI)de_getu16be(4); // "DIMENSION"
-	if(n<1 || n>3) return 0;
+	// Only 1-3 are legal, but we allow 0-4 because this field is confusing
+	// and underspecified.
+	if(n>4) return 0;
+
+	n = (UI)de_getu16be(10); // "ZSIZE"
+	// Allow 0 because this field may be unused for some image types.
+	if(n>4) return 0;
 
 	return 60;
 }
