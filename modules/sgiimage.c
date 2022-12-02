@@ -16,7 +16,7 @@ struct sgiimage_ctx {
 	de_encoding input_encoding;
 	u8 storage_fmt;
 	UI bytes_per_sample;
-	UI dimension_code;
+	UI dimension_count;
 	u32 pix_min, pix_max;
 	u32 colormap_id;
 	i64 width;
@@ -25,6 +25,7 @@ struct sgiimage_ctx {
 
 	u8 is_grayscale;
 	u8 has_alpha;
+	u8 warned_bad_offset;
 	i64 rowspan;
 	i64 num_scanlines;
 	i64 total_unc_size;
@@ -65,7 +66,7 @@ static void sgiimage_decode_image(deark *c, struct sgiimage_ctx *d,
 }
 
 static void sgiimage_decompress_rle_scanline(deark *c,
-	struct sgiimage_ctx *d, i64 pos1, i64 len,
+	struct sgiimage_ctx *d, i64 scanline_num, i64 pos1, i64 len,
 	dbuf *unc_pixels)
 {
 	i64 curpos;
@@ -76,7 +77,14 @@ static void sgiimage_decompress_rle_scanline(deark *c,
 	endpos = pos1 + len;
 
 	// Some files seem to set the offset to 0 for a nonexistent alpha channel.
-	if(curpos < 512) goto done;
+	if(pos1 < 20) {
+		if(!d->warned_bad_offset) {
+			de_warn(c, "Bad offset at scanline %"I64_FMT": %"I64_FMT,
+				scanline_num, pos1);
+			d->warned_bad_offset = 1;
+		}
+		goto done;
+	}
 
 	while(1) {
 		UI b;
@@ -149,7 +157,7 @@ static void sgiimage_decompress_rle(deark *c, struct sgiimage_ctx *d,
 		i64 expected_ulen;
 		i64 actual_ulen;
 
-		sgiimage_decompress_rle_scanline(c, d,
+		sgiimage_decompress_rle_scanline(c, d, i,
 			(i64)offsettab[i].pos, (i64)offsettab[i].len, unc_pixels);
 
 		expected_ulen = (i+1) * d->rowspan;
@@ -196,15 +204,14 @@ static void do_sgiimage_image(deark *c, struct sgiimage_ctx *d)
 		sgiimage_decode_image(c, d, unc_pixels, 0, img);
 	}
 
+	if(d->width>1 || d->height>1) {
+		// If there are no visible pixels, assume something's wrong, and remove
+		// the alpha channel.
+		de_bitmap_optimize_alpha(img, 0x3);
+	}
+
 	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_FLIP_IMAGE |
 		DE_CREATEFLAG_OPT_IMAGE);
-
-	// TODO: Support normalizing the image brightness/contrast.
-	// Unfortunately, the spec is ambiguous as to whether the decoder should do
-	// this, and there's probably no good automatic solution.
-	if((d->pix_max > d->pix_min) && (d->pix_min==0) && (d->pix_max < 128)) {
-		de_info(c, "Note: This image may need to have its brightness increased.");
-	}
 
 done:
 	dbuf_close(unc_pixels);
@@ -215,6 +222,7 @@ static void de_run_sgiimage(deark *c, de_module_params *mparams)
 {
 	struct sgiimage_ctx *d = NULL;
 	i64 pos;
+	UI min_dim_count_expected;
 	int need_errmsg = 0;
 
 	d = de_malloc(c, sizeof(struct sgiimage_ctx));
@@ -227,19 +235,25 @@ static void de_run_sgiimage(deark *c, de_module_params *mparams)
 	d->bytes_per_sample = (UI)de_getbyte_p(&pos);
 	de_dbg(c, "bytes/sample: %u", d->bytes_per_sample);
 
-	d->dimension_code = (UI)de_getu16be_p(&pos);
-	de_dbg(c, "dimension code: %u", d->dimension_code);
+	d->dimension_count = (UI)de_getu16be_p(&pos);
+	de_dbg(c, "dimension count: %u", d->dimension_count);
 
 	d->width = de_getu16be_p(&pos);
+	de_dbg(c, "x-size: %"I64_FMT, d->width);
 	d->height = de_getu16be_p(&pos);
-	de_dbg_dimensions(c, d->width, d->height);
-
-	d->num_channels = de_getu16be_p(&pos); // a.k.a. ZSIZE
-	de_dbg(c, "num channels: %u", (UI)d->num_channels);
+	de_dbg(c, "y-size: %"I64_FMT, d->height);
+	d->num_channels = de_getu16be_p(&pos);
+	de_dbg(c, "z-size: %u", (UI)d->num_channels);
 
 	d->pix_min = (u32)de_getu32be_p(&pos);
 	d->pix_max = (u32)de_getu32be_p(&pos);
 	de_dbg(c, "pix min, max: %u, %u", (UI)d->pix_min, (UI)d->pix_max);
+	// TODO?: Support normalizing the image brightness/contrast.
+	// Unfortunately, the spec is ambiguous about the meaning of these fields.
+	// For 8-bit samples, it probably isn't necessary to do anything, though I
+	// have found just a few too-dark images that might expect you to normalize
+	// them. When/if we support 16-bit samples, it might be more important to
+	// do something.
 
 	pos += 4; // unused
 
@@ -267,20 +281,21 @@ static void de_run_sgiimage(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	if(d->dimension_code==1) {
-		// Attempt to tolerate the silly 1-dimensional grayscale image type
-		// allowed by the spec.
-		// We assume that, if height>1, it's more likely that the
-		// dimension_code is wrong, than that this is actually a 1-D image.
-		if(d->height==0) {
-			d->height = 1;
-		}
-		if(d->num_channels==0) {
-			d->num_channels = 1;
-		}
+	// We're hoping that unused fields will be set to 0 or 1.
+	if(d->width==0) d->width = 1;
+	if(d->height==0) d->height = 1;
+	if(d->num_channels==0) d->num_channels = 1;
+
+	if(d->num_channels>1) min_dim_count_expected = 3;
+	else if(d->height>1) min_dim_count_expected = 2;
+	else min_dim_count_expected = 1;
+
+	if(d->dimension_count<min_dim_count_expected || d->dimension_count>3) {
+		de_warn(c, "Likely bad dimension count (is %u, assuming it should be %u)",
+			d->dimension_count, min_dim_count_expected);
 	}
-	// Note that, other than the above logic, we ignore dimension_code -- it's
-	// not trustworthy.
+	// Note that, other than for the above warning, we ignore dimension_count.
+	// The x-size, y-size, z-size fields seem to be more reliable than it is.
 
 	if(d->num_channels<1 || d->num_channels>4) {
 		need_errmsg = 1;
