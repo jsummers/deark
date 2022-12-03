@@ -2619,6 +2619,19 @@ done:
 	ucstring_destroy(tcctx.tmpstr);
 }
 
+// Unused bits in n are required to be 0.
+void de_bitbuf_lowlevel_add_bits(struct de_bitbuf_lowlevel *bbll, u64 n, UI nbits)
+{
+	if(bbll->nbits_in_bitbuf+nbits>64) return;
+	if(bbll->is_lsb==0) {
+		bbll->bit_buf = (bbll->bit_buf<<nbits) | n;
+	}
+	else {
+		bbll->bit_buf |= (u64)n << bbll->nbits_in_bitbuf;
+	}
+	bbll->nbits_in_bitbuf += nbits;
+}
+
 void de_bitbuf_lowlevel_add_byte(struct de_bitbuf_lowlevel *bbll, u8 n)
 {
 	if(bbll->nbits_in_bitbuf>56) return;

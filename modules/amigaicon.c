@@ -23,10 +23,9 @@ typedef struct localctx_struct {
 	// Newicons-specific data
 	int has_newicons;
 	dbuf *newicons_data[2];
-	u8 pending_data;
-	int pending_data_bits_used;
-	int newicons_bits_per_pixel;
+	UI newicons_bits_per_pixel;
 	int newicons_line_count;
+	struct de_bitbuf_lowlevel newicons_bbll;
 
 	// Glowicons-specific data
 	int has_glowicons;
@@ -46,26 +45,30 @@ static const u32 magicwbpal[8] = {
 	//0xaaaaaa,0x999999,0xffffff,0xbbaa99,0x000000,0xbbbbbb,0x556699,0xffbbaa // XnView
 };
 
-static void do_newicons_append_bit(deark *c, lctx *d, dbuf *f, u8 b)
+static void do_newicons_process_bit(deark *c, lctx *d, dbuf *f, u8 b)
 {
-	if(d->pending_data_bits_used==0) {
-		d->pending_data = 0;
-	}
-	d->pending_data = (d->pending_data<<1) | (b & 0x1);
-	d->pending_data_bits_used++;
+	UI nbits_needed;
 
-	if(d->newicons_line_count==0) {
-		// We're still reading palette samples, which are always 8 bits.
-		if(d->pending_data_bits_used==8) {
-			dbuf_writebyte(f, d->pending_data);
-			d->pending_data_bits_used=0;
-		}
-		return;
-	}
+	de_bitbuf_lowlevel_add_bits(&d->newicons_bbll, (u64)b, 1);
 
-	if(d->pending_data_bits_used >= d->newicons_bits_per_pixel) {
-		dbuf_writebyte(f, d->pending_data);
-		d->pending_data_bits_used=0;
+	// If line_count==0, we're still reading palette samples, which are always 8 bits.
+	nbits_needed = (d->newicons_line_count==0) ? 8 : d->newicons_bits_per_pixel;
+
+	if(d->newicons_bbll.nbits_in_bitbuf >= nbits_needed) {
+		dbuf_writebyte(f, (u8)de_bitbuf_lowlevel_get_bits(&d->newicons_bbll,
+			nbits_needed));
+		d->newicons_bbll.nbits_in_bitbuf = 0;
+	}
+}
+
+static void do_newicons_process_bits(deark *c, lctx *d, dbuf *f, u8 b, UI nbits)
+{
+	UI i;
+	u8 tmpb;
+
+	for(i=0; i<nbits; i++) {
+		tmpb = (b>>(nbits-1-i))&0x01;
+		do_newicons_process_bit(c, d, f, tmpb);
 	}
 }
 
@@ -76,7 +79,7 @@ static void do_decode_newicons(deark *c, lctx *d,
 	dbuf *f, int newicons_num)
 {
 	u8 trns_code, width_code, height_code;
-	u8 b0, b1, tmpb;
+	u8 b0, b1;
 	de_bitmap *img = NULL;
 	int has_trns;
 	i64 width, height;
@@ -100,7 +103,7 @@ static void do_decode_newicons(deark *c, lctx *d,
 
 	b0 = dbuf_getbyte(f, 3);
 	b1 = dbuf_getbyte(f, 4);
-	ncolors = ((((i64)b0)-0x21)<<6) + (((i64)b1)-0x21);
+	ncolors = (i64)((((UI)b0-(UI)0x21)<<6) + ((UI)b1-(UI)0x21));
 	if(ncolors<1) ncolors=1;
 	if(ncolors>256) ncolors=256;
 
@@ -114,10 +117,10 @@ static void do_decode_newicons(deark *c, lctx *d,
 
 	decoded = dbuf_create_membuf(c, 2048, 0);
 
-	d->pending_data = 0;
-	d->pending_data_bits_used = 0;
+	d->newicons_bbll.is_lsb = 0;
+	de_bitbuf_lowlevel_empty(&d->newicons_bbll);
 
-	d->newicons_bits_per_pixel = (int)de_log2_rounded_up(ncolors);
+	d->newicons_bits_per_pixel = (UI)de_log2_rounded_up(ncolors);
 
 	// We decode both the palette and the bitmap into the same buffer, and
 	// keep track of where in the buffer the bitmap starts.
@@ -131,24 +134,19 @@ static void do_decode_newicons(deark *c, lctx *d,
 		if((b0>=0x20 && b0<=0x6f) || (b0>=0xa1 && b0<=0xd0)) {
 			if(b0<=0x6f) b1 = b0-0x20;
 			else b1 = 0x50 + (b0-0xa1);
-
-			for(i=0; i<7; i++) {
-				tmpb = (b1>>(6-i))&0x01;
-				do_newicons_append_bit(c, d, decoded, tmpb);
-			}
+			do_newicons_process_bits(c, d, decoded, b1, 7);
 		}
 		else if(b0>=0xd1) {
 			// RLE compression for "0" bits
-			tmpb = 0;
 			rle_len = 7*(i64)(b0-0xd0);
 			for(i=0; i<rle_len; i++) {
-				do_newicons_append_bit(c, d, decoded, tmpb);
+				do_newicons_process_bit(c, d, decoded, 0);
 			}
 		}
 		else if(b0==0x00) {
 			// End of a line.
 			// Throw away any bits we've decoded that haven't been used yet.
-			d->pending_data_bits_used = 0;
+			d->newicons_bbll.nbits_in_bitbuf = 0;
 
 			if(d->newicons_line_count==0) {
 				// The bitmap will start at this position. Remember that.
