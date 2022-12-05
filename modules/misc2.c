@@ -1622,13 +1622,50 @@ void de_module_deskmate_pnt(deark *c, struct deark_module_info *mi)
 
 static void de_run_mdesk_icn(deark *c, de_module_params *mparams)
 {
+	const char *s;
+	int pal_req = 0;
+	u8 toybox_mode = 0;
+	u8 b2;
 	de_bitmap *img = NULL;
-	static const de_color pal[16] = {
+	de_color pal[16];
+	static const de_color pal_mdesk[16] = {
 		0xff000000U, 0xffaa0000U, 0xff00aa00U, 0xffaaaa00U,
 		0xff0000aaU, 0xffaa00aaU, 0xff00aaaaU, 0xff7d7d7dU,
 		0xffbababaU, 0xffff5555U, 0xff55ff55U, 0xffffff55U,
 		0xff5555ffU, 0xffff55ffU, 0xff55ffffU, 0xffffffffU
 	};
+
+	s = de_get_ext_option(c, "mdesk_icn:pal");
+	if(s) {
+		pal_req = de_atoi(s);
+	}
+
+	if(pal_req<1 || pal_req>4) pal_req = 4; // default = prefer Magic Desk
+
+	b2 = de_getbyte(2);
+	de_dbg2(c, "byte[2]: 0x%02x", (UI)b2);
+
+	if(pal_req==1) { //  ToyBox only
+		toybox_mode = 1;
+	}
+	else if(pal_req==2) { // Magic Desk only
+		toybox_mode = 0;
+	}
+	else if(pal_req==3) { // prefer ToyBox
+		toybox_mode = (b2 != 0x03);
+	}
+	else {
+		toybox_mode = (b2 == 0x00);
+	}
+
+	de_declare_fmtf(c, "%s icon", (toybox_mode?"ToyBox":"Magic Desk"));
+
+	if(toybox_mode) {
+		de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, pal, 16, 0);
+	}
+	else {
+		de_memcpy(pal, pal_mdesk, sizeof(pal));
+	}
 
 	img = de_bitmap_create(c, 32, 32, 3);
 	de_convert_image_paletted(c->infile, 3, 4, 16, pal, img, 0);
@@ -1639,14 +1676,27 @@ static void de_run_mdesk_icn(deark *c, de_module_params *mparams)
 
 static int de_identify_mdesk_icn(deark *c)
 {
+	u8 b2;
+	int has_ext;
+	int b2_ok;
+
 	if(c->infile->len!=515) return 0;
 	if(de_getu16be(0)!=0x1f1f) return 0;
-	if(de_input_file_has_ext(c, "icn") ||
-		de_input_file_has_ext(c, "tbi"))
-	{
+	b2 = de_getbyte(2);
+
+	has_ext = (de_input_file_has_ext(c, "icn") ||
+		de_input_file_has_ext(c, "tbi"));
+	b2_ok = (b2==0x00 || b2==0x03 || b2==0xff);
+
+	if(has_ext && b2_ok) {
 		return 90;
 	}
-	return 20;
+	return 14;
+}
+
+static void de_help_mdesk_icn(deark *c)
+{
+	de_msg(c, "-opt mdesk_icn:pal=<n> : Refer to documentation");
 }
 
 void de_module_mdesk_icn(deark *c, struct deark_module_info *mi)
@@ -1655,6 +1705,7 @@ void de_module_mdesk_icn(deark *c, struct deark_module_info *mi)
 	mi->desc = "Magic Desk icon";
 	mi->run_fn = de_run_mdesk_icn;
 	mi->identify_fn = de_identify_mdesk_icn;
+	mi->help_fn = de_help_mdesk_icn;
 }
 
 // **************************************************************************

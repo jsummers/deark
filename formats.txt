@@ -316,7 +316,10 @@ Deark -- Information about supported formats
   Options
    -opt macpaint:macbinary=<0|1>
 
-* Magic Desk icon (module="mdesk_icn")
+* Magic Desk or ToyBox icon (module="mdesk_icn")
+  Options
+   -opt mdesk_icn:pal=<1|2|3|4> - 1=Use ToyBox palette, 2=Use Magic Desk
+     palette, 3=Prefer ToyBox palette, 4=Prefer Magic Desk palette (default)
 
 * MAKIchan graphics (module="makichan")
   - Supports most 16- and 256-color .MAG images
