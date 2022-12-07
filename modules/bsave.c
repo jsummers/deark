@@ -13,7 +13,7 @@ DE_DECLARE_MODULE(de_module_bsave);
 typedef struct localctx_struct {
 	i64 base_addr, offset_from_base, data_size;
 
-	int has_pcpaint_sig;
+	int have_pcpaint_palinfo;
 	u8 pcpaint_pal_num;
 	u8 pcpaint_border_col;
 
@@ -31,6 +31,7 @@ static i64 get_width(deark *c, lctx *d, i64 default_width)
 {
 	const char *s;
 	s = de_get_ext_option(c, "bsave:width");
+	if(!s) s = de_get_ext_option(c, "width");
 	if(s) return de_atoi64(s);
 	return default_width;
 }
@@ -39,6 +40,7 @@ static i64 get_height(deark *c, lctx *d, i64 default_height)
 {
 	const char *s;
 	s = de_get_ext_option(c, "bsave:height");
+	if(!s) s = de_get_ext_option(c, "height");
 	if(s) return de_atoi64(s);
 	return default_height;
 }
@@ -150,7 +152,7 @@ static void do_4color(deark *c, lctx *d)
 	}
 
 	// Set the palette
-	if(d->has_pcpaint_sig) {
+	if(d->have_pcpaint_palinfo) {
 		de_copy_std_palette(DE_PALID_CGA, (int)d->pcpaint_pal_num, 0, 4, palette, 4, 0);
 		palette[0] = de_get_std_palette_entry(DE_PALID_PC16, 0, (int)d->pcpaint_border_col);
 	}
@@ -280,42 +282,27 @@ done:
 // http://cd.textfiles.com/advheaven2/SOLITAIR/SP107/
 static void do_wh16(deark *c, lctx *d)
 {
-	i64 i, j;
 	de_bitmap *img = NULL;
 	i64 w, h;
-	i64 src_rowspan1;
+	i64 src_planespan;
 	i64 src_rowspan;
 	i64 pos;
-	u8 palent;
-	u8 b0, b1, b2, b3;
 
-	de_declare_fmt(c, "BSAVE-PC 16-color, interlaced, 11-byte header");
+	de_declare_fmt(c, "BSAVE-PC 16-color, 4-plane, 11-byte header");
 
 	pos = BSAVE_HDRSIZE;
-	w = de_getu16le(pos);
-	h = de_getu16le(pos+2);
-	pos+=4;
-
+	w = de_getu16le_p(&pos);
+	h = de_getu16le_p(&pos);
 	de_dbg_dimensions(c, w, h);
 	if(!de_good_image_dimensions(c, w, h)) goto done;
-	img = de_bitmap_create(c, w, h, 3);
 
-	src_rowspan1 = (w+7)/8;
-	src_rowspan = src_rowspan1*4;
+	img = de_bitmap_create(c, w, h, 3);
+	src_planespan = (w+7)/8;
+	src_rowspan = src_planespan*4;
 
 	de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, d->pal, 16, 0);
-
-	for(j=0; j<h; j++) {
-		for(i=0; i<w; i++) {
-			b0 = de_get_bits_symbol(c->infile, 1, pos + j*src_rowspan + src_rowspan1*0, i);
-			b1 = de_get_bits_symbol(c->infile, 1, pos + j*src_rowspan + src_rowspan1*1, i);
-			b2 = de_get_bits_symbol(c->infile, 1, pos + j*src_rowspan + src_rowspan1*2, i);
-			b3 = de_get_bits_symbol(c->infile, 1, pos + j*src_rowspan + src_rowspan1*3, i);
-			palent = b0 | (b1<<1) | (b2<<2) | (b3<<3);
-			de_bitmap_setpixel_rgb(img, i, j, d->pal[(UI)palent]);
-		}
-	}
-
+	de_convert_image_paletted_planar(c->infile, pos, 4, src_rowspan, src_planespan,
+		d->pal, img, 0x2);
 	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
@@ -495,20 +482,52 @@ done:
 	return retval;
 }
 
-static void check_for_pcpaint_sig(deark *c, lctx *d)
+struct bsave_id_info {
+	u8 might_be_bsave;
+	u8 pcpaint_sig_found;
+	i64 pcpaint_sig_pos;
+};
+
+static void identify_bsave_internal(deark *c, struct bsave_id_info *idi)
 {
-	u8 sig[14];
-	i64 pos = 8007;
+	i64 base_addr;
+	i64 data_size;
+	// Knwon signatures: "PCPaint V1.0", "PCPaint V1.5".
+	static const u8 *pcpaintsig = (const u8*)"PCPaint V1.";
 
-	de_read(sig, pos, 14);
-	if(de_memcmp(sig, "PCPaint V1.", 11)) return;
+	de_zeromem(idi, sizeof(struct bsave_id_info));
+	if(c->infile->len<12) return;
+	if(de_getbyte(0)!=0xfd) return;
+	base_addr = de_getu16le(1);
+	data_size = de_getu16le(5);
+	if(data_size==0) return;
+	idi->might_be_bsave = 1;
 
-	d->has_pcpaint_sig = 1;
+	if(base_addr == 0xb800) {
+		i64 pos;
+
+		pos = 8007;
+		if(!dbuf_memcmp(c->infile, pos, pcpaintsig, 11)) {
+			idi->pcpaint_sig_found = 1;
+			idi->pcpaint_sig_pos = pos;
+			return;
+		}
+	}
+}
+
+static void read_pcpaint_palinfo(deark *c, lctx *d, struct bsave_id_info *idi)
+{
+	i64 pos;
+
+	if(!idi->pcpaint_sig_found) return;
+	pos = idi->pcpaint_sig_pos;
+	d->have_pcpaint_palinfo = 1;
 	de_dbg(c, "PCPaint settings found at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
-	d->pcpaint_pal_num = sig[12];
+	pos += 12;
+	d->pcpaint_pal_num = de_getbyte_p(&pos);
 	de_dbg(c, "palette: %u", (UI)d->pcpaint_pal_num);
-	d->pcpaint_border_col = sig[13];
+	d->pcpaint_border_col = de_getbyte_p(&pos);
 	de_dbg(c, "border color: %u", (UI)d->pcpaint_border_col);
 	de_dbg_indent(c, -1);
 }
@@ -518,9 +537,12 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 	const char *bsavefmt;
 	const char *s;
 	lctx *d;
+	u8 need_id_warning = 0;
 	decoder_fn_type decoder_fn = NULL;
+	struct bsave_id_info idi;
 
 	d = de_malloc(c, sizeof(lctx));
+	identify_bsave_internal(c, &idi);
 
 	d->base_addr = de_getu16le(1);
 	d->offset_from_base = de_getu16le(3);
@@ -535,7 +557,7 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 		bsavefmt="auto";
 	}
 
-	check_for_pcpaint_sig(c, d);
+	read_pcpaint_palinfo(c, d, &idi);
 
 	if(!de_strcmp(bsavefmt,"cga2")) {
 		d->interlaced = 1;
@@ -581,6 +603,18 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 		decoder_fn = do_2color;
 	}
 	else if(!de_strcmp(bsavefmt,"auto")) {
+		need_id_warning = 1;
+
+		if(idi.pcpaint_sig_found) {
+			d->interlaced = 1;
+			decoder_fn = do_4color;
+			// Most files with a signature are cga4, but I found a few that are cga2.
+			// There are also images that are contrived to work in either mode.
+			// I'm guessing that these are the only two possibilities.
+			de_info(c, "Note: If the image doesn't look right, try \"-opt bsave:fmt=cga2\".");
+			need_id_warning = 0;
+		}
+
 		// TODO: Better autodetection. This barely does anything.
 		if(d->base_addr==0xb800 && (d->data_size==16384 || d->data_size==16383)) {
 			d->interlaced = 1;
@@ -597,7 +631,7 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	if(!de_strcmp(bsavefmt,"auto")) {
+	if(need_id_warning) {
 		de_warn(c, "BSAVE formats can't be reliably identified. You may need to "
 			"use \"-opt bsave:fmt=...\". Use \"-m bsave -h\" for a list.");
 	}
@@ -616,10 +650,17 @@ done:
 
 static int de_identify_bsave(deark *c)
 {
+	struct bsave_id_info idi;
+
 	// Note - Make sure XZ has higher confidence.
 	// Note - Make sure BLD has higher confidence.
-	if(de_getbyte(0)==0xfd) return 10;
-	return 0;
+	identify_bsave_internal(c, &idi);
+	if(!idi.might_be_bsave) return 0;
+
+	if(idi.pcpaint_sig_found) {
+		return 91;
+	}
+	return 10;
 }
 
 static void de_help_bsave(deark *c)
@@ -632,11 +673,11 @@ static void de_help_bsave(deark *c)
 	de_msg(c, " mcga  : 256-color, 320x200");
 	de_msg(c, " wh2   : 2-color, 11-byte header");
 	de_msg(c, " wh4   : 4-color, 11-byte header");
-	de_msg(c, " wh16  : 16-color, 11-byte header, inter-row interlaced");
+	de_msg(c, " wh16  : 16-color, 4-plane, 11-byte header");
 	de_msg(c, " wh256 : 256-color, 11-byte header");
-	de_msg(c, " b265  : Special");
 	de_msg(c, " 2col  : 2-color noninterlaced");
 	de_msg(c, " 4col  : 4-color noninterlaced");
+	//de_msg(c, " b265  : Special"); - not documented here
 }
 
 void de_module_bsave(deark *c, struct deark_module_info *mi)
