@@ -7,6 +7,7 @@
 #include <deark-config.h>
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_pcpaint);
+DE_DECLARE_MODULE(de_module_bsave_cmpr);
 
 struct pal_info {
 	i64 edesc;
@@ -28,6 +29,7 @@ typedef void (*decoder_fn_type)(deark *c, lctx *d);
 struct localctx_struct {
 #define FMT_PIC 1
 #define FMT_CLP 2
+#define FMT_CMPR_BSAVE 3
 	int file_fmt;
 	int ver;
 	de_encoding input_encoding;
@@ -403,6 +405,9 @@ static int decompress_block(deark *c, lctx *d,
 	i64 run_length;
 
 	end_of_this_block = pos1 + packed_data_size;
+	if(end_of_this_block > c->infile->len) {
+		end_of_this_block = c->infile->len;
+	}
 
 	while(pos<end_of_this_block) {
 		x = de_getbyte_p(&pos);
@@ -431,17 +436,54 @@ static int decompress_block(deark *c, lctx *d,
 	return 1;
 }
 
-// Decompress multiple blocks of compressed pixels.
-// This is for PIC format only.
-static int decompress_pixels(deark *c, lctx *d)
+// Uses d->num_rle_blocks
+static int decompress_blocks(deark *c, lctx *d, i64 pos1)
 {
-	i64 pos;
 	i64 i;
 	i64 packed_block_size;
 	i64 unpacked_block_size;
-	u8 run_marker;
-	int retval = 1;
 	i64 end_of_this_block;
+	i64 pos = pos1;
+	u8 run_marker;
+	int retval = 0;
+
+	for(i=0; i<d->num_rle_blocks; i++) {
+		de_dbg3(c, "block #%d at %"I64_FMT, (int)i, pos);
+		de_dbg_indent(c, 1);
+		// start_of_this_block = pos;
+		packed_block_size = de_getu16le(pos);
+		// block size includes the 5-byte header, so it can't be < 5.
+		if(packed_block_size<5) packed_block_size=5;
+		end_of_this_block = pos + packed_block_size; // Remember where this block ends
+		if(end_of_this_block > c->infile->len) goto done;
+		unpacked_block_size = de_getu16le(pos+2);
+		run_marker = de_getbyte(pos+4);
+		pos+=5;
+
+		de_dbg3(c, "packed size: %"I64_FMT, packed_block_size);
+		de_dbg3(c, "unpacked size: %"I64_FMT, unpacked_block_size);
+		de_dbg3(c, "run marker: 0x%02x", (UI)run_marker);
+
+		if(!decompress_block(c, d, pos, packed_block_size-5, run_marker)) {
+			goto done;
+		}
+		de_dbg_indent(c, -1);
+
+		pos = end_of_this_block;
+	}
+	retval = 1;
+done:
+	return retval;
+}
+
+// Decompress multiple blocks of compressed pixels.
+// This is for PIC format only.
+static int decompress_pic_pixels(deark *c, lctx *d)
+{
+	i64 pos;
+	//i64 i;
+	int retval = 1;
+	//i64 end_of_this_block;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -458,29 +500,7 @@ static int decompress_pixels(deark *c, lctx *d)
 	de_dbg_indent(c, 1);
 	pos = d->header_size;
 
-	for(i=0; i<d->num_rle_blocks; i++) {
-		de_dbg3(c, "block #%d at %"I64_FMT, (int)i, pos);
-		de_dbg_indent(c, 1);
-		// start_of_this_block = pos;
-		packed_block_size = de_getu16le(pos);
-		// block size includes the 5-byte header, so it can't be < 5.
-		if(packed_block_size<5) packed_block_size=5;
-		end_of_this_block = pos + packed_block_size; // Remember where this block ends
-		unpacked_block_size = de_getu16le(pos+2);
-		run_marker = de_getbyte(pos+4);
-		pos+=5;
-
-		de_dbg3(c, "packed size: %"I64_FMT, packed_block_size);
-		de_dbg3(c, "unpacked size: %"I64_FMT, unpacked_block_size);
-		de_dbg3(c, "run marker: 0x%02x", (UI)run_marker);
-
-		if(!decompress_block(c, d, pos, packed_block_size-5, run_marker)) {
-			goto done;
-		}
-		de_dbg_indent(c, -1);
-
-		pos = end_of_this_block;
-	}
+	if(!decompress_blocks(c, d, pos)) goto done;
 
 	de_dbg_indent(c, -1);
 	de_dbg(c, "decompressed to %"I64_FMT" bytes", d->unc_pixels->len);
@@ -680,7 +700,7 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 
 	if(d->num_rle_blocks>0) {
 		// Image is compressed.
-		decompress_pixels(c, d);
+		decompress_pic_pixels(c, d);
 	}
 	else {
 		// Image is not compressed.
@@ -782,6 +802,16 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+static void destroy_lctx(deark *c, lctx *d)
+{
+	if(!d) return;
+	if(d->unc_pixels) dbuf_close(d->unc_pixels);
+	de_finfo_destroy(c, d->fi);
+	de_free(c, d->pal_info_mainfile.data);
+	de_free(c, d->pal_info_palfile.data);
+	de_free(c, d);
+}
+
 // Dispatch to either pcpaint_pic or pcpaint_clp.
 static void de_run_pcpaint(deark *c, de_module_params *mparams)
 {
@@ -839,11 +869,7 @@ static void de_run_pcpaint(deark *c, de_module_params *mparams)
 		de_run_pcpaint_pic(c, d, mparams);
 	}
 
-	if(d->unc_pixels) dbuf_close(d->unc_pixels);
-	de_finfo_destroy(c, d->fi);
-	de_free(c, d->pal_info_mainfile.data);
-	de_free(c, d->pal_info_palfile.data);
-	de_free(c, d);
+	destroy_lctx(c, d);
 }
 
 static int de_identify_pcpaint(deark *c)
@@ -889,4 +915,66 @@ void de_module_pcpaint(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_pcpaint;
 	mi->identify_fn = de_identify_pcpaint;
 	mi->help_fn = de_help_pcpaint;
+}
+
+// **************************************************************************
+// PCPaint compressed BSAVE
+//
+// Used by PCPaint v1.5. We convert it to uncompressed BSAVE.
+// **************************************************************************
+
+#define BSAVE_HDRSIZE 7
+
+static void de_run_bsave_cmpr(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	int ret;
+	i64 pos;
+	i64 udata_size;
+	dbuf *outf = NULL;
+
+	de_declare_fmt(c, "PCPaint compressed BSAVE");
+	d = de_malloc(c, sizeof(lctx));
+	d->file_fmt = FMT_CMPR_BSAVE;
+
+	udata_size = de_getu16le(7);
+	d->unc_pixels = dbuf_create_membuf(c, BSAVE_HDRSIZE+udata_size, 0x1);
+
+	// Construct the 7-byte BSAVE header
+	dbuf_copy(c->infile, 0, 5, d->unc_pixels);
+	dbuf_copy(c->infile, 7, 2, d->unc_pixels);
+
+	pos = 9;
+	d->num_rle_blocks = de_getu16le_p(&pos);
+	de_dbg(c, "num rle blocks: %d", (int)d->num_rle_blocks);
+
+	de_dbg(c, "decompressing");
+	de_dbg_indent(c, 1);
+	ret = decompress_blocks(c, d, 11);
+	de_dbg_indent(c, -1);
+	if(!ret) goto done;
+
+	outf = dbuf_create_output_file(c, "unc.pic", NULL, 0);
+	dbuf_copy(d->unc_pixels, 0, d->unc_pixels->len, outf);
+
+done:
+	dbuf_close(outf);
+	destroy_lctx(c, d);
+}
+
+static int de_identify_bsave_cmpr(deark *c)
+{
+	// This probably doesn't detect images that aren't 320x200, if such things exist.
+	if(dbuf_memcmp(c->infile, 0, (const u8*)"\xfd\0\xb8\0\0\0\0\0\x40\x02\0", 11)) {
+		return 0;
+	}
+	return 100;
+}
+
+void de_module_bsave_cmpr(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "bsave_cmpr";
+	mi->desc = "PCPaint compressed BSAVE";
+	mi->run_fn = de_run_bsave_cmpr;
+	mi->identify_fn = de_identify_bsave_cmpr;
 }

@@ -397,6 +397,9 @@ Deark -- Information about supported formats
    -file2 <file.pic> - PIC file to read the palette from
    -opt palfile=<file.pic> - PIC file to read the palette from
 
+* PCPaint compressed BSAVE (module="bsave_cmpr") (experimental)
+  - Decompresses to BSAVE format.
+
 * PCX (module="pcx")
   - Supports most of the common varieties of PCX.
   Options
