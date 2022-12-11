@@ -11,7 +11,10 @@ DE_DECLARE_MODULE(de_module_bsave);
 #define BSAVE_HDRSIZE 7
 
 typedef struct localctx_struct {
-	i64 base_addr, offset_from_base, data_size;
+	u32 load_segment;
+	u32 load_offset;
+	i64 load_addr;
+	i64 data_size;
 
 	int have_pcpaint_palinfo;
 	u8 pcpaint_pal_num;
@@ -146,6 +149,12 @@ static void do_4color(deark *c, lctx *d)
 		h = de_getu16le(pos+2);
 		pos+=4;
 	}
+	else if(!d->interlaced) {
+		w = get_width(c, d, 320);
+		src_rowspan = (w+3)/4;
+		h = d->data_size / src_rowspan;
+		h = get_height(c, d, h);
+	}
 	else {
 		w = get_width(c, d, 320);
 		h = get_height(c, d, 200);	// TODO: Calculate this?
@@ -219,9 +228,15 @@ static void do_2color(deark *c, lctx *d)
 		h = de_getu16le(pos+2);
 		pos+=4;
 	}
+	else if(!d->interlaced) {
+		w = get_width(c, d, 640);
+		src_rowspan = (w+7)/8;
+		h = d->data_size / src_rowspan;
+		h = get_height(c, d, h);
+	}
 	else {
 		w = get_width(c, d, 640);
-		h = get_height(c, d, 200); // TODO: calculate this?
+		h = get_height(c, d, 200);
 	}
 
 	de_dbg_dimensions(c, w, h);
@@ -262,7 +277,8 @@ static void do_256color(deark *c, lctx *d)
 	}
 	else {
 		w = get_width(c, d, 320);
-		h = get_height(c, d, 200);
+		h = d->data_size / w;
+		h = get_height(c, d, h);
 	}
 	de_dbg_dimensions(c, w, h);
 
@@ -484,13 +500,14 @@ done:
 
 struct bsave_id_info {
 	u8 might_be_bsave;
+	u8 probably_not_bsave;
 	u8 pcpaint_sig_found;
 	i64 pcpaint_sig_pos;
 };
 
 static void identify_bsave_internal(deark *c, struct bsave_id_info *idi)
 {
-	i64 base_addr;
+	u32 load_segment;
 	i64 data_size;
 	// Knwon signatures: "PCPaint V1.0", "PCPaint V1.5".
 	static const u8 *pcpaintsig = (const u8*)"PCPaint V1.";
@@ -498,12 +515,16 @@ static void identify_bsave_internal(deark *c, struct bsave_id_info *idi)
 	de_zeromem(idi, sizeof(struct bsave_id_info));
 	if(c->infile->len<12) return;
 	if(de_getbyte(0)!=0xfd) return;
-	base_addr = de_getu16le(1);
-	data_size = de_getu16le(5);
-	if(data_size==0) return;
 	idi->might_be_bsave = 1;
 
-	if(base_addr == 0xb800) {
+	load_segment = (u32)de_getu16le(1);
+	data_size = de_getu16le(5);
+	if(data_size==0) {
+		idi->probably_not_bsave = 1;
+		return;
+	}
+
+	if(load_segment==0xb800 && (c->infile->len>=8007+14)) {
 		i64 pos;
 
 		pos = 8007;
@@ -512,6 +533,10 @@ static void identify_bsave_internal(deark *c, struct bsave_id_info *idi)
 			idi->pcpaint_sig_pos = pos;
 			return;
 		}
+	}
+
+	if(data_size > c->infile->len) {
+		idi->probably_not_bsave = 1;
 	}
 }
 
@@ -543,14 +568,27 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 	identify_bsave_internal(c, &idi);
+	if(!idi.might_be_bsave) {
+		de_err(c, "Not a BSAVE image file");
+		goto done;
+	}
+	if(idi.probably_not_bsave) {
+		if(c->module_disposition==DE_MODDISP_EXPLICIT) {
+			de_warn(c, "This is probably not a BSAVE image file");
+		}
+	}
 
-	d->base_addr = de_getu16le(1);
-	d->offset_from_base = de_getu16le(3);
+	d->load_segment = (u32)de_getu16le(1);
+	d->load_offset = (u32)de_getu16le(3);
 	d->data_size = de_getu16le(5);
 
-	de_dbg(c, "base_addr: 0x%04x", (UI)d->base_addr);
-	de_dbg(c, "offset_from_base: 0x%04x", (UI)d->offset_from_base);
-	de_dbg(c, "data_size: 0x%04x (%d)", (UI)d->data_size, (int)d->data_size);
+	de_dbg(c, "segment: 0x%04x", (UI)d->load_segment);
+	de_dbg(c, "offset: 0x%04x", (UI)d->load_offset);
+	de_dbg(c, "data size: 0x%04x (%d)", (UI)d->data_size, (int)d->data_size);
+
+	if(d->data_size > c->infile->len) {
+		de_warn(c, "Data (size %"I64_FMT") goes beyond end of file", d->data_size);
+	}
 
 	bsavefmt = de_get_ext_option(c, "bsave:fmt");
 	if(!bsavefmt) {
@@ -616,11 +654,11 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 		}
 
 		// TODO: Better autodetection. This barely does anything.
-		if(d->base_addr==0xb800 && (d->data_size==16384 || d->data_size==16383)) {
+		if(d->load_segment==0xb800 && (d->data_size==16384 || d->data_size==16383)) {
 			d->interlaced = 1;
 			decoder_fn = do_4color;
 		}
-		else if(d->base_addr==0xa000 && d->data_size==64000) {
+		else if(d->load_segment==0xa000 && d->data_size==64000) {
 			decoder_fn = do_256color;
 		}
 	}
@@ -656,6 +694,7 @@ static int de_identify_bsave(deark *c)
 	// Note - Make sure BLD has higher confidence.
 	identify_bsave_internal(c, &idi);
 	if(!idi.might_be_bsave) return 0;
+	if(idi.probably_not_bsave) return 0;
 
 	if(idi.pcpaint_sig_found) {
 		return 91;
