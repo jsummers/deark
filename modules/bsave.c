@@ -10,24 +10,53 @@ DE_DECLARE_MODULE(de_module_bsave);
 
 #define BSAVE_HDRSIZE 7
 
-typedef struct localctx_struct {
+struct localctx_struct;
+typedef struct localctx_struct lctx;
+
+typedef void (*decoder_fn_type)(deark *c, lctx *d);
+
+#define FMT_UNKNOWN 0
+#define FMT_CHAR    1
+#define FMT_CGA2    2
+#define FMT_CGA4    3
+#define FMT_CGA16   4
+#define FMT_MCGA    5
+#define FMT_WH2     6
+#define FMT_WH4     7
+#define FMT_WH16    8
+#define FMT_WH256   9
+#define FMT_2COL    10
+#define FMT_4COL    11
+#define FMT_B265    12
+
+struct localctx_struct {
 	u32 load_segment;
 	u32 load_offset;
-	i64 load_addr;
+	u32 load_addr;
 	i64 data_size;
 
 	int have_pcpaint_palinfo;
 	u8 pcpaint_pal_num;
 	u8 pcpaint_border_col;
 
-	int interlaced;
-	int has_dimension_fields;
+	UI fmt_id;
+	u8 interlaced;
+	u8 has_dimension_fields;
+
+	u8 need_id_warning;
+	decoder_fn_type decoder_fn;
 
 	int pal_valid;
 	de_color pal[256];
-} lctx;
+};
 
-typedef void (*decoder_fn_type)(deark *c, lctx *d);
+struct bsave_fmt_arr_item {
+	UI fmt_id;
+#define FMTFLAG_HAS_DIMENSION_FIELDS 0x01
+#define FMTFLAG_INTERLACED           0x02
+	UI flags;
+	decoder_fn_type decoder_fn;
+};
 
 // Return a width that might be overridden by user request.
 static i64 get_width(deark *c, lctx *d, i64 default_width)
@@ -469,6 +498,38 @@ done:
 	de_free_charctx(c, charctx);
 }
 
+struct bsave_fmt_name_item {
+	UI fmt_id;
+	const char *name;
+};
+
+static const struct bsave_fmt_arr_item bsave_fmt_arr[] = {
+	{FMT_CHAR,  0x00, do_char    },
+	{FMT_CGA2,  0x02, do_2color  },
+	{FMT_CGA4,  0x02, do_4color  },
+	{FMT_CGA16, 0x00, do_cga16   },
+	{FMT_MCGA,  0x00, do_256color},
+	{FMT_WH2,   0x01, do_2color  },
+	{FMT_WH4,   0x01, do_4color  },
+	{FMT_WH16,  0x00, do_wh16    },
+	{FMT_WH256, 0x01, do_256color},
+	{FMT_2COL,  0x00, do_2color  },
+	{FMT_4COL,  0x00, do_4color  },
+	{FMT_B265,  0x00, do_b265    }
+};
+
+static const struct bsave_fmt_arr_item *get_fmt_info_by_id(UI fmt_id)
+{
+	size_t k;
+
+	for(k=0; k<DE_ARRAYCOUNT(bsave_fmt_arr); k++) {
+		if(bsave_fmt_arr[k].fmt_id==fmt_id) {
+			return &bsave_fmt_arr[k];
+		}
+	}
+	return NULL;
+}
+
 static int do_read_palette_file(deark *c, lctx *d, const char *palfn)
 {
 	dbuf *f = NULL;
@@ -557,16 +618,83 @@ static void read_pcpaint_palinfo(deark *c, lctx *d, struct bsave_id_info *idi)
 	de_dbg_indent(c, -1);
 }
 
+static const struct bsave_fmt_name_item bsave_fmt_name_arr[] = {
+	{FMT_CHAR,  "char" },
+	{FMT_CGA2,  "cga2" },
+	{FMT_CGA4,  "cga4" },
+	{FMT_CGA16, "cga16"},
+	{FMT_MCGA,  "mcga" },
+	{FMT_WH2,   "wh2"  },
+	{FMT_WH4,   "wh4"  },
+	{FMT_WH16,  "wh16" },
+	{FMT_WH256, "wh256"},
+	{FMT_2COL,  "2col" },
+	{FMT_4COL,  "4col" },
+	{FMT_B265,  "b265" }
+};
+
+static UI bsave_fmt_name_to_id(const char *name)
+{
+	size_t k;
+
+	if(!name) return FMT_UNKNOWN;
+
+	for(k=0; k<DE_ARRAYCOUNT(bsave_fmt_name_arr); k++) {
+		const struct bsave_fmt_name_item *item;
+
+		item = &bsave_fmt_name_arr[k];
+		if(!de_strcmp(name, item->name)) {
+			return item->fmt_id;
+		}
+	}
+	return FMT_UNKNOWN;
+}
+
+static void use_fmt_by_id(deark *c, lctx *d, UI fmt_id)
+{
+	const struct bsave_fmt_arr_item *fmt_info;
+
+	fmt_info = get_fmt_info_by_id(fmt_id);
+	if(fmt_info) {
+		d->decoder_fn = fmt_info->decoder_fn;
+		d->has_dimension_fields = (fmt_info->flags & FMTFLAG_HAS_DIMENSION_FIELDS)?1:0;
+		d->interlaced = (fmt_info->flags & FMTFLAG_INTERLACED)?1:0;
+	}
+}
+
+static void detect_bsave_fmt(deark *c, lctx *d, struct bsave_id_info *idi)
+{
+	d->need_id_warning = 1; // deafult
+
+	if(idi->pcpaint_sig_found) {
+		d->interlaced = 1;
+		d->decoder_fn = do_4color;
+		// Most files with a signature are cga4, but I found a few that are cga2.
+		// There are also images that are contrived to work in either mode.
+		// I'm guessing that these are the only two possibilities.
+		de_info(c, "Note: If the image doesn't look right, try \"-opt bsave:fmt=cga2\".");
+		d->need_id_warning = 0;
+	}
+
+	// TODO: Better autodetection. This barely does anything.
+	if(d->load_segment==0xb800 && (d->data_size==16384 || d->data_size==16383)) {
+		d->interlaced = 1;
+		d->decoder_fn = do_4color;
+	}
+	else if(d->load_segment==0xa000 && d->data_size==64000) {
+		d->decoder_fn = do_256color;
+	}
+}
+
 static void de_run_bsave(deark *c, de_module_params *mparams)
 {
-	const char *bsavefmt;
+	const char *fmtname_req;
 	const char *s;
 	lctx *d;
-	u8 need_id_warning = 0;
-	decoder_fn_type decoder_fn = NULL;
 	struct bsave_id_info idi;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->fmt_id = FMT_UNKNOWN;
 	identify_bsave_internal(c, &idi);
 	if(!idi.might_be_bsave) {
 		de_err(c, "Not a BSAVE image file");
@@ -580,6 +708,7 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 
 	d->load_segment = (u32)de_getu16le(1);
 	d->load_offset = (u32)de_getu16le(3);
+	d->load_addr = d->load_segment*16 + d->load_offset;
 	d->data_size = de_getu16le(5);
 
 	de_dbg(c, "segment: 0x%04x", (UI)d->load_segment);
@@ -590,86 +719,34 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 		de_warn(c, "Data (size %"I64_FMT") goes beyond end of file", d->data_size);
 	}
 
-	bsavefmt = de_get_ext_option(c, "bsave:fmt");
-	if(!bsavefmt) {
-		bsavefmt="auto";
+	fmtname_req = de_get_ext_option(c, "bsave:fmt");
+	if(fmtname_req) {
+		if(!de_strcmp(fmtname_req, "auto")) {
+			;
+		}
+		else {
+			d->fmt_id = bsave_fmt_name_to_id(fmtname_req);
+			if(d->fmt_id==FMT_UNKNOWN) {
+				de_warn(c, "Unknown format name \"%s\"", fmtname_req);
+			}
+		}
 	}
 
 	read_pcpaint_palinfo(c, d, &idi);
 
-	if(!de_strcmp(bsavefmt,"cga2")) {
-		d->interlaced = 1;
-		d->has_dimension_fields = 0;
-		decoder_fn = do_2color;
-	}
-	else if(!de_strcmp(bsavefmt,"cga4")) {
-		d->interlaced = 1;
-		decoder_fn = do_4color;
-	}
-	else if(!de_strcmp(bsavefmt,"cga16")) {
-		decoder_fn = do_cga16;
-	}
-	else if(!de_strcmp(bsavefmt,"mcga")) {
-		decoder_fn = do_256color;
-	}
-	else if(!de_strcmp(bsavefmt,"char")) {
-		decoder_fn = do_char;
-	}
-	else if(!de_strcmp(bsavefmt,"b265")) {
-		decoder_fn = do_b265;
-	}
-	else if(!de_strcmp(bsavefmt,"wh2")) {
-		d->has_dimension_fields = 1;
-		decoder_fn = do_2color;
-	}
-	else if(!de_strcmp(bsavefmt,"wh4")) {
-		d->has_dimension_fields = 1;
-		decoder_fn = do_4color;
-	}
-	else if(!de_strcmp(bsavefmt,"wh256")) {
-		d->has_dimension_fields = 1;
-		decoder_fn = do_256color;
-	}
-	else if(!de_strcmp(bsavefmt,"wh16")) {
-		decoder_fn = do_wh16;
-	}
-	else if(!de_strcmp(bsavefmt,"4col")) {
-		decoder_fn = do_4color;
-	}
-	else if(!de_strcmp(bsavefmt,"2col")) {
-		d->has_dimension_fields = 0;
-		decoder_fn = do_2color;
-	}
-	else if(!de_strcmp(bsavefmt,"auto")) {
-		need_id_warning = 1;
+	use_fmt_by_id(c, d, d->fmt_id);
 
-		if(idi.pcpaint_sig_found) {
-			d->interlaced = 1;
-			decoder_fn = do_4color;
-			// Most files with a signature are cga4, but I found a few that are cga2.
-			// There are also images that are contrived to work in either mode.
-			// I'm guessing that these are the only two possibilities.
-			de_info(c, "Note: If the image doesn't look right, try \"-opt bsave:fmt=cga2\".");
-			need_id_warning = 0;
-		}
-
-		// TODO: Better autodetection. This barely does anything.
-		if(d->load_segment==0xb800 && (d->data_size==16384 || d->data_size==16383)) {
-			d->interlaced = 1;
-			decoder_fn = do_4color;
-		}
-		else if(d->load_segment==0xa000 && d->data_size==64000) {
-			decoder_fn = do_256color;
-		}
+	if(!d->decoder_fn) {
+		detect_bsave_fmt(c, d, &idi);
 	}
 
-	if(!decoder_fn) {
+	if(!d->decoder_fn) {
 		de_err(c, "Unidentified BSAVE format, try \"-opt bsave:fmt=...\". "
 			"Use \"-m bsave -h\" for a list.");
 		goto done;
 	}
 
-	if(need_id_warning) {
+	if(d->need_id_warning) {
 		de_warn(c, "BSAVE formats can't be reliably identified. You may need to "
 			"use \"-opt bsave:fmt=...\". Use \"-m bsave -h\" for a list.");
 	}
@@ -680,7 +757,7 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 		if(!do_read_palette_file(c, d, s)) goto done;
 	}
 
-	(void)decoder_fn(c, d);
+	(void)d->decoder_fn(c, d);
 
 done:
 	de_free(c, d);
@@ -692,6 +769,7 @@ static int de_identify_bsave(deark *c)
 
 	// Note - Make sure XZ has higher confidence.
 	// Note - Make sure BLD has higher confidence.
+	// Note - See also bsave_cmpr module.
 	identify_bsave_internal(c, &idi);
 	if(!idi.might_be_bsave) return 0;
 	if(idi.probably_not_bsave) return 0;
