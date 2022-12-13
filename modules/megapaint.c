@@ -78,6 +78,7 @@ done:
 
 static int de_identify_bld(deark *c)
 {
+	if(de_getbyte(2)>=0x80) return 0; // Assume height can't be negative
 	if(de_input_file_has_ext(c, "bld")) return 20;
 	// TODO: We could try to test if the dimensions are sane, but we'd risk
 	// getting it wrong, because we probably don't know what every edition of

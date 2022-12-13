@@ -28,6 +28,17 @@ typedef void (*decoder_fn_type)(deark *c, lctx *d);
 #define FMT_2COL    10
 #define FMT_4COL    11
 #define FMT_B265    12
+#define FMT_MAX     12
+
+struct bsave_fmt_arr_item;
+
+struct metrics_struct {
+	i64 maybe_bitsperrow;
+	i64 maybe_nrows;
+	i64 maybe_bytesperrow;
+	i64 size_diff;
+	int eof_marker_quality;
+};
 
 struct localctx_struct {
 	u32 load_segment;
@@ -39,6 +50,7 @@ struct localctx_struct {
 	u8 pcpaint_pal_num;
 	u8 pcpaint_border_col;
 
+	const struct bsave_fmt_arr_item *fmt_info;
 	UI fmt_id;
 	u8 interlaced;
 	u8 has_dimension_fields;
@@ -48,14 +60,19 @@ struct localctx_struct {
 
 	int pal_valid;
 	de_color pal[256];
+
+	struct metrics_struct metrics;
 };
 
 struct bsave_fmt_arr_item {
 	UI fmt_id;
 #define FMTFLAG_HAS_DIMENSION_FIELDS 0x01
 #define FMTFLAG_INTERLACED           0x02
+#define FMTFLAG_UNLISTED             0x80
 	UI flags;
 	decoder_fn_type decoder_fn;
+	char *name;
+	char *descr;
 };
 
 // Return a width that might be overridden by user request.
@@ -157,25 +174,12 @@ static void do_4color(deark *c, lctx *d)
 	i64 src_rowspan;
 	de_bitmap *img = NULL;
 
-	if(d->has_dimension_fields) {
-		if(d->interlaced)
-			de_declare_fmt(c, "BSAVE-PC 4-color, interlaced, 11-byte header");
-		else
-			de_declare_fmt(c, "BSAVE-PC 4-color, noninterlaced, 11-byte header");
-	}
-	else {
-		if(d->interlaced)
-			de_declare_fmt(c, "BSAVE-PC 4-color, interlaced");
-		else
-			de_declare_fmt(c, "BSAVE-PC 4-color, noninterlaced");
-	}
-
 	pos = BSAVE_HDRSIZE;
 
 	if(d->has_dimension_fields) {
 		// 11-byte header that includes width & height
-		w = (de_getu16le(pos) + 1)/2; // width = number of bits??
-		h = de_getu16le(pos+2);
+		w = (d->metrics.maybe_bitsperrow + 1)/2; // width = number of bits??
+		h = d->metrics.maybe_nrows;
 		pos+=4;
 	}
 	else if(!d->interlaced) {
@@ -239,22 +243,9 @@ static void do_2color(deark *c, lctx *d)
 	pos = BSAVE_HDRSIZE;
 
 	if(d->has_dimension_fields) {
-		if(d->interlaced)
-			de_declare_fmt(c, "BSAVE-PC 2-color, interlaced, 11-byte header");
-		else
-			de_declare_fmt(c, "BSAVE-PC 2-color, noninterlaced, 11-byte header");
-	}
-	else {
-		if(d->interlaced)
-			de_declare_fmt(c, "BSAVE-PC 2-color, interlaced");
-		else
-			de_declare_fmt(c, "BSAVE-PC 2-color, noninterlaced");
-	}
-
-	if(d->has_dimension_fields) {
 		// 11-byte header that includes width & height
-		w = de_getu16le(pos);
-		h = de_getu16le(pos+2);
+		w = d->metrics.maybe_bitsperrow;
+		h = d->metrics.maybe_nrows;
 		pos+=4;
 	}
 	else if(!d->interlaced) {
@@ -297,12 +288,10 @@ static void do_256color(deark *c, lctx *d)
 	i64 pos = BSAVE_HDRSIZE;
 	de_bitmap *img = NULL;
 
-	de_declare_fmt(c, "BSAVE-PC 256-color");
-
 	if(d->has_dimension_fields) {
-		w = de_getu16le_p(&pos);
-		w = (w+7)/8;
-		h = de_getu16le_p(&pos);
+		w = d->metrics.maybe_bytesperrow;
+		h = d->metrics.maybe_nrows;
+		pos += 4;
 	}
 	else {
 		w = get_width(c, d, 320);
@@ -323,7 +312,7 @@ done:
 	de_bitmap_destroy(img);
 }
 
-// 11-byte header that includes width & height, 16 color, inter-row interlaced
+// 11-byte header that includes width & height, 16 color, 4 planes
 // http://cd.textfiles.com/advheaven2/SOLITAIR/SP107/
 static void do_wh16(deark *c, lctx *d)
 {
@@ -333,11 +322,10 @@ static void do_wh16(deark *c, lctx *d)
 	i64 src_rowspan;
 	i64 pos;
 
-	de_declare_fmt(c, "BSAVE-PC 16-color, 4-plane, 11-byte header");
-
 	pos = BSAVE_HDRSIZE;
-	w = de_getu16le_p(&pos);
-	h = de_getu16le_p(&pos);
+	w = d->metrics.maybe_bitsperrow;
+	h = d->metrics.maybe_nrows;
+	pos += 4;
 	de_dbg_dimensions(c, w, h);
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 
@@ -366,8 +354,6 @@ static void do_b265(deark *c, lctx *d)
 	i64 bits_per_scanline;
 	de_bitmap *img = NULL;
 	i64 fakewidth;
-
-	de_declare_fmt(c, "BSAVE-PC special");
 
 	w = 320;
 	fakewidth = w/2;
@@ -443,8 +429,6 @@ static void do_char(deark *c, lctx *d)
 	i64 bytes_for_this_page;
 	i64 pg_offset_in_data;
 
-	de_declare_fmt(c, "BSAVE-PC character graphics");
-
 	width = get_width(c, d, 80);
 	height = get_height(c, d, 25);
 
@@ -498,24 +482,19 @@ done:
 	de_free_charctx(c, charctx);
 }
 
-struct bsave_fmt_name_item {
-	UI fmt_id;
-	const char *name;
-};
-
 static const struct bsave_fmt_arr_item bsave_fmt_arr[] = {
-	{FMT_CHAR,  0x00, do_char    },
-	{FMT_CGA2,  0x02, do_2color  },
-	{FMT_CGA4,  0x02, do_4color  },
-	{FMT_CGA16, 0x00, do_cga16   },
-	{FMT_MCGA,  0x00, do_256color},
-	{FMT_WH2,   0x01, do_2color  },
-	{FMT_WH4,   0x01, do_4color  },
-	{FMT_WH16,  0x00, do_wh16    },
-	{FMT_WH256, 0x01, do_256color},
-	{FMT_2COL,  0x00, do_2color  },
-	{FMT_4COL,  0x00, do_4color  },
-	{FMT_B265,  0x00, do_b265    }
+	{FMT_CHAR,  0x00, do_char,     "char",  "Character graphics"},
+	{FMT_CGA2,  0x02, do_2color,   "cga2",  "2-color, 640"DE_CHAR_TIMES"200"},
+	{FMT_CGA4,  0x02, do_4color,   "cga4",  "4-color, 320"DE_CHAR_TIMES"200"},
+	{FMT_CGA16, 0x00, do_cga16,    "cga16", "16-color, 160"DE_CHAR_TIMES"100 pseudographics"},
+	{FMT_MCGA,  0x00, do_256color, "mcga",  "256-color, 320"DE_CHAR_TIMES"200"},
+	{FMT_WH2,   0x01, do_2color,   "wh2",   "2-color, 11-byte header"},
+	{FMT_WH4,   0x01, do_4color,   "wh4",   "4-color, 11-byte header"},
+	{FMT_WH16,  0x00, do_wh16,     "wh16",  "16-color, 4-plane, 11-byte header"},
+	{FMT_WH256, 0x01, do_256color, "wh256", "256-color, 11-byte header"},
+	{FMT_2COL,  0x00, do_2color,   "2col",  "2-color noninterlaced"},
+	{FMT_4COL,  0x00, do_4color,   "4col",  "4-color noninterlaced"},
+	{FMT_B265,  0x80, do_b265,     "b265",  "Special"}
 };
 
 static const struct bsave_fmt_arr_item *get_fmt_info_by_id(UI fmt_id)
@@ -618,31 +597,16 @@ static void read_pcpaint_palinfo(deark *c, lctx *d, struct bsave_id_info *idi)
 	de_dbg_indent(c, -1);
 }
 
-static const struct bsave_fmt_name_item bsave_fmt_name_arr[] = {
-	{FMT_CHAR,  "char" },
-	{FMT_CGA2,  "cga2" },
-	{FMT_CGA4,  "cga4" },
-	{FMT_CGA16, "cga16"},
-	{FMT_MCGA,  "mcga" },
-	{FMT_WH2,   "wh2"  },
-	{FMT_WH4,   "wh4"  },
-	{FMT_WH16,  "wh16" },
-	{FMT_WH256, "wh256"},
-	{FMT_2COL,  "2col" },
-	{FMT_4COL,  "4col" },
-	{FMT_B265,  "b265" }
-};
-
 static UI bsave_fmt_name_to_id(const char *name)
 {
 	size_t k;
 
 	if(!name) return FMT_UNKNOWN;
 
-	for(k=0; k<DE_ARRAYCOUNT(bsave_fmt_name_arr); k++) {
-		const struct bsave_fmt_name_item *item;
+	for(k=0; k<DE_ARRAYCOUNT(bsave_fmt_arr); k++) {
+		const struct bsave_fmt_arr_item *item;
 
-		item = &bsave_fmt_name_arr[k];
+		item = &bsave_fmt_arr[k];
 		if(!de_strcmp(name, item->name)) {
 			return item->fmt_id;
 		}
@@ -652,37 +616,248 @@ static UI bsave_fmt_name_to_id(const char *name)
 
 static void use_fmt_by_id(deark *c, lctx *d, UI fmt_id)
 {
-	const struct bsave_fmt_arr_item *fmt_info;
+	if(fmt_id==FMT_UNKNOWN) return;
+	d->fmt_info = get_fmt_info_by_id(fmt_id);
+	if(d->fmt_info) {
+		d->decoder_fn = d->fmt_info->decoder_fn;
+		d->has_dimension_fields = (d->fmt_info->flags & FMTFLAG_HAS_DIMENSION_FIELDS)?1:0;
+		d->interlaced = (d->fmt_info->flags & FMTFLAG_INTERLACED)?1:0;
+	}
+}
 
-	fmt_info = get_fmt_info_by_id(fmt_id);
-	if(fmt_info) {
-		d->decoder_fn = fmt_info->decoder_fn;
-		d->has_dimension_fields = (fmt_info->flags & FMTFLAG_HAS_DIMENSION_FIELDS)?1:0;
-		d->interlaced = (fmt_info->flags & FMTFLAG_INTERLACED)?1:0;
+static void detect_cga2_4(deark *c, lctx *d, int *confidence)
+{
+	if(d->load_addr!=0xb8000) return;
+	if(d->data_size==16384 || d->data_size==16383) {
+		confidence[FMT_CGA4] = 10 + d->metrics.eof_marker_quality;
+		confidence[FMT_CGA2] = 8 + d->metrics.eof_marker_quality;
+	}
+	else if(d->data_size==16000) {
+		confidence[FMT_CGA4] = 4 + d->metrics.eof_marker_quality;
+		confidence[FMT_CGA2] = 3 + d->metrics.eof_marker_quality;
+	}
+}
+
+static void detect_mcga4(deark *c, lctx *d, int *confidence)
+{
+	if(d->load_addr==0xa0000 && d->data_size==64000) {
+		confidence[FMT_MCGA] = 10 + d->metrics.eof_marker_quality;
+	}
+}
+
+static void detect_wh2_4(deark *c, lctx *d, int *confidence)
+{
+	i64 n;
+	i64 n_diff;
+	int base_quality = 0;
+
+	if(d->metrics.maybe_bitsperrow==0 || d->metrics.maybe_nrows==0) return;
+
+	// Ideally, n would equal d->data_size;
+	n = 4 + d->metrics.maybe_bytesperrow * d->metrics.maybe_nrows;
+	n_diff = d->data_size - n;
+
+	if(BSAVE_HDRSIZE + n > c->infile->len) return;
+	if(n_diff<0) return;
+
+	if(n_diff<=1) {
+		base_quality = 7;
+	}
+	else if(n_diff<=8) {
+		base_quality = 6;
+	}
+	else if(n_diff<=128) {
+		base_quality = 3;
+	}
+
+	if((d->metrics.maybe_bitsperrow%2)!=0) {
+		// bits/row is odd, so it can't be WH4.
+		confidence[FMT_WH2] = 2 + base_quality + d->metrics.eof_marker_quality;
+	}
+	else {
+		confidence[FMT_WH4] = 2 + base_quality + d->metrics.eof_marker_quality;
+		confidence[FMT_WH2] = 1 + base_quality + d->metrics.eof_marker_quality;
+	}
+}
+
+static void detect_wh16(deark *c, lctx *d, int *confidence)
+{
+	i64 n;
+	i64 n_diff;
+	int base_quality = 0;
+
+	if(d->metrics.maybe_bitsperrow==0 || d->metrics.maybe_nrows==0) return;
+
+	n = 4 + d->metrics.maybe_bytesperrow * d->metrics.maybe_nrows * 4;
+	n_diff = d->data_size - n;
+
+	if(BSAVE_HDRSIZE + n > c->infile->len) return;
+	if(n_diff<0) return;
+
+	if(n_diff<=1) {
+		base_quality = 4;
+	}
+	else if(n_diff<=16) {
+		base_quality = 2;
+	}
+	confidence[FMT_WH16] = 1 + base_quality + d->metrics.eof_marker_quality;
+}
+
+static void detect_char(deark *c, lctx *d, int *confidence)
+{
+	int q1 = 0;
+	int q2 = 0;
+
+	if(d->load_addr==0xb8000) {
+		q1 = 1;
+	}
+
+	if(d->data_size==4000 || d->data_size==4096) {
+		q2 = 4;
+	}
+	else if(d->data_size==3840) {
+		q2 = 1;
+	}
+	else if(d->data_size>=8144 && (d->data_size%4096)==4048) {
+		q2 = 1;
+	}
+
+	if(q1==0 || q2==0) return;
+	confidence[FMT_CHAR] = q1 + q2 + d->metrics.eof_marker_quality;
+}
+
+struct detect_cga16_struct {
+	UI count1, count2;
+	u8 flag0; // found an even-numbered byte that isn't 0xdd/0xde.
+	u8 flag1; // found an odd-numbered byte that isn't 0xdd/0xde.
+};
+
+static int detect_cga16_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
+	i64 buf_len)
+{
+	struct detect_cga16_struct *ctx = (struct detect_cga16_struct*)brctx->userdata;
+	i64 k;
+
+	for(k=0; k<buf_len; k++) {
+		if(ctx->flag0) break;
+		if(((brctx->offset+k)%2)==0) { // Even-numbered byte
+			if(buf[k]==0xdd) ctx->count1++;
+			else if(buf[k]==0xde) ctx->count2++;
+			else ctx->flag0 = 1;
+		}
+		else { // Odd-numbered (color) byte.
+			// We want to make sure there is a color byte that isn't one of the
+			// special screen codes.
+			if(ctx->flag1==0 && buf[k]!=0xdd && buf[k]!=0xde) {
+				ctx->flag1 = 1;
+			}
+		}
+	}
+
+	return (ctx->flag0) ? 0 : 1;
+}
+
+static void detect_cga16(deark *c, lctx *d, int *confidence)
+{
+	struct detect_cga16_struct dtctx;
+
+	if(d->load_addr!=0xb8000) return;
+	if(d->data_size!=16000 && d->data_size!=16384) return;
+
+	de_zeromem(&dtctx, sizeof(struct detect_cga16_struct));
+	dbuf_buffered_read(c->infile, BSAVE_HDRSIZE, 16000, detect_cga16_cbfn, (void*)&dtctx);
+	if(dtctx.flag0==0) {
+		if(dtctx.flag1) {
+			confidence[FMT_CGA16] = 12 + d->metrics.eof_marker_quality;
+		}
+		else {
+			confidence[FMT_CGA16] = 5 + d->metrics.eof_marker_quality;
+		}
 	}
 }
 
 static void detect_bsave_fmt(deark *c, lctx *d, struct bsave_id_info *idi)
 {
-	d->need_id_warning = 1; // deafult
+	int confidence[FMT_MAX+1]; // Indexed by fmt_id.
+	int best_conf;
+	UI k;
+
+	de_zeromem(confidence, sizeof(confidence));
+	d->need_id_warning = 1; // default
 
 	if(idi->pcpaint_sig_found) {
-		d->interlaced = 1;
-		d->decoder_fn = do_4color;
+		d->fmt_id = FMT_CGA4;
 		// Most files with a signature are cga4, but I found a few that are cga2.
 		// There are also images that are contrived to work in either mode.
 		// I'm guessing that these are the only two possibilities.
 		de_info(c, "Note: If the image doesn't look right, try \"-opt bsave:fmt=cga2\".");
 		d->need_id_warning = 0;
+		goto done;
 	}
 
 	// TODO: Better autodetection. This barely does anything.
-	if(d->load_segment==0xb800 && (d->data_size==16384 || d->data_size==16383)) {
-		d->interlaced = 1;
-		d->decoder_fn = do_4color;
+	detect_cga2_4(c, d, confidence);
+	detect_mcga4(c, d, confidence);
+	detect_wh2_4(c, d, confidence);
+	detect_wh16(c, d, confidence);
+	detect_char(c, d, confidence);
+	detect_cga16(c, d, confidence);
+
+	best_conf = 0;
+	for(k=0; k<=FMT_MAX; k++) {
+		if(confidence[k] > best_conf) {
+			d->fmt_id = k;
+			best_conf = confidence[k];
+		}
 	}
-	else if(d->load_segment==0xa000 && d->data_size==64000) {
-		d->decoder_fn = do_256color;
+
+	if(c->debug_level>=2) {
+		for(k=0; k<=FMT_MAX; k++) {
+			const struct bsave_fmt_arr_item *item;
+
+			if(confidence[k]) {
+				item = get_fmt_info_by_id(k);
+				de_dbg(c, "possible format: %s, %d", item->name, confidence[k]);
+			}
+		}
+	}
+
+done:
+	use_fmt_by_id(c, d, d->fmt_id);
+}
+
+static void collect_metrics(deark *c, lctx *d)
+{
+	int eof_present = 0;
+
+	d->metrics.size_diff = c->infile->len - d->data_size;
+	d->metrics.maybe_bitsperrow = de_getu16le(7);
+	d->metrics.maybe_nrows = de_getu16le(9);
+	d->metrics.maybe_bytesperrow = (d->metrics.maybe_bitsperrow+7)/8;
+
+	if(d->metrics.size_diff>=BSAVE_HDRSIZE) {
+		eof_present = (de_getbyte(BSAVE_HDRSIZE+d->data_size) == 0x1a);
+	}
+
+	if(eof_present) {
+		int eof_is_last_byte;
+		u8 byte_before_eof;
+
+		eof_is_last_byte = (c->infile->len == BSAVE_HDRSIZE+d->data_size+1);
+		byte_before_eof = de_getbyte(BSAVE_HDRSIZE+d->data_size-1);
+
+		if(eof_is_last_byte && byte_before_eof!=0x1a) {
+			d->metrics.eof_marker_quality = 4;
+		}
+		else if(eof_is_last_byte) {
+			d->metrics.eof_marker_quality = 3;
+		}
+		else if(byte_before_eof!=0x1a) {
+			d->metrics.eof_marker_quality = 2;
+		}
+		else {
+			d->metrics.eof_marker_quality = 1;
+		}
 	}
 }
 
@@ -732,6 +907,8 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 		}
 	}
 
+	collect_metrics(c, d);
+
 	read_pcpaint_palinfo(c, d, &idi);
 
 	use_fmt_by_id(c, d, d->fmt_id);
@@ -740,11 +917,14 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 		detect_bsave_fmt(c, d, &idi);
 	}
 
-	if(!d->decoder_fn) {
+	if(!d->fmt_info || !d->decoder_fn) {
 		de_err(c, "Unidentified BSAVE format, try \"-opt bsave:fmt=...\". "
 			"Use \"-m bsave -h\" for a list.");
 		goto done;
 	}
+
+	de_dbg(c, "format name: %s", d->fmt_info->name);
+	de_declare_fmtf(c, "BSAVE-PC %s", d->fmt_info->descr);
 
 	if(d->need_id_warning) {
 		de_warn(c, "BSAVE formats can't be reliably identified. You may need to "
@@ -782,19 +962,16 @@ static int de_identify_bsave(deark *c)
 
 static void de_help_bsave(deark *c)
 {
+	size_t k;
+
 	de_msg(c, "-opt bsave:fmt=...");
-	de_msg(c, " char  : Character graphics");
-	de_msg(c, " cga2  : 2-color, 640x200");
-	de_msg(c, " cga4  : 4-color, 320x200");
-	de_msg(c, " cga16 : 16-color, 160x100 pseudographics");
-	de_msg(c, " mcga  : 256-color, 320x200");
-	de_msg(c, " wh2   : 2-color, 11-byte header");
-	de_msg(c, " wh4   : 4-color, 11-byte header");
-	de_msg(c, " wh16  : 16-color, 4-plane, 11-byte header");
-	de_msg(c, " wh256 : 256-color, 11-byte header");
-	de_msg(c, " 2col  : 2-color noninterlaced");
-	de_msg(c, " 4col  : 4-color noninterlaced");
-	//de_msg(c, " b265  : Special"); - not documented here
+	for(k=0; k<DE_ARRAYCOUNT(bsave_fmt_arr); k++) {
+		const struct bsave_fmt_arr_item *item;
+
+		item = &bsave_fmt_arr[k];
+		if(item->flags & FMTFLAG_UNLISTED) continue;
+		de_msg(c, " %-5s : %s", item->name, item->descr);
+	}
 }
 
 void de_module_bsave(deark *c, struct deark_module_info *mi)
