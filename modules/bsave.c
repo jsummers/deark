@@ -28,7 +28,8 @@ typedef void (*decoder_fn_type)(deark *c, lctx *d);
 #define FMT_2COL    10
 #define FMT_4COL    11
 #define FMT_B265    12
-#define FMT_MAX     12
+#define FMT_PAL256  13
+#define FMT_MAX     13
 
 struct bsave_fmt_arr_item;
 
@@ -36,8 +37,8 @@ struct metrics_struct {
 	i64 maybe_bitsperrow;
 	i64 maybe_nrows;
 	i64 maybe_bytesperrow;
-	i64 size_diff;
-	int eof_marker_quality;
+	i64 nbytes_after_data;
+	int eof_marker_quality; // might be unused
 };
 
 struct localctx_struct {
@@ -482,6 +483,10 @@ done:
 	de_free_charctx(c, charctx);
 }
 
+static void do_noop(deark *c, lctx *d)
+{
+}
+
 static const struct bsave_fmt_arr_item bsave_fmt_arr[] = {
 	{FMT_CHAR,  0x00, do_char,     "char",  "Character graphics"},
 	{FMT_CGA2,  0x02, do_2color,   "cga2",  "2-color, 640"DE_CHAR_TIMES"200"},
@@ -494,7 +499,8 @@ static const struct bsave_fmt_arr_item bsave_fmt_arr[] = {
 	{FMT_WH256, 0x01, do_256color, "wh256", "256-color, 11-byte header"},
 	{FMT_2COL,  0x00, do_2color,   "2col",  "2-color noninterlaced"},
 	{FMT_4COL,  0x00, do_4color,   "4col",  "4-color noninterlaced"},
-	{FMT_B265,  0x80, do_b265,     "b265",  "Special"}
+	{FMT_B265,  0x80, do_b265,     "b265",  "Special"},
+	{FMT_PAL256,0x80, do_noop,     "pal256", "VGA palette"}
 };
 
 static const struct bsave_fmt_arr_item *get_fmt_info_by_id(UI fmt_id)
@@ -559,6 +565,12 @@ static void identify_bsave_internal(deark *c, struct bsave_id_info *idi)
 
 	load_segment = (u32)de_getu16le(1);
 	data_size = de_getu16le(5);
+	if(data_size > c->infile->len) {
+		// Mas data_size *should* be filesize-7, but there are a few bad files
+		// that set it to filesize.
+		idi->probably_not_bsave = 1;
+		return;
+	}
 	if(data_size==0) {
 		idi->probably_not_bsave = 1;
 		return;
@@ -629,19 +641,25 @@ static void detect_cga2_4(deark *c, lctx *d, int *confidence)
 {
 	if(d->load_addr!=0xb8000) return;
 	if(d->data_size==16384 || d->data_size==16383) {
-		confidence[FMT_CGA4] = 10 + d->metrics.eof_marker_quality;
-		confidence[FMT_CGA2] = 8 + d->metrics.eof_marker_quality;
+		confidence[FMT_CGA4] = 10;
+		confidence[FMT_CGA2] = 8;
 	}
 	else if(d->data_size==16000) {
-		confidence[FMT_CGA4] = 4 + d->metrics.eof_marker_quality;
-		confidence[FMT_CGA2] = 3 + d->metrics.eof_marker_quality;
+		confidence[FMT_CGA4] = 4;
+		confidence[FMT_CGA2] = 3;
 	}
 }
 
 static void detect_mcga4(deark *c, lctx *d, int *confidence)
 {
 	if(d->load_addr==0xa0000 && d->data_size==64000) {
-		confidence[FMT_MCGA] = 10 + d->metrics.eof_marker_quality;
+		confidence[FMT_MCGA] = 10;
+	}
+	else if(d->data_size==64000) {
+		confidence[FMT_MCGA] = 4;
+	}
+	else if(d->load_addr==0xa0000 && d->data_size==65000) {
+		confidence[FMT_MCGA] = 6;
 	}
 }
 
@@ -672,58 +690,107 @@ static void detect_wh2_4(deark *c, lctx *d, int *confidence)
 
 	if((d->metrics.maybe_bitsperrow%2)!=0) {
 		// bits/row is odd, so it can't be WH4.
-		confidence[FMT_WH2] = 2 + base_quality + d->metrics.eof_marker_quality;
+		confidence[FMT_WH2] = 2 + base_quality;
 	}
 	else {
-		confidence[FMT_WH4] = 2 + base_quality + d->metrics.eof_marker_quality;
-		confidence[FMT_WH2] = 1 + base_quality + d->metrics.eof_marker_quality;
+		confidence[FMT_WH4] = 2 + base_quality;
+		confidence[FMT_WH2] = 1 + base_quality;
 	}
 }
 
-static void detect_wh16(deark *c, lctx *d, int *confidence)
+static void detect_wh256(deark *c, lctx *d, int *confidence)
 {
 	i64 n;
 	i64 n_diff;
 	int base_quality = 0;
 
 	if(d->metrics.maybe_bitsperrow==0 || d->metrics.maybe_nrows==0) return;
+	if((d->metrics.maybe_bitsperrow%8)!=0) return;
 
-	n = 4 + d->metrics.maybe_bytesperrow * d->metrics.maybe_nrows * 4;
+	n = 4 + d->metrics.maybe_bytesperrow * d->metrics.maybe_nrows;
 	n_diff = d->data_size - n;
 
 	if(BSAVE_HDRSIZE + n > c->infile->len) return;
 	if(n_diff<0) return;
 
 	if(n_diff<=1) {
-		base_quality = 4;
+		base_quality = 5;
+	}
+	else if(n_diff<=8) {
+		base_quality = 3;
+	}
+	else if(n_diff<=128) {
+		base_quality = 1;
+	}
+
+	confidence[FMT_WH256] = 2 + base_quality;
+}
+
+static void detect_wh16(deark *c, lctx *d, int *confidence)
+{
+	i64 n;
+	i64 n_diff;
+	i64 bytesperplane;
+	int base_quality = 0;
+
+	if(d->metrics.maybe_bitsperrow==0 || d->metrics.maybe_nrows==0) return;
+
+	bytesperplane = d->metrics.maybe_bytesperrow * d->metrics.maybe_nrows;
+	n = 4 +  bytesperplane*4;
+	n_diff = d->data_size - n;
+
+	if(BSAVE_HDRSIZE + n > c->infile->len) return;
+	if(n_diff<0) return;
+
+	if(n_diff<=1) {
+		base_quality = 7;
 	}
 	else if(n_diff<=16) {
+		base_quality = 5;
+	}
+	else if(n_diff < 3*bytesperplane) {
+		base_quality = 4;
+	}
+	else {
 		base_quality = 2;
 	}
-	confidence[FMT_WH16] = 1 + base_quality + d->metrics.eof_marker_quality;
+	confidence[FMT_WH16] = 1 + base_quality;
 }
 
 static void detect_char(deark *c, lctx *d, int *confidence)
 {
-	int q1 = 0;
-	int q2 = 0;
-
 	if(d->load_addr==0xb8000) {
-		q1 = 1;
+		if(d->data_size==4000 || d->data_size==4096) {
+			confidence[FMT_CHAR] = 5;
+			return;
+		}
+		else if(d->data_size==3840) {
+			confidence[FMT_CHAR] = 5;
+			return;
+		}
+		else if(d->data_size>=8144 && (d->data_size%4096)==4048) {
+			confidence[FMT_CHAR] = 4;
+			return;
+		}
 	}
 
-	if(d->data_size==4000 || d->data_size==4096) {
-		q2 = 4;
-	}
-	else if(d->data_size==3840) {
-		q2 = 1;
-	}
-	else if(d->data_size>=8144 && (d->data_size%4096)==4048) {
-		q2 = 1;
+	if(d->load_offset==0xc000) {
+		if(d->data_size==4096) {
+			confidence[FMT_CHAR] = 6;
+			return;
+		}
+		else if(d->data_size==2048) {
+			confidence[FMT_CHAR] = 4;
+			return;
+		}
 	}
 
-	if(q1==0 || q2==0) return;
-	confidence[FMT_CHAR] = q1 + q2 + d->metrics.eof_marker_quality;
+	if(d->load_segment==0xb800) {
+		if(d->data_size==4096) {
+			confidence[FMT_CHAR] = 4;
+			return;
+		}
+	}
 }
 
 struct detect_cga16_struct {
@@ -768,12 +835,41 @@ static void detect_cga16(deark *c, lctx *d, int *confidence)
 	dbuf_buffered_read(c->infile, BSAVE_HDRSIZE, 16000, detect_cga16_cbfn, (void*)&dtctx);
 	if(dtctx.flag0==0) {
 		if(dtctx.flag1) {
-			confidence[FMT_CGA16] = 12 + d->metrics.eof_marker_quality;
+			confidence[FMT_CGA16] = 12;
 		}
 		else {
-			confidence[FMT_CGA16] = 5 + d->metrics.eof_marker_quality;
+			confidence[FMT_CGA16] = 5;
 		}
 	}
+}
+
+static void detect_pal256(deark *c, lctx *d, int *confidence)
+{
+	int q1 = 0;
+
+	if(d->data_size!=768) return;
+	if(d->load_addr==0xb8000 || d->load_addr==0xa0000) return;
+	if(d->load_addr==0) q1 = 12;
+	confidence[FMT_PAL256] = 1 + q1;
+}
+
+static void detect_2_4col(deark *c, lctx *d, int *confidence)
+{
+	int q1 = 0;
+
+	if(d->data_size<80) return;
+	if((d->data_size%80)==0) q1 = 2;
+	else if(d->data_size==16384) q1 = 1;
+	if(q1==0) return;
+	confidence[FMT_2COL] = q1;
+	confidence[FMT_4COL] = confidence[FMT_2COL] + 1;
+}
+
+static void detect_b265(deark *c, lctx *d, int *confidence)
+{
+	if(d->data_size!=5760) return;
+	if(d->load_addr!=0x20000) return;
+	confidence[FMT_B265] = 8;
 }
 
 static void detect_bsave_fmt(deark *c, lctx *d, struct bsave_id_info *idi)
@@ -799,9 +895,13 @@ static void detect_bsave_fmt(deark *c, lctx *d, struct bsave_id_info *idi)
 	detect_cga2_4(c, d, confidence);
 	detect_mcga4(c, d, confidence);
 	detect_wh2_4(c, d, confidence);
+	detect_wh256(c, d, confidence);
 	detect_wh16(c, d, confidence);
 	detect_char(c, d, confidence);
 	detect_cga16(c, d, confidence);
+	detect_2_4col(c, d, confidence);
+	detect_b265(c, d, confidence);
+	detect_pal256(c, d, confidence);
 
 	best_conf = 0;
 	for(k=0; k<=FMT_MAX; k++) {
@@ -830,12 +930,12 @@ static void collect_metrics(deark *c, lctx *d)
 {
 	int eof_present = 0;
 
-	d->metrics.size_diff = c->infile->len - d->data_size;
+	d->metrics.nbytes_after_data = c->infile->len - (BSAVE_HDRSIZE + d->data_size);
 	d->metrics.maybe_bitsperrow = de_getu16le(7);
 	d->metrics.maybe_nrows = de_getu16le(9);
 	d->metrics.maybe_bytesperrow = (d->metrics.maybe_bitsperrow+7)/8;
 
-	if(d->metrics.size_diff>=BSAVE_HDRSIZE) {
+	if(d->metrics.nbytes_after_data>=0) {
 		eof_present = (de_getbyte(BSAVE_HDRSIZE+d->data_size) == 0x1a);
 	}
 
@@ -859,6 +959,8 @@ static void collect_metrics(deark *c, lctx *d)
 			d->metrics.eof_marker_quality = 1;
 		}
 	}
+
+	de_dbg2(c, "file/data size discrepancy: %"I64_FMT, d->metrics.nbytes_after_data);
 }
 
 static void de_run_bsave(deark *c, de_module_params *mparams)
