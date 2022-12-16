@@ -10,7 +10,7 @@ DE_DECLARE_MODULE(de_module_pcpaint);
 DE_DECLARE_MODULE(de_module_bsave_cmpr);
 
 struct pal_info {
-	i64 edesc;
+	UI edesc;
 	i64 esize;
 	u8 *data;
 };
@@ -48,6 +48,7 @@ struct localctx_struct {
 	dbuf *unc_pixels;
 	decoder_fn_type decoder_fn;
 	enum screen_mode_type_enum screen_mode_type;
+	de_color pal[256]; // Final palette to use
 };
 
 static void set_density(deark *c, lctx *d)
@@ -94,19 +95,161 @@ static void set_density(deark *c, lctx *d)
 	}
 }
 
-static void acquire_palette_ega64idx(deark *c, lctx *d, de_color *pal, i64 num_entries)
+static void acquire_palette_ega64idx(deark *c, lctx *d, i64 num_entries)
 {
 	i64 k;
 	char tmps[32];
 
-	de_dbg(c, "palette type: %d indices into standard EGA 64-color palette",
-		(int)num_entries);
 	for(k=0; k<num_entries; k++) {
 		if(k >= d->pal_info_to_use->esize) break;
-		pal[k] = de_get_std_palette_entry(DE_PALID_EGA64, 0, (int)d->pal_info_to_use->data[k]);
+		d->pal[k] = de_get_std_palette_entry(DE_PALID_EGA64, 0, (int)d->pal_info_to_use->data[k]);
 		de_snprintf(tmps, sizeof(tmps), "%2d ", (int)d->pal_info_to_use->data[k]);
-		de_dbg_pal_entry2(c, k, pal[k], tmps, NULL, NULL);
+		de_dbg_pal_entry2(c, k, d->pal[k], tmps, NULL, NULL);
 	}
+}
+
+static void acquire_palette_cga4color(deark *c, lctx *d)
+{
+	u8 pal_subid = 0;
+	u8 border_col = 0;
+
+	// Image includes information about which CGA 4-color palette it uses.
+
+	// This assumes PIC format. That should be the case, since edesc will
+	// be zero for CLP format (unless we are reading the palette from a separate
+	// PIC file).
+	if(d->pal_info_to_use->esize >= 1)
+		pal_subid = d->pal_info_to_use->data[0];
+	if(d->pal_info_to_use->esize >= 2)
+		border_col = d->pal_info_to_use->data[1];
+	de_dbg(c, "pal id: 0x%02x", pal_subid);
+	de_dbg(c, "border: 0x%02x", border_col);
+	de_copy_std_palette(DE_PALID_CGA, pal_subid, 0, 4, d->pal, 4, 0);
+
+	// Replace the first palette color with the border/background color.
+	d->pal[0] = de_get_std_palette_entry(DE_PALID_PC16, 0, (int)border_col);
+}
+
+// We always respect this palette type. PCPaint writes the palette, but doesn't
+// always respect it when reading back the image.
+static void acquire_palette_indirect16col(deark *c, lctx *d, i64 num_entries)
+{
+	i64 k;
+
+	for(k=0; k<16; k++) {
+		if(k >= d->pal_info_to_use->esize) break;
+		d->pal[k] = de_get_std_palette_entry(DE_PALID_PC16, 0, (int)d->pal_info_to_use->data[k]);
+		de_dbg2(c, "pal[%3d] = %u", (int)k, (UI)d->pal_info_to_use->data[k]);
+	}
+}
+
+// Create a standard RGB palette from raw RGB palette data
+static void acquire_palette_rgb(deark *c, lctx *d, i64 num_entries)
+{
+	i64 k;
+	u8 cr1, cg1, cb1;
+	u8 cr2, cg2, cb2;
+	int has_8bit_samples = 0;
+	char tmps[64];
+
+	// Pre-scan
+	for(k=0; k<num_entries; k++) {
+		if(3*k+2 >= d->pal_info_to_use->esize) break;
+		cr1 = d->pal_info_to_use->data[3*k+0];
+		cg1 = d->pal_info_to_use->data[3*k+1];
+		cb1 = d->pal_info_to_use->data[3*k+2];
+		if(cr1>63 || cg1>63 || cb1>63) {
+			de_dbg(c, "[detected 8-bit palette samples]");
+			has_8bit_samples = 1;
+			break;
+		}
+	}
+
+	// For real
+	for(k=0; k<num_entries; k++) {
+		if(3*k+2 >= d->pal_info_to_use->esize) break;
+		cr1 = d->pal_info_to_use->data[3*k+0];
+		cg1 = d->pal_info_to_use->data[3*k+1];
+		cb1 = d->pal_info_to_use->data[3*k+2];
+
+		if(has_8bit_samples) {
+			cr2 = (cr1<<2) | (cr1>>6);
+			cg2 = (cg1<<2) | (cg1>>6);
+			cb2 = (cb1<<2) | (cb1>>6);
+			d->pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
+			de_dbg_pal_entry(c, k, d->pal[k]);
+		}
+		else {
+			cr2 = de_scale_63_to_255(cr1);
+			cg2 = de_scale_63_to_255(cg1);
+			cb2 = de_scale_63_to_255(cb1);
+			d->pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
+			de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) "DE_CHAR_RIGHTARROW" ",
+				(int)cr1, (int)cg1, (int)cb1);
+			de_dbg_pal_entry2(c, k, d->pal[k], tmps, NULL, NULL);
+		}
+	}
+}
+
+static void acquire_palette(deark *c, lctx *d, i64 ncolors)
+{
+	// Start with a default palette
+	switch(ncolors) {
+	case 2:
+		d->pal[0] = DE_STOCKCOLOR_BLACK;
+		d->pal[1] = DE_STOCKCOLOR_WHITE;
+		break;
+	case 4:
+		de_copy_std_palette(DE_PALID_CGA, 2, 0, 4, d->pal, 4, 0);
+		break;
+	case 16:
+		de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, d->pal, 16, 0);
+		break;
+	case 256:
+		de_copy_std_palette(DE_PALID_VGA256, 0, 0, 256, d->pal, 256, 0);
+		break;
+	default:
+		goto done;
+	}
+
+	if(d->file_fmt!=FMT_PIC) {
+		goto done;
+	}
+
+	switch(d->pal_info_to_use->edesc) {
+	case 0:
+		de_dbg(c, "palette type: standard %d-color palette (no palette in file)", (int)ncolors);
+		break;
+	case 1:
+		de_dbg(c, "palette type: CGA coded 4-color palette");
+		de_dbg_indent(c, 1);
+		acquire_palette_cga4color(c, d);
+		de_dbg_indent(c, -1);
+		break;
+	case 2:
+		de_dbg(c, "palette type: %d indices into standard 16-color palette", (int)ncolors);
+		de_dbg_indent(c, 1);
+		acquire_palette_indirect16col(c, d, ncolors);
+		de_dbg_indent(c, -1);
+		break;
+	case 3:
+		de_dbg(c, "palette type: %d indices into standard EGA 64-color palette", (int)ncolors);
+		de_dbg_indent(c, 1);
+		acquire_palette_ega64idx(c, d, ncolors);
+		de_dbg_indent(c, -1);
+		break;
+	case 4:
+	case 5:
+		de_dbg(c, "palette type: %d-color RGB palette (in file)", (int)ncolors);
+		de_dbg_indent(c, 1);
+		acquire_palette_rgb(c, d, ncolors);
+		de_dbg_indent(c, -1);
+		break;
+	default:
+		de_warn(c, "Unknown palette type: %u", (UI)d->pal_info_to_use->edesc);
+	}
+done:
+	;
 }
 
 static void decode_text(deark *c, lctx *d)
@@ -178,108 +321,47 @@ done:
 	de_free_charctx(c, charctx);
 }
 
-// Create a standard RGB palette from raw RGB palette data
-static void make_rgb_palette(deark *c, lctx *d, de_color *pal, i64 num_entries)
-{
-	i64 k;
-	u8 cr1, cg1, cb1;
-	u8 cr2, cg2, cb2;
-	int has_8bit_samples = 0;
-	char tmps[64];
-
-	// Pre-scan
-	for(k=0; k<num_entries; k++) {
-		if(3*k+2 >= d->pal_info_to_use->esize) break;
-		cr1 = d->pal_info_to_use->data[3*k+0];
-		cg1 = d->pal_info_to_use->data[3*k+1];
-		cb1 = d->pal_info_to_use->data[3*k+2];
-		if(cr1>63 || cg1>63 || cb1>63) {
-			de_dbg(c, "detected 8-bit palette samples");
-			has_8bit_samples = 1;
-			break;
-		}
-	}
-
-	// For real
-	de_dbg_indent(c, 1);
-	for(k=0; k<num_entries; k++) {
-		if(3*k+2 >= d->pal_info_to_use->esize) break;
-		cr1 = d->pal_info_to_use->data[3*k+0];
-		cg1 = d->pal_info_to_use->data[3*k+1];
-		cb1 = d->pal_info_to_use->data[3*k+2];
-
-		if(has_8bit_samples) {
-			cr2 = (cr1<<2) | (cr1>>6);
-			cg2 = (cg1<<2) | (cg1>>6);
-			cb2 = (cb1<<2) | (cb1>>6);
-			pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
-			de_dbg_pal_entry(c, k, pal[k]);
-		}
-		else {
-			cr2 = de_scale_63_to_255(cr1);
-			cg2 = de_scale_63_to_255(cg1);
-			cb2 = de_scale_63_to_255(cb1);
-			pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
-			de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) "DE_CHAR_RIGHTARROW" ",
-				(int)cr1, (int)cg1, (int)cb1);
-			de_dbg_pal_entry2(c, k, pal[k], tmps, NULL, NULL);
-		}
-	}
-	de_dbg_indent(c, -1);
-}
-
 static void decode_egavga16(deark *c, lctx *d)
 {
-	de_color pal[16];
-	i64 k;
 	i64 src_rowspan;
 	i64 src_planespan;
 	de_bitmap *img = NULL;
 
 	de_dbg(c, "image type: 16-color EGA/VGA");
-	de_zeromem(pal, sizeof(pal));
 
-	// Read the palette
-	if(d->pal_info_to_use->edesc==0) {
-		de_dbg(c, "palette type: standard 16-color palette (no palette in file)");
-		de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, pal, 16, 0);
-	}
-	else if(d->pal_info_to_use->edesc==2) {
-		// We respect these colors. PCPaint writes them, but doesn't always
-		// respect them when reading back the image.
-		de_dbg(c, "palette type: 16 indices into standard 16-color palette");
-		for(k=0; k<16; k++) {
-			pal[k] = de_get_std_palette_entry(DE_PALID_PC16, 0, (int)d->pal_info_to_use->data[k]);
-		}
-	}
-	else if(d->pal_info_to_use->edesc==3) {
-		acquire_palette_ega64idx(c, d, pal, 16);
-	}
-	else { // assuming edesc==5
-		de_dbg(c, "palette type: 16-color palette (in file)");
-		make_rgb_palette(c, d, pal, 16);
-	}
+	acquire_palette(c, d, 16);
 
-	if(d->plane_info==0x31) {
-		d->pdwidth = de_pad_to_n(d->npwidth, 8);
-		src_rowspan = d->pdwidth/8;
-		src_planespan = src_rowspan*d->height;
-	}
-	else {
-		d->pdwidth = de_pad_to_2(d->npwidth);
-		src_rowspan = d->pdwidth/2;
-		src_planespan = 0;
-	}
+	d->pdwidth = de_pad_to_2(d->npwidth);
+	src_rowspan = d->pdwidth/2;
+	src_planespan = 0;
 
 	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, 3);
 
-	if(d->plane_info==0x31) {
-		de_convert_image_paletted_planar(d->unc_pixels, 0, 4, src_rowspan,
-			src_planespan, pal, img, 0x2);
-	}
-	else {
-		de_convert_image_paletted(d->unc_pixels, 0, 4, src_rowspan, pal, img, 0);
-	}
+	de_convert_image_paletted(d->unc_pixels, 0, 4, src_rowspan, d->pal, img, 0);
+
+	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
+
+	de_bitmap_destroy(img);
+}
+
+static void decode_egavga16_planar(deark *c, lctx *d)
+{
+	i64 src_rowspan;
+	i64 src_planespan;
+	de_bitmap *img = NULL;
+
+	de_dbg(c, "image type: 16-color EGA/VGA planar");
+
+	acquire_palette(c, d, 16);
+
+	d->pdwidth = de_pad_to_n(d->npwidth, 8);
+	src_rowspan = d->pdwidth/8;
+	src_planespan = src_rowspan*d->height;
+
+	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, 3);
+
+	de_convert_image_paletted_planar(d->unc_pixels, 0, 4, src_rowspan,
+		src_planespan, d->pal, img, 0x2);
 
 	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
 
@@ -288,27 +370,16 @@ static void decode_egavga16(deark *c, lctx *d)
 
 static void decode_vga256(deark *c, lctx *d)
 {
-	de_color pal[256];
 	de_bitmap *img = NULL;
 
 	de_dbg(c, "image type: 256-color");
-	de_zeromem(pal, sizeof(pal));
 
-	// Read the palette
-	if(d->pal_info_to_use->edesc==0) {
-		de_dbg(c, "palette type: standard 256-color palette (no palette in file)");
-		de_copy_std_palette(DE_PALID_VGA256, 0, 0, 256, pal, 256, 0);
-	}
-	else {
-		de_dbg(c, "palette type: 256-color palette (in file)");
-		de_dbg(c, "decoding palette");
-		make_rgb_palette(c, d, pal, 256);
-	}
+	acquire_palette(c, d, 256);
 
 	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, 3);
 
 	de_convert_image_paletted(d->unc_pixels, 0,
-		8, img->width, pal, img, 0);
+		8, img->width, d->pal, img, 0);
 
 	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
 
@@ -318,41 +389,30 @@ static void decode_vga256(deark *c, lctx *d)
 static void decode_bilevel(deark *c, lctx *d)
 {
 	i64 src_rowspan;
-	de_color pal[2];
 	int is_grayscale;
-	i64 edesc = d->pal_info_to_use->edesc;
+	UI edesc = d->pal_info_to_use->edesc;
 	de_bitmap *img = NULL;
 
 	de_dbg(c, "image type: bilevel");
 
 	if(!d->unc_pixels) goto done;
 
-	pal[0] = DE_STOCKCOLOR_BLACK;
-	pal[1] = DE_STOCKCOLOR_WHITE; // default
-
-	if(edesc!=0 && edesc!=4 && edesc!=5) {
-		de_warn(c, "The colors in this image might not be handled correctly (edesc=%d)",
-			(int)edesc);
-	}
-
-	if(edesc==4 || edesc==5) {
-		make_rgb_palette(c, d, pal, 2);
-	}
+	acquire_palette(c, d, 2);
 
 	// PCPaint's CGA and EGA 2-color modes used gray shade 170 instead of
 	// white (255). Maybe they should be interpreted as white, but for
 	// historical accuracy I'll go with gray170.
 	if(edesc==0 && (d->video_mode==0x43 || d->video_mode==0x45)) {
-		pal[1] = DE_MAKE_GRAY(170);
+		d->pal[1] = DE_MAKE_GRAY(170);
 	}
 
 	d->pdwidth = de_pad_to_n(d->npwidth, 8);
 	src_rowspan = d->pdwidth/8;
-	is_grayscale = de_is_grayscale_palette(pal, 2);
+	is_grayscale = de_is_grayscale_palette(d->pal, 2);
 	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, is_grayscale?1:3);
 
 	de_convert_image_paletted(d->unc_pixels, 0,
-		1, src_rowspan, pal, img, 0);
+		1, src_rowspan, d->pal, img, 0);
 
 	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
 
@@ -363,45 +423,20 @@ done:
 static void decode_cga4(deark *c, lctx *d)
 {
 	i64 src_rowspan;
-	de_color pal[4];
-	u8 pal_subid = 0;
-	u8 border_col = 0;
 	de_bitmap *img = NULL;
 
 	de_dbg(c, "image type: CGA 4-color");
 
 	if(!d->unc_pixels) goto done;
 
-	if(d->pal_info_to_use->edesc==1) {
-		// Image includes information about which CGA 4-color palette it uses.
-
-		// This assumes PIC format. That should be the case, since edesc will
-		// be zero for CLP format (unless we are reading the palette from a separate
-		// PIC file).
-		if(d->pal_info_to_use->esize >= 1)
-			pal_subid = d->pal_info_to_use->data[0];
-		if(d->pal_info_to_use->esize >= 2)
-			border_col = d->pal_info_to_use->data[1];
-		de_dbg(c, "pal_id=0x%02x border=0x%02x", pal_subid, border_col);
-		de_copy_std_palette(DE_PALID_CGA, pal_subid, 0, 4, pal, 4, 0);
-
-		// Replace the first palette color with the border/background color.
-		pal[0] = de_get_std_palette_entry(DE_PALID_PC16, 0, (int)border_col);
-	}
-	else if(d->pal_info_to_use->edesc==3) {
-		acquire_palette_ega64idx(c, d, pal, 4);
-	}
-	else {
-		// No palette specified in the file. Use palette #2 by default.
-		de_copy_std_palette(DE_PALID_CGA, 2, 0, 4, pal, 4, 0);
-	}
+	acquire_palette(c, d, 4);
 
 	d->pdwidth = de_pad_to_4(d->npwidth);
 	src_rowspan = d->pdwidth/4;
 	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, 3);
 
 	de_convert_image_paletted(d->unc_pixels, 0,
-		2, src_rowspan, pal, img, 0);
+		2, src_rowspan, d->pal, img, 0);
 
 	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
 
@@ -414,16 +449,10 @@ static void decode_4color_alt(deark *c, lctx *d)
 	de_bitmap *img = NULL;
 	i64 src_rowspan;
 	i64 src_planespan;
-	de_color pal[4];
 
 	de_dbg(c, "image type: planar 4-color");
 
-	de_copy_std_palette(DE_PALID_CGA, 0, 0, 4, pal, 4, 0);
-	if(d->pal_info_to_use->edesc==3) {
-		// PCPaint seems buggy in this mode. It may display the wrong colors
-		// until you save the image and reload it.
-		acquire_palette_ega64idx(c, d, pal, 4);
-	}
+	acquire_palette(c, d, 4);
 
 	d->pdwidth = de_pad_to_n(d->npwidth, 8);
 	src_rowspan = d->pdwidth/8;
@@ -431,7 +460,7 @@ static void decode_4color_alt(deark *c, lctx *d)
 
 	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, 3);
 	de_convert_image_paletted_planar(d->unc_pixels, 0, 2, src_rowspan, src_planespan,
-		pal, img, 0x02);
+		d->pal, img, 0x02);
 	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
 }
 
@@ -524,9 +553,7 @@ done:
 static int decompress_pic_pixels(deark *c, lctx *d)
 {
 	i64 pos;
-	//i64 i;
 	int retval = 1;
-	//i64 end_of_this_block;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -556,7 +583,7 @@ done:
 
 static int do_read_palette_data(deark *c, lctx *d, dbuf *f, struct pal_info *palinfo)
 {
-	palinfo->edesc = dbuf_getu16le(f, 13);
+	palinfo->edesc = (UI)dbuf_getu16le(f, 13);
 	palinfo->esize = dbuf_getu16le(f, 15);
 	palinfo->data = de_malloc(c, palinfo->esize);
 	dbuf_read(f, palinfo->data, 17, palinfo->esize);
@@ -638,12 +665,17 @@ static int do_set_up_decoder(deark *c, lctx *d)
 		d->screen_mode_type = SCREENMODETYPE_BITMAP;
 		d->decoder_fn = decode_egavga16;
 	}
-	else if((d->plane_info==0x04 || d->plane_info==0x31) &&
+	else if((d->plane_info==0x04) &&
 		(edesc==0 || edesc==3 || edesc==5))
 	{
-		// Expected video mode(s): 0x4d, 0x47
 		d->screen_mode_type = SCREENMODETYPE_BITMAP;
 		d->decoder_fn = decode_egavga16;
+	}
+	else if((d->plane_info==0x31) &&
+		(edesc==0 || edesc==3 || edesc==5))
+	{
+		d->screen_mode_type = SCREENMODETYPE_BITMAP;
+		d->decoder_fn = decode_egavga16_planar;
 	}
 	else if(d->plane_info==0x08 && (edesc==0 || edesc==4)) {
 		// Expected video mode(s): 0x4c
@@ -656,7 +688,7 @@ static int do_set_up_decoder(deark *c, lctx *d)
 	}
 	else if(d->plane_info==0x31 && edesc==2) { // e.g. vmode='D'
 		d->screen_mode_type = SCREENMODETYPE_BITMAP;
-		d->decoder_fn = decode_egavga16;
+		d->decoder_fn = decode_egavga16_planar;
 	}
 	else if(d->plane_info==0x11 && edesc==3) { // e.g. vmode='F'
 		d->screen_mode_type = SCREENMODETYPE_BITMAP;
@@ -664,14 +696,14 @@ static int do_set_up_decoder(deark *c, lctx *d)
 	}
 
 	if(d->decoder_fn) {
-		de_dbg2(c, "image type: evideo=0x%02x, bitsinf=0x%02x, edesc=%d",
-			d->video_mode, d->plane_info, (int)edesc);
+		de_dbg2(c, "image type: evideo=0x%02x, bitsinf=0x%02x, edesc=%u",
+			d->video_mode, d->plane_info, (UI)edesc);
 		return 1;
 	}
 
-	de_err(c, "This type of PCPaint %s is not supported (evideo=0x%02x, bitsinf=0x%02x, edesc=%d)",
+	de_err(c, "This type of PCPaint %s is not supported (evideo=0x%02x, bitsinf=0x%02x, edesc=%u)",
 		(d->file_fmt==FMT_CLP) ? "CLP" : "PIC",
-		d->video_mode, d->plane_info, (int)edesc);
+		d->video_mode, d->plane_info, (UI)edesc);
 
 	return 0;
 }
@@ -726,7 +758,7 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 		de_dbg(c, "video mode: 0x%02x", (int)d->video_mode);
 
 		do_read_palette_data(c, d, c->infile, &d->pal_info_mainfile);
-		de_dbg(c, "edesc: %d", (int)d->pal_info_mainfile.edesc);
+		de_dbg(c, "edesc: %u", (UI)d->pal_info_mainfile.edesc);
 		de_dbg(c, "esize: %d", (int)d->pal_info_mainfile.esize);
 	}
 
