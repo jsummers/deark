@@ -94,6 +94,21 @@ static void set_density(deark *c, lctx *d)
 	}
 }
 
+static void acquire_palette_ega64idx(deark *c, lctx *d, de_color *pal, i64 num_entries)
+{
+	i64 k;
+	char tmps[32];
+
+	de_dbg(c, "palette type: %d indices into standard EGA 64-color palette",
+		(int)num_entries);
+	for(k=0; k<num_entries; k++) {
+		if(k >= d->pal_info_to_use->esize) break;
+		pal[k] = de_get_std_palette_entry(DE_PALID_EGA64, 0, (int)d->pal_info_to_use->data[k]);
+		de_snprintf(tmps, sizeof(tmps), "%2d ", (int)d->pal_info_to_use->data[k]);
+		de_dbg_pal_entry2(c, k, pal[k], tmps, NULL, NULL);
+	}
+}
+
 static void decode_text(deark *c, lctx *d)
 {
 	i64 width_in_chars;
@@ -220,7 +235,6 @@ static void decode_egavga16(deark *c, lctx *d)
 	i64 src_rowspan;
 	i64 src_planespan;
 	de_bitmap *img = NULL;
-	char tmps[32];
 
 	de_dbg(c, "image type: 16-color EGA/VGA");
 	de_zeromem(pal, sizeof(pal));
@@ -230,16 +244,16 @@ static void decode_egavga16(deark *c, lctx *d)
 		de_dbg(c, "palette type: standard 16-color palette (no palette in file)");
 		de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, pal, 16, 0);
 	}
-	else if(d->pal_info_to_use->edesc==3) {
-		// An EGA palette. Indexes into the standard EGA
-		// 64-color palette.
-		de_dbg(c, "palette type: 16 indices into standard EGA 64-color palette");
+	else if(d->pal_info_to_use->edesc==2) {
+		// We respect these colors. PCPaint writes them, but doesn't always
+		// respect them when reading back the image.
+		de_dbg(c, "palette type: 16 indices into standard 16-color palette");
 		for(k=0; k<16; k++) {
-			if(k >= d->pal_info_to_use->esize) break;
-			pal[k] = de_get_std_palette_entry(DE_PALID_EGA64, 0, (int)d->pal_info_to_use->data[k]);
-			de_snprintf(tmps, sizeof(tmps), "%2d ", (int)d->pal_info_to_use->data[k]);
-			de_dbg_pal_entry2(c, k, pal[k], tmps, NULL, NULL);
+			pal[k] = de_get_std_palette_entry(DE_PALID_PC16, 0, (int)d->pal_info_to_use->data[k]);
 		}
+	}
+	else if(d->pal_info_to_use->edesc==3) {
+		acquire_palette_ega64idx(c, d, pal, 16);
 	}
 	else { // assuming edesc==5
 		de_dbg(c, "palette type: 16-color palette (in file)");
@@ -374,6 +388,9 @@ static void decode_cga4(deark *c, lctx *d)
 		// Replace the first palette color with the border/background color.
 		pal[0] = de_get_std_palette_entry(DE_PALID_PC16, 0, (int)border_col);
 	}
+	else if(d->pal_info_to_use->edesc==3) {
+		acquire_palette_ega64idx(c, d, pal, 4);
+	}
 	else {
 		// No palette specified in the file. Use palette #2 by default.
 		de_copy_std_palette(DE_PALID_CGA, 2, 0, 4, pal, 4, 0);
@@ -390,6 +407,32 @@ static void decode_cga4(deark *c, lctx *d)
 
 done:
 	de_bitmap_destroy(img);
+}
+
+static void decode_4color_alt(deark *c, lctx *d)
+{
+	de_bitmap *img = NULL;
+	i64 src_rowspan;
+	i64 src_planespan;
+	de_color pal[4];
+
+	de_dbg(c, "image type: planar 4-color");
+
+	de_copy_std_palette(DE_PALID_CGA, 0, 0, 4, pal, 4, 0);
+	if(d->pal_info_to_use->edesc==3) {
+		// PCPaint seems buggy in this mode. It may display the wrong colors
+		// until you save the image and reload it.
+		acquire_palette_ega64idx(c, d, pal, 4);
+	}
+
+	d->pdwidth = de_pad_to_n(d->npwidth, 8);
+	src_rowspan = d->pdwidth/8;
+	src_planespan = src_rowspan*d->height;
+
+	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, 3);
+	de_convert_image_paletted_planar(d->unc_pixels, 0, 2, src_rowspan, src_planespan,
+		pal, img, 0x02);
+	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
 }
 
 // decompress one block
@@ -586,7 +629,7 @@ static int do_set_up_decoder(deark *c, lctx *d)
 		d->screen_mode_type = SCREENMODETYPE_BITMAP;
 		d->decoder_fn = decode_bilevel;
 	}
-	else if(d->plane_info==0x02 && (edesc==0 || edesc==1)) {
+	else if(d->plane_info==0x02 && (edesc==0 || edesc==1 || edesc==3)) {
 		// Expected video mode(s): 0x41
 		d->screen_mode_type = SCREENMODETYPE_BITMAP;
 		d->decoder_fn = decode_cga4;
@@ -606,6 +649,18 @@ static int do_set_up_decoder(deark *c, lctx *d)
 		// Expected video mode(s): 0x4c
 		d->screen_mode_type = SCREENMODETYPE_BITMAP;
 		d->decoder_fn = decode_vga256;
+	}
+	else if(d->plane_info==0x04 && edesc==2) { // e.g. vmode='B'
+		d->screen_mode_type = SCREENMODETYPE_BITMAP;
+		d->decoder_fn = decode_egavga16;
+	}
+	else if(d->plane_info==0x31 && edesc==2) { // e.g. vmode='D'
+		d->screen_mode_type = SCREENMODETYPE_BITMAP;
+		d->decoder_fn = decode_egavga16;
+	}
+	else if(d->plane_info==0x11 && edesc==3) { // e.g. vmode='F'
+		d->screen_mode_type = SCREENMODETYPE_BITMAP;
+		d->decoder_fn = decode_4color_alt;
 	}
 
 	if(d->decoder_fn) {
