@@ -35,6 +35,7 @@ struct page_ctx {
 	int has_custom_pal;
 	unsigned int cmpr_type_field;
 	enum palm_cmpr_type cmpr_type;
+	i64 endpos;
 	u32 custom_pal[256];
 };
 
@@ -299,11 +300,7 @@ static void do_generate_image(deark *c, lctx *d, struct page_ctx *pg,
 			hdr_len = 2;
 			cmpr_len = dbuf_getu16x(inf, pos, d->is_le);
 		}
-		de_dbg(c, "cmpr len: %d", (int)cmpr_len);
-		if(cmpr_len < len) {
-			// Reduce the number of available bytes, based on the cmpr_len field.
-			len = cmpr_len;
-		}
+		de_dbg(c, "cmpr len: %d", (int)cmpr_len); // Note - We don't trust this field
 		// Account for the size of the cmpr_len field.
 		pos += hdr_len;
 		len -= hdr_len;
@@ -693,9 +690,16 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, i64 pos1, i64 len,
 		goto done;
 	}
 
+	if(nextbitmapoffs_in_bytes>0) {
+		pg->endpos = pos1 + nextbitmapoffs_in_bytes;
+	}
+	else {
+		pg->endpos = c->infile->len;
+	}
+
 	de_dbg(c, "image data at %d", (int)pos);
 	de_dbg_indent(c, 1);
-	do_generate_image(c, d, pg, c->infile, pos, pos1+len-pos);
+	do_generate_image(c, d, pg, c->infile, pos, pg->endpos-pos);
 	de_dbg_indent(c, -1);
 
 done:
