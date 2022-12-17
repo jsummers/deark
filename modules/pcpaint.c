@@ -41,6 +41,7 @@ struct localctx_struct {
 	u8 plane_info;
 	u8 palette_flag;
 	u8 video_mode; // 0 = unknown
+	const char *imgtype_name;
 	struct pal_info pal_info_mainfile;
 	struct pal_info pal_info_palfile;
 	struct pal_info *pal_info_to_use; // Points to _mainfile or _palfile
@@ -324,23 +325,16 @@ done:
 static void decode_egavga16(deark *c, lctx *d)
 {
 	i64 src_rowspan;
-	i64 src_planespan;
 	de_bitmap *img = NULL;
-
-	de_dbg(c, "image type: 16-color EGA/VGA");
 
 	acquire_palette(c, d, 16);
 
 	d->pdwidth = de_pad_to_2(d->npwidth);
 	src_rowspan = d->pdwidth/2;
-	src_planespan = 0;
 
 	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, 3);
-
 	de_convert_image_paletted(d->unc_pixels, 0, 4, src_rowspan, d->pal, img, 0);
-
 	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
-
 	de_bitmap_destroy(img);
 }
 
@@ -350,8 +344,6 @@ static void decode_egavga16_planar(deark *c, lctx *d)
 	i64 src_planespan;
 	de_bitmap *img = NULL;
 
-	de_dbg(c, "image type: 16-color EGA/VGA planar");
-
 	acquire_palette(c, d, 16);
 
 	d->pdwidth = de_pad_to_n(d->npwidth, 8);
@@ -359,20 +351,15 @@ static void decode_egavga16_planar(deark *c, lctx *d)
 	src_planespan = src_rowspan*d->height;
 
 	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, 3);
-
 	de_convert_image_paletted_planar(d->unc_pixels, 0, 4, src_rowspan,
 		src_planespan, d->pal, img, 0x2);
-
 	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
-
 	de_bitmap_destroy(img);
 }
 
 static void decode_vga256(deark *c, lctx *d)
 {
 	de_bitmap *img = NULL;
-
-	de_dbg(c, "image type: 256-color");
 
 	acquire_palette(c, d, 256);
 
@@ -392,8 +379,6 @@ static void decode_bilevel(deark *c, lctx *d)
 	int is_grayscale;
 	UI edesc = d->pal_info_to_use->edesc;
 	de_bitmap *img = NULL;
-
-	de_dbg(c, "image type: bilevel");
 
 	if(!d->unc_pixels) goto done;
 
@@ -425,8 +410,6 @@ static void decode_cga4(deark *c, lctx *d)
 	i64 src_rowspan;
 	de_bitmap *img = NULL;
 
-	de_dbg(c, "image type: CGA 4-color");
-
 	if(!d->unc_pixels) goto done;
 
 	acquire_palette(c, d, 4);
@@ -444,13 +427,11 @@ done:
 	de_bitmap_destroy(img);
 }
 
-static void decode_4color_alt(deark *c, lctx *d)
+static void decode_4color_planar(deark *c, lctx *d)
 {
 	de_bitmap *img = NULL;
 	i64 src_rowspan;
 	i64 src_planespan;
-
-	de_dbg(c, "image type: planar 4-color");
 
 	acquire_palette(c, d, 4);
 
@@ -644,59 +625,53 @@ static int do_set_up_decoder(deark *c, lctx *d)
 {
 	i64 edesc;
 
+	d->imgtype_name = "?";
 	edesc = d->pal_info_to_use->edesc; // For brevity
 
 	if(d->video_mode>='0' && d->video_mode<='3') {
 		d->screen_mode_type = SCREENMODETYPE_TEXT;
 		d->decoder_fn = decode_text;
+		d->imgtype_name = "character";
 	}
 	else if(d->plane_info==0x01) {
 		// Expected video mode(s): 0x43, 0x45, 0x48, 0x4f, 0x50, 0x55
 		// CGA or EGA or VGA or Hercules 2-color
 		d->screen_mode_type = SCREENMODETYPE_BITMAP;
 		d->decoder_fn = decode_bilevel;
+		d->imgtype_name = "bilevel";
 	}
-	else if(d->plane_info==0x02 && (edesc==0 || edesc==1 || edesc==3)) {
+	else if(d->plane_info==0x02) {
 		// Expected video mode(s): 0x41
 		d->screen_mode_type = SCREENMODETYPE_BITMAP;
 		d->decoder_fn = decode_cga4;
+		d->imgtype_name = "4-color CGA";
 	}
-	else if(d->plane_info==0x04 && edesc==3) {
+	else if(d->plane_info==0x04) {
 		d->screen_mode_type = SCREENMODETYPE_BITMAP;
 		d->decoder_fn = decode_egavga16;
+		d->imgtype_name = "16-color EGA/VGA";
 	}
-	else if((d->plane_info==0x04) &&
-		(edesc==0 || edesc==3 || edesc==5))
-	{
-		d->screen_mode_type = SCREENMODETYPE_BITMAP;
-		d->decoder_fn = decode_egavga16;
-	}
-	else if((d->plane_info==0x31) &&
-		(edesc==0 || edesc==3 || edesc==5))
-	{
-		d->screen_mode_type = SCREENMODETYPE_BITMAP;
-		d->decoder_fn = decode_egavga16_planar;
-	}
-	else if(d->plane_info==0x08 && (edesc==0 || edesc==4)) {
+	else if(d->plane_info==0x08) {
 		// Expected video mode(s): 0x4c
 		d->screen_mode_type = SCREENMODETYPE_BITMAP;
 		d->decoder_fn = decode_vga256;
+		d->imgtype_name = "256-color";
 	}
-	else if(d->plane_info==0x04 && edesc==2) { // e.g. vmode='B'
+	else if(d->plane_info==0x11) { // e.g. vmode='F'
 		d->screen_mode_type = SCREENMODETYPE_BITMAP;
-		d->decoder_fn = decode_egavga16;
+		d->decoder_fn = decode_4color_planar;
+		d->imgtype_name = "4-color planar";
 	}
-	else if(d->plane_info==0x31 && edesc==2) { // e.g. vmode='D'
+	else if(d->plane_info==0x31) {
 		d->screen_mode_type = SCREENMODETYPE_BITMAP;
 		d->decoder_fn = decode_egavga16_planar;
-	}
-	else if(d->plane_info==0x11 && edesc==3) { // e.g. vmode='F'
-		d->screen_mode_type = SCREENMODETYPE_BITMAP;
-		d->decoder_fn = decode_4color_alt;
+		d->imgtype_name = "16-color planar EGA/VGA";
 	}
 
+	de_dbg(c, "image type: %s", d->imgtype_name);
+
 	if(d->decoder_fn) {
-		de_dbg2(c, "image type: evideo=0x%02x, bitsinf=0x%02x, edesc=%u",
+		de_dbg2(c, "image details: evideo=0x%02x, bitsinf=0x%02x, edesc=%u",
 			d->video_mode, d->plane_info, (UI)edesc);
 		return 1;
 	}
