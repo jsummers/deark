@@ -36,6 +36,7 @@ struct page_ctx {
 	unsigned int cmpr_type_field;
 	enum palm_cmpr_type cmpr_type;
 	i64 endpos;
+	i64 expected_num_uncmpr_image_bytes;
 	u32 custom_pal[256];
 };
 
@@ -84,6 +85,7 @@ static void do_decompress_scanline_compression(deark *c, lctx *d, struct page_ct
 	i64 j;
 	i64 blocknum;
 	i64 blocksperrow;
+	i64 nbytes_written = 0;
 	u8 bf;
 	u8 dstb;
 	unsigned int k;
@@ -92,6 +94,8 @@ static void do_decompress_scanline_compression(deark *c, lctx *d, struct page_ct
 
 	for(j=0; j<pg->h; j++) {
 		i64 bytes_written_this_row = 0;
+
+		if(nbytes_written >= dcmpro->expected_len) goto done;
 
 		for(blocknum=0; blocknum<blocksperrow; blocknum++) {
 			// For each byte-per-row, we expect a lead byte, which is a
@@ -112,9 +116,13 @@ static void do_decompress_scanline_compression(deark *c, lctx *d, struct page_ct
 				dbuf_writebyte(dcmpro->f, dstb);
 
 				bytes_written_this_row++;
+				nbytes_written++;
 			}
 		}
 	}
+done:
+	dres->bytes_consumed = srcpos - dcmpri->pos;
+	dres->bytes_consumed_valid = 1;
 }
 
 // Note that this is distinct from ImageViewer RLE compression.
@@ -122,15 +130,21 @@ static void do_decompress_rle_compression(deark *c, struct de_dfilter_in_params 
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
 	i64 srcpos = dcmpri->pos;
+	i64 nbytes_written = 0;
 
 	while(srcpos <= (dcmpri->pos + dcmpri->len - 2)) {
 		i64 count;
 		u8 val;
 
+		if(nbytes_written > dcmpro->expected_len) goto done;
 		count = (i64)dbuf_getbyte_p(dcmpri->f, &srcpos);
 		val = dbuf_getbyte_p(dcmpri->f, &srcpos);
 		dbuf_write_run(dcmpro->f, val, count);
+		nbytes_written += count;
 	}
+done:
+	dres->bytes_consumed = srcpos - dcmpri->pos;
+	dres->bytes_consumed_valid = 1;
 }
 
 static void make_stdpal256(deark *c, lctx *d, u32 *stdpal)
@@ -231,20 +245,25 @@ static int de_decompress_image(deark *c, lctx *d, struct page_ctx *pg,
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
 	int retval = 0;
+	i64 n;
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = inf;
 	dcmpri.pos = pos;
 	dcmpri.len = len;
 	dcmpro.f = unc_pixels;
+	dcmpro.expected_len = pg->expected_num_uncmpr_image_bytes;
+	dcmpro.len_known = 1;
 
 	if(pg->cmpr_type==PCMPR_SCANLINE) {
 		do_decompress_scanline_compression(c, d, pg, &dcmpri, &dcmpro, &dres);
 	}
 	else if(pg->cmpr_type==PCMPR_RLE) {
+		dbuf_enable_wbuffer(unc_pixels);
 		do_decompress_rle_compression(c, &dcmpri, &dcmpro, &dres);
 	}
 	else if(pg->cmpr_type==PCMPR_PACKBITS8) {
+		dbuf_enable_wbuffer(unc_pixels);
 		fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres, NULL);
 	}
 	else if(pg->cmpr_type==PCMPR_PACKBITS16) {
@@ -252,6 +271,7 @@ static int de_decompress_image(deark *c, lctx *d, struct page_ctx *pg,
 
 			de_zeromem(&pbparams, sizeof(struct de_packbits_params));
 			pbparams.is_packbits16 = 1;
+			dbuf_enable_wbuffer(unc_pixels);
 			fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres, &pbparams);
 	}
 	else {
@@ -259,13 +279,21 @@ static int de_decompress_image(deark *c, lctx *d, struct page_ctx *pg,
 		goto done;
 	}
 
+	dbuf_flush(unc_pixels);
+
 	if(dres.errcode) {
 		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
 		goto done;
 	}
 
-	// TODO: The byte counts in this message are not very accurate.
-	de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT" bytes", len,
+	if(dres.bytes_consumed_valid) {
+		n = dres.bytes_consumed;
+	}
+	else {
+		n = len;
+	}
+
+	de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT" bytes", n,
 		unc_pixels->len);
 	retval = 1;
 
@@ -278,13 +306,13 @@ static void do_generate_image(deark *c, lctx *d, struct page_ctx *pg,
 	dbuf *inf, i64 pos, i64 len)
 {
 	dbuf *unc_pixels = NULL;
-	i64 expected_num_uncmpr_image_bytes;
 
-	expected_num_uncmpr_image_bytes = pg->rowbytes*pg->h;
+	pg->expected_num_uncmpr_image_bytes = pg->rowbytes*pg->h;
 
 	if(pg->cmpr_type==PCMPR_NONE) {
-		if(expected_num_uncmpr_image_bytes > len) {
-			de_warn(c, "Not enough data for image");
+		if(pg->expected_num_uncmpr_image_bytes > len) {
+			de_err(c, "Not enough data for image");
+			goto done;
 		}
 		unc_pixels = dbuf_open_input_subfile(inf, pos, len);
 	}
@@ -301,12 +329,13 @@ static void do_generate_image(deark *c, lctx *d, struct page_ctx *pg,
 			cmpr_len = dbuf_getu16x(inf, pos, d->is_le);
 		}
 		de_dbg(c, "cmpr len: %d", (int)cmpr_len); // Note - We don't trust this field
+
 		// Account for the size of the cmpr_len field.
 		pos += hdr_len;
 		len -= hdr_len;
 		if(len<0) goto done;
 
-		unc_pixels = dbuf_create_membuf(c, expected_num_uncmpr_image_bytes, 1);
+		unc_pixels = dbuf_create_membuf(c, pg->expected_num_uncmpr_image_bytes, 1);
 
 		if(!de_decompress_image(c, d, pg, inf, pos, len, unc_pixels)) {
 			goto done;
@@ -449,9 +478,9 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, i64 pos1, i64 len,
 	de_dbg_indent_save(c, &saved_indent_level);
 	pg = de_malloc(c, sizeof(struct page_ctx));
 
-	de_dbg(c, "BitmapType at %d, len"DE_CHAR_LEQ"%d", (int)pos1, (int)len);
+	de_dbg(c, "BitmapType at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
-	de_dbg(c, "bitmap header at %d", (int)pos1);
+	de_dbg(c, "bitmap header at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
 	// Look ahead to get the version
