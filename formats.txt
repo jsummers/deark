@@ -768,6 +768,9 @@ Deark -- Information about supported formats
 * HFS filesystem image (module="hfs") (experimental/incomplete)
   - Incomplete support, but should be enough for most CD-ROM images.
 
+* InstallShield installer archive (module="is_inst32i")
+  This is usually a file named "_INST32I.EX_".
+
 * InstallShield Z archive (module="is_z")
 
 * ISO 9660 or High Sierra CD-ROM image (module="iso9660")

@@ -19,6 +19,7 @@ struct de_arch_member_data {
 	de_arch_lctx *d;
 	i64 member_idx;
 	i64 member_hdr_pos;
+	i64 member_hdr_size;
 	i64 member_total_size;
 	i64 cmpr_len;
 	i64 orig_len;

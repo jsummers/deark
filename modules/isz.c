@@ -3,16 +3,23 @@
 // See the file COPYING for terms of use.
 
 // InstallShield Z
+// InstallShield installer archive (_INST32I.EX_)
 
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 #include <deark-fmtutil-arch.h>
 DE_DECLARE_MODULE(de_module_is_z);
+DE_DECLARE_MODULE(de_module_is_inst32i);
 
 #define ISZ_MAX_DIRS          1000 // arbitrary
 #define ISZ_MAX_FILES         5000 // arbitrary
 #define ISZ_MAX_DIR_NAME_LEN  32768 // arbitrary
 #define ISZ_SIGNATURE  0x8c655d13U
+
+static void dclimplode_decompressor_fn(struct de_arch_member_data *md)
+{
+	fmtutil_dclimplode_codectype1(md->c, md->dcmpri, md->dcmpro, md->dres, NULL);
+}
 
 struct dir_array_item {
 	de_ucstring *dname;
@@ -23,7 +30,7 @@ struct isz_member_data {
 	UI dir_id;
 };
 
-typedef struct localctx_struct {
+typedef struct isz_localctx_struct {
 	struct de_arch_localctx_struct *da;
 	i64 directory_pos;
 	i64 filelist_pos;
@@ -31,11 +38,6 @@ typedef struct localctx_struct {
 
 	struct dir_array_item *dir_array; // array[num_dirs]
 } lctx;
-
-static void isz_decompressor_fn(struct de_arch_member_data *md)
-{
-	fmtutil_dclimplode_codectype1(md->c, md->dcmpri, md->dcmpro, md->dres, NULL);
-}
 
 static int do_one_file(deark *c, lctx *d, i64 pos1, i64 *pbytes_consumed)
 {
@@ -98,7 +100,7 @@ static int do_one_file(deark *c, lctx *d, i64 pos1, i64 *pbytes_consumed)
 	retval = 1;
 
 	md->set_name_flags |= DE_SNFLAG_FULLPATH;
-	md->dfn = isz_decompressor_fn;
+	md->dfn = dclimplode_decompressor_fn;
 	de_arch_extract_member_file(md);
 
 done:
@@ -275,4 +277,107 @@ void de_module_is_z(deark *c, struct deark_module_info *mi)
 	mi->desc = "InstallShield Z";
 	mi->run_fn = de_run_is_z;
 	mi->identify_fn = de_identify_is_z;
+}
+
+///////////////////////////////////////
+
+static int do_inst32i_member(deark *c, de_arch_lctx *da, struct de_arch_member_data *md)
+{
+	int retval = 0;
+	int saved_indent_level;
+	i64 pos = md->member_hdr_pos;
+	i64 nlen;
+	de_ucstring *tmps = NULL;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "member at %"I64_FMT, md->member_hdr_pos);
+
+	de_dbg_indent(c, 1);
+
+	md->cmpr_pos = de_getu32le_p(&pos);
+	de_dbg(c, "cmpr. data pos: %"I64_FMT, md->cmpr_pos);
+	de_arch_read_field_cmpr_len_p(md, &pos);
+	if(!de_arch_good_cmpr_data_pos(md)) {
+		goto done;
+	}
+
+	de_arch_read_field_orig_len_p(md, &pos);
+	pos += 8; // Unused?
+
+	nlen = de_getu16le_p(&pos);
+	dbuf_read_to_ucstring(c->infile, pos, nlen, md->filename, 0, da->input_encoding);
+	de_dbg(c, "name 1: \"%s\"", ucstring_getpsz_d(md->filename));
+	pos += nlen;
+
+	// I don't know why each file seemingly has two names.
+	nlen = de_getu16le_p(&pos);
+	tmps = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, nlen, tmps, 0, da->input_encoding);
+	de_dbg(c, "name 2: \"%s\"", ucstring_getpsz_d(tmps));
+	pos += nlen;
+
+	md->dfn = dclimplode_decompressor_fn;
+	de_arch_extract_member_file(md);
+
+	md->member_hdr_size = pos - md->member_hdr_pos;
+	retval = 1;
+done:
+	ucstring_destroy(tmps);
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static void de_run_is_inst32i(deark *c, de_module_params *mparams)
+{
+	de_arch_lctx *da = NULL;
+	i64 pos;
+	i64 i;
+	struct de_arch_member_data *md = NULL;
+
+	da = de_arch_create_lctx(c);
+	da->is_le = 1;
+	da->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
+
+	pos = 78;
+	da->num_members = de_getu16le_p(&pos); // This might actually be a 32-bit field
+	de_dbg(c, "number of members: %"I64_FMT, da->num_members);
+	pos += 2;
+
+	for(i=0; i<da->num_members; i++) {
+		if(pos >= c->infile->len) goto done;
+
+		if(md) {
+			de_arch_destroy_md(c, md);
+			md = NULL;
+		}
+		md = de_arch_create_md(c, da);
+		md->member_hdr_pos = pos;
+		if(!do_inst32i_member(c, da, md)) goto done;
+		if(md->member_hdr_size<=0) goto done;
+		pos += md->member_hdr_size;
+	}
+
+done:
+	if(md) {
+		de_arch_destroy_md(c, md);
+	}
+	if(da) {
+		de_arch_destroy_lctx(c, da);
+	}
+}
+
+static int de_identify_is_inst32i(deark *c)
+{
+	if(dbuf_memcmp(c->infile, 0, "\x2a\xab\x79\xd8\x00\x01", 6)) {
+		return 0;
+	}
+	return 100;
+}
+
+void de_module_is_inst32i(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "is_inst32i";
+	mi->desc = "InstallShield installer archive (_INST32I.EX_)";
+	mi->run_fn = de_run_is_inst32i;
+	mi->identify_fn = de_identify_is_inst32i;
 }
