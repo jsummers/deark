@@ -213,10 +213,6 @@ static void acquire_palette(deark *c, lctx *d, i64 ncolors)
 		goto done;
 	}
 
-	if(d->file_fmt!=FMT_PIC) {
-		goto done;
-	}
-
 	switch(d->pal_info_to_use->edesc) {
 	case 0:
 		de_dbg(c, "palette type: standard %d-color palette (no palette in file)", (int)ncolors);
