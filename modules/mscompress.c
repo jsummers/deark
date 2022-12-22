@@ -10,12 +10,17 @@ DE_DECLARE_MODULE(de_module_mscompress);
 
 #define FMT_SZDD 1
 #define FMT_KWAJ 2
+#define FMT_SZ   3
 
 #define CMPR_NONE    0
 #define CMPR_XOR     1
-#define CMPR_SZDD    2
+// Not 100% sure that KWAJ:2 always uses the scheme we're calling "SZDD18"
+// (like "SZ" does), versus "SZDD16" (like "SZDD" does). But it works for all
+// the KWAJ:2 files I've tested.
+#define CMPR_SZDD18  2
 #define CMPR_LZHUFF  3
 #define CMPR_MSZIP   4
+#define CMPR_SZDD16  65536
 
 typedef struct localctx_struct {
 	int fmt;
@@ -33,7 +38,8 @@ static int cmpr_meth_is_supported(lctx *d, UI n)
 	switch(n) {
 	case CMPR_NONE:
 	case CMPR_XOR:
-	case CMPR_SZDD:
+	case CMPR_SZDD16:
+	case CMPR_SZDD18:
 	case CMPR_LZHUFF:
 	case CMPR_MSZIP:
 		return 1;
@@ -48,7 +54,7 @@ static const char *get_cmpr_meth_name(UI n)
 	switch(n) {
 	case CMPR_NONE: name="uncompressed"; break;
 	case CMPR_XOR: name="XOR"; break;
-	case CMPR_SZDD: name="SZDD"; break;
+	case CMPR_SZDD16: case CMPR_SZDD18: name="SZDD"; break;
 	case CMPR_LZHUFF: name="LZ+Huffman"; break;
 	case CMPR_MSZIP: name="MSZIP"; break;
 	}
@@ -78,7 +84,7 @@ static int do_header_SZDD(deark *c, lctx *d, i64 pos1)
 		de_err(c, "Unsupported compression mode");
 		goto done;
 	}
-	d->cmpr_meth = CMPR_SZDD;
+	d->cmpr_meth = CMPR_SZDD16;
 
 	fnchar = de_getbyte(pos++);
 	if(fnchar>=32 && fnchar<=126) {
@@ -94,8 +100,37 @@ static int do_header_SZDD(deark *c, lctx *d, i64 pos1)
 
 	d->uncmpr_len = de_getu32le(pos);
 	d->uncmpr_len_known = 1;
-	de_dbg(c, "uncompressed len: %"I64_FMT"", d->uncmpr_len);
+	de_dbg(c, "uncompressed len: %"I64_FMT, d->uncmpr_len);
 	//pos += 4;
+
+	retval = 1;
+done:
+	de_dbg_indent(c, -1);
+	return retval;
+}
+
+static int do_header_SZ(deark *c, lctx *d, i64 pos1)
+{
+	u8 fragment_id;
+	i64 pos = pos1;
+	int retval = 0;
+
+	de_dbg(c, "header at %d", (int)pos);
+	de_dbg_indent(c, 1);
+
+	pos += 7; // signature
+	fragment_id = de_getbyte_p(&pos);
+	if(fragment_id!=0xd1) {
+		de_err(c, "Fragmented files are not supported");
+		goto done;
+	}
+
+	d->cmpr_meth = CMPR_SZDD18;
+	d->uncmpr_len = de_getu32le_p(&pos);
+	d->uncmpr_len_known = 1;
+	de_dbg(c, "uncompressed len: %"I64_FMT, d->uncmpr_len);
+	d->cmpr_data_pos = pos;
+	d->cmpr_data_len = c->infile->len - d->cmpr_data_pos;
 
 	retval = 1;
 done:
@@ -130,7 +165,7 @@ static int do_header_KWAJ(deark *c, lctx *d, i64 pos1)
 	if(flags & 0x0001) { // bit 0
 		d->uncmpr_len = de_getu32le_p(&pos);
 		d->uncmpr_len_known = 1;
-		de_dbg(c, "uncompressed len: %"I64_FMT"", d->uncmpr_len);
+		de_dbg(c, "uncompressed len: %"I64_FMT, d->uncmpr_len);
 	}
 	if(flags & 0x0002) { // bit 1
 		pos += 2;
@@ -640,7 +675,10 @@ static void do_decompress(deark *c, lctx *d, dbuf *outf)
 	case CMPR_XOR:
 		do_decompress_XOR(c, &dcmpri, &dcmpro, &dres);
 		break;
-	case CMPR_SZDD:
+	case CMPR_SZDD18:
+		fmtutil_decompress_lzss1(c, &dcmpri, &dcmpro, &dres, 0x0);
+		break;
+	case CMPR_SZDD16:
 		fmtutil_decompress_lzss1(c, &dcmpri, &dcmpro, &dres, 0x1);
 		break;
 	case CMPR_LZHUFF:
@@ -710,33 +748,42 @@ static int detect_fmt_internal(deark *c)
 	de_read(buf, 0, sizeof(buf));
 	if(!de_memcmp(buf, "\x53\x5a\x44\x44\x88\xf0\x27\x33", 8))
 		return FMT_SZDD;
-
 	if(!de_memcmp(buf, "\x4b\x57\x41\x4a\x88\xf0\x27\xd1", 8))
 		return FMT_KWAJ;
+	if(!de_memcmp(buf, "SZ \x88\xf0\x27\x33", 7))
+		return FMT_SZ;
 	return 0;
 }
 
 static void de_run_mscompress(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	const char *varname;
 
 	d = de_malloc(c, sizeof(lctx));
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
 
 	d->fmt = detect_fmt_internal(c);
 	if(d->fmt==FMT_SZDD) {
-		de_declare_fmt(c, "MS Installation Compression, SZDD variant");
+		varname = "SZDD";
 	}
 	else if(d->fmt==FMT_KWAJ) {
-		de_declare_fmt(c, "MS Installation Compression, KWAJ variant");
+		varname = "KWAJ";
+	}
+	else if(d->fmt==FMT_SZ) {
+		varname = "SZ";
 	}
 	else {
 		de_err(c, "Unidentified format");
 		goto done;
 	}
+	de_declare_fmtf(c, "MS Installation Compression, %s variant", varname);
 
 	if(d->fmt==FMT_KWAJ) {
 		if(!do_header_KWAJ(c, d, 0)) goto done;
+	}
+	else if(d->fmt==FMT_SZ) {
+		if(!do_header_SZ(c, d, 0)) goto done;
 	}
 	else {
 		if(!do_header_SZDD(c, d, 0)) goto done;

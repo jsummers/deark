@@ -836,6 +836,9 @@ Deark -- Information about supported formats
    -opt cfb:fmt=thumbsdb - Treat the file as a Thumbs.db file.
 
 * Microsoft Installation Compression (module="mscompress")
+  - Supports "SZDD" variant, mode "A".
+  - Supports "KWAJ" variant, all known compression methods.
+  - Supports "SZ" variant.
 
 * MOOF (module="moof") (incomplete)
   Macintosh floppy disk image format.
