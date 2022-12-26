@@ -10,6 +10,7 @@
 #include <deark-fmtutil-arch.h>
 DE_DECLARE_MODULE(de_module_is_z);
 DE_DECLARE_MODULE(de_module_is_inst32i);
+DE_DECLARE_MODULE(de_module_tscomp);
 
 #define ISZ_MAX_DIRS          1000 // arbitrary
 #define ISZ_MAX_FILES         5000 // arbitrary
@@ -21,7 +22,7 @@ static void dclimplode_decompressor_fn(struct de_arch_member_data *md)
 	fmtutil_dclimplode_codectype1(md->c, md->dcmpri, md->dcmpro, md->dres, NULL);
 }
 
-struct dir_array_item {
+struct isz_dir_array_item {
 	de_ucstring *dname;
 };
 
@@ -30,16 +31,16 @@ struct isz_member_data {
 	UI dir_id;
 };
 
-typedef struct isz_localctx_struct {
+struct isz_ctx {
 	struct de_arch_localctx_struct *da;
 	i64 directory_pos;
 	i64 filelist_pos;
 	i64 num_dirs;
 
-	struct dir_array_item *dir_array; // array[num_dirs]
-} lctx;
+	struct isz_dir_array_item *dir_array; // array[num_dirs]
+};
 
-static int do_one_file(deark *c, lctx *d, i64 pos1, i64 *pbytes_consumed)
+static int isz_do_one_file(deark *c, struct isz_ctx *d, i64 pos1, i64 *pbytes_consumed)
 {
 	i64 pos = pos1;
 	i64 name_len;
@@ -47,7 +48,7 @@ static int do_one_file(deark *c, lctx *d, i64 pos1, i64 *pbytes_consumed)
 	int retval = 0;
 	struct de_arch_member_data *md = NULL;
 	struct isz_member_data *mdi = NULL;
-	struct dir_array_item *di = NULL;
+	struct isz_dir_array_item *di = NULL;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -110,7 +111,7 @@ done:
 	return retval;
 }
 
-static void do_filelist(deark *c, lctx *d)
+static void isz_do_filelist(deark *c, struct isz_ctx *d)
 {
 	i64 pos = d->filelist_pos;
 	i64 i;
@@ -118,7 +119,7 @@ static void do_filelist(deark *c, lctx *d)
 	for(i=0; i<d->da->num_members; i++) {
 		i64 bytes_consumed = 0;
 
-		if(!do_one_file(c, d, pos, &bytes_consumed)) goto done;
+		if(!isz_do_one_file(c, d, pos, &bytes_consumed)) goto done;
 		if(bytes_consumed<=0) goto done;
 		pos += bytes_consumed;
 	}
@@ -127,7 +128,7 @@ done:
 	;
 }
 
-static int do_onedir(deark *c, lctx *d, i64 dir_idx, i64 pos1, i64 *pbytes_consumed)
+static int isz_do_onedir(deark *c, struct isz_ctx *d, i64 dir_idx, i64 pos1, i64 *pbytes_consumed)
 {
 	i64 num_files;
 	i64 segment_size;
@@ -135,7 +136,7 @@ static int do_onedir(deark *c, lctx *d, i64 dir_idx, i64 pos1, i64 *pbytes_consu
 	i64 pos = pos1;
 	i64 endpos;
 	int retval = 0;
-	struct dir_array_item *di;
+	struct isz_dir_array_item *di;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -170,7 +171,7 @@ done:
 	return retval;
 }
 
-static void do_dirlist(deark *c, lctx *d)
+static void isz_do_dirlist(deark *c, struct isz_ctx *d)
 {
 	i64 pos;
 	i64 i;
@@ -180,7 +181,7 @@ static void do_dirlist(deark *c, lctx *d)
 		i64 bytes_consumed = 0;
 
 		if(pos >= c->infile->len) goto done;
-		if(!do_onedir(c, d, i, pos, &bytes_consumed)) goto done;
+		if(!isz_do_onedir(c, d, i, pos, &bytes_consumed)) goto done;
 		if(bytes_consumed<=0) goto done;
 		pos += bytes_consumed;
 	}
@@ -190,13 +191,13 @@ done:
 
 static void de_run_is_z(deark *c, de_module_params *mparams)
 {
-	lctx *d = NULL;
+	struct isz_ctx *d = NULL;
 	int saved_indent_level;
 	struct de_timestamp tmp_timestamp;
 	i64 tmp_pos;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	d = de_malloc(c, sizeof(lctx));
+	d = de_malloc(c, sizeof(struct isz_ctx));
 	d->da = de_arch_create_lctx(c);
 	d->da->userdata = (void*)d;
 	d->da->is_le = 1;
@@ -243,10 +244,10 @@ static void de_run_is_z(deark *c, de_module_params *mparams)
 
 	de_dbg_indent(c, -1);
 
-	d->dir_array = de_mallocarray(c, d->num_dirs, sizeof(struct dir_array_item));
+	d->dir_array = de_mallocarray(c, d->num_dirs, sizeof(struct isz_dir_array_item));
 
-	do_dirlist(c, d);
-	do_filelist(c, d);
+	isz_do_dirlist(c, d);
+	isz_do_filelist(c, d);
 
 done:
 	if(d) {
@@ -279,7 +280,9 @@ void de_module_is_z(deark *c, struct deark_module_info *mi)
 	mi->identify_fn = de_identify_is_z;
 }
 
-///////////////////////////////////////
+// **************************************************************************
+// _INST32I.EX_
+// **************************************************************************
 
 static int do_inst32i_member(deark *c, de_arch_lctx *da, struct de_arch_member_data *md)
 {
@@ -380,4 +383,130 @@ void de_module_is_inst32i(deark *c, struct deark_module_info *mi)
 	mi->desc = "InstallShield installer archive (_INST32I.EX_)";
 	mi->run_fn = de_run_is_inst32i;
 	mi->identify_fn = de_identify_is_inst32i;
+}
+
+// **************************************************************************
+// The Stirling Compressor" ("TSComp")
+// **************************************************************************
+
+// Probably only TSComp v1.3 is supported.
+
+// Caller creates/destroys md, and sets a few fields.
+static void tscomp_do_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *md)
+{
+	i64 pos = md->member_hdr_pos;
+	i64 fnlen;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "member #%u at %"I64_FMT, (UI)md->member_idx,
+		md->member_hdr_pos);
+	de_dbg_indent(c, 1);
+
+	pos += 1;
+	de_arch_read_field_cmpr_len_p(md, &pos);
+	pos += 4; // ??
+	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		DE_ARCH_TSTYPE_DOS_DT, &pos);
+	pos += 2; // ??
+
+	fnlen = de_getbyte_p(&pos);
+
+	// STOP_AT_NUL is probably not needed.
+	dbuf_read_to_ucstring(c->infile, pos, fnlen, md->filename, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+	pos += fnlen;
+	pos += 1; // ??
+
+	md->cmpr_pos = pos;
+	md->dfn = dclimplode_decompressor_fn;
+	de_arch_extract_member_file(md);
+
+	pos += md->cmpr_len;
+	md->member_total_size = pos - md->member_hdr_pos;
+
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void de_run_tscomp(deark *c, de_module_params *mparams)
+{
+	de_arch_lctx *d = NULL;
+	i64 pos;
+	i64 i;
+	int saved_indent_level;
+	u8 b;
+	const char *name;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	d = de_arch_create_lctx(c);
+	d->is_le = 1;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+
+	pos = 0;
+	de_dbg(c, "archive header at %d", (int)pos);
+	de_dbg_indent(c, 1);
+	pos += 4;
+
+	b = de_getbyte_p(&pos);
+	if(b!=0x08) { d->need_errmsg = 1; goto done; }
+	pos += 3; // version?? (01 03 00)
+	b = de_getbyte_p(&pos);
+	switch(b) {
+	case 0: name = "old version"; break;
+	case 1: name = "without wildcard"; break;
+	case 2: name = "with wildcard"; break;
+	default: name = "?";
+	}
+	de_dbg(c, "filename style: %u (%s)", (UI)b, name);
+	if(b!=1 && b!=2) { d->need_errmsg = 1; goto done; }
+
+	pos += 4; // ??
+	de_dbg_indent(c, -1);
+
+	i = 0;
+	while(1) {
+		struct de_arch_member_data *md;
+
+		if(d->fatalerrflag) goto done;
+		if(pos+17 > c->infile->len) goto done;
+		if(de_getbyte(pos) != 0x12) { d->need_errmsg = 1; goto done; }
+
+		md = de_arch_create_md(c, d);
+		md->member_idx = i;
+		md->member_hdr_pos = pos;
+
+		tscomp_do_member(c, d, md);
+		if(md->member_total_size<=0) d->fatalerrflag = 1;
+
+		pos += md->member_total_size;
+		de_arch_destroy_md(c, md);
+		i++;
+	}
+
+done:
+	if(d->need_errmsg) {
+		de_err(c, "Bad or unsupported TSComp format");
+	}
+	de_arch_destroy_lctx(c, d);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static int de_identify_tscomp(deark *c)
+{
+	i64 n;
+
+	n = de_getu32be(0);
+	// Note: The "13" might be a version number. The "8c" is a mystery,
+	// and seems to be ignored.
+	if(n == 0x655d138cU) return 100;
+	return 0;
+}
+
+void de_module_tscomp(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "tscomp";
+	mi->desc = "The Stirling Compressor";
+	mi->run_fn = de_run_tscomp;
+	mi->identify_fn = de_identify_tscomp;
 }
