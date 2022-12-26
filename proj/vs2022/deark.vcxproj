@@ -235,6 +235,7 @@
     <ClCompile Include="..\..\modules\iff.c" />
     <ClCompile Include="..\..\modules\ilbm.c" />
     <ClCompile Include="..\..\modules\insetpix.c" />
+    <ClCompile Include="..\..\modules\installshld.c" />
     <ClCompile Include="..\..\modules\iptc.c" />
     <ClCompile Include="..\..\modules\iso9660.c" />
     <ClCompile Include="..\..\modules\isz.c" />

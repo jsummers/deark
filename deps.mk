@@ -133,12 +133,14 @@ $(OBJDIR)/modules/ilbm.o: modules/ilbm.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/insetpix.o: modules/insetpix.c src/deark-config.h \
  src/deark-private.h src/deark.h
+$(OBJDIR)/modules/installshld.o: modules/installshld.c \
+ src/deark-private.h src/deark.h src/deark-config.h src/deark-fmtutil.h \
+ src/deark-fmtutil-arch.h
 $(OBJDIR)/modules/iptc.o: modules/iptc.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/iso9660.o: modules/iso9660.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
-$(OBJDIR)/modules/isz.o: modules/isz.c src/deark-private.h src/deark.h \
- src/deark-config.h src/deark-fmtutil.h src/deark-fmtutil-arch.h
+$(OBJDIR)/modules/isz.o: modules/isz.c src/deark-config.h
 $(OBJDIR)/modules/j2c.o: modules/j2c.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/jbf.o: modules/jbf.c src/deark-config.h \
