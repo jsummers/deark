@@ -625,7 +625,7 @@ void de_convert_and_write_image_bilevel(dbuf *f, i64 fpos,
 
 	img = de_bitmap_create(c, width, height, 1);
 	de_convert_image_bilevel(f, fpos, rowspan, img, cvtflags);
-	de_bitmap_write_to_file_finfo(img, fi, createflags);
+	de_bitmap_write_to_file_finfo(img, fi, createflags | DE_CREATEFLAG_IS_BWIMG);
 	de_bitmap_destroy(img);
 }
 
@@ -642,7 +642,7 @@ void de_convert_and_write_image_bilevel2(dbuf *f, i64 fpos,
 	if(!de_good_image_dimensions(c, width, height)) return;
 	img = de_bitmap_create2(c, width, rowspan*8, height, 1);
 	de_convert_image_bilevel(f, fpos, rowspan, img, cvtflags);
-	de_bitmap_write_to_file_finfo(img, fi, createflags);
+	de_bitmap_write_to_file_finfo(img, fi, createflags | DE_CREATEFLAG_IS_BWIMG);
 	de_bitmap_destroy(img);
 }
 

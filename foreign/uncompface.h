@@ -303,7 +303,7 @@ WriteFace(struct xfacectx *ctx)
 		}
 	}
 
-	de_bitmap_write_to_file_finfo(img, NULL, 0);
+	de_bitmap_write_to_file_finfo(img, NULL, DE_CREATEFLAG_IS_BWIMG);
 	de_bitmap_destroy(img);
 }
 

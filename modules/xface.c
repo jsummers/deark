@@ -201,7 +201,7 @@ static void de_run_compfacei(deark *c, de_module_params *mparams)
 		image_bytes_processed += cfictx->token_numdigits/2;
 	}
 
-	de_bitmap_write_to_file_finfo(cfictx->img, NULL, 0);
+	de_bitmap_write_to_file_finfo(cfictx->img, NULL, DE_CREATEFLAG_IS_BWIMG);
 done:
 	de_bitmap_destroy(cfictx->img);
 	de_free(c, cfictx);

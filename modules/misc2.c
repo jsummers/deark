@@ -386,7 +386,7 @@ static void de_run_hr(deark *c, de_module_params *mparams)
 	fi->density.ydens = 1;
 	img = de_bitmap_create(c, 640, 240, 1);
 	de_convert_image_bilevel(c->infile, 0, 640/8, img, 0);
-	de_bitmap_write_to_file_finfo(img, fi, 0);
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_IS_BWIMG);
 	de_bitmap_destroy(img);
 	de_finfo_destroy(c, fi);
 }
@@ -675,7 +675,7 @@ static void de_run_fp_art(deark *c, de_module_params *mparams)
 	width = de_getu16le(2);
 	height = de_getu16le(6);
 	rowspan = ((width+15)/16)*2;
-	de_convert_and_write_image_bilevel2(c->infile, 8, width, height, rowspan, 0, NULL, DE_CREATEFLAG_IS_BWIMG);
+	de_convert_and_write_image_bilevel2(c->infile, 8, width, height, rowspan, 0, NULL, 0);
 }
 
 static int de_identify_fp_art(deark *c)

@@ -202,7 +202,8 @@ static void handle_2_125(deark *c, lctx *d, const struct ds_info *dsi,
 	img = de_bitmap_create(c, width1, height1, 1);
 	de_convert_image_bilevel(c->infile, pos, rowspan, img, DE_CVTF_WHITEISZERO);
 	de_bitmap_transpose(img);
-	de_bitmap_write_to_file(img, "caption", DE_CREATEFLAG_IS_AUX|DE_CREATEFLAG_FLIP_IMAGE);
+	de_bitmap_write_to_file(img, "caption", DE_CREATEFLAG_IS_AUX|DE_CREATEFLAG_FLIP_IMAGE|
+		DE_CREATEFLAG_IS_BWIMG);
 done:
 	de_bitmap_destroy(img);
 }

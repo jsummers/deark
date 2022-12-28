@@ -255,7 +255,7 @@ static void do_read_patterns(deark *c, lctx *d)
 	ucstring_append_sz(tmpname, "pat", DE_ENCODING_LATIN1);
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_ucstring(c, fi, tmpname, 0);
-	de_bitmap_write_to_file_finfo(pat, fi, DE_CREATEFLAG_IS_AUX);
+	de_bitmap_write_to_file_finfo(pat, fi, DE_CREATEFLAG_IS_AUX|DE_CREATEFLAG_IS_BWIMG);
 
 done:
 	de_bitmap_destroy(pat);

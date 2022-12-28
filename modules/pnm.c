@@ -374,7 +374,7 @@ static int do_image_pbm_ascii(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 		}
 	}
 
-	de_bitmap_write_to_file_finfo(img, NULL, 0);
+	de_bitmap_write_to_file_finfo(img, NULL, DE_CREATEFLAG_IS_BWIMG);
 	de_bitmap_destroy(img);
 	return 1;
 }

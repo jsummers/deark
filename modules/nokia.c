@@ -40,7 +40,7 @@ static void nol_ngg_read_bitmap(deark *c, lctx *d, i64 pos)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_IS_BWIMG);
 	de_bitmap_destroy(img);
 }
 
@@ -249,7 +249,7 @@ static void nsl_read_bitmap(deark *c, lctx *d, i64 pos, i64 len)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_IS_BWIMG);
 
 done:
 	de_bitmap_destroy(img);
