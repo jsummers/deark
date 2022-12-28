@@ -581,7 +581,7 @@ int de_zip_create_file(deark *c);
 void de_zip_add_file_to_archive(deark *c, dbuf *f);
 void de_zip_close_file(deark *c);
 
-int de_write_png(deark *c, de_bitmap *img, dbuf *f, UI createflags);
+int de_write_png(deark *c, de_bitmap *img, dbuf *f, UI createflags, UI flags2);
 
 ///////////////////////////////////////////
 
@@ -689,6 +689,7 @@ void dbuf_read_to_ucstring_n(dbuf *f, i64 pos, i64 len, i64 max_len,
 #define DE_CREATEFLAG_IS_AUX   0x1
 #define DE_CREATEFLAG_OPT_IMAGE 0x2
 #define DE_CREATEFLAG_FLIP_IMAGE 0x4
+#define DE_CREATEFLAG_IS_BWIMG   0x8
 #define DE_CREATEFLAG_NO_WBUFFER 0x200
 dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi, unsigned int createflags);
 

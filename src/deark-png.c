@@ -26,8 +26,9 @@
 struct deark_png_encode_info {
 	deark *c;
 	dbuf *outf;
+	de_bitmap *img;
 	int width, height;
-	int rowspan;
+	int src_rowspan;
 	int num_chans;
 	int flip;
 	unsigned int level;
@@ -38,8 +39,11 @@ struct deark_png_encode_info {
 	struct de_timestamp internal_mod_time;
 	u8 include_text_chunk_software;
 	u8 has_hotspot;
+	u8 encode_as_bwimg;
 	int hotspot_x, hotspot_y;
 	struct de_crcobj *crco;
+	size_t dst_rowspan;
+	u8 *tmprow;
 };
 
 static void write_png_chunk_from_mem(struct deark_png_encode_info *pei,
@@ -87,8 +91,14 @@ static void write_png_chunk_IHDR(struct deark_png_encode_info *pei,
 
 	dbuf_writeu32be(cdbuf, (i64)pei->width);
 	dbuf_writeu32be(cdbuf, (i64)pei->height);
-	dbuf_writebyte(cdbuf, 8); // bit depth
-	dbuf_writebyte(cdbuf, color_type_code[pei->num_chans]);
+	if(pei->encode_as_bwimg) {
+		dbuf_writebyte(cdbuf, 1); // bit depth
+		dbuf_writebyte(cdbuf, 0x00);
+	}
+	else {
+		dbuf_writebyte(cdbuf, 8); // bit depth
+		dbuf_writebyte(cdbuf, color_type_code[pei->num_chans]);
+	}
 	dbuf_truncate(cdbuf, 13); // rest of chunk is zeroes
 	write_png_chunk_from_cdbuf(pei, cdbuf, CODE_IHDR);
 }
@@ -189,11 +199,45 @@ static void my_IDAT_write_cb(dbuf *f, void *userdata,
 	}
 }
 
-static int write_png_chunk_IDATs(struct deark_png_encode_info *pei, dbuf *cdbuf,
-	const u8 *src_pixels)
+static void compress_png_row(struct deark_png_encode_info *pei, struct fmtutil_tdefl_ctx *tdctx,
+	int y)
+{
+	static const char nulbyte = '\0';
+
+	// Filter byte
+	fmtutil_tdefl_compress_buffer(tdctx, &nulbyte, 1, FMTUTIL_TDEFL_NO_FLUSH);
+
+	if(pei->encode_as_bwimg) {
+		int x;
+
+		if(pei->tmprow) {
+			de_zeromem(pei->tmprow, pei->dst_rowspan);
+		}
+		else {
+			pei->tmprow = de_malloc(pei->c, pei->dst_rowspan);
+		}
+
+		for(x=0; x<pei->width; x++) {
+			u8 k;
+
+			// We just use the red sample, like DE_COLOR_K().
+			k = pei->img->bitmap[y*pei->src_rowspan + x*pei->img->bytes_per_pixel];
+			if(k>=0x80) {
+				pei->tmprow[x/8] |= 1U<<(7-x%8);
+			}
+		}
+
+		fmtutil_tdefl_compress_buffer(tdctx, pei->tmprow, pei->dst_rowspan, FMTUTIL_TDEFL_NO_FLUSH);
+	}
+	else {
+		fmtutil_tdefl_compress_buffer(tdctx, &pei->img->bitmap[y*pei->src_rowspan],
+			pei->dst_rowspan, FMTUTIL_TDEFL_NO_FLUSH);
+	}
+}
+
+static int write_png_chunk_IDATs(struct deark_png_encode_info *pei, dbuf *cdbuf)
 {
 	int y;
-	static const char nulbyte = '\0';
 	int retval = 0;
 	deark *c = pei->c;
 	struct fmtutil_tdefl_ctx *tdctx = NULL;
@@ -213,11 +257,17 @@ static int write_png_chunk_IDATs(struct deark_png_encode_info *pei, dbuf *cdbuf,
 	tdctx = fmtutil_tdefl_create(c, outf_IDAT,
 		my_s_tdefl_num_probes[MY_MZ_MIN(10, pei->level)] | MY_TDEFL_WRITE_ZLIB_HEADER);
 
-	for (y = 0; y < pei->height; ++y) {
-		fmtutil_tdefl_compress_buffer(tdctx, &nulbyte, 1, FMTUTIL_TDEFL_NO_FLUSH);
-		fmtutil_tdefl_compress_buffer(tdctx, &src_pixels[(pei->flip ? (pei->height - 1 - y) : y) * pei->rowspan],
-			(size_t)pei->width * (size_t)pei->num_chans, FMTUTIL_TDEFL_NO_FLUSH);
+	if(pei->encode_as_bwimg) {
+		pei->dst_rowspan = ((size_t)pei->width+7)/8;
 	}
+	else {
+		pei->dst_rowspan = (size_t)pei->width * (size_t)pei->num_chans;
+	}
+
+	for (y = 0; y<pei->height; y++) {
+		compress_png_row(pei, tdctx, (pei->flip ? (pei->height - 1 - y) : y));
+	}
+
 	if (fmtutil_tdefl_compress_buffer(tdctx, NULL, 0, FMTUTIL_TDEFL_FINISH) !=
 		FMTUTIL_TDEFL_STATUS_DONE)
 	{
@@ -270,7 +320,7 @@ static int do_generate_png(struct deark_png_encode_info *pei, const u8 *src_pixe
 	}
 
 	dbuf_truncate(cdbuf, 0);
-	if(!write_png_chunk_IDATs(pei, cdbuf, src_pixels)) goto done;
+	if(!write_png_chunk_IDATs(pei, cdbuf)) goto done;
 
 	dbuf_truncate(cdbuf, 0);
 	write_png_chunk_from_cdbuf(pei, cdbuf, CODE_IEND);
@@ -281,7 +331,9 @@ done:
 	return retval;
 }
 
-int de_write_png(deark *c, de_bitmap *img, dbuf *f, UI createflags)
+// flags2:
+//   0x1 = image can be encoded as bi-level, black&white, opaque
+int de_write_png(deark *c, de_bitmap *img, dbuf *f, UI createflags, UI flags2)
 {
 	const char *opt_level;
 	int retval = 0;
@@ -300,6 +352,11 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f, UI createflags)
 	// Optimization to speed up list mode
 	if(f->btype==DBUF_TYPE_NULL && !c->enable_oinfo) {
 		goto done;
+	}
+
+	pei->img = img;
+	if(flags2 & 0x1) {
+		pei->encode_as_bwimg = 1;
 	}
 
 	if(f->fi_copy && f->fi_copy->density.code>0 && c->write_density) {
@@ -337,7 +394,7 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f, UI createflags)
 	else {
 		pei->width = (int)img->width;
 	}
-	pei->rowspan = (int)(img->width * img->bytes_per_pixel);
+	pei->src_rowspan = (int)(img->width * img->bytes_per_pixel);
 	pei->height = (int)img->height;
 	pei->flip = (createflags & DE_CREATEFLAG_FLIP_IMAGE)?1:0;
 	pei->num_chans = img->bytes_per_pixel;
@@ -387,6 +444,7 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f, UI createflags)
 done:
 	if(pei) {
 		de_crcobj_destroy(pei->crco);
+		de_free(c, pei->tmprow);
 		de_free(c, pei);
 	}
 	return retval;

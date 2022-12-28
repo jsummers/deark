@@ -101,6 +101,11 @@ struct image_scan_results {
 	int has_visible_pixels;
 };
 
+struct image_opt_results {
+	de_bitmap *optimg;
+	u8 can_optimize_bilevel;
+};
+
 // Scan the image's pixels, and report whether any are transparent, etc.
 static void scan_image(de_bitmap *img, struct image_scan_results *isres)
 {
@@ -174,31 +179,33 @@ static de_bitmap *de_bitmap_clone(de_bitmap *img1)
 	return img2;
 }
 
-// Returns NULL if there's no need to optimize the image
-static de_bitmap *get_optimized_image(de_bitmap *img1)
+// Caller initializes optres.
+// Returns:
+//   optres->optimg: NULL if no optimized image was produced.
+//     Caller must free if non-NULL.
+static void get_optimized_image(de_bitmap *img1, struct image_opt_results *optres)
 {
 	struct image_scan_results isres;
 	int opt_bytes_per_pixel;
-	de_bitmap *optimg;
 
 	scan_image(img1, &isres);
 	opt_bytes_per_pixel = isres.has_color ? 3 : 1;
 	if(isres.has_trns) opt_bytes_per_pixel++;
 
 	if(opt_bytes_per_pixel>=img1->bytes_per_pixel) {
-		return NULL;
+		return;
 	}
 
-	optimg = de_bitmap_clone_noalloc(img1);
-	optimg->bytes_per_pixel = opt_bytes_per_pixel;
-	de_bitmap_copy_rect(img1, optimg, 0, 0, img1->width, img1->height, 0, 0, 0);
-	return optimg;
+	optres->optimg = de_bitmap_clone_noalloc(img1);
+	optres->optimg->bytes_per_pixel = opt_bytes_per_pixel;
+	de_bitmap_copy_rect(img1, optres->optimg, 0, 0, img1->width, img1->height, 0, 0, 0);
 }
 
 // When calling this function, the "name" data associated with fi, if set, should
 // be set to something like a filename, but *without* a final ".png" extension.
 // Image-specific createflags:
 //  - DE_CREATEFLAG_OPT_IMAGE
+//  - DE_CREATEFLAG_IS_BWIMG - Declares that image is bi-level B&W.
 //  - DE_CREATEFLAG_FLIP_IMAGE
 //     Write the rows in reverse order ("bottom-up"). This affects only the pixels,
 //     not the finfo metadata (e.g. hotspot). It's equivalent to flipping the image
@@ -208,34 +215,46 @@ void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi,
 {
 	deark *c;
 	dbuf *f;
-	de_bitmap *optimg = NULL;
+	UI flags2 = 0;
+	struct image_opt_results optres;
 
 	if(!img) return;
 	c = img->c;
 	if(img->invalid_image_flag) return;
+	de_zeromem(&optres, sizeof(struct image_opt_results));
 
 	if(!img->bitmap) de_bitmap_alloc_pixels(img);
 
-	if(createflags & DE_CREATEFLAG_OPT_IMAGE) {
+	// The BWIMG flag/optimization has to be handled in a different way than the
+	// ohter optmizations, because our de_bitmap object does not support a
+	// 1 bit/pixel image type.
+	if(createflags & DE_CREATEFLAG_IS_BWIMG) {
+		flags2 |= 0x1;
+	}
+	else if(createflags & DE_CREATEFLAG_OPT_IMAGE) {
 		// This should probably be the default, but our optimization routine
 		// isn't very efficient, and wouldn't change anything in most cases.
-		optimg = get_optimized_image(img);
-		if(optimg) {
+		get_optimized_image(img, &optres);
+		if(optres.optimg) {
 			de_dbg3(c, "reducing image depth (%d->%d)", img->bytes_per_pixel,
-				optimg->bytes_per_pixel);
+				optres.optimg->bytes_per_pixel);
+		}
+		if(optres.can_optimize_bilevel) {
+			// This is not yet implemented.
+			flags2 |= 0x1;
 		}
 	}
 
 	f = dbuf_create_output_file(c, "png", fi, createflags);
-	if(optimg) {
-		de_write_png(c, optimg, f, createflags);
+	if(optres.optimg) {
+		de_write_png(c, optres.optimg, f, createflags, flags2);
 	}
 	else {
-		de_write_png(c, img, f, createflags);
+		de_write_png(c, img, f, createflags, flags2);
 	}
 	dbuf_close(f);
 
-	if(optimg) de_bitmap_destroy(optimg);
+	if(optres.optimg) de_bitmap_destroy(optres.optimg);
 }
 
 // "token" - A (UTF-8) filename component, like "output.000.<token>.png".

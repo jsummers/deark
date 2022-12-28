@@ -675,7 +675,7 @@ static void de_run_fp_art(deark *c, de_module_params *mparams)
 	width = de_getu16le(2);
 	height = de_getu16le(6);
 	rowspan = ((width+15)/16)*2;
-	de_convert_and_write_image_bilevel2(c->infile, 8, width, height, rowspan, 0, NULL, 0);
+	de_convert_and_write_image_bilevel2(c->infile, 8, width, height, rowspan, 0, NULL, DE_CREATEFLAG_IS_BWIMG);
 }
 
 static int de_identify_fp_art(deark *c)
