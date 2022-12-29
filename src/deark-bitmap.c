@@ -95,30 +95,39 @@ static void de_bitmap_alloc_pixels(de_bitmap *img)
 	img->bitmap = de_malloc(img->c, img->bitmap_size);
 }
 
-struct image_scan_results {
-	int has_color;
-	int has_trns;
-	int has_visible_pixels;
-};
-
-struct image_opt_results {
+struct image_scan_opt_data {
+	u8 has_color;
+	u8 has_trns;
+	u8 has_visible_pixels;
+	// bilevel means every pixel is black or white, and opaque.
+	u8 is_nonbilevel;
 	de_bitmap *optimg;
-	u8 can_optimize_bilevel;
 };
 
 // Scan the image's pixels, and report whether any are transparent, etc.
-static void scan_image(de_bitmap *img, struct image_scan_results *isres)
+// Caller initializes optctx.
+static void scan_image(de_bitmap *img, struct image_scan_opt_data *optctx)
 {
 	i64 i, j;
 	de_color clr;
 	de_colorsample a, r, g, b;
 
-	de_zeromem(isres, sizeof(struct image_scan_results));
-	if(img->bytes_per_pixel==1) {
-		// No reason to scan opaque grayscale images.
-		isres->has_visible_pixels = 1;
+	if(img->bytes_per_pixel==1) { // Special case
+		optctx->has_visible_pixels = 1;
+
+		for(j=0; j<img->height; j++) {
+			for(i=0; i<img->width; i++) {
+				clr = de_bitmap_getpixel(img, i, j);
+				r = DE_COLOR_K(clr);
+				if(r!=0 && r!=255) {
+					optctx->is_nonbilevel = 1;
+					return;
+				}
+			}
+		}
 		return;
 	}
+
 	for(j=0; j<img->height; j++) {
 		for(i=0; i<img->width; i++) {
 			clr = de_bitmap_getpixel(img, i, j);
@@ -128,26 +137,37 @@ static void scan_image(de_bitmap *img, struct image_scan_results *isres)
 			r = DE_COLOR_R(clr);
 			g = DE_COLOR_G(clr);
 			b = DE_COLOR_B(clr);
-			if(!isres->has_visible_pixels && a!=0) {
-				isres->has_visible_pixels = 1;
+			if(!optctx->has_visible_pixels && a!=0) {
+				optctx->has_visible_pixels = 1;
 			}
-			if(!isres->has_trns && a<255) {
-				isres->has_trns = 1;
+			if(!optctx->has_trns && a<255) {
+				optctx->has_trns = 1;
+				optctx->is_nonbilevel = 1;
 			}
-			if(!isres->has_color && img->bytes_per_pixel>=3 &&
+			if(!optctx->has_color && img->bytes_per_pixel>=3 &&
 				((g!=r || b!=r) && a!=0) )
 			{
-				isres->has_color = 1;
+				optctx->has_color = 1;
+				optctx->is_nonbilevel = 1;
+			}
+
+			if(!optctx->is_nonbilevel && (r!=0 && r!=255)) {
+				// Only need to test one of the color samples. The has_color and
+				// has_trns tests will take care of the rest.
+				optctx->is_nonbilevel = 1;
 			}
 		}
 
 		// After each row, test whether we've learned everything we can learn
 		// about this image.
-		if((isres->has_trns || img->bytes_per_pixel==1 || img->bytes_per_pixel==3) &&
-			(isres->has_visible_pixels) &&
-			(isres->has_color || img->bytes_per_pixel<=2))
-		{
-			return;
+		if(img->bytes_per_pixel==2) {
+			if(optctx->has_trns && optctx->has_visible_pixels) return;
+		}
+		else if(img->bytes_per_pixel==3) {
+			if(optctx->has_color) return;
+		}
+		else { // bypp==4
+			if(optctx->has_color && optctx->has_trns && optctx->has_visible_pixels) return;
 		}
 	}
 }
@@ -179,26 +199,32 @@ static de_bitmap *de_bitmap_clone(de_bitmap *img1)
 	return img2;
 }
 
-// Caller initializes optres.
+// Caller initializes optctx.
 // Returns:
-//   optres->optimg: NULL if no optimized image was produced.
+//   optctx->optimg: NULL if no optimized image was produced.
 //     Caller must free if non-NULL.
-static void get_optimized_image(de_bitmap *img1, struct image_opt_results *optres)
+static void get_optimized_image(de_bitmap *img1, struct image_scan_opt_data *optctx)
 {
-	struct image_scan_results isres;
 	int opt_bytes_per_pixel;
 
-	scan_image(img1, &isres);
-	opt_bytes_per_pixel = isres.has_color ? 3 : 1;
-	if(isres.has_trns) opt_bytes_per_pixel++;
+	scan_image(img1, optctx);
+
+	if(!optctx->is_nonbilevel) {
+		// We don't optimize this type of image here. It will be handled
+		// by the PNG encoder.
+		return;
+	}
+
+	opt_bytes_per_pixel = optctx->has_color ? 3 : 1;
+	if(optctx->has_trns) opt_bytes_per_pixel++;
 
 	if(opt_bytes_per_pixel>=img1->bytes_per_pixel) {
 		return;
 	}
 
-	optres->optimg = de_bitmap_clone_noalloc(img1);
-	optres->optimg->bytes_per_pixel = opt_bytes_per_pixel;
-	de_bitmap_copy_rect(img1, optres->optimg, 0, 0, img1->width, img1->height, 0, 0, 0);
+	optctx->optimg = de_bitmap_clone_noalloc(img1);
+	optctx->optimg->bytes_per_pixel = opt_bytes_per_pixel;
+	de_bitmap_copy_rect(img1, optctx->optimg, 0, 0, img1->width, img1->height, 0, 0, 0);
 }
 
 // When calling this function, the "name" data associated with fi, if set, should
@@ -216,12 +242,12 @@ void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi,
 	deark *c;
 	dbuf *f;
 	UI flags2 = 0;
-	struct image_opt_results optres;
+	struct image_scan_opt_data optctx;
 
 	if(!img) return;
 	c = img->c;
 	if(img->invalid_image_flag) return;
-	de_zeromem(&optres, sizeof(struct image_opt_results));
+	de_zeromem(&optctx, sizeof(struct image_scan_opt_data));
 
 	if(!img->bitmap) de_bitmap_alloc_pixels(img);
 
@@ -234,27 +260,27 @@ void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi,
 	else if(createflags & DE_CREATEFLAG_OPT_IMAGE) {
 		// This should probably be the default, but our optimization routine
 		// isn't very efficient, and wouldn't change anything in most cases.
-		get_optimized_image(img, &optres);
-		if(optres.optimg) {
+		get_optimized_image(img, &optctx);
+		if(optctx.optimg) {
 			de_dbg3(c, "reducing image depth (%d->%d)", img->bytes_per_pixel,
-				optres.optimg->bytes_per_pixel);
+				optctx.optimg->bytes_per_pixel);
 		}
-		if(optres.can_optimize_bilevel) {
-			// This is not yet implemented.
+		if(!optctx.is_nonbilevel) {
+			de_dbg3(c, "reducing to bilevel (from %d samples)", img->bytes_per_pixel);
 			flags2 |= 0x1;
 		}
 	}
 
 	f = dbuf_create_output_file(c, "png", fi, createflags);
-	if(optres.optimg) {
-		de_write_png(c, optres.optimg, f, createflags, flags2);
+	if(optctx.optimg) {
+		de_write_png(c, optctx.optimg, f, createflags, flags2);
 	}
 	else {
 		de_write_png(c, img, f, createflags, flags2);
 	}
 	dbuf_close(f);
 
-	if(optres.optimg) de_bitmap_destroy(optres.optimg);
+	if(optctx.optimg) de_bitmap_destroy(optctx.optimg);
 }
 
 // "token" - A (UTF-8) filename component, like "output.000.<token>.png".
@@ -1099,18 +1125,19 @@ void de_bitmap_remove_alpha(de_bitmap *img)
 //  0x2: Warn if an invisible image was made opaque
 void de_bitmap_optimize_alpha(de_bitmap *img, unsigned int flags)
 {
-	struct image_scan_results isres;
+	struct image_scan_opt_data optctx;
 
 	if(img->bytes_per_pixel!=2 && img->bytes_per_pixel!=4) return;
 
-	scan_image(img, &isres);
+	de_zeromem(&optctx, sizeof(struct image_scan_opt_data));
+	scan_image(img, &optctx);
 
-	if(isres.has_trns && !isres.has_visible_pixels && (flags&0x1)) {
+	if(optctx.has_trns && !optctx.has_visible_pixels && (flags&0x1)) {
 		if(flags&0x2) {
 			de_warn(img->c, "Invisible image detected. Ignoring transparency.");
 		}
 	}
-	else if(isres.has_trns) {
+	else if(optctx.has_trns) {
 		return;
 	}
 
