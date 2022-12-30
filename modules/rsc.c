@@ -138,7 +138,7 @@ static void do_decode_and_write_bilevel_image(deark *c, lctx *d, i64 bits_pos,
 
 	img = de_bitmap_create(c, width, height, 1);
 	do_decode_bilevel_image(c, d, img, bits_pos, rowspan);
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_IS_BWIMG);
 done:
 	de_bitmap_destroy(img);
 }
@@ -208,7 +208,7 @@ static void do_bilevel_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 	de_bitmap_apply_mask(img, mask, DE_BITMAPFLAG_WHITEISTRNS);
 	fi = de_finfo_create(c);
 	set_icon_finfo(c, d, fi, ii, token);
-	de_bitmap_write_to_file_finfo(img, fi, 0);
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
 
 done:
 	de_bitmap_destroy(img);
@@ -352,7 +352,7 @@ static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 
 	fi = de_finfo_create(c);
 	set_icon_finfo(c, d, fi, ii, token);
-	de_bitmap_write_to_file_finfo(img, fi, 0);
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
 
 done:
 	de_bitmap_destroy(img);

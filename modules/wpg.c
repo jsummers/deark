@@ -292,7 +292,7 @@ static void handler_bitmap(deark *c, lctx *d, u8 rectype, i64 dpos1, i64 dlen)
 		de_convert_image_paletted(unc_pixels, 0, bpp, rowspan, finalpal, img, 0);
 	}
 
-	de_bitmap_write_to_file_finfo(img, fi, 0);
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
 
 done:
 	de_bitmap_destroy(img);

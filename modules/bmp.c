@@ -537,7 +537,7 @@ static void do_image_paletted(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 	img = bmp_bitmap_create(c, d, d->pal_is_grayscale?1:3);
 	de_convert_image_paletted(bits, bits_offset,
 		d->bitcount, d->rowspan, d->pal, img, 0);
-	de_bitmap_write_to_file_finfo(img, d->fi, d->extra_createflags);
+	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_OPT_IMAGE | d->extra_createflags);
 	de_bitmap_destroy(img);
 }
 
@@ -1340,7 +1340,7 @@ static void do_ddb_bitmap(deark *c, struct ddbctx_struct *d, i64 pos1)
 		ddb_convert_32bit(c, d, pos, img);
 	}
 
-	de_bitmap_write_to_file_finfo(img, d->fi, d->createflags);
+	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_OPT_IMAGE | d->createflags);
 
 done:
 	de_bitmap_destroy(img);

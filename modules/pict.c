@@ -432,7 +432,7 @@ static int decode_bitmap(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi, i
 		}
 	}
 
-	de_bitmap_write_to_file_finfo(img, fi, 0);
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
 
 	de_bitmap_destroy(img);
 	de_finfo_destroy(c, fi);

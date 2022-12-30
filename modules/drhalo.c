@@ -120,7 +120,7 @@ static void do_write_image_gray(deark *c, lctx *d, dbuf *unc_pixels)
 	de_make_grayscale_palette(d->pal, (i64)d->max_color_val+1, 0);
 	img = de_bitmap_create(c, d->w, d->h, 1);
 	de_convert_image_paletted(unc_pixels, 0, 8, d->w, d->pal, img, 0);
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
 	de_bitmap_destroy(img);
 }
 

@@ -171,6 +171,7 @@ static int do_gem_img(deark *c, lctx *d)
 	de_bitmap *img = NULL;
 	de_finfo *fi = NULL;
 	int is_color = 0;
+	UI createflags = 0;
 	i64 k;
 
 	if(d->header_size_in_words==9 && (d->nplanes==3 || d->nplanes==4)) {
@@ -194,6 +195,7 @@ static int do_gem_img(deark *c, lctx *d)
 
 	if(d->nplanes==1) {
 		de_convert_image_bilevel(unc_pixels, 0, d->rowspan_per_plane, img, DE_CVTF_WHITEISZERO);
+		createflags |= DE_CREATEFLAG_IS_BWIMG;
 	}
 	else if(is_color && d->nplanes==3) {
 		for(k=0; k<8; k++) {
@@ -212,7 +214,7 @@ static int do_gem_img(deark *c, lctx *d)
 		read_paletted_image(c, d, unc_pixels, img);
 	}
 
-	de_bitmap_write_to_file_finfo(img, fi, 0);
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE | createflags);
 
 	de_bitmap_destroy(img);
 	de_finfo_destroy(c, fi);
@@ -333,7 +335,7 @@ static int do_gem_ximg(deark *c, lctx *d)
 		read_paletted_image(c, d, unc_pixels, img);
 	}
 
-	de_bitmap_write_to_file_finfo(img, fi, 0);
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
 
 	retval = 1;
 

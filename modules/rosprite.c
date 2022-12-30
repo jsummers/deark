@@ -263,7 +263,7 @@ static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
 	}
 after_mask:
 
-	de_bitmap_write_to_file_finfo(img, fi, 0);
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
 	de_bitmap_destroy(img);
 	if(mask) de_bitmap_destroy(mask);
 }

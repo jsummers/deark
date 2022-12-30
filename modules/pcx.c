@@ -520,7 +520,7 @@ static void do_bitmap_paletted(deark *c, lctx *d)
 			d->rowspan_raw, d->pal, img, 0x2);
 	}
 
-	de_bitmap_write_to_file_finfo(img, d->fi, 0);
+	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_OPT_IMAGE);
 	de_bitmap_destroy(img);
 }
 

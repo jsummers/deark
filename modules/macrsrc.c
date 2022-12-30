@@ -333,7 +333,7 @@ static void do_SICN_resource_1(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	for(i=0; i<numicons; i++) {
 		de_bitmap_rect(img, 0, 0, img->width, img->height, DE_STOCKCOLOR_BLACK, 0);
 		de_convert_image_bilevel(c->infile, pos1+32*i, 2, img, DE_CVTF_WHITEISZERO);
-		de_bitmap_write_to_file_finfo(img, fi, 0);
+		de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_IS_BWIMG);
 	}
 
 	de_bitmap_destroy(img);

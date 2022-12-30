@@ -3739,6 +3739,7 @@ after_paint:
 	set_image_density(c, d, pg, fi);
 	fi->internal_mod_time = pg->internal_mod_time;
 
+	createflags |= DE_CREATEFLAG_OPT_IMAGE;
 	de_bitmap_write_to_file_finfo(img, fi, createflags);
 
 done:
