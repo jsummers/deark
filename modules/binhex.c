@@ -305,6 +305,7 @@ static int find_start(deark *c, i64 *foundpos)
 
 	// Find the next CR/LF byte
 	while(1) {
+		if(pos>=c->infile->len) return 0;
 		b = de_getbyte(pos);
 		pos++;
 		if(b=='\x0a' || b=='\x0d') {
