@@ -288,6 +288,25 @@ done:
 	d->decoded = NULL;
 }
 
+#define INTRO1_LEN 40
+static const u8 *g_binhex_intro1 = (const u8*)"(This file must be converted with BinHex";
+#define INTRO2_LEN 23
+static const u8 *g_binhex_intro2 = (const u8*)"\x81\x69\x82\xb1\x82\xcc\x83\x74\x83"
+	"\x40\x83\x43\x83\x8b\x82\xcd BinHex"; // (Japanese)
+#define INTRO3_LEN 42
+static const u8 *g_binhex_intro3 = (const u8*)"(This file may be decompressed with BinHex";
+
+static int looks_like_binhex_eof(deark *c)
+{
+	u8 b[3];
+
+	de_read(b, c->infile->len-3, 3);
+	if(b[2]==':') return 1;
+	if(b[1]==':' && (b[2]==0x0d || b[2]==0x0a)) return 1;
+	if(b[0]==':' && b[1]==0x0d && b[2]==0x0a) return 1;
+	return 0;
+}
+
 static int find_start(deark *c, i64 *foundpos)
 {
 	i64 pos;
@@ -296,12 +315,25 @@ static int find_start(deark *c, i64 *foundpos)
 
 	*foundpos = 0;
 
-	ret = dbuf_search(c->infile,
-		(const u8*)"(This file must be converted with BinHex", 40,
-		0, 8192, &pos);
-	if(!ret) return 0;
-
-	pos += 40;
+	ret = dbuf_search(c->infile, g_binhex_intro1, INTRO1_LEN, 0, 8192, &pos);
+	if(ret) pos += INTRO1_LEN;
+	if(!ret) {
+		ret = dbuf_search(c->infile, g_binhex_intro2, INTRO2_LEN, 0, 8192, &pos);
+		if(ret) pos += INTRO2_LEN;
+	}
+	if(!ret) {
+		ret = dbuf_search(c->infile, g_binhex_intro3, INTRO3_LEN, 0, 8192, &pos);
+		if(ret) pos += INTRO3_LEN;
+	}
+	if(!ret) {
+		if(de_getbyte(0)==':') {
+			*foundpos = 1;
+			return 1;
+		}
+	}
+	if(!ret) {
+		return 0;
+	}
 
 	// Find the next CR/LF byte
 	while(1) {
@@ -345,7 +377,7 @@ static void de_run_binhex(deark *c, de_module_params *mparams)
 
 	ret = find_start(c, &pos);
 	if(!ret) {
-		de_err(c, "Not a BinHex file");
+		de_err(c, "Not a BinHex file, or not a supported type");
 		goto done;
 	}
 
@@ -357,20 +389,32 @@ done:
 
 static int de_identify_binhex(deark *c)
 {
+	u8 b0;
 	int ret;
 	i64 foundpos;
 
-	if(!dbuf_memcmp(c->infile, 0,
-		"(This file must be converted with BinHex", 40))
-	{
-		return 100;
+	b0 = de_getbyte(0);
+	if(b0==g_binhex_intro1[0]) {
+		if(!dbuf_memcmp(c->infile, 0, g_binhex_intro1, INTRO1_LEN)) {
+			return 100;
+		}
 	}
 
 	if(!de_input_file_has_ext(c, "hqx")) return 0;
 
 	// File has .hqx extension. Try harder to identify it.
 	ret = find_start(c, &foundpos);
-	if(ret) return 100;
+	if(ret) {
+		if(foundpos<=1) {
+			// Possible BinHex, but no intro
+			if(looks_like_binhex_eof(c)) {
+				return 75;
+			}
+		}
+		else {
+			return 100;
+		}
+	}
 
 	return 0;
 }
