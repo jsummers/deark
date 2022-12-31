@@ -24,19 +24,28 @@ typedef struct localctx_struct {
 	struct de_advfile *advf;
 	struct binhex_forkinfo fki_data;
 	struct binhex_forkinfo fki_rsrc;
+	u8 dtable[256];
 } lctx;
 
-// Returns 0-63 if successful, 255 for invalid character.
-static u8 get_char_value(u8 b)
+static void init_binhex_decoder(deark *c, lctx *d)
 {
-	int k;
+	UI k;
+
 	static const u8 binhexchars[] =
 		"!\"#$%&'()*+,-012345689@ABCDEFGHIJKLMNPQRSTUVXYZ[`abcdefhijklmpqr";
 
+	// Default all entries to 255, meaning invalid.
+	de_memset(d->dtable, 0xff, 256);
+
 	for(k=0; k<64; k++) {
-		if(b==binhexchars[k]) return (u8)k;
+		d->dtable[(UI)binhexchars[k]] = (u8)k;
 	}
-	return 255;
+}
+
+// Returns 0-63 if successful, 255 for invalid character.
+static u8 get_char_value(lctx *d, u8 b)
+{
+	return d->dtable[(UI)b];
 }
 
 // Decode the base-64 data, and write to d->decoded.
@@ -60,7 +69,7 @@ static int do_decode_main(deark *c, lctx *d, i64 pos)
 			continue;
 		}
 
-		x = get_char_value(b);
+		x = get_char_value(d, b);
 		if(x>=64) {
 			de_err(c, "Invalid BinHex data at %d", (int)(pos-1));
 			return 0;
@@ -251,6 +260,7 @@ static void do_binhex(deark *c, lctx *d, i64 pos)
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
 
+	init_binhex_decoder(c, d);
 	de_dbg(c, "BinHex data starts at %d", (int)pos);
 
 	d->decoded = dbuf_create_membuf(c, 65536, 0);
