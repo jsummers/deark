@@ -298,10 +298,6 @@ Deark -- Information about supported formats
 * JPEG XR (HD Photo) (part of module "tiff")
   - Minimal support.
 
-* KQP (Konica) (module="kqp") (incomplete)
-  - Incomplete; almost certainly does not support all KQP files.
-  - Convert to JPEG.
-
 * Lotus Manuscript graphics (.bit, .rle) (module="lotus_mscr") (experimental)
   - Not always autodetected. You may have to use "-m lotus_mscr".
 
@@ -411,6 +407,9 @@ Deark -- Information about supported formats
      guess.
    -file2 <file.p13> - Read the palette from a separate file. Each entry is 3
      bytes (R,G,B); samples range from 0-63.
+
+* Pegasus JPEG and KQP (Konica) (module="picjpeg") (experimental)
+  - Convert to JPEG.
 
 * PGC (Portfolio graphics compressed) (module="pgc")
 

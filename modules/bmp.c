@@ -8,7 +8,7 @@
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_bmp);
-DE_DECLARE_MODULE(de_module_kqp);
+DE_DECLARE_MODULE(de_module_picjpeg);
 DE_DECLARE_MODULE(de_module_dib);
 DE_DECLARE_MODULE(de_module_ddb);
 
@@ -972,21 +972,35 @@ void de_module_bmp(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
+// Pegasus JPEG (PIC JPEG)
 // Konica KQP
 // **************************************************************************
 
-static const u8 kqp_qtable_data[] = {
-	0xff,0xdb,0x00,0x84,0x00,0x07,0x04,0x05,0x06,0x05,0x04,0x07,0x06,0x05,0x06,0x07,
-	0x07,0x07,0x08,0x0a,0x11,0x0b,0x0a,0x09,0x09,0x0a,0x15,0x0f,0x10,0x0c,0x11,0x19,
-	0x16,0x1a,0x1a,0x18,0x16,0x18,0x18,0x1c,0x1f,0x28,0x22,0x1c,0x1d,0x26,0x1e,0x18,
-	0x18,0x23,0x2f,0x23,0x26,0x29,0x2a,0x2d,0x2d,0x2d,0x1b,0x21,0x31,0x34,0x31,0x2b,
-	0x34,0x28,0x2c,0x2d,0x2b,0x01,0x07,0x07,0x07,0x0a,0x09,0x0a,0x14,0x0b,0x0b,0x14,
-	0x2b,0x1c,0x18,0x1c,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,
-	0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,
-	0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,0x2b,
-	0x2b,0x2b,0x2b,0x2b,0x2b,0x2b };
+static const u8 default_dqt_data0[] = {
+	0xff,0xdb,0x00,0x43,0x00,
+	0x10,0x0b,0x0c,0x0e,0x0c,0x0a,0x10,0x0e,
+	0x0d,0x0e,0x12,0x11,0x10,0x13,0x18,0x28,
+	0x1a,0x18,0x16,0x16,0x18,0x31,0x23,0x25,
+	0x1d,0x28,0x3a,0x33,0x3d,0x3c,0x39,0x33,
+	0x38,0x37,0x40,0x48,0x5c,0x4e,0x40,0x44,
+	0x57,0x45,0x37,0x38,0x50,0x6d,0x51,0x57,
+	0x5f,0x62,0x67,0x68,0x67,0x3e,0x4d,0x71,
+	0x79,0x70,0x64,0x78,0x5c,0x65,0x67,0x63
+};
 
-static const u8 kqp_htable_data[] = {
+static const u8 default_dqt_data1[] = {
+	0xff,0xdb,0x00,0x43,0x01,
+	0x11,0x12,0x12,0x18,0x15,0x18,0x2f,0x1a,
+	0x1a,0x2f,0x63,0x42,0x38,0x42,0x63,0x63,
+	0x63,0x63,0x63,0x63,0x63,0x63,0x63,0x63,
+	0x63,0x63,0x63,0x63,0x63,0x63,0x63,0x63,
+	0x63,0x63,0x63,0x63,0x63,0x63,0x63,0x63,
+	0x63,0x63,0x63,0x63,0x63,0x63,0x63,0x63,
+	0x63,0x63,0x63,0x63,0x63,0x63,0x63,0x63,
+	0x63,0x63,0x63,0x63,0x63,0x63,0x63,0x63
+};
+
+static const u8 default_dht_data[] = {
 	0xff,0xc4,0x01,0xa2,0x00,0x00,0x01,0x05,0x01,0x01,0x01,0x01,0x01,0x01,0x00,0x00,
 	0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,
 	0x0b,0x10,0x00,0x02,0x01,0x03,0x03,0x02,0x04,0x03,0x05,0x05,0x04,0x04,0x00,0x00,
@@ -1015,15 +1029,44 @@ static const u8 kqp_htable_data[] = {
 	0xd9,0xda,0xe2,0xe3,0xe4,0xe5,0xe6,0xe7,0xe8,0xe9,0xea,0xf2,0xf3,0xf4,0xf5,0xf6,
 	0xf7,0xf8,0xf9,0xfa };
 
-static void de_run_kqp(deark *c, de_module_params *mparams)
+static void picjpeg_write_dqt(deark *c, dbuf *outf, const u8 *default_dqt_data, UI setting)
+{
+	size_t i;
+
+	dbuf_write(outf, default_dqt_data, 5);
+
+	// This could be wrong. The best I can figure is that we're supposed to start
+	// with a default quantization table, and multiply each number by (setting/32),
+	// where 'setting' is a field in the "PIC" segment.
+	// The default tables can be found in the IJG libjpeg source (jcparam.c or
+	// wizard.txt). Or create a file using "cjpeg -quality 50".
+	for(i=0; i<64; i++) {
+		UI x;
+
+		x = default_dqt_data[5+i];
+		// The denominator 32 might not be exactly right, but assuming this is
+		// the right idea, it's not too far off.
+		x = (x * setting)/32;
+		if(x>255) x=255;
+		dbuf_writebyte(outf, (u8)x);
+	}
+}
+
+static void de_run_picjpeg(deark *c, de_module_params *mparams)
 {
 	i64 bits_offset;
 	i64 jpeg_data_len;
+	UI lum_setting;
+	UI chr_setting;
 	int need_errmsg = 0;
+	int has_dht;
 	dbuf *outf = NULL;
+	UI n;
+	i64 i;
+	u32 hdr[7];
 	struct de_bmpinfo bi;
 
-	de_declare_fmt(c, "KQP (Konica)");
+	de_declare_fmt(c, "Pegasus JPEG or KQP");
 
 	(void)fmtutil_get_bmpinfo(c, c->infile, &bi, 0, c->infile->len,
 		DE_BMPINFO_HAS_FILEHEADER|DE_BMPINFO_CMPR_IS_4CC|DE_BMPINFO_NOERR);
@@ -1034,6 +1077,12 @@ static void de_run_kqp(deark *c, de_module_params *mparams)
 	if(jpeg_data_len<2) {
 		need_errmsg = 1;
 		goto done;
+	}
+
+	// Extended BMP header fields
+	for(i=0; i<7; i++) {
+		hdr[i] = (u32)de_getu32le(54+4*i);
+		de_dbg(c, "bmp ext hdr[%u]: %u", (UI)i, (UI)hdr[i]);
 	}
 
 	// Do a quick & dirty splicing of the JPEG data to insert the correct DQT and
@@ -1051,11 +1100,44 @@ static void de_run_kqp(deark *c, de_module_params *mparams)
 		need_errmsg = 1;
 		goto done;
 	}
-	if((UI)de_getu32be(bits_offset+28) != 0x010e0e01U) { // Q table indicator(?)
+
+	// Check for "PIC" segment
+	if(dbuf_memcmp(c->infile, bits_offset+20, "\xff\xe1\x00\x0a\x50\x49\x43\x00", 8)) {
 		need_errmsg = 1;
 		goto done;
 	}
+
+	// Read from "PIC" segment.
+	lum_setting = (UI)de_getbyte(bits_offset+20+9);
+	chr_setting = (UI)de_getbyte(bits_offset+20+10);
+	de_dbg(c, "luminance: %u", lum_setting);
+	de_dbg(c, "chrominance: %u", chr_setting);
+
 	if((UI)de_getu32be(bits_offset+32) != 0xffc00011U) { // SOF
+		need_errmsg = 1;
+		goto done;
+	}
+
+	// Sometimes there is already a DHT segment, sometimes not.
+	n = (UI)de_getu16be(bits_offset+51);
+	if(n==0xffc4) {
+		has_dht = 1;
+	}
+	else if(n==0xffda) {
+		has_dht = 0;
+	}
+	else {
+		need_errmsg = 1;
+		goto done;
+	}
+	de_dbg(c, "has DHT: %u", (UI)has_dht);
+
+	// Validate the extra BMP fields.
+	// Not sure what all these are.
+	// [5] & [6] are related to sampling factors.
+	if(hdr[0]!=44 || hdr[1]!=24 || hdr[2]!=0 || hdr[3]!=2 ||
+		hdr[4]!=8)
+	{
 		need_errmsg = 1;
 		goto done;
 	}
@@ -1065,45 +1147,46 @@ static void de_run_kqp(deark *c, de_module_params *mparams)
 	// Everything before the JFIF version number
 	dbuf_copy(c->infile, bits_offset, 11, outf);
 
-	dbuf_writebyte(outf, 1); // Correct the JFIF version number
+	dbuf_writebyte(outf, 1); // Correct the JFIF version number (if needed)
 	dbuf_writebyte(outf, 2);
 
-	// Everything else up to the source SOF
-	dbuf_copy(c->infile, bits_offset+13, 19, outf);
+	// We want to copy everything else up to SOF, except the PIC segment.
+	dbuf_copy(c->infile, bits_offset+13, 7, outf);
 
-	// TODO: It's almost certain that some KQP files use different quantization
-	// tables ( https://groups.google.com/g/rec.photo.digital/c/lkz_8p8S2U0 ),
-	// but I don't know how to support them.
-	dbuf_write(outf, kqp_qtable_data, DE_ARRAYCOUNT(kqp_qtable_data)); // New DQT
+	picjpeg_write_dqt(c, outf, default_dqt_data0, lum_setting);
+	picjpeg_write_dqt(c, outf, default_dqt_data1, chr_setting);
 
 	dbuf_copy(c->infile, bits_offset+32, 19, outf); // SOF
 
-	dbuf_write(outf, kqp_htable_data, DE_ARRAYCOUNT(kqp_htable_data)); // New DHT
+	if(!has_dht) {
+		dbuf_write(outf, default_dht_data, DE_ARRAYCOUNT(default_dht_data)); // DHT
+	}
 
 	// The rest of the file
 	dbuf_copy(c->infile, bits_offset+51, c->infile->len-51, outf);
 
 done:
 	if(need_errmsg) {
-		de_err(c, "Can't convert this KQP file");
+		de_err(c, "Can't convert this Pegasus JPEG file");
 	}
 	dbuf_close(outf);
 }
 
-static int de_identify_kqp(deark *c)
+static int de_identify_picjpeg(deark *c)
 {
-	if(dbuf_memcmp(c->infile, 0, (const void*)"BM\0\0\0\0", 6)) return 0;
+	if(dbuf_memcmp(c->infile, 0, (const void*)"BM", 2)) return 0;
 	if(de_getu32le(14) != 68) return 0;
 	if((UI)de_getu32le(30) != 0x4745504aU) return 0;
 	return 100;
 }
 
-void de_module_kqp(deark *c, struct deark_module_info *mi)
+void de_module_picjpeg(deark *c, struct deark_module_info *mi)
 {
-	mi->id = "kqp";
-	mi->desc = "KQP (Konica)";
-	mi->run_fn = de_run_kqp;
-	mi->identify_fn = de_identify_kqp;
+	mi->id = "picjpeg";
+	mi->desc = "Pegasus JPEG, and KQP";
+	mi->run_fn = de_run_picjpeg;
+	mi->identify_fn = de_identify_picjpeg;
+	mi->id_alias[0] = "kqp";
 }
 
 // **************************************************************************
