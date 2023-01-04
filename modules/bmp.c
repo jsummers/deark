@@ -976,6 +976,110 @@ void de_module_bmp(deark *c, struct deark_module_info *mi)
 // Konica KQP
 // **************************************************************************
 
+// This is a JPEG parser that does only what's needed for Pegasus JPEG conversion.
+
+struct de_scan_jpeg_data_ctx {
+	// Positions are absolute, and start with the start of the marker.
+	// Lengths are the total length of the segment.
+	u8 error_flag;
+	u8 found_sos;
+	u8 found_dht;
+	u8 found_dqt;
+	u8 found_sof;
+	u8 found_jfif;
+	u8 found_pic;
+	i64 soi_pos;
+	i64 sos_pos;
+	i64 sof_pos;
+	i64 jfif_pos;
+	i64 pic_pos;
+	i64 pic_len;
+};
+
+// Caller initializes scan_jpeg_data_ctx.
+static void de_scan_jpeg_data(deark *c, dbuf *f, i64 pos1, i64 len,
+	struct de_scan_jpeg_data_ctx *sd)
+{
+	i64 pos = pos1;
+	i64 endpos = pos1+len;
+
+	while(1) {
+		i64 seg_startpos;
+		i64 seg_len;
+		u8 b1;
+
+		if(pos+4 > endpos) goto done;
+		seg_startpos = pos;
+		if(dbuf_getbyte_p(f, &pos) != 0xff) {
+			sd->error_flag = 1;
+			goto done;
+		}
+
+		b1 = dbuf_getbyte_p(f, &pos);
+		if(b1==0 || b1==0xff) {
+			sd->error_flag = 1;
+			goto done;
+		}
+
+		if(seg_startpos==pos1) { // Expecting SOI
+			if(b1!=0xd8) goto done;
+			sd->soi_pos = seg_startpos;
+			continue;
+		}
+
+		if(b1==0xd9) { // EOI
+			goto done;
+		}
+
+		// (Not expecting any other bare markers)
+
+		seg_len = 2 + dbuf_getu16be_p(f, &pos);
+
+		switch(b1) {
+		case 0xc4: // DHT
+			sd->found_dht = 1;
+			break;
+		case 0xda: // SOS
+			sd->found_sos = 1;
+			sd->sos_pos = seg_startpos;
+			goto done; // we don't scan past SOS
+		case 0xdb: // DQT
+			sd->found_dqt = 1;
+			break;
+		case 0xe0: // APP0
+			if(seg_len>=11 && !sd->found_jfif) {
+				if(!dbuf_memcmp(f, seg_startpos+4, "JFIF\0", 5)) {
+					sd->found_jfif = 1;
+					sd->jfif_pos = seg_startpos;
+				}
+			}
+			break;
+		case 0xe1: // APP1
+			if(seg_len>=11 && !sd->found_pic) {
+				if(!dbuf_memcmp(f, seg_startpos+4, "PIC\0", 4)) {
+					sd->found_pic = 1;
+					sd->pic_pos = seg_startpos;
+					sd->pic_len = seg_len;
+				}
+			}
+			break;
+		case 0xc0: case 0xc1: case 0xc2: case 0xc3:
+		case 0xc5: case 0xc6: case 0xc7:
+		case 0xc9: case 0xca: case 0xcb:
+		case 0xcd: case 0xce: case 0xcf:
+			sd->found_sof = 1;
+			sd->sof_pos = seg_startpos;
+			break;
+		}
+
+		pos = seg_startpos + seg_len;
+	}
+
+	//sd->error_flag = 0;
+done:
+	;
+}
+
 static const u8 default_dqt_data0[] = {
 	0xff,0xdb,0x00,0x43,0x00,
 	0x10,0x0b,0x0c,0x0e,0x0c,0x0a,0x10,0x0e,
@@ -1059,12 +1163,12 @@ static void de_run_picjpeg(deark *c, de_module_params *mparams)
 	UI lum_setting;
 	UI chr_setting;
 	int need_errmsg = 0;
-	int has_dht;
+	i64 srcpos;
 	dbuf *outf = NULL;
-	UI n;
 	i64 i;
 	u32 hdr[7];
 	struct de_bmpinfo bi;
+	struct de_scan_jpeg_data_ctx sd;
 
 	de_declare_fmt(c, "Pegasus JPEG or KQP");
 
@@ -1085,53 +1189,6 @@ static void de_run_picjpeg(deark *c, de_module_params *mparams)
 		de_dbg(c, "bmp ext hdr[%u]: %u", (UI)i, (UI)hdr[i]);
 	}
 
-	// Do a quick & dirty splicing of the JPEG data to insert the correct DQT and
-	// DHT segments.
-
-	// TODO: Use a real JPEG parser here, to find the SOF segment, etc.
-	// See also the similar code for thumbsdb_msrgba in the cfb module.
-
-	// First, try to make sure the data is in the format we expect.
-	if((UI)de_getu16be(bits_offset) != 0xffd8U) { // SOI
-		need_errmsg = 1;
-		goto done;
-	}
-	if((UI)de_getu32be(bits_offset+6) != 0x4a464946U) { // "JFIF"
-		need_errmsg = 1;
-		goto done;
-	}
-
-	// Check for "PIC" segment
-	if(dbuf_memcmp(c->infile, bits_offset+20, "\xff\xe1\x00\x0a\x50\x49\x43\x00", 8)) {
-		need_errmsg = 1;
-		goto done;
-	}
-
-	// Read from "PIC" segment.
-	lum_setting = (UI)de_getbyte(bits_offset+20+9);
-	chr_setting = (UI)de_getbyte(bits_offset+20+10);
-	de_dbg(c, "luminance: %u", lum_setting);
-	de_dbg(c, "chrominance: %u", chr_setting);
-
-	if((UI)de_getu32be(bits_offset+32) != 0xffc00011U) { // SOF
-		need_errmsg = 1;
-		goto done;
-	}
-
-	// Sometimes there is already a DHT segment, sometimes not.
-	n = (UI)de_getu16be(bits_offset+51);
-	if(n==0xffc4) {
-		has_dht = 1;
-	}
-	else if(n==0xffda) {
-		has_dht = 0;
-	}
-	else {
-		need_errmsg = 1;
-		goto done;
-	}
-	de_dbg(c, "has DHT: %u", (UI)has_dht);
-
 	// Validate the extra BMP fields.
 	// Not sure what all these are.
 	// [5] & [6] are related to sampling factors.
@@ -1142,28 +1199,70 @@ static void de_run_picjpeg(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	outf = dbuf_create_output_file(c, "jpg", NULL, 0);
-
-	// Everything before the JFIF version number
-	dbuf_copy(c->infile, bits_offset, 11, outf);
-
-	dbuf_writebyte(outf, 1); // Correct the JFIF version number (if needed)
-	dbuf_writebyte(outf, 2);
-
-	// We want to copy everything else up to SOF, except the PIC segment.
-	dbuf_copy(c->infile, bits_offset+13, 7, outf);
-
-	picjpeg_write_dqt(c, outf, default_dqt_data0, lum_setting);
-	picjpeg_write_dqt(c, outf, default_dqt_data1, chr_setting);
-
-	dbuf_copy(c->infile, bits_offset+32, 19, outf); // SOF
-
-	if(!has_dht) {
-		dbuf_write(outf, default_dht_data, DE_ARRAYCOUNT(default_dht_data)); // DHT
+	de_zeromem(&sd, sizeof(struct de_scan_jpeg_data_ctx));
+	de_scan_jpeg_data(c, c->infile, bits_offset, c->infile->len-bits_offset, &sd);
+	if(sd.error_flag) {
+		need_errmsg = 1;
+		goto done;
+	}
+	if(!sd.found_pic || !sd.found_sof || !sd.found_sos) {
+		need_errmsg = 1;
+		goto done;
+	}
+	if(sd.pic_pos >= sd.sof_pos) {
+		need_errmsg = 1;
+		goto done;
 	}
 
-	// The rest of the file
-	dbuf_copy(c->infile, bits_offset+51, c->infile->len-51, outf);
+	// Read from "PIC" segment.
+	lum_setting = (UI)de_getbyte(sd.pic_pos+9);
+	chr_setting = (UI)de_getbyte(sd.pic_pos+10);
+	de_dbg(c, "luminance: %u", lum_setting);
+	de_dbg(c, "chrominance: %u", chr_setting);
+
+	de_dbg(c, "has DHT: %u", (UI)sd.found_dht);
+
+	outf = dbuf_create_output_file(c, "jpg", NULL, 0);
+
+	srcpos = sd.soi_pos;
+	dbuf_copy(c->infile, srcpos, 2, outf);
+	srcpos += 2;
+
+	if(sd.found_jfif && sd.jfif_pos==srcpos) {
+		// Copy everything before the JFIF version number
+		dbuf_copy(c->infile, srcpos, 9, outf);
+		// Sometimes the JFIF version number is wrong, so we correct it.
+		dbuf_writebyte(outf, 1);
+		dbuf_writebyte(outf, 2);
+		srcpos += 11;
+	}
+
+	// Copy everything up to the PIC segment
+	dbuf_copy(c->infile, srcpos, sd.pic_pos-srcpos, outf);
+
+	srcpos = sd.pic_pos + sd.pic_len; // Skip the PIC segment
+
+	// Copy everything up to SOF
+	dbuf_copy(c->infile, srcpos, sd.sof_pos-srcpos, outf);
+	srcpos = sd.sof_pos;
+
+	// Insert DQT segments
+	if(!sd.found_dqt) {
+		picjpeg_write_dqt(c, outf, default_dqt_data0, lum_setting);
+		picjpeg_write_dqt(c, outf, default_dqt_data1, chr_setting);
+	}
+
+	// Copy everything up to SOS
+	dbuf_copy(c->infile, srcpos, sd.sos_pos-srcpos, outf);
+	srcpos = sd.sos_pos;
+
+	// Insert DHT segment
+	if(!sd.found_dht) {
+		dbuf_write(outf, default_dht_data, DE_ARRAYCOUNT(default_dht_data));
+	}
+
+	// Copy the rest of the file
+	dbuf_copy(c->infile, srcpos, c->infile->len-srcpos, outf);
 
 done:
 	if(need_errmsg) {
