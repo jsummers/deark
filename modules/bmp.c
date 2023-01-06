@@ -988,12 +988,15 @@ struct de_scan_jpeg_data_ctx {
 	u8 found_sof;
 	u8 found_jfif;
 	u8 found_pic;
+	u8 found_8bim;
 	i64 soi_pos;
 	i64 sos_pos;
 	i64 sof_pos;
 	i64 jfif_pos;
 	i64 pic_pos;
 	i64 pic_len;
+	i64 _8bim_pos;
+	i64 _8bim_len;
 };
 
 // Caller initializes scan_jpeg_data_ctx.
@@ -1063,6 +1066,15 @@ static void de_scan_jpeg_data(deark *c, dbuf *f, i64 pos1, i64 len,
 				}
 			}
 			break;
+		case 0xe2: // APP2
+			if(seg_len>8 && !sd->found_8bim) {
+				if(!dbuf_memcmp(f, seg_startpos+4, "8BIM", 4)) {
+					sd->found_8bim = 1;
+					sd->_8bim_pos = seg_startpos;
+					sd->_8bim_len = seg_len;
+				}
+			}
+			break;
 		case 0xc0: case 0xc1: case 0xc2: case 0xc3:
 		case 0xc5: case 0xc6: case 0xc7:
 		case 0xc9: case 0xca: case 0xcb:
@@ -1090,7 +1102,8 @@ static void picjpeg_scale_qtable(u8 tbl[64], UI setting)
 		// The denominator 32 might not be exactly right, but assuming this is
 		// the right idea, it's not too far off.
 		x = (x * setting)/32;
-		if(x>255) x=255;
+		if(x>255) x = 255;
+		else if(x<1) x = 1;
 		tbl[i] = x;
 	}
 }
@@ -1180,6 +1193,19 @@ static void de_run_picjpeg(deark *c, de_module_params *mparams)
 	dbuf_copy(c->infile, srcpos, sd.pic_pos-srcpos, outf);
 
 	srcpos = sd.pic_pos + sd.pic_len; // Skip the PIC segment
+
+	// Convert the Photoshop Resources segment to a more standard format
+	if(sd.found_8bim && sd._8bim_pos>=srcpos && sd._8bim_pos<sd.sof_pos) {
+		// Copy everything up to 8BIM
+		dbuf_copy(c->infile, srcpos, sd._8bim_pos-srcpos, outf);
+		srcpos = sd._8bim_pos;
+
+		dbuf_writeu16be(outf, 0xffed);
+		dbuf_writeu16be(outf, 2 + 14 + (sd._8bim_len-4));
+		dbuf_write(outf, (const u8*)"Photoshop 3.0\0", 14);
+		dbuf_copy(c->infile, sd._8bim_pos+4, sd._8bim_len-4, outf);
+		srcpos = sd._8bim_pos + sd._8bim_len;
+	}
 
 	// Copy everything up to SOF
 	dbuf_copy(c->infile, srcpos, sd.sof_pos-srcpos, outf);
