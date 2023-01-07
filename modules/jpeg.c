@@ -1441,11 +1441,12 @@ static void handler_dac(deark *c, lctx *d,
 	}
 }
 
-static void dump_qtable_data(deark *c, lctx *d, i64 pos, u8 precision_code)
+static void dump_qtable_data(deark *c, lctx *d, i64 pos1, u8 precision_code)
 {
-	u8 qbuf[64];
+	UI qbuf[64];
 	i64 k;
 	de_ucstring *s = NULL;
+	const char *cfmt;
 	static const u8 zigzag[64] = {
 		 0, 1, 5, 6,14,15,27,28,
 		 2, 4, 7,13,16,26,29,42,
@@ -1458,13 +1459,29 @@ static void dump_qtable_data(deark *c, lctx *d, i64 pos, u8 precision_code)
 	};
 
 	if(c->debug_level<2) return;
-	if(precision_code!=0) return;
+	if(precision_code>1) return;
 
-	de_read(qbuf, pos, 64);
+	if(precision_code==1) {
+		i64 pos = pos1;
+
+		cfmt = " %5u";
+		for(k=0; k<64; k++) {
+			qbuf[k] = (UI)de_getu16be_p(&pos);
+		}
+	}
+	else {
+		u8 qbuf8[64];
+
+		cfmt = " %3u";
+		de_read(qbuf8, pos1, 64);
+		for(k=0; k<64; k++) {
+			qbuf[k] = (UI)qbuf8[k];
+		}
+	}
+
 	s = ucstring_create(c);
 	for(k=0; k<64; k++) {
-		ucstring_printf(s, DE_ENCODING_LATIN1, " %3u",
-			(unsigned int)qbuf[(unsigned int)zigzag[k]]);
+		ucstring_printf(s, DE_ENCODING_LATIN1, cfmt, qbuf[(UI)zigzag[k]]);
 		if(k%8==7) { // end of a debug line
 			de_dbg(c, "data:%s", ucstring_getpsz(s));
 			ucstring_empty(s);
