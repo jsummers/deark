@@ -481,7 +481,9 @@ static int decode_pixdata(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi, 
 		(bi->packing_type==0 || bi->packing_type==1) &&
 		(bi->pixelsize==1 || bi->pixelsize==2 || bi->pixelsize==4 || bi->pixelsize==8) &&
 		bi->cmpcount==1 && bi->cmpsize==bi->pixelsize) ||
-		(!bi->uses_pal && bi->packing_type==3 && bi->pixelsize==16 && bi->cmpcount==3 && bi->cmpsize==5) ||
+		(!bi->uses_pal && (bi->packing_type==1 || bi->packing_type==3) && bi->pixelsize==16
+			&& bi->cmpcount==3 && bi->cmpsize==5) ||
+		(!bi->uses_pal && bi->packing_type==1 && bi->pixelsize==16 && bi->cmpcount==3 && bi->cmpsize==5) ||
 		(!bi->uses_pal && bi->packing_type==4 && bi->pixelsize==32 && bi->cmpcount==3 && bi->cmpsize==8) ||
 		(!bi->uses_pal && bi->packing_type==4 && bi->pixelsize==32 && bi->cmpcount==4 && bi->cmpsize==8))
 	{
