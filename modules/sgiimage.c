@@ -7,6 +7,11 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_sgiimage);
 
+#define CMI_NORMAL       0
+#define CMI_RGB332       1
+#define CMI_PALETTED     2
+#define CMI_PALETTE_ONLY 3
+
 struct sgiimage_offsettab_entry {
 	u32 pos;
 	u32 len;
@@ -18,7 +23,7 @@ struct sgiimage_ctx {
 	UI bytes_per_sample;
 	UI dimension_count;
 	u32 pix_min, pix_max;
-	u32 colormap_id;
+	u32 colormap_id; // CMI_*
 	i64 width;
 	i64 height;
 	i64 num_channels;
@@ -31,6 +36,43 @@ struct sgiimage_ctx {
 	i64 total_unc_size;
 	de_ucstring *name;
 };
+
+static const char *get_cmprtype_name(u8 n)
+{
+	const char *name = NULL;
+
+	switch(n) {
+	case 0: name = "none"; break;
+	case 1: name = "RLE"; break;
+	}
+	return name?name:"?";
+}
+
+static const char *get_cmi_name(u32 n)
+{
+	const char *name = NULL;
+
+	switch(n) {
+	case CMI_NORMAL: name = "normal image"; break;
+	case CMI_RGB332: name = "RGB332"; break;
+	case CMI_PALETTED: name = "paletted"; break;
+	case CMI_PALETTE_ONLY: name = "palette only"; break;
+	}
+	return name?name:"?";
+}
+
+static UI sgiimage_getsample_p(struct sgiimage_ctx *d, dbuf *f, i64 *ppos)
+{
+	UI s;
+
+	if(d->bytes_per_sample==2) {
+		s = (UI)dbuf_getu16be_p(f, ppos);
+	}
+	else {
+		s = dbuf_getbyte_p(f, ppos);
+	}
+	return s;
+}
 
 static void sgiimage_decode_image(deark *c, struct sgiimage_ctx *d,
 	dbuf *inf, i64 pos1, de_bitmap *img)
@@ -51,9 +93,17 @@ static void sgiimage_decode_image(deark *c, struct sgiimage_ctx *d,
 
 		for(j=0; j<d->height; j++) {
 			for(i=0; i<d->width; i++) {
+				UI s;
 				de_colorsample b;
 
-				b = dbuf_getbyte_p(inf, &pos);
+				s = sgiimage_getsample_p(d, inf, &pos);
+				if(d->bytes_per_sample==2) {
+					b = (de_colorsample)(s>>8);
+				}
+				else {
+					b = (de_colorsample)s;
+				}
+
 				if(is_gray_channel) {
 					de_bitmap_setpixel_gray(img, i, j, b);
 				}
@@ -87,26 +137,36 @@ static void sgiimage_decompress_rle_scanline(deark *c,
 	}
 
 	while(1) {
-		UI b;
+		UI n;
 		i64 count;
 
 		if(curpos >= endpos) break; // end of input
 		if(num_dcmpr_bytes >= d->rowspan) break; // sufficient output
 
-		b = de_getbyte_p(&curpos);
-		count = (i64)(b & 0x7f);
+		n = sgiimage_getsample_p(d, c->infile, &curpos);
+		//b = de_getbyte_p(&curpos);
+		count = (i64)(n & 0x7f);
 		if(count==0) break;
-		if(b >= 0x80) { // noncompressed run
-			dbuf_copy(c->infile, curpos, count, unc_pixels);
-			curpos += count;
+		if(n & 0x80) { // noncompressed run
+			dbuf_copy(c->infile, curpos, count*d->bytes_per_sample, unc_pixels);
+			curpos += count*d->bytes_per_sample;
 		}
 		else { // RLE run
-			u8 b2;
+			UI n2;
 
-			b2 = de_getbyte_p(&curpos);
-			dbuf_write_run(unc_pixels, b2, count);
+			n2 = sgiimage_getsample_p(d, c->infile, &curpos);
+			if(d->bytes_per_sample==2) {
+				i64 k2;
+
+				for(k2=0; k2<count; k2++) {
+					dbuf_writeu16be(unc_pixels, (i64)n2);
+				}
+			}
+			else {
+				dbuf_write_run(unc_pixels, (u8)n2, count);
+			}
 		}
-		num_dcmpr_bytes += count;
+		num_dcmpr_bytes += count*d->bytes_per_sample;
 	}
 
 done:
@@ -188,6 +248,15 @@ static void do_sgiimage_image(deark *c, struct sgiimage_ctx *d)
 
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
+	if(d->pix_max>0 && (
+		(d->bytes_per_sample==1 && d->pix_max<24) ||
+		(d->bytes_per_sample==2 && d->pix_max<24*256)))
+	{
+		// If pix_max is to be believed, this image likely needs its brightness
+		// adjusted.
+		de_warn(c, "This image might need special processing (not supported).");
+	}
+
 	img = de_bitmap_create(c, d->width, d->height, (int)d->num_channels);
 
 	d->rowspan = d->width * d->bytes_per_sample;
@@ -230,7 +299,8 @@ static void de_run_sgiimage(deark *c, de_module_params *mparams)
 
 	pos = 2;
 	d->storage_fmt = de_getbyte_p(&pos);
-	de_dbg(c, "compression: %u", (UI)d->storage_fmt);
+	de_dbg(c, "compression: %u (%s)", (UI)d->storage_fmt,
+		get_cmprtype_name(d->storage_fmt));
 
 	d->bytes_per_sample = (UI)de_getbyte_p(&pos);
 	de_dbg(c, "bytes/sample: %u", d->bytes_per_sample);
@@ -249,11 +319,8 @@ static void de_run_sgiimage(deark *c, de_module_params *mparams)
 	d->pix_max = (u32)de_getu32be_p(&pos);
 	de_dbg(c, "pix min, max: %u, %u", (UI)d->pix_min, (UI)d->pix_max);
 	// TODO?: Support normalizing the image brightness/contrast.
-	// Unfortunately, the spec is ambiguous about the meaning of these fields.
-	// For 8-bit samples, it probably isn't necessary to do anything, though I
-	// have found just a few too-dark images that might expect you to normalize
-	// them. When/if we support 16-bit samples, it might be more important to
-	// do something.
+	// Unfortunately, the spec is ambiguous about the meaning of these fields,
+	// and there's no simple logic that would always do the right thing.
 
 	pos += 4; // unused
 
@@ -264,19 +331,21 @@ static void de_run_sgiimage(deark *c, de_module_params *mparams)
 	pos += 80;
 
 	d->colormap_id = (u32)de_getu32be_p(&pos);
-	de_dbg(c, "colormap code: %u", (UI)d->colormap_id);
+	de_dbg(c, "colormap code: %u (%s)", (UI)d->colormap_id,
+		get_cmi_name(d->colormap_id));
 
 	if(d->storage_fmt>1) {
 		need_errmsg = 1;
 		goto done;
 	}
-	if(d->colormap_id!=0) {
-		// TODO: Support type 1 (RGB332), if such images exist.
+
+	if(d->colormap_id!=CMI_NORMAL) {
+		// TODO: Support other image types?
 		need_errmsg = 1;
 		goto done;
 	}
-	else if(d->bytes_per_sample!=1) {
-		// TODO: Support 2 bytes/sample.
+
+	if(d->bytes_per_sample!=1 && d->bytes_per_sample!=2) {
 		need_errmsg = 1;
 		goto done;
 	}
