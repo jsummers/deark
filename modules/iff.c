@@ -22,6 +22,7 @@ DE_DECLARE_MODULE(de_module_midi);
 #define CODE_8SVX  0x38535658U
 #define CODE_AIFF  0x41494646U
 #define CODE_ANNO  0x414e4e4fU
+#define CODE_AT_T  0x41542654U
 #define CODE_BODY  0x424f4459U
 #define CODE_CAT   0x43415420U
 #define CODE_CAT4  0x43415434U
@@ -306,26 +307,48 @@ done:
 	return 1;
 }
 
-static int identify_internal(deark *c, int *confidence)
+static int identify_internal(deark *c, int *pconfidence)
 {
-	u8 buf[8];
+	UI n1, n2, n4;
 
-	de_read(buf, 0, sizeof(buf));
+	n1 = (UI)de_getu32be(0);
+	n2 = (UI)de_getu32be(4);
 
-	if(!de_memcmp(buf, (const u8*)"FORM", 4)) {
-		if(confidence) *confidence = 9;
-		return FMT_FORM;
-	}
-	if(!de_memcmp(buf, (const u8*)"FOR4", 4)) {
-		if(confidence) *confidence = 25;
-		return FMT_FOR4;
-	}
-	if(!de_memcmp(buf, (const u8*)"AT&TFORM", 8)) {
-		if(confidence) *confidence = 100;
+	if(n1==CODE_AT_T && n2==CODE_FORM) {
+		*pconfidence = 100;
 		return FMT_DJVU;
 	}
 
-	if(confidence) *confidence = 0;
+	if(n1==CODE_FOR4) {
+		*pconfidence = 25;
+		return FMT_FOR4;
+	}
+
+	// Try to screen out plain text files.
+	if(n2>=0x20202020U && c->infile->len<0x20000000) goto done_nomatch;
+
+	if(n1==CODE_FORM) {
+		// Must use a lower confidence than other IFF-like formats
+		// (ilbm, anim, cdi_imag, nsl, ...).
+		*pconfidence = 9;
+		return FMT_FORM;
+	}
+
+	if(n1==CODE_CAT) {
+		n4 = (UI)de_getu32be(12);
+		if(n4==CODE_FORM) {
+			*pconfidence = 19;
+			return FMT_FORM;
+		}
+		*pconfidence = 9;
+		return FMT_FORM;
+	}
+
+	// TODO: LIST. (The problem is that the only LIST files I've found don't seem
+	// to conform to the spec.)
+
+done_nomatch:
+	*pconfidence = 0;
 	return 0;
 }
 
@@ -335,6 +358,7 @@ static void de_run_iff(deark *c, de_module_params *mparams)
 	struct de_iffctx *ictx = NULL;
 	const char *s;
 	i64 pos;
+	int confidence = 0;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -342,7 +366,7 @@ static void de_run_iff(deark *c, de_module_params *mparams)
 	ictx->has_standard_iff_chunks = 1;
 	ictx->alignment = 2; // default
 
-	d->fmt = identify_internal(c, NULL);
+	d->fmt = identify_internal(c, &confidence);
 
 	if(d->fmt==FMT_FOR4) {
 		ictx->alignment = 4;
