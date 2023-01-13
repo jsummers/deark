@@ -13,6 +13,7 @@ DE_DECLARE_MODULE(de_module_xbin);
 DE_DECLARE_MODULE(de_module_bintext);
 DE_DECLARE_MODULE(de_module_artworx_adf);
 DE_DECLARE_MODULE(de_module_icedraw);
+DE_DECLARE_MODULE(de_module_thedraw_com);
 
 typedef struct localctx_struct {
 	i64 width_in_chars, height_in_chars;
@@ -683,5 +684,99 @@ void de_module_icedraw(deark *c, struct deark_module_info *mi)
 	mi->desc = "iCEDraw character graphics format";
 	mi->run_fn = de_run_icedraw;
 	mi->identify_fn = de_identify_icedraw;
+	mi->flags |= DE_MODFLAG_NONWORKING;
+}
+
+////////////////////// TheDraw COM //////////////////////
+
+struct thedrawcom_ctx {
+	lctx *d;
+	struct de_char_context *charctx;
+	dbuf *unc_data;
+	struct de_crcobj *crco;
+	i64 screen_offset_raw;
+	i64 data_pos;
+	u8 need_errmsg;
+};
+
+static void de_run_thedraw_com(deark *c, de_module_params *mparams)
+{
+	struct thedrawcom_ctx *tdc = NULL;
+	u32 cv;
+
+	tdc = de_malloc(c, sizeof(struct thedrawcom_ctx));
+	tdc->d = de_malloc(c, sizeof(lctx));
+	tdc->charctx = de_create_charctx(c, 0);
+
+	tdc->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	de_crcobj_addslice(tdc->crco, c->infile, 9, 167);
+	cv = de_crcobj_getval(tdc->crco);
+
+	// TODO: This is just a start. It supports only the most basic, original format.
+
+	if(cv==0xbcb699c5U) {
+		if(de_getbyte(3)!=0) {
+			tdc->need_errmsg = 1;
+			goto done;
+		}
+		tdc->d->height_in_chars = (i64)de_getbyte(4);
+		tdc->d->width_in_chars = (i64)de_getbyte(5);
+		de_dbg_dimensions(c, tdc->d->width_in_chars, tdc->d->height_in_chars);
+		if(tdc->d->width_in_chars<1 || tdc->d->height_in_chars<1) {
+			tdc->need_errmsg = 1;
+			goto done;
+		}
+		if(de_getbyte(6)!=0) {
+			tdc->need_errmsg = 1;
+			goto done;
+		}
+
+		tdc->screen_offset_raw = de_getu16le(7);
+		// TODO? The offset is relevant if just a block, instead of a whole
+		// screen, was saved.
+		// We could artificially pad the image with spaces above/left/right in
+		// that case.
+
+		tdc->data_pos = 176;
+	}
+
+	if(tdc->d->width_in_chars<1) {
+		tdc->need_errmsg = 1;
+		goto done;
+	}
+
+	tdc->unc_data = dbuf_open_input_subfile(c->infile, tdc->data_pos, c->infile->len-tdc->data_pos);
+	do_default_palette(c, tdc->d, tdc->charctx);
+	do_bin_main(c, tdc->d, tdc->unc_data, tdc->charctx);
+
+done:
+	if(tdc) {
+		if(tdc->need_errmsg) {
+			de_err(c, "Unsupported format variant");
+		}
+
+		dbuf_close(tdc->unc_data);
+		if(tdc->charctx) {
+			de_free_charctx_screens(c, tdc->charctx);
+			de_destroy_charctx(c, tdc->charctx);
+		}
+		de_crcobj_destroy(tdc->crco);
+		free_lctx(c, tdc->d);
+	}
+}
+
+static int de_identify_thedraw_com(deark *c)
+{
+	if(de_getbyte(0)!=0xeb) return 0;
+	if(dbuf_memcmp(c->infile, 9, (const void*)"TheDraw COM file", 16)) return 0;
+	return 100;
+}
+
+void de_module_thedraw_com(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "thedraw_com";
+	mi->desc = "TheDraw COM file";
+	mi->run_fn = de_run_thedraw_com;
+	mi->identify_fn = de_identify_thedraw_com;
 	mi->flags |= DE_MODFLAG_NONWORKING;
 }
