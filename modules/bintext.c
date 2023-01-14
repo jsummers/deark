@@ -689,64 +689,273 @@ void de_module_icedraw(deark *c, struct deark_module_info *mi)
 
 ////////////////////// TheDraw COM //////////////////////
 
+struct thedrawcom_dcmpr_state {
+	u8 prescan_mode;
+	u8 curr_fg_code;
+	u8 curr_bg_code;
+	u8 curr_blink_code;
+	i64 next_xpos, next_ypos;
+	i64 max_xpos, max_ypos;
+	i64 ypos_of_last_nonblank;
+};
+
 struct thedrawcom_ctx {
 	lctx *d;
 	struct de_char_context *charctx;
 	dbuf *unc_data;
 	struct de_crcobj *crco;
-	i64 screen_offset_raw;
+	i64 screen_pos_raw;
 	i64 data_pos;
+	u8 errflag;
 	u8 need_errmsg;
+	u8 fmt_code;
+	i64 cmpr_len;
+	struct thedrawcom_dcmpr_state dc;
 };
+
+#define THEDRAWCOM_MAX_WIDTH   160
+#define THEDRAWCOM_MAX_HEIGHT  200
+
+static void tdc_decrunch_emit_char(deark *c, struct thedrawcom_ctx *tdc, u8 ch)
+{
+	if(!tdc->dc.prescan_mode) {
+		dbuf_writebyte(tdc->unc_data, ch);
+		dbuf_writebyte(tdc->unc_data, (u8)(tdc->dc.curr_blink_code |
+			tdc->dc.curr_bg_code | tdc->dc.curr_fg_code));
+	}
+	if(tdc->dc.next_xpos > tdc->dc.max_xpos) {
+		tdc->dc.max_xpos = tdc->dc.next_xpos;
+	}
+	if(tdc->dc.next_ypos > tdc->dc.max_ypos) {
+		tdc->dc.max_ypos = tdc->dc.next_ypos;
+	}
+	if(ch!=0 && ch!=32 && tdc->dc.next_ypos>tdc->dc.ypos_of_last_nonblank) {
+		tdc->dc.ypos_of_last_nonblank = tdc->dc.next_ypos;
+	}
+	tdc->dc.next_xpos++;
+}
+
+// Based on the description in UNCRUNCH.ASM from TheDraw 4.xx.
+static void thedrawcom_decrunch(deark *c, struct thedrawcom_ctx *tdc, u8 prescan_mode)
+{
+	i64 pos = tdc->data_pos;
+	i64 endpos = tdc->data_pos + tdc->cmpr_len;
+	struct thedrawcom_dcmpr_state *dc = &tdc->dc;
+
+	de_zeromem(dc, sizeof(struct thedrawcom_dcmpr_state));
+	dc->prescan_mode = prescan_mode;
+	dc->curr_fg_code = 0xf;
+
+	if(endpos > c->infile->len) {
+		tdc->errflag = 1;
+		tdc->need_errmsg = 1;
+		goto done;
+	}
+
+	if(!tdc->unc_data) {
+		tdc->unc_data = dbuf_create_membuf(c, 80*2*25, 0);
+		dbuf_set_length_limit(tdc->unc_data,
+			THEDRAWCOM_MAX_WIDTH*2*THEDRAWCOM_MAX_HEIGHT);
+		dbuf_enable_wbuffer(tdc->unc_data);
+	}
+
+	while(1) {
+		u8 b0, b1, b2;
+		i64 k;
+
+		if(tdc->errflag) goto done;
+		if(pos >= endpos) break;
+
+		b0 = de_getbyte_p(&pos);
+
+		if(b0>=32) {
+			tdc_decrunch_emit_char(c, tdc, b0);
+			continue;
+		}
+		if(b0<=15) {
+			dc->curr_fg_code = b0;
+		}
+		else if(b0<=23) {
+			dc->curr_bg_code = (b0-16)<<4;
+		}
+		else if(b0==24) { // Newline
+
+			dc->next_ypos++;
+			dc->next_xpos = 0;
+
+			if(!dc->prescan_mode) {
+				i64 expected_len;
+				i64 actual_len;
+
+				// Make sure we're in the right place in the decompressed data.
+				expected_len = tdc->d->width_in_chars * 2 * dc->next_ypos;
+				actual_len = dbuf_get_length(tdc->unc_data);
+				if(actual_len != expected_len) {
+					// It would be better to pad with spaces, but in practice
+					// this doesn't happen.
+					dbuf_truncate(tdc->unc_data, expected_len);
+				}
+			}
+		}
+		else if(b0==25) { // Run of spaces
+			b1 = de_getbyte_p(&pos);
+			for(k=0; k<(i64)b1+1; k++) {
+				tdc_decrunch_emit_char(c, tdc, 32);
+			}
+		}
+		else if(b0==26) { // Run of an arbitrary character
+			b1 = de_getbyte_p(&pos);
+			b2 = de_getbyte_p(&pos);
+			for(k=0; k<(i64)b1+1; k++) {
+				tdc_decrunch_emit_char(c, tdc, b2);
+			}
+		}
+		else if(b0==27) { // Toggle blink mode
+			dc->curr_blink_code = (dc->curr_blink_code==0) ? 0x80 : 0x00;
+		}
+		else { // Unknown opcode
+			tdc->errflag = 1;
+			tdc->need_errmsg = 1;
+			goto done;
+		}
+	}
+
+	// Decompression finished normally
+
+	if((dc->max_xpos+1 > THEDRAWCOM_MAX_WIDTH) ||
+		(dc->max_ypos+1 > THEDRAWCOM_MAX_HEIGHT))
+	{
+		tdc->errflag = 1;
+		tdc->need_errmsg = 1;
+		goto done;
+	}
+
+	if(dc->prescan_mode && !tdc->errflag) {
+		de_dbg(c, "number of rows: %d", (int)(dc->max_ypos+1));
+		de_dbg(c, "last nonblank row: %d", (int)dc->ypos_of_last_nonblank);
+		tdc->d->width_in_chars = dc->max_xpos + 1;
+
+		if(dc->max_ypos>24) {
+			tdc->d->height_in_chars = dc->ypos_of_last_nonblank + 1;
+		}
+		else {
+			tdc->d->height_in_chars = dc->max_ypos + 1;
+		}
+
+		de_dbg_dimensions(c, tdc->d->width_in_chars, tdc->d->height_in_chars);
+	}
+
+done:
+	dbuf_flush(tdc->unc_data);
+
+	if(tdc->need_errmsg) {
+		de_err(c, "Decompression failed");
+		tdc->need_errmsg = 0;
+		tdc->errflag = 1;
+	}
+
+}
 
 static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 {
 	struct thedrawcom_ctx *tdc = NULL;
 	u32 cv;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	tdc = de_malloc(c, sizeof(struct thedrawcom_ctx));
 	tdc->d = de_malloc(c, sizeof(lctx));
 	tdc->charctx = de_create_charctx(c, 0);
+	do_default_palette(c, tdc->d, tdc->charctx);
 
-	tdc->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-	de_crcobj_addslice(tdc->crco, c->infile, 9, 167);
-	cv = de_crcobj_getval(tdc->crco);
-
-	// TODO: This is just a start. It supports only the most basic, original format.
-
-	if(cv==0xbcb699c5U) {
-		if(de_getbyte(3)!=0) {
-			tdc->need_errmsg = 1;
-			goto done;
-		}
-		tdc->d->height_in_chars = (i64)de_getbyte(4);
-		tdc->d->width_in_chars = (i64)de_getbyte(5);
-		de_dbg_dimensions(c, tdc->d->width_in_chars, tdc->d->height_in_chars);
-		if(tdc->d->width_in_chars<1 || tdc->d->height_in_chars<1) {
-			tdc->need_errmsg = 1;
-			goto done;
-		}
-		if(de_getbyte(6)!=0) {
-			tdc->need_errmsg = 1;
-			goto done;
-		}
-
-		tdc->screen_offset_raw = de_getu16le(7);
-		// TODO? The offset is relevant if just a block, instead of a whole
-		// screen, was saved.
-		// We could artificially pad the image with spaces above/left/right in
-		// that case.
-
-		tdc->data_pos = 176;
-	}
-
-	if(tdc->d->width_in_chars<1) {
+	if(de_getbyte(2)!=144) {
 		tdc->need_errmsg = 1;
 		goto done;
 	}
 
-	tdc->unc_data = dbuf_open_input_subfile(c->infile, tdc->data_pos, c->infile->len-tdc->data_pos);
-	do_default_palette(c, tdc->d, tdc->charctx);
+	tdc->fmt_code = de_getbyte(6);
+	de_dbg(c, "format version: %u", (UI)tdc->fmt_code);
+	if(tdc->fmt_code!=0 && tdc->fmt_code!=2) {
+		tdc->need_errmsg = 1;
+		goto done;
+	}
+
+	tdc->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+
+	if(tdc->fmt_code==2) {
+		de_crcobj_addslice(tdc->crco, c->infile, 9, 231);
+	}
+	else {
+		de_crcobj_addslice(tdc->crco, c->infile, 9, 167);
+	}
+
+	cv = de_crcobj_getval(tdc->crco);
+
+	if(tdc->fmt_code==2) {
+		if(cv!=0xe3a722b2U) {
+			tdc->need_errmsg = 1;
+			goto done;
+		}
+	}
+	else {
+		if(cv!=0xbcb699c5U) {
+			tdc->need_errmsg = 1;
+			goto done;
+		}
+	}
+
+	if(tdc->fmt_code==0) {
+		tdc->d->height_in_chars = (i64)de_getbyte(4);
+		tdc->d->width_in_chars = (i64)de_getbyte(5);
+		de_dbg_dimensions(c, tdc->d->width_in_chars, tdc->d->height_in_chars);
+	}
+
+	if(tdc->fmt_code==2) {
+		tdc->cmpr_len = de_getu16le(4);
+		de_dbg(c, "cmpr len: %"I64_FMT, tdc->cmpr_len);
+	}
+
+	tdc->screen_pos_raw = de_geti16le(7);
+	de_dbg(c, "screen pos: %d", (int)tdc->screen_pos_raw);
+	// TODO? The screen pos is relevant if just a block, instead of a whole
+	// screen, was saved.
+	// We could artificially pad the image with spaces above/left/right in
+	// that case.
+
+	if(tdc->fmt_code==2) {
+		tdc->data_pos = 240;
+	}
+	else {
+		tdc->data_pos = 176;
+	}
+	de_dbg(c, "data pos: %"I64_FMT, tdc->data_pos);
+
+	if(tdc->fmt_code==0) {
+		if(tdc->d->width_in_chars<1 || tdc->d->height_in_chars<1) {
+			tdc->need_errmsg = 1;
+			goto done;
+		}
+		tdc->unc_data = dbuf_open_input_subfile(c->infile, tdc->data_pos,
+			c->infile->len-tdc->data_pos);
+	}
+	else if(tdc->fmt_code==2) {
+		de_dbg(c, "decompressing");
+		de_dbg_indent(c, 1);
+		// The first decompression is to figure out the dimensions.
+		thedrawcom_decrunch(c, tdc, 1);
+		if(tdc->errflag) goto done;
+		thedrawcom_decrunch(c, tdc, 0);
+		if(tdc->errflag) goto done;
+		de_dbg_indent(c, -1);
+	}
+
+
+	if(!tdc->unc_data) {
+		tdc->need_errmsg = 1;
+		goto done;
+	}
+
+	if(tdc->errflag) goto done;
 	do_bin_main(c, tdc->d, tdc->unc_data, tdc->charctx);
 
 done:
@@ -763,6 +972,7 @@ done:
 		de_crcobj_destroy(tdc->crco);
 		free_lctx(c, tdc->d);
 	}
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static int de_identify_thedraw_com(deark *c)
@@ -778,5 +988,4 @@ void de_module_thedraw_com(deark *c, struct deark_module_info *mi)
 	mi->desc = "TheDraw COM file";
 	mi->run_fn = de_run_thedraw_com;
 	mi->identify_fn = de_identify_thedraw_com;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }
