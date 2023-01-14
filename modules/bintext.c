@@ -1004,6 +1004,17 @@ static int de_identify_thedraw_com(deark *c)
 		if(!dbuf_memcmp(c->infile, 0x3f,
 			(const void*)"\xb4\x0f\xcd\x10\x8c\xcb\x8e\xdb\xbb\x00", 10))
 		{
+			// An extra check to defend against lookalike formats, particularly
+			// P-Screen (search for pscrn_55.zip).
+			if(de_getbyte(0x3f+76)==0xad) {
+				return 40;
+			}
+		}
+	}
+	else if(n2==1) {
+		if(!dbuf_memcmp(c->infile, 0x1a,
+			(const void*)"\xb4\x0f\xcd\x10\x8b\x3e\x07\x01\xbe\x5e", 10))
+		{
 			return 40;
 		}
 	}
@@ -1014,7 +1025,6 @@ static int de_identify_thedraw_com(deark *c)
 			return 40;
 		}
 	}
-	// (Not doing advanced checking for subtype 1. It's presumably very rare.)
 
 	return 0;
 }
