@@ -539,6 +539,9 @@ Deark -- Information about supported formats
 
 * TGA (Targa) (module="tga")
 
+* TheDraw COM (module="thedraw_com")
+  Executable character graphics format made by TheDraw.
+
 * Thumbs.db (Windows thumbnail) (part of module "cfb")
   - Extract thumbnail files (embedded JPEG or PNG files)
   - Some thumbnails use a nonstandard RGBA format. These are not converted to

@@ -708,8 +708,11 @@ struct thedrawcom_ctx {
 	i64 data_pos;
 	u8 errflag;
 	u8 need_errmsg;
-	u8 fmt_code;
+	u8 fmt_subtype;
 	i64 cmpr_len;
+	i64 viewer_start;
+	i64 viewer_len;
+	u32 viewer_expected_crc;
 	struct thedrawcom_dcmpr_state dc;
 };
 
@@ -853,7 +856,6 @@ done:
 		tdc->need_errmsg = 0;
 		tdc->errflag = 1;
 	}
-
 }
 
 static void de_run_thedraw_com(deark *c, de_module_params *mparams)
@@ -868,49 +870,59 @@ static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 	tdc->charctx = de_create_charctx(c, 0);
 	do_default_palette(c, tdc->d, tdc->charctx);
 
-	if(de_getbyte(2)!=144) {
-		tdc->need_errmsg = 1;
-		goto done;
-	}
+	tdc->fmt_subtype = de_getbyte(6);
+	de_dbg(c, "format subtype: %u", (UI)tdc->fmt_subtype);
 
-	tdc->fmt_code = de_getbyte(6);
-	de_dbg(c, "format version: %u", (UI)tdc->fmt_code);
-	if(tdc->fmt_code!=0 && tdc->fmt_code!=2) {
-		tdc->need_errmsg = 1;
+	tdc->viewer_start = 2 + (i64)de_getbyte(1);
+	de_dbg2(c, "viewer pos: %"I64_FMT, tdc->viewer_start);
+
+	if(tdc->fmt_subtype==0) {
+		tdc->viewer_len = 113;
+		tdc->viewer_expected_crc = 0x440affaeU;
+		tdc->data_pos = 176;
+	}
+	else if(tdc->fmt_subtype==1) {
+		tdc->viewer_len = 68;
+		tdc->viewer_expected_crc = 0xe427d2e3U;
+		tdc->data_pos = 94;
+	}
+	else if(tdc->fmt_subtype==2) {
+		tdc->viewer_len = 177;
+		tdc->viewer_expected_crc = 0x492a698d;
+		tdc->data_pos = 240;
+	}
+	else {
+		de_err(c, "Unsupported format subtype: %u", (UI)tdc->fmt_subtype);
 		goto done;
 	}
 
 	tdc->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-
-	if(tdc->fmt_code==2) {
-		de_crcobj_addslice(tdc->crco, c->infile, 9, 231);
-	}
-	else {
-		de_crcobj_addslice(tdc->crco, c->infile, 9, 167);
-	}
+	de_crcobj_addslice(tdc->crco, c->infile, tdc->viewer_start, tdc->viewer_len);
 
 	cv = de_crcobj_getval(tdc->crco);
-
-	if(tdc->fmt_code==2) {
-		if(cv!=0xe3a722b2U) {
-			tdc->need_errmsg = 1;
-			goto done;
-		}
-	}
-	else {
-		if(cv!=0xbcb699c5U) {
-			tdc->need_errmsg = 1;
-			goto done;
-		}
+	de_dbg2(c, "viewer crc: 0x%08x", (UI)cv);
+	if(cv != tdc->viewer_expected_crc) {
+		de_warn(c, "Unrecognized format variant. This file might not be "
+			"decoded correctly.");
 	}
 
-	if(tdc->fmt_code==0) {
+	if(tdc->fmt_subtype==0) {
 		tdc->d->height_in_chars = (i64)de_getbyte(4);
 		tdc->d->width_in_chars = (i64)de_getbyte(5);
 		de_dbg_dimensions(c, tdc->d->width_in_chars, tdc->d->height_in_chars);
 	}
 
-	if(tdc->fmt_code==2) {
+	if(tdc->fmt_subtype==1) {
+		i64 nchars;
+
+		tdc->d->width_in_chars = 80;
+		nchars = de_getu16le(4);
+		de_dbg(c, "num. chars: %"I64_FMT, nchars);
+		tdc->d->height_in_chars = de_pad_to_n(nchars, 80)/80;
+		de_dbg_dimensions(c, tdc->d->width_in_chars, tdc->d->height_in_chars);
+	}
+
+	if(tdc->fmt_subtype==2) {
 		tdc->cmpr_len = de_getu16le(4);
 		de_dbg(c, "cmpr len: %"I64_FMT, tdc->cmpr_len);
 	}
@@ -922,23 +934,9 @@ static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 	// We could artificially pad the image with spaces above/left/right in
 	// that case.
 
-	if(tdc->fmt_code==2) {
-		tdc->data_pos = 240;
-	}
-	else {
-		tdc->data_pos = 176;
-	}
 	de_dbg(c, "data pos: %"I64_FMT, tdc->data_pos);
 
-	if(tdc->fmt_code==0) {
-		if(tdc->d->width_in_chars<1 || tdc->d->height_in_chars<1) {
-			tdc->need_errmsg = 1;
-			goto done;
-		}
-		tdc->unc_data = dbuf_open_input_subfile(c->infile, tdc->data_pos,
-			c->infile->len-tdc->data_pos);
-	}
-	else if(tdc->fmt_code==2) {
+	if(tdc->fmt_subtype==2) {
 		de_dbg(c, "decompressing");
 		de_dbg_indent(c, 1);
 		// The first decompression is to figure out the dimensions.
@@ -948,9 +946,12 @@ static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 		if(tdc->errflag) goto done;
 		de_dbg_indent(c, -1);
 	}
+	else {
+		tdc->unc_data = dbuf_open_input_subfile(c->infile, tdc->data_pos,
+			c->infile->len-tdc->data_pos);
+	}
 
-
-	if(!tdc->unc_data) {
+	if(!tdc->unc_data || tdc->d->width_in_chars<1 || tdc->d->height_in_chars<1) {
 		tdc->need_errmsg = 1;
 		goto done;
 	}
@@ -961,7 +962,7 @@ static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 done:
 	if(tdc) {
 		if(tdc->need_errmsg) {
-			de_err(c, "Unsupported format variant");
+			de_err(c, "Failed to decode this file");
 		}
 
 		dbuf_close(tdc->unc_data);
@@ -977,9 +978,45 @@ done:
 
 static int de_identify_thedraw_com(deark *c)
 {
-	if(de_getbyte(0)!=0xeb) return 0;
-	if(dbuf_memcmp(c->infile, 9, (const void*)"TheDraw COM file", 16)) return 0;
-	return 100;
+	u8 n1, n2;
+
+	n1 = de_getbyte(0);
+	if(n1!=0xeb) return 0;
+
+	n1 = de_getbyte(1);
+	n2 = de_getbyte(6);
+	// Check format subtype & viewer start position.
+	if((n2==0 && n1==0x3d) ||
+		(n2==1 && n1==0x18) ||
+		(n2==2 && n1==0x3d))
+	{
+		;
+	}
+	else {
+		return 0;
+	}
+
+	if(!dbuf_memcmp(c->infile, 9, (const void*)"TheDraw COM file", 16)) {
+		return 100;
+	}
+
+	if(n2==0) {
+		if(!dbuf_memcmp(c->infile, 0x3f,
+			(const void*)"\xb4\x0f\xcd\x10\x8c\xcb\x8e\xdb\xbb\x00", 10))
+		{
+			return 40;
+		}
+	}
+	else if(n2==2) {
+		if(!dbuf_memcmp(c->infile, 0x3f,
+			(const void*)"\xb4\x0f\xcd\x10\xbb\x00\xb8\x3c\x02\x74", 10))
+		{
+			return 40;
+		}
+	}
+	// (Not doing advanced checking for subtype 1. It's presumably very rare.)
+
+	return 0;
 }
 
 void de_module_thedraw_com(deark *c, struct deark_module_info *mi)
