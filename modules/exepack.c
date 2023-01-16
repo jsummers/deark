@@ -163,7 +163,7 @@ static void find_decoder_len(deark *c, lctx *d)
 	case 2: d->decoder_len = 279; break;
 	case 3: d->decoder_len = 277; break;
 	case 4: case 10: d->decoder_len = 283; break;
-	case 5: d->decoder_len = 290; break;
+	case 5: case 6: d->decoder_len = 290; break;
 	}
 	method = 3;
 
@@ -305,7 +305,8 @@ static const char *get_variant_name(u8 v)
 	case 2: name="EXEPACK 4.03"; break;
 	case 3: name="LINK 3.60/etc."; break;
 	case 4: name="EXEPACK 4.05/4.06"; break;
-	case 5: name="LINK 5.60/etc."; break;
+	case 5: name="LINK 5.60/etc. var. 1"; break;
+	case 6: name="LINK 5.60/etc. var. 2"; break;
 	case 10: name="exepack_DF"; break;
 	case 11: name="EXPAKFIX-patched"; break;
 	}

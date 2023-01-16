@@ -1610,6 +1610,10 @@ static void detect_execomp_exepack(deark *c, struct execomp_ctx *ectx,
 		edd->detected_subfmt = 5;
 		goto done;
 	}
+	else if(ei->entrypoint_crcs==0xb11baad36c16ee72LLU) {
+		edd->detected_subfmt = 6;
+		goto done;
+	}
 	else if(ei->entrypoint_crcs==0x4e04abaac5d3b465LLU) {
 		edd->detected_subfmt = 4;
 		goto done;
