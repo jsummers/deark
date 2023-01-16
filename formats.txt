@@ -1049,6 +1049,8 @@ Deark -- Information about supported formats
 * IFF (Interchange File Format) (module="iff")
   - IFF can be parsed, but in many cases nothing can be extracted from it.
   Options
+   -opt iff:decode=1 - Prefer to decode nested items, instead of extracting
+     them.
    -opt iff:align=<n> - Assume chunks are padded to an n-byte boundary.
 
 * IPTC-IIM metadata (module="iptc")

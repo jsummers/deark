@@ -30,6 +30,7 @@ DE_DECLARE_MODULE(de_module_midi);
 #define CODE_FOR4  0x464f5234U
 #define CODE_FORM  0x464f524dU
 #define CODE_ID3   0x49443320U
+#define CODE_ILBM  0x494c424dU
 #define CODE_INFO  0x494e464fU
 #define CODE_LIS4  0x4c495334U
 #define CODE_LIST  0x4c495354U
@@ -43,6 +44,7 @@ DE_DECLARE_MODULE(de_module_midi);
 
 typedef struct localctx_struct {
 	int fmt; // FMT_*
+	u8 decode_hint; // 0=prefer extracting to decoding
 	u32 rgfx_cmpr_meth;
 	u8 yafa_XPK;
 } lctx;
@@ -241,9 +243,34 @@ static int is_container_chunk(deark *c, lctx *d, u32 ct)
 	return 0;
 }
 
+static void extract_iff_item(deark *c, lctx *d, struct de_iffctx *ictx, const char *ext)
+{
+	i64 pos, len;
+
+	pos = ictx->chunkctx->pos;
+	// chunkctx->len isn't set correctly yet.
+	// (TODO: That's probably something that could be improved.)
+	len = 8 + de_pad_to_n(ictx->chunkctx->dlen, ictx->alignment);
+	if(pos+len >= ictx->f->len+100) return;
+	dbuf_create_file_from_slice(ictx->f, pos, len, ext, NULL, 0);
+}
+
 static int my_std_container_start_fn(struct de_iffctx *ictx)
 {
 	deark *c = ictx->c;
+	lctx *d = (lctx*)ictx->userdata;
+
+	if(ictx->level>0 && d->decode_hint==0 && ictx->chunkctx->parent) {
+		if(ictx->chunkctx->parent->chunk4cc.id==CODE_CAT) {
+			if(ictx->curr_container_fmt4cc.id==CODE_FORM) {
+				// TODO: Extract more formats.
+				if(ictx->curr_container_contentstype4cc.id==CODE_ILBM) {
+					extract_iff_item(c, d, ictx, "ilbm");
+					return 0; // = Stop processing this container
+				}
+			}
+		}
+	}
 
 	if(ictx->level==0 &&
 		ictx->curr_container_fmt4cc.id==CODE_FORM &&
@@ -372,6 +399,7 @@ static void de_run_iff(deark *c, de_module_params *mparams)
 		ictx->alignment = 4;
 	}
 
+	d->decode_hint = (u8)de_get_ext_option_bool(c, "iff:decode", 0);
 	s = de_get_ext_option(c, "iff:align");
 	if(s) {
 		ictx->alignment = de_atoi(s);
@@ -406,12 +434,12 @@ static int de_identify_iff(deark *c)
 	if(fmt!=0) {
 		return confidence;
 	}
-	// TODO: LIST, CAT formats?
 	return 0;
 }
 
 static void de_help_iff(deark *c)
 {
+	de_msg(c, "-opt iff:decode=1 : Prefer to decode instead of extract");
 	de_msg(c, "-opt iff:align=<n> : Assume chunks are padded to an n-byte boundary");
 }
 void de_module_iff(deark *c, struct deark_module_info *mi)
