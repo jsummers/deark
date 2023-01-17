@@ -812,15 +812,34 @@ void de_convert_image_paletted(dbuf *f, i64 fpos,
 {
 	i64 i, j;
 	unsigned int palent;
+	u8 mask;
 
 	if(bpp!=1 && bpp!=2 && bpp!=4 && bpp!=8) return;
 	if(!de_good_image_dimensions_noerr(f->c, img->width, img->height)) return;
 
+	mask = (1U<<(UI)bpp)-1;
+
 	for(j=0; j<img->height; j++) {
-		for(i=0; i<img->width; i++) {
-			palent = (unsigned int)de_get_bits_symbol(f, bpp, fpos+j*rowspan, i);
-			de_bitmap_setpixel_rgba(img, i, j, pal[palent]);
+		i64 pos = fpos + j*rowspan;
+
+		i = 0;
+
+		while(1) {
+			UI nbits_avail;
+			u8 b = 0;
+
+			b = dbuf_getbyte_p(f, &pos);
+			nbits_avail = 8;
+
+			while(nbits_avail >= (UI)bpp) {
+				nbits_avail -= (UI)bpp;
+				palent = (b >> nbits_avail) & mask;
+				de_bitmap_setpixel_rgba(img, i++, j, pal[palent]);
+				if(i>=img->width) goto nextrow;
+			}
 		}
+	nextrow:
+		;
 	}
 }
 
