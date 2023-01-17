@@ -47,6 +47,9 @@ typedef struct localctx_struct {
 	int is_grayscale;
 
 	u32 pal[256];
+
+	i64 src_bypp;
+	unsigned int getrgbflags;
 } lctx;
 
 static void do_read_palette(deark *c, lctx *d, i64 pos)
@@ -69,14 +72,35 @@ static void do_read_palette(deark *c, lctx *d, i64 pos)
 	}
 }
 
+static void decode_image_24_32(deark *c, lctx *d, dbuf *unc_pixels, de_bitmap *img)
+{
+	u32 clr;
+	i64 i, j;
+
+	for(j=0; j<d->height; j++) {
+		for(i=0; i<d->pdwidth; i++) {
+			if(d->depth==24) {
+				clr = dbuf_getRGB(unc_pixels, d->rowspan*j+i*d->src_bypp, d->getrgbflags);
+				de_bitmap_setpixel_rgb(img, i, j, clr);
+			}
+			else if(d->depth==32) {
+				u8 pixbuf[4];
+				dbuf_read(unc_pixels, pixbuf, d->rowspan*j+i*d->src_bypp, 4);
+				clr =
+					((unsigned int)pixbuf[0] << d->color32desc.channel_shift[0]) |
+					((unsigned int)pixbuf[1] << d->color32desc.channel_shift[1]) |
+					((unsigned int)pixbuf[2] << d->color32desc.channel_shift[2]) |
+					((unsigned int)pixbuf[3] << d->color32desc.channel_shift[3]);
+				de_bitmap_setpixel_rgba(img, i, j, clr);
+			}
+		}
+	}
+}
+
 static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 {
 	de_bitmap *img = NULL;
-	u32 clr;
-	u8 b;
-	i64 i, j;
-	i64 src_bypp, dst_bypp;
-	unsigned int getrgbflags;
+	i64 dst_bypp;
 
 	if(d->depth!=1 && d->depth!=4 && d->depth!=8 && d->depth!=24 && d->depth!=32) {
 		de_err(c, "Bit depth %d not supported", (int)d->depth);
@@ -112,7 +136,7 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 
 	if(!de_good_image_dimensions(c, d->npwidth, d->height)) goto done;
 
-	src_bypp = d->depth/8;
+	d->src_bypp = d->depth/8;
 
 	if(d->is_paletted) {
 		dst_bypp = 3;
@@ -133,36 +157,19 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 	}
 
 	if(d->is_rgb_order) {
-		getrgbflags = 0;
+		d->getrgbflags = 0;
 	}
 	else {
-		getrgbflags = DE_GETRGBFLAG_BGR;
+		d->getrgbflags = DE_GETRGBFLAG_BGR;
 	}
 
 	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, (int)dst_bypp);
 
-	for(j=0; j<d->height; j++) {
-		for(i=0; i<d->pdwidth; i++) {
-			if(d->is_paletted || d->is_grayscale) {
-				b = de_get_bits_symbol(unc_pixels, d->depth, d->rowspan*j, i);
-				clr = d->pal[(unsigned int)b];
-				de_bitmap_setpixel_rgb(img, i, j, clr);
-			}
-			else if(d->depth==24) {
-				clr = dbuf_getRGB(unc_pixels, d->rowspan*j+i*src_bypp, getrgbflags);
-				de_bitmap_setpixel_rgb(img, i, j, clr);
-			}
-			else if(d->depth==32) {
-				u8 pixbuf[4];
-				dbuf_read(unc_pixels, pixbuf, d->rowspan*j+i*src_bypp, 4);
-				clr =
-					((unsigned int)pixbuf[0] << d->color32desc.channel_shift[0]) |
-					((unsigned int)pixbuf[1] << d->color32desc.channel_shift[1]) |
-					((unsigned int)pixbuf[2] << d->color32desc.channel_shift[2]) |
-					((unsigned int)pixbuf[3] << d->color32desc.channel_shift[3]);
-				de_bitmap_setpixel_rgba(img, i, j, clr);
-			}
-		}
+	if(d->is_paletted || d->is_grayscale) {
+		de_convert_image_paletted(unc_pixels, 0, d->depth, d->rowspan, d->pal, img, 0);
+	}
+	else {
+		decode_image_24_32(c, d, unc_pixels, img);
 	}
 
 	if(d->depth==32 && d->color32desc.has_alpha==2) { // autodetect alpha

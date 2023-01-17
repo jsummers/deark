@@ -112,7 +112,6 @@ static void do_bitmap(deark *c, lctx *d, i64 pos1)
 	i64 unc_data_size_reported;
 	i64 unc_data_size_calc;
 	i64 max_uncmpr_block_size;
-	i64 i, j;
 	i64 rowspan;
 	de_bitmap *img = NULL;
 	dbuf *unc_pixels = NULL;
@@ -207,22 +206,14 @@ static void do_bitmap(deark *c, lctx *d, i64 pos1)
 
 	img = de_bitmap_create(c, ii.w, ii.h, 3);
 
-	for(j=0; j<ii.h; j++) {
-		for(i=0; i<ii.w; i++) {
-			if(ii.bpp==24) {
-				u32 clr;
-				clr = dbuf_getRGB(unc_pixels, j*rowspan+i*3, DE_GETRGBFLAG_BGR);
-				de_bitmap_setpixel_rgb(img, i, j, clr);
-			}
-			else {
-				u8 b;
-				b = de_get_bits_symbol(unc_pixels, ii.bpp, j*rowspan, i);
-				de_bitmap_setpixel_rgb(img, i, j, pal_to_use[(unsigned int)b]);
-			}
-		}
+	if(ii.bpp==24) {
+		de_convert_image_rgb(unc_pixels, 0, rowspan, 3, img, DE_GETRGBFLAG_BGR);
+	}
+	else {
+		de_convert_image_paletted(unc_pixels, 0, ii.bpp, rowspan, pal_to_use, img, 0);
 	}
 
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
 
 done:
 	de_bitmap_destroy(img);

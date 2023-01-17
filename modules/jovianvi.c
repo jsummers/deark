@@ -63,32 +63,6 @@ static void do_read_palette(deark *c, lctx *d)
 	de_dbg_indent(c, -1);
 }
 
-static void do_convert_grayscale(deark *c, lctx *d, de_bitmap *img)
-{
-	int i, j;
-	u8 v;
-
-	if(d->bitdepth==1) {
-		de_convert_image_bilevel(c->infile, d->bitspos, d->rowspan, img, 0);
-		goto done;
-	}
-
-	for(j=0; j<d->h; j++) {
-		for(i=0; i<d->pdwidth; i++) {
-			v = de_get_bits_symbol(c->infile, d->bits_alloc, d->bitspos + j*d->rowspan, i);
-			if(d->bitdepth==4) v *= 17;
-			else if(d->bitdepth==6) {
-				if(v<=63) v = de_scale_63_to_255(v);
-				else v=0;
-			}
-			de_bitmap_setpixel_gray(img, i, j, v);
-		}
-	}
-
-done:
-	;
-}
-
 static void do_convert_rgb(deark *c, lctx *d, de_bitmap *img)
 {
 	i64 i, j;
@@ -118,6 +92,7 @@ static void de_run_jovianvi(deark *c, de_module_params *mparams)
 	int has_palette = 0;
 	int is_grayscale = 0;
 	const char *imgtypename;
+	UI createflags = 0;
 
 	// Warning: This decoder is based on reverse engineering, and may be
 	// incorrect or incomplete.
@@ -216,13 +191,19 @@ static void de_run_jovianvi(deark *c, de_module_params *mparams)
 	if(has_palette) {
 		de_convert_image_paletted(c->infile, d->bitspos, d->bitdepth, d->rowspan, d->pal, img, 0);
 	}
+	else if(is_grayscale && d->bitdepth==1) {
+		createflags |= DE_CREATEFLAG_IS_BWIMG;
+		de_convert_image_bilevel(c->infile, d->bitspos, d->rowspan, img, 0);
+	}
 	else if(is_grayscale) {
-		do_convert_grayscale(c, d, img);
+		de_make_grayscale_palette(d->pal, 1ULL<<d->bitdepth, 0);
+		de_convert_image_paletted(c->infile, d->bitspos, d->bits_alloc, d->rowspan,
+			d->pal, img, 0);
 	}
 	else {
 		do_convert_rgb(c, d, img);
 	}
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, createflags);
 
 done:
 	de_bitmap_destroy(img);

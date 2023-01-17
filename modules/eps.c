@@ -9,13 +9,17 @@
 DE_DECLARE_MODULE(de_module_eps);
 
 typedef struct localctx_struct {
-	i64 w, h;
+	i64 npwidth, h;
+	i64 pdwidth;
 	i64 depth;
+	i64 src_rowspan;
 	i64 lines;
 
 	i64 hex_digit_count;
 	i64 xpos, ypos;
 	u8 pending_byte;
+
+	de_color pal[256];
 } lctx;
 
 
@@ -68,35 +72,19 @@ static void process_hex_digit(deark *c, lctx *d, u8 hexdigit, dbuf *outf)
 	return;
 }
 
-static void convert_row_gray(dbuf *f, i64 fpos, de_bitmap *img,
-	i64 rownum, int depth)
-{
-	i64 i;
-	u8 b;
-
-	for(i=0; i<img->width; i++) {
-		b = de_get_bits_symbol(f, depth, fpos, i);
-		if(depth==1) b*=255;
-		else if(depth==2) b*=85;
-		else if(depth==4) b*=17;
-		de_bitmap_setpixel_gray(img, i, rownum, 255-b);
-	}
-}
-
 static void do_decode_epsi_image(deark *c, lctx *d, i64 pos1)
 {
 	de_bitmap *img = NULL;
 	dbuf *tmpf = NULL;
 	i64 content_len, total_len;
 	i64 pos;
-	i64 i, j, k;
-	i64 src_rowspan;
-
+	i64 i, k;
+	UI createflags;
 
 	pos = pos1;
 	d->hex_digit_count = 0;
 
-	tmpf = dbuf_create_membuf(c, d->w * d->h, 0);
+	tmpf = dbuf_create_membuf(c, d->pdwidth * d->h, 0);
 
 	// Convert from hex-encoded (base16) to binary.
 	for(i=0; i<d->lines; i++) {
@@ -110,15 +98,19 @@ static void do_decode_epsi_image(deark *c, lctx *d, i64 pos1)
 
 	// Convert from binary to an image
 
-	img = de_bitmap_create(c, d->w, d->h, 1);
+	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->h, 1);
 
-	src_rowspan = (d->w * d->depth +7)/8;
+	de_make_grayscale_palette(d->pal, 1ULL<<d->depth, 0x1);
+	de_convert_image_paletted(tmpf, 0, d->depth, d->src_rowspan, d->pal, img, 0);
 
-	for(j=0; j<d->h; j++) {
-		convert_row_gray(tmpf, j*src_rowspan, img, j, (int)d->depth);
+	createflags = DE_CREATEFLAG_IS_AUX;
+	if(d->depth==1) {
+		createflags = DE_CREATEFLAG_IS_BWIMG;
 	}
-
-	de_bitmap_write_to_file(img, "preview", DE_CREATEFLAG_IS_AUX);
+	else {
+		createflags = DE_CREATEFLAG_OPT_IMAGE;
+	}
+	de_bitmap_write_to_file(img, "preview", createflags);
 	de_bitmap_destroy(img);
 	dbuf_close(tmpf);
 }
@@ -140,16 +132,20 @@ static void do_decode_epsi(deark *c, const char *hdrfields, i64 pos1)
 		return;
 	}
 	de_dbg(c, "w=%d h=%d d=%d l=%d", width, height, depth, lines);
-	d->w = width;
+	d->npwidth = width;
 	d->h = height;
 	d->depth = depth;
 	d->lines = lines;
 
-	if(!de_good_image_dimensions(c, d->w, d->h)) {
-		goto done;
-	}
 	if(d->depth!=1 && d->depth!=2 && d->depth!=4 && d->depth!=8) {
 		de_err(c, "Unsupported EPSI bit depth (%d)", (int)d->depth);
+		goto done;
+	}
+
+	d->src_rowspan = (d->npwidth * d->depth +7)/8;
+	d->pdwidth = (d->src_rowspan*8) / d->depth;
+
+	if(!de_good_image_dimensions(c, d->pdwidth, d->h)) {
 		goto done;
 	}
 	if(d->lines>100000 || d->lines<1) {

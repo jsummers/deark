@@ -41,12 +41,9 @@ done:
 
 static void do_bitmap(deark *c, lctx *d, dbuf *unc_pixels)
 {
-	i64 i, j;
 	i64 rowspan;
 	i64 bits_per_row;
-	u32 clr;
 	de_bitmap *img = NULL;
-	u8 b;
 
 	bits_per_row = de_pad_to_n(d->npwidth * d->bpp, 8);
 	rowspan = bits_per_row/8;
@@ -54,20 +51,14 @@ static void do_bitmap(deark *c, lctx *d, dbuf *unc_pixels)
 
 	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->h, 3);
 
-	for(j=0; j<d->h; j++) {
-		for(i=0; i<d->pdwidth; i++) {
-			if(d->bpp<=8) {
-				b = de_get_bits_symbol(unc_pixels, d->bpp, j*rowspan, i);
-				clr = d->pal[(unsigned int)b];
-			}
-			else {
-				clr = dbuf_getRGB(unc_pixels, j*rowspan + i*3, 0);
-			}
-			de_bitmap_setpixel_rgb(img, i, j, clr);
-		}
+	if(d->bpp<=8) {
+		de_convert_image_paletted(unc_pixels, 0, d->bpp, rowspan, d->pal, img, 0);
+	}
+	else {
+		de_convert_image_rgb(unc_pixels, 0, rowspan, 3, img, 0);
 	}
 
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
 
 	de_bitmap_destroy(img);
 }
