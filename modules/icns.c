@@ -8,9 +8,9 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_icns);
 
-static const u32 pal16[16] = {
-	0xffffff,0xfcf305,0xff6402,0xdd0806,0xf20884,0x4600a5,0x0000d4,0x02abea,
-	0x1fb714,0x006411,0x562c05,0x90713a,0xc0c0c0,0x808080,0x404040,0x000000
+static const de_color g_stdpal16[16] = {
+	0xffffffffU,0xfffcf305U,0xffff6402U,0xffdd0806U,0xfff20884U,0xff4600a5U,0xff0000d4U,0xff02abeaU,
+	0xff1fb714U,0xff006411U,0xff562c05U,0xff90713aU,0xffc0c0c0U,0xff808080U,0xff404040U,0xff000000U
 };
 
 #define IMGTYPE_EMBEDDED_FILE   1
@@ -79,6 +79,7 @@ struct page_ctx {
 	const struct image_type_info *type_info;
 	struct de_fourcc code4cc;
 	char filename_token[32];
+	de_color pal[256];
 };
 
 #define MASKTYPEID_16_12_1    0
@@ -94,20 +95,22 @@ struct page_ctx {
 typedef struct localctx_struct {
 	i64 file_size;
 	struct mask_wrapper mask[NUM_MASKTYPES];
+	u8 have_stdpal256;
+	de_color stdpal256[256];
 } lctx;
 
-static const u32 supplpal256[41] = {
-	0xee0000,0xdd0000,0xbb0000,0xaa0000,0x880000,
-	0x770000,0x550000,0x440000,0x220000,0x110000,
-	0x00ee00,0x00dd00,0x00bb00,0x00aa00,0x008800,
-	0x007700,0x005500,0x004400,0x002200,0x001100,
-	0x0000ee,0x0000dd,0x0000bb,0x0000aa,0x000088,
-	0x000077,0x000055,0x000044,0x000022,0x000011,
-	0xeeeeee,0xdddddd,0xbbbbbb,0xaaaaaa,0x888888,
-	0x777777,0x555555,0x444444,0x222222,0x111111,0x000000
+static const de_color supplpal256[41] = {
+	0xffee0000U,0xffdd0000U,0xffbb0000U,0xffaa0000U,0xff880000U,
+	0xff770000U,0xff550000U,0xff440000U,0xff220000U,0xff110000U,
+	0xff00ee00U,0xff00dd00U,0xff00bb00U,0xff00aa00U,0xff008800U,
+	0xff007700U,0xff005500U,0xff004400U,0xff002200U,0xff001100U,
+	0xff0000eeU,0xff0000ddU,0xff0000bbU,0xff0000aaU,0xff000088U,
+	0xff000077U,0xff000055U,0xff000044U,0xff000022U,0xff000011U,
+	0xffeeeeeeU,0xffddddddU,0xffbbbbbbU,0xffaaaaaaU,0xff888888U,
+	0xff777777U,0xff555555U,0xff444444U,0xff222222U,0xff111111U,0xff000000U
 };
 
-static u32 getpal256(int k)
+static de_color getpal256(int k)
 {
 	u8 r, g, b;
 
@@ -123,39 +126,46 @@ static u32 getpal256(int k)
 	return supplpal256[k-215];
 }
 
+static void populate_stdpal256(lctx *d)
+{
+	int k;
+
+	if(d->have_stdpal256) return;
+	d->have_stdpal256 = 1;
+
+	for(k=0; k<256; k++) {
+		d->stdpal256[k] = getpal256(k);
+	}
+}
+
 static void do_decode_1_4_8bit(deark *c, lctx *d, struct page_ctx *pg)
 {
 	de_bitmap *img = NULL;
-	i64 i, j;
-	u8 b;
-	de_color fgcol;
 	int bypp;
 
 	bypp = (pg->type_info->bpp==1)?2:4;
 	img = de_bitmap_create(c, pg->type_info->width, pg->type_info->height, bypp);
 
-	for(j=0; j<pg->type_info->height; j++) {
-		for(i=0; i<pg->type_info->width; i++) {
-			b = de_get_bits_symbol(c->infile, pg->type_info->bpp, pg->image_pos + pg->rowspan*j, i);
-			if(pg->type_info->bpp==8) {
-				fgcol = getpal256((int)b);
-			}
-			else if(pg->type_info->bpp==4) {
-				fgcol = pal16[(unsigned int)b];
-			}
-			else {
-				fgcol = b ? DE_STOCKCOLOR_BLACK : DE_STOCKCOLOR_WHITE;
-			}
-			fgcol = DE_MAKE_OPAQUE(fgcol);
-			de_bitmap_setpixel_rgb(img, i, j, fgcol);
-		}
+	if(pg->type_info->bpp==8) {
+		populate_stdpal256(d);
+		de_memcpy(pg->pal, d->stdpal256, sizeof(d->stdpal256));
 	}
+	else if(pg->type_info->bpp==4) {
+		de_memcpy(pg->pal, g_stdpal16, sizeof(g_stdpal16));
+	}
+	else { // 1
+		pg->pal[0] = DE_STOCKCOLOR_WHITE;
+		pg->pal[1] = DE_STOCKCOLOR_BLACK;
+	}
+
+	de_convert_image_paletted(c->infile, pg->image_pos, pg->type_info->bpp, pg->rowspan,
+		pg->pal, img, 0);
 
 	if(pg->mask_ref && pg->mask_ref->img) {
 		de_bitmap_apply_mask(img, pg->mask_ref->img, 0);
 	}
 
-	de_bitmap_write_to_file(img, pg->filename_token, 0);
+	de_bitmap_write_to_file(img, pg->filename_token, DE_CREATEFLAG_OPT_IMAGE);
 	de_bitmap_destroy(img);
 }
 

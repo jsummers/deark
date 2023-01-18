@@ -170,18 +170,17 @@ static void make_stdpal256(deark *c, lctx *d, u32 *stdpal)
 	}
 }
 
-static void do_generate_unc_image(deark *c, lctx *d, struct page_ctx *pg,
+static void do_generate_img_from_unc_pixels(deark *c, lctx *d, struct page_ctx *pg,
 	dbuf *unc_pixels)
 {
 	i64 i, j;
 	i64 pdwidth;
-	u8 b;
-	u8 b_adj;
 	u32 clr;
 	int has_color;
 	de_bitmap *img = NULL;
-	u32 stdpal[256];
+	u32 pal[256];
 
+	de_zeromem(pal, sizeof(pal));
 	has_color = (pg->bitsperpixel>4 || pg->has_custom_pal);
 
 	if(pg->bitsperpixel==1 && !has_color) {
@@ -190,17 +189,15 @@ static void do_generate_unc_image(deark *c, lctx *d, struct page_ctx *pg,
 		goto done;
 	}
 
-	make_stdpal256(c, d, stdpal);
-
 	pdwidth = (pg->rowbytes*8) / pg->bitsperpixel;
 	if(pdwidth<pg->w) pdwidth = pg->w;
 
 	img = de_bitmap_create2(c, pg->w, pdwidth, pg->h,
 		(has_color?3:1) + (pg->has_trns?1:0));
 
-	for(j=0; j<pg->h; j++) {
-		for(i=0; i<pdwidth; i++) {
-			if(pg->bitsperpixel==16) {
+	if(pg->bitsperpixel==16) {
+		for(j=0; j<pg->h; j++) {
+			for(i=0; i<pdwidth; i++) {
 				u32 clr1;
 				clr1 = (u32)dbuf_getu16be(unc_pixels, pg->rowbytes*j + 2*i);
 				clr = de_rgb565_to_888(clr1);
@@ -209,30 +206,30 @@ static void do_generate_unc_image(deark *c, lctx *d, struct page_ctx *pg,
 					de_bitmap_setsample(img, i, j, 3, 0);
 				}
 			}
-			else {
-				b = de_get_bits_symbol(unc_pixels, pg->bitsperpixel, pg->rowbytes*j, i);
-				if(has_color) {
-					if(pg->has_custom_pal)
-						clr = pg->custom_pal[(unsigned int)b];
-					else
-						clr = stdpal[(unsigned int)b];
-				}
-				else {
-					// TODO: What are the correct colors (esp. for 4bpp)?
-					b_adj = 255 - de_sample_nbit_to_8bit(pg->bitsperpixel, (unsigned int)b);
-					clr = DE_MAKE_GRAY(b_adj);
-				}
-
-				de_bitmap_setpixel_rgb(img, i, j, clr);
-
-				if(pg->has_trns && (u32)b==pg->trns_value) {
-					de_bitmap_setsample(img, i, j, 3, 0);
-				}
-			}
 		}
 	}
+	else {
+		if(!has_color) {
+			if(pg->bitsperpixel>8) goto done;
+			// TODO: What are the correct colors (esp. for 4bpp)?
+			de_make_grayscale_palette(pal, 1ULL<<pg->bitsperpixel, 0x1);
+		}
+		else if(pg->has_custom_pal) {
+			de_memcpy(pal, pg->custom_pal, sizeof(pg->custom_pal));
+		}
+		else {
+			make_stdpal256(c, d, pal);
+		}
 
-	de_bitmap_write_to_file(img, NULL, 0);
+		if(pg->has_trns && pg->trns_value<256) {
+			pal[pg->trns_value] = DE_SET_ALPHA(pal[pg->trns_value], 0);
+		}
+
+		de_convert_image_paletted(unc_pixels, 0,pg->bitsperpixel, pg->rowbytes,
+			pal, img, 0);
+	}
+
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
 
 done:
 	de_bitmap_destroy(img);
@@ -301,7 +298,8 @@ done:
 	return retval;
 }
 
-// A wrapper that decompresses the image if necessary, then calls do_generate_unc_image().
+// A wrapper that decompresses the image if necessary, then calls
+// do_generate_img_from_unc_pixels().
 static void do_generate_image(deark *c, lctx *d, struct page_ctx *pg,
 	dbuf *inf, i64 pos, i64 len)
 {
@@ -342,7 +340,7 @@ static void do_generate_image(deark *c, lctx *d, struct page_ctx *pg,
 		}
 	}
 
-	do_generate_unc_image(c, d, pg, unc_pixels);
+	do_generate_img_from_unc_pixels(c, d, pg, unc_pixels);
 
 done:
 	dbuf_close(unc_pixels);

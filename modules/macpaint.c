@@ -190,12 +190,12 @@ static void do_read_patterns(deark *c, lctx *d)
 	i64 pos1;
 	i64 cell;
 	i64 i, j;
-	u8 x;
 	const i64 dispwidth = 19;
 	const i64 dispheight = 17;
 	i64 xpos, ypos;
 	int is_blank;
-	de_bitmap *pat = NULL;
+	de_bitmap *gallery = NULL;
+	de_bitmap *rawimg = NULL;
 	u32 patcrc;
 	const char *patsetname;
 	de_finfo *fi = NULL;
@@ -217,6 +217,9 @@ static void do_read_patterns(deark *c, lctx *d)
 	patsetname = get_pattern_set_info(patcrc, &is_blank);
 	de_dbg(c, "brush patterns crc: 0x%08x (%s)", (unsigned int)patcrc, patsetname);
 
+	rawimg = de_bitmap_create(c, 8, 38*8, 1);
+	de_convert_image_bilevel(c->infile, pos1, 1, rawimg, DE_CVTF_WHITEISZERO);
+
 	if(c->extract_level<2) {
 		goto done;
 	}
@@ -226,7 +229,7 @@ static void do_read_patterns(deark *c, lctx *d)
 		goto done;
 	}
 
-	pat = de_bitmap_create(c, (dispwidth+1)*19+1, (dispheight+1)*2+1, 1);
+	gallery = de_bitmap_create(c, (dispwidth+1)*19+1, (dispheight+1)*2+1, 1);
 
 	for(cell=0; cell<38; cell++) {
 		xpos = (dispwidth+1)*(cell%19)+1;
@@ -234,15 +237,12 @@ static void do_read_patterns(deark *c, lctx *d)
 
 		for(j=0; j<dispheight; j++) {
 			for(i=0; i<dispwidth; i++) {
+				de_colorsample x;
+
 				// TODO: Figure out the proper "brush origin" of these patterns.
 				// Some of them may be shifted differently than MacPaint displays them.
-				x = de_get_bits_symbol(c->infile, 1, pos1+cell*8+j%8, i%8);
-
-				// 0 = white. Only need to set the white pixels, since de_bitmap
-				// pixels default to black.
-				if(x==0) {
-					de_bitmap_setpixel_gray(pat, xpos+i, ypos+j, 255);
-				}
+				x = DE_COLOR_K(de_bitmap_getpixel(rawimg, i%8, 8*cell + j%8));
+				de_bitmap_setpixel_gray(gallery, xpos+i, ypos+j, x);
 			}
 		}
 	}
@@ -255,10 +255,11 @@ static void do_read_patterns(deark *c, lctx *d)
 	ucstring_append_sz(tmpname, "pat", DE_ENCODING_LATIN1);
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_ucstring(c, fi, tmpname, 0);
-	de_bitmap_write_to_file_finfo(pat, fi, DE_CREATEFLAG_IS_AUX|DE_CREATEFLAG_IS_BWIMG);
+	de_bitmap_write_to_file_finfo(gallery, fi, DE_CREATEFLAG_IS_AUX|DE_CREATEFLAG_IS_BWIMG);
 
 done:
-	de_bitmap_destroy(pat);
+	de_bitmap_destroy(gallery);
+	de_bitmap_destroy(rawimg);
 	de_finfo_destroy(c, fi);
 	ucstring_destroy(tmpname);
 	de_dbg_indent_restore(c, saved_indent_level);

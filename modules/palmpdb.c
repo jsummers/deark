@@ -313,37 +313,36 @@ static int do_decompress_imgview_image(deark *c, lctx *d, dbuf *inf,
 	return 1;
 }
 
-static void do_generate_unc_image(deark *c, lctx *d, dbuf *unc_pixels,
+static void do_generate_img_from_unc_pixels(deark *c, lctx *d, dbuf *unc_pixels,
 	struct img_gen_info *igi)
 {
-	i64 i, j;
-	u8 b;
-	u8 b_adj;
 	de_bitmap *img = NULL;
+	de_color pal[16];
 
 	if(igi->bitsperpixel==1) {
 		de_convert_and_write_image_bilevel(unc_pixels, 0, igi->w, igi->h, igi->rowbytes,
 			DE_CVTF_WHITEISZERO, igi->fi, igi->createflags);
 		goto done;
 	}
-
-	img = de_bitmap_create(c, igi->w, igi->h, 1);
-
-	for(j=0; j<igi->h; j++) {
-		for(i=0; i<igi->w; i++) {
-			b = de_get_bits_symbol(unc_pixels, igi->bitsperpixel, igi->rowbytes*j, i);
-			b_adj = 255 - de_sample_nbit_to_8bit(igi->bitsperpixel, (unsigned int)b);
-			de_bitmap_setpixel_gray(img, i, j, b_adj);
-		}
+	else if(igi->bitsperpixel==2 || igi->bitsperpixel==4) {
+		;
+	}
+	else {
+		goto done;
 	}
 
+	img = de_bitmap_create(c, igi->w, igi->h, 1);
+	de_make_grayscale_palette(pal, 1ULL<<igi->bitsperpixel, 0x1);
+	de_convert_image_paletted(unc_pixels, 0, igi->bitsperpixel, igi->rowbytes,
+		pal, img, 0);
 	de_bitmap_write_to_file_finfo(img, igi->fi, igi->createflags);
 
 done:
 	de_bitmap_destroy(img);
 }
 
-// A wrapper that decompresses the image if necessary, then calls do_generate_unc_image().
+// A wrapper that decompresses the image if necessary, then calls
+// do_generate_img_from_unc_pixels().
 static void do_generate_image(deark *c, lctx *d,
 	dbuf *inf, i64 pos, i64 len, unsigned int cmpr_meth,
 	struct img_gen_info *igi)
@@ -368,7 +367,7 @@ static void do_generate_image(deark *c, lctx *d,
 			(int)unc_pixels->len);
 	}
 
-	do_generate_unc_image(c, d, unc_pixels, igi);
+	do_generate_img_from_unc_pixels(c, d, unc_pixels, igi);
 
 	dbuf_close(unc_pixels);
 }
