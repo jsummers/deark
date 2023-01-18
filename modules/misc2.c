@@ -423,10 +423,7 @@ static int do_one_ripicon(deark *c, i64 pos1, i64 *pbytes_consumed, int scan_mod
 	i64 chunk_span;
 	i64 src_rowspan;
 	i64 bitmap_len;
-	i64 i, j, k;
 	i64 pos = pos1;
-	u8 x;
-	u32 palent;
 	int saved_indent_level;
 	de_color pal[16];
 
@@ -451,19 +448,9 @@ static int do_one_ripicon(deark *c, i64 pos1, i64 *pbytes_consumed, int scan_mod
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 	img = de_bitmap_create2(c, width, chunk_span*8, height, 3);
 	de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, pal, 16, 0);
-
-	for(j=0; j<height; j++) {
-		for(i=0; i<img->width; i++) { // Must use img->width, for -padpix
-			palent = 0;
-			for(k=0; k<4; k++) {
-				x = de_get_bits_symbol(c->infile, 1, pos + j*src_rowspan + k*chunk_span, i);
-				palent = (palent<<1)|x;
-			}
-			de_bitmap_setpixel_rgb(img, i, j, pal[palent]);
-		}
-	}
-
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_convert_image_paletted_planar(c->infile, pos, 4, src_rowspan, chunk_span,
+		pal, img, 0);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
 
 done:
 	if(img) de_bitmap_destroy(img);

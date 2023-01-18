@@ -125,10 +125,6 @@ static void do_v2(deark *c, lctx *d)
 	i64 bitmap_start;
 	i64 bitmap_size;
 	i64 palette_start;
-	i64 i, j;
-	i64 k;
-	u8 b;
-	u8 b1;
 	const char *s;
 	i64 ncolors = 0; // 16 or 256
 
@@ -177,20 +173,13 @@ static void do_v2(deark *c, lctx *d)
 		DE_RDPALTYPE_VGA18BIT, ((d->rgb_order)?0:DE_RDPALFLAG_BGR));
 
 	img = de_bitmap_create(c, d->w, d->h, 3);
-	for(j=0; j<d->h; j++) {
-		for(i=0; i<d->w; i++) {
-			if(ncolors==16) {
-				b = 0;
-				for(k=0; k<4; k++) {
-					b1 = de_get_bits_symbol(c->infile, 1, bitmap_start + j*rowspan + k*rowspan1, i);
-					b |= b1<<k;
-				}
-			}
-			else {
-				b = de_getbyte(bitmap_start + j*rowspan + i);
-			}
-			de_bitmap_setpixel_rgb(img, i, j, d->pal[(UI)b]);
-		}
+	if(ncolors==16) {
+		de_convert_image_paletted_planar(c->infile, bitmap_start, 4, rowspan,
+			rowspan1, d->pal, img, 0x2);
+	}
+	else {
+		de_convert_image_paletted(c->infile, bitmap_start, 8, rowspan, d->pal,
+			img, 0);
 	}
 
 	de_bitmap_write_to_file(img, NULL, 0);

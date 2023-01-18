@@ -18,20 +18,17 @@ typedef struct localctx_struct {
 static void grob_read_binary_bitmap(deark *c, lctx *d, dbuf *inf, i64 pos)
 {
 	i64 h_logical;
-	i64 i, j;
-	i64 plane;
 	i64 rowspan;
 	i64 pdwidth;
-	u8 b;
-	unsigned int v;
-	u8 v2;
 	de_bitmap *img = NULL;
+	de_color pal[256];
 
 	if(d->num_planes<=1) {
 		de_convert_and_write_image_bilevel2(inf, pos, d->w, d->h_phys, (d->w+7)/8,
 			DE_CVTF_WHITEISZERO|DE_CVTF_LSBFIRST, NULL, 0);
 		return;
 	}
+	if(d->num_planes>8) goto done;
 
 	if((d->h_phys % d->num_planes) != 0) {
 		de_warn(c, "Number of rows is not divisible by number of planes. The grob:planes "
@@ -48,21 +45,11 @@ static void grob_read_binary_bitmap(deark *c, lctx *d, dbuf *inf, i64 pos)
 	pdwidth = rowspan * 8;
 	img = de_bitmap_create2(c, d->w, pdwidth, h_logical, 1);
 
-	for(j=0; j<h_logical; j++) {
-		for(i=0; i<pdwidth; i++) {
-			v = 0;
-			for(plane=0; plane<d->num_planes; plane++) {
-				b = de_get_bits_symbol_lsb(inf, 1,
-					pos+rowspan*(h_logical*(i64)plane+j), i);
-				if(d->grayscale_lsb)
-					v |= b<<(unsigned int)plane;
-				else
-					v = (v<<1)|b;
-			}
-			v2 = 255-de_sample_nbit_to_8bit(d->num_planes, v);
-			de_bitmap_setpixel_gray(img, i, j, v2);
-		}
-	}
+	de_zeromem(pal, sizeof(pal));
+	de_make_grayscale_palette(pal, 1ULL<<d->num_planes, 0x1);
+
+	de_convert_image_paletted_planar(inf, pos, d->num_planes,
+		rowspan, h_logical*rowspan, pal, img, 0x1 | (d->grayscale_lsb?0x02:0));
 
 	de_bitmap_write_to_file_finfo(img, NULL, 0);
 done:
