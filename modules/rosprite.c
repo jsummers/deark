@@ -76,18 +76,16 @@ struct page_ctx {
 	i64 maskbpp;
 	i64 width_in_words;
 	i64 first_bit, last_bit;
-	i64 width, height;
-
-	i64 x_idx_of_first_src_fg_pixel_to_convert; // dstfg[0] <- srcfg[x.i.o.f.s.f.p.t.c]
-	i64 num_fg_x_pixels_to_convert;
-	i64 x_idx_of_first_src_mask_pixel_to_convert;
-	i64 mask_x_offset; // dstmask[m.x.o] <- srcmask[x.i.o.f.s.m.p.t.c]
+	i64 npwidth, height;
+	i64 width_1; // Width of intermediate bitmap. Includes left-padding, but not right-padding.
+	i64 pdwidth;
 	i64 num_mask_x_pixels_to_convert;
-
-	i64 xdpi, ydpi;
 	i64 num_padding_pixels_at_start_of_row;
+	i64 num_padding_pixels_at_end_of_row;
+	i64 xdpi, ydpi;
 	u32 mode;
-	int has_mask;
+	u8 has_mask;
+	u8 use_mask;
 #define MASK_TYPE_OLD    1 // Binary transparency, fgbpp bits/pixel
 #define MASK_TYPE_NEW_1  2 // Binary transparency, 8 bits/pixel
 #define MASK_TYPE_NEW_8  3 // Alpha transparency, 8 bits/pixel
@@ -95,6 +93,9 @@ struct page_ctx {
 	i64 mask_rowspan;
 	i64 image_offset;
 	i64 mask_offset;
+
+	de_bitmap *img;
+	de_bitmap *mask;
 
 	int has_custom_palette;
 	i64 custom_palette_pos;
@@ -113,7 +114,7 @@ static const u32 pal4[4] = {
 static u32 getpal4(int k)
 {
 	if(k<0 || k>3) return 0;
-	return pal4[k];
+	return DE_MAKE_OPAQUE(pal4[k]);
 }
 
 static const u32 pal16[16] = {
@@ -124,7 +125,7 @@ static const u32 pal16[16] = {
 static u32 getpal16(int k)
 {
 	if(k<0 || k>15) return 0;
-	return pal16[k];
+	return DE_MAKE_OPAQUE(pal16[k]);
 }
 
 static u32 getpal256(int k)
@@ -140,10 +141,25 @@ static u32 getpal256(int k)
 	return DE_MAKE_RGB(r,g,b);
 }
 
+static void remove_left_padding(deark *c, struct page_ctx *pg)
+{
+	de_bitmap *imgtmp;
+
+	if(pg->num_padding_pixels_at_start_of_row<1) return;
+
+	// Create a replacement bitmap, and copy the important pixels from the old
+	// one to it.
+	imgtmp = de_bitmap_create(c, pg->npwidth, pg->height, pg->img->bytes_per_pixel);
+	de_bitmap_copy_rect(pg->img, imgtmp, pg->num_padding_pixels_at_start_of_row, 0,
+		pg->npwidth, pg->height, 0, 0, 0);
+
+	de_bitmap_destroy(pg->img);
+	pg->img = imgtmp;
+	imgtmp = NULL;
+}
+
 static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
 {
-	de_bitmap *img = NULL;
-	de_bitmap *mask = NULL;
 	i64 i, j;
 	u8 n;
 	de_color clr;
@@ -160,37 +176,14 @@ static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
 	bypp = is_grayscale?1:3;
 	if(pg->has_mask) bypp++;
 
-	if(c->padpix) {
-		pg->num_fg_x_pixels_to_convert = (pg->width_in_words*32)/pg->fgbpp;
-		pg->x_idx_of_first_src_fg_pixel_to_convert = 0;
-		if(pg->mask_type==MASK_TYPE_OLD) {
-			pg->x_idx_of_first_src_mask_pixel_to_convert = 0;
-			pg->mask_x_offset = 0;
-			pg->num_mask_x_pixels_to_convert = pg->num_fg_x_pixels_to_convert;
-		}
-		else {
-			pg->x_idx_of_first_src_mask_pixel_to_convert = 0;
-			// Best guess is that new-style masks don't have initial padding pixels
-			pg->mask_x_offset = pg->num_padding_pixels_at_start_of_row;
-			pg->num_mask_x_pixels_to_convert = pg->mask_rowspan;
-		}
+	if(pg->mask_type==MASK_TYPE_OLD) {
+		pg->num_mask_x_pixels_to_convert = pg->width_1;
 	}
-	else {
-		pg->num_fg_x_pixels_to_convert = pg->width;
-		pg->x_idx_of_first_src_fg_pixel_to_convert = pg->num_padding_pixels_at_start_of_row;
-		if(pg->mask_type==MASK_TYPE_OLD) {
-			pg->x_idx_of_first_src_mask_pixel_to_convert = pg->x_idx_of_first_src_fg_pixel_to_convert;
-			pg->mask_x_offset = 0;
-			pg->num_mask_x_pixels_to_convert = pg->num_fg_x_pixels_to_convert;
-		}
-		else {
-			pg->x_idx_of_first_src_mask_pixel_to_convert = 0;
-			pg->mask_x_offset = 0;
-			pg->num_mask_x_pixels_to_convert = pg->num_fg_x_pixels_to_convert;
-		}
+	else if(pg->mask_type==MASK_TYPE_NEW_1 || pg->mask_type==MASK_TYPE_NEW_8) {
+		pg->num_mask_x_pixels_to_convert = pg->npwidth;
 	}
 
-	img = de_bitmap_create(c, pg->num_fg_x_pixels_to_convert, pg->height, bypp);
+	pg->img = de_bitmap_create(c, pg->width_1, pg->height, bypp);
 
 	if(pg->xdpi>0) {
 		fi->density.code = DE_DENSITY_DPI;
@@ -198,32 +191,29 @@ static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
 		fi->density.ydens = (double)pg->ydpi;
 	}
 
-	de_dbg(c, "image data at %d", (int)pg->image_offset);
+	de_dbg(c, "image data at %"I64_FMT, pg->image_offset);
 
 	for(j=0; j<pg->height; j++) {
-		for(i=0; i<pg->num_fg_x_pixels_to_convert; i++) {
-			i64 i_adj;
-
-			i_adj = i+pg->x_idx_of_first_src_fg_pixel_to_convert;
+		for(i=0; i<pg->width_1; i++) {
 
 			if(pg->fgbpp==32) {
-				clr = dbuf_getRGB(c->infile, pg->image_offset + 4*pg->width_in_words*j + 4*i_adj, 0);
+				clr = dbuf_getRGB(c->infile, pg->image_offset + 4*pg->width_in_words*j + 4*i, 0);
 			}
 			else if(pg->fgbpp==16) {
-				clr = (de_color)de_getu16le(pg->image_offset + 4*pg->width_in_words*j + i_adj*2);
+				clr = (de_color)de_getu16le(pg->image_offset + 4*pg->width_in_words*j + i*2);
 				clr = de_bgr555_to_888(clr);
 			}
 			else {
 				n = de_get_bits_symbol_lsb(c->infile, pg->fgbpp, pg->image_offset + 4*pg->width_in_words*j,
-					i_adj);
-				clr = DE_MAKE_OPAQUE(pg->pal[(int)n]);
+					i);
+				clr = pg->pal[(int)n];
 			}
 
-			de_bitmap_setpixel_rgba(img, i, j, clr);
+			de_bitmap_setpixel_rgba(pg->img, i, j, clr);
 		}
 	}
 
-	if(pg->has_mask) {
+	if(pg->has_mask && pg->use_mask) {
 		de_dbg(c, "transparency mask at %"I64_FMT, pg->mask_offset);
 
 		if(pg->maskbpp<1 || pg->maskbpp>8) {
@@ -231,41 +221,36 @@ static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
 			goto after_mask;
 		}
 
-		mask = de_bitmap_create(c, pg->num_fg_x_pixels_to_convert, pg->height, 1);
+		pg->mask = de_bitmap_create(c, pg->width_1, pg->height, 1);
 		// Start with an opaque mask.
-		de_bitmap_rect(mask, 0, 0, mask->width, mask->height, DE_STOCKCOLOR_WHITE, 0);
+		de_bitmap_rect(pg->mask, 0, 0, pg->mask->width, pg->mask->height, DE_STOCKCOLOR_WHITE, 0);
 
 		for(j=0; j<pg->height; j++) {
 			for(i=0; i<pg->num_mask_x_pixels_to_convert; i++) {
-				i64 src_xpos, dst_xpos;
 				de_colorsample a = 255;
 
-				src_xpos = i + pg->x_idx_of_first_src_mask_pixel_to_convert;
-				dst_xpos = i + pg->mask_x_offset;
-
-				n = de_get_bits_symbol_lsb(c->infile, pg->maskbpp, pg->mask_offset + pg->mask_rowspan*j,
-					src_xpos);
+				n = de_get_bits_symbol_lsb(c->infile, pg->maskbpp, pg->mask_offset + pg->mask_rowspan*j, i);
 
 				if(pg->mask_type==MASK_TYPE_OLD || pg->mask_type==MASK_TYPE_NEW_1) {
 					if(n==0)
 						a = 0;
-					else
-						a = 255;
 				}
 				else if(pg->mask_type==MASK_TYPE_NEW_8) {
 					a = n;
 				}
-				de_bitmap_setpixel_gray(mask, dst_xpos, j, a);
+				de_bitmap_setpixel_gray(pg->mask, i, j, a);
 			}
 		}
 
-		de_bitmap_apply_mask(img, mask, 0);
+		de_bitmap_apply_mask(pg->img, pg->mask, 0);
 	}
 after_mask:
 
-	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
-	de_bitmap_destroy(img);
-	if(mask) de_bitmap_destroy(mask);
+	if(pg->num_padding_pixels_at_start_of_row>0 && !c->padpix) {
+		remove_left_padding(c, pg);
+	}
+
+	de_bitmap_write_to_file_finfo(pg->img, fi, DE_CREATEFLAG_OPT_IMAGE);
 }
 
 static u32 average_color(u32 c1, u32 c2)
@@ -365,7 +350,7 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 	de_dbg_indent_save(c, &saved_indent_level);
 	pg = de_malloc(c, sizeof(struct page_ctx));
 
-	de_dbg(c, "image header at %d", (int)pos1);
+	de_dbg(c, "image header at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
 	// Name at pos 4, len=12
@@ -375,7 +360,7 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 
 	pg->width_in_words = de_getu32le(pos1+16) +1;
 	pg->height = de_getu32le(pos1+20) +1;
-	de_dbg(c, "width-in-words: %d, height: %d", (int)pg->width_in_words, (int)pg->height);
+	de_dbg(c, "width-in-words: %"I64_FMT", height: %"I64_FMT, pg->width_in_words, pg->height);
 
 	pg->first_bit = de_getu32le(pos1+24);
 	if(pg->first_bit>31) pg->first_bit=31;
@@ -383,9 +368,12 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 	if(pg->last_bit>31) pg->last_bit=31;
 	pg->image_offset = de_getu32le(pos1+32) + pos1;
 	pg->mask_offset = de_getu32le(pos1+36) + pos1;
-	pg->has_mask = (pg->mask_offset != pg->image_offset);
+	if(pg->mask_offset != pg->image_offset) {
+		pg->has_mask = 1;
+		pg->use_mask = 1;
+	}
 	de_dbg(c, "first bit: %d, last bit: %d", (int)pg->first_bit, (int)pg->last_bit);
-	de_dbg(c, "image offset: %d, mask_offset: %d", (int)pg->image_offset, (int)pg->mask_offset);
+	de_dbg(c, "image offset: %"I64_FMT", mask_offset: %"I64_FMT, pg->image_offset, pg->mask_offset);
 
 	pg->mode = (u32)de_getu32le(pos1+40);
 	de_dbg(c, "mode: 0x%08x", (unsigned int)pg->mode);
@@ -394,9 +382,9 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 
 	new_img_type = (pg->mode&0x78000000U)>>27;
 	if(new_img_type==0)
-		de_dbg(c, "old format screen mode: %d", (int)pg->mode);
+		de_dbg(c, "old format screen mode: %u", (UI)pg->mode);
 	else
-		de_dbg(c, "new format image type: %d", (int)new_img_type);
+		de_dbg(c, "new format image type: %u", (UI)new_img_type);
 
 	if(new_img_type==0) {
 		// old format
@@ -470,20 +458,30 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 
 	de_dbg_indent(c, -1);
 
-	pg->width = ((pg->width_in_words-1) * 4 * 8 + (pg->last_bit+1)) / pg->fgbpp;
+	pg->pdwidth = (pg->width_in_words * 32)/pg->fgbpp;
 	pg->num_padding_pixels_at_start_of_row = pg->first_bit / pg->fgbpp;
-	pg->width -= pg->num_padding_pixels_at_start_of_row;
-	de_dbg(c, "calculated width: %d", (int)pg->width);
+	pg->num_padding_pixels_at_end_of_row = (32 - (pg->last_bit+1)) / pg->fgbpp;
+	pg->npwidth = pg->pdwidth - pg->num_padding_pixels_at_start_of_row -
+		pg->num_padding_pixels_at_end_of_row;
+	if(c->padpix) {
+		pg->width_1 = pg->pdwidth;
+	}
+	else {
+		pg->width_1 = pg->pdwidth - pg->num_padding_pixels_at_end_of_row;
+	}
+	de_dbg(c, "calculated width: %d", (int)pg->npwidth);
 
-	if(!de_good_image_dimensions(c, pg->width, pg->height)) goto done;
+	if(!de_good_image_dimensions(c, pg->npwidth, pg->height)) goto done;
+	if(pg->width_1<1) goto done;
 
 	if(pg->mask_type==MASK_TYPE_NEW_1 || pg->mask_type==MASK_TYPE_NEW_8) {
 		if(pg->num_padding_pixels_at_start_of_row>0) {
-			de_warn(c, "This image has a new-style transparency mask, and a "
-				"nonzero \"first bit\" field. This combination might not be "
-				"handled correctly.");
+			// Not going to bother with this until I confirm it exists.
+			de_warn(c, "New-style transparency is not supported with a "
+				"nonzero \"first bit\" field.");
+			pg->use_mask = 0;
 		}
-		pg->mask_rowspan = ((pg->width+31)/32)*4;
+		pg->mask_rowspan = ((pg->npwidth+31)/32)*4;
 	}
 
 	de_dbg_indent(c, -1);
@@ -501,7 +499,11 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
 	de_finfo_destroy(c, fi);
-	de_free(c, pg);
+	if(pg) {
+		if(pg->img) de_bitmap_destroy(pg->img);
+		if(pg->mask) de_bitmap_destroy(pg->mask);
+		de_free(c, pg);
+	}
 }
 
 static void de_run_rosprite(deark *c, de_module_params *mparams)
@@ -518,22 +520,22 @@ static void de_run_rosprite(deark *c, de_module_params *mparams)
 	pos = 0;
 
 	d->num_images = de_getu32le(pos);
-	de_dbg(c, "number of images: %d", (int)d->num_images);
+	de_dbg(c, "number of images: %"I64_FMT, d->num_images);
 	first_sprite_offset = de_getu32le(pos+4) - 4;
-	de_dbg(c, "first sprite offset: %d", (int)first_sprite_offset);
+	de_dbg(c, "first sprite offset: %"I64_FMT, first_sprite_offset);
 	implied_file_size = de_getu32le(pos+8) - 4;
-	de_dbg(c, "reported file size: %d", (int)implied_file_size);
+	de_dbg(c, "reported file size: %"I64_FMT, implied_file_size);
 	if(implied_file_size != c->infile->len) {
-		de_warn(c, "The \"first free word\" field implies the file size is %d, but it "
-			"is actually %d. This may not be a sprite file.",
-			(int)implied_file_size, (int)c->infile->len);
+		de_warn(c, "The \"first free word\" field implies the file size is %"I64_FMT", but it "
+			"is actually %"I64_FMT". This may not be a sprite file.",
+			implied_file_size, c->infile->len);
 	}
 
 	pos = first_sprite_offset;
 	for(k=0; k<d->num_images; k++) {
 		if(pos>=c->infile->len) break;
 		sprite_size = de_getu32le(pos);
-		de_dbg(c, "image #%d at %d, size=%d", (int)k, (int)pos, (int)sprite_size);
+		de_dbg(c, "image #%d at %"I64_FMT", size=%"I64_FMT, (int)k, pos, sprite_size);
 		if(sprite_size<1) break;
 		de_dbg_indent(c, 1);
 		do_sprite(c, d, k, pos, sprite_size);
