@@ -806,6 +806,8 @@ done:
 	}
 }
 
+// flags:
+//  0x01 = lsb bit order
 void de_convert_image_paletted(dbuf *f, i64 fpos,
 	i64 bpp, i64 rowspan, const de_color *pal,
 	de_bitmap *img, unsigned int flags)
@@ -833,7 +835,13 @@ void de_convert_image_paletted(dbuf *f, i64 fpos,
 
 			while(nbits_avail >= (UI)bpp) {
 				nbits_avail -= (UI)bpp;
-				palent = (b >> nbits_avail) & mask;
+				if(flags & 0x1) {
+					palent = b & mask;
+					b >>= (UI)bpp;
+				}
+				else {
+					palent = (b >> nbits_avail) & mask;
+				}
 				de_bitmap_setpixel_rgba(img, i++, j, pal[palent]);
 				if(i>=img->width) goto nextrow;
 			}

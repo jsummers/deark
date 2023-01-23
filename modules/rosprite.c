@@ -79,7 +79,7 @@ struct page_ctx {
 	i64 npwidth, height;
 	i64 width_1; // Width of intermediate bitmap. Includes left-padding, but not right-padding.
 	i64 pdwidth;
-	i64 num_mask_x_pixels_to_convert;
+	i64 mask_width_1;
 	i64 num_padding_pixels_at_start_of_row;
 	i64 num_padding_pixels_at_end_of_row;
 	i64 xdpi, ydpi;
@@ -100,35 +100,36 @@ struct page_ctx {
 	int has_custom_palette;
 	i64 custom_palette_pos;
 	i64 custom_palette_ncolors;
-	u32 pal[256];
+	de_color pal[256];
+	de_color maskpal[256];
 };
 
 typedef struct localctx_struct {
 	i64 num_images;
 } lctx;
 
-static const u32 pal4[4] = {
-	0xffffff,0xbbbbbb,0x777777,0x000000
+static const de_color pal4[4] = {
+	0xffffffffU,0xffbbbbbbU,0xff777777U,0xff000000U
 };
 
-static u32 getpal4(int k)
+static de_color getpal4(int k)
 {
 	if(k<0 || k>3) return 0;
-	return DE_MAKE_OPAQUE(pal4[k]);
+	return pal4[k];
 }
 
-static const u32 pal16[16] = {
-	0xffffff,0xdddddd,0xbbbbbb,0x999999,0x777777,0x555555,0x333333,0x000000,
-	0x4499ff,0xeeee00,0x00cc00,0xdd0000,0xeeeebb,0x558800,0xffbb00,0x00bbff
+static const de_color pal16[16] = {
+	0xffffffffU,0xffddddddU,0xffbbbbbbU,0xff999999U,0xff777777U,0xff555555U,0xff333333U,0xff000000U,
+	0xff4499ffU,0xffeeee00U,0xff00cc00U,0xffdd0000U,0xffeeeebbU,0xff558800U,0xffffbb00U,0xff00bbffU
 };
 
-static u32 getpal16(int k)
+static de_color getpal16(int k)
 {
 	if(k<0 || k>15) return 0;
-	return DE_MAKE_OPAQUE(pal16[k]);
+	return pal16[k];
 }
 
-static u32 getpal256(int k)
+static de_color getpal256(int k)
 {
 	u8 r, g, b;
 	if(k<0 || k>255) return 0;
@@ -158,11 +159,23 @@ static void remove_left_padding(deark *c, struct page_ctx *pg)
 	imgtmp = NULL;
 }
 
-static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
+static void convert_image_16bit(deark *c, lctx *d, struct page_ctx *pg, de_bitmap *img)
 {
 	i64 i, j;
-	u8 n;
-	de_color clr;
+
+	for(j=0; j<pg->height; j++) {
+		for(i=0; i<pg->width_1; i++) {
+			de_color clr;
+
+			clr = (de_color)de_getu16le(pg->image_offset + 4*pg->width_in_words*j + i*2);
+			clr = de_bgr555_to_888(clr);
+			de_bitmap_setpixel_rgba(pg->img, i, j, clr);
+		}
+	}
+}
+
+static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
+{
 	int is_grayscale;
 	int bypp;
 
@@ -177,10 +190,10 @@ static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
 	if(pg->has_mask) bypp++;
 
 	if(pg->mask_type==MASK_TYPE_OLD) {
-		pg->num_mask_x_pixels_to_convert = pg->width_1;
+		pg->mask_width_1 = pg->width_1;
 	}
 	else if(pg->mask_type==MASK_TYPE_NEW_1 || pg->mask_type==MASK_TYPE_NEW_8) {
-		pg->num_mask_x_pixels_to_convert = pg->npwidth;
+		pg->mask_width_1 = pg->npwidth;
 	}
 
 	pg->img = de_bitmap_create(c, pg->width_1, pg->height, bypp);
@@ -193,24 +206,15 @@ static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
 
 	de_dbg(c, "image data at %"I64_FMT, pg->image_offset);
 
-	for(j=0; j<pg->height; j++) {
-		for(i=0; i<pg->width_1; i++) {
-
-			if(pg->fgbpp==32) {
-				clr = dbuf_getRGB(c->infile, pg->image_offset + 4*pg->width_in_words*j + 4*i, 0);
-			}
-			else if(pg->fgbpp==16) {
-				clr = (de_color)de_getu16le(pg->image_offset + 4*pg->width_in_words*j + i*2);
-				clr = de_bgr555_to_888(clr);
-			}
-			else {
-				n = de_get_bits_symbol_lsb(c->infile, pg->fgbpp, pg->image_offset + 4*pg->width_in_words*j,
-					i);
-				clr = pg->pal[(int)n];
-			}
-
-			de_bitmap_setpixel_rgba(pg->img, i, j, clr);
-		}
+	if(pg->fgbpp==32) {
+		de_convert_image_rgb(c->infile, pg->image_offset, 4*pg->width_in_words, 4, pg->img, 0);
+	}
+	else if(pg->fgbpp==16) {
+		convert_image_16bit(c, d, pg, pg->img);
+	}
+	else {
+		de_convert_image_paletted(c->infile, pg->image_offset, pg->fgbpp, 4*pg->width_in_words,
+			pg->pal, pg->img, 0x1);
 	}
 
 	if(pg->has_mask && pg->use_mask) {
@@ -221,28 +225,27 @@ static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
 			goto after_mask;
 		}
 
-		pg->mask = de_bitmap_create(c, pg->width_1, pg->height, 1);
+		pg->mask = de_bitmap_create(c, pg->mask_width_1, pg->height, 1);
+
+		// Make a palette to use with de_convert_image_paletted().
+		if(pg->mask_type==MASK_TYPE_NEW_8) {
+			de_make_grayscale_palette(pg->maskpal, 256, 0);
+		}
+		else {
+			// Supposedly, anything nonzero is opaque.
+			de_memset(pg->maskpal, 0xff, sizeof(pg->maskpal));
+			pg->maskpal[0] = DE_STOCKCOLOR_BLACK;
+		}
+
 		// Start with an opaque mask.
 		de_bitmap_rect(pg->mask, 0, 0, pg->mask->width, pg->mask->height, DE_STOCKCOLOR_WHITE, 0);
 
-		for(j=0; j<pg->height; j++) {
-			for(i=0; i<pg->num_mask_x_pixels_to_convert; i++) {
-				de_colorsample a = 255;
-
-				n = de_get_bits_symbol_lsb(c->infile, pg->maskbpp, pg->mask_offset + pg->mask_rowspan*j, i);
-
-				if(pg->mask_type==MASK_TYPE_OLD || pg->mask_type==MASK_TYPE_NEW_1) {
-					if(n==0)
-						a = 0;
-				}
-				else if(pg->mask_type==MASK_TYPE_NEW_8) {
-					a = n;
-				}
-				de_bitmap_setpixel_gray(pg->mask, i, j, a);
-			}
-		}
+		de_convert_image_paletted(c->infile, pg->mask_offset, pg->maskbpp, pg->mask_rowspan,
+			pg->maskpal, pg->mask, 0x1);
 
 		de_bitmap_apply_mask(pg->img, pg->mask, 0);
+		de_bitmap_destroy(pg->mask);
+		pg->mask = NULL;
 	}
 after_mask:
 
@@ -253,20 +256,20 @@ after_mask:
 	de_bitmap_write_to_file_finfo(pg->img, fi, DE_CREATEFLAG_OPT_IMAGE);
 }
 
-static u32 average_color(u32 c1, u32 c2)
+static de_color average_color(de_color c1, de_color c2)
 {
 	u8 a, r, g, b;
-	a = ((u32)DE_COLOR_A(c1) + DE_COLOR_A(c2))/2;
-	r = ((u32)DE_COLOR_R(c1) + DE_COLOR_R(c2))/2;
-	g = ((u32)DE_COLOR_G(c1) + DE_COLOR_G(c2))/2;
-	b = ((u32)DE_COLOR_B(c1) + DE_COLOR_B(c2))/2;
+	a = ((de_color)DE_COLOR_A(c1) + DE_COLOR_A(c2))/2;
+	r = ((de_color)DE_COLOR_R(c1) + DE_COLOR_R(c2))/2;
+	g = ((de_color)DE_COLOR_G(c1) + DE_COLOR_G(c2))/2;
+	b = ((de_color)DE_COLOR_B(c1) + DE_COLOR_B(c2))/2;
 	return DE_MAKE_RGBA(r,g,b,a);
 }
 
 static void do_setup_palette(deark *c, lctx *d, struct page_ctx *pg)
 {
 	i64 k;
-	u32 clr1, clr2, clr3;
+	de_color clr1, clr2, clr3;
 
 	if(pg->fgbpp>8) {
 		return;
@@ -370,7 +373,7 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 	pg->mask_offset = de_getu32le(pos1+36) + pos1;
 	if(pg->mask_offset != pg->image_offset) {
 		pg->has_mask = 1;
-		pg->use_mask = 1;
+		pg->use_mask = 1; // Default
 	}
 	de_dbg(c, "first bit: %d, last bit: %d", (int)pg->first_bit, (int)pg->last_bit);
 	de_dbg(c, "image offset: %"I64_FMT", mask_offset: %"I64_FMT, pg->image_offset, pg->mask_offset);
@@ -404,17 +407,18 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 			goto done;
 		}
 
-		if(pg->fgbpp>8 && pg->has_mask) {
-			de_err(c, "Transparency not supported for this image format");
-			goto done;
-		}
-
 		if(pg->has_mask) {
 			pg->mask_type = MASK_TYPE_OLD;
 			pg->mask_rowspan = 4*pg->width_in_words;
 			pg->maskbpp = pg->fgbpp;
 			de_dbg(c, "mask type: old");
 		}
+
+		if(pg->fgbpp>8 && pg->has_mask) {
+			de_warn(c, "Transparency not supported for this image format");
+			pg->use_mask = 0;
+		}
+
 	}
 	else {
 		// new format
