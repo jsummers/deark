@@ -542,6 +542,7 @@ u8 de_get_bits_symbol_lsb(dbuf *f, i64 bps, i64 rowstart, i64 index)
 
 // Read a symbol (up to 8 bits) that starts at an arbitrary bit position.
 // It may span (two) bytes.
+// TODO: Delete this function, if it's not being used.
 u8 de_get_bits_symbol2(dbuf *f, int nbits, i64 bytepos, i64 bitpos)
 {
 	u8 b0, b1;

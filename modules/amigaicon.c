@@ -379,38 +379,40 @@ done:
 	return retval;
 }
 
-// Uncompress a slice of f, and append to outf.
+// Decompress a slice of f, and append to outf.
 // The algorithm is the same as PackBits, except that the data elements may
 // be less than 8 bits.
-static void glowdata_uncompress(dbuf *f, i64 pos, i64 len,
-	dbuf *outf, int bits_per_pixel)
+static void glowdata_decompress(dbuf *f, i64 pos, i64 len,
+	dbuf *outf, UI bits_per_pixel)
 {
 	i64 x;
 	i64 i;
 	u8 b, b2;
-	i64 bitpos;
+	struct de_bitreader bitrd;
 
-	bitpos = 0;
+	de_zeromem(&bitrd, sizeof(struct de_bitreader));
+	bitrd.f = f;
+	bitrd.curpos = pos;
+	bitrd.endpos = pos + len;
+	bitrd.bbll.is_lsb = 0;
+	de_bitbuf_lowlevel_empty(&bitrd.bbll);
 
-	// Continue as long as at least 8 bits remain.
-	while(bitpos <= (len-1)*8) {
-		b = de_get_bits_symbol2(f, 8, pos, bitpos);
-		bitpos+=8;
+	while(1) {
+		b = (u8)de_bitreader_getbits(&bitrd, 8);
+		if(bitrd.eof_flag) break;
 
 		if(b<=127) {
 			// 1+b literal pixels
 			x = 1+(i64)b;
 			for(i=0; i<x; i++) {
-				b2 = de_get_bits_symbol2(f, bits_per_pixel, pos, bitpos);
-				bitpos += bits_per_pixel;
+				b2 = (u8)de_bitreader_getbits(&bitrd, bits_per_pixel);
 				dbuf_writebyte(outf, b2);
 			}
 		}
 		else if(b>=129) {
 			// 257-b repeated pixels
 			x = 257 - (i64)b;
-			b2 = de_get_bits_symbol2(f, bits_per_pixel, pos, bitpos);
-			bitpos += bits_per_pixel;
+			b2 = (u8)de_bitreader_getbits(&bitrd, bits_per_pixel);
 			for(i=0; i<x; i++) {
 				dbuf_writebyte(outf, b2);
 			}
@@ -489,6 +491,7 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 	pos+=10;
 
 	tmpbuf = dbuf_create_membuf(c, 10240, 0);
+	dbuf_set_length_limit(tmpbuf, 1048576);
 
 	image_pos = pos;
 	pal_pos = image_pos+image_size_in_bytes;
@@ -499,7 +502,7 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 		de_dbg_indent(c, 1);
 
 		if(pal_cmpr_type==1) {
-			glowdata_uncompress(c->infile, pal_pos, pal_size_in_bytes, tmpbuf, 8);
+			glowdata_decompress(c->infile, pal_pos, pal_size_in_bytes, tmpbuf, 8);
 		}
 		else {
 			dbuf_copy(c->infile, pal_pos, pal_size_in_bytes, tmpbuf);
@@ -521,9 +524,9 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 		de_dbg_indent(c, -1);
 	}
 
-	// Uncompress the pixels
+	// Decompress the pixels
 	dbuf_empty(tmpbuf);
-	glowdata_uncompress(c->infile, image_pos, image_size_in_bytes, tmpbuf, (int)bits_per_pixel);
+	glowdata_decompress(c->infile, image_pos, image_size_in_bytes, tmpbuf, (UI)bits_per_pixel);
 
 	img = de_bitmap_create(c, d->glowicons_width, d->glowicons_height, has_trns?4:3);
 
