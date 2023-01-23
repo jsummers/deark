@@ -66,9 +66,7 @@ static const struct old_mode_info old_mode_info_arr[] = {
 	{49, 8,  0,  0},
 
 	// I have some mode-107 files, but I don't know how standard this is.
-	{107, 16,  0,  0},
-
-	{1000, 0, 0, 0}
+	{107, 16,  0,  0}
 };
 
 struct page_ctx {
@@ -84,6 +82,7 @@ struct page_ctx {
 	i64 num_padding_pixels_at_end_of_row;
 	i64 xdpi, ydpi;
 	u32 mode;
+	UI new_img_type; // 0 if old format
 	u8 has_mask;
 	u8 use_mask;
 #define MASK_TYPE_OLD    1 // Binary transparency, fgbpp bits/pixel
@@ -345,7 +344,6 @@ static void read_sprite_name(deark *c, lctx *d, de_finfo *fi, i64 pos)
 static void do_sprite(deark *c, lctx *d, i64 index,
 	i64 pos1, i64 len)
 {
-	i64 new_img_type;
 	de_finfo *fi = NULL;
 	int saved_indent_level;
 	struct page_ctx *pg = NULL;
@@ -383,17 +381,22 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 
 	de_dbg_indent(c, 1);
 
-	new_img_type = (pg->mode&0x78000000U)>>27;
-	if(new_img_type==0)
+	pg->new_img_type = (pg->mode&0x78000000U)>>27;
+	if(pg->new_img_type==0)
 		de_dbg(c, "old format screen mode: %u", (UI)pg->mode);
 	else
-		de_dbg(c, "new format image type: %u", (UI)new_img_type);
+		de_dbg(c, "new format image type: %u", (UI)pg->new_img_type);
 
-	if(new_img_type==0) {
+	if(pg->new_img_type!=0 && pg->first_bit!=0) {
+		de_warn(c, "Invalid \"first bit\" value for new image format");
+		pg->first_bit = 0;
+	}
+
+	if(pg->new_img_type==0) {
 		// old format
-		int x;
+		size_t x;
 
-		for(x=0; old_mode_info_arr[x].mode<1000; x++) {
+		for(x=0; x<DE_ARRAYCOUNT(old_mode_info_arr); x++) {
 			if(pg->mode == old_mode_info_arr[x].mode) {
 				pg->fgbpp = (i64)old_mode_info_arr[x].fgbpp;
 				pg->xdpi = (i64)old_mode_info_arr[x].xdpi;
@@ -415,7 +418,7 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 		}
 
 		if(pg->fgbpp>8 && pg->has_mask) {
-			de_warn(c, "Transparency not supported for this image format");
+			de_warn(c, "Transparency not supported for this image type");
 			pg->use_mask = 0;
 		}
 
@@ -425,7 +428,7 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 		pg->xdpi = (pg->mode&0x07ffc000)>>14;
 		pg->ydpi = (pg->mode&0x00003ffe)>>1;
 		de_dbg(c, "xdpi: %d, ydpi: %d", (int)pg->xdpi, (int)pg->ydpi);
-		switch(new_img_type) {
+		switch(pg->new_img_type) {
 		case 1:
 			pg->fgbpp = 1;
 			break;
@@ -447,13 +450,19 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 		//case 7: 32bpp CMYK (TODO)
 		//case 8: 24bpp (TODO)
 		default:
-			de_err(c, "New format type %d not supported", (int)new_img_type);
+			de_err(c, "New format type %u not supported", (UI)pg->new_img_type);
 			goto done;
 		}
 
 		if(pg->has_mask) {
-			pg->mask_type = (pg->mode&0x80000000U) ? MASK_TYPE_NEW_8 : MASK_TYPE_NEW_1;
-			pg->maskbpp = 8;
+			if(pg->mode&0x80000000U) {
+				pg->mask_type = MASK_TYPE_NEW_8;
+				pg->maskbpp = 8;
+			}
+			else {
+				pg->mask_type = MASK_TYPE_NEW_1;
+				pg->maskbpp = 1;
+			}
 			de_dbg(c, "mask type: new - %s", pg->mask_type==MASK_TYPE_NEW_8 ? "alpha" : "binary");
 		}
 	}
@@ -479,13 +488,7 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 	if(pg->width_1<1) goto done;
 
 	if(pg->mask_type==MASK_TYPE_NEW_1 || pg->mask_type==MASK_TYPE_NEW_8) {
-		if(pg->num_padding_pixels_at_start_of_row>0) {
-			// Not going to bother with this until I confirm it exists.
-			de_warn(c, "New-style transparency is not supported with a "
-				"nonzero \"first bit\" field.");
-			pg->use_mask = 0;
-		}
-		pg->mask_rowspan = ((pg->npwidth+31)/32)*4;
+		pg->mask_rowspan = de_pad_to_n(pg->maskbpp*pg->npwidth, 32) / 8;
 	}
 
 	de_dbg_indent(c, -1);
@@ -552,17 +555,39 @@ static void de_run_rosprite(deark *c, de_module_params *mparams)
 
 static int de_identify_rosprite(deark *c)
 {
-	i64 h0, h1, h2;
-	h0 = de_getu32le(0);
-	h1 = de_getu32le(4);
-	h2 = de_getu32le(8);
+	i64 num_images, first_sprite_offset, implied_file_size;
+	i64 offset2;
 
-	if(h0<1 || h0>10000) return 0;
-	if(h1-4<12) return 0;
-	if(h1-4 >= c->infile->len) return 0;
-	if(h2-4 != c->infile->len) return 0;
+	num_images = de_getu32le(0);
+	if(num_images<1 || num_images>1000) return 0;
 
-	return 80;
+	first_sprite_offset = de_getu32le(4) - 4;
+	// I've only ever seen this be 12 or (rarely) 28, though it's legal
+	// for it to have other values
+	if(first_sprite_offset!=12 && first_sprite_offset!=28) return 0;
+	if(first_sprite_offset+48 > c->infile->len) return 0;
+
+	implied_file_size = de_getu32le(8) - 4;
+	if(implied_file_size > c->infile->len) return 0;
+
+	if(num_images!=1) {
+		// TODO?: A multi-sprite file with extra junk at EOF will not be detected.
+		// To better detect multi-sprite files, we'd probably have to walk through
+		// the file.
+		if(implied_file_size != c->infile->len) return 0;
+		return 55;
+	}
+
+	offset2 = de_getu32le(first_sprite_offset);
+	if(offset2==implied_file_size && implied_file_size==c->infile->len) {
+		// Found some bad files where this pointer is absolute when it should be
+		// relative.
+		return 15;
+	}
+	offset2 += first_sprite_offset;
+	if(offset2 != implied_file_size) return 0;
+	if(implied_file_size == c->infile->len) return 80;
+	return 30;
 }
 
 void de_module_rosprite(deark *c, struct deark_module_info *mi)
