@@ -21,11 +21,11 @@ static int do_v1_image(deark *c, lctx *d, i64 pos,
 {
 	de_bitmap *img = NULL;
 	i64 w, h;
-	i64 i, j, i2, j2;
+	i64 i, j;
 	i64 colors_start=0, bitmap_start;
-	u8 b;
-	u32 clr1, clr2;
+	i64 fgpos;
 	int retval = 0;
+	de_color pal2[2];
 
 	w = 8 * w_blocks;
 	h = EPA_CH * h_blocks;
@@ -44,43 +44,46 @@ static int do_v1_image(deark *c, lctx *d, i64 pos,
 		de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, d->pal, 16, 0);
 	}
 
+	if(special) {
+		// Blue on black
+		pal2[0] = DE_STOCKCOLOR_BLACK;
+		pal2[1] = DE_MAKE_RGB(0x00,0x00,0xff);
+	}
+
 	// Read the bitmap, "character by character"
 	for(j=0; j<h_blocks; j++) {
 		for(i=0; i<w_blocks; i++) {
-			if(special) {
-				if(j==0 && i==0) {
-					// No data (transparent)
-					clr1 = DE_STOCKCOLOR_TRANSPARENT;
-					clr2 = DE_STOCKCOLOR_TRANSPARENT;
-				}
-				else {
-					// Blue on black
-					clr1 = DE_MAKE_RGB(0x00,0x00,0xff);
-					clr2 = DE_STOCKCOLOR_BLACK;
-				}
-			}
-			else {
-				// Read the color attributes for this block of pixel
-				b = de_getbyte(colors_start + j*w_blocks + i);
-				clr1 = d->pal[(UI)(b&0x0f)];
-				clr2 = d->pal[(UI)((b&0xf0)>>4)];
+			i64 i2, j2;
+
+			if(!special) { // Read the color attributes for this block
+				u8 attr;
+
+				attr = de_getbyte(colors_start + j*w_blocks + i);
+				pal2[0] = d->pal[(UI)((attr&0xf0)>>4)];
+				pal2[1] = d->pal[(UI)(attr&0x0f)];
 			}
 
-			// Read each individual pixel
-			for(j2=0; j2<EPA_CH; j2++) {
-				for(i2=0; i2<8; i2++) {
-					if(special && j==0 && i==0) {
-						b = 0;
-					}
-					else {
-						b = de_get_bits_symbol(c->infile, 1,
-							bitmap_start + j*w_blocks*EPA_CH + i*EPA_CH + j2, i2);
-					}
-					de_bitmap_setpixel_rgba(img, i*8+i2, j*EPA_CH+j2, b?clr1:clr2);
+			fgpos = bitmap_start + j*w_blocks*EPA_CH + i*EPA_CH;
+
+			for(j2=0; j2<EPA_CH; j2++) { // For each 8-pixel row of a block...
+				u8 n;
+
+				n = de_getbyte_p(&fgpos);
+
+				for(i2=0; i2<8; i2++) { // For each pixel in a row...
+					u8 b;
+
+					b = (n>>(7-i2)) & 0x01;
+					de_bitmap_setpixel_rgba(img, i*8+i2, j*EPA_CH+j2, pal2[(UI)b]);
 				}
 			}
 		}
 	}
+
+	if(special) {
+		de_bitmap_rect(img, 0, 0, 8, EPA_CH, DE_STOCKCOLOR_TRANSPARENT, 0);
+	}
+
 	de_bitmap_write_to_file(img, NULL, createflags);
 	retval = 1;
 done:
@@ -115,7 +118,6 @@ static int detect_palette_at(deark *c, lctx *d, i64 pos, i64 ncolors)
 	if(!dbuf_memcmp(c->infile, pos, "RGB ", 4)) return 1;
 	return 0;
 }
-
 
 static void do_v2(deark *c, lctx *d)
 {
