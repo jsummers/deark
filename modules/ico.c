@@ -14,6 +14,15 @@ struct page_ctx {
 	i64 data_size;
 	i64 data_offset;
 	int hotspot_x, hotspot_y; // Valid if lctx::is_cur
+	i64 fg_start, bg_start;
+	i64 pdwidth, mask_pdwidth;
+	int use_mask;
+	int has_alpha_channel;
+	int has_inv_bkgd;
+	struct de_bmpinfo bi;
+	de_bitmap *img;
+	de_bitmap *mask_img;
+	u32 pal[256];
 };
 
 typedef struct localctx_struct {
@@ -51,91 +60,141 @@ static void warn_inv_bkgd(deark *c)
 		"fully supported.");
 }
 
+static void decode_fg_image_default(deark *c, lctx *d, struct page_ctx *pg)
+{
+	i64 i, j;
+	de_bitmap *img = pg->img;
+
+	// Read the main image
+	if(pg->bi.bitcount==24) {
+		de_convert_image_rgb(c->infile, pg->fg_start, pg->bi.rowspan, 3,
+			img, DE_GETRGBFLAG_BGR);
+	}
+	else if(pg->bi.bitcount<=8) {
+		de_convert_image_paletted(c->infile, pg->fg_start, pg->bi.bitcount,
+			pg->bi.rowspan, pg->pal, img, 0);
+	}
+	else {
+		return;
+	}
+
+	// Apply the mask (already read) to the main image
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<pg->bi.width; i++) {
+			u8 maskclr;
+			de_color fgclr;
+
+			maskclr = DE_COLOR_K(de_bitmap_getpixel(pg->mask_img, i, j));
+			if(maskclr==0) continue; // normal opaque pixel
+
+			fgclr = de_bitmap_getpixel(pg->img, i, j);
+			if((fgclr & 0x00ffffffU)==0) {
+				// normal transparent pixel
+				de_bitmap_setpixel_rgba(pg->img, i, j, DE_STOCKCOLOR_TRANSPARENT);
+			}
+			else {
+				u32 newclr;
+
+				pg->has_inv_bkgd = 1;
+				newclr = get_inv_bkgd_replacement_clr(i, j);
+				de_bitmap_setpixel_rgba(pg->img, i, j, newclr);
+			}
+		}
+	}
+}
+
+static void decode_fg_image_32(deark *c, lctx *d, struct page_ctx *pg)
+{
+	i64 i, j;
+	i64 pos;
+	de_bitmap *img = pg->img;
+
+	for(j=0; j<img->height; j++) {
+		pos = pg->fg_start + pg->bi.rowspan*j;
+
+		for(i=0; i<pg->pdwidth; i++) {
+			u8 cr, cg, cb, ca;
+
+			cb = de_getbyte_p(&pos);
+			cg = de_getbyte_p(&pos);
+			cr = de_getbyte_p(&pos);
+			ca = de_getbyte_p(&pos);
+			de_bitmap_setpixel_rgba(img, i, j, DE_MAKE_RGBA(cr,cg,cb,ca));
+		}
+	}
+}
+
 static void do_image_data(deark *c, lctx *d, struct page_ctx *pg)
 {
-	struct de_bmpinfo bi;
-	i64 fg_start, bg_start;
-	i64 i, j;
-	u32 pal[256];
-	i64 p;
-	de_bitmap *img = NULL;
-	de_bitmap *mask_img = NULL;
 	de_finfo *fi = NULL;
-	u8 x;
-	u8 cr=0, cg=0, cb=0, ca=0;
-	int has_inv_bkgd = 0;
-	int use_mask;
-	int has_alpha_channel = 0;
-	i64 pdwidth, mask_pdwidth;
 	char filename_token[32];
 	i64 pos1 = pg->data_offset;
 	i64 len = pg->data_size;
 
 	if(pos1+len > c->infile->len) goto done;
 
-	if(!fmtutil_get_bmpinfo(c, c->infile, &bi, pos1, len, DE_BMPINFO_ICO_FORMAT)) {
+	if(!fmtutil_get_bmpinfo(c, c->infile, &pg->bi, pos1, len, DE_BMPINFO_ICO_FORMAT)) {
 		de_err(c, "Invalid bitmap");
 		goto done;
 	}
 
-	if(bi.file_format == DE_BMPINFO_FMT_PNG) {
+	if(pg->bi.file_format == DE_BMPINFO_FMT_PNG) {
 		do_extract_png(c, d, pos1, len);
 		goto done;
 	}
 
-	switch(bi.bitcount) {
+	switch(pg->bi.bitcount) {
 	case 1: case 2: case 4: case 8: case 24: case 32:
 		break;
 	case 16:
-		de_err(c, "(image #%d) Unsupported bit count (%d)", (int)pg->img_num, (int)bi.bitcount);
+		de_err(c, "(image #%d) Unsupported bit count (%d)", (int)pg->img_num, (int)pg->bi.bitcount);
 		goto done;
 	default:
-		de_err(c, "(image #%d) Invalid bit count (%d)", (int)pg->img_num, (int)bi.bitcount);
+		de_err(c, "(image #%d) Invalid bit count (%d)", (int)pg->img_num, (int)pg->bi.bitcount);
 		goto done;
 	}
 
-	if(bi.compression_field!=0) {
+	if(pg->bi.compression_field!=0) {
 		// TODO: Support BITFIELDS
 		de_err(c, "Compression / BITFIELDS not supported");
 		goto done;
 	}
 
-	if(bi.bitcount==32) {
+	if(pg->bi.bitcount==32) {
 		// 32bpp images have both an alpha channel, and a 1bpp "mask".
 		// We never use a 32bpp image's mask (although we may extract it
 		// separately).
 		// I'm not sure that's necessarily the best thing to do. I think that
 		// in theory the mask could be used to get inverted-background-color
 		// pixels, though I don't know if Windows allows that.
-		use_mask = 0;
-		has_alpha_channel = 1;
+		pg->use_mask = 0;
+		pg->has_alpha_channel = 1;
 	}
 	else {
-		use_mask = 1;
+		pg->use_mask = 1;
 	}
 
 	de_snprintf(filename_token, sizeof(filename_token), "%dx%dx%d",
-		(int)bi.width, (int)bi.height, (int)bi.bitcount);
+		(int)pg->bi.width, (int)pg->bi.height, (int)pg->bi.bitcount);
 
-	pdwidth = (bi.rowspan * 8)/bi.bitcount;
-	mask_pdwidth = bi.mask_rowspan * 8;
+	pg->pdwidth = (pg->bi.rowspan * 8)/pg->bi.bitcount;
+	pg->mask_pdwidth = pg->bi.mask_rowspan * 8;
 
-	img = de_bitmap_create2(c, bi.width, pdwidth, bi.height, 4);
+	pg->img = de_bitmap_create2(c, pg->bi.width, pg->pdwidth, pg->bi.height, 4);
 
 	// Read palette
-	de_zeromem(pal, sizeof(pal));
-	if (bi.pal_entries > 0) {
-		if(bi.pal_entries>256) goto done;
+	if (pg->bi.pal_entries > 0) {
+		if(pg->bi.pal_entries>256) goto done;
 
 		de_read_palette_rgb(c->infile,
-			pos1+bi.infohdrsize, bi.pal_entries, bi.bytes_per_pal_entry,
-			pal, 256, DE_GETRGBFLAG_BGR);
+			pos1+pg->bi.infohdrsize, pg->bi.pal_entries, pg->bi.bytes_per_pal_entry,
+			pg->pal, 256, DE_GETRGBFLAG_BGR);
 	}
 
-	fg_start = pos1 + bi.size_of_headers_and_pal;
-	bg_start = pos1 + bi.size_of_headers_and_pal + bi.foreground_size;
+	pg->fg_start = pos1 + pg->bi.size_of_headers_and_pal;
+	pg->bg_start = pos1 + pg->bi.size_of_headers_and_pal + pg->bi.foreground_size;
 
-	de_dbg(c, "foreground at %d, mask at %d", (int)fg_start, (int)bg_start);
+	de_dbg(c, "foreground at %d, mask at %d", (int)pg->fg_start, (int)pg->bg_start);
 
 	// Foreground padding pixels exist if the width times the bitcount is not a
 	// multiple of 32. This is rare.
@@ -150,70 +209,21 @@ static void do_image_data(deark *c, lctx *d, struct page_ctx *pg)
 	// The mask's padding will be normally be ignored, but the padded mask will
 	// be written to a separate file if d->extract_unused_masks is enabled.
 
-	mask_img = de_bitmap_create2(c, bi.width, mask_pdwidth, bi.height, 1);
-	de_convert_image_bilevel(c->infile, bg_start, bi.mask_rowspan, mask_img, 0);
+	pg->mask_img = de_bitmap_create2(c, pg->bi.width, pg->mask_pdwidth, pg->bi.height, 1);
+	de_convert_image_bilevel(c->infile, pg->bg_start, pg->bi.mask_rowspan, pg->mask_img, 0);
 
-	for(j=0; j<img->height; j++) {
-		for(i=0; i<pdwidth; i++) {
-			ca = 0xff;
-
-			if(bi.bitcount<=8) {
-				p = fg_start + bi.rowspan*j;
-				x = de_get_bits_symbol(c->infile, bi.bitcount, p, i);
-				cr = DE_COLOR_R(pal[x]);
-				cg = DE_COLOR_G(pal[x]);
-				cb = DE_COLOR_B(pal[x]);
-			}
-			//else if(bi.bitcount==16) {
-			//	// TODO
-			//}
-			else if(bi.bitcount==24) {
-				p = fg_start + bi.rowspan*j + i*3;
-				cb = de_getbyte(p+0);
-				cg = de_getbyte(p+1);
-				cr = de_getbyte(p+2);
-			}
-			else if(bi.bitcount==32) {
-				p = fg_start + bi.rowspan*j + i*4;
-				cb = de_getbyte(p+0);
-				cg = de_getbyte(p+1);
-				cr = de_getbyte(p+2);
-				if(has_alpha_channel) {
-					ca = de_getbyte(p+3);
-				}
-			}
-
-			if(use_mask && i<bi.width) {
-				u8 maskclr;
-				// Refer to the mask, if the main bitmap didn't already
-				// have transparency.
-
-				maskclr = DE_COLOR_K(de_bitmap_getpixel(mask_img, i, j));
-				ca = maskclr ? 0 : 255;
-
-				// Inverted background pixels
-				// TODO: Should we do this only for cursors, and not icons?
-				if(maskclr && (cr || cg || cb)) {
-					u32 newclr;
-
-					has_inv_bkgd = 1;
-					newclr = get_inv_bkgd_replacement_clr(i, j);
-					cr = DE_COLOR_R(newclr);
-					cg = DE_COLOR_G(newclr);
-					cb = DE_COLOR_B(newclr);
-					ca = DE_COLOR_A(newclr);
-				}
-			}
-
-			de_bitmap_setpixel_rgba(img, i, j, DE_MAKE_RGBA(cr,cg,cb,ca));
-		}
+	if(pg->bi.bitcount==32) {
+		decode_fg_image_32(c, d, pg);
+	}
+	else {
+		decode_fg_image_default(c, d, pg);
 	}
 
-	if(has_inv_bkgd) {
+	if(pg->has_inv_bkgd) {
 		warn_inv_bkgd(c);
 	}
 
-	de_bitmap_optimize_alpha(img, (bi.bitcount==32)?0x1:0x0);
+	de_bitmap_optimize_alpha(pg->img, (pg->bi.bitcount==32)?0x1:0x0);
 
 	fi = de_finfo_create(c);
 
@@ -225,19 +235,23 @@ static void do_image_data(deark *c, lctx *d, struct page_ctx *pg)
 		fi->hotspot_y = pg->hotspot_y;
 	}
 
-	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_FLIP_IMAGE);
+	de_bitmap_write_to_file_finfo(pg->img, fi, DE_CREATEFLAG_FLIP_IMAGE);
 
-	if(d->extract_unused_masks && (!use_mask || (c->padpix && mask_pdwidth>bi.width))) {
+	if(d->extract_unused_masks && (!pg->use_mask || (c->padpix && pg->mask_pdwidth>pg->bi.width))) {
 		char maskname_token[32];
 
 		de_snprintf(maskname_token, sizeof(maskname_token), "%dx%dx%dmask",
-			(int)bi.width, (int)bi.height, (int)bi.bitcount);
-		de_bitmap_write_to_file(mask_img, maskname_token, DE_CREATEFLAG_IS_AUX | DE_CREATEFLAG_FLIP_IMAGE);
+			(int)pg->bi.width, (int)pg->bi.height, (int)pg->bi.bitcount);
+		de_bitmap_write_to_file(pg->mask_img, maskname_token, DE_CREATEFLAG_IS_AUX | DE_CREATEFLAG_FLIP_IMAGE);
 	}
 
 done:
-	de_bitmap_destroy(img);
-	de_bitmap_destroy(mask_img);
+	if(pg) {
+		de_bitmap_destroy(pg->img);
+		pg->img = NULL;
+		de_bitmap_destroy(pg->mask_img);
+		pg->mask_img = NULL;
+	}
 	de_finfo_destroy(c, fi);
 }
 
