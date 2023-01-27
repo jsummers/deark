@@ -101,6 +101,8 @@ struct image_scan_opt_data {
 	u8 has_visible_pixels;
 	// bilevel means every pixel is black or white, and opaque.
 	u8 is_nonbilevel;
+	u8 has_only_invis_black_pixels;
+	u8 has_only_invis_white_pixels;
 	de_bitmap *optimg;
 };
 
@@ -128,6 +130,9 @@ static void scan_image(de_bitmap *img, struct image_scan_opt_data *optctx)
 		return;
 	}
 
+	optctx->has_only_invis_black_pixels = 1;
+	optctx->has_only_invis_white_pixels = 1;
+
 	for(j=0; j<img->height; j++) {
 		for(i=0; i<img->width; i++) {
 			clr = de_bitmap_getpixel(img, i, j);
@@ -137,8 +142,24 @@ static void scan_image(de_bitmap *img, struct image_scan_opt_data *optctx)
 			r = DE_COLOR_R(clr);
 			g = DE_COLOR_G(clr);
 			b = DE_COLOR_B(clr);
+
+			if(!optctx->has_visible_pixels && a==0) {
+				if(optctx->has_only_invis_black_pixels) {
+					if(r || g || b) {
+						optctx->has_only_invis_black_pixels = 0;
+					}
+				}
+				if(optctx->has_only_invis_white_pixels) {
+					if((r!=0xff) || (g!=0xff) || (b!=0xff)) {
+						optctx->has_only_invis_white_pixels = 0;
+					}
+				}
+			}
+
 			if(!optctx->has_visible_pixels && a!=0) {
 				optctx->has_visible_pixels = 1;
+				optctx->has_only_invis_black_pixels = 0;
+				optctx->has_only_invis_white_pixels = 0;
 			}
 			if(!optctx->has_trns && a<255) {
 				optctx->has_trns = 1;
@@ -1149,8 +1170,10 @@ void de_bitmap_remove_alpha(de_bitmap *img)
 // If the image is 100% opaque, remove the alpha channel.
 // Otherwise do nothing.
 // flags:
-//  0x1: Make 100% invisible images 100% opaque
+//  0x1: Make 100% invisible images 100% opaque (always)
 //  0x2: Warn if an invisible image was made opaque
+//  0x4: Make 100% invisible images 100% opaque, unless the image seems
+//       sufficiently "boring".
 void de_bitmap_optimize_alpha(de_bitmap *img, unsigned int flags)
 {
 	struct image_scan_opt_data optctx;
@@ -1160,7 +1183,15 @@ void de_bitmap_optimize_alpha(de_bitmap *img, unsigned int flags)
 	de_zeromem(&optctx, sizeof(struct image_scan_opt_data));
 	scan_image(img, &optctx);
 
-	if(optctx.has_trns && !optctx.has_visible_pixels && (flags&0x1)) {
+	if((flags&0x4) && !optctx.has_visible_pixels &&
+		(optctx.has_only_invis_black_pixels || optctx.has_only_invis_white_pixels))
+	{
+		// No visible pixels, but the image is boring enough that it may be by
+		// design, so don't remove the alpha channel.
+		return;
+	}
+
+	if(optctx.has_trns && !optctx.has_visible_pixels && (flags&(0x1|0x4))) {
 		if(flags&0x2) {
 			de_warn(img->c, "Invisible image detected. Ignoring transparency.");
 		}

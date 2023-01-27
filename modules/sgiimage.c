@@ -273,11 +273,8 @@ static void do_sgiimage_image(deark *c, struct sgiimage_ctx *d)
 		sgiimage_decode_image(c, d, unc_pixels, 0, img);
 	}
 
-	if(d->width>1 || d->height>1) {
-		// If there are no visible pixels, assume something's wrong, and remove
-		// the alpha channel.
-		de_bitmap_optimize_alpha(img, 0x3);
-	}
+	// Remove the alpha channel if it seems bad
+	de_bitmap_optimize_alpha(img, 0x4 | 0x2);
 
 	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_FLIP_IMAGE |
 		DE_CREATEFLAG_OPT_IMAGE);
