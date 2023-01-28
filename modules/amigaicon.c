@@ -31,16 +31,16 @@ typedef struct localctx_struct {
 	int has_glowicons;
 	i64 glowicons_pos;
 	i64 glowicons_width, glowicons_height;
-	u32 glowicons_palette[256];
+	de_color glowicons_palette[256];
 } lctx;
 
-static const u32 rev1pal[4] = { 0x55aaff,0x000000,0xffffff,0xff8800 }; // http://krashan.ppa.pl/articles/amigaicons/
-//static const u32 rev1pal[4] = { 0x0055aa,0x000020,0xffffff,0xff8a00 }; // Netpbm
+static const de_color rev1pal[4] = { 0x55aaff,0x000000,0xffffff,0xff8800 }; // http://krashan.ppa.pl/articles/amigaicons/
+//static const de_color rev1pal[4] = { 0x0055aa,0x000020,0xffffff,0xff8a00 }; // Netpbm
 
-static const u32 rev2pal[4] = { 0x959595,0xffffff,0x000000,0x3b67a2 }; // http://krashan.ppa.pl/articles/amigaicons/
-//static const u32 rev2pal[4] = { 0xaaaaaa,0xffffff,0x000000,0x556699 }; // XnView
+static const de_color rev2pal[4] = { 0x959595,0xffffff,0x000000,0x3b67a2 }; // http://krashan.ppa.pl/articles/amigaicons/
+//static const de_color rev2pal[4] = { 0xaaaaaa,0xffffff,0x000000,0x556699 }; // XnView
 
-static const u32 magicwbpal[8] = {
+static const de_color magicwbpal[8] = {
 	0x959595,0x7b7b7b,0xffffff,0xaa907c,0x000000,0xafafaf,0x3b67a2,0xffa997 // http://krashan.ppa.pl/articles/amigaicons/ fixed? (& Wikipedia)
 	//0xaaaaaa,0x999999,0xffffff,0xbbaa99,0x000000,0xbbbbbb,0x556699,0xffbbaa // XnView
 };
@@ -90,7 +90,7 @@ static void do_decode_newicons(deark *c, lctx *d,
 	i64 i;
 	i64 rle_len;
 	int saved_indent_level;
-	u32 pal[256];
+	de_color pal[256];
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "decoding NewIcons[%d], len=%"I64_FMT, newicons_num, f->len);
@@ -103,6 +103,10 @@ static void do_decode_newicons(deark *c, lctx *d,
 
 	b0 = dbuf_getbyte(f, 3);
 	b1 = dbuf_getbyte(f, 4);
+	if(width_code<0x21 || height_code<0x21 || b0<0x21 || b1<0x21) {
+		de_err(c, "Bad NewIcons data");
+		goto done;
+	}
 	ncolors = (i64)((((UI)b0-(UI)0x21)<<6) + ((UI)b1-(UI)0x21));
 	if(ncolors<1) ncolors=1;
 	if(ncolors>256) ncolors=256;
@@ -161,6 +165,7 @@ static void do_decode_newicons(deark *c, lctx *d,
 	// The first ncolors*3 bytes are the palette
 	de_dbg2(c, "NewIcons palette");
 	de_dbg_indent(c, 1);
+	de_zeromem(pal, sizeof(pal));
 	for(i=0; i<ncolors; i++) {
 		if(i>255) break;
 		pal[i] = dbuf_getRGB(decoded, i*3, 0);
@@ -212,7 +217,7 @@ static int do_read_main_icon(deark *c, lctx *d,
 	i64 i;
 	int retval = 0;
 	de_bitmap *img = NULL;
-	u32 pal[256];
+	de_color pal[256];
 
 	de_dbg(c, "main icon #%d at %"I64_FMT, (int)icon_index, pos);
 	de_dbg_indent(c, 1);
