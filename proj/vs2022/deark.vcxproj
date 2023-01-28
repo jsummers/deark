@@ -238,7 +238,6 @@
     <ClCompile Include="..\..\modules\installshld.c" />
     <ClCompile Include="..\..\modules\iptc.c" />
     <ClCompile Include="..\..\modules\iso9660.c" />
-    <ClCompile Include="..\..\modules\isz.c" />
     <ClCompile Include="..\..\modules\j2c.c" />
     <ClCompile Include="..\..\modules\jbf.c" />
     <ClCompile Include="..\..\modules\jovianvi.c" />

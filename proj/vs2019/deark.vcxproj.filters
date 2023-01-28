@@ -502,9 +502,6 @@
     <ClCompile Include="..\..\modules\pack.c">
       <Filter>Modules</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\modules\isz.c">
-      <Filter>Modules</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\modules\os2ea.c">
       <Filter>Modules</Filter>
     </ClCompile>
