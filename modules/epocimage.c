@@ -12,6 +12,25 @@ DE_DECLARE_MODULE(de_module_epocimage);
 #define DE_PFMT_SKETCH        3
 #define DE_PFMT_AIF           4
 
+// Corresponds to a Paint Data Section
+struct phys_image_ctx {
+	i64 width, height;
+	i64 color_type;
+	i64 bits_per_pixel;
+	int is_mask;
+	de_bitmap *img;
+	i64 paint_data_section_size;
+};
+
+typedef struct localctx_struct {
+	int fmt;
+	i64 last_paint_data_section_size;
+	int warned_exp;
+
+	i64 jumptable_offset;
+	i64 section_table_offset;
+} lctx;
+
 static const u32 supplpal[40] = {
 	0x111111,0x222222,0x444444,0x555555,0x777777,
 	0x110000,0x220000,0x440000,0x550000,0x770000,
@@ -53,23 +72,18 @@ static const u32 pal16[16] = {
 	0xff00ff,0x0000ff,0x00ffff,0x800080,0x000080,0x008080,0xaaaaaa,0xffffff
 };
 
-struct page_ctx {
-	i64 width, height;
-	i64 color_type;
-	i64 bits_per_pixel;
-};
+static void destroy_phys_image(deark *c, struct phys_image_ctx *pi)
+{
+	if(!pi) return;
+	if(pi->img) {
+		de_bitmap_destroy(pi->img);
+	}
+	de_free(c, pi);
+}
 
-typedef struct localctx_struct {
-	int fmt;
-	i64 paint_data_section_size;
-	int warned_exp;
-
-	i64 jumptable_offset;
-	i64 section_table_offset;
-} lctx;
-
-static de_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
-	dbuf *unc_pixels, int is_mask)
+// Returns an image in pi->img
+static void do_read_phys_image(deark *c, lctx *d, struct phys_image_ctx *pi,
+	dbuf *unc_pixels)
 {
 	de_bitmap *img = NULL;
 	i64 i, j;
@@ -81,54 +95,54 @@ static de_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
 	u32 clr;
 	int bypp;
 
-	pdwidth = pg->width;
+	if(pi->img) goto done;
+	pdwidth = pi->width;
 
-	if(pg->bits_per_pixel==24) {
+	if(pi->bits_per_pixel==24) {
 		// 24-bit images seem to be 12-byte aligned
-		src_rowspan = ((pg->bits_per_pixel*pg->width +95)/96)*12;
+		src_rowspan = ((pi->bits_per_pixel*pi->width +95)/96)*12;
 	}
-	else if(pg->bits_per_pixel==12) {
+	else if(pi->bits_per_pixel==12) {
 		// Our decompression algorithm expands RLE12 to an RGB24 format.
 		// Apparently, rows with an odd number of pixels have one pixel of
 		// padding, which at this stage is 3 bytes.
-		src_rowspan = 3*pg->width;
-		if(pg->width%2) src_rowspan += 3;
+		src_rowspan = 3*pi->width;
+		if(pi->width%2) src_rowspan += 3;
 	}
 	else {
 		i64 bits_per_row;
 		// Rows are 4-byte aligned
 
-		bits_per_row = de_pad_to_n(pg->bits_per_pixel*pg->width, 32);
+		bits_per_row = de_pad_to_n(pi->bits_per_pixel*pi->width, 32);
 		src_rowspan = bits_per_row / 8;
-		pdwidth = bits_per_row / pg->bits_per_pixel;
+		pdwidth = bits_per_row / pi->bits_per_pixel;
 	}
 
-	bypp = pg->color_type ? 3 : 1;
-	img = de_bitmap_create2(c, pg->width, pdwidth, pg->height, bypp);
-	img->orig_colortype = (int)pg->color_type;
-	img->orig_bitdepth = (int)pg->bits_per_pixel;
+	bypp = pi->color_type ? 3 : 1;
+	img = de_bitmap_create2(c, pi->width, pdwidth, pi->height, bypp);
+	pi->img = img;
 
-	for(j=0; j<pg->height; j++) {
-		for(i=0; i<pg->width; i++) {
-			switch(pg->bits_per_pixel) {
+	for(j=0; j<pi->height; j++) {
+		for(i=0; i<pi->width; i++) {
+			switch(pi->bits_per_pixel) {
 			case 1:
-				b = de_get_bits_symbol_lsb(unc_pixels, pg->bits_per_pixel, j*src_rowspan, i);
+				b = de_get_bits_symbol_lsb(unc_pixels, pi->bits_per_pixel, j*src_rowspan, i);
 				de_bitmap_setpixel_gray(img, i, j, b*255);
 				break;
 			case 2:
-				b = de_get_bits_symbol_lsb(unc_pixels, pg->bits_per_pixel, j*src_rowspan, i);
+				b = de_get_bits_symbol_lsb(unc_pixels, pi->bits_per_pixel, j*src_rowspan, i);
 				de_bitmap_setpixel_gray(img, i, j, b*85);
 				break;
 			case 4:
-				b = de_get_bits_symbol_lsb(unc_pixels, pg->bits_per_pixel, j*src_rowspan, i);
-				if(pg->color_type)
+				b = de_get_bits_symbol_lsb(unc_pixels, pi->bits_per_pixel, j*src_rowspan, i);
+				if(pi->color_type)
 					de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_OPAQUE(pal16[(unsigned int)b]));
 				else
 					de_bitmap_setpixel_gray(img, i, j, b*17);
 				break;
 			case 8:
 				b = dbuf_getbyte(unc_pixels, j*src_rowspan + i);
-				if(pg->color_type) {
+				if(pi->color_type) {
 					de_bitmap_setpixel_rgb(img, i, j, getpal256((unsigned int)b));
 				}
 				else {
@@ -139,7 +153,7 @@ static de_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
 				break;
 			case 16:
 				n = (u32)dbuf_getu16le(unc_pixels, j*src_rowspan + i*2);
-				if(is_mask) {
+				if(pi->is_mask) {
 					cr = (u8)(n>>8);
 					clr = DE_MAKE_RGB(cr, cr, cr);
 				}
@@ -156,7 +170,9 @@ static de_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
 			}
 		}
 	}
-	return img;
+
+done:
+	;
 }
 
 static void do_rle8(deark *c, lctx *d, dbuf *unc_pixels,
@@ -259,73 +275,71 @@ static const char *get_cmpr_type_name(i64 t)
 }
 
 // Sets d->paint_data_section_size.
-// Returns a bitmap.
-static de_bitmap *do_read_paint_data_section(deark *c, lctx *d,
-	i64 pos1, int is_mask)
+// Caller creates pi, and sets pi->is_mask.
+// Returns a bitmap in pi->img, if successful
+static void do_read_paint_data_section(deark *c, lctx *d,
+	struct phys_image_ctx *pi, i64 pos1)
 {
 	i64 pixel_data_offset;
 	i64 pos;
 	dbuf *unc_pixels = NULL;
 	i64 compression_type;
 	i64 cmpr_pixels_size;
-	de_bitmap *img = NULL;
-	struct page_ctx *pg = NULL;
 
-	pg = de_malloc(c, sizeof(struct page_ctx));
 	pos = pos1;
 	de_dbg(c, "paint data section at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
-	d->paint_data_section_size = de_getu32le(pos);
-	de_dbg(c, "paint data section size: %d", (int)d->paint_data_section_size);
+	pi->paint_data_section_size = de_getu32le(pos);
+	de_dbg(c, "paint data section size: %d", (int)pi->paint_data_section_size);
 
 	// offset within "paint data section"
 	pixel_data_offset = de_getu32le(pos+4);
 	de_dbg(c, "pixel data offset: %d", (int)pixel_data_offset);
 
-	pg->width = de_getu16le(pos+8);
-	pg->height = de_getu16le(pos+12);
-	de_dbg(c, "picture dimensions: %d"DE_CHAR_TIMES"%d", (int)pg->width, (int)pg->height);
+	pi->width = de_getu16le(pos+8);
+	pi->height = de_getu16le(pos+12);
+	de_dbg(c, "picture dimensions: %d"DE_CHAR_TIMES"%d", (int)pi->width, (int)pi->height);
 
-	pg->bits_per_pixel = de_getu32le(pos+24);
-	de_dbg(c, "bits/pixel: %d", (int)pg->bits_per_pixel);
+	pi->bits_per_pixel = de_getu32le(pos+24);
+	de_dbg(c, "bits/pixel: %d", (int)pi->bits_per_pixel);
 
-	pg->color_type = de_getu32le(pos+28);
+	pi->color_type = de_getu32le(pos+28);
 	// 0=grayscale  1=color
-	de_dbg(c, "color type: %d", (int)pg->color_type);
+	de_dbg(c, "color type: %d", (int)pi->color_type);
 
 	compression_type = de_getu32le(pos+36);
 	// 0=uncompressed  1=8-bit RLE  2=12-bit RLE  3=16-bit RLE  4=24-bit RLE
 	de_dbg(c, "compression type: %d (%s)", (int)compression_type,
 		get_cmpr_type_name(compression_type));
 
-	if(pg->color_type==0) {
-		if(pg->bits_per_pixel!=1 && pg->bits_per_pixel!=2 && pg->bits_per_pixel!=4 &&
-			pg->bits_per_pixel!=8)
+	if(pi->color_type==0) {
+		if(pi->bits_per_pixel!=1 && pi->bits_per_pixel!=2 && pi->bits_per_pixel!=4 &&
+			pi->bits_per_pixel!=8)
 		{
-			de_err(c, "Unsupported bits/pixel (%d) for grayscale image", (int)pg->bits_per_pixel);
+			de_err(c, "Unsupported bits/pixel (%d) for grayscale image", (int)pi->bits_per_pixel);
 			goto done;
 		}
 	}
 	else {
-		if(pg->bits_per_pixel!=4 && pg->bits_per_pixel!=8 && pg->bits_per_pixel!=12 &&
-			pg->bits_per_pixel!=16 && pg->bits_per_pixel!=24)
+		if(pi->bits_per_pixel!=4 && pi->bits_per_pixel!=8 && pi->bits_per_pixel!=12 &&
+			pi->bits_per_pixel!=16 && pi->bits_per_pixel!=24)
 		{
-			de_err(c, "Unsupported bits/pixel (%d) for color image", (int)pg->bits_per_pixel);
+			de_err(c, "Unsupported bits/pixel (%d) for color image", (int)pi->bits_per_pixel);
 			goto done;
 		}
-		if(pg->bits_per_pixel==12 && compression_type!=2) {
+		if(pi->bits_per_pixel==12 && compression_type!=2) {
 			de_err(c, "12 bits/pixel images are not supported with this compression type (%d)",
 				(int)compression_type);
 		}
-		if(pg->bits_per_pixel==16 && !d->warned_exp) {
+		if(pi->bits_per_pixel==16 && !d->warned_exp) {
 			de_warn(c, "Support for this type of 16-bit image is experimental, and may not be correct.");
 			d->warned_exp = 1;
 		}
 	}
 
 	pos += 40;
-	cmpr_pixels_size = d->paint_data_section_size-40;
+	cmpr_pixels_size = pi->paint_data_section_size-40;
 	de_dbg(c, "pixel data at %d", (int)pos);
 
 	switch(compression_type) {
@@ -353,37 +367,45 @@ static de_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 		goto done;
 	}
 
-	img = do_create_image(c, d, pg, unc_pixels, is_mask);
+	do_read_phys_image(c, d, pi, unc_pixels);
 
 done:
 	if(unc_pixels) dbuf_close(unc_pixels);
 	de_dbg_indent(c, -1);
-	de_free(c, pg);
-	return img;
 }
 
 // Writes the image to a file.
-// Sets d->paint_data_section_size.
+// Sets d->last_paint_data_section_size.
 static void do_read_and_write_paint_data_section(deark *c, lctx *d, i64 pos1)
 {
-	de_bitmap *img = NULL;
+	struct phys_image_ctx *pi = NULL;
 
-	img = do_read_paint_data_section(c, d, pos1, 0);
-	de_bitmap_write_to_file(img, NULL, 0);
-	de_bitmap_destroy(img);
+	pi = de_malloc(c, sizeof(struct phys_image_ctx));
+	pi->is_mask = 0;
+	do_read_paint_data_section(c, d, pi, pos1);
+	if(pi->img) {
+		de_bitmap_write_to_file(pi->img, NULL, 0);
+	}
+	d->last_paint_data_section_size = pi->paint_data_section_size;
+	destroy_phys_image(c, pi);
 }
 
 static void do_combine_and_write_images(deark *c, lctx *d,
-	de_bitmap *fg_img, de_bitmap *mask_img)
+	struct phys_image_ctx *pi_fg, struct phys_image_ctx *pi_mask)
 {
+	de_bitmap *fg_img;
+	de_bitmap *mask_img;
 	de_bitmap *img = NULL; // The combined image
 	i64 i, j;
 
-	if(!fg_img) goto done;
-	if(!mask_img) {
-		de_bitmap_write_to_file(fg_img, NULL, 0);
+	if(!pi_fg || !pi_fg->img) goto done;
+	if(!pi_mask || !pi_mask->img) {
+		de_bitmap_write_to_file(pi_fg->img, NULL, 0);
 		goto done;
 	}
+
+	fg_img = pi_fg->img;
+	mask_img = pi_mask->img;
 
 	// Create a new image (which supports transparency).
 	img = de_bitmap_create2(c, fg_img->unpadded_width, fg_img->width, fg_img->height,
@@ -411,7 +433,7 @@ static void do_combine_and_write_images(deark *c, lctx *d,
 				a1 = (i64)DE_COLOR_R(clrm) + (i64)DE_COLOR_G(clrm) + (i64)DE_COLOR_B(clrm);
 				a = de_scale_n_to_255(255*3, a1);
 
-				if(mask_img->orig_colortype==0 && mask_img->orig_bitdepth==8) {
+				if(pi_mask->color_type==0 && pi_mask->bits_per_pixel==8) {
 					a = 255-a;
 				}
 			}
@@ -457,7 +479,7 @@ static void do_sketch_section(deark *c, lctx *d, i64 pos1)
 	// so we don't have to read it before calling
 	// do_read_and_write_paint_data_section() to convert the image.
 
-	pos = paint_data_section_start + d->paint_data_section_size;
+	pos = paint_data_section_start + d->last_paint_data_section_size;
 	x1 = de_getu16le(pos);
 	x2 = de_getu16le(pos+2);
 	de_dbg(c, "magnification: %d"DE_CHAR_TIMES"%d", (int)x1, (int)x2);
@@ -538,8 +560,8 @@ static void de_run_epocaif(deark *c, lctx *d)
 	i64 num_images;
 	i64 first_image_pos;
 	i64 img_pos;
-	de_bitmap *fg_img = NULL;
-	de_bitmap *mask_img = NULL;
+	struct phys_image_ctx *pi_fg = NULL;
+	struct phys_image_ctx *pi_mask = NULL;
 
 	de_dbg(c, "header at %d", 0);
 	de_dbg_indent(c, 1);
@@ -577,37 +599,46 @@ static void de_run_epocaif(deark *c, lctx *d)
 	img_pos = first_image_pos;
 	i = 0;
 	while(i<num_images) {
+		if(pi_fg) {
+			destroy_phys_image(c, pi_fg);
+			pi_fg = NULL;
+		}
+		if(pi_mask) {
+			destroy_phys_image(c, pi_mask);
+			pi_mask = NULL;
+		}
+
 		de_dbg(c, "image #%d", (int)(i/2));
 		de_dbg_indent(c, 1);
 
 		de_dbg(c, "foreground bitmap at %d", (int)img_pos);
 		de_dbg_indent(c, 1);
-		fg_img = do_read_paint_data_section(c, d, img_pos, 0);
-		if(d->paint_data_section_size<=0) break;
-		img_pos += d->paint_data_section_size;
+		pi_fg = de_malloc(c, sizeof(struct phys_image_ctx));
+		pi_fg->is_mask = 0;
+		do_read_paint_data_section(c, d, pi_fg, img_pos);
+		if(pi_fg->paint_data_section_size<=0) break;
+		img_pos += pi_fg->paint_data_section_size;
 		i++;
 		de_dbg_indent(c, -1);
 
 		if(i<num_images) {
 			de_dbg(c, "mask bitmap at %d", (int)img_pos);
 			de_dbg_indent(c, 1);
-			mask_img = do_read_paint_data_section(c, d, img_pos, 1);
-			if(d->paint_data_section_size<=0) break;
-			img_pos += d->paint_data_section_size;
+			pi_mask = de_malloc(c, sizeof(struct phys_image_ctx));
+			pi_mask->is_mask = 1;
+			do_read_paint_data_section(c, d, pi_mask, img_pos);
+			if(pi_mask->paint_data_section_size<=0) break;
+			img_pos += pi_mask->paint_data_section_size;
 			i++;
 			de_dbg_indent(c, -1);
 		}
 
-		do_combine_and_write_images(c, d, fg_img, mask_img);
-		de_bitmap_destroy(fg_img);
-		fg_img = NULL;
-		de_bitmap_destroy(mask_img);
-		mask_img = NULL;
+		do_combine_and_write_images(c, d, pi_fg, pi_mask);
 		de_dbg_indent(c, -1);
 	}
 
-	de_bitmap_destroy(fg_img);
-	de_bitmap_destroy(mask_img);
+	destroy_phys_image(c, pi_fg);
+	destroy_phys_image(c, pi_mask);
 }
 
 static void do_epocmbm_jumptable_entry(deark *c, lctx *d, i64 entry_index,
