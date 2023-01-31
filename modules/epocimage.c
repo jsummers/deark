@@ -18,8 +18,10 @@ struct phys_image_ctx {
 	i64 color_type;
 	i64 bits_per_pixel;
 	int is_mask;
+	i64 src_rowspan;
 	de_bitmap *img;
 	i64 paint_data_section_size;
+	de_color pal[256];
 };
 
 typedef struct localctx_struct {
@@ -29,32 +31,32 @@ typedef struct localctx_struct {
 
 	i64 jumptable_offset;
 	i64 section_table_offset;
+	u8 have_stdpal256;
+	de_color stdpal256[256];
 } lctx;
 
-static const u32 supplpal[40] = {
-	0x111111,0x222222,0x444444,0x555555,0x777777,
-	0x110000,0x220000,0x440000,0x550000,0x770000,
-	0x001100,0x002200,0x004400,0x005500,0x007700,
-	0x000011,0x000022,0x000044,0x000055,0x000077,
-	0x000088,0x0000aa,0x0000bb,0x0000dd,0x0000ee,
-	0x008800,0x00aa00,0x00bb00,0x00dd00,0x00ee00,
-	0x880000,0xaa0000,0xbb0000,0xdd0000,0xee0000,
-	0x888888,0xaaaaaa,0xbbbbbb,0xdddddd,0xeeeeee
+static const de_color supplpal[40] = {
+	0xff111111U,0xff222222U,0xff444444U,0xff555555U,0xff777777U,
+	0xff110000U,0xff220000U,0xff440000U,0xff550000U,0xff770000U,
+	0xff001100U,0xff002200U,0xff004400U,0xff005500U,0xff007700U,
+	0xff000011U,0xff000022U,0xff000044U,0xff000055U,0xff000077U,
+	0xff000088U,0xff0000aaU,0xff0000bbU,0xff0000ddU,0xff0000eeU,
+	0xff008800U,0xff00aa00U,0xff00bb00U,0xff00dd00U,0xff00ee00U,
+	0xff880000U,0xffaa0000U,0xffbb0000U,0xffdd0000U,0xffee0000U,
+	0xff888888U,0xffaaaaaaU,0xffbbbbbbU,0xffddddddU,0xffeeeeeeU
 };
 
-static u32 getpal256(int k)
+static de_color getpal256(UI k)
 {
-	int x;
+	UI x;
 	u8 r, g, b;
-
-	if(k<0 || k>255) return DE_STOCKCOLOR_BLACK;
 
 	// The first and last 108 entries together make up the simple palette once
 	// known as the "web safe" palette. The middle 40 entries are
 	// supplementary grayscale and red/green/blue shades.
 
 	if(k>=108 && k<148) {
-		return DE_MAKE_OPAQUE(supplpal[k-108]);
+		return supplpal[k-108];
 	}
 
 	x = k<108 ? k : k-40;
@@ -65,11 +67,23 @@ static u32 getpal256(int k)
 	return DE_MAKE_RGB(r,g,b);
 }
 
+static void populate_stdpal256(lctx *d)
+{
+	UI k;
+
+	if(d->have_stdpal256) return;
+	d->have_stdpal256 = 1;
+
+	for(k=0; k<256; k++) {
+		d->stdpal256[k] = getpal256(k);
+	}
+}
+
 // I believe this is the correct palette (or at least *a* correct palette),
 // though it has some differences from the one in the Psiconv documentation.
-static const u32 pal16[16] = {
-	0x000000,0x555555,0x800000,0x808000,0x008000,0xff0000,0xffff00,0x00ff00,
-	0xff00ff,0x0000ff,0x00ffff,0x800080,0x000080,0x008080,0xaaaaaa,0xffffff
+static const de_color g_stdpal16[16] = {
+	0xff000000U,0xff555555U,0xff800000U,0xff808000U,0xff008000U,0xffff0000U,0xffffff00U,0xff00ff00U,
+	0xffff00ffU,0xff0000ffU,0xff00ffffU,0xff800080U,0xff000080U,0xff008080U,0xffaaaaaaU,0xffffffffU
 };
 
 static void destroy_phys_image(deark *c, struct phys_image_ctx *pi)
@@ -81,18 +95,36 @@ static void destroy_phys_image(deark *c, struct phys_image_ctx *pi)
 	de_free(c, pi);
 }
 
+static void decode_image_16bit(deark *c, lctx *d, struct phys_image_ctx *pi,
+	dbuf *unc_pixels, de_bitmap *img)
+{
+	i64 i, j;
+
+	for(j=0; j<pi->height; j++) {
+		for(i=0; i<pi->width; i++) {
+			u8 cr;
+			u32 n;
+			de_color clr;
+
+			n = (u32)dbuf_getu16le(unc_pixels, j*pi->src_rowspan + i*2);
+			if(pi->is_mask) {
+				cr = (u8)(n>>8);
+				clr = DE_MAKE_RGB(cr, cr, cr);
+			}
+			else {
+				clr = de_rgb565_to_888(n);
+			}
+			de_bitmap_setpixel_rgb(img, i, j, clr);
+		}
+	}
+}
+
 // Returns an image in pi->img
 static void do_read_phys_image(deark *c, lctx *d, struct phys_image_ctx *pi,
 	dbuf *unc_pixels)
 {
 	de_bitmap *img = NULL;
-	i64 i, j;
-	i64 src_rowspan;
 	i64 pdwidth;
-	u8 b;
-	u8 cr;
-	u32 n;
-	u32 clr;
 	int bypp;
 
 	if(pi->img) goto done;
@@ -100,21 +132,21 @@ static void do_read_phys_image(deark *c, lctx *d, struct phys_image_ctx *pi,
 
 	if(pi->bits_per_pixel==24) {
 		// 24-bit images seem to be 12-byte aligned
-		src_rowspan = ((pi->bits_per_pixel*pi->width +95)/96)*12;
+		pi->src_rowspan = ((pi->bits_per_pixel*pi->width +95)/96)*12;
 	}
 	else if(pi->bits_per_pixel==12) {
 		// Our decompression algorithm expands RLE12 to an RGB24 format.
 		// Apparently, rows with an odd number of pixels have one pixel of
 		// padding, which at this stage is 3 bytes.
-		src_rowspan = 3*pi->width;
-		if(pi->width%2) src_rowspan += 3;
+		pi->src_rowspan = 3*pi->width;
+		if(pi->width%2) pi->src_rowspan += 3;
 	}
 	else {
 		i64 bits_per_row;
 		// Rows are 4-byte aligned
 
 		bits_per_row = de_pad_to_n(pi->bits_per_pixel*pi->width, 32);
-		src_rowspan = bits_per_row / 8;
+		pi->src_rowspan = bits_per_row / 8;
 		pdwidth = bits_per_row / pi->bits_per_pixel;
 	}
 
@@ -122,53 +154,30 @@ static void do_read_phys_image(deark *c, lctx *d, struct phys_image_ctx *pi,
 	img = de_bitmap_create2(c, pi->width, pdwidth, pi->height, bypp);
 	pi->img = img;
 
-	for(j=0; j<pi->height; j++) {
-		for(i=0; i<pi->width; i++) {
-			switch(pi->bits_per_pixel) {
-			case 1:
-				b = de_get_bits_symbol_lsb(unc_pixels, pi->bits_per_pixel, j*src_rowspan, i);
-				de_bitmap_setpixel_gray(img, i, j, b*255);
-				break;
-			case 2:
-				b = de_get_bits_symbol_lsb(unc_pixels, pi->bits_per_pixel, j*src_rowspan, i);
-				de_bitmap_setpixel_gray(img, i, j, b*85);
-				break;
-			case 4:
-				b = de_get_bits_symbol_lsb(unc_pixels, pi->bits_per_pixel, j*src_rowspan, i);
-				if(pi->color_type)
-					de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_OPAQUE(pal16[(unsigned int)b]));
-				else
-					de_bitmap_setpixel_gray(img, i, j, b*17);
-				break;
-			case 8:
-				b = dbuf_getbyte(unc_pixels, j*src_rowspan + i);
-				if(pi->color_type) {
-					de_bitmap_setpixel_rgb(img, i, j, getpal256((unsigned int)b));
-				}
-				else {
-					// I have no 8-bit grayscale samples, so I don't know if this is
-					// correct, or valid.
-					de_bitmap_setpixel_gray(img, i, j, b);
-				}
-				break;
-			case 16:
-				n = (u32)dbuf_getu16le(unc_pixels, j*src_rowspan + i*2);
-				if(pi->is_mask) {
-					cr = (u8)(n>>8);
-					clr = DE_MAKE_RGB(cr, cr, cr);
-				}
-				else {
-					clr = de_rgb565_to_888(n);
-				}
-				de_bitmap_setpixel_rgb(img, i, j, clr);
-				break;
-			case 12:
-			case 24:
-				clr = dbuf_getRGB(unc_pixels, j*src_rowspan + i*3, 0);
-				de_bitmap_setpixel_rgb(img, i, j, clr);
-				break;
-			}
+	if(pi->bits_per_pixel==1 || pi->bits_per_pixel==2 || pi->bits_per_pixel==4 ||
+		pi->bits_per_pixel==8)
+	{
+		if(pi->bits_per_pixel==4 && pi->color_type) {
+			de_memcpy(pi->pal, g_stdpal16, sizeof(g_stdpal16));
 		}
+		else if(pi->bits_per_pixel==8 && pi->color_type) {
+			populate_stdpal256(d);
+			de_memcpy(pi->pal, d->stdpal256, sizeof(d->stdpal256));
+		}
+		else {
+			// I have no 8-bit grayscale sample files, so I don't know if this is
+			// correct for them.
+			de_make_grayscale_palette(pi->pal, 1LL<<pi->bits_per_pixel, 0);
+		}
+
+		de_convert_image_paletted(unc_pixels, 0, pi->bits_per_pixel, pi->src_rowspan,
+			pi->pal, img, 0x1);
+	}
+	else if(pi->bits_per_pixel==12 || pi->bits_per_pixel==24) {
+		de_convert_image_rgb(unc_pixels, 0, pi->src_rowspan, 3, img, 0);
+	}
+	else if(pi->bits_per_pixel==16) {
+		decode_image_16bit(c, d, pi, unc_pixels, img);
 	}
 
 done:
