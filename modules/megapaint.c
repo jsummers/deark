@@ -118,6 +118,7 @@ static void de_run_megapaint_pat(deark *c, de_module_params *mparams)
 		i64 imgpos_x, imgpos_y;
 
 		img = de_bitmap_create(c, 32, 32, 1);
+		img->is_internal = 1;
 		de_convert_image_bilevel(c->infile, pos, 4, img, DE_CVTF_WHITEISZERO);
 		pos += 4*32;
 

@@ -260,6 +260,7 @@ struct deark_bitmap_struct {
 	int bytes_per_pixel;
 	u8 *bitmap;
 	i64 bitmap_size; // bytes allocated for bitmap
+	u8 is_internal;
 };
 typedef struct deark_bitmap_struct de_bitmap;
 
@@ -956,6 +957,8 @@ int de_good_image_dimensions_noerr(deark *c, i64 w, i64 h);
 
 // Test if the image dimensions are valid and supported. Report an error if not.
 int de_good_image_dimensions(deark *c, i64 w, i64 h);
+
+int de_bitmap_good_dimensions(de_bitmap *img, UI flags);
 
 // Test if the number of images is sane. Report an error if not.
 int de_good_image_count(deark *c, i64 n);

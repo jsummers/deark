@@ -28,6 +28,38 @@ int de_good_image_dimensions(deark *c, i64 w, i64 h)
 	return 1;
 }
 
+#define MAX_INTERNAL_IMAGE_DIMENSION 10000
+
+// flags: 0x1: Emit an error message for a bad non-internal image.
+int de_bitmap_good_dimensions(de_bitmap *img, UI flags)
+{
+	if(img->is_internal) {
+		// Images for internal use, that aren't going to be written to a file,
+		// should not respect the "-maxdim" setting from the user.
+		//
+		// Note - The is_internal flag should only be used for images with
+		// a fixed size, that does not depend on width/height fields in the
+		// input file.
+		if(img->width<1 || img->width>MAX_INTERNAL_IMAGE_DIMENSION ||
+			img->height<1 || img->height>MAX_INTERNAL_IMAGE_DIMENSION)
+		{
+			de_internal_err_nonfatal(img->c, "Bad temp bitmap size");
+			return 0;
+		}
+	}
+	else if(flags & 0x1) {
+		if(!de_good_image_dimensions(img->c, img->width, img->height)) {
+			return 0;
+		}
+	}
+	else {
+		if(!de_good_image_dimensions_noerr(img->c, img->width, img->height)) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
 #define DE_MAX_IMAGES_PER_FILE 10000
 
 // This is meant as a sanity check for fields that indicate how many images
@@ -82,7 +114,7 @@ static void de_bitmap_alloc_pixels(de_bitmap *img)
 		de_bitmap_free_pixels(img);
 	}
 
-	if(!de_good_image_dimensions(img->c, img->width, img->height)) {
+	if(!de_bitmap_good_dimensions(img, 0x1)) {
 		// This function is not allowed to fail. If something goes wrong, create
 		// a dummy image, and set invalid_image_flag.
 		img->invalid_image_flag = 1;
@@ -839,7 +871,7 @@ void de_convert_image_paletted(dbuf *f, i64 fpos,
 	u8 mask;
 
 	if(bpp!=1 && bpp!=2 && bpp!=4 && bpp!=8) return;
-	if(!de_good_image_dimensions_noerr(f->c, img->width, img->height)) return;
+	if(!de_bitmap_good_dimensions(img, 0)) return;
 
 	mask = (1U<<(UI)bpp)-1;
 

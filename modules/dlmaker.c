@@ -51,11 +51,18 @@ static void read_name(deark *c, lctx *d, i64 pos, de_ucstring *s, size_t nsize)
 
 static void do_v12screen(deark *c, lctx *d, i64 pos)
 {
+	int single_image;
+
+	single_image = (d->v12.imgs_per_screen<=1 || d->v12.opt_montage);
+
 	if(!d->v12.screen_img) {
 		d->v12.screen_img = de_bitmap_create(c, V12_SCREEN_WIDTH, V12_SCREEN_HEIGHT, 3);
+		if(!single_image) {
+			d->v12.screen_img->is_internal = 1;
+		}
 	}
 	de_convert_image_paletted(c->infile, pos, 8, V12_SCREEN_WIDTH, d->pal, d->v12.screen_img, 0);
-	if(d->v12.imgs_per_screen<=1 || d->v12.opt_montage) {
+	if(single_image) {
 		de_bitmap_write_to_file_finfo(d->v12.screen_img, d->fi, 0);
 	}
 	else {

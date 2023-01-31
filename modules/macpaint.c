@@ -218,6 +218,7 @@ static void do_read_patterns(deark *c, lctx *d)
 	de_dbg(c, "brush patterns crc: 0x%08x (%s)", (unsigned int)patcrc, patsetname);
 
 	rawimg = de_bitmap_create(c, 8, 38*8, 1);
+	rawimg->is_internal = 1;
 	de_convert_image_bilevel(c->infile, pos1, 1, rawimg, DE_CVTF_WHITEISZERO);
 
 	if(c->extract_level<2) {
