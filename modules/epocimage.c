@@ -296,15 +296,15 @@ static void do_read_paint_data_section(deark *c, lctx *d,
 	i64 cmpr_pixels_size;
 
 	pos = pos1;
-	de_dbg(c, "paint data section at %d", (int)pos1);
+	de_dbg(c, "paint data section at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
 	pi->paint_data_section_size = de_getu32le(pos);
-	de_dbg(c, "paint data section size: %d", (int)pi->paint_data_section_size);
+	de_dbg(c, "paint data section size: %"I64_FMT, pi->paint_data_section_size);
 
 	// offset within "paint data section"
 	pixel_data_offset = de_getu32le(pos+4);
-	de_dbg(c, "pixel data offset: %d", (int)pixel_data_offset);
+	de_dbg(c, "pixel data offset: %"I64_FMT, pixel_data_offset);
 
 	pi->width = de_getu16le(pos+8);
 	pi->height = de_getu16le(pos+12);
@@ -349,7 +349,7 @@ static void do_read_paint_data_section(deark *c, lctx *d,
 
 	pos += 40;
 	cmpr_pixels_size = pi->paint_data_section_size-40;
-	de_dbg(c, "pixel data at %d", (int)pos);
+	de_dbg(c, "pixel data at %"I64_FMT, pos);
 
 	switch(compression_type) {
 	case 0: // uncompressed
@@ -471,7 +471,7 @@ static void do_sketch_section(deark *c, lctx *d, i64 pos1)
 	pos = pos1;
 
 	// 18-byte header
-	de_dbg(c, "sketch section at %d", (int)pos);
+	de_dbg(c, "sketch section at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	s_s_w = de_getu16le(pos);
@@ -491,13 +491,13 @@ static void do_sketch_section(deark *c, lctx *d, i64 pos1)
 	pos = paint_data_section_start + d->last_paint_data_section_size;
 	x1 = de_getu16le(pos);
 	x2 = de_getu16le(pos+2);
-	de_dbg(c, "magnification: %d"DE_CHAR_TIMES"%d", (int)x1, (int)x2);
+	de_dbg(c, "magnification: %u"DE_CHAR_TIMES"%u", (UI)x1, (UI)x2);
 	x1 = de_getu32le(pos+4);
 	x2 = de_getu32le(pos+8);
-	de_dbg(c, "left, right cut: %d, %d", (int)x1, (int)x2);
+	de_dbg(c, "left, right cut: %u, %u", (UI)x1, (UI)x2);
 	x1 = de_getu32le(pos+12);
 	x2 = de_getu32le(pos+16);
-	de_dbg(c, "top, bottom cut: %d, %d", (int)x1, (int)x2);
+	de_dbg(c, "top, bottom cut: %u, %u", (UI)x1, (UI)x2);
 
 	de_dbg_indent(c, -1);
 }
@@ -510,8 +510,8 @@ static void do_epocsketch_section_table_entry(deark *c, lctx *d,
 
 	section_id = de_getu32le(pos);
 	section_loc = de_getu32le(pos+4);
-	de_dbg(c, "section #%d: id=0x%08x, pos=%d", (int)entry_index,
-		(unsigned int)section_id, (int)section_loc);
+	de_dbg(c, "section #%d: id=0x%08x, pos=%"I64_FMT, (int)entry_index,
+		(UI)section_id, section_loc);
 	de_dbg_indent(c, 1);
 	if(section_id==0x1000007d) {
 		do_sketch_section(c, d, section_loc);
@@ -526,7 +526,7 @@ static void do_epocsketch_section_table(deark *c, lctx *d, i64 pos)
 	i64 i;
 
 	// Section table section
-	de_dbg(c, "section table at %d", (int)pos);
+	de_dbg(c, "section table at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	section_table_size_code = de_getbyte(pos);
@@ -535,7 +535,7 @@ static void do_epocsketch_section_table(deark *c, lctx *d, i64 pos)
 	// bytes, so divide by 2 to get the number of entries.
 	num_sections = ((int)section_table_size_code)/2;
 
-	de_dbg(c, "section table size: %d (%d entries)", (int)section_table_size_code,
+	de_dbg(c, "section table size: %u (%d entries)", (UI)section_table_size_code,
 		(int)num_sections);
 	pos++;
 
@@ -547,10 +547,10 @@ static void do_epocsketch_section_table(deark *c, lctx *d, i64 pos)
 
 static void do_epocsketch_header(deark *c, lctx *d, i64 pos)
 {
-	de_dbg(c, "header section at %d", (int)pos);
+	de_dbg(c, "header section at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 	d->section_table_offset = de_getu32le(pos+16);
-	de_dbg(c, "section table offset: %d", (int)d->section_table_offset);
+	de_dbg(c, "section table offset: %"I64_FMT, d->section_table_offset);
 	de_dbg_indent(c, -1);
 }
 
@@ -575,11 +575,11 @@ static void de_run_epocaif(deark *c, lctx *d)
 	de_dbg(c, "header at %d", 0);
 	de_dbg_indent(c, 1);
 	table_offset = de_getu32le(16);
-	de_dbg(c, "table offset: %d", (int)table_offset);
+	de_dbg(c, "table offset: %"I64_FMT, table_offset);
 	de_dbg_indent(c, -1);
 
 	pos = table_offset;
-	de_dbg(c, "table at %d", (int)pos);
+	de_dbg(c, "table at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 	// The first byte seems to be 2 times the number of captions.
 	caption_count_code = de_getbyte(pos);
@@ -595,7 +595,7 @@ static void de_run_epocaif(deark *c, lctx *d)
 	pos++;
 
 	first_image_pos = de_getu32le(pos);
-	de_dbg(c, "offset of first bitmap: %d", (int)first_image_pos);
+	de_dbg(c, "offset of first bitmap: %"I64_FMT, first_image_pos);
 
 	de_dbg_indent(c, -1);
 
@@ -620,7 +620,7 @@ static void de_run_epocaif(deark *c, lctx *d)
 		de_dbg(c, "image #%d", (int)(i/2));
 		de_dbg_indent(c, 1);
 
-		de_dbg(c, "foreground bitmap at %d", (int)img_pos);
+		de_dbg(c, "foreground bitmap at %"I64_FMT, img_pos);
 		de_dbg_indent(c, 1);
 		pi_fg = de_malloc(c, sizeof(struct phys_image_ctx));
 		pi_fg->is_mask = 0;
@@ -631,7 +631,7 @@ static void de_run_epocaif(deark *c, lctx *d)
 		de_dbg_indent(c, -1);
 
 		if(i<num_images) {
-			de_dbg(c, "mask bitmap at %d", (int)img_pos);
+			de_dbg(c, "mask bitmap at %"I64_FMT, img_pos);
 			de_dbg_indent(c, 1);
 			pi_mask = de_malloc(c, sizeof(struct phys_image_ctx));
 			pi_mask->is_mask = 1;
@@ -656,7 +656,7 @@ static void do_epocmbm_jumptable_entry(deark *c, lctx *d, i64 entry_index,
 	i64 img_pos;
 
 	img_pos = de_getu32le(pos);
-	de_dbg(c, "image #%d, pos=%d", (int)entry_index, (int)pos);
+	de_dbg(c, "image #%d, pos=%"I64_FMT, (int)entry_index, pos);
 	de_dbg_indent(c, 1);
 	do_read_and_write_paint_data_section(c, d, img_pos);
 	de_dbg_indent(c, -1);
@@ -667,11 +667,11 @@ static void do_epocmbm_jumptable(deark *c, lctx *d, i64 pos)
 	i64 num_images;
 	i64 i;
 
-	de_dbg(c, "MBM jumptable at %d", (int)pos);
+	de_dbg(c, "MBM jumptable at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	num_images = de_getu32le(pos);
-	de_dbg(c, "number of images: %d", (int)num_images);
+	de_dbg(c, "number of images: %"I64_FMT, num_images);
 	if(!de_good_image_count(c, num_images)) {
 		de_err(c, "Too many images");
 		goto done;
@@ -687,10 +687,10 @@ done:
 
 static void do_epocmbm_header(deark *c, lctx *d, i64 pos)
 {
-	de_dbg(c, "header section at %d", (int)pos);
+	de_dbg(c, "header section at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 	d->jumptable_offset = de_getu32le(pos+16);
-	de_dbg(c, "MBM jumptable offset: %d", (int)d->jumptable_offset);
+	de_dbg(c, "MBM jumptable offset: %"I64_FMT, d->jumptable_offset);
 	de_dbg_indent(c, -1);
 }
 
