@@ -2332,7 +2332,6 @@ static int de_identify_lharc_sfx_com(deark *c)
 	int is_larc = 0;
 	int ret;
 
-	if(!de_input_file_has_ext(c, "com")) return 0;
 	ret = looks_like_lharc_sfx_com(c, &is_larc);
 	if(ret) return 70;
 	return 0;
