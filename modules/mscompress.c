@@ -14,13 +14,10 @@ DE_DECLARE_MODULE(de_module_mscompress);
 
 #define CMPR_NONE    0
 #define CMPR_XOR     1
-// Not 100% sure that KWAJ:2 always uses the scheme we're calling "SZDD18"
-// (like "SZ" does), versus "SZDD16" (like "SZDD" does). But it works for all
-// the KWAJ:2 files I've tested.
-#define CMPR_SZDD18  2
+#define CMPR_LZSS18  2 // Used by KWAJ:2 and SZ
 #define CMPR_LZHUFF  3
 #define CMPR_MSZIP   4
-#define CMPR_SZDD16  65536
+#define CMPR_LZSS16  65536 // Used by SZDD
 
 typedef struct localctx_struct {
 	int fmt;
@@ -38,8 +35,8 @@ static int cmpr_meth_is_supported(lctx *d, UI n)
 	switch(n) {
 	case CMPR_NONE:
 	case CMPR_XOR:
-	case CMPR_SZDD16:
-	case CMPR_SZDD18:
+	case CMPR_LZSS16:
+	case CMPR_LZSS18:
 	case CMPR_LZHUFF:
 	case CMPR_MSZIP:
 		return 1;
@@ -54,7 +51,7 @@ static const char *get_cmpr_meth_name(UI n)
 	switch(n) {
 	case CMPR_NONE: name="uncompressed"; break;
 	case CMPR_XOR: name="XOR"; break;
-	case CMPR_SZDD16: case CMPR_SZDD18: name="SZDD"; break;
+	case CMPR_LZSS16: case CMPR_LZSS18: name="LZSS"; break;
 	case CMPR_LZHUFF: name="LZ+Huffman"; break;
 	case CMPR_MSZIP: name="MSZIP"; break;
 	}
@@ -84,7 +81,7 @@ static int do_header_SZDD(deark *c, lctx *d, i64 pos1)
 		de_err(c, "Unsupported compression mode");
 		goto done;
 	}
-	d->cmpr_meth = CMPR_SZDD16;
+	d->cmpr_meth = CMPR_LZSS16;
 
 	fnchar = de_getbyte(pos++);
 	if(fnchar>=32 && fnchar<=126) {
@@ -125,7 +122,7 @@ static int do_header_SZ(deark *c, lctx *d, i64 pos1)
 		goto done;
 	}
 
-	d->cmpr_meth = CMPR_SZDD18;
+	d->cmpr_meth = CMPR_LZSS18;
 	d->uncmpr_len = de_getu32le_p(&pos);
 	d->uncmpr_len_known = 1;
 	de_dbg(c, "uncompressed len: %"I64_FMT, d->uncmpr_len);
@@ -675,10 +672,10 @@ static void do_decompress(deark *c, lctx *d, dbuf *outf)
 	case CMPR_XOR:
 		do_decompress_XOR(c, &dcmpri, &dcmpro, &dres);
 		break;
-	case CMPR_SZDD18:
+	case CMPR_LZSS18:
 		fmtutil_decompress_lzss1(c, &dcmpri, &dcmpro, &dres, 0x0);
 		break;
-	case CMPR_SZDD16:
+	case CMPR_LZSS16:
 		fmtutil_decompress_lzss1(c, &dcmpri, &dcmpro, &dres, 0x1);
 		break;
 	case CMPR_LZHUFF:
