@@ -3415,16 +3415,13 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	i64 striles_across;
 	int output_bypp;
 	int ok_bps = 0;
-	int can_optimize_uncompressed = 0;
 	UI createflags = 0;
 	// (Multiple dbufs are needed for PlanarConfig=separated.)
 	dbuf *tmp_membuf[DE_TIFF_MAX_SAMPLES];
-	dbuf *tmp_subfile[DE_TIFF_MAX_SAMPLES];
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	dctx = de_malloc(c, sizeof(struct decode_page_ctx));
 	de_zeromem(tmp_membuf, sizeof(tmp_membuf));
-	de_zeromem(tmp_subfile, sizeof(tmp_subfile));
 
 	// TODO: Should we check pg->compression?
 	if(pg->jpegoffset>0) {
@@ -3691,12 +3688,6 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	de_dfilter_init_objects(c, &dctx->dcmpri, &dctx->dcmpro, NULL);
 	dctx->dcmpri.f = c->infile;
 
-	if(pg->compression==CMPR_NONE && !dctx->need_to_reverse_bits &&
-		!dctx->need_to_reverse_nibbles && !dctx->is_separated)
-	{
-		can_optimize_uncompressed = 1;
-	}
-
 	if(dctx->is_grayscale) output_bypp = 1;
 	else output_bypp = 3;
 	if(dctx->has_alpha) output_bypp++;
@@ -3729,15 +3720,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 			pg->bits_per_sample + 7)/8;
 		if(dctx->strileset_height<1) goto after_paint;
 
-		if(can_optimize_uncompressed) {
-			if(tmp_subfile[0]) {
-				dbuf_close(tmp_subfile[0]);
-			}
-			tmp_subfile[0] = dbuf_open_input_subfile(c->infile, pg->strile_data[first_strile_idx].pos,
-				pg->strile_data[first_strile_idx].len);
-			dctx->unc_strile_dbuf[0] = tmp_subfile[0];
-		}
-		else {
+		{
 			UI k;
 
 			for(k=0; k<dctx->num_planes_to_decode; k++) {
@@ -3792,7 +3775,6 @@ after_paint:
 done:
 	for(i=0; i<DE_TIFF_MAX_SAMPLES; i++) {
 		if(tmp_membuf[i]) dbuf_close(tmp_membuf[i]);
-		if(tmp_subfile[i]) dbuf_close(tmp_subfile[i]);
 	}
 	de_bitmap_destroy(img);
 	de_finfo_destroy(c, fi);
