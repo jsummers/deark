@@ -757,7 +757,7 @@ Deark -- Information about supported formats
 
 * EXEPACK (module="exepack")
   Decompress an EXEPACK-compressed DOS EXE file.
-  - Not automatic; must use "-m exepack".
+  - Not automatic; must use "-m exepack" or "-opt execomp".
 
 * FAT (module="fat") (experimental/incomplete)
   - Limited support, mainly for floppy disk images.
@@ -805,7 +805,10 @@ Deark -- Information about supported formats
 
 * LZEXE (module="lzexe")
   Decompress an LZEXE-compressed DOS EXE file.
-  - Not automatic; must use "-m lzexe".
+  - Not automatic; must use "-m lzexe" or "-opt execomp".
+  Options
+   -opt execomp:align=<16|512> - Preferred code segment alignment. This may
+     help make the decompressed file more similar to the original.
 
 * LZHUF (module="lzhuf")
   Compression software by Haruyasu Yoshizaki. A bare-bones container for
