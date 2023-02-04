@@ -3588,8 +3588,6 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	}
 	dctx->samples_per_pixel_to_decode = pg->samples_per_pixel;
 	if(dctx->samples_per_pixel_to_decode>DE_TIFF_MAX_SAMPLES) {
-		detiff_warn(c, d, pg, "Large number of SamplesPerPixel (%d). Some samples ignored.",
-			(int)pg->samples_per_pixel);
 		dctx->samples_per_pixel_to_decode = DE_TIFF_MAX_SAMPLES;
 	}
 
@@ -3633,10 +3631,24 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	}
 
 	if(dctx->has_alpha) {
+		// We will read and low-level decode all samples up to and including the
+		// first alpha sample, though some may end up being ignored.
 		dctx->samples_per_pixel_to_decode = (UI)dctx->alpha_sample_idx+1;
 	}
 	else {
 		dctx->samples_per_pixel_to_decode = dctx->base_samples_per_pixel;
+	}
+
+	{
+		UI num_samples_respected;
+
+		num_samples_respected = dctx->base_samples_per_pixel +
+			(dctx->has_alpha ? 1 : 0);
+		if(num_samples_respected < pg->samples_per_pixel) {
+			detiff_warn(c, d, pg, "Only using %u of %u samples. This image "
+				"may not be fully supported.",
+				(UI)num_samples_respected, (UI)pg->samples_per_pixel);
+		}
 	}
 
 	if(dctx->is_separated) {
