@@ -1201,16 +1201,44 @@ static void handler_bplist(deark *c, lctx *d, const struct taginfo *tg, const st
 	}
 }
 
+static int check_for_8bit_pal(deark *c, lctx *d, const struct taginfo *tg, i64 num_entries)
+{
+	i64 i;
+	i64 num_samples;
+	u8 found_dark = 0;
+
+	if(num_entries<2 || num_entries>256) return 0;
+	num_samples = num_entries*3;
+	if(num_samples > tg->valcount) return 0;
+
+	for(i=0; i<num_samples; i++) {
+		i64 s;
+
+		read_tag_value_as_int64(c, d, tg, i, &s);
+		if(s>=256) return 0;
+		if(s>1) found_dark = 1;
+	}
+	if(found_dark) return 1;
+	return 0; // All colors are black
+}
+
 static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
 	i64 num_entries;
 	i64 i;
+	u8 is_8bit_pal;
 	struct page_ctx *pg = tg->pg;
 
+	if(tg->pg->have_colormap || tg->datatype!=3) return;
 	tg->pg->have_colormap = 1;
-	if(tg->datatype!=3) return;
 	num_entries = tg->valcount / 3;
 	de_dbg(c, "ColorMap with %d entries", (int)num_entries);
+
+	is_8bit_pal = check_for_8bit_pal(c, d, tg, num_entries);
+	if(is_8bit_pal) {
+		detiff_warn(c, d, pg, "Likely bad colormap detected. Trying to correct.");
+	}
+
 	for(i=0; i<num_entries; i++) {
 		i64 r1, g1, b1;
 		de_colorsample r2, g2, b2;
@@ -1220,9 +1248,16 @@ static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const 
 		read_tag_value_as_int64(c, d, tg, num_entries*0 + i, &r1);
 		read_tag_value_as_int64(c, d, tg, num_entries*1 + i, &g1);
 		read_tag_value_as_int64(c, d, tg, num_entries*2 + i, &b1);
-		r2 = (de_colorsample)(r1>>8);
-		g2 = (de_colorsample)(g1>>8);
-		b2 = (de_colorsample)(b1>>8);
+		if(is_8bit_pal) {
+			r2 = (de_colorsample)r1;
+			g2 = (de_colorsample)g1;
+			b2 = (de_colorsample)b1;
+		}
+		else {
+			r2 = (de_colorsample)(r1>>8);
+			g2 = (de_colorsample)(g1>>8);
+			b2 = (de_colorsample)(b1>>8);
+		}
 		clr = DE_MAKE_RGB(r2, g2, b2);
 		if(c->debug_level>=2) {
 			de_snprintf(tmps, sizeof(tmps), "(%5d,%5d,%5d) "DE_CHAR_RIGHTARROW" ",
