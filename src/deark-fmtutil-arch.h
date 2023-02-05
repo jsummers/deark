@@ -26,8 +26,10 @@ struct de_arch_member_data {
 	i64 cmpr_pos;
 	u32 crc_reported; // CRC of decompressed file
 	u8 orig_len_known;
+	u8 name_for_msgs_flag; // Internal use, 1 if name_for_msgs is "good"
 	de_finfo *fi; // Created and destroyed automatically
 	de_ucstring *filename; // Allocated by de_arch_create_md().
+	de_ucstring *name_for_msgs; // Allocated by de_arch_create_md().
 	de_ucstring *tmpfn_base; // Client allocates, freed automatically.
 	de_ucstring *tmpfn_path; // Client allocates, freed automatically.
 	UI set_name_flags; // e.g. DE_SNFLAG_FULLPATH
@@ -44,8 +46,8 @@ struct de_arch_member_data {
 	u8 behavior_on_wrong_crc; // 0=error, 1="Not available" warning
 	u8 extracted_ok; // Status returned by de_arch_extract_member_file()
 
-					 // The de_arch_extract_member_file() will temporarily set dcmpri/dcmpro/dres,
-					 // and call ->dfn() if it is set.
+	// The de_arch_extract_member_file() will temporarily set dcmpri/dcmpro/dres,
+	// and call ->dfn() if it is set.
 	de_arch_decompressor_cbfn dfn;
 	struct de_dfilter_in_params *dcmpri;
 	struct de_dfilter_out_params *dcmpro;

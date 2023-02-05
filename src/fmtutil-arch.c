@@ -16,6 +16,7 @@ struct de_arch_member_data *de_arch_create_md(deark *c, de_arch_lctx *d)
 	md->c = c;
 	md->d = d;
 	md->filename = ucstring_create(c);
+	md->name_for_msgs = ucstring_create(c);
 	md->fi = de_finfo_create(c);
 	return md;
 }
@@ -24,6 +25,7 @@ void de_arch_destroy_md(deark *c, struct de_arch_member_data *md)
 {
 	if(!md) return;
 	ucstring_destroy(md->filename);
+	ucstring_destroy(md->name_for_msgs);
 	ucstring_destroy(md->tmpfn_base);
 	ucstring_destroy(md->tmpfn_path);
 	de_finfo_destroy(c, md->fi);
@@ -46,6 +48,20 @@ void de_arch_destroy_lctx(deark *c, de_arch_lctx *d)
 	de_free(c, d);
 }
 
+static void ensure_name_for_msgs_is_set(struct de_arch_member_data *md)
+{
+	if(md->name_for_msgs_flag) return;
+
+	if(ucstring_isnonempty(md->filename)) {
+		ucstring_empty(md->name_for_msgs);
+		ucstring_append_ucstring(md->name_for_msgs, md->filename);
+	}
+	else {
+		if(ucstring_isempty(md->name_for_msgs)) {
+			ucstring_append_sz(md->name_for_msgs, "(unknown filename)", DE_ENCODING_LATIN1);
+		}
+	}
+}
 
 // Convert backslashes to slashes, and append a slash if path is not empty.
 // flags: Unused.
@@ -181,14 +197,16 @@ void de_arch_read_field_dttm_p(de_arch_lctx *d,
 	}
 }
 
-// Assumes md->filename is set
+// If md->filename is going to be set, it's best to set it before calling
+// this function.
 int de_arch_good_cmpr_data_pos(struct de_arch_member_data *md)
 {
 	if(md->cmpr_pos<0 || md->cmpr_len<0 ||
 		md->cmpr_pos+md->cmpr_len > md->c->infile->len)
 	{
+		ensure_name_for_msgs_is_set(md);
 		de_err(md->c, "%s: Data goes beyond end of file",
-			ucstring_getpsz_d(md->filename));
+			ucstring_getpsz_d(md->name_for_msgs));
 		return 0;
 	}
 	return 1;
@@ -208,10 +226,11 @@ void de_arch_extract_member_file(struct de_arch_member_data *md)
 	struct de_dfilter_results dres;
 
 	md->extracted_ok = 0;
+	ensure_name_for_msgs_is_set(md);
 	if(md->orig_len>0 && !md->orig_len_known) goto done; // sanity check
 	if(md->validate_crc && !md->d->crco) goto done;
 	if(md->is_encrypted) {
-		de_err(c, "%s: Encrypted files are not supported", ucstring_getpsz_d(md->filename));
+		de_err(c, "%s: Encrypted files are not supported", ucstring_getpsz_d(md->name_for_msgs));
 		goto done;
 	}
 	if(!de_arch_good_cmpr_data_pos(md)) {
@@ -256,14 +275,14 @@ void de_arch_extract_member_file(struct de_arch_member_data *md)
 	dbuf_flush(dcmpro.f);
 
 	if(dres.errcode) {
-		de_err(c, "%s: Decompression failed: %s", ucstring_getpsz_d(md->filename),
+		de_err(c, "%s: Decompression failed: %s", ucstring_getpsz_d(md->name_for_msgs),
 			de_dfilter_get_errmsg(c, &dres));
 		goto done;
 	}
 
 	if(md->orig_len_known && (outf->len != md->orig_len)) {
 		de_err(c, "%s: Expected %"I64_FMT" decompressed bytes, got %"I64_FMT,
-			ucstring_getpsz_d(md->filename), md->orig_len, outf->len);
+			ucstring_getpsz_d(md->name_for_msgs), md->orig_len, outf->len);
 		goto done;
 	}
 
@@ -272,10 +291,10 @@ void de_arch_extract_member_file(struct de_arch_member_data *md)
 		de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)crc_calc);
 		if(crc_calc!=md->crc_reported) {
 			if(md->behavior_on_wrong_crc==1) {
-				de_warn(c, "%s: CRC check not available", ucstring_getpsz_d(md->filename));
+				de_warn(c, "%s: CRC check not available", ucstring_getpsz_d(md->name_for_msgs));
 			}
 			else {
-				de_err(c, "%s: CRC check failed", ucstring_getpsz_d(md->filename));
+				de_err(c, "%s: CRC check failed", ucstring_getpsz_d(md->name_for_msgs));
 				goto done;
 			}
 		}

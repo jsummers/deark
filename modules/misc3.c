@@ -14,6 +14,7 @@ DE_DECLARE_MODULE(de_module_qip);
 DE_DECLARE_MODULE(de_module_pcxlib);
 DE_DECLARE_MODULE(de_module_gxlib);
 DE_DECLARE_MODULE(de_module_mdcd);
+DE_DECLARE_MODULE(de_module_cazip);
 
 // **************************************************************************
 // CP Shrink (.cpz)
@@ -1126,6 +1127,7 @@ static int do_mdcd_member(deark *c, de_arch_lctx *d, struct de_arch_member_data 
 	de_arch_read_field_cmpr_len_p(md, &pos);
 
 	md->cmpr_pos = md->member_hdr_pos + hdrlen;
+	// TODO: If we can set the filename first, we should.
 	if(!de_arch_good_cmpr_data_pos(md)) {
 		goto done;
 	}
@@ -1255,4 +1257,74 @@ void de_module_mdcd(deark *c, struct deark_module_info *mi)
 	mi->desc = "MDCD archive";
 	mi->run_fn = de_run_mdcd;
 	mi->identify_fn = de_identify_mdcd;
+}
+
+// **************************************************************************
+// CAZIP
+// **************************************************************************
+
+static void de_run_cazip(deark *c, de_module_params *mparams)
+{
+	de_arch_lctx *d = NULL;
+	struct de_arch_member_data *md = NULL;
+	i64 pos;
+	UI verfield, field10, field12, field18;
+
+	d = de_arch_create_lctx(c);
+	d->is_le = 1;
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+
+	md = de_arch_create_md(c, d);
+	//d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+
+	pos = 8;
+	verfield = (UI)de_getu16be_p(&pos);
+	field10 = (UI)de_getu16le_p(&pos);
+	field12 = (UI)de_getu16le_p(&pos);
+
+	md->crc_reported = (u32)de_getu32le_p(&pos);
+	de_dbg(c, "crc (reported): 0x%08x", (UI)md->crc_reported);
+
+	field18 = (UI)de_getu16le_p(&pos);
+
+	if(verfield!=0x3333 || field10!=1 || field12!=1 || field18!=0) {
+		de_warn(c, "This version of CAZIP file might not be handled correctly");
+	}
+
+	md->cmpr_pos = pos;
+	md->cmpr_len = c->infile->len - md->cmpr_pos;
+	if(!de_arch_good_cmpr_data_pos(md)) {
+		goto done;
+	}
+
+	md->dfn = qip_decompressor_fn;
+	md->validate_crc = 1;
+	de_arch_extract_member_file(md);
+
+done:
+	if(md) {
+		de_arch_destroy_md(c, md);
+		md = NULL;
+	}
+	if(d) {
+		de_arch_destroy_lctx(c, d);
+	}
+}
+
+
+static int de_identify_cazip(deark *c)
+{
+	if(dbuf_memcmp(c->infile, 0, (const void*)"\x0d\x0a\x1a" "CAZIP", 8)) {
+		return 0;
+	}
+
+	return 100;
+}
+
+void de_module_cazip(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "cazip";
+	mi->desc = "CAZIP compressed file";
+	mi->run_fn = de_run_cazip;
+	mi->identify_fn = de_identify_cazip;
 }

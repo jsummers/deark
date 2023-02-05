@@ -713,6 +713,9 @@ Deark -- Information about supported formats
   Variant of LHA by MylesHi! Software. Deark tries to convert it to LHA.
   - File extension must be ".car" (or use "-m car").
 
+* CAZIP (module="cashrink") (experimental)
+  A compressed file format for software installation.
+
 * CD/raw (module="cd_raw")
   - Extract .ISO and other filesystem data from some raw CD images, such as
     the .BIN file in CUE/BIN format.
