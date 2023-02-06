@@ -720,6 +720,9 @@ Deark -- Information about supported formats
   - Extract .ISO and other filesystem data from some raw CD images, such as
     the .BIN file in CUE/BIN format.
 
+* CMZ (module="cmz") (experimental)
+  An old installer archive format used by Lotus.
+
 * compress (legacy Unix .Z format) (module="compress")
 
 * cpio (module="cpio")

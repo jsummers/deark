@@ -15,6 +15,23 @@ DE_DECLARE_MODULE(de_module_pcxlib);
 DE_DECLARE_MODULE(de_module_gxlib);
 DE_DECLARE_MODULE(de_module_mdcd);
 DE_DECLARE_MODULE(de_module_cazip);
+DE_DECLARE_MODULE(de_module_cmz);
+
+static int dclimplode_header_at(deark *c, i64 pos)
+{
+	u8 b;
+
+	b = de_getbyte(pos);
+	if(b>1) return 0;
+	b = de_getbyte(pos+1);
+	if(b<4 || b>6) return 0;
+	return 1;
+}
+
+static void dclimplode_decompressor_fn(struct de_arch_member_data *md)
+{
+	fmtutil_dclimplode_codectype1(md->c, md->dcmpri, md->dcmpro, md->dres, NULL);
+}
 
 // **************************************************************************
 // CP Shrink (.cpz)
@@ -619,11 +636,6 @@ void de_module_edi_pack(deark *c, struct deark_module_info *mi)
 // Quarterdeck QIP
 // **************************************************************************
 
-static void qip_decompressor_fn(struct de_arch_member_data *md)
-{
-	fmtutil_dclimplode_codectype1(md->c, md->dcmpri, md->dcmpro, md->dres, NULL);
-}
-
 // Returns 0 if no member was found at md->member_hdr_pos.
 static int do_qip_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *md)
 {
@@ -662,7 +674,7 @@ static int do_qip_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *
 
 	md->cmpr_pos = pos;
 	de_dbg(c, "cmpr data at %"I64_FMT, md->cmpr_pos);
-	md->dfn = qip_decompressor_fn;
+	md->dfn = dclimplode_decompressor_fn;
 	if(d->fmtver>=2) {
 		md->validate_crc = 1;
 	}
@@ -1297,7 +1309,7 @@ static void de_run_cazip(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	md->dfn = qip_decompressor_fn;
+	md->dfn = dclimplode_decompressor_fn;
 	md->validate_crc = 1;
 	de_arch_extract_member_file(md);
 
@@ -1327,4 +1339,139 @@ void de_module_cazip(deark *c, struct deark_module_info *mi)
 	mi->desc = "CAZIP compressed file";
 	mi->run_fn = de_run_cazip;
 	mi->identify_fn = de_identify_cazip;
+}
+
+// **************************************************************************
+// CMZ (Ami Pro installer archive)
+// **************************************************************************
+
+#define CMZ_MINHEADERLEN 21
+
+static int cmz_sig_at(deark *c, i64 pos)
+{
+	return !dbuf_memcmp(c->infile, pos, (const void*)"Clay", 4);
+}
+
+// Returns 0 if no member was found at md->member_hdr_pos.
+static int do_cmz_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *md)
+{
+	i64 pos;
+	i64 namelen;
+	int saved_indent_level;
+	int retval = 0;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	pos = md->member_hdr_pos;
+	if(!cmz_sig_at(c, pos)) {
+		if(md->member_hdr_pos==0) {
+			de_err(c, "Not a CMZ file");
+		}
+		else {
+			de_err(c, "Bad data found at %"I64_FMT, pos);
+		}
+		goto done;
+	}
+	pos += 4;
+
+	de_dbg(c, "member at %"I64_FMT, md->member_hdr_pos);
+	de_dbg_indent(c, 1);
+
+	de_arch_read_field_cmpr_len_p(md, &pos);
+	de_arch_read_field_orig_len_p(md, &pos);
+	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		DE_ARCH_TSTYPE_DOS_DT, &pos);
+
+	namelen = de_getu16le_p(&pos);
+	if(namelen>255) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	pos += 2; // Unknown field (flags?)
+
+	dbuf_read_to_ucstring(c->infile, pos, namelen, md->filename, 0, d->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+	pos += namelen;
+
+	md->cmpr_pos = pos;
+	de_dbg(c, "compressed data at %"I64_FMT", len=%"I64_FMT, md->cmpr_pos, md->cmpr_len);
+	if(!de_arch_good_cmpr_data_pos(md)) {
+		goto done;
+	}
+
+	md->member_total_size =  md->cmpr_pos + md->cmpr_len - md->member_hdr_pos;
+	retval = 1;
+
+	md->dfn = dclimplode_decompressor_fn;
+	de_arch_extract_member_file(md);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static void de_run_cmz(deark *c, de_module_params *mparams)
+{
+	de_arch_lctx *d = NULL;
+	i64 pos = 0;
+	struct de_arch_member_data *md = NULL;
+
+	d = de_arch_create_lctx(c);
+	d->is_le = 1;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+
+	while(1) {
+		if(pos+CMZ_MINHEADERLEN >= c->infile->len) goto done;
+
+		if(md) {
+			de_arch_destroy_md(c, md);
+			md = NULL;
+		}
+		md = de_arch_create_md(c, d);
+		md->member_hdr_pos = pos;
+		if(!do_cmz_member(c, d, md)) goto done;
+		if(md->member_total_size<=0) goto done;
+		pos += md->member_total_size;
+	}
+
+done:
+	if(md) {
+		de_arch_destroy_md(c, md);
+		md = NULL;
+	}
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported CMZ file");
+		}
+		de_arch_destroy_lctx(c, d);
+	}
+}
+
+static int de_identify_cmz(deark *c)
+{
+	i64 name_len;
+	i64 cmpr_len;
+
+	if(!cmz_sig_at(c, 0)) {
+		return 0;
+	}
+
+	cmpr_len = de_getu32le(4);
+	name_len = de_getu16le(16);
+	if(cmpr_len==0 && name_len>0) {
+		return 60;
+	}
+	if(dclimplode_header_at(c, 20+name_len)) {
+		return 100;
+	}
+
+	return 0;
+}
+
+void de_module_cmz(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "cmz";
+	mi->desc = "CMZ installer archive";
+	mi->run_fn = de_run_cmz;
+	mi->identify_fn = de_identify_cmz;
 }
