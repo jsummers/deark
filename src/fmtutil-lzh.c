@@ -1564,6 +1564,13 @@ static void dclimplode_internal(struct lzh_ctx *cctx)
 	deark *c = cctx->c;
 	u8 b;
 
+	if(cctx->dcmpri->len==0) {
+		// This special case is possibly a standard part of DCL Implode format:
+		// A zero-length input file, with no header or stop code, decompresses to
+		// a zero-length output file.
+		goto done;
+	}
+
 	b = (u8)lzh_getbits(cctx, 8);
 	if(b==1) {
 		cctx->implode_3_trees = 1;
