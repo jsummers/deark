@@ -887,6 +887,9 @@ Deark -- Information about supported formats
    -opt pasti:toraw - Instead of decoding, extract to raw ".ST" format (this is
      usually a FAT format).
 
+* PC-Shrink (module="pcshrink") (experimental)
+  PC-Install .SHR compressed archive format.
+
 * PCX Library (module="pcxlib")
   Aggregate format by Genus Microprogramming.
 

@@ -16,6 +16,7 @@ DE_DECLARE_MODULE(de_module_gxlib);
 DE_DECLARE_MODULE(de_module_mdcd);
 DE_DECLARE_MODULE(de_module_cazip);
 DE_DECLARE_MODULE(de_module_cmz);
+DE_DECLARE_MODULE(de_module_pcshrink);
 
 static int dclimplode_header_at(deark *c, i64 pos)
 {
@@ -31,6 +32,17 @@ static int dclimplode_header_at(deark *c, i64 pos)
 static void dclimplode_decompressor_fn(struct de_arch_member_data *md)
 {
 	fmtutil_dclimplode_codectype1(md->c, md->dcmpri, md->dcmpro, md->dres, NULL);
+}
+
+static void backslashes_to_slashes(de_ucstring *s)
+{
+	i64 i;
+
+	for(i=0; i<s->len; i++) {
+		if(s->str[i]=='\\') {
+			s->str[i] = '/';
+		}
+	}
 }
 
 // **************************************************************************
@@ -1474,4 +1486,222 @@ void de_module_cmz(deark *c, struct deark_module_info *mi)
 	mi->desc = "CMZ installer archive";
 	mi->run_fn = de_run_cmz;
 	mi->identify_fn = de_identify_cmz;
+}
+
+// **************************************************************************
+// SHR - PC-Install "PC-Shrink" format
+// **************************************************************************
+
+#define PCSHRINK_MINHEADERLEN 48
+
+// Returns:
+//  0 - not SHR
+//  1 - old format
+//  2 - new format
+static int detect_pcshrink_internal(deark *c, u8 *pmultipart_flag)
+{
+	u8 b;
+	UI n;
+	i64 cmpr_len;
+
+	*pmultipart_flag = 0;
+	b = de_getbyte(13);
+	if(b==0x74) { // maybe old format
+		if(de_getbyte(0)!=0) return 0;
+		if(de_getbyte(16)!=0x74) return 0;
+		if(de_getbyte(56)==0) return 0; // 1st byte of filename
+		cmpr_len = de_getu32le(76);
+		if(cmpr_len!=0) {
+			if(!dclimplode_header_at(c, 104)) return 0;
+		}
+		return 1;
+	}
+	else if(b==0) { // maybe new format
+		if(de_getu16le(14)!=0x74) return 0;
+		n = (UI)de_getu16le(18);
+		if(n==0x75) {
+			*pmultipart_flag = 1;
+		}
+		else if(n!=0x74) {
+			return 0;
+		}
+		if(n==0x74) {
+			if(de_getbyte(58)==0) return 0; // 1st byte of filename
+			cmpr_len = de_getu32le(194);
+			if(cmpr_len!=0) {
+				if(!dclimplode_header_at(c, 226)) return 0;
+			}
+		}
+		if(de_getbyte(0)!=0) {
+			*pmultipart_flag = 1;
+		}
+		return 2;
+	}
+	return 0;
+}
+
+static int do_pcshrink_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *md)
+{
+	i64 pos;
+	int saved_indent_level;
+	int retval = 0;
+	i64 fnfieldlen;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	pos = md->member_hdr_pos;
+	de_dbg(c, "member at %"I64_FMT, md->member_hdr_pos);
+	de_dbg_indent(c, 1);
+
+	if(d->fmtver==2) {
+		fnfieldlen = 128;
+	}
+	else {
+		fnfieldlen = 14;
+	}
+	dbuf_read_to_ucstring(c->infile, pos, fnfieldlen, md->filename,
+		DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+
+	if(d->fmtver==2) {
+		backslashes_to_slashes(md->filename);
+		md->set_name_flags |= DE_SNFLAG_FULLPATH;
+	}
+	pos += fnfieldlen;
+
+	pos++; // attributes?
+
+	if(d->fmtver==2) {
+		pos += 7;
+	}
+	else {
+		pos += 5;
+	}
+
+	de_arch_read_field_cmpr_len_p(md, &pos);
+
+	if(d->fmtver==2) {
+		de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+			DE_ARCH_TSTYPE_DOS_DXT, &pos);
+	}
+	else {
+		de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+			DE_ARCH_TSTYPE_DOS_DT, &pos);
+	}
+
+	if(d->fmtver==2) {
+		md->cmpr_pos = md->member_hdr_pos + 168;
+	}
+	else {
+		md->cmpr_pos = md->member_hdr_pos + 48;
+	}
+
+	de_dbg(c, "compressed data at %"I64_FMT", len=%"I64_FMT, md->cmpr_pos, md->cmpr_len);
+	if(!de_arch_good_cmpr_data_pos(md)) {
+		goto done;
+	}
+
+	md->member_total_size =  md->cmpr_pos + md->cmpr_len - md->member_hdr_pos;
+	retval = 1;
+
+	md->dfn = dclimplode_decompressor_fn;
+	de_arch_extract_member_file(md);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static void de_run_pcshrink(deark *c, de_module_params *mparams)
+{
+	de_arch_lctx *d = NULL;
+	i64 pos = 0;
+	i64 idx;
+	u8 multipart_flag;
+	struct de_arch_member_data *md = NULL;
+
+	d = de_arch_create_lctx(c);
+	d->is_le = 1;
+
+	// Detect version
+	d->fmtver = detect_pcshrink_internal(c, &multipart_flag);
+	if(d->fmtver!=1 && d->fmtver!=2) {
+		de_err(c, "Not a PC-Shrink file");
+		goto done;
+	}
+	de_dbg(c, "format version: %d", d->fmtver);
+
+	// Read archive header
+	if(d->fmtver==2) {
+		d->num_members = de_getu16le(16);
+	}
+	else {
+		d->num_members = de_getu16le(14);
+	}
+	de_dbg(c, "number of members: %d", (int)d->num_members);
+
+	// TODO: Can we tell Windows files from DOS files?
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+
+	if(d->fmtver==2) {
+		pos = 58;
+	}
+	else {
+		pos = 56;
+	}
+
+	if(multipart_flag) {
+		de_err(c, "Multi-part PC-Shrink files are not supported");
+		goto done;
+	}
+
+	for(idx=0; idx<d->num_members; idx++) {
+		if(pos+PCSHRINK_MINHEADERLEN >= c->infile->len) {
+			de_err(c, "Unexpected end of file");
+			goto done;
+		}
+
+		if(md) {
+			de_arch_destroy_md(c, md);
+			md = NULL;
+		}
+		md = de_arch_create_md(c, d);
+		md->member_hdr_pos = pos;
+		if(!do_pcshrink_member(c, d, md)) goto done;
+		if(md->member_total_size<=0) goto done;
+		pos += md->member_total_size;
+	}
+
+done:
+	if(md) {
+		de_arch_destroy_md(c, md);
+		md = NULL;
+	}
+	if(d) {
+		de_arch_destroy_lctx(c, d);
+	}
+}
+
+static int de_identify_pcshrink(deark *c)
+{
+	u8 multipart_flag;
+	int ver;
+
+	ver = detect_pcshrink_internal(c, &multipart_flag);
+	if(ver==1) {
+		return 60;
+	}
+	else if(ver==2) {
+		if(multipart_flag) return 40;
+		return 80;
+	}
+
+	return 0;
+}
+
+void de_module_pcshrink(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "pcshrink";
+	mi->desc = "PC-Install compressed archive";
+	mi->run_fn = de_run_pcshrink;
+	mi->identify_fn = de_identify_pcshrink;
 }

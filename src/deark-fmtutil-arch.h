@@ -90,6 +90,7 @@ enum de_arch_tstype_enum {
 	DE_ARCH_TSTYPE_UNIX_U,
 	DE_ARCH_TSTYPE_DOS_DT,
 	DE_ARCH_TSTYPE_DOS_TD,
+	DE_ARCH_TSTYPE_DOS_DXT,
 	DE_ARCH_TSTYPE_FILETIME
 };
 void de_arch_read_field_dttm_p(de_arch_lctx *d,

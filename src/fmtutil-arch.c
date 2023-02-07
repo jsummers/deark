@@ -153,11 +153,20 @@ void de_arch_read_field_dttm_p(de_arch_lctx *d,
 		de_unix_time_to_timestamp(n1, ts, 0x1);
 		is_set = 1;
 	}
-	else if(tstype==DE_ARCH_TSTYPE_DOS_DT || tstype==DE_ARCH_TSTYPE_DOS_TD) {
+	else if(tstype==DE_ARCH_TSTYPE_DOS_DT || tstype==DE_ARCH_TSTYPE_DOS_TD ||
+		tstype==DE_ARCH_TSTYPE_DOS_DXT)
+	{
 		i64 dosdt, dostm;
 
 		n1 = dbuf_getu16x(d->c->infile, *ppos, d->is_le);
-		n2 = dbuf_getu16x(d->c->infile, *ppos+2, d->is_le);
+		if(tstype==DE_ARCH_TSTYPE_DOS_DXT) {
+			// Date, then 2 unused bytes, then time.
+			n2 = dbuf_getu16x(d->c->infile, *ppos+4, d->is_le);
+		}
+		else {
+			n2 = dbuf_getu16x(d->c->infile, *ppos+2, d->is_le);
+		}
+
 		if(tstype==DE_ARCH_TSTYPE_DOS_TD) {
 			dosdt = n2;
 			dostm = n1;
@@ -189,7 +198,7 @@ void de_arch_read_field_dttm_p(de_arch_lctx *d,
 	}
 	de_dbg(d->c, "%s time: %s", name, timestamp_buf);
 
-	if(tstype==DE_ARCH_TSTYPE_FILETIME) {
+	if(tstype==DE_ARCH_TSTYPE_FILETIME || tstype==DE_ARCH_TSTYPE_DOS_DXT) {
 		*ppos += 8;
 	}
 	else {
