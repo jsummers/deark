@@ -3,13 +3,13 @@
 // See the file COPYING for terms of use.
 
 // InstallShield Z
-// InstallShield installer archive (_INST32I.EX_)
+// InstallShield installer archive
 
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 #include <deark-fmtutil-arch.h>
 DE_DECLARE_MODULE(de_module_is_z);
-DE_DECLARE_MODULE(de_module_is_inst32i);
+DE_DECLARE_MODULE(de_module_is_instarch);
 DE_DECLARE_MODULE(de_module_tscomp);
 
 #define ISZ_MAX_DIRS          1000 // arbitrary
@@ -281,10 +281,10 @@ void de_module_is_z(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
-// _INST32I.EX_
+// InstallShield installer archive
 // **************************************************************************
 
-static int do_inst32i_member(deark *c, de_arch_lctx *da, struct de_arch_member_data *md)
+static int do_instarch_member(deark *c, de_arch_lctx *da, struct de_arch_member_data *md)
 {
 	int retval = 0;
 	int saved_indent_level;
@@ -330,7 +330,7 @@ done:
 	return retval;
 }
 
-static void de_run_is_inst32i(deark *c, de_module_params *mparams)
+static void de_run_is_instarch(deark *c, de_module_params *mparams)
 {
 	de_arch_lctx *da = NULL;
 	i64 pos;
@@ -355,7 +355,7 @@ static void de_run_is_inst32i(deark *c, de_module_params *mparams)
 		}
 		md = de_arch_create_md(c, da);
 		md->member_hdr_pos = pos;
-		if(!do_inst32i_member(c, da, md)) goto done;
+		if(!do_instarch_member(c, da, md)) goto done;
 		if(md->member_hdr_size<=0) goto done;
 		pos += md->member_hdr_size;
 	}
@@ -369,7 +369,7 @@ done:
 	}
 }
 
-static int de_identify_is_inst32i(deark *c)
+static int de_identify_is_instarch(deark *c)
 {
 	if(dbuf_memcmp(c->infile, 0, "\x2a\xab\x79\xd8\x00\x01", 6)) {
 		return 0;
@@ -377,12 +377,13 @@ static int de_identify_is_inst32i(deark *c)
 	return 100;
 }
 
-void de_module_is_inst32i(deark *c, struct deark_module_info *mi)
+void de_module_is_instarch(deark *c, struct deark_module_info *mi)
 {
-	mi->id = "is_inst32i";
-	mi->desc = "InstallShield installer archive (_INST32I.EX_)";
-	mi->run_fn = de_run_is_inst32i;
-	mi->identify_fn = de_identify_is_inst32i;
+	mi->id = "is_instarch";
+	mi->id_alias[0] = "is_inst32i";
+	mi->desc = "InstallShield installer archive (_inst32i.ex_)";
+	mi->run_fn = de_run_is_instarch;
+	mi->identify_fn = de_identify_is_instarch;
 }
 
 // **************************************************************************
