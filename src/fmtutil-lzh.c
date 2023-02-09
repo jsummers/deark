@@ -78,6 +78,37 @@ static u64 lzh_getbits(struct lzh_ctx *cctx, UI nbits)
 	return de_bitreader_getbits(&cctx->bitrd, nbits);
 }
 
+static void lzh_make_tree_from_bytearrays(struct lzh_ctx *cctx,
+	struct lzh_tree_wrapper *tree,
+	const u8 *codes, const u8 *lengths, UI ncodes,
+	const char *dbgtitle)
+{
+	deark *c = cctx->c;
+	UI n;
+	char b2buf[72];
+
+	tree->ht = fmtutil_huffman_create_decoder(c, ncodes, ncodes);
+	if(dbgtitle) {
+		de_dbg3(c, "[%s]", dbgtitle);
+	}
+	de_dbg_indent(c, 1);
+	for(n=0; n<ncodes; n++) {
+		UI nbits;
+		u64 code;
+
+		nbits = (UI)lengths[n];
+		code = (u64)codes[n];
+
+		if(dbgtitle && c->debug_level>=3) {
+			de_dbg3(c, "code: \"%s\" = %d",
+				de_print_base2_fixed(b2buf, sizeof(b2buf), code, nbits), (int)n);
+		}
+		fmtutil_huffman_add_code(c, tree->ht->bk, code, nbits,
+			(fmtutil_huffman_valtype)n);
+	}
+	de_dbg_indent(c, -1);
+}
+
 static UI lh5x_read_a_code_length(struct lzh_ctx *cctx)
 {
 	UI n;
@@ -1997,4 +2028,180 @@ done:
 		}
 		destroy_lzh_ctx(cctx);
 	}
+}
+
+//-------------------------- LZS (Stac) --------------------------
+
+static void lzstac_decompress_block(struct lzh_ctx *cctx)
+{
+	deark *c = cctx->c;
+
+	while(1) {
+		UI n;
+
+		if(cctx->bitrd.eof_flag || cctx->err_flag) {
+			if(!cctx->err_flag) {
+				de_dfilter_set_errorf(c, cctx->dres, cctx->modname,
+					"Decoding error (end-of-data code not found)");
+				cctx->err_flag = 1;
+			}
+			goto done;
+		}
+
+		n = (UI)lzh_getbits(cctx, 1);
+		if(n==0) { // a literal
+			u8 b;
+
+			b = (u8)lzh_getbits(cctx, 8);
+			if(cctx->c->debug_level>=4) {
+				de_dbg(c, "lit %u", (UI)b);
+			}
+			de_lz77buffer_add_literal_byte(cctx->ringbuf, b);
+		}
+		else { // an offset+distance, or a stop code
+
+			UI matchlen_code, matchlen;
+			UI offset_code, offset;
+
+			// Read the offset
+
+			n = (UI)lzh_getbits(cctx, 1);
+			if(n==0) { // an 11-bit offset...
+				offset_code = (UI)lzh_getbits(cctx, 11);
+				if(offset_code==0) { // Expecting at least 128
+					cctx->err_flag = 1;
+					goto done;
+				}
+				offset = offset_code - 1;
+			}
+			else { // 7-bit offset, or stop code
+				offset_code = (UI)lzh_getbits(cctx, 7);
+				if(offset_code==0) {
+					if(cctx->c->debug_level>=4) {
+						de_dbg(c, "stop code");
+					}
+					goto done;
+				}
+				offset = offset_code - 1;
+
+			}
+
+			// Read the match-length
+
+			matchlen_code = (UI)read_next_code_using_tree(cctx, &cctx->matchlengths_tree);
+
+			if(matchlen_code < 6) {
+				matchlen = matchlen_code + 2;
+			}
+			else {
+				matchlen = 8; // This will be increased as we read more bits
+
+				while(1) {
+					matchlen_code = (UI)lzh_getbits(cctx, 4);
+					matchlen += matchlen_code;
+
+					// Arbitrary limit. The matchlen can definitely be *much* larger
+					// than the history buffer.
+					if(matchlen > 0x80000000) {
+						cctx->err_flag = 1;
+						goto done;
+					}
+
+					if(matchlen_code < 15) {
+						break;
+					}
+				}
+			}
+
+			if(cctx->c->debug_level>=4) {
+				de_dbg(c, "match d=%u l=%u", offset+1, matchlen);
+			}
+			de_lz77buffer_copy_from_hist(cctx->ringbuf,
+				(UI)(cctx->ringbuf->curpos-1-offset), matchlen);
+		}
+	}
+
+done:
+	de_bitreader_skip_to_byte_boundary(&cctx->bitrd);
+}
+
+// codec_private_params = struct de_lzstac_params, or NULL.
+//  params.flags:
+//    0x1 = disallow zero blocks
+//    0x2 = disallow more than 1 block
+void fmtutil_lzstac_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params)
+{
+	struct lzh_ctx *cctx = NULL;
+	int block_count = 0;
+	UI flags = 0;
+	static const u8 lzstac_lencodes[7] = {
+		// The first 6 codes are for lengths 2-7, and the last is special.
+		0x00,0x01,0x02,0x0c,0x0d,0x0e,0x0f
+	};
+	static const u8 lzstac_lenlengths[7] = {
+		0x02,0x02,0x02,0x04,0x04,0x04,0x04
+	};
+
+	if(codec_private_params) {
+		struct de_lzstac_params *params;
+
+		params = (struct de_lzstac_params*)codec_private_params;
+		flags = params->flags;
+	}
+
+	cctx = de_malloc(c, sizeof(struct lzh_ctx));
+	cctx->modname = "LZStac";
+	cctx->c = c;
+	cctx->dcmpri = dcmpri;
+	cctx->dcmpro = dcmpro;
+	cctx->dres = dres;
+
+	cctx->bitrd.bbll.is_lsb = 0;
+	cctx->bitrd.f = dcmpri->f;
+	cctx->bitrd.curpos = dcmpri->pos;
+	cctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
+
+	lzh_make_tree_from_bytearrays(cctx, &cctx->matchlengths_tree,
+		lzstac_lencodes, lzstac_lenlengths, 7, NULL);
+
+	cctx->ringbuf = de_lz77buffer_create(cctx->c, 2048);
+	cctx->ringbuf->userdata = (void*)cctx;
+	cctx->ringbuf->writebyte_cb = lzh_lz77buf_writebytecb_flagerrors;
+
+	while(1) {
+		if(block_count==0 && (dcmpri->len<=0) && !(flags & 0x1)) {
+			// No input data (0 blocks), and it is allowed. Stop.
+			break;
+		}
+
+		if(block_count>0 && (flags & 0x2)) {
+			// More than 1 block not allowed, so stop.
+			break;
+		}
+
+		de_dbg3(c, "LZS block at %"I64_FMT, cctx->bitrd.curpos);
+		de_dbg_indent(c, 1);
+		lzstac_decompress_block(cctx);
+		de_dbg_indent(c, -1);
+
+		block_count++;
+		if(cctx->err_flag) break;
+		if(cctx->bitrd.curpos >= cctx->bitrd.endpos) break;
+	}
+
+	if(cctx->err_flag) {
+		de_dfilter_set_errorf(c, dres, cctx->modname, "Decoding error");
+		goto done;
+	}
+
+	cctx->dres->bytes_consumed = cctx->bitrd.curpos - cctx->dcmpri->pos;
+	if(cctx->dres->bytes_consumed<0) {
+		cctx->dres->bytes_consumed = 0;
+	}
+	cctx->dres->bytes_consumed_valid = 1;
+
+done:
+	destroy_lzh_ctx(cctx);
 }

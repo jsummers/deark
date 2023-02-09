@@ -748,6 +748,7 @@ Deark -- Information about supported formats
 
 * Deflate (module="deflate")
   Raw Deflate-compressed (not zlib) data.
+  - Not autodetected; must use "-m deflate".
   Options
    -opt deflate:deflate64 - Decode as Deflate64 format.
 
@@ -821,6 +822,13 @@ Deark -- Information about supported formats
   LHarc's "lh1" compression.
   - Not autodetected; you must use "-m lzhuf".
 
+* LZS(Stac) (module="lzstac")
+  Raw LZ-Stac compressed data.
+  - Not autodetected; must use "-m lzstac".
+
+* LZS221 (module="lzss221")
+  Compressed file format by Stac.
+
 * LZSS(Okumura) (module="lzss_oku")
   LZSS.C compression software by Haruhiko Okumura.
   - Not autodetected; you must use "-m lzhuf_oku".
@@ -861,6 +869,9 @@ Deark -- Information about supported formats
    -opt msa:toraw - Instead of decoding, extract to raw ".ST" format (this is
      usually a FAT format).
    -opt msa:touncmsa - Instead of decoding, convert to uncompressed MSA.
+
+* NPack (module="npack")
+  Compressed file format by Symantec / Stac.
 
 * NRG (module="nrg") (experimental)
   Nero CD image format.

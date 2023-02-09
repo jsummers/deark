@@ -29,6 +29,9 @@ DE_DECLARE_MODULE(de_module_dclimplode);
 DE_DECLARE_MODULE(de_module_lzss_oku);
 DE_DECLARE_MODULE(de_module_lzhuf);
 DE_DECLARE_MODULE(de_module_compress_lzh);
+DE_DECLARE_MODULE(de_module_lzstac);
+DE_DECLARE_MODULE(de_module_npack);
+DE_DECLARE_MODULE(de_module_lzs221);
 
 // **************************************************************************
 // "copy" module
@@ -1277,4 +1280,111 @@ void de_module_compress_lzh(deark *c, struct deark_module_info *mi)
 	mi->desc = "SCO compress LZH";
 	mi->run_fn = de_run_compress_lzh;
 	mi->identify_fn = de_identify_compress_lzh;
+}
+
+// **************************************************************************
+// Raw LZS (Stac) compressed data
+// **************************************************************************
+
+static void do_lzstac_internal(deark *c, i64 cmpr_pos, i64 cmpr_len, UI flags)
+{
+	dbuf *outf = NULL;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	struct de_lzstac_params lzstacparams;
+
+	outf = dbuf_create_output_file(c, "unc", NULL, 0);
+	dbuf_enable_wbuffer(outf);
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = cmpr_pos;
+	dcmpri.len = cmpr_len;
+	dcmpro.f = outf;
+
+	de_zeromem(&lzstacparams, sizeof(struct de_lzstac_params));
+	lzstacparams.flags = flags;
+	fmtutil_lzstac_codectype1(c, &dcmpri, &dcmpro, &dres, (void*)&lzstacparams);
+
+	dbuf_flush(outf);
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
+	if(dres.bytes_consumed_valid) {
+		de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT, dres.bytes_consumed,
+			outf->len);
+		if(dres.bytes_consumed<cmpr_len) {
+			de_warn(c, "%"I64_FMT" extra bytes at end of file. File might not "
+				"have decompressed correctly.", cmpr_len - dres.bytes_consumed);
+		}
+	}
+
+done:
+	dbuf_close(outf);
+}
+
+static void de_run_lzstac(deark *c, de_module_params *mparams)
+{
+	do_lzstac_internal(c, 0, c->infile->len, 0);
+}
+
+void de_module_lzstac(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "lzstac";
+	mi->desc = "Raw LZS (Stac) compressed data";
+	mi->run_fn = de_run_lzstac;
+}
+
+// **************************************************************************
+// NPack
+// An installer format by Symantec & Stac
+// **************************************************************************
+
+static void de_run_npack(deark *c, de_module_params *mparams)
+{
+	// NPack decompresses at most 1 LZS block, hence the 0x2 flag.
+	do_lzstac_internal(c, 5, c->infile->len-5, 0x2);
+}
+
+static int de_identify_npack(deark *c)
+{
+	if(dbuf_memcmp(c->infile, 0, (const void*)"MSTSM", 5)) {
+		return 0;
+	}
+	return 85;
+}
+
+void de_module_npack(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "npack";
+	mi->desc = "NPack compressed file";
+	mi->run_fn = de_run_npack;
+	mi->identify_fn = de_identify_npack;
+}
+
+// **************************************************************************
+// LZS221
+// e.g. LZSDEMO v3.1 by Stac
+// **************************************************************************
+
+static void de_run_lzs221(deark *c, de_module_params *mparams)
+{
+	do_lzstac_internal(c, 4, c->infile->len-4, 0);
+}
+
+static int de_identify_lzs221(deark *c)
+{
+	if(dbuf_memcmp(c->infile, 0, (const void*)"sTaC", 4)) {
+		return 0;
+	}
+	return 85;
+}
+
+void de_module_lzs221(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "lzs221";
+	mi->desc = "LZS221 compressed file";
+	mi->run_fn = de_run_lzs221;
+	mi->identify_fn = de_identify_lzs221;
 }
