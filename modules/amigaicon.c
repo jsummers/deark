@@ -230,7 +230,7 @@ static int do_read_main_icon(deark *c, lctx *d,
 	de_dbg(c, "depth: %d", (int)depth);
 
 	if(depth<1 || depth>8) {
-		de_err(c, "Unsupported bit depth (%d)", (int)depth);
+		de_err(c, "Unsupported bit depth: %d", (int)depth);
 		goto done;
 	}
 
@@ -263,16 +263,12 @@ static int do_read_main_icon(deark *c, lctx *d,
 	else if(depth==3) {
 		for(i=0; i<8; i++) pal[i] = magicwbpal[i];
 	}
-	else if(depth==4) {
-		// ???
-		for(i=0; i<16; i++) pal[i] = magicwbpal[i>>1];
-	}
-	else if(depth==8) {
-		// Don't ask me. Just doing what other apps seem to do.
-		for(i=0; i<256; i++) pal[i] = magicwbpal[i>>5];
-	}
-	else {
-		de_warn(c, "Don't know how to handle images with bit depth %d", (int)depth);
+	else { // depth 4..8
+		for(i=0; i<(1LL<<depth); i++) {
+			// I don't know the logic behind this, and it might not be correct in
+			// all cases.
+			pal[i] = magicwbpal[i>>(depth-3)];
+		}
 	}
 
 	pos += 20;
