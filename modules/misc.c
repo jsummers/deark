@@ -1121,7 +1121,7 @@ static int de_identify_dclimplode(deark *c)
 	int i;
 	u32 x;
 
-	if(c->infile->len<5) return 0;
+	if(c->infile->len<4) return 0;
 	b0 = de_getbyte(0);
 	if(b0>1) return 0;
 	b1 = de_getbyte(1);
@@ -1132,7 +1132,7 @@ static int de_identify_dclimplode(deark *c)
 	// no extraneous bytes after that.
 	x = (u32)de_getu32le(c->infile->len-4);
 	for(i=0; i<8; i++) {
-		if((x & 0xfffffc00U)==0x01fe0000U) {
+		if((x & 0xfffffe00U)==0x01fe0200U) {
 			if(b0==0 && b1==6) return 40;
 			return 10;
 		}
