@@ -7,6 +7,7 @@
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_mscompress);
+DE_DECLARE_MODULE(de_module_is_ibt);
 
 #define FMT_SZDD 1
 #define FMT_KWAJ 2
@@ -28,6 +29,7 @@ typedef struct localctx_struct {
 	u8 uncmpr_len_known;
 	i64 uncmpr_len;
 	de_ucstring *filename;
+	de_finfo *fi_override; // Do not free; this is a copy.
 } lctx;
 
 static int cmpr_meth_is_supported(lctx *d, UI n)
@@ -728,7 +730,7 @@ static void do_extract_file(deark *c, lctx *d)
 	else {
 		de_finfo_set_name_from_sz(c, fi, "bin", 0, DE_ENCODING_LATIN1);
 	}
-	outf = dbuf_create_output_file(c, NULL, fi, 0);
+	outf = dbuf_create_output_file(c, NULL, (d->fi_override ? d->fi_override : fi), 0);
 	dbuf_enable_wbuffer(outf);
 	do_decompress(c, d, outf);
 	de_dbg_indent(c, -1);
@@ -776,6 +778,10 @@ static void de_run_mscompress(deark *c, de_module_params *mparams)
 	}
 	de_declare_fmtf(c, "MS Installation Compression, %s variant", varname);
 
+	if(mparams && mparams->in_params.fi) {
+		d->fi_override = mparams->in_params.fi;
+	}
+
 	if(d->fmt==FMT_KWAJ) {
 		if(!do_header_KWAJ(c, d, 0)) goto done;
 	}
@@ -809,4 +815,168 @@ void de_module_mscompress(deark *c, struct deark_module_info *mi)
 	mi->desc = "MS-DOS Installation Compression";
 	mi->run_fn = de_run_mscompress;
 	mi->identify_fn = de_identify_mscompress;
+}
+
+// **************************************************************************
+// InstallShield setup.ibt
+// A container for SZDD-compressed files.
+// **************************************************************************
+
+struct ibt_member_ctx {
+	i64 cmpr_pos;
+	i64 cmpr_len;
+	de_ucstring *tmpstr;
+	de_ucstring *cmpr_fn;
+	de_ucstring *orig_fn;
+};
+
+struct ibt_ctx {
+	de_encoding input_encoding;
+	u8 need_errmsg;
+	i64 last_member_size;
+};
+
+// maxlen: max length including NUL byte
+static int read_sz_p(dbuf *f, i64 maxlen, de_ucstring *s, de_encoding enc, i64 *ppos)
+{
+	i64 startpos = *ppos;
+	i64 foundpos;
+	i64 len;
+	int ret;
+
+	ret = dbuf_search_byte(f, 0x00, startpos, maxlen, &foundpos);
+	if(!ret) return 0;
+	len = foundpos - startpos; // length w/o NUL
+	dbuf_read_to_ucstring(f, startpos, len, s, 0, enc);
+	*ppos = foundpos+1;
+	return 1;
+}
+
+static void ibt_decompress_and_extract(deark *c, struct ibt_ctx *d,
+	struct ibt_member_ctx *md)
+{
+	de_module_params *mparams = NULL;
+	de_finfo *fi = NULL;
+
+	de_dbg(c, "SZDD data at %"I64_FMT", size=%"I64_FMT, md->cmpr_pos, md->cmpr_len);
+	de_dbg_indent(c, 1);
+
+	fi = de_finfo_create(c);
+	de_finfo_set_name_from_ucstring(c, fi, md->orig_fn, 0);
+	fi->original_filename_flag = 1;
+
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->in_params.fi = fi;
+
+	de_run_module_by_id_on_slice(c, "mscompress", mparams, c->infile,
+		md->cmpr_pos, md->cmpr_len);
+
+	de_free(c, mparams);
+	de_finfo_destroy(c, fi);
+	de_dbg_indent(c, -1);
+}
+
+// Sets d->last_member_size. On fatal error, sets it to 0.
+static void do_ibt_member(deark *c, struct ibt_ctx *d, i64 pos1)
+{
+	struct ibt_member_ctx *md = NULL;
+	i64 pos = pos1;
+
+	d->last_member_size = 0;
+
+	md = de_malloc(c, sizeof(struct ibt_member_ctx));
+	md->tmpstr = ucstring_create(c);
+	md->cmpr_fn = ucstring_create(c);
+	md->orig_fn = ucstring_create(c);
+
+	if(!read_sz_p(c->infile, 80, md->cmpr_fn, d->input_encoding, &pos)) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	de_dbg(c, "cmpr name: \"%s\"", ucstring_getpsz_d(md->cmpr_fn));
+
+	if(!read_sz_p(c->infile, 80, md->orig_fn, d->input_encoding, &pos)) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	de_dbg(c, "orig name: \"%s\"", ucstring_getpsz_d(md->orig_fn));
+
+	if(!read_sz_p(c->infile, 80, md->tmpstr, DE_ENCODING_ASCII, &pos)) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	de_dbg(c, "file version: \"%s\"", ucstring_getpsz_d(md->tmpstr));
+
+	ucstring_empty(md->tmpstr);
+	if(!read_sz_p(c->infile, 80, md->tmpstr, DE_ENCODING_ASCII, &pos)) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	md->cmpr_pos = pos;
+	md->cmpr_len = de_atoi64(ucstring_getpsz(md->tmpstr));
+	de_dbg(c, "cmpr len: %"I64_FMT, md->cmpr_len);
+	if(md->cmpr_len<8 || md->cmpr_pos+md->cmpr_len>c->infile->len) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	d->last_member_size = md->cmpr_pos + md->cmpr_len - pos1;
+
+	// TODO? An option to extract without decompressing.
+	// But we'd lose the original filename, and it's overkill for such an
+	// unimportant format.
+
+	ibt_decompress_and_extract(c, d, md);
+
+done:
+	if(md) {
+		ucstring_destroy(md->tmpstr);
+		ucstring_destroy(md->cmpr_fn);
+		ucstring_destroy(md->orig_fn);
+		de_free(c, md);
+	}
+}
+
+static void de_run_is_ibt(deark *c, de_module_params *mparams)
+{
+	struct ibt_ctx *d = NULL;
+	i64 pos = 0;
+
+	d = de_malloc(c, sizeof(struct ibt_ctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
+
+	while(1) {
+		if(pos+16 > c->infile->len) break;
+		de_dbg(c, "member at %"I64_FMT, pos);
+		de_dbg_indent(c, 1);
+		do_ibt_member(c, d, pos);
+		de_dbg_indent(c, -1);
+		if(d->last_member_size<=0) goto done;
+		pos += d->last_member_size;
+	}
+
+done:
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported IBT file");
+		}
+		de_free(c, d);
+	}
+}
+
+static int de_identify_is_ibt(deark *c)
+{
+	// TODO? Better identification
+	if(!dbuf_memcmp(c->infile, 0, (const void*)"setup.dl_\0setup.dll\0", 20)) {
+		return 90;
+	}
+	return 0;
+}
+
+void de_module_is_ibt(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "is_ibt";
+	mi->desc = "InstallShield IBT archive";
+	mi->run_fn = de_run_is_ibt;
+	mi->identify_fn = de_identify_is_ibt;
 }
