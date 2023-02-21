@@ -162,15 +162,14 @@ static void do_sprite_bank(deark *c, lctx *d, i64 pos)
 
 static void do_icon(deark *c, lctx *d, i64 idx, i64 pos)
 {
-	de_bitmap *img = NULL;
+	de_bitmap *fgimg = NULL;
+	de_bitmap *maskimg = NULL;
+	UI cvtflags = 0;
 	i64 format_flag;
 	i64 bgcol, fgcol;
-	i64 i, j;
 	i64 w, h;
 	i64 rowspan;
-	u8 mskbit, fgbit;
 	i64 bitsstart;
-	u32 clr;
 
 	de_dbg(c, "icon #%d, at %d", (int)idx, (int)pos);
 	de_dbg_indent(c, 1);
@@ -183,34 +182,27 @@ static void do_icon(deark *c, lctx *d, i64 idx, i64 pos)
 
 	// TODO: I don't know how to figure out what colors to use.
 	if(fgcol==0 && bgcol!=0) {
-		d->pal[0] = DE_STOCKCOLOR_BLACK;
-		d->pal[1] = DE_STOCKCOLOR_WHITE;
+		;
 	}
 	else {
-		d->pal[0] = DE_STOCKCOLOR_WHITE;
-		d->pal[1] = DE_STOCKCOLOR_BLACK;
+		cvtflags |= DE_CVTF_WHITEISZERO;
 	}
 
 	w = 16;
 	h = 16;
 	rowspan = 4;
-	img = de_bitmap_create(c, w, h, 2);
+	fgimg = de_bitmap_create(c, w, h, 2);
+	maskimg = de_bitmap_create(c, w, h, 1);
 
 	bitsstart = pos + 10;
-	for(j=0; j<h; j++) {
-		for(i=0; i<w; i++) {
-			mskbit = de_get_bits_symbol(c->infile, 1, bitsstart + j*rowspan, i);
-			fgbit = de_get_bits_symbol(c->infile, 1, bitsstart + j*rowspan + 2, i);
-			clr = d->pal[(unsigned int)fgbit];
-			if(!mskbit) {
-				clr = DE_SET_ALPHA(clr, 0);
-			}
-			de_bitmap_setpixel_rgba(img, i, j, clr);
-		}
-	}
 
-	de_bitmap_write_to_file(img, NULL, 0);
-	de_bitmap_destroy(img);
+	de_convert_image_bilevel(c->infile, bitsstart, rowspan, maskimg, 0);
+	de_convert_image_bilevel(c->infile, bitsstart+2, rowspan, fgimg, cvtflags);
+	de_bitmap_apply_mask(fgimg, maskimg, 0);
+
+	de_bitmap_write_to_file(fgimg, NULL, DE_CREATEFLAG_OPT_IMAGE);
+	de_bitmap_destroy(fgimg);
+	de_bitmap_destroy(maskimg);
 	de_dbg_indent(c, -1);
 }
 
