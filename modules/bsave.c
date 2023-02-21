@@ -168,7 +168,6 @@ static void do_4color(deark *c, lctx *d)
 	// TODO: This may not be the right palette.
 	static const de_color default_palette[4] = { 0x000000, 0x55ffff, 0xff55ff, 0xffffff };
 	de_color palette[4];
-	int palent;
 	i64 w, h;
 	i64 i,j;
 	i64 pos;
@@ -210,19 +209,21 @@ static void do_4color(deark *c, lctx *d)
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 	img = de_bitmap_create(c, w, h, 3);
 
-	for(j=0;j<h;j++) {
-		for(i=0;i<w;i++) {
-			if(d->interlaced) {
-				// Image is interlaced. Even-numbered scanlines are stored first.
-				palent = (int)de_get_bits_symbol(c->infile, 2,
-					pos + (j%2)*8192 + (j/2)*src_rowspan, i);
-			}
-			else {
-				palent = (int)de_get_bits_symbol(c->infile, 2,
-					pos + j*src_rowspan, i);
-			}
-			de_bitmap_setpixel_rgb(img, i, j, palette[palent]);
+	if(d->interlaced) {
+		dbuf *tmpf;
+
+		tmpf = dbuf_create_membuf(c, h*src_rowspan, 0x1);
+		for(j=0; j<h; j++) {
+			// interlaced -- Odd rows appear offset by 8192 bytes
+			dbuf_copy(c->infile, pos + ((j%2)*8192) +
+				(j/2)*src_rowspan, src_rowspan, tmpf);
 		}
+
+		de_convert_image_paletted(tmpf, 0, 2, src_rowspan, palette, img, 0);
+		dbuf_close(tmpf);
+	}
+	else {
+		de_convert_image_paletted(c->infile, pos, 2, src_rowspan, palette, img, 0);
 	}
 
 	de_bitmap_write_to_file(img, NULL, 0);
