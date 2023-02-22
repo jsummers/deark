@@ -32,11 +32,12 @@ typedef struct localctx_struct {
 	de_bitmap *tile_img; // Re-used for each tile
 
 	i64 pal_entries_used;
-	u32 pal[256];
+	de_color pal[256];
 } lctx;
 
-static int do_palette(deark *c, lctx *d, i64 pos, i64 len)
+static int do_palette(deark *c, lctx *d, i64 pos1, i64 len)
 {
+	i64 pos = pos1;
 	i64 pal_entries_in_file;
 	i64 i;
 	i64 k;
@@ -46,7 +47,7 @@ static int do_palette(deark *c, lctx *d, i64 pos, i64 len)
 	double max_color_sample;
 	double pal_sample_scalefactor[4];
 
-	de_dbg(c, "palette at %d", (int)pos);
+	de_dbg(c, "palette at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
 	pal_entries_in_file = len/4;
@@ -71,10 +72,10 @@ static int do_palette(deark *c, lctx *d, i64 pos, i64 len)
 		char tmps[64];
 
 		if(i>255) break;
-		ci1 = de_getbyte(pos+4*i);
-		cr1 = de_getbyte(pos+4*i+1);
-		cg1 = de_getbyte(pos+4*i+2);
-		cb1 = de_getbyte(pos+4*i+3);
+		ci1 = de_getbyte_p(&pos);
+		cr1 = de_getbyte_p(&pos);
+		cg1 = de_getbyte_p(&pos);
+		cb1 = de_getbyte_p(&pos);
 
 		if(d->is_grayscale) {
 			// This is untested. I can't find any grayscale PIX images.
@@ -101,8 +102,8 @@ static int do_palette(deark *c, lctx *d, i64 pos, i64 len)
 			d->pal[i] = DE_MAKE_RGB(cr2,cg2,cb2);
 		}
 
-		de_snprintf(tmps, sizeof(tmps), "(%d,%d,%d,intens=%d) "DE_CHAR_RIGHTARROW" ",
-			(int)cr1, (int)cg1, (int)cb1, (int)ci1);
+		de_snprintf(tmps, sizeof(tmps), "(%u,%u,%u,intens=%u) "DE_CHAR_RIGHTARROW" ",
+			(UI)cr1, (UI)cg1, (UI)cb1, (UI)ci1);
 		de_dbg_pal_entry2(c, i, d->pal[i], tmps, NULL,
 			i<d->pal_entries_used ? "":" [unused]");
 	}
@@ -113,46 +114,50 @@ static int do_palette(deark *c, lctx *d, i64 pos, i64 len)
 	return retval;
 }
 
-static int do_image_info(deark *c, lctx *d, i64 pos, i64 len)
+static int do_image_info(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	int retval = 0;
+	i64 pos = pos1;
 
-	de_dbg(c, "image information at %d", (int)pos);
+	de_dbg(c, "image information at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	if(len<32) {
 		de_err(c, "Image Information item too small");
 		goto done;
 	}
 
-	d->hmode = de_getbyte(pos);
-	de_dbg(c, "hardware mode: %d", (int)d->hmode);
+	d->hmode = de_getbyte_p(&pos);
+	de_dbg(c, "hardware mode: %u", (UI)d->hmode);
 
-	d->htype = de_getbyte(pos+1);
+	d->htype = de_getbyte_p(&pos);
 	d->graphics_type = d->htype & 0x01;
 	d->board_type = d->htype & 0xfe;
 
-	de_dbg(c, "graphics type: %d (%s)", (int)d->graphics_type,
+	de_dbg(c, "graphics type: %u (%s)", (UI)d->graphics_type,
 		d->graphics_type?"bitmap":"character");
-	de_dbg(c, "board type: %d", (int)d->board_type);
+	de_dbg(c, "board type: %u", (UI)d->board_type);
 
-	d->width = de_getu16le(pos+18);
-	d->height = de_getu16le(pos+20);
+	pos = pos1 + 18;
+	d->width = de_getu16le_p(&pos);
+	d->height = de_getu16le_p(&pos);
 	de_dbg_dimensions(c, d->width, d->height);
 
-	d->gfore = (i64)de_getbyte(pos+22);
+	d->gfore = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "foreground color bits: %d", (int)d->gfore);
 	d->max_sample_value = de_pow2(d->gfore) -1;
 
-	d->num_pal_bits[0] = (i64)de_getbyte(pos+25);
-	d->num_pal_bits[1] = (i64)de_getbyte(pos+26);
-	d->num_pal_bits[2] = (i64)de_getbyte(pos+27);
-	d->num_pal_bits[3] = (i64)de_getbyte(pos+28);
+	pos = pos1 + 25;
+	d->num_pal_bits[0] = (i64)de_getbyte_p(&pos);
+	d->num_pal_bits[1] = (i64)de_getbyte_p(&pos);
+	d->num_pal_bits[2] = (i64)de_getbyte_p(&pos);
+	d->num_pal_bits[3] = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "\"number of palette bits\" (IRGB): %d,%d,%d,%d",
 		(int)d->num_pal_bits[0], (int)d->num_pal_bits[1],
 		(int)d->num_pal_bits[2], (int)d->num_pal_bits[3] );
 
-	d->haspect = de_getbyte(pos+30);
-	d->vaspect = de_getbyte(pos+31);
+	pos++; // "pages"
+	d->haspect = de_getbyte_p(&pos);
+	d->vaspect = de_getbyte_p(&pos);
 	de_dbg(c, "aspect ratio: %d"DE_CHAR_TIMES"%d", (int)d->haspect, (int)d->vaspect);
 
 	retval = 1;
@@ -161,21 +166,22 @@ done:
 	return retval;
 }
 
-static int do_tileinfo(deark *c, lctx *d, i64 pos, i64 len)
+static int do_tileinfo(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	int retval = 0;
+	i64 pos = pos1;
 
-	de_dbg(c, "tile information at %d", (int)pos);
+	de_dbg(c, "tile information at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	if(len<8) {
 		de_err(c, "Tile Information item too small");
 		goto done;
 	}
 
-	d->page_rows = de_getu16le(pos+0);
-	d->page_cols = de_getu16le(pos+2);
-	d->stp_rows = de_getu16le(pos+4);
-	d->stp_cols = de_getu16le(pos+6);
+	d->page_rows = de_getu16le_p(&pos);
+	d->page_cols = de_getu16le_p(&pos);
+	d->stp_rows = de_getu16le_p(&pos);
+	d->stp_cols = de_getu16le_p(&pos);
 
 	de_dbg(c, "page_rows=%d, page_cols=%d", (int)d->page_rows, (int)d->page_cols);
 	de_dbg(c, "strip_rows=%d, strip_cols=%d", (int)d->stp_rows, (int)d->stp_cols);
@@ -194,6 +200,7 @@ done:
 static u8 getbit(const u8 *m, i64 bitnum)
 {
 	u8 b;
+
 	b = m[bitnum/8];
 	b = (b>>(7-bitnum%8)) & 0x1;
 	return b;
@@ -315,11 +322,7 @@ static void do_render_tile(deark *c, lctx *d, de_bitmap *img,
 
 static void do_bitmap(deark *c, lctx *d)
 {
-	i64 pos;
 	i64 item;
-	i64 item_id;
-	i64 tile_loc, tile_len;
-	i64 tile_num;
 	de_bitmap *img = NULL;
 
 	de_dbg(c, "reading image data");
@@ -334,6 +337,11 @@ static void do_bitmap(deark *c, lctx *d)
 
 	// Read through the items again, this time looking only at the image tiles.
 	for(item=0; item<d->item_count; item++) {
+		i64 tile_loc, tile_len;
+		i64 tile_num;
+		i64 item_id;
+		i64 pos;
+
 		pos = 4 + 8*item;
 		if(pos+8 > c->infile->len) break;
 
@@ -360,7 +368,7 @@ done:
 static void de_run_insetpix(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	i64 pix_version;
+	UI pix_version;
 	i64 item;
 	i64 item_id;
 	i64 item_loc, item_len;
@@ -368,21 +376,21 @@ static void de_run_insetpix(deark *c, de_module_params *mparams)
 	i64 imginfo_pos=0, imginfo_len=0;
 	i64 pal_pos=0, pal_len=0;
 	i64 tileinfo_pos=0, tileinfo_len=0;
-	int indent_flag = 0;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	d = de_malloc(c, sizeof(lctx));
 
 	de_warn(c, "The Inset PIX module is experimental, and may not work correctly.");
 
-	pix_version = de_getu16le(0);
+	pix_version = (UI)de_getu16le(0);
 	d->item_count = de_getu16le(2);
-	de_dbg(c, "version: %d", (int)pix_version);
+	de_dbg(c, "version: %u", pix_version);
 	de_dbg(c, "index at 4, %d items", (int)d->item_count);
 
 	// Scan the index, and record the location of items we care about.
 	// (The index will be read again when converting the image bitmap.)
 	de_dbg_indent(c, 1);
-	indent_flag = 1;
 	for(item=0; item<d->item_count; item++) {
 		pos = 4 + 8*item;
 		if(pos+8 > c->infile->len) break;
@@ -424,7 +432,6 @@ static void de_run_insetpix(deark *c, de_module_params *mparams)
 		}
 	}
 	de_dbg_indent(c, -1);
-	indent_flag = 0;
 
 	if(!imginfo_pos) {
 		de_err(c, "Missing Image Information item");
@@ -465,28 +472,30 @@ static void de_run_insetpix(deark *c, de_module_params *mparams)
 	do_bitmap(c, d);
 
 done:
-	if(indent_flag) de_dbg_indent(c, -1);
-
 	if(d) {
 		de_bitmap_destroy(d->tile_img);
 		de_free(c, d);
 	}
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 // Inset PIX is hard to identify.
 static int de_identify_insetpix(deark *c)
 {
-	i64 pix_version;
+	UI pix_version;
 	i64 item_count;
 	i64 item;
 	i64 item_loc, item_len;
 
-	if(!de_input_file_has_ext(c, "pix")) return 0;
+	if(c->detection_data->best_confidence_so_far>20) return 0;
 
-	pix_version = de_getu16le(0);
-	// The only version number I know of is 3, but I don't know what other
-	// versions may exist.
-	if(pix_version<1 || pix_version>4) return 0;
+	pix_version = (UI)de_getu16le(0);
+	// Other versions exist, but I don't know anything about them.
+	if(pix_version!=3) return 0;
+
+	// We're not trying to identify character graphics files.
+	// (Though we'd like to.) Found one with extension ".hlp".
+	if(!de_input_file_has_ext(c, "pix")) return 0;
 
 	item_count = de_getu16le(2);
 	// Need at least 4 items (image info, palette info, tile info, and 1 tile).

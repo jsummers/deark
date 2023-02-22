@@ -266,6 +266,7 @@ Deark -- Information about supported formats
 
 * Inset PIX (module="insetpix") (experimental)
   - Bitmap images only. Character graphics files are not supported.
+  - File extension must be ".pix" (or use "-m insetpix").
 
 * InShape IIM (module="iim")
 
