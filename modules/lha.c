@@ -48,7 +48,6 @@ DE_DECLARE_MODULE(de_module_lharc_sfx_com);
 #define CODE_lz7 0x2d6c7a37U
 #define CODE_lz8 0x2d6c7a38U
 #define CODE_lzs 0x2d6c7a73U
-#define CODE_pc1 0x2d706331U
 #define CODE_pm0 0x2d706d30U
 #define CODE_pm1 0x2d706d31U
 #define CODE_pm2 0x2d706d32U
@@ -798,7 +797,7 @@ static void detect_lhark(deark *c, lctx *d, struct member_data *md,
 	de_dbg(c, "[detecting lh7 format]");
 	de_dbg_indent(c, 1);
 
-	if(md->hlev != 1) {
+	if(md->hlev!=1 || md->os_id!=0x20) {
 		d->lhark_policy = 0;
 		ok = 1;
 		goto done;
@@ -920,7 +919,7 @@ static const u32 other_known_cmpr_methods[] = {
 	CODE_lh2, CODE_lh3, CODE_lh4, CODE_lh7, CODE_lh8, CODE_lh9,
 	CODE_lha, CODE_lhb, CODE_lhc, CODE_lhe, CODE_lhx, CODE_lx1,
 	CODE_lz2, CODE_lz3, CODE_lz7, CODE_lz8, CODE_lzs,
-	CODE_pc1, CODE_pm1, CODE_pm2 };
+	CODE_pm1, CODE_pm2 };
 
 // Only call this after is_possible_cmpr_meth() return nonzero.
 // Caller allocates cmi, and initializes to zeroes.
