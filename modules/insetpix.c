@@ -29,6 +29,8 @@ typedef struct localctx_struct {
 
 	u8 max_pal_intensity, max_pal_sample;
 
+	de_bitmap *tile_img; // Re-used for each tile
+
 	i64 pal_entries_used;
 	u32 pal[256];
 } lctx;
@@ -265,14 +267,8 @@ done:
 static void do_render_tile(deark *c, lctx *d, de_bitmap *img,
 	i64 tile_num, i64 tile_loc, i64 tile_len)
 {
-	i64 i, j;
-	i64 plane;
 	i64 x_pos_in_tiles, y_pos_in_tiles;
 	i64 x_origin_in_pixels, y_origin_in_pixels;
-	i64 x_pos_in_pixels, y_pos_in_pixels;
-	u32 clr;
-	unsigned int palent;
-	u8 b;
 	dbuf *unc_pixels = NULL;
 	i64 nrows_expected;
 	i64 planespan;
@@ -298,27 +294,21 @@ static void do_render_tile(deark *c, lctx *d, de_bitmap *img,
 
 	do_uncompress_tile(c, d, tile_num, tile_loc, tile_len, unc_pixels, nrows_expected);
 
-	// Paint the tile into the bitmap.
-	for(j=0; j<d->page_rows; j++) {
-		y_pos_in_pixels = y_origin_in_pixels+j;
-		if(y_pos_in_pixels >= d->height) break;
-
-		for(i=0; i<d->page_cols; i++) {
-			x_pos_in_pixels = x_origin_in_pixels+i;
-			if(x_pos_in_pixels >= d->width) break;
-
-			palent = 0;
-			for(plane=0; plane<d->gfore; plane++) {
-				b = de_get_bits_symbol(unc_pixels, 1, plane*planespan + j*d->rowspan, i);
-				if(b) palent |= (1<<plane);
-			}
-
-			if(palent<=255) clr = d->pal[palent];
-			else clr=0;
-
-			de_bitmap_setpixel_rgb(img, x_pos_in_pixels, y_pos_in_pixels, clr);
-		}
+	if(d->tile_img) {
+		// Clear the previous image
+		de_bitmap_rect(d->tile_img, 0, 0, d->page_cols, d->page_rows, 0, 0);
 	}
+	else {
+		d->tile_img = de_bitmap_create(c, d->page_cols, d->page_rows, d->is_grayscale?1:3);
+	}
+
+	// This will try to convert 'd->page_rows' rows, when there might only be
+	// 'nrows_expected' rows, but that won't cause a problem.
+	de_convert_image_paletted_planar(unc_pixels, 0, d->gfore, d->rowspan, planespan,
+		d->pal, d->tile_img, 0x2);
+
+	de_bitmap_copy_rect(d->tile_img, img, 0, 0, d->page_cols, nrows_expected, x_origin_in_pixels,
+		y_origin_in_pixels, 0);
 
 	dbuf_close(unc_pixels);
 }
@@ -477,7 +467,10 @@ static void de_run_insetpix(deark *c, de_module_params *mparams)
 done:
 	if(indent_flag) de_dbg_indent(c, -1);
 
-	de_free(c, d);
+	if(d) {
+		de_bitmap_destroy(d->tile_img);
+		de_free(c, d);
+	}
 }
 
 // Inset PIX is hard to identify.
