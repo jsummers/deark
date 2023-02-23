@@ -199,10 +199,6 @@ struct dbuf_struct {
 	i64 rcache_bytes_used;
 	u8 *rcache; // first 'cache_bytes_used' bytes of the file
 
-	// cache2 is a simple 1-byte cache, mainly to speed up de_get_bits_symbol().
-	i64 rcache2_pos;
-	u8 rcache2;
-
 	// Things copied from the de_finfo object at file creation
 	de_finfo *fi_copy;
 };

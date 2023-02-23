@@ -228,26 +228,19 @@ i64 dbuf_standard_read(dbuf *f, u8 *buf, i64 n, i64 *fpos)
 
 u8 dbuf_getbyte(dbuf *f, i64 pos)
 {
+	u8 b;
+
 	if(pos<0 || pos>=f->len) return 0x00;
 
 	if(pos<f->rcache_bytes_used) {
 		return f->rcache[pos];
 	}
 	if(f->btype==DBUF_TYPE_MEMBUF) {
-		// Note that it is necessary to handle read+write dbuf types specially,
-		// so that the "rcache2" feature isn't used.
 		return f->membuf_buf[pos];
 	}
 
-	// TODO: I don't like that rcache2 exists, but without it some large images
-	// are decoded too slowly (especially on Windows), and I haven't figured out
-	// a solution I like better.
-	if(pos==f->rcache2_pos) {
-		return f->rcache2;
-	}
-	f->rcache2_pos = pos;
-	dbuf_read(f, &f->rcache2, pos, 1);
-	return f->rcache2;
+	dbuf_read(f, &b, pos, 1);
+	return b;
 }
 
 i64 de_geti8_direct(const u8 *m)
@@ -1061,7 +1054,6 @@ static dbuf *create_dbuf_lowlevel(deark *c)
 
 	f = de_malloc(c, sizeof(dbuf));
 	f->c = c;
-	f->rcache2_pos = -1; // Any offset outside the bounds of the file will do.
 	f->file_id = -1;
 	return f;
 }
