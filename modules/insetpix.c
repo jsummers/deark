@@ -14,10 +14,11 @@ typedef struct localctx_struct {
 	u8 htype;
 	u8 graphics_type; // 0=character, 1=bitmap
 	u8 board_type;
-	i64 width, height;
+	i64 npwidth, pdwidth, height;
 	i64 gfore; // Foreground color bits
 	i64 max_sample_value;
-	i64 num_pal_bits[4]; // 0=intens, 1=red, 2=green, 3=blue
+	u8 pal_sample_descriptor[4]; // 0=intens, 1=red, 2=green, 3=blue
+	u32 descriptor_combined;
 	i64 haspect, vaspect;
 
 	i64 page_rows, page_cols;
@@ -40,9 +41,11 @@ static int do_palette(deark *c, lctx *d, i64 pos1, i64 len)
 	i64 pos = pos1;
 	i64 pal_entries_in_file;
 	i64 i;
-	i64 k;
-	u8 ci1, cr1, cg1, cb1;
-	u8 ci2, cr2, cg2, cb2;
+	size_t k;
+	u8 sm1[4]; // Original I, R, G, B
+	u8 sm2[4]; // Intermediate
+	u8 sm3[4]; // Post-processed samples
+	u8 uses_intens = 0; // Special handling if we have RGB and 'I' values.
 	int retval = 0;
 	double max_color_sample;
 	double pal_sample_scalefactor[4];
@@ -58,52 +61,63 @@ static int do_palette(deark *c, lctx *d, i64 pos1, i64 len)
 
 	// If intensity bits are used, make the initial colors darker, so that the
 	// intensity bits can lighten them.
-	if(d->num_pal_bits[0]==0) max_color_sample=255.0;
-	else max_color_sample=170.0;
+	uses_intens = (d->pal_sample_descriptor[0]!=0) && !d->is_grayscale;
+	max_color_sample = uses_intens ? 170.0 : 255.0;
 
-	for(k=1; k<4; k++) {
-		if(d->num_pal_bits[k]>=2)
-			pal_sample_scalefactor[k] = max_color_sample / (double)(d->num_pal_bits[k]-1);
+	for(k=0; k<4; k++) {
+		if(d->pal_sample_descriptor[k]>=2)
+			pal_sample_scalefactor[k] = max_color_sample / (double)(d->pal_sample_descriptor[k]-1);
 		else
-			pal_sample_scalefactor[k] = max_color_sample;
+			pal_sample_scalefactor[k] = 0.0;
 	}
 
 	for(i=0; i<pal_entries_in_file; i++) {
 		char tmps[64];
 
 		if(i>255) break;
-		ci1 = de_getbyte_p(&pos);
-		cr1 = de_getbyte_p(&pos);
-		cg1 = de_getbyte_p(&pos);
-		cb1 = de_getbyte_p(&pos);
+
+		for(k=0; k<4; k++) {
+			sm1[k] = de_getbyte_p(&pos);
+			sm2[k] = sm1[k];
+		}
+
+		for(k=1; k<4; k++) {
+			// Best I can figure is that, in the palette definition, when there
+			// are exactly 4 sample intensities, intensity 1 is brighter than
+			// intensity 2. I don't know why I have to swap them like this.
+			if(d->pal_sample_descriptor[k]==4) {
+				if(sm2[k]==1) sm2[k] = 2;
+				else if(sm2[k]==2) sm2[k] = 1;
+			}
+		}
 
 		if(d->is_grayscale) {
-			// This is untested. I can't find any grayscale PIX images.
-			// The spec says you can make a bilevel image with "palette intensity
-			// bits" set to 1, which makes it clear that that field really is a
-			// number of bits, not a number of sample values.
-			// But color images evidently use the "number of bits" fields to store
-			// the number of sample values.
-			ci2 = de_sample_nbit_to_8bit(d->num_pal_bits[0], ci1);
-			d->pal[i] = DE_MAKE_GRAY(ci2);
+			sm3[0] = (u8)(0.5+ pal_sample_scalefactor[0] * (double)sm2[0]);
+			d->pal[i] = DE_MAKE_GRAY(sm3[0]);
 		}
 		else {
-			cr2 = (u8)(0.5+ pal_sample_scalefactor[1] * (double)cr1);
-			cg2 = (u8)(0.5+ pal_sample_scalefactor[2] * (double)cg1);
-			cb2 = (u8)(0.5+ pal_sample_scalefactor[3] * (double)cb1);
-			if(ci1) {
+			sm3[1] = (u8)(0.5+ pal_sample_scalefactor[1] * (double)sm2[1]);
+			sm3[2] = (u8)(0.5+ pal_sample_scalefactor[2] * (double)sm2[2]);
+			sm3[3] = (u8)(0.5+ pal_sample_scalefactor[3] * (double)sm2[3]);
+			if(uses_intens && sm2[0]) {
 				// This is just a guess. The spec doesn't say what intensity bits do.
 				// This is pretty much what old PC graphics cards do when the
 				// intensity bit is set.
-				cr2 += 85;
-				cg2 += 85;
-				cb2 += 85;
+				sm3[1] += 85;
+				sm3[2] += 85;
+				sm3[3] += 85;
 			}
-			d->pal[i] = DE_MAKE_RGB(cr2,cg2,cb2);
+			d->pal[i] = DE_MAKE_RGB(sm3[1],sm3[2],sm3[3]);
 		}
 
-		de_snprintf(tmps, sizeof(tmps), "(%u,%u,%u,intens=%u) "DE_CHAR_RIGHTARROW" ",
-			(UI)cr1, (UI)cg1, (UI)cb1, (UI)ci1);
+		if(uses_intens) {
+			de_snprintf(tmps, sizeof(tmps), "(%3u,%3u,%3u,intens=%u) "DE_CHAR_RIGHTARROW" ",
+				(UI)sm1[1], (UI)sm1[2], (UI)sm1[3], (UI)sm1[0]);
+		}
+		else {
+			de_snprintf(tmps, sizeof(tmps), "(%3u,%3u,%3u) "DE_CHAR_RIGHTARROW" ",
+				(UI)sm1[1], (UI)sm1[2], (UI)sm1[3]);
+		}
 		de_dbg_pal_entry2(c, i, d->pal[i], tmps, NULL,
 			i<d->pal_entries_used ? "":" [unused]");
 	}
@@ -112,6 +126,19 @@ static int do_palette(deark *c, lctx *d, i64 pos1, i64 len)
 
 	de_dbg_indent(c, -1);
 	return retval;
+}
+
+static const char *get_board_type_name(u8 bt)
+{
+	const char *name = NULL;
+
+	switch(bt & 0x7e) {
+	case 0: name="none"; break;
+	case 8: name="CGA"; break;
+	case 16: name="Hercules"; break;
+	case 24: name="EGA"; break;
+	}
+	return name?name:"?";
 }
 
 static int do_image_info(deark *c, lctx *d, i64 pos1, i64 len)
@@ -132,28 +159,32 @@ static int do_image_info(deark *c, lctx *d, i64 pos1, i64 len)
 	d->htype = de_getbyte_p(&pos);
 	d->graphics_type = d->htype & 0x01;
 	d->board_type = d->htype & 0xfe;
-
+	de_dbg(c, "htype: 0x%02x", (UI)d->htype);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "board type: %u (%s)", (UI)d->board_type,
+		get_board_type_name(d->board_type));
 	de_dbg(c, "graphics type: %u (%s)", (UI)d->graphics_type,
 		d->graphics_type?"bitmap":"character");
-	de_dbg(c, "board type: %u", (UI)d->board_type);
+	de_dbg_indent(c, -1);
 
 	pos = pos1 + 18;
-	d->width = de_getu16le_p(&pos);
+	d->npwidth = de_getu16le_p(&pos);
 	d->height = de_getu16le_p(&pos);
-	de_dbg_dimensions(c, d->width, d->height);
+	de_dbg_dimensions(c, d->npwidth, d->height);
 
 	d->gfore = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "foreground color bits: %d", (int)d->gfore);
 	d->max_sample_value = de_pow2(d->gfore) -1;
 
 	pos = pos1 + 25;
-	d->num_pal_bits[0] = (i64)de_getbyte_p(&pos);
-	d->num_pal_bits[1] = (i64)de_getbyte_p(&pos);
-	d->num_pal_bits[2] = (i64)de_getbyte_p(&pos);
-	d->num_pal_bits[3] = (i64)de_getbyte_p(&pos);
-	de_dbg(c, "\"number of palette bits\" (IRGB): %d,%d,%d,%d",
-		(int)d->num_pal_bits[0], (int)d->num_pal_bits[1],
-		(int)d->num_pal_bits[2], (int)d->num_pal_bits[3] );
+	d->descriptor_combined = (u32)de_getu32be_p(&pos);
+	d->pal_sample_descriptor[0] = (u8)(d->descriptor_combined>>24);
+	d->pal_sample_descriptor[1] = (u8)((d->descriptor_combined>>16) & 0xff);
+	d->pal_sample_descriptor[2] = (u8)((d->descriptor_combined>>8) & 0xff);
+	d->pal_sample_descriptor[3] = (u8)(d->descriptor_combined & 0xff);
+	de_dbg(c, "palette descriptor (IRGB): %u,%u,%u,%u",
+		(UI)d->pal_sample_descriptor[0], (UI)d->pal_sample_descriptor[1],
+		(UI)d->pal_sample_descriptor[2], (UI)d->pal_sample_descriptor[3]);
 
 	pos++; // "pages"
 	d->haspect = de_getbyte_p(&pos);
@@ -206,7 +237,7 @@ static u8 getbit(const u8 *m, i64 bitnum)
 	return b;
 }
 
-static void do_uncompress_tile(deark *c, lctx *d, i64 tile_num,
+static void do_decompress_tile(deark *c, lctx *d, i64 tile_num,
 	i64 tile_loc, i64 tile_len,
 	dbuf *unc_pixels, i64 num_rows)
 {
@@ -299,7 +330,7 @@ static void do_render_tile(deark *c, lctx *d, de_bitmap *img,
 
 	unc_pixels = dbuf_create_membuf(c, 4096, 0);
 
-	do_uncompress_tile(c, d, tile_num, tile_loc, tile_len, unc_pixels, nrows_expected);
+	do_decompress_tile(c, d, tile_num, tile_loc, tile_len, unc_pixels, nrows_expected);
 
 	if(d->tile_img) {
 		// Clear the previous image
@@ -324,16 +355,24 @@ static void do_bitmap(deark *c, lctx *d)
 {
 	i64 item;
 	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
 
 	de_dbg(c, "reading image data");
 	de_dbg_indent(c, 1);
 
-	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
+	if(!de_good_image_dimensions(c, d->npwidth, d->height)) goto done;
 
 	d->rowspan = d->page_cols/8;
 	d->compression_bytes_per_row = (d->rowspan+7)/8; // Just a guess. Spec doesn't say.
 
-	img = de_bitmap_create(c, d->width, d->height, d->is_grayscale?1:3);
+	if(c->padpix) {
+		d->pdwidth = d->page_cols * d->stp_cols;
+	}
+	else {
+		d->pdwidth = d->npwidth;
+	}
+
+	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, d->is_grayscale?1:3);
 
 	// Read through the items again, this time looking only at the image tiles.
 	for(item=0; item<d->item_count; item++) {
@@ -358,10 +397,15 @@ static void do_bitmap(deark *c, lctx *d)
 		do_render_tile(c, d, img, tile_num, tile_loc, tile_len);
 	}
 
-	de_bitmap_write_to_file(img, NULL, 0);
+	fi = de_finfo_create(c);
+	fi->density.code = DE_DENSITY_UNK_UNITS;
+	fi->density.xdens = (double)d->haspect;
+	fi->density.ydens = (double)d->vaspect;
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
 
 done:
 	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
 	de_dbg_indent(c, -1);
 }
 
@@ -380,8 +424,6 @@ static void de_run_insetpix(deark *c, de_module_params *mparams)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	d = de_malloc(c, sizeof(lctx));
-
-	de_warn(c, "The Inset PIX module is experimental, and may not work correctly.");
 
 	pix_version = (UI)de_getu16le(0);
 	d->item_count = de_getu16le(2);
@@ -439,9 +481,25 @@ static void de_run_insetpix(deark *c, de_module_params *mparams)
 	}
 	if(!do_image_info(c, d, imginfo_pos, imginfo_len)) goto done;
 
+	if(d->pal_sample_descriptor[0]!=0 && d->pal_sample_descriptor[1]==0 &&
+		d->pal_sample_descriptor[2]==0 && d->pal_sample_descriptor[3]==0)
+	{
+		d->is_grayscale = 1;
+	}
+
 	if(d->graphics_type==0) {
 		de_err(c, "Inset PIX character graphics not supported");
 		goto done;
+	}
+
+	switch(d->descriptor_combined) {
+	case 0x00040404U:
+	case 0x00404040U:
+	case 0x02000000U:
+	case 0x02020202U:
+		break;
+	default:
+		de_warn(c, "Not a known image type. This image might not be handled correctly.");
 	}
 
 	if(!pal_pos) {
@@ -454,12 +512,6 @@ static void de_run_insetpix(deark *c, de_module_params *mparams)
 	if(d->gfore<1 || d->gfore>8) {
 		de_err(c, "Inset PIX with %d bits/pixel are not supported", (int)d->gfore);
 		goto done;
-	}
-
-	if(d->num_pal_bits[0]!=0 && d->num_pal_bits[1]==0 &&
-		d->num_pal_bits[2]==0 && d->num_pal_bits[3]==0)
-	{
-		d->is_grayscale = 1;
 	}
 
 	if(!tileinfo_pos) {
