@@ -33,6 +33,7 @@ struct rsrc_type_info_struct;
 typedef struct localctx_struct {
 	int fmt;
 	u8 execomp_mode; // 0 or 1; 0xff=unspecified
+	u8 check_checksum;
 	struct fmtutil_exe_info *ei;
 
 	i64 reloc_tbl_offset;
@@ -40,6 +41,8 @@ typedef struct localctx_struct {
 	i64 num_relocs;
 	i64 end_of_dos_code;
 	i64 ext_header_offset;
+	UI checksum_reported;
+	UI checksum_calc;
 
 	i64 ne_rsrc_tbl_offset;
 	unsigned int ne_align_shift;
@@ -593,6 +596,38 @@ done:
 	;
 }
 
+static int checksum_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
+	i64 buf_len)
+{
+	lctx *d = (lctx*)brctx->userdata;
+	i64 i;
+
+	for(i=0; i<buf_len; i++) {
+		i64 pos = brctx->offset + i;
+
+		if(pos==18 || pos==19) {
+			continue; // Don't include the checksum field
+		}
+
+		if(pos&0x1) { // a high byte
+			d->checksum_calc += (UI)buf[i] * 256;
+		}
+		else { // a low byte
+			d->checksum_calc += (UI)buf[i];
+		}
+	}
+
+	d->checksum_calc &= 0xffff;
+	return 1;
+}
+
+static void do_checksum(deark *c, lctx *d)
+{
+	dbuf_buffered_read(c->infile, 0, c->infile->len, checksum_cbfn, (void*)d);
+	d->checksum_calc ^= 0xffff;
+	de_dbg(c, "checksum (calculated): 0x%04x", d->checksum_calc);
+}
+
 // Returns 0 only if this is not an EXE file.
 // This function is not expected to extract any files. In execomp mode, it
 // definitely should not extract anything.
@@ -640,8 +675,11 @@ static int do_fileheader(deark *c, lctx *d, i64 pos1)
 	n = de_getu16le_p(&pos);
 	de_dbg(c, "regSP: %u", (UI)n);
 
-	n = de_getu16le_p(&pos);
-	de_dbg(c, "checksum: 0x%04x", (UI)n);
+	d->checksum_reported = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "checksum (reported): 0x%04x", d->checksum_reported);
+	if(d->check_checksum) {
+		do_checksum(c, d);
+	}
 
 	regIP = de_getu16le_p(&pos);
 	de_dbg(c, "regIP: %u", (UI)regIP);
@@ -1580,6 +1618,12 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
+	if(c->debug_level!=0) {
+		d->check_checksum = (u8)de_get_ext_option_bool(c, "exe:checksum", 0xff);
+		if(d->check_checksum==0xff) {
+			d->check_checksum = (c->debug_level>=2);
+		}
+	}
 	d->execomp_mode = (u8)de_get_ext_option_bool(c, "execomp", 0xff);
 
 	if(!do_fileheader(c, d, 0)) goto done;
@@ -1631,6 +1675,7 @@ static int de_identify_exe(deark *c)
 
 static void de_help_exe(deark *c)
 {
+	de_msg(c, "-opt exe:checksum : Calculate the correct checksum");
 	de_msg(c, "-opt execomp : Try to decompress compressed files");
 }
 

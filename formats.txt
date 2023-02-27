@@ -1057,6 +1057,9 @@ Deark -- Information about supported formats
   - Extract icons and cursors from LX files. Note that these will use OS/2
     format. Reprocess them with Deark to convert to PNG.
   - In some cases, extract the archive from a self-extracting archive.
+  Options
+   -opt execomp - Decompress supported executable compression formats.
+   -opt exe:checksum - Report the correct checksum in the debug info.
 
 * FLAC audio (module="flac")
 
