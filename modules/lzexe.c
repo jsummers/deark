@@ -352,6 +352,9 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	de_dbg_indent(c, -1);
 }
 
+// Don't change this, unless it's also changed in fmtutil.c.
+#define LZEXE_VER_LHARK_SFX 102
+
 // Refer to detect_execomp_lzexe() (in another file).
 static const char *get_lzexe_subfmt_name(int n)
 {
@@ -361,6 +364,7 @@ static const char *get_lzexe_subfmt_name(int n)
 	case 1: name = "v0.90"; break;
 	case 2: name = "v0.91"; break;
 	case 3: name = "v0.91e"; break;
+	case LZEXE_VER_LHARK_SFX: name = "v0.91-LHARK-SFX"; break;
 	}
 	return name?name:"?";
 }
@@ -403,7 +407,14 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 	do_read_header(c, d);
 	if(d->errflag) goto done;
 
-	d->special_hdr_pos = d->ei->start_of_dos_code + d->ei->regCS*16;
+	if(d->ver==LZEXE_VER_LHARK_SFX) {
+		// The special header should be 14 bytes before the original entry point.
+		// LHARK changes the entry point to be 338 bytes after the original.
+		d->special_hdr_pos = d->ei->entry_point - 338 - 14;
+	}
+	else {
+		d->special_hdr_pos = d->ei->start_of_dos_code + d->ei->regCS*16;
+	}
 	if(d->special_hdr_pos > c->infile->len) {
 		d->errflag = 1;
 		return;
@@ -427,6 +438,13 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 	do_decompress_code(c, d);
 	dbuf_flush(d->o_dcmpr_code);
 	if(d->errflag) goto done;
+
+	if(d->ver > 3) {
+		// LHARK-SFX has some extra code outside of the compressed code.
+		// We don't want to throw away that code and pretend everything's okay.
+		de_err(c, "This modified LZEXE format is not supported");
+		goto done;
+	}
 
 	do_write_dcmpr(c, d);
 

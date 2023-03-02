@@ -1568,6 +1568,8 @@ done:
 	}
 }
 
+static int looks_like_lhark_sfx(struct fmtutil_exe_info *ei);
+
 static void detect_execomp_lzexe(deark *c, struct execomp_ctx *ectx,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
@@ -1584,6 +1586,10 @@ static void detect_execomp_lzexe(deark *c, struct execomp_ctx *ectx,
 	else if(ei->entrypoint_crcs==0xd8a60f138f680f0cLLU) {
 		edd->detected_subfmt = 3;
 		vs = "0.91e";
+	}
+	else if(looks_like_lhark_sfx(ei)) {
+		edd->detected_subfmt = 102;
+		vs = "0.91-LHARK-SFX";
 	}
 
 	if(vs) {
@@ -1939,6 +1945,49 @@ done:
 	}
 }
 
+// LZEXE modified for LHARK-SFX
+static int looks_like_lhark_sfx(struct fmtutil_exe_info *ei)
+{
+	int found;
+	i64 foundpos = 0;
+
+	if(ei->num_relocs != 0) return 0;
+	if(ei->regSP != 128) return 0;
+	if(ei->start_of_dos_code != 32) return 0;
+
+	// LHARK SFX uses a modified LZEXE 0.91 decompressor.
+	// Normally in LZEXE 0.91, the "*FAB*" signature is 233 bytes after the
+	// entry point. In LHARK-SFX, it is 105 bytes *before* the entry point.
+	if(dbuf_memcmp(ei->f, ei->entry_point-105, (const void*)"*FAB*", 5)) {
+		return 0;
+	}
+
+	found = is_lhalike_data_at(ei, ei->end_of_dos_code, 'h', &foundpos);
+	if(!found) return 0;
+	return 1;
+}
+
+static void detect_exesfx_lhark(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	if(!looks_like_lhark_sfx(ei)) {
+		goto done;
+	}
+
+	edd->payload_pos = ei->end_of_dos_code;
+	edd->payload_len = ei->f->len - edd->payload_pos;
+	if(edd->payload_len<28) goto done;
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_SFX;
+	edd->payload_valid = 1;
+	edd->payload_file_ext = "lzh";
+
+done:
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
+		de_strlcpy(ectx->shortname, "LHARK", sizeof(ectx->shortname));
+	}
+}
+
 static int is_arc_data_at(struct fmtutil_exe_info *ei, i64 pos)
 {
 	u8 b[2];
@@ -2207,6 +2256,9 @@ void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	if(edd->detected_fmt) goto done;
 
 	detect_exesfx_larc(c, &ectx, ei, edd);
+	if(edd->detected_fmt) goto done;
+
+	detect_exesfx_lhark(c, &ectx, ei, edd);
 	if(edd->detected_fmt) goto done;
 
 	detect_exesfx_pak_nogate(c, &ectx, ei, edd);
