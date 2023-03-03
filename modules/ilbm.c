@@ -835,7 +835,7 @@ static void decompress_delta_op74(deark *c, lctx *d, struct imgbody_info *ibi,
 			break;
 		}
 		else {
-			de_warn(c, "Bad or unsupported ANIM-J compression code (%u)", code);
+			de_warn(c, "Bad or unsupported ANIM-J compression code: %u", code);
 			goto done;
 		}
 	}
@@ -1214,7 +1214,7 @@ static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is
 		;
 	}
 	else if(ibi->planes_fg<1 || ibi->planes_fg>8) {
-		de_err(c, "Bad or unsupported number of planes (%d)", (int)ibi->planes_fg);
+		de_err(c, "Bad or unsupported number of planes: %d", (int)ibi->planes_fg);
 		goto done;
 	}
 	retval = 1;
@@ -1637,7 +1637,7 @@ static int do_image_chunk_internal(deark *c, lctx *d, struct frame_ctx *frctx, i
 		if(!decompress_method2(c, d, ibi, pos1, len, frctx->frame_buffer, ibi->frame_buffer_size)) goto done;
 	}
 	else {
-		de_err(c, "Unsupported compression method (%d)", (int)ibi->compression);
+		de_err(c, "Unsupported compression method: %d", (int)ibi->compression);
 		goto done;
 	}
 
@@ -2509,7 +2509,7 @@ static void print_summary(deark *c, lctx *d)
 	if(d->ehb_flag) summary_append(s, "EHB");
 	if(d->is_sham) summary_append(s, "SHAM");
 	if(d->is_pchg) summary_append(s, "PCHG");
-	if(d->is_ctbl) summary_append(s, "CBTL");
+	if(d->is_ctbl) summary_append(s, "CTBL");
 	if(d->is_beam) summary_append(s, "BEAM");
 	if(d->is_hame) summary_append(s, "HAM-E");
 	if(d->is_dctv) summary_append(s, "DCTV");
