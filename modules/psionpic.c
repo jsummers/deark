@@ -52,14 +52,16 @@ static void do_bitmap_2planes(deark *c, lctx *d, i64 pn1, i64 pn2)
 {
 	de_bitmap *img = NULL;
 	i64 planespan;
-	de_color pal[4];
+	// AFAIK, all relevant devices support only 3 colors. Two of the four codes
+	// map to black. We'll make the two blacks slightly different, just to avoid
+	// losing information.
+	static const de_color pal[4] = { 0xffffffff, 0xff808080U, 0xff010101U, 0xff000000U };
 
 	de_dbg(c, "making a grayscale image from planes %d and %d", (int)pn1, (int)pn2);
 
 	// TODO: Support -padpix (need samples with width not a multiple of 16)
 	img = de_bitmap_create(c, d->plane_info[pn1].width, d->plane_info[pn1].height, 1);
 
-	de_make_grayscale_palette(pal, 4, 0x1);
 	planespan = d->plane_info[1].image_pos - d->plane_info[0].image_pos;
 	de_convert_image_paletted_planar(c->infile, d->plane_info[0].image_pos, 2,
 		d->plane_info[0].rowspan, planespan, pal, img, 0x1);
