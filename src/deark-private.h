@@ -98,6 +98,7 @@ struct deark_module_info {
 #define DE_MODFLAG_NOEXTRACT    0x04 // Do not warn if no files are extracted
 #define DE_MODFLAG_SECURITYWARNING 0x08
 #define DE_MODFLAG_SHAREDDETECTION 0x10 // Module modifies deark::detection_data
+#define DE_MODFLAG_WARNPARSEONLY   0x20 // Do not list; print warning if autodetected
 #define DE_MODFLAG_DISABLEDETECT 0x100 // Ignore results of autodetection
 	u32 flags;
 	u32 unique_id; // or 0. Rarely used.

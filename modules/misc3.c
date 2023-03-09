@@ -478,7 +478,7 @@ void de_module_dwc(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_dwc;
 	mi->identify_fn = de_identify_dwc;
 	mi->help_fn = de_help_dwc;
-	mi->flags |= DE_MODFLAG_NONWORKING;
+	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
 }
 
 // **************************************************************************
@@ -1919,5 +1919,5 @@ void de_module_arcv(deark *c, struct deark_module_info *mi)
 	mi->desc = "ARCV installer archive";
 	mi->run_fn = de_run_arcv;
 	mi->identify_fn = de_identify_arcv;
-	mi->flags |= DE_MODFLAG_NONWORKING;
+	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
 }

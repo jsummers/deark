@@ -114,8 +114,11 @@ void de_print_module_list(deark *c)
 		i = sort_data[k].module_index;
 		if(!c->module_info[i].id) continue;
 		if(c->extract_level<2) {
-			if(c->module_info[i].flags & DE_MODFLAG_HIDDEN) continue;
-			if(c->module_info[i].flags & DE_MODFLAG_NONWORKING) continue;
+			if(c->module_info[i].flags & (DE_MODFLAG_HIDDEN |
+				DE_MODFLAG_NONWORKING | DE_MODFLAG_WARNPARSEONLY))
+			{
+				continue;
+			}
 		}
 		desc = c->module_info[i].desc ? c->module_info[i].desc : "-";
 		de_printf(c, DE_MSGTYPE_MESSAGE, "%-14s %s\n", c->module_info[i].id, desc);
@@ -332,6 +335,10 @@ int de_run(deark *c)
 		goto done;
 	}
 
+	if(module_was_autodetected && (module_to_use->flags&DE_MODFLAG_WARNPARSEONLY)) {
+		de_warn(c, "The %s module can parse files, but does not generally support "
+			"extracting data.", module_to_use->id);
+	}
 	if(module_to_use->flags&DE_MODFLAG_NONWORKING) {
 		de_warn(c, "The %s module is considered to be incomplete, and may "
 			"not work properly. Caveat emptor.",

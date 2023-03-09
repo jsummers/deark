@@ -1125,9 +1125,6 @@ static void de_run_rar(deark *c, de_module_params *mparams)
 		de_err(c, "Not a RAR file");
 		goto done;
 	}
-	if(c->module_disposition==DE_MODDISP_AUTODETECT) {
-		de_info(c, "Note: RAR files can be parsed, but not decompressed.");
-	}
 
 	if(d->fmtver==1) {
 		do_rar_old(c, d);
@@ -1157,4 +1154,5 @@ void de_module_rar(deark *c, struct deark_module_info *mi)
 	mi->desc = "RAR archive";
 	mi->run_fn = de_run_rar;
 	mi->identify_fn = de_identify_rar;
+	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
 }
