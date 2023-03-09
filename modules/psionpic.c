@@ -11,31 +11,55 @@ DE_DECLARE_MODULE(de_module_psionpic);
 struct plane_info_struct {
 	i64 width, height;
 	i64 image_pos; // absolute position in file
+	i64 image_size_in_bytes;
 	i64 rowspan;
+	u32 crc_reported;
 };
 
 typedef struct localctx_struct {
 	i64 num_planes;
 	int bw;
 	struct plane_info_struct *plane_info; // Array of plane_info_structs
+	struct de_crcobj *crco;
 } lctx;
 
-static void do_read_plane_info(deark *c, lctx *d, struct plane_info_struct *pi, i64 pos)
+static void check_crc(deark *c, lctx *d, struct plane_info_struct *pi)
+{
+	u32 crc_calc;
+
+	de_crcobj_reset(d->crco);
+	de_crcobj_addslice(d->crco, c->infile, pi->image_pos, pi->image_size_in_bytes);
+	crc_calc = de_crcobj_getval(d->crco);
+	de_dbg(c, "crc (calculated): 0x%04x", (UI)crc_calc);
+	if(crc_calc != pi->crc_reported) {
+		de_warn(c, "CRC check failed: Expected 0x%04x, got 0x%04x",
+			(UI)pi->crc_reported, (UI)crc_calc);
+	}
+}
+
+static void do_read_plane_info(deark *c, lctx *d, struct plane_info_struct *pi, i64 pos1)
 {
 	i64 image_relative_pos;
-	i64 image_size_in_bytes;
+	i64 pos = pos1;
 
 	de_zeromem(pi, sizeof(struct plane_info_struct));
-	pi->width = de_getu16le(pos+2);
-	pi->height = de_getu16le(pos+4);
-	image_size_in_bytes = de_getu16le(pos+6);
-	image_relative_pos = de_getu32le(pos+8);
-	pi->image_pos = pos + 12 + image_relative_pos;
+	pi->crc_reported = (u32)de_getu16le_p(&pos);
+	pi->width = de_getu16le_p(&pos);
+	pi->height = de_getu16le_p(&pos);
+	pi->image_size_in_bytes = de_getu16le_p(&pos);
+	image_relative_pos = de_getu32le_p(&pos);
+
+	pi->image_pos = pos1 + 12 + image_relative_pos;
 	pi->rowspan = ((pi->width+15)/16)*2; // 2-byte alignment
 
-	de_dbg(c, "bitmap: descriptor at %d, image at %d (size %d)",
-		(int)pos, (int)pi->image_pos, (int)image_size_in_bytes);
+	de_dbg(c, "bitmap descriptor at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "image pos: %"I64_FMT, pi->image_pos);
+	de_dbg(c, "image len: %"I64_FMT, pi->image_size_in_bytes);
 	de_dbg_dimensions(c, pi->width, pi->height);
+	de_dbg(c, "crc (reported): 0x%04x", (UI)pi->crc_reported);
+	check_crc(c, d, pi);
+	de_dbg_indent(c, -1);
 }
 
 static void do_bitmap_1plane(deark *c, lctx *d, i64 plane_num)
@@ -133,6 +157,8 @@ static void de_run_psionpic(deark *c, de_module_params *mparams)
 		d->bw = 1;
 	}
 
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_XMODEM);
+
 	d->num_planes = de_getu16le(6);
 	de_dbg(c, "number of planes/bitmaps: %d", (int)d->num_planes);
 
@@ -167,6 +193,7 @@ static void de_run_psionpic(deark *c, de_module_params *mparams)
 		}
 	}
 
+	de_crcobj_destroy(d->crco);
 	de_free(c, d->plane_info);
 	de_free(c, d);
 }
