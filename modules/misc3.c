@@ -17,6 +17,7 @@ DE_DECLARE_MODULE(de_module_mdcd);
 DE_DECLARE_MODULE(de_module_cazip);
 DE_DECLARE_MODULE(de_module_cmz);
 DE_DECLARE_MODULE(de_module_pcshrink);
+DE_DECLARE_MODULE(de_module_arcv);
 
 static int dclimplode_header_at(deark *c, i64 pos)
 {
@@ -1704,4 +1705,219 @@ void de_module_pcshrink(deark *c, struct deark_module_info *mi)
 	mi->desc = "PC-Install compressed archive";
 	mi->run_fn = de_run_pcshrink;
 	mi->identify_fn = de_identify_pcshrink;
+}
+
+// **************************************************************************
+// ARCV - Eschalon Setup / EDI Install
+// **************************************************************************
+
+// Warning: This ARCV code is not based on any specification. It may be wrong
+// or misleading.
+
+// This format was popular enough that I wanted to at least parse it, but I'm
+// not optimistic about figuring out how to decompress it.
+// Initial testing suggests LZ77 with a 4k window, possibly with adaptive
+// Huffman coding or arithmetic coding. But it's not LZHUF or LZARI.
+
+#define CODE_ARCV 0x41524356U
+#define CODE_BLCK 0x424c434bU
+#define CODE_CHNK 0x43484e4bU
+
+static void do_arcv_common_fields(deark *c, de_arch_lctx *d,
+	struct de_arch_member_data *md, i64 pos1, i64 *nbytes_consumed)
+{
+	i64 fnlen;
+	UI fver_maj1, fver_min1;
+	UI fver_maj2, fver_min2;
+	i64 pos = pos1;
+	UI attr;
+
+	fnlen = (i64)de_getbyte_p(&pos);
+	dbuf_read_to_ucstring(c->infile, pos, fnlen, md->filename, 0,
+		d->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+	pos += fnlen;
+
+	de_arch_read_field_orig_len_p(md, &pos);
+	de_arch_read_field_cmpr_len_p(md, &pos);
+
+	attr = (UI)de_getu32le_p(&pos); // TODO: How big is this field
+	de_arch_handle_field_dos_attr(md, attr);
+
+	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		DE_ARCH_TSTYPE_DOS_TD, &pos);
+
+	fver_min1 = (UI)de_getu16le_p(&pos);
+	fver_maj1 = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "file ver (1): %u.%u", fver_maj1, fver_min1);
+	fver_min2 = (UI)de_getu16le_p(&pos);
+	fver_maj2 = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "file ver (2): %u.%u", fver_maj2, fver_min2);
+
+	// Algorithm seems to be "CRC-32/JAMCRC".
+	// Same as the usual CRC-32, except it doesn't invert the bits as a final step.
+	md->crc_reported = (u32)de_getu32le_p(&pos);
+	de_dbg(c, "crc (reported): 0x%08x", (UI)md->crc_reported);
+
+	*nbytes_consumed = pos - pos1;
+}
+
+static void do_arcv_v1(deark *c, de_arch_lctx *d)
+{
+	struct de_arch_member_data *md = NULL;
+	i64 arcv_hdr_len;
+	i64 chnk_pos;
+	i64 chnk_hdr_len;
+	i64 chnk_dlen;
+	i64 pos;
+	i64 nbytes_consumed = 0;
+	u32 id;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	md = de_arch_create_md(c, d);
+
+	pos = 6;
+	arcv_hdr_len = de_getu16le_p(&pos);
+	de_dbg(c, "arcv hdr len: %"I64_FMT, arcv_hdr_len);
+	d->archive_flags = (UI)de_getu32le_p(&pos);
+	de_dbg(c, "flags: 0x%08x", (UI)d->archive_flags);
+
+	do_arcv_common_fields(c, d, md, pos, &nbytes_consumed);
+
+	pos = arcv_hdr_len; // Seek to the CHNK segment
+	chnk_pos = pos;
+	id = (u32)de_getu32be_p(&pos);
+	if(id != CODE_CHNK) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	pos += 2; // segment version number?
+	chnk_hdr_len = de_getu16le_p(&pos);
+	de_dbg(c, "chnk header len: %"I64_FMT, chnk_hdr_len);
+	pos += 4; // flags?
+	chnk_dlen = de_getu32le_p(&pos);
+	md->cmpr_pos = chnk_pos + chnk_hdr_len;
+	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, md->cmpr_pos, chnk_dlen);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	de_arch_destroy_md(c, md);
+}
+
+static void do_arcv_v2(deark *c, de_arch_lctx *d)
+{
+	i64 pos = 0;
+	i64 arcv_hdr_len;
+	i64 blck_hdr_len;
+	i64 blck_dlen;
+	u32 id;
+	struct de_arch_member_data *md = NULL;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	arcv_hdr_len = de_getu16le(6);
+	de_dbg(c, "arcv hdr len: %"I64_FMT, arcv_hdr_len);
+
+	pos = arcv_hdr_len;
+	while(1) {
+		i64 nbytes_consumed = 0;
+
+		if(pos >= c->infile->len) {
+			goto done;
+		}
+		de_dbg(c, "member at %"I64_FMT, pos);
+
+		if(md) {
+			de_arch_destroy_md(c, md);
+			md = NULL;
+		}
+		md = de_arch_create_md(c, d);
+		md->member_hdr_pos = pos;
+
+		de_dbg_indent(c, 1);
+		id = (u32)de_getu32be_p(&pos);
+		if(id!=CODE_BLCK) {
+			de_dbg(c, "can't find item at %"I64_FMT, md->member_hdr_pos);
+			goto done;
+		}
+		pos += 2; // format version?
+		blck_hdr_len = de_getu16le_p(&pos);
+		de_dbg(c, "block hdr len: %"I64_FMT, blck_hdr_len);
+		pos += 4; // ?
+
+		blck_dlen = de_getu32le_p(&pos);
+		de_dbg(c, "block dlen: %"I64_FMT, blck_dlen);
+
+		pos = md->member_hdr_pos+16;
+
+		do_arcv_common_fields(c, d, md, pos, &nbytes_consumed);
+		pos += nbytes_consumed;
+
+		md->cmpr_pos = pos;
+		de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, md->cmpr_pos, md->cmpr_len);
+
+		pos = md->member_hdr_pos + blck_hdr_len + blck_dlen;
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	if(md) {
+		de_arch_destroy_md(c, md);
+	}
+}
+
+static void de_run_arcv(deark *c, de_module_params *mparams)
+{
+	de_arch_lctx *d = NULL;
+	UI ver_maj;
+
+	d = de_arch_create_lctx(c);
+	d->is_le = 1;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
+
+	d->fmtver = (int)de_getu16le(4);
+	ver_maj = (UI)d->fmtver >> 8;
+	de_dbg(c, "format ver: 0x%04x", (UI)d->fmtver);
+	if(ver_maj==1) {
+		do_arcv_v1(c, d);
+	}
+	else if(ver_maj==2) {
+		do_arcv_v2(c, d);
+	}
+	else {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+done:
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported ARCV file");
+		}
+		de_arch_destroy_lctx(c, d);
+	}
+}
+
+static int de_identify_arcv(deark *c)
+{
+	u8 ver;
+
+	if((UI)de_getu32be(0) != CODE_ARCV) return 0;
+	ver = de_getbyte(5);
+	if(ver==1 || ver==2) {
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_arcv(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "arcv";
+	mi->desc = "ARCV installer archive";
+	mi->run_fn = de_run_arcv;
+	mi->identify_fn = de_identify_arcv;
+	mi->flags |= DE_MODFLAG_NONWORKING;
 }
