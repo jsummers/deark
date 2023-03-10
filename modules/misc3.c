@@ -18,6 +18,7 @@ DE_DECLARE_MODULE(de_module_cazip);
 DE_DECLARE_MODULE(de_module_cmz);
 DE_DECLARE_MODULE(de_module_pcshrink);
 DE_DECLARE_MODULE(de_module_arcv);
+DE_DECLARE_MODULE(de_module_red);
 
 static int dclimplode_header_at(deark *c, i64 pos)
 {
@@ -1919,5 +1920,92 @@ void de_module_arcv(deark *c, struct deark_module_info *mi)
 	mi->desc = "ARCV installer archive";
 	mi->run_fn = de_run_arcv;
 	mi->identify_fn = de_identify_arcv;
+	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
+}
+
+// **************************************************************************
+// Knowledge Dynamics .RED (including newer .LIF files)
+// **************************************************************************
+
+static void de_run_red(deark *c, de_module_params *mparams)
+{
+	de_arch_lctx *d = NULL;
+	i64 pos = 0;
+	UI id;
+	struct de_arch_member_data *md = NULL;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	d = de_arch_create_lctx(c);
+	d->is_le = 1;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+
+	while(1) {
+		u8 b;
+
+		if(pos >= c->infile->len) goto done;
+		if(md) {
+			de_arch_destroy_md(c, md);
+			md = NULL;
+		}
+		md = de_arch_create_md(c, d);
+		md->member_hdr_pos = pos;
+
+		id = (UI)de_getu16be_p(&pos);
+		b = de_getbyte_p(&pos); // Format version? Always 1.
+		md->member_hdr_size = (i64)de_getbyte_p(&pos); // Always 41?
+		if(id!=0x5252U || b!=0x01 || md->member_hdr_size<39) {
+			de_err(c, "Member not found at %"I64_FMT, md->member_hdr_pos);
+			goto done;
+		}
+
+		de_dbg(c, "member at %"I64_FMT, md->member_hdr_pos);
+		de_dbg_indent(c, 1);
+
+		de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+			DE_ARCH_TSTYPE_DOS_TD, &pos);
+		de_arch_read_field_cmpr_len_p(md, &pos);
+		de_arch_read_field_orig_len_p(md, &pos);
+
+		pos = md->member_hdr_pos + 26;
+		dbuf_read_to_ucstring(c->infile, pos, 12, md->filename, DE_CONVFLAG_STOP_AT_NUL,
+			d->input_encoding);
+		de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+		// Filename field is 13 bytes.
+		// Then a 2-byte field unidentified field.
+
+		md->cmpr_pos = md->member_hdr_pos + md->member_hdr_size;
+		de_dbg(c, "compressed data at %"I64_FMT", len=%"I64_FMT, md->cmpr_pos, md->cmpr_len);
+
+		de_dbg_indent(c, -1);
+		pos = md->cmpr_pos + md->cmpr_len;
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	if(md) {
+		de_arch_destroy_md(c, md);
+		md = NULL;
+	}
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported RED file");
+		}
+		de_arch_destroy_lctx(c, d);
+	}
+}
+
+static int de_identify_red(deark *c)
+{
+	if((UI)de_getu32be(0) != 0x52520129U) return 0;
+	return 100;
+}
+
+void de_module_red(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "red";
+	mi->desc = "RED installer archive (Knowledge Dynamics Corp)";
+	mi->run_fn = de_run_red;
+	mi->identify_fn = de_identify_red;
 	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
 }
