@@ -38,6 +38,7 @@ de_arch_lctx *de_arch_create_lctx(deark *c)
 
 	d = de_malloc(c, sizeof(de_arch_lctx));
 	d->c = c;
+	d->inf = c->infile;
 	return d;
 }
 
@@ -93,7 +94,7 @@ void de_arch_read_field_orig_len_p(struct de_arch_member_data *md, i64 *ppos)
 {
 	i64 n;
 
-	n = dbuf_getu32x(md->c->infile, *ppos, md->d->is_le);
+	n = dbuf_getu32x(md->d->inf, *ppos, md->d->is_le);
 	*ppos += 4;
 	handle_field_orig_len(md, n);
 }
@@ -108,7 +109,7 @@ void de_arch_read_field_cmpr_len_p(struct de_arch_member_data *md, i64 *ppos)
 {
 	i64 n;
 
-	n = dbuf_getu32x(md->c->infile, *ppos, md->d->is_le);
+	n = dbuf_getu32x(md->d->inf, *ppos, md->d->is_le);
 	*ppos += 4;
 	handle_field_cmpr_len(md, n);
 }
@@ -130,7 +131,7 @@ void de_arch_read_field_dos_attr_p(struct de_arch_member_data *md, i64 *ppos)
 {
 	UI attr;
 
-	attr = (UI)dbuf_getbyte_p(md->c->infile, ppos);
+	attr = (UI)dbuf_getbyte_p(md->d->inf, ppos);
 	de_arch_handle_field_dos_attr(md, attr);
 }
 
@@ -145,10 +146,10 @@ void de_arch_read_field_dttm_p(de_arch_lctx *d,
 	ts->is_valid = 0;
 	if(tstype==DE_ARCH_TSTYPE_UNIX || tstype==DE_ARCH_TSTYPE_UNIX_U) {
 		if(tstype==DE_ARCH_TSTYPE_UNIX_U) {
-			n1 = dbuf_getu32x(d->c->infile, *ppos, d->is_le);
+			n1 = dbuf_getu32x(d->inf, *ppos, d->is_le);
 		}
 		else {
-			n1 = dbuf_geti32x(d->c->infile, *ppos, d->is_le);
+			n1 = dbuf_geti32x(d->inf, *ppos, d->is_le);
 		}
 		de_unix_time_to_timestamp(n1, ts, 0x1);
 		is_set = 1;
@@ -158,13 +159,13 @@ void de_arch_read_field_dttm_p(de_arch_lctx *d,
 	{
 		i64 dosdt, dostm;
 
-		n1 = dbuf_getu16x(d->c->infile, *ppos, d->is_le);
+		n1 = dbuf_getu16x(d->inf, *ppos, d->is_le);
 		if(tstype==DE_ARCH_TSTYPE_DOS_DXT) {
 			// Date, then 2 unused bytes, then time.
-			n2 = dbuf_getu16x(d->c->infile, *ppos+4, d->is_le);
+			n2 = dbuf_getu16x(d->inf, *ppos+4, d->is_le);
 		}
 		else {
-			n2 = dbuf_getu16x(d->c->infile, *ppos+2, d->is_le);
+			n2 = dbuf_getu16x(d->inf, *ppos+2, d->is_le);
 		}
 
 		if(tstype==DE_ARCH_TSTYPE_DOS_TD) {
@@ -183,7 +184,7 @@ void de_arch_read_field_dttm_p(de_arch_lctx *d,
 		}
 	}
 	else if(tstype==DE_ARCH_TSTYPE_FILETIME) {
-		n1 = dbuf_geti64x(d->c->infile, *ppos, d->is_le);
+		n1 = dbuf_geti64x(d->inf, *ppos, d->is_le);
 		if(n1!=0) {
 			de_FILETIME_to_timestamp(n1, ts, 0x1);
 			is_set = 1;
@@ -211,7 +212,7 @@ void de_arch_read_field_dttm_p(de_arch_lctx *d,
 int de_arch_good_cmpr_data_pos(struct de_arch_member_data *md)
 {
 	if(md->cmpr_pos<0 || md->cmpr_len<0 ||
-		md->cmpr_pos+md->cmpr_len > md->c->infile->len)
+		md->cmpr_pos+md->cmpr_len > md->d->inf->len)
 	{
 		ensure_name_for_msgs_is_set(md);
 		de_err(md->c, "%s: Data goes beyond end of file",
@@ -258,7 +259,7 @@ void de_arch_extract_member_file(struct de_arch_member_data *md)
 	}
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
-	dcmpri.f = c->infile;
+	dcmpri.f = md->d->inf;
 	dcmpri.pos = md->cmpr_pos;
 	dcmpri.len = md->cmpr_len;
 	dcmpro.f = outf;

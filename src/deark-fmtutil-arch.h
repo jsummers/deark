@@ -56,6 +56,7 @@ struct de_arch_member_data {
 
 struct de_arch_localctx_struct {
 	deark *c;
+	dbuf *inf;
 	int is_le;
 	u8 need_errmsg;
 	de_encoding input_encoding;

@@ -19,6 +19,7 @@ DE_DECLARE_MODULE(de_module_cmz);
 DE_DECLARE_MODULE(de_module_pcshrink);
 DE_DECLARE_MODULE(de_module_arcv);
 DE_DECLARE_MODULE(de_module_red);
+DE_DECLARE_MODULE(de_module_lif_kdc);
 
 static int dclimplode_header_at(deark *c, i64 pos)
 {
@@ -2007,5 +2008,117 @@ void de_module_red(deark *c, struct deark_module_info *mi)
 	mi->desc = "RED installer archive (Knowledge Dynamics Corp)";
 	mi->run_fn = de_run_red;
 	mi->identify_fn = de_identify_red;
+	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
+}
+
+// **************************************************************************
+// Knowledge Dynamics .LIF (old format)
+// **************************************************************************
+
+static int lif_kdc_convert_hdr(deark *c, i64 pos1, dbuf *f2)
+{
+	i64 pos = pos1;
+	int i;
+	int errorflag = 0;
+
+	for(i=0; i<17; i++) {
+		u8 b0, b1;
+		u8 x0, x1;
+
+		b0 = de_getbyte_p(&pos);
+		b1 = de_getbyte_p(&pos);
+		if(b0>='A' && b0<='F') return 0; // Only allow lowercase
+		if(b1>='A' && b1<='F') return 0;
+
+		x0 = de_decode_hex_digit(b0, &errorflag);
+		if(errorflag) return 0;
+		x1 = de_decode_hex_digit(b1, &errorflag);
+		if(errorflag) return 0;
+		dbuf_writebyte(f2, (u8)((x0<<4)|x1));
+	}
+	return 1;
+}
+
+static void de_run_lif_kdc(deark *c, de_module_params *mparams)
+{
+	de_arch_lctx *d = NULL;
+	i64 pos = 0;
+	struct de_arch_member_data *md = NULL;
+	dbuf *f2 = NULL;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	d = de_arch_create_lctx(c);
+	d->is_le = 0;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	f2 = dbuf_create_membuf(c, 17, 0);
+
+	while(1) {
+		i64 f2_pos;
+
+		if(pos >= c->infile->len) goto done;
+		if(md) {
+			de_arch_destroy_md(c, md);
+			md = NULL;
+		}
+
+		dbuf_empty(f2);
+		// Decode the hex-encoded part of the header, so that we can read it
+		// more easily.
+		if(!lif_kdc_convert_hdr(c, pos, f2)) {
+			d->need_errmsg = 1;
+			goto done;
+		}
+
+		md = de_arch_create_md(c, d);
+		md->member_hdr_pos = pos;
+		md->member_hdr_size = 54;
+
+		de_dbg(c, "member at %"I64_FMT, md->member_hdr_pos);
+		de_dbg_indent(c, 1);
+
+		d->inf = f2;
+		f2_pos = 4;
+		de_arch_read_field_cmpr_len_p(md, &f2_pos);
+		de_arch_read_field_orig_len_p(md, &f2_pos);
+		f2_pos += 4;
+		md->cmpr_meth = (UI)dbuf_getbyte_p(f2, &f2_pos);
+		de_dbg(c, "cmpr. method: %u", md->cmpr_meth);
+		d->inf = c->infile;
+
+		pos = md->member_hdr_pos + 34;
+		// TODO: How long is the filename field?
+		dbuf_read_to_ucstring(c->infile, pos, 12, md->filename, DE_CONVFLAG_STOP_AT_NUL,
+			d->input_encoding);
+		de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+
+		md->cmpr_pos = md->member_hdr_pos + md->member_hdr_size;
+		de_dbg(c, "compressed data at %"I64_FMT", len=%"I64_FMT, md->cmpr_pos, md->cmpr_len);
+
+		de_dbg_indent(c, -1);
+		pos = md->cmpr_pos + md->cmpr_len;
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	if(md) {
+		de_arch_destroy_md(c, md);
+		md = NULL;
+	}
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported LIF file");
+		}
+		de_arch_destroy_lctx(c, d);
+	}
+	dbuf_close(f2);
+}
+
+void de_module_lif_kdc(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "lif_kdc";
+	mi->desc = "LIF installer archive (Knowledge Dynamics Corp)";
+	mi->run_fn = de_run_lif_kdc;
+	// TODO: Can we detect this format?
 	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
 }
