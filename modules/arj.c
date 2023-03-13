@@ -1003,10 +1003,29 @@ done:
 	return retval;
 }
 
+static void report_extra_bytes(deark *c, lctx *d, i64 main_endpos)
+{
+	i64 num_extra_bytes;
+	i64 max_pos;
+
+	if(d->arjprot_flag) {
+		return; // This check is not implemented in this situation.
+	}
+
+	max_pos = main_endpos;
+	if(d->security_envelope_len>0) {
+		max_pos = de_max_int(max_pos, d->security_envelope_pos+d->security_envelope_len);
+	}
+
+	num_extra_bytes = c->infile->len - max_pos;
+	if(num_extra_bytes>1) {
+		de_dbg(c, "[%"I64_FMT" extra bytes at EOF, starting at %"I64_FMT"]", num_extra_bytes, max_pos);
+	}
+}
+
 static void do_member_sequence(deark *c, lctx *d, i64 pos1)
 {
 	i64 pos = pos1;
-	i64 num_extra_bytes;
 
 	while(1) {
 		int ret;
@@ -1022,16 +1041,7 @@ static void do_member_sequence(deark *c, lctx *d, i64 pos1)
 		}
 	}
 
-	if(d->security_envelope_len!=0 || d->arjprot_flag) {
-		// (TODO?) This check is not implemented in these situations.
-		num_extra_bytes = 0;
-	}
-	else {
-		num_extra_bytes = c->infile->len - pos;
-	}
-	if(num_extra_bytes>1) {
-		de_dbg(c, "[%"I64_FMT" extra bytes at EOF, starting at %"I64_FMT"]", num_extra_bytes, pos);
-	}
+	report_extra_bytes(c, d, pos);
 
 done:
 	;
