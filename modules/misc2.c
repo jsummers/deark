@@ -38,6 +38,7 @@ DE_DECLARE_MODULE(de_module_fastgraph_spr);
 DE_DECLARE_MODULE(de_module_fastgraph_ppr);
 DE_DECLARE_MODULE(de_module_young_picasso);
 DE_DECLARE_MODULE(de_module_imggal_alch);
+DE_DECLARE_MODULE(de_module_iconmgr_ica);
 
 // **************************************************************************
 // HP 100LX / HP 200LX .ICN icon format
@@ -2660,4 +2661,163 @@ void de_module_imggal_alch(deark *c, struct deark_module_info *mi)
 	mi->desc = "Image Gallery GAL (Alchemy Mindworks)";
 	mi->run_fn = de_run_imggal_alch;
 	mi->identify_fn = de_identify_imggal_alch;
+}
+
+// **************************************************************************
+// Icon Manager .ICA (Impact Software, Leonard A. Gray)
+// **************************************************************************
+
+struct iconmgr_icon_ctx {
+	i64 icon_pos;
+	i64 total_len;
+	de_ucstring *name;
+};
+
+struct iconmgr_ica_ctx {
+	u8 ver;
+	u8 need_errmsg;
+	de_encoding input_encoding;
+	i64 icon_count;
+	i64 reported_file_size;
+	de_color pal[16];
+};
+
+static void iconmgr_icon_destroy(deark *c, struct iconmgr_icon_ctx *md)
+{
+	if(!md) return;
+	ucstring_destroy(md->name);
+	de_free(c, md);
+}
+
+// On fatal error, leaves md->total_len set to 0.
+static void do_iconmgr_icon(deark *c, struct iconmgr_ica_ctx *d,
+	struct iconmgr_icon_ctx *md)
+{
+	de_bitmap *img = NULL;
+	de_bitmap *mask = NULL;
+	de_finfo *fi = NULL;
+	i64 pos;
+	i64 bpp, xpos, ypos;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "icon at %"I64_FMT, md->icon_pos);
+	de_dbg_indent(c, 1);
+	pos = md->icon_pos;
+
+	// Try to detect if we've gone off the rails.
+	// TODO: Are bit depths other than 4 possible?
+	bpp = de_getbyte_p(&pos);
+	xpos = de_getu16le_p(&pos);
+	ypos = de_getu16le_p(&pos);
+	if(bpp!=4 || xpos>=4096 || ypos>=4096) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	if(d->ver==2) {
+		md->name = ucstring_create(c);
+		dbuf_read_to_ucstring(c->infile, pos, 26, md->name, DE_CONVFLAG_STOP_AT_NUL,
+			d->input_encoding);
+		de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(md->name));
+		pos += 26;
+	}
+
+	de_dbg(c, "bitmap at %"I64_FMT, pos);
+	img = de_bitmap_create(c, 32, 32, 4);
+	de_convert_image_paletted(c->infile, pos, 4, 16, d->pal, img, 0);
+	pos += 512;
+
+	de_dbg(c, "mask at %"I64_FMT, pos);
+	mask = de_bitmap_create(c, 32, 32, 1);
+	de_convert_image_bilevel(c->infile, pos, 4, mask, 0);
+	pos += 128;
+
+	de_bitmap_apply_mask(img, mask, DE_BITMAPFLAG_WHITEISTRNS);
+
+	fi = de_finfo_create(c);
+	if(c->filenames_from_file && ucstring_isnonempty(md->name)) {
+		de_finfo_set_name_from_ucstring(c, fi, md->name, 0);
+	}
+
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_FLIP_IMAGE|DE_CREATEFLAG_OPT_IMAGE);
+	md->total_len = pos - md->icon_pos;
+
+done:
+	de_bitmap_destroy(img);
+	de_bitmap_destroy(mask);
+	de_finfo_destroy(c, fi);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void de_run_iconmgr_ica(deark *c, de_module_params *mparams)
+{
+	struct iconmgr_ica_ctx *d = NULL;
+	struct iconmgr_icon_ctx *md = NULL;
+	u8 b;
+	i64 pos;
+
+	d = de_malloc(c, sizeof(struct iconmgr_ica_ctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
+
+	b = de_getbyte(2);
+	if(b=='M') {
+		d->ver = 1;
+	}
+	else if(b=='2') {
+		d->ver = 2;
+	}
+	else {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	d->icon_count = de_getu16le(4);
+	de_dbg(c, "count: %d", (int)d->icon_count);
+	d->reported_file_size = de_getu32le(4);
+
+	de_copy_std_palette(DE_PALID_WIN16, 0, 0, 16, d->pal, 16, 0);
+	pos = 18;
+	while(1) {
+		if(pos>=c->infile->len || pos>=d->reported_file_size) goto done;
+		if(md) {
+			iconmgr_icon_destroy(c, md);
+			md = NULL;
+		}
+		md = de_malloc(c, sizeof(struct iconmgr_icon_ctx));
+		md->icon_pos = pos;
+		do_iconmgr_icon(c, d, md);
+		if(md->total_len<=0) goto done;
+		pos += md->total_len;
+	}
+
+done:
+	iconmgr_icon_destroy(c, md);
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported file");
+		}
+		de_free(c, d);
+	}
+}
+
+static int de_identify_iconmgr_ica(deark *c)
+{
+	u8 b;
+
+	if(dbuf_memcmp(c->infile, 0, "IC", 2)) return 0;
+	b = de_getbyte(2);
+	if(de_getbyte(3) != 0) return 0;
+	if(b=='M' || b=='2') {
+		return 90;
+	}
+	return 0;
+}
+
+void de_module_iconmgr_ica(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "iconmgr_ica";
+	mi->desc = "Icon Manager Archive (.ica)";
+	mi->run_fn = de_run_iconmgr_ica;
+	mi->identify_fn = de_identify_iconmgr_ica;
 }

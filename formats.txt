@@ -240,6 +240,9 @@ Deark -- Information about supported formats
 
 * HSI Raw (module="hsiraw")
 
+* ICA (Icon Manager Archive) (module=iconmgr_ica) (experimental)
+  Related to Icon Manager by Impact Software and L. Gray.
+
 * icns (Apple Icon) (module="icns")
   - Supports uncompressed 1-, 4-, and 8-bit images (with 1-bit mask).
   - Supports RLE-compressed 24-bit images (with 8-bit mask).
