@@ -209,12 +209,7 @@ static void do_write_image(deark *c, lctx *d)
 	i64 height;
 	UI pn;
 	de_bitmap *img = NULL;
-	static const de_color pal[16] = {
-		0xff000000U,0xff000080U,0xff008000U,0xff008080U,
-		0xff800000U,0xff800080U,0xff808000U,0xff808080U,
-		0xffccccccU,0xff0000ffU,0xff00ff00U,0xff00ffffU,
-		0xffff0000U,0xffff00ffU,0xffffff00U,0xffffffffU
-	};
+	de_color pal[16];
 
 	rowspan = IMG_WIDTH/8;
 	height = 400;
@@ -228,6 +223,7 @@ static void do_write_image(deark *c, lctx *d)
 	de_dbg_dimensions(c, IMG_WIDTH, height);
 	img = de_bitmap_create(c, IMG_WIDTH, height, 3);
 
+	de_copy_std_palette(DE_PALID_WIN16, 2, 0, 16, pal, 16, 0);
 	de_convert_image_paletted_planar(d->unc_pixels, 0, NUM_PLANES, rowspan,
 		d->max_bytes_per_plane, pal, img, 0x02);
 
