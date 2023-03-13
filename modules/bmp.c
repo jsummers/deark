@@ -1365,12 +1365,7 @@ static void ddb_convert_pal4planar(deark *c, struct ddbctx_struct *d,
 {
 	const i64 nplanes = 4;
 	i64 rowspan;
-	static const de_color pal16[16] = {
-		0xff000000U,0xff800000U,0xff008000U,0xff808000U,
-		0xff000080U,0xff800080U,0xff008080U,0xff808080U,
-		0xffc0c0c0U,0xffff0000U,0xff00ff00U,0xffffff00U,
-		0xff0000ffU,0xffff00ffU,0xff00ffffU,0xffffffffU
-	};
+	de_color pal16[16];
 
 	rowspan = d->bmWidthBytes * nplanes;
 
@@ -1380,6 +1375,7 @@ static void ddb_convert_pal4planar(deark *c, struct ddbctx_struct *d,
 	//  ...
 	// But I have seen another, and I see no way to detect/support it.
 
+	de_copy_std_palette(DE_PALID_WIN16, 0, 0, 16, pal16, 16, 0);
 	de_convert_image_paletted_planar(c->infile, fpos, nplanes, rowspan,
 		d->bmWidthBytes, pal16, img, 0x2);
 }

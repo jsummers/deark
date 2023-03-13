@@ -673,6 +673,13 @@ static const de_color stdpal_pc16_colors[16] = {
 	0x555555,0x5555ff,0x55ff55,0x55ffff,0xff5555,0xff55ff,0xffff55,0xffffff
 };
 
+static const de_color stdpal_win16_colors_0[16] = {
+	0xff000000U,0xff800000U,0xff008000U,0xff808000U,
+	0xff000080U,0xff800080U,0xff008080U,0xff808080U,
+	0xffc0c0c0U,0xffff0000U,0xff00ff00U,0xffffff00U,
+	0xff0000ffU,0xffff00ffU,0xff00ffffU,0xffffffffU
+};
+
 static const de_color stdpals_cga[6][4] = {
 	{ 0x000000, 0x00aaaa, 0xaa00aa, 0xaaaaaa }, // 0 = palette 1 low
 	{ 0x000000, 0x00aa00, 0xaa0000, 0xaa5500 }, // 1 = palette 0 low
@@ -701,6 +708,10 @@ static const de_color *get_stdpal_colors(int pal_id, int pal_subid, i64 *pncolor
 	case DE_PALID_PC16:
 		*pncolors = 16;
 		p = stdpal_pc16_colors;
+		break;
+	case DE_PALID_WIN16:
+		*pncolors = 16;
+		p = stdpal_win16_colors_0;
 		break;
 	case DE_PALID_EGA64:
 		*pncolors = 64;

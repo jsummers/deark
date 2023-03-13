@@ -991,6 +991,7 @@ u8 de_decode_hex_digit(u8 x, int *errorflag);
 #define DE_PALID_PC16   20
 #define DE_PALID_EGA64  30
 #define DE_PALID_VGA256 40
+#define DE_PALID_WIN16  50
 
 de_color de_get_std_palette_entry(int pal_id, int pal_subid, int index);
 #define DE_COPYPALFLAG_INITPAL 0x10
