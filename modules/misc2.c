@@ -2521,15 +2521,15 @@ static int do_imggal_member(deark *c, struct imggal_ctx *d, i64 idx, i64 pos1)
 	de_dbg_dimensions(c, md->npwidth, md->height);
 	if(!de_good_image_dimensions(c, md->npwidth, md->height)) goto done;
 
-	if(pos+md->rowspan * md->height > pos1+d->item_size) {
+	md->bytes_per_row_per_plane = (md->npwidth + 7)/8;
+	md->rowspan = md->bytes_per_row_per_plane * d->bpp;
+	md->pdwidth = md->bytes_per_row_per_plane * 8;
+
+	if(pos+(md->rowspan*md->height) > pos1+d->item_size) {
 		retval = 0;
 		d->need_errmsg = 1;
 		goto done;
 	}
-
-	md->bytes_per_row_per_plane = (md->npwidth + 7)/8;
-	md->rowspan = md->bytes_per_row_per_plane * d->bpp;
-	md->pdwidth = md->bytes_per_row_per_plane * 8;
 
 	img = de_bitmap_create2(c, md->npwidth, md->pdwidth, md->height, (d->is_color?3:1));
 	fi = de_finfo_create(c);
