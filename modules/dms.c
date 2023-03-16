@@ -82,6 +82,7 @@ struct dmsctx {
 	UI cmpr_type;
 	i64 first_track, last_track;
 	i64 num_tracks_in_file;
+	u8 have_first_last_track_info;
 
 	// Entries in use: 0 <= n < .num_tracks_in_file
 	struct dms_tracks_by_file_order_entry tracks_by_file_order[DMS_MAX_TRACKS];
@@ -1206,6 +1207,7 @@ static int do_dms_header(deark *c, struct dmsctx *d, i64 pos1)
 {
 	i64 n;
 	i64 pos = pos1;
+	i64 cmpr_len, orig_len;
 	struct de_timestamp cr_time;
 	int retval = 0;
 
@@ -1234,11 +1236,18 @@ static int do_dms_header(deark *c, struct dmsctx *d, i64 pos1)
 	if(d->last_track < d->first_track) goto done;
 	if(d->last_track >= DMS_MAX_TRACKS) goto done;
 
-	n = de_getu32be_p(&pos); // [20..23] = packed len
-	de_dbg(c, "compressed len: %"I64_FMT, n);
+	cmpr_len = de_getu32be_p(&pos); // [20..23] = packed len
+	de_dbg(c, "compressed len: %"I64_FMT, cmpr_len);
 
-	n = de_getu32be_p(&pos); // [24..27] = unpacked len
-	de_dbg(c, "decompressed len: %"I64_FMT, n);
+	orig_len = de_getu32be_p(&pos); // [24..27] = unpacked len
+	de_dbg(c, "decompressed len: %"I64_FMT, orig_len);
+
+	if(d->first_track==0 && d->last_track==0 && (cmpr_len==0 || orig_len==0)) {
+		de_warn(c, "File lacks info about which tracks are present");
+	}
+	else {
+		d->have_first_last_track_info = 1;
+	}
 
 	// [46..47] = creating software version
 	pos = pos1+50;
@@ -1263,6 +1272,8 @@ static int dms_scan_file(deark *c, struct dmsctx *d, i64 pos1)
 {
 	i64 pos = pos1;
 	i64 i;
+	i64 lowest_real_track_num = DMS_MAX_TRACKS;
+	i64 highest_real_track_num = 0;
 	u32 next_real_tracknum_expected;
 	int retval = 0;
 
@@ -1302,13 +1313,40 @@ static int dms_scan_file(deark *c, struct dmsctx *d, i64 pos1)
 		d->tracks_by_file_order[d->num_tracks_in_file].file_pos = pos;
 		d->tracks_by_file_order[d->num_tracks_in_file].track_num = (u32)track_num_reported;
 
-		if(track_num_reported>=d->first_track && track_num_reported<=d->last_track) {
-			d->tracks_by_track_num[track_num_reported].order_in_file = (u32)d->num_tracks_in_file;
-			d->tracks_by_track_num[track_num_reported].in_use = 1;
+		if(d->have_first_last_track_info) {
+			if(track_num_reported>=d->first_track && track_num_reported<=d->last_track) {
+				d->tracks_by_track_num[track_num_reported].order_in_file = (u32)d->num_tracks_in_file;
+				d->tracks_by_track_num[track_num_reported].in_use = 1;
+			}
+		}
+		else {
+			if(track_num_reported<DMS_MAX_TRACKS) {
+				d->tracks_by_track_num[track_num_reported].order_in_file = (u32)d->num_tracks_in_file;
+				d->tracks_by_track_num[track_num_reported].in_use = 1;
+			}
+		}
+
+		if(track_num_reported<DMS_MAX_TRACKS) {
+			if(track_num_reported<lowest_real_track_num) {
+				lowest_real_track_num = track_num_reported;
+			}
+			if(track_num_reported>highest_real_track_num) {
+				highest_real_track_num = track_num_reported;
+			}
 		}
 
 		d->num_tracks_in_file++;
 		pos += DMS_TRACK_HDR_LEN + cmpr_len;
+	}
+
+	if(d->num_tracks_in_file==0) {
+		de_err(c, "No tracks found");
+		goto done;
+	}
+
+	if(!d->have_first_last_track_info) {
+		d->first_track = lowest_real_track_num;
+		d->last_track = highest_real_track_num;
 	}
 
 	// Make sure all expected tracks are present, and mark the "real" tracks in
@@ -1324,7 +1362,6 @@ static int dms_scan_file(deark *c, struct dmsctx *d, i64 pos1)
 
 		d->tracks_by_file_order[d->tracks_by_track_num[i].order_in_file].is_real = 1;
 	}
-
 
 	next_real_tracknum_expected = (u32)d->first_track;
 	for(i=0; i<d->num_tracks_in_file; i++) {
