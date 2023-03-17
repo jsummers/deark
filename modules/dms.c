@@ -90,6 +90,7 @@ struct dmsctx {
 	// Entries potentially in use: .first_track <= n <= .last_track
 	struct dms_tracks_by_track_num_entry tracks_by_track_num[DMS_MAX_TRACKS];
 
+	struct std_saved_state_wrapper saved_quick_state;
 	struct std_saved_state_wrapper saved_medium_state;
 	struct std_saved_state_wrapper saved_deep_cmpr_state;
 	struct dmsheavy_cmpr_state *saved_heavy_state;
@@ -790,21 +791,131 @@ static void dmsmediumlz77_codec(struct de_dfilter_ctx *dfctx, void *codec_privat
 	mctx->ringbuf->writebyte_cb = medium_lz77buf_writebytecb;
 }
 
-///////////////// "Medium" and "Deep" decompression //////////////
+///////////////// Codec for the LZ77 part of "Quick" decompression //////////////
 
-// Note: The Medium and Deep decompressors have a different design than Heavy.
-// Both the codecs are "pushable", which is a good thing for DMS's segmented
-// format.
+// This was derived from the Medium codec. Some of the symbol names are
+// misleading, because of that.
+
+static void quicklz77_codec_addbuf(struct de_dfilter_ctx *dfctx,
+	const u8 *buf, i64 buf_len)
+{
+	struct medium_ctx *mctx = (struct medium_ctx *)dfctx->codec_private;
+	struct medium_state_machine *mdst = &mctx->mdst;
+	i64 bufpos = 0;
+	UI n;
+	UI length;
+	UI ocode, lcode;
+
+	if(dfctx->finished_flag || mctx->errflag) {
+		goto done;
+	}
+
+	while(1) {
+		if(medium_have_enough_output(mctx)) {
+			dfctx->finished_flag = 1;
+			goto done;
+		}
+
+		// Top off the bitbuf, if possible. 32 is an arbitrary number that's
+		// large enough for this format.
+		while(bufpos<buf_len && mctx->bbll.nbits_in_bitbuf<32) {
+			de_bitbuf_lowlevel_add_byte(&mctx->bbll, buf[bufpos++]);
+		}
+
+		if(mdst->state==MEDLZST_WAITING_FOR_OCODE1) goto read_ocode1;
+
+		// Minimum useful number of bits is 9.
+		if(mctx->bbll.nbits_in_bitbuf < 9) goto done;
+
+		n = (UI)de_bitbuf_lowlevel_get_bits(&mctx->bbll, 1);
+		if(n) { // literal byte
+			u8 b;
+
+			b = (u8)de_bitbuf_lowlevel_get_bits(&mctx->bbll, 8);
+			de_lz77buffer_add_literal_byte(mctx->ringbuf, (u8)b);
+			continue;
+		}
+
+	read_ocode1:
+		if(mctx->bbll.nbits_in_bitbuf < 10) {
+			mdst->state = MEDLZST_WAITING_FOR_OCODE1;
+			goto done;
+		}
+
+		lcode = (UI)de_bitbuf_lowlevel_get_bits(&mctx->bbll, 2);
+		ocode = (UI)de_bitbuf_lowlevel_get_bits(&mctx->bbll, 8);
+		length = lcode + 2;
+		de_lz77buffer_copy_from_hist(mctx->ringbuf, mctx->ringbuf->curpos - 1 - ocode, length);
+		mdst->state = MEDLZST_NEUTRAL;
+	}
+
+done:
+	if(!dfctx->finished_flag && !mctx->errflag) {
+		if(bufpos<buf_len) {
+			// It shouldn't be possible to get here. If we do, it means some input
+			// bytes will be lost.
+			de_dfilter_set_generic_error(dfctx->c, mctx->dres, mctx->modname);
+			mctx->errflag = 1;
+		}
+	}
+}
+
+static void quicklz77_codec_command(struct de_dfilter_ctx *dfctx, int cmd, UI flags)
+{
+	struct medium_ctx *mctx = (struct medium_ctx*)dfctx->codec_private;
+
+	if(cmd==DE_DFILTER_COMMAND_FINISH_BLOCK) {
+		de_bitbuf_lowlevel_empty(&mctx->bbll);
+		mctx->mdst.state = MEDLZST_NEUTRAL;
+		de_lz77buffer_set_curpos(mctx->ringbuf, mctx->ringbuf->curpos + 5);
+	}
+	else if(cmd==DE_DFILTER_COMMAND_RESET_COUNTERS) {
+		mctx->nbytes_written = 0;
+		mctx->errflag = 0;
+		dfctx->finished_flag = 0;
+	}
+}
+
+// codec_private_params: unused
+static void dmsquicklz77_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
+{
+	struct medium_ctx *mctx = NULL;
+
+	mctx = de_malloc(dfctx->c, sizeof(struct medium_ctx));
+	mctx->c = dfctx->c;
+	mctx->modname = "dmsquick_lz77";
+	mctx->dcmpro = dfctx->dcmpro;
+	mctx->dres = dfctx->dres;
+
+	dfctx->codec_private = (void*)mctx;
+	dfctx->codec_addbuf_fn = quicklz77_codec_addbuf;
+	dfctx->codec_command_fn = quicklz77_codec_command;
+	dfctx->codec_destroy_fn = mediumlz77_codec_destroy;
+
+	mctx->ringbuf = de_lz77buffer_create(dfctx->c, 256);
+	de_lz77buffer_set_curpos(mctx->ringbuf, 251);
+
+	mctx->ringbuf->userdata = (void*)mctx;
+	mctx->ringbuf->writebyte_cb = medium_lz77buf_writebytecb;
+}
+
+///////////////// "Quick", "Medium", "Deep" decompression //////////////
+
+// Note: These decompressors have a different design than Heavy.
+// The codecs are "pushable", which is a good thing for DMS's segmented format.
 // It may look more complicated, but ultimately it's cleaner and less hacky.
 
-static void do_decompress_track_medium_or_deep(deark *c, struct dmsctx *d, struct dms_track_info *tri,
+static void do_decompress_track_q_m_d(deark *c, struct dmsctx *d, struct dms_track_info *tri,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
 	struct dms_std_cmpr_state *cst = NULL;
 	struct std_saved_state_wrapper *ssw;
 
-	if(tri->cmpr_type==DMSCMPR_DEEP) {
+	if(tri->cmpr_type==DMSCMPR_QUICK) {
+		ssw = &d->saved_quick_state;
+	}
+	else if(tri->cmpr_type==DMSCMPR_DEEP) {
 		ssw = &d->saved_deep_cmpr_state;
 	}
 	else {
@@ -831,7 +942,10 @@ static void do_decompress_track_medium_or_deep(deark *c, struct dmsctx *d, struc
 	if(!cst) {
 		cst = de_malloc(c, sizeof(struct dms_std_cmpr_state));
 		cst->cmpr_meth = tri->cmpr_type;
-		if(cst->cmpr_meth==DMSCMPR_DEEP) {
+		if(cst->cmpr_meth==DMSCMPR_QUICK) {
+			cst->cmpr_meth_name = "quickcmpr";
+		}
+		else if(cst->cmpr_meth==DMSCMPR_DEEP) {
 			cst->cmpr_meth_name = "deepcmpr";
 		}
 		else {
@@ -864,6 +978,10 @@ static void do_decompress_track_medium_or_deep(deark *c, struct dmsctx *d, struc
 			lh1p.is_dms_deep = 1;
 			cst->dfctx_codec1 = de_dfilter_create(c, dfilter_lh1_codec,
 				(void*)&lh1p, &cst->dcmpro1, &cst->dres1);
+		}
+		else if(cst->cmpr_meth==DMSCMPR_QUICK) {
+			cst->dfctx_codec1 = de_dfilter_create(c, dmsquicklz77_codec,
+				NULL, &cst->dcmpro1, &cst->dres1);
 		}
 		else {
 			cst->dfctx_codec1 = de_dfilter_create(c, dmsmediumlz77_codec,
@@ -943,6 +1061,10 @@ static void do_decompress_heavy(deark *c, struct dmsctx *d, struct dms_track_inf
 
 static void destroy_saved_dcrmpr_state(deark *c, struct dmsctx *d)
 {
+	if(d->saved_quick_state.saved_state) {
+		destroy_std_cmpr_state(c, d->saved_quick_state.saved_state);
+		d->saved_quick_state.saved_state = NULL;
+	}
 	if(d->saved_medium_state.saved_state) {
 		destroy_std_cmpr_state(c, d->saved_medium_state.saved_state);
 		d->saved_medium_state.saved_state = NULL;
@@ -990,11 +1112,10 @@ static int dms_decompress_track(deark *c, struct dmsctx *d, struct dms_track_inf
 		de_dfilter_decompress_oneshot(c, dmsrle_codec, NULL,
 			&dcmpri, &dcmpro, &dres);
 	}
-	else if(tri->cmpr_type==DMSCMPR_MEDIUM) {
-		do_decompress_track_medium_or_deep(c, d, tri, &dcmpri, &dcmpro, &dres);
-	}
-	else if(tri->cmpr_type==DMSCMPR_DEEP) {
-		do_decompress_track_medium_or_deep(c, d, tri, &dcmpri, &dcmpro, &dres);
+	else if(tri->cmpr_type==DMSCMPR_QUICK || tri->cmpr_type==DMSCMPR_MEDIUM ||
+		tri->cmpr_type==DMSCMPR_DEEP)
+	{
+		do_decompress_track_q_m_d(c, d, tri, &dcmpri, &dcmpro, &dres);
 	}
 	else if(tri->cmpr_type==DMSCMPR_HEAVY1 || tri->cmpr_type==DMSCMPR_HEAVY2) {
 		do_decompress_heavy(c, d, tri, &dcmpri, &dcmpro, &dres);

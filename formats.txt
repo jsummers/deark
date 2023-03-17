@@ -756,7 +756,7 @@ Deark -- Information about supported formats
   Options
    -opt deflate:deflate64 - Decode as Deflate64 format.
 
-* DMS (Amiga disk image) (module="amiga_adf") (experimental)
+* DMS (Amiga disk image) (module="amiga_dms") (experimental)
   - Decompresses to ADF format.
 
 * Doom WAD (module="wad")
