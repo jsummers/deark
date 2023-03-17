@@ -1384,18 +1384,17 @@ static void ddb_convert_pal8(deark *c, struct ddbctx_struct *d,
 	i64 fpos, de_bitmap *img)
 {
 	i64 i, j;
+	size_t k;
 	int badcolorflag = 0;
-	// Palette is from libwps (except I might have red/blue swapped it).
-	// I haven't confirmed that it's correct.
-	static const de_color pal_part1[8] = {
-		0x000000,0x800000,0x008000,0x808000,0x000080,0x800080,0x008080,0xc0c0c0
-	};
-	static const de_color pal_part2[8] = {
-		0x808080,0xff0000,0x00ff00,0xffff00,0x0000ff,0xff00ff,0x00ffff,0xffffff
-	};
 
-	de_memcpy(&d->pal[0], pal_part1, 8*sizeof(de_color));
-	de_memcpy(&d->pal[248], pal_part2, 8*sizeof(de_color));
+	de_copy_std_palette(DE_PALID_WIN16, 1, 0, 8, &d->pal[0], 8, 0);
+	de_copy_std_palette(DE_PALID_WIN16, 1, 8, 8, &d->pal[248], 8, 0);
+
+	if(!d->have_custom_pal) {
+		for(k=16; k<248; k++) {
+			d->pal[k] = DE_MAKE_RGB(254, (u8)k ,254); // Just an arbitrary color
+		}
+	}
 
 	for(j=0; j<img->height; j++) {
 		for(i=0; i<img->width; i++) {
@@ -1404,12 +1403,9 @@ static void ddb_convert_pal8(deark *c, struct ddbctx_struct *d,
 
 			palent = de_getbyte(fpos+j*d->bmWidthBytes+i);
 			if(!d->have_custom_pal && palent>=8 && palent<248) {
-				clr = DE_MAKE_RGB(254,palent,254); // Just an arbitrary color
 				badcolorflag = 1;
 			}
-			else {
-				clr = DE_MAKE_OPAQUE(d->pal[(UI)palent]);
-			}
+			clr = d->pal[(UI)palent];
 
 			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
