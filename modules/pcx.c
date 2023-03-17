@@ -44,7 +44,7 @@ typedef struct localctx_struct {
 
 	dbuf *unc_pixels;
 	de_finfo *fi;
-	u32 pal[256];
+	de_color pal[256];
 } lctx;
 
 static void simplify_dens(i64 *pxdens, i64 *pydens, i64 factor)
@@ -331,18 +331,11 @@ done:
 	return retval;
 }
 
-// 16-color palettes to use, if there is no palette in the file.
-// (8-color version-3 PCXs apparently use only the first 8 colors of the
-// palette.)
-static const u32 ega16pal[2][16] = {
-	// This palette seems to be correct for at least some files.
-	{0x000000,0x000080,0x008000,0x008080,0x800000,0x800080,0x808000,0x808080,
-	 0xc0c0c0,0x0000ff,0x00ff00,0x00ffff,0xff0000,0xff00ff,0xffff00,0xffffff},
-
-	// This is the "default EGA palette" used by several PCX viewers.
-	// I don't know its origin.
-	{0x000000,0xbf0000,0x00bf00,0xbfbf00,0x0000bf,0xbf00bf,0x00bfbf,0xc0c0c0,
-	 0x808080,0xff0000,0x00ff00,0xffff00,0x0000ff,0xff00ff,0x00ffff,0xffffff}
+static const de_color ega16pal_1[16] = {
+	0xff000000U,0xffbf0000U,0xff00bf00U,0xffbfbf00U,
+	0xff0000bfU,0xffbf00bfU,0xff00bfbfU,0xffc0c0c0U,
+	0xff808080U,0xffff0000U,0xff00ff00U,0xffffff00U,
+	0xff0000ffU,0xffff00ffU,0xff00ffffU,0xffffffffU
 };
 
 static void do_palette_stuff(deark *c, lctx *d)
@@ -374,13 +367,23 @@ static void do_palette_stuff(deark *c, lctx *d)
 	}
 
 	if(d->version==3 && d->ncolors>=8 && d->ncolors<=16) {
+		// Come up with a 16-color palette, if there is no palette in the file.
+		// (8-color version-3 PCXs apparently use only the first 8 colors of the
+		// palette.)
+
 		if(!d->default_pal_set) {
 			de_info(c, "Note: This paletted PCX file does not contain a palette. "
 				"If it is not decoded correctly, try \"-opt pcx:pal=1\".");
 		}
 		de_dbg(c, "using a default EGA palette");
-		for(k=0; k<16; k++) {
-			d->pal[k] = ega16pal[d->default_pal_num][k];
+		if(d->default_pal_num==1) {
+			// This is the "default EGA palette" used by several PCX viewers.
+			// I don't know its origin.
+			de_memcpy(d->pal, ega16pal_1, sizeof(ega16pal_1));
+		}
+		else {
+			// This palette seems to be correct for at least some files.
+			de_copy_std_palette(DE_PALID_WIN16, 2, 0, 16, d->pal, 16, 0);
 		}
 		return;
 	}
