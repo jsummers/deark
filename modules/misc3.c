@@ -2015,6 +2015,37 @@ void de_module_red(deark *c, struct deark_module_info *mi)
 // Knowledge Dynamics .LIF (old format)
 // **************************************************************************
 
+// It's ugly to have two different ways of reading these ASCII-encoded-hex-
+// digits fields. But the needs of the 'identify' phase, and the 'run' phase,
+// are different enough that it's how I've chosen to do it.
+
+static i64 lif_read_field(dbuf *f, i64 pos1, i64 len, int *perrflag)
+{
+	i64 val = 0;
+	i64 i;
+	i64 pos = pos1;
+
+	for(i=0; i<len; i++) {
+		u8 b;
+		i64 nv;
+
+		b = dbuf_getbyte_p(f, &pos);
+		if(b>='0' && b<='9') {
+			nv = b - 48;
+		}
+		else if(b>='a' && b<='f') {
+			nv = b - 87;
+		}
+		else {
+			*perrflag = 1;
+			return 0;
+		}
+
+		val = (val<<4) | nv;
+	}
+	return val;
+}
+
 static int lif_kdc_convert_hdr(deark *c, i64 pos1, dbuf *f2)
 {
 	i64 pos = pos1;
@@ -2027,9 +2058,6 @@ static int lif_kdc_convert_hdr(deark *c, i64 pos1, dbuf *f2)
 
 		b0 = de_getbyte_p(&pos);
 		b1 = de_getbyte_p(&pos);
-		if(b0>='A' && b0<='F') return 0; // Only allow lowercase
-		if(b1>='A' && b1<='F') return 0;
-
 		x0 = de_decode_hex_digit(b0, &errorflag);
 		if(errorflag) return 0;
 		x1 = de_decode_hex_digit(b1, &errorflag);
@@ -2055,6 +2083,7 @@ static void de_run_lif_kdc(deark *c, de_module_params *mparams)
 
 	while(1) {
 		i64 f2_pos;
+		u32 crc1_reported, crc2_reported;
 
 		if(pos >= c->infile->len) goto done;
 		if(md) {
@@ -2078,10 +2107,20 @@ static void de_run_lif_kdc(deark *c, de_module_params *mparams)
 		de_dbg_indent(c, 1);
 
 		d->inf = f2;
-		f2_pos = 4;
+		f2_pos = 0;
+
+		de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+			DE_ARCH_TSTYPE_DOS_DT, &f2_pos);
 		de_arch_read_field_cmpr_len_p(md, &f2_pos);
 		de_arch_read_field_orig_len_p(md, &f2_pos);
-		f2_pos += 4;
+
+		// These checksums are likely for the compressed and decompressed data, but
+		// I don't know the algorithm.
+		crc1_reported = (u32)dbuf_getu16be_p(f2, &f2_pos);
+		de_dbg(c, "checksum1 (reported): 0x%04x", (UI)crc1_reported);
+		crc2_reported = (u32)dbuf_getu16be_p(f2, &f2_pos);
+		de_dbg(c, "checksum2 (reported): 0x%04x", (UI)crc2_reported);
+
 		md->cmpr_meth = (UI)dbuf_getbyte_p(f2, &f2_pos);
 		de_dbg(c, "cmpr. method: %u", md->cmpr_meth);
 		d->inf = c->infile;
@@ -2114,11 +2153,39 @@ done:
 	dbuf_close(f2);
 }
 
+static int de_identify_lif_kdc(deark *c)
+{
+	i64 cmprmeth;
+	int errflag = 0;
+	int has_ext;
+	u8 b;
+	i64 i;
+	i64 n[4];
+
+	cmprmeth = lif_read_field(c->infile, 32, 2, &errflag);
+	if(errflag) return 0;
+	if(cmprmeth<1 || cmprmeth>3) return 0;
+
+	b = de_getbyte(34); // 1st char of filename
+	if(b<32) return 0;
+	b = de_getbyte(53); // last char of NUL-padded filename field??
+	if(b!=0) return 0;
+
+	for(i=0; i<4; i++) {
+		n[i] = lif_read_field(c->infile, 8*i, 8, &errflag);
+		if(errflag) return 0;
+	}
+	if(54+n[1] > c->infile->len) return 0; // File too short
+
+	has_ext = de_input_file_has_ext(c, "lif");
+	return has_ext ? 45 : 15;
+}
+
 void de_module_lif_kdc(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "lif_kdc";
 	mi->desc = "LIF installer archive (Knowledge Dynamics Corp)";
 	mi->run_fn = de_run_lif_kdc;
-	// TODO: Can we detect this format?
+	mi->identify_fn = de_identify_lif_kdc;
 	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
 }
