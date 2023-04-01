@@ -20,6 +20,7 @@ DE_DECLARE_MODULE(de_module_pcshrink);
 DE_DECLARE_MODULE(de_module_arcv);
 DE_DECLARE_MODULE(de_module_red);
 DE_DECLARE_MODULE(de_module_lif_kdc);
+DE_DECLARE_MODULE(de_module_ain);
 
 static int dclimplode_header_at(deark *c, i64 pos)
 {
@@ -2188,4 +2189,100 @@ void de_module_lif_kdc(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_lif_kdc;
 	mi->identify_fn = de_identify_lif_kdc;
 	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
+}
+
+// **************************************************************************
+// AIN archive (Transas Marine Ltd)
+// **************************************************************************
+
+// This module doesn't do much. It parses the archive header, and computes
+// some checksums.
+
+static int ain_checksum_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
+	i64 buf_len)
+{
+	UI *pchk = (UI*)brctx->userdata;
+	i64 i;
+
+	for(i=0; i<buf_len; i++) {
+		*pchk += (UI)buf[i];
+	}
+	return 1;
+}
+
+static void do_ain_main(deark *c, de_arch_lctx *d)
+{
+	struct de_timestamp archive_timestamp;
+	UI hdr_checksum_reported;
+	UI hdr_checksum_calc = 0;
+	i64 member_hdrs_pos;
+	i64 member_hdrs_len;
+	u8 b;
+	UI upd_speed;
+	UI cmpr_meth;
+	UI member_hdrs_checksum_reported;
+	UI member_hdrs_checksum_calc = 0;
+	UI volume;
+	i64 pos;
+
+	pos = 1;
+	b = de_getbyte_p(&pos);
+	upd_speed = b >> 4;
+	de_dbg(c, "update speed: /u%u", upd_speed);
+	cmpr_meth = b & 0x0f;
+	de_dbg(c, "cmpr. method: /m%u", cmpr_meth);
+
+	pos += 1; // ?
+	b = de_getbyte_p(&pos);
+	de_dbg(c, "flags: 0x%02x", b);
+	pos += 2; // password-related
+	volume = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "volume: %u", volume);
+
+	pos = 8;
+	d->num_members = de_getu16le_p(&pos);
+	de_dbg(c, "number of members: %"I64_FMT, d->num_members);
+
+	de_arch_read_field_dttm_p(d, &archive_timestamp, "archive",
+		DE_ARCH_TSTYPE_DOS_TD, &pos);
+
+	member_hdrs_pos = de_getu32le_p(&pos);
+	de_dbg(c, "member hdrs pos: %"I64_FMT, member_hdrs_pos);
+	member_hdrs_len = c->infile->len - member_hdrs_pos;
+
+	member_hdrs_checksum_reported = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "member hdrs checksum (reported): 0x%04x", member_hdrs_checksum_reported);
+	dbuf_buffered_read(c->infile, member_hdrs_pos, member_hdrs_len,
+		ain_checksum_cbfn, (void*)&member_hdrs_checksum_calc);
+	hdr_checksum_calc &= 0xffff;
+	de_dbg(c, "member hdrs checksum (calculated): 0x%04x", member_hdrs_checksum_calc);
+
+	pos += 2; // ?
+
+	hdr_checksum_reported = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "archive hdr checksum (reported): 0x%04x", hdr_checksum_reported);
+	dbuf_buffered_read(c->infile, 0, 22, ain_checksum_cbfn, (void*)&hdr_checksum_calc);
+	hdr_checksum_calc ^= 0x5555;
+	de_dbg(c, "archive hdr checksum (calculated): 0x%04x", hdr_checksum_calc);
+
+	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, pos, member_hdrs_pos-pos);
+	de_dbg(c, "member hdrs at %"I64_FMT", len=%"I64_FMT, member_hdrs_pos, member_hdrs_len);
+}
+
+static void de_run_ain(deark *c, de_module_params *mparams)
+{
+	de_arch_lctx *d = NULL;
+
+	d = de_arch_create_lctx(c);
+	d->is_le = 1;
+	do_ain_main(c, d);
+	de_arch_destroy_lctx(c, d);
+}
+
+void de_module_ain(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "ain";
+	mi->desc = "AIN archive";
+	mi->run_fn = de_run_ain;
+	mi->flags |= DE_MODFLAG_HIDDEN;
 }
