@@ -48,6 +48,7 @@ void de_set_input_filename(deark *c, const char *fn);
 int de_set_input_encoding(deark *c, const char *encname, int reserved);
 void de_set_input_timezone(deark *c, i64 tzoffs_seconds);
 void de_set_input_file_slice_start(deark *c, i64 n);
+void de_set_input_file_special_slice_start(deark *c, u8 x);
 void de_set_input_file_slice_size(deark *c, i64 n);
 
 int de_run(deark *c);

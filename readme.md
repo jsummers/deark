@@ -104,6 +104,9 @@ Command-line options:
    large files.
 -start &lt;n>
    Pretend that the input file starts at byte offset &lt;n>.
+   As a special case, for EXE files, use "-start overlay" to process only the
+   "overlay" segment. This can be used to handle the executable form of a
+   number of DOS formats, such as some self-extracting archives.
 -size &lt;n>
    Pretend that the input file contains only (up to) &lt;n> bytes.
 -firstfile &lt;n>

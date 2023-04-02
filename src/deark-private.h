@@ -374,8 +374,9 @@ struct deark_struct {
 	const char *modcodes_req;
 	i64 slice_start_req; // Used if we're only to look at part of the file.
 	i64 slice_size_req;
-	int slice_size_req_valid;
-	int suppress_detection_by_filename;
+	u8 slice_start_req_special;
+	u8 slice_size_req_valid;
+	u8 suppress_detection_by_filename;
 
 	int output_style; // DE_OUTPUTSTYLE_*
 	int archive_fmt; // If output_style==DE_OUTPUTSTYLE_ARCHIVE

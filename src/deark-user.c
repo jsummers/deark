@@ -209,6 +209,45 @@ static void open_extrlist(deark *c)
 		DE_OVERWRITEMODE_STANDARD, flags);
 }
 
+// Modifies c->slice_start_req
+static int do_special_overlay_startpos(deark *c)
+{
+	i64 lfb, nblocks;
+	i64 overlay_pos, overlay_len;
+	int retval = 0;
+	u8 sig[2];
+
+	// Maybe we should use fmtutil_collect_exe_info() here, but it's not
+	// exactly what we want, and might add a dependency on fmtutil.
+	dbuf_read(c->infile, sig, 0, 2);
+	if((sig[0]=='M' && sig[1]=='Z') || (sig[0]=='Z' && sig[1]=='M')) {
+		;
+	}
+	else {
+		goto done;
+	}
+	lfb = dbuf_getu16le(c->infile, 2);
+	nblocks = dbuf_getu16le(c->infile, 4);
+	if(lfb==0) {
+		overlay_pos = 512*nblocks;
+	}
+	else if(lfb<512 && nblocks>0) {
+		overlay_pos = 512*(nblocks-1) + lfb;
+	}
+	else {
+		goto done;
+	}
+	overlay_len = c->infile->len - overlay_pos;
+	if(overlay_len<0) goto done;
+	de_dbg2(c, "overlay at %"I64_FMT", len=%"I64_FMT, overlay_pos, overlay_len);
+	c->slice_start_req = overlay_pos;
+	c->suppress_detection_by_filename = 1;
+	retval = 1;
+
+done:
+	return retval;
+}
+
 // Returns 0 on "serious" error; e.g. input file not found.
 int de_run(deark *c)
 {
@@ -239,13 +278,13 @@ int de_run(deark *c)
 	if(c->input_style==DE_INPUTSTYLE_STDIN) {
 		ucstring_append_sz(friendly_infn, "[stdin]", DE_ENCODING_LATIN1);
 	}
-	else {
-		if(!c->input_filename) {
-			de_internal_err_nonfatal(c, "Input file not set");
-			c->serious_error_flag = 1;
-			goto done;
-		}
+	else if(c->input_filename) {
 		ucstring_append_sz(friendly_infn, c->input_filename, DE_ENCODING_UTF8);
+	}
+	else {
+		de_internal_err_nonfatal(c, "Input file not set");
+		c->serious_error_flag = 1;
+		goto done;
 	}
 
 	de_register_modules(c);
@@ -259,17 +298,17 @@ int de_run(deark *c)
 		}
 	}
 
-	if(c->slice_size_req_valid) {
-		de_dbg(c, "Input file: %s[%d,%d]", ucstring_getpsz_d(friendly_infn),
-			(int)c->slice_start_req, (int)c->slice_size_req);
+	if(c->slice_start_req_special!=0) {
+		ucstring_append_sz(friendly_infn, "[special]", DE_ENCODING_LATIN1);
+	}
+	else if(c->slice_size_req_valid) {
+		ucstring_printf(friendly_infn, DE_ENCODING_LATIN1, "[%"I64_FMT",%"I64_FMT"]",
+			c->slice_start_req, c->slice_size_req);
 	}
 	else if(c->slice_start_req) {
-		de_dbg(c, "Input file: %s[%d]", ucstring_getpsz_d(friendly_infn),
-			(int)c->slice_start_req);
+		ucstring_printf(friendly_infn, DE_ENCODING_LATIN1, "[%"I64_FMT"]", c->slice_start_req);
 	}
-	else {
-		de_dbg(c, "Input file: %s", ucstring_getpsz_d(friendly_infn));
-	}
+	de_dbg(c, "Input file: %s", ucstring_getpsz_d(friendly_infn));
 
 	if(c->input_style==DE_INPUTSTYLE_STDIN) {
 		orig_ifile = dbuf_open_input_stdin(c);
@@ -290,9 +329,23 @@ int de_run(deark *c)
 
 	c->infile = orig_ifile;
 
+	if(c->slice_start_req_special==1) {
+		if(!do_special_overlay_startpos(c)) {
+			de_err(c, "File not compatible with \"-start overlay\"");
+			goto done;
+		}
+	}
+
 	// If we are only supposed to look at a segment of the original file,
 	// do that by creating a child dbuf, using dbuf_open_input_subfile().
-	if(c->slice_start_req>0 || c->slice_size_req_valid) {
+	if(c->slice_start_req!=0 || c->slice_size_req_valid) {
+		if(c->slice_start_req<0 || c->slice_size_req<0 ||
+			(c->slice_start_req+c->slice_size_req > c->infile->len))
+		{
+			de_err(c, "File not compatible with given -start/-size options");
+			goto done;
+		}
+
 		if(c->slice_size_req_valid)
 			subfile_size = c->slice_size_req;
 		else
@@ -841,6 +894,11 @@ void de_set_input_timezone(deark *c, i64 tzoffs_seconds)
 void de_set_input_file_slice_start(deark *c, i64 n)
 {
 	c->slice_start_req = n;
+}
+
+void de_set_input_file_special_slice_start(deark *c, u8 x)
+{
+	c->slice_start_req_special = x;
 }
 
 void de_set_input_file_slice_size(deark *c, i64 n)

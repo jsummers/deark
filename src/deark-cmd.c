@@ -803,7 +803,12 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				de_set_input_timezone(c, (i64)(3600.0*atof(argv[i+1])));
 				break;
 			case DE_OPT_START:
-				de_set_input_file_slice_start(c, de_atoi64(argv[i+1]));
+				if(!strcmp(argv[i+1], "overlay")) {
+					de_set_input_file_special_slice_start(c, 1);
+				}
+				else {
+					de_set_input_file_slice_start(c, de_atoi64(argv[i+1]));
+				}
 				break;
 			case DE_OPT_SIZE:
 				de_set_input_file_slice_size(c, de_atoi64(argv[i+1]));
