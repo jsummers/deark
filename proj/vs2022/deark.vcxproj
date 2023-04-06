@@ -200,6 +200,7 @@
     <ClCompile Include="..\..\modules\cdiimage.c" />
     <ClCompile Include="..\..\modules\cfb.c" />
     <ClCompile Include="..\..\modules\clp.c" />
+    <ClCompile Include="..\..\modules\colorix.c" />
     <ClCompile Include="..\..\modules\corel.c" />
     <ClCompile Include="..\..\modules\cpio.c" />
     <ClCompile Include="..\..\modules\crush.c" />
