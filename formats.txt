@@ -122,6 +122,8 @@ Deark -- Information about supported formats
 
 * COKE (Atari Falcon) (*.tg1) (module="coke")
 
+* ColoRIX (*.sc?, etc.) (module="colorix") (incomplete)
+
 * Compface intermediate format (module="compfacei")
   This is an obscure text-based format related to X-Face, used by the Compface
   software.
