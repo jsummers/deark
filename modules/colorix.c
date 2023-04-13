@@ -16,6 +16,8 @@ struct colorix_ctx {
 	u8 is_encrypted;
 	u8 has_extension_block;
 	i64 width, height;
+	i64 rowspan;
+	i64 pal_nbytes;
 	i64 unc_image_size;
 	de_color pal[256];
 };
@@ -63,11 +65,11 @@ static void rixdecomp_interpret_nodetable_item(struct rixdecomp_ctx *rhctx,
 	de_dbg2(rhctx->c, "item[%d]: 0x%04x", (int)itemnum, (UI)dval);
 
 	if(dval>=2 && dval<0x1000 && (dval%2==0)) { // a "pointer" item
-		// The very next item is start of the "1" subtree.
+		// The very next item is the start of the "1" subtree.
 		rixdecomp_interpret_nodetable_item(rhctx, itemnum+1, ((currcode<<1) | 1), currcode_nbits+1);
 		if(rhctx->errflag) goto done;
 
-		// The pointer item tells how many 2-byte items are between the pointer item
+		// The pointer item tells how many bytes are between the pointer item
 		// and the start of the "0" subtree.
 		rixdecomp_interpret_nodetable_item(rhctx, itemnum+1+(dval/2), currcode<<1, currcode_nbits+1);
 
@@ -210,7 +212,7 @@ done:
 	;
 }
 
-// TODO: Elimiinate the 'rowspan' param, if we want this to actually
+// TODO: Eliminate the 'rowspan' param, if we want this to actually
 // be a "type 1" codec.
 static void rixdecomp_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
@@ -278,6 +280,8 @@ static void rixdecomp_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 			goto done;
 		}
 
+		de_dbg(c, "number of rows: %"I64_FMT, (i64)(seg_dcmpr_len/rowspan));
+
 		if(rhctx->dcmpro->f->len < rhctx->dcmpro->expected_len) {
 			// For non-final segments, there is a potential problem.
 			// For a compressed segment, we know neither the (bit-exact) size of the
@@ -334,7 +338,7 @@ static int do_colorix_decompress(deark *c, struct colorix_ctx *d, i64 pos1,
 	dcmpro.expected_len = d->unc_image_size;
 	dcmpro.len_known = 1;
 
-	rixdecomp_codectype1(c, &dcmpri, &dcmpro, &dres, NULL, d->width);
+	rixdecomp_codectype1(c, &dcmpri, &dcmpro, &dres, NULL, d->rowspan);
 	dbuf_flush(dcmpro.f);
 
 	if(dres.errcode) {
@@ -351,12 +355,23 @@ static void do_colorix_image(deark *c, struct colorix_ctx *d, i64 pos1)
 {
 	de_bitmap *img = NULL;
 	dbuf *unc_pixels = 0;
+	dbuf *final_pixels_dbuf; // copy of pointer; do not free
+	i64 final_pixels_pos;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "image at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
-	d->unc_image_size = d->width * d->height;
+
+	if(d->imgtype==0x04) {
+		d->rowspan = de_pad_to_n(d->width, 8) / 2;
+	}
+	else {
+		d->rowspan = d->width;
+	}
+	if(d->rowspan<1) goto done;
+
+	d->unc_image_size = d->rowspan * d->height;
 	img = de_bitmap_create(c, d->width, d->height, 3);
 
 	if(d->is_compressed) {
@@ -364,17 +379,42 @@ static void do_colorix_image(deark *c, struct colorix_ctx *d, i64 pos1)
 		if(!do_colorix_decompress(c, d, pos1, unc_pixels)) {
 			goto done;
 		}
-		de_convert_image_paletted(unc_pixels, 0, 8, d->width, d->pal, img, 0);
+		final_pixels_dbuf = unc_pixels;
+		final_pixels_pos = 0;
 	}
 	else {
-		de_convert_image_paletted(c->infile, pos1, 8, d->width, d->pal, img, 0);
+		final_pixels_dbuf = c->infile;
+		final_pixels_pos = pos1;
 	}
+
+	if(d->imgtype==0x04) {
+		de_convert_image_paletted_planar(final_pixels_dbuf, final_pixels_pos, 4,
+			d->rowspan, d->rowspan/4, d->pal, img, 0x2);
+	}
+	else { // assume 0x00
+		de_convert_image_paletted(final_pixels_dbuf, final_pixels_pos, 8,
+			d->rowspan, d->pal, img, 0);
+	}
+
 	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
 
 done:
 	de_bitmap_destroy(img);
 	dbuf_close(unc_pixels);
 	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+// Sets d->pal_nbytes
+static void read_colorix_palette(deark *c, struct colorix_ctx *d, i64 pos1)
+{
+	if(d->paltype==0xab) {
+		de_read_simple_palette(c, c->infile, pos1, 16, 3, d->pal, 16, DE_RDPALTYPE_VGA18BIT, 0);
+		d->pal_nbytes = 48;
+	}
+	else { // assume 0xaf
+		de_read_simple_palette(c, c->infile, pos1, 256, 3, d->pal, 256, DE_RDPALTYPE_VGA18BIT, 0);
+		d->pal_nbytes = 768;
+	}
 }
 
 static void de_run_colorix(deark *c, de_module_params *mparams)
@@ -390,7 +430,7 @@ static void de_run_colorix(deark *c, de_module_params *mparams)
 
 	d->paltype = de_getbyte_p(&pos);
 	de_dbg(c, "palette type: 0x%02x", (UI)d->paltype);
-	if(d->paltype!=0xaf) {
+	if(d->paltype!=0xab && d->paltype!=0xaf) {
 		de_err(c, "Unsupported palette type: 0x%02x", (UI)d->paltype);
 	}
 
@@ -402,7 +442,10 @@ static void de_run_colorix(deark *c, de_module_params *mparams)
 	if(d->stgtype & 0x20) d->is_encrypted = 1;
 	d->imgtype = d->stgtype & 0x0f; // I guess?
 
-	if(d->imgtype != 0x00) {
+	if(d->imgtype==0x00 || (d->imgtype==0x04 && !d->is_compressed)) {
+		;
+	}
+	else {
 		de_err(c, "Unsupported image type: 0x%02x", (UI)d->stgtype);
 		goto done;
 	}
@@ -418,8 +461,8 @@ static void de_run_colorix(deark *c, de_module_params *mparams)
 	}
 
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
-	de_read_simple_palette(c, c->infile, pos, 256, 3, d->pal, 256, DE_RDPALTYPE_VGA18BIT, 0);
-	pos += 768;
+	read_colorix_palette(c, d, pos);
+	pos += d->pal_nbytes;
 	do_colorix_image(c, d, pos);
 
 done:
