@@ -27,14 +27,19 @@ enum rle_state_type {
 	RIX_RLESTATE_WAITING_FOR_REPEAT_COUNT
 };
 
+struct de_rixdecomp_params {
+	i64 rowspan;
+	u8 imgtype;
+};
+
 struct rixdecomp_ctx {
 	deark *c;
+	struct de_rixdecomp_params *private_params;
 	struct de_dfilter_in_params *dcmpri;
 	struct de_dfilter_out_params *dcmpro;
 	struct de_dfilter_results *dres;
 	const char *modname;
 	u8 errflag;
-	i64 rowspan;
 	i64 nbytes_written;
 	i64 nodetable_pos;
 	i64 first_cmpr_segment_pos;
@@ -173,7 +178,12 @@ static void rixdecomp_process_rle_byte(deark *c, struct rixdecomp_ctx *rhctx, u8
 	}
 
 	for(k = 0; k<count; k++) {
-		rhctx->rle_curr_color ^= val;
+		if(rhctx->private_params->imgtype==0) {
+			rhctx->rle_curr_color ^= val;
+		}
+		else {
+			rhctx->rle_curr_color = val;
+		}
 		dbuf_writebyte(rhctx->dcmpro->f, rhctx->rle_curr_color);
 	}
 	rhctx->nbytes_written += count;
@@ -212,11 +222,9 @@ done:
 	;
 }
 
-// TODO: Eliminate the 'rowspan' param, if we want this to actually
-// be a "type 1" codec.
 static void rixdecomp_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	void *codec_private_params, i64 rowspan)
+	void *codec_private_params)
 {
 	struct rixdecomp_ctx *rhctx = NULL;
 	i64 pos;
@@ -227,6 +235,7 @@ static void rixdecomp_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	de_dbg_indent_save(c, &saved_indent_level);
 	rhctx = de_malloc(c, sizeof(struct rixdecomp_ctx));
 	rhctx->c = c;
+	rhctx->private_params = (struct de_rixdecomp_params*)codec_private_params;
 	rhctx->modname = "rixdecomp";
 	rhctx->dcmpri = dcmpri;
 	rhctx->dcmpro = dcmpro;
@@ -239,6 +248,8 @@ static void rixdecomp_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	{
 		goto done;
 	}
+
+	if(rhctx->private_params->rowspan<1) goto done;
 
 	rhctx->nodetable_pos = dcmpri->pos;
 	if(!rixdecomp_read_nodetable(c, rhctx)) goto done;
@@ -275,12 +286,12 @@ static void rixdecomp_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 		seg_dcmpr_len = rhctx->dcmpro->f->len - saved_len;
 		de_dbg(c, "decompressed size: %"I64_FMT, seg_dcmpr_len);
 
-		if(seg_dcmpr_len < rowspan) {
+		if(seg_dcmpr_len < rhctx->private_params->rowspan) {
 			de_dfilter_set_generic_error(c, dres, rhctx->modname);
 			goto done;
 		}
 
-		de_dbg(c, "number of rows: %"I64_FMT, (i64)(seg_dcmpr_len/rowspan));
+		de_dbg(c, "number of rows: %"I64_FMT, (i64)(seg_dcmpr_len/rhctx->private_params->rowspan));
 
 		if(rhctx->dcmpro->f->len < rhctx->dcmpro->expected_len) {
 			// For non-final segments, there is a potential problem.
@@ -296,11 +307,12 @@ static void rixdecomp_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 			// Anyway, this is a quick and dirty attempt to work around the problem
 			// by detecting and deleting such garbage pixels. It's not foolproof, and
 			// better heuristics are possible.
-			num_extra_bytes = rhctx->dcmpro->f->len % rowspan;
+			num_extra_bytes = rhctx->dcmpro->f->len % rhctx->private_params->rowspan;
 			if(num_extra_bytes>0) {
 				de_dbg(c, "[ignoring %"I64_FMT" bytes -- assuming garbage caused by padding bits]",
 					num_extra_bytes);
-				dbuf_truncate(rhctx->dcmpro->f, rhctx->dcmpro->f->len - num_extra_bytes);
+				rhctx->nbytes_written = rhctx->dcmpro->f->len - num_extra_bytes;
+				dbuf_truncate(rhctx->dcmpro->f, rhctx->nbytes_written);
 			}
 		}
 
@@ -329,6 +341,11 @@ static int do_colorix_decompress(deark *c, struct colorix_ctx *d, i64 pos1,
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
+	struct de_rixdecomp_params params;
+
+	de_zeromem(&params, sizeof(struct de_rixdecomp_params));
+	params.rowspan = d->rowspan;
+	params.imgtype = d->imgtype;
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
@@ -338,7 +355,7 @@ static int do_colorix_decompress(deark *c, struct colorix_ctx *d, i64 pos1,
 	dcmpro.expected_len = d->unc_image_size;
 	dcmpro.len_known = 1;
 
-	rixdecomp_codectype1(c, &dcmpri, &dcmpro, &dres, NULL, d->rowspan);
+	rixdecomp_codectype1(c, &dcmpri, &dcmpro, &dres, (void*)&params);
 	dbuf_flush(dcmpro.f);
 
 	if(dres.errcode) {
@@ -363,7 +380,7 @@ static void do_colorix_image(deark *c, struct colorix_ctx *d, i64 pos1)
 	de_dbg(c, "image at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
-	if(d->imgtype==0x04) {
+	if(d->imgtype==4) {
 		d->rowspan = de_pad_to_n(d->width, 8) / 2;
 	}
 	else {
@@ -387,11 +404,11 @@ static void do_colorix_image(deark *c, struct colorix_ctx *d, i64 pos1)
 		final_pixels_pos = pos1;
 	}
 
-	if(d->imgtype==0x04) {
+	if(d->imgtype==4) {
 		de_convert_image_paletted_planar(final_pixels_dbuf, final_pixels_pos, 4,
 			d->rowspan, d->rowspan/4, d->pal, img, 0x2);
 	}
-	else { // assume 0x00
+	else { // assume 0
 		de_convert_image_paletted(final_pixels_dbuf, final_pixels_pos, 8,
 			d->rowspan, d->pal, img, 0);
 	}
@@ -442,14 +459,6 @@ static void de_run_colorix(deark *c, de_module_params *mparams)
 	if(d->stgtype & 0x20) d->is_encrypted = 1;
 	d->imgtype = d->stgtype & 0x0f; // I guess?
 
-	if(d->imgtype==0x00 || (d->imgtype==0x04 && !d->is_compressed)) {
-		;
-	}
-	else {
-		de_err(c, "Unsupported image type: 0x%02x", (UI)d->stgtype);
-		goto done;
-	}
-
 	if(d->is_encrypted) {
 		de_err(c, "Encrypted files not supported");
 		goto done;
@@ -463,6 +472,15 @@ static void de_run_colorix(deark *c, de_module_params *mparams)
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 	read_colorix_palette(c, d, pos);
 	pos += d->pal_nbytes;
+
+	if(d->imgtype==0 || d->imgtype==4) {
+		;
+	}
+	else {
+		de_err(c, "Unsupported image type: 0x%02x", (UI)d->stgtype);
+		goto done;
+	}
+
 	do_colorix_image(c, d, pos);
 
 done:
