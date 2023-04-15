@@ -2,13 +2,21 @@
 // Copyright (C) 2023 Jason Summers
 // See the file COPYING for terms of use.
 
-// ColoRIX .SCI, etc.
+// ColoRIX .SCI, .SCR, etc.
 
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_colorix);
 
+#define RIX_MIN_FILE_SIZE 36
+#define RIX_UNC_SCR_FILE_SIZE 112016
+#define RIX_MIN_OLD_SEGMENT_DLEN 220
+
 struct colorix_ctx {
+#define RIXFMT_OLD_U 1
+#define RIXFMT_OLD_C 2
+#define RIXFMT_RIX3  3
+	int fmtver;
 	u8 paltype;
 	u8 stgtype;
 	u8 imgtype;
@@ -17,6 +25,7 @@ struct colorix_ctx {
 	u8 has_extension_block;
 	i64 width, height;
 	i64 rowspan;
+	i64 known_segment_size;
 	i64 pal_nbytes;
 	i64 unc_image_size;
 	de_color pal[256];
@@ -28,6 +37,7 @@ enum rle_state_type {
 };
 
 struct de_rixdecomp_params {
+	i64 known_segment_size; // Set either this or rowspan
 	i64 rowspan;
 	u8 imgtype;
 };
@@ -40,6 +50,7 @@ struct rixdecomp_ctx {
 	struct de_dfilter_results *dres;
 	const char *modname;
 	u8 errflag;
+	u8 use_xor_filter;
 	i64 nbytes_written;
 	i64 nodetable_pos;
 	i64 first_cmpr_segment_pos;
@@ -127,7 +138,7 @@ static int rixdecomp_read_nodetable(deark *c, struct rixdecomp_ctx *rhctx)
 	rhctx->ht = fmtutil_huffman_create_decoder(c, 256, 256);
 
 	// We expect a maximum of 513: 256 leaf entries, + 255 pointer entries,
-	// + 2 extra zero-valued entries at the end.
+	// + up to 2 extra zero-valued entries at the end.
 	if(rhctx->nodetable_item_count < 1) {
 		de_dfilter_set_generic_error(c, rhctx->dres, rhctx->modname);
 		goto done;
@@ -178,7 +189,7 @@ static void rixdecomp_process_rle_byte(deark *c, struct rixdecomp_ctx *rhctx, u8
 	}
 
 	for(k = 0; k<count; k++) {
-		if(rhctx->private_params->imgtype==0) {
+		if(rhctx->use_xor_filter) {
 			rhctx->rle_curr_color ^= val;
 		}
 		else {
@@ -210,7 +221,7 @@ static void rixdecomp_process_codes_segment(deark *c, struct rixdecomp_ctx *rhct
 
 		ret = fmtutil_huffman_read_next_value(rhctx->ht->bk, &rhctx->bitrd, &val, NULL);
 		if(!ret || val<0 || val>255) {
-			// We don't know exactly where the data stops, so don't report
+			// We don't always know exactly where the data stops, so don't report
 			// errors here.
 			goto done;
 		}
@@ -229,6 +240,7 @@ static void rixdecomp_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct rixdecomp_ctx *rhctx = NULL;
 	i64 pos;
 	i64 endpos;
+	i64 seg_count;
 	int ok = 0;
 	int saved_indent_level;
 
@@ -241,6 +253,7 @@ static void rixdecomp_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	rhctx->dcmpro = dcmpro;
 	rhctx->dres = dres;
 	endpos = dcmpri->pos + rhctx->dcmpri->len;
+	rhctx->use_xor_filter = (rhctx->private_params->imgtype==0);
 
 	// Currently, we have some restrictions on the output dbuf.
 	if(dcmpro->f->btype!=DBUF_TYPE_MEMBUF || dcmpro->f->len!=0 ||
@@ -254,6 +267,7 @@ static void rixdecomp_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	rhctx->nodetable_pos = dcmpri->pos;
 	if(!rixdecomp_read_nodetable(c, rhctx)) goto done;
 
+	seg_count = 0;
 	pos = rhctx->first_cmpr_segment_pos;
 	while(1) {
 		i64 saved_len;
@@ -293,16 +307,18 @@ static void rixdecomp_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 
 		de_dbg(c, "number of rows: %"I64_FMT, (i64)(seg_dcmpr_len/rhctx->private_params->rowspan));
 
-		if(rhctx->dcmpro->f->len < rhctx->dcmpro->expected_len) {
+		if(rhctx->private_params->known_segment_size) {
+			rhctx->nbytes_written = (seg_count+1) * rhctx->private_params->known_segment_size;
+			dbuf_truncate(rhctx->dcmpro->f, rhctx->nbytes_written);
+		}
+		else if(rhctx->dcmpro->f->len < rhctx->dcmpro->expected_len) {
 			// For non-final segments, there is a potential problem.
 			// For a compressed segment, we know neither the (bit-exact) size of the
 			// compressed data, nor the size of the decompressed data. The padding
 			// bits in the final byte can be misinterpreted as compressed data, so
 			// we may have mistakenly decompressed them into garbage pixels that
 			// will mess up the rest of the image.
-			// If it wanted to, the encoding software could have special logic to
-			// sidestep the problem. But I don't know if it does that.
-			// It's also possible that there is a formula that would tell us the size
+			// It's possible that there is a formula that would tell us the size
 			// of the decompressed data. But I don't know what it is.
 			// Anyway, this is a quick and dirty attempt to work around the problem
 			// by detecting and deleting such garbage pixels. It's not foolproof, and
@@ -317,6 +333,7 @@ static void rixdecomp_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 		}
 
 		pos += seg_dlen;
+		seg_count++;
 		de_dbg_indent(c, -1);
 	}
 
@@ -344,6 +361,7 @@ static int do_colorix_decompress(deark *c, struct colorix_ctx *d, i64 pos1,
 	struct de_rixdecomp_params params;
 
 	de_zeromem(&params, sizeof(struct de_rixdecomp_params));
+	params.known_segment_size = d->known_segment_size;
 	params.rowspan = d->rowspan;
 	params.imgtype = d->imgtype;
 
@@ -368,7 +386,7 @@ done:
 	return retval;
 }
 
-static void do_colorix_image(deark *c, struct colorix_ctx *d, i64 pos1)
+static void do_colorix_image_RIX3(deark *c, struct colorix_ctx *d, i64 pos1)
 {
 	de_bitmap *img = NULL;
 	dbuf *unc_pixels = 0;
@@ -392,7 +410,7 @@ static void do_colorix_image(deark *c, struct colorix_ctx *d, i64 pos1)
 	img = de_bitmap_create(c, d->width, d->height, 3);
 
 	if(d->is_compressed) {
-		unc_pixels = dbuf_create_membuf(c, d->unc_image_size, 0);
+		unc_pixels = dbuf_create_membuf(c, d->unc_image_size+256, 0);
 		if(!do_colorix_decompress(c, d, pos1, unc_pixels)) {
 			goto done;
 		}
@@ -434,12 +452,17 @@ static void read_colorix_palette(deark *c, struct colorix_ctx *d, i64 pos1)
 	}
 }
 
-static void de_run_colorix(deark *c, de_module_params *mparams)
+static void declare_colorix_fmt(deark *c, struct colorix_ctx *d)
+{
+	de_declare_fmtf(c, "ColoRIX - %s, %scompressed",
+		(d->fmtver==RIXFMT_RIX3 ? "new" : "old"),
+		(d->is_compressed ? "" : "un"));
+}
+
+static void do_colorix_RIX3(deark *c, struct colorix_ctx *d)
 {
 	i64 pos;
-	struct colorix_ctx *d = NULL;
 
-	d = de_malloc(c, sizeof(struct colorix_ctx));
 	pos = 4;
 	d->width = de_getu16le_p(&pos);
 	d->height = de_getu16le_p(&pos);
@@ -458,6 +481,7 @@ static void de_run_colorix(deark *c, de_module_params *mparams)
 	if(d->stgtype & 0x40) d->has_extension_block = 1;
 	if(d->stgtype & 0x20) d->is_encrypted = 1;
 	d->imgtype = d->stgtype & 0x0f; // I guess?
+	declare_colorix_fmt(c, d);
 
 	if(d->is_encrypted) {
 		de_err(c, "Encrypted files not supported");
@@ -481,7 +505,206 @@ static void de_run_colorix(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	do_colorix_image(c, d, pos);
+	do_colorix_image_RIX3(c, d, pos);
+done:
+	;
+}
+
+static void acquire_palette_ega64idx(deark *c, struct colorix_ctx *d, i64 pos1)
+{
+	i64 k;
+	i64 pos = pos1;
+	char tmps[32];
+
+	for(k=0; k<16; k++) {
+		int index;
+
+		index = (int)de_getbyte_p(&pos);
+		index &= 0x3f;
+		d->pal[k] = de_get_std_palette_entry(DE_PALID_EGA64, 0, index);
+		de_snprintf(tmps, sizeof(tmps), "%2d ", index);
+		de_dbg_pal_entry2(c, k, d->pal[k], tmps, NULL, NULL);
+	}
+}
+
+static void do_colorix_old_SCR(deark *c, struct colorix_ctx *d)
+{
+	de_bitmap *img = NULL;
+	i64 planespan;
+	dbuf *unc_pixels = NULL;
+	dbuf *tmpbuf = NULL;
+	dbuf *final_pixels_dbuf; // copy of pointer; do not free
+	i64 final_pixels_pos;
+	de_finfo *fi = NULL;
+
+	d->imgtype = 1;
+	d->width = 640;
+	d->height = 350;
+	d->unc_image_size = (d->width*d->height)/2;
+	planespan = d->unc_image_size/4;
+	d->known_segment_size = planespan;
+	d->rowspan = d->width/8;
+	declare_colorix_fmt(c, d);
+
+	acquire_palette_ega64idx(c, d, 0);
+
+	if(d->is_compressed) {
+		unc_pixels = dbuf_create_membuf(c, d->unc_image_size+256, 0);
+		if(!do_colorix_decompress(c, d, 16, unc_pixels)) goto done;
+		final_pixels_dbuf = unc_pixels;
+		final_pixels_pos = 0;
+	}
+	else {
+		final_pixels_dbuf = c->infile;
+		final_pixels_pos = 16;
+	}
+
+	// TODO?: Improve de_convert_image_paletted_planar to support this plane order.
+	tmpbuf = dbuf_create_membuf(c, d->unc_image_size, 0);
+	dbuf_copy(final_pixels_dbuf, final_pixels_pos+planespan*0, planespan, tmpbuf);
+	dbuf_copy(final_pixels_dbuf, final_pixels_pos+planespan*2, planespan, tmpbuf);
+	dbuf_copy(final_pixels_dbuf, final_pixels_pos+planespan*1, planespan, tmpbuf);
+	dbuf_copy(final_pixels_dbuf, final_pixels_pos+planespan*3, planespan, tmpbuf);
+
+	img = de_bitmap_create(c, d->width, d->height, 3);
+	de_convert_image_paletted_planar(tmpbuf, 0, 4,
+		d->rowspan, planespan, d->pal, img, 2);
+
+	fi = de_finfo_create(c);
+	fi->density.code = DE_DENSITY_UNK_UNITS;
+	fi->density.xdens = 480.0;
+	fi->density.ydens = (double)d->height;
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
+
+done:
+	de_bitmap_destroy(img);
+	dbuf_close(unc_pixels);
+	dbuf_close(tmpbuf);
+	de_finfo_destroy(c, fi);
+}
+
+static int is_RIX3(dbuf *f)
+{
+	if(!dbuf_memcmp(f, 0, (const void*)"RIX3", 4)) {
+		return 1;
+	}
+	return 0;
+}
+
+// It's a pain to detect old compressed format, but I guess it's worth
+// the trouble.
+static int looks_like_compressed_data(dbuf *f, i64 pos1)
+{
+	i64 pos = pos1;
+	i64 first_image_seg_pos;
+	int retval = 0;
+	i64 i;
+	i64 num_codebook_items;
+	i64 num_items_to_check;
+
+	// Validate the codebook size, and some of the items
+	num_codebook_items = dbuf_getu16le_p(f, &pos);
+	if(num_codebook_items<3 || num_codebook_items>513) goto done;
+	first_image_seg_pos = pos + num_codebook_items*2;
+	if(first_image_seg_pos > f->len) goto done;
+
+	num_items_to_check = de_min_int(num_codebook_items-2, 16);
+	for(i=0; i<num_items_to_check; i++) {
+		UI item;
+
+		item = (UI)dbuf_getu16le_p(f, &pos);
+		if(item<0x1000) {
+			if((item&0x1)!=0) goto done;
+			if(pos+item >= first_image_seg_pos) goto done;
+		}
+		else if(item<=0x10ff) {
+			;
+		}
+		else {
+			goto done;
+		}
+	}
+
+	// Validate the image segment sizes
+	pos = first_image_seg_pos;
+	for(i=0; i<4; i++) {
+		i64 seg_len;
+
+		if(pos+3 > f->len) goto done;
+		seg_len = dbuf_getu16le_p(f, &pos);
+		if(seg_len<RIX_MIN_OLD_SEGMENT_DLEN) goto done;
+
+		pos += seg_len;
+	}
+
+	if(pos==f->len) {
+		retval = 1;
+	}
+
+done:
+	return retval;
+}
+
+// Returns RIXFMT_OLD_U, RIXFMT_OLD_C, or 0.
+static int detect_old_fmt(dbuf *f, u8 strict)
+{
+	size_t i;
+	u8 cmpr_flag = 0;
+	u8 buf[16];
+
+	if(f->len<RIX_MIN_FILE_SIZE) return 0;
+
+	// Check the palette
+	dbuf_read(f, buf, 0, 16);
+	for(i=0; i<16; i++) {
+		if(i==0) {
+			if((buf[i] & 0x80)!=0) {
+				cmpr_flag = 1;
+				buf[i] -= 0x80;
+			}
+			else {
+				if(f->len!=RIX_UNC_SCR_FILE_SIZE) return 0;
+			}
+		}
+
+		if(buf[i]>0x3f) return 0;
+	}
+	if(!cmpr_flag) return RIXFMT_OLD_U;
+	if(!strict) return RIXFMT_OLD_C;
+
+	if(looks_like_compressed_data(f, 16)) {
+		return RIXFMT_OLD_C;
+	}
+
+	return 0;
+}
+
+static void de_run_colorix(deark *c, de_module_params *mparams)
+{
+	struct colorix_ctx *d = NULL;
+
+	d = de_malloc(c, sizeof(struct colorix_ctx));
+
+	if(is_RIX3(c->infile)) {
+		d->fmtver = RIXFMT_RIX3;
+	}
+	else {
+		d->fmtver = detect_old_fmt(c->infile, 0);
+		if(d->fmtver==RIXFMT_OLD_C) {
+			d->is_compressed = 1;
+		}
+	}
+
+	if(d->fmtver==RIXFMT_RIX3) {
+		do_colorix_RIX3(c, d);
+	}
+	else if(d->fmtver==RIXFMT_OLD_U || d->fmtver==RIXFMT_OLD_C) {
+		do_colorix_old_SCR(c, d);
+	}
+	else {
+		de_err(c, "Unknown or unsupported RIX format");
+		goto done;
+	}
 
 done:
 	de_free(c, d);
@@ -489,10 +712,29 @@ done:
 
 static int de_identify_colorix(deark *c)
 {
-	if(dbuf_memcmp(c->infile, 0, (const void*)"RIX3", 4)) {
-		return 0;
+	if(c->infile->len < RIX_MIN_FILE_SIZE) return 0;
+
+	if(is_RIX3(c->infile)) {
+		return 95;
 	}
-	return 95;
+
+	if(c->detection_data->best_confidence_so_far >= 55) return 0;
+
+	if(de_input_file_has_ext(c, "scr")) {
+		int fmt;
+
+		fmt = detect_old_fmt(c->infile, 1);
+		if(fmt==RIXFMT_OLD_U) {
+			return 35;
+		}
+		else if(fmt==RIXFMT_OLD_C) {
+			return 55;
+		}
+	}
+	// TODO: There is supposedly also an old ".SCP" format, 640x480x16.
+	// But I can't find any samples.
+
+	return 0;
 }
 
 void de_module_colorix(deark *c, struct deark_module_info *mi)
