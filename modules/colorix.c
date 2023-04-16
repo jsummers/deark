@@ -10,7 +10,7 @@ DE_DECLARE_MODULE(de_module_colorix);
 
 #define RIX_MIN_FILE_SIZE 36
 #define RIX_UNC_SCR_FILE_SIZE 112016
-#define RIX_MIN_OLD_SEGMENT_DLEN 220
+#define RIX_MIN_OLD_SEGMENT_DLEN 100
 
 struct colorix_ctx {
 #define RIXFMT_OLD_U 1
@@ -58,53 +58,54 @@ struct rixdecomp_ctx {
 	struct de_bitreader bitrd;
 
 	i64 nodetable_dpos;
-	i64 nodetable_item_count;
+	i64 nodetable_dlen;
 
 	enum rle_state_type rle_state;
 	u8 rle_curr_color;
 	u8 rle_byte_to_repeat;
+
+	char tmpbuf[72];
 };
 
 static void rixdecomp_interpret_nodetable_item(struct rixdecomp_ctx *rhctx,
-	i64 itemnum, u64 currcode, UI currcode_nbits)
+	i64 itempos, u64 currcode, UI currcode_nbits)
 {
 	u16 dval;
 
 	if(rhctx->errflag) return;
-	if(itemnum<0 || itemnum>=rhctx->nodetable_item_count) {
+	if((itempos < rhctx->nodetable_dpos) ||
+		(itempos+2 > rhctx->nodetable_dpos+rhctx->nodetable_dlen))
+	{
 		rhctx->errflag = 1;
 		return;
 	}
 	if(currcode_nbits>=FMTUTIL_HUFFMAN_MAX_CODE_LENGTH) return;
 
-	dval = (u16)dbuf_getu16le(rhctx->dcmpri->f, rhctx->nodetable_dpos + 2*itemnum);
-	de_dbg2(rhctx->c, "item[%d]: 0x%04x", (int)itemnum, (UI)dval);
+	dval = (u16)dbuf_getu16le(rhctx->dcmpri->f, itempos);
+	de_dbg2(rhctx->c, "item@%"I64_FMT": 0x%04x", itempos, (UI)dval);
 
 	if(dval>=2 && dval<0x1000 && (dval%2==0)) { // a "pointer" item
 		// The very next item is the start of the "1" subtree.
-		rixdecomp_interpret_nodetable_item(rhctx, itemnum+1, ((currcode<<1) | 1), currcode_nbits+1);
+		rixdecomp_interpret_nodetable_item(rhctx, itempos+2, ((currcode<<1) | 1), currcode_nbits+1);
 		if(rhctx->errflag) goto done;
 
 		// The pointer item tells how many bytes are between the pointer item
 		// and the start of the "0" subtree.
-		rixdecomp_interpret_nodetable_item(rhctx, itemnum+1+(dval/2), currcode<<1, currcode_nbits+1);
-
+		rixdecomp_interpret_nodetable_item(rhctx, itempos+2+(i64)dval, currcode<<1, currcode_nbits+1);
 		if(rhctx->errflag) goto done;
 	}
 	else if(dval>=0x1000 && dval<=0x10ff) { // a leaf item
 		fmtutil_huffman_valtype adj_value;
-		char b2buf[72];
 
 		adj_value = (fmtutil_huffman_valtype)(dval-0x1000);
 		if(rhctx->c->debug_level>=3) {
 			de_dbg3(rhctx->c, "code: \"%s\" = %d",
-				de_print_base2_fixed(b2buf, sizeof(b2buf), currcode, currcode_nbits),
+				de_print_base2_fixed(rhctx->tmpbuf, sizeof(rhctx->tmpbuf), currcode, currcode_nbits),
 				(int)adj_value);
 		}
 		if(!fmtutil_huffman_add_code(rhctx->c, rhctx->ht->bk, currcode, currcode_nbits, adj_value)) {
 			rhctx->errflag = 1;
 		}
-
 	}
 	else {
 		rhctx->errflag = 1;
@@ -122,6 +123,7 @@ static int rixdecomp_read_nodetable(deark *c, struct rixdecomp_ctx *rhctx)
 {
 	i64 pos1;
 	i64 pos;
+	i64 nodetable_dlen_raw;
 	int retval = 0;
 	int saved_indent_level;
 
@@ -130,23 +132,24 @@ static int rixdecomp_read_nodetable(deark *c, struct rixdecomp_ctx *rhctx)
 	pos = pos1;
 	de_dbg(c, "huffman node table segment at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
-	rhctx->nodetable_item_count = dbuf_getu16le_p(rhctx->dcmpri->f, &pos);
-	de_dbg(c, "item count: %u", (UI)rhctx->nodetable_item_count);
+	nodetable_dlen_raw = dbuf_getu16le_p(rhctx->dcmpri->f, &pos);
+	rhctx->nodetable_dlen = nodetable_dlen_raw*2;
+	de_dbg(c, "node table dlen: %"I64_FMT, rhctx->nodetable_dlen);
 	rhctx->nodetable_dpos = pos;
-	rhctx->first_cmpr_segment_pos = rhctx->nodetable_dpos + 2*rhctx->nodetable_item_count;
+	rhctx->first_cmpr_segment_pos = rhctx->nodetable_dpos + rhctx->nodetable_dlen;
 
 	rhctx->ht = fmtutil_huffman_create_decoder(c, 256, 256);
 
 	// We expect a maximum of 513: 256 leaf entries, + 255 pointer entries,
 	// + up to 2 extra zero-valued entries at the end.
-	if(rhctx->nodetable_item_count < 1) {
+	if(nodetable_dlen_raw < 1) {
 		de_dfilter_set_generic_error(c, rhctx->dres, rhctx->modname);
 		goto done;
 	}
 
 	de_dbg2(c, "node table nodes at %"I64_FMT, rhctx->nodetable_dpos);
 	de_dbg_indent(c, 1);
-	rixdecomp_interpret_nodetable_item(rhctx, 0, 0, 0);
+	rixdecomp_interpret_nodetable_item(rhctx, rhctx->nodetable_dpos, 0, 0);
 	de_dbg_indent(c, -1);
 
 	if(c->debug_level>=4) {
@@ -397,6 +400,7 @@ static void do_colorix_image_RIX3(deark *c, struct colorix_ctx *d, i64 pos1)
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "image at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
+	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
 	if(d->imgtype==4) {
 		d->rowspan = de_pad_to_n(d->width, 8) / 2;
@@ -472,6 +476,7 @@ static void do_colorix_RIX3(deark *c, struct colorix_ctx *d)
 	de_dbg(c, "palette type: 0x%02x", (UI)d->paltype);
 	if(d->paltype!=0xab && d->paltype!=0xaf) {
 		de_err(c, "Unsupported palette type: 0x%02x", (UI)d->paltype);
+		goto done;
 	}
 
 	d->stgtype = de_getbyte_p(&pos);
@@ -487,13 +492,16 @@ static void do_colorix_RIX3(deark *c, struct colorix_ctx *d)
 		de_err(c, "Encrypted files not supported");
 		goto done;
 	}
+
 	if(d->has_extension_block) {
-		// TODO: We could tolerate this.
-		de_err(c, "Extension blocks not supported");
-		goto done;
+		i64 e_len;
+
+		e_len = de_getu16le_p(&pos);
+		de_dbg(c, "extension block: dpos=%"I64_FMT", dlen=%"I64_FMT, pos, e_len);
+		// I've found no files with extension blocks, so no reason to parse them.
+		pos += e_len;
 	}
 
-	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 	read_colorix_palette(c, d, pos);
 	pos += d->pal_nbytes;
 
