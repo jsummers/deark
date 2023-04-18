@@ -649,79 +649,78 @@ static void my_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 	d->o_dcmpr_code_nbytes_written++;
 }
 
+// Allocates and populats a huffman_decoder.
+// Caller supplies htp: A pointer to an initially-NULL pointer.
+// Caller must eventually cal fmtutil_huffman_destroy_decoder() on the returned
+//  pointer.
+// lengths_and_codes: High 4 bits is the code length (0..12),
+//  low 12 bits is the code.
+static void huffman_make_tree_from_u16array(deark *c,
+	struct fmtutil_huffman_decoder **htp,
+	const u16 *lengths_and_codes, UI ncodes,
+	const char *dbgtitle)
+{
+	UI n;
+	char b2buf[72];
+
+	if(*htp) return;
+	*htp = fmtutil_huffman_create_decoder(c, ncodes, ncodes);
+	if(dbgtitle) {
+		de_dbg3(c, "[%s codebook]", dbgtitle);
+	}
+	de_dbg_indent(c, 1);
+	for(n=0; n<ncodes; n++) {
+		UI nbits;
+		u64 code;
+
+		nbits = ((UI)lengths_and_codes[n])>>12;
+		code = ((u64)lengths_and_codes[n]) & 0x0fff;
+
+		if(dbgtitle && c->debug_level>=3) {
+			de_dbg3(c, "code: \"%s\" = %d",
+				de_print_base2_fixed(b2buf, sizeof(b2buf), code, nbits), (int)n);
+		}
+		fmtutil_huffman_add_code(c, (*htp)->bk, code, nbits,
+			(fmtutil_huffman_valtype)n);
+	}
+	de_dbg_indent(c, -1);
+}
+
 static void make_matchlengths_tree(deark *c, lctx *d)
 {
-	static const u8 matchlength_codelengths_lg[24] = {
-		2, 2, 3, 4, 4, 4, 5, 5, 5, 6, 6, 7, 7, 7, 8, 8,
-		8, 9, 9, 9, 9, 9, 9, 6
+	static const char *name = "match lengths";
+	static const u16 matchlengthsdata_lg[24] = {
+		0x2002,0x2003,0x3000,0x4002,0x4003,0x4004,0x500a,0x500b,
+		0x500c,0x601a,0x601b,0x703a,0x703b,0x703c,0x807a,0x807b,
+		0x807c,0x90fa,0x90fb,0x90fc,0x90fd,0x90fe,0x90ff,0x601c
 	};
-	static const u8 matchlength_codes_lg[24] = {
-		2,3,0,2,3,4,10,11,12,26,27,58,59,60,122,123,
-		124,250,251,252,253,254,255,28
+	static const u16 matchlengthsdata_sm[9] = {
+		0x3002,0x2000,0x3004,0x3005,0x400c,0x400d,0x400e,0x400f,
+		0x3003
 	};
-	static const u8 matchlength_codelengths_sm[9] = {
-		3, 2, 3, 3, 4, 4, 4, 4, 3
-	};
-	static const u8 matchlength_codes_sm[9] = {
-		2, 0, 4, 5, 12, 13, 14, 15, 3
-	};
-	static const u8 *ml_codelengths;
-	static const u8 *ml_codes;
-	i64 i;
-	i64 num_codes;
 
-	if(d->lengths_tree) return;
 	if(d->ver.large_cmpr) {
-		num_codes = (i64)DE_ARRAYCOUNT(matchlength_codelengths_lg);
-		ml_codelengths = matchlength_codelengths_lg;
-		ml_codes = matchlength_codes_lg;
+		huffman_make_tree_from_u16array(c, &d->lengths_tree,
+			matchlengthsdata_lg, 24, name);
 	}
 	else {
-		num_codes = (i64)DE_ARRAYCOUNT(matchlength_codelengths_sm);
-		ml_codelengths = matchlength_codelengths_sm;
-		ml_codes = matchlength_codes_sm;
-	}
-
-	d->lengths_tree = fmtutil_huffman_create_decoder(c, num_codes, num_codes);
-
-	for(i=0; i<num_codes; i++) {
-		fmtutil_huffman_add_code(c, d->lengths_tree->bk, ml_codes[i], ml_codelengths[i],
-			(fmtutil_huffman_valtype)i);
+		huffman_make_tree_from_u16array(c, &d->lengths_tree,
+			matchlengthsdata_sm, 9, name);
 	}
 }
 
 static void make_offsets_tree(deark *c, lctx *d)
 {
-	i64 i;
-	UI curr_len = 1;
-	fmtutil_huffman_valtype curr_code = 1;
+	static const char *name = "offsets";
+	static const u16 offsetsdata[32] = {
+		0x1001,0x4000,0x4001,0x5004,0x5005,0x5006,0x5007,0x6010,
+		0x6011,0x6012,0x6013,0x6014,0x6015,0x6016,0x702e,0x702f,
+		0x7030,0x7031,0x7032,0x7033,0x7034,0x7035,0x7036,0x7037,
+		0x7038,0x7039,0x703a,0x703b,0x703c,0x703d,0x703e,0x703f
+	};
 
-	if(d->offsets_tree) return;
-	d->offsets_tree = fmtutil_huffman_create_decoder(c, 32, 32);
-
-	for(i=0; i<32; i++) {
-		// Are we at a place where we adjust our counters?
-		if(i==1) {
-			curr_len = 4;
-			curr_code = 0;
-		}
-		else if(i==3) {
-			curr_len++;
-			curr_code = 4;
-		}
-		else if(i==7) {
-			curr_len++;
-			curr_code = 16;
-		}
-		else if(i==14) {
-			curr_len++;
-			curr_code = 46;
-		}
-
-		fmtutil_huffman_add_code(c, d->offsets_tree->bk, curr_code, curr_len,
-			(fmtutil_huffman_valtype)i);
-		curr_code++;
-	}
+	huffman_make_tree_from_u16array(c, &d->offsets_tree,
+		offsetsdata, 32, name);
 }
 
 static UI read_pklite_code_using_tree(deark *c, lctx *d, struct fmtutil_huffman_decoder *ht)
