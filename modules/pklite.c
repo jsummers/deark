@@ -690,13 +690,13 @@ static void make_matchlengths_tree(deark *c, lctx *d)
 {
 	static const char *name = "match lengths";
 	static const u16 matchlengthsdata_lg[24] = {
-		0x2002,0x2003,0x3000,0x4002,0x4003,0x4004,0x500a,0x500b,
-		0x500c,0x601a,0x601b,0x703a,0x703b,0x703c,0x807a,0x807b,
-		0x807c,0x90fa,0x90fb,0x90fc,0x90fd,0x90fe,0x90ff,0x601c
+		0x2003,0x3000,0x4002,0x4003,0x4004,0x500a,0x500b,0x500c,
+		0x601a,0x601b,0x703a,0x703b,0x703c,0x807a,0x807b,0x807c,
+		0x90fa,0x90fb,0x90fc,0x90fd,0x90fe,0x90ff,0x601c,0x2002
 	};
 	static const u16 matchlengthsdata_sm[9] = {
-		0x3002,0x2000,0x3004,0x3005,0x400c,0x400d,0x400e,0x400f,
-		0x3003
+		0x2000,0x3004,0x3005,0x400c,0x400d,0x400e,0x400f,0x3003,
+		0x3002
 	};
 
 	if(d->ver.large_cmpr) {
@@ -749,19 +749,22 @@ static void do_decompress(deark *c, lctx *d)
 {
 	struct de_lz77buffer *ringbuf = NULL;
 	u8 b;
-	UI value_of_special_code;
-	UI large_matchlen_bias;
+	UI value_of_long_ml_code;
+	UI value_of_ml2_0_code;
+	UI long_matchlen_bias;
 
 	de_dbg(c, "decompressing cmpr code at %"I64_FMT, d->cmpr_data_pos);
 	de_dbg_indent(c, 1);
 
 	if(d->ver.large_cmpr) {
-		value_of_special_code = 23;
-		large_matchlen_bias = 25;
+		value_of_long_ml_code = 22;
+		value_of_ml2_0_code = value_of_long_ml_code+1;
+		long_matchlen_bias = 25;
 	}
 	else {
-		value_of_special_code = 8;
-		large_matchlen_bias = 10;
+		value_of_long_ml_code = 7;
+		value_of_ml2_0_code = value_of_long_ml_code+1;
+		long_matchlen_bias = 10;
 	}
 
 	make_matchlengths_tree(c, d);
@@ -785,8 +788,9 @@ static void do_decompress(deark *c, lctx *d)
 		u8 x;
 		UI len_raw;
 		UI matchlen;
-		UI offs_hi_bits;
+		UI offs_hi_bits = 0;
 		u8 offs_lo_byte;
+		u8 offs_have_hi_bits = 0;
 		UI matchpos;
 
 		if(d->errflag) goto after_dcmpr;
@@ -807,12 +811,20 @@ static void do_decompress(deark *c, lctx *d)
 		len_raw = read_pklite_code_using_tree(c, d, d->lengths_tree);
 		if(d->errflag) goto after_dcmpr;
 
-		if(len_raw==value_of_special_code) {
+		if(len_raw<value_of_long_ml_code) {
+			matchlen = len_raw+3;
+		}
+		else if(len_raw==value_of_ml2_0_code) {
+			matchlen = 2;
+			// Leave offs_hi_bits at 0.
+			offs_have_hi_bits = 1;
+		}
+		else if(len_raw==value_of_long_ml_code) {
 			b = de_getbyte_p(&d->dcmpr_cur_ipos);
 
 			if(b >= 0xfd) {
 				if(b==0xfe && d->ver.large_cmpr) {
-					// Just a no-op?
+					// (segment separator) Just a no-op?
 					de_dbg3(c, "code 0xfe");
 					continue;
 				}
@@ -825,16 +837,14 @@ static void do_decompress(deark *c, lctx *d)
 				d->errmsg_handled = 1;
 				goto after_dcmpr;
 			}
-			matchlen = (UI)b+large_matchlen_bias;
+			matchlen = (UI)b+long_matchlen_bias;
 		}
 		else {
-			matchlen = len_raw+2;
+			d->errflag = 1;
+			goto done;
 		}
 
-		if(matchlen==2) {
-			offs_hi_bits = 0;
-		}
-		else {
+		if(!offs_have_hi_bits) {
 			offs_hi_bits = read_pklite_code_using_tree(c, d, d->offsets_tree);
 		}
 
