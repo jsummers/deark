@@ -387,19 +387,17 @@ static void descramble_decoder_section(dbuf *inf, i64 pos1, i64 len, dbuf *outf)
 {
 	i64 i;
 	i64 pos = pos1;
-	u8 prev_b0;
-	u8 prev_b1;
-	u8 b0, b1;
+	UI this_word_scr;
+	UI next_word_scr;
+	UI this_word_dscr;
 
-	prev_b0 = dbuf_getbyte(inf, pos-2);
-	prev_b1 = dbuf_getbyte(inf, pos-1);
+	this_word_scr = (UI)dbuf_getu16le(inf, pos);
 	for(i=0; i<len; i+=2) {
-		b0 = dbuf_getbyte_p(inf, &pos);
-		b1 = dbuf_getbyte_p(inf, &pos);
-		dbuf_writebyte(outf, (b0^prev_b0));
-		dbuf_writebyte(outf, (b1^prev_b1));
-		prev_b0 = b0;
-		prev_b1 = b1;
+		next_word_scr = (UI)dbuf_getu16le(inf, pos+2);
+		pos += 2;
+		this_word_dscr = this_word_scr ^ next_word_scr;
+		dbuf_writeu16le(outf, (i64)this_word_dscr);
+		this_word_scr = next_word_scr;
 	}
 }
 
@@ -516,16 +514,26 @@ static void detect_pklite_version_part4(deark *c, lctx *d)
 after_extra_cmpr:
 
 	// The compressed code presumably starts at the first multiple of 16 after
-	// the end of the table. But unfortunately the table doesn't always end in
-	// a consistent way.
-	// The end of the table is usually at +23, but for v1.14-e it seems
-	// to be at +21, and for v1.50+ w/o -e it might be +24.
-	// It happens that for every file I've seen, both +23 and +24 work. (The only
-	// files that are aligned such that it would make a difference are from
-	// v1.00beta, and for that version it's irrelevant.)
-	// But there could be files out there for which one or the other doesn't work.
+	// the end of the tables data section that normally ends with bytes
+	// 0a 0b 0c 0d.
+	// But if this section is "scrambled", there are usually two extra
+	// (garbage?) bytes after the "0c 0d" (after descrambling). But sometimes,
+	// e.g. for v1.14-e, there are no extra bytes. So it's not obvious where
+	// it ends.
+	//
+	// Complicating this explanation is the fact that our descrambling algorithm
+	// always messes up the last two bytes of scrambled data. That's because they
+	// require a key that's stored elsewhere. We could fix this, but it's not
+	// important.
+	//
+	// Anyway, the following logic seems to be good enough for all known files,
+	// but it's probably not theoretically correct. The correct way is probably
+	// more complicated.
 	if(is_beta) {
 		d->predicted_cmpr_data_pos = d->ei->start_of_dos_code;
+	}
+	else if(scrambled) {
+		d->predicted_cmpr_data_pos = de_pad_to_n(foundpos_abs+25, 16);
 	}
 	else {
 		d->predicted_cmpr_data_pos = de_pad_to_n(foundpos_abs+23, 16);
