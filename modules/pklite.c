@@ -30,6 +30,7 @@ struct ver_info_struct {
 	u8 extra_cmpr;
 	u8 extra_cmpr_confidence; // likelihood that extra_cmpr is correct
 	u8 large_cmpr;
+	u8 v120_cmpr;
 	u8 load_high;
 	const char *suffix;
 
@@ -92,10 +93,11 @@ static void find_cmprdata_pos(deark *c, lctx *d, struct ver_info_struct *v)
 		}
 	}
 
-	if(d->cmpr_data_pos!=0) {
+	if(d->cmpr_data_pos!=0 && !d->ver_detected.v120_cmpr) {
 		// The first byte of compressed data can't be odd, because the first instruction must
 		// be a literal.
 		// This is just an extra sanity check that might improve the error message.
+		// (The special 0 literal means this doesn't work for v1.20.)
 		if(de_getbyte(d->cmpr_data_pos) & 0x01) {
 			d->cmpr_data_pos = 0;
 		}
@@ -235,6 +237,7 @@ static void detect_pklite_decoder_shape(deark *c, struct fmtutil_exe_info *ei, u
 		"\xd3\xbc\x00\x02\xfb\x83\xeb?\x8e\xc3\x53\xb9??\x33";
 	static const u8 *shape_112 = (const u8*)"\xb8??\xba??\x05\x00\x00\x3b\x06\x02\x00\x73\x1a\x2d\x20\x00\xfa\x8e\xd0"
 		"\xfb\x2d?\x00\x8e\xc0\x50\xb9??\x33\xff\x57\xbe\x44";
+
 	static const u8 *shape_114 = (const u8*)"\xb8??\xba??\x05\x00\x00\x3b\x06\x02\x00\x72\x1b\xb4\x09\xba\x18\x01\xcd"
 		"\x21\xcd\x20";
 	static const u8 *shape_150 = (const u8*)"\x50\xb8??\xba??\x05\x00\x00\x3b\x06\x02\x00\x72?\xb4\x09\xba??\xcd\x21\xb8"
@@ -555,6 +558,27 @@ done:
 	dbuf_close(tmpdbuf);
 }
 
+static void detect_pklite_version_part5(deark *c, lctx *d)
+{
+	// This is a quick & dirty ID based on just two files: PKZMENU.EXE from
+	// {PKZM100.EXE and PKZM104.EXE}.
+	if(d->ver_reported.ver_num==0x10a && d->ver_reported.large_cmpr) {
+		if(dbuf_getu64be(c->infile, d->ei->start_of_dos_code+655-80) ==
+			0x8bf08bf8cb000000ULL)
+		{
+			d->predicted_cmpr_data_pos = d->ei->start_of_dos_code+672-80;
+			d->ver_detected.ver_num = 0x10a;
+			d->ver_detected.extra_cmpr = 1;
+			d->ver_detected.extra_cmpr_confidence = 100;
+			d->ver_detected.large_cmpr = 1;
+			// We call it "v120", though it probably first appeared in files
+			// labeled v1.10.
+			d->ver_detected.v120_cmpr = 1;
+			d->ver_detected.valid = 1;
+		}
+	}
+}
+
 static void detect_pklite_version(deark *c, lctx *d)
 {
 	struct de_crcobj *crco = NULL;
@@ -574,7 +598,12 @@ static void detect_pklite_version(deark *c, lctx *d)
 		detect_pklite_version_part3(c, d, crco);
 	}
 
+	// Always do this part, because it's usually how we find the compressed data.
 	detect_pklite_version_part4(c, d);
+
+	if(!d->ver_detected.valid) {
+		detect_pklite_version_part5(c, d);
+	}
 
 	derive_version_fields(c, d, &d->ver_detected);
 
@@ -698,14 +727,37 @@ static void make_matchlengths_tree(deark *c, lctx *d)
 		0x2000,0x3004,0x3005,0x400c,0x400d,0x400e,0x400f,0x3003,
 		0x3002
 	};
+	// I thank Sergei Kolzun (private correspondence) for information about the
+	// v1.20 formats.
+	static const u16 matchlengthsdata120_lg[21] = {
+		0x2003,0x3000,0x4005,0x4006,0x5006,0x5007,0x6008,0x6009,
+		0x7020,0x7021,0x7022,0x7023,0x8048,0x8049,0x804a,0x9096,
+		0x9097,0x6013,0x2002,0x4007,0x5005
+	};
+	static const u16 matchlengthsdata120_sm[11] = {
+		0x2003,0x3000,0x4004,0x4005,0x500e,0x601e,0x601f,0x4006,
+		0x2002,0x4003,0x4002
+	};
 
 	if(d->ver.large_cmpr) {
-		huffman_make_tree_from_u16array(c, &d->lengths_tree,
-			matchlengthsdata_lg, 24, name);
+		if(d->ver.v120_cmpr) {
+			huffman_make_tree_from_u16array(c, &d->lengths_tree,
+				matchlengthsdata120_lg, 21, name);
+		}
+		else {
+			huffman_make_tree_from_u16array(c, &d->lengths_tree,
+				matchlengthsdata_lg, 24, name);
+		}
 	}
 	else {
-		huffman_make_tree_from_u16array(c, &d->lengths_tree,
-			matchlengthsdata_sm, 9, name);
+		if(d->ver.v120_cmpr) {
+			huffman_make_tree_from_u16array(c, &d->lengths_tree,
+				matchlengthsdata120_sm, 11, name);
+		}
+		else {
+			huffman_make_tree_from_u16array(c, &d->lengths_tree,
+				matchlengthsdata_sm, 9, name);
+		}
 	}
 }
 
@@ -718,9 +770,21 @@ static void make_offsets_tree(deark *c, lctx *d)
 		0x7030,0x7031,0x7032,0x7033,0x7034,0x7035,0x7036,0x7037,
 		0x7038,0x7039,0x703a,0x703b,0x703c,0x703d,0x703e,0x703f
 	};
+	static const u16 offsetsdata120[32] = {
+		0x1001,0x3000,0x5004,0x5005,0x5006,0x5007,0x6010,0x6011,
+		0x6012,0x6013,0x6014,0x6015,0x702c,0x702d,0x702e,0x702f,
+		0x7030,0x7031,0x7032,0x7033,0x7034,0x7035,0x7036,0x7037,
+		0x7038,0x7039,0x703a,0x703b,0x703c,0x703d,0x703e,0x703f
+	};
 
-	huffman_make_tree_from_u16array(c, &d->offsets_tree,
-		offsetsdata, 32, name);
+	if(d->ver.v120_cmpr) {
+		huffman_make_tree_from_u16array(c, &d->offsets_tree,
+			offsetsdata120, 32, name);
+	}
+	else {
+		huffman_make_tree_from_u16array(c, &d->offsets_tree,
+			offsetsdata, 32, name);
+	}
 }
 
 static UI read_pklite_code_using_tree(deark *c, lctx *d, struct fmtutil_huffman_decoder *ht)
@@ -751,20 +815,44 @@ static void do_decompress(deark *c, lctx *d)
 	u8 b;
 	UI value_of_long_ml_code;
 	UI value_of_ml2_0_code;
+	UI value_of_ml2_1_code = 0xffff;
+	UI value_of_lit0_code = 0xffff;
 	UI long_matchlen_bias;
 
 	de_dbg(c, "decompressing cmpr code at %"I64_FMT, d->cmpr_data_pos);
 	de_dbg_indent(c, 1);
 
 	if(d->ver.large_cmpr) {
-		value_of_long_ml_code = 22;
-		value_of_ml2_0_code = value_of_long_ml_code+1;
-		long_matchlen_bias = 25;
+		if(d->ver.v120_cmpr) {
+			// There are 17 normal codes, and 4 special
+			value_of_long_ml_code = 17;
+			value_of_ml2_0_code = value_of_long_ml_code+1;
+			value_of_ml2_1_code = value_of_long_ml_code+2;
+			value_of_lit0_code = value_of_long_ml_code+3;
+			long_matchlen_bias = 20;
+		}
+		else {
+			// There are 22 normal codes, and 2 special
+			value_of_long_ml_code = 22;
+			value_of_ml2_0_code = value_of_long_ml_code+1;
+			long_matchlen_bias = 25;
+		}
 	}
 	else {
-		value_of_long_ml_code = 7;
-		value_of_ml2_0_code = value_of_long_ml_code+1;
-		long_matchlen_bias = 10;
+		if(d->ver.v120_cmpr) {
+			// There are 7 normal codes, and 4 special
+			value_of_long_ml_code = 7;
+			value_of_ml2_0_code = value_of_long_ml_code+1;
+			value_of_ml2_1_code = value_of_long_ml_code+2;
+			value_of_lit0_code = value_of_long_ml_code+3;
+			long_matchlen_bias = 10;
+		}
+		else {
+			// There are 7 normal codes, and 2 special
+			value_of_long_ml_code = 7;
+			value_of_ml2_0_code = value_of_long_ml_code+1;
+			long_matchlen_bias = 10;
+		}
 	}
 
 	make_matchlengths_tree(c, d);
@@ -838,6 +926,18 @@ static void do_decompress(deark *c, lctx *d)
 				goto after_dcmpr;
 			}
 			matchlen = (UI)b+long_matchlen_bias;
+		}
+		else if(len_raw==value_of_lit0_code) {
+			if(c->debug_level>=3) {
+				de_dbg3(c, "lit 0x00 (special)");
+			}
+			de_lz77buffer_add_literal_byte(ringbuf, 0x00);
+			continue;
+		}
+		else if(len_raw==value_of_ml2_1_code) {
+			matchlen = 2;
+			offs_hi_bits = 1;
+			offs_have_hi_bits = 1;
 		}
 		else {
 			d->errflag = 1;
