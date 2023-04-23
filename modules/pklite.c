@@ -54,6 +54,7 @@ typedef struct localctx_struct {
 	struct fmtutil_exe_info *o_ei; // For the decompressed file
 	u8 is_com;
 	u8 raw_mode;
+	u8 allow_v120;
 	u8 data_before_decoder;
 	u8 decoder_shape;
 	u8 dcmpr_ok;
@@ -383,7 +384,8 @@ done:
 }
 
 // len is assumed to be a multiple of 2
-static void descramble_decoder_section(dbuf *inf, i64 pos1, i64 len, dbuf *outf)
+static void descramble_decoder_section(dbuf *inf, i64 pos1, i64 len, dbuf *outf,
+	u8 flag_ADD)
 {
 	i64 i;
 	i64 pos = pos1;
@@ -395,7 +397,12 @@ static void descramble_decoder_section(dbuf *inf, i64 pos1, i64 len, dbuf *outf)
 	for(i=0; i<len; i+=2) {
 		next_word_scr = (UI)dbuf_getu16le(inf, pos+2);
 		pos += 2;
-		this_word_dscr = this_word_scr ^ next_word_scr;
+		if(flag_ADD) {
+			this_word_dscr = (this_word_scr + next_word_scr) & 0xffff;
+		}
+		else {
+			this_word_dscr = this_word_scr ^ next_word_scr;
+		}
 		dbuf_writeu16le(outf, (i64)this_word_dscr);
 		this_word_scr = next_word_scr;
 	}
@@ -405,12 +412,12 @@ static void descramble_decoder_section(dbuf *inf, i64 pos1, i64 len, dbuf *outf)
 // the end of the decoder.
 // In v1.14+ with -e, this section of the code is scrambled, so we descramble
 // it and search that as well.
-static void detect_pklite_version_part4(deark *c, lctx *d)
+static void detect_pklite_version_part4a(deark *c, lctx *d)
 {
 	int found = 0;
 	int scrambled = 0;
 
-#define PART4_NEEDLE_LEN 21
+#define PART4A_NEEDLE_LEN 21
 	static const u8 *str = (const u8*)"\x01\x02\x00\x00\x03\x04\x05\x06"
 		"\x00\x00\x00\x00\x00\x00\x00\x00\x07\x08\x09\x0a\x0b";
 	i64 foundpos_abs = 0;
@@ -425,11 +432,11 @@ static void detect_pklite_version_part4(deark *c, lctx *d)
 	is_beta = d->data_before_decoder;
 
 // offset from entry point (note - load-high files have the earliest starting pos)
-#define PART4_HAYSTACK_START 336
-#define PART4_HAYSTACK_LEN (832-PART4_HAYSTACK_START)
+#define PART4A_HAYSTACK_START 336
+#define PART4A_HAYSTACK_LEN (832-PART4A_HAYSTACK_START)
 
-	ret = dbuf_search(c->infile, str, PART4_NEEDLE_LEN,
-		d->ei->entry_point+PART4_HAYSTACK_START, PART4_HAYSTACK_LEN, &foundpos_abs);
+	ret = dbuf_search(c->infile, str, PART4A_NEEDLE_LEN,
+		d->ei->entry_point+PART4A_HAYSTACK_START, PART4A_HAYSTACK_LEN, &foundpos_abs);
 	if(ret) {
 		prec_b = de_getbyte(foundpos_abs-1);
 	}
@@ -438,12 +445,12 @@ static void detect_pklite_version_part4(deark *c, lctx *d)
 
 		tmpdbuf = dbuf_create_membuf(c, 0, 0);
 		dbuf_enable_wbuffer(tmpdbuf);
-		descramble_decoder_section(c->infile, d->ei->entry_point+PART4_HAYSTACK_START,
-			PART4_HAYSTACK_LEN, tmpdbuf);
+		descramble_decoder_section(c->infile, d->ei->entry_point+PART4A_HAYSTACK_START,
+			PART4A_HAYSTACK_LEN, tmpdbuf, 0);
 		dbuf_flush(tmpdbuf);
-		ret = dbuf_search(tmpdbuf, str, PART4_NEEDLE_LEN, 0, tmpdbuf->len, &foundpos2);
+		ret = dbuf_search(tmpdbuf, str, PART4A_NEEDLE_LEN, 0, tmpdbuf->len, &foundpos2);
 		if(ret) {
-			foundpos_abs = d->ei->entry_point+PART4_HAYSTACK_START+foundpos2;
+			foundpos_abs = d->ei->entry_point+PART4A_HAYSTACK_START+foundpos2;
 			prec_b = dbuf_getbyte(tmpdbuf, foundpos2-1);
 			scrambled = 1;
 		}
@@ -566,24 +573,98 @@ done:
 	dbuf_close(tmpdbuf);
 }
 
-static void detect_pklite_version_part5(deark *c, lctx *d)
+static void detect_pklite_version_part4b(deark *c, lctx *d)
 {
-	// This is a quick & dirty ID based on just two files: PKZMENU.EXE from
-	// {PKZM100.EXE and PKZM104.EXE}.
-	if(d->ver_reported.ver_num==0x10a && d->ver_reported.large_cmpr) {
-		if(dbuf_getu64be(c->infile, d->ei->start_of_dos_code+655-80) ==
-			0x8bf08bf8cb000000ULL)
-		{
-			d->predicted_cmpr_data_pos = d->ei->start_of_dos_code+672-80;
-			d->ver_detected.ver_num = 0x10a;
-			d->ver_detected.extra_cmpr = 1;
-			d->ver_detected.extra_cmpr_confidence = 100;
-			d->ver_detected.large_cmpr = 1;
-			// We call it "v120", though it probably first appeared in files
-			// labeled v1.10.
-			d->ver_detected.v120_cmpr = 1;
-			d->ver_detected.valid = 1;
+	int found = 0;
+	int scrambled = 0;
+
+#define PART4B_NEEDLE_LEN 13
+	static const u8 *str = (const u8*)"\x33\xc0\x8b\xd8\x8b\xc8\x8b\xd0\x8b\xe8\x8b\xf0\x8b";
+	i64 foundpos_abs = 0;
+	u8 prec_b;
+	u8 large_cmpr;
+	u8 extra_cmpr;
+	u8 alt_fmt = 0;
+	u8 extra_cmpr_confidence = 0;
+	int ret;
+	dbuf *tmpdbuf = NULL;
+
+	// offset from entry point
+#define PART4B_HAYSTACK_START 336
+#define PART4B_HAYSTACK_LEN (832-PART4B_HAYSTACK_START)
+
+	ret = dbuf_search(c->infile, str, PART4B_NEEDLE_LEN,
+		d->ei->entry_point+PART4B_HAYSTACK_START, PART4B_HAYSTACK_LEN, &foundpos_abs);
+	if(ret) {
+		prec_b = de_getbyte(foundpos_abs-7);
+	}
+	if(!ret) {
+		i64 foundpos2 = 0;
+
+		tmpdbuf = dbuf_create_membuf(c, 0, 0);
+		dbuf_enable_wbuffer(tmpdbuf);
+		descramble_decoder_section(c->infile, d->ei->entry_point+PART4B_HAYSTACK_START,
+			PART4B_HAYSTACK_LEN, tmpdbuf, 1);
+		dbuf_flush(tmpdbuf);
+		ret = dbuf_search(tmpdbuf, str, PART4B_NEEDLE_LEN, 0, tmpdbuf->len, &foundpos2);
+		if(ret) {
+			foundpos_abs = d->ei->entry_point+PART4B_HAYSTACK_START+foundpos2;
+			prec_b = dbuf_getbyte(tmpdbuf, foundpos2-7);
+			scrambled = 1;
 		}
+	}
+	if(!ret) {
+		goto done;
+	}
+
+	if(alt_fmt && prec_b==0x7e) {
+		large_cmpr = 1;
+	}
+	else if(prec_b==0x50) {
+		large_cmpr = 0;
+	}
+	else if(prec_b==0x53 || prec_b==0xdd) {
+		large_cmpr = 1;
+	}
+	else {
+		goto done;
+	}
+	found = 1;
+
+	extra_cmpr = 1;
+	extra_cmpr_confidence = 100;
+
+	// FIXME: This is not always correct.
+	d->predicted_cmpr_data_pos = de_pad_to_n(foundpos_abs+15, 16);
+
+	d->ver_detected.valid = 1;
+	d->ver_detected.ver_num = (scrambled ? 0x114 : 0x10a);
+	d->ver_detected.v120_cmpr = 1;
+	d->ver_detected.large_cmpr = large_cmpr;
+
+	if(d->ver_detected.ver_num==0x114 && !d->allow_v120) {
+		// Disable v1.20 by default. We don't support it well enough.
+		d->predicted_cmpr_data_pos = 0;
+	}
+
+	if(extra_cmpr_confidence >  d->ver_detected.extra_cmpr_confidence) {
+		d->ver_detected.extra_cmpr = extra_cmpr;
+		d->ver_detected.extra_cmpr_confidence = extra_cmpr_confidence;
+	}
+
+done:
+	de_dbg2(c, "tables2 found: %d", found);
+	if(found) {
+		de_dbg2(c, "tables2 scrambled: %d", scrambled);
+	}
+	dbuf_close(tmpdbuf);
+}
+
+static void detect_pklite_version_part4(deark *c, lctx *d)
+{
+	detect_pklite_version_part4a(c, d);
+	if(d->predicted_cmpr_data_pos==0) {
+		detect_pklite_version_part4b(c, d);
 	}
 }
 
@@ -608,10 +689,6 @@ static void detect_pklite_version(deark *c, lctx *d)
 
 	// Always do this part, because it's usually how we find the compressed data.
 	detect_pklite_version_part4(c, d);
-
-	if(!d->ver_detected.valid) {
-		detect_pklite_version_part5(c, d);
-	}
 
 	derive_version_fields(c, d, &d->ver_detected);
 
@@ -1368,6 +1445,7 @@ static void do_pklite_exe(deark *c, lctx *d)
 	struct fmtutil_specialexe_detection_data edd;
 
 	d->raw_mode = (u8)de_get_ext_option_bool(c, "pklite:raw", 0xff);
+	d->allow_v120 = (u8)de_get_ext_option_bool(c, "pklite:v120", 0);
 
 	fmtutil_collect_exe_info(c, c->infile, d->ei);
 
