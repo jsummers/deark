@@ -65,6 +65,7 @@ typedef struct localctx_struct {
 	i64 cmpr_data_area_endpos; // where the footer ends
 	i64 footer_pos; // 0 if unknown
 	i64 predicted_cmpr_data_pos; // based on the 01 02 00 00 03... pattern, 0 if unknown
+	i64 pos_after_errmsg; // 0 if unknown
 	struct footer_struct footer;
 
 	int errflag;
@@ -312,20 +313,54 @@ static void detect_pklite_version_part1(deark *c, lctx *d, struct de_crcobj *crc
 	}
 }
 
+static void extra_v120_tests(deark *c, lctx *d)
+{
+	u8 tmpbuf[32];
+
+	if(d->pos_after_errmsg==0) goto done;
+
+	// Most "small mode" v1.20 files are of one of two very similar types:
+	// - Those in which the compressed data starts at offset 510. This includes
+	//   most relevant self-extracting ZIP files, and many EXE files from PKLITE
+	//   and PKZIP.
+	// - Those in which the compressed data starts at offset 512. Used for example
+	//   by PKUNZIP.EXE and PKZIPFIX.EXE from PKZIP 2.04g.
+	// Both are supported here.
+	de_read(tmpbuf, d->pos_after_errmsg, 28);
+	if(de_memmatch(tmpbuf, (const u8*)"\x8b\xfc\x81\xef??\x57\x57\x52\xb9??\xbe??"
+		"\x8b\xfe\xfd\x49\x74\x07\xad\x92\x03\xc2\xab\xeb\xf6", 28, '?', 0))
+	{
+		i64 ee;
+
+		ee = de_getu16le(d->pos_after_errmsg+4);
+		if(ee==0x034a || ee==0x034c) {
+			d->predicted_cmpr_data_pos = d->ei->start_of_dos_code + ee - 428;
+			d->ver_detected.valid = 1;
+			d->ver_detected.ver_num = 0x114;
+			d->ver_detected.large_cmpr = 0;
+			d->ver_detected.v120_cmpr = 1;
+			d->ver_detected.extra_cmpr = 1;
+			d->ver_detected.extra_cmpr_confidence = 100;
+			goto done;
+		}
+	}
+
+done:
+	;
+}
+
 // Try to detect versions 110e, 310e, 110f, 310f.
 // These are among the versions that have most of the decompression code obfuscated.
 static void detect_pklite_version_part2(deark *c, lctx *d, struct de_crcobj *crco)
 {
 	u32 crc2;
-	u8 b;
 	i64 pos;
 
-	pos = d->ei->entry_point+13;
-	if(de_getbyte_p(&pos) != 0x72) goto done;
-	b = de_getbyte(pos);
-	// This byte seems to locate the end of the "Not enough memory" message.
-	// We want to fingerprint some bytes right after that.
-	pos += (i64)b;
+	if(d->pos_after_errmsg==0) goto done;
+	// FIXME: This fingerprinted region starts 1 byte earlier than it probably
+	// ought to, but it would take some work to fix it, and we might decide
+	// to use a different strategy anyway.
+	pos = d->pos_after_errmsg-1;
 
 	de_crcobj_reset(crco);
 	de_crcobj_addslice(crco, c->infile, pos, 30);
@@ -662,9 +697,32 @@ done:
 
 static void detect_pklite_version_part4(deark *c, lctx *d)
 {
-	detect_pklite_version_part4a(c, d);
+	extra_v120_tests(c, d);
+
+	if(d->predicted_cmpr_data_pos==0) {
+		detect_pklite_version_part4a(c, d);
+	}
 	if(d->predicted_cmpr_data_pos==0) {
 		detect_pklite_version_part4b(c, d);
+	}
+}
+
+// Version detection first steps. Things we always do.
+static void detection_init(deark *c, lctx *d)
+{
+	i64 pos;
+	u8 b;
+
+	detect_pklite_decoder_shape(c, d->ei, &d->decoder_shape);
+	de_dbg(c, "decompressor class: %s", get_decoder_shape_name(d->decoder_shape));
+
+	pos = d->ei->entry_point+13;
+	b = de_getbyte_p(&pos);
+	if(b==0x72) {
+		b = de_getbyte_p(&pos);
+		// This byte is part of an instruction that jumps past the "Not enough
+		// memory" message. We'll want to fingerprint some bytes near its target.
+		d->pos_after_errmsg = pos + (i64)b;
 	}
 }
 
@@ -673,9 +731,7 @@ static void detect_pklite_version(deark *c, lctx *d)
 	struct de_crcobj *crco = NULL;
 
 	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-
-	detect_pklite_decoder_shape(c, d->ei, &d->decoder_shape);
-	de_dbg(c, "decompressor class: %s", get_decoder_shape_name(d->decoder_shape));
+	detection_init(c, d);
 
 	detect_pklite_version_part1(c, d, crco);
 
