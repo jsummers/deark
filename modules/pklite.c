@@ -4,6 +4,9 @@
 
 // Decompress PKLITE executable compression
 
+// I thank Sergei Kolzun (private communication) for information about the
+// v1.20 formats.
+
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_pklite);
@@ -54,7 +57,6 @@ typedef struct localctx_struct {
 	struct fmtutil_exe_info *o_ei; // For the decompressed file
 	u8 is_com;
 	u8 raw_mode;
-	u8 allow_v120;
 	u8 data_before_decoder;
 	u8 decoder_shape;
 	u8 dcmpr_ok;
@@ -608,6 +610,8 @@ done:
 	dbuf_close(tmpdbuf);
 }
 
+// Used for detecting v1.10/v1.20-large compression.
+// TODO: This detection scheme is a mess, and ought to be redesigned.
 static void detect_pklite_version_part4b(deark *c, lctx *d)
 {
 	int found = 0;
@@ -617,10 +621,11 @@ static void detect_pklite_version_part4b(deark *c, lctx *d)
 	static const u8 *str = (const u8*)"\x33\xc0\x8b\xd8\x8b\xc8\x8b\xd0\x8b\xe8\x8b\xf0\x8b";
 	i64 foundpos_abs = 0;
 	u8 prec_b;
-	u8 large_cmpr;
+	u8 large_cmpr = 1;
 	u8 extra_cmpr;
-	u8 alt_fmt = 0;
+	u8 b1, b2;
 	u8 extra_cmpr_confidence = 0;
+	u8 badflag = 0;
 	int ret;
 	dbuf *tmpdbuf = NULL;
 
@@ -640,47 +645,57 @@ static void detect_pklite_version_part4b(deark *c, lctx *d)
 		dbuf_enable_wbuffer(tmpdbuf);
 		descramble_decoder_section(c->infile, d->ei->entry_point+PART4B_HAYSTACK_START,
 			PART4B_HAYSTACK_LEN, tmpdbuf, 1);
-		dbuf_flush(tmpdbuf);
+		dbuf_disable_wbuffer(tmpdbuf);
 		ret = dbuf_search(tmpdbuf, str, PART4B_NEEDLE_LEN, 0, tmpdbuf->len, &foundpos2);
 		if(ret) {
+			i64 testpos;
+
 			foundpos_abs = d->ei->entry_point+PART4B_HAYSTACK_START+foundpos2;
 			prec_b = dbuf_getbyte(tmpdbuf, foundpos2-7);
 			scrambled = 1;
+
+			// If we find 0xac 0x8a, it probably means the offsets are not 'encrypted'.
+			// If we find 0xac 0x34 0x?? 0x8a, it means offsets are 'encrypted':
+			//  e.g. 34 d7 = xor al,d7.
+			badflag = 1;
+			testpos = foundpos2-111;
+			b1 = dbuf_getbyte(tmpdbuf, testpos);
+			if(b1==0xac) {
+				b2 = dbuf_getbyte(tmpdbuf, testpos+1);
+				if(b2==0x8a) {
+					badflag = 0;
+				}
+			}
 		}
 	}
 	if(!ret) {
 		goto done;
 	}
+	if(badflag) goto done;
 
-	if(alt_fmt && prec_b==0x7e) {
-		large_cmpr = 1;
+	// These tests should screen out "small" format, at least.
+	if(prec_b==0x53 && !scrambled) {
+		;
 	}
-	else if(prec_b==0x50) {
-		large_cmpr = 0;
-	}
-	else if(prec_b==0x53 || prec_b==0xdd) {
-		large_cmpr = 1;
+	else if(prec_b==0xdd && scrambled) {
+		;
 	}
 	else {
 		goto done;
 	}
+
 	found = 1;
 
 	extra_cmpr = 1;
 	extra_cmpr_confidence = 100;
 
-	// FIXME: This is not always correct.
+	// This logic seems ok for large mode, though it doesn't work for small mode.
 	d->predicted_cmpr_data_pos = de_pad_to_n(foundpos_abs+15, 16);
 
 	d->ver_detected.valid = 1;
 	d->ver_detected.ver_num = (scrambled ? 0x114 : 0x10a);
 	d->ver_detected.v120_cmpr = 1;
 	d->ver_detected.large_cmpr = large_cmpr;
-
-	if(d->ver_detected.ver_num==0x114 && !d->allow_v120) {
-		// Disable v1.20 by default. We don't support it well enough.
-		d->predicted_cmpr_data_pos = 0;
-	}
 
 	if(extra_cmpr_confidence >  d->ver_detected.extra_cmpr_confidence) {
 		d->ver_detected.extra_cmpr = extra_cmpr;
@@ -868,8 +883,6 @@ static void make_matchlengths_tree(deark *c, lctx *d)
 		0x2000,0x3004,0x3005,0x400c,0x400d,0x400e,0x400f,0x3003,
 		0x3002
 	};
-	// I thank Sergei Kolzun (private correspondence) for information about the
-	// v1.20 formats.
 	static const u16 matchlengthsdata120_lg[21] = {
 		0x2003,0x3000,0x4005,0x4006,0x5006,0x5007,0x6008,0x6009,
 		0x7020,0x7021,0x7022,0x7023,0x8048,0x8049,0x804a,0x9096,
@@ -1501,7 +1514,6 @@ static void do_pklite_exe(deark *c, lctx *d)
 	struct fmtutil_specialexe_detection_data edd;
 
 	d->raw_mode = (u8)de_get_ext_option_bool(c, "pklite:raw", 0xff);
-	d->allow_v120 = (u8)de_get_ext_option_bool(c, "pklite:v120", 0);
 
 	fmtutil_collect_exe_info(c, c->infile, d->ei);
 
