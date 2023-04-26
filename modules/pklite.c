@@ -17,14 +17,15 @@ DE_DECLARE_MODULE(de_module_pklite);
 #define DE_PKLITE_SHAPE_BETA_LH   3  // 1.00beta/loadhigh
 #define DE_PKLITE_SHAPE_100       4  // 1.00-1.05 or 1.10(?)
 #define DE_PKLITE_SHAPE_112       5  // 1.12-1.13
-#define DE_PKLITE_SHAPE_114       6  // 1.14-1.15 or 1.20var1 or ZIP2EXEv2.04
+#define DE_PKLITE_SHAPE_114       6  // 1.14-1.15 or 1.20var1 or sfx:ZIP2EXEv2.04
 #define DE_PKLITE_SHAPE_150       7  // 1.50-2.01 or 1.20var3
 #define DE_PKLITE_SHAPE_120V2     8  // 1.20var2
-#define DE_PKLITE_SHAPE_120V4     9  // 1.20var4 or ZIP2EXEv2.50
+#define DE_PKLITE_SHAPE_120V4     9  // 1.20var4 or sfx:ZIP2EXEv2.50
 #define DE_PKLITE_SHAPE_MEGALITE  10
 #define DE_PKLITE_SHAPE_UN2PACK   11
 #define DE_PKLITE_SHAPE_114LOOSE  12
 #define DE_PKLITE_SHAPE_150LOOSE  13
+#define DE_PKLITE_SHAPE_120V5     14 // Files from PKZIP 1.93A
 
 struct ver_info_struct {
 	UI ver_num; // e.g. 0x103 = 1.03
@@ -229,6 +230,7 @@ static const char *get_decoder_shape_name(u8 n)
 	case DE_PKLITE_SHAPE_UN2PACK: name="un2pack"; break;
 	case DE_PKLITE_SHAPE_114LOOSE: name="v1.14_loose"; break;
 	case DE_PKLITE_SHAPE_150LOOSE: name="v1.50_loose"; break;
+	case DE_PKLITE_SHAPE_120V5: name="v1.20var5"; break;
 	}
 	return name?name:"?";
 }
@@ -252,6 +254,8 @@ static void detect_pklite_decoder_shape(deark *c, struct fmtutil_exe_info *ei, u
 		"\xcd\x21";
 	static const u8 *shape_120V4 = (const u8*)"\xb8??\xba??\x05\x00\x00\x3b\x06\x02\x00\x72?\xb4\x09\xba??\xcd\x21\xb8\x01"
 		"\x4c\xcd\x21";
+	static const u8 *shape_120V5 = (const u8*)"\xb8??\xba??\x05\x00\x00\x3b\x06\x02\x00\x73\x12\x8b\xfc\x81\xef\x49"
+		"\x03\x57\x57\xb9";
 	struct matchrule_struct matchrules[] = {
 		{ shape_100, 36, DE_PKLITE_SHAPE_100 },
 		{ shape_112, 36, DE_PKLITE_SHAPE_112 },
@@ -264,7 +268,8 @@ static void detect_pklite_decoder_shape(deark *c, struct fmtutil_exe_info *ei, u
 		{ shape_MEGALITE, 14, DE_PKLITE_SHAPE_MEGALITE },
 		{ shape_UN2PACK, 16, DE_PKLITE_SHAPE_UN2PACK },
 		{ shape_114, 14, DE_PKLITE_SHAPE_114LOOSE },
-		{ shape_150, 10, DE_PKLITE_SHAPE_150LOOSE }
+		{ shape_150, 10, DE_PKLITE_SHAPE_150LOOSE },
+		{ shape_120V5, 24, DE_PKLITE_SHAPE_120V5 }
 	};
 	size_t i;
 	u8 buf[36];
@@ -318,6 +323,18 @@ static void detect_pklite_version_part1(deark *c, lctx *d, struct de_crcobj *crc
 static void extra_v120_tests(deark *c, lctx *d)
 {
 	u8 tmpbuf[32];
+
+	if(d->decoder_shape==DE_PKLITE_SHAPE_120V5) {
+		// This is a hack. We ought be more discriminating.
+		d->predicted_cmpr_data_pos = d->ei->start_of_dos_code - 96 + 485;
+		d->ver_detected.valid = 1;
+		d->ver_detected.ver_num = 0x114;
+		d->ver_detected.large_cmpr = 0;
+		d->ver_detected.v120_cmpr = 1;
+		d->ver_detected.extra_cmpr = 1;
+		d->ver_detected.extra_cmpr_confidence = 100;
+		goto done;
+	}
 
 	if(d->pos_after_errmsg==0) goto done;
 
