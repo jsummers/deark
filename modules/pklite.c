@@ -60,6 +60,8 @@ typedef struct localctx_struct {
 	u8 raw_mode;
 	u8 data_before_decoder;
 	u8 decoder_shape;
+	u8 scramble_method;
+	u8 offset_xor_key;
 	u8 dcmpr_ok;
 	u8 wrote_exe;
 	i64 cmpr_data_pos;
@@ -327,6 +329,7 @@ static void extra_v120_tests(deark *c, lctx *d)
 	if(d->decoder_shape==DE_PKLITE_SHAPE_120V5) {
 		// This is a hack. We ought be more discriminating.
 		d->predicted_cmpr_data_pos = d->ei->start_of_dos_code - 96 + 485;
+		d->scramble_method = 0;
 		d->ver_detected.valid = 1;
 		d->ver_detected.ver_num = 0x114;
 		d->ver_detected.large_cmpr = 0;
@@ -354,6 +357,7 @@ static void extra_v120_tests(deark *c, lctx *d)
 		ee = de_getu16le(d->pos_after_errmsg+4);
 		if(ee==0x034a || ee==0x034c) {
 			d->predicted_cmpr_data_pos = d->ei->start_of_dos_code + ee - 428;
+			d->scramble_method = 2;
 			d->ver_detected.valid = 1;
 			d->ver_detected.ver_num = 0x114;
 			d->ver_detected.large_cmpr = 0;
@@ -438,8 +442,9 @@ done:
 }
 
 // len is assumed to be a multiple of 2
+// scramble_method: 1=XOR, 2=ADD
 static void descramble_decoder_section(dbuf *inf, i64 pos1, i64 len, dbuf *outf,
-	u8 flag_ADD)
+	u8 scramble_method)
 {
 	i64 i;
 	i64 pos = pos1;
@@ -447,11 +452,12 @@ static void descramble_decoder_section(dbuf *inf, i64 pos1, i64 len, dbuf *outf,
 	UI next_word_scr;
 	UI this_word_dscr;
 
+	if(scramble_method!=1 && scramble_method!=2) return;
 	this_word_scr = (UI)dbuf_getu16le(inf, pos);
 	for(i=0; i<len; i+=2) {
 		next_word_scr = (UI)dbuf_getu16le(inf, pos+2);
 		pos += 2;
-		if(flag_ADD) {
+		if(scramble_method==2) {
 			this_word_dscr = (this_word_scr + next_word_scr) & 0xffff;
 		}
 		else {
@@ -500,13 +506,14 @@ static void detect_pklite_version_part4a(deark *c, lctx *d)
 		tmpdbuf = dbuf_create_membuf(c, 0, 0);
 		dbuf_enable_wbuffer(tmpdbuf);
 		descramble_decoder_section(c->infile, d->ei->entry_point+PART4A_HAYSTACK_START,
-			PART4A_HAYSTACK_LEN, tmpdbuf, 0);
+			PART4A_HAYSTACK_LEN, tmpdbuf, 1);
 		dbuf_flush(tmpdbuf);
 		ret = dbuf_search(tmpdbuf, str, PART4A_NEEDLE_LEN, 0, tmpdbuf->len, &foundpos2);
 		if(ret) {
 			foundpos_abs = d->ei->entry_point+PART4A_HAYSTACK_START+foundpos2;
 			prec_b = dbuf_getbyte(tmpdbuf, foundpos2-1);
 			scrambled = 1;
+			d->scramble_method = 1;
 		}
 	}
 	if(!ret) {
@@ -661,7 +668,7 @@ static void detect_pklite_version_part4b(deark *c, lctx *d)
 		tmpdbuf = dbuf_create_membuf(c, 0, 0);
 		dbuf_enable_wbuffer(tmpdbuf);
 		descramble_decoder_section(c->infile, d->ei->entry_point+PART4B_HAYSTACK_START,
-			PART4B_HAYSTACK_LEN, tmpdbuf, 1);
+			PART4B_HAYSTACK_LEN, tmpdbuf, 2);
 		dbuf_disable_wbuffer(tmpdbuf);
 		ret = dbuf_search(tmpdbuf, str, PART4B_NEEDLE_LEN, 0, tmpdbuf->len, &foundpos2);
 		if(ret) {
@@ -670,6 +677,7 @@ static void detect_pklite_version_part4b(deark *c, lctx *d)
 			foundpos_abs = d->ei->entry_point+PART4B_HAYSTACK_START+foundpos2;
 			prec_b = dbuf_getbyte(tmpdbuf, foundpos2-7);
 			scrambled = 1;
+			d->scramble_method = 2;
 
 			// If we find 0xac 0x8a, it probably means the offsets are not 'encrypted'.
 			// If we find 0xac 0x34 0x?? 0x8a, it means offsets are 'encrypted':
@@ -1120,6 +1128,7 @@ static void do_decompress(deark *c, lctx *d)
 		}
 
 		offs_lo_byte = de_getbyte_p(&d->dcmpr_cur_ipos);
+		offs_lo_byte ^= d->offset_xor_key;
 		if(d->errflag) goto after_dcmpr;
 
 		matchpos = (offs_hi_bits<<8) | (UI)offs_lo_byte;
@@ -1264,7 +1273,12 @@ static void do_read_reloc_table_long(deark *c, lctx *d, i64 pos1, i64 len)
 
 		de_dbg_indent(c, 1);
 		for(i=0; i<count; i++) {
-			offs = de_getu16le_p(&pos);
+			if(d->scramble_method==2) {
+				offs = de_getu16be_p(&pos);
+			}
+			else {
+				offs = de_getu16le_p(&pos);
+			}
 			de_dbg2(c, "offs: 0x%04x", (UI)offs);
 			dbuf_writeu16le(d->o_reloc_table, offs);
 			dbuf_writeu16le(d->o_reloc_table, seg);
