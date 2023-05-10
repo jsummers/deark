@@ -18,7 +18,7 @@ DE_DECLARE_MODULE(de_module_pklite);
 #define DE_PKLITE_SHAPE_100       4  // 1.00-1.05 or 1.10(?)
 #define DE_PKLITE_SHAPE_112       5  // 1.12-1.13
 #define DE_PKLITE_SHAPE_114       6  // 1.14-1.15 or 1.20var1 or sfx:ZIP2EXEv2.04
-#define DE_PKLITE_SHAPE_150       7  // 1.50-2.01 or 1.20var3
+#define DE_PKLITE_SHAPE_150       7  // 1.50-2.01
 #define DE_PKLITE_SHAPE_120V2     8  // 1.20var2
 #define DE_PKLITE_SHAPE_120V4     9  // 1.20var4 or sfx:ZIP2EXEv2.50
 #define DE_PKLITE_SHAPE_MEGALITE  10
