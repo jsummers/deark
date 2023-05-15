@@ -275,6 +275,10 @@ Deark -- Information about supported formats
 
 * InShape IIM (module="iim")
 
+* Jigsaw (.jig) (module=jigsaw_wk)
+  A Windows 3.x program by Walter A. Kuhn.
+  - Extract the main image.
+
 * Jovian Logic VI bitmap (module="jovianvi") (experimental)
 
 * JPEG and JPEG-LS (module="jpeg")

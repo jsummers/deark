@@ -11,6 +11,7 @@ DE_DECLARE_MODULE(de_module_bmp);
 DE_DECLARE_MODULE(de_module_picjpeg);
 DE_DECLARE_MODULE(de_module_dib);
 DE_DECLARE_MODULE(de_module_ddb);
+DE_DECLARE_MODULE(de_module_jigsaw_wk);
 
 #define FILEHEADER_SIZE 14
 
@@ -1548,4 +1549,68 @@ void de_module_ddb(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_ddb;
 	mi->identify_fn = NULL;
 	mi->flags |= DE_MODFLAG_HIDDEN;
+}
+
+// **************************************************************************
+// Jigsaw .jig
+// Windows 3.x program by Walter A. Kuhn
+// (JIGSAW20.ZIP, JIGPUZ00.ZIP, ...)
+// **************************************************************************
+
+static int looks_like_bmp_bytes(const u8 *buf, i64 len, UI flags)
+{
+	int ret;
+
+	if(len<32) return 0;
+	ret = de_memmatch(buf, (const u8*)"BM????\x00\x00\x00\x00??\x00\x00"
+		"?\x00\x00\x00????????\x01\x00?\x00", 32, '?', 0);
+	return ret;
+}
+
+static void de_run_jigsaw_wk(deark *c, de_module_params *mparams)
+{
+	i64 fsize;
+	dbuf *outf = NULL;
+
+	fsize = de_getu32le(2);
+	if(fsize>c->infile->len) goto done;
+
+	outf = dbuf_create_output_file(c, "bmp", NULL, 0);
+	dbuf_write(outf, (const u8*)"BM", 2);
+	dbuf_copy(c->infile, 2, fsize-2, outf);
+
+done:
+	dbuf_close(outf);
+}
+
+static int de_identify_jigsaw_wk(deark *c)
+{
+	i64 fsize;
+	int ret;
+	u8 buf[32];
+
+	if(dbuf_memcmp(c->infile, 0, "JG", 2)) {
+		return 0;
+	}
+
+	fsize = de_getu32le(2);
+	if(fsize>c->infile->len) return 0;
+
+	de_read(buf, 0, sizeof(buf));
+	buf[0] = 'B';
+	buf[1] = 'M';
+	ret = looks_like_bmp_bytes(buf, sizeof(buf), 0);
+	if(ret) {
+		return 95;
+	}
+
+	return 0;
+}
+
+void de_module_jigsaw_wk(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "jigsaw_wk";
+	mi->desc = "Jigsaw .jig";
+	mi->run_fn = de_run_jigsaw_wk;
+	mi->identify_fn = de_identify_jigsaw_wk;
 }
