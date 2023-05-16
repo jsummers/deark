@@ -547,6 +547,9 @@ Deark -- Information about supported formats
    -opt sunras:fmt32=<xbgr|abgr|xrgb|argb|bgrx|bgra|rgbx|rgba> - Specify the
      interpretation of a 32-bit pixel
 
+* Syberia texture (.syj) (module="syberia_syj")
+  - Convert abbreviated JPEG file to JPEG.
+
 * TGA (Targa) (module="tga")
 
 * TheDraw COM (module="thedraw_com")

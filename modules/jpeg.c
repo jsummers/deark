@@ -10,6 +10,7 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_jpeg);
 DE_DECLARE_MODULE(de_module_jpegscan);
+DE_DECLARE_MODULE(de_module_syberia_syj);
 
 struct fpxr_entity_struct {
 	size_t index;
@@ -2232,4 +2233,37 @@ void de_module_jpegscan(deark *c, struct deark_module_info *mi)
 	mi->id = "jpegscan";
 	mi->desc = "Extract embedded JPEG images from arbitrary files";
 	mi->run_fn = de_run_jpegscan;
+}
+
+// **************************************************************************
+// Syberia texture (.syj)
+// **************************************************************************
+
+static void de_run_syberia_syj(deark *c, de_module_params *mparams)
+{
+	dbuf *outf = NULL;
+
+	outf = dbuf_create_output_file(c, "jpg", NULL, 0);
+	dbuf_write(outf, (const u8*)"\xff\xd8\xff\xe0\x00\x10\x4a\x46\x49\x46", 10);
+	dbuf_copy(c->infile, 0, c->infile->len, outf);
+	dbuf_close(outf);
+}
+
+static int de_identify_syberia_syj(deark *c)
+{
+	if(de_getu16be(0) != 0x0001) return 0;
+	if(!de_input_file_has_ext(c, "syj")) return 0;
+	if(dbuf_memcmp(c->infile, 8, (const void*)"\0\0\xff", 3)) {
+		return 0;
+	}
+	if(de_getu16be(c->infile->len-2) != 0xffd9) return 0;
+	return 80;
+}
+
+void de_module_syberia_syj(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "syberia_syj";
+	mi->desc = "Syberia texture";
+	mi->run_fn = de_run_syberia_syj;
+	mi->identify_fn = de_identify_syberia_syj;
 }
