@@ -1561,9 +1561,9 @@ static int looks_like_bmp_bytes(const u8 *buf, i64 len, UI flags)
 {
 	int ret;
 
-	if(len<32) return 0;
+	if(len<30) return 0;
 	ret = de_memmatch(buf, (const u8*)"BM????\x00\x00\x00\x00??\x00\x00"
-		"?\x00\x00\x00????????\x01\x00?\x00", 32, '?', 0);
+		"?\x00\x00\x00????????\x01\x00?\x00", 30, '?', 0);
 	return ret;
 }
 
