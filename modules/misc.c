@@ -386,6 +386,9 @@ struct crcctx_struct {
 	struct de_crcobj *crco_16arc;
 	struct de_crcobj *crco_16xmodem;
 	u64 sum_of_bytes;
+	u64 sum_of_ui16le;
+	u64 sum_of_ui16be;
+	u8 parity;
 };
 
 static int crc_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
@@ -399,6 +402,15 @@ static int crc_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 	de_crcobj_addbuf(crcctx->crco_16xmodem, buf, buf_len);
 	for(i=0; i<buf_len; i++) {
 		crcctx->sum_of_bytes += buf[i];
+		if(crcctx->parity) {
+			crcctx->sum_of_ui16le += 256*(i64)buf[i];
+			crcctx->sum_of_ui16be += buf[i];
+		}
+		else {
+			crcctx->sum_of_ui16le += buf[i];
+			crcctx->sum_of_ui16be += 256*(i64)buf[i];
+		}
+		crcctx->parity = !crcctx->parity;
 	}
 	return 1;
 }
@@ -421,6 +433,8 @@ static void de_run_crc(deark *c, de_module_params *mparams)
 	de_msg(c, "CRC-16-XMODEM: 0x%04x",
 		(unsigned int)de_crcobj_getval(crcctx.crco_16xmodem));
 	de_msg(c, "Sum of bytes: 0x%"U64_FMTx, crcctx.sum_of_bytes);
+	de_msg(c, "Sum of uint16-LE: 0x%"U64_FMTx, crcctx.sum_of_ui16le);
+	de_msg(c, "Sum of uint16-BE: 0x%"U64_FMTx, crcctx.sum_of_ui16be);
 
 	de_crcobj_destroy(crcctx.crco_32ieee);
 	de_crcobj_destroy(crcctx.crco_16arc);
