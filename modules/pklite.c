@@ -64,6 +64,7 @@ typedef struct localctx_struct {
 	u8 offset_xor_key;
 	u8 dcmpr_ok;
 	u8 wrote_exe;
+	u8 has_uncompressed_area;
 	i64 cmpr_data_pos;
 	i64 cmpr_data_endpos; // = reloc_tbl_pos
 	i64 reloc_tbl_endpos;
@@ -988,6 +989,32 @@ done:
 	return val;
 }
 
+static void do_uncompressed_area(deark *c, lctx *d, struct de_lz77buffer *ringbuf)
+{
+	i64 len;
+	i64 i;
+
+	d->has_uncompressed_area = 1;
+	len = (i64)de_getbyte_p(&d->dcmpr_cur_ipos);
+	de_dbg3(c, "uncompressed area at %"I64_FMT", len=%"I64_FMT, d->dcmpr_cur_ipos, len);
+
+	// TODO: The only files with this feature that I have are registered copies of
+	// PKZIP.EXE. When decompressed with, e.g., UNP, 9 additional seemingly-random
+	// bytes of data appear out of nowhere before the uncompressed area. I don't
+	// know what these bytes are for. They appear in the original file, but not in a
+	// place that makes any sense.
+	// I don't know whether this also happens in files made by the consumer versions
+	// of PKLITE.
+	// For now, we'll just write 9 dummy bytes here.
+	for(i=0; i<9; i++) {
+		de_lz77buffer_add_literal_byte(ringbuf, 0x00);
+	}
+
+	for(i=0; i<len; i++) {
+		de_lz77buffer_add_literal_byte(ringbuf, de_getbyte_p(&d->dcmpr_cur_ipos));
+	}
+}
+
 static void do_decompress(deark *c, lctx *d)
 {
 	struct de_lz77buffer *ringbuf = NULL;
@@ -1090,6 +1117,10 @@ static void do_decompress(deark *c, lctx *d)
 			b = de_getbyte_p(&d->dcmpr_cur_ipos);
 
 			if(b >= 0xfd) {
+				if(b==0xfd && d->ver.large_cmpr) {
+					do_uncompressed_area(c, d, ringbuf);
+					continue;
+				}
 				if(b==0xfe && d->ver.large_cmpr) {
 					// (segment separator) Just a no-op?
 					de_dbg3(c, "code 0xfe");
@@ -1160,6 +1191,11 @@ after_dcmpr:
 		de_dbg(c, "cmpr data end: %"I64_FMT, d->cmpr_data_endpos);
 		de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT,
 			d->cmpr_data_endpos-d->cmpr_data_pos, d->o_dcmpr_code->len);
+
+		if(d->has_uncompressed_area) {
+			de_warn(c, "This file has an \"uncompressed area\", and might not be "
+				"decompressed correctly.");
+		}
 	}
 
 done:
