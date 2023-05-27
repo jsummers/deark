@@ -233,6 +233,8 @@ Deark -- Information about supported formats
   - Extracts the color components to a JPEG file, and the alpha component (if
    present) to a PNG file.
 
+* Hemera thumbnails (module="hta")
+
 * HP 100LX / HP 200LX .ICN icon format (module="hpicn")
 
 * HR (TRS-80 High Resolution graphics file) (module="hr")

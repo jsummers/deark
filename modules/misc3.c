@@ -21,6 +21,7 @@ DE_DECLARE_MODULE(de_module_arcv);
 DE_DECLARE_MODULE(de_module_red);
 DE_DECLARE_MODULE(de_module_lif_kdc);
 DE_DECLARE_MODULE(de_module_ain);
+DE_DECLARE_MODULE(de_module_hta);
 
 static int dclimplode_header_at(deark *c, i64 pos)
 {
@@ -2285,4 +2286,104 @@ void de_module_ain(deark *c, struct deark_module_info *mi)
 	mi->desc = "AIN archive";
 	mi->run_fn = de_run_ain;
 	mi->flags |= DE_MODFLAG_HIDDEN;
+}
+
+// **************************************************************************
+// Hemera thumbnails file (.hta)
+// **************************************************************************
+
+static const char *hta_get_ext(struct de_arch_member_data *md)
+{
+	u8 sig[2];
+	const char *ext = "bin";
+
+	if(md->orig_len<8) goto done;
+	dbuf_read(md->d->inf, sig, md->cmpr_pos, sizeof(sig));
+	if(sig[0]==0x89 && sig[1]==0x50) ext="png";
+	else if(sig[0]=='G' && sig[1]=='I') ext="gif";
+	else if(sig[0]==0xff && sig[1]==0xd8) ext="jpg"; // Not observed, but just in case
+done:
+	return ext;
+}
+
+static void de_run_hta(deark *c, de_module_params *mparams)
+{
+	struct de_arch_member_data *md = NULL;
+	i64 pos;
+	i64 num_members;
+	UI fmtver;
+	i64 idx;
+	de_arch_lctx *d = NULL;
+	int saved_indent_level;
+	i64 tracking_dpos = 0;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	d = de_arch_create_lctx(c);
+	d->is_le = 1;
+
+	pos = 8;
+	fmtver = (UI)de_getu32le_p(&pos);
+	de_dbg(c, "format version: %u", fmtver);
+	if(fmtver!=100) { d->need_errmsg = 1; goto done; }
+	num_members = de_getu32le_p(&pos);
+	de_dbg(c, "number of members: %"I64_FMT, num_members);
+	if(pos+num_members*8 > c->infile->len) { d->need_errmsg = 1; goto done; }
+
+	for(idx=0; idx<num_members; idx++) {
+		i64 endpos;
+		const char *ext;
+
+		if(md) {
+			de_arch_destroy_md(c, md);
+			md = NULL;
+		}
+		md = de_arch_create_md(c, d);
+		de_dbg(c, "member[%"I64_FMT"]", idx);
+		de_dbg_indent(c, 1);
+
+		md->cmpr_pos = de_getu32le_p(&pos);
+		de_dbg(c, "data pos: %"I64_FMT, md->cmpr_pos);
+		de_arch_read_field_orig_len_p(md, &pos);
+		md->cmpr_len = md->orig_len;
+
+		if(md->cmpr_pos < tracking_dpos) { d->need_errmsg = 1; goto done; }
+		endpos = md->cmpr_pos + md->cmpr_len;
+		if(endpos > c->infile->len) { d->need_errmsg = 1; goto done; }
+		tracking_dpos = endpos;
+
+		ext = hta_get_ext(md);
+		de_finfo_set_name_from_sz(c, md->fi, ext, 0, DE_ENCODING_LATIN1);
+		md->dfn = noncompressed_decompressor_fn;
+		de_arch_extract_member_file(md);
+
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	if(md) {
+		de_arch_destroy_md(c, md);
+		md = NULL;
+	}
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported HTA file");
+		}
+		de_arch_destroy_lctx(c, d);
+	}
+}
+
+static int de_identify_hta(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "\x89\x48\x54\x41\x0d\x0a\x1a\x0a", 8)) return 100;
+	return 0;
+}
+
+void de_module_hta(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "hta";
+	mi->desc = "Hemera thumbnails";
+	mi->run_fn = de_run_hta;
+	mi->identify_fn = de_identify_hta;
 }
