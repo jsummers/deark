@@ -27,6 +27,15 @@ DE_DECLARE_MODULE(de_module_pklite);
 #define DE_PKLITE_SHAPE_150LOOSE  13
 #define DE_PKLITE_SHAPE_120V5     14 // Files from PKZIP 1.93A
 
+// Things we need to figure out, to decompress the main compressed data.
+struct decompr_params_struct {
+	i64 cmpr_data_pos;
+	u8 extra_cmpr;
+	u8 large_cmpr;
+	u8 v120_cmpr;
+	u8 offset_xor_key;
+};
+
 struct ver_info_struct {
 	UI ver_num; // e.g. 0x103 = 1.03
 	u8 valid; // have the non-derived fields been set?
@@ -56,16 +65,15 @@ typedef struct localctx_struct {
 
 	struct fmtutil_exe_info *ei; // For the PKLITE file
 	struct fmtutil_exe_info *o_ei; // For the decompressed file
+
+	struct decompr_params_struct dparams;
 	u8 is_com;
 	u8 raw_mode;
 	u8 data_before_decoder;
 	u8 decoder_shape;
-	u8 scramble_method;
-	u8 offset_xor_key;
+	u8 scramble_method; // 1=XOR, 2=ADD
 	u8 dcmpr_ok;
 	u8 wrote_exe;
-	u8 has_uncompressed_area;
-	i64 cmpr_data_pos;
 	i64 cmpr_data_endpos; // = reloc_tbl_pos
 	i64 reloc_tbl_endpos;
 	i64 cmpr_data_area_endpos; // where the footer ends
@@ -79,41 +87,46 @@ typedef struct localctx_struct {
 	dbuf *o_orig_header; // copied or constructed header for the decompressed file
 	dbuf *o_reloc_table;
 	dbuf *o_dcmpr_code;
-	i64 o_dcmpr_code_nbytes_written;
-
-	i64 dcmpr_cur_ipos;
-	struct de_bitbuf_lowlevel bbll;
-
-	struct fmtutil_huffman_decoder *lengths_tree;
-	struct fmtutil_huffman_decoder *offsets_tree;
 } lctx;
 
-// Sets d->cmpr_data_pos and d->cmpr_data_area_endpos, or reports an error.
+struct decompr_internal_state {
+	lctx *d;
+	dbuf *inf;
+	const struct decompr_params_struct *dparams;
+	u8 has_uncompressed_area;
+	i64 o_dcmpr_code_nbytes_written;
+	i64 dcmpr_cur_ipos;
+	struct de_bitbuf_lowlevel bbll;
+	struct fmtutil_huffman_decoder *lengths_tree;
+	struct fmtutil_huffman_decoder *offsets_tree;
+};
+
+// Sets d->dparams.cmpr_data_pos and d->cmpr_data_area_endpos, or reports an error.
 static void find_cmprdata_pos(deark *c, lctx *d, struct ver_info_struct *v)
 {
 	if(d->errflag) return;
 
-	d->cmpr_data_pos = d->predicted_cmpr_data_pos;
+	d->dparams.cmpr_data_pos = d->predicted_cmpr_data_pos;
 
-	if(d->cmpr_data_pos!=0) {
-		if(d->cmpr_data_pos >= c->infile->len) {
-			d->cmpr_data_pos = 0;
+	if(d->dparams.cmpr_data_pos!=0) {
+		if(d->dparams.cmpr_data_pos >= c->infile->len) {
+			d->dparams.cmpr_data_pos = 0;
 		}
 	}
 
-	if(d->cmpr_data_pos!=0 && !d->ver_detected.v120_cmpr) {
+	if(d->dparams.cmpr_data_pos!=0 && !d->ver_detected.v120_cmpr) {
 		// The first byte of compressed data can't be odd, because the first instruction must
 		// be a literal.
 		// This is just an extra sanity check that might improve the error message.
 		// (The special 0 literal means this doesn't work for v1.20.)
-		if(de_getbyte(d->cmpr_data_pos) & 0x01) {
-			d->cmpr_data_pos = 0;
+		if(de_getbyte(d->dparams.cmpr_data_pos) & 0x01) {
+			d->dparams.cmpr_data_pos = 0;
 		}
 	}
 
-	if(d->cmpr_data_pos!=0) {
-		de_dbg(c, "cmpr data pos: %"I64_FMT" (%"I64_FMT" from code start)", d->cmpr_data_pos,
-			d->cmpr_data_pos - d->ei->start_of_dos_code);
+	if(d->dparams.cmpr_data_pos!=0) {
+		de_dbg(c, "cmpr data pos: %"I64_FMT" (%"I64_FMT" from code start)", d->dparams.cmpr_data_pos,
+			d->dparams.cmpr_data_pos - d->ei->start_of_dos_code);
 
 		if(d->data_before_decoder) {
 			d->cmpr_data_area_endpos = d->ei->entry_point;
@@ -123,7 +136,7 @@ static void find_cmprdata_pos(deark *c, lctx *d, struct ver_info_struct *v)
 		}
 	}
 
-	if(d->cmpr_data_pos==0) {
+	if(d->dparams.cmpr_data_pos==0) {
 		if(d->ver_detected.valid) {
 			de_err(c, "Not a supported PKLITE version (reported=%s, detected=%s)",
 				d->ver_reported.pklver_str, d->ver_detected.pklver_str);
@@ -819,34 +832,34 @@ static void do_read_header_and_detect_version(deark *c, lctx *d)
 	}
 }
 
-static void fill_bitbuf(deark *c, lctx *d)
+static void fill_bitbuf(deark *c, struct decompr_internal_state *dctx)
 {
 	UI i;
 
-	if(d->errflag) return;
-	if(d->dcmpr_cur_ipos+2 > c->infile->len) {
+	if(dctx->d->errflag) return;
+	if(dctx->dcmpr_cur_ipos+2 > dctx->inf->len) {
 		de_err(c, "Unexpected end of file during decompression");
-		d->errflag = 1;
-		d->errmsg_handled = 1;
+		dctx->d->errflag = 1;
+		dctx->d->errmsg_handled = 1;
 		return;
 	}
 
 	for(i=0; i<2; i++) {
 		u8 b;
-		b = de_getbyte_p(&d->dcmpr_cur_ipos);
-		de_bitbuf_lowlevel_add_byte(&d->bbll, b);
+		b = dbuf_getbyte_p(dctx->inf, &dctx->dcmpr_cur_ipos);
+		de_bitbuf_lowlevel_add_byte(&dctx->bbll, b);
 	}
 }
 
-static u8 pklite_getbit(deark *c, lctx *d)
+static u8 pklite_getbit(deark *c, struct decompr_internal_state *dctx)
 {
 	u8 v;
 
-	if(d->errflag) return 0;
-	v = (u8)de_bitbuf_lowlevel_get_bits(&d->bbll, 1);
+	if(dctx->d->errflag) return 0;
+	v = (u8)de_bitbuf_lowlevel_get_bits(&dctx->bbll, 1);
 
-	if(d->bbll.nbits_in_bitbuf==0) {
-		fill_bitbuf(c, d);
+	if(dctx->bbll.nbits_in_bitbuf==0) {
+		fill_bitbuf(c, dctx);
 	}
 
 	return v;
@@ -854,10 +867,10 @@ static u8 pklite_getbit(deark *c, lctx *d)
 
 static void my_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 {
-	lctx *d = (lctx*)rb->userdata;
+	struct decompr_internal_state *dctx = (struct decompr_internal_state *)rb->userdata;
 
-	dbuf_writebyte(d->o_dcmpr_code, n);
-	d->o_dcmpr_code_nbytes_written++;
+	dbuf_writebyte(dctx->d->o_dcmpr_code, n);
+	dctx->o_dcmpr_code_nbytes_written++;
 }
 
 // Allocates and populats a huffman_decoder.
@@ -897,7 +910,7 @@ static void huffman_make_tree_from_u16array(deark *c,
 	de_dbg_indent(c, -1);
 }
 
-static void make_matchlengths_tree(deark *c, lctx *d)
+static void make_matchlengths_tree(deark *c, struct decompr_internal_state *dctx)
 {
 	static const char *name = "match lengths";
 	static const u16 matchlengthsdata_lg[24] = {
@@ -919,29 +932,29 @@ static void make_matchlengths_tree(deark *c, lctx *d)
 		0x2002,0x4003,0x4002
 	};
 
-	if(d->ver.large_cmpr) {
-		if(d->ver.v120_cmpr) {
-			huffman_make_tree_from_u16array(c, &d->lengths_tree,
+	if(dctx->dparams->large_cmpr) {
+		if(dctx->dparams->v120_cmpr) {
+			huffman_make_tree_from_u16array(c, &dctx->lengths_tree,
 				matchlengthsdata120_lg, 21, name);
 		}
 		else {
-			huffman_make_tree_from_u16array(c, &d->lengths_tree,
+			huffman_make_tree_from_u16array(c, &dctx->lengths_tree,
 				matchlengthsdata_lg, 24, name);
 		}
 	}
 	else {
-		if(d->ver.v120_cmpr) {
-			huffman_make_tree_from_u16array(c, &d->lengths_tree,
+		if(dctx->dparams->v120_cmpr) {
+			huffman_make_tree_from_u16array(c, &dctx->lengths_tree,
 				matchlengthsdata120_sm, 11, name);
 		}
 		else {
-			huffman_make_tree_from_u16array(c, &d->lengths_tree,
+			huffman_make_tree_from_u16array(c, &dctx->lengths_tree,
 				matchlengthsdata_sm, 9, name);
 		}
 	}
 }
 
-static void make_offsets_tree(deark *c, lctx *d)
+static void make_offsets_tree(deark *c, struct decompr_internal_state *dctx)
 {
 	static const char *name = "offsets";
 	static const u16 offsetsdata[32] = {
@@ -957,17 +970,18 @@ static void make_offsets_tree(deark *c, lctx *d)
 		0x7038,0x7039,0x703a,0x703b,0x703c,0x703d,0x703e,0x703f
 	};
 
-	if(d->ver.v120_cmpr) {
-		huffman_make_tree_from_u16array(c, &d->offsets_tree,
+	if(dctx->dparams->v120_cmpr) {
+		huffman_make_tree_from_u16array(c, &dctx->offsets_tree,
 			offsetsdata120, 32, name);
 	}
 	else {
-		huffman_make_tree_from_u16array(c, &d->offsets_tree,
+		huffman_make_tree_from_u16array(c, &dctx->offsets_tree,
 			offsetsdata, 32, name);
 	}
 }
 
-static UI read_pklite_code_using_tree(deark *c, lctx *d, struct fmtutil_huffman_decoder *ht)
+static UI read_pklite_code_using_tree(deark *c, struct decompr_internal_state *dctx,
+	struct fmtutil_huffman_decoder *ht)
 {
 	int ret;
 	fmtutil_huffman_valtype val = 0;
@@ -975,13 +989,13 @@ static UI read_pklite_code_using_tree(deark *c, lctx *d, struct fmtutil_huffman_
 	while(1) {
 		u8 b;
 
-		b = pklite_getbit(c, d);
-		if(d->errflag) goto done;
+		b = pklite_getbit(c, dctx);
+		if(dctx->d->errflag) goto done;
 
 		ret = fmtutil_huffman_decode_bit(ht->bk, ht->cursor, b, &val);
 		if(ret==1) goto done; // finished the code
 		if(ret!=2) {
-			d->errflag = 1;
+			dctx->d->errflag = 1;
 			goto done;
 		}
 	}
@@ -989,14 +1003,15 @@ done:
 	return val;
 }
 
-static void do_uncompressed_area(deark *c, lctx *d, struct de_lz77buffer *ringbuf)
+static void do_uncompressed_area(deark *c, struct decompr_internal_state *dctx,
+	struct de_lz77buffer *ringbuf)
 {
 	i64 len;
 	i64 i;
 
-	d->has_uncompressed_area = 1;
-	len = (i64)de_getbyte_p(&d->dcmpr_cur_ipos);
-	de_dbg3(c, "uncompressed area at %"I64_FMT", len=%"I64_FMT, d->dcmpr_cur_ipos, len);
+	dctx->has_uncompressed_area = 1;
+	len = (i64)dbuf_getbyte_p(dctx->inf, &dctx->dcmpr_cur_ipos);
+	de_dbg3(c, "uncompressed area at %"I64_FMT", len=%"I64_FMT, dctx->dcmpr_cur_ipos, len);
 
 	// TODO: The only files with this feature that I have are registered copies of
 	// PKZIP.EXE. When decompressed with, e.g., UNP, 9 additional seemingly-random
@@ -1011,12 +1026,22 @@ static void do_uncompressed_area(deark *c, lctx *d, struct de_lz77buffer *ringbu
 	}
 
 	for(i=0; i<len; i++) {
-		de_lz77buffer_add_literal_byte(ringbuf, de_getbyte_p(&d->dcmpr_cur_ipos));
+		de_lz77buffer_add_literal_byte(ringbuf, dbuf_getbyte_p(dctx->inf, &dctx->dcmpr_cur_ipos));
 	}
 }
 
+// Decompress the main part of the file.
+// Uses:
+//   c->infile
+//   d->dparams.*
+// Returns:
+//   d->o_dcmpr_code
+//   d->cmpr_data_endpos
+//   d->errflag
+//   d->errmsg_handled
 static void do_decompress(deark *c, lctx *d)
 {
+	struct decompr_internal_state *dctx = NULL;
 	struct de_lz77buffer *ringbuf = NULL;
 	u8 b;
 	UI value_of_long_ml_code;
@@ -1025,11 +1050,16 @@ static void do_decompress(deark *c, lctx *d)
 	UI value_of_lit0_code = 0xffff;
 	UI long_matchlen_bias;
 
-	de_dbg(c, "decompressing cmpr code at %"I64_FMT, d->cmpr_data_pos);
+	de_dbg(c, "decompressing cmpr code at %"I64_FMT, d->dparams.cmpr_data_pos);
 	de_dbg_indent(c, 1);
 
-	if(d->ver.large_cmpr) {
-		if(d->ver.v120_cmpr) {
+	dctx = de_malloc(c, sizeof(struct decompr_internal_state));
+	dctx->d = d;
+	dctx->inf = c->infile;
+	dctx->dparams = &d->dparams;
+
+	if(d->dparams.large_cmpr) {
+		if(d->dparams.v120_cmpr) {
 			// There are 17 normal codes, and 4 special
 			value_of_long_ml_code = 17;
 			value_of_ml2_0_code = value_of_long_ml_code+1;
@@ -1045,7 +1075,7 @@ static void do_decompress(deark *c, lctx *d)
 		}
 	}
 	else {
-		if(d->ver.v120_cmpr) {
+		if(d->dparams.v120_cmpr) {
 			// There are 7 normal codes, and 4 special
 			value_of_long_ml_code = 7;
 			value_of_ml2_0_code = value_of_long_ml_code+1;
@@ -1061,22 +1091,22 @@ static void do_decompress(deark *c, lctx *d)
 		}
 	}
 
-	make_matchlengths_tree(c, d);
-	make_offsets_tree(c, d);
+	make_matchlengths_tree(c, dctx);
+	make_offsets_tree(c, dctx);
 
 	d->o_dcmpr_code = dbuf_create_membuf(c, 0, 0);
 	dbuf_set_length_limit(d->o_dcmpr_code, 1048576);
 	dbuf_enable_wbuffer(d->o_dcmpr_code);
 
 	ringbuf = de_lz77buffer_create(c, 8192);
-	ringbuf->userdata = (void*)d;
+	ringbuf->userdata = (void*)dctx;
 	ringbuf->writebyte_cb = my_lz77buf_writebytecb;
 
-	d->dcmpr_cur_ipos = d->cmpr_data_pos;
-	d->bbll.is_lsb = 1;
-	de_bitbuf_lowlevel_empty(&d->bbll);
+	dctx->dcmpr_cur_ipos = d->dparams.cmpr_data_pos;
+	dctx->bbll.is_lsb = 1;
+	de_bitbuf_lowlevel_empty(&dctx->bbll);
 
-	fill_bitbuf(c, d);
+	fill_bitbuf(c, dctx);
 
 	while(1) {
 		u8 x;
@@ -1089,11 +1119,11 @@ static void do_decompress(deark *c, lctx *d)
 
 		if(d->errflag) goto after_dcmpr;
 
-		x = pklite_getbit(c, d);
+		x = pklite_getbit(c, dctx);
 		if(x==0) {
-			b = de_getbyte_p(&d->dcmpr_cur_ipos);
-			if(d->ver.extra_cmpr) {
-				b ^= (u8)(d->bbll.nbits_in_bitbuf);
+			b = dbuf_getbyte_p(dctx->inf, &dctx->dcmpr_cur_ipos);
+			if(d->dparams.extra_cmpr) {
+				b ^= (u8)(dctx->bbll.nbits_in_bitbuf);
 			}
 			if(c->debug_level>=3) {
 				de_dbg3(c, "lit 0x%02x", (UI)b);
@@ -1102,7 +1132,7 @@ static void do_decompress(deark *c, lctx *d)
 			continue;
 		}
 
-		len_raw = read_pklite_code_using_tree(c, d, d->lengths_tree);
+		len_raw = read_pklite_code_using_tree(c, dctx, dctx->lengths_tree);
 		if(d->errflag) goto after_dcmpr;
 
 		if(len_raw<value_of_long_ml_code) {
@@ -1114,14 +1144,14 @@ static void do_decompress(deark *c, lctx *d)
 			offs_have_hi_bits = 1;
 		}
 		else if(len_raw==value_of_long_ml_code) {
-			b = de_getbyte_p(&d->dcmpr_cur_ipos);
+			b = dbuf_getbyte_p(dctx->inf, &dctx->dcmpr_cur_ipos);
 
 			if(b >= 0xfd) {
-				if(b==0xfd && d->ver.large_cmpr) {
-					do_uncompressed_area(c, d, ringbuf);
+				if(b==0xfd && d->dparams.large_cmpr) {
+					do_uncompressed_area(c, dctx, ringbuf);
 					continue;
 				}
-				if(b==0xfe && d->ver.large_cmpr) {
+				if(b==0xfe && d->dparams.large_cmpr) {
 					// (segment separator) Just a no-op?
 					de_dbg3(c, "code 0xfe");
 					continue;
@@ -1155,11 +1185,11 @@ static void do_decompress(deark *c, lctx *d)
 		}
 
 		if(!offs_have_hi_bits) {
-			offs_hi_bits = read_pklite_code_using_tree(c, d, d->offsets_tree);
+			offs_hi_bits = read_pklite_code_using_tree(c, dctx, dctx->offsets_tree);
 		}
 
-		offs_lo_byte = de_getbyte_p(&d->dcmpr_cur_ipos);
-		offs_lo_byte ^= d->offset_xor_key;
+		offs_lo_byte = dbuf_getbyte_p(dctx->inf, &dctx->dcmpr_cur_ipos);
+		offs_lo_byte ^= d->dparams.offset_xor_key;
 		if(d->errflag) goto after_dcmpr;
 
 		matchpos = (offs_hi_bits<<8) | (UI)offs_lo_byte;
@@ -1171,9 +1201,9 @@ static void do_decompress(deark *c, lctx *d)
 		// PKLITE confirmed to use distances 1 to 8191. Have not observed matchpos=0.
 		// Have not observed it to use distances larger than the number of bytes
 		// decompressed so far.
-		if(matchpos==0 || (i64)matchpos>d->o_dcmpr_code_nbytes_written) {
+		if(matchpos==0 || (i64)matchpos>dctx->o_dcmpr_code_nbytes_written) {
 			de_err(c, "Bad or unsupported compressed data (dist=%u, expected 1 to %"I64_FMT")",
-				matchpos, d->o_dcmpr_code_nbytes_written);
+				matchpos, dctx->o_dcmpr_code_nbytes_written);
 			d->errflag = 1;
 			d->errmsg_handled = 1;
 			goto after_dcmpr;
@@ -1187,18 +1217,23 @@ after_dcmpr:
 	dbuf_flush(d->o_dcmpr_code);
 
 	if(!d->errflag) {
-		d->cmpr_data_endpos = d->dcmpr_cur_ipos;
+		d->cmpr_data_endpos = dctx->dcmpr_cur_ipos;
 		de_dbg(c, "cmpr data end: %"I64_FMT, d->cmpr_data_endpos);
 		de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT,
-			d->cmpr_data_endpos-d->cmpr_data_pos, d->o_dcmpr_code->len);
+			d->cmpr_data_endpos-d->dparams.cmpr_data_pos, d->o_dcmpr_code->len);
 
-		if(d->has_uncompressed_area) {
+		if(dctx->has_uncompressed_area) {
 			de_warn(c, "This file has an \"uncompressed area\", and might not be "
 				"decompressed correctly.");
 		}
 	}
 
 done:
+	if(dctx) {
+		fmtutil_huffman_destroy_decoder(c, dctx->lengths_tree);
+		fmtutil_huffman_destroy_decoder(c, dctx->offsets_tree);
+		de_free(c, dctx);
+	}
 	de_dbg_indent(c, -1);
 }
 
@@ -1598,6 +1633,10 @@ static void do_pklite_exe(deark *c, lctx *d)
 	if(d->errflag) goto done;
 	find_cmprdata_pos(c, d, &d->ver);
 	if(d->errflag) goto done;
+
+	d->dparams.large_cmpr = d->ver.large_cmpr;
+	d->dparams.extra_cmpr = d->ver.extra_cmpr;
+	d->dparams.v120_cmpr = d->ver.v120_cmpr;
 	do_decompress(c, d);
 	dbuf_flush(d->o_dcmpr_code);
 	if(d->errflag) goto done;
@@ -1717,20 +1756,20 @@ static void read_and_process_com_version_number(deark *c, lctx *d, i64 verpos)
 		(UI)((d->ver_reported.ver_num&0xf00)>>8),
 		(UI)(d->ver_reported.ver_num&0x00ff));
 
-	if(d->cmpr_data_pos==500) {
+	if(d->dparams.cmpr_data_pos==500) {
 		s = "1.00beta";
 	}
-	else if(d->cmpr_data_pos==448) {
+	else if(d->dparams.cmpr_data_pos==448) {
 		switch(de_getbyte(260)) {
 		case 0x1d: s = "1.00-1.03"; break;
 		case 0x1c: s = "1.05-1.14"; break;
 		default: s = "1.00-1.14"; break;
 		}
 	}
-	else if(d->cmpr_data_pos==450) {
+	else if(d->dparams.cmpr_data_pos==450) {
 		s = "1.15";
 	}
-	else if(d->cmpr_data_pos==464) {
+	else if(d->dparams.cmpr_data_pos==464) {
 		s = "1.50-2.01";
 	}
 
@@ -1742,7 +1781,7 @@ static void do_pklite_com(deark *c, lctx *d)
 {
 	i64 verpos = 0;
 
-	if(!detect_pklite_com_quick(c->infile, &verpos, &d->cmpr_data_pos)) {
+	if(!detect_pklite_com_quick(c->infile, &verpos, &d->dparams.cmpr_data_pos)) {
 		de_err(c, "Not a known/supported PKLITE format");
 		goto done;
 	}
@@ -1761,8 +1800,9 @@ static void do_pklite_com(deark *c, lctx *d)
 		}
 	}
 
-	// TODO: COM support was added in a way that's a bit of a hack. Ought to clean
-	// it up.
+	d->dparams.large_cmpr = d->ver.large_cmpr;
+	d->dparams.extra_cmpr = d->ver.extra_cmpr;
+	d->dparams.v120_cmpr = d->ver.v120_cmpr;
 	do_decompress(c, d);
 	if(!d->o_dcmpr_code) goto done;
 	dbuf_flush(d->o_dcmpr_code);
@@ -1804,8 +1844,6 @@ static void de_run_pklite(deark *c, de_module_params *mparams)
 		dbuf_close(d->o_dcmpr_code);
 		de_free(c, d->o_ei);
 		de_free(c, d->ei);
-		fmtutil_huffman_destroy_decoder(c, d->lengths_tree);
-		fmtutil_huffman_destroy_decoder(c, d->offsets_tree);
 		de_free(c, d);
 	}
 }
