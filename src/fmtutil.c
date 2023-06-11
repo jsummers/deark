@@ -1498,67 +1498,80 @@ static void calc_entrypoint_crc(deark *c, struct fmtutil_exe_info *ei)
 	de_crcobj_destroy(crco);
 }
 
+// Classify a potential PKLITE EXE file by the bytes at the entry point.
+// flags:
+//   0xff = default behavior
+//   0x01 = only check for normal PKLITE versions
+//   0x02 = only check for beta versions
+//   0x04 = only check for Megalite
+// Returns a classification code, or 0 if not detected.
+UI fmtutil_detect_pklite_by_exe_ep(deark *c, const u8 *mem, i64 mem_len, UI flags)
+{
+	if(mem_len<64) return 0;
+
+	if(flags & 0x01) {
+		if(de_memmatch(mem, (const u8*)"\xb8??\xba??\x8c\xdb\x03\xd8\x3b", 11, '?', 0)) {
+			return 100; // v1.00-1.05, etc.
+		}
+		if(de_memmatch(mem, (const u8*)"\xb8??\xba??\x05\x00\x00\x3b", 10, '?', 0)) {
+			return 112; // v1.12-1.15, etc.
+		}
+		if(de_memmatch(mem, (const u8*)"\x50\xb8??\xba??\x05\x00\x00\x3b", 11, '?', 0)) {
+			return 150; // v2.01, etc.
+		}
+		if(de_memmatch(mem, (const u8*)"\x9c\xba?\x00\x2d?\x00\x81\xe1?\x00\x81", 12, '?', 0)) {
+			return 250; // Patched by UN^2PACK v2.0?
+		}
+	}
+
+	if(flags & 0x02) {
+		if(de_memmatch(mem, (const u8*)"\x2e\x8c\x1e??\x8b\x1e\x02\x00\x8c\xda\x81", 12, '?', 0)) {
+			return 90; // Normal beta
+		}
+		if(de_memmatch(mem, (const u8*)"\x2e\x8c\x1e??\xfc\x8c\xc8\x2e\x2b\x06", 11, '?', 0)) {
+			return 91; // beta/loadhigh
+		}
+	}
+
+	if(flags & 0x04) {
+		if(de_memmatch(mem, (const u8*)"\xb8??\xba??\x05\x00\x00\x3b\x2d", 11, '?', 0)) {
+			return 251; // Megalite
+		}
+	}
+
+	return 0;
+}
+
 static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
-	u8 maybe_pklite = 0; // Any format with the usual EXE header field values
-	u8 maybe_beta = 0;
-	u8 maybe_megalite = 0;
-	u8 *cb; // Bytes at entry point
+	UI epflags = 0;
+	UI intro_class;
 
 	if(ei->regIP==256 && ei->regCS==(-16) && ei->num_relocs<=2 &&
 		ei->entry_point==ei->start_of_dos_code)
 	{
-		maybe_pklite = 1;
+		epflags |= 1; // Maybe a typical PKLITE file
 	}
 	else if(ei->regIP==256 && ei->regCS>(-16) && ei->num_relocs==0 &&
 		ei->entry_point>ei->start_of_dos_code)
 	{
-		maybe_beta = 1;
+		epflags |= 2; // Maybe beta
 	}
 	else if(ei->regCS==0 && ei->regIP==0 && ei->num_relocs==1 && ei->reloc_table_pos==28 &&
 		ei->entry_point==ei->start_of_dos_code)
 	{
-		maybe_megalite = 1;
+		epflags |= 4; // Maybe Megalite
 	}
-	else {
+
+	if(epflags==0) {
 		goto done;
 	}
 
 	read_exe_testbytes(ei);
-	cb = ei->ep64b;
-
-	if(maybe_pklite) {
-		if(de_memmatch(cb, (const u8*)"\xb8??\xba??\x8c\xdb\x03\xd8\x3b", 11, '?', 0)) {
-			edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE; // v1.00-1.05, etc.
-		}
-		if(de_memmatch(cb, (const u8*)"\xb8??\xba??\x05\x00\x00\x3b", 10, '?', 0)) {
-			edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE; // v1.12-1.15, etc.
-		}
-		if(de_memmatch(cb, (const u8*)"\x50\xb8??\xba??\x05\x00\x00\x3b", 11, '?', 0)) {
-			edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE; // v2.01, etc.
-		}
-		if(de_memmatch(cb, (const u8*)"\x9c\xba?\x00\x2d?\x00\x81\xe1?\x00\x81", 12, '?', 0)) {
-			edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE; // Patched by UN^2PACK v2.0?
-		}
-		goto done;
-	}
-
-	if(maybe_beta) {
-		if(de_memmatch(cb, (const u8*)"\x2e\x8c\x1e??\x8b\x1e\x02\x00\x8c\xda\x81", 12, '?', 0)) {
-			edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE; // Normal beta
-		}
-		if(de_memmatch(cb, (const u8*)"\x2e\x8c\x1e??\xfc\x8c\xc8\x2e\x2b\x06", 11, '?', 0)) {
-			edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE; // beta/loadhigh
-		}
-		goto done;
-	}
-
-	if(maybe_megalite) {
-		if(de_memmatch(cb, (const u8*)"\xb8??\xba??\x05\x00\x00\x3b\x2d", 11, '?', 0)) {
-			edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE;
-		}
-		goto done;
+	intro_class = fmtutil_detect_pklite_by_exe_ep(c, ei->ep64b, sizeof(ei->ep64b), epflags);
+	if(intro_class) {
+		edd->detected_fmt = DE_SPECIALEXEFMT_PKLITE;
 	}
 
 done:

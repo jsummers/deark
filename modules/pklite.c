@@ -74,6 +74,7 @@ typedef struct localctx_struct {
 	u8 scramble_method; // 1=XOR, 2=ADD
 	u8 dcmpr_ok;
 	u8 wrote_exe;
+	UI intro_class;
 	i64 cmpr_data_endpos; // = reloc_tbl_pos
 	i64 reloc_tbl_endpos;
 	i64 cmpr_data_area_endpos; // where the footer ends
@@ -87,6 +88,11 @@ typedef struct localctx_struct {
 	dbuf *o_orig_header; // copied or constructed header for the decompressed file
 	dbuf *o_reloc_table;
 	dbuf *o_dcmpr_code;
+	// A copy of the bytes at the EXE entry point, generally up to but not
+	// including the compressed data. The most we expect to need is about 800,
+	// e.g. for PKLITE Pro 2.01 w/ large + extra + checksum.
+#define EPBYTES_LEN 1000
+	u8 epbytes[EPBYTES_LEN];
 } lctx;
 
 struct decompr_internal_state {
@@ -1613,21 +1619,21 @@ done:
 
 static void do_pklite_exe(deark *c, lctx *d)
 {
-	struct fmtutil_specialexe_detection_data edd;
-
 	d->raw_mode = (u8)de_get_ext_option_bool(c, "pklite:raw", 0xff);
 
 	fmtutil_collect_exe_info(c, c->infile, d->ei);
 
-	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
-	edd.restrict_to_fmt = DE_SPECIALEXEFMT_PKLITE;
-	fmtutil_detect_execomp(c, d->ei, &edd);
-	if(edd.detected_fmt==DE_SPECIALEXEFMT_PKLITE) {
-		de_declare_fmt(c, "PKLITE-compressed EXE");
+	de_read(d->epbytes, d->ei->entry_point, EPBYTES_LEN);
+	d->intro_class = fmtutil_detect_pklite_by_exe_ep(c, d->epbytes, EPBYTES_LEN, 0xff);
+
+	if(d->intro_class==0) {
+		de_err(c, "Not a PKLITE-compressed file, or not a known type");
+		d->errflag = 1;
+		d->errmsg_handled = 1;
+		goto done;
 	}
-	else if(c->module_disposition==DE_MODDISP_EXPLICIT) {
-		de_warn(c, "This might not be a PKLITE-compressed EXE file");
-	}
+
+	de_declare_fmt(c, "PKLITE-compressed EXE");
 
 	do_read_header_and_detect_version(c, d);
 	if(d->errflag) goto done;

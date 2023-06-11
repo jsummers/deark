@@ -738,3 +738,4 @@ int fmtutil_scan_for_arj_data(dbuf *f, i64 startpos, i64 max_skip,
 	UI flags, i64 *pfoundpos);
 void fmtutil_get_std_jpeg_qtable(UI tbl_id, u8 tbl[64]);
 void fmtutil_write_std_jpeg_dht(dbuf *outf, UI tbl_id);
+UI fmtutil_detect_pklite_by_exe_ep(deark *c, const u8 *mem, i64 mem_len, UI flags);
