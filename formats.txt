@@ -925,7 +925,6 @@ Deark -- Information about supported formats
 * PKLITE (module="pklite")
   Decompress a PKLITE-compressed DOS EXE file or DOS COM file.
   - For EXE format, you must use "-m pklite" or "-opt execomp".
-  - Not all PKLITE format variants are supported.
   Options
    -opt pklite:raw - Instead of an EXE file, write raw decompressed data
 

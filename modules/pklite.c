@@ -4,28 +4,27 @@
 
 // Decompress PKLITE executable compression
 
+// In a PKLITE-compressed EXE file, reliably determining the critical
+// compression params is quite difficult. They are embedded or encoded in the
+// machine code, and there are many different versions and variants of the
+// format to deal with.
+//
+// While some params are encoded in the "version info" field at offset 28,
+// this field is not trustworthy.
+//
+// This module painstakingly walks through the file, looking for known byte
+// patterns, to identify known components, the parameters contained in them,
+// and the location of following components.
+//
+// See also my "pkla" project, a script that does a better job of printing
+// information about PKLITE-compressed files, and reporting problems.
+
 // I thank Sergei Kolzun (private communication) for information about the
 // v1.20 formats.
 
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_pklite);
-
-#define PKLITE_UNK_VER_NUM 0x963 // Unknown but possibly supported version
-
-#define DE_PKLITE_SHAPE_BETA      2  // 1.00beta
-#define DE_PKLITE_SHAPE_BETA_LH   3  // 1.00beta/loadhigh
-#define DE_PKLITE_SHAPE_100       4  // 1.00-1.05 or 1.10(?)
-#define DE_PKLITE_SHAPE_112       5  // 1.12-1.13
-#define DE_PKLITE_SHAPE_114       6  // 1.14-1.15 or 1.20var1 or sfx:ZIP2EXEv2.04
-#define DE_PKLITE_SHAPE_150       7  // 1.50-2.01
-#define DE_PKLITE_SHAPE_120V2     8  // 1.20var2
-#define DE_PKLITE_SHAPE_120V4     9  // 1.20var4 or sfx:ZIP2EXEv2.50
-#define DE_PKLITE_SHAPE_MEGALITE  10
-#define DE_PKLITE_SHAPE_UN2PACK   11
-#define DE_PKLITE_SHAPE_114LOOSE  12
-#define DE_PKLITE_SHAPE_150LOOSE  13
-#define DE_PKLITE_SHAPE_120V5     14 // Files from PKZIP 1.93A
 
 // Things we need to figure out, to decompress the main compressed data.
 struct decompr_params_struct {
@@ -38,16 +37,6 @@ struct decompr_params_struct {
 
 struct ver_info_struct {
 	UI ver_num; // e.g. 0x103 = 1.03
-	u8 valid; // have the non-derived fields been set?
-	u8 is_beta;
-	u8 extra_cmpr;
-	u8 extra_cmpr_confidence; // likelihood that extra_cmpr is correct
-	u8 large_cmpr;
-	u8 v120_cmpr;
-	u8 load_high;
-	const char *suffix;
-
-	// derived fields:
 	char pklver_str[40];
 };
 
@@ -61,7 +50,6 @@ struct footer_struct {
 typedef struct localctx_struct {
 	struct ver_info_struct ver_reported;
 	struct ver_info_struct ver_detected;
-	struct ver_info_struct ver;
 
 	struct fmtutil_exe_info *ei; // For the PKLITE file
 	struct fmtutil_exe_info *o_ei; // For the decompressed file
@@ -70,17 +58,62 @@ typedef struct localctx_struct {
 	u8 is_com;
 	u8 raw_mode;
 	u8 data_before_decoder;
-	u8 decoder_shape;
-	u8 scramble_method; // 1=XOR, 2=ADD
 	u8 dcmpr_ok;
 	u8 wrote_exe;
-	UI intro_class;
+	UI intro_class_fmtutil;
+
+#define INTRO_CLASS_BETA      8
+#define INTRO_CLASS_BETA_LH   9
+#define INTRO_CLASS_100       10
+#define INTRO_CLASS_112       12
+#define INTRO_CLASS_114       14
+#define INTRO_CLASS_150       50
+#define INTRO_CLASS_UN2PACK   100
+#define INTRO_CLASS_MEGALITE  101
+	u8 intro_class;
+	u8 load_high;
+
+	UI initial_key;
+	i64 position2; // The next section after the intro [relative to entry point]
+
+#define DESCRAMBLER_CLASS_114              14
+#define DESCRAMBLER_CLASS_150              50
+#define DESCRAMBLER_CLASS_120VAR1A         101
+#define DESCRAMBLER_CLASS_120VAR1B         102
+#define DESCRAMBLER_CLASS_120VAR2          103
+#define DESCRAMBLER_CLASS_PKZIP204CLIKE    105
+#define DESCRAMBLER_CLASS_PKLITE201LIKE    110
+#define DESCRAMBLER_CLASS_CHK4LITE201LIKE  111
+	u8 descrambler_class;
+	u8 scrambled_decompressor;
+#define SCRAMBLE_METHOD_XOR 1
+#define SCRAMBLE_METHOD_ADD 2
+	u8 scramble_method;
+	i64 scrambled_word_count;
+	i64 pos_of_last_scrambled_word;
+
+	i64 copier_pos;
+#define COPIER_CLASS_COMMON         1
+#define COPIER_CLASS_150SCR         2
+#define COPIER_CLASS_120VAR1SMALL   10
+#define COPIER_CLASS_PKLITE201LIKE  20
+#define COPIER_CLASS_UN2PACK        100
+#define COPIER_CLASS_MEGALITE       101
+	u8 copier_class;
+
+	i64 decompr_pos;
+	i64 approx_end_of_decompressor;
+#define DECOMPR_CLASS_COMMON        1
+#define DECOMPR_CLASS_BETA          9
+#define DECOMPR_CLASS_115           15
+#define DECOMPR_CLASS_120SMALL_OLD  50
+#define DECOMPR_CLASS_120SMALL      51
+	u8 decompr_class;
+
 	i64 cmpr_data_endpos; // = reloc_tbl_pos
 	i64 reloc_tbl_endpos;
 	i64 cmpr_data_area_endpos; // where the footer ends
 	i64 footer_pos; // 0 if unknown
-	i64 predicted_cmpr_data_pos; // based on the 01 02 00 00 03... pattern, 0 if unknown
-	i64 pos_after_errmsg; // 0 if unknown
 	struct footer_struct footer;
 
 	int errflag;
@@ -107,735 +140,687 @@ struct decompr_internal_state {
 	struct fmtutil_huffman_decoder *offsets_tree;
 };
 
-// Sets d->dparams.cmpr_data_pos and d->cmpr_data_area_endpos, or reports an error.
-static void find_cmprdata_pos(deark *c, lctx *d, struct ver_info_struct *v)
+#define pkl_memmatch de_memmatch
+
+// Search a region of a block of memory for the given pattern.
+//
+// search endpos is the end of the search region (the first byte beyond it).
+//   The entire pattern must fit into the region.
+// pattern_len is the number of non-padding bytes. Must be at least 1.
+// *pfoundpos is relative to the beginning of the 'mem'.
+static int pkl_search_match(const u8 *mem, i64 mem_len,
+	i64 search_startpos, i64 search_endpos,
+	const u8 *pattern, i64 pattern_len,
+	u8 wildcard, UI flags, i64 *pfoundpos)
 {
-	if(d->errflag) return;
+	i64 num_start_positions_to_search;
+	i64 i;
 
-	d->dparams.cmpr_data_pos = d->predicted_cmpr_data_pos;
+	*pfoundpos = 0;
 
-	if(d->dparams.cmpr_data_pos!=0) {
-		if(d->dparams.cmpr_data_pos >= c->infile->len) {
-			d->dparams.cmpr_data_pos = 0;
+	if(pattern_len<1) return 0;
+	if(search_startpos<0) search_startpos = 0;
+	if(search_endpos>mem_len) search_endpos = mem_len;
+	if(pattern_len > search_endpos-search_startpos) return 0;
+	num_start_positions_to_search = search_endpos-search_startpos-pattern_len+1;
+
+	for(i=0; i<num_start_positions_to_search; i++) {
+		int ret;
+
+		if(pattern[0]!=mem[search_startpos+i] && pattern[0]!=wildcard) continue;
+		ret = pkl_memmatch(&mem[search_startpos+i], pattern, (size_t)pattern_len, wildcard, 0);
+		if(ret) {
+			*pfoundpos = search_startpos+i;
+			return 1;
 		}
 	}
 
-	if(d->dparams.cmpr_data_pos!=0 && !d->ver_detected.v120_cmpr) {
-		// The first byte of compressed data can't be odd, because the first instruction must
-		// be a literal.
-		// This is just an extra sanity check that might improve the error message.
-		// (The special 0 literal means this doesn't work for v1.20.)
-		if(de_getbyte(d->dparams.cmpr_data_pos) & 0x01) {
-			d->dparams.cmpr_data_pos = 0;
-		}
-	}
-
-	if(d->dparams.cmpr_data_pos!=0) {
-		de_dbg(c, "cmpr data pos: %"I64_FMT" (%"I64_FMT" from code start)", d->dparams.cmpr_data_pos,
-			d->dparams.cmpr_data_pos - d->ei->start_of_dos_code);
-
-		if(d->data_before_decoder) {
-			d->cmpr_data_area_endpos = d->ei->entry_point;
-		}
-		else {
-			d->cmpr_data_area_endpos = d->ei->end_of_dos_code;
-		}
-	}
-
-	if(d->dparams.cmpr_data_pos==0) {
-		if(d->ver_detected.valid) {
-			de_err(c, "Not a supported PKLITE version (reported=%s, detected=%s)",
-				d->ver_reported.pklver_str, d->ver_detected.pklver_str);
-		}
-		else {
-			de_err(c, "Not a PKLITE-compressed file, or not a supported version (%s)",
-				d->ver_reported.pklver_str);
-		}
-		d->errflag = 1;
-		d->errmsg_handled = 1;
-	}
+	return 0;
 }
 
 static void info_bytes_to_version_struct(UI ver_info, struct ver_info_struct *v)
 {
-	v->valid = 1;
 	v->ver_num = ver_info & 0x0fff;
-	v->extra_cmpr = (ver_info & 0x1000)?1:0;
-	v->large_cmpr = (ver_info & 0x2000)?1:0;
-	if(v->ver_num==0x100 && (ver_info & 0x4000)) v->load_high = 1;
+	de_snprintf(v->pklver_str, sizeof(v->pklver_str), "%u.%02u%s%s%s",
+		(UI)(v->ver_num>>8), (UI)(v->ver_num&0xff),
+		((ver_info&0x4000)?"/h":""),
+		((ver_info&0x2000)?"/l":"/s"),
+		((ver_info&0x1000)?"/e":""));
 }
 
-// Caller first sets (at least) .valid and .ver_info
-static void derive_version_fields(deark *c, lctx *d, struct ver_info_struct *v)
-{
-	char ver_text[16];
-
-	if(!v->valid) {
-		de_strlcpy(v->pklver_str, "unknown", sizeof(v->pklver_str));
-		return;
-	}
-
-	if(v->ver_num == PKLITE_UNK_VER_NUM) {
-		de_strlcpy(ver_text, "?.??", sizeof(ver_text));
-	}
-	else {
-		de_snprintf(ver_text, sizeof(ver_text), "%u.%02u",
-			(UI)(v->ver_num>>8), (UI)(v->ver_num&0xff));
-	}
-
-	de_snprintf(v->pklver_str, sizeof(v->pklver_str), "%s%s%s%s%s",
-		ver_text,
-		(v->suffix?v->suffix:""),
-		(v->load_high?"/h":""),
-		(v->large_cmpr?"/l":"/s"),
-		(v->extra_cmpr?"/e":""));
-}
-
-struct ver_fingerprint_item {
-	u32 crc;
-	UI ver_info;
-	UI flags;
-	const char *suffix;
-};
-static const struct ver_fingerprint_item ver_fingerprint_arr[] = {
-	{0xb1083464U, 0x0100, 1, "beta"},
-	{0xf1ee04cfU, 0x0100, 0, "-1.03"},
-	{0x4c8409f4U, 0x0105, 0, NULL},
-	{0x705fd509U, 0x010c, 0, NULL},
-	{0x750a2002U, 0x010d, 0, NULL},
-	{0x25481db5U, 0x010e, 0, NULL},
-	{0x5e3413ffU, 0x010f, 0, NULL},
-	{0x1f735486U, 0x0132, 0, "-2.01"},
-	{0xb5153795U, 0x110c, 0, NULL},
-	{0xfa91a037U, 0x110d, 0, NULL},
-	{0x9f8d6c74U, 0x1114, 0, "[ZIP2EXEv2.04c]"},
-	{0xdf1595baU, 0x1114, 0, "[ZIP2EXEv2.04cReg]"}, // unconfirmed
-	{0xe95a2c43U, 0x1114, 0, "[ZIP2EXEv2.04e-g]"},
-	{0xa218a5f3U, 0x1114, 0, "[ZIP2EXEv2.04gReg]"},
-	{0x9debdd68U, 0x1114, 0, "[ZIP2EXEv2.50]"},
-	{0xc12bb6cfU, 0x2100, 1, "beta"},
-	{0xd8441452U, 0x2100, 0, NULL},
-	{0x77f75f9dU, 0x2103, 0, NULL},
-	{0xabdd9ef2U, 0x2105, 0, NULL},
-	{0x0e0e1602U, 0x210c, 0, NULL},
-	{0xc51830b1U, 0x210d, 0, NULL},
-	{0xbc75491dU, 0x210e, 0, NULL},
-	{0xd332a6e7U, 0x210f, 0, NULL},
-	{0x43eb077fU, 0x2132, 0, "-2.01"},
-	{0x2892b2bdU, 0x3105, 0, NULL},
-	{0xbc0ec35eU, 0x310c, 0, NULL},
-	{0x61a65992U, 0x310d, 0, NULL},
-	{0xd9911c85U, 0x4100, 1, "beta"}, // -l (load high) option
-	{0x89cb9e7fU, 0x6100, 1, "beta"}  // -l
-};
-
-struct matchrule_struct {
-	const u8 *pattern;
-	size_t patlen;
-	u8 result;
-};
-
-static const char *get_decoder_shape_name(u8 n)
-{
-	const char *name = NULL;
-
-	switch(n) {
-	case DE_PKLITE_SHAPE_BETA: name="beta"; break;
-	case DE_PKLITE_SHAPE_BETA_LH: name="beta_LH"; break;
-	case DE_PKLITE_SHAPE_100: name="v1.00"; break;
-	case DE_PKLITE_SHAPE_112: name="v1.12"; break;
-	case DE_PKLITE_SHAPE_114: name="v1.14"; break;
-	case DE_PKLITE_SHAPE_150: name="v1.50"; break;
-	case DE_PKLITE_SHAPE_120V2: name="v1.20var2"; break;
-	case DE_PKLITE_SHAPE_120V4: name="v1.20var4"; break;
-	case DE_PKLITE_SHAPE_MEGALITE: name="megalite"; break;
-	case DE_PKLITE_SHAPE_UN2PACK: name="un2pack"; break;
-	case DE_PKLITE_SHAPE_114LOOSE: name="v1.14_loose"; break;
-	case DE_PKLITE_SHAPE_150LOOSE: name="v1.50_loose"; break;
-	case DE_PKLITE_SHAPE_120V5: name="v1.20var5"; break;
-	}
-	return name?name:"?";
-}
-
-static void detect_pklite_decoder_shape(deark *c, struct fmtutil_exe_info *ei, u8 *pshape)
-{
-	static const u8 *shape_BETA = (const u8*)"\x2e\x8c\x1e??\x8b\x1e\x02";
-	static const u8 *shape_BETA_LH = (const u8*)"\x2e\x8c\x1e??\xfc\x8c\xc8";
-	static const u8 *shape_100 = (const u8*)"\xb8??\xba??\x8c\xdb\x03\xd8\x3b\x1e\x02\x00\x73\x1d\x83\xeb\x20\xfa\x8e"
-		"\xd3\xbc\x00\x02\xfb\x83\xeb?\x8e\xc3\x53\xb9??\x33";
-	static const u8 *shape_112 = (const u8*)"\xb8??\xba??\x05\x00\x00\x3b\x06\x02\x00\x73\x1a\x2d\x20\x00\xfa\x8e\xd0"
-		"\xfb\x2d?\x00\x8e\xc0\x50\xb9??\x33\xff\x57\xbe\x44";
-
-	static const u8 *shape_114 = (const u8*)"\xb8??\xba??\x05\x00\x00\x3b\x06\x02\x00\x72\x1b\xb4\x09\xba\x18\x01\xcd"
-		"\x21\xcd\x20";
-	static const u8 *shape_150 = (const u8*)"\x50\xb8??\xba??\x05\x00\x00\x3b\x06\x02\x00\x72?\xb4\x09\xba??\xcd\x21\xb8"
-		"\x01\x4c\xcd\x21";
-	static const u8 *shape_MEGALITE = (const u8*)"\xb8??\xba??\x05\x00\x00\x3b\x2d\x73\x67\x72";
-	static const u8 *shape_UN2PACK = (const u8*)"\x9c\xba??\x2d??\x81\xe1?\x00\x81\xf3?\x00\xb4";
-	static const u8 *shape_120V2 = (const u8*)"\xb8??\xba??\x05\x00\x00\x3b\x06\x02\x00\x72?\xb4\x09\xba??\xcd\x21\xb4\x4c"
-		"\xcd\x21";
-	static const u8 *shape_120V4 = (const u8*)"\xb8??\xba??\x05\x00\x00\x3b\x06\x02\x00\x72?\xb4\x09\xba??\xcd\x21\xb8\x01"
-		"\x4c\xcd\x21";
-	static const u8 *shape_120V5 = (const u8*)"\xb8??\xba??\x05\x00\x00\x3b\x06\x02\x00\x73\x12\x8b\xfc\x81\xef\x49"
-		"\x03\x57\x57\xb9";
-	struct matchrule_struct matchrules[] = {
-		{ shape_100, 36, DE_PKLITE_SHAPE_100 },
-		{ shape_112, 36, DE_PKLITE_SHAPE_112 },
-		{ shape_114, 24, DE_PKLITE_SHAPE_114 },
-		{ shape_150, 28, DE_PKLITE_SHAPE_150 },
-		{ shape_120V2, 26, DE_PKLITE_SHAPE_120V2 },
-		{ shape_120V4, 27, DE_PKLITE_SHAPE_120V4 },
-		{ shape_BETA, 8, DE_PKLITE_SHAPE_BETA },
-		{ shape_BETA_LH, 8, DE_PKLITE_SHAPE_BETA_LH },
-		{ shape_MEGALITE, 14, DE_PKLITE_SHAPE_MEGALITE },
-		{ shape_UN2PACK, 16, DE_PKLITE_SHAPE_UN2PACK },
-		{ shape_114, 14, DE_PKLITE_SHAPE_114LOOSE },
-		{ shape_150, 10, DE_PKLITE_SHAPE_150LOOSE },
-		{ shape_120V5, 24, DE_PKLITE_SHAPE_120V5 }
-	};
-	size_t i;
-	u8 buf[36];
-
-	*pshape = 0;
-	de_read(buf, ei->entry_point, 36);
-
-	for(i=0; i<DE_ARRAYCOUNT(matchrules); i++) {
-		if(de_memmatch(buf, matchrules[i].pattern, matchrules[i].patlen, '?', 0)) {
-			*pshape = matchrules[i].result;
-			goto done;
-		}
-	}
-
-done:
-	;
-}
-
-static void detect_pklite_version_part1(deark *c, lctx *d, struct de_crcobj *crco)
-{
-	u32 crc1;
-	size_t i;
-	const struct ver_fingerprint_item *fi = NULL;
-
-	de_crcobj_reset(crco);
-	de_crcobj_addslice(crco, c->infile, d->ei->entry_point+80, 240);
-	crc1 = de_crcobj_getval(crco);
-	de_dbg3(c, "CRC fingerprint: %08x", (UI)crc1);
-
-	for(i=0; i<DE_ARRAYCOUNT(ver_fingerprint_arr); i++) {
-		if(ver_fingerprint_arr[i].crc==crc1) {
-			fi = &ver_fingerprint_arr[i];
-			break;
-		}
-	}
-
-	if(fi) {
-		info_bytes_to_version_struct(fi->ver_info, &d->ver_detected);
-		d->ver_detected.extra_cmpr_confidence = 95;
-		d->ver_detected.suffix = fi->suffix;
-		d->ver_detected.is_beta = (fi->flags & 0x1)?1:0;
-
-		if((d->ver_detected.ver_num)==0x10c && !d->ver_detected.suffix) {
-			if(!dbuf_memcmp(c->infile, 45, "90-92 PK", 8)) {
-				d->ver_detected.suffix = "[fake v1.20]";
-			}
-		}
-	}
-}
-
-static void extra_v120_tests(deark *c, lctx *d)
-{
-	u8 tmpbuf[32];
-
-	if(d->decoder_shape==DE_PKLITE_SHAPE_120V5) {
-		// This is a hack. We ought be more discriminating.
-		d->predicted_cmpr_data_pos = d->ei->start_of_dos_code - 96 + 485;
-		d->scramble_method = 0;
-		d->ver_detected.valid = 1;
-		d->ver_detected.ver_num = 0x114;
-		d->ver_detected.large_cmpr = 0;
-		d->ver_detected.v120_cmpr = 1;
-		d->ver_detected.extra_cmpr = 1;
-		d->ver_detected.extra_cmpr_confidence = 100;
-		goto done;
-	}
-
-	if(d->pos_after_errmsg==0) goto done;
-
-	// Most "small mode" v1.20 files are of one of two very similar types:
-	// - Those in which the compressed data starts at offset 510. This includes
-	//   most relevant self-extracting ZIP files, and many EXE files from PKLITE
-	//   and PKZIP.
-	// - Those in which the compressed data starts at offset 512. Used for example
-	//   by PKUNZIP.EXE and PKZIPFIX.EXE from PKZIP 2.04g.
-	// Both are supported here.
-	de_read(tmpbuf, d->pos_after_errmsg, 28);
-	if(de_memmatch(tmpbuf, (const u8*)"\x8b\xfc\x81\xef??\x57\x57\x52\xb9??\xbe??"
-		"\x8b\xfe\xfd\x49\x74\x07\xad\x92\x03\xc2\xab\xeb\xf6", 28, '?', 0))
-	{
-		i64 ee;
-
-		ee = de_getu16le(d->pos_after_errmsg+4);
-		if(ee==0x034a || ee==0x034c) {
-			d->predicted_cmpr_data_pos = d->ei->start_of_dos_code + ee - 428;
-			d->scramble_method = 2;
-			d->ver_detected.valid = 1;
-			d->ver_detected.ver_num = 0x114;
-			d->ver_detected.large_cmpr = 0;
-			d->ver_detected.v120_cmpr = 1;
-			d->ver_detected.extra_cmpr = 1;
-			d->ver_detected.extra_cmpr_confidence = 100;
-			goto done;
-		}
-	}
-
-done:
-	;
-}
-
-// Try to detect versions 110e, 310e, 110f, 310f.
-// These are among the versions that have most of the decompression code obfuscated.
-static void detect_pklite_version_part2(deark *c, lctx *d, struct de_crcobj *crco)
-{
-	u32 crc2;
-	i64 pos;
-
-	if(d->pos_after_errmsg==0) goto done;
-	// FIXME: This fingerprinted region starts 1 byte earlier than it probably
-	// ought to, but it would take some work to fix it, and we might decide
-	// to use a different strategy anyway.
-	pos = d->pos_after_errmsg-1;
-
-	de_crcobj_reset(crco);
-	de_crcobj_addslice(crco, c->infile, pos, 30);
-	crc2 = de_crcobj_getval(crco);
-	de_dbg3(c, "CRC2: %08x", (UI)crc2);
-	switch(crc2) {
-	case 0x40d95670U: d->ver_detected.ver_num = 0x10e; break; // 110e
-	case 0xd388219aU: d->ver_detected.ver_num = 0x10f; break; // 110f
-	case 0x9d8d46f8U: d->ver_detected.ver_num = 0x10e; break; // 310e
-	case 0xda594188U: d->ver_detected.ver_num = 0x10f; break; // 310f
-	default: goto done;
-	}
-
-	d->ver_detected.valid = 1;
-	d->ver_detected.extra_cmpr = 1;
-	d->ver_detected.extra_cmpr_confidence = 90;
-	// d->ver_detected.large_cmpr will be determined later
-
-done:
-	;
-}
-
-// Try to detect versions 1132, 3132, 1201, 3201.
-static void detect_pklite_version_part3(deark *c, lctx *d, struct de_crcobj *crco)
-{
-	u32 crc3;
-	u8 b;
-	i64 pos;
-
-	if(de_getbyte(d->ei->entry_point) != 0x50) goto done;
-	pos = d->ei->entry_point+58;
-	de_crcobj_reset(crco);
-	de_crcobj_addslice(crco, c->infile, pos, 16);
-	de_crcobj_addslice(crco, c->infile, pos+18, 10);
-	crc3 = de_crcobj_getval(crco);
-	de_dbg3(c, "CRC3: %08x", (UI)crc3);
-	if(crc3 != 0xff6f0596U) goto done;
-
-	b = de_getbyte(pos+29);
-	if(b==0x00) {
-		d->ver_detected.ver_num = 0x132; // 1132 or 1201
-	}
-	else if(b==0x01) {
-		d->ver_detected.ver_num = 0x132; // 3132 or 3201
-	}
-	else {
-		goto done;
-	}
-	d->ver_detected.valid = 1;
-	d->ver_detected.extra_cmpr = 1;
-	d->ver_detected.extra_cmpr_confidence = 60;
-	d->ver_detected.suffix = "-2.01";
-
-done:
-	;
-}
-
-// len is assumed to be a multiple of 2
-// scramble_method: 1=XOR, 2=ADD
-static void descramble_decoder_section(dbuf *inf, i64 pos1, i64 len, dbuf *outf,
-	u8 scramble_method)
-{
-	i64 i;
-	i64 pos = pos1;
-	UI this_word_scr;
-	UI next_word_scr;
-	UI this_word_dscr;
-
-	if(scramble_method!=1 && scramble_method!=2) return;
-	this_word_scr = (UI)dbuf_getu16le(inf, pos);
-	for(i=0; i<len; i+=2) {
-		next_word_scr = (UI)dbuf_getu16le(inf, pos+2);
-		pos += 2;
-		if(scramble_method==2) {
-			this_word_dscr = (this_word_scr + next_word_scr) & 0xffff;
-		}
-		else {
-			this_word_dscr = this_word_scr ^ next_word_scr;
-		}
-		dbuf_writeu16le(outf, (i64)this_word_dscr);
-		this_word_scr = next_word_scr;
-	}
-}
-
-// Detection by searching for the distinctive lookup table(?) byte pattern at
-// the end of the decoder.
-// In v1.14+ with -e, this section of the code is scrambled, so we descramble
-// it and search that as well.
-static void detect_pklite_version_part4a(deark *c, lctx *d)
-{
-	int found = 0;
-	int scrambled = 0;
-
-#define PART4A_NEEDLE_LEN 21
-	static const u8 *str = (const u8*)"\x01\x02\x00\x00\x03\x04\x05\x06"
-		"\x00\x00\x00\x00\x00\x00\x00\x00\x07\x08\x09\x0a\x0b";
-	i64 foundpos_abs = 0;
-	u8 prec_b;
-	u8 is_beta;
-	u8 large_cmpr;
-	u8 extra_cmpr;
-	u8 extra_cmpr_confidence = 0;
-	int ret;
-	dbuf *tmpdbuf = NULL;
-
-	is_beta = d->data_before_decoder;
-
-// offset from entry point (note - load-high files have the earliest starting pos)
-#define PART4A_HAYSTACK_START 336
-#define PART4A_HAYSTACK_LEN (832-PART4A_HAYSTACK_START)
-
-	ret = dbuf_search(c->infile, str, PART4A_NEEDLE_LEN,
-		d->ei->entry_point+PART4A_HAYSTACK_START, PART4A_HAYSTACK_LEN, &foundpos_abs);
-	if(ret) {
-		prec_b = de_getbyte(foundpos_abs-1);
-	}
-	if(!ret) {
-		i64 foundpos2 = 0;
-
-		tmpdbuf = dbuf_create_membuf(c, 0, 0);
-		dbuf_enable_wbuffer(tmpdbuf);
-		descramble_decoder_section(c->infile, d->ei->entry_point+PART4A_HAYSTACK_START,
-			PART4A_HAYSTACK_LEN, tmpdbuf, 1);
-		dbuf_flush(tmpdbuf);
-		ret = dbuf_search(tmpdbuf, str, PART4A_NEEDLE_LEN, 0, tmpdbuf->len, &foundpos2);
-		if(ret) {
-			foundpos_abs = d->ei->entry_point+PART4A_HAYSTACK_START+foundpos2;
-			prec_b = dbuf_getbyte(tmpdbuf, foundpos2-1);
-			scrambled = 1;
-			d->scramble_method = 1;
-		}
-	}
-	if(!ret) {
-		goto done;
-	}
-
-	if(prec_b==0x09) {
-		large_cmpr = 0;
-	}
-	else if(prec_b==0x18) {
-		large_cmpr = 1;
-	}
-	else {
-		goto done;
-	}
-	found = 1;
-
-	// Try to figure out if extra compression was used
-
-	if(scrambled) {
-		extra_cmpr = 1;
-		extra_cmpr_confidence = 100;
-		goto after_extra_cmpr;
-	}
-
-	if(d->decoder_shape==DE_PKLITE_SHAPE_114 || d->decoder_shape==DE_PKLITE_SHAPE_150 ||
-		d->decoder_shape==DE_PKLITE_SHAPE_114LOOSE || d->decoder_shape==DE_PKLITE_SHAPE_150LOOSE ||
-		d->decoder_shape==DE_PKLITE_SHAPE_MEGALITE)
-	{
-		extra_cmpr = 0;
-		extra_cmpr_confidence = 70;
-		goto after_extra_cmpr;
-	}
-
-	if(d->decoder_shape==DE_PKLITE_SHAPE_100 || d->decoder_shape==DE_PKLITE_SHAPE_112) {
-		UI nn;
-
-		if(d->decoder_shape==DE_PKLITE_SHAPE_100) {
-			nn = (UI)de_getu16le(d->ei->entry_point+33);
-		}
-		else {
-			nn = (UI)de_getu16le(d->ei->entry_point+29);
-		}
-
-		switch(nn) {
-		case 0x00c3: case 0x00c4: case 0x0122: case 0x0123:
-			extra_cmpr = 0;
-			extra_cmpr_confidence = 55;
-			goto after_extra_cmpr;
-		case 0x00c7: case 0x00c8: case 0x0125: case 0x0126:
-			extra_cmpr = 1;
-			extra_cmpr_confidence = 55;
-			goto after_extra_cmpr;
-		}
-	}
-
-	if(d->ei->start_of_dos_code>=80 && d->ei->start_of_dos_code<=96) {
-		extra_cmpr = 1;
-		extra_cmpr_confidence = 50;
-	}
-	else {
-		extra_cmpr = 0;
-		extra_cmpr_confidence = 30;
-	}
-
-after_extra_cmpr:
-
-	// The compressed code presumably starts at the first multiple of 16 after
-	// the end of the tables data section that normally ends with bytes
-	// 0a 0b 0c 0d.
-	// But if this section is "scrambled", there are usually two extra
-	// (garbage?) bytes after the "0c 0d" (after descrambling). But sometimes,
-	// e.g. for v1.14-e, there are no extra bytes. So it's not obvious where
-	// it ends.
-	//
-	// Complicating this explanation is the fact that our descrambling algorithm
-	// always messes up the last two bytes of scrambled data. That's because they
-	// require a key that's stored elsewhere. We could fix this, but it's not
-	// important.
-	//
-	// Anyway, the following logic seems to be good enough for all known files,
-	// but it's probably not theoretically correct. The correct way is probably
-	// more complicated.
-	if(is_beta) {
-		d->predicted_cmpr_data_pos = d->ei->start_of_dos_code;
-	}
-	else if(scrambled) {
-		d->predicted_cmpr_data_pos = de_pad_to_n(foundpos_abs+25, 16);
-	}
-	else {
-		d->predicted_cmpr_data_pos = de_pad_to_n(foundpos_abs+23, 16);
-	}
-
-	if(!d->ver_detected.valid) {
-		if(is_beta) {
-			d->ver_detected.ver_num = 0x100;
-			d->ver_detected.suffix = "beta";
-			d->ver_detected.is_beta = 1;
-		}
-		else {
-			d->ver_detected.ver_num = PKLITE_UNK_VER_NUM;
-		}
-		d->ver_detected.valid = 1;
-	}
-
-	d->ver_detected.large_cmpr = large_cmpr;
-
-	if(extra_cmpr_confidence >  d->ver_detected.extra_cmpr_confidence) {
-		d->ver_detected.extra_cmpr = extra_cmpr;
-		d->ver_detected.extra_cmpr_confidence = extra_cmpr_confidence;
-	}
-
-done:
-	de_dbg2(c, "tables found: %d", found);
-	if(found) {
-		de_dbg2(c, "tables scrambled: %d", scrambled);
-	}
-	dbuf_close(tmpdbuf);
-}
-
-// Used for detecting v1.10/v1.20-large compression.
-// TODO: This detection scheme is a mess, and ought to be redesigned.
-static void detect_pklite_version_part4b(deark *c, lctx *d)
-{
-	int found = 0;
-	int scrambled = 0;
-
-#define PART4B_NEEDLE_LEN 13
-	static const u8 *str = (const u8*)"\x33\xc0\x8b\xd8\x8b\xc8\x8b\xd0\x8b\xe8\x8b\xf0\x8b";
-	i64 foundpos_abs = 0;
-	u8 prec_b;
-	u8 large_cmpr = 1;
-	u8 extra_cmpr;
-	u8 b1, b2;
-	u8 extra_cmpr_confidence = 0;
-	u8 badflag = 0;
-	int ret;
-	dbuf *tmpdbuf = NULL;
-
-	// offset from entry point
-#define PART4B_HAYSTACK_START 336
-#define PART4B_HAYSTACK_LEN (832-PART4B_HAYSTACK_START)
-
-	ret = dbuf_search(c->infile, str, PART4B_NEEDLE_LEN,
-		d->ei->entry_point+PART4B_HAYSTACK_START, PART4B_HAYSTACK_LEN, &foundpos_abs);
-	if(ret) {
-		prec_b = de_getbyte(foundpos_abs-7);
-	}
-	if(!ret) {
-		i64 foundpos2 = 0;
-
-		tmpdbuf = dbuf_create_membuf(c, 0, 0);
-		dbuf_enable_wbuffer(tmpdbuf);
-		descramble_decoder_section(c->infile, d->ei->entry_point+PART4B_HAYSTACK_START,
-			PART4B_HAYSTACK_LEN, tmpdbuf, 2);
-		dbuf_disable_wbuffer(tmpdbuf);
-		ret = dbuf_search(tmpdbuf, str, PART4B_NEEDLE_LEN, 0, tmpdbuf->len, &foundpos2);
-		if(ret) {
-			i64 testpos;
-
-			foundpos_abs = d->ei->entry_point+PART4B_HAYSTACK_START+foundpos2;
-			prec_b = dbuf_getbyte(tmpdbuf, foundpos2-7);
-			scrambled = 1;
-			d->scramble_method = 2;
-
-			// If we find 0xac 0x8a, it probably means the offsets are not 'encrypted'.
-			// If we find 0xac 0x34 0x?? 0x8a, it means offsets are 'encrypted':
-			//  e.g. 34 d7 = xor al,d7.
-			badflag = 1;
-			testpos = foundpos2-111;
-			b1 = dbuf_getbyte(tmpdbuf, testpos);
-			if(b1==0xac) {
-				b2 = dbuf_getbyte(tmpdbuf, testpos+1);
-				if(b2==0x8a) {
-					badflag = 0;
-				}
-			}
-		}
-	}
-	if(!ret) {
-		goto done;
-	}
-	if(badflag) goto done;
-
-	// These tests should screen out "small" format, at least.
-	if(prec_b==0x53 && !scrambled) {
-		;
-	}
-	else if(prec_b==0xdd && scrambled) {
-		;
-	}
-	else {
-		goto done;
-	}
-
-	found = 1;
-
-	extra_cmpr = 1;
-	extra_cmpr_confidence = 100;
-
-	// This logic seems ok for large mode, though it doesn't work for small mode.
-	d->predicted_cmpr_data_pos = de_pad_to_n(foundpos_abs+15, 16);
-
-	d->ver_detected.valid = 1;
-	d->ver_detected.ver_num = (scrambled ? 0x114 : 0x10a);
-	d->ver_detected.v120_cmpr = 1;
-	d->ver_detected.large_cmpr = large_cmpr;
-
-	if(extra_cmpr_confidence >  d->ver_detected.extra_cmpr_confidence) {
-		d->ver_detected.extra_cmpr = extra_cmpr;
-		d->ver_detected.extra_cmpr_confidence = extra_cmpr_confidence;
-	}
-
-done:
-	de_dbg2(c, "tables2 found: %d", found);
-	if(found) {
-		de_dbg2(c, "tables2 scrambled: %d", scrambled);
-	}
-	dbuf_close(tmpdbuf);
-}
-
-static void detect_pklite_version_part4(deark *c, lctx *d)
-{
-	extra_v120_tests(c, d);
-
-	if(d->predicted_cmpr_data_pos==0) {
-		detect_pklite_version_part4a(c, d);
-	}
-	if(d->predicted_cmpr_data_pos==0) {
-		detect_pklite_version_part4b(c, d);
-	}
-}
-
-// Version detection first steps. Things we always do.
-static void detection_init(deark *c, lctx *d)
-{
-	i64 pos;
-	u8 b;
-
-	detect_pklite_decoder_shape(c, d->ei, &d->decoder_shape);
-	de_dbg(c, "decompressor class: %s", get_decoder_shape_name(d->decoder_shape));
-
-	pos = d->ei->entry_point+13;
-	b = de_getbyte_p(&pos);
-	if(b==0x72) {
-		b = de_getbyte_p(&pos);
-		// This byte is part of an instruction that jumps past the "Not enough
-		// memory" message. We'll want to fingerprint some bytes near its target.
-		d->pos_after_errmsg = pos + (i64)b;
-	}
-}
-
-static void detect_pklite_version(deark *c, lctx *d)
-{
-	struct de_crcobj *crco = NULL;
-
-	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-	detection_init(c, d);
-
-	detect_pklite_version_part1(c, d, crco);
-
-	if(!d->ver_detected.valid) {
-		detect_pklite_version_part2(c, d, crco);
-	}
-
-	if(!d->ver_detected.valid) {
-		detect_pklite_version_part3(c, d, crco);
-	}
-
-	// Always do this part, because it's usually how we find the compressed data.
-	detect_pklite_version_part4(c, d);
-
-	derive_version_fields(c, d, &d->ver_detected);
-
-	de_crcobj_destroy(crco);
-}
-
-// Read what we need, before we can decompress
-static void do_read_header_and_detect_version(deark *c, lctx *d)
+static void do_read_exe_version_info(deark *c, lctx *d)
 {
 	UI ver_info;
 
 	ver_info = (UI)de_getu16le(28);
 	info_bytes_to_version_struct(ver_info, &d->ver_reported);
-	d->ver_reported.extra_cmpr_confidence = 10;
-	derive_version_fields(c, d, &d->ver_reported);
-
 	de_dbg(c, "reported PKLITE version: %s", d->ver_reported.pklver_str);
+}
 
-	if(de_getbyte(d->ei->entry_point)==0x2e && (d->ei->entry_point > d->ei->start_of_dos_code)) {
+static i64 ip_to_eprel(lctx *d, i64 ip)
+{
+	i64 n;
+
+	// TODO: This works, but might not be technically correct.
+	n = d->ei->start_of_dos_code + (ip - 0x0100) - d->ei->entry_point;
+	if(n<0) n=0;
+	return n;
+}
+
+static i64 read_and_follow_1byte_jump(lctx *d, i64 pos1)
+{
+	i64 pos2;
+
+	if(pos1>=EPBYTES_LEN) return 0;
+	pos2 = pos1 + 1 + (i64)d->epbytes[pos1];
+	return pos2;
+}
+
+static void analyze_intro(deark *c, lctx *d)
+{
+	// FIXME: We shouldn't print these opaque "class" identifiers in the
+	// debug info, but for now it's better than nothing.
+	de_dbg(c, "intro class/prelim: %u", d->intro_class_fmtutil);
+
+	// Initial DX register is sometimes used as a key.
+	if(pkl_memmatch(&d->epbytes[0], (const u8*)"\xb8??\xba", 4, '?', 0)) {
+		d->initial_key = (UI)de_getu16le_direct(&d->epbytes[4]);
+	}
+	else if(pkl_memmatch(&d->epbytes[0], (const u8*)"\x50\xb8??\xba", 5, '?', 0)) {
+		d->initial_key = (UI)de_getu16le_direct(&d->epbytes[5]);
+	}
+
+	if(d->intro_class_fmtutil==90) {
+		d->intro_class = INTRO_CLASS_BETA;
 		d->data_before_decoder = 1;
 	}
-	de_dbg(c, "start of executable code: %"I64_FMT, d->ei->start_of_dos_code);
+	else if(d->intro_class_fmtutil==91) {
+		d->intro_class = INTRO_CLASS_BETA_LH;
+		d->data_before_decoder = 1;
+		d->load_high = 1;
+	}
+	else if(d->intro_class_fmtutil==100) {
+		d->intro_class = INTRO_CLASS_100;
+		d->position2 = 16;
+	}
+	else if(d->intro_class_fmtutil==112) {
+		if(d->epbytes[13]==0x73) {
+			d->intro_class = INTRO_CLASS_112;
+			d->position2 = 15;
+		}
+		else if(d->epbytes[13]==0x72) {
+			d->intro_class = INTRO_CLASS_114;
+			d->position2 = read_and_follow_1byte_jump(d, 14);
+		}
+	}
+	else if(d->intro_class_fmtutil==150) {
+		if(d->epbytes[14]==0x72) {
+			d->intro_class = INTRO_CLASS_150;
+			d->position2 = read_and_follow_1byte_jump(d, 15);
+		}
+	}
+	else if(d->intro_class_fmtutil==250) {
+		d->intro_class = INTRO_CLASS_UN2PACK;
+		d->position2 = 34;
+	}
+	else if(d->intro_class_fmtutil==251) {
+		if(d->epbytes[13]==0x72) {
+			d->intro_class = INTRO_CLASS_MEGALITE;
+			d->position2 = read_and_follow_1byte_jump(d, 14);
+		}
+	}
 
-	detect_pklite_version(c, d);
-	de_dbg(c, "detected PKLITE version: %s", d->ver_detected.pklver_str);
-	if(d->ver_detected.valid) {
-		d->ver = d->ver_detected; // struct copy
+	if(d->data_before_decoder) return;
+
+	if(!d->intro_class || !d->position2) {
+		d->errflag = 1;
+	}
+	if(!d->errflag) {
+		de_dbg(c, "intro class: %u", (UI)d->intro_class);
+		de_dbg(c, "after intro: ep+%"I64_FMT, d->position2);
+	}
+}
+
+static void analyze_descrambler(deark *c, lctx *d)
+{
+	i64 pos;
+	i64 pos_of_endpos_field = 0;
+	i64 pos_of_jmp_field = 0;
+	i64 pos_of_op = 0;
+	i64 pos_of_scrambled_word_count = 0;
+	i64 scrambled_endpos_raw;
+
+	switch(d->intro_class) {
+		// Classes that might be scrambled:
+	case INTRO_CLASS_112:
+	case INTRO_CLASS_114:
+	case INTRO_CLASS_150:
+		break;
+	default:
+		goto done;
+	}
+
+	pos = d->position2;
+	if(pos + 200 > EPBYTES_LEN) goto done;
+
+	if(pkl_memmatch(&d->epbytes[pos],
+		(const u8*)"\x2d\x20\x00\x8e\xd0\x2d??\x50\x52\xb9??\xbe??\x8b\xfe"
+		"\xfd\x90\x49\x74?\xad\x92\x33\xc2\xab\xeb\xf6", 30, '?', 0))
+	{
+		d->descrambler_class = DESCRAMBLER_CLASS_114;
+		pos_of_scrambled_word_count = pos+11;
+		pos_of_endpos_field = pos+14;
+		pos_of_jmp_field = pos+22;
+		pos_of_op = pos+25;
+	}
+	else if(pkl_memmatch(&d->epbytes[pos],
+		(const u8*)"\x8b\xfc\x81\xef??\x57\x57\x52\xb9??\xbe??\x8b\xfe"
+		"\xfd\x49\x74?\xad\x92\x03\xc2\xab\xeb\xf6", 28, '?', 0))
+	{
+		d->descrambler_class = DESCRAMBLER_CLASS_120VAR1A;
+		pos_of_scrambled_word_count = pos+10;
+		pos_of_endpos_field = pos+13;
+		pos_of_jmp_field = pos+20;
+		pos_of_op = pos+23;
+	}
+
+	else if(pkl_memmatch(&d->epbytes[pos],
+		(const u8*)"\x8b\xfc\x81\xef??\x57\x57\x52\xb9??\xbe??\x8b\xfe"
+		"\xfd\x90\x49\x74?\xad\x92\x03\xc2\xab\xeb\xf6", 29, '?', 0))
+	{
+		d->descrambler_class = DESCRAMBLER_CLASS_120VAR1B;
+		pos_of_scrambled_word_count = pos+10;
+		pos_of_endpos_field = pos+13;
+		pos_of_jmp_field = pos+21;
+		pos_of_op = pos+24;
+	}
+
+	else if(pkl_memmatch(&d->epbytes[pos],
+		(const u8*)"\x59\x2d\x20\x00\x8e\xd0\x51??\x00\x50\x80\x3e"
+		"\x41\x01\xc3\x75\xe6\x52\xb8??\xbe??\x56\x56\x52\x50\x90"
+		"???????\x74", 38, '?', 0))
+	{
+		d->descrambler_class = DESCRAMBLER_CLASS_150;
+		pos_of_scrambled_word_count = pos+20;
+		pos_of_endpos_field = pos+23;
+		pos_of_jmp_field = pos+38;
+		pos_of_op = pos+45;
+	}
+	else if(pkl_memmatch(&d->epbytes[pos],
+		(const u8*)"\x2d\x20\x00????????????\xb9??\xbe????????\x74???\x03",
+		32, '?', 0))
+	{
+		d->descrambler_class = DESCRAMBLER_CLASS_120VAR2;
+		pos_of_scrambled_word_count = pos+16;
+		pos_of_endpos_field = pos+19;
+		pos_of_jmp_field = pos+28;
+		pos_of_op = pos+31;
+	}
+	else if(pkl_memmatch(&d->epbytes[pos],
+		(const u8*)"\x2d\x20\x00????????????\xb9??\xbe?????????\x74???\x03",
+		33, '?', 0))
+	{
+		d->descrambler_class = DESCRAMBLER_CLASS_PKZIP204CLIKE;
+		pos_of_scrambled_word_count = pos+16;
+		pos_of_endpos_field = pos+19;
+		pos_of_jmp_field = pos+29;
+		pos_of_op = pos+32;
+	}
+
+	else if(pkl_memmatch(&d->epbytes[pos],
+		(const u8*)"\x2d\x20\x00?????????????????\xb9??\xbe??????????\x74???\x03",
+		39, '?', 0))
+	{
+		d->descrambler_class = DESCRAMBLER_CLASS_PKLITE201LIKE;
+		pos_of_scrambled_word_count = pos+21;
+		pos_of_endpos_field = pos+24;
+		pos_of_jmp_field = pos+35;
+		pos_of_op = pos+38;
+	}
+
+	else if(pkl_memmatch(&d->epbytes[pos],
+		(const u8*)"\x8b\xfc\x81?????????????\xbb??\xbe??????\x74???\x03",
+		31, '?', 0))
+	{
+		d->descrambler_class = DESCRAMBLER_CLASS_CHK4LITE201LIKE;
+		pos_of_scrambled_word_count = pos+17;
+		pos_of_endpos_field = pos+20;
+		pos_of_jmp_field = pos+27;
+		pos_of_op = pos+30;
+	}
+
+	if(!d->descrambler_class) {
+		goto done;
+	}
+
+	d->scrambled_decompressor = 1;
+
+	if(d->epbytes[pos_of_op]==0x33) {
+		d->scramble_method = SCRAMBLE_METHOD_XOR;
+	}
+	else if(d->epbytes[pos_of_op]==0x03) {
+		d->scramble_method = SCRAMBLE_METHOD_ADD;
 	}
 	else {
-		d->ver = d->ver_reported;
+		d->errflag = 1;
+		goto done;
 	}
+
+	de_dbg(c, "descrambler class: %u", (UI)d->descrambler_class);
+
+	de_dbg(c, "scramble method: %u", (UI)d->scramble_method);
+	d->scrambled_word_count = de_getu16le_direct(&d->epbytes[pos_of_scrambled_word_count]);
+	if(d->scrambled_word_count>0) d->scrambled_word_count--;
+	de_dbg(c, "scrambled word count: %u", (UI)d->scrambled_word_count);
+	scrambled_endpos_raw = de_getu16le_direct(&d->epbytes[pos_of_endpos_field]);
+	d->pos_of_last_scrambled_word = ip_to_eprel(d, scrambled_endpos_raw);
+	de_dbg(c, "pos of last scrambled word: %u", (UI)d->pos_of_last_scrambled_word);
+	d->copier_pos = read_and_follow_1byte_jump(d, pos_of_jmp_field);
+
+done:
+	if(!d->errflag) {
+		if(!d->scrambled_decompressor && !d->data_before_decoder) {
+			d->copier_pos = d->position2;
+		}
+		de_dbg(c, "is scrambled: %u", (UI)d->scrambled_decompressor);
+	}
+}
+
+static void descramble_decompressor(deark *c, lctx *d)
+{
+	i64 startpos;
+	i64 pos;
+	UI this_word_scr;
+	UI next_word_scr;
+	UI this_word_dscr;
+
+	if(!d->scrambled_decompressor || d->scrambled_word_count<1) {
+		goto done;
+	}
+	de_dbg(c, "[descrambling]");
+
+	if(d->pos_of_last_scrambled_word+2 > EPBYTES_LEN) {
+		d->errflag = 1;
+		goto done;
+	}
+
+	startpos = d->pos_of_last_scrambled_word+2-d->scrambled_word_count*2;
+	if(startpos < 0) {
+		d->errflag = 1;
+		goto done;
+	}
+
+	this_word_scr = (UI)de_getu16le_direct(&d->epbytes[startpos]);
+
+	for(pos=startpos; pos<=d->pos_of_last_scrambled_word; pos+=2) {
+		if(pos==d->pos_of_last_scrambled_word) {
+			next_word_scr = d->initial_key;
+		}
+		else {
+			next_word_scr = (UI)de_getu16le_direct(&d->epbytes[pos+2]);
+		}
+
+		if(d->scramble_method==2) {
+			this_word_dscr = (this_word_scr + next_word_scr) & 0xffff;
+		}
+		else {
+			this_word_dscr = this_word_scr ^ next_word_scr;
+		}
+
+		de_writeu16le_direct(&d->epbytes[pos], (i64)this_word_dscr);
+		this_word_scr = next_word_scr;
+	}
+
+done:
+	;
+}
+
+static void analyze_copier(deark *c, lctx *d)
+{
+	i64 pos_of_decompr_pos_field = 0;
+	i64 foundpos = 0;
+	i64 pos = d->copier_pos;
+
+	if(d->data_before_decoder) goto done;
+	if(!pos) {
+		d->errflag = 1;
+		goto done;
+	}
+	if(pos+200 > EPBYTES_LEN) {
+		d->errflag = 1;
+		goto done;
+	}
+
+	de_dbg(c, "copier pos: ep+%u", (UI)pos);
+
+	if(pkl_search_match(d->epbytes, EPBYTES_LEN,
+		pos, pos+75,
+		(const u8*)"\xb9??\x33\xff\x57\xbe??\xfc\xf3\xa5\xcb", 13, '?', 0, &foundpos))
+	{
+		d->copier_class = COPIER_CLASS_COMMON;
+		pos_of_decompr_pos_field = foundpos+7;
+	}
+	else if(pkl_search_match(d->epbytes, EPBYTES_LEN,
+		pos, pos+75,
+		(const u8*)"\xb9??\x33\xff\x57\xbe??\xfc\xf3\xa5\xca", 13, '?', 0, &foundpos))
+	{
+		d->copier_class = COPIER_CLASS_150SCR;
+		pos_of_decompr_pos_field = foundpos+7;
+	}
+
+	else if(pkl_search_match(d->epbytes, EPBYTES_LEN,
+		pos, pos+75,
+		(const u8*)"\xb9??\x33\xff\x57\xfc\xbe??\xf3\xa5\xcb", 13, '?', 0, &foundpos))
+	{
+		d->copier_class = COPIER_CLASS_PKLITE201LIKE;
+		pos_of_decompr_pos_field = foundpos+8;
+	}
+
+	else if(pkl_search_match(d->epbytes, EPBYTES_LEN,
+		pos, pos+75,
+		(const u8*)"\x57\xb9??\xbe??\xfc\xf3\xa5\xc3", 11, '?', 0, &foundpos))
+	{
+		d->copier_class = COPIER_CLASS_120VAR1SMALL;
+		pos_of_decompr_pos_field = foundpos+5;
+	}
+	else if(pkl_search_match(d->epbytes, EPBYTES_LEN,
+		pos, pos+75,
+		(const u8*)"\xb9??\x33\xff\x56\xbe??\xfc\xf2\xa5\xca", 13, '?', 0, &foundpos))
+	{
+		d->copier_class = COPIER_CLASS_MEGALITE;
+		pos_of_decompr_pos_field = foundpos+7;
+	}
+	else if(pkl_search_match(d->epbytes, EPBYTES_LEN,
+		pos, pos+75,
+		(const u8*)"\xb9??\x2b\xff\x57\xbe??\xfc\xf3\xa5\xcb", 13, '?', 0, &foundpos))
+	{
+		d->copier_class = COPIER_CLASS_UN2PACK;
+		pos_of_decompr_pos_field = foundpos+7;
+	}
+
+	if(!d->copier_class) {
+		d->errflag = 1;
+		goto done;
+	}
+
+	de_dbg(c, "copier class: %u", (UI)d->copier_class);
+	de_dbg(c, "copier subclass: %"I64_FMT, pos_of_decompr_pos_field-pos);
+	d->decompr_pos = ip_to_eprel(d, de_getu16le_direct(&d->epbytes[pos_of_decompr_pos_field]));
+
+done:
+	;
+}
+
+static void find_decompr_pos_beta(deark *c, lctx *d)
+{
+	if(pkl_memmatch(&d->epbytes[0x59],
+		(const u8*)"\xf3\xa5\x2e\xa1????????\xcb\xfc", 14, '?', 0))
+	{
+		// small
+		d->decompr_pos = 0x66;
+	}
+	else if(pkl_memmatch(&d->epbytes[0x5b],
+		(const u8*)"\xf3\xa5\x85\xed????????????\xcb\xfc", 18, '?', 0))
+	{
+		// large
+		d->decompr_pos = 0x6c;
+	}
+	else if(pkl_memmatch(&d->epbytes[0],
+		(const u8*)"\x2e\x8c\x1e??\xfc\x8c\xc8\x2e\x2b\x06", 11, '?', 0))
+	{
+		// load-high
+		d->decompr_pos = 0x5;
+	}
+}
+
+static void analyze_decompressor(deark *c, lctx *d)
+{
+	i64 pos;
+	i64 n;
+
+	if(!d->decompr_pos && d->data_before_decoder) {
+		find_decompr_pos_beta(c, d);
+	}
+
+	pos = d->decompr_pos;
+	if(!pos) {
+		d->errflag = 1;
+		goto done;
+	}
+	if(pos+200 > EPBYTES_LEN) {
+		d->errflag = 1;
+		goto done;
+	}
+
+	de_dbg(c, "decompressor pos: ep+%u", (UI)pos);
+
+	if(pkl_memmatch(&d->epbytes[pos],
+		(const u8*)"\xfd\x8c\xdb\x53\x83\xc3", 6, '?', 0))
+	{
+		d->decompr_class = DECOMPR_CLASS_COMMON;
+		n = (i64)d->epbytes[pos+6];
+		n *= 16;
+		d->dparams.cmpr_data_pos = d->ei->entry_point + ip_to_eprel(d, n);
+	}
+	else if(pkl_memmatch(&d->epbytes[pos],
+		(const u8*)"\xfd\x8c\xdb\x53\x81\xc3", 6, '?', 0))
+	{
+		d->decompr_class = DECOMPR_CLASS_115;
+		n = de_getu16le_direct(&d->epbytes[pos+6]);
+		n *= 16;
+		d->dparams.cmpr_data_pos = d->ei->entry_point + ip_to_eprel(d, n);
+	}
+	else if(pkl_memmatch(&d->epbytes[pos],
+		(const u8*)"\xfd\x5f\xc7\x85????\x4f\x4f\xbe??\x03\xf2"
+		"\x8b\xca\xd1\xe9\xf3", 20, '?', 0))
+	{
+		d->decompr_class = DECOMPR_CLASS_120SMALL;
+		n = de_getu16le_direct(&d->epbytes[pos+11]);
+		d->dparams.cmpr_data_pos = d->ei->entry_point + 2 + ip_to_eprel(d, n);
+	}
+
+	else if(pkl_memmatch(&d->epbytes[pos],
+		(const u8*)"\xfd\x5f\x4f\x4f\xbe??\x03\xf2\x8b\xca\xd1\xe9\xf3", 14, '?', 0))
+	{
+		d->decompr_class = DECOMPR_CLASS_120SMALL_OLD;
+		n = de_getu16le_direct(&d->epbytes[pos+5]);
+		d->dparams.cmpr_data_pos = d->ei->entry_point + 2 + ip_to_eprel(d, n);
+	}
+
+
+	else if(pkl_memmatch(&d->epbytes[pos],
+		(const u8*)"\xfc\x8c\xc8\x2e\x2b\x06??\x8e\xd8\xbf", 11, '?', 0))
+	{
+		d->decompr_class = DECOMPR_CLASS_BETA;
+		d->dparams.cmpr_data_pos = d->ei->start_of_dos_code;
+	}
+
+	if(!d->decompr_class) {
+		d->errflag = 1;
+		goto done;
+	}
+
+	de_dbg(c, "decompressor class: %u", (UI)d->decompr_class);
+	de_dbg(c, "cmpr data pos: %"I64_FMT, d->dparams.cmpr_data_pos);
+
+done:
+	;
+}
+
+static void analyze_detect_large_and_v120_cmpr(deark *c, lctx *d)
+{
+	i64 foundpos = 0;
+	int ret;
+
+	if(d->decompr_class==DECOMPR_CLASS_120SMALL ||
+		d->decompr_class==DECOMPR_CLASS_120SMALL_OLD)
+	{
+		d->dparams.v120_cmpr = 1;
+		d->dparams.large_cmpr = 0;
+		goto done;
+	}
+
+	// TODO?: A better search function to use when there are no wildcards.
+	ret = pkl_search_match(d->epbytes, EPBYTES_LEN,
+		d->approx_end_of_decompressor-60, d->approx_end_of_decompressor,
+		(const u8*)"\x01\x02\x00\x00\x03\x04\x05\x06"
+		"\x00\x00\x00\x00\x00\x00\x00\x00\x07\x08\x09\x0a\x0b", 21, 0x3f,
+		0, &foundpos);
+	if(ret && foundpos>0) {
+		u8 prec_b;
+
+		prec_b = d->epbytes[foundpos-1];
+		if(prec_b==0x09) {
+			d->dparams.large_cmpr = 0;
+		}
+		else if(prec_b==0x18) {
+			d->dparams.large_cmpr = 1;
+		}
+		else {
+			d->errflag = 1;
+		}
+		goto done;
+	}
+
+	// The only thing left should be v1.20 w/ large cmpr, which always uses extra cmpr
+	if(!d->dparams.extra_cmpr) {
+		d->errflag = 1;
+		goto done;
+	}
+
+	// Files w/o the above pattern, but with the below pattern, are presumed
+	// to be v1.20.
+	ret = pkl_search_match(d->epbytes, EPBYTES_LEN,
+		d->approx_end_of_decompressor-50, d->approx_end_of_decompressor,
+		(const u8*)"\x33\xc0\x8b\xd8\x8b\xc8\x8b\xd0\x8b\xe8\x8b\xf0\x8b", 13, 0x3f,
+		0, &foundpos);
+	if(ret) {
+		d->dparams.v120_cmpr = 1;
+		d->dparams.large_cmpr = 1;
+		goto done;
+	}
+
+	d->errflag = 1;
+
+done:
+	if(!d->errflag) {
+		de_dbg(c, "large cmpr: %u", (UI)d->dparams.large_cmpr);
+		de_dbg(c, "v1.20 cmpr: %u", (UI)d->dparams.v120_cmpr);
+	}
+}
+
+static void analyze_detect_obf_offsets(deark *c, lctx *d)
+{
+	i64 foundpos = 0;
+	int ret;
+	u8 has_obf_offsets = 0;
+
+	if(!d->dparams.v120_cmpr) goto done;
+
+	ret = pkl_search_match(d->epbytes, EPBYTES_LEN,
+		d->decompr_pos+200, d->approx_end_of_decompressor,
+		(const u8*)"\xac\x34?\x8a", 4, 0x3f,
+		0, &foundpos);
+	if(ret) {
+		has_obf_offsets = 1;
+		d->dparams.offset_xor_key = d->epbytes[foundpos+2];
+	}
+
+done:
+	if(d->dparams.v120_cmpr) {
+		de_dbg(c, "obfuscated offsets: %u", (UI)has_obf_offsets);
+		if(has_obf_offsets) {
+			de_dbg_indent(c, 1);
+			de_dbg(c, "offsets key: 0x%02x", (UI)d->dparams.offset_xor_key);
+			de_dbg_indent(c, -1);
+		}
+	}
+}
+
+static void analyze_detect_extra_cmpr(deark *c, lctx *d)
+{
+	int ret;
+	i64 foundpos;
+
+	if(d->decompr_pos==0 || d->approx_end_of_decompressor==0) {
+		d->errflag = 1;
+		goto done;
+	}
+
+	ret = pkl_search_match(d->epbytes, EPBYTES_LEN,
+		d->decompr_pos, d->approx_end_of_decompressor,
+		(const u8*)"\xad\x95\xb2\x10\x72\x08\xa4\xd1\xed\x4a\x74", 11, 0x3f,
+		0, &foundpos);
+	if(ret) {
+		d->dparams.extra_cmpr = 0;
+		goto done;
+	}
+
+	ret = pkl_search_match(d->epbytes, EPBYTES_LEN,
+		d->decompr_pos, d->approx_end_of_decompressor,
+		(const u8*)"\xad\x95\xb2\x10\x72\x0b\xac\x32\xc2\xaa\xd1\xed\x4a\x74", 14, 0x3f,
+		0, &foundpos);
+	if(ret) {
+		d->dparams.extra_cmpr = 1;
+		goto done;
+	}
+
+	d->errflag = 1;
+
+done:
+	if(!d->errflag) {
+		de_dbg(c, "extra cmpr: %u", (UI)d->dparams.extra_cmpr);
+	}
+}
+
+// Do whatever we need to do to figure out the compression params
+// (mainly d->dparams).
+static void do_analyze_pklite_exe(deark *c, lctx *d)
+{
+	de_dbg(c, "code start: %"I64_FMT, d->ei->start_of_dos_code);
+	de_dbg(c, "entry point: %"I64_FMT, d->ei->entry_point);
+
+	analyze_intro(c, d);
+	if(d->errflag) goto done;
+
+	analyze_descrambler(c, d);
+	if(d->errflag) goto done;
+
+	if(d->scrambled_decompressor) {
+		descramble_decompressor(c, d);
+		if(d->errflag) goto done;
+	}
+
+	analyze_copier(c, d);
+	if(d->errflag) goto done;
+
+	analyze_decompressor(c, d);
+	if(d->errflag) goto done;
+
+	if(!d->dparams.cmpr_data_pos) {
+		d->errflag = 1;
+		goto done;
+	}
+
+	if(d->data_before_decoder) {
+		d->approx_end_of_decompressor = d->ei->end_of_dos_code - d->ei->entry_point;
+		d->cmpr_data_area_endpos = d->ei->entry_point;
+	}
+	else {
+		d->approx_end_of_decompressor = d->dparams.cmpr_data_pos - d->ei->entry_point;
+		d->cmpr_data_area_endpos = d->ei->end_of_dos_code;
+	}
+	de_dbg(c, "approx end of decompressor: ep+%"I64_FMT, d->approx_end_of_decompressor);
+
+	analyze_detect_extra_cmpr(c, d);
+	if(d->errflag) goto done;
+	analyze_detect_large_and_v120_cmpr(c, d);
+	if(d->errflag) goto done;
+	analyze_detect_obf_offsets(c, d);
+	if(d->errflag) goto done;
+
+done:
+	;
 }
 
 static void fill_bitbuf(deark *c, struct decompr_internal_state *dctx)
@@ -879,9 +864,9 @@ static void my_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 	dctx->o_dcmpr_code_nbytes_written++;
 }
 
-// Allocates and populats a huffman_decoder.
+// Allocates and populates a huffman_decoder.
 // Caller supplies htp: A pointer to an initially-NULL pointer.
-// Caller must eventually cal fmtutil_huffman_destroy_decoder() on the returned
+// Caller must eventually call fmtutil_huffman_destroy_decoder() on the returned
 //  pointer.
 // lengths_and_codes: High 4 bits is the code length (0..12),
 //  low 12 bits is the code.
@@ -1314,7 +1299,8 @@ static void do_read_reloc_table_long(deark *c, lctx *d, i64 pos1, i64 len)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "reading 'long' reloc table at %"I64_FMT, pos1);
+	de_dbg(c, "reading 'long%s' reloc table at %"I64_FMT,
+		(d->scramble_method==2?"/reversed":""), pos1);
 	de_dbg_indent(c, 1);
 	while(1) {
 		UI i;
@@ -1381,7 +1367,7 @@ static void do_read_reloc_table(deark *c, lctx *d)
 
 	reloc_tbl_len = d->cmpr_data_area_endpos - 8 - d->cmpr_data_endpos;
 
-	if(d->ver.extra_cmpr /* && d->ver.ver_only>=0x10c */) {
+	if(d->dparams.extra_cmpr) {
 		do_read_reloc_table_long(c, d, d->cmpr_data_endpos, reloc_tbl_len);
 	}
 	else {
@@ -1478,7 +1464,7 @@ static int read_orig_header(deark *c, lctx *d)
 		OHDISP_MISSING_E, OHDISP_MISSING, OHDISP_PRESENT, OHDISP_BAD
 	} ohdisp;
 
-	if(d->ver.extra_cmpr) {
+	if(d->dparams.extra_cmpr) {
 		ohdisp = OHDISP_MISSING_E;
 		goto done;
 	}
@@ -1624,9 +1610,9 @@ static void do_pklite_exe(deark *c, lctx *d)
 	fmtutil_collect_exe_info(c, c->infile, d->ei);
 
 	de_read(d->epbytes, d->ei->entry_point, EPBYTES_LEN);
-	d->intro_class = fmtutil_detect_pklite_by_exe_ep(c, d->epbytes, EPBYTES_LEN, 0xff);
+	d->intro_class_fmtutil = fmtutil_detect_pklite_by_exe_ep(c, d->epbytes, EPBYTES_LEN, 0xff);
 
-	if(d->intro_class==0) {
+	if(d->intro_class_fmtutil==0) {
 		de_err(c, "Not a PKLITE-compressed file, or not a known type");
 		d->errflag = 1;
 		d->errmsg_handled = 1;
@@ -1635,14 +1621,11 @@ static void do_pklite_exe(deark *c, lctx *d)
 
 	de_declare_fmt(c, "PKLITE-compressed EXE");
 
-	do_read_header_and_detect_version(c, d);
-	if(d->errflag) goto done;
-	find_cmprdata_pos(c, d, &d->ver);
+	do_read_exe_version_info(c, d);
+
+	do_analyze_pklite_exe(c, d);
 	if(d->errflag) goto done;
 
-	d->dparams.large_cmpr = d->ver.large_cmpr;
-	d->dparams.extra_cmpr = d->ver.extra_cmpr;
-	d->dparams.v120_cmpr = d->ver.v120_cmpr;
 	do_decompress(c, d);
 	dbuf_flush(d->o_dcmpr_code);
 	if(d->errflag) goto done;
@@ -1668,8 +1651,8 @@ static void do_pklite_exe(deark *c, lctx *d)
 			de_dbg_hexdump(c, c->infile, d->footer_pos, footer_capacity, 32, "footer", 0);
 		}
 
-		// Expecting 8, but some v2.x files have seem to have larger footers (10,
-		// 11, 20, ...). Don't know why.
+		// Expecting 8, but some later files have to have larger footers (10,
+		// 11, 20, ...). This may be padding to accommodate the checksum feature.
 		if(footer_capacity<8 || footer_capacity>100) {
 			// Not sure we have a valid footer.
 			d->footer_pos = 0;
@@ -1750,13 +1733,9 @@ static void read_and_process_com_version_number(deark *c, lctx *d, i64 verpos)
 {
 	const char *s = "?";
 
-	d->ver.extra_cmpr = 0;
-	d->ver.large_cmpr = 0;
-
 	de_dbg(c, "version number pos: %"I64_FMT, verpos);
 	d->ver_reported.ver_num = (UI)de_getu16le(verpos);
 	d->ver_reported.ver_num &= 0xfff;
-	d->ver_reported.valid = 1;
 
 	de_dbg(c, "reported PKLITE version: %u.%02u",
 		(UI)((d->ver_reported.ver_num&0xf00)>>8),
@@ -1806,9 +1785,9 @@ static void do_pklite_com(deark *c, lctx *d)
 		}
 	}
 
-	d->dparams.large_cmpr = d->ver.large_cmpr;
-	d->dparams.extra_cmpr = d->ver.extra_cmpr;
-	d->dparams.v120_cmpr = d->ver.v120_cmpr;
+	d->dparams.large_cmpr = 0;
+	d->dparams.extra_cmpr = 0;
+	d->dparams.v120_cmpr = 0;
 	do_decompress(c, d);
 	if(!d->o_dcmpr_code) goto done;
 	dbuf_flush(d->o_dcmpr_code);
