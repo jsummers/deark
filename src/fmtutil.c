@@ -1513,7 +1513,7 @@ UI fmtutil_detect_pklite_by_exe_ep(deark *c, const u8 *mem, i64 mem_len, UI flag
 		if(de_memmatch(mem, (const u8*)"\xb8??\xba??\x8c\xdb\x03\xd8\x3b", 11, '?', 0)) {
 			return 100; // v1.00-1.05, etc.
 		}
-		if(de_memmatch(mem, (const u8*)"\xb8??\xba??\x05\x00\x00\x3b", 10, '?', 0)) {
+		if(de_memmatch(mem, (const u8*)"\xb8??\xba??\x05\x00\x00\x3b\x06", 11, '?', 0)) {
 			return 112; // v1.12-1.15, etc.
 		}
 		if(de_memmatch(mem, (const u8*)"\x50\xb8??\xba??\x05\x00\x00\x3b", 11, '?', 0)) {
