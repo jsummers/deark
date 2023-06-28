@@ -29,7 +29,7 @@ DE_DECLARE_MODULE(de_module_pklite);
 // Things we need to figure out, to decompress the main compressed data.
 struct decompr_params_struct {
 	i64 cmpr_data_pos;
-	u8 extra_cmpr;
+	u8 extra_cmpr; // 0=no, 1=yes, 2=special
 	u8 large_cmpr;
 	u8 v120_cmpr;
 	u8 offset_xor_key;
@@ -48,20 +48,21 @@ struct footer_struct {
 };
 
 typedef struct localctx_struct {
-	struct ver_info_struct ver_reported;
-	struct ver_info_struct ver_detected;
+	u8 errflag;
+	u8 errmsg_handled;
+	u8 dcmpr_ok;
+	u8 wrote_exe;
+	u8 raw_mode;
+
+	u8 is_com;
+	u8 data_before_decoder;
+	u8 load_high;
+	struct decompr_params_struct dparams;
 
 	struct fmtutil_exe_info *ei; // For the PKLITE file
 	struct fmtutil_exe_info *o_ei; // For the decompressed file
 
-	struct decompr_params_struct dparams;
-	u8 is_com;
-	u8 raw_mode;
-	u8 data_before_decoder;
-	u8 dcmpr_ok;
-	u8 wrote_exe;
 	UI intro_class_fmtutil;
-
 #define INTRO_CLASS_BETA      8
 #define INTRO_CLASS_BETA_LH   9
 #define INTRO_CLASS_100       10
@@ -71,7 +72,6 @@ typedef struct localctx_struct {
 #define INTRO_CLASS_UN2PACK   100
 #define INTRO_CLASS_MEGALITE  101
 	u8 intro_class;
-	u8 load_high;
 
 	UI initial_key;
 	i64 position2; // The next section after the intro [relative to entry point]
@@ -116,11 +116,12 @@ typedef struct localctx_struct {
 	i64 footer_pos; // 0 if unknown
 	struct footer_struct footer;
 
-	int errflag;
-	int errmsg_handled;
 	dbuf *o_orig_header; // copied or constructed header for the decompressed file
 	dbuf *o_reloc_table;
 	dbuf *o_dcmpr_code;
+
+	struct ver_info_struct ver_reported;
+
 	// A copy of the bytes at the EXE entry point, generally up to but not
 	// including the compressed data. The most we expect to need is about 800,
 	// e.g. for PKLITE Pro 2.01 w/ large + extra + checksum.
@@ -188,11 +189,11 @@ static void info_bytes_to_version_struct(UI ver_info, struct ver_info_struct *v)
 		((ver_info&0x1000)?"/e":""));
 }
 
-static void do_read_exe_version_info(deark *c, lctx *d)
+static void do_read_version_info(deark *c, lctx *d, i64 pos)
 {
 	UI ver_info;
 
-	ver_info = (UI)de_getu16le(28);
+	ver_info = (UI)de_getu16le(pos);
 	info_bytes_to_version_struct(ver_info, &d->ver_reported);
 	de_dbg(c, "reported PKLITE version: %s", d->ver_reported.pklver_str);
 }
@@ -758,11 +759,23 @@ static void analyze_detect_extra_cmpr(deark *c, lctx *d)
 
 	ret = pkl_search_match(d->epbytes, EPBYTES_LEN,
 		d->decompr_pos, d->approx_end_of_decompressor,
-		(const u8*)"\xad\x95\xb2\x10\x72\x0b\xac\x32\xc2\xaa\xd1\xed\x4a\x74", 14, 0x3f,
+		(const u8*)"\xad\x95\xb2\x10\x72\x0b\xac??\xaa\xd1\xed\x4a\x74", 14, 0x3f,
 		0, &foundpos);
 	if(ret) {
-		d->dparams.extra_cmpr = 1;
-		goto done;
+		if(d->epbytes[foundpos+7]==0x32 && d->epbytes[foundpos+8]==0xc2) {
+			d->dparams.extra_cmpr = 1;
+			goto done;
+		}
+		else if(d->epbytes[foundpos+7]==0xf6 && d->epbytes[foundpos+8]==0xd0) {
+			// Customized "v1.23" format seen in files from RemoteAccess v1.11
+			// BBS software by Andrew Milner / Continental Software.
+			//  http://cd.textfiles.com/librisbritannia/
+			//  https://archive.org/details/LibrisBritannia
+			//   ... COMMUNIC/BULLETIN/3220A.ZIP
+			//   ... COMMUNIC/BULLETIN/3220B.ZIP
+			d->dparams.extra_cmpr = 2;
+			goto done;
+		}
 	}
 
 	d->errflag = 1;
@@ -1113,8 +1126,11 @@ static void do_decompress(deark *c, lctx *d)
 		x = pklite_getbit(c, dctx);
 		if(x==0) {
 			b = dbuf_getbyte_p(dctx->inf, &dctx->dcmpr_cur_ipos);
-			if(d->dparams.extra_cmpr) {
+			if(d->dparams.extra_cmpr==1) {
 				b ^= (u8)(dctx->bbll.nbits_in_bitbuf);
+			}
+			else if(d->dparams.extra_cmpr==2) {
+				b ^= 0xff;
 			}
 			if(c->debug_level>=3) {
 				de_dbg3(c, "lit 0x%02x", (UI)b);
@@ -1621,7 +1637,7 @@ static void do_pklite_exe(deark *c, lctx *d)
 
 	de_declare_fmt(c, "PKLITE-compressed EXE");
 
-	do_read_exe_version_info(c, d);
+	do_read_version_info(c, d, 28);
 
 	do_analyze_pklite_exe(c, d);
 	if(d->errflag) goto done;
@@ -1734,12 +1750,7 @@ static void read_and_process_com_version_number(deark *c, lctx *d, i64 verpos)
 	const char *s = "?";
 
 	de_dbg(c, "version number pos: %"I64_FMT, verpos);
-	d->ver_reported.ver_num = (UI)de_getu16le(verpos);
-	d->ver_reported.ver_num &= 0xfff;
-
-	de_dbg(c, "reported PKLITE version: %u.%02u",
-		(UI)((d->ver_reported.ver_num&0xf00)>>8),
-		(UI)(d->ver_reported.ver_num&0x00ff));
+	do_read_version_info(c, d, verpos);
 
 	if(d->dparams.cmpr_data_pos==500) {
 		s = "1.00beta";
@@ -1758,8 +1769,7 @@ static void read_and_process_com_version_number(deark *c, lctx *d, i64 verpos)
 		s = "1.50-2.01";
 	}
 
-	de_strlcpy(d->ver_detected.pklver_str, s, sizeof(d->ver_detected.pklver_str));
-	de_dbg(c, "detected PKLITE version: %s", d->ver_detected.pklver_str);
+	de_dbg(c, "detected PKLITE version: %s", s);
 }
 
 static void do_pklite_com(deark *c, lctx *d)
