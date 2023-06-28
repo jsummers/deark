@@ -2211,11 +2211,19 @@ static int ain_checksum_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 	return 1;
 }
 
+static void ain_calc_hdr_checksum(deark *c, UI *pchksum)
+{
+	*pchksum = 0;
+	dbuf_buffered_read(c->infile, 0, 22, ain_checksum_cbfn, (void*)pchksum);
+	// No need to mod 2^16 here, since the max possible sum is much less than 2^16.
+	*pchksum ^= 0x5555;
+}
+
 static void do_ain_main(deark *c, de_arch_lctx *d)
 {
 	struct de_timestamp archive_timestamp;
 	UI hdr_checksum_reported;
-	UI hdr_checksum_calc = 0;
+	UI hdr_checksum_calc;
 	i64 member_hdrs_pos;
 	i64 member_hdrs_len;
 	u8 b;
@@ -2225,6 +2233,11 @@ static void do_ain_main(deark *c, de_arch_lctx *d)
 	UI member_hdrs_checksum_calc = 0;
 	UI volume;
 	i64 pos;
+
+	de_declare_fmt(c, "AIN archive");
+	if(c->module_disposition==DE_MODDISP_AUTODETECT) {
+		de_info(c, "Note: AIN support is limited to decoding the header");
+	}
 
 	pos = 1;
 	b = de_getbyte_p(&pos);
@@ -2262,8 +2275,8 @@ static void do_ain_main(deark *c, de_arch_lctx *d)
 
 	hdr_checksum_reported = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "archive hdr checksum (reported): 0x%04x", hdr_checksum_reported);
-	dbuf_buffered_read(c->infile, 0, 22, ain_checksum_cbfn, (void*)&hdr_checksum_calc);
-	hdr_checksum_calc ^= 0x5555;
+
+	ain_calc_hdr_checksum(c, &hdr_checksum_calc);
 	de_dbg(c, "archive hdr checksum (calculated): 0x%04x", hdr_checksum_calc);
 
 	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, pos, member_hdrs_pos-pos);
@@ -2280,12 +2293,31 @@ static void de_run_ain(deark *c, de_module_params *mparams)
 	de_arch_destroy_lctx(c, d);
 }
 
+static int de_identify_ain(deark *c)
+{
+	UI hdr_checksum_reported;
+	UI hdr_checksum_calc;
+	int has_ext;
+	i64 member_hdrs_pos;
+
+	if(de_getbyte(0)!=0x21) return 0;
+	if(de_getbyte(2)!=0x00) return 0;
+	member_hdrs_pos = de_getu32le(14);
+	if(member_hdrs_pos<24 || member_hdrs_pos>=c->infile->len) return 0;
+	hdr_checksum_reported = (UI)de_getu16le(22);
+	ain_calc_hdr_checksum(c, &hdr_checksum_calc);
+	if(hdr_checksum_calc != hdr_checksum_reported) return 0;
+	has_ext = de_input_file_has_ext(c, "ain");
+	return has_ext?100:50;
+}
+
 void de_module_ain(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ain";
 	mi->desc = "AIN archive";
 	mi->run_fn = de_run_ain;
 	mi->flags |= DE_MODFLAG_HIDDEN;
+	mi->identify_fn = de_identify_ain;
 }
 
 // **************************************************************************
