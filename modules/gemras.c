@@ -9,6 +9,10 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_gemraster);
 
+#define CODE_STTT 0x53545454U
+#define CODE_TIMG 0x54494d47U
+#define CODE_XIMG 0x58494d47U
+
 typedef struct localctx_struct {
 	int is_ximg;
 	i64 npwidth, h;
@@ -18,6 +22,7 @@ typedef struct localctx_struct {
 	i64 rowspan_per_plane;
 	i64 rowspan_total;
 	i64 pixwidth, pixheight;
+	double dens_x, dens_y;
 	i64 header_size_in_words;
 	i64 header_size_in_bytes;
 	u8 *pattern_buf;
@@ -133,12 +138,19 @@ done1:
 	d->pattern_buf = NULL;
 }
 
+static double microns_to_dpi(i64 x)
+{
+	if(x>0)
+		return 25400.0/(double)x;
+	return 0;
+}
+
 static void set_density(deark *c, lctx *d, de_finfo *fi)
 {
-	if(d->pixwidth>0 && d->pixheight>0) {
+	if(d->pixwidth>1 && d->pixheight>1) {
 		fi->density.code = DE_DENSITY_DPI;
-		fi->density.xdens = 25400.0/(double)d->pixwidth;
-		fi->density.ydens = 25400.0/(double)d->pixheight;
+		fi->density.xdens = d->dens_x;
+		fi->density.ydens = d->dens_y;
 	}
 }
 
@@ -369,15 +381,21 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 	d->nplanes = de_getu16be(4);
 	de_dbg(c, "planes: %d", (int)d->nplanes);
 
-	if(d->header_size_in_words>=11) {
-		d->is_ximg = !dbuf_memcmp(c->infile, 16, "XIMG", 4);
+	if(d->header_size_in_words>=10) {
+		u32 sig16;
+
+		sig16 = (UI)de_getu32be(16);
+		if(sig16==CODE_XIMG) d->is_ximg = 1;
 	}
 
 	d->patlen = de_getu16be(6);
 	de_dbg(c, "pattern def len: %d", (int)d->patlen);
 	d->pixwidth = de_getu16be(8);
 	d->pixheight = de_getu16be(10);
-	de_dbg(c, "pixel size: %d"DE_CHAR_TIMES"%d microns", (int)d->pixwidth, (int)d->pixheight);
+	d->dens_x = microns_to_dpi(d->pixwidth);
+	d->dens_y = microns_to_dpi(d->pixheight);
+	de_dbg(c, "pixel size: %d"DE_CHAR_TIMES"%d microns (%.1f"DE_CHAR_TIMES"%.1f dpi)",
+		(int)d->pixwidth, (int)d->pixheight, d->dens_x, d->dens_y);
 	d->npwidth = de_getu16be(12);
 	d->pdwidth = de_pad_to_n(d->npwidth, 8);
 	d->h = de_getu16be(14);
@@ -445,31 +463,113 @@ done:
 	de_free(c, d);
 }
 
+struct gemras_id {
+	UI ver;
+	UI hdrlen;
+	UI nplanes;
+	UI patlen;
+	UI pixwidth, pixheight;
+	u32 sig16;
+	int has_ext;
+};
+
+static int hdrlen_seems_ok(deark *c, struct gemras_id *id)
+{
+	if(id->hdrlen<8 || (i64)id->hdrlen*2>c->infile->len) {
+		return 0;
+	}
+
+	if(id->hdrlen<=59) return 1;
+
+	// Header lengths (in words) for XIMG w/ 1 to 8 bits/pixel are probably
+	// 11 + 3*2^(bpp): 17, 23, 35, 59, 107, 203, 395, 779.
+	switch(id->hdrlen) {
+	case 107: case 203: case 395: case 779:
+		return 1;
+	}
+	return 0;
+}
+
+static int has_sane_density(struct gemras_id *id)
+{
+	if(id->pixwidth==0 && id->pixheight==0) return 1;
+	if(id->pixwidth==1 && id->pixheight==1) return 1;
+
+	// Assume dpi should be at least ~20.
+	if(id->pixwidth>1300 || id->pixheight>1300) return 0;
+
+	// Assume dpi should be at most ~1200
+	if(id->pixwidth<20 || id->pixheight<20) return 0;
+
+	if(id->pixwidth*3 < id->pixheight) return 0;
+	if(id->pixheight*3 < id->pixwidth) return 0;
+	return 1;
+}
+
 static int de_identify_gemraster(deark *c)
 {
-	i64 ver, x2;
-	i64 nplanes;
+	struct gemras_id id;
+	i64 pos = 0;
+	int dens_ok;
 
-	if(!de_input_file_has_ext(c, "img") &&
-		!de_input_file_has_ext(c, "ximg"))
+	de_zeromem(&id, sizeof(struct gemras_id));
+	id.ver = (u32)de_getu16be_p(&pos);
+	if(id.ver>3) return 0;
+	id.hdrlen = (UI)de_getu16be_p(&pos);
+	id.nplanes = (UI)de_getu16be_p(&pos);
+	if((id.nplanes>=1 && id.nplanes<=8) || id.nplanes==15 ||
+		id.nplanes==16 || id.nplanes==24)
 	{
+		;
+	}
+	else {
 		return 0;
 	}
-	ver = de_getu16be(0);
-	if(ver!=1 && ver!=2 && ver!=3) return 0;
-	x2 = de_getu16be(2);
-	if(x2<0x0008 || x2>0x0800) return 0;
-	nplanes = de_getu16be(4);
-	if(!(nplanes>=1 && nplanes<=8) && nplanes!=15 && nplanes!=16 && nplanes!=24 &&
-		nplanes!=32)
-	{
+	id.patlen = (UI)de_getu16be_p(&pos);
+	// patlen possibly can be up to 8, but 3 is the most I've seen.
+	if(id.patlen>4) return 0;
+	if(!hdrlen_seems_ok(c, &id)) {
 		return 0;
 	}
-	if(ver==1 && x2==0x08) return 70;
-	if(!dbuf_memcmp(c->infile, 16, "XIMG", 4)) {
-		return 100;
+	id.pixwidth = (UI)de_getu16be_p(&pos);
+	id.pixheight = (UI)de_getu16be_p(&pos);
+	// TODO: Consolidate with set_density().
+	dens_ok = has_sane_density(&id);
+
+	if(id.hdrlen>=10) {
+		id.sig16 = (u32)de_getu32be(16);
 	}
-	return 10;
+	id.has_ext = de_input_file_has_ext(c, "img");
+	if(id.sig16==CODE_XIMG) {
+		return id.has_ext?90:70;
+	}
+
+	if(dens_ok && (id.sig16==CODE_STTT || id.sig16==CODE_TIMG)) {
+		return 40;
+	}
+
+	if(!dens_ok && !id.has_ext) return 0;
+
+	// Unforunately, some files with version=0 exist.
+	// If version is >1, require a known signature.
+	// TODO: False negatives apparently exist, but we need more info to
+	// support them.
+	if(id.ver==0) {
+		if(!id.has_ext || !dens_ok) return 0;
+	}
+	else if(id.ver==1) {
+		;
+	}
+	else {
+		return 0;
+	}
+
+	if(id.hdrlen==8 || id.hdrlen==9 || id.hdrlen==25) {
+		return id.has_ext?70:50;
+	}
+
+	if(id.has_ext) return 14;
+	return 0;
 }
 
 static void de_help_gemraster(deark *c)
