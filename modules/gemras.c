@@ -14,7 +14,8 @@ DE_DECLARE_MODULE(de_module_gemraster);
 #define CODE_XIMG 0x58494d47U
 
 typedef struct localctx_struct {
-	int is_ximg;
+	u8 errflag;
+	u8 is_ximg;
 	i64 npwidth, h;
 	i64 pdwidth;
 	i64 nplanes;
@@ -25,117 +26,174 @@ typedef struct localctx_struct {
 	double dens_x, dens_y;
 	i64 header_size_in_words;
 	i64 header_size_in_bytes;
-	u8 *pattern_buf;
-	u32 pal[256];
+	de_color pal[256];
 } lctx;
 
-// Caller must initialize *repeat_count.
-static void uncompress_line(deark *c, lctx *d, dbuf *unc_line,
-	i64 pos1, i64 rownum,
-	i64 *bytes_consumed, i64 *repeat_count)
+struct decompr_ctx {
+	i64 curpos; // Position in the input file. Maintained by the decompressor.
+	i64 rownum;
+	i64 plane;
+	dbuf *unc_line;
+	u8 *pattern_buf; // size = d->patlen
+	i64 repeat_count; // Set/updated when plane=0.
+};
+
+// Caller maintains dctx->rownum, dctx->plane, etc.
+// Decompressed data is appended to dctx->unc_line.
+static void decompress_plane_row(deark *c, lctx *d, struct decompr_ctx *dctx)
 {
-	i64 pos;
-	u8 b0, b1;
+	i64 pos1 = dctx->curpos;
 	u8 val;
 	i64 count;
 	i64 k;
-	i64 tmp_repeat_count;
-	i64 unc_line_len_orig;
+	i64 unc_line_endpos;
 
-	*bytes_consumed = 0;
-	pos = pos1;
-	unc_line_len_orig = unc_line->len;
+	unc_line_endpos = dctx->unc_line->len + d->rowspan_per_plane;
+	if(dctx->plane==0) {
+		// By default, an encoded scanline is rendered once. This may be overridden by a
+		// scanline run opcode.
+		dctx->repeat_count = 1;
+	}
+	de_dbg3(c, "[row %u plane %u at %"I64_FMT"]", (UI)dctx->rownum, (UI)dctx->plane, pos1);
 
 	while(1) {
-		if(pos >= c->infile->len) break;
-		if(unc_line->len - unc_line_len_orig >= d->rowspan_per_plane) break;
+		u8 b0, b1;
+		i64 opcode_pos = dctx->curpos;
 
-		b0 = de_getbyte(pos++);
+		if(dctx->curpos >= c->infile->len) break;
+		if(dctx->unc_line->len >= unc_line_endpos) break;
+
+		b0 = de_getbyte_p(&dctx->curpos);
 
 		if(b0==0) { // Pattern run or scanline run
-			b1 = de_getbyte(pos++);
+			b1 = de_getbyte_p(&dctx->curpos);
 			if(b1>0) { // pattern run
-				de_read(d->pattern_buf, pos, d->patlen);
-				pos += d->patlen;
+				de_read(dctx->pattern_buf, dctx->curpos, d->patlen);
+				dctx->curpos += d->patlen;
 				count = (i64)b1;
 				for(k=0; k<count; k++) {
-					dbuf_write(unc_line, d->pattern_buf, d->patlen);
+					dbuf_write(dctx->unc_line, dctx->pattern_buf, d->patlen);
 				}
 			}
 			else { // (b1==0) scanline run
 				u8 flagbyte;
-				flagbyte = de_getbyte(pos);
-				if(flagbyte==0xff) {
-					pos++;
-					tmp_repeat_count = (i64)de_getbyte(pos++);
-					if(tmp_repeat_count == 0) {
-						de_dbg(c, "row %d: bad repeat count", (int)rownum);
-					}
-					else {
-						*repeat_count = tmp_repeat_count;
-					}
+
+				flagbyte = de_getbyte_p(&dctx->curpos);
+				if(flagbyte!=0xff) {
+					de_err(c, "row %u: Invalid 00 00 opcode at %"I64_FMT, (UI)dctx->rownum,
+						opcode_pos);
+					d->errflag = 1;
+					goto done;
 				}
-				else {
-					de_dbg(c, "row %d: bad scanline run marker: 0x%02x",
-						(int)rownum, (unsigned int)flagbyte);
+
+				// Note that the 'repeat scanline' opcode appears *before* the
+				// scanline (row) to be repeated.
+				// We're assuming it is only allowed at the very start of a row.
+				// The count seems to the total number of times the row is
+				// rendered, so the minimum useful count is 2, and we don't allow
+				// a count of 0.
+				if(dctx->plane!=0 || opcode_pos!=pos1) {
+					de_err(c, "row %u plane %u: Invalid scanline run at %"I64_FMT, (UI)dctx->rownum,
+						(UI)dctx->plane, opcode_pos);
+					d->errflag = 1;
+					goto done;
+				}
+
+				dctx->repeat_count = (i64)de_getbyte_p(&dctx->curpos);
+				de_dbg3(c, "scanline run row=%u plane=%u pos=%"I64_FMT" count=%u", (UI)dctx->rownum,
+					(UI)dctx->plane, opcode_pos, (UI)dctx->repeat_count);
+				if(dctx->repeat_count == 0) {
+					de_err(c, "row %u: Bad scanline run count", (UI)dctx->rownum);
+					d->errflag = 1;
+					goto done;
 				}
 			}
 		}
 		else if(b0==0x80) { // "Uncompressed bit string"
-			count = (i64)de_getbyte(pos++);
-			dbuf_copy(c->infile, pos, count, unc_line);
-			pos += count;
+			count = (i64)de_getbyte_p(&dctx->curpos);
+			dbuf_copy(c->infile, dctx->curpos, count, dctx->unc_line);
+			dctx->curpos += count;
 		}
 		else { // "solid run"
 			val = (b0&0x80) ? 0xff : 0x00;
 			count = (i64)(b0 & 0x7f);
-			dbuf_write_run(unc_line, val, count);
+			dbuf_write_run(dctx->unc_line, val, count);
 		}
 	}
 
-	*bytes_consumed = pos - pos1;
+done:
+	;
 }
 
-static void uncompress_pixels(deark *c, lctx *d, dbuf *unc_pixels,
+static void decompress_pixels(deark *c, lctx *d, dbuf *unc_pixels,
 	i64 pos1, i64 len)
 {
-	i64 bytes_consumed;
-	i64 pos;
-	i64 ypos;
-	i64 repeat_count;
 	i64 k;
 	i64 plane;
-	dbuf *unc_line = NULL;
+	struct decompr_ctx *dctx = NULL;
 
-	d->pattern_buf = de_malloc(c, d->patlen);
-	unc_line = dbuf_create_membuf(c, d->rowspan_total, 0);
+	dctx = de_malloc(c, sizeof(struct decompr_ctx));
+	dctx->pattern_buf = de_malloc(c, d->patlen);
+	dctx->unc_line = dbuf_create_membuf(c, d->rowspan_total, 0);
+	dctx->curpos = pos1;
 
-	pos = pos1;
-
-	ypos = 0;
+	dctx->rownum = 0;
 	while(1) {
-		if(ypos >= d->h) break;
+		i64 expected_len;
 
-		repeat_count = 1;
+		if(dctx->rownum >= d->h) break;
 
-		dbuf_empty(unc_line);
+		dctx->repeat_count = 0;
+		dbuf_empty(dctx->unc_line);
 		for(plane=0; plane<d->nplanes; plane++) {
-			uncompress_line(c, d, unc_line,
-				pos, ypos, &bytes_consumed, &repeat_count);
-			pos+=bytes_consumed;
-			if(bytes_consumed<1) goto done1;
+			i64 prev_ipos = dctx->curpos;
+			i64 prev_opos = dctx->unc_line->len;
+
+			if(dctx->curpos >= c->infile->len) goto done;
+			dctx->plane = plane;
+			decompress_plane_row(c, d, dctx);
+			if(d->errflag) goto done;
+			if(dctx->curpos<=prev_ipos) goto done;
+
+			expected_len = (plane+1)*d->rowspan_per_plane;
+			if(dctx->unc_line->len != expected_len) {
+				i64 obytes_this_time;
+
+				obytes_this_time = dctx->unc_line->len - prev_opos;
+
+				// Tolerate a few extra bytes, but if there are a lot, treat it
+				// as a fatal error.
+				if(obytes_this_time > d->rowspan_per_plane+4) {
+					de_err(c, "[row %u plane %u] Expected %"I64_FMT" bytes, "
+						"got %"I64_FMT". This file might use an unsupported "
+						"GEM Raster variant.",
+						(UI)dctx->rownum, (UI)plane,
+						d->rowspan_per_plane, obytes_this_time);
+					d->errflag = 1;
+					goto done;
+				}
+
+				de_dbg(c, "[row %u plane %u] expected %"I64_FMT" bytes, "
+					"got %"I64_FMT, (UI)dctx->rownum, (UI)plane,
+					d->rowspan_per_plane, obytes_this_time);
+
+				dbuf_truncate(dctx->unc_line, expected_len);
+			}
 		}
 
-		for(k=0; k<repeat_count; k++) {
-			if(ypos >= d->h) break;
-			dbuf_copy(unc_line, 0, d->rowspan_total, unc_pixels);
-			ypos++;
+		for(k=0; k<dctx->repeat_count; k++) {
+			if(dctx->rownum >= d->h) break;
+			dbuf_copy(dctx->unc_line, 0, d->rowspan_total, unc_pixels);
+			dctx->rownum++;
 		}
 	}
-done1:
-	dbuf_close(unc_line);
-	de_free(c, d->pattern_buf);
-	d->pattern_buf = NULL;
+
+done:
+	if(dctx) {
+		dbuf_close(dctx->unc_line);
+		de_free(c, dctx->pattern_buf);
+		de_free(c, dctx);
+	}
 }
 
 static double microns_to_dpi(i64 x)
@@ -168,16 +226,25 @@ static void read_rgb_image(deark *c, lctx *d, dbuf *unc_pixels, de_bitmap *img)
 }
 
 // These palettes are based on Image Alchemy's interpretation of GEM raster files.
-static const u32 pal3bit[8] = {
+static const de_color pal3bit[8] = {
 	0xffffff,0x00ffff,0xff00ff,0xffff00,0x0000ff,0x00ff00,0xff0000,0x000000
 };
-
-static const u32 pal4bit[16] = {
+#if 0
+static const de_color pal4bit[16] = {
 	0xffffff,0x00ffff,0xff00ff,0xffff00,0x0000ff,0x00ff00,0xff0000,0xc0c0c0,
 	0x808080,0x008080,0x800080,0x808000,0x000080,0x008000,0x800000,0x000000
 };
+#else
+// This palette is from the Encyclopedia of Graphics File Formats.
+static const de_color pal4bit[16] = {
+	0xffffffffU,0xffff0000U,0xff00ff00U,0xffffff00U,
+	0xff0000ffU,0xffff00ffU,0xff00ffffU,0xffaeaeaeU,
+	0xff555555U,0xffae0000U,0xff00ae00U,0xffaeae00U,
+	0xff0000aeU,0xffae00aeU,0xff00aeaeU,0xff000000U
+};
+#endif
 
-static int do_gem_img(deark *c, lctx *d)
+static void do_gem_img(deark *c, lctx *d)
 {
 	dbuf *unc_pixels = NULL;
 	de_bitmap *img = NULL;
@@ -194,11 +261,12 @@ static int do_gem_img(deark *c, lctx *d)
 		}
 	}
 
-	de_dbg(c, "image at %d", (int)d->header_size_in_bytes);
+	de_dbg(c, "image at %"I64_FMT, d->header_size_in_bytes);
 
 	unc_pixels = dbuf_create_membuf(c, d->rowspan_total*d->h, 0);
 
-	uncompress_pixels(c, d, unc_pixels, d->header_size_in_bytes, c->infile->len-d->header_size_in_bytes);
+	decompress_pixels(c, d, unc_pixels, d->header_size_in_bytes, c->infile->len-d->header_size_in_bytes);
+	if(d->errflag) goto done;
 
 	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->h, is_color?3:1);
 
@@ -210,28 +278,30 @@ static int do_gem_img(deark *c, lctx *d)
 		createflags |= DE_CREATEFLAG_IS_BWIMG;
 	}
 	else if(is_color && d->nplanes==3) {
+		de_dbg(c, "[using default 8-color palette]");
 		for(k=0; k<8; k++) {
 			d->pal[k] = pal3bit[k];
 		}
 		read_paletted_image(c, d, unc_pixels, img);
 	}
 	else if(is_color && d->nplanes==4) {
+		de_dbg(c, "[using default 16-color palette]");
 		for(k=0; k<16; k++) {
 			d->pal[k] = pal4bit[k];
 		}
 		read_paletted_image(c, d, unc_pixels, img);
 	}
 	else {
-		de_make_grayscale_palette(d->pal, ((i64)1)<<((unsigned int)d->nplanes), 1);
+		de_make_grayscale_palette(d->pal, ((i64)1)<<((UI)d->nplanes), 1);
 		read_paletted_image(c, d, unc_pixels, img);
 	}
 
 	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE | createflags);
 
+done:
 	de_bitmap_destroy(img);
 	de_finfo_destroy(c, fi);
 	dbuf_close(unc_pixels);
-	return 1;
 }
 
 static void read_palette_ximg(deark *c, lctx *d)
@@ -330,10 +400,11 @@ static int do_gem_ximg(deark *c, lctx *d)
 
 	de_dbg_indent(c, -1);
 
-	de_dbg(c, "image at %d", (int)d->header_size_in_bytes);
+	de_dbg(c, "image at %"I64_FMT, d->header_size_in_bytes);
 
 	unc_pixels = dbuf_create_membuf(c, d->rowspan_total*d->h, 0);
-	uncompress_pixels(c, d, unc_pixels, d->header_size_in_bytes, c->infile->len-d->header_size_in_bytes);
+	decompress_pixels(c, d, unc_pixels, d->header_size_in_bytes, c->infile->len-d->header_size_in_bytes);
+	if(d->errflag) goto done;
 
 	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->h, 3);
 
@@ -435,6 +506,10 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
+	if(d->patlen>16) {
+		de_err(c, "Bad or unsupported file");
+	}
+
 	if(need_format_warning) {
 		de_warn(c, "This type of GEM Raster image is not very portable, and might "
 			"not be handled correctly.");
@@ -513,12 +588,12 @@ static int de_identify_gemraster(deark *c)
 	int dens_ok;
 
 	de_zeromem(&id, sizeof(struct gemras_id));
-	id.ver = (u32)de_getu16be_p(&pos);
+	id.ver = (UI)de_getu16be_p(&pos);
 	if(id.ver>3) return 0;
 	id.hdrlen = (UI)de_getu16be_p(&pos);
 	id.nplanes = (UI)de_getu16be_p(&pos);
 	if((id.nplanes>=1 && id.nplanes<=8) || id.nplanes==15 ||
-		id.nplanes==16 || id.nplanes==24)
+		id.nplanes==16 || id.nplanes==24 || id.nplanes==32)
 	{
 		;
 	}
@@ -580,6 +655,7 @@ static void de_help_gemraster(deark *c)
 void de_module_gemraster(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "gemraster";
+	mi->id_alias[0] = "gemras";
 	mi->desc = "GEM VDI Bit Image, a.k.a. GEM Raster";
 	mi->run_fn = de_run_gemraster;
 	mi->identify_fn = de_identify_gemraster;
