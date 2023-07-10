@@ -305,7 +305,7 @@ void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi,
 	if(!img->bitmap) de_bitmap_alloc_pixels(img);
 
 	// The BWIMG flag/optimization has to be handled in a different way than the
-	// ohter optmizations, because our de_bitmap object does not support a
+	// ohter optimizations, because our de_bitmap object does not support a
 	// 1 bit/pixel image type.
 	if(createflags & DE_CREATEFLAG_IS_BWIMG) {
 		flags2 |= 0x1;

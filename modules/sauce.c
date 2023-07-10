@@ -115,7 +115,7 @@ static const char *get_sauce_filetype_name(u8 dt, unsigned int t)
 // Our behavior:
 // * We have two modes, depending on the combine_comments flag.
 // * We interpret 0x0a as a newline. Most other bytes are CP437 printable
-//   charaters.
+//   characters.
 // * If !combine_comments, trailing spaces and trailing NUL bytes are ignored for
 //   each comment.
 // * If combine_comments, same as above except that trailing spaces are

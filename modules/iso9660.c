@@ -1108,7 +1108,7 @@ static void read_escape_sequences(deark *c, lctx *d, struct vol_record *vol, i64
 	de_dbg_indent(c, -1);
 }
 
-// CD-i doesn't put root dir info in the volume desciptor. This is a hack to
+// CD-i doesn't put root dir info in the volume descriptor. This is a hack to
 // get the info we need from the path table, and the root dir, instead.
 static void find_CDi_root_dir(deark *c, lctx *d, struct vol_record *vol,
 	i64 path_tbl_M_loc)

@@ -556,7 +556,7 @@ static void identify_bsave_internal(deark *c, struct bsave_id_info *idi)
 {
 	u32 load_segment;
 	i64 data_size;
-	// Knwon signatures: "PCPaint V1.0", "PCPaint V1.5".
+	// Known signatures: "PCPaint V1.0", "PCPaint V1.5".
 	static const u8 *pcpaintsig = (const u8*)"PCPaint V1.";
 
 	de_zeromem(idi, sizeof(struct bsave_id_info));

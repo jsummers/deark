@@ -1115,7 +1115,7 @@ static const char *get_id3v1_genre_name(u8 g)
 		{25, "Euro-Techno"}, {26, "Ambient"}, {27, "Trip-Hop"}, {28, "Vocal"}, {29, "Jazz+Funk"},
 		{30, "Fusion"}, {31, "Trance"}, {32, "Classical"}, {33, "Instrumental"}, {34, "Acid"},
 		{35, "House"}, {36, "Game"}, {37, "Sound Clip"}, {38, "Gospel"}, {39, "Noise"},
-		{40, "AlternRock"}, {41, "Bass"}, {42, "Soul"}, {43, "Punk"}, {44, "Space"},
+		{40, "Altern. Rock"}, {41, "Bass"}, {42, "Soul"}, {43, "Punk"}, {44, "Space"},
 		{45, "Meditative"}, {46, "Instrumental Pop"}, {47, "Instrumental Rock"}, {48, "Ethnic"}, {49, "Gothic"},
 		{50, "Darkwave"}, {51, "Techno-Industrial"}, {52, "Electronic"}, {53, "Pop-Folk"}, {54, "Eurodance"},
 		{55, "Dream"}, {56, "Southern Rock"}, {57, "Comedy"}, {58, "Cult"}, {59, "Gangsta"},
@@ -1130,9 +1130,10 @@ static const char *get_id3v1_genre_name(u8 g)
 		{100, "Humour"}, {101, "Speech"}, {102, "Chanson"}, {103, "Opera"}, {104, "Chamber Music"},
 		{105, "Sonata"}, {106, "Symphony"}, {107, "Booty Brass"}, {108, "Primus"}, {109, "Porn Groove"},
 		{110, "Satire"}, {111, "Slow Jam"}, {112, "Club"}, {113, "Tango"}, {114, "Samba"},
-		{115, "Folklore"}, {116, "Ballad"}, {117, "Poweer Ballad"}, {118, "Rhytmic Soul"}, {119, "Freestyle"},
-		{120, "Duet"}, {121, "Punk Rock"}, {122, "Drum Solo"}, {123, "A Capela"}, {124, "Euro-House"},
+		{115, "Folklore"}, {116, "Ballad"}, {117, "Power Ballad"}, {118, "Rhythmic Soul"}, {119, "Freestyle"},
+		{120, "Duet"}, {121, "Punk Rock"}, {122, "Drum Solo"}, {123, "A Cappella"}, {124, "Euro-House"},
 		{125, "Dance Hall"},
+		// TODO?: More IDs have been defined, by various versions of Winamp.
 		{255, "unspecified"} };
 	size_t k;
 

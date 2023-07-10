@@ -151,7 +151,7 @@ static void do_rar_old(deark *c, de_arch_lctx *d)
 		de_dbg(c, "archive comment at %"I64_FMT", len=%"I64_FMT", compressed=%d",
 			pos, cmtlen, (int)((d->archive_flags & 0x10)!=0));
 		if((d->archive_flags & 0x10)==0) {
-			// The old format suports a non-compressed archive comment, though for
+			// The old format supports a non-compressed archive comment, though for
 			// v1.4.0+ it is always(?) compressed.
 			rar_handle_noncmpr_comment(c, d, pos, cmtlen, d->input_encoding, 0);
 		}

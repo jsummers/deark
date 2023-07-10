@@ -2172,7 +2172,7 @@ int de_memmatch(const u8 *mem, const u8 *pattern, size_t pattern_len,
 #define DE_MAX_SANE_FILESIZE 0xffffffffffffffLL
 
 // Modifies *pn to be in the range of 0 to some arbitrary large integer that
-// is well within the range that we can safely handle (and avoid the possiblity
+// is well within the range that we can safely handle (and avoid the possibility
 // of integer overflow), while being larger than the largest file size that we
 // want to support.
 // Used to sanitize file offsets, segment lengths, and any field that counts

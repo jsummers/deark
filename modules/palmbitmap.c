@@ -608,7 +608,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, i64 pos1, i64 len,
 		densitycode = dbuf_getu16x(c->infile, pos1+14, d->is_le);
 		de_dbg(c, "density: %d", (int)densitycode);
 		// The density is an indication of the target screen density.
-		// It's tempting to interpet it as pixels per inch, and copy it to the
+		// It's tempting to interpret it as pixels per inch, and copy it to the
 		// output image -- though the documentation says it "should not be
 		// interpreted as representing pixels per inch".
 	}
