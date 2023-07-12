@@ -7,6 +7,8 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_tga);
 
+#define CODE_IGCH 0x49474348U
+
 struct tgaimginfo {
 	i64 width, height;
 	i64 img_size_in_bytes;
@@ -347,7 +349,7 @@ static void do_decode_thumbnail(deark *c, lctx *d)
 	dbuf *unc_pixels = NULL;
 	i64 hdrsize = 2;
 
-	de_dbg(c, "thumbnail image at %d", (int)d->thumbnail_offset);
+	de_dbg(c, "thumbnail image at %"I64_FMT, d->thumbnail_offset);
 	de_dbg_indent(c, 1);
 
 	// The thumbnail image is supposed to use the same format as the main image,
@@ -627,6 +629,10 @@ static int do_read_tga_headers(deark *c, lctx *d)
 	de_dbg(c, "image type: %d", (int)d->img_type);
 
 	switch(d->img_type) {
+	case 0:
+		d->color_type = TGA_CLRTYPE_UNKNOWN;
+		d->clrtype_name = "no image";
+		break;
 	case 1: case 9:
 	case 32: case 33:
 		d->color_type = TGA_CLRTYPE_PALETTE;
@@ -660,16 +666,20 @@ static int do_read_tga_headers(deark *c, lctx *d)
 	}
 
 	de_dbg_indent(c, 1);
-	de_dbg(c, "color type: %d (%s)", (int)d->color_type, d->clrtype_name);
-	de_dbg(c, "compression: %d (%s)", (int)d->cmpr_type, d->cmpr_name);
+	de_dbg(c, "color type: %s", d->clrtype_name);
+	de_dbg(c, "compression: %s", d->cmpr_name);
 	de_dbg_indent(c, -1);
 
 	if(d->color_map_type != 0) {
 		d->cmap_start = de_getu16le(3);
 		d->cmap_length = de_getu16le(5);
 		d->cmap_depth = (i64)de_getbyte(7);
-		de_dbg(c, "color map start: %d, len: %d, depth: %d", (int)d->cmap_start,
-			(int)d->cmap_length, (int)d->cmap_depth);
+		de_dbg(c, "color map spec. at 3");
+		de_dbg_indent(c, 1);
+		de_dbg(c, "starting idx: %u", (UI)d->cmap_start);
+		de_dbg(c, "num entries: %u", (UI)d->cmap_length);
+		de_dbg(c, "bits/entry: %u", (UI)d->cmap_depth);
+		de_dbg_indent(c, -1);
 	}
 
 	d->main_image.width = de_getu16le(12);
@@ -811,7 +821,7 @@ static void detect_file_format(deark *c, lctx *d)
 
 	img_type = de_getbyte(2);
 	if(img_type==0) {
-		has_igch = !dbuf_memcmp(c->infile, 20, "IGCH", 4);
+		has_igch = (de_getu32be(20)==CODE_IGCH);
 		if(has_igch) {
 			d->file_format = FMT_VST;
 			return;
@@ -854,14 +864,14 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	pos += 18;
 
 	if(d->id_field_len>0) {
-		de_dbg(c, "image ID at %d (len=%d)", (int)pos, (int)d->id_field_len);
+		de_dbg(c, "image ID at %"I64_FMT" (len=%"I64_FMT")", pos, d->id_field_len);
 		pos += d->id_field_len;
 	}
 
 	if(d->color_map_type!=0) {
 		d->bytes_per_pal_entry = (d->cmap_depth+7)/8;
 		d->pal_size_in_bytes = d->cmap_length * d->bytes_per_pal_entry;
-		de_dbg(c, "color map at %d (%d colors, %d bytes)", (int)pos,
+		de_dbg(c, "color map at %"I64_FMT" (%d colors, %d bytes)", pos,
 			(int)d->cmap_length, (int)d->pal_size_in_bytes);
 
 		de_dbg_indent(c, 1);
@@ -871,7 +881,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 		pos += d->pal_size_in_bytes;
 	}
 
-	de_dbg(c, "bitmap at %d", (int)pos);
+	de_dbg(c, "bitmap at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	d->bytes_per_pixel = ((d->pixel_depth+7)/8);
@@ -920,7 +930,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 		unc_pixels = dbuf_open_input_subfile(c->infile, pos, d->main_image.img_size_in_bytes);
 	}
 	else {
-		de_err(c, "Unsupported compression type (%d, %s)", (int)d->cmpr_type, d->cmpr_name);
+		de_err(c, "Unsupported image or compression type");
 		goto done;
 	}
 
@@ -945,27 +955,39 @@ static int de_identify_tga(deark *c)
 	int has_tga_ext;
 	i64 v2_footer_pos = 0;
 
-	if(look_for_v2_signature(c, 1, &v2_footer_pos)) {
-		return 100;
-	}
-
 	// TGA v1 format has no signature, but there are only a few common types of
 	// it. We'll at least try to identify anything that we support.
 	de_read(b, 0, 18);
 
 	if(b[1]>1) return 0; // Color map type should be 0 or 1.
 
-	// bits/pixel:
-	if(b[16]!=1 && b[16]!=8 && b[16]!=15 && b[16]!=16 && b[16]!=24 && b[16]!=32) return 0;
+	if(b[12]==0 && b[13]==0) return 0; // Width can't be 0.
+	if(b[14]==0 && b[15]==0) return 0; // Height can't be 0.
 
-	if(b[2]!=0 && b[2]!=1 && b[2]!=2 && b[2]!=3 &&
-		b[2]!=9 && b[2]!=10 && b[2]!=11 && b[2]!=32 && b[2]!=33)
+	if(look_for_v2_signature(c, 1, &v2_footer_pos)) {
+		return 100;
+	}
+
+	// 0 is valid here, but it means "no image", and we need all the
+	// can't-be-0 bytes we can find...
+	if(b[2]==0) {
+		// ...except that we have to allow 0 in .vst format.
+		// TODO: .vst should maybe be a separate module.
+		if((UI)de_getu32be(20)!=CODE_IGCH) {
+			return 0;
+		}
+	}
+	else if(b[2]==1 || b[2]==2 || b[2]==3 ||
+		b[2]==9 || b[2]==10 || b[2]==11 || b[2]==32 || b[2]==33)
 	{
+		;
+	}
+	else {
 		return 0; // Unknown image type
 	}
 
-	if(b[12]==0 && b[13]==0) return 0; // Width can't be 0.
-	if(b[14]==0 && b[15]==0) return 0; // Height can't be 0.
+	// bits/pixel:
+	if(b[16]!=1 && b[16]!=8 && b[16]!=15 && b[16]!=16 && b[16]!=24 && b[16]!=32) return 0;
 
 	// Bits per palette entry. Supposed to be 0 if there is no palette, but
 	// in practice it may be 24 instead.
