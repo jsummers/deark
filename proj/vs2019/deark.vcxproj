@@ -371,6 +371,7 @@
     <ClInclude Include="..\..\src\deark-user.h" />
     <ClInclude Include="..\..\src\deark-version.h" />
     <ClInclude Include="..\..\src\deark.h" />
+    <ClInclude Include="..\..\src\resource.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\..\src\deark.rc" />

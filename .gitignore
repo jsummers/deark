@@ -4,6 +4,7 @@
 /deark
 /deark.exe
 /deark.1
+/src/deark.aps
 /proj/vs2019/*.vcxproj.user
 /proj/vs2019/.vs
 /proj/vs2022/*.vcxproj.user
