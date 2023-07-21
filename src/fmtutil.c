@@ -1687,6 +1687,7 @@ static void detect_execomp_tinyprog(deark *c, struct execomp_ctx *ectx,
 	i64 pos;
 	i64 j;
 	u8 x;
+	static const u8 *tpsig1 = (u8*)"\x50\xbe\x05\x01\x03\x36\x01\x01\x8c\xd2\x8c\xd8\x03\x44";
 
 	if(ei->num_relocs!=0) goto done;
 	pos = ei->entry_point;
@@ -1700,10 +1701,13 @@ static void detect_execomp_tinyprog(deark *c, struct execomp_ctx *ectx,
 	j = dbuf_geti8(ei->f, pos+1);
 	pos += 2+j; // Jump over (some sort of) data
 
-	// This part seems consistent, but I'm really just guessing. Need to test more versions.
-	if(dbuf_memcmp(ei->f, pos,
-		(const void*)"\x83\xec\x10\x83\xe4\xe0\x8b\xec\x50\xbe\x05\x01\x03\x36\x01\x01", 16))
-	{
+	if(!dbuf_memcmp(ei->f, pos, (const void*)tpsig1, 14)) {
+		; // Old version (e.g. "6/8/90")
+	}
+	else if(!dbuf_memcmp(ei->f, pos+8, (const void*)tpsig1, 14)) {
+		; // Newer version (e.g. 3.0-3.9)
+	}
+	else {
 		goto done;
 	}
 
