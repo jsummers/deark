@@ -99,6 +99,7 @@ typedef struct localctx_struct {
 #define COPIER_CLASS_PKLITE201LIKE  20
 #define COPIER_CLASS_UN2PACK        100
 #define COPIER_CLASS_MEGALITE       101
+#define COPIER_CLASS_OTHER          200
 	u8 copier_class;
 
 	i64 decompr_pos;
@@ -496,16 +497,17 @@ static void analyze_copier(deark *c, lctx *d)
 
 	if(pkl_search_match(d->epbytes, EPBYTES_LEN,
 		pos, pos+75,
-		(const u8*)"\xb9??\x33\xff\x57\xbe??\xfc\xf3\xa5\xcb", 13, '?', 0, &foundpos))
+		(const u8*)"\xb9??\x33\xff\x57\xbe??\xfc\xf3\xa5", 12, '?', 0, &foundpos))
 	{
-		d->copier_class = COPIER_CLASS_COMMON;
-		pos_of_decompr_pos_field = foundpos+7;
-	}
-	else if(pkl_search_match(d->epbytes, EPBYTES_LEN,
-		pos, pos+75,
-		(const u8*)"\xb9??\x33\xff\x57\xbe??\xfc\xf3\xa5\xca", 13, '?', 0, &foundpos))
-	{
-		d->copier_class = COPIER_CLASS_150SCR;
+		if(d->epbytes[foundpos+12]==0xcb) {
+			d->copier_class = COPIER_CLASS_COMMON;
+		}
+		else if(d->epbytes[foundpos+12]==0xca) {
+			d->copier_class = COPIER_CLASS_150SCR;
+		}
+		else {
+			d->copier_class = COPIER_CLASS_OTHER;
+		}
 		pos_of_decompr_pos_field = foundpos+7;
 	}
 
