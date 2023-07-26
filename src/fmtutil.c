@@ -1790,6 +1790,7 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei)
 	ei->f = f;
 	lfb = dbuf_getu16le(f, 2);
 	nblocks = dbuf_getu16le(f, 4);
+	nblocks &= 0x7ff;
 	ei->num_relocs = dbuf_getu16le(f, 6);
 	hdrsize = dbuf_getu16le(f, 8);
 	ei->start_of_dos_code = hdrsize*16;

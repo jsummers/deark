@@ -634,7 +634,7 @@ static void do_checksum(deark *c, lctx *d)
 static int do_fileheader(deark *c, lctx *d, i64 pos1)
 {
 	i64 n;
-	i64 lfb, nblocks;
+	i64 lfb, nblocks_1, nblocks;
 	i64 pos = pos1;
 	i64 regCS, regIP;
 	int retval = 0;
@@ -656,7 +656,19 @@ static int do_fileheader(deark *c, lctx *d, i64 pos1)
 
 	lfb = de_getu16le_p(&pos);
 	de_dbg(c, "length of final block: %u%s", (UI)lfb, ((lfb==0)?" (=512)":""));
-	nblocks = de_getu16le_p(&pos);
+	if(lfb>=512) {
+		de_warn(c, "Bad 'length of final block' field (%u)", (UI)lfb);
+	}
+
+	nblocks_1 = de_getu16le_p(&pos);
+	nblocks = nblocks_1;
+	if(nblocks_1 > 0x7ff) {
+		// In case of overflow, do what DOSBox does
+		// (src/dos/dos_execute.cpp, head.pages&=0x07ff).
+		nblocks = nblocks_1 & 0x7ff;
+		de_warn(c, "Bad 'number of blocks' field (0x%x, truncating to 0x%x)",
+			(UI)nblocks_1, (UI)nblocks);
+	}
 	de_dbg(c, "num blocks: %u", (UI)nblocks);
 
 	d->num_relocs = de_getu16le_p(&pos);
@@ -1661,15 +1673,22 @@ done:
 // ZIP files are identified as exe and not zip (assuming all modules are enabled).
 static int de_identify_exe(deark *c)
 {
-	UI x;
-	int sigMZ;
+	UI sig;
+	UI lfb;
+	int exe_ext;
+	u8 sigMZ;
 
-	x = (UI)de_getu16be(0);
-	if(x==0x4d5aU) { sigMZ = 1; }
-	else if(x==0x5a4d) { sigMZ = 0; }
+	sig = (UI)de_getu16be(0);
+	if(sig==0x4d5aU) { sigMZ = 1; }
+	else if(sig==0x5a4d) { sigMZ = 0; }
 	else { return 0; }
-	x = (UI)de_getu16le(2); // lenFinal
-	if(x>511) return 0;
+	lfb = (UI)de_getu16le(2); // lenFinal
+
+	exe_ext = de_input_file_has_ext(c, "exe");
+	if(lfb>511) {
+		return exe_ext ? 15 : 0;
+	}
+	if(exe_ext) return 80;
 	return sigMZ ? 80 : 50;
 }
 

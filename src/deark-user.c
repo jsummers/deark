@@ -228,6 +228,7 @@ static int do_special_overlay_startpos(deark *c)
 	}
 	lfb = dbuf_getu16le(c->infile, 2);
 	nblocks = dbuf_getu16le(c->infile, 4);
+	nblocks &= 0x7ff;
 	if(lfb==0) {
 		overlay_pos = 512*nblocks;
 	}
