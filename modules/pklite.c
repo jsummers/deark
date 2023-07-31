@@ -220,6 +220,13 @@ static i64 read_and_follow_1byte_jump(lctx *d, i64 pos1)
 
 static void analyze_intro(deark *c, lctx *d)
 {
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	de_dbg(c, "intro at ep+0");
+	de_dbg_indent(c, 1);
+
 	// FIXME: We shouldn't print these opaque "class" identifiers in the
 	// debug info, but for now it's better than nothing.
 	de_dbg(c, "intro class/prelim: %u", d->intro_class_fmtutil);
@@ -281,6 +288,8 @@ static void analyze_intro(deark *c, lctx *d)
 		de_dbg(c, "intro class: %u", (UI)d->intro_class);
 		de_dbg(c, "after intro: ep+%"I64_FMT, d->position2);
 	}
+
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void analyze_descrambler(deark *c, lctx *d)
@@ -291,6 +300,9 @@ static void analyze_descrambler(deark *c, lctx *d)
 	i64 pos_of_op = 0;
 	i64 pos_of_scrambled_word_count = 0;
 	i64 scrambled_endpos_raw;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
 
 	switch(d->intro_class) {
 		// Classes that might be scrambled:
@@ -408,6 +420,8 @@ static void analyze_descrambler(deark *c, lctx *d)
 		goto done;
 	}
 
+	de_dbg(c, "descrambler at ep+%"I64_FMT, d->position2);
+	de_dbg_indent(c, 1);
 	de_dbg(c, "descrambler class: %u", (UI)d->descrambler_class);
 
 	de_dbg(c, "scramble method: %u", (UI)d->scramble_method);
@@ -420,6 +434,7 @@ static void analyze_descrambler(deark *c, lctx *d)
 	d->copier_pos = read_and_follow_1byte_jump(d, pos_of_jmp_field);
 
 done:
+	de_dbg_indent_restore(c, saved_indent_level);
 	if(!d->errflag) {
 		if(!d->scrambled_decompressor && !d->data_before_decoder) {
 			d->copier_pos = d->position2;
@@ -482,6 +497,9 @@ static void analyze_copier(deark *c, lctx *d)
 	i64 pos_of_decompr_pos_field = 0;
 	i64 foundpos = 0;
 	i64 pos = d->copier_pos;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
 
 	if(d->data_before_decoder) goto done;
 	if(!pos) {
@@ -493,7 +511,8 @@ static void analyze_copier(deark *c, lctx *d)
 		goto done;
 	}
 
-	de_dbg(c, "copier pos: ep+%u", (UI)pos);
+	de_dbg(c, "copier at ep+%u", (UI)pos);
+	de_dbg_indent(c, 1);
 
 	if(pkl_search_match(d->epbytes, EPBYTES_LEN,
 		pos, pos+75,
@@ -551,7 +570,7 @@ static void analyze_copier(deark *c, lctx *d)
 	d->decompr_pos = ip_to_eprel(d, de_getu16le_direct(&d->epbytes[pos_of_decompr_pos_field]));
 
 done:
-	;
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void find_decompr_pos_beta(deark *c, lctx *d)
@@ -580,6 +599,9 @@ static void analyze_decompressor(deark *c, lctx *d)
 {
 	i64 pos;
 	i64 n;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
 
 	if(!d->decompr_pos && d->data_before_decoder) {
 		find_decompr_pos_beta(c, d);
@@ -595,7 +617,8 @@ static void analyze_decompressor(deark *c, lctx *d)
 		goto done;
 	}
 
-	de_dbg(c, "decompressor pos: ep+%u", (UI)pos);
+	de_dbg(c, "decompressor at ep+%u", (UI)pos);
+	de_dbg_indent(c, 1);
 
 	if(pkl_memmatch(&d->epbytes[pos],
 		(const u8*)"\xfd\x8c\xdb\x53\x83\xc3", 6, '?', 0))
@@ -647,7 +670,7 @@ static void analyze_decompressor(deark *c, lctx *d)
 	de_dbg(c, "cmpr data pos: %"I64_FMT, d->dparams.cmpr_data_pos);
 
 done:
-	;
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void analyze_detect_large_and_v120_cmpr(deark *c, lctx *d)
@@ -792,8 +815,15 @@ done:
 // (mainly d->dparams).
 static void do_analyze_pklite_exe(deark *c, lctx *d)
 {
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
 	de_dbg(c, "code start: %"I64_FMT, d->ei->start_of_dos_code);
 	de_dbg(c, "entry point: %"I64_FMT, d->ei->entry_point);
+
+	de_dbg(c, "[analyzing file]");
+	de_dbg_indent(c, 1);
 
 	analyze_intro(c, d);
 	if(d->errflag) goto done;
@@ -835,7 +865,7 @@ static void do_analyze_pklite_exe(deark *c, lctx *d)
 	if(d->errflag) goto done;
 
 done:
-	;
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void fill_bitbuf(deark *c, struct decompr_internal_state *dctx)
