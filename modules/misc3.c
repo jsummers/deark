@@ -2268,7 +2268,7 @@ static void do_ain_main(deark *c, de_arch_lctx *d)
 	de_dbg(c, "member hdrs checksum (reported): 0x%04x", member_hdrs_checksum_reported);
 	dbuf_buffered_read(c->infile, member_hdrs_pos, member_hdrs_len,
 		ain_checksum_cbfn, (void*)&member_hdrs_checksum_calc);
-	hdr_checksum_calc &= 0xffff;
+	member_hdrs_checksum_calc &= 0xffff;
 	de_dbg(c, "member hdrs checksum (calculated): 0x%04x", member_hdrs_checksum_calc);
 
 	pos += 2; // ?
