@@ -18,6 +18,7 @@ struct tgaimginfo {
 
 typedef struct localctx_struct {
 	i64 id_field_len;
+	de_encoding input_encoding;
 #define FMT_TGA 0
 #define FMT_VST 1
 	int file_format;
@@ -442,7 +443,7 @@ static void do_read_extension_area(deark *c, lctx *d, i64 pos1)
 
 	if(pos+41>endpos) goto done;
 	ucstring_empty(s);
-	dbuf_read_to_ucstring(c->infile, pos, 41, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	dbuf_read_to_ucstring(c->infile, pos, 41, s, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
 	ucstring_strip_trailing_spaces(s);
 	de_dbg(c, "author: \"%s\"", ucstring_getpsz_d(s));
 	pos += 41;
@@ -450,7 +451,7 @@ static void do_read_extension_area(deark *c, lctx *d, i64 pos1)
 	for(k=0; k<4; k++) {
 		if(pos+81>endpos) goto done;
 		ucstring_empty(s);
-		dbuf_read_to_ucstring(c->infile, pos, 81, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+		dbuf_read_to_ucstring(c->infile, pos, 81, s, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
 		ucstring_strip_trailing_spaces(s);
 		de_dbg(c, "comment line %d: \"%s\"", (int)k, ucstring_getpsz_d(s));
 		pos += 81;
@@ -479,7 +480,7 @@ static void do_read_extension_area(deark *c, lctx *d, i64 pos1)
 
 	if(pos+41>endpos) goto done;
 	ucstring_empty(s);
-	dbuf_read_to_ucstring(c->infile, pos, 41, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	dbuf_read_to_ucstring(c->infile, pos, 41, s, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
 	ucstring_strip_trailing_spaces(s);
 	de_dbg(c, "software id: \"%s\"", ucstring_getpsz_d(s));
 	pos += 41;
@@ -623,6 +624,7 @@ static int do_read_tga_headers(deark *c, lctx *d)
 	de_dbg_indent(c, 1);
 
 	d->id_field_len = (i64)de_getbyte(0);
+	de_dbg(c, "image ID len: %u", (UI)d->id_field_len);
 	d->color_map_type = de_getbyte(1);
 	de_dbg(c, "color map type: %d", (int)d->color_map_type);
 	d->img_type = de_getbyte(2);
@@ -831,6 +833,18 @@ static void detect_file_format(deark *c, lctx *d)
 	d->file_format = FMT_TGA;
 }
 
+static void read_image_id(deark *c, lctx *d, i64 pos)
+{
+	de_ucstring *s = NULL;
+
+	if(d->id_field_len<1) return;
+	if(d->file_format!=FMT_TGA) return;
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, d->id_field_len, s, 0, d->input_encoding);
+	de_dbg(c, "image ID: \"%s\"", ucstring_getpsz_d(s));
+	ucstring_destroy(s);
+}
+
 static void de_run_tga(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -841,6 +855,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	d = de_malloc(c, sizeof(lctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
 
 	detect_file_format(c, d);
 
@@ -863,10 +878,11 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	}
 	pos += 18;
 
-	if(d->id_field_len>0) {
-		de_dbg(c, "image ID at %"I64_FMT" (len=%"I64_FMT")", pos, d->id_field_len);
-		pos += d->id_field_len;
-	}
+	de_dbg(c, "image/color data at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
+
+	read_image_id(c, d, pos);
+	pos += d->id_field_len;
 
 	if(d->color_map_type!=0) {
 		d->bytes_per_pal_entry = (d->cmap_depth+7)/8;
@@ -936,7 +952,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 
 	do_decode_image(c, d, &d->main_image, unc_pixels, NULL, 0);
 
-	de_dbg_indent(c, -1);
+	de_dbg_indent(c, -2);
 
 	if(d->thumbnail_offset!=0) {
 		do_decode_thumbnail(c, d);
