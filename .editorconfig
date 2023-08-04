@@ -9,3 +9,7 @@ end_of_line = lf
 indent_style = space
 indent_size = 4
 end_of_line = lf
+
+[src/deark.rc]
+charset = utf-16le
+end_of_line = crlf
