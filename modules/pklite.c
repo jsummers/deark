@@ -57,6 +57,8 @@ typedef struct localctx_struct {
 	u8 is_com;
 	u8 data_before_decoder;
 	u8 load_high;
+	u8 has_psp_sig;
+	u8 psp_sig_type;
 	struct decompr_params_struct dparams;
 
 	struct fmtutil_exe_info *ei; // For the PKLITE file
@@ -811,6 +813,44 @@ done:
 	}
 }
 
+static void analyze_detect_psp_sig(deark *c, lctx *d)
+{
+	int ret;
+	i64 foundpos;
+	const u8 *pattern;
+
+	if(d->decompr_pos==0 || d->approx_end_of_decompressor==0) {
+		goto done;
+	}
+
+	// It's kind of overkill to always do this search, and always look for both
+	// signatures. We could probably be much more discriminiating, e.g. by
+	// by using the apparent correspondence to scramble_method. But we would
+	// risk false negatives.
+
+	pattern = (const u8*)"\xc7\x06\x5c\x00\x70\x6b"; // "pk"
+	ret = pkl_search_match(d->epbytes, EPBYTES_LEN,
+		d->decompr_pos, d->approx_end_of_decompressor,
+		pattern, 6, 0x3f, 0, &foundpos);
+	if(ret) {
+		d->has_psp_sig = 1;
+		d->psp_sig_type = 2;
+		goto done;
+	}
+
+	pattern = (const u8*)"\xc7\x06\x5c\x00\x50\x4b"; // "PK"
+	ret = pkl_search_match(d->epbytes, EPBYTES_LEN,
+		d->decompr_pos, d->approx_end_of_decompressor,
+		pattern, 6, 0x3f, 0, &foundpos);
+	if(ret) {
+		d->has_psp_sig = 1;
+		d->psp_sig_type = 1;
+	}
+
+done:
+	;
+}
+
 // Do whatever we need to do to figure out the compression params
 // (mainly d->dparams).
 static void do_analyze_pklite_exe(deark *c, lctx *d)
@@ -863,6 +903,7 @@ static void do_analyze_pklite_exe(deark *c, lctx *d)
 	if(d->errflag) goto done;
 	analyze_detect_obf_offsets(c, d);
 	if(d->errflag) goto done;
+	analyze_detect_psp_sig(c, d);
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -1725,6 +1766,17 @@ static void do_pklite_exe(deark *c, lctx *d)
 	if(d->errflag) goto done;
 
 	do_write_dcmpr(c, d);
+	if(d->errflag) goto done;
+
+	de_stdwarn_execomp(c);
+	if(d->has_psp_sig) {
+		de_warn(c, "This file has a tamper-detection feature (PSP signature \"%s\"). "
+			"It might not run correctly when decompressed.",
+			((d->psp_sig_type==2) ? "pk" : "PK"));
+
+		// TODO: It is possible to patch the decompressed file, so that it stands
+		// a chance of passing this protection check. But it's not easy.
+	}
 
 done:
 	;
@@ -1837,6 +1889,8 @@ static void do_pklite_com(deark *c, lctx *d)
 	d->dcmpr_ok = 1;
 
 	dbuf_create_file_from_slice(d->o_dcmpr_code, 0, d->o_dcmpr_code->len, "com", NULL, 0);
+	de_stdwarn_execomp(c);
+
 done:
 	;
 }

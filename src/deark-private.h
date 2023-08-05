@@ -545,6 +545,7 @@ void de_dbg_hexdump(deark *c, dbuf *f, i64 pos1, i64 nbytes_avail,
 void de_hexdump2(deark *c, dbuf *f, i64 pos1, i64 nbytes_avail,
 	i64 max_nbytes_to_dump, unsigned int flags);
 void de_dbg_dimensions(deark *c, i64 w, i64 h);
+void de_stdwarn_execomp(deark *c);
 void de_dbg_pal_entry(deark *c, i64 idx, de_color clr);
 void de_dbg_pal_entry2(deark *c, i64 idx, de_color clr,
 	const char *txt_before, const char *txt_in, const char *txt_after);

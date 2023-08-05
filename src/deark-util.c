@@ -560,6 +560,12 @@ void de_dbg_dimensions(deark *c, i64 w, i64 h)
 	de_dbg(c, "dimensions: %"I64_FMT DE_CHAR_TIMES "%"I64_FMT, w, h);
 }
 
+void de_stdwarn_execomp(deark *c)
+{
+	de_warn(c, "(Standard warning about executable decompression) "
+		"Use this decompressed file AT YOUR OWN RISK!");
+}
+
 // Generates a "magic" code that, when included in the debug output, will
 // (in some circumstances) display a small sample of the given color.
 // Caller supplies csamp[16].

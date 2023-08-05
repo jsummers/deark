@@ -294,6 +294,9 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	}
 
 	dbuf_close(outf);
+	if(!d->errflag) {
+		de_stdwarn_execomp(c);
+	}
 }
 
 static const char *get_variant_name(u8 v)

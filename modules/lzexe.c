@@ -350,6 +350,9 @@ static void do_write_dcmpr(deark *c, lctx *d)
 
 	dbuf_close(outf);
 	de_dbg_indent(c, -1);
+	if(!d->errflag) {
+		de_stdwarn_execomp(c);
+	}
 }
 
 // Don't change this, unless it's also changed in fmtutil.c.
