@@ -73,6 +73,8 @@ $(OBJDIR)/modules/crush.o: modules/crush.c src/deark-private.h \
  src/deark-fmtutil-arch.h
 $(OBJDIR)/modules/d64.o: modules/d64.c src/deark-config.h \
  src/deark-private.h src/deark.h
+$(OBJDIR)/modules/diet.o: modules/diet.c src/deark-private.h src/deark.h \
+ src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/dlmaker.o: modules/dlmaker.c src/deark-private.h \
  src/deark.h src/deark-config.h
 $(OBJDIR)/modules/dms.o: modules/dms.c src/deark-private.h src/deark.h \

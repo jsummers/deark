@@ -205,6 +205,7 @@
     <ClCompile Include="..\..\modules\cpio.c" />
     <ClCompile Include="..\..\modules\crush.c" />
     <ClCompile Include="..\..\modules\d64.c" />
+    <ClCompile Include="..\..\modules\diet.c" />
     <ClCompile Include="..\..\modules\dlmaker.c" />
     <ClCompile Include="..\..\modules\dms.c" />
     <ClCompile Include="..\..\modules\drhalo.c" />
