@@ -8,9 +8,26 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_diet);
 
+#define MAX_DIET_DCMPR_LEN 4194304
+
+#define FTYPE_DATA 1
+#define FTYPE_COM  2
+#define FTYPE_EXE  3
+
+#define FMT_DATA_100  1   // v1.00, 1.00d
+#define FMT_DATA_102  2   // v1.02b, 1.10a, 1.20
+#define FMT_DATA_144  3   // v1.44, 1.45f
+#define FMT_COM_100   11  // v1.00, 1.00d
+#define FMT_COM_102   12  // v1.02b, 1.10a, 1.20
+#define FMT_COM_144   13  // v1.044, 1.45f
+
 typedef struct localctx_struct_diet {
 	u8 errflag;
 	u8 need_errmsg;
+	u8 ftype;
+	u8 cmpr_len_known;
+	u8 orig_len_known;
+	UI fmt;
 	i64 cmpr_len;
 	i64 orig_len;
 	i64 cmpr_pos;
@@ -22,21 +39,60 @@ typedef struct localctx_struct_diet {
 } lctx;
 
 struct diet_identify_data {
-#define FMT_DATA_102  1   // v1.02b, 1.10a, 1.20
-#define FMT_DATA_144  2   // v1.44, 1.45f
+	// The change log from v1.45f suggests there should be at least 20-25
+	// versions of DIET, but just 7 are known to exist:
+	// 1.00, 1.00d, 1.02b, 1.10a, 1.20, 1.44, 1.45f
 	UI fmt;
 };
 
 static void identify_diet_fmt(deark *c, struct diet_identify_data *dd)
 {
+	u8 b1;
 	static const u8 *sigs = (const u8*)"\x9d\x89""dlz";
-
+	static const u8 *int21sig = (const u8*)"\xb4\x4c\xcd\x21";
+	static const u8 *oldsig = (const u8*)"\xfd\xf3\xa5\xfc\x8b\xf7\xbf\x00";
 	de_zeromem(dd, sizeof(struct diet_identify_data));
 
-	if((UI)de_getu32be(0) == 0xb44ccd21U) {
-		if(!dbuf_memcmp(c->infile, 4, sigs, 5)) {
-			dd->fmt = FMT_DATA_144;
+	b1 = de_getbyte(0);
+
+	if(b1==0xbe) {
+		if(!dbuf_memcmp(c->infile, 35, &sigs[2], 3)) {
+			if(!dbuf_memcmp(c->infile, 17, oldsig, 8))
+			{
+				dd->fmt = FMT_COM_102;
+				return;
+			}
+		}
+	}
+
+	if(b1==0xbf) {
+		if(!dbuf_memcmp(c->infile, 17, oldsig, 8))
+		{
+			dd->fmt = FMT_COM_100;
 			return;
+		}
+	}
+
+	if(b1==0xf9) {
+		if(!dbuf_memcmp(c->infile, 65, &sigs[2], 3)) {
+			if(!dbuf_memcmp(c->infile, 10, &sigs[0], 2)) {
+				dd->fmt = FMT_COM_144;
+				return;
+			}
+		}
+	}
+
+	if(b1==0xb4) {
+		if(!dbuf_memcmp(c->infile, 0, int21sig, 4)) {
+			if(!dbuf_memcmp(c->infile, 4, sigs, 5)) {
+				dd->fmt = FMT_DATA_144;
+				return;
+			}
+
+			if(!dbuf_memcmp(c->infile, 4, &sigs[0], 2)) {
+				dd->fmt = FMT_DATA_100;
+				return;
+			}
 		}
 	}
 
@@ -183,7 +239,7 @@ static void do_decompress_code(deark *c, lctx *d)
 				a2 = diet_getbit(c, d);
 				a3 = diet_getbit(c, d);
 				a4 = diet_getbit(c, d);
-				matchpos = 0x100 + 0x7ff - (((4*(UI)a2 + 2*(UI)a3 + 1*(UI)a4)*256) | v);
+				matchpos = 2303 - (1024*(UI)a2 + 512*(UI)a3 + 256*(UI)a4 + v);
 				goto ready_for_match;
 			}
 			else if(v!=0xff) { // "short" two-byte match
@@ -193,12 +249,18 @@ static void do_decompress_code(deark *c, lctx *d)
 			}
 
 			// special code
+
 			a2 = diet_getbit(c, d);
-			if(a2==0) {
+			if(a2==0) { // 00[FF]00
 				de_dbg3(c, "stop code");
 				goto after_decompress;
 			}
-			// TODO: 00[FF]01 = segment refresh
+
+			// 00[FF]01
+			if(d->ftype==FTYPE_EXE) {
+				de_dbg3(c, "segment refresh");
+				continue;
+			}
 			de_err(c, "Unsupported feature");
 			d->errflag = 1;
 			goto done;
@@ -281,76 +343,181 @@ done:
 	de_dbg_indent(c, -1);
 }
 
-static void write_datafile(deark *c, lctx *d)
+static void write_data_or_com_file(deark *c, lctx *d)
 {
 	dbuf *outf = NULL;
+	const char *ext;
 
-	outf = dbuf_create_output_file(c, "bin", NULL, 0);
+	if(d->ftype==FTYPE_COM) ext = "com";
+	else ext = "bin";
+
+	outf = dbuf_create_output_file(c, ext, NULL, 0);
 	dbuf_copy(d->o_dcmpr_code, 0, d->o_dcmpr_code->len, outf);
+
+	if(d->ftype==FTYPE_COM) {
+		de_stdwarn_execomp(c);
+	}
+
 	dbuf_close(outf);
 }
 
-static void read_dlz_header(deark *c, lctx *d, i64 pos1)
+static void read_header(deark *c, lctx *d, i64 pos1)
 {
 	i64 pos = pos1;
-	u8 bitfields1, bitfields2;
+	u8 bitfields1 = 0;
+	u8 bitfields2 = 0;
+	UI flags = 0;
+	u8 has_full_hdr;
 	i64 n;
 
-	pos += 3; // "dlz"
-	bitfields1 = de_getbyte_p(&pos);
-	d->cmpr_len = (i64)(bitfields1&0x0f)<<16;
-	n = de_getu16le_p(&pos);
-	d->cmpr_len |= n;
-	de_dbg(c, "cmpr len: %"I64_FMT, d->cmpr_len);
+	de_dbg(c, "header at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	if(d->fmt==FMT_DATA_100 || d->fmt==FMT_COM_100) {
+		has_full_hdr = 0;
+	}
+	else {
+		has_full_hdr = 1;
+	}
+
+	if(has_full_hdr) {
+		pos += 3; // "dlz"
+		bitfields1 = de_getbyte_p(&pos);
+		flags = bitfields1 & 0xf0;
+		de_dbg(c, "flags: 0x%02x", flags);
+		d->cmpr_len = (i64)(bitfields1&0x0f)<<16;
+		n = de_getu16le_p(&pos);
+		d->cmpr_len |= n;
+		de_dbg(c, "cmpr len: %"I64_FMT, d->cmpr_len);
+		d->cmpr_len_known = 1;
+	}
+
 	d->crc_reported = (u32)de_getu16le_p(&pos);
 	de_dbg(c, "crc (reported): 0x%04x", (UI)d->crc_reported);
-	bitfields2 = de_getbyte_p(&pos);
-	d->orig_len = (i64)(bitfields2&0xfc)<<14;
-	n = de_getu16le_p(&pos);
-	d->orig_len |= n;
-	de_dbg(c, "orig len: %"I64_FMT, d->orig_len);
-	if(((bitfields1 & 0xf0)!=0) || ((bitfields2 & 0x03)!=0)) {
-		d->errflag = 1;
+
+	if(has_full_hdr) {
+		bitfields2 = de_getbyte_p(&pos);
+		d->orig_len = (i64)(bitfields2&0xfc)<<14;
+		n = de_getu16le_p(&pos);
+		d->orig_len |= n;
+		de_dbg(c, "orig len: %"I64_FMT, d->orig_len);
+		d->orig_len_known = 1;
+	}
+
+	if(flags!=0 || (bitfields2 & 0x03)!=0) {
+		d->errflag = 1; // Unsupported feature
 		d->need_errmsg = 1;
 		goto done;
 	}
+
 	d->cmpr_pos = pos;
 
+	if(d->fmt==FMT_DATA_100) {
+		d->cmpr_len = c->infile->len - pos;
+		d->cmpr_len_known = 1;
+	}
+
 done:
-	;
+	de_dbg_indent(c, -1);
+}
+
+static void check_diet_crc(deark *c, lctx *d)
+{
+	u32 crc_calc;
+	struct de_crcobj *crco = NULL;
+
+	if(!d->cmpr_len_known) {
+		// TODO: For v1.00 COM format, we don't know how to figure out the
+		// compressed data size, and it doesn't end at the end of the file.
+		// (Testing the CRC *after* decompression, after we've found the "stop"
+		// code, isn't the right thing to do for this type of CRC.)
+		goto done;
+	}
+
+	crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
+	de_crcobj_addslice(crco, c->infile, d->cmpr_pos, d->cmpr_len);
+	crc_calc = de_crcobj_getval(crco);
+	de_dbg(c, "crc (calculated): 0x%04x", (UI)crc_calc);
+	// Unfortunately, this is a CRC of the *compressed* data, so we can't use it
+	// to tell if we decompressed the data correctly.
+	if(crc_calc!=d->crc_reported) {
+		de_warn(c, "CRC check failed (expected 0x%04x, got 0x%04x). "
+			"File may be corrupted.", (UI)d->crc_reported,
+			(UI)crc_calc);
+	}
+done:
+	de_crcobj_destroy(crco);
 }
 
 static void de_run_diet(deark *c, de_module_params *mparams)
 {
 	struct diet_identify_data dd;
 	lctx *d = NULL;
-	i64 hdrpos;
+	i64 hdrpos = 0; // pos of "dlz" if it exists, otherwise arbitrary
+	const char *fmtn = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
 	identify_diet_fmt(c, &dd);
-	if(dd.fmt==FMT_DATA_102) {
+	if(dd.fmt==FMT_DATA_100) {
+		fmtn = "file (v1.00)";
+		hdrpos = 6;
+		d->ftype = FTYPE_DATA;
+	}
+	else if(dd.fmt==FMT_DATA_102) {
+		fmtn = "file (v1.02b-1.20)";
+		d->ftype = FTYPE_DATA;
 		hdrpos = 2;
 	}
 	else if(dd.fmt==FMT_DATA_144) {
+		fmtn = "file (v1.44+)";
+		d->ftype = FTYPE_DATA;
 		hdrpos = 6;
 	}
-	else {
-		// DIET is a work in progress.
-		// Currently we only suport compressed "data files", v1.02b+.
-		// TODO: Older files, COM, EXE.
-		de_err(c, "Unsupported format");
+	else if(dd.fmt==FMT_COM_100) {
+		fmtn = "COM (v1.00)";
+		d->ftype = FTYPE_COM;
+		hdrpos = 35;
+	}
+	else if(dd.fmt==FMT_COM_102) {
+		fmtn = "COM (v1.02b-1.20)";
+		d->ftype = FTYPE_COM;
+		hdrpos = 35;
+	}
+	else if(dd.fmt==FMT_COM_144) {
+		fmtn = "COM (v1.44+)";
+		d->ftype = FTYPE_COM;
+		hdrpos = 65;
+	}
+
+	d->fmt = dd.fmt;
+
+	if(fmtn) {
+		de_declare_fmtf(c, "DIET-compressed %s", fmtn);
+	}
+
+	if(!fmtn || d->errflag) {
+		de_err(c, "Unsupported DIET format");
 		goto done;
 	}
 
-	read_dlz_header(c, d, hdrpos);
+	read_header(c, d, hdrpos);
 	if(d->errflag) goto done;
 
-	d->o_dcmpr_code = dbuf_create_membuf(c, d->orig_len, 0x1);
+	check_diet_crc(c, d);
 
+	if(d->orig_len_known) {
+		d->o_dcmpr_code = dbuf_create_membuf(c, d->orig_len, 0x1);
+	}
+	else {
+		d->o_dcmpr_code = dbuf_create_membuf(c, MAX_DIET_DCMPR_LEN, 0x1);
+	}
+	dbuf_enable_wbuffer(d->o_dcmpr_code);
 
 	do_decompress_code(c, d);
 	if(d->errflag) goto done;
-	write_datafile(c, d);
+	if(d->ftype==FTYPE_DATA || d->ftype==FTYPE_COM) {
+		write_data_or_com_file(c, d);
+	}
 
 done:
 	if(d) {
