@@ -122,7 +122,8 @@ Deark -- Information about supported formats
 
 * COKE (Atari Falcon) (*.tg1) (module="coke")
 
-* ColoRIX (*.sc?, etc.) (module="colorix") (incomplete)
+* ColoRIX (*.sc?, etc.) (module="colorix")
+  - Supports most formats, including compressed files.
 
 * Compface intermediate format (module="compfacei")
   This is an obscure text-based format related to X-Face, used by the Compface
@@ -202,7 +203,7 @@ Deark -- Information about supported formats
    -opt atari:palbits=<n> (refer to readme.md)
 
 * GIF (module="gif")
-  - Extract the image, or every frame from an animated or mult-image GIF.
+  - Extract the image, or every frame from an animated or multi-image GIF.
   - Plain text extensions are supported.
   - Extract comments (use -a).
   Options
@@ -632,7 +633,7 @@ Deark -- Information about supported formats
 * YBM (Bennet Yee face format) (module="ybm")
 
 * Young Picasso (.YP) (module="young_picasso")
-  An old paint program by BlueBlueview Software.
+  An old paint program by Blueview Software.
 
 * ZBR ((Zoner) Zebra Metafile) (module="zbr")
   - Extract the preview image.
@@ -767,6 +768,9 @@ Deark -- Information about supported formats
   Options
    -opt deflate:deflate64 - Decode as Deflate64 format.
 
+* DIET (module="diet") (experimental/incomplete)
+  - Supports COM and data files. EXE not supported.
+
 * DMS (Amiga disk image) (module="amiga_dms") (experimental)
   - Decompresses to ADF format.
 
@@ -844,7 +848,7 @@ Deark -- Information about supported formats
   Raw LZ-Stac compressed data.
   - Not autodetected; must use "-m lzstac".
 
-* LZS221 (module="lzss221")
+* LZS221 (module="lzs221")
   Compressed file format by Stac.
 
 * LZSS(Okumura) (module="lzss_oku")
