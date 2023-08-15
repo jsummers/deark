@@ -1771,6 +1771,7 @@ static void de_run_dgi(deark *c, de_module_params *mparams)
 {
 	dbuf *imgbuf = NULL;
 	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
 	de_color pal[4];
 
 	imgbuf = dbuf_create_membuf(c, 64000, 0x1);
@@ -1782,18 +1783,22 @@ static void de_run_dgi(deark *c, de_module_params *mparams)
 	do_dgi_convert_quadrant(c, imgbuf, 32008, 32000);
 	do_dgi_convert_quadrant(c, imgbuf, 48008, 32080);
 
-	// Turbo DiGI by Basi Angulo seems to be the authority on this format, and
-	// this is the palette it uses, though it doesn't look very good.
-	// EGADGI by Craig Jensen also uses this palette by default, though it
-	// offers other palettes.
 	de_copy_std_palette(DE_PALID_CGA, 1, 0, 4, pal, 4, 0);
 
+	fi = de_finfo_create(c);
 	img = de_bitmap_create(c, 640, 400, 3);
 	de_convert_image_paletted(imgbuf, 0, 2, 160, pal, img, 0);
-	de_bitmap_write_to_file(img, NULL, 0);
+
+	// DGI targets CGA 320x200.
+	fi->density.code = DE_DENSITY_UNK_UNITS;
+	fi->density.xdens = 240;
+	fi->density.ydens = 200;
+
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 
 	dbuf_close(imgbuf);
 	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
 }
 
 static int de_identify_dgi(deark *c)
