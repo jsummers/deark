@@ -10,24 +10,45 @@ DE_DECLARE_MODULE(de_module_diet);
 
 #define MAX_DIET_DCMPR_LEN 4194304
 
-#define FTYPE_DATA 1
-#define FTYPE_COM  2
-#define FTYPE_EXE  3
+enum ftype_enum {
+	FTYPE_UNKNOWN=0, FTYPE_DATA, FTYPE_COM, FTYPE_EXE
+};
 
-#define FMT_DATA_100  1   // v1.00, 1.00d
-#define FMT_DATA_102  2   // v1.02b, 1.10a, 1.20
-#define FMT_DATA_144  3   // v1.44, 1.45f
-#define FMT_COM_100   11  // v1.00, 1.00d
-#define FMT_COM_102   12  // v1.02b, 1.10a, 1.20
-#define FMT_COM_144   13  // v1.044, 1.45f
+enum fmt_enum {
+	FMT_UNKNOWN=0,
+	FMT_DATA_100, // v1.00, 1.00d
+	FMT_DATA_102, // v1.02b, 1.10a, 1.20
+	FMT_DATA_144, // v1.44, 1.45f
+	FMT_COM_100,
+	FMT_COM_102,
+	FMT_COM_144,
+	FMT_EXE_100,
+	FMT_EXE_102,
+	FMT_EXE_144,
+	FMT_EXE_145F
+};
+
+struct diet_identify_data {
+	// The change log from v1.45f suggests there should be at least 20-25
+	// versions of DIET, but just 7 are known to exist:
+	// 1.00, 1.00d, 1.02b, 1.10a, 1.20, 1.44, 1.45f
+	enum fmt_enum fmt;
+	enum ftype_enum ftype;
+	u8 dlz_pos_known;
+	u8 crc_pos_known;
+	u8 cmpr_pos_known;
+	i64 dlz_pos;
+	i64 crc_pos;
+	i64 cmpr_pos;
+};
 
 typedef struct localctx_struct_diet {
+	struct diet_identify_data idd;
 	u8 errflag;
 	u8 need_errmsg;
-	u8 ftype;
 	u8 cmpr_len_known;
 	u8 orig_len_known;
-	UI fmt;
+	u8 devmode;
 	i64 cmpr_len;
 	i64 orig_len;
 	i64 cmpr_pos;
@@ -38,66 +59,136 @@ typedef struct localctx_struct_diet {
 	struct de_bitbuf_lowlevel bbll;
 } lctx;
 
-struct diet_identify_data {
-	// The change log from v1.45f suggests there should be at least 20-25
-	// versions of DIET, but just 7 are known to exist:
-	// 1.00, 1.00d, 1.02b, 1.10a, 1.20, 1.44, 1.45f
-	UI fmt;
-};
-
-static void identify_diet_fmt(deark *c, struct diet_identify_data *dd)
+// idmode==1: We're in the 'identify' phase -- Do just enough to
+//   detect COM & data formats.
+static void identify_diet_fmt(deark *c, struct diet_identify_data *idd, u8 idmode)
 {
-	u8 b1;
-	static const u8 *sigs = (const u8*)"\x9d\x89""dlz";
-	static const u8 *int21sig = (const u8*)"\xb4\x4c\xcd\x21";
-	static const u8 *oldsig = (const u8*)"\xfd\xf3\xa5\xfc\x8b\xf7\xbf\x00";
-	de_zeromem(dd, sizeof(struct diet_identify_data));
+	static const u8 *sig_9d89 = (const u8*)"\x9d\x89";
+	static const u8 *sig_dlz = (const u8*)"dlz";
+	static const u8 *sig_int21 = (const u8*)"\xb4\x4c\xcd\x21";
+	static const u8 *sig_old = (const u8*)"\xfd\xf3\xa5\xfc\x8b\xf7\xbf\x00";
+	static const u8 *sig_8edb = (const u8*)"\x8e\xdb\x8e\xc0\x33\xf6\x33\xff\xb9";
+	u8 buf[9];
 
-	b1 = de_getbyte(0);
+	de_read(buf, 0, sizeof(buf));
 
-	if(b1==0xbe) {
-		if(!dbuf_memcmp(c->infile, 35, &sigs[2], 3)) {
-			if(!dbuf_memcmp(c->infile, 17, oldsig, 8))
+	if(buf[0]==0xbe) {
+		if(!dbuf_memcmp(c->infile, 35, sig_dlz, 3)) {
+			if(!dbuf_memcmp(c->infile, 17, sig_old, 8))
 			{
-				dd->fmt = FMT_COM_102;
-				return;
+				idd->ftype = FTYPE_COM;
+				idd->fmt = FMT_COM_102;
+				idd->dlz_pos_known = 1;
+				idd->dlz_pos = 35;
+				goto done;
 			}
 		}
 	}
 
-	if(b1==0xbf) {
-		if(!dbuf_memcmp(c->infile, 17, oldsig, 8))
+	if(buf[0]==0xbf) {
+		if(!dbuf_memcmp(c->infile, 17, sig_old, 8))
 		{
-			dd->fmt = FMT_COM_100;
-			return;
+			idd->ftype = FTYPE_COM;
+			idd->fmt = FMT_COM_100;
+			idd->crc_pos_known = 1;
+			idd->crc_pos = 35;
+			idd->cmpr_pos_known = 1;
+			idd->cmpr_pos = 37;
+			goto done;
 		}
 	}
 
-	if(b1==0xf9) {
-		if(!dbuf_memcmp(c->infile, 65, &sigs[2], 3)) {
-			if(!dbuf_memcmp(c->infile, 10, &sigs[0], 2)) {
-				dd->fmt = FMT_COM_144;
-				return;
+	if(buf[0]==0xf9) {
+		if(!dbuf_memcmp(c->infile, 65, sig_dlz, 3)) {
+			if(!dbuf_memcmp(c->infile, 10, sig_9d89, 2)) {
+				idd->ftype = FTYPE_COM;
+				idd->fmt = FMT_COM_144;
+				idd->dlz_pos_known = 1;
+				idd->dlz_pos = 65;
+				goto done;
 			}
 		}
 	}
 
-	if(b1==0xb4) {
-		if(!dbuf_memcmp(c->infile, 0, int21sig, 4)) {
-			if(!dbuf_memcmp(c->infile, 4, sigs, 5)) {
-				dd->fmt = FMT_DATA_144;
-				return;
-			}
-
-			if(!dbuf_memcmp(c->infile, 4, &sigs[0], 2)) {
-				dd->fmt = FMT_DATA_100;
-				return;
+	if(buf[0]==0xb4) {
+		if(!de_memcmp(&buf[0], sig_int21, 4)) {
+			if(!de_memcmp(&buf[4], sig_9d89, 2)) {
+				idd->ftype = FTYPE_DATA;
+				if(!de_memcmp(&buf[6], sig_dlz, 3)) {
+					idd->fmt = FMT_DATA_144;
+					idd->dlz_pos_known = 1;
+					idd->dlz_pos =  6;
+					goto done;
+				}
+				idd->fmt = FMT_DATA_100;
+				idd->crc_pos_known = 1;
+				idd->crc_pos = 6;
+				idd->cmpr_pos_known = 1;
+				idd->cmpr_pos = 8;
+				goto done;
 			}
 		}
 	}
 
-	if(!dbuf_memcmp(c->infile, 0, sigs, 5)) {
-		dd->fmt = FMT_DATA_102;
+	if(buf[0]==0x9d) {
+		if(!de_memcmp(&buf[0], sig_9d89, 2)) {
+			if(!de_memcmp(&buf[2], sig_dlz, 3)) {
+				idd->ftype = FTYPE_DATA;
+				idd->fmt = FMT_DATA_102;
+				idd->dlz_pos_known = 1;
+				idd->dlz_pos = 2;
+				goto done;
+			}
+		}
+	}
+
+	// Don't autodetect EXE -- It's handled by the "exe" module.
+	if(idmode) goto done;
+
+	if((buf[0]=='M' && buf[1]=='Z') || (buf[0]=='Z' && buf[1]=='M')) {
+		// TODO?: Make these rules stricter.
+
+		if(!dbuf_memcmp(c->infile, 107, sig_dlz, 3)) {
+			idd->ftype = FTYPE_EXE;
+			idd->fmt = FMT_EXE_144;
+			idd->dlz_pos_known = 1;
+			idd->dlz_pos = 107;
+			goto done;
+		}
+
+		if(!dbuf_memcmp(c->infile, 108, sig_dlz, 3)) {
+			idd->ftype = FTYPE_EXE;
+			idd->fmt = FMT_EXE_145F;
+			idd->dlz_pos_known = 1;
+			idd->dlz_pos = 108;
+			goto done;
+		}
+
+		if(!dbuf_memcmp(c->infile, 87, sig_dlz, 3)) {
+			idd->ftype = FTYPE_EXE;
+			idd->fmt = FMT_EXE_102;
+			idd->dlz_pos_known = 1;
+			idd->dlz_pos = 87;
+			goto done;
+		}
+
+		if(!dbuf_memcmp(c->infile, 55, sig_8edb, 8)) {
+			idd->ftype = FTYPE_EXE;
+			idd->fmt = FMT_EXE_100;
+			idd->crc_pos_known = 1;
+			idd->crc_pos = 18;
+			idd->cmpr_pos_known = 1;
+			idd->cmpr_pos = 90;
+			goto done;
+		}
+	}
+
+done:
+	if(idd->dlz_pos_known) {
+		idd->crc_pos_known = 1;
+		idd->cmpr_pos_known = 1;
+		idd->crc_pos = idd->dlz_pos + 6;
+		idd->cmpr_pos = idd->dlz_pos + 11;
 	}
 }
 
@@ -257,7 +348,7 @@ static void do_decompress_code(deark *c, lctx *d)
 			}
 
 			// 00[FF]01
-			if(d->ftype==FTYPE_EXE) {
+			if(d->idd.ftype==FTYPE_EXE) {
 				de_dbg3(c, "segment refresh");
 				continue;
 			}
@@ -348,40 +439,35 @@ static void write_data_or_com_file(deark *c, lctx *d)
 	dbuf *outf = NULL;
 	const char *ext;
 
-	if(d->ftype==FTYPE_COM) ext = "com";
+	if(d->idd.ftype==FTYPE_COM) ext = "com";
 	else ext = "bin";
 
 	outf = dbuf_create_output_file(c, ext, NULL, 0);
 	dbuf_copy(d->o_dcmpr_code, 0, d->o_dcmpr_code->len, outf);
 
-	if(d->ftype==FTYPE_COM) {
+	if(d->idd.ftype==FTYPE_COM) {
 		de_stdwarn_execomp(c);
 	}
 
 	dbuf_close(outf);
 }
 
-static void read_header(deark *c, lctx *d, i64 pos1)
+static void read_header(deark *c, lctx *d)
 {
-	i64 pos = pos1;
+	i64 pos = 0;
 	u8 bitfields1 = 0;
 	u8 bitfields2 = 0;
 	UI flags = 0;
-	u8 has_full_hdr;
 	i64 n;
+	int saved_indent_level;
 
-	de_dbg(c, "header at %"I64_FMT, pos1);
-	de_dbg_indent(c, 1);
+	de_dbg_indent_save(c, &saved_indent_level);
 
-	if(d->fmt==FMT_DATA_100 || d->fmt==FMT_COM_100) {
-		has_full_hdr = 0;
-	}
-	else {
-		has_full_hdr = 1;
-	}
+	if(d->idd.dlz_pos_known) {
+		de_dbg(c, "header at %"I64_FMT, d->idd.dlz_pos);
+		de_dbg_indent(c, 1);
 
-	if(has_full_hdr) {
-		pos += 3; // "dlz"
+		pos = d->idd.dlz_pos + 3;
 		bitfields1 = de_getbyte_p(&pos);
 		flags = bitfields1 & 0xf0;
 		de_dbg(c, "flags: 0x%02x", flags);
@@ -392,10 +478,13 @@ static void read_header(deark *c, lctx *d, i64 pos1)
 		d->cmpr_len_known = 1;
 	}
 
-	d->crc_reported = (u32)de_getu16le_p(&pos);
-	de_dbg(c, "crc (reported): 0x%04x", (UI)d->crc_reported);
+	if(d->idd.crc_pos_known) {
+		d->crc_reported = (u32)de_getu16le(d->idd.crc_pos);
+		de_dbg(c, "crc (reported): 0x%04x", (UI)d->crc_reported);
+	}
 
-	if(has_full_hdr) {
+	if(d->idd.dlz_pos_known) {
+		pos = d->idd.dlz_pos + 8;
 		bitfields2 = de_getbyte_p(&pos);
 		d->orig_len = (i64)(bitfields2&0xfc)<<14;
 		n = de_getu16le_p(&pos);
@@ -404,21 +493,22 @@ static void read_header(deark *c, lctx *d, i64 pos1)
 		d->orig_len_known = 1;
 	}
 
-	if(flags!=0 || (bitfields2 & 0x03)!=0) {
+	if(d->devmode && d->idd.ftype==FTYPE_EXE) {
+		;
+	}
+	else if(flags!=0 || (bitfields2 & 0x03)!=0) {
 		d->errflag = 1; // Unsupported feature
 		d->need_errmsg = 1;
 		goto done;
 	}
 
-	d->cmpr_pos = pos;
-
-	if(d->fmt==FMT_DATA_100) {
-		d->cmpr_len = c->infile->len - pos;
+	if(!d->cmpr_len_known && d->idd.fmt==FMT_DATA_100) {
+		d->cmpr_len = c->infile->len - d->cmpr_pos;
 		d->cmpr_len_known = 1;
 	}
 
 done:
-	de_dbg_indent(c, -1);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void check_diet_crc(deark *c, lctx *d)
@@ -451,56 +541,65 @@ done:
 
 static void de_run_diet(deark *c, de_module_params *mparams)
 {
-	struct diet_identify_data dd;
 	lctx *d = NULL;
-	i64 hdrpos = 0; // pos of "dlz" if it exists, otherwise arbitrary
 	const char *fmtn = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
-	identify_diet_fmt(c, &dd);
-	if(dd.fmt==FMT_DATA_100) {
-		fmtn = "file (v1.00)";
-		hdrpos = 6;
-		d->ftype = FTYPE_DATA;
-	}
-	else if(dd.fmt==FMT_DATA_102) {
-		fmtn = "file (v1.02b-1.20)";
-		d->ftype = FTYPE_DATA;
-		hdrpos = 2;
-	}
-	else if(dd.fmt==FMT_DATA_144) {
-		fmtn = "file (v1.44+)";
-		d->ftype = FTYPE_DATA;
-		hdrpos = 6;
-	}
-	else if(dd.fmt==FMT_COM_100) {
-		fmtn = "COM (v1.00)";
-		d->ftype = FTYPE_COM;
-		hdrpos = 35;
-	}
-	else if(dd.fmt==FMT_COM_102) {
-		fmtn = "COM (v1.02b-1.20)";
-		d->ftype = FTYPE_COM;
-		hdrpos = 35;
-	}
-	else if(dd.fmt==FMT_COM_144) {
-		fmtn = "COM (v1.44+)";
-		d->ftype = FTYPE_COM;
-		hdrpos = 65;
-	}
+	d->devmode = (u8)de_get_ext_option_bool(c, "diet:devmode", 0);
 
-	d->fmt = dd.fmt;
+	identify_diet_fmt(c, &d->idd, 0);
+	switch(d->idd.fmt) {
+	case FMT_DATA_100:
+		fmtn = "file (v1.00)";
+		break;
+	case FMT_DATA_102:
+		fmtn = "file (v1.02-1.20)";
+		break;
+	case FMT_DATA_144:
+		fmtn = "file (v1.44+)";
+		break;
+	case FMT_COM_100:
+		fmtn = "COM (v1.00)";
+		break;
+	case FMT_COM_102:
+		fmtn = "COM (v1.02-1.20)";
+		break;
+	case FMT_COM_144:
+		fmtn = "COM (v1.44+)";
+		break;
+	case FMT_EXE_100:
+		fmtn = "EXE (v1.00)";
+		break;
+	case FMT_EXE_102:
+		fmtn = "EXE (v1.02-1.20)";
+		break;
+	case FMT_EXE_144:
+	case FMT_EXE_145F:
+		fmtn = "EXE (v1.44+)";
+		break;
+	default:
+		break;
+	}
 
 	if(fmtn) {
 		de_declare_fmtf(c, "DIET-compressed %s", fmtn);
 	}
 
-	if(!fmtn || d->errflag) {
+	if(!fmtn || !d->idd.cmpr_pos_known) {
+		d->errflag = 1;
+	}
+	d->cmpr_pos = d->idd.cmpr_pos;
+
+	if(d->idd.ftype==FTYPE_EXE && !d->devmode) {
+		d->errflag = 1;
+	}
+
+	if(d->errflag) {
 		de_err(c, "Unsupported DIET format");
 		goto done;
 	}
 
-	read_header(c, d, hdrpos);
+	read_header(c, d);
 	if(d->errflag) goto done;
 
 	check_diet_crc(c, d);
@@ -515,7 +614,10 @@ static void de_run_diet(deark *c, de_module_params *mparams)
 
 	do_decompress_code(c, d);
 	if(d->errflag) goto done;
-	if(d->ftype==FTYPE_DATA || d->ftype==FTYPE_COM) {
+	if(d->idd.ftype==FTYPE_DATA || d->idd.ftype==FTYPE_COM) {
+		write_data_or_com_file(c, d);
+	}
+	else if(d->devmode && d->idd.ftype==FTYPE_EXE) {
 		write_data_or_com_file(c, d);
 	}
 
@@ -531,10 +633,11 @@ done:
 
 static int de_identify_diet(deark *c)
 {
-	struct diet_identify_data dd;
+	struct diet_identify_data idd;
 
-	identify_diet_fmt(c, &dd);
-	if(dd.fmt!=0) return 90;
+	de_zeromem(&idd, sizeof(struct diet_identify_data));
+	identify_diet_fmt(c, &idd, 1);
+	if(idd.ftype!=FTYPE_UNKNOWN) return 90;
 	return 0;
 }
 
