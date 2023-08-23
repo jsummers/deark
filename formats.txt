@@ -421,6 +421,9 @@ Deark -- Information about supported formats
    -file2 <file.p13> - Read the palette from a separate file. Each entry is 3
      bytes (R,G,B); samples range from 0-63.
 
+* PCX2COM (module="pcx2com")
+  - Convert to PCX.
+
 * Pegasus JPEG and KQP (Konica) (module="picjpeg") (experimental)
   - Convert to JPEG.
 

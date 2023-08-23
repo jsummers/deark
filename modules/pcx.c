@@ -2,13 +2,14 @@
 // Copyright (C) 2016 Jason Summers
 // See the file COPYING for terms of use.
 
-// PCX (PC Paintbrush) and DCX (multi-image PCX)
+// PCX (PC Paintbrush) and related formats
 
 #include <deark-config.h>
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_pcx);
 DE_DECLARE_MODULE(de_module_mswordscr);
 DE_DECLARE_MODULE(de_module_dcx);
+DE_DECLARE_MODULE(de_module_pcx2com);
 
 #define PCX_HDRSIZE 128
 
@@ -769,4 +770,64 @@ void de_module_dcx(deark *c, struct deark_module_info *mi)
 	mi->desc = "DCX (multi-image PCX)";
 	mi->run_fn = de_run_dcx;
 	mi->identify_fn = de_identify_dcx;
+}
+
+// **************************************************************************
+// PCX2COM
+// DOS utility by "Dr.Destiny".
+// graph/pcx2com.zip in the SAC archive.
+// **************************************************************************
+
+static void de_run_pcx2com(deark *c, de_module_params *mparams)
+{
+	i64 pos;
+	dbuf *outf = NULL;
+
+	outf = dbuf_create_output_file(c, "pcx", NULL, 0);
+
+	// header
+	dbuf_enable_wbuffer(outf);
+	dbuf_write(outf, (const u8*)"\x0a\x05\x01\x08\x00\x00\x00\x00\x3f\x01\xc7", 11);
+	dbuf_truncate(outf, 64);
+	dbuf_write(outf, (const u8*)"\x00\x01\x40\x01\x01\x00\x40\x01\xc8", 9);
+	dbuf_truncate(outf, 128);
+
+	// image data, and 0x0c palette marker
+	dbuf_copy(c->infile, 920, c->infile->len-920, outf);
+
+	// VGA palette
+	pos = 152;
+	while(pos < 152+768) {
+		u8 x;
+
+		x = de_getbyte_p(&pos);
+		dbuf_writebyte(outf, de_scale_63_to_255(x));
+	}
+
+	dbuf_close(outf);
+}
+
+static int de_identify_pcx2com(deark *c)
+{
+	if(c->infile->len<922 || c->infile->len>65536) return 0;
+
+	if((UI)de_getu32be(0)!=0xb81300cdU) return 0;
+	if(de_getbyte(c->infile->len-1) != 0x0c) return 0;
+
+	// The is the substring "Self PCX", xor 0x80.
+	if(dbuf_memcmp(c->infile, 104,
+		(const u8*)"\xd3\xe5\xec\xe6\xa0\xd0\xc3\xd8", 8))
+	{
+		return 0;
+	}
+
+	return 100;
+}
+
+void de_module_pcx2com(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "pcx2com";
+	mi->desc = "PCX2COM self-displaying image";
+	mi->run_fn = de_run_pcx2com;
+	mi->identify_fn = de_identify_pcx2com;
 }
