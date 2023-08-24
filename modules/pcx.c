@@ -27,6 +27,7 @@ typedef struct localctx_struct {
 	i64 bits;
 	i64 bits_per_pixel;
 	i64 margin_L, margin_T, margin_R, margin_B;
+	i64 hscreensize, vscreensize;
 	i64 planes;
 	i64 rowspan_raw;
 	i64 rowspan;
@@ -87,6 +88,8 @@ static void do_decode_resolution(deark *c, lctx *d, i64 hres, i64 vres)
 
 	if(hres==0 || vres==0) return;
 
+	// TODO: Account for d->hscreensize, d->vscreensize.
+
 	if(resmode==RESMODE_AUTO) {
 		if((hres==320 && vres==200) ||
 			(hres==640 && vres==480) ||
@@ -110,7 +113,7 @@ static void do_decode_resolution(deark *c, lctx *d, i64 hres, i64 vres)
 		}
 	}
 
-	if(resmode==RESMODE_DPI) { // dpi
+	if(resmode==RESMODE_DPI) {
 		d->fi->density.code = DE_DENSITY_DPI;
 		d->fi->density.xdens = (double)hres;
 		d->fi->density.ydens = (double)vres;
@@ -118,6 +121,16 @@ static void do_decode_resolution(deark *c, lctx *d, i64 hres, i64 vres)
 	else if(resmode==RESMODE_SCREENDIMENSIONS) {
 		set_density_from_screen_res(c, d, hres, vres);
 	}
+}
+
+static int sane_screensize(i64 h, i64 v)
+{
+	if(h<320 || v<200) return 0;
+	if(h>4096 || v>4096) return 0;
+	if((h%8 != 0) || (v%2 != 0)) return 0;
+	if(v*5 < h) return 0;
+	if(h*3 < v) return 0;
+	return 1;
 }
 
 static int do_read_header(deark *c, lctx *d)
@@ -169,6 +182,15 @@ static int do_read_header(deark *c, lctx *d)
 	d->rowspan_raw = de_getu16le(66);
 	d->palette_info = de_getbyte(68);
 
+	if(d->version>=5) {
+		d->hscreensize = de_getu16le(70);
+		d->vscreensize = de_getu16le(72);
+		if(!sane_screensize(d->hscreensize, d->vscreensize)) {
+			d->hscreensize = 0;
+			d->vscreensize = 0;
+		}
+	}
+
 	de_dbg(c, "format version: %d, encoding: %d, planes: %d, bits: %d", (int)d->version,
 		(int)d->encoding, (int)d->planes, (int)d->bits);
 	de_dbg(c, "bytes/plane/row: %d, palette info: %d, vmode: 0x%02x", (int)d->rowspan_raw,
@@ -181,6 +203,12 @@ static int do_read_header(deark *c, lctx *d)
 	d->width = d->margin_R - d->margin_L +1;
 	d->height = d->margin_B - d->margin_T +1;
 	de_dbg_dimensions(c, d->width, d->height);
+
+	if(d->hscreensize) {
+		de_dbg(c, "screen size: %d" DE_CHAR_TIMES "%d", (int)d->hscreensize,
+			(int)d->vscreensize);
+	}
+
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
 	d->rowspan = d->rowspan_raw * d->planes;
