@@ -48,7 +48,9 @@ typedef struct localctx_struct_diet {
 	u8 need_errmsg;
 	u8 cmpr_len_known;
 	u8 orig_len_known;
-	u8 devmode;
+	u8 raw_mode; // 0xff = not set
+	u8 hdr_flags1; // Valid if dlz_pos_known
+	u8 hdr_flags2; // Valid if dlz_pos_known
 	i64 cmpr_len;
 	i64 orig_len;
 	i64 cmpr_pos;
@@ -455,10 +457,8 @@ static void write_data_or_com_file(deark *c, lctx *d)
 static void read_header(deark *c, lctx *d)
 {
 	i64 pos = 0;
-	u8 bitfields1 = 0;
-	u8 bitfields2 = 0;
-	UI flags = 0;
 	i64 n;
+	u8 x;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -468,10 +468,10 @@ static void read_header(deark *c, lctx *d)
 		de_dbg_indent(c, 1);
 
 		pos = d->idd.dlz_pos + 3;
-		bitfields1 = de_getbyte_p(&pos);
-		flags = bitfields1 & 0xf0;
-		de_dbg(c, "flags: 0x%02x", flags);
-		d->cmpr_len = (i64)(bitfields1&0x0f)<<16;
+		x = de_getbyte_p(&pos);
+		d->hdr_flags1 = x & 0xf0;
+		de_dbg(c, "flags: 0x%02x", d->hdr_flags1);
+		d->cmpr_len = (i64)(x & 0x0f)<<16;
 		n = de_getu16le_p(&pos);
 		d->cmpr_len |= n;
 		de_dbg(c, "cmpr len: %"I64_FMT, d->cmpr_len);
@@ -485,21 +485,13 @@ static void read_header(deark *c, lctx *d)
 
 	if(d->idd.dlz_pos_known) {
 		pos = d->idd.dlz_pos + 8;
-		bitfields2 = de_getbyte_p(&pos);
-		d->orig_len = (i64)(bitfields2&0xfc)<<14;
+		x = de_getbyte_p(&pos);
+		d->orig_len = (i64)(x & 0xfc)<<14;
+		d->hdr_flags2 = (i64)(x & 0x03); // probably unused
 		n = de_getu16le_p(&pos);
 		d->orig_len |= n;
 		de_dbg(c, "orig len: %"I64_FMT, d->orig_len);
 		d->orig_len_known = 1;
-	}
-
-	if(d->devmode && d->idd.ftype==FTYPE_EXE) {
-		;
-	}
-	else if(flags!=0 || (bitfields2 & 0x03)!=0) {
-		d->errflag = 1; // Unsupported feature
-		d->need_errmsg = 1;
-		goto done;
 	}
 
 	if(!d->cmpr_len_known && d->idd.fmt==FMT_DATA_100) {
@@ -507,7 +499,6 @@ static void read_header(deark *c, lctx *d)
 		d->cmpr_len_known = 1;
 	}
 
-done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -539,13 +530,37 @@ done:
 	de_crcobj_destroy(crco);
 }
 
+static void check_unsupp_features(deark *c, lctx *d)
+{
+	if(d->idd.ftype==FTYPE_EXE) {
+		if(d->raw_mode==0xff) {
+			de_err(c, "DIET-compressed EXE is not fully supported");
+			de_info(c, "Note: Try \"-opt diet:raw\" to decompress the raw data");
+			d->errflag = 1;
+		}
+		else if(d->raw_mode==0) {
+			d->errflag = 1;
+			d->need_errmsg = 1;
+		}
+		goto done;
+	}
+
+	if(d->hdr_flags1!=0 || d->hdr_flags2!=0) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+	}
+
+done:
+	;
+}
+
 static void de_run_diet(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	const char *fmtn = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
-	d->devmode = (u8)de_get_ext_option_bool(c, "diet:devmode", 0);
+	d->raw_mode = (u8)de_get_ext_option_bool(c, "diet:raw", 0xff);
 
 	identify_diet_fmt(c, &d->idd, 0);
 	switch(d->idd.fmt) {
@@ -556,7 +571,7 @@ static void de_run_diet(deark *c, de_module_params *mparams)
 		fmtn = "file (v1.02-1.20)";
 		break;
 	case FMT_DATA_144:
-		fmtn = "file (v1.44+)";
+		fmtn = "file (v1.44-1.45)";
 		break;
 	case FMT_COM_100:
 		fmtn = "COM (v1.00)";
@@ -565,7 +580,7 @@ static void de_run_diet(deark *c, de_module_params *mparams)
 		fmtn = "COM (v1.02-1.20)";
 		break;
 	case FMT_COM_144:
-		fmtn = "COM (v1.44+)";
+		fmtn = "COM (v1.44-1.45)";
 		break;
 	case FMT_EXE_100:
 		fmtn = "EXE (v1.00)";
@@ -574,8 +589,10 @@ static void de_run_diet(deark *c, de_module_params *mparams)
 		fmtn = "EXE (v1.02-1.20)";
 		break;
 	case FMT_EXE_144:
+		fmtn = "EXE (v1.44)";
+		break;
 	case FMT_EXE_145F:
-		fmtn = "EXE (v1.44+)";
+		fmtn = "EXE (v1.45)";
 		break;
 	default:
 		break;
@@ -587,37 +604,28 @@ static void de_run_diet(deark *c, de_module_params *mparams)
 
 	if(!fmtn || !d->idd.cmpr_pos_known) {
 		d->errflag = 1;
-	}
-	d->cmpr_pos = d->idd.cmpr_pos;
-
-	if(d->idd.ftype==FTYPE_EXE && !d->devmode) {
-		d->errflag = 1;
-	}
-
-	if(d->errflag) {
-		de_err(c, "Unsupported DIET format");
+		d->need_errmsg = 1;
 		goto done;
 	}
+	d->cmpr_pos = d->idd.cmpr_pos;
 
 	read_header(c, d);
 	if(d->errflag) goto done;
 
 	check_diet_crc(c, d);
 
-	if(d->orig_len_known) {
-		d->o_dcmpr_code = dbuf_create_membuf(c, d->orig_len, 0x1);
-	}
-	else {
-		d->o_dcmpr_code = dbuf_create_membuf(c, MAX_DIET_DCMPR_LEN, 0x1);
-	}
+	check_unsupp_features(c, d);
+	if(d->errflag) goto done;
+
+	d->o_dcmpr_code = dbuf_create_membuf(c,
+		(d->orig_len_known ? d->orig_len : MAX_DIET_DCMPR_LEN), 0x1);
 	dbuf_enable_wbuffer(d->o_dcmpr_code);
 
 	do_decompress_code(c, d);
 	if(d->errflag) goto done;
-	if(d->idd.ftype==FTYPE_DATA || d->idd.ftype==FTYPE_COM) {
-		write_data_or_com_file(c, d);
-	}
-	else if(d->devmode && d->idd.ftype==FTYPE_EXE) {
+	if(d->idd.ftype==FTYPE_DATA || d->idd.ftype==FTYPE_COM ||
+		(d->idd.ftype==FTYPE_EXE && d->raw_mode==1))
+	{
 		write_data_or_com_file(c, d);
 	}
 

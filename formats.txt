@@ -772,7 +772,9 @@ Deark -- Information about supported formats
    -opt deflate:deflate64 - Decode as Deflate64 format.
 
 * DIET (module="diet") (experimental/incomplete)
-  - Supports COM and data files. EXE not supported.
+  - Supports COM and data files. EXE not properly supported.
+  Options
+   -opt diet:raw - For EXE, write raw decompressed data.
 
 * DMS (Amiga disk image) (module="amiga_dms") (experimental)
   - Decompresses to ADF format.
