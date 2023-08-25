@@ -32,7 +32,7 @@ typedef struct localctx_struct {
 	i64 rowspan_raw;
 	i64 rowspan;
 	i64 ncolors;
-	u8 palette_info;
+	UI palette_info;
 	u8 reserved1;
 	i64 width, height;
 	u8 is_mswordscr;
@@ -138,19 +138,21 @@ static int do_read_header(deark *c, lctx *d)
 	u8 initialbyte;
 	int retval = 0;
 	i64 hres, vres;
+	i64 pos = 0;
 	const char *imgtypename = "";
 
-	de_dbg(c, "header at %d", 0);
+	de_dbg(c, "header at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
-	initialbyte = de_getbyte(0);
-	d->version = de_getbyte(1);
+	initialbyte = de_getbyte_p(&pos);
+	d->version = de_getbyte_p(&pos);
 	if(!d->is_mswordscr) {
 		if(initialbyte==0xeb && d->version==0x0e) {
 			d->is_pcxsfx = 1;
 			d->version = 5;
 		}
 	}
+	de_dbg(c, "format version: %u", (UI)d->version);
 
 	if(d->is_mswordscr) {
 		de_declare_fmt(c, "Word for DOS screen capture");
@@ -162,52 +164,58 @@ static int do_read_header(deark *c, lctx *d)
 		de_declare_fmt(c, "PCX");
 	}
 
-	d->encoding = de_getbyte(2);
-	d->bits = (i64)de_getbyte(3); // Bits per pixel per plane
-	d->margin_L = de_getu16le(4);
-	d->margin_T = de_getu16le(6);
-	d->margin_R = de_getu16le(8);
-	d->margin_B = de_getu16le(10);
+	d->encoding = de_getbyte_p(&pos);
+	de_dbg(c, "encoding: %u", (UI)d->encoding);
 
-	hres = de_getu16le(12);
-	vres = de_getu16le(14);
+	d->bits = (i64)de_getbyte_p(&pos); // Bits per pixel per plane
+	de_dbg(c, "bits: %d", (int)d->bits);
+
+	d->margin_L = de_getu16le_p(&pos);
+	d->margin_T = de_getu16le_p(&pos);
+	d->margin_R = de_getu16le_p(&pos);
+	d->margin_B = de_getu16le_p(&pos);
+	de_dbg(c, "margins: %d, %d, %d, %d", (int)d->margin_L, (int)d->margin_T,
+		(int)d->margin_R, (int)d->margin_B);
+	d->width = d->margin_R - d->margin_L +1;
+	d->height = d->margin_B - d->margin_T +1;
+	de_dbg_dimensions(c, d->width, d->height);
+
+	hres = de_getu16le_p(&pos);
+	vres = de_getu16le_p(&pos);
+	de_dbg(c, "resolution: %d"DE_CHAR_TIMES"%d", (int)hres, (int)vres);
 
 	// The palette (offset 16-63) will be read later.
 
+	pos = 64;
 	// For older versions of PCX, this field might be useful to help identify
 	// the intended video mode. Documentation is lacking, though.
-	d->reserved1 = de_getbyte(64);
+	d->reserved1 = de_getbyte_p(&pos);
+	de_dbg(c, "vmode: 0x%02x", (UI)d->reserved1);
 
-	d->planes = (i64)de_getbyte(65);
-	d->rowspan_raw = de_getu16le(66);
-	d->palette_info = de_getbyte(68);
+	d->planes = (i64)de_getbyte_p(&pos);
+	de_dbg(c, "planes: %d", (int)d->planes);
+	d->rowspan_raw = de_getu16le_p(&pos);
+	de_dbg(c, "bytes/plane/row: %d", (int)d->rowspan_raw);
+
+	// TODO: Is this field (@68) 1 byte or 2?
+	d->palette_info = (UI)de_getbyte_p(&pos);
+	pos++;
+	de_dbg(c, "palette info: %u", (UI)d->palette_info);
 
 	if(d->version>=5) {
-		d->hscreensize = de_getu16le(70);
-		d->vscreensize = de_getu16le(72);
+		d->hscreensize = de_getu16le_p(&pos);
+		d->vscreensize = de_getu16le_p(&pos);
 		if(!sane_screensize(d->hscreensize, d->vscreensize)) {
 			d->hscreensize = 0;
 			d->vscreensize = 0;
 		}
 	}
-
-	de_dbg(c, "format version: %d, encoding: %d, planes: %d, bits: %d", (int)d->version,
-		(int)d->encoding, (int)d->planes, (int)d->bits);
-	de_dbg(c, "bytes/plane/row: %d, palette info: %d, vmode: 0x%02x", (int)d->rowspan_raw,
-		(int)d->palette_info, (unsigned int)d->reserved1);
-	de_dbg(c, "margins: %d, %d, %d, %d", (int)d->margin_L, (int)d->margin_T,
-		(int)d->margin_R, (int)d->margin_B);
-
-	de_dbg(c, "resolution: %d"DE_CHAR_TIMES"%d", (int)hres, (int)vres);
-
-	d->width = d->margin_R - d->margin_L +1;
-	d->height = d->margin_B - d->margin_T +1;
-	de_dbg_dimensions(c, d->width, d->height);
-
 	if(d->hscreensize) {
 		de_dbg(c, "screen size: %d" DE_CHAR_TIMES "%d", (int)d->hscreensize,
 			(int)d->vscreensize);
 	}
+
+	//-----
 
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
@@ -300,7 +308,7 @@ static int do_read_vga_palette(deark *c, lctx *d)
 		return 0;
 	}
 
-	de_dbg(c, "VGA palette at %d", (int)pos);
+	de_dbg(c, "VGA palette at %"I64_FMT, pos);
 	d->has_vga_pal = 1;
 	pos++;
 	de_dbg_indent(c, 1);
@@ -378,7 +386,7 @@ static void do_palette_stuff(deark *c, lctx *d)
 	if(d->ncolors==256) {
 		// For 256-color images, start with a default grayscale palette.
 		for(k=0; k<256; k++) {
-			d->pal[k] = DE_MAKE_GRAY((unsigned int)k);
+			d->pal[k] = DE_MAKE_GRAY((UI)k);
 		}
 	}
 
@@ -428,8 +436,8 @@ static void do_palette_stuff(deark *c, lctx *d)
 
 	if(d->ncolors==4) {
 		u8 p0, p3;
-		unsigned int bgcolor;
-		unsigned int fgpal;
+		UI bgcolor;
+		UI fgpal;
 		int pal_subid;
 
 		de_warn(c, "4-color PCX images might not be supported correctly");
@@ -483,7 +491,7 @@ static int do_uncompress(deark *c, lctx *d)
 	i64 endpos;
 
 	pos = PCX_HDRSIZE;
-	de_dbg(c, "compressed bitmap at %d", (int)pos);
+	de_dbg(c, "compressed bitmap at %"I64_FMT, pos);
 
 	expected_bytes = d->rowspan * d->height;
 	d->unc_pixels = dbuf_create_membuf(c, expected_bytes, 0);
@@ -778,8 +786,8 @@ static void de_run_dcx(deark *c, de_module_params *mparams)
 			page_size = page_offset[page+1] - page_offset[page];
 		}
 		if(page_size<0) page_size=0;
-		de_dbg(c, "page %d at %d, size=%d", (int)page, (int)page_offset[page],
-			(int)page_size);
+		de_dbg(c, "page %d at %u, size=%"I64_FMT, (int)page, (UI)page_offset[page],
+			page_size);
 
 		dbuf_create_file_from_slice(c->infile, page_offset[page], page_size, "pcx", NULL, 0);
 	}
