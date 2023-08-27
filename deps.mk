@@ -349,6 +349,8 @@ $(OBJDIR)/src/fmtutil-arch.o: src/fmtutil-arch.c src/deark-private.h \
  src/deark-fmtutil.h
 $(OBJDIR)/src/fmtutil-cmpr.o: src/fmtutil-cmpr.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/src/fmtutil-exe.o: src/fmtutil-exe.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/src/fmtutil-fax.o: src/fmtutil-fax.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/src/fmtutil-huffman.o: src/fmtutil-huffman.c \
@@ -368,5 +370,5 @@ $(OBJDIR)/src/fmtutil-miniz.o: src/fmtutil-miniz.c src/deark-config.h \
 $(OBJDIR)/src/fmtutil-zip.o: src/fmtutil-zip.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h \
  src/../foreign/ozunreduce.h
-$(OBJDIR)/src/fmtutil.o: src/fmtutil.c src/deark-config.h \
- src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/src/fmtutil.o: src/fmtutil.c src/deark-private.h src/deark.h \
+ src/deark-config.h src/deark-fmtutil.h

@@ -334,6 +334,7 @@
     <ClCompile Include="..\..\src\fmtutil-advfile.c" />
     <ClCompile Include="..\..\src\fmtutil-arch.c" />
     <ClCompile Include="..\..\src\fmtutil-cmpr.c" />
+    <ClCompile Include="..\..\src\fmtutil-exe.c" />
     <ClCompile Include="..\..\src\fmtutil-fax.c" />
     <ClCompile Include="..\..\src\fmtutil-huffman.c" />
     <ClCompile Include="..\..\src\fmtutil-iff.c" />
