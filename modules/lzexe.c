@@ -8,6 +8,13 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_lzexe);
 
+// Don't change this, unless it's also changed in fmtutil-exe.c.
+#define LZEXE_VER_090       1
+#define LZEXE_VER_091       2
+#define LZEXE_VER_091E      3
+#define LZEXE_VER_LHARK_SFX 102
+#define LZEXE_VER_PCX2EXE   202
+
 struct ohdr_struct {
 	i64 regSS;
 	i64 regSP;
@@ -25,6 +32,9 @@ typedef struct localctx_struct {
 	int errflag;
 	int errmsg_handled;
 	int o_code_alignment;
+	u8 raw_mode; // 0xff = not set
+	u8 can_decompress_to_exe;
+	u8 can_decompress_to_raw;
 	struct fmtutil_exe_info *ei;
 
 	UI ihdr_minmem;
@@ -78,7 +88,7 @@ static void read_special_hdr(deark *c, lctx *d, i64 pos1)
 	de_dbg(c, "field5: %u", (UI)d->ohdr.field5);
 	d->ohdr.field6 = de_getu16le_p(&pos);
 	de_dbg(c, "field6: %u", (UI)d->ohdr.field6);
-	if(d->ver==1) {
+	if(d->ver==LZEXE_VER_090) {
 		d->ohdr.field7 = de_getu16le_p(&pos);
 		de_dbg(c, "field7: %u", (UI)d->ohdr.field7);
 		d->ohdr.field8 = de_getu16le_p(&pos);
@@ -283,6 +293,12 @@ done:
 	de_dbg_indent(c, -1);
 }
 
+static void do_write_data_only(deark *c, lctx *d)
+{
+	if(!d->o_dcmpr_code) return;
+	dbuf_create_file_from_slice(d->o_dcmpr_code, 0, d->o_dcmpr_code->len, "bin", NULL, 0);
+}
+
 // Generate the decompressed file
 static void do_write_dcmpr(deark *c, lctx *d)
 {
@@ -355,8 +371,22 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	}
 }
 
-// Don't change this, unless it's also changed in fmtutil.c.
-#define LZEXE_VER_LHARK_SFX 102
+static void read_reloc_tbl(deark *c, lctx *d)
+{
+	d->end_of_reloc_tbl = d->special_hdr_pos + d->ohdr.field6;
+	if(d->end_of_reloc_tbl > c->infile->len) {
+		d->errflag = 1;
+		goto done;
+	}
+	if(d->ver==LZEXE_VER_090) {
+		do_decode_reloc_tbl_v090(c, d);
+	}
+	else {
+		do_decode_reloc_tbl_v091(c, d);
+	}
+done:
+	;
+}
 
 // Refer to detect_execomp_lzexe() (in another file).
 static const char *get_lzexe_subfmt_name(int n)
@@ -364,10 +394,11 @@ static const char *get_lzexe_subfmt_name(int n)
 	const char *name = NULL;
 
 	switch(n) {
-	case 1: name = "v0.90"; break;
-	case 2: name = "v0.91"; break;
-	case 3: name = "v0.91e"; break;
+	case LZEXE_VER_090: name = "v0.90"; break;
+	case LZEXE_VER_091: name = "v0.91"; break;
+	case LZEXE_VER_091E: name = "v0.91e"; break;
 	case LZEXE_VER_LHARK_SFX: name = "v0.91-LHARK-SFX"; break;
+	case LZEXE_VER_PCX2EXE: name = "v0.91-PCX2EXE"; break;
 	}
 	return name?name:"?";
 }
@@ -381,6 +412,8 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 
 	d->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
+
+	d->raw_mode = (u8)de_get_ext_option_bool(c, "lzexe:raw", 0xff);
 
 	s = de_get_ext_option(c, "execomp:align");
 	if(s) {
@@ -402,6 +435,30 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 	de_declare_fmt(c, "LZEXE-compressed EXE");
 	d->ver = (int)edd.detected_subfmt;
 	de_dbg(c, "LZEXE variant: %s", get_lzexe_subfmt_name(d->ver));
+	if(d->ver<=3) {
+		d->can_decompress_to_exe = 1;
+		d->can_decompress_to_raw = 1;
+	}
+	else if(d->ver==LZEXE_VER_LHARK_SFX || d->ver==LZEXE_VER_PCX2EXE) {
+		d->ei->regCS = edd.regCS_2;
+		d->ei->regIP = edd.regIP_2;
+		d->ei->entry_point = d->ei->start_of_dos_code + d->ei->regCS*16 + d->ei->regIP;
+		d->can_decompress_to_exe = 0;
+		d->can_decompress_to_raw = 1;
+	}
+
+	if(!d->can_decompress_to_raw ||
+		(d->raw_mode==0 && !d->can_decompress_to_exe))
+	{
+		de_err(c, "Unsupported LZEXE variant");
+		goto done;
+	}
+
+	if(d->raw_mode==0xff && !d->can_decompress_to_exe) {
+		de_err(c, "This LZEXE variant is not fully supported");
+		de_info(c, "Note: Try \"-opt lzexe:raw\" to decompress the raw data");
+		goto done;
+	}
 
 	d->o_reloc_table = dbuf_create_membuf(c, 0, 0);
 	d->o_dcmpr_code = dbuf_create_membuf(c, 0, 0);
@@ -410,14 +467,7 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 	do_read_header(c, d);
 	if(d->errflag) goto done;
 
-	if(d->ver==LZEXE_VER_LHARK_SFX) {
-		// The special header should be 14 bytes before the original entry point.
-		// LHARK changes the entry point to be 338 bytes after the original.
-		d->special_hdr_pos = d->ei->entry_point - 338 - 14;
-	}
-	else {
-		d->special_hdr_pos = d->ei->start_of_dos_code + d->ei->regCS*16;
-	}
+	d->special_hdr_pos = d->ei->start_of_dos_code + d->ei->regCS*16;
 	if(d->special_hdr_pos > c->infile->len) {
 		d->errflag = 1;
 		return;
@@ -425,31 +475,20 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 	read_special_hdr(c, d, d->special_hdr_pos);
 	if(d->errflag) goto done;
 
-	d->end_of_reloc_tbl = d->special_hdr_pos + d->ohdr.field6;
-	if(d->end_of_reloc_tbl > c->infile->len) {
-		d->errflag = 1;
-		goto done;
-	}
-	if(d->ver==1) {
-		do_decode_reloc_tbl_v090(c, d);
-	}
-	else {
-		do_decode_reloc_tbl_v091(c, d);
-	}
+	// TODO? Should we do this even if raw_mode==1?
+	read_reloc_tbl(c, d);
 	if(d->errflag) goto done;
 
 	do_decompress_code(c, d);
 	dbuf_flush(d->o_dcmpr_code);
 	if(d->errflag) goto done;
 
-	if(d->ver > 3) {
-		// LHARK-SFX has some extra code outside of the compressed code.
-		// We don't want to throw away that code and pretend everything's okay.
-		de_err(c, "This modified LZEXE format is not supported");
-		goto done;
+	if(d->raw_mode==1) {
+		do_write_data_only(c, d);
 	}
-
-	do_write_dcmpr(c, d);
+	else {
+		do_write_dcmpr(c, d);
+	}
 
 done:
 
@@ -467,6 +506,7 @@ done:
 
 static void de_help_lzexe(deark *c)
 {
+	de_msg(c, "-opt lzexe:raw : Instead of an EXE file, write raw decompressed data");
 	de_msg(c, "-opt execomp:align=<16|512> : Alignment of code segment "
 		"(in output file)");
 }

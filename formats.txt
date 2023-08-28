@@ -841,6 +841,7 @@ Deark -- Information about supported formats
   Decompress an LZEXE-compressed DOS EXE file.
   - Not automatic; must use "-m lzexe" or "-opt execomp".
   Options
+   -opt lzexe:raw - Instead of an EXE file, write raw decompressed data.
    -opt execomp:align=<16|512> - Preferred code segment alignment. This may
      help make the decompressed file more similar to the original.
 

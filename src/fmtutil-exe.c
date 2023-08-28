@@ -130,31 +130,71 @@ done:
 	}
 }
 
-static int looks_like_lhark_sfx(struct fmtutil_exe_info *ei);
+static int is_lzexe091_entry_point(struct fmtutil_exe_info *ei, i64 cs, i64 ip)
+{
+	i64 n;
+	i64 ep;
+
+	ep = ei->start_of_dos_code + cs*16 + ip;
+
+	n = (UI)dbuf_getu32be(ei->f, ep);
+	if(n!=0x060e1f8bU) return 0;
+
+	// If this is the right place, the *FAB* signature should be at offset 233.
+	if(dbuf_memcmp(ei->f, ep+233, (const void*)"*FAB*", 5)) {
+		return 0;
+	}
+	return 1;
+}
+
+static int look_for_pcx2exe(deark *c, struct fmtutil_exe_info *ei,
+	struct fmtutil_specialexe_detection_data *edd)
+{
+	i64 cs, ip;
+
+	if((ei->entrypoint_crcs>>32)!=0xf537be26U) return 0;
+	ip = dbuf_getu16le(ei->f, ei->entry_point+53);
+	if(ip!=0x000e) return 0;
+	cs = dbuf_geti16le(ei->f, ei->entry_point+55);
+	if(!is_lzexe091_entry_point(ei, cs, ip)) {
+		return 0;
+	}
+
+	edd->regCS_2 = cs;
+	edd->regIP_2 = ip;
+	return 1;
+}
+
+static int detect_lhark_sfx(deark *c, struct fmtutil_exe_info *ei,
+	struct fmtutil_specialexe_detection_data *edd);
 
 static void detect_execomp_lzexe(deark *c, struct execomp_ctx *ectx,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
-	const char *vs = NULL;
+	u8 flag = 0;
 
 	if(ei->entrypoint_crcs==0x4b6802c9cf419437LLU) {
 		edd->detected_subfmt = 1;
-		vs = "0.90";
+		flag = 1;
 	}
 	else if(ei->entrypoint_crcs==0x246655c50ae99574LLU) {
 		edd->detected_subfmt = 2;
-		vs = "0.91";
+		flag = 1;
 	}
 	else if(ei->entrypoint_crcs==0xd8a60f138f680f0cLLU) {
 		edd->detected_subfmt = 3;
-		vs = "0.91e";
+		flag = 1;
 	}
-	else if(looks_like_lhark_sfx(ei)) {
+	else if(detect_lhark_sfx(c, ei, edd)) {
 		edd->detected_subfmt = 102;
-		vs = "0.91-LHARK-SFX";
+		flag = 1;
+	}
+	else if(look_for_pcx2exe(c, ei, edd)) {
+		edd->detected_subfmt = 202;
+		flag = 1;
 	}
 
-	if(vs) {
+	if(flag) {
 		edd->detected_fmt = DE_SPECIALEXEFMT_LZEXE;
 		de_strlcpy(ectx->shortname, "LZEXE", sizeof(ectx->shortname));
 		edd->modname = "lzexe";
@@ -513,31 +553,40 @@ done:
 }
 
 // LZEXE modified for LHARK-SFX
-static int looks_like_lhark_sfx(struct fmtutil_exe_info *ei)
+// TODO? This function may be run twice by the "exe" module, which is okay,
+//  but not ideal.
+static int detect_lhark_sfx(deark *c, struct fmtutil_exe_info *ei,
+	struct fmtutil_specialexe_detection_data *edd)
 {
 	int found;
 	i64 foundpos = 0;
+	i64 cs, ip;
 
 	if(ei->num_relocs != 0) return 0;
 	if(ei->regSP != 128) return 0;
 	if(ei->start_of_dos_code != 32) return 0;
 
 	// LHARK SFX uses a modified LZEXE 0.91 decompressor.
-	// Normally in LZEXE 0.91, the "*FAB*" signature is 233 bytes after the
-	// entry point. In LHARK-SFX, it is 105 bytes *before* the entry point.
-	if(dbuf_memcmp(ei->f, ei->entry_point-105, (const void*)"*FAB*", 5)) {
+	// Try to find the original entry point, and record it in regCS_2/regIP_2.
+	ip = dbuf_getu16le(ei->f, ei->entry_point+0x0f);
+	cs = dbuf_getu16le(ei->f, ei->entry_point+0x11);
+	if(!is_lzexe091_entry_point(ei, cs, ip)) {
 		return 0;
 	}
 
 	found = is_lhalike_data_at(ei, ei->end_of_dos_code, 'h', &foundpos);
 	if(!found) return 0;
+
+	edd->regCS_2 = cs;
+	edd->regIP_2 = ip;
+
 	return 1;
 }
 
 static void detect_exesfx_lhark(deark *c, struct execomp_ctx *ectx,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
-	if(!looks_like_lhark_sfx(ei)) {
+	if(!detect_lhark_sfx(c, ei, edd)) {
 		goto done;
 	}
 

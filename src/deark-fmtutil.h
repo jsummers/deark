@@ -726,6 +726,8 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei);
 	i64 payload_pos;
 	i64 payload_len;
 	i64 zip_eocd_pos;
+	i64 regCS_2; // For some patched files, the original CS/IP
+	i64 regIP_2;
 	const char *payload_file_ext;
 	const char *modname; // Non-NULL if we think we can decompress
 	char detected_fmt_name[40];
