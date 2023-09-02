@@ -1009,8 +1009,9 @@ int fmtutil_find_zip_eocd(deark *c, dbuf *f, i64 *foundpos)
 	if(f->len < 22) goto done;
 
 	// End-of-central-dir record usually starts 22 bytes from EOF. Try that first.
-	sig = (u32)dbuf_getu32le(f, f->len - 22);
-	if(sig == 0x06054b50U) {
+#define CODE_PK56 0x504b0506U
+	sig = (u32)dbuf_getu32be(f, f->len - 22);
+	if(sig == CODE_PK56) {
 		*foundpos = f->len - 22;
 		retval = 1;
 		goto done;

@@ -13,8 +13,8 @@ DE_DECLARE_MODULE(de_module_zip);
 struct localctx_struct;
 typedef struct localctx_struct lctx;
 
-#define CODE_PK12 0x02014b50U
-#define CODE_PK34 0x04034b50U
+#define CODE_PK12 0x504b0102U
+#define CODE_PK34 0x504b0304U
 static const u8 g_zipsig34[4] = {'P', 'K', 0x03, 0x04};
 static const u8 g_zipsig56[4] = {'P', 'K', 0x05, 0x06};
 static const u8 g_zipsig66[4] = {'P', 'K', 0x06, 0x06};
@@ -1329,7 +1329,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	}
 	de_dbg_indent(c, 1);
 
-	sig = (u32)de_getu32le_p(&pos);
+	sig = (u32)de_getu32be_p(&pos);
 	if(is_central && sig!=CODE_PK12) {
 		de_err(c, "Central dir file header not found at %"I64_FMT, pos1);
 		goto done;
@@ -1469,10 +1469,10 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 			u32 sig1, sig2;
 			i64 alt_pos;
 
-			sig1 = (u32)de_getu32le(md->offset_of_local_header);
+			sig1 = (u32)de_getu32be(md->offset_of_local_header);
 			if(sig1!=CODE_PK34) {
 				alt_pos = md->offset_of_local_header + d->offset_correction;
-				sig2 = (u32)de_getu32le(alt_pos);
+				sig2 = (u32)de_getu32be(alt_pos);
 				if(sig2==CODE_PK34) {
 					de_warn(c, "Local file header found at %"I64_FMT" instead of %"I64_FMT". "
 						"Assuming offsets are wrong by %"I64_FMT" bytes.",
@@ -1796,6 +1796,7 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	i64 disk_num_with_central_dir_start;
 	i64 archive_comment_len;
 	i64 alt_central_dir_offset;
+	u8 have_alt_central_dir_offset = 0;
 	int retval = 0;
 
 	pos = d->end_of_central_dir_pos;
@@ -1862,15 +1863,18 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	alt_central_dir_offset =
 		(d->is_zip64 ? d->zip64_eocd_pos : d->end_of_central_dir_pos) -
 		d->central_dir_byte_size;
+	if(alt_central_dir_offset>=0 && alt_central_dir_offset!=d->central_dir_offset) {
+		have_alt_central_dir_offset = 1;
+	}
 
-	if(alt_central_dir_offset != d->central_dir_offset) {
+	if(have_alt_central_dir_offset) {
 		u32 sig;
 
 		de_warn(c, "Inconsistent central directory offset. Reported to be %"I64_FMT", "
 			"but based on its reported size, it should be %"I64_FMT".",
 			d->central_dir_offset, alt_central_dir_offset);
 
-		sig = (u32)de_getu32le(alt_central_dir_offset);
+		sig = (u32)de_getu32be(alt_central_dir_offset);
 		if(sig==CODE_PK12) {
 			d->offset_correction = alt_central_dir_offset - d->central_dir_offset;
 			de_dbg(c, "likely central dir found at %"I64_FMT, alt_central_dir_offset);
@@ -1900,7 +1904,7 @@ static void de_run_zip_normally(deark *c, lctx *d)
 		if(c->module_disposition==DE_MODDISP_AUTODETECT ||
 			c->module_disposition==DE_MODDISP_EXPLICIT)
 		{
-			if(de_getu32le(0)==CODE_PK34) {
+			if(de_getu32be(0)==CODE_PK34) {
 				de_err(c, "ZIP central directory not found. "
 					"You could try \"-opt zip:scanmode\".");
 				goto done;
@@ -1981,6 +1985,7 @@ static void de_run_zip(deark *c, de_module_params *mparams)
 static int de_identify_zip(deark *c)
 {
 	u8 b[4];
+	u32 bof_sig;
 	int has_zip_ext;
 	int has_mz_sig = 0;
 
@@ -1988,11 +1993,13 @@ static int de_identify_zip(deark *c)
 
 	// Fast tests:
 
-	de_read(b, 0, 4);
-	if(!de_memcmp(b, g_zipsig34, 4)) {
+	bof_sig = (u32)de_getu32be(0);
+	if(bof_sig==CODE_PK34) {
 		return has_zip_ext ? 100 : 90;
 	}
-	if(b[0]=='M' && b[1]=='Z') has_mz_sig = 1;
+	if((bof_sig>>16)==0x4d5a || (bof_sig>>16)==0x5a4d) {
+		has_mz_sig = 1;
+	}
 
 	if(c->infile->len >= 22) {
 		de_read(b, c->infile->len - 22, 4);
@@ -2104,7 +2111,7 @@ static void walk_central_dir(deark *c, struct zipreloc_ctx *d,
 		i64 len;
 
 		if(d->errflag) goto done;
-		sig = (u32)de_getu32le(pos);
+		sig = (u32)de_getu32be(pos);
 		if(sig!=CODE_PK12) {
 			d->errflag = 1;
 			d->need_errmsg = 1;
@@ -2208,7 +2215,7 @@ static void walk_central_dir_cb1(deark *c, struct zipreloc_ctx *d, i64 pos1, i64
 	de_dbg_indent(c, 1);
 	de_dbg2(c, "local dir offset: %"I64_FMT, ldir_offset);
 	de_dbg_indent(c, -1);
-	sig = (u32)de_getu32le(ldir_offset);
+	sig = (u32)de_getu32be(ldir_offset);
 	if(sig != CODE_PK34) {
 		d->errflag = 1;
 		d->need_errmsg = 1;
@@ -2290,7 +2297,7 @@ static void do_run_zip_relocator(deark *c, de_module_params *mparams,
 	de_dbg(c, "central dir offset: %"I64_FMT, d->central_dir_offset_reported);
 	de_dbg_indent(c, -1);
 
-	sig = (u32)de_getu32le(d->central_dir_offset_reported);
+	sig = (u32)de_getu32be(d->central_dir_offset_reported);
 	if(sig==CODE_PK12) {
 		found_cdir = 1;
 		d->central_dir_offset_actual = d->central_dir_offset_reported;
@@ -2300,7 +2307,7 @@ static void do_run_zip_relocator(deark *c, de_module_params *mparams,
 		i64 pos2;
 
 		pos2 = d->end_of_central_dir_pos - d->central_dir_byte_size;
-		sig = (u32)de_getu32le(pos2);
+		sig = (u32)de_getu32be(pos2);
 		if(sig==CODE_PK12) {
 			de_dbg(c, "central dir found at %"I64_FMT, pos2);
 			d->central_dir_offset_actual = pos2;
