@@ -954,6 +954,8 @@ Deark -- Information about supported formats
 * SIS (EPOC/Symbian archive) (module="sis")
   - EPOC release 3/4/5/6
 
+* SOF/RESOF (part of module "zip")
+
 * Spark archive (module="spark")
   Options
    -opt spark:recurse=0 - Extract subdirectories as Spark files

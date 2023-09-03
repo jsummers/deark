@@ -14,7 +14,9 @@ struct localctx_struct;
 typedef struct localctx_struct lctx;
 
 #define CODE_PK12 0x504b0102U
+#define CODE_PK14 0x504b0104U
 #define CODE_PK34 0x504b0304U
+#define CODE_PK36 0x504b0306U
 static const u8 g_zipsig34[4] = {'P', 'K', 0x03, 0x04};
 static const u8 g_zipsig56[4] = {'P', 'K', 0x05, 0x06};
 static const u8 g_zipsig66[4] = {'P', 'K', 0x06, 0x06};
@@ -110,7 +112,8 @@ struct localctx_struct {
 	unsigned int zip64_cd_disknum;
 	i64 offset_correction;
 	int used_offset_correction;
-	int is_zip64;
+	u8 is_zip64;
+	u8 is_resof;
 	int using_scanmode;
 	struct de_crcobj *crco;
 };
@@ -1330,11 +1333,11 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	de_dbg_indent(c, 1);
 
 	sig = (u32)de_getu32be_p(&pos);
-	if(is_central && sig!=CODE_PK12) {
+	if(is_central && sig!=(d->is_resof?CODE_PK14:CODE_PK12)) {
 		de_err(c, "Central dir file header not found at %"I64_FMT, pos1);
 		goto done;
 	}
-	else if(!is_central && sig!=CODE_PK34) {
+	else if(!is_central && sig!=(d->is_resof?CODE_PK36:CODE_PK34)) {
 		de_err(c, "Local file header not found at %"I64_FMT, pos1);
 		goto done;
 	}
@@ -1814,7 +1817,13 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	}
 
 	d->central_dir_num_entries = de_getu16le(pos+10);
-	d->central_dir_byte_size  = de_getu32le(pos+12);
+	if(d->is_resof) {
+		d->central_dir_byte_size = - de_geti32le(pos+12);
+	}
+	else {
+		d->central_dir_byte_size = de_getu32le(pos+12);
+	}
+
 	d->central_dir_offset = de_getu32le(pos+16);
 	de_dbg(c, "central dir num entries: %"I64_FMT, d->central_dir_num_entries);
 	if(d->is_zip64 && (d->central_dir_num_entries==0xffff)) {
@@ -1889,6 +1898,18 @@ done:
 	return retval;
 }
 
+static void check_for_resof_fmt(deark *c, lctx *d)
+{
+	if(d->is_zip64) return;
+	if(c->module_disposition==DE_MODDISP_INTERNAL) return;
+	if(d->end_of_central_dir_pos != c->infile->len-22) return;
+	// Test the high byte of the central-dir-size field. For RESOF, the sign bit
+	// should be set.
+	if(de_getbyte(d->end_of_central_dir_pos+15) < 0x80) return;
+	if(de_getu32be(0) != CODE_PK36) return;
+	d->is_resof = 1;
+}
+
 static void de_run_zip_normally(deark *c, lctx *d)
 {
 	int eocd_found;
@@ -1923,8 +1944,12 @@ static void de_run_zip_normally(deark *c, lctx *d)
 		if(!do_zip64_eocd(c, d)) goto done;
 	}
 
+	check_for_resof_fmt(c, d);
+
 	if(d->is_zip64)
 		de_declare_fmt(c, "ZIP-Zip64");
+	else if(d->is_resof)
+		de_declare_fmt(c, "SOF/RESOF");
 	else
 		de_declare_fmt(c, "ZIP");
 
@@ -2287,7 +2312,7 @@ static void do_run_zip_relocator(deark *c, de_module_params *mparams,
 
 	pos = d->end_of_central_dir_pos;
 	d->central_dir_num_entries_this_disk = de_getu16le(pos+8);
-	d->central_dir_byte_size  = de_getu32le(pos+12);
+	d->central_dir_byte_size = de_getu32le(pos+12);
 	d->central_dir_offset_reported = de_getu32le(pos+16);
 	d->archive_comment_len = de_getu16le(pos+20);
 
