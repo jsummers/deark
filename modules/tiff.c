@@ -35,6 +35,7 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define DATATYPE_UINT64    16
 #define DATATYPE_SINT64    17
 #define DATATYPE_IFD64     18
+#define DATATYPE_UTF8      129 // From Exif 3.0
 
 #define DE_TIFFFMT_TIFF       1
 #define DE_TIFFFMT_BIGTIFF    2
@@ -261,7 +262,7 @@ struct localctx_struct {
 	struct ifdstack_item *ifdstack;
 	int ifdstack_capacity;
 	int ifdstack_numused;
-	int current_textfield_encoding;
+	de_encoding current_textfield_encoding;
 
 	struct de_inthashtable *ifds_seen;
 	int ifd_count; // Number of IFDs that we currently know of
@@ -390,7 +391,7 @@ static int size_of_data_type(int tt)
 {
 	switch(tt) {
 	case DATATYPE_BYTE: case DATATYPE_SBYTE:
-	case DATATYPE_ASCII:
+	case DATATYPE_ASCII: case DATATYPE_UTF8:
 	case DATATYPE_UNDEF:
 		return 1;
 	case DATATYPE_UINT16: case DATATYPE_SINT16:
@@ -483,6 +484,7 @@ static int read_tag_value_as_int64(deark *c, lctx *d, const struct taginfo *tg,
 	case DATATYPE_BYTE:
 	case DATATYPE_UNDEF:
 	case DATATYPE_ASCII:
+	case DATATYPE_UTF8:
 		*n = (i64)de_getbyte(offs);
 		return 1;
 	case DATATYPE_UINT64:
@@ -549,6 +551,7 @@ static void read_numeric_value(deark *c, lctx *d, const struct taginfo *tg,
 	case DATATYPE_SBYTE:
 	case DATATYPE_UNDEF:
 	case DATATYPE_ASCII:
+	case DATATYPE_UTF8:
 	case DATATYPE_UINT16:
 	case DATATYPE_SINT16:
 	case DATATYPE_UINT32:
@@ -2256,6 +2259,13 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 42035, 0x10, "LensMake", NULL, NULL },
 	{ 42036, 0x10, "LensModel", NULL, NULL },
 	{ 42037, 0x10, "LensSerialNumber", NULL, NULL },
+	{ 42038, 0x10, "ImageTitle", NULL, NULL },
+	{ 42039, 0x10, "Photographer", NULL, NULL },
+	{ 42040, 0x10, "ImageEditor", NULL, NULL },
+	{ 42041, 0x10, "CameraFirmware", NULL, NULL },
+	{ 42042, 0x10, "RAWDevelopingSoftware", NULL, NULL },
+	{ 42043, 0x10, "ImageEditingSoftware", NULL, NULL },
+	{ 42044, 0x10, "MetadataEditingSoftware", NULL, NULL },
 	{ 42112, 0x0000, "GDAL_METADATA", NULL, NULL },
 	{ 42113, 0x0000, "GDAL_NODATA", NULL, NULL },
 	{ 42240, 0x10, "Gamma", NULL, NULL },
@@ -2617,7 +2627,7 @@ static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo 
 
 	switch(tg->datatype) {
 	case DATATYPE_BYTE: case DATATYPE_SBYTE:
-	case DATATYPE_UNDEF: case DATATYPE_ASCII:
+	case DATATYPE_UNDEF: case DATATYPE_ASCII: case DATATYPE_UTF8:
 	case DATATYPE_UINT16: case DATATYPE_SINT16:
 	case DATATYPE_UINT32: case DATATYPE_SINT32: case DATATYPE_IFD32:
 	case DATATYPE_UINT64: case DATATYPE_SINT64: case DATATYPE_IFD64:
@@ -2671,6 +2681,9 @@ static void do_dbg_print_text_multi_values(deark *c, lctx *d, const struct tagin
 	int str_count = 0;
 	i64 pos, endpos;
 	i64 adj_totalsize;
+	de_encoding enc;
+
+	enc = (tg->datatype==DATATYPE_UTF8) ? DE_ENCODING_UTF8 : d->current_textfield_encoding;
 
 	// An ASCII field is a sequence of NUL-terminated strings.
 	// The spec does not say what to do if an ASCII field does not end in a NUL.
@@ -2696,7 +2709,7 @@ static void do_dbg_print_text_multi_values(deark *c, lctx *d, const struct tagin
 		if(pos>=endpos && str_count>0) break;
 
 		srd = dbuf_read_string(c->infile, pos, endpos-pos, endpos-pos,
-			DE_CONVFLAG_STOP_AT_NUL, d->current_textfield_encoding);
+			DE_CONVFLAG_STOP_AT_NUL, enc);
 
 		if(str_count>0) ucstring_append_sz(dbgline, ",", DE_ENCODING_LATIN1);
 		ucstring_append_sz(dbgline, "\"", DE_ENCODING_LATIN1);
@@ -2720,10 +2733,12 @@ static void do_dbg_print_text_single_value(deark *c, lctx *d, const struct tagin
 	const struct tagnuminfo *tni, de_ucstring *dbgline)
 {
 	struct de_stringreaderdata *srd = NULL;
+	de_encoding enc;
+
+	enc = (tg->datatype==DATATYPE_UTF8) ? DE_ENCODING_UTF8 : d->current_textfield_encoding;
 
 	srd = dbuf_read_string(c->infile, tg->val_offset, tg->total_size,
-		DE_TIFF_MAX_CHARS_TO_PRINT, DE_CONVFLAG_STOP_AT_NUL,
-		d->current_textfield_encoding);
+		DE_TIFF_MAX_CHARS_TO_PRINT, DE_CONVFLAG_STOP_AT_NUL, enc);
 
 	ucstring_append_sz(dbgline, " {\"", DE_ENCODING_LATIN1);
 	ucstring_append_ucstring(dbgline, srd->str);
@@ -2742,7 +2757,7 @@ static void do_dbg_print_values(deark *c, lctx *d, const struct taginfo *tg, con
 	if(tni->flags&0x08) return; // Auto-display of values is suppressed for this tag.
 	if(tg->valcount<1) return;
 
-	if(tg->datatype==DATATYPE_ASCII) {
+	if(tg->datatype==DATATYPE_ASCII || tg->datatype==DATATYPE_UTF8) {
 		if(tni->flags & 0x0004) {
 			do_dbg_print_text_multi_values(c, d, tg, tni, dbgline);
 		}
