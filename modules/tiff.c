@@ -187,6 +187,7 @@ struct page_ctx {
 	u8 have_jpegtables;
 	u8 have_colormap;
 	u8 have_oldsubfiletype;
+	u8 have_jxr_imageoffset;
 
 	u32 compression;
 	u32 orientation;
@@ -1875,6 +1876,21 @@ static void handler_datetime(deark *c, lctx *d, const struct taginfo *tg, const 
 	 parse_tiff_datetime(c, d, tg, &tg->pg->internal_mod_time);
 }
 
+static void handler_jxr_pixelformat(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	u64 n1, n2;
+
+	if(tg->total_size != 16) return;
+	n1 = dbuf_getu64be(c->infile, tg->val_offset);
+	n2 = dbuf_getu64be(c->infile, tg->val_offset+8);
+	de_dbg(c, "id: 0x%016"U64_FMTx"%016"U64_FMTx, n1, n2);
+}
+
+static void handler_jxr_imageoffset(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	tg->pg->have_jxr_imageoffset = 1;
+}
+
 // Handler for some tags expected to have a single integer value
 static void handler_various(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
@@ -2288,9 +2304,8 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 45579, 0x0801, "YawAngle", NULL, NULL },
 	{ 45580, 0x0801, "PitchAngle", NULL, NULL },
 	{ 45581, 0x0801, "RollAngle", NULL, NULL },
-	{ 48129, 0x0401, "PIXEL_FORMAT", NULL, NULL },
+	{ 48129, 0x0401, "PIXEL_FORMAT", handler_jxr_pixelformat, NULL },
 	{ 48130, 0x0401, "SPATIAL_XFRM_PRIMARY", NULL, NULL },
-	{ 48131, 0x0401, "Uncompressed", NULL, NULL },
 	{ 48132, 0x0401, "IMAGE_TYPE", NULL, NULL },
 	{ 48133, 0x0401, "PTM_COLOR_INFO", NULL, NULL },
 	{ 48134, 0x0401, "PROFILE_LEVEL_CONTAINER", NULL, NULL },
@@ -2298,7 +2313,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 48257, 0x0401, "IMAGE_HEIGHT", NULL, NULL },
 	{ 48258, 0x0401, "WIDTH_RESOLUTION", NULL, NULL },
 	{ 48259, 0x0401, "HEIGHT_RESOLUTION", NULL, NULL },
-	{ 48320, 0x0401, "IMAGE_OFFSET", NULL, NULL },
+	{ 48320, 0x0401, "IMAGE_OFFSET", handler_jxr_imageoffset, NULL },
 	{ 48321, 0x0401, "IMAGE_BYTE_COUNT", NULL, NULL },
 	{ 48322, 0x0401, "ALPHA_OFFSET", NULL, NULL },
 	{ 48323, 0x0401, "ALPHA_BYTE_COUNT", NULL, NULL },
@@ -3321,6 +3336,10 @@ done:
 // we can report an error if it turns out not to.
 static int is_image_ifd(deark *c, lctx *d, struct page_ctx *pg)
 {
+	if(d->fmt==DE_TIFFFMT_JPEGXR) {
+		return pg->have_jxr_imageoffset;
+	}
+
 	if(!pg->have_imagewidth || pg->imagewidth<1 || pg->imagelength<1) {
 		return 0;
 	}
@@ -3454,6 +3473,10 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	if(!is_image_ifd(c, d, pg)) {
 		de_dbg(c, "[non-image IFD]");
 		goto done;
+	}
+
+	if(pg->have_jxr_imageoffset) {
+		goto done; // JPEG XR images are not supported
 	}
 
 	if(!d->opt_decode) goto done;
@@ -3862,7 +3885,7 @@ static void process_ifd(deark *c, lctx *d, int ifd_idx1, i64 ifdpos1, u8 ifdtype
 	// It might be better to give up trying to obey the various specifications, and
 	// just try to autodetect the encoding, based on whether it is valid UTF-8, etc.
 
-	if(pg->ifdtype==DE_TIFFFMT_JPEGXR)
+	if(d->fmt==DE_TIFFFMT_JPEGXR)
 		d->current_textfield_encoding = DE_ENCODING_UTF8; // Might be overridden below
 	else
 		d->current_textfield_encoding = DE_ENCODING_ASCII;
