@@ -1038,11 +1038,14 @@ static void do_extra_data(deark *c, lctx *d,
 			(int)eii.dlen);
 		if(pos+4+eii.dlen > pos1+len) break;
 
+		de_dbg_indent(c, 1);
 		if(eii.eiti->fn) {
-			de_dbg_indent(c, 1);
 			eii.eiti->fn(c, d, &eii);
-			de_dbg_indent(c, -1);
 		}
+		else if(c->debug_level>=2) {
+			de_dbg_hexdump(c, c->infile, eii.dpos, eii.dlen, 256, NULL, 0x1);
+		}
+		de_dbg_indent(c, -1);
 
 		pos += 4+eii.dlen;
 	}
@@ -1429,9 +1432,13 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 				dos_attrs, ucstring_getpsz(descr));
 		}
 
-		if((md->attr_e>>16) != 0) {
+		if(((md->attr_e>>16) != 0) &&
+			!(md->attr_i & 0x0004))
+		{
 			// A number of platforms put Unix-style file attributes here, so
 			// decode them as such whenever they are nonzero.
+			// [But the AV feature (spec 2.0+?) uses these bits for something
+			// else, and sets attr_i bit 0x0004.]
 			de_dbg(c, "%sUnix attribs: octal(%06o)",
 				(md->ver_made_by_hi==3)?"":"(hypothetical) ",
 				(UI)(md->attr_e>>16));
@@ -1845,6 +1852,16 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 
 	archive_comment_len = de_getu16le(pos+20);
 	de_dbg(c, "comment length: %d", (int)archive_comment_len);
+
+
+	if(d->central_dir_offset + d->central_dir_byte_size > d->end_of_central_dir_pos) {
+		// If the central dir pos is wrong, we expect it to be too small, not
+		// too large. This is probably not a ZIP file (EOCD sig. false positive).
+		// TODO?: Maybe the signature-search function should be more discriminating.
+		de_err(c, "Invalid EOCD record. This might not be a ZIP file.");
+		goto done;
+	}
+
 	if(archive_comment_len>0) {
 		// The comment for the whole .ZIP file presumably has to use
 		// cp437 encoding. There's no flag that could indicate otherwise.
