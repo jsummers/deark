@@ -22,6 +22,30 @@ DE_DECLARE_MODULE(de_module_red);
 DE_DECLARE_MODULE(de_module_lif_kdc);
 DE_DECLARE_MODULE(de_module_ain);
 DE_DECLARE_MODULE(de_module_hta);
+DE_DECLARE_MODULE(de_module_hit);
+
+static int sum_of_bytes_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
+	i64 buf_len)
+{
+	UI *pchk = (UI*)brctx->userdata;
+	i64 i;
+
+	for(i=0; i<buf_len; i++) {
+		*pchk += (UI)buf[i];
+	}
+	return 1;
+}
+
+static UI calc_sum_of_bytes(dbuf *f, i64 pos, i64 len)
+{
+	UI x = 0;
+
+	if(pos + len > f->len) {
+		len = f->len - pos;
+	}
+	dbuf_buffered_read(f, pos, len, sum_of_bytes_cbfn, (void*)&x);
+	return x;
+}
 
 static int dclimplode_header_at(deark *c, i64 pos)
 {
@@ -2199,22 +2223,9 @@ void de_module_lif_kdc(deark *c, struct deark_module_info *mi)
 // This module doesn't do much. It parses the archive header, and computes
 // some checksums.
 
-static int ain_checksum_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
-	i64 buf_len)
-{
-	UI *pchk = (UI*)brctx->userdata;
-	i64 i;
-
-	for(i=0; i<buf_len; i++) {
-		*pchk += (UI)buf[i];
-	}
-	return 1;
-}
-
 static void ain_calc_hdr_checksum(deark *c, UI *pchksum)
 {
-	*pchksum = 0;
-	dbuf_buffered_read(c->infile, 0, 22, ain_checksum_cbfn, (void*)pchksum);
+	*pchksum = calc_sum_of_bytes(c->infile, 0, 22);
 	// No need to mod 2^16 here, since the max possible sum is much less than 2^16.
 	*pchksum ^= 0x5555;
 }
@@ -2266,8 +2277,7 @@ static void do_ain_main(deark *c, de_arch_lctx *d)
 
 	member_hdrs_checksum_reported = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "member hdrs checksum (reported): 0x%04x", member_hdrs_checksum_reported);
-	dbuf_buffered_read(c->infile, member_hdrs_pos, member_hdrs_len,
-		ain_checksum_cbfn, (void*)&member_hdrs_checksum_calc);
+	member_hdrs_checksum_calc = calc_sum_of_bytes(c->infile, member_hdrs_pos, member_hdrs_len);
 	member_hdrs_checksum_calc &= 0xffff;
 	de_dbg(c, "member hdrs checksum (calculated): 0x%04x", member_hdrs_checksum_calc);
 
@@ -2418,4 +2428,136 @@ void de_module_hta(deark *c, struct deark_module_info *mi)
 	mi->desc = "Hemera thumbnails";
 	mi->run_fn = de_run_hta;
 	mi->identify_fn = de_identify_hta;
+}
+
+// **************************************************************************
+// HIT (Bogdan Ureche)
+// **************************************************************************
+
+#define HIT_MINHEADERLEN 20
+
+static UI hit_calc_hdr_checksum(struct de_arch_member_data *md)
+{
+	UI x;
+
+	x = calc_sum_of_bytes(md->d->inf, md->member_hdr_pos, 2);
+	// (skip over the 1-byte checksum field)
+	x += calc_sum_of_bytes(md->d->inf, md->member_hdr_pos+3,
+		md->member_hdr_size-3);
+	x &= 0xff;
+	return x;
+}
+
+static int do_BUhit_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *md)
+{
+	i64 pos = md->member_hdr_pos;
+	i64 fnlen;
+	UI hdr_checksum_reported;
+	UI hdr_checksum_calc;
+	UI flags_and_cmpr_meth;
+	int saved_indent_level;
+	int retval = 0;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "member at %"I64_FMT, md->member_hdr_pos);
+	de_dbg_indent(c, 1);
+
+	md->member_hdr_size = de_getu16le_p(&pos);
+	de_dbg(c, "header len: %"I64_FMT, md->member_hdr_size);
+	if(md->member_hdr_size < HIT_MINHEADERLEN) goto done;
+
+	hdr_checksum_reported = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "header checksum (reported): 0x%02x", hdr_checksum_reported);
+
+	hdr_checksum_calc = hit_calc_hdr_checksum(md);
+	de_dbg(c, "header checksum (calculated): 0x%02x", hdr_checksum_calc);
+
+	// bit 0x80 = garbled (reserved)
+	// bit 0x40 = Maybe a version flag? Affects the CRC field.
+	// bit 0x20 = unknown (reserved?)
+	// low 5 bits = compression method
+	flags_and_cmpr_meth = (UI)de_getbyte_p(&pos);
+	md->cmpr_meth = flags_and_cmpr_meth & 0x1f;
+	de_dbg(c, "cmpr. method: %u", md->cmpr_meth);
+
+	pos += 1; // ??
+
+	de_arch_read_field_cmpr_len_p(md, &pos);
+	de_arch_read_field_orig_len_p(md, &pos);
+
+	pos = md->member_hdr_pos+13;
+	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		DE_ARCH_TSTYPE_DOS_TD, &pos);
+	de_arch_read_field_dos_attr_p(md, &pos);
+
+	pos += 2; // ??
+
+	md->crc_reported = (u32)de_getu32le_p(&pos);
+	de_dbg(c, "crc (reported): 0x%08x", (UI)md->crc_reported);
+
+	fnlen = (i64)de_getbyte_p(&pos);
+	dbuf_read_to_ucstring(c->infile, pos, fnlen, md->filename, 0,
+		d->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+	pos += fnlen;
+
+	md->cmpr_pos = md->member_hdr_pos + md->member_hdr_size;
+	de_dbg(c, "cmpr data pos: %"I64_FMT, md->cmpr_pos);
+	md->member_total_size = md->member_hdr_size + md->cmpr_len;
+	retval = 1;
+	de_dbg_indent(c, -1);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static void de_run_hit(deark *c, de_module_params *mparams)
+{
+	de_arch_lctx *d = NULL;
+	struct de_arch_member_data *md = NULL;
+	i64 pos;
+
+	d = de_arch_create_lctx(c);
+	d->is_le = 1;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+
+	pos = 2;
+
+	while(1) {
+		if(pos+HIT_MINHEADERLEN > c->infile->len) goto done;
+
+		if(md) {
+			de_arch_destroy_md(c, md);
+			md = NULL;
+		}
+		md = de_arch_create_md(c, d);
+		md->member_hdr_pos = pos;
+
+		if(!do_BUhit_member(c, d, md)) goto done;
+		if(md->member_total_size<=0) goto done;
+		pos += md->member_total_size;
+	}
+
+done:
+	if(md) {
+		de_arch_destroy_md(c, md);
+	}
+	de_arch_destroy_lctx(c, d);
+}
+
+static int de_identify_hit(deark *c)
+{
+	if(!de_input_file_has_ext(c, "hit")) return 0;
+	if((UI)de_getu16be(0) != 0x5542) return 0; // "UB"
+	return 45;
+}
+
+void de_module_hit(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "hit";
+	mi->desc = "HIT archive";
+	mi->run_fn = de_run_hit;
+	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
+	mi->identify_fn = de_identify_hit;
 }
