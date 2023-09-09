@@ -34,6 +34,7 @@ typedef struct localctx_struct {
 	int first_subfmt;
 	int trailer_found;
 	de_encoding input_encoding;
+	struct de_crcobj *crco_cksum;
 } lctx;
 
 static const char *get_subfmt_name(int n)
@@ -288,17 +289,6 @@ static void read_member_name(deark *c, lctx *d, struct member_data *md)
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz(md->filename_srd->str));
 }
 
-static void our_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
-{
-	i64 k;
-	struct member_data *md = (struct member_data *)userdata;
-
-	for(k=0; k<buf_len; k++) {
-		// The 32-bit unsigned integer overflow is by design.
-		md->checksum_calculated += (u32)buf[k];
-	}
-}
-
 static int read_member(deark *c, lctx *d, i64 pos1,
 	i64 *bytes_consumed_member)
 {
@@ -408,14 +398,14 @@ static int read_member(deark *c, lctx *d, i64 pos1,
 	outf = dbuf_create_output_file(c, NULL, md->fi, 0);
 
 	if(md->subfmt==SUBFMT_ASCII_NEWCRC) {
-		// Use a callback function to calculate the checksum.
-		dbuf_set_writelistener(outf, our_writelistener_cb, (void*)md);
-		md->checksum_calculated = 0;
+		de_crcobj_reset(d->crco_cksum);
+		dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)d->crco_cksum);
 	}
 
 	dbuf_copy(c->infile, pos, md->filesize, outf);
 
 	if(md->subfmt==SUBFMT_ASCII_NEWCRC) {
+		md->checksum_calculated = (UI)de_crcobj_getval(d->crco_cksum);
 		de_dbg(c, "checksum (calculated): %u", (unsigned int)md->checksum_calculated);
 		if(md->checksum_calculated != md->checksum_reported) {
 			de_warn(c, "Checksum failed for file %s: Expected %u, got %u",
@@ -460,6 +450,8 @@ static void de_run_cpio(deark *c, de_module_params *mparams)
 	subfmt_name = get_subfmt_name(d->first_subfmt);
 	de_declare_fmtf(c, "cpio %s", subfmt_name);
 
+	d->crco_cksum = de_crcobj_create(c, DE_CRCOBJ_SUM_BYTES);
+
 	while(1) {
 		if(d->trailer_found) break;
 		if(pos >= c->infile->len) break;
@@ -471,7 +463,10 @@ static void de_run_cpio(deark *c, de_module_params *mparams)
 	}
 
 done:
-	de_free(c, d);
+	if(d) {
+		de_crcobj_destroy(d->crco_cksum);
+		de_free(c, d);
+	}
 }
 
 static int de_identify_cpio(deark *c)

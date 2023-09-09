@@ -1131,14 +1131,19 @@ int de_inthashtable_remove_any_item(deark *c, struct de_inthashtable *ht, i64 *p
 #define DE_CRCOBJ_CRC16_XMODEM 0x20
 #define DE_CRCOBJ_CRC16_ARC    0x21
 #define DE_CRCOBJ_CRC16_IBMSDLC 0x22
+#define DE_CRCOBJ_SUM_BYTES    0x30
+#define DE_CRCOBJ_SUM_U16LE    0x31
+#define DE_CRCOBJ_SUM_U16BE    0x32
 
 struct de_crcobj *de_crcobj_create(deark *c, UI type_and_flags);
 void de_crcobj_destroy(struct de_crcobj *crco);
 void de_crcobj_reset(struct de_crcobj *crco);
 u32 de_crcobj_getval(struct de_crcobj *crco);
 void de_crcobj_addbuf(struct de_crcobj *crco, const u8 *buf, i64 buf_len);
+void de_crcobj_addrun(struct de_crcobj *crco, u8 v, i64 len);
 void de_crcobj_addzeroes(struct de_crcobj *crco, i64 len);
 void de_crcobj_addslice(struct de_crcobj *crco, dbuf *f, i64 pos, i64 len);
+u32 de_calccrc_oneshot(dbuf *f, i64 pos, i64 len, UI type_and_flags);
 
 ///////////////////////////////////////////
 

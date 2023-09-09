@@ -396,16 +396,6 @@ struct squeeze_ctx {
 	struct de_timestamp timestamp;
 };
 
-static void squeeze_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
-{
-	struct squeeze_ctx *sqctx = (struct squeeze_ctx*)userdata;
-	i64 i;
-
-	for(i=0; i<buf_len; i++) {
-		sqctx->checksum_calc += buf[i];
-	}
-}
-
 static void do_sqeeze_timestamp(deark *c, struct squeeze_ctx *sqctx, i64 pos1)
 {
 	UI cksum_calc = 0;
@@ -421,7 +411,8 @@ static void do_sqeeze_timestamp(deark *c, struct squeeze_ctx *sqctx, i64 pos1)
 	dt_raw = de_getu16le_p(&pos);
 	tm_raw = de_getu16le_p(&pos);
 	cksum_reported = (UI)de_getu16le_p(&pos);
-	cksum_calc = ((UI)sig + (UI)dt_raw + (UI)tm_raw)&0xffff;
+	cksum_calc = (UI)de_calccrc_oneshot(c->infile, pos1, 6, DE_CRCOBJ_SUM_U16LE);
+	cksum_calc &= 0xffff;
 	if(cksum_calc != cksum_reported) return; // Presumably a false positive signature
 
 	de_dbg(c, "timestamp at %"I64_FMT, pos1);
@@ -514,6 +505,7 @@ static void de_run_squeeze(deark *c, de_module_params *mparams)
 	i64 n;
 	struct squeeze_ctx *sqctx = NULL;
 	de_finfo *fi = NULL;
+	struct de_crcobj *crco = NULL;
 	dbuf *outf_tmp = NULL;
 	dbuf *outf_final = NULL;
 	int saved_indent_level;
@@ -566,7 +558,8 @@ static void de_run_squeeze(deark *c, de_module_params *mparams)
 	dcmpri.len = c->infile->len - pos;
 	dcmpro.f = outf_tmp;
 
-	dbuf_set_writelistener(outf_tmp, squeeze_writelistener_cb, (void*)sqctx);
+	crco = de_crcobj_create(c, DE_CRCOBJ_SUM_BYTES);
+	dbuf_set_writelistener(outf_tmp, de_writelistener_for_crc, (void*)crco);
 
 	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
 	tlp.codec1_type1 = fmtutil_huff_squeeze_codectype1;
@@ -595,6 +588,7 @@ static void de_run_squeeze(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
+	sqctx->checksum_calc = de_crcobj_getval(crco);
 	sqctx->checksum_calc &= 0xffff;
 	de_dbg(c, "checksum (calculated): %u", (UI)sqctx->checksum_calc);
 	if(sqctx->checksum_calc != sqctx->checksum_reported) {
@@ -612,6 +606,7 @@ done:
 	dbuf_close(outf_final);
 	dbuf_close(outf_tmp);
 	de_finfo_destroy(c, fi);
+	de_crcobj_destroy(crco);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -644,21 +639,12 @@ struct crunch_ctx {
 	UI checksum_calc;
 };
 
-static void crunch_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
-{
-	struct crunch_ctx *crunchctx = (struct crunch_ctx*)userdata;
-	i64 i;
-
-	for(i=0; i<buf_len; i++) {
-		crunchctx->checksum_calc += buf[i];
-	}
-}
-
 static void decompress_crunch_v1(deark *c, struct crunch_ctx *crunchctx, i64 pos1)
 {
 	de_finfo *fi = NULL;
 	dbuf *outf = NULL;
 	i64 pos = pos1;
+	struct de_crcobj *crco = NULL;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
@@ -672,7 +658,8 @@ static void decompress_crunch_v1(deark *c, struct crunch_ctx *crunchctx, i64 pos
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
 	dbuf_enable_wbuffer(outf);
-	dbuf_set_writelistener(outf, crunch_writelistener_cb, (void*)crunchctx);
+	crco = de_crcobj_create(c, DE_CRCOBJ_SUM_BYTES);
+	dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)crco);
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
@@ -705,6 +692,7 @@ static void decompress_crunch_v1(deark *c, struct crunch_ctx *crunchctx, i64 pos
 		pos += dres.bytes_consumed;
 
 		if(crunchctx->cksum_type==0) {
+			crunchctx->checksum_calc = de_crcobj_getval(crco);
 			crunchctx->checksum_calc &= 0xffff;
 			crunchctx->checksum_reported = (UI)de_getu16le_p(&pos);
 			de_dbg(c, "checksum (calculated): %u", crunchctx->checksum_calc);
@@ -719,6 +707,7 @@ static void decompress_crunch_v1(deark *c, struct crunch_ctx *crunchctx, i64 pos
 done:
 	de_finfo_destroy(c, fi);
 	dbuf_close(outf);
+	de_crcobj_destroy(crco);
 	de_dbg_indent(c, -1);
 }
 
@@ -808,21 +797,12 @@ struct crlzh_ctx {
 	UI checksum_calc;
 };
 
-static void crlzh_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
-{
-	struct crlzh_ctx *crlzhctx = (struct crlzh_ctx*)userdata;
-	i64 i;
-
-	for(i=0; i<buf_len; i++) {
-		crlzhctx->checksum_calc += buf[i];
-	}
-}
-
 static void decompress_crlzh(deark *c, struct crlzh_ctx *crlzhctx, i64 pos1)
 {
 	de_finfo *fi = NULL;
 	dbuf *outf = NULL;
 	i64 pos = pos1;
+	struct de_crcobj *crco = NULL;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
@@ -835,7 +815,8 @@ static void decompress_crlzh(deark *c, struct crlzh_ctx *crlzhctx, i64 pos1)
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
 	dbuf_enable_wbuffer(outf);
-	dbuf_set_writelistener(outf, crlzh_writelistener_cb, (void*)crlzhctx);
+	crco = de_crcobj_create(c, DE_CRCOBJ_SUM_BYTES);
+	dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)crco);
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
@@ -866,6 +847,7 @@ static void decompress_crlzh(deark *c, struct crlzh_ctx *crlzhctx, i64 pos1)
 		pos += dres.bytes_consumed;
 
 		if(crlzhctx->cksum_type==0) {
+			crlzhctx->checksum_calc = de_crcobj_getval(crco);
 			crlzhctx->checksum_calc &= 0xffff;
 			crlzhctx->checksum_reported = (UI)de_getu16le_p(&pos);
 			de_dbg(c, "checksum (calculated): %u", crlzhctx->checksum_calc);
@@ -880,6 +862,7 @@ static void decompress_crlzh(deark *c, struct crlzh_ctx *crlzhctx, i64 pos1)
 done:
 	de_finfo_destroy(c, fi);
 	dbuf_close(outf);
+	de_crcobj_destroy(crco);
 	de_dbg_indent(c, -1);
 }
 
@@ -966,18 +949,9 @@ struct zsq_ctx {
 	struct de_timestamp timestamp;
 };
 
-static void zsq_writelistener_cb(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
-{
-	struct zsq_ctx *zsqctx = (struct zsq_ctx*)userdata;
-	i64 i;
-
-	for(i=0; i<buf_len; i++) {
-		zsqctx->checksum_calc += buf[i];
-	}
-}
-
 static void do_zsq_decompress(deark *c, struct zsq_ctx *zsqctx, i64 pos, dbuf *outf)
 {
+	struct de_crcobj *crco = NULL;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
@@ -992,16 +966,19 @@ static void do_zsq_decompress(deark *c, struct zsq_ctx *zsqctx, i64 pos, dbuf *o
 	dcmpri.len = c->infile->len - pos;
 	dcmpro.f = outf;
 
-	dbuf_set_writelistener(outf, zsq_writelistener_cb, (void*)zsqctx);
+	crco = de_crcobj_create(c, DE_CRCOBJ_SUM_BYTES);
+	dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)crco);
 
 	fmtutil_decompress_lzw(c, &dcmpri, &dcmpro, &dres, &delzwp);
 	dbuf_flush(outf);
 
+	zsqctx->checksum_calc = de_crcobj_getval(crco);
 	zsqctx->checksum_calc &= 0xffff;
 	de_dbg(c, "checksum (calculated): %u", (UI)zsqctx->checksum_calc);
 	if(zsqctx->checksum_calc != zsqctx->checksum_reported) {
 		de_err(c, "Checksum error. Decompression probably failed.");
 	}
+	de_crcobj_destroy(crco);
 }
 
 static void zsq_read_timestamp(deark *c, struct zsq_ctx *zsqctx, i64 pos)

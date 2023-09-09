@@ -40,26 +40,6 @@ static void do_pif_section_default(deark *c, struct pif_ctx *d, i64 pos1, i64 le
 	de_dbg_hexdump(c, c->infile, pos1, len, 256, NULL, 0x1);
 }
 
-static int cksum_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
-	i64 buf_len)
-{
-	i64 i;
-	struct pif_ctx *d = (struct pif_ctx*)brctx->userdata;
-
-	for(i=0; i<buf_len; i++) {
-		d->checksum_calc += (UI)buf[i];
-	}
-	d->checksum_calc &= 0xff;
-	return 1;
-}
-
-// Sets d->checksum_calc
-static void pif_calc_checksum(deark *c, struct pif_ctx *d)
-{
-	d->checksum_calc = 0;
-	dbuf_buffered_read(c->infile, 2, PIF_BASIC_SECTION_SIZE-2, cksum_cbfn, (void*)d);
-}
-
 static void do_pif_section_basic(deark *c, struct pif_ctx *d, i64 pos1, i64 len)
 {
 	i64 pos = pos1;
@@ -70,7 +50,9 @@ static void do_pif_section_basic(deark *c, struct pif_ctx *d, i64 pos1, i64 len)
 
 	checksum_reported = (UI)de_getbyte_p(&pos);
 	de_dbg(c, "checksum (reported): 0x%02x", checksum_reported);
-	pif_calc_checksum(c, d);
+	d->checksum_calc = (UI)de_calccrc_oneshot(c->infile, 2, PIF_BASIC_SECTION_SIZE-2,
+		DE_CRCOBJ_SUM_BYTES);
+	d->checksum_calc &= 0xff;
 	// Note - Not all files set the checksum field. Often it's just set to 0x78,
 	// but other wrong values are common.
 	de_dbg(c, "checksum (calculated): 0x%02x", d->checksum_calc);

@@ -50,6 +50,7 @@ typedef struct localctx_struct {
 	int input_encoding;
 	int found_trailer;
 	struct extattr_data *global_ea;
+	struct de_crcobj *crco_cksum;
 } lctx;
 
 static const char* get_fmt_name(int fmt)
@@ -108,15 +109,19 @@ static void read_12char_timestamp(deark *c, struct phys_member_data *pmd, i64 po
 static void calc_checksum(deark *c, lctx *d, struct phys_member_data *pmd,
 	const u8 *hdrblock)
 {
-	size_t i;
-
-	pmd->checksum_calc = 0;
-	for(i=0; i<512; i++) {
-		if(i>=148 && i<156)
-			pmd->checksum_calc += 32; // (The checksum field itself)
-		else
-			pmd->checksum_calc += (i64)hdrblock[i];
+	if(!d->crco_cksum) {
+		d->crco_cksum = de_crcobj_create(c, DE_CRCOBJ_SUM_BYTES);
 	}
+	else {
+		de_crcobj_reset(d->crco_cksum);
+	}
+
+	// A loose upper bound for the max possible checksum value is 512*255
+	// = 130560.
+	de_crcobj_addbuf(d->crco_cksum, &hdrblock[0], 148);
+	de_crcobj_addrun(d->crco_cksum, 32, 8); // (The checksum field itself)
+	de_crcobj_addbuf(d->crco_cksum, &hdrblock[156], 512-156);
+	pmd->checksum_calc = (i64)de_crcobj_getval(d->crco_cksum);
 }
 
 // Returns 1 if it was parsed successfully, and is not a trailer.
@@ -775,6 +780,7 @@ static void de_run_tar(deark *c, de_module_params *mparams)
 	}
 
 	if(d) {
+		de_crcobj_destroy(d->crco_cksum);
 		destroy_extattr_data(c, d->global_ea);
 		de_free(c, d);
 	}

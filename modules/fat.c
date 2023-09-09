@@ -706,14 +706,10 @@ static int root_dir_seems_valid(deark *c, lctx *d)
 
 static void do_atarist_boot_checksum(deark *c, lctx *d, i64 pos1)
 {
-	i64 i;
-	UI ck = 0;
+	UI ck;
 
-	for(i=0; i<256; i++) {
-		ck += (UI)de_getu16be(pos1+i*2);
-		ck &= 0xffff;
-	}
-
+	ck = de_calccrc_oneshot(c->infile, pos1, 512, DE_CRCOBJ_SUM_U16BE);
+	ck &= 0xffff;
 	de_dbg(c, "Atari ST checksum: 0x%04x", ck);
 	if(ck==0x1234) {
 		d->has_atarist_checksum = 1;

@@ -73,7 +73,7 @@ struct member_data {
 	u8 is_nonexecutable;
 	u8 is_executable;
 	i64 orig_size;
-	UI hdr_checksum_calc;
+	u32 hdr_checksum_calc;
 
 	u8 have_hdr_crc_reported;
 	u32 hdr_crc_reported;
@@ -102,6 +102,7 @@ typedef struct localctx_struct {
 	int member_count;
 	i64 trailer_pos;
 	struct de_crcobj *crco;
+	struct de_crcobj *crco_cksum;
 } lctx;
 
 typedef void (*decompressor_fn)(deark *c, lctx *d, struct member_data *md,
@@ -1069,15 +1070,16 @@ done:
 	de_finfo_destroy(c, fi);
 }
 
-static int cksum_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf, i64 buf_len)
+// Simple checksum used by some header formats.
+// Caller supplies a crcobj to use.
+static u32 lha_calc_checksum(dbuf *f, i64 pos, i64 len, struct de_crcobj *crco_cksum)
 {
-	UI *pcksum = (UI*)brctx->userdata;
-	i64 i;
+	u32 v;
 
-	for(i=0; i<buf_len; i++) {
-		*pcksum = (*pcksum + buf[i]) & 0xff;
-	}
-	return 1;
+	de_crcobj_reset(crco_cksum);
+	de_crcobj_addslice(crco_cksum, f, pos, len);
+	v = de_crcobj_getval(crco_cksum);
+	return v & 0xff;
 }
 
 static void do_check_header_crc(deark *c, lctx *d, struct member_data *md)
@@ -1241,14 +1243,16 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 		de_dbg(c, "header size: (2+)%d", (int)lev0_header_size);
 		hdr_checksum_reported = (UI)de_getbyte_p(&pos);
 		has_hdr_checksum = 1;
-		dbuf_buffered_read(c->infile, pos, lev0_header_size, cksum_cbfn, (void*)&md->hdr_checksum_calc);
+		md->hdr_checksum_calc = lha_calc_checksum(c->infile, pos, lev0_header_size,
+			d->crco_cksum);
 	}
 	else if(md->hlev==1) {
 		lev1_base_header_size = (i64)de_getbyte_p(&pos);
 		de_dbg(c, "base header size: %d", (int)lev1_base_header_size);
 		hdr_checksum_reported = (UI)de_getbyte_p(&pos);
 		has_hdr_checksum = 1;
-		dbuf_buffered_read(c->infile, pos, lev1_base_header_size, cksum_cbfn, (void*)&md->hdr_checksum_calc);
+		md->hdr_checksum_calc = lha_calc_checksum(c->infile, pos, lev1_base_header_size,
+			d->crco_cksum);
 	}
 	else if(md->hlev==2) {
 		lev2_total_header_size = de_getu16le_p(&pos);
@@ -1266,7 +1270,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 
 	if(has_hdr_checksum) {
 		de_dbg(c, "header checksum (reported): 0x%02x", hdr_checksum_reported);
-		de_dbg(c, "header checksum (calculated): 0x%02x", md->hdr_checksum_calc);
+		de_dbg(c, "header checksum (calculated): 0x%02x", (UI)md->hdr_checksum_calc);
 		if(md->hdr_checksum_calc != hdr_checksum_reported) {
 			de_err(c, "Wrong header checksum: reported=0x%02x, calculated=0x%02x",
 				hdr_checksum_reported, md->hdr_checksum_calc);
@@ -1514,6 +1518,7 @@ static void do_run_lha_internal(deark *c, de_module_params *mparams, int is_swg)
 
 	d->hlev_of_first_member = 0xff;
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
+	d->crco_cksum = de_crcobj_create(c, DE_CRCOBJ_SUM_BYTES);
 
 	pos = 0;
 	while(1) {
@@ -1538,6 +1543,7 @@ done:
 	destroy_member_data(c, md);
 	if(d) {
 		de_crcobj_destroy(d->crco);
+		de_crcobj_destroy(d->crco_cksum);
 		de_free(c, d);
 	}
 }
@@ -1651,12 +1657,13 @@ void de_module_swg(deark *c, struct deark_module_info *mi)
 struct car_member_data {
 	i64 member_pos;
 	i64 total_size;
-	UI hdr_checksum_calc;
+	u32 hdr_checksum_calc;
 };
 
 struct car_ctx {
 	dbuf *hdr_tmp;
 	dbuf *lha_outf;
+	struct de_crcobj *crco_cksum;
 };
 
 static int looks_like_car_member(deark *c, i64 pos)
@@ -1715,9 +1722,8 @@ static int do_car_member(deark *c, struct car_ctx *d, struct car_member_data *md
 	dbuf_writebyte(d->hdr_tmp, 77); // OS ID = 'M' = MS-DOS
 
 	// Recalculate checksum
-	dbuf_buffered_read(d->hdr_tmp, 2, lev1_base_header_size, cksum_cbfn,
-		(void*)&md->hdr_checksum_calc);
-	de_dbg(c, "header checksum (calculated): 0x%02x", md->hdr_checksum_calc);
+	md->hdr_checksum_calc = lha_calc_checksum(d->hdr_tmp, 2, lev1_base_header_size, d->crco_cksum);
+	de_dbg(c, "header checksum (calculated): 0x%02x", (UI)md->hdr_checksum_calc);
 	dbuf_writebyte_at(d->hdr_tmp, 1, (u8)md->hdr_checksum_calc);
 	dbuf_truncate(d->hdr_tmp, 2+lev1_base_header_size);
 
@@ -1747,6 +1753,7 @@ static void de_run_car_lha(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
+	d->crco_cksum = de_crcobj_create(c, DE_CRCOBJ_SUM_BYTES);
 	d->lha_outf = dbuf_create_output_file(c, "lha", NULL, 0);
 	d->hdr_tmp = dbuf_create_membuf(c, 0, 0);
 
@@ -1771,6 +1778,7 @@ done:
 	de_free(c, md);
 	if(d) {
 		if(d->lha_outf) {
+			de_crcobj_destroy(d->crco_cksum);
 			dbuf_close(d->lha_outf);
 			if(!ok) {
 				de_err(c, "Conversion to LHA format failed");
@@ -1808,12 +1816,14 @@ struct arx_member_data {
 	i64 unc_data_len;
 	int is_uncompressed;
 	u32 crc_calc;
+	u32 hdr_checksum_calc;
 };
 
 struct arx_ctx {
 	dbuf *hdr_tmp;
 	dbuf *lha_outf;
 	struct de_crcobj *crco;
+	struct de_crcobj *crco_cksum;
 };
 
 static int looks_like_arx_member(deark *c, i64 pos)
@@ -1866,7 +1876,6 @@ static int do_arx_member(deark *c, struct arx_ctx *d, struct arx_member_data *md
 {
 	i64 lev0_header_size;
 	i64 pos1 = md->member_pos;
-	UI hdr_checksum_calc = 0;
 	u8 extra_crc_byte;
 	int retval = 0;
 	int saved_indent_level;
@@ -1929,10 +1938,10 @@ static int do_arx_member(deark *c, struct arx_ctx *d, struct arx_member_data *md
 	}
 
 	// Recalculate header checksum
-	dbuf_buffered_read(d->hdr_tmp, 2, lev0_header_size, cksum_cbfn,
-		(void*)&hdr_checksum_calc);
-	de_dbg(c, "header checksum (calculated): 0x%02x", hdr_checksum_calc);
-	dbuf_writebyte_at(d->hdr_tmp, 1, (u8)hdr_checksum_calc);
+	md->hdr_checksum_calc = lha_calc_checksum(d->hdr_tmp, 2, lev0_header_size,
+		d->crco_cksum);
+	de_dbg(c, "header checksum (calculated): 0x%02x", (UI)md->hdr_checksum_calc);
+	dbuf_writebyte_at(d->hdr_tmp, 1, (u8)md->hdr_checksum_calc);
 	dbuf_truncate(d->hdr_tmp, 2+lev0_header_size);
 
 	// Write everything out
@@ -1962,6 +1971,7 @@ static void de_run_arx(deark *c, de_module_params *mparams)
 	}
 
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
+	d->crco_cksum = de_crcobj_create(c, DE_CRCOBJ_SUM_BYTES);
 	d->lha_outf = dbuf_create_output_file(c, "lha", NULL, 0);
 	d->hdr_tmp = dbuf_create_membuf(c, 0, 0);
 
@@ -1993,6 +2003,7 @@ done:
 		}
 		dbuf_close(d->hdr_tmp);
 		de_crcobj_destroy(d->crco);
+		de_crcobj_destroy(d->crco_cksum);
 		de_free(c, d);
 	}
 }

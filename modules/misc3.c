@@ -24,29 +24,6 @@ DE_DECLARE_MODULE(de_module_ain);
 DE_DECLARE_MODULE(de_module_hta);
 DE_DECLARE_MODULE(de_module_hit);
 
-static int sum_of_bytes_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
-	i64 buf_len)
-{
-	UI *pchk = (UI*)brctx->userdata;
-	i64 i;
-
-	for(i=0; i<buf_len; i++) {
-		*pchk += (UI)buf[i];
-	}
-	return 1;
-}
-
-static UI calc_sum_of_bytes(dbuf *f, i64 pos, i64 len)
-{
-	UI x = 0;
-
-	if(pos + len > f->len) {
-		len = f->len - pos;
-	}
-	dbuf_buffered_read(f, pos, len, sum_of_bytes_cbfn, (void*)&x);
-	return x;
-}
-
 static int dclimplode_header_at(deark *c, i64 pos)
 {
 	u8 b;
@@ -2225,7 +2202,7 @@ void de_module_lif_kdc(deark *c, struct deark_module_info *mi)
 
 static void ain_calc_hdr_checksum(deark *c, UI *pchksum)
 {
-	*pchksum = calc_sum_of_bytes(c->infile, 0, 22);
+	*pchksum = (UI)de_calccrc_oneshot(c->infile, 0, 22, DE_CRCOBJ_SUM_BYTES);
 	// No need to mod 2^16 here, since the max possible sum is much less than 2^16.
 	*pchksum ^= 0x5555;
 }
@@ -2277,7 +2254,8 @@ static void do_ain_main(deark *c, de_arch_lctx *d)
 
 	member_hdrs_checksum_reported = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "member hdrs checksum (reported): 0x%04x", member_hdrs_checksum_reported);
-	member_hdrs_checksum_calc = calc_sum_of_bytes(c->infile, member_hdrs_pos, member_hdrs_len);
+	member_hdrs_checksum_calc = (UI)de_calccrc_oneshot(c->infile, member_hdrs_pos,
+		member_hdrs_len, DE_CRCOBJ_SUM_BYTES);
 	member_hdrs_checksum_calc &= 0xffff;
 	de_dbg(c, "member hdrs checksum (calculated): 0x%04x", member_hdrs_checksum_calc);
 
@@ -2438,13 +2416,16 @@ void de_module_hta(deark *c, struct deark_module_info *mi)
 
 static UI hit_calc_hdr_checksum(struct de_arch_member_data *md)
 {
+	struct de_crcobj *crco = NULL;
 	UI x;
 
-	x = calc_sum_of_bytes(md->d->inf, md->member_hdr_pos, 2);
-	// (skip over the 1-byte checksum field)
-	x += calc_sum_of_bytes(md->d->inf, md->member_hdr_pos+3,
+	crco = de_crcobj_create(md->c, DE_CRCOBJ_SUM_BYTES);
+	de_crcobj_addslice(crco, md->d->inf, md->member_hdr_pos, 2);
+	de_crcobj_addslice(crco, md->d->inf, md->member_hdr_pos+3,
 		md->member_hdr_size-3);
+	x = de_crcobj_getval(crco);
 	x &= 0xff;
+	de_crcobj_destroy(crco);
 	return x;
 }
 

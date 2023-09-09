@@ -596,36 +596,18 @@ done:
 	;
 }
 
-static int checksum_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
-	i64 buf_len)
-{
-	lctx *d = (lctx*)brctx->userdata;
-	i64 i;
-
-	for(i=0; i<buf_len; i++) {
-		i64 pos = brctx->offset + i;
-
-		if(pos==18 || pos==19) {
-			continue; // Don't include the checksum field
-		}
-
-		if(pos&0x1) { // a high byte
-			d->checksum_calc += (UI)buf[i] * 256;
-		}
-		else { // a low byte
-			d->checksum_calc += (UI)buf[i];
-		}
-	}
-
-	d->checksum_calc &= 0xffff;
-	return 1;
-}
-
 static void do_checksum(deark *c, lctx *d)
 {
-	dbuf_buffered_read(c->infile, 0, c->infile->len, checksum_cbfn, (void*)d);
+	struct de_crcobj *crco;
+
+	crco = de_crcobj_create(c, DE_CRCOBJ_SUM_U16LE);
+	de_crcobj_addslice(crco, c->infile, 0, 18);
+	de_crcobj_addslice(crco, c->infile, 20, c->infile->len-20);
+	d->checksum_calc = de_crcobj_getval(crco);
+	d->checksum_calc &= 0xffff;
 	d->checksum_calc ^= 0xffff;
 	de_dbg(c, "checksum (calculated): 0x%04x", d->checksum_calc);
+	de_crcobj_destroy(crco);
 }
 
 // Returns 0 only if this is not an EXE file.

@@ -83,6 +83,7 @@ struct dmsctx {
 	i64 first_track, last_track;
 	i64 num_tracks_in_file;
 	u8 have_first_last_track_info;
+	struct de_crcobj *crco_cksum;
 
 	// Entries in use: 0 <= n < .num_tracks_in_file
 	struct dms_tracks_by_file_order_entry tracks_by_file_order[DMS_MAX_TRACKS];
@@ -1157,24 +1158,14 @@ done:
 	return retval;
 }
 
-static int dms_checksum_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
-	i64 buf_len)
+// f is presumed to be membuf containing one track, and nothing else.
+static u32 dms_calc_checksum(deark *c, struct dmsctx *d, dbuf *f)
 {
-	u32 *cksum = (u32*)brctx->userdata;
-	i64 i;
+	u32 cksum;
 
-	for(i=0; i<buf_len; i++) {
-		*cksum += (u32)buf[i];
-	}
-	return 1;
-}
-
-// outf is presumed to be membuf containing one track, and nothing else.
-static u32 dms_calc_checksum(deark *c, dbuf *outf)
-{
-	u32 cksum = 0;
-
-	dbuf_buffered_read(outf, 0, outf->len, dms_checksum_cbfn, (void*)&cksum);
+	de_crcobj_reset(d->crco_cksum);
+	de_crcobj_addslice(d->crco_cksum, f, 0, f->len);
+	cksum = de_crcobj_getval(d->crco_cksum);
 	cksum &= 0xffff;
 	return cksum;
 }
@@ -1255,7 +1246,7 @@ static int dms_read_and_decompress_track(deark *c, struct dmsctx *d,
 	if(!dms_decompress_track(c, d, tri, outf)) goto done;
 	de_dbg_indent(c, -1);
 
-	tri->cksum_calc = dms_calc_checksum(c, outf);
+	tri->cksum_calc = dms_calc_checksum(c, d, outf);
 	de_dbg(c, "checksum (calculated): 0x%04x", (UI)tri->cksum_calc);
 	if(tri->cksum_calc != tri->cksum_reported) {
 		de_err(c, "[%s] Checksum check failed", tri->shortname);
@@ -1508,6 +1499,7 @@ static void de_run_amiga_dms(deark *c, de_module_params *mparams)
 	struct dmsctx *d = NULL;
 
 	d = de_malloc(c, sizeof(struct dmsctx));
+	d->crco_cksum = de_crcobj_create(c, DE_CRCOBJ_SUM_BYTES);
 	if(!do_dms_header(c, d, 0)) goto done;
 	if(!dms_scan_file(c, d, DMS_FILE_HDR_LEN)) goto done;
 	do_dms_main(c, d);
@@ -1515,6 +1507,7 @@ static void de_run_amiga_dms(deark *c, de_module_params *mparams)
 done:
 	if(d) {
 		destroy_saved_dcrmpr_state(c, d);
+		de_crcobj_destroy(d->crco_cksum);
 		de_free(c, d);
 	}
 }

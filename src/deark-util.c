@@ -1915,7 +1915,8 @@ int de_inthashtable_remove_any_item(deark *c, struct de_inthashtable *ht, i64 *p
 
 struct de_crcobj {
 	u32 val;
-	unsigned int crctype;
+	UI crctype;
+	UI align;
 	deark *c;
 	u16 *table16;
 };
@@ -2000,6 +2001,30 @@ static void de_crc16xmodem_continue(struct de_crcobj *crco, const u8 *buf, i64 b
 	}
 }
 
+static void cksum_bytes_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
+{
+	i64 k;
+
+	for(k=0; k<buf_len; k++) {
+		crco->val += (u32)buf[k];
+	}
+}
+
+static void cksum_u16_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
+{
+	i64 k;
+
+	for(k=0; k<buf_len; k++) {
+		if(crco->align) {
+			crco->val += (u32)buf[k] << 8;
+		}
+		else {
+			crco->val += (u32)buf[k];
+		}
+		crco->align = !crco->align;
+	}
+}
+
 static void de_crc16arc_init(struct de_crcobj *crco, u16 poly)
 {
 	u32 i, k;
@@ -2079,6 +2104,12 @@ void de_crcobj_reset(struct de_crcobj *crco)
 	case DE_CRCOBJ_CRC16_IBMSDLC:
 		crco->val = 0xffff;
 		break;
+	case DE_CRCOBJ_SUM_U16LE:
+		crco->align = 0;
+		break;
+	case DE_CRCOBJ_SUM_U16BE:
+		crco->align = 1;
+		break;
 	}
 }
 
@@ -2109,17 +2140,28 @@ void de_crcobj_addbuf(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
 	case DE_CRCOBJ_ADLER32:
 		adler32_continue(crco, buf, buf_len);
 		break;
+	case DE_CRCOBJ_SUM_BYTES:
+		cksum_bytes_continue(crco, buf, buf_len);
+		break;
+	case DE_CRCOBJ_SUM_U16LE:
+	case DE_CRCOBJ_SUM_U16BE:
+		cksum_u16_continue(crco, buf, buf_len);
+		break;
+	}
+}
+
+void de_crcobj_addrun(struct de_crcobj *crco, u8 v, i64 len)
+{
+	i64 i;
+
+	for(i=0; i<len; i++) {
+		de_crcobj_addbuf(crco, &v, 1);
 	}
 }
 
 void de_crcobj_addzeroes(struct de_crcobj *crco, i64 len)
 {
-	i64 i;
-	const u8 z = 0;
-
-	for(i=0; i<len; i++) {
-		de_crcobj_addbuf(crco, &z, 1);
-	}
+	de_crcobj_addrun(crco, 0, len);
 }
 
 static int addslice_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
@@ -2132,6 +2174,18 @@ static int addslice_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 void de_crcobj_addslice(struct de_crcobj *crco, dbuf *f, i64 pos, i64 len)
 {
 	dbuf_buffered_read(f, pos, len, addslice_cbfn, (void*)crco);
+}
+
+u32 de_calccrc_oneshot(dbuf *f, i64 pos, i64 len, UI type_and_flags)
+{
+	struct de_crcobj *crco;
+	u32 val;
+
+	crco = de_crcobj_create(f->c, type_and_flags);
+	de_crcobj_addslice(crco, f, pos, len);
+	val = de_crcobj_getval(crco);
+	de_crcobj_destroy(crco);
+	return val;
 }
 
 void de_get_reproducible_timestamp(deark *c, struct de_timestamp *ts)

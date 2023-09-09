@@ -33,6 +33,7 @@ struct tar_md {
 struct tar_ctx {
 	const char *tar_filename;
 	dbuf *outf;
+	struct de_crcobj *crco_cksum;
 	i64 checksum_calc; // for temporary use
 
 	// Data associated with current member file
@@ -94,6 +95,7 @@ void de_tar_close_file(deark *c)
 	if(tctx->outf) {
 		dbuf_write_zeroes(tctx->outf, 512*2);
 		dbuf_close(tctx->outf);
+		de_crcobj_destroy(tctx->crco_cksum);
 	}
 	destroy_md(c, tctx->md);
 	de_free(c, tctx);
@@ -287,20 +289,20 @@ static int format_ascii_octal_field(deark *c, struct tar_ctx *tctx,
 	return 1;
 }
 
-static int cksum_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
-	i64 buf_len)
+// Sets tctx->checksum_calc
+static void calc_checksum(deark *c, struct tar_ctx *tctx, dbuf *f)
 {
-	struct tar_ctx *tctx = (struct tar_ctx*)brctx->userdata;
-	i64 i;
-
-	for(i=0; i<buf_len; i++) {
-		if((brctx->offset+i) >=148 && (brctx->offset+i)<156)
-			tctx->checksum_calc += 32; // (The checksum field itself)
-		else
-			tctx->checksum_calc += (i64)buf[i];
+	if(!tctx->crco_cksum) {
+		tctx->crco_cksum = de_crcobj_create(c, DE_CRCOBJ_SUM_BYTES);
+	}
+	else {
+		de_crcobj_reset(tctx->crco_cksum);
 	}
 
-	return 1;
+	de_crcobj_addslice(tctx->crco_cksum, f, 0, 148);
+	de_crcobj_addrun(tctx->crco_cksum, 32, 8); // (The checksum field itself)
+	de_crcobj_addslice(tctx->crco_cksum, f, 156, 512-156);
+	tctx->checksum_calc = (i64)de_crcobj_getval(tctx->crco_cksum);
 }
 
 // Set the checksum field for the header starting at 'pos'.
@@ -309,9 +311,7 @@ static void set_checksum_field(deark *c, struct tar_ctx *tctx,
 {
 	u8 buf[8];
 
-	tctx->checksum_calc = 0;
-	dbuf_buffered_read(hdr, 0, 512, cksum_cbfn, (void*)tctx);
-
+	calc_checksum(c, tctx, hdr);
 	format_ascii_octal_field(c, tctx, tctx->checksum_calc, buf, 7);
 	buf[6] = 0x00;
 	buf[7] = 0x20;

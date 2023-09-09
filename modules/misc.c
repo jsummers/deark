@@ -400,6 +400,8 @@ static int crc_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 	de_crcobj_addbuf(crcctx->crco_32ieee, buf, buf_len);
 	de_crcobj_addbuf(crcctx->crco_16arc, buf, buf_len);
 	de_crcobj_addbuf(crcctx->crco_16xmodem, buf, buf_len);
+	// We could use crcobj for these checksums, but unfortunately that would
+	// limit them to 32 bits, instead of 64.
 	for(i=0; i<buf_len; i++) {
 		crcctx->sum_of_bytes += buf[i];
 		if(crcctx->parity) {
