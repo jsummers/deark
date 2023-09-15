@@ -11,12 +11,18 @@
 #endif
 #define DEARK_CONFIG_H_INC
 
-#if !defined(DE_WINDOWS) && !defined(DE_UNIX)
+#if !defined(DE_WINDOWS) && !defined(DE_UNIX) && !defined(DE_AMIGA)
 #ifdef _WIN32
 #define DE_WINDOWS
+#elif defined(__amigaos4__) || defined(AMIGA)
+#define DE_AMIGA
 #else
 #define DE_UNIX
 #endif
+#endif
+
+#ifdef DE_AMIGA
+#define DE_UNIX // Amiga uses the UNIX code in most instances
 #endif
 
 #ifdef DE_WINDOWS

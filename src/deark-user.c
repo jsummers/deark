@@ -607,6 +607,9 @@ static int is_pathsep(i32 ch)
 #ifdef DE_WINDOWS
 	if(ch=='\\') return 1;
 #endif
+#ifdef DE_AMIGA
+	if(ch==':') return 1;
+#endif
 	return 0;
 }
 
