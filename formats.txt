@@ -724,6 +724,9 @@ Deark -- Information about supported formats
 * BinHex (.hqx) (module="binhex")
   - Extract data and resource forks to separate files.
 
+* BinSCII (.bsc) (module="binscii")
+  - May need to use "-m binscii" in some cases.
+
 * CAB (Microsoft Cabinet) (module="cab")
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.

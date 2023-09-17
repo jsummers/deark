@@ -40,6 +40,8 @@ $(OBJDIR)/modules/basic-c64.o: modules/basic-c64.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/binhex.o: modules/binhex.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/binscii.o: modules/binscii.c src/deark-private.h \
+ src/deark.h src/deark-config.h
 $(OBJDIR)/modules/bintext.o: modules/bintext.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/bmff.o: modules/bmff.c src/deark-config.h \

@@ -189,6 +189,7 @@
     <ClCompile Include="..\..\modules\awbm.c" />
     <ClCompile Include="..\..\modules\basic-c64.c" />
     <ClCompile Include="..\..\modules\binhex.c" />
+    <ClCompile Include="..\..\modules\binscii.c" />
     <ClCompile Include="..\..\modules\bintext.c" />
     <ClCompile Include="..\..\modules\bmff.c" />
     <ClCompile Include="..\..\modules\bmi.c" />

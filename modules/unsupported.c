@@ -142,6 +142,18 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
+	if(!de_memcmp(b, (const void*)"\x4e\xf5\x46\xe9\x6c\xe5", 6)) {
+		fmti->confidence = 90;
+		fmti->descr = "NuFX";
+		return;
+	}
+
+	if(!de_memcmp(b, (const void*)"\x0a\x47\x4c", 3)) {
+		fmti->confidence = 3;
+		fmti->descr = "Binary II";
+		return;
+	}
+
 	// We're not trying to detect every HTML file, but we want to make sure
 	// we can detect the ones we generate.
 	if(!de_memcmp(b, "<!DOCTYPE html", 14) ||
