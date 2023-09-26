@@ -42,7 +42,6 @@ typedef struct localctx_struct {
 	i64 end_of_dos_code;
 	i64 ext_header_offset;
 	UI checksum_reported;
-	UI checksum_calc;
 
 	i64 ne_rsrc_tbl_offset;
 	unsigned int ne_align_shift;
@@ -598,15 +597,36 @@ done:
 
 static void do_checksum(deark *c, lctx *d)
 {
-	struct de_crcobj *crco;
+	struct de_crcobj *crco = NULL;
+	UI checksum_calc1;
+	UI checksum_calc2;
+
+	if(d->end_of_dos_code>c->infile->len) goto done;
 
 	crco = de_crcobj_create(c, DE_CRCOBJ_SUM_U16LE);
 	de_crcobj_addslice(crco, c->infile, 0, 18);
-	de_crcobj_addslice(crco, c->infile, 20, c->infile->len-20);
-	d->checksum_calc = de_crcobj_getval(crco);
-	d->checksum_calc &= 0xffff;
-	d->checksum_calc ^= 0xffff;
-	de_dbg(c, "checksum (calculated): 0x%04x", d->checksum_calc);
+	de_crcobj_addslice(crco, c->infile, 20, d->end_of_dos_code-20);
+
+	checksum_calc1 = de_crcobj_getval(crco);
+	checksum_calc1 &= 0xffff;
+	checksum_calc1 ^= 0xffff;
+
+	// I don't know if the overlay is supposed to be included in the checksummed
+	// bytes (best guess is no). But some EXE files do it one way, and some do
+	// it the other way, and that's reason enough to calculate it both ways.
+
+	de_crcobj_addslice(crco, c->infile, d->end_of_dos_code,
+		c->infile->len - d->end_of_dos_code);
+	checksum_calc2 = de_crcobj_getval(crco);
+	checksum_calc2 &= 0xffff;
+	checksum_calc2 ^= 0xffff;
+
+	de_dbg(c, "checksum (calculated): 0x%04x", checksum_calc1);
+	if(checksum_calc2 != checksum_calc1) {
+		de_dbg(c, "checksum (calculated, including overlay): 0x%04x", checksum_calc2);
+	}
+
+done:
 	de_crcobj_destroy(crco);
 }
 
@@ -653,6 +673,11 @@ static int do_fileheader(deark *c, lctx *d, i64 pos1)
 	}
 	de_dbg(c, "num blocks: %u", (UI)nblocks);
 
+	d->end_of_dos_code = nblocks*512;
+	if(lfb>=1 && lfb<=511) {
+		d->end_of_dos_code = d->end_of_dos_code - 512 + lfb;
+	}
+
 	d->num_relocs = de_getu16le_p(&pos);
 	de_dbg(c, "num reloc table entries: %u", (UI)d->num_relocs);
 	n = de_getu16le_p(&pos);
@@ -686,11 +711,6 @@ static int do_fileheader(deark *c, lctx *d, i64 pos1)
 
 	n = de_getu16le_p(&pos);
 	de_dbg(c, "overlay indicator: %u", (UI)n);
-
-	d->end_of_dos_code = nblocks*512;
-	if(lfb>=1 && lfb<=511) {
-		d->end_of_dos_code = d->end_of_dos_code - 512 + lfb;
-	}
 
 	de_dbg(c, "DOS executable code: start=%"I64_FMT", len=%"I64_FMT", end=%"I64_FMT"",
 		d->file_hdr_size, d->end_of_dos_code-d->file_hdr_size, d->end_of_dos_code);
