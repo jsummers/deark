@@ -134,6 +134,7 @@ struct de_timestamp {
 	// for 0 (UNKNOWN).
 #define DE_TSPREC_UNKNOWN 0 // default, usually treated as 1sec
 #define DE_TSPREC_1DAY 10
+#define DE_TSPREC_1MIN 15
 #define DE_TSPREC_2SEC 20
 #define DE_TSPREC_1SEC 30
 #define DE_TSPREC_HIGH 40 // = better than 1 second
@@ -1134,6 +1135,8 @@ int de_inthashtable_remove_any_item(deark *c, struct de_inthashtable *ht, i64 *p
 #define DE_CRCOBJ_SUM_BYTES    0x30
 #define DE_CRCOBJ_SUM_U16LE    0x31
 #define DE_CRCOBJ_SUM_U16BE    0x32
+#define DE_CRCOBJ_SUM_U32LE    0x33
+#define DE_CRCOBJ_SUM_U32BE    0x34
 
 struct de_crcobj *de_crcobj_create(deark *c, UI type_and_flags);
 void de_crcobj_destroy(struct de_crcobj *crco);

@@ -66,8 +66,6 @@ struct binscii_ctx  {
 	struct binscii_segment cur_seg;
 };
 
-#define DE_TSPREC_1MINUTE 15
-
 static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *name)
 {
 	char timestamp_buf[64];
@@ -94,7 +92,7 @@ static void de_prodos_datetime_to_timestamp(struct de_timestamp *ts,
 	mi = (dtime&0x003f);
 	se = 0;
 	de_make_timestamp(ts, yr, mo, da, hr, mi, se);
-	ts->precision = DE_TSPREC_1MINUTE;
+	ts->precision = DE_TSPREC_1MIN;
 }
 
 static void binscii_set_generic_error(deark *c, struct binscii_ctx *d)
