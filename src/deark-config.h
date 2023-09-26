@@ -40,6 +40,12 @@
 
 #ifdef DE_UNIX
 
+#if defined(__amigaos4__) || defined(AMIGA)
+#ifndef DE_BUILDFLAG_AMIGA
+#define DE_BUILDFLAG_AMIGA 1
+#endif
+#endif
+
 #ifndef DE_USE_FSEEKO
 #define DE_USE_FSEEKO 1
 #endif

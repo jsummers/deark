@@ -601,7 +601,7 @@ void de_set_fatalerror_callback(deark *c, de_fatalerrorfn_type fn)
 	c->fatalerrorfn = fn;
 }
 
-static int is_pathsep(i32 ch)
+static int is_pathsep(de_rune ch)
 {
 	if(ch=='/') return 1;
 #ifdef DE_WINDOWS
@@ -629,7 +629,7 @@ static const char *get_basename_ptr(const char *fn)
 	return basenameptr;
 }
 
-static i32 ucstring_char_at(de_ucstring *s, i64 pos)
+static de_rune ucstring_char_at(de_ucstring *s, i64 pos)
 {
 	if(!s) return 0;
 	if(pos>=0 && pos<s->len) return s->str[pos];
@@ -648,6 +648,45 @@ static void backslashes_to_slashes(de_ucstring *s)
 	}
 }
 #endif
+
+#ifdef DE_WINDOWS
+static int is_alpha_char(de_rune x)
+{
+	return (x>='A' && x<='Z') || (x>='a' && x<='z');
+}
+#endif
+
+static void append_pathsep_if_needed(de_ucstring *s)
+{
+	de_rune lastchar;
+
+	if(s->len<1) return;
+
+	lastchar = ucstring_char_at(s, s->len-1);
+
+#ifdef DE_WINDOWS
+	if(s->len==2 && lastchar==':' &&
+		is_alpha_char(ucstring_char_at(s, 0)))
+	{
+		// This is arguable, but we won't append a backslash to Windows
+		// paths like "D:", so output files will go to the that drive's
+		// own "current directory".
+		return;
+	}
+#endif
+
+#if DE_BUILDFLAG_AMIGA
+	if(lastchar==':') {
+		// Assuming this is a device name, so putting a "/" after it is not
+		// allowed.
+		return;
+	}
+#endif
+
+	if(!is_pathsep(lastchar)) {
+		ucstring_append_char(s, DE_PATHSEP);
+	}
+}
 
 // Construct a basename for output files, or a filename for archives.
 // flags:
@@ -669,9 +708,7 @@ static char *make_output_filename(deark *c, const char *dirname, const char *fn,
 
 	if(dirname && dirname[0]) {
 		ucstring_append_sz(tmps, dirname, DE_ENCODING_UTF8);
-		if(!is_pathsep(ucstring_char_at(tmps, tmps->len-1))) {
-			ucstring_append_char(tmps, DE_PATHSEP);
-		}
+		append_pathsep_if_needed(tmps);
 	}
 
 	fnpartpos = tmps->len;
