@@ -669,7 +669,7 @@ static void append_pathsep_if_needed(de_ucstring *s)
 		is_alpha_char(ucstring_char_at(s, 0)))
 	{
 		// This is arguable, but we won't append a backslash to Windows
-		// paths like "D:", so output files will go to the that drive's
+		// paths like "D:", so output files will go to that drive's
 		// own "current directory".
 		return;
 	}
