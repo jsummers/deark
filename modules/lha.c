@@ -54,6 +54,11 @@ DE_DECLARE_MODULE(de_module_lharc_sfx_com);
 #define CODE_sw0 0x2d737730U
 #define CODE_sw1 0x2d737731U
 
+enum lha_basefmt_enum {
+	BASEFMT_LHA = 0,  // LHarc/LHA and other formats that are parsed the same
+	BASEFMT_SWG
+};
+
 #define TIMESTAMPIDX_INVALID (-1)
 struct timestamp_data {
 	struct de_timestamp ts; // The best timestamp of this type found so far
@@ -94,8 +99,8 @@ typedef struct localctx_struct {
 	de_encoding input_encoding;
 	int lhark_policy; // -1=detect, 0=no, 1=yes
 	int lhark_req;
+	enum lha_basefmt_enum basefmt;
 	u8 hlev_of_first_member;
-	u8 swg_fmt;
 	u8 lh7_success_flag; // currently unused
 	u8 lh7_failed_flag; // currently unused
 	u8 trailer_found;
@@ -539,16 +544,16 @@ static void do_read_ext_header(deark *c, lctx *d, struct member_data *md,
 
 	if(dlen<1) return; // Invalid header, too short to even have an id field
 
+	de_dbg_indent(c, 1);
 	if(e && e->decoder_fn) {
-		de_dbg_indent(c, 1);
 		e->decoder_fn(c, d, md, id, e, pos1+1, dlen-1);
-		de_dbg_indent(c, -1);
 	}
 	else {
 		if(c->debug_level>=2) {
 			de_dbg_hexdump(c, c->infile, pos1+1, dlen-1, 256, NULL, 0x1);
 		}
 	}
+	de_dbg_indent(c, -1);
 }
 
 static const char *get_os_name(u8 id)
@@ -885,7 +890,8 @@ static void decompress_lz5(deark *c, lctx *d, struct member_data *md,
 }
 
 struct cmpr_meth_array_item {
-	unsigned int flags;
+	enum lha_basefmt_enum basefmt;
+	u8 flags;
 	u32 uniq_id;
 	const char *descr;
 	decompressor_fn decompressor;
@@ -895,36 +901,38 @@ struct cmpr_meth_array_item {
 // listed here, but note that it is also possible for get_cmpr_meth_info()
 // to handle them procedurally.
 static const struct cmpr_meth_array_item cmpr_meth_arr[] = {
-	{ 0x00, CODE_lhd, "directory", NULL },
-	{ 0x00, CODE_lh0, "uncompressed", decompress_uncompressed },
-	{ 0x00, CODE_lh1, "LZ77-4K, adaptive Huffman", decompress_lh1 },
-	{ 0x00, CODE_lh4, "LZ77-4K, static Huffman", decompress_lh5x_auto },
-	{ 0x00, CODE_lh5, "LZ77-8K, static Huffman", decompress_lh5 },
-	{ 0x00, CODE_lh6, "LZ77-32K, static Huffman", decompress_lh5x_auto },
-	{ 0x00, CODE_lh7, NULL, decompress_lh5x_auto },
-	{ 0x00, CODE_lh8, NULL, decompress_lh5x_auto },
-	{ 0x00, CODE_lz4, "uncompressed (LArc)", decompress_uncompressed },
-	{ 0x00, CODE_lz5, "LZSS-4K (LArc)", decompress_lz5 },
-	{ 0x00, CODE_pm0, "uncompressed (PMArc)", decompress_uncompressed },
-	{ 0x00, CODE_lZ0, "uncompressed (MicroFox PUT)", decompress_uncompressed },
-	{ 0x00, CODE_lZ1, "MicroFox PUT lZ1", decompress_lh1 },
-	{ 0x00, CODE_lZ5, "MicroFox PUT lZ5", decompress_lh5 },
-	{ 0x00, CODE_S_LH0, "uncompressed (SAR)", decompress_uncompressed },
-	{ 0x00, CODE_S_LH5, "SAR LH5", decompress_lh5 },
-	{ 0x00, CODE_sw0, NULL, decompress_uncompressed },
-	{ 0x00, CODE_sw1, NULL, NULL }
+	{ BASEFMT_LHA, 0x00, CODE_lhd, "directory", NULL },
+	{ BASEFMT_LHA, 0x00, CODE_lh0, "uncompressed", decompress_uncompressed },
+	{ BASEFMT_LHA, 0x00, CODE_lh1, "LZ77-4K, adaptive Huffman", decompress_lh1 },
+	{ BASEFMT_LHA, 0x00, CODE_lh4, "LZ77-4K, static Huffman", decompress_lh5x_auto },
+	{ BASEFMT_LHA, 0x00, CODE_lh5, "LZ77-8K, static Huffman", decompress_lh5 },
+	{ BASEFMT_LHA, 0x00, CODE_lh6, "LZ77-32K, static Huffman", decompress_lh5x_auto },
+	{ BASEFMT_LHA, 0x00, CODE_lh7, NULL, decompress_lh5x_auto },
+	{ BASEFMT_LHA, 0x00, CODE_lh8, NULL, decompress_lh5x_auto },
+	{ BASEFMT_LHA, 0x00, CODE_lz4, "uncompressed (LArc)", decompress_uncompressed },
+	{ BASEFMT_LHA, 0x00, CODE_lz5, "LZSS-4K (LArc)", decompress_lz5 },
+	{ BASEFMT_LHA, 0x00, CODE_pm0, "uncompressed (PMArc)", decompress_uncompressed },
+	{ BASEFMT_LHA, 0x00, CODE_lZ0, "uncompressed (MicroFox PUT)", decompress_uncompressed },
+	{ BASEFMT_LHA, 0x00, CODE_lZ1, "MicroFox PUT lZ1", decompress_lh1 },
+	{ BASEFMT_LHA, 0x00, CODE_lZ5, "MicroFox PUT lZ5", decompress_lh5 },
+	{ BASEFMT_LHA, 0x00, CODE_S_LH0, "uncompressed (SAR)", decompress_uncompressed },
+	{ BASEFMT_LHA, 0x00, CODE_S_LH5, "SAR LH5", decompress_lh5 },
+	{ BASEFMT_SWG, 0x00, CODE_sw0, "uncompressed", decompress_uncompressed },
+	{ BASEFMT_SWG, 0x00, CODE_sw1, NULL, NULL }
 };
 
+// For basefmt==BASEFMT_LHA only
 static const u32 other_known_cmpr_methods[] = {
 	CODE_ah0, CODE_ari, CODE_hf0,
-	CODE_lh2, CODE_lh3, CODE_lh4, CODE_lh7, CODE_lh8, CODE_lh9,
+	CODE_lh2, CODE_lh3, CODE_lh9,
 	CODE_lha, CODE_lhb, CODE_lhc, CODE_lhe, CODE_lhx, CODE_lx1,
 	CODE_lz2, CODE_lz3, CODE_lz7, CODE_lz8, CODE_lzs,
 	CODE_pm1, CODE_pm2 };
 
 // Only call this after is_possible_cmpr_meth() return nonzero.
 // Caller allocates cmi, and initializes to zeroes.
-static void get_cmpr_meth_info(const u8 idbuf[5], struct cmpr_meth_info *cmi)
+static void get_cmpr_meth_info(const u8 idbuf[5], enum lha_basefmt_enum basefmt,
+	struct cmpr_meth_info *cmi)
 {
 	size_t k;
 	const struct cmpr_meth_array_item *cmai = NULL;
@@ -939,6 +947,7 @@ static void get_cmpr_meth_info(const u8 idbuf[5], struct cmpr_meth_info *cmi)
 	cmi->id_printable_sz[5] = '\0';
 
 	for(k=0; k<DE_ARRAYCOUNT(cmpr_meth_arr); k++) {
+		if(cmpr_meth_arr[k].basefmt != basefmt) continue;
 		if(cmpr_meth_arr[k].uniq_id == cmi->uniq_id) {
 			cmai = &cmpr_meth_arr[k];
 			break;
@@ -949,7 +958,7 @@ static void get_cmpr_meth_info(const u8 idbuf[5], struct cmpr_meth_info *cmi)
 		cmi->is_recognized = 1;
 		cmi->decompressor = cmai->decompressor;
 	}
-	else {
+	else if(basefmt==BASEFMT_LHA) {
 		for(k=0; k<DE_ARRAYCOUNT(other_known_cmpr_methods); k++) {
 			if(other_known_cmpr_methods[k] == cmi->uniq_id) {
 				cmi->is_recognized = 1;
@@ -1127,7 +1136,7 @@ static enum lha_whats_next_enum lha_classify_whats_next(deark *c, lctx *d, i64 p
 	if(b[0]==0 && len<=2) return LHA_WN_TRAILER;
 	if(b[0]==0 && len<21) return LHA_WN_TRAILER_AND_JUNK;
 	de_read(&b[1], pos+1, sizeof(b)-1);
-	if(d->swg_fmt) hlev = 0;
+	if(d->basefmt==BASEFMT_SWG) hlev = 0;
 	else hlev = b[20];
 	if(b[0]==0 && b[1]==0) return LHA_WN_TRAILER_AND_JUNK;
 	if(b[0]==0 && hlev!=2) return LHA_WN_TRAILER_AND_JUNK;
@@ -1223,7 +1232,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 	// which happened to always be zero.
 	// In later LHA versions, it is overloaded to identify the header format
 	// version (called "header level" in LHA jargon).
-	if(d->swg_fmt) {
+	if(d->basefmt==BASEFMT_SWG) {
 		md->hlev = 0; // SWG is most similar to header level 0
 	}
 	else {
@@ -1279,7 +1288,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 
 	de_read(cmpr_meth_raw, pos, 5);
 	md->cmi = de_malloc(c, sizeof(struct cmpr_meth_info));
-	get_cmpr_meth_info(cmpr_meth_raw, md->cmi);
+	get_cmpr_meth_info(cmpr_meth_raw, d->basefmt, md->cmi);
 	de_dbg(c, "cmpr method: '%s' (%s)", md->cmi->id_printable_sz, md->cmi->descr);
 	pos+=5;
 
@@ -1345,7 +1354,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 		pos++; // header level, already handled
 	}
 
-	if(d->swg_fmt) {
+	if(d->basefmt==BASEFMT_SWG) {
 		do_special_swg_fields(c, d, md, pos);
 		pos += 165;
 	}
@@ -1489,7 +1498,7 @@ static void do_lha_footer(deark *c, lctx *d)
 	extra_bytes_len = c->infile->len - extra_bytes_pos;
 	if(extra_bytes_len<=1) goto done;
 
-	if(d->swg_fmt && extra_bytes_len==129) {
+	if(d->basefmt==BASEFMT_SWG && extra_bytes_len==129) {
 		do_swg_footer(c, d, extra_bytes_pos);
 		goto done;
 	}
@@ -1500,14 +1509,26 @@ done:
 	;
 }
 
-static void do_run_lha_internal(deark *c, de_module_params *mparams, int is_swg)
+static lctx *lha_create_lctx(deark *c)
 {
-	lctx *d = NULL;
-	i64 pos;
-	struct member_data *md = NULL;
+	lctx *d;
 
 	d = de_malloc(c, sizeof(lctx));
-	if(is_swg) d->swg_fmt = 1;
+	return d;
+}
+
+static void lha_destroy_lctx(deark *c, lctx *d)
+{
+	if(!d) return;
+	de_crcobj_destroy(d->crco);
+	de_crcobj_destroy(d->crco_cksum);
+	de_free(c, d);
+}
+
+static void do_run_lha_internal(deark *c, lctx *d, de_module_params *mparams)
+{
+	i64 pos;
+	struct member_data *md = NULL;
 
 	d->lhark_req = de_get_ext_option_bool(c, "lha:lhark", -1);
 	d->lhark_policy = d->lhark_req;
@@ -1539,18 +1560,17 @@ static void do_run_lha_internal(deark *c, de_module_params *mparams, int is_swg)
 
 done:
 	do_lha_footer(c, d);
-
 	destroy_member_data(c, md);
-	if(d) {
-		de_crcobj_destroy(d->crco);
-		de_crcobj_destroy(d->crco_cksum);
-		de_free(c, d);
-	}
 }
 
 static void de_run_lha(deark *c, de_module_params *mparams)
 {
-	do_run_lha_internal(c, mparams, 0);
+	lctx *d;
+
+	d = lha_create_lctx(c);
+	d->basefmt = BASEFMT_LHA;
+	do_run_lha_internal(c, d, mparams);
+	lha_destroy_lctx(c, d);
 }
 
 static int is_swg_sig(const u8 *b)
@@ -1588,7 +1608,7 @@ static int de_identify_lha(deark *c)
 	}
 
 	de_zeromem(&cmi, sizeof(struct cmpr_meth_info));
-	get_cmpr_meth_info(&b[2], &cmi);
+	get_cmpr_meth_info(&b[2], BASEFMT_LHA, &cmi);
 	if(!cmi.is_recognized) {
 		return 0;
 	}
@@ -1625,11 +1645,16 @@ void de_module_lha(deark *c, struct deark_module_info *mi)
 
 static void de_run_swg(deark *c, de_module_params *mparams)
 {
+	lctx *d;
+
+	d = lha_create_lctx(c);
+	d->basefmt = BASEFMT_SWG;
 	de_declare_fmt(c, "SWAG packet (LHA-like)");
 	// TODO?: Some diagnostic messages in the LHA module are hardcoded to
 	// say "LHA", which is likely to be confusing to uses who know this as
 	// SWG format.
-	do_run_lha_internal(c, mparams, 1);
+	do_run_lha_internal(c, d, mparams);
+	lha_destroy_lctx(c, d);
 }
 
 static int de_identify_swg(deark *c)
@@ -2079,7 +2104,7 @@ static int do_read_ar001_member(deark *c, lctx *d, struct member_data *md)
 	case 1: de_memcpy(cmpr_meth_raw, (const void*)"-lh4-", 5); break; // ...
 	}
 	md->cmi = de_malloc(c, sizeof(struct cmpr_meth_info));
-	get_cmpr_meth_info(cmpr_meth_raw, md->cmi);
+	get_cmpr_meth_info(cmpr_meth_raw, BASEFMT_LHA, md->cmi);
 	de_dbg(c, "cmpr method: %u (%s)", cmpr_method, md->cmi->descr);
 
 	pos += 1; // file type
@@ -2143,7 +2168,7 @@ static void de_run_ar001(deark *c, de_module_params *mparams)
 	i64 pos;
 	struct member_data *md = NULL;
 
-	d = de_malloc(c, sizeof(lctx));
+	d = lha_create_lctx(c);
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
 
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_IBMSDLC);
@@ -2167,10 +2192,7 @@ static void de_run_ar001(deark *c, de_module_params *mparams)
 
 done:
 	destroy_member_data(c, md);
-	if(d) {
-		de_crcobj_destroy(d->crco);
-		de_free(c, d);
-	}
+	lha_destroy_lctx(c, d);
 }
 
 static int slice_is_printable_ascii(dbuf *f, i64 pos, i64 len)
