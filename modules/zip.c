@@ -121,6 +121,35 @@ struct localctx_struct {
 typedef void (*extrafield_decoder_fn)(deark *c, lctx *d,
 	struct extra_item_info_struct *eii);
 
+// TODO? There are more fields that technically should use these Zip64
+// formatting functions, though it's rarely an issue.
+
+static char *format_int_with_zip64_override(lctx *d, i64 v, i64 specialval,
+	char *tmpbuf, size_t tmpbuf_len)
+{
+	static const char *g_zip64_override_msg = "[overridden by Zip64]";
+
+	if(d->is_zip64 && v==specialval) {
+		de_strlcpy(tmpbuf, g_zip64_override_msg, tmpbuf_len);
+	}
+	else {
+		de_snprintf(tmpbuf, tmpbuf_len, "%"I64_FMT, v);
+	}
+	return tmpbuf;
+}
+
+static char *format_u32_with_zip64_override(lctx *d, i64 v,
+	char *tmpbuf, size_t tmpbuf_len)
+{
+	return format_int_with_zip64_override(d, v, 0xffffffffLL, tmpbuf, tmpbuf_len);
+}
+
+static char *format_u16_with_zip64_override(lctx *d, i64 v,
+	char *tmpbuf, size_t tmpbuf_len)
+{
+	return format_int_with_zip64_override(d, v, 0xffff, tmpbuf, tmpbuf_len);
+}
+
 // (Timezone info and precision are ignored.)
 static int timestamps_are_valid_and_equal(const struct de_timestamp *ts1,
 	const struct de_timestamp *ts2)
@@ -461,7 +490,7 @@ static void ef_zip64extinfo(deark *c, lctx *d, struct extra_item_info_struct *ei
 
 	if(pos+8 > eii->dpos+eii->dlen) goto done;
 	n = de_geti64le(pos); pos += 8;
-	de_dbg(c, "offset of local header record: %"I64_FMT, n);
+	de_dbg(c, "offset of local header: %"I64_FMT, n);
 
 	if(pos+4 > eii->dpos+eii->dlen) goto done;
 	n = de_getu32le_p(&pos);
@@ -1321,7 +1350,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	struct dir_entry_data *dd; // Points to either md->central or md->local
 	de_ucstring *descr = NULL;
 	struct de_timestamp dos_timestamp;
-	char timestamp_buf[64];
+	char tmpsz[64];
 
 	pos = pos1;
 	descr = ucstring_create(c);
@@ -1383,17 +1412,19 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	mod_date_raw = de_getu16le_p(&pos);
 	de_dos_datetime_to_timestamp(&dos_timestamp, mod_date_raw, mod_time_raw);
 	dos_timestamp.tzcode = DE_TZCODE_LOCAL;
-	de_dbg_timestamp_to_string(c, &dos_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
-	de_dbg(c, "mod time: %s", timestamp_buf);
+	de_dbg_timestamp_to_string(c, &dos_timestamp, tmpsz, sizeof(tmpsz), 0);
+	de_dbg(c, "mod time: %s", tmpsz);
 	apply_timestamp(c, d, md, DE_TIMESTAMPIDX_MODIFY, &dos_timestamp, 10);
 
 	dd->crc_reported = (u32)de_getu32le_p(&pos);
 	de_dbg(c, "crc (reported): 0x%08x", (UI)dd->crc_reported);
 
 	dd->cmpr_size = de_getu32le_p(&pos);
-	de_dbg(c, "cmpr size: %" I64_FMT, dd->cmpr_size);
+	de_dbg(c, "cmpr size: %s", format_u32_with_zip64_override(d, dd->cmpr_size,
+		tmpsz, sizeof(tmpsz)));
 	dd->uncmpr_size = de_getu32le_p(&pos);
-	de_dbg(c, "uncmpr size: %" I64_FMT, dd->uncmpr_size);
+	de_dbg(c, "uncmpr size: %s", format_u32_with_zip64_override(d, dd->uncmpr_size,
+		tmpsz, sizeof(tmpsz)));
 
 	fn_len = de_getu16le_p(&pos);
 	extra_len = de_getu16le_p(&pos);
@@ -1447,7 +1478,8 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 		de_dbg_indent(c, -1);
 
 		md->offset_of_local_header = de_getu32le_p(&pos);
-		de_dbg(c, "offset of local header: %"I64_FMT", disk: %d", md->offset_of_local_header,
+		de_dbg(c, "offset of local header: %s, disk: %d",
+			format_u32_with_zip64_override(d, md->offset_of_local_header, tmpsz, sizeof(tmpsz)),
 			(int)md->disk_number_start);
 	}
 
@@ -1810,6 +1842,7 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	i64 alt_central_dir_offset;
 	u8 have_alt_central_dir_offset = 0;
 	int retval = 0;
+	char tmpsz[64];
 
 	pos = d->end_of_central_dir_pos;
 	de_dbg(c, "end-of-central-dir record at %"I64_FMT, pos);
@@ -1820,7 +1853,8 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	disk_num_with_central_dir_start = de_getu16le(pos+6);
 
 	num_entries_this_disk = de_getu16le(pos+8);
-	de_dbg(c, "central dir num entries on this disk: %"I64_FMT, num_entries_this_disk);
+	de_dbg(c, "central dir num entries on this disk: %s",
+		format_u16_with_zip64_override(d, num_entries_this_disk, tmpsz, sizeof(tmpsz)));
 	if(d->is_zip64 && (num_entries_this_disk==0xffff)) {
 		num_entries_this_disk = d->zip64_num_centr_dir_entries_this_disk;
 	}
@@ -1834,7 +1868,8 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	}
 
 	d->central_dir_offset = de_getu32le(pos+16);
-	de_dbg(c, "central dir num entries: %"I64_FMT, d->central_dir_num_entries);
+	de_dbg(c, "central dir num entries: %s",
+		format_u16_with_zip64_override(d, d->central_dir_num_entries, tmpsz, sizeof(tmpsz)));
 	if(d->is_zip64 && (d->central_dir_num_entries==0xffff)) {
 		d->central_dir_num_entries = d->zip64_num_centr_dir_entries_total;
 	}
@@ -1844,7 +1879,8 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 		d->central_dir_byte_size = d->zip64_centr_dir_byte_size;
 	}
 
-	de_dbg(c, "central dir offset: %"I64_FMT", disk: %"I64_FMT, d->central_dir_offset,
+	de_dbg(c, "central dir offset: %s, disk: %"I64_FMT,
+		format_u32_with_zip64_override(d, d->central_dir_offset, tmpsz, sizeof(tmpsz)),
 		disk_num_with_central_dir_start);
 	if(d->is_zip64 && (d->central_dir_offset==0xffffffffLL)) {
 		d->central_dir_offset = d->zip64_cd_pos;
