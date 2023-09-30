@@ -9,6 +9,7 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_lha);
 DE_DECLARE_MODULE(de_module_swg);
+DE_DECLARE_MODULE(de_module_pakleo);
 DE_DECLARE_MODULE(de_module_car_lha);
 DE_DECLARE_MODULE(de_module_arx);
 DE_DECLARE_MODULE(de_module_ar001);
@@ -40,6 +41,8 @@ DE_DECLARE_MODULE(de_module_lharc_sfx_com);
 #define CODE_lhd 0x2d6c6864U
 #define CODE_lhe 0x2d6c6865U
 #define CODE_lhx 0x2d6c6878U
+#define CODE_ll0 0x2d6c6c30U
+#define CODE_ll1 0x2d6c6c31U
 #define CODE_lx1 0x2d6c7831U
 #define CODE_lz2 0x2d6c7a32U
 #define CODE_lz3 0x2d6c7a33U
@@ -56,7 +59,8 @@ DE_DECLARE_MODULE(de_module_lharc_sfx_com);
 
 enum lha_basefmt_enum {
 	BASEFMT_LHA = 0,  // LHarc/LHA and other formats that are parsed the same
-	BASEFMT_SWG
+	BASEFMT_SWG,
+	BASEFMT_PAKLEO
 };
 
 #define TIMESTAMPIDX_INVALID (-1)
@@ -100,6 +104,7 @@ typedef struct localctx_struct {
 	int lhark_policy; // -1=detect, 0=no, 1=yes
 	int lhark_req;
 	enum lha_basefmt_enum basefmt;
+	const char *basefmt_name;
 	u8 hlev_of_first_member;
 	u8 lh7_success_flag; // currently unused
 	u8 lh7_failed_flag; // currently unused
@@ -918,7 +923,9 @@ static const struct cmpr_meth_array_item cmpr_meth_arr[] = {
 	{ BASEFMT_LHA, 0x00, CODE_S_LH0, "uncompressed (SAR)", decompress_uncompressed },
 	{ BASEFMT_LHA, 0x00, CODE_S_LH5, "SAR LH5", decompress_lh5 },
 	{ BASEFMT_SWG, 0x00, CODE_sw0, "uncompressed", decompress_uncompressed },
-	{ BASEFMT_SWG, 0x00, CODE_sw1, NULL, NULL }
+	{ BASEFMT_SWG, 0x00, CODE_sw1, NULL, NULL },
+	{ BASEFMT_PAKLEO, 0x00, CODE_ll0, "uncompressed", NULL },
+	{ BASEFMT_PAKLEO, 0x00, CODE_ll1, NULL, NULL }
 };
 
 // For basefmt==BASEFMT_LHA only
@@ -1126,10 +1133,24 @@ enum lha_whats_next_enum {
 	LHA_WN_NOTHING
 };
 
+static enum lha_whats_next_enum pakleo_classify_whats_next(deark *c, lctx *d,
+	i64 pos, i64 len)
+{
+	u8 b[7];
+	if(len<=0) return LHA_WN_NOTHING;
+	de_read(b, pos, sizeof(b));
+	if(is_possible_cmpr_meth(&b[2])) return LHA_WN_MEMBER;
+	return LHA_WN_JUNK;
+}
+
 static enum lha_whats_next_enum lha_classify_whats_next(deark *c, lctx *d, i64 pos, i64 len)
 {
 	u8 b[21];
 	u8 hlev;
+
+	if(d->basefmt==BASEFMT_PAKLEO) {
+		return pakleo_classify_whats_next(c, d, pos, len);
+	}
 
 	if(len<=0) return LHA_WN_NOTHING;
 	b[0] = de_getbyte(pos);
@@ -1210,7 +1231,9 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 	wn = lha_classify_whats_next(c, d, pos1, nbytes_avail);
 	if(wn!=LHA_WN_MEMBER) {
 		if(d->member_count==0) {
-			de_err(c, "Not an LHA file");
+			de_err(c, "Not a%s %s file",
+				((d->basefmt==BASEFMT_LHA || d->basefmt==BASEFMT_SWG)?"n":""),
+				d->basefmt_name);
 		}
 		else if(wn==LHA_WN_TRAILER || wn==LHA_WN_TRAILER_AND_JUNK) {
 			d->trailer_found = 1;
@@ -1218,8 +1241,8 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 			de_dbg(c, "trailer at %"I64_FMT, d->trailer_pos);
 		}
 		else if(wn==LHA_WN_JUNK) {
-			de_warn(c, "%"I64_FMT" bytes of non-LHA data found at end of file (offset %"I64_FMT")",
-				nbytes_avail, pos1);
+			de_warn(c, "%"I64_FMT" bytes of non-%s data found at end of file (offset %"I64_FMT")",
+				nbytes_avail, d->basefmt_name, pos1);
 		}
 		goto done;
 	}
@@ -1235,6 +1258,9 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 	if(d->basefmt==BASEFMT_SWG) {
 		md->hlev = 0; // SWG is most similar to header level 0
 	}
+	else if(d->basefmt==BASEFMT_PAKLEO) {
+		md->hlev = 0; // hlev field is present, but we only support one format
+	}
 	else {
 		md->hlev = de_getbyte(pos1+20);
 	}
@@ -1247,7 +1273,10 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 		d->hlev_of_first_member = md->hlev;
 	}
 
-	if(md->hlev==0) {
+	if(d->basefmt==BASEFMT_PAKLEO) {
+		pos += 2; // What is this field?
+	}
+	else if(md->hlev==0) {
 		lev0_header_size = (i64)de_getbyte_p(&pos);
 		de_dbg(c, "header size: (2+)%d", (int)lev0_header_size);
 		hdr_checksum_reported = (UI)de_getbyte_p(&pos);
@@ -1359,6 +1388,13 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 		pos += 165;
 	}
 
+	if(d->basefmt==BASEFMT_PAKLEO) {
+		u32 pllcrc;
+
+		pllcrc = (u32)de_getu32le_p(&pos);
+		de_dbg(c, "crc32: 0x%08x", (UI)pllcrc);
+	}
+
 	if(md->hlev<=1) {
 		fnlen = de_getbyte(pos++);
 		de_dbg(c, "filename len: %d", (int)fnlen);
@@ -1371,8 +1407,10 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 		pos += fnlen;
 	}
 
-	md->crc16 = (u32)de_getu16le_p(&pos);
-	de_dbg(c, "crc16 (reported): 0x%04x", (unsigned int)md->crc16);
+	if(d->basefmt!=BASEFMT_PAKLEO) {
+		md->crc16 = (u32)de_getu16le_p(&pos);
+		de_dbg(c, "crc16 (reported): 0x%04x", (unsigned int)md->crc16);
+	}
 
 	if(md->hlev==1 || md->hlev==2 || md->hlev==3) {
 		md->os_id = de_getbyte_p(&pos);
@@ -1385,7 +1423,11 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 		md->total_size = lev3_header_size + md->compressed_data_len;
 	}
 
-	if(md->hlev==0) {
+	if(d->basefmt==BASEFMT_PAKLEO) {
+		md->compressed_data_pos = pos;
+		md->total_size = md->compressed_data_pos + md->compressed_data_len - md->member_pos;
+	}
+	else if(md->hlev==0) {
 		i64 ext_headers_size = (2+lev0_header_size) - (pos-pos1);
 		md->compressed_data_pos = pos1 + 2 + lev0_header_size;
 		if(ext_headers_size>0) {
@@ -1530,6 +1572,9 @@ static void do_run_lha_internal(deark *c, lctx *d, de_module_params *mparams)
 	i64 pos;
 	struct member_data *md = NULL;
 
+	if(!d->basefmt_name) {
+		d->basefmt_name = "LHA";
+	}
 	d->lhark_req = de_get_ext_option_bool(c, "lha:lhark", -1);
 	d->lhark_policy = d->lhark_req;
 
@@ -1542,6 +1587,8 @@ static void do_run_lha_internal(deark *c, lctx *d, de_module_params *mparams)
 	d->crco_cksum = de_crcobj_create(c, DE_CRCOBJ_SUM_BYTES);
 
 	pos = 0;
+	if(d->basefmt==BASEFMT_PAKLEO) pos += 37;
+
 	while(1) {
 		if(pos >= c->infile->len) break;
 
@@ -1649,10 +1696,8 @@ static void de_run_swg(deark *c, de_module_params *mparams)
 
 	d = lha_create_lctx(c);
 	d->basefmt = BASEFMT_SWG;
-	de_declare_fmt(c, "SWAG packet (LHA-like)");
-	// TODO?: Some diagnostic messages in the LHA module are hardcoded to
-	// say "LHA", which is likely to be confusing to uses who know this as
-	// SWG format.
+	d->basefmt_name = "SWG";
+	de_declare_fmt(c, "SWAG packet");
 	do_run_lha_internal(c, d, mparams);
 	lha_destroy_lctx(c, d);
 }
@@ -1675,6 +1720,37 @@ void de_module_swg(deark *c, struct deark_module_info *mi)
 	mi->desc = "SWAG packet";
 	mi->run_fn = de_run_swg;
 	mi->identify_fn = de_identify_swg;
+	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
+}
+
+/////////////////////// PAKLEO
+
+static void de_run_pakleo(deark *c, de_module_params *mparams)
+{
+	lctx *d;
+
+	d = lha_create_lctx(c);
+	d->basefmt = BASEFMT_PAKLEO;
+	d->basefmt_name = "PAKLEO";
+	de_declare_fmt(c, "PAKLEO");
+	do_run_lha_internal(c, d, mparams);
+	lha_destroy_lctx(c, d);
+}
+
+static int de_identify_pakleo(deark *c)
+{
+	if(dbuf_memcmp(c->infile, 0, "LEOLZW", 6)) return 0;
+	if(dbuf_memcmp(c->infile, 39, "-l", 2)) return 0;
+	return 100;
+}
+
+void de_module_pakleo(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "pakleo";
+	mi->desc = "PAKLEO archive";
+	mi->run_fn = de_run_pakleo;
+	mi->identify_fn = de_identify_pakleo;
+	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
 }
 
 /////////////////////// CAR (MylesHi!)
