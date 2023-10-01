@@ -734,7 +734,7 @@ static void detect_exesfx_zip(deark *c, struct execomp_ctx *ectx,
 			edd->zip_eocd_pos = c->detection_data->zip_eocd_pos;
 		}
 		else {
-			edd->zip_eocd_found = (u8)fmtutil_find_zip_eocd(c, c->infile, &edd->zip_eocd_pos);
+			edd->zip_eocd_found = (u8)fmtutil_find_zip_eocd(c, c->infile, 0, &edd->zip_eocd_pos);
 			edd->zip_eocd_looked_for = 1;
 		}
 	}

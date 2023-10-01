@@ -17,8 +17,8 @@ typedef struct localctx_struct lctx;
 #define CODE_PK14 0x504b0104U
 #define CODE_PK34 0x504b0304U
 #define CODE_PK36 0x504b0306U
+#define CODE_PK78 0x504b0708U
 static const u8 g_zipsig34[4] = {'P', 'K', 0x03, 0x04};
-static const u8 g_zipsig56[4] = {'P', 'K', 0x05, 0x06};
 static const u8 g_zipsig66[4] = {'P', 'K', 0x06, 0x06};
 static const u8 g_zipsig67[4] = {'P', 'K', 0x06, 0x07};
 
@@ -1851,6 +1851,8 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	d->this_disk_num = de_getu16le(pos+4);
 	de_dbg(c, "this disk num: %"I64_FMT, d->this_disk_num);
 	disk_num_with_central_dir_start = de_getu16le(pos+6);
+	de_dbg(c, "disk num with central dir start: %"I64_FMT,
+		disk_num_with_central_dir_start);
 
 	num_entries_this_disk = de_getu16le(pos+8);
 	de_dbg(c, "central dir num entries on this disk: %s",
@@ -1974,13 +1976,21 @@ static void de_run_zip_normally(deark *c, lctx *d)
 		d->end_of_central_dir_pos = c->detection_data->zip_eocd_pos;
 	}
 	else {
-		eocd_found = fmtutil_find_zip_eocd(c, c->infile, &d->end_of_central_dir_pos);
+		eocd_found = fmtutil_find_zip_eocd(c, c->infile, 0, &d->end_of_central_dir_pos);
 	}
 	if(!eocd_found) {
 		if(c->module_disposition==DE_MODDISP_AUTODETECT ||
 			c->module_disposition==DE_MODDISP_EXPLICIT)
 		{
-			if(de_getu32be(0)==CODE_PK34) {
+			u32 bof_sig;
+
+			bof_sig = (u32)de_getu32be(0);
+			if(bof_sig==CODE_PK78) {
+				de_err(c, "This is the first part of a multi-part ZIP archive, "
+					"which is not a supported format.");
+				goto done;
+			}
+			if(bof_sig==CODE_PK34) {
 				de_err(c, "ZIP central directory not found. "
 					"You could try \"-opt zip:scanmode\".");
 				goto done;
@@ -2064,10 +2074,10 @@ static void de_run_zip(deark *c, de_module_params *mparams)
 
 static int de_identify_zip(deark *c)
 {
-	u8 b[4];
 	u32 bof_sig;
 	int has_zip_ext;
 	int has_mz_sig = 0;
+	i64 eocd_pos;
 
 	has_zip_ext = de_input_file_has_ext(c, "zip");
 
@@ -2081,14 +2091,13 @@ static int de_identify_zip(deark *c)
 		has_mz_sig = 1;
 	}
 
-	if(c->infile->len >= 22) {
-		de_read(b, c->infile->len - 22, 4);
-		if(!de_memcmp(b, g_zipsig56, 4)) {
-			c->detection_data->zip_eocd_looked_for = 1;
-			c->detection_data->zip_eocd_found = 1;
-			c->detection_data->zip_eocd_pos = c->infile->len - 22;
-			return has_zip_ext ? 100 : 19;
-		}
+	// First try "fast" mode. Note that we won't update c->detection_data
+	// if this fails, because a later full search might succeed.
+	if(fmtutil_find_zip_eocd(c, c->infile, 0x1, &eocd_pos)) {
+		c->detection_data->zip_eocd_looked_for = 1;
+		c->detection_data->zip_eocd_found = 1;
+		c->detection_data->zip_eocd_pos = eocd_pos;
+		return has_zip_ext ? 100 : 19;
 	}
 
 	// Things to consider:
@@ -2105,14 +2114,16 @@ static int de_identify_zip(deark *c)
 	// Slow tests:
 
 	if(has_mz_sig || has_zip_ext) {
-		i64 eocd_pos = 0;
-
 		c->detection_data->zip_eocd_looked_for = 1;
-		if(fmtutil_find_zip_eocd(c, c->infile, &eocd_pos)) {
+		if(fmtutil_find_zip_eocd(c, c->infile, 0, &eocd_pos)) {
 			c->detection_data->zip_eocd_found = 1;
 			c->detection_data->zip_eocd_pos = eocd_pos;
 			return 19;
 		}
+	}
+
+	if(has_zip_ext && bof_sig==CODE_PK78) {
+		return 10; // First part of a mult-part archive
 	}
 
 	return 0;
@@ -2351,7 +2362,7 @@ static void do_run_zip_relocator(deark *c, de_module_params *mparams,
 		}
 	}
 	else {
-		eocd_found = fmtutil_find_zip_eocd(c, c->infile, &d->end_of_central_dir_pos);
+		eocd_found = fmtutil_find_zip_eocd(c, c->infile, 0, &d->end_of_central_dir_pos);
 	}
 	if(!eocd_found) {
 		zipreloc_err(c, d, "Not a ZIP file, or central directory not found.");

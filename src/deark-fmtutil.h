@@ -524,7 +524,7 @@ const char *fmtutil_tiff_orientation_name(i64 n);
 const char *fmtutil_get_windows_charset_name(u8 cs);
 const char *fmtutil_get_windows_cb_data_type_name(unsigned int ty);
 
-int fmtutil_find_zip_eocd(deark *c, dbuf *f, i64 *foundpos);
+int fmtutil_find_zip_eocd(deark *c, dbuf *f, UI flags, i64 *foundpos);
 
 struct de_id3info {
 	int has_id3v1, has_id3v2;

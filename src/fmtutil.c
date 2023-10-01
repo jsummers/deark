@@ -996,7 +996,9 @@ const char *fmtutil_get_windows_cb_data_type_name(unsigned int ty)
 
 // Search for the ZIP "end of central directory" object.
 // Also useful for detecting hybrid ZIP files, such as self-extracting EXE.
-int fmtutil_find_zip_eocd(deark *c, dbuf *f, i64 *foundpos)
+// flags:
+//   0x1 - Only do minimal "fast" tests
+int fmtutil_find_zip_eocd(deark *c, dbuf *f, UI flags, i64 *foundpos)
 {
 	u32 sig;
 	u8 *buf = NULL;
@@ -1016,6 +1018,8 @@ int fmtutil_find_zip_eocd(deark *c, dbuf *f, i64 *foundpos)
 		retval = 1;
 		goto done;
 	}
+
+	if(flags & 0x1) goto done;
 
 	// Search for the signature.
 	// The end-of-central-directory record could theoretically appear anywhere
