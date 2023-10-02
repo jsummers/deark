@@ -994,27 +994,76 @@ const char *fmtutil_get_windows_cb_data_type_name(unsigned int ty)
 	return name;
 }
 
+#define CODE_PK36 0x504b0306U // RESOF
+#define CODE_PK56 0x504b0506U
+#define CODE_PK67 0x504b0607U
+
+// We're don't really want to validate the EOCD, we just want to figure out
+// if this probably *is* an EOCD, and not a false positive.
+// Unfortunately, this has turned out to be messy to do.
+// TODO: Maybe this should accept a byte array, instead of a dbuf
+// (at this time, we really need both).
+static int is_sane_zip_eocd(dbuf *f, i64 pos)
+{
+	i64 this_disk_num;
+	i64 disk_num_with_central_dir_start;
+	i64 central_dir_num_entries;
+	i64 central_dir_byte_size;
+	i64 central_dir_offset;
+
+	// Validating Zip64 would take more work.
+	if(dbuf_getu32be(f, pos-20) == CODE_PK67) return 1;
+
+	this_disk_num = dbuf_getu16le(f, pos+4);
+	disk_num_with_central_dir_start = dbuf_getu16le(f, pos+6);
+
+	if(this_disk_num > 100) return 0;
+	if(disk_num_with_central_dir_start > this_disk_num) return 0;
+	if(disk_num_with_central_dir_start < this_disk_num-1) return 0;
+
+	central_dir_num_entries = dbuf_getu16le(f, pos+10);
+	central_dir_byte_size = dbuf_getu32le(f, pos+12);
+
+	if(central_dir_byte_size < 46*central_dir_num_entries) return 0;
+
+	if(this_disk_num==disk_num_with_central_dir_start) {
+		if(central_dir_byte_size > f->len) return 0;
+		central_dir_offset = dbuf_getu32le(f, pos+16);
+		if(central_dir_offset > f->len) return 0;
+	}
+
+	return 1;
+}
+
 // Search for the ZIP "end of central directory" object.
 // Also useful for detecting hybrid ZIP files, such as self-extracting EXE.
 // flags:
 //   0x1 - Only do minimal "fast" tests
 int fmtutil_find_zip_eocd(deark *c, dbuf *f, UI flags, i64 *foundpos)
 {
+	u32 bof_sig;
 	u32 sig;
+	int skip_sanity_check = 0;
 	u8 *buf = NULL;
 	int retval = 0;
 	i64 buf_offset;
 	i64 buf_size;
+	i64 pos;
 	i64 i;
 
 	*foundpos = 0;
 	if(f->len < 22) goto done;
 
+	bof_sig = (u32)dbuf_getu32be(f, 0);
+	if(bof_sig==CODE_PK36) {
+		skip_sanity_check = 1;
+	}
+
 	// End-of-central-dir record usually starts 22 bytes from EOF. Try that first.
-#define CODE_PK56 0x504b0506U
-	sig = (u32)dbuf_getu32be(f, f->len - 22);
-	if(sig == CODE_PK56) {
-		*foundpos = f->len - 22;
+	pos = f->len - 22;
+	sig = (u32)dbuf_getu32be(f, pos);
+	if(sig==CODE_PK56 && (skip_sanity_check || is_sane_zip_eocd(f, pos))) {
+		*foundpos = pos;
 		retval = 1;
 		goto done;
 	}
@@ -1034,7 +1083,9 @@ int fmtutil_find_zip_eocd(deark *c, dbuf *f, UI flags, i64 *foundpos)
 	dbuf_read(f, buf, buf_offset, buf_size);
 
 	for(i=buf_size-22; i>=0; i--) {
-		if(buf[i]=='P' && buf[i+1]=='K' && buf[i+2]==5 && buf[i+3]==6) {
+		if(buf[i]=='P' && buf[i+1]=='K' && buf[i+2]==5 && buf[i+3]==6 &&
+			(skip_sanity_check || is_sane_zip_eocd(f, buf_offset+i)))
+		{
 			*foundpos = buf_offset + i;
 			retval = 1;
 			goto done;
