@@ -44,17 +44,19 @@ struct diet_identify_data {
 
 typedef struct localctx_struct_diet {
 	struct diet_identify_data idd;
+	u8 devmode;
 	u8 errflag;
 	u8 need_errmsg;
 	u8 cmpr_len_known;
 	u8 orig_len_known;
 	u8 raw_mode; // 0xff = not set
-	u8 hdr_flags1; // Valid if dlz_pos_known
-	u8 hdr_flags2; // Valid if dlz_pos_known
+	u8 hdr_flags1; // Valid if dlz_pos_known (otherwise 0)
+	u8 hdr_flags2; // Valid if dlz_pos_known (otherwise 0)
 	i64 cmpr_len;
 	i64 orig_len;
 	i64 cmpr_pos;
 	u32 crc_reported;
+	struct fmtutil_exe_info *ei;
 	dbuf *o_dcmpr_code;
 	i64 o_dcmpr_code_nbytes_written;
 	i64 dcmpr_cur_ipos;
@@ -454,14 +456,201 @@ static void write_data_or_com_file(deark *c, lctx *d)
 	dbuf_close(outf);
 }
 
+struct exe_dcmpr_ctx {
+	i64 mz_pos; // pos in d->o_dcmpr_code
+	i64 encoded_reloc_tbl_pos; // pos in d->o_dcmpr_code
+	i64 encoded_reloc_tbl_size; // size in d->o_dcmpr_code
+	i64 cdata1_size;
+	i64 cdata2_size; // Size in the original file; may be abbreviated in d->o_dcmpr_code
+	struct fmtutil_exe_info o_ei;
+};
+
+// Caller creates and passes empty o_orig_header to us.
+static void find_exe_params(deark *c, lctx *d, struct exe_dcmpr_ctx *ectx,
+	dbuf *o_orig_header)
+{
+	i64 iparam1;
+	i64 n;
+	i64 ioffset1;
+	i64 ipos1;
+	u8 byte3;
+
+	if(d->errflag) return;
+
+	switch(d->idd.fmt) {
+	case FMT_EXE_100:
+	case FMT_EXE_102:
+		ioffset1 = 53;
+		break;
+	case FMT_EXE_144:
+		ioffset1 = 73;
+		break;
+	case FMT_EXE_145F:
+		ioffset1 = 26;
+		break;
+	default:
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	iparam1 = de_getu16le(d->ei->entry_point + ioffset1);
+	ipos1 = iparam1 * 16;
+	de_dbg(c, "iparam1: 0x%04x", (UI)iparam1);
+	de_dbg(c, "ipos1: %"I64_FMT, ipos1);
+
+	if(!d->orig_len_known || !(d->hdr_flags1 & 0x20)) {
+		// TODO: Support v1.00
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	ectx->mz_pos = ipos1 + (d->orig_len % 16);
+	de_dbg(c, "expected MZ pos in idata: %"I64_FMT, ectx->mz_pos);
+	// Verify that this seems to be the right place.
+	n = dbuf_getu16be(d->o_dcmpr_code, ectx->mz_pos);
+	if(n != 0x4d5a) { // DIET only allows MZ, not ZM.
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	dbuf_copy(d->o_dcmpr_code, ectx->mz_pos, 28, o_orig_header);
+
+	byte3 = dbuf_getbyte(o_orig_header, 3);
+	dbuf_writebyte_at(o_orig_header, 3, (byte3 & 0x01));
+
+	fmtutil_collect_exe_info(c, o_orig_header, &ectx->o_ei);
+
+	de_dbg(c, "num relocs: %u", (UI)ectx->o_ei.num_relocs);
+
+	ectx->encoded_reloc_tbl_pos = ectx->mz_pos + ectx->o_ei.reloc_table_pos;
+	de_dbg(c, "cmpr reloc pos in idata: %"I64_FMT, ectx->encoded_reloc_tbl_pos);
+
+	ectx->cdata1_size = ectx->o_ei.reloc_table_pos - 28;
+	ectx->cdata2_size = ectx->o_ei.start_of_dos_code - (ectx->o_ei.reloc_table_pos +
+		4*ectx->o_ei.num_relocs);
+	if(ectx->cdata1_size<0 || ectx->cdata2_size<0) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+done:
+	if(d->errflag && d->need_errmsg) {
+		de_err(c, "Unsupported variety of DIET-EXE file");
+		d->need_errmsg = 0;
+	}
+}
+
+// Sets ectx->encoded_reloc_tbl_size
+static void decode_reloc_tbl(deark *c, lctx *d, struct exe_dcmpr_ctx *ectx,
+	dbuf *inf, i64 ipos1, i64 nrelocs, dbuf *outf)
+{
+	UI seg = 0;
+	UI offs = 0;
+	i64 i;
+	i64 ipos = ipos1;
+
+	for(i=0; i<nrelocs; i++) {
+		UI n;
+
+		n = (UI)dbuf_getu16le_p(inf, &ipos);
+		if(n & 0x8000) {
+			// Special code: segment stays the same, and offset is adjusted
+			// relative to the previous offset.
+			if(n >= 0xc000) {
+				offs += n;
+			}
+			else {
+				offs += (n-0x8000);
+			}
+			offs &= 0xffff;
+		}
+		else {
+			seg = n;
+			offs = (UI)dbuf_getu16le_p(inf, &ipos);
+		}
+
+		dbuf_writeu16le(outf, (i64)offs);
+		dbuf_writeu16le(outf, (i64)seg);
+	}
+	ectx->encoded_reloc_tbl_size = ipos - ipos1;
+}
+
+static void write_exe_file(deark *c, lctx *d)
+{
+	struct exe_dcmpr_ctx *ectx = NULL;
+	dbuf *outf = NULL;
+	dbuf *o_orig_header = NULL;
+	dbuf *reloc_tbl = NULL;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(!d->o_dcmpr_code) goto done;
+	if(d->devmode==2) {
+		write_data_or_com_file(c, d);
+	}
+
+	ectx = de_malloc(c, sizeof(struct exe_dcmpr_ctx));
+
+	de_dbg(c, "[writing EXE]");
+	de_dbg_indent(c, 1);
+	fmtutil_collect_exe_info(c, c->infile, d->ei);
+
+	o_orig_header = dbuf_create_membuf(c, 28, 0);
+	find_exe_params(c, d, ectx, o_orig_header);
+	if(d->errflag) goto done;
+
+	outf = dbuf_create_output_file(c, "exe", NULL, 0);
+	de_stdwarn_execomp(c);
+
+	// 28-byte MZ header
+	dbuf_copy(o_orig_header, 0, 28, outf);
+
+	// Copy the custom data up to the relocation table.
+	dbuf_copy(d->o_dcmpr_code, ectx->mz_pos+28, ectx->cdata1_size, outf);
+
+	// Relocation table
+	reloc_tbl = dbuf_create_membuf(c, 4*ectx->o_ei.num_relocs, 0);
+	decode_reloc_tbl(c, d, ectx, d->o_dcmpr_code, ectx->encoded_reloc_tbl_pos,
+		ectx->o_ei.num_relocs, reloc_tbl);
+	dbuf_copy(reloc_tbl, 0, 4*ectx->o_ei.num_relocs, outf);
+
+	// Custom data following the relocation table
+	// It is by design that the copied region may extend beyond the end of
+	// d->o_dcmpr_code.
+	dbuf_copy(d->o_dcmpr_code,
+		ectx->encoded_reloc_tbl_pos + ectx->encoded_reloc_tbl_size,
+		ectx->cdata2_size, outf);
+
+	// Code segment and overlay
+	dbuf_copy(d->o_dcmpr_code, 0, ectx->mz_pos, outf);
+
+	// TODO: Support the external overlay modified files may have.
+
+done:
+	dbuf_close(reloc_tbl);
+	dbuf_close(outf);
+	dbuf_close(o_orig_header);
+	if(ectx) {
+		de_free(c, ectx);
+	}
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static void read_header(deark *c, lctx *d)
 {
 	i64 pos = 0;
 	i64 n;
 	u8 x;
+	de_ucstring *flags_str = NULL;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
+
+	flags_str = ucstring_create(c);
 
 	if(d->idd.dlz_pos_known) {
 		de_dbg(c, "header at %"I64_FMT, d->idd.dlz_pos);
@@ -470,7 +659,10 @@ static void read_header(deark *c, lctx *d)
 		pos = d->idd.dlz_pos + 3;
 		x = de_getbyte_p(&pos);
 		d->hdr_flags1 = x & 0xf0;
-		de_dbg(c, "flags: 0x%02x", d->hdr_flags1);
+		if(d->hdr_flags1 & 0x80) ucstring_append_flags_item(flags_str, "has following block");
+		if(d->hdr_flags1 & 0x20) ucstring_append_flags_item(flags_str, "new EXE format");
+		if(d->hdr_flags1 & 0x10) ucstring_append_flags_item(flags_str, "has segment refresh data");
+		de_dbg(c, "flags: 0x%02x (%s)", d->hdr_flags1, ucstring_getpsz(flags_str));
 		d->cmpr_len = (i64)(x & 0x0f)<<16;
 		n = de_getu16le_p(&pos);
 		d->cmpr_len |= n;
@@ -499,6 +691,7 @@ static void read_header(deark *c, lctx *d)
 		d->cmpr_len_known = 1;
 	}
 
+	ucstring_destroy(flags_str);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -532,6 +725,10 @@ done:
 
 static void check_unsupp_features(deark *c, lctx *d)
 {
+	if(d->idd.ftype==FTYPE_EXE && d->devmode) {
+		goto done;
+	}
+
 	if(d->idd.ftype==FTYPE_EXE) {
 		if(d->raw_mode==0xff) {
 			de_err(c, "DIET-compressed EXE is not fully supported");
@@ -558,9 +755,18 @@ static void de_run_diet(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	const char *fmtn = NULL;
+	const char *s;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
 	d->raw_mode = (u8)de_get_ext_option_bool(c, "diet:raw", 0xff);
+	s = de_get_ext_option(c, "diet:devmode");
+	if(s) {
+		if(s[0])
+			d->devmode = (u8)de_atoi(s);
+		else
+			d->devmode = 1;
+	}
 
 	identify_diet_fmt(c, &d->idd, 0);
 	switch(d->idd.fmt) {
@@ -628,9 +834,13 @@ static void de_run_diet(deark *c, de_module_params *mparams)
 	{
 		write_data_or_com_file(c, d);
 	}
+	else if(d->idd.ftype==FTYPE_EXE && d->raw_mode!=1) {
+		write_exe_file(c, d);
+	}
 
 done:
 	if(d) {
+		de_free(c, d->ei);
 		if(d->need_errmsg) {
 			de_err(c, "Bad or unsupported file");
 		}
