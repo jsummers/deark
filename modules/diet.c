@@ -465,6 +465,121 @@ struct exe_dcmpr_ctx {
 	struct fmtutil_exe_info o_ei;
 };
 
+// For v1.00 format, there doesn't seem to be a good way to figure out the exact
+// offset of the "MZ" header within the blob of bytes produced by the main
+// decompression algorithm.
+// I've never seen DIET fail to correctly decompress such a file, but I'm
+// starting to suspect it might be possible to construct a pathological file
+// for which it fails.
+// We can narrow it down to 16 possibilities, and if there's exactly one that
+// is potentially valid, we go with it. In practice, this should be good enough.
+static void find_v100_mz_pos(deark *c, lctx *d, struct exe_dcmpr_ctx *ectx,
+	i64 mz_pos_approx)
+{
+	i64 cmpr_endpos;
+	i64 params_pos = 0;
+	i64 reloc_tbl_rel = 0;
+	i64 nrelocs_r = 0;
+	int found_count = 0;
+	u8 fclass = 0; // 0=unknown, 1=has params at parms_pos, 2=no reloc table
+	i64 i;
+	i64 n;
+	i64 xpos;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "[searching for MZ pos in intermed. data]");
+	de_dbg_indent(c, 1);
+
+	cmpr_endpos = d->cmpr_pos + d->cmpr_len;
+
+	// Sanity check. This part of the decompressor always seems to start with
+	// these bytes.
+	n = de_getu32be(cmpr_endpos);
+	if(n != 0xd1edfecaU) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	xpos = d->ei->end_of_dos_code - 53;
+	if((UI)de_getu32be(xpos)==0x5d0e1fbeU) {
+		fclass = 1;
+		params_pos = xpos+4;
+	}
+
+	if(fclass==0) {
+		xpos = d->ei->end_of_dos_code - 62;
+		if((UI)de_getu32be(xpos)==0x5d0e1fbeU) {
+			fclass = 1;
+			params_pos = xpos+4;
+		}
+	}
+
+	if(fclass==0) {
+		// This is characteristic of files that have no relocations.
+		xpos = d->ei->end_of_dos_code - 29;
+		if((UI)de_getu32be(xpos)==0x5d071f81U) {
+			fclass = 2;
+			nrelocs_r = 0;
+		}
+	}
+
+	if(fclass==0) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	if(fclass==1) {
+		de_dbg(c, "params pos: %"I64_FMT" (b+%"I64_FMT"; e-%"I64_FMT")",
+			params_pos, params_pos - cmpr_endpos,
+			d->ei->end_of_dos_code - params_pos);
+		reloc_tbl_rel = de_getu16le(params_pos);
+		de_dbg(c, "reloc tbl intermed. pos: approx_MZ+%"I64_FMT, reloc_tbl_rel);
+		nrelocs_r =  de_getu16le(params_pos+3);
+	}
+
+	de_dbg(c, "nrelocs (reported): %"I64_FMT, nrelocs_r);
+
+	// Search for the MZ header, hopefully avoiding false positives.
+	for(i=0; i<16; i++) {
+		// Look for "MZ"
+		if(dbuf_getbyte(d->o_dcmpr_code, mz_pos_approx+i) != 'M') continue;
+		if(dbuf_getbyte(d->o_dcmpr_code, mz_pos_approx+i+1) != 'Z') continue;
+
+		// Validate the reloc count
+		n = dbuf_getu16le(d->o_dcmpr_code, mz_pos_approx+i+6);
+		if(n!=nrelocs_r) continue;
+
+		// Validate the reloc pos if possible
+		if(fclass==1) {
+			n = dbuf_getu16le(d->o_dcmpr_code, mz_pos_approx+i+24);
+			if(i+n!=reloc_tbl_rel) continue;
+		}
+
+		found_count++;
+		if(found_count>1) {
+			d->errflag = 1;
+			d->need_errmsg = 1;
+			goto done;
+		}
+		ectx->mz_pos = mz_pos_approx+i;
+		break;
+	}
+
+	if(found_count!=1) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	de_dbg(c, "MZ header found at %"I64_FMT, ectx->mz_pos);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 // Caller creates and passes empty o_orig_header to us.
 static void find_exe_params(deark *c, lctx *d, struct exe_dcmpr_ctx *ectx,
 	dbuf *o_orig_header)
@@ -472,7 +587,7 @@ static void find_exe_params(deark *c, lctx *d, struct exe_dcmpr_ctx *ectx,
 	i64 iparam1;
 	i64 n;
 	i64 ioffset1;
-	i64 ipos1;
+	i64 mz_pos_approx;
 	u8 byte3;
 
 	if(d->errflag) return;
@@ -495,27 +610,38 @@ static void find_exe_params(deark *c, lctx *d, struct exe_dcmpr_ctx *ectx,
 	}
 
 	iparam1 = de_getu16le(d->ei->entry_point + ioffset1);
-	ipos1 = iparam1 * 16;
-	de_dbg(c, "iparam1: 0x%04x", (UI)iparam1);
-	de_dbg(c, "ipos1: %"I64_FMT, ipos1);
+	mz_pos_approx = iparam1 * 16;
+	de_dbg(c, "approx MZ pos in intermed. data: %"I64_FMT, mz_pos_approx);
 
-	if(!d->orig_len_known || !(d->hdr_flags1 & 0x20)) {
-		// TODO: Support v1.00
-		d->errflag = 1;
-		d->need_errmsg = 1;
-		goto done;
+	if(d->idd.fmt==FMT_EXE_100) {
+		find_v100_mz_pos(c, d, ectx, mz_pos_approx);
+		if(d->errflag) goto done;
+	}
+	else {
+		if(!d->orig_len_known || !(d->hdr_flags1 & 0x20)) {
+			d->errflag = 1;
+			d->need_errmsg = 1;
+			goto done;
+		}
+
+		ectx->mz_pos = mz_pos_approx + (d->orig_len % 16);
+		de_dbg(c, "expected MZ pos in idata: %"I64_FMT, ectx->mz_pos);
+		// Verify that this seems to be the right place.
+		n = dbuf_getu16be(d->o_dcmpr_code, ectx->mz_pos);
+		if(n != 0x4d5a) { // DIET only allows MZ, not ZM.
+			d->errflag = 1;
+			d->need_errmsg = 1;
+			goto done;
+		}
 	}
 
-	ectx->mz_pos = ipos1 + (d->orig_len % 16);
-	de_dbg(c, "expected MZ pos in idata: %"I64_FMT, ectx->mz_pos);
-	// Verify that this seems to be the right place.
-	n = dbuf_getu16be(d->o_dcmpr_code, ectx->mz_pos);
-	if(n != 0x4d5a) { // DIET only allows MZ, not ZM.
-		d->errflag = 1;
-		d->need_errmsg = 1;
-		goto done;
-	}
-
+	// Note: DIET elides trailing 0-valued bytes from the intermediate format
+	// we store in o_dcmpr_code.
+	// In some cases, o_dcmpr_code ends even before the end of the 28-byte
+	// MZ header.
+	// So, this and later calls to dbuf_copy() may read beyond the end of
+	// o_dcmpr_code. That's by design -- we rely on dbuf_copy to replace
+	// missing bytes with 0-valued bytes.
 	dbuf_copy(d->o_dcmpr_code, ectx->mz_pos, 28, o_orig_header);
 
 	byte3 = dbuf_getbyte(o_orig_header, 3);
@@ -523,14 +649,17 @@ static void find_exe_params(deark *c, lctx *d, struct exe_dcmpr_ctx *ectx,
 
 	fmtutil_collect_exe_info(c, o_orig_header, &ectx->o_ei);
 
-	de_dbg(c, "num relocs: %u", (UI)ectx->o_ei.num_relocs);
-
 	ectx->encoded_reloc_tbl_pos = ectx->mz_pos + ectx->o_ei.reloc_table_pos;
-	de_dbg(c, "cmpr reloc pos in idata: %"I64_FMT, ectx->encoded_reloc_tbl_pos);
 
-	ectx->cdata1_size = ectx->o_ei.reloc_table_pos - 28;
-	ectx->cdata2_size = ectx->o_ei.start_of_dos_code - (ectx->o_ei.reloc_table_pos +
-		4*ectx->o_ei.num_relocs);
+	if(ectx->o_ei.num_relocs==0) {
+		ectx->cdata1_size = ectx->o_ei.start_of_dos_code - 28;
+		ectx->cdata2_size = 0;
+	}
+	else {
+		ectx->cdata1_size = ectx->o_ei.reloc_table_pos - 28;
+		ectx->cdata2_size = ectx->o_ei.start_of_dos_code - (ectx->o_ei.reloc_table_pos +
+			4*ectx->o_ei.num_relocs);
+	}
 	if(ectx->cdata1_size<0 || ectx->cdata2_size<0) {
 		d->errflag = 1;
 		d->need_errmsg = 1;
@@ -576,7 +705,13 @@ static void decode_reloc_tbl(deark *c, lctx *d, struct exe_dcmpr_ctx *ectx,
 		dbuf_writeu16le(outf, (i64)offs);
 		dbuf_writeu16le(outf, (i64)seg);
 	}
-	ectx->encoded_reloc_tbl_size = ipos - ipos1;
+
+	if(d->hdr_flags1 & 0x20) {
+		ectx->encoded_reloc_tbl_size = ipos - ipos1;
+	}
+	else {
+		ectx->encoded_reloc_tbl_size = nrelocs*4;
+	}
 }
 
 static void write_exe_file(deark *c, lctx *d)
@@ -610,22 +745,24 @@ static void write_exe_file(deark *c, lctx *d)
 	dbuf_copy(o_orig_header, 0, 28, outf);
 
 	// Copy the custom data up to the relocation table.
+	// (If there's no relocation table, this will be everything up to the
+	// code image).
 	dbuf_copy(d->o_dcmpr_code, ectx->mz_pos+28, ectx->cdata1_size, outf);
 
-	// Relocation table
-	reloc_tbl = dbuf_create_membuf(c, 4*ectx->o_ei.num_relocs, 0);
-	decode_reloc_tbl(c, d, ectx, d->o_dcmpr_code, ectx->encoded_reloc_tbl_pos,
-		ectx->o_ei.num_relocs, reloc_tbl);
-	dbuf_copy(reloc_tbl, 0, 4*ectx->o_ei.num_relocs, outf);
+	if(ectx->o_ei.num_relocs!=0) {
+		// Relocation table
+		reloc_tbl = dbuf_create_membuf(c, 4*ectx->o_ei.num_relocs, 0);
+		decode_reloc_tbl(c, d, ectx, d->o_dcmpr_code, ectx->encoded_reloc_tbl_pos,
+			ectx->o_ei.num_relocs, reloc_tbl);
+		dbuf_copy(reloc_tbl, 0, 4*ectx->o_ei.num_relocs, outf);
 
-	// Custom data following the relocation table
-	// It is by design that the copied region may extend beyond the end of
-	// d->o_dcmpr_code.
-	dbuf_copy(d->o_dcmpr_code,
-		ectx->encoded_reloc_tbl_pos + ectx->encoded_reloc_tbl_size,
-		ectx->cdata2_size, outf);
+		// Custom data following the relocation table
+		dbuf_copy(d->o_dcmpr_code,
+			ectx->encoded_reloc_tbl_pos + ectx->encoded_reloc_tbl_size,
+			ectx->cdata2_size, outf);
+	}
 
-	// Code segment and overlay
+	// Code image and overlay
 	dbuf_copy(d->o_dcmpr_code, 0, ectx->mz_pos, outf);
 
 	// TODO: Support the external overlay modified files may have.
@@ -666,6 +803,12 @@ static void read_header(deark *c, lctx *d)
 		d->cmpr_len = (i64)(x & 0x0f)<<16;
 		n = de_getu16le_p(&pos);
 		d->cmpr_len |= n;
+		de_dbg(c, "cmpr len: %"I64_FMT, d->cmpr_len);
+		d->cmpr_len_known = 1;
+	}
+	else if(d->idd.fmt==FMT_EXE_100) {
+		d->cmpr_len = de_getu32le(32);
+		d->cmpr_len &= 0xfffff; // Dunno if this is 24-bits, or maybe just 20 bits
 		de_dbg(c, "cmpr len: %"I64_FMT, d->cmpr_len);
 		d->cmpr_len_known = 1;
 	}
