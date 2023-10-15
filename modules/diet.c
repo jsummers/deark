@@ -44,7 +44,6 @@ struct diet_identify_data {
 
 typedef struct localctx_struct_diet {
 	struct diet_identify_data idd;
-	u8 devmode;
 	u8 errflag;
 	u8 need_errmsg;
 	u8 cmpr_len_known;
@@ -724,9 +723,6 @@ static void write_exe_file(deark *c, lctx *d)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	if(!d->o_dcmpr_code) goto done;
-	if(d->devmode==2) {
-		write_data_or_com_file(c, d);
-	}
 
 	ectx = de_malloc(c, sizeof(struct exe_dcmpr_ctx));
 
@@ -868,26 +864,10 @@ done:
 
 static void check_unsupp_features(deark *c, lctx *d)
 {
-	if(d->idd.ftype==FTYPE_EXE && d->devmode) {
-		goto done;
-	}
-
-	if(d->idd.ftype==FTYPE_EXE) {
-		if(d->raw_mode==0xff) {
-			de_err(c, "DIET-compressed EXE is not fully supported");
-			de_info(c, "Note: Try \"-opt diet:raw\" to decompress the raw data");
-			d->errflag = 1;
-		}
-		else if(d->raw_mode==0) {
-			d->errflag = 1;
-			d->need_errmsg = 1;
-		}
-		goto done;
-	}
-
-	if(d->hdr_flags1!=0 || d->hdr_flags2!=0) {
+	if(d->hdr_flags1&0x80) {
 		d->errflag = 1;
 		d->need_errmsg = 1;
+		goto done;
 	}
 
 done:
@@ -898,18 +878,10 @@ static void de_run_diet(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	const char *fmtn = NULL;
-	const char *s;
 
 	d = de_malloc(c, sizeof(lctx));
 	d->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
 	d->raw_mode = (u8)de_get_ext_option_bool(c, "diet:raw", 0xff);
-	s = de_get_ext_option(c, "diet:devmode");
-	if(s) {
-		if(s[0])
-			d->devmode = (u8)de_atoi(s);
-		else
-			d->devmode = 1;
-	}
 
 	identify_diet_fmt(c, &d->idd, 0);
 	switch(d->idd.fmt) {
@@ -1002,10 +974,16 @@ static int de_identify_diet(deark *c)
 	return 0;
 }
 
+static void de_help_diet(deark *c)
+{
+	de_msg(c, "-opt diet:raw : Instead of an EXE file, write raw decompressed data");
+}
+
 void de_module_diet(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "diet";
 	mi->desc = "DIET compression";
 	mi->run_fn = de_run_diet;
 	mi->identify_fn = de_identify_diet;
+	mi->help_fn = de_help_diet;
 }

@@ -344,6 +344,7 @@ static void detect_execomp_diet(deark *c, struct execomp_ctx *ectx,
 
 	edd->detected_fmt = DE_SPECIALEXEFMT_DIET;
 	de_strlcpy(ectx->shortname, "DIET", sizeof(ectx->shortname));
+	edd->modname = "diet";
 done:
 	;
 }

@@ -1614,12 +1614,6 @@ static void do_execomp(deark *c, lctx *d)
 	if(!edd.detected_fmt) return;
 	de_dbg(c, "detected executable compression: %s", edd.detected_fmt_name);
 
-	if(edd.detected_fmt==DE_SPECIALEXEFMT_DIET && d->execomp_mode!=0) {
-		de_info(c, "Note: File seems to be compressed with DIET. Try \"-m diet -opt diet:raw\" "
-			"to decompress the raw data.");
-		goto done;
-	}
-
 	if(d->execomp_mode==1) {
 		try_execomp_decompress(c, d, &edd);
 	}
@@ -1630,9 +1624,6 @@ static void do_execomp(deark *c, lctx *d)
 				edd.detected_fmt_name, edd.modname);
 		}
 	}
-
-done:
-	;
 }
 
 static void de_run_exe(deark *c, de_module_params *mparams)

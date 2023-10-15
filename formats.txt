@@ -775,7 +775,7 @@ Deark -- Information about supported formats
    -opt deflate:deflate64 - Decode as Deflate64 format.
 
 * DIET (module="diet") (experimental/incomplete)
-  - Supports COM and data files. EXE not properly supported.
+  Decompress a DIET-compressed DOS EXE or COM or data file.
   Options
    -opt diet:raw - For EXE, write raw decompressed data.
 
