@@ -624,7 +624,7 @@ static void find_exe_params(deark *c, lctx *d, struct exe_dcmpr_ctx *ectx,
 		}
 
 		ectx->mz_pos = mz_pos_approx + (d->orig_len % 16);
-		de_dbg(c, "expected MZ pos in idata: %"I64_FMT, ectx->mz_pos);
+		de_dbg(c, "expected MZ pos in intermed. data: %"I64_FMT, ectx->mz_pos);
 		// Verify that this seems to be the right place.
 		n = dbuf_getu16be(d->o_dcmpr_code, ectx->mz_pos);
 		if(n != 0x4d5a) { // DIET only allows MZ, not ZM.
@@ -647,6 +647,12 @@ static void find_exe_params(deark *c, lctx *d, struct exe_dcmpr_ctx *ectx,
 	dbuf_writebyte_at(o_orig_header, 3, (byte3 & 0x01));
 
 	fmtutil_collect_exe_info(c, o_orig_header, &ectx->o_ei);
+
+	// collect_exe_info() will not have calculated the overlay len, because we
+	// didn't tell it the correct file size. So, patch it up here.
+	ectx->o_ei.overlay_len = ectx->o_ei.start_of_dos_code + ectx->mz_pos -
+		ectx->o_ei.end_of_dos_code;
+	if(ectx->o_ei.overlay_len<0) ectx->o_ei.overlay_len = 0;
 
 	ectx->encoded_reloc_tbl_pos = ectx->mz_pos + ectx->o_ei.reloc_table_pos;
 
@@ -735,7 +741,6 @@ static void write_exe_file(deark *c, lctx *d)
 	if(d->errflag) goto done;
 
 	outf = dbuf_create_output_file(c, "exe", NULL, 0);
-	de_stdwarn_execomp(c);
 
 	// 28-byte MZ header
 	dbuf_copy(o_orig_header, 0, 28, outf);
@@ -758,14 +763,29 @@ static void write_exe_file(deark *c, lctx *d)
 			ectx->cdata2_size, outf);
 	}
 
-	// Code image and overlay
+	// Code image and (internal, compressed) overlay
 	dbuf_copy(d->o_dcmpr_code, 0, ectx->mz_pos, outf);
 
-	// TODO: Support the external overlay modified files may have.
+	// Copy external overlay. Pristine DIET-compressed files never have such a
+	// thing, but some other workflows (e.g. ARJ v2.00 SFX) create such files.
+	if(d->ei->overlay_len>0) {
+		if(ectx->o_ei.overlay_len>0) {
+			de_warn(c, "Ignoring overlay at %"I64_FMT" -- file already "
+				"has an overlay", d->ei->end_of_dos_code);
+		}
+		else {
+			de_dbg(c, "overlay data at %"I64_FMT", len=%"I64_FMT, d->ei->end_of_dos_code,
+				d->ei->overlay_len);
+			dbuf_copy(c->infile, d->ei->end_of_dos_code, d->ei->overlay_len, outf);
+		}
+	}
 
 done:
 	dbuf_close(reloc_tbl);
-	dbuf_close(outf);
+	if(outf) {
+		dbuf_close(outf);
+		de_stdwarn_execomp(c);
+	}
 	dbuf_close(o_orig_header);
 	if(ectx) {
 		de_free(c, ectx);
