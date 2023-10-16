@@ -37,6 +37,7 @@ struct diet_identify_data {
 	u8 dlz_pos_known;
 	u8 crc_pos_known;
 	u8 cmpr_pos_known;
+	u8 maybe_lglz;
 	i64 dlz_pos;
 	i64 crc_pos;
 	i64 cmpr_pos;
@@ -149,39 +150,69 @@ static void identify_diet_fmt(deark *c, struct diet_identify_data *idd, u8 idmod
 	if(idmode) goto done;
 
 	if((buf[0]=='M' && buf[1]=='Z') || (buf[0]=='Z' && buf[1]=='M')) {
-		// TODO?: Make these rules stricter.
+		i64 codestart;
+		i64 sig_8edb_pos_rel = 0;
+		u8 x;
 
-		if(!dbuf_memcmp(c->infile, 107, sig_dlz, 3)) {
-			idd->ftype = FTYPE_EXE;
-			idd->fmt = FMT_EXE_144;
-			idd->dlz_pos_known = 1;
-			idd->dlz_pos = 107;
-			goto done;
+		// TODO?: Probing for the 8e db 8e... byte pattern is good enough for
+		// all the DIET-EXE files I've encountered. But it probably ought to be
+		// improved, somehow.
+		// I've found some files in which the "dlz" signature has been modified,
+		// so checking for it wouldn't help much.
+
+		codestart = 16 * de_getu16le(8); // Expected to be 32
+
+		if(!dbuf_memcmp(c->infile, codestart-32+77, sig_8edb, 8)) {
+			sig_8edb_pos_rel = 77-32;
+		}
+		else if(!dbuf_memcmp(c->infile, codestart-32+72, sig_8edb, 8)) {
+			sig_8edb_pos_rel = 72-32;
+		}
+		else if(!dbuf_memcmp(c->infile, codestart-32+52, sig_8edb, 8)) {
+			sig_8edb_pos_rel = 52-32;
+		}
+		else if(!dbuf_memcmp(c->infile, codestart-32+55, sig_8edb, 8)) {
+			sig_8edb_pos_rel = 55-32;
 		}
 
-		if(!dbuf_memcmp(c->infile, 108, sig_dlz, 3)) {
+		if(sig_8edb_pos_rel==0) goto done;
+
+		x = de_getbyte(codestart+sig_8edb_pos_rel+26);
+		if(x==0x95) {
+			idd->maybe_lglz = 1;
+		}
+
+		if(sig_8edb_pos_rel == 77-32) {
 			idd->ftype = FTYPE_EXE;
 			idd->fmt = FMT_EXE_145F;
 			idd->dlz_pos_known = 1;
-			idd->dlz_pos = 108;
+			idd->dlz_pos = codestart-32+108;
 			goto done;
 		}
 
-		if(!dbuf_memcmp(c->infile, 87, sig_dlz, 3)) {
+		if(sig_8edb_pos_rel == 72-32) {
+			idd->ftype = FTYPE_EXE;
+			idd->fmt = FMT_EXE_144;
+			idd->dlz_pos_known = 1;
+			idd->dlz_pos = codestart-32+107;
+			goto done;
+		}
+
+		if(sig_8edb_pos_rel == 52-32) {
 			idd->ftype = FTYPE_EXE;
 			idd->fmt = FMT_EXE_102;
 			idd->dlz_pos_known = 1;
-			idd->dlz_pos = 87;
+			idd->dlz_pos = codestart-32+87;
 			goto done;
 		}
 
-		if(!dbuf_memcmp(c->infile, 55, sig_8edb, 8)) {
+		if(sig_8edb_pos_rel == 55-32) {
 			idd->ftype = FTYPE_EXE;
 			idd->fmt = FMT_EXE_100;
 			idd->crc_pos_known = 1;
 			idd->crc_pos = 18;
 			idd->cmpr_pos_known = 1;
-			idd->cmpr_pos = 90;
+			idd->cmpr_pos = codestart-32+90;
 			goto done;
 		}
 	}
@@ -866,6 +897,7 @@ static void check_diet_crc(deark *c, lctx *d)
 		// code, isn't the right thing to do for this type of CRC.)
 		goto done;
 	}
+	if(d->cmpr_pos+d->cmpr_len > c->infile->len) goto done;
 
 	crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 	de_crcobj_addslice(crco, c->infile, d->cmpr_pos, d->cmpr_len);
@@ -941,6 +973,10 @@ static void de_run_diet(deark *c, de_module_params *mparams)
 
 	if(fmtn) {
 		de_declare_fmtf(c, "DIET-compressed %s", fmtn);
+	}
+
+	if(d->idd.maybe_lglz) {
+		de_warn(c, "This file might be LGLZ-compressed, not DIET");
 	}
 
 	if(!fmtn || !d->idd.cmpr_pos_known) {
