@@ -205,6 +205,7 @@ static void detect_execomp_exepack(deark *c, struct execomp_ctx *ectx,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	u8 x, x2;
+	UI n;
 	int has_RB = 0;
 
 	if(ei->num_relocs!=0) goto done;
@@ -223,10 +224,22 @@ static void detect_execomp_exepack(deark *c, struct execomp_ctx *ectx,
 		goto done;
 	}
 	else if(ei->entrypoint_crcs==0x4e04abaac5d3b465LLU) {
+		n = (UI)dbuf_getu32be(ei->f, ei->entry_point+72);
+		if(n==0xe80500e8U) {
+			edd->detected_subfmt = 12; // EXEPATCK-patched
+			goto done;
+		}
+
 		edd->detected_subfmt = 4;
 		goto done;
 	}
 	else if(ei->entrypoint_crcs==0x1f449ca73852e197LLU) {
+		n = (UI)dbuf_getu32be(ei->f, ei->entry_point+66);
+		if(n==0xe80500e8U) {
+			edd->detected_subfmt = 12; // EXEPATCK-patched
+			goto done;
+		}
+
 		x = dbuf_getbyte(ei->f, ei->entry_point+73);
 		x2 = dbuf_getbyte(ei->f, ei->entry_point+137);
 		if(x==0x0a && x2==0x27) {
