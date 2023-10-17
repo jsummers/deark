@@ -109,6 +109,7 @@ static int valid_file_at(deark *c, lctx *d, i64 pos1)
 	i64 xpos, ypos;
 	i64 pos;
 	i64 imgstart;
+	int v = 0;
 
 	imgstart = pos1+512;
 
@@ -119,6 +120,13 @@ static int valid_file_at(deark *c, lctx *d, i64 pos1)
 	if(c->infile->len < imgstart + 4) {
 		de_dbg(c, "file too small");
 		return 0;
+	}
+
+	// Look for a boundary between all-0 bytes, and not-all-0 bytes.
+	if(dbuf_is_all_zeroes(c->infile, imgstart-16, 16) &&
+		!dbuf_is_all_zeroes(c->infile, imgstart, 8))
+	{
+		v++;
 	}
 
 	xpos=0; ypos=0;
@@ -142,7 +150,7 @@ static int valid_file_at(deark *c, lctx *d, i64 pos1)
 			}
 			else if(xpos>MACPAINT_WIDTH) {
 				de_dbg(c, "image at offset %d: literal too long", (int)imgstart);
-				return 0;
+				return v+0;
 			}
 		}
 		else if(b>=129) {
@@ -155,19 +163,19 @@ static int valid_file_at(deark *c, lctx *d, i64 pos1)
 			}
 			else if(xpos>MACPAINT_WIDTH) {
 				de_dbg(c, "image at offset %d: run too long", (int)imgstart);
-				return 0;
+				return v+0;
 			}
 		}
 	}
 
 	if(xpos==0 && ypos==MACPAINT_HEIGHT) {
 		de_dbg(c, "image at offset %d decodes okay", (int)imgstart);
-		return 2;
+		return v+2;
 	}
 
 	de_dbg(c, "image at offset %d: premature end of file (x=%d, y=%d)", (int)imgstart,
 		(int)xpos, (int)ypos);
-	return 1;
+	return v+1;
 }
 
 static const char *get_pattern_set_info(u32 patcrc, int *is_blank)
