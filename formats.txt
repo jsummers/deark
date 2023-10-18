@@ -130,6 +130,8 @@ Deark -- Information about supported formats
   software.
   - Cannot be autodetected. You must use "-m compfacei".
 
+* CompuServe RLE (module="cserve_rle")
+
 * Corel CCX (module="corel_ccx")
   - Decompresses and converts to CMX format.
 
