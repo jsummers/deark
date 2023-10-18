@@ -723,12 +723,6 @@ Deark -- Information about supported formats
 
 * ATR (Atari disk image) (module="atr") (experimental/incomplete)
 
-* BinHex (.hqx) (module="binhex")
-  - Extract data and resource forks to separate files.
-
-* BinSCII (.bsc) (module="binscii")
-  - May need to use "-m binscii" in some cases.
-
 * CAB (Microsoft Cabinet) (module="cab")
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
@@ -1026,6 +1020,12 @@ Deark -- Information about supported formats
 
 * Base64 (module="base64")
   - Not autodetected; use "-m base64".
+
+* BinHex (.hqx) (module="binhex")
+  - Extract data and resource forks to separate files.
+
+* BinSCII (.bsc) (module="binscii")
+  - May need to use "-m binscii" in some cases.
 
 * Uuencoded (module="uuencode")
 
