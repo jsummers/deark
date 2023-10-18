@@ -308,6 +308,10 @@ static void do_run_spectrum512c_s_internal(deark *c, de_module_params *mparams, 
 	}
 	//pos += pixels_cmpr_len;
 
+	if(unc_pixels_planar->len > 31840) {
+		dbuf_truncate(unc_pixels_planar, 31840);
+	}
+
 	// We'll construct an in-memory SPU file, then (usually) use our
 	// SPU module's decoder to process it.
 	spufile = dbuf_create_membuf(c, 51104, 0x1);
