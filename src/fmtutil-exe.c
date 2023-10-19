@@ -566,6 +566,40 @@ done:
 	}
 }
 
+// CAR (MylesHi) SFX
+static void detect_exesfx_car(deark *c, struct execomp_ctx *ectx,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	i64 foundpos = 0;
+
+	if(ei->overlay_len<27) goto done;
+	if(ei->entry_point!=11566 || ei->regSS!=978) {
+		goto done;
+	}
+
+	if(dbuf_memcmp(ei->f, 11256,
+		(const void*)"\x43\x41\x52\x20\x53\x65\x6c\xd8\xf0\x6e\x23\xf8\x0a\x41\xdd\xfd", 16))
+	{
+		goto done;
+	}
+
+	if(!is_lhalike_data_at(ei, ei->end_of_dos_code, 'h', &foundpos)) {
+		goto done;
+	}
+
+	edd->payload_pos = foundpos;
+	edd->payload_len = ei->f->len - edd->payload_pos;
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_SFX;
+	edd->payload_valid = 1;
+	edd->payload_file_ext = "car";
+
+done:
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
+		de_strlcpy(ectx->shortname, "CAR (MylesHi!)", sizeof(ectx->shortname));
+	}
+}
+
 // LZEXE modified for LHARK-SFX
 // TODO? This function may be run twice by the "exe" module, which is okay,
 //  but not ideal.
@@ -884,6 +918,9 @@ void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	if(edd->detected_fmt) goto done;
 
 	detect_exesfx_larc(c, &ectx, ei, edd);
+	if(edd->detected_fmt) goto done;
+
+	detect_exesfx_car(c, &ectx, ei, edd);
 	if(edd->detected_fmt) goto done;
 
 	detect_exesfx_lhark(c, &ectx, ei, edd);
