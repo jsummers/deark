@@ -10,10 +10,6 @@
 
 //#define DE_EXECOMP_DEVMODE
 
-struct execomp_ctx {
-	char shortname[40];
-};
-
 static void read_exe_testbytes(struct fmtutil_exe_info *ei)
 {
 	if(ei->have_testbytes) return;
@@ -91,7 +87,7 @@ UI fmtutil_detect_pklite_by_exe_ep(deark *c, const u8 *mem, i64 mem_len, UI flag
 	return 0;
 }
 
-static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
+static void detect_execomp_pklite(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	UI epflags = 0;
@@ -125,7 +121,7 @@ static void detect_execomp_pklite(deark *c, struct execomp_ctx *ectx,
 
 done:
 	if(edd->detected_fmt==DE_SPECIALEXEFMT_PKLITE) {
-		de_strlcpy(ectx->shortname, "PKLITE", sizeof(ectx->shortname));
+		de_strlcpy(edd->detected_fmt_name, "PKLITE", sizeof(edd->detected_fmt_name));
 		edd->modname = "pklite";
 	}
 }
@@ -168,7 +164,7 @@ static int look_for_pcx2exe(deark *c, struct fmtutil_exe_info *ei,
 static int detect_lhark_sfx(deark *c, struct fmtutil_exe_info *ei,
 	struct fmtutil_specialexe_detection_data *edd);
 
-static void detect_execomp_lzexe(deark *c, struct execomp_ctx *ectx,
+static void detect_execomp_lzexe(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	u8 flag = 0;
@@ -196,12 +192,12 @@ static void detect_execomp_lzexe(deark *c, struct execomp_ctx *ectx,
 
 	if(flag) {
 		edd->detected_fmt = DE_SPECIALEXEFMT_LZEXE;
-		de_strlcpy(ectx->shortname, "LZEXE", sizeof(ectx->shortname));
+		de_strlcpy(edd->detected_fmt_name, "LZEXE", sizeof(edd->detected_fmt_name));
 		edd->modname = "lzexe";
 	}
 }
 
-static void detect_execomp_exepack(deark *c, struct execomp_ctx *ectx,
+static void detect_execomp_exepack(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	u8 x, x2;
@@ -278,12 +274,12 @@ done:
 #ifdef DE_EXECOMP_DEVMODE
 		de_dbg(c, "epvar: %u", (UI)edd->detected_subfmt);
 #endif
-		de_strlcpy(ectx->shortname, "EXEPACK", sizeof(ectx->shortname));
+		de_strlcpy(edd->detected_fmt_name, "EXEPACK", sizeof(edd->detected_fmt_name));
 		edd->modname = "exepack";
 	}
 }
 
-static void detect_execomp_tinyprog(deark *c, struct execomp_ctx *ectx,
+static void detect_execomp_tinyprog(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	i64 pos;
@@ -314,7 +310,7 @@ static void detect_execomp_tinyprog(deark *c, struct execomp_ctx *ectx,
 	}
 
 	edd->detected_fmt = DE_SPECIALEXEFMT_TINYPROG;
-	de_strlcpy(ectx->shortname, "TINYPROG", sizeof(ectx->shortname));
+	de_strlcpy(edd->detected_fmt_name, "TINYPROG", sizeof(edd->detected_fmt_name));
 done:
 	;
 }
@@ -335,7 +331,7 @@ static int execomp_diet_check_fingerprint(dbuf *f, i64 pos)
 	return 0;
 }
 
-static void detect_execomp_diet(deark *c, struct execomp_ctx *ectx,
+static void detect_execomp_diet(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	static const u8 offsets[] = {20, 40, 45};
@@ -356,13 +352,13 @@ static void detect_execomp_diet(deark *c, struct execomp_ctx *ectx,
 	if(foundpos==0) goto done;
 
 	edd->detected_fmt = DE_SPECIALEXEFMT_DIET;
-	de_strlcpy(ectx->shortname, "DIET", sizeof(ectx->shortname));
+	de_strlcpy(edd->detected_fmt_name, "DIET", sizeof(edd->detected_fmt_name));
 	edd->modname = "diet";
 done:
 	;
 }
 
-static void detect_execomp_wwpack(deark *c, struct execomp_ctx *ectx,
+static void detect_execomp_wwpack(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	if(ei->num_relocs!=0) goto done;
@@ -375,7 +371,7 @@ static void detect_execomp_wwpack(deark *c, struct execomp_ctx *ectx,
 	}
 
 	edd->detected_fmt = DE_SPECIALEXEFMT_EXECOMP;
-	de_strlcpy(ectx->shortname, "WWPACK", sizeof(ectx->shortname));
+	de_strlcpy(edd->detected_fmt_name, "WWPACK", sizeof(edd->detected_fmt_name));
 done:
 	;
 }
@@ -420,47 +416,45 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei)
 void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
 	struct fmtutil_specialexe_detection_data *edd)
 {
-	struct execomp_ctx ectx;
-
-	de_zeromem(&ectx, sizeof(struct execomp_ctx));
 	edd->detected_fmt = 0;
 	edd->detected_subfmt = 0;
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_PKLITE) {
-		detect_execomp_pklite(c, &ectx, ei, edd);
+		detect_execomp_pklite(c, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_TINYPROG) {
-		detect_execomp_tinyprog(c, &ectx, ei, edd);
+		detect_execomp_tinyprog(c, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_DIET) {
-		detect_execomp_diet(c, &ectx, ei, edd);
+		detect_execomp_diet(c, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
 	if(edd->restrict_to_fmt==0) {
-		detect_execomp_wwpack(c, &ectx, ei, edd);
+		detect_execomp_wwpack(c, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
 	calc_entrypoint_crc(c, ei);
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_LZEXE) {
-		detect_execomp_lzexe(c, &ectx, ei, edd);
+		detect_execomp_lzexe(c, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_EXEPACK) {
-		detect_execomp_exepack(c, &ectx, ei, edd);
+		detect_execomp_exepack(c, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
 done:
-	de_strlcpy(edd->detected_fmt_name, (ectx.shortname[0]?ectx.shortname:"unknown"),
-		sizeof(edd->detected_fmt_name));
+	if(!edd->detected_fmt_name[0]) {
+		de_strlcpy(edd->detected_fmt_name, "unknown", sizeof(edd->detected_fmt_name));
+	}
 }
 
 // If found, writes a copy of pos to *pfoundpos.
@@ -485,7 +479,7 @@ static int is_lha_data_at(struct fmtutil_exe_info *ei, i64 pos, i64 *pfoundpos)
 
 // Detect LHA/LHarc self-extracting DOS EXE formats.
 // TODO: This is a work in progress.
-static void detect_exesfx_lha(deark *c, struct execomp_ctx *ectx,
+static void detect_exesfx_lha(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	u8 b[16];
@@ -534,11 +528,11 @@ static void detect_exesfx_lha(deark *c, struct execomp_ctx *ectx,
 
 done:
 	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
-		de_strlcpy(ectx->shortname, "LHA", sizeof(ectx->shortname));
+		de_strlcpy(edd->detected_fmt_name, "LHA", sizeof(edd->detected_fmt_name));
 	}
 }
 
-static void detect_exesfx_larc(deark *c, struct execomp_ctx *ectx,
+static void detect_exesfx_larc(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	int found;
@@ -562,12 +556,12 @@ static void detect_exesfx_larc(deark *c, struct execomp_ctx *ectx,
 
 done:
 	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
-		de_strlcpy(ectx->shortname, "LArc", sizeof(ectx->shortname));
+		de_strlcpy(edd->detected_fmt_name, "LArc", sizeof(edd->detected_fmt_name));
 	}
 }
 
 // CAR (MylesHi) SFX
-static void detect_exesfx_car(deark *c, struct execomp_ctx *ectx,
+static void detect_exesfx_car(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	i64 foundpos = 0;
@@ -596,7 +590,7 @@ static void detect_exesfx_car(deark *c, struct execomp_ctx *ectx,
 
 done:
 	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
-		de_strlcpy(ectx->shortname, "CAR (MylesHi!)", sizeof(ectx->shortname));
+		de_strlcpy(edd->detected_fmt_name, "CAR (MylesHi!)", sizeof(edd->detected_fmt_name));
 	}
 }
 
@@ -631,7 +625,7 @@ static int detect_lhark_sfx(deark *c, struct fmtutil_exe_info *ei,
 	return 1;
 }
 
-static void detect_exesfx_lhark(deark *c, struct execomp_ctx *ectx,
+static void detect_exesfx_lhark(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	if(!detect_lhark_sfx(c, ei, edd)) {
@@ -648,7 +642,7 @@ static void detect_exesfx_lhark(deark *c, struct execomp_ctx *ectx,
 
 done:
 	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
-		de_strlcpy(ectx->shortname, "LHARK", sizeof(ectx->shortname));
+		de_strlcpy(edd->detected_fmt_name, "LHARK", sizeof(edd->detected_fmt_name));
 	}
 }
 
@@ -665,7 +659,7 @@ static int is_arc_data_at(struct fmtutil_exe_info *ei, i64 pos)
 // Detect some ARC self-extracting DOS EXE formats.
 // TODO: This is pretty fragile. It only detects files made by known versions of
 // MKSARC (from the ARC distribution).
-static void detect_exesfx_arc(deark *c, struct execomp_ctx *ectx,
+static void detect_exesfx_arc(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	int found = 0;
@@ -720,11 +714,11 @@ static void detect_exesfx_arc(deark *c, struct execomp_ctx *ectx,
 
 done:
 	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
-		de_strlcpy(ectx->shortname, "ARC", sizeof(ectx->shortname));
+		de_strlcpy(edd->detected_fmt_name, "ARC", sizeof(edd->detected_fmt_name));
 	}
 }
 
-static void detect_exesfx_pak_nogate(deark *c, struct execomp_ctx *ectx,
+static void detect_exesfx_pak_nogate(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	int found = 0;
@@ -764,12 +758,12 @@ static void detect_exesfx_pak_nogate(deark *c, struct execomp_ctx *ectx,
 
 done:
 	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
-		de_strlcpy(ectx->shortname, "PAK", sizeof(ectx->shortname));
+		de_strlcpy(edd->detected_fmt_name, "PAK", sizeof(edd->detected_fmt_name));
 	}
 }
 
 // Also uses/updates edd->zip_eocd_* settings.
-static void detect_exesfx_zip(deark *c, struct execomp_ctx *ectx,
+static void detect_exesfx_zip(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	int ret;
@@ -799,11 +793,11 @@ static void detect_exesfx_zip(deark *c, struct execomp_ctx *ectx,
 
 done:
 	if(edd->detected_fmt==DE_SPECIALEXEFMT_ZIPSFX) {
-		de_strlcpy(ectx->shortname, "ZIP", sizeof(ectx->shortname));
+		de_strlcpy(edd->detected_fmt_name, "ZIP", sizeof(edd->detected_fmt_name));
 	}
 }
 
-static void detect_exesfx_zoo(deark *c, struct execomp_ctx *ectx,
+static void detect_exesfx_zoo(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	if(ei->overlay_len < 24) goto done;
@@ -828,7 +822,7 @@ static void detect_exesfx_zoo(deark *c, struct execomp_ctx *ectx,
 
 done:
 	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
-		de_strlcpy(ectx->shortname, "Zoo", sizeof(ectx->shortname));
+		de_strlcpy(edd->detected_fmt_name, "Zoo", sizeof(edd->detected_fmt_name));
 	}
 }
 
@@ -845,7 +839,7 @@ done:
 // So, it's hard to identify ARJ SFX by its decompressor. Instead, we look for
 // a valid ARJ archive starting near the beginning of the overlay segment.
 // (TODO: ARJ32)
-static void detect_exesfx_arj(deark *c, struct execomp_ctx *ectx,
+static void detect_exesfx_arj(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	int ret;
@@ -867,11 +861,11 @@ static void detect_exesfx_arj(deark *c, struct execomp_ctx *ectx,
 
 done:
 	if(edd->detected_fmt==DE_SPECIALEXEFMT_ARJSFX) {
-		de_strlcpy(ectx->shortname, "ARJ", sizeof(ectx->shortname));
+		de_strlcpy(edd->detected_fmt_name, "ARJ", sizeof(edd->detected_fmt_name));
 	}
 }
 
-static void detect_exesfx_rar(deark *c, struct execomp_ctx *ectx,
+static void detect_exesfx_rar(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
 	// TODO: Lots more work to do here. Maybe better to delete the RSFX test.
@@ -897,47 +891,45 @@ static void detect_exesfx_rar(deark *c, struct execomp_ctx *ectx,
 
 done:
 	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
-		de_strlcpy(ectx->shortname, "RAR", sizeof(ectx->shortname));
+		de_strlcpy(edd->detected_fmt_name, "RAR", sizeof(edd->detected_fmt_name));
 	}
 }
+
+typedef void (*exesfx_detector_fn)(deark *c,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd);
+
+struct exesfx_detector_item {
+	UI flags;
+	UI min_overlay_len;
+	exesfx_detector_fn fn;
+};
+
+static const struct exesfx_detector_item exesfx_detector_arr[] = {
+	{ 0, 80, detect_exesfx_zip },
+	{ 0, 27, detect_exesfx_car },
+	{ 0, 25, detect_exesfx_lhark },
+	{ 0, 0, detect_exesfx_lha },
+	{ 0, 0, detect_exesfx_larc },
+	{ 0, 0, detect_exesfx_arc },
+	{ 0, 29, detect_exesfx_pak_nogate },
+	{ 0, 28, detect_exesfx_rar },
+	{ 0, 128, detect_exesfx_zoo },
+	{ 0, ARJ_MIN_FILE_SIZE, detect_exesfx_arj }
+};
 
 void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
 	struct fmtutil_specialexe_detection_data *edd)
 {
-	struct execomp_ctx ectx;
+	size_t i;
 
-	de_zeromem(&ectx, sizeof(struct execomp_ctx));
-
-	detect_exesfx_zip(c, &ectx, ei, edd);
-	if(edd->detected_fmt) goto done;
-
-	detect_exesfx_lha(c, &ectx, ei, edd);
-	if(edd->detected_fmt) goto done;
-
-	detect_exesfx_arc(c, &ectx, ei, edd);
-	if(edd->detected_fmt) goto done;
-
-	detect_exesfx_larc(c, &ectx, ei, edd);
-	if(edd->detected_fmt) goto done;
-
-	detect_exesfx_car(c, &ectx, ei, edd);
-	if(edd->detected_fmt) goto done;
-
-	detect_exesfx_lhark(c, &ectx, ei, edd);
-	if(edd->detected_fmt) goto done;
-
-	detect_exesfx_pak_nogate(c, &ectx, ei, edd);
-	if(edd->detected_fmt) goto done;
-
-	detect_exesfx_rar(c, &ectx, ei, edd);
-	if(edd->detected_fmt) goto done;
-
-	detect_exesfx_zoo(c, &ectx, ei, edd);
-	if(edd->detected_fmt) goto done;
-
-	detect_exesfx_arj(c, &ectx, ei, edd);
+	for(i=0; i<DE_ARRAYCOUNT(exesfx_detector_arr); i++) {
+		if(ei->overlay_len < (i64)exesfx_detector_arr[i].min_overlay_len) continue;
+		exesfx_detector_arr[i].fn(c, ei, edd);
+		if(edd->detected_fmt) goto done;
+	}
 
 done:
-	de_strlcpy(edd->detected_fmt_name, (ectx.shortname[0]?ectx.shortname:"unknown"),
-		sizeof(edd->detected_fmt_name));
+	if(!edd->detected_fmt_name[0]) {
+		de_strlcpy(edd->detected_fmt_name, "unknown", sizeof(edd->detected_fmt_name));
+	}
 }
