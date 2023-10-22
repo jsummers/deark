@@ -1948,18 +1948,9 @@ static u32 crc32_calc(const u8 *ptr, size_t cnt, u32 crc)
 	return ~crc;
 }
 
-// For a one-shot CRC calculations, or the first part of a multi-part
-// calculation.
-// buf can be NULL (in which case buf_len should be 0, but is ignored)
-static u32 de_crc32(const void *buf, i64 buf_len)
+static void de_crc32_continue(struct de_crcobj *crco, const void *buf, i64 buf_len)
 {
-	if(!buf) return DE_CRC32_INIT;
-	return (u32)crc32_calc((const u8*)buf, (size_t)buf_len, DE_CRC32_INIT);
-}
-
-static u32 de_crc32_continue(u32 prev_crc, const void *buf, i64 buf_len)
-{
-	return (u32)crc32_calc((const u8*)buf, (size_t)buf_len, prev_crc);
+	crco->val = (u32)crc32_calc((const u8*)buf, (size_t)buf_len, crco->val);
 }
 
 static void adler32_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
@@ -2096,7 +2087,7 @@ void de_crcobj_reset(struct de_crcobj *crco)
 
 	switch(crco->crctype) {
 	case DE_CRCOBJ_CRC32_IEEE:
-		crco->val = de_crc32(NULL, 0);
+		crco->val = DE_CRC32_INIT;
 		break;
 	case DE_CRCOBJ_ADLER32:
 		crco->val = 1;
@@ -2128,7 +2119,7 @@ void de_crcobj_addbuf(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
 
 	switch(crco->crctype) {
 	case DE_CRCOBJ_CRC32_IEEE:
-		crco->val = de_crc32_continue(crco->val, buf, buf_len);
+		de_crc32_continue(crco, buf, buf_len);
 		break;
 	case DE_CRCOBJ_CRC16_XMODEM:
 		de_crc16xmodem_continue(crco, buf, buf_len);
