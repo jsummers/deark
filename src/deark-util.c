@@ -1919,38 +1919,62 @@ struct de_crcobj {
 	UI align;
 	deark *c;
 	u16 *table16;
+	const u32 *table32s;
 };
+
+#define DE_PERSISTENT_ITEM_CRC32_TBL 0
 
 #define DE_CRC32_INIT 0
 
-// crc32_calc() is based on public domain code by Jon Mayo, downloaded
-// from <http://orangetide.com/code/crc.c>.
-// It includes minor changes for Deark. I disclaim any copyright on these
-// minor changes. -JS
-// Note: I have found several other seemingly-independent implementations
-// of the same algorithm, such as the one by Karl Malbrain, used in miniz.
-// I don't know its origin.
-static u32 crc32_calc(const u8 *ptr, size_t cnt, u32 crc)
+static const u32 *get_crc32_table(deark *c)
 {
-	static const u32 crc32_tab[16] = {
-		0x00000000U, 0x1db71064U, 0x3b6e20c8U, 0x26d930acU,
-		0x76dc4190U, 0x6b6b51f4U, 0x4db26158U, 0x5005713cU,
-		0xedb88320U, 0xf00f9344U, 0xd6d6a3e8U, 0xcb61b38cU,
-		0x9b64c2b0U, 0x86d3d2d4U, 0xa00ae278U, 0xbdbdf21cU
-	};
+	UI i, j;
+	u32 *tbl;
 
-	if(cnt==0) return crc;
-	crc = ~crc;
-	while(cnt--) {
-		crc = (crc >> 4) ^ crc32_tab[(crc & 0xf) ^ (*ptr & 0xf)];
-		crc = (crc >> 4) ^ crc32_tab[(crc & 0xf) ^ (*ptr++ >> 4)];
+	if(c->persistent_item[DE_PERSISTENT_ITEM_CRC32_TBL]) {
+		goto done;
 	}
-	return ~crc;
+
+	// Persistent items will be freed automatically when the 'deark' object
+	// is destroyed. This feature is not used enough to make it worth doing
+	// anything to coordinate the use of them.
+	c->persistent_item[DE_PERSISTENT_ITEM_CRC32_TBL] = de_mallocarray(c, 256, sizeof(u32));
+	tbl = (u32*)c->persistent_item[DE_PERSISTENT_ITEM_CRC32_TBL];
+
+	for(i=0; i<256; i++) {
+		u32 k = (u32)i;
+
+		for(j=0; j<8; j++) {
+			if(k & 1) {
+				k = (k>>1) ^ 0xedb88320U;
+			}
+			else {
+				k >>= 1;
+			}
+			tbl[i] = k;
+		}
+	}
+
+done:
+	return (const u32*)c->persistent_item[DE_PERSISTENT_ITEM_CRC32_TBL];
 }
 
-static void de_crc32_continue(struct de_crcobj *crco, const void *buf, i64 buf_len)
+static void de_crc32_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
 {
-	crco->val = (u32)crc32_calc((const u8*)buf, (size_t)buf_len, crco->val);
+	i64 i;
+	u32 crc;
+
+	if(!crco->table32s) {
+		crco->table32s = get_crc32_table(crco->c);
+	}
+
+	crc = ~(crco->val);
+
+	for(i=0; i<buf_len; i++) {
+		crc = (crc>>8) ^ crco->table32s[(crc & 0xff)^buf[i]];
+	}
+
+	crco->val = ~crc;
 }
 
 static void adler32_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_len)

@@ -557,7 +557,7 @@ deark *de_create_internal(void)
 
 void de_destroy(deark *c)
 {
-	i64 i;
+	int i;
 
 	if(!c) return;
 	if(c->zip_data) { de_zip_close_file(c); }
@@ -572,6 +572,11 @@ void de_destroy(deark *c)
 	if(c->output_archive_filename) { de_free(c, c->output_archive_filename); }
 	if(c->extrlist_filename) { de_free(c, c->extrlist_filename); }
 	if(c->detection_data) { de_free(c, c->detection_data); }
+	for(i=0; i<DE_NUM_PERSISTENT_MEM_ITEMS; i++) {
+		if(c->persistent_item[i]) {
+			de_free(c, c->persistent_item[i]);
+		}
+	}
 	de_free(c, c->module_info);
 	de_free(NULL,c);
 }

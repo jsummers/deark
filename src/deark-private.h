@@ -457,6 +457,9 @@ struct deark_struct {
 #define DE_MAX_EXT_OPTIONS 16
 	int num_ext_options;
 	struct deark_ext_option ext_option[DE_MAX_EXT_OPTIONS];
+
+#define DE_NUM_PERSISTENT_MEM_ITEMS 6
+	void *persistent_item[DE_NUM_PERSISTENT_MEM_ITEMS];
 };
 
 void de_fatalerror(deark *c);
