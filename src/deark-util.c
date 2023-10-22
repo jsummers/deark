@@ -1913,6 +1913,8 @@ int de_inthashtable_remove_any_item(deark *c, struct de_inthashtable *ht, i64 *p
 // crcobj: Functions for performing CRC calculations, and other checksum-like
 // functions for which the result can fit in a 32-bit int.
 
+typedef void (*crcobj_continue_fn)(struct de_crcobj *crco, const u8 *buf, i64 buf_len);
+
 struct de_crcobj {
 	u32 val;
 	UI crctype;
@@ -1920,6 +1922,7 @@ struct de_crcobj {
 	deark *c;
 	const u16 *table16s;
 	const u32 *table32s;
+	crcobj_continue_fn continue_fn;
 };
 
 // Persistent items will be freed automatically when the 'deark' object
@@ -1929,8 +1932,6 @@ struct de_crcobj {
 #define DE_PERSISTENT_ITEM_CRC16ARC_TBL 1
 #define DE_PERSISTENT_ITEM_CRC16XMODEM_TBL 2
 #define DE_PERSISTENT_ITEM_CRC16SDLC_TBL 3
-
-#define DE_CRC32_INIT 0
 
 static const u32 *get_crc32_table(deark *c)
 {
@@ -1965,19 +1966,12 @@ done:
 static void de_crc32_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
 {
 	i64 i;
-	u32 crc;
 
-	if(!crco->table32s) {
-		crco->table32s = get_crc32_table(crco->c);
-	}
-
-	crc = ~(crco->val);
+	if(!crco->table32s) return;
 
 	for(i=0; i<buf_len; i++) {
-		crc = (crc>>8) ^ crco->table32s[(crc & 0xff)^buf[i]];
+		crco->val = (crco->val>>8) ^ crco->table32s[(crco->val & 0xff)^buf[i]];
 	}
-
-	crco->val = ~crc;
 }
 
 static void adler32_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
@@ -2016,12 +2010,6 @@ static const u16 *get_crc16xmodem_table(deark *c)
 
 done:
 	return (const u16*)c->persistent_item[pi_idx];
-}
-
-
-static void de_crc16xmodem_init(struct de_crcobj *crco)
-{
-	crco->table16s = get_crc16xmodem_table(crco->c);
 }
 
 static void de_crc16xmodem_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
@@ -2089,11 +2077,6 @@ done:
 	return (const u16*)c->persistent_item[pi_idx];
 }
 
-static void de_crc16arc_init(struct de_crcobj *crco, u16 poly)
-{
-	crco->table16s = get_crc16arc_table(crco->c, poly);
-}
-
 static void de_crc16arc_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
 {
 	i64 k;
@@ -2115,21 +2098,38 @@ struct de_crcobj *de_crcobj_create(deark *c, UI type_and_flags)
 	crco->crctype = type_and_flags;
 
 	switch(crco->crctype) {
+	case DE_CRCOBJ_CRC32_IEEE:
+		crco->table32s = get_crc32_table(crco->c);
+		crco->continue_fn = de_crc32_continue;
+		break;
+	case DE_CRCOBJ_ADLER32:
+		crco->continue_fn = adler32_continue;
+		break;
 	case DE_CRCOBJ_CRC16_XMODEM:
 		// This is the CRC-16 algorithm used in MacBinary.
 		// The CRC RevEng catalogue calls it "CRC-16/XMODEM".
-		de_crc16xmodem_init(crco);
+		crco->table16s = get_crc16xmodem_table(crco->c);
+		crco->continue_fn = de_crc16xmodem_continue;
 		break;
 	case DE_CRCOBJ_CRC16_ARC:
 		// This is the CRC-16 algorithm used in ARC, LHA, ZOO, etc.
 		// The CRC RevEng catalogue calls it "CRC-16/ARC".
-		de_crc16arc_init(crco, 0xa001);
+		crco->table16s = get_crc16arc_table(crco->c, 0xa001);
+		crco->continue_fn = de_crc16arc_continue;
 		break;
 	case DE_CRCOBJ_CRC16_IBMSDLC:
 		// This is the CRC-16 algorithm used in ar001.
 		// I'm pretty sure it is equivalent to the one the CRC RevEng catalogue
 		// calls "CRC-16/IBM-SDLC".
-		de_crc16arc_init(crco, 0x8408);
+		crco->table16s = get_crc16arc_table(crco->c, 0x8408);
+		crco->continue_fn = de_crc16arc_continue;
+		break;
+	case DE_CRCOBJ_SUM_BYTES:
+		crco->continue_fn = cksum_bytes_continue;
+		break;
+	case DE_CRCOBJ_SUM_U16LE:
+	case DE_CRCOBJ_SUM_U16BE:
+		crco->continue_fn = cksum_u16_continue;
 		break;
 	}
 
@@ -2152,7 +2152,7 @@ void de_crcobj_reset(struct de_crcobj *crco)
 
 	switch(crco->crctype) {
 	case DE_CRCOBJ_CRC32_IEEE:
-		crco->val = DE_CRC32_INIT;
+		crco->val = 0xffffffffU;
 		break;
 	case DE_CRCOBJ_ADLER32:
 		crco->val = 1;
@@ -2172,6 +2172,8 @@ void de_crcobj_reset(struct de_crcobj *crco)
 u32 de_crcobj_getval(struct de_crcobj *crco)
 {
 	switch(crco->crctype) {
+	case DE_CRCOBJ_CRC32_IEEE:
+		return ~(crco->val);
 	case DE_CRCOBJ_CRC16_IBMSDLC:
 		return crco->val ^ 0xffff;
 	}
@@ -2182,27 +2184,8 @@ void de_crcobj_addbuf(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
 {
 	if(buf_len<1) return;
 
-	switch(crco->crctype) {
-	case DE_CRCOBJ_CRC32_IEEE:
-		de_crc32_continue(crco, buf, buf_len);
-		break;
-	case DE_CRCOBJ_CRC16_XMODEM:
-		de_crc16xmodem_continue(crco, buf, buf_len);
-		break;
-	case DE_CRCOBJ_CRC16_ARC:
-	case DE_CRCOBJ_CRC16_IBMSDLC:
-		de_crc16arc_continue(crco, buf, buf_len);
-		break;
-	case DE_CRCOBJ_ADLER32:
-		adler32_continue(crco, buf, buf_len);
-		break;
-	case DE_CRCOBJ_SUM_BYTES:
-		cksum_bytes_continue(crco, buf, buf_len);
-		break;
-	case DE_CRCOBJ_SUM_U16LE:
-	case DE_CRCOBJ_SUM_U16BE:
-		cksum_u16_continue(crco, buf, buf_len);
-		break;
+	if(crco->continue_fn) {
+		crco->continue_fn(crco, buf, buf_len);
 	}
 }
 
