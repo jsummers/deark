@@ -1918,11 +1918,17 @@ struct de_crcobj {
 	UI crctype;
 	UI align;
 	deark *c;
-	u16 *table16;
+	const u16 *table16s;
 	const u32 *table32s;
 };
 
+// Persistent items will be freed automatically when the 'deark' object
+// is destroyed. This feature is not used enough to make it worth doing
+// anything to coordinate the use of them.
 #define DE_PERSISTENT_ITEM_CRC32_TBL 0
+#define DE_PERSISTENT_ITEM_CRC16ARC_TBL 1
+#define DE_PERSISTENT_ITEM_CRC16XMODEM_TBL 2
+#define DE_PERSISTENT_ITEM_CRC16SDLC_TBL 3
 
 #define DE_CRC32_INIT 0
 
@@ -1935,9 +1941,6 @@ static const u32 *get_crc32_table(deark *c)
 		goto done;
 	}
 
-	// Persistent items will be freed automatically when the 'deark' object
-	// is destroyed. This feature is not used enough to make it worth doing
-	// anything to coordinate the use of them.
 	c->persistent_item[DE_PERSISTENT_ITEM_CRC32_TBL] = de_mallocarray(c, 256, sizeof(u32));
 	tbl = (u32*)c->persistent_item[DE_PERSISTENT_ITEM_CRC32_TBL];
 
@@ -1990,29 +1993,45 @@ static void adler32_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
 	crco->val = (s2 << 16) + s1;
 }
 
+static const u16 *get_crc16xmodem_table(deark *c)
+{
+	const UI poly = 0x1021;
+	const UI pi_idx = DE_PERSISTENT_ITEM_CRC16XMODEM_TBL;
+	u16 *tbl;
+	UI i;
+
+	if(c->persistent_item[pi_idx]) {
+		goto done;
+	}
+
+	c->persistent_item[pi_idx] = de_mallocarray(c, 256, sizeof(u16));
+	tbl = (u16*)c->persistent_item[pi_idx];
+
+	for(i=0; i<128; i++) {
+		UI carry = tbl[i] & 0x8000;
+		UI temp = (tbl[i] << 1) & 0xffff;
+		tbl[i * 2 + (carry ? 0 : 1)] = temp ^ poly;
+		tbl[i * 2 + (carry ? 1 : 0)] = temp;
+	}
+
+done:
+	return (const u16*)c->persistent_item[pi_idx];
+}
+
+
 static void de_crc16xmodem_init(struct de_crcobj *crco)
 {
-	const unsigned int polynomial = 0x1021;
-	unsigned int index;
-
-	crco->table16 = de_mallocarray(crco->c, 256, sizeof(u16));
-	crco->table16[0] = 0;
-	for(index=0; index<128; index++) {
-		unsigned int carry = crco->table16[index] & 0x8000;
-		unsigned int temp = (crco->table16[index] << 1) & 0xffff;
-		crco->table16[index * 2 + (carry ? 0 : 1)] = temp ^ polynomial;
-		crco->table16[index * 2 + (carry ? 1 : 0)] = temp;
-	}
+	crco->table16s = get_crc16xmodem_table(crco->c);
 }
 
 static void de_crc16xmodem_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
 {
 	i64 k;
 
-	if(!crco->table16) return;
+	if(!crco->table16s) return;
 	for(k=0; k<buf_len; k++) {
 		crco->val = ((crco->val<<8)&0xffff) ^
-			(u32)crco->table16[((crco->val>>8) ^ (u32)buf[k]) & 0xff];
+			(u32)crco->table16s[((crco->val>>8) ^ (u32)buf[k]) & 0xff];
 	}
 }
 
@@ -2040,26 +2059,49 @@ static void cksum_u16_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_le
 	}
 }
 
+static const u16 *get_crc16arc_table(deark *c, u16 poly)
+{
+	UI i, k;
+	u16 *tbl;
+	UI pi_idx;
+
+	if(poly==0x8408) {
+		pi_idx = DE_PERSISTENT_ITEM_CRC16SDLC_TBL;
+	}
+	else {
+		pi_idx = DE_PERSISTENT_ITEM_CRC16ARC_TBL;
+	}
+
+	if(c->persistent_item[pi_idx]) {
+		goto done;
+	}
+
+	c->persistent_item[pi_idx] = de_mallocarray(c, 256, sizeof(u16));
+	tbl = (u16*)c->persistent_item[pi_idx];
+
+	for(i=0; i<256; i++) {
+		tbl[i] = i;
+		for(k=0; k<8; k++)
+			tbl[i] = (tbl[i]>>1) ^ ((tbl[i] & 1) ? poly : 0);
+	}
+
+done:
+	return (const u16*)c->persistent_item[pi_idx];
+}
+
 static void de_crc16arc_init(struct de_crcobj *crco, u16 poly)
 {
-	u32 i, k;
-
-	crco->table16 = de_mallocarray(crco->c, 256, sizeof(u16));
-	for(i=0; i<256; i++) {
-		crco->table16[i] = i;
-		for(k=0; k<8; k++)
-			crco->table16[i] = (crco->table16[i]>>1) ^ ((crco->table16[i] & 1) ? poly : 0);
-	}
+	crco->table16s = get_crc16arc_table(crco->c, poly);
 }
 
 static void de_crc16arc_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
 {
 	i64 k;
 
-	if(!crco->table16) return;
+	if(!crco->table16s) return;
 	for(k=0; k<buf_len; k++) {
 		crco->val = ((crco->val>>8) ^
-			(u32)crco->table16[(crco->val ^ buf[k]) & 0xff]);
+			(u32)crco->table16s[(crco->val ^ buf[k]) & 0xff]);
 	}
 }
 
@@ -2101,7 +2143,6 @@ void de_crcobj_destroy(struct de_crcobj *crco)
 
 	if(!crco) return;
 	c = crco->c;
-	de_free(c, crco->table16);
 	de_free(c, crco);
 }
 
