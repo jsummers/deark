@@ -74,27 +74,6 @@ static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *name)
 	de_dbg(c, "%s: %s", name, timestamp_buf);
 }
 
-static void de_prodos_datetime_to_timestamp(struct de_timestamp *ts,
-	i64 ddate, i64 dtime)
-{
-	i64 yr, mo, da, hr, mi, se;
-
-	if(ddate==0 || (dtime&0xe0c0)!=0) {
-		de_zeromem(ts, sizeof(struct de_timestamp));
-		ts->is_valid = 0;
-		return;
-	}
-
-	yr = 1900+((ddate&0xfe00)>>9);
-	mo = (ddate&0x01e0)>>5;
-	da = (ddate&0x001f);
-	hr = (dtime&0x1f00)>>8;
-	mi = (dtime&0x003f);
-	se = 0;
-	de_make_timestamp(ts, yr, mo, da, hr, mi, se);
-	ts->precision = DE_TSPREC_1MIN;
-}
-
 static void binscii_set_generic_error(deark *c, struct binscii_ctx *d)
 {
 	if(d->errflag) return;

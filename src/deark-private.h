@@ -1272,6 +1272,7 @@ void de_FILETIME_to_timestamp(i64 ft, struct de_timestamp *ts, unsigned int flag
 void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
    i64 ddate, i64 dtime);
 void de_describe_dos_attribs(deark *c, UI attr, de_ucstring *s, UI flags);
+void de_prodos_datetime_to_timestamp(struct de_timestamp *ts, i64 ddate, i64 dtime);
 void de_riscos_loadexec_to_timestamp(u32 load_addr,
 	u32 exec_addr, struct de_timestamp *ts);
 void de_timestamp_set_subsec(struct de_timestamp *ts, double frac);

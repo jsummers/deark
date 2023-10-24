@@ -723,6 +723,8 @@ Deark -- Information about supported formats
 
 * ATR (Atari disk image) (module="atr") (experimental/incomplete)
 
+* Binary II (module="binary_ii") (experimental/incomplete)
+
 * CAB (Microsoft Cabinet) (module="cab")
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.

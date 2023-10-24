@@ -1435,6 +1435,27 @@ void de_describe_dos_attribs(deark *c, UI attr, de_ucstring *s, UI flags)
 	}
 }
 
+void de_prodos_datetime_to_timestamp(struct de_timestamp *ts,
+	i64 ddate, i64 dtime)
+{
+	i64 yr, mo, da, hr, mi, se;
+
+	if(ddate==0 || (dtime&0xe0c0)!=0) {
+		de_zeromem(ts, sizeof(struct de_timestamp));
+		ts->is_valid = 0;
+		return;
+	}
+
+	yr = 1900+((ddate&0xfe00)>>9);
+	mo = (ddate&0x01e0)>>5;
+	da = (ddate&0x001f);
+	hr = (dtime&0x1f00)>>8;
+	mi = (dtime&0x003f);
+	se = 0;
+	de_make_timestamp(ts, yr, mo, da, hr, mi, se);
+	ts->precision = DE_TSPREC_1MIN;
+}
+
 // Sets the DE_TZCODE_UTC flag.
 void de_riscos_loadexec_to_timestamp(u32 load_addr,
 	u32 exec_addr, struct de_timestamp *ts)

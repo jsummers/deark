@@ -23,6 +23,7 @@ DE_DECLARE_MODULE(de_module_lif_kdc);
 DE_DECLARE_MODULE(de_module_ain);
 DE_DECLARE_MODULE(de_module_hta);
 DE_DECLARE_MODULE(de_module_hit);
+DE_DECLARE_MODULE(de_module_binary_ii);
 
 static int dclimplode_header_at(deark *c, i64 pos)
 {
@@ -49,6 +50,14 @@ static void backslashes_to_slashes(de_ucstring *s)
 			s->str[i] = '/';
 		}
 	}
+}
+
+static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *name)
+{
+	char timestamp_buf[64];
+
+	de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "%s: %s", name, timestamp_buf);
 }
 
 // **************************************************************************
@@ -2541,4 +2550,176 @@ void de_module_hit(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_hit;
 	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
 	mi->identify_fn = de_identify_hit;
+}
+
+// **************************************************************************
+// Binary II (Apple II format)
+// **************************************************************************
+
+struct binary_ii_ctx {
+	i64 num_members_remaining;
+};
+
+static void do_binary_ii_member(deark *c, struct binary_ii_ctx *b2ctx,
+	de_arch_lctx *d, struct de_arch_member_data *md)
+{
+	i64 pos1;
+	i64 pos;
+	i64 filesize; // in blocks
+	UI filesize_hi;
+	i64 space_reqd_in_blocks;
+	i64 fnlen;
+	UI auxtype, auxtype_hi;
+	UI accesscode, accesscode_hi;
+	UI filetype, filetype_hi;
+	UI storagetype, storagetype_hi;
+	UI eof_hi;
+	UI crdate_raw;
+	UI crtime_raw;
+	UI moddate_raw;
+	UI modtime_raw;
+	UI ostype;
+	UI data_flags;
+	u8 fmt_ver;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	pos1 = md->member_hdr_pos;
+	de_dbg(c, "member at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	// Skip ahead and read some "high bytes" fields first.
+	pos = pos1 + 109;
+	auxtype_hi = (UI)de_getu16le_p(&pos);
+	accesscode_hi = (UI)de_getbyte_p(&pos);
+	filetype_hi = (UI)de_getbyte_p(&pos);
+	storagetype_hi = (UI)de_getbyte_p(&pos);
+	filesize_hi = (UI)de_getu16le_p(&pos);
+	eof_hi = (UI)de_getbyte_p(&pos);
+
+	pos = pos1 + 3;
+	accesscode = (UI)de_getbyte_p(&pos);
+	accesscode = accesscode | (accesscode_hi<<8);
+	de_dbg(c, "access: 0x%04x", accesscode);
+
+	filetype = (UI)de_getbyte_p(&pos);
+	filetype = filetype | (filetype_hi<<8);
+	de_dbg(c, "file type: 0x%04x", filetype);
+
+	auxtype = (UI)de_getu16le_p(&pos);
+	auxtype = auxtype | (auxtype_hi<<16);
+	de_dbg(c, "aux type: 0x%08x",auxtype);
+
+	storagetype = (UI)de_getbyte_p(&pos);
+	storagetype = storagetype | (storagetype_hi<<8);
+	de_dbg(c, "storage type: 0x%04x", storagetype);
+
+	filesize = de_getu16le_p(&pos);
+	filesize |= ((i64)filesize_hi<<16);
+	de_dbg(c, "\"file size\": %"I64_FMT" (in 512-byte blocks)", filesize);
+
+	moddate_raw = (UI)de_getu16le_p(&pos);
+	modtime_raw = (UI)de_getu16le_p(&pos);
+	de_prodos_datetime_to_timestamp(&md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY],
+		moddate_raw, modtime_raw);
+	dbg_timestamp(c, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod time");
+
+	crdate_raw = (UI)de_getu16le_p(&pos);
+	crtime_raw = (UI)de_getu16le_p(&pos);
+	de_prodos_datetime_to_timestamp(&md->fi->timestamp[DE_TIMESTAMPIDX_CREATE],
+		crdate_raw, crtime_raw);
+	dbg_timestamp(c, &md->fi->timestamp[DE_TIMESTAMPIDX_CREATE], "create time");
+
+	pos = pos1 + 20;
+	md->orig_len = (UI)dbuf_getint_ext(c->infile, pos, 3, 1, 0);
+	md->orig_len |= ((i64)eof_hi<<24);
+	de_dbg(md->c, "original size: %"I64_FMT, md->orig_len);
+	md->orig_len_known = 1;
+	md->cmpr_len = md->orig_len;
+	pos += 3;
+
+	fnlen = de_getbyte_p(&pos);
+	if(fnlen>64) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	dbuf_read_to_ucstring(c->infile, pos, fnlen, md->filename, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+
+	pos = pos1 + 117;
+	space_reqd_in_blocks = de_getu32le_p(&pos);
+	de_dbg(c, "disk space req'd: %"I64_FMT" (in 512-byte blocks)", space_reqd_in_blocks);
+
+	ostype = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "OS type: 0x%02x", ostype);
+
+	pos += 2; // [122] native file type
+	pos += 1; // [124] phantom file flag
+
+	data_flags = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "data flags: 0x%02x", data_flags);
+
+	fmt_ver = de_getbyte_p(&pos);
+	de_dbg(c, "fmt ver: 0x%02x", (UI)fmt_ver);
+
+	b2ctx->num_members_remaining = (i64)de_getbyte_p(&pos);
+	de_dbg(c, "num members remaining: %"I64_FMT, b2ctx->num_members_remaining);
+
+	md->cmpr_pos = pos;
+	md->dfn = noncompressed_decompressor_fn;
+	de_arch_extract_member_file(md);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void de_run_binary_ii(deark *c, de_module_params *mparams)
+{
+	de_arch_lctx *d = NULL;
+	struct de_arch_member_data *md = NULL;
+	struct binary_ii_ctx *b2ctx = NULL;
+
+	b2ctx = de_malloc(c, sizeof(struct binary_ii_ctx));
+
+	d = de_arch_create_lctx(c);
+	d->is_le = 1;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
+
+	md = de_arch_create_md(c, d);
+
+	md->member_hdr_pos = 0;
+	do_binary_ii_member(c, b2ctx, d, md);
+
+	if(b2ctx->num_members_remaining>0) {
+		de_err(c, "This archive contains multiple files -- not supported");
+		goto done;
+	}
+
+done:
+	if(md) {
+		de_arch_destroy_md(c, md);
+	}
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported Binary II file");
+		}
+		de_arch_destroy_lctx(c, d);
+	}
+	de_free(c, b2ctx);
+}
+
+static int de_identify_binary_ii(deark *c)
+{
+	if(dbuf_memcmp(c->infile, 0, (const void*)"\x0a\x47\x4c", 3)) return 0;
+	if(de_getbyte(18) != 0x02) return 0;
+	return 90;
+}
+
+void de_module_binary_ii(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "binary_ii";
+	mi->desc = "Binary II";
+	mi->run_fn = de_run_binary_ii;
+	mi->identify_fn = de_identify_binary_ii;
 }
