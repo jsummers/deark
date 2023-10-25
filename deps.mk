@@ -189,6 +189,8 @@ $(OBJDIR)/modules/nie.o: modules/nie.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/nokia.o: modules/nokia.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/nufx.o: modules/nufx.c src/deark-private.h src/deark.h \
+ src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/officeart.o: modules/officeart.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/ogg.o: modules/ogg.c src/deark-config.h \

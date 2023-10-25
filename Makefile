@@ -73,7 +73,7 @@ OFILES_MODS_CH:=$(addprefix $(OBJDIR)/modules/,cab.o cardfile.o cfb.o \
 OFILES_MODS_IO:=$(addprefix $(OBJDIR)/modules/,misc.o misc2.o misc3.o \
  iccprofile.o icns.o \
  id3.o ico.o iff.o ilbm.o insetpix.o iptc.o jbf.o jovianvi.o jpeg.o lha.o \
- j2c.o ogg.o olepropset.o iso9660.o macbinary.o macrsrc.o lzexe.o \
+ j2c.o ogg.o olepropset.o iso9660.o macbinary.o macrsrc.o lzexe.o nufx.o \
  macpaint.o makichan.o mbk.o mp3.o mscompress.o msp.o nokia.o os2bmp.o ole1.o \
  officeart.o lbr.o megapaint.o nie.o installshld.o os2ea.o os2bootlogo.o)
 OFILES_MODS_PQ:=$(addprefix $(OBJDIR)/modules/,psd.o palmbitmap.o palmpdb.o \

@@ -262,6 +262,7 @@
     <ClCompile Include="..\..\modules\msp.c" />
     <ClCompile Include="..\..\modules\nie.c" />
     <ClCompile Include="..\..\modules\nokia.c" />
+    <ClCompile Include="..\..\modules\nufx.c" />
     <ClCompile Include="..\..\modules\officeart.c" />
     <ClCompile Include="..\..\modules\ogg.c" />
     <ClCompile Include="..\..\modules\ole1.c" />
