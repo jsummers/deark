@@ -171,7 +171,9 @@ enum de_lzwfmt_enum {
 	DE_LZWFMT_ZOOLZD,
 	DE_LZWFMT_TIFF,
 	DE_LZWFMT_ARC5,
-	DE_LZWFMT_DWC
+	DE_LZWFMT_DWC,
+	DE_LZWFMT_SHRINKIT1,
+	DE_LZWFMT_SHRINKIT2
 };
 
 struct de_lzw_params {
@@ -249,6 +251,8 @@ void de_dfilter_finish(struct de_dfilter_ctx *dfctx);
 void de_dfilter_destroy(struct de_dfilter_ctx *dfctx);
 void de_dfilter_transfer_error(deark *c, struct de_dfilter_results *src,
 	struct de_dfilter_results *dst);
+void de_dfilter_transfer_error2(deark *c, struct de_dfilter_results *src,
+	struct de_dfilter_results *dst, const char *dst_modname);
 
 void de_dfilter_decompress_oneshot(deark *c,
 	dfilter_codec_type codec_init_fn, void *codec_private_params,

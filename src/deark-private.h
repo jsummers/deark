@@ -1143,6 +1143,7 @@ int de_inthashtable_remove_any_item(deark *c, struct de_inthashtable *ht, i64 *p
 
 struct de_crcobj *de_crcobj_create(deark *c, UI type_and_flags);
 void de_crcobj_destroy(struct de_crcobj *crco);
+void de_crcobj_setval(struct de_crcobj *crco, u32 v);
 void de_crcobj_reset(struct de_crcobj *crco);
 u32 de_crcobj_getval(struct de_crcobj *crco);
 void de_crcobj_addbuf(struct de_crcobj *crco, const u8 *buf, i64 buf_len);

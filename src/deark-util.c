@@ -2167,6 +2167,11 @@ void de_crcobj_destroy(struct de_crcobj *crco)
 	de_free(c, crco);
 }
 
+void de_crcobj_setval(struct de_crcobj *crco, u32 v)
+{
+	crco->val = v;
+}
+
 void de_crcobj_reset(struct de_crcobj *crco)
 {
 	crco->val = 0;

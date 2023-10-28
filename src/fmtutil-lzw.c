@@ -51,6 +51,8 @@ struct delzwctx_struct {
 #define DELZW_BASEFMT_TIFF         6
 #define DELZW_BASEFMT_ARC5         7
 #define DELZW_BASEFMT_DWC          8
+#define DELZW_BASEFMT_SHRINKIT1    9
+#define DELZW_BASEFMT_SHRINKIT2    10
 	int basefmt;
 
 #define DELZW_HEADERTYPE_NONE  0
@@ -698,7 +700,8 @@ static void delzw_on_decompression_start(delzwctx *dc)
 		dc->basefmt!=DELZW_BASEFMT_TIFF &&
 		dc->basefmt!=DELZW_BASEFMT_TIFFOLD &&
 		dc->basefmt!=DELZW_BASEFMT_ARC5 &&
-		dc->basefmt!=DELZW_BASEFMT_DWC)
+		dc->basefmt!=DELZW_BASEFMT_DWC &&
+		dc->basefmt!=DELZW_BASEFMT_SHRINKIT1)
 	{
 		delzw_set_error(dc, DELZW_ERRCODE_UNSUPPORTED_OPTION, "Unsupported LZW format");
 		goto done;
@@ -817,6 +820,12 @@ static void delzw_on_codes_start(delzwctx *dc)
 			dc->max_codesize = 14;
 		}
 	}
+	else if(dc->basefmt==DELZW_BASEFMT_SHRINKIT1) {
+		dc->min_codesize = 9;
+		dc->max_codesize = 12;
+		dc->auto_inc_codesize = 1;
+		dc->early_codesize_inc = 1;
+	}
 
 	if(dc->min_codesize<DELZW_MINMINCODESIZE || dc->min_codesize>DELZW_MAXMAXCODESIZE ||
 		dc->max_codesize<DELZW_MINMINCODESIZE || dc->max_codesize>DELZW_MAXMAXCODESIZE ||
@@ -897,6 +906,14 @@ static void delzw_on_codes_start(delzwctx *dc)
 			dc->ct[i].value = (u8)i;
 		}
 		dc->first_dynamic_code = 256;
+	}
+	else if(dc->basefmt==DELZW_BASEFMT_SHRINKIT1) {
+		for(i=0; i<256; i++) {
+			dc->ct[i].codetype = DELZW_CODETYPE_STATIC;
+			dc->ct[i].value = (u8)i;
+		}
+		dc->ct[256].codetype = DELZW_CODETYPE_INVALID; // ??
+		dc->first_dynamic_code = 257;
 	}
 
 	if(dc->is_hashed) {
@@ -1078,6 +1095,12 @@ static void setup_delzw_common(delzwctx *dc, struct de_lzw_params *delzwp)
 	else if(delzwp->fmt==DE_LZWFMT_DWC) {
 		dc->basefmt = DELZW_BASEFMT_DWC;
 		dc->max_codesize = 14;
+	}
+	else if(delzwp->fmt==DE_LZWFMT_SHRINKIT1) {
+		dc->basefmt = DELZW_BASEFMT_SHRINKIT1;
+	}
+	else if(delzwp->fmt==DE_LZWFMT_SHRINKIT2) {
+		dc->basefmt = DELZW_BASEFMT_SHRINKIT2;
 	}
 }
 

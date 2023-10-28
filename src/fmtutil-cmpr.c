@@ -744,6 +744,15 @@ void de_dfilter_transfer_error(deark *c, struct de_dfilter_results *src,
 	}
 }
 
+void de_dfilter_transfer_error2(deark *c, struct de_dfilter_results *src,
+	struct de_dfilter_results *dst, const char *dst_modname)
+{
+	if(src->errcode && !dst->errcode) {
+		dst->errcode = src->errcode;
+		de_snprintf(dst->errmsg, sizeof(dst->errmsg), "[%s] %s", dst_modname, src->errmsg);
+	}
+}
+
 // Decompress an arbitrary two-layer compressed format.
 // tlp->codec1* is the first one that will be used during decompression (i.e. the second
 // method used when during *compression*).
