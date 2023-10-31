@@ -701,7 +701,8 @@ static void delzw_on_decompression_start(delzwctx *dc)
 		dc->basefmt!=DELZW_BASEFMT_TIFFOLD &&
 		dc->basefmt!=DELZW_BASEFMT_ARC5 &&
 		dc->basefmt!=DELZW_BASEFMT_DWC &&
-		dc->basefmt!=DELZW_BASEFMT_SHRINKIT1)
+		dc->basefmt!=DELZW_BASEFMT_SHRINKIT1 &&
+		dc->basefmt!=DELZW_BASEFMT_SHRINKIT2)
 	{
 		delzw_set_error(dc, DELZW_ERRCODE_UNSUPPORTED_OPTION, "Unsupported LZW format");
 		goto done;
@@ -820,7 +821,7 @@ static void delzw_on_codes_start(delzwctx *dc)
 			dc->max_codesize = 14;
 		}
 	}
-	else if(dc->basefmt==DELZW_BASEFMT_SHRINKIT1) {
+	else if(dc->basefmt==DELZW_BASEFMT_SHRINKIT1 || dc->basefmt==DELZW_BASEFMT_SHRINKIT2) {
 		dc->min_codesize = 9;
 		dc->max_codesize = 12;
 		dc->auto_inc_codesize = 1;
@@ -913,6 +914,14 @@ static void delzw_on_codes_start(delzwctx *dc)
 			dc->ct[i].value = (u8)i;
 		}
 		dc->ct[256].codetype = DELZW_CODETYPE_INVALID; // ??
+		dc->first_dynamic_code = 257;
+	}
+	else if(dc->basefmt==DELZW_BASEFMT_SHRINKIT2) {
+		for(i=0; i<256; i++) {
+			dc->ct[i].codetype = DELZW_CODETYPE_STATIC;
+			dc->ct[i].value = (u8)i;
+		}
+		dc->ct[256].codetype = DELZW_CODETYPE_CLEAR;
 		dc->first_dynamic_code = 257;
 	}
 
@@ -1140,6 +1149,21 @@ static void my_lzw_codec_addbuf(struct de_dfilter_ctx *dfctx,
 	}
 }
 
+static void my_lzw_codec_command(struct de_dfilter_ctx *dfctx, int cmd, UI flags)
+{
+	delzwctx *dc = (delzwctx*)dfctx->codec_private;
+
+	if(dc->basefmt==DELZW_BASEFMT_SHRINKIT2) {
+		if(cmd==DE_DFILTER_COMMAND_FINISH_BLOCK) {
+			dc->total_nbytes_processed -= (i64)(dc->bbll.nbits_in_bitbuf/8);
+			de_bitbuf_lowlevel_empty(&dc->bbll);
+		}
+		else if(cmd==DE_DFILTER_COMMAND_SOFTRESET) {
+			delzw_clear(dc);
+		}
+	}
+}
+
 static void my_lzw_codec_destroy(struct de_dfilter_ctx *dfctx)
 {
 	deark *c = dfctx->c;
@@ -1170,6 +1194,7 @@ void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
 	dfctx->codec_finish_fn = my_lzw_codec_finish;
 	dfctx->codec_destroy_fn = my_lzw_codec_destroy;
 	dfctx->codec_addbuf_fn = my_lzw_codec_addbuf;
+	dfctx->codec_command_fn = my_lzw_codec_command;
 
 	dc->output_len_known = dfctx->dcmpro->len_known;
 	dc->output_expected_len = dfctx->dcmpro->expected_len;

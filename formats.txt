@@ -907,6 +907,9 @@ Deark -- Information about supported formats
   - Depending on the file structure, operates like the iso9660 module, or the
     cd_raw module.
 
+* NuFX / ShrinkIt (module="nufx") (incomplete)
+  Apple II compressed archive format.
+
 * Pack (module="pack")
   Old Unix compressed file format (.z).
 

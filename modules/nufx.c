@@ -23,6 +23,8 @@ struct nufx_thread {
 	i64 orig_len;
 	i64 cmpr_len;
 	i64 cmpr_pos;
+	u8 dcmpr_ok_flag;
+	u8 respect_crc_field;
 };
 
 struct nufx_record {
@@ -45,6 +47,7 @@ struct nufx_record {
 	struct de_timestamp create_time;
 	struct de_timestamp mod_time;
 	struct de_timestamp archived_time;
+	de_ucstring *filename_old;
 	de_ucstring *filename;
 	struct nufx_thread *threads; // array[rec->num_threads]
 	struct nufx_thread *filename_thread_ptr; // pointer to somewhere in ->threads, or NULL
@@ -88,7 +91,8 @@ static const char *get_cmpr_meth_name(UI n)
 
 static int cmpr_meth_is_supported(UI meth)
 {
-	if(meth==0 || meth==2) return 1;
+	// TODO: There are more compression schemes to support.
+	if(meth==0 || meth==2 || meth==3) return 1;
 	return 0;
 }
 
@@ -180,9 +184,15 @@ static void do_nufx_master_record(deark *c, struct nufx_ctx *d)
 	de_dbg(c, "fmt ver: %u", d->master_ver);
 	pos += 8; // reserved
 
-	d->master_eof = de_getu32le_p(&pos);
-	de_dbg(c, "master eof: %"I64_FMT, d->master_eof);
-	pos += 6; // reserved, I guess
+	if(d->master_ver >= 1) {
+		d->master_eof = de_getu32le_p(&pos);
+		de_dbg(c, "master eof: %"I64_FMT, d->master_eof);
+	}
+	else {
+		d->master_eof = c->infile->len;
+	}
+
+	pos = pos1 + 48; // Master record is always this size?
 
 	d->next_record_pos = pos;
 
@@ -225,8 +235,15 @@ static void read_thread_header(deark *c,
 	// If record_version==2, the spec. is confusing.
 	// If record_version==1, no crc is present here. (I guess this field is 0?)
 	t->crc_reported = (u32)de_getu16le_p(&pos);
+
+	if(rec->version>=2 && t->thread_class==2 && t->cmpr_meth!=0) {
+		t->respect_crc_field = 1;
+	}
+	else if(rec->version>=3 && t->thread_class==2) {
+		t->respect_crc_field = 1;
+	}
 	de_dbg(c, "thread crc (reported): 0x%04x%s", (UI)t->crc_reported,
-		((rec->version<2)?" [unused]":""));
+		(t->respect_crc_field ? "" : " [ignored]"));
 
 	t->orig_len = de_getu32le_p(&pos);
 	de_dbg(c, "orig len: %"I64_FMT, t->orig_len);
@@ -262,13 +279,13 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-// Read the record header, except for the thread headers
+// Read the record header, including the thread headers
 static void do_nufx_record_header(deark *c,
 	struct nufx_ctx *d, struct nufx_record *rec)
 {
 	i64 pos;
+	i64 pos_of_fnlen_field;
 	i64 pos_after_fnlen_field;
-	i64 attributes_size_in_bytes;
 	i64 fnlen;
 	u32 rh_crc_calc;
 	UI tidx;
@@ -284,7 +301,8 @@ static void do_nufx_record_header(deark *c,
 
 	rec->attrib_count = de_getu16le_p(&pos);
 	de_dbg(c, "attrib count: %"I64_FMT, rec->attrib_count);
-	pos_after_fnlen_field = rec->hdr_pos+ rec->attrib_count;
+	pos_after_fnlen_field = rec->hdr_pos + rec->attrib_count;
+	pos_of_fnlen_field = pos_after_fnlen_field - 2;
 
 	rec->version = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "record version: %u", (UI)rec->version);
@@ -299,18 +317,14 @@ static void do_nufx_record_header(deark *c,
 
 	rec->filesys_id = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "filesys id: 0x%04x", rec->filesys_id);
-
 	rec->filesys_info = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "filesys info: 0x%04x", rec->filesys_info);
-
 	rec->access_code = (UI)de_getu32le_p(&pos);
 	de_dbg(c, "access: 0x%08x", rec->access_code);
-
 	rec->file_type = (u32)de_getu32le_p(&pos);
 	de_dbg(c, "file type: 0x%08x", (UI)rec->file_type);
 	rec->extra_type = (u32)de_getu32le_p(&pos);
 	de_dbg(c, "extra type: 0x%08x", (UI)rec->extra_type);
-
 	rec->storage_type = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "storage type: 0x%04x", rec->storage_type);
 
@@ -321,21 +335,33 @@ static void do_nufx_record_header(deark *c,
 	nufx_read_datetime_to_timestamp_p(c->infile, &pos, &rec->archived_time);
 	dbg_timestamp(c, &rec->archived_time, "archived time");
 
+	if(rec->version<1) goto read_fnlen;
+	if(pos+2 > pos_of_fnlen_field) goto read_fnlen;
+
 	rec->option_size = de_getu16le_p(&pos);
+	if(pos+rec->option_size > pos_of_fnlen_field)  {
+		rec->option_size = 0;
+	}
 	de_dbg(c, "option size: %"I64_FMT, rec->option_size);
-	pos += de_pad_to_2(rec->option_size);
+	if(c->debug_level>=2) {
+		de_dbg_hexdump(c, c->infile, pos, rec->option_size, 256, NULL, 0x1);
+	}
+	// Note: The spec. says something about padding option_size to an even
+	// number of bytes, but we don't do anything that would rely on that.
 
-	attributes_size_in_bytes = pos_after_fnlen_field - 2 - pos;
-	de_dbg(c, "attributes segment at %"I64_FMT", len=%"I64_FMT, pos,
-		attributes_size_in_bytes);
-
-	pos += attributes_size_in_bytes;
-	// TODO: Support this (assuming old-format files exist)
+read_fnlen:
+	pos = pos_of_fnlen_field;
 	fnlen = de_getu16le_p(&pos);
-	de_dbg(c, "filename len (obsolete): %"I64_FMT, fnlen);
+	if(fnlen>0 && !rec->filename_old) {
+		rec->filename_old = ucstring_create(c);
+		dbuf_read_to_ucstring_n(c->infile, pos, fnlen, 255, rec->filename_old,
+			0, d->input_encoding);
+		de_dbg(c, "filename (old style): \"%s\"",
+			ucstring_getpsz_d(rec->filename_old));
+	}
 	pos += fnlen;
 
-	rec->hdr_len = (pos + 16*rec->num_threads) - rec->hdr_pos;
+	rec->hdr_len = (pos + 16*(i64)rec->num_threads) - rec->hdr_pos;
 
 	de_crcobj_reset(d->crco_misc);
 	de_crcobj_addslice(d->crco_misc, c->infile, rec->hdr_pos+6,
@@ -482,7 +508,7 @@ static void decompress_lzw_1(deark *c, struct nufx_ctx *d,
 		intermed_chunk_len = dbuf_getu16le_p(dcmpri->f, &pos); // if 4096, no RLE
 		uses_rle = (intermed_chunk_len != 4096);
 		uses_lzw = dbuf_getbyte_p(dcmpri->f, &pos); // if 0, no LZW
-		de_dbg(c, "chunk at %"I64_FMT", intermed_len=%"I64_FMT", rle=%u, lzw=%u",
+		de_dbg(c, "chunk at %"I64_FMT", intermed_len=%"I64_FMT", lzw=%u, rle=%u",
 			chkpos, intermed_chunk_len, (UI)uses_lzw, (UI)uses_rle);
 
 		dbuf_empty(tmpdbuf_lzw);
@@ -554,6 +580,160 @@ done:
 	de_free(c, dres_rle);
 }
 
+// TODO? We could merge the lzw_1 and lzw_2 decompressors, but it'd be a bit messy.
+static void decompress_lzw_2(deark *c, struct nufx_ctx *d,
+	struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
+{
+	i64 pos = dcmpri->pos;
+	i64 nbytes_to_copy;
+	u8 volnum;
+	u8 rlechar;
+	u8 need_lzw_clear = 0;
+	i64 output_bytes_remaining;
+	dbuf *tmpdbuf_lzw = NULL;
+	dbuf *tmpdbuf_rle = NULL;
+	struct de_dfilter_out_params *dcmpro_lzw = NULL;
+	struct de_dfilter_results *dres_lzw = NULL;
+	struct de_dfilter_in_params *dcmpri_rle = NULL;
+	struct de_dfilter_out_params *dcmpro_rle = NULL;
+	struct de_dfilter_results *dres_rle = NULL;
+	const char *modname = "nufx_lzw2";
+	struct de_dfilter_ctx *dfctx = NULL;
+	struct de_lzw_params delzwp;
+
+	output_bytes_remaining = dcmpro->expected_len;
+
+	tmpdbuf_lzw = dbuf_create_membuf(c, 4096, 0);
+	tmpdbuf_rle = dbuf_create_membuf(c, 4096, 0);
+	dcmpro_lzw = de_malloc(c, sizeof(struct de_dfilter_out_params));
+	dres_lzw = de_malloc(c, sizeof(struct de_dfilter_results));
+	dcmpri_rle = de_malloc(c, sizeof(struct de_dfilter_in_params));
+	dcmpro_rle = de_malloc(c, sizeof(struct de_dfilter_out_params));
+	dres_rle = de_malloc(c, sizeof(struct de_dfilter_results));
+
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
+	delzwp.fmt = DE_LZWFMT_SHRINKIT2;
+	delzwp.max_code_size = 12;
+
+	// The compressed data is chunked. There's an initial 2-byte header, then each
+	// chunk has a 4-byte (if chunk uses LZW) or 2-byte (otherwise) header.
+
+	volnum = dbuf_getbyte_p(dcmpri->f, &pos);
+	de_dbg(c, "lzwcodec vol num: %u", (UI)volnum);
+	rlechar = dbuf_getbyte_p(dcmpri->f, &pos);
+	de_dbg(c, "lzwcodec rle char: 0x%02x", (UI)rlechar);
+
+	de_dfilter_init_objects(c, NULL, dcmpro_lzw, dres_lzw);
+
+	while(1) {
+		i64 chkpos;
+		i64 intermed_chunk_len; // size we expect after RLE decompression, before LZW decompression
+		i64 cmpr_len;
+		u8 uses_rle;
+		u8 uses_lzw;
+
+		if(output_bytes_remaining<1) break;
+		if(pos > dcmpri->pos + dcmpri->len) break;
+		chkpos = pos;
+		intermed_chunk_len = dbuf_getu16le_p(dcmpri->f, &pos); // if 4096, no RLE
+		uses_lzw = (intermed_chunk_len & 0x8000)?1:0;
+		intermed_chunk_len &= 0x1fff;
+		uses_rle = (intermed_chunk_len != 4096);
+		if(uses_lzw) {
+			cmpr_len = dbuf_getu16le_p(dcmpri->f, &pos);
+			cmpr_len -= 4; // Apparently, the length includes the chunk header
+			if(cmpr_len<0) cmpr_len = 0;
+		}
+		else {
+			cmpr_len = intermed_chunk_len;
+		}
+
+		de_dbg(c, "chunk at %"I64_FMT", intermed_len=%"I64_FMT", "
+			"cmpr_len=%"I64_FMT", lzw=%u, rle=%u",
+			chkpos, intermed_chunk_len, cmpr_len, (UI)uses_lzw, (UI)uses_rle);
+
+		dbuf_empty(tmpdbuf_lzw);
+		if(uses_lzw) {
+			if(dfctx) {
+				if(need_lzw_clear) {
+					de_dfilter_command(dfctx, DE_DFILTER_COMMAND_SOFTRESET, 0);
+				}
+			}
+			else {
+				dcmpro_lzw->f = tmpdbuf_lzw;
+				dcmpro_lzw->len_known = 0;
+				dfctx = de_dfilter_create(c, dfilter_lzw_codec, (void*)&delzwp, dcmpro_lzw, dres_lzw);
+			}
+			need_lzw_clear = 0;
+
+			de_dfilter_addslice(dfctx, dcmpri->f, pos, cmpr_len);
+			de_dfilter_command(dfctx, DE_DFILTER_COMMAND_FINISH_BLOCK, 0);
+			dbuf_flush(dcmpro_lzw->f);
+
+			// Hack, to cause the error message to be available. TODO: Improve this.
+			if(dfctx->finished_flag) {
+				de_dfilter_finish(dfctx);
+			}
+
+			if(dres_lzw->errcode) {
+				de_dfilter_transfer_error2(c, dres_lzw, dres, modname);
+				goto done;
+			}
+
+			if(dcmpro_lzw->f->len != intermed_chunk_len) {
+				de_dfilter_set_errorf(c, dres, modname, "LZW decompression failed "
+					"(expected %"I64_FMT" bytes, got %"I64_FMT")",
+					intermed_chunk_len, dcmpro_lzw->f->len);
+				goto done;
+			}
+		}
+		else {
+			dbuf_copy(dcmpri->f, pos, intermed_chunk_len, tmpdbuf_lzw);
+			if(dfctx) {
+				// A non-LZW chunk following an LZW chunk: We'll have to reset the
+				// LZW decompressor if/when we encounter another LZW chunk.
+				need_lzw_clear = 1;
+			}
+		}
+		pos += cmpr_len;
+
+		dbuf_empty(tmpdbuf_rle);
+		if(uses_rle) {
+			de_dfilter_init_objects(c, dcmpri_rle, dcmpro_rle, dres_rle);
+			dcmpri_rle->f = tmpdbuf_lzw;
+			dcmpri_rle->pos = 0;
+			dcmpri_rle->len = tmpdbuf_lzw->len;
+			dcmpro_rle->f = tmpdbuf_rle;
+			dcmpro_rle->len_known = 1;
+			dcmpro_rle->expected_len = 4096;
+			decompress_chunk_rle_layer(c, dcmpri_rle, dcmpro_rle, dres_rle, rlechar);
+			if(dres_rle->errcode) {
+				de_dfilter_transfer_error2(c, dres_rle, dres, modname);
+				goto done;
+			}
+		}
+		else {
+			dbuf_copy(tmpdbuf_lzw, 0, 4096, tmpdbuf_rle);
+		}
+
+		de_crcobj_addslice(d->crco_for_lzw_codec, tmpdbuf_rle, 0, 4096);
+
+		nbytes_to_copy = de_min_int(output_bytes_remaining, 4096);
+		dbuf_copy(tmpdbuf_rle, 0, nbytes_to_copy, dcmpro->f);
+		output_bytes_remaining -= nbytes_to_copy;
+	}
+
+done:
+	de_dfilter_destroy(dfctx);
+	dbuf_close(tmpdbuf_lzw);
+	de_free(c, dcmpro_lzw);
+	de_free(c, dres_lzw);
+	de_free(c, dcmpri_rle);
+	de_free(c, dcmpro_rle);
+	de_free(c, dres_rle);
+}
+
 static int decompress_thread(deark *c,
 	struct nufx_ctx *d, struct nufx_record *rec,
 	struct nufx_thread *t, dbuf *outf)
@@ -583,6 +763,9 @@ static int decompress_thread(deark *c,
 	else if(t->cmpr_meth==2) {
 		decompress_lzw_1(c, d, &dcmpri, &dcmpro, &dres);
 	}
+	else if(t->cmpr_meth==3) {
+		decompress_lzw_2(c, d, &dcmpri, &dcmpro, &dres);
+	}
 	else {
 		de_dfilter_set_errorf(c, &dres, NULL, "Unsupported compression method");
 	}
@@ -594,6 +777,7 @@ static int decompress_thread(deark *c,
 	}
 
 	retval = 1;
+	t->dcmpr_ok_flag = 1;
 	goto done;
 
 done:
@@ -682,17 +866,17 @@ static void extract_data_and_rsrc_forks(deark *c, struct nufx_ctx *d,
 
 	de_advfile_run(advf);
 
-	if(t_d) {
+	if(t_d && t_d->dcmpr_ok_flag && t_d->respect_crc_field) {
 		d_crc_calc = de_crcobj_getval(d->crco_dfork);
 		de_dbg(c, "data fork crc (calculated): 0x%04x", (UI)d_crc_calc);
-		if(d_crc_calc!=t_d->crc_reported && rec->version>=2 && t_d->crc_reported!=0) {
+		if(d_crc_calc!=t_d->crc_reported) {
 			de_err(c, "CRC check failed for record #%u data fork", rec->idx);
 		}
 	}
-	if(t_r) {
+	if(t_r && t_r->dcmpr_ok_flag && t_r->respect_crc_field) {
 		r_crc_calc = de_crcobj_getval(d->crco_rfork);
 		de_dbg(c, "rsrc fork crc (calculated): 0x%04x", (UI)r_crc_calc);
-		if(r_crc_calc!=t_r->crc_reported && rec->version>=2 && t_r->crc_reported!=0) {
+		if(r_crc_calc!=t_r->crc_reported) {
 			de_err(c, "CRC check failed for record #%u resource fork", rec->idx);
 		}
 	}
@@ -742,8 +926,8 @@ static void extract_from_record(deark *c,
 	UI tidx;
 	int ret;
 
-	filename_dbuf = dbuf_create_membuf(c, 0, 0);
 	if(rec->filename_thread_ptr) {
+		filename_dbuf = dbuf_create_membuf(c, 0, 0);
 		ret = decompress_thread(c, d, rec, rec->filename_thread_ptr,
 			filename_dbuf);
 		if(!ret || filename_dbuf->len<1) {
@@ -752,6 +936,9 @@ static void extract_from_record(deark *c,
 		dbuf_read_to_ucstring_n(filename_dbuf, 0, filename_dbuf->len, 255,
 			rec->filename, 0, d->input_encoding);
 		de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(rec->filename));
+	}
+	if(ucstring_isempty(rec->filename) && ucstring_isnonempty(rec->filename_old)) {
+		ucstring_append_ucstring(rec->filename, rec->filename_old);
 	}
 
 	if(rec->disk_image_thread_ptr) {
@@ -815,6 +1002,7 @@ static void destroy_record(deark *c, struct nufx_record *rec)
 {
 	if(!rec) return;
 	ucstring_destroy(rec->filename);
+	ucstring_destroy(rec->filename_old);
 	de_free(c, rec->threads);
 	de_free(c, rec);
 }
@@ -824,7 +1012,7 @@ static void de_run_nufx(deark *c, de_module_params *mparams)
 	struct nufx_ctx *d = NULL;
 	struct nufx_record *rec = NULL;
 	i64 pos;
-	UI rec_idx = 0;
+	i64 rec_idx = 0;
 
 	d = de_malloc(c, sizeof(struct nufx_ctx));
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
@@ -838,8 +1026,8 @@ static void de_run_nufx(deark *c, de_module_params *mparams)
 	if(d->fatalerrflag) goto done;
 	pos = d->next_record_pos;
 
-	while(1) {
-		if(pos >= d->master_eof) break;
+	for(rec_idx=0; rec_idx<d->total_records; rec_idx++) {
+		if(pos >= d->master_eof) goto done;
 
 		if(rec) {
 			destroy_record(c, rec);
@@ -848,14 +1036,13 @@ static void de_run_nufx(deark *c, de_module_params *mparams)
 
 		rec = de_malloc(c, sizeof(struct nufx_record));
 		rec->d = d;
-		rec->idx = rec_idx;
+		rec->idx = (UI)rec_idx;
 		rec->filename = ucstring_create(c);
 		rec->hdr_pos = pos;
 		do_nufx_record(c, d, rec);
 		if(d->fatalerrflag) goto done;
 
 		pos = d->next_record_pos;
-		rec_idx++;
 	}
 
 done:
@@ -886,5 +1073,4 @@ void de_module_nufx(deark *c, struct deark_module_info *mi)
 	mi->desc = "NuFX / ShrinkIt";
 	mi->run_fn = de_run_nufx;
 	mi->identify_fn = de_identify_nufx;
-	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
 }
