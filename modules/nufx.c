@@ -20,9 +20,12 @@ struct nufx_thread {
 	UI cmpr_meth;
 	UI kind;
 	u32 crc_reported;
+	i64 thread_eof;
 	i64 orig_len;
 	i64 cmpr_len;
 	i64 cmpr_pos;
+	i64 block_size; // disk images only
+	i64 num_blocks; // disk images only
 	u8 dcmpr_ok_flag;
 	u8 respect_crc_field;
 };
@@ -42,6 +45,7 @@ struct nufx_record {
 	u32 file_type;
 	u32 extra_type;
 	UI storage_type;
+	u8 is_disk_image;
 	i64 option_size;
 	i64 cur_data_pos;
 	struct de_timestamp create_time;
@@ -245,8 +249,20 @@ static void read_thread_header(deark *c,
 	de_dbg(c, "thread crc (reported): 0x%04x%s", (UI)t->crc_reported,
 		(t->respect_crc_field ? "" : " [ignored]"));
 
-	t->orig_len = de_getu32le_p(&pos);
-	de_dbg(c, "orig len: %"I64_FMT, t->orig_len);
+	t->thread_eof = de_getu32le_p(&pos);
+	de_dbg(c, "orig len: %"I64_FMT, t->thread_eof);
+	if(t->thread_class==2 && t->kind==1) {
+		t->num_blocks = (i64)rec->extra_type;
+		de_dbg(c, "num blocks: %"I64_FMT, t->num_blocks);
+		t->block_size = (i64)rec->storage_type;
+		de_dbg(c, "block size: %"I64_FMT, t->block_size);
+		t->orig_len = t->num_blocks * t->block_size;
+		de_dbg(c, "disk size (calculated): %"I64_FMT, t->orig_len);
+	}
+	else {
+		t->orig_len = t->thread_eof;
+	}
+
 	t->cmpr_len = de_getu32le_p(&pos);
 	de_dbg(c, "cmpr len: %"I64_FMT, t->cmpr_len);
 
@@ -801,20 +817,42 @@ static int my_advfile_cbfn(deark *c, struct de_advfile *advf,
 	return 1;
 }
 
-static void extract_data_and_rsrc_forks(deark *c, struct nufx_ctx *d,
-	struct nufx_record *rec)
+static int my_advfile_cbfn_diskimage(deark *c, struct de_advfile *advf,
+	struct de_advfile_cbparams *afp)
+{
+	struct nufx_record *rec = (struct nufx_record*)advf->userdata;
+	struct nufx_ctx *d = rec->d;
+
+	if(afp->whattodo == DE_ADVFILE_WRITEMAIN) {
+		decompress_thread(c, d, rec, rec->disk_image_thread_ptr, afp->outf);
+	}
+
+	return 1;
+}
+
+// Extract either {data and resource forks}, or {disk image}.
+static void extract_main_threads(deark *c, struct nufx_ctx *d,
+	struct nufx_record *rec, u8 disk_image_flag)
 {
 	struct de_advfile *advf = NULL;
 	struct nufx_thread *t_d;
 	struct nufx_thread *t_r;
+	const char *dname;
 	u32 d_crc_calc, r_crc_calc;
 	u8 ok_cmpr;
 
-	t_d = rec->data_thread_ptr;
-	t_r = rec->resource_thread_ptr;
+	if(disk_image_flag) {
+		dname = "disk image";
+		t_d = rec->disk_image_thread_ptr;
+		t_r = NULL;
+	}
+	else {
+		dname = "data fork";
+		t_d = rec->data_thread_ptr;
+		t_r = rec->resource_thread_ptr;
+	}
 
 	if(!t_d && !t_r) {
-		de_warn(c, "Skipping record: No data or resource fork");
 		goto done;
 	}
 
@@ -837,7 +875,7 @@ static void extract_data_and_rsrc_forks(deark *c, struct nufx_ctx *d,
 
 	advf = de_advfile_create(c);
 	advf->userdata = (void*)rec;
-	advf->writefork_cbfn = my_advfile_cbfn;
+	advf->writefork_cbfn = disk_image_flag ? my_advfile_cbfn_diskimage : my_advfile_cbfn;
 	advf->enable_wbuffer = 1;
 
 	advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = rec->mod_time;
@@ -868,9 +906,9 @@ static void extract_data_and_rsrc_forks(deark *c, struct nufx_ctx *d,
 
 	if(t_d && t_d->dcmpr_ok_flag && t_d->respect_crc_field) {
 		d_crc_calc = de_crcobj_getval(d->crco_dfork);
-		de_dbg(c, "data fork crc (calculated): 0x%04x", (UI)d_crc_calc);
+		de_dbg(c, "%s crc (calculated): 0x%04x", dname, (UI)d_crc_calc);
 		if(d_crc_calc!=t_d->crc_reported) {
-			de_err(c, "CRC check failed for record #%u data fork", rec->idx);
+			de_err(c, "CRC check failed for record #%u %s", rec->idx, dname);
 		}
 	}
 	if(t_r && t_r->dcmpr_ok_flag && t_r->respect_crc_field) {
@@ -941,14 +979,23 @@ static void extract_from_record(deark *c,
 		ucstring_append_ucstring(rec->filename, rec->filename_old);
 	}
 
-	if(rec->disk_image_thread_ptr) {
-		de_err(c, "Disk images are not supported");
-		goto done;
-	}
-
 	de_dbg(c, "[extracting files]");
 	de_dbg_indent(c, 1);
-	extract_data_and_rsrc_forks(c, d, rec);
+
+	// A record shouldn't contain both a disk image, and a file, but for lack
+	// of something better to do, we tolerate it.
+
+	if(rec->disk_image_thread_ptr) {
+		extract_main_threads(c, d, rec, 1);
+	}
+
+	if(rec->data_thread_ptr || rec->resource_thread_ptr) {
+		extract_main_threads(c, d, rec, 0);
+	}
+
+	if(!rec->data_thread_ptr && !rec->resource_thread_ptr && !rec->disk_image_thread_ptr) {
+		de_warn(c, "record #%u: No supported content found", rec->idx);
+	}
 
 	// Handle ancillary threads, such as comments.
 	for(tidx=0; tidx<rec->num_threads; tidx++) {
