@@ -226,6 +226,7 @@ struct de_finfo_struct {
 	u8 detect_root_dot_dir; // Directories named "." are special.
 	u8 orig_name_was_dot; // Internal use
 	u8 has_hotspot;
+	u8 linear_colorpace;
 	u8 has_riscos_data; // attribs, load_addr, exec_addr
 	u8 riscos_appended_type; // Internal use
 

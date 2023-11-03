@@ -28,6 +28,7 @@ typedef struct localctx_struct {
 #define DE_BMPVER_OS2V1    1 // OS2v1 or Windows v2
 #define DE_BMPVER_OS2V2    2
 #define DE_BMPVER_WINV345  3 // Windows v3+
+#define DE_BMPVER_64BIT    10
 	int version;
 
 	de_finfo *fi;
@@ -109,6 +110,12 @@ static int detect_bmp_version(deark *c, lctx *d)
 
 	if(d->infohdrsize>=20) {
 		d->compression_field = (u32)de_getu32le(pos+16);
+	}
+
+	// We're only trying to support the most basic 64-bit BMP images.
+	if(d->bitcount==64 && d->infohdrsize==40 && d->compression_field==0) {
+		d->version = DE_BMPVER_64BIT;
+		return 1;
 	}
 
 	if(d->infohdrsize>=16 && d->infohdrsize<=64) {
@@ -256,8 +263,11 @@ static int read_infoheader(deark *c, lctx *d, i64 pos)
 	// Already read, in detect_bmp_version()
 	de_dbg(c, "bits/pixel: %d", (int)d->bitcount);
 
+	// FIXME? The conditional test for 64 may lead to misleading error messages
+	// (but I'm afraid something might break without it).
 	if(d->bitcount==0 || d->bitcount==1 || d->bitcount==2 || d->bitcount==4 ||
-		d->bitcount==8 || d->bitcount==16 || d->bitcount==24 || d->bitcount==32)
+		d->bitcount==8 || d->bitcount==16 || d->bitcount==24 || d->bitcount==32 ||
+		(d->bitcount==64 && d->version==DE_BMPVER_64BIT))
 	{
 		bitcount_ok = 1;
 	}
@@ -623,6 +633,49 @@ static void do_image_16_32bit(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 	de_bitmap_destroy(img);
 }
 
+static void do_image_64bit(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
+{
+	de_bitmap *img = NULL;
+	i64 i, j;
+	size_t k;
+	u8 range_flag = 0;
+	u8 sm[4];
+	int sm16[4];
+
+	img = bmp_bitmap_create(c, d, 4);
+	for(j=0; j<d->height; j++) {
+		i64 pos;
+
+		pos = bits_offset + j*d->rowspan;
+		for(i=0; i<d->pdwidth; i++) {
+			sm16[2] = (int)dbuf_geti16le_p(bits, &pos);
+			sm16[1] = (int)dbuf_geti16le_p(bits, &pos);
+			sm16[0] = (int)dbuf_geti16le_p(bits, &pos);
+			sm16[3] = (int)dbuf_geti16le_p(bits, &pos);
+
+			// This is a signed "fixed point" format.
+			// Full sample range is -32768 to 32767 (= -4.0 to +3.999);
+			//  0 is the normal min brightness ("black" or transparent), and
+			//  8192 is the normal max brightness ("white" or opaque).
+			// Colorspace is, apparently, linear.
+			for(k=0; k<4; k++) {
+				if(sm16[k]<0 || sm16[k]>8192) {
+					range_flag = 1;
+				}
+				sm[k] = de_scale_n_to_255(8192, sm16[k]);
+			}
+			de_bitmap_setpixel_rgba(img, i, j, DE_MAKE_RGBA(sm[0], sm[1], sm[2], sm[3]));
+		}
+	}
+
+	if(range_flag) {
+		de_warn(c, "Image has samples outside the normal range");
+	}
+	d->fi->linear_colorpace = 1;
+	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_OPT_IMAGE | d->extra_createflags);
+	de_bitmap_destroy(img);
+}
+
 static void do_image_rle_4_8_24(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 {
 	i64 pos;
@@ -833,6 +886,9 @@ static void do_image(deark *c, lctx *d)
 	else if(d->bitcount==24 && d->compression_type==CMPR_RLE24) {
 		do_image_rle_4_8_24(c, d, c->infile, d->bits_offset);
 	}
+	else if(d->version==DE_BMPVER_64BIT) {
+		do_image_64bit(c, d, c->infile, d->bits_offset);
+	}
 	else if(d->compression_type==CMPR_JPEG) {
 		extract_embedded_image(c, d, "jpg");
 	}
@@ -885,6 +941,9 @@ static void de_run_bmp(deark *c, de_module_params *mparams)
 		case 124: de_declare_fmt(c, "BMP, Windows v5"); break;
 		default: de_declare_fmt(c, "BMP, Windows v3+");
 		}
+		break;
+	case DE_BMPVER_64BIT:
+		de_declare_fmt(c, "BMP, 64-bit");
 		break;
 	}
 

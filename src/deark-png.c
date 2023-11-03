@@ -18,6 +18,7 @@
 #define CODE_IDAT 0x49444154U
 #define CODE_IEND 0x49454e44U
 #define CODE_IHDR 0x49484452U
+#define CODE_gAMA 0x67414d41U
 #define CODE_htSP 0x68745350U
 #define CODE_pHYs 0x70485973U
 #define CODE_tEXt 0x74455874U
@@ -36,6 +37,7 @@ struct deark_png_encode_info {
 	u32 xdens;
 	u32 ydens;
 	u8 phys_units;
+	u8 linear_colorspace;
 	struct de_timestamp internal_mod_time;
 	u8 include_text_chunk_software;
 	u8 has_hotspot;
@@ -101,6 +103,13 @@ static void write_png_chunk_IHDR(struct deark_png_encode_info *pei,
 	}
 	dbuf_truncate(cdbuf, 13); // rest of chunk is zeroes
 	write_png_chunk_from_cdbuf(pei, cdbuf, CODE_IHDR);
+}
+
+static void write_png_chunk_gAMA_linear(struct deark_png_encode_info *pei,
+	dbuf *cdbuf)
+{
+	dbuf_writeu32be(cdbuf, 100000);
+	write_png_chunk_from_cdbuf(pei, cdbuf, CODE_gAMA);
 }
 
 static void write_png_chunk_pHYs(struct deark_png_encode_info *pei,
@@ -299,6 +308,11 @@ static int do_generate_png(struct deark_png_encode_info *pei, const u8 *src_pixe
 
 	write_png_chunk_IHDR(pei, cdbuf);
 
+	if(pei->linear_colorspace) {
+		dbuf_truncate(cdbuf, 0);
+		write_png_chunk_gAMA_linear(pei, cdbuf);
+	}
+
 	if(pei->has_phys) {
 		dbuf_truncate(cdbuf, 0);
 		write_png_chunk_pHYs(pei, cdbuf);
@@ -333,6 +347,7 @@ done:
 
 // flags2:
 //   0x1 = image can be encoded as bi-level, black&white, opaque
+//   0x2 = linear colorspace
 int de_write_png(deark *c, de_bitmap *img, dbuf *f, UI createflags, UI flags2)
 {
 	const char *opt_level;
@@ -357,6 +372,9 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f, UI createflags, UI flags2)
 	pei->img = img;
 	if(flags2 & 0x1) {
 		pei->encode_as_bwimg = 1;
+	}
+	if(flags2 & 0x2) {
+		pei->linear_colorspace = 1;
 	}
 
 	if(f->fi_copy && f->fi_copy->density.code>0 && c->write_density) {

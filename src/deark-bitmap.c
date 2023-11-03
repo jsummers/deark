@@ -324,6 +324,10 @@ void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi,
 		}
 	}
 
+	if(fi && fi->linear_colorpace) {
+		flags2 |= 0x2;
+	}
+
 	f = dbuf_create_output_file(c, "png", fi, createflags);
 	if(optctx.optimg) {
 		de_write_png(c, optctx.optimg, f, createflags, flags2);
