@@ -635,14 +635,17 @@ static void do_image_16_32bit(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 
 static void do_image_64bit(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 {
-	de_bitmap *img = NULL;
+	de_bitmap *imghi = NULL;
+	de_bitmap *imglo = NULL;
 	i64 i, j;
 	size_t k;
 	u8 range_flag = 0;
-	u8 sm[4];
+	u8 sm_hi[4];
+	u8 sm_lo[4];
 	int sm16[4];
 
-	img = bmp_bitmap_create(c, d, 4);
+	imghi = bmp_bitmap_create(c, d, 4);
+	imglo = bmp_bitmap_create(c, d, 4);
 	for(j=0; j<d->height; j++) {
 		i64 pos;
 
@@ -662,9 +665,10 @@ static void do_image_64bit(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 				if(sm16[k]<0 || sm16[k]>8192) {
 					range_flag = 1;
 				}
-				sm[k] = de_scale_n_to_255(8192, sm16[k]);
+				de_scale_n_to_16bit(8192, sm16[k], &sm_hi[k], &sm_lo[k]);
 			}
-			de_bitmap_setpixel_rgba(img, i, j, DE_MAKE_RGBA(sm[0], sm[1], sm[2], sm[3]));
+			de_bitmap_setpixel_rgba(imghi, i, j, DE_MAKE_RGBA(sm_hi[0], sm_hi[1], sm_hi[2], sm_hi[3]));
+			de_bitmap_setpixel_rgba(imglo, i, j, DE_MAKE_RGBA(sm_lo[0], sm_lo[1], sm_lo[2], sm_lo[3]));
 		}
 	}
 
@@ -672,8 +676,9 @@ static void do_image_64bit(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 		de_warn(c, "Image has samples outside the normal range");
 	}
 	d->fi->linear_colorpace = 1;
-	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_OPT_IMAGE | d->extra_createflags);
-	de_bitmap_destroy(img);
+	de_bitmap16_write_to_file_finfo(imghi, imglo, d->fi, DE_CREATEFLAG_OPT_IMAGE | d->extra_createflags);
+	de_bitmap_destroy(imghi);
+	de_bitmap_destroy(imglo);
 }
 
 static void do_image_rle_4_8_24(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
