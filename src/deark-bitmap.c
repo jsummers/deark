@@ -280,6 +280,15 @@ static void get_optimized_image(de_bitmap *img1, struct image_scan_opt_data *opt
 	de_bitmap_copy_rect(img1, optctx->optimg, 0, 0, img1->width, img1->height, 0, 0, 0);
 }
 
+static int valid_imglo(de_bitmap *img, de_bitmap *imglo)
+{
+	if(imglo->invalid_image_flag) return 0;
+	if(img->bytes_per_pixel != imglo->bytes_per_pixel) return 0;
+	if(img->width != imglo->width) return 0;
+	if(img->height != imglo->height) return 0;
+	return 1;
+}
+
 // When calling this function, the "name" data associated with fi, if set, should
 // be set to something like a filename, but *without* a final ".png" extension.
 // Image-specific createflags:
@@ -289,13 +298,15 @@ static void get_optimized_image(de_bitmap *img1, struct image_scan_opt_data *opt
 //     Write the rows in reverse order ("bottom-up"). This affects only the pixels,
 //     not the finfo metadata (e.g. hotspot). It's equivalent to flipping the image
 //     immediately before writing it, then flipping it back immediately after.
-void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi,
-	unsigned int createflags)
+// imglo: If non-NULL, contains the low 8 bits of each sample, and a 16 bits/sample
+//     output image will potentially be written. (This is obviously a hack, but
+//     it's not worth doing anything more for such a rarely used feature.)
+void de_bitmap16_write_to_file_finfo(de_bitmap *img, de_bitmap *imglo,
+	de_finfo *fi, unsigned int createflags)
 {
 	deark *c;
-	dbuf *f;
-	UI flags2 = 0;
 	struct image_scan_opt_data optctx;
+	struct de_write_image_params wp;
 
 	if(!img) return;
 	c = img->c;
@@ -303,12 +314,22 @@ void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi,
 	de_zeromem(&optctx, sizeof(struct image_scan_opt_data));
 
 	if(!img->bitmap) de_bitmap_alloc_pixels(img);
+	if(imglo) {
+		if(!imglo->bitmap) de_bitmap_alloc_pixels(imglo);
+		if(!valid_imglo(img, imglo)) return;
+	}
 
-	// The BWIMG flag/optimization has to be handled in a different way than the
-	// ohter optimizations, because our de_bitmap object does not support a
-	// 1 bit/pixel image type.
-	if(createflags & DE_CREATEFLAG_IS_BWIMG) {
-		flags2 |= 0x1;
+	de_zeromem(&wp, sizeof(struct de_write_image_params));
+	wp.createflags = createflags;
+
+	if(imglo) {
+		; // TODO: Optimize 16-bit images
+	}
+	else if(createflags & DE_CREATEFLAG_IS_BWIMG) {
+		// The BWIMG flag/optimization has to be handled in a different way than the
+		// other optimizations, because our de_bitmap object does not support a
+		// 1 bit/pixel image type.
+		wp.flags2 |= 0x1;
 	}
 	else if(createflags & DE_CREATEFLAG_OPT_IMAGE) {
 		// This should probably be the default, but our optimization routine
@@ -320,24 +341,32 @@ void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi,
 		}
 		if(!optctx.is_nonbilevel) {
 			de_dbg3(c, "reducing to bilevel (from %d samples)", img->bytes_per_pixel);
-			flags2 |= 0x1;
+			wp.flags2 |= 0x1;
 		}
 	}
 
 	if(fi && fi->linear_colorpace) {
-		flags2 |= 0x2;
+		wp.flags2 |= 0x2;
 	}
 
-	f = dbuf_create_output_file(c, "png", fi, createflags);
+	wp.f = dbuf_create_output_file(c, "png", fi, createflags);
 	if(optctx.optimg) {
-		de_write_png(c, optctx.optimg, f, createflags, flags2);
+		wp.img = optctx.optimg;
 	}
 	else {
-		de_write_png(c, img, f, createflags, flags2);
+		wp.img = img;
+		wp.imglo = imglo;
 	}
-	dbuf_close(f);
+	de_write_png(c, &wp);
+	dbuf_close(wp.f);
 
 	if(optctx.optimg) de_bitmap_destroy(optctx.optimg);
+}
+
+void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi,
+	unsigned int createflags)
+{
+	de_bitmap16_write_to_file_finfo(img, NULL, fi, createflags);
 }
 
 // "token" - A (UTF-8) filename component, like "output.000.<token>.png".

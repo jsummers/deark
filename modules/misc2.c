@@ -1037,31 +1037,38 @@ void de_module_crg(deark *c, struct deark_module_info *mi)
 
 static void de_run_farbfeld(deark *c, de_module_params *mparams)
 {
-	de_bitmap *img = NULL;
+	de_bitmap *imghi = NULL; // high 8 bits of each sample
+	de_bitmap *imglo = NULL; // low 8 bits of each sample
 	i64 width, height;
 	i64 i, j, k;
 	i64 ppos;
-	u8 s[4];
+	u8 sh[4];
+	u8 sl[4];
 
 	width = de_getu32be(8);
 	height = de_getu32be(12);
 	de_dbg_dimensions(c, width, height);
 	if(!de_good_image_dimensions(c, width, height)) return;
 
-	img = de_bitmap_create(c, width, height, 4);
+	imghi = de_bitmap_create(c, width, height, 4);
+	imglo = de_bitmap_create(c, width, height, 4);
 
 	for(j=0; j<height; j++) {
 		for(i=0; i<width; i++) {
 			ppos = 16 + 8*(width*j + i);
 			for(k=0; k<4; k++) {
-				s[k] = de_getbyte(ppos+2*k);
+				sh[k] = de_getbyte(ppos+2*k);
+				sl[k] = de_getbyte(ppos+2*k+1);
 			}
-			de_bitmap_setpixel_rgba(img, i, j,
-				DE_MAKE_RGBA(s[0],s[1],s[2],s[3]));
+			de_bitmap_setpixel_rgba(imghi, i, j,
+				DE_MAKE_RGBA(sh[0],sh[1],sh[2],sh[3]));
+			de_bitmap_setpixel_rgba(imglo, i, j,
+				DE_MAKE_RGBA(sl[0],sl[1],sl[2],sl[3]));
 		}
 	}
-	de_bitmap_write_to_file(img, NULL, 0);
-	de_bitmap_destroy(img);
+	de_bitmap16_write_to_file_finfo(imghi, imglo, NULL, DE_CREATEFLAG_OPT_IMAGE);
+	de_bitmap_destroy(imghi);
+	de_bitmap_destroy(imglo);
 }
 
 static int de_identify_farbfeld(deark *c)

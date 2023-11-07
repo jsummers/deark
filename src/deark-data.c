@@ -1209,6 +1209,19 @@ u8 de_scale_n_to_255(i64 n, i64 x)
 	return (u8)(0.5+(((double)x)*(255.0/(double)n)));
 }
 
+void de_scale_n_to_16bit(int n, int x_in, u8 *x_out_hi, u8 *x_out_lo)
+{
+	double tmp1;
+	UI tmp2;
+
+	if(x_in<0) x_in = 0;
+	if(x_in>n) x_in = n;
+	tmp1 = ((double)x_in / (double)n) * 65535.0;
+	tmp2 = (UI)(tmp1 + 0.5);
+	*x_out_hi = (tmp2 & 0xff00)>>8;
+	*x_out_lo = (tmp2 & 0xff);
+}
+
 de_color de_rgb565_to_888(u32 x)
 {
 	u8 cr, cg, cb;

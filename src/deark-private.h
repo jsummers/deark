@@ -584,7 +584,14 @@ int de_zip_create_file(deark *c);
 void de_zip_add_file_to_archive(deark *c, dbuf *f);
 void de_zip_close_file(deark *c);
 
-int de_write_png(deark *c, de_bitmap *img, dbuf *f, UI createflags, UI flags2);
+struct de_write_image_params { // internal use
+	de_bitmap *img;
+	de_bitmap *imglo;
+	dbuf *f;
+	UI createflags;
+	UI flags2;
+};
+int de_write_png(deark *c, struct de_write_image_params *wp);
 
 ///////////////////////////////////////////
 
@@ -853,6 +860,8 @@ char *de_bitreader_describe_curpos(struct de_bitreader *bitrd, char *buf, size_t
 
 void de_bitmap_write_to_file(de_bitmap *img, const char *token, unsigned int createflags);
 void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi, unsigned int createflags);
+void de_bitmap16_write_to_file_finfo(de_bitmap *img, de_bitmap *imglo,
+	de_finfo *fi, unsigned int createflags);
 
 void de_bitmap_setsample(de_bitmap *img, i64 x, i64 y,
 	i64 samplenum, de_colorsample v);
@@ -1014,6 +1023,7 @@ u8 de_sample_nbit_to_8bit(i64 n, unsigned int x);
 u8 de_scale_63_to_255(u8 x);
 u8 de_scale_1000_to_255(i64 x);
 u8 de_scale_n_to_255(i64 n, i64 x);
+void de_scale_n_to_16bit(int n, int x_in, u8 *x_out_hi, u8 *x_out_lo);
 de_color de_rgb565_to_888(u32 x);
 de_color de_bgr555_to_888(u32 x);
 de_color de_rgb555_to_888(u32 x);

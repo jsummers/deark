@@ -28,9 +28,11 @@ struct deark_png_encode_info {
 	deark *c;
 	dbuf *outf;
 	de_bitmap *img;
+	de_bitmap *imglo;
 	int width, height;
 	int src_rowspan;
-	int num_chans;
+	int num_chans; // both src and dst
+	int samples_per_row; // both src and dst
 	int flip;
 	unsigned int level;
 	int has_phys;
@@ -98,7 +100,7 @@ static void write_png_chunk_IHDR(struct deark_png_encode_info *pei,
 		dbuf_writebyte(cdbuf, 0x00);
 	}
 	else {
-		dbuf_writebyte(cdbuf, 8); // bit depth
+		dbuf_writebyte(cdbuf, (pei->imglo ? 16 : 8)); // bit depth
 		dbuf_writebyte(cdbuf, color_type_code[pei->num_chans]);
 	}
 	dbuf_truncate(cdbuf, 13); // rest of chunk is zeroes
@@ -238,6 +240,23 @@ static void compress_png_row(struct deark_png_encode_info *pei, struct fmtutil_t
 
 		fmtutil_tdefl_compress_buffer(tdctx, pei->tmprow, pei->dst_rowspan, FMTUTIL_TDEFL_NO_FLUSH);
 	}
+	else if(pei->imglo) {
+		int x;
+
+		if(pei->tmprow) {
+			de_zeromem(pei->tmprow, pei->dst_rowspan);
+		}
+		else {
+			pei->tmprow = de_malloc(pei->c, pei->dst_rowspan);
+		}
+
+		for(x=0; x<pei->samples_per_row; x++) {
+			pei->tmprow[x*2] = pei->img->bitmap[y*pei->src_rowspan + x];
+			pei->tmprow[x*2+1] = pei->imglo->bitmap[y*pei->src_rowspan + x];
+		}
+
+		fmtutil_tdefl_compress_buffer(tdctx, pei->tmprow, pei->dst_rowspan, FMTUTIL_TDEFL_NO_FLUSH);
+	}
 	else {
 		fmtutil_tdefl_compress_buffer(tdctx, &pei->img->bitmap[y*pei->src_rowspan],
 			pei->dst_rowspan, FMTUTIL_TDEFL_NO_FLUSH);
@@ -271,6 +290,7 @@ static int write_png_chunk_IDATs(struct deark_png_encode_info *pei, dbuf *cdbuf)
 	}
 	else {
 		pei->dst_rowspan = (size_t)pei->width * (size_t)pei->num_chans;
+		if(pei->imglo) pei->dst_rowspan *= 2;
 	}
 
 	for (y = 0; y<pei->height; y++) {
@@ -345,10 +365,10 @@ done:
 	return retval;
 }
 
-// flags2:
+// wp->flags2:
 //   0x1 = image can be encoded as bi-level, black&white, opaque
 //   0x2 = linear colorspace
-int de_write_png(deark *c, de_bitmap *img, dbuf *f, UI createflags, UI flags2)
+int de_write_png(deark *c, struct de_write_image_params *wp)
 {
 	const char *opt_level;
 	int retval = 0;
@@ -357,37 +377,38 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f, UI createflags, UI flags2)
 	pei = de_malloc(c, sizeof(struct deark_png_encode_info));
 	pei->c = c;
 
-	if(img->invalid_image_flag) {
+	if(wp->img->invalid_image_flag) {
 		goto done;
 	}
-	if(!de_good_image_dimensions(c, img->width, img->height)) {
+	if(!de_good_image_dimensions(c, wp->img->width, wp->img->height)) {
 		goto done;
 	}
 
 	// Optimization to speed up list mode
-	if(f->btype==DBUF_TYPE_NULL && !c->enable_oinfo) {
+	if(wp->f->btype==DBUF_TYPE_NULL && !c->enable_oinfo) {
 		goto done;
 	}
 
-	pei->img = img;
-	if(flags2 & 0x1) {
+	pei->img = wp->img;
+	pei->imglo = wp->imglo;
+	if(wp->flags2 & 0x1) {
 		pei->encode_as_bwimg = 1;
 	}
-	if(flags2 & 0x2) {
+	if(wp->flags2 & 0x2) {
 		pei->linear_colorspace = 1;
 	}
 
-	if(f->fi_copy && f->fi_copy->density.code>0 && c->write_density) {
+	if(wp->f->fi_copy && wp->f->fi_copy->density.code>0 && c->write_density) {
 		pei->has_phys = 1;
-		if(f->fi_copy->density.code==1) { // unspecified units
+		if(wp->f->fi_copy->density.code==1) { // unspecified units
 			pei->phys_units = 0;
-			pei->xdens = (u32)(f->fi_copy->density.xdens+0.5);
-			pei->ydens = (u32)(f->fi_copy->density.ydens+0.5);
+			pei->xdens = (u32)(wp->f->fi_copy->density.xdens+0.5);
+			pei->ydens = (u32)(wp->f->fi_copy->density.ydens+0.5);
 		}
-		else if(f->fi_copy->density.code==2) { // dpi
+		else if(wp->f->fi_copy->density.code==2) { // dpi
 			pei->phys_units = 1; // pixels/meter
-			pei->xdens = (u32)(0.5+f->fi_copy->density.xdens/0.0254);
-			pei->ydens = (u32)(0.5+f->fi_copy->density.ydens/0.0254);
+			pei->xdens = (u32)(0.5+wp->f->fi_copy->density.xdens/0.0254);
+			pei->ydens = (u32)(0.5+wp->f->fi_copy->density.ydens/0.0254);
 		}
 	}
 
@@ -405,17 +426,18 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f, UI createflags, UI flags2)
 		}
 	}
 
-	pei->outf = f;
-	if(!c->padpix && img->unpadded_width>0 && img->unpadded_width<img->width) {
-		pei->width = (int)img->unpadded_width;
+	pei->outf = wp->f;
+	if(!c->padpix && wp->img->unpadded_width>0 && wp->img->unpadded_width<wp->img->width) {
+		pei->width = (int)wp->img->unpadded_width;
 	}
 	else {
-		pei->width = (int)img->width;
+		pei->width = (int)wp->img->width;
 	}
-	pei->src_rowspan = (int)(img->width * img->bytes_per_pixel);
-	pei->height = (int)img->height;
-	pei->flip = (createflags & DE_CREATEFLAG_FLIP_IMAGE)?1:0;
-	pei->num_chans = img->bytes_per_pixel;
+	pei->src_rowspan = (int)(wp->img->width * wp->img->bytes_per_pixel);
+	pei->height = (int)wp->img->height;
+	pei->flip = (wp->createflags & DE_CREATEFLAG_FLIP_IMAGE)?1:0;
+	pei->num_chans = wp->img->bytes_per_pixel;
+	pei->samples_per_row = pei->width * pei->num_chans;
 	pei->include_text_chunk_software = 0;
 
 	if(!c->pngcprlevel_valid) {
@@ -438,21 +460,21 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f, UI createflags, UI flags2)
 	}
 	pei->level = c->pngcmprlevel;
 
-	if(f->fi_copy && f->fi_copy->internal_mod_time.is_valid) {
-		pei->internal_mod_time = f->fi_copy->internal_mod_time;
+	if(wp->f->fi_copy && wp->f->fi_copy->internal_mod_time.is_valid) {
+		pei->internal_mod_time = wp->f->fi_copy->internal_mod_time;
 	}
 
-	if(f->fi_copy && f->fi_copy->has_hotspot) {
+	if(wp->f->fi_copy && wp->f->fi_copy->has_hotspot) {
 		pei->has_hotspot = 1;
-		pei->hotspot_x = f->fi_copy->hotspot_x;
-		pei->hotspot_y = f->fi_copy->hotspot_y;
+		pei->hotspot_x = wp->f->fi_copy->hotspot_x;
+		pei->hotspot_y = wp->f->fi_copy->hotspot_y;
 		// Leave a hint as to where our custom Hotspot chunk came from.
 		pei->include_text_chunk_software = 1;
 	}
 
 	pei->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
 
-	if(!do_generate_png(pei, img->bitmap)) {
+	if(!do_generate_png(pei, wp->img->bitmap)) {
 		de_err(c, "PNG write failed");
 		goto done;
 	}
