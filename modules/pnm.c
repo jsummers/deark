@@ -23,9 +23,9 @@ struct page_ctx {
 	int fmt;
 	const char *fmt_name;
 	i64 width, height;
-	i64 maxval;
+	int maxval;
 
-	i64 pam_num_samples;
+	int pam_depth; // = samples per pixel
 #define PAMSUBTYPE_GRAY         1
 #define PAMSUBTYPE_RGB          2
 	int pam_subtype;
@@ -77,7 +77,7 @@ static int read_next_token(deark *c, lctx *d, struct page_ctx *pg,
 			return 0; // Token too long.
 		}
 
-		b = de_getbyte(pg->hdr_parse_pos++);
+		b = de_getbyte_p(&pg->hdr_parse_pos);
 
 		if(in_comment) {
 			if(b==10 || b==13) {
@@ -113,7 +113,7 @@ static int read_pnm_header(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 	char tokenbuf[100];
 	int retval = 0;
 
-	de_dbg(c, "header at %d", (int)pos1);
+	de_dbg(c, "header at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
 	de_dbg(c, "format: %s", pg->fmt_name);
@@ -130,8 +130,8 @@ static int read_pnm_header(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 	}
 	else {
 		if(!read_next_token(c, d, pg, tokenbuf, sizeof(tokenbuf))) goto done;
-		pg->maxval = de_atoi64(tokenbuf);
-		de_dbg(c, "maxval: %d", (int)pg->maxval);
+		pg->maxval = de_atoi(tokenbuf);
+		de_dbg(c, "maxval: %d", pg->maxval);
 	}
 
 	retval = 1;
@@ -217,7 +217,7 @@ static int read_pam_header(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 	char token1buf[200];
 	char token2buf[200];
 
-	de_dbg(c, "header at %d", (int)pos1);
+	de_dbg(c, "header at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
 	pos += 3; // Skip "P7\n"
@@ -267,10 +267,10 @@ static int read_pam_header(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 			pg->height = de_atoi64(token2buf);
 		}
 		else if(!de_strcmp(token1buf, "DEPTH")) {
-			pg->pam_num_samples = de_atoi64(token2buf);
+			pg->pam_depth = de_atoi(token2buf);
 		}
 		else if(!de_strcmp(token1buf, "MAXVAL")) {
-			pg->maxval = de_atoi64(token2buf);
+			pg->maxval = de_atoi(token2buf);
 		}
 		else if(!de_strcmp(token1buf, "TUPLTYPE")) {
 			// FIXME: The "TUPLTYPE" line(s) is wacky, and seems underspecified.
@@ -316,7 +316,7 @@ static int read_pam_header(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 	if(tupltype_line_count==0) {
 		// The TUPLTYPE field is technically optional, but the image is not
 		// portable without it.
-		switch(pg->pam_num_samples) {
+		switch(pg->pam_depth) {
 		case 1:
 			pg->pam_subtype = PAMSUBTYPE_GRAY;
 			break;
@@ -361,7 +361,7 @@ static int do_image_pbm_ascii(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 		if(ypos==(pg->height-1) && xpos>=pg->width) break; // end of image
 		if(ypos>=pg->height) break;
 
-		b = de_getbyte(pos++);
+		b = de_getbyte_p(&pos);
 		if(b=='1') v=0;
 		else if(b=='0') v=255;
 		else continue;
@@ -382,9 +382,10 @@ static int do_image_pbm_ascii(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 static int do_image_pgm_ppm_ascii(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 {
 	de_bitmap *img = NULL;
-	i64 nsamples; // For both input and output
+	int nsamples; // samples per pixel, for both input and output
 	i64 pos = pos1;
-	i64 xpos, ypos, sampidx;
+	i64 xpos, ypos;
+	int sampidx;
 	char samplebuf[32];
 	size_t samplebuf_used;
 	u8 b;
@@ -392,7 +393,7 @@ static int do_image_pgm_ppm_ascii(deark *c, lctx *d, struct page_ctx *pg, i64 po
 	if(fmt_is_ppm(pg->fmt)) nsamples=3;
 	else nsamples=1;
 
-	img = de_bitmap_create(c, pg->width, pg->height, (int)nsamples);
+	img = de_bitmap_create(c, pg->width, pg->height, nsamples);
 
 	xpos=0; ypos=0;
 	sampidx=0;
@@ -403,7 +404,7 @@ static int do_image_pgm_ppm_ascii(deark *c, lctx *d, struct page_ctx *pg, i64 po
 		if(ypos==(pg->height-1) && xpos>=pg->width) break; // end of image
 		if(ypos>=pg->height) break;
 
-		b = de_getbyte(pos++);
+		b = de_getbyte_p(&pos);
 		if(is_pnm_whitespace(b)) {
 			if(samplebuf_used>0) {
 				i64 v;
@@ -466,17 +467,17 @@ static int do_image_pgm_ppm_pam_binary(deark *c, lctx *d, struct page_ctx *pg, i
 {
 	de_bitmap *img = NULL;
 	i64 rowspan;
-	i64 nsamples; // For both input and output
+	int nsamples; // samples per pixel, for both input and output
 	i64 bytes_per_sample;
-	i64 i, j, k;
+	i64 i, j;
 	i64 pos = pos1;
-	unsigned int samp_ori[4];
+	UI samp_ori[4];
 	u8 samp_adj[4];
 	u32 clr;
 	int retval = 0;
 
 	if(pg->fmt==FMT_PAM) {
-		nsamples = pg->pam_num_samples;
+		nsamples = pg->pam_depth;
 
 		if((pg->pam_subtype==PAMSUBTYPE_GRAY && !pg->has_alpha && nsamples==1) ||
 			(pg->pam_subtype==PAMSUBTYPE_GRAY && pg->has_alpha && nsamples==2) ||
@@ -498,26 +499,27 @@ static int do_image_pgm_ppm_pam_binary(deark *c, lctx *d, struct page_ctx *pg, i
 	}
 
 	if(nsamples<1 || nsamples>4) {
-		de_err(c, "Unsupported number of samples: %d", (int)nsamples);
+		de_err(c, "Unsupported samples/pixel: %d", nsamples);
 	}
 
 	if(pg->maxval<=255) bytes_per_sample=1;
 	else bytes_per_sample=2;
 
-	rowspan = pg->width * nsamples * bytes_per_sample;
+	rowspan = pg->width * (i64)nsamples * bytes_per_sample;
 	pg->image_data_len = rowspan * pg->height;
 
-	img = de_bitmap_create(c, pg->width, pg->height, (int)nsamples);
+	img = de_bitmap_create(c, pg->width, pg->height, nsamples);
 
 	for(j=0; j<pg->height; j++) {
 		for(i=0; i<pg->width; i++) {
+			int k;
+
 			for(k=0; k<nsamples; k++) {
 				if(bytes_per_sample==1) {
-					samp_ori[k] = de_getbyte(pos++);
+					samp_ori[k] = de_getbyte_p(&pos);
 				}
 				else {
-					samp_ori[k] = (unsigned int)de_getbyte(pos++) << 8 ;
-					samp_ori[k] |= (unsigned int)de_getbyte(pos++);
+					samp_ori[k] = (UI)de_getu16be_p(&pos);
 				}
 
 				samp_adj[k] = de_scale_n_to_255(pg->maxval, samp_ori[k]);
@@ -554,11 +556,11 @@ static int do_image(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 {
 	int retval = 0;
 
-	de_dbg(c, "image data at %d", (int)pos1);
+	de_dbg(c, "image data at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
 	if(pg->maxval<1 || pg->maxval>65535) {
-		de_err(c, "Invalid maxval: %d", (int)pg->maxval);
+		de_err(c, "Invalid maxval: %d", pg->maxval);
 		goto done;
 	}
 	if(!de_good_image_dimensions(c, pg->width, pg->height)) goto done;
@@ -625,7 +627,7 @@ static int do_page(deark *c, lctx *d, int pagenum, i64 pos1)
 	struct page_ctx *pg = NULL;
 	int retval = 0;
 
-	de_dbg(c, "image at %d", (int)pos1);
+	de_dbg(c, "image at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
 	pg = de_malloc(c, sizeof(struct page_ctx));
