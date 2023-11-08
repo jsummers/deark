@@ -379,60 +379,75 @@ static int do_image_pbm_ascii(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 	return 1;
 }
 
+static int do_image_pgm_ppm_pam_binary(deark *c, lctx *d, struct page_ctx *pg,
+	dbuf *inf, i64 pos1);
+
+struct pgm_ppm_ascii_ctx {
+	u8 intermed_nbytes_per_sample;
+	i64 sample_count;
+	dbuf *intermed_img;
+	size_t samplebuf_used;
+	char samplebuf[32];
+};
+
+static void pgm_ppm_ascii_handle_sample(struct pgm_ppm_ascii_ctx *actx)
+{
+	i64 v;
+
+	actx->samplebuf[actx->samplebuf_used] = '\0'; // NUL terminate for de_atoi64()
+	v = de_atoi64((const char*)actx->samplebuf);
+	actx->samplebuf_used = 0;
+
+	if(actx->intermed_nbytes_per_sample==1) {
+		dbuf_writebyte(actx->intermed_img, (u8)v);
+	}
+	else {
+		dbuf_writeu16be(actx->intermed_img, v);
+	}
+
+	actx->sample_count++;
+}
+
+// Convert the ASCII image data to binary, then call the function to process
+// that binary data.
 static int do_image_pgm_ppm_ascii(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 {
-	de_bitmap *img = NULL;
-	int nsamples; // samples per pixel, for both input and output
+	int nsamples_per_pixel;
+	i64 nsamples_per_image;
+	i64 intermed_nbytes_per_image;
 	i64 pos = pos1;
-	i64 xpos, ypos;
-	int sampidx;
-	char samplebuf[32];
-	size_t samplebuf_used;
-	u8 b;
+	int retval = 0;
+	struct pgm_ppm_ascii_ctx actx;
 
-	if(fmt_is_ppm(pg->fmt)) nsamples=3;
-	else nsamples=1;
+	de_zeromem(&actx, sizeof(struct pgm_ppm_ascii_ctx));
+	if(fmt_is_ppm(pg->fmt)) nsamples_per_pixel = 3;
+	else nsamples_per_pixel = 1;
 
-	img = de_bitmap_create(c, pg->width, pg->height, nsamples);
+	nsamples_per_image = (i64)nsamples_per_pixel * pg->height * pg->width;
+	actx.intermed_nbytes_per_sample = (pg->maxval>255) ? 2 : 1;
+	intermed_nbytes_per_image = nsamples_per_image * (i64)actx.intermed_nbytes_per_sample;
 
-	xpos=0; ypos=0;
-	sampidx=0;
-	samplebuf_used=0;
+	actx.intermed_img = dbuf_create_membuf(c, intermed_nbytes_per_image, 0x1);
+	actx.samplebuf_used=0;
+
+	actx.sample_count = 0;
 
 	while(1) {
-		if(pos >= c->infile->len) break; // end of file
-		if(ypos==(pg->height-1) && xpos>=pg->width) break; // end of image
-		if(ypos>=pg->height) break;
+		u8 b;
+
+		if(actx.sample_count >= nsamples_per_image) break;
+		if(pos >= c->infile->len) { // end of file
+			if(actx.samplebuf_used>0) {
+				pgm_ppm_ascii_handle_sample(&actx);
+			}
+			break;
+		}
 
 		b = de_getbyte_p(&pos);
 		if(is_pnm_whitespace(b)) {
-			if(samplebuf_used>0) {
-				i64 v;
-				u8 v_adj;
-
+			if(actx.samplebuf_used>0) {
 				// Completed a sample
-				samplebuf[samplebuf_used] = '\0'; // NUL terminate for de_atoi64()
-				v = de_atoi64((const char*)samplebuf);
-				v_adj = de_scale_n_to_255(pg->maxval, v);
-				samplebuf_used = 0;
-
-				if(nsamples>1) {
-					de_bitmap_setsample(img, xpos, ypos, sampidx, v_adj);
-				}
-				else {
-					de_bitmap_setpixel_gray(img, xpos, ypos, v_adj);
-				}
-
-				sampidx++;
-				if(sampidx>=nsamples) {
-					sampidx=0;
-					xpos++;
-					if(xpos>=pg->width) {
-						xpos=0;
-						ypos++;
-					}
-				}
-
+				pgm_ppm_ascii_handle_sample(&actx);
 			}
 			else { // Skip extra whitespace
 				continue;
@@ -440,15 +455,15 @@ static int do_image_pgm_ppm_ascii(deark *c, lctx *d, struct page_ctx *pg, i64 po
 		}
 		else {
 			// Non-whitespace. Save for later.
-			if(samplebuf_used < sizeof(samplebuf_used)-1) {
-				samplebuf[samplebuf_used++] = b;
+			if(actx.samplebuf_used < sizeof(actx.samplebuf_used)-1) {
+				actx.samplebuf[actx.samplebuf_used++] = b;
 			}
 		}
 	}
-	de_bitmap_write_to_file(img, NULL, 0);
 
-	de_bitmap_destroy(img);
-	return 1;
+	retval = do_image_pgm_ppm_pam_binary(c, d, pg, actx.intermed_img, 0);
+	dbuf_close(actx.intermed_img);
+	return retval;
 }
 
 static int do_image_pbm_binary(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
@@ -463,7 +478,8 @@ static int do_image_pbm_binary(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 	return 1;
 }
 
-static int do_image_pgm_ppm_pam_binary(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
+static int do_image_pgm_ppm_pam_binary(deark *c, lctx *d, struct page_ctx *pg,
+	dbuf *inf, i64 pos1)
 {
 	de_bitmap *img = NULL;
 	i64 rowspan;
@@ -516,10 +532,10 @@ static int do_image_pgm_ppm_pam_binary(deark *c, lctx *d, struct page_ctx *pg, i
 
 			for(k=0; k<nsamples; k++) {
 				if(bytes_per_sample==1) {
-					samp_ori[k] = de_getbyte_p(&pos);
+					samp_ori[k] = dbuf_getbyte_p(inf, &pos);
 				}
 				else {
-					samp_ori[k] = (UI)de_getu16be_p(&pos);
+					samp_ori[k] = (UI)dbuf_getu16be_p(inf, &pos);
 				}
 
 				samp_adj[k] = de_scale_n_to_255(pg->maxval, samp_ori[k]);
@@ -579,7 +595,7 @@ static int do_image(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 	case FMT_PGM_BINARY:
 	case FMT_PPM_BINARY:
 	case FMT_PAM:
-		if(!do_image_pgm_ppm_pam_binary(c, d, pg, pos1)) goto done;
+		if(!do_image_pgm_ppm_pam_binary(c, d, pg, c->infile, pos1)) goto done;
 		break;
 	default:
 		de_err(c, "Unsupported PNM format");
