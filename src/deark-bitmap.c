@@ -289,6 +289,22 @@ static int valid_imglo(de_bitmap *img, de_bitmap *imglo)
 	return 1;
 }
 
+static int bitmap16_low_bits_important(de_bitmap *imghi, de_bitmap *imglo)
+{
+	i64 i, j;
+
+	for(j=0; j<imghi->height; j++) {
+		for(i=0; i<imghi->width; i++) {
+			de_color c1, c2;
+
+			c1 = de_bitmap_getpixel(imghi, i, j);
+			c2 = de_bitmap_getpixel(imglo, i, j);
+			if(c1 != c2) return 1;
+		}
+	}
+	return 0;
+}
+
 // When calling this function, the "name" data associated with fi, if set, should
 // be set to something like a filename, but *without* a final ".png" extension.
 // Image-specific createflags:
@@ -322,8 +338,16 @@ void de_bitmap16_write_to_file_finfo(de_bitmap *img, de_bitmap *imglo,
 	de_zeromem(&wp, sizeof(struct de_write_image_params));
 	wp.createflags = createflags;
 
+	if(imglo && (createflags & DE_CREATEFLAG_OPT_IMAGE)) {
+		// If the high and low bytes are the same in every sample, we don't need
+		// the low byte.
+		if(!bitmap16_low_bits_important(img, imglo)) {
+			imglo = NULL;
+		}
+	}
+
 	if(imglo) {
-		; // TODO: Optimize 16-bit images
+		; // The routines below don't support 16-bit images
 	}
 	else if(createflags & DE_CREATEFLAG_IS_BWIMG) {
 		// The BWIMG flag/optimization has to be handled in a different way than the
