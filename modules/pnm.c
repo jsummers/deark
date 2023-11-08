@@ -482,23 +482,27 @@ static int do_image_pgm_ppm_pam_binary(deark *c, lctx *d, struct page_ctx *pg,
 	dbuf *inf, i64 pos1)
 {
 	de_bitmap *img = NULL;
+	de_bitmap *imglo = NULL;
 	i64 rowspan;
-	int nsamples; // samples per pixel, for both input and output
-	i64 bytes_per_sample;
+	int nsamples_per_pixel; // For both input and output
+	u8 nbytes_per_sample;
 	i64 i, j;
 	i64 pos = pos1;
 	UI samp_ori[4];
-	u8 samp_adj[4];
+	u8 samp_adj[4]; // most significant 8 bits
+	u8 samp_adj_lo[4];
 	u32 clr;
 	int retval = 0;
 
-	if(pg->fmt==FMT_PAM) {
-		nsamples = pg->pam_depth;
+	de_zeromem(samp_adj_lo, sizeof(samp_adj_lo));
 
-		if((pg->pam_subtype==PAMSUBTYPE_GRAY && !pg->has_alpha && nsamples==1) ||
-			(pg->pam_subtype==PAMSUBTYPE_GRAY && pg->has_alpha && nsamples==2) ||
-			(pg->pam_subtype==PAMSUBTYPE_RGB && !pg->has_alpha && nsamples==3) ||
-			(pg->pam_subtype==PAMSUBTYPE_RGB && pg->has_alpha && nsamples==4))
+	if(pg->fmt==FMT_PAM) {
+		nsamples_per_pixel = pg->pam_depth;
+
+		if((pg->pam_subtype==PAMSUBTYPE_GRAY && !pg->has_alpha && nsamples_per_pixel==1) ||
+			(pg->pam_subtype==PAMSUBTYPE_GRAY && pg->has_alpha && nsamples_per_pixel==2) ||
+			(pg->pam_subtype==PAMSUBTYPE_RGB && !pg->has_alpha && nsamples_per_pixel==3) ||
+			(pg->pam_subtype==PAMSUBTYPE_RGB && pg->has_alpha && nsamples_per_pixel==4))
 		{
 			;
 		}
@@ -508,63 +512,87 @@ static int do_image_pgm_ppm_pam_binary(deark *c, lctx *d, struct page_ctx *pg,
 		}
 	}
 	else if(fmt_is_ppm(pg->fmt)) {
-		nsamples=3;
+		nsamples_per_pixel = 3;
 	}
 	else {
-		nsamples=1;
+		nsamples_per_pixel = 1;
 	}
 
-	if(nsamples<1 || nsamples>4) {
-		de_err(c, "Unsupported samples/pixel: %d", nsamples);
+	if(nsamples_per_pixel<1 || nsamples_per_pixel>4) {
+		de_err(c, "Unsupported samples/pixel: %d", nsamples_per_pixel);
 	}
 
-	if(pg->maxval<=255) bytes_per_sample=1;
-	else bytes_per_sample=2;
+	if(pg->maxval<=255) nbytes_per_sample = 1;
+	else nbytes_per_sample = 2;
 
-	rowspan = pg->width * (i64)nsamples * bytes_per_sample;
+	rowspan = pg->width * (i64)nsamples_per_pixel * (i64)nbytes_per_sample;
 	pg->image_data_len = rowspan * pg->height;
 
-	img = de_bitmap_create(c, pg->width, pg->height, nsamples);
+	img = de_bitmap_create(c, pg->width, pg->height, nsamples_per_pixel);
+	if(nbytes_per_sample!=1) {
+		imglo = de_bitmap_create(c, pg->width, pg->height, nsamples_per_pixel);
+	}
 
 	for(j=0; j<pg->height; j++) {
 		for(i=0; i<pg->width; i++) {
 			int k;
 
-			for(k=0; k<nsamples; k++) {
-				if(bytes_per_sample==1) {
+			for(k=0; k<nsamples_per_pixel; k++) {
+				if(nbytes_per_sample==1) {
 					samp_ori[k] = dbuf_getbyte_p(inf, &pos);
 				}
 				else {
 					samp_ori[k] = (UI)dbuf_getu16be_p(inf, &pos);
 				}
 
-				samp_adj[k] = de_scale_n_to_255(pg->maxval, samp_ori[k]);
+				if(nbytes_per_sample==1) {
+					samp_adj[k] = de_scale_n_to_255(pg->maxval, samp_ori[k]);
+				}
+				else {
+					de_scale_n_to_16bit(pg->maxval, (int)samp_ori[k], &samp_adj[k], &samp_adj_lo[k]);
+				}
 			}
 
-			switch(nsamples) {
+			switch(nsamples_per_pixel) {
 			case 4:
 				clr = DE_MAKE_RGBA(samp_adj[0], samp_adj[1], samp_adj[2], samp_adj[3]);
 				de_bitmap_setpixel_rgba(img, i, j, clr);
+				if(imglo) {
+					clr = DE_MAKE_RGBA(samp_adj_lo[0], samp_adj_lo[1], samp_adj_lo[2], samp_adj_lo[3]);
+					de_bitmap_setpixel_rgba(imglo, i, j, clr);
+				}
 				break;
 			case 3:
 				clr = DE_MAKE_RGB(samp_adj[0], samp_adj[1], samp_adj[2]);
 				de_bitmap_setpixel_rgb(img, i, j, clr);
+				if(imglo) {
+					clr = DE_MAKE_RGB(samp_adj_lo[0], samp_adj_lo[1], samp_adj_lo[2]);
+					de_bitmap_setpixel_rgb(imglo, i, j, clr);
+				}
 				break;
 			case 2:
 				clr = DE_MAKE_RGBA(samp_adj[0], samp_adj[0], samp_adj[0], samp_adj[1]);
 				de_bitmap_setpixel_rgba(img, i, j, clr);
+				if(imglo) {
+					clr = DE_MAKE_RGBA(samp_adj_lo[0], samp_adj_lo[0], samp_adj_lo[0], samp_adj_lo[1]);
+					de_bitmap_setpixel_rgba(imglo, i, j, clr);
+				}
 				break;
 			default: // Assuming nsamples==1
 				de_bitmap_setpixel_gray(img, i, j, samp_adj[0]);
+				if(imglo) {
+					de_bitmap_setpixel_gray(imglo, i, j, samp_adj_lo[0]);
+				}
 			}
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap16_write_to_file_finfo(img, imglo, NULL, DE_CREATEFLAG_OPT_IMAGE);
 	retval = 1;
 
 done:
 	de_bitmap_destroy(img);
+	de_bitmap_destroy(imglo);
 	return retval;
 }
 
