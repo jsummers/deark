@@ -2877,6 +2877,7 @@ struct decode_page_ctx {
 	UI base_samples_per_pixel;
 	u8 is_tiled;
 	u8 is_separated;
+	u8 dst_flag_16bit;
 	u8 is_grayscale;
 	u8 grayscale_reverse_polarity;
 	u8 need_to_reverse_bits;
@@ -3169,7 +3170,7 @@ static de_color unpremultiply_alpha(de_color clr)
 }
 
 static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ctx *pg,
-	struct decode_page_ctx *dctx, de_bitmap *img)
+	struct decode_page_ctx *dctx, de_bitmap *img, de_bitmap *img_lo)
 {
 	i64 i, j;
 	u32 s_idx;
@@ -3177,9 +3178,12 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 	u32 sample_scalefactor;
 	u32 prev_sample[DE_TIFF_MAX_SAMPLES];
 	u32 sample[DE_TIFF_MAX_SAMPLES];
+	u8 sample_lo[DE_TIFF_MAX_SAMPLES];
+	de_color clr_lo = 0;
 
 	de_zeromem(&prev_sample, sizeof(prev_sample));
 	de_zeromem(&sample, sizeof(sample));
+	de_zeromem(&sample_lo, sizeof(sample_lo));
 
 	sample_mask = (1U<<(u32)pg->bits_per_sample)-1U;
 	if(pg->bits_per_sample<=8) {
@@ -3245,8 +3249,16 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 				}
 			}
 
+			if(dctx->grayscale_reverse_polarity) {
+				if(pg->bits_per_sample==16)
+					sample[0] = 0xffff - sample[0];
+				else
+					sample[0] = 0xff - sample[0];
+			}
+
 			if(pg->bits_per_sample==16) {
 				for(s_idx=0; s_idx<dctx->samples_per_pixel_to_decode; s_idx++) {
+					sample_lo[s_idx] = sample[s_idx] & 0xff;
 					sample[s_idx] >>= 8;
 				}
 			}
@@ -3266,14 +3278,15 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 				clr = pg->pal[palidx & 0xff];
 			}
 			else if(dctx->is_grayscale) {
-				if(dctx->grayscale_reverse_polarity) {
-					sample[0] = 0xff - sample[0];
-				}
 				clr = DE_MAKE_GRAY(sample[0]);
+				if(dctx->dst_flag_16bit) {
+					clr_lo = DE_MAKE_GRAY(sample_lo[0]);
+				}
 			}
 			else {
 				clr = DE_MAKE_RGB(sample[0], sample[1], sample[2]);
 			}
+
 			if(dctx->has_alpha) {
 				clr = DE_SET_ALPHA(clr, sample[dctx->alpha_sample_idx]);
 				if(dctx->is_assoc_alpha) {
@@ -3282,6 +3295,9 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 			}
 
 			de_bitmap_setpixel_rgba(img, dctx->strileset_xpos+i, dctx->strileset_ypos+j, clr);
+			if(dctx->dst_flag_16bit) {
+				de_bitmap_setpixel_rgba(img_lo, dctx->strileset_xpos+i, dctx->strileset_ypos+j, clr_lo);
+			}
 		}
 	}
 }
@@ -3440,6 +3456,7 @@ static void preprocess_fillorder_lsb(deark *c, lctx *d, struct page_ctx *pg,
 static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 {
 	de_bitmap *img = NULL;
+	de_bitmap *img_lo = NULL;
 	struct decode_page_ctx *dctx = NULL;
 	de_finfo *fi = NULL;
 	int need_errmsg = 0;
@@ -3447,7 +3464,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	int saved_indent_level2;
 	i64 i;
 	i64 striles_across;
-	int output_bypp;
+	int output_bypp; // bytes/pixel for the output de_bitmap object(s)
 	int ok_bps = 0;
 	UI createflags = 0;
 	// (Multiple dbufs are needed for PlanarConfig=separated.)
@@ -3729,7 +3746,16 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	if(dctx->is_grayscale) output_bypp = 1;
 	else output_bypp = 3;
 	if(dctx->has_alpha) output_bypp++;
+
+	if(dctx->is_grayscale && output_bypp==1 && pg->bits_per_sample==16) {
+		// In some limited cases, we fully support depth=16bit.
+		dctx->dst_flag_16bit = 1;
+	}
+
 	img = de_bitmap_create(c, dctx->width, dctx->height, output_bypp);
+	if(dctx->dst_flag_16bit) {
+		img_lo = de_bitmap_create(c, dctx->width, dctx->height, output_bypp);
+	}
 
 	de_dbg_indent_save(c, &saved_indent_level2);
 
@@ -3781,7 +3807,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 			}
 		}
 
-		paint_decompressed_strile_to_image(c, d, pg, dctx, img);
+		paint_decompressed_strile_to_image(c, d, pg, dctx, img, img_lo);
 	}
 
 after_paint:
@@ -3790,9 +3816,11 @@ after_paint:
 
 	if(pg->orientation>=5 && pg->orientation<=8) {
 		de_bitmap_transpose(img);
+		if(img_lo) de_bitmap_transpose(img_lo);
 	}
 	if(pg->orientation==2 || pg->orientation==3 || pg->orientation==6 || pg->orientation==7) {
 		de_bitmap_mirror(img);
+		if(img_lo) de_bitmap_mirror(img_lo);
 	}
 	if(pg->orientation==3 || pg->orientation==4 || pg->orientation==7 || pg->orientation==8) {
 		// More efficient than de_bitmap_flip(). We can do this if flipping is the last step.
@@ -3808,13 +3836,14 @@ after_paint:
 	fi->internal_mod_time = pg->internal_mod_time;
 
 	createflags |= DE_CREATEFLAG_OPT_IMAGE;
-	de_bitmap_write_to_file_finfo(img, fi, createflags);
+	de_bitmap16_write_to_file_finfo(img, img_lo, fi, createflags);
 
 done:
 	for(i=0; i<DE_TIFF_MAX_SAMPLES; i++) {
 		if(tmp_membuf[i]) dbuf_close(tmp_membuf[i]);
 	}
 	de_bitmap_destroy(img);
+	de_bitmap_destroy(img_lo);
 	de_finfo_destroy(c, fi);
 	if(need_errmsg) {
 		detiff_err(c, d, pg, "Unsupported image type or bad image");
