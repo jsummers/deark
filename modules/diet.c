@@ -511,7 +511,7 @@ static void find_v100_mz_pos(deark *c, lctx *d, struct exe_dcmpr_ctx *ectx,
 	i64 reloc_tbl_rel = 0;
 	i64 nrelocs_r = 0;
 	int found_count = 0;
-	u8 fclass = 0; // 0=unknown, 1=has params at parms_pos, 2=no reloc table
+	u8 fclass = 0; // 0=unknown, 1=has params at params_pos, 2=no reloc table
 	i64 i;
 	i64 n;
 	i64 xpos;
@@ -574,9 +574,13 @@ static void find_v100_mz_pos(deark *c, lctx *d, struct exe_dcmpr_ctx *ectx,
 
 	// Search for the MZ header, hopefully avoiding false positives.
 	for(i=0; i<16; i++) {
-		// Look for "MZ"
-		if(dbuf_getbyte(d->o_dcmpr_code, mz_pos_approx+i) != 'M') continue;
-		if(dbuf_getbyte(d->o_dcmpr_code, mz_pos_approx+i+1) != 'Z') continue;
+		int sig;
+
+		// Look for "MZ" or "ZM"
+		sig = (int)dbuf_getbyte(d->o_dcmpr_code, mz_pos_approx+i);
+		if(sig!='M' && sig!='Z') continue;
+		sig += (int)dbuf_getbyte(d->o_dcmpr_code, mz_pos_approx+i+1);
+		if(sig != 'M'+'Z') continue;
 
 		// Validate the reloc count
 		n = dbuf_getu16le(d->o_dcmpr_code, mz_pos_approx+i+6);
@@ -658,7 +662,7 @@ static void find_exe_params(deark *c, lctx *d, struct exe_dcmpr_ctx *ectx,
 		de_dbg(c, "expected MZ pos in intermed. data: %"I64_FMT, ectx->mz_pos);
 		// Verify that this seems to be the right place.
 		n = dbuf_getu16be(d->o_dcmpr_code, ectx->mz_pos);
-		if(n != 0x4d5a) { // DIET only allows MZ, not ZM.
+		if(n!=0x4d5a && n!=0x5a4d) {
 			d->errflag = 1;
 			d->need_errmsg = 1;
 			goto done;
