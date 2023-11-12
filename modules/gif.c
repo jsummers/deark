@@ -1165,9 +1165,7 @@ done:
 static void do_after_trailer(deark *c, lctx *d, i64 pos1)
 {
 	i64 extra_bytes_at_eof;
-	i64 i;
 	u8 first_byte;
-	u8 flag = 0;
 
 	extra_bytes_at_eof = c->infile->len - pos1;
 	if(extra_bytes_at_eof<=0) return;
@@ -1175,14 +1173,17 @@ static void do_after_trailer(deark *c, lctx *d, i64 pos1)
 	// If all extra bytes are 0x00, or all are 0x1a, don't report it.
 	first_byte = de_getbyte(pos1);
 	if(first_byte==0x00 || first_byte==0x1a) {
+		i64 i;
+		u8 flag = 0;
+
 		for(i=1; i<extra_bytes_at_eof; i++) {
 			if(de_getbyte(pos1+i)!=first_byte) {
 				flag = 1;
 				break;
 			}
 		}
+		if(!flag) return;
 	}
-	if(!flag) return;
 
 	de_info(c, "Note: %"I64_FMT" bytes of unidentified data found at end "
 		"of file (starting at %"I64_FMT").", extra_bytes_at_eof, pos1);
