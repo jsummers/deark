@@ -82,6 +82,7 @@ typedef struct localctx_struct {
 
 	u8 check_crcs;
 	u8 opt_extract_from_APNG;
+	u8 opt_want_raw_zlib;
 
 	u8 is_CgBI;
 	u8 is_APNG;
@@ -98,6 +99,7 @@ typedef struct localctx_struct {
 	dbuf *APNG_prefix;
 	dbuf *curr_APNG_frame;
 	dbuf *IDAT_prefix; // The first few bytes of IDAT data (optional)
+	dbuf *raw_zlib;
 } lctx;
 
 struct text_chunk_ctx {
@@ -639,6 +641,12 @@ static void handler_IDAT(deark *c, lctx *d, struct handler_params *hp)
 		if(d->fmt==DE_PNGFMT_PNG && !d->is_CgBI && !d->IDAT_prefix) {
 			d->IDAT_prefix = dbuf_create_membuf(c, 8, 0x1);
 		}
+
+		if(d->opt_want_raw_zlib && d->fmt==DE_PNGFMT_PNG && !d->is_CgBI &&
+			!d->raw_zlib)
+		{
+			d->raw_zlib = dbuf_create_output_file(c, "zlib", NULL, 0);
+		}
 	}
 
 	// Collect at least the first 2 bytes of IDAT data for analysis.
@@ -651,6 +659,10 @@ static void handler_IDAT(deark *c, lctx *d, struct handler_params *hp)
 		if(d->IDAT_prefix->len>=2) {
 			decode_zlib_header(c, d);
 		}
+	}
+
+	if(d->raw_zlib) {
+		dbuf_copy(c->infile, hp->dpos, hp->dlen, d->raw_zlib);
 	}
 }
 
@@ -1280,6 +1292,7 @@ static void de_run_png(deark *c, de_module_params *mparams)
 
 	d->check_crcs = (u8)de_get_ext_option_bool(c, "png:checkcrc", 1);
 	d->opt_extract_from_APNG = (u8)de_get_ext_option_bool(c, "png:extractapng", 1);
+	d->opt_want_raw_zlib = (u8)de_get_ext_option_bool(c, "png:extractzlib", 0);
 
 	de_dbg(c, "signature at %d", 0);
 	d->fmt = do_identify_png_internal(c);
@@ -1375,6 +1388,7 @@ static void de_run_png(deark *c, de_module_params *mparams)
 		}
 		dbuf_close(d->APNG_prefix);
 		dbuf_close(d->IDAT_prefix);
+		dbuf_close(d->raw_zlib);
 		de_crcobj_destroy(d->crco);
 		de_crcobj_destroy(d->crco_for_write);
 		de_free(c, d);
@@ -1392,6 +1406,7 @@ static int de_identify_png(deark *c)
 static void de_help_png(deark *c)
 {
 	de_msg(c, "-opt png:extractapng=0 : Do not extract APNG frames");
+	de_msg(c, "-opt png:extractzlib : Extract zlib stream to a file");
 }
 
 void de_module_png(deark *c, struct deark_module_info *mi)

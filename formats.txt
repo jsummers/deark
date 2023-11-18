@@ -457,6 +457,7 @@ Deark -- Information about supported formats
   - Extract frame images (may be image fragments) from APNG files.
   Options
    -opt png:extractapng=0 - Do not extract APNG frames
+   -opt png:extractzlib - Extract the zlib stream to a file
 
 * PNM/PBM/PGM/PPM/PAM (module="pnm")
 
