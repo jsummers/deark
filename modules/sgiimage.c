@@ -75,17 +75,15 @@ static UI sgiimage_getsample_p(struct sgiimage_ctx *d, dbuf *f, i64 *ppos)
 }
 
 static void sgiimage_decode_image(deark *c, struct sgiimage_ctx *d,
-	dbuf *inf, i64 pos1, de_bitmap *img)
+	dbuf *inf, i64 pos1, de_bitmap *img, de_bitmap *imglo)
 {
 	i64 pos = pos1;
 	i64 pn;
 	i64 i, j;
 
 	for(pn=0; pn<d->num_channels; pn++) {
-		int is_gray_channel;
 		i64 samplenum;
 
-		is_gray_channel = (pn==0 && d->is_grayscale);
 		if(d->has_alpha && pn==(d->num_channels-1))
 			samplenum = 3;
 		else
@@ -94,21 +92,15 @@ static void sgiimage_decode_image(deark *c, struct sgiimage_ctx *d,
 		for(j=0; j<d->height; j++) {
 			for(i=0; i<d->width; i++) {
 				UI s;
-				de_colorsample b;
 
 				s = sgiimage_getsample_p(d, inf, &pos);
-				if(d->bytes_per_sample==2) {
-					b = (de_colorsample)(s>>8);
-				}
-				else {
-					b = (de_colorsample)s;
-				}
 
-				if(is_gray_channel) {
-					de_bitmap_setpixel_gray(img, i, j, b);
+				if(imglo) {
+					de_bitmap_setsample(img, i, j, samplenum, (de_colorsample)(s>>8));
+					de_bitmap_setsample(imglo, i, j, samplenum, (s&0xff));
 				}
 				else {
-					de_bitmap_setsample(img, i, j, samplenum, b);
+					de_bitmap_setsample(img, i, j, samplenum, (de_colorsample)s);
 				}
 			}
 		}
@@ -144,7 +136,6 @@ static void sgiimage_decompress_rle_scanline(deark *c,
 		if(num_dcmpr_bytes >= d->rowspan) break; // sufficient output
 
 		n = sgiimage_getsample_p(d, c->infile, &curpos);
-		//b = de_getbyte_p(&curpos);
 		count = (i64)(n & 0x7f);
 		if(count==0) break;
 		if(n & 0x80) { // noncompressed run
@@ -242,6 +233,7 @@ static void do_sgiimage_image(deark *c, struct sgiimage_ctx *d)
 {
 	dbuf *unc_pixels = NULL;
 	de_bitmap *img = NULL;
+	de_bitmap *imglo = NULL;
 
 	d->is_grayscale = (d->num_channels<=2);
 	d->has_alpha = (d->num_channels==2 || d->num_channels==4);
@@ -258,30 +250,34 @@ static void do_sgiimage_image(deark *c, struct sgiimage_ctx *d)
 	}
 
 	img = de_bitmap_create(c, d->width, d->height, (int)d->num_channels);
+	if(d->bytes_per_sample==2) {
+		imglo = de_bitmap_create(c, d->width, d->height, (int)d->num_channels);
+	}
 
 	d->rowspan = d->width * d->bytes_per_sample;
 	d->num_scanlines = d->height * d->num_channels;
 	d->total_unc_size = d->num_scanlines * d->rowspan;
 
 	if(d->storage_fmt==0) { // Uncompressed
-		sgiimage_decode_image(c, d, c->infile, 512, img);
+		sgiimage_decode_image(c, d, c->infile, 512, img, imglo);
 	}
 	else {
 		unc_pixels = dbuf_create_membuf(c, d->total_unc_size, 0);
 		dbuf_enable_wbuffer(unc_pixels);
 		sgiimage_decompress_rle(c, d, unc_pixels);
-		sgiimage_decode_image(c, d, unc_pixels, 0, img);
+		sgiimage_decode_image(c, d, unc_pixels, 0, img, imglo);
 	}
 
 	// Remove the alpha channel if it seems bad
 	de_bitmap_optimize_alpha(img, 0x4 | 0x2);
 
-	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_FLIP_IMAGE |
+	de_bitmap16_write_to_file_finfo(img, imglo, NULL, DE_CREATEFLAG_FLIP_IMAGE |
 		DE_CREATEFLAG_OPT_IMAGE);
 
 done:
 	dbuf_close(unc_pixels);
 	de_bitmap_destroy(img);
+	de_bitmap_destroy(imglo);
 }
 
 static void de_run_sgiimage(deark *c, de_module_params *mparams)

@@ -412,6 +412,7 @@ void de_bitmap_write_to_file(de_bitmap *img, const char *token,
 }
 
 // samplenum 0=Red, 1=Green, 2=Blue, 3=Alpha
+// If img is grayscale or grayscale+alpha, samplenum 0=Gray.
 void de_bitmap_setsample(de_bitmap *img, i64 x, i64 y,
 	i64 samplenum, de_colorsample v)
 {
