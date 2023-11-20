@@ -269,7 +269,9 @@ static void do_sgiimage_image(deark *c, struct sgiimage_ctx *d)
 	}
 
 	// Remove the alpha channel if it seems bad
-	de_bitmap_optimize_alpha(img, 0x4 | 0x2);
+	if(!imglo) {
+		de_bitmap_optimize_alpha(img, 0x4 | 0x2);
+	}
 
 	de_bitmap16_write_to_file_finfo(img, imglo, NULL, DE_CREATEFLAG_FLIP_IMAGE |
 		DE_CREATEFLAG_OPT_IMAGE);
