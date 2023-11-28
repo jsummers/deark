@@ -9,8 +9,6 @@
 DE_DECLARE_MODULE(de_module_nufx);
 
 #define MAX_THREADS_PER_RECORD 16
-#define INVALID_THREAD_IDX 0xffffffffU
-#define VALID_THREAD_IDX(rec, n) ((n) < (rec)->num_threads)
 
 struct nufx_ctx;
 
