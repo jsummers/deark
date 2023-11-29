@@ -33,6 +33,7 @@ typedef struct localctx_struct {
 	u8 has_exif_seg, has_exif_gps, has_spiff_seg, has_mpf_seg, has_afcp;
 	u8 exif_before_jfif;
 	u8 has_psd, has_iptc, has_xmp, has_xmp_ext, has_iccprofile, has_flashpix;
+	u8 has_jumbf;
 	u8 is_baseline, is_progressive, is_lossless, is_arithmetic, is_hierarchical;
 	u8 is_jpeghdr, is_jpegxt, is_mpo, is_jps;
 	u8 has_restart_markers;
@@ -162,17 +163,42 @@ static void do_jpeghdr_segment(deark *c, lctx *d, i64 pos1,
 	dbuf_copy(c->infile, pos, data_size, d->hdr_residual_file);
 }
 
-static void do_jpegxt_segment(deark *c, lctx *d, i64 pos,
+static void do_jumbf_segment(deark *c, lctx *d, i64 pos,
 	i64 data_size)
 {
 	i64 n;
+	i64 seq;
+	i64 bdata_pos;
+	i64 bdata_avail;
+	i64 blen;
+
 	if(data_size<14) return;
 	n = de_getu16be(pos);
 	de_dbg(c, "enumerator: %u", (unsigned int)n);
-	n = de_getu32be(pos+2);
-	de_dbg(c, "seq number: %u", (unsigned int)n);
+	seq = de_getu32be(pos+2);
+	de_dbg(c, "seq number: %u", (UI)seq);
+
+	// TODO: JUMBF / JPEG XT parsing needs a lot of work.
+	// We'll try to parse it if seems like there's only one segment, but
+	// we're probably not even doing that correctly.
+	bdata_pos = pos+6;
+	bdata_avail = data_size-6;
+	if(seq > 1) return;
+	blen = de_getu32be(bdata_pos);
+
+	if(bdata_avail>=12) {
+		if(!dbuf_memcmp(c->infile, bdata_pos+4, (const void*)"jumb", 4)) {
+			d->has_jumbf = 1;
+		}
+		else if(!dbuf_memcmp(c->infile, bdata_pos+4, (const void*)"ftypjpxt", 8)) {
+			d->is_jpegxt = 1;
+		}
+	}
+
+	if(blen > bdata_avail) return;
+
 	de_dbg_indent(c, 1);
-	de_run_module_by_id_on_slice2(c, "bmff", "T", c->infile, pos+6, data_size-6);
+	de_run_module_by_id_on_slice2(c, "bmff", "T", c->infile, bdata_pos, bdata_avail);
 	de_dbg_indent(c, -1);
 }
 
@@ -881,7 +907,7 @@ static void normalize_app_id(const char *app_id_orig, char *app_id_normalized,
 #define APPSEGTYPE_DUCKY          12
 #define APPSEGTYPE_XMP            14
 #define APPSEGTYPE_XMP_EXTENSION  15
-#define APPSEGTYPE_JPEGXT         20
+#define APPSEGTYPE_JUMBF          20
 #define APPSEGTYPE_MPF            21
 #define APPSEGTYPE_JPS            22
 #define APPSEGTYPE_HDR_RI_VER     24
@@ -1071,8 +1097,8 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 		app_id_info->app_type_name = "JPEG-HDR Ext";
 	}
 	else if(seg_type==0xeb && ad.nraw_bytes>=2 && !de_strncmp((const char*)ad.raw_bytes, "JP", 2)) {
-		app_id_info->appsegtype = APPSEGTYPE_JPEGXT;
-		app_id_info->app_type_name = "JPEG XT";
+		app_id_info->appsegtype = APPSEGTYPE_JUMBF;
+		app_id_info->app_type_name = "JUMBF";
 		sig_size = 2;
 	}
 	else if(seg_type==0xe2 && !de_strcmp(ad.app_id_normalized, "MPF")) {
@@ -1177,9 +1203,8 @@ static void handler_app(deark *c, lctx *d,
 	case APPSEGTYPE_HDR_RI_EXT:
 		do_jpeghdr_segment(c, d, seg_data_pos, seg_data_size, 1);
 		break;
-	case APPSEGTYPE_JPEGXT:
-		d->is_jpegxt = 1;
-		do_jpegxt_segment(c, d, payload_pos, payload_size);
+	case APPSEGTYPE_JUMBF:
+		do_jumbf_segment(c, d, payload_pos, payload_size);
 		break;
 	case APPSEGTYPE_MPF:
 		do_mpf_segment(c, d, payload_pos, payload_size);
@@ -1229,7 +1254,7 @@ static void declare_jpeg_fmt(deark *c, lctx *d, u8 seg_type)
 	if(d->is_jpegls) { name = "JPEG-LS"; }
 	else if(d->is_mpo) { name = "JPEG/MPO"; }
 	else if(d->is_jps) { name = "JPEG/JPS"; }
-	else if(d->is_jpegxt) { name = "JPEG/JPEG_XT"; }
+	else if(d->is_jps) { name = "JPEG XT"; }
 	else if(d->is_jpeghdr) { name = "JPEG-HDR"; }
 	else if(d->is_lossless) { name = "JPEG/lossless"; }
 	else if(d->has_jfif_seg && d->has_exif_seg) { name = "JPEG/JFIF+Exif"; }
@@ -1849,6 +1874,7 @@ static void print_summary(deark *c, lctx *d)
 	if(d->has_flashpix) ucstring_append_sz(summary, " FlashPix", DE_ENCODING_LATIN1);
 	if(d->is_jpeghdr) ucstring_append_sz(summary, " HDR", DE_ENCODING_LATIN1);
 	if(d->is_jpegxt) ucstring_append_sz(summary, " XT", DE_ENCODING_LATIN1);
+	if(d->has_jumbf && !d->is_jpegxt) ucstring_append_sz(summary, " JUMBF", DE_ENCODING_LATIN1);
 	if(d->has_mpf_seg) ucstring_append_sz(summary, " MPO", DE_ENCODING_LATIN1);
 	if(d->is_jps) ucstring_append_sz(summary, " JPS", DE_ENCODING_LATIN1);
 	if(d->has_iccprofile) ucstring_append_sz(summary, " ICC", DE_ENCODING_LATIN1);
