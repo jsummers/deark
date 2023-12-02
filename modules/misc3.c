@@ -2556,16 +2556,17 @@ void de_module_hit(deark *c, struct deark_module_info *mi)
 // Binary II (Apple II format)
 // **************************************************************************
 
-struct binary_ii_ctx {
-	i64 num_members_remaining;
+// This struct is assumed to contain no pointers
+struct binary_ii_extra_md {
+	i64 filesize; // in 512-byte blocks
+	int num_members_remaining;
 };
 
-static void do_binary_ii_member(deark *c, struct binary_ii_ctx *b2ctx,
-	de_arch_lctx *d, struct de_arch_member_data *md)
+static void do_binary_ii_member(deark *c,
+	de_arch_lctx *d, struct de_arch_member_data *md, struct binary_ii_extra_md *b2_md)
 {
 	i64 pos1;
 	i64 pos;
-	i64 filesize; // in blocks
 	UI filesize_hi;
 	i64 space_reqd_in_blocks;
 	i64 fnlen;
@@ -2614,9 +2615,9 @@ static void do_binary_ii_member(deark *c, struct binary_ii_ctx *b2ctx,
 	storagetype = storagetype | (storagetype_hi<<8);
 	de_dbg(c, "storage type: 0x%04x", storagetype);
 
-	filesize = de_getu16le_p(&pos);
-	filesize |= ((i64)filesize_hi<<16);
-	de_dbg(c, "\"file size\": %"I64_FMT" (in 512-byte blocks)", filesize);
+	b2_md->filesize = de_getu16le_p(&pos);
+	b2_md->filesize |= ((i64)filesize_hi<<16);
+	de_dbg(c, "\"file size\": %"I64_FMT" (in 512-byte blocks)", b2_md->filesize);
 
 	moddate_raw = (UI)de_getu16le_p(&pos);
 	modtime_raw = (UI)de_getu16le_p(&pos);
@@ -2663,8 +2664,8 @@ static void do_binary_ii_member(deark *c, struct binary_ii_ctx *b2ctx,
 	fmt_ver = de_getbyte_p(&pos);
 	de_dbg(c, "fmt ver: 0x%02x", (UI)fmt_ver);
 
-	b2ctx->num_members_remaining = (i64)de_getbyte_p(&pos);
-	de_dbg(c, "num members remaining: %"I64_FMT, b2ctx->num_members_remaining);
+	b2_md->num_members_remaining = (int)de_getbyte_p(&pos);
+	de_dbg(c, "num members remaining: %d", b2_md->num_members_remaining);
 
 	md->cmpr_pos = pos;
 	md->dfn = noncompressed_decompressor_fn;
@@ -2674,26 +2675,76 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+static int binary_ii_is_member_at(dbuf *f, i64 pos, u8 check_nr, int nr_expected)
+{
+	if(dbuf_memcmp(f, pos, (const void*)"\x0a\x47\x4c", 3)) return 0;
+	if(dbuf_getbyte(f, pos+18) != 0x02) return 0;
+	if(check_nr) {
+		int nr;
+
+		nr = (int)dbuf_getbyte(f, pos+127);
+		if(nr != nr_expected) return 0;
+	}
+	return 1;
+}
+
 static void de_run_binary_ii(deark *c, de_module_params *mparams)
 {
 	de_arch_lctx *d = NULL;
 	struct de_arch_member_data *md = NULL;
-	struct binary_ii_ctx *b2ctx = NULL;
+	struct binary_ii_extra_md *b2_md = NULL;
+	i64 pos = 0;
 
-	b2ctx = de_malloc(c, sizeof(struct binary_ii_ctx));
+	b2_md = de_malloc(c, sizeof(struct binary_ii_extra_md));
 
 	d = de_arch_create_lctx(c);
 	d->is_le = 1;
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
 
-	md = de_arch_create_md(c, d);
-
-	md->member_hdr_pos = 0;
-	do_binary_ii_member(c, b2ctx, d, md);
-
-	if(b2ctx->num_members_remaining>0) {
-		de_err(c, "This archive contains multiple files -- not supported");
+	if(!binary_ii_is_member_at(c->infile, 0, 0, 0)) {
+		d->need_errmsg = 1;
 		goto done;
+	}
+
+	while(1) {
+		i64 npos1, npos2;
+		int ret;
+
+		if(md) {
+			de_arch_destroy_md(c, md);
+			md = NULL;
+		}
+		md = de_arch_create_md(c, d);
+		de_zeromem(b2_md, sizeof(struct binary_ii_extra_md));
+
+		md->member_hdr_pos = pos;
+		do_binary_ii_member(c, d, md, b2_md);
+		if(d->fatalerrflag) goto done;
+		if(b2_md->num_members_remaining<1) goto done;
+
+		// I'm not sure how we're supposed to find the next archive member.
+		// We'll check two places.
+
+		// This is where "ibmnulib" seems to look for the next member:
+		npos1 = de_pad_to_n(md->cmpr_pos + md->cmpr_len, 128);
+		// This is where the Raymond Clay document says to look:
+		npos2 = md->cmpr_pos + 512*b2_md->filesize;
+
+		ret = binary_ii_is_member_at(c->infile, npos1, 1, b2_md->num_members_remaining-1);
+		if(ret) {
+			pos = npos1;
+		}
+		else if(npos2!=npos1) {
+			ret = binary_ii_is_member_at(c->infile, npos2, 1, b2_md->num_members_remaining-1);
+			if(ret) {
+				pos = npos2;
+			}
+		}
+
+		if(!ret) {
+			d->need_errmsg = 1;
+			goto done;
+		}
 	}
 
 done:
@@ -2706,13 +2757,12 @@ done:
 		}
 		de_arch_destroy_lctx(c, d);
 	}
-	de_free(c, b2ctx);
+	de_free(c, b2_md);
 }
 
 static int de_identify_binary_ii(deark *c)
 {
-	if(dbuf_memcmp(c->infile, 0, (const void*)"\x0a\x47\x4c", 3)) return 0;
-	if(de_getbyte(18) != 0x02) return 0;
+	if(!binary_ii_is_member_at(c->infile, 0, 0, 0)) return 0;
 	return 90;
 }
 
