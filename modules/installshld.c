@@ -4,6 +4,7 @@
 
 // InstallShield Z
 // InstallShield installer archive
+// Etc.
 
 #include <deark-private.h>
 #include <deark-fmtutil.h>
@@ -406,7 +407,15 @@ static void tscomp_do_member(deark *c, de_arch_lctx *d, struct de_arch_member_da
 
 	pos += 1;
 	de_arch_read_field_cmpr_len_p(md, &pos);
-	pos += 4; // ??
+
+	md->next_member_pos = de_getu32le_p(&pos);
+	de_dbg(c, "next member pos: %"I64_FMT, md->next_member_pos);
+	if(md->next_member_pos && (md->next_member_pos>md->member_hdr_pos)  &&
+		(md->next_member_pos<c->infile->len))
+	{
+		md->next_member_exists = 1;
+	}
+
 	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
 		DE_ARCH_TSTYPE_DOS_DT, &pos);
 	pos += 2; // ??
@@ -423,10 +432,6 @@ static void tscomp_do_member(deark *c, de_arch_lctx *d, struct de_arch_member_da
 	md->cmpr_pos = pos;
 	md->dfn = dclimplode_decompressor_fn;
 	de_arch_extract_member_file(md);
-
-	pos += md->cmpr_len;
-	md->member_total_size = pos - md->member_hdr_pos;
-
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -438,6 +443,7 @@ static void de_run_tscomp(deark *c, de_module_params *mparams)
 	int saved_indent_level;
 	u8 b;
 	const char *name;
+	struct de_arch_member_data *md = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	d = de_arch_create_lctx(c);
@@ -454,9 +460,10 @@ static void de_run_tscomp(deark *c, de_module_params *mparams)
 	pos += 3; // version?? (01 03 00)
 	b = de_getbyte_p(&pos);
 	switch(b) {
-	case 0: name = "old version"; break;
 	case 1: name = "without wildcard"; break;
 	case 2: name = "with wildcard"; break;
+		// 0: seems to identify an "old" version (but it might be a significantly
+		// different format).
 	default: name = "?";
 	}
 	de_dbg(c, "filename style: %u (%s)", (UI)b, name);
@@ -467,21 +474,22 @@ static void de_run_tscomp(deark *c, de_module_params *mparams)
 
 	i = 0;
 	while(1) {
-		struct de_arch_member_data *md;
-
 		if(d->fatalerrflag) goto done;
-		if(pos+17 > c->infile->len) goto done;
 		if(de_getbyte(pos) != 0x12) { d->need_errmsg = 1; goto done; }
+
+		if(md) {
+			de_arch_destroy_md(c, md);
+			md = NULL;
+		}
 
 		md = de_arch_create_md(c, d);
 		md->member_idx = i;
 		md->member_hdr_pos = pos;
 
 		tscomp_do_member(c, d, md);
-		if(md->member_total_size<=0) d->fatalerrflag = 1;
 
-		pos += md->member_total_size;
-		de_arch_destroy_md(c, md);
+		if(!md->next_member_exists) goto done;
+		pos = md->next_member_pos;
 		i++;
 	}
 
@@ -489,6 +497,7 @@ done:
 	if(d->need_errmsg) {
 		de_err(c, "Bad or unsupported TSComp format");
 	}
+	de_arch_destroy_md(c, md);
 	de_arch_destroy_lctx(c, d);
 	de_dbg_indent_restore(c, saved_indent_level);
 }

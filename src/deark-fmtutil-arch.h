@@ -41,6 +41,8 @@ struct de_arch_member_data {
 	void *userdata;
 	UI cmpr_meth;
 	UI file_flags;
+	i64 next_member_pos;
+	u8 next_member_exists;
 
 	u8 validate_crc; // Tell de_arch_extract_member_file() to check crc_reported
 	u8 behavior_on_wrong_crc; // 0=error, 1="Not available" warning
