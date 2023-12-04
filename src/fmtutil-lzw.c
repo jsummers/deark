@@ -38,7 +38,6 @@ struct delzw_tableentry2 {
 };
 
 struct delzwctx_struct {
-	// Fields the caller can or must set:
 	deark *c;
 	struct de_dfilter_ctx *dfctx;
 	int debug_level;
@@ -51,24 +50,21 @@ struct delzwctx_struct {
 #define DELZW_HEADERTYPE_ARC1BYTE 2
 	int header_type;
 
-	int stop_on_invalid_code;
+	u8 stop_on_invalid_code; // Invalid code means "stop", not a fatal error
 
-	int output_len_known;
+	u8 output_len_known;
 	i64 output_expected_len;
 
-	// Fields that may be set by the caller, or derived from other fields:
-	int auto_inc_codesize;
-	int unixcompress_has_clear_code;
-	int arc5_has_stop_code;
+	u8 auto_inc_codesize;
+	u8 unixcompress_has_clear_code;
 	UI min_codesize;
 	UI max_codesize;
 
-	// Derived fields:
 	size_t header_size;
-	int is_msb;
-	int early_codesize_inc;
-	int has_partial_clearing;
-	int is_hashed;
+	u8 is_lsb;
+	u8 early_codesize_inc;
+	u8 has_partial_clearing;
+	u8 is_hashed;
 
 	// Informational:
 	u8 header_unixcompress_mode;
@@ -100,14 +96,14 @@ struct delzwctx_struct {
 
 	UI curr_codesize;
 
-	int have_oldcode;
+	u8 have_oldcode;
 	DELZW_CODE oldcode;
 	DELZW_CODE last_code_added;
 	u8 last_value;
 	DELZW_CODE highest_code_ever_used;
 	DELZW_CODE free_code_search_start;
 	DELZW_CODE first_dynamic_code;
-	int special_code_is_pending;
+	u8 special_code_is_pending;
 
 	struct de_bitbuf_lowlevel bbll;
 
@@ -223,7 +219,7 @@ static void delzw_process_unixcompress_3byteheader(delzwctx *dc)
 		(UI)dc->header_unixcompress_block_mode);
 
 	dc->max_codesize = (UI)dc->header_unixcompress_max_codesize;
-	dc->unixcompress_has_clear_code = (int)dc->header_unixcompress_block_mode;
+	dc->unixcompress_has_clear_code = dc->header_unixcompress_block_mode;
 }
 
 static void delzw_process_arc_1byteheader(delzwctx *dc)
@@ -231,7 +227,6 @@ static void delzw_process_arc_1byteheader(delzwctx *dc)
 	dc->header_unixcompress_max_codesize = (dc->header_buf[0] & 0x1f);
 	dc->max_codesize = (UI)dc->header_unixcompress_max_codesize;
 	delzw_debugmsg(dc, 2, "max code size: %u", dc->max_codesize);
-	dc->unixcompress_has_clear_code = 1;
 }
 
 // Is this a valid code with a value (a static, or in-use dynamic code)?
@@ -680,6 +675,9 @@ static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 	}
 }
 
+// Most configuration is done in delzw_on_codes_start(), not here.
+// This function does need to do some things to handle formats that have a
+// header.
 static void delzw_on_decompression_start(delzwctx *dc)
 {
 	if(dc->fmt!=DE_LZWFMT_ZIPSHRINK &&
@@ -697,18 +695,26 @@ static void delzw_on_decompression_start(delzwctx *dc)
 		goto done;
 	}
 
-	if(dc->fmt==DE_LZWFMT_ZIPSHRINK) {
-		dc->has_partial_clearing = 1;
-	}
-	else if(dc->fmt==DE_LZWFMT_ARC5) {
-		dc->is_hashed = 1;
-	}
+	if(dc->fmt==DE_LZWFMT_UNIXCOMPRESS) {
+		if(dc->delzwp_copy.flags & DE_LZWFLAG_HAS3BYTEHEADER) {
+			dc->header_type = DELZW_HEADERTYPE_UNIXCOMPRESS3BYTE;
+			dc->header_size = 3;
+		}
+		else if(dc->delzwp_copy.flags & DE_LZWFLAG_HAS1BYTEHEADER) {
+			dc->unixcompress_has_clear_code = 1;
+			dc->header_type = DELZW_HEADERTYPE_ARC1BYTE;
+			dc->header_size = 1;
+		}
+		else {
+			dc->unixcompress_has_clear_code = 1;
+			dc->max_codesize = dc->delzwp_copy.max_code_size;
+		}
 
-	if(dc->header_type==DELZW_HEADERTYPE_UNIXCOMPRESS3BYTE) {
-		dc->header_size = 3;
-	}
-	else if(dc->header_type==DELZW_HEADERTYPE_ARC1BYTE) {
-		dc->header_size = 1;
+		if((dc->delzwp_copy.flags & DE_LZWFLAG_TOLERATETRAILINGJUNK) &&
+			!dc->output_len_known)
+		{
+			dc->stop_on_invalid_code = 1;
+		}
 	}
 
 done:
@@ -773,40 +779,47 @@ static void delzw_on_codes_start(delzwctx *dc)
 	delzw_debugmsg(dc, 2, "start of codes");
 
 	if(dc->fmt==DE_LZWFMT_UNIXCOMPRESS) {
-		;
+		dc->is_lsb = 1;
+		dc->auto_inc_codesize = 1;
 	}
 	else if(dc->fmt==DE_LZWFMT_GIF) {
+		dc->is_lsb = 1;
 		dc->auto_inc_codesize = 1;
 		dc->min_codesize = dc->delzwp_copy.gif_root_code_size + 1;
 		dc->max_codesize = 12;
 	}
 	else if(dc->fmt==DE_LZWFMT_ZIPSHRINK) {
+		dc->is_lsb = 1;
+		dc->has_partial_clearing = 1;
 		dc->max_codesize = 13;
 	}
 	else if(dc->fmt==DE_LZWFMT_ZOOLZD) {
+		dc->is_lsb = 1;
+		dc->auto_inc_codesize = 1;
 		default_max_codesize = 13;
 	}
 	else if(dc->fmt==DE_LZWFMT_TIFFNEW) {
-		dc->is_msb = 1;
+		dc->auto_inc_codesize = 1;
 		dc->early_codesize_inc = 1;
 		default_max_codesize = 12;
 	}
 	else if(dc->fmt==DE_LZWFMT_TIFFOLD) {
+		dc->is_lsb = 1;
+		dc->auto_inc_codesize = 1;
 		default_max_codesize = 12;
 	}
 	else if(dc->fmt==DE_LZWFMT_ARC5) {
-		dc->is_msb = 1;
-		dc->auto_inc_codesize = 0;
+		dc->is_hashed = 1;
 		dc->max_codesize = 12;
 		dc->min_codesize = 12;
 	}
 	else if(dc->fmt==DE_LZWFMT_DWC) {
-		dc->is_msb = 1;
 		dc->early_codesize_inc = 1;
 		dc->auto_inc_codesize = 1;
 		default_max_codesize = 14;
 	}
 	else if(dc->fmt==DE_LZWFMT_SHRINKIT1 || dc->fmt==DE_LZWFMT_SHRINKIT2) {
+		dc->is_lsb = 1;
 		default_max_codesize = 12;
 		dc->auto_inc_codesize = 1;
 		dc->early_codesize_inc = 1;
@@ -910,7 +923,7 @@ static void delzw_on_codes_start(delzwctx *dc)
 	dc->free_code_search_start = dc->first_dynamic_code;
 
 	if(dc->is_hashed) {
-		if(dc->arc5_has_stop_code) {
+		if(dc->delzwp_copy.arc5_has_stop_code) {
 			dc->ct[0].codetype = DELZW_CODETYPE_STOP;
 			dc->ct_code_count++;
 		}
@@ -920,7 +933,7 @@ static void delzw_on_codes_start(delzwctx *dc)
 		}
 	}
 
-	dc->bbll.is_lsb = !dc->is_msb;
+	dc->bbll.is_lsb = dc->is_lsb;
 	de_bitbuf_lowlevel_empty(&dc->bbll);
 done:
 	;
@@ -941,6 +954,7 @@ static void delzw_process_byte(delzwctx *dc, u8 b)
 	if(dc->state==DELZW_STATE_INIT) {
 		delzw_on_decompression_start(dc);
 		dc->state = DELZW_STATE_READING_HEADER;
+		if(dc->errcode) return;
 	}
 
 	if(dc->state==DELZW_STATE_READING_HEADER) {
@@ -952,6 +966,7 @@ static void delzw_process_byte(delzwctx *dc, u8 b)
 		// (This is the first byte after the header.)
 		delzw_on_codes_start(dc);
 		dc->state = DELZW_STATE_READING_CODES;
+		if(dc->errcode) return;
 	}
 
 	if(dc->state==DELZW_STATE_READING_CODES) {
@@ -1026,50 +1041,6 @@ static void delzw_finish(delzwctx *dc)
 	}
 
 	delzw_stop(dc, reason);
-}
-
-static void setup_delzw_common(delzwctx *dc, struct de_lzw_params *delzwp)
-{
-	dc->delzwp_copy = *delzwp; // struct copy
-	dc->fmt = delzwp->fmt;
-
-	if(dc->fmt==DE_LZWFMT_UNIXCOMPRESS) {
-		dc->auto_inc_codesize = 1;
-		if(delzwp->flags & DE_LZWFLAG_HAS3BYTEHEADER) {
-			dc->header_type = DELZW_HEADERTYPE_UNIXCOMPRESS3BYTE;
-		}
-		else if(delzwp->flags & DE_LZWFLAG_HAS1BYTEHEADER) {
-			dc->header_type = DELZW_HEADERTYPE_ARC1BYTE;
-		}
-		else {
-			dc->unixcompress_has_clear_code = 1;
-			dc->max_codesize = delzwp->max_code_size;
-		}
-
-		if((delzwp->flags & DE_LZWFLAG_TOLERATETRAILINGJUNK) &&
-			!dc->output_len_known)
-		{
-			dc->stop_on_invalid_code = 1;
-		}
-	}
-	else if(dc->fmt==DE_LZWFMT_ZOOLZD) {
-		dc->auto_inc_codesize = 1;
-		dc->max_codesize = delzwp->max_code_size;
-	}
-	else if(dc->fmt==DE_LZWFMT_TIFFOLD) {
-		dc->auto_inc_codesize = 1;
-		dc->max_codesize = 12;
-	}
-	else if(dc->fmt==DE_LZWFMT_TIFFNEW) {
-		dc->auto_inc_codesize = 1;
-		dc->max_codesize = 12;
-	}
-	else if(dc->fmt==DE_LZWFMT_ARC5) {
-		dc->arc5_has_stop_code = (int)delzwp->arc5_has_stop_code;
-	}
-	else if(dc->fmt==DE_LZWFMT_DWC) {
-		dc->max_codesize = 14;
-	}
 }
 
 void fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
@@ -1158,5 +1129,6 @@ void dfilter_lzw_codec(struct de_dfilter_ctx *dfctx, void *codec_private_params)
 	dc->output_len_known = dfctx->dcmpro->len_known;
 	dc->output_expected_len = dfctx->dcmpro->expected_len;
 
-	setup_delzw_common(dc, delzwp);
+	dc->delzwp_copy = *delzwp; // struct copy
+	dc->fmt = delzwp->fmt;
 }
