@@ -164,16 +164,18 @@ struct de_dfilter_ctx {
 };
 
 enum de_lzwfmt_enum {
-	DE_LZWFMT_GENERIC = 0,
+	DE_LZWFMT_UNKNOWN = 0,
 	DE_LZWFMT_UNIXCOMPRESS,
 	DE_LZWFMT_GIF,
 	DE_LZWFMT_ZIPSHRINK,
 	DE_LZWFMT_ZOOLZD,
-	DE_LZWFMT_TIFF,
+	DE_LZWFMT_TIFFOLD,
+	DE_LZWFMT_TIFFNEW,
 	DE_LZWFMT_ARC5,
 	DE_LZWFMT_DWC,
 	DE_LZWFMT_SHRINKIT1,
-	DE_LZWFMT_SHRINKIT2
+	DE_LZWFMT_SHRINKIT2,
+	DE_LZWFMT_PAKLEO
 };
 
 struct de_lzw_params {
@@ -184,7 +186,6 @@ struct de_lzw_params {
 	UI flags;
 	unsigned int gif_root_code_size;
 	unsigned int max_code_size; // 0 = no info
-	u8 tifflzw_oldversion; // 1 = old version
 	u8 arc5_has_stop_code;
 };
 void fmtutil_decompress_lzw(deark *c, struct de_dfilter_in_params *dcmpri,

@@ -42,18 +42,7 @@ struct delzwctx_struct {
 	deark *c;
 	struct de_dfilter_ctx *dfctx;
 	int debug_level;
-
-#define DELZW_BASEFMT_UNIXCOMPRESS 1
-#define DELZW_BASEFMT_GIF          2
-#define DELZW_BASEFMT_ZIPSHRINK    3
-#define DELZW_BASEFMT_ZOOLZD       4
-#define DELZW_BASEFMT_TIFFOLD      5
-#define DELZW_BASEFMT_TIFF         6
-#define DELZW_BASEFMT_ARC5         7
-#define DELZW_BASEFMT_DWC          8
-#define DELZW_BASEFMT_SHRINKIT1    9
-#define DELZW_BASEFMT_SHRINKIT2    10
-	int basefmt;
+	enum de_lzwfmt_enum fmt;
 
 #define DELZW_HEADERTYPE_NONE  0
 #define DELZW_HEADERTYPE_UNIXCOMPRESS3BYTE 1
@@ -373,7 +362,7 @@ static void delzw_unixcompress_end_bitgroup(delzwctx *dc)
 
 static void delzw_increase_codesize(delzwctx *dc)
 {
-	if(dc->basefmt==DELZW_BASEFMT_UNIXCOMPRESS) {
+	if(dc->fmt==DE_LZWFMT_UNIXCOMPRESS) {
 		delzw_unixcompress_end_bitgroup(dc);
 	}
 
@@ -475,7 +464,7 @@ static void delzw_add_to_dict(delzwctx *dc, DELZW_CODE parent, u8 value)
 		return;
 	}
 
-	if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK) {
+	if(dc->fmt==DE_LZWFMT_ZIPSHRINK) {
 		delzw_find_first_free_entry(dc, &newpos);
 	}
 	else {
@@ -577,7 +566,7 @@ static void delzw_clear(delzwctx *dc)
 
 	delzw_debugmsg(dc, 2, "clear code");
 
-	if(dc->basefmt==DELZW_BASEFMT_UNIXCOMPRESS) {
+	if(dc->fmt==DE_LZWFMT_UNIXCOMPRESS) {
 		delzw_unixcompress_end_bitgroup(dc);
 	}
 
@@ -638,7 +627,7 @@ static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 
 	if(dc->special_code_is_pending) {
 		dc->special_code_is_pending = 0;
-		if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK) {
+		if(dc->fmt==DE_LZWFMT_ZIPSHRINK) {
 			if(code==1 && (dc->curr_codesize<dc->max_codesize)) {
 				delzw_increase_codesize(dc);
 			}
@@ -649,7 +638,7 @@ static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 				delzw_set_error(dc, DELZW_ERRCODE_BAD_CDATA, NULL);
 			}
 		}
-		else if(dc->basefmt==DELZW_BASEFMT_DWC) {
+		else if(dc->fmt==DE_LZWFMT_DWC) {
 			if(code==0) { // no-op?
 				;
 			}
@@ -677,14 +666,14 @@ static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 		delzw_stop(dc, "stop code");
 		break;
 	case DELZW_CODETYPE_SPECIAL:
-		if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK && code==256) {
+		if(dc->fmt==DE_LZWFMT_ZIPSHRINK && code==256) {
 			dc->special_code_is_pending = 1; // next code is an "escaped" code
 		}
 		break;
 	}
 
 	dc->code_counter++;
-	if(dc->basefmt==DELZW_BASEFMT_DWC) {
+	if(dc->fmt==DE_LZWFMT_DWC) {
 		if((dc->code_counter%512)==256) {
 			dc->special_code_is_pending = 1;
 		}
@@ -693,25 +682,25 @@ static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 
 static void delzw_on_decompression_start(delzwctx *dc)
 {
-	if(dc->basefmt!=DELZW_BASEFMT_ZIPSHRINK &&
-		dc->basefmt!=DELZW_BASEFMT_GIF &&
-		dc->basefmt!=DELZW_BASEFMT_UNIXCOMPRESS &&
-		dc->basefmt!=DELZW_BASEFMT_ZOOLZD &&
-		dc->basefmt!=DELZW_BASEFMT_TIFF &&
-		dc->basefmt!=DELZW_BASEFMT_TIFFOLD &&
-		dc->basefmt!=DELZW_BASEFMT_ARC5 &&
-		dc->basefmt!=DELZW_BASEFMT_DWC &&
-		dc->basefmt!=DELZW_BASEFMT_SHRINKIT1 &&
-		dc->basefmt!=DELZW_BASEFMT_SHRINKIT2)
+	if(dc->fmt!=DE_LZWFMT_ZIPSHRINK &&
+		dc->fmt!=DE_LZWFMT_GIF &&
+		dc->fmt!=DE_LZWFMT_UNIXCOMPRESS &&
+		dc->fmt!=DE_LZWFMT_ZOOLZD &&
+		dc->fmt!=DE_LZWFMT_TIFFNEW &&
+		dc->fmt!=DE_LZWFMT_TIFFOLD &&
+		dc->fmt!=DE_LZWFMT_ARC5 &&
+		dc->fmt!=DE_LZWFMT_DWC &&
+		dc->fmt!=DE_LZWFMT_SHRINKIT1 &&
+		dc->fmt!=DE_LZWFMT_SHRINKIT2)
 	{
 		delzw_set_error(dc, DELZW_ERRCODE_UNSUPPORTED_OPTION, "Unsupported LZW format");
 		goto done;
 	}
 
-	if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK) {
+	if(dc->fmt==DE_LZWFMT_ZIPSHRINK) {
 		dc->has_partial_clearing = 1;
 	}
-	else if(dc->basefmt==DELZW_BASEFMT_ARC5) {
+	else if(dc->fmt==DE_LZWFMT_ARC5) {
 		dc->is_hashed = 1;
 	}
 
@@ -747,6 +736,16 @@ static void lzw_after_header_parsed(delzwctx *dc)
 	}
 }
 
+static void set_std_static_codes(delzwctx *dc)
+{
+	DELZW_CODE i;
+
+	for(i=0; i<256; i++) {
+		dc->ct[i].codetype = DELZW_CODETYPE_STATIC;
+		dc->ct[i].value = (u8)i;
+	}
+}
+
 // Process the header, if any.
 // Set any remaining params needed, and validate params.
 // This is called upon encountering the first byte after the header.
@@ -772,25 +771,25 @@ static void delzw_on_codes_start(delzwctx *dc)
 
 	delzw_debugmsg(dc, 2, "start of codes");
 
-	if(dc->basefmt==DELZW_BASEFMT_UNIXCOMPRESS) {
+	if(dc->fmt==DE_LZWFMT_UNIXCOMPRESS) {
 		dc->min_codesize = 9;
 	}
-	else if(dc->basefmt==DELZW_BASEFMT_GIF) {
+	else if(dc->fmt==DE_LZWFMT_GIF) {
 		dc->auto_inc_codesize = 1;
 		dc->min_codesize = dc->gif_root_codesize + 1;
 		dc->max_codesize = 12;
 	}
-	else if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK) {
+	else if(dc->fmt==DE_LZWFMT_ZIPSHRINK) {
 		dc->min_codesize = 9;
 		dc->max_codesize = 13;
 	}
-	else if(dc->basefmt==DELZW_BASEFMT_ZOOLZD) {
+	else if(dc->fmt==DE_LZWFMT_ZOOLZD) {
 		dc->min_codesize = 9;
 		if(dc->max_codesize==0) {
 			dc->max_codesize = 13;
 		}
 	}
-	else if(dc->basefmt==DELZW_BASEFMT_TIFF) {
+	else if(dc->fmt==DE_LZWFMT_TIFFNEW) {
 		dc->is_msb = 1;
 		dc->early_codesize_inc = 1;
 		dc->min_codesize = 9;
@@ -798,13 +797,13 @@ static void delzw_on_codes_start(delzwctx *dc)
 			dc->max_codesize = 12;
 		}
 	}
-	else if(dc->basefmt==DELZW_BASEFMT_TIFFOLD) {
+	else if(dc->fmt==DE_LZWFMT_TIFFOLD) {
 		dc->min_codesize = 9;
 		if(dc->max_codesize==0) {
 			dc->max_codesize = 12;
 		}
 	}
-	else if(dc->basefmt==DELZW_BASEFMT_ARC5) {
+	else if(dc->fmt==DE_LZWFMT_ARC5) {
 		dc->is_msb = 1;
 		dc->auto_inc_codesize = 0;
 		if(dc->max_codesize==0) {
@@ -812,7 +811,7 @@ static void delzw_on_codes_start(delzwctx *dc)
 		}
 		dc->min_codesize = dc->max_codesize;
 	}
-	else if(dc->basefmt==DELZW_BASEFMT_DWC) {
+	else if(dc->fmt==DE_LZWFMT_DWC) {
 		dc->is_msb = 1;
 		dc->early_codesize_inc = 1;
 		dc->auto_inc_codesize = 1;
@@ -821,7 +820,7 @@ static void delzw_on_codes_start(delzwctx *dc)
 			dc->max_codesize = 14;
 		}
 	}
-	else if(dc->basefmt==DELZW_BASEFMT_SHRINKIT1 || dc->basefmt==DELZW_BASEFMT_SHRINKIT2) {
+	else if(dc->fmt==DE_LZWFMT_SHRINKIT1 || dc->fmt==DE_LZWFMT_SHRINKIT2) {
 		dc->min_codesize = 9;
 		dc->max_codesize = 12;
 		dc->auto_inc_codesize = 1;
@@ -849,11 +848,8 @@ static void delzw_on_codes_start(delzwctx *dc)
 	dc->valbuf_capacity = dc->ct_capacity;
 	dc->valbuf = de_malloc(dc->c, dc->valbuf_capacity);
 
-	if(dc->basefmt==DELZW_BASEFMT_UNIXCOMPRESS) {
-		for(i=0; i<256; i++) {
-			dc->ct[i].codetype = DELZW_CODETYPE_STATIC;
-			dc->ct[i].value = (u8)i;
-		}
+	if(dc->fmt==DE_LZWFMT_UNIXCOMPRESS) {
+		set_std_static_codes(dc);
 
 		if(dc->unixcompress_has_clear_code) {
 			dc->ct[256].codetype = DELZW_CODETYPE_CLEAR;
@@ -863,7 +859,7 @@ static void delzw_on_codes_start(delzwctx *dc)
 			dc->first_dynamic_code = 256;
 		}
 	}
-	else if(dc->basefmt==DELZW_BASEFMT_GIF) {
+	else if(dc->fmt==DE_LZWFMT_GIF) {
 		DELZW_CODE n = DELZW_NBITS_TO_NCODES(dc->gif_root_codesize);
 
 		for(i=0; i<n; i++) {
@@ -874,53 +870,34 @@ static void delzw_on_codes_start(delzwctx *dc)
 		dc->ct[n+1].codetype = DELZW_CODETYPE_STOP;
 		dc->first_dynamic_code = n+2;
 	}
-	else if(dc->basefmt==DELZW_BASEFMT_ZIPSHRINK) {
-		dc->first_dynamic_code = 257;
-
-		for(i=0; i<256; i++) {
-			dc->ct[i].codetype = DELZW_CODETYPE_STATIC;
-			dc->ct[i].value = (u8)i;
-		}
+	else if(dc->fmt==DE_LZWFMT_ZIPSHRINK) {
+		set_std_static_codes(dc);
 		dc->ct[256].codetype = DELZW_CODETYPE_SPECIAL;
+		dc->first_dynamic_code = 257;
 	}
-	else if(dc->basefmt==DELZW_BASEFMT_ZOOLZD) {
-		for(i=0; i<256; i++) {
-			dc->ct[i].codetype = DELZW_CODETYPE_STATIC;
-			dc->ct[i].value = (u8)i;
-		}
+	else if(dc->fmt==DE_LZWFMT_ZOOLZD) {
+		set_std_static_codes(dc);
 		dc->ct[256].codetype = DELZW_CODETYPE_CLEAR;
 		dc->ct[257].codetype = DELZW_CODETYPE_STOP;
 		dc->first_dynamic_code = 258;
 	}
-	else if(dc->basefmt==DELZW_BASEFMT_TIFF || dc->basefmt==DELZW_BASEFMT_TIFFOLD) {
-		for(i=0; i<256; i++) {
-			dc->ct[i].codetype = DELZW_CODETYPE_STATIC;
-			dc->ct[i].value = (u8)i;
-		}
+	else if(dc->fmt==DE_LZWFMT_TIFFNEW || dc->fmt==DE_LZWFMT_TIFFOLD) {
+		set_std_static_codes(dc);
 		dc->ct[256].codetype = DELZW_CODETYPE_CLEAR;
 		dc->ct[257].codetype = DELZW_CODETYPE_STOP;
 		dc->first_dynamic_code = 258;
 	}
-	else if(dc->basefmt==DELZW_BASEFMT_DWC) {
-		for(i=0; i<256; i++) {
-			dc->ct[i].codetype = DELZW_CODETYPE_STATIC;
-			dc->ct[i].value = (u8)i;
-		}
+	else if(dc->fmt==DE_LZWFMT_DWC) {
+		set_std_static_codes(dc);
 		dc->first_dynamic_code = 256;
 	}
-	else if(dc->basefmt==DELZW_BASEFMT_SHRINKIT1) {
-		for(i=0; i<256; i++) {
-			dc->ct[i].codetype = DELZW_CODETYPE_STATIC;
-			dc->ct[i].value = (u8)i;
-		}
+	else if(dc->fmt==DE_LZWFMT_SHRINKIT1) {
+		set_std_static_codes(dc);
 		dc->ct[256].codetype = DELZW_CODETYPE_INVALID; // ??
 		dc->first_dynamic_code = 257;
 	}
-	else if(dc->basefmt==DELZW_BASEFMT_SHRINKIT2) {
-		for(i=0; i<256; i++) {
-			dc->ct[i].codetype = DELZW_CODETYPE_STATIC;
-			dc->ct[i].value = (u8)i;
-		}
+	else if(dc->fmt==DE_LZWFMT_SHRINKIT2) {
+		set_std_static_codes(dc);
 		dc->ct[256].codetype = DELZW_CODETYPE_CLEAR;
 		dc->first_dynamic_code = 257;
 	}
@@ -996,7 +973,7 @@ static void delzw_process_byte(delzwctx *dc, u8 b)
 
 			if(dc->errcode) break;
 
-			if(dc->special_code_is_pending && dc->basefmt==DELZW_BASEFMT_DWC) {
+			if(dc->special_code_is_pending && dc->fmt==DE_LZWFMT_DWC) {
 				this_codesize = 3;
 			}
 			else {
@@ -1057,8 +1034,9 @@ static void delzw_finish(delzwctx *dc)
 
 static void setup_delzw_common(delzwctx *dc, struct de_lzw_params *delzwp)
 {
-	if(delzwp->fmt==DE_LZWFMT_UNIXCOMPRESS) {
-		dc->basefmt = DELZW_BASEFMT_UNIXCOMPRESS;
+	dc->fmt = delzwp->fmt;
+
+	if(dc->fmt==DE_LZWFMT_UNIXCOMPRESS) {
 		dc->auto_inc_codesize = 1;
 		if(delzwp->flags & DE_LZWFLAG_HAS3BYTEHEADER) {
 			dc->header_type = DELZW_HEADERTYPE_UNIXCOMPRESS3BYTE;
@@ -1077,39 +1055,26 @@ static void setup_delzw_common(delzwctx *dc, struct de_lzw_params *delzwp)
 			dc->stop_on_invalid_code = 1;
 		}
 	}
-	else if(delzwp->fmt==DE_LZWFMT_ZIPSHRINK) {
-		dc->basefmt = DELZW_BASEFMT_ZIPSHRINK;
-	}
-	else if(delzwp->fmt==DE_LZWFMT_GIF) {
-		dc->basefmt = DELZW_BASEFMT_GIF;
+	else if(dc->fmt==DE_LZWFMT_GIF) {
 		dc->gif_root_codesize = delzwp->gif_root_code_size;
 	}
-	else if(delzwp->fmt==DE_LZWFMT_ZOOLZD) {
-		dc->basefmt = DELZW_BASEFMT_ZOOLZD;
+	else if(dc->fmt==DE_LZWFMT_ZOOLZD) {
 		dc->auto_inc_codesize = 1;
 		dc->max_codesize = delzwp->max_code_size;
 	}
-	else if(delzwp->fmt==DE_LZWFMT_TIFF) {
-		if(delzwp->tifflzw_oldversion)
-			dc->basefmt = DELZW_BASEFMT_TIFFOLD;
-		else
-			dc->basefmt = DELZW_BASEFMT_TIFF;
+	else if(dc->fmt==DE_LZWFMT_TIFFOLD) {
 		dc->auto_inc_codesize = 1;
 		dc->max_codesize = 12;
 	}
-	else if(delzwp->fmt==DE_LZWFMT_ARC5) {
-		dc->basefmt = DELZW_BASEFMT_ARC5;
+	else if(dc->fmt==DE_LZWFMT_TIFFNEW) {
+		dc->auto_inc_codesize = 1;
+		dc->max_codesize = 12;
+	}
+	else if(dc->fmt==DE_LZWFMT_ARC5) {
 		dc->arc5_has_stop_code = (int)delzwp->arc5_has_stop_code;
 	}
-	else if(delzwp->fmt==DE_LZWFMT_DWC) {
-		dc->basefmt = DELZW_BASEFMT_DWC;
+	else if(dc->fmt==DE_LZWFMT_DWC) {
 		dc->max_codesize = 14;
-	}
-	else if(delzwp->fmt==DE_LZWFMT_SHRINKIT1) {
-		dc->basefmt = DELZW_BASEFMT_SHRINKIT1;
-	}
-	else if(delzwp->fmt==DE_LZWFMT_SHRINKIT2) {
-		dc->basefmt = DELZW_BASEFMT_SHRINKIT2;
 	}
 }
 
@@ -1153,7 +1118,7 @@ static void my_lzw_codec_command(struct de_dfilter_ctx *dfctx, int cmd, UI flags
 {
 	delzwctx *dc = (delzwctx*)dfctx->codec_private;
 
-	if(dc->basefmt==DELZW_BASEFMT_SHRINKIT2) {
+	if(dc->fmt==DE_LZWFMT_SHRINKIT2) {
 		if(cmd==DE_DFILTER_COMMAND_FINISH_BLOCK) {
 			dc->total_nbytes_processed -= (i64)(dc->bbll.nbits_in_bitbuf/8);
 			de_bitbuf_lowlevel_empty(&dc->bbll);

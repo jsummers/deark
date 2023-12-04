@@ -2976,9 +2976,8 @@ static void decompress_strile_lzw(deark *c, lctx *d, struct page_ctx *pg,
 	}
 
 	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
-	delzwp.fmt = DE_LZWFMT_TIFF;
+	delzwp.fmt =  (pg->is_old_lzw)?DE_LZWFMT_TIFFOLD:DE_LZWFMT_TIFFNEW;
 	delzwp.max_code_size = 12;
-	delzwp.tifflzw_oldversion = (pg->is_old_lzw)?1:0;
 
 	dctx->dfctx = de_dfilter_create(c, dfilter_lzw_codec, (void*)&delzwp, &dctx->dcmpro, &dctx->dres);
 
