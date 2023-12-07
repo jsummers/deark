@@ -89,7 +89,7 @@ struct member_data {
 	u32 hdr_crc_calc;
 	i64 hdr_crc_field_pos;
 
-	u32 crc16;
+	u32 crc_reported;
 	u8 os_id;
 	i64 compressed_data_pos; // relative to beginning of file
 	i64 compressed_data_len;
@@ -780,7 +780,7 @@ static int decompress_lh5x_dry_run(deark *c, lctx *d, struct member_data *md,
 	// Note: Another possible test would be if
 	//  (dres.bytes_consumed == md->compressed_data_len).
 	crc_calc = de_crcobj_getval(crco);
-	if(crc_calc != md->crc16) goto done;
+	if(crc_calc != md->crc_reported) goto done;
 	retval = 1;
 
 done:
@@ -894,6 +894,17 @@ static void decompress_lz5(deark *c, lctx *d, struct member_data *md,
 	fmtutil_decompress_lzss1(c, dcmpri, dcmpro, dres, 0x2);
 }
 
+static void decompress_pakleo(deark *c, lctx *d, struct member_data *md,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	struct de_lzw_params delzwp;
+
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
+	delzwp.fmt = DE_LZWFMT_PAKLEO;
+	fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
+}
+
 struct cmpr_meth_array_item {
 	enum lha_basefmt_enum basefmt;
 	u8 flags;
@@ -924,8 +935,8 @@ static const struct cmpr_meth_array_item cmpr_meth_arr[] = {
 	{ BASEFMT_LHA, 0x00, CODE_S_LH5, "SAR LH5", decompress_lh5 },
 	{ BASEFMT_SWG, 0x00, CODE_sw0, "uncompressed", decompress_uncompressed },
 	{ BASEFMT_SWG, 0x00, CODE_sw1, NULL, NULL },
-	{ BASEFMT_PAKLEO, 0x00, CODE_ll0, "uncompressed", NULL },
-	{ BASEFMT_PAKLEO, 0x00, CODE_ll1, NULL, NULL }
+	{ BASEFMT_PAKLEO, 0x00, CODE_ll0, "uncompressed", decompress_uncompressed },
+	{ BASEFMT_PAKLEO, 0x00, CODE_ll1, "LZW", decompress_pakleo }
 };
 
 // For basefmt==BASEFMT_LHA only
@@ -1067,8 +1078,13 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	}
 
 	crc_calc = de_crcobj_getval(d->crco);
-	de_dbg(c, "crc (calculated): 0x%04x", (UI)crc_calc);
-	if(crc_calc != md->crc16) {
+	if(d->basefmt==BASEFMT_PAKLEO) {
+		de_dbg(c, "crc (calculated): 0x%08x", (UI)crc_calc);
+	}
+	else {
+		de_dbg(c, "crc (calculated): 0x%04x", (UI)crc_calc);
+	}
+	if(crc_calc != md->crc_reported) {
 		de_err(c, "%s: CRC check failed", ucstring_getpsz_d(md->fullfilename));
 		goto done;
 	}
@@ -1389,10 +1405,8 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 	}
 
 	if(d->basefmt==BASEFMT_PAKLEO) {
-		u32 pllcrc;
-
-		pllcrc = (u32)de_getu32le_p(&pos);
-		de_dbg(c, "crc32: 0x%08x", (UI)pllcrc);
+		md->crc_reported = (u32)de_getu32le_p(&pos);
+		de_dbg(c, "crc32 (reported): 0x%08x", (UI)md->crc_reported);
 	}
 
 	if(md->hlev<=1) {
@@ -1408,8 +1422,8 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 	}
 
 	if(d->basefmt!=BASEFMT_PAKLEO) {
-		md->crc16 = (u32)de_getu16le_p(&pos);
-		de_dbg(c, "crc16 (reported): 0x%04x", (UI)md->crc16);
+		md->crc_reported = (u32)de_getu16le_p(&pos);
+		de_dbg(c, "crc16 (reported): 0x%04x", (UI)md->crc_reported);
 	}
 
 	if(md->hlev==1 || md->hlev==2 || md->hlev==3) {
@@ -1583,7 +1597,12 @@ static void do_run_lha_internal(deark *c, lctx *d, de_module_params *mparams)
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
 
 	d->hlev_of_first_member = 0xff;
-	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
+	if(d->basefmt==BASEFMT_PAKLEO) {
+		d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_PL);
+	}
+	else {
+		d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
+	}
 	d->crco_cksum = de_crcobj_create(c, DE_CRCOBJ_SUM_BYTES);
 
 	pos = 0;
@@ -1750,7 +1769,6 @@ void de_module_pakleo(deark *c, struct deark_module_info *mi)
 	mi->desc = "PAKLEO archive";
 	mi->run_fn = de_run_pakleo;
 	mi->identify_fn = de_identify_pakleo;
-	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
 }
 
 /////////////////////// CAR (MylesHi!)
@@ -2195,8 +2213,8 @@ static int do_read_ar001_member(deark *c, lctx *d, struct member_data *md)
 	md->orig_size = de_getu32le_p(&pos);
 	de_dbg(c, "original size: %"I64_FMT, md->orig_size);
 
-	md->crc16 = (u32)de_getu16le_p(&pos);
-	de_dbg(c, "crc16 (reported): 0x%04x", (UI)md->crc16);
+	md->crc_reported = (u32)de_getu16le_p(&pos);
+	de_dbg(c, "crc16 (reported): 0x%04x", (UI)md->crc_reported);
 
 	read_filename_hlev0(c, d, md, pos, fnlen);
 	pos += fnlen;

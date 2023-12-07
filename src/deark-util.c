@@ -2120,6 +2120,9 @@ struct de_crcobj *de_crcobj_create(deark *c, UI type_and_flags)
 
 	switch(crco->crctype) {
 	case DE_CRCOBJ_CRC32_IEEE:
+	case DE_CRCOBJ_CRC32_JAMCRC:
+		// "PL" is a placeholder name. I don't know a good name for this variant.
+	case DE_CRCOBJ_CRC32_PL:
 		crco->table32s = get_crc32_table(crco->c);
 		crco->continue_fn = de_crc32_continue;
 		break;
@@ -2178,6 +2181,7 @@ void de_crcobj_reset(struct de_crcobj *crco)
 
 	switch(crco->crctype) {
 	case DE_CRCOBJ_CRC32_IEEE:
+	case DE_CRCOBJ_CRC32_JAMCRC:
 		crco->val = 0xffffffffU;
 		break;
 	case DE_CRCOBJ_ADLER32:

@@ -27,6 +27,7 @@ struct delzw_tableentry {
 #define DELZW_CODETYPE_DYN_USED    0x03
 #define DELZW_CODETYPE_CLEAR       0x08
 #define DELZW_CODETYPE_STOP        0x09
+#define DELZW_CODETYPE_INC_CDSZ    0x0a
 #define DELZW_CODETYPE_SPECIAL     0x0f
 	u8 codetype;
 	u8 flags;
@@ -660,10 +661,17 @@ static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 	case DELZW_CODETYPE_STOP:
 		delzw_stop(dc, "stop code");
 		break;
+	case DELZW_CODETYPE_INC_CDSZ:
+		delzw_increase_codesize(dc);
+		break;
 	case DELZW_CODETYPE_SPECIAL:
 		if(dc->fmt==DE_LZWFMT_ZIPSHRINK && code==256) {
 			dc->special_code_is_pending = 1; // next code is an "escaped" code
 		}
+		break;
+	default:
+		delzw_set_errorf(dc, DELZW_ERRCODE_UNSUPPORTED_OPTION,
+			"Unsupported or invalid code (%u)", (UI)code);
 		break;
 	}
 
@@ -689,7 +697,8 @@ static void delzw_on_decompression_start(delzwctx *dc)
 		dc->fmt!=DE_LZWFMT_ARC5 &&
 		dc->fmt!=DE_LZWFMT_DWC &&
 		dc->fmt!=DE_LZWFMT_SHRINKIT1 &&
-		dc->fmt!=DE_LZWFMT_SHRINKIT2)
+		dc->fmt!=DE_LZWFMT_SHRINKIT2 &&
+		dc->fmt!=DE_LZWFMT_PAKLEO)
 	{
 		delzw_set_error(dc, DELZW_ERRCODE_UNSUPPORTED_OPTION, "Unsupported LZW format");
 		goto done;
@@ -824,6 +833,9 @@ static void delzw_on_codes_start(delzwctx *dc)
 		dc->auto_inc_codesize = 1;
 		dc->early_codesize_inc = 1;
 	}
+	else if(dc->fmt==DE_LZWFMT_PAKLEO) {
+		default_max_codesize = 14;
+	}
 
 	if(dc->min_codesize==0) {
 		// 9 is the usual minimum codesize for general purpose LZW compression schemes
@@ -909,6 +921,13 @@ static void delzw_on_codes_start(delzwctx *dc)
 		set_std_static_codes(dc);
 		dc->ct[256].codetype = DELZW_CODETYPE_CLEAR;
 		dc->first_dynamic_code = 257;
+	}
+	else if(dc->fmt==DE_LZWFMT_PAKLEO) {
+		set_std_static_codes(dc);
+		dc->ct[256].codetype = DELZW_CODETYPE_STOP;
+		dc->ct[257].codetype = DELZW_CODETYPE_INC_CDSZ;
+		dc->ct[258].codetype = DELZW_CODETYPE_CLEAR;
+		dc->first_dynamic_code = 259;
 	}
 
 	if(dc->is_hashed) {

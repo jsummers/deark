@@ -916,6 +916,8 @@ Deark -- Information about supported formats
 
 * PackDir (module="packdir") (experimental)
 
+* PAKLEO (module="pakleo") (experimental)
+
 * Palm PDB/PRC/PQA (module="palmdb")
   - You may have to use "-m palmdb".
   - Use -a to extract the record blocks, but note that they are usually not in
