@@ -1077,6 +1077,8 @@ Deark -- Information about supported formats
 * CRC (module="crc")
   Print various CRC hashes and checksums of the file, including IEEE CRC-32.
   - You must use "-m crc".
+  Options
+   -opt crc:all - Also compute uncommon CRCs and checksums
 
 * DS_Store (module="dsstore") (experimental)
   Metadata format associated with MacOS Finder.

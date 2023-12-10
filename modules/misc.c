@@ -381,14 +381,31 @@ void de_module_cp437(deark *c, struct deark_module_info *mi)
 // Prints various CRCs and checksums. Does not create any files.
 // **************************************************************************
 
+struct crcm_alg_info {
+	UI crctype;
+	u8 nbits;
+	const char *name;
+};
+
+#define CRCM_NUMCRCS 8
+static const struct crcm_alg_info crcm_map[CRCM_NUMCRCS] = {
+	{ DE_CRCOBJ_CRC32_IEEE, 32, "CRC-32-IEEE" },
+	{ DE_CRCOBJ_CRC16_ARC, 16, "CRC-16/ARC"},
+	{ DE_CRCOBJ_CRC16_XMODEM, 16, "CRC-16/XMODEM" },
+	{ DE_CRCOBJ_CRC32_JAMCRC, 32, "CRC-32/JAMCRC" },
+	{ DE_CRCOBJ_CRC32_PL, 32, "CRC-32/PL" },
+	{ DE_CRCOBJ_ADLER32, 32, "Adler-32" },
+	{ DE_CRCOBJ_CRC16_IBMSDLC, 16, "CRC-16/IBM-SDLC" },
+	{ DE_CRCOBJ_CRC16_IBM3740, 16, "CRC-16/IBM-3740" }
+};
+
 struct crcctx_struct {
-	struct de_crcobj *crco_32ieee;
-	struct de_crcobj *crco_16arc;
-	struct de_crcobj *crco_16xmodem;
+	u8 parity;
+	u8 opt_all;
 	u64 sum_of_bytes;
 	u64 sum_of_ui16le;
 	u64 sum_of_ui16be;
-	u8 parity;
+	struct de_crcobj *crcos[CRCM_NUMCRCS];
 };
 
 static int crc_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
@@ -396,10 +413,13 @@ static int crc_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 {
 	struct crcctx_struct *crcctx = (struct crcctx_struct*)brctx->userdata;
 	i64 i;
+	size_t n;
 
-	de_crcobj_addbuf(crcctx->crco_32ieee, buf, buf_len);
-	de_crcobj_addbuf(crcctx->crco_16arc, buf, buf_len);
-	de_crcobj_addbuf(crcctx->crco_16xmodem, buf, buf_len);
+	for(n=0; n<CRCM_NUMCRCS; n++) {
+		if(!crcctx->crcos[n]) continue;
+		de_crcobj_addbuf(crcctx->crcos[n], buf, buf_len);
+	}
+
 	// We could use crcobj for these checksums, but unfortunately that would
 	// limit them to 32 bits, instead of 64.
 	for(i=0; i<buf_len; i++) {
@@ -420,27 +440,45 @@ static int crc_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 static void de_run_crc(deark *c, de_module_params *mparams)
 {
 	struct crcctx_struct crcctx;
+	size_t n;
 
 	de_zeromem(&crcctx, sizeof(struct crcctx_struct));
-	crcctx.crco_32ieee = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-	crcctx.crco_16arc = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
-	crcctx.crco_16xmodem = de_crcobj_create(c, DE_CRCOBJ_CRC16_XMODEM);
+	crcctx.opt_all = (u8)de_get_ext_option_bool(c, "crc:all", 0);
+
+	for(n=0; n<CRCM_NUMCRCS; n++) {
+		if(n>=3 && !crcctx.opt_all) break;
+		crcctx.crcos[n] = de_crcobj_create(c, crcm_map[n].crctype);
+	}
 
 	dbuf_buffered_read(c->infile, 0, c->infile->len, crc_cbfn, (void*)&crcctx);
 
-	de_msg(c, "CRC-32-IEEE: 0x%08x",
-		(unsigned int)de_crcobj_getval(crcctx.crco_32ieee));
-	de_msg(c, "CRC-16-IBM/ARC: 0x%04x",
-		(unsigned int)de_crcobj_getval(crcctx.crco_16arc));
-	de_msg(c, "CRC-16-XMODEM: 0x%04x",
-		(unsigned int)de_crcobj_getval(crcctx.crco_16xmodem));
-	de_msg(c, "Sum of bytes: 0x%"U64_FMTx, crcctx.sum_of_bytes);
-	de_msg(c, "Sum of uint16-LE: 0x%"U64_FMTx, crcctx.sum_of_ui16le);
-	de_msg(c, "Sum of uint16-BE: 0x%"U64_FMTx, crcctx.sum_of_ui16be);
+	for(n=0; n<CRCM_NUMCRCS; n++) {
+		u32 val;
 
-	de_crcobj_destroy(crcctx.crco_32ieee);
-	de_crcobj_destroy(crcctx.crco_16arc);
-	de_crcobj_destroy(crcctx.crco_16xmodem);
+		if(!crcctx.crcos[n]) continue;
+		val = de_crcobj_getval(crcctx.crcos[n]);
+		if(crcm_map[n].nbits==16) {
+			de_msg(c, "%-18s: 0x%04x", crcm_map[n].name, (UI)val);
+		}
+		else {
+			de_msg(c, "%-18s: 0x%08x", crcm_map[n].name, (UI)val);
+		}
+	}
+
+	de_msg(c, "Sum of bytes      : 0x%"U64_FMTx, crcctx.sum_of_bytes);
+	if(crcctx.opt_all) {
+		de_msg(c, "Sum of uint16-LE  : 0x%"U64_FMTx, crcctx.sum_of_ui16le);
+		de_msg(c, "Sum of uint16-BE  : 0x%"U64_FMTx, crcctx.sum_of_ui16be);
+	}
+
+	for(n=0; n<CRCM_NUMCRCS; n++) {
+		de_crcobj_destroy(crcctx.crcos[n]);
+	}
+}
+
+static void de_help_crc(deark *c)
+{
+	de_msg(c, "-opt crc:all : Also compute uncommon checksum types");
 }
 
 void de_module_crc(deark *c, struct deark_module_info *mi)
@@ -449,6 +487,7 @@ void de_module_crc(deark *c, struct deark_module_info *mi)
 	mi->id_alias[0] = "crc32";
 	mi->desc = "Calculate various CRCs";
 	mi->run_fn = de_run_crc;
+	mi->help_fn = de_help_crc;
 	mi->flags |= DE_MODFLAG_NOEXTRACT;
 }
 
