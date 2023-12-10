@@ -832,6 +832,8 @@ Deark -- Information about supported formats
 
 * LHarc/LArc self-extracting archive - COM format (module="lharc_sfx_com")
 
+* LIF (Knowledge Dynamics) (module="lif_kdc") (incomplete)
+
 * LoadDskF/SaveDskF (module=loaddskf)
   An OS/2 floppy disk image format.
   - By default, non-compressed files are interpreted (as with FAT).

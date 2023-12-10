@@ -2130,8 +2130,9 @@ struct de_crcobj *de_crcobj_create(deark *c, UI type_and_flags)
 		crco->continue_fn = adler32_continue;
 		break;
 	case DE_CRCOBJ_CRC16_XMODEM:
-		// This is the CRC-16 algorithm used in MacBinary.
+		// "XMODEM" is the CRC-16 algorithm used in MacBinary.
 		// The CRC RevEng catalogue calls it "CRC-16/XMODEM".
+	case DE_CRCOBJ_CRC16_IBM3740:
 		crco->table16s = get_crc16xmodem_table(crco->c);
 		crco->continue_fn = de_crc16xmodem_continue;
 		break;
@@ -2188,6 +2189,7 @@ void de_crcobj_reset(struct de_crcobj *crco)
 		crco->val = 1;
 		break;
 	case DE_CRCOBJ_CRC16_IBMSDLC:
+	case DE_CRCOBJ_CRC16_IBM3740:
 		crco->val = 0xffff;
 		break;
 	case DE_CRCOBJ_SUM_U16LE:

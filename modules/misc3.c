@@ -2079,6 +2079,16 @@ static int lif_kdc_convert_hdr(deark *c, i64 pos1, dbuf *f2)
 	return 1;
 }
 
+static void lif_method2_decompressor_fn(struct de_arch_member_data *md)
+{
+	deark *c = md->c;
+	struct de_lzw_params delzwp;
+
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
+	delzwp.fmt = DE_LZWFMT_ZOOLZD;
+	fmtutil_decompress_lzw(c, md->dcmpri, md->dcmpro, md->dres, &delzwp);
+}
+
 static void de_run_lif_kdc(deark *c, de_module_params *mparams)
 {
 	de_arch_lctx *d = NULL;
@@ -2091,11 +2101,12 @@ static void de_run_lif_kdc(deark *c, de_module_params *mparams)
 	d = de_arch_create_lctx(c);
 	d->is_le = 0;
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_IBM3740);
 	f2 = dbuf_create_membuf(c, 17, 0);
 
 	while(1) {
 		i64 f2_pos;
-		u32 crc1_reported, crc2_reported;
+		u32 crc1_reported;
 
 		if(pos >= c->infile->len) goto done;
 		if(md) {
@@ -2129,9 +2140,9 @@ static void de_run_lif_kdc(deark *c, de_module_params *mparams)
 		// These checksums are likely for the compressed and decompressed data, but
 		// I don't know the algorithm.
 		crc1_reported = (u32)dbuf_getu16be_p(f2, &f2_pos);
-		de_dbg(c, "checksum1 (reported): 0x%04x", (UI)crc1_reported);
-		crc2_reported = (u32)dbuf_getu16be_p(f2, &f2_pos);
-		de_dbg(c, "checksum2 (reported): 0x%04x", (UI)crc2_reported);
+		de_dbg(c, "crc of cmpr. data (reported): 0x%04x", (UI)crc1_reported);
+		md->crc_reported = (u32)dbuf_getu16be_p(f2, &f2_pos);
+		de_dbg(c, "crc of orig. data (reported): 0x%04x", (UI)md->crc_reported);
 
 		md->cmpr_meth = (UI)dbuf_getbyte_p(f2, &f2_pos);
 		de_dbg(c, "cmpr. method: %u", md->cmpr_meth);
@@ -2145,6 +2156,19 @@ static void de_run_lif_kdc(deark *c, de_module_params *mparams)
 
 		md->cmpr_pos = md->member_hdr_pos + md->member_hdr_size;
 		de_dbg(c, "compressed data at %"I64_FMT", len=%"I64_FMT, md->cmpr_pos, md->cmpr_len);
+
+		md->validate_crc = 1;
+		if(md->cmpr_meth==1) {
+			md->dfn = noncompressed_decompressor_fn;
+			de_arch_extract_member_file(md);
+		}
+		else if(md->cmpr_meth==2) {
+			md->dfn = lif_method2_decompressor_fn;
+			de_arch_extract_member_file(md);
+		}
+		else {
+			de_err(c, "Unsupported compression: %u", (UI)md->cmpr_meth);
+		}
 
 		de_dbg_indent(c, -1);
 		pos = md->cmpr_pos + md->cmpr_len;
@@ -2199,7 +2223,6 @@ void de_module_lif_kdc(deark *c, struct deark_module_info *mi)
 	mi->desc = "LIF installer archive (Knowledge Dynamics Corp)";
 	mi->run_fn = de_run_lif_kdc;
 	mi->identify_fn = de_identify_lif_kdc;
-	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
 }
 
 // **************************************************************************
