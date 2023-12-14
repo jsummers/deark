@@ -16,145 +16,197 @@
 #define USE_EXTERNAL_MZCRC
 #include "../foreign/miniz-c.h"
 
-// codec_private_params = type de_deflate_params; cannot be NULL
+static void *our_miniz_alloc_func(void *opaque, size_t items, size_t size)
+{
+	return de_mallocarray((deark*)opaque, (i64)items, size);
+}
+
+static void our_miniz_free_func(void *opaque, void *address)
+{
+	de_free((deark*)opaque, address);
+}
+
+///////////////////// Deflate pushable decompressor using miniz
+
+#define DE_DEFLATEP_MAX_OUTBUF_SIZE 65536
+
+struct deflate_pushable_ctx {
+	UI flags;
+	u8 stream_open_flag;
+	i64 nbytes_written_total;
+	i64 total_nbytes_processed;
+	unsigned int outbuf_size; // Type=unsigned int, for compatibility with miniz
+	u8 *outbuf;
+	const char *modname;
+	mz_stream strm;
+};
+
+static void my_deflate_codec_addbuf(struct de_dfilter_ctx *dfctx,
+	const u8 *buf, i64 buf_len)
+{
+	struct deflate_pushable_ctx *dc = (struct deflate_pushable_ctx*)dfctx->codec_private;
+	int ret;
+	i64 nbytes_to_write;
+
+	deark *c = dfctx->c;
+	struct de_dfilter_results *dres = dfctx->dres;
+	struct de_dfilter_out_params *dcmpro = dfctx->dcmpro;
+
+	if(!dc->stream_open_flag) return;
+	if(dres->errcode) return;
+
+	if(!dc->outbuf) {
+		if(dcmpro->len_known && dcmpro->expected_len<DE_DEFLATEP_MAX_OUTBUF_SIZE) {
+			dc->outbuf_size = (unsigned int)dcmpro->expected_len;
+		}
+		else {
+			dc->outbuf_size = DE_DEFLATEP_MAX_OUTBUF_SIZE;
+		}
+		dc->outbuf = de_malloc(c, (i64)dc->outbuf_size);
+	}
+
+	dc->strm.next_in = buf;
+	dc->strm.avail_in = (unsigned int)buf_len;
+
+	while(1) {
+		unsigned int old_avail_in;
+
+		// If we have written enough bytes, stop.
+		if((dcmpro->len_known) && (dc->nbytes_written_total >= dcmpro->expected_len)) {
+			dfctx->finished_flag = 1;
+			goto done;
+		}
+
+		dc->strm.next_out = dc->outbuf;
+		dc->strm.avail_out = dc->outbuf_size;
+		old_avail_in = dc->strm.avail_in;
+
+		ret = mz_inflate(&dc->strm, MZ_SYNC_FLUSH);
+
+		if(ret!=MZ_STREAM_END && ret!=MZ_OK && ret!=MZ_BUF_ERROR) {
+			de_dfilter_set_errorf(c, dres, dc->modname, "Inflate error (%d)", (int)ret);
+			goto done;
+		}
+
+		nbytes_to_write = dc->outbuf_size - dc->strm.avail_out;
+
+		if(ret==MZ_BUF_ERROR) {
+			if(dc->strm.avail_in==0 && nbytes_to_write==0) {
+				// Consumed all the input, can't produce any more output: suspend
+				goto done;
+			}
+		}
+
+		dbuf_write(dcmpro->f, dc->outbuf, nbytes_to_write);
+		dc->nbytes_written_total += nbytes_to_write;
+
+		if(ret==MZ_STREAM_END) {
+			dfctx->finished_flag = 1;
+			goto done;
+		}
+
+		if(dc->strm.avail_in==old_avail_in && nbytes_to_write==0) {
+			// No progress? Probably shouldn't happen, but we want to defend against
+			// infinite loops.
+			de_dfilter_set_generic_error(c, dres, dc->modname);
+			goto done;
+		}
+	}
+
+done:
+	dc->total_nbytes_processed += buf_len - (i64)dc->strm.avail_in;
+}
+
+static void deflate_codec_init(struct de_dfilter_ctx *dfctx)
+{
+	struct deflate_pushable_ctx *dc = (struct deflate_pushable_ctx*)dfctx->codec_private;
+	deark *c = dfctx->c;
+	int ret;
+
+	dfctx->dres->bytes_consumed = 0;
+
+	dc->strm.zalloc = our_miniz_alloc_func;
+	dc->strm.zfree = our_miniz_free_func;
+	dc->strm.opaque = (void*)c;
+
+	if(dc->flags&DE_DEFLATEFLAG_ISZLIB) {
+		ret = mz_inflateInit(&dc->strm);
+	}
+	else {
+		ret = mz_inflateInit2(&dc->strm, -MZ_DEFAULT_WINDOW_BITS);
+	}
+	if(ret!=MZ_OK) {
+		de_dfilter_set_errorf(c, dfctx->dres, dc->modname, "Inflate error");
+		goto done;
+	}
+
+	dc->stream_open_flag = 1;
+done:
+	;
+}
+
+static void my_deflate_codec_finish(struct de_dfilter_ctx *dfctx)
+{
+	struct deflate_pushable_ctx *dc = (struct deflate_pushable_ctx*)dfctx->codec_private;
+
+	if(dc->stream_open_flag) {
+		if(!dfctx->dres->errcode) {
+			de_dbgx(dfctx->c, 4, "inflated %u to %u bytes", (unsigned int)dc->strm.total_in,
+				(unsigned int)dc->strm.total_out);
+		}
+		mz_inflateEnd(&dc->strm);
+		dc->stream_open_flag = 0;
+	}
+
+	dfctx->dres->bytes_consumed = dc->total_nbytes_processed;
+	dfctx->dres->bytes_consumed_valid = 1;
+	dfctx->finished_flag = 1;
+}
+
+static void my_deflate_codec_destroy(struct de_dfilter_ctx *dfctx)
+{
+	struct deflate_pushable_ctx *dc = (struct deflate_pushable_ctx*)dfctx->codec_private;
+	deark *c = dfctx->c;
+
+	if(dc) {
+		de_free(c, dc->outbuf);
+		de_free(c, dc);
+	}
+	dfctx->codec_private = NULL;
+}
+
+// codec_private_params: de_deflate_params, or NULL for default params.
+//   .ringbuf_to_use is not used
+void dfilter_deflate_codec_miniz(struct de_dfilter_ctx *dfctx, void *codec_private_params)
+{
+	struct deflate_pushable_ctx *dc = NULL;
+	struct de_deflate_params *deflparams = (struct de_deflate_params*)codec_private_params;
+
+	dc = de_malloc(dfctx->c, sizeof(struct deflate_pushable_ctx));
+	dc->modname = "deflate-mz";
+	if(deflparams) {
+		dc->flags = deflparams->flags;
+	}
+
+	dfctx->codec_private = (void*)dc;
+	dfctx->codec_addbuf_fn = my_deflate_codec_addbuf;
+	dfctx->codec_finish_fn = my_deflate_codec_finish;
+	dfctx->codec_destroy_fn = my_deflate_codec_destroy;
+
+	deflate_codec_init(dfctx);
+}
+
+//////////////////////////////////////
+
 void fmtutil_deflate_codectype1_miniz(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params)
 {
-	struct de_deflate_params *deflparams = (struct de_deflate_params*)codec_private_params;
-	mz_stream strm;
-	int ret;
-	int ok = 0;
-#define DE_DFL_INBUF_SIZE   32768
-#define DE_DFL_OUTBUF_SIZE  (DE_DFL_INBUF_SIZE*4)
-	u8 *inbuf = NULL;
-	u8 *outbuf = NULL;
-	i64 inbuf_num_valid_bytes; // Number of valid bytes in inbuf, starting with [0].
-	i64 inbuf_num_consumed_bytes; // Of inbuf_num_valid_bytes, the number that have been consumed.
-	i64 inbuf_num_consumed_bytes_this_time;
-	unsigned int orig_avail_in;
-	i64 input_cur_pos;
-	i64 output_bytes_this_time;
-	i64 nbytes_to_read;
-	i64 nbytes_to_write;
-	i64 nbytes_written_total = 0;
-	int stream_open_flag = 0;
-	static const char *modname = "deflate";
-
-	dres->bytes_consumed = 0;
-	if(dcmpri->len<0) {
-		de_dfilter_set_errorf(c, dres, modname, "Internal error");
-		goto done;
-	}
-
-	inbuf = de_malloc(c, DE_DFL_INBUF_SIZE);
-	outbuf = de_malloc(c, DE_DFL_OUTBUF_SIZE);
-
-	de_zeromem(&strm, sizeof(strm));
-	if(deflparams->flags&DE_DEFLATEFLAG_ISZLIB) {
-		ret = mz_inflateInit(&strm);
-	}
-	else {
-		ret = mz_inflateInit2(&strm, -MZ_DEFAULT_WINDOW_BITS);
-	}
-	if(ret!=MZ_OK) {
-		de_dfilter_set_errorf(c, dres, modname, "Inflate error");
-		goto done;
-	}
-
-	stream_open_flag = 1;
-
-	input_cur_pos = dcmpri->pos;
-
-	inbuf_num_valid_bytes = 0;
-	inbuf_num_consumed_bytes = 0;
-
-	de_dbgx(c, 4, "inflating up to %d bytes", (int)dcmpri->len);
-
-	while(1) {
-		de_dbgx(c, 4, "input remaining: %d", (int)(dcmpri->pos+dcmpri->len-input_cur_pos));
-
-		// If we have written enough bytes, stop.
-		if((dcmpro->len_known) && (nbytes_written_total >= dcmpro->expected_len)) {
-			break;
-		}
-
-		if(inbuf_num_consumed_bytes>0) {
-			if(inbuf_num_valid_bytes>inbuf_num_consumed_bytes) {
-				// Move unconsumed bytes to the beginning of the input buffer
-				de_memmove(inbuf, &inbuf[inbuf_num_consumed_bytes], (size_t)(inbuf_num_valid_bytes-inbuf_num_consumed_bytes));
-				inbuf_num_valid_bytes -= inbuf_num_consumed_bytes;
-				inbuf_num_consumed_bytes = 0;
-			}
-			else {
-				inbuf_num_valid_bytes = 0;
-				inbuf_num_consumed_bytes = 0;
-			}
-		}
-
-		nbytes_to_read = dcmpri->pos+dcmpri->len-input_cur_pos;
-		if(nbytes_to_read>DE_DFL_INBUF_SIZE-inbuf_num_valid_bytes) {
-			nbytes_to_read = DE_DFL_INBUF_SIZE-inbuf_num_valid_bytes;
-		}
-
-		// top off input buffer
-		dbuf_read(dcmpri->f, &inbuf[inbuf_num_valid_bytes], input_cur_pos, nbytes_to_read);
-		input_cur_pos += nbytes_to_read;
-		inbuf_num_valid_bytes += nbytes_to_read;
-
-		strm.next_in = inbuf;
-		strm.avail_in = (unsigned int)inbuf_num_valid_bytes;
-		orig_avail_in = strm.avail_in;
-
-		strm.next_out = outbuf;
-		strm.avail_out = DE_DFL_OUTBUF_SIZE;
-
-		ret = mz_inflate(&strm, MZ_SYNC_FLUSH);
-
-		if(ret!=MZ_STREAM_END && ret!=MZ_OK) {
-			de_dfilter_set_errorf(c, dres, modname, "Inflate error (%d)", (int)ret);
-			goto done;
-		}
-
-		output_bytes_this_time = DE_DFL_OUTBUF_SIZE - strm.avail_out;
-		de_dbgx(c, 4, "got %d output bytes", (int)output_bytes_this_time);
-
-		nbytes_to_write = output_bytes_this_time;
-		if((dcmpro->len_known) &&
-			(nbytes_to_write > dcmpro->expected_len - nbytes_written_total))
-		{
-			nbytes_to_write = dcmpro->expected_len - nbytes_written_total;
-		}
-		dbuf_write(dcmpro->f, outbuf, nbytes_to_write);
-		nbytes_written_total += nbytes_to_write;
-
-		if(ret==MZ_STREAM_END) {
-			de_dbgx(c, 4, "inflate finished normally");
-			ok = 1;
-			goto done;
-		}
-
-		inbuf_num_consumed_bytes_this_time = (i64)(orig_avail_in - strm.avail_in);
-		if(inbuf_num_consumed_bytes_this_time<1 && output_bytes_this_time<1) {
-			de_dfilter_set_errorf(c, dres, modname, "Inflate error");
-			goto done;
-		}
-		inbuf_num_consumed_bytes += inbuf_num_consumed_bytes_this_time;
-	}
-
-done:
-	if(ok) {
-		dres->bytes_consumed = (i64)strm.total_in;
-		dres->bytes_consumed_valid = 1;
-		de_dbgx(c, 4, "inflated %u to %u bytes", (unsigned int)strm.total_in,
-			(unsigned int)strm.total_out);
-	}
-	if(stream_open_flag) {
-		mz_inflateEnd(&strm);
-	}
-	de_free(c, inbuf);
-	de_free(c, outbuf);
+	de_dfilter_decompress_oneshot(c, dfilter_deflate_codec_miniz, codec_private_params,
+		dcmpri, dcmpro, dres);
 }
+
+//////////////////////////////////////
 
 struct fmtutil_tdefl_ctx {
 	deark *c;
