@@ -889,7 +889,6 @@ static void extract_main_threads(deark *c, struct nufx_ctx *d,
 		advf->mainfork.writelistener_cb = de_writelistener_for_crc;
 		advf->mainfork.userdata_for_writelistener = (void*)d->crco_dfork;
 		de_crcobj_reset(d->crco_dfork);
-		de_crcobj_setval(d->crco_dfork, 0xffff);
 	}
 	if(t_r) {
 		advf->rsrcfork.fork_exists = 1;
@@ -897,7 +896,6 @@ static void extract_main_threads(deark *c, struct nufx_ctx *d,
 		advf->rsrcfork.writelistener_cb = de_writelistener_for_crc;
 		advf->rsrcfork.userdata_for_writelistener = (void*)d->crco_rfork;
 		de_crcobj_reset(d->crco_rfork);
-		de_crcobj_setval(d->crco_rfork, 0xffff);
 	}
 
 	de_advfile_run(advf);
@@ -1064,8 +1062,8 @@ static void de_run_nufx(deark *c, de_module_params *mparams)
 	d->extract_comments = (c->extract_level>=2);
 	d->crco_misc = de_crcobj_create(c, DE_CRCOBJ_CRC16_XMODEM);
 	d->crco_for_lzw_codec = de_crcobj_create(c, DE_CRCOBJ_CRC16_XMODEM);
-	d->crco_dfork = de_crcobj_create(c, DE_CRCOBJ_CRC16_XMODEM);
-	d->crco_rfork = de_crcobj_create(c, DE_CRCOBJ_CRC16_XMODEM);
+	d->crco_dfork = de_crcobj_create(c, DE_CRCOBJ_CRC16_IBM3740);
+	d->crco_rfork = de_crcobj_create(c, DE_CRCOBJ_CRC16_IBM3740);
 
 	do_nufx_master_record(c, d);
 	if(d->fatalerrflag) goto done;
