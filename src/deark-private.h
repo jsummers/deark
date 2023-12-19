@@ -1160,6 +1160,7 @@ void de_crcobj_destroy(struct de_crcobj *crco);
 void de_crcobj_setval(struct de_crcobj *crco, u32 v);
 void de_crcobj_reset(struct de_crcobj *crco);
 u32 de_crcobj_getval(struct de_crcobj *crco);
+u64 de_crcobj_getval64(struct de_crcobj *crco);
 void de_crcobj_addbuf(struct de_crcobj *crco, const u8 *buf, i64 buf_len);
 void de_crcobj_addrun(struct de_crcobj *crco, u8 v, i64 len);
 void de_crcobj_addzeroes(struct de_crcobj *crco, i64 len);

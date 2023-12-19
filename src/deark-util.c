@@ -1939,7 +1939,9 @@ typedef void (*crcobj_continue_fn)(struct de_crcobj *crco, const u8 *buf, i64 bu
 struct de_crcobj {
 	u32 val;
 	UI crctype;
+	u64 val64;
 	UI align;
+	u8 is_64bit;
 	deark *c;
 	const u16 *table16s;
 	const u32 *table32s;
@@ -2049,7 +2051,7 @@ static void cksum_bytes_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_
 	i64 k;
 
 	for(k=0; k<buf_len; k++) {
-		crco->val += (u32)buf[k];
+		crco->val64 += (u64)buf[k];
 	}
 }
 
@@ -2059,10 +2061,10 @@ static void cksum_u16_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_le
 
 	for(k=0; k<buf_len; k++) {
 		if(crco->align) {
-			crco->val += (u32)buf[k] << 8;
+			crco->val64 += (u64)buf[k] << 8;
 		}
 		else {
-			crco->val += (u32)buf[k];
+			crco->val64 += (u64)buf[k];
 		}
 		crco->align = !crco->align;
 	}
@@ -2150,10 +2152,12 @@ struct de_crcobj *de_crcobj_create(deark *c, UI type_and_flags)
 		crco->continue_fn = de_crc16arc_continue;
 		break;
 	case DE_CRCOBJ_SUM_BYTES:
+		crco->is_64bit = 1;
 		crco->continue_fn = cksum_bytes_continue;
 		break;
 	case DE_CRCOBJ_SUM_U16LE:
 	case DE_CRCOBJ_SUM_U16BE:
+		crco->is_64bit = 1;
 		crco->continue_fn = cksum_u16_continue;
 		break;
 	}
@@ -2179,6 +2183,7 @@ void de_crcobj_setval(struct de_crcobj *crco, u32 v)
 void de_crcobj_reset(struct de_crcobj *crco)
 {
 	crco->val = 0;
+	crco->val64 = 0;
 
 	switch(crco->crctype) {
 	case DE_CRCOBJ_CRC32_IEEE:
@@ -2201,7 +2206,7 @@ void de_crcobj_reset(struct de_crcobj *crco)
 	}
 }
 
-u32 de_crcobj_getval(struct de_crcobj *crco)
+static u32 crcobj_getval32_internal(struct de_crcobj *crco)
 {
 	switch(crco->crctype) {
 	case DE_CRCOBJ_CRC32_IEEE:
@@ -2210,6 +2215,27 @@ u32 de_crcobj_getval(struct de_crcobj *crco)
 		return crco->val ^ 0xffff;
 	}
 	return crco->val;
+}
+
+static u64 crcobj_getval64_internal(struct de_crcobj *crco)
+{
+	return crco->val64;
+}
+
+u32 de_crcobj_getval(struct de_crcobj *crco)
+{
+	if(crco->is_64bit) {
+		return (u32)crcobj_getval64_internal(crco);
+	}
+	return crcobj_getval32_internal(crco);
+}
+
+u64 de_crcobj_getval64(struct de_crcobj *crco)
+{
+	if(crco->is_64bit) {
+		return crcobj_getval64_internal(crco);
+	}
+	return (u64)crcobj_getval32_internal(crco);
 }
 
 void de_crcobj_addbuf(struct de_crcobj *crco, const u8 *buf, i64 buf_len)

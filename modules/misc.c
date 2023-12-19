@@ -383,28 +383,28 @@ void de_module_cp437(deark *c, struct deark_module_info *mi)
 
 struct crcm_alg_info {
 	UI crctype;
-	u8 nbits;
+	u8 flags; // 1 = computed by default
+	u8 nbits; // 0 = special
 	const char *name;
 };
 
-#define CRCM_NUMCRCS 8
+#define CRCM_NUMCRCS 11
 static const struct crcm_alg_info crcm_map[CRCM_NUMCRCS] = {
-	{ DE_CRCOBJ_CRC32_IEEE, 32, "CRC-32-IEEE" },
-	{ DE_CRCOBJ_CRC16_ARC, 16, "CRC-16/ARC"},
-	{ DE_CRCOBJ_CRC16_XMODEM, 16, "CRC-16/XMODEM" },
-	{ DE_CRCOBJ_CRC32_JAMCRC, 32, "CRC-32/JAMCRC" },
-	{ DE_CRCOBJ_CRC32_PL, 32, "CRC-32/PL" },
-	{ DE_CRCOBJ_ADLER32, 32, "Adler-32" },
-	{ DE_CRCOBJ_CRC16_IBMSDLC, 16, "CRC-16/IBM-SDLC" },
-	{ DE_CRCOBJ_CRC16_IBM3740, 16, "CRC-16/IBM-3740" }
+	{ DE_CRCOBJ_CRC32_IEEE, 1, 32, "CRC-32-IEEE" },
+	{ DE_CRCOBJ_CRC16_ARC, 1, 16, "CRC-16/ARC"},
+	{ DE_CRCOBJ_CRC16_XMODEM, 1, 16, "CRC-16/XMODEM" },
+	{ DE_CRCOBJ_CRC32_JAMCRC, 0, 32, "CRC-32/JAMCRC" },
+	{ DE_CRCOBJ_CRC32_PL, 0, 32, "CRC-32/PL" },
+	{ DE_CRCOBJ_ADLER32, 0, 32, "Adler-32" },
+	{ DE_CRCOBJ_CRC16_IBMSDLC, 0, 16, "CRC-16/IBM-SDLC" },
+	{ DE_CRCOBJ_CRC16_IBM3740, 0, 16, "CRC-16/IBM-3740" },
+	{ DE_CRCOBJ_SUM_BYTES, 1, 0, "Sum of bytes" },
+	{ DE_CRCOBJ_SUM_U16LE, 0, 0, "Sum of uint16-LE" },
+	{ DE_CRCOBJ_SUM_U16BE, 0, 0, "Sum of uint16-BE" }
 };
 
 struct crcctx_struct {
-	u8 parity;
 	u8 opt_all;
-	u64 sum_of_bytes;
-	u64 sum_of_ui16le;
-	u64 sum_of_ui16be;
 	struct de_crcobj *crcos[CRCM_NUMCRCS];
 };
 
@@ -412,7 +412,6 @@ static int crc_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 	i64 buf_len)
 {
 	struct crcctx_struct *crcctx = (struct crcctx_struct*)brctx->userdata;
-	i64 i;
 	size_t n;
 
 	for(n=0; n<CRCM_NUMCRCS; n++) {
@@ -420,20 +419,6 @@ static int crc_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 		de_crcobj_addbuf(crcctx->crcos[n], buf, buf_len);
 	}
 
-	// We could use crcobj for these checksums, but unfortunately that would
-	// limit them to 32 bits, instead of 64.
-	for(i=0; i<buf_len; i++) {
-		crcctx->sum_of_bytes += buf[i];
-		if(crcctx->parity) {
-			crcctx->sum_of_ui16le += 256*(i64)buf[i];
-			crcctx->sum_of_ui16be += buf[i];
-		}
-		else {
-			crcctx->sum_of_ui16le += buf[i];
-			crcctx->sum_of_ui16be += 256*(i64)buf[i];
-		}
-		crcctx->parity = !crcctx->parity;
-	}
 	return 1;
 }
 
@@ -446,29 +431,34 @@ static void de_run_crc(deark *c, de_module_params *mparams)
 	crcctx.opt_all = (u8)de_get_ext_option_bool(c, "crc:all", 0);
 
 	for(n=0; n<CRCM_NUMCRCS; n++) {
-		if(n>=3 && !crcctx.opt_all) break;
+		if((crcm_map[n].flags & 0x1)==0 && !crcctx.opt_all) continue;
 		crcctx.crcos[n] = de_crcobj_create(c, crcm_map[n].crctype);
 	}
 
 	dbuf_buffered_read(c->infile, 0, c->infile->len, crc_cbfn, (void*)&crcctx);
 
 	for(n=0; n<CRCM_NUMCRCS; n++) {
-		u32 val;
+		u32 val = 0;
+		u64 val64 = 0;
 
 		if(!crcctx.crcos[n]) continue;
-		val = de_crcobj_getval(crcctx.crcos[n]);
-		if(crcm_map[n].nbits==16) {
+
+		if(crcm_map[n].nbits==0) {
+			val64 = de_crcobj_getval64(crcctx.crcos[n]);
+		}
+		else {
+			val = de_crcobj_getval(crcctx.crcos[n]);
+		}
+
+		if(crcm_map[n].nbits==0) {
+			de_msg(c, "%-18s: 0x%"U64_FMTx, crcm_map[n].name, val64);
+		}
+		else if(crcm_map[n].nbits==16) {
 			de_msg(c, "%-18s: 0x%04x", crcm_map[n].name, (UI)val);
 		}
 		else {
 			de_msg(c, "%-18s: 0x%08x", crcm_map[n].name, (UI)val);
 		}
-	}
-
-	de_msg(c, "Sum of bytes      : 0x%"U64_FMTx, crcctx.sum_of_bytes);
-	if(crcctx.opt_all) {
-		de_msg(c, "Sum of uint16-LE  : 0x%"U64_FMTx, crcctx.sum_of_ui16le);
-		de_msg(c, "Sum of uint16-BE  : 0x%"U64_FMTx, crcctx.sum_of_ui16be);
 	}
 
 	for(n=0; n<CRCM_NUMCRCS; n++) {
