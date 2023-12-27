@@ -163,7 +163,7 @@ static void do_jpeghdr_segment(deark *c, lctx *d, i64 pos1,
 	dbuf_copy(c->infile, pos, data_size, d->hdr_residual_file);
 }
 
-static void do_jumbf_segment(deark *c, lctx *d, i64 pos,
+static void do_boxformat_segment(deark *c, lctx *d, i64 pos,
 	i64 data_size)
 {
 	i64 n;
@@ -188,10 +188,12 @@ static void do_jumbf_segment(deark *c, lctx *d, i64 pos,
 
 	if(bdata_avail>=12) {
 		if(!dbuf_memcmp(c->infile, bdata_pos+4, (const void*)"jumb", 4)) {
+			de_dbg(c, "JUMBF detected");
 			d->has_jumbf = 1;
 		}
 		else if(!dbuf_memcmp(c->infile, bdata_pos+4, (const void*)"ftypjpxt", 8)) {
 			d->is_jpegxt = 1;
+			de_dbg(c, "JPEG XT detected");
 		}
 	}
 
@@ -907,7 +909,7 @@ static void normalize_app_id(const char *app_id_orig, char *app_id_normalized,
 #define APPSEGTYPE_DUCKY          12
 #define APPSEGTYPE_XMP            14
 #define APPSEGTYPE_XMP_EXTENSION  15
-#define APPSEGTYPE_JUMBF          20
+#define APPSEGTYPE_BOXFORMAT      20
 #define APPSEGTYPE_MPF            21
 #define APPSEGTYPE_JPS            22
 #define APPSEGTYPE_HDR_RI_VER     24
@@ -1097,8 +1099,9 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 		app_id_info->app_type_name = "JPEG-HDR Ext";
 	}
 	else if(seg_type==0xeb && ad.nraw_bytes>=2 && !de_strncmp((const char*)ad.raw_bytes, "JP", 2)) {
-		app_id_info->appsegtype = APPSEGTYPE_JUMBF;
-		app_id_info->app_type_name = "JUMBF";
+		// Presumably the format defined in ISO/IEC 18477-3
+		app_id_info->appsegtype = APPSEGTYPE_BOXFORMAT;
+		app_id_info->app_type_name = "Box format container";
 		sig_size = 2;
 	}
 	else if(seg_type==0xe2 && !de_strcmp(ad.app_id_normalized, "MPF")) {
@@ -1203,8 +1206,8 @@ static void handler_app(deark *c, lctx *d,
 	case APPSEGTYPE_HDR_RI_EXT:
 		do_jpeghdr_segment(c, d, seg_data_pos, seg_data_size, 1);
 		break;
-	case APPSEGTYPE_JUMBF:
-		do_jumbf_segment(c, d, payload_pos, payload_size);
+	case APPSEGTYPE_BOXFORMAT:
+		do_boxformat_segment(c, d, payload_pos, payload_size);
 		break;
 	case APPSEGTYPE_MPF:
 		do_mpf_segment(c, d, payload_pos, payload_size);
