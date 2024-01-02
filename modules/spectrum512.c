@@ -54,11 +54,8 @@ static void de_run_spectrum512u(deark *c, de_module_params *mparams)
 
 	if(!dbuf_memcmp(c->infile, 0, (const void*)"5BIT", 4)) {
 		is_enhanced = 1;
-		de_declare_fmt(c, "Spectrum 512 Uncompressed Enhanced");
 	}
-	else {
-		de_declare_fmt(c, "Spectrum 512 Uncompressed");
-	}
+	de_declare_fmtf(c, "Spectrum 512 Uncompressed%s", (is_enhanced?" Enhanced":""));
 
 	do_spu_internal(c, c->infile, is_enhanced);
 }
@@ -90,75 +87,141 @@ void de_module_spectrum512u(deark *c, struct deark_module_info *mi)
 
 // **************************************************************************
 
+struct spc_sps_ctx {
+	int is_sps;
+	u8 sps_format_code;
+	i64 pixels_pos;
+	i64 pixels_cmpr_len;
+	i64 pal_pos;
+	i64 pal_cmpr_len;
+};
+
 // This is almost PackBits, but not quite.
-static void spc_uncompress_pixels(dbuf *f, i64 pos1, i64 len,
-	dbuf *unc_pixels)
+static void spc_decompress_pixels(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
 	i64 pos;
 	u8 b, b2;
 	i64 count;
 	i64 endpos;
+	i64 nbytes_written = 0;
 
-	pos = pos1;
-	endpos = pos1+len;
+	pos = dcmpri->pos;
+	endpos = dcmpri->pos + dcmpri->len;
 
 	while(1) {
-		if(unc_pixels->has_len_limit && unc_pixels->len>=unc_pixels->len_limit) {
+		if(dcmpro->len_known && nbytes_written >= dcmpro->expected_len) {
 			break; // Decompressed the requested amount of dst data.
 		}
 
-		if(pos>=endpos) {
+		if(pos+2 > endpos) { // Min item size is 2 bytes
 			break; // Reached the end of source data
 		}
-		b = dbuf_getbyte(f, pos++);
+		b = dbuf_getbyte(dcmpri->f, pos++);
 
 		if(b>=128) { // A compressed run
 			count = 258 - (i64)b;
-			b2 = dbuf_getbyte(f, pos++);
-			dbuf_write_run(unc_pixels, b2, count);
+			b2 = dbuf_getbyte(dcmpri->f, pos++);
+			dbuf_write_run(dcmpro->f, b2, count);
+			nbytes_written += count;
 		}
 		else { // An uncompressed run
 			count = 1 + (i64)b;
-			dbuf_copy(f, pos, count, unc_pixels);
+			if(pos+count > endpos) {
+				pos--;
+				break;
+			}
+			dbuf_copy(dcmpri->f, pos, count, dcmpro->f);
 			pos += count;
+			nbytes_written += count;
 		}
 	}
+
+	dbuf_flush(dcmpro->f);
+	dres->bytes_consumed = pos - dcmpri->pos;
+	dres->bytes_consumed_valid = 1;
 }
 
-static void sps_uncompress_pixels(dbuf *f, i64 pos1, i64 len,
-	dbuf *unc_pixels)
+static void sps_decompress_pixels(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
 	i64 pos;
 	u8 b, b2;
 	i64 count;
 	i64 endpos;
+	i64 nbytes_written = 0;
 
-	pos = pos1;
-	endpos = pos1+len;
+	pos = dcmpri->pos;
+	endpos = dcmpri->pos + dcmpri->len;
 
 	while(1) {
-		if(unc_pixels->has_len_limit && unc_pixels->len>=unc_pixels->len_limit) {
+		if(dcmpro->len_known && nbytes_written >= dcmpro->expected_len) {
 			break; // Decompressed the requested amount of dst data.
 		}
 
-		if(pos>=endpos) {
+		if(pos+2 > endpos) { // Min item size is 2 bytes
 			break; // Reached the end of source data
 		}
-		b = dbuf_getbyte(f, pos++);
+		b = dbuf_getbyte(dcmpri->f, pos++);
 
 		if(b<=127) { // A compressed run
 			count = (i64)b +3;
-			b2 = dbuf_getbyte(f, pos++);
-			dbuf_write_run(unc_pixels, b2, count);
+			b2 = dbuf_getbyte(dcmpri->f, pos++);
+			dbuf_write_run(dcmpro->f, b2, count);
+			nbytes_written += count;
 		}
 		else { // An uncompressed run
 			count = (i64)b - 127;
-			dbuf_copy(f, pos, count, unc_pixels);
+			if(pos+count > endpos) {
+				pos--;
+				break;
+			}
+			dbuf_copy(dcmpri->f, pos, count, dcmpro->f);
 			pos += count;
+			nbytes_written += count;
 		}
 	}
+
+	dbuf_flush(dcmpro->f);
+	dres->bytes_consumed = pos - dcmpri->pos;
+	dres->bytes_consumed_valid = 1;
 }
 
+static void decompress_spc_or_sps(deark *c, struct spc_sps_ctx *d, dbuf *unc_pixels_planar)
+{
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = d->pixels_pos;
+	dcmpri.len = d->pixels_cmpr_len;
+	dcmpro.f = unc_pixels_planar;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = 32000;
+
+	if(d->is_sps) {
+		sps_decompress_pixels(c, &dcmpri, &dcmpro, &dres);
+	}
+	else {
+		spc_decompress_pixels(c, &dcmpri, &dcmpro, &dres);
+	}
+
+	if(dres.bytes_consumed_valid) {
+		de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT,
+			dres.bytes_consumed, unc_pixels_planar->len);
+	}
+
+	// We expect exactly 31840.
+	if(unc_pixels_planar->len<31840 || unc_pixels_planar->len>31970) {
+		de_warn(c, "Decompression may have failed");
+	}
+
+	if(unc_pixels_planar->len > 31840) {
+		dbuf_truncate(unc_pixels_planar, 31840);
+	}
+}
 
 // After SPC decompression, we have a 320x199 image, but with the
 // bytes in an inconvenient order, different from SPU format.
@@ -201,15 +264,15 @@ static void reorder_img_bytes(deark *c, dbuf *src, dbuf *dst, reorder_fn rfn)
 }
 
 // Read from c->infile at offset pos1, append to uncmpr_pal
-static void spc_uncompress_pal(deark *c, i64 pos1, dbuf *uncmpr_pal)
+static void spc_decompress_pal(deark *c, i64 pos1, dbuf *uncmpr_pal)
 {
 	static const i64 num_pals = 199*3;
 	i64 pos = pos1;
 	i64 i, k;
-	unsigned int code;
+	UI code;
 
 	for(i=0; i<num_pals; i++) {
-		code = (unsigned int)de_getu16be(pos);
+		code = (UI)de_getu16be(pos);
 		pos += 2;
 		for(k=0; k<16; k++) {
 			// Bit 15 is ignored. The corresponding pal entry will always be black.
@@ -226,12 +289,12 @@ static void spc_uncompress_pal(deark *c, i64 pos1, dbuf *uncmpr_pal)
 }
 
 // Read from c->infile at offset pos1, append to uncmpr_pal
-static void sps_uncompress_pal(deark *c, i64 pos1, dbuf *uncmpr_pal)
+static void sps_decompress_pal(deark *c, i64 pos1, dbuf *uncmpr_pal)
 {
 	static const i64 num_pals = 199*3;
 	i64 i;
-	unsigned int k;
-	unsigned int code;
+	UI k;
+	UI code;
 	struct de_bitreader bitrd;
 
 	de_zeromem(&bitrd, sizeof(struct de_bitreader));
@@ -245,8 +308,8 @@ static void sps_uncompress_pal(deark *c, i64 pos1, dbuf *uncmpr_pal)
 		for(k=0; k<16; k++) {
 			// Palette entries 0 and 15 are always black
 			if(k>=1 && k<=14 && (code&(1<<(14-k)))) {
-				unsigned int cr, cg, cb;
-				unsigned int palcode;
+				UI cr, cg, cb;
+				UI palcode;
 
 				cr = (UI)de_bitreader_getbits(&bitrd, 3);
 				cg = (UI)de_bitreader_getbits(&bitrd, 3);
@@ -261,56 +324,49 @@ static void sps_uncompress_pal(deark *c, i64 pos1, dbuf *uncmpr_pal)
 	}
 }
 
-static void do_run_spectrum512c_s_internal(deark *c, de_module_params *mparams, int is_sps)
+static void do_run_spectrum512c_s_internal(deark *c, de_module_params *mparams, int is_sps1)
 {
-	i64 pixels_cmpr_len;
-	i64 pal_cmpr_len;
-	i64 pal_pos;
+	struct spc_sps_ctx *d = NULL;
 	i64 pos;
 	dbuf *unc_pixels_planar = NULL;
 	dbuf *spufile = NULL;
 	int to_spu = 0;
-	unsigned int sps_format_code = 0;
+
+	d = de_malloc(c, sizeof(struct spc_sps_ctx));
+	d->is_sps = is_sps1;
+	de_declare_fmtf(c, "Spectrum 512 %s", (d->is_sps?"Smooshed":"Compressed"));
 
 	if(de_get_ext_option(c, "spectrum512:tospu")) {
 		to_spu = 1;
 	}
 
 	pos = 4;
-	pixels_cmpr_len = de_getu32be(pos);
-	de_dbg(c, "pixels compressed len: %d", (int)pixels_cmpr_len);
-	pos += 4;
-	pal_cmpr_len = de_getu32be(pos);
-	de_dbg(c, "palette compressed len: %d", (int)pal_cmpr_len);
-	pos += 4;
+	d->pixels_cmpr_len = de_getu32be_p(&pos);
+	de_dbg(c, "pixels compressed len: %"I64_FMT, d->pixels_cmpr_len);
+	d->pal_cmpr_len = de_getu32be_p(&pos);
+	de_dbg(c, "palette compressed len: %"I64_FMT, d->pal_cmpr_len);
 
-	pal_pos = pos + pixels_cmpr_len;
+	d->pixels_pos = pos;
+	d->pal_pos = d->pixels_pos + d->pixels_cmpr_len;
 
-	if(pal_pos + pal_cmpr_len > c->infile->len) {
+	if(d->pal_pos + d->pal_cmpr_len > c->infile->len) {
 		de_err(c, "Invalid or truncated file");
 		goto done;
 	}
 
-	if(is_sps) {
-		sps_format_code = de_getbyte(pal_pos + pal_cmpr_len-1);
-		sps_format_code &= 0x1;
-		de_dbg(c, "format code: %u", sps_format_code);
+	if(d->is_sps) {
+		de_dbg(c, "format code at %"I64_FMT, d->pal_pos + d->pal_cmpr_len-1);
+		d->sps_format_code = de_getbyte(d->pal_pos + d->pal_cmpr_len-1);
+		d->sps_format_code &= 0x1;
+		de_dbg(c, "format code: %u", (UI)d->sps_format_code);
 	}
 
-	de_dbg(c, "pixels at %d", (int)pos);
+	de_dbg(c, "pixels at %"I64_FMT, d->pixels_pos);
 	// Decompress the pixel data into an in-memory buffer.
 	unc_pixels_planar = dbuf_create_membuf(c, 32000, 1);
-	if(is_sps) {
-		sps_uncompress_pixels(c->infile, pos, pixels_cmpr_len, unc_pixels_planar);
-	}
-	else {
-		spc_uncompress_pixels(c->infile, pos, pixels_cmpr_len, unc_pixels_planar);
-	}
-	//pos += pixels_cmpr_len;
-
-	if(unc_pixels_planar->len > 31840) {
-		dbuf_truncate(unc_pixels_planar, 31840);
-	}
+	dbuf_enable_wbuffer(unc_pixels_planar);
+	decompress_spc_or_sps(c, d, unc_pixels_planar);
+	dbuf_disable_wbuffer(unc_pixels_planar);
 
 	// We'll construct an in-memory SPU file, then (usually) use our
 	// SPU module's decoder to process it.
@@ -320,7 +376,7 @@ static void do_run_spectrum512c_s_internal(deark *c, de_module_params *mparams, 
 	// in-memory image of an SPU file.
 	// (This could be done more efficiently during decompression,
 	// but the code would be messier.)
-	if(is_sps && sps_format_code==0) {
+	if(d->is_sps && d->sps_format_code==0) {
 		reorder_img_bytes(c, unc_pixels_planar, spufile, reorderfn_sps0);
 	}
 	else {
@@ -330,13 +386,12 @@ static void do_run_spectrum512c_s_internal(deark *c, de_module_params *mparams, 
 	// Make sure we write the uncompressed palette at exactly offset 32000.
 	dbuf_truncate(spufile, 32000);
 
-	pos = pal_pos;
-	de_dbg(c, "palette at %d", (int)pos);
-	if(is_sps) {
-		sps_uncompress_pal(c, pos, spufile);
+	de_dbg(c, "palette at %"I64_FMT, d->pal_pos);
+	if(d->is_sps) {
+		sps_decompress_pal(c, d->pal_pos, spufile);
 	}
 	else {
-		spc_uncompress_pal(c, pos, spufile);
+		spc_decompress_pal(c, d->pal_pos, spufile);
 	}
 
 	if(to_spu) {
@@ -353,6 +408,7 @@ static void do_run_spectrum512c_s_internal(deark *c, de_module_params *mparams, 
 done:
 	dbuf_close(unc_pixels_planar);
 	dbuf_close(spufile);
+	de_free(c, d);
 }
 
 static void de_run_spectrum512c(deark *c, de_module_params *mparams)
