@@ -10,13 +10,15 @@
 DE_DECLARE_MODULE(de_module_macpaint);
 
 #define MACPAINT_WIDTH 576
+#define MACPAINT_WIDTH_BYTES (MACPAINT_WIDTH/8)
 #define MACPAINT_HEIGHT 720
-#define MACPAINT_IMAGE_BYTES ((MACPAINT_WIDTH/8)*MACPAINT_HEIGHT)
+#define MACPAINT_IMAGE_BYTES (MACPAINT_WIDTH_BYTES*MACPAINT_HEIGHT)
 
 typedef struct localctx_struct {
 	int has_macbinary_header;
 	u8 is_fmac2com;
 	u8 df_known, rf_known;
+	u8 row_issue_flag;
 	i64 expected_dfpos, expected_rfpos;
 	i64 expected_dflen, expected_rflen;
 	de_ucstring *filename;
@@ -25,6 +27,71 @@ typedef struct localctx_struct {
 	i64 img_data_pos;
 } lctx;
 
+// We'd like to use fmtutil_decompress_packbits_ex() instead of this custom
+// decompressor, but it would make it difficult to test for row boundary
+// violations.
+// Alternatively, merging this and test_valid_image() is something to consider,
+// but probably not worth it.
+static void decompress_packbits_for_macpaint(deark *c, lctx *d,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	i64 pos;
+	u8 b, b2;
+	i64 count;
+	i64 endpos;
+	i64 xpos_b = 0;
+	i64 nbytes_written = 0;
+
+	pos = dcmpri->pos;
+	endpos = dcmpri->pos + dcmpri->len;
+	d->row_issue_flag = 0;
+
+	while(1) {
+		if(dcmpro->len_known && nbytes_written >= dcmpro->expected_len) {
+			goto done; // Decompressed the requested amount of dst data.
+		}
+		if(pos+2 > endpos) { // Min item size is 2 bytes
+			goto done; // Reached the end of source data
+		}
+
+		b = dbuf_getbyte_p(dcmpri->f, &pos);
+
+		if(b<=127) { // An uncompressed run
+			count = 1 + (i64)b;
+			if(pos+count > endpos) {
+				pos--;
+				goto done;
+			}
+
+			xpos_b += count;
+			dbuf_copy(dcmpri->f, pos, count, dcmpro->f);
+			pos += count;
+			nbytes_written += count;
+		}
+		else if(b>=129) { // A compressed run
+			count = 257 - (i64)b;
+			xpos_b += count;
+			b2 = dbuf_getbyte_p(dcmpri->f, &pos);
+			dbuf_write_run(dcmpro->f, b2, count);
+			nbytes_written += count;
+		}
+
+		if(xpos_b==MACPAINT_WIDTH_BYTES) {
+			xpos_b = 0;
+		}
+		else if(xpos_b > MACPAINT_WIDTH_BYTES) {
+			d->row_issue_flag = 1;
+			xpos_b = xpos_b % MACPAINT_WIDTH_BYTES;
+		}
+	}
+
+done:
+	dbuf_flush(dcmpro->f);
+	dres->bytes_consumed = pos - dcmpri->pos;
+	dres->bytes_consumed_valid = 1;
+}
+
 static void do_read_bitmap(deark *c, lctx *d)
 {
 	i64 cmpr_bytes_consumed = 0;
@@ -32,6 +99,10 @@ static void do_read_bitmap(deark *c, lctx *d)
 	de_finfo *fi = NULL;
 	int saved_indent_level;
 	i64 ipos;
+	struct de_packbits_params *pbparams = NULL;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	if(!d->is_fmac2com) {
@@ -56,10 +127,20 @@ static void do_read_bitmap(deark *c, lctx *d)
 	de_dbg_indent(c, 1);
 	unc_pixels = dbuf_create_membuf(c, MACPAINT_IMAGE_BYTES, 1);
 	dbuf_enable_wbuffer(unc_pixels);
-	fmtutil_decompress_packbits(c->infile, ipos, c->infile->len - ipos,
-		unc_pixels, &cmpr_bytes_consumed);
 
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = ipos;
+	dcmpri.len = c->infile->len - ipos;
+	dcmpro.f = unc_pixels;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = MACPAINT_IMAGE_BYTES;
+	pbparams = de_malloc(c, sizeof(struct de_packbits_params));
+
+	decompress_packbits_for_macpaint(c, d, &dcmpri, &dcmpro, &dres);
 	dbuf_flush(unc_pixels);
+
+	cmpr_bytes_consumed = dres.bytes_consumed;
 	de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", cmpr_bytes_consumed,
 		unc_pixels->len);
 
@@ -74,6 +155,9 @@ static void do_read_bitmap(deark *c, lctx *d)
 	if(unc_pixels->len < MACPAINT_IMAGE_BYTES) {
 		de_warn(c, "Image decompressed to %"I64_FMT" bytes, expected %u.",
 			unc_pixels->len, (UI)MACPAINT_IMAGE_BYTES);
+	}
+	else if(d->row_issue_flag) {
+		de_warn(c, "Rows not compressed independently. Decompression may have failed.");
 	}
 
 	fi = de_finfo_create(c);
@@ -91,8 +175,15 @@ static void do_read_bitmap(deark *c, lctx *d)
 
 	dbuf_close(unc_pixels);
 	de_finfo_destroy(c, fi);
+	de_free(c, pbparams);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
+
+struct validity_info {
+	i64 pos;
+	int retval;
+	char msg[80];
+};
 
 // A function to help determine if the file has a MacBinary header.
 // Each row is RLE-compressed independently, so once we assume one possibility
@@ -100,26 +191,32 @@ static void do_read_bitmap(deark *c, lctx *d)
 // boundary, or the image is too small to be a MacPaint image.
 // It's inefficient to decompress whole image -- twice -- just to try to
 // figure this out, but hopefully it's pretty reliable.
-// Returns an integer (0, 1, 2) reflecting the likelihood that this is the
+// Returns an integer (0, 1, 2...) reflecting the likelihood that this is the
 // correct position.
-static int valid_file_at(deark *c, lctx *d, i64 pos1)
+// The special 'struct validity_info' is overkill, but it makes it easier to
+// try different things.
+static void test_valid_image(deark *c, lctx *d, struct validity_info *vi)
 {
 	u8 b;
-	i64 x;
-	i64 xpos, ypos;
+	i64 count;
 	i64 pos;
 	i64 imgstart;
+	i64 xpos_b = 0;
+	i64 ypos = 0;
 	int v = 0;
 
-	imgstart = pos1+512;
+	imgstart = vi->pos+512;
+	de_dbg(c, "checking for image at offset %d", (int)imgstart);
+	de_dbg_indent(c, 1);
 
 	// Minimum bytes per row is 2.
 	// For a valid (non-truncated) file, file size must be at least
 	// pos1 + 512 + 2*MACPAINT_HEIGHT. But we want to tolerate truncated
 	// files as well.
 	if(c->infile->len < imgstart + 4) {
-		de_dbg(c, "file too small");
-		return 0;
+		de_strlcpy(vi->msg, "file too small", sizeof(vi->msg));
+		vi->retval = 0;
+		goto done;
 	}
 
 	// Look for a boundary between all-0 bytes, and not-all-0 bytes.
@@ -129,53 +226,58 @@ static int valid_file_at(deark *c, lctx *d, i64 pos1)
 		v++;
 	}
 
-	xpos=0; ypos=0;
-	pos = pos1 + 512;
+	pos = imgstart;
 
 	while(pos < c->infile->len) {
 		if(ypos>=MACPAINT_HEIGHT) {
 			break;
 		}
 
-		b = de_getbyte(pos);
-		pos++;
+		b = de_getbyte_p(&pos);
 
 		if(b<=127) {
-			x = 1+(i64)b;
-			pos+=x;
-			xpos+=8*x;
-			if(xpos==MACPAINT_WIDTH) {
-				xpos=0;
+			count = 1+(i64)b;
+			pos += count;
+			xpos_b += count;
+			if(xpos_b==MACPAINT_WIDTH_BYTES) {
+				xpos_b = 0;
 				ypos++;
 			}
-			else if(xpos>MACPAINT_WIDTH) {
-				de_dbg(c, "image at offset %d: literal too long", (int)imgstart);
-				return v+0;
+			else if(xpos_b > MACPAINT_WIDTH_BYTES) {
+				de_strlcpy(vi->msg, "literal too long", sizeof(vi->msg));
+				vi->retval = v+0;
+				goto done;
 			}
 		}
 		else if(b>=129) {
-			x = 257 - (i64)b;
+			count = 257 - (i64)b;
 			pos++;
-			xpos+=8*x;
-			if(xpos==MACPAINT_WIDTH) {
-				xpos=0;
+			xpos_b += count;
+			if(xpos_b == MACPAINT_WIDTH_BYTES) {
+				xpos_b = 0;
 				ypos++;
 			}
-			else if(xpos>MACPAINT_WIDTH) {
-				de_dbg(c, "image at offset %d: run too long", (int)imgstart);
-				return v+0;
+			else if(xpos_b > MACPAINT_WIDTH_BYTES) {
+				de_strlcpy(vi->msg, "run too long", sizeof(vi->msg));
+				vi->retval = v+0;
+				goto done;
 			}
 		}
 	}
 
-	if(xpos==0 && ypos==MACPAINT_HEIGHT) {
-		de_dbg(c, "image at offset %d decodes okay", (int)imgstart);
-		return v+2;
+	if(xpos_b==0 && ypos==MACPAINT_HEIGHT) {
+		de_strlcpy(vi->msg, "decodes okay", sizeof(vi->msg));
+		vi->retval = v+2;
+		goto done;
 	}
 
-	de_dbg(c, "image at offset %d: premature end of file (x=%d, y=%d)", (int)imgstart,
-		(int)xpos, (int)ypos);
-	return v+1;
+	de_snprintf(vi->msg, sizeof(vi->msg), "premature end of file (x=%d, y=%d)",
+		(int)(xpos_b*8), (int)ypos);
+	vi->retval = v+1;
+
+done:
+	de_dbg(c, "image at offset %d: %s", (int)(vi->pos+512), vi->msg);
+	de_dbg_indent(c, -1);
 }
 
 static const char *get_pattern_set_info(u32 patcrc, int *is_blank)
@@ -365,6 +467,8 @@ static u8 is_fmac2com(deark *c)
 static void de_run_macpaint(deark *c, de_module_params *mparams)
 {
 	lctx *d;
+	struct validity_info *vi1 = NULL;
+	struct validity_info *vi2 = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
 	d->has_macbinary_header = de_get_ext_option_bool(c, "macpaint:macbinary", -1);
@@ -380,17 +484,20 @@ static void de_run_macpaint(deark *c, de_module_params *mparams)
 	if(d->has_macbinary_header == -1) {
 		int v512;
 		int v640;
-		de_dbg(c, "trying to determine if file has a MacBinary header");
 
+		de_dbg(c, "trying to determine if file has a MacBinary header");
 		de_dbg_indent(c, 1);
-		de_dbg(c, "checking for image at offset 512");
-		de_dbg_indent(c, 1);
-		v512 = valid_file_at(c, d, 0);
-		de_dbg_indent(c, -1);
-		de_dbg(c, "checking for image at offset 640");
-		de_dbg_indent(c, 1);
-		v640 = valid_file_at(c, d, 128);
-		de_dbg_indent(c, -1);
+
+		vi1 = de_malloc(c, sizeof(struct validity_info));
+		vi1->pos = 0;
+		test_valid_image(c, d, vi1);
+		v512 = vi1->retval;
+
+		vi2 = de_malloc(c, sizeof(struct validity_info));
+		vi2->pos = 128;
+		test_valid_image(c, d, vi2);
+		v640 = vi2->retval;
+
 		de_dbg_indent(c, -1);
 
 		if(v512 > v640) {
@@ -441,6 +548,8 @@ static void de_run_macpaint(deark *c, de_module_params *mparams)
 		ucstring_destroy(d->filename);
 		de_free(c, d);
 	}
+	de_free(c, vi1);
+	de_free(c, vi2);
 }
 
 // Note: This must be coordinated with the macbinary detection routine.
