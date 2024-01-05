@@ -840,7 +840,7 @@ static void do_map(deark *c, lctx *d, i64 map_offs, i64 map_size)
 	do_type_list(c, d);
 
 done:
-	de_dbg_indent(c, 1);
+	de_dbg_indent(c, -1);
 }
 
 static void de_run_macrsrc(deark *c, de_module_params *mparams)
