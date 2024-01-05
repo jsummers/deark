@@ -1740,11 +1740,14 @@ static void do_pklite_exe(deark *c, lctx *d)
 			de_dbg_hexdump(c, c->infile, d->footer_pos, footer_capacity, 32, "footer", 0);
 		}
 
-		// Expecting 8, but some later files have to have larger footers (10,
-		// 11, 20, ...). This may be padding to accommodate the checksum feature.
-		if(footer_capacity<8 || footer_capacity>100) {
-			// Not sure we have a valid footer.
-			d->footer_pos = 0;
+		// Footer is usually 8 bytes, but there can be up to 15 extra bytes, to
+		// accommodate the checksum feature.
+		if(footer_capacity < 8) {
+			d->footer_pos = 0; // Error
+		}
+		else if(footer_capacity > 8+15) {
+			de_warn(c, "Unexpected data at end of code segment (near %"I64_FMT")",
+				d->footer_pos+8);
 		}
 
 		if(d->footer_pos!=0) {
