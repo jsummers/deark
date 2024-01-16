@@ -396,6 +396,32 @@ done:
 	;
 }
 
+static void detect_execomp_propack(deark *c,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	static const u8 *sig = (const u8*)"\x8c\xd3\x8e\xc3\x8c\xca\x8e\xda\x8b\x0e\x08\x00\x8b\xf1\x83\xee";
+
+	// TODO: Should we test some header fields here?
+
+	read_exe_testbytes(ei);
+	if(ei->ep64b[0]==0x8c) {
+		if(de_memcmp(ei->ep64b, sig, 16)) {
+			return;
+		}
+	}
+	else if(ei->ep64b[0]==0x0e) {
+		if(de_memcmp(&ei->ep64b[1], sig, 16)) {
+			return;
+		}
+	}
+	else {
+		return;
+	}
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_EXECOMP;
+	de_strlcpy(edd->detected_fmt_name, "RNC PROPACK", sizeof(edd->detected_fmt_name));
+}
+
 // Caller initializes ei (to zeroes).
 // Records some basic information about an EXE file, to be used by routines that
 // detect special EXE formats.
@@ -461,6 +487,11 @@ void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
 
 	if(edd->restrict_to_fmt==0) {
 		detect_execomp_compack(c, ei, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
+
+	if(edd->restrict_to_fmt==0) {
+		detect_execomp_propack(c, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
