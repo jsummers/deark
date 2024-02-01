@@ -486,6 +486,9 @@ static void do_colorix_RIX3(deark *c, struct colorix_ctx *d)
 	if(d->stgtype & 0x40) d->has_extension_block = 1;
 	if(d->stgtype & 0x20) d->is_encrypted = 1;
 	d->imgtype = d->stgtype & 0x0f; // I guess?
+	de_dbg_indent(c, 1);
+	de_dbg(c, "image type: %u", d->imgtype);
+	de_dbg_indent(c, -1);
 	declare_colorix_fmt(c, d);
 
 	if(d->is_encrypted) {
