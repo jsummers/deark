@@ -510,11 +510,13 @@ static void find_v100_mz_pos(deark *c, lctx *d, struct exe_dcmpr_ctx *ectx,
 	i64 params_pos = 0;
 	i64 reloc_tbl_rel = 0;
 	i64 nrelocs_r = 0;
+	i64 nbytes_to_search;
 	int found_count = 0;
 	u8 fclass = 0; // 0=unknown, 1=has params at params_pos, 2=no reloc table
 	i64 i;
 	i64 n;
-	i64 xpos;
+	i64 foundpos;
+	int ret;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -522,6 +524,7 @@ static void find_v100_mz_pos(deark *c, lctx *d, struct exe_dcmpr_ctx *ectx,
 	de_dbg_indent(c, 1);
 
 	cmpr_endpos = d->cmpr_pos + d->cmpr_len;
+	de_dbg(c, "cmpr data end: %"I64_FMT, cmpr_endpos);
 
 	// Sanity check. This part of the decompressor always seems to start with
 	// these bytes.
@@ -532,24 +535,29 @@ static void find_v100_mz_pos(deark *c, lctx *d, struct exe_dcmpr_ctx *ectx,
 		goto done;
 	}
 
-	xpos = d->ei->end_of_dos_code - 53;
-	if((UI)de_getu32be(xpos)==0x5d0e1fbeU) {
-		fclass = 1;
-		params_pos = xpos+4;
-	}
+	// We're looking for some parameters in the part of the code that
+	// appears after the compressed data. (But if there are 0 relocations,
+	// then the params won't be present, and we have to detect that as
+	// a special case.)
+	// Probing at precise offsets doesn't seem to be robust enough, so we
+	// resort to doing a search for characteristic byte patterns.
+
+	nbytes_to_search = de_min_int(d->ei->end_of_dos_code - cmpr_endpos, 1000);
 
 	if(fclass==0) {
-		xpos = d->ei->end_of_dos_code - 62;
-		if((UI)de_getu32be(xpos)==0x5d0e1fbeU) {
+		ret = dbuf_search(c->infile, (const u8*)"\x5d\x0e\x1f\xbe", 4, cmpr_endpos,
+			nbytes_to_search, &foundpos);
+		if(ret) {
 			fclass = 1;
-			params_pos = xpos+4;
+			params_pos = foundpos+4;
 		}
 	}
 
 	if(fclass==0) {
-		// This is characteristic of files that have no relocations.
-		xpos = d->ei->end_of_dos_code - 29;
-		if((UI)de_getu32be(xpos)==0x5d071f81U) {
+		// The case where there are no relocations
+		ret = dbuf_search(c->infile, (const u8*)"\x5d\x07\x1f\x81", 4, cmpr_endpos,
+			nbytes_to_search, &foundpos);
+		if(ret) {
 			fclass = 2;
 			nrelocs_r = 0;
 		}
