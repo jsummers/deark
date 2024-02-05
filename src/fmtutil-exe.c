@@ -422,6 +422,29 @@ static void detect_execomp_propack(deark *c,
 	de_strlcpy(edd->detected_fmt_name, "RNC PROPACK", sizeof(edd->detected_fmt_name));
 }
 
+static void detect_execomp_spacemaker(deark *c,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	if(ei->num_relocs!=0) goto done;
+	if(ei->regSP != 0x0100) goto done;
+	if(ei->regIP != 0x0100) goto done;
+	if(ei->regCS != -16) goto done;
+
+	read_exe_testbytes(ei);
+
+	if(!de_memmatch(ei->ep64b,
+		(const u8*)"\x9c\x55\x56\x8c\xcd\x83\xc5\x10\x8d\xb6??\x56\xbe??\x56\xcb",
+		18, '?', 0))
+	{
+		goto done;
+	}
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_EXECOMP;
+	de_strlcpy(edd->detected_fmt_name, "Spacemaker", sizeof(edd->detected_fmt_name));
+done:
+	;
+}
+
 // Caller initializes ei (to zeroes).
 // Records some basic information about an EXE file, to be used by routines that
 // detect special EXE formats.
@@ -492,6 +515,11 @@ void fmtutil_detect_execomp(deark *c, struct fmtutil_exe_info *ei,
 
 	if(edd->restrict_to_fmt==0) {
 		detect_execomp_propack(c, ei, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
+
+	if(edd->restrict_to_fmt==0) {
+		detect_execomp_spacemaker(c, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
