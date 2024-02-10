@@ -895,6 +895,9 @@ Deark -- Information about supported formats
   Macintosh floppy disk image format.
   - Some metadata is parsed, but the disk contents are not extracted or listed.
 
+* MRNZ (module="mrnz")
+  Installer format used by PC DOS.
+
 * MSA (Magic Shadow Archiver) (module="msa") (experimental)
   - Atari ST disk image format.
   Options

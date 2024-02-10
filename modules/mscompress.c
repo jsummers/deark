@@ -3,11 +3,13 @@
 // See the file COPYING for terms of use.
 
 // MS-DOS installation compression (compress.exe, expand.exe, MSLZ, etc.)
+// and some related formats
 
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_mscompress);
 DE_DECLARE_MODULE(de_module_is_ibt);
+DE_DECLARE_MODULE(de_module_mrnz);
 
 #define FMT_SZDD 1
 #define FMT_KWAJ 2
@@ -979,4 +981,59 @@ void de_module_is_ibt(deark *c, struct deark_module_info *mi)
 	mi->desc = "InstallShield IBT archive";
 	mi->run_fn = de_run_is_ibt;
 	mi->identify_fn = de_identify_is_ibt;
+}
+
+// **************************************************************************
+// MRNZ
+// Obfuscated file used by a PC DOS installer
+// **************************************************************************
+
+static void de_run_mrnz(deark *c, de_module_params *mparams)
+{
+	dbuf *outf = NULL;
+	i64 ipos;
+	i64 i;
+	i64 ocount;
+	u8 errflag = 0;
+
+	ipos = 8;
+	// Guessing that this is the number of obfuscated bytes
+	ocount = de_getu32le_p(&ipos);
+	if(ocount>0xff) {
+		errflag = 1;
+		goto done;
+	}
+
+	outf = dbuf_create_output_file(c, "bin", NULL, 0);
+	for(i=0; i<ocount; i++) {
+		u8 b;
+
+		if(ipos >= c->infile->len) goto done;
+		b = de_getbyte_p(&ipos);
+		dbuf_writebyte(outf, b^0xae);
+	}
+
+	dbuf_copy(c->infile, ipos, c->infile->len-ipos, outf);
+
+done:
+	dbuf_close(outf);
+	if(errflag) {
+		de_err(c, "Failed to decode MRNZ file");
+	}
+}
+
+static int de_identify_mrnz(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, (const void*)"MRNZ\x88\xf0\x27\x33", 8)) {
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_mrnz(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "mrnz";
+	mi->desc = "MRNZ obfuscated file";
+	mi->run_fn = de_run_mrnz;
+	mi->identify_fn = de_identify_mrnz;
 }
