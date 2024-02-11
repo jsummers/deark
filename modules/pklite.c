@@ -80,6 +80,7 @@ typedef struct localctx_struct {
 
 #define DESCRAMBLER_CLASS_114              14
 #define DESCRAMBLER_CLASS_150              50
+#define DESCRAMBLER_CLASS_150IBM           51
 #define DESCRAMBLER_CLASS_120VAR1A         101
 #define DESCRAMBLER_CLASS_120VAR1B         102
 #define DESCRAMBLER_CLASS_120VAR2          103
@@ -403,6 +404,17 @@ static void analyze_descrambler(deark *c, lctx *d)
 		pos_of_endpos_field = pos+20;
 		pos_of_jmp_field = pos+27;
 		pos_of_op = pos+30;
+	}
+
+	else if(pkl_memmatch(&d->epbytes[pos],
+		(const u8*)"\x59\x2d\x20\x00\x8e\xd0\x51\x2d??\x50\x52\xb9??\xbe??\x8b\xfe"
+		"\xfd\x90\x49\x74?\xad\x92\x33", 28, '?', 0))
+	{
+		d->descrambler_class = DESCRAMBLER_CLASS_150IBM;
+		pos_of_scrambled_word_count = pos+13;
+		pos_of_endpos_field = pos+16;
+		pos_of_jmp_field = pos+24;
+		pos_of_op = pos+27;
 	}
 
 	if(!d->descrambler_class) {
