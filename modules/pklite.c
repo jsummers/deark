@@ -1802,10 +1802,13 @@ static int pklite_com_has_copyright_string(dbuf *f, i64 verpos)
 	return 0;
 }
 
+// If *pdatapos returns 0, PKLITE was detected, but it's not a supported
+// version.
 static int detect_pklite_com_quick(dbuf *f, i64 *pverpos, i64 *pdatapos)
 {
 	u8 b[10];
 
+	*pdatapos = 0;
 	dbuf_read(f, b, 0, sizeof(b));
 	if(b[0]==0xb8 && b[3]==0xba && b[6]==0x3b && b[7]==0xc4) {
 		if(b[9]==0x67) { // Probably v1.00-1.14
@@ -1821,7 +1824,13 @@ static int detect_pklite_com_quick(dbuf *f, i64 *pverpos, i64 *pdatapos)
 	}
 	else if(b[0]==0x50 && b[1]==0xb8 && b[4]==0xba && b[7]==0x3b) {
 		*pverpos = 46; // v1.50-2.01
-		*pdatapos = 464;
+		// Hack hack. TODO: Trace through the file properly.
+		if(dbuf_getbyte(f, 142) == 0xfd) {
+			*pdatapos = 464; // v1.50-2.01
+		}
+		else if(dbuf_getbyte(f, 138) == 0xfd) {
+			*pdatapos = 460; // v1.16 (private IBM version?)
+		}
 		return 1;
 	}
 	else if(b[0]==0xba && b[3]==0xa1 && b[6]==0x2d && b[7]==0x20) {
@@ -1880,6 +1889,11 @@ static void do_pklite_com(deark *c, lctx *d)
 		if(de_get_ext_option_bool(c, "execomp", 1) == 0) {
 			goto done;
 		}
+	}
+
+	if(d->dparams.cmpr_data_pos==0) {
+		de_err(c, "Unsupported PKLITE format version");
+		goto done;
 	}
 
 	d->dparams.large_cmpr = 0;
