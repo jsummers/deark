@@ -209,6 +209,8 @@ $(OBJDIR)/modules/pack.o: modules/pack.c src/deark-private.h src/deark.h \
  src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/packdir.o: modules/packdir.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/packit.o: modules/packit.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/palmbitmap.o: modules/palmbitmap.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/palmpdb.o: modules/palmpdb.c src/deark-config.h \

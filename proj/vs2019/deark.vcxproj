@@ -272,6 +272,7 @@
     <ClCompile Include="..\..\modules\os2ea.c" />
     <ClCompile Include="..\..\modules\pack.c" />
     <ClCompile Include="..\..\modules\packdir.c" />
+    <ClCompile Include="..\..\modules\packit.c" />
     <ClCompile Include="..\..\modules\palmbitmap.c" />
     <ClCompile Include="..\..\modules\palmpdb.c" />
     <ClCompile Include="..\..\modules\pcf.c" />

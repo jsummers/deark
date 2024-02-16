@@ -1195,6 +1195,10 @@ void fmtutil_huff_packit_codectype1(deark *c, struct de_dfilter_in_params *dcmpr
 	}
 
 done:
+	de_bitreader_skip_to_byte_boundary(&hctx->bitrd);
+	dres->bytes_consumed = hctx->bitrd.curpos - hctx->dcmpri->pos;
+	dres->bytes_consumed_valid = 1;
+
 	if(hctx->errflag) {
 		de_dfilter_set_generic_error(c, dres, hctx->modname);
 	}

@@ -921,6 +921,10 @@ Deark -- Information about supported formats
 
 * PackDir (module="packdir") (experimental)
 
+* PackIt (.pit) (module="packit")
+  An old Macintosh format.
+  - Supports most files.
+
 * PAKLEO (module="pakleo") (experimental)
 
 * Palm PDB/PRC/PQA (module="palmdb")
