@@ -69,8 +69,7 @@ typedef struct localctx_struct {
 	struct de_inthashtable *v5_offsets_seen;
 } lctx;
 
-typedef void (*decompressor_fn)(deark *c, lctx *d, struct member_data *md,
-	struct fork_data *frk, struct de_dfilter_in_params *dcmpri,
+typedef void (*decompressor_fn)(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres);
 
 struct cmpr_meth_info {
@@ -79,22 +78,19 @@ struct cmpr_meth_info {
 	decompressor_fn decompressor;
 };
 
-static void do_decompr_uncompressed(deark *c, lctx *d, struct member_data *md,
-	struct fork_data *frk, struct de_dfilter_in_params *dcmpri,
+static void do_decompr_uncompressed(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
 	fmtutil_decompress_uncompressed(c, dcmpri, dcmpro, dres, 0);
 }
 
-static void do_decompr_rle(deark *c, lctx *d, struct member_data *md,
-	struct fork_data *frk, struct de_dfilter_in_params *dcmpri,
+static void do_decompr_rle(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
 	fmtutil_decompress_rle90_ex(c, dcmpri, dcmpro, dres, 0);
 }
 
-static void do_decompr_lzw(deark *c, lctx *d, struct member_data *md,
-	struct fork_data *frk, struct de_dfilter_in_params *dcmpri,
+static void do_decompr_lzw(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
 	struct de_lzw_params delzwp;
@@ -106,129 +102,16 @@ static void do_decompr_lzw(deark *c, lctx *d, struct member_data *md,
 	fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
 
-struct sit_huffctx {
-	deark *c;
-	const char *modname;
-	struct de_dfilter_in_params *dcmpri;
-	struct de_dfilter_out_params *dcmpro;
-	struct de_dfilter_results *dres;
-	struct fmtutil_huffman_decoder *ht;
-	int errflag;
-	struct de_bitreader bitrd;
-};
 
-// A recursive function to read the tree definition.
-static void sit_huff_read_tree(struct sit_huffctx *hctx, u64 curr_code, UI curr_code_nbits)
-{
-	u8 x;
-
-	if(curr_code_nbits>FMTUTIL_HUFFMAN_MAX_CODE_LENGTH) {
-		hctx->errflag = 1;
-	}
-	if(hctx->bitrd.eof_flag || hctx->errflag) return;
-
-	x = (u8)de_bitreader_getbits(&hctx->bitrd, 1);
-	if(hctx->bitrd.eof_flag) return;
-
-	if(x==0) {
-		sit_huff_read_tree(hctx, curr_code<<1, curr_code_nbits+1);
-		if(hctx->bitrd.eof_flag || hctx->errflag) return;
-		sit_huff_read_tree(hctx, (curr_code<<1) | 1, curr_code_nbits+1);
-	}
-	else {
-		int ret;
-		fmtutil_huffman_valtype val;
-
-		val = (fmtutil_huffman_valtype)de_bitreader_getbits(&hctx->bitrd, 8);
-		if(hctx->c->debug_level>=2) {
-			char b2buf[72];
-
-			de_dbg(hctx->c, "code: \"%s\" = %d",
-				de_print_base2_fixed(b2buf, sizeof(b2buf), curr_code, curr_code_nbits),
-				(int)val);
-		}
-		ret = fmtutil_huffman_add_code(hctx->c, hctx->ht->bk, curr_code, curr_code_nbits, val);
-		if(!ret) {
-			hctx->errflag = 1;
-		}
-	}
-}
-
-// While its code is no longer used by Deark, I credit:
-//   Unsit Version 1 (January 15, 1988), for StuffIt 1.31: unsit.c
-//   by Allan G. Weber
-// for helping me understand the StuffIt type 3 (Huffman) compression format.
-static void do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
-	struct fork_data *frk, struct de_dfilter_in_params *dcmpri,
+static void do_decompr_huffman(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
-	struct sit_huffctx *hctx = NULL;
-	i64 nbytes_written = 0;
-	char pos_descr[32];
-
-	hctx = de_malloc(c, sizeof(struct sit_huffctx));
-	hctx->c = c;
-	hctx->modname = "huffman";
-	hctx->dcmpri = dcmpri;
-	hctx->dcmpro = dcmpro;
-	hctx->dres = dres;
-	hctx->ht = fmtutil_huffman_create_decoder(c, 256, 512);
-
-	hctx->bitrd.f = dcmpri->f;
-	hctx->bitrd.curpos = dcmpri->pos;
-	hctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
-
-	// Read the tree definition
-	de_dbg2(c, "interpreted huffman codebook:");
-	de_dbg_indent(c, 1);
-	sit_huff_read_tree(hctx, 0, 0);
-	de_dbg_indent(c, -1);
-	if(hctx->errflag) goto done;
-	if(c->debug_level>=4) {
-		fmtutil_huffman_dump(c, hctx->ht);
-	}
-	if(fmtutil_huffman_get_max_bits(hctx->ht->bk)<1) {
-		goto done;
-	}
-
-	// Read the data section
-	de_bitreader_describe_curpos(&hctx->bitrd, pos_descr, sizeof(pos_descr));
-	de_dbg(c, "cmpr data codes at %s", pos_descr);
-	while(1) {
-		int ret;
-		fmtutil_huffman_valtype val = 0;
-
-		if(dcmpro->len_known) {
-			if(nbytes_written >= dcmpro->expected_len) break;
-		}
-
-		if(hctx->bitrd.eof_flag || hctx->errflag) break;
-
-		ret = fmtutil_huffman_read_next_value(hctx->ht->bk, &hctx->bitrd, &val, NULL);
-		if(!ret) {
-			if(hctx->bitrd.eof_flag) break;
-			hctx->errflag = 1;
-			break;
-		}
-
-		dbuf_writebyte(dcmpro->f, (u8)val);
-		nbytes_written++;
-	}
-
-done:
-	if(hctx->errflag) {
-		de_dfilter_set_generic_error(c, dres, hctx->modname);
-	}
-	if(hctx) {
-		fmtutil_huffman_destroy_decoder(c, hctx->ht);
-		de_free(c, hctx);
-	}
+	fmtutil_huff_packit_codectype1(c, dcmpri, dcmpro, dres, NULL);
 }
 
 // -------- LZAH (type 5) decompression --------
 
-static void do_decompr_lzah(deark *c, lctx *d, struct member_data *md,
-	struct fork_data *frk, struct de_dfilter_in_params *dcmpri,
+static void do_decompr_lzah(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
 	fmtutil_lh1_codectype1(c, dcmpri, dcmpro, dres, NULL);
@@ -330,8 +213,7 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void do_decompr_fixedhuff(deark *c, lctx *d, struct member_data *md,
-	struct fork_data *frk, struct de_dfilter_in_params *dcmpri,
+static void do_decompr_fixedhuff(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres)
 {
 	struct sit_fixedhuffctx *hctx = NULL;
@@ -775,7 +657,7 @@ static void do_main_decompress_fork(deark *c, lctx *d, struct member_data *md,
 	dcmpro.f = outf;
 	dcmpro.len_known = 1;
 	dcmpro.expected_len = frk->unc_len;
-	frk->cmi->decompressor(c, d, md, frk, &dcmpri, &dcmpro, &dres);
+	frk->cmi->decompressor(c, &dcmpri, &dcmpro, &dres);
 	dbuf_flush(dcmpro.f);
 	if(dres.errcode) {
 		de_err(c, "Decompression failed for file %s[%s fork]: %s", ucstring_getpsz_d(md->full_fname),

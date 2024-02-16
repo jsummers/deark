@@ -1083,6 +1083,129 @@ done:
 	}
 }
 
+///////////////////////////////////
+// "PackIt/StuffIt"-style Huffman decoder
+
+struct sit_huffctx {
+	deark *c;
+	const char *modname;
+	struct de_dfilter_in_params *dcmpri;
+	struct de_dfilter_out_params *dcmpro;
+	struct de_dfilter_results *dres;
+	struct fmtutil_huffman_decoder *ht;
+	int errflag;
+	struct de_bitreader bitrd;
+};
+
+// A recursive function to read the tree definition.
+static void sit_huff_read_tree(struct sit_huffctx *hctx, u64 curr_code, UI curr_code_nbits)
+{
+	u8 x;
+
+	if(curr_code_nbits>FMTUTIL_HUFFMAN_MAX_CODE_LENGTH) {
+		hctx->errflag = 1;
+	}
+	if(hctx->bitrd.eof_flag || hctx->errflag) return;
+
+	x = (u8)de_bitreader_getbits(&hctx->bitrd, 1);
+	if(hctx->bitrd.eof_flag) return;
+
+	if(x==0) {
+		sit_huff_read_tree(hctx, curr_code<<1, curr_code_nbits+1);
+		if(hctx->bitrd.eof_flag || hctx->errflag) return;
+		sit_huff_read_tree(hctx, (curr_code<<1) | 1, curr_code_nbits+1);
+	}
+	else {
+		int ret;
+		fmtutil_huffman_valtype val;
+
+		val = (fmtutil_huffman_valtype)de_bitreader_getbits(&hctx->bitrd, 8);
+		if(hctx->c->debug_level>=2) {
+			char b2buf[72];
+
+			de_dbg(hctx->c, "code: \"%s\" = %d",
+				de_print_base2_fixed(b2buf, sizeof(b2buf), curr_code, curr_code_nbits),
+				(int)val);
+		}
+		ret = fmtutil_huffman_add_code(hctx->c, hctx->ht->bk, curr_code, curr_code_nbits, val);
+		if(!ret) {
+			hctx->errflag = 1;
+		}
+	}
+}
+
+// While its code is no longer used by Deark, I credit:
+//   Unsit Version 1 (January 15, 1988), for StuffIt 1.31: unsit.c
+//   by Allan G. Weber
+// for helping me understand the StuffIt type 3 (Huffman) compression format.
+void fmtutil_huff_packit_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, void *rsvd)
+{
+	struct sit_huffctx *hctx = NULL;
+	i64 nbytes_written = 0;
+	char pos_descr[32];
+
+	hctx = de_malloc(c, sizeof(struct sit_huffctx));
+	hctx->c = c;
+	hctx->modname = "huffman";
+	hctx->dcmpri = dcmpri;
+	hctx->dcmpro = dcmpro;
+	hctx->dres = dres;
+	hctx->ht = fmtutil_huffman_create_decoder(c, 256, 512);
+
+	hctx->bitrd.f = dcmpri->f;
+	hctx->bitrd.curpos = dcmpri->pos;
+	hctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
+
+	// Read the tree definition
+	de_dbg2(c, "interpreted huffman codebook:");
+	de_dbg_indent(c, 1);
+	sit_huff_read_tree(hctx, 0, 0);
+	de_dbg_indent(c, -1);
+	if(hctx->errflag) goto done;
+	if(c->debug_level>=4) {
+		fmtutil_huffman_dump(c, hctx->ht);
+	}
+	if(fmtutil_huffman_get_max_bits(hctx->ht->bk)<1) {
+		goto done;
+	}
+
+	// Read the data section
+	de_bitreader_describe_curpos(&hctx->bitrd, pos_descr, sizeof(pos_descr));
+	de_dbg(c, "cmpr data codes at %s", pos_descr);
+	while(1) {
+		int ret;
+		fmtutil_huffman_valtype val = 0;
+
+		if(dcmpro->len_known) {
+			if(nbytes_written >= dcmpro->expected_len) break;
+		}
+
+		if(hctx->bitrd.eof_flag || hctx->errflag) break;
+
+		ret = fmtutil_huffman_read_next_value(hctx->ht->bk, &hctx->bitrd, &val, NULL);
+		if(!ret) {
+			if(hctx->bitrd.eof_flag) break;
+			hctx->errflag = 1;
+			break;
+		}
+
+		dbuf_writebyte(dcmpro->f, (u8)val);
+		nbytes_written++;
+	}
+
+done:
+	if(hctx->errflag) {
+		de_dfilter_set_generic_error(c, dres, hctx->modname);
+	}
+	if(hctx) {
+		fmtutil_huffman_destroy_decoder(c, hctx->ht);
+		de_free(c, hctx);
+	}
+}
+
+///////////////////////////////////
+
 // Caller supplies a dbuf to write the decompressed table to.
 // On failure, returns 0. Does not report an error.
 int fmtutil_decompress_exepack_reloc_tbl(deark *c, i64 pos1, i64 endpos, dbuf *outf)
