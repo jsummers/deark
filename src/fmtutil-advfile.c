@@ -238,7 +238,11 @@ static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_app
 	entry_info[num_entries].len = (i64)comment_strlen;
 	num_entries++;
 
-	if(advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_MODIFY].is_valid) {
+	if(advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_CREATE].is_valid ||
+		advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_MODIFY].is_valid ||
+		advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_BACKUP].is_valid ||
+		advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_ACCESS].is_valid)
+	{
 		entry_info[num_entries].id = SDID_FILEDATES;
 		entry_info[num_entries].len = 16;
 		num_entries++;
@@ -319,8 +323,6 @@ static void de_advfile_run_applesd(deark *c, struct de_advfile *advf, int is_app
 			break;
 
 		case SDID_FILEDATES:
-			// We could try to maintain dates other than the modification date, but
-			// Deark doesn't generally care about them.
 			dbuf_writei32be(outf, timestamp_to_applesd_date(c, &advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_CREATE]));
 			dbuf_writei32be(outf, timestamp_to_applesd_date(c, &advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_MODIFY]));
 			dbuf_writei32be(outf, timestamp_to_applesd_date(c, &advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_BACKUP]));
