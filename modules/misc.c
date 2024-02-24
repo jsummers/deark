@@ -32,6 +32,7 @@ DE_DECLARE_MODULE(de_module_compress_lzh);
 DE_DECLARE_MODULE(de_module_lzstac);
 DE_DECLARE_MODULE(de_module_npack);
 DE_DECLARE_MODULE(de_module_lzs221);
+DE_DECLARE_MODULE(de_module_xpk);
 
 // **************************************************************************
 // "copy" module
@@ -1432,4 +1433,61 @@ void de_module_lzs221(deark *c, struct deark_module_info *mi)
 	mi->desc = "LZS221 compressed file";
 	mi->run_fn = de_run_lzs221;
 	mi->identify_fn = de_identify_lzs221;
+}
+
+// **************************************************************************
+// XPK compressed file format (XPKF)
+// **************************************************************************
+
+#define CODE_XPKF 0x58504b46U
+
+static void xpkf_internal(deark *c)
+{
+	dbuf *tmpoutf = NULL;
+	dbuf *outf = NULL;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
+	tmpoutf = dbuf_create_membuf(c, 0, 0);
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = 0;
+	dcmpri.len = c->infile->len;
+	dcmpro.f = tmpoutf;
+
+	fmtutil_xpk_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
+
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", dres.errmsg);
+		goto done;
+	}
+
+	outf = dbuf_create_output_file(c, "unc", NULL, 0);
+	dbuf_copy(tmpoutf, 0, tmpoutf->len, outf);
+
+done:
+	dbuf_close(outf);
+	dbuf_close(tmpoutf);
+}
+
+static void de_run_xpk(deark *c, de_module_params *mparams)
+{
+	xpkf_internal(c);
+}
+
+static int de_identify_xpk(deark *c)
+{
+	if((u32)de_getu32be(0)!=CODE_XPKF) return 0;
+	return 85;
+}
+
+void de_module_xpk(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "xpk";
+	mi->desc = "XPK compressed file";
+	mi->run_fn = de_run_xpk;
+	mi->identify_fn = de_identify_xpk;
+	mi->flags |= DE_MODFLAG_HIDDEN;
 }

@@ -1257,3 +1257,280 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
+
+///////////////////////////////////
+// XPK (Amiga graphics system)
+// Only a very small selection of compression methods are expected to be
+// supported by Deark.
+
+#define CODE_MASH 0x4d415348U
+#define CODE_NONE 0x4e4f4e45U
+#define CODE_XPKF 0x58504b46U
+
+#define XPKSTREAMF_LONGHEADERS  0x01
+#define XPKSTREAMF_PASSWORD     0x02
+#define XPKSTREAMF_EXTHEADER    0x04
+
+#define XPKCHUNK_RAW            0x00
+#define XPKCHUNK_PACKED         0x01
+#define XPKCHUNK_END            0x0f
+
+struct xpkc_chunk {
+	u8 chk_type; // XPKCHUNK_*
+	u8 chk_hchk;
+	UI chk_cchk;
+	i64 chk_clen;
+	i64 chk_ulen;
+};
+
+struct xpkc_ctx {
+	i64 pos;
+	i64 cmpr_len;
+	i64 orig_len;
+	struct de_dfilter_in_params *dcmpri;
+	struct de_dfilter_out_params *dcmpro;
+	struct de_dfilter_results *dres;
+	i64 inf_endpos;
+	u8 errflag;
+	u8 flags;
+	u8 hchk;
+	u8 subvrs;
+	u8 masvrs;
+	const char *modname;
+	struct de_fourcc method4cc;
+
+	struct xpkc_chunk curchunk;
+};
+
+static int xpk_xor1_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
+	i64 buf_len)
+{
+	u8 *pn = (u8*)brctx->userdata;
+	i64 i;
+
+	for(i=0; i<buf_len; i++) {
+		*pn ^= buf[i];
+	}
+	return 1;
+}
+
+static int xpk_xor2_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
+	i64 buf_len)
+{
+	UI *pn = (UI*)brctx->userdata;
+	UI align;
+	i64 i;
+
+	align = brctx->offset & 0x1;
+
+	for(i=0; i<buf_len; i++) {
+		if(align) {
+			*pn ^= buf[i];
+		}
+		else {
+			*pn ^= ((UI)buf[i])<<8;
+		}
+		align = !align;
+	}
+	return 1;
+}
+
+static u8 xpk_checksumh(dbuf *f, i64 pos, i64 len, u8 hck_reported)
+{
+	u8 n = hck_reported;
+
+	dbuf_buffered_read(f, pos, len, xpk_xor1_cbfn, (void*)&n);
+	return n;
+}
+
+static UI xpk_checksumc(dbuf *f, i64 pos, i64 len)
+{
+	UI n = 0;
+
+	len = de_pad_to_4(len);
+	dbuf_buffered_read(f, pos, len, xpk_xor2_cbfn, (void*)&n);
+	return n;
+}
+
+static void xpk_on_checksum_error(deark *c, struct xpkc_ctx *xc)
+{
+	de_dfilter_set_errorf(c, xc->dres, xc->modname, "Checksum error");
+	xc->errflag = 1;
+}
+
+static void do_xpk_chunk(deark *c, struct xpkc_ctx *xc)
+{
+	struct xpkc_chunk *chk;
+	u8 hck;
+	UI ck;
+	i64 pos1;
+	i64 hdrlen;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "chunk at %"I64_FMT, xc->pos);
+	de_dbg_indent(c, 1);
+	chk = &xc->curchunk;
+	de_zeromem(chk, sizeof(struct xpkc_chunk));
+
+	pos1 = xc->pos;
+	chk->chk_type = dbuf_getbyte_p(xc->dcmpri->f, &xc->pos);
+	de_dbg(c, "type: 0x%02x", (UI)chk->chk_type);
+	chk->chk_hchk = dbuf_getbyte_p(xc->dcmpri->f, &xc->pos);
+	de_dbg(c, "chunk hdr checksum (reported): 0x%02x", (UI)chk->chk_hchk);
+	chk->chk_cchk = (UI)dbuf_getu16be_p(xc->dcmpri->f, &xc->pos);
+	de_dbg(c, "chunk data checksum (reported): 0x%04x", (UI)chk->chk_cchk);
+
+	if(xc->flags & XPKSTREAMF_LONGHEADERS) {
+		hdrlen = 12;
+		chk->chk_clen = dbuf_getu32be_p(xc->dcmpri->f, &xc->pos);
+		chk->chk_ulen = dbuf_getu32be_p(xc->dcmpri->f, &xc->pos);
+	}
+	else {
+		hdrlen = 8;
+		chk->chk_clen = dbuf_getu16be_p(xc->dcmpri->f, &xc->pos);
+		chk->chk_ulen = dbuf_getu16be_p(xc->dcmpri->f, &xc->pos);
+	}
+	de_dbg(c, "clen: %"I64_FMT, chk->chk_clen);
+	de_dbg(c, "ulen: %"I64_FMT, chk->chk_ulen);
+
+	hck = xpk_checksumh(xc->dcmpri->f, pos1, hdrlen, chk->chk_hchk);
+	de_dbg(c, "chunk hdr checksum (calculated): 0x%02x", hck);
+	if(hck != chk->chk_hchk) {
+		xpk_on_checksum_error(c, xc);
+		goto done;
+	}
+
+	if(chk->chk_type==XPKCHUNK_END) {
+		goto done; // EOF marker
+	}
+	if(chk->chk_type!=XPKCHUNK_RAW && chk->chk_type!=XPKCHUNK_PACKED) {
+		xc->errflag = 1;
+		goto done;
+	}
+
+	if(xc->pos + chk->chk_clen > xc->inf_endpos) {
+		xc->errflag = 1;
+		goto done;
+	}
+
+	ck = xpk_checksumc(xc->dcmpri->f, xc->pos, chk->chk_clen);
+	de_dbg(c, "chunk data checksum (calculated): 0x%04x", ck);
+	if(ck != chk->chk_cchk) {
+		xpk_on_checksum_error(c, xc);
+		goto done;
+	}
+
+	if(chk->chk_type==XPKCHUNK_RAW || xc->method4cc.id==CODE_NONE) {
+		dbuf_copy(xc->dcmpri->f, xc->pos, chk->chk_clen, xc->dcmpro->f);
+	}
+	else {
+		xc->errflag = 1;
+		goto done;
+	}
+
+	xc->pos += chk->chk_clen;
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+int fmtutil_xpk_ismethodsupported(u32 method)
+{
+	switch(method) {
+	case CODE_NONE:
+		return 1;
+	}
+	return 0;
+}
+
+void fmtutil_xpk_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params)
+{
+	struct xpkc_ctx *xc = NULL;
+	u8 hchk_calc;
+
+	xc = de_malloc(c, sizeof(struct xpkc_ctx));
+	xc->modname = "xpk";
+	xc->dcmpri = dcmpri;
+	xc->dcmpro = dcmpro;
+	xc->dres = dres;
+	xc->inf_endpos = dcmpri->pos + dcmpri->len;
+
+	if(dcmpri->len<12) {
+		xc->errflag = 1;
+		goto done;
+	}
+	xc->pos = dcmpri->pos;
+
+	if((UI)dbuf_getu32be_p(dcmpri->f, &xc->pos) != CODE_XPKF) {
+		xc->errflag = 1;
+		goto done;
+	}
+
+	xc->cmpr_len = dbuf_getu32be_p(dcmpri->f, &xc->pos);
+	de_dbg(c, "cmpr len: %"I64_FMT, xc->cmpr_len);
+
+	dbuf_read_fourcc(dcmpri->f, xc->pos, &xc->method4cc, 4, 0);
+	de_dbg(c, "XPK compression type: '%s'", xc->method4cc.id_dbgstr);
+	xc->pos += 4;
+
+	xc->orig_len = dbuf_getu32be_p(dcmpri->f, &xc->pos);
+	de_dbg(c, "orig len: %"I64_FMT, xc->orig_len);
+
+	xc->pos += 16;
+	xc->flags = dbuf_getbyte_p(dcmpri->f, &xc->pos);
+	de_dbg(c, "flags: 0x%02x", (UI)xc->flags);
+	xc->hchk = dbuf_getbyte_p(dcmpri->f, &xc->pos);
+	de_dbg(c, "hchk: 0x%02x", (UI)xc->hchk);
+
+	hchk_calc = xpk_checksumh(dcmpri->f, dcmpri->pos, 36, xc->hchk);
+	de_dbg(c, "hchk (calculated): 0x%02x", (UI)hchk_calc);
+
+	xc->subvrs = dbuf_getbyte_p(dcmpri->f, &xc->pos);
+	de_dbg(c, "subvrs: 0x%02x", (UI)xc->subvrs);
+	xc->masvrs = dbuf_getbyte_p(dcmpri->f, &xc->pos);
+	de_dbg(c, "masvrs: 0x%02x", (UI)xc->masvrs);
+
+	if(hchk_calc != xc->hchk) {
+		xpk_on_checksum_error(c, xc);
+		goto done;
+	}
+
+	if(xc->flags & XPKSTREAMF_EXTHEADER) {
+		i64 ehlen;
+
+		ehlen = dbuf_getu16be_p(dcmpri->f, &xc->pos);
+		xc->pos += ehlen;
+	}
+
+	if(!fmtutil_xpk_ismethodsupported(xc->method4cc.id)) {
+		de_dfilter_set_errorf(c, dres, xc->modname, "Unsupported XPK compession method '%s'",
+			xc->method4cc.id_sanitized_sz);
+		goto done;
+	}
+
+	if(xc->flags & XPKSTREAMF_PASSWORD) {
+		xc->errflag = 1;
+		goto done;
+	}
+
+	while(1) {
+		xc->pos = xc->dcmpri->pos + de_pad_to_4(xc->pos - xc->dcmpri->pos);
+		if(xc->pos+8 > xc->inf_endpos) goto done;
+		if(xc->errflag) goto done;
+		do_xpk_chunk(c, xc);
+		if(xc->curchunk.chk_type==XPKCHUNK_END) goto done;
+	}
+
+	xc->errflag = 1;
+
+done:
+	if(xc) {
+		if(xc->errflag) {
+			de_dfilter_set_generic_error(c, dres, xc->modname);
+		}
+	}
+	de_free(c, xc);
+}
