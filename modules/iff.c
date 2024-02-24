@@ -14,6 +14,7 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_iff);
 DE_DECLARE_MODULE(de_module_midi);
+DE_DECLARE_MODULE(de_module_rgfx);
 
 #define FMT_FORM   1
 #define FMT_FOR4   4
@@ -36,16 +37,12 @@ DE_DECLARE_MODULE(de_module_midi);
 #define CODE_LIST  0x4c495354U
 #define CODE_MThd  0x4d546864U
 #define CODE_NAME  0x4e414d45U
-#define CODE_RBOD  0x52424f44U
-#define CODE_RGFX  0x52474658U
-#define CODE_RGHD  0x52474844U
 #define CODE_XPKF  0x58504b46U
 #define CODE_YAFA  0x59414641U
 
 typedef struct localctx_struct {
 	int fmt; // FMT_*
 	u8 decode_hint; // 0=prefer extracting to decoding
-	u32 rgfx_cmpr_meth;
 	u8 yafa_XPK;
 } lctx;
 
@@ -191,47 +188,6 @@ static void do_YAFA_chunk(deark *c, lctx *d, struct de_iffctx *ictx)
 	}
 }
 
-static void do_RGFX_RGHD(deark *c, lctx *d, struct de_iffctx *ictx)
-{
-	i64 x1, x2;
-	i64 pos = ictx->chunkctx->dpos;
-	const char *name;
-
-	if(ictx->chunkctx->dlen<52) goto done;
-	pos += 8;
-	x1 = dbuf_getu32be_p(ictx->f, &pos);
-	x2 = dbuf_getu32be_p(ictx->f, &pos);
-	de_dbg_dimensions(c, x1, x2);
-	pos += 20;
-	d->rgfx_cmpr_meth = (u32)dbuf_getu32be_p(ictx->f, &pos);
-	switch(d->rgfx_cmpr_meth) {
-	case 0: name="uncompressed"; break;
-	case 1: name="XPK"; break;
-	case 2: name="ZIP"; break;
-	default: name = "?";
-	}
-	de_dbg(c, "cmpr method: %u (%s)", (UI)d->rgfx_cmpr_meth, name);
-	ictx->handled = 1;
-done:
-	;
-}
-
-static void do_RGFX_chunk(deark *c, lctx *d, struct de_iffctx *ictx)
-{
-	switch(ictx->chunkctx->chunk4cc.id) {
-	case CODE_RBOD:
-		if(d->rgfx_cmpr_meth==1) {
-			// Documentation implies that chunk might start with "XPKXPKF", but
-			// actual files start more sensibly, with "XPKF".
-			do_XPK_data_chunk(c, ictx, "cmpr method");
-		}
-		break;
-	case CODE_RGHD:
-		do_RGFX_RGHD(c, d, ictx);
-		break;
-	}
-}
-
 static int is_container_chunk(deark *c, lctx *d, u32 ct)
 {
 	if(d->fmt==FMT_FOR4) {
@@ -282,7 +238,6 @@ static int my_std_container_start_fn(struct de_iffctx *ictx)
 		case CODE_8SVX: fmtname = "8SVX"; break;
 		case CODE_AIFF: fmtname = "AIFF"; break;
 		case CODE_YAFA: fmtname = "YAFA"; break;
-		case CODE_RGFX: fmtname = "IFF-RGFX"; break;
 		}
 
 		if(fmtname) {
@@ -325,9 +280,6 @@ static int my_iff_chunk_handler(struct de_iffctx *ictx)
 	}
 	else if(ictx->main_contentstype4cc.id==CODE_YAFA) {
 		do_YAFA_chunk(c, d, ictx);
-	}
-	else if(ictx->main_contentstype4cc.id==CODE_RGFX) {
-		do_RGFX_chunk(c, d, ictx);
 	}
 
 done:
@@ -515,4 +467,261 @@ void de_module_midi(deark *c, struct deark_module_info *mi)
 	mi->desc = "MIDI audio";
 	mi->run_fn = de_run_midi;
 	mi->identify_fn = de_identify_midi;
+}
+
+///// RGFX (Amiga graphics format)
+// TODO: RGFX should probably be moved to another file.
+
+#define CODE_RBOD 0x52424f44U
+#define CODE_RCOL 0x52434f4cU
+#define CODE_RGFX 0x52474658U
+#define CODE_RGHD 0x52474844U
+#define CODE_RSCM 0x5253434dU
+
+// (a.k.a. "RMBT..."; suspect a typo in the rgfx.h file)
+#define RBMT_BYTECHUNKY8   0x1
+#define RBMT_3BYTERGB24    0x2
+
+struct rgfx_ctx {
+	u8 errflag;
+	u8 need_errmsg;
+	u8 found_RGHD;
+	u8 found_RCOL;
+	u8 found_RBOD;
+	u32 rgfx_cmpr_meth;
+	i64 width;
+	i64 height;
+	UI bitmaptype;
+	UI viewmode;
+	i64 depth;
+	i64 pixelbits;
+	i64 rowspan;
+	dbuf *unc_image;
+	de_color pal[256];
+};
+
+static void do_RGFX_decompress(deark *c, struct rgfx_ctx *d,
+	struct de_iffctx *ictx)
+{
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
+	de_dbg(c, "[decompressing]");
+	de_dbg_indent(c, 1);
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+
+	dcmpri.f = ictx->f;
+	dcmpri.pos = ictx->chunkctx->dpos;
+	dcmpri.len = ictx->chunkctx->dlen;
+	dcmpro.f = d->unc_image;
+
+	if(d->rgfx_cmpr_meth==1) {
+		fmtutil_xpk_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
+	}
+	else {
+		de_dfilter_set_errorf(c, &dres, NULL, "Unsupported compression method");
+	}
+
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", dres.errmsg);
+		d->errflag = 1;
+		goto done;
+	}
+
+done:
+	de_dbg_indent(c, -1);
+}
+
+static void do_RGFX_RBOD(deark *c, struct rgfx_ctx *d, struct de_iffctx *ictx)
+{
+	int saved_indent_level;
+	int bypp = 0;
+	de_bitmap *img = NULL;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	if(d->found_RBOD) goto done;
+	d->found_RBOD = 1;
+
+	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
+
+	if(d->rgfx_cmpr_meth==0) {
+		d->unc_image = dbuf_open_input_subfile(ictx->f, ictx->chunkctx->dpos,
+			ictx->chunkctx->dlen);
+	}
+	else {
+		d->unc_image = dbuf_create_membuf(c, 0, 0);
+		do_RGFX_decompress(c, d, ictx);
+	}
+	if(d->errflag) goto done;
+
+	if(d->bitmaptype==RBMT_BYTECHUNKY8 && d->depth==8 && d->pixelbits==8 && d->found_RCOL) {
+		bypp = 3;
+	}
+
+	if(bypp==0) {
+		de_err(c, "Unsupported image type");
+		goto done;
+	}
+
+	img = de_bitmap_create(c, d->width,  d->height, bypp);
+
+	if(d->depth==8) {
+		de_convert_image_paletted(d->unc_image, 0, 8, d->rowspan, d->pal, img, 0);
+	}
+	else {
+		goto done;
+	}
+
+	de_bitmap_write_to_file(img, NULL, 0);
+
+done:
+	de_bitmap_destroy(img);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_RGFX_RCOL(deark *c, struct rgfx_ctx *d, struct de_iffctx *ictx)
+{
+	i64 num_entries;
+	i64 pos;
+	i64 len;
+
+	d->found_RCOL = 1;
+
+	pos = ictx->chunkctx->dpos;
+	len = ictx->chunkctx->dlen;
+	if(len==776) { // ???
+		pos += 8;
+		len -= 8;
+	}
+
+	num_entries = len / 3;
+	if(num_entries>256) num_entries = 256;
+	de_read_simple_palette(c, ictx->f, pos, num_entries, 3,
+		d->pal, 256, DE_RDPALTYPE_24BIT, 0);
+}
+
+static void do_RGFX_RSCM(deark *c, struct rgfx_ctx *d, struct de_iffctx *ictx)
+{
+	if(ictx->chunkctx->dlen<4) goto done;
+	d->viewmode = (UI)dbuf_getu32be(ictx->f, ictx->chunkctx->dpos);
+	// Relevant: https://wiki.amigaos.net/wiki/Display_Database
+	de_dbg(c, "ViewMode: 0x%08x", d->viewmode);
+done:
+	;
+}
+
+static void do_RGFX_RGHD(deark *c, struct rgfx_ctx *d, struct de_iffctx *ictx)
+{
+	i64 pos = ictx->chunkctx->dpos;
+	const char *name;
+
+	if(ictx->chunkctx->dlen<52) goto done;
+	pos += 8;
+	d->width = dbuf_getu32be_p(ictx->f, &pos);
+	d->height = dbuf_getu32be_p(ictx->f, &pos);
+	de_dbg_dimensions(c, d->width, d->height);
+	pos += 8;
+	d->depth = dbuf_getu32be_p(ictx->f, &pos);
+	de_dbg(c, "depth: %u", (UI)d->depth);
+	d->pixelbits = dbuf_getu32be_p(ictx->f, &pos);
+	de_dbg(c, "PixelBits: %u", (UI)d->pixelbits);
+	d->rowspan = dbuf_getu32be_p(ictx->f, &pos);
+	de_dbg(c, "bytes/line: %u", (UI)d->rowspan);
+	d->rgfx_cmpr_meth = (u32)dbuf_getu32be_p(ictx->f, &pos);
+	switch(d->rgfx_cmpr_meth) {
+	case 0: name="uncompressed"; break;
+	case 1: name="XPK"; break;
+	case 2: name="ZIP"; break;
+	default: name = "?";
+	}
+	de_dbg(c, "cmpr method: %u (%s)", (UI)d->rgfx_cmpr_meth, name);
+	pos += 8; // TODO: aspect
+	d->bitmaptype = (UI)dbuf_getu32be_p(ictx->f, &pos);
+	de_dbg(c, "BitMapType: 0x%08x", d->bitmaptype);
+
+	d->found_RGHD = 1;
+done:
+	;
+}
+
+static int my_rgfx_chunk_handler(struct de_iffctx *ictx)
+{
+	deark *c = ictx->c;
+	struct rgfx_ctx *d = (struct rgfx_ctx*)ictx->userdata;
+
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_FORM:
+		ictx->is_std_container = 1;
+		goto done;
+	}
+
+	if(ictx->level != 1) goto done;
+
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_RBOD:
+		do_RGFX_RBOD(c, d, ictx);
+		ictx->handled = 1;
+		break;
+	case CODE_RCOL:
+		do_RGFX_RCOL(c, d, ictx);
+		ictx->handled = 1;
+		break;
+	case CODE_RGHD:
+		do_RGFX_RGHD(c, d, ictx);
+		ictx->handled = 1;
+		break;
+	case CODE_RSCM:
+		do_RGFX_RSCM(c, d, ictx);
+		ictx->handled = 1;
+		break;
+	}
+
+done:
+	if(d->errflag) return 0;
+	return 1;
+}
+
+static void de_run_rgfx(deark *c, de_module_params *mparams)
+{
+	struct rgfx_ctx *d = NULL;
+	struct de_iffctx *ictx = NULL;
+
+	de_declare_fmt(c, "IFF-RGFX");
+	d = de_malloc(c, sizeof(struct rgfx_ctx));
+
+	ictx = fmtutil_create_iff_decoder(c);
+	ictx->alignment = 2;
+	ictx->userdata = (void*)d;
+	ictx->handle_chunk_fn = my_rgfx_chunk_handler;
+	ictx->f = c->infile;
+
+	fmtutil_read_iff_format(ictx, 0, c->infile->len);
+
+	fmtutil_destroy_iff_decoder(ictx);
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Unsupported or bad RGFX file");
+		}
+		dbuf_close(d->unc_image);
+		de_free(c, d);
+	}
+}
+
+static int de_identify_rgfx(deark *c)
+{
+	if((u32)de_getu32be(8)!=CODE_RGFX) return 0;
+	if((u32)de_getu32be(0)!=CODE_FORM) return 0;
+	return 100;
+}
+
+void de_module_rgfx(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "rgfx";
+	mi->desc = "RGFX graphics";
+	mi->run_fn = de_run_rgfx;
+	mi->identify_fn = de_identify_rgfx;
+	mi->flags |= DE_MODFLAG_HIDDEN;
 }

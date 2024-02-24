@@ -2415,7 +2415,8 @@ static void mash_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 	struct mash_ctx *mctx = (struct mash_ctx*)rb->userdata;
 
 	if(mash_have_enough_output(mctx)) {
-		mctx->errflag = 1;
+		// This ought to be an error, but in practice there's often an extra
+		// decompressed byte that we have to ignore.
 		return;
 	}
 	dbuf_writebyte(mctx->dcmpro->f, n);
