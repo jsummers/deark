@@ -150,6 +150,10 @@ void fmtutil_xpk_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	void *codec_private_params);
 int fmtutil_xpk_ismethodsupported(u32 method);
 
+void fmtutil_xpkMASH_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params);
+
 struct de_dfilter_ctx;
 typedef void (*dfilter_codec_type)(struct de_dfilter_ctx *dfctx, void *codec_private_params);
 typedef void (*dfilter_codec_addbuf_type)(struct de_dfilter_ctx *dfctx,

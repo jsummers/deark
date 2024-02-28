@@ -2205,3 +2205,248 @@ void fmtutil_lzstac_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 done:
 	destroy_lzh_ctx(cctx);
 }
+
+//-------------------------- XPK:MASH --------------------------
+
+struct mash_ctx {
+	deark *c;
+	u8 errflag;
+	i64 cur_ipos;
+	i64 end_ipos;
+	i64 nbytes_written;
+	const char *modname;
+	struct de_bitbuf_lowlevel bbll;
+	struct de_lz77buffer *ringbuf;
+	struct de_dfilter_in_params *dcmpri;
+	struct de_dfilter_out_params *dcmpro;
+	struct de_dfilter_results *dres;
+};
+
+static int mash_have_enough_output(struct mash_ctx *mctx)
+{
+	if(mctx->dcmpro->len_known &&
+		mctx->nbytes_written >= mctx->dcmpro->expected_len)
+	{
+		return 1;
+	}
+	return 0;
+}
+
+static void mash_fill_bitbuf(struct mash_ctx *mctx)
+{
+	u8 b;
+
+	if(mctx->errflag) return;
+	if(mctx->cur_ipos >= mctx->end_ipos) {
+		mctx->errflag = 1;
+		return;
+	}
+
+	b = dbuf_getbyte_p(mctx->dcmpri->f, &mctx->cur_ipos);
+	de_bitbuf_lowlevel_add_byte(&mctx->bbll, b);
+}
+
+static u8 mash_getbit(struct mash_ctx *mctx)
+{
+	u8 v;
+
+	if(mctx->errflag) return 0;
+
+	if(mctx->bbll.nbits_in_bitbuf==0) {
+		mash_fill_bitbuf(mctx);
+	}
+
+	v = (u8)de_bitbuf_lowlevel_get_bits(&mctx->bbll, 1);
+
+	return v;
+}
+
+static UI mash_getbits(struct mash_ctx *mctx, UI nbits)
+{
+	UI i;
+	UI n = 0;
+
+	for(i=0; i<nbits; i++) {
+		n <<= 1;
+		n |= (UI)mash_getbit(mctx);
+	}
+
+	return n;
+}
+
+static UI mash_read_offset(struct mash_ctx *mctx)
+{
+	UI ocode;
+	UI offset;
+	static const u8 numextrabits[8] = {5, 7, 9, 10, 11, 12, 13, 14};
+
+	ocode = mash_getbits(mctx, 3);
+	offset = mash_getbits(mctx, numextrabits[ocode]);
+	if(ocode==1) {
+		offset += 32;
+	}
+	else if(ocode>=2) {
+		offset += (1<<numextrabits[ocode]) - 352;
+	}
+	return offset;
+}
+
+static UI mash_read_run_of_1_bits(struct mash_ctx *mctx, UI max1bits)
+{
+	UI count_of_1s = 0;
+
+	while(1) {
+		u8 b;
+
+		if(count_of_1s>=max1bits) break;
+		b = mash_getbit(mctx);
+		if(b==0) break;
+		count_of_1s++;
+	}
+
+	return count_of_1s;
+}
+
+static void mash_main(deark *c, struct mash_ctx *mctx)
+{
+	while(1) {
+		UI count_of_1s;
+		UI offset = 0;
+		UI matchlen = 0;
+		UI unc_run_len = 0;
+		u8 hflag1, hflag2;
+
+		if(mctx->errflag) goto done;
+		if(mash_have_enough_output(mctx)) goto done;
+
+		// Read/decode the length of an uncompressed run (may be 0)
+
+		count_of_1s = mash_read_run_of_1_bits(mctx, 6);
+		if(count_of_1s<=5) {
+			unc_run_len = count_of_1s;
+		}
+		else {
+			count_of_1s = mash_read_run_of_1_bits(mctx, 16);
+			if(count_of_1s>=16) {
+				// TODO: Verify this limit
+				mctx->errflag = 1;
+				goto done;
+			}
+
+			unc_run_len = mash_getbits(mctx, count_of_1s+1);
+			unc_run_len += (2<<count_of_1s) + 4;
+		}
+
+		// Copy the literal bytes
+
+		if(unc_run_len>0) {
+			UI ii;
+			u8 ib;
+
+			for(ii=0; ii<unc_run_len; ii++) {
+				if(mctx->cur_ipos >= mctx->end_ipos) {
+					mctx->errflag = 1;
+					return;
+				}
+				ib = dbuf_getbyte_p(mctx->dcmpri->f, &mctx->cur_ipos);
+				if(c->debug_level>=4) {
+					de_dbg(c, "lit %u", (UI)ib);
+				}
+				de_lz77buffer_add_literal_byte(mctx->ringbuf, ib);
+				if(mctx->errflag) goto done;
+			}
+		}
+
+		if(mash_have_enough_output(mctx)) goto done;
+
+		// Read/decode a matchlen and offset
+
+		hflag1 = mash_getbit(mctx);
+		if(hflag1==0) {
+			hflag2 = mash_getbit(mctx);
+			if(hflag2==0) {
+				matchlen = 2;
+				offset = mash_getbits(mctx, 9);
+			}
+			else {
+				matchlen = 3;
+				offset = mash_read_offset(mctx);
+			}
+		}
+		else {
+			count_of_1s = mash_read_run_of_1_bits(mctx, 15);
+			if(count_of_1s>=15) {
+				// TODO: Verify this limit
+				mctx->errflag = 1;
+				goto done;
+			}
+
+			matchlen = mash_getbits(mctx, count_of_1s+1);
+			matchlen += (2<<count_of_1s) + 2;
+			offset = mash_read_offset(mctx);
+		}
+
+		if(c->debug_level>=4) {
+			de_dbg(c, "match d=%u l=%u", offset, matchlen);
+		}
+
+		if(offset==0) {
+			// TODO: Figure out what offset 0 means
+			// (seen at end of final chunk).
+			goto done;
+		}
+
+		if((i64)offset > mctx->nbytes_written) {
+			de_dfilter_set_errorf(c, mctx->dres, mctx->modname, "Bad offset");
+			mctx->errflag = 1;
+			goto done;
+		}
+
+		de_lz77buffer_copy_from_hist(mctx->ringbuf,
+			(UI)(mctx->ringbuf->curpos-offset), matchlen);
+	}
+
+done:
+	;
+}
+
+static void mash_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
+{
+	struct mash_ctx *mctx = (struct mash_ctx*)rb->userdata;
+
+	if(mash_have_enough_output(mctx)) {
+		mctx->errflag = 1;
+		return;
+	}
+	dbuf_writebyte(mctx->dcmpro->f, n);
+	mctx->nbytes_written++;
+}
+
+void fmtutil_xpkMASH_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params)
+{
+	struct mash_ctx *mctx = NULL;
+
+	mctx = de_malloc(c, sizeof(struct mash_ctx));
+	mctx->c = c;
+	mctx->modname = "mash";
+	mctx->bbll.is_lsb = 0;
+	mctx->dcmpri = dcmpri;
+	mctx->dcmpro = dcmpro;
+	mctx->dres = dres;
+	mctx->cur_ipos = dcmpri->pos;
+	mctx->end_ipos = dcmpri->pos + dcmpri->len;
+
+	mctx->ringbuf = de_lz77buffer_create(c, 32768);
+	mctx->ringbuf->userdata = (void*)mctx;
+	mctx->ringbuf->writebyte_cb = mash_lz77buf_writebytecb;
+
+	mash_main(c, mctx);
+
+	if(mctx->errflag) {
+		de_dfilter_set_generic_error(c, dres, mctx->modname);
+	}
+	de_lz77buffer_destroy(c, mctx->ringbuf);
+	de_free(c, mctx);
+}

@@ -1458,14 +1458,17 @@ static void xpkf_internal(deark *c)
 	dcmpro.f = tmpoutf;
 
 	fmtutil_xpk_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
+	dbuf_flush(tmpoutf);
+
+	if(dres.errcode==0 || tmpoutf->len>0) {
+		outf = dbuf_create_output_file(c, "unc", NULL, 0);
+		dbuf_copy(tmpoutf, 0, tmpoutf->len, outf);
+	}
 
 	if(dres.errcode) {
 		de_err(c, "Decompression failed: %s", dres.errmsg);
 		goto done;
 	}
-
-	outf = dbuf_create_output_file(c, "unc", NULL, 0);
-	dbuf_copy(tmpoutf, 0, tmpoutf->len, outf);
 
 done:
 	dbuf_close(outf);

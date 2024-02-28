@@ -1259,7 +1259,7 @@ done:
 }
 
 ///////////////////////////////////
-// XPK (Amiga graphics system)
+// XPK (Amiga compression system)
 // Only a very small selection of compression methods are expected to be
 // supported by Deark.
 
@@ -1277,10 +1277,11 @@ done:
 
 struct xpkc_chunk {
 	u8 chk_type; // XPKCHUNK_*
-	u8 chk_hchk;
-	UI chk_cchk;
-	i64 chk_clen;
-	i64 chk_ulen;
+	u8 hchk; // reported chunk hdr checksum
+	UI cchk; // reported chunk data checksum
+	i64 clen; // compressed len
+	i64 ulen; // uncompressed len
+	i64 dpos;
 };
 
 struct xpkc_ctx {
@@ -1299,6 +1300,7 @@ struct xpkc_ctx {
 	const char *modname;
 	struct de_fourcc method4cc;
 
+	de_codectype1_type codec;
 	struct xpkc_chunk curchunk;
 };
 
@@ -1366,7 +1368,11 @@ static void do_xpk_chunk(deark *c, struct xpkc_ctx *xc)
 	i64 pos1;
 	i64 hdrlen;
 	int saved_indent_level;
+	struct de_dfilter_in_params d2i;
+	struct de_dfilter_out_params d2o;
+	struct de_dfilter_results d2r;
 
+	de_dfilter_init_objects(c, &d2i, &d2o, &d2r);
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "chunk at %"I64_FMT, xc->pos);
 	de_dbg_indent(c, 1);
@@ -1376,27 +1382,27 @@ static void do_xpk_chunk(deark *c, struct xpkc_ctx *xc)
 	pos1 = xc->pos;
 	chk->chk_type = dbuf_getbyte_p(xc->dcmpri->f, &xc->pos);
 	de_dbg(c, "type: 0x%02x", (UI)chk->chk_type);
-	chk->chk_hchk = dbuf_getbyte_p(xc->dcmpri->f, &xc->pos);
-	de_dbg(c, "chunk hdr checksum (reported): 0x%02x", (UI)chk->chk_hchk);
-	chk->chk_cchk = (UI)dbuf_getu16be_p(xc->dcmpri->f, &xc->pos);
-	de_dbg(c, "chunk data checksum (reported): 0x%04x", (UI)chk->chk_cchk);
+	chk->hchk = dbuf_getbyte_p(xc->dcmpri->f, &xc->pos);
+	de_dbg(c, "chunk hdr checksum (reported): 0x%02x", (UI)chk->hchk);
+	chk->cchk = (UI)dbuf_getu16be_p(xc->dcmpri->f, &xc->pos);
+	de_dbg(c, "chunk data checksum (reported): 0x%04x", (UI)chk->cchk);
 
 	if(xc->flags & XPKSTREAMF_LONGHEADERS) {
 		hdrlen = 12;
-		chk->chk_clen = dbuf_getu32be_p(xc->dcmpri->f, &xc->pos);
-		chk->chk_ulen = dbuf_getu32be_p(xc->dcmpri->f, &xc->pos);
+		chk->clen = dbuf_getu32be_p(xc->dcmpri->f, &xc->pos);
+		chk->ulen = dbuf_getu32be_p(xc->dcmpri->f, &xc->pos);
 	}
 	else {
 		hdrlen = 8;
-		chk->chk_clen = dbuf_getu16be_p(xc->dcmpri->f, &xc->pos);
-		chk->chk_ulen = dbuf_getu16be_p(xc->dcmpri->f, &xc->pos);
+		chk->clen = dbuf_getu16be_p(xc->dcmpri->f, &xc->pos);
+		chk->ulen = dbuf_getu16be_p(xc->dcmpri->f, &xc->pos);
 	}
-	de_dbg(c, "clen: %"I64_FMT, chk->chk_clen);
-	de_dbg(c, "ulen: %"I64_FMT, chk->chk_ulen);
+	de_dbg(c, "clen: %"I64_FMT, chk->clen);
+	de_dbg(c, "ulen: %"I64_FMT, chk->ulen);
 
-	hck = xpk_checksumh(xc->dcmpri->f, pos1, hdrlen, chk->chk_hchk);
+	hck = xpk_checksumh(xc->dcmpri->f, pos1, hdrlen, chk->hchk);
 	de_dbg(c, "chunk hdr checksum (calculated): 0x%02x", hck);
-	if(hck != chk->chk_hchk) {
+	if(hck != chk->hchk) {
 		xpk_on_checksum_error(c, xc);
 		goto done;
 	}
@@ -1409,27 +1415,60 @@ static void do_xpk_chunk(deark *c, struct xpkc_ctx *xc)
 		goto done;
 	}
 
-	if(xc->pos + chk->chk_clen > xc->inf_endpos) {
+	chk->dpos = xc->pos;
+	de_dbg(c, "chunk dpos: %"I64_FMT, chk->dpos);
+
+	if(chk->dpos + chk->clen > xc->inf_endpos) {
 		xc->errflag = 1;
 		goto done;
 	}
 
-	ck = xpk_checksumc(xc->dcmpri->f, xc->pos, chk->chk_clen);
+	ck = xpk_checksumc(xc->dcmpri->f, chk->dpos, chk->clen);
 	de_dbg(c, "chunk data checksum (calculated): 0x%04x", ck);
-	if(ck != chk->chk_cchk) {
+	if(ck != chk->cchk) {
 		xpk_on_checksum_error(c, xc);
 		goto done;
 	}
 
 	if(chk->chk_type==XPKCHUNK_RAW || xc->method4cc.id==CODE_NONE) {
-		dbuf_copy(xc->dcmpri->f, xc->pos, chk->chk_clen, xc->dcmpro->f);
+		de_dbg(c, "[uncompressed chunk]");
+		dbuf_copy(xc->dcmpri->f, chk->dpos, chk->clen, xc->dcmpro->f);
+	}
+	else if(xc->codec) {
+		i64 old_olen, new_olen;
+
+		d2i.f = xc->dcmpri->f;
+		d2i.pos = chk->dpos;
+		d2i.len = chk->clen;
+		d2o.f = xc->dcmpro->f;
+		d2o.expected_len = chk->ulen;
+		d2o.len_known = 1;
+
+		old_olen = xc->dcmpro->f->len;
+
+		de_dbg(c, "[decompressing chunk]");
+		de_dbg_indent(c, 1);
+		xc->codec(c, &d2i, &d2o, &d2r, NULL);
+		de_dbg_indent(c, -1);
+		dbuf_flush(xc->dcmpro->f);
+
+		new_olen = xc->dcmpro->f->len;
+		if(d2r.errcode) {
+			de_dfilter_transfer_error2(c, &d2r, xc->dres, xc->modname);
+			xc->errflag = 1;
+			goto done;
+		}
+		if(new_olen != old_olen+chk->ulen) {
+			xc->errflag = 1;
+			goto done;
+		}
 	}
 	else {
 		xc->errflag = 1;
 		goto done;
 	}
 
-	xc->pos += chk->chk_clen;
+	xc->pos += chk->clen;
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -1439,6 +1478,7 @@ int fmtutil_xpk_ismethodsupported(u32 method)
 {
 	switch(method) {
 	case CODE_NONE:
+	case CODE_MASH:
 		return 1;
 	}
 	return 0;
@@ -1514,6 +1554,12 @@ void fmtutil_xpk_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	if(xc->flags & XPKSTREAMF_PASSWORD) {
 		xc->errflag = 1;
 		goto done;
+	}
+
+	switch(xc->method4cc.id) {
+	case CODE_MASH:
+		xc->codec = fmtutil_xpkMASH_codectype1;
+		break;
 	}
 
 	while(1) {
