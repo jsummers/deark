@@ -830,7 +830,7 @@ void de_read_simple_palette(deark *c, dbuf *f, i64 fpos,
 		de_dbg_indent(c, 1);
 	}
 
-	if(ncolors_to_save < ncolors_to_read) {
+	if(ncolors_to_save > ncolors_to_read) {
 		ncolors_to_save = ncolors_to_read;
 	}
 
