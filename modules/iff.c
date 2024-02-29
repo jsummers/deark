@@ -560,6 +560,9 @@ static void do_RGFX_RBOD(deark *c, struct rgfx_ctx *d, struct de_iffctx *ictx)
 	if(d->bitmaptype==RBMT_BYTECHUNKY8 && d->depth==8 && d->pixelbits==8 && d->found_RCOL) {
 		bypp = 3;
 	}
+	else if(d->bitmaptype==RBMT_3BYTERGB24 && d->depth==24 && d->pixelbits==24) {
+		bypp = 3;
+	}
 
 	if(bypp==0) {
 		de_err(c, "Unsupported image type");
@@ -570,6 +573,9 @@ static void do_RGFX_RBOD(deark *c, struct rgfx_ctx *d, struct de_iffctx *ictx)
 
 	if(d->depth==8) {
 		de_convert_image_paletted(d->unc_image, 0, 8, d->rowspan, d->pal, img, 0);
+	}
+	else if(d->depth==24) {
+		de_convert_image_rgb(d->unc_image, 0, d->rowspan, 3, img, 0);
 	}
 	else {
 		goto done;
