@@ -73,6 +73,9 @@ typedef struct localctx_struct {
 #define INTRO_CLASS_150       50
 #define INTRO_CLASS_UN2PACK   100
 #define INTRO_CLASS_MEGALITE  101
+#define INTRO_CLASS_COM_BETA  240
+#define INTRO_CLASS_COM_100   241
+#define INTRO_CLASS_COM_150   242
 	u8 intro_class;
 
 	UI initial_key;
@@ -103,6 +106,9 @@ typedef struct localctx_struct {
 #define COPIER_CLASS_UN2PACK        100
 #define COPIER_CLASS_MEGALITE       101
 #define COPIER_CLASS_OTHER          200
+#define COPIER_CLASS_COM_BETA       240
+#define COPIER_CLASS_COM_100        241
+#define COPIER_CLASS_COM_115        242
 	u8 copier_class;
 
 	i64 decompr_pos;
@@ -112,6 +118,8 @@ typedef struct localctx_struct {
 #define DECOMPR_CLASS_115           15
 #define DECOMPR_CLASS_120SMALL_OLD  50
 #define DECOMPR_CLASS_120SMALL      51
+#define DECOMPR_CLASS_COM_BETA      240
+#define DECOMPR_CLASS_COM_100       241
 	u8 decompr_class;
 
 	i64 cmpr_data_endpos; // = reloc_tbl_pos
@@ -1797,6 +1805,138 @@ done:
 	;
 }
 
+static void analyze_intro_COM(deark *c, lctx *d)
+{
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	de_dbg(c, "intro at 0");
+	de_dbg_indent(c, 1);
+
+	if(pkl_memmatch(&d->epbytes[0],
+		(const u8*)"\xb8??\xba??\x3b\xc4\x73", 9, '?', 0))
+	{
+		d->copier_class = INTRO_CLASS_COM_100;
+		d->position2 = 10;
+	}
+	else if(pkl_memmatch(&d->epbytes[0],
+		(const u8*)"\x50\xb8??\xba??\x3b\xc4\x73", 10, '?', 0))
+	{
+		d->copier_class = INTRO_CLASS_COM_150;
+		d->position2 = 11;
+	}
+	else if(pkl_memmatch(&d->epbytes[0],
+		(const u8*)"\xba??\xa1\x02\x00\x2d??\x8c\xcb??????\x77", 18, '?', 0))
+	{
+		d->copier_class = INTRO_CLASS_COM_BETA;
+		d->position2 = read_and_follow_1byte_jump(d, 18);
+	}
+
+	if(!d->position2) {
+		d->errflag = 1;
+	}
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void analyze_copier_COM(deark *c, lctx *d)
+{
+	int saved_indent_level;
+	i64 pos = d->position2;
+	i64 pos_of_decompr_pos_field = 0;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(pos<0 || pos+100>EPBYTES_LEN) goto done;
+
+	de_dbg(c, "copier at %u", (UI)pos);
+	de_dbg_indent(c, 1);
+
+	if(pkl_memmatch(&d->epbytes[pos],
+		(const u8*)"\x8b\xc4\x2d??\x25\xf0\xff\x8b\xf8\xb9??\xbe", 14, '?', 0))
+	{
+		d->copier_class = COPIER_CLASS_COM_100;
+		pos_of_decompr_pos_field = pos+14;
+	}
+	else if(pkl_memmatch(&d->epbytes[pos],
+		(const u8*)"\x8b\xc4\x2d??\x90\x25\xf0\xff\x8b\xf8\xb9??\x90\xbe", 16, '?', 0))
+	{
+		d->copier_class = COPIER_CLASS_COM_115;
+		pos_of_decompr_pos_field = pos+16;
+	}
+	else if(pkl_memmatch(&d->epbytes[pos],
+		(const u8*)"\xfa\xbc\x00\x02\x8e\xd0\xfb", 7, '?', 0))
+	{
+		d->copier_class = COPIER_CLASS_COM_BETA;
+		d->decompr_pos = pos+24;
+	}
+
+	if(pos_of_decompr_pos_field) {
+		d->decompr_pos = de_getu16le_direct(&d->epbytes[pos_of_decompr_pos_field]) - 0x100;
+	}
+
+done:
+	if(!d->decompr_pos) {
+		d->errflag = 1;
+	}
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void analyze_decompressor_COM(deark *c, lctx *d)
+{
+	int saved_indent_level;
+	i64 pos = d->decompr_pos;
+	i64 keypos = 0;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(pos<0 || pos+100>EPBYTES_LEN) goto done;
+
+	de_dbg(c, "decompressor at %u", (UI)pos);
+	de_dbg_indent(c, 1);
+
+	if(pkl_memmatch(&d->epbytes[pos],
+		(const u8*)"\xfd\x8b\xf8\x4f\x4f\xbe", 6, '?', 0))
+	{
+		d->decompr_class = DECOMPR_CLASS_COM_100;
+		keypos = pos+6;
+	}
+	else if(pkl_memmatch(&d->epbytes[pos],
+		(const u8*)"\xfd\xbe??\x03\xf2\x8b\xfa\x4f\x4f", 10, '?', 0))
+	{
+		d->decompr_class = DECOMPR_CLASS_COM_BETA;
+		keypos = pos+2;
+	}
+
+	if(keypos) {
+		d->dparams.cmpr_data_pos = de_getu16le_direct(&d->epbytes[keypos]) + 2 - 0x100;
+	}
+
+done:
+	if(d->dparams.cmpr_data_pos<1 || d->dparams.cmpr_data_pos>c->infile->len) {
+		d->dparams.cmpr_data_pos = 0;
+		d->errflag = 1;
+	}
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+// This function's only real purpose is to set d->dparams.cmpr_data_pos.
+static void do_analyze_pklite_com(deark *c, lctx *d)
+{
+	d->dparams.large_cmpr = 0;
+	d->dparams.extra_cmpr = 0;
+	d->dparams.v120_cmpr = 0;
+
+	analyze_intro_COM(c, d);
+	if(d->errflag) goto done;
+
+	analyze_copier_COM(c, d);
+	if(d->errflag) goto done;
+
+	analyze_decompressor_COM(c, d);
+
+done:
+	;
+}
+
 static int pklite_com_has_copyright_string(dbuf *f, i64 verpos)
 {
 	u8 buf[4];
@@ -1814,40 +1954,27 @@ static int pklite_com_has_copyright_string(dbuf *f, i64 verpos)
 	return 0;
 }
 
-// If *pdatapos returns 0, PKLITE was detected, but it's not a supported
-// version.
-static int detect_pklite_com_quick(dbuf *f, i64 *pverpos, i64 *pdatapos)
+static int detect_pklite_com_quick(dbuf *f, i64 *pverpos)
 {
 	u8 b[10];
 
-	*pdatapos = 0;
 	dbuf_read(f, b, 0, sizeof(b));
 	if(b[0]==0xb8 && b[3]==0xba && b[6]==0x3b && b[7]==0xc4) {
 		if(b[9]==0x67) { // Probably v1.00-1.14
 			*pverpos = 44;
-			*pdatapos = 448;
 			return 1;
 		}
 		else if(b[9]==0x69) { // Probably v1.15 (usually mislabeled as 1.14)
 			*pverpos = 46;
-			*pdatapos = 450;
 			return 1;
 		}
 	}
 	else if(b[0]==0x50 && b[1]==0xb8 && b[4]==0xba && b[7]==0x3b) {
 		*pverpos = 46; // v1.50-2.01
-		// Hack hack. TODO: Trace through the file properly.
-		if(dbuf_getbyte(f, 142) == 0xfd) {
-			*pdatapos = 464; // v1.50-2.01
-		}
-		else if(dbuf_getbyte(f, 138) == 0xfd) {
-			*pdatapos = 460; // v1.16 (private IBM version?)
-		}
 		return 1;
 	}
 	else if(b[0]==0xba && b[3]==0xa1 && b[6]==0x2d && b[7]==0x20) {
 		*pverpos = 36; // v1.00beta
-		*pdatapos = 500;
 		return 1;
 	}
 	return 0;
@@ -1855,10 +1982,13 @@ static int detect_pklite_com_quick(dbuf *f, i64 *pverpos, i64 *pdatapos)
 
 static void read_and_process_com_version_number(deark *c, lctx *d, i64 verpos)
 {
-	const char *s = "?";
-
 	de_dbg(c, "version number pos: %"I64_FMT, verpos);
 	do_read_version_info(c, d, verpos);
+}
+
+static void report_detected_version_number_com(deark *c, lctx *d)
+{
+	const char *s = "?";
 
 	if(d->dparams.cmpr_data_pos==500) {
 		s = "1.00beta";
@@ -1884,7 +2014,7 @@ static void do_pklite_com(deark *c, lctx *d)
 {
 	i64 verpos = 0;
 
-	if(!detect_pklite_com_quick(c->infile, &verpos, &d->dparams.cmpr_data_pos)) {
+	if(!detect_pklite_com_quick(c->infile, &verpos)) {
 		de_err(c, "Not a known/supported PKLITE format");
 		goto done;
 	}
@@ -1892,6 +2022,8 @@ static void do_pklite_com(deark *c, lctx *d)
 	d->is_com = 1;
 	d->ei->f = c->infile;
 	de_declare_fmt(c, "PKLITE-compressed COM");
+
+	de_read(d->epbytes, 0, EPBYTES_LEN);
 
 	read_and_process_com_version_number(c, d, verpos);
 
@@ -1903,14 +2035,15 @@ static void do_pklite_com(deark *c, lctx *d)
 		}
 	}
 
-	if(d->dparams.cmpr_data_pos==0) {
+	do_analyze_pklite_com(c, d);
+
+	report_detected_version_number_com(c, d);
+
+	if(d->errflag || d->dparams.cmpr_data_pos==0) {
 		de_err(c, "Unsupported PKLITE format version");
 		goto done;
 	}
 
-	d->dparams.large_cmpr = 0;
-	d->dparams.extra_cmpr = 0;
-	d->dparams.v120_cmpr = 0;
 	do_decompress(c, d);
 	if(!d->o_dcmpr_code) goto done;
 	dbuf_flush(d->o_dcmpr_code);
@@ -1962,9 +2095,9 @@ static void de_run_pklite(deark *c, de_module_params *mparams)
 // EXE files are handled by the "exe" module by default.
 static int de_identify_pklite(deark *c)
 {
-	i64 verpos, datapos;
+	i64 verpos;
 
-	 if(detect_pklite_com_quick(c->infile, &verpos, &datapos)) {
+	 if(detect_pklite_com_quick(c->infile, &verpos)) {
 		 if(pklite_com_has_copyright_string(c->infile, verpos)) {
 			 return 100;
 		 }
