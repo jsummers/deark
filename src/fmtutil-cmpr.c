@@ -1374,7 +1374,7 @@ static void do_xpk_chunk(deark *c, struct xpkc_ctx *xc)
 
 	de_dfilter_init_objects(c, &d2i, &d2o, &d2r);
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "chunk at %"I64_FMT, xc->pos);
+	de_dbg(c, "XPK chunk at %"I64_FMT, xc->pos);
 	de_dbg_indent(c, 1);
 	chk = &xc->curchunk;
 	de_zeromem(chk, sizeof(struct xpkc_chunk));
@@ -1510,11 +1510,13 @@ void fmtutil_xpk_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	}
 
 	xc->cmpr_len = dbuf_getu32be_p(dcmpri->f, &xc->pos);
-	de_dbg(c, "cmpr len: %"I64_FMT, xc->cmpr_len);
+	de_dbg(c, "XPK cmpr len: %"I64_FMT, xc->cmpr_len);
 
 	dbuf_read_fourcc(dcmpri->f, xc->pos, &xc->method4cc, 4, 0);
-	de_dbg(c, "XPK compression type: '%s'", xc->method4cc.id_dbgstr);
+	de_dbg(c, "XPK cmpr type: '%s'", xc->method4cc.id_dbgstr);
 	xc->pos += 4;
+
+	// TODO: There's too much dbg info, except maybe when used with XPKF format.
 
 	xc->orig_len = dbuf_getu32be_p(dcmpri->f, &xc->pos);
 	de_dbg(c, "orig len: %"I64_FMT, xc->orig_len);
@@ -1529,9 +1531,8 @@ void fmtutil_xpk_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	de_dbg(c, "hchk (calculated): 0x%02x", (UI)hchk_calc);
 
 	xc->subvrs = dbuf_getbyte_p(dcmpri->f, &xc->pos);
-	de_dbg(c, "subvrs: 0x%02x", (UI)xc->subvrs);
 	xc->masvrs = dbuf_getbyte_p(dcmpri->f, &xc->pos);
-	de_dbg(c, "masvrs: 0x%02x", (UI)xc->masvrs);
+	de_dbg(c, "vers: %u.%u", (UI)xc->masvrs, (UI)xc->subvrs);
 
 	if(hchk_calc != xc->hchk) {
 		xpk_on_checksum_error(c, xc);
@@ -1563,14 +1564,12 @@ void fmtutil_xpk_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	}
 
 	while(1) {
+		if(xc->errflag) goto done;
 		xc->pos = xc->dcmpri->pos + de_pad_to_4(xc->pos - xc->dcmpri->pos);
 		if(xc->pos+8 > xc->inf_endpos) goto done;
-		if(xc->errflag) goto done;
 		do_xpk_chunk(c, xc);
 		if(xc->curchunk.chk_type==XPKCHUNK_END) goto done;
 	}
-
-	xc->errflag = 1;
 
 done:
 	if(xc) {
