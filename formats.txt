@@ -916,6 +916,8 @@ Deark -- Information about supported formats
 * NuFX / ShrinkIt (module="nufx") (incomplete)
   Apple II compressed archive format.
 
+* OS/2 PACK archive (module="os2pack") (experimental)
+
 * Pack (module="pack")
   Old Unix compressed file format (.z).
 
