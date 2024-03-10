@@ -10,8 +10,6 @@
 DE_DECLARE_MODULE(de_module_fat);
 DE_DECLARE_MODULE(de_module_loaddskf);
 
-#include "../foreign/dskdcmps.h"
-
 #define MAX_NESTING_LEVEL 16
 
 struct member_data {
@@ -1182,7 +1180,7 @@ static void loaddskf_decompress(deark *c, struct skf_ctx *d)
 	dcmpro.f = outf;
 
 	de_dbg(c, "[decompressing]");
-	dskdcmps_run(c, &dcmpri, &dcmpro, &dres);
+	fmtutil_ibmlzw_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
 	dbuf_flush(dcmpro.f);
 	if(dres.errcode) {
 		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));

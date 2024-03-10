@@ -98,7 +98,7 @@ $(OBJDIR)/modules/exe.o: modules/exe.c src/deark-private.h src/deark.h \
 $(OBJDIR)/modules/exepack.o: modules/exepack.c src/deark-private.h \
  src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/fat.o: modules/fat.c src/deark-private.h src/deark.h \
- src/deark-config.h src/deark-fmtutil.h modules/../foreign/dskdcmps.h
+ src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/flac.o: modules/flac.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/fli.o: modules/fli.c src/deark-config.h \
@@ -369,7 +369,8 @@ $(OBJDIR)/src/fmtutil-lzah.o: src/fmtutil-lzah.c src/deark-private.h \
 $(OBJDIR)/src/fmtutil-lzh.o: src/fmtutil-lzh.c src/deark-private.h \
  src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/src/fmtutil-lzw.o: src/fmtutil-lzw.c src/deark-private.h \
- src/deark.h src/deark-config.h src/deark-fmtutil.h
+ src/deark.h src/deark-config.h src/deark-fmtutil.h \
+ src/../foreign/dskdcmps.h
 $(OBJDIR)/src/fmtutil-miniz.o: src/fmtutil-miniz.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h \
  src/../foreign/miniz-c.h src/../foreign/miniz.h

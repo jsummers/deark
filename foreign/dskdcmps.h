@@ -46,6 +46,7 @@ struct dd_codet {
 
 struct dd_Ctl {
 	deark *c;
+	const char *modname;
 	struct de_dfilter_in_params *dcmpri;
 	struct de_dfilter_out_params *dcmpro;
 	struct de_dfilter_results *dres;
@@ -381,7 +382,7 @@ static void dd_Decompress (struct dd_Ctl *Ctl)
 	}
 
 	if(Ctl->err_flag) {
-		de_dfilter_set_errorf(Ctl->c, Ctl->dres, "dskdcmprs", "Bad compressed data");
+		de_dfilter_set_errorf(Ctl->c, Ctl->dres, Ctl->modname, "Bad compressed data");
 	}
 	dd_DFree(Ctl, ct);
 }
@@ -393,6 +394,7 @@ static void dskdcmps_run(deark *c, struct de_dfilter_in_params *dcmpri,
 
 	Ctl = de_malloc(c, sizeof(struct dd_Ctl));
 	Ctl->c = c;
+	Ctl->modname = "ibmlzw";
 	Ctl->dcmpri = dcmpri;
 	Ctl->dcmpro = dcmpro;
 	Ctl->dres = dres;
