@@ -10,8 +10,9 @@ DE_DECLARE_MODULE(de_module_exe);
 
 #define EXE_FMT_DOS    1
 #define EXE_FMT_NE     2
-#define EXE_FMT_PE32   3
-#define EXE_FMT_PE32PLUS 4
+#define EXE_FMT_PE     3
+#define EXE_SUBFMT_PE32      1
+#define EXE_SUBFMT_PE32PLUS  2
 #define EXE_FMT_LX     5
 #define EXE_FMT_LE     6
 
@@ -31,12 +32,14 @@ DE_DECLARE_MODULE(de_module_exe);
 struct rsrc_type_info_struct;
 
 typedef struct localctx_struct {
-	int fmt;
+	u8 fmt;
+	u8 subfmt;
 	u8 execomp_mode; // 0 or 1; 0xff=unspecified
 	u8 check_checksum;
 	struct fmtutil_exe_info *ei;
 
 	i64 reloc_tbl_offset;
+	i64 reloc_tbl_endpos;
 	i64 file_hdr_size;
 	i64 num_relocs;
 	i64 end_of_dos_code;
@@ -204,13 +207,13 @@ static void do_opt_coff_header(deark *c, lctx *d, i64 pos, i64 len)
 		coff_opt_hdr_size = 24;
 
 	if(sig==0x010b) {
-		d->fmt = EXE_FMT_PE32;
+		d->subfmt = EXE_SUBFMT_PE32;
 		de_declare_fmt(c, "PE32");
 		do_opt_coff_nt_header(c, d, pos+coff_opt_hdr_size);
 		do_opt_coff_data_dirs(c, d, pos+coff_opt_hdr_size+68);
 	}
 	else if(sig==0x020b) {
-		d->fmt = EXE_FMT_PE32PLUS;
+		d->subfmt = EXE_SUBFMT_PE32PLUS;
 		de_declare_fmt(c, "PE32+");
 		do_opt_coff_nt_header_64(c, d, pos+coff_opt_hdr_size);
 		do_opt_coff_data_dirs(c, d, pos+coff_opt_hdr_size+88);
@@ -381,7 +384,6 @@ static void do_pe_coff_header(deark *c, lctx *d, i64 pos)
 		d->pe_sections_offset = pos+4+20+d->pe_opt_hdr_size;
 	}
 
-
 	de_dbg_indent(c, -1);
 }
 
@@ -514,64 +516,106 @@ static void identify_as_dos(deark *c, lctx *d)
 	de_declare_fmt(c, "DOS EXE");
 }
 
-static void do_ext_header(deark *c, lctx *d)
+static void do_identify_exe_format(deark *c, lctx *d)
 {
 	u8 buf[4];
 
-	if(d->ext_header_offset == 0 || d->ext_header_offset >= c->infile->len) {
+	if(d->ext_header_offset < 64 || d->ext_header_offset >= c->infile->len) {
 		// Give up if ext_header_offset is obviously bad.
+		identify_as_dos(c, d);
+		goto done;
+	}
+
+	// TODO: Can we assume a real ext_header_offset is a multiple of 2? 4? 16?
+
+	// If the ext hdr pointer overlaps another segment, assume DOS format.
+	if(d->file_hdr_size<=60 && d->end_of_dos_code>60) {
+		identify_as_dos(c, d);
+		goto done;
+	}
+	if(d->reloc_tbl_offset>=61 && d->reloc_tbl_offset<=63) {
+		identify_as_dos(c, d);
+		goto done;
+	}
+	if(d->num_relocs>0 && d->reloc_tbl_offset<64 && d->reloc_tbl_endpos>60) {
+		identify_as_dos(c, d);
 		goto done;
 	}
 
 	de_read(buf, d->ext_header_offset, 4);
 	if(!de_memcmp(buf, "PE\0\0", 4)) {
-		do_Rich_segment(c, d);
-		do_pe_coff_header(c, d, d->ext_header_offset);
-		// If do_pe_coff_header didn't figure out the format...
-		de_declare_fmt(c, "PE");
+		d->fmt = EXE_FMT_PE;
+		goto done;
 	}
-	else if(!de_memcmp(buf, "NE", 2)) {
-		// TODO: Do "Rich" segments ever exist in files that are not PE files?
-		de_declare_fmt(c, "NE");
+
+	if(!de_memcmp(buf, "NE", 2)) {
+		// TODO: I've heard that d->ext_header_offset can be at most 64K for
+		// (at least) NE format.
 		d->fmt = EXE_FMT_NE;
-		do_ne_ext_header(c, d, d->ext_header_offset);
+		goto done;
 	}
-	else if(!de_memcmp(buf, "LX", 2)) {
-		de_declare_fmt(c, "LX Linear Executable");
+
+	if(!de_memcmp(buf, "LX", 2)) {
 		d->fmt = EXE_FMT_LX;
-		do_lx_or_le_ext_header(c, d, d->ext_header_offset);
+		goto done;
 	}
-	else if(!de_memcmp(buf, "LE", 2)) {
-		de_declare_fmt(c, "LE Linear Executable");
+
+	if(!de_memcmp(buf, "LE", 2)) {
 		d->fmt = EXE_FMT_LE;
-		do_lx_or_le_ext_header(c, d, d->ext_header_offset);
+		goto done;
 	}
+
+	if((buf[0]>='A' && buf[0]<='Z') &&
+		((buf[1]>='0' && buf[1]<='9') || (buf[1]>='A' && buf[1]<='Z')))
+	{
+		// An unrecognized ext hdr signature that looks vaguely real...
+		de_declare_fmt(c, "Unknown EXE format (maybe DOS)");
+		goto done;
+	}
+
+	identify_as_dos(c, d);
 
 done:
-	if(d->fmt==0) {
-		if(d->end_of_dos_code == c->infile->len) {
-			identify_as_dos(c, d);
-		}
-	}
+	;
+}
 
-	// If we still don't know the format...
-	de_declare_fmt(c, "Unknown EXE format (maybe DOS)");
+static void do_ext_header(deark *c, lctx *d)
+{
+	switch(d->fmt) {
+	case EXE_FMT_PE:
+		do_Rich_segment(c, d);
+		do_pe_coff_header(c, d, d->ext_header_offset);
+		// If do_pe_coff_header didn't figure out the (sub)format...
+		de_declare_fmt(c, "PE");
+		break;
+	case EXE_FMT_NE:
+		de_declare_fmt(c, "NE");
+		// TODO: Do "Rich" segments ever exist in files that are not PE files?
+		do_ne_ext_header(c, d, d->ext_header_offset);
+		break;
+	case EXE_FMT_LX:
+		de_declare_fmt(c, "LX Linear Executable");
+		do_lx_or_le_ext_header(c, d, d->ext_header_offset);
+		break;
+	case EXE_FMT_LE:
+		de_declare_fmt(c, "LE Linear Executable");
+		do_lx_or_le_ext_header(c, d, d->ext_header_offset);
+		break;
+	}
 }
 
 static void do_reloc_table(deark *c, lctx *d)
 {
-	i64 reloc_tbl_endpos;
-
 	if(d->num_relocs<1) goto done;
 	if(d->num_relocs > 320*1024) goto done;
 	if(d->reloc_tbl_offset<1) goto done;
-	reloc_tbl_endpos = d->reloc_tbl_offset + d->num_relocs*4;
-	if(reloc_tbl_endpos > d->file_hdr_size) goto done;
-	if(reloc_tbl_endpos > c->infile->len) goto done;
+	d->reloc_tbl_endpos = d->reloc_tbl_offset + d->num_relocs*4;
+	if(d->reloc_tbl_endpos > d->file_hdr_size) goto done;
+	if(d->reloc_tbl_endpos > c->infile->len) goto done;
 
 	de_dbg(c, "reloc table at %"I64_FMT, d->reloc_tbl_offset);
 	de_dbg_indent(c, 1);
-	de_dbg(c, "%u entries, ends at %"I64_FMT, (UI)d->num_relocs, reloc_tbl_endpos);
+	de_dbg(c, "%u entries, ends at %"I64_FMT, (UI)d->num_relocs, d->reloc_tbl_endpos);
 
 	if(c->debug_level>=2) {
 		i64 i;
@@ -631,12 +675,11 @@ done:
 }
 
 // Returns 0 only if this is not an EXE file.
-// This function is not expected to extract any files. In execomp mode, it
-// definitely should not extract anything.
-static int do_fileheader(deark *c, lctx *d, i64 pos1)
+static int do_mz_fileheader(deark *c, lctx *d)
 {
 	i64 n;
 	i64 lfb, nblocks_1, nblocks;
+	i64 pos1 = 0;
 	i64 pos = pos1;
 	i64 regCS, regIP;
 	int retval = 0;
@@ -721,14 +764,29 @@ static int do_fileheader(deark *c, lctx *d, i64 pos1)
 
 	de_dbg_indent(c, -1);
 
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+// Returns 0 only if this is not an EXE file.
+// This function is not expected to extract any files. In execomp mode, it
+// definitely should not extract anything.
+static int do_all_headers(deark *c, lctx *d)
+{
+	int retval;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	retval = do_mz_fileheader(c, d);
+	if(!retval) goto done;
+
 	do_reloc_table(c, d);
 
-	if(d->reloc_tbl_offset>=28 && d->reloc_tbl_offset<64) {
-		identify_as_dos(c, d);
-	}
+	d->ext_header_offset = de_getu32le(60);
+	do_identify_exe_format(c, d);
 
 	if(d->fmt!=EXE_FMT_DOS) {
-		d->ext_header_offset = de_getu32le(pos1+60);
 		de_dbg(c, "extended header offset: %"I64_FMT, d->ext_header_offset);
 		do_ext_header(c, d);
 	}
@@ -1640,14 +1698,14 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 	}
 	d->execomp_mode = (u8)de_get_ext_option_bool(c, "execomp", 0xff);
 
-	if(!do_fileheader(c, d, 0)) goto done;
+	if(!do_all_headers(c, d)) goto done;
 
 	if(d->execomp_mode==1) {
 		do_execomp(c, d);
 		goto done;
 	}
 
-	if((d->fmt==EXE_FMT_PE32 || d->fmt==EXE_FMT_PE32PLUS) && d->pe_sections_offset>0) {
+	if((d->subfmt==EXE_SUBFMT_PE32 || d->subfmt==EXE_SUBFMT_PE32PLUS) && d->pe_sections_offset>0) {
 		do_pe_section_table(c, d);
 	}
 	else if(d->fmt==EXE_FMT_NE && d->ne_rsrc_tbl_offset>0) {
