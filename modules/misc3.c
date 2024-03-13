@@ -2836,17 +2836,26 @@ static void os2pack_decompressor_fn(struct de_arch_member_data *md)
 	fmtutil_ibmlzw_codectype1(md->c, md->dcmpri, md->dcmpro, md->dres, NULL);
 }
 
+static void os2pack2_read_cmpr_method(deark *c, i64 pos, i64 len)
+{
+	struct de_fourcc cmpr4cc;
+
+	if(len<8) return;
+	dbuf_read_fourcc(c->infile, pos+4, &cmpr4cc, 4, 0x0);
+	de_dbg(c, "cmpr meth: '%s'", cmpr4cc.id_dbgstr); // Usually "fT19"
+}
+
 static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *md)
 {
 	i64 pos;
 	i64 fnlen;
-	i64 unk1, unk2, unk3, unk4;
+	i64 ea_pos;
+	i64 ea_len = 0;
+	i64 member_endpos;
+	i64 unk2, unk3, unk4;
 	i64 n;
 	u8 flag_unsupp = 0;
-	struct de_fourcc cmpr4cc;
 	int saved_indent_level;
-
-	de_zeromem(&cmpr4cc, sizeof(struct de_fourcc));
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "member at %"I64_FMT, md->member_hdr_pos);
@@ -2861,14 +2870,13 @@ static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member
 	n = de_getu32le_p(&pos);
 	de_arch_handle_field_dos_attr(md, (UI)n);
 
-	// TODO: What is this field? Possibly based on an absolute file position.
-	unk1 = de_getu32le_p(&pos);
-	de_dbg(c, "unk1: %"I64_FMT, unk1);
+	ea_pos = de_getu32le_p(&pos);
+	de_dbg(c, "ext. attr. pos: %"I64_FMT, ea_pos);
 
 	de_arch_read_field_orig_len_p(md, &pos);
 	// TODO: Figure out why some files have 1 here, and others have the original
 	// file size.
-	if(md->orig_len == 1) {
+	if(d->fmtcode==1 && md->orig_len==1) {
 		md->orig_len = 0;
 		md->orig_len_known = 0;
 	}
@@ -2878,11 +2886,6 @@ static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member
 	if(md->next_member_pos!=0) {
 		md->next_member_exists = 1;
 	}
-	if(md->next_member_pos>=c->infile->len) {
-		d->fatalerrflag = 1;
-		d->need_errmsg = 1;
-		goto done;
-	}
 
 	if(d->fmtcode==2) {
 		pos += 7; // "FTCOMP\0"
@@ -2890,14 +2893,11 @@ static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member
 		unk2 = de_getu16le_p(&pos);
 		de_dbg(c, "unk2: %u", (UI)unk2);
 
-		n = de_getu16le_p(&pos);
-		if(n!=0x001) {
-			flag_unsupp = 1;
-			goto done;
-		}
+		unk3 = de_getu16le_p(&pos);
+		de_dbg(c, "unk3: %u", (UI)unk3);
 
-		unk3 = de_getu32le_p(&pos);
-		de_dbg(c, "unk3: %"I64_FMT, unk3);
+		unk4 = de_getu32le_p(&pos);
+		de_dbg(c, "unk4: %"I64_FMT, unk4);
 	}
 
 	fnlen = de_getu16le_p(&pos);
@@ -2908,40 +2908,67 @@ static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member
 	backslashes_to_slashes(md->filename);
 	md->set_name_flags |= DE_SNFLAG_FULLPATH;
 
-	if(d->fmtcode==2) {
-		// It could be that the compressed data is considered to start here.
-		// ?  often 80 60 00 00
-		unk4 = de_getu32le_p(&pos);
-		de_dbg(c, "unk4: 0x%08x", (UI)unk4);
-
-		// Usually "fT19"
-		dbuf_read_fourcc(c->infile, pos, &cmpr4cc, 4, 0x0);
-		de_dbg(c, "cmpr meth: '%s'", cmpr4cc.id_dbgstr);
-		pos += 4;
-	}
-
 	md->cmpr_pos = pos;
+
 	if(md->next_member_exists) {
-		md->cmpr_len = md->next_member_pos - pos;
+		member_endpos = md->next_member_pos;
 	}
 	else {
-		md->cmpr_len = c->infile->len - pos;
+		member_endpos = c->infile->len;
 	}
+
+	if(member_endpos > c->infile->len) {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	md->cmpr_len = member_endpos - md->cmpr_pos;
+	// if ea_pos is set, adjust cmpr_len downward
+	if(ea_pos != 0) {
+		if(ea_pos<md->cmpr_pos || ea_pos>member_endpos) {
+			d->fatalerrflag = 1;
+			d->need_errmsg = 1;
+			goto done;
+		}
+		md->cmpr_len = ea_pos - md->cmpr_pos;
+		ea_len = member_endpos - ea_pos;
+	}
+
 	if(md->cmpr_len<0) {
 		d->fatalerrflag = 1;
 		d->need_errmsg = 1;
 		goto done;
 	}
 
-	de_dbg(c, "cmpr data pos: %"I64_FMT, md->cmpr_pos);
-	de_dbg(c, "cmpr data len (calculated): %"I64_FMT, md->cmpr_len);
+	if(ea_len>0) {
+		de_dbg(c, "cmpr ext. attr. at %"I64_FMT", len=%"I64_FMT, ea_pos, ea_len);
+		de_dbg_indent(c, 1);
+		if(d->fmtcode==2) {
+			os2pack2_read_cmpr_method(c, ea_pos, ea_len);
+		}
+		de_dbg_indent(c, -1);
+	}
+
+	de_dbg(c, "cmpr data at %"I64_FMT", len=%"I64_FMT, md->cmpr_pos, md->cmpr_len);
+
+	de_dbg_indent(c, 1);
+	if(d->fmtcode==2) {
+		// Most likely, the compressed data is considered to start after the
+		// filename field.
+		// It seems to have a compression header that we can peek at.
+		os2pack2_read_cmpr_method(c, md->cmpr_pos, md->cmpr_len);
+	}
 
 	if(d->fmtcode==1) {
 		md->dfn = os2pack_decompressor_fn;
 		de_arch_extract_member_file(md);
-		// TODO: There may be a few meaningful bytes following the compressed data,
-		// but I don't know what they're for.
 	}
+
+	de_dbg_indent(c, -1);
+
+	// TODO: There may be a few more bytes at the end of a member, purpose unknown.
+	// If so, we should adjust md->cmpr_len or ea_len accordingly.
 
 done:
 	if(flag_unsupp) {
