@@ -229,6 +229,10 @@ static void detect_execomp_exepack(deark *c,
 		edd->detected_subfmt = 4;
 		goto done;
 	}
+	else if(ei->entrypoint_crcs==0x088371f84681f575LLU) {
+		edd->detected_subfmt = 7; // WordPerfect variant of (?) 4
+		goto done;
+	}
 	else if(ei->entrypoint_crcs==0x1f449ca73852e197LLU) {
 		n = (UI)dbuf_getu32be(ei->f, ei->entry_point+66);
 		if(n==0xe80500e8U) {
