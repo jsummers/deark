@@ -38,8 +38,11 @@ struct dd_codet {
 	int j;
 	u16 oldcode, oldest, newest;
 	u16 older[DD_MAXTABLE], newer[DD_MAXTABLE];
-	u16 charlink[DD_MAXTABLE], charlast[DD_MAXTABLE], charfirst[DD_MAXTABLE];
-	int used[DD_MAXTABLE], usecount[DD_MAXTABLE];
+	u16 charlink[DD_MAXTABLE]; // parent?
+	u16 charlast[DD_MAXTABLE];
+	u16 charfirst[DD_MAXTABLE];
+	int used[DD_MAXTABLE]; // Total number of uses, just for debugging?
+	int usecount[DD_MAXTABLE]; // How many other codes depend on this code?
 	int size[DD_MAXTABLE];
 	u8 *code[DD_MAXTABLE]; // Points to .size[] malloc'd bytes
 };
@@ -50,6 +53,7 @@ struct dd_Ctl {
 	struct de_dfilter_in_params *dcmpri;
 	struct de_dfilter_out_params *dcmpro;
 	struct de_dfilter_results *dres;
+	i64 code_counter;
 	i64 inf_pos;
 	i64 inf_endpos;
 	i64 nbytes_written;
@@ -187,6 +191,8 @@ static struct dd_codet * dd_DInit (struct dd_Ctl *Ctl)
 		ct->code[code] = (u8 *) de_malloc(Ctl->c, 1);
 		ct->code[code][0] = (u8)(code-1);
 		ct->size[code] = 1;
+		// Maybe this is set to 1 just to prevent it from ever getting down
+		// to 0. So it doesn't get re-used.
 		ct->usecount[code] = 1;
 	}
 	for (code = 257; code <= 4095; code++) {
@@ -273,12 +279,6 @@ static u16 dd_GetLRU (struct dd_Ctl *Ctl, struct dd_codet * ct)
 		}
 	}
 
-	if (ct->code[tcode] != NULL) {
-		de_free(Ctl->c, ct->code[tcode]);
-		ct->code[tcode] = NULL;
-		ct->size[tcode] = 0;
-	}
-
 	ct->used[tcode] ++;
 	return (tcode);
 }
@@ -317,6 +317,8 @@ static void dd_BuildEntry (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 newcode
 	// TODO?: This makes a huge total number of memory allocations (though only
 	// about 4096 will be active at any given time). Maybe it should be rewritten
 	// to not do that.
+	// [Actually, I think we can get rid of the ct->code[] field altogether, or
+	// reduce it to 1 byte. I think its contents can be deduced from other fields.]
 	codestr = (u8 *) de_malloc(Ctl->c, new_codesize);
 	de_memcpy(codestr, ct->code[ct->oldcode], (size_t)old_codesize);
 	if (newcode != lruentry) {
@@ -330,6 +332,9 @@ static void dd_BuildEntry (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 newcode
 		goto done;
 	}
 	codestr[new_codesize - 1] = ct->code[tcode][0];
+	if(ct->code[lruentry]) {
+		de_free(Ctl->c, ct->code[lruentry]);
+	}
 	ct->code[lruentry] = codestr;
 	codestr = NULL;
 	ct->size[lruentry] = new_codesize;
@@ -337,6 +342,7 @@ static void dd_BuildEntry (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 newcode
 	ct->charfirst[lruentry] = ct->charfirst[ct->charlink[lruentry]];
 	ct->charlast[lruentry] = tcode;
 	dd_ReserveEntry(Ctl, ct, ct->oldcode);
+	ct->usecount[lruentry] = 0;
 	dd_AddMRU (Ctl, ct, lruentry);
 
 #ifdef DD_EXTRADBG
@@ -369,7 +375,8 @@ static void dd_Decompress (struct dd_Ctl *Ctl)
 	while(1) {
 		newcode = dd_GetNextcode(Ctl, ct);
 		if(Ctl->c->debug_level>=3) {
-			de_dbg(Ctl->c, "[i%"I64_FMT"/o%"I64_FMT"] code=%u oc=%u",
+			de_dbg(Ctl->c, "%"I64_FMT" [i%"I64_FMT"/o%"I64_FMT"] code=%u oc=%u",
+				Ctl->code_counter,
 				Ctl->inf_pos, Ctl->nbytes_written,
 				(UI)newcode, (UI)ct->oldcode);
 		}
@@ -379,6 +386,7 @@ static void dd_Decompress (struct dd_Ctl *Ctl)
 		if(Ctl->err_flag) break;
 		dd_OutputString(Ctl, ct, newcode);
 		ct->oldcode = newcode;
+		Ctl->code_counter++;
 	}
 
 	if(Ctl->err_flag) {
