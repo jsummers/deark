@@ -625,7 +625,7 @@ static int de_identify_gemraster(deark *c)
 
 	if(!dens_ok && !id.has_ext) return 0;
 
-	// Unforunately, some files with version=0 exist.
+	// Unfortunately, some files with version=0 exist.
 	// If version is >1, require a known signature.
 	// TODO: False negatives apparently exist, but we need more info to
 	// support them.

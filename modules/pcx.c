@@ -779,7 +779,7 @@ static void de_run_dcx(deark *c, de_module_params *mparams)
 
 	for(page=0; page<num_pages; page++) {
 		if(page == num_pages-1) {
-			// Last page. Asssume it goes to the end of file.
+			// Last page. Assume it goes to the end of file.
 			page_size = c->infile->len - page_offset[page];
 		}
 		else {

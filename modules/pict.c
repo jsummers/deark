@@ -723,7 +723,7 @@ static int handler_0c00(deark *c, lctx *d, i64 opcode, i64 data_pos, i64 *bytes_
 	return 1;
 }
 
-// Returns 1 if image decoding was successul,
+// Returns 1 if image decoding was successful,
 // 0 if (e.g.) unsupported compression type.
 static int do_decode_qt(deark *c, lctx *d, i64 pos, i64 len)
 {

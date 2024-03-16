@@ -892,7 +892,7 @@ static const char *get_id3v2_frame_name(id3v2ctx *d, u32 id)
 		{0x54494dU, 0x54494d45U, "Time"},
 		{0x545432U, 0x54495432U, "Title"},
 		{0x54524bU, 0x5452434bU, "Track number"},
-		{0x554c54U, 0x55534c54U, "Unsychronized lyric transcription"},
+		{0x554c54U, 0x55534c54U, "Unsynchronized lyric transcription"},
 		{CODE_TXX,  CODE_TXXX,   "User defined text information"},
 		{CODE_WXX,  CODE_WXXX,   "User defined URL link"},
 		{0x545945U, 0x54594552U, "Year"}

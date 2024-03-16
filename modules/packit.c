@@ -115,7 +115,7 @@ static void packit_read_member_header(deark *c, struct packit_ctx *d,
 	de_timestamp_to_string(&pmd->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %"I64_FMT" (%s)", n, timestamp_buf);
 	// TODO: Many files have nonsense timestamps, and there's probably a reason.
-	// Mabye they can be decoded.
+	// Maybe they can be decoded.
 	if(n > 100000000) {
 		pmd->advf->mainfork.fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = pmd->mod_time;
 	}

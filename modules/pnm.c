@@ -58,7 +58,7 @@ static int fmt_is_binary(int fmt)
 
 static int is_pnm_whitespace(u8 b)
 {
-	// Whitspace = space, CR, LF, TAB, VT, or FF
+	// Whitespace = space, CR, LF, TAB, VT, or FF
 	return (b==9 || b==10 || b==11 || b==12 || b==13 || b==32);
 }
 
