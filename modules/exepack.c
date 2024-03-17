@@ -310,6 +310,7 @@ static const char *get_variant_name(u8 v)
 	case 4: name="EXEPACK 4.05/4.06"; break;
 	case 5: name="LINK 5.60/etc. var. 1"; break;
 	case 6: name="LINK 5.60/etc. var. 2"; break;
+	case 7: name="WordPerfect variant"; break;
 	case 10: name="exepack_DF"; break;
 	case 11: name="EXPAKFIX-patched"; break;
 	case 12: name="EXEPATCK-patched"; break;

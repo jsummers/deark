@@ -1106,10 +1106,36 @@ struct skf_ctx {
 	int new_fmt;
 	int is_compressed;
 	u32 checksum_reported;
+	u32 checksum_calc;
 	i64 hdr_size;
 	i64 expected_dcmpr_size; // 0 if unknown
 	i64 padded_size; // 0 if unknown
+	struct de_crcobj *crco;
 };
+
+// Get, report, and compare calculated checksum
+static void loaddskf_finish_checksum(deark *c, struct skf_ctx *d)
+{
+	d->checksum_calc = de_crcobj_getval(d->crco);
+	de_dbg(c, "checksum (calculated): 0x%08x", (UI)d->checksum_calc);
+	if(d->checksum_calc != d->checksum_reported) {
+		de_warn(c, "Checksum mismatch (reported 0x%08x, calculated 0x%08x). "
+			"Something may have gone wrong.", (UI)d->checksum_reported,
+			(UI)d->checksum_calc);
+	}
+}
+
+static void loaddskf_calc_checksum_noncmpr(deark *c, struct skf_ctx *d)
+{
+	i64 nbytes_to_checksum;
+
+	nbytes_to_checksum = c->infile->len - d->hdr_size;
+	if(d->expected_dcmpr_size && d->expected_dcmpr_size < nbytes_to_checksum) {
+		nbytes_to_checksum = d->expected_dcmpr_size;
+	}
+
+	de_crcobj_addslice(d->crco, c->infile, d->hdr_size, nbytes_to_checksum);
+}
 
 static void loaddskf_pad_ima_file(deark *c, struct skf_ctx *d, dbuf *outf)
 {
@@ -1179,6 +1205,8 @@ static void loaddskf_decompress(deark *c, struct skf_ctx *d)
 	dcmpri.len = c->infile->len - dcmpri.pos;
 	dcmpro.f = outf;
 
+	dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)d->crco);
+
 	de_dbg(c, "[decompressing]");
 	fmtutil_ibmlzw_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
 	dbuf_flush(dcmpro.f);
@@ -1186,6 +1214,9 @@ static void loaddskf_decompress(deark *c, struct skf_ctx *d)
 		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
 		goto done;
 	}
+
+	d->checksum_calc = de_crcobj_getval(d->crco);
+	loaddskf_finish_checksum(c, d);
 
 	if(d->to_raw) {
 		loaddskf_pad_ima_file(c, d, outf);
@@ -1263,6 +1294,7 @@ static void de_run_loaddskf(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(struct skf_ctx));
 	d->to_raw = de_get_ext_option_bool(c, "loaddskf:toraw", 0);
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_SUM_U16LE);
 
 	sig = (UI)de_getu16be(0);
 	switch(sig) {
@@ -1289,6 +1321,8 @@ static void de_run_loaddskf(deark *c, de_module_params *mparams)
 		loaddskf_decompress(c, d);
 	}
 	else {
+		loaddskf_calc_checksum_noncmpr(c, d);
+		loaddskf_finish_checksum(c, d);
 		if(d->to_raw) {
 			loaddskf_convert_noncmpr_to_ima(c, d);
 		}
@@ -1298,7 +1332,10 @@ static void de_run_loaddskf(deark *c, de_module_params *mparams)
 	}
 
 done:
-	de_free(c, d);
+	if(d) {
+		de_crcobj_destroy(d->crco);
+		de_free(c, d);
+	}
 }
 
 static int de_identify_loaddskf(deark *c)
