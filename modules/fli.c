@@ -63,6 +63,8 @@ struct chunk_info_type {
 	enum mapped_chunktype_enum mct;
 	i64 pos;
 	i64 len;
+	i64 dpos;
+	i64 dlen;
 
 	struct chunk_info_type *parent;
 	chunk_handler_type handler_fn;
@@ -314,12 +316,11 @@ done:
 	;
 }
 
-// (UNTESTED)
 static void do_chunk_copy(deark *c, lctx *d, struct chunk_info_type *ci)
 {
 	if(!ci->ictx) return;
 	ci->ictx->use_count++;
-	de_convert_image_paletted(c->infile, ci->pos, 8, ci->ictx->w, ci->ictx->pal,
+	de_convert_image_paletted(c->infile, ci->dpos, 8, ci->ictx->w, ci->ictx->pal,
 		ci->ictx->img, 0);
 }
 
@@ -791,6 +792,8 @@ static int do_chunk(deark *c, lctx *d, struct chunk_info_type *parent_ci,
 		ci->len = bytes_avail;
 	}
 
+	ci->dpos = ci->pos + 6;
+	ci->dlen = ci->len - 6;
 	*pbytes_consumed = ci->len;
 	retval = 1;
 
