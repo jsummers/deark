@@ -38,8 +38,9 @@ struct dd_codet {
 	u16 older[DD_MAXTABLE], newer[DD_MAXTABLE];
 	u16 charlink[DD_MAXTABLE]; // parent?
 	int usecount[DD_MAXTABLE]; // How many other codes depend on this code?
-	int size[DD_MAXTABLE];
-	u8 *code[DD_MAXTABLE]; // Points to .size[] malloc'd bytes
+	UI size[DD_MAXTABLE];
+	u8 valfirst[DD_MAXTABLE];
+	u8 value[DD_MAXTABLE];
 };
 
 struct dd_Ctl {
@@ -54,6 +55,7 @@ struct dd_Ctl {
 	i64 nbytes_written;
 	int eof_flag;
 	int err_flag;
+	u8 valbuf[DD_MAXTABLE];
 	char msg[DD_MAXSTRLEN];
 };
 
@@ -84,9 +86,6 @@ static void dd_dumpstate(struct dd_Ctl *Ctl, struct dd_codet * ct)
 	dbuf *dmpf = NULL;
 	FILE *f; // copy of dmpf->fp; do not close
 	char filename[100];
-	size_t k;
-	size_t wpos;
-	char work[100];
 
 	de_snprintf(filename, sizeof(filename), "ddump%07"I64_FMT".tmp", Ctl->code_counter);
 	dmpf = dbuf_create_unmanaged_file(Ctl->c, filename, DE_OVERWRITEMODE_DEFAULT, 0);
@@ -95,21 +94,21 @@ static void dd_dumpstate(struct dd_Ctl *Ctl, struct dd_codet * ct)
 	fprintf(f, "codes processed: %u\n", (UI)Ctl->code_counter);
 	fprintf(f, "code olde newe clin uc siz\n");
 	for(i=0; i<4096; i++) {
-		fprintf(f, "%4u %4u %4u %4u %2u %3u", (UI)i,
+		fprintf(f, "%4u %4u %4u %4u %2u %4u", (UI)i,
 			(UI)ct->older[i], (UI)ct->newer[i],
 			(UI)ct->charlink[i],
 			(UI)ct->usecount[i],
 			(UI)ct->size[i]);
 
-		wpos = 0;
-		for(k=0; k<(size_t)ct->size[i]; k++) {
-			if(wpos+10 > sizeof(work)) break;
-			work[wpos++] = ' ';
-			work[wpos++] = de_get_hexchar((ct->code[i][k])>>4);
-			work[wpos++] = de_get_hexchar((ct->code[i][k])%0x0f);
+		if(ct->size[i]==1) {
+			fprintf(f, " %02x", (UI)ct->value[i]);
 		}
-		work[wpos] = '\0';
-		fprintf(f, "%s", work);
+		else if(ct->size[i]==2) {
+			fprintf(f, " %02x %02x", (UI)ct->valfirst[i], (UI)ct->value[i]);
+		}
+		else if(ct->size[i]>2) {
+			fprintf(f, " %02x...%02x", (UI)ct->valfirst[i], (UI)ct->value[i]);
+		}
 
 		if(i==(size_t)ct->oldcode) fprintf(f, " OLDCODE");
 		if(i==(size_t)ct->oldest) fprintf(f, " oldest");
@@ -127,41 +126,73 @@ static void dd_dumpstate(struct dd_Ctl *Ctl, struct dd_codet * ct)
 static void dd_ValidateLinkChains (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 tcode)
 {
 	u16 tnewer, tolder;
+	UI errcode = 0;
 
 	if(Ctl->c->debug_level<3) return;
 	tnewer = ct->newer[tcode];
 	tolder = ct->older[tcode];
 	if (tcode == ct->newest) {
 		if (tnewer != 0) {
-			dd_tmsg(Ctl, "Newer code not zero. tcode: %4x, newer: %4x, older: %4x",
-				tcode, tnewer, ct->older[tnewer]);
+			errcode += 1;
 		}
 	}
 	else {
 		if (ct->older[tnewer] != tcode) {
-			dd_tmsg(Ctl, "Older code not linked. tcode: %4x, newer: %4x, older: %4x",
-				tcode, tnewer, ct->older[tnewer]);
+			errcode += 2;
 		}
 	}
 	if (tcode == ct->oldest) {
 		if (tolder != 0) {
-			dd_tmsg(Ctl, "Older code not zero. tcode: %4x, older: %4x, newer: %4x",
-				tcode, tolder, ct->newer[tolder]);
+			errcode += 4;
 		}
 	}
 	else {
 		if (ct->newer[tolder] != tcode) {
-			dd_tmsg(Ctl, "Newer code not linked. tcode: %4x, older: %4x, newer: %4x",
-				tcode, tolder, ct->newer[tolder]);
+			errcode += 8;
 		}
+	}
+
+	if(errcode) {
+		dd_tmsg(Ctl, "Link validation error (%u). tcode: %4x, older: %4x, newer: %4x",
+			errcode, tcode, tolder, ct->newer[tolder]);
 	}
 }
 
 //*******************************************************************
 static void dd_OutputString(struct dd_Ctl *Ctl, struct dd_codet * ct, u16 tcode)
 {
-	dbuf_write(Ctl->dcmpro->f, (const u8*)ct->code[tcode], ct->size[tcode]);
+	size_t i;
+	size_t valbuf_pos = DD_MAXTABLE;
+	u16 curcode = tcode;
+
+	if(ct->size[tcode]<1 || ct->size[tcode]>DD_MAXTABLE-256) {
+		Ctl->err_flag = 1;
+		goto done;
+	}
+
+	for(i=0; i<(size_t)ct->size[tcode]; i++) {
+		if(curcode>=DD_MAXTABLE || curcode<1) {
+			Ctl->err_flag = 1;
+			goto done;
+		}
+
+		if(ct->size[curcode] != ct->size[tcode]-i) {
+			Ctl->err_flag = 1;
+			goto done;
+		}
+
+		valbuf_pos--;
+		Ctl->valbuf[valbuf_pos] = ct->value[curcode];
+
+		// Traverse the tree, back toward the root codes.
+		curcode = ct->charlink[curcode];
+	}
+
+	dbuf_write(Ctl->dcmpro->f, &Ctl->valbuf[valbuf_pos], ct->size[tcode]);
 	Ctl->nbytes_written += (i64)ct->size[tcode];
+
+done:
+	;
 }
 
 //*******************************************************************
@@ -196,8 +227,8 @@ static struct dd_codet * dd_DInit (struct dd_Ctl *Ctl)
 
 	ct = (struct dd_codet *) de_malloc(Ctl->c, sizeof(struct dd_codet));
 	for (code = 1; code <= 256; code++) {
-		ct->code[code] = (u8 *) de_malloc(Ctl->c, 1);
-		ct->code[code][0] = (u8)(code-1);
+		ct->valfirst[code] = (u8)(code-1);
+		ct->value[code] = (u8)(code-1);
 		ct->size[code] = 1;
 		// Maybe this is set to 1 just to prevent it from ever getting down
 		// to 0. So it doesn't get re-used.
@@ -221,16 +252,7 @@ static struct dd_codet * dd_DInit (struct dd_Ctl *Ctl)
 
 static void dd_DFree(struct dd_Ctl *Ctl, struct dd_codet *ct)
 {
-	UI i;
-
 	if(!ct) return;
-	for(i=0; i<DD_MAXTABLE; i++) {
-		if (ct->code[i] != NULL) {
-			de_free(Ctl->c, ct->code[i]);
-			ct->code[i] = NULL;
-			ct->size[i] = 0;
-		}
-	}
 	de_free(Ctl->c, ct);
 }
 
@@ -310,7 +332,7 @@ static void dd_BuildEntry (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 newcode
 
 	lruentry = dd_GetLRU(Ctl, ct);
 	old_codesize = ct->size[ct->oldcode];
-	if(old_codesize<1 || !ct->code[ct->oldcode]) {
+	if(old_codesize<1) {
 		Ctl->err_flag = 1;
 		goto done;
 	}
@@ -319,29 +341,17 @@ static void dd_BuildEntry (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 newcode
 		Ctl->err_flag = 1;
 		goto done;
 	}
-	// TODO?: This makes a huge total number of memory allocations (though only
-	// about 4096 will be active at any given time). Maybe it should be rewritten
-	// to not do that.
-	// [Actually, I think we can get rid of the ct->code[] field altogether, or
-	// reduce it to 1 byte. I think its contents can be deduced from other fields.]
-	codestr = (u8 *) de_malloc(Ctl->c, new_codesize);
-	de_memcpy(codestr, ct->code[ct->oldcode], (size_t)old_codesize);
+
 	if (newcode != lruentry) {
 		tcode = newcode;
 	}
 	else {
 		tcode = ct->oldcode;
 	}
-	if(!ct->code[tcode]) {
-		Ctl->err_flag = 1;
-		goto done;
-	}
-	codestr[new_codesize - 1] = ct->code[tcode][0];
-	if(ct->code[lruentry]) {
-		de_free(Ctl->c, ct->code[lruentry]);
-	}
-	ct->code[lruentry] = codestr;
-	codestr = NULL;
+
+	ct->valfirst[lruentry] = ct->valfirst[ct->oldcode];
+	ct->value[lruentry] = ct->valfirst[tcode];
+
 	ct->size[lruentry] = new_codesize;
 	ct->charlink[lruentry] = ct->oldcode;
 	dd_ReserveEntry(Ctl, ct, ct->oldcode);
