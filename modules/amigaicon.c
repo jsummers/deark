@@ -24,7 +24,7 @@ typedef struct localctx_struct {
 	int has_newicons;
 	dbuf *newicons_data[2];
 	UI newicons_bits_per_pixel;
-	int newicons_line_count;
+	u8 newicons_finished_pal;
 	struct de_bitbuf_lowlevel newicons_bbll;
 
 	// Glowicons-specific data
@@ -52,7 +52,7 @@ static void do_newicons_process_bit(deark *c, lctx *d, dbuf *f, u8 b)
 	de_bitbuf_lowlevel_add_bits(&d->newicons_bbll, (u64)b, 1);
 
 	// If line_count==0, we're still reading palette samples, which are always 8 bits.
-	nbits_needed = (d->newicons_line_count==0) ? 8 : d->newicons_bits_per_pixel;
+	nbits_needed = (d->newicons_finished_pal==0) ? 8 : d->newicons_bits_per_pixel;
 
 	if(d->newicons_bbll.nbits_in_bitbuf >= nbits_needed) {
 		dbuf_writebyte(f, (u8)de_bitbuf_lowlevel_get_bits(&d->newicons_bbll,
@@ -129,9 +129,7 @@ static void do_decode_newicons(deark *c, lctx *d,
 	// We decode both the palette and the bitmap into the same buffer, and
 	// keep track of where in the buffer the bitmap starts.
 
-	// Count the number of lines (EOL represented by 0x00 byte).
-	// This is only needed because the bitmap starts on the second line.
-	d->newicons_line_count=0;
+	d->newicons_finished_pal = 0;
 
 	for(srcpos=5; srcpos<f->len; srcpos++) {
 		b0 = dbuf_getbyte(f, srcpos);
@@ -152,11 +150,12 @@ static void do_decode_newicons(deark *c, lctx *d,
 			// Throw away any bits we've decoded that haven't been used yet.
 			d->newicons_bbll.nbits_in_bitbuf = 0;
 
-			if(d->newicons_line_count==0) {
+			// Presumably, the bitmap always starts at the beginning of a line.
+			if(d->newicons_finished_pal==0 && decoded->len>=ncolors*3) {
 				// The bitmap will start at this position. Remember that.
 				bitmap_start_pos = decoded->len;
+				d->newicons_finished_pal = 1;
 			}
-			d->newicons_line_count++;
 		}
 	}
 
