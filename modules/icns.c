@@ -13,10 +13,19 @@ static const de_color g_stdpal16[16] = {
 	0xff1fb714U,0xff006411U,0xff562c05U,0xff90713aU,0xffc0c0c0U,0xff808080U,0xff404040U,0xff000000U
 };
 
-#define IMGTYPE_EMBEDDED_FILE   1
+#define IMGTYPE_EMBEDDED_FILE   1 // JP2 or PNG
 #define IMGTYPE_MASK            2
 #define IMGTYPE_IMAGE           3
 #define IMGTYPE_IMAGE_AND_MASK  4
+#define IMGTYPE_ARGB_ETC        5 // ARGB or JP2 or PNG
+
+enum content_enum {
+	CONTENT_UNSET=0,
+	CONTENT_UNKNOWN,
+	CONTENT_PNG,
+	CONTENT_JP2,
+	CONTENT_ARGB
+};
 
 struct image_type_info {
 	u32 code;
@@ -61,6 +70,13 @@ static const struct image_type_info image_type_info_arr[] = {
 	{ 0x69633132, 64,   64,   0,  IMGTYPE_EMBEDDED_FILE }, // ic12
 	{ 0x69633133, 256,  256,  0,  IMGTYPE_EMBEDDED_FILE }, // ic13
 	{ 0x69633134, 512,  512,  0,  IMGTYPE_EMBEDDED_FILE }, // ic14
+	{ 0x73623234, 24,   24,   0,  IMGTYPE_EMBEDDED_FILE }, // sb24
+	{ 0x69637342, 36,   36,   0,  IMGTYPE_EMBEDDED_FILE }, // icsB
+	{ 0x53423234, 48,   48,   0,  IMGTYPE_EMBEDDED_FILE }, // SB24
+
+	{ 0x69633034, 16,   16,   0,  IMGTYPE_ARGB_ETC }, // ic04
+	{ 0x69633035, 32,   32,   0,  IMGTYPE_ARGB_ETC }, // ic05
+	{ 0x69637362, 18,   18,   0,  IMGTYPE_ARGB_ETC }, // icsb
 
 	{ 0x544f4320, 0,    0,    0,  0 }, // 'TOC '
 	{ 0x69636e56, 0,    0,    0,  0 }  // icnV
@@ -78,6 +94,7 @@ struct page_ctx {
 	i64 rowspan;
 	const struct image_type_info *type_info;
 	struct de_fourcc code4cc;
+	enum content_enum content_type; // Used when code4cc is insufficient
 	char filename_token[32];
 	de_color pal[256];
 };
@@ -249,30 +266,80 @@ static void do_decode_24bit(deark *c, lctx *d, struct page_ctx *pg)
 	if(unc_pixels) dbuf_close(unc_pixels);
 }
 
-static void do_extract_png_or_jp2(deark *c, lctx *d, struct page_ctx *pg)
+// Sets pg->content_type
+static void identify_content(deark *c, lctx *d, struct page_ctx *pg)
 {
 	u8 buf[8];
-	de_finfo *fi = NULL;
 
-	de_dbg(c, "Trying to extract file at %d", (int)pg->image_pos);
+	if(pg->content_type!=CONTENT_UNSET) return;
 
-	// Detect the format
+	// Read the first few bytes
 	de_read(buf, pg->image_pos, sizeof(buf));
 
-	fi = de_finfo_create(c);
-	de_finfo_set_name_from_sz(c, fi, pg->filename_token, 0, DE_ENCODING_ASCII);
-
 	if(buf[4]=='j' && buf[5]=='P') {
-		dbuf_create_file_from_slice(c->infile, pg->image_pos, pg->image_len, "jp2", fi, 0);
+		pg->content_type = CONTENT_JP2;
 	}
 	else if(buf[0]==0x89 && buf[1]==0x50) {
-		dbuf_create_file_from_slice(c->infile, pg->image_pos, pg->image_len, "png", fi, 0);
+		pg->content_type = CONTENT_PNG;
+	}
+	else if(buf[0]=='A' && buf[1]=='R' && buf[2]=='G' && buf[3]=='B') {
+		pg->content_type = CONTENT_ARGB;
 	}
 	else {
-		de_err(c, "(Image #%d) Unidentified file format", pg->image_num);
+		pg->content_type = CONTENT_UNKNOWN;
+	}
+}
+
+// Call this only after the PNG or JP2 format has been identified.
+static void do_extract_png_or_jp2(deark *c, lctx *d, struct page_ctx *pg)
+{
+	de_finfo *fi = NULL;
+	const char *ext;
+
+	if(pg->content_type==CONTENT_JP2) {
+		ext = "jp2";
+	}
+	else if(pg->content_type==CONTENT_PNG) {
+		ext = "png";
+	}
+	else {
+		goto done;
 	}
 
+	fi = de_finfo_create(c);
+
+	de_snprintf(pg->filename_token, sizeof(pg->filename_token), "%dx%d",
+		(int)pg->type_info->width, (int)pg->type_info->height);
+	de_finfo_set_name_from_sz(c, fi, pg->filename_token, 0, DE_ENCODING_ASCII);
+
+	dbuf_create_file_from_slice(c->infile, pg->image_pos, pg->image_len, ext, fi, 0);
+
+done:
 	de_finfo_destroy(c, fi);
+}
+
+static void do_argb(deark *c, lctx *d, struct page_ctx *pg)
+{
+	de_err(c, "ARGB format not supported");
+}
+
+static void do_argb_png_or_jp2(deark *c, lctx *d, struct page_ctx *pg)
+{
+	identify_content(c, d, pg);
+
+	if(pg->type_info->image_type==IMGTYPE_ARGB_ETC && pg->content_type==CONTENT_ARGB) {
+		do_argb(c, d, pg);
+		return;
+	}
+
+	de_dbg(c, "Trying to extract file at %"I64_FMT, pg->image_pos);
+
+	if(pg->content_type==CONTENT_JP2 || pg->content_type==CONTENT_PNG) {
+		do_extract_png_or_jp2(c, d, pg);
+		return;
+	}
+
+	de_err(c, "(Image #%d) Unidentified file format", pg->image_num);
 }
 
 // Assumes image_type is IMAGE or IMAGE_AND_MASK.
@@ -383,10 +450,10 @@ static void do_icon(deark *c, lctx *d, struct page_ctx *pg)
 		return;
 	}
 
-	if(pg->type_info->image_type==IMGTYPE_EMBEDDED_FILE) {
-		de_snprintf(pg->filename_token, sizeof(pg->filename_token), "%dx%d",
-			(int)pg->type_info->width, (int)pg->type_info->height);
-		do_extract_png_or_jp2(c, d, pg);
+	if(pg->type_info->image_type==IMGTYPE_EMBEDDED_FILE ||
+		pg->type_info->image_type==IMGTYPE_ARGB_ETC)
+	{
+		do_argb_png_or_jp2(c, d, pg);
 		return;
 	}
 
