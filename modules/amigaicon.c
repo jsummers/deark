@@ -462,13 +462,6 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 		goto done;
 	}
 
-	if(cmpr_type!=1) {
-		// TODO uncompressed images (Need sample files. I don't know how
-		// they are structured.)
-		de_err(c, "Uncompressed images are not supported");
-		goto done;
-	}
-
 	if(has_palette) {
 		pal_cmpr_type = de_getbyte(pos+4);
 		de_dbg(c, "palette compression type: %d", pal_cmpr_type);
@@ -526,7 +519,12 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 
 	// Decompress the pixels
 	dbuf_empty(tmpbuf);
-	glowdata_decompress(c->infile, image_pos, image_size_in_bytes, tmpbuf, (UI)bits_per_pixel);
+	if(cmpr_type==0) {
+		dbuf_copy(c->infile, image_pos, image_size_in_bytes, tmpbuf);
+	}
+	else {
+		glowdata_decompress(c->infile, image_pos, image_size_in_bytes, tmpbuf, (UI)bits_per_pixel);
+	}
 
 	img = de_bitmap_create(c, d->glowicons_width, d->glowicons_height, has_trns?4:3);
 

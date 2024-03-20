@@ -16,8 +16,7 @@ Deark -- Information about supported formats
   - Original format: Mostly supported, but the format is not portable, and
     there is not just one correct way to render the images.
   - NewIcons: Fully supported.
-  - GlowIcons / OS3.5: Compressed images are supported. Uncompressed images are
-    not.
+  - GlowIcons / OS3.5: Fully supported.
 
 * AMOS Picture Bank (module="abk")
 
