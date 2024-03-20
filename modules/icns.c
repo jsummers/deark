@@ -218,12 +218,29 @@ static void do_uncompress_24(deark *c, lctx *d, struct page_ctx *pg, dbuf *unc_p
 	}
 }
 
+static void read_image_plane(deark *c, lctx *d,
+	dbuf *unc_pixels, i64 plane, de_bitmap *img, i64 samplenum)
+{
+	i64 i, j;
+	i64 w, h;
+
+	w = img->width;
+	h = img->height;
+
+	for(j=0; j<h; j++) {
+		for(i=0; i<w; i++) {
+			u8 v;
+
+			v = dbuf_getbyte(unc_pixels, (plane*h+j)*w + i);
+			de_bitmap_setsample(img, i, j, samplenum, v);
+		}
+	}
+}
+
 static void do_decode_24bit(deark *c, lctx *d, struct page_ctx *pg)
 {
 	dbuf *unc_pixels = NULL;
 	de_bitmap *img = NULL;
-	i64 i, j;
-	u8 cr, cg, cb;
 	i64 w, h;
 	i64 skip;
 
@@ -248,20 +265,16 @@ static void do_decode_24bit(deark *c, lctx *d, struct page_ctx *pg)
 
 	img = de_bitmap_create(c, w, h, 4);
 
-	for(j=0; j<pg->type_info->height; j++) {
-		for(i=0; i<pg->type_info->width; i++) {
-			cr = dbuf_getbyte(unc_pixels, j*w + i);
-			cg = dbuf_getbyte(unc_pixels, (h+j)*w + i);
-			cb = dbuf_getbyte(unc_pixels, (2*h+j)*w + i);
-			de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_RGB(cr,cg,cb));
-		}
-	}
+	de_bitmap_rect(img, 0, 0, w, h, DE_STOCKCOLOR_BLACK, 0);
+	read_image_plane(c, d, unc_pixels, 0, img, 0);
+	read_image_plane(c, d, unc_pixels, 1, img, 1);
+	read_image_plane(c, d, unc_pixels, 2, img, 2);
 
 	if(pg->mask_ref && pg->mask_ref->img) {
 		de_bitmap_apply_mask(img, pg->mask_ref->img, 0);
 	}
 
-	de_bitmap_write_to_file(img, pg->filename_token, 0);
+	de_bitmap_write_to_file(img, pg->filename_token, DE_CREATEFLAG_OPT_IMAGE);
 	de_bitmap_destroy(img);
 	if(unc_pixels) dbuf_close(unc_pixels);
 }
@@ -320,7 +333,29 @@ done:
 
 static void do_argb(deark *c, lctx *d, struct page_ctx *pg)
 {
-	de_err(c, "ARGB format not supported");
+	dbuf *unc_pixels = NULL;
+	de_bitmap *img = NULL;
+	i64 w, h;
+
+	w = pg->type_info->width;
+	h = pg->type_info->height;
+
+	unc_pixels = dbuf_create_membuf(c, w*h*4, 1);
+	do_uncompress_24(c, d, pg, unc_pixels, 4);
+
+	img = de_bitmap_create(c, w, h, 4);
+
+	read_image_plane(c, d, unc_pixels, 0, img, 3);
+	read_image_plane(c, d, unc_pixels, 1, img, 0);
+	read_image_plane(c, d, unc_pixels, 2, img, 1);
+	read_image_plane(c, d, unc_pixels, 3, img, 2);
+
+	de_snprintf(pg->filename_token, sizeof(pg->filename_token), "%dx%dx32",
+		(int)w, (int)h);
+
+	de_bitmap_write_to_file(img, pg->filename_token, DE_CREATEFLAG_OPT_IMAGE);
+	de_bitmap_destroy(img);
+	if(unc_pixels) dbuf_close(unc_pixels);
 }
 
 static void do_argb_png_or_jp2(deark *c, lctx *d, struct page_ctx *pg)

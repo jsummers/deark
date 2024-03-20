@@ -252,7 +252,7 @@ Deark -- Information about supported formats
 
 * icns (Apple Icon) (module="icns")
   - Supports uncompressed 1-, 4-, and 8-bit images (with 1-bit mask).
-  - Supports RLE-compressed 24-bit images (with 8-bit mask).
+  - Supports RLE-compressed 24-bit images (with 8-bit mask), and ARGB.
   - Extract embedded JP2 and PNG files.
 
 * ICO/CUR (Windows icon/cursor) (module="ico")
