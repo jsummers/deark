@@ -244,6 +244,33 @@ static const de_color pal4bit[16] = {
 };
 #endif
 
+static u8 reverse_bits_in_byte(u8 b1)
+{
+	UI i;
+	u8 b2 = 0;
+
+	for(i=0; i<8; i++) {
+
+		b2 <<= 1;
+		b2 |= (b1 & 0x1);
+		b1 >>= 1;
+	}
+	return b2;
+}
+
+static void make_pal256_revbits(deark *c, lctx *d)
+{
+	size_t i;
+
+	for(i=0; i<256; i++) {
+		u8 x;
+
+		x = reverse_bits_in_byte((u8)(255-i));
+		d->pal[i] = DE_MAKE_GRAY(x);
+		de_dbg_pal_entry(c, (i64)i, d->pal[i]);
+	}
+}
+
 static void do_gem_img(deark *c, lctx *d)
 {
 	dbuf *unc_pixels = NULL;
@@ -292,7 +319,12 @@ static void do_gem_img(deark *c, lctx *d)
 		read_paletted_image(c, d, unc_pixels, img);
 	}
 	else {
-		de_make_grayscale_palette(d->pal, ((i64)1)<<((UI)d->nplanes), 1);
+		if(d->nplanes==8) {
+			make_pal256_revbits(c, d);
+		}
+		else {
+			de_make_grayscale_palette(d->pal, ((i64)1)<<((UI)d->nplanes), 1);
+		}
 		read_paletted_image(c, d, unc_pixels, img);
 	}
 
