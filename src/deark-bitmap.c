@@ -198,8 +198,15 @@ static void scan_image(de_bitmap *img, struct image_scan_opt_data *optctx)
 				optctx->is_nonbilevel = 1;
 			}
 			if(!optctx->has_color && img->bytes_per_pixel>=3 &&
-				((g!=r || b!=r) && a!=0) )
+				(g!=r || b!=r))
 			{
+				// This doesn't test for "&& a!=0". It *could*, but our (undocumented)
+				// behavior is to try not to change the underlying color of invisible
+				// pixels.
+				// If we *were* going to do that, it would be more logical, and better
+				// for compression, to change the underlying color to black, instead
+				// of ultimately writing what amounts to garbage (probably just the
+				// red channel would survive).
 				optctx->has_color = 1;
 				optctx->is_nonbilevel = 1;
 			}
