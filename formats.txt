@@ -267,7 +267,8 @@ Deark -- Information about supported formats
   - Extract thumbnails from TINY chunks
   - Extract text from ANNO chunks (use -a)
   Options
-   -opt ilbm:notrans - Disable support for transparency
+   -opt ilbm:trans=<0|1|auto> - Remove (0) or respect (1) transparency. The
+     default, "auto", is to remove transparency only if it seems bad.
    -opt ilbm:fixpal=<0|1> - Don't/Do try to correct palettes that seem to have
      fewer than 8 bits of precision.
 

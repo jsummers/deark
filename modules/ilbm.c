@@ -95,7 +95,10 @@ typedef struct localctx_struct {
 	int num_frames_started;
 	int num_frames_finished;
 	int debug_frame_buffer;
-	u8 opt_notrans;
+#define TRANS_REMOVE   0
+#define TRANS_RESPECT  1
+#define TRANS_AUTO     2
+	u8 trans_setting;
 	u8 opt_fixpal;
 	u8 opt_allowsham;
 	u8 opt_anim_includedups;
@@ -1195,7 +1198,7 @@ static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is
 		;
 	}
 	else if(ibi->masking_code==MASKINGTYPE_COLORKEY) {
-		if(!d->opt_notrans && ibi->planes_fg<=8 && !d->ham_flag) {
+		if((d->trans_setting!=TRANS_REMOVE) && ibi->planes_fg<=8 && !d->ham_flag) {
 			ibi->use_colorkey_transparency = 1;
 		}
 	}
@@ -2105,7 +2108,7 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 	}
 
 	if(ibi->use_colorkey_transparency || ibi->masking_code==MASKINGTYPE_1BITMASK) {
-		if(!d->opt_notrans) {
+		if(d->trans_setting!=TRANS_REMOVE) {
 			bypp++;
 		}
 	}
@@ -2175,7 +2178,7 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 		}
 
 		// Handle 1-bit transparency masks here, for all color types.
-		if(ibi->masking_code==MASKINGTYPE_1BITMASK && !d->opt_notrans) {
+		if(ibi->masking_code==MASKINGTYPE_1BITMASK && (d->trans_setting!=TRANS_REMOVE)) {
 			i64 i;
 
 			for(i=0; i<rowbuf_size; i++) {
@@ -2191,6 +2194,15 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 	}
 
 after_render:
+	if(d->trans_setting==TRANS_AUTO) {
+		de_bitmap_optimize_alpha(img, 0x2|0x4);
+	}
+	else if(d->trans_setting==TRANS_REMOVE) {
+		// The image shouldn't have transparency if we get here, but
+		// it doesn't hurt to verify.
+		de_bitmap_remove_alpha(img);
+	}
+
 	fi = de_finfo_create(c);
 	set_finfo_data(c, d, ibi, fi);
 	if(ibi->is_thumb) {
@@ -2538,15 +2550,23 @@ static void strip_trailing_space_sz(char *sz)
 static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 {
 	u32 id;
+	u8 opt_notrans = 0;
+	const char *opt_trans_str;
 	lctx *d = NULL;
 	struct de_iffctx *ictx = NULL;
 	struct de_fourcc formtype_4cc;
 
 	d = de_malloc(c, sizeof(lctx));
 	d->opt_fixpal = (u8)de_get_ext_option_bool(c, "ilbm:fixpal", 1);
-	if(de_get_ext_option(c, "ilbm:notrans")) {
-		d->opt_notrans = 1;
+
+	opt_trans_str = de_get_ext_option(c, "ilbm:trans");
+
+	if(!opt_trans_str) {
+		if(de_get_ext_option(c, "ilbm:notrans")) { // Deprecated option
+			opt_notrans = 1;
+		}
 	}
+
 	if(de_get_ext_option(c, "ilbm:allowsham")) {
 		d->opt_allowsham = 1;
 	}
@@ -2581,6 +2601,38 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 
 	if(d->is_anim) {
 		d->opt_anim_includedups = (u8)de_get_ext_option_bool(c, "anim:includedups", 0);
+	}
+
+	// Default for d->trans_setting
+	if(d->is_anim) {
+		// I don't think AUTO makes sense for ANIM.
+		d->trans_setting = TRANS_RESPECT;
+	}
+	else {
+		d->trans_setting = TRANS_AUTO;
+	}
+
+	if(opt_trans_str) {
+		if(!de_strcmp(opt_trans_str, "auto")) {
+			d->trans_setting = TRANS_AUTO;
+		}
+		else if(!de_strcmp(opt_trans_str, "")) {
+			d->trans_setting = TRANS_RESPECT;
+		}
+		else {
+			int opt_trans_n;
+
+			opt_trans_n = de_atoi(opt_trans_str);
+			if(opt_trans_n==0) {
+				d->trans_setting = TRANS_REMOVE;
+			}
+			else if(opt_trans_n>0) {
+				d->trans_setting = TRANS_RESPECT;
+			}
+		}
+	}
+	else if(opt_notrans) {
+		d->trans_setting = TRANS_REMOVE;
 	}
 
 	d->FORM_level = d->is_anim ? 1 : 0;
@@ -2651,7 +2703,8 @@ static int de_identify_anim(deark *c)
 
 static void do_help_ilbm_anim(deark *c, int is_anim)
 {
-	de_msg(c, "-opt ilbm:notrans : Disable support for transparency");
+	de_msg(c, "-opt ilbm:trans=<0|1|auto> : Always remove (0) or respect (1) "
+		"transparency");
 	if(!is_anim) {
 		de_msg(c, "-opt ilbm:fixpal=<0|1> : Don't/Do try to fix palettes that are "
 			"slightly too dark");
