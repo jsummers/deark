@@ -1567,19 +1567,34 @@ static void detect_hame(deark *c, lctx *d, struct imgbody_info *ibi,
 	d->is_hame = 1;
 }
 
+static int is_dctv_sig_at(dbuf *f, i64 pos)
+{
+	u8 x;
+
+	static const u8 sig[31] = {
+		0x49, 0x87, 0x28, 0xde, 0x11, 0x0b, 0xef, 0xd2, 0x0c, 0x8e, 0x8b, 0x35, 0x5b, 0x75, 0xec, 0xb8,
+		0x29, 0x6b, 0x03, 0xf9, 0x2b, 0xb4, 0x34, 0xee, 0x67, 0x1e, 0x7c, 0x4f, 0x53, 0x63, 0x15 };
+
+	x = dbuf_getbyte(f, pos);
+	if(x != sig[0]) return 0;
+	if(dbuf_memcmp(f, pos, sig, 31)) return 0;
+	return 1;
+}
+
 // Detect and warn about DCTV, which we don't support.
 static void detect_dctv(deark *c, lctx *d, struct imgbody_info *ibi,
 	struct frame_ctx *frctx)
 {
-	static const u8 sig[31] = {
-		0x49, 0x87, 0x28, 0xde, 0x11, 0x0b, 0xef, 0xd2, 0x0c, 0x8e, 0x8b, 0x35, 0x5b, 0x75, 0xec, 0xb8,
-		0x29, 0x6b, 0x03, 0xf9, 0x2b, 0xb4, 0x34, 0xee, 0x67, 0x1e, 0x7c, 0x4f, 0x53, 0x63, 0x15 };
 	i64 pos;
+	int result;
 
 	// As far as I can tell, in DCTV images, the last plane of the first row is
 	// as follows:
 	//   <00> <31-byte signature> <00 fill> <31-byte signature> <00>
 	// (Sometimes, the last plane of the *second* row is the same.)
+	// (But I have a 2-plane image in which it's the *first* plane of the first
+	// two rows that are special. TODO: Figure this out.)
+	//
 	// Unknowns:
 	// * Is DCTV possible if there are fewer than 64 bytes per row per plane (i.e. width < 512)?
 	// * Can a DCTV image have transparency?
@@ -1590,9 +1605,19 @@ static void detect_dctv(deark *c, lctx *d, struct imgbody_info *ibi,
 	if(ibi->is_thumb) return;
 	if(frctx->formtype!=CODE_ILBM && frctx->formtype!=CODE_ACBM) return;
 	if(ibi->bytes_per_row_per_plane<64) return;
+
+	// Test end of last plane of first row
 	pos = d->planes_raw * ibi->bytes_per_row_per_plane - 32;
-	if(dbuf_getbyte(frctx->frame_buffer, pos) != sig[0]) return;
-	if(dbuf_memcmp(frctx->frame_buffer, pos, sig, 31)) return;
+	result = is_dctv_sig_at(frctx->frame_buffer, pos);
+
+	if(!result) {
+		// Test end of first plane of first row
+		pos = ibi->bytes_per_row_per_plane - 32;
+		result = is_dctv_sig_at(frctx->frame_buffer, pos);
+	}
+
+	if(!result) return;
+
 	de_warn(c, "This is probably a DCTV image, which is not supported correctly.");
 	d->is_dctv = 1;
 }
