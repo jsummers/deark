@@ -99,7 +99,7 @@ typedef struct localctx_struct {
 #define TRANS_RESPECT  1
 #define TRANS_AUTO     2
 	u8 trans_setting;
-	u8 opt_fixpal;
+	u8 fixpal_setting;
 	u8 opt_allowsham;
 	u8 opt_anim_includedups;
 	u8 found_bmhd;
@@ -1100,8 +1100,7 @@ static void do_before_image_chunk(deark *c, lctx *d)
 		}
 	}
 
-
-	if(d->opt_fixpal && !d->is_anim && d->cmap_changed_flag) {
+	if(d->fixpal_setting && d->cmap_changed_flag) {
 		fixup_palette(c, d);
 	}
 
@@ -2551,13 +2550,14 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 {
 	u32 id;
 	u8 opt_notrans = 0;
+	u8 opt_fixpal;
 	const char *opt_trans_str;
 	lctx *d = NULL;
 	struct de_iffctx *ictx = NULL;
 	struct de_fourcc formtype_4cc;
 
 	d = de_malloc(c, sizeof(lctx));
-	d->opt_fixpal = (u8)de_get_ext_option_bool(c, "ilbm:fixpal", 1);
+	opt_fixpal = (u8)de_get_ext_option_bool(c, "ilbm:fixpal", 0xff);
 
 	opt_trans_str = de_get_ext_option(c, "ilbm:trans");
 
@@ -2601,6 +2601,16 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 
 	if(d->is_anim) {
 		d->opt_anim_includedups = (u8)de_get_ext_option_bool(c, "anim:includedups", 0);
+	}
+
+	if(opt_fixpal==0xff) {
+		// Fixpal option defaults to No for ANIM format, othersize Yes.
+		// (The concern with ANIM is that we don't want frame 1's colors
+		// to fail to match frame 2's colors.)
+		d->fixpal_setting = (d->is_anim ? 0 : 1);
+	}
+	else {
+		d->fixpal_setting = opt_fixpal;
 	}
 
 	// Default for d->trans_setting
