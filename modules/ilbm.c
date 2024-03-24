@@ -2219,7 +2219,9 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 
 after_render:
 	if(d->trans_setting==TRANS_AUTO) {
-		de_bitmap_optimize_alpha(img, 0x2|0x4);
+		if(ibi->masking_code==MASKINGTYPE_1BITMASK) {
+			de_bitmap_optimize_alpha(img, 0x2|0x4);
+		}
 	}
 	else if(d->trans_setting==TRANS_REMOVE) {
 		// The image shouldn't have transparency if we get here, but
@@ -2233,6 +2235,7 @@ after_render:
 		createflags |= DE_CREATEFLAG_IS_AUX;
 	}
 	if(!d->is_anim) {
+		// TODO: Enable this for ANIM?
 		createflags |= DE_CREATEFLAG_OPT_IMAGE;
 	}
 
