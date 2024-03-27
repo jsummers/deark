@@ -106,6 +106,7 @@ typedef struct localctx_struct {
 	u8 found_cmap;
 	u8 cmap_changed_flag;
 	u8 bmhd_changed_flag;
+	u8 camg_changed_flag;
 	u8 has_camg;
 	u8 ham_flag; // "hold and modify"
 	u8 is_ham6;
@@ -496,6 +497,7 @@ static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
 			if(op==0) { // RLE
 				count = get_elem_as_int_p(inf, &pos, code_size);
 				if(ypos+count > ibi->height) {
+					// TODO: Should we tolerate this, and set count = 0?
 					baddata_flag = 1;
 					goto done;
 				}
@@ -1070,7 +1072,19 @@ static void fixup_palette(deark *c, lctx *d)
 // Called when we encounter a BODY or DLTA or TINY chunk
 static void do_before_image_chunk(deark *c, lctx *d)
 {
-	if(d->bmhd_changed_flag) {
+	if(d->bmhd_changed_flag || d->camg_changed_flag) {
+		if(d->ham_flag) {
+			if(d->planes_raw==6 || d->planes_raw==5) {
+				d->is_ham6 = 1;
+			}
+			else if(d->planes_raw==8 || d->planes_raw==7) {
+				d->is_ham8 = 1;
+			}
+			else {
+				de_warn(c, "Invalid bit depth (%d) for HAM image.", (int)d->planes_raw);
+			}
+		}
+
 		if(!d->found_cmap && d->planes_raw<=8) {
 			de_make_grayscale_palette(d->pal, (i64)1<<(UI)d->planes_raw, 0);
 		}
@@ -1110,6 +1124,7 @@ static void do_before_image_chunk(deark *c, lctx *d)
 
 	d->cmap_changed_flag = 0;
 	d->bmhd_changed_flag = 0;
+	d->camg_changed_flag = 0;
 }
 
 static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is_thumb)
@@ -1827,6 +1842,7 @@ static void do_camg(deark *c, lctx *d, i64 pos, i64 len)
 {
 	if(len<4) return;
 	d->has_camg = 1;
+	d->camg_changed_flag = 1;
 
 	d->ham_flag = 0;
 	d->is_ham6 = 0;
@@ -1845,18 +1861,6 @@ static void do_camg(deark *c, lctx *d, i64 pos, i64 len)
 	de_dbg(c, "HAM: %d", (int)d->ham_flag);
 	de_dbg(c, "EHB: %d", (int)d->ehb_flag);
 	de_dbg_indent(c, -1);
-
-	if(d->ham_flag) {
-		if(d->planes_raw==6 || d->planes_raw==5) {
-			d->is_ham6 = 1;
-		}
-		else if(d->planes_raw==8 || d->planes_raw==7) {
-			d->is_ham8 = 1;
-		}
-		else {
-			de_warn(c, "Invalid bit depth (%d) for HAM image.", (int)d->planes_raw);
-		}
-	}
 }
 
 static void do_dpi(deark *c, lctx *d, i64 pos, i64 len)
