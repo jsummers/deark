@@ -83,11 +83,14 @@ static const struct image_type_info image_type_info_arr[] = {
 };
 
 struct mask_wrapper {
+	i64 segment_pos;
+	u8 used_flag;
 	de_bitmap *img;
 };
 
 struct page_ctx {
 	int image_num;
+	i64 segment_pos;
 	i64 image_pos;
 	i64 image_len;
 	struct mask_wrapper *mask_ref; // (pointer to a d->mask field; do not free)
@@ -382,6 +385,7 @@ static struct mask_wrapper *find_mask(deark *c, lctx *d, struct page_ctx *pg)
 {
 	struct mask_wrapper *mw = NULL;
 	const struct image_type_info *t;
+	int found_mask = 0;
 
 	t = pg->type_info;
 
@@ -420,7 +424,23 @@ static struct mask_wrapper *find_mask(deark *c, lctx *d, struct page_ctx *pg)
 		mw = &d->mask[MASKTYPEID_128_128_8];
 	}
 
-	if(mw && mw->img) return mw;
+	found_mask = (mw && mw->img);
+	if(!found_mask) goto notfound;
+
+	if(t->image_type==IMGTYPE_IMAGE_AND_MASK) {
+		// Sanity check. This could fail if there are multiple icons of
+		// the same type.
+		if(pg->segment_pos != mw->segment_pos) {
+			goto notfound;
+		}
+	}
+
+	mw->used_flag = 1;
+	de_dbg(c, "[using mask at %"I64_FMT"]", mw->segment_pos);
+	return mw;
+
+notfound:
+	de_dbg(c, "[no mask found for icon at %"I64_FMT"]", pg->segment_pos);
 	return NULL;
 }
 
@@ -444,6 +464,9 @@ static void do_read_mask(deark *c, lctx *d, struct page_ctx *pg, int masktype_id
 	de_bitmap *img;
 	i64 rowspan;
 	i64 mask_offset;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
 
 	if(depth==1) {
 		rowspan = (w+7)/8;
@@ -454,13 +477,16 @@ static void do_read_mask(deark *c, lctx *d, struct page_ctx *pg, int masktype_id
 		mask_offset = 0;
 	}
 
-	de_dbg(c, "mask(%d"DE_CHAR_TIMES"%d,%d) at %"I64_FMT"(+%d)", (int)w, (int)h, depth, pg->image_pos,
-		(int)mask_offset);
+	de_dbg(c, "mask(%d"DE_CHAR_TIMES"%d,%d) segment at %"I64_FMT", mask at %"I64_FMT"+%"I64_FMT,
+		(int)w, (int)h, depth, pg->segment_pos, pg->image_pos, mask_offset);
+	de_dbg_indent(c, 1);
 
 	if(d->mask[masktype_id].img) {
+		de_dbg(c, "duplicate mask type %u", (UI)masktype_id);
 		de_bitmap_destroy(d->mask[masktype_id].img);
 	}
 	d->mask[masktype_id].img = de_bitmap_create(c, w, h, 1);
+	d->mask[masktype_id].segment_pos = pg->segment_pos;
 	img = d->mask[masktype_id].img;
 
 	if(depth==1) {
@@ -469,6 +495,8 @@ static void do_read_mask(deark *c, lctx *d, struct page_ctx *pg, int masktype_id
 	else {
 		convert_image_gray8(c->infile, pg->image_pos+mask_offset, rowspan, img);
 	}
+
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void do_icon(deark *c, lctx *d, struct page_ctx *pg)
@@ -481,7 +509,7 @@ static void do_icon(deark *c, lctx *d, struct page_ctx *pg)
 	de_strlcpy(pg->filename_token, "", sizeof(pg->filename_token));
 
 	if(pg->type_info->image_type==IMGTYPE_MASK) {
-		de_dbg(c, "transparency mask");
+		de_dbg(c, "[transparency mask]");
 		return;
 	}
 
@@ -548,7 +576,9 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 	i64 segment_pos;
 	struct page_ctx *pg = NULL;
 	int image_count;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	segment_pos = 8;
 	image_count = 0;
 
@@ -560,6 +590,7 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 		if(segment_pos+8 > d->file_size) break;
 
 		pg = de_malloc(c, sizeof(struct page_ctx));
+		pg->segment_pos = segment_pos;
 		pg->image_num = image_count;
 
 		dbuf_read_fourcc(c->infile, segment_pos, &pg->code4cc, 4, 0x0);
@@ -570,15 +601,25 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 		pg->image_len = segment_len - 8;
 
 		if(pass==2) {
-			de_dbg(c, "image #%d, type '%s', at %d, size=%d", pg->image_num, pg->code4cc.id_dbgstr,
-				(int)pg->image_pos, (int)pg->image_len);
+			de_dbg(c, "image #%d, type '%s', segment at %"I64_FMT", image at %"I64_FMT", size=%"I64_FMT,
+				pg->image_num, pg->code4cc.id_dbgstr,
+				pg->segment_pos, pg->image_pos, pg->image_len);
 		}
+		de_dbg_indent(c, 1);
+
 		if(segment_len<8 || segment_pos+segment_len > d->file_size) {
 			if(pass==2) {
 				de_err(c, "Invalid length for segment '%s' (%u)", pg->code4cc.id_sanitized_sz,
 					(unsigned int)segment_len);
 			}
 			break;
+		}
+
+		if(segment_len==8) {
+			if(pass==2) {
+				de_dbg(c, "[empty icon]");
+			}
+			goto next_icon;
 		}
 
 		if(pass==2) {
@@ -598,6 +639,7 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 		}
 
 		if(pass==1) {
+			de_dbg_indent(c, -1);
 			switch(pg->code4cc.id) {
 			case 0x69636d23: // icm# 16x12x1
 				do_read_mask(c, d, pg, MASKTYPEID_16_12_1, 1, 16, 12);
@@ -624,18 +666,20 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 				do_read_mask(c, d, pg, MASKTYPEID_128_128_8, 8, 128, 128);
 				break;
 			}
+			de_dbg_indent(c, 1);
 		}
 		else if(pass==2) {
-			de_dbg_indent(c, 1);
 			do_icon(c, d, pg);
-			de_dbg_indent(c, -1);
 		}
 
+next_icon:
 		image_count++;
 		segment_pos += segment_len;
+		de_dbg_indent(c, -1);
 	}
 
 	if(pg) de_free(c, pg);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void de_run_icns(deark *c, de_module_params *mparams)
@@ -662,6 +706,9 @@ static void de_run_icns(deark *c, de_module_params *mparams)
 
 		for(i=0; i<NUM_MASKTYPES; i++) {
 			if(d->mask[i].img) {
+				if(!d->mask[i].used_flag) {
+					de_dbg(c, "[mask at %"I64_FMT" was not used]", d->mask[i].segment_pos);
+				}
 				de_bitmap_destroy(d->mask[i].img);
 				d->mask[i].img = NULL;
 			}
