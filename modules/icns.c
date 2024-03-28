@@ -24,6 +24,7 @@ enum content_enum {
 	CONTENT_UNKNOWN,
 	CONTENT_PNG,
 	CONTENT_JP2,
+	CONTENT_J2C,
 	CONTENT_ARGB
 };
 
@@ -295,6 +296,9 @@ static void identify_content(deark *c, lctx *d, struct page_ctx *pg)
 	if(buf[4]=='j' && buf[5]=='P') {
 		pg->content_type = CONTENT_JP2;
 	}
+	else if(buf[0]==0xff && buf[1]==0x4f && buf[2]==0xff && buf[3]==0x51) {
+		pg->content_type = CONTENT_J2C;
+	}
 	else if(buf[0]==0x89 && buf[1]==0x50) {
 		pg->content_type = CONTENT_PNG;
 	}
@@ -314,6 +318,9 @@ static void do_extract_png_or_jp2(deark *c, lctx *d, struct page_ctx *pg)
 
 	if(pg->content_type==CONTENT_JP2) {
 		ext = "jp2";
+	}
+	else if(pg->content_type==CONTENT_J2C) {
+		ext = "j2c";
 	}
 	else if(pg->content_type==CONTENT_PNG) {
 		ext = "png";
@@ -372,7 +379,9 @@ static void do_argb_png_or_jp2(deark *c, lctx *d, struct page_ctx *pg)
 
 	de_dbg(c, "Trying to extract file at %"I64_FMT, pg->image_pos);
 
-	if(pg->content_type==CONTENT_JP2 || pg->content_type==CONTENT_PNG) {
+	if(pg->content_type==CONTENT_JP2 || pg->content_type==CONTENT_J2C ||
+		pg->content_type==CONTENT_PNG)
+	{
 		do_extract_png_or_jp2(c, d, pg);
 		return;
 	}
