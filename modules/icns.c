@@ -115,6 +115,9 @@ struct page_ctx {
 
 typedef struct localctx_struct {
 	i64 file_size;
+	u8 opt_mask1;
+	u8 opt_mask8;
+	u8 opt_mask24;
 	struct mask_wrapper mask[NUM_MASKTYPES];
 	u8 have_stdpal256;
 	de_color stdpal256[256];
@@ -393,15 +396,15 @@ static void do_argb_png_or_jp2(deark *c, lctx *d, struct page_ctx *pg)
 static struct mask_wrapper *find_mask(deark *c, lctx *d, struct page_ctx *pg)
 {
 	struct mask_wrapper *mw = NULL;
+	struct mask_wrapper *mw1 = NULL;
+	struct mask_wrapper *mw8 = NULL;
 	const struct image_type_info *t;
 	int found_mask = 0;
+	u8 opt;
 
 	t = pg->type_info;
 
-	// As far as I can determine, icons with 8 or fewer bits/pixel always use the
-	// 1-bit mask. Note that 1-bit masks cannot appear by themselves, and always
-	// follow a 1-bit image. So if there is an 8- or 4-bit image, there must
-	// always be a 1-bit image of the same dimensions.
+	// TODO: What is the correct way to match masks to images?
 
 	if(t->code==0x49434f4e) { // 'ICON'
 		// I'm assuming this format doesn't have a mask.
@@ -409,34 +412,59 @@ static struct mask_wrapper *find_mask(deark *c, lctx *d, struct page_ctx *pg)
 	}
 
 	if(t->width==16 && t->height==12 && t->bpp<=8) {
-		mw = &d->mask[MASKTYPEID_16_12_1];
+		mw1 = &d->mask[MASKTYPEID_16_12_1];
+		goto afterdiscovery;
 	}
-	else if(t->width==16 && t->height==16 && t->bpp<=8) {
-		mw = &d->mask[MASKTYPEID_16_16_1];
+	if(t->width==16 && t->height==16) {
+		mw1 = &d->mask[MASKTYPEID_16_16_1];
+		mw8 = &d->mask[MASKTYPEID_16_16_8];
+		goto afterdiscovery;
 	}
-	else if(t->width==32 && t->bpp<=8) {
-		mw = &d->mask[MASKTYPEID_32_32_1];
+	if(t->width==32) {
+		mw1 = &d->mask[MASKTYPEID_32_32_1];
+		mw8 = &d->mask[MASKTYPEID_32_32_8];
+		goto afterdiscovery;
 	}
-	else if(t->width==48 && t->bpp<=8) {
-		mw = &d->mask[MASKTYPEID_48_48_1];
+	if(t->width==48) {
+		mw1 = &d->mask[MASKTYPEID_48_48_1];
+		mw8 = &d->mask[MASKTYPEID_48_48_8];
+		goto afterdiscovery;
 	}
-	else if(t->width==16 && t->bpp>=24) {
-		mw = &d->mask[MASKTYPEID_16_16_8];
+	if(t->width==128) {
+		mw8 = &d->mask[MASKTYPEID_128_128_8];
+		goto afterdiscovery;
 	}
-	else if(t->width==32 && t->bpp>=24) {
-		mw = &d->mask[MASKTYPEID_32_32_8];
+
+afterdiscovery:
+	if(t->bpp==1) {
+		opt = d->opt_mask1;
 	}
-	else if(t->width==48 && t->bpp>=24) {
-		mw = &d->mask[MASKTYPEID_48_48_8];
+	else if(t->bpp<=8) {
+		opt = d->opt_mask8;
 	}
-	else if(t->width==128 && t->bpp>=24) {
-		mw = &d->mask[MASKTYPEID_128_128_8];
+	else {
+		opt = d->opt_mask24;
+	}
+
+	if(opt==1) {
+		mw = mw1;
+	}
+	else if(opt==8) {
+		mw = mw8;
+	}
+	else if(opt==18) {
+		if(mw1 && mw1->img) mw = mw1;
+		else mw = mw8;
+	}
+	else if(opt==81) {
+		if(mw8 && mw8->img) mw = mw8;
+		else mw = mw1;
 	}
 
 	found_mask = (mw && mw->img);
 	if(!found_mask) goto notfound;
 
-	if(t->image_type==IMGTYPE_IMAGE_AND_MASK) {
+	if(t->image_type==IMGTYPE_IMAGE_AND_MASK && mw==mw1) {
 		// Sanity check. This could fail if there are multiple icons of
 		// the same type.
 		if(pg->segment_pos != mw->segment_pos) {
@@ -694,8 +722,34 @@ next_icon:
 static void de_run_icns(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	const char *s;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	// (If these options are undocumented, it's because they're still in
+	// development/testing.)
+	// 81 = Use 8-bit mask if present, otherwise 1-bit mask
+	// 18 = Use 1-bit mask if present, otherwise 8-bit mask
+	// 8 = Use 8-bit mask only
+	// 1 = Use 1-bit mask only
+	// 0 = No transparency
+	//
+	// TODO: Maybe set opt_mask1 = 81
+	d->opt_mask1 = 1; // Setting for (most) 1bpp icons
+	d->opt_mask8 = 81; // Setting for 4 and 8bpp icons
+	d->opt_mask24 = 81; // Setting for 24bpp icons
+	s = de_get_ext_option(c, "icns:mask1");
+	if(s) {
+		d->opt_mask1 = (u8)de_atoi(s);
+	}
+	s = de_get_ext_option(c, "icns:mask8");
+	if(s) {
+		d->opt_mask8 = (u8)de_atoi(s);
+	}
+	s = de_get_ext_option(c, "icns:mask24");
+	if(s) {
+		d->opt_mask24 = (u8)de_atoi(s);
+	}
 
 	d->file_size = de_getu32be(4);
 	de_dbg(c, "reported file size: %d", (int)d->file_size);
