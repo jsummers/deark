@@ -1212,7 +1212,7 @@ static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is
 		;
 	}
 	else if(ibi->masking_code==MASKINGTYPE_COLORKEY) {
-		if((d->trans_setting!=TRANS_REMOVE) && ibi->planes_fg<=8 && !d->ham_flag) {
+		if(ibi->planes_fg<=8 && !d->ham_flag) {
 			ibi->use_colorkey_transparency = 1;
 		}
 	}
@@ -2136,9 +2136,7 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 	}
 
 	if(ibi->use_colorkey_transparency || ibi->masking_code==MASKINGTYPE_1BITMASK) {
-		if(d->trans_setting!=TRANS_REMOVE) {
-			bypp++;
-		}
+		bypp++;
 	}
 
 	img = de_bitmap_create(c, ibi->width, ibi->height, bypp);
@@ -2206,7 +2204,7 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 		}
 
 		// Handle 1-bit transparency masks here, for all color types.
-		if(ibi->masking_code==MASKINGTYPE_1BITMASK && (d->trans_setting!=TRANS_REMOVE)) {
+		if(ibi->masking_code==MASKINGTYPE_1BITMASK) {
 			i64 i;
 
 			for(i=0; i<rowbuf_size; i++) {
@@ -2228,8 +2226,6 @@ after_render:
 		}
 	}
 	else if(d->trans_setting==TRANS_REMOVE) {
-		// The image shouldn't have transparency if we get here, but
-		// it doesn't hurt to verify.
 		de_bitmap_remove_alpha(img);
 	}
 
