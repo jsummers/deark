@@ -253,6 +253,8 @@ Deark -- Information about supported formats
 * icns (Apple Icon) (module="icns")
   - Supports most icon types.
   - Embedded JP2 and PNG files are extracted as-is.
+  Options
+   -opt icns:getmasks - Only extract the transparency masks.
 
 * ICO/CUR (Windows icon/cursor) (module="ico")
   - Supports most but not all formats.

@@ -86,6 +86,8 @@ static const struct image_type_info image_type_info_arr[] = {
 struct mask_wrapper {
 	i64 segment_pos;
 	u8 used_flag;
+	u8 nbits;
+	UI width, height;
 	de_bitmap *img;
 };
 
@@ -118,6 +120,7 @@ typedef struct localctx_struct {
 	u8 opt_mask1;
 	u8 opt_mask8;
 	u8 opt_mask24;
+	u8 opt_getmasks;
 	struct mask_wrapper mask[NUM_MASKTYPES];
 	u8 have_stdpal256;
 	de_color stdpal256[256];
@@ -719,12 +722,56 @@ next_icon:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+static void extract_masks(deark *c, lctx *d)
+{
+	size_t i;
+	char tokenbuf[32];
+
+	de_dbg(c, "extracting masks");
+	for(i=0; i<NUM_MASKTYPES; i++) {
+		if(d->mask[i].img) {
+			de_snprintf(tokenbuf, sizeof(tokenbuf), "mask%ux%ux%u",
+				d->mask[i].width, d->mask[i].height, (UI)d->mask[i].nbits);
+			de_bitmap_write_to_file(d->mask[i].img, tokenbuf, DE_CREATEFLAG_OPT_IMAGE);
+		}
+	}
+}
+
+// FIXME? The way we handle mask type attributes is awkward.
+// This function was added just for the "getmasks" feature.
+static void init_masktype_info(lctx *d)
+{
+	size_t i;
+	struct mti_struct {
+		u8 masktype;
+		u8 nbits;
+		UI width, height;
+	};
+	static const struct mti_struct mti[NUM_MASKTYPES] = {
+		{ MASKTYPEID_16_12_1,   1, 16,  12  },
+		{ MASKTYPEID_16_16_1,   1, 16,  16  },
+		{ MASKTYPEID_32_32_1,   1, 32,  32  },
+		{ MASKTYPEID_48_48_1,   1, 48,  48  },
+		{ MASKTYPEID_16_16_8,   8, 16,  16  },
+		{ MASKTYPEID_32_32_8,   8, 32,  32  },
+		{ MASKTYPEID_48_48_8,   8, 48,  48  },
+		{ MASKTYPEID_128_128_8, 8, 128, 128 }
+	};
+
+	for(i=0; i<DE_ARRAYCOUNT(mti); i++) {
+		d->mask[mti[i].masktype].nbits = mti[i].nbits;
+		d->mask[mti[i].masktype].width = mti[i].width;
+		d->mask[mti[i].masktype].height = mti[i].height;
+	}
+}
+
 static void de_run_icns(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	const char *s;
 
 	d = de_malloc(c, sizeof(lctx));
+	init_masktype_info(d);
 
 	// (If these options are undocumented, it's because they're still in
 	// development/testing.)
@@ -751,6 +798,8 @@ static void de_run_icns(deark *c, de_module_params *mparams)
 		d->opt_mask24 = (u8)de_atoi(s);
 	}
 
+	d->opt_getmasks = de_get_ext_option_bool(c, "icns:getmasks", 0);
+
 	d->file_size = de_getu32be(4);
 	de_dbg(c, "reported file size: %d", (int)d->file_size);
 	if(d->file_size > c->infile->len) d->file_size = c->infile->len;
@@ -759,17 +808,24 @@ static void de_run_icns(deark *c, de_module_params *mparams)
 	de_dbg_indent(c, 1);
 	de_run_icns_pass(c, d, 1);
 	de_dbg_indent(c, -1);
+
+	if(d->opt_getmasks) {
+		extract_masks(c, d);
+		goto done;
+	}
+
 	de_dbg(c, "pass 2: decoding/extracting icons");
 	de_dbg_indent(c, 1);
 	de_run_icns_pass(c, d, 2);
 	de_dbg_indent(c, -1);
 
+done:
 	if(d) {
 		int i;
 
 		for(i=0; i<NUM_MASKTYPES; i++) {
 			if(d->mask[i].img) {
-				if(!d->mask[i].used_flag) {
+				if(!d->mask[i].used_flag && !d->opt_getmasks) {
 					de_dbg(c, "[mask at %"I64_FMT" was not used]", d->mask[i].segment_pos);
 				}
 				de_bitmap_destroy(d->mask[i].img);
@@ -791,10 +847,16 @@ static int de_identify_icns(deark *c)
 	return 20;
 }
 
+static void de_help_icns(deark *c)
+{
+	de_msg(c, "-opt icns:getmasks : Only extract the transparency masks");
+}
+
 void de_module_icns(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "icns";
 	mi->desc = "Macintosh icon";
 	mi->run_fn = de_run_icns;
 	mi->identify_fn = de_identify_icns;
+	mi->help_fn = de_help_icns;
 }
