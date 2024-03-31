@@ -101,6 +101,8 @@ typedef struct localctx_struct {
 	u8 trans_setting;
 	u8 fixpal_setting;
 	u8 opt_allowsham;
+	u8 opt_allowdctv;
+	u8 opt_allowhame;
 	u8 opt_anim_includedups;
 	u8 found_bmhd;
 	u8 found_cmap;
@@ -216,7 +218,7 @@ static void on_multipalette_enabled(deark *c, lctx *d)
 	}
 	else {
 		de_err(c, "Multi-palette ILBM images are not supported. "
-			"(\"-opt ilbm:allowsham\" to decode anyway)");
+			"(\"-opt ilbm:allowspecial\" to decode anyway)");
 	}
 }
 
@@ -1578,7 +1580,16 @@ static void detect_hame(deark *c, lctx *d, struct imgbody_info *ibi,
 
 	if(de_memcmp(pixelval, sig, 15)) return;
 	if(pixelval[15]!=0x4 && pixelval[15]!=0x8) return;
-	de_warn(c, "This is probably a HAM-E image, which is not supported correctly.");
+
+	if(d->opt_allowhame) {
+		de_warn(c, "This is probably a HAM-E image, which is not supported correctly.");
+	}
+	else {
+		de_err(c, "HAM-E images are not supported. "
+			"(\"-opt ilbm:allowspecial\" to decode anyway)");
+		d->errflag = 1;
+	}
+
 	d->is_hame = 1;
 }
 
@@ -1633,7 +1644,15 @@ static void detect_dctv(deark *c, lctx *d, struct imgbody_info *ibi,
 
 	if(!result) return;
 
-	de_warn(c, "This is probably a DCTV image, which is not supported correctly.");
+	if(d->opt_allowdctv) {
+		de_warn(c, "This is probably a DCTV image, which is not supported correctly.");
+	}
+	else {
+		de_err(c, "DCTV images are not supported. "
+			"(\"-opt ilbm:allowspecial\" to decode anyway)");
+		d->errflag = 1;
+	}
+
 	d->is_dctv = 1;
 }
 
@@ -2579,6 +2598,7 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 	u32 id;
 	u8 opt_notrans = 0;
 	u8 opt_fixpal;
+	int opt;
 	const char *opt_trans_str;
 	lctx *d = NULL;
 	struct de_iffctx *ictx = NULL;
@@ -2595,9 +2615,15 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 		}
 	}
 
-	if(de_get_ext_option(c, "ilbm:allowsham")) {
+	if(de_get_ext_option_bool(c, "ilbm:allowspecial", 0)) {
 		d->opt_allowsham = 1;
+		d->opt_allowdctv = 1;
+		d->opt_allowhame = 1;
 	}
+	// allowsham is deprecated
+	opt = de_get_ext_option_bool(c, "ilbm:allowsham", -1);
+	if(opt==0) d->opt_allowsham = 0;
+	else if(opt>0) d->opt_allowsham = 1;
 
 	id = (u32)de_getu32be(0);
 	if(id!=CODE_FORM) {
@@ -2747,7 +2773,7 @@ static void do_help_ilbm_anim(deark *c, int is_anim)
 		de_msg(c, "-opt ilbm:fixpal=<0|1> : Don't/Do try to fix palettes that are "
 			"slightly too dark");
 	}
-	de_msg(c, "-opt ilbm:allowsham : Suppress an error on some images");
+	de_msg(c, "-opt ilbm:allowspecial : Suppress an error on some images");
 	if(is_anim) {
 		de_msg(c, "-opt anim:includedups : Do not suppress duplicate frames");
 	}

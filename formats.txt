@@ -273,6 +273,7 @@ Deark -- Information about supported formats
      default, "auto", is to remove transparency only if it seems bad.
    -opt ilbm:fixpal=<0|1> - Don't/Do try to correct palettes that seem to have
      fewer than 8 bits of precision.
+   -opt ilbm:allowspecial - Don't stop after certain errors.
 
 * IndyPaint (*.tru) (module="indypaint")
 
