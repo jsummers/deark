@@ -423,6 +423,7 @@ static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
 	i64 col;
 	i64 dststride = ibi->frame_buffer_rowspan;
 	UI unc_threshold;
+	u8 last_col_quirk = 0;
 	int baddata_flag = 0;
 
 	if(separate_data_stream) {
@@ -456,12 +457,41 @@ static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
 		num_columns = (ibi->width+31)/32;
 	}
 
+	if(frctx->op==8 && dataelem_size==4) {
+		i64 num_columns_if_size2;
+
+		num_columns_if_size2 = (ibi->width+15)/16;
+		if(num_columns*2 != num_columns_if_size2) {
+			// A dumb quirk of ANIM-8: The last column may use "word" mode,
+			// even when when all other columns use "long" mode.
+			last_col_quirk = 1;
+		}
+	}
+
 	for(col=0; col<num_columns; col++) {
 		i64 opcount;
 		i64 opidx;
 		i64 elem_bytes_to_write;
 		i64 ypos = 0;
 		i64 col_start_dstpos;
+		i64 dataelem_size_thiscol;
+		i64 code_size_thiscol;
+		UI unc_threshold_thiscol;
+		u8 is_last_col;
+
+		if(c->debug_level>=3) {
+			de_dbg3(c, "col %u at %"I64_FMT, (UI)col, pos);
+		}
+
+		is_last_col = (col+1 == num_columns);
+		code_size_thiscol = code_size;
+		dataelem_size_thiscol = dataelem_size;
+		unc_threshold_thiscol = unc_threshold;
+		if(is_last_col && last_col_quirk) {
+			code_size_thiscol = 2;
+			dataelem_size_thiscol = 2;
+			unc_threshold_thiscol = 0x8000;
+		}
 
 		if(pos>=endpos) {
 			baddata_flag = 1;
@@ -469,16 +499,16 @@ static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
 		}
 
 		// Defend against writing beyond the right edge of this plane
-		if((dataelem_size==4) && (col+1 == num_columns) && (ibi->bytes_per_row_per_plane%4)) {
+		if(is_last_col && (dataelem_size_thiscol==4) && (ibi->bytes_per_row_per_plane%4)) {
 			elem_bytes_to_write = 2;
 		}
 		else {
-			elem_bytes_to_write = dataelem_size;
+			elem_bytes_to_write = dataelem_size_thiscol;
 		}
 
 		col_start_dstpos = plane_idx * ibi->bytes_per_row_per_plane + dataelem_size*col;
 
-		opcount = get_elem_as_int_p(inf, &pos, code_size);
+		opcount = get_elem_as_int_p(inf, &pos, code_size_thiscol);
 		if(c->debug_level>=3) {
 			de_dbg3(c, "col %d op count: %"I64_FMT, (int)col, opcount);
 		}
@@ -494,10 +524,10 @@ static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
 				baddata_flag = 1;
 				goto done;
 			}
-			op = (UI)get_elem_as_int_p(inf, &pos, code_size);
+			op = (UI)get_elem_as_int_p(inf, &pos, code_size_thiscol);
 
 			if(op==0) { // RLE
-				count = get_elem_as_int_p(inf, &pos, code_size);
+				count = get_elem_as_int_p(inf, &pos, code_size_thiscol);
 				if(ypos+count > ibi->height) {
 					// TODO: Should we tolerate this, and set count = 0?
 					baddata_flag = 1;
@@ -513,12 +543,12 @@ static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
 						baddata_flag = 1;
 						goto done;
 					}
-					dbuf_read(inf, valbuf, datapos, dataelem_size);
-					datapos += dataelem_size;
+					dbuf_read(inf, valbuf, datapos, dataelem_size_thiscol);
+					datapos += dataelem_size_thiscol;
 				}
 				else {
-					dbuf_read(inf, valbuf, pos, dataelem_size);
-					pos += dataelem_size;
+					dbuf_read(inf, valbuf, pos, dataelem_size_thiscol);
+					pos += dataelem_size_thiscol;
 				}
 
 				for(k=0; k<count; k++) {
@@ -535,11 +565,11 @@ static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
 					ypos++;
 				}
 			}
-			else if(op < unc_threshold) { // skip
+			else if(op < unc_threshold_thiscol) { // skip
 				ypos += (i64)op;
 			}
 			else { // uncompressed run
-				count = (i64)(op - unc_threshold);
+				count = (i64)(op - unc_threshold_thiscol);
 				if(ypos+count > ibi->height) {
 					baddata_flag = 1;
 					goto done;
@@ -555,12 +585,12 @@ static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
 							baddata_flag = 1;
 							goto done;
 						}
-						dbuf_read(inf, valbuf, datapos, dataelem_size);
-						datapos += dataelem_size;
+						dbuf_read(inf, valbuf, datapos, dataelem_size_thiscol);
+						datapos += dataelem_size_thiscol;
 					}
 					else {
-						dbuf_read(inf, valbuf, pos, dataelem_size);
-						pos += dataelem_size;
+						dbuf_read(inf, valbuf, pos, dataelem_size_thiscol);
+						pos += dataelem_size_thiscol;
 					}
 
 					dstpos = col_start_dstpos + ypos*dststride;
