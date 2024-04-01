@@ -1240,6 +1240,17 @@ static void sanitize_filename2(deark *c, de_ucstring *s)
 	}
 }
 
+// Delete a leading slash if present, and it looks like a simple absolute path.
+// Does, not, for example, do anything if there are two leading slashes --
+// that's expected to be sanitized in some other way.
+static void maybe_delete_leading_slash(de_ucstring *s)
+{
+
+	if(s->len>=2 && s->str[0]=='/' && s->str[1]!='/') {
+		ucstring_delete_prefix(s, 1);
+	}
+}
+
 // Takes ownership of 's', and may modify it.
 // flags:
 //   DE_SNFLAG_FULLPATH = "/" characters in the name are path separators.
@@ -1262,6 +1273,16 @@ static void de_finfo_set_name_internal(deark *c, de_finfo *fi, de_ucstring *s,
 
 	if((flags&DE_SNFLAG_STRIPTRAILINGSLASH) && s->len>0 && s->str[s->len-1]=='/') {
 		ucstring_truncate(s, s->len-1);
+	}
+
+	if((flags&DE_SNFLAG_FULLPATH)) {
+		// This part changes a name like "/a/b.c" to "a/b.c", which is probably
+		// better than allowing it to be changed later to "_a/b.c".
+		// TODO: I'm undecided about what to do about absolute paths when writing
+		// to a zip file. We could leave them there (using an option), or delete
+		// them, or prepend ".". Could have special cases if there are two
+		/// leading slashes, of if the entire name is "/".
+		maybe_delete_leading_slash(s);
 	}
 
 	allow_slashes = (c->allow_subdirs && (flags&DE_SNFLAG_FULLPATH));

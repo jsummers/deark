@@ -1069,6 +1069,7 @@ void ucstring_truncate(de_ucstring *s, i64 newlen);
 void ucstring_truncate_at_NUL(de_ucstring *s);
 void ucstring_strip_trailing_NUL(de_ucstring *s);
 void ucstring_strip_trailing_spaces(de_ucstring *s);
+void ucstring_delete_prefix(de_ucstring *s, i64 nchars);
 void ucstring_append_char(de_ucstring *s, de_rune ch);
 void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2);
 void ucstring_vprintf(de_ucstring *s, de_ext_encoding ee, const char *fmt, va_list ap);

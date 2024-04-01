@@ -69,6 +69,24 @@ void ucstring_strip_trailing_spaces(de_ucstring *s)
 	}
 }
 
+void ucstring_delete_prefix(de_ucstring *s, i64 nchars)
+{
+	i64 i;
+	i64 new_len;
+
+	if(nchars<1) return;
+	if(nchars >= s->len) {
+		ucstring_empty(s);
+		return;
+	}
+
+	new_len = s->len - nchars;
+	for(i=0; i<new_len; i++) {
+		s->str[i] = s->str[nchars+i];
+	}
+	ucstring_truncate(s, new_len);
+}
+
 // Append s2 to s1
 void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2)
 {
