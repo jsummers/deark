@@ -21,7 +21,7 @@ struct ohdr_struct {
 typedef struct localctx_struct {
 	int errflag;
 	int errmsg_handled;
-	struct fmtutil_exe_info *ei;
+	struct fmtutil_exe_info *ei; // For the original, compressed, file
 
 	u8 detected_subfmt;
 	i64 hdrpos; // Start of exepack header (i.e. the IP field)
@@ -224,23 +224,52 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	dbuf *outf = NULL;
 	i64 ihdr_minmem, ihdr_maxmem;
 	i64 o_minmem;
-	i64 o_start_of_code;
-	i64 o_reloc_pos;
+	i64 o_start_of_code; // o_ means output
+	i64 o_reloc_pos; // Where we actually write the reloc table
+	i64 o_reloc_pos_field; // What we write to the header
 	i64 o_file_size; // not including overlay
 	i64 cmprprog_mem_tot; // total memory consumed+reserved by the exepacked program
+	u8 have_reloc_pos;
+	i64 elided_bytes_pos = 28;
+	i64 elided_bytes_len = 0;
 
 	outf = dbuf_create_output_file(c, "exe", NULL, 0);
 
-	if(d->ei->reloc_table_pos>=28 &&
-		d->ei->reloc_table_pos<=d->ei->start_of_dos_code)
-	{
-		o_reloc_pos = d->ei->reloc_table_pos;
+	if(d->ei->reloc_table_pos<28 || d->ei->reloc_table_pos>d->ei->start_of_dos_code) {
+		have_reloc_pos = 0;
+	}
+	else if (d->o_reloc_table->len==0) {
+		// EXEPACK behaves differently if an empty reloc table has an offset <=28,
+		// versus >28.
+		// That's why this is ">28", when it seems like it should be ">=28".
+		// (TODO: Test different EXEPACK versions.)
+		have_reloc_pos = (d->ei->reloc_table_pos>28);
 	}
 	else {
-		o_reloc_pos = 28;
+		have_reloc_pos = 1;
 	}
 
-	o_start_of_code = de_pad_to_n(o_reloc_pos + d->o_reloc_table->len, 16);
+	if(d->o_reloc_table->len==0 && !have_reloc_pos) {
+		// In this case, EXEPACK retains everything up to start_of_code,
+		// so we ought to keep it.
+		o_reloc_pos_field = d->ei->reloc_table_pos;
+		o_reloc_pos = d->ei->start_of_dos_code;
+		o_start_of_code = d->ei->start_of_dos_code;
+	}
+	else {
+		if(have_reloc_pos) {
+			o_reloc_pos = d->ei->reloc_table_pos;
+		}
+		else {
+			o_reloc_pos = 28;
+		}
+		o_reloc_pos_field = o_reloc_pos;
+		o_start_of_code = de_pad_to_n(o_reloc_pos + d->o_reloc_table->len, 16);
+
+		elided_bytes_pos = o_reloc_pos;
+		elided_bytes_len = d->ei->start_of_dos_code - elided_bytes_pos;
+	}
+
 	o_file_size = o_start_of_code + d->o_dcmpr_code->len;
 
 	ihdr_minmem = de_getu16le(10);
@@ -272,7 +301,7 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	dbuf_writeu16le(outf, 0); // 18  checksum
 	dbuf_writeu16le(outf, d->ohdr.regIP); // 20  ip
 	dbuf_writei16le(outf, d->ohdr.regCS); // 22  cs
-	dbuf_writeu16le(outf, o_reloc_pos); // 24  reloc_tbl_pos
+	dbuf_writeu16le(outf, o_reloc_pos_field); // 24  reloc_tbl_pos
 	dbuf_writeu16le(outf, 0); // 26  overlay indicator
 
 	// Copy extra data between header and reloc table
@@ -294,6 +323,17 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	}
 
 	dbuf_close(outf);
+
+	if(elided_bytes_len>0) {
+		// Microsoft has created (hacked?) files like this, that have data where
+		// they shouldn't.
+		if(!dbuf_is_all_zeroes(c->infile, elided_bytes_pos, elided_bytes_len)) {
+			de_warn(c, "Some unexpected data (%"I64_FMT" bytes at %"I64_FMT") was not "
+				"preserved. This file might not run properly.",
+				elided_bytes_len, elided_bytes_pos);
+		}
+	}
+
 	if(!d->errflag) {
 		de_stdwarn_execomp(c);
 	}

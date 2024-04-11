@@ -28,8 +28,6 @@
 //#define PgmVersion "1.0 (08/01/2000)"
 
 //#define DD_EXTRADBG
-#define dd_max(a,b) (((a) > (b)) ? (a) : (b))
-#define dd_strlen(a) ((int)de_strlen(a))
 #define DD_MAXSTRLEN 4096
 #define DD_MAXTABLE 4096
 
@@ -39,12 +37,10 @@ struct dd_codet {
 	u16 oldcode, oldest, newest;
 	u16 older[DD_MAXTABLE], newer[DD_MAXTABLE];
 	u16 charlink[DD_MAXTABLE]; // parent?
-	u16 charlast[DD_MAXTABLE];
-	u16 charfirst[DD_MAXTABLE];
-	int used[DD_MAXTABLE]; // Total number of uses, just for debugging?
 	int usecount[DD_MAXTABLE]; // How many other codes depend on this code?
-	int size[DD_MAXTABLE];
-	u8 *code[DD_MAXTABLE]; // Points to .size[] malloc'd bytes
+	UI size[DD_MAXTABLE];
+	u8 valfirst[DD_MAXTABLE];
+	u8 value[DD_MAXTABLE];
 };
 
 struct dd_Ctl {
@@ -59,10 +55,8 @@ struct dd_Ctl {
 	i64 nbytes_written;
 	int eof_flag;
 	int err_flag;
+	u8 valbuf[DD_MAXTABLE];
 	char msg[DD_MAXSTRLEN];
-#ifdef DD_EXTRADBG
-	char work [DD_MAXSTRLEN], work2[DD_MAXSTRLEN], work3[DD_MAXSTRLEN];
-#endif
 };
 
 //*******************************************************************
@@ -83,75 +77,122 @@ static void dd_tmsg(struct dd_Ctl *Ctl, const char *fmt, ...)
 }
 
 //*******************************************************************
+
 #ifdef DD_EXTRADBG
-static char *dd_right (char *target, char *source, int len)
-{
-	int i, tpos, slen;
 
-	if (target == NULL)
-		return NULL;
-	if (source == NULL)
-		target[0] = '\0';
-	else {
-		slen = dd_strlen(source);
-		for (i = dd_max(0, slen - len), tpos = 0; i < slen; i++)
-			target [tpos++] = source [i];
-		target[tpos] = '\0';
+static void dd_dumpstate(struct dd_Ctl *Ctl, struct dd_codet * ct)
+{
+	size_t i;
+	dbuf *dmpf = NULL;
+	FILE *f; // copy of dmpf->fp; do not close
+	char filename[100];
+
+	de_snprintf(filename, sizeof(filename), "ddump%07"I64_FMT".tmp", Ctl->code_counter);
+	dmpf = dbuf_create_unmanaged_file(Ctl->c, filename, DE_OVERWRITEMODE_DEFAULT, 0);
+	f = dmpf->fp;
+
+	fprintf(f, "codes processed: %u\n", (UI)Ctl->code_counter);
+	fprintf(f, "code olde newe clin uc siz\n");
+	for(i=0; i<4096; i++) {
+		fprintf(f, "%4u %4u %4u %4u %2u %4u", (UI)i,
+			(UI)ct->older[i], (UI)ct->newer[i],
+			(UI)ct->charlink[i],
+			(UI)ct->usecount[i],
+			(UI)ct->size[i]);
+
+		if(ct->size[i]==1) {
+			fprintf(f, " %02x", (UI)ct->value[i]);
+		}
+		else if(ct->size[i]==2) {
+			fprintf(f, " %02x %02x", (UI)ct->valfirst[i], (UI)ct->value[i]);
+		}
+		else if(ct->size[i]>2) {
+			fprintf(f, " %02x...%02x", (UI)ct->valfirst[i], (UI)ct->value[i]);
+		}
+
+		if(i==(size_t)ct->oldcode) fprintf(f, " OLDCODE");
+		if(i==(size_t)ct->oldest) fprintf(f, " oldest");
+		if(i==(size_t)ct->newest) fprintf(f, " newest");
+
+		fprintf(f, "\n");
 	}
-	return target;
-}
-#endif
 
-//*******************************************************************
-static void dd_PrintEntry (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 tcode)
-{
-	if (Ctl->c->debug_level<3) return;
-	dd_tmsg(Ctl, "Entry code: %4x, usecount: %4x, clink: %4x, clast: %4x, cfirst: %4x",
-			tcode, ct->usecount[tcode], ct->charlink[tcode], ct->charlast[tcode],
-			ct->charfirst[tcode]);
-	dd_tmsg(Ctl, "older: %4x, newer: %4x, used: %4d, size: %4d",
-			ct->older[tcode], ct->newer[tcode], ct->used[tcode], ct->size[tcode]);
+	dbuf_close(dmpf);
 }
+
+#endif
 
 //*******************************************************************
 static void dd_ValidateLinkChains (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 tcode)
 {
 	u16 tnewer, tolder;
+	UI errcode = 0;
 
 	if(Ctl->c->debug_level<3) return;
 	tnewer = ct->newer[tcode];
 	tolder = ct->older[tcode];
 	if (tcode == ct->newest) {
 		if (tnewer != 0) {
-			dd_tmsg(Ctl, "Newer code not zero. tcode: %4x, newer: %4x, older: %4x",
-				tcode, tnewer, ct->older[tnewer]);
+			errcode += 1;
 		}
 	}
 	else {
 		if (ct->older[tnewer] != tcode) {
-			dd_tmsg(Ctl, "Older code not linked. tcode: %4x, newer: %4x, older: %4x",
-				tcode, tnewer, ct->older[tnewer]);
+			errcode += 2;
 		}
 	}
 	if (tcode == ct->oldest) {
 		if (tolder != 0) {
-			dd_tmsg(Ctl, "Older code not zero. tcode: %4x, older: %4x, newer: %4x",
-				tcode, tolder, ct->newer[tolder]);
+			errcode += 4;
 		}
 	}
 	else {
 		if (ct->newer[tolder] != tcode) {
-			dd_tmsg(Ctl, "Newer code not linked. tcode: %4x, older: %4x, newer: %4x",
-				tcode, tolder, ct->newer[tolder]);
+			errcode += 8;
 		}
+	}
+
+	if(errcode) {
+		dd_tmsg(Ctl, "Link validation error (%u). tcode: %4x, older: %4x, newer: %4x",
+			errcode, tcode, tolder, ct->newer[tolder]);
 	}
 }
 
 //*******************************************************************
 static void dd_OutputString(struct dd_Ctl *Ctl, struct dd_codet * ct, u16 tcode)
 {
-	dbuf_write(Ctl->dcmpro->f, (const u8*)ct->code[tcode], ct->size[tcode]);
+	size_t i;
+	size_t valbuf_pos = DD_MAXTABLE;
+	u16 curcode = tcode;
+
+	if(ct->size[tcode]<1 || ct->size[tcode]>DD_MAXTABLE-256) {
+		Ctl->err_flag = 1;
+		goto done;
+	}
+
+	for(i=0; i<(size_t)ct->size[tcode]; i++) {
+		if(curcode>=DD_MAXTABLE || curcode<1) {
+			Ctl->err_flag = 1;
+			goto done;
+		}
+
+		if(ct->size[curcode] != ct->size[tcode]-i) {
+			Ctl->err_flag = 1;
+			goto done;
+		}
+
+		valbuf_pos--;
+		Ctl->valbuf[valbuf_pos] = ct->value[curcode];
+
+		// Traverse the tree, back toward the root codes.
+		curcode = ct->charlink[curcode];
+	}
+
+	dbuf_write(Ctl->dcmpro->f, &Ctl->valbuf[valbuf_pos], ct->size[tcode]);
 	Ctl->nbytes_written += (i64)ct->size[tcode];
+
+done:
+	;
 }
 
 //*******************************************************************
@@ -186,10 +227,8 @@ static struct dd_codet * dd_DInit (struct dd_Ctl *Ctl)
 
 	ct = (struct dd_codet *) de_malloc(Ctl->c, sizeof(struct dd_codet));
 	for (code = 1; code <= 256; code++) {
-		ct->charlast[code] = code;
-		ct->charfirst[code] = code;
-		ct->code[code] = (u8 *) de_malloc(Ctl->c, 1);
-		ct->code[code][0] = (u8)(code-1);
+		ct->valfirst[code] = (u8)(code-1);
+		ct->value[code] = (u8)(code-1);
 		ct->size[code] = 1;
 		// Maybe this is set to 1 just to prevent it from ever getting down
 		// to 0. So it doesn't get re-used.
@@ -213,16 +252,7 @@ static struct dd_codet * dd_DInit (struct dd_Ctl *Ctl)
 
 static void dd_DFree(struct dd_Ctl *Ctl, struct dd_codet *ct)
 {
-	UI i;
-
 	if(!ct) return;
-	for(i=0; i<DD_MAXTABLE; i++) {
-		if (ct->code[i] != NULL) {
-			de_free(Ctl->c, ct->code[i]);
-			ct->code[i] = NULL;
-			ct->size[i] = 0;
-		}
-	}
 	de_free(Ctl->c, ct);
 }
 
@@ -231,7 +261,6 @@ static void dd_AddMRU (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 tcode)
 {
 	if (ct->usecount[tcode] != 0) {
 		dd_tmsg(Ctl, "Usecount not zero in AddMRU, code: %4x", tcode);
-		dd_PrintEntry(Ctl, ct, tcode);
 	}
 	ct->newer[ct->newest] = tcode;
 	ct->older[tcode] = ct->newest;
@@ -267,7 +296,6 @@ static u16 dd_GetLRU (struct dd_Ctl *Ctl, struct dd_codet * ct)
 	tcode = ct->oldest;
 	if (ct->usecount[tcode] != 0) {
 		dd_tmsg(Ctl, "Usecount not zero in GetLRU, code: %4x", tcode);
-		dd_PrintEntry(Ctl, ct, tcode);
 	}
 	xcode = ct->charlink[tcode];
 	dd_UnlinkCode (Ctl, ct, tcode);
@@ -279,7 +307,6 @@ static u16 dd_GetLRU (struct dd_Ctl *Ctl, struct dd_codet * ct)
 		}
 	}
 
-	ct->used[tcode] ++;
 	return (tcode);
 }
 
@@ -305,7 +332,7 @@ static void dd_BuildEntry (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 newcode
 
 	lruentry = dd_GetLRU(Ctl, ct);
 	old_codesize = ct->size[ct->oldcode];
-	if(old_codesize<1 || !ct->code[ct->oldcode]) {
+	if(old_codesize<1) {
 		Ctl->err_flag = 1;
 		goto done;
 	}
@@ -314,49 +341,22 @@ static void dd_BuildEntry (struct dd_Ctl *Ctl, struct dd_codet * ct, u16 newcode
 		Ctl->err_flag = 1;
 		goto done;
 	}
-	// TODO?: This makes a huge total number of memory allocations (though only
-	// about 4096 will be active at any given time). Maybe it should be rewritten
-	// to not do that.
-	// [Actually, I think we can get rid of the ct->code[] field altogether, or
-	// reduce it to 1 byte. I think its contents can be deduced from other fields.]
-	codestr = (u8 *) de_malloc(Ctl->c, new_codesize);
-	de_memcpy(codestr, ct->code[ct->oldcode], (size_t)old_codesize);
+
 	if (newcode != lruentry) {
 		tcode = newcode;
 	}
 	else {
 		tcode = ct->oldcode;
 	}
-	if(!ct->code[tcode]) {
-		Ctl->err_flag = 1;
-		goto done;
-	}
-	codestr[new_codesize - 1] = ct->code[tcode][0];
-	if(ct->code[lruentry]) {
-		de_free(Ctl->c, ct->code[lruentry]);
-	}
-	ct->code[lruentry] = codestr;
-	codestr = NULL;
+
+	ct->valfirst[lruentry] = ct->valfirst[ct->oldcode];
+	ct->value[lruentry] = ct->valfirst[tcode];
+
 	ct->size[lruentry] = new_codesize;
 	ct->charlink[lruentry] = ct->oldcode;
-	ct->charfirst[lruentry] = ct->charfirst[ct->charlink[lruentry]];
-	ct->charlast[lruentry] = tcode;
 	dd_ReserveEntry(Ctl, ct, ct->oldcode);
 	ct->usecount[lruentry] = 0;
 	dd_AddMRU (Ctl, ct, lruentry);
-
-#ifdef DD_EXTRADBG
-	if(Ctl->c->debug_level<3) goto done;
-	int test;
-	de_strlcpy(Ctl->work, "", sizeof(Ctl->work));
-	for (test = 0; test < new_codesize; test++) {
-		de_snprintf(Ctl->work2, sizeof(Ctl->work2), "%2x", ct->code[lruentry][test]);
-		dd_right(Ctl->work3, Ctl->work2, 2);
-		strcat(Ctl->work, Ctl->work3);
-	}
-	dd_tmsg(Ctl, "offset: %4x, newcode: %4x. nused: %4x, lru: %4x, lused: %4x, size: %4d, str: %s",
-		(UI)Ctl->inf_pos, newcode, ct->used[newcode], lruentry, ct->used[lruentry], new_codesize, Ctl->work);
-#endif
 
 done:
 	if(codestr) {

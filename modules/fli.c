@@ -16,8 +16,15 @@ DE_DECLARE_MODULE(de_module_fli);
 #define CHUNKTYPE_RLE        0x000f
 #define CHUNKTYPE_COPY       0x0010
 #define CHUNKTYPE_THUMBNAIL  0x0012
+// 0x0014 & 0x0015 seen in Microsoft Multimedia Pack for Windows (e.g. mmtour/fruitmoi.flc)
+// 0x0015 & 0x0016 seen in Dragonheart Medieval Creativity Center CD (e.g. dragon.flx)
+// FLI_DTA_BRUN    25        0x0019
+// FLI_DTA_COPY    26        0x001a
+// FLI_DTA_LC      27        0x001b
 #define CHUNKTYPE_FLI        0xaf11
 #define CHUNKTYPE_FLC        0xaf12
+// 0xaf13 Seen in Spidersoft Pinball 3D-VCR / Total Pinball 3D (m3pcintr.fli)
+// FLC_DTA                   0xaf44 "Dave's Targa Animator"
 #define CHUNKTYPE_PREFIX     0xf100
 #define CHUNKTYPE_FRAME      0xf1fa
 
@@ -63,6 +70,8 @@ struct chunk_info_type {
 	enum mapped_chunktype_enum mct;
 	i64 pos;
 	i64 len;
+	i64 dpos;
+	i64 dlen;
 
 	struct chunk_info_type *parent;
 	chunk_handler_type handler_fn;
@@ -124,7 +133,7 @@ static void do_chunk_rle(deark *c, lctx *d, struct chunk_info_type *ci)
 {
 	i64 xpos = 0;
 	i64 ypos = 0;
-	i64 pos = ci->pos + 6;
+	i64 pos = ci->dpos;
 	struct image_ctx_type *ictx;
 
 	if(!ci->ictx) goto done;
@@ -176,7 +185,7 @@ static void do_chunk_delta_fli(deark *c, lctx *d, struct chunk_info_type *ci)
 	i64 ypos;
 	i64 num_encoded_lines;
 	i64 line_idx;
-	i64 pos = ci->pos + 6;
+	i64 pos = ci->dpos;
 	struct image_ctx_type *ictx;
 
 	if(!ci->ictx) goto done;
@@ -237,7 +246,7 @@ static void do_chunk_delta_flc(deark *c, lctx *d, struct chunk_info_type *ci)
 	i64 ypos = 0;
 	i64 num_encoded_lines;
 	i64 line_idx;
-	i64 pos = ci->pos + 6;
+	i64 pos = ci->dpos;
 	struct image_ctx_type *ictx;
 
 	if(!ci->ictx) goto done;
@@ -314,12 +323,11 @@ done:
 	;
 }
 
-// (UNTESTED)
 static void do_chunk_copy(deark *c, lctx *d, struct chunk_info_type *ci)
 {
 	if(!ci->ictx) return;
 	ci->ictx->use_count++;
-	de_convert_image_paletted(c->infile, ci->pos, 8, ci->ictx->w, ci->ictx->pal,
+	de_convert_image_paletted(c->infile, ci->dpos, 8, ci->ictx->w, ci->ictx->pal,
 		ci->ictx->img, 0);
 }
 
@@ -335,7 +343,7 @@ static void do_chunk_colormap(deark *c, lctx *d, struct chunk_info_type *ci)
 {
 	i64 npackets;
 	i64 pknum;
-	i64 pos = ci->pos + 6;
+	i64 pos = ci->dpos;
 	int bps;
 	UI num_entries_total = 0;
 	UI next_idx = 0;
@@ -436,7 +444,7 @@ static void read_timestamp(deark *c, lctx *d, i64 pos, struct de_timestamp *ts,
 
 static void do_chunk_FLI_FLC(deark *c, lctx *d, struct chunk_info_type *ci)
 {
-	i64 pos = ci->pos + 6;
+	i64 pos = ci->dpos;
 	i64 scr_width, scr_height;
 	i64 n;
 	struct image_ctx_type *ictx = NULL;
@@ -538,14 +546,14 @@ static void do_chunk_frame(deark *c, lctx *d, struct chunk_info_type *ci)
 	d->frame_count++;
 	de_dbg(c, "frame number: %d", (int)frame_idx);
 
-	num_subchunks = de_getu16le(ci->pos+6);
+	num_subchunks = de_getu16le(ci->dpos);
 	de_dbg(c, "num subchunks: %"I64_FMT, num_subchunks);
 
 	if(ci->ictx) {
 		prev_use_count = ci->ictx->use_count;
 	}
 
-	do_sequence_of_chunks(c, d, ci, ci->pos+16, num_subchunks);
+	do_sequence_of_chunks(c, d, ci, ci->dpos+10, num_subchunks);
 
 	if(ci->ictx) {
 		if(ci->ictx->use_count > prev_use_count && !ci->ictx->error_flag) {
@@ -570,7 +578,7 @@ static void do_chunk_thumbnail(deark *c, lctx *d, struct chunk_info_type *ci)
 	UI colortype;
 	i64 w, h;
 	struct image_ctx_type *ictx = NULL;
-	i64 pos = ci->pos + 6;
+	i64 pos = ci->dpos;
 	de_finfo *fi = NULL;
 
 	h = de_getu16le_p(&pos);
@@ -608,18 +616,18 @@ done:
 
 static void do_chunk_prefix(deark *c, lctx *d, struct chunk_info_type *ci)
 {
-	do_sequence_of_chunks(c, d, ci, ci->pos+6, -1);
+	do_sequence_of_chunks(c, d, ci, ci->dpos, -1);
 }
 
 static void do_chunk_settings(deark *c, lctx *d, struct chunk_info_type *ci)
 {
-	do_sequence_of_chunks(c, d, ci, ci->pos+8, -1);
+	do_sequence_of_chunks(c, d, ci, ci->dpos+2, -1);
 }
 
 static void do_chunk_hexdump(deark *c, lctx *d, struct chunk_info_type *ci)
 {
 	if(c->debug_level<2) return;
-	de_dbg_hexdump(c, c->infile, ci->pos+6, ci->len-6, 256, NULL, 0x1);
+	de_dbg_hexdump(c, c->infile, ci->dpos, ci->dlen, 256, NULL, 0x1);
 }
 
 // Sets ci->mct,
@@ -791,6 +799,8 @@ static int do_chunk(deark *c, lctx *d, struct chunk_info_type *parent_ci,
 		ci->len = bytes_avail;
 	}
 
+	ci->dpos = ci->pos + 6;
+	ci->dlen = ci->len - 6;
 	*pbytes_consumed = ci->len;
 	retval = 1;
 

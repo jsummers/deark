@@ -13,10 +13,20 @@ static const de_color g_stdpal16[16] = {
 	0xff1fb714U,0xff006411U,0xff562c05U,0xff90713aU,0xffc0c0c0U,0xff808080U,0xff404040U,0xff000000U
 };
 
-#define IMGTYPE_EMBEDDED_FILE   1
+#define IMGTYPE_EMBEDDED_FILE   1 // JP2 or PNG
 #define IMGTYPE_MASK            2
 #define IMGTYPE_IMAGE           3
 #define IMGTYPE_IMAGE_AND_MASK  4
+#define IMGTYPE_ARGB_ETC        5 // ARGB or JP2 or PNG
+
+enum content_enum {
+	CONTENT_UNSET=0,
+	CONTENT_UNKNOWN,
+	CONTENT_PNG,
+	CONTENT_JP2,
+	CONTENT_J2C,
+	CONTENT_ARGB
+};
 
 struct image_type_info {
 	u32 code;
@@ -61,23 +71,36 @@ static const struct image_type_info image_type_info_arr[] = {
 	{ 0x69633132, 64,   64,   0,  IMGTYPE_EMBEDDED_FILE }, // ic12
 	{ 0x69633133, 256,  256,  0,  IMGTYPE_EMBEDDED_FILE }, // ic13
 	{ 0x69633134, 512,  512,  0,  IMGTYPE_EMBEDDED_FILE }, // ic14
+	{ 0x73623234, 24,   24,   0,  IMGTYPE_EMBEDDED_FILE }, // sb24
+	{ 0x69637342, 36,   36,   0,  IMGTYPE_EMBEDDED_FILE }, // icsB
+	{ 0x53423234, 48,   48,   0,  IMGTYPE_EMBEDDED_FILE }, // SB24
+
+	{ 0x69633034, 16,   16,   0,  IMGTYPE_ARGB_ETC }, // ic04
+	{ 0x69633035, 32,   32,   0,  IMGTYPE_ARGB_ETC }, // ic05
+	{ 0x69637362, 18,   18,   0,  IMGTYPE_ARGB_ETC }, // icsb
 
 	{ 0x544f4320, 0,    0,    0,  0 }, // 'TOC '
 	{ 0x69636e56, 0,    0,    0,  0 }  // icnV
 };
 
 struct mask_wrapper {
+	i64 segment_pos;
+	u8 used_flag;
+	u8 nbits;
+	UI width, height;
 	de_bitmap *img;
 };
 
 struct page_ctx {
 	int image_num;
+	i64 segment_pos;
 	i64 image_pos;
 	i64 image_len;
 	struct mask_wrapper *mask_ref; // (pointer to a d->mask field; do not free)
 	i64 rowspan;
 	const struct image_type_info *type_info;
 	struct de_fourcc code4cc;
+	enum content_enum content_type; // Used when code4cc is insufficient
 	char filename_token[32];
 	de_color pal[256];
 };
@@ -94,6 +117,10 @@ struct page_ctx {
 
 typedef struct localctx_struct {
 	i64 file_size;
+	u8 opt_mask1;
+	u8 opt_mask8;
+	u8 opt_mask24;
+	u8 opt_getmasks;
 	struct mask_wrapper mask[NUM_MASKTYPES];
 	u8 have_stdpal256;
 	de_color stdpal256[256];
@@ -201,12 +228,29 @@ static void do_uncompress_24(deark *c, lctx *d, struct page_ctx *pg, dbuf *unc_p
 	}
 }
 
+static void read_image_plane(deark *c, lctx *d,
+	dbuf *unc_pixels, i64 plane, de_bitmap *img, i64 samplenum)
+{
+	i64 i, j;
+	i64 w, h;
+
+	w = img->width;
+	h = img->height;
+
+	for(j=0; j<h; j++) {
+		for(i=0; i<w; i++) {
+			u8 v;
+
+			v = dbuf_getbyte(unc_pixels, (plane*h+j)*w + i);
+			de_bitmap_setsample(img, i, j, samplenum, v);
+		}
+	}
+}
+
 static void do_decode_24bit(deark *c, lctx *d, struct page_ctx *pg)
 {
 	dbuf *unc_pixels = NULL;
 	de_bitmap *img = NULL;
-	i64 i, j;
-	u8 cr, cg, cb;
 	i64 w, h;
 	i64 skip;
 
@@ -231,62 +275,139 @@ static void do_decode_24bit(deark *c, lctx *d, struct page_ctx *pg)
 
 	img = de_bitmap_create(c, w, h, 4);
 
-	for(j=0; j<pg->type_info->height; j++) {
-		for(i=0; i<pg->type_info->width; i++) {
-			cr = dbuf_getbyte(unc_pixels, j*w + i);
-			cg = dbuf_getbyte(unc_pixels, (h+j)*w + i);
-			cb = dbuf_getbyte(unc_pixels, (2*h+j)*w + i);
-			de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_RGB(cr,cg,cb));
-		}
-	}
+	de_bitmap_rect(img, 0, 0, w, h, DE_STOCKCOLOR_BLACK, 0);
+	read_image_plane(c, d, unc_pixels, 0, img, 0);
+	read_image_plane(c, d, unc_pixels, 1, img, 1);
+	read_image_plane(c, d, unc_pixels, 2, img, 2);
 
 	if(pg->mask_ref && pg->mask_ref->img) {
 		de_bitmap_apply_mask(img, pg->mask_ref->img, 0);
 	}
 
-	de_bitmap_write_to_file(img, pg->filename_token, 0);
+	de_bitmap_write_to_file(img, pg->filename_token, DE_CREATEFLAG_OPT_IMAGE);
 	de_bitmap_destroy(img);
 	if(unc_pixels) dbuf_close(unc_pixels);
 }
 
-static void do_extract_png_or_jp2(deark *c, lctx *d, struct page_ctx *pg)
+// Sets pg->content_type
+static void identify_content(deark *c, lctx *d, struct page_ctx *pg)
 {
 	u8 buf[8];
-	de_finfo *fi = NULL;
 
-	de_dbg(c, "Trying to extract file at %d", (int)pg->image_pos);
+	if(pg->content_type!=CONTENT_UNSET) return;
 
-	// Detect the format
+	// Read the first few bytes
 	de_read(buf, pg->image_pos, sizeof(buf));
 
-	fi = de_finfo_create(c);
-	de_finfo_set_name_from_sz(c, fi, pg->filename_token, 0, DE_ENCODING_ASCII);
-
 	if(buf[4]=='j' && buf[5]=='P') {
-		dbuf_create_file_from_slice(c->infile, pg->image_pos, pg->image_len, "jp2", fi, 0);
+		pg->content_type = CONTENT_JP2;
+	}
+	else if(buf[0]==0xff && buf[1]==0x4f && buf[2]==0xff && buf[3]==0x51) {
+		pg->content_type = CONTENT_J2C;
 	}
 	else if(buf[0]==0x89 && buf[1]==0x50) {
-		dbuf_create_file_from_slice(c->infile, pg->image_pos, pg->image_len, "png", fi, 0);
+		pg->content_type = CONTENT_PNG;
+	}
+	else if(buf[0]=='A' && buf[1]=='R' && buf[2]=='G' && buf[3]=='B') {
+		pg->content_type = CONTENT_ARGB;
 	}
 	else {
-		de_err(c, "(Image #%d) Unidentified file format", pg->image_num);
+		pg->content_type = CONTENT_UNKNOWN;
+	}
+}
+
+// Call this only after the PNG or JP2 format has been identified.
+static void do_extract_png_or_jp2(deark *c, lctx *d, struct page_ctx *pg)
+{
+	de_finfo *fi = NULL;
+	const char *ext;
+
+	if(pg->content_type==CONTENT_JP2) {
+		ext = "jp2";
+	}
+	else if(pg->content_type==CONTENT_J2C) {
+		ext = "j2c";
+	}
+	else if(pg->content_type==CONTENT_PNG) {
+		ext = "png";
+	}
+	else {
+		goto done;
 	}
 
+	fi = de_finfo_create(c);
+
+	de_snprintf(pg->filename_token, sizeof(pg->filename_token), "%dx%d",
+		(int)pg->type_info->width, (int)pg->type_info->height);
+	de_finfo_set_name_from_sz(c, fi, pg->filename_token, 0, DE_ENCODING_ASCII);
+
+	dbuf_create_file_from_slice(c->infile, pg->image_pos, pg->image_len, ext, fi, 0);
+
+done:
 	de_finfo_destroy(c, fi);
+}
+
+static void do_argb(deark *c, lctx *d, struct page_ctx *pg)
+{
+	dbuf *unc_pixels = NULL;
+	de_bitmap *img = NULL;
+	i64 w, h;
+
+	w = pg->type_info->width;
+	h = pg->type_info->height;
+
+	unc_pixels = dbuf_create_membuf(c, w*h*4, 1);
+	do_uncompress_24(c, d, pg, unc_pixels, 4);
+
+	img = de_bitmap_create(c, w, h, 4);
+
+	read_image_plane(c, d, unc_pixels, 0, img, 3);
+	read_image_plane(c, d, unc_pixels, 1, img, 0);
+	read_image_plane(c, d, unc_pixels, 2, img, 1);
+	read_image_plane(c, d, unc_pixels, 3, img, 2);
+
+	de_snprintf(pg->filename_token, sizeof(pg->filename_token), "%dx%dx32",
+		(int)w, (int)h);
+
+	de_bitmap_write_to_file(img, pg->filename_token, DE_CREATEFLAG_OPT_IMAGE);
+	de_bitmap_destroy(img);
+	if(unc_pixels) dbuf_close(unc_pixels);
+}
+
+static void do_argb_png_or_jp2(deark *c, lctx *d, struct page_ctx *pg)
+{
+	identify_content(c, d, pg);
+
+	if(pg->type_info->image_type==IMGTYPE_ARGB_ETC && pg->content_type==CONTENT_ARGB) {
+		do_argb(c, d, pg);
+		return;
+	}
+
+	de_dbg(c, "Trying to extract file at %"I64_FMT, pg->image_pos);
+
+	if(pg->content_type==CONTENT_JP2 || pg->content_type==CONTENT_J2C ||
+		pg->content_type==CONTENT_PNG)
+	{
+		do_extract_png_or_jp2(c, d, pg);
+		return;
+	}
+
+	de_err(c, "(Image #%d) Unidentified file format", pg->image_num);
 }
 
 // Assumes image_type is IMAGE or IMAGE_AND_MASK.
 static struct mask_wrapper *find_mask(deark *c, lctx *d, struct page_ctx *pg)
 {
 	struct mask_wrapper *mw = NULL;
+	struct mask_wrapper *mw1 = NULL;
+	struct mask_wrapper *mw8 = NULL;
 	const struct image_type_info *t;
+	int found_mask = 0;
+	u8 opt;
 
 	t = pg->type_info;
 
-	// As far as I can determine, icons with 8 or fewer bits/pixel always use the
-	// 1-bit mask. Note that 1-bit masks cannot appear by themselves, and always
-	// follow a 1-bit image. So if there is an 8- or 4-bit image, there must
-	// always be a 1-bit image of the same dimensions.
+	// TODO: What is the correct way to match masks to images?
 
 	if(t->code==0x49434f4e) { // 'ICON'
 		// I'm assuming this format doesn't have a mask.
@@ -294,31 +415,72 @@ static struct mask_wrapper *find_mask(deark *c, lctx *d, struct page_ctx *pg)
 	}
 
 	if(t->width==16 && t->height==12 && t->bpp<=8) {
-		mw = &d->mask[MASKTYPEID_16_12_1];
+		mw1 = &d->mask[MASKTYPEID_16_12_1];
+		goto afterdiscovery;
 	}
-	else if(t->width==16 && t->height==16 && t->bpp<=8) {
-		mw = &d->mask[MASKTYPEID_16_16_1];
+	if(t->width==16 && t->height==16) {
+		mw1 = &d->mask[MASKTYPEID_16_16_1];
+		mw8 = &d->mask[MASKTYPEID_16_16_8];
+		goto afterdiscovery;
 	}
-	else if(t->width==32 && t->bpp<=8) {
-		mw = &d->mask[MASKTYPEID_32_32_1];
+	if(t->width==32) {
+		mw1 = &d->mask[MASKTYPEID_32_32_1];
+		mw8 = &d->mask[MASKTYPEID_32_32_8];
+		goto afterdiscovery;
 	}
-	else if(t->width==48 && t->bpp<=8) {
-		mw = &d->mask[MASKTYPEID_48_48_1];
+	if(t->width==48) {
+		mw1 = &d->mask[MASKTYPEID_48_48_1];
+		mw8 = &d->mask[MASKTYPEID_48_48_8];
+		goto afterdiscovery;
 	}
-	else if(t->width==16 && t->bpp>=24) {
-		mw = &d->mask[MASKTYPEID_16_16_8];
-	}
-	else if(t->width==32 && t->bpp>=24) {
-		mw = &d->mask[MASKTYPEID_32_32_8];
-	}
-	else if(t->width==48 && t->bpp>=24) {
-		mw = &d->mask[MASKTYPEID_48_48_8];
-	}
-	else if(t->width==128 && t->bpp>=24) {
-		mw = &d->mask[MASKTYPEID_128_128_8];
+	if(t->width==128) {
+		mw8 = &d->mask[MASKTYPEID_128_128_8];
+		goto afterdiscovery;
 	}
 
-	if(mw && mw->img) return mw;
+afterdiscovery:
+	if(t->bpp==1) {
+		opt = d->opt_mask1;
+	}
+	else if(t->bpp<=8) {
+		opt = d->opt_mask8;
+	}
+	else {
+		opt = d->opt_mask24;
+	}
+
+	if(opt==1) {
+		mw = mw1;
+	}
+	else if(opt==8) {
+		mw = mw8;
+	}
+	else if(opt==18) {
+		if(mw1 && mw1->img) mw = mw1;
+		else mw = mw8;
+	}
+	else if(opt==81) {
+		if(mw8 && mw8->img) mw = mw8;
+		else mw = mw1;
+	}
+
+	found_mask = (mw && mw->img);
+	if(!found_mask) goto notfound;
+
+	if(t->image_type==IMGTYPE_IMAGE_AND_MASK && mw==mw1) {
+		// Sanity check. This could fail if there are multiple icons of
+		// the same type.
+		if(pg->segment_pos != mw->segment_pos) {
+			goto notfound;
+		}
+	}
+
+	mw->used_flag = 1;
+	de_dbg(c, "[using mask at %"I64_FMT"]", mw->segment_pos);
+	return mw;
+
+notfound:
+	de_dbg(c, "[no mask found for icon at %"I64_FMT"]", pg->segment_pos);
 	return NULL;
 }
 
@@ -342,6 +504,9 @@ static void do_read_mask(deark *c, lctx *d, struct page_ctx *pg, int masktype_id
 	de_bitmap *img;
 	i64 rowspan;
 	i64 mask_offset;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
 
 	if(depth==1) {
 		rowspan = (w+7)/8;
@@ -352,13 +517,16 @@ static void do_read_mask(deark *c, lctx *d, struct page_ctx *pg, int masktype_id
 		mask_offset = 0;
 	}
 
-	de_dbg(c, "mask(%d"DE_CHAR_TIMES"%d,%d) at %"I64_FMT"(+%d)", (int)w, (int)h, depth, pg->image_pos,
-		(int)mask_offset);
+	de_dbg(c, "mask(%d"DE_CHAR_TIMES"%d,%d) segment at %"I64_FMT", mask at %"I64_FMT"+%"I64_FMT,
+		(int)w, (int)h, depth, pg->segment_pos, pg->image_pos, mask_offset);
+	de_dbg_indent(c, 1);
 
 	if(d->mask[masktype_id].img) {
+		de_dbg(c, "duplicate mask type %u", (UI)masktype_id);
 		de_bitmap_destroy(d->mask[masktype_id].img);
 	}
 	d->mask[masktype_id].img = de_bitmap_create(c, w, h, 1);
+	d->mask[masktype_id].segment_pos = pg->segment_pos;
 	img = d->mask[masktype_id].img;
 
 	if(depth==1) {
@@ -367,6 +535,8 @@ static void do_read_mask(deark *c, lctx *d, struct page_ctx *pg, int masktype_id
 	else {
 		convert_image_gray8(c->infile, pg->image_pos+mask_offset, rowspan, img);
 	}
+
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void do_icon(deark *c, lctx *d, struct page_ctx *pg)
@@ -379,14 +549,14 @@ static void do_icon(deark *c, lctx *d, struct page_ctx *pg)
 	de_strlcpy(pg->filename_token, "", sizeof(pg->filename_token));
 
 	if(pg->type_info->image_type==IMGTYPE_MASK) {
-		de_dbg(c, "transparency mask");
+		de_dbg(c, "[transparency mask]");
 		return;
 	}
 
-	if(pg->type_info->image_type==IMGTYPE_EMBEDDED_FILE) {
-		de_snprintf(pg->filename_token, sizeof(pg->filename_token), "%dx%d",
-			(int)pg->type_info->width, (int)pg->type_info->height);
-		do_extract_png_or_jp2(c, d, pg);
+	if(pg->type_info->image_type==IMGTYPE_EMBEDDED_FILE ||
+		pg->type_info->image_type==IMGTYPE_ARGB_ETC)
+	{
+		do_argb_png_or_jp2(c, d, pg);
 		return;
 	}
 
@@ -446,7 +616,9 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 	i64 segment_pos;
 	struct page_ctx *pg = NULL;
 	int image_count;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	segment_pos = 8;
 	image_count = 0;
 
@@ -458,6 +630,7 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 		if(segment_pos+8 > d->file_size) break;
 
 		pg = de_malloc(c, sizeof(struct page_ctx));
+		pg->segment_pos = segment_pos;
 		pg->image_num = image_count;
 
 		dbuf_read_fourcc(c->infile, segment_pos, &pg->code4cc, 4, 0x0);
@@ -468,15 +641,25 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 		pg->image_len = segment_len - 8;
 
 		if(pass==2) {
-			de_dbg(c, "image #%d, type '%s', at %d, size=%d", pg->image_num, pg->code4cc.id_dbgstr,
-				(int)pg->image_pos, (int)pg->image_len);
+			de_dbg(c, "image #%d, type '%s', segment at %"I64_FMT", image at %"I64_FMT", size=%"I64_FMT,
+				pg->image_num, pg->code4cc.id_dbgstr,
+				pg->segment_pos, pg->image_pos, pg->image_len);
 		}
+		de_dbg_indent(c, 1);
+
 		if(segment_len<8 || segment_pos+segment_len > d->file_size) {
 			if(pass==2) {
 				de_err(c, "Invalid length for segment '%s' (%u)", pg->code4cc.id_sanitized_sz,
 					(unsigned int)segment_len);
 			}
 			break;
+		}
+
+		if(segment_len==8) {
+			if(pass==2) {
+				de_dbg(c, "[empty icon]");
+			}
+			goto next_icon;
 		}
 
 		if(pass==2) {
@@ -496,6 +679,7 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 		}
 
 		if(pass==1) {
+			de_dbg_indent(c, -1);
 			switch(pg->code4cc.id) {
 			case 0x69636d23: // icm# 16x12x1
 				do_read_mask(c, d, pg, MASKTYPEID_16_12_1, 1, 16, 12);
@@ -522,25 +706,99 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 				do_read_mask(c, d, pg, MASKTYPEID_128_128_8, 8, 128, 128);
 				break;
 			}
+			de_dbg_indent(c, 1);
 		}
 		else if(pass==2) {
-			de_dbg_indent(c, 1);
 			do_icon(c, d, pg);
-			de_dbg_indent(c, -1);
 		}
 
+next_icon:
 		image_count++;
 		segment_pos += segment_len;
+		de_dbg_indent(c, -1);
 	}
 
 	if(pg) de_free(c, pg);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void extract_masks(deark *c, lctx *d)
+{
+	size_t i;
+	char tokenbuf[32];
+
+	de_dbg(c, "extracting masks");
+	for(i=0; i<NUM_MASKTYPES; i++) {
+		if(d->mask[i].img) {
+			de_snprintf(tokenbuf, sizeof(tokenbuf), "mask%ux%ux%u",
+				d->mask[i].width, d->mask[i].height, (UI)d->mask[i].nbits);
+			de_bitmap_write_to_file(d->mask[i].img, tokenbuf, DE_CREATEFLAG_OPT_IMAGE);
+		}
+	}
+}
+
+// FIXME? The way we handle mask type attributes is awkward.
+// This function was added just for the "getmasks" feature.
+static void init_masktype_info(lctx *d)
+{
+	size_t i;
+	struct mti_struct {
+		u8 masktype;
+		u8 nbits;
+		UI width, height;
+	};
+	static const struct mti_struct mti[NUM_MASKTYPES] = {
+		{ MASKTYPEID_16_12_1,   1, 16,  12  },
+		{ MASKTYPEID_16_16_1,   1, 16,  16  },
+		{ MASKTYPEID_32_32_1,   1, 32,  32  },
+		{ MASKTYPEID_48_48_1,   1, 48,  48  },
+		{ MASKTYPEID_16_16_8,   8, 16,  16  },
+		{ MASKTYPEID_32_32_8,   8, 32,  32  },
+		{ MASKTYPEID_48_48_8,   8, 48,  48  },
+		{ MASKTYPEID_128_128_8, 8, 128, 128 }
+	};
+
+	for(i=0; i<DE_ARRAYCOUNT(mti); i++) {
+		d->mask[mti[i].masktype].nbits = mti[i].nbits;
+		d->mask[mti[i].masktype].width = mti[i].width;
+		d->mask[mti[i].masktype].height = mti[i].height;
+	}
 }
 
 static void de_run_icns(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	const char *s;
 
 	d = de_malloc(c, sizeof(lctx));
+	init_masktype_info(d);
+
+	// (If these options are undocumented, it's because they're still in
+	// development/testing.)
+	// 81 = Use 8-bit mask if present, otherwise 1-bit mask
+	// 18 = Use 1-bit mask if present, otherwise 8-bit mask
+	// 8 = Use 8-bit mask only
+	// 1 = Use 1-bit mask only
+	// 0 = No transparency
+	//
+	// TODO: Maybe set opt_mask1 = 81
+	d->opt_mask1 = 1; // Setting for (most) 1bpp icons
+	d->opt_mask8 = 81; // Setting for 4 and 8bpp icons
+	d->opt_mask24 = 81; // Setting for 24bpp icons
+	s = de_get_ext_option(c, "icns:mask1");
+	if(s) {
+		d->opt_mask1 = (u8)de_atoi(s);
+	}
+	s = de_get_ext_option(c, "icns:mask8");
+	if(s) {
+		d->opt_mask8 = (u8)de_atoi(s);
+	}
+	s = de_get_ext_option(c, "icns:mask24");
+	if(s) {
+		d->opt_mask24 = (u8)de_atoi(s);
+	}
+
+	d->opt_getmasks = de_get_ext_option_bool(c, "icns:getmasks", 0);
 
 	d->file_size = de_getu32be(4);
 	de_dbg(c, "reported file size: %d", (int)d->file_size);
@@ -550,16 +808,26 @@ static void de_run_icns(deark *c, de_module_params *mparams)
 	de_dbg_indent(c, 1);
 	de_run_icns_pass(c, d, 1);
 	de_dbg_indent(c, -1);
+
+	if(d->opt_getmasks) {
+		extract_masks(c, d);
+		goto done;
+	}
+
 	de_dbg(c, "pass 2: decoding/extracting icons");
 	de_dbg_indent(c, 1);
 	de_run_icns_pass(c, d, 2);
 	de_dbg_indent(c, -1);
 
+done:
 	if(d) {
 		int i;
 
 		for(i=0; i<NUM_MASKTYPES; i++) {
 			if(d->mask[i].img) {
+				if(!d->mask[i].used_flag && !d->opt_getmasks) {
+					de_dbg(c, "[mask at %"I64_FMT" was not used]", d->mask[i].segment_pos);
+				}
 				de_bitmap_destroy(d->mask[i].img);
 				d->mask[i].img = NULL;
 			}
@@ -579,10 +847,16 @@ static int de_identify_icns(deark *c)
 	return 20;
 }
 
+static void de_help_icns(deark *c)
+{
+	de_msg(c, "-opt icns:getmasks : Only extract the transparency masks");
+}
+
 void de_module_icns(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "icns";
 	mi->desc = "Macintosh icon";
 	mi->run_fn = de_run_icns;
 	mi->identify_fn = de_identify_icns;
+	mi->help_fn = de_help_icns;
 }

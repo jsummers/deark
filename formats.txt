@@ -16,8 +16,7 @@ Deark -- Information about supported formats
   - Original format: Mostly supported, but the format is not portable, and
     there is not just one correct way to render the images.
   - NewIcons: Fully supported.
-  - GlowIcons / OS3.5: Compressed images are supported. Uncompressed images are
-    not.
+  - GlowIcons / OS3.5: Fully supported.
 
 * AMOS Picture Bank (module="abk")
 
@@ -31,6 +30,7 @@ Deark -- Information about supported formats
   - Extract the individual frames.
   Options
    -opt anim:includedups - Do not suppress duplicate frames.
+   - Some options for ILBM may also apply to ANIM.
 
 * Animatic Film (module="animatic")
   - Extract the individual frames.
@@ -251,9 +251,10 @@ Deark -- Information about supported formats
   Related to Icon Manager by Impact Software and L. Gray.
 
 * icns (Apple Icon) (module="icns")
-  - Supports uncompressed 1-, 4-, and 8-bit images (with 1-bit mask).
-  - Supports RLE-compressed 24-bit images (with 8-bit mask).
-  - Extract embedded JP2 and PNG files.
+  - Supports most icon types.
+  - Embedded JP2 and PNG files are extracted as-is.
+  Options
+   -opt icns:getmasks - Only extract the transparency masks.
 
 * ICO/CUR (Windows icon/cursor) (module="ico")
   - Supports most but not all formats.
@@ -268,9 +269,11 @@ Deark -- Information about supported formats
   - Extract thumbnails from TINY chunks
   - Extract text from ANNO chunks (use -a)
   Options
-   -opt ilbm:notrans - Disable support for transparency
+   -opt ilbm:trans=<0|1|auto> - Remove (0) or respect (1) transparency. The
+     default, "auto", is to remove transparency only if it seems bad.
    -opt ilbm:fixpal=<0|1> - Don't/Do try to correct palettes that seem to have
      fewer than 8 bits of precision.
+   -opt ilbm:allowspecial - Don't stop after certain errors.
 
 * IndyPaint (*.tru) (module="indypaint")
 

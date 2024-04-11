@@ -95,14 +95,20 @@ typedef struct localctx_struct {
 	int num_frames_started;
 	int num_frames_finished;
 	int debug_frame_buffer;
-	u8 opt_notrans;
-	u8 opt_fixpal;
+#define TRANS_REMOVE   0
+#define TRANS_RESPECT  1
+#define TRANS_AUTO     2
+	u8 trans_setting;
+	u8 fixpal_setting;
 	u8 opt_allowsham;
+	u8 opt_allowdctv;
+	u8 opt_allowhame;
 	u8 opt_anim_includedups;
 	u8 found_bmhd;
 	u8 found_cmap;
 	u8 cmap_changed_flag;
 	u8 bmhd_changed_flag;
+	u8 camg_changed_flag;
 	u8 has_camg;
 	u8 ham_flag; // "hold and modify"
 	u8 is_ham6;
@@ -212,7 +218,7 @@ static void on_multipalette_enabled(deark *c, lctx *d)
 	}
 	else {
 		de_err(c, "Multi-palette ILBM images are not supported. "
-			"(\"-opt ilbm:allowsham\" to decode anyway)");
+			"(\"-opt ilbm:allowspecial\" to decode anyway)");
 	}
 }
 
@@ -417,6 +423,7 @@ static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
 	i64 col;
 	i64 dststride = ibi->frame_buffer_rowspan;
 	UI unc_threshold;
+	u8 last_col_quirk = 0;
 	int baddata_flag = 0;
 
 	if(separate_data_stream) {
@@ -450,12 +457,41 @@ static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
 		num_columns = (ibi->width+31)/32;
 	}
 
+	if(frctx->op==8 && dataelem_size==4) {
+		i64 num_columns_if_size2;
+
+		num_columns_if_size2 = (ibi->width+15)/16;
+		if(num_columns*2 != num_columns_if_size2) {
+			// A dumb quirk of ANIM-8: The last column may use "word" mode,
+			// even when when all other columns use "long" mode.
+			last_col_quirk = 1;
+		}
+	}
+
 	for(col=0; col<num_columns; col++) {
 		i64 opcount;
 		i64 opidx;
 		i64 elem_bytes_to_write;
 		i64 ypos = 0;
 		i64 col_start_dstpos;
+		i64 dataelem_size_thiscol;
+		i64 code_size_thiscol;
+		UI unc_threshold_thiscol;
+		u8 is_last_col;
+
+		if(c->debug_level>=3) {
+			de_dbg3(c, "col %u at %"I64_FMT, (UI)col, pos);
+		}
+
+		is_last_col = (col+1 == num_columns);
+		code_size_thiscol = code_size;
+		dataelem_size_thiscol = dataelem_size;
+		unc_threshold_thiscol = unc_threshold;
+		if(is_last_col && last_col_quirk) {
+			code_size_thiscol = 2;
+			dataelem_size_thiscol = 2;
+			unc_threshold_thiscol = 0x8000;
+		}
 
 		if(pos>=endpos) {
 			baddata_flag = 1;
@@ -463,16 +499,16 @@ static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
 		}
 
 		// Defend against writing beyond the right edge of this plane
-		if((dataelem_size==4) && (col+1 == num_columns) && (ibi->bytes_per_row_per_plane%4)) {
+		if(is_last_col && (dataelem_size_thiscol==4) && (ibi->bytes_per_row_per_plane%4)) {
 			elem_bytes_to_write = 2;
 		}
 		else {
-			elem_bytes_to_write = dataelem_size;
+			elem_bytes_to_write = dataelem_size_thiscol;
 		}
 
 		col_start_dstpos = plane_idx * ibi->bytes_per_row_per_plane + dataelem_size*col;
 
-		opcount = get_elem_as_int_p(inf, &pos, code_size);
+		opcount = get_elem_as_int_p(inf, &pos, code_size_thiscol);
 		if(c->debug_level>=3) {
 			de_dbg3(c, "col %d op count: %"I64_FMT, (int)col, opcount);
 		}
@@ -488,11 +524,12 @@ static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
 				baddata_flag = 1;
 				goto done;
 			}
-			op = (UI)get_elem_as_int_p(inf, &pos, code_size);
+			op = (UI)get_elem_as_int_p(inf, &pos, code_size_thiscol);
 
 			if(op==0) { // RLE
-				count = get_elem_as_int_p(inf, &pos, code_size);
+				count = get_elem_as_int_p(inf, &pos, code_size_thiscol);
 				if(ypos+count > ibi->height) {
+					// TODO: Should we tolerate this, and set count = 0?
 					baddata_flag = 1;
 					goto done;
 				}
@@ -506,12 +543,12 @@ static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
 						baddata_flag = 1;
 						goto done;
 					}
-					dbuf_read(inf, valbuf, datapos, dataelem_size);
-					datapos += dataelem_size;
+					dbuf_read(inf, valbuf, datapos, dataelem_size_thiscol);
+					datapos += dataelem_size_thiscol;
 				}
 				else {
-					dbuf_read(inf, valbuf, pos, dataelem_size);
-					pos += dataelem_size;
+					dbuf_read(inf, valbuf, pos, dataelem_size_thiscol);
+					pos += dataelem_size_thiscol;
 				}
 
 				for(k=0; k<count; k++) {
@@ -528,11 +565,11 @@ static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
 					ypos++;
 				}
 			}
-			else if(op < unc_threshold) { // skip
+			else if(op < unc_threshold_thiscol) { // skip
 				ypos += (i64)op;
 			}
 			else { // uncompressed run
-				count = (i64)(op - unc_threshold);
+				count = (i64)(op - unc_threshold_thiscol);
 				if(ypos+count > ibi->height) {
 					baddata_flag = 1;
 					goto done;
@@ -548,12 +585,12 @@ static void decompress_plane_vdelta(deark *c, lctx *d, struct imgbody_info *ibi,
 							baddata_flag = 1;
 							goto done;
 						}
-						dbuf_read(inf, valbuf, datapos, dataelem_size);
-						datapos += dataelem_size;
+						dbuf_read(inf, valbuf, datapos, dataelem_size_thiscol);
+						datapos += dataelem_size_thiscol;
 					}
 					else {
-						dbuf_read(inf, valbuf, pos, dataelem_size);
-						pos += dataelem_size;
+						dbuf_read(inf, valbuf, pos, dataelem_size_thiscol);
+						pos += dataelem_size_thiscol;
 					}
 
 					dstpos = col_start_dstpos + ypos*dststride;
@@ -1067,7 +1104,19 @@ static void fixup_palette(deark *c, lctx *d)
 // Called when we encounter a BODY or DLTA or TINY chunk
 static void do_before_image_chunk(deark *c, lctx *d)
 {
-	if(d->bmhd_changed_flag) {
+	if(d->bmhd_changed_flag || d->camg_changed_flag) {
+		if(d->ham_flag) {
+			if(d->planes_raw==6 || d->planes_raw==5) {
+				d->is_ham6 = 1;
+			}
+			else if(d->planes_raw==8 || d->planes_raw==7) {
+				d->is_ham8 = 1;
+			}
+			else {
+				de_warn(c, "Invalid bit depth (%d) for HAM image.", (int)d->planes_raw);
+			}
+		}
+
 		if(!d->found_cmap && d->planes_raw<=8) {
 			de_make_grayscale_palette(d->pal, (i64)1<<(UI)d->planes_raw, 0);
 		}
@@ -1097,8 +1146,7 @@ static void do_before_image_chunk(deark *c, lctx *d)
 		}
 	}
 
-
-	if(d->opt_fixpal && !d->is_anim && d->cmap_changed_flag) {
+	if(d->fixpal_setting && d->cmap_changed_flag) {
 		fixup_palette(c, d);
 	}
 
@@ -1108,6 +1156,7 @@ static void do_before_image_chunk(deark *c, lctx *d)
 
 	d->cmap_changed_flag = 0;
 	d->bmhd_changed_flag = 0;
+	d->camg_changed_flag = 0;
 }
 
 static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is_thumb)
@@ -1195,7 +1244,7 @@ static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is
 		;
 	}
 	else if(ibi->masking_code==MASKINGTYPE_COLORKEY) {
-		if(!d->opt_notrans && ibi->planes_fg<=8 && !d->ham_flag) {
+		if(ibi->planes_fg<=8 && !d->ham_flag) {
 			ibi->use_colorkey_transparency = 1;
 		}
 	}
@@ -1561,23 +1610,47 @@ static void detect_hame(deark *c, lctx *d, struct imgbody_info *ibi,
 
 	if(de_memcmp(pixelval, sig, 15)) return;
 	if(pixelval[15]!=0x4 && pixelval[15]!=0x8) return;
-	de_warn(c, "This is probably a HAM-E image, which is not supported correctly.");
+
+	if(d->opt_allowhame) {
+		de_warn(c, "This is probably a HAM-E image, which is not supported correctly.");
+	}
+	else {
+		de_err(c, "HAM-E images are not supported. "
+			"(\"-opt ilbm:allowspecial\" to decode anyway)");
+		d->errflag = 1;
+	}
+
 	d->is_hame = 1;
+}
+
+static int is_dctv_sig_at(dbuf *f, i64 pos)
+{
+	u8 x;
+
+	static const u8 sig[31] = {
+		0x49, 0x87, 0x28, 0xde, 0x11, 0x0b, 0xef, 0xd2, 0x0c, 0x8e, 0x8b, 0x35, 0x5b, 0x75, 0xec, 0xb8,
+		0x29, 0x6b, 0x03, 0xf9, 0x2b, 0xb4, 0x34, 0xee, 0x67, 0x1e, 0x7c, 0x4f, 0x53, 0x63, 0x15 };
+
+	x = dbuf_getbyte(f, pos);
+	if(x != sig[0]) return 0;
+	if(dbuf_memcmp(f, pos, sig, 31)) return 0;
+	return 1;
 }
 
 // Detect and warn about DCTV, which we don't support.
 static void detect_dctv(deark *c, lctx *d, struct imgbody_info *ibi,
 	struct frame_ctx *frctx)
 {
-	static const u8 sig[31] = {
-		0x49, 0x87, 0x28, 0xde, 0x11, 0x0b, 0xef, 0xd2, 0x0c, 0x8e, 0x8b, 0x35, 0x5b, 0x75, 0xec, 0xb8,
-		0x29, 0x6b, 0x03, 0xf9, 0x2b, 0xb4, 0x34, 0xee, 0x67, 0x1e, 0x7c, 0x4f, 0x53, 0x63, 0x15 };
 	i64 pos;
+	int result;
 
 	// As far as I can tell, in DCTV images, the last plane of the first row is
 	// as follows:
 	//   <00> <31-byte signature> <00 fill> <31-byte signature> <00>
 	// (Sometimes, the last plane of the *second* row is the same.)
+	// (But I have a 2-plane image in which it's the *first* plane of the first
+	// two rows that are special. TODO: Figure this out.)
+	//
 	// Unknowns:
 	// * Is DCTV possible if there are fewer than 64 bytes per row per plane (i.e. width < 512)?
 	// * Can a DCTV image have transparency?
@@ -1588,10 +1661,28 @@ static void detect_dctv(deark *c, lctx *d, struct imgbody_info *ibi,
 	if(ibi->is_thumb) return;
 	if(frctx->formtype!=CODE_ILBM && frctx->formtype!=CODE_ACBM) return;
 	if(ibi->bytes_per_row_per_plane<64) return;
+
+	// Test end of last plane of first row
 	pos = d->planes_raw * ibi->bytes_per_row_per_plane - 32;
-	if(dbuf_getbyte(frctx->frame_buffer, pos) != sig[0]) return;
-	if(dbuf_memcmp(frctx->frame_buffer, pos, sig, 31)) return;
-	de_warn(c, "This is probably a DCTV image, which is not supported correctly.");
+	result = is_dctv_sig_at(frctx->frame_buffer, pos);
+
+	if(!result) {
+		// Test end of first plane of first row
+		pos = ibi->bytes_per_row_per_plane - 32;
+		result = is_dctv_sig_at(frctx->frame_buffer, pos);
+	}
+
+	if(!result) return;
+
+	if(d->opt_allowdctv) {
+		de_warn(c, "This is probably a DCTV image, which is not supported correctly.");
+	}
+	else {
+		de_err(c, "DCTV images are not supported. "
+			"(\"-opt ilbm:allowspecial\" to decode anyway)");
+		d->errflag = 1;
+	}
+
 	d->is_dctv = 1;
 }
 
@@ -1800,6 +1891,7 @@ static void do_camg(deark *c, lctx *d, i64 pos, i64 len)
 {
 	if(len<4) return;
 	d->has_camg = 1;
+	d->camg_changed_flag = 1;
 
 	d->ham_flag = 0;
 	d->is_ham6 = 0;
@@ -1818,18 +1910,6 @@ static void do_camg(deark *c, lctx *d, i64 pos, i64 len)
 	de_dbg(c, "HAM: %d", (int)d->ham_flag);
 	de_dbg(c, "EHB: %d", (int)d->ehb_flag);
 	de_dbg_indent(c, -1);
-
-	if(d->ham_flag) {
-		if(d->planes_raw==6 || d->planes_raw==5) {
-			d->is_ham6 = 1;
-		}
-		else if(d->planes_raw==8 || d->planes_raw==7) {
-			d->is_ham8 = 1;
-		}
-		else {
-			de_warn(c, "Invalid bit depth (%d) for HAM image.", (int)d->planes_raw);
-		}
-	}
 }
 
 static void do_dpi(deark *c, lctx *d, i64 pos, i64 len)
@@ -2105,9 +2185,7 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 	}
 
 	if(ibi->use_colorkey_transparency || ibi->masking_code==MASKINGTYPE_1BITMASK) {
-		if(!d->opt_notrans) {
-			bypp++;
-		}
+		bypp++;
 	}
 
 	img = de_bitmap_create(c, ibi->width, ibi->height, bypp);
@@ -2175,7 +2253,7 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 		}
 
 		// Handle 1-bit transparency masks here, for all color types.
-		if(ibi->masking_code==MASKINGTYPE_1BITMASK && !d->opt_notrans) {
+		if(ibi->masking_code==MASKINGTYPE_1BITMASK) {
 			i64 i;
 
 			for(i=0; i<rowbuf_size; i++) {
@@ -2191,12 +2269,22 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 	}
 
 after_render:
+	if(d->trans_setting==TRANS_AUTO) {
+		if(ibi->masking_code==MASKINGTYPE_1BITMASK) {
+			de_bitmap_optimize_alpha(img, 0x2|0x4);
+		}
+	}
+	else if(d->trans_setting==TRANS_REMOVE) {
+		de_bitmap_remove_alpha(img);
+	}
+
 	fi = de_finfo_create(c);
 	set_finfo_data(c, d, ibi, fi);
 	if(ibi->is_thumb) {
 		createflags |= DE_CREATEFLAG_IS_AUX;
 	}
 	if(!d->is_anim) {
+		// TODO: Enable this for ANIM?
 		createflags |= DE_CREATEFLAG_OPT_IMAGE;
 	}
 
@@ -2538,18 +2626,34 @@ static void strip_trailing_space_sz(char *sz)
 static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 {
 	u32 id;
+	u8 opt_notrans = 0;
+	u8 opt_fixpal;
+	int opt;
+	const char *opt_trans_str;
 	lctx *d = NULL;
 	struct de_iffctx *ictx = NULL;
 	struct de_fourcc formtype_4cc;
 
 	d = de_malloc(c, sizeof(lctx));
-	d->opt_fixpal = (u8)de_get_ext_option_bool(c, "ilbm:fixpal", 1);
-	if(de_get_ext_option(c, "ilbm:notrans")) {
-		d->opt_notrans = 1;
+	opt_fixpal = (u8)de_get_ext_option_bool(c, "ilbm:fixpal", 0xff);
+
+	opt_trans_str = de_get_ext_option(c, "ilbm:trans");
+
+	if(!opt_trans_str) {
+		if(de_get_ext_option(c, "ilbm:notrans")) { // Deprecated option
+			opt_notrans = 1;
+		}
 	}
-	if(de_get_ext_option(c, "ilbm:allowsham")) {
+
+	if(de_get_ext_option_bool(c, "ilbm:allowspecial", 0)) {
 		d->opt_allowsham = 1;
+		d->opt_allowdctv = 1;
+		d->opt_allowhame = 1;
 	}
+	// allowsham is deprecated
+	opt = de_get_ext_option_bool(c, "ilbm:allowsham", -1);
+	if(opt==0) d->opt_allowsham = 0;
+	else if(opt>0) d->opt_allowsham = 1;
 
 	id = (u32)de_getu32be(0);
 	if(id!=CODE_FORM) {
@@ -2581,6 +2685,48 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 
 	if(d->is_anim) {
 		d->opt_anim_includedups = (u8)de_get_ext_option_bool(c, "anim:includedups", 0);
+	}
+
+	if(opt_fixpal==0xff) {
+		// Fixpal option defaults to No for ANIM format, othersize Yes.
+		// (The concern with ANIM is that we don't want frame 1's colors
+		// to fail to match frame 2's colors.)
+		d->fixpal_setting = (d->is_anim ? 0 : 1);
+	}
+	else {
+		d->fixpal_setting = opt_fixpal;
+	}
+
+	// Default for d->trans_setting
+	if(d->is_anim) {
+		// I don't think AUTO makes sense for ANIM.
+		d->trans_setting = TRANS_RESPECT;
+	}
+	else {
+		d->trans_setting = TRANS_AUTO;
+	}
+
+	if(opt_trans_str) {
+		if(!de_strcmp(opt_trans_str, "auto")) {
+			d->trans_setting = TRANS_AUTO;
+		}
+		else if(!de_strcmp(opt_trans_str, "")) {
+			d->trans_setting = TRANS_RESPECT;
+		}
+		else {
+			int opt_trans_n;
+
+			opt_trans_n = de_atoi(opt_trans_str);
+			if(opt_trans_n==0) {
+				d->trans_setting = TRANS_REMOVE;
+			}
+			else if(opt_trans_n>0) {
+				d->trans_setting = TRANS_RESPECT;
+			}
+		}
+	}
+	else if(opt_notrans) {
+		d->trans_setting = TRANS_REMOVE;
 	}
 
 	d->FORM_level = d->is_anim ? 1 : 0;
@@ -2651,12 +2797,13 @@ static int de_identify_anim(deark *c)
 
 static void do_help_ilbm_anim(deark *c, int is_anim)
 {
-	de_msg(c, "-opt ilbm:notrans : Disable support for transparency");
+	de_msg(c, "-opt ilbm:trans=<0|1|auto> : Always remove (0) or respect (1) "
+		"transparency");
 	if(!is_anim) {
 		de_msg(c, "-opt ilbm:fixpal=<0|1> : Don't/Do try to fix palettes that are "
 			"slightly too dark");
 	}
-	de_msg(c, "-opt ilbm:allowsham : Suppress an error on some images");
+	de_msg(c, "-opt ilbm:allowspecial : Suppress an error on some images");
 	if(is_anim) {
 		de_msg(c, "-opt anim:includedups : Do not suppress duplicate frames");
 	}
