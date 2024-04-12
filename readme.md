@@ -115,7 +115,7 @@ Command-line options:
    Extract at most &lt;n> files. The normal default is 1000, or effectively
    unlimited if using -zip.
 -get &lt;n>
-   Extract only the file identifed by &lt;n>. The first file is 0.
+   Extract only the file identified by &lt;n>. The first file is 0.
    Equivalent to "-firstfile &lt;n> -maxfiles 1".
    To unconditionally show the file identifiers, use "-l -opt list:fileid".
 -maxfilesize &lt;n>
