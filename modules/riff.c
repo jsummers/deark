@@ -762,12 +762,84 @@ void de_module_riff(deark *c, struct deark_module_info *mi)
 
 struct mmm_ctx {
 	u8 errflag;
-	u8 opt_decode;
+	u8 opt_allowbad;
 	int clut_count;
+	int dib_count;
 	int pass;
+	u8 have_pal;
+	de_ucstring *tmpstr;
 	de_color pal1[2];
 	de_color pal[256];
 };
+
+static void mmm_default_pal256(deark *c, struct mmm_ctx *d)
+{
+	UI i, j, k;
+	static const u8 v[6] = {0, 48, 100, 152, 204, 252};
+
+	de_warn(c, "Using a default color table. Colors might be wrong.");
+
+	// Note: This sets pal[40], but it will be corrected later.
+	for(i=0; i<6; i++) {
+		for(j=0; j<6; j++) {
+			for(k=0; k<6; k++) {
+				d->pal[40 + i*36 + j*6 + k] = DE_MAKE_RGB(v[i], v[j], v[k]);
+			}
+		}
+	}
+
+	for(i=0; i<=10; i++) {
+		d->pal[i] = DE_MAKE_GRAY(i*24);
+	}
+
+	for(i=0; i<10; i++) {
+		UI t;
+
+		t = 16+24*i;
+		if(t>=128) t += 4;
+		d->pal[11+i] = DE_MAKE_RGB(0, 0, t);
+		d->pal[21+i] = DE_MAKE_RGB(0, t, 0);
+		d->pal[31+i] = DE_MAKE_RGB(t, 0, 0);
+	}
+
+	d->have_pal = 1;
+}
+
+static void mmm_allowbad_note(deark *c)
+{
+	de_info(c, "Note: Use \"-opt mmm:allowbad\" to extract anyway.");
+}
+
+
+static void mmm_default_pal16(deark *c, struct mmm_ctx *d)
+{
+	de_make_grayscale_palette(d->pal, 16, 0);
+	d->have_pal = 1;
+
+	// TODO: Figure out if there is a default 16-color palette.
+	if(d->opt_allowbad) {
+		de_warn(c, "No color table found. Colors will be wrong.");
+	}
+	else {
+		de_err(c, "No color table found");
+		mmm_allowbad_note(c);
+		d->errflag = 1;
+	}
+}
+
+static void mmm_read_name_p(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx, i64 *ppos)
+{
+	i64 pos = *ppos;
+	i64 namelen;
+
+	namelen = (i64)dbuf_getbyte(ictx->f, pos);
+	if(namelen) {
+		ucstring_empty(d->tmpstr);
+		dbuf_read_to_ucstring(ictx->f, pos+1, namelen, d->tmpstr, 0, DE_ENCODING_ASCII);
+		de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(d->tmpstr));
+	}
+	*ppos += de_pad_to_2(1+namelen);
+}
 
 static void hexdump_chunk(deark *c, struct de_iffctx *ictx, const char *name, UI flags)
 {
@@ -775,8 +847,9 @@ static void hexdump_chunk(deark *c, struct de_iffctx *ictx, const char *name, UI
 		256, name, flags);
 }
 
-static void do_mmm_dib(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
+static void do_mmm_dib(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx, i64 pos1, i64 len)
 {
+	i64 pos;
 	i64 i_infohdr_pos;
 	i64 i_bits_pos;
 	i64 infosize;
@@ -790,8 +863,10 @@ static void do_mmm_dib(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx, i64 
 	dbuf *outf = NULL;
 	struct de_bmpinfo bi;
 
-	de_dbg_hexdump(c, ictx->f, pos, 6, 6, "dibdata", 0);
-	i_infohdr_pos = pos+6;
+	de_dbg_hexdump(c, ictx->f, pos1, 4, 4, "dibdata", 0);
+	pos = pos1 + 4;
+	mmm_read_name_p(c, d, ictx, &pos);
+	i_infohdr_pos = pos;
 
 	infosize = dbuf_getu32le(ictx->f, i_infohdr_pos);
 	if(infosize<40 || infosize>124) goto done;
@@ -820,7 +895,14 @@ static void do_mmm_dib(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx, i64 
 		o_bits_size = i_bits_size;
 	}
 
-	if(!d->opt_decode) goto done;
+	// color table
+	if(bi.bitcount==4 && !d->have_pal) {
+		mmm_default_pal16(c, d);
+	}
+	if(bi.bitcount==8 && !d->have_pal) {
+		mmm_default_pal256(c, d);
+	}
+	if(d->errflag) goto done;
 
 	outf = dbuf_create_output_file(c, "bmp", NULL, 0);
 
@@ -876,35 +958,47 @@ done:
 static void do_mmm_clut(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx,
 	i64 pos1, i64 len)
 {
-	i64 i;
 	i64 pos;
 	i64 num_entries;
-	i64 namelen;
-	u8 samp[3];
+	i64 i;
 
 	de_dbg_hexdump(c, ictx->f, pos1, 4, 4, "clutdata", 0);
-	namelen = (i64)dbuf_getbyte(ictx->f, pos1+4);
-	pos = pos1 + 4 + de_pad_to_2(1+namelen);
+	pos = pos1+4;
+	mmm_read_name_p(c, d, ictx, &pos);
 
 	num_entries = (pos1+len-pos)/6;
-	if(num_entries>256) num_entries = 256;
 
 	de_dbg(c, "color table at %"I64_FMT", %u entries", pos, (UI)num_entries);
-	if(d->clut_count>0) goto done;
+
+	if(num_entries!=16 && num_entries!=256) {
+		de_warn(c, "Unsupported type of color table");
+		goto done;
+	}
 
 	// TODO: This probably won't work. We should index the clut chunks, and read
 	// them later.
 	de_dbg_indent(c, 1);
 	for(i=0; i<num_entries; i++) {
-		samp[0] = dbuf_getbyte(ictx->f, pos+0);
-		samp[1] = dbuf_getbyte(ictx->f, pos+2);
-		samp[2] = dbuf_getbyte(ictx->f, pos+4);
-		pos += 6;
-		// FIXME: Colors need to be translated.
-		d->pal[i] = DE_MAKE_RGB(255-samp[2], 255-samp[1], 255-samp[0]);
-		de_dbg_pal_entry(c, i, d->pal[i]);
+		UI samp[3];
+		de_color clr;
+		i64 idx;
+		UI k;
+
+		idx = num_entries-1-i;
+
+		for(k=0; k<3; k++) {
+			samp[k] = (UI)dbuf_getu16be_p(ictx->f, &pos);
+			samp[k] = (UI)de_sample_nbit_to_8bit(16, samp[k]);
+		}
+		clr = DE_MAKE_RGB(samp[0], samp[1], samp[2]);
+		de_dbg_pal_entry(c, idx, clr);
+
+		if(d->clut_count==0) {
+			d->pal[idx] = clr;
+		}
 	}
 	de_dbg_indent(c, -1);
+	d->have_pal = 1;
 
 done:
 	d->clut_count++;
@@ -937,13 +1031,18 @@ static int my_mmm_chunk_handler(struct de_iffctx *ictx)
 		case CODE_clut:
 			do_mmm_clut(c, d, ictx, dpos, dlen);
 			ictx->handled = 1;
+			break;
+		case CODE_DIB:
+		case CODE_dib:
+			d->dib_count++;
+			break;
 		}
 	}
 
 	if(d->pass==2) {
 		switch(ictx->chunkctx->chunk4cc.id) {
-		case CODE_dib:
 		case CODE_DIB:
+		case CODE_dib:
 			do_mmm_dib(c, d, ictx, dpos, dlen);
 			ictx->handled = 1;
 			break;
@@ -970,7 +1069,6 @@ static int my_mmm_handle_nonchunk_data_fn(struct de_iffctx *ictx,
 	return 0;
 }
 
-
 static void de_run_mmm(deark *c, de_module_params *mparams)
 {
 	struct mmm_ctx *d = NULL;
@@ -979,11 +1077,8 @@ static void de_run_mmm(deark *c, de_module_params *mparams)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	d = de_malloc(c, sizeof(struct mmm_ctx));
-	d->opt_decode = (u8)de_get_ext_option_bool(c, "mmm:decode", 0xff);
-	if(d->opt_decode==0xff) {
-		de_info(c, "Note: Use \"-opt mmm:decode\" to attempt decoding.");
-		d->opt_decode = 0;
-	}
+	d->opt_allowbad = (u8)de_get_ext_option_bool(c, "mmm:allowbad", 0);
+	d->tmpstr = ucstring_create(c);
 
 	ictx = fmtutil_create_iff_decoder(c);
 	ictx->userdata = (void*)d;
@@ -1002,8 +1097,10 @@ static void de_run_mmm(deark *c, de_module_params *mparams)
 	de_dbg_indent(c, -1);
 	if(d->errflag) goto done;
 
-	if(d->clut_count==0) {
-		de_copy_std_palette(DE_PALID_VGA256, 0, 0, 256, d->pal, 256, 0);
+	if(d->clut_count>1 && d->dib_count>0 && !d->opt_allowbad) {
+		de_warn(c, "Multiple color tables found (not supported).");
+		mmm_allowbad_note(c);
+		goto done;
 	}
 
 	d->pass = 2;
@@ -1015,7 +1112,9 @@ static void de_run_mmm(deark *c, de_module_params *mparams)
 done:
 	fmtutil_destroy_iff_decoder(ictx);
 	if(d) {
-		de_dbg(c, "clut count: %d", d->clut_count);
+		de_dbg2(c, "dib count: %d", d->dib_count);
+		de_dbg2(c, "clut count: %d", d->clut_count);
+		ucstring_destroy(d->tmpstr);
 		de_free(c, d);
 	}
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -1034,6 +1133,9 @@ void de_module_mmm(deark *c, struct deark_module_info *mi)
 	mi->desc = "RIFF Multimedia Movie";
 	mi->run_fn = de_run_mmm;
 	mi->identify_fn = de_identify_mmm;
-	// Status: Most images should "work", but the colors are all wrong.
+	// Status: Many images work correctly. Others have the wrong colors.
+	// Improvements are probably possible, but only up to a point. This
+	// is just a resource format; the correct color table might, for
+	// example, be in a different file.
 	mi->flags |= DE_MODFLAG_NONWORKING;
 }
