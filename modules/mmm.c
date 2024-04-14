@@ -24,6 +24,8 @@ struct mmm_ctx {
 	int dib_count;
 	int pass;
 	u8 have_pal;
+	u8 force_pal;
+	UI pal_id_to_use;
 	de_ucstring *tmpstr;
 	de_color pal1[2];
 	de_color pal[256];
@@ -34,9 +36,9 @@ static void mmm_default_pal256(deark *c, struct mmm_ctx *d)
 	UI i, j, k;
 	static const u8 v[6] = {0, 48, 100, 152, 204, 252};
 
-	de_warn(c, "Using a default color table. Colors might be wrong.");
+	de_warn(c, "Using a default palette. Colors might be wrong.");
 
-	// Note: This sets pal[40], but it will be corrected later.
+	// Note: This sets pal[40] incorrectly, but it will be fixed later.
 	for(i=0; i<6; i++) {
 		for(j=0; j<6; j++) {
 			for(k=0; k<6; k++) {
@@ -67,7 +69,6 @@ static void mmm_allowbad_note(deark *c)
 	de_info(c, "Note: Use \"-opt mmm:allowbad\" to extract anyway.");
 }
 
-
 static void mmm_default_pal16(deark *c, struct mmm_ctx *d)
 {
 	de_make_grayscale_palette(d->pal, 16, 0);
@@ -75,10 +76,10 @@ static void mmm_default_pal16(deark *c, struct mmm_ctx *d)
 
 	// TODO: Figure out if there is a default 16-color palette.
 	if(d->opt_allowbad) {
-		de_warn(c, "No color table found. Colors will be wrong.");
+		de_warn(c, "No palette found. Colors will be wrong.");
 	}
 	else {
-		de_err(c, "No color table found");
+		de_err(c, "No palette found");
 		mmm_allowbad_note(c);
 		d->errflag = 1;
 	}
@@ -115,13 +116,16 @@ static void do_mmm_dib(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx, i64 
 	i64 i_rowspan;
 	i64 k;
 	i64 j;
+	UI seqnum;
 	u8 special_1bpp = 0;
 	int ret;
 	dbuf *outf = NULL;
 	struct de_bmpinfo bi;
 
-	de_dbg_hexdump(c, ictx->f, pos1, 4, 4, "dibdata", 0);
-	pos = pos1 + 4;
+	pos = pos1;
+	seqnum = (UI)dbuf_getu16le_p(ictx->f, &pos);
+	de_dbg(c, "dib id: %u", seqnum);
+	pos += 2;
 	mmm_read_name_p(c, d, ictx, &pos);
 	i_infohdr_pos = pos;
 
@@ -218,18 +222,33 @@ static void do_mmm_clut(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx,
 	i64 pos;
 	i64 num_entries;
 	i64 i;
+	UI seqnum;
+	u8 keep_this_pal = 0;
 
-	de_dbg_hexdump(c, ictx->f, pos1, 4, 4, "clutdata", 0);
-	pos = pos1+4;
+	pos = pos1;
+	seqnum = (UI)dbuf_getu16le_p(ictx->f, &pos);
+	de_dbg(c, "pal id: %u", seqnum);
+	pos += 2;
 	mmm_read_name_p(c, d, ictx, &pos);
 
 	num_entries = (pos1+len-pos)/6;
 
-	de_dbg(c, "color table at %"I64_FMT", %u entries", pos, (UI)num_entries);
+	de_dbg(c, "palette at %"I64_FMT", %u entries", pos, (UI)num_entries);
 
 	if(num_entries!=16 && num_entries!=256) {
-		de_warn(c, "Unsupported type of color table");
+		de_warn(c, "Unsupported type of palette");
 		goto done;
+	}
+
+	if(!d->have_pal) {
+		if(d->force_pal) {
+			if(seqnum == d->pal_id_to_use) {
+				keep_this_pal = 1;
+			}
+		}
+		else {
+			keep_this_pal = 1;
+		}
 	}
 
 	// TODO: This probably won't work. We should index the clut chunks, and read
@@ -250,12 +269,14 @@ static void do_mmm_clut(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx,
 		clr = DE_MAKE_RGB(samp[0], samp[1], samp[2]);
 		de_dbg_pal_entry(c, idx, clr);
 
-		if(d->clut_count==0) {
+		if(keep_this_pal) {
 			d->pal[idx] = clr;
 		}
 	}
 	de_dbg_indent(c, -1);
-	d->have_pal = 1;
+	if(keep_this_pal) {
+		d->have_pal = 1;
+	}
 
 done:
 	d->clut_count++;
@@ -278,31 +299,33 @@ static int my_mmm_chunk_handler(struct de_iffctx *ictx)
 
 	if(ictx->level != 1) goto done;
 
-	if(d->pass==1) {
-		switch(ictx->chunkctx->chunk4cc.id) {
-		case CODE_Ver_:
-		case CODE_ver:
-			hexdump_chunk(c, ictx, "verdata", 0);
-			break;
-		case CODE_CLUT:
-		case CODE_clut:
-			do_mmm_clut(c, d, ictx, dpos, dlen);
-			ictx->handled = 1;
-			break;
-		case CODE_DIB:
-		case CODE_dib:
-			d->dib_count++;
-			break;
-		}
-	}
+	ictx->handled = 1;
 
-	if(d->pass==2) {
-		switch(ictx->chunkctx->chunk4cc.id) {
-		case CODE_DIB:
-		case CODE_dib:
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_Ver_:
+	case CODE_ver:
+		if(d->pass==1) {
+			hexdump_chunk(c, ictx, "verdata", 0);
+		}
+		break;
+	case CODE_CLUT:
+	case CODE_clut:
+		if(d->pass==1) {
+			do_mmm_clut(c, d, ictx, dpos, dlen);
+		}
+		break;
+	case CODE_DIB:
+	case CODE_dib:
+		if(d->pass==1) {
+			d->dib_count++;
+		}
+		else {
 			do_mmm_dib(c, d, ictx, dpos, dlen);
-			ictx->handled = 1;
-			break;
+		}
+		break;
+	default:
+		if(d->pass==1) {
+			ictx->handled = 0;
 		}
 	}
 
@@ -330,11 +353,18 @@ static void de_run_mmm(deark *c, de_module_params *mparams)
 {
 	struct mmm_ctx *d = NULL;
 	struct de_iffctx *ictx = NULL;
+	const char *s;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	d = de_malloc(c, sizeof(struct mmm_ctx));
 	d->opt_allowbad = (u8)de_get_ext_option_bool(c, "mmm:allowbad", 0);
+	s = de_get_ext_option(c, "mmm:palid");
+	if(s) {
+		d->pal_id_to_use = (UI)de_atoi(s);
+		d->force_pal = 1;
+	}
+
 	d->tmpstr = ucstring_create(c);
 
 	ictx = fmtutil_create_iff_decoder(c);
@@ -354,8 +384,14 @@ static void de_run_mmm(deark *c, de_module_params *mparams)
 	de_dbg_indent(c, -1);
 	if(d->errflag) goto done;
 
-	if(d->clut_count>1 && d->dib_count>0 && !d->opt_allowbad) {
-		de_warn(c, "Multiple color tables found (not supported).");
+	if(d->force_pal && !d->have_pal && !d->opt_allowbad) {
+		de_err(c, "Palette %u not found", d->pal_id_to_use);
+		goto done;
+	}
+
+	if(d->clut_count>1 && d->dib_count>0 && !d->opt_allowbad && !d->force_pal) {
+		de_err(c, "Multiple palettes found (not supported, "
+			"or try \"-opt mmm:palid=...\").");
 		mmm_allowbad_note(c);
 		goto done;
 	}
@@ -369,8 +405,8 @@ static void de_run_mmm(deark *c, de_module_params *mparams)
 done:
 	fmtutil_destroy_iff_decoder(ictx);
 	if(d) {
-		de_dbg2(c, "dib count: %d", d->dib_count);
-		de_dbg2(c, "clut count: %d", d->clut_count);
+		de_dbg(c, "dib count: %d", d->dib_count);
+		de_dbg(c, "clut count: %d", d->clut_count);
 		ucstring_destroy(d->tmpstr);
 		de_free(c, d);
 	}
@@ -384,12 +420,18 @@ static int de_identify_mmm(deark *c)
 	return 100;
 }
 
+static void de_help_mmm(deark *c)
+{
+	de_msg(c, "-opt mmm:palid=<id> : Use this palette");
+}
+
 void de_module_mmm(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "mmm";
 	mi->desc = "RIFF Multimedia Movie";
 	mi->run_fn = de_run_mmm;
 	mi->identify_fn = de_identify_mmm;
+	mi->help_fn = de_help_mmm;
 	// Status: Many images work correctly. Others have the wrong colors.
 	// Improvements are probably possible, but only up to a point. This
 	// is just a resource format; the correct color table might, for
