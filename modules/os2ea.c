@@ -242,10 +242,8 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void eadata_do_FEA2LIST(deark *c, struct eadata_ctx *d)
+static void eadata_do_raw_list(deark *c, struct eadata_ctx *d, i64 pos1, i64 len)
 {
-	i64 fea2list_len;
-	i64 pos1 = 0;
 	i64 pos = pos1;
 	i64 endpos;
 	de_ucstring *tmps = NULL;
@@ -254,13 +252,8 @@ static void eadata_do_FEA2LIST(deark *c, struct eadata_ctx *d)
 	de_dbg_indent_save(c, &saved_indent_level);
 	tmps = ucstring_create(c);
 
-	de_dbg(c, "FEA2LIST at %"I64_FMT, pos1);
-	de_dbg_indent(c, 1);
+	endpos = pos1 + len;
 
-	fea2list_len = de_getu32le_p(&pos);
-	endpos = pos1 + fea2list_len;
-
-	de_dbg(c, "list len: %"I64_FMT, fea2list_len);
 	while(1) {
 		int ret;
 		i64 bytes_consumed = 0;
@@ -285,6 +278,20 @@ static void eadata_do_FEA2LIST(deark *c, struct eadata_ctx *d)
 done:
 	ucstring_destroy(tmps);
 	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void eadata_do_FEA2LIST(deark *c, struct eadata_ctx *d)
+{
+	i64 fea2list_len;
+	i64 pos1 = 0;
+	i64 pos = pos1;
+
+	de_dbg(c, "FEA2LIST at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	fea2list_len = de_getu32le_p(&pos);
+	de_dbg(c, "list len: %"I64_FMT, fea2list_len);
+	eadata_do_raw_list(c, d, pos, fea2list_len-4);
+	de_dbg_indent(c, -1);
 }
 
 static void eadata_do_ea_sector_by_offset(deark *c, struct eadata_ctx *d, i64 pos1,
@@ -397,6 +404,10 @@ static void de_run_eadata(deark *c, de_module_params *mparams)
 	if(de_havemodcode(c, mparams, 'L')) {
 		d->createflags_for_icons = DE_CREATEFLAG_IS_AUX;
 		eadata_do_FEA2LIST(c, d);
+	}
+	else if(de_havemodcode(c, mparams, 'R')) {
+		d->createflags_for_icons = DE_CREATEFLAG_IS_AUX;
+		eadata_do_raw_list(c, d, 0, c->infile->len);
 	}
 	else if(mparams && (mparams->in_params.flags & 0x1)) {
 		// We're being used by another module, to handle a specific ea_id.

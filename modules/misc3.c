@@ -2845,6 +2845,45 @@ static void os2pack2_read_cmpr_method(deark *c, i64 pos, i64 len)
 	de_dbg(c, "cmpr meth: '%s'", cmpr4cc.id_dbgstr); // Usually "fT19"
 }
 
+static void do_os2pack1_ea(deark *c, de_arch_lctx *d, struct de_arch_member_data *md,
+	i64 ea_pos, i64 ea_len)
+{
+	int saved_indent_level;
+	dbuf *attr_data = NULL;
+	de_module_params *mparams = NULL;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "ext. attr. at %"I64_FMT, ea_pos);
+	de_dbg_indent(c, 1);
+	attr_data = dbuf_create_membuf(c, 0, 0);
+	dbuf_set_length_limit(attr_data, 1024*1024);
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = ea_pos;
+	dcmpri.len = ea_len;
+	dcmpro.f = attr_data;
+	fmtutil_ibmlzw_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
+	dbuf_flush(attr_data);
+	if(dres.errcode) {
+		de_warn(c, "Failed to decompress ext. attr. data");
+		goto done;
+	}
+	de_dbg(c, "decompressed len: %"I64_FMT, attr_data->len);
+
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->in_params.codes = "R";
+	de_run_module_by_id_on_slice(c, "ea_data", mparams, attr_data, 0, attr_data->len);
+
+done:
+	dbuf_close(attr_data);
+	de_free(c, mparams);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *md)
 {
 	i64 pos;
@@ -2963,6 +3002,9 @@ static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member
 	if(d->fmtcode==1) {
 		md->dfn = os2pack_decompressor_fn;
 		de_arch_extract_member_file(md);
+		if(ea_pos>0 && ea_len>0) {
+			do_os2pack1_ea(c, d, md, ea_pos, ea_len);
+		}
 	}
 
 	de_dbg_indent(c, -1);
