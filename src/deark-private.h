@@ -1011,7 +1011,7 @@ u8 de_decode_hex_digit(u8 x, int *errorflag);
 
 de_color de_get_std_palette_entry(int pal_id, int pal_subid, int index);
 #define DE_COPYPALFLAG_INITPAL 0x10
-void de_copy_std_palette(int pal_id, int pal_subid, i64 starting_idx, i64 count,
+void de_copy_std_palette(int pal_id, int pal_subid, i64 starting_idx,
 	de_color *dstpal, size_t dstpal_capacity, UI flags);
 
 const u8 *de_get_8x8ascii_font_ptr(void);

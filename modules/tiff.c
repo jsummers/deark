@@ -3582,7 +3582,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		dctx->base_samples_per_pixel = 4;
 		ok_bps = 1;
 		if(!pg->have_colormap) {
-			de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, pg->pal, 16, 0);
+			de_copy_std_palette(DE_PALID_PC16, 0, 0, pg->pal, 16, 0);
 		}
 		dctx->use_pal = 1;
 	}
@@ -3590,7 +3590,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		dctx->base_samples_per_pixel = 1;
 		ok_bps = 1;
 		if(!pg->have_colormap) {
-			de_copy_std_palette(DE_PALID_CGA, 3, 0, 4, pg->pal, 4, 0);
+			de_copy_std_palette(DE_PALID_CGA, 3, 0, pg->pal, 4, 0);
 		}
 		dctx->use_pal = 1;
 	}

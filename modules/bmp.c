@@ -1440,7 +1440,7 @@ static void ddb_convert_pal4planar(deark *c, struct ddbctx_struct *d,
 	//  ...
 	// But I have seen another, and I see no way to detect/support it.
 
-	de_copy_std_palette(DE_PALID_WIN16, 0, 0, 16, pal16, 16, 0);
+	de_copy_std_palette(DE_PALID_WIN16, 0, 0, pal16, 16, 0);
 	de_convert_image_paletted_planar(c->infile, fpos, nplanes, rowspan,
 		d->bmWidthBytes, pal16, img, 0x2);
 }
@@ -1452,8 +1452,8 @@ static void ddb_convert_pal8(deark *c, struct ddbctx_struct *d,
 	size_t k;
 	int badcolorflag = 0;
 
-	de_copy_std_palette(DE_PALID_WIN16, 1, 0, 8, &d->pal[0], 8, 0);
-	de_copy_std_palette(DE_PALID_WIN16, 1, 8, 8, &d->pal[248], 8, 0);
+	de_copy_std_palette(DE_PALID_WIN16, 1, 0, &d->pal[0], 8, 0);
+	de_copy_std_palette(DE_PALID_WIN16, 1, 8, &d->pal[248], 8, 0);
 
 	if(!d->have_custom_pal) {
 		for(k=16; k<248; k++) {

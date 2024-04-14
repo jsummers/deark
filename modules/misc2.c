@@ -443,7 +443,7 @@ static int do_one_ripicon(deark *c, i64 pos1, i64 *pbytes_consumed, int scan_mod
 	de_dbg(c, "bitmap at %"I64_FMT", len=%"I64_FMT, pos, bitmap_len);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 	img = de_bitmap_create2(c, width, chunk_span*8, height, 3);
-	de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, pal, 16, 0);
+	de_copy_std_palette(DE_PALID_PC16, 0, 0, pal, 16, 0);
 	de_convert_image_paletted_planar(c->infile, pos, 4, src_rowspan, chunk_span,
 		pal, img, 0);
 	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
@@ -1562,7 +1562,7 @@ static void de_run_deskmate_pnt(deark *c, de_module_params *mparams)
 	rowspan = w/2;
 	unc_pixels_size = rowspan * h;
 
-	de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, pal, 16, 0);
+	de_copy_std_palette(DE_PALID_PC16, 0, 0, pal, 16, 0);
 
 	is_compressed = (pos+unc_pixels_size != c->infile->len);
 	de_dbg(c, "compressed: %d", is_compressed);
@@ -1651,7 +1651,7 @@ static void de_run_mdesk_icn(deark *c, de_module_params *mparams)
 	de_declare_fmtf(c, "%s icon", (toybox_mode?"ToyBox":"Magic Desk"));
 
 	if(toybox_mode) {
-		de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, pal, 16, 0);
+		de_copy_std_palette(DE_PALID_PC16, 0, 0, pal, 16, 0);
 	}
 	else {
 		de_memcpy(pal, pal_mdesk, sizeof(pal));
@@ -1790,7 +1790,7 @@ static void de_run_dgi(deark *c, de_module_params *mparams)
 	do_dgi_convert_quadrant(c, imgbuf, 32008, 32000);
 	do_dgi_convert_quadrant(c, imgbuf, 48008, 32080);
 
-	de_copy_std_palette(DE_PALID_CGA, 1, 0, 4, pal, 4, 0);
+	de_copy_std_palette(DE_PALID_CGA, 1, 0, pal, 4, 0);
 
 	fi = de_finfo_create(c);
 	img = de_bitmap_create(c, 640, 400, 3);
@@ -2400,7 +2400,7 @@ static void de_run_yp(deark *c, de_module_params *mparams)
 	fi->density.xdens = 6.0;
 	fi->density.ydens = 5.0;
 
-	de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, d->pal, 16, 0);
+	de_copy_std_palette(DE_PALID_PC16, 0, 0, d->pal, 16, 0);
 	img = de_bitmap_create(c, d->w, d->h, 3);
 	de_convert_image_paletted(unc_pixels, 0, 8, d->w, d->pal, img, 0);
 	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_FLIP_IMAGE |
@@ -2788,7 +2788,7 @@ static void de_run_iconmgr_ica(deark *c, de_module_params *mparams)
 	de_dbg(c, "count: %d", (int)d->icon_count);
 	d->reported_file_size = de_getu32le(4);
 
-	de_copy_std_palette(DE_PALID_WIN16, 0, 0, 16, d->pal, 16, 0);
+	de_copy_std_palette(DE_PALID_WIN16, 0, 0, d->pal, 16, 0);
 	pos = 18;
 	while(1) {
 		if(pos>=c->infile->len || pos>=d->reported_file_size) goto done;

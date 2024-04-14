@@ -420,7 +420,7 @@ static void do_palette_stuff(deark *c, lctx *d)
 		}
 		else {
 			// This palette seems to be correct for at least some files.
-			de_copy_std_palette(DE_PALID_WIN16, 2, 0, 16, d->pal, 16, 0);
+			de_copy_std_palette(DE_PALID_WIN16, 2, 0, d->pal, 16, 0);
 		}
 		return;
 	}
@@ -467,7 +467,7 @@ static void do_palette_stuff(deark *c, lctx *d)
 		default: // 0, 2
 			pal_subid = 2; break; // C=0 P=? I=0
 		}
-		de_copy_std_palette(DE_PALID_CGA, pal_subid, 1, 3, &d->pal[1], 3, 0);
+		de_copy_std_palette(DE_PALID_CGA, pal_subid, 1, &d->pal[1], 3, 0);
 		return;
 	}
 

@@ -168,7 +168,7 @@ static void write_cut_image(deark *c, lctx *d, dbuf *unc_pixels)
 	analyze_image(c, d, unc_pixels);
 
 	if(d->opt_pal_pc16 && d->max_color_val<16) {
-		de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, d->pal, 16, 0);
+		de_copy_std_palette(DE_PALID_PC16, 0, 0, d->pal, 16, 0);
 		do_write_image_pal(c, d, unc_pixels);
 		return;
 	}
@@ -601,7 +601,7 @@ static void de_run_drhalopic(deark *c, de_module_params *mparams)
 	}
 
 	if(d->ncolors==16) {
-		de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, d->pal, 16, 0);
+		de_copy_std_palette(DE_PALID_PC16, 0, 0, d->pal, 16, 0);
 	}
 	else if(d->ncolors==256) {
 		make_stdpal_256col(c, d);
@@ -626,7 +626,7 @@ static void de_run_drhalopic(deark *c, de_module_params *mparams)
 		else if(!palf1 && palf2) pal_subifd = 0;
 		else if(palf1 && !palf2) pal_subifd = 4;
 		else pal_subifd = 1;
-		de_copy_std_palette(DE_PALID_CGA, pal_subifd, 0, 4, d->pal, 4, 0);
+		de_copy_std_palette(DE_PALID_CGA, pal_subifd, 0, d->pal, 4, 0);
 
 		// "background" color
 		d->pal[0] = de_get_std_palette_entry(DE_PALID_PC16, 0, (int)(b12 & 0x0f));
