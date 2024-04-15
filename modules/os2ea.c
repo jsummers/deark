@@ -9,12 +9,15 @@ DE_DECLARE_MODULE(de_module_ea_data);
 
 struct easector_ctx {
 	i64 ea_data_len;
+	de_ucstring *fn;
 };
 
 struct eadata_ctx {
 	de_encoding input_encoding;
 	UI createflags_for_icons;
 	i64 bytes_per_cluster;
+	de_ucstring *base_filename_ref; // May be NULL. Do not free.
+	struct easector_ctx *cur_md; // May be NULL. Do not free.
 };
 
 static int eadata_is_ea_sector_at_offset(deark *c, struct eadata_ctx *d, i64 pos, int strictmode)
@@ -47,7 +50,19 @@ static const char *eadata_get_data_type_name(UI t)
 
 static void eadata_extract_icon(deark *c, struct eadata_ctx *d, i64 pos, i64 len)
 {
-	dbuf_create_file_from_slice(c->infile, pos, len, "os2.ico", NULL, d->createflags_for_icons);
+	de_finfo *fi = NULL;
+
+	fi = de_finfo_create(c);
+
+	if(d->base_filename_ref) {
+		de_finfo_set_name_from_ucstring(c, fi, d->base_filename_ref, 0);
+	}
+	else if(d->cur_md && ucstring_isnonempty(d->cur_md->fn)) {
+		de_finfo_set_name_from_ucstring(c, fi, d->cur_md->fn, 0);
+	}
+
+	dbuf_create_file_from_slice(c->infile, pos, len, "os2.ico", fi, d->createflags_for_icons);
+	de_finfo_destroy(c, fi);
 }
 
 static void eadata_do_text_attrib(deark *c, struct eadata_ctx *d, i64 pos, i64 len)
@@ -225,6 +240,7 @@ static void eadata_do_ea_data(deark *c, struct eadata_ctx *d, struct easector_ct
 	endpos = pos1 + md->ea_data_len;
 	s = ucstring_create(c);
 
+	d->cur_md = md;
 	while(pos < endpos-4) {
 		int ret;
 		i64 bytes_consumed = 0;
@@ -239,6 +255,7 @@ static void eadata_do_ea_data(deark *c, struct eadata_ctx *d, struct easector_ct
 
 done:
 	ucstring_destroy(s);
+	d->cur_md = NULL;
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -299,7 +316,6 @@ static void eadata_do_ea_sector_by_offset(deark *c, struct eadata_ctx *d, i64 po
 {
 	i64 n;
 	i64 pos;
-	de_ucstring *fn = NULL;
 	struct easector_ctx *md = NULL;
 	int saved_indent_level;
 
@@ -322,9 +338,9 @@ static void eadata_do_ea_sector_by_offset(deark *c, struct eadata_ctx *d, i64 po
 
 	pos += 4;
 
-	fn = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos, 12, fn, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
-	de_dbg(c, "file name: \"%s\"", ucstring_getpsz_d(fn));
+	md->fn = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, 12, md->fn, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+	de_dbg(c, "file name: \"%s\"", ucstring_getpsz_d(md->fn));
 	pos += 12;
 
 	pos += 2;
@@ -338,8 +354,10 @@ static void eadata_do_ea_sector_by_offset(deark *c, struct eadata_ctx *d, i64 po
 	}
 
 done:
-	ucstring_destroy(fn);
-	de_free(c, md);
+	if(md) {
+		ucstring_destroy(md->fn);
+		de_free(c, md);
+	}
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -400,6 +418,12 @@ static void de_run_eadata(deark *c, de_module_params *mparams)
 	de_declare_fmt(c, "OS/2 extended attributes data");
 
 	d = de_malloc(c, sizeof(struct eadata_ctx));
+
+	if(mparams && (mparams->in_params.flags & 0x8)!=0) {
+		if(ucstring_isnonempty(mparams->in_params.str1)) {
+			d->base_filename_ref = mparams->in_params.str1;
+		}
+	}
 
 	if(de_havemodcode(c, mparams, 'L')) {
 		d->createflags_for_icons = DE_CREATEFLAG_IS_AUX;

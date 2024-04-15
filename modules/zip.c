@@ -747,6 +747,10 @@ static void ef_os2(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	// attr_data contains an OS/2 extended attribute structure (FEA2LIST)
 	mparams = de_malloc(c, sizeof(de_module_params));
 	mparams->in_params.codes = "L";
+	if(ucstring_isnonempty(eii->dd->fname)) {
+		mparams->in_params.str1 = eii->dd->fname;
+		mparams->in_params.flags |= 0x8;
+	}
 	de_dbg(c, "decoding OS/2 ext. attribs., unc. len=%"I64_FMT, attr_data->len);
 	de_dbg_indent(c, 1);
 	de_run_module_by_id_on_slice(c, "ea_data", mparams, attr_data, 0, attr_data->len);

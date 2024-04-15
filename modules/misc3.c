@@ -2876,6 +2876,10 @@ static void do_os2pack1_ea(deark *c, de_arch_lctx *d, struct de_arch_member_data
 
 	mparams = de_malloc(c, sizeof(de_module_params));
 	mparams->in_params.codes = "R";
+	if(ucstring_isnonempty(md->filename)) {
+		mparams->in_params.str1 = md->filename;
+		mparams->in_params.flags |= 0x8;
+	}
 	de_run_module_by_id_on_slice(c, "ea_data", mparams, attr_data, 0, attr_data->len);
 
 done:
