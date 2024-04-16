@@ -351,6 +351,12 @@ static int do_ole_object_embedded(deark *c, lctx *d,
 		recognized = 1;
 		handled = do_ole_package(c, d, pos, data_len);
 	}
+	else if(!de_strcmp(classname_srd->sz, "SoundRec") &&
+		!de_memcmp(&buf[0], (const void*)"RIFF", 4) &&
+		!de_memcmp(&buf[8], (const void*)"WAVE", 4) )
+	{
+		ext = "wav";
+	}
 	else if(!de_strncmp(classname_srd->sz, "Word.Document.", 14) ||
 		!de_strncmp(classname_srd->sz, "Word.Picture.", 13))
 	{
