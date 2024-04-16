@@ -11,6 +11,8 @@ DE_DECLARE_MODULE(de_module_ole1);
 typedef struct localctx_struct {
 	int input_encoding;
 	int extract_all;
+	i64 calculated_size;
+	i64 pos_for_calc_size;
 } lctx;
 
 static const char *get_FormatID_name(unsigned int t)
@@ -472,11 +474,136 @@ done:
 	return retval;
 }
 
+//-------------------------------------------------
+// OLE1 object size calculator adapted from the instructions in Microsoft's
+// article Q99340.
+//
+// This maybe ought to be integrated into the decoder, but it can be more
+// robust to do it in a separate pass like this.
+
+static int calc_chkver(deark *c, lctx *d)
+{
+	UI ver_code;
+
+	ver_code = (UI)de_getu32le_p(&d->pos_for_calc_size);
+	if((ver_code & 0xff0000ffU)==0x00000001) {
+		return 1;
+	}
+	return 0;
+}
+
+static int calc_chkstring(deark *c, lctx *d)
+{
+	i64 n;
+	struct de_stringreaderdata *srd = NULL;
+	int retval = 0;
+
+	n = de_getu32le_p(&d->pos_for_calc_size);
+	if(n<16) {
+		srd = dbuf_read_string(c->infile, d->pos_for_calc_size, n, n,
+			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_LATIN1);
+		if(!de_strcmp(srd->sz, "DIB") ||
+			!de_strcmp(srd->sz, "BITMAP") ||
+			!de_strcmp(srd->sz, "METAFILEPICT"))
+		{
+			retval = 1;
+		}
+	}
+	d->pos_for_calc_size += n;
+
+	de_destroy_stringreaderdata(c, srd);
+	return retval;
+}
+
+static int calc_skip_presentation_obj(deark *c, lctx *d)
+{
+	UI format;
+	int retval = 0;
+	int ret;
+	i64 n;
+
+	if(!calc_chkver(c, d)) goto done;
+
+	format = (UI)de_getu32le_p(&d->pos_for_calc_size);
+	if(format==0) {
+		retval = 1;
+		goto done;
+	}
+
+	ret = calc_chkstring(c, d);
+	if(ret) {
+		d->pos_for_calc_size += 8; // width, height
+		n = de_getu32le_p(&d->pos_for_calc_size);
+		d->pos_for_calc_size += n; // Presentation data
+	}
+	else {
+		n = de_getu32le_p(&d->pos_for_calc_size);
+		if(n==0) {
+			n = de_getu32le_p(&d->pos_for_calc_size);
+			d->pos_for_calc_size += n; // Clipboard format name
+		}
+		n = de_getu32le_p(&d->pos_for_calc_size);
+		d->pos_for_calc_size += n; // Presentation data
+	}
+	retval = 1;
+
+done:
+	return retval;
+}
+
+// Sets d->calculated_size
+static void calc_ole_obj_size(deark *c, lctx *d)
+{
+	UI format;
+	i64 pos1 = 0;
+	i64 n;
+
+	d->calculated_size = 0;
+	d->pos_for_calc_size = pos1;
+
+	if(!calc_chkver(c, d)) goto done;
+
+	format = (UI)de_getu32le_p(&d->pos_for_calc_size);
+	if(format<1 || format>3) goto done;
+
+	n = de_getu32le_p(&d->pos_for_calc_size);
+	d->pos_for_calc_size += n; // Class string
+
+	if(format==3) { // Static
+		d->pos_for_calc_size += 8; // width & height
+		n = de_getu32le_p(&d->pos_for_calc_size);
+		d->pos_for_calc_size += n; // Presentation data
+	}
+	else {
+		n = de_getu32le_p(&d->pos_for_calc_size);
+		d->pos_for_calc_size += n; // Topic string
+		n = de_getu32le_p(&d->pos_for_calc_size);
+		d->pos_for_calc_size += n; // Item string
+		if(format==2) { // Embedded object
+			n = de_getu32le_p(&d->pos_for_calc_size);
+			d->pos_for_calc_size += n; // Native data
+			if(!calc_skip_presentation_obj(c, d)) goto done;
+		}
+		else { // format==1
+			n = de_getu32le_p(&d->pos_for_calc_size);
+			d->pos_for_calc_size += n; // Network name
+			d->pos_for_calc_size += 8; // Network type/version, link update options
+			if(!calc_skip_presentation_obj(c, d)) goto done;
+		}
+	}
+
+	d->calculated_size = d->pos_for_calc_size - pos1;
+
+done:
+	;
+}
+
+//-------------------------------------------------
+
 static void de_run_ole1(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	i64 bytes_consumed = 0;
-	int ret;
 	int u_flag;
 
 	if(mparams) {
@@ -492,14 +619,15 @@ static void de_run_ole1(deark *c, de_module_params *mparams)
 	d->extract_all = de_get_ext_option_bool(c, "ole1:extractall",
 		((c->extract_level>=2)?1:0));
 
-	ret = do_ole_object(c, d, 0, c->infile->len, (u_flag?0:1),
+	(void)do_ole_object(c, d, 0, c->infile->len, (u_flag?0:1),
 		0, &bytes_consumed);
-	if(ret) {
+	calc_ole_obj_size(c, d);
+	if(d->calculated_size>0 && d->calculated_size<=c->infile->len) {
 		if(mparams) {
 			mparams->out_params.flags |= 0x1;
-			mparams->out_params.int64_1 = bytes_consumed;
+			mparams->out_params.int64_1 = d->calculated_size;
 		}
-		de_dbg3(c, "ole1: calculated size=%"I64_FMT, bytes_consumed);
+		de_dbg3(c, "ole1: calculated size=%"I64_FMT, d->calculated_size);
 	}
 	else {
 		de_dbg3(c, "ole1: failed to calculate object size");
