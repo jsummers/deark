@@ -8,14 +8,41 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_mmm);
 
+#define CODE_CFTC  0x43465443U
+#define CODE_CLUT  0x434c5554U
+#define CODE_DIB   0x44494220U
+#define CODE_McNm  0x4d634e6dU
 #define CODE_RIFF  0x52494646U
 #define CODE_RMMP  0x524d4d50U
-#define CODE_DIB   0x44494220U
-#define CODE_dib   0x64696220U
-#define CODE_CLUT  0x434c5554U
-#define CODE_clut  0x636c7574U
+#define CODE_SCVW  0x53435657U
+#define CODE_STR   0x53545220U
+#define CODE_STXT  0x53545854U
+#define CODE_VWAC  0x56574143U
+#define CODE_VWCF  0x56574346U
+#define CODE_VWCR  0x56574352U
+#define CODE_VWFM  0x5657464dU
+#define CODE_VWLB  0x56574c42U
+#define CODE_VWSC  0x56575343U
+#define CODE_VWTL  0x5657544cU
+#define CODE_VWtc  0x56577463U
 #define CODE_Ver_  0x5665722eU // "Ver."
+#define CODE_cftc  0x63667463U
+#define CODE_clut  0x636c7574U
+#define CODE_dib   0x64696220U
+#define CODE_mcnm  0x6d636e6dU
+#define CODE_snd   0x736e6420U // Not sure if 'SND' exists
+#define CODE_str   0x73747220U
+#define CODE_scvw  0x73637677U
+#define CODE_stxt  0x73747874U
 #define CODE_ver   0x76657220U // "ver "
+#define CODE_vwac  0x76776163U
+#define CODE_vwcf  0x76776366U
+#define CODE_vwcr  0x76776372U
+#define CODE_vwfm  0x7677666dU
+#define CODE_vwlb  0x76776c62U
+#define CODE_vwsc  0x76777363U
+#define CODE_vwtc  0x76777463U
+#define CODE_vwtl  0x7677746cU
 
 struct mmm_ctx {
 	u8 errflag;
@@ -25,7 +52,7 @@ struct mmm_ctx {
 	int pass;
 	u8 have_pal;
 	u8 force_pal;
-	UI pal_id_to_use;
+	int pal_id_to_use;
 	de_ucstring *tmpstr;
 	de_color pal1[2];
 	de_color pal[256];
@@ -85,7 +112,8 @@ static void mmm_default_pal16(deark *c, struct mmm_ctx *d)
 	}
 }
 
-static void mmm_read_name_p(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx, i64 *ppos)
+static void mmm_read_name_p(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx,
+	i64 *ppos, const char *name)
 {
 	i64 pos = *ppos;
 	i64 namelen;
@@ -94,15 +122,57 @@ static void mmm_read_name_p(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx,
 	if(namelen) {
 		ucstring_empty(d->tmpstr);
 		dbuf_read_to_ucstring(ictx->f, pos+1, namelen, d->tmpstr, 0, DE_ENCODING_ASCII);
-		de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(d->tmpstr));
+		de_dbg(c, "%s: \"%s\"", (name ? name : "name"), ucstring_getpsz_d(d->tmpstr));
 	}
 	*ppos += de_pad_to_2(1+namelen);
 }
 
-static void hexdump_chunk(deark *c, struct de_iffctx *ictx, const char *name, UI flags)
+static void do_mmm_mcnm(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx,
+	i64 dpos1, i64 dlen)
 {
-	de_dbg_hexdump(c, ictx->f, ictx->chunkctx->dpos, ictx->chunkctx->dlen,
-		256, name, flags);
+	i64 pos = dpos1+4;
+
+	mmm_read_name_p(c, d, ictx, &pos, "movie name");
+}
+
+static void do_mmm_ver(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx,
+	i64 dpos1, i64 dlen)
+{
+	UI ver;
+
+	ver = (UI)dbuf_getu32le(ictx->f, dpos1);
+	de_dbg(c, "version: %u", ver);
+}
+
+static void do_mmm_cftc(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx,
+	i64 dpos1, i64 dlen)
+{
+	i64 nentries;
+	i64 i;
+	i64 pos;
+	struct de_fourcc tmp4cc;
+
+	if(dlen<4) goto done;
+	nentries = (dlen-4)/16;
+
+	pos = dpos1+4;
+	for(i=0; i<nentries; i++) {
+		int chk_id;
+		i64 chk_pos;
+		i64 chk_dlen;
+		de_zeromem(&tmp4cc, sizeof(struct de_fourcc));
+		dbuf_read_fourcc(ictx->f, pos, &tmp4cc, 4, 0);
+		pos += 4;
+		if(tmp4cc.id==0) break;
+		chk_dlen = dbuf_getu32le_p(ictx->f, &pos);
+		chk_id = (int)dbuf_geti32le_p(ictx->f, &pos);
+		chk_pos = dbuf_getu32le_p(ictx->f, &pos);
+		de_dbg(c, "toc entry '%s' id=%d pos=%"I64_FMT" dlen=%"I64_FMT,
+			tmp4cc.id_sanitized_sz, chk_id, chk_pos, chk_dlen);
+	}
+
+done:
+	;
 }
 
 static void do_mmm_dib(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx, i64 pos1, i64 len)
@@ -116,17 +186,16 @@ static void do_mmm_dib(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx, i64 
 	i64 i_rowspan;
 	i64 k;
 	i64 j;
-	UI seqnum;
+	int seqnum;
 	u8 special_1bpp = 0;
 	int ret;
 	dbuf *outf = NULL;
 	struct de_bmpinfo bi;
 
 	pos = pos1;
-	seqnum = (UI)dbuf_getu16le_p(ictx->f, &pos);
-	de_dbg(c, "dib id: %u", seqnum);
-	pos += 2;
-	mmm_read_name_p(c, d, ictx, &pos);
+	seqnum = (int)dbuf_geti32le_p(ictx->f, &pos);
+	de_dbg(c, "dib id: %d", seqnum);
+	mmm_read_name_p(c, d, ictx, &pos, NULL);
 	i_infohdr_pos = pos;
 
 	infosize = dbuf_getu32le(ictx->f, i_infohdr_pos);
@@ -222,14 +291,13 @@ static void do_mmm_clut(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx,
 	i64 pos;
 	i64 num_entries;
 	i64 i;
-	UI seqnum;
+	int seqnum;
 	u8 keep_this_pal = 0;
 
 	pos = pos1;
-	seqnum = (UI)dbuf_getu16le_p(ictx->f, &pos);
-	de_dbg(c, "pal id: %u", seqnum);
-	pos += 2;
-	mmm_read_name_p(c, d, ictx, &pos);
+	seqnum = (int)dbuf_geti32le_p(ictx->f, &pos);
+	de_dbg(c, "pal id: %d", seqnum);
+	mmm_read_name_p(c, d, ictx, &pos, NULL);
 
 	num_entries = (pos1+len-pos)/6;
 
@@ -305,7 +373,13 @@ static int my_mmm_chunk_handler(struct de_iffctx *ictx)
 	case CODE_Ver_:
 	case CODE_ver:
 		if(d->pass==1) {
-			hexdump_chunk(c, ictx, "verdata", 0);
+			do_mmm_ver(c, d, ictx, dpos, dlen);
+		}
+		break;
+	case CODE_CFTC:
+	case CODE_cftc:
+		if(d->pass==1) {
+			do_mmm_cftc(c, d, ictx, dpos, dlen);
 		}
 		break;
 	case CODE_CLUT:
@@ -323,6 +397,12 @@ static int my_mmm_chunk_handler(struct de_iffctx *ictx)
 			do_mmm_dib(c, d, ictx, dpos, dlen);
 		}
 		break;
+	case CODE_McNm:
+	case CODE_mcnm:
+		if(d->pass==1) {
+			do_mmm_mcnm(c, d, ictx, dpos, dlen);
+		}
+		break;
 	default:
 		if(d->pass==1) {
 			ictx->handled = 0;
@@ -334,19 +414,79 @@ done:
 	return 1;
 }
 
+static int looks_like_a_4cc_b(const u8 *buf)
+{
+	i64 i;
+
+	for(i=0; i<4; i++) {
+		if(buf[i]<32 || buf[i]>126) return 0;
+	}
+	return 1;
+}
+
+// A few files are seen to be malformed in the neighborhood of the VWCF chunk,
+// having two extra bytes after it that shouldn't be there.
+// This is a quick hack to try to handle such files.
+// (But this is evidence that we really ought to be relying on the table
+// of contents, instead of reading the file sequentially.)
 static int my_mmm_handle_nonchunk_data_fn(struct de_iffctx *ictx,
 	i64 pos, i64 *plen)
 {
-	u8 x;
+	u8 buf[6];
 
-	x = dbuf_getbyte(ictx->f, pos);
-	if(x==0) {
-		*plen = 2;
-		de_dbg(ictx->c, "[%"I64_FMT" non-RIFF bytes at %"I64_FMT"]", *plen, pos);
-		return 1;
+	dbuf_read(ictx->f, buf, pos, sizeof(buf));
+
+	if(buf[0]<65 || buf[1]<65) {
+		if(looks_like_a_4cc_b(&buf[2])) {
+			*plen = 2;
+			de_dbg(ictx->c, "[%"I64_FMT" non-RIFF bytes at %"I64_FMT"]", *plen, pos);
+			return 1;
+		}
 	}
 
 	return 0;
+}
+
+static int my_preprocess_mmm_chunk_fn(struct de_iffctx *ictx)
+{
+	size_t k;
+	struct mmmnames_struct {
+		u32 id1, id2;
+		const char *name;
+	};
+	static const struct mmmnames_struct mmmnames[] = {
+		{ CODE_CFTC, CODE_cftc, "table of contents" },
+		{ CODE_CLUT, CODE_clut, "palette" },
+		{ CODE_DIB,  CODE_dib,  "bitmap" },
+		{ CODE_McNm, CODE_mcnm, "movie name" },
+		{ CODE_SCVW, CODE_scvw, "director score" },
+		{ CODE_snd,  CODE_snd,  "sound resource" },
+		{ CODE_STR,  CODE_str,  "string table" },
+		{ CODE_STXT, CODE_stxt, "styled text" },
+		{ CODE_Ver_, CODE_ver,  "converter version" },
+		{ CODE_VWAC, CODE_vwac, "script commands" },
+		{ CODE_VWCF, CODE_vwcf, "movie config" },
+		{ CODE_VWCR, CODE_vwcr, "cast record array" },
+		{ CODE_VWFM, CODE_vwfm, "font mapping" },
+		{ CODE_VWLB, CODE_vwlb, "label list" },
+		{ CODE_VWSC, CODE_vwsc, "movie score" },
+		{ CODE_VWtc, CODE_vwtc, "timecode" },
+		{ CODE_VWTL, CODE_vwtl, "pixel pattern tile" }
+		// Other known chunks: VWFI vwfi VWCI vwci
+		// crsr CURS FOND fwst
+		// icl4 icl8 ICN# ics# ics4 ics8
+		// NFNT pict vers XCMD XCOD XFCN
+	};
+
+	for(k=0; k<DE_ARRAYCOUNT(mmmnames); k++) {
+		if((ictx->chunkctx->chunk4cc.id == mmmnames[k].id1) ||
+			(ictx->chunkctx->chunk4cc.id == mmmnames[k].id2))
+		{
+			ictx->chunkctx->chunk_name = mmmnames[k].name;
+			break;
+		}
+	}
+	return 1;
 }
 
 static void de_run_mmm(deark *c, de_module_params *mparams)
@@ -361,7 +501,7 @@ static void de_run_mmm(deark *c, de_module_params *mparams)
 	d->opt_allowbad = (u8)de_get_ext_option_bool(c, "mmm:allowbad", 0);
 	s = de_get_ext_option(c, "mmm:palid");
 	if(s) {
-		d->pal_id_to_use = (UI)de_atoi(s);
+		d->pal_id_to_use = de_atoi(s);
 		d->force_pal = 1;
 	}
 
@@ -372,6 +512,7 @@ static void de_run_mmm(deark *c, de_module_params *mparams)
 	ictx->is_le = 1;
 	ictx->handle_chunk_fn = my_mmm_chunk_handler;
 	ictx->handle_nonchunk_data_fn = my_mmm_handle_nonchunk_data_fn;
+	ictx->preprocess_chunk_fn = my_preprocess_mmm_chunk_fn;
 	ictx->f = c->infile;
 
 	d->pal1[0] = DE_STOCKCOLOR_BLACK;
@@ -385,7 +526,7 @@ static void de_run_mmm(deark *c, de_module_params *mparams)
 	if(d->errflag) goto done;
 
 	if(d->force_pal && !d->have_pal && !d->opt_allowbad) {
-		de_err(c, "Palette %u not found", d->pal_id_to_use);
+		de_err(c, "Palette %d not found", d->pal_id_to_use);
 		goto done;
 	}
 
