@@ -29,7 +29,7 @@ static const char *get_FormatID_name(unsigned int t)
 	return name;
 }
 
-static void do_static_bitmap(deark *c, lctx *d, i64 pos1)
+static void do_static_bitmap(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	i64 dlen;
 	i64 pos = pos1;
@@ -41,7 +41,7 @@ static void do_static_bitmap(deark *c, lctx *d, i64 pos1)
 	de_dbg(c, "BITMAP16 at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 	de_run_module_by_id_on_slice2(c, "ddb", "N", c->infile, pos,
-		c->infile->len-pos);
+		de_min_int(dlen, pos1+len-pos));
 	de_dbg_indent(c, -1);
 }
 
@@ -51,6 +51,8 @@ static int do_ole_object_presentation(deark *c, lctx *d,
 	i64 pos1, i64 len, unsigned int formatID, i64 *bytes_consumed)
 {
 	i64 pos = pos1;
+	i64 endpos = pos1 + len;
+	i64 dlen;
 	i64 stringlen;
 	struct de_stringreaderdata *classname_srd = NULL;
 	struct de_stringreaderdata *clipfmtname_srd = NULL;
@@ -68,15 +70,15 @@ static int do_ole_object_presentation(deark *c, lctx *d,
 	// (and maybe after PresentationData?).
 
 	if(!de_strcmp(classname_srd->sz, "DIB")) {
-		pos += 12;
+		pos += 8;
+		dlen = de_getu32le_p(&pos);
+		if(pos + dlen > endpos) goto done;
 		de_dbg_indent(c, 1);
-		de_run_module_by_id_on_slice(c, "dib", NULL, c->infile, pos,
-			pos1+len-pos);
+		de_run_module_by_id_on_slice(c, "dib", NULL, c->infile, pos, dlen);
 		de_dbg_indent(c, -1);
-		goto done; // FIXME, calculate length
+		pos += dlen;
 	}
 	else if(!de_strcmp(classname_srd->sz, "METAFILEPICT")) {
-		i64 dlen;
 		pos += 8; // ??
 		dlen = de_getu32le_p(&pos);
 		de_dbg(c, "metafile size: %d", (int)dlen); // Includes "mfp", apparently
@@ -85,7 +87,7 @@ static int do_ole_object_presentation(deark *c, lctx *d,
 		pos += dlen-8;
 	}
 	else if(!de_strcmp(classname_srd->sz, "BITMAP")) {
-		do_static_bitmap(c, d, pos);
+		do_static_bitmap(c, d, pos, endpos-pos);
 		goto done; // FIXME, calculate length
 	}
 	else {
