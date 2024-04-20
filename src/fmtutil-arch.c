@@ -64,13 +64,12 @@ static void ensure_name_for_msgs_is_set(struct de_arch_member_data *md)
 	}
 }
 
-// Convert backslashes to slashes, and append a slash if path is not empty.
-// flags: Unused.
+// Convert backslashes to slashes.
+// flags:
+//  0x1: Append a slash if path is not empty.
 void de_arch_fixup_path(de_ucstring *s, UI flags)
 {
 	i64 i;
-
-	if(s->len<1) return;
 
 	for(i=0; i<s->len; i++) {
 		if(s->str[i]=='\\') {
@@ -78,8 +77,10 @@ void de_arch_fixup_path(de_ucstring *s, UI flags)
 		}
 	}
 
-	if(s->str[s->len-1]!='/') {
-		ucstring_append_char(s, '/');
+	if(s->len>0 && (flags & 0x1)) {
+		if(s->str[s->len-1]!='/') {
+			ucstring_append_char(s, '/');
+		}
 	}
 }
 

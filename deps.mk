@@ -207,6 +207,9 @@ $(OBJDIR)/modules/os2bootlogo.o: modules/os2bootlogo.c \
  src/deark-private.h src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/os2ea.o: modules/os2ea.c src/deark-private.h \
  src/deark.h src/deark-config.h
+$(OBJDIR)/modules/os2pack.o: modules/os2pack.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h \
+ src/deark-fmtutil-arch.h
 $(OBJDIR)/modules/pack.o: modules/pack.c src/deark-private.h src/deark.h \
  src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/packdir.o: modules/packdir.c src/deark-config.h \

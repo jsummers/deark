@@ -271,6 +271,7 @@
     <ClCompile Include="..\..\modules\os2bmp.c" />
     <ClCompile Include="..\..\modules\os2bootlogo.c" />
     <ClCompile Include="..\..\modules\os2ea.c" />
+    <ClCompile Include="..\..\modules\os2pack.c" />
     <ClCompile Include="..\..\modules\pack.c" />
     <ClCompile Include="..\..\modules\packdir.c" />
     <ClCompile Include="..\..\modules\packit.c" />

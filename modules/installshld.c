@@ -163,7 +163,7 @@ static int isz_do_onedir(deark *c, struct isz_ctx *d, i64 dir_idx, i64 pos1, i64
 	di->dname = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, name_len, di->dname, 0, d->da->input_encoding);
 	de_dbg(c, "dir name: \"%s\"", ucstring_getpsz_d(di->dname));
-	de_arch_fixup_path(di->dname, 0);
+	de_arch_fixup_path(di->dname, 0x1);
 
 	*pbytes_consumed = segment_size;
 	retval = 1;
