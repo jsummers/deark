@@ -113,7 +113,7 @@ void fmtutil_deflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	void *codec_private_params);
 
 struct de_packbits_params {
-	u8 is_packbits16;
+	UI nbytes_per_unit; // 0=default (1)
 };
 void fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,

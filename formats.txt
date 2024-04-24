@@ -156,6 +156,9 @@ Deark -- Information about supported formats
    -opt atari:palbits=<n> (refer to readme.md)
    -opt atari:respectpal - Don't ignore a seemingly bad 2-color palette
 
+* DEEP / IFF-DEEP (module="deep")
+  - Supports most of the common image types.
+
 * DeskMate Paint .PNT (module="deskmate_pnt")
 
 * DGI (Digi-Pic) (module="dgi")

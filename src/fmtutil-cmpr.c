@@ -226,15 +226,17 @@ enum packbits_state_enum {
 	PACKBITS_STATE_READING_UNIT_TO_REPEAT
 };
 
+#define DE_PACKBITS_MAX_NBYTES_PER_UNIT 8
 struct packbitsctx {
 	size_t nbytes_per_unit;
 	size_t nbytes_in_unitbuf;
-	u8 unitbuf[2];
+	u8 unitbuf[DE_PACKBITS_MAX_NBYTES_PER_UNIT];
 	i64 total_nbytes_processed;
 	i64 nbytes_written;
 	enum packbits_state_enum state;
 	i64 nliteral_bytes_remaining;
 	i64 repeat_count;
+	const char *modname;
 };
 
 static void my_packbits_codec_addbuf(struct de_dfilter_ctx *dfctx,
@@ -245,6 +247,8 @@ static void my_packbits_codec_addbuf(struct de_dfilter_ctx *dfctx,
 	struct packbitsctx *rctx = (struct packbitsctx*)dfctx->codec_private;
 
 	if(!rctx) return;
+	if(dfctx->dres->errcode) return;
+	if(dfctx->finished_flag) return;
 
 	for(i=0; i<buf_len; i++) {
 		if(dfctx->dcmpro->len_known &&
@@ -348,15 +352,23 @@ void dfilter_packbits_codec(struct de_dfilter_ctx *dfctx, void *codec_private_pa
 	struct de_packbits_params *pbparams = (struct de_packbits_params*)codec_private_params;
 
 	rctx = de_malloc(dfctx->c, sizeof(struct packbitsctx));
-	rctx->nbytes_per_unit = 1;
-	if(pbparams && pbparams->is_packbits16) {
-		rctx->nbytes_per_unit = 2;
-	}
+	rctx->modname = "packbits";
+
 	dfctx->codec_private = (void*)rctx;
 	dfctx->codec_addbuf_fn = my_packbits_codec_addbuf;
 	dfctx->codec_finish_fn = my_packbits_codec_finish;
 	dfctx->codec_command_fn = my_packbits_codec_command;
 	dfctx->codec_destroy_fn = my_packbits_codec_destroy;
+
+	rctx->nbytes_per_unit = 1;
+	if(pbparams) {
+		if(pbparams->nbytes_per_unit>DE_PACKBITS_MAX_NBYTES_PER_UNIT) {
+			de_dfilter_set_generic_error(dfctx->c, dfctx->dres, rctx->modname);
+		}
+		else if(pbparams->nbytes_per_unit>1) {
+			rctx->nbytes_per_unit = pbparams->nbytes_per_unit;
+		}
+	}
 }
 
 void fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpri,
@@ -367,7 +379,7 @@ void fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpr
 		dcmpri, dcmpro, dres);
 }
 
-// Returns 0 on failure (currently impossible).
+// Returns 0 on failure.
 int fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
 	dbuf *unc_pixels, i64 *cmpr_bytes_consumed)
 {

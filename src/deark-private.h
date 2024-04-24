@@ -998,6 +998,8 @@ void de_bitmap_remove_alpha(de_bitmap *img);
 void de_bitmap_optimize_alpha(de_bitmap *img, unsigned int flags);
 
 void de_make_grayscale_palette(de_color *pal, i64 num_entries, unsigned int flags);
+de_colorsample de_unpremultiply_alpha_samp(de_colorsample cval, de_colorsample a);
+de_color de_unpremultiply_alpha_clr(de_color clr);
 
 ///////////////////////////////////////////
 
