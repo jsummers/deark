@@ -45,14 +45,17 @@ DE_DECLARE_MODULE(de_module_mmm);
 #define CODE_vwtl  0x7677746cU
 
 struct mmm_ctx {
-	u8 errflag;
+	int pass; // 100=reading alt. palette file
 	u8 opt_allowbad;
+	u8 use_alt_palfile;
+	u8 force_pal; // Set if mmm:palid option was used
+	int pal_id_to_use; // Valid if mmm:palid option was used
+
+	u8 errflag;
 	int clut_count;
 	int dib_count;
-	int pass;
+
 	u8 have_pal;
-	u8 force_pal;
-	int pal_id_to_use;
 	de_ucstring *tmpstr;
 	de_color pal1[2];
 	de_color pal[256];
@@ -186,15 +189,15 @@ static void do_mmm_dib(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx, i64 
 	i64 i_rowspan;
 	i64 k;
 	i64 j;
-	int seqnum;
+	int rsrc_id;
 	u8 special_1bpp = 0;
 	int ret;
 	dbuf *outf = NULL;
 	struct de_bmpinfo bi;
 
 	pos = pos1;
-	seqnum = (int)dbuf_geti32le_p(ictx->f, &pos);
-	de_dbg(c, "dib id: %d", seqnum);
+	rsrc_id = (int)dbuf_geti32le_p(ictx->f, &pos);
+	de_dbg(c, "dib id: %d", rsrc_id);
 	mmm_read_name_p(c, d, ictx, &pos, NULL);
 	i_infohdr_pos = pos;
 
@@ -291,12 +294,13 @@ static void do_mmm_clut(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx,
 	i64 pos;
 	i64 num_entries;
 	i64 i;
-	int seqnum;
+	int rsrc_id;
+	u8 is_correct_pass;
 	u8 keep_this_pal = 0;
 
 	pos = pos1;
-	seqnum = (int)dbuf_geti32le_p(ictx->f, &pos);
-	de_dbg(c, "pal id: %d", seqnum);
+	rsrc_id = (int)dbuf_geti32le_p(ictx->f, &pos);
+	de_dbg(c, "pal id: %d", rsrc_id);
 	mmm_read_name_p(c, d, ictx, &pos, NULL);
 
 	num_entries = (pos1+len-pos)/6;
@@ -308,19 +312,18 @@ static void do_mmm_clut(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx,
 		goto done;
 	}
 
-	if(!d->have_pal) {
-		if(d->force_pal) {
-			if(seqnum == d->pal_id_to_use) {
-				keep_this_pal = 1;
-			}
-		}
-		else {
+	is_correct_pass = (d->pass==1 && !d->use_alt_palfile) ||
+		(d->pass==100 && d->use_alt_palfile);
+
+	if(d->force_pal) {
+		if(rsrc_id==d->pal_id_to_use && is_correct_pass) {
 			keep_this_pal = 1;
 		}
 	}
+	else if(!d->have_pal && is_correct_pass) {
+		keep_this_pal = 1;
+	}
 
-	// TODO: This probably won't work. We should index the clut chunks, and read
-	// them later.
 	de_dbg_indent(c, 1);
 	for(i=0; i<num_entries; i++) {
 		UI samp[3];
@@ -384,7 +387,7 @@ static int my_mmm_chunk_handler(struct de_iffctx *ictx)
 		break;
 	case CODE_CLUT:
 	case CODE_clut:
-		if(d->pass==1) {
+		if(d->pass==1 || d->pass==100) {
 			do_mmm_clut(c, d, ictx, dpos, dlen);
 		}
 		break;
@@ -393,7 +396,7 @@ static int my_mmm_chunk_handler(struct de_iffctx *ictx)
 		if(d->pass==1) {
 			d->dib_count++;
 		}
-		else {
+		else if(d->pass==2) {
 			do_mmm_dib(c, d, ictx, dpos, dlen);
 		}
 		break;
@@ -405,6 +408,8 @@ static int my_mmm_chunk_handler(struct de_iffctx *ictx)
 		break;
 	default:
 		if(d->pass==1) {
+			// Make sure the default behavior only happens in one of the passes
+			// (e.g. hexdump if the debug level is set high enough).
 			ictx->handled = 0;
 		}
 	}
@@ -489,6 +494,67 @@ static int my_preprocess_mmm_chunk_fn(struct de_iffctx *ictx)
 	return 1;
 }
 
+static void setup_ictx_for_mmm(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx)
+{
+	ictx->userdata = (void*)d;
+	ictx->is_le = 1;
+	ictx->handle_chunk_fn = my_mmm_chunk_handler;
+	ictx->handle_nonchunk_data_fn = my_mmm_handle_nonchunk_data_fn;
+	ictx->preprocess_chunk_fn = my_preprocess_mmm_chunk_fn;
+}
+
+static int read_alt_palette_file(deark *c, struct mmm_ctx *d)
+{
+	dbuf *palfile = NULL;
+	struct de_iffctx *ictx = NULL;
+	const char *palfn;
+	int retval = 1;
+
+	palfn = de_get_ext_option(c, "file2");
+	if(!palfn) {
+		goto done;
+	}
+
+	d->use_alt_palfile = 1;
+	palfile = dbuf_open_input_file(c, palfn);
+	if(!palfile) {
+		retval = 0;
+		goto done;
+	}
+
+	ictx = fmtutil_create_iff_decoder(c);
+	setup_ictx_for_mmm(c, d, ictx);
+	ictx->f = palfile;
+
+	d->pass = 100;
+	de_dbg(c, "reading alt pal file");
+	de_dbg_indent(c, 1);
+	fmtutil_read_iff_format(ictx, 0, palfile->len);
+	de_dbg_indent(c, -1);
+
+	if(!d->have_pal) {
+		if(d->force_pal) {
+			de_err(c, "Palette %d not found", d->pal_id_to_use);
+		}
+		else {
+			de_err(c, "No palette found");
+		}
+		retval = 0;
+		goto done;
+	}
+
+done:
+	fmtutil_destroy_iff_decoder(ictx);
+	dbuf_close(palfile);
+
+	// (hack) Reset some things that this function isn't supposed to change.
+	d->errflag = 0;
+	d->clut_count = 0;
+	d->dib_count = 0;
+
+	return retval;
+}
+
 static void de_run_mmm(deark *c, de_module_params *mparams)
 {
 	struct mmm_ctx *d = NULL;
@@ -507,16 +573,14 @@ static void de_run_mmm(deark *c, de_module_params *mparams)
 
 	d->tmpstr = ucstring_create(c);
 
-	ictx = fmtutil_create_iff_decoder(c);
-	ictx->userdata = (void*)d;
-	ictx->is_le = 1;
-	ictx->handle_chunk_fn = my_mmm_chunk_handler;
-	ictx->handle_nonchunk_data_fn = my_mmm_handle_nonchunk_data_fn;
-	ictx->preprocess_chunk_fn = my_preprocess_mmm_chunk_fn;
-	ictx->f = c->infile;
-
 	d->pal1[0] = DE_STOCKCOLOR_BLACK;
 	d->pal1[1] = DE_STOCKCOLOR_WHITE;
+
+	if(!read_alt_palette_file(c, d)) goto done;
+
+	ictx = fmtutil_create_iff_decoder(c);
+	setup_ictx_for_mmm(c, d, ictx);
+	ictx->f = c->infile;
 
 	d->pass = 1;
 	de_dbg(c, "pass %d", d->pass);
@@ -563,7 +627,14 @@ static int de_identify_mmm(deark *c)
 
 static void de_help_mmm(deark *c)
 {
+	de_msg(c, "-file2 <file.mmm> : File to read the palette from");
 	de_msg(c, "-opt mmm:palid=<id> : Use this palette");
+	de_msg(c, "-opt mmm:allowbad : Keep going after certain errors");
+
+	// file2 with palid: Use that id in file2 if it exists, otherwise fatal error.
+	// file2 w/o palid: Use the first palette in file2 if it exists, otherwise fatal error.
+	// palid w/o file2: Use that id if it exists, otherwise fatal error.
+	// neither: (not explained here)
 }
 
 void de_module_mmm(deark *c, struct deark_module_info *mi)
