@@ -686,6 +686,15 @@ static void do_resource_name(deark *c, lctx *d, struct rsrcinstanceinfo *rii)
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(rii->name ));
 }
 
+static const char *get_ownertype_name(UI n)
+{
+	static const char *names[8] = { "driver/desk accessory",
+		"window def", "menu def", "widget def", "printer driver",
+		"package", "control panel", "?" };
+
+	return names[n%8];
+}
+
 static void do_resource_record(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	i64 pos1, UI idx)
 {
@@ -698,6 +707,21 @@ static void do_resource_record(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	rii.idx = idx;
 	rii.id = (int)de_geti16be_p(&pos);
 	de_dbg(c, "id: %d", rii.id);
+	if(rii.id>=(-16384) && rii.id<=(-1)) {
+		UI u;
+		UI ownertype, ownerid, subid;
+
+		u = (UI)(rii.id + 65536);
+		ownertype = (u & 0xf800) >> 11;
+		ownerid = (u & 0x07e0) >> 5;
+		subid = (u & 0x001f);
+		de_dbg_indent(c, 1);
+		de_dbg(c, "owner type: %u (%s)", ownertype, get_ownertype_name(ownertype));
+		de_dbg(c, "owner id: %u", ownerid);
+		de_dbg(c, "sub id: %u", subid);
+		de_dbg_indent(c, -1);
+	}
+
 	nameOffset_rel = de_getu16be_p(&pos);
 	if(nameOffset_rel!=0xffff) {
 		rii.has_name = 1;
