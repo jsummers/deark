@@ -1263,7 +1263,6 @@ static void de_run_picjpeg(deark *c, de_module_params *mparams)
 	if(sd.found_8bim && sd._8bim_pos>=srcpos && sd._8bim_pos<sd.sof_pos) {
 		// Copy everything up to 8BIM
 		dbuf_copy(c->infile, srcpos, sd._8bim_pos-srcpos, outf);
-		srcpos = sd._8bim_pos;
 
 		dbuf_writeu16be(outf, 0xffed);
 		dbuf_writeu16be(outf, 2 + 14 + (sd._8bim_len-4));
