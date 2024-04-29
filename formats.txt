@@ -346,6 +346,9 @@ Deark -- Information about supported formats
 
 * MegaPaint Patterns (.pat) (module="megapaint_pat") (experimental)
 
+* MMM (MacroMind Movie) (module="mmm") (experimental)
+  - Can extract images, but cannot always get the colors right.
+
 * MRW (Minolta RAW) (module="mrw")
   - Process Exif data (or extract it: use -a)
 

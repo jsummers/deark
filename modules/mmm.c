@@ -10,6 +10,7 @@ DE_DECLARE_MODULE(de_module_mmm);
 
 #define CODE_CFTC  0x43465443U
 #define CODE_CLUT  0x434c5554U
+#define CODE_CURS  0x43555253U
 #define CODE_DIB   0x44494220U
 #define CODE_McNm  0x4d634e6dU
 #define CODE_RIFF  0x52494646U
@@ -50,13 +51,16 @@ struct mmm_ctx {
 	u8 use_alt_palfile;
 	u8 force_pal; // Set if mmm:palid option was used
 	int pal_id_to_use; // Valid if mmm:palid option was used
+	de_encoding input_encoding;
 
 	u8 errflag;
+	u8 suppress_dib_pass2;
 	int clut_count;
 	int dib_count;
 
+	int tmp_rsrcid;
 	u8 have_pal;
-	de_ucstring *tmpstr;
+	de_ucstring *tmp_namestr;
 	de_color pal1[2];
 	de_color pal[256];
 };
@@ -115,17 +119,30 @@ static void mmm_default_pal16(deark *c, struct mmm_ctx *d)
 	}
 }
 
+// Read rsrc id to d->tmp_rsrcid
+static void mmm_read_rsrcid_p(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx,
+	i64 *ppos, const char *name)
+{
+	// Note: I can't rule out the possibility that this is a 16-bit field (like
+	// in macrsrc format), followed by a 16-bit field that is always either 0
+	// or 0xffff. I haven't found any resources for which it would make a
+	// difference if we read it as 16-bit.
+	d->tmp_rsrcid = (int)dbuf_geti32le_p(ictx->f, ppos);
+	de_dbg(c, "%s: %d", (name ? name : "rsrc id"), d->tmp_rsrcid);
+}
+
+// Read chunk name to d->tmp_namestr
 static void mmm_read_name_p(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx,
 	i64 *ppos, const char *name)
 {
 	i64 pos = *ppos;
 	i64 namelen;
 
+	ucstring_empty(d->tmp_namestr);
 	namelen = (i64)dbuf_getbyte(ictx->f, pos);
 	if(namelen) {
-		ucstring_empty(d->tmpstr);
-		dbuf_read_to_ucstring(ictx->f, pos+1, namelen, d->tmpstr, 0, DE_ENCODING_ASCII);
-		de_dbg(c, "%s: \"%s\"", (name ? name : "name"), ucstring_getpsz_d(d->tmpstr));
+		dbuf_read_to_ucstring(ictx->f, pos+1, namelen, d->tmp_namestr, 0, d->input_encoding);
+		de_dbg(c, "%s: \"%s\"", (name ? name : "name"), ucstring_getpsz_d(d->tmp_namestr));
 	}
 	*ppos += de_pad_to_2(1+namelen);
 }
@@ -178,6 +195,53 @@ done:
 	;
 }
 
+// TODO?: This duplicates some code in the macrsrc module.
+// What we probably ought to do is generate a macrsrc file containing all the
+// cursor and icon resources, and any other suitable resources. But that's
+// easier said than done. Macrsrc is a complex format, and some things may
+// have been lost in the translation to MMM format.
+static void do_mmm_CURS(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx, i64 pos1, i64 len)
+{
+	i64 pos = pos1;
+	de_bitmap *img_fg = NULL;
+	de_bitmap *img_mask = NULL;
+	de_finfo *fi = NULL;
+
+	mmm_read_rsrcid_p(c, d, ictx, &pos, NULL);
+	mmm_read_name_p(c, d, ictx, &pos, NULL);
+	if(pos1+len-pos < 68) goto done;
+
+	fi = de_finfo_create(c);
+
+	img_fg = de_bitmap_create(c, 16, 16, 2);
+	img_mask = de_bitmap_create(c, 16, 16, 1);
+
+	de_dbg(c, "foreground at %"I64_FMT, pos);
+	de_convert_image_bilevel(c->infile, pos, 2, img_fg, DE_CVTF_WHITEISZERO);
+	pos += 32;
+	de_dbg(c, "mask at %"I64_FMT, pos);
+	de_convert_image_bilevel(c->infile, pos, 2, img_mask, 0);
+	pos += 32;
+	de_bitmap_apply_mask(img_fg, img_mask, 0);
+
+	fi->hotspot_y = (int)de_geti16be_p(&pos);
+	fi->hotspot_x = (int)de_geti16be_p(&pos);
+	fi->has_hotspot = 1;
+	de_dbg(c, "hotspot: (%d,%d)", fi->hotspot_x, fi->hotspot_y);
+
+	if(ucstring_isnonempty(d->tmp_namestr)) {
+		ucstring_append_char(d->tmp_namestr, '.');
+	}
+	ucstring_append_sz(d->tmp_namestr, "CURS", DE_ENCODING_LATIN1);
+	de_finfo_set_name_from_ucstring(c, fi, d->tmp_namestr, 0);
+	de_bitmap_write_to_file_finfo(img_fg, fi, DE_CREATEFLAG_OPT_IMAGE);
+
+done:
+	de_bitmap_destroy(img_fg);
+	de_bitmap_destroy(img_mask);
+	de_finfo_destroy(c, fi);
+}
+
 static void do_mmm_dib(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx, i64 pos1, i64 len)
 {
 	i64 pos;
@@ -189,15 +253,13 @@ static void do_mmm_dib(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx, i64 
 	i64 i_rowspan;
 	i64 k;
 	i64 j;
-	int rsrc_id;
 	u8 special_1bpp = 0;
 	int ret;
 	dbuf *outf = NULL;
 	struct de_bmpinfo bi;
 
 	pos = pos1;
-	rsrc_id = (int)dbuf_geti32le_p(ictx->f, &pos);
-	de_dbg(c, "dib id: %d", rsrc_id);
+	mmm_read_rsrcid_p(c, d, ictx, &pos, "dib id");
 	mmm_read_name_p(c, d, ictx, &pos, NULL);
 	i_infohdr_pos = pos;
 
@@ -299,8 +361,8 @@ static void do_mmm_clut(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx,
 	u8 keep_this_pal = 0;
 
 	pos = pos1;
-	rsrc_id = (int)dbuf_geti32le_p(ictx->f, &pos);
-	de_dbg(c, "pal id: %d", rsrc_id);
+	mmm_read_rsrcid_p(c, d, ictx, &pos, "pal id");
+	rsrc_id = d->tmp_rsrcid;
 	mmm_read_name_p(c, d, ictx, &pos, NULL);
 
 	num_entries = (pos1+len-pos)/6;
@@ -396,8 +458,13 @@ static int my_mmm_chunk_handler(struct de_iffctx *ictx)
 		if(d->pass==1) {
 			d->dib_count++;
 		}
-		else if(d->pass==2) {
+		else if(d->pass==2 && !d->suppress_dib_pass2) {
 			do_mmm_dib(c, d, ictx, dpos, dlen);
+		}
+		break;
+	case CODE_CURS:
+		if(d->pass==2) {
+			do_mmm_CURS(c, d, ictx, dpos, dlen);
 		}
 		break;
 	case CODE_McNm:
@@ -564,6 +631,7 @@ static void de_run_mmm(deark *c, de_module_params *mparams)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	d = de_malloc(c, sizeof(struct mmm_ctx));
+	d->input_encoding = de_get_input_encoding(c, mparams, DE_ENCODING_ASCII);
 	d->opt_allowbad = (u8)de_get_ext_option_bool(c, "mmm:allowbad", 0);
 	s = de_get_ext_option(c, "mmm:palid");
 	if(s) {
@@ -571,7 +639,7 @@ static void de_run_mmm(deark *c, de_module_params *mparams)
 		d->force_pal = 1;
 	}
 
-	d->tmpstr = ucstring_create(c);
+	d->tmp_namestr = ucstring_create(c);
 
 	d->pal1[0] = DE_STOCKCOLOR_BLACK;
 	d->pal1[1] = DE_STOCKCOLOR_WHITE;
@@ -598,7 +666,7 @@ static void de_run_mmm(deark *c, de_module_params *mparams)
 		de_err(c, "Multiple palettes found (not supported, "
 			"or try \"-opt mmm:palid=...\").");
 		mmm_allowbad_note(c);
-		goto done;
+		d->suppress_dib_pass2 = 1;
 	}
 
 	d->pass = 2;
@@ -612,7 +680,7 @@ done:
 	if(d) {
 		de_dbg(c, "dib count: %d", d->dib_count);
 		de_dbg(c, "clut count: %d", d->clut_count);
-		ucstring_destroy(d->tmpstr);
+		ucstring_destroy(d->tmp_namestr);
 		de_free(c, d);
 	}
 	de_dbg_indent_restore(c, saved_indent_level);
