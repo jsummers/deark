@@ -589,6 +589,9 @@
     <ClCompile Include="..\..\modules\os2pack.c">
       <Filter>Modules</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\modules\comicchat.c">
+      <Filter>Modules</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\deark-config.h">

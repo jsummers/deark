@@ -66,6 +66,8 @@ $(OBJDIR)/modules/clp.o: modules/clp.c src/deark-private.h src/deark.h \
  src/deark-config.h
 $(OBJDIR)/modules/colorix.o: modules/colorix.c src/deark-private.h \
  src/deark.h src/deark-config.h src/deark-fmtutil.h
+$(OBJDIR)/modules/comicchat.o: modules/comicchat.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/corel.o: modules/corel.c src/deark-private.h \
  src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/cpio.o: modules/cpio.c src/deark-config.h \
