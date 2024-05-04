@@ -10,17 +10,13 @@ DE_DECLARE_MODULE(de_module_comicchat);
 
 typedef struct localctx_comicchat {
 	u8 errflag;
-	u8 has_gestures;
-	u8 found_pal;
-	u8 found_0006;
 	u8 stopflag;
 	UI fmt_code;
 	UI major_ver;
+	struct de_inthashtable *images_seen;
+	struct de_inthashtable *masks_seen; // Might be unused
 	i64 last_chunklen;
-	i64 num_gestures;
-	i64 pal_num_entries; // Reflects most recent palette written to .pal
-	de_color pal[256];
-	de_color tmppal[256];
+	i64 img_ptr_bias;
 } lctx;
 
 struct chunk_ctx {
@@ -30,23 +26,6 @@ struct chunk_ctx {
 	i64 internal_dlen; // length minus 4-byte header; applies to some chunks
 	i64 internal_dpos;
 };
-
-static void read_palette(deark *c, lctx *d, struct chunk_ctx *cctx)
-{
-	i64 num_entries;
-	i64 pos = cctx->internal_dpos;
-
-	d->found_pal = 1;
-	num_entries = de_getu16le_p(&pos);
-	de_dbg(c, "num entries: %"I64_FMT, num_entries);
-	if(num_entries>256) return;
-
-	if(num_entries>0) {
-		de_read_simple_palette(c, c->infile, pos, num_entries, 3, d->pal,
-			256, DE_RDPALTYPE_24BIT, 0);
-		d->pal_num_entries = num_entries;
-	}
-}
 
 static void write_palette(deark *c, lctx *d, dbuf *outf,
 	de_color *pal, i64 num_entries)
@@ -63,48 +42,29 @@ static void write_palette(deark *c, lctx *d, dbuf *outf,
 
 struct image_extract_ctx {
 	struct de_bmpinfo bi;
+	int itype;
 	i64 ihpos;
-	u8 is_mask;
 	dbuf *unc_pixels;
+	i64 pal_num_entries;
+	de_color pal[256];
 };
-
-static void handle_chunk_bmp(deark *c, lctx *d, struct chunk_ctx *cctx)
-{
-	UI bitcount, cmpr;
-
-	if(cctx->ck_pos+cctx->ck_len > c->infile->len) goto done;
-	if(cctx->ck_len < 54) goto done;
-
-	bitcount = (UI)de_getu16le(cctx->ck_pos+14+14);
-	de_dbg(c, "bit count: %u", bitcount);
-	cmpr = (UI)de_getu32le(cctx->ck_pos+14+16);
-	de_dbg(c, "compression: %u", cmpr);
-
-	// TODO: Masks need to be applied, not written to separate files.
-	dbuf_create_file_from_slice(c->infile, cctx->ck_pos, cctx->ck_len,
-		"bmp", NULL, 0);
-done:
-	;
-}
 
 static void reconstruct_bmp(deark *c, lctx *d, struct image_extract_ctx *ic)
 {
 	dbuf *outf = NULL;
+	const char *ext;
 
-	outf = dbuf_create_output_file(c, "bmp", NULL,
-		(ic->is_mask?DE_CREATEFLAG_IS_AUX:0));
+	// TODO: Masks need to be applied, not written to separate files.
+	if(ic->itype==1) ext = "sm_mask.bmp";
+	else if(ic->itype==2) ext = "lg_mask.bmp";
+	else ext = "bmp";
+
+	outf = dbuf_create_output_file(c, ext, NULL,
+		((ic->itype!=0)?DE_CREATEFLAG_IS_AUX:0));
 
 	fmtutil_generate_bmpfileheader(c, outf, &ic->bi, 0);
 	dbuf_copy(c->infile, ic->ihpos, ic->bi.infohdrsize, outf);
-
-	// TODO: Masks need to be applied, not written to separate files.
-	if(ic->is_mask) {
-		dbuf_write(outf, (const u8*)"\0\0\0\0\xff\xff\xff\0", 8);
-	}
-	else if(ic->bi.bitcount<=8) {
-		write_palette(c, d, outf, d->pal, ic->bi.pal_entries);
-	}
-
+	write_palette(c, d, outf, ic->pal, ic->bi.pal_entries);
 	dbuf_copy(ic->unc_pixels, 0, ic->unc_pixels->len, outf);
 	dbuf_close(outf);
 }
@@ -113,37 +73,73 @@ static void decode_2bpp_dib(deark *c, lctx *d, struct image_extract_ctx *ic)
 {
 	de_bitmap *img = NULL;
 
-	d->tmppal[0] = DE_STOCKCOLOR_TRANSPARENT;
-	d->tmppal[1] = DE_MAKE_GRAY(254);
-	d->tmppal[2] = DE_STOCKCOLOR_WHITE;
-	d->tmppal[3] = DE_STOCKCOLOR_BLACK;
+	ic->pal[0] = DE_STOCKCOLOR_TRANSPARENT;
+	// Sometimes pal[1] is used for the halo around the character, so it might
+	// be interesting to make it partially transparent or something.
+	// But unfortunately, other times the halo is pal[2].
+	ic->pal[1] = DE_MAKE_GRAY(254); // alternate white foreground
+	ic->pal[2] = DE_STOCKCOLOR_WHITE; // normal white foregreound
+	ic->pal[3] = DE_STOCKCOLOR_BLACK; // normal black foreground
 
 	img = de_bitmap_create(c, ic->bi.width, ic->bi.height, 2);
-	de_convert_image_paletted(ic->unc_pixels, 0, 2, ic->bi.rowspan, d->tmppal,
+	de_convert_image_paletted(ic->unc_pixels, 0, 2, ic->bi.rowspan, ic->pal,
 		img, 0);
 	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_FLIP_IMAGE);
 	de_bitmap_destroy(img);
 }
 
-static void handle_chunk_dib(deark *c, lctx *d, struct chunk_ctx *cctx)
+// Extract an image from a "dib" segment, which can optionally start with a palette
+static void extract_dib(deark *c, lctx *d, i64 pos1, UI magic, int itype)
 {
 	int ret;
 	i64 pos;
 	i64 cmpr_pos;
 	i64 orig_len, cmpr_len;
+	UI magic2;
+	int saved_indent_level;
 	struct image_extract_ctx *ic = NULL;
 	struct de_dfilter_results dres;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_deflate_params deflateparams;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	ic = de_malloc(c, sizeof(struct image_extract_ctx));
+	ic->itype = itype;
 	de_zeromem(&deflateparams, sizeof(struct de_deflate_params));
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	if(d->errflag) goto done;
-	if(!d->found_pal) goto done;
 
-	ic->ihpos = cctx->ck_pos;
+	pos = pos1;
+	if(magic==0x0101) {
+		i64 ck_len;
+
+		// The palette is formatted like a standard chunk.
+		// TODO: Ideally, we'd use shared chunk-reading code here.
+		de_dbg(c, "palette chunk at %"I64_FMT, pos1);
+		de_dbg_indent(c, 1);
+		pos += 2; // 0x0101 tag, already read
+		ck_len = de_getu16le_p(&pos);
+		ic->pal_num_entries = de_getu16le_p(&pos);
+		de_dbg(c, "num entries: %"I64_FMT, ic->pal_num_entries);
+		if(ic->pal_num_entries>256) goto done;
+
+		// Note that palette is RGB, not BGR as might be expected.
+		if(ic->pal_num_entries>0) {
+			de_read_simple_palette(c, c->infile, pos, ic->pal_num_entries, 3, ic->pal,
+				256, DE_RDPALTYPE_24BIT, 0);
+		}
+		pos = pos1 + 4 + ck_len;
+		de_dbg_indent(c, -1);
+	}
+
+	ic->ihpos = pos;
+	magic2 = (UI)de_getu16be(ic->ihpos);
+	if(magic2 != 0x2800) {
+		de_err(c, "Image not found at %"I64_FMT, ic->ihpos);
+		goto done;
+	}
+
 	de_dbg(c, "infoheader at %"I64_FMT, ic->ihpos);
 	de_dbg_indent(c, 1);
 	ret = fmtutil_get_bmpinfo(c, c->infile, &ic->bi, ic->ihpos,
@@ -155,7 +151,10 @@ static void handle_chunk_dib(deark *c, lctx *d, struct chunk_ctx *cctx)
 	if(ic->bi.is_compressed) goto done;
 	if(!de_good_image_dimensions(c, ic->bi.width, ic->bi.height)) goto done;
 
-	ic->is_mask = (ic->bi.bitcount==1 && ic->bi.pal_entries==2);
+	if(ic->bi.bitcount==1 && ic->bi.pal_entries==2 && ic->pal_num_entries==0) {
+		ic->pal_num_entries = 2;
+		de_make_grayscale_palette(ic->pal, ic->pal_num_entries, 0);
+	}
 
 	pos = ic->ihpos + ic->bi.infohdrsize;
 	orig_len = de_getu32le_p(&pos);
@@ -196,6 +195,142 @@ done:
 		dbuf_close(ic->unc_pixels);
 		de_free(c, ic);
 	}
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void extract_bmp(deark *c, lctx *d, i64 pos1, int itype)
+{
+	UI bitcount, cmpr;
+	i64 bmplen;
+	i64 w, h;
+	const char *ext;
+
+	bmplen = de_getu32le(pos1+2);
+
+	if(pos1+bmplen > c->infile->len) goto done;
+	if(bmplen < 54) goto done;
+
+	w = de_geti32le(pos1+14+4);
+	h = de_geti32le(pos1+14+8);
+	de_dbg_dimensions(c, w, h);
+	bitcount = (UI)de_getu16le(pos1+14+14);
+	de_dbg(c, "bit count: %u", bitcount);
+	cmpr = (UI)de_getu32le(pos1+14+16);
+	de_dbg(c, "compression: %u", cmpr);
+
+	if(itype==1) ext = "sm_mask.bmp";
+	else if(itype==2) ext = "lg_mask.bmp";
+	else ext = "bmp";
+
+	// TODO: Masks need to be applied, not written to separate files.
+	dbuf_create_file_from_slice(c->infile, pos1, bmplen, ext, NULL,
+		((itype!=0)?DE_CREATEFLAG_IS_AUX:0));
+done:
+	;
+}
+
+// itype=0:foreground 1:mask1 2:mask2
+static void extract_image_lowlevel(deark *c, lctx *d, i64 pos1, int itype)
+{
+	UI magic;
+	int saved_indent_level;
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	if(pos1==0) goto done;
+
+	de_dbg(c, "[image component at %"I64_FMT"]", pos1);
+	de_dbg_indent(c, 1);
+
+	magic = (UI)de_getu16be(pos1);
+	de_dbg(c, "sig: 0x%04x", magic);
+	if(magic!=0x0101 && magic!=0x2800 && magic!=0x424d) {
+		de_err(c, "Image not found at %"I64_FMT, pos1);
+		goto done;
+	}
+
+	if(magic==0x424d) {
+		extract_bmp(c, d, pos1, itype);
+	}
+	else {
+		extract_dib(c, d, pos1, magic, itype);
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void extract_image_highlevel(deark *c, lctx *d, i64 imgpos, i64 m1pos, i64 m2pos)
+{
+	de_dbg(c, "[extracting image at %"I64_FMT", %"I64_FMT", %"I64_FMT"]",
+		imgpos, m1pos, m2pos);
+	de_dbg_indent(c, 1);
+	extract_image_lowlevel(c, d, imgpos, 0);
+	extract_image_lowlevel(c, d, m1pos, 1);
+	extract_image_lowlevel(c, d, m2pos, 2);
+	de_dbg_indent(c, -1);
+}
+
+static int found_image(deark *c, lctx *d, i64 imgpos, i64 m1pos, i64 m2pos)
+{
+	int retval = 0;
+	int ret;
+
+	if(imgpos) imgpos += d->img_ptr_bias;
+	if(m1pos) m1pos += d->img_ptr_bias;
+	if(m2pos) m2pos += d->img_ptr_bias;
+	de_dbg(c, "pointer: image at %"I64_FMT", mask1 at %"I64_FMT", mask2 at %"I64_FMT,
+		imgpos, m1pos, m2pos);
+	if(m1pos==m2pos) m1pos = 0;
+	if(imgpos==0 || imgpos>=c->infile->len || m1pos>=c->infile->len ||
+		m2pos>=c->infile->len)
+	{
+		goto done;
+	}
+	retval = 1;
+
+	ret = de_inthashtable_add_item(c, d->images_seen, imgpos, NULL);
+	if(m1pos) de_inthashtable_add_item(c, d->masks_seen, m1pos, NULL);
+	if(m2pos) de_inthashtable_add_item(c, d->masks_seen, m2pos, NULL);
+	if(!ret) {
+		de_dbg(c, "[already handled this image]");
+		goto done;
+	}
+
+	extract_image_highlevel(c, d, imgpos, m1pos, m2pos);
+
+done:
+	return retval;
+}
+
+static void handle_chunk_1imageptr(deark *c, lctx *d, struct chunk_ctx *cctx, i64 offset)
+{
+	i64 n;
+
+	n = de_getu32le(cctx->ck_pos + offset);
+	found_image(c, d, n, 0, 0);
+}
+
+static void handle_chunk_multiimageptr(deark *c, lctx *d, struct chunk_ctx *cctx,
+	i64 offset, i64 item_size, i64 item_count)
+{
+	i64 pos;
+	i64 i;
+
+	de_dbg(c, "item count: %"I64_FMT, item_count);
+	pos = cctx->ck_pos + offset;
+
+	for(i=0; i<item_count; i++) {
+		i64 n, m1, m2;
+
+		n = de_getu32le(pos);
+		m1 = de_getu32le(pos+4);
+		m2 = de_getu32le(pos+8);
+		if(!found_image(c, d, n, m1, m2)) goto done;
+		pos += item_size;
+	}
+
+done:
+	;
 }
 
 // sets d->last_chunklen (=total size)
@@ -213,10 +348,9 @@ static void comicchat_read_chunk(deark *c, lctx *d, i64 pos1)
 	cctx->ck_pos = pos1;
 	d->last_chunklen = 0;
 	if(cctx->ck_pos+2 > c->infile->len) goto done;
-	de_dbg(c, "chunk at %"I64_FMT, cctx->ck_pos);
-	de_dbg_indent(c, 1);
 	cctx->ck_type = (UI)de_getu16le(cctx->ck_pos);
-	de_dbg(c, "chunk type: 0x%04x", cctx->ck_type);
+	de_dbg(c, "chunk at %"I64_FMT", type=0x%04x", cctx->ck_pos, (UI)cctx->ck_type);
+	de_dbg_indent(c, 1);
 
 	if(cctx->ck_type==0x0001) {
 		ret = dbuf_search_byte(c->infile, 0x00, cctx->ck_pos+2, 4096, &foundpos);
@@ -228,20 +362,19 @@ static void comicchat_read_chunk(deark *c, lctx *d, i64 pos1)
 	}
 	else if(cctx->ck_type==0x0003) {
 		cctx->ck_len = 6;
+		handle_chunk_1imageptr(c, d, cctx, 2);
 	}
 	else if(cctx->ck_type==0x0004) {
 		n = de_getu16le(cctx->ck_pos+2);
 		cctx->ck_len = 4 + 43*n;
+		handle_chunk_multiimageptr(c, d, cctx, 4, 43, n);
 	}
 	else if(cctx->ck_type==0x0005 || cctx->ck_type==0x0009) {
 		n = de_getu16le(cctx->ck_pos+2);
 		cctx->ck_len = 4 + 35*n;
+		handle_chunk_multiimageptr(c, d, cctx, 4, 35, n);
 	}
-	else if(cctx->ck_type==0x0006) {
-		d->found_0006 = 1;
-		cctx->ck_len = 2;
-	}
-	else if(cctx->ck_type==0x0007) {
+	else if(cctx->ck_type==0x0006 || cctx->ck_type==0x0007) {
 		cctx->ck_len = 2;
 		d->stopflag = 1;
 		goto done;
@@ -252,23 +385,12 @@ static void comicchat_read_chunk(deark *c, lctx *d, i64 pos1)
 	else if(cctx->ck_type==0x000a) {
 		n = de_getu16le(cctx->ck_pos+2);
 		cctx->ck_len = 4 + 33*n;
+		handle_chunk_multiimageptr(c, d, cctx, 4, 33, n);
 	}
 	else if(cctx->ck_type==0x000b || cctx->ck_type==0x000c) {
-		d->has_gestures = 1;
-		d->num_gestures = de_getu16le(cctx->ck_pos+2);
-		cctx->ck_len = 4 + 25*d->num_gestures;
-	}
-	// As a hack, treat 0x0028 and 0x4d42 as if they were chunk IDs.
-	// TODO: Various chunks prior to 0x0006 presumably point to all of the
-	// images. We should stop reading at 0x0006, and use the pointers instead.
-	else if(cctx->ck_type==0x0028 && d->found_0006) {
-		n = de_getu32le(cctx->ck_pos+40+4); // cmpr len
-		cctx->ck_len = n + 40 + 8;
-		handle_chunk_dib(c, d, cctx);
-	}
-	else if(cctx->ck_type==0x4d42 && d->found_0006) {
-		cctx->ck_len = de_getu32le(cctx->ck_pos+2);
-		handle_chunk_bmp(c, d, cctx);
+		n = de_getu16le(cctx->ck_pos+2);
+		cctx->ck_len = 4 + 25*n;
+		handle_chunk_multiimageptr(c, d, cctx, 4, 25, n);
 	}
 	else if(cctx->ck_type>=0x0100 && cctx->ck_type<=0x01ff) {
 		cctx->internal_dlen = de_getu16le(cctx->ck_pos+2);
@@ -287,8 +409,18 @@ static void comicchat_read_chunk(deark *c, lctx *d, i64 pos1)
 			}
 		}
 
-		if(cctx->ck_type==0x0101) {
-			read_palette(c, d, cctx);
+		if(cctx->ck_type==0x0100) {
+			handle_chunk_1imageptr(c, d, cctx, 4);
+		}
+		else if(cctx->ck_type==0x0102) {
+			handle_chunk_1imageptr(c, d, cctx, 4);
+		}
+		else if(cctx->ck_type==0x0107) {
+			// This is weird.
+			n = de_getu32le(cctx->internal_dpos);
+			d->img_ptr_bias += n;
+			de_sanitize_offset(&d->img_ptr_bias);
+			de_dbg(c, "image pointer bias: %"I64_FMT, d->img_ptr_bias);
 		}
 	}
 
@@ -306,7 +438,7 @@ static void comicchat_read_chunk(deark *c, lctx *d, i64 pos1)
 
 done:
 	de_free(c, cctx);
-	de_dbg_indent(c, -1);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void de_run_comicchat(deark *c, de_module_params *mparams)
@@ -331,6 +463,8 @@ static void de_run_comicchat(deark *c, de_module_params *mparams)
 	de_dbg(c, "fmt code: %u%s", d->fmt_code, tstr);
 	de_dbg_indent(c, -1);
 
+	d->images_seen = de_inthashtable_create(c);
+	d->masks_seen = de_inthashtable_create(c);
 	while(1) {
 		comicchat_read_chunk(c, d, pos);
 		if(d->errflag || d->stopflag || d->last_chunklen==0) goto done;
@@ -339,6 +473,8 @@ static void de_run_comicchat(deark *c, de_module_params *mparams)
 
 done:
 	if(d) {
+		de_inthashtable_destroy(c, d->images_seen);
+		de_inthashtable_destroy(c, d->masks_seen);
 		de_free(c, d);
 	}
 }
@@ -376,5 +512,4 @@ void de_module_comicchat(deark *c, struct deark_module_info *mi)
 	mi->desc = "Microsoft Comic Chat";
 	mi->run_fn = de_run_comicchat;
 	mi->identify_fn = de_identify_comicchat;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }
