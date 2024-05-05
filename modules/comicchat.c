@@ -27,6 +27,20 @@ struct chunk_ctx {
 	i64 internal_dpos;
 };
 
+struct image_extract_ctx {
+	struct de_bmpinfo bi;
+	int itype;
+	i64 ihpos;
+	dbuf *unc_pixels;
+	i64 pal_num_entries;
+	de_color pal[256];
+};
+
+struct image_highlevel_ctx {
+	u8 have_fg;
+	i64 fg_w, fg_h;
+};
+
 static void write_palette(deark *c, lctx *d, dbuf *outf,
 	de_color *pal, i64 num_entries)
 {
@@ -39,15 +53,6 @@ static void write_palette(deark *c, lctx *d, dbuf *outf,
 		dbuf_writebyte(outf, 0);
 	}
 }
-
-struct image_extract_ctx {
-	struct de_bmpinfo bi;
-	int itype;
-	i64 ihpos;
-	dbuf *unc_pixels;
-	i64 pal_num_entries;
-	de_color pal[256];
-};
 
 static void reconstruct_bmp(deark *c, lctx *d, struct image_extract_ctx *ic)
 {
@@ -88,8 +93,24 @@ static void decode_2bpp_dib(deark *c, lctx *d, struct image_extract_ctx *ic)
 	de_bitmap_destroy(img);
 }
 
+static void process_imgcomponent_dimensions(deark *c, struct image_highlevel_ctx *ih,
+	int itype, i64 w, i64 h)
+{
+	if(itype==0) {
+		ih->fg_w = w;
+		ih->fg_h = h;
+		ih->have_fg = 1;
+	}
+	else {
+		if(ih->have_fg && (w!=ih->fg_w || h!=ih->fg_h)) {
+			de_warn(c, "Mask dimensions are different from foreground dimensions");
+		}
+	}
+}
+
 // Extract an image from a "dib" segment, which can optionally start with a palette
-static void extract_dib(deark *c, lctx *d, i64 pos1, UI magic, int itype)
+static void extract_dib(deark *c, lctx *d, struct image_highlevel_ctx *ih,
+	i64 pos1, UI magic, int itype)
 {
 	int ret;
 	i64 pos;
@@ -150,6 +171,7 @@ static void extract_dib(deark *c, lctx *d, i64 pos1, UI magic, int itype)
 	if(ic->bi.pal_entries > 256) goto done;
 	if(ic->bi.is_compressed) goto done;
 	if(!de_good_image_dimensions(c, ic->bi.width, ic->bi.height)) goto done;
+	process_imgcomponent_dimensions(c, ih, itype, ic->bi.width, ic->bi.height);
 
 	if(ic->bi.bitcount==1 && ic->bi.pal_entries==2 && ic->pal_num_entries==0) {
 		ic->pal_num_entries = 2;
@@ -198,7 +220,8 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void extract_bmp(deark *c, lctx *d, i64 pos1, int itype)
+static void extract_bmp(deark *c, lctx *d, struct image_highlevel_ctx *ih,
+	i64 pos1, int itype)
 {
 	UI bitcount, cmpr;
 	i64 bmplen;
@@ -213,6 +236,7 @@ static void extract_bmp(deark *c, lctx *d, i64 pos1, int itype)
 	w = de_geti32le(pos1+14+4);
 	h = de_geti32le(pos1+14+8);
 	de_dbg_dimensions(c, w, h);
+	process_imgcomponent_dimensions(c, ih, itype, w, h);
 	bitcount = (UI)de_getu16le(pos1+14+14);
 	de_dbg(c, "bit count: %u", bitcount);
 	cmpr = (UI)de_getu32le(pos1+14+16);
@@ -230,7 +254,8 @@ done:
 }
 
 // itype=0:foreground 1:mask1 2:mask2
-static void extract_image_lowlevel(deark *c, lctx *d, i64 pos1, int itype)
+static void extract_image_lowlevel(deark *c, lctx *d,
+	struct image_highlevel_ctx *ih, i64 pos1, int itype)
 {
 	UI magic;
 	int saved_indent_level;
@@ -249,10 +274,10 @@ static void extract_image_lowlevel(deark *c, lctx *d, i64 pos1, int itype)
 	}
 
 	if(magic==0x424d) {
-		extract_bmp(c, d, pos1, itype);
+		extract_bmp(c, d, ih, pos1, itype);
 	}
 	else {
-		extract_dib(c, d, pos1, magic, itype);
+		extract_dib(c, d, ih, pos1, magic, itype);
 	}
 
 done:
@@ -261,13 +286,17 @@ done:
 
 static void extract_image_highlevel(deark *c, lctx *d, i64 imgpos, i64 m1pos, i64 m2pos)
 {
+	struct image_highlevel_ctx *ih = NULL;
+
+	ih = de_malloc(c, sizeof(struct image_highlevel_ctx));
 	de_dbg(c, "[extracting image at %"I64_FMT", %"I64_FMT", %"I64_FMT"]",
 		imgpos, m1pos, m2pos);
 	de_dbg_indent(c, 1);
-	extract_image_lowlevel(c, d, imgpos, 0);
-	extract_image_lowlevel(c, d, m1pos, 1);
-	extract_image_lowlevel(c, d, m2pos, 2);
+	extract_image_lowlevel(c, d, ih, imgpos, 0);
+	extract_image_lowlevel(c, d, ih, m1pos, 1);
+	extract_image_lowlevel(c, d, ih, m2pos, 2);
 	de_dbg_indent(c, -1);
+	de_free(c, ih);
 }
 
 static int found_image(deark *c, lctx *d, i64 imgpos, i64 m1pos, i64 m2pos)
