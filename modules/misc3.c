@@ -24,6 +24,7 @@ DE_DECLARE_MODULE(de_module_ain);
 DE_DECLARE_MODULE(de_module_hta);
 DE_DECLARE_MODULE(de_module_hit);
 DE_DECLARE_MODULE(de_module_binary_ii);
+DE_DECLARE_MODULE(de_module_tome);
 
 static int dclimplode_header_at(deark *c, i64 pos)
 {
@@ -2784,4 +2785,267 @@ void de_module_binary_ii(deark *c, struct deark_module_info *mi)
 	mi->desc = "Binary II";
 	mi->run_fn = de_run_binary_ii;
 	mi->identify_fn = de_identify_binary_ii;
+}
+
+// **************************************************************************
+// Tome (Mac installation archive)
+// **************************************************************************
+
+struct tome_ctx;
+
+struct fork_data {
+	u8 is_rsrc_fork;
+	u32 crc_reported;
+	i64 orig_len;
+	i64 cmpr_pos;
+	i64 cmpr_len;
+	char forkname[8];
+};
+
+struct tome_md {
+	deark *c;
+	struct tome_ctx *d;
+	i64 member_idx;
+	i64 hdr_pos;
+	i64 namelen;
+	UI finder_flags;
+
+	struct de_advfile *advf;
+	struct de_stringreaderdata *fname;
+	struct de_fourcc filetype;
+	struct de_fourcc creator;
+	struct de_timestamp mod_time;
+	struct de_timestamp create_time;
+
+	struct fork_data frk[2];
+};
+
+struct tome_ctx {
+	de_encoding input_encoding;
+	u8 fatalerrflag;
+	u8 need_errmsg;
+	i64 num_members;
+};
+
+static void tome_copy_fork(struct tome_md *md, UI fn, dbuf *outf)
+{
+	i64 ipos;
+	i64 nbytes_left;
+
+	ipos = md->frk[fn].cmpr_pos;
+	nbytes_left = md->frk[fn].orig_len;
+	while(nbytes_left>0) {
+		i64 nbytes_this_segment;
+
+		ipos += 4; // skip over marker (?)
+		nbytes_this_segment = de_min_int(nbytes_left, 65536);
+		dbuf_copy(md->advf->c->infile, ipos, nbytes_this_segment, outf);
+		ipos += nbytes_this_segment;
+		nbytes_left -= nbytes_this_segment;
+	}
+}
+
+static int tome_advfile_cbfn(deark *c, struct de_advfile *advf,
+	struct de_advfile_cbparams *afp)
+{
+	struct tome_md *md = (struct tome_md*)advf->userdata;
+
+	if(afp->whattodo == DE_ADVFILE_WRITEMAIN) {
+		tome_copy_fork(md, 0, afp->outf);
+	}
+	else if(afp->whattodo == DE_ADVFILE_WRITERSRC) {
+		tome_copy_fork(md, 1, afp->outf);
+	}
+	return 1;
+}
+
+static void tome_read_timestamp(deark *c, struct tome_ctx *d, struct tome_md *md,
+	i64 pos, UI tzi, const char *name)
+{
+	i64 n;
+	struct de_timestamp ts;
+	char timestamp_buf[64];
+
+	n = dbuf_getu32be(c->infile, pos);
+	de_mac_time_to_timestamp(n, &ts);
+	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "%s time: %"U64_FMT" (%s)", name, n, timestamp_buf);
+	md->advf->mainfork.fi->timestamp[tzi] = ts;
+}
+
+static void tome_do_member(deark *c, struct tome_ctx *d, struct tome_md *md)
+{
+	i64 pos = md->hdr_pos;
+	i64 fnlen;
+	UI fn;
+	u32 crc;
+	i64 n;
+	i64 seqno;
+
+	int saved_indent_level;
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "member header at %"I64_FMT, md->hdr_pos);
+	de_dbg_indent(c, 1);
+
+	n = de_getu16be_p(&pos);
+	if(n!=1) {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+	seqno = de_getu32be_p(&pos);
+	de_dbg(c, "file idx: %"I64_FMT, seqno);
+	if(seqno!=(md->member_idx+1)) {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	fnlen = de_getbyte_p(&pos);
+	if(fnlen>31) goto done;
+	md->fname = dbuf_read_string(c->infile, pos, fnlen, fnlen, 0, d->input_encoding);
+	pos += 31;
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->fname->str));
+
+	dbuf_read_fourcc(c->infile, pos, &md->filetype, 4, 0x0);
+	de_dbg(c, "filetype: '%s'", md->filetype.id_dbgstr);
+	de_memcpy(md->advf->typecode, md->filetype.bytes, 4);
+	md->advf->has_typecode = 1;
+	pos += 4;
+	dbuf_read_fourcc(c->infile, pos, &md->creator, 4, 0x0);
+	de_dbg(c, "creator: '%s'", md->creator.id_dbgstr);
+	de_memcpy(md->advf->creatorcode, md->creator.bytes, 4);
+	md->advf->has_creatorcode = 1;
+	pos += 4;
+
+	tome_read_timestamp(c, d, md, pos, DE_TIMESTAMPIDX_CREATE, "create");
+	pos += 4;
+	tome_read_timestamp(c, d, md, pos, DE_TIMESTAMPIDX_MODIFY, "modify");
+	pos += 4;
+
+	pos += 2; // version?
+	pos += 2; // ?
+
+	md->finder_flags = (UI)dbuf_getu16be_p(c->infile, &pos);
+	de_dbg(c, "finder flags: 0x%04x", md->finder_flags);
+	md->advf->finderflags = (u16)md->finder_flags;
+	md->advf->has_finderflags = 1;
+
+	for(fn=0; fn<2; fn++) {
+		md->frk[fn].orig_len = de_getu32be_p(&pos);
+		md->frk[fn].cmpr_pos = de_getu32be_p(&pos);
+		md->frk[fn].cmpr_len = de_getu32be_p(&pos);
+		de_dbg(c, "orig len [%s]: %"I64_FMT, md->frk[fn].forkname, md->frk[fn].orig_len);
+		de_dbg(c, "cmpr pos [%s]: %"I64_FMT, md->frk[fn].forkname, md->frk[fn].cmpr_pos);
+		de_dbg(c, "cmpr len [%s]: %"I64_FMT, md->frk[fn].forkname, md->frk[fn].cmpr_len);
+		crc = (u32)de_getu32be_p(&pos);
+		de_dbg(c, "unk [%s]: 0x%08x", md->frk[fn].forkname, (UI)crc);
+	}
+
+	md->advf->mainfork.fork_len = md->frk[0].orig_len;
+	md->advf->rsrcfork.fork_len = md->frk[1].orig_len;
+	md->advf->mainfork.fork_exists = (md->frk[0].orig_len!=0 ||
+		md->frk[1].orig_len==0);
+	md->advf->rsrcfork.fork_exists = (md->frk[1].orig_len!=0);
+
+	for(fn=0; fn<2; fn++) {
+		i64 expected_cmpr_len;
+		i64 tmpn;
+
+		if(md->frk[fn].orig_len!=0) {
+			tmpn = de_pad_to_n(md->frk[fn].orig_len, 65536);
+			expected_cmpr_len = md->frk[fn].orig_len + tmpn/16384;
+			if(md->frk[fn].cmpr_len != expected_cmpr_len) {
+				de_err(c, "Unsupported compression");
+				goto done;
+			}
+		}
+	}
+
+	md->advf->userdata = (void*)md;
+	md->advf->writefork_cbfn = tome_advfile_cbfn;
+	ucstring_append_ucstring(md->advf->filename, md->fname->str);
+	md->advf->original_filename_flag = 1;
+	de_advfile_set_orig_filename(md->advf, md->fname->sz, md->fname->sz_strlen);
+
+	de_advfile_run(md->advf);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void destroy_tome_md(deark *c, struct tome_md *md)
+{
+	if(!md) return;
+	de_advfile_destroy(md->advf);
+	de_destroy_stringreaderdata(c, md->fname);
+	de_free(c, md);
+}
+
+static void de_run_tome(deark *c, de_module_params *mparams)
+{
+	struct tome_ctx *d = NULL;
+	struct tome_md *md = NULL;
+	i64 pos;
+	i64 i;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	d = de_malloc(c, sizeof(struct tome_ctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_MACROMAN);
+
+	pos = 0;
+	de_dbg(c, "archive header at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
+	pos += 4;
+	pos += 24;
+	d->num_members = de_getu32be_p(&pos);
+	de_dbg(c, "number of members: %"I64_FMT, d->num_members);
+	pos += 4;
+	de_dbg_indent(c, -1);
+
+	for(i=0; i<d->num_members; i++) {
+		if(md) {
+			destroy_tome_md(c, md);
+		}
+		md = de_malloc(c, sizeof(struct tome_md));
+		md->c = c;
+		md->d = d;
+		de_strlcpy(md->frk[0].forkname, "data", sizeof(md->frk[0].forkname));
+		de_strlcpy(md->frk[1].forkname, "rsrc", sizeof(md->frk[1].forkname));
+		md->advf = de_advfile_create(c);
+		md->member_idx = i;
+		md->hdr_pos = pos;
+		tome_do_member(c, d, md);
+		if(d->fatalerrflag) goto done;
+		pos += 128;
+	}
+
+done:
+	destroy_tome_md(c, md);
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Failed to decode Tome file");
+		}
+		de_free(c, d);
+	}
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static int de_identify_tome(deark *c)
+{
+	UI n;
+
+	n = (UI)de_getu32be(0);
+	if(n!=0x6b630001U) return 0;
+	return 90;
+}
+
+void de_module_tome(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "tome";
+	mi->desc = "Tome";
+	mi->run_fn = de_run_tome;
+	mi->identify_fn = de_identify_tome;
+	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
 }
