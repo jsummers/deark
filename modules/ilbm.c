@@ -2848,6 +2848,7 @@ void de_module_anim(deark *c, struct deark_module_info *mi)
 #define CODE_DLOC 0x444c4f43U
 #define CODE_DPEL 0x4450454cU
 #define CODE_DBOD 0x44424f44U
+#define CODE_TVPP 0x54565050U
 
 #define DEEP_MAX_COMPONENTS 8
 
@@ -3143,9 +3144,12 @@ static void de_run_deep(deark *c, de_module_params *mparams)
 
 static int de_identify_deep(deark *c)
 {
-	if((u32)de_getu32be(8)!=CODE_DEEP) return 0;
-	if((u32)de_getu32be(0)!=CODE_FORM) return 0;
-	return 100;
+	UI n;
+
+	if((UI)de_getu32be(0)!=CODE_FORM) return 0;
+	n = (UI)de_getu32be(8);
+	if(n==CODE_DEEP || n==CODE_TVPP) return 100;
+	return 0;
 }
 
 void de_module_deep(deark *c, struct deark_module_info *mi)
