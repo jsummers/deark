@@ -1378,8 +1378,8 @@ static int decompress_method0(deark *c, lctx *d, i64 pos, i64 len, dbuf *unc_pix
 	return 1;
 }
 
-static int decompress_ilbm_packbits(deark *c, i64 pos, i64 len, dbuf *unc_pixels,
-	i64 expected_len, UI nbytes_per_unit)
+static int decompress_ilbm_packbits(deark *c, dbuf *inf, i64 pos, i64 len,
+	dbuf *unc_pixels, i64 expected_len, UI nbytes_per_unit)
 {
 	int retval = 0;
 	struct de_dfilter_in_params dcmpri;
@@ -1390,7 +1390,7 @@ static int decompress_ilbm_packbits(deark *c, i64 pos, i64 len, dbuf *unc_pixels
 	de_zeromem(&pbparams, sizeof(struct de_packbits_params));
 	pbparams.nbytes_per_unit = nbytes_per_unit;
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
-	dcmpri.f = c->infile;
+	dcmpri.f = inf;
 	dcmpri.pos = pos;
 	dcmpri.len = len;
 	dcmpro.f = unc_pixels;
@@ -1724,7 +1724,8 @@ static int do_image_chunk_internal(deark *c, lctx *d, struct frame_ctx *frctx, i
 	}
 	else if(ibi->compression==1) {
 		dbuf_enable_wbuffer(frctx->frame_buffer);
-		ret = decompress_ilbm_packbits(c, pos1, len, frctx->frame_buffer, ibi->frame_buffer_size, 1);
+		ret = decompress_ilbm_packbits(c, c->infile, pos1, len,
+			frctx->frame_buffer, ibi->frame_buffer_size, 1);
 		dbuf_disable_wbuffer(frctx->frame_buffer);
 		if(!ret) goto done;
 	}
@@ -2803,10 +2804,8 @@ static void do_help_ilbm_anim(deark *c, int is_anim)
 {
 	de_msg(c, "-opt ilbm:trans=<0|1|auto> : Always remove (0) or respect (1) "
 		"transparency");
-	if(!is_anim) {
-		de_msg(c, "-opt ilbm:fixpal=<0|1> : Don't/Do try to fix palettes that are "
-			"slightly too dark");
-	}
+	de_msg(c, "-opt ilbm:fixpal=<0|1> : Don't/Do try to fix palettes that are "
+		"slightly too dark");
 	de_msg(c, "-opt ilbm:allowspecial : Suppress an error on some images");
 	if(is_anim) {
 		de_msg(c, "-opt anim:includedups : Do not suppress duplicate frames");
@@ -2848,6 +2847,7 @@ void de_module_anim(deark *c, struct deark_module_info *mi)
 #define CODE_DLOC 0x444c4f43U
 #define CODE_DPEL 0x4450454cU
 #define CODE_DBOD 0x44424f44U
+#define CODE_TVDC 0x54564443U
 #define CODE_TVPP 0x54565050U
 
 #define DEEP_MAX_COMPONENTS 8
@@ -2856,6 +2856,7 @@ struct deep_ctx {
 	UI cmpr_meth;
 	int DBOD_count;
 	u8 found_DLOC;
+	u8 found_TVDC;
 	i64 dspw, dsph;
 	i64 width, height;
 	i64 x_aspect, y_aspect;
@@ -2866,6 +2867,7 @@ struct deep_ctx {
 	UI cmp_nbits[DEEP_MAX_COMPONENTS];
 	UI cmp_type[DEEP_MAX_COMPONENTS];
 	UI sample_map[DEEP_MAX_COMPONENTS];
+	u8 tvdc_data[32];
 };
 
 static void do_deep_DGBL(deark *c, struct deep_ctx *d, struct de_iffctx *ictx)
@@ -3035,6 +3037,72 @@ after_image:
 	de_finfo_destroy(c, fi);
 }
 
+static int decompress_deep_5(deark *c, struct deep_ctx *d, dbuf *inf,
+	i64 pos1, i64 len, dbuf *unc_pixels)
+{
+	i64 xpos = 0;
+	i64 ypos = 0;
+	i64 output_pos = 0;
+	i64 curr_component = 0;
+	u8 v = 0;
+	int retval = 0;
+	struct de_bitreader bitrd;
+
+	de_zeromem(&bitrd, sizeof(struct de_bitreader));
+	bitrd.f = inf;
+	bitrd.curpos = pos1;
+	bitrd.endpos = pos1+len;
+	bitrd.bbll.is_lsb = 0;
+	dbuf_disable_wbuffer(unc_pixels);
+
+	if(!d->found_TVDC) {
+		de_err(c, "Missing TVDC chunk");
+		goto done;
+	}
+	retval = 1;
+
+	while(1) {
+		UI n;
+		UI k;
+		UI count;
+
+		n = (UI)de_bitreader_getbits(&bitrd, 4);
+		if(bitrd.eof_flag) goto done;
+
+		if(d->tvdc_data[n*2+1]!=0 || d->tvdc_data[n*2]!=0) {
+			v += (u8)(d->tvdc_data[n*2+1]);
+			count = 1;
+		}
+		else {
+			n = (UI)de_bitreader_getbits(&bitrd, 4);
+			count = n+1;
+		}
+
+		for(k=0; k<count; k++) {
+			dbuf_writebyte_at(unc_pixels, output_pos, v);
+			output_pos += d->num_components;
+			xpos++;
+			if(xpos >= d->width) break;
+		}
+
+		if(xpos >= d->width) {
+			de_bitreader_skip_to_byte_boundary(&bitrd);
+			xpos = 0;
+			v = 0;
+			curr_component++;
+			if(curr_component >= d->num_components) {
+				ypos++;
+				if(ypos >= d->height) goto done;
+				curr_component = 0;
+			}
+			output_pos = ypos*(d->width * d->num_components) + curr_component;
+		}
+	}
+
+done:
+	return retval;
+}
+
 static void deep_decompress_and_decode_image(deark *c, struct deep_ctx *d,
 	dbuf *f, i64 pos1, i64 len)
 {
@@ -3042,9 +3110,16 @@ static void deep_decompress_and_decode_image(deark *c, struct deep_ctx *d,
 	dbuf *unc_pixels = NULL;
 
 	unc_pixels = dbuf_create_membuf(c, d->expected_image_size, 0x1);
-	dbuf_enable_wbuffer(unc_pixels);
-	ret = decompress_ilbm_packbits(c, pos1, len, unc_pixels, d->expected_image_size,
-		(UI)d->num_components);
+	if(d->cmpr_meth!=5) {
+		dbuf_enable_wbuffer(unc_pixels);
+	}
+	if(d->cmpr_meth==5) {
+		ret = decompress_deep_5(c, d, f, pos1, len, unc_pixels);
+	}
+	else {
+		ret = decompress_ilbm_packbits(c, f, pos1, len, unc_pixels, d->expected_image_size,
+			(UI)d->num_components);
+	}
 	dbuf_flush(unc_pixels);
 	if(!ret) goto done;
 
@@ -3055,7 +3130,7 @@ done:
 
 static void do_deep_DBOD(deark *c, struct deep_ctx *d, struct de_iffctx *ictx)
 {
-	if(d->cmpr_meth!=0 && d->cmpr_meth!=1) {
+	if(d->cmpr_meth!=0 && d->cmpr_meth!=1 && d->cmpr_meth!=5) {
 		de_err(c, "Unsupported compression type: %u", d->cmpr_meth);
 		goto done;
 	}
@@ -3111,6 +3186,11 @@ static int my_deep_chunk_handler(struct de_iffctx *ictx)
 		do_deep_DBOD(c, d, ictx);
 		d->DBOD_count++;
 		ictx->handled = 1;
+		break;
+	case CODE_TVDC:
+		d->found_TVDC = 1;
+		dbuf_read(ictx->f, d->tvdc_data, ictx->chunkctx->dpos, sizeof(d->tvdc_data));
+		// Don't set ictx->handled, since we don't emit dbg info.
 		break;
 	}
 
