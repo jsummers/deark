@@ -26,6 +26,14 @@ struct de_dfilter_results {
 	char errmsg[80];
 };
 
+// de_module_in_params::obj1
+// Used if in_params::flags & 0x02
+struct fmtutil_bmp_mparams_indata {
+	de_bitmap *img;
+	de_finfo *fi;
+	UI createflags;
+};
+
 struct de_bmpinfo {
 #define DE_BMPINFO_FMT_BMP 0
 #define DE_BMPINFO_FMT_PNG 1
