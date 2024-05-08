@@ -11,6 +11,7 @@ DE_DECLARE_MODULE(de_module_comicchat);
 typedef struct localctx_comicchat {
 	u8 errflag;
 	u8 stopflag;
+	u8 opt_applymasks;
 	UI fmt_code;
 	UI major_ver;
 	struct de_inthashtable *images_seen;
@@ -27,19 +28,101 @@ struct chunk_ctx {
 	i64 internal_dpos;
 };
 
+struct image_lowlevel_ctx {
+	de_bitmap *img;
+	de_finfo *fi;
+	UI createflags;
+};
+
+struct image_highlevel_ctx {
+	u8 special_2bpp_transparency;
+	//u8 fg_has_transparency;
+	// [0] is the foreground image.
+	// [1] and [2] are optional transparency masks.
+	// Sometimes the fg image has transparency, in which case we wouldn't expect
+	// the masks to exist.
+	struct image_lowlevel_ctx llimg[3];
+};
+
 struct image_extract_ctx {
 	struct de_bmpinfo bi;
-	int itype;
 	i64 ihpos;
 	dbuf *unc_pixels;
 	i64 pal_num_entries;
 	de_color pal[256];
 };
 
-struct image_highlevel_ctx {
-	u8 have_fg;
-	i64 fg_w, fg_h;
-};
+static void fixup_2bpp_transparency(deark *c, lctx *d, struct image_highlevel_ctx *ih)
+{
+	de_bitmap *oldimg;
+	de_bitmap *newimg;
+	i64 i, j;
+
+	oldimg = ih->llimg[0].img;
+	if(!oldimg) return;
+	newimg = de_bitmap_create(c, oldimg->width, oldimg->height, 2);
+	for(j=0; j<oldimg->height; j++) {
+		for(i=0; i<oldimg->width; i++) {
+			de_color clr;
+
+			clr = de_bitmap_getpixel(oldimg, i, j);
+			if(clr==DE_MAKE_GRAY(128)) clr = DE_MAKE_RGBA(128,128,128,0);
+			de_bitmap_setpixel_rgba(newimg, i, j, clr);
+		}
+	}
+
+	de_bitmap_destroy(ih->llimg[0].img);
+	ih->llimg[0].img = newimg;
+}
+
+static void read_bmp_to_img(deark *c, lctx *d, dbuf *inf, i64 pos1,
+	struct image_highlevel_ctx *ih, int itype)
+{
+	de_module_params *mparams = NULL;
+	struct fmtutil_bmp_mparams_indata *idata = NULL;
+	i64 bmplen;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	bmplen = dbuf_getu32le(inf, pos1+2);
+	if(pos1+bmplen > inf->len) goto done;
+	if(bmplen < 54) goto done;
+
+	de_dbg(c, "decoding BMP");
+	de_dbg_indent(c, 1);
+	mparams = de_malloc(c, sizeof(de_module_params));
+	idata = de_malloc(c, sizeof(struct fmtutil_bmp_mparams_indata));
+	mparams->in_params.flags = 0x2;
+	mparams->in_params.obj1 = (void*)idata;
+	de_run_module_by_id_on_slice(c, "bmp", mparams, inf, pos1, bmplen);
+	if(idata->img) {
+		ih->llimg[itype].img = idata->img;
+		idata->img = NULL;
+		ih->llimg[itype].fi = idata->fi;
+		idata->fi = NULL;
+		ih->llimg[itype].createflags = idata->createflags;
+	}
+	else {
+		de_err(c, "Failed to decode BMP image");
+		goto done;
+	}
+
+	if(itype==0 && ih->special_2bpp_transparency) {
+		fixup_2bpp_transparency(c, d, ih);
+	}
+
+done:
+	if(idata) {
+		de_bitmap_destroy(idata->img);
+		de_finfo_destroy(c, idata->fi);
+		de_free(c, idata);
+	}
+	if(mparams) {
+		de_free(c, mparams);
+	}
+	de_dbg_indent_restore(c, saved_indent_level);
+}
 
 static void write_palette(deark *c, lctx *d, dbuf *outf,
 	de_color *pal, i64 num_entries)
@@ -54,63 +137,23 @@ static void write_palette(deark *c, lctx *d, dbuf *outf,
 	}
 }
 
-static void reconstruct_bmp(deark *c, lctx *d, struct image_extract_ctx *ic)
+static void reconstruct_bmp_and_cvt_to_img(deark *c, lctx *d,
+	struct image_extract_ctx *ic, struct image_highlevel_ctx *ih, int itype)
 {
-	dbuf *outf = NULL;
-	const char *ext;
+	dbuf *tmpbmp = NULL;
 
-	// TODO: Masks need to be applied, not written to separate files.
-	if(ic->itype==1) ext = "sm_mask.bmp";
-	else if(ic->itype==2) ext = "lg_mask.bmp";
-	else ext = "bmp";
-
-	outf = dbuf_create_output_file(c, ext, NULL,
-		((ic->itype!=0)?DE_CREATEFLAG_IS_AUX:0));
-
-	fmtutil_generate_bmpfileheader(c, outf, &ic->bi, 0);
-	dbuf_copy(c->infile, ic->ihpos, ic->bi.infohdrsize, outf);
-	write_palette(c, d, outf, ic->pal, ic->bi.pal_entries);
-	dbuf_copy(ic->unc_pixels, 0, ic->unc_pixels->len, outf);
-	dbuf_close(outf);
+	tmpbmp = dbuf_create_membuf(c, 0, 0);
+	fmtutil_generate_bmpfileheader(c, tmpbmp, &ic->bi, 0);
+	dbuf_copy(c->infile, ic->ihpos, ic->bi.infohdrsize, tmpbmp);
+	write_palette(c, d, tmpbmp, ic->pal, ic->bi.pal_entries);
+	dbuf_copy(ic->unc_pixels, 0, ic->unc_pixels->len, tmpbmp);
+	dbuf_flush(tmpbmp);
+	read_bmp_to_img(c, d, tmpbmp, 0, ih, itype);
+	dbuf_close(tmpbmp);
 }
 
-static void decode_2bpp_dib(deark *c, lctx *d, struct image_extract_ctx *ic)
-{
-	de_bitmap *img = NULL;
-
-	ic->pal[0] = DE_STOCKCOLOR_TRANSPARENT;
-	// Sometimes pal[1] is used for the halo around the character, so it might
-	// be interesting to make it partially transparent or something.
-	// But unfortunately, other times the halo is pal[2].
-	ic->pal[1] = DE_MAKE_GRAY(254); // alternate white foreground
-	ic->pal[2] = DE_STOCKCOLOR_WHITE; // normal white foregreound
-	ic->pal[3] = DE_STOCKCOLOR_BLACK; // normal black foreground
-
-	img = de_bitmap_create(c, ic->bi.width, ic->bi.height, 2);
-	de_convert_image_paletted(ic->unc_pixels, 0, 2, ic->bi.rowspan, ic->pal,
-		img, 0);
-	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_FLIP_IMAGE);
-	de_bitmap_destroy(img);
-}
-
-static void process_imgcomponent_dimensions(deark *c, struct image_highlevel_ctx *ih,
-	int itype, i64 w, i64 h)
-{
-	if(itype==0) {
-		ih->fg_w = w;
-		ih->fg_h = h;
-		ih->have_fg = 1;
-	}
-	else {
-		if(ih->have_fg && (w!=ih->fg_w || h!=ih->fg_h)) {
-			de_warn(c, "Mask dimensions are different from foreground dimensions");
-		}
-	}
-}
-
-// Extract an image from a "dib" segment, which can optionally start with a palette
-static void extract_dib(deark *c, lctx *d, struct image_highlevel_ctx *ih,
-	i64 pos1, UI magic, int itype)
+static void read_dib_to_img(deark *c, lctx *d, i64 pos1, UI magic,
+	struct image_highlevel_ctx *ih, int itype)
 {
 	int ret;
 	i64 pos;
@@ -126,7 +169,6 @@ static void extract_dib(deark *c, lctx *d, struct image_highlevel_ctx *ih,
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	ic = de_malloc(c, sizeof(struct image_extract_ctx));
-	ic->itype = itype;
 	de_zeromem(&deflateparams, sizeof(struct de_deflate_params));
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	if(d->errflag) goto done;
@@ -147,8 +189,8 @@ static void extract_dib(deark *c, lctx *d, struct image_highlevel_ctx *ih,
 
 		// Note that palette is RGB, not BGR as might be expected.
 		if(ic->pal_num_entries>0) {
-			de_read_simple_palette(c, c->infile, pos, ic->pal_num_entries, 3, ic->pal,
-				256, DE_RDPALTYPE_24BIT, 0);
+			de_read_simple_palette(c, c->infile, pos, ic->pal_num_entries, 3,
+				ic->pal, 256, DE_RDPALTYPE_24BIT, 0);
 		}
 		pos = pos1 + 4 + ck_len;
 		de_dbg_indent(c, -1);
@@ -171,11 +213,21 @@ static void extract_dib(deark *c, lctx *d, struct image_highlevel_ctx *ih,
 	if(ic->bi.pal_entries > 256) goto done;
 	if(ic->bi.is_compressed) goto done;
 	if(!de_good_image_dimensions(c, ic->bi.width, ic->bi.height)) goto done;
-	process_imgcomponent_dimensions(c, ih, itype, ic->bi.width, ic->bi.height);
 
-	if(ic->bi.bitcount==1 && ic->bi.pal_entries==2 && ic->pal_num_entries==0) {
+	if(ic->bi.bitcount==1 && itype>0) {
 		ic->pal_num_entries = 2;
-		de_make_grayscale_palette(ic->pal, ic->pal_num_entries, 0);
+		de_make_grayscale_palette(ic->pal, ic->pal_num_entries, 0x1);
+	}
+	else if(ic->bi.bitcount==2 && itype==0 && ic->pal_num_entries==0) {
+		ih->special_2bpp_transparency = 1;
+		ic->pal_num_entries = 4;
+		ic->pal[0] = DE_MAKE_GRAY(128); // Arbitrary key color. Will be made transparent.
+		// Sometimes pal[1] is used for the halo around the character, so it might
+		// be interesting to make it partially transparent or something.
+		// But unfortunately, other times the halo is pal[2].
+		ic->pal[1] = DE_MAKE_GRAY(254); // alternate white foreground
+		ic->pal[2] = DE_STOCKCOLOR_WHITE; // normal white foregreound
+		ic->pal[3] = DE_STOCKCOLOR_BLACK; // normal black foreground
 	}
 
 	pos = ic->ihpos + ic->bi.infohdrsize;
@@ -205,12 +257,10 @@ static void extract_dib(deark *c, lctx *d, struct image_highlevel_ctx *ih,
 		goto done;
 	}
 
-	if(ic->bi.bitcount==2) {
-		decode_2bpp_dib(c, d, ic);
-		goto done;
-	}
-
-	reconstruct_bmp(c, d, ic);
+	// This will ultimately result in the BMP header & palette being read
+	// again (by the bmp module this time), dbg info printed again, etc.
+	// It's messy, but it will do.
+	reconstruct_bmp_and_cvt_to_img(c, d, ic, ih, itype);
 
 done:
 	if(ic) {
@@ -220,42 +270,10 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void extract_bmp(deark *c, lctx *d, struct image_highlevel_ctx *ih,
-	i64 pos1, int itype)
-{
-	UI bitcount, cmpr;
-	i64 bmplen;
-	i64 w, h;
-	const char *ext;
-
-	bmplen = de_getu32le(pos1+2);
-
-	if(pos1+bmplen > c->infile->len) goto done;
-	if(bmplen < 54) goto done;
-
-	w = de_geti32le(pos1+14+4);
-	h = de_geti32le(pos1+14+8);
-	de_dbg_dimensions(c, w, h);
-	process_imgcomponent_dimensions(c, ih, itype, w, h);
-	bitcount = (UI)de_getu16le(pos1+14+14);
-	de_dbg(c, "bit count: %u", bitcount);
-	cmpr = (UI)de_getu32le(pos1+14+16);
-	de_dbg(c, "compression: %u", cmpr);
-
-	if(itype==1) ext = "sm_mask.bmp";
-	else if(itype==2) ext = "lg_mask.bmp";
-	else ext = "bmp";
-
-	// TODO: Masks need to be applied, not written to separate files.
-	dbuf_create_file_from_slice(c->infile, pos1, bmplen, ext, NULL,
-		((itype!=0)?DE_CREATEFLAG_IS_AUX:0));
-done:
-	;
-}
-
-// itype=0:foreground 1:mask1 2:mask2
-static void extract_image_lowlevel(deark *c, lctx *d,
-	struct image_highlevel_ctx *ih, i64 pos1, int itype)
+// Read an image component, decode it in whatever way required,
+// and store it at ih->llimg[itype].
+static void read_image_lowlevel(deark *c, lctx *d, i64 pos1,
+	struct image_highlevel_ctx *ih, int itype)
 {
 	UI magic;
 	int saved_indent_level;
@@ -274,29 +292,118 @@ static void extract_image_lowlevel(deark *c, lctx *d,
 	}
 
 	if(magic==0x424d) {
-		extract_bmp(c, d, ih, pos1, itype);
+		read_bmp_to_img(c, d, c->infile, pos1, ih, itype);
 	}
 	else {
-		extract_dib(c, d, ih, pos1, magic, itype);
+		read_dib_to_img(c, d, pos1, magic, ih, itype);
 	}
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+static void emit_images_highlevel_separate(deark *c, lctx *d,
+	struct image_highlevel_ctx *ih)
+{
+	size_t k;
+
+	if(ih->llimg[0].img) {
+		de_bitmap_write_to_file_finfo(ih->llimg[0].img, ih->llimg[0].fi,
+			ih->llimg[0].createflags);
+	}
+	for(k=1; k<=2; k++) {
+		if(ih->llimg[k].img) {
+			if(!ih->llimg[k].fi) {
+				ih->llimg[k].fi = de_finfo_create(c);
+			}
+			de_finfo_set_name_from_sz(c, ih->llimg[k].fi,
+				(k==1?"sm_mask":"lg_mask"), 0, DE_ENCODING_LATIN1);
+			de_bitmap_write_to_file_finfo(ih->llimg[k].img, ih->llimg[k].fi,
+				(ih->llimg[k].createflags | DE_CREATEFLAG_IS_AUX));
+		}
+	}
+}
+
+static void emit_images_highlevel_applymasks(deark *c, lctx *d,
+	struct image_highlevel_ctx *ih)
+{
+	de_bitmap *tmpimg = NULL;
+	i64 w, h;
+	size_t k;
+
+	if(!ih->llimg[0].img) goto done; // should be impossible
+	w = ih->llimg[0].img->width;
+	h = ih->llimg[0].img->height;
+
+	if(!ih->llimg[1].img && !ih->llimg[2].img) {
+		de_bitmap_write_to_file_finfo(ih->llimg[0].img, ih->llimg[0].fi,
+			ih->llimg[0].createflags | DE_CREATEFLAG_OPT_IMAGE);
+		goto done;
+	}
+
+	for(k=1; k<=2; k++) {
+		if(!ih->llimg[k].img) continue;
+		if(tmpimg) {
+			de_bitmap_destroy(tmpimg);
+		}
+		tmpimg = de_bitmap_create(c, w, h, 4);
+		de_bitmap_copy_rect(ih->llimg[0].img, tmpimg, 0, 0, w, h, 0, 0, 0);
+		de_bitmap_apply_mask(tmpimg, ih->llimg[k].img, DE_BITMAPFLAG_WHITEISTRNS);
+		de_bitmap_write_to_file_finfo(tmpimg, ih->llimg[0].fi,
+			ih->llimg[0].createflags | DE_CREATEFLAG_OPT_IMAGE);
+	}
+
+done:
+	de_bitmap_destroy(tmpimg);
+}
+
+// We can either extract the foreground and masks to individual files, or
+// apply the masks. For us to apply the masks, certain conditions must be met.
+static int should_apply_masks(deark *c, lctx *d, struct image_highlevel_ctx *ih)
+{
+	size_t k;
+
+	if(!d->opt_applymasks) return 0;
+	if(ih->special_2bpp_transparency) return 0;
+	if(!ih->llimg[0].img) return 0;
+	if(!ih->llimg[1].img && !ih->llimg[2].img) return 0;
+
+	for(k=1; k<=2; k++) {
+		if(ih->llimg[k].img) {
+			if(ih->llimg[k].img->width != ih->llimg[0].img->width) return 0;
+			if(ih->llimg[k].img->height != ih->llimg[0].img->height) return 0;
+		}
+	}
+	return 1;
+}
+
 static void extract_image_highlevel(deark *c, lctx *d, i64 imgpos, i64 m1pos, i64 m2pos)
 {
 	struct image_highlevel_ctx *ih = NULL;
+	size_t k;
 
 	ih = de_malloc(c, sizeof(struct image_highlevel_ctx));
-	de_dbg(c, "[extracting image at %"I64_FMT", %"I64_FMT", %"I64_FMT"]",
+	de_dbg(c, "[extracting image at %"I64_FMT" : %"I64_FMT" : %"I64_FMT"]",
 		imgpos, m1pos, m2pos);
 	de_dbg_indent(c, 1);
-	extract_image_lowlevel(c, d, ih, imgpos, 0);
-	extract_image_lowlevel(c, d, ih, m1pos, 1);
-	extract_image_lowlevel(c, d, ih, m2pos, 2);
+	read_image_lowlevel(c, d, imgpos, ih, 0);
+	read_image_lowlevel(c, d, m1pos, ih, 1);
+	read_image_lowlevel(c, d, m2pos, ih, 2);
+	if(should_apply_masks(c, d, ih)) {
+		emit_images_highlevel_applymasks(c, d, ih);
+	}
+	else {
+		emit_images_highlevel_separate(c, d, ih);
+	}
 	de_dbg_indent(c, -1);
-	de_free(c, ih);
+
+	if(ih) {
+		for(k=0; k<3; k++) {
+			de_bitmap_destroy(ih->llimg[k].img);
+			de_finfo_destroy(c, ih->llimg[k].fi);
+		}
+		de_free(c, ih);
+	}
 }
 
 static int found_image(deark *c, lctx *d, i64 imgpos, i64 m1pos, i64 m2pos)
@@ -438,14 +545,10 @@ static void comicchat_read_chunk(deark *c, lctx *d, i64 pos1)
 			}
 		}
 
-		if(cctx->ck_type==0x0100) {
-			handle_chunk_1imageptr(c, d, cctx, 4);
-		}
-		else if(cctx->ck_type==0x0102) {
+		if(cctx->ck_type==0x0100 || cctx->ck_type==0x0102) {
 			handle_chunk_1imageptr(c, d, cctx, 4);
 		}
 		else if(cctx->ck_type==0x0107) {
-			// This is weird.
 			n = de_getu32le(cctx->internal_dpos);
 			d->img_ptr_bias += n;
 			de_sanitize_offset(&d->img_ptr_bias);
@@ -477,6 +580,7 @@ static void de_run_comicchat(deark *c, de_module_params *mparams)
 	const char *tstr;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->opt_applymasks = de_get_ext_option_bool(c, "comicchat:applymasks", 1);
 
 	de_dbg(c, "header at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
@@ -487,9 +591,9 @@ static void de_run_comicchat(deark *c, de_module_params *mparams)
 	else if(d->major_ver==2) tstr = "v2.5";
 	else tstr = "?";
 	de_dbg(c, "fmt ver: %u (%s)", d->major_ver, tstr);
-	if(d->major_ver==2 && d->fmt_code==3) tstr = " (BGB?)";
+	if(d->major_ver==2 && d->fmt_code==3) tstr = " (BGB)";
 	else tstr = "";
-	de_dbg(c, "fmt code: %u%s", d->fmt_code, tstr);
+	de_dbg(c, "fmt subtype: %u%s", d->fmt_code, tstr);
 	de_dbg_indent(c, -1);
 
 	d->images_seen = de_inthashtable_create(c);
@@ -535,10 +639,16 @@ static int de_identify_comicchat(deark *c)
 	return 35;
 }
 
+static void de_help_comicchat(deark *c)
+{
+	de_msg(c, "-opt comicchat:applymasks=0 : Write masks to separate files");
+}
+
 void de_module_comicchat(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "comicchat";
-	mi->desc = "Microsoft Comic Chat";
+	mi->desc = "Microsoft Comic Chat character";
 	mi->run_fn = de_run_comicchat;
 	mi->identify_fn = de_identify_comicchat;
+	mi->help_fn = de_help_comicchat;
 }
