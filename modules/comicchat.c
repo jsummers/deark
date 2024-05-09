@@ -9,7 +9,7 @@
 DE_DECLARE_MODULE(de_module_comicchat);
 
 typedef struct localctx_comicchat {
-	u8 errflag;
+	de_encoding input_encoding;
 	u8 stopflag;
 	u8 opt_applymasks;
 	UI fmt_code;
@@ -18,14 +18,14 @@ typedef struct localctx_comicchat {
 	struct de_inthashtable *masks_seen; // Might be unused
 	i64 last_chunklen;
 	i64 img_ptr_bias;
+	de_ucstring *char_name;
+	de_ucstring *tmpstr;
 } lctx;
 
 struct chunk_ctx {
 	UI ck_type;
 	i64 ck_pos; // everything; starting from start of type field
-	i64 ck_len; // total length
-	i64 internal_dlen; // length minus 4-byte header; applies to some chunks
-	i64 internal_dpos;
+	i64 ck_len; // total length from ck_pos
 };
 
 struct image_lowlevel_ctx {
@@ -171,7 +171,6 @@ static void read_dib_to_img(deark *c, lctx *d, i64 pos1, UI magic,
 	ic = de_malloc(c, sizeof(struct image_extract_ctx));
 	de_zeromem(&deflateparams, sizeof(struct de_deflate_params));
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
-	if(d->errflag) goto done;
 
 	pos = pos1;
 	if(magic==0x0101) {
@@ -469,8 +468,17 @@ done:
 	;
 }
 
+static void handle_chunk_string(deark *c, lctx *d, i64 pos, i64 len,
+	de_ucstring *s, const char *name)
+{
+	ucstring_empty(s);
+	dbuf_read_to_ucstring_n(c->infile, pos, len, 512, s,
+		DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz_d(s));
+}
+
 // sets d->last_chunklen (=total size)
-// may set d->stopflag, d->errflag
+// may set d->stopflag, ...
 static void comicchat_read_chunk(deark *c, lctx *d, i64 pos1)
 {
 	struct chunk_ctx *cctx = NULL;
@@ -490,8 +498,11 @@ static void comicchat_read_chunk(deark *c, lctx *d, i64 pos1)
 
 	if(cctx->ck_type==0x0001) {
 		ret = dbuf_search_byte(c->infile, 0x00, cctx->ck_pos+2, 4096, &foundpos);
-		if(!ret) goto done;
-		cctx->ck_len = foundpos + 1 - cctx->ck_pos;
+		if(ret) {
+			cctx->ck_len = foundpos + 1 - cctx->ck_pos;
+			handle_chunk_string(c, d, cctx->ck_pos+2, cctx->ck_len-2,
+				d->char_name, "char name");
+		}
 	}
 	else if(cctx->ck_type==0x0002) {
 		cctx->ck_len = 4;
@@ -529,27 +540,26 @@ static void comicchat_read_chunk(deark *c, lctx *d, i64 pos1)
 		handle_chunk_multiimageptr(c, d, cctx, 4, 25, n);
 	}
 	else if(cctx->ck_type>=0x0100 && cctx->ck_type<=0x01ff) {
-		cctx->internal_dlen = de_getu16le(cctx->ck_pos+2);
-		cctx->internal_dpos = cctx->ck_pos + 4;
-		cctx->ck_len = 4 + cctx->internal_dlen;
+		i64 dlen_field;
 
-		if(cctx->ck_type==0x0104) {
-			u8 b1, b2;
-
-			// hack to handle seemingly-bad files
-			b1 = de_getbyte(cctx->ck_pos+cctx->ck_len-1);
-			b2 = de_getbyte(cctx->ck_pos+cctx->ck_len);
-			if(b1!=0 && b2==0) {
-				cctx->ck_len++;
-				de_dbg(c, "adjusting chunk len to %"I64_FMT, cctx->ck_len);
-			}
-		}
+		dlen_field = de_getu16le(cctx->ck_pos+2);
+		cctx->ck_len = dlen_field + 4;
 
 		if(cctx->ck_type==0x0100 || cctx->ck_type==0x0102) {
 			handle_chunk_1imageptr(c, d, cctx, 4);
 		}
+		else if(cctx->ck_type==0x0103) {
+			handle_chunk_string(c, d, cctx->ck_pos+4, cctx->ck_len-4, d->tmpstr,
+				"comment");
+		}
+		else if(cctx->ck_type==0x0104) {
+			handle_chunk_string(c, d, cctx->ck_pos+4, cctx->ck_len-4, d->tmpstr, "url1");
+		}
+		else if(cctx->ck_type==0x0105) {
+			handle_chunk_string(c, d, cctx->ck_pos+4, cctx->ck_len-4, d->tmpstr, "url2");
+		}
 		else if(cctx->ck_type==0x0107) {
-			n = de_getu32le(cctx->internal_dpos);
+			n = de_getu32le(cctx->ck_pos+4);
 			d->img_ptr_bias += n;
 			de_sanitize_offset(&d->img_ptr_bias);
 			de_dbg(c, "image pointer bias: %"I64_FMT, d->img_ptr_bias);
@@ -558,7 +568,7 @@ static void comicchat_read_chunk(deark *c, lctx *d, i64 pos1)
 
 	if(cctx->ck_len<2) {
 		de_err(c, "Unsupported chunk (0x%04x); can't continue", cctx->ck_type);
-		d->errflag = 1;
+		d->stopflag = 1;
 		goto done;
 	}
 
@@ -580,6 +590,9 @@ static void de_run_comicchat(deark *c, de_module_params *mparams)
 	const char *tstr;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->char_name = ucstring_create(c);
+	d->tmpstr = ucstring_create(c);
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 	d->opt_applymasks = de_get_ext_option_bool(c, "comicchat:applymasks", 1);
 
 	de_dbg(c, "header at %"I64_FMT, pos);
@@ -600,12 +613,14 @@ static void de_run_comicchat(deark *c, de_module_params *mparams)
 	d->masks_seen = de_inthashtable_create(c);
 	while(1) {
 		comicchat_read_chunk(c, d, pos);
-		if(d->errflag || d->stopflag || d->last_chunklen==0) goto done;
+		if(d->stopflag || d->last_chunklen==0) goto done;
 		pos += d->last_chunklen;
 	}
 
 done:
 	if(d) {
+		ucstring_destroy(d->char_name);
+		ucstring_destroy(d->tmpstr);
 		de_inthashtable_destroy(c, d->images_seen);
 		de_inthashtable_destroy(c, d->masks_seen);
 		de_free(c, d);
@@ -647,7 +662,7 @@ static void de_help_comicchat(deark *c)
 void de_module_comicchat(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "comicchat";
-	mi->desc = "Microsoft Comic Chat character";
+	mi->desc = "Microsoft Comic Chat AVB or BGB";
 	mi->run_fn = de_run_comicchat;
 	mi->identify_fn = de_identify_comicchat;
 	mi->help_fn = de_help_comicchat;
