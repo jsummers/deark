@@ -1244,6 +1244,13 @@ Deark -- Information about supported formats
    -opt split:stride=<n> - The distance between the start of one chunk and the
     start of the next chunk, in bytes.
 
+* TXT2COM (module="txt2com")
+  Executable COM files made by Graham's TXT2COM utility.
+  - Extracts the source text. Does not necessarily render the document (e.g.
+    colors) like running the COM file would.
+  Options
+   -inenc ascii - Suppress character encoding translation.
+
 * WRI - Microsoft Write (module="wri") (incomplete)
   - Extract raw text to an HTML file. Very little formatting, etc.
   - Extract most pictures.
