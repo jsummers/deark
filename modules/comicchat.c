@@ -15,7 +15,6 @@ typedef struct localctx_comicchat {
 	UI fmt_code;
 	UI major_ver;
 	struct de_inthashtable *images_seen;
-	struct de_inthashtable *masks_seen; // Might be unused
 	i64 last_chunklen;
 	i64 img_ptr_bias;
 	de_ucstring *char_name;
@@ -210,11 +209,16 @@ static void read_dib_to_img(deark *c, lctx *d, i64 pos1, UI magic,
 	if(!ret) goto done;
 	if(ic->bi.infohdrsize != 40) goto done;
 	if(ic->bi.pal_entries > 256) goto done;
+	// We don't expect the zlib decompression to result in an image that is still
+	// (RLE) compressed. We could support it, but we probably need samples.
 	if(ic->bi.is_compressed) goto done;
 	if(!de_good_image_dimensions(c, ic->bi.width, ic->bi.height)) goto done;
 
 	if(ic->bi.bitcount==1 && itype>0) {
 		ic->pal_num_entries = 2;
+		// 0 is transparent, and the palette is undefined.
+		// It'd be logical to make 0 black, but we make it white, so that masks
+		// from all format versions are white-is-transparent.
 		de_make_grayscale_palette(ic->pal, ic->pal_num_entries, 0x1);
 	}
 	else if(ic->bi.bitcount==2 && itype==0 && ic->pal_num_entries==0) {
@@ -424,8 +428,6 @@ static int found_image(deark *c, lctx *d, i64 imgpos, i64 m1pos, i64 m2pos)
 	retval = 1;
 
 	ret = de_inthashtable_add_item(c, d->images_seen, imgpos, NULL);
-	if(m1pos) de_inthashtable_add_item(c, d->masks_seen, m1pos, NULL);
-	if(m2pos) de_inthashtable_add_item(c, d->masks_seen, m2pos, NULL);
 	if(!ret) {
 		de_dbg(c, "[already handled this image]");
 		goto done;
@@ -550,7 +552,7 @@ static void comicchat_read_chunk(deark *c, lctx *d, i64 pos1)
 		}
 		else if(cctx->ck_type==0x0103) {
 			handle_chunk_string(c, d, cctx->ck_pos+4, cctx->ck_len-4, d->tmpstr,
-				"comment");
+				"copyright/author");
 		}
 		else if(cctx->ck_type==0x0104) {
 			handle_chunk_string(c, d, cctx->ck_pos+4, cctx->ck_len-4, d->tmpstr, "url1");
@@ -562,12 +564,13 @@ static void comicchat_read_chunk(deark *c, lctx *d, i64 pos1)
 			n = de_getu32le(cctx->ck_pos+4);
 			d->img_ptr_bias += n;
 			de_sanitize_offset(&d->img_ptr_bias);
-			de_dbg(c, "image pointer bias: %"I64_FMT, d->img_ptr_bias);
+			de_dbg(c, "image pointer bias: %"I64_FMT, n);
 		}
 	}
 
 	if(cctx->ck_len<2) {
-		de_err(c, "Unsupported chunk (0x%04x); can't continue", cctx->ck_type);
+		de_err(c, "Invalid file or unsupported chunk (0x%04x); can't continue",
+			cctx->ck_type);
 		d->stopflag = 1;
 		goto done;
 	}
@@ -610,7 +613,6 @@ static void de_run_comicchat(deark *c, de_module_params *mparams)
 	de_dbg_indent(c, -1);
 
 	d->images_seen = de_inthashtable_create(c);
-	d->masks_seen = de_inthashtable_create(c);
 	while(1) {
 		comicchat_read_chunk(c, d, pos);
 		if(d->stopflag || d->last_chunklen==0) goto done;
@@ -622,7 +624,6 @@ done:
 		ucstring_destroy(d->char_name);
 		ucstring_destroy(d->tmpstr);
 		de_inthashtable_destroy(c, d->images_seen);
-		de_inthashtable_destroy(c, d->masks_seen);
 		de_free(c, d);
 	}
 }

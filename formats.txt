@@ -346,7 +346,7 @@ Deark -- Information about supported formats
 
 * MegaPaint Patterns (.pat) (module="megapaint_pat") (experimental)
 
-* Microsoft Comic Chat (.avb, .bgb) (module="comicchat") (experimental)
+* Microsoft Comic Chat (.avb, .bgb) (module="comicchat")
 
 * MMM (MacroMind Movie) (module="mmm") (experimental)
   - Can extract images, but cannot always get the colors right.
