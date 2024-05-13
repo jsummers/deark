@@ -2792,10 +2792,13 @@ void de_module_binary_ii(deark *c, struct deark_module_info *mi)
 // **************************************************************************
 
 struct tome_ctx;
+struct tome_md;
 
-struct fork_data {
-	u8 is_rsrc_fork;
-	u32 crc_reported;
+struct tome_fork_data {
+	struct tome_md *md;
+	UI forknum;
+	u32 checksum_reported;
+	u32 checksum_calc;
 	i64 orig_len;
 	i64 cmpr_pos;
 	i64 cmpr_len;
@@ -2817,7 +2820,7 @@ struct tome_md {
 	struct de_timestamp mod_time;
 	struct de_timestamp create_time;
 
-	struct fork_data frk[2];
+	struct tome_fork_data frk[2];
 };
 
 struct tome_ctx {
@@ -2826,6 +2829,19 @@ struct tome_ctx {
 	u8 need_errmsg;
 	i64 num_members;
 };
+
+static void tome_writelistener(dbuf *f, void *userdata, const u8 *buf, i64 buf_len)
+{
+	struct tome_fork_data *fdata = (struct tome_fork_data*)userdata;
+	struct tome_md *md = fdata->md;
+	i64 i;
+
+	for(i=0; i<buf_len; i++) {
+		md->frk[fdata->forknum].checksum_calc = (u32)buf[i] ^
+			((u32)(md->frk[fdata->forknum].checksum_calc >> 0x18) +
+				(u32)(md->frk[fdata->forknum].checksum_calc <<8));
+	}
+}
 
 static void tome_copy_fork(struct tome_md *md, UI fn, dbuf *outf)
 {
@@ -2873,16 +2889,28 @@ static void tome_read_timestamp(deark *c, struct tome_ctx *d, struct tome_md *md
 	md->advf->mainfork.fi->timestamp[tzi] = ts;
 }
 
+static int tome_test_checksum(u32 ckr, u32 ckc)
+{
+	u32 ck;
+	UI i;
+
+	ck = ckr ^ ckc;
+	for(i=0; i<4; i++) {
+		if((ck&0xff)!=0x00 && (ck&0xff)!=0xff) return 0;
+		ck >>= 8;
+	}
+	return 1;
+}
+
 static void tome_do_member(deark *c, struct tome_ctx *d, struct tome_md *md)
 {
 	i64 pos = md->hdr_pos;
 	i64 fnlen;
 	UI fn;
-	u32 crc;
 	i64 n;
 	i64 seqno;
-
 	int saved_indent_level;
+
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "member header at %"I64_FMT, md->hdr_pos);
 	de_dbg_indent(c, 1);
@@ -2938,8 +2966,9 @@ static void tome_do_member(deark *c, struct tome_ctx *d, struct tome_md *md)
 		de_dbg(c, "orig len [%s]: %"I64_FMT, md->frk[fn].forkname, md->frk[fn].orig_len);
 		de_dbg(c, "cmpr pos [%s]: %"I64_FMT, md->frk[fn].forkname, md->frk[fn].cmpr_pos);
 		de_dbg(c, "cmpr len [%s]: %"I64_FMT, md->frk[fn].forkname, md->frk[fn].cmpr_len);
-		crc = (u32)de_getu32be_p(&pos);
-		de_dbg(c, "unk [%s]: 0x%08x", md->frk[fn].forkname, (UI)crc);
+		md->frk[fn].checksum_reported = (u32)de_getu32be_p(&pos);
+		de_dbg(c, "checksum (reported) [%s]: 0x%08x", md->frk[fn].forkname,
+			(UI)md->frk[fn].checksum_reported);
 	}
 
 	md->advf->mainfork.fork_len = md->frk[0].orig_len;
@@ -2947,6 +2976,13 @@ static void tome_do_member(deark *c, struct tome_ctx *d, struct tome_md *md)
 	md->advf->mainfork.fork_exists = (md->frk[0].orig_len!=0 ||
 		md->frk[1].orig_len==0);
 	md->advf->rsrcfork.fork_exists = (md->frk[1].orig_len!=0);
+
+	md->advf->mainfork.writelistener_cb = tome_writelistener;
+	md->advf->mainfork.userdata_for_writelistener = (void*)&md->frk[0];
+	md->advf->rsrcfork.writelistener_cb = tome_writelistener;
+	md->advf->rsrcfork.userdata_for_writelistener = (void*)&md->frk[1];
+	md->frk[0].checksum_calc = 0;
+	md->frk[1].checksum_calc = 0;
 
 	for(fn=0; fn<2; fn++) {
 		i64 expected_cmpr_len;
@@ -2969,6 +3005,23 @@ static void tome_do_member(deark *c, struct tome_ctx *d, struct tome_md *md)
 	de_advfile_set_orig_filename(md->advf, md->fname->sz, md->fname->sz_strlen);
 
 	de_advfile_run(md->advf);
+
+	for(fn=0; fn<2; fn++) {
+		int ckres;
+
+		if(md->frk[fn].orig_len) {
+			de_dbg(c, "checksum (calculated) [%s]: 0x%08x", md->frk[fn].forkname,
+				(UI)md->frk[fn].checksum_calc);
+			ckres = tome_test_checksum(md->frk[fn].checksum_reported,
+				md->frk[fn].checksum_calc);
+			de_dbg(c, "checksum result [%s]: 0x%08x (%s)", md->frk[fn].forkname,
+				(UI)(md->frk[fn].checksum_calc ^ md->frk[fn].checksum_reported),
+				(ckres?"ok":"error"));
+			if(!ckres) {
+				de_err(c, "Checksum failed [%s]", md->frk[fn].forkname);
+			}
+		}
+	}
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -3011,6 +3064,10 @@ static void de_run_tome(deark *c, de_module_params *mparams)
 		md = de_malloc(c, sizeof(struct tome_md));
 		md->c = c;
 		md->d = d;
+		md->frk[0].md = md;
+		md->frk[1].md = md;
+		md->frk[0].forknum = 0;
+		md->frk[1].forknum = 1;
 		de_strlcpy(md->frk[0].forkname, "data", sizeof(md->frk[0].forkname));
 		de_strlcpy(md->frk[1].forkname, "rsrc", sizeof(md->frk[1].forkname));
 		md->advf = de_advfile_create(c);
