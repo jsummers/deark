@@ -97,6 +97,51 @@ struct member_parser_data {
 
 typedef void (*member_cb_type)(deark *c, lctx *d, struct member_parser_data *mpd);
 
+// Not for Spark format
+static int is_known_cmpr_meth(u8 m)
+{
+	if(m<=11 || m==20 || m==21 || m==22 || m==30) {
+		return 1;
+	}
+	return 0;
+}
+
+// For ARC, not for Spark or ArcMac.
+// It's assumed that the byte at pos1 is known to be 0x1a.
+// Will validate the first member, and (unless it is the end marker),
+// the first two bytes of the second member.
+// Bad files that have been truncated before that point will not be
+// identified -- except they may be allowed if only the end marker
+// has been deleted.
+static int is_valid_file_at(dbuf *f, i64 pos1, i64 endpos)
+{
+	u8 marker;
+	u8 cmpr_meth;
+	i64 cmpr_len;
+	i64 pos = pos1;
+
+	pos++;
+
+	cmpr_meth = dbuf_getbyte_p(f, &pos);
+	if(!is_known_cmpr_meth(cmpr_meth)) {
+		return 0;
+	}
+	if(cmpr_meth==0) return 1; // End marker
+	pos += 13;
+	cmpr_len = dbuf_getu32le_p(f, &pos);
+	pos += 6;
+	if(cmpr_meth!=1) pos += 4;
+	pos += cmpr_len;
+	if(pos==endpos) return 1;
+	if(pos>endpos-2) return 0;
+
+	marker = dbuf_getbyte_p(f, &pos);
+	if(marker!=0x1a) return 0;
+	cmpr_meth = dbuf_getbyte_p(f, &pos);
+	if(!is_known_cmpr_meth(cmpr_meth)) return 0;
+	return 1;
+}
+
 static void mark_end_of_known_data(lctx *d, i64 pos)
 {
 	if(pos > d->end_of_known_data) {
@@ -1383,7 +1428,8 @@ static void de_run_arc(deark *c, de_module_params *mparams)
 static int de_identify_arc(deark *c)
 {
 	static const char *exts[] = {"arc", "ark", "pak", "spk", "sdn", "com"};
-	int has_ext = 0;
+	u8 has_ext = 0;
+	UI ext_idx = 0;
 	int ends_with_trailer = 0;
 	int ends_with_comments = 0;
 	int starts_with_trailer = 0;
@@ -1401,20 +1447,33 @@ static int de_identify_arc(deark *c)
 	}
 
 	cmpr_meth = buf[arc_start+1];
-	if(cmpr_meth>11 && cmpr_meth!=20 && cmpr_meth!=21 && cmpr_meth!=22 && cmpr_meth!=30) {
-		return 0;
+
+	if(arc_start==0) {
+		// TODO: We want to call is_valid_file_at() here, but that will miss
+		// some truncated or corrupted files that older versions of Deark
+		// correctly identified. For now at least, we'll be tolerant.
+		if(!is_known_cmpr_meth(cmpr_meth)) {
+			return 0;
+		}
 	}
+	else {
+		if(!is_valid_file_at(c->infile, arc_start, c->infile->len)) {
+			return 0;
+		}
+	}
+
 	if(cmpr_meth==0) starts_with_trailer = 1;
 
 	for(k=0; k<DE_ARRAYCOUNT(exts); k++) {
 		if(de_input_file_has_ext(c, exts[k])) {
-			has_ext = (int)(k+1);
+			has_ext = 1;
+			ext_idx = (UI)k;
 			break;
 		}
 	}
 
 	if(arc_start>0) {
-		if(has_ext==1 || has_ext==2 || has_ext==6) { // .arc, .ark, .com
+		if(ext_idx==0 || ext_idx==1 || ext_idx==5) { // .arc, .ark, .com
 			;
 		}
 		else {
@@ -1423,7 +1482,7 @@ static int de_identify_arc(deark *c)
 	}
 
 	if(starts_with_trailer && c->infile->len==2) {
-		if(has_ext>=1 && has_ext<=4) return 15; // Empty archive, 2-byte file
+		if(has_ext && (ext_idx<=3)) return 15; // Empty archive, 2-byte file
 		return 0;
 	}
 
