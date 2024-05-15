@@ -42,6 +42,7 @@ DE_DECLARE_MODULE(de_module_deep);
 #define CODE_SHAM 0x5348414dU
 #define CODE_TINY 0x54494e59U
 #define CODE_VDAT 0x56444154U
+#define CODE_XS24 0x58533234U
 
 #define ANIM_OP_XOR 1
 
@@ -1801,6 +1802,29 @@ done:
 	destroy_frame(c, d, frctx);
 }
 
+// A few ILBM files with extension ".iff24" have this chunk, as
+// do some DEEP files.
+static void do_xs24(deark *c, dbuf *f, i64 pos1, i64 len)
+{
+	i64 w, h, rowspan;
+	i64 pos = pos1;
+	de_bitmap *img = NULL;
+
+	w = de_getu16be_p(&pos);
+	rowspan = w*3;
+	h = de_getu16be_p(&pos);
+	de_dbg(c, "24-bit thumbnail image, dimensions: %u"DE_CHAR_TIMES"%u", (UI)w, (UI)h);
+	if(!de_good_image_dimensions_noerr(c, w, h)) goto done;
+	if(rowspan*h+6 != len) goto done;
+	pos += 2; // unknown field
+
+	img = de_bitmap_create(c, w, h, 3);
+	de_convert_image_rgb(f, pos, rowspan, 3, img, 0);
+	de_bitmap_write_to_file(img, "thumb", DE_CREATEFLAG_IS_AUX|DE_CREATEFLAG_OPT_IMAGE);
+done:
+	de_bitmap_destroy(img);
+}
+
 static void get_bits_descr(deark *c, lctx *d, struct frame_ctx *frctx, de_ucstring *s)
 {
 	UI bits = frctx->bits;
@@ -2394,6 +2418,10 @@ static int my_iff_chunk_handler(struct de_iffctx *ictx)
 
 	case CODE_TINY:
 		do_tiny(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		ictx->handled = 1;
+		break;
+	case CODE_XS24:
+		do_xs24(c, ictx->f, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		ictx->handled = 1;
 		break;
 
@@ -3191,6 +3219,10 @@ static int my_deep_chunk_handler(struct de_iffctx *ictx)
 		d->found_TVDC = 1;
 		dbuf_read(ictx->f, d->tvdc_data, ictx->chunkctx->dpos, sizeof(d->tvdc_data));
 		// Don't set ictx->handled, since we don't emit dbg info.
+		break;
+	case CODE_XS24:
+		do_xs24(c, ictx->f, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		ictx->handled = 1;
 		break;
 	}
 
