@@ -857,8 +857,15 @@ static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
 	de_dbg_indent(c, 1);
 
 	if(!md->cmi || !md->cmi->decompressor) {
+		const char *mname;
+
+		// A quick hack because we don't want the error message claiming that
+		// "trimmed or crushed" isn't supported. We do support trimmed, so
+		// if we got here, we must have decided it's crushed.
+		mname = md->cmpr_meth==10 ? "crushed" : md->cmpr_meth_name;
+
 		de_err(c, "%s: Compression type 0x%02x (%s) is not supported.",
-			ucstring_getpsz_d(md->fn), (unsigned int)md->cmpr_meth, md->cmpr_meth_name);
+			ucstring_getpsz_d(md->fn), (UI)md->cmpr_meth, mname);
 		goto done;
 	}
 
@@ -1340,11 +1347,27 @@ static void destroy_lctx(deark *c, lctx *d)
 	de_free(c, d);
 }
 
+static int is_btspk(deark *c, lctx *d)
+{
+	if(d->fmt!=FMT_ARC && d->fmt!=FMT_ARCMAC) return 0;
+
+	if(dbuf_memcmp(c->infile, c->infile->len-31,
+		(const void*)"\x1b\x03" "MASTR\xff" "END!", 12))
+	{
+		return 0;
+	}
+	return 1;
+}
+
 static void do_run_arc_spark_internal(deark *c, lctx *d)
 {
 	i64 members_endpos;
 	i64 num_extra_bytes;
 	i64 pos = 0;
+
+	if(is_btspk(c, d)) {
+		de_warn(c, "This looks like BTSPK format, which is not correctly supported.");
+	}
 
 	d->sig_byte = (d->fmt==FMT_ARCMAC) ? 0x1b : 0x1a;
 
