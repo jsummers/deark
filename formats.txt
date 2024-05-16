@@ -350,6 +350,7 @@ Deark -- Information about supported formats
 
 * MMM (MacroMind Movie) (module="mmm") (experimental)
   - Can extract images, but cannot always get the colors right.
+  - Audio conversion to WAV is attempted.
 
 * MRW (Minolta RAW) (module="mrw")
   - Process Exif data (or extract it: use -a)

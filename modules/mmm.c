@@ -229,6 +229,7 @@ static void do_mmm_CURS(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx, i64
 	fi->has_hotspot = 1;
 	de_dbg(c, "hotspot: (%d,%d)", fi->hotspot_x, fi->hotspot_y);
 
+	if(!c->filenames_from_file) ucstring_empty(d->tmp_namestr);
 	if(ucstring_isnonempty(d->tmp_namestr)) {
 		ucstring_append_char(d->tmp_namestr, '.');
 	}
@@ -415,6 +416,74 @@ done:
 	d->clut_count++;
 }
 
+static void do_mmm_snd(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx, i64 pos1, i64 len)
+{
+	i64 pos = pos1;
+	i64 apos, alen;
+	dbuf *outf = NULL;
+	de_finfo *fi = NULL;
+	i64 pad = 0;
+	i64 sample_rate;
+	UI sr_code;
+	UI n;
+	u8 x;
+	u8 ok = 0;
+
+	fi = de_finfo_create(c);
+	mmm_read_rsrcid_p(c, d, ictx, &pos, NULL);
+
+	mmm_read_name_p(c, d, ictx, &pos, NULL);
+	if(ucstring_isnonempty(d->tmp_namestr) && c->filenames_from_file) {
+		de_finfo_set_name_from_ucstring(c, fi, d->tmp_namestr, 0);
+	}
+
+	// Note: The code in this function is probably wrong. Don't use it for
+	// anything important.
+
+	if(c->debug_level>=3) {
+		de_dbg_hexdump(c, ictx->f, pos, 96, 96, "sndhdr", 0);
+	}
+
+	n = (UI)dbuf_getu16le_p(ictx->f, &pos);
+	if(n != 0x0200) goto done;
+	pos += 20;
+	sr_code = (UI)dbuf_getbyte_p(ictx->f, &pos);
+	if(sr_code==0x2b) sample_rate = 11025;
+	else if(sr_code==0x56) sample_rate = 22050;
+	else sample_rate = sr_code * 256;
+	de_dbg(c, "sample rate info: 0x%02x (using %"I64_FMT")", sr_code, sample_rate);
+	if(sample_rate<40) goto done;
+	pos += 11;
+	x = dbuf_getbyte_p(ictx->f, &pos);
+	pos += 1;
+	// Usually the header is 36 bytes, but sometimes 78.
+	if(x==0xff) pos += 42;
+
+	apos = pos;
+	alen = pos1+len-apos;
+	if(alen<=0) goto done;
+
+	outf = dbuf_create_output_file(c, "wav", fi, 0);
+	dbuf_writeu32be(outf, CODE_RIFF);
+	pad = alen%2;
+	dbuf_writeu32le(outf, alen+36+pad);
+	dbuf_write(outf, (const u8*)"WAVEfmt \x10\0\0\0\x01\0\x01\0", 16);
+	dbuf_writeu32le(outf, sample_rate);
+	dbuf_writeu32le(outf, sample_rate);
+	dbuf_write(outf, (const u8*)"\x01\0\x08\0" "data", 8);
+	dbuf_writeu32le(outf, alen);
+	dbuf_copy(ictx->f, apos, alen, outf);
+	dbuf_write_zeroes(outf, pad);
+	ok = 1;
+
+done:
+	if(!ok) {
+		de_warn(c, "Unsupported type of audio resource");
+	}
+	dbuf_close(outf);
+	de_finfo_destroy(c, fi);
+}
+
 static int my_mmm_chunk_handler(struct de_iffctx *ictx)
 {
 	deark *c = ictx->c;
@@ -460,6 +529,11 @@ static int my_mmm_chunk_handler(struct de_iffctx *ictx)
 		}
 		else if(d->pass==2 && !d->suppress_dib_pass2) {
 			do_mmm_dib(c, d, ictx, dpos, dlen);
+		}
+		break;
+	case CODE_snd:
+		if(d->pass==2) {
+			do_mmm_snd(c, d, ictx, dpos, dlen);
 		}
 		break;
 	case CODE_CURS:
@@ -712,9 +786,4 @@ void de_module_mmm(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_mmm;
 	mi->identify_fn = de_identify_mmm;
 	mi->help_fn = de_help_mmm;
-	// Status: Many images work correctly. Others have the wrong colors.
-	// Improvements are probably possible, but only up to a point. This
-	// is just a resource format; the correct color table might, for
-	// example, be in a different file.
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }
