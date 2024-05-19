@@ -2451,3 +2451,327 @@ void fmtutil_xpkMASH_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	de_lz77buffer_destroy(c, mctx->ringbuf);
 	de_free(c, mctx);
 }
+
+///////////////////// InstaCompOne
+
+static UI read_run_of_1_bits(struct lzh_ctx *cctx, UI max1bits)
+{
+	UI count_of_1s = 0;
+
+	while(1) {
+		u8 b;
+
+		if(count_of_1s>=max1bits) break;
+		b = (u8)lzh_getbits(cctx, 1);
+		if(b==0) break;
+		count_of_1s++;
+	}
+
+	return count_of_1s;
+}
+
+static void make_ic1_trees(deark *c, struct lzh_ctx *cctx)
+{
+#define ICL_NUM_ML_CODES 14
+	static const u8 codes[ICL_NUM_ML_CODES] = {
+		0,1,4,0xa,0xb,0x18,0x19,0x34,0x35,0x36,0x37,0x0e,0x1e,0x1f };
+	static const u8 lengths[ICL_NUM_ML_CODES] = {
+		2,2,3,4,  4,  5,   5,   6,   6,   6,   6,   4,   5,   5 };
+	static const u8 vals[ICL_NUM_ML_CODES] = {
+		0,1,2,3,  4,  5,   6,   7,   8,   9,   10,  103, 104, 105 };
+	size_t k;
+
+	cctx->matchlengths_tree.ht = fmtutil_huffman_create_decoder(c, ICL_NUM_ML_CODES, 0);
+
+	for(k=0; k<ICL_NUM_ML_CODES; k++) {
+		fmtutil_huffman_add_code(c, cctx->matchlengths_tree.ht->bk,
+			codes[k], lengths[k], vals[k]);
+	}
+}
+
+static UI ic1_read_matchlencode(struct lzh_ctx *cctx)
+{
+	fmtutil_huffman_valtype n = 0;
+	UI v = 0;
+	UI num_extra_bits = 0;
+
+	n = read_next_code_using_tree(cctx, &cctx->matchlengths_tree);
+
+	if(n<100) {
+		v = (UI)n;
+	}
+	else if(n==103) {
+		v = 11;
+		num_extra_bits = 3;
+	}
+	else if(n==104) {
+		v = 19;
+		num_extra_bits = 3;
+	}
+	else { // 105
+		UI count_of_1s;
+
+		// Note that we've already read 5 1s.
+		count_of_1s = (UI)read_run_of_1_bits(cctx, 32);
+		if(count_of_1s>26) { // TODO: What is the limit?
+			de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
+				"Match-len too large");
+			cctx->err_flag = 1;
+			goto done;
+		}
+		count_of_1s += 5;
+		num_extra_bits = count_of_1s;
+		v = (1U<<count_of_1s) - 5;
+	}
+
+	if(num_extra_bits>0) {
+		UI x;
+
+		x = (UI)lzh_getbits(cctx, num_extra_bits);
+		v += x;
+	}
+
+done:
+	return v;
+}
+
+static UI ic1_read_litlen(struct lzh_ctx *cctx)
+{
+	UI n1;
+	UI x;
+	UI v = 0;
+
+	n1 = read_run_of_1_bits(cctx, 5);
+	v = 1<<n1;
+	x = (UI)lzh_getbits(cctx, n1);
+	v = v | x;
+	return v;
+}
+
+static UI ic1_read_distance(struct lzh_ctx *cctx)
+{
+	i64 bd;
+	UI v = 0;
+	UI n_extra_bits1 = 0;
+	UI n_extra_bits2 = 0;
+	UI bias1 = 0;
+	UI code11_param = 0;
+	u8 b0, b1;
+	deark *c = cctx->c;
+
+	bd = cctx->nbytes_written;
+
+	if(bd<=10) {
+		n_extra_bits1 = 2;
+	}
+	else if(bd<=20) {
+		n_extra_bits1 = 3;
+	}
+	else if(bd<=40) {
+		n_extra_bits1 = 4;
+	}
+	else if(bd<=80) {
+		n_extra_bits1 = 5;
+	}
+	else if(bd<=160) {
+		n_extra_bits1 = 6;
+	}
+	else if(bd<=672) {
+		n_extra_bits1 = 7;
+	}
+	else if(bd<=1000) {
+		// ??? Obviously this should be 1344, not 1000. But 1344 doesn't work.
+		n_extra_bits1 = 8;
+	}
+	else if(bd<=2688) {
+		n_extra_bits1 = 9;
+	}
+	else if(bd<=5376) {
+		n_extra_bits1 = 10;
+	}
+	else if(bd<=10752) {
+		n_extra_bits1 = 11;
+	}
+	else if(bd<=21504) {
+		n_extra_bits1 = 12;
+	}
+	else {
+		n_extra_bits1 = 13;
+	}
+
+	if(n_extra_bits1>=2) {
+		n_extra_bits2 = n_extra_bits1 - 2;
+		bias1 = 1U<<n_extra_bits2;
+	}
+	if(n_extra_bits1>=3) {
+		code11_param = (1U<<(n_extra_bits1-3))*10;
+	}
+
+	b0 = (u8)lzh_getbits(cctx, 1);
+	if(b0==1) {
+		b1 = (u8)lzh_getbits(cctx, 1);
+		if(b1==0) { // addressing mode "10"
+			v = (UI)lzh_getbits(cctx, n_extra_bits1);
+			v += bias1;
+		}
+		else { // addressing mode "11"
+			if(code11_param) {
+				UI n_extra_bits3;
+
+				if(bd>=1652 && bd<=1664) {
+					// FIXME: This hack probably shouldn't be here, and this range
+					// is surely too small.
+					n_extra_bits3 = 11;
+				}
+				else if(bd>43008 && bd<=65536) {
+					n_extra_bits3 = 15;
+				}
+				else {
+					n_extra_bits3 = (UI)de_log2_rounded_up((i64)bd-(i64)code11_param);
+				}
+
+				v = (UI)lzh_getbits(cctx, n_extra_bits3);
+				v += code11_param;
+			}
+			else {
+				cctx->err_flag = 1;
+				de_dfilter_set_errorf(c, cctx->dres, cctx->modname,
+					"TODO code11 bd=%"I64_FMT, bd);
+				goto done;
+			}
+		}
+	}
+	else { // addressing mode "0"
+		v = (UI)lzh_getbits(cctx, n_extra_bits2);
+	}
+
+done:
+	return v;
+}
+
+static void ic1_internal(struct lzh_ctx *cctx)
+{
+	deark *c = cctx->c;
+	u8 mode = 1;
+	UI k;
+	char descr[32];
+
+	(void)lzh_getbits(cctx, 32); // unused?
+
+	make_ic1_trees(c, cctx);
+
+	cctx->ringbuf = de_lz77buffer_create(cctx->c, 65536*2);
+	cctx->ringbuf->userdata = (void*)cctx;
+	cctx->ringbuf->writebyte_cb = lzh_lz77buf_writebytecb_flagerrors;
+
+	while(1) {
+		UI matchlencode;
+
+		if(c->debug_level>=4) {
+			de_bitreader_describe_curpos(&cctx->bitrd, descr, sizeof(descr));
+			de_dbg(c, "at %s mode=%u", descr, (UI)mode);
+		}
+
+		if(cctx->bitrd.eof_flag || cctx->err_flag) {
+			goto done;
+		}
+		if(lzh_have_enough_output(cctx)) {
+			goto done;
+		}
+
+		if(cctx->nbytes_written >= 65536) {
+			cctx->err_flag = 1;
+			de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
+				"Files over 64k are not supported");
+			goto done;
+		}
+
+		matchlencode = ic1_read_matchlencode(cctx);
+		if(cctx->err_flag) goto done;
+
+		if(matchlencode>0 || mode==0) {
+			UI matchlen;
+			UI offset;
+
+			matchlen = matchlencode + 2;
+			if(mode==0) {
+				matchlen++;
+			}
+
+			offset = ic1_read_distance(cctx);
+			if(cctx->err_flag) goto done;
+			if(offset > cctx->nbytes_written) {
+				cctx->err_flag = 1;
+				de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
+					"Bad distance code: %u", offset);
+				goto done;
+			}
+
+			if(c->debug_level>=4) {
+				de_dbg(c, "op=%"I64_FMT" match d=%u l=%u", cctx->nbytes_written,
+					offset+1, matchlen);
+			}
+
+			de_lz77buffer_copy_from_hist(cctx->ringbuf,
+				(UI)(cctx->ringbuf->curpos-offset-1), matchlen);
+
+			mode = 1;
+		}
+		else { // run of literals
+			UI litlen;
+
+			litlen = ic1_read_litlen(cctx);
+			if(c->debug_level>=4) {
+				de_dbg(c, "op=%"I64_FMT" lit_run %u", cctx->nbytes_written,
+					litlen);
+			}
+			for(k=0; k<litlen; k++) {
+				u8 b;
+				b = (u8)lzh_getbits(cctx, 8);
+				de_lz77buffer_add_literal_byte(cctx->ringbuf, b);
+			}
+
+			mode = (litlen < 63) ? 0 : 1;
+		}
+	}
+
+done:
+	;
+}
+
+void fmtutil_ic1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params)
+{
+	struct lzh_ctx *cctx = NULL;
+
+	cctx = de_malloc(c, sizeof(struct lzh_ctx));
+	cctx->modname = "instacomp1";
+	cctx->c = c;
+	cctx->dcmpri = dcmpri;
+	cctx->dcmpro = dcmpro;
+	cctx->dres = dres;
+
+	cctx->bitrd.bbll.is_lsb = 0;
+	cctx->bitrd.f = dcmpri->f;
+	cctx->bitrd.curpos = dcmpri->pos;
+	cctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
+
+	ic1_internal(cctx);
+
+	if(cctx->err_flag) {
+		// A default error message
+		de_dfilter_set_errorf(c, dres, cctx->modname, "Decoding error");
+		goto done;
+	}
+
+	de_bitreader_skip_to_byte_boundary(&cctx->bitrd);
+	cctx->dres->bytes_consumed = cctx->bitrd.curpos - cctx->dcmpri->pos;
+	if(cctx->dres->bytes_consumed<0) {
+		cctx->dres->bytes_consumed = 0;
+	}
+	cctx->dres->bytes_consumed_valid = 1;
+
+done:
+	destroy_lzh_ctx(cctx);
+}

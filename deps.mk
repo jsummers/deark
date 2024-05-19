@@ -164,6 +164,8 @@ $(OBJDIR)/modules/lha.o: modules/lha.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/lzexe.o: modules/lzexe.c src/deark-private.h \
  src/deark.h src/deark-config.h src/deark-fmtutil.h
+$(OBJDIR)/modules/mac-arch.o: modules/mac-arch.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/macbinary.o: modules/macbinary.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/macpaint.o: modules/macpaint.c src/deark-config.h \

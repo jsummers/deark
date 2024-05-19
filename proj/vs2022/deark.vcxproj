@@ -250,6 +250,7 @@
     <ClCompile Include="..\..\modules\lbr.c" />
     <ClCompile Include="..\..\modules\lha.c" />
     <ClCompile Include="..\..\modules\lzexe.c" />
+    <ClCompile Include="..\..\modules\mac-arch.c" />
     <ClCompile Include="..\..\modules\macbinary.c" />
     <ClCompile Include="..\..\modules\macpaint.c" />
     <ClCompile Include="..\..\modules\macrsrc.c" />
