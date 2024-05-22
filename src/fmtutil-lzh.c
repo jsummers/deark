@@ -2208,80 +2208,56 @@ done:
 
 //-------------------------- XPK:MASH --------------------------
 
-struct mash_ctx {
-	deark *c;
-	u8 errflag;
-	i64 cur_ipos;
-	i64 end_ipos;
-	i64 nbytes_written;
-	const char *modname;
-	struct de_bitbuf_lowlevel bbll;
-	struct de_lz77buffer *ringbuf;
-	struct de_dfilter_in_params *dcmpri;
-	struct de_dfilter_out_params *dcmpro;
-	struct de_dfilter_results *dres;
-};
-
-static int mash_have_enough_output(struct mash_ctx *mctx)
-{
-	if(mctx->dcmpro->len_known &&
-		mctx->nbytes_written >= mctx->dcmpro->expected_len)
-	{
-		return 1;
-	}
-	return 0;
-}
-
-static void mash_fill_bitbuf(struct mash_ctx *mctx)
+static void mash_fill_bitbuf(struct lzh_ctx *cctx)
 {
 	u8 b;
 
-	if(mctx->errflag) return;
-	if(mctx->cur_ipos >= mctx->end_ipos) {
-		mctx->errflag = 1;
+	if(cctx->err_flag) return;
+	if(cctx->bitrd.curpos >= cctx->bitrd.endpos) {
+		cctx->err_flag = 1;
 		return;
 	}
 
-	b = dbuf_getbyte_p(mctx->dcmpri->f, &mctx->cur_ipos);
-	de_bitbuf_lowlevel_add_byte(&mctx->bbll, b);
+	b = dbuf_getbyte_p(cctx->dcmpri->f, &cctx->bitrd.curpos);
+	de_bitbuf_lowlevel_add_byte(&cctx->bitrd.bbll, b);
 }
 
-static u8 mash_getbit(struct mash_ctx *mctx)
+static u8 mash_getbit(struct lzh_ctx *cctx)
 {
 	u8 v;
 
-	if(mctx->errflag) return 0;
+	if(cctx->err_flag) return 0;
 
-	if(mctx->bbll.nbits_in_bitbuf==0) {
-		mash_fill_bitbuf(mctx);
+	if(cctx->bitrd.bbll.nbits_in_bitbuf==0) {
+		mash_fill_bitbuf(cctx);
 	}
 
-	v = (u8)de_bitbuf_lowlevel_get_bits(&mctx->bbll, 1);
+	v = (u8)de_bitbuf_lowlevel_get_bits(&cctx->bitrd.bbll, 1);
 
 	return v;
 }
 
-static UI mash_getbits(struct mash_ctx *mctx, UI nbits)
+static UI mash_getbits(struct lzh_ctx *cctx, UI nbits)
 {
 	UI i;
 	UI n = 0;
 
 	for(i=0; i<nbits; i++) {
 		n <<= 1;
-		n |= (UI)mash_getbit(mctx);
+		n |= (UI)mash_getbit(cctx);
 	}
 
 	return n;
 }
 
-static UI mash_read_offset(struct mash_ctx *mctx)
+static UI mash_read_offset(struct lzh_ctx *cctx)
 {
 	UI ocode;
 	UI offset;
 	static const u8 numextrabits[8] = {5, 7, 9, 10, 11, 12, 13, 14};
 
-	ocode = mash_getbits(mctx, 3);
-	offset = mash_getbits(mctx, numextrabits[ocode]);
+	ocode = mash_getbits(cctx, 3);
+	offset = mash_getbits(cctx, numextrabits[ocode]);
 	if(ocode==1) {
 		offset += 32;
 	}
@@ -2291,7 +2267,7 @@ static UI mash_read_offset(struct mash_ctx *mctx)
 	return offset;
 }
 
-static UI mash_read_run_of_1_bits(struct mash_ctx *mctx, UI max1bits)
+static UI mash_read_run_of_1_bits(struct lzh_ctx *cctx, UI max1bits)
 {
 	UI count_of_1s = 0;
 
@@ -2299,7 +2275,7 @@ static UI mash_read_run_of_1_bits(struct mash_ctx *mctx, UI max1bits)
 		u8 b;
 
 		if(count_of_1s>=max1bits) break;
-		b = mash_getbit(mctx);
+		b = mash_getbit(cctx);
 		if(b==0) break;
 		count_of_1s++;
 	}
@@ -2307,7 +2283,7 @@ static UI mash_read_run_of_1_bits(struct mash_ctx *mctx, UI max1bits)
 	return count_of_1s;
 }
 
-static void mash_main(deark *c, struct mash_ctx *mctx)
+static void mash_main(deark *c, struct lzh_ctx *cctx)
 {
 	while(1) {
 		UI count_of_1s;
@@ -2316,24 +2292,24 @@ static void mash_main(deark *c, struct mash_ctx *mctx)
 		UI unc_run_len = 0;
 		u8 hflag1, hflag2;
 
-		if(mctx->errflag) goto done;
-		if(mash_have_enough_output(mctx)) goto done;
+		if(cctx->err_flag) goto done;
+		if(lzh_have_enough_output(cctx)) goto done;
 
 		// Read/decode the length of an uncompressed run (may be 0)
 
-		count_of_1s = mash_read_run_of_1_bits(mctx, 6);
+		count_of_1s = mash_read_run_of_1_bits(cctx, 6);
 		if(count_of_1s<=5) {
 			unc_run_len = count_of_1s;
 		}
 		else {
-			count_of_1s = mash_read_run_of_1_bits(mctx, 16);
+			count_of_1s = mash_read_run_of_1_bits(cctx, 16);
 			if(count_of_1s>=16) {
 				// TODO: Verify this limit
-				mctx->errflag = 1;
+				cctx->err_flag = 1;
 				goto done;
 			}
 
-			unc_run_len = mash_getbits(mctx, count_of_1s+1);
+			unc_run_len = mash_getbits(cctx, count_of_1s+1);
 			unc_run_len += (2<<count_of_1s) + 4;
 		}
 
@@ -2344,46 +2320,46 @@ static void mash_main(deark *c, struct mash_ctx *mctx)
 			u8 ib;
 
 			for(ii=0; ii<unc_run_len; ii++) {
-				if(mctx->cur_ipos >= mctx->end_ipos) {
-					mctx->errflag = 1;
+				if(cctx->bitrd.curpos >= cctx->bitrd.endpos) {
+					cctx->err_flag = 1;
 					return;
 				}
-				ib = dbuf_getbyte_p(mctx->dcmpri->f, &mctx->cur_ipos);
+				ib = dbuf_getbyte_p(cctx->dcmpri->f, &cctx->bitrd.curpos);
 				if(c->debug_level>=4) {
 					de_dbg(c, "lit %u", (UI)ib);
 				}
-				de_lz77buffer_add_literal_byte(mctx->ringbuf, ib);
-				if(mctx->errflag) goto done;
+				de_lz77buffer_add_literal_byte(cctx->ringbuf, ib);
+				if(cctx->err_flag) goto done;
 			}
 		}
 
-		if(mash_have_enough_output(mctx)) goto done;
+		if(lzh_have_enough_output(cctx)) goto done;
 
 		// Read/decode a matchlen and offset
 
-		hflag1 = mash_getbit(mctx);
+		hflag1 = mash_getbit(cctx);
 		if(hflag1==0) {
-			hflag2 = mash_getbit(mctx);
+			hflag2 = mash_getbit(cctx);
 			if(hflag2==0) {
 				matchlen = 2;
-				offset = mash_getbits(mctx, 9);
+				offset = mash_getbits(cctx, 9);
 			}
 			else {
 				matchlen = 3;
-				offset = mash_read_offset(mctx);
+				offset = mash_read_offset(cctx);
 			}
 		}
 		else {
-			count_of_1s = mash_read_run_of_1_bits(mctx, 15);
+			count_of_1s = mash_read_run_of_1_bits(cctx, 15);
 			if(count_of_1s>=15) {
 				// TODO: Verify this limit
-				mctx->errflag = 1;
+				cctx->err_flag = 1;
 				goto done;
 			}
 
-			matchlen = mash_getbits(mctx, count_of_1s+1);
+			matchlen = mash_getbits(cctx, count_of_1s+1);
 			matchlen += (2<<count_of_1s) + 2;
-			offset = mash_read_offset(mctx);
+			offset = mash_read_offset(cctx);
 		}
 
 		if(c->debug_level>=4) {
@@ -2396,14 +2372,14 @@ static void mash_main(deark *c, struct mash_ctx *mctx)
 			goto done;
 		}
 
-		if((i64)offset > mctx->nbytes_written) {
-			de_dfilter_set_errorf(c, mctx->dres, mctx->modname, "Bad offset");
-			mctx->errflag = 1;
+		if((i64)offset > cctx->nbytes_written) {
+			de_dfilter_set_errorf(c, cctx->dres, cctx->modname, "Bad offset");
+			cctx->err_flag = 1;
 			goto done;
 		}
 
-		de_lz77buffer_copy_from_hist(mctx->ringbuf,
-			(UI)(mctx->ringbuf->curpos-offset), matchlen);
+		de_lz77buffer_copy_from_hist(cctx->ringbuf,
+			(UI)(cctx->ringbuf->curpos-offset), matchlen);
 	}
 
 done:
@@ -2412,44 +2388,44 @@ done:
 
 static void mash_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 {
-	struct mash_ctx *mctx = (struct mash_ctx*)rb->userdata;
+	struct lzh_ctx *cctx = (struct lzh_ctx*)rb->userdata;
 
-	if(mash_have_enough_output(mctx)) {
+	if(lzh_have_enough_output(cctx)) {
 		// This ought to be an error, but in practice there's often an extra
 		// decompressed byte that we have to ignore.
 		return;
 	}
-	dbuf_writebyte(mctx->dcmpro->f, n);
-	mctx->nbytes_written++;
+	dbuf_writebyte(cctx->dcmpro->f, n);
+	cctx->nbytes_written++;
 }
 
 void fmtutil_xpkMASH_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params)
 {
-	struct mash_ctx *mctx = NULL;
+	struct lzh_ctx *cctx = NULL;
 
-	mctx = de_malloc(c, sizeof(struct mash_ctx));
-	mctx->c = c;
-	mctx->modname = "mash";
-	mctx->bbll.is_lsb = 0;
-	mctx->dcmpri = dcmpri;
-	mctx->dcmpro = dcmpro;
-	mctx->dres = dres;
-	mctx->cur_ipos = dcmpri->pos;
-	mctx->end_ipos = dcmpri->pos + dcmpri->len;
+	cctx = de_malloc(c, sizeof(struct lzh_ctx));
+	cctx->modname = "mash";
+	cctx->c = c;
+	cctx->dcmpri = dcmpri;
+	cctx->dcmpro = dcmpro;
+	cctx->dres = dres;
+	cctx->bitrd.bbll.is_lsb = 0;
+	cctx->bitrd.f = dcmpri->f;
+	cctx->bitrd.curpos = dcmpri->pos;
+	cctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
 
-	mctx->ringbuf = de_lz77buffer_create(c, 32768);
-	mctx->ringbuf->userdata = (void*)mctx;
-	mctx->ringbuf->writebyte_cb = mash_lz77buf_writebytecb;
+	cctx->ringbuf = de_lz77buffer_create(c, 32768);
+	cctx->ringbuf->userdata = (void*)cctx;
+	cctx->ringbuf->writebyte_cb = mash_lz77buf_writebytecb;
 
-	mash_main(c, mctx);
+	mash_main(c, cctx);
 
-	if(mctx->errflag) {
-		de_dfilter_set_generic_error(c, dres, mctx->modname);
+	if(cctx->err_flag) {
+		de_dfilter_set_generic_error(c, dres, cctx->modname);
 	}
-	de_lz77buffer_destroy(c, mctx->ringbuf);
-	de_free(c, mctx);
+	destroy_lzh_ctx(cctx);
 }
 
 ///////////////////// InstaCompOne
