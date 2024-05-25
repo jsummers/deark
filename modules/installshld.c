@@ -301,9 +301,6 @@ static int do_instarch_member(deark *c, de_arch_lctx *da, struct de_arch_member_
 	md->cmpr_pos = de_getu32le_p(&pos);
 	de_dbg(c, "cmpr. data pos: %"I64_FMT, md->cmpr_pos);
 	de_arch_read_field_cmpr_len_p(md, &pos);
-	if(!de_arch_good_cmpr_data_pos(md)) {
-		goto done;
-	}
 
 	de_arch_read_field_orig_len_p(md, &pos);
 	pos += 8; // Unused?
@@ -319,6 +316,10 @@ static int do_instarch_member(deark *c, de_arch_lctx *da, struct de_arch_member_
 	dbuf_read_to_ucstring(c->infile, pos, nlen, tmps, 0, da->input_encoding);
 	de_dbg(c, "name 2: \"%s\"", ucstring_getpsz_d(tmps));
 	pos += nlen;
+
+	if(!de_arch_good_cmpr_data_pos(md)) {
+		goto done;
+	}
 
 	md->dfn = dclimplode_decompressor_fn;
 	de_arch_extract_member_file(md);
