@@ -1250,7 +1250,7 @@ Deark -- Information about supported formats
   - Extracts the source text. Does not necessarily render the document (e.g.
     colors) like running the COM file would.
   Options
-   -inenc ascii - Suppress character encoding translation.
+   -opt text:encconv=0 - Suppress character encoding translation.
 
 * WRI - Microsoft Write (module="wri") (incomplete)
   - Extract raw text to an HTML file. Very little formatting, etc.

@@ -9,6 +9,7 @@ DE_DECLARE_MODULE(de_module_txt2com);
 
 typedef struct localctx_exectext {
 	de_encoding input_encoding;
+	u8 opt_encconv;
 	u8 errflag;
 	u8 need_errmsg;
 	u8 found_text;
@@ -40,7 +41,42 @@ static int exectext_search_match(const u8 *mem, i64 mem_len,
 	return 0;
 }
 
-static void exectext_extract(deark *c, lctx *d)
+// dbuf_copy_slice_convert_to_utf8() in HYBRID mode doesn't quite do what
+// we want for TXT2COM, mainly because it treats 0x00 and 0x09 as controls,
+// while TXT2COM treats them as graphics.
+// Note:
+// - Early versions of TXT2COM stop when they see 0x1a, but later versions don't.
+//   We behave like later versions.
+// - We might not handle unpaired LF and CR byte exactly like TXT2COM does.
+static void txt2com_convert_and_write(deark *c, lctx *d, dbuf *outf)
+{
+	struct de_encconv_state es;
+	i64 endpos = d->tpos + d->tlen;
+	i64 pos;
+
+	de_encconv_init(&es, DE_EXTENC_MAKE(d->input_encoding, DE_ENCSUBTYPE_PRINTABLE));
+	if(c->write_bom) {
+		dbuf_write_uchar_as_utf8(outf, 0xfeff);
+	}
+
+	pos = d->tpos;
+	while(pos < endpos) {
+		u8 x;
+
+		x = de_getbyte_p(&pos);
+		if(x==10 || x==13) {
+			dbuf_writebyte(outf, x);
+		}
+		else {
+			de_rune u;
+
+			u = de_char_to_unicode_ex((i32)x, &es);
+			dbuf_write_uchar_as_utf8(outf, u);
+		}
+	}
+}
+
+static void txt2com_extract(deark *c, lctx *d)
 {
 	dbuf *outf = NULL;
 
@@ -52,10 +88,13 @@ static void exectext_extract(deark *c, lctx *d)
 	}
 
 	outf = dbuf_create_output_file(c, "txt", NULL, 0);
-	// TODO: This is not perfect. For example, TXT2COM displays byte 0x09 as
-	// a visible character (like U+25cb), while we think it's a tab.
-	dbuf_copy_slice_convert_to_utf8(c->infile, d->tpos, d->tlen,
-		DE_EXTENC_MAKE(d->input_encoding, DE_ENCSUBTYPE_HYBRID), outf, 0x1|0x4);
+	dbuf_enable_wbuffer(outf);
+	if(d->opt_encconv) {
+		txt2com_convert_and_write(c, d, outf);
+	}
+	else {
+		dbuf_copy(c->infile, d->tpos, d->tlen, outf);
+	}
 
 done:
 	dbuf_close(outf);
@@ -138,6 +177,10 @@ static void de_run_txt2com(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->opt_encconv = (u8)de_get_ext_option_bool(c, "text:encconv", 1);
+	if(d->input_encoding==DE_ENCODING_ASCII) {
+		d->opt_encconv = 0;
+	}
 	de_declare_fmt(c, "TXT2COM");
 
 	txt2com_search1(c, d);
@@ -150,7 +193,7 @@ static void de_run_txt2com(deark *c, de_module_params *mparams)
 	}
 	if(d->errflag) goto done;
 
-	exectext_extract(c, d);
+	txt2com_extract(c, d);
 
 done:
 	if(d) {
@@ -185,10 +228,16 @@ static int de_identify_txt2com(deark *c)
 	return flag ? 92 : 0;
 }
 
+static void de_help_txt2com(deark *c)
+{
+	de_msg(c, "-opt text:encconv=0 : Don't convert to UTF-8");
+}
+
 void de_module_txt2com(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "txt2com";
-	mi->desc = "TXT2COM (K.P.G.)";
+	mi->desc = "TXT2COM (K. P. Graham)";
 	mi->run_fn = de_run_txt2com;
 	mi->identify_fn = de_identify_txt2com;
+	mi->help_fn = de_help_txt2com;
 }
