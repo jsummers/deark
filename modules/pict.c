@@ -374,7 +374,7 @@ static int decode_bitmap(deark *c, lctx *d, struct fmtutil_macbitmap_info *bi, i
 			struct de_packbits_params pbparams;
 
 			de_zeromem(&pbparams, sizeof(struct de_packbits_params));
-			pbparams.is_packbits16 = 1;
+			pbparams.nbytes_per_unit = 2;
 			dcmpri.pos = pos;
 			dcmpri.len = bytecount;
 			fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres, &pbparams);

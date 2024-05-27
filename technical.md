@@ -25,11 +25,8 @@ features. It exists mainly because I've written too many one-off programs to
 decode file formats, and wanted to put everything in one place. Part of the
 goal is to support (mainly old) formats that are under-served by other
 open-source software. Many of the formats it currently supports are related to
-graphics, but it is not limited to graphics formats.
-
-One guideline is that any image format supported by the XnView image viewer,
-and not by any well-maintained open source software, is a candidate for being
-supported, no matter how obscure it may be.
+either graphics or compression/archiving, but it is not limited to such
+formats.
 
 ## Security ##
 
@@ -40,6 +37,10 @@ A strategically-designed input file can definitely cause Deark to use a
 disproportionate amount of system resources, such as disk space or CPU time.
 Deark does enforce some resource limits, but not consistently. This is a
 difficult problem to solve.
+
+The best way to reduce the attack surface is to use the -onlymods option. Other
+options that can improve security include -onlydetect, -m, -maxfiles,
+-maxfilesize, -maxtotalsize, -zip.
 
 ## The filename problem ##
 
@@ -219,7 +220,7 @@ this signature, the chunk does not conform to this specification.
 At most one htSP chunk with this signature may appear in a PNG file. The chunk
 must appear before the IDAT chunks.
 
-After the signature are two 4-byte fields: The X coordinate at offset 16, then
+After the signature are two 4-byte fields: the X coordinate at offset 16, then
 the Y coordinate at offset 20. Each is stored as a "PNG four-byte signed
 integer" (big-endian, two's complement).
 
@@ -324,6 +325,12 @@ addressed, though.)
 
 The Deark executable size is a consideration. A suggested feature might be
 declined if it would involve too much bloat.
+
+Consistent behavior is a goal. Ideally, the files produced by a given version
+of Deark should depend only on the contents of the input file. They should not
+change if you update your computer, or change your time zone settings, or
+whatever. There is an issue when using the -zip option, though. Consider using
+"-opt archive:timestamp" to get reproducible results.
 
 Deark is intended to be compiled as a 64-bit application. It uses 64-bit
 integers pervasively. It can be compiled as a 32-bit app (provided the compiler

@@ -367,6 +367,9 @@ static void do_fat_eadata_item(deark *c, lctx *d, struct member_data *md)
 	de_dbg(c, "reading OS/2 extended attributes");
 	de_dbg_indent(c, 1);
 	// TODO: Better filenames for icons that may be extracted.
+	// The ea_data module will use the filename contained in the EA data stream,
+	// but it would be better to use the "fullfn" that will be constructed in
+	// do_extract_file(). Some refactoring will be needed.
 	de_run_module_by_id_on_slice(c, "ea_data", mparams, d->ea_data, 0, d->ea_data->len);
 	de_dbg_indent(c, -1);
 

@@ -10,6 +10,7 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_ilbm);
 DE_DECLARE_MODULE(de_module_anim);
+DE_DECLARE_MODULE(de_module_deep);
 
 #define ANIM_MAX_FRAMES 10000
 
@@ -41,6 +42,7 @@ DE_DECLARE_MODULE(de_module_anim);
 #define CODE_SHAM 0x5348414dU
 #define CODE_TINY 0x54494e59U
 #define CODE_VDAT 0x56444154U
+#define CODE_XS24 0x58533234U
 
 #define ANIM_OP_XOR 1
 
@@ -1377,23 +1379,26 @@ static int decompress_method0(deark *c, lctx *d, i64 pos, i64 len, dbuf *unc_pix
 	return 1;
 }
 
-static int decompress_method1(deark *c, lctx *d, i64 pos, i64 len, dbuf *unc_pixels,
-	i64 expected_len)
+static int decompress_ilbm_packbits(deark *c, dbuf *inf, i64 pos, i64 len,
+	dbuf *unc_pixels, i64 expected_len, UI nbytes_per_unit)
 {
 	int retval = 0;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
+	struct de_packbits_params pbparams;
 
+	de_zeromem(&pbparams, sizeof(struct de_packbits_params));
+	pbparams.nbytes_per_unit = nbytes_per_unit;
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
-	dcmpri.f = c->infile;
+	dcmpri.f = inf;
 	dcmpri.pos = pos;
 	dcmpri.len = len;
 	dcmpro.f = unc_pixels;
 	dcmpro.len_known = 1;
 	dcmpro.expected_len = expected_len;
 
-	fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres, NULL);
+	fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres, &pbparams);
 	dbuf_flush(dcmpro.f);
 	if(dres.errcode) {
 		de_err(c, "Decompression failed: %s", dres.errmsg);
@@ -1720,7 +1725,8 @@ static int do_image_chunk_internal(deark *c, lctx *d, struct frame_ctx *frctx, i
 	}
 	else if(ibi->compression==1) {
 		dbuf_enable_wbuffer(frctx->frame_buffer);
-		ret = decompress_method1(c, d, pos1, len, frctx->frame_buffer, ibi->frame_buffer_size);
+		ret = decompress_ilbm_packbits(c, c->infile, pos1, len,
+			frctx->frame_buffer, ibi->frame_buffer_size, 1);
 		dbuf_disable_wbuffer(frctx->frame_buffer);
 		if(!ret) goto done;
 	}
@@ -1794,6 +1800,29 @@ static void do_tiny(deark *c, lctx *d, i64 pos1, i64 len)
 
 done:
 	destroy_frame(c, d, frctx);
+}
+
+// A few ILBM files with extension ".iff24" have this chunk, as
+// do some DEEP files.
+static void do_xs24(deark *c, dbuf *f, i64 pos1, i64 len)
+{
+	i64 w, h, rowspan;
+	i64 pos = pos1;
+	de_bitmap *img = NULL;
+
+	w = de_getu16be_p(&pos);
+	rowspan = w*3;
+	h = de_getu16be_p(&pos);
+	de_dbg(c, "24-bit thumbnail image, dimensions: %u"DE_CHAR_TIMES"%u", (UI)w, (UI)h);
+	if(!de_good_image_dimensions_noerr(c, w, h)) goto done;
+	if(rowspan*h+6 != len) goto done;
+	pos += 2; // unknown field
+
+	img = de_bitmap_create(c, w, h, 3);
+	de_convert_image_rgb(f, pos, rowspan, 3, img, 0);
+	de_bitmap_write_to_file(img, "thumb", DE_CREATEFLAG_IS_AUX|DE_CREATEFLAG_OPT_IMAGE);
+done:
+	de_bitmap_destroy(img);
 }
 
 static void get_bits_descr(deark *c, lctx *d, struct frame_ctx *frctx, de_ucstring *s)
@@ -2391,6 +2420,10 @@ static int my_iff_chunk_handler(struct de_iffctx *ictx)
 		do_tiny(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		ictx->handled = 1;
 		break;
+	case CODE_XS24:
+		do_xs24(c, ictx->f, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		ictx->handled = 1;
+		break;
 
 	case CODE_DPI:
 		do_dpi(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
@@ -2799,10 +2832,8 @@ static void do_help_ilbm_anim(deark *c, int is_anim)
 {
 	de_msg(c, "-opt ilbm:trans=<0|1|auto> : Always remove (0) or respect (1) "
 		"transparency");
-	if(!is_anim) {
-		de_msg(c, "-opt ilbm:fixpal=<0|1> : Don't/Do try to fix palettes that are "
-			"slightly too dark");
-	}
+	de_msg(c, "-opt ilbm:fixpal=<0|1> : Don't/Do try to fix palettes that are "
+		"slightly too dark");
 	de_msg(c, "-opt ilbm:allowspecial : Suppress an error on some images");
 	if(is_anim) {
 		de_msg(c, "-opt anim:includedups : Do not suppress duplicate frames");
@@ -2835,4 +2866,522 @@ void de_module_anim(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_anim;
 	mi->identify_fn = de_identify_anim;
 	mi->help_fn = de_help_anim;
+}
+
+///// IFF-DEEP
+
+#define CODE_DBOD 0x44424f44U
+#define CODE_DEEP 0x44454550U
+#define CODE_DGBL 0x4447424cU
+#define CODE_DLOC 0x444c4f43U
+#define CODE_DPEL 0x4450454cU
+#define CODE_MPIC 0x4d504943U
+#define CODE_TVDC 0x54564443U
+#define CODE_TVPP 0x54565050U
+
+#define DEEP_MAX_COMPONENTS 8
+
+struct deep_ctx {
+	UI cmpr_meth;
+	int DBOD_count;
+	u8 trans_setting; // TRANS_*
+	u8 found_DLOC;
+	u8 found_TVDC;
+	u8 found_DPEL;
+	i64 dspw, dsph;
+	i64 width, height;
+	i64 x_aspect, y_aspect;
+	i64 expected_image_size;
+	i64 num_components;
+	u8 have_alpha;
+	u8 have_alpha_hint; // Preliminary, set while reading DPEL
+	u8 is_assoc_alpha;
+	UI cmp_nbits[DEEP_MAX_COMPONENTS];
+	UI cmp_type[DEEP_MAX_COMPONENTS];
+	UI sample_map[DEEP_MAX_COMPONENTS];
+	u8 tvdc_data[32];
+};
+
+static void do_deep_DGBL(deark *c, struct deep_ctx *d, struct de_iffctx *ictx)
+{
+	i64 pos = ictx->chunkctx->dpos;
+
+	d->dspw = dbuf_getu16be_p(ictx->f, &pos);
+	d->dsph = dbuf_getu16be_p(ictx->f, &pos);
+	de_dbg(c, "display size: %"I64_FMT DE_CHAR_TIMES "%"I64_FMT, d->dspw, d->dsph);
+	if(!d->found_DLOC) {
+		d->width = d->dspw;
+		d->height = d->dsph;
+	}
+	d->cmpr_meth = (UI)dbuf_getu16be_p(ictx->f, &pos);
+	de_dbg(c, "cmpr meth: %u", d->cmpr_meth);
+	d->x_aspect = (i64)dbuf_getbyte_p(ictx->f, &pos);
+	d->y_aspect = (i64)dbuf_getbyte_p(ictx->f, &pos);
+	de_dbg(c, "aspect ratio: %d, %d", (int)d->x_aspect, (int)d->y_aspect);
+}
+
+static void do_deep_DLOC(deark *c, struct deep_ctx *d, struct de_iffctx *ictx)
+{
+	i64 pos = ictx->chunkctx->dpos;
+	i64 pixpos_x, pixpos_y;
+
+	d->found_DLOC = 1;
+	d->width = dbuf_getu16be_p(ictx->f, &pos);
+	d->height = dbuf_getu16be_p(ictx->f, &pos);
+	de_dbg_dimensions(c, d->width, d->height);
+	pixpos_x = dbuf_geti16be_p(ictx->f, &pos);
+	pixpos_y = dbuf_geti16be_p(ictx->f, &pos);
+	de_dbg(c, "position: %"I64_FMT", %"I64_FMT, pixpos_x, pixpos_y);
+}
+
+static void do_deep_DPEL(deark *c, struct deep_ctx *d, struct de_iffctx *ictx)
+{
+	i64 pos = ictx->chunkctx->dpos;
+	i64 endpos = ictx->chunkctx->dpos + ictx->chunkctx->dlen;
+	UI i;
+
+	d->found_DPEL = 1;
+	d->num_components = (UI)dbuf_getu32be_p(ictx->f, &pos);
+	de_dbg(c, "num cmpts: %u", (UI)d->num_components);
+	if(d->num_components>DEEP_MAX_COMPONENTS) {
+		d->num_components = 0;
+		goto done;
+	}
+	for(i=0; i<d->num_components; i++) {
+		if(pos+4 > endpos) break;
+		d->cmp_type[i] = (UI)dbuf_getu16be_p(ictx->f, &pos);
+		if(d->cmp_type[i]==4 || d->cmp_type[i]==17) {
+			d->have_alpha_hint = 1;
+		}
+		d->cmp_nbits[i] = (UI)dbuf_getu16be_p(ictx->f, &pos);
+		de_dbg(c, "cmpt[%u]: type=%u depth=%u", i, d->cmp_type[i], d->cmp_nbits[i]);
+	}
+done:
+	;
+}
+
+// Sets d->sample_map[], d->have_alpha...
+// If unsupported image type, reports an error and returns 0.
+static int deep_make_sample_map(deark *c, struct deep_ctx *d)
+{
+	UI k;
+	u8 flags[5] = {0,0,0,0,0};
+	int retval = 0;
+
+	de_zeromem(d->sample_map, sizeof(d->sample_map));
+	d->have_alpha = 0;
+	d->is_assoc_alpha = 0;
+
+	if(d->num_components<3 || d->num_components>DEEP_MAX_COMPONENTS) {
+		goto done;
+	}
+
+	for(k=0; k<(UI)d->num_components; k++) {
+		switch(d->cmp_type[k]) {
+		case 1:
+			d->sample_map[k] = 0;
+			break;
+		case 2:
+			d->sample_map[k] = 1;
+			break;
+		case 3:
+			d->sample_map[k] = 2;
+			break;
+		case 4:
+			d->sample_map[k] = 3;
+			d->have_alpha = 1;
+			d->is_assoc_alpha = 0;
+			break;
+		case 17: // Undocumented type 17 used in Video Toaster "Brushes" files.
+			d->sample_map[k] = 3;
+			d->have_alpha = 1;
+			d->is_assoc_alpha = 1;
+			break;
+		default:
+			d->sample_map[k] = 4;
+		}
+
+		flags[d->sample_map[k]] = 1;
+	}
+
+	if(!flags[0] || !flags[1] || !flags[2]) { // Need R, G, B
+		goto done;
+	}
+	if(flags[4]) { // Found an unsupported sample type
+		de_warn(c, "Image type not fully supported");
+	}
+	retval = 1;
+
+done:
+	if(!retval) {
+		de_err(c, "Unsupported image type");
+	}
+	return retval;
+}
+
+static void deep_decode_image_unc(deark *c, struct deep_ctx *d,
+	dbuf *f, i64 pos1, i64 len)
+{
+	i64 i, j;
+	i64 pos = pos1;
+	UI k;
+	UI dst_samples_per_pixel;
+	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
+	u8 s[5] = {0,0,0,0,0};
+
+	fi = de_finfo_create(c);
+	if(d->x_aspect && d->y_aspect) {
+		fi->density.code = DE_DENSITY_UNK_UNITS;
+		fi->density.ydens = (double)d->x_aspect;
+		fi->density.xdens = (double)d->y_aspect;
+	}
+
+	dst_samples_per_pixel = d->have_alpha ? 4 : 3;
+	img = de_bitmap_create(c, d->width, d->height, dst_samples_per_pixel);
+
+	for(j=0; j<d->height; j++) {
+		for(i=0; i<d->width; i++) {
+			de_color clr;
+
+			if(pos > pos1+len) {
+				de_warn(c, "Premature end of image");
+				goto after_image;
+			}
+
+			for(k=0; k<(UI)d->num_components; k++) {
+				s[d->sample_map[k]] =  dbuf_getbyte_p(f, &pos);
+			}
+			if(d->have_alpha) {
+				clr = DE_MAKE_RGBA(s[0], s[1], s[2], s[3]);
+				if(d->is_assoc_alpha) {
+					clr = de_unpremultiply_alpha_clr(clr);
+				}
+			}
+			else {
+				clr = DE_MAKE_RGB(s[0], s[1], s[2]);
+			}
+			de_bitmap_setpixel_rgba(img, i, j, clr);
+		}
+	}
+
+after_image:
+	if(d->trans_setting==TRANS_AUTO) {
+		de_bitmap_optimize_alpha(img, (0x4|0x02));
+	}
+	else if(d->trans_setting==TRANS_REMOVE) {
+		de_bitmap_remove_alpha(img);
+	}
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
+
+	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
+}
+
+static int decompress_deep_5(deark *c, struct deep_ctx *d, dbuf *inf,
+	i64 pos1, i64 len, dbuf *unc_pixels)
+{
+	i64 xpos = 0;
+	i64 ypos = 0;
+	i64 output_pos = 0;
+	i64 curr_component = 0;
+	u8 v = 0;
+	int retval = 0;
+	struct de_bitreader bitrd;
+
+	de_zeromem(&bitrd, sizeof(struct de_bitreader));
+	bitrd.f = inf;
+	bitrd.curpos = pos1;
+	bitrd.endpos = pos1+len;
+	bitrd.bbll.is_lsb = 0;
+	dbuf_disable_wbuffer(unc_pixels);
+
+	if(!d->found_TVDC) {
+		de_err(c, "Missing TVDC chunk");
+		goto done;
+	}
+	retval = 1;
+
+	while(1) {
+		UI n;
+		UI k;
+		UI count;
+
+		n = (UI)de_bitreader_getbits(&bitrd, 4);
+		if(bitrd.eof_flag) goto done;
+
+		if(d->tvdc_data[n*2+1]!=0 || d->tvdc_data[n*2]!=0) {
+			v += (u8)(d->tvdc_data[n*2+1]);
+			count = 1;
+		}
+		else {
+			n = (UI)de_bitreader_getbits(&bitrd, 4);
+			count = n+1;
+		}
+
+		for(k=0; k<count; k++) {
+			dbuf_writebyte_at(unc_pixels, output_pos, v);
+			output_pos += d->num_components;
+			xpos++;
+			if(xpos >= d->width) break;
+		}
+
+		if(xpos >= d->width) {
+			de_bitreader_skip_to_byte_boundary(&bitrd);
+			xpos = 0;
+			v = 0;
+			curr_component++;
+			if(curr_component >= d->num_components) {
+				ypos++;
+				if(ypos >= d->height) goto done;
+				curr_component = 0;
+			}
+			output_pos = ypos*(d->width * d->num_components) + curr_component;
+		}
+	}
+
+done:
+	return retval;
+}
+
+static void deep_decompress_and_decode_image(deark *c, struct deep_ctx *d,
+	dbuf *f, i64 pos1, i64 len)
+{
+	int ret;
+	dbuf *unc_pixels = NULL;
+
+	unc_pixels = dbuf_create_membuf(c, d->expected_image_size, 0x1);
+	if(d->cmpr_meth!=5) {
+		dbuf_enable_wbuffer(unc_pixels);
+	}
+	if(d->cmpr_meth==5) {
+		ret = decompress_deep_5(c, d, f, pos1, len, unc_pixels);
+	}
+	else {
+		ret = decompress_ilbm_packbits(c, f, pos1, len, unc_pixels, d->expected_image_size,
+			(UI)d->num_components);
+	}
+	dbuf_flush(unc_pixels);
+	if(!ret) goto done;
+
+	deep_decode_image_unc(c, d, unc_pixels, 0, unc_pixels->len);
+done:
+	dbuf_close(unc_pixels);
+}
+
+static void do_deep_DBOD(deark *c, struct deep_ctx *d, struct de_iffctx *ictx)
+{
+	if(d->cmpr_meth!=0 && d->cmpr_meth!=1 && d->cmpr_meth!=5) {
+		de_err(c, "Unsupported compression type: %u", d->cmpr_meth);
+		goto done;
+	}
+
+	if(!deep_make_sample_map(c, d)) goto done;
+
+	if(!de_good_image_dimensions(c, d->width, d->height)) {
+		goto done;
+	}
+
+	d->expected_image_size = d->width * d->height * d->num_components;
+
+	if(d->cmpr_meth==0) {
+		deep_decode_image_unc(c, d, ictx->f, ictx->chunkctx->dpos,
+			ictx->chunkctx->dlen);
+	}
+	else {
+		deep_decompress_and_decode_image(c, d, ictx->f, ictx->chunkctx->dpos,
+			ictx->chunkctx->dlen);
+	}
+
+done:
+	;
+}
+
+static void convert_image_rgba(dbuf *f, i64 fpos,
+	de_bitmap *img)
+{
+	i64 i, j;
+	de_color clr;
+	i64 pos;
+	u8 buf[4];
+
+	pos = fpos;
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<img->width; i++) {
+			dbuf_read(f, buf, pos, 4);
+			pos += 4;
+			clr = DE_MAKE_RGBA(buf[0], buf[1], buf[2], buf[3]);
+			de_bitmap_setpixel_rgba(img, i, j, clr);
+		}
+	}
+}
+
+static void do_deep_mpic(deark *c, struct deep_ctx *d, dbuf *f, i64 pos1, i64 len)
+{
+	i64 w, h, rowspan;
+	i64 pos = pos1;
+	UI n;
+	u8 ok = 0;
+	de_bitmap *img = NULL;
+
+	w = de_getu16be_p(&pos);
+	rowspan = w*4;
+	h = de_getu16be_p(&pos);
+	de_dbg(c, "32-bit thumbnail image, dimensions: %u"DE_CHAR_TIMES"%u", (UI)w, (UI)h);
+
+	// I have no documentation for MPIC.
+	// I'm guessing that it's always RGBA or RGBx, and doesn't depend on DPEL.
+	// I have some images where DBOD has 3 components, and MPIC has 4 components.
+	// So I'm guessing that MPIC is *not* defined to be "the same format as DBOD".
+
+	// Not sure what these fields are. First one might be sample count.
+	n = (UI)de_getu32be_p(&pos);
+	if(n != 0x00040002) goto done;
+
+	if(pos + rowspan*h > pos1+len) goto done;
+
+	img = de_bitmap_create(c, w, h, 4);
+	convert_image_rgba(f, pos, img);
+
+	// If the main image doesn't have an alpha channel, we assume the MPIC
+	// thumbnail doesn't have transparency.
+	if(d->trans_setting==TRANS_REMOVE || (d->found_DPEL && d->have_alpha_hint==0)) {
+		de_bitmap_remove_alpha(img);
+	}
+	else if(d->trans_setting==TRANS_AUTO) {
+		de_bitmap_optimize_alpha(img, 0x1);
+	}
+
+	de_bitmap_write_to_file(img, "thumb", DE_CREATEFLAG_IS_AUX|DE_CREATEFLAG_OPT_IMAGE);
+	ok = 1;
+
+done:
+	if(!ok) {
+		de_warn(c, "Unsupported MPIC thumbnail");
+	}
+	de_bitmap_destroy(img);
+}
+
+
+static int my_deep_chunk_handler(struct de_iffctx *ictx)
+{
+	deark *c = ictx->c;
+	struct deep_ctx *d = (struct deep_ctx*)ictx->userdata;
+
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_FORM:
+		ictx->is_std_container = 1;
+		goto done;
+	}
+
+	if(ictx->level != 1) goto done;
+
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_DGBL:
+		do_deep_DGBL(c, d, ictx);
+		ictx->handled = 1;
+		break;
+	case CODE_DLOC:
+		do_deep_DLOC(c, d, ictx);
+		ictx->handled = 1;
+		break;
+	case CODE_DPEL:
+		do_deep_DPEL(c, d, ictx);
+		ictx->handled = 1;
+		break;
+	case CODE_DBOD:
+		do_deep_DBOD(c, d, ictx);
+		d->DBOD_count++;
+		ictx->handled = 1;
+		break;
+	case CODE_TVDC:
+		d->found_TVDC = 1;
+		dbuf_read(ictx->f, d->tvdc_data, ictx->chunkctx->dpos, sizeof(d->tvdc_data));
+		// Don't set ictx->handled, since we don't emit dbg info.
+		break;
+	case CODE_MPIC:
+		do_deep_mpic(c, d, ictx->f, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		ictx->handled = 1;
+		break;
+	case CODE_XS24:
+		do_xs24(c, ictx->f, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		ictx->handled = 1;
+		break;
+	}
+
+done:
+	return 1;
+}
+
+static void de_run_deep(deark *c, de_module_params *mparams)
+{
+	struct deep_ctx *d = NULL;
+	struct de_iffctx *ictx = NULL;
+	const char *opt_trans_str;
+
+	d = de_malloc(c, sizeof(struct deep_ctx));
+
+	d->trans_setting = TRANS_AUTO; // default
+	opt_trans_str = de_get_ext_option(c, "deep:trans");
+	if(opt_trans_str) {
+		if(!de_strcmp(opt_trans_str, "auto")) {
+			d->trans_setting = TRANS_AUTO;
+		}
+		else if(!de_strcmp(opt_trans_str, "")) {
+			d->trans_setting = TRANS_RESPECT;
+		}
+		else {
+			int opt_trans_n;
+
+			opt_trans_n = de_atoi(opt_trans_str);
+			if(opt_trans_n==0) {
+				d->trans_setting = TRANS_REMOVE;
+			}
+			else if(opt_trans_n>0) {
+				d->trans_setting = TRANS_RESPECT;
+			}
+		}
+	}
+
+	de_declare_fmt(c, "IFF-DEEP");
+
+	ictx = fmtutil_create_iff_decoder(c);
+	ictx->has_standard_iff_chunks = 1;
+	ictx->alignment = 2;
+	ictx->userdata = (void*)d;
+	ictx->handle_chunk_fn = my_deep_chunk_handler;
+	ictx->f = c->infile;
+
+	fmtutil_read_iff_format(ictx, 0, c->infile->len);
+	de_dbg(c, "image count: %d", d->DBOD_count);
+
+	fmtutil_destroy_iff_decoder(ictx);
+	if(d) {
+		de_free(c, d);
+	}
+}
+
+static int de_identify_deep(deark *c)
+{
+	UI n;
+
+	if((UI)de_getu32be(0)!=CODE_FORM) return 0;
+	n = (UI)de_getu32be(8);
+	if(n==CODE_DEEP || n==CODE_TVPP) return 100;
+	return 0;
+}
+
+static void de_help_deep(deark *c)
+{
+	de_msg(c, "-opt deep:trans=<0|1|auto> : Always remove (0) or respect (1) "
+		"transparency");
+}
+
+void de_module_deep(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "deep";
+	mi->desc = "IFF-DEEP";
+	mi->run_fn = de_run_deep;
+	mi->identify_fn = de_identify_deep;
+	mi->help_fn = de_help_deep;
 }

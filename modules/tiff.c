@@ -3140,34 +3140,6 @@ done:
 	return retval;
 }
 
-static de_colorsample unpremultiply_alpha1(de_colorsample cval, de_colorsample a)
-{
-	if(a==0xff) {
-		return cval;
-	}
-	if(a==0 || cval==0) {
-		return 0;
-	}
-	if(cval>=a) {
-		return 0xff;
-	}
-	return (de_colorsample)(0.5 + (double)cval / ((double)a/255.0));
-}
-
-static de_color unpremultiply_alpha(de_color clr)
-{
-	de_colorsample r, g, b, a;
-
-	r = DE_COLOR_R(clr);
-	g = DE_COLOR_G(clr);
-	b = DE_COLOR_B(clr);
-	a = DE_COLOR_A(clr);
-	r = unpremultiply_alpha1(r, a);
-	g = unpremultiply_alpha1(g, a);
-	b = unpremultiply_alpha1(b, a);
-	return DE_MAKE_RGBA(r, g, b, a);
-}
-
 static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ctx *pg,
 	struct decode_page_ctx *dctx, de_bitmap *img, de_bitmap *img_lo)
 {
@@ -3289,7 +3261,7 @@ static void paint_decompressed_strile_to_image(deark *c, lctx *d, struct page_ct
 			if(dctx->has_alpha) {
 				clr = DE_SET_ALPHA(clr, sample[dctx->alpha_sample_idx]);
 				if(dctx->is_assoc_alpha) {
-					clr = unpremultiply_alpha(clr);
+					clr = de_unpremultiply_alpha_clr(clr);
 				}
 			}
 
@@ -3582,7 +3554,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		dctx->base_samples_per_pixel = 4;
 		ok_bps = 1;
 		if(!pg->have_colormap) {
-			de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, pg->pal, 16, 0);
+			de_copy_std_palette(DE_PALID_PC16, 0, 0, pg->pal, 16, 0);
 		}
 		dctx->use_pal = 1;
 	}
@@ -3590,7 +3562,7 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 		dctx->base_samples_per_pixel = 1;
 		ok_bps = 1;
 		if(!pg->have_colormap) {
-			de_copy_std_palette(DE_PALID_CGA, 3, 0, 4, pg->pal, 4, 0);
+			de_copy_std_palette(DE_PALID_CGA, 3, 0, pg->pal, 4, 0);
 		}
 		dctx->use_pal = 1;
 	}

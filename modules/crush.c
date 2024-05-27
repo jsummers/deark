@@ -87,7 +87,7 @@ static int do_read_paths(deark *c, lctx *d)
 		if(path_len > 260) goto done;
 		dbuf_read_to_ucstring(c->infile, pos, path_len, d->paths[i], 0, d->da->input_encoding);
 		de_dbg(c, "path #%d: \"%s\"", (int)(i+1), ucstring_getpsz_d(d->paths[i]));
-		de_arch_fixup_path(d->paths[i], 0);
+		de_arch_fixup_path(d->paths[i], 0x1);
 		pos = foundpos + 1;
 	}
 	d->paths_segment_len = pos - d->paths_segment_pos;

@@ -22,20 +22,6 @@ typedef struct localctx_struct {
 	int found_last_frame_flag;
 } lctx;
 
-static u8 unpremultiply_alpha(u8 cval, u8 a)
-{
-	if(a==0xff) {
-		return cval;
-	}
-	if(a==0 || cval==0) {
-		return 0;
-	}
-	if(cval>=a) {
-		return 0xff;
-	}
-	return (u8)(0.5 + (double)cval / ((double)a/255.0));
-}
-
 // 8-byte "NII payload"
 static void read_NIIpayload(deark *c, lctx *d, i64 pos, int printCCD)
 {
@@ -164,7 +150,7 @@ static void do_decode_nie(deark *c, lctx *d)
 
 			if(d->premultiplied_alpha && (s[3]!=0xff)) {
 				for(k=0; k<3; k++) {
-					s[k] = unpremultiply_alpha(s[k], s[3]);
+					s[k] = de_unpremultiply_alpha_samp(s[k], s[3]);
 				}
 			}
 

@@ -758,8 +758,14 @@ de_color de_get_std_palette_entry(int pal_id, int pal_subid, int index)
 	return DE_MAKE_OPAQUE(pal[index]);
 }
 
+// starting_idx: The index of the color in the standard palette to be copied
+//  to dstpal[0].
+// dstpal is indexed from 0...(dstpal_capacity-1).
+// flags:
+//  DE_COPYPALFLAG_INITPAL: Ensure all items in dstpal are set to something,
+//   even if the source palette is too short.
 void de_copy_std_palette(int pal_id, int pal_subid, i64 starting_idx,
-	i64 count, de_color *dstpal, size_t dstpal_capacity, UI flags)
+	de_color *dstpal, size_t dstpal_capacity, UI flags)
 {
 	const de_color *pal;
 	i64 n_to_copy;

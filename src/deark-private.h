@@ -298,6 +298,7 @@ struct de_module_in_params {
 	i64 offset_in_parent;
 	dbuf *parent_dbuf;
 	de_finfo *fi;
+	de_ucstring *str1;
 	void *obj1;
 };
 
@@ -997,6 +998,8 @@ void de_bitmap_remove_alpha(de_bitmap *img);
 void de_bitmap_optimize_alpha(de_bitmap *img, unsigned int flags);
 
 void de_make_grayscale_palette(de_color *pal, i64 num_entries, unsigned int flags);
+de_colorsample de_unpremultiply_alpha_samp(de_colorsample cval, de_colorsample a);
+de_color de_unpremultiply_alpha_clr(de_color clr);
 
 ///////////////////////////////////////////
 
@@ -1011,7 +1014,7 @@ u8 de_decode_hex_digit(u8 x, int *errorflag);
 
 de_color de_get_std_palette_entry(int pal_id, int pal_subid, int index);
 #define DE_COPYPALFLAG_INITPAL 0x10
-void de_copy_std_palette(int pal_id, int pal_subid, i64 starting_idx, i64 count,
+void de_copy_std_palette(int pal_id, int pal_subid, i64 starting_idx,
 	de_color *dstpal, size_t dstpal_capacity, UI flags);
 
 const u8 *de_get_8x8ascii_font_ptr(void);

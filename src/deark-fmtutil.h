@@ -26,6 +26,14 @@ struct de_dfilter_results {
 	char errmsg[80];
 };
 
+// de_module_in_params::obj1
+// Used if in_params::flags & 0x02
+struct fmtutil_bmp_mparams_indata {
+	de_bitmap *img;
+	de_finfo *fi;
+	UI createflags;
+};
+
 struct de_bmpinfo {
 #define DE_BMPINFO_FMT_BMP 0
 #define DE_BMPINFO_FMT_PNG 1
@@ -113,7 +121,7 @@ void fmtutil_deflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	void *codec_private_params);
 
 struct de_packbits_params {
-	u8 is_packbits16;
+	UI nbytes_per_unit; // 0=default (1)
 };
 void fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
@@ -151,6 +159,9 @@ void fmtutil_xpk_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 int fmtutil_xpk_ismethodsupported(u32 method);
 
 void fmtutil_xpkMASH_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params);
+void fmtutil_ic1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params);
 

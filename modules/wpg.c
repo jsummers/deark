@@ -127,7 +127,7 @@ static void get_final_palette(deark *c, lctx *d, de_color *finalpal, i64 bpp)
 		// The images of this type that I've seen look correct if I use a
 		// particular CGA palette. So...
 		de_warn(c, "4-color image with no palette. Using a CGA palette.");
-		de_copy_std_palette(DE_PALID_CGA, 2, 0, 4, finalpal, 4, 0);
+		de_copy_std_palette(DE_PALID_CGA, 2, 0, finalpal, 4, 0);
 		return;
 	}
 
@@ -475,7 +475,7 @@ static void do_set_default_palette(deark *c, lctx *d)
 {
 	if(d->ver_major>1) return; // TODO: v2 files have a different palette
 
-	de_copy_std_palette(DE_PALID_VGA256, 0, 0, 256, d->pal, 256, 0);
+	de_copy_std_palette(DE_PALID_VGA256, 0, 0, d->pal, 256, 0);
 }
 
 static void de_run_wpg(deark *c, de_module_params *mparams)

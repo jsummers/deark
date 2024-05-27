@@ -156,6 +156,9 @@ Deark -- Information about supported formats
    -opt atari:palbits=<n> (refer to readme.md)
    -opt atari:respectpal - Don't ignore a seemingly bad 2-color palette
 
+* DEEP / IFF-DEEP (module="deep")
+  - Supports most of the common image types.
+
 * DeskMate Paint .PNT (module="deskmate_pnt")
 
 * DGI (Digi-Pic) (module="dgi")
@@ -342,6 +345,12 @@ Deark -- Information about supported formats
 * MegaPaint Symbol Library (.lib) (module="megapaint_lib") (experimental)
 
 * MegaPaint Patterns (.pat) (module="megapaint_pat") (experimental)
+
+* Microsoft Comic Chat (.avb, .bgb) (module="comicchat")
+
+* MMM (MacroMind Movie) (module="mmm") (experimental)
+  - Can extract images, but cannot always get the colors right.
+  - Audio conversion to WAV is attempted.
 
 * MRW (Minolta RAW) (module="mrw")
   - Process Exif data (or extract it: use -a)
@@ -1235,6 +1244,13 @@ Deark -- Information about supported formats
    -opt split:size=<n> - The size of each chunk, in bytes.
    -opt split:stride=<n> - The distance between the start of one chunk and the
     start of the next chunk, in bytes.
+
+* TXT2COM (module="txt2com")
+  Executable COM files made by Graham's TXT2COM utility.
+  - Extracts the source text. Does not necessarily render the document (e.g.
+    colors) like running the COM file would.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
 
 * WRI - Microsoft Write (module="wri") (incomplete)
   - Extract raw text to an HTML file. Very little formatting, etc.

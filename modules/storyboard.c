@@ -175,7 +175,7 @@ static void do_oldfmt_text(deark *c, struct storyboard_ctx *d, i64 pos)
 
 	charctx = de_create_charctx(c, 0);
 	de_char_decide_output_format(c, charctx);
-	de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, charctx->pal, 16, 0);
+	de_copy_std_palette(DE_PALID_PC16, 0, 0, charctx->pal, 16, 0);
 	do_oldfmt_text_main(c, d, unc_data, charctx);
 
 done:
@@ -223,7 +223,7 @@ static void do_oldfmt_image(deark *c, struct storyboard_ctx *d, i64 pos)
 		// in the file.
 		// Maybe we should have a command-line option to select the palette.
 		// Also, maybe we should have a CGA composite color mode.
-		de_copy_std_palette(DE_PALID_CGA, 3, 0, 4, d->pal, 4, 0);
+		de_copy_std_palette(DE_PALID_CGA, 3, 0, d->pal, 4, 0);
 	}
 
 	img = de_bitmap_create(c, d->width, d->height, ((d->bpp==1)?1:3));
@@ -488,10 +488,10 @@ static void do_newfmt_main(deark *c, struct storyboard_ctx *d)
 
 		x = de_getbyte(13) & 0x0f;
 		if(x==0x06) {
-			de_copy_std_palette(DE_PALID_CGA, 4, 0, 4, d->paltmp, 4, 0);
+			de_copy_std_palette(DE_PALID_CGA, 4, 0, d->paltmp, 4, 0);
 		}
 		else {
-			de_copy_std_palette(DE_PALID_CGA, 3, 0, 4, d->paltmp, 4, 0);
+			de_copy_std_palette(DE_PALID_CGA, 3, 0, d->paltmp, 4, 0);
 		}
 		bg = de_getbyte(14) & 0x0f;
 		d->paltmp[0] = de_get_std_palette_entry(DE_PALID_PC16, 0, (int)bg);

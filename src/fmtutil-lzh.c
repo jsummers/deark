@@ -2208,80 +2208,56 @@ done:
 
 //-------------------------- XPK:MASH --------------------------
 
-struct mash_ctx {
-	deark *c;
-	u8 errflag;
-	i64 cur_ipos;
-	i64 end_ipos;
-	i64 nbytes_written;
-	const char *modname;
-	struct de_bitbuf_lowlevel bbll;
-	struct de_lz77buffer *ringbuf;
-	struct de_dfilter_in_params *dcmpri;
-	struct de_dfilter_out_params *dcmpro;
-	struct de_dfilter_results *dres;
-};
-
-static int mash_have_enough_output(struct mash_ctx *mctx)
-{
-	if(mctx->dcmpro->len_known &&
-		mctx->nbytes_written >= mctx->dcmpro->expected_len)
-	{
-		return 1;
-	}
-	return 0;
-}
-
-static void mash_fill_bitbuf(struct mash_ctx *mctx)
+static void mash_fill_bitbuf(struct lzh_ctx *cctx)
 {
 	u8 b;
 
-	if(mctx->errflag) return;
-	if(mctx->cur_ipos >= mctx->end_ipos) {
-		mctx->errflag = 1;
+	if(cctx->err_flag) return;
+	if(cctx->bitrd.curpos >= cctx->bitrd.endpos) {
+		cctx->err_flag = 1;
 		return;
 	}
 
-	b = dbuf_getbyte_p(mctx->dcmpri->f, &mctx->cur_ipos);
-	de_bitbuf_lowlevel_add_byte(&mctx->bbll, b);
+	b = dbuf_getbyte_p(cctx->dcmpri->f, &cctx->bitrd.curpos);
+	de_bitbuf_lowlevel_add_byte(&cctx->bitrd.bbll, b);
 }
 
-static u8 mash_getbit(struct mash_ctx *mctx)
+static u8 mash_getbit(struct lzh_ctx *cctx)
 {
 	u8 v;
 
-	if(mctx->errflag) return 0;
+	if(cctx->err_flag) return 0;
 
-	if(mctx->bbll.nbits_in_bitbuf==0) {
-		mash_fill_bitbuf(mctx);
+	if(cctx->bitrd.bbll.nbits_in_bitbuf==0) {
+		mash_fill_bitbuf(cctx);
 	}
 
-	v = (u8)de_bitbuf_lowlevel_get_bits(&mctx->bbll, 1);
+	v = (u8)de_bitbuf_lowlevel_get_bits(&cctx->bitrd.bbll, 1);
 
 	return v;
 }
 
-static UI mash_getbits(struct mash_ctx *mctx, UI nbits)
+static UI mash_getbits(struct lzh_ctx *cctx, UI nbits)
 {
 	UI i;
 	UI n = 0;
 
 	for(i=0; i<nbits; i++) {
 		n <<= 1;
-		n |= (UI)mash_getbit(mctx);
+		n |= (UI)mash_getbit(cctx);
 	}
 
 	return n;
 }
 
-static UI mash_read_offset(struct mash_ctx *mctx)
+static UI mash_read_offset(struct lzh_ctx *cctx)
 {
 	UI ocode;
 	UI offset;
 	static const u8 numextrabits[8] = {5, 7, 9, 10, 11, 12, 13, 14};
 
-	ocode = mash_getbits(mctx, 3);
-	offset = mash_getbits(mctx, numextrabits[ocode]);
+	ocode = mash_getbits(cctx, 3);
+	offset = mash_getbits(cctx, numextrabits[ocode]);
 	if(ocode==1) {
 		offset += 32;
 	}
@@ -2291,7 +2267,7 @@ static UI mash_read_offset(struct mash_ctx *mctx)
 	return offset;
 }
 
-static UI mash_read_run_of_1_bits(struct mash_ctx *mctx, UI max1bits)
+static UI mash_read_run_of_1_bits(struct lzh_ctx *cctx, UI max1bits)
 {
 	UI count_of_1s = 0;
 
@@ -2299,7 +2275,7 @@ static UI mash_read_run_of_1_bits(struct mash_ctx *mctx, UI max1bits)
 		u8 b;
 
 		if(count_of_1s>=max1bits) break;
-		b = mash_getbit(mctx);
+		b = mash_getbit(cctx);
 		if(b==0) break;
 		count_of_1s++;
 	}
@@ -2307,7 +2283,7 @@ static UI mash_read_run_of_1_bits(struct mash_ctx *mctx, UI max1bits)
 	return count_of_1s;
 }
 
-static void mash_main(deark *c, struct mash_ctx *mctx)
+static void mash_main(deark *c, struct lzh_ctx *cctx)
 {
 	while(1) {
 		UI count_of_1s;
@@ -2316,24 +2292,24 @@ static void mash_main(deark *c, struct mash_ctx *mctx)
 		UI unc_run_len = 0;
 		u8 hflag1, hflag2;
 
-		if(mctx->errflag) goto done;
-		if(mash_have_enough_output(mctx)) goto done;
+		if(cctx->err_flag) goto done;
+		if(lzh_have_enough_output(cctx)) goto done;
 
 		// Read/decode the length of an uncompressed run (may be 0)
 
-		count_of_1s = mash_read_run_of_1_bits(mctx, 6);
+		count_of_1s = mash_read_run_of_1_bits(cctx, 6);
 		if(count_of_1s<=5) {
 			unc_run_len = count_of_1s;
 		}
 		else {
-			count_of_1s = mash_read_run_of_1_bits(mctx, 16);
+			count_of_1s = mash_read_run_of_1_bits(cctx, 16);
 			if(count_of_1s>=16) {
 				// TODO: Verify this limit
-				mctx->errflag = 1;
+				cctx->err_flag = 1;
 				goto done;
 			}
 
-			unc_run_len = mash_getbits(mctx, count_of_1s+1);
+			unc_run_len = mash_getbits(cctx, count_of_1s+1);
 			unc_run_len += (2<<count_of_1s) + 4;
 		}
 
@@ -2344,46 +2320,46 @@ static void mash_main(deark *c, struct mash_ctx *mctx)
 			u8 ib;
 
 			for(ii=0; ii<unc_run_len; ii++) {
-				if(mctx->cur_ipos >= mctx->end_ipos) {
-					mctx->errflag = 1;
+				if(cctx->bitrd.curpos >= cctx->bitrd.endpos) {
+					cctx->err_flag = 1;
 					return;
 				}
-				ib = dbuf_getbyte_p(mctx->dcmpri->f, &mctx->cur_ipos);
+				ib = dbuf_getbyte_p(cctx->dcmpri->f, &cctx->bitrd.curpos);
 				if(c->debug_level>=4) {
 					de_dbg(c, "lit %u", (UI)ib);
 				}
-				de_lz77buffer_add_literal_byte(mctx->ringbuf, ib);
-				if(mctx->errflag) goto done;
+				de_lz77buffer_add_literal_byte(cctx->ringbuf, ib);
+				if(cctx->err_flag) goto done;
 			}
 		}
 
-		if(mash_have_enough_output(mctx)) goto done;
+		if(lzh_have_enough_output(cctx)) goto done;
 
 		// Read/decode a matchlen and offset
 
-		hflag1 = mash_getbit(mctx);
+		hflag1 = mash_getbit(cctx);
 		if(hflag1==0) {
-			hflag2 = mash_getbit(mctx);
+			hflag2 = mash_getbit(cctx);
 			if(hflag2==0) {
 				matchlen = 2;
-				offset = mash_getbits(mctx, 9);
+				offset = mash_getbits(cctx, 9);
 			}
 			else {
 				matchlen = 3;
-				offset = mash_read_offset(mctx);
+				offset = mash_read_offset(cctx);
 			}
 		}
 		else {
-			count_of_1s = mash_read_run_of_1_bits(mctx, 15);
+			count_of_1s = mash_read_run_of_1_bits(cctx, 15);
 			if(count_of_1s>=15) {
 				// TODO: Verify this limit
-				mctx->errflag = 1;
+				cctx->err_flag = 1;
 				goto done;
 			}
 
-			matchlen = mash_getbits(mctx, count_of_1s+1);
+			matchlen = mash_getbits(cctx, count_of_1s+1);
 			matchlen += (2<<count_of_1s) + 2;
-			offset = mash_read_offset(mctx);
+			offset = mash_read_offset(cctx);
 		}
 
 		if(c->debug_level>=4) {
@@ -2396,14 +2372,14 @@ static void mash_main(deark *c, struct mash_ctx *mctx)
 			goto done;
 		}
 
-		if((i64)offset > mctx->nbytes_written) {
-			de_dfilter_set_errorf(c, mctx->dres, mctx->modname, "Bad offset");
-			mctx->errflag = 1;
+		if((i64)offset > cctx->nbytes_written) {
+			de_dfilter_set_errorf(c, cctx->dres, cctx->modname, "Bad offset");
+			cctx->err_flag = 1;
 			goto done;
 		}
 
-		de_lz77buffer_copy_from_hist(mctx->ringbuf,
-			(UI)(mctx->ringbuf->curpos-offset), matchlen);
+		de_lz77buffer_copy_from_hist(cctx->ringbuf,
+			(UI)(cctx->ringbuf->curpos-offset), matchlen);
 	}
 
 done:
@@ -2412,42 +2388,366 @@ done:
 
 static void mash_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 {
-	struct mash_ctx *mctx = (struct mash_ctx*)rb->userdata;
+	struct lzh_ctx *cctx = (struct lzh_ctx*)rb->userdata;
 
-	if(mash_have_enough_output(mctx)) {
+	if(lzh_have_enough_output(cctx)) {
 		// This ought to be an error, but in practice there's often an extra
 		// decompressed byte that we have to ignore.
 		return;
 	}
-	dbuf_writebyte(mctx->dcmpro->f, n);
-	mctx->nbytes_written++;
+	dbuf_writebyte(cctx->dcmpro->f, n);
+	cctx->nbytes_written++;
 }
 
 void fmtutil_xpkMASH_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params)
 {
-	struct mash_ctx *mctx = NULL;
+	struct lzh_ctx *cctx = NULL;
 
-	mctx = de_malloc(c, sizeof(struct mash_ctx));
-	mctx->c = c;
-	mctx->modname = "mash";
-	mctx->bbll.is_lsb = 0;
-	mctx->dcmpri = dcmpri;
-	mctx->dcmpro = dcmpro;
-	mctx->dres = dres;
-	mctx->cur_ipos = dcmpri->pos;
-	mctx->end_ipos = dcmpri->pos + dcmpri->len;
+	cctx = de_malloc(c, sizeof(struct lzh_ctx));
+	cctx->modname = "mash";
+	cctx->c = c;
+	cctx->dcmpri = dcmpri;
+	cctx->dcmpro = dcmpro;
+	cctx->dres = dres;
+	cctx->bitrd.bbll.is_lsb = 0;
+	cctx->bitrd.f = dcmpri->f;
+	cctx->bitrd.curpos = dcmpri->pos;
+	cctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
 
-	mctx->ringbuf = de_lz77buffer_create(c, 32768);
-	mctx->ringbuf->userdata = (void*)mctx;
-	mctx->ringbuf->writebyte_cb = mash_lz77buf_writebytecb;
+	cctx->ringbuf = de_lz77buffer_create(c, 32768);
+	cctx->ringbuf->userdata = (void*)cctx;
+	cctx->ringbuf->writebyte_cb = mash_lz77buf_writebytecb;
 
-	mash_main(c, mctx);
+	mash_main(c, cctx);
 
-	if(mctx->errflag) {
-		de_dfilter_set_generic_error(c, dres, mctx->modname);
+	if(cctx->err_flag) {
+		de_dfilter_set_generic_error(c, dres, cctx->modname);
 	}
-	de_lz77buffer_destroy(c, mctx->ringbuf);
-	de_free(c, mctx);
+	destroy_lzh_ctx(cctx);
+}
+
+///////////////////// InstaCompOne
+
+static UI read_run_of_1_bits(struct lzh_ctx *cctx, UI max1bits)
+{
+	UI count_of_1s = 0;
+
+	while(1) {
+		u8 b;
+
+		if(count_of_1s>=max1bits) break;
+		b = (u8)lzh_getbits(cctx, 1);
+		if(b==0) break;
+		count_of_1s++;
+	}
+
+	return count_of_1s;
+}
+
+static void make_ic1_trees(deark *c, struct lzh_ctx *cctx)
+{
+#define ICL_NUM_ML_CODES 14
+	static const u8 codes[ICL_NUM_ML_CODES] = {
+		0,1,4,0xa,0xb,0x18,0x19,0x34,0x35,0x36,0x37,0x0e,0x1e,0x1f };
+	static const u8 lengths[ICL_NUM_ML_CODES] = {
+		2,2,3,4,  4,  5,   5,   6,   6,   6,   6,   4,   5,   5 };
+	static const u8 vals[ICL_NUM_ML_CODES] = {
+		0,1,2,3,  4,  5,   6,   7,   8,   9,   10,  103, 104, 105 };
+	size_t k;
+
+	cctx->matchlengths_tree.ht = fmtutil_huffman_create_decoder(c, ICL_NUM_ML_CODES, 0);
+
+	for(k=0; k<ICL_NUM_ML_CODES; k++) {
+		fmtutil_huffman_add_code(c, cctx->matchlengths_tree.ht->bk,
+			codes[k], lengths[k], vals[k]);
+	}
+}
+
+static UI ic1_read_matchlencode(struct lzh_ctx *cctx)
+{
+	fmtutil_huffman_valtype n = 0;
+	UI v = 0;
+	UI num_extra_bits = 0;
+
+	n = read_next_code_using_tree(cctx, &cctx->matchlengths_tree);
+
+	if(n<100) {
+		v = (UI)n;
+	}
+	else if(n==103) {
+		v = 11;
+		num_extra_bits = 3;
+	}
+	else if(n==104) {
+		v = 19;
+		num_extra_bits = 3;
+	}
+	else { // 105
+		UI count_of_1s;
+
+		// Note that we've already read 5 1s.
+		count_of_1s = (UI)read_run_of_1_bits(cctx, 32);
+		if(count_of_1s>26) { // TODO: What is the limit?
+			de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
+				"Match-len too large");
+			cctx->err_flag = 1;
+			goto done;
+		}
+		count_of_1s += 5;
+		num_extra_bits = count_of_1s;
+		v = (1U<<count_of_1s) - 5;
+	}
+
+	if(num_extra_bits>0) {
+		UI x;
+
+		x = (UI)lzh_getbits(cctx, num_extra_bits);
+		v += x;
+	}
+
+done:
+	return v;
+}
+
+static UI ic1_read_litlen(struct lzh_ctx *cctx)
+{
+	UI n1;
+	UI x;
+	UI v = 0;
+
+	n1 = read_run_of_1_bits(cctx, 5);
+	v = 1<<n1;
+	x = (UI)lzh_getbits(cctx, n1);
+	v = v | x;
+	return v;
+}
+
+static UI ic1_read_distance(struct lzh_ctx *cctx)
+{
+	i64 bd;
+	UI v = 0;
+	UI n_extra_bits1 = 0;
+	UI n_extra_bits2 = 0;
+	UI bias1 = 0;
+	UI code11_param = 0;
+	u8 b0, b1;
+	deark *c = cctx->c;
+
+	bd = cctx->nbytes_written;
+
+	if(bd<=10) {
+		n_extra_bits1 = 2;
+	}
+	else if(bd<=20) {
+		n_extra_bits1 = 3;
+	}
+	else if(bd<=40) {
+		n_extra_bits1 = 4;
+	}
+	else if(bd<=80) {
+		n_extra_bits1 = 5;
+	}
+	else if(bd<=160) {
+		n_extra_bits1 = 6;
+	}
+	else if(bd<=672) {
+		n_extra_bits1 = 7;
+	}
+	else if(bd<=1000) {
+		// ??? Obviously this should be 1344, not 1000. But 1344 doesn't work.
+		n_extra_bits1 = 8;
+	}
+	else if(bd<=2688) {
+		n_extra_bits1 = 9;
+	}
+	else if(bd<=5376) {
+		n_extra_bits1 = 10;
+	}
+	else if(bd<=10752) {
+		n_extra_bits1 = 11;
+	}
+	else if(bd<=21504) {
+		n_extra_bits1 = 12;
+	}
+	else {
+		n_extra_bits1 = 13;
+	}
+
+	if(n_extra_bits1>=2) {
+		n_extra_bits2 = n_extra_bits1 - 2;
+		bias1 = 1U<<n_extra_bits2;
+	}
+	if(n_extra_bits1>=3) {
+		code11_param = (1U<<(n_extra_bits1-3))*10;
+	}
+
+	b0 = (u8)lzh_getbits(cctx, 1);
+	if(b0==1) {
+		b1 = (u8)lzh_getbits(cctx, 1);
+		if(b1==0) { // addressing mode "10"
+			v = (UI)lzh_getbits(cctx, n_extra_bits1);
+			v += bias1;
+		}
+		else { // addressing mode "11"
+			if(code11_param) {
+				UI n_extra_bits3;
+
+				if(bd>=1652 && bd<=1664) {
+					// FIXME: This hack probably shouldn't be here, and this range
+					// is surely too small.
+					n_extra_bits3 = 11;
+				}
+				else if(bd>43008 && bd<=65536) {
+					n_extra_bits3 = 15;
+				}
+				else {
+					n_extra_bits3 = (UI)de_log2_rounded_up((i64)bd-(i64)code11_param);
+				}
+
+				v = (UI)lzh_getbits(cctx, n_extra_bits3);
+				v += code11_param;
+			}
+			else {
+				cctx->err_flag = 1;
+				de_dfilter_set_errorf(c, cctx->dres, cctx->modname,
+					"TODO code11 bd=%"I64_FMT, bd);
+				goto done;
+			}
+		}
+	}
+	else { // addressing mode "0"
+		v = (UI)lzh_getbits(cctx, n_extra_bits2);
+	}
+
+done:
+	return v;
+}
+
+static void ic1_internal(struct lzh_ctx *cctx)
+{
+	deark *c = cctx->c;
+	u8 mode = 1;
+	UI k;
+	char descr[32];
+
+	(void)lzh_getbits(cctx, 32); // unused?
+
+	make_ic1_trees(c, cctx);
+
+	cctx->ringbuf = de_lz77buffer_create(cctx->c, 65536*2);
+	cctx->ringbuf->userdata = (void*)cctx;
+	cctx->ringbuf->writebyte_cb = lzh_lz77buf_writebytecb_flagerrors;
+
+	while(1) {
+		UI matchlencode;
+
+		if(c->debug_level>=4) {
+			de_bitreader_describe_curpos(&cctx->bitrd, descr, sizeof(descr));
+			de_dbg(c, "at %s mode=%u", descr, (UI)mode);
+		}
+
+		if(cctx->bitrd.eof_flag || cctx->err_flag) {
+			goto done;
+		}
+		if(lzh_have_enough_output(cctx)) {
+			goto done;
+		}
+
+		if(cctx->nbytes_written >= 65536) {
+			cctx->err_flag = 1;
+			de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
+				"Files over 64k are not supported");
+			goto done;
+		}
+
+		matchlencode = ic1_read_matchlencode(cctx);
+		if(cctx->err_flag) goto done;
+
+		if(matchlencode>0 || mode==0) {
+			UI matchlen;
+			UI offset;
+
+			matchlen = matchlencode + 2;
+			if(mode==0) {
+				matchlen++;
+			}
+
+			offset = ic1_read_distance(cctx);
+			if(cctx->err_flag) goto done;
+			if(offset > cctx->nbytes_written) {
+				cctx->err_flag = 1;
+				de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
+					"Bad distance code: %u", offset);
+				goto done;
+			}
+
+			if(c->debug_level>=4) {
+				de_dbg(c, "op=%"I64_FMT" match d=%u l=%u", cctx->nbytes_written,
+					offset+1, matchlen);
+			}
+
+			de_lz77buffer_copy_from_hist(cctx->ringbuf,
+				(UI)(cctx->ringbuf->curpos-offset-1), matchlen);
+
+			mode = 1;
+		}
+		else { // run of literals
+			UI litlen;
+
+			litlen = ic1_read_litlen(cctx);
+			if(c->debug_level>=4) {
+				de_dbg(c, "op=%"I64_FMT" lit_run %u", cctx->nbytes_written,
+					litlen);
+			}
+			for(k=0; k<litlen; k++) {
+				u8 b;
+				b = (u8)lzh_getbits(cctx, 8);
+				de_lz77buffer_add_literal_byte(cctx->ringbuf, b);
+			}
+
+			mode = (litlen < 63) ? 0 : 1;
+		}
+	}
+
+done:
+	;
+}
+
+void fmtutil_ic1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params)
+{
+	struct lzh_ctx *cctx = NULL;
+
+	cctx = de_malloc(c, sizeof(struct lzh_ctx));
+	cctx->modname = "instacomp1";
+	cctx->c = c;
+	cctx->dcmpri = dcmpri;
+	cctx->dcmpro = dcmpro;
+	cctx->dres = dres;
+
+	cctx->bitrd.bbll.is_lsb = 0;
+	cctx->bitrd.f = dcmpri->f;
+	cctx->bitrd.curpos = dcmpri->pos;
+	cctx->bitrd.endpos = dcmpri->pos + dcmpri->len;
+
+	ic1_internal(cctx);
+
+	if(cctx->err_flag) {
+		// A default error message
+		de_dfilter_set_errorf(c, dres, cctx->modname, "Decoding error");
+		goto done;
+	}
+
+	de_bitreader_skip_to_byte_boundary(&cctx->bitrd);
+	cctx->dres->bytes_consumed = cctx->bitrd.curpos - cctx->dcmpri->pos;
+	if(cctx->dres->bytes_consumed<0) {
+		cctx->dres->bytes_consumed = 0;
+	}
+	cctx->dres->bytes_consumed_valid = 1;
+
+done:
+	destroy_lzh_ctx(cctx);
 }

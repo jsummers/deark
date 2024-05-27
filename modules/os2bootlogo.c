@@ -223,7 +223,7 @@ static void do_write_image(deark *c, lctx *d)
 	de_dbg_dimensions(c, IMG_WIDTH, height);
 	img = de_bitmap_create(c, IMG_WIDTH, height, 3);
 
-	de_copy_std_palette(DE_PALID_WIN16, 2, 0, 16, pal, 16, 0);
+	de_copy_std_palette(DE_PALID_WIN16, 2, 0, pal, 16, 0);
 	de_convert_image_paletted_planar(d->unc_pixels, 0, NUM_PLANES, rowspan,
 		d->max_bytes_per_plane, pal, img, 0x02);
 

@@ -267,7 +267,7 @@ static int de_decompress_image(deark *c, lctx *d, struct page_ctx *pg,
 			struct de_packbits_params pbparams;
 
 			de_zeromem(&pbparams, sizeof(struct de_packbits_params));
-			pbparams.is_packbits16 = 1;
+			pbparams.nbytes_per_unit = 2;
 			dbuf_enable_wbuffer(unc_pixels);
 			fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres, &pbparams);
 	}

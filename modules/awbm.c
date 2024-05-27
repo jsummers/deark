@@ -41,7 +41,7 @@ static int do_v1_image(deark *c, lctx *d, i64 pos,
 	else {
 		colors_start = pos;
 		bitmap_start = colors_start + w_blocks*h_blocks;
-		de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, d->pal, 16, 0);
+		de_copy_std_palette(DE_PALID_PC16, 0, 0, d->pal, 16, 0);
 	}
 
 	if(special) {

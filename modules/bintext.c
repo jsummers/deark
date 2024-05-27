@@ -165,7 +165,7 @@ static void do_read_palette(deark *c, lctx *d,struct de_char_context *charctx,
 
 static void do_default_palette(deark *c, lctx *d, struct de_char_context *charctx)
 {
-	de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, charctx->pal, 16, 0);
+	de_copy_std_palette(DE_PALID_PC16, 0, 0, charctx->pal, 16, 0);
 }
 
 static void do_extract_font(deark *c, lctx *d)

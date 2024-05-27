@@ -8,8 +8,10 @@ either:
 
 The files it writes are usually named "output.*".
 
-This program is still being developed, and its features are subject to change
-without notice.
+Features are subject to change without notice, as new versions are released.
+
+Windows binaries are available at the
+[main website](https://entropymine.com/deark/).
 
 For additional information, see the [technical.md](technical.md) file.
 
@@ -115,7 +117,7 @@ Command-line options:
    Extract at most &lt;n> files. The normal default is 1000, or effectively
    unlimited if using -zip.
 -get &lt;n>
-   Extract only the file identifed by &lt;n>. The first file is 0.
+   Extract only the file identified by &lt;n>. The first file is 0.
    Equivalent to "-firstfile &lt;n> -maxfiles 1".
    To unconditionally show the file identifiers, use "-l -opt list:fileid".
 -maxfilesize &lt;n>
@@ -387,8 +389,8 @@ See the [technical.md](technical.md) file.
 
 Thanks to Rich Geldreich and others for the miniz library.
 
-Thanks to the author of dskdcmps for the code used to decompress LoadDskF
-files.
+Thanks to the author of dskdcmps for the code used to decompress OS/2 PACK and
+LoadDskF files.
 
 Thanks to James Ashton for much of the code used by the X-Face format decoder.
 

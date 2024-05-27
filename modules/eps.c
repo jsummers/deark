@@ -105,10 +105,10 @@ static void do_decode_epsi_image(deark *c, lctx *d, i64 pos1)
 
 	createflags = DE_CREATEFLAG_IS_AUX;
 	if(d->depth==1) {
-		createflags = DE_CREATEFLAG_IS_BWIMG;
+		createflags |= DE_CREATEFLAG_IS_BWIMG;
 	}
 	else {
-		createflags = DE_CREATEFLAG_OPT_IMAGE;
+		createflags |= DE_CREATEFLAG_OPT_IMAGE;
 	}
 	de_bitmap_write_to_file(img, "preview", createflags);
 	de_bitmap_destroy(img);

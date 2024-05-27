@@ -128,7 +128,7 @@ static void do_cga16(deark *c, lctx *d)
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 	img = de_bitmap_create(c, w, h, 3);
 
-	de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, d->pal, 16, 0);
+	de_copy_std_palette(DE_PALID_PC16, 0, 0, d->pal, 16, 0);
 
 	for(j=0; j<h; j++) {
 		for(i=0; i<w; i+=2) {
@@ -195,7 +195,7 @@ static void do_4color(deark *c, lctx *d)
 
 	// Set the palette
 	if(d->have_pcpaint_palinfo) {
-		de_copy_std_palette(DE_PALID_CGA, (int)d->pcpaint_pal_num, 0, 4, palette, 4, 0);
+		de_copy_std_palette(DE_PALID_CGA, (int)d->pcpaint_pal_num, 0, palette, 4, 0);
 		palette[0] = de_get_std_palette_entry(DE_PALID_PC16, 0, (int)d->pcpaint_border_col);
 	}
 	else {
@@ -303,7 +303,7 @@ static void do_256color(deark *c, lctx *d)
 	de_dbg_dimensions(c, w, h);
 
 	if(!d->pal_valid) {
-		de_copy_std_palette(DE_PALID_VGA256, 0, 0, 256, d->pal, 256, 0);
+		de_copy_std_palette(DE_PALID_VGA256, 0, 0, d->pal, 256, 0);
 	}
 
 	if(!de_good_image_dimensions(c, w, h)) goto done;
@@ -335,7 +335,7 @@ static void do_wh16(deark *c, lctx *d)
 	src_planespan = (w+7)/8;
 	src_rowspan = src_planespan*4;
 
-	de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, d->pal, 16, 0);
+	de_copy_std_palette(DE_PALID_PC16, 0, 0, d->pal, 16, 0);
 	de_convert_image_paletted_planar(c->infile, pos, 4, src_rowspan, src_planespan,
 		d->pal, img, 0x2);
 	de_bitmap_write_to_file(img, NULL, 0);
@@ -460,7 +460,7 @@ static void do_char(deark *c, lctx *d)
 	charctx->nscreens = numpages;
 	charctx->screens = de_mallocarray(c, numpages, sizeof(struct de_char_screen*));
 
-	de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, charctx->pal, 16, 0);
+	de_copy_std_palette(DE_PALID_PC16, 0, 0, charctx->pal, 16, 0);
 
 	for(pgnum=0; pgnum<numpages; pgnum++) {
 		charctx->screens[pgnum] = de_malloc(c, sizeof(struct de_char_screen));

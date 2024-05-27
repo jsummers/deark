@@ -66,6 +66,8 @@ $(OBJDIR)/modules/clp.o: modules/clp.c src/deark-private.h src/deark.h \
  src/deark-config.h
 $(OBJDIR)/modules/colorix.o: modules/colorix.c src/deark-private.h \
  src/deark.h src/deark-config.h src/deark-fmtutil.h
+$(OBJDIR)/modules/comicchat.o: modules/comicchat.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/corel.o: modules/corel.c src/deark-private.h \
  src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/cpio.o: modules/cpio.c src/deark-config.h \
@@ -95,6 +97,8 @@ $(OBJDIR)/modules/eps.o: modules/eps.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/exe.o: modules/exe.c src/deark-private.h src/deark.h \
  src/deark-config.h src/deark-fmtutil.h
+$(OBJDIR)/modules/exectext.o: modules/exectext.c src/deark-private.h \
+ src/deark.h src/deark-config.h
 $(OBJDIR)/modules/exepack.o: modules/exepack.c src/deark-private.h \
  src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/fat.o: modules/fat.c src/deark-private.h src/deark.h \
@@ -160,6 +164,8 @@ $(OBJDIR)/modules/lha.o: modules/lha.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/lzexe.o: modules/lzexe.c src/deark-private.h \
  src/deark.h src/deark-config.h src/deark-fmtutil.h
+$(OBJDIR)/modules/mac-arch.o: modules/mac-arch.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/macbinary.o: modules/macbinary.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/macpaint.o: modules/macpaint.c src/deark-config.h \
@@ -179,6 +185,8 @@ $(OBJDIR)/modules/misc2.o: modules/misc2.c src/deark-private.h \
 $(OBJDIR)/modules/misc3.o: modules/misc3.c src/deark-private.h \
  src/deark.h src/deark-config.h src/deark-fmtutil.h \
  src/deark-fmtutil-arch.h
+$(OBJDIR)/modules/mmm.o: modules/mmm.c src/deark-private.h src/deark.h \
+ src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/mp3.o: modules/mp3.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/mscompress.o: modules/mscompress.c src/deark-private.h \
@@ -205,6 +213,9 @@ $(OBJDIR)/modules/os2bootlogo.o: modules/os2bootlogo.c \
  src/deark-private.h src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/os2ea.o: modules/os2ea.c src/deark-private.h \
  src/deark.h src/deark-config.h
+$(OBJDIR)/modules/os2pack.o: modules/os2pack.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h \
+ src/deark-fmtutil-arch.h
 $(OBJDIR)/modules/pack.o: modules/pack.c src/deark-private.h src/deark.h \
  src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/packdir.o: modules/packdir.c src/deark-config.h \

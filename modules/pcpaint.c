@@ -125,7 +125,7 @@ static void acquire_palette_cga4color(deark *c, lctx *d)
 		border_col = d->pal_info_to_use->data[1];
 	de_dbg(c, "pal id: 0x%02x", pal_subid);
 	de_dbg(c, "border: 0x%02x", border_col);
-	de_copy_std_palette(DE_PALID_CGA, pal_subid, 0, 4, d->pal, 4, 0);
+	de_copy_std_palette(DE_PALID_CGA, pal_subid, 0, d->pal, 4, 0);
 
 	// Replace the first palette color with the border/background color.
 	d->pal[0] = de_get_std_palette_entry(DE_PALID_PC16, 0, (int)border_col);
@@ -201,13 +201,13 @@ static void acquire_palette(deark *c, lctx *d, i64 ncolors)
 		d->pal[1] = DE_STOCKCOLOR_WHITE;
 		break;
 	case 4:
-		de_copy_std_palette(DE_PALID_CGA, 2, 0, 4, d->pal, 4, 0);
+		de_copy_std_palette(DE_PALID_CGA, 2, 0, d->pal, 4, 0);
 		break;
 	case 16:
-		de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, d->pal, 16, 0);
+		de_copy_std_palette(DE_PALID_PC16, 0, 0, d->pal, 16, 0);
 		break;
 	case 256:
-		de_copy_std_palette(DE_PALID_VGA256, 0, 0, 256, d->pal, 256, 0);
+		de_copy_std_palette(DE_PALID_VGA256, 0, 0, d->pal, 256, 0);
 		break;
 	default:
 		goto done;
@@ -310,7 +310,7 @@ static void decode_text(deark *c, lctx *d)
 	}
 
 	// TODO: Is this always the right palette? Maybe we can't ignore ->edesc
-	de_copy_std_palette(DE_PALID_PC16, 0, 0, 16, charctx->pal, 16, 0);
+	de_copy_std_palette(DE_PALID_PC16, 0, 0, charctx->pal, 16, 0);
 
 	de_char_output_to_file(c, charctx);
 

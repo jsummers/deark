@@ -11,6 +11,7 @@
 DE_DECLARE_MODULE(de_module_makichan);
 
 typedef struct localctx_struct {
+	u8 opt_allowbad;
 	i64 width, height;
 	i64 header_pos;
 	i64 flag_a_offset;
@@ -256,9 +257,19 @@ static int read_mag_header(deark *c, lctx *d)
 	model_flags = de_getbyte(pos+2);
 	de_dbg(c, "model code: 0x%02x, flags: 0x%02x",
 		(unsigned int)model_code, (unsigned int)model_flags);
-	if(model_code==0x03 && (model_flags==0x44 || model_flags==0x24)) {
-		de_warn(c, "This looks like MAX format, which is not correctly supported.");
-		d->is_max = 1;
+	if(model_code==0x03) {
+		switch(model_flags & 0xf8) {
+		case 0x00: case 0x10: case 0x50:
+			break;
+		case 0x20: case 0x40: case 0x60:
+			d->is_max = 1;
+			if(d->opt_allowbad) break;
+			de_err(c, "This looks like MAX format, which is not supported.");
+			goto done;
+		default:
+			de_err(c, "Unknown image type");
+			goto done;
+		}
 	}
 
 	screen_mode = de_getbyte(pos+3);
@@ -476,6 +487,7 @@ static void de_run_makichan(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->opt_allowbad = (u8)de_get_ext_option_bool(c, "makichan:allowbad", 0);
 
 	if(!dbuf_memcmp(c->infile, 0, "MAKI01", 6)) {
 		d->is_mki = 1;
@@ -503,10 +515,16 @@ static int de_identify_makichan(deark *c)
 	return 0;
 }
 
+static void de_help_makichan(deark *c)
+{
+	de_msg(c, "-opt makichan:allowbad : Keep going after certain errors");
+}
+
 void de_module_makichan(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "makichan";
 	mi->desc = "MAKIchan graphics";
 	mi->run_fn = de_run_makichan;
 	mi->identify_fn = de_identify_makichan;
+	mi->help_fn = de_help_makichan;
 }
