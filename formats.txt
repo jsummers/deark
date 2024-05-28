@@ -581,6 +581,9 @@ Deark -- Information about supported formats
   - Some thumbnails use a nonstandard RGBA format. These are not converted to
     a portable format.
 
+* ThumbsPlus database (.tud) (module="thumbsplus")
+  - Thumbnail database format used by ThumbsUp! 1.x and ThumbsPlus 2.x.
+
 * TI calculator "variable" files (module="tivariable")
   - TI73/TI82/TI83 pictures
   - TI85/TI86 pictures
