@@ -278,6 +278,9 @@ Deark -- Information about supported formats
      fewer than 8 bits of precision.
    -opt ilbm:allowspecial - Don't stop after certain errors.
 
+* Image Gallery GAL (module="imggal_alch")
+  Image catalog file from Image Gallery by Alchemy Mindworks.
+
 * IndyPaint (*.tru) (module="indypaint")
 
 * Inset PIX (module="insetpix") (experimental)
