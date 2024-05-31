@@ -562,6 +562,7 @@ Deark -- Information about supported formats
 * STOS Memory Bank (.mbk) (module="stos")
   - Decode "sprite bank" images
   - Decode "icon bank" images
+  - Decode "packed screen" images
   Options
    -opt atari:palbits=<n> (refer to readme.md)
 

@@ -9,6 +9,20 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_mbk);
 
+#define BANKID_PKSCREEN 0x06071963U
+
+struct pkpic_ctx {
+	UI res_code;
+	i64 width_in_words;
+	i64 height_in_lumps;
+	i64 lines_per_lump;
+	i64 w, h;
+	i64 picdata_rel, picdata_abs;
+	i64 rledata_rel, rledata_abs;
+	i64 pointdata_rel, pointdata_abs;
+	i64 unc_image_size;
+};
+
 typedef struct localctx_struct {
 	i64 banknum;
 	u8 banktype;
@@ -218,6 +232,144 @@ static void do_icon_bank(deark *c, lctx *d, i64 pos)
 	}
 }
 
+// TODO: Consolidate this with the similar function in abk.c.
+static void render_stos_pictbank(deark *c, lctx *d, struct pkpic_ctx *pp,
+	dbuf *unc_pixels, de_bitmap *img, UI num_planes)
+{
+	i64 width_in_bytes;
+	i64 planesize;
+	i64 srcpos_in_plane = 0;
+	i64 xpos, ypos;
+	i64 lump;
+	u8 xbuf[4];
+
+	width_in_bytes = pp->width_in_words*2;
+	planesize = width_in_bytes*pp->h;
+
+	for(lump=0; lump<pp->height_in_lumps; lump++) {
+		i64 column;
+		i64 lump_start_ypos;
+
+		lump_start_ypos = pp->lines_per_lump * lump;
+
+		for(column=0; column<width_in_bytes; column++) {
+			i64 ypos_in_lump;
+
+			for(ypos_in_lump=0; ypos_in_lump<pp->lines_per_lump; ypos_in_lump++) {
+				UI i;
+				UI pn;
+
+				ypos = lump_start_ypos + ypos_in_lump;
+
+				for(pn=0; pn<num_planes; pn++) {
+					xbuf[pn] = dbuf_getbyte(unc_pixels, planesize*pn + srcpos_in_plane);
+				}
+				srcpos_in_plane++;
+
+				for(i=0; i<8; i++) {
+					UI palent;
+
+					palent = 0;
+					for(pn=0; pn<num_planes; pn++) {
+						if(xbuf[pn] & (1<<(7-i))) {
+							palent |= (1<<pn);
+						}
+					}
+
+					xpos = column*8 + i;
+
+					de_bitmap_setpixel_rgb(img, xpos, ypos, d->pal[palent]);
+				}
+			}
+		}
+	}
+}
+
+static void do_pkscreen_bank(deark *c, lctx *d, i64 pos1)
+{
+	struct pkpic_ctx *pp = NULL;
+	dbuf *unc_pixels = NULL;
+	de_bitmap *img = NULL;
+	struct atari_img_decode_data *adata = NULL;
+	de_finfo *fi = NULL;
+	i64 pos = pos1;
+	UI num_planes;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	pp = de_malloc(c, sizeof(struct pkpic_ctx));
+	de_zeromem(d->pal, sizeof(d->pal));
+
+	pp->res_code = (UI)de_getu16be_p(&pos);
+	de_dbg(c, "res: %u", pp->res_code);
+	pos += 4;
+	pp->width_in_words = de_getu16be_p(&pos);
+	pp->w = pp->width_in_words * 16;
+	de_dbg(c, "width in words: %"I64_FMT, pp->width_in_words);
+	pp->height_in_lumps = de_getu16be_p(&pos);
+	de_dbg(c, "height in lumps: %"I64_FMT, pp->height_in_lumps);
+	pos += 2; // unknown
+	pp->lines_per_lump = de_getu16be_p(&pos);
+	de_dbg(c, "lines per lump: %"I64_FMT, pp->lines_per_lump);
+	pp->h = pp->height_in_lumps * pp->lines_per_lump;
+	de_dbg_dimensions(c, pp->w, pp->h);
+	pos += 2; // flags
+	pp->picdata_rel = 70;
+	pp->rledata_rel = de_getu32be_p(&pos);
+	pp->pointdata_rel = de_getu32be_p(&pos);
+	pp->picdata_abs = pos1-4 + pp->picdata_rel;
+	pp->rledata_abs = pos1-4 + pp->rledata_rel;
+	pp->pointdata_abs = pos1-4 + pp->pointdata_rel;
+	de_dbg(c, "picdata: %"I64_FMT, pp->picdata_abs);
+	de_dbg(c, "rledata: %"I64_FMT, pp->rledata_abs);
+	de_dbg(c, "pointdata: %"I64_FMT, pp->pointdata_abs);
+
+	pos = pos1+34;
+	de_dbg(c, "palette at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
+	fmtutil_read_atari_palette(c, c->infile, pos, d->pal, 16, 16, 0);
+	de_dbg_indent(c, -1);
+
+	if(pp->res_code==2) num_planes = 1;
+	else if(pp->res_code==1) num_planes = 2;
+	else if(pp->res_code==0) num_planes = 4;
+	else {
+		de_err(c, "Unsupported picture resolution: %u", pp->res_code);
+		goto done;
+	}
+
+	if(num_planes==1) {
+		d->pal[0] = DE_STOCKCOLOR_BLACK;
+		d->pal[1] = DE_STOCKCOLOR_WHITE;
+	}
+
+	pp->unc_image_size = pp->width_in_words*2 * (i64)num_planes * pp->h;
+
+	unc_pixels = dbuf_create_membuf(c, 0, 0);
+
+	fmtutil_decompress_stos_pictbank(c, c->infile, pp->picdata_abs, pp->rledata_abs,
+		pp->pointdata_abs, unc_pixels, pp->unc_image_size);
+
+	img = de_bitmap_create(c, pp->w, pp->h, ((num_planes==1)?1:3));
+	render_stos_pictbank(c, d, pp, unc_pixels, img, num_planes);
+
+	fi = de_finfo_create(c);
+	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
+	adata->bpp = (i64)num_planes;
+	fmtutil_atari_set_standard_density(c, adata, fi);
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
+
+done:
+	de_bitmap_destroy(img);
+	dbuf_close(unc_pixels);
+	if(pp) {
+		de_free(c, pp);
+	}
+	de_free(c, adata);
+	de_finfo_destroy(c, fi);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static void do_mbk_data_bank(deark *c, lctx *d, i64 pos)
 {
 	const char *bn = "?";
@@ -227,7 +379,7 @@ static void do_mbk_data_bank(deark *c, lctx *d, i64 pos)
 	d->data_bank_id = (u32)de_getu32be(pos);
 
 	switch(d->data_bank_id) {
-	case 0x06071963U: bn = "packed screen"; break;
+	case BANKID_PKSCREEN: bn = "packed screen"; break;
 	case 0x13490157U: bn = "music bank"; break;
 	case 0x28091960U: bn = "icon bank"; break;
 	case 0x19861987U: bn = "sprite bank"; break;
@@ -242,6 +394,9 @@ static void do_mbk_data_bank(deark *c, lctx *d, i64 pos)
 		break;
 	case 0x28091960U:
 		do_icon_bank(c, d, pos);
+		break;
+	case BANKID_PKSCREEN:
+		do_pkscreen_bank(c, d, pos+4);
 		break;
 	}
 	de_dbg_indent(c, -1);
