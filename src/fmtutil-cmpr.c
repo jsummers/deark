@@ -1591,3 +1591,74 @@ done:
 	}
 	de_free(c, xc);
 }
+
+void fmtutil_decompress_stos_pictbank(deark *c, dbuf *inf,
+	i64 picdatapos1, i64 rledatapos1, i64 pointspos1,
+	dbuf *unc_pixels, i64 unc_image_size)
+{
+	i64 picdatapos;
+	i64 rledatapos;
+	u8 picbyte;
+	u8 rlebyte;
+	u8 rlebit;
+	i64 cmpr_pic_bytes, cmpr_rle_bytes, points_bytes;
+	struct de_bitbuf_lowlevel *bbll_r = NULL;
+	struct de_bitreader *bitrd_p = NULL;
+	i64 t;
+
+	de_dbg(c, "decompressing picture");
+	de_dbg_indent(c, 1);
+
+	bbll_r = de_malloc(c, sizeof(struct de_bitbuf_lowlevel));
+	bitrd_p = de_malloc(c, sizeof(struct de_bitreader));
+	bitrd_p->f = inf;
+	bitrd_p->curpos = pointspos1;
+	bitrd_p->endpos = inf->len;
+
+	picdatapos = picdatapos1;
+	rledatapos = rledatapos1;
+
+	// Note that the first picbyte and/or rlebyte can potentially be overwritten
+	// before being used. That's just the way it is, apparently.
+	picbyte = dbuf_getbyte_p(inf, &picdatapos);
+	rlebyte = dbuf_getbyte_p(inf, &rledatapos);
+
+	for(t=0; t<unc_image_size; t++) {
+		// We'll need an rle bit.
+		// If we've run out of them, read a "points" bit to decide whether
+		// to repeat the previous 8 rle bits (stored in rlebyte), or to read
+		// a new set of 8 rle bits.
+		if(bbll_r->nbits_in_bitbuf==0) {
+			u8 pointsbit;
+
+			pointsbit = (u8)de_bitreader_getbits(bitrd_p, 1);
+			if(pointsbit) {
+				rlebyte = dbuf_getbyte_p(inf, &rledatapos);
+			}
+
+			de_bitbuf_lowlevel_add_byte(bbll_r, rlebyte);
+		}
+
+		rlebit = (u8)de_bitbuf_lowlevel_get_bits(bbll_r, 1);
+		if(rlebit) {
+			picbyte = dbuf_getbyte_p(inf, &picdatapos);
+		}
+
+		dbuf_writebyte(unc_pixels, picbyte);
+	}
+
+	dbuf_flush(unc_pixels);
+	cmpr_pic_bytes = picdatapos - picdatapos1;
+	cmpr_rle_bytes = rledatapos - rledatapos1;
+	de_bitreader_skip_to_byte_boundary(bitrd_p);
+	points_bytes = bitrd_p->curpos - pointspos1;
+	de_dbg(c, "compressed pic bytes: %"I64_FMT, cmpr_pic_bytes);
+	de_dbg(c, "compressed rle bytes: %"I64_FMT, cmpr_rle_bytes);
+	de_dbg(c, "points bytes: %"I64_FMT, points_bytes);
+	de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes",
+		cmpr_pic_bytes + cmpr_rle_bytes + points_bytes, unc_pixels->len);
+
+	de_free(c, bbll_r);
+	de_free(c, bitrd_p);
+	de_dbg_indent(c, -1);
+}

@@ -1,5 +1,5 @@
-$(OBJDIR)/modules/abk.o: modules/abk.c src/deark-config.h \
- src/deark-private.h src/deark.h
+$(OBJDIR)/modules/abk.o: modules/abk.c src/deark-private.h src/deark.h \
+ src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/adex.o: modules/adex.c src/deark-private.h src/deark.h \
  src/deark-config.h
 $(OBJDIR)/modules/afcp.o: modules/afcp.c src/deark-config.h \

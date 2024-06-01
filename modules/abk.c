@@ -4,8 +4,8 @@
 
 // AMOS sprite/icon bank
 
-#include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_abk);
 DE_DECLARE_MODULE(de_module_amos_source);
 
@@ -254,72 +254,6 @@ static void picture_bank_screen_header(deark *c, lctx *d, struct amosbank *bk, i
 	de_dbg_indent(c, -1);
 }
 
-static void picture_bank_uncompress(deark *c, lctx *d, struct amosbank *bk,
-	dbuf *unc_pixels)
-{
-	i64 picdatapos; // file offset of next unread byte
-	i64 rledatapos;
-	i64 pointspos;
-	u8 picbyte;
-	u8 rlebyte;
-	u8 pointsbyte;
-	int rbitnum, pbitnum;
-
-	de_dbg(c, "uncompressing picture");
-	de_dbg_indent(c, 1);
-
-	picdatapos = bk->pic_picdata_offset;
-	rledatapos = bk->pic_rledata_offset;
-	pointspos = bk->pic_points_offset;
-
-	picbyte = dbuf_getbyte(bk->f, picdatapos++);
-	rlebyte = dbuf_getbyte(bk->f, rledatapos++);
-	rbitnum = 7;
-	pointsbyte = dbuf_getbyte(bk->f, pointspos++);
-	pbitnum = 7;
-
-	if(pointsbyte & (1 << pbitnum--)) {
-		rlebyte = dbuf_getbyte(bk->f, rledatapos++);
-	}
-
-	while(1) {
-		if(unc_pixels->len >= bk->picdata_expected_unc_bytes) break;
-		if(rlebyte & (1 << rbitnum--)) {
-			picbyte = dbuf_getbyte(bk->f, picdatapos++);
-		}
-
-		dbuf_writebyte(unc_pixels, picbyte);
-
-		if(rbitnum < 0) {
-			if(pointsbyte & (1 << pbitnum--)) {
-				rlebyte = dbuf_getbyte(bk->f, rledatapos++);
-			}
-			rbitnum = 7;
-
-			if(pbitnum < 0) {
-				pointsbyte = dbuf_getbyte(bk->f, pointspos++);
-				pbitnum = 7;
-			}
-		}
-	}
-
-	{
-		i64 cmpr_pic_bytes, cmpr_rle_bytes, points_bytes;
-
-		cmpr_pic_bytes = picdatapos - bk->pic_picdata_offset;
-		cmpr_rle_bytes = rledatapos - bk->pic_rledata_offset;
-		points_bytes = pointspos - bk->pic_points_offset;
-		de_dbg(c, "compressed pic bytes: %d", (int)cmpr_pic_bytes);
-		de_dbg(c, "compressed rle bytes: %d", (int)cmpr_rle_bytes);
-		de_dbg(c, "points bytes: %d", (int)points_bytes);
-		de_dbg(c, "uncompressed %d bytes to %d bytes",
-			(int)(cmpr_pic_bytes + cmpr_rle_bytes + points_bytes),
-			(int)unc_pixels->len);
-	}
-
-	de_dbg_indent(c, -1);
-}
-
 static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, i64 pos)
 {
 	i64 bytes_per_row_per_plane;
@@ -385,8 +319,9 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, i6
 
 	bk->picdata_expected_unc_bytes = bytes_per_row_per_plane * bk->nplanes * height;
 	unc_pixels = dbuf_create_membuf(c, bk->picdata_expected_unc_bytes, 0);
-	picture_bank_uncompress(c, d, bk, unc_pixels);
-
+	fmtutil_decompress_stos_pictbank(c, c->infile, bk->pic_picdata_offset,
+		bk->pic_rledata_offset, bk->pic_points_offset,
+		unc_pixels, bk->picdata_expected_unc_bytes);
 	img = de_bitmap_create(c, width, height, 3);
 
 	lumpspan = bytes_per_row_per_plane * lines_per_lump;
