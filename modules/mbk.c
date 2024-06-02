@@ -10,12 +10,22 @@
 DE_DECLARE_MODULE(de_module_mbk);
 
 #define BANKID_PKSCREEN 0x06071963U
+#define BANKID_SPRITE   0x19861987U
+
+#define PKPIC_IMGTYPE_UNKNOWN 99
+#define PKPIC_IMGTYPE_LOW     100
+#define PKPIC_IMGTYPE_MED     101
+#define PKPIC_IMGTYPE_HIGH    102
+#define PKPIC_IMGTYPE_PP1     110
+#define PKPIC_IMGTYPE_PP3     112
 
 struct pkpic_ctx {
 	UI res_code;
+	UI imgtype; // PKPIC_IMGTYPE_*
 	i64 width_in_words;
 	i64 height_in_lumps;
 	i64 lines_per_lump;
+	i64 pseudowidth, pseudoheight;
 	i64 w, h;
 	i64 picdata_rel, picdata_abs;
 	i64 rledata_rel, rledata_abs;
@@ -24,6 +34,7 @@ struct pkpic_ctx {
 };
 
 typedef struct localctx_struct {
+	UI imgtype_of_res1; // PKPIC_IMGTYPE_*
 	i64 banknum;
 	u8 banktype;
 	i64 banksize;
@@ -232,52 +243,201 @@ static void do_icon_bank(deark *c, lctx *d, i64 pos)
 	}
 }
 
+static void render_stos_pp3(deark *c, lctx *d, struct pkpic_ctx *pp,
+	dbuf *unc_pixels, de_bitmap *img)
+{
+	i64 width_in_bytes;
+	i64 planesize;
+	i64 lump;
+
+	width_in_bytes = pp->width_in_words*2;
+	planesize = width_in_bytes * pp->pseudoheight;
+
+	for(lump=0; lump<pp->height_in_lumps; lump++) {
+		i64 col_idx;
+		i64 lump_start_srcpos_in_plane;
+		i64 lump_start_ypos;
+
+		lump_start_srcpos_in_plane = width_in_bytes * pp->lines_per_lump * lump;
+		lump_start_ypos = pp->lines_per_lump * lump * 2;
+
+		// col_idx=0 = the first 32 pixels of the even numbered rows
+		// col_idx=width_in_words = the first 32 pixels of the odd numbered rows
+		// (TODO: What happens if width_in_words is odd?)
+		for(col_idx=0; col_idx<width_in_bytes; col_idx++) {
+			i64 col_start_srcpos_in_plane;
+			i64 ypos_in_lump;
+			UI rowparity;
+
+			if(col_idx & 1) {
+				continue; // We process 2 columns at a time
+			}
+
+			if(col_idx >= pp->width_in_words) {
+				rowparity = 1;
+			}
+			else {
+				rowparity = 0;
+			}
+
+			col_start_srcpos_in_plane = lump_start_srcpos_in_plane + col_idx*pp->lines_per_lump;
+
+			for(ypos_in_lump=0; ypos_in_lump<pp->lines_per_lump; ypos_in_lump++) {
+				UI i;
+				UI n;
+				i64 xpos, ypos;
+
+				ypos = lump_start_ypos + ypos_in_lump*2 + rowparity;
+
+				if(rowparity) {
+					xpos = (col_idx % pp->width_in_words)*16;
+				}
+				else {
+					xpos = col_idx*16;
+				}
+
+				// n=0: the first 8 pixels of every 32   plane 0 lump+0
+				// n=1: the second 8 pixels of every 32  plane 0 lump+1
+				// n=2: the third 8 pixels of every 32   plane 1 lump+0
+				// n=3: the fourth 8 pixels of every 32  plane 1 lump+1
+				for(n=0; n<4; n++) {
+					u8 v;
+
+					v = dbuf_getbyte(unc_pixels, planesize*(n>>1) +
+						col_start_srcpos_in_plane + pp->lines_per_lump*(n&1) + ypos_in_lump);
+
+					for(i=0; i<8; i++) {
+						UI palent;
+
+						palent = (v>>(7-i)) & 1;
+						de_bitmap_setpixel_rgb(img, xpos, ypos, d->pal[palent]);
+						xpos++;
+					}
+				}
+			}
+		}
+	}
+}
+
+static void render_stos_pp1(deark *c, lctx *d, struct pkpic_ctx *pp,
+	dbuf *unc_pixels, de_bitmap *img)
+{
+	i64 width_in_bytes;
+	i64 planesize;
+	i64 lump;
+	UI num_planes = 2;
+	UI bits_per_pixel = 4;
+	u8 xbuf[4];
+
+	width_in_bytes = pp->width_in_words*2;
+	planesize = width_in_bytes * pp->pseudoheight;
+
+	for(lump=0; lump<pp->height_in_lumps; lump++) {
+		i64 col_idx;
+		i64 lump_start_srcpos_in_plane;
+		i64 lump_start_ypos;
+		i64 num_skipped_cols = 0;
+
+		lump_start_srcpos_in_plane = width_in_bytes * pp->lines_per_lump * lump;
+		lump_start_ypos = pp->lines_per_lump * lump;
+
+		for(col_idx=0; col_idx<width_in_bytes; col_idx++) {
+			i64 col_start_srcpos_in_plane;
+			i64 ypos_in_lump;
+
+			// Skip the last 2 of every group of 4 columns. They contain bits
+			// associated with the first 2 columns.
+			if((col_idx&2)!=0) {
+				num_skipped_cols++;
+				continue;
+			}
+
+			col_start_srcpos_in_plane = lump_start_srcpos_in_plane +
+				pp->lines_per_lump*col_idx;
+
+			for(ypos_in_lump=0; ypos_in_lump<pp->lines_per_lump; ypos_in_lump++) {
+				UI i;
+				UI pn;
+				i64 xpos, ypos;
+
+				ypos = lump_start_ypos + ypos_in_lump;
+
+				for(pn=0; pn<num_planes; pn++) {
+					xbuf[pn] = dbuf_getbyte(unc_pixels, planesize*pn +
+						col_start_srcpos_in_plane + ypos_in_lump);
+					xbuf[pn+2] = dbuf_getbyte(unc_pixels, planesize*pn +
+						col_start_srcpos_in_plane + 2*pp->lines_per_lump + ypos_in_lump);
+				}
+
+				for(i=0; i<8; i++) {
+					UI palent;
+
+					palent = 0;
+					for(pn=0; pn<bits_per_pixel; pn++) {
+						if(xbuf[pn] & (1<<(7-i))) {
+							palent |= (1<<pn);
+						}
+					}
+
+					xpos = (col_idx-num_skipped_cols)*8 + i;
+					de_bitmap_setpixel_rgb(img, xpos, ypos, d->pal[palent]);
+				}
+			}
+		}
+	}
+}
+
 // TODO: Consolidate this with the similar function in abk.c.
 static void render_stos_pictbank(deark *c, lctx *d, struct pkpic_ctx *pp,
 	dbuf *unc_pixels, de_bitmap *img, UI num_planes)
 {
 	i64 width_in_bytes;
 	i64 planesize;
-	i64 srcpos_in_plane = 0;
-	i64 xpos, ypos;
 	i64 lump;
+	UI bits_per_pixel = num_planes;
 	u8 xbuf[4];
 
 	width_in_bytes = pp->width_in_words*2;
-	planesize = width_in_bytes*pp->h;
+	planesize = width_in_bytes * pp->pseudoheight;
 
 	for(lump=0; lump<pp->height_in_lumps; lump++) {
-		i64 column;
+		i64 col_idx;
+		i64 lump_start_srcpos_in_plane;
 		i64 lump_start_ypos;
 
+		lump_start_srcpos_in_plane = width_in_bytes * pp->lines_per_lump * lump;
 		lump_start_ypos = pp->lines_per_lump * lump;
 
-		for(column=0; column<width_in_bytes; column++) {
+		for(col_idx=0; col_idx<width_in_bytes; col_idx++) {
+			i64 col_start_srcpos_in_plane;
 			i64 ypos_in_lump;
+
+			col_start_srcpos_in_plane = lump_start_srcpos_in_plane +
+				pp->lines_per_lump*col_idx;
 
 			for(ypos_in_lump=0; ypos_in_lump<pp->lines_per_lump; ypos_in_lump++) {
 				UI i;
 				UI pn;
+				i64 xpos, ypos;
 
 				ypos = lump_start_ypos + ypos_in_lump;
 
 				for(pn=0; pn<num_planes; pn++) {
-					xbuf[pn] = dbuf_getbyte(unc_pixels, planesize*pn + srcpos_in_plane);
+					xbuf[pn] = dbuf_getbyte(unc_pixels, planesize*pn +
+						col_start_srcpos_in_plane + ypos_in_lump);
 				}
-				srcpos_in_plane++;
 
 				for(i=0; i<8; i++) {
 					UI palent;
 
 					palent = 0;
-					for(pn=0; pn<num_planes; pn++) {
+					for(pn=0; pn<bits_per_pixel; pn++) {
 						if(xbuf[pn] & (1<<(7-i))) {
 							palent |= (1<<pn);
 						}
 					}
 
-					xpos = column*8 + i;
-
+					xpos = col_idx*8 + i;
 					de_bitmap_setpixel_rgb(img, xpos, ypos, d->pal[palent]);
 				}
 			}
@@ -294,6 +454,7 @@ static void do_pkscreen_bank(deark *c, lctx *d, i64 pos1)
 	de_finfo *fi = NULL;
 	i64 pos = pos1;
 	UI num_planes;
+	UI bits_per_pixel;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -302,16 +463,71 @@ static void do_pkscreen_bank(deark *c, lctx *d, i64 pos1)
 
 	pp->res_code = (UI)de_getu16be_p(&pos);
 	de_dbg(c, "res: %u", pp->res_code);
+
+	switch(pp->res_code) {
+	case 0: pp->imgtype = PKPIC_IMGTYPE_LOW; break;
+	case 1:
+		if(d->imgtype_of_res1==PKPIC_IMGTYPE_UNKNOWN) {
+			de_warn(c, "Ambiguous image. If it looks wrong, try \"-opt stos:pp1\" or "
+				"\"-opt stos:pp3\".");
+			pp->imgtype = PKPIC_IMGTYPE_MED;
+		}
+		else {
+			pp->imgtype = d->imgtype_of_res1;
+		}
+		break;
+	case 2: pp->imgtype = PKPIC_IMGTYPE_HIGH; break;
+	default: pp->imgtype = PKPIC_IMGTYPE_UNKNOWN; break;
+	}
+
+	switch(pp->imgtype) {
+	case PKPIC_IMGTYPE_LOW:
+		num_planes = 4;
+		bits_per_pixel = 4;
+		break;
+	case PKPIC_IMGTYPE_MED:
+		num_planes = 2;
+		bits_per_pixel = 2;
+		break;
+	case PKPIC_IMGTYPE_HIGH:
+		num_planes = 1;
+		bits_per_pixel = 1;
+		break;
+	case PKPIC_IMGTYPE_PP1:
+		num_planes = 2;
+		bits_per_pixel = 4;
+		break;
+	case PKPIC_IMGTYPE_PP3:
+		num_planes = 2;
+		bits_per_pixel = 1;
+		break;
+	default:
+		de_err(c, "Unsupported picture resolution: %u", pp->res_code);
+		goto done;
+	}
+
 	pos += 4;
 	pp->width_in_words = de_getu16be_p(&pos);
-	pp->w = pp->width_in_words * 16;
+	pp->pseudowidth = pp->width_in_words * 16;
+	if(pp->imgtype==PKPIC_IMGTYPE_PP1) {
+		pp->w = pp->width_in_words * 8;
+	}
+	else {
+		pp->w = pp->pseudowidth;
+	}
 	de_dbg(c, "width in words: %"I64_FMT, pp->width_in_words);
 	pp->height_in_lumps = de_getu16be_p(&pos);
 	de_dbg(c, "height in lumps: %"I64_FMT, pp->height_in_lumps);
 	pos += 2; // unknown
 	pp->lines_per_lump = de_getu16be_p(&pos);
 	de_dbg(c, "lines per lump: %"I64_FMT, pp->lines_per_lump);
-	pp->h = pp->height_in_lumps * pp->lines_per_lump;
+	pp->pseudoheight = pp->height_in_lumps * pp->lines_per_lump;
+	if(pp->imgtype==PKPIC_IMGTYPE_PP3) {
+		pp->h = pp->pseudoheight * 2;
+	}
+	else {
+		pp->h = pp->pseudoheight;
+	}
 	de_dbg_dimensions(c, pp->w, pp->h);
 	pos += 2; // flags
 	pp->picdata_rel = 70;
@@ -330,17 +546,15 @@ static void do_pkscreen_bank(deark *c, lctx *d, i64 pos1)
 	fmtutil_read_atari_palette(c, c->infile, pos, d->pal, 16, 16, 0);
 	de_dbg_indent(c, -1);
 
-	if(pp->res_code==2) num_planes = 1;
-	else if(pp->res_code==1) num_planes = 2;
-	else if(pp->res_code==0) num_planes = 4;
-	else {
-		de_err(c, "Unsupported picture resolution: %u", pp->res_code);
-		goto done;
-	}
-
-	if(num_planes==1) {
-		d->pal[0] = DE_STOCKCOLOR_BLACK;
-		d->pal[1] = DE_STOCKCOLOR_WHITE;
+	if(bits_per_pixel==1) {
+		if((d->pal[0] & 0xffffff)==0) {
+			d->pal[0] = DE_STOCKCOLOR_BLACK;
+			d->pal[1] = DE_STOCKCOLOR_WHITE;
+		}
+		else {
+			d->pal[0] = DE_STOCKCOLOR_WHITE;
+			d->pal[1] = DE_STOCKCOLOR_BLACK;
+		}
 	}
 
 	pp->unc_image_size = pp->width_in_words*2 * (i64)num_planes * pp->h;
@@ -350,12 +564,20 @@ static void do_pkscreen_bank(deark *c, lctx *d, i64 pos1)
 	fmtutil_decompress_stos_pictbank(c, c->infile, pp->picdata_abs, pp->rledata_abs,
 		pp->pointdata_abs, unc_pixels, pp->unc_image_size);
 
-	img = de_bitmap_create(c, pp->w, pp->h, ((num_planes==1)?1:3));
-	render_stos_pictbank(c, d, pp, unc_pixels, img, num_planes);
+	img = de_bitmap_create(c, pp->w, pp->h, ((bits_per_pixel==1)?1:3));
+	if(pp->imgtype==PKPIC_IMGTYPE_PP1) {
+		render_stos_pp1(c, d, pp, unc_pixels, img);
+	}
+	else if(pp->imgtype==PKPIC_IMGTYPE_PP3) {
+		render_stos_pp3(c, d, pp, unc_pixels, img);
+	}
+	else {
+		render_stos_pictbank(c, d, pp, unc_pixels, img, num_planes);
+	}
 
 	fi = de_finfo_create(c);
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
-	adata->bpp = (i64)num_planes;
+	adata->bpp = (i64)bits_per_pixel;
 	fmtutil_atari_set_standard_density(c, adata, fi);
 	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
 
@@ -382,14 +604,14 @@ static void do_mbk_data_bank(deark *c, lctx *d, i64 pos)
 	case BANKID_PKSCREEN: bn = "packed screen"; break;
 	case 0x13490157U: bn = "music bank"; break;
 	case 0x28091960U: bn = "icon bank"; break;
-	case 0x19861987U: bn = "sprite bank"; break;
+	case BANKID_SPRITE: bn = "sprite bank"; break;
 	case 0x4d414553U: bn = "Maestro!"; break;
 	}
 
 	de_dbg(c, "data bank id: 0x%08x (%s)", (unsigned int)d->data_bank_id, bn);
 
 	switch(d->data_bank_id) {
-	case 0x19861987U:
+	case BANKID_SPRITE:
 		do_sprite_bank(c, d, pos);
 		break;
 	case 0x28091960U:
@@ -447,9 +669,18 @@ static void de_run_mbk_mbs(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	u32 id;
+	int opt;
 	u8 buf[10];
 
 	d = de_malloc(c, sizeof(lctx));
+
+	d->imgtype_of_res1 = PKPIC_IMGTYPE_UNKNOWN;
+	opt = de_get_ext_option_bool(c, "stos:pp1", 0);
+	if(opt) d->imgtype_of_res1 = PKPIC_IMGTYPE_PP1;
+	opt = de_get_ext_option_bool(c, "stos:pp2", 0);
+	if(opt) d->imgtype_of_res1 = PKPIC_IMGTYPE_MED;
+	opt = de_get_ext_option_bool(c, "stos:pp3", 0);
+	if(opt) d->imgtype_of_res1 = PKPIC_IMGTYPE_PP3;
 
 	de_read(buf, 0, sizeof(buf));
 	if(!de_memcmp(buf, "Lionpoubnk", 10)) {
@@ -466,9 +697,13 @@ static void de_run_mbk_mbs(deark *c, de_module_params *mparams)
 	else {
 		id = (u32)de_getu32be_direct(buf);
 
-		if(id==0x19861987U) {
+		if(id==BANKID_SPRITE) {
 			de_declare_fmt(c, "STOS Sprite Bank");
 			do_sprite_bank(c, d, 0);
+		}
+		else if(id==BANKID_PKSCREEN) {
+			de_declare_fmt(c, "STOS Packed Screen / Picture Packer");
+			do_pkscreen_bank(c, d, 4);
 		}
 		else {
 			de_err(c, "Not a (supported) STOS/MBK format");
@@ -481,11 +716,16 @@ static void de_run_mbk_mbs(deark *c, de_module_params *mparams)
 static int de_identify_mbk(deark *c)
 {
 	u8 buf[10];
+	UI id;
 
 	de_read(buf, 0, sizeof(buf));
 	if(!de_memcmp(buf, "Lionpoubnk", 10))
 		return 100;
-	if(!de_memcmp(buf, "\x19\x86\x19\x87", 4)) { // Sprite bank
+	id = (UI)de_getu32be_direct(buf);
+	if(id==BANKID_SPRITE) {
+		return 100;
+	}
+	else if(id==BANKID_PKSCREEN) {
 		return 100;
 	}
 	return 0;
