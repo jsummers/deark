@@ -18,6 +18,7 @@ DE_DECLARE_MODULE(de_module_mbk);
 #define PKPIC_IMGTYPE_HIGH    102
 #define PKPIC_IMGTYPE_PP1     110
 #define PKPIC_IMGTYPE_PP3     112
+#define PKPIC_IMGTYPE_M4P     120
 
 struct pkpic_ctx {
 	UI res_code;
@@ -34,7 +35,8 @@ struct pkpic_ctx {
 };
 
 typedef struct localctx_struct {
-	UI imgtype_of_res1; // PKPIC_IMGTYPE_*
+	UI imgtype_of_res0; // PKPIC_IMGTYPE_*
+	UI imgtype_of_res1;
 	i64 banknum;
 	u8 banktype;
 	i64 banksize;
@@ -387,6 +389,75 @@ static void render_stos_pp1(deark *c, lctx *d, struct pkpic_ctx *pp,
 	}
 }
 
+static void render_stos_med4plane(deark *c, lctx *d, struct pkpic_ctx *pp,
+	dbuf *unc_pixels, de_bitmap *img)
+{
+	i64 width_in_bytes;
+	i64 planesize;
+	i64 lump;
+	UI num_planes = 4;
+	UI bits_per_pixel = 2;
+	u8 xbuf[4];
+
+	width_in_bytes = pp->width_in_words*2;
+	planesize = width_in_bytes * pp->pseudoheight;
+
+	for(lump=0; lump<pp->height_in_lumps; lump++) {
+		i64 col_idx;
+		i64 lump_start_srcpos_in_plane;
+		i64 lump_start_ypos;
+
+		lump_start_srcpos_in_plane = width_in_bytes * pp->lines_per_lump * lump;
+		lump_start_ypos = pp->lines_per_lump * lump;
+
+		for(col_idx=0; col_idx<width_in_bytes; col_idx++) {
+			i64 col_start_srcpos_in_plane;
+			i64 ypos_in_lump;
+
+			// Each column that we process sets 16 pixels:
+			// 8 pixels are set, then 8 pixels skipped, then 8 pixels set.
+
+			col_start_srcpos_in_plane = lump_start_srcpos_in_plane +
+				pp->lines_per_lump*col_idx;
+
+			for(ypos_in_lump=0; ypos_in_lump<pp->lines_per_lump; ypos_in_lump++) {
+				UI i;
+				UI pn;
+				i64 xpos1, ypos;
+
+				ypos = lump_start_ypos + ypos_in_lump;
+
+				// xbuf[0..1] are for the first set of 8 pixels.
+				// xbuf[2..3] are for the second set.
+				for(pn=0; pn<num_planes; pn++) {
+					xbuf[pn] = dbuf_getbyte(unc_pixels, planesize*pn +
+						col_start_srcpos_in_plane + ypos_in_lump);
+				}
+
+				xpos1 = col_idx*16;
+				if(col_idx%2) xpos1 -= 8;
+
+				for(i=0; i<8; i++) {
+					i64 xpos;
+					UI palent;
+					UI pixset;
+
+					for(pixset=0; pixset<2; pixset++) {
+						palent = 0;
+						for(pn=0; pn<bits_per_pixel; pn++) {
+							if(xbuf[pixset*2+pn] & (1<<(7-i))) {
+								palent |= (1<<pn);
+							}
+						}
+						xpos = xpos1 + pixset*16 + i;
+						de_bitmap_setpixel_rgb(img, xpos, ypos, d->pal[palent]);
+					}
+				}
+			}
+		}
+	}
+}
+
 // TODO: Consolidate this with the similar function in abk.c.
 static void render_stos_pictbank(deark *c, lctx *d, struct pkpic_ctx *pp,
 	dbuf *unc_pixels, de_bitmap *img, UI num_planes)
@@ -465,7 +536,14 @@ static void do_pkscreen_bank(deark *c, lctx *d, i64 pos1)
 	de_dbg(c, "res: %u", pp->res_code);
 
 	switch(pp->res_code) {
-	case 0: pp->imgtype = PKPIC_IMGTYPE_LOW; break;
+	case 0:
+		if(d->imgtype_of_res0==PKPIC_IMGTYPE_UNKNOWN) {
+			pp->imgtype = PKPIC_IMGTYPE_LOW;
+		}
+		else {
+			pp->imgtype = d->imgtype_of_res0;
+		}
+		break;
 	case 1:
 		if(d->imgtype_of_res1==PKPIC_IMGTYPE_UNKNOWN) {
 			de_warn(c, "Ambiguous image. If it looks wrong, try \"-opt stos:pp1\" or "
@@ -484,6 +562,10 @@ static void do_pkscreen_bank(deark *c, lctx *d, i64 pos1)
 	case PKPIC_IMGTYPE_LOW:
 		num_planes = 4;
 		bits_per_pixel = 4;
+		break;
+	case PKPIC_IMGTYPE_M4P:
+		num_planes = 4;
+		bits_per_pixel = 2;
 		break;
 	case PKPIC_IMGTYPE_MED:
 		num_planes = 2;
@@ -511,6 +593,9 @@ static void do_pkscreen_bank(deark *c, lctx *d, i64 pos1)
 	pp->pseudowidth = pp->width_in_words * 16;
 	if(pp->imgtype==PKPIC_IMGTYPE_PP1) {
 		pp->w = pp->width_in_words * 8;
+	}
+	else if(pp->imgtype==PKPIC_IMGTYPE_M4P) {
+		pp->w = pp->width_in_words * 32;
 	}
 	else {
 		pp->w = pp->pseudowidth;
@@ -570,6 +655,9 @@ static void do_pkscreen_bank(deark *c, lctx *d, i64 pos1)
 	}
 	else if(pp->imgtype==PKPIC_IMGTYPE_PP3) {
 		render_stos_pp3(c, d, pp, unc_pixels, img);
+	}
+	else if(pp->imgtype==PKPIC_IMGTYPE_M4P) {
+		render_stos_med4plane(c, d, pp, unc_pixels, img);
 	}
 	else {
 		render_stos_pictbank(c, d, pp, unc_pixels, img, num_planes);
@@ -675,12 +763,15 @@ static void de_run_mbk_mbs(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 
 	d->imgtype_of_res1 = PKPIC_IMGTYPE_UNKNOWN;
+	d->imgtype_of_res0 = PKPIC_IMGTYPE_UNKNOWN;
 	opt = de_get_ext_option_bool(c, "stos:pp1", 0);
 	if(opt) d->imgtype_of_res1 = PKPIC_IMGTYPE_PP1;
 	opt = de_get_ext_option_bool(c, "stos:pp2", 0);
 	if(opt) d->imgtype_of_res1 = PKPIC_IMGTYPE_MED;
 	opt = de_get_ext_option_bool(c, "stos:pp3", 0);
 	if(opt) d->imgtype_of_res1 = PKPIC_IMGTYPE_PP3;
+	opt = de_get_ext_option_bool(c, "stos:m4p", 0);
+	if(opt) d->imgtype_of_res0 = PKPIC_IMGTYPE_M4P;
 
 	de_read(buf, 0, sizeof(buf));
 	if(!de_memcmp(buf, "Lionpoubnk", 10)) {
@@ -734,6 +825,9 @@ static int de_identify_mbk(deark *c)
 static void de_help_mbk(deark *c)
 {
 	fmtutil_atari_help_palbits(c);
+	de_msg(c, "-opt stos:pp1 : Assume res 1 pictures are low res");
+	de_msg(c, "-opt stos:pp3 : Assume res 1 pictures are high res");
+	de_msg(c, "-opt stos:m4p : Assume res 0 pictures are med res");
 }
 
 void de_module_mbk(deark *c, struct deark_module_info *mi)
