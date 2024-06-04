@@ -559,12 +559,17 @@ Deark -- Information about supported formats
 * Storyboard PIC/CAP (module="storyboard") (experimental)
   - Old ("EP_CAP") and new formats are mostly supported.
 
-* STOS Memory Bank (.mbk) (module="stos")
+* STOS Memory Bank and related formats (.mbk) (module="stos", ...)
+  Includes support for "Picture Packer" format. Helper modules such as
+  "stos_pp1" may exist.
   - Decode "sprite bank" images
   - Decode "icon bank" images
   - Decode "packed screen" images
   Options
    -opt atari:palbits=<n> (refer to readme.md)
+   -opt stos:res0=<l|m> : Assume res 0 pics are low(standard)/med(DAJ) res.
+   -opt stos:res1=<l|m|h> : Assume res 1 pics are low(PP1)/med(standard)/
+     high(PP3) res.
 
 * Sun Raster (module="sunras") (incomplete)
   - Supports most common image types
