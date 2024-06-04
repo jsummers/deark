@@ -254,6 +254,83 @@ static void picture_bank_screen_header(deark *c, lctx *d, struct amosbank *bk, i
 	de_dbg_indent(c, -1);
 }
 
+struct pictbank_params {
+	u8 ok;
+	UI num_planes;
+	UI bits_per_pixel;
+	i64 width_in_bytes;
+	i64 height_in_lumps;
+	i64 lines_per_lump;
+	i64 pseudoheight;
+	dbuf *unc_pixels;
+	de_bitmap *img;
+	de_color *pal;
+};
+
+// TODO: Consolidate this with the similar function in mbk.c.
+// (Deferred for now. Should probably at least investigate HAM picture banks,
+// first.)
+static void render_stos_pictbank(deark *c, struct pictbank_params *pb)
+{
+	i64 planesize;
+	i64 lump;
+	u8 xbuf[8];
+
+	if((size_t)pb->num_planes > sizeof(xbuf)) goto done;
+	if(pb->bits_per_pixel != pb->num_planes) goto done;
+	de_zeromem(xbuf, sizeof(xbuf));
+	planesize = pb->width_in_bytes * pb->pseudoheight;
+
+	for(lump=0; lump<pb->height_in_lumps; lump++) {
+		i64 col_idx;
+		i64 lump_start_srcpos_in_plane;
+		i64 lump_start_ypos;
+
+		lump_start_srcpos_in_plane = pb->width_in_bytes * pb->lines_per_lump * lump;
+		lump_start_ypos = pb->lines_per_lump * lump;
+
+		for(col_idx=0; col_idx<pb->width_in_bytes; col_idx++) {
+			i64 col_start_srcpos_in_plane;
+			i64 ypos_in_lump;
+
+			col_start_srcpos_in_plane = lump_start_srcpos_in_plane +
+				pb->lines_per_lump*col_idx;
+
+			for(ypos_in_lump=0; ypos_in_lump<pb->lines_per_lump; ypos_in_lump++) {
+				UI i;
+				UI pn;
+				i64 xpos, ypos;
+
+				ypos = lump_start_ypos + ypos_in_lump;
+
+				for(pn=0; pn<pb->num_planes; pn++) {
+					xbuf[pn] = dbuf_getbyte(pb->unc_pixels, planesize*pn +
+						col_start_srcpos_in_plane + ypos_in_lump);
+				}
+
+				for(i=0; i<8; i++) {
+					UI palent;
+
+					palent = 0;
+					for(pn=0; pn<pb->bits_per_pixel; pn++) {
+						if(xbuf[pn] & (1<<(7-i))) {
+							palent |= (1<<pn);
+						}
+					}
+
+					xpos = col_idx*8 + i;
+					de_bitmap_setpixel_rgb(pb->img, xpos, ypos, pb->pal[palent]);
+				}
+			}
+		}
+	}
+
+	pb->ok = 1;
+
+done:
+	;
+}
+
 static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, i64 pos)
 {
 	i64 bytes_per_row_per_plane;
@@ -262,17 +339,7 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, i6
 	i64 width, height;
 	de_bitmap *img = NULL;
 	dbuf *unc_pixels = NULL;
-	i64 k;
-	i64 xpos, ypos;
-	i64 lump;
-	i64 line_in_lump;
-	i64 strip;
-	i64 plane;
-	unsigned int palent;
-	u8 x;
-	i64 planespan;
-	i64 lumpspan;
-	i64 pos_in_picdata;
+	struct pictbank_params *pb = NULL;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -324,39 +391,24 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, i6
 		unc_pixels, bk->picdata_expected_unc_bytes);
 	img = de_bitmap_create(c, width, height, 3);
 
-	lumpspan = bytes_per_row_per_plane * lines_per_lump;
-	planespan = lumpspan * height_in_lumps;
-	pos_in_picdata = 0;
-	ypos=0;
-	for(lump=0; lump<height_in_lumps; lump++) {
-		xpos = 0;
-		for(strip=0; strip<bytes_per_row_per_plane; strip++) {
-			for(line_in_lump=0; line_in_lump<lines_per_lump; line_in_lump++) {
-				for(k=0; k<8; k++) {
-					palent = 0;
-					for(plane=0; plane<bk->nplanes; plane++) {
-						x = de_get_bits_symbol(unc_pixels, 1, pos_in_picdata + plane*planespan, k);
-						if(x) palent |= 1<<plane;
-					}
-					if(palent<=255) {
-						de_bitmap_setpixel_rgb(img, xpos, ypos, bk->pal[palent]);
-					}
-					xpos++;
-				}
-				pos_in_picdata++;
-				xpos-=8;
-				ypos++;
-			}
-			xpos+=8;
-			ypos -= lines_per_lump;
-		}
-		ypos += lines_per_lump;
-	}
+	pb = de_malloc(c, sizeof(struct pictbank_params));
+	pb->num_planes = (UI)bk->nplanes;
+	pb->bits_per_pixel = pb->num_planes;
+	pb->width_in_bytes = bytes_per_row_per_plane;
+	pb->height_in_lumps = height_in_lumps;
+	pb->lines_per_lump = lines_per_lump;
+	pb->pseudoheight = height;
+	pb->unc_pixels = unc_pixels;
+	pb->img = img;
+	pb->pal = bk->pal;
+
+	render_stos_pictbank(c, pb);
 
 	de_bitmap_write_to_file(img, NULL, 0);
 done:
 	dbuf_close(unc_pixels);
 	de_bitmap_destroy(img);
+	de_free(c, pb);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
