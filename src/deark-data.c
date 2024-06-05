@@ -788,6 +788,15 @@ done:
 	;
 }
 
+void de_copy_palette_from_rgb24(const u8 *src, de_color *dst, size_t ncolors)
+{
+	size_t i;
+
+	for(i=0; i<ncolors; i++) {
+		dst[i] = DE_MAKE_RGB(src[i*3], src[i*3+1], src[i*3+2]);
+	}
+}
+
 // Only codepoints 32-127 are included here.
 static const u8 cga_8x8_font_data[96*8] = {
 	0,0,0,0,0,0,0,0,
