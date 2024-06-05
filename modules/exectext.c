@@ -17,30 +17,6 @@ typedef struct localctx_exectext {
 	i64 tlen;
 } lctx;
 
-static int exectext_search_match(const u8 *mem, i64 mem_len,
-	const u8 *pattern, i64 pattern_len, u8 wildcard, i64 *pfoundpos)
-{
-	i64 num_start_positions_to_search;
-	i64 i;
-
-	*pfoundpos = 0;
-	if(pattern_len<1 || pattern_len>mem_len) return 0;
-	num_start_positions_to_search = mem_len-pattern_len+1;
-
-	for(i=0; i<num_start_positions_to_search; i++) {
-		int ret;
-
-		if(pattern[0]!=mem[i] && pattern[0]!=wildcard) continue;
-		ret = de_memmatch(&mem[i], pattern, (size_t)pattern_len, wildcard, 0);
-		if(ret) {
-			*pfoundpos = i;
-			return 1;
-		}
-	}
-
-	return 0;
-}
-
 // dbuf_copy_slice_convert_to_utf8() in HYBRID mode doesn't quite do what
 // we want for TXT2COM, mainly because it treats 0x00 and 0x09 as controls,
 // while TXT2COM treats them as graphics.
@@ -130,7 +106,7 @@ static void txt2com_search1(deark *c, lctx *d)
 
 	mem = de_malloc(c, TXT2COM_BUF_LEN1);
 	de_read(mem, TXT2COM_BUF_POS1, TXT2COM_BUF_LEN1);
-	ret = exectext_search_match(mem, TXT2COM_BUF_LEN1,
+	ret = de_memsearch_match(mem, TXT2COM_BUF_LEN1,
 		(const u8*)"\x8b\xd8\xb4\x40\x8b\x0e??\x8d\x16??\xcd\x21\xb4\x3e", 16,
 		'?', &foundpos);
 	if(!ret) goto done;
@@ -160,7 +136,7 @@ static void txt2com_search2(deark *c, lctx *d)
 
 	mem = de_malloc(c, TXT2COM_BUF_LEN2);
 	de_read(mem, TXT2COM_BUF_POS2, TXT2COM_BUF_LEN2);
-	ret = exectext_search_match(mem, TXT2COM_BUF_LEN2,
+	ret = de_memsearch_match(mem, TXT2COM_BUF_LEN2,
 		(const u8*)"\xcd?\xa1??\xd1\xe0\x03\x06??\x8d???\x03", 16,
 		'?', &foundpos);
 	if(!ret) goto done;
