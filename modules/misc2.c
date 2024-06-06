@@ -40,6 +40,7 @@ DE_DECLARE_MODULE(de_module_young_picasso);
 DE_DECLARE_MODULE(de_module_imggal_alch);
 DE_DECLARE_MODULE(de_module_iconmgr_ica);
 DE_DECLARE_MODULE(de_module_thumbsplus);
+DE_DECLARE_MODULE(de_module_fmtowns_icn);
 
 // **************************************************************************
 // HP 100LX / HP 200LX .ICN icon format
@@ -2881,13 +2882,13 @@ static void thumbsplus_decompress(deark *c, struct thumbsplus_ctx *d,
 
 		if(pos >= endpos) break;
 		b = de_getbyte_p(&pos);
-		if(b==0xff) {
-			count = (i64)de_getbyte_p(&pos);
-			val = de_getbyte_p(&pos);
-			dbuf_write_run(unc_pixels, val, count);
-		}
-		else if(b>=236) {
-			count = (i64)b - 233;
+		if(b>=236) {
+			if(b==0xff) {
+				count = (i64)de_getbyte_p(&pos);
+			}
+			else {
+				count = (i64)b - 233;
+			}
 			val = de_getbyte_p(&pos);
 			dbuf_write_run(unc_pixels, val, count);
 		}
@@ -2938,6 +2939,7 @@ static void do_thumbsplus_icon(deark *c, struct thumbsplus_ctx *d,
 
 	de_dbg(c, "bitmap at %"I64_FMT, pos);
 	unc_pixels = dbuf_create_membuf(c, THUMBSPLUS_IMGSIZE+2, 0x1);
+	dbuf_enable_wbuffer(unc_pixels);
 	thumbsplus_decompress(c, d, md, pos, md->data_len, unc_pixels);
 	dbuf_flush(unc_pixels);
 	if(unc_pixels->len != THUMBSPLUS_IMGSIZE) {
@@ -3068,4 +3070,297 @@ void de_module_thumbsplus(deark *c, struct deark_module_info *mi)
 	mi->desc = "ThumbsPlus v1-2 database (.tud)";
 	mi->run_fn = de_run_thumbsplus;
 	mi->identify_fn = de_identify_thumbsplus;
+}
+
+// **************************************************************************
+// FM Towns icon
+// **************************************************************************
+
+struct fmtownsicn_table_ctx {
+	i64 idx;
+	i64 num_icons;
+	i64 icon_arr_offs;
+};
+
+struct fmtownsicn_ctx {
+	u8 fatalerrflag;
+	u8 need_errmsg;
+	int is_le;
+	i64 num_tables;
+	de_color pal16[16];
+	de_color pal2[2];
+};
+
+static void do_fmtownsicn_icon(deark *c, struct fmtownsicn_ctx *d,
+	struct fmtownsicn_table_ctx *tbl, i64 idx, i64 pos1)
+{
+	int saved_indent_level;
+	i64 pos = pos1;
+	de_bitmap *img = NULL;
+	UI createflags = 0;
+	i64 w, h;
+	i64 rowspan;
+	i64 isize;
+	i64 fg_pos;
+	UI ncolors;
+	UI bits_per_pixel;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(pos1>=c->infile->len) {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+	de_dbg(c, "icon header (table #%u icon #%u) at %"I64_FMT, (UI)tbl->idx,
+		(UI)idx, pos1);
+	de_dbg_indent(c, 1);
+	pos += 2;
+	pos += 4;
+	w = de_getu16le_p(&pos);
+	h = de_getu16le_p(&pos);
+	de_dbg_dimensions(c, w, h);
+	ncolors = (UI)de_getu32le_p(&pos);
+	de_dbg(c, "num colors: %u", ncolors);
+	isize = de_getu16le_p(&pos);
+	de_dbg(c, "size: %"I64_FMT, isize);
+	pos += 4;
+	fg_pos = de_getu32le_p(&pos);
+	de_dbg(c, "fg pos: %"I64_FMT, fg_pos);
+
+	if(fg_pos <= pos1 || fg_pos + isize > c->infile->len) {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	if(ncolors==2) {
+		bits_per_pixel = 1;
+	}
+	else if(ncolors==16) {
+		bits_per_pixel = 4;
+	}
+	else {
+		de_err(c, "Unsupported image type");
+		goto done;
+	}
+
+	if(!de_good_image_dimensions(c, w, h)) goto done;
+	img = de_bitmap_create(c, w, h, 3);
+
+
+	if(bits_per_pixel==1) {
+		rowspan = de_pad_to_n(w*bits_per_pixel, 8) / 8;
+		de_convert_image_paletted(c->infile, fg_pos, 1, rowspan,
+			d->pal2, img, 0);
+		createflags |= DE_CREATEFLAG_IS_BWIMG;
+	}
+	else { // 4
+		rowspan = de_pad_to_n(w*bits_per_pixel, 32) / 8;
+		de_convert_image_paletted(c->infile, fg_pos, 4, rowspan,
+			d->pal16, img, 0x01);
+		createflags |= DE_CREATEFLAG_OPT_IMAGE;
+	}
+
+	de_bitmap_write_to_file(img, NULL, createflags);
+
+done:
+	de_bitmap_destroy(img);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_fmtownsicn_table(deark *c, struct fmtownsicn_ctx *d, i64 idx,
+	i64 pos1)
+{
+	int saved_indent_level;
+	i64 pos = pos1;
+	struct fmtownsicn_table_ctx *tbl = NULL;
+	i64 i;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	if(pos1+32>c->infile->len) {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	tbl = de_malloc(c, sizeof(struct fmtownsicn_table_ctx));
+	tbl->idx = idx;
+
+	de_dbg(c, "table #%"I64_FMT" at %"I64_FMT, idx, pos1);
+	de_dbg_indent(c, 1);
+	pos += 2; // id
+	tbl->num_icons = de_getu16le_p(&pos);
+	de_dbg(c, "num icons: %u", (UI)tbl->num_icons);
+	pos += 2;
+	pos += 2;
+
+	tbl->icon_arr_offs = de_getu32le_p(&pos);
+	de_dbg(c, "offset of icon array: %"I64_FMT, tbl->icon_arr_offs);
+	if(tbl->icon_arr_offs <= pos1) {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	for(i=0; i<tbl->num_icons; i++) {
+		if(d->fatalerrflag) goto done;
+		do_fmtownsicn_icon(c, d, tbl, i, tbl->icon_arr_offs+48*i);
+	}
+
+done:
+	de_free(c, tbl);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void fmtownsicn_make_palettes(deark *c, struct fmtownsicn_ctx *d)
+{
+	static const u8 pal16_std[16*3] = {
+		0x22,0x22,0x22, 0x22,0x77,0xbb, 0xcc,0x66,0x44, 0xff,0xcc,0xaa,
+		0x99,0x99,0x99, 0x00,0xcc,0x77, 0xcc,0xcc,0xcc, 0x77,0x77,0x77,
+		0x00,0x00,0x00, 0x88,0xbb,0xee, 0xdd,0x00,0x00, 0x00,0x00,0xaa,
+		0x55,0x55,0x55, 0x00,0xff,0xff, 0xff,0xdd,0x00, 0xff,0xff,0xff
+	};
+
+	de_make_grayscale_palette(d->pal2, 2, 0x1);
+	de_copy_palette_from_rgb24(pal16_std, d->pal16, 16);
+}
+
+static void do_fmtownsicn_ICNFILE(deark *c, struct fmtownsicn_ctx *d)
+{
+	i64 i;
+	i64 pos1 = 0;
+	i64 pos = pos1;
+
+	de_dbg(c, "header at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	pos += 10;
+	pos += 2; // version
+	d->num_tables = de_getu16le_p(&pos);
+	de_dbg(c, "num tables: %u", (UI)d->num_tables);
+	de_dbg_indent(c, -1);
+
+	for(i=0; i<d->num_tables; i++) {
+		if(d->fatalerrflag) goto done;
+		do_fmtownsicn_table(c, d, i, 32+32*i);
+	}
+
+done:
+	;
+}
+
+static void do_fmtownsicn_FJ(deark *c, struct fmtownsicn_ctx *d)
+{
+	i64 num_icons;
+	i64 w, h;
+	i64 rowspan;
+	i64 icon_size;
+	UI bits_per_pixel;
+	i64 i;
+	i64 pos1 = 0;
+	i64 pos = pos1;
+
+	de_dbg(c, "header at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	pos += 8;
+
+	bits_per_pixel = (UI)dbuf_getu16x(c->infile, pos, d->is_le);
+	pos += 2;
+	de_dbg(c, "bits per pixel: %u", bits_per_pixel);
+
+	w = dbuf_getu16x(c->infile, pos, d->is_le);
+	pos += 2;
+	h = dbuf_getu16x(c->infile, pos, d->is_le);
+	pos += 2;
+	de_dbg_dimensions(c, w, h);
+
+	num_icons = dbuf_getu16x(c->infile, pos, d->is_le);
+	pos += 2;
+	de_dbg(c, "num icons: %"I64_FMT, num_icons);
+
+	de_dbg_indent(c, -1);
+
+	if(w!=32 || h!=32 || bits_per_pixel!=4) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	rowspan = 16;
+	icon_size = 2+rowspan*h;
+	if(16+icon_size*num_icons != c->infile->len) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	for(i=0; i<num_icons; i++) {
+		de_bitmap *img;
+
+		pos = 16+i*icon_size + 2;
+		de_dbg(c, "icon at %"I64_FMT, pos);
+		img = de_bitmap_create(c, w, h, 3);
+		de_convert_image_paletted(c->infile, pos, 4, rowspan,
+			d->pal16, img, 0x01);
+		de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
+		de_bitmap_destroy(img);
+	}
+done:
+	;
+}
+
+static void de_run_fmtowns_icn(deark *c, de_module_params *mparams)
+{
+	struct fmtownsicn_ctx *d = NULL;
+	u8 b;
+
+	d = de_malloc(c, sizeof(struct fmtownsicn_ctx));
+	fmtownsicn_make_palettes(c, d);
+
+	b = de_getbyte(6);
+	if(b=='E') {
+		do_fmtownsicn_ICNFILE(c, d);
+	}
+	else if(b=='2') {
+		d->is_le = 1;
+		do_fmtownsicn_FJ(c, d);
+	}
+	else if(b=='J') {
+		d->is_le = 0;
+		do_fmtownsicn_FJ(c, d);
+	}
+	else {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+done:
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported file");
+		}
+		de_free(c, d);
+	}
+}
+
+static int de_identify_fmtowns_icn(deark *c)
+{
+	u8 buf[10];
+
+	de_read(buf, 0, sizeof(buf));
+	if(!de_memcmp(buf, (const void*)"ICNFILE\0\0\x1a", 10)) {
+		return 100;
+	}
+	if(!de_memcmp(buf, (const void*)"CRI-FJ2 ", 8)) {
+		return 100;
+	}
+	if(!de_memcmp(buf, (const void*)"CRI-FUJI", 8)) {
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_fmtowns_icn(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "fmtowns_icn";
+	mi->desc = "FM Towns icons";
+	mi->run_fn = de_run_fmtowns_icn;
+	mi->identify_fn = de_identify_fmtowns_icn;
 }
