@@ -265,28 +265,25 @@ static void do_icon_bank(deark *c, lctx *d, i64 pos)
 	}
 }
 
-static void render_stos_pp3(deark *c, lctx *d, struct pkpic_ctx *pp,
-	dbuf *unc_pixels, de_bitmap *img)
+static void render_stos_pp3(deark *c, struct pictbank_params *pb, i64 width_in_words)
 {
-	i64 width_in_bytes;
 	i64 planesize;
 	i64 lump;
 
-	width_in_bytes = pp->width_in_words*2;
-	planesize = width_in_bytes * pp->pseudoheight;
+	planesize = pb->width_in_bytes * pb->pseudoheight;
 
-	for(lump=0; lump<pp->height_in_lumps; lump++) {
+	for(lump=0; lump<pb->height_in_lumps; lump++) {
 		i64 col_idx;
 		i64 lump_start_srcpos_in_plane;
 		i64 lump_start_ypos;
 
-		lump_start_srcpos_in_plane = width_in_bytes * pp->lines_per_lump * lump;
-		lump_start_ypos = pp->lines_per_lump * lump * 2;
+		lump_start_srcpos_in_plane = pb->width_in_bytes * pb->lines_per_lump * lump;
+		lump_start_ypos = pb->lines_per_lump * lump * 2;
 
 		// col_idx=0 = the first 32 pixels of the even numbered rows
 		// col_idx=width_in_words = the first 32 pixels of the odd numbered rows
 		// (TODO: What happens if width_in_words is odd?)
-		for(col_idx=0; col_idx<width_in_bytes; col_idx++) {
+		for(col_idx=0; col_idx<pb->width_in_bytes; col_idx++) {
 			i64 col_start_srcpos_in_plane;
 			i64 ypos_in_lump;
 			UI rowparity;
@@ -295,16 +292,16 @@ static void render_stos_pp3(deark *c, lctx *d, struct pkpic_ctx *pp,
 				continue; // We process 2 columns at a time
 			}
 
-			if(col_idx >= pp->width_in_words) {
+			if(col_idx >= width_in_words) {
 				rowparity = 1;
 			}
 			else {
 				rowparity = 0;
 			}
 
-			col_start_srcpos_in_plane = lump_start_srcpos_in_plane + col_idx*pp->lines_per_lump;
+			col_start_srcpos_in_plane = lump_start_srcpos_in_plane + col_idx*pb->lines_per_lump;
 
-			for(ypos_in_lump=0; ypos_in_lump<pp->lines_per_lump; ypos_in_lump++) {
+			for(ypos_in_lump=0; ypos_in_lump<pb->lines_per_lump; ypos_in_lump++) {
 				UI i;
 				UI n;
 				i64 xpos, ypos;
@@ -312,7 +309,7 @@ static void render_stos_pp3(deark *c, lctx *d, struct pkpic_ctx *pp,
 				ypos = lump_start_ypos + ypos_in_lump*2 + rowparity;
 
 				if(rowparity) {
-					xpos = (col_idx % pp->width_in_words)*16;
+					xpos = (col_idx % width_in_words)*16;
 				}
 				else {
 					xpos = col_idx*16;
@@ -325,14 +322,14 @@ static void render_stos_pp3(deark *c, lctx *d, struct pkpic_ctx *pp,
 				for(n=0; n<4; n++) {
 					u8 v;
 
-					v = dbuf_getbyte(unc_pixels, planesize*(n>>1) +
-						col_start_srcpos_in_plane + pp->lines_per_lump*(n&1) + ypos_in_lump);
+					v = dbuf_getbyte(pb->unc_pixels, planesize*(n>>1) +
+						col_start_srcpos_in_plane + pb->lines_per_lump*(n&1) + ypos_in_lump);
 
 					for(i=0; i<8; i++) {
 						UI palent;
 
 						palent = (v>>(7-i)) & 1;
-						de_bitmap_setpixel_rgb(img, xpos, ypos, d->pal[palent]);
+						de_bitmap_setpixel_rgb(pb->img, xpos, ypos, pb->pal[palent]);
 						xpos++;
 					}
 				}
@@ -341,29 +338,26 @@ static void render_stos_pp3(deark *c, lctx *d, struct pkpic_ctx *pp,
 	}
 }
 
-static void render_stos_pp1(deark *c, lctx *d, struct pkpic_ctx *pp,
-	dbuf *unc_pixels, de_bitmap *img)
+static void render_stos_pp1(deark *c, struct pictbank_params *pb)
 {
-	i64 width_in_bytes;
 	i64 planesize;
 	i64 lump;
 	UI num_planes = 2;
 	UI bits_per_pixel = 4;
 	u8 xbuf[4];
 
-	width_in_bytes = pp->width_in_words*2;
-	planesize = width_in_bytes * pp->pseudoheight;
+	planesize = pb->width_in_bytes * pb->pseudoheight;
 
-	for(lump=0; lump<pp->height_in_lumps; lump++) {
+	for(lump=0; lump<pb->height_in_lumps; lump++) {
 		i64 col_idx;
 		i64 lump_start_srcpos_in_plane;
 		i64 lump_start_ypos;
 		i64 num_skipped_cols = 0;
 
-		lump_start_srcpos_in_plane = width_in_bytes * pp->lines_per_lump * lump;
-		lump_start_ypos = pp->lines_per_lump * lump;
+		lump_start_srcpos_in_plane = pb->width_in_bytes * pb->lines_per_lump * lump;
+		lump_start_ypos = pb->lines_per_lump * lump;
 
-		for(col_idx=0; col_idx<width_in_bytes; col_idx++) {
+		for(col_idx=0; col_idx<pb->width_in_bytes; col_idx++) {
 			i64 col_start_srcpos_in_plane;
 			i64 ypos_in_lump;
 
@@ -375,9 +369,9 @@ static void render_stos_pp1(deark *c, lctx *d, struct pkpic_ctx *pp,
 			}
 
 			col_start_srcpos_in_plane = lump_start_srcpos_in_plane +
-				pp->lines_per_lump*col_idx;
+				pb->lines_per_lump*col_idx;
 
-			for(ypos_in_lump=0; ypos_in_lump<pp->lines_per_lump; ypos_in_lump++) {
+			for(ypos_in_lump=0; ypos_in_lump<pb->lines_per_lump; ypos_in_lump++) {
 				UI i;
 				UI pn;
 				i64 xpos, ypos;
@@ -385,10 +379,10 @@ static void render_stos_pp1(deark *c, lctx *d, struct pkpic_ctx *pp,
 				ypos = lump_start_ypos + ypos_in_lump;
 
 				for(pn=0; pn<num_planes; pn++) {
-					xbuf[pn] = dbuf_getbyte(unc_pixels, planesize*pn +
+					xbuf[pn] = dbuf_getbyte(pb->unc_pixels, planesize*pn +
 						col_start_srcpos_in_plane + ypos_in_lump);
-					xbuf[pn+2] = dbuf_getbyte(unc_pixels, planesize*pn +
-						col_start_srcpos_in_plane + 2*pp->lines_per_lump + ypos_in_lump);
+					xbuf[pn+2] = dbuf_getbyte(pb->unc_pixels, planesize*pn +
+						col_start_srcpos_in_plane + 2*pb->lines_per_lump + ypos_in_lump);
 				}
 
 				for(i=0; i<8; i++) {
@@ -402,35 +396,33 @@ static void render_stos_pp1(deark *c, lctx *d, struct pkpic_ctx *pp,
 					}
 
 					xpos = (col_idx-num_skipped_cols)*8 + i;
-					de_bitmap_setpixel_rgb(img, xpos, ypos, d->pal[palent]);
+					de_bitmap_setpixel_rgb(pb->img, xpos, ypos, pb->pal[palent]);
 				}
 			}
 		}
 	}
 }
 
-static void render_stos_med4plane(deark *c, lctx *d, struct pkpic_ctx *pp,
-	dbuf *unc_pixels, de_bitmap *img)
+static void render_stos_med4plane(deark *c, struct pictbank_params *pb)
 {
-	i64 width_in_bytes;
 	i64 planesize;
 	i64 lump;
 	UI num_planes = 4;
 	UI bits_per_pixel = 2;
 	u8 xbuf[4];
 
-	width_in_bytes = pp->width_in_words*2;
-	planesize = width_in_bytes * pp->pseudoheight;
+	//width_in_bytes = pb->width_in_words*2;
+	planesize = pb->width_in_bytes * pb->pseudoheight;
 
-	for(lump=0; lump<pp->height_in_lumps; lump++) {
+	for(lump=0; lump<pb->height_in_lumps; lump++) {
 		i64 col_idx;
 		i64 lump_start_srcpos_in_plane;
 		i64 lump_start_ypos;
 
-		lump_start_srcpos_in_plane = width_in_bytes * pp->lines_per_lump * lump;
-		lump_start_ypos = pp->lines_per_lump * lump;
+		lump_start_srcpos_in_plane = pb->width_in_bytes * pb->lines_per_lump * lump;
+		lump_start_ypos = pb->lines_per_lump * lump;
 
-		for(col_idx=0; col_idx<width_in_bytes; col_idx++) {
+		for(col_idx=0; col_idx<pb->width_in_bytes; col_idx++) {
 			i64 col_start_srcpos_in_plane;
 			i64 ypos_in_lump;
 
@@ -438,9 +430,9 @@ static void render_stos_med4plane(deark *c, lctx *d, struct pkpic_ctx *pp,
 			// 8 pixels are set, then 8 pixels skipped, then 8 pixels set.
 
 			col_start_srcpos_in_plane = lump_start_srcpos_in_plane +
-				pp->lines_per_lump*col_idx;
+				pb->lines_per_lump*col_idx;
 
-			for(ypos_in_lump=0; ypos_in_lump<pp->lines_per_lump; ypos_in_lump++) {
+			for(ypos_in_lump=0; ypos_in_lump<pb->lines_per_lump; ypos_in_lump++) {
 				UI i;
 				UI pn;
 				i64 xpos1, ypos;
@@ -450,7 +442,7 @@ static void render_stos_med4plane(deark *c, lctx *d, struct pkpic_ctx *pp,
 				// xbuf[0..1] are for the first set of 8 pixels.
 				// xbuf[2..3] are for the second set.
 				for(pn=0; pn<num_planes; pn++) {
-					xbuf[pn] = dbuf_getbyte(unc_pixels, planesize*pn +
+					xbuf[pn] = dbuf_getbyte(pb->unc_pixels, planesize*pn +
 						col_start_srcpos_in_plane + ypos_in_lump);
 				}
 
@@ -470,7 +462,7 @@ static void render_stos_med4plane(deark *c, lctx *d, struct pkpic_ctx *pp,
 							}
 						}
 						xpos = xpos1 + pixset*16 + i;
-						de_bitmap_setpixel_rgb(img, xpos, ypos, d->pal[palent]);
+						de_bitmap_setpixel_rgb(pb->img, xpos, ypos, pb->pal[palent]);
 					}
 				}
 			}
@@ -479,7 +471,7 @@ static void render_stos_med4plane(deark *c, lctx *d, struct pkpic_ctx *pp,
 }
 
 // TODO: Consolidate this with the similar function in abk.c.
-static void render_stos_pictbank(deark *c, struct pictbank_params *pb)
+static void render_stos_pictbank_std(deark *c, struct pictbank_params *pb)
 {
 	i64 planesize;
 	i64 lump;
@@ -556,7 +548,19 @@ static void render_stos_pictbank1(deark *c, lctx *d, struct pkpic_ctx *pp,
 	pb->img = img;
 	pb->pal = d->pal;
 
-	render_stos_pictbank(c, pb);
+	if(pp->imgtype==PKPIC_IMGTYPE_PP1) {
+		render_stos_pp1(c, pb);
+	}
+	else if(pp->imgtype==PKPIC_IMGTYPE_PP3) {
+		render_stos_pp3(c, pb, pp->width_in_words);
+	}
+	else if(pp->imgtype==PKPIC_IMGTYPE_M4P) {
+		render_stos_med4plane(c, pb);
+	}
+	else {
+		render_stos_pictbank_std(c, pb);
+	}
+
 	de_free(c, pb);
 }
 
@@ -716,18 +720,7 @@ static void do_pkscreen_bank(deark *c, lctx *d, i64 pos1)
 		pp->pointdata_abs, unc_pixels, pp->unc_image_size);
 
 	img = de_bitmap_create(c, pp->w, pp->h, ((bits_per_pixel==1)?1:3));
-	if(pp->imgtype==PKPIC_IMGTYPE_PP1) {
-		render_stos_pp1(c, d, pp, unc_pixels, img);
-	}
-	else if(pp->imgtype==PKPIC_IMGTYPE_PP3) {
-		render_stos_pp3(c, d, pp, unc_pixels, img);
-	}
-	else if(pp->imgtype==PKPIC_IMGTYPE_M4P) {
-		render_stos_med4plane(c, d, pp, unc_pixels, img);
-	}
-	else {
-		render_stos_pictbank1(c, d, pp, unc_pixels, img, num_planes);
-	}
+	render_stos_pictbank1(c, d, pp, unc_pixels, img, num_planes);
 
 	fi = de_finfo_create(c);
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
