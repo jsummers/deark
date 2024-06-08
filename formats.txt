@@ -1253,6 +1253,12 @@ Deark -- Information about supported formats
   Metaformat used by WAV, AVI, WebP, etc.
   - RIFF can be parsed, but in many cases nothing can be extracted from it.
 
+* SHOW (module="show_gmr")
+  Executable text (.COM) files made by Gary M. Raymond's SHOW utility.
+  - Extracts the source text.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
+
 * Split (module="split")
   Split the file into equal-sized chunks.
   Options
@@ -1261,7 +1267,7 @@ Deark -- Information about supported formats
     start of the next chunk, in bytes.
 
 * TXT2COM (module="txt2com")
-  Executable COM files made by Graham's TXT2COM utility.
+  Executable text (.COM) files made by Graham's TXT2COM utility.
   - Extracts the source text. Does not necessarily render the document (e.g.
     colors) like running the COM file would.
   Options
