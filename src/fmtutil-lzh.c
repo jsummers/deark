@@ -2599,7 +2599,7 @@ static UI ic1_read_distance(struct lzh_ctx *cctx)
 					// is surely too small.
 					n_extra_bits3 = 11;
 				}
-				else if(bd>43008 && bd<=65536) {
+				else if(bd>43008) {
 					n_extra_bits3 = 15;
 				}
 				else {
@@ -2630,12 +2630,14 @@ static void ic1_internal(struct lzh_ctx *cctx)
 	deark *c = cctx->c;
 	u8 mode = 1;
 	UI k;
+	i64 next_special_outpos = 65536;
 	char descr[32];
 
 	(void)lzh_getbits(cctx, 32); // unused?
 
 	make_ic1_trees(c, cctx);
 
+	// TODO: Use the correct buffer size (32768?)
 	cctx->ringbuf = de_lz77buffer_create(cctx->c, 65536*2);
 	cctx->ringbuf->userdata = (void*)cctx;
 	cctx->ringbuf->writebyte_cb = lzh_lz77buf_writebytecb_flagerrors;
@@ -2655,11 +2657,14 @@ static void ic1_internal(struct lzh_ctx *cctx)
 			goto done;
 		}
 
-		if(cctx->nbytes_written >= 65536) {
-			cctx->err_flag = 1;
-			de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
-				"Files over 64k are not supported");
-			goto done;
+		if(cctx->nbytes_written >= next_special_outpos) {
+			de_bitreader_skip_to_byte_boundary(&cctx->bitrd);
+			if(c->debug_level>=3) {
+				de_dbg(c, "segment data at at %"I64_FMT, cctx->bitrd.curpos);
+			}
+			(void)lzh_getbits(cctx, 32);
+			next_special_outpos += 65536;
+			mode = 1; // TODO: Is this right?
 		}
 
 		matchlencode = ic1_read_matchlencode(cctx);
