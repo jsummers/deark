@@ -17,7 +17,8 @@ static UI os2pack_is_member_at(dbuf *f, i64 pos)
 	UI sig;
 
 	sig = (UI)dbuf_getu32be(f, pos);
-	return (sig==0xa596feffU || sig==0xa596ffffU) ? 1 : 0;
+	return (sig==0xa596feffU || sig==0xa596ffffU ||
+		sig==0xa5960014U) ? 1 : 0;
 }
 
 static UI os2pack2_is_member_at(dbuf *f, i64 pos)
@@ -32,7 +33,7 @@ static UI os2pack2_is_member_at(dbuf *f, i64 pos)
 
 static UI os2pack12_is_member_at(de_arch_lctx *d, i64 pos)
 {
-	if(d->fmtcode==0xfd) {
+	if(d->fmtcode==0xfffd) {
 		return os2pack2_is_member_at(d->inf, pos);
 	}
 	return os2pack_is_member_at(d->inf, pos);
@@ -120,7 +121,10 @@ static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member
 	attribs = (UI)de_getbyte_p(&pos);
 	de_arch_handle_field_dos_attr(md, attribs);
 
-	if(d->fmtcode==0xff) {
+	if(d->fmtcode==0x1400) {
+		pos += 1;
+	}
+	else if(d->fmtcode==0xffff) {
 		pos += 6; // ?
 	}
 	else {
@@ -131,7 +135,7 @@ static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member
 		de_arch_read_field_orig_len_p(md, &pos);
 		// TODO: Figure out why some files have 1 here, and others have the original
 		// file size.
-		if(d->fmtcode==0xfe && md->orig_len==1) {
+		if(d->fmtcode==0xfffe && md->orig_len==1) {
 			md->orig_len = 0;
 			md->orig_len_known = 0;
 		}
@@ -143,7 +147,7 @@ static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member
 		}
 	}
 
-	if(d->fmtcode==0xfd) {
+	if(d->fmtcode==0xfffd) {
 		pos += 7; // "FTCOMP\0"
 
 		unk2 = de_getu16le_p(&pos);
@@ -156,7 +160,10 @@ static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member
 		de_dbg(c, "unk4: %"I64_FMT, unk4);
 	}
 
-	if(d->fmtcode==0xff) {
+	if(d->fmtcode==0x1400) {
+		fnlen = 13;
+	}
+	else if(d->fmtcode==0xffff) {
 		i64 foundpos = 0;
 
 		if(dbuf_search_byte(c->infile, 0, pos, 260, &foundpos)) {
@@ -214,7 +221,7 @@ static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member
 	if(ea_len>0) {
 		de_dbg(c, "cmpr ext. attr. at %"I64_FMT", len=%"I64_FMT, ea_pos, ea_len);
 		de_dbg_indent(c, 1);
-		if(d->fmtcode==0xfd) {
+		if(d->fmtcode==0xfffd) {
 			os2pack2_read_cmpr_method(c, ea_pos, ea_len);
 		}
 		de_dbg_indent(c, -1);
@@ -223,14 +230,14 @@ static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member
 	de_dbg(c, "cmpr data at %"I64_FMT", len=%"I64_FMT, md->cmpr_pos, md->cmpr_len);
 
 	de_dbg_indent(c, 1);
-	if(d->fmtcode==0xfd) {
+	if(d->fmtcode==0xfffd) {
 		// Most likely, the compressed data is considered to start after the
 		// filename field.
 		// It seems to have a compression header that we can peek at.
 		os2pack2_read_cmpr_method(c, md->cmpr_pos, md->cmpr_len);
 	}
 
-	if(d->fmtcode==0xfe || d->fmtcode==0xff) {
+	if(d->fmtcode==0x1400 || d->fmtcode==0xffff || d->fmtcode==0xfffe) {
 		md->dfn = os2pack_decompressor_fn;
 		de_arch_extract_member_file(md);
 		if(ea_pos>0 && ea_len>0) {
@@ -261,22 +268,22 @@ static void do_run_os2pack12(deark *c, de_module_params *mparams, UI ver)
 	d->is_le = 1;
 
 	if(ver==2) {
-		d->fmtcode = 0xfd;
+		d->fmtcode = 0xfffd;
 	}
 	else {
-		d->fmtcode = (UI)de_getbyte(2);
-		if(d->fmtcode!=0xfe && d->fmtcode!=0xff) {
+		d->fmtcode = (UI)de_getu16le(2);
+		if(d->fmtcode!=0x1400 && d->fmtcode!=0xffff && d->fmtcode!=0xfffe) {
 			d->need_errmsg = 1;
 			goto done;
 		}
 	}
 
-	if(d->fmtcode==0xfd) {
+	if(d->fmtcode==0xfffd) {
 		pname = "PACK2";
 		de_declare_fmt(c, "OS/2 PACK2 archive");
 	}
 	else {
-		de_declare_fmtf(c, "OS/2 PACK archive%s", (d->fmtcode==0xff ? " (old)" : ""));
+		de_declare_fmtf(c, "OS/2 PACK archive (type 0x%04x)", d->fmtcode);
 	}
 
 	// TODO: What encoding to use?

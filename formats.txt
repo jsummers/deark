@@ -944,7 +944,7 @@ Deark -- Information about supported formats
   Apple II compressed archive format.
 
 * OS/2 PACK archive (module="os2pack") (experimental)
-  - Supports the versions with signatures 0xa596ffff and 0xa596feff.
+  - Supports the versions with signatures 0xa5961400, 0xa596ffff, 0xa596feff.
 
 * Pack (module="pack")
   Old Unix compressed file format (.z).
