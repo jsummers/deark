@@ -10,6 +10,7 @@ struct de_dfilter_in_params {
 	dbuf *f;
 	i64 pos;
 	i64 len;
+	UI id; // Mainly for debugging
 };
 
 struct de_dfilter_out_params {

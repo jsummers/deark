@@ -74,6 +74,7 @@ static void tome_decompress_fork(struct tome_md *md, UI fn, dbuf *outf)
 	de_dbg_indent_save(c, &saved_indent_level);
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.id = (UI)(md->member_idx * 1000 + fn);
 	dcmpri.f = c->infile;
 	dcmpri.pos = md->frk[fn].cmpr_pos;
 	dcmpri.len = md->frk[fn].cmpr_len;
@@ -366,5 +367,5 @@ void de_module_tome(deark *c, struct deark_module_info *mi)
 	mi->desc = "Tome";
 	mi->run_fn = de_run_tome;
 	mi->identify_fn = de_identify_tome;
-	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
+	mi->flags |= DE_MODFLAG_NONWORKING;
 }

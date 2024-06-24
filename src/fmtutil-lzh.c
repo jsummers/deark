@@ -2488,13 +2488,7 @@ static UI ic1_read_matchlencode(struct lzh_ctx *cctx)
 		UI count_of_1s;
 
 		// Note that we've already read 5 1s.
-		count_of_1s = (UI)read_run_of_1_bits(cctx, 32);
-		if(count_of_1s>26) { // TODO: What is the limit?
-			de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
-				"Match-len too large");
-			cctx->err_flag = 1;
-			goto done;
-		}
+		count_of_1s = (UI)read_run_of_1_bits(cctx, 5);
 		count_of_1s += 5;
 		num_extra_bits = count_of_1s;
 		v = (1U<<count_of_1s) - 5;
@@ -2507,7 +2501,6 @@ static UI ic1_read_matchlencode(struct lzh_ctx *cctx)
 		v += x;
 	}
 
-done:
 	return v;
 }
 
@@ -2594,9 +2587,11 @@ static UI ic1_read_distance(struct lzh_ctx *cctx)
 			if(code11_param) {
 				UI n_extra_bits3;
 
-				if(bd>=1652 && bd<=1664) {
-					// FIXME: This hack probably shouldn't be here, and this range
-					// is surely too small.
+				if(bd>=1644 && bd<=1664) {
+					// FIXME: This hack shouldn't be here, and this range may be wrong.
+					// 1642 needs to NOT be included
+					// 1643 unknown
+					// 1644 needs to be included
 					n_extra_bits3 = 11;
 				}
 				else if(bd>43008) {
