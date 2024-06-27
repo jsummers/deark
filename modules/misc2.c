@@ -3252,6 +3252,7 @@ done:
 static void do_fmtownsicn_FJ(deark *c, struct fmtownsicn_ctx *d)
 {
 	i64 num_icons;
+	i64 num_icons_capacity;
 	i64 w, h;
 	i64 rowspan;
 	i64 icon_size;
@@ -3286,21 +3287,37 @@ static void do_fmtownsicn_FJ(deark *c, struct fmtownsicn_ctx *d)
 	}
 	rowspan = 16;
 	icon_size = 2+rowspan*h;
-	if(16+icon_size*num_icons != c->infile->len) {
+
+	if(c->infile->len<16 ||
+		((c->infile->len-16) % icon_size)!=0)
+	{
 		d->need_errmsg = 1;
 		goto done;
 	}
 
+	num_icons_capacity = (c->infile->len-16) / icon_size;
+	if(num_icons_capacity < num_icons) {
+		de_warn(c, "Expected %"I64_FMT" icons, only found %"I64_FMT,
+			num_icons, num_icons_capacity);
+		num_icons = num_icons_capacity;
+	}
+
 	for(i=0; i<num_icons; i++) {
 		de_bitmap *img;
+		UI id;
 
-		pos = 16+i*icon_size + 2;
+		pos = 16+i*icon_size;
 		de_dbg(c, "icon at %"I64_FMT, pos);
+		de_dbg_indent(c, 1);
+		id = (UI)dbuf_getu16x(c->infile, pos, d->is_le);
+		de_dbg(c, "id: 0x%04x", id);
+
 		img = de_bitmap_create(c, w, h, 3);
-		de_convert_image_paletted(c->infile, pos, 4, rowspan,
+		de_convert_image_paletted(c->infile, pos+2, 4, rowspan,
 			d->pal16, img, 0x01);
 		de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
 		de_bitmap_destroy(img);
+		de_dbg_indent(c, -1);
 	}
 done:
 	;
