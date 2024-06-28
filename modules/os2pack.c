@@ -18,7 +18,7 @@ static UI os2pack_is_member_at(dbuf *f, i64 pos)
 
 	sig = (UI)dbuf_getu32be(f, pos);
 	return (sig==0xa596feffU || sig==0xa596ffffU ||
-		sig==0xa5960014U) ? 1 : 0;
+		sig==0xa5960014U || sig==0xa596140aU) ? 1 : 0;
 }
 
 static UI os2pack2_is_member_at(dbuf *f, i64 pos)
@@ -121,7 +121,7 @@ static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member
 	attribs = (UI)de_getbyte_p(&pos);
 	de_arch_handle_field_dos_attr(md, attribs);
 
-	if(d->fmtcode==0x1400) {
+	if(d->fmtcode==0x1400 || d->fmtcode==0x0a14) {
 		pos += 1;
 	}
 	else if(d->fmtcode==0xffff) {
@@ -160,7 +160,7 @@ static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member
 		de_dbg(c, "unk4: %"I64_FMT, unk4);
 	}
 
-	if(d->fmtcode==0x1400) {
+	if(d->fmtcode==0x1400 || d->fmtcode==0x0a14) {
 		fnlen = 13;
 	}
 	else if(d->fmtcode==0xffff) {
@@ -237,7 +237,9 @@ static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member
 		os2pack2_read_cmpr_method(c, md->cmpr_pos, md->cmpr_len);
 	}
 
-	if(d->fmtcode==0x1400 || d->fmtcode==0xffff || d->fmtcode==0xfffe) {
+	if(d->fmtcode==0x1400 || d->fmtcode==0x0a14 || d->fmtcode==0xffff ||
+		d->fmtcode==0xfffe)
+	{
 		md->dfn = os2pack_decompressor_fn;
 		de_arch_extract_member_file(md);
 		if(ea_pos>0 && ea_len>0) {
@@ -272,7 +274,9 @@ static void do_run_os2pack12(deark *c, de_module_params *mparams, UI ver)
 	}
 	else {
 		d->fmtcode = (UI)de_getu16le(2);
-		if(d->fmtcode!=0x1400 && d->fmtcode!=0xffff && d->fmtcode!=0xfffe) {
+		if(d->fmtcode!=0x1400 && d->fmtcode!=0x0a14 && d->fmtcode!=0xffff &&
+			d->fmtcode!=0xfffe)
+		{
 			d->need_errmsg = 1;
 			goto done;
 		}
