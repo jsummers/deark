@@ -466,6 +466,11 @@ Deark -- Information about supported formats
    -opt pict:decodeqt - Try to decode embedded "QuickTime" images directly,
     instead of always extracting to .qtif format.
 
+* PixFolio catalog (.cat) (module="pixfolio") (experimental)
+  - Supports the format used by Win3.x versions of the software.
+  Options
+   -opt pixfolio:undelete - Also extract deleted images.
+
 * PKM (GrafX2 image) (module="pkm")
 
 * PNG / MNG / JNG (module="png")

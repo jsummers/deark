@@ -41,6 +41,7 @@ DE_DECLARE_MODULE(de_module_imggal_alch);
 DE_DECLARE_MODULE(de_module_iconmgr_ica);
 DE_DECLARE_MODULE(de_module_thumbsplus);
 DE_DECLARE_MODULE(de_module_fmtowns_icn);
+DE_DECLARE_MODULE(de_module_pixfolio);
 
 // **************************************************************************
 // HP 100LX / HP 200LX .ICN icon format
@@ -3380,4 +3381,262 @@ void de_module_fmtowns_icn(deark *c, struct deark_module_info *mi)
 	mi->desc = "FM Towns icons";
 	mi->run_fn = de_run_fmtowns_icn;
 	mi->identify_fn = de_identify_fmtowns_icn;
+}
+
+// **************************************************************************
+// PixFolio catalog (Allen C. Kempe) (Win3.x version)
+// **************************************************************************
+
+struct pixfolio_ctx {
+	de_encoding input_encoding;
+	u8 opt_undelete;
+	u8 fatalerrflag;
+	u8 need_errmsg;
+	UI deleted_count;
+	de_ucstring *tmpstr;
+};
+
+struct pixfolio_item_ctx {
+	i64 pos;
+	i64 total_len;
+	struct de_stringreaderdata *basefn_srd;
+	u8 blank_basefn;
+	struct de_bmpinfo bi;
+};
+
+static void pixfolio_item_destroy(deark *c, struct pixfolio_item_ctx *md)
+{
+	if(!md) return;
+	de_destroy_stringreaderdata(c, md->basefn_srd);
+	de_free(c, md);
+}
+
+static void read_pixfolio_timestamp(deark *c, struct pixfolio_ctx *d,
+	struct pixfolio_item_ctx *md)
+{
+	de_ucstring *dtstr = NULL;
+	de_ucstring *tmstr = NULL;
+
+	dtstr = ucstring_create(c);
+	tmstr = ucstring_create(c);
+
+	dbuf_read_to_ucstring(c->infile, md->pos+343, 10, dtstr, DE_CONVFLAG_STOP_AT_NUL,
+		DE_ENCODING_LATIN1);
+	dbuf_read_to_ucstring(c->infile, md->pos+354, 8, tmstr, DE_CONVFLAG_STOP_AT_NUL,
+		DE_ENCODING_LATIN1);
+	de_dbg(c, "timestamp: \"%s %s\"", ucstring_getpsz_d(dtstr),
+		ucstring_getpsz_d(tmstr));
+
+	// We don't do anything with the timestamp, because:
+	// * There are at least 3 different date formats ("MM/DD/YYYY", "DD/MM/YYYY",
+	// "MM-DD-YYYY") and seemingly no way to tell which was used.
+	// * The time of day seems to be a 12-hour clock with no AM/PM flag.
+
+	ucstring_destroy(tmstr);
+	ucstring_destroy(dtstr);
+}
+
+static void pixfolio_check_blank_name(deark *c, struct pixfolio_ctx *d,
+	struct pixfolio_item_ctx *md)
+{
+	size_t k;
+
+	if(!md->basefn_srd) return;
+	if(md->basefn_srd->sz_strlen!=12) return;
+
+	for(k=0; k<12; k++) {
+		if(md->basefn_srd->sz[k]!=0x20) return;
+	}
+	md->blank_basefn = 1;
+}
+
+// If successfully parsed, sets md->total_len
+static void do_pixfolio_item(deark *c, struct pixfolio_ctx *d,
+	struct pixfolio_item_ctx *md)
+{
+	i64 pos;
+	i64 dibpos;
+	i64 dib_len1, dib_len2, dib_len;
+	i64 descr_len;
+	i64 xtra_len;
+	i64 amt_to_copy1, amt_to_copy2;
+	dbuf *outf = NULL;
+	de_finfo *fi = NULL;
+	int ret;
+	int errflag = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	de_dbg(c, "item at %"I64_FMT, md->pos);
+	de_dbg_indent(c, 1);
+
+	fi = de_finfo_create(c);
+	md->basefn_srd = dbuf_read_string(c->infile, md->pos, 12, 12, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(md->basefn_srd->str));
+	pixfolio_check_blank_name(c, d, md);
+
+	ucstring_empty(d->tmpstr);
+	dbuf_read_to_ucstring(c->infile, md->pos+25, 64, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "path: \"%s\"", ucstring_getpsz_d(d->tmpstr));
+
+	read_pixfolio_timestamp(c, d, md);
+
+	pos = md->pos + 363;
+	// TODO: The "dib_len" fields need more research. They are usually equal.
+	// Sometimes, one of them is 0, so we use the other one.
+	dib_len1 = de_getu32le_p(&pos); // Is this 32 or 16 bit?
+	de_dbg(c, "dib len1: %"I64_FMT, dib_len1);
+	dib_len2 = de_getu16le_p(&pos);
+	de_dbg(c, "dib len2: %"I64_FMT, dib_len2);
+	if(dib_len1 && dib_len2 && (dib_len1 != dib_len2)) {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+	dib_len = dib_len2 ? dib_len2 : dib_len1;
+
+	descr_len = de_getu16le_p(&pos);
+	de_dbg(c, "descr len: %"I64_FMT, descr_len);
+	xtra_len = de_getu16le_p(&pos); // TODO: What is this segment
+	de_dbg(c, "xtra len: %"I64_FMT, xtra_len);
+
+	md->total_len = 373 + descr_len + 1 + dib_len + xtra_len;
+	pos += descr_len + 1;
+	dibpos = pos;
+	de_dbg(c, "dib pos: %"I64_FMT, dibpos);
+	if(dibpos+dib_len > c->infile->len) {
+		errflag = 1;
+		goto done;
+	}
+
+	if(dib_len==0) {
+		de_dbg(c, "[no image]");
+		goto done;
+	}
+
+	if(md->blank_basefn) {
+		de_dbg(c, "[deleted]");
+		d->deleted_count++;
+		if(!d->opt_undelete) goto done;
+	}
+
+	// Expecting a 40-byte BITMAPINFOHEADER here. If it's not, assume
+	// we've gone off the rails.
+	if((UI)de_getu32le(dibpos) != 40) {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	ret = fmtutil_get_bmpinfo(c, c->infile, &md->bi, dibpos,
+		c->infile->len - dibpos, 0);
+	if(!ret) {
+		errflag = 1;
+		goto done;
+	}
+
+	amt_to_copy1 = dib_len;
+	amt_to_copy2 = md->bi.size_of_headers_and_pal + md->bi.sizeImage_field;
+	amt_to_copy1 = de_min_int(amt_to_copy1, amt_to_copy2);
+
+	if(md->blank_basefn) {
+		de_finfo_set_name_from_sz(c, fi, "deleted", 0, DE_ENCODING_LATIN1);
+	}
+	else if(c->filenames_from_file) {
+		de_finfo_set_name_from_ucstring(c, fi, md->basefn_srd->str, 0);
+	}
+
+	outf = dbuf_create_output_file(c, "bmp", fi, 0);
+	fmtutil_generate_bmpfileheader(c, outf, &md->bi, 14+amt_to_copy1);
+	dbuf_copy(c->infile, dibpos, amt_to_copy1, outf);
+
+done:
+	if(md->total_len<=0) {
+		d->fatalerrflag = 1;
+	}
+	if(errflag) {
+		de_err(c, "Failed to decode item at %"I64_FMT, md->pos);
+	}
+	dbuf_close(outf);
+	de_finfo_destroy(c, fi);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void de_run_pixfolio(deark *c, de_module_params *mparams)
+{
+	struct pixfolio_ctx *d = NULL;
+	struct pixfolio_item_ctx *md = NULL;
+	i64 pos;
+
+	d = de_malloc(c, sizeof(struct pixfolio_ctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
+	d->opt_undelete = (u8)de_get_ext_option_bool(c, "pixfolio:undelete", 0);
+	d->tmpstr = ucstring_create(c);
+
+	pos = 0;
+	while(1) {
+		if(d->fatalerrflag) goto done;
+		if(pos+373 > c->infile->len) goto done;
+		if(md) {
+			pixfolio_item_destroy(c, md);
+			md = NULL;
+		}
+		md = de_malloc(c, sizeof(struct pixfolio_item_ctx));
+		md->pos = pos;
+		do_pixfolio_item(c, d, md);
+		if(md->total_len<=0) goto done;
+		pos += md->total_len;
+	}
+
+done:
+	pixfolio_item_destroy(c, md);
+	if(d) {
+		if(d->deleted_count!=0 && !d->opt_undelete) {
+			de_info(c, "Note: Deleted items found. Use \"-opt pixfolio:undelete\" "
+				"to extract them.");
+		}
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported file");
+		}
+		ucstring_destroy(d->tmpstr);
+		de_free(c, d);
+	}
+}
+
+static int de_identify_pixfolio(deark *c)
+{
+	u8 buf[20];
+	i64 n1, n2;
+
+	// This probably doesn't identify *every* PixFolio CAT file.
+	// It assumes the first item contains an image, which is quite possibly not
+	// always true.
+	if(de_getbyte(0)<0x20) return 0;
+	if(!de_input_file_has_ext(c, "cat")) return 0;
+	de_read(buf, 343, 20);
+	if(buf[2]!='/' && buf[2]!='-') return 0;
+	if(buf[13]!=':') return 0;
+	n1 = de_getu16le(369); // Descr len
+	n2 = de_getu32le(373+n1+1); // DIB header size
+	if(n2 != 40) return 0;
+	n2 = de_getu16le(373+n1+1+12); // #planes
+	if(n2 != 1) return 0;
+	return 80;
+}
+
+static void de_help_pixfolio(deark *c)
+{
+	de_msg(c, "-opt pixfolio:undelete : Also extract deleted images");
+}
+
+void de_module_pixfolio(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "pixfolio";
+	mi->desc = "PixFolio catalog";
+	mi->run_fn = de_run_pixfolio;
+	mi->identify_fn = de_identify_pixfolio;
+	mi->help_fn = de_help_pixfolio;
 }
