@@ -268,6 +268,8 @@ $(OBJDIR)/modules/qtif.o: modules/qtif.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/rar.o: modules/rar.c src/deark-private.h src/deark.h \
  src/deark-config.h src/deark-fmtutil-arch.h src/deark-fmtutil.h
+$(OBJDIR)/modules/reko.o: modules/reko.c src/deark-private.h src/deark.h \
+ src/deark-config.h
 $(OBJDIR)/modules/riff.o: modules/riff.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/rm.o: modules/rm.c src/deark-config.h \
