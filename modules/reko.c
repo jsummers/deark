@@ -23,6 +23,7 @@ typedef struct localctx_reko {
 	u8 is_pc;
 	u8 fatalerrflag;
 	u8 need_errmsg;
+	u8 suppress_size_warnings;
 	i64 bodysize;
 	i64 cardsize;
 	i64 w, h;
@@ -55,6 +56,11 @@ static void read_header_amiga(deark *c, lctx *d)
 	d->h = de_getu16be_p(&pos);
 	d->w = de_getu16be_p(&pos);
 	de_dbg_dimensions(c, d->w, d->h);
+	if(d->w != 88) {
+		de_warn(c, "Unexpected width %d; assuming it should be 88", (int)d->w);
+		d->w = 88;
+		d->suppress_size_warnings = 1;
+	}
 	d->camg_mode = (UI)de_getu32be_p(&pos);
 	de_dbg(c, "CAMG mode: 0x%08x", d->camg_mode);
 	if(d->camg_mode & 0x0800) d->ham_flag = 1;
@@ -322,16 +328,18 @@ static void reko_main(deark *c, lctx *d)
 	else {
 		i64 bytes_per_row_per_plane;
 
-		bytes_per_row_per_plane = (d->w+7)/8;
+		// We expect the width to be a multiple of 8. Other widths are not
+		// supported.
+		bytes_per_row_per_plane = (d->w)/8;
 		d->amiga_plane_stride = bytes_per_row_per_plane;
 		d->amiga_row_stride = bytes_per_row_per_plane * d->depth_pixel;
-		expected_cardsize = bytes_per_row_per_plane * d->depth_pixel * d->h;
+		expected_cardsize = (d->w * d->h * d->depth_pixel)/8;
 	}
 
-	if(d->cardsize != expected_cardsize) {
-		d->fatalerrflag = 1;
-		d->need_errmsg = 1;
-		goto done;
+	if(d->cardsize!=expected_cardsize && !d->suppress_size_warnings) {
+		de_warn(c, "Reported cardsize is %"I64_FMT"; expected %"I64_FMT,
+			d->cardsize, expected_cardsize);
+		d->suppress_size_warnings = 1;
 	}
 
 	d->localpal_nbytes = 0;
