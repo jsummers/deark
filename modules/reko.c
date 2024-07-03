@@ -7,16 +7,17 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_reko);
 
-#define MINCARDS       52
-#define MAXCARDS       68
+#define MINCARDS       40
+#define MAXCARDS       80
 #define MINCARDWIDTH   64
 #define MAXCARDWIDTH   100
 #define MINCARDHEIGHT  100
 #define MAXCARDHEIGHT  150
 
-#define RKFMT_RKP16   1
-#define RKFMT_RKP8    2
-#define RKFMT_AMIGA   10
+#define RKFMT_AMIGA   1
+#define RKFMT_RKP8    4
+#define RKFMT_RKP16   5
+#define RKFMT_RKP24   6
 
 typedef struct localctx_reko {
 	u8 fmt; // RKFMT_*
@@ -134,6 +135,35 @@ static void read_header_pc(deark *c, lctx *d)
 	d->numcards = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "num cards: %"I64_FMT, d->numcards);
 	d->hdrsize = pos;
+
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+// TODO?: Support for RKP 24 is quick and dirty.
+static void read_header_rkp24(deark *c, lctx *d)
+{
+	i64 pos = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	de_dbg(c, "header at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
+	pos += 8;
+
+	d->cardsize = de_getu32le_p(&pos);
+	de_dbg(c, "card size: %"I64_FMT, d->cardsize);
+	d->bodysize = de_getu32le_p(&pos);
+	de_dbg(c, "body size: %"I64_FMT, d->bodysize);
+	d->w = de_getu32le_p(&pos);
+	d->h = de_getu32le_p(&pos);
+	de_dbg_dimensions(c, d->w, d->h);
+	d->depth_pixel = (UI)de_getu32le_p(&pos);
+	de_dbg(c, "depth: %u", d->depth_pixel);
+	d->depth_color = d->depth_pixel;
+	d->numcards = (i64)de_getu32le_p(&pos);
+	de_dbg(c, "num cards: %"I64_FMT, d->numcards);
+	d->hdrsize = 1104;
 
 	de_dbg_indent_restore(c, saved_indent_level);
 }
@@ -287,6 +317,107 @@ static void read_image_pc16(deark *c, lctx *d, de_bitmap *img, i64 pos1)
 	}
 }
 
+static void set_pc_card_filename(deark *c, i64 cardidx, de_finfo *fi)
+{
+	static const char *cnames = "a23456789tjqk";
+	static const char *snames = "cdhs";
+	char nbuf[16];
+
+	if(cardidx>=1 && cardidx<=52) {
+		nbuf[0] = cnames[(cardidx-1)/4];
+		nbuf[1] = snames[(cardidx-1)%4];
+		nbuf[2] = '\0';
+	}
+	else if(cardidx==0) {
+		de_strlcpy(nbuf, "back", sizeof(nbuf));
+	}
+	else {
+		de_strlcpy(nbuf, "other", sizeof(nbuf));
+	}
+
+	de_finfo_set_name_from_sz(c, fi, nbuf, 0, DE_ENCODING_LATIN1);
+}
+
+static void reko_main_rkp24(deark *c, lctx *d)
+{
+	i64 pos;
+	int saved_indent_level;
+	i64 cardidx;
+	u8 jpeg_fmt = 0;
+	const char *ext;
+	de_finfo *fi = NULL;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	pos = d->hdrsize;
+	de_dbg(c, "cards at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
+
+	fi = de_finfo_create(c);
+
+	if(d->cardsize==0) {
+		jpeg_fmt = 1;
+		ext = "jpg";
+	}
+	else {
+		ext = "bmp";
+	}
+
+	if(d->numcards<MINCARDS || d->numcards>MAXCARDS) {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	for(cardidx=0; cardidx<d->numcards; cardidx++) {
+		i64 extract_pos = 0;
+		i64 nbytes_to_extract = 0;
+		i64 this_cardsize = 0;
+		dbuf *outf;
+
+		de_dbg(c, "card #%"I64_FMT" at %"I64_FMT, cardidx, pos);
+		de_dbg_indent(c, 1);
+
+		if(jpeg_fmt) {
+			extract_pos = pos+4;
+			if(de_getu16be(extract_pos) != 0xffd8) {
+				d->fatalerrflag = 1;
+				d->need_errmsg = 1;
+				goto done;
+			}
+			nbytes_to_extract = de_getu32le(pos);
+			this_cardsize = 4+nbytes_to_extract;
+		}
+		else {
+			if(de_getu16be(pos) != 0x424d) {
+				d->fatalerrflag = 1;
+				d->need_errmsg = 1;
+				goto done;
+			}
+			extract_pos = pos;
+			nbytes_to_extract = d->cardsize;
+			this_cardsize = d->cardsize;
+		}
+
+		if(extract_pos+nbytes_to_extract > c->infile->len) {
+			d->fatalerrflag = 1;
+			d->need_errmsg = 1;
+			goto done;
+		}
+
+		set_pc_card_filename(c, cardidx, fi);
+		outf = dbuf_create_output_file(c, ext, fi, 0);
+		dbuf_copy(c->infile, extract_pos, nbytes_to_extract, outf);
+		dbuf_close(outf);
+
+		pos += this_cardsize;
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	de_finfo_destroy(c, fi);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static void reko_main(deark *c, lctx *d)
 {
 	i64 pos;
@@ -351,6 +482,8 @@ static void reko_main(deark *c, lctx *d)
 
 	canvas_cols = 13;
 	canvas_rows = (d->numcards+12) / 13;
+	// There has to be at least 1 extra card, so we need at least 5 rows.
+	if(canvas_rows<5) canvas_rows = 5;
 	cxpos_maincards = 0;
 	cypos_maincards = 0;
 	cxpos_extracards = 0;
@@ -442,11 +575,18 @@ static u8 reko_fmt_from_sig(deark *c)
 	de_read(buf, 0, sizeof(buf));
 
 	if(!de_memcmp(buf, (const void*)"REKO", 4)) {
-		return RKFMT_AMIGA;
+		// Just to screen out text files, I think we can assume the high byte
+		// of the cardsize field is 0.
+		if(de_getbyte(8) == 0) {
+			return RKFMT_AMIGA;
+		}
 	}
 	if(!de_memcmp(buf, (const void*)"PCREKO", 6)) {
 		if(buf[6]=='D' && buf[7]==0x20) return RKFMT_RKP8;
 		if(buf[6]==0 && buf[7]==0) return RKFMT_RKP16;
+	}
+	if(!de_memcmp(buf, (const void*)"PCRKP\0", 6)) {
+		return RKFMT_RKP24;
 	}
 	return 0;
 }
@@ -463,12 +603,15 @@ static void de_run_reko(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	if(d->fmt==RKFMT_RKP8 || d->fmt==RKFMT_RKP16) {
+	if(d->fmt==RKFMT_RKP8 || d->fmt==RKFMT_RKP16 || d->fmt==RKFMT_RKP24) {
 		d->is_pc = 1;
 	}
 	de_dbg(c, "platform: %s", (d->is_pc ? "pc" : "amiga"));
 
-	if(d->is_pc) {
+	if(d->fmt==RKFMT_RKP24) {
+		read_header_rkp24(c, d);
+	}
+	else if(d->is_pc) {
 		read_header_pc(c, d);
 	}
 	else {
@@ -480,7 +623,12 @@ static void de_run_reko(deark *c, de_module_params *mparams)
 		read_palette_amiga(c, d);
 	}
 	if(d->fatalerrflag) goto done;
-	reko_main(c, d);
+	if(d->fmt==RKFMT_RKP24) {
+		reko_main_rkp24(c, d);
+	}
+	else {
+		reko_main(c, d);
+	}
 
 done:
 	if(d) {
@@ -506,5 +654,4 @@ void de_module_reko(deark *c, struct deark_module_info *mi)
 	mi->desc = "REKO cardset";
 	mi->run_fn = de_run_reko;
 	mi->identify_fn = de_identify_reko;
-	mi->flags |= DE_MODFLAG_HIDDEN;
 }

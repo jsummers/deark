@@ -526,6 +526,8 @@ Deark -- Information about supported formats
   - Extract embedded JPEG, TIFF, and other image files.
   - Decode some "raw" (uncompressed) images.
 
+* REKO cardset (module="reko")
+
 * RIPscrip icon (.ICN) or BGI image (module="ripicon") (experimental)
   - Not all files are autodetected. You may need "-m ripicon".
   - Only 16-color images are supported.
@@ -839,7 +841,7 @@ Deark -- Information about supported formats
   This is usually a file named "setup.ibt".
 
 * InstallShield installer archive (module="is_instarch")
-  This is usually a file named "_inst32i.ex_" or "_inst16_.ex_".
+  This is usually a file named "_inst32i.ex_" or "_inst16.ex_".
 
 * InstallShield Z archive (module="is_z")
 
