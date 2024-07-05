@@ -804,6 +804,8 @@ int dbuf_get_utf16_NULterm_len(dbuf *f, i64 pos1, i64 bytes_avail,
 int dbuf_find_line(dbuf *f, i64 pos1, i64 *pcontent_len, i64 *ptotal_len);
 int de_memmatch(const u8 *mem, const u8 *pattern, size_t pattern_len,
 	u8 wildcard, UI flags);
+int de_memsearch_match(const u8 *mem, i64 mem_len,
+	const u8 *pattern, i64 pattern_len, u8 wildcard, i64 *pfoundpos);
 
 struct de_fourcc {
   u8 bytes[4];
@@ -1016,6 +1018,7 @@ de_color de_get_std_palette_entry(int pal_id, int pal_subid, int index);
 #define DE_COPYPALFLAG_INITPAL 0x10
 void de_copy_std_palette(int pal_id, int pal_subid, i64 starting_idx,
 	de_color *dstpal, size_t dstpal_capacity, UI flags);
+void de_copy_palette_from_rgb24(const u8 *src, de_color *dst, size_t ncolors);
 
 const u8 *de_get_8x8ascii_font_ptr(void);
 const u8 *de_get_vga_cp437_font_ptr(void);

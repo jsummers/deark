@@ -4,8 +4,8 @@
 
 // AMOS sprite/icon bank
 
-#include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_abk);
 DE_DECLARE_MODULE(de_module_amos_source);
 
@@ -254,70 +254,81 @@ static void picture_bank_screen_header(deark *c, lctx *d, struct amosbank *bk, i
 	de_dbg_indent(c, -1);
 }
 
-static void picture_bank_uncompress(deark *c, lctx *d, struct amosbank *bk,
-	dbuf *unc_pixels)
+struct pictbank_params {
+	u8 ok;
+	UI num_planes;
+	UI bits_per_pixel;
+	i64 width_in_bytes;
+	i64 height_in_lumps;
+	i64 lines_per_lump;
+	i64 pseudoheight;
+	dbuf *unc_pixels;
+	de_bitmap *img;
+	de_color *pal;
+};
+
+// TODO: Consolidate this with the similar function in mbk.c.
+// (Deferred for now. Should probably at least investigate HAM picture banks,
+// first.)
+static void render_stos_pictbank(deark *c, struct pictbank_params *pb)
 {
-	i64 picdatapos; // file offset of next unread byte
-	i64 rledatapos;
-	i64 pointspos;
-	u8 picbyte;
-	u8 rlebyte;
-	u8 pointsbyte;
-	int rbitnum, pbitnum;
+	i64 planesize;
+	i64 lump;
+	u8 xbuf[8];
 
-	de_dbg(c, "uncompressing picture");
-	de_dbg_indent(c, 1);
+	if((size_t)pb->num_planes > sizeof(xbuf)) goto done;
+	if(pb->bits_per_pixel != pb->num_planes) goto done;
+	de_zeromem(xbuf, sizeof(xbuf));
+	planesize = pb->width_in_bytes * pb->pseudoheight;
 
-	picdatapos = bk->pic_picdata_offset;
-	rledatapos = bk->pic_rledata_offset;
-	pointspos = bk->pic_points_offset;
+	for(lump=0; lump<pb->height_in_lumps; lump++) {
+		i64 col_idx;
+		i64 lump_start_srcpos_in_plane;
+		i64 lump_start_ypos;
 
-	picbyte = dbuf_getbyte(bk->f, picdatapos++);
-	rlebyte = dbuf_getbyte(bk->f, rledatapos++);
-	rbitnum = 7;
-	pointsbyte = dbuf_getbyte(bk->f, pointspos++);
-	pbitnum = 7;
+		lump_start_srcpos_in_plane = pb->width_in_bytes * pb->lines_per_lump * lump;
+		lump_start_ypos = pb->lines_per_lump * lump;
 
-	if(pointsbyte & (1 << pbitnum--)) {
-		rlebyte = dbuf_getbyte(bk->f, rledatapos++);
-	}
+		for(col_idx=0; col_idx<pb->width_in_bytes; col_idx++) {
+			i64 col_start_srcpos_in_plane;
+			i64 ypos_in_lump;
 
-	while(1) {
-		if(unc_pixels->len >= bk->picdata_expected_unc_bytes) break;
-		if(rlebyte & (1 << rbitnum--)) {
-			picbyte = dbuf_getbyte(bk->f, picdatapos++);
-		}
+			col_start_srcpos_in_plane = lump_start_srcpos_in_plane +
+				pb->lines_per_lump*col_idx;
 
-		dbuf_writebyte(unc_pixels, picbyte);
+			for(ypos_in_lump=0; ypos_in_lump<pb->lines_per_lump; ypos_in_lump++) {
+				UI i;
+				UI pn;
+				i64 xpos, ypos;
 
-		if(rbitnum < 0) {
-			if(pointsbyte & (1 << pbitnum--)) {
-				rlebyte = dbuf_getbyte(bk->f, rledatapos++);
+				ypos = lump_start_ypos + ypos_in_lump;
+
+				for(pn=0; pn<pb->num_planes; pn++) {
+					xbuf[pn] = dbuf_getbyte(pb->unc_pixels, planesize*pn +
+						col_start_srcpos_in_plane + ypos_in_lump);
+				}
+
+				for(i=0; i<8; i++) {
+					UI palent;
+
+					palent = 0;
+					for(pn=0; pn<pb->bits_per_pixel; pn++) {
+						if(xbuf[pn] & (1<<(7-i))) {
+							palent |= (1<<pn);
+						}
+					}
+
+					xpos = col_idx*8 + i;
+					de_bitmap_setpixel_rgb(pb->img, xpos, ypos, pb->pal[palent]);
+				}
 			}
-			rbitnum = 7;
-
-			if(pbitnum < 0) {
-				pointsbyte = dbuf_getbyte(bk->f, pointspos++);
-				pbitnum = 7;
-			}
 		}
 	}
 
-	{
-		i64 cmpr_pic_bytes, cmpr_rle_bytes, points_bytes;
+	pb->ok = 1;
 
-		cmpr_pic_bytes = picdatapos - bk->pic_picdata_offset;
-		cmpr_rle_bytes = rledatapos - bk->pic_rledata_offset;
-		points_bytes = pointspos - bk->pic_points_offset;
-		de_dbg(c, "compressed pic bytes: %d", (int)cmpr_pic_bytes);
-		de_dbg(c, "compressed rle bytes: %d", (int)cmpr_rle_bytes);
-		de_dbg(c, "points bytes: %d", (int)points_bytes);
-		de_dbg(c, "uncompressed %d bytes to %d bytes",
-			(int)(cmpr_pic_bytes + cmpr_rle_bytes + points_bytes),
-			(int)unc_pixels->len);
-	}
-
-	de_dbg_indent(c, -1);
+done:
+	;
 }
 
 static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, i64 pos)
@@ -328,17 +339,7 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, i6
 	i64 width, height;
 	de_bitmap *img = NULL;
 	dbuf *unc_pixels = NULL;
-	i64 k;
-	i64 xpos, ypos;
-	i64 lump;
-	i64 line_in_lump;
-	i64 strip;
-	i64 plane;
-	unsigned int palent;
-	u8 x;
-	i64 planespan;
-	i64 lumpspan;
-	i64 pos_in_picdata;
+	struct pictbank_params *pb = NULL;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -385,43 +386,29 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, i6
 
 	bk->picdata_expected_unc_bytes = bytes_per_row_per_plane * bk->nplanes * height;
 	unc_pixels = dbuf_create_membuf(c, bk->picdata_expected_unc_bytes, 0);
-	picture_bank_uncompress(c, d, bk, unc_pixels);
-
+	fmtutil_decompress_stos_pictbank(c, c->infile, bk->pic_picdata_offset,
+		bk->pic_rledata_offset, bk->pic_points_offset,
+		unc_pixels, bk->picdata_expected_unc_bytes);
 	img = de_bitmap_create(c, width, height, 3);
 
-	lumpspan = bytes_per_row_per_plane * lines_per_lump;
-	planespan = lumpspan * height_in_lumps;
-	pos_in_picdata = 0;
-	ypos=0;
-	for(lump=0; lump<height_in_lumps; lump++) {
-		xpos = 0;
-		for(strip=0; strip<bytes_per_row_per_plane; strip++) {
-			for(line_in_lump=0; line_in_lump<lines_per_lump; line_in_lump++) {
-				for(k=0; k<8; k++) {
-					palent = 0;
-					for(plane=0; plane<bk->nplanes; plane++) {
-						x = de_get_bits_symbol(unc_pixels, 1, pos_in_picdata + plane*planespan, k);
-						if(x) palent |= 1<<plane;
-					}
-					if(palent<=255) {
-						de_bitmap_setpixel_rgb(img, xpos, ypos, bk->pal[palent]);
-					}
-					xpos++;
-				}
-				pos_in_picdata++;
-				xpos-=8;
-				ypos++;
-			}
-			xpos+=8;
-			ypos -= lines_per_lump;
-		}
-		ypos += lines_per_lump;
-	}
+	pb = de_malloc(c, sizeof(struct pictbank_params));
+	pb->num_planes = (UI)bk->nplanes;
+	pb->bits_per_pixel = pb->num_planes;
+	pb->width_in_bytes = bytes_per_row_per_plane;
+	pb->height_in_lumps = height_in_lumps;
+	pb->lines_per_lump = lines_per_lump;
+	pb->pseudoheight = height;
+	pb->unc_pixels = unc_pixels;
+	pb->img = img;
+	pb->pal = bk->pal;
+
+	render_stos_pictbank(c, pb);
 
 	de_bitmap_write_to_file(img, NULL, 0);
 done:
 	dbuf_close(unc_pixels);
 	de_bitmap_destroy(img);
+	de_free(c, pb);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 

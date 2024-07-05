@@ -200,6 +200,9 @@ Deark -- Information about supported formats
 * FLI/FLC (Autodesk Animator) (module="fli")
   - Extract the (non-repeated) frames.
 
+* FM Towns ICN (module="fmtowns_icn")
+  - A standard palette is used, which isn't ideal in all cases.
+
 * GEM VDI Bit Image (GEM Raster) (module="gemras")
   - Supports original bilevel format
   - Supports paletted XIMG format
@@ -277,6 +280,9 @@ Deark -- Information about supported formats
    -opt ilbm:fixpal=<0|1> - Don't/Do try to correct palettes that seem to have
      fewer than 8 bits of precision.
    -opt ilbm:allowspecial - Don't stop after certain errors.
+
+* Image Gallery GAL (module="imggal_alch")
+  Image catalog file from Image Gallery by Alchemy Mindworks.
 
 * IndyPaint (*.tru) (module="indypaint")
 
@@ -460,6 +466,11 @@ Deark -- Information about supported formats
    -opt pict:decodeqt - Try to decode embedded "QuickTime" images directly,
     instead of always extracting to .qtif format.
 
+* PixFolio catalog (.cat) (module="pixfolio") (experimental)
+  - Supports the format used by Win3.x versions of the software.
+  Options
+   -opt pixfolio:undelete - Also extract deleted images.
+
 * PKM (GrafX2 image) (module="pkm")
 
 * PNG / MNG / JNG (module="png")
@@ -515,6 +526,8 @@ Deark -- Information about supported formats
   - Extract embedded JPEG, TIFF, and other image files.
   - Decode some "raw" (uncompressed) images.
 
+* REKO cardset (module="reko")
+
 * RIPscrip icon (.ICN) or BGI image (module="ripicon") (experimental)
   - Not all files are autodetected. You may need "-m ripicon".
   - Only 16-color images are supported.
@@ -556,11 +569,17 @@ Deark -- Information about supported formats
 * Storyboard PIC/CAP (module="storyboard") (experimental)
   - Old ("EP_CAP") and new formats are mostly supported.
 
-* STOS Memory Bank (.mbk) (module="stos")
+* STOS Memory Bank and related formats (.mbk) (module="stos", ...)
+  Includes support for "Picture Packer" format. Helper modules such as
+  "stos_pp1" may exist.
   - Decode "sprite bank" images
   - Decode "icon bank" images
+  - Decode "packed screen" images
   Options
    -opt atari:palbits=<n> (refer to readme.md)
+   -opt stos:res0=<l|m> : Assume res 0 pics are low(standard)/med(DAJ) res.
+   -opt stos:res1=<l|m|h> : Assume res 1 pics are low(PP1)/med(standard)/
+     high(PP3) res.
 
 * Sun Raster (module="sunras") (incomplete)
   - Supports most common image types
@@ -580,6 +599,9 @@ Deark -- Information about supported formats
   - Extract thumbnail files (embedded JPEG or PNG files)
   - Some thumbnails use a nonstandard RGBA format. These are not converted to
     a portable format.
+
+* ThumbsPlus database (.tud) (module="thumbsplus")
+  - Thumbnail database format used by ThumbsUp! 1.x and ThumbsPlus 2.x.
 
 * TI calculator "variable" files (module="tivariable")
   - TI73/TI82/TI83 pictures
@@ -819,7 +841,7 @@ Deark -- Information about supported formats
   This is usually a file named "setup.ibt".
 
 * InstallShield installer archive (module="is_instarch")
-  This is usually a file named "_inst32i.ex_" or "_inst16_.ex_".
+  This is usually a file named "_inst32i.ex_" or "_inst16.ex_".
 
 * InstallShield Z archive (module="is_z")
 
@@ -929,6 +951,8 @@ Deark -- Information about supported formats
   Apple II compressed archive format.
 
 * OS/2 PACK archive (module="os2pack") (experimental)
+  - Supports the versions with signatures 0xa5961400, 0xa596140a, 0xa596ffff,
+    0xa596feff.
 
 * Pack (module="pack")
   Old Unix compressed file format (.z).
@@ -1238,6 +1262,12 @@ Deark -- Information about supported formats
   Metaformat used by WAV, AVI, WebP, etc.
   - RIFF can be parsed, but in many cases nothing can be extracted from it.
 
+* SHOW (module="show_gmr")
+  Executable text (.COM) files made by Gary M. Raymond's SHOW utility.
+  - Extracts the source text.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
+
 * Split (module="split")
   Split the file into equal-sized chunks.
   Options
@@ -1246,7 +1276,7 @@ Deark -- Information about supported formats
     start of the next chunk, in bytes.
 
 * TXT2COM (module="txt2com")
-  Executable COM files made by Graham's TXT2COM utility.
+  Executable text (.COM) files made by Graham's TXT2COM utility.
   - Extracts the source text. Does not necessarily render the document (e.g.
     colors) like running the COM file would.
   Options

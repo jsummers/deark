@@ -10,6 +10,7 @@ struct de_dfilter_in_params {
 	dbuf *f;
 	i64 pos;
 	i64 len;
+	UI id; // Mainly for debugging
 };
 
 struct de_dfilter_out_params {
@@ -164,6 +165,10 @@ void fmtutil_xpkMASH_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 void fmtutil_ic1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params);
+
+void fmtutil_decompress_stos_pictbank(deark *c, dbuf *inf,
+	i64 picdatapos, i64 rledatapos, i64 pointspos,
+	dbuf *unc_pixels, i64 unc_image_size);
 
 struct de_dfilter_ctx;
 typedef void (*dfilter_codec_type)(struct de_dfilter_ctx *dfctx, void *codec_private_params);

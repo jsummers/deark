@@ -2488,13 +2488,7 @@ static UI ic1_read_matchlencode(struct lzh_ctx *cctx)
 		UI count_of_1s;
 
 		// Note that we've already read 5 1s.
-		count_of_1s = (UI)read_run_of_1_bits(cctx, 32);
-		if(count_of_1s>26) { // TODO: What is the limit?
-			de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
-				"Match-len too large");
-			cctx->err_flag = 1;
-			goto done;
-		}
+		count_of_1s = (UI)read_run_of_1_bits(cctx, 5);
 		count_of_1s += 5;
 		num_extra_bits = count_of_1s;
 		v = (1U<<count_of_1s) - 5;
@@ -2507,7 +2501,6 @@ static UI ic1_read_matchlencode(struct lzh_ctx *cctx)
 		v += x;
 	}
 
-done:
 	return v;
 }
 
@@ -2594,12 +2587,14 @@ static UI ic1_read_distance(struct lzh_ctx *cctx)
 			if(code11_param) {
 				UI n_extra_bits3;
 
-				if(bd>=1652 && bd<=1664) {
-					// FIXME: This hack probably shouldn't be here, and this range
-					// is surely too small.
+				if(bd>=1644 && bd<=1664) {
+					// FIXME: This hack shouldn't be here, and this range may be wrong.
+					// 1642 needs to NOT be included
+					// 1643 unknown
+					// 1644 needs to be included
 					n_extra_bits3 = 11;
 				}
-				else if(bd>43008 && bd<=65536) {
+				else if(bd>43008) {
 					n_extra_bits3 = 15;
 				}
 				else {
@@ -2630,12 +2625,14 @@ static void ic1_internal(struct lzh_ctx *cctx)
 	deark *c = cctx->c;
 	u8 mode = 1;
 	UI k;
+	i64 next_special_outpos = 65536;
 	char descr[32];
 
 	(void)lzh_getbits(cctx, 32); // unused?
 
 	make_ic1_trees(c, cctx);
 
+	// TODO: Use the correct buffer size (32768?)
 	cctx->ringbuf = de_lz77buffer_create(cctx->c, 65536*2);
 	cctx->ringbuf->userdata = (void*)cctx;
 	cctx->ringbuf->writebyte_cb = lzh_lz77buf_writebytecb_flagerrors;
@@ -2655,11 +2652,14 @@ static void ic1_internal(struct lzh_ctx *cctx)
 			goto done;
 		}
 
-		if(cctx->nbytes_written >= 65536) {
-			cctx->err_flag = 1;
-			de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
-				"Files over 64k are not supported");
-			goto done;
+		if(cctx->nbytes_written >= next_special_outpos) {
+			de_bitreader_skip_to_byte_boundary(&cctx->bitrd);
+			if(c->debug_level>=3) {
+				de_dbg(c, "segment data at at %"I64_FMT, cctx->bitrd.curpos);
+			}
+			(void)lzh_getbits(cctx, 32);
+			next_special_outpos += 65536;
+			mode = 1; // TODO: Is this right?
 		}
 
 		matchlencode = ic1_read_matchlencode(cctx);

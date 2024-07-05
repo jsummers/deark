@@ -166,8 +166,8 @@ static int pkl_search_match(const u8 *mem, i64 mem_len,
 	const u8 *pattern, i64 pattern_len,
 	u8 wildcard, UI flags, i64 *pfoundpos)
 {
-	i64 num_start_positions_to_search;
-	i64 i;
+	i64 foundpos2;
+	int ret;
 
 	*pfoundpos = 0;
 
@@ -175,20 +175,13 @@ static int pkl_search_match(const u8 *mem, i64 mem_len,
 	if(search_startpos<0) search_startpos = 0;
 	if(search_endpos>mem_len) search_endpos = mem_len;
 	if(pattern_len > search_endpos-search_startpos) return 0;
-	num_start_positions_to_search = search_endpos-search_startpos-pattern_len+1;
 
-	for(i=0; i<num_start_positions_to_search; i++) {
-		int ret;
-
-		if(pattern[0]!=mem[search_startpos+i] && pattern[0]!=wildcard) continue;
-		ret = pkl_memmatch(&mem[search_startpos+i], pattern, (size_t)pattern_len, wildcard, 0);
-		if(ret) {
-			*pfoundpos = search_startpos+i;
-			return 1;
-		}
+	ret = de_memsearch_match(&mem[search_startpos], search_endpos-search_startpos,
+		pattern, pattern_len, wildcard, &foundpos2);
+	if(ret) {
+		*pfoundpos = search_startpos + foundpos2;
 	}
-
-	return 0;
+	return ret;
 }
 
 static void info_bytes_to_version_struct(UI ver_info, struct ver_info_struct *v)

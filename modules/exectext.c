@@ -6,6 +6,7 @@
 
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_txt2com);
+DE_DECLARE_MODULE(de_module_show_gmr);
 
 typedef struct localctx_exectext {
 	de_encoding input_encoding;
@@ -17,38 +18,14 @@ typedef struct localctx_exectext {
 	i64 tlen;
 } lctx;
 
-static int exectext_search_match(const u8 *mem, i64 mem_len,
-	const u8 *pattern, i64 pattern_len, u8 wildcard, i64 *pfoundpos)
-{
-	i64 num_start_positions_to_search;
-	i64 i;
-
-	*pfoundpos = 0;
-	if(pattern_len<1 || pattern_len>mem_len) return 0;
-	num_start_positions_to_search = mem_len-pattern_len+1;
-
-	for(i=0; i<num_start_positions_to_search; i++) {
-		int ret;
-
-		if(pattern[0]!=mem[i] && pattern[0]!=wildcard) continue;
-		ret = de_memmatch(&mem[i], pattern, (size_t)pattern_len, wildcard, 0);
-		if(ret) {
-			*pfoundpos = i;
-			return 1;
-		}
-	}
-
-	return 0;
-}
-
 // dbuf_copy_slice_convert_to_utf8() in HYBRID mode doesn't quite do what
-// we want for TXT2COM, mainly because it treats 0x00 and 0x09 as controls,
+// we want for TXT2COM (etc.), mainly because it treats 0x00 and 0x09 as controls,
 // while TXT2COM treats them as graphics.
 // Note:
 // - Early versions of TXT2COM stop when they see 0x1a, but later versions don't.
 //   We behave like later versions.
-// - We might not handle unpaired LF and CR byte exactly like TXT2COM does.
-static void txt2com_convert_and_write(deark *c, lctx *d, dbuf *outf)
+// - We might not handle an unpaired LF or CR byte exactly like TXT2COM does.
+static void txt2comlike_convert_and_write(deark *c, lctx *d, dbuf *outf)
 {
 	struct de_encconv_state es;
 	i64 endpos = d->tpos + d->tlen;
@@ -76,7 +53,7 @@ static void txt2com_convert_and_write(deark *c, lctx *d, dbuf *outf)
 	}
 }
 
-static void txt2com_extract(deark *c, lctx *d)
+static void txt2comlike_extract(deark *c, lctx *d)
 {
 	dbuf *outf = NULL;
 
@@ -90,7 +67,7 @@ static void txt2com_extract(deark *c, lctx *d)
 	outf = dbuf_create_output_file(c, "txt", NULL, 0);
 	dbuf_enable_wbuffer(outf);
 	if(d->opt_encconv) {
-		txt2com_convert_and_write(c, d, outf);
+		txt2comlike_convert_and_write(c, d, outf);
 	}
 	else {
 		dbuf_copy(c->infile, d->tpos, d->tlen, outf);
@@ -130,7 +107,7 @@ static void txt2com_search1(deark *c, lctx *d)
 
 	mem = de_malloc(c, TXT2COM_BUF_LEN1);
 	de_read(mem, TXT2COM_BUF_POS1, TXT2COM_BUF_LEN1);
-	ret = exectext_search_match(mem, TXT2COM_BUF_LEN1,
+	ret = de_memsearch_match(mem, TXT2COM_BUF_LEN1,
 		(const u8*)"\x8b\xd8\xb4\x40\x8b\x0e??\x8d\x16??\xcd\x21\xb4\x3e", 16,
 		'?', &foundpos);
 	if(!ret) goto done;
@@ -160,7 +137,7 @@ static void txt2com_search2(deark *c, lctx *d)
 
 	mem = de_malloc(c, TXT2COM_BUF_LEN2);
 	de_read(mem, TXT2COM_BUF_POS2, TXT2COM_BUF_LEN2);
-	ret = exectext_search_match(mem, TXT2COM_BUF_LEN2,
+	ret = de_memsearch_match(mem, TXT2COM_BUF_LEN2,
 		(const u8*)"\xcd?\xa1??\xd1\xe0\x03\x06??\x8d???\x03", 16,
 		'?', &foundpos);
 	if(!ret) goto done;
@@ -169,6 +146,12 @@ static void txt2com_search2(deark *c, lctx *d)
 
 done:
 	de_free(c, mem);
+}
+
+static void destroy_lctx(deark *c, lctx *d)
+{
+	if(!d) return;
+	de_free(c, d);
 }
 
 static void de_run_txt2com(deark *c, de_module_params *mparams)
@@ -193,14 +176,14 @@ static void de_run_txt2com(deark *c, de_module_params *mparams)
 	}
 	if(d->errflag) goto done;
 
-	txt2com_extract(c, d);
+	txt2comlike_extract(c, d);
 
 done:
 	if(d) {
 		if(d->need_errmsg) {
 			de_err(c, "Not a TXT2COM file, or unsupported version");
 		}
-		de_free(c, d);
+		destroy_lctx(c, d);
 	}
 }
 
@@ -228,9 +211,14 @@ static int de_identify_txt2com(deark *c)
 	return flag ? 92 : 0;
 }
 
-static void de_help_txt2com(deark *c)
+static void print_encconv_option(deark *c)
 {
 	de_msg(c, "-opt text:encconv=0 : Don't convert to UTF-8");
+}
+
+static void de_help_txt2com(deark *c)
+{
+	print_encconv_option(c);
 }
 
 void de_module_txt2com(deark *c, struct deark_module_info *mi)
@@ -240,4 +228,112 @@ void de_module_txt2com(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_txt2com;
 	mi->identify_fn = de_identify_txt2com;
 	mi->help_fn = de_help_txt2com;
+}
+
+///////////////////////////////////////////////////
+// SHOW (Gary M. Raymond, Simple Software)
+
+// Finding the text in a precise way seems difficult.
+// Instead, we search for the byte pattern that appears right before the start
+// of the text.
+// The text *length* does not seem to be present in the file at all. The text
+// just ends at the 0x1a byte that should be at the end of the file.
+static void showgmr_search(deark *c, lctx *d)
+{
+#define SHOW_BUF_POS1 1800
+#define SHOW_BUF_LEN1 1200
+	u8 *mem = NULL;
+	i64 foundpos;
+	int ret;
+
+	mem = de_malloc(c, SHOW_BUF_LEN1);
+	de_read(mem, SHOW_BUF_POS1, SHOW_BUF_LEN1);
+
+	// v2.0, 2.0A, 2.1(?)
+	ret = de_memsearch_match(mem, SHOW_BUF_LEN1,
+		(const u8*)"\x06?\x03\x19\xa1\x6c\x00\x3b\x06?\x03\x72\xf7\x58\x1f\xc3", 16,
+		'?', &foundpos);
+	if(ret) {
+		d->found_text = 1;
+		d->tpos = SHOW_BUF_POS1+foundpos+16;
+		goto done;
+	}
+
+	// v1.0, 1.4
+	ret = de_memsearch_match(mem, SHOW_BUF_LEN1,
+		(const u8*)"\x4e\x8a\x04\x3c\x0a\x75\xf9\x4d\x75\xf5\x46\x89\x36\xc2\x02\xc3", 16,
+		'?', &foundpos);
+	if(ret) {
+		d->found_text = 1;
+		d->tpos = SHOW_BUF_POS1+foundpos+16;
+		goto done;
+	}
+
+done:
+	de_free(c, mem);
+}
+
+static void de_run_show_gmr(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+
+	d = de_malloc(c, sizeof(lctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->opt_encconv = (u8)de_get_ext_option_bool(c, "text:encconv", 1);
+	if(d->input_encoding==DE_ENCODING_ASCII) {
+		d->opt_encconv = 0;
+	}
+	de_declare_fmt(c, "SHOW (executable text)");
+
+	showgmr_search(c, d);
+	if(!d->found_text) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	de_dbg(c, "tpos: %"I64_FMT, d->tpos);
+
+	d->tlen = c->infile->len - d->tpos;
+	if(de_getbyte(c->infile->len-1) == 0x1a) {
+		d->tlen--;
+	}
+
+	txt2comlike_extract(c, d);
+
+done:
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Not a SHOW file, or unsupported version");
+		}
+		destroy_lctx(c, d);
+	}
+}
+
+static int de_identify_show_gmr(deark *c)
+{
+	if(de_getbyte(0) != 0xe9) return 0;
+	// Testing the last byte of the file may screen out corrupt files, but
+	// more importantly screens out the SHOW.COM utility itself, which
+	// annoyingly has the same the start-of-file signature as the files it
+	// generates.
+	if(de_getbyte(c->infile->len-1) != 0x1a) return 0;
+	if(dbuf_memcmp(c->infile, 3,
+		(const u8*)"\x30\x00\x1f\xa0\x00\x00\x53\x48\x4f\x57", 10))
+	{
+		return 0;
+	}
+	return 100;
+}
+
+static void de_help_show_gmr(deark *c)
+{
+	print_encconv_option(c);
+}
+
+void de_module_show_gmr(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "show_gmr";
+	mi->desc = "SHOW (G. M. Raymond)";
+	mi->run_fn = de_run_show_gmr;
+	mi->identify_fn = de_identify_show_gmr;
+	mi->help_fn = de_help_show_gmr;
 }

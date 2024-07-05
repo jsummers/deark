@@ -39,6 +39,9 @@ DE_DECLARE_MODULE(de_module_fastgraph_ppr);
 DE_DECLARE_MODULE(de_module_young_picasso);
 DE_DECLARE_MODULE(de_module_imggal_alch);
 DE_DECLARE_MODULE(de_module_iconmgr_ica);
+DE_DECLARE_MODULE(de_module_thumbsplus);
+DE_DECLARE_MODULE(de_module_fmtowns_icn);
+DE_DECLARE_MODULE(de_module_pixfolio);
 
 // **************************************************************************
 // HP 100LX / HP 200LX .ICN icon format
@@ -2465,25 +2468,23 @@ struct imggal_ctx {
 	i64 bpp;
 };
 
-// Construct a name to use as part of the output filename.
-// -> Use orig_name, everything after the last path separator.
-static void imggal_origname_to_name(deark *c, struct imggal_ctx *d,
-	struct imggal_member *md)
+// Assumes path separators are  '/' or '\'.
+static void get_base_filename(de_ucstring *s1, de_ucstring *s2)
 {
 	i64 i;
 	i64 len;
 
-	md->name = ucstring_create(c);
-	len = md->orig_name->len;
+	ucstring_empty(s2);
+	len = s1->len;
 	for(i=0; i<len; i++) {
 		de_rune ch;
 
-		ch = md->orig_name->str[i];
+		ch = s1->str[i];
 		if(ch=='\\' || ch=='/') {
-			ucstring_empty(md->name);
+			ucstring_empty(s2);
 		}
 		else {
-			ucstring_append_char(md->name, ch);
+			ucstring_append_char(s2, ch);
 		}
 	}
 }
@@ -2522,7 +2523,8 @@ static int do_imggal_member(deark *c, struct imggal_ctx *d, i64 idx, i64 pos1)
 	dbuf_read_to_ucstring(c->infile, pos, 80, md->orig_name, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
 	de_dbg(c, "orig name: \"%s\"", ucstring_getpsz_d(md->orig_name));
 	pos += 81;
-	imggal_origname_to_name(c, d, md);
+	md->name = ucstring_create(c);
+	get_base_filename(md->orig_name, md->name);
 
 	pos += 14; // ?
 	pos += 257; // description
@@ -2832,4 +2834,809 @@ void de_module_iconmgr_ica(deark *c, struct deark_module_info *mi)
 	mi->desc = "Icon Manager Archive (.ica)";
 	mi->run_fn = de_run_iconmgr_ica;
 	mi->identify_fn = de_identify_iconmgr_ica;
+}
+
+// **************************************************************************
+// ThumbsPlus (v1.x-2.x) thumbnail database (.tud)
+// **************************************************************************
+
+#define THUMBSPLUS_W  96
+#define THUMBSPLUS_H  72
+#define THUMBSPLUS_IMGSIZE (THUMBSPLUS_W*THUMBSPLUS_H)
+
+struct thumbsplus_icon_ctx {
+	i64 icon_pos;
+	i64 data_len;
+	i64 total_len;
+	struct de_stringreaderdata *orig_name_srd;
+	de_ucstring *name_token;
+	struct de_timestamp mod_dt;
+};
+
+struct thumbsplus_ctx {
+	u8 ver;
+	u8 need_errmsg;
+	de_encoding input_encoding;
+	i64 icon_count;
+	i64 reported_file_size;
+	de_color pal[256];
+};
+
+static void thumbsplus_icon_destroy(deark *c, struct thumbsplus_icon_ctx *md)
+{
+	if(!md) return;
+	de_destroy_stringreaderdata(c, md->orig_name_srd);
+	ucstring_destroy(md->name_token);
+	de_free(c, md);
+}
+
+static void thumbsplus_decompress(deark *c, struct thumbsplus_ctx *d,
+	struct thumbsplus_icon_ctx *md, i64 pos1, i64 len, dbuf *unc_pixels)
+{
+	i64 endpos = pos1 + len;
+	i64 pos = pos1;
+
+	while(1) {
+		i64 count;
+		u8 val;
+		u8 b;
+
+		if(pos >= endpos) break;
+		b = de_getbyte_p(&pos);
+		if(b>=236) {
+			if(b==0xff) {
+				count = (i64)de_getbyte_p(&pos);
+			}
+			else {
+				count = (i64)b - 233;
+			}
+			val = de_getbyte_p(&pos);
+			dbuf_write_run(unc_pixels, val, count);
+		}
+		else {
+			dbuf_writebyte(unc_pixels, b);
+		}
+	}
+}
+
+// On success, sets md->total_len.
+static void do_thumbsplus_icon(deark *c, struct thumbsplus_ctx *d,
+	struct thumbsplus_icon_ctx *md)
+{
+	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
+	dbuf *unc_pixels = NULL;
+	i64 pos;
+	i64 mod_time_raw, mod_date_raw;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "icon at %"I64_FMT, md->icon_pos);
+	de_dbg_indent(c, 1);
+	pos = md->icon_pos;
+	pos += 2; // ?
+
+	mod_date_raw = de_getu16le_p(&pos);
+	mod_time_raw = de_getu16le_p(&pos);
+	de_dos_datetime_to_timestamp(&md->mod_dt, mod_date_raw, mod_time_raw);
+	md->mod_dt.tzcode = DE_TZCODE_LOCAL;
+	datetime_dbgmsg(c, &md->mod_dt, "mod time");
+
+	md->data_len = de_getu16le_p(&pos);
+	de_dbg(c, "cmpr len: %"I64_FMT, md->data_len);
+	pos += 12; // ?
+
+	md->orig_name_srd = dbuf_read_string(c->infile, pos, 260, 260,
+		DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+	if(!md->orig_name_srd->found_nul) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(md->orig_name_srd->str));
+	pos += md->orig_name_srd->bytes_consumed;
+
+	md->name_token = ucstring_create(c);
+	get_base_filename(md->orig_name_srd->str, md->name_token);
+
+	de_dbg(c, "bitmap at %"I64_FMT, pos);
+	unc_pixels = dbuf_create_membuf(c, THUMBSPLUS_IMGSIZE+2, 0x1);
+	dbuf_enable_wbuffer(unc_pixels);
+	thumbsplus_decompress(c, d, md, pos, md->data_len, unc_pixels);
+	dbuf_flush(unc_pixels);
+	if(unc_pixels->len != THUMBSPLUS_IMGSIZE) {
+		// We're strict about this, because it's how we detect if we've gone off
+		// the rails.
+		de_err(c, "Decompression failed");
+		goto done;
+	}
+
+	img = de_bitmap_create(c, THUMBSPLUS_W, THUMBSPLUS_H, 3);
+	de_convert_image_paletted(unc_pixels, 0, 8, THUMBSPLUS_W, d->pal, img, 0);
+
+	fi = de_finfo_create(c);
+	if(c->filenames_from_file && ucstring_isnonempty(md->name_token)) {
+		de_finfo_set_name_from_ucstring(c, fi, md->name_token, 0);
+	}
+	fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->mod_dt;
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_FLIP_IMAGE|DE_CREATEFLAG_OPT_IMAGE);
+
+	pos += md->data_len;
+	md->total_len = pos - md->icon_pos;
+
+done:
+	dbuf_close(unc_pixels);
+	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void make_thumbsplus_pal(deark *c, struct thumbsplus_ctx *d)
+{
+	static const u8 tppal[236*3] = {
+		0x00,0x00,0x00,0xff,0xff,0xff,0x09,0x09,0x09,0x13,0x13,0x13,0x1d,0x1d,0x1d,0x27,0x27,0x27,
+		0x31,0x31,0x31,0x3b,0x3b,0x3b,0x44,0x44,0x44,0x4e,0x4e,0x4e,0x58,0x58,0x58,0x62,0x62,0x62,
+		0x6c,0x6c,0x6c,0x76,0x76,0x76,0x89,0x89,0x89,0x93,0x93,0x93,0x9d,0x9d,0x9d,0xa7,0xa7,0xa7,
+		0xb0,0xb0,0xb0,0xba,0xba,0xba,0xc4,0xc4,0xc4,0xce,0xce,0xce,0xd7,0xd7,0xd7,0xe1,0xe1,0xe1,
+		0xeb,0xeb,0xeb,0xf5,0xf5,0xf5,0x03,0x13,0x03,0x06,0x27,0x06,0x09,0x3a,0x09,0x0c,0x4e,0x0c,
+		0x0f,0x62,0x0f,0x12,0x75,0x12,0x15,0x89,0x15,0x18,0x9c,0x18,0x1b,0xb0,0x1b,0x1e,0xc4,0x1e,
+		0x21,0xd7,0x21,0x24,0xeb,0x24,0x38,0xff,0x38,0x49,0xff,0x49,0x59,0xff,0x59,0x6a,0xff,0x6a,
+		0x7a,0xff,0x7a,0x8b,0xff,0x8b,0x9b,0xff,0x9b,0xac,0xff,0xac,0xbc,0xff,0xbc,0xcd,0xff,0xcd,
+		0xdd,0xff,0xdd,0xee,0xff,0xee,0x03,0x03,0x13,0x06,0x06,0x27,0x09,0x09,0x3a,0x0c,0x0c,0x4e,
+		0x0f,0x0f,0x62,0x12,0x12,0x75,0x15,0x15,0x89,0x18,0x18,0x9c,0x1b,0x1b,0xb0,0x1e,0x1e,0xc4,
+		0x21,0x21,0xd7,0x24,0x24,0xeb,0x38,0x38,0xff,0x49,0x49,0xff,0x59,0x59,0xff,0x6a,0x6a,0xff,
+		0x7a,0x7a,0xff,0x8b,0x8b,0xff,0x9b,0x9b,0xff,0xac,0xac,0xff,0xbc,0xbc,0xff,0xcd,0xcd,0xff,
+		0xdd,0xdd,0xff,0xee,0xee,0xff,0x13,0x13,0x03,0x27,0x27,0x06,0x3a,0x3a,0x09,0x4e,0x4e,0x0c,
+		0x62,0x62,0x0f,0x75,0x75,0x12,0x89,0x89,0x15,0x9c,0x9c,0x18,0xb0,0xb0,0x1b,0xc4,0xc4,0x1e,
+		0xd7,0xd7,0x21,0xeb,0xeb,0x24,0xff,0xff,0x38,0xff,0xff,0x49,0xff,0xff,0x59,0xff,0xff,0x6a,
+		0xff,0xff,0x7a,0xff,0xff,0x8b,0xff,0xff,0x9b,0xff,0xff,0xac,0xff,0xff,0xbc,0xff,0xff,0xcd,
+		0xff,0xff,0xdd,0xff,0xff,0xee,0x0d,0x03,0x13,0x1b,0x06,0x27,0x29,0x09,0x3a,0x37,0x0c,0x4e,
+		0x45,0x0f,0x62,0x53,0x12,0x75,0x60,0x15,0x89,0x6e,0x18,0x9c,0x7c,0x1b,0xb0,0x8a,0x1e,0xc4,
+		0x98,0x21,0xd7,0xa6,0x24,0xeb,0xb9,0x38,0xff,0xbf,0x49,0xff,0xc5,0x59,0xff,0xcb,0x6a,0xff,
+		0xd0,0x7a,0xff,0xd6,0x8b,0xff,0xdc,0x9b,0xff,0xe2,0xac,0xff,0xe7,0xbc,0xff,0xed,0xcd,0xff,
+		0xf3,0xdd,0xff,0xf9,0xee,0xff,0x03,0x13,0x13,0x06,0x27,0x27,0x09,0x3a,0x3a,0x0c,0x4e,0x4e,
+		0x0f,0x62,0x62,0x12,0x75,0x75,0x15,0x89,0x89,0x18,0x9c,0x9c,0x1b,0xb0,0xb0,0x1e,0xc4,0xc4,
+		0x21,0xd7,0xd7,0x24,0xeb,0xeb,0x38,0xff,0xff,0x49,0xff,0xff,0x59,0xff,0xff,0x6a,0xff,0xff,
+		0x7a,0xff,0xff,0x8b,0xff,0xff,0x9b,0xff,0xff,0xac,0xff,0xff,0xbc,0xff,0xff,0xcd,0xff,0xff,
+		0xdd,0xff,0xff,0xee,0xff,0xff,0x12,0x0a,0x03,0x24,0x15,0x06,0x37,0x20,0x09,0x49,0x2b,0x0c,
+		0x5c,0x35,0x0f,0x6e,0x40,0x12,0x81,0x4b,0x15,0x93,0x56,0x18,0xa6,0x60,0x1b,0xb8,0x6b,0x1e,
+		0xcb,0x76,0x21,0xdd,0x81,0x24,0xf1,0x94,0x38,0xf2,0x9d,0x49,0xf3,0xa6,0x59,0xf4,0xaf,0x6a,
+		0xf5,0xb8,0x7a,0xf6,0xc1,0x8b,0xf8,0xc9,0x9b,0xf9,0xd2,0xac,0xfa,0xdb,0xbc,0xfb,0xe4,0xcd,
+		0xfc,0xed,0xdd,0xfd,0xf6,0xee,0x13,0x03,0x03,0x27,0x06,0x06,0x3a,0x09,0x09,0x4e,0x0c,0x0c,
+		0x62,0x0f,0x0f,0x75,0x12,0x12,0x89,0x15,0x15,0x9c,0x18,0x18,0xb0,0x1b,0x1b,0xc4,0x1e,0x1e,
+		0xd7,0x21,0x21,0xeb,0x24,0x24,0xff,0x38,0x38,0xff,0x49,0x49,0xff,0x59,0x59,0xff,0x6a,0x6a,
+		0xff,0x7a,0x7a,0xff,0x8b,0x8b,0xff,0x9b,0x9b,0xff,0xac,0xac,0xff,0xbc,0xbc,0xff,0xcd,0xcd,
+		0xff,0xdd,0xdd,0xff,0xee,0xee,0x12,0x0c,0x08,0x25,0x18,0x10,0x38,0x24,0x19,0x4a,0x30,0x21,
+		0x5d,0x3c,0x29,0x70,0x48,0x32,0x82,0x54,0x3a,0x95,0x60,0x42,0xa8,0x6c,0x4b,0xba,0x78,0x53,
+		0xcd,0x84,0x5b,0xe2,0x98,0x6f,0xe4,0xa1,0x7b,0xe7,0xa9,0x87,0xe9,0xb2,0x93,0xeb,0xba,0x9f,
+		0xee,0xc3,0xab,0xf0,0xcb,0xb7,0xf3,0xd4,0xc3,0xf5,0xdc,0xcf,0xf7,0xe5,0xdb,0xfa,0xed,0xe7,
+		0xfc,0xf6,0xf3,0x12,0x14,0x18,0x24,0x28,0x30,0x36,0x3c,0x48,0x48,0x50,0x60,0x75,0x7d,0x8e,
+		0x91,0x97,0xa5,0xac,0xb1,0xbb,0xc8,0xcb,0xd2,0xe3,0xe5,0xe8,0x10,0x14,0x0f,0x21,0x28,0x1e,
+		0x32,0x3c,0x2d,0x42,0x50,0x3c,0x53,0x64,0x4b,0x7d,0x8e,0x75,0x97,0xa5,0x91,0xb1,0xbb,0xac,
+		0xcb,0xd2,0xc8,0xe5,0xe8,0xe3 };
+
+	de_copy_palette_from_rgb24(tppal, d->pal, 236);
+}
+
+static void de_run_thumbsplus(deark *c, de_module_params *mparams)
+{
+	struct thumbsplus_ctx *d = NULL;
+	struct thumbsplus_icon_ctx *md = NULL;
+	i64 pos;
+
+	d = de_malloc(c, sizeof(struct thumbsplus_ctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
+
+	pos = 4;
+	d->icon_count = de_getu32le_p(&pos);
+	de_dbg(c, "count: %"I64_FMT, d->icon_count);
+	d->reported_file_size = de_getu32le_p(&pos);
+
+	make_thumbsplus_pal(c, d);
+
+	pos = 16;
+	while(1) {
+		if(pos>=c->infile->len || pos>=d->reported_file_size) goto done;
+		if(md) {
+			thumbsplus_icon_destroy(c, md);
+			md = NULL;
+		}
+		md = de_malloc(c, sizeof(struct thumbsplus_icon_ctx));
+		md->icon_pos = pos;
+		do_thumbsplus_icon(c, d, md);
+		if(md->total_len<=0) goto done;
+		pos += md->total_len;
+	}
+
+done:
+	thumbsplus_icon_destroy(c, md);
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported file");
+		}
+		de_free(c, d);
+	}
+}
+
+static int de_identify_thumbsplus(deark *c)
+{
+	if((UI)de_getu32be(0) == 0xbebadabeU) {
+		return 95;
+	}
+	return 0;
+}
+
+void de_module_thumbsplus(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "thumbsplus";
+	mi->desc = "ThumbsPlus v1-2 database (.tud)";
+	mi->run_fn = de_run_thumbsplus;
+	mi->identify_fn = de_identify_thumbsplus;
+}
+
+// **************************************************************************
+// FM Towns icon
+// **************************************************************************
+
+struct fmtownsicn_table_ctx {
+	i64 idx;
+	i64 num_icons;
+	i64 icon_arr_offs;
+};
+
+struct fmtownsicn_ctx {
+	u8 fatalerrflag;
+	u8 need_errmsg;
+	int is_le;
+	i64 num_tables;
+	de_color pal16[16];
+	de_color pal2[2];
+};
+
+static void do_fmtownsicn_icon(deark *c, struct fmtownsicn_ctx *d,
+	struct fmtownsicn_table_ctx *tbl, i64 idx, i64 pos1)
+{
+	int saved_indent_level;
+	i64 pos = pos1;
+	de_bitmap *img = NULL;
+	UI createflags = 0;
+	i64 w, h;
+	i64 rowspan;
+	i64 isize;
+	i64 fg_pos;
+	UI ncolors;
+	UI bits_per_pixel;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(pos1>=c->infile->len) {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+	de_dbg(c, "icon header (table #%u icon #%u) at %"I64_FMT, (UI)tbl->idx,
+		(UI)idx, pos1);
+	de_dbg_indent(c, 1);
+	pos += 2;
+	pos += 4;
+	w = de_getu16le_p(&pos);
+	h = de_getu16le_p(&pos);
+	de_dbg_dimensions(c, w, h);
+	ncolors = (UI)de_getu32le_p(&pos);
+	de_dbg(c, "num colors: %u", ncolors);
+	isize = de_getu16le_p(&pos);
+	de_dbg(c, "size: %"I64_FMT, isize);
+	pos += 4;
+	fg_pos = de_getu32le_p(&pos);
+	de_dbg(c, "fg pos: %"I64_FMT, fg_pos);
+
+	if(fg_pos <= pos1 || fg_pos + isize > c->infile->len) {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	if(ncolors==2) {
+		bits_per_pixel = 1;
+	}
+	else if(ncolors==16) {
+		bits_per_pixel = 4;
+	}
+	else {
+		de_err(c, "Unsupported image type");
+		goto done;
+	}
+
+	if(!de_good_image_dimensions(c, w, h)) goto done;
+	img = de_bitmap_create(c, w, h, 3);
+
+
+	if(bits_per_pixel==1) {
+		rowspan = de_pad_to_n(w*bits_per_pixel, 8) / 8;
+		de_convert_image_paletted(c->infile, fg_pos, 1, rowspan,
+			d->pal2, img, 0);
+		createflags |= DE_CREATEFLAG_IS_BWIMG;
+	}
+	else { // 4
+		rowspan = de_pad_to_n(w*bits_per_pixel, 32) / 8;
+		de_convert_image_paletted(c->infile, fg_pos, 4, rowspan,
+			d->pal16, img, 0x01);
+		createflags |= DE_CREATEFLAG_OPT_IMAGE;
+	}
+
+	de_bitmap_write_to_file(img, NULL, createflags);
+
+done:
+	de_bitmap_destroy(img);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_fmtownsicn_table(deark *c, struct fmtownsicn_ctx *d, i64 idx,
+	i64 pos1)
+{
+	int saved_indent_level;
+	i64 pos = pos1;
+	struct fmtownsicn_table_ctx *tbl = NULL;
+	i64 i;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	if(pos1+32>c->infile->len) {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	tbl = de_malloc(c, sizeof(struct fmtownsicn_table_ctx));
+	tbl->idx = idx;
+
+	de_dbg(c, "table #%"I64_FMT" at %"I64_FMT, idx, pos1);
+	de_dbg_indent(c, 1);
+	pos += 2; // id
+	tbl->num_icons = de_getu16le_p(&pos);
+	de_dbg(c, "num icons: %u", (UI)tbl->num_icons);
+	pos += 2;
+	pos += 2;
+
+	tbl->icon_arr_offs = de_getu32le_p(&pos);
+	de_dbg(c, "offset of icon array: %"I64_FMT, tbl->icon_arr_offs);
+	if(tbl->icon_arr_offs <= pos1) {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	for(i=0; i<tbl->num_icons; i++) {
+		if(d->fatalerrflag) goto done;
+		do_fmtownsicn_icon(c, d, tbl, i, tbl->icon_arr_offs+48*i);
+	}
+
+done:
+	de_free(c, tbl);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void fmtownsicn_make_palettes(deark *c, struct fmtownsicn_ctx *d)
+{
+	static const u8 pal16_std[16*3] = {
+		0x22,0x22,0x22, 0x22,0x77,0xbb, 0xcc,0x66,0x44, 0xff,0xcc,0xaa,
+		0x99,0x99,0x99, 0x00,0xcc,0x77, 0xcc,0xcc,0xcc, 0x77,0x77,0x77,
+		0x00,0x00,0x00, 0x88,0xbb,0xee, 0xdd,0x00,0x00, 0x00,0x00,0xaa,
+		0x55,0x55,0x55, 0x00,0xff,0xff, 0xff,0xdd,0x00, 0xff,0xff,0xff
+	};
+
+	de_make_grayscale_palette(d->pal2, 2, 0x1);
+	de_copy_palette_from_rgb24(pal16_std, d->pal16, 16);
+}
+
+static void do_fmtownsicn_ICNFILE(deark *c, struct fmtownsicn_ctx *d)
+{
+	i64 i;
+	i64 pos1 = 0;
+	i64 pos = pos1;
+
+	de_dbg(c, "header at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	pos += 10;
+	pos += 2; // version
+	d->num_tables = de_getu16le_p(&pos);
+	de_dbg(c, "num tables: %u", (UI)d->num_tables);
+	de_dbg_indent(c, -1);
+
+	for(i=0; i<d->num_tables; i++) {
+		if(d->fatalerrflag) goto done;
+		do_fmtownsicn_table(c, d, i, 32+32*i);
+	}
+
+done:
+	;
+}
+
+static void do_fmtownsicn_FJ(deark *c, struct fmtownsicn_ctx *d)
+{
+	i64 num_icons;
+	i64 num_icons_capacity;
+	i64 w, h;
+	i64 rowspan;
+	i64 icon_size;
+	UI bits_per_pixel;
+	i64 i;
+	i64 pos1 = 0;
+	i64 pos = pos1;
+
+	de_dbg(c, "header at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	pos += 8;
+
+	bits_per_pixel = (UI)dbuf_getu16x(c->infile, pos, d->is_le);
+	pos += 2;
+	de_dbg(c, "bits per pixel: %u", bits_per_pixel);
+
+	w = dbuf_getu16x(c->infile, pos, d->is_le);
+	pos += 2;
+	h = dbuf_getu16x(c->infile, pos, d->is_le);
+	pos += 2;
+	de_dbg_dimensions(c, w, h);
+
+	num_icons = dbuf_getu16x(c->infile, pos, d->is_le);
+	pos += 2;
+	de_dbg(c, "num icons: %"I64_FMT, num_icons);
+
+	de_dbg_indent(c, -1);
+
+	if(w!=32 || h!=32 || bits_per_pixel!=4) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	rowspan = 16;
+	icon_size = 2+rowspan*h;
+
+	if(c->infile->len<16 ||
+		((c->infile->len-16) % icon_size)!=0)
+	{
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	num_icons_capacity = (c->infile->len-16) / icon_size;
+	if(num_icons_capacity < num_icons) {
+		de_warn(c, "Expected %"I64_FMT" icons, only found %"I64_FMT,
+			num_icons, num_icons_capacity);
+		num_icons = num_icons_capacity;
+	}
+
+	for(i=0; i<num_icons; i++) {
+		de_bitmap *img;
+		UI id;
+
+		pos = 16+i*icon_size;
+		de_dbg(c, "icon at %"I64_FMT, pos);
+		de_dbg_indent(c, 1);
+		id = (UI)dbuf_getu16x(c->infile, pos, d->is_le);
+		de_dbg(c, "id: 0x%04x", id);
+
+		img = de_bitmap_create(c, w, h, 3);
+		de_convert_image_paletted(c->infile, pos+2, 4, rowspan,
+			d->pal16, img, 0x01);
+		de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
+		de_bitmap_destroy(img);
+		de_dbg_indent(c, -1);
+	}
+done:
+	;
+}
+
+static void de_run_fmtowns_icn(deark *c, de_module_params *mparams)
+{
+	struct fmtownsicn_ctx *d = NULL;
+	u8 b;
+
+	d = de_malloc(c, sizeof(struct fmtownsicn_ctx));
+	fmtownsicn_make_palettes(c, d);
+
+	b = de_getbyte(6);
+	if(b=='E') {
+		do_fmtownsicn_ICNFILE(c, d);
+	}
+	else if(b=='2') {
+		d->is_le = 1;
+		do_fmtownsicn_FJ(c, d);
+	}
+	else if(b=='J') {
+		d->is_le = 0;
+		do_fmtownsicn_FJ(c, d);
+	}
+	else {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+done:
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported file");
+		}
+		de_free(c, d);
+	}
+}
+
+static int de_identify_fmtowns_icn(deark *c)
+{
+	u8 buf[10];
+
+	de_read(buf, 0, sizeof(buf));
+	if(!de_memcmp(buf, (const void*)"ICNFILE\0\0\x1a", 10)) {
+		return 100;
+	}
+	if(!de_memcmp(buf, (const void*)"CRI-FJ2 ", 8)) {
+		return 100;
+	}
+	if(!de_memcmp(buf, (const void*)"CRI-FUJI", 8)) {
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_fmtowns_icn(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "fmtowns_icn";
+	mi->desc = "FM Towns icons";
+	mi->run_fn = de_run_fmtowns_icn;
+	mi->identify_fn = de_identify_fmtowns_icn;
+}
+
+// **************************************************************************
+// PixFolio catalog (Allen C. Kempe) (Win3.x version)
+// **************************************************************************
+
+struct pixfolio_ctx {
+	de_encoding input_encoding;
+	u8 opt_undelete;
+	u8 fatalerrflag;
+	u8 need_errmsg;
+	UI deleted_count;
+	de_ucstring *tmpstr;
+};
+
+struct pixfolio_item_ctx {
+	i64 pos;
+	i64 total_len;
+	struct de_stringreaderdata *basefn_srd;
+	u8 blank_basefn;
+	struct de_bmpinfo bi;
+};
+
+static void pixfolio_item_destroy(deark *c, struct pixfolio_item_ctx *md)
+{
+	if(!md) return;
+	de_destroy_stringreaderdata(c, md->basefn_srd);
+	de_free(c, md);
+}
+
+static void read_pixfolio_timestamp(deark *c, struct pixfolio_ctx *d,
+	struct pixfolio_item_ctx *md)
+{
+	de_ucstring *dtstr = NULL;
+	de_ucstring *tmstr = NULL;
+
+	dtstr = ucstring_create(c);
+	tmstr = ucstring_create(c);
+
+	dbuf_read_to_ucstring(c->infile, md->pos+343, 10, dtstr, DE_CONVFLAG_STOP_AT_NUL,
+		DE_ENCODING_LATIN1);
+	dbuf_read_to_ucstring(c->infile, md->pos+354, 8, tmstr, DE_CONVFLAG_STOP_AT_NUL,
+		DE_ENCODING_LATIN1);
+	de_dbg(c, "timestamp: \"%s %s\"", ucstring_getpsz_d(dtstr),
+		ucstring_getpsz_d(tmstr));
+
+	// We don't do anything with the timestamp, because:
+	// * There are at least 3 different date formats ("MM/DD/YYYY", "DD/MM/YYYY",
+	// "MM-DD-YYYY") and seemingly no way to tell which was used.
+	// * The time of day seems to be a 12-hour clock with no AM/PM flag.
+
+	ucstring_destroy(tmstr);
+	ucstring_destroy(dtstr);
+}
+
+static void pixfolio_check_blank_name(deark *c, struct pixfolio_ctx *d,
+	struct pixfolio_item_ctx *md)
+{
+	size_t k;
+
+	if(!md->basefn_srd) return;
+	if(md->basefn_srd->sz_strlen!=12) return;
+
+	for(k=0; k<12; k++) {
+		if(md->basefn_srd->sz[k]!=0x20) return;
+	}
+	md->blank_basefn = 1;
+}
+
+// If successfully parsed, sets md->total_len
+static void do_pixfolio_item(deark *c, struct pixfolio_ctx *d,
+	struct pixfolio_item_ctx *md)
+{
+	i64 pos;
+	i64 dibpos;
+	i64 dib_len1, dib_len2, dib_len;
+	i64 descr_len;
+	i64 xtra_len;
+	i64 amt_to_copy1, amt_to_copy2;
+	dbuf *outf = NULL;
+	de_finfo *fi = NULL;
+	int ret;
+	int errflag = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	de_dbg(c, "item at %"I64_FMT, md->pos);
+	de_dbg_indent(c, 1);
+
+	fi = de_finfo_create(c);
+	md->basefn_srd = dbuf_read_string(c->infile, md->pos, 12, 12, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(md->basefn_srd->str));
+	pixfolio_check_blank_name(c, d, md);
+
+	ucstring_empty(d->tmpstr);
+	dbuf_read_to_ucstring(c->infile, md->pos+25, 64, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "path: \"%s\"", ucstring_getpsz_d(d->tmpstr));
+
+	read_pixfolio_timestamp(c, d, md);
+
+	pos = md->pos + 363;
+	// TODO: The "dib_len" fields need more research. They are usually equal.
+	// Sometimes, one of them is 0, so we use the other one.
+	dib_len1 = de_getu32le_p(&pos); // Is this 32 or 16 bit?
+	de_dbg(c, "dib len1: %"I64_FMT, dib_len1);
+	dib_len2 = de_getu16le_p(&pos);
+	de_dbg(c, "dib len2: %"I64_FMT, dib_len2);
+	if(dib_len1 && dib_len2 && (dib_len1 != dib_len2)) {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+	dib_len = dib_len2 ? dib_len2 : dib_len1;
+
+	descr_len = de_getu16le_p(&pos);
+	de_dbg(c, "descr len: %"I64_FMT, descr_len);
+	xtra_len = de_getu16le_p(&pos); // TODO: What is this segment
+	de_dbg(c, "xtra len: %"I64_FMT, xtra_len);
+
+	md->total_len = 373 + descr_len + 1 + dib_len + xtra_len;
+	pos += descr_len + 1;
+	dibpos = pos;
+	de_dbg(c, "dib pos: %"I64_FMT, dibpos);
+	if(dibpos+dib_len > c->infile->len) {
+		errflag = 1;
+		goto done;
+	}
+
+	if(dib_len==0) {
+		de_dbg(c, "[no image]");
+		goto done;
+	}
+
+	if(md->blank_basefn) {
+		de_dbg(c, "[deleted]");
+		d->deleted_count++;
+		if(!d->opt_undelete) goto done;
+	}
+
+	// Expecting a 40-byte BITMAPINFOHEADER here. If it's not, assume
+	// we've gone off the rails.
+	if((UI)de_getu32le(dibpos) != 40) {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	ret = fmtutil_get_bmpinfo(c, c->infile, &md->bi, dibpos,
+		c->infile->len - dibpos, 0);
+	if(!ret) {
+		errflag = 1;
+		goto done;
+	}
+
+	amt_to_copy1 = dib_len;
+	amt_to_copy2 = md->bi.size_of_headers_and_pal + md->bi.sizeImage_field;
+	amt_to_copy1 = de_min_int(amt_to_copy1, amt_to_copy2);
+
+	if(md->blank_basefn) {
+		de_finfo_set_name_from_sz(c, fi, "deleted", 0, DE_ENCODING_LATIN1);
+	}
+	else if(c->filenames_from_file) {
+		de_finfo_set_name_from_ucstring(c, fi, md->basefn_srd->str, 0);
+	}
+
+	outf = dbuf_create_output_file(c, "bmp", fi, 0);
+	fmtutil_generate_bmpfileheader(c, outf, &md->bi, 14+amt_to_copy1);
+	dbuf_copy(c->infile, dibpos, amt_to_copy1, outf);
+
+done:
+	if(md->total_len<=0) {
+		d->fatalerrflag = 1;
+	}
+	if(errflag) {
+		de_err(c, "Failed to decode item at %"I64_FMT, md->pos);
+	}
+	dbuf_close(outf);
+	de_finfo_destroy(c, fi);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void de_run_pixfolio(deark *c, de_module_params *mparams)
+{
+	struct pixfolio_ctx *d = NULL;
+	struct pixfolio_item_ctx *md = NULL;
+	i64 pos;
+
+	d = de_malloc(c, sizeof(struct pixfolio_ctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
+	d->opt_undelete = (u8)de_get_ext_option_bool(c, "pixfolio:undelete", 0);
+	d->tmpstr = ucstring_create(c);
+
+	pos = 0;
+	while(1) {
+		if(d->fatalerrflag) goto done;
+		if(pos+373 > c->infile->len) goto done;
+		if(md) {
+			pixfolio_item_destroy(c, md);
+			md = NULL;
+		}
+		md = de_malloc(c, sizeof(struct pixfolio_item_ctx));
+		md->pos = pos;
+		do_pixfolio_item(c, d, md);
+		if(md->total_len<=0) goto done;
+		pos += md->total_len;
+	}
+
+done:
+	pixfolio_item_destroy(c, md);
+	if(d) {
+		if(d->deleted_count!=0 && !d->opt_undelete) {
+			de_info(c, "Note: Deleted items found. Use \"-opt pixfolio:undelete\" "
+				"to extract them.");
+		}
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported file");
+		}
+		ucstring_destroy(d->tmpstr);
+		de_free(c, d);
+	}
+}
+
+static int de_identify_pixfolio(deark *c)
+{
+	u8 buf[20];
+	i64 n1, n2;
+
+	// This probably doesn't identify *every* PixFolio CAT file.
+	// It assumes the first item contains an image, which is quite possibly not
+	// always true.
+	if(de_getbyte(0)<0x20) return 0;
+	if(!de_input_file_has_ext(c, "cat")) return 0;
+	de_read(buf, 343, 20);
+	if(buf[2]!='/' && buf[2]!='-') return 0;
+	if(buf[13]!=':') return 0;
+	n1 = de_getu16le(369); // Descr len
+	n2 = de_getu32le(373+n1+1); // DIB header size
+	if(n2 != 40) return 0;
+	n2 = de_getu16le(373+n1+1+12); // #planes
+	if(n2 != 1) return 0;
+	return 80;
+}
+
+static void de_help_pixfolio(deark *c)
+{
+	de_msg(c, "-opt pixfolio:undelete : Also extract deleted images");
+}
+
+void de_module_pixfolio(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "pixfolio";
+	mi->desc = "PixFolio catalog";
+	mi->run_fn = de_run_pixfolio;
+	mi->identify_fn = de_identify_pixfolio;
+	mi->help_fn = de_help_pixfolio;
 }

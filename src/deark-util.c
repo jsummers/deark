@@ -2347,6 +2347,34 @@ int de_memmatch(const u8 *mem, const u8 *pattern, size_t pattern_len,
 	return 1;
 }
 
+// If pattern is found, returns nonzero and sets *pfoundpos to the offset.
+// If not found, returns 0 and sets *pfoundpos to 0.
+// Entire pattern must be contained in mem_len.
+// Search will fail if pattern_len<1.
+int de_memsearch_match(const u8 *mem, i64 mem_len,
+	const u8 *pattern, i64 pattern_len, u8 wildcard, i64 *pfoundpos)
+{
+	i64 num_start_positions_to_search;
+	i64 i;
+
+	*pfoundpos = 0;
+	if(pattern_len<1 || pattern_len>mem_len) return 0;
+	num_start_positions_to_search = mem_len-pattern_len+1;
+
+	for(i=0; i<num_start_positions_to_search; i++) {
+		int ret;
+
+		if(pattern[0]!=mem[i] && pattern[0]!=wildcard) continue;
+		ret = de_memmatch(&mem[i], pattern, (size_t)pattern_len, wildcard, 0);
+		if(ret) {
+			*pfoundpos = i;
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 #define DE_MAX_SANE_FILESIZE 0xffffffffffffffLL
 
 // Modifies *pn to be in the range of 0 to some arbitrary large integer that

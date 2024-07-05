@@ -34,7 +34,10 @@ typedef struct localctx_struct {
 	i64 ncolors;
 	UI palette_info;
 	u8 reserved1;
-	i64 width, height;
+	i64 reported_width;
+	i64 padded_width;
+	i64 width_to_use;
+	i64 height;
 	u8 is_mswordscr;
 	u8 is_pcxsfx;
 	int has_vga_pal;
@@ -98,12 +101,12 @@ static void do_decode_resolution(deark *c, lctx *d, i64 hres, i64 vres)
 			(hres==800 && vres==600) ||
 			(hres==1024 && vres==768))
 		{
-			if(d->width<=hres && d->height<=hres) {
+			if(d->reported_width<=hres && d->height<=hres) {
 				// Looks like screen dimensions, and image fits on the screen
 				resmode = RESMODE_SCREENDIMENSIONS;
 			}
 		}
-		else if(hres==d->width && vres==d->height) {
+		else if(hres==d->reported_width && vres==d->height) {
 			;
 		}
 		else {
@@ -169,6 +172,7 @@ static int do_read_header(deark *c, lctx *d)
 
 	d->bits = (i64)de_getbyte_p(&pos); // Bits per pixel per plane
 	de_dbg(c, "bits: %d", (int)d->bits);
+	if(d->bits<1) d->bits = 1;
 
 	d->margin_L = de_getu16le_p(&pos);
 	d->margin_T = de_getu16le_p(&pos);
@@ -176,9 +180,9 @@ static int do_read_header(deark *c, lctx *d)
 	d->margin_B = de_getu16le_p(&pos);
 	de_dbg(c, "margins: %d, %d, %d, %d", (int)d->margin_L, (int)d->margin_T,
 		(int)d->margin_R, (int)d->margin_B);
-	d->width = d->margin_R - d->margin_L +1;
+	d->reported_width = d->margin_R - d->margin_L +1;
 	d->height = d->margin_B - d->margin_T +1;
-	de_dbg_dimensions(c, d->width, d->height);
+	de_dbg_dimensions(c, d->reported_width, d->height);
 
 	hres = de_getu16le_p(&pos);
 	vres = de_getu16le_p(&pos);
@@ -217,7 +221,22 @@ static int do_read_header(deark *c, lctx *d)
 
 	//-----
 
-	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
+	d->padded_width = (d->rowspan_raw*8) / d->bits;
+	d->width_to_use = d->reported_width;
+	if(c->padpix) {
+		if(d->padded_width>d->reported_width) {
+			d->width_to_use = d->padded_width;
+		}
+	}
+	else {
+		if(d->width_to_use<1 && d->padded_width>0) {
+			de_warn(c, "Invalid width %"I64_FMT"; using %"I64_FMT" instead",
+				d->width_to_use, d->padded_width);
+			d->width_to_use = d->padded_width;
+		}
+	}
+
+	if(!de_good_image_dimensions(c, d->width_to_use, d->height)) goto done;
 
 	d->rowspan = d->rowspan_raw * d->planes;
 	de_dbg(c, "calculated bytes/row: %d", (int)d->rowspan);
@@ -280,12 +299,6 @@ static int do_read_header(deark *c, lctx *d)
 	}
 
 	de_dbg(c, "image type: %s", imgtypename);
-
-	// Sanity check
-	if(d->rowspan > d->width * 4 + 100) {
-		de_err(c, "Bad bytes/line (%d)", (int)d->rowspan_raw);
-		goto done;
-	}
 
 	do_decode_resolution(c, d, hres, vres);
 
@@ -537,18 +550,14 @@ static void do_bitmap_1bpp(deark *c, lctx *d)
 	// The paletted algorithm would work here (if we construct a palette),
 	// but this special case is easy and efficient.
 	de_convert_and_write_image_bilevel2(d->unc_pixels, 0,
-		d->width, d->height, d->rowspan_raw, 0, d->fi, 0);
+		d->width_to_use, d->height, d->rowspan_raw, 0, d->fi, 0);
 }
 
 static void do_bitmap_paletted(deark *c, lctx *d)
 {
 	de_bitmap *img = NULL;
-	i64 pdwidth;
 
-	// bits_per_plane(_per_row) / bits_per_pixel_per_plane
-	pdwidth = (d->rowspan_raw*8) / d->bits;
-
-	img = de_bitmap_create2(c, d->width, pdwidth, d->height, 3);
+	img = de_bitmap_create(c, d->width_to_use, d->height, 3);
 
 	// Impossible to get here unless one of the following conditions is true.
 	if(d->planes==1) {
@@ -567,17 +576,15 @@ static void do_bitmap_paletted(deark *c, lctx *d)
 static void do_bitmap_24bpp(deark *c, lctx *d)
 {
 	de_bitmap *img = NULL;
-	i64 pdwidth;
 	i64 i, j;
 	i64 plane;
 	u8 s[4];
 
 	de_memset(s, 0xff, sizeof(s));
-	pdwidth = (d->rowspan_raw*8) / d->bits;
-	img = de_bitmap_create2(c, d->width, pdwidth, d->height, d->has_transparency?4:3);
+	img = de_bitmap_create(c, d->width_to_use, d->height, d->has_transparency?4:3);
 
 	for(j=0; j<d->height; j++) {
-		for(i=0; i<pdwidth; i++) {
+		for(i=0; i<d->width_to_use; i++) {
 			for(plane=0; plane<d->planes; plane++) {
 				s[plane] = dbuf_getbyte(d->unc_pixels, j*d->rowspan + plane*d->rowspan_raw +i);
 			}
