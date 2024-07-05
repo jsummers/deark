@@ -175,16 +175,23 @@ static void read_image_pc8(deark *c, lctx *d, de_bitmap *img, i64 pos1)
 {
 	i64 pos = pos1;
 	size_t k;
+	char tmps[64];
 
 	de_dbg(c, "palette at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
 	de_zeromem(d->pal, sizeof(d->pal));
 	for(k=0; k<256; k++) {
 		u32 clr_raw;
 
 		clr_raw = (u32)de_getu16le_p(&pos);
 		d->pal[k] = de_rgb555_to_888(clr_raw);
-		// TODO: dbg info
+		if(c->debug_level>=2) {
+			de_snprintf(tmps, sizeof(tmps), "0x%04x "DE_CHAR_RIGHTARROW" ", (UI)clr_raw);
+			de_dbg_pal_entry2(c, k, d->pal[k], tmps, NULL, NULL);
+		}
 	}
+	de_dbg_indent(c, -1);
+
 	de_dbg(c, "image at %"I64_FMT, pos);
 	de_convert_image_paletted(c->infile, pos, 8, d->w, d->pal, img, 0);
 }
@@ -614,6 +621,7 @@ static u8 reko_fmt_from_sig(deark *c)
 static void de_run_reko(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	const char *fmtname;
 
 	d = de_malloc(c, sizeof(lctx));
 	d->fmt = reko_fmt_from_sig(c);
@@ -622,11 +630,15 @@ static void de_run_reko(deark *c, de_module_params *mparams)
 		de_err(c, "Unsupported REKO version");
 		goto done;
 	}
+	if(d->fmt==RKFMT_RKP8) fmtname = "RKP 8";
+	else if(d->fmt==RKFMT_RKP16) fmtname = "RKP 16";
+	else if(d->fmt==RKFMT_RKP24) fmtname = "RKP 24";
+	else fmtname = "Amiga";
+	de_declare_fmtf(c, "REKO cardset (%s)", fmtname);
 
 	if(d->fmt==RKFMT_RKP8 || d->fmt==RKFMT_RKP16 || d->fmt==RKFMT_RKP24) {
 		d->is_pc = 1;
 	}
-	de_dbg(c, "platform: %s", (d->is_pc ? "pc" : "amiga"));
 
 	if(d->is_pc) {
 		d->idx_of_first_main_card = 1;
