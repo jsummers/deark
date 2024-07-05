@@ -7,7 +7,6 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_reko);
 
-#define MINCARDS       40
 #define MAXCARDS       80
 #define MINCARDWIDTH   64
 #define MAXCARDWIDTH   100
@@ -37,6 +36,7 @@ typedef struct localctx_reko {
 	i64 hdrsize;
 	i64 globalpal_nbytes;
 	i64 localpal_nbytes;
+	i64 idx_of_first_main_card;
 	de_color pal[256];
 } lctx;
 
@@ -57,11 +57,6 @@ static void read_header_amiga(deark *c, lctx *d)
 	d->h = de_getu16be_p(&pos);
 	d->w = de_getu16be_p(&pos);
 	de_dbg_dimensions(c, d->w, d->h);
-	if(d->w != 88) {
-		de_warn(c, "Unexpected width %d; assuming it should be 88", (int)d->w);
-		d->w = 88;
-		d->suppress_size_warnings = 1;
-	}
 	d->camg_mode = (UI)de_getu32be_p(&pos);
 	de_dbg(c, "CAMG mode: 0x%08x", d->camg_mode);
 	if(d->camg_mode & 0x0800) d->ham_flag = 1;
@@ -73,6 +68,14 @@ static void read_header_amiga(deark *c, lctx *d)
 	d->numcards = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "num cards: %"I64_FMT, d->numcards);
 	d->hdrsize = pos;
+	if(d->w==96 && d->depth_pixel==4) {
+		; // Hack. Found a file that's really like this.
+	}
+	else if(d->w>88 && d->w<=96) {
+		de_warn(c, "Unexpected width %d; assuming it should be 88", (int)d->w);
+		d->w = 88;
+		d->suppress_size_warnings = 1;
+	}
 
 	if(d->depth_pixel<1 || d->depth_pixel>8) {
 		d->fatalerrflag = 1;
@@ -362,7 +365,7 @@ static void reko_main_rkp24(deark *c, lctx *d)
 		ext = "bmp";
 	}
 
-	if(d->numcards<MINCARDS || d->numcards>MAXCARDS) {
+	if(d->numcards<1 || d->numcards>MAXCARDS) {
 		d->fatalerrflag = 1;
 		d->need_errmsg = 1;
 		goto done;
@@ -420,20 +423,22 @@ done:
 
 static void reko_main(deark *c, lctx *d)
 {
-	i64 pos;
 	int saved_indent_level;
 	i64 cardidx;
 	i64 expected_cardsize;
+	i64 full_cardsize;
 	de_bitmap *cardimg = NULL;
 	de_bitmap *canvas = NULL;
+	i64 cards_pos;
+	i64 localhdrsize = 0;
 	i64 canvas_cols, canvas_rows;
 	i64 canvas_w, canvas_h;
 	i64 cxpos_maincards, cypos_maincards;
 	i64 cxpos_extracards, cypos_extracards;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	pos = d->hdrsize + d->globalpal_nbytes;
-	de_dbg(c, "cards at %"I64_FMT, pos);
+	cards_pos = d->hdrsize + d->globalpal_nbytes;
+	de_dbg(c, "cards at %"I64_FMT, cards_pos);
 	de_dbg_indent(c, 1);
 
 	if(d->is_pc) {
@@ -444,13 +449,18 @@ static void reko_main(deark *c, lctx *d)
 		}
 	}
 
-	if(d->numcards<MINCARDS || d->numcards>MAXCARDS ||
+	if(d->numcards<1 || d->numcards>MAXCARDS ||
 		d->w<MINCARDWIDTH || d->w>MAXCARDWIDTH ||
 		d->h<MINCARDHEIGHT || d->h>MAXCARDHEIGHT)
 	{
 		d->fatalerrflag = 1;
 		d->need_errmsg = 1;
 		goto done;
+	}
+
+	if(d->numcards < d->idx_of_first_main_card+52) {
+		de_warn(c, "Expected at least %"I64_FMT" cards; only found %"I64_FMT,
+			d->idx_of_first_main_card+52, d->numcards);
 	}
 
 	if(d->is_pc) {
@@ -475,10 +485,12 @@ static void reko_main(deark *c, lctx *d)
 
 	d->localpal_nbytes = 0;
 	if(d->is_pc) {
+		localhdrsize = 4;
 		if(d->depth_pixel==8) {
 			d->localpal_nbytes = 512;
 		}
 	}
+	full_cardsize = localhdrsize + d->localpal_nbytes + d->cardsize;
 
 	canvas_cols = 13;
 	canvas_rows = (d->numcards+12) / 13;
@@ -498,44 +510,45 @@ static void reko_main(deark *c, lctx *d)
 
 	for(cardidx=0; cardidx<d->numcards; cardidx++) {
 		u8 is_main_card;
-		i64 cw_raw, ch_raw;
 		i64 dstcxpos, dstcypos;
 		i64 dstxpos, dstypos;
+		i64 thiscardpos;
 
-		de_dbg(c, "card #%"I64_FMT" at %"I64_FMT, cardidx, pos);
+		thiscardpos = cards_pos + cardidx*full_cardsize;
+		de_dbg(c, "card #%"I64_FMT" at %"I64_FMT, cardidx, thiscardpos);
 		de_dbg_indent(c, 1);
-		if(d->is_pc) {
-			cw_raw = de_getu16le_p(&pos);
-			ch_raw = de_getu16le_p(&pos);
+
+		if(d->is_pc && !d->fatalerrflag && (thiscardpos+localhdrsize <= c->infile->len)) {
+			i64 cw_raw, ch_raw;
+
+			cw_raw = de_getu16le(thiscardpos);
+			ch_raw = de_getu16le(thiscardpos+2);
 			if((cw_raw+1 != d->w) || (ch_raw+1 != d->h)) {
+				de_err(c, "Card #%d: Bad card header", (int)cardidx);
 				d->fatalerrflag = 1;
-				d->need_errmsg = 1;
-				goto done;
+				// (But keep going.)
 			}
 		}
 
 		de_bitmap_rect(cardimg, 0, 0, d->w, d->h, DE_STOCKCOLOR_BLACK, 0);
-		if(d->is_pc) {
+
+		if(d->fatalerrflag) {
+			;
+		}
+		else if(d->is_pc) {
 			if(d->depth_pixel==8) {
-				read_image_pc8(c, d, cardimg, pos);
+				read_image_pc8(c, d, cardimg, thiscardpos+localhdrsize);
 			}
 			else {
-				read_image_pc16(c, d, cardimg, pos);
+				read_image_pc16(c, d, cardimg, thiscardpos+localhdrsize);
 			}
 		}
 		else {
-			read_image_amiga(c, d, cardimg, pos);
-		}
-		pos += d->localpal_nbytes;
-		pos += d->cardsize;
-
-		if(d->is_pc) {
-			is_main_card = (cardidx>=1 && cardidx<=52);
-		}
-		else {
-			is_main_card = (cardidx>=3 && cardidx<=54);
+			read_image_amiga(c, d, cardimg, thiscardpos);
 		}
 
+		is_main_card = (cardidx>=d->idx_of_first_main_card &&
+			cardidx<(d->idx_of_first_main_card+52));
 		if(is_main_card) {
 			dstcxpos = cxpos_maincards;
 			dstcypos = cypos_maincards;
@@ -557,6 +570,13 @@ static void reko_main(deark *c, lctx *d)
 		dstxpos = dstcxpos*(d->w+REKO_BORDER);
 		dstypos = dstcypos*(d->h+REKO_BORDER);
 		de_bitmap_copy_rect(cardimg, canvas, 0, 0, d->w, d->h, dstxpos, dstypos, 0);
+
+		if(!d->fatalerrflag && (thiscardpos+full_cardsize > c->infile->len)) {
+			de_err(c, "Premature end of file");
+			d->fatalerrflag = 1;
+			// (But keep going, so we draw the full image template.)
+		}
+
 		de_dbg_indent(c, -1);
 	}
 
@@ -607,6 +627,13 @@ static void de_run_reko(deark *c, de_module_params *mparams)
 		d->is_pc = 1;
 	}
 	de_dbg(c, "platform: %s", (d->is_pc ? "pc" : "amiga"));
+
+	if(d->is_pc) {
+		d->idx_of_first_main_card = 1;
+	}
+	else {
+		d->idx_of_first_main_card = 3;
+	}
 
 	if(d->fmt==RKFMT_RKP24) {
 		read_header_rkp24(c, d);
