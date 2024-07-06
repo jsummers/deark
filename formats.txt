@@ -651,6 +651,8 @@ Deark -- Information about supported formats
 * Winzle (module=winzle)
   - Convert Winzle obfuscated BMP (.wzl) to BMP.
 
+* Wiz Solitaire deck (module="wizsolitaire")
+
 * WordPerfect Graphics (module=wpg)
   - Extract bitmaps
 

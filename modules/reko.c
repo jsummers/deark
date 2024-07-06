@@ -2,10 +2,14 @@
 // Copyright (C) 2024 Jason Summers
 // See the file COPYING for terms of use.
 
-// REKO cardset
+// REKO cardset, etc.
 
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_reko);
+DE_DECLARE_MODULE(de_module_wizsolitaire);
+
+//----------------------------------------------------
+// REKO cardset
 
 #define MAXCARDS       80
 #define MINCARDWIDTH   64
@@ -693,4 +697,122 @@ void de_module_reko(deark *c, struct deark_module_info *mi)
 	mi->desc = "REKO cardset";
 	mi->run_fn = de_run_reko;
 	mi->identify_fn = de_identify_reko;
+}
+
+//----------------------------------------------------
+// Wiz Solitaire deck
+
+static void set_wizsol_card_filename(deark *c, i64 cardidx, u8 cardval,
+	u8 cardsuit, de_finfo *fi)
+{
+	static const char *cnames = "a23456789tjqk";
+	static const char *snames = "cdhs";
+	char nbuf[16];
+
+	if(cardval>=1 && cardval<=13 && cardsuit<=3) {
+		nbuf[0] = cnames[(UI)cardval-1];
+		nbuf[1] = snames[(UI)cardsuit];
+		nbuf[2] = '\0';
+	}
+	else if(cardidx==0) {
+		de_strlcpy(nbuf, "back", sizeof(nbuf));
+	}
+	else {
+		de_strlcpy(nbuf, "other", sizeof(nbuf));
+	}
+
+	de_finfo_set_name_from_sz(c, fi, nbuf, 0, DE_ENCODING_LATIN1);
+}
+
+static void de_run_wizsolitaire(deark *c, de_module_params *mparams)
+{
+	i64 cardidx = 0;
+	u8 errflag = 0;
+	u8 need_errmsg = 0;
+	i64 pos;
+	de_finfo *fi = NULL;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	pos = 20;
+	fi = de_finfo_create(c);
+	while(1) {
+		i64 extralen;
+		i64 imglen;
+		u8 cardval, cardsuit;
+
+		if(cardidx>72) {
+			errflag = 1;
+			need_errmsg = 1;
+			goto done;
+		}
+		if(pos+18 > c->infile->len) goto done;
+		de_dbg(c, "card #%"I64_FMT" at %"I64_FMT, cardidx, pos);
+		de_dbg_indent(c, 1);
+
+		// Card headers start with 00 00 00 00, except the 54th which starts
+		// with 04 00 00 00 00 00 00 00.
+		// I don't know how to interpret this. But the 04 does not seem to be the
+		// number of extra cards, so I'm assuming it's the number of extra bytes
+		// in the header.
+		extralen = de_getu32le_p(&pos);
+		de_dbg(c, "len1: %"I64_FMT, extralen);
+		pos += extralen;
+		pos += 8;
+		cardval = de_getbyte_p(&pos);
+		cardsuit = de_getbyte_p(&pos);
+		imglen = de_getu32le_p(&pos);
+		de_dbg(c, "img len: %"I64_FMT, imglen);
+		if(imglen==0) {
+			de_dbg(c, "[eof marker]");
+			goto done;
+		}
+
+		de_dbg(c, "suit %u card %u", (UI)cardsuit, (UI)cardval);
+
+		if(imglen<32 || pos+imglen>c->infile->len) {
+			errflag = 1;
+			need_errmsg = 1;
+			goto done;
+		}
+		if(dbuf_memcmp(c->infile, pos, (const void*)"\xff\xd8\xff", 3)) {
+			de_err(c, "Expected image not found at %"I64_FMT, pos);
+			errflag = 1;
+			goto done;
+		}
+		set_wizsol_card_filename(c, cardidx, cardval, cardsuit, fi);
+		dbuf_create_file_from_slice(c->infile, pos, imglen, "jpg", fi, 0);
+		pos += imglen;
+		de_dbg_indent(c, -1);
+		cardidx++;
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	if(!errflag) {
+		de_dbg(c, "number of cards: %"I64_FMT, cardidx);
+		if(cardidx<53 && !errflag) {
+			de_warn(c, "Expected at least 53 cards, found %"I64_FMT, cardidx);
+		}
+	}
+	if(need_errmsg) {
+		de_err(c, "Bad or unsupported file");
+	}
+	de_finfo_destroy(c, fi);
+}
+
+static int de_identify_wizsolitaire(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, (const void*)"WizSolitaireDeck", 16)) {
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_wizsolitaire(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "wizsolitaire";
+	mi->desc = "Wiz Solitaire deck";
+	mi->run_fn = de_run_wizsolitaire;
+	mi->identify_fn = de_identify_wizsolitaire;
 }
