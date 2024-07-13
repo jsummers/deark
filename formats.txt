@@ -527,6 +527,9 @@ Deark -- Information about supported formats
   - Decode some "raw" (uncompressed) images.
 
 * REKO cardset (module="reko")
+  Options
+   -opt reko:combine=0 : Write each card to its own file, even if a montage is
+     possible.
 
 * RIPscrip icon (.ICN) or BGI image (module="ripicon") (experimental)
   - Not all files are autodetected. You may need "-m ripicon".

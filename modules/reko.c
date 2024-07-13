@@ -28,6 +28,7 @@ typedef struct localctx_reko {
 	u8 fatalerrflag;
 	u8 need_errmsg;
 	u8 suppress_size_warnings;
+	u8 combine_images;
 	i64 bodysize;
 	i64 cardsize;
 	i64 w, h;
@@ -331,15 +332,16 @@ static void read_image_pc16(deark *c, lctx *d, de_bitmap *img, i64 pos1)
 	}
 }
 
-static void set_pc_card_filename(deark *c, i64 cardidx, de_finfo *fi)
+static void set_reko_card_filename(deark *c, i64 idx_of_first_main_card,
+	i64 cardidx, de_finfo *fi)
 {
 	static const char *cnames = "a23456789tjqk";
 	static const char *snames = "cdhs";
 	char nbuf[16];
 
-	if(cardidx>=1 && cardidx<=52) {
-		nbuf[0] = cnames[(cardidx-1)/4];
-		nbuf[1] = snames[(cardidx-1)%4];
+	if(cardidx>=idx_of_first_main_card && cardidx<idx_of_first_main_card+52) {
+		nbuf[0] = cnames[(cardidx-idx_of_first_main_card)/4];
+		nbuf[1] = snames[(cardidx-idx_of_first_main_card)%4];
 		nbuf[2] = '\0';
 	}
 	else if(cardidx==0) {
@@ -418,7 +420,7 @@ static void reko_main_rkp24(deark *c, lctx *d)
 			goto done;
 		}
 
-		set_pc_card_filename(c, cardidx, fi);
+		set_reko_card_filename(c, d->idx_of_first_main_card, cardidx, fi);
 		outf = dbuf_create_output_file(c, ext, fi, 0);
 		dbuf_copy(c->infile, extract_pos, nbytes_to_extract, outf);
 		dbuf_close(outf);
@@ -440,6 +442,7 @@ static void reko_main(deark *c, lctx *d)
 	i64 full_cardsize;
 	de_bitmap *cardimg = NULL;
 	de_bitmap *canvas = NULL;
+	de_finfo *fi = NULL;
 	i64 cards_pos;
 	i64 localhdrsize = 0;
 	i64 canvas_cols, canvas_rows;
@@ -451,6 +454,8 @@ static void reko_main(deark *c, lctx *d)
 	cards_pos = d->hdrsize + d->globalpal_nbytes;
 	de_dbg(c, "cards at %"I64_FMT, cards_pos);
 	de_dbg_indent(c, 1);
+
+	fi = de_finfo_create(c);
 
 	if(d->is_pc) {
 		if(d->depth_pixel!=8 && d->depth_pixel!=16) {
@@ -515,7 +520,9 @@ static void reko_main(deark *c, lctx *d)
 #define REKO_BORDER 2
 	canvas_w = canvas_cols*(d->w+REKO_BORDER)-REKO_BORDER;
 	canvas_h = canvas_rows*(d->h+REKO_BORDER)-REKO_BORDER;
-	canvas = de_bitmap_create(c, canvas_w, canvas_h, 4);
+	if(d->combine_images) {
+		canvas = de_bitmap_create(c, canvas_w, canvas_h, 4);
+	}
 
 	cardimg = de_bitmap_create(c, d->w, d->h, 3);
 
@@ -580,7 +587,13 @@ static void reko_main(deark *c, lctx *d)
 		}
 		dstxpos = dstcxpos*(d->w+REKO_BORDER);
 		dstypos = dstcypos*(d->h+REKO_BORDER);
-		de_bitmap_copy_rect(cardimg, canvas, 0, 0, d->w, d->h, dstxpos, dstypos, 0);
+		if(canvas) {
+			de_bitmap_copy_rect(cardimg, canvas, 0, 0, d->w, d->h, dstxpos, dstypos, 0);
+		}
+		else {
+			set_reko_card_filename(c, d->idx_of_first_main_card, cardidx, fi);
+			de_bitmap_write_to_file_finfo(cardimg, fi, 0);
+		}
 
 		if(!d->fatalerrflag && (thiscardpos+full_cardsize > c->infile->len)) {
 			de_err(c, "Premature end of file");
@@ -588,14 +601,19 @@ static void reko_main(deark *c, lctx *d)
 			// (But keep going, so we draw the full image template.)
 		}
 
+		if(d->fatalerrflag && !canvas) goto done;
+
 		de_dbg_indent(c, -1);
 	}
 
-	de_bitmap_write_to_file(canvas, NULL, 0);
+	if(canvas) {
+		de_bitmap_write_to_file(canvas, NULL, 0);
+	}
 
 done:
 	de_bitmap_destroy(cardimg);
 	de_bitmap_destroy(canvas);
+	de_finfo_destroy(c, fi);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -628,8 +646,9 @@ static void de_run_reko(deark *c, de_module_params *mparams)
 	const char *fmtname;
 
 	d = de_malloc(c, sizeof(lctx));
-	d->fmt = reko_fmt_from_sig(c);
+	d->combine_images = (u8)de_get_ext_option_bool(c, "reko:combine", 1);
 
+	d->fmt = reko_fmt_from_sig(c);
 	if(d->fmt==0) {
 		de_err(c, "Unsupported REKO version");
 		goto done;
@@ -691,12 +710,18 @@ static int de_identify_reko(deark *c)
 	return 0;
 }
 
+static void de_help_reko(deark *c)
+{
+	de_msg(c, "-opt reko:combine=0 : Always write each card to its own file");
+}
+
 void de_module_reko(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "reko";
 	mi->desc = "REKO cardset";
 	mi->run_fn = de_run_reko;
 	mi->identify_fn = de_identify_reko;
+	mi->help_fn = de_help_reko;
 }
 
 //----------------------------------------------------
