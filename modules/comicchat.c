@@ -35,7 +35,7 @@ struct image_lowlevel_ctx {
 
 struct image_highlevel_ctx {
 	u8 special_2bpp_transparency;
-	//u8 fg_has_transparency;
+	u8 is_icon;
 	// [0] is the foreground image.
 	// [1] and [2] are optional transparency masks.
 	// Sometimes the fg image has transparency, in which case we wouldn't expect
@@ -311,14 +311,15 @@ static void emit_images_highlevel_separate(deark *c, lctx *d,
 	size_t k;
 
 	if(ih->llimg[0].img) {
+		if(ih->is_icon) {
+			de_finfo_set_name_from_sz(c, ih->llimg[0].fi,
+				"icon", 0, DE_ENCODING_LATIN1);
+		}
 		de_bitmap_write_to_file_finfo(ih->llimg[0].img, ih->llimg[0].fi,
 			ih->llimg[0].createflags);
 	}
 	for(k=1; k<=2; k++) {
 		if(ih->llimg[k].img) {
-			if(!ih->llimg[k].fi) {
-				ih->llimg[k].fi = de_finfo_create(c);
-			}
 			de_finfo_set_name_from_sz(c, ih->llimg[k].fi,
 				(k==1?"sm_mask":"lg_mask"), 0, DE_ENCODING_LATIN1);
 			de_bitmap_write_to_file_finfo(ih->llimg[k].img, ih->llimg[k].fi,
@@ -338,9 +339,8 @@ static void emit_images_highlevel_applymasks(deark *c, lctx *d,
 	w = ih->llimg[0].img->width;
 	h = ih->llimg[0].img->height;
 
-	if(!ih->llimg[1].img && !ih->llimg[2].img) {
-		de_bitmap_write_to_file_finfo(ih->llimg[0].img, ih->llimg[0].fi,
-			ih->llimg[0].createflags | DE_CREATEFLAG_OPT_IMAGE);
+	if(!ih->llimg[1].img && !ih->llimg[2].img) { // should be impossible
+		emit_images_highlevel_separate(c, d, ih);
 		goto done;
 	}
 
@@ -353,7 +353,7 @@ static void emit_images_highlevel_applymasks(deark *c, lctx *d,
 		de_bitmap_copy_rect(ih->llimg[0].img, tmpimg, 0, 0, w, h, 0, 0, 0);
 		de_bitmap_apply_mask(tmpimg, ih->llimg[k].img, DE_BITMAPFLAG_WHITEISTRNS);
 		de_bitmap_write_to_file_finfo(tmpimg, ih->llimg[0].fi,
-			ih->llimg[0].createflags | DE_CREATEFLAG_OPT_IMAGE);
+			ih->llimg[0].createflags);
 	}
 
 done:
@@ -380,18 +380,29 @@ static int should_apply_masks(deark *c, lctx *d, struct image_highlevel_ctx *ih)
 	return 1;
 }
 
-static void extract_image_highlevel(deark *c, lctx *d, i64 imgpos, i64 m1pos, i64 m2pos)
+static void extract_image_highlevel(deark *c, lctx *d, i64 imgpos, i64 m1pos, i64 m2pos,
+	u8 is_icon)
 {
 	struct image_highlevel_ctx *ih = NULL;
 	size_t k;
 
 	ih = de_malloc(c, sizeof(struct image_highlevel_ctx));
+
 	de_dbg(c, "[extracting image at %"I64_FMT" : %"I64_FMT" : %"I64_FMT"]",
 		imgpos, m1pos, m2pos);
 	de_dbg_indent(c, 1);
 	read_image_lowlevel(c, d, imgpos, ih, 0);
 	read_image_lowlevel(c, d, m1pos, ih, 1);
 	read_image_lowlevel(c, d, m2pos, ih, 2);
+
+	ih->is_icon = is_icon;
+	for(k=0; k<3; k++) {
+		if(!ih->llimg[k].fi) {
+			ih->llimg[k].fi = de_finfo_create(c);
+		}
+		ih->llimg[k].createflags |= DE_CREATEFLAG_OPT_IMAGE;
+	}
+
 	if(should_apply_masks(c, d, ih)) {
 		emit_images_highlevel_applymasks(c, d, ih);
 	}
@@ -409,10 +420,12 @@ static void extract_image_highlevel(deark *c, lctx *d, i64 imgpos, i64 m1pos, i6
 	}
 }
 
-static int found_image(deark *c, lctx *d, i64 imgpos, i64 m1pos, i64 m2pos)
+static int found_image(deark *c, lctx *d, struct chunk_ctx *cctx,
+	i64 imgpos, i64 m1pos, i64 m2pos)
 {
 	int retval = 0;
 	int ret;
+	u8 is_icon;
 
 	if(imgpos) imgpos += d->img_ptr_bias;
 	if(m1pos) m1pos += d->img_ptr_bias;
@@ -433,7 +446,8 @@ static int found_image(deark *c, lctx *d, i64 imgpos, i64 m1pos, i64 m2pos)
 		goto done;
 	}
 
-	extract_image_highlevel(c, d, imgpos, m1pos, m2pos);
+	is_icon = (cctx->ck_type==0x0003 || cctx->ck_type==0x0100);
+	extract_image_highlevel(c, d, imgpos, m1pos, m2pos, is_icon);
 
 done:
 	return retval;
@@ -444,7 +458,7 @@ static void handle_chunk_1imageptr(deark *c, lctx *d, struct chunk_ctx *cctx, i6
 	i64 n;
 
 	n = de_getu32le(cctx->ck_pos + offset);
-	found_image(c, d, n, 0, 0);
+	found_image(c, d, cctx, n, 0, 0);
 }
 
 static void handle_chunk_multiimageptr(deark *c, lctx *d, struct chunk_ctx *cctx,
@@ -462,7 +476,7 @@ static void handle_chunk_multiimageptr(deark *c, lctx *d, struct chunk_ctx *cctx
 		n = de_getu32le(pos);
 		m1 = de_getu32le(pos+4);
 		m2 = de_getu32le(pos+8);
-		if(!found_image(c, d, n, m1, m2)) goto done;
+		if(!found_image(c, d, cctx, n, m1, m2)) goto done;
 		pos += item_size;
 	}
 
