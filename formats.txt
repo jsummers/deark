@@ -1096,6 +1096,13 @@ Deark -- Information about supported formats
 * AMOS source code (module="amos_source")
   - Extract AmBs resource file.
 
+* Asc2Com (moule="asc2com")
+  Executable text (.COM) files made by MorganSoft's Asc2Com utility.
+  - Extracts the filtered source text. May include special codes intended to
+    change colors, etc.
+  - Supports files that use compression.
+  - Does not attempt to translate to UTF-8.
+
 * ASF multimedia (module="asf")
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
