@@ -1528,6 +1528,18 @@ i64 de_timestamp_to_FILETIME(const struct de_timestamp *ts)
 	return ts->ts_FILETIME;
 }
 
+static int is_valid_time(i64 yr, i64 mo, i64 da, i64 hr, i64 mi, i64 se)
+{
+	if(yr<1601|| yr>99999) return 0;
+	if(mo<1 || mo>12) return 0;
+	// Next line could be improved, but it's not important.
+	if(da<1 || da>31) return 0;
+	if(hr<0 || hr>23) return 0;
+	if(mi<0 || mi>59) return 0;
+	if(se<0 || se>60) return 0; // (tolerate a leap second)
+	return 1;
+}
+
 // [Adapted from Eric Raymond's public domain my_timegm().]
 // Convert a time (as individual fields) to a de_timestamp.
 // This is basically a UTC version of mktime().
@@ -1544,6 +1556,9 @@ void de_make_timestamp(struct de_timestamp *ts,
 		{ 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 };
 
 	de_zeromem(ts, sizeof(struct de_timestamp));
+	if(!is_valid_time(yr, mo, da, hr, mi, se)) {
+		return;
+	}
 	tm_mon = mo-1;
 	if(tm_mon<0 || tm_mon>11) tm_mon=0;
 	result = (yr - 1970) * 365 + cumulative_days[tm_mon];

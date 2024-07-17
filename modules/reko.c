@@ -2,12 +2,15 @@
 // Copyright (C) 2024 Jason Summers
 // See the file COPYING for terms of use.
 
-// REKO cardset
+// REKO cardset, etc.
 
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_reko);
+DE_DECLARE_MODULE(de_module_wizsolitaire);
 
-#define MINCARDS       40
+//----------------------------------------------------
+// REKO cardset
+
 #define MAXCARDS       80
 #define MINCARDWIDTH   64
 #define MAXCARDWIDTH   100
@@ -25,6 +28,7 @@ typedef struct localctx_reko {
 	u8 fatalerrflag;
 	u8 need_errmsg;
 	u8 suppress_size_warnings;
+	u8 combine_images;
 	i64 bodysize;
 	i64 cardsize;
 	i64 w, h;
@@ -37,6 +41,7 @@ typedef struct localctx_reko {
 	i64 hdrsize;
 	i64 globalpal_nbytes;
 	i64 localpal_nbytes;
+	i64 idx_of_first_main_card;
 	de_color pal[256];
 } lctx;
 
@@ -57,11 +62,6 @@ static void read_header_amiga(deark *c, lctx *d)
 	d->h = de_getu16be_p(&pos);
 	d->w = de_getu16be_p(&pos);
 	de_dbg_dimensions(c, d->w, d->h);
-	if(d->w != 88) {
-		de_warn(c, "Unexpected width %d; assuming it should be 88", (int)d->w);
-		d->w = 88;
-		d->suppress_size_warnings = 1;
-	}
 	d->camg_mode = (UI)de_getu32be_p(&pos);
 	de_dbg(c, "CAMG mode: 0x%08x", d->camg_mode);
 	if(d->camg_mode & 0x0800) d->ham_flag = 1;
@@ -73,6 +73,14 @@ static void read_header_amiga(deark *c, lctx *d)
 	d->numcards = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "num cards: %"I64_FMT, d->numcards);
 	d->hdrsize = pos;
+	if(d->w==96 && d->depth_pixel==4) {
+		; // Hack. Found a file that's really like this.
+	}
+	else if(d->w>88 && d->w<=96) {
+		de_warn(c, "Unexpected width %d; assuming it should be 88", (int)d->w);
+		d->w = 88;
+		d->suppress_size_warnings = 1;
+	}
 
 	if(d->depth_pixel<1 || d->depth_pixel>8) {
 		d->fatalerrflag = 1;
@@ -172,16 +180,23 @@ static void read_image_pc8(deark *c, lctx *d, de_bitmap *img, i64 pos1)
 {
 	i64 pos = pos1;
 	size_t k;
+	char tmps[64];
 
 	de_dbg(c, "palette at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
 	de_zeromem(d->pal, sizeof(d->pal));
 	for(k=0; k<256; k++) {
 		u32 clr_raw;
 
 		clr_raw = (u32)de_getu16le_p(&pos);
 		d->pal[k] = de_rgb555_to_888(clr_raw);
-		// TODO: dbg info
+		if(c->debug_level>=2) {
+			de_snprintf(tmps, sizeof(tmps), "0x%04x "DE_CHAR_RIGHTARROW" ", (UI)clr_raw);
+			de_dbg_pal_entry2(c, k, d->pal[k], tmps, NULL, NULL);
+		}
 	}
+	de_dbg_indent(c, -1);
+
 	de_dbg(c, "image at %"I64_FMT, pos);
 	de_convert_image_paletted(c->infile, pos, 8, d->w, d->pal, img, 0);
 }
@@ -317,15 +332,16 @@ static void read_image_pc16(deark *c, lctx *d, de_bitmap *img, i64 pos1)
 	}
 }
 
-static void set_pc_card_filename(deark *c, i64 cardidx, de_finfo *fi)
+static void set_reko_card_filename(deark *c, i64 idx_of_first_main_card,
+	i64 cardidx, de_finfo *fi)
 {
 	static const char *cnames = "a23456789tjqk";
 	static const char *snames = "cdhs";
 	char nbuf[16];
 
-	if(cardidx>=1 && cardidx<=52) {
-		nbuf[0] = cnames[(cardidx-1)/4];
-		nbuf[1] = snames[(cardidx-1)%4];
+	if(cardidx>=idx_of_first_main_card && cardidx<idx_of_first_main_card+52) {
+		nbuf[0] = cnames[(cardidx-idx_of_first_main_card)/4];
+		nbuf[1] = snames[(cardidx-idx_of_first_main_card)%4];
 		nbuf[2] = '\0';
 	}
 	else if(cardidx==0) {
@@ -362,7 +378,7 @@ static void reko_main_rkp24(deark *c, lctx *d)
 		ext = "bmp";
 	}
 
-	if(d->numcards<MINCARDS || d->numcards>MAXCARDS) {
+	if(d->numcards<1 || d->numcards>MAXCARDS) {
 		d->fatalerrflag = 1;
 		d->need_errmsg = 1;
 		goto done;
@@ -404,7 +420,7 @@ static void reko_main_rkp24(deark *c, lctx *d)
 			goto done;
 		}
 
-		set_pc_card_filename(c, cardidx, fi);
+		set_reko_card_filename(c, d->idx_of_first_main_card, cardidx, fi);
 		outf = dbuf_create_output_file(c, ext, fi, 0);
 		dbuf_copy(c->infile, extract_pos, nbytes_to_extract, outf);
 		dbuf_close(outf);
@@ -420,21 +436,26 @@ done:
 
 static void reko_main(deark *c, lctx *d)
 {
-	i64 pos;
 	int saved_indent_level;
 	i64 cardidx;
 	i64 expected_cardsize;
+	i64 full_cardsize;
 	de_bitmap *cardimg = NULL;
 	de_bitmap *canvas = NULL;
+	de_finfo *fi = NULL;
+	i64 cards_pos;
+	i64 localhdrsize = 0;
 	i64 canvas_cols, canvas_rows;
 	i64 canvas_w, canvas_h;
 	i64 cxpos_maincards, cypos_maincards;
 	i64 cxpos_extracards, cypos_extracards;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	pos = d->hdrsize + d->globalpal_nbytes;
-	de_dbg(c, "cards at %"I64_FMT, pos);
+	cards_pos = d->hdrsize + d->globalpal_nbytes;
+	de_dbg(c, "cards at %"I64_FMT, cards_pos);
 	de_dbg_indent(c, 1);
+
+	fi = de_finfo_create(c);
 
 	if(d->is_pc) {
 		if(d->depth_pixel!=8 && d->depth_pixel!=16) {
@@ -444,13 +465,18 @@ static void reko_main(deark *c, lctx *d)
 		}
 	}
 
-	if(d->numcards<MINCARDS || d->numcards>MAXCARDS ||
+	if(d->numcards<1 || d->numcards>MAXCARDS ||
 		d->w<MINCARDWIDTH || d->w>MAXCARDWIDTH ||
 		d->h<MINCARDHEIGHT || d->h>MAXCARDHEIGHT)
 	{
 		d->fatalerrflag = 1;
 		d->need_errmsg = 1;
 		goto done;
+	}
+
+	if(d->numcards < d->idx_of_first_main_card+52) {
+		de_warn(c, "Expected at least %"I64_FMT" cards; only found %"I64_FMT,
+			d->idx_of_first_main_card+52, d->numcards);
 	}
 
 	if(d->is_pc) {
@@ -475,10 +501,12 @@ static void reko_main(deark *c, lctx *d)
 
 	d->localpal_nbytes = 0;
 	if(d->is_pc) {
+		localhdrsize = 4;
 		if(d->depth_pixel==8) {
 			d->localpal_nbytes = 512;
 		}
 	}
+	full_cardsize = localhdrsize + d->localpal_nbytes + d->cardsize;
 
 	canvas_cols = 13;
 	canvas_rows = (d->numcards+12) / 13;
@@ -492,50 +520,53 @@ static void reko_main(deark *c, lctx *d)
 #define REKO_BORDER 2
 	canvas_w = canvas_cols*(d->w+REKO_BORDER)-REKO_BORDER;
 	canvas_h = canvas_rows*(d->h+REKO_BORDER)-REKO_BORDER;
-	canvas = de_bitmap_create(c, canvas_w, canvas_h, 4);
+	if(d->combine_images) {
+		canvas = de_bitmap_create(c, canvas_w, canvas_h, 4);
+	}
 
 	cardimg = de_bitmap_create(c, d->w, d->h, 3);
 
 	for(cardidx=0; cardidx<d->numcards; cardidx++) {
 		u8 is_main_card;
-		i64 cw_raw, ch_raw;
 		i64 dstcxpos, dstcypos;
 		i64 dstxpos, dstypos;
+		i64 thiscardpos;
 
-		de_dbg(c, "card #%"I64_FMT" at %"I64_FMT, cardidx, pos);
+		thiscardpos = cards_pos + cardidx*full_cardsize;
+		de_dbg(c, "card #%"I64_FMT" at %"I64_FMT, cardidx, thiscardpos);
 		de_dbg_indent(c, 1);
-		if(d->is_pc) {
-			cw_raw = de_getu16le_p(&pos);
-			ch_raw = de_getu16le_p(&pos);
+
+		if(d->is_pc && !d->fatalerrflag && (thiscardpos+localhdrsize <= c->infile->len)) {
+			i64 cw_raw, ch_raw;
+
+			cw_raw = de_getu16le(thiscardpos);
+			ch_raw = de_getu16le(thiscardpos+2);
 			if((cw_raw+1 != d->w) || (ch_raw+1 != d->h)) {
+				de_err(c, "Card #%d: Bad card header", (int)cardidx);
 				d->fatalerrflag = 1;
-				d->need_errmsg = 1;
-				goto done;
+				// (But keep going.)
 			}
 		}
 
 		de_bitmap_rect(cardimg, 0, 0, d->w, d->h, DE_STOCKCOLOR_BLACK, 0);
-		if(d->is_pc) {
+
+		if(d->fatalerrflag) {
+			;
+		}
+		else if(d->is_pc) {
 			if(d->depth_pixel==8) {
-				read_image_pc8(c, d, cardimg, pos);
+				read_image_pc8(c, d, cardimg, thiscardpos+localhdrsize);
 			}
 			else {
-				read_image_pc16(c, d, cardimg, pos);
+				read_image_pc16(c, d, cardimg, thiscardpos+localhdrsize);
 			}
 		}
 		else {
-			read_image_amiga(c, d, cardimg, pos);
-		}
-		pos += d->localpal_nbytes;
-		pos += d->cardsize;
-
-		if(d->is_pc) {
-			is_main_card = (cardidx>=1 && cardidx<=52);
-		}
-		else {
-			is_main_card = (cardidx>=3 && cardidx<=54);
+			read_image_amiga(c, d, cardimg, thiscardpos);
 		}
 
+		is_main_card = (cardidx>=d->idx_of_first_main_card &&
+			cardidx<(d->idx_of_first_main_card+52));
 		if(is_main_card) {
 			dstcxpos = cxpos_maincards;
 			dstcypos = cypos_maincards;
@@ -556,15 +587,33 @@ static void reko_main(deark *c, lctx *d)
 		}
 		dstxpos = dstcxpos*(d->w+REKO_BORDER);
 		dstypos = dstcypos*(d->h+REKO_BORDER);
-		de_bitmap_copy_rect(cardimg, canvas, 0, 0, d->w, d->h, dstxpos, dstypos, 0);
+		if(canvas) {
+			de_bitmap_copy_rect(cardimg, canvas, 0, 0, d->w, d->h, dstxpos, dstypos, 0);
+		}
+		else {
+			set_reko_card_filename(c, d->idx_of_first_main_card, cardidx, fi);
+			de_bitmap_write_to_file_finfo(cardimg, fi, 0);
+		}
+
+		if(!d->fatalerrflag && (thiscardpos+full_cardsize > c->infile->len)) {
+			de_err(c, "Premature end of file");
+			d->fatalerrflag = 1;
+			// (But keep going, so we draw the full image template.)
+		}
+
+		if(d->fatalerrflag && !canvas) goto done;
+
 		de_dbg_indent(c, -1);
 	}
 
-	de_bitmap_write_to_file(canvas, NULL, 0);
+	if(canvas) {
+		de_bitmap_write_to_file(canvas, NULL, 0);
+	}
 
 done:
 	de_bitmap_destroy(cardimg);
 	de_bitmap_destroy(canvas);
+	de_finfo_destroy(c, fi);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -594,19 +643,32 @@ static u8 reko_fmt_from_sig(deark *c)
 static void de_run_reko(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	const char *fmtname;
 
 	d = de_malloc(c, sizeof(lctx));
-	d->fmt = reko_fmt_from_sig(c);
+	d->combine_images = (u8)de_get_ext_option_bool(c, "reko:combine", 1);
 
+	d->fmt = reko_fmt_from_sig(c);
 	if(d->fmt==0) {
 		de_err(c, "Unsupported REKO version");
 		goto done;
 	}
+	if(d->fmt==RKFMT_RKP8) fmtname = "RKP 8";
+	else if(d->fmt==RKFMT_RKP16) fmtname = "RKP 16";
+	else if(d->fmt==RKFMT_RKP24) fmtname = "RKP 24";
+	else fmtname = "Amiga";
+	de_declare_fmtf(c, "REKO cardset (%s)", fmtname);
 
 	if(d->fmt==RKFMT_RKP8 || d->fmt==RKFMT_RKP16 || d->fmt==RKFMT_RKP24) {
 		d->is_pc = 1;
 	}
-	de_dbg(c, "platform: %s", (d->is_pc ? "pc" : "amiga"));
+
+	if(d->is_pc) {
+		d->idx_of_first_main_card = 1;
+	}
+	else {
+		d->idx_of_first_main_card = 3;
+	}
 
 	if(d->fmt==RKFMT_RKP24) {
 		read_header_rkp24(c, d);
@@ -648,10 +710,134 @@ static int de_identify_reko(deark *c)
 	return 0;
 }
 
+static void de_help_reko(deark *c)
+{
+	de_msg(c, "-opt reko:combine=0 : Always write each card to its own file");
+}
+
 void de_module_reko(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "reko";
 	mi->desc = "REKO cardset";
 	mi->run_fn = de_run_reko;
 	mi->identify_fn = de_identify_reko;
+	mi->help_fn = de_help_reko;
+}
+
+//----------------------------------------------------
+// Wiz Solitaire deck
+
+static void set_wizsol_card_filename(deark *c, i64 cardidx, u8 cardval,
+	u8 cardsuit, de_finfo *fi)
+{
+	static const char *cnames = "a23456789tjqk";
+	static const char *snames = "cdhs";
+	char nbuf[16];
+
+	if(cardval>=1 && cardval<=13 && cardsuit<=3) {
+		nbuf[0] = cnames[(UI)cardval-1];
+		nbuf[1] = snames[(UI)cardsuit];
+		nbuf[2] = '\0';
+	}
+	else if(cardidx==0) {
+		de_strlcpy(nbuf, "back", sizeof(nbuf));
+	}
+	else {
+		de_strlcpy(nbuf, "other", sizeof(nbuf));
+	}
+
+	de_finfo_set_name_from_sz(c, fi, nbuf, 0, DE_ENCODING_LATIN1);
+}
+
+static void de_run_wizsolitaire(deark *c, de_module_params *mparams)
+{
+	i64 cardidx = 0;
+	u8 errflag = 0;
+	u8 need_errmsg = 0;
+	i64 pos;
+	de_finfo *fi = NULL;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	pos = 20;
+	fi = de_finfo_create(c);
+	while(1) {
+		i64 extralen;
+		i64 imglen;
+		u8 cardval, cardsuit;
+
+		if(cardidx>72) {
+			errflag = 1;
+			need_errmsg = 1;
+			goto done;
+		}
+		if(pos+18 > c->infile->len) goto done;
+		de_dbg(c, "card #%"I64_FMT" at %"I64_FMT, cardidx, pos);
+		de_dbg_indent(c, 1);
+
+		// Card headers start with 00 00 00 00, except the 54th which starts
+		// with 04 00 00 00 00 00 00 00.
+		// I don't know how to interpret this. But the 04 does not seem to be the
+		// number of extra cards, so I'm assuming it's the number of extra bytes
+		// in the header.
+		extralen = de_getu32le_p(&pos);
+		de_dbg(c, "len1: %"I64_FMT, extralen);
+		pos += extralen;
+		pos += 8;
+		cardval = de_getbyte_p(&pos);
+		cardsuit = de_getbyte_p(&pos);
+		imglen = de_getu32le_p(&pos);
+		de_dbg(c, "img len: %"I64_FMT, imglen);
+		if(imglen==0) {
+			de_dbg(c, "[eof marker]");
+			goto done;
+		}
+
+		de_dbg(c, "suit %u card %u", (UI)cardsuit, (UI)cardval);
+
+		if(imglen<32 || pos+imglen>c->infile->len) {
+			errflag = 1;
+			need_errmsg = 1;
+			goto done;
+		}
+		if(dbuf_memcmp(c->infile, pos, (const void*)"\xff\xd8\xff", 3)) {
+			de_err(c, "Expected image not found at %"I64_FMT, pos);
+			errflag = 1;
+			goto done;
+		}
+		set_wizsol_card_filename(c, cardidx, cardval, cardsuit, fi);
+		dbuf_create_file_from_slice(c->infile, pos, imglen, "jpg", fi, 0);
+		pos += imglen;
+		de_dbg_indent(c, -1);
+		cardidx++;
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	if(!errflag) {
+		de_dbg(c, "number of cards: %"I64_FMT, cardidx);
+		if(cardidx<53 && !errflag) {
+			de_warn(c, "Expected at least 53 cards, found %"I64_FMT, cardidx);
+		}
+	}
+	if(need_errmsg) {
+		de_err(c, "Bad or unsupported file");
+	}
+	de_finfo_destroy(c, fi);
+}
+
+static int de_identify_wizsolitaire(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, (const void*)"WizSolitaireDeck", 16)) {
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_wizsolitaire(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "wizsolitaire";
+	mi->desc = "Wiz Solitaire deck";
+	mi->run_fn = de_run_wizsolitaire;
+	mi->identify_fn = de_identify_wizsolitaire;
 }
