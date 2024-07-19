@@ -1137,6 +1137,11 @@ Deark -- Information about supported formats
   Options
    -opt crc:all - Also compute uncommon CRCs and checksums
 
+* DOC2COM (moule="doc2com") (experimental)
+  Executable text (.COM) files made by G. DePyper's DOC2COM utility.
+  - Supports files that use encryption.
+  - Does not attempt to translate to UTF-8.
+
 * DS_Store (module="dsstore") (experimental)
   Metadata format associated with MacOS Finder.
 

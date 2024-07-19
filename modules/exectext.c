@@ -9,13 +9,16 @@
 DE_DECLARE_MODULE(de_module_txt2com);
 DE_DECLARE_MODULE(de_module_show_gmr);
 DE_DECLARE_MODULE(de_module_asc2com);
+DE_DECLARE_MODULE(de_module_doc2com);
 
 typedef struct localctx_exectext {
 	de_encoding input_encoding;
+	UI fmtcode;
 	u8 opt_encconv;
 	u8 errflag;
 	u8 need_errmsg;
 	u8 found_text;
+	u8 is_encrypted;
 	i64 tpos;
 	i64 tlen;
 } lctx;
@@ -565,4 +568,206 @@ void de_module_asc2com(deark *c, struct deark_module_info *mi)
 	mi->desc = "Asc2Com executable text";
 	mi->run_fn = de_run_asc2com;
 	mi->identify_fn = de_identify_asc2com;
+}
+
+///////////////////////////////////////////////////
+// DOC2COM (Gerald DePyper)
+
+struct doc2com_detection_data {
+	u8 found;
+	UI fmtcode;
+};
+
+static void doc2com_detect(deark *c, struct doc2com_detection_data *idd, UI idmode)
+{
+	u8 buf[22];
+
+	dbuf_read(c->infile, buf, 0, sizeof(buf));
+
+	if(buf[0]==0xbe && buf[15]==0x72) {
+		if(!de_memcmp(&buf[3], (const void*)"\xb9\x18\x00\xe8\xb2\x01\xe2\xfb\x3b\x36", 10)) {
+			idd->fmtcode = 10; // old unversioned releases
+			idd->found = 1;
+		}
+	}
+	else if(buf[0]==0xfc && buf[1]==0xbe && buf[16]==0x72) {
+		if(!de_memcmp(&buf[4], (const void*)"\xb9\x18\x00\xe8\x2f\x02\xe2\xfb\x3b\x36", 10)) {
+			idd->fmtcode = 20; // v1.2
+			idd->found = 1;
+		}
+	}
+	else if(buf[0]==0xfc && buf[5]==0x49) {
+		// Expecting all v1.3+ files to start with:
+		//  fc ?? ?? ?? ?? 49 8b 36 ?? ?? 8b fe ac 32 04 aa e2 fa ac 34 ff aa ...
+		// First 3 bytes:
+		//  fc 8b 0e if encrypted
+		//  fc eb 13 if not encrypted
+		if(!de_memcmp(&buf[10],
+			(const void*)"\x8b\xfe\xac\x32\x04\xaa\xe2\xfa\xac\x34\xff\xaa", 12))
+		{
+			idd->fmtcode = 30; // v1.3+
+			idd->found = 1;
+		}
+	}
+}
+
+static void doc2com_analyze(deark *c, lctx *d)
+{
+	i64 pos_a, pos_b, pos_c, pos_d;
+	i64 pos_of_tpos;
+	i64 pos_of_tlen;
+	i64 pos_of_endpos;
+	i64 endpos;
+
+	if(d->fmtcode==30) {
+		if(de_getbyte(1) != 0xeb) {
+			d->is_encrypted = 1;
+		}
+	}
+
+	if(d->fmtcode==10) {
+		pos_of_tpos = 1;
+	}
+	else if(d->fmtcode==20) {
+		pos_of_tpos = 2;
+	}
+	else if(d->fmtcode==30) {
+		pos_d = de_getu16le(8);
+		pos_of_tpos = pos_d - 0x100;
+	}
+	else {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	de_dbg(c, "pos of tpos: %"I64_FMT, pos_of_tpos);
+	pos_a = de_getu16le(pos_of_tpos);
+	d->tpos = pos_a - 0x100;
+	de_dbg(c, "tpos: %"I64_FMT, d->tpos);
+
+	if(d->fmtcode==10 || d->fmtcode==20) {
+		if(d->fmtcode==20) {
+			pos_b = de_getu16le(25);
+		}
+		else { // 10
+			pos_b = de_getu16le(24);
+		}
+		pos_of_endpos = pos_b - 0x100;
+		de_dbg(c, "pos of endpos: %"I64_FMT, pos_of_endpos);
+		pos_c = de_getu16le(pos_of_endpos);
+		endpos = pos_c - 0x100;
+		de_dbg(c, "endpos: %"I64_FMT, endpos);
+		d->tlen = endpos - d->tpos;
+	}
+	else { // 30
+		pos_b = de_getu16le(3);
+		pos_of_tlen = pos_b - 0x100;
+		de_dbg(c, "pos of tlen: %"I64_FMT, pos_of_tlen);
+		d->tlen = de_getu16le(pos_of_tlen);
+	}
+
+	de_dbg(c, "tlen: %"I64_FMT, d->tlen);
+	de_dbg(c, "encrypted: %u", (UI)d->is_encrypted);
+done:
+	;
+}
+
+static void doc2com_output(deark *c, lctx *d)
+{
+	dbuf *outf = NULL;
+
+	if(d->tlen<0 || d->tpos<0 || d->tpos+d->tlen>c->infile->len) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	outf = dbuf_create_output_file(c, "txt", NULL, 0);
+	if(d->is_encrypted) {
+		u8 this_byte = 0;
+		u8 next_byte = 0;
+		u8 init_flag = 0;
+		i64 i;
+
+		dbuf_enable_wbuffer(outf);
+
+		for(i=0; i<d->tlen; i++) {
+			u8 b;
+
+			if(init_flag) {
+				this_byte = next_byte;
+			}
+			else {
+				this_byte = de_getbyte(d->tpos+i);
+				init_flag = 1;
+			}
+
+			if(i+1 < d->tlen) {
+				next_byte = de_getbyte(d->tpos+i+1);
+			}
+			else {
+				next_byte = 0xff;
+			}
+
+			b = this_byte ^ next_byte;
+			dbuf_writebyte(outf, b);
+		}
+	}
+	else {
+		dbuf_copy(c->infile, d->tpos, d->tlen, outf);
+	}
+
+done:
+	dbuf_close(outf);
+}
+
+static void de_run_doc2com(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	struct doc2com_detection_data idd;
+
+	d = de_malloc(c, sizeof(lctx));
+	de_zeromem(&idd, sizeof(struct doc2com_detection_data));
+	doc2com_detect(c, &idd, 0);
+	if(!idd.found) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	d->fmtcode = idd.fmtcode;
+	de_dbg(c, "fmt code: %u", d->fmtcode);
+	doc2com_analyze(c, d);
+	if(d->errflag) goto done;
+	doc2com_output(c, d);
+
+done:
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Not a DOC2COM file, or unsupported version");
+		}
+		destroy_lctx(c, d);
+	}
+}
+
+static int de_identify_doc2com(deark *c)
+{
+	struct doc2com_detection_data idd;
+	u8 b;
+
+	if(c->infile->len>65280) return 0;
+	b = de_getbyte(0);
+	if(b!=0xbe && b!=0xfc) return 0;
+
+	de_zeromem(&idd, sizeof(struct doc2com_detection_data));
+	doc2com_detect(c, &idd, 1);
+	if(idd.found) return 73;
+	return 0;
+}
+
+void de_module_doc2com(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "doc2com";
+	mi->desc = "DOC2COM executable text (G. DePyper)";
+	mi->run_fn = de_run_doc2com;
+	mi->identify_fn = de_identify_doc2com;
 }
