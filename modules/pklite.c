@@ -2090,15 +2090,16 @@ static int de_identify_pklite(deark *c)
 {
 	i64 verpos;
 
-	 if(detect_pklite_com_quick(c->infile, &verpos)) {
-		 if(pklite_com_has_copyright_string(c->infile, verpos)) {
-			 return 100;
-		 }
-		 // TODO: False positives may be possible. Maybe we should be more
-		 // discriminating.
-		 return 15;
-	 }
-	 return 0;
+	if(c->infile->len>65280) return 0;
+	if(detect_pklite_com_quick(c->infile, &verpos)) {
+		if(pklite_com_has_copyright_string(c->infile, verpos)) {
+			return 100;
+		}
+		// TODO: False positives may be possible. Maybe we should be more
+		// discriminating.
+		return 15;
+	}
+	return 0;
 }
 
 static void de_help_pklite(deark *c)

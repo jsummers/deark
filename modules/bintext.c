@@ -980,6 +980,7 @@ static int de_identify_thedraw_com(deark *c)
 {
 	u8 n1, n2;
 
+	if(c->infile->len>65280) return 0;
 	n1 = de_getbyte(0);
 	if(n1!=0xeb) return 0;
 
