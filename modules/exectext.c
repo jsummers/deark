@@ -10,6 +10,7 @@ DE_DECLARE_MODULE(de_module_txt2com);
 DE_DECLARE_MODULE(de_module_show_gmr);
 DE_DECLARE_MODULE(de_module_asc2com);
 DE_DECLARE_MODULE(de_module_doc2com);
+DE_DECLARE_MODULE(de_module_doc2com_dkn);
 
 typedef struct localctx_exectext {
 	de_encoding input_encoding;
@@ -22,6 +23,23 @@ typedef struct localctx_exectext {
 	i64 tpos;
 	i64 tlen;
 } lctx;
+
+static void exectext_extract_verbatim(deark *c, lctx *d)
+{
+	dbuf *outf = NULL;
+
+	if(d->tpos<1 || d->tlen<0 || d->tpos+d->tlen>c->infile->len) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	outf = dbuf_create_output_file(c, "txt", NULL, 0);
+	dbuf_copy(c->infile, d->tpos, d->tlen, outf);
+
+done:
+	dbuf_close(outf);
+}
 
 // dbuf_copy_slice_convert_to_utf8() in HYBRID mode doesn't quite do what
 // we want for TXT2COM (etc.), mainly because it treats 0x00 and 0x09 as controls,
@@ -770,4 +788,84 @@ void de_module_doc2com(deark *c, struct deark_module_info *mi)
 	mi->desc = "DOC2COM executable text (G. DePyper)";
 	mi->run_fn = de_run_doc2com;
 	mi->identify_fn = de_identify_doc2com;
+}
+
+///////////////////////////////////////////////////
+// DOC2COM (Dan K. Nelson)
+
+static void de_run_doc2com_dkn(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	i64 pos_of_tpos = 0;
+	i64 pos_of_tlen = 0;
+	UI n;
+	UI b1, b2;
+
+	d = de_malloc(c, sizeof(lctx));
+
+	n = (UI)de_getu16le(1);
+	if(n==0x0093) {
+		d->fmtcode = 1;
+		pos_of_tpos = 171;
+		pos_of_tlen = 178;
+	}
+	else if(n==0x0107) {
+		d->fmtcode = 2;
+		pos_of_tpos = 293;
+		pos_of_tlen = 300;
+	}
+
+	if(d->fmtcode==0) goto done;
+	if(de_getbyte(pos_of_tpos-1)!=0xbf) goto done;
+	de_dbg(c, "fmt code: %u", d->fmtcode);
+	d->tpos = de_getu16le(pos_of_tpos);
+	d->tpos -= 0x100;
+	if(d->fmtcode==2) d->tpos--;
+	de_dbg(c, "tpos: %"I64_FMT, d->tpos);
+
+	b1 = de_getbyte(pos_of_tlen);
+	b2 = de_getbyte(pos_of_tlen+2);
+	d->tlen = ((UI)b1<<8) | b2;
+	de_dbg(c, "tlen: %"I64_FMT, d->tlen);
+
+	exectext_extract_verbatim(c, d);
+
+done:
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Not a DOC2COM file, or unsupported version");
+		}
+		destroy_lctx(c, d);
+	}
+}
+
+static int de_identify_doc2com_dkn(deark *c)
+{
+	UI n;
+	i64 pos;
+
+	if(c->infile->len>65280) return 0;
+	n = (UI)de_getu32be(0);
+	if(n==0xe9930000U) {
+		pos = 27;
+	}
+	else if(n==0xe9070100U) {
+		pos = 19;
+	}
+	else {
+		return 0;
+	}
+
+	if(dbuf_memcmp(c->infile, pos, (const void*)"Press  Home  P", 14)) {
+		return 0;
+	}
+	return 79;
+}
+
+void de_module_doc2com_dkn(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "doc2com_dkn";
+	mi->desc = "DOC2COM executable text (D. Nelson)";
+	mi->run_fn = de_run_doc2com_dkn;
+	mi->identify_fn = de_identify_doc2com_dkn;
 }
