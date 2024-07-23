@@ -41,6 +41,7 @@ Command-line options:
    Extract more data than usual, including things that are rarely of interest,
    such as comments. See also the "-opt extract..." options, and the format-
    specific options in technical.md.
+   In a few contexts, -a has some other type of "do more" function.
 -o &lt;name>
    Output filenames begin with this string. This can include a directory
    path. Default is "output", except in some cases when using -zip/-tar.

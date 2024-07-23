@@ -429,7 +429,15 @@ static void de_run_crc(deark *c, de_module_params *mparams)
 	size_t n;
 
 	de_zeromem(&crcctx, sizeof(struct crcctx_struct));
-	crcctx.opt_all = (u8)de_get_ext_option_bool(c, "crc:all", 0);
+	crcctx.opt_all = (u8)de_get_ext_option_bool(c, "crc:all", 0xff);
+	if(crcctx.opt_all==0xff) {
+		if(c->extract_level>=2) {
+			crcctx.opt_all = 1;
+		}
+		else {
+			crcctx.opt_all = 0;
+		}
+	}
 
 	for(n=0; n<CRCM_NUMCRCS; n++) {
 		if((crcm_map[n].flags & 0x1)==0 && !crcctx.opt_all) continue;
@@ -469,7 +477,7 @@ static void de_run_crc(deark *c, de_module_params *mparams)
 
 static void de_help_crc(deark *c)
 {
-	de_msg(c, "-opt crc:all : Also compute uncommon checksum types");
+	de_msg(c, "-a : Also compute uncommon checksum types");
 }
 
 void de_module_crc(deark *c, struct deark_module_info *mi)

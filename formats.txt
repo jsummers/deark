@@ -1135,7 +1135,7 @@ Deark -- Information about supported formats
   Print various CRC hashes and checksums of the file, including IEEE CRC-32.
   - You must use "-m crc".
   Options
-   -opt crc:all - Also compute uncommon CRCs and checksums
+   -a, -opt crc:all - Also compute uncommon CRCs and checksums.
 
 * DOC2COM (moule="doc2com") (experimental)
   Executable text (.COM) files made by G. DePyper's DOC2COM utility.
