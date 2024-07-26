@@ -22,8 +22,10 @@ typedef struct localctx_exectext {
 	u8 is_encrypted;
 	i64 tpos;
 	i64 tlen;
+	u8 chartypes[32]; // 1=printable, 2=control
 } lctx;
 
+#if 0
 static void exectext_extract_verbatim(deark *c, lctx *d)
 {
 	dbuf *outf = NULL;
@@ -40,15 +42,18 @@ static void exectext_extract_verbatim(deark *c, lctx *d)
 done:
 	dbuf_close(outf);
 }
+#endif
 
-// dbuf_copy_slice_convert_to_utf8() in HYBRID mode doesn't quite do what
-// we want for TXT2COM (etc.), mainly because it treats 0x00 and 0x09 as controls,
-// while TXT2COM treats them as graphics.
-// Note:
+// For byte values 0-31, leaves them or converts them, depending on the flags
+// in d->chartypes[].
+// Note for TXT2COM:
+// - dbuf_copy_slice_convert_to_utf8() in HYBRID mode doesn't quite do what
+//   we want, mainly because it treats 0x00 and 0x09 as controls, while
+//   TXT2COM treats them as graphics.
 // - Early versions of TXT2COM stop when they see 0x1a, but later versions don't.
 //   We behave like later versions.
 // - We might not handle an unpaired LF or CR byte exactly like TXT2COM does.
-static void txt2comlike_convert_and_write(deark *c, lctx *d, dbuf *outf)
+static void exectext_convert_and_write(deark *c, lctx *d, dbuf *outf)
 {
 	struct de_encconv_state es;
 	i64 endpos = d->tpos + d->tlen;
@@ -64,7 +69,7 @@ static void txt2comlike_convert_and_write(deark *c, lctx *d, dbuf *outf)
 		u8 x;
 
 		x = de_getbyte_p(&pos);
-		if(x==10 || x==13) {
+		if(x<32 && d->chartypes[x]!=0) {
 			dbuf_writebyte(outf, x);
 		}
 		else {
@@ -76,7 +81,11 @@ static void txt2comlike_convert_and_write(deark *c, lctx *d, dbuf *outf)
 	}
 }
 
-static void txt2comlike_extract(deark *c, lctx *d)
+// Extract or convert in the typical way.
+// - Validates the source position
+// - Respects d->input_encoding if relevant
+// - Respects d->opt_encconv and d->chartypes[]
+static void exectext_extract_default(deark *c, lctx *d)
 {
 	dbuf *outf = NULL;
 
@@ -88,9 +97,9 @@ static void txt2comlike_extract(deark *c, lctx *d)
 	}
 
 	outf = dbuf_create_output_file(c, "txt", NULL, 0);
-	dbuf_enable_wbuffer(outf);
 	if(d->opt_encconv) {
-		txt2comlike_convert_and_write(c, d, outf);
+		dbuf_enable_wbuffer(outf);
+		exectext_convert_and_write(c, d, outf);
 	}
 	else {
 		dbuf_copy(c->infile, d->tpos, d->tlen, outf);
@@ -187,6 +196,8 @@ static void de_run_txt2com(deark *c, de_module_params *mparams)
 	if(d->input_encoding==DE_ENCODING_ASCII) {
 		d->opt_encconv = 0;
 	}
+	d->chartypes[10] = 1;
+	d->chartypes[13] = 1;
 	de_declare_fmt(c, "TXT2COM");
 
 	txt2com_search1(c, d);
@@ -199,7 +210,7 @@ static void de_run_txt2com(deark *c, de_module_params *mparams)
 	}
 	if(d->errflag) goto done;
 
-	txt2comlike_extract(c, d);
+	exectext_extract_default(c, d);
 
 done:
 	if(d) {
@@ -308,6 +319,8 @@ static void de_run_show_gmr(deark *c, de_module_params *mparams)
 		d->opt_encconv = 0;
 	}
 	de_declare_fmt(c, "SHOW (executable text)");
+	d->chartypes[10] = 1;
+	d->chartypes[13] = 1;
 
 	showgmr_search(c, d);
 	if(!d->found_text) {
@@ -321,7 +334,7 @@ static void de_run_show_gmr(deark *c, de_module_params *mparams)
 		d->tlen--;
 	}
 
-	txt2comlike_extract(c, d);
+	exectext_extract_default(c, d);
 
 done:
 	if(d) {
@@ -802,6 +815,17 @@ static void de_run_doc2com_dkn(deark *c, de_module_params *mparams)
 	UI b1, b2;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->opt_encconv = (u8)de_get_ext_option_bool(c, "text:encconv", 1);
+	if(d->input_encoding==DE_ENCODING_ASCII) {
+		d->opt_encconv = 0;
+	}
+	d->chartypes[7] = 1;
+	d->chartypes[8] = 1;
+	d->chartypes[9] = 1;
+	d->chartypes[10] = 1;
+	d->chartypes[13] = 1;
+	d->chartypes[27] = 1;
 
 	n = (UI)de_getu16le(1);
 	if(n==0x0093) {
@@ -828,7 +852,7 @@ static void de_run_doc2com_dkn(deark *c, de_module_params *mparams)
 	d->tlen = ((UI)b1<<8) | b2;
 	de_dbg(c, "tlen: %"I64_FMT, d->tlen);
 
-	exectext_extract_verbatim(c, d);
+	exectext_extract_default(c, d);
 
 done:
 	if(d) {
@@ -862,10 +886,16 @@ static int de_identify_doc2com_dkn(deark *c)
 	return 79;
 }
 
+static void de_help_doc2com_dkn(deark *c)
+{
+	print_encconv_option(c);
+}
+
 void de_module_doc2com_dkn(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "doc2com_dkn";
 	mi->desc = "DOC2COM executable text (D. Nelson)";
 	mi->run_fn = de_run_doc2com_dkn;
 	mi->identify_fn = de_identify_doc2com_dkn;
+	mi->help_fn = de_help_doc2com_dkn;
 }

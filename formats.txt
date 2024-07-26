@@ -1144,7 +1144,8 @@ Deark -- Information about supported formats
 
 * DOC2COM (moule="doc2com_dkn")
   Executable text (.COM) files made by D. Nelson's DOC2COM utility.
-  - Does not attempt to translate to UTF-8.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
 
 * DS_Store (module="dsstore") (experimental)
   Metadata format associated with MacOS Finder.
