@@ -294,9 +294,9 @@ static void showgmr_search(deark *c, lctx *d)
 		goto done;
 	}
 
-	// v1.0, 1.4
+	// v1.0, 1.4, 1.5
 	ret = de_memsearch_match(mem, SHOW_BUF_LEN1,
-		(const u8*)"\x4e\x8a\x04\x3c\x0a\x75\xf9\x4d\x75\xf5\x46\x89\x36\xc2\x02\xc3", 16,
+		(const u8*)"\x4e\x8a\x04\x3c\x0a\x75\xf9\x4d\x75\xf5\x46\x89\x36?\x02\xc3", 16,
 		'?', &foundpos);
 	if(ret) {
 		d->found_text = 1;
