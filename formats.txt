@@ -5,6 +5,9 @@ Deark -- Information about supported formats
 
 (Images that are not "extracted" will be converted to PNG, except as noted.)
 
+* ACiDDraw COM file (module="aciddraw_com")
+  Executable character graphics format made by ACiDDraw v1.2+.
+
 * ADEX .IMG (module="adex") (experimental)
 
 * Alias PIX, a.k.a. Vivid ray tracer bitmap (module="alias_pix")

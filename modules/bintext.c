@@ -14,10 +14,12 @@ DE_DECLARE_MODULE(de_module_bintext);
 DE_DECLARE_MODULE(de_module_artworx_adf);
 DE_DECLARE_MODULE(de_module_icedraw);
 DE_DECLARE_MODULE(de_module_thedraw_com);
+DE_DECLARE_MODULE(de_module_aciddraw_com);
 
 typedef struct localctx_struct {
 	i64 width_in_chars, height_in_chars;
 	i64 font_height;
+	u8 need_errmsg;
 	u8 has_palette, has_font, compression, nonblink, has_512chars;
 
 	i64 font_data_len;
@@ -25,6 +27,25 @@ typedef struct localctx_struct {
 	int is_standard_font;
 	struct de_bitmap_font *font;
 } lctx;
+
+static void read_and_discard_SAUCE(deark *c)
+{
+	struct de_SAUCE_detection_data sdd;
+
+	fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
+	if(sdd.has_SAUCE) {
+		// Read the SAUCE record if present, just for the debugging info.
+		struct de_SAUCE_info *si = NULL;
+
+		si = fmtutil_create_SAUCE(c);
+
+		de_dbg_indent(c, 1);
+		fmtutil_handle_SAUCE(c, c->infile, si);
+		de_dbg_indent(c, -1);
+
+		fmtutil_free_SAUCE(c, si);
+	}
+}
 
 static void do_bin_main(deark *c, lctx *d, dbuf *unc_data, struct de_char_context *charctx)
 {
@@ -652,21 +673,7 @@ void de_module_artworx_adf(deark *c, struct deark_module_info *mi)
 
 static void de_run_icedraw(deark *c, de_module_params *mparams)
 {
-	struct de_SAUCE_detection_data sdd;
-
-	fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
-	if(sdd.has_SAUCE) {
-		// Read the SAUCE record if present, just for the debugging info.
-		struct de_SAUCE_info *si = NULL;
-		si = fmtutil_create_SAUCE(c);
-
-		de_dbg_indent(c, 1);
-		fmtutil_handle_SAUCE(c, c->infile, si);
-		de_dbg_indent(c, -1);
-
-		fmtutil_free_SAUCE(c, si);
-	}
-
+	read_and_discard_SAUCE(c);
 	de_err(c, "iCEDraw format is not supported");
 }
 
@@ -1036,4 +1043,175 @@ void de_module_thedraw_com(deark *c, struct deark_module_info *mi)
 	mi->desc = "TheDraw COM file";
 	mi->run_fn = de_run_thedraw_com;
 	mi->identify_fn = de_identify_thedraw_com;
+}
+
+////////////////////// ACiDDraw COM //////////////////////
+
+struct aciddraw_id_data {
+	u8 is_aciddraw;
+	i64 jmppos;
+};
+
+struct aciddraw_ctx {
+	int opt_disable_blink;
+	struct de_SAUCE_info *si;
+	struct de_char_context *charctx;
+};
+
+static void aciddraw_id(deark *c, u8 b0, struct aciddraw_id_data *adi)
+{
+	de_zeromem(adi, sizeof(struct aciddraw_id_data));
+	if(b0==0xe9) {
+		adi->jmppos = de_geti16le(1) + 3;
+	}
+	else if(b0==0xeb) {
+		adi->jmppos = de_getbyte(1) + 2;
+	}
+	else {
+		return;
+	}
+
+	if(dbuf_memcmp(c->infile, adi->jmppos,
+		(const void*)"\xb8\x03\x00\xcd\x10\xb4\x01\xb9\x00\x20\xcd\x10\xe8", 13))
+	{
+		return;
+	}
+	adi->is_aciddraw = 1;
+}
+
+static void aciddraw_handle_SAUCE(deark *c, struct aciddraw_ctx *adctx)
+{
+	struct de_SAUCE_detection_data sdd;
+
+	fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
+	if(!sdd.has_SAUCE) goto done;
+
+	adctx->si = fmtutil_create_SAUCE(c);
+	de_dbg_indent(c, 1);
+	fmtutil_handle_SAUCE(c, c->infile, adctx->si);
+	de_dbg_indent(c, -1);
+	if(!adctx->si->is_valid) goto done;
+
+	adctx->charctx->title = adctx->si->title;
+	adctx->charctx->artist = adctx->si->artist;
+	adctx->charctx->organization = adctx->si->organization;
+	adctx->charctx->creation_date = adctx->si->creation_date;
+	adctx->charctx->comment = adctx->si->comment;
+
+	// Note about blinking text:
+	// ACiDDraw has a nonblink mode (Ctrl+Z), but the COM files it writes do
+	// not record or respect this mode in any way, even if a SAUCE record is
+	// written. They just use whatever mode the video hardware is in, which
+	// is usually the mode with blinking text.
+	// So we don't bother to respect the SAUCE flag.
+	// (ACiDDraw does have a separate BLINK.EXE utility that changes the mode,
+	// which could maybe be useful in batch files.)
+
+done:
+	;
+}
+
+static void de_run_aciddraw_com(deark *c, de_module_params *mparams)
+{
+	struct aciddraw_ctx *adctx = NULL;
+	lctx *d = NULL;
+	dbuf *unc_data = NULL;
+	u8 b;
+	UI fmtver = 0;
+	struct aciddraw_id_data adi;
+	i64 data_pos, data_len;
+	i64 num_rows;
+
+	adctx = de_malloc(c, sizeof(struct aciddraw_ctx));
+	d = de_malloc(c, sizeof(lctx));
+	adctx->charctx = de_malloc(c, sizeof(struct de_char_context));
+
+	if(de_get_ext_option(c, "ansiart:noblink")) {
+		adctx->opt_disable_blink = 1;
+	}
+
+	aciddraw_id(c, de_getbyte(0), &adi);
+	if(!adi.is_aciddraw) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	aciddraw_handle_SAUCE(c, adctx);
+
+	d->nonblink = adctx->opt_disable_blink;
+
+	de_dbg(c, "jmp pos: %"I64_FMT, adi.jmppos);
+
+	b = de_getbyte(adi.jmppos+224);
+	if(b==0xe8) {
+		fmtver = 20;
+	}
+	else if(b==0xb4) {
+		fmtver = 25;
+	}
+	else {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	de_dbg(c, "version: v1.%u-like", fmtver);
+
+	data_pos = de_getu16le(adi.jmppos-24);
+	data_pos -= 0x100;
+	de_dbg(c, "data pos: %"I64_FMT, data_pos);
+
+	num_rows = de_getu16le(adi.jmppos+16);
+	if(fmtver==25) num_rows++;
+	de_dbg(c, "num rows: %"I64_FMT, num_rows);
+
+	d->width_in_chars = 80;
+	d->height_in_chars = num_rows;
+
+	data_len = num_rows * d->width_in_chars * 2;
+	de_dbg(c, "data endpos: %"I64_FMT, data_pos + data_len);
+
+	if(data_pos+data_len > c->infile->len) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	unc_data = dbuf_open_input_subfile(c->infile, data_pos, data_len);
+
+	do_default_palette(c, d, adctx->charctx);
+	do_bin_main(c, d, unc_data, adctx->charctx);
+
+done:
+	dbuf_close(unc_data);
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Unsupported ACiDDraw format");
+		}
+		free_lctx(c, d);
+	}
+	if(adctx) {
+		de_free_charctx(c, adctx->charctx);
+		fmtutil_free_SAUCE(c, adctx->si);
+	}
+}
+
+static int de_identify_aciddraw_com(deark *c)
+{
+	u8 n1;
+	struct aciddraw_id_data adi;
+
+	if(c->infile->len>65280) return 0;
+	n1 = de_getbyte(0);
+	if(n1!=0xe9 && n1!=0xeb) return 0;
+	aciddraw_id(c, n1, &adi);
+	if(adi.is_aciddraw) {
+		return 92;
+	}
+	return 0;
+}
+
+void de_module_aciddraw_com(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "aciddraw_com";
+	mi->desc = "ACiDDraw COM file";
+	mi->run_fn = de_run_aciddraw_com;
+	mi->identify_fn = de_identify_aciddraw_com;
 }
