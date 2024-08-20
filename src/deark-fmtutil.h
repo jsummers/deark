@@ -203,7 +203,8 @@ enum de_lzwfmt_enum {
 	DE_LZWFMT_DWC,
 	DE_LZWFMT_SHRINKIT1,
 	DE_LZWFMT_SHRINKIT2,
-	DE_LZWFMT_PAKLEO
+	DE_LZWFMT_PAKLEO,
+	DE_LZWFMT_ASC2COM
 };
 
 struct de_lzw_params {

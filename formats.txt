@@ -5,6 +5,9 @@ Deark -- Information about supported formats
 
 (Images that are not "extracted" will be converted to PNG, except as noted.)
 
+* ACiDDraw COM file (module="aciddraw_com")
+  Executable character graphics format made by ACiDDraw v1.2+.
+
 * ADEX .IMG (module="adex") (experimental)
 
 * Alias PIX, a.k.a. Vivid ray tracer bitmap (module="alias_pix")
@@ -1096,6 +1099,13 @@ Deark -- Information about supported formats
 * AMOS source code (module="amos_source")
   - Extract AmBs resource file.
 
+* Asc2Com (moule="asc2com")
+  Executable text (.COM) files made by MorganSoft's Asc2Com utility.
+  - Extracts the filtered source text. May include special codes intended to
+    change colors, etc.
+  - Supports files that use compression.
+  - Does not attempt to translate to UTF-8.
+
 * ASF multimedia (module="asf")
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
@@ -1128,7 +1138,17 @@ Deark -- Information about supported formats
   Print various CRC hashes and checksums of the file, including IEEE CRC-32.
   - You must use "-m crc".
   Options
-   -opt crc:all - Also compute uncommon CRCs and checksums
+   -a, -opt crc:all - Also compute uncommon CRCs and checksums.
+
+* DOC2COM (moule="doc2com") (experimental)
+  Executable text (.COM) files made by G. DePyper's DOC2COM utility.
+  - Supports files that use encryption.
+  - Does not attempt to translate to UTF-8.
+
+* DOC2COM (moule="doc2com_dkn")
+  Executable text (.COM) files made by D. Nelson's DOC2COM utility.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
 
 * DS_Store (module="dsstore") (experimental)
   Metadata format associated with MacOS Finder.

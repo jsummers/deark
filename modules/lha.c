@@ -2458,6 +2458,7 @@ static int de_identify_lharc_sfx_com(deark *c)
 	int is_larc = 0;
 	int ret;
 
+	if(c->infile->len>65280) return 0;
 	ret = looks_like_lharc_sfx_com(c, &is_larc);
 	if(ret) return 70;
 	return 0;

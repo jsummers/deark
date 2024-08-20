@@ -852,7 +852,7 @@ static void de_run_pcx2com(deark *c, de_module_params *mparams)
 
 static int de_identify_pcx2com(deark *c)
 {
-	if(c->infile->len<922 || c->infile->len>65536) return 0;
+	if(c->infile->len<922 || c->infile->len>65280) return 0;
 
 	if((UI)de_getu32be(0)!=0xb81300cdU) return 0;
 	if(de_getbyte(c->infile->len-1) != 0x0c) return 0;

@@ -356,10 +356,23 @@ static void delzw_unixcompress_end_bitgroup(delzwctx *dc)
 	dc->nbytes_left_to_skip = nbits_left_to_skip/8;
 }
 
+static void bbll_skip_to_byte_boundary(struct de_bitbuf_lowlevel *bbll)
+{
+	UI n;
+
+	n = bbll->nbits_in_bitbuf % 8;
+	if(n) {
+		(void)de_bitbuf_lowlevel_get_bits(bbll, n);
+	}
+}
+
 static void delzw_increase_codesize(delzwctx *dc)
 {
 	if(dc->fmt==DE_LZWFMT_UNIXCOMPRESS) {
 		delzw_unixcompress_end_bitgroup(dc);
+	}
+	else if(dc->fmt==DE_LZWFMT_ASC2COM) {
+		bbll_skip_to_byte_boundary(&dc->bbll);
 	}
 
 	if(dc->curr_codesize<dc->max_codesize) {
@@ -698,7 +711,8 @@ static void delzw_on_decompression_start(delzwctx *dc)
 		dc->fmt!=DE_LZWFMT_DWC &&
 		dc->fmt!=DE_LZWFMT_SHRINKIT1 &&
 		dc->fmt!=DE_LZWFMT_SHRINKIT2 &&
-		dc->fmt!=DE_LZWFMT_PAKLEO)
+		dc->fmt!=DE_LZWFMT_PAKLEO &&
+		dc->fmt!=DE_LZWFMT_ASC2COM)
 	{
 		delzw_set_error(dc, DELZW_ERRCODE_UNSUPPORTED_OPTION, "Unsupported LZW format");
 		goto done;
@@ -836,6 +850,10 @@ static void delzw_on_codes_start(delzwctx *dc)
 	else if(dc->fmt==DE_LZWFMT_PAKLEO) {
 		default_max_codesize = 14;
 	}
+	else if(dc->fmt==DE_LZWFMT_ASC2COM) {
+		dc->is_lsb = 1;
+		default_max_codesize = 10;
+	}
 
 	if(dc->min_codesize==0) {
 		// 9 is the usual minimum codesize for general purpose LZW compression schemes
@@ -927,6 +945,13 @@ static void delzw_on_codes_start(delzwctx *dc)
 		dc->ct[256].codetype = DELZW_CODETYPE_STOP;
 		dc->ct[257].codetype = DELZW_CODETYPE_INC_CDSZ;
 		dc->ct[258].codetype = DELZW_CODETYPE_CLEAR;
+		dc->first_dynamic_code = 259;
+	}
+	else if(dc->fmt==DE_LZWFMT_ASC2COM) {
+		set_std_static_codes(dc);
+		dc->ct[256].codetype = DELZW_CODETYPE_INVALID;
+		dc->ct[257].codetype = DELZW_CODETYPE_INC_CDSZ;
+		dc->ct[258].codetype = DELZW_CODETYPE_STOP;
 		dc->first_dynamic_code = 259;
 	}
 
