@@ -9,9 +9,10 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_ansiart);
 
-static const u32 ansi_palette[16] = {
-	0x000000,0xaa0000,0x00aa00,0xaa5500,0x0000aa,0xaa00aa,0x00aaaa,0xaaaaaa,
-	0x555555,0xff5555,0x55ff55,0xffff55,0x5555ff,0xff55ff,0x55ffff,0xffffff
+static const u8 ansi_palette[16*3] = {
+	0x00,0x00,0x00,0xaa,0x00,0x00,0x00,0xaa,0x00,0xaa,0x55,0x00,0x00,0x00,0xaa,0xaa,0x00,0xaa,
+	0x00,0xaa,0xaa,0xaa,0xaa,0xaa,0x55,0x55,0x55,0xff,0x55,0x55,0x55,0xff,0x55,0xff,0xff,0x55,
+	0x55,0x55,0xff,0xff,0x55,0xff,0x55,0xff,0xff,0xff,0xff,0xff
 };
 
 #define MAX_ROWS       5000
@@ -213,8 +214,8 @@ static void do_normal_char(deark *c, lctx *d, i64 pos, u8 ch)
 	}
 	else {
 		if(d->num_warnings<ANSIART_MAX_WARNINGS) {
-			de_warn(c, "Off-screen write (%d,%d) at %d",
-				(int)(d->xpos+1), (int)(d->ypos+1), (int)pos);
+			de_warn(c, "Off-screen write (%d,%d) at %"I64_FMT,
+				(int)(d->xpos+1), (int)(d->ypos+1), pos);
 			d->num_warnings++;
 		}
 	}
@@ -418,7 +419,7 @@ static void do_code_m(deark *c, lctx *d)
 		}
 		else {
 			if(d->num_warnings<ANSIART_MAX_WARNINGS) {
-				de_warn(c, "Unsupported SGR code %d", (int)sgr_code);
+				de_warn(c, "Unsupported SGR code %"I64_FMT, sgr_code);
 				d->num_warnings++;
 			}
 		}
@@ -486,8 +487,8 @@ static void do_code_h(deark *c, lctx *d, i64 param_start)
 		}
 
 		if(!ok && d->num_warnings<ANSIART_MAX_WARNINGS) {
-			de_warn(c, "Unsupported 'h' control sequence '%s%d' at %d",
-				is_DEC?"?":"", (int)d->parse_results.params[i], (int)param_start);
+			de_warn(c, "Unsupported 'h' control sequence '%s%d' at %"I64_FMT,
+				is_DEC?"?":"", (int)d->parse_results.params[i], param_start);
 			d->num_warnings++;
 		}
 	}
@@ -538,8 +539,8 @@ static void do_code_l(deark *c, lctx *d, i64 param_start)
 		}
 
 		if(!ok && d->num_warnings<ANSIART_MAX_WARNINGS) {
-			de_warn(c, "Unsupported 'l' control sequence '%s%d' at %d",
-				is_DEC?"?":"", (int)d->parse_results.params[i], (int)param_start);
+			de_warn(c, "Unsupported 'l' control sequence '%s%d' at %"I64_FMT,
+				is_DEC?"?":"", (int)d->parse_results.params[i], param_start);
 			d->num_warnings++;
 		}
 	}
@@ -568,7 +569,7 @@ static void do_code_t(deark *c, lctx *d, i64 param_start)
 	}
 	else {
 		if(d->num_warnings<ANSIART_MAX_WARNINGS) {
-			de_warn(c, "Unsupported 't' control sequence at %d", (int)param_start);
+			de_warn(c, "Unsupported 't' control sequence at %"I64_FMT, param_start);
 			d->num_warnings++;
 		}
 	}
@@ -677,13 +678,13 @@ static void do_control_sequence(deark *c, lctx *d, u8 code,
 	if(code>=128) return;
 
 	if(c->debug_level>=2) {
-		de_dbg2(c, "[(%2d,%d) %c at %d %d]", (int)(d->xpos+1), (int)(d->ypos+1),
-			(char)code, (int)param_start, (int)param_len);
+		de_dbg2(c, "[(%2d,%d) %c at %"I64_FMT" %d]", (int)(d->xpos+1), (int)(d->ypos+1),
+			(char)code, param_start, (int)param_len);
 	}
 
 	if(param_len > (i64)(sizeof(d->param_string_buf)-1)) {
-		de_warn(c, "Ignoring long control sequence (len %d at %d)",
-			(int)param_len, (int)param_start);
+		de_warn(c, "Ignoring long control sequence (len %d at %"I64_FMT")",
+			(int)param_len, param_start);
 		goto done;
 	}
 
@@ -713,31 +714,31 @@ static void do_control_sequence(deark *c, lctx *d, u8 code,
 		d->ypos = d->saved_ypos;
 		break;
 	default:
-		if(!d->control_seq_seen[(unsigned int)code]) {
+		if(!d->control_seq_seen[(UI)code]) {
 			const char *name = NULL;
 			switch(code) {
 			case 'r': name = "Define scrolling region"; break;
 			}
 
 			if(name) {
-				de_warn(c, "Unsupported control sequence '%c' (%s) at %d",
-					(char)code, name, (int)param_start);
+				de_warn(c, "Unsupported control sequence '%c' (%s) at %"I64_FMT,
+					(char)code, name, param_start);
 			}
 			else if(code>=0x70 && code<=0x7e) {
 				// "Bit combinations 07/00 to 07/14 are available as final bytes
 				// of control sequences for private use" -- ECMA 48
-				de_warn(c, "Unsupported private-use control sequence '%c' at %d",
-					(char)code, (int)param_start);
+				de_warn(c, "Unsupported private-use control sequence '%c' at %"I64_FMT,
+					(char)code, param_start);
 			}
 			else {
-				de_warn(c, "Unsupported control sequence '%c' at %d",
-					(char)code, (int)param_start);
+				de_warn(c, "Unsupported control sequence '%c' at %"I64_FMT,
+					(char)code, param_start);
 			}
 		}
 	}
 
 done:
-	d->control_seq_seen[(unsigned int)code] = 1;
+	d->control_seq_seen[(UI)code] = 1;
 }
 
 static void do_2char_code(deark *c, lctx *d, u8 ch1, u8 ch2, i64 pos)
@@ -787,9 +788,9 @@ static void do_2char_code(deark *c, lctx *d, u8 ch1, u8 ch2, i64 pos)
 	}
 
 	if(!ok && d->num_warnings<ANSIART_MAX_WARNINGS) {
-		de_warn(c, "Unsupported escape code '%c%c' at %d",
+		de_warn(c, "Unsupported escape code '%c%c' at %"I64_FMT,
 			make_printable_char(ch1),
-			make_printable_char(ch2), (int)pos);
+			make_printable_char(ch2), pos);
 		d->num_warnings++;
 	}
 }
@@ -827,12 +828,12 @@ static void do_escape_code(deark *c, lctx *d, u8 code, i64 pos,
 	if(code=='\\') return; // Disable Manual Input (we ignore this)
 	if(code=='b') return; // Enable Manual Input (we ignore this)
 
-	if(d->control_seq_seen[(unsigned int)code]==0) {
-		de_warn(c, "Unsupported escape code '%c' at %d",
-			(char)code, (int)pos);
-		d->control_seq_seen[(unsigned int)code] = 1;
+	if(d->control_seq_seen[(UI)code]==0) {
+		de_warn(c, "Unsupported escape code '%c' at %"I64_FMT,
+			(char)code, pos);
+		d->control_seq_seen[(UI)code] = 1;
 	}
-	d->control_seq_seen[(unsigned int)code] = 1;
+	d->control_seq_seen[(UI)code] = 1;
 }
 
 static void do_main(deark *c, lctx *d)
@@ -960,7 +961,6 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	struct de_char_context *charctx = NULL;
-	i64 k;
 	struct de_SAUCE_detection_data sdd;
 	struct de_SAUCE_info *si = NULL;
 	int valid_sauce = 0;
@@ -1031,11 +1031,11 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 
 	// Ignore any Ctrl-Z at the end of data.
 	if(de_getbyte(d->effective_file_size-1) == 0x1a) {
-		de_dbg(c, "found Ctrl+Z byte at %d", (int)(d->effective_file_size-1));
+		de_dbg(c, "found Ctrl+Z byte at %"I64_FMT, (i64)(d->effective_file_size-1));
 		d->effective_file_size--;
 	}
 	if(d->effective_file_size!=c->infile->len) {
-		de_dbg(c, "effective file size set to %d", (int)d->effective_file_size);
+		de_dbg(c, "effective file size set to %"I64_FMT, (i64)d->effective_file_size);
 	}
 
 	charctx->nscreens = 1;
@@ -1062,9 +1062,7 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	d->screen->cell_rows = de_mallocarray(c, MAX_ROWS, sizeof(struct de_char_cell*));
 	d->row_data = de_mallocarray(c, MAX_ROWS, sizeof(struct row_data_struct));
 
-	for(k=0; k<16; k++) {
-		charctx->pal[k] = ansi_palette[k];
-	}
+	de_copy_palette_from_rgb24(ansi_palette, charctx->pal, 16);
 
 	do_main(c, d);
 
