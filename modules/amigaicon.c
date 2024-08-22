@@ -25,6 +25,7 @@ typedef struct localctx_struct {
 	dbuf *newicons_data[2];
 	UI newicons_bits_per_pixel;
 	u8 newicons_finished_pal;
+	u8 newicons_largepalentry_flag;
 	struct de_bitbuf_lowlevel newicons_bbll;
 
 	// Glowicons-specific data
@@ -32,6 +33,8 @@ typedef struct localctx_struct {
 	i64 glowicons_pos;
 	i64 glowicons_width, glowicons_height;
 	de_color glowicons_palette[256];
+#define NEWICONS_MAX_PALENTRIES 512
+	de_color tmppal[NEWICONS_MAX_PALENTRIES];
 } lctx;
 
 static const de_color rev1pal[4] = { 0x55aaff,0x000000,0xffffff,0xff8800 }; // http://krashan.ppa.pl/articles/amigaicons/
@@ -55,8 +58,15 @@ static void do_newicons_process_bit(deark *c, lctx *d, dbuf *f, u8 b)
 	nbits_needed = (d->newicons_finished_pal==0) ? 8 : d->newicons_bits_per_pixel;
 
 	if(d->newicons_bbll.nbits_in_bitbuf >= nbits_needed) {
-		dbuf_writebyte(f, (u8)de_bitbuf_lowlevel_get_bits(&d->newicons_bbll,
-			nbits_needed));
+		UI x;
+
+		x = (UI)de_bitbuf_lowlevel_get_bits(&d->newicons_bbll, nbits_needed);
+		if(x>255) {
+			// For now at least, we only support 9-bit images if they don't
+			// actually use the 9th bit.
+			d->newicons_largepalentry_flag = 1;
+		}
+		dbuf_writebyte(f, (u8)x);
 		d->newicons_bbll.nbits_in_bitbuf = 0;
 	}
 }
@@ -90,7 +100,6 @@ static void do_decode_newicons(deark *c, lctx *d,
 	i64 i;
 	i64 rle_len;
 	int saved_indent_level;
-	de_color pal[256];
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "decoding NewIcons[%d], len=%"I64_FMT, newicons_num, f->len);
@@ -108,8 +117,10 @@ static void do_decode_newicons(deark *c, lctx *d,
 		goto done;
 	}
 	ncolors = (i64)((((UI)b0-(UI)0x21)<<6) + ((UI)b1-(UI)0x21));
-	if(ncolors<1) ncolors=1;
-	if(ncolors>256) ncolors=256;
+	if(ncolors<1 || ncolors>NEWICONS_MAX_PALENTRIES) {
+		de_err(c, "Unsupported number of colors: %d", (int)ncolors);
+		goto done;
+	}
 
 	width = (i64)width_code - 0x21;
 	height = (i64)height_code - 0x21;
@@ -164,23 +175,27 @@ static void do_decode_newicons(deark *c, lctx *d,
 	// The first ncolors*3 bytes are the palette
 	de_dbg2(c, "NewIcons palette");
 	de_dbg_indent(c, 1);
-	de_zeromem(pal, sizeof(pal));
+	de_zeromem(d->tmppal, sizeof(d->tmppal));
 	for(i=0; i<ncolors; i++) {
-		if(i>255) break;
-		pal[i] = dbuf_getRGB(decoded, i*3, 0);
+		d->tmppal[i] = dbuf_getRGB(decoded, i*3, 0);
 
 		// Educated guess: If the transparency flag is set, it means
 		// palette entry 0 is transparent.
 		if(i==0 && has_trns)
-			pal[i] = DE_SET_ALPHA(pal[i], 0x00);
+			d->tmppal[i] = DE_SET_ALPHA(d->tmppal[i], 0x00);
 
-		de_dbg_pal_entry(c, i, pal[i]);
+		de_dbg_pal_entry(c, i, d->tmppal[i]);
 	}
 	de_dbg_indent(c, -1);
 
+	if(d->newicons_largepalentry_flag) {
+		de_err(c, "Image has more than 256 colors; not supported");
+		goto done;
+	}
+
 	img = de_bitmap_create(c, width, height, 4);
 	de_convert_image_paletted(decoded, bitmap_start_pos,
-		8, width, pal, img, 0);
+		8, width, d->tmppal, img, 0);
 	de_bitmap_write_to_file(img, c->filenames_from_file?"n":NULL,
 		d->has_glowicons?DE_CREATEFLAG_IS_AUX:0);
 

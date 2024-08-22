@@ -154,6 +154,8 @@ static void lzhuf_reconst(struct lzahuf_ctx *cctx)
 	}
 	/* begin constructing tree by connecting sons */
 	for (i = 0, j = cctx->lzhuf_N_CHAR; j < cctx->lzhuf_T; i += 2, j++) {
+		UI srcidx, dstidx;
+
 		k = i + 1;
 		set_freq(cctx, j, get_freq(cctx, i) + get_freq(cctx, k));
 		f = get_freq(cctx, j);
@@ -166,17 +168,29 @@ static void lzhuf_reconst(struct lzahuf_ctx *cctx)
 		k++;
 
 		l = (j - k);
-		// son[] is smaller than freq[], so bounds check uses son[].
-		if(l > (UI)DE_ARRAYCOUNT(cctx->son) ||
-			k+1+l > (UI)DE_ARRAYCOUNT(cctx->son))
+		srcidx = k;
+		dstidx = k + 1;
+
+		if((l > (UI)DE_ARRAYCOUNT(cctx->freq)) ||
+			(srcidx+l > (UI)DE_ARRAYCOUNT(cctx->freq)) ||
+			(dstidx+l > (UI)DE_ARRAYCOUNT(cctx->freq)))
 		{
 			cctx->errflag = 1;
 			return;
 		}
 
-		de_memmove(&cctx->freq[k + 1], &cctx->freq[k], l*sizeof(cctx->freq[0]));
+		de_memmove(&cctx->freq[dstidx], &cctx->freq[srcidx], l*sizeof(cctx->freq[0]));
 		set_freq(cctx, k, f);
-		de_memmove(&cctx->son[k + 1], &cctx->son[k], l*sizeof(cctx->son[0]));
+
+		if((l > (UI)DE_ARRAYCOUNT(cctx->son)) ||
+			(srcidx+l > (UI)DE_ARRAYCOUNT(cctx->son)) ||
+			(dstidx+l > (UI)DE_ARRAYCOUNT(cctx->son)))
+		{
+			cctx->errflag = 1;
+			return;
+		}
+
+		de_memmove(&cctx->son[dstidx], &cctx->son[srcidx], l*sizeof(cctx->son[0]));
 		set_son(cctx, k, i);
 	}
 	/* connect prnt */
