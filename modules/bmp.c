@@ -20,7 +20,7 @@ DE_DECLARE_MODULE(de_module_jigsaw_wk);
 
 struct bitfieldsinfo {
 	u32 mask;
-	unsigned int shift;
+	UI shift;
 	double scale; // Amount to multiply the sample value by, to scale it to [0..255]
 };
 
@@ -144,11 +144,11 @@ static int detect_bmp_version(deark *c, lctx *d)
 
 static int read_fileheader(deark *c, lctx *d, i64 pos)
 {
-	de_dbg(c, "file header at %d", (int)pos);
+	de_dbg(c, "file header at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
-	de_dbg(c, "bfSize: %d", (int)d->fsize);
+	de_dbg(c, "bfSize: %"I64_FMT, d->fsize);
 	d->bits_offset = de_getu32le(pos+10);
-	de_dbg(c, "bfOffBits: %d", (int)d->bits_offset);
+	de_dbg(c, "bfOffBits: %"I64_FMT, d->bits_offset);
 	de_dbg_indent(c, -1);
 	return 1;
 }
@@ -177,7 +177,7 @@ static void do_read_bitfields(deark *c, lctx *d, i64 pos, i64 len)
 	if(len>16) len=16;
 	for(k=0; 4*k<len; k++) {
 		d->bitfield[k].mask = (u32)de_getu32le(pos+4*k);
-		de_dbg(c, "mask[%d]: 0x%08x", (int)k, (unsigned int)d->bitfield[k].mask);
+		de_dbg(c, "mask[%d]: 0x%08x", (int)k, (UI)d->bitfield[k].mask);
 	}
 	update_bitfields_info(c, d);
 }
@@ -202,7 +202,7 @@ static void get_cstype_descr_dbgstr(struct de_fourcc *cstype4cc, char *s_dbgstr,
 {
 	// The ID might be a FOURCC, or not.
 	if(cstype4cc->id>0xffffU) {
-		de_snprintf(s_dbgstr, s_len, "0x%08x ('%s')", (unsigned int)cstype4cc->id,
+		de_snprintf(s_dbgstr, s_len, "0x%08x ('%s')", (UI)cstype4cc->id,
 			cstype4cc->id_dbgstr);
 	}
 	else {
@@ -210,7 +210,7 @@ static void get_cstype_descr_dbgstr(struct de_fourcc *cstype4cc, char *s_dbgstr,
 		switch(cstype4cc->id) {
 		case 0: name = "LCS_CALIBRATED_RGB"; break;
 		}
-		de_snprintf(s_dbgstr, s_len, "%u (%s)", (unsigned int)cstype4cc->id, name);
+		de_snprintf(s_dbgstr, s_len, "%u (%s)", (UI)cstype4cc->id, name);
 	}
 }
 
@@ -229,9 +229,9 @@ static int read_infoheader(deark *c, lctx *d, i64 pos)
 	int retval = 0;
 	i64 nplanes;
 
-	de_dbg(c, "info header at %d", (int)pos);
+	de_dbg(c, "info header at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
-	de_dbg(c, "info header size: %d", (int)d->infohdrsize);
+	de_dbg(c, "info header size: %"I64_FMT, d->infohdrsize);
 
 	if(d->version==DE_BMPVER_OS2V1) {
 		d->width = de_getu16le(pos+4);
@@ -281,7 +281,7 @@ static int read_infoheader(deark *c, lctx *d, i64 pos)
 		// d->compression_field was already read, in detect_bmp_version()
 		fmtutil_get_bmp_compression_name(d->compression_field, cmprname, sizeof(cmprname),
 			(d->version==DE_BMPVER_OS2V2));
-		de_dbg(c, "compression (etc.): %u (%s)", (unsigned int)d->compression_field, cmprname);
+		de_dbg(c, "compression (etc.): %u (%s)", (UI)d->compression_field, cmprname);
 		d->bytes_per_pal_entry = 4;
 	}
 
@@ -355,7 +355,7 @@ static int read_infoheader(deark *c, lctx *d, i64 pos)
 
 	if(d->infohdrsize>=24) {
 		d->size_image = de_getu32le(pos+20);
-		de_dbg(c, "biSizeImage: %d", (int)d->size_image);
+		de_dbg(c, "biSizeImage: %"I64_FMT, d->size_image);
 	}
 
 	if(d->infohdrsize>=32) {
@@ -403,17 +403,17 @@ static int read_infoheader(deark *c, lctx *d, i64 pos)
 	if(d->version==DE_BMPVER_WINV345 && d->infohdrsize>=124) {
 		u32 intent;
 		intent = (u32)de_getu32le(pos+108);
-		de_dbg(c, "intent: %u", (unsigned int)intent);
+		de_dbg(c, "intent: %u", (UI)intent);
 	}
 
 	if(d->version==DE_BMPVER_WINV345 && d->infohdrsize>=124 &&
 		(d->cstype4cc.id==CODE_MBED || d->cstype4cc.id==CODE_LINK))
 	{
 		d->profile_offset_raw = de_getu32le(pos+112);
-		de_dbg(c, "profile offset: %d+%d", FILEHEADER_SIZE,
-			(int)d->profile_offset_raw);
+		de_dbg(c, "profile offset: %d+%"I64_FMT, (int)FILEHEADER_SIZE,
+			d->profile_offset_raw);
 		d->profile_size = de_getu32le(pos+116);
-		de_dbg(c, "profile size: %d", (int)d->profile_size);
+		de_dbg(c, "profile size: %"I64_FMT, d->profile_size);
 	}
 
 	if(!bitcount_ok) {
@@ -421,7 +421,7 @@ static int read_infoheader(deark *c, lctx *d, i64 pos)
 		goto done;
 	}
 	if(!cmpr_ok) {
-		de_err(c, "Unsupported compression type: %d", (int)d->compression_field);
+		de_err(c, "Unsupported compression type: %u", (UI)d->compression_field);
 		goto done;
 	}
 	if(!de_good_image_dimensions(c, d->width, d->height)) {
@@ -438,7 +438,7 @@ static void do_read_linked_profile(deark *c, lctx *d)
 {
 	de_ucstring *fname = NULL;
 
-	de_dbg(c, "linked profile filename at %d", (int)d->profile_offset);
+	de_dbg(c, "linked profile filename at %"I64_FMT, d->profile_offset);
 	fname = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, d->profile_offset,
 		d->profile_size, DE_DBG_MAX_STRLEN, fname,
@@ -451,8 +451,8 @@ static void do_read_linked_profile(deark *c, lctx *d)
 
 static void do_read_embedded_profile(deark *c, lctx *d)
 {
-	de_dbg(c, "embedded profile at %d, size=%d", (int)d->profile_offset,
-		(int)d->profile_size);
+	de_dbg(c, "embedded profile at %"I64_FMT", size=%"I64_FMT, d->profile_offset,
+		d->profile_size);
 	de_dbg_indent(c, 1);
 	dbuf_create_file_from_slice(c->infile, d->profile_offset, d->profile_size, "icc",
 		NULL, DE_CREATEFLAG_IS_AUX);
@@ -517,14 +517,14 @@ static void do_read_palette(deark *c, lctx *d)
 
 	pal_size_in_bytes = d->pal_entries*d->bytes_per_pal_entry;
 	if(d->pal_pos+pal_size_in_bytes > d->bits_offset) {
-		de_warn(c, "Palette at %d (size %d) overlaps bitmap at %d",
-			(int)d->pal_pos, (int)pal_size_in_bytes, (int)d->bits_offset);
+		de_warn(c, "Palette at %"I64_FMT" (size %"I64_FMT") overlaps bitmap at %"I64_FMT,
+			d->pal_pos, pal_size_in_bytes, d->bits_offset);
 		if(d->version==DE_BMPVER_OS2V2) {
 			do_os2v2_bad_palette(c, d);
 		}
 	}
 
-	de_dbg(c, "color table at %d, %d entries", (int)d->pal_pos, (int)d->pal_entries);
+	de_dbg(c, "color table at %"I64_FMT", %"I64_FMT" entries", d->pal_pos, d->pal_entries);
 
 	de_dbg_indent(c, 1);
 	de_read_palette_rgb(c->infile, d->pal_pos, d->pal_entries, d->bytes_per_pal_entry,
@@ -701,15 +701,15 @@ static void do_image_rle_4_8_24(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 	ypos = 0;
 	while(1) {
 		// Stop if we reach the end of the input file.
-		if(pos>=c->infile->len) break;
+		if(pos>=bits->len) break;
 
 		// Stop if we reach the end of the output image.
 		if(ypos>=d->height) break;
 		if(ypos==(d->height-1) && xpos>=d->pdwidth) break;
 
 		// Read the next two bytes from the input file.
-		b1 = dbuf_getbyte(bits, pos++);
-		b2 = dbuf_getbyte(bits, pos++);
+		b1 = dbuf_getbyte_p(bits, &pos);
+		b2 = dbuf_getbyte_p(bits, &pos);
 
 		if(b1==0 && b2==0) { // End of line
 			xpos = 0;
@@ -719,9 +719,9 @@ static void do_image_rle_4_8_24(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 			break;
 		}
 		else if(b1==0 && b2==2) { // Delta
-			b = dbuf_getbyte(bits, pos++);
+			b = dbuf_getbyte_p(bits, &pos);
 			xpos += (i64)b;
-			b = dbuf_getbyte(bits, pos++);
+			b = dbuf_getbyte_p(bits, &pos);
 			ypos += (i64)b;
 		}
 		else if(b1==0) { // b2 uncompressed pixels follow
@@ -731,13 +731,13 @@ static void do_image_rle_4_8_24(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 				// There are 4 bits per pixel, but padded to a multiple of 16 bits.
 				num_bytes = ((num_pixels+3)/4)*2;
 				for(k=0; k<num_bytes; k++) {
-					b = dbuf_getbyte(bits, pos++);
+					b = dbuf_getbyte_p(bits, &pos);
 					if(pixels_copied>=num_pixels) continue;
-					clr1 = d->pal[((unsigned int)b)>>4];
+					clr1 = d->pal[((UI)b)>>4];
 					de_bitmap_setpixel_rgba(d->img, xpos++, ypos, clr1);
 					pixels_copied++;
 					if(pixels_copied>=num_pixels) continue;
-					clr2 = d->pal[((unsigned int)b)&0x0f];
+					clr2 = d->pal[((UI)b)&0x0f];
 					de_bitmap_setpixel_rgba(d->img, xpos++, ypos, clr2);
 					pixels_copied++;
 				}
@@ -758,9 +758,9 @@ static void do_image_rle_4_8_24(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 				num_bytes = num_pixels;
 				if(num_bytes%2) num_bytes++; // Pad to a multiple of 16 bits
 				for(k=0; k<num_bytes; k++) {
-					b = dbuf_getbyte(bits, pos++);
+					b = dbuf_getbyte_p(bits, &pos);
 					if(k>=num_pixels) continue;
-					clr1 = d->pal[(unsigned int)b];
+					clr1 = d->pal[(UI)b];
 					de_bitmap_setpixel_rgba(d->img, xpos++, ypos, clr1);
 				}
 			}
@@ -769,8 +769,8 @@ static void do_image_rle_4_8_24(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 			num_pixels = (i64)b1;
 			if(d->compression_type==CMPR_RLE4) {
 				// b1 pixels alternating between the colors in b2
-				clr1 = d->pal[((unsigned int)b2)>>4];
-				clr2 = d->pal[((unsigned int)b2)&0x0f];
+				clr1 = d->pal[((UI)b2)>>4];
+				clr2 = d->pal[((UI)b2)&0x0f];
 				for(k=0; k<num_pixels; k++) {
 					de_bitmap_setpixel_rgba(d->img, xpos++, ypos, (k%2)?clr2:clr1);
 				}
@@ -786,7 +786,7 @@ static void do_image_rle_4_8_24(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 			}
 			else { // CMPR_RLE8
 				// b1 pixels of color b2
-				clr1 = d->pal[(unsigned int)b2];
+				clr1 = d->pal[(UI)b2];
 				for(k=0; k<num_pixels; k++) {
 					de_bitmap_setpixel_rgba(d->img, xpos++, ypos, clr1);
 				}
@@ -846,7 +846,7 @@ static void extract_embedded_image(deark *c, lctx *d, const char *ext)
 
 static void do_image(deark *c, lctx *d)
 {
-	de_dbg(c, "bitmap at %d", (int)d->bits_offset);
+	de_dbg(c, "bitmap at %"I64_FMT, d->bits_offset);
 
 	if(d->bits_offset >= c->infile->len) {
 		de_err(c, "Bad bits-offset field");
@@ -972,10 +972,10 @@ static void de_run_bmp(deark *c, de_module_params *mparams)
 	if(!read_infoheader(c, d, pos)) goto done;
 	pos += d->infohdrsize;
 	if(d->bitfields_type==BF_SEGMENT) {
-		de_dbg(c, "bitfields segment at %d, len=%d", (int)pos, (int)d->bitfields_segment_len);
+		de_dbg(c, "bitfields segment at %"I64_FMT", len=%"I64_FMT, pos, d->bitfields_segment_len);
 		if(pos+d->bitfields_segment_len > d->bits_offset) {
-			de_warn(c, "BITFIELDS segment at %d (size %d) overlaps bitmap at %d",
-				(int)pos, (int)d->bitfields_segment_len, (int)d->bits_offset);
+			de_warn(c, "BITFIELDS segment at %"I64_FMT" (size %"I64_FMT") overlaps bitmap at %"I64_FMT,
+				pos, d->bitfields_segment_len, d->bits_offset);
 		}
 		de_dbg_indent(c, 1);
 		do_read_bitfields(c, d, pos, d->bitfields_segment_len);
@@ -1365,7 +1365,7 @@ void de_module_picjpeg(deark *c, struct deark_module_info *mi)
 static void de_run_dib(deark *c, de_module_params *mparams)
 {
 	struct de_bmpinfo bi;
-	unsigned int createflags = 0;
+	UI createflags = 0;
 	dbuf *outf = NULL;
 	int implicit_size = 0;
 	i64 dib_len;
@@ -1487,7 +1487,7 @@ static void ddb_convert_pal8(deark *c, struct ddbctx_struct *d,
 
 	for(j=0; j<img->height; j++) {
 		for(i=0; i<img->width; i++) {
-			unsigned int palent;
+			UI palent;
 			de_color clr;
 
 			palent = de_getbyte(fpos+j*d->bmWidthBytes+i);
@@ -1513,7 +1513,7 @@ static void ddb_convert_32bit(deark *c, struct ddbctx_struct *d,
 static void do_ddb_bitmap(deark *c, struct ddbctx_struct *d, i64 pos1)
 {
 	i64 pos = pos1;
-	unsigned int bmType;
+	UI bmType;
 	i64 bmWidth, bmHeight;
 	i64 pdwidth;
 	i64 bmPlanes;
@@ -1521,7 +1521,7 @@ static void do_ddb_bitmap(deark *c, struct ddbctx_struct *d, i64 pos1)
 	i64 src_realbitsperpixel;
 	de_bitmap *img = NULL;
 
-	bmType = (unsigned int)de_getu16le_p(&pos);
+	bmType = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "bmType: %u", bmType);
 
 	bmWidth = de_getu16le_p(&pos);
@@ -1620,8 +1620,8 @@ static void de_run_ddb(deark *c, de_module_params *mparams)
 	}
 
 	if(has_filetype) {
-		unsigned int file_type;
-		file_type = (unsigned int)de_getu16le_p(&pos);
+		UI file_type;
+		file_type = (UI)de_getu16le_p(&pos);
 		de_dbg(c, "file type: 0x%04x", file_type);
 	}
 
