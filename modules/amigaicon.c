@@ -61,7 +61,7 @@ static void do_newicons_process_bit(deark *c, lctx *d, dbuf *f, u8 b)
 		UI x;
 
 		x = (UI)de_bitbuf_lowlevel_get_bits(&d->newicons_bbll, nbits_needed);
-		if(x>255) {
+		if(x>255 && d->newicons_finished_pal) {
 			// For now at least, we only support 9-bit images if they don't
 			// actually use the 9th bit.
 			d->newicons_largepalentry_flag = 1;
@@ -105,6 +105,7 @@ static void do_decode_newicons(deark *c, lctx *d,
 	de_dbg(c, "decoding NewIcons[%d], len=%"I64_FMT, newicons_num, f->len);
 	de_dbg_indent(c, 1);
 
+	d->newicons_largepalentry_flag = 0;
 	trns_code = dbuf_getbyte(f, 0);
 	has_trns = (trns_code=='B');
 	width_code = dbuf_getbyte(f, 1);
