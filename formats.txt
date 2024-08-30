@@ -1300,6 +1300,14 @@ Deark -- Information about supported formats
    -opt split:stride=<n> - The distance between the start of one chunk and the
     start of the next chunk, in bytes.
 
+* GTXT (module="gtxt")
+  Executable text (.COM) files made by E. Gans' GTXT utility (also called
+  MakeScroll).
+  Options
+   -opt text:fmtconv=0 - Extract the raw source code, instead of interpreting
+    special characters.
+   -opt text:encconv=0 - Suppress character encoding translation.
+
 * TXT2COM (module="txt2com")
   Executable text (.COM) files made by Graham's TXT2COM utility.
   - Extracts the source text. Does not necessarily render the document (e.g.

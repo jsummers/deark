@@ -11,10 +11,12 @@ DE_DECLARE_MODULE(de_module_show_gmr);
 DE_DECLARE_MODULE(de_module_asc2com);
 DE_DECLARE_MODULE(de_module_doc2com);
 DE_DECLARE_MODULE(de_module_doc2com_dkn);
+DE_DECLARE_MODULE(de_module_gtxt);
 
 typedef struct localctx_exectext {
 	de_encoding input_encoding;
 	UI fmtcode;
+	u8 opt_fmtconv;
 	u8 opt_encconv;
 	u8 errflag;
 	u8 need_errmsg;
@@ -25,16 +27,21 @@ typedef struct localctx_exectext {
 	u8 chartypes[32]; // 1=printable, 2=control
 } lctx;
 
+static void exectext_check_tpos(deark *c, lctx *d)
+{
+	if(d->tpos<1 || d->tlen<0 || d->tpos+d->tlen>c->infile->len) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+	}
+}
+
 #if 0
 static void exectext_extract_verbatim(deark *c, lctx *d)
 {
 	dbuf *outf = NULL;
 
-	if(d->tpos<1 || d->tlen<0 || d->tpos+d->tlen>c->infile->len) {
-		d->errflag = 1;
-		d->need_errmsg = 1;
-		goto done;
-	}
+	exectext_check_tpos(c, d);
+	if(d->errflag) goto done;
 
 	outf = dbuf_create_output_file(c, "txt", NULL, 0);
 	dbuf_copy(c->infile, d->tpos, d->tlen, outf);
@@ -898,4 +905,168 @@ void de_module_doc2com_dkn(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_doc2com_dkn;
 	mi->identify_fn = de_identify_doc2com_dkn;
 	mi->help_fn = de_help_doc2com_dkn;
+}
+
+///////////////////////////////////////////////////
+// GTXT / MakeScroll (Eric Gans)
+
+// This format can reasonably be converted to plain text.
+static void gtxt_convert_to_text(deark *c, lctx *d, dbuf *outf, u8 to_utf8)
+{
+	struct de_encconv_state es;
+	u8 esc_mode = 0;
+	u8 esc_mask = 0;
+	i64 endpos = d->tpos + d->tlen;
+	i64 pos;
+
+	de_encconv_init(&es, DE_EXTENC_MAKE(d->input_encoding, DE_ENCSUBTYPE_PRINTABLE));
+	if(to_utf8 && c->write_bom) {
+		dbuf_write_uchar_as_utf8(outf, 0xfeff);
+	}
+
+	pos = d->tpos;
+	while(pos < endpos) {
+		u8 x_raw, x_mod;
+
+		x_raw = de_getbyte_p(&pos);
+		x_mod = x_raw;
+
+		if(esc_mode) {
+			x_mod = x_raw & esc_mask;
+			esc_mode = 0;
+		}
+		else if(x_raw=='%') {
+			esc_mode = 1;
+			esc_mask = 0xff;
+			continue;
+		}
+		else if(x_raw=='^') {
+			esc_mode = 1;
+			esc_mask = 0x3f;
+			continue;
+		}
+		else {
+			// GTXT ignores the high bit, except in '%' escapes.
+			x_mod = x_raw & 0x7f;
+		}
+
+		if(to_utf8) {
+			de_rune u;
+
+			if(x_raw=='~') {
+				u = 0x240c; // Page break -> SYMBOL FOR FORM FEED, I guess.
+			}
+			else if(x_mod<32 && d->chartypes[(UI)x_mod]!=0) {
+				u = (de_rune)x_mod;
+			}
+			else {
+				u = de_char_to_unicode_ex((i32)x_mod, &es);
+			}
+			dbuf_write_uchar_as_utf8(outf, u);
+		}
+		else {
+			u8 b;
+
+			if(x_raw=='~') {
+				b = 0x0c; // Page break -> form feed, I guess.
+			}
+			else {
+				b = x_mod;
+			}
+			dbuf_writebyte(outf, b);
+		}
+	}
+}
+
+static void de_run_gtxt(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	i64 endpos;
+	UI b1, b2;
+	dbuf *outf = NULL;
+
+	d = de_malloc(c, sizeof(lctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->opt_encconv = (u8)de_get_ext_option_bool(c, "text:encconv", 1);
+	if(d->input_encoding==DE_ENCODING_ASCII) {
+		d->opt_encconv = 0;
+	}
+	d->opt_fmtconv = (u8)de_get_ext_option_bool(c, "text:fmtconv", 1);
+
+	d->chartypes[7] = 1;
+	d->chartypes[8] = 1;
+	d->chartypes[9] = 1;
+	d->chartypes[10] = 1;
+	d->chartypes[13] = 1;
+	d->chartypes[27] = 1;
+
+	d->tpos = 188;
+	de_dbg(c, "tpos: %"I64_FMT, d->tpos);
+
+	endpos = c->infile->len;
+	b1 = de_getbyte(endpos-2);
+	b2 = de_getbyte(endpos-1);
+
+	if(b1==0) {
+		endpos -= 2;
+	}
+	else if(b2==0) {
+		endpos -= 1;
+	}
+
+	d->tlen = endpos - d->tpos;
+	de_dbg(c, "tlen: %"I64_FMT, d->tlen);
+	exectext_check_tpos(c, d);
+	if(d->errflag) goto done;
+
+	outf = dbuf_create_output_file(c, "txt", NULL, 0);
+	dbuf_enable_wbuffer(outf);
+
+	if(d->opt_fmtconv==0) {
+		dbuf_copy(c->infile, d->tpos, d->tlen, outf);
+	}
+	else if(d->opt_fmtconv && d->opt_encconv==0) {
+		gtxt_convert_to_text(c, d, outf, 0);
+	}
+	else { // fmtconv==1 & encconv==1
+		gtxt_convert_to_text(c, d, outf, 1);
+	}
+
+done:
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Not a GTXT file, or unsupported version");
+		}
+		destroy_lctx(c, d);
+	}
+	dbuf_close(outf);
+}
+
+static int de_identify_gtxt(deark *c)
+{
+	if(c->infile->len>65280) return 0;
+	if(de_getbyte(0) != 0xbb) return 0;
+
+	if(dbuf_memcmp(c->infile, 1, (const void*)"\xbc\x01\xb4\x02\xb1\x00\x8a", 7)) {
+		return 0;
+	}
+	if(dbuf_memcmp(c->infile, 95, (const void*)"\x73\x01\xc3\x2c\x40\xc3\xcd\x20", 8)) {
+		return 0;
+	}
+	return 100;
+}
+
+static void de_help_gtxt(deark *c)
+{
+	de_msg(c, "-opt text:fmtconv=0 : Extract source code");
+	print_encconv_option(c);
+}
+
+void de_module_gtxt(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "gtxt";
+	mi->desc = "GTXT (E. Gans)";
+	mi->run_fn = de_run_gtxt;
+	mi->identify_fn = de_identify_gtxt;
+	mi->help_fn = de_help_gtxt;
 }
