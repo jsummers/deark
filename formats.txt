@@ -597,6 +597,10 @@ Deark -- Information about supported formats
   - Convert abbreviated JPEG file to JPEG.
 
 * TGA (Targa) (module="tga")
+  Options
+   -opt tga:trans=<0|1|2|auto> - 0 = Ignore any potential transparency.
+    1 = Respect transparency when possible. 2 = Assume alpha is premultiplied.
+    auto = Autodetect (default).
 
 * TheDraw COM (module="thedraw_com")
   Executable character graphics format made by TheDraw.

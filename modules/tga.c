@@ -22,6 +22,11 @@ typedef struct localctx_struct {
 #define FMT_TGA 0
 #define FMT_VST 1
 	int file_format;
+#define TRANS_AUTO     100
+#define TRANS_REMOVE   101
+#define TRANS_RESPECT  102
+#define TRANS_ASSOC    103
+	u8 trans_setting;
 	u8 color_map_type;
 	u8 img_type;
 	struct tgaimginfo main_image;
@@ -33,6 +38,7 @@ typedef struct localctx_struct {
 	u8 image_descriptor;
 	i64 num_attribute_bits;
 	u8 attributes_type;
+	u8 alpha_is_premultiplied;
 	u8 top_down, right_to_left;
 	u8 interleave_mode;
 	i64 v2_footer_pos;
@@ -66,9 +72,22 @@ typedef struct localctx_struct {
 static int should_use_alpha_channel(deark *c, lctx *d, struct tgaimginfo *imginfo,
 	int has_alpha_0, int has_alpha_partial, int has_alpha_255)
 {
+	const char *prefix = "";
+
 	if(imginfo->is_thumb) {
-		// Do the same thing with the thumbnail as we did with the main image.
-		return d->main_image.respect_alpha_channel;
+		prefix = "[thumbnail] ";
+	}
+
+	if(d->trans_setting==TRANS_REMOVE) return 0;
+
+	if(d->has_ext_area_attribs_type) {
+		// attributes_type==0 technically also means there is no transparency,
+		// but this cannot be trusted.
+		if(d->attributes_type!=0 && d->attributes_type!=3 &&
+			d->attributes_type!=4)
+		{
+			return 0;
+		}
 	}
 
 	if(d->pixel_depth!=32 || d->color_type!=TGA_CLRTYPE_TRUECOLOR) {
@@ -76,47 +95,39 @@ static int should_use_alpha_channel(deark *c, lctx *d, struct tgaimginfo *imginf
 	}
 
 	if(d->num_attribute_bits!=0 && d->num_attribute_bits!=8) {
-		de_warn(c, "%d-bit attribute channel not supported. Transparency disabled.",
-			(int)d->num_attribute_bits);
+		if(!imginfo->is_thumb) { // Hack to suppress duplicate warning
+			de_warn(c, "%d-bit attribute channel not supported. Transparency disabled.",
+				(int)d->num_attribute_bits);
+		}
 		return 0;
 	}
 
+	if(d->trans_setting==TRANS_RESPECT || d->trans_setting==TRANS_ASSOC) {
+		return 1;
+	}
+
 	if(d->has_ext_area_attribs_type) {
-		if(d->attributes_type==0) {
-			// attributes_type==0 technically also means there is no transparency,
-			// but this cannot be trusted.
-			;
-		}
-		if(d->attributes_type==1 || d->attributes_type==2) {
-			// Indicates that attribute data can be ignored.
-			return 0;
-		}
-		else if(d->attributes_type==3 && d->num_attribute_bits==8) {
+		if(d->attributes_type==3 && d->num_attribute_bits==8) {
 			// Alpha channel seems to be labeled correctly.
 			// Trust it.
 			return 1;
 		}
-		else if(d->attributes_type==4) {
-			// Sigh. The spec shows that Field 24 (Attributes Type) == 4 is for
-			// pre-multiplied alpha. Then the discussion section says that
-			// Field *23* ("Attributes Type") == *3* is for premultiplied alpha.
-			// I have to guess that the "23" and "3" are clerical errors, but that
-			// doesn't do me much good unless all TGA developers made the same guess.
-			de_warn(c, "Pre-multiplied alpha is not supported. Disabling transparency.");
-			return 0;
+		else if(d->attributes_type==4 && d->num_attribute_bits==8) {
+			// Premultiplied alpha
+			return 1;
 		}
 	}
 
 	if(has_alpha_partial || (has_alpha_0 && has_alpha_255)) {
 		if(d->num_attribute_bits==0) {
-			de_warn(c, "Detected likely alpha channel. Enabling transparency, even though "
-				"the image is labeled as non-transparent.");
+			de_warn(c, "%sDetected likely alpha channel. Enabling transparency, even though "
+				"the image is labeled as non-transparent.", prefix);
 		}
 		return 1;
 	}
 	else if(has_alpha_0) { // All 0x00
 		if(d->num_attribute_bits!=0) {
-			de_warn(c, "Non-visible image detected. Disabling transparency.");
+			de_warn(c, "%sNon-visible image detected. Disabling transparency.", prefix);
 		}
 		else {
 			de_dbg(c, "potential alpha channel ignored: all 0 bits");
@@ -126,6 +137,23 @@ static int should_use_alpha_channel(deark *c, lctx *d, struct tgaimginfo *imginf
 	else { // All 0xff
 		de_dbg(c, "potential alpha channel is moot: all 1 bits");
 		return 0;
+	}
+}
+
+static void bitmap_unpremultiply_alpha(de_bitmap *img)
+{
+	i64 i, j;
+
+	if(img->bytes_per_pixel!=2 && img->bytes_per_pixel!=4) return;
+
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<img->width; i++) {
+			de_color clr;
+
+			clr = de_bitmap_getpixel(img, i, j);
+			clr = de_unpremultiply_alpha_clr(clr);
+			de_bitmap_setpixel_rgba(img, i, j, clr);
+		}
 	}
 }
 
@@ -261,6 +289,9 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 	// TODO: 16-bit images could theoretically have a transparency bit, but I don't
 	// know how to detect that.
 	if(d->pixel_depth==32) {
+		// TODO: The transparency logic is a bit messy. It probably ought to be
+		// redesigned from scratch.
+
 		imginfo->respect_alpha_channel = should_use_alpha_channel(c, d, imginfo,
 			has_alpha_0, has_alpha_partial, has_alpha_255);
 
@@ -268,12 +299,16 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 			de_dbg(c, "using alpha channel: %s", imginfo->respect_alpha_channel?"yes":"no");
 		}
 
-		if(!imginfo->respect_alpha_channel) {
+		if(!imginfo->respect_alpha_channel || (!has_alpha_0 && !has_alpha_partial)) {
 			de_bitmap_remove_alpha(img);
+		}
+
+		if(imginfo->respect_alpha_channel && d->alpha_is_premultiplied) {
+			bitmap_unpremultiply_alpha(img);
 		}
 	}
 
-	de_bitmap_write_to_file_finfo(img, fi, createflags);
+	de_bitmap_write_to_file_finfo(img, fi, createflags | DE_CREATEFLAG_OPT_IMAGE);
 
 	de_bitmap_destroy(img);
 	de_finfo_destroy(c, fi);
@@ -525,6 +560,9 @@ static void do_read_extension_area(deark *c, lctx *d, i64 pos1)
 	d->attributes_type = de_getbyte_p(&pos);
 	d->has_ext_area_attribs_type = 1;
 	de_dbg(c, "attributes type: %u", (UI)d->attributes_type);
+	if(d->attributes_type==4) {
+		d->alpha_is_premultiplied = 1;
+	}
 	if(d->attributes_type==0 && d->num_attribute_bits!=0) {
 		de_warn(c, "Incompatible \"number of attribute bits\" (%d) and \"attributes type\" "
 			"(%u) fields. Transparency may not be handled correctly.",
@@ -852,10 +890,28 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	dbuf *unc_pixels = NULL;
 	int saved_indent_level;
 	i64 rowspan_tmp;
+	const char *opt_trans_str;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	d = de_malloc(c, sizeof(lctx));
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
+	d->trans_setting = TRANS_AUTO;
+
+	opt_trans_str = de_get_ext_option(c, "tga:trans");
+	if(opt_trans_str) {
+		if(!de_strcmp(opt_trans_str, "auto")) {
+			d->trans_setting = TRANS_AUTO;
+		}
+		else if(!de_strcmp(opt_trans_str, "0")) {
+			d->trans_setting = TRANS_REMOVE;
+		}
+		else if(!de_strcmp(opt_trans_str, "1")) {
+			d->trans_setting = TRANS_RESPECT;
+		}
+		else if(!de_strcmp(opt_trans_str, "2")) {
+			d->trans_setting = TRANS_ASSOC;
+		}
+	}
 
 	detect_file_format(c, d);
 
@@ -876,6 +932,11 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	else {
 		if(!do_read_tga_headers(c, d)) goto done;
 	}
+
+	if(d->trans_setting==TRANS_ASSOC) {
+		d->alpha_is_premultiplied = 1;
+	}
+
 	pos += 18;
 
 	de_dbg(c, "image/color data at %"I64_FMT, pos);
@@ -1028,10 +1089,17 @@ static int de_identify_tga(deark *c)
 	return 8;
 }
 
+static void de_help_tga(deark *c)
+{
+	de_msg(c, "-opt tga:trans=<0|1|2|auto> : Transparency: 0=remove, 1=respect, "
+		"2=premultiplied");
+}
+
 void de_module_tga(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "tga";
 	mi->desc = "Truevision TGA, a.k.a. TARGA";
 	mi->run_fn = de_run_tga;
 	mi->identify_fn = de_identify_tga;
+	mi->help_fn = de_help_tga;
 }
