@@ -24,7 +24,7 @@ D=".build-tmp/deark-$VER"
 mkdir $D
 
 mkdir $D/src
-cp -p src/*.c src/*.h src/*.rc src/*.manifest $D/src/
+cp -p src/*.c src/*.h src/*.rc src/*.ico src/*.manifest $D/src/
 
 mkdir $D/modules
 cp -p modules/*.c $D/modules/
