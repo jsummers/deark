@@ -3277,7 +3277,7 @@ static void do_fmtownsicn_FJ(deark *c, struct fmtownsicn_ctx *d)
 	de_dbg_dimensions(c, w, h);
 
 	num_icons = dbuf_getu16x(c->infile, pos, d->is_le);
-	pos += 2;
+	//pos += 2;
 	de_dbg(c, "num icons: %"I64_FMT, num_icons);
 
 	de_dbg_indent(c, -1);
