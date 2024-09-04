@@ -36,6 +36,7 @@ typedef struct localctx_struct {
 	u8 subfmt;
 	u8 execomp_mode; // 0 or 1; 0xff=unspecified
 	u8 check_checksum;
+	u8 rsrc_errflag;
 	struct fmtutil_exe_info *ei;
 
 	i64 reloc_tbl_offset;
@@ -1109,13 +1110,14 @@ static void do_pe_resource_node(deark *c, lctx *d, i64 rel_pos, int level)
 	u32 name_or_id;
 	i64 next_offset;
 	int has_name, is_branch_node;
-	int orig_indent;
+	int saved_indent_level;
 
-	orig_indent = c->dbg_indent_amount;
+	de_dbg_indent_save(c, &saved_indent_level);
 
 	d->rsrc_item_count++;
 	if(d->rsrc_item_count>MAX_RESOURCES) {
-		de_err(c, "Too many resources.");
+		de_err(c, "Too many resources");
+		d->rsrc_errflag = 1;
 		goto done;
 	}
 
@@ -1141,6 +1143,10 @@ static void do_pe_resource_node(deark *c, lctx *d, i64 rel_pos, int level)
 	de_dbg(c, "level %d node at %d(%d) id=%d next-offset=%d is-named=%d is-branch=%d",
 		level, (int)(d->pe_cur_base_addr+rel_pos), (int)rel_pos,
 		(int)name_or_id, (int)next_offset, has_name, is_branch_node);
+	if(d->pe_cur_base_addr+rel_pos > c->infile->len) {
+		d->rsrc_errflag = 1;
+		goto done;
+	}
 	de_dbg_indent(c, 1);
 
 	if(!ne_pe_resource_type_is_supported(c, d, d->cur_rsrc_type)) {
@@ -1179,7 +1185,7 @@ static void do_pe_resource_node(deark *c, lctx *d, i64 rel_pos, int level)
 	}
 
 done:
-	c->dbg_indent_amount = orig_indent;
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void do_pe_resource_dir_table(deark *c, lctx *d, i64 rel_pos, int level)
@@ -1191,9 +1197,11 @@ static void do_pe_resource_dir_table(deark *c, lctx *d, i64 rel_pos, int level)
 
 	// 16-byte "Resource node header" a.k.a "Resource directory table"
 
+	if(d->rsrc_errflag) goto done;
+
 	if(level>3) {
 		de_warn(c, "Resource tree too deep");
-		return;
+		goto done;
 	}
 
 	de_dbg(c, "resource directory table at %d(%d), level=%d",
@@ -1201,19 +1209,24 @@ static void do_pe_resource_dir_table(deark *c, lctx *d, i64 rel_pos, int level)
 
 	named_node_count = de_getu16le(d->pe_cur_base_addr+rel_pos+12);
 	unnamed_node_count = de_getu16le(d->pe_cur_base_addr+rel_pos+14);
-	de_dbg(c, "number of node entries: named=%d, unnamed=%d", (unsigned int)named_node_count,
-		(unsigned int)unnamed_node_count);
+	de_dbg(c, "number of node entries: named=%u, unnamed=%u", (UI)named_node_count,
+		(UI)unnamed_node_count);
 
 	node_count = named_node_count + unnamed_node_count;
 
 	// An array of 8-byte "Resource node entries" follows the Resource node header.
 	for(i=0; i<node_count; i++) {
+		if(d->rsrc_errflag) goto done;
 		do_pe_resource_node(c, d, rel_pos+16+8*i, level);
 	}
+
+done:
+	;
 }
 
 static void do_pe_resource_section(deark *c, lctx *d, i64 pos, i64 len)
 {
+	if(d->rsrc_errflag) return;
 	d->pe_cur_base_addr = pos;
 	d->rsrc_item_count = 0;
 	do_pe_resource_dir_table(c, d, 0, 1);
@@ -1223,7 +1236,9 @@ static void do_pe_section_header(deark *c, lctx *d, i64 section_index, i64 pos)
 {
 	i64 section_data_size;
 	struct de_stringreaderdata *srd = NULL;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "section[%d] header at %d", (int)section_index, (unsigned int)pos);
 	de_dbg_indent(c, 1);
 
@@ -1243,7 +1258,7 @@ static void do_pe_section_header(deark *c, lctx *d, i64 section_index, i64 pos)
 	}
 
 	de_destroy_stringreaderdata(c, srd);
-	de_dbg_indent(c, -1);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void do_pe_section_table(deark *c, lctx *d)
@@ -1255,8 +1270,13 @@ static void do_pe_section_table(deark *c, lctx *d)
 	de_dbg(c, "section table at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	for(i=0; i<d->pe_number_of_sections; i++) {
+#define PE_MAX_SECTIONS 100
+		if(i>=PE_MAX_SECTIONS) goto done;
+		if(d->rsrc_errflag) goto done;
 		do_pe_section_header(c, d, i, pos + 40*i);
 	}
+
+done:
 	de_dbg_indent(c, -1);
 }
 
