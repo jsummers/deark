@@ -1179,6 +1179,14 @@ Deark -- Information about supported formats
 
 * FLAC audio (module="flac")
 
+* GTXT (module="gtxt")
+  Executable text (.COM) files made by E. Gans' GTXT utility (also called
+  MakeScroll). Only the DOS version only.
+  Options
+   -opt text:fmtconv=0 - Extract the raw source code, instead of interpreting
+    special characters.
+   -opt text:encconv=0 - Suppress character encoding translation.
+
 * Hex dump (module="hexdump")
   Print a hex dump of the file.
   - You must use "-m hexdump".
@@ -1303,14 +1311,6 @@ Deark -- Information about supported formats
    -opt split:size=<n> - The size of each chunk, in bytes.
    -opt split:stride=<n> - The distance between the start of one chunk and the
     start of the next chunk, in bytes.
-
-* GTXT (module="gtxt")
-  Executable text (.COM) files made by E. Gans' GTXT utility (also called
-  MakeScroll).
-  Options
-   -opt text:fmtconv=0 - Extract the raw source code, instead of interpreting
-    special characters.
-   -opt text:encconv=0 - Suppress character encoding translation.
 
 * TXT2COM (module="txt2com")
   Executable text (.COM) files made by Graham's TXT2COM utility.

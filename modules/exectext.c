@@ -947,7 +947,7 @@ static void gtxt_convert_to_text(deark *c, lctx *d, dbuf *outf, u8 to_utf8)
 		}
 		else {
 			// GTXT ignores the high bit, except in '%' escapes.
-			x_mod = x_raw & 0x7f;
+			x_mod &= 0x7f;
 		}
 
 		if(to_utf8) {
