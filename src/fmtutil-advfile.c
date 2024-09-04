@@ -32,7 +32,7 @@
 //  - Set advf->mainfork.fi->timestamp[*], if known, even if there is no main fork.
 //    Mac files do not use advf->rsrcfork.fi->timestamp[].
 //  - (Same for advf->mainfork.create_time, etc.)
-//  - If appropriate, set other fields potentially advf->mainfork.fi and/or
+//  - If appropriate, set other fields in advf->mainfork.fi and/or
 //    advf->rsrcfork.fi, such as ->is_directory. But verify that they work
 //    as expected.
 struct de_advfile *de_advfile_create(deark *c)
