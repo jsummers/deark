@@ -916,7 +916,6 @@ static int is_stos_packedscreen(deark *c, UI *res)
 		if((UI)de_getu32be_direct(&buf[10]) == 0) return 0; // screen out MBS
 		if(buf[14] != 0x81) return 0; // must be type 'data'
 		bpos = 18;
-		return 1;
 	}
 
 	id = (UI)de_getu32be_direct(&buf[bpos]);
