@@ -815,6 +815,19 @@ void de_free(deark *c, void *m)
 	free(m);
 }
 
+// The extent to which strdup() is available as a standard-ish function is
+// complicated. It's not worth the trouble to try to use it.
+char *de_strdup(deark *c, const char *s)
+{
+	size_t len0;
+	char *s2;
+
+	len0 = de_strlen(s) + 1;
+	s2 = de_malloc(c, len0);
+	de_memcpy(s2, s, len0);
+	return s2;
+}
+
 // Returns the index into c->module_info[], or -1 if no found.
 int de_get_module_idx_by_id(deark *c, const char *module_id)
 {

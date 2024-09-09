@@ -39,19 +39,6 @@ void de_vsnprintf(char *buf, size_t buflen, const char *fmt, va_list ap)
 	_vsnprintf_s(buf, buflen, _TRUNCATE, fmt, ap);
 }
 
-char *de_strdup(deark *c, const char *s)
-{
-	char *s2;
-
-	s2 = _strdup(s);
-	if(!s2) {
-		de_err(c, "Memory allocation failed");
-		de_fatalerror(c);
-		return NULL;
-	}
-	return s2;
-}
-
 i64 de_strtoll(const char *string, char **endptr, int base)
 {
 	return _strtoi64(string, endptr, base);
