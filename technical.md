@@ -302,12 +302,11 @@ build.
 
 ### Coding style and C language ###
 
-The C language version that Deark uses is not rigidly defined, but it should
-be compatible with most modern compilers, without special options.
+The C language version that Deark uses is (semi-officially) C99, with a few
+common extensions needed for things like querying a file's size.
 
-It is mostly compatible with a rather old version of C, almost C89 but with
-"//" comments. But that's subject to change. Using "-std=c99", and allowing
-declarations after code, is being considered.
+It should be mostly compatible with most modern compilers, without special
+options.
 
 ### Hard-coded CRCs ###
 

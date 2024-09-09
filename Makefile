@@ -1,7 +1,7 @@
 
 -include local1.mk
 
-CFLAGS ?= -g -O2 -Wall -Wextra -Wmissing-prototypes -Wformat-security -Wno-unused-parameter
+CFLAGS ?= -std=c99 -g -O2 -Wall -Wextra -Wmissing-prototypes -Wformat-security -Wno-unused-parameter
 LDFLAGS ?= -Wall
 
 ifdef DEARK_OBJDIR
