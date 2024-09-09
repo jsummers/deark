@@ -285,7 +285,7 @@ or
 
     $ sudo make install
 
-For Microsoft Windows, the project files in proj/vs2019 or vs2022 should work
+For Microsoft Windows, the project files in proj/vs2022 should work
 for sufficiently new versions of Microsoft Visual Studio. Alternatively, you
 can use Cygwin.
 

@@ -36,8 +36,6 @@ mkdir $D/scripts
 cp -p scripts/*.sh scripts/*.pl $D/scripts/
 
 mkdir $D/proj
-mkdir $D/proj/vs2019
-cp -p proj/vs2019/*.sln proj/vs2019/*.vcxproj proj/vs2019/*.vcxproj.filters $D/proj/vs2019/
 mkdir $D/proj/vs2022
 cp -p proj/vs2022/*.sln proj/vs2022/*.vcxproj proj/vs2022/*.vcxproj.filters $D/proj/vs2022/
 
