@@ -46,6 +46,13 @@
 #endif
 #endif
 
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+#ifndef _FILE_OFFSET_BITS
+#define _FILE_OFFSET_BITS 64
+#endif
+
 #ifndef DE_USE_FSEEKO
 #define DE_USE_FSEEKO 1
 #endif
