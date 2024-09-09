@@ -135,7 +135,7 @@ $(OBJDIR)/%.o: %.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c -o $@ $<
 
 ifdef DEARK_WINDRES
-$(DEARK_RC_O): src/deark.rc
+$(DEARK_RC_O): src/deark.rc src/deark.ico
 	$(DEARK_WINDRES) $< $@
 $(DEARK_RC_O:.o=.d):
 	> $@

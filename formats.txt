@@ -597,6 +597,10 @@ Deark -- Information about supported formats
   - Convert abbreviated JPEG file to JPEG.
 
 * TGA (Targa) (module="tga")
+  Options
+   -opt tga:trans=<0|1|2|auto> - 0 = Ignore any potential transparency.
+    1 = Respect transparency when possible. 2 = Assume alpha is premultiplied.
+    auto = Autodetect (default).
 
 * TheDraw COM (module="thedraw_com")
   Executable character graphics format made by TheDraw.
@@ -1174,6 +1178,14 @@ Deark -- Information about supported formats
    -opt exe:checksum - Report the correct checksum in the debug info.
 
 * FLAC audio (module="flac")
+
+* GTXT (module="gtxt")
+  Executable text (.COM) files made by E. Gans' GTXT utility (also called
+  MakeScroll). Only the DOS version only.
+  Options
+   -opt text:fmtconv=0 - Extract the raw source code, instead of interpreting
+    special characters.
+   -opt text:encconv=0 - Suppress character encoding translation.
 
 * Hex dump (module="hexdump")
   Print a hex dump of the file.
