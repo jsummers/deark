@@ -9,6 +9,7 @@
 DE_DECLARE_MODULE(de_module_printshop);
 DE_DECLARE_MODULE(de_module_newprintshop);
 DE_DECLARE_MODULE(de_module_printmaster);
+DE_DECLARE_MODULE(de_module_printshop_gs);
 
 // **************************************************************************
 // The Print Shop .DAT/.NAM format
@@ -233,4 +234,38 @@ void de_module_printmaster(deark *c, struct deark_module_info *mi)
 	mi->desc = "PrintMaster .SHP/.SDR";
 	mi->run_fn = de_run_printmaster;
 	mi->identify_fn = de_identify_printmaster;
+}
+
+// **************************************************************************
+// PrintShop Apple IIgs 88x52 8-color
+// **************************************************************************
+
+static void de_run_printshop_gs(deark *c, de_module_params *mparams)
+{
+	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
+	static const de_color pal[8] = {
+		0xffffffffU,0xffffff00U,0xffff0000U,0xffff6600U,
+		0xff0000ffU,0xff00ff00U,0xffcc00ccU,0xff000000U };
+
+	img = de_bitmap_create(c, 88, 52, 3);
+	fi = de_finfo_create(c);
+	fi->density.code = DE_DENSITY_UNK_UNITS;
+	// I don't know what the density ratio should be.
+	// But 88:52 (1.692:1), making the images square, seems pretty close
+	// to what was intended.
+	fi->density.xdens = 88.0;
+	fi->density.ydens = 52.0;
+	de_convert_image_paletted_planar(c->infile, 0, 3, 11, 11*52, pal, img, 0x2);
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
+	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
+}
+
+void de_module_printshop_gs(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "printshop_gs";
+	mi->desc = "Print Shop - Apple IIgs";
+	mi->run_fn = de_run_printshop_gs;
+	mi->identify_fn = NULL;
 }
