@@ -16,7 +16,7 @@ struct tgaimginfo {
 	int respect_alpha_channel;
 };
 
-typedef struct localctx_struct {
+typedef struct localctx_structTGA {
 	i64 id_field_len;
 	de_encoding input_encoding;
 #define FMT_TGA 0
@@ -158,7 +158,7 @@ static void bitmap_unpremultiply_alpha(de_bitmap *img)
 }
 
 static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf *unc_pixels,
-	const char *token, UI createflags)
+	const char *token, UI createflags1)
 {
 	de_bitmap *img = NULL;
 	de_finfo *fi = NULL;
@@ -176,6 +176,7 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 	int has_alpha_0 = 0;
 	int has_alpha_partial = 0;
 	int has_alpha_255 = 0;
+	UI createflags = createflags1;
 
 	fi = de_finfo_create(c);
 
@@ -222,10 +223,7 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 	for(j=0; j<imginfo->height; j++) {
 		i64 j_adj;
 
-		if(d->top_down)
-			j_adj = cur_rownum;
-		else
-			j_adj = imginfo->height-1-cur_rownum;
+		j_adj = cur_rownum;
 
 		// Update the row number for next time
 		cur_rownum += interleave_stride;
@@ -241,23 +239,16 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 		}
 
 		for(i=0; i<pdwidth; i++) {
-			i64 i_adj;
-
-			if(d->right_to_left)
-				i_adj = imginfo->width-1-i;
-			else
-				i_adj = i;
-
 			if(d->color_type==TGA_CLRTYPE_TRUECOLOR && (d->pixel_depth==15 || d->pixel_depth==16)) {
 				clr = (u32)dbuf_getu16le(unc_pixels, j*rowspan + i*d->bytes_per_pixel);
 				clr = de_rgb555_to_888(clr);
-				de_bitmap_setpixel_rgb(img, i_adj, j_adj, clr);
+				de_bitmap_setpixel_rgb(img, i, j_adj, clr);
 			}
 			else if(d->color_type==TGA_CLRTYPE_TRUECOLOR) {
 				clr = dbuf_getRGB(unc_pixels, j*rowspan + i*d->bytes_per_pixel, getrgbflags);
 				if(d->pixel_depth==32) {
 					a = dbuf_getbyte(unc_pixels, j*rowspan + i*d->bytes_per_pixel+3);
-					de_bitmap_setpixel_rgba(img, i_adj, j_adj, DE_SET_ALPHA(clr, a));
+					de_bitmap_setpixel_rgba(img, i, j_adj, DE_SET_ALPHA(clr, a));
 
 					// Collect metrics that we may need, to decide whether to keep the
 					// might-be-alpha channel.
@@ -272,16 +263,16 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 					}
 				}
 				else {
-					de_bitmap_setpixel_rgb(img, i_adj, j_adj, clr);
+					de_bitmap_setpixel_rgb(img, i, j_adj, clr);
 				}
 			}
 			else if(d->color_type==TGA_CLRTYPE_GRAYSCALE) {
 				b = dbuf_getbyte(unc_pixels, j*rowspan + i*d->bytes_per_pixel);
-				de_bitmap_setpixel_gray(img, i_adj, j_adj, b);
+				de_bitmap_setpixel_gray(img, i, j_adj, b);
 			}
 			else if(d->color_type==TGA_CLRTYPE_PALETTE) {
 				b = dbuf_getbyte(unc_pixels, j*rowspan + i*d->bytes_per_pixel);
-				de_bitmap_setpixel_rgb(img, i_adj, j_adj, d->pal[(UI)b]);
+				de_bitmap_setpixel_rgb(img, i, j_adj, d->pal[(UI)b]);
 			}
 		}
 	}
@@ -308,7 +299,15 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 		}
 	}
 
-	de_bitmap_write_to_file_finfo(img, fi, createflags | DE_CREATEFLAG_OPT_IMAGE);
+	if(d->right_to_left) {
+		de_bitmap_mirror(img);
+	}
+	if(!d->top_down) {
+		createflags |= DE_CREATEFLAG_FLIP_IMAGE;
+	}
+
+	createflags |= DE_CREATEFLAG_OPT_IMAGE;
+	de_bitmap_write_to_file_finfo(img, fi, createflags);
 
 	de_bitmap_destroy(img);
 	de_finfo_destroy(c, fi);
@@ -473,7 +472,7 @@ static void do_read_extension_area(deark *c, lctx *d, i64 pos1)
 	s = ucstring_create(c);
 
 	ext_area_size = de_getu16le_p(&pos);
-	de_dbg(c, "extension area size: %d", (int)ext_area_size);
+	de_dbg(c, "extension area size: %"I64_FMT, ext_area_size);
 	endpos = pos1+ext_area_size;
 
 	if(pos+41>endpos) goto done;
@@ -594,8 +593,8 @@ static void do_read_developer_area(deark *c, lctx *d, i64 pos)
 		tag_id = de_getu16le(pos + 2 + 10*i);
 		tag_data_pos = de_getu32le(pos + 2 + 10*i + 2);
 		tag_data_size = de_getu32le(pos + 2 + 10*i + 6);
-		de_dbg(c, "tag #%d: id=%d, pos=%d, size=%d", (int)i, (int)tag_id,
-			(int)tag_data_pos, (int)tag_data_size);
+		de_dbg(c, "tag #%d: id=%d, pos=%"I64_FMT", size=%"I64_FMT, (int)i, (int)tag_id,
+			tag_data_pos, tag_data_size);
 
 		if(tag_id==20) {
 			// Tag 20 seems to contain Photoshop resources, though this is unconfirmed.
@@ -662,7 +661,7 @@ static int do_read_tga_headers(deark *c, lctx *d)
 	de_dbg_indent(c, 1);
 
 	d->id_field_len = (i64)de_getbyte(0);
-	de_dbg(c, "image ID len: %u", (UI)d->id_field_len);
+	de_dbg(c, "image ID len: %"I64_FMT, d->id_field_len);
 	d->color_map_type = de_getbyte(1);
 	de_dbg(c, "color map type: %d", (int)d->color_map_type);
 	d->img_type = de_getbyte(2);

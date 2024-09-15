@@ -47,25 +47,39 @@ DE_DECLARE_MODULE(de_module_pixfolio);
 // HP 100LX / HP 200LX .ICN icon format
 // **************************************************************************
 
+struct hpicn_params {
+	i64 w, h;
+	i64 rowspan;
+};
+
+static void read_hpicn_params(deark *c, struct hpicn_params *icnp)
+{
+	icnp->w = de_getu16le(4);
+	icnp->h = de_getu16le(6);
+	icnp->rowspan = (icnp->w+7)/8;
+}
+
 static void de_run_hpicn(deark *c, de_module_params *mparams)
 {
-	i64 width, height;
+	struct hpicn_params icnp;
 
-	width = de_getu16le(4);
-	height = de_getu16le(6);
-	de_convert_and_write_image_bilevel2(c->infile, 8, width, height, (width+7)/8,
+	read_hpicn_params(c, &icnp);
+	de_dbg_dimensions(c, icnp.w, icnp.h);
+	de_convert_and_write_image_bilevel2(c->infile, 8, icnp.w, icnp.h, icnp.rowspan,
 		DE_CVTF_WHITEISZERO, NULL, 0);
 }
 
 static int de_identify_hpicn(deark *c)
 {
-	u8 b[8];
-	de_read(b, 0, 8);
-	if(!de_memcmp(b, "\x01\x00\x01\x00\x2c\x00\x20\x00", 8))
-		return 100;
-	if(!de_memcmp(b, "\x01\x00\x01\x00", 4))
-		return 60;
-	return 0;
+	struct hpicn_params icnp;
+
+	if(dbuf_memcmp(c->infile, 0, "\x01\x00\x01\x00", 4))
+		return 0;
+	read_hpicn_params(c, &icnp);
+	if(8 + icnp.rowspan*icnp.h != c->infile->len) return 0;
+	if(icnp.w<1 || icnp.w>2048 || icnp.h<1 || icnp.h>2048) return 0;
+	if(icnp.w==44 && icnp.h==32) return 100;
+	return 60;
 }
 
 void de_module_hpicn(deark *c, struct deark_module_info *mi)

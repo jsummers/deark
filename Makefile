@@ -1,7 +1,7 @@
 
 -include local1.mk
 
-CFLAGS ?= -g -O2 -Wall -Wextra -Wmissing-prototypes -Wformat-security -Wno-unused-parameter
+CFLAGS ?= -std=c99 -g -O2 -Wall -Wextra -Wmissing-prototypes -Wformat-security -Wno-unused-parameter
 LDFLAGS ?= -Wall
 
 ifdef DEARK_OBJDIR
@@ -10,6 +10,9 @@ else
 OBJDIR:=obj
 endif
 ifdef DEARK_WINDRES
+ifndef DEARK_RC
+DEARK_RC:=src/deark.rc
+endif
 DEARK_RC_O:=$(OBJDIR)/src/deark-rc.o
 else
 DEARK_RC_O:=
@@ -135,7 +138,7 @@ $(OBJDIR)/%.o: %.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c -o $@ $<
 
 ifdef DEARK_WINDRES
-$(DEARK_RC_O): src/deark.rc src/deark.ico
+$(DEARK_RC_O): $(DEARK_RC) src/deark.ico
 	$(DEARK_WINDRES) $< $@
 $(DEARK_RC_O:.o=.d):
 	> $@

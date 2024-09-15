@@ -500,6 +500,10 @@ Deark -- Information about supported formats
    -file2 <file.sdr> - Use this "name" file
    -opt namefile=<file.nam> - Use this "name" file
 
+* Print Shop - Apple IIgs format (module="printshop_gs")
+  Format is 88x52 pixels, file size 1716 bytes.
+  - Not autodetected. Use "-m printshop_gs".
+
 * Prism Paint (module="prismpaint")
   - Supports 1-, 2-, 4-, 8-, and 16-bits per pixel
 
