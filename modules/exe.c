@@ -50,6 +50,7 @@ typedef struct localctx_struct {
 	i64 ne_number_of_segments;
 	i64 ne_segment_tbl_offset;
 	i64 ne_rsrc_tbl_offset;
+	UI ne_header_flags;
 	UI ne_filealign_shift;
 	UI ne_rcalign_shift;
 	int ne_have_type;
@@ -391,47 +392,41 @@ static void do_pe_coff_header(deark *c, lctx *d, i64 pos)
 	de_dbg_indent(c, -1);
 }
 
-static void do_ne_program_flags(deark *c, lctx *d, u8 flags)
+static void do_ne_header_flags(deark *c, lctx *d)
 {
 	de_ucstring *s = NULL;
+	UI flags = d->ne_header_flags;
+	UI n;
+
 	s = ucstring_create(c);
 
-	switch(flags&0x03) {
-	case 1: ucstring_append_flags_item(s, "dgroup_type=single_shared"); break;
-	case 2: ucstring_append_flags_item(s, "dgroup_type=multiple"); break;
-	case 3: ucstring_append_flags_item(s, "dgroup_type=null"); break;
+	// TODO: Need better information about these flags.
+	// (And do they depend on other fields, such as target_os?)
+
+	n = flags & 0x0003;
+	ucstring_append_flags_itemf(s, "dgroup=%u", n);
+	flags -= n;
+
+	if(flags & 0x0004) {
+		ucstring_append_flags_item(s, "real mode");
+		flags -= 0x0004;
+	}
+	if(flags & 0x0008) {
+		ucstring_append_flags_item(s, "protected mode");
+		flags -= 0x0008;
 	}
 
-	if(flags&0x4) ucstring_append_flags_item(s, "global init");
-	if(flags&0x8) ucstring_append_flags_item(s, "protected mode");
-	if(flags&0x10) ucstring_append_flags_item(s, "8086");
-	if(flags&0x20) ucstring_append_flags_item(s, "80286");
-	if(flags&0x40) ucstring_append_flags_item(s, "80386");
-	if(flags&0x80) ucstring_append_flags_item(s, "80x87");
-
-	de_dbg(c, "program flags: 0x%02x (%s)", (unsigned int)flags,
-		ucstring_getpsz(s));
-
-	ucstring_destroy(s);
-}
-
-static void do_ne_app_flags(deark *c, lctx *d, u8 flags)
-{
-	de_ucstring *s = NULL;
-	s = ucstring_create(c);
-
-	switch(flags&0x07) {
-	case 0x1: ucstring_append_flags_item(s, "type=non-windowed"); break;
-	case 0x2: ucstring_append_flags_item(s, "type=windowed-compatible"); break;
-	case 0x3: ucstring_append_flags_item(s, "type=windowed"); break;
+	if(flags & 0x8000) {
+		ucstring_append_flags_item(s, "DLL");
+		flags -= 0x8000;
 	}
 
-	if(flags&0x08) ucstring_append_flags_item(s, "OS/2");
-	if(flags&0x80) ucstring_append_flags_item(s, "DLL");
+	if(flags) {
+		ucstring_append_flags_itemf(s, "0x%04x", flags);
+	}
 
-	de_dbg(c, "application flags: 0x%02x (%s)", (unsigned int)flags,
+	de_dbg(c, "NE header flags: 0x%04x (%s)", d->ne_header_flags,
 		ucstring_getpsz(s));
-
 	ucstring_destroy(s);
 }
 
@@ -452,9 +447,8 @@ static void do_ne_ext_header(deark *c, lctx *d, i64 pos1)
 	// 6-7: length of entry table
 	// 8-11: file load CRC
 
-	do_ne_program_flags(c, d, de_getbyte(pos1+12));
-
-	do_ne_app_flags(c, d, de_getbyte(pos1+13));
+	d->ne_header_flags = (UI)de_getu16le(pos1+12);
+	do_ne_header_flags(c, d);
 
 	d->ne_number_of_segments = de_getu16le(pos1+28);
 	de_dbg(c, "number of segments: %d", (int)d->ne_number_of_segments);
