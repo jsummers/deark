@@ -5,6 +5,7 @@
 // XBIN character graphics
 // "Binary Text" character graphics
 // ArtWorx ADF character graphics
+// Etc.
 
 #include <deark-config.h>
 #include <deark-private.h>
@@ -15,6 +16,7 @@ DE_DECLARE_MODULE(de_module_artworx_adf);
 DE_DECLARE_MODULE(de_module_icedraw);
 DE_DECLARE_MODULE(de_module_thedraw_com);
 DE_DECLARE_MODULE(de_module_aciddraw_com);
+DE_DECLARE_MODULE(de_module_grabber);
 
 typedef struct localctx_struct {
 	i64 width_in_chars, height_in_chars;
@@ -1214,4 +1216,182 @@ void de_module_aciddraw_com(deark *c, struct deark_module_info *mi)
 	mi->desc = "ACiDDraw COM file";
 	mi->run_fn = de_run_aciddraw_com;
 	mi->identify_fn = de_identify_aciddraw_com;
+}
+
+////////////////////// GRABBER //////////////////////
+
+struct grabber_id_data {
+	u8 is_grabber;
+	UI fmt_class;
+	i64 jmppos;
+};
+
+struct grabber_ctx {
+	u8 errflag;
+	u8 screen_mode;
+	i64 data_pos, data_len;
+	struct de_char_context *charctx;
+	struct grabber_id_data gi;
+};
+
+static void grabber_id_com(deark *c, u8 b0, struct grabber_id_data *gi)
+{
+	de_zeromem(gi, sizeof(struct grabber_id_data));
+
+	if(b0==0xfb) {
+		if(!dbuf_memcmp(c->infile, 1,
+			(const void*)"\xbe\x81\x00\x8a\x4c\xff\x30\xed\x09\xc9\x74", 11)) {
+			gi->is_grabber = 1;
+			gi->fmt_class = 200;
+		}
+		return;
+	}
+
+	if(b0!=0xe9) return;
+	gi->jmppos = de_geti16le(1) + 3;
+
+	if(!dbuf_memcmp(c->infile, gi->jmppos,
+		(const void*)"\xbe\x81\x00\xad\x80\xfc\x0d\x74\x17\x3c\x0d\x74", 12))
+	{
+		gi->is_grabber = 1;
+		gi->fmt_class = 300;
+		return;
+	}
+	if(!dbuf_memcmp(c->infile, gi->jmppos,
+		(const void*)"\xbe\x81\x00\xfc\xad\x80\xfc\x0d\x74\x1c\x3c\x0d\x74", 13))
+	{
+		gi->is_grabber = 1;
+		gi->fmt_class = 334;
+		return;
+	}
+}
+
+static void decode_grabber_com(deark *c, lctx *d, struct grabber_ctx *gctx)
+{
+	i64 foundpos = 0;
+	i64 pos_of_data_ptr;
+	i64 pos_of_mode;
+	int ret;
+	u8 *mem = NULL;
+
+#define GRABBER_SEARCH1_START 112
+#define GRABBER_BUF_LEN1 1024
+	mem = de_malloc(c, GRABBER_BUF_LEN1);
+	de_read(mem, GRABBER_SEARCH1_START, GRABBER_BUF_LEN1);
+	// Search for the byte pattern preceding the data pointer.
+	// Known positions range from 121 (v2.10) to 869 (v3.34).
+	ret = de_memsearch_match(mem, GRABBER_BUF_LEN1,
+		(const u8*)"\xb8\x00?\x8e\xc0\xbe", 6,
+		'?', &foundpos);
+	if(!ret) {
+		gctx->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	pos_of_data_ptr = foundpos+GRABBER_SEARCH1_START+6;
+	de_dbg(c, "pos of data ptr: %"I64_FMT, pos_of_data_ptr);
+
+	gctx->data_pos = de_getu16le(pos_of_data_ptr);
+	gctx->data_pos -= 256;
+	de_dbg(c, "data pos: %"I64_FMT, gctx->data_pos);
+
+	if(gctx->gi.fmt_class<300) {
+		pos_of_mode = gctx->data_pos - 7;
+	}
+	else {
+		pos_of_mode = gctx->data_pos - 17;
+	}
+
+	gctx->screen_mode = de_getbyte(pos_of_mode);
+	de_dbg(c, "mode: 0x%02x", (UI)gctx->screen_mode);
+	if(gctx->screen_mode != 3) {
+		gctx->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	gctx->data_len = de_getu16le(pos_of_mode+2);
+	de_dbg(c, "data len: %"I64_FMT, gctx->data_len);
+	d->width_in_chars = 80;
+done:
+	de_free(c, mem);
+}
+
+static void de_run_grabber(deark *c, de_module_params *mparams)
+{
+	struct grabber_ctx *gctx = NULL;
+	lctx *d = NULL;
+	dbuf *unc_data = NULL;
+	UI sig;
+
+	gctx = de_malloc(c, sizeof(struct grabber_ctx));
+	gctx->charctx = de_malloc(c, sizeof(struct de_char_context));
+	d = de_malloc(c, sizeof(lctx));
+
+	sig = (UI)de_getu16le(0);
+	if(sig==0x5a4d || sig==0x4d5a) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	grabber_id_com(c, (sig&0xff), &gctx->gi);
+	if(!gctx->gi.is_grabber) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	de_dbg(c, "format class: %u", gctx->gi.fmt_class);
+	decode_grabber_com(c, d, gctx);
+	if(gctx->errflag) goto done;
+
+	d->height_in_chars = de_pad_to_n(gctx->data_len, d->width_in_chars*2) /
+		(d->width_in_chars*2);
+	de_dbg(c, "screen size: %"I64_FMT DE_CHAR_TIMES "%"I64_FMT, d->width_in_chars,
+		d->height_in_chars);
+	if(gctx->data_pos+gctx->data_len > c->infile->len) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	unc_data = dbuf_open_input_subfile(c->infile, gctx->data_pos, gctx->data_len);
+	do_default_palette(c, d, gctx->charctx);
+
+	// TODO: Need a function like this that can be called from any file.
+	do_bin_main(c, d, unc_data, gctx->charctx);
+
+done:
+	dbuf_close(unc_data);
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Unsupported GRABBER format");
+		}
+		free_lctx(c, d);
+	}
+	if(gctx) {
+		de_free_charctx(c, gctx->charctx);
+	}
+}
+
+static int de_identify_grabber(deark *c)
+{
+	struct grabber_id_data gi;
+	u8 b0;
+
+	if(c->infile->len>65280) return 0;
+	b0 = de_getbyte(0);
+	if(b0!=0xe9 && b0!=0xfb) return 0;
+
+	grabber_id_com(c, b0, &gi);
+	if(gi.is_grabber) return 100;
+	return 0;
+}
+
+void de_module_grabber(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "grabber";
+	mi->desc = "GRABBER";
+	mi->run_fn = de_run_grabber;
+	mi->identify_fn = de_identify_grabber;
+	mi->flags |= DE_MODFLAG_HIDDEN;
 }
