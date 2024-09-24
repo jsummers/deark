@@ -19,17 +19,28 @@ DE_DECLARE_MODULE(de_module_thedraw_com);
 DE_DECLARE_MODULE(de_module_aciddraw_com);
 DE_DECLARE_MODULE(de_module_grabber);
 
-typedef struct localctx_struct {
-	i64 font_height;
+typedef struct localctx_struct_bintext {
+	u8 errflag;
 	u8 need_errmsg;
 	u8 has_palette, has_font, compression, has_512chars;
 
+	i64 font_height;
 	i64 font_data_len;
 	u8 *font_data;
 	int is_standard_font;
 	struct de_bitmap_font *font;
 	struct fmtutil_char_simplectx csctx;
 } lctx;
+
+static void free_lctx(deark *c, lctx *d)
+{
+	if(d->font) {
+		de_free(c, d->font->char_array);
+		de_destroy_bitmap_font(c, d->font);
+	}
+	de_free(c, d->font_data);
+	de_free(c, d);
+}
 
 static void read_and_discard_SAUCE(deark *c)
 {
@@ -73,8 +84,7 @@ static void xbin_decompress_data(deark *c, lctx *d, i64 pos1, dbuf *unc_data)
 			break;
 		}
 
-		b = de_getbyte(pos);
-		pos++;
+		b = de_getbyte_p(&pos);
 		cmprtype = b>>6;
 		count = (i64)(b&0x3f) +1;
 
@@ -84,24 +94,24 @@ static void xbin_decompress_data(deark *c, lctx *d, i64 pos1, dbuf *unc_data)
 			pos += count*2;
 			break;
 		case 1: // Character compression
-			b1 = de_getbyte(pos++); // character code
+			b1 = de_getbyte_p(&pos); // character code
 			for(k=0; k<count; k++) {
-				b2 = de_getbyte(pos++); // attribute code
+				b2 = de_getbyte_p(&pos); // attribute code
 				dbuf_writebyte(unc_data, b1);
 				dbuf_writebyte(unc_data, b2);
 			}
 			break;
 		case 2: // Attribute compression
-			b2 = de_getbyte(pos++); // attribute code
+			b2 = de_getbyte_p(&pos); // attribute code
 			for(k=0; k<count; k++) {
-				b1 = de_getbyte(pos++); // character code
+				b1 = de_getbyte_p(&pos); // character code
 				dbuf_writebyte(unc_data, b1);
 				dbuf_writebyte(unc_data, b2);
 			}
 			break;
 		case 3: // Character/Attribute compression
-			b1 = de_getbyte(pos++); // character code
-			b2 = de_getbyte(pos++); // attribute code
+			b1 = de_getbyte_p(&pos); // character code
+			b2 = de_getbyte_p(&pos); // attribute code
 			for(k=0; k<count; k++) {
 				dbuf_writebyte(unc_data, b1);
 				dbuf_writebyte(unc_data, b2);
@@ -122,7 +132,7 @@ static void do_read_palette(deark *c, lctx *d,struct de_char_context *charctx,
 	i64 cpos;
 	char tmps[64];
 
-	de_dbg(c, "palette at %d", (int)pos);
+	de_dbg(c, "palette at %"I64_FMT, pos);
 
 	for(k=0; k<16; k++) {
 		i64 idx = k;
@@ -163,7 +173,7 @@ static void do_read_font_data(deark *c, lctx *d, i64 pos)
 	u32 crc;
 	struct de_crcobj *crco;
 
-	de_dbg(c, "font at %d, %d bytes", (int)pos, (int)d->font_data_len);
+	de_dbg(c, "font at %"I64_FMT", %"I64_FMT" bytes", pos, d->font_data_len);
 	de_dbg_indent(c, 1);
 	d->font_data = de_malloc(c, d->font_data_len);
 	de_read(d->font_data, pos, d->font_data_len);
@@ -174,7 +184,7 @@ static void do_read_font_data(deark *c, lctx *d, i64 pos)
 	de_crcobj_destroy(crco);
 
 	d->is_standard_font = de_font_is_standard_vga_font(c, crc);
-	de_dbg(c, "font crc: 0x%08x (%s)", (unsigned int)crc,
+	de_dbg(c, "font crc: 0x%08x (%s)", (UI)crc,
 		d->is_standard_font?"known CP437 font":"unrecognized");
 
 	if(de_get_ext_option(c, "font:dumpvgafont")) {
@@ -218,16 +228,6 @@ static int do_generate_font(deark *c, lctx *d)
 	return 1;
 }
 
-static void free_lctx(deark *c, lctx *d)
-{
-	if(d->font) {
-		de_free(c, d->font->char_array);
-		de_destroy_bitmap_font(c, d->font);
-	}
-	de_free(c, d->font_data);
-	de_free(c, d);
-}
-
 static void de_run_xbin(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -267,17 +267,19 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d characters", (int)d->csctx.width_in_chars,
 		(int)d->csctx.height_in_chars);
 	de_dbg(c, "font height: %d", (int)d->font_height);
-	de_dbg(c, "flags: 0x%02x", (unsigned int)flags);
+	de_dbg(c, "flags: 0x%02x", (UI)flags);
 	d->has_palette = (flags&0x01)?1:0;
 	d->has_font = (flags&0x02)?1:0;
 	d->compression = (flags&0x04)?1:0;
 	d->csctx.nonblink = (flags&0x08)?1:0;
 	d->has_512chars = (flags&0x10)?1:0;
-	de_dbg(c, " has palette: %d", (int)d->has_palette);
-	de_dbg(c, " has font: %d", (int)d->has_font);
-	de_dbg(c, " compression: %d", (int)d->compression);
-	de_dbg(c, " non-blink mode: %d", (int)d->csctx.nonblink);
-	de_dbg(c, " 512 character mode: %d", (int)d->has_512chars);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "has palette: %u", (UI)d->has_palette);
+	de_dbg(c, "has font: %u", (UI)d->has_font);
+	de_dbg(c, "compression: %u", (UI)d->compression);
+	de_dbg(c, "non-blink mode: %u", (UI)d->csctx.nonblink);
+	de_dbg(c, "512 character mode: %u", (UI)d->has_512chars);
+	de_dbg_indent(c, -1);
 
 	if(d->has_font && (d->font_height<1 || d->font_height>32)) {
 		de_err(c, "Invalid font height: %d", (int)d->font_height);
@@ -340,7 +342,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 		d->font_height = 16;
 	}
 
-	de_dbg(c, "image data at %d", (int)pos);
+	de_dbg(c, "image data at %"I64_FMT, pos);
 
 	if(d->compression) {
 		unc_data = dbuf_create_membuf(c, d->csctx.width_in_chars * d->csctx.height_in_chars * 2, 1);
@@ -672,8 +674,6 @@ struct thedrawcom_ctx {
 	struct de_crcobj *crco;
 	i64 screen_pos_raw;
 	i64 data_pos;
-	u8 errflag;
-	u8 need_errmsg;
 	u8 fmt_subtype;
 	i64 cmpr_len;
 	i64 viewer_start;
@@ -716,8 +716,8 @@ static void thedrawcom_decrunch(deark *c, struct thedrawcom_ctx *tdc, u8 prescan
 	dc->curr_fg_code = 0xf;
 
 	if(endpos > c->infile->len) {
-		tdc->errflag = 1;
-		tdc->need_errmsg = 1;
+		tdc->d->errflag = 1;
+		tdc->d->need_errmsg = 1;
 		goto done;
 	}
 
@@ -732,7 +732,7 @@ static void thedrawcom_decrunch(deark *c, struct thedrawcom_ctx *tdc, u8 prescan
 		u8 b0, b1, b2;
 		i64 k;
 
-		if(tdc->errflag) goto done;
+		if(tdc->d->errflag) goto done;
 		if(pos >= endpos) break;
 
 		b0 = de_getbyte_p(&pos);
@@ -783,8 +783,8 @@ static void thedrawcom_decrunch(deark *c, struct thedrawcom_ctx *tdc, u8 prescan
 			dc->curr_blink_code = (dc->curr_blink_code==0) ? 0x80 : 0x00;
 		}
 		else { // Unknown opcode
-			tdc->errflag = 1;
-			tdc->need_errmsg = 1;
+			tdc->d->errflag = 1;
+			tdc->d->need_errmsg = 1;
 			goto done;
 		}
 	}
@@ -794,12 +794,12 @@ static void thedrawcom_decrunch(deark *c, struct thedrawcom_ctx *tdc, u8 prescan
 	if((dc->max_xpos+1 > THEDRAWCOM_MAX_WIDTH) ||
 		(dc->max_ypos+1 > THEDRAWCOM_MAX_HEIGHT))
 	{
-		tdc->errflag = 1;
-		tdc->need_errmsg = 1;
+		tdc->d->errflag = 1;
+		tdc->d->need_errmsg = 1;
 		goto done;
 	}
 
-	if(dc->prescan_mode && !tdc->errflag) {
+	if(dc->prescan_mode && !tdc->d->errflag) {
 		de_dbg(c, "number of rows: %d", (int)(dc->max_ypos+1));
 		de_dbg(c, "last nonblank row: %d", (int)dc->ypos_of_last_nonblank);
 		tdc->d->csctx.width_in_chars = dc->max_xpos + 1;
@@ -817,10 +817,10 @@ static void thedrawcom_decrunch(deark *c, struct thedrawcom_ctx *tdc, u8 prescan
 done:
 	dbuf_flush(tdc->unc_data);
 
-	if(tdc->need_errmsg) {
+	if(tdc->d->need_errmsg) {
 		de_err(c, "Decompression failed");
-		tdc->need_errmsg = 0;
-		tdc->errflag = 1;
+		tdc->d->need_errmsg = 0;
+		tdc->d->errflag = 1;
 	}
 }
 
@@ -894,7 +894,7 @@ static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 	}
 
 	tdc->screen_pos_raw = de_geti16le(7);
-	de_dbg(c, "screen pos: %d", (int)tdc->screen_pos_raw);
+	de_dbg(c, "screen pos: %"I64_FMT, tdc->screen_pos_raw);
 	// TODO? The screen pos is relevant if just a block, instead of a whole
 	// screen, was saved.
 	// We could artificially pad the image with spaces above/left/right in
@@ -907,9 +907,9 @@ static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 		de_dbg_indent(c, 1);
 		// The first decompression is to figure out the dimensions.
 		thedrawcom_decrunch(c, tdc, 1);
-		if(tdc->errflag) goto done;
+		if(tdc->d->errflag) goto done;
 		thedrawcom_decrunch(c, tdc, 0);
-		if(tdc->errflag) goto done;
+		if(tdc->d->errflag) goto done;
 		de_dbg_indent(c, -1);
 	}
 	else {
@@ -918,11 +918,11 @@ static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 	}
 
 	if(!tdc->unc_data || tdc->d->csctx.width_in_chars<1 || tdc->d->csctx.height_in_chars<1) {
-		tdc->need_errmsg = 1;
+		tdc->d->need_errmsg = 1;
 		goto done;
 	}
 
-	if(tdc->errflag) goto done;
+	if(tdc->d->errflag) goto done;
 	tdc->d->csctx.inf = tdc->unc_data;
 	tdc->d->csctx.inf_pos = 0;
 	tdc->d->csctx.inf_len = tdc->unc_data->len;
@@ -930,7 +930,7 @@ static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 
 done:
 	if(tdc) {
-		if(tdc->need_errmsg) {
+		if(tdc->d && tdc->d->need_errmsg) {
 			de_err(c, "Failed to decode this file");
 		}
 
@@ -1186,7 +1186,6 @@ struct grabber_id_data {
 };
 
 struct grabber_ctx {
-	u8 errflag;
 	u8 screen_mode;
 	i64 data_pos, data_len;
 	struct de_char_context *charctx;
@@ -1243,7 +1242,7 @@ static void decode_grabber_com(deark *c, lctx *d, struct grabber_ctx *gctx)
 		(const u8*)"\xb8\x00?\x8e\xc0\xbe", 6,
 		'?', &foundpos);
 	if(!ret) {
-		gctx->errflag = 1;
+		d->errflag = 1;
 		d->need_errmsg = 1;
 		goto done;
 	}
@@ -1265,7 +1264,7 @@ static void decode_grabber_com(deark *c, lctx *d, struct grabber_ctx *gctx)
 	gctx->screen_mode = de_getbyte(pos_of_mode);
 	de_dbg(c, "mode: 0x%02x", (UI)gctx->screen_mode);
 	if(gctx->screen_mode != 3) {
-		gctx->errflag = 1;
+		d->errflag = 1;
 		d->need_errmsg = 1;
 		goto done;
 	}
@@ -1301,7 +1300,7 @@ static void de_run_grabber(deark *c, de_module_params *mparams)
 
 	de_dbg(c, "format class: %u", gctx->gi.fmt_class);
 	decode_grabber_com(c, d, gctx);
-	if(gctx->errflag) goto done;
+	if(d->errflag) goto done;
 
 	d->csctx.height_in_chars = de_pad_to_n(gctx->data_len, d->csctx.width_in_chars*2) /
 		(d->csctx.width_in_chars*2);
