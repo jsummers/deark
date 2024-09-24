@@ -1692,3 +1692,67 @@ void fmtutil_write_std_jpeg_dht(dbuf *outf, UI tbl_id)
 
 	dbuf_write(outf, tbl_data, tbl_len);
 }
+
+// A simplified character graphics (or screen dump) API that should suffice for most
+// single-image PC formats.
+// Caller must create/free charctx (de_create_charctx/de_free_charctx)
+// and csctx (de_malloc).
+// Caller must set some fields in csctx, and optionally may set some fields
+// in charctx.
+void fmtutil_char_simple_run(deark *c, struct fmtutil_char_simplectx *csctx,
+	struct de_char_context *charctx)
+{
+	i64 i, j;
+	i64 inf_endpos;
+	u8 ccode, acode;
+	u8 fgcol, bgcol;
+	struct de_char_screen *screen;
+	struct de_encconv_state es;
+
+	inf_endpos = csctx->inf_pos + csctx->inf_len;
+	if(csctx->use_default_pal) {
+		de_copy_std_palette(DE_PALID_PC16, 0, 0, charctx->pal, 16, 0);
+	}
+	charctx->nscreens = 1;
+	charctx->screens = de_mallocarray(c, charctx->nscreens, sizeof(struct de_char_screen*));
+	charctx->screens[0] = de_malloc(c, sizeof(struct de_char_screen));
+	screen = charctx->screens[0];
+	screen->width = csctx->width_in_chars;
+	screen->height = csctx->height_in_chars;
+	screen->cell_rows = de_mallocarray(c, csctx->height_in_chars, sizeof(struct de_char_cell*));
+	de_encconv_init(&es, DE_ENCODING_CP437_G);
+
+	for(j=0; j<csctx->height_in_chars; j++) {
+		screen->cell_rows[j] = de_mallocarray(c, csctx->width_in_chars, sizeof(struct de_char_cell));
+
+		for(i=0; i<csctx->width_in_chars; i++) {
+			i64 pos;
+
+			pos = csctx->inf_pos + j*csctx->width_in_chars*2 + i*2;
+			if(pos < inf_endpos)
+				ccode = dbuf_getbyte(csctx->inf, pos);
+			else
+				ccode = 0;
+			pos++;
+			if(pos < inf_endpos)
+				acode = dbuf_getbyte(csctx->inf, pos);
+			else
+				acode = 0;
+
+			if((acode&0x80) && !csctx->nonblink) {
+				screen->cell_rows[j][i].blink = 1;
+				acode -= 0x80;
+			}
+
+			fgcol = (acode & 0x0f);
+			bgcol = (acode & 0xf0) >> 4;
+
+			screen->cell_rows[j][i].fgcol = (u32)fgcol;
+			screen->cell_rows[j][i].bgcol = (u32)bgcol;
+			screen->cell_rows[j][i].codepoint = (i32)ccode;
+			screen->cell_rows[j][i].codepoint_unicode = de_char_to_unicode_ex((i32)ccode, &es);
+		}
+	}
+
+	de_char_output_to_file(c, charctx);
+}

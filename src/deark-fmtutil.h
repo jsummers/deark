@@ -781,3 +781,14 @@ int fmtutil_scan_for_arj_data(dbuf *f, i64 startpos, i64 max_skip,
 void fmtutil_get_std_jpeg_qtable(UI tbl_id, u8 tbl[64]);
 void fmtutil_write_std_jpeg_dht(dbuf *outf, UI tbl_id);
 UI fmtutil_detect_pklite_by_exe_ep(deark *c, const u8 *mem, i64 mem_len, UI flags);
+
+struct fmtutil_char_simplectx {
+	dbuf *inf;
+	i64 inf_pos;
+	i64 inf_len;
+	u8 use_default_pal;
+	u8 nonblink;
+	i64 width_in_chars, height_in_chars;
+};
+void fmtutil_char_simple_run(deark *c, struct fmtutil_char_simplectx *csctx,
+	struct de_char_context *charctx);
