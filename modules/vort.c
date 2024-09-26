@@ -79,7 +79,7 @@ typedef struct localctx_struct_vort {
 	u8 image_alpha_flag;
 	struct de_timestamp timestamp;
 
-	u32 pal[256];
+	de_color pal[256];
 } lctx;
 
 struct obj_type_info_struct;
@@ -121,7 +121,7 @@ static i64 read_vlq(deark *c, i64 *fpos)
 	i64 val;
 	i64 pos = *fpos;
 
-	nlen = (i64)de_getbyte(pos++);
+	nlen = (i64)de_getbyte_p(&pos);
 	*fpos += 1+nlen;
 	if(nlen>7) {
 		return 0;
@@ -129,7 +129,7 @@ static i64 read_vlq(deark *c, i64 *fpos)
 
 	val = 0;
 	for(k=0; k<nlen; k++) {
-		val = (val<<8) | (i64)de_getbyte(pos++);
+		val = (val<<8) | (i64)de_getbyte_p(&pos);
 	}
 	if(val<0) return 0;
 	return val;
@@ -234,13 +234,13 @@ static int do_primitive_object(deark *c, lctx *d, i64 pos1,
 
 	i64 value_as_vlq = 0;
 
-	de_dbg(c, "primitive object at %d", (int)pos1);
+	de_dbg(c, "primitive object at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
-	obj_type = de_getbyte(pos++);
+	obj_type = de_getbyte_p(&pos);
 	oti = find_obj_type_info(obj_fulltype, obj_type);
 	if(oti && oti->name) name = oti->name;
 	else name = "?";
-	de_dbg(c, "primitive type: %u (%s)", (unsigned int)obj_type, name);
+	de_dbg(c, "primitive type: %u (%s)", (UI)obj_type, name);
 
 	// The data is usually a VLQ, but sometimes it's not. For convenience,
 	// we'll read the length byte, then go back and read the whole thing as a VLQ.
@@ -280,7 +280,7 @@ static int do_object_list(deark *c, lctx *d, i64 pos1, i64 len,
 	int retval = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "object list at %d, len=%d", (int)pos, (int)len);
+	de_dbg(c, "object list at %"I64_FMT", len=%"I64_FMT, pos, len);
 	while(1) {
 		i64 objsize;
 		if(pos>=pos1+len) break;
@@ -306,16 +306,18 @@ static int do_full_object(deark *c, lctx *d, i64 pos1,
 	i64 pos = pos1;
 	i64 bytes_consumed2 = 0;
 	int retval = 0;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	d->nesting_level++;
 	// Objects can't be nested without going through this code path, so doing
 	// this check only here should be sufficient.
 	if(d->nesting_level>8) goto done;
 
-	de_dbg(c, "full object at %d", (int)pos);
+	de_dbg(c, "full object at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
-	obj_type = de_getbyte(pos++);
-	de_dbg(c, "full type: %u (%s)", (unsigned int)obj_type, get_fulltype_name(obj_type));
+	obj_type = de_getbyte_p(&pos);
+	de_dbg(c, "full type: %u (%s)", (UI)obj_type, get_fulltype_name(obj_type));
 
 	obj_dlen = read_vlq(c, &pos);
 	de_dbg(c, "data len: %"I64_FMT, obj_dlen);
@@ -327,7 +329,7 @@ static int do_full_object(deark *c, lctx *d, i64 pos1,
 
 done:
 	d->nesting_level--;
-	de_dbg_indent(c, -1);
+	de_dbg_indent_restore(c, saved_indent_level);
 	*bytes_consumed = pos-pos1;
 	return retval;
 }
@@ -337,8 +339,7 @@ static void do_colormap(deark *c, lctx *d)
 	i64 k;
 
 	if(d->colormap_pos==0 || d->colormap_size==0) return;
-	de_dbg(c, "colormap at %d, %d entries", (int)d->colormap_pos, (int)d->colormap_size);
-
+	de_dbg(c, "colormap at %"I64_FMT", %d entries", d->colormap_pos, (int)d->colormap_size);
 	de_dbg_indent(c, 1);
 	for(k=0; k<d->colormap_size && k<256; k++) {
 		u8 cr, cg, cb;
@@ -367,8 +368,7 @@ static void do_decompress(deark *c, lctx *d, i64 pos1, dbuf *unc_pixels,
 			break;
 		}
 
-		b = de_getbyte(pos);
-		pos++;
+		b = de_getbyte_p(&pos);
 		if(b>=128) { // uncompressed run
 			count = (i64)(b-128);
 			dbuf_copy(c->infile, pos, count*bytes_per_pixel, unc_pixels);
@@ -403,10 +403,12 @@ static void do_image(deark *c, lctx *d)
 	u8 uses_colormap = 0;
 	u8 has_alpha = 0;
 	i64 bytes_per_pixel = 0;
+	int saved_indent_level;
 
-	if(d->image_data_pos==0) return;
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(d->image_data_pos==0) goto done;
 
-	de_dbg(c, "image data at %d", (int)d->image_data_pos);
+	de_dbg(c, "image data at %"I64_FMT, d->image_data_pos);
 	de_dbg_indent(c, 1);
 
 	if(!de_good_image_dimensions(c, d->image_width, d->image_height)) goto done;
@@ -486,13 +488,13 @@ static void do_image(deark *c, lctx *d)
 	fi = de_finfo_create(c);
 	fi->internal_mod_time = d->timestamp;
 
-	de_bitmap_write_to_file_finfo(img, fi, 0);
+	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
 
 done:
-	de_dbg_indent(c, -1);
 	dbuf_close(unc_pixels);
 	de_bitmap_destroy(img);
 	de_finfo_destroy(c, fi);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void de_run_vort(deark *c, de_module_params *mparams)
@@ -504,11 +506,11 @@ static void de_run_vort(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 	pos = 0;
-	de_dbg(c, "header at %d", (int)pos);
+	de_dbg(c, "header at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 	pos += 6; // signature
 	root_obj_offs = read_vlq(c, &pos);
-	de_dbg(c, "root object address: %d", (int)root_obj_offs);
+	de_dbg(c, "root object address: %"I64_FMT, root_obj_offs);
 	de_dbg_indent(c, -1);
 
 	pos = root_obj_offs;
