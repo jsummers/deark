@@ -241,38 +241,46 @@ static void extract_unc_jfif_thumbnail(deark *c, lctx *d,
 }
 
 static void do_jfif_segment(deark *c, lctx *d,
-	i64 pos, i64 data_size)
+	i64 pos1, i64 data_size)
 {
 	u8 units;
 	const char *units_name;
 	i64 xdens, ydens;
+	i64 tn_size;
 	i64 tn_w, tn_h;
+	i64 pos;
 
 	d->has_jfif_seg = 1;
-	if(data_size<9) return;
-	d->jfif_ver_h = de_getbyte(pos);
-	d->jfif_ver_l = de_getbyte(pos+1);
+	if(data_size<9) goto done;
+	pos = pos1;
+	d->jfif_ver_h = de_getbyte_p(&pos);
+	d->jfif_ver_l = de_getbyte_p(&pos);
 	de_dbg(c, "JFIF version: %d.%02d", (int)d->jfif_ver_h, (int)d->jfif_ver_l);
-	units = de_getbyte(pos+2);
-	xdens = de_getu16be(pos+3);
-	ydens = de_getu16be(pos+5);
+	units = de_getbyte_p(&pos);
+	xdens = de_getu16be_p(&pos);
+	ydens = de_getu16be_p(&pos);
 	if(units==1) units_name="dpi";
 	else if(units==2) units_name="dots/cm";
 	else units_name="(unspecified)";
 	de_dbg(c, "density: %d"DE_CHAR_TIMES"%d, units=%s", (int)xdens, (int)ydens, units_name);
 
-	tn_w = (i64)de_getbyte(pos+7);
-	tn_h = (i64)de_getbyte(pos+8);
+	tn_w = (i64)de_getbyte_p(&pos);
+	tn_h = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "thumbnail dimensions: %d"DE_CHAR_TIMES"%d", (int)tn_w, (int)tn_h);
-	if(tn_w>0 && tn_h>0 && data_size>9) {
+	tn_size = pos1 + data_size - pos;
+	if(tn_w>0 && tn_h>0 && tn_size>0) {
+		de_dbg(c, "thunbnail at %"I64_FMT", len=%"I64_FMT, pos, tn_size);
 		d->has_jfif_thumb = 1;
-		if(tn_w*tn_h*3 != data_size-9) {
-			de_warn(c, "Expected %d bytes of JFIF thumbnail image data at %d, found %d",
-				(int)(tn_w*tn_h*3), (int)(pos+9), (int)(data_size-9));
+		if(tn_w*tn_h*3 != tn_size) {
+			de_warn(c, "Expected %"I64_FMT" bytes of JFIF thumbnail image data, "
+				"found %"I64_FMT, (i64)(tn_w*tn_h*3), tn_size);
 		}
-		extract_unc_jfif_thumbnail(c, d, pos+9, data_size-9, tn_w, tn_h,
+		extract_unc_jfif_thumbnail(c, d, pos, tn_size, tn_w, tn_h,
 			0, "jfifthumb");
 	}
+
+done:
+	;
 }
 
 static void do_jfxx_segment(deark *c, lctx *d,
