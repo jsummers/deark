@@ -271,7 +271,7 @@ Deark -- Information about supported formats
   - Extract images of the (otherwise unused) masks for 32-bit images (use -a).
 
 * ILBM and related IFF-based images (module="ilbm")
-  - Supports ILBM, ACBM, PBM
+  - Supports ILBM, ACBM, PBM, RGBN, RGB8
   - Supports 1-8 bit paletted, 24-bit truecolor
   - Supports HAM6, HAM8, Halfbrite
   - Supports color-keyed and bitmask transparency
