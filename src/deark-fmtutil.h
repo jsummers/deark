@@ -786,9 +786,11 @@ struct fmtutil_char_simplectx {
 	dbuf *inf;
 	i64 inf_pos;
 	i64 inf_len;
+	de_encoding input_encoding;
 	u8 use_default_pal;
 	u8 nonblink;
 	i64 width_in_chars, height_in_chars;
+	i64 fg_stride, attr_offset;
 };
 void fmtutil_char_simple_run(deark *c, struct fmtutil_char_simplectx *csctx,
 	struct de_char_context *charctx);

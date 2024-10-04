@@ -1704,9 +1704,12 @@ void fmtutil_char_simple_run(deark *c, struct fmtutil_char_simplectx *csctx,
 {
 	i64 i, j;
 	i64 inf_endpos;
+	i64 fg_stride;
+	i64 attr_offset;
 	u8 ccode, acode;
 	u8 fgcol, bgcol;
 	struct de_char_screen *screen;
+	de_encoding encoding;
 	struct de_encconv_state es;
 
 	inf_endpos = csctx->inf_pos + csctx->inf_len;
@@ -1720,7 +1723,23 @@ void fmtutil_char_simple_run(deark *c, struct fmtutil_char_simplectx *csctx,
 	screen->width = csctx->width_in_chars;
 	screen->height = csctx->height_in_chars;
 	screen->cell_rows = de_mallocarray(c, csctx->height_in_chars, sizeof(struct de_char_cell*));
-	de_encconv_init(&es, DE_ENCODING_CP437_G);
+
+	if(csctx->input_encoding==DE_ENCODING_UNKNOWN) {
+		encoding = DE_ENCODING_CP437;
+	}
+	else {
+		encoding = csctx->input_encoding;
+	}
+	de_encconv_init(&es, DE_EXTENC_MAKE(encoding, DE_ENCSUBTYPE_PRINTABLE));
+
+	if(csctx->fg_stride) {
+		fg_stride = csctx->fg_stride;
+		attr_offset = csctx->attr_offset;
+	}
+	else {
+		fg_stride = 2;
+		attr_offset = 1;
+	}
 
 	for(j=0; j<csctx->height_in_chars; j++) {
 		screen->cell_rows[j] = de_mallocarray(c, csctx->width_in_chars, sizeof(struct de_char_cell));
@@ -1728,14 +1747,13 @@ void fmtutil_char_simple_run(deark *c, struct fmtutil_char_simplectx *csctx,
 		for(i=0; i<csctx->width_in_chars; i++) {
 			i64 pos;
 
-			pos = csctx->inf_pos + j*csctx->width_in_chars*2 + i*2;
+			pos = csctx->inf_pos + j*csctx->width_in_chars*fg_stride + i*fg_stride;
 			if(pos < inf_endpos)
 				ccode = dbuf_getbyte(csctx->inf, pos);
 			else
 				ccode = 0;
-			pos++;
 			if(pos < inf_endpos)
-				acode = dbuf_getbyte(csctx->inf, pos);
+				acode = dbuf_getbyte(csctx->inf, pos+attr_offset);
 			else
 				acode = 0;
 
