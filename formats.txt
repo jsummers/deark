@@ -290,7 +290,6 @@ Deark -- Information about supported formats
 * IndyPaint (*.tru) (module="indypaint")
 
 * Inset PIX (module="insetpix") (experimental)
-  - Bitmap images only. Character graphics files are not supported.
   - In rare cases, format detection may fail (need "-m insetpix").
 
 * InShape IIM (module="iim")

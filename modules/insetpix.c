@@ -4,8 +4,8 @@
 
 // Inset .PIX
 
-#include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_insetpix);
 
 struct insetpix_item_data {
@@ -18,7 +18,7 @@ struct insetpix_item_data {
 };
 
 typedef struct localctx_insetpix {
-	i64 item_count;
+	de_encoding input_encoding;
 	u8 hmode;
 	u8 htype;
 	u8 graphics_type; // 0=character, 1=bitmap
@@ -32,6 +32,7 @@ typedef struct localctx_insetpix {
 	i64 pal_pos, pal_len;
 	i64 tileinfo_pos, tileinfo_len;
 
+	i64 item_count;
 	i64 num_tiles_found;
 	i64 idx_of_1st_tile;
 	i64 npwidth, pdwidth, height;
@@ -292,6 +293,7 @@ static void do_decompress_tile(deark *c, lctx *d, struct insetpix_item_data *itd
 	i64 pos;
 	i64 i, j;
 	i64 plane;
+	i64 endpos = itd->loc + itd->len;
 
 	// There are d->gfore planes (1-bpp images). The first row of each plane is
 	// uncompressed. The rest are compressed with a delta compression algorithm.
@@ -303,12 +305,12 @@ static void do_decompress_tile(deark *c, lctx *d, struct insetpix_item_data *itd
 	pos = itd->loc;
 
 	for(plane=0; plane<d->gfore; plane++) {
-		if(pos >= itd->loc + itd->len) {
-			de_warn(c, "Not enough data in tile %u", itd->tile_num);
-			goto done;
-		}
-
 		for(j=0; j<num_rows; j++) {
+			if(pos >= endpos) {
+				de_warn(c, "Not enough data in tile %u", itd->tile_num);
+				goto done;
+			}
+
 			if(j==0) {
 				// First row is stored uncompressed
 				dbuf_copy(c->infile, pos, d->rowspan, unc_pixels);
@@ -337,6 +339,8 @@ static void do_decompress_tile(deark *c, lctx *d, struct insetpix_item_data *itd
 			}
 		}
 	}
+
+	de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT, pos-itd->loc, unc_pixels->len);
 
 done:
 	de_free(c, compression_bytes);
@@ -486,6 +490,67 @@ done:
 	de_dbg_indent(c, -1);
 }
 
+static void do_char_graphics(deark *c, lctx *d)
+{
+	struct insetpix_item_data itd;
+	dbuf *unc_pixels = NULL;
+	struct de_char_context *charctx = NULL;
+	struct fmtutil_char_simplectx *csctx = NULL;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "reading char graphics");
+	de_dbg_indent(c, 1);
+	if(d->num_tiles_found!=1) {
+		de_err(c, "Multi-tile char. graphics not supported");
+		goto done;
+	}
+
+	insetpix_read_item(c, 4 + 8*d->idx_of_1st_tile, &itd);
+	insetpix_dbg_item(c, &itd, d->idx_of_1st_tile);
+
+	unc_pixels = dbuf_create_membuf(c, 4096, 0);
+	csctx = de_malloc(c, sizeof(struct fmtutil_char_simplectx));
+	charctx = de_create_charctx(c, 0);
+
+	csctx->width_in_chars = d->page_cols;
+	csctx->height_in_chars = d->page_rows;
+
+	// Unless I'm missing something, this format is just wacky.
+	// Assume the screen is 80x25. The original data is then 80x25 bytes of
+	// character data, followed immediately by 80x25 bytes of attribute data.
+	// So its sort of 80x50. Good so far. But then it's compressed as if it were
+	// 160x25. Which is strange.
+	// The first 12 rows are character data.
+	// The 13th row is half character data, half attribute data.
+	// The last 12 rows are attribute data.
+	// The compression is only effective when a character is the same as the one
+	// *two* rows above it.
+	// (The format documentation does hint at this, but doesn't adequately
+	// explain it.)
+
+	d->gfore = 1; // hack (gfore is used as # of planes)
+	d->rowspan = csctx->width_in_chars*2;
+	d->compression_bytes_per_row = (d->rowspan+7)/8;
+	do_decompress_tile(c, d, &itd, unc_pixels, csctx->height_in_chars);
+
+	csctx->input_encoding = d->input_encoding;
+	csctx->inf = unc_pixels;
+	csctx->inf_pos = 0;
+	csctx->inf_len = csctx->width_in_chars * csctx->height_in_chars * 2;
+	csctx->fg_stride = 1;
+	csctx->attr_offset = csctx->width_in_chars*csctx->height_in_chars;
+	de_memcpy(&charctx->pal, &d->pal, sizeof(de_color)*16);
+
+	fmtutil_char_simple_run(c, csctx, charctx);
+
+done:
+	de_free_charctx(c, charctx);
+	de_free(c, csctx);
+	dbuf_close(unc_pixels);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static void de_run_insetpix(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -497,6 +562,7 @@ static void de_run_insetpix(deark *c, de_module_params *mparams)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	d = de_malloc(c, sizeof(lctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 
 	pix_version = (UI)de_getu16le(0);
 	d->item_count = de_getu16le(2);
@@ -588,7 +654,7 @@ static void de_run_insetpix(deark *c, de_module_params *mparams)
 	}
 
 	if(d->graphics_type==0) {
-		de_err(c, "Inset PIX character graphics not supported");
+		do_char_graphics(c, d);
 	}
 	else {
 		if(d->gfore<1 || d->gfore>8) {

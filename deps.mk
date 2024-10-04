@@ -141,8 +141,8 @@ $(OBJDIR)/modules/iff.o: modules/iff.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/ilbm.o: modules/ilbm.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
-$(OBJDIR)/modules/insetpix.o: modules/insetpix.c src/deark-config.h \
- src/deark-private.h src/deark.h
+$(OBJDIR)/modules/insetpix.o: modules/insetpix.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/installshld.o: modules/installshld.c \
  src/deark-private.h src/deark.h src/deark-config.h src/deark-fmtutil.h \
  src/deark-fmtutil-arch.h
