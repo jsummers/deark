@@ -400,6 +400,7 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 	i64 width_req = 0;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->csctx.input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 
 	charctx = de_create_charctx(c, 0);
 	charctx->prefer_image_output = 0;
@@ -833,6 +834,7 @@ static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 	de_dbg_indent_save(c, &saved_indent_level);
 	tdc = de_malloc(c, sizeof(struct thedrawcom_ctx));
 	tdc->d = de_malloc(c, sizeof(lctx));
+	tdc->d->csctx.input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 	tdc->charctx = de_create_charctx(c, 0);
 	tdc->d->csctx.use_default_pal = 1;
 
@@ -1085,6 +1087,7 @@ static void de_run_aciddraw_com(deark *c, de_module_params *mparams)
 
 	adctx = de_malloc(c, sizeof(struct aciddraw_ctx));
 	d = de_malloc(c, sizeof(lctx));
+	d->csctx.input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 	adctx->charctx = de_create_charctx(c, 0);
 
 	if(de_get_ext_option(c, "ansiart:noblink")) {
@@ -1285,6 +1288,7 @@ static void de_run_grabber(deark *c, de_module_params *mparams)
 	gctx = de_malloc(c, sizeof(struct grabber_ctx));
 	gctx->charctx = de_create_charctx(c, 0);
 	d = de_malloc(c, sizeof(lctx));
+	d->csctx.input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 
 	sig = (UI)de_getu16le(0);
 	if(sig==0x5a4d || sig==0x4d5a) {
