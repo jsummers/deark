@@ -604,8 +604,7 @@ struct de_advfile {
 	unsigned int createflags;
 	u8 enable_wbuffer;
 	u8 original_filename_flag;
-	u8 no_applesingle;
-	u8 no_appledouble;
+	u8 originally_appledouble;
 	u8 has_typecode;
 	u8 has_creatorcode;
 	u8 has_finderflags;

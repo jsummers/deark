@@ -11,7 +11,7 @@ DE_DECLARE_MODULE(de_module_applesd);
 
 typedef struct localctx_struct {
 	u32 version;
-	int is_appledouble;
+	u8 is_appledouble;
 	int input_encoding;
 	int extract_rsrc;
 	struct de_advfile *advf;
@@ -436,15 +436,7 @@ static void de_run_sd_internal(deark *c, lctx *d)
 		de_dbg_indent(c, -1);
 	}
 
-	// There's no good reason to ever "convert" to AppleSingle. (We don't
-	// have a way to combine forks that start out in separate files.)
-	d->advf->no_applesingle = 1;
-
-	if(!d->advf->mainfork.fork_exists || !d->advf->rsrcfork.fork_exists) {
-		// If either fork does not exist, don't do anything fancy.
-		// (If both exist, we allow conversion to AppleDouble.)
-		d->advf->no_appledouble = 1;
-	}
+	d->advf->originally_appledouble = d->is_appledouble;
 
 	de_advfile_run(d->advf);
 

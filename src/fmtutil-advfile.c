@@ -508,12 +508,13 @@ done:
 void de_advfile_run(struct de_advfile *advf)
 {
 	deark *c = advf->c;
-	int is_mac_file;
+	u8 has_mac_rfork;
+	u8 extract_as_macfile;
+	u8 has_mac_metadata;
+	u8 try_to_keep_mac_metadata;
 	int fmt;
 
-	is_mac_file = (advf->rsrcfork.fork_exists && advf->rsrcfork.fork_len>0);
-
-	if(is_mac_file && !c->macformat_known) {
+	if(!c->macformat_known) {
 		const char *mfmt;
 
 		c->macformat_known = 1;
@@ -536,16 +537,37 @@ void de_advfile_run(struct de_advfile *advf)
 				c->macformat = DE_MACFORMAT_MACBINARY;
 			}
 		}
+
+		c->macmetaflag = (u8)de_get_ext_option_bool(c, "macmeta", 0);
 	}
+
+	// There's also finderflags, but I don't think it matters.
+	has_mac_metadata = (advf->has_creatorcode || advf->has_typecode);
+
+	has_mac_rfork = (advf->rsrcfork.fork_exists && advf->rsrcfork.fork_len>0);
+
+	try_to_keep_mac_metadata = has_mac_rfork || (c->macmetaflag && has_mac_metadata);
+	extract_as_macfile = has_mac_rfork || try_to_keep_mac_metadata;
 
 	fmt = c->macformat; // Default to the default Mac format.
-	if(fmt==DE_MACFORMAT_APPLESINGLE && advf->no_applesingle) fmt = DE_MACFORMAT_APPLEDOUBLE;
-	if(fmt==DE_MACFORMAT_APPLEDOUBLE && advf->no_appledouble) fmt = DE_MACFORMAT_RAW;
 
-	if(is_mac_file && fmt==DE_MACFORMAT_APPLESINGLE) {
+	// It's hard to decide what conversions to allow, and to account for all
+	// combinations of options.
+	// For now, we do allow some silly things, like MacBinary->MacBinary.
+	// But we want to be careful when AppleDouble is the source format, since
+	// (1) it doesn't contain the data fork (maybe it shouldn't even use
+	// advfile), and (2) it's special because it's our standard format for
+	// extracting resource forks.
+	if(advf->originally_appledouble &&
+		(fmt==DE_MACFORMAT_APPLEDOUBLE || fmt==DE_MACFORMAT_APPLESINGLE))
+	{
+		fmt = DE_MACFORMAT_RAW;
+	}
+
+	if(extract_as_macfile && fmt==DE_MACFORMAT_APPLESINGLE) {
 		de_advfile_run_applesd(c, advf, 0);
 	}
-	else if(is_mac_file && fmt==DE_MACFORMAT_APPLEDOUBLE) {
+	else if(extract_as_macfile && fmt==DE_MACFORMAT_APPLEDOUBLE) {
 		int extract_dfork = 0;
 		int extract_rfork = 0;
 
@@ -553,6 +575,9 @@ void de_advfile_run(struct de_advfile *advf)
 			extract_dfork = 1;
 		}
 		if(advf->rsrcfork.fork_exists && advf->rsrcfork.fork_len>0) {
+			extract_rfork = 1;
+		}
+		else if(try_to_keep_mac_metadata) {
 			extract_rfork = 1;
 		}
 		if(!extract_dfork && !extract_rfork) {
@@ -566,7 +591,7 @@ void de_advfile_run(struct de_advfile *advf)
 			de_advfile_run_applesd(c, advf, 1); // For the rsrc fork
 		}
 	}
-	else if(is_mac_file && fmt==DE_MACFORMAT_MACBINARY) {
+	else if(extract_as_macfile && fmt==DE_MACFORMAT_MACBINARY) {
 		de_advfile_run_macbinary(c, advf);
 	}
 	else {

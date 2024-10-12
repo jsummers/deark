@@ -228,6 +228,10 @@ Command-line options:
         mbin = Put both forks in a MacBinary container.
        For input files already in AppleDouble or AppleSingle format, see the
        formats.txt file for more information.
+    -opt macmeta
+       A hint to preserve Macintosh metadata (type/creator codes) even if there
+       is no resource fork. The format specified by the "macrsrc" option will
+       be used.
     -opt riscos:appendtype
        For RISC OS formats, append the file type to the output filename.
     -opt deflatecodec=native
