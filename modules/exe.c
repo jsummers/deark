@@ -1704,6 +1704,29 @@ done:
 	;
 }
 
+static void do_specialexe(deark *c, lctx *d)
+{
+	struct fmtutil_specialexe_detection_data edd;
+
+	if(!d->ei) return;
+	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
+
+	fmtutil_detect_specialexe(c, d->ei, &edd);
+	if(!edd.detected_fmt) goto done;
+
+	de_dbg(c, "detected special exe: %s", edd.detected_fmt_name);
+
+	if(edd.modname) {
+		de_dbg(c, "attempting to decode %s", edd.modname);
+		de_dbg_indent(c, 1);
+		de_run_module_by_id_on_slice2(c, edd.modname, NULL, c->infile, 0, c->infile->len);
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	;
+}
+
 // Used in execomp mode.
 static void try_execomp_decompress(deark *c, lctx *d, struct fmtutil_specialexe_detection_data *edd)
 {
@@ -1795,6 +1818,7 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 		fmtutil_collect_exe_info(c, c->infile, d->ei);
 	}
 	do_exesfx(c, d);
+	do_specialexe(c, d);
 	do_execomp(c, d);
 
 done:

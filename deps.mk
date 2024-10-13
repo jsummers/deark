@@ -123,6 +123,8 @@ $(OBJDIR)/modules/grasp.o: modules/grasp.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/grob.o: modules/grob.c src/deark-config.h \
  src/deark-private.h src/deark.h
+$(OBJDIR)/modules/gws.o: modules/gws.c src/deark-private.h src/deark.h \
+ src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/gzip.o: modules/gzip.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/hfs.o: modules/hfs.c src/deark-config.h \
