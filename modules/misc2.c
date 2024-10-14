@@ -36,12 +36,40 @@ DE_DECLARE_MODULE(de_module_lotus_mscr);
 DE_DECLARE_MODULE(de_module_fastgraph_spr);
 DE_DECLARE_MODULE(de_module_fastgraph_ppr);
 DE_DECLARE_MODULE(de_module_young_picasso);
-DE_DECLARE_MODULE(de_module_imggal_alch);
 DE_DECLARE_MODULE(de_module_iconmgr_ica);
 DE_DECLARE_MODULE(de_module_thumbsplus);
 DE_DECLARE_MODULE(de_module_fmtowns_icn);
 DE_DECLARE_MODULE(de_module_pixfolio);
 DE_DECLARE_MODULE(de_module_apple2icons);
+
+static void datetime_dbgmsg(deark *c, struct de_timestamp *ts, const char *name)
+{
+	char timestamp_buf[64];
+
+	de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "%s: %s", name, timestamp_buf);
+}
+
+// Assumes path separators are  '/' or '\'.
+static void get_base_filename(de_ucstring *s1, de_ucstring *s2)
+{
+	i64 i;
+	i64 len;
+
+	ucstring_empty(s2);
+	len = s1->len;
+	for(i=0; i<len; i++) {
+		de_rune ch;
+
+		ch = s1->str[i];
+		if(ch=='\\' || ch=='/') {
+			ucstring_empty(s2);
+		}
+		else {
+			ucstring_append_char(s2, ch);
+		}
+	}
+}
 
 // **************************************************************************
 // HP 100LX / HP 200LX .ICN icon format
@@ -2356,250 +2384,6 @@ void de_module_young_picasso(deark *c, struct deark_module_info *mi)
 	mi->desc = "Young Picasso .YP";
 	mi->run_fn = de_run_yp;
 	mi->identify_fn = de_identify_yp;
-}
-
-// **************************************************************************
-// Image Gallery gallery file (Alchemy Mindworks)
-// **************************************************************************
-
-static void datetime_dbgmsg(deark *c, struct de_timestamp *ts, const char *name)
-{
-	char timestamp_buf[64];
-
-	de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
-	de_dbg(c, "%s: %s", name, timestamp_buf);
-}
-
-#define IMGGAL_HDRSIZE 97
-
-struct imggal_member {
-	i64 npwidth, pdwidth, height;
-	i64 bytes_per_row_per_plane;
-	i64 rowspan;
-	de_ucstring *orig_name;
-	de_ucstring *name;
-	struct de_timestamp create_dt;
-	struct de_timestamp mod_dt;
-	de_color pal[256];
-};
-
-struct imggal_ctx {
-	de_encoding input_encoding;
-	u8 imgtype;
-	u8 need_errmsg;
-	u8 is_color;
-	i64 item_count;
-	i64 item_size;
-	i64 bpp;
-};
-
-// Assumes path separators are  '/' or '\'.
-static void get_base_filename(de_ucstring *s1, de_ucstring *s2)
-{
-	i64 i;
-	i64 len;
-
-	ucstring_empty(s2);
-	len = s1->len;
-	for(i=0; i<len; i++) {
-		de_rune ch;
-
-		ch = s1->str[i];
-		if(ch=='\\' || ch=='/') {
-			ucstring_empty(s2);
-		}
-		else {
-			ucstring_append_char(s2, ch);
-		}
-	}
-}
-
-// Returns 0 on fatal error
-static int do_imggal_member(deark *c, struct imggal_ctx *d, i64 idx, i64 pos1)
-{
-	int saved_indent_level;
-	int retval = 1; // Default to no-fatal-error
-	i64 pos = pos1;
-	struct imggal_member *md = NULL;
-	de_bitmap *img = NULL;
-	de_finfo *fi = NULL;
-	i64 t;
-	static const de_color alchpal[16] = {
-		0xff000000U,0xffff0000U,0xff00ff00U,0xffffff00U,
-		0xff0000ffU,0xffff00ffU,0xff00ffffU,0xffd3a292U,
-		0xffa26159U,0xff929292U,0xff7d0000U,0xff007d00U,
-		0xff00007dU,0xffd3d3d3U,0xff515151U,0xffffffffU };
-
-	de_dbg_indent_save(c, &saved_indent_level);
-	md = de_malloc(c, sizeof(struct imggal_member));
-	de_dbg(c, "item at %"I64_FMT, pos1);
-	de_dbg_indent(c, 1);
-
-	t = de_geti32le_p(&pos);
-	de_unix_time_to_timestamp(t, &md->create_dt, 0x1);
-	datetime_dbgmsg(c, &md->create_dt, "create time");
-	t = de_geti32le_p(&pos);
-	de_unix_time_to_timestamp(t, &md->mod_dt, 0x1);
-	datetime_dbgmsg(c, &md->mod_dt, "mod time");
-
-	pos += 28; // various fields
-
-	md->orig_name = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos, 80, md->orig_name, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
-	de_dbg(c, "orig name: \"%s\"", ucstring_getpsz_d(md->orig_name));
-	pos += 81;
-	md->name = ucstring_create(c);
-	get_base_filename(md->orig_name, md->name);
-
-	pos += 14; // ?
-	pos += 257; // description
-	pos += 257; // keywords
-
-	md->npwidth = 1 + de_getu16le_p(&pos);
-	md->height = 1 + de_getu16le_p(&pos);
-	de_dbg_dimensions(c, md->npwidth, md->height);
-	if(!de_good_image_dimensions(c, md->npwidth, md->height)) goto done;
-
-	md->bytes_per_row_per_plane = (md->npwidth + 7)/8;
-	md->rowspan = md->bytes_per_row_per_plane * d->bpp;
-	md->pdwidth = md->bytes_per_row_per_plane * 8;
-
-	if(pos+(md->rowspan*md->height) > pos1+d->item_size) {
-		retval = 0;
-		d->need_errmsg = 1;
-		goto done;
-	}
-
-	img = de_bitmap_create2(c, md->npwidth, md->pdwidth, md->height, (d->is_color?3:1));
-	fi = de_finfo_create(c);
-
-	if(d->is_color) {
-		de_memcpy(md->pal, alchpal, sizeof(alchpal));
-	}
-	else if(d->bpp==1) {
-		md->pal[0] = DE_STOCKCOLOR_BLACK;
-		md->pal[1] = DE_MAKE_GRAY(243);
-	}
-	else {
-		UI k;
-
-		// Note: The Image Gallery software, in grayscale mode, uses a palette
-		// that doesn't go all the way to white. The whitest color is 243 when
-		// emulated by DOSBox.
-		// We'll respect that, though whether we should do so is debatable.
-		for(k=0; k<16; k++) {
-			md->pal[k] = DE_MAKE_GRAY((u8)((k * 65) / 4));
-		}
-	}
-	de_convert_image_paletted_planar(c->infile, pos, d->bpp,
-		md->bytes_per_row_per_plane * d->bpp, md->bytes_per_row_per_plane,
-		md->pal, img, 0);
-
-	if(c->filenames_from_file) {
-		de_finfo_set_name_from_ucstring(c, fi, md->name, 0);
-	}
-	fi->timestamp[DE_TIMESTAMPIDX_MODIFY] = md->mod_dt;
-	fi->timestamp[DE_TIMESTAMPIDX_CREATE] = md->create_dt;
-	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
-
-done:
-	de_dbg_indent_restore(c, saved_indent_level);
-	de_finfo_destroy(c, fi);
-	de_bitmap_destroy(img);
-	if(md) {
-		ucstring_destroy(md->orig_name);
-		ucstring_destroy(md->name);
-		de_free(c, md);
-	}
-	return retval;
-}
-
-static void de_run_imggal_alch(deark *c, de_module_params *mparams)
-{
-	struct imggal_ctx *d = NULL;
-	const char *s;
-	i64 i;
-
-	d = de_malloc(c, sizeof(struct imggal_ctx));
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
-
-	// 8: gallery comment
-
-	d->item_count = de_getu16le(73);
-	de_dbg(c, "number of items: %d", (int)d->item_count);
-
-	d->imgtype = de_getbyte(75);
-	de_dbg(c, "image type: %u", (UI)d->imgtype);
-	de_dbg_indent(c, 1);
-
-	s = (d->imgtype<=1 || d->imgtype==4) ? "portrait" : "landscape";
-	de_dbg(c, "orientation: %s", s);
-
-	if(d->imgtype==1 || d->imgtype==3) {
-		s = "grayscale";
-		d->bpp = 4;
-	}
-	else if(d->imgtype==4 || d->imgtype==5) {
-		s = "color";
-		d->is_color = 1;
-		d->bpp = 4;
-	}
-	else {
-		s = "bilevel";
-		d->bpp = 1;
-	}
-	de_dbg(c, "color mode: %s", s);
-
-	de_dbg_indent(c, -1);
-
-	d->item_size = de_getu16le(87);
-	de_dbg(c, "item size: %"I64_FMT, d->item_size);
-
-	// 89: gallery creation time
-	// 93: gallery last-modified time
-
-	if(d->imgtype>5) {
-		d->need_errmsg = 1;
-		goto done;
-	}
-
-	if(d->item_size<649 || (IMGGAL_HDRSIZE+d->item_count*d->item_size > c->infile->len)) {
-		d->need_errmsg = 1;
-		goto done;
-	}
-
-	for(i=0; i<d->item_count; i++) {
-		if(!do_imggal_member(c, d, i, IMGGAL_HDRSIZE+i*d->item_size)) {
-			goto done;
-		}
-	}
-
-done:
-	if(d) {
-		if(d->need_errmsg) {
-			de_err(c, "Invalid or unsupported GAL file");
-		}
-		de_free(c, d);
-	}
-}
-
-static int de_identify_imggal_alch(deark *c)
-{
-	u8 b;
-
-	if(c->infile->len<IMGGAL_HDRSIZE) return 0;
-	if(dbuf_memcmp(c->infile, 0, "ALCHGLRY", 8)) return 0;
-	b = de_getbyte(75);
-	if(b>0x05) return 0;
-	return 100;
-}
-
-void de_module_imggal_alch(deark *c, struct deark_module_info *mi)
-{
-	mi->id = "imggal_alch";
-	mi->desc = "Image Gallery GAL (Alchemy Mindworks)";
-	mi->run_fn = de_run_imggal_alch;
-	mi->identify_fn = de_identify_imggal_alch;
 }
 
 // **************************************************************************
