@@ -13,30 +13,73 @@ DE_DECLARE_MODULE(de_module_gws_exepic);
 // Graphic Workshop .THN
 // **************************************************************************
 
+struct gws_thn_ctx {
+	de_encoding input_encoding;
+	de_color pal[256];
+};
+
+static void gwsthn_makepal_orig(deark *c, struct gws_thn_ctx *d)
+{
+	// Original palette
+	// Based on Graphic Workshop v1.1a for Windows
+	static const u8 rbvals[6] = {0x00,0x57,0x83,0xab,0xd7,0xff};
+	static const u8 gvals[7] = {0x00,0x2b,0x57,0x83,0xab,0xd7,0xff};
+	static const de_color gwspal_last5[5] = {
+		0xff3f3f3fU,0xff6b6b6bU,0xff979797U,0xffc3c3c3U,0xffffffffU
+	};
+	UI k;
+
+	for(k=0; k<=250; k++) {
+		d->pal[k] = DE_MAKE_RGB(
+			rbvals[k%6],
+			gvals[(k%42)/6],
+			rbvals[k/42]);
+	}
+	for(k=251; k<=255; k++) {
+		d->pal[k] = gwspal_last5[k-251];
+	}
+}
+
+static void gwsthn_makepal_new(deark *c, struct gws_thn_ctx *d)
+{
+	// New palette (really RGB332), introduced by v1.1c
+	// Based on Graphic Workshop v1.1u for Windows
+	UI k;
+
+	for(k=0; k<256; k++) {
+		u8 r, g, b;
+		r = de_sample_nbit_to_8bit(3, k>>5);
+		g = de_sample_nbit_to_8bit(3, (k>>2)&0x07);
+		b = de_sample_nbit_to_8bit(2, k&0x03);
+		d->pal[k] = DE_MAKE_RGB(r, g, b);
+	}
+}
+
 static void de_run_gws_thn(deark *c, de_module_params *mparams)
 {
+	struct gws_thn_ctx *d = NULL;
 	de_bitmap *img = NULL;
 	u8 v1, v2;
 	i64 w, h;
 	i64 pos;
-	de_encoding encoding;
 	de_ucstring *s = NULL;
-	u32 pal[256];
+
+	d = de_malloc(c, sizeof(struct gws_thn_ctx));
 
 	// This code is based on reverse engineering, and may be incorrect.
-	encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 	pos = 4;
 	v1 = de_getbyte_p(&pos);
 	v2 = de_getbyte_p(&pos);
-	de_dbg(c, "version?: 0x%02x 0x%02x", (unsigned int)v1, (unsigned int)v2);
+	de_dbg(c, "version?: 0x%02x 0x%02x", (UI)v1, (UI)v2);
 
 	s = ucstring_create(c);
 	// For the text fields, the field size appears to be 129, but the software
 	// only properly supports up to 127 non-NUL bytes.
-	dbuf_read_to_ucstring(c->infile, 6, 127, s, DE_CONVFLAG_STOP_AT_NUL, encoding);
+	dbuf_read_to_ucstring(c->infile, 6, 127, s, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
 	if(s->len>0) de_dbg(c, "comments: \"%s\"", ucstring_getpsz_d(s));
 	ucstring_empty(s);
-	dbuf_read_to_ucstring(c->infile, 135, 127, s, DE_CONVFLAG_STOP_AT_NUL, encoding);
+	dbuf_read_to_ucstring(c->infile, 135, 127, s, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
 	if(s->len>0) de_dbg(c, "key words: \"%s\"", ucstring_getpsz_d(s));
 
 	pos = 264;
@@ -45,42 +88,20 @@ static void de_run_gws_thn(deark *c, de_module_params *mparams)
 	h = 96;
 
 	// Set up the palette. There are two possible fixed palettes.
-	if(v1==0) { // Original palette
-		// Based on Graphic Workshop v1.1a for Windows
-		static const u8 rbvals[6] = {0x00,0x57,0x83,0xab,0xd7,0xff};
-		static const u8 gvals[7] = {0x00,0x2b,0x57,0x83,0xab,0xd7,0xff};
-		static const u32 gwspal_last5[5] = {0x3f3f3f,0x6b6b6b,0x979797,
-			0xc3c3c3,0xffffff};
-		unsigned int k;
-
-		for(k=0; k<=250; k++) {
-			pal[k] = DE_MAKE_RGB(
-				rbvals[k%6],
-				gvals[(k%42)/6],
-				rbvals[k/42]);
-		}
-		for(k=251; k<=255; k++) {
-			pal[k] = gwspal_last5[k-251];
-		}
+	if(v1==0) {
+		gwsthn_makepal_orig(c, d);
 	}
-	else { // New palette (really RGB332), introduced by v1.1c
-		// Based on Graphic Workshop v1.1u for Windows
-		unsigned int k;
-
-		for(k=0; k<256; k++) {
-			u8 r, g, b;
-			r = de_sample_nbit_to_8bit(3, k>>5);
-			g = de_sample_nbit_to_8bit(3, (k>>2)&0x07);
-			b = de_sample_nbit_to_8bit(2, k&0x03);
-			pal[k] = DE_MAKE_RGB(r, g, b);
-		}
+	else {
+		gwsthn_makepal_new(c, d);
 	}
 
 	img = de_bitmap_create(c, w, h, 3);
-	de_convert_image_paletted(c->infile, pos, 8, w, pal, img, 0);
+	de_convert_image_paletted(c->infile, pos, 8, w, d->pal, img, 0);
 	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_FLIP_IMAGE);
+
 	de_bitmap_destroy(img);
 	ucstring_destroy(s);
+	de_free(c, d);
 }
 
 static int de_identify_gws_thn(deark *c)
