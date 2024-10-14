@@ -139,7 +139,7 @@ FILE* de_fopen_for_write(deark *c, const char *fn,
 		}
 
 		if(s_ret==0 && overwrite_mode==DE_OVERWRITEMODE_DEFAULT) {
-			if ((stbuf.st_mode & S_IFMT) == S_IFLNK) {
+			if(S_ISLNK(stbuf.st_mode)) {
 				de_strlcpy(errmsg, "Output file is a symlink", errmsg_len);
 				return NULL;
 			}

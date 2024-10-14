@@ -47,8 +47,12 @@ typedef struct localctx_struct {
 	i64 ext_header_offset;
 	UI checksum_reported;
 
+	i64 ne_number_of_segments;
+	i64 ne_segment_tbl_offset;
 	i64 ne_rsrc_tbl_offset;
-	unsigned int ne_align_shift;
+	UI ne_header_flags;
+	UI ne_filealign_shift;
+	UI ne_rcalign_shift;
 	int ne_have_type;
 	u32 ne_rsrc_type_id;
 	const struct rsrc_type_info_struct *ne_rsrc_type_info;
@@ -388,76 +392,82 @@ static void do_pe_coff_header(deark *c, lctx *d, i64 pos)
 	de_dbg_indent(c, -1);
 }
 
-static void do_ne_program_flags(deark *c, lctx *d, u8 flags)
+static void do_ne_header_flags(deark *c, lctx *d)
 {
 	de_ucstring *s = NULL;
+	UI flags = d->ne_header_flags;
+	UI n;
+
 	s = ucstring_create(c);
 
-	switch(flags&0x03) {
-	case 1: ucstring_append_flags_item(s, "dgroup_type=single_shared"); break;
-	case 2: ucstring_append_flags_item(s, "dgroup_type=multiple"); break;
-	case 3: ucstring_append_flags_item(s, "dgroup_type=null"); break;
+	// TODO: Need better information about these flags.
+	// (And do they depend on other fields, such as target_os?)
+
+	n = flags & 0x0003;
+	ucstring_append_flags_itemf(s, "dgroup=%u", n);
+	flags -= n;
+
+	if(flags & 0x0004) {
+		ucstring_append_flags_item(s, "real mode");
+		flags -= 0x0004;
+	}
+	if(flags & 0x0008) {
+		ucstring_append_flags_item(s, "protected mode");
+		flags -= 0x0008;
 	}
 
-	if(flags&0x4) ucstring_append_flags_item(s, "global init");
-	if(flags&0x8) ucstring_append_flags_item(s, "protected mode");
-	if(flags&0x10) ucstring_append_flags_item(s, "8086");
-	if(flags&0x20) ucstring_append_flags_item(s, "80286");
-	if(flags&0x40) ucstring_append_flags_item(s, "80386");
-	if(flags&0x80) ucstring_append_flags_item(s, "80x87");
+	if(flags & 0x8000) {
+		ucstring_append_flags_item(s, "DLL");
+		flags -= 0x8000;
+	}
 
-	de_dbg(c, "program flags: 0x%02x (%s)", (unsigned int)flags,
+	if(flags) {
+		ucstring_append_flags_itemf(s, "0x%04x", flags);
+	}
+
+	de_dbg(c, "NE header flags: 0x%04x (%s)", d->ne_header_flags,
 		ucstring_getpsz(s));
-
 	ucstring_destroy(s);
 }
 
-static void do_ne_app_flags(deark *c, lctx *d, u8 flags)
-{
-	de_ucstring *s = NULL;
-	s = ucstring_create(c);
-
-	switch(flags&0x07) {
-	case 0x1: ucstring_append_flags_item(s, "type=non-windowed"); break;
-	case 0x2: ucstring_append_flags_item(s, "type=windowed-compatible"); break;
-	case 0x3: ucstring_append_flags_item(s, "type=windowed"); break;
-	}
-
-	if(flags&0x08) ucstring_append_flags_item(s, "OS/2");
-	if(flags&0x80) ucstring_append_flags_item(s, "DLL");
-
-	de_dbg(c, "application flags: 0x%02x (%s)", (unsigned int)flags,
-		ucstring_getpsz(s));
-
-	ucstring_destroy(s);
-}
-
-static void do_ne_ext_header(deark *c, lctx *d, i64 pos)
+static void do_ne_ext_header(deark *c, lctx *d, i64 pos1)
 {
 	u8 target_os;
 	const char *desc;
 	u8 b1, b2;
 
-	de_dbg(c, "NE extended header at %d", (int)pos);
+	de_dbg(c, "NE extended header at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
-	b1 = de_getbyte(pos+2);
-	b2 = de_getbyte(pos+3);
+	b1 = de_getbyte(pos1+2);
+	b2 = de_getbyte(pos1+3);
 	de_dbg(c, "linker version: %d.%d", (int)b1,(int)b2);
 
 	// 4-5: Offset of entry table
 	// 6-7: length of entry table
 	// 8-11: file load CRC
 
-	do_ne_program_flags(c, d, de_getbyte(pos+12));
+	d->ne_header_flags = (UI)de_getu16le(pos1+12);
+	do_ne_header_flags(c, d);
 
-	do_ne_app_flags(c, d, de_getbyte(pos+13));
+	d->ne_number_of_segments = de_getu16le(pos1+28);
+	de_dbg(c, "number of segments: %d", (int)d->ne_number_of_segments);
 
-	d->ne_rsrc_tbl_offset = de_getu16le(pos+36);
-	d->ne_rsrc_tbl_offset += pos;
-	de_dbg(c, "offset of resource table: %d", (int)d->ne_rsrc_tbl_offset);
+	if(d->ne_number_of_segments) {
+		d->ne_segment_tbl_offset = de_getu16le(pos1+34);
+		d->ne_segment_tbl_offset += pos1;
+		de_dbg(c, "offset of segment table: %"I64_FMT, d->ne_segment_tbl_offset);
+	}
 
-	target_os = de_getbyte(pos+54);
+	d->ne_rsrc_tbl_offset = de_getu16le(pos1+36);
+	d->ne_rsrc_tbl_offset += pos1;
+	de_dbg(c, "offset of resource table: %"I64_FMT, d->ne_rsrc_tbl_offset);
+
+	d->ne_filealign_shift = (UI)de_getu16le(pos1+50);
+	if(d->ne_filealign_shift==0) d->ne_filealign_shift = 9;
+	de_dbg(c, "align shift: %u", d->ne_filealign_shift);
+
+	target_os = de_getbyte(pos1+54);
 	switch(target_os) {
 	case 1: desc="OS/2"; break;
 	case 2: desc="Windows"; break;
@@ -608,7 +618,7 @@ static void do_ext_header(deark *c, lctx *d)
 static void do_reloc_table(deark *c, lctx *d)
 {
 	if(d->num_relocs<1) goto done;
-	if(d->num_relocs > 320*1024) goto done;
+	if(d->num_relocs > (i64)320*1024) goto done;
 	if(d->reloc_tbl_offset<1) goto done;
 	d->reloc_tbl_endpos = d->reloc_tbl_offset + d->num_relocs*4;
 	if(d->reloc_tbl_endpos > d->file_hdr_size) goto done;
@@ -880,7 +890,7 @@ static void do_extract_ico_cur(deark *c, lctx *d, i64 pos, i64 len,
 		dbuf_write_zeroes(f, 5);
 	}
 	dbuf_writeu32le(f, len); // Icon/cursor size
-	dbuf_writeu32le(f, 6+16); // Icon/cursor file offset
+	dbuf_writeu32le(f, (i64)6+16); // Icon/cursor file offset
 
 	// Write the non-manufactured part of the file.
 	dbuf_copy(c->infile, pos, len, f);
@@ -1293,9 +1303,9 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, i64 npos)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	rsrc_offset = de_getu16le(npos);
-	if(d->ne_align_shift>0) rsrc_offset <<= d->ne_align_shift;
+	if(d->ne_rcalign_shift>0) rsrc_offset <<= d->ne_rcalign_shift;
 	rsrc_size = de_getu16le(npos+2);
-	if(d->ne_align_shift>0) rsrc_size <<= d->ne_align_shift;
+	if(d->ne_rcalign_shift>0) rsrc_size <<= d->ne_rcalign_shift;
 
 	de_dbg(c, "NAMEINFO at %d, dpos=%d, dlen=%d", (int)npos, (int)rsrc_offset, (int)rsrc_size);
 	de_dbg_indent(c, 1);
@@ -1359,6 +1369,46 @@ done:
 	de_finfo_destroy(c, fi);
 }
 
+static void do_ne_segment_table(deark *c, lctx *d)
+{
+	int saved_indent_level;
+	i64 i;
+	i64 pos;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(d->ne_number_of_segments<1) goto done;
+	if(d->ne_rcalign_shift>24) goto done;
+
+	de_dbg(c, "segment table at %"I64_FMT, d->ne_segment_tbl_offset);
+	de_dbg_indent(c, 1);
+
+#define NE_MAX_SECTIONS 500
+	pos = d->ne_segment_tbl_offset;
+	for(i=0; i<d->ne_number_of_segments; i++) {
+		i64 seg_offset;
+		i64 seg_len;
+		UI seg_flags;
+
+		if(pos>=c->infile->len) goto done;
+		if(i>=NE_MAX_SECTIONS) goto done;
+		de_dbg(c, "segment #%d", (int)(i+1));
+		de_dbg_indent(c, 1);
+		seg_offset = de_getu16le(pos);
+		seg_offset <<= d->ne_filealign_shift;
+		de_dbg(c, "offset: %"I64_FMT, seg_offset);
+		seg_len = de_getu16le(pos+2);
+		if(seg_len==0) seg_len = 65536;
+		de_dbg(c, "len: %"I64_FMT, seg_len);
+		seg_flags = (UI)de_getu16le(pos+4);
+		de_dbg(c, "flags: 0x%04x", seg_flags);
+		de_dbg_indent(c, -1);
+		pos += 8;
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static void do_ne_rsrc_tbl(deark *c, lctx *d)
 {
 	i64 pos;
@@ -1376,10 +1426,10 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 	de_dbg(c, "resource table at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	d->ne_align_shift = (unsigned int)de_getu16le(pos);
-	de_dbg(c, "rscAlignShift: %u", d->ne_align_shift);
+	d->ne_rcalign_shift = (unsigned int)de_getu16le(pos);
+	de_dbg(c, "rscAlignShift: %u", d->ne_rcalign_shift);
 	pos += 2;
-	if(d->ne_align_shift>24) {
+	if(d->ne_rcalign_shift>24) {
 		de_err(c, "Unreasonable rscAlignShift setting");
 		goto done;
 	}
@@ -1434,8 +1484,6 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 		pos += 8 + 12*rsrc_count;
 		i++;
 	}
-
-	de_dbg_indent(c, -1);
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -1725,14 +1773,21 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	if((d->subfmt==EXE_SUBFMT_PE32 || d->subfmt==EXE_SUBFMT_PE32PLUS) && d->pe_sections_offset>0) {
-		do_pe_section_table(c, d);
+	if(d->subfmt==EXE_SUBFMT_PE32 || d->subfmt==EXE_SUBFMT_PE32PLUS) {
+		if(d->pe_sections_offset>0) {
+			do_pe_section_table(c, d);
+		}
 	}
-	else if(d->fmt==EXE_FMT_NE && d->ne_rsrc_tbl_offset>0) {
-		do_ne_rsrc_tbl(c, d);
+	else if(d->fmt==EXE_FMT_NE) {
+		do_ne_segment_table(c, d);
+		if(d->ne_rsrc_tbl_offset>0) {
+			do_ne_rsrc_tbl(c, d);
+		}
 	}
-	else if((d->fmt==EXE_FMT_LX || d->fmt==EXE_FMT_LE) && d->lx_rsrc_tbl_offset>0) {
-		do_lx_or_le_rsrc_tbl(c, d);
+	else if(d->fmt==EXE_FMT_LX || d->fmt==EXE_FMT_LE) {
+		if(d->lx_rsrc_tbl_offset>0) {
+			do_lx_or_le_rsrc_tbl(c, d);
+		}
 	}
 
 	if(!d->ei) {

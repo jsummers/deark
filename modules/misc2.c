@@ -42,6 +42,7 @@ DE_DECLARE_MODULE(de_module_iconmgr_ica);
 DE_DECLARE_MODULE(de_module_thumbsplus);
 DE_DECLARE_MODULE(de_module_fmtowns_icn);
 DE_DECLARE_MODULE(de_module_pixfolio);
+DE_DECLARE_MODULE(de_module_apple2icons);
 
 // **************************************************************************
 // HP 100LX / HP 200LX .ICN icon format
@@ -3653,4 +3654,128 @@ void de_module_pixfolio(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_pixfolio;
 	mi->identify_fn = de_identify_pixfolio;
 	mi->help_fn = de_help_pixfolio;
+}
+
+// **************************************************************************
+// Apple II icons archive
+// **************************************************************************
+
+struct a2icons_ctx {
+	de_color pal[16];
+	de_color maskpal[16];
+
+	i64 group_startpos;
+	i64 group_len;
+	i64 group_endpos;
+
+	i64 last_icon_len;
+};
+
+static void do_a2i_one_icon(deark *c, struct a2icons_ctx *d, i64 pos1)
+{
+	de_bitmap *img =  NULL;
+	de_bitmap *mask =  NULL;
+	int saved_indent_level;
+	UI icon_type;
+	i64 w, h;
+	i64 rowspan;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "icon at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	icon_type = (UI)de_getu16le(pos1);
+	de_dbg(c, "icon type: 0x%04x", icon_type);
+	d->last_icon_len = de_getu16le(pos1+2);
+	de_dbg(c, "icon size: %"I64_FMT, d->last_icon_len);
+	h = de_getu16le(pos1+4);
+	w = de_getu16le(pos1+6);
+	de_dbg_dimensions(c, w, h);
+	if(!de_good_image_dimensions(c, w, h)) goto done;
+	rowspan = de_pad_to_n(w*4, 8)/8;
+
+	img = de_bitmap_create(c, w, h, 4);
+	de_convert_image_paletted(c->infile, pos1+8, 4, rowspan, d->pal, img, 0);
+
+	mask = de_bitmap_create(c, w, h, 1);
+	de_convert_image_paletted(c->infile, pos1+8+d->last_icon_len, 4,
+		rowspan, d->maskpal, mask, 0);
+
+	de_bitmap_apply_mask(img, mask, 0);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
+
+done:
+	de_bitmap_destroy(img);
+	de_bitmap_destroy(mask);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+#define A2I_GROUP_HDR_SIZE 86
+
+static void do_a2i_icon_group(deark *c, struct a2icons_ctx *d)
+{
+	int saved_indent_level;
+	i64 curpos;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "icon group at %"I64_FMT, d->group_startpos);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "len: %"I64_FMT, d->group_len);
+
+	curpos = d->group_startpos+A2I_GROUP_HDR_SIZE;
+	while(1) {
+		if(curpos >= d->group_endpos) goto done;
+		d->last_icon_len = 0;
+		do_a2i_one_icon(c, d, curpos);
+		if(d->last_icon_len==0) goto done;
+		curpos = curpos + 8 + d->last_icon_len*2;
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void de_run_apple2icons(deark *c, de_module_params *mparams)
+{
+	struct a2icons_ctx *d = NULL;
+	i64 curpos;
+	i64 i;
+	// Some colors here are just educated guesses.
+	static const u8 dflt_pal[16*3] = {
+		0,0,0, 0,0,128, 128,128,0, 128,128,128,
+		128,0,0, 128,0,128, 255,128,0, 255,128,128,
+		0,128,0, 0,128,128, 128,255,0, 128,255,128,
+		192,192,192, 128,128,255, 255,255,128, 255,255,255 };
+
+	d = de_malloc(c, sizeof(struct a2icons_ctx));
+	de_copy_palette_from_rgb24(dflt_pal, d->pal, 16);
+
+	d->maskpal[0] = DE_STOCKCOLOR_BLACK;
+	for(i=1; i<16; i++) {
+		d->maskpal[i] = DE_STOCKCOLOR_WHITE;
+	}
+
+	curpos = 26;
+	while(1) {
+		if(curpos+A2I_GROUP_HDR_SIZE > c->infile->len) goto done;
+		d->group_startpos = curpos;
+		d->group_len = de_getu16le(curpos);
+		if(d->group_len<A2I_GROUP_HDR_SIZE) goto done;
+		d->group_endpos = d->group_startpos+d->group_len;
+		if(d->group_endpos > c->infile->len) goto done;
+
+		do_a2i_icon_group(c, d);
+		curpos = d->group_endpos;
+	}
+
+done:
+	de_free(c, d);
+}
+
+void de_module_apple2icons(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "apple2icons";
+	mi->desc = "Apple II icons archive";
+	mi->run_fn = de_run_apple2icons;
+	mi->identify_fn = NULL;
+	mi->flags |= DE_MODFLAG_NONWORKING;
 }

@@ -38,6 +38,8 @@ DE_DECLARE_MODULE(de_module_deep);
 #define CODE_ILBM 0x494c424dU
 #define CODE_PBM  0x50424d20U
 #define CODE_PCHG 0x50434847U
+#define CODE_RGB8 0x52474238U
+#define CODE_RGBN 0x5247424eU
 #define CODE_SBDY 0x53424459U
 #define CODE_SHAM 0x5348414dU
 #define CODE_TINY 0x54494e59U
@@ -73,7 +75,8 @@ struct imgbody_info {
 	i64 frame_buffer_size;
 	enum colortype_enum colortype;
 	int is_thumb;
-	int is_pbm; // frame buffer is PBM pixel format
+	u8 is_pbm; // frame buffer is PBM pixel format
+	u8 is_rgb24; // frame buffer is RGB24 pixel format
 };
 
 struct frame_ctx {
@@ -87,7 +90,7 @@ struct frame_ctx {
 	dbuf *frame_buffer;
 };
 
-typedef struct localctx_struct {
+typedef struct localctx_ilbm {
 	int is_anim;
 	u32 formtype;
 	char formtype_sanitized_sz[8];
@@ -197,6 +200,11 @@ static const char *get_cmprtype_name(lctx *d, u8 n)
 	case 0: name = "uncompressed"; break;
 	case 1: name = "PackBits"; break;
 	case 2: name = "VDAT"; break;
+	case 3: case 4:
+		if(d->formtype==CODE_RGBN || d->formtype==CODE_RGB8) {
+			name = "RGBN/RGB8";
+		}
+		break;
 	}
 	return name?name:"?";
 }
@@ -1081,6 +1089,7 @@ static void fixup_palette(deark *c, lctx *d)
 	u8 cr, cg, cb;
 
 	if(d->pal_ncolors<1) return;
+	if(d->formtype==CODE_RGBN || d->formtype==CODE_RGB8) return;
 
 	if(d->is_ham8) {
 		pal_fixup6(c, d);
@@ -1171,6 +1180,22 @@ static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is
 	// frame buffer format (and back). So we support a special frame buffer format
 	// just for PBM.
 	ibi->is_pbm = (d->formtype==CODE_PBM);
+	// We also have a special nonplanar RGB24 format (is_rgb24).
+
+	if(d->formtype==CODE_RGBN || d->formtype==CODE_RGB8) {
+		ibi->is_rgb24 = 1;
+		if(((d->formtype==CODE_RGBN && d->planes_raw==13) ||
+			(d->formtype==CODE_RGB8 && d->planes_raw==25)) &&
+			(d->compression==3 || d->compression==4) &&
+			d->masking_code==MASKINGTYPE_NONE)
+		{
+			;
+		}
+		else {
+			de_err(c, "Unsupported RGBN/RGB8 format");
+			goto done;
+		}
+	}
 
 	if(is_thumb) {
 		ibi->width = d->thumb_width;
@@ -1205,7 +1230,7 @@ static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is
 		ibi->colortype = COLORTYPE_DEFAULT;
 	}
 
-	if(ibi->is_pbm) {
+	if(ibi->is_pbm || ibi->is_rgb24) {
 		ibi->planes_fg = 1;
 		ibi->planes_total = 1;
 	}
@@ -1234,6 +1259,10 @@ static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is
 		}
 		ibi->bits_per_row_per_plane = ibi->bytes_per_row_per_plane * 8;
 		// Note: The PBM row size might be adjusted later, after decompression.
+	}
+	else if(ibi->is_rgb24) {
+		ibi->bytes_per_row_per_plane = ibi->width*3;
+		ibi->bits_per_row_per_plane = ibi->bytes_per_row_per_plane * 8;
 	}
 	else {
 		ibi->bits_per_row_per_plane = de_pad_to_n(ibi->width, 16);
@@ -1377,6 +1406,77 @@ static int decompress_method0(deark *c, lctx *d, i64 pos, i64 len, dbuf *unc_pix
 	amt_to_copy = de_min_int(len, expected_len);
 	dbuf_copy(c->infile, pos, amt_to_copy, unc_pixels);
 	return 1;
+}
+
+static int decompress_rgbn8(deark *c, lctx *d, struct imgbody_info *ibi,
+	i64 pos1, i64 len, dbuf *unc_pixels)
+{
+	int retval = 0;
+	i64 pos = pos1;
+	i64 endpos = pos1+len;
+	i64 npixels = 0;
+	i64 npixels_expected;
+	u8 is_rgb8 = (d->formtype==CODE_RGB8);
+
+	npixels_expected = ibi->width * ibi->height;
+
+	while(1) {
+		i64 i;
+		u32 n;
+		i64 count;
+		u8 cbuf[3];
+
+		if(npixels >= npixels_expected) {
+			retval = 1;
+			goto done;
+		}
+		if(pos >= endpos) {
+			goto done;
+		}
+
+
+		if(is_rgb8) {
+			n = (u32)de_getu32be_p(&pos);
+			cbuf[0] = (u8)(n>>24);
+			cbuf[1] = (u8)((n&0x00ff0000U)>>16);
+			cbuf[2] = (u8)((n&0x0000ff00U)>>8);
+			// TODO?: There's also a "genlock" bit that's sort of a transparency mask.
+			count = (i64)(n & 0x7f);
+		}
+		else {
+			n = (u32)de_getu16be_p(&pos);
+			cbuf[0] = (u8)(n>>12);
+			cbuf[1] = (u8)((n&0x0f00)>>8);
+			cbuf[2] = (u8)((n&0x00f0)>>4);
+			for(i=0; i<3; i++) {
+				cbuf[i] *= 17;
+			}
+			count = (i64)(n & 0x07);
+		}
+
+		if(count==0) {
+			u8 c2raw;
+
+			c2raw = de_getbyte_p(&pos);
+			if(c2raw!=0) {
+				count = (i64)c2raw;
+			}
+			else {
+				count = de_getu16be_p(&pos);
+			}
+		}
+
+		for(i=0; i<count; i++) {
+			dbuf_write(unc_pixels, cbuf, 3);
+		}
+		npixels += count;
+	}
+
+done:
+	if(!retval) {
+		de_err(c, "RGBN/RGB8 decompression failed");
+	}
+	return retval;
 }
 
 static int decompress_ilbm_packbits(deark *c, dbuf *inf, i64 pos, i64 len,
@@ -1720,6 +1820,9 @@ static int do_image_chunk_internal(deark *c, lctx *d, struct frame_ctx *frctx, i
 		// Note: I don't think ABIT images are ever compressed.
 		if(!convert_abit(c, d, ibi, pos1, len, frctx->frame_buffer)) goto done;
 	}
+	else if(d->formtype==CODE_RGBN || d->formtype==CODE_RGB8) {
+		if(!decompress_rgbn8(c, d, ibi, pos1, len, frctx->frame_buffer)) goto done;
+	}
 	else if(ibi->compression==0) {
 		if(!decompress_method0(c, d, pos1, len, frctx->frame_buffer, ibi->frame_buffer_size)) goto done;
 	}
@@ -1934,6 +2037,11 @@ static void do_camg(deark *c, lctx *d, i64 pos, i64 len)
 		d->ham_flag = 1;
 	if(d->camg_mode & 0x0080)
 		d->ehb_flag = 1;
+
+	if(d->formtype==CODE_RGBN || d->formtype==CODE_RGB8) {
+		d->ham_flag = 0;
+		d->ehb_flag = 0;
+	}
 
 	de_dbg_indent(c, 1);
 	de_dbg(c, "HAM: %d", (int)d->ham_flag);
@@ -2206,7 +2314,10 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 	rowbuf = de_mallocarray(c, rowbuf_size, sizeof(rowbuf[0]));
 	rowbuf_trns = de_mallocarray(c, rowbuf_size, sizeof(rowbuf_trns[0]));
 
-	if(d->found_cmap && d->pal_is_grayscale && d->planes_raw<=8 && !d->is_ham6 && !d->is_ham8) {
+	if(ibi->is_rgb24) {
+		bypp = 3;
+	}
+	else if(d->found_cmap && d->pal_is_grayscale && d->planes_raw<=8 && !d->is_ham6 && !d->is_ham8) {
 		bypp = 1;
 	}
 	else {
@@ -2222,6 +2333,11 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 	if(ibi->is_pbm) {
 		de_convert_image_paletted(frctx->frame_buffer, 0, 8, ibi->frame_buffer_rowspan,
 			d->pal, img, 0);
+		goto after_render;
+	}
+	else if(ibi->is_rgb24) {
+		de_convert_image_rgb(frctx->frame_buffer, 0, ibi->bytes_per_row_per_plane, 3,
+			img, 0);
 		goto after_render;
 	}
 
@@ -2526,7 +2642,9 @@ static int my_on_std_container_start_fn(struct de_iffctx *ictx)
 		}
 		if((ictx->curr_container_contentstype4cc.id == CODE_ILBM) ||
 			(ictx->curr_container_contentstype4cc.id == CODE_PBM) ||
-			(ictx->curr_container_contentstype4cc.id == CODE_ACBM))
+			(ictx->curr_container_contentstype4cc.id == CODE_ACBM) ||
+			(ictx->curr_container_contentstype4cc.id == CODE_RGBN) ||
+			(ictx->curr_container_contentstype4cc.id == CODE_RGB8))
 		{
 			on_frame_begin(c, d, ictx->curr_container_contentstype4cc.id);
 		}
@@ -2709,6 +2827,8 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 	case CODE_ILBM:
 	case CODE_ACBM:
 	case CODE_PBM:
+	case CODE_RGBN:
+	case CODE_RGB8:
 		break;
 	default:
 		de_err(c, "Not a supported ILBM-like format (%s)", d->formtype_sanitized_sz);
@@ -2812,6 +2932,8 @@ static int de_identify_ilbm(deark *c)
 	case CODE_ILBM:
 	case CODE_PBM:
 	case CODE_ACBM:
+	case CODE_RGBN:
+	case CODE_RGB8:
 		return 100;
 	}
 	return 0;

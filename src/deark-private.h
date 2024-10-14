@@ -408,6 +408,7 @@ struct deark_struct {
 	u8 filenames_from_file;
 	u8 macformat_known;
 	u8 macformat;
+	u8 macmetaflag;
 	u8 append_riscos_type;
 	u8 padpix;
 	int overwrite_mode;

@@ -271,7 +271,7 @@ Deark -- Information about supported formats
   - Extract images of the (otherwise unused) masks for 32-bit images (use -a).
 
 * ILBM and related IFF-based images (module="ilbm")
-  - Supports ILBM, ACBM, PBM
+  - Supports ILBM, ACBM, PBM, RGBN, RGB8
   - Supports 1-8 bit paletted, 24-bit truecolor
   - Supports HAM6, HAM8, Halfbrite
   - Supports color-keyed and bitmask transparency
@@ -290,8 +290,7 @@ Deark -- Information about supported formats
 * IndyPaint (*.tru) (module="indypaint")
 
 * Inset PIX (module="insetpix") (experimental)
-  - Bitmap images only. Character graphics files are not supported.
-  - File extension must be ".pix" (or use "-m insetpix").
+  - In rare cases, format detection may fail (need "-m insetpix").
 
 * InShape IIM (module="iim")
 
