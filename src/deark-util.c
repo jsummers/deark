@@ -2027,8 +2027,8 @@ static const u32 *get_crc32_table(deark *c)
 			else {
 				k >>= 1;
 			}
-			tbl[i] = k;
 		}
+		tbl[i] = k;
 	}
 
 done:
