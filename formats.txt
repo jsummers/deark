@@ -229,6 +229,7 @@ Deark -- Information about supported formats
 * GodPaint (Atari Falcon) (module="godpaint")
 
 * Graphic Workshop self-displaying picture (module="gws_exepic")
+  - Supports the DOS EXE-based format.
 
 * Graphic Workshop thumbnail (.thn) (module="gws_thn")
 

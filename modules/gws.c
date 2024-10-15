@@ -374,7 +374,8 @@ struct gws_exepic_ctx {
 	u8 need_errmsg;
 	UI cmpr_meth;
 	i64 imgpos;
-	i64 depth;
+	i64 depth_raw;
+	i64 depth_adj;
 	i64 w, h;
 	i64 nplanes;
 	i64 unc_image_size;
@@ -414,7 +415,7 @@ static void gwsexe_decompress(deark *c, struct gws_exepic_ctx *d, dbuf *unc_pixe
 		nbytes_decompressed += count;
 	}
 done:
-	;
+	dbuf_flush(unc_pixels);
 }
 
 static void gwsexe_decode_decompressed_image(deark *c, struct gws_exepic_ctx *d,
@@ -423,12 +424,12 @@ static void gwsexe_decode_decompressed_image(deark *c, struct gws_exepic_ctx *d,
 	de_bitmap *img = NULL;
 
 	img = de_bitmap_create(c, d->w, d->h, 3);
-	if(d->depth==4) {
-		de_convert_image_paletted_planar(inf, inf_pos, d->depth,
-			d->byprpp*d->depth, d->byprpp, d->pal, img, 0x2);
+	if(d->nplanes>1) {
+		de_convert_image_paletted_planar(inf, inf_pos, d->nplanes,
+			d->byprpp*d->nplanes, d->byprpp, d->pal, img, 0x2);
 	}
 	else {
-		de_convert_image_paletted(inf, inf_pos, d->depth, d->byprpp, d->pal,
+		de_convert_image_paletted(inf, inf_pos, d->depth_adj, d->byprpp, d->pal,
 			img, 0);
 	}
 	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
@@ -443,6 +444,7 @@ static void do_gwsexe_image(deark *c, struct gws_exepic_ctx *d)
 	de_dbg_indent(c, 1);
 	if(d->cmpr_meth==2) {
 		unc_pixels = dbuf_create_membuf(c, d->unc_image_size, 0x1);
+		dbuf_enable_wbuffer(unc_pixels);
 		gwsexe_decompress(c, d, unc_pixels);
 		gwsexe_decode_decompressed_image(c, d, unc_pixels, 0);
 	}
@@ -487,17 +489,26 @@ static void de_run_gws_exepic(deark *c, de_module_params *mparams)
 	d->h = de_getu16le_p(&pos);
 	de_dbg_dimensions(c, d->w, d->h);
 	d->byprpp = de_getu16le_p(&pos);
-	d->depth = de_getu16le_p(&pos);
-	de_dbg(c, "depth: %u", (UI)d->depth);
+	de_dbg(c, "bytes/row/plane: %u", (UI)d->byprpp);
+	d->depth_raw = de_getu16le_p(&pos);
+	de_dbg(c, "depth: %u", (UI)d->depth_raw);
 	d->cmpr_meth = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "cmpr meth: %u", d->cmpr_meth);
-	if(d->depth!=1 && d->depth!=4 && d->depth!=8) {
+	if(d->depth_raw<1 || d->depth_raw>8) {
 		d->need_errmsg = 1;
 		goto done;
 	}
-	d->nplanes = (d->depth==4) ? d->depth : 1;
+	if(d->depth_raw>=5) {
+		d->depth_adj = 8;
+		d->nplanes = 1;
+	}
+	else {
+		d->depth_adj = d->depth_raw;
+		d->nplanes = d->depth_raw;
+	}
+
 	d->unc_image_size = d->byprpp * d->nplanes * d->h;
-	d->ncolors = (i64)1 << d->depth;
+	d->ncolors = (i64)1 << d->depth_raw;
 	de_read_simple_palette(c, c->infile, d->ei->start_of_dos_code+54,
 		d->ncolors, 3, d->pal, 256, DE_RDPALTYPE_24BIT, 0);
 
