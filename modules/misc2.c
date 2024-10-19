@@ -3471,5 +3471,4 @@ void de_module_apple2icons(deark *c, struct deark_module_info *mi)
 	mi->desc = "Apple II icons archive";
 	mi->run_fn = de_run_apple2icons;
 	mi->identify_fn = NULL;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }

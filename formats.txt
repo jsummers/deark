@@ -58,6 +58,9 @@ Deark -- Information about supported formats
      explicitly disable blink.
    -opt ansiart:vt100 - Use VT100 mode
 
+* Apple II icons archive (module="apple2icons") (experimental)
+  - Not autodetected. Use "-m apple2icons".
+
 * Apple volume label image (module="applevol")
 
 * ART - PFS: 1st Publisher clip art (module="fp_art")
