@@ -104,12 +104,12 @@ static void do_certificate(deark *c, lctx *d, i64 pos1, i64 len)
 	// This is a WIN_CERTIFICATE structure.
 	if(pos1<1 || len<=8 || (pos1+len > c->infile->len)) return;
 
-	de_dbg(c, "certificate data at %d", (int)pos1);
+	de_dbg(c, "certificate data at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	dlen = de_getu32le(pos1);
-	de_dbg(c, "length: %d", (int)dlen); // Includes the 8-byte header
+	de_dbg(c, "length: %"I64_FMT, dlen); // Includes the 8-byte header
 	revision = de_getu16le(pos1+4);
-	de_dbg(c, "revision: 0x%04x", (unsigned int)revision);
+	de_dbg(c, "revision: 0x%04x", (UI)revision);
 	certtype = de_getu16le(pos1+6);
 	de_dbg(c, "cert type: %d", (int)certtype);
 	if(dlen<=8 || dlen > len) goto done;
@@ -131,18 +131,18 @@ static void do_opt_coff_data_dirs(deark *c, lctx *d, i64 pos)
 	i64 pe_security_pos;
 	i64 pe_security_size;
 
-	de_dbg(c, "COFF/PE optional header (data directories) at %d", (int)pos);
+	de_dbg(c, "COFF/PE optional header (data directories) at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 	rsrc_tbl_rva = de_getu32le(pos+16);
 	// I don't know if rsrc_tbl_rva will be needed for anything. It seems redundant.
 	rsrc_tbl_size = de_getu32le(pos+20);
-	de_dbg(c, "resource table RVA=0x%08x, size=%d", (unsigned int)rsrc_tbl_rva,
-		(int)rsrc_tbl_size);
+	de_dbg(c, "resource table RVA=0x%08x, size=%"I64_FMT, (UI)rsrc_tbl_rva,
+		rsrc_tbl_size);
 
 	pe_security_pos = de_getu32le(pos+32);
 	pe_security_size = de_getu32le(pos+36);
-	de_dbg(c, "security pos=0x%08x, size=%d", (unsigned int)pe_security_pos,
-		(int)pe_security_size);
+	de_dbg(c, "security pos=0x%08x, size=%"I64_FMT, (UI)pe_security_pos,
+		pe_security_size);
 	if(pe_security_pos>0) {
 		de_dbg_indent(c, 1);
 		do_certificate(c, d, pe_security_pos, pe_security_size);
@@ -166,11 +166,11 @@ static void do_opt_coff_nt_header(deark *c, lctx *d, i64 pos)
 	i64 x;
 	i64 subsystem;
 
-	de_dbg(c, "COFF/PE optional header (Windows NT) at %d", (int)pos);
+	de_dbg(c, "COFF/PE optional header (Windows NT) at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	x = de_getu32le(pos);
-	de_dbg(c, "image base offset: 0x%08x", (unsigned int)x);
+	de_dbg(c, "image base offset: 0x%08x", (UI)x);
 
 	subsystem = de_getu16le(pos+40);
 	de_dbg(c, "subsystem: %d%s", (int)subsystem, get_subsys_desc(subsystem));
@@ -183,7 +183,7 @@ static void do_opt_coff_nt_header_64(deark *c, lctx *d, i64 pos)
 	i64 base_offset;
 	i64 subsystem;
 
-	de_dbg(c, "COFF/PE32+ optional header (Windows NT) at %d", (int)pos);
+	de_dbg(c, "COFF/PE32+ optional header (Windows NT) at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	base_offset = de_geti64le(pos);
@@ -200,7 +200,7 @@ static void do_opt_coff_header(deark *c, lctx *d, i64 pos, i64 len)
 	i64 sig;
 	i64 coff_opt_hdr_size;
 
-	de_dbg(c, "COFF/PE optional header at %d, size=%d", (int)pos, (int)len);
+	de_dbg(c, "COFF/PE optional header at %"I64_FMT", size=%"I64_FMT, pos, len);
 	de_dbg_indent(c, 1);
 
 	sig = de_getu16le(pos);
@@ -233,7 +233,7 @@ static void do_opt_coff_header(deark *c, lctx *d, i64 pos, i64 len)
 	de_dbg_indent(c, -1);
 }
 
-static void do_pe_characteristics(deark *c, lctx *d, unsigned int v)
+static void do_pe_characteristics(deark *c, lctx *d, UI v)
 {
 	de_ucstring *s = NULL;
 	s = ucstring_create(c);
@@ -251,10 +251,10 @@ static void do_pe_characteristics(deark *c, lctx *d, unsigned int v)
 	ucstring_destroy(s);
 }
 
-static const char *get_machine_type_name(unsigned int n)
+static const char *get_machine_type_name(UI n)
 {
 	size_t i;
-	struct mtn_struct { unsigned int id; const char *name; };
+	struct mtn_struct { UI id; const char *name; };
 	static const struct mtn_struct mtn_arr[] = {
 		{ 0x0000, "neutral" },
 		{ 0x014c, "386+" },
@@ -332,9 +332,9 @@ static void do_Rich_segment(deark *c, lctx *d)
 		return;
 	}
 
-	de_dbg(c, "\"Rich\" segment detected at %d, sig at %d, len=%d",
-		(int)segment_start, (int)sig_pos,
-		(int)(sig_pos+8 - segment_start));
+	de_dbg(c, "\"Rich\" segment detected at %"I64_FMT", sig at %"I64_FMT", len=%"I64_FMT,
+		segment_start, sig_pos,
+		(i64)(sig_pos+8 - segment_start));
 
 	de_dbg_indent(c, 1);
 
@@ -353,8 +353,8 @@ static void do_Rich_segment(deark *c, lctx *d)
 		id = (id_and_value&0xffff0000U)>>16;
 		value = id_and_value&0x0000ffffU;
 		// TODO: Provide additional information, based on the 'type' and 'build'?
-		de_dbg(c, "entry[%d]: type=%d, build=%d, use_count=%u",
-			(int)k, (int)id, (int)value, (unsigned int)use_count);
+		de_dbg(c, "entry[%d]: type=%u, build=%u, use_count=%u",
+			(int)k, (UI)id, (UI)value, (UI)use_count);
 	}
 
 	de_dbg_indent(c, -1);
@@ -364,14 +364,14 @@ static void do_Rich_segment(deark *c, lctx *d)
 // Following it is a 20-byte COFF header.
 static void do_pe_coff_header(deark *c, lctx *d, i64 pos)
 {
-	unsigned int arch;
+	UI arch;
 	i64 n;
 
-	de_dbg(c, "PE header at %d", (int)d->ext_header_offset);
+	de_dbg(c, "PE header at %"I64_FMT, d->ext_header_offset);
 	de_dbg_indent(c, 1);
 
 	// a.k.a. "Machine". TODO: Decode this.
-	arch = (unsigned int)de_getu16le(pos+4+0);
+	arch = (UI)de_getu16le(pos+4+0);
 	de_dbg(c, "target architecture: 0x%04x (%s)", arch,
 		get_machine_type_name(arch));
 
@@ -379,10 +379,10 @@ static void do_pe_coff_header(deark *c, lctx *d, i64 pos)
 	de_dbg(c, "number of sections: %d", (int)d->pe_number_of_sections);
 
 	d->pe_opt_hdr_size = de_getu16le(pos+4+16);
-	de_dbg(c, "optional header size: %d", (int)d->pe_opt_hdr_size);
+	de_dbg(c, "optional header size: %"I64_FMT, d->pe_opt_hdr_size);
 
 	n = de_getu16le(pos+4+18);
-	do_pe_characteristics(c, d, (unsigned int)n);
+	do_pe_characteristics(c, d, (UI)n);
 
 	if(d->pe_opt_hdr_size>0) {
 		do_opt_coff_header(c, d, pos+4+20, d->pe_opt_hdr_size);
@@ -485,7 +485,7 @@ static void do_lx_or_le_ext_header(deark *c, lctx *d, i64 pos)
 {
 	i64 x1, x2;
 
-	de_dbg(c, "%s header at %d", d->fmt==EXE_FMT_LE?"LE":"LX", (int)pos);
+	de_dbg(c, "%s header at %"I64_FMT, d->fmt==EXE_FMT_LE?"LE":"LX", pos);
 	x1 = (u8)de_getbyte(pos+2);
 	x2 = (u8)de_getbyte(pos+3);
 	de_dbg(c, "byte order, word order: %d, %d", (int)x1, (int)x2);
@@ -506,19 +506,21 @@ static void do_lx_or_le_ext_header(deark *c, lctx *d, i64 pos)
 	x1 = de_getu32le(pos+0x40);
 	d->lx_object_tbl_offset = pos + x1;
 	d->lx_object_tbl_entries = de_getu32le(pos+0x44);
-	de_dbg(c, "object table offset=%d, entries=%d", (int)d->lx_object_tbl_offset, (int)d->lx_object_tbl_entries);
+	de_dbg(c, "object table offset=%"I64_FMT", entries=%d", d->lx_object_tbl_offset,
+		(int)d->lx_object_tbl_entries);
 
 	x1 = de_getu32le(pos+0x48);
 	d->lx_object_page_tbl_offset = pos + x1;
-	de_dbg(c, "object page table offset=%d", (int)d->lx_object_page_tbl_offset);
+	de_dbg(c, "object page table offset=%"I64_FMT, d->lx_object_page_tbl_offset);
 
 	x1 = de_getu32le(pos+0x50);
 	d->lx_rsrc_tbl_offset = pos + x1;
 	d->lx_rsrc_tbl_entries = de_getu32le(pos+0x54);
-	de_dbg(c, "resource table offset=%d entries=%d", (int)d->lx_rsrc_tbl_offset, (int)d->lx_rsrc_tbl_entries);
+	de_dbg(c, "resource table offset=%"I64_FMT" entries=%d", d->lx_rsrc_tbl_offset,
+		(int)d->lx_rsrc_tbl_entries);
 
 	d->lx_data_pages_offset = de_getu32le(pos+0x80);
-	de_dbg(c, "data pages offset=%d", (int)d->lx_data_pages_offset);
+	de_dbg(c, "data pages offset=%"I64_FMT, d->lx_data_pages_offset);
 }
 
 static void identify_as_dos(deark *c, lctx *d)
@@ -760,7 +762,7 @@ static int do_mz_fileheader(deark *c, lctx *d)
 	de_dbg(c, "regCS: %d ("DE_CHAR_TIMES"16=%d)", (int)regCS, (int)(16*regCS));
 
 	d->reloc_tbl_offset = de_getu16le_p(&pos);
-	de_dbg(c, "reloc table offset: %d%s", (int)d->reloc_tbl_offset,
+	de_dbg(c, "reloc table offset: %"I64_FMT"%s", d->reloc_tbl_offset,
 		(d->num_relocs==0)?" (no entries)":"");
 
 	n = de_getu16le_p(&pos);
@@ -899,22 +901,22 @@ static void do_extract_ico_cur(deark *c, lctx *d, i64 pos, i64 len,
 
 static void do_extract_CURSOR(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
 {
-	unsigned int firstword;
+	UI firstword;
 	i64 hotspot_x, hotspot_y;
 
 	if(len<8) return;
-	firstword = (unsigned int)de_getu16le(pos);
+	firstword = (UI)de_getu16le(pos);
 
 	// For Win3 icons, the first word is the x hotspot.
 	// For Win1 icons, it is one of the type codes below.
 	if(d->fmt==EXE_FMT_NE && (firstword==0x0003 || firstword==0x0103 ||
 		firstword==0x0203))
 	{
-		unsigned int fourthword;
+		UI fourthword;
 		// For Win3 icons, the 4th word is the high word of the
 		// bitmap-info-header-size (definitely 0).
 		// For Win1 icons, it is the width (definitely not 0).
-		fourthword = (unsigned int)de_getu16le(pos+6);
+		fourthword = (UI)de_getu16le(pos+6);
 		if(fourthword!=0) {
 			dbuf_create_file_from_slice(c->infile, pos, len, "win1.cur", fi, 0);
 			return;
@@ -930,9 +932,9 @@ static void do_extract_CURSOR(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
 static void do_extract_ICON(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
 {
 	if(d->fmt==EXE_FMT_NE && len>14) {
-		unsigned int firstword;
+		UI firstword;
 
-		firstword = (unsigned int)de_getu16le(pos);
+		firstword = (UI)de_getu16le(pos);
 		// For Win3 icons, the first word is the low word of bitmap-info-header-size
 		// (usually 40, definitely not one of the Win1 type codes).
 		// For Win1 icons, it is one of the type codes below.
@@ -950,16 +952,16 @@ static void do_extract_ICON(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
 // This code is somewhat duplicated in fnt.c, but it's not worth consolidating.
 static void get_font_facename(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
 {
-	unsigned int fnt_version;
-	unsigned int dfPoints;
+	UI fnt_version;
+	UI dfPoints;
 	i64 dfFace;
 	de_ucstring *s = NULL;
 
 	if(!fi) goto done;
 	if(len<109) goto done;
-	fnt_version = (unsigned int)de_getu16le(pos);
+	fnt_version = (UI)de_getu16le(pos);
 	if(fnt_version < 0x0200) goto done;
-	dfPoints = (unsigned int)de_getu16le(pos+68);
+	dfPoints = (UI)de_getu16le(pos+68);
 	dfFace = de_getu32le(pos+105);
 	if(dfFace>=len) goto done;
 	s = ucstring_create(c);
@@ -1088,18 +1090,17 @@ static void do_pe_resource_data_entry(deark *c, lctx *d, i64 rel_pos)
 	else
 		rsrcname = "?";
 
-	de_dbg(c, "resource data entry at %d(%d) rsrc_type=%d (%s)",
-		(int)(d->pe_cur_base_addr+rel_pos), (int)rel_pos, (int)type_id, rsrcname);
+	de_dbg(c, "resource data entry at %"I64_FMT"(%"I64_FMT") rsrc_type=%d (%s)",
+		(i64)(d->pe_cur_base_addr+rel_pos), rel_pos, (int)type_id, rsrcname);
 	de_dbg_indent(c, 1);
 
 	data_virt_addr = de_getu32le(d->pe_cur_base_addr+rel_pos);
 	data_size = de_getu32le(d->pe_cur_base_addr+rel_pos+4);
-	de_dbg(c, "resource data virt. addr=%d (0x%08x), size=%d",
-		(int)data_virt_addr, (unsigned int)data_virt_addr, (int)data_size);
+	de_dbg(c, "resource data virt. addr=%"I64_FMT" (0x%08x), size=%"I64_FMT,
+		data_virt_addr, (UI)data_virt_addr, data_size);
 
 	data_real_offset = data_virt_addr - d->pe_cur_section_virt_addr + d->pe_cur_section_data_offset;
-	de_dbg(c, "data offset in file: %d",
-		(int)data_real_offset);
+	de_dbg(c, "data offset in file: %"I64_FMT, data_real_offset);
 
 	fi = de_finfo_create(c);
 
@@ -1150,9 +1151,9 @@ static void do_pe_resource_node(deark *c, lctx *d, i64 rel_pos, int level)
 		d->cur_rsrc_type_info = get_rsrc_type_info((u32)d->cur_rsrc_type);
 	}
 
-	de_dbg(c, "level %d node at %d(%d) id=%d next-offset=%d is-named=%d is-branch=%d",
-		level, (int)(d->pe_cur_base_addr+rel_pos), (int)rel_pos,
-		(int)name_or_id, (int)next_offset, has_name, is_branch_node);
+	de_dbg(c, "level %d node at %"I64_FMT"(%"I64_FMT") id=%d next-offset=%"I64_FMT" is-named=%d is-branch=%d",
+		level, (i64)(d->pe_cur_base_addr+rel_pos), rel_pos,
+		(int)name_or_id, next_offset, has_name, is_branch_node);
 	if(d->pe_cur_base_addr+rel_pos > c->infile->len) {
 		d->rsrc_errflag = 1;
 		goto done;
@@ -1176,7 +1177,7 @@ static void do_pe_resource_node(deark *c, lctx *d, i64 rel_pos, int level)
 	if(level==2) {
 		if(has_name) {
 			d->pe_cur_name_offset = d->pe_cur_section_data_offset + name_or_id;
-			de_dbg(c, "resource name at %d", (int)d->pe_cur_name_offset);
+			de_dbg(c, "resource name at %"I64_FMT, d->pe_cur_name_offset);
 		}
 		else {
 			d->pe_cur_name_offset = 0;
@@ -1214,8 +1215,8 @@ static void do_pe_resource_dir_table(deark *c, lctx *d, i64 rel_pos, int level)
 		goto done;
 	}
 
-	de_dbg(c, "resource directory table at %d(%d), level=%d",
-		(unsigned int)(d->pe_cur_base_addr+rel_pos), (unsigned int)rel_pos, level);
+	de_dbg(c, "resource directory table at %"I64_FMT"(%"I64_FMT"), level=%d",
+		(i64)(d->pe_cur_base_addr+rel_pos), rel_pos, level);
 
 	named_node_count = de_getu16le(d->pe_cur_base_addr+rel_pos+12);
 	unnamed_node_count = de_getu16le(d->pe_cur_base_addr+rel_pos+14);
@@ -1249,7 +1250,7 @@ static void do_pe_section_header(deark *c, lctx *d, i64 section_index, i64 pos)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "section[%d] header at %d", (int)section_index, (unsigned int)pos);
+	de_dbg(c, "section[%d] header at %"I64_FMT, (int)section_index, pos);
 	de_dbg_indent(c, 1);
 
 	// Section name: "An 8-byte, null-padded UTF-8 encoded string"
@@ -1260,8 +1261,8 @@ static void do_pe_section_header(deark *c, lctx *d, i64 section_index, i64 pos)
 	section_data_size = de_getu32le(pos+16);
 	d->pe_cur_section_data_offset = de_getu32le(pos+20);
 
-	de_dbg(c, "section virt. addr=%d (0x%08x)", (int)d->pe_cur_section_virt_addr, (unsigned int)d->pe_cur_section_virt_addr);
-	de_dbg(c, "section data offset=%d, size=%d", (int)d->pe_cur_section_data_offset, (int)section_data_size);
+	de_dbg(c, "section virt. addr=%"I64_FMT" (0x%08x)", d->pe_cur_section_virt_addr, (UI)d->pe_cur_section_virt_addr);
+	de_dbg(c, "section data offset=%"I64_FMT", size=%"I64_FMT, d->pe_cur_section_data_offset, section_data_size);
 
 	if(!de_strcmp(srd->sz, ".rsrc")) {
 		do_pe_resource_section(c, d, d->pe_cur_section_data_offset, section_data_size);
@@ -1277,7 +1278,7 @@ static void do_pe_section_table(deark *c, lctx *d)
 	i64 i;
 
 	pos = d->pe_sections_offset;
-	de_dbg(c, "section table at %d", (int)pos);
+	de_dbg(c, "section table at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 	for(i=0; i<d->pe_number_of_sections; i++) {
 #define PE_MAX_SECTIONS 100
@@ -1307,7 +1308,8 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, i64 npos)
 	rsrc_size = de_getu16le(npos+2);
 	if(d->ne_rcalign_shift>0) rsrc_size <<= d->ne_rcalign_shift;
 
-	de_dbg(c, "NAMEINFO at %d, dpos=%d, dlen=%d", (int)npos, (int)rsrc_offset, (int)rsrc_size);
+	de_dbg(c, "NAMEINFO at %"I64_FMT", dpos=%"I64_FMT", dlen=%"I64_FMT, npos,
+		rsrc_offset, rsrc_size);
 	de_dbg_indent(c, 1);
 
 	rnID = 0;
@@ -1323,7 +1325,7 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, i64 npos)
 	}
 
 	if(is_named) {
-		de_dbg(c, "id name offset: %d", (int)rnNameOffset);
+		de_dbg(c, "id name offset: %"I64_FMT, rnNameOffset);
 	}
 	else {
 		de_dbg(c, "id number: %d", (int)rnID);
@@ -1423,10 +1425,10 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 	de_dbg_indent_save(c, &saved_indent_level);
 	pos = d->ne_rsrc_tbl_offset;
 
-	de_dbg(c, "resource table at %d", (int)pos);
+	de_dbg(c, "resource table at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
-	d->ne_rcalign_shift = (unsigned int)de_getu16le(pos);
+	d->ne_rcalign_shift = (UI)de_getu16le(pos);
 	de_dbg(c, "rscAlignShift: %u", d->ne_rcalign_shift);
 	pos += 2;
 	if(d->ne_rcalign_shift>24) {
@@ -1439,10 +1441,10 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 		x = de_getu16le(pos);
 		if(x==0) {
 			// A "type_id" of 0 marks the end of the array
-			de_dbg(c, "end of TYPEINFO array found at %d", (int)pos);
+			de_dbg(c, "end of TYPEINFO array found at %"I64_FMT, pos);
 			goto done;
 		}
-		de_dbg(c, "TYPEINFO #%d at %d", (int)i, (int)pos);
+		de_dbg(c, "TYPEINFO #%d at %"I64_FMT, (int)i, pos);
 		de_dbg_indent(c, 1);
 
 		if(x & 0x8000) {
@@ -1539,33 +1541,34 @@ static void do_lx_rsrc(deark *c, lctx *d,
 
 	// Read the Object Table
 	lpos = d->lx_object_tbl_offset + 24*(obj_num-1);
-	de_dbg(c, "LX object table entry at %d", (int)lpos);
+	de_dbg(c, "LX object table entry at %"I64_FMT, lpos);
 
 	vsize = de_getu32le(lpos);
 	reloc_base_addr = de_getu32le(lpos+4);
 	flags = de_getu32le(lpos+8);
 	page_table_index = de_getu32le(lpos+12);
 	page_table_entries = de_getu32le(lpos+16);
-	de_dbg(c, "object #%d: vsize=%d raddr=%d flags=0x%x pti=%d pte=%d", (int)obj_num,
-		(int)vsize, (int)reloc_base_addr, (unsigned int)flags, (int)page_table_index,
+	de_dbg(c, "object #%d: vsize=%"I64_FMT" raddr=%"I64_FMT" flags=0x%x pti=%d pte=%d",
+		(int)obj_num,
+		vsize, reloc_base_addr, (UI)flags, (int)page_table_index,
 		(int)page_table_entries);
 
 	if(page_table_index<1) return;
 
 	// Now read the Object Page table
 	lpos = d->lx_object_page_tbl_offset + 8*(page_table_index-1);
-	de_dbg(c, "LX page table entry at %d", (int)lpos);
+	de_dbg(c, "LX page table entry at %"I64_FMT, lpos);
 
 	pg_data_offset_raw = de_getu32le(lpos);
 	//data_size = de_getu16le(lpos+4);
 
 	rsrc_offset_real = pg_data_offset_raw;
 	if(d->lx_page_offset_shift > 0 ) {
-		rsrc_offset_real <<= (unsigned int)d->lx_page_offset_shift;
+		rsrc_offset_real <<= (UI)d->lx_page_offset_shift;
 	}
 	rsrc_offset_real += d->lx_data_pages_offset;
 	rsrc_offset_real += rsrc_offset;
-	de_dbg(c, "resource offset: %d", (int)rsrc_offset_real);
+	de_dbg(c, "resource offset: %"I64_FMT, rsrc_offset_real);
 
 	switch(rsrc_type) {
 		// TODO: Support other types of resources.
@@ -1593,7 +1596,7 @@ static void do_lx_or_le_rsrc_tbl(deark *c, lctx *d)
 	i64 rsrc_object;
 	i64 rsrc_offset;
 
-	de_dbg(c, "%s resource table at %d", d->fmt==EXE_FMT_LE?"LE":"LX", (int)d->lx_rsrc_tbl_offset);
+	de_dbg(c, "%s resource table at %"I64_FMT, d->fmt==EXE_FMT_LE?"LE":"LX", d->lx_rsrc_tbl_offset);
 	if(d->lx_rsrc_tbl_entries>MAX_RESOURCES) {
 		de_err(c, "Too many resources.");
 		return;
@@ -1608,8 +1611,8 @@ static void do_lx_or_le_rsrc_tbl(deark *c, lctx *d)
 		rsrc_object = de_getu16le(lpos+8);
 		rsrc_offset = de_getu32le(lpos+10);
 
-		de_dbg(c, "resource #%d: type=%d name=%d size=%d obj=%d offset=%d", (int)i,
-			(int)type_id, (int)name_id, (int)rsrc_size, (int)rsrc_object, (int)rsrc_offset);
+		de_dbg(c, "resource #%d: type=%d name=%d size=%"I64_FMT" obj=%d offset=%"I64_FMT, (int)i,
+			(int)type_id, (int)name_id, rsrc_size, (int)rsrc_object, rsrc_offset);
 
 		de_dbg_indent(c, 1);
 		do_lx_rsrc(c, d, rsrc_object, rsrc_offset, rsrc_size, type_id);
