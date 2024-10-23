@@ -1304,6 +1304,11 @@ Deark -- Information about supported formats
   - Extract Psion PIC icons.
   - Extract other contents (use -a).
 
+* READMAKE (module="readmake")
+  Executable text (.EXE) files made by READMAKE, by Wayne Software.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
+
 * RIFF (module="riff")
   Metaformat used by WAV, AVI, WebP, etc.
   - RIFF can be parsed, but in many cases nothing can be extracted from it.

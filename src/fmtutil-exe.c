@@ -566,9 +566,29 @@ static void detect_specialexe_gws_exepic(deark *c,
 
 	if(!flag) goto done;
 	edd->detected_fmt = DE_SPECIALEXEFMT_GWS_EXEPIC;
-	de_strlcpy(edd->detected_fmt_name, "gws_exepic", sizeof(edd->detected_fmt_name));
+	de_strlcpy(edd->detected_fmt_name, "GWS picture", sizeof(edd->detected_fmt_name));
 	edd->modname = "gws_exepic";
 
+done:
+	;
+}
+
+static void detect_specialexe_readmake(deark *c,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	// Expected to be EXEPACK-compressed, but we might like it to be
+	// detected even after decompression. So we won't look at the MZ header.
+	if(ei->overlay_len < 76) goto done;
+
+	read_exe_testbytes(ei);
+	if((u32)de_getu32le_direct(&ei->ovl64b[0]) != (u32)0x3e) goto done;
+	if(dbuf_memcmp(ei->f, ei->start_of_dos_code, (const void*)"blREADINCL", 10)) {
+		goto done;
+	}
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_READMAKE;
+	de_strlcpy(edd->detected_fmt_name, "READMAKE", sizeof(edd->detected_fmt_name));
+	edd->modname = "readmake";
 done:
 	;
 }
@@ -586,6 +606,11 @@ void fmtutil_detect_specialexe(deark *c, struct fmtutil_exe_info *ei,
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_GWS_EXEPIC) {
 		detect_specialexe_gws_exepic(c, ei, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
+
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_READMAKE) {
+		detect_specialexe_readmake(c, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
