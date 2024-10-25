@@ -12,6 +12,7 @@ DE_DECLARE_MODULE(de_module_asc2com);
 DE_DECLARE_MODULE(de_module_doc2com);
 DE_DECLARE_MODULE(de_module_doc2com_dkn);
 DE_DECLARE_MODULE(de_module_gtxt);
+DE_DECLARE_MODULE(de_module_readmake);
 
 typedef struct localctx_exectext {
 	de_encoding input_encoding;
@@ -22,6 +23,7 @@ typedef struct localctx_exectext {
 	u8 need_errmsg;
 	u8 found_text;
 	u8 is_encrypted;
+	u8 allow_tlen_0;
 	i64 tpos;
 	i64 tlen;
 	u8 chartypes[32]; // 1=printable, 2=control
@@ -97,7 +99,9 @@ static void exectext_extract_default(deark *c, lctx *d)
 	dbuf *outf = NULL;
 
 	if(d->errflag) goto done;
-	if(d->tpos<=0 || d->tlen<=0 || d->tpos+d->tlen>c->infile->len) {
+	if(d->tpos<=0 || d->tlen<0 || d->tpos+d->tlen>c->infile->len ||
+		(d->tlen==0 && !d->allow_tlen_0))
+	{
 		d->errflag = 1;
 		d->need_errmsg = 1;
 		goto done;
@@ -1069,4 +1073,113 @@ void de_module_gtxt(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_gtxt;
 	mi->identify_fn = de_identify_gtxt;
 	mi->help_fn = de_help_gtxt;
+}
+
+///////////////////////////////////////////////////
+// READMAKE (by Bruce Guthrie and Wayne Software)
+
+struct readmake_ctx {
+	const char *msgpfx;
+	struct fmtutil_exe_info *ei;
+	struct fmtutil_specialexe_detection_data edd;
+};
+
+// On apparent success, sets d->tpos to nonzero.
+static void readmake_find_text(deark *c, struct readmake_ctx *rmctx, lctx *d)
+{
+	i64 pos;
+	i64 n;
+
+	pos = rmctx->ei->end_of_dos_code;
+	n = de_getu32le(pos);
+	pos += n;
+
+	n = de_getu32le(pos);
+	if(n==4) {
+		// Later files have an extra field (expected value 4) or segment
+		// (expected length 4). The segment after that is expected to
+		// be larger. We use that to tell the difference.
+		pos += 4;
+		n = de_getu32le(pos);
+	}
+	else if(n<14) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	pos += n;
+	d->tpos = pos;
+	de_dbg(c, "tpos: %"I64_FMT, d->tpos);
+
+	// TODO?: There might be a better way to figure out the length, but for
+	// pristine files we can use the end of file.
+	d->tlen = c->infile->len - d->tpos;
+
+done:
+	;
+}
+
+static void de_run_readmake(deark *c, de_module_params *mparams)
+{
+	struct readmake_ctx *rmctx = NULL;
+	lctx *d = NULL;
+
+	d = de_malloc(c, sizeof(lctx));
+
+	rmctx = de_malloc(c, sizeof(struct readmake_ctx));
+	rmctx->msgpfx = "[READMAKE] ";
+	rmctx->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
+
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->opt_encconv = (u8)de_get_ext_option_bool(c, "text:encconv", 1);
+	if(d->input_encoding==DE_ENCODING_ASCII) {
+		d->opt_encconv = 0;
+	}
+
+	d->allow_tlen_0 = 1;
+	d->chartypes[8] = 1;
+	d->chartypes[9] = 1;
+	d->chartypes[10] = 1;
+	d->chartypes[13] = 1;
+
+	fmtutil_collect_exe_info(c, c->infile, rmctx->ei);
+
+	rmctx->edd.restrict_to_fmt = DE_SPECIALEXEFMT_READMAKE;
+	fmtutil_detect_specialexe(c, rmctx->ei, &rmctx->edd);
+	if(rmctx->edd.detected_fmt!=DE_SPECIALEXEFMT_READMAKE) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	readmake_find_text(c, rmctx, d);
+	if(d->tpos==0 || d->errflag) goto done;
+
+	exectext_extract_default(c, d);
+
+done:
+	if(d) {
+		if(d->need_errmsg && rmctx) {
+			de_err(c, "%sBad or unsupported READMAKE file", rmctx->msgpfx);
+		}
+		de_free(c, d);
+		d = NULL;
+	}
+	if(rmctx) {
+		de_free(c, rmctx->ei);
+		de_free(c, rmctx);
+		rmctx = NULL;
+	}
+}
+
+static void de_help_readmake(deark *c)
+{
+	print_encconv_option(c);
+}
+
+void de_module_readmake(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "readmake";
+	mi->desc = "READMAKE executable text";
+	mi->run_fn = de_run_readmake;
+	mi->help_fn = de_help_readmake;
 }

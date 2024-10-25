@@ -545,6 +545,81 @@ done:
 	}
 }
 
+static void detect_specialexe_gws_exepic(deark *c,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	u8 flag = 0;
+
+	if(ei->num_relocs!=0) goto done;
+	if(ei->regSP != 0x0200) goto done;
+	if(ei->reloc_table_pos!=34) goto done;
+	if(ei->entry_point!=ei->start_of_dos_code) goto done;
+
+	read_exe_testbytes(ei);
+
+	if(!de_memcmp(&ei->ep64b[29], (const void*)"GraphicWorkshop", 15)) {
+		flag = 1;
+	}
+	else if(!de_memcmp(&ei->ep64b[29], (const void*)"GWS/Windows", 11)) {
+		flag = 1;
+	}
+
+	if(!flag) goto done;
+	edd->detected_fmt = DE_SPECIALEXEFMT_GWS_EXEPIC;
+	de_strlcpy(edd->detected_fmt_name, "GWS picture", sizeof(edd->detected_fmt_name));
+	edd->modname = "gws_exepic";
+
+done:
+	;
+}
+
+static void detect_specialexe_readmake(deark *c,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	// Expected to be EXEPACK-compressed, but we might like it to be
+	// detected even after decompression. So we won't look at the MZ header.
+	if(ei->overlay_len < 76) goto done;
+
+	read_exe_testbytes(ei);
+	if((u32)de_getu32le_direct(&ei->ovl64b[0]) != (u32)0x3e) goto done;
+	if(dbuf_memcmp(ei->f, ei->start_of_dos_code, (const void*)"blREADINCL", 10)) {
+		goto done;
+	}
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_READMAKE;
+	de_strlcpy(edd->detected_fmt_name, "READMAKE", sizeof(edd->detected_fmt_name));
+	edd->modname = "readmake";
+done:
+	;
+}
+
+// Caller supplies ei -- must call fmtutil_collect_exe_info() first.
+// Caller initializes edd, to receive the results.
+// If success, sets edd->detected_fmt to nonzero.
+// Always sets edd->detected_fmt_name to something, even if "unknown".
+// If we think we can decode the format, sets edd->modname.
+void fmtutil_detect_specialexe(deark *c, struct fmtutil_exe_info *ei,
+	struct fmtutil_specialexe_detection_data *edd)
+{
+	edd->detected_fmt = 0;
+	edd->detected_subfmt = 0;
+
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_GWS_EXEPIC) {
+		detect_specialexe_gws_exepic(c, ei, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
+
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_READMAKE) {
+		detect_specialexe_readmake(c, ei, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
+
+done:
+	if(!edd->detected_fmt_name[0]) {
+		de_strlcpy(edd->detected_fmt_name, "unknown", sizeof(edd->detected_fmt_name));
+	}
+}
+
 // If found, writes a copy of pos to *pfoundpos.
 static int is_lhalike_data_at(struct fmtutil_exe_info *ei, i64 pos, u8 h_or_z, i64 *pfoundpos)
 {

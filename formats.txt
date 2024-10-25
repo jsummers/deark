@@ -58,6 +58,9 @@ Deark -- Information about supported formats
      explicitly disable blink.
    -opt ansiart:vt100 - Use VT100 mode
 
+* Apple II icons archive (module="apple2icons") (experimental)
+  - Not autodetected. Use "-m apple2icons".
+
 * Apple volume label image (module="applevol")
 
 * ART - PFS: 1st Publisher clip art (module="fp_art")
@@ -227,6 +230,9 @@ Deark -- Information about supported formats
      the file has been disposed of. Incompatible with gif:raw.
 
 * GodPaint (Atari Falcon) (module="godpaint")
+
+* Graphic Workshop self-displaying picture (module="gws_exepic")
+  - Supports the DOS EXE-based format.
 
 * Graphic Workshop thumbnail (.thn) (module="gws_thn")
 
@@ -1297,6 +1303,11 @@ Deark -- Information about supported formats
 * Psion APP/IMG and OPA/OPO (module="psionapp")
   - Extract Psion PIC icons.
   - Extract other contents (use -a).
+
+* READMAKE (module="readmake")
+  Executable text (.EXE) files made by READMAKE, by Wayne Software.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
 
 * RIFF (module="riff")
   Metaformat used by WAV, AVI, WebP, etc.
