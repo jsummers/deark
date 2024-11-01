@@ -72,7 +72,7 @@ typedef struct localctx_bmp {
 
 	i64 rowspan;
 	struct bitfieldsinfo bitfield[4];
-	u32 pal[256];
+	de_color pal[256];
 } lctx;
 
 ///// RLE decompressor
@@ -776,20 +776,29 @@ static de_bitmap *bmp_bitmap_create(deark *c, lctx *d, int bypp)
 	return img;
 }
 
-static void do_image_paletted(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
+static void do_image_paletted(deark *c, lctx *d, dbuf *bits, i64 bits_offset, u8 want_trns)
 {
-	d->img = bmp_bitmap_create(c, d, d->pal_is_grayscale?1:3);
+	int bypp;
+
+	if(d->pal_is_grayscale) bypp = 1;
+	else bypp = 3;
+	if(want_trns) bypp++;
+
+	d->img = bmp_bitmap_create(c, d, bypp);
 	de_convert_image_paletted(bits, bits_offset,
 		d->bitcount, d->rowspan, d->pal, d->img, 0);
-	d->createflags |= DE_CREATEFLAG_OPT_IMAGE;
 }
 
-static void do_image_24bit(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
+static void do_image_24bit(deark *c, lctx *d, dbuf *bits, i64 bits_offset, u8 want_trns)
 {
 	i64 i, j;
 	u32 clr;
+	int bypp;
 
-	d->img = bmp_bitmap_create(c, d, 3);
+	if(want_trns) bypp = 4;
+	else bypp = 3;
+
+	d->img = bmp_bitmap_create(c, d, bypp);
 	for(j=0; j<d->height; j++) {
 		i64 rowpos = bits_offset + j*d->rowspan;
 		i64 pos_in_this_row = 0;
@@ -912,7 +921,6 @@ static void do_image_rle(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 	struct rle_dcmpr_ctx *rc = NULL;
 	u8 use_mask = 0;
 	u8 is_standard = 0;
-	int bypp;
 
 	rc = de_malloc(c, sizeof(struct rle_dcmpr_ctx));
 
@@ -939,9 +947,9 @@ static void do_image_rle(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 	rc->width_in_units = de_pad_to_n(d->bitcount*d->width, rc->unit_size)/rc->unit_size;
 	rc->height = d->height;
 	rc->dst_rowspan = d->rowspan;
-	rc->inf = c->infile;
+	rc->inf = bits;
 	rc->inf_startpos = bits_offset;
-	rc->inf_endpos = c->infile->len;
+	rc->inf_endpos = bits->len;
 	rc->unc_pixels = dbuf_create_membuf(c, rc->height*rc->dst_rowspan, 0x1);
 	dbuf_enable_wbuffer(rc->unc_pixels);
 
@@ -954,18 +962,11 @@ static void do_image_rle(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 		de_warn(c, "Nonstandard image type. Might not be decoded correctly.");
 	}
 
-	if(d->bitcount<=8 && d->pal_is_grayscale) bypp = 1;
-	else bypp = 3;
-	if(use_mask) bypp++;
-	d->img = bmp_bitmap_create(c, d, bypp);
-	d->createflags |= DE_CREATEFLAG_OPT_IMAGE;
-
 	if(d->bitcount<=8) {
-		de_convert_image_paletted(rc->unc_pixels, 0, d->bitcount, d->rowspan, d->pal,
-			d->img, 0);
+		do_image_paletted(c, d, rc->unc_pixels, 0, use_mask);
 	}
 	else {
-		de_convert_image_rgb(rc->unc_pixels, 0, d->rowspan, 3, d->img, DE_RDPALFLAG_BGR);
+		do_image_24bit(c, d, rc->unc_pixels, 0, use_mask);
 	}
 
 	if(rc->mask) {
@@ -1010,7 +1011,7 @@ static void do_image_huffman1d(deark *c, lctx *d)
 	fmtutil_fax34_codectype1(c, &dcmpri, &dcmpro, &dres,
 		 (void*)&fax34params);
 
-	do_image_paletted(c, d, unc_pixels, 0);
+	do_image_paletted(c, d, unc_pixels, 0, 0);
 
 	dbuf_close(unc_pixels);
 }
@@ -1050,28 +1051,25 @@ static void do_image(deark *c, lctx *d)
 	}
 
 	if(d->bitcount>=1 && d->bitcount<=8 && d->compression_type==CMPR_NONE) {
-		do_image_paletted(c, d, c->infile, d->bits_offset);
+		do_image_paletted(c, d, c->infile, d->bits_offset, 0);
 	}
 	else if(d->bitcount==24 && d->compression_type==CMPR_NONE) {
-		do_image_24bit(c, d, c->infile, d->bits_offset);
+		do_image_24bit(c, d, c->infile, d->bits_offset, 0);
 	}
 	else if((d->bitcount==16 || d->bitcount==32) && d->compression_type==CMPR_NONE) {
 		do_image_16_32bit(c, d, c->infile, d->bits_offset);
 	}
-	else if(d->bitcount==8 && d->compression_type==CMPR_RLE8) {
-		do_image_rle(c, d, c->infile, d->bits_offset);
-	}
-	else if(d->bitcount==4 && d->compression_type==CMPR_RLE4) {
-		do_image_rle(c, d, c->infile, d->bits_offset);
-	}
-	else if(d->bitcount==1 && d->compression_type==CMPR_RLE4) {
-		do_image_rle(c, d, c->infile, d->bits_offset);
-	}
-	else if(d->bitcount==24 && d->compression_type==CMPR_RLE24) {
+	else if((d->compression_type==CMPR_RLE4 && (d->bitcount==1 || d->bitcount==4)) ||
+		(d->compression_type==CMPR_RLE8 && d->bitcount==8) ||
+		(d->compression_type==CMPR_RLE24 && d->bitcount==24))
+	{
 		do_image_rle(c, d, c->infile, d->bits_offset);
 	}
 	else if(d->version==DE_BMPVER_64BIT) {
 		do_image_64bit(c, d, c->infile, d->bits_offset);
+	}
+	else if(d->compression_type==CMPR_HUFFMAN1D && d->bitcount==1) {
+		do_image_huffman1d(c, d);
 	}
 	else if(d->compression_type==CMPR_JPEG) {
 		extract_embedded_image(c, d, "jpg");
@@ -1079,15 +1077,13 @@ static void do_image(deark *c, lctx *d)
 	else if(d->compression_type==CMPR_PNG) {
 		extract_embedded_image(c, d, "png");
 	}
-	else if(d->bitcount==1 && d->compression_type==CMPR_HUFFMAN1D) {
-		do_image_huffman1d(c, d);
-	}
 	else {
 		de_err(c, "This type of BMP image is not supported");
 		goto done;
 	}
 
 	if(d->img && !d->want_returned_img) {
+		d->createflags |= DE_CREATEFLAG_OPT_IMAGE;
 		de_bitmap_write_to_file_finfo(d->img, d->fi, d->createflags);
 	}
 
