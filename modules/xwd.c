@@ -26,6 +26,7 @@ typedef struct localctx_struct_xwd {
 #define HF_RMASK                14
 #define HF_GMASK                15
 #define HF_BMASK                16
+#define HF_BITS_PER_RGB         17
 #define HF_CMAP_NUM_ENTRIES     18
 #define HF_NCOLORS              19
 	UI hf[25];
@@ -36,15 +37,17 @@ typedef struct localctx_struct_xwd {
 	i64 cmap_size_in_bytes;
 	i64 imgpos;
 	i64 expected_image_size;
+	i64 actual_image_size;
 	int pixel_byte_order; // 1 if LE
 	i64 bytes_per_pixel; // Not used by every image type
 	i64 bits_per_pixel; // Not used by every image type
 	i64 width, height;
 	i64 rowspan;
+	UI cmpr_meth;
 
-#define XWD_IMGTYPE_GRAY      3
-#define XWD_IMGTYPE_RGB       4
-#define XWD_IMGTYPE_PALETTE   5
+#define XWD_IMGTYPE_GRAY      1
+#define XWD_IMGTYPE_PALETTE   2
+#define XWD_IMGTYPE_RGB       3
 	int imgtype;
 
 	UI sample_bit_shift[3];
@@ -52,11 +55,21 @@ typedef struct localctx_struct_xwd {
 	de_color pal[256];
 } lctx;
 
-static void read_colormap(deark *c, lctx *d)
+static void read_or_construct_colormap(deark *c, lctx *d)
 {
 	UI k;
 	UI num_entries_to_read;
+	int saved_indent_level;
 	i64 pos;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if((d->imgtype==XWD_IMGTYPE_PALETTE || d->imgtype==XWD_IMGTYPE_GRAY) &&
+		(d->bits_per_pixel>=1 && d->bits_per_pixel<=8))
+	{
+		de_make_grayscale_palette(d->pal, 1ULL<<d->bits_per_pixel, 0);
+	}
+
+	if(d->cmap_size_in_bytes<1) goto done;
 
 	de_dbg(c, "colormap at %"I64_FMT, d->cmap_pos);
 	de_dbg_indent(c, 1);
@@ -79,7 +92,8 @@ static void read_colormap(deark *c, lctx *d)
 		pos += 2;
 	}
 
-	de_dbg_indent(c, -1);
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static const char *hnames[25] = {
@@ -129,38 +143,27 @@ static void interpret_header(deark *c, lctx *d)
 	depth_1248 = (d->hf[HF_DEPTH]==8 || d->hf[HF_DEPTH]==4 ||
 		d->hf[HF_DEPTH]==2 || d->hf[HF_DEPTH]==1);
 
-	// paletted
-	if(d->vclass_adj==2 &&
+	// paletted or grayscale, typical
+	if((d->vclass_adj==0 || d->vclass_adj==2) &&
 		depth_1248 &&
-		d->hf[HF_BITS_PER_PIX]==d->hf[HF_DEPTH] &&
-		d->hf[HF_CMAP_NUM_ENTRIES]!=0)
+		d->hf[HF_BITS_PER_PIX]==d->hf[HF_DEPTH])
 	{
-		d->imgtype = XWD_IMGTYPE_PALETTE;
+		d->imgtype = (d->vclass_adj==0) ? XWD_IMGTYPE_GRAY : XWD_IMGTYPE_PALETTE;
 		d->bits_per_pixel = (i64)d->hf[HF_DEPTH];
 	}
 
-	// paletted, with unused bits
-	if(d->vclass_adj==2 &&
+	// paletted or grayscale, with unused bits
+	if(d->imgtype==0 && (d->vclass_adj==0 || d->vclass_adj==2) &&
 		depth_1248 &&
-		d->hf[HF_BITS_PER_PIX]==8 &&
-		d->hf[HF_CMAP_NUM_ENTRIES]!=0)
+		d->hf[HF_BITS_PER_PIX]!=d->hf[HF_DEPTH] &&
+		d->hf[HF_BITS_PER_PIX]==8)
 	{
-		d->imgtype = XWD_IMGTYPE_PALETTE;
+		d->imgtype = (d->vclass_adj==0) ? XWD_IMGTYPE_GRAY : XWD_IMGTYPE_PALETTE;
 		d->bits_per_pixel = (i64)d->hf[HF_BITS_PER_PIX];
 	}
 
-	// grayscale
-	if(d->vclass_adj==0 &&
-		depth_1248 &&
-		d->hf[HF_BITS_PER_PIX]==d->hf[HF_DEPTH] &&
-		(d->hf[HF_BIT_ORDER]==1 || d->hf[HF_DEPTH]==1))
-	{
-		d->imgtype = XWD_IMGTYPE_GRAY;
-		d->bits_per_pixel = (i64)d->hf[HF_DEPTH];
-	}
-
 	// RGB 32bits/pixel
-	if(d->vclass_adj==4 &&
+	if(d->imgtype==0 && d->vclass_adj==4 &&
 		d->hf[HF_BITMAP_UNIT]==32 &&
 		(d->hf[HF_BITS_PER_PIX]==24 || d->hf[HF_BITS_PER_PIX]==32) &&
 		(d->hf[HF_DEPTH]==24 || d->hf[HF_DEPTH]==32))
@@ -170,13 +173,27 @@ static void interpret_header(deark *c, lctx *d)
 	}
 
 	// RGB 16bits/pixel
-	if(d->vclass_adj==4 &&
+	if(d->imgtype==0 && d->vclass_adj==4 &&
 		(d->hf[HF_BITMAP_UNIT]==16 || d->hf[HF_BITMAP_UNIT]==32) &&
 		d->hf[HF_BITS_PER_PIX]==16 &&
 		d->hf[HF_DEPTH]==16)
 	{
 		d->imgtype = XWD_IMGTYPE_RGB;
 		d->bytes_per_pixel = 2;
+	}
+
+	// e.g. "MARBLES.XWD"
+	if(d->imgtype==0 && d->vclass_adj==4 &&
+		d->hf[HF_PIXFMT]==2 &&
+		d->hf[HF_DEPTH]==24 &&
+		d->hf[HF_BYTE_ORDER]==1 &&
+		d->hf[HF_BITMAP_UNIT]==8 &&
+		d->hf[HF_SCANLINE_PAD]==8 &&
+		d->hf[HF_BITS_PER_PIX]==24)
+	{
+		d->bytes_per_pixel = 4;
+		d->imgtype = XWD_IMGTYPE_RGB;
+		need_fixup_warning = 1;
 	}
 
 	// If RGB image looks to be defined with 4 bytes stored per pixel, but
@@ -192,21 +209,8 @@ static void interpret_header(deark *c, lctx *d)
 		need_fixup_warning = 1;
 	}
 
-	// "MARBLES.XWD"
-	if(d->vclass_adj==4 &&
-		d->hf[HF_PIXFMT]==2 &&
-		d->hf[HF_DEPTH]==24 &&
-		d->hf[HF_BYTE_ORDER]==1 &&
-		d->hf[HF_BITMAP_UNIT]==8 &&
-		d->hf[HF_SCANLINE_PAD]==8 &&
-		d->hf[HF_BITS_PER_PIX]==24)
-	{
-		d->bytes_per_pixel = 4;
-		d->imgtype = XWD_IMGTYPE_RGB;
-		need_fixup_warning = 1;
-	}
-
-	if(d->imgtype == XWD_IMGTYPE_RGB) {
+	// Decode masks if needed
+	if(d->imgtype==XWD_IMGTYPE_RGB) {
 		for(k=0; k<3; k++) {
 			UI x;
 
@@ -299,6 +303,7 @@ done:
 	}
 	d->cmap_size_in_bytes = d->cmap_num_entries * 12;
 	d->imgpos = d->cmap_pos + d->cmap_size_in_bytes;
+	d->actual_image_size = c->infile->len - d->imgpos;
 }
 
 static void do_header(deark *c, lctx *d)
@@ -358,6 +363,14 @@ static void do_header(deark *c, lctx *d)
 		goto done;
 	}
 
+	if(d->hf[HF_WIDTH]>1000000 || d->hf[HF_HEIGHT]>1000000 ||
+		d->hf[HF_BYTES_PER_LINE]>1000000)
+	{
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
 	interpret_header(c, d);
 	if(d->errflag) goto done;
 	find_cmap_and_image(c, d);
@@ -366,14 +379,15 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void read_image_rgb(deark *c, lctx *d, de_bitmap *img)
+static void read_image_rgb(deark *c, lctx *d, dbuf *inf, i64 inf_pos1,
+	de_bitmap *img)
 {
 	i64 i, j;
 
 	for(j=0; j<d->height; j++) {
 		i64 rowpos;
 
-		rowpos = d->imgpos + j*d->rowspan;
+		rowpos = inf_pos1 + j*d->rowspan;
 
 		for(i=0; i<d->width; i++) {
 			de_color clr = 0;
@@ -382,10 +396,10 @@ static void read_image_rgb(deark *c, lctx *d, de_bitmap *img)
 			UI k;
 
 			if(d->bytes_per_pixel==4) {
-				v = (u32)dbuf_getu32x(c->infile, rowpos+i*d->bytes_per_pixel, d->pixel_byte_order);
+				v = (u32)dbuf_getu32x(inf, rowpos+i*d->bytes_per_pixel, d->pixel_byte_order);
 			}
 			else {
-				v = (u32)dbuf_getint_ext(c->infile, rowpos+i*d->bytes_per_pixel,
+				v = (u32)dbuf_getint_ext(inf, rowpos+i*d->bytes_per_pixel,
 					(UI)d->bytes_per_pixel, d->pixel_byte_order, 0);
 			}
 			for(k=0; k<3; k++) {
@@ -407,36 +421,133 @@ static void read_image_rgb(deark *c, lctx *d, de_bitmap *img)
 	}
 }
 
-static void read_image_colormapped(deark *c, lctx *d, de_bitmap *img)
+static void read_image_colormapped(deark *c, lctx *d, dbuf *inf, i64 inf_pos,
+	de_bitmap *img)
 {
 	UI flags = 0;
+
+	if(d->bits_per_pixel<1 || d->bits_per_pixel>8) return;
 
 	if(d->hf[HF_BIT_ORDER]==0) {
 		flags |= 0x01;
 	}
 
-	de_convert_image_paletted(c->infile, d->imgpos, d->bits_per_pixel,
+	de_convert_image_paletted(inf, inf_pos, d->bits_per_pixel,
 		d->rowspan, d->pal, img, flags);
 }
 
-static void read_image_grayscale(deark *c, lctx *d, de_bitmap *img)
+static void read_image_grayscale(deark *c, lctx *d,  dbuf *inf, i64 inf_pos,
+	de_bitmap *img)
 {
-	if(d->bits_per_pixel<1 && d->bits_per_pixel>8) return;
+	read_image_colormapped(c, d, inf, inf_pos, img);
+}
 
-	// TODO: Should we use the existing colormap if it seems to be there?
-	de_make_grayscale_palette(d->pal, 1ULL<<d->bits_per_pixel, 0);
-	read_image_colormapped(c, d, img);
+static void decompress_pvwave_rle(deark *c, lctx *d, dbuf *unc_pixels)
+{
+	i64 pos = d->imgpos;
+	i64 endpos = c->infile->len;
+	i64 row_padding;
+	i64 nbytes_written = 0;
+	i64 xpos = 0;
+
+	row_padding = d->rowspan - d->width;
+	if(row_padding<0) goto done;
+
+	while(1) {
+		i64 count;
+		u8 b;
+
+		if(pos+3 > endpos) goto done;
+		if(nbytes_written >= d->expected_image_size) goto done;
+
+		count = de_getu16be_p(&pos);
+		b = de_getbyte_p(&pos);
+		dbuf_write_run(unc_pixels, b, count);
+		nbytes_written += count;
+		xpos += count;
+
+		if(xpos >= d->width) {
+			if(row_padding!=0 && xpos==d->width) {
+				// It's stupid that we have to do this.
+				dbuf_write_run(unc_pixels, 0x00, row_padding);
+				nbytes_written += row_padding;
+			}
+			xpos = 0;
+		}
+	}
+done:
+	de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT,
+		pos-d->imgpos, nbytes_written);
+	dbuf_flush(unc_pixels);
+}
+
+static void detect_compression(deark *c, lctx *d)
+{
+	i64 count;
+
+	if(d->actual_image_size == d->expected_image_size) goto done;
+	if(d->actual_image_size%3 != 0) goto done;
+
+	if(d->hf[HF_PIXFMT]==2 &&
+		d->hf[HF_DEPTH]==8 &&
+		d->hf[HF_BYTE_ORDER]==0 &&
+		d->hf[HF_BITMAP_UNIT]==32 &&
+		d->hf[HF_BIT_ORDER]==0 &&
+		d->hf[HF_SCANLINE_PAD]==32 &&
+		d->hf[HF_BITS_PER_PIX]==8 &&
+		d->hf[HF_VCLASS]==3 &&
+		d->hf[HF_BITS_PER_RGB]==8)
+	{
+		;
+	}
+	else {
+		goto done;
+	}
+
+	// TODO: We could do better by checking more than just the first
+	// compression code.
+	count = de_getu16be(d->imgpos);
+	if(count<1 || count>d->width) {
+		goto done;
+	}
+
+	d->cmpr_meth = 100;
+done:
+	if(d->cmpr_meth==100) {
+		de_dbg(c, "detected PV-Wave RLE compression");
+	}
 }
 
 static void do_xwd_image(deark *c, lctx *d)
 {
 	int bypp;
 	de_bitmap *img = NULL;
+	dbuf *unc_pixels = NULL;
+	dbuf *inf = c->infile; // This is a copy -- do not close
+	i64 inf_pos = d->imgpos;
+	int saved_indent_level;
 
-	if(d->imgpos + d->expected_image_size > c->infile->len+16) {
-		de_err(c, "Bad or truncated XWD file");
-		d->errflag = 1;
-		goto done;
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "image at %"I64_FMT, d->imgpos);
+	de_dbg_indent(c, 1);
+	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
+
+	detect_compression(c, d);
+
+	if(d->cmpr_meth!=0) {
+		unc_pixels = dbuf_create_membuf(c, d->expected_image_size, 0x1);
+		dbuf_enable_wbuffer(unc_pixels);
+		decompress_pvwave_rle(c, d, unc_pixels);
+		inf = unc_pixels;
+		inf_pos = 0;
+	}
+
+	if(d->cmpr_meth==0) {
+		if(d->imgpos + d->expected_image_size > c->infile->len+16) {
+			de_err(c, "Bad or truncated XWD file");
+			d->errflag = 1;
+			goto done;
+		}
 	}
 
 	if(d->imgtype==XWD_IMGTYPE_RGB &&
@@ -460,18 +571,22 @@ static void do_xwd_image(deark *c, lctx *d)
 		goto done;
 	}
 
-	if(d->imgtype==XWD_IMGTYPE_GRAY) bypp = 1;
-	else bypp = 3;
+	bypp = 3;
+	if(d->imgtype==XWD_IMGTYPE_GRAY || d->imgtype==XWD_IMGTYPE_PALETTE) {
+		if(de_is_grayscale_palette(d->pal, 256)) {
+			bypp = 1;
+		}
+	}
 	img = de_bitmap_create(c, d->width, d->height, bypp);
 
 	if(d->imgtype==XWD_IMGTYPE_RGB) {
-		read_image_rgb(c, d, img);
+		read_image_rgb(c, d, inf, inf_pos, img);
 	}
 	else if(d->imgtype==XWD_IMGTYPE_PALETTE) {
-		read_image_colormapped(c, d, img);
+		read_image_colormapped(c, d, inf, inf_pos, img);
 	}
 	else if(d->imgtype==XWD_IMGTYPE_GRAY) {
-		read_image_grayscale(c, d, img);
+		read_image_grayscale(c, d, inf, inf_pos, img);
 	}
 
 	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
@@ -482,6 +597,8 @@ done:
 		d->need_errmsg = 0;
 	}
 	de_bitmap_destroy(img);
+	dbuf_close(unc_pixels);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void de_run_xwd(deark *c, de_module_params *mparams)
@@ -491,11 +608,9 @@ static void de_run_xwd(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 	do_header(c, d);
 	if(d->errflag) goto done;
+	// TODO?: Do something with the name that may appear after the header.
 
-	if(d->cmap_size_in_bytes) {
-		read_colormap(c, d);
-	}
-	de_dbg(c, "image at %"I64_FMT, d->imgpos);
+	read_or_construct_colormap(c, d);
 
 	do_xwd_image(c, d);
 
