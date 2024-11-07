@@ -332,6 +332,7 @@
     <ClCompile Include="..\..\modules\wri.c" />
     <ClCompile Include="..\..\modules\xface.c" />
     <ClCompile Include="..\..\modules\xfer.c" />
+    <ClCompile Include="..\..\modules\xwd.c" />
     <ClCompile Include="..\..\modules\zip.c" />
     <ClCompile Include="..\..\modules\zoo.c" />
     <ClCompile Include="..\..\src\deark-bitmap.c" />

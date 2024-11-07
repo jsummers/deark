@@ -330,6 +330,8 @@ $(OBJDIR)/modules/xface.o: modules/xface.c src/deark-config.h \
  src/deark-private.h src/deark.h modules/../foreign/uncompface.h
 $(OBJDIR)/modules/xfer.o: modules/xfer.c src/deark-config.h \
  src/deark-private.h src/deark.h
+$(OBJDIR)/modules/xwd.o: modules/xwd.c src/deark-private.h src/deark.h \
+ src/deark-config.h
 $(OBJDIR)/modules/zip.o: modules/zip.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/zoo.o: modules/zoo.c src/deark-private.h src/deark.h \

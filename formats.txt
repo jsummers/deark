@@ -691,6 +691,8 @@ Deark -- Information about supported formats
 
 * XGA (Atari Falcon image) (module="falcon_xga")
 
+* XWD (X-Windows screen dump) (module="xwd") (experimental)
+
 * YBM (Bennet Yee face format) (module="ybm")
 
 * Young Picasso (.YP) (module="young_picasso")
