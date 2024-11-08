@@ -365,8 +365,10 @@ static int de_identify_show_gmr(deark *c)
 	// annoyingly has the same the start-of-file signature as the files it
 	// generates.
 	if(de_getbyte(c->infile->len-1) != 0x1a) return 0;
-	if(dbuf_memcmp(c->infile, 3,
-		(const u8*)"\x30\x00\x1f\xa0\x00\x00\x53\x48\x4f\x57", 10))
+	// Byte at offset 3 is 0x30 in pristine files, but it's used to save the
+	// color scheme (it's a self-modifying COM file).
+	if(dbuf_memcmp(c->infile, 4,
+		(const u8*)"\x00\x1f\xa0\x00\x00\x53\x48\x4f\x57", 9))
 	{
 		return 0;
 	}
