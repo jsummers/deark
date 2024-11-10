@@ -43,10 +43,10 @@ typedef struct localctx_struct_xwd {
 	i64 bits_per_pixel; // Not used by every image type
 	i64 width, height;
 	i64 rowspan;
+	i64 nplanes;
 	UI cmpr_meth;
 
-#define XWD_IMGTYPE_GRAY      1
-#define XWD_IMGTYPE_PALETTE   2
+#define XWD_IMGTYPE_PAL_OR_GRAY   1
 #define XWD_IMGTYPE_RGB       3
 	int imgtype;
 
@@ -63,7 +63,7 @@ static void read_or_construct_colormap(deark *c, lctx *d)
 	i64 pos;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	if((d->imgtype==XWD_IMGTYPE_PALETTE || d->imgtype==XWD_IMGTYPE_GRAY) &&
+	if((d->imgtype==XWD_IMGTYPE_PAL_OR_GRAY) &&
 		(d->bits_per_pixel>=1 && d->bits_per_pixel<=8))
 	{
 		de_make_grayscale_palette(d->pal, 1ULL<<d->bits_per_pixel, 0);
@@ -137,44 +137,58 @@ static void interpret_header(deark *c, lctx *d)
 	d->width = (i64)d->hf[HF_WIDTH];
 	d->height = (i64)d->hf[HF_HEIGHT];
 	d->pixel_byte_order = !d->hf[HF_BYTE_ORDER];
+	d->nplanes = 1; // tentative
 	d->rowspan = (i64)d->hf[HF_BYTES_PER_LINE];
-	d->expected_image_size = d->height * d->rowspan;
 
 	depth_1248 = (d->hf[HF_DEPTH]==8 || d->hf[HF_DEPTH]==4 ||
 		d->hf[HF_DEPTH]==2 || d->hf[HF_DEPTH]==1);
 
+	// paletted or grayscale, planar
+	if(d->imgtype==0 &&
+		(d->vclass_adj==0 || d->vclass_adj==2) &&
+		d->hf[HF_PIXFMT]==1 &&
+		d->hf[HF_BITS_PER_PIX]==1 &&
+		(d->hf[HF_DEPTH]>=1 && d->hf[HF_DEPTH]<=8))
+	{
+		d->imgtype = XWD_IMGTYPE_PAL_OR_GRAY;
+		d->bits_per_pixel = (i64)d->hf[HF_DEPTH];
+		d->nplanes = (i64)d->hf[HF_DEPTH];
+	}
+
 	// paletted or grayscale, typical
-	if((d->vclass_adj==0 || d->vclass_adj==2) &&
+	if(d->imgtype==0 &&
+		(d->vclass_adj==0 || d->vclass_adj==2) &&
 		depth_1248 &&
 		d->hf[HF_BITS_PER_PIX]==d->hf[HF_DEPTH])
 	{
-		d->imgtype = (d->vclass_adj==0) ? XWD_IMGTYPE_GRAY : XWD_IMGTYPE_PALETTE;
-		d->bits_per_pixel = (i64)d->hf[HF_DEPTH];
-	}
-
-	// paletted or grayscale, with unused bits
-	if(d->imgtype==0 && (d->vclass_adj==0 || d->vclass_adj==2) &&
-		depth_1248 &&
-		d->hf[HF_BITS_PER_PIX]!=d->hf[HF_DEPTH] &&
-		d->hf[HF_BITS_PER_PIX]==8)
-	{
-		d->imgtype = (d->vclass_adj==0) ? XWD_IMGTYPE_GRAY : XWD_IMGTYPE_PALETTE;
+		d->imgtype = XWD_IMGTYPE_PAL_OR_GRAY;
 		d->bits_per_pixel = (i64)d->hf[HF_BITS_PER_PIX];
 	}
 
-	// RGB 32bits/pixel
+	// paletted or grayscale, with unused bits (?)
+	if(d->imgtype==0 && (d->vclass_adj==0 || d->vclass_adj==2) &&
+		depth_1248 &&
+		d->hf[HF_BITS_PER_PIX]>d->hf[HF_DEPTH] &&
+		d->hf[HF_BITS_PER_PIX]==8)
+	{
+		d->imgtype = XWD_IMGTYPE_PAL_OR_GRAY;
+		d->bits_per_pixel = (i64)d->hf[HF_BITS_PER_PIX];
+	}
+
+	// RGB 24 or 32 bits/pixel
 	if(d->imgtype==0 && d->vclass_adj==4 &&
-		d->hf[HF_BITMAP_UNIT]==32 &&
 		(d->hf[HF_BITS_PER_PIX]==24 || d->hf[HF_BITS_PER_PIX]==32) &&
 		(d->hf[HF_DEPTH]==24 || d->hf[HF_DEPTH]==32))
 	{
 		d->imgtype = XWD_IMGTYPE_RGB;
-		d->bytes_per_pixel = 4;
+		// HF_BITS_PER_PIX is usually correct. We'll change it later if
+		// it seems wrong.
+		d->bits_per_pixel = (i64)d->hf[HF_BITS_PER_PIX];
+		d->bytes_per_pixel = d->bits_per_pixel/8;
 	}
 
 	// RGB 16bits/pixel
 	if(d->imgtype==0 && d->vclass_adj==4 &&
-		(d->hf[HF_BITMAP_UNIT]==16 || d->hf[HF_BITMAP_UNIT]==32) &&
 		d->hf[HF_BITS_PER_PIX]==16 &&
 		d->hf[HF_DEPTH]==16)
 	{
@@ -183,29 +197,14 @@ static void interpret_header(deark *c, lctx *d)
 	}
 
 	// e.g. "MARBLES.XWD"
-	if(d->imgtype==0 && d->vclass_adj==4 &&
-		d->hf[HF_PIXFMT]==2 &&
-		d->hf[HF_DEPTH]==24 &&
-		d->hf[HF_BYTE_ORDER]==1 &&
-		d->hf[HF_BITMAP_UNIT]==8 &&
+	if(d->imgtype==XWD_IMGTYPE_RGB &&
+		d->bytes_per_pixel==3 &&
 		d->hf[HF_SCANLINE_PAD]==8 &&
-		d->hf[HF_BITS_PER_PIX]==24)
+		d->hf[HF_WIDTH]*4 == d->hf[HF_BYTES_PER_LINE])
 	{
 		d->bytes_per_pixel = 4;
+		d->bits_per_pixel = 0;
 		d->imgtype = XWD_IMGTYPE_RGB;
-		need_fixup_warning = 1;
-	}
-
-	// If RGB image looks to be defined with 4 bytes stored per pixel, but
-	// a scanline is too small for 4, something's wrong.
-	// The XWD spec doesn't explain how 24-bit RGB images should be
-	// labeled. But they exist.
-	// E.g. BlueSteel.zip/screenshot.xwd
-	if(d->imgtype==XWD_IMGTYPE_RGB && d->bytes_per_pixel==4 &&
-		d->width*d->bytes_per_pixel > d->rowspan &&
-		d->width*3 <= d->rowspan)
-	{
-		d->bytes_per_pixel = 3;
 		need_fixup_warning = 1;
 	}
 
@@ -252,6 +251,15 @@ static void interpret_header(deark *c, lctx *d)
 	if(need_fixup_warning) {
 		de_warn(c, "Inconsistent or unusual image parameters. Attempting to correct.");
 	}
+
+	d->expected_image_size = d->height * d->rowspan * d->nplanes;
+
+	if(d->bits_per_pixel==0) {
+		d->bits_per_pixel = 8*d->bytes_per_pixel;
+	}
+	if(d->imgtype!=0) {
+		de_dbg(c, "interpreted bits/pixel: %d", (int)d->bits_per_pixel);
+	}
 }
 
 // Try to figure out the colormap size, and consequently the image position.
@@ -278,8 +286,8 @@ static void find_cmap_and_image(deark *c, lctx *d)
 
 	// d->hf[HF_NCOLORS] < d->hf[HF_CMAP_NUM_ENTRIES]
 
-	size1 = d->hf[HF_NCOLORS] * 12; // Note, size1 is smaller than size2
-	size2 = d->hf[HF_CMAP_NUM_ENTRIES] * 12;
+	size1 = (i64)d->hf[HF_NCOLORS] * 12; // Note, size1 is smaller than size2
+	size2 = (i64)d->hf[HF_CMAP_NUM_ENTRIES] * 12;
 	avail_size = c->infile->len - d->expected_image_size - d->cmap_pos;
 
 	if(size2==avail_size) {
@@ -428,18 +436,22 @@ static void read_image_colormapped(deark *c, lctx *d, dbuf *inf, i64 inf_pos,
 
 	if(d->bits_per_pixel<1 || d->bits_per_pixel>8) return;
 
-	if(d->hf[HF_BIT_ORDER]==0) {
-		flags |= 0x01;
+	if(d->nplanes<=1) {
+		if(d->hf[HF_BIT_ORDER]==0) {
+			flags |= 0x01;
+		}
+
+		de_convert_image_paletted(inf, inf_pos, d->bits_per_pixel,
+			d->rowspan, d->pal, img, flags);
 	}
+	else {
+		if(d->hf[HF_BIT_ORDER]==0) {
+			flags |= 0x01;
+		}
 
-	de_convert_image_paletted(inf, inf_pos, d->bits_per_pixel,
-		d->rowspan, d->pal, img, flags);
-}
-
-static void read_image_grayscale(deark *c, lctx *d,  dbuf *inf, i64 inf_pos,
-	de_bitmap *img)
-{
-	read_image_colormapped(c, d, inf, inf_pos, img);
+		de_convert_image_paletted_planar(inf, inf_pos, d->nplanes,
+			d->rowspan, d->rowspan*d->height, d->pal, img, flags);
+	}
 }
 
 static void decompress_pvwave_rle(deark *c, lctx *d, dbuf *unc_pixels)
@@ -555,12 +567,7 @@ static void do_xwd_image(deark *c, lctx *d)
 	{
 		;
 	}
-	else if(d->imgtype==XWD_IMGTYPE_PALETTE &&
-		d->bits_per_pixel>0)
-	{
-		;
-	}
-	else if(d->imgtype==XWD_IMGTYPE_GRAY &&
+	else if(d->imgtype==XWD_IMGTYPE_PAL_OR_GRAY &&
 		d->bits_per_pixel>0)
 	{
 		;
@@ -572,7 +579,7 @@ static void do_xwd_image(deark *c, lctx *d)
 	}
 
 	bypp = 3;
-	if(d->imgtype==XWD_IMGTYPE_GRAY || d->imgtype==XWD_IMGTYPE_PALETTE) {
+	if(d->imgtype==XWD_IMGTYPE_PAL_OR_GRAY) {
 		if(de_is_grayscale_palette(d->pal, 256)) {
 			bypp = 1;
 		}
@@ -582,12 +589,11 @@ static void do_xwd_image(deark *c, lctx *d)
 	if(d->imgtype==XWD_IMGTYPE_RGB) {
 		read_image_rgb(c, d, inf, inf_pos, img);
 	}
-	else if(d->imgtype==XWD_IMGTYPE_PALETTE) {
+	else if(d->imgtype==XWD_IMGTYPE_PAL_OR_GRAY) {
 		read_image_colormapped(c, d, inf, inf_pos, img);
 	}
-	else if(d->imgtype==XWD_IMGTYPE_GRAY) {
-		read_image_grayscale(c, d, inf, inf_pos, img);
-	}
+
+	if(d->errflag) goto done;
 
 	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
 
