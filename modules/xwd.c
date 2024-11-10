@@ -127,6 +127,40 @@ static const char *get_vclass_name(UI x)
 	return name?name:"?";
 }
 
+// Always sets shift to a number 0 to 31.
+// Always sets maxval to a positive number, not too large.
+static void decode_bitfield(UI n, UI *pshift, i64 *pmaxval)
+{
+	u8 ok = 0;
+	UI sh = 0;
+	i64 mv = 0;
+	UI count_of_1_bits = 0;
+	UI k;
+
+	for(k=0; k<=31; k++) {
+		if(n & (1U<<k)) {
+			if(count_of_1_bits==0) {
+				sh = k;
+			}
+			count_of_1_bits++;
+			mv = (mv<<1U) | 0x1;
+		}
+	}
+
+	if(count_of_1_bits==0 || count_of_1_bits>16) goto done;
+	ok = 1;
+
+done:
+	if(ok) {
+		*pshift = sh;
+		*pmaxval = mv;
+	}
+	else {
+		*pshift = 0;
+		*pmaxval = 255;
+	}
+}
+
 static void interpret_header(deark *c, lctx *d)
 {
 	u8 need_fixup_warning = 0;
@@ -211,40 +245,8 @@ static void interpret_header(deark *c, lctx *d)
 	// Decode masks if needed
 	if(d->imgtype==XWD_IMGTYPE_RGB) {
 		for(k=0; k<3; k++) {
-			UI x;
-
-			x = d->hf[HF_RMASK+k];
-			d->sample_maxval[k] = 255; // default
-
-			// TODO: Generalize this code
-			if(x == 0x000000ffU) {
-				d->sample_bit_shift[k] = 0;
-			}
-			else if(x == 0x0000ff00U) {
-				d->sample_bit_shift[k] = 8;
-			}
-			else if(x == 0x00ff0000U) {
-				d->sample_bit_shift[k] = 16;
-			}
-			else if(x == 0xff000000U) {
-				d->sample_bit_shift[k] = 24;
-			}
-			else if(x == 0xf800) {
-				d->sample_bit_shift[k] = 11;
-				d->sample_maxval[k] = 31;
-			}
-			else if(x == 0x07e0) {
-				d->sample_bit_shift[k] = 5;
-				d->sample_maxval[k] = 63;
-			}
-			else if(x == 0x001f) {
-				d->sample_bit_shift[k] = 0;
-				d->sample_maxval[k] = 31;
-			}
-			else {
-				d->errflag = 1;
-				d->need_errmsg = 1;
-			}
+			decode_bitfield(d->hf[HF_RMASK+k], &d->sample_bit_shift[k],
+				&d->sample_maxval[k]);
 		}
 	}
 
