@@ -365,8 +365,10 @@ static int de_identify_show_gmr(deark *c)
 	// annoyingly has the same the start-of-file signature as the files it
 	// generates.
 	if(de_getbyte(c->infile->len-1) != 0x1a) return 0;
-	if(dbuf_memcmp(c->infile, 3,
-		(const u8*)"\x30\x00\x1f\xa0\x00\x00\x53\x48\x4f\x57", 10))
+	// Byte at offset 3 is 0x30 in pristine files, but it's used to save the
+	// color scheme (it's a self-modifying COM file).
+	if(dbuf_memcmp(c->infile, 4,
+		(const u8*)"\x00\x1f\xa0\x00\x00\x53\x48\x4f\x57", 9))
 	{
 		return 0;
 	}
@@ -442,8 +444,8 @@ static const struct asc2com_idinfo asc2com_idinfo_arr[] = {
 	{ {0xeb,0x2b,0x00}, 0x02,  295,   437, 0x17510004 }, // 1.75-1.76 print
 	{ {0xeb,0x40,0x00}, 0x02,  462,   613, 0x20010004 }, // 2.00-2.05 print
 
-	{ {0xe9,0xaa,0x05}, 0x82, 1065, 10263, 0x20010005 }, // 2.00 compr
-	{ {0xe9,0xab,0x05}, 0x82, 1065, 10263, 0x20060005 }, // 2.00f compr
+	{ {0xe9,0xaa,0x05}, 0x82, 1078, 10263, 0x20010005 }, // 2.00 compr
+	{ {0xe9,0xab,0x05}, 0x82, 1078, 10263, 0x20060005 }, // 2.00f compr
 	{ {0xe9,0xad,0x05}, 0x82, 1065, 10407, 0x20110005 }, // 2.01 compr
 	{ {0xe9,0xa8,0x05}, 0x82, 1065, 10391, 0x20510005 }  // 2.05 compr
 };

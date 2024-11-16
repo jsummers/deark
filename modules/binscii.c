@@ -7,7 +7,7 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_binscii);
 
-#define BINSCII_LINE_MAXLEN 72
+#define BINSCII_LINE_MAXLEN 128
 #define BINSCII_ENCODED_UNITS_PER_LINE 16
 #define BINSCII_DECODED_BYTES_PER_LINE (BINSCII_ENCODED_UNITS_PER_LINE*3)
 #define BINSCII_ENCODED_BYTES_PER_LINE (BINSCII_ENCODED_UNITS_PER_LINE*4)
@@ -389,6 +389,33 @@ static void do_binscii_line(deark *c, struct binscii_ctx *d)
 	}
 }
 
+// Reads d->linebuf_used bytes.
+// May modify d->linebuf_used, to delete leading whitespace.
+static void binscii_read_line_to_linebuf(deark *c, struct binscii_ctx *d)
+{
+	UI num_leading_junk_bytes = 0;
+	i64 new_linebuf_used;
+	i64 k;
+
+	de_zeromem(d->linebuf, BINSCII_LINE_MAXLEN);
+	de_read(d->linebuf, d->pos, d->linebuf_used);
+
+	for(k=0; k<d->linebuf_used; k++) {
+		if(d->linebuf[k]<=0x20) {
+			num_leading_junk_bytes++;
+		}
+		else {
+			break;
+		}
+	}
+
+	if(num_leading_junk_bytes==0) return;
+	new_linebuf_used = d->linebuf_used - (i64)num_leading_junk_bytes;
+	de_memmove((void*)&d->linebuf[0], (const void*)&d->linebuf[num_leading_junk_bytes],
+		new_linebuf_used);
+	d->linebuf_used = new_linebuf_used;
+}
+
 static void de_run_binscii(deark *c, de_module_params *mparams)
 {
 	struct binscii_ctx *d = NULL;
@@ -409,8 +436,7 @@ static void de_run_binscii(deark *c, de_module_params *mparams)
 		if(!ret) goto done;
 
 		d->linebuf_used = (content_len<=BINSCII_LINE_MAXLEN) ? content_len : BINSCII_LINE_MAXLEN;
-		de_zeromem(d->linebuf, BINSCII_LINE_MAXLEN);
-		de_read(d->linebuf, d->pos, d->linebuf_used);
+		binscii_read_line_to_linebuf(c, d);
 		do_binscii_line(c, d);
 		d->pos += total_len;
 	}

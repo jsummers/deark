@@ -691,6 +691,8 @@ Deark -- Information about supported formats
 
 * XGA (Atari Falcon image) (module="falcon_xga")
 
+* XWD (X-Windows screen dump) (module="xwd") (experimental)
+
 * YBM (Bennet Yee face format) (module="ybm")
 
 * Young Picasso (.YP) (module="young_picasso")
@@ -1190,7 +1192,7 @@ Deark -- Information about supported formats
 
 * GTXT (module="gtxt")
   Executable text (.COM) files made by E. Gans' GTXT utility (also called
-  MakeScroll). Only the DOS version only.
+  MakeScroll). DOS version only.
   Options
    -opt text:fmtconv=0 - Extract the raw source code, instead of interpreting
     special characters.

@@ -18,7 +18,6 @@ DE_DECLARE_MODULE(de_module_hexdump);
 DE_DECLARE_MODULE(de_module_bytefreq);
 DE_DECLARE_MODULE(de_module_deflate);
 DE_DECLARE_MODULE(de_module_zlib);
-DE_DECLARE_MODULE(de_module_winzle);
 DE_DECLARE_MODULE(de_module_mrw);
 DE_DECLARE_MODULE(de_module_vgafont);
 DE_DECLARE_MODULE(de_module_pcrfont);
@@ -759,53 +758,6 @@ void de_module_zlib(deark *c, struct deark_module_info *mi)
 	mi->desc = "Raw zlib compressed data";
 	mi->run_fn = de_run_zlib;
 	mi->identify_fn = de_identify_zlib;
-}
-
-// **************************************************************************
-// Winzle! puzzle image
-// **************************************************************************
-
-static void de_run_winzle(deark *c, de_module_params *mparams)
-{
-	u8 buf[256];
-	i64 xorsize;
-	i64 i;
-	dbuf *f = NULL;
-
-	xorsize = c->infile->len >= 256 ? 256 : c->infile->len;
-	de_read(buf, 0, xorsize);
-	for(i=0; i<xorsize; i++) {
-		buf[i] ^= 0x0d;
-	}
-
-	f = dbuf_create_output_file(c, "bmp", NULL, 0);
-	dbuf_write(f, buf, xorsize);
-	if(c->infile->len > 256) {
-		dbuf_copy(c->infile, 256, c->infile->len - 256, f);
-	}
-	dbuf_close(f);
-}
-
-static int de_identify_winzle(deark *c)
-{
-	u8 b[18];
-	de_read(b, 0, sizeof(b));
-
-	if(b[0]==0x4f && b[1]==0x40) {
-		if(b[14]==0x25 && b[15]==0x0d && b[16]==0x0d && b[17]==0x0d) {
-			return 95;
-		}
-		return 40;
-	}
-	return 0;
-}
-
-void de_module_winzle(deark *c, struct deark_module_info *mi)
-{
-	mi->id = "winzle";
-	mi->desc = "Winzle! puzzle image";
-	mi->run_fn = de_run_winzle;
-	mi->identify_fn = de_identify_winzle;
 }
 
 // **************************************************************************
