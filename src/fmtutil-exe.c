@@ -645,27 +645,40 @@ static int is_lha_data_at(struct fmtutil_exe_info *ei, i64 pos, i64 *pfoundpos)
 static void detect_exesfx_lha(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
-	u8 b[16];
+	u8 b[8];
+	u8 x;
 	int found;
 	i64 foundpos = 0;
+	i64 pos;
+	i64 j;
 
 	if(ei->regSS != -16) goto done;
 	if(ei->regSP != 256) goto done;
 	if(ei->regCS != -16) goto done;
 	if(ei->regIP != 256) goto done;
 
-	dbuf_read(ei->f, b, 28, sizeof(b));
-	if(b[4]!=0xeb && b[4]!=0xe9) goto done;
-	if(b[8]=='L' && b[9]=='H') {
+	pos = 32;
+	x = dbuf_getbyte_p(ei->f, &pos);
+	if(x==0xeb) {
+		j = (i64)dbuf_getbyte_p(ei->f, &pos);
+	}
+	else if(x==0xe9) {
+		j = dbuf_getu16le_p(ei->f, &pos);
+	}
+	else {
+		goto done;
+	}
+	pos += j;
+
+	if((u32)dbuf_getu32be_p(ei->f, &pos) != (u32)0xfcbc0001U) {
+		goto done;
+	}
+
+	dbuf_read(ei->f, b, pos, sizeof(b));
+	if(de_memmatch(b, (const u8*)"\xbb?\x01\xe8??\x8c\xc8", 8, '?', 0)) {
 		;
 	}
-	else if(b[9]=='L' && b[10]=='H') {
-		;
-	}
-	else if(b[10]=='L' && b[11]=='H') {
-		;
-	}
-	else if(b[10]=='S' && b[11]=='F') { // v1.00
+	else if(de_memmatch(b, (const u8*)"\x8c\xc8\x05?\x00\x8e\xc0", 7, '?', 0)) {
 		;
 	}
 	else {
