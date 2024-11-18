@@ -97,6 +97,7 @@ struct member_parser_data {
 
 typedef void (*member_cb_type)(deark *c, lctx *d, struct member_parser_data *mpd);
 
+// Look for any known ARC cmpr meth, including end-of-archive marker.
 // Not for Spark format
 static int is_known_cmpr_meth(u8 m)
 {
@@ -106,14 +107,22 @@ static int is_known_cmpr_meth(u8 m)
 	return 0;
 }
 
+// Is this a plausible cmpr meth for the first archive member
+// (including end-of-archive marker)?
+// (Not for Spark format.)
+static int is_known_first_cmpr_meth(u8 m)
+{
+	if((m<=11) || m==20) {
+		return 1;
+	}
+	return 0;
+}
+
 // For ARC, not for Spark or ArcMac.
 // It's assumed that the byte at pos1 is known to be 0x1a.
-// Will validate the first member, and (unless it is the end marker),
-// the first two bytes of the second member.
-// Bad files that have been truncated before that point will not be
-// identified -- except they may be allowed if only the end marker
-// has been deleted.
-static int is_valid_file_at(dbuf *f, i64 pos1, i64 endpos)
+// Will validate the first member, and (unless it is the end marker,
+// or strictness==0), the first two bytes of the second member.
+static int is_valid_file_at(dbuf *f, i64 pos1, i64 endpos, UI strictness)
 {
 	u8 marker;
 	u8 cmpr_meth;
@@ -123,11 +132,22 @@ static int is_valid_file_at(dbuf *f, i64 pos1, i64 endpos)
 	pos++;
 
 	cmpr_meth = dbuf_getbyte_p(f, &pos);
-	if(!is_known_cmpr_meth(cmpr_meth)) {
+	if(!is_known_first_cmpr_meth(cmpr_meth)) {
 		return 0;
 	}
 	if(cmpr_meth==0) return 1; // End marker
+
+	if(cmpr_meth<20 && strictness>=2) {
+		u8 f1;
+
+		// test 1st char of filename
+		f1 = dbuf_getbyte(f, pos);
+		if(f1<0x20) return 0;
+	}
 	pos += 13;
+
+	if(strictness==0) return 1;
+
 	cmpr_len = dbuf_getu32le_p(f, &pos);
 	pos += 6;
 	if(cmpr_meth!=1) pos += 4;
@@ -1453,6 +1473,7 @@ static int de_identify_arc(deark *c)
 	static const char *exts[] = {"arc", "ark", "pak", "spk", "sdn", "com"};
 	u8 has_ext = 0;
 	UI ext_idx = 0;
+	UI strictness;
 	int ends_with_trailer = 0;
 	int ends_with_comments = 0;
 	int starts_with_trailer = 0;
@@ -1471,22 +1492,14 @@ static int de_identify_arc(deark *c)
 
 	cmpr_meth = buf[arc_start+1];
 
-	if(arc_start==0) {
-		// TODO: We want to call is_valid_file_at() here, but that will miss
-		// some truncated or corrupted files that older versions of Deark
-		// correctly identified. For now at least, we'll be tolerant.
-		if(!is_known_cmpr_meth(cmpr_meth)) {
-			return 0;
-		}
-	}
-	else {
-		if(!is_valid_file_at(c->infile, arc_start, c->infile->len)) {
-			return 0;
-		}
+	if(cmpr_meth==0) {
+		// Don't tolerate empty archives that don't start at the beginning of file.
+		if(arc_start!=0) return 0;
+
+		starts_with_trailer = 1;
 	}
 
-	if(cmpr_meth==0) starts_with_trailer = 1;
-
+	// Get info about file extension
 	for(k=0; k<DE_ARRAYCOUNT(exts); k++) {
 		if(de_input_file_has_ext(c, exts[k])) {
 			has_ext = 1;
@@ -1495,6 +1508,7 @@ static int de_identify_arc(deark *c)
 		}
 	}
 
+	// Only tolerate leading junk for a few file extensions
 	if(arc_start>0) {
 		if(ext_idx==0 || ext_idx==1 || ext_idx==5) { // .arc, .ark, .com
 			;
@@ -1504,14 +1518,33 @@ static int de_identify_arc(deark *c)
 		}
 	}
 
-	if(starts_with_trailer && c->infile->len==2) {
-		if(has_ext && (ext_idx<=3)) return 15; // Empty archive, 2-byte file
+	// Look at some of the file, to see if it seems ok.
+	if(has_ext && ext_idx<=1 && arc_start==0) {
+		strictness = 0;
+	}
+	else if(has_ext && ext_idx<=3 && arc_start==0) {
+		strictness = 1;
+	}
+	else {
+		strictness = 2;
+	}
+	if(!is_valid_file_at(c->infile, arc_start, c->infile->len, strictness)) {
 		return 0;
 	}
 
-	if((!starts_with_trailer) && (de_getu16be(c->infile->len-2) == 0x1a00)) {
+	// Handle 2-byte files
+	if(starts_with_trailer && c->infile->len==2) {
+		if(!has_ext) return 0;
+		if(ext_idx==0) return 100;
+		if(ext_idx<=3) return 15;
+		return 0;
+	}
+
+	if(de_getu16be(c->infile->len-2) == 0x1a00) {
+		// Standard ARC trailer
 		ends_with_trailer = 1;
 	}
+
 	if(de_getu32be(c->infile->len-8) == 0x504baa55) {
 		// PKARC trailer, for files with comments
 		ends_with_comments = 1;
@@ -1529,8 +1562,9 @@ static int de_identify_arc(deark *c)
 		else return 0;
 	}
 	if(has_ext && (ends_with_trailer || ends_with_comments)) return 90;
-	if(ends_with_trailer || ends_with_comments) return 25;
-	if(has_ext) return 15;
+	if(ends_with_trailer || ends_with_comments) return 35;
+	if(has_ext) return 24;
+	if(arc_start==0) return 19;
 	return 0;
 }
 
