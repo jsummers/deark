@@ -298,11 +298,11 @@ static const char *get_pattern_set_info(u32 patcrc, int *is_blank)
 static void do_read_patterns(deark *c, lctx *d)
 {
 	i64 pos1;
-	i64 cell;
+	i64 cell_idx;
 	i64 i, j;
-	const i64 dispwidth = 19;
-	const i64 dispheight = 17;
-	i64 xpos, ypos;
+	const i64 cell_width = 19;
+	const i64 cell_height = 16;
+	const i64 cells_per_row = 19;
 	int is_blank;
 	de_bitmap *gallery = NULL;
 	de_bitmap *rawimg = NULL;
@@ -340,20 +340,33 @@ static void do_read_patterns(deark *c, lctx *d)
 		goto done;
 	}
 
-	gallery = de_bitmap_create(c, (dispwidth+1)*19+1, (dispheight+1)*2+1, 1);
+	gallery = de_bitmap_create(c, (cell_width+1)*19+1, (cell_height+1)*2+1, 1);
 
-	for(cell=0; cell<38; cell++) {
-		xpos = (dispwidth+1)*(cell%19)+1;
-		ypos = (dispheight+1)*(cell/19)+1;
+	for(cell_idx=0; cell_idx<38; cell_idx++) {
+		i64 cell_x, cell_y; // dst cell pos in cells
+		i64 cell_xpos, cell_ypos; // dst cell pos in pixels
 
-		for(j=0; j<dispheight; j++) {
-			for(i=0; i<dispwidth; i++) {
+		cell_x = cell_idx%cells_per_row;
+		cell_y = cell_idx/cells_per_row;
+
+		cell_xpos = (cell_width+1)*cell_x+1;
+		cell_ypos = (cell_height+1)*cell_y+1;
+
+		for(j=0; j<cell_height; j++) {
+			i64 yoffs;
+
+			// The cell sizes and "brush origin" are believed to be correct for
+			// at least one version of MacPaint, under some conditions.
+			yoffs = (cell_ypos+j+4)%8;
+
+			for(i=0; i<cell_width; i++) {
 				de_colorsample x;
+				i64 xoffs;
 
-				// TODO: Figure out the proper "brush origin" of these patterns.
-				// Some of them may be shifted differently than MacPaint displays them.
-				x = DE_COLOR_K(de_bitmap_getpixel(rawimg, i%8, 8*cell + j%8));
-				de_bitmap_setpixel_gray(gallery, xpos+i, ypos+j, x);
+				xoffs = (cell_xpos+i+7)%8;
+
+				x = DE_COLOR_K(de_bitmap_getpixel(rawimg, xoffs, 8*cell_idx + yoffs));
+				de_bitmap_setpixel_gray(gallery, cell_xpos+i, cell_ypos+j, x);
 			}
 		}
 	}
