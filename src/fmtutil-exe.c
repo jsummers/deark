@@ -900,6 +900,7 @@ static void detect_exesfx_pak_nogate(deark *c,
 {
 	int found = 0;
 	int canextract = 0;
+	u8 v16flag = 0;
 
 	read_exe_testbytes(ei);
 	if(ei->ovl64b[0]!=0x1a && ei->ovl64b[0]!=0xfe) goto done;
@@ -909,12 +910,14 @@ static void detect_exesfx_pak_nogate(deark *c,
 		found = 1;
 
 		// There's a problem with PAK v1.6. If there are any file or archive
-		// comments, the payload will not be in proper PAK format. We can't tell
-		// if there are any file comments without scanning the whole payload.
-		// That's doable (TODO), as is converting it back to proper PAK format.
-		// But it's more trouble than it's probably worth. For now, we just don't
-		// support v1.6.
-		if(ei->entry_point != 2656) canextract = 1;
+		// comments, the payload will not be in proper PAK format.
+		// We can convert it, but it needs special detection and handling.
+		if(ei->entry_point==2656) {
+			v16flag = 1;
+		}
+		else {
+			canextract = 1;
+		}
 	}
 	if(!found && !de_memcmp(ei->ep64b, (const u8*)"\xfb\xba\x53\x03\x2e\x89\x16\x65", 8)) {
 		// GSARC 1.0 and PAK 1.0
@@ -929,12 +932,19 @@ static void detect_exesfx_pak_nogate(deark *c,
 	edd->payload_len = ei->f->len - edd->payload_pos;
 	if(edd->payload_len<2) goto done;
 
-	edd->detected_fmt = DE_SPECIALEXEFMT_SFX;
-	edd->payload_valid = canextract;
-	edd->payload_file_ext = "pak";
+	if(v16flag) {
+		edd->detected_fmt = DE_SPECIALEXEFMT_PAK16SFX;
+	}
+	else {
+		edd->detected_fmt = DE_SPECIALEXEFMT_SFX;
+		edd->payload_valid = canextract;
+		edd->payload_file_ext = "pak";
+	}
 
 done:
-	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX ||
+		edd->detected_fmt==DE_SPECIALEXEFMT_PAK16SFX)
+	{
 		de_strlcpy(edd->detected_fmt_name, "PAK", sizeof(edd->detected_fmt_name));
 	}
 }

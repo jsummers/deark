@@ -16,6 +16,7 @@ DE_DECLARE_MODULE(de_module_arcmac);
 #define FMT_ARC 1
 #define FMT_SPARK 2
 #define FMT_ARCMAC 3
+#define FMT_PAK16SFX 4
 
 #define MAX_NESTING_LEVEL 24
 
@@ -82,6 +83,7 @@ struct localctx_struct {
 	struct de_crcobj *crco;
 	struct de_strarray *curpath;
 	struct persistent_member_data *persistent_md; // optional array[num_top_level_members]
+	dbuf *pak16sfx_outf;
 };
 
 struct member_parser_data {
@@ -189,7 +191,18 @@ static void parse_member_sequence(deark *c, lctx *d, i64 pos1, i64 len, int nest
 		mpd->member_pos = pos;
 
 		mpd->magic = de_getbyte_p(&pos);
-		if(mpd->magic!=d->sig_byte) {
+
+		if(mpd->magic==0xfe && d->fmt==FMT_PAK16SFX) {
+			// Some hacks here. We're not setting all the fields correctly,
+			// just the ones we need.
+			mpd->cmpr_data_len = (i64)de_getbyte_p(&pos);
+			mpd->cmpr_data_pos = pos;
+			mpd->member_len = 2+mpd->cmpr_data_len;
+			member_cbfn(c, d, mpd);
+			pos = mpd->member_pos + mpd->member_len;
+			continue;
+		}
+		else if(mpd->magic!=d->sig_byte) {
 			mpd->member_len = 1;
 			mpd->cmpr_data_pos = mpd->member_pos; // dummy value
 			member_cbfn(c, d, mpd);
@@ -1355,6 +1368,9 @@ static void destroy_lctx(deark *c, lctx *d)
 	if(!d) return;
 	de_crcobj_destroy(d->crco);
 	de_strarray_destroy(d->curpath);
+	if(d->pak16sfx_outf) {
+		dbuf_close(d->pak16sfx_outf);
+	}
 	if(d->persistent_md) {
 		i64 i;
 
@@ -1432,6 +1448,36 @@ done:
 	;
 }
 
+////////// Special converter for PAK v1.6 SFX archives
+
+static void member_cb_for_pak16sfx(deark *c, lctx *d, struct member_parser_data *mpd)
+{
+	de_dbg2(c, "pak16sfx member at %"I64_FMT", type=0x%02x", mpd->member_pos,
+		(UI)mpd->magic);
+	de_dbg_indent(c, 1);
+
+	// This is not perfect. We throw away the extended info, instead of converting
+	// it to extended records.
+	if(mpd->magic==0x1a) {
+		if(!d->pak16sfx_outf) {
+			d->pak16sfx_outf = dbuf_create_output_file(c, "pak", NULL, 0);
+		}
+		dbuf_copy(c->infile, mpd->member_pos, mpd->member_len, d->pak16sfx_outf);
+	}
+	de_dbg_indent(c, -1);
+}
+
+static void do_convert_pak16sfx(deark *c, lctx *d)
+{
+	d->fmt = FMT_PAK16SFX;
+	d->recurse_subdirs = 0;
+	d->sig_byte = 0x1a;
+	parse_member_sequence(c, d, 0, c->infile->len, 0,member_cb_for_pak16sfx);
+	if(d->pak16sfx_outf) {
+		dbuf_writeu16be(d->pak16sfx_outf, 0xfe00);
+	}
+}
+
 /////////////////////// ARC (core ARC-only functions)
 
 static void de_run_arc(deark *c, de_module_params *mparams)
@@ -1464,7 +1510,14 @@ static void de_run_arc(deark *c, de_module_params *mparams)
 		}
 	}
 
+	if(de_havemodcode(c, mparams, '6')) {
+		do_convert_pak16sfx(c, d);
+		goto done;
+	}
+
 	do_run_arc_spark_internal(c, d);
+
+done:
 	destroy_lctx(c, d);
 }
 
