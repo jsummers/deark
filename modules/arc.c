@@ -16,6 +16,7 @@ DE_DECLARE_MODULE(de_module_arcmac);
 #define FMT_ARC 1
 #define FMT_SPARK 2
 #define FMT_ARCMAC 3
+#define FMT_PAK16SFX 4
 
 #define MAX_NESTING_LEVEL 24
 
@@ -82,6 +83,7 @@ struct localctx_struct {
 	struct de_crcobj *crco;
 	struct de_strarray *curpath;
 	struct persistent_member_data *persistent_md; // optional array[num_top_level_members]
+	dbuf *pak16sfx_outf;
 };
 
 struct member_parser_data {
@@ -97,6 +99,7 @@ struct member_parser_data {
 
 typedef void (*member_cb_type)(deark *c, lctx *d, struct member_parser_data *mpd);
 
+// Look for any known ARC cmpr meth, including end-of-archive marker.
 // Not for Spark format
 static int is_known_cmpr_meth(u8 m)
 {
@@ -106,14 +109,22 @@ static int is_known_cmpr_meth(u8 m)
 	return 0;
 }
 
+// Is this a plausible cmpr meth for the first archive member
+// (including end-of-archive marker)?
+// (Not for Spark format.)
+static int is_known_first_cmpr_meth(u8 m)
+{
+	if((m<=11) || m==20) {
+		return 1;
+	}
+	return 0;
+}
+
 // For ARC, not for Spark or ArcMac.
 // It's assumed that the byte at pos1 is known to be 0x1a.
-// Will validate the first member, and (unless it is the end marker),
-// the first two bytes of the second member.
-// Bad files that have been truncated before that point will not be
-// identified -- except they may be allowed if only the end marker
-// has been deleted.
-static int is_valid_file_at(dbuf *f, i64 pos1, i64 endpos)
+// Will validate the first member, and (unless it is the end marker,
+// or strictness==0), the first two bytes of the second member.
+static int is_valid_file_at(dbuf *f, i64 pos1, i64 endpos, UI strictness)
 {
 	u8 marker;
 	u8 cmpr_meth;
@@ -123,11 +134,22 @@ static int is_valid_file_at(dbuf *f, i64 pos1, i64 endpos)
 	pos++;
 
 	cmpr_meth = dbuf_getbyte_p(f, &pos);
-	if(!is_known_cmpr_meth(cmpr_meth)) {
+	if(!is_known_first_cmpr_meth(cmpr_meth)) {
 		return 0;
 	}
 	if(cmpr_meth==0) return 1; // End marker
+
+	if(cmpr_meth<20 && strictness>=2) {
+		u8 f1;
+
+		// test 1st char of filename
+		f1 = dbuf_getbyte(f, pos);
+		if(f1<0x20) return 0;
+	}
 	pos += 13;
+
+	if(strictness==0) return 1;
+
 	cmpr_len = dbuf_getu32le_p(f, &pos);
 	pos += 6;
 	if(cmpr_meth!=1) pos += 4;
@@ -169,7 +191,18 @@ static void parse_member_sequence(deark *c, lctx *d, i64 pos1, i64 len, int nest
 		mpd->member_pos = pos;
 
 		mpd->magic = de_getbyte_p(&pos);
-		if(mpd->magic!=d->sig_byte) {
+
+		if(mpd->magic==0xfe && d->fmt==FMT_PAK16SFX) {
+			// Some hacks here. We're not setting all the fields correctly,
+			// just the ones we need.
+			mpd->cmpr_data_len = (i64)de_getbyte_p(&pos);
+			mpd->cmpr_data_pos = pos;
+			mpd->member_len = 2+mpd->cmpr_data_len;
+			member_cbfn(c, d, mpd);
+			pos = mpd->member_pos + mpd->member_len;
+			continue;
+		}
+		else if(mpd->magic!=d->sig_byte) {
 			mpd->member_len = 1;
 			mpd->cmpr_data_pos = mpd->member_pos; // dummy value
 			member_cbfn(c, d, mpd);
@@ -1335,6 +1368,9 @@ static void destroy_lctx(deark *c, lctx *d)
 	if(!d) return;
 	de_crcobj_destroy(d->crco);
 	de_strarray_destroy(d->curpath);
+	if(d->pak16sfx_outf) {
+		dbuf_close(d->pak16sfx_outf);
+	}
 	if(d->persistent_md) {
 		i64 i;
 
@@ -1412,6 +1448,36 @@ done:
 	;
 }
 
+////////// Special converter for PAK v1.6 SFX archives
+
+static void member_cb_for_pak16sfx(deark *c, lctx *d, struct member_parser_data *mpd)
+{
+	de_dbg2(c, "pak16sfx member at %"I64_FMT", type=0x%02x", mpd->member_pos,
+		(UI)mpd->magic);
+	de_dbg_indent(c, 1);
+
+	// This is not perfect. We throw away the extended info, instead of converting
+	// it to extended records.
+	if(mpd->magic==0x1a) {
+		if(!d->pak16sfx_outf) {
+			d->pak16sfx_outf = dbuf_create_output_file(c, "pak", NULL, 0);
+		}
+		dbuf_copy(c->infile, mpd->member_pos, mpd->member_len, d->pak16sfx_outf);
+	}
+	de_dbg_indent(c, -1);
+}
+
+static void do_convert_pak16sfx(deark *c, lctx *d)
+{
+	d->fmt = FMT_PAK16SFX;
+	d->recurse_subdirs = 0;
+	d->sig_byte = 0x1a;
+	parse_member_sequence(c, d, 0, c->infile->len, 0,member_cb_for_pak16sfx);
+	if(d->pak16sfx_outf) {
+		dbuf_writeu16be(d->pak16sfx_outf, 0xfe00);
+	}
+}
+
 /////////////////////// ARC (core ARC-only functions)
 
 static void de_run_arc(deark *c, de_module_params *mparams)
@@ -1444,7 +1510,14 @@ static void de_run_arc(deark *c, de_module_params *mparams)
 		}
 	}
 
+	if(de_havemodcode(c, mparams, '6')) {
+		do_convert_pak16sfx(c, d);
+		goto done;
+	}
+
 	do_run_arc_spark_internal(c, d);
+
+done:
 	destroy_lctx(c, d);
 }
 
@@ -1453,6 +1526,7 @@ static int de_identify_arc(deark *c)
 	static const char *exts[] = {"arc", "ark", "pak", "spk", "sdn", "com"};
 	u8 has_ext = 0;
 	UI ext_idx = 0;
+	UI strictness;
 	int ends_with_trailer = 0;
 	int ends_with_comments = 0;
 	int starts_with_trailer = 0;
@@ -1471,22 +1545,14 @@ static int de_identify_arc(deark *c)
 
 	cmpr_meth = buf[arc_start+1];
 
-	if(arc_start==0) {
-		// TODO: We want to call is_valid_file_at() here, but that will miss
-		// some truncated or corrupted files that older versions of Deark
-		// correctly identified. For now at least, we'll be tolerant.
-		if(!is_known_cmpr_meth(cmpr_meth)) {
-			return 0;
-		}
-	}
-	else {
-		if(!is_valid_file_at(c->infile, arc_start, c->infile->len)) {
-			return 0;
-		}
+	if(cmpr_meth==0) {
+		// Don't tolerate empty archives that don't start at the beginning of file.
+		if(arc_start!=0) return 0;
+
+		starts_with_trailer = 1;
 	}
 
-	if(cmpr_meth==0) starts_with_trailer = 1;
-
+	// Get info about file extension
 	for(k=0; k<DE_ARRAYCOUNT(exts); k++) {
 		if(de_input_file_has_ext(c, exts[k])) {
 			has_ext = 1;
@@ -1495,6 +1561,7 @@ static int de_identify_arc(deark *c)
 		}
 	}
 
+	// Only tolerate leading junk for a few file extensions
 	if(arc_start>0) {
 		if(ext_idx==0 || ext_idx==1 || ext_idx==5) { // .arc, .ark, .com
 			;
@@ -1504,14 +1571,33 @@ static int de_identify_arc(deark *c)
 		}
 	}
 
-	if(starts_with_trailer && c->infile->len==2) {
-		if(has_ext && (ext_idx<=3)) return 15; // Empty archive, 2-byte file
+	// Look at some of the file, to see if it seems ok.
+	if(has_ext && ext_idx<=1 && arc_start==0) {
+		strictness = 0;
+	}
+	else if(has_ext && ext_idx<=3 && arc_start==0) {
+		strictness = 1;
+	}
+	else {
+		strictness = 2;
+	}
+	if(!is_valid_file_at(c->infile, arc_start, c->infile->len, strictness)) {
 		return 0;
 	}
 
-	if((!starts_with_trailer) && (de_getu16be(c->infile->len-2) == 0x1a00)) {
+	// Handle 2-byte files
+	if(starts_with_trailer && c->infile->len==2) {
+		if(!has_ext) return 0;
+		if(ext_idx==0) return 100;
+		if(ext_idx<=3) return 15;
+		return 0;
+	}
+
+	if(de_getu16be(c->infile->len-2) == 0x1a00) {
+		// Standard ARC trailer
 		ends_with_trailer = 1;
 	}
+
 	if(de_getu32be(c->infile->len-8) == 0x504baa55) {
 		// PKARC trailer, for files with comments
 		ends_with_comments = 1;
@@ -1529,8 +1615,9 @@ static int de_identify_arc(deark *c)
 		else return 0;
 	}
 	if(has_ext && (ends_with_trailer || ends_with_comments)) return 90;
-	if(ends_with_trailer || ends_with_comments) return 25;
-	if(has_ext) return 15;
+	if(ends_with_trailer || ends_with_comments) return 35;
+	if(has_ext) return 24;
+	if(arc_start==0) return 19;
 	return 0;
 }
 

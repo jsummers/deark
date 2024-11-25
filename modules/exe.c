@@ -1668,6 +1668,25 @@ static void extract_arj_from_sfx(deark *c, lctx *d,
 	de_dbg_indent(c, -1);
 }
 
+static void extract_pak16_from_sfx(deark *c, lctx *d,
+	struct fmtutil_specialexe_detection_data *edd)
+{
+	de_module_params *mparams = NULL;
+
+	if(!d->ei) return;
+	de_dbg(c, "attempting PAKv1.6 extraction, pos=%"I64_FMT, edd->payload_pos);
+	de_dbg_indent(c, 1);
+
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->in_params.codes = "6";
+
+	de_run_module_by_id_on_slice(c, "arc", mparams, d->ei->f,
+		d->ei->end_of_dos_code, d->ei->overlay_len);
+
+	de_free(c, mparams);
+	de_dbg_indent(c, -1);
+}
+
 static void do_exesfx(deark *c, lctx *d)
 {
 	struct fmtutil_specialexe_detection_data edd;
@@ -1693,6 +1712,9 @@ static void do_exesfx(deark *c, lctx *d)
 	else if(edd.detected_fmt==DE_SPECIALEXEFMT_ARJSFX) {
 		// ARJ SFX generally needs special processing
 		extract_arj_from_sfx(c, d, &edd);
+	}
+	else if(edd.detected_fmt==DE_SPECIALEXEFMT_PAK16SFX) {
+		extract_pak16_from_sfx(c, d, &edd);
 	}
 	else if(edd.payload_valid) {
 		dbuf_create_file_from_slice(d->ei->f, edd.payload_pos, edd.payload_len,

@@ -2126,8 +2126,6 @@ static void de_run_lif_kdc(deark *c, de_module_params *mparams)
 		de_arch_read_field_cmpr_len_p(md, &f2_pos);
 		de_arch_read_field_orig_len_p(md, &f2_pos);
 
-		// These checksums are likely for the compressed and decompressed data, but
-		// I don't know the algorithm.
 		crc1_reported = (u32)dbuf_getu16be_p(f2, &f2_pos);
 		de_dbg(c, "crc of cmpr. data (reported): 0x%04x", (UI)crc1_reported);
 		md->crc_reported = (u32)dbuf_getu16be_p(f2, &f2_pos);
