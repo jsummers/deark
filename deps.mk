@@ -362,6 +362,9 @@ $(OBJDIR)/src/deark-user.o: src/deark-user.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-user.h
 $(OBJDIR)/src/deark-util.o: src/deark-util.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-version.h
+$(OBJDIR)/src/deark-util2.o: src/deark-util2.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h \
+ src/../foreign/cp932data.h
 $(OBJDIR)/src/deark-win.o: src/deark-win.c src/deark-config.h
 $(OBJDIR)/src/deark-zip.o: src/deark-zip.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h

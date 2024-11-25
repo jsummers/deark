@@ -341,6 +341,7 @@
     <ClCompile Include="..\..\src\deark-data.c" />
     <ClCompile Include="..\..\src\deark-dbuf.c" />
     <ClCompile Include="..\..\src\deark-png.c" />
+    <ClCompile Include="..\..\src\deark-util2.c" />
     <ClCompile Include="..\..\src\deark-zip.c" />
     <ClCompile Include="..\..\src\fmtutil-advfile.c" />
     <ClCompile Include="..\..\src\fmtutil-arch.c" />
@@ -370,6 +371,7 @@
     <ClCompile Include="..\..\src\deark-win.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\foreign\cp932data.h" />
     <ClInclude Include="..\..\foreign\dskdcmps.h" />
     <ClInclude Include="..\..\foreign\lzhuf.h" />
     <ClInclude Include="..\..\foreign\miniz-c.h" />

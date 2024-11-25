@@ -2004,6 +2004,7 @@ struct de_crcobj {
 #define DE_PERSISTENT_ITEM_CRC16ARC_TBL 1
 #define DE_PERSISTENT_ITEM_CRC16XMODEM_TBL 2
 #define DE_PERSISTENT_ITEM_CRC16SDLC_TBL 3
+#define DE_PERSISTENT_ITEM_CP932_TBL 4
 
 static const u32 *get_crc32_table(deark *c)
 {

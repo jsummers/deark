@@ -35,6 +35,7 @@ enum de_encoding_enum {
 	DE_ENCODING_WINDOWS1254,
 	DE_ENCODING_WINDOWS874,
 	DE_ENCODING_CP437,
+	DE_ENCODING_CP932,
 	DE_ENCODING_MACROMAN,
 	DE_ENCODING_ATARIST,
 	DE_ENCODING_PALM,
@@ -807,6 +808,10 @@ int de_memmatch(const u8 *mem, const u8 *pattern, size_t pattern_len,
 	u8 wildcard, UI flags);
 int de_memsearch_match(const u8 *mem, i64 mem_len,
 	const u8 *pattern, i64 pattern_len, u8 wildcard, i64 *pfoundpos);
+
+int de_decompress_zlib_mem2mem(deark *c, const u8 *src, i64 src_len,
+	u8 *dst, i64 dst_len);
+de_rune de_cp932_lookup(deark *c, u16 n, UI flags);
 
 struct de_fourcc {
   u8 bytes[4];

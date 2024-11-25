@@ -93,7 +93,7 @@ OFILES_MODS:=$(OFILES_MODS_AB) $(OFILES_MODS_CH) $(OFILES_MODS_IO) \
  $(OFILES_MODS_PQ) $(OFILES_MODS_RZ)
 
 OFILES_DEARK1:=$(addprefix $(OBJDIR)/src/,fmtutil-miniz.o deark-util.o \
- deark-data.o deark-zip.o deark-tar.o deark-png.o \
+ deark-util2.o deark-data.o deark-zip.o deark-tar.o deark-png.o \
  deark-dbuf.o deark-bitmap.o deark-char.o deark-font.o deark-ucstring.o \
  fmtutil.o fmtutil-cmpr.o fmtutil-advfile.o fmtutil-arch.o fmtutil-zip.o \
  fmtutil-fax.o fmtutil-lzh.o fmtutil-lzw.o fmtutil-huffman.o \
