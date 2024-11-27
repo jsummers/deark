@@ -359,6 +359,61 @@ static void append_bytes_utf16(de_ucstring *s, const u8 *cbuf, i64 buflen,
 
 #undef  UTF16_NBYTES_SAVED
 
+// ---- CP932, Shift-JIS, ...
+
+#define CP932_NBYTES_SAVED    (es->buf[6])
+
+static void append_bytes_cp932(deark *c, de_ucstring *s,
+	const u8 *cbuf, i64 buflen,
+	UI conv_flags, struct de_encconv_state *es)
+{
+	i64 pos = 0;
+
+	for(pos=0; pos<buflen; pos++) {
+		u8 n = cbuf[pos];
+		de_rune ch;
+
+		if(CP932_NBYTES_SAVED>0) {
+			u16 tmpch;
+
+			tmpch = (u16)es->buf[0]<<8;
+			tmpch |= n;
+			ch = de_cp932_lookup(c, tmpch, 0);
+			if(ch==0) ch = 0xfffd;
+			ucstring_append_char(s, ch);
+			CP932_NBYTES_SAVED = 0;
+		}
+		else if((n>=0x81 && n<=0x9f) ||
+			(n>=0xe0 && n<=0xfc))
+		{
+			es->buf[0] = n;
+			CP932_NBYTES_SAVED = 1;
+		}
+		else {
+			if(n<=0x7f) {
+				ch = (de_rune)n;
+			}
+			else if(n>=0xa1 && n<=0xdf) {
+				ch = (de_rune)n + (0xff61-0xa1);
+			}
+			else {
+				ch = 0xfffd;
+			}
+			ucstring_append_char(s, ch);
+		}
+	}
+
+	// Deal with unprocessed bytes at the end of the string.
+	if(CP932_NBYTES_SAVED!=0 && !(conv_flags & DE_CONVFLAG_PARTIAL_DATA)) {
+		handle_invalid_bytes(s, es->buf, (UI)CP932_NBYTES_SAVED);
+		CP932_NBYTES_SAVED = 0;
+	}
+}
+
+#undef CP932_NBYTES_SAVED
+
+// ----
+
 // conv_flags:
 //  DE_CONVFLAG_PARTIAL_DATA: There might be more data after this; if 'buf' ends
 //   in a way it shouldn't, it's not necessarily an error.
@@ -381,6 +436,9 @@ void ucstring_append_bytes_ex(de_ucstring *s, const u8 *buf, i64 buflen,
 	}
 	else if(encoding==DE_ENCODING_UTF16LE || encoding==DE_ENCODING_UTF16BE) {
 		append_bytes_utf16(s, buf, buflen, conv_flags, es, (encoding==DE_ENCODING_UTF16LE));
+	}
+	else if(encoding==DE_ENCODING_CP932) {
+		append_bytes_cp932(s->c, s, buf, buflen, conv_flags, es);
 	}
 	else {
 		i64 pos;

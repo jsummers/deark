@@ -607,6 +607,9 @@
     <ClCompile Include="..\..\modules\xwd.c">
       <Filter>Modules</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\deark-util2.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\deark-config.h">
@@ -653,6 +656,9 @@
     </ClInclude>
     <ClInclude Include="..\..\src\resource.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\foreign\cp932data.h">
+      <Filter>Foreign Code</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
