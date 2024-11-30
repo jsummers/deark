@@ -371,16 +371,22 @@ static void append_bytes_cp932(deark *c, de_ucstring *s,
 
 	for(pos=0; pos<buflen; pos++) {
 		u8 n = cbuf[pos];
-		de_rune ch;
+		de_rune ch1, ch2;
 
 		if(CP932_NBYTES_SAVED>0) {
 			u16 tmpch;
+			int nrunes;
 
 			tmpch = (u16)es->buf[0]<<8;
 			tmpch |= n;
-			ch = de_cp932_lookup(c, tmpch, 0);
-			if(ch==0) ch = 0xfffd;
-			ucstring_append_char(s, ch);
+			nrunes = de_cp932_lookup(c, tmpch, 0, &ch1, &ch2);
+			if(nrunes==0 || ch1==0) {
+				ch1 = 0xfffd;
+			}
+			ucstring_append_char(s, ch1);
+			if(nrunes==2) {
+				ucstring_append_char(s, ch2);
+			}
 			CP932_NBYTES_SAVED = 0;
 		}
 		else if((n>=0x81 && n<=0x9f) ||
@@ -390,16 +396,13 @@ static void append_bytes_cp932(deark *c, de_ucstring *s,
 			CP932_NBYTES_SAVED = 1;
 		}
 		else {
-			if(n<=0x7f) {
-				ch = (de_rune)n;
-			}
-			else if(n>=0xa1 && n<=0xdf) {
-				ch = (de_rune)n + (0xff61-0xa1);
+			if(n<=0x7f || (n>=0xa1 && n<=0xdf)) {
+				(void)de_cp932_lookup(c, (u16)n, 0, &ch1, &ch2);
 			}
 			else {
-				ch = 0xfffd;
+				ch1 = 0xfffd;
 			}
-			ucstring_append_char(s, ch);
+			ucstring_append_char(s, ch1);
 		}
 	}
 

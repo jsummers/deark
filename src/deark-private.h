@@ -811,7 +811,7 @@ int de_memsearch_match(const u8 *mem, i64 mem_len,
 
 int de_decompress_zlib_mem2mem(deark *c, const u8 *src, i64 src_len,
 	u8 *dst, i64 dst_len);
-de_rune de_cp932_lookup(deark *c, u16 n, UI flags);
+int de_cp932_lookup(deark *c, u16 n, UI flags, de_rune *pr1, de_rune *pr2);
 
 struct de_fourcc {
   u8 bytes[4];

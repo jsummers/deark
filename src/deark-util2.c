@@ -54,8 +54,6 @@ int de_decompress_zlib_mem2mem(deark *c,
 
 #define DE_PERSISTENT_ITEM_CP932_TBL 4
 
-#define CP932_UNC_TBL_SIZE 65536
-
 static void make_cp932_table(deark *c)
 {
 	u8 *tbl;
@@ -65,20 +63,48 @@ static void make_cp932_table(deark *c)
 		return;
 	}
 
-	tbl = de_malloc(c, CP932_UNC_TBL_SIZE);
+	tbl = de_malloc(c, DE_CP932DATA_ORIG_LEN);
 	ret = de_decompress_zlib_mem2mem(c, de_cp932data, DE_CP932DATA_LEN,
-		tbl, CP932_UNC_TBL_SIZE);
+		tbl, DE_CP932DATA_ORIG_LEN);
 	if(!ret) {
 		de_internal_err_fatal(c, "Problem with cp932 data");
 	}
 	c->persistent_item[DE_PERSISTENT_ITEM_CP932_TBL] = (void*)tbl;
 }
 
-de_rune de_cp932_lookup(deark *c, u16 n, UI flags)
+// Returns the number of runes set (0, 1, or 2)
+int de_cp932_lookup(deark *c, u16 n, UI flags, de_rune *pr1, de_rune *pr2)
 {
 	u8 *tbl;
+	u8 plane_code;
 
-	if(n<32768 /* || n>65535 */) return 0;
+	*pr1 = 0;
+	*pr2 = 0;
+
+	if(n<32768) {
+		if(flags & 0x1) {
+			// This is probably(??) what we want to do most of the time, but
+			// until all of Deark's path-separator-detection code is reviewed,
+			// it's too risky to turn backslashes into yen signs.
+			if(n==0x5c) {
+				*pr1 = 0x00a5; // YEN SIGN
+				return 1;
+			}
+			if(n==0x7e) {
+				*pr1 = 0x203e; // OVERLINE
+				return 1;
+			}
+		}
+		if(n<=0x7f) {
+			*pr1 = (de_rune)n;
+			return 1;
+		}
+		if(n>=0xa1 && n<=0xdf) {
+			*pr1 = (de_rune)n + (0xff61-0xa1);
+			return 1;
+		}
+		return 0;
+	}
 
 	if(!c->persistent_item[DE_PERSISTENT_ITEM_CP932_TBL]) {
 		make_cp932_table(c);
@@ -89,5 +115,25 @@ de_rune de_cp932_lookup(deark *c, u16 n, UI flags)
 		return 0;
 	}
 
-	return ((de_rune)tbl[n-32768]<<8)|tbl[n];
+	*pr1 = ((de_rune)tbl[n]<<8)|tbl[n+32768];
+
+	plane_code = tbl[n-32768];
+	if(plane_code==0) return 1;
+	if(plane_code<=0x10) {
+		*pr1 |= ((de_rune)plane_code<<16);
+		return 1;
+	}
+
+	// Some hacky special handling of the case where a Shift JIS code
+	// maps to *two* Unicode codepoints.
+	// E.g. 0x8663 -> U+00E6 U+0300
+	switch(plane_code) {
+	case 0xf0: *pr2 = 0x02e5; break;
+	case 0xf1: *pr2 = 0x02e9; break;
+	case 0xf2: *pr2 = 0x0300; break;
+	case 0xf3: *pr2 = 0x0301; break;
+	case 0xf4: *pr2 = 0x309a; break;
+	}
+	if(*pr2 != 0) return 2;
+	return 0;
 }
