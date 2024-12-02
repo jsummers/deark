@@ -593,6 +593,24 @@ done:
 	;
 }
 
+static void detect_specialexe_texe(deark *c,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	// We only detect v1.0 shareware. No other versions have been found.
+	if(ei->overlay_len < 2) goto done;
+	if(ei->end_of_dos_code - ei->start_of_dos_code != 14732) goto done;
+
+	if(dbuf_memcmp(ei->f, ei->start_of_dos_code+13433, (const void*)"Raymond P", 9)) {
+		goto done;
+	}
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_TEXE;
+	de_strlcpy(edd->detected_fmt_name, "TEXE", sizeof(edd->detected_fmt_name));
+	edd->modname = "texe";
+done:
+	;
+}
+
 // Caller supplies ei -- must call fmtutil_collect_exe_info() first.
 // Caller initializes edd, to receive the results.
 // If success, sets edd->detected_fmt to nonzero.
@@ -603,6 +621,11 @@ void fmtutil_detect_specialexe(deark *c, struct fmtutil_exe_info *ei,
 {
 	edd->detected_fmt = 0;
 	edd->detected_subfmt = 0;
+
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_TEXE) {
+		detect_specialexe_texe(c, ei, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_GWS_EXEPIC) {
 		detect_specialexe_gws_exepic(c, ei, edd);
