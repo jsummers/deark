@@ -31,6 +31,15 @@ typedef struct localctx_exectext {
 	u8 chartypes[32]; // 1=printable, 2=control
 } lctx;
 
+static void exectext_set_common_enc_opts(deark *c, lctx *d, de_encoding dflt_enc)
+{
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->opt_encconv = (u8)de_get_ext_option_bool(c, "text:encconv", 1);
+	if(d->input_encoding==DE_ENCODING_ASCII) {
+		d->opt_encconv = 0;
+	}
+}
+
 static void exectext_check_tpos(deark *c, lctx *d)
 {
 	if(d->tpos<0 || (d->tpos==0 && d->inf==c->infile) ||
@@ -211,11 +220,7 @@ static void de_run_txt2com(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = create_lctx(c);
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
-	d->opt_encconv = (u8)de_get_ext_option_bool(c, "text:encconv", 1);
-	if(d->input_encoding==DE_ENCODING_ASCII) {
-		d->opt_encconv = 0;
-	}
+	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 	d->chartypes[10] = 1;
 	d->chartypes[13] = 1;
 	de_declare_fmt(c, "TXT2COM");
@@ -333,11 +338,7 @@ static void de_run_show_gmr(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = create_lctx(c);
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
-	d->opt_encconv = (u8)de_get_ext_option_bool(c, "text:encconv", 1);
-	if(d->input_encoding==DE_ENCODING_ASCII) {
-		d->opt_encconv = 0;
-	}
+	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 	de_declare_fmt(c, "SHOW (executable text)");
 	d->chartypes[10] = 1;
 	d->chartypes[13] = 1;
@@ -728,22 +729,19 @@ done:
 
 static void doc2com_output(deark *c, lctx *d)
 {
-	dbuf *outf = NULL;
+	dbuf *tmpdbuf = NULL;
 
-	if(d->tlen<0 || d->tpos<0 || d->tpos+d->tlen>c->infile->len) {
-		d->errflag = 1;
-		d->need_errmsg = 1;
-		goto done;
-	}
+	exectext_check_tpos(c, d);
+	if(d->errflag) goto done;
 
-	outf = dbuf_create_output_file(c, "txt", NULL, 0);
 	if(d->is_encrypted) {
 		u8 this_byte = 0;
 		u8 next_byte = 0;
 		u8 init_flag = 0;
 		i64 i;
 
-		dbuf_enable_wbuffer(outf);
+		tmpdbuf = dbuf_create_membuf(c, d->tlen, 0);
+		dbuf_enable_wbuffer(tmpdbuf);
 
 		for(i=0; i<d->tlen; i++) {
 			u8 b;
@@ -764,15 +762,36 @@ static void doc2com_output(deark *c, lctx *d)
 			}
 
 			b = this_byte ^ next_byte;
-			dbuf_writebyte(outf, b);
+			dbuf_writebyte(tmpdbuf, b);
 		}
-	}
-	else {
-		dbuf_copy(c->infile, d->tpos, d->tlen, outf);
+
+		dbuf_flush(tmpdbuf);
+		d->inf = tmpdbuf;
+		d->tpos = 0;
 	}
 
+	// Notes:
+	//
+	// - By default, DOC2COM doesn't support most control characters and
+	// extended ASCII characters. It just displays them as spaces.
+	// But with the /e option, it supports these characters the way that
+	// most programs do.
+	// Any undisplayed characters are still in the COM file. While we could
+	// detect the non-use of /e, and do something differently, I think it's
+	// best to behave as if /e were always used.
+	//
+	// - V1.3+ has the ability to define arbitrary characters to be special
+	// codes that change the colors. A color-change code is just a single
+	// character like "^", nothing that would complicate conversion to UTF-8.
+	// While we could read these definitions from the COM file, and use them
+	// to translate the document differently, it's not really clear *what* to
+	// do. So, we just recover the source document. Special characters will
+	// lose their special meaning.
+
+	exectext_extract_default(c, d);
+
 done:
-	dbuf_close(outf);
+	dbuf_close(tmpdbuf);
 }
 
 static void de_run_doc2com(deark *c, de_module_params *mparams)
@@ -781,6 +800,8 @@ static void de_run_doc2com(deark *c, de_module_params *mparams)
 	struct doc2com_detection_data idd;
 
 	d = create_lctx(c);
+	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
+
 	de_zeromem(&idd, sizeof(struct doc2com_detection_data));
 	doc2com_detect(c, &idd, 0);
 	if(!idd.found) {
@@ -790,6 +811,13 @@ static void de_run_doc2com(deark *c, de_module_params *mparams)
 	d->fmtcode = idd.fmtcode;
 	de_dbg(c, "fmt code: %u", d->fmtcode);
 	doc2com_analyze(c, d);
+
+	d->allow_tlen_0 = 1;
+	d->chartypes[9] = 1;
+	d->chartypes[10] = 1;
+	d->chartypes[12] = 1;
+	d->chartypes[13] = 1;
+
 	if(d->errflag) goto done;
 	doc2com_output(c, d);
 
@@ -817,12 +845,18 @@ static int de_identify_doc2com(deark *c)
 	return 0;
 }
 
+static void de_help_doc2com(deark *c)
+{
+	print_encconv_option(c);
+}
+
 void de_module_doc2com(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "doc2com";
 	mi->desc = "DOC2COM executable text (G. DePyper)";
 	mi->run_fn = de_run_doc2com;
 	mi->identify_fn = de_identify_doc2com;
+	mi->help_fn = de_help_doc2com;
 }
 
 ///////////////////////////////////////////////////
@@ -837,11 +871,7 @@ static void de_run_doc2com_dkn(deark *c, de_module_params *mparams)
 	UI b1, b2;
 
 	d = create_lctx(c);
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
-	d->opt_encconv = (u8)de_get_ext_option_bool(c, "text:encconv", 1);
-	if(d->input_encoding==DE_ENCODING_ASCII) {
-		d->opt_encconv = 0;
-	}
+	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 	d->chartypes[7] = 1;
 	d->chartypes[8] = 1;
 	d->chartypes[9] = 1;
@@ -1001,11 +1031,7 @@ static void de_run_gtxt(deark *c, de_module_params *mparams)
 	dbuf *outf = NULL;
 
 	d = create_lctx(c);
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
-	d->opt_encconv = (u8)de_get_ext_option_bool(c, "text:encconv", 1);
-	if(d->input_encoding==DE_ENCODING_ASCII) {
-		d->opt_encconv = 0;
-	}
+	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 	d->opt_fmtconv = (u8)de_get_ext_option_bool(c, "text:fmtconv", 1);
 
 	d->chartypes[7] = 1;
@@ -1141,11 +1167,7 @@ static void de_run_readmake(deark *c, de_module_params *mparams)
 	rmctx->msgpfx = "[READMAKE] ";
 	rmctx->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
 
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
-	d->opt_encconv = (u8)de_get_ext_option_bool(c, "text:encconv", 1);
-	if(d->input_encoding==DE_ENCODING_ASCII) {
-		d->opt_encconv = 0;
-	}
+	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 
 	d->allow_tlen_0 = 1;
 	d->chartypes[8] = 1;
@@ -1238,11 +1260,7 @@ static void de_run_texe(deark *c, de_module_params *mparams)
 	tctx->msgpfx = "[TEXE] ";
 	tctx->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
 
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
-	d->opt_encconv = (u8)de_get_ext_option_bool(c, "text:encconv", 1);
-	if(d->input_encoding==DE_ENCODING_ASCII) {
-		d->opt_encconv = 0;
-	}
+	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 
 	d->chartypes[10] = 1;
 	d->chartypes[13] = 1;

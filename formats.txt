@@ -1155,10 +1155,13 @@ Deark -- Information about supported formats
   Options
    -a, -opt crc:all - Also compute uncommon CRCs and checksums.
 
-* DOC2COM (moule="doc2com") (experimental)
+* DOC2COM (moule="doc2com")
   Executable text (.COM) files made by G. DePyper's DOC2COM utility.
   - Supports files that use encryption.
-  - Does not attempt to translate to UTF-8.
+  - Extracts the source text. Does not necessarily render the document (e.g.
+    colors) like running the COM file would.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
 
 * DOC2COM (moule="doc2com_dkn")
   Executable text (.COM) files made by D. Nelson's DOC2COM utility.
