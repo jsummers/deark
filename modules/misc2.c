@@ -39,6 +39,7 @@ DE_DECLARE_MODULE(de_module_young_picasso);
 DE_DECLARE_MODULE(de_module_iconmgr_ica);
 DE_DECLARE_MODULE(de_module_thumbsplus);
 DE_DECLARE_MODULE(de_module_fmtowns_icn);
+DE_DECLARE_MODULE(de_module_fmtowns_hel);
 DE_DECLARE_MODULE(de_module_pixfolio);
 DE_DECLARE_MODULE(de_module_apple2icons);
 
@@ -3090,6 +3091,107 @@ void de_module_fmtowns_icn(deark *c, struct deark_module_info *mi)
 	mi->desc = "FM Towns icons";
 	mi->run_fn = de_run_fmtowns_icn;
 	mi->identify_fn = de_identify_fmtowns_icn;
+}
+
+// **************************************************************************
+// .HEL
+// An animation format used on FM Towns OS.
+// **************************************************************************
+
+struct hel_ctx {
+	u8 includedups;
+	u8 change_flag;
+	i64 w, h;
+	de_bitmap *canvas;
+	de_bitmap *frame_data;
+};
+
+static void hel_apply_frame(deark *c, struct hel_ctx *d)
+{
+	i64 i, j;
+	de_color px1, px2;
+
+	for(j=0; j<d->h; j++) {
+		for(i=0; i<d->w; i++) {
+			px2 = de_bitmap_getpixel(d->frame_data, i, j);
+			// If pixel is "white", negate the canvas pixel.
+			if(DE_COLOR_K(px2)!=0) {
+				de_colorsample s;
+
+				px1 = de_bitmap_getpixel(d->canvas, i, j);
+				s = (DE_COLOR_K(px1)==0) ? 0xff : 0;
+				de_bitmap_setpixel_gray(d->canvas, i, j, s);
+				d->change_flag = 1;
+			}
+		}
+	}
+}
+
+static void de_run_fmtowns_hel(deark *c, de_module_params *mparams)
+{
+	struct hel_ctx *d = NULL;
+	i64 rowspan;
+	i64 framesize;
+	i64 nframes;
+	i64 frame_idx;
+
+	d = de_malloc(c, sizeof(struct hel_ctx));
+	d->includedups = (u8)de_get_ext_option_bool(c, "fmtowns_hel:includedups", 0);
+	d->w = 160;
+	d->h = 120;
+	rowspan = d->w/8;
+	framesize = rowspan*d->h;
+	d->canvas = de_bitmap_create(c, d->w, d->h, 1);
+	d->frame_data = de_bitmap_create(c, d->w, d->h, 1);
+
+	nframes = de_getu32le(8) + 1;
+	de_dbg(c, "num frames: %"I64_FMT, nframes);
+	for(frame_idx=0; frame_idx<nframes; frame_idx++) {
+		i64 framestart = 12 + framesize*frame_idx;
+
+		if(framestart+framesize > c->infile->len) goto done;
+		de_dbg(c, "frame %"I64_FMT" at %"I64_FMT, frame_idx, framestart);
+		de_dbg_indent(c, 1);
+		de_convert_image_bilevel(c->infile, framestart, rowspan, d->frame_data, 0);
+		d->change_flag = 0;
+		hel_apply_frame(c, d);
+		if(d->change_flag==0 && frame_idx!=0 && !d->includedups) {
+			de_dbg(c, "[suppressing duplicate frame]");
+		}
+		else {
+			de_bitmap_write_to_file(d->canvas, NULL, DE_CREATEFLAG_IS_BWIMG);
+		}
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	if(d) {
+		de_bitmap_destroy(d->frame_data);
+		de_bitmap_destroy(d->canvas);
+		de_free(c, d);
+	}
+}
+
+static int de_identify_fmtowns_hel(deark *c)
+{
+	if(dbuf_memcmp(c->infile, 0, (const void*)"he1\0\x01\0\0\0", 8)) {
+		return 0;
+	}
+	return 100;
+}
+
+static void de_help_fmtowns_hel(deark *c)
+{
+	de_msg(c, "-opt fmtowns_hel:includedups : Do not suppress duplicate frames");
+}
+
+void de_module_fmtowns_hel(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "fmtowns_hel";
+	mi->desc = "FM Towns animation (.hel)";
+	mi->run_fn = de_run_fmtowns_hel;
+	mi->identify_fn = de_identify_fmtowns_hel;
+	mi->help_fn = de_help_fmtowns_hel;
 }
 
 // **************************************************************************

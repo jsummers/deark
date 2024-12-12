@@ -206,6 +206,9 @@ Deark -- Information about supported formats
 * FLI/FLC (Autodesk Animator) (module="fli")
   - Extract the (non-repeated) frames.
 
+* FM Towns HEL (module="fmtowns_hel")
+  This is a simple animation format.
+
 * FM Towns ICN (module="fmtowns_icn")
   - A standard palette is used, which isn't ideal in all cases.
 
