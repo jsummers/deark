@@ -351,12 +351,15 @@ static const struct emfplus_rec_info emfplus_rec_info_arr[] = {
 	{ 0x401a, "DrawImage" },
 	{ 0x401b, "DrawImagePoints" },
 	{ 0x401c, "DrawString" },
+	{ 0x401d, "SetRenderingOrigin" },
 	{ 0x401e, "SetAntiAliasMode" },
 	{ 0x401f, "SetTextRenderingHint" },
 	{ 0x4020, "SetTextContrast" },
 	{ 0x4021, "SetInterpolationMode" },
 	{ 0x4022, "SetPixelOffsetMode" },
 	{ 0x4024, "SetCompositingQuality" },
+	{ 0x4025, "Save" },
+	{ 0x4026, "Restore" },
 	{ 0x402a, "SetWorldTransform" },
 	{ 0x402b, "ResetWorldTransform" },
 	{ 0x402c, "MultiplyWorldTransform" },
@@ -368,6 +371,7 @@ static const struct emfplus_rec_info emfplus_rec_info_arr[] = {
 	{ 0x4033, "SetClipPath" },
 	{ 0x4034, "SetClipRegion" },
 	{ 0x4035, "OffsetClip" },
+	{ 0x4036, "DrawDriverString" },
 	{ 0x4038, "SerializableObject" }
 };
 
