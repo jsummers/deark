@@ -3578,7 +3578,9 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	}
 	else if(pg->photometric==2) { // RGB
 		dctx->base_samples_per_pixel = 3;
-		if(pg->bits_per_sample==8 || pg->bits_per_sample==16) {
+		if(pg->bits_per_sample==1 || pg->bits_per_sample==2 || pg->bits_per_sample==4 ||
+			pg->bits_per_sample==8 || pg->bits_per_sample==16)
+		{
 			ok_bps = 1;
 		}
 	}
