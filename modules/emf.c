@@ -40,7 +40,6 @@ struct emf_func_info {
 struct emfplus_rec_info {
 	u32 rectype;
 	const char *name;
-	void *reserved1;
 };
 
 // Note: This is duplicated in wmf.c
@@ -327,49 +326,49 @@ done:
 }
 
 static const struct emfplus_rec_info emfplus_rec_info_arr[] = {
-	{ 0x4001, "Header", NULL },
-	{ 0x4002, "EndOfFile", NULL },
-	{ 0x4003, "Comment", NULL },
-	{ 0x4004, "GetDC", NULL },
-	{ 0x4008, "Object", NULL },
-	{ 0x4009, "Clear", NULL },
-	{ 0x400a, "FillRects", NULL },
-	{ 0x400b, "DrawRects", NULL },
-	{ 0x400c, "FillPolygon", NULL },
-	{ 0x400d, "DrawLines", NULL },
-	{ 0x400e, "FillEllipse", NULL },
-	{ 0x400f, "DrawEllipse", NULL },
-	{ 0x4010, "FillPie", NULL },
-	{ 0x4011, "DrawPie", NULL },
-	{ 0x4012, "DrawArc", NULL },
-	{ 0x4013, "FillRegion", NULL },
-	{ 0x4014, "FillPath", NULL },
-	{ 0x4015, "DrawPath", NULL },
-	{ 0x4016, "FillClosedCurve", NULL },
-	{ 0x4017, "DrawClosedCurve", NULL },
-	{ 0x4018, "DrawCurve", NULL },
-	{ 0x4019, "DrawBeziers", NULL },
-	{ 0x401a, "DrawImage", NULL },
-	{ 0x401b, "DrawImagePoints", NULL },
-	{ 0x401c, "DrawString", NULL },
-	{ 0x401e, "SetAntiAliasMode", NULL },
-	{ 0x401f, "SetTextRenderingHint", NULL },
-	{ 0x4020, "SetTextContrast", NULL },
-	{ 0x4021, "SetInterpolationMode", NULL },
-	{ 0x4022, "SetPixelOffsetMode", NULL },
-	{ 0x4024, "SetCompositingQuality", NULL },
-	{ 0x402a, "SetWorldTransform", NULL },
-	{ 0x402b, "ResetWorldTransform", NULL },
-	{ 0x402c, "MultiplyWorldTransform", NULL },
-	{ 0x402d, "TranslateWorldTransform", NULL },
-	{ 0x402f, "RotateWorldTransform", NULL },
-	{ 0x4030, "SetPageTransform", NULL },
-	{ 0x4031, "ResetClip", NULL },
-	{ 0x4032, "SetClipRect", NULL },
-	{ 0x4033, "SetClipPath", NULL },
-	{ 0x4034, "SetClipRegion", NULL },
-	{ 0x4035, "OffsetClip", NULL },
-	{ 0x4038, "SerializableObject", NULL }
+	{ 0x4001, "Header" },
+	{ 0x4002, "EndOfFile" },
+	{ 0x4003, "Comment" },
+	{ 0x4004, "GetDC" },
+	{ 0x4008, "Object" },
+	{ 0x4009, "Clear" },
+	{ 0x400a, "FillRects" },
+	{ 0x400b, "DrawRects" },
+	{ 0x400c, "FillPolygon" },
+	{ 0x400d, "DrawLines" },
+	{ 0x400e, "FillEllipse" },
+	{ 0x400f, "DrawEllipse" },
+	{ 0x4010, "FillPie" },
+	{ 0x4011, "DrawPie" },
+	{ 0x4012, "DrawArc" },
+	{ 0x4013, "FillRegion" },
+	{ 0x4014, "FillPath" },
+	{ 0x4015, "DrawPath" },
+	{ 0x4016, "FillClosedCurve" },
+	{ 0x4017, "DrawClosedCurve" },
+	{ 0x4018, "DrawCurve" },
+	{ 0x4019, "DrawBeziers" },
+	{ 0x401a, "DrawImage" },
+	{ 0x401b, "DrawImagePoints" },
+	{ 0x401c, "DrawString" },
+	{ 0x401e, "SetAntiAliasMode" },
+	{ 0x401f, "SetTextRenderingHint" },
+	{ 0x4020, "SetTextContrast" },
+	{ 0x4021, "SetInterpolationMode" },
+	{ 0x4022, "SetPixelOffsetMode" },
+	{ 0x4024, "SetCompositingQuality" },
+	{ 0x402a, "SetWorldTransform" },
+	{ 0x402b, "ResetWorldTransform" },
+	{ 0x402c, "MultiplyWorldTransform" },
+	{ 0x402d, "TranslateWorldTransform" },
+	{ 0x402f, "RotateWorldTransform" },
+	{ 0x4030, "SetPageTransform" },
+	{ 0x4031, "ResetClip" },
+	{ 0x4032, "SetClipRect" },
+	{ 0x4033, "SetClipPath" },
+	{ 0x4034, "SetClipRegion" },
+	{ 0x4035, "OffsetClip" },
+	{ 0x4038, "SerializableObject" }
 };
 
 static void do_one_emfplus_record(deark *c, lctx *d, i64 pos, i64 len,
@@ -432,7 +431,6 @@ static void do_one_emfplus_record(deark *c, lctx *d, i64 pos, i64 len,
 	}
 
 	de_dbg_indent(c, 1);
-	// TODO: Use handler function via epinfo
 	if(rectype==0x4003) {
 		emfplus_handler_4003(c, d, rectype, payload_pos, datasize);
 	}
