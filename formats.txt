@@ -806,6 +806,9 @@ Deark -- Information about supported formats
 
 * compress (legacy Unix .Z format) (module="compress")
 
+* Compressor, The (module="tc_trs80")
+  TRS-80 software by John Lauro.
+
 * cpio (module="cpio")
 
 * CP Shrink (.cpz) (module="cpshrink")

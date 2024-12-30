@@ -24,6 +24,7 @@ DE_DECLARE_MODULE(de_module_ain);
 DE_DECLARE_MODULE(de_module_hta);
 DE_DECLARE_MODULE(de_module_hit);
 DE_DECLARE_MODULE(de_module_binary_ii);
+DE_DECLARE_MODULE(de_module_tc_trs80);
 
 static int dclimplode_header_at(deark *c, i64 pos)
 {
@@ -2782,4 +2783,245 @@ void de_module_binary_ii(deark *c, struct deark_module_info *mi)
 	mi->desc = "Binary II";
 	mi->run_fn = de_run_binary_ii;
 	mi->identify_fn = de_identify_binary_ii;
+}
+
+// **************************************************************************
+// TRS-80 TC archive (.arc, .tc)
+// Made by The Compressor, by John Lauro.
+// [Written with help from UnTC, public domain software by Tim Koonce.]
+// **************************************************************************
+
+static void tc_decompress_rle(struct de_arch_member_data *md)
+{
+	u8 escchar;
+	i64 pos = md->dcmpri->pos;
+	i64 endpos = md->dcmpri->pos + md->dcmpri->len;
+	i64 nbytes_written = 0;
+	static const char *modname = "TC_RLE";
+
+	escchar = dbuf_getbyte_p(md->dcmpri->f, &pos);
+	while(1) {
+		u8 b0, b1, b2;
+		i64 ctmp;
+		i64 count = 0;
+		u8 val = 0;
+
+		if(pos >= endpos) goto done;
+
+		b0 = dbuf_getbyte_p(md->dcmpri->f, &pos);
+		if(b0 != escchar) {
+			dbuf_writebyte(md->dcmpro->f, b0);
+			nbytes_written++;
+			continue;
+		}
+
+		b1 = dbuf_getbyte_p(md->dcmpri->f, &pos);
+		if(b1==0) {
+			count = 1;
+			val = escchar;
+		}
+		else if(b1==1) { // run length 256 to 511
+			b2 = dbuf_getbyte_p(md->dcmpri->f, &pos);
+			count = 256 + (i64)b2;
+			val = dbuf_getbyte_p(md->dcmpri->f, &pos);
+		}
+		else if(b1==2) { // large  run length
+			ctmp = dbuf_getu16be_p(md->dcmpri->f, &pos);
+			count = 512 + ctmp;
+			val = dbuf_getbyte_p(md->dcmpri->f, &pos);
+		}
+		else if(b1>3) { // small  run length
+			count = (i64)b1;
+			val = dbuf_getbyte_p(md->dcmpri->f, &pos);
+		}
+		else {
+			de_dfilter_set_generic_error(md->c, md->dres, modname);
+			goto done;
+		}
+		dbuf_write_run(md->dcmpro->f, val, count);
+		nbytes_written += count;
+	}
+done:
+	if(md->dres->errcode==0) {
+		de_dbg(md->c, "decompressed %"I64_FMT" to %"I64_FMT" bytes",
+			pos-md->dcmpri->pos, nbytes_written);
+	}
+}
+
+static void tc_decompressor_fn(struct de_arch_member_data *md)
+{
+	deark *c = md->c;
+
+	if(md->cmpr_meth==0) {
+		fmtutil_decompress_uncompressed(c, md->dcmpri, md->dcmpro, md->dres, 0);
+	}
+	else if(md->cmpr_meth==1) {
+		tc_decompress_rle(md);
+	}
+	else {
+		de_dfilter_set_generic_error(c, md->dres, NULL);
+	}
+}
+static void do_tc_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *md)
+{
+	int saved_indent_level;
+	i64 seq_num;
+	i64 pos = md->member_hdr_pos;
+	de_ucstring *fn_ext = NULL;
+	u8 ver;
+	u8 ftype;
+	u8 aflag;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	de_dbg(c, "member at %"I64_FMT, md->member_hdr_pos);
+	de_dbg_indent(c, 1);
+
+	seq_num = (i64)de_getbyte_p(&pos);
+	de_dbg(c, "seq num: %d", (int)seq_num);
+	if(seq_num == 0) {
+		d->stop_flag = 1;
+		goto done;
+	}
+	if(seq_num != md->member_idx) {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	dbuf_read_to_ucstring(c->infile, pos, 8, md->filename, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	pos += 8;
+	ucstring_strip_trailing_spaces(md->filename);
+
+	fn_ext = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, 3, fn_ext, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	pos += 3;
+	ucstring_strip_trailing_spaces(fn_ext);
+	if(ucstring_isnonempty(fn_ext)) {
+		ucstring_append_char(md->filename, '.');
+		ucstring_append_ucstring(md->filename, fn_ext);
+	}
+
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+
+	ftype = de_getbyte_p(&pos);
+	de_dbg(c, "file type: %u", (UI)ftype);
+	aflag = de_getbyte_p(&pos);
+	de_dbg(c, "ascii flag: %u", (UI)aflag);
+	ver = de_getbyte_p(&pos);
+	if(ver != 1) {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	md->cmpr_len = dbuf_getint_ext(c->infile, pos, 3, 0, 0);
+	pos += 3;
+	de_dbg(md->c, "compressed size: %"I64_FMT, md->cmpr_len);
+
+	md->cmpr_meth = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "cmpr. method: %u", md->cmpr_meth);
+
+	md->cmpr_pos = pos;
+	de_dbg(c, "file data pos: %"I64_FMT, md->cmpr_pos);
+	md->member_total_size = md->cmpr_pos + md->cmpr_len - md->member_hdr_pos;
+
+	if(md->cmpr_meth>1) {
+		de_err(c, "Unsupported compression: %u", (UI)md->cmpr_meth);
+		goto done;
+	}
+
+	md->dfn = tc_decompressor_fn;
+	de_arch_extract_member_file(md);
+
+done:
+	ucstring_destroy(fn_ext);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void de_run_tc_trs80(deark *c, de_module_params *mparams)
+{
+	de_arch_lctx *d = NULL;
+	struct de_arch_member_data *md = NULL;
+	i64 pos = 0;
+	i64 seq_num = 0;
+
+	d = de_arch_create_lctx(c);
+	d->is_le = 0;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
+
+	while(1) {
+		if(pos >= c->infile->len) {
+			d->fatalerrflag = 1;
+			d->need_errmsg = 1;
+			goto done;
+		}
+
+		if(md) {
+			de_arch_destroy_md(c, md);
+			md = NULL;
+		}
+
+		seq_num++; // 1-based
+		md = de_arch_create_md(c, d);
+		md->member_hdr_pos = pos;
+		md->member_idx = seq_num;
+		do_tc_member(c, d, md);
+		if(d->stop_flag || d->fatalerrflag || md->member_total_size<1) {
+			goto done;
+		}
+		pos += md->member_total_size;
+	}
+
+done:
+
+	if(md) {
+		de_arch_destroy_md(c, md);
+	}
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported TC file");
+		}
+		de_arch_destroy_lctx(c, d);
+	}
+}
+
+static int de_identify_tc_trs80(deark *c)
+{
+	int has_ext = 0;
+	u8 b;
+	i64 n;
+	i64 i;
+
+	if(de_getbyte(0)!=1) return 0; // seq num #1
+	if(de_getbyte(14)!=1) return 0; // format ver
+	if(de_getbyte(18) >= 2) return 0; // cmpr meth
+
+	for(i=0; i<11; i++) { // filename
+		b = de_getbyte(1+i);
+		if(b<32) return 0;
+		if(i==0 && b==32) return 0;
+	}
+
+	b = de_getbyte(13); // ascii flag
+	if(b!=0 && b!=255) return 0;
+
+	n = (de_getu32be(14) & 0xffffff) + 19; // offset of member #2
+	b = de_getbyte(n); // seq num #2
+	if(b!=0 && b!=2) return 0;
+
+	if(de_input_file_has_ext(c, "arc")) has_ext = 1;
+	else if(de_input_file_has_ext(c, "tc")) has_ext = 1;
+	if(has_ext) return 75;
+	else return 15;
+}
+
+void de_module_tc_trs80(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "tc_trs80";
+	mi->desc = "The Compressor (TRS-80 archive)";
+	mi->run_fn = de_run_tc_trs80;
+	mi->identify_fn = de_identify_tc_trs80;
 }
