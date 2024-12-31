@@ -347,6 +347,7 @@ static int de_identify_macbinary(deark *c)
 	int good_file_len = 0;
 	int good_cc = 0;
 	int bad_crc = 0;
+	int fnlen;
 	i64 n;
 	i64 dflen, rflen;
 	i64 min_expected_len;
@@ -389,8 +390,19 @@ static int de_identify_macbinary(deark *c)
 	}
 
 	// Check if filename characters are sensible
-	for(k=0; k<(int)b[1]; k++) {
-		if(b[2+k]>0 && b[2+k]<32) goto done;
+	fnlen = (int)b[1];
+	for(k=0; k<fnlen; k++) {
+		if(b[2+k]>0 && b[2+k]<32) {
+			// Control char found.
+
+			if(b[2+k]==0x0d && fnlen>1 && k==fnlen-1) {
+				// Exception: Allow the last char to be a CR.
+				;
+			}
+			else {
+				goto done;
+			}
+		}
 	}
 
 	// File type code. Expect ASCII.

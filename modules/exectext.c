@@ -13,6 +13,7 @@ DE_DECLARE_MODULE(de_module_doc2com);
 DE_DECLARE_MODULE(de_module_doc2com_dkn);
 DE_DECLARE_MODULE(de_module_gtxt);
 DE_DECLARE_MODULE(de_module_readmake);
+DE_DECLARE_MODULE(de_module_texe);
 
 typedef struct localctx_exectext {
 	de_encoding input_encoding;
@@ -24,17 +25,45 @@ typedef struct localctx_exectext {
 	u8 found_text;
 	u8 is_encrypted;
 	u8 allow_tlen_0;
+	dbuf *inf; // This is a copy; do not free.
 	i64 tpos;
 	i64 tlen;
 	u8 chartypes[32]; // 1=printable, 2=control
 } lctx;
 
+static void exectext_set_common_enc_opts(deark *c, lctx *d, de_encoding dflt_enc)
+{
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->opt_encconv = (u8)de_get_ext_option_bool(c, "text:encconv", 1);
+	if(d->input_encoding==DE_ENCODING_ASCII) {
+		d->opt_encconv = 0;
+	}
+}
+
 static void exectext_check_tpos(deark *c, lctx *d)
 {
-	if(d->tpos<1 || d->tlen<0 || d->tpos+d->tlen>c->infile->len) {
+	if(d->tpos<0 || (d->tpos==0 && d->inf==c->infile) ||
+		d->tlen<0 || (d->tlen==0 && !d->allow_tlen_0) ||
+		(d->tpos+d->tlen > d->inf->len))
+	{
 		d->errflag = 1;
 		d->need_errmsg = 1;
 	}
+}
+
+static lctx *create_lctx(deark *c)
+{
+	lctx *d;
+
+	d = de_malloc(c, sizeof(lctx));
+	d->inf = c->infile;
+	return d;
+}
+
+static void destroy_lctx(deark *c, lctx *d)
+{
+	if(!d) return;
+	de_free(c, d);
 }
 
 #if 0
@@ -46,7 +75,7 @@ static void exectext_extract_verbatim(deark *c, lctx *d)
 	if(d->errflag) goto done;
 
 	outf = dbuf_create_output_file(c, "txt", NULL, 0);
-	dbuf_copy(c->infile, d->tpos, d->tlen, outf);
+	dbuf_copy(d->inf, d->tpos, d->tlen, outf);
 
 done:
 	dbuf_close(outf);
@@ -77,7 +106,7 @@ static void exectext_convert_and_write(deark *c, lctx *d, dbuf *outf)
 	while(pos < endpos) {
 		u8 x;
 
-		x = de_getbyte_p(&pos);
+		x = dbuf_getbyte_p(d->inf, &pos);
 		if(x<32 && d->chartypes[x]!=0) {
 			dbuf_writebyte(outf, x);
 		}
@@ -99,13 +128,8 @@ static void exectext_extract_default(deark *c, lctx *d)
 	dbuf *outf = NULL;
 
 	if(d->errflag) goto done;
-	if(d->tpos<=0 || d->tlen<0 || d->tpos+d->tlen>c->infile->len ||
-		(d->tlen==0 && !d->allow_tlen_0))
-	{
-		d->errflag = 1;
-		d->need_errmsg = 1;
-		goto done;
-	}
+	exectext_check_tpos(c, d);
+	if(d->errflag) goto done;
 
 	outf = dbuf_create_output_file(c, "txt", NULL, 0);
 	if(d->opt_encconv) {
@@ -113,7 +137,7 @@ static void exectext_extract_default(deark *c, lctx *d)
 		exectext_convert_and_write(c, d, outf);
 	}
 	else {
-		dbuf_copy(c->infile, d->tpos, d->tlen, outf);
+		dbuf_copy(d->inf, d->tpos, d->tlen, outf);
 	}
 
 done:
@@ -191,22 +215,12 @@ done:
 	de_free(c, mem);
 }
 
-static void destroy_lctx(deark *c, lctx *d)
-{
-	if(!d) return;
-	de_free(c, d);
-}
-
 static void de_run_txt2com(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
-	d = de_malloc(c, sizeof(lctx));
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
-	d->opt_encconv = (u8)de_get_ext_option_bool(c, "text:encconv", 1);
-	if(d->input_encoding==DE_ENCODING_ASCII) {
-		d->opt_encconv = 0;
-	}
+	d = create_lctx(c);
+	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 	d->chartypes[10] = 1;
 	d->chartypes[13] = 1;
 	de_declare_fmt(c, "TXT2COM");
@@ -323,12 +337,8 @@ static void de_run_show_gmr(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
-	d = de_malloc(c, sizeof(lctx));
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
-	d->opt_encconv = (u8)de_get_ext_option_bool(c, "text:encconv", 1);
-	if(d->input_encoding==DE_ENCODING_ASCII) {
-		d->opt_encconv = 0;
-	}
+	d = create_lctx(c);
+	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 	de_declare_fmt(c, "SHOW (executable text)");
 	d->chartypes[10] = 1;
 	d->chartypes[13] = 1;
@@ -579,7 +589,7 @@ static void de_run_asc2com(deark *c, de_module_params *mparams)
 	de_dbg(c, "format code: 0x%08x", idd.fmtcode);
 	de_dbg(c, "compressed: %u", (UI)idd.is_compressed);
 
-	d = de_malloc(c, sizeof(lctx));
+	d = create_lctx(c);
 	d->tpos = idd.tpos;
 	de_dbg(c, "tpos: %"I64_FMT, d->tpos);
 	d->tlen = c->infile->len - d->tlen;
@@ -719,22 +729,19 @@ done:
 
 static void doc2com_output(deark *c, lctx *d)
 {
-	dbuf *outf = NULL;
+	dbuf *tmpdbuf = NULL;
 
-	if(d->tlen<0 || d->tpos<0 || d->tpos+d->tlen>c->infile->len) {
-		d->errflag = 1;
-		d->need_errmsg = 1;
-		goto done;
-	}
+	exectext_check_tpos(c, d);
+	if(d->errflag) goto done;
 
-	outf = dbuf_create_output_file(c, "txt", NULL, 0);
 	if(d->is_encrypted) {
 		u8 this_byte = 0;
 		u8 next_byte = 0;
 		u8 init_flag = 0;
 		i64 i;
 
-		dbuf_enable_wbuffer(outf);
+		tmpdbuf = dbuf_create_membuf(c, d->tlen, 0);
+		dbuf_enable_wbuffer(tmpdbuf);
 
 		for(i=0; i<d->tlen; i++) {
 			u8 b;
@@ -755,15 +762,36 @@ static void doc2com_output(deark *c, lctx *d)
 			}
 
 			b = this_byte ^ next_byte;
-			dbuf_writebyte(outf, b);
+			dbuf_writebyte(tmpdbuf, b);
 		}
-	}
-	else {
-		dbuf_copy(c->infile, d->tpos, d->tlen, outf);
+
+		dbuf_flush(tmpdbuf);
+		d->inf = tmpdbuf;
+		d->tpos = 0;
 	}
 
+	// Notes:
+	//
+	// - By default, DOC2COM doesn't support most control characters and
+	// extended ASCII characters. It just displays them as spaces.
+	// But with the /e option, it supports these characters the way that
+	// most programs do.
+	// Any undisplayed characters are still in the COM file. While we could
+	// detect the non-use of /e, and do something differently, I think it's
+	// best to behave as if /e were always used.
+	//
+	// - V1.3+ has the ability to define arbitrary characters to be special
+	// codes that change the colors. A color-change code is just a single
+	// character like "^", nothing that would complicate conversion to UTF-8.
+	// While we could read these definitions from the COM file, and use them
+	// to translate the document differently, it's not really clear *what* to
+	// do. So, we just recover the source document. Special characters will
+	// lose their special meaning.
+
+	exectext_extract_default(c, d);
+
 done:
-	dbuf_close(outf);
+	dbuf_close(tmpdbuf);
 }
 
 static void de_run_doc2com(deark *c, de_module_params *mparams)
@@ -771,7 +799,9 @@ static void de_run_doc2com(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	struct doc2com_detection_data idd;
 
-	d = de_malloc(c, sizeof(lctx));
+	d = create_lctx(c);
+	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
+
 	de_zeromem(&idd, sizeof(struct doc2com_detection_data));
 	doc2com_detect(c, &idd, 0);
 	if(!idd.found) {
@@ -781,6 +811,13 @@ static void de_run_doc2com(deark *c, de_module_params *mparams)
 	d->fmtcode = idd.fmtcode;
 	de_dbg(c, "fmt code: %u", d->fmtcode);
 	doc2com_analyze(c, d);
+
+	d->allow_tlen_0 = 1;
+	d->chartypes[9] = 1;
+	d->chartypes[10] = 1;
+	d->chartypes[12] = 1;
+	d->chartypes[13] = 1;
+
 	if(d->errflag) goto done;
 	doc2com_output(c, d);
 
@@ -808,12 +845,18 @@ static int de_identify_doc2com(deark *c)
 	return 0;
 }
 
+static void de_help_doc2com(deark *c)
+{
+	print_encconv_option(c);
+}
+
 void de_module_doc2com(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "doc2com";
 	mi->desc = "DOC2COM executable text (G. DePyper)";
 	mi->run_fn = de_run_doc2com;
 	mi->identify_fn = de_identify_doc2com;
+	mi->help_fn = de_help_doc2com;
 }
 
 ///////////////////////////////////////////////////
@@ -827,12 +870,8 @@ static void de_run_doc2com_dkn(deark *c, de_module_params *mparams)
 	UI n;
 	UI b1, b2;
 
-	d = de_malloc(c, sizeof(lctx));
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
-	d->opt_encconv = (u8)de_get_ext_option_bool(c, "text:encconv", 1);
-	if(d->input_encoding==DE_ENCODING_ASCII) {
-		d->opt_encconv = 0;
-	}
+	d = create_lctx(c);
+	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 	d->chartypes[7] = 1;
 	d->chartypes[8] = 1;
 	d->chartypes[9] = 1;
@@ -991,12 +1030,8 @@ static void de_run_gtxt(deark *c, de_module_params *mparams)
 	UI b1, b2;
 	dbuf *outf = NULL;
 
-	d = de_malloc(c, sizeof(lctx));
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
-	d->opt_encconv = (u8)de_get_ext_option_bool(c, "text:encconv", 1);
-	if(d->input_encoding==DE_ENCODING_ASCII) {
-		d->opt_encconv = 0;
-	}
+	d = create_lctx(c);
+	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 	d->opt_fmtconv = (u8)de_get_ext_option_bool(c, "text:fmtconv", 1);
 
 	d->chartypes[7] = 1;
@@ -1126,17 +1161,13 @@ static void de_run_readmake(deark *c, de_module_params *mparams)
 	struct readmake_ctx *rmctx = NULL;
 	lctx *d = NULL;
 
-	d = de_malloc(c, sizeof(lctx));
+	d = create_lctx(c);
 
 	rmctx = de_malloc(c, sizeof(struct readmake_ctx));
 	rmctx->msgpfx = "[READMAKE] ";
 	rmctx->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
 
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
-	d->opt_encconv = (u8)de_get_ext_option_bool(c, "text:encconv", 1);
-	if(d->input_encoding==DE_ENCODING_ASCII) {
-		d->opt_encconv = 0;
-	}
+	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 
 	d->allow_tlen_0 = 1;
 	d->chartypes[8] = 1;
@@ -1184,4 +1215,114 @@ void de_module_readmake(deark *c, struct deark_module_info *mi)
 	mi->desc = "READMAKE executable text";
 	mi->run_fn = de_run_readmake;
 	mi->help_fn = de_help_readmake;
+}
+
+///////////////////////////////////////////////////
+// TEXE (Raymond Payette)
+
+struct texe_ctx {
+	const char *msgpfx;
+	u8 use_cr_hack;
+	struct fmtutil_exe_info *ei;
+	struct fmtutil_specialexe_detection_data edd;
+};
+
+static void texe_find_text(deark *c, struct texe_ctx *tctx, lctx *d)
+{
+	i64 endpos;
+	u8 buf[2];
+
+	d->tpos = tctx->ei->end_of_dos_code;
+	de_dbg(c, "tpos: %"I64_FMT, d->tpos);
+
+	de_read(buf, d->tpos, 2);
+	if(buf[1]==0x0a && buf[0]!=0x0d) {
+		tctx->use_cr_hack = 1;
+	}
+
+	endpos = c->infile->len;
+	// Files normally end with an extraneous space, which we'll strip off.
+	if(de_getbyte(endpos-1) == 0x20) {
+		endpos--;
+	}
+	d->tlen = endpos - d->tpos;
+}
+
+static void de_run_texe(deark *c, de_module_params *mparams)
+{
+	struct texe_ctx *tctx = NULL;
+	lctx *d = NULL;
+	dbuf *tmpdbuf = NULL;
+
+	d = create_lctx(c);
+
+	tctx = de_malloc(c, sizeof(struct texe_ctx));
+	tctx->msgpfx = "[TEXE] ";
+	tctx->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
+
+	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
+
+	d->chartypes[10] = 1;
+	d->chartypes[13] = 1;
+
+	fmtutil_collect_exe_info(c, c->infile, tctx->ei);
+
+	tctx->edd.restrict_to_fmt = DE_SPECIALEXEFMT_TEXE;
+	fmtutil_detect_specialexe(c, tctx->ei, &tctx->edd);
+	if(tctx->edd.detected_fmt!=DE_SPECIALEXEFMT_TEXE) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	if(tctx->ei->overlay_len<2 || tctx->ei->overlay_len > 640*1024) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	texe_find_text(c, tctx, d);
+	if(d->errflag) goto done;
+
+	if(tctx->use_cr_hack) {
+		// The first byte of the file seems lost, due to an apparent bug in
+		// TEXE.
+		// But if the second byte is LF, we assume the first byte was CR, and
+		// can fix it.
+		// (Here we make a modified copy of the data.)
+		tmpdbuf = dbuf_create_membuf(c, d->tlen, 0);
+		dbuf_writebyte(tmpdbuf, 0x0d);
+		dbuf_copy(c->infile, d->tpos+1, d->tlen-1, tmpdbuf);
+		dbuf_flush(tmpdbuf);
+		d->inf = tmpdbuf;
+		d->tpos = 0;
+	}
+
+	exectext_extract_default(c, d);
+
+done:
+	if(d) {
+		if(d->need_errmsg && tctx) {
+			de_err(c, "%sBad or unsupported TEXE file", tctx->msgpfx);
+		}
+		de_free(c, d);
+		d = NULL;
+	}
+	if(tctx) {
+		de_free(c, tctx->ei);
+		de_free(c, tctx);
+		tctx = NULL;
+	}
+	dbuf_close(tmpdbuf);
+}
+
+static void de_help_texe(deark *c)
+{
+	print_encconv_option(c);
+}
+
+void de_module_texe(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "texe";
+	mi->desc = "TEXE executable text";
+	mi->run_fn = de_run_texe;
+	mi->help_fn = de_help_texe;
 }

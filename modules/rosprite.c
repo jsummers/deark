@@ -9,10 +9,10 @@
 DE_DECLARE_MODULE(de_module_rosprite);
 
 struct old_mode_info {
-	u32 mode;
-	int fgbpp;
-	int xdpi;
-	int ydpi;
+	u8 mode;
+	u8 fgbpp;
+	u8 xdpi;
+	u8 ydpi;
 };
 // Screen mode list at: http://www.riscos.com/support/users/userguide3/book3b/book3_17.html
 // TODO: Find reliable information about DPI fields.
@@ -345,8 +345,11 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 	i64 pos1, i64 len)
 {
 	de_finfo *fi = NULL;
-	int saved_indent_level;
 	struct page_ctx *pg = NULL;
+	i64 image_offset_raw, mask_offset_raw;
+	i64 pos;
+	int saved_indent_level;
+	char descr[32];
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	pg = de_malloc(c, sizeof(struct page_ctx));
@@ -354,34 +357,51 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 	de_dbg(c, "image header at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
-	// Name at pos 4, len=12
 	fi = de_finfo_create(c);
 
-	read_sprite_name(c, d, fi, pos1+4);
+	pos = pos1+4;
+	read_sprite_name(c, d, fi, pos);
+	pos += 12;
 
-	pg->width_in_words = de_getu32le(pos1+16) +1;
-	pg->height = de_getu32le(pos1+20) +1;
-	de_dbg(c, "width-in-words: %"I64_FMT", height: %"I64_FMT, pg->width_in_words, pg->height);
+	pg->width_in_words = de_getu32le_p(&pos) +1;
+	pg->height = de_getu32le_p(&pos) +1;
+	de_dbg(c, "width in words: %"I64_FMT, pg->width_in_words);
+	de_dbg(c, "height: %"I64_FMT, pg->height);
 
-	pg->first_bit = de_getu32le(pos1+24);
+	pg->first_bit = de_getu32le_p(&pos);
 	if(pg->first_bit>31) pg->first_bit=31;
-	pg->last_bit = de_getu32le(pos1+28);
+	pg->last_bit = de_getu32le_p(&pos);
 	if(pg->last_bit>31) pg->last_bit=31;
-	pg->image_offset = de_getu32le(pos1+32) + pos1;
-	pg->mask_offset = de_getu32le(pos1+36) + pos1;
-	if(pg->mask_offset != pg->image_offset) {
+	de_dbg(c, "first bit: %u", (UI)pg->first_bit);
+	de_dbg(c, "last bit: %u", (UI)pg->last_bit);
+
+	image_offset_raw = de_getu32le_p(&pos);
+	pg->image_offset = pos1 + image_offset_raw;
+	de_dbg(c, "image offset: %"I64_FMT" ("DE_CHAR_RIGHTARROW"%"I64_FMT")",
+		image_offset_raw, pg->image_offset);
+
+	mask_offset_raw = de_getu32le_p(&pos);
+	pg->mask_offset = pos1 + mask_offset_raw;
+	if(mask_offset_raw && (mask_offset_raw!=image_offset_raw)) {
 		pg->has_mask = 1;
 		pg->use_mask = 1; // Default
 	}
-	de_dbg(c, "first bit: %d, last bit: %d", (int)pg->first_bit, (int)pg->last_bit);
-	de_dbg(c, "image offset: %"I64_FMT", mask_offset: %"I64_FMT, pg->image_offset, pg->mask_offset);
+	if(pg->has_mask) {
+		de_snprintf(descr, sizeof(descr), DE_CHAR_RIGHTARROW"%"I64_FMT,
+			pg->mask_offset);
+	}
+	else {
+		de_strlcpy(descr, "no mask", sizeof(descr));
+	}
+	de_dbg(c, "mask offset: %"I64_FMT" (%s)", mask_offset_raw, descr);
 
-	pg->mode = (u32)de_getu32le(pos1+40);
+	pg->mode = (u32)de_getu32le_p(&pos);
 	de_dbg(c, "mode: 0x%08x", (unsigned int)pg->mode);
 
 	de_dbg_indent(c, 1);
 
 	pg->new_img_type = (pg->mode&0x78000000U)>>27;
+	de_dbg(c, "format version: %s", (pg->new_img_type?"new":"old"));
 	if(pg->new_img_type==0)
 		de_dbg(c, "old format screen mode: %u", (UI)pg->mode);
 	else
@@ -397,7 +417,7 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 		size_t x;
 
 		for(x=0; x<DE_ARRAYCOUNT(old_mode_info_arr); x++) {
-			if(pg->mode == old_mode_info_arr[x].mode) {
+			if(pg->mode == (u32)old_mode_info_arr[x].mode) {
 				pg->fgbpp = (i64)old_mode_info_arr[x].fgbpp;
 				pg->xdpi = (i64)old_mode_info_arr[x].xdpi;
 				pg->ydpi = (i64)old_mode_info_arr[x].ydpi;
@@ -406,7 +426,7 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 		}
 
 		if(pg->fgbpp==0) {
-			de_err(c, "Screen mode %d not supported", (int)pg->mode);
+			de_err(c, "Screen mode %u not supported", (UI)pg->mode);
 			goto done;
 		}
 
@@ -427,25 +447,15 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 		// new format
 		pg->xdpi = (pg->mode&0x07ffc000)>>14;
 		pg->ydpi = (pg->mode&0x00003ffe)>>1;
-		de_dbg(c, "xdpi: %d, ydpi: %d", (int)pg->xdpi, (int)pg->ydpi);
+		de_dbg(c, "dpi: %d"DE_CHAR_TIMES"%d", (int)pg->xdpi, (int)pg->ydpi);
 		switch(pg->new_img_type) {
-		case 1:
-			pg->fgbpp = 1;
-			break;
-		case 2:
-			pg->fgbpp = 2;
-			break;
-		case 3:
-			pg->fgbpp = 4;
-			break;
-		case 4:
-			pg->fgbpp = 8;
-			break;
-		case 5:
-			pg->fgbpp = 16;
-			break;
-		case 6:
-			pg->fgbpp = 32;
+		case 1: // ->1
+		case 2: // ->2
+		case 3: // ->4
+		case 4: // ->8
+		case 5: // ->16
+		case 6: // ->32
+			pg->fgbpp = 1LL<<(pg->new_img_type-1);
 			break;
 		//case 7: 32bpp CMYK (TODO)
 		//case 8: 24bpp (TODO)
@@ -482,7 +492,7 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 	else {
 		pg->width_1 = pg->pdwidth - pg->num_padding_pixels_at_end_of_row;
 	}
-	de_dbg(c, "calculated width: %d", (int)pg->npwidth);
+	de_dbg(c, "width (calculated): %"I64_FMT, pg->npwidth);
 
 	if(!de_good_image_dimensions(c, pg->npwidth, pg->height)) goto done;
 	if(pg->width_1<1) goto done;
@@ -518,38 +528,52 @@ static void de_run_rosprite(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	i64 pos;
 	i64 sprite_size;
+	i64 first_sprite_offset_raw;
 	i64 first_sprite_offset;
+	i64 implied_file_size_raw;
 	i64 implied_file_size;
 	i64 k;
+	i64 sprite_count = 0;
 
 	d = de_malloc(c, sizeof(lctx));
 
 	pos = 0;
-
-	d->num_images = de_getu32le(pos);
+	d->num_images = de_getu32le_p(&pos);
 	de_dbg(c, "number of images: %"I64_FMT, d->num_images);
-	first_sprite_offset = de_getu32le(pos+4) - 4;
-	de_dbg(c, "first sprite offset: %"I64_FMT, first_sprite_offset);
-	implied_file_size = de_getu32le(pos+8) - 4;
-	de_dbg(c, "reported file size: %"I64_FMT, implied_file_size);
+	first_sprite_offset_raw = de_getu32le_p(&pos);
+	first_sprite_offset = first_sprite_offset_raw - 4;
+	de_dbg(c, "first sprite offset: %"I64_FMT" ("DE_CHAR_RIGHTARROW"%"I64_FMT")",
+		first_sprite_offset_raw, first_sprite_offset);
+	implied_file_size_raw = de_getu32le_p(&pos);
+	implied_file_size = implied_file_size_raw - 4;
+	de_dbg(c, "reported file size: %"I64_FMT" ("DE_CHAR_RIGHTARROW"%"I64_FMT")",
+		implied_file_size_raw, implied_file_size);
 	if(implied_file_size != c->infile->len) {
-		de_warn(c, "The \"first free word\" field implies the file size is %"I64_FMT", but it "
-			"is actually %"I64_FMT". This may not be a sprite file.",
-			implied_file_size, c->infile->len);
+		de_warn(c, "Reported and actual file sizes differ "
+			"(%"I64_FMT", %"I64_FMT")", implied_file_size, c->infile->len);
 	}
 
 	pos = first_sprite_offset;
 	for(k=0; k<d->num_images; k++) {
-		if(pos>=c->infile->len) break;
+		if(pos>=c->infile->len) goto done;
 		sprite_size = de_getu32le(pos);
 		de_dbg(c, "image #%d at %"I64_FMT", size=%"I64_FMT, (int)k, pos, sprite_size);
-		if(sprite_size<1) break;
+		if(sprite_size<1) goto done;
+		// We intentionally allow sprite_size to be set wrong, because
+		// such files exist, and we don't need it for *this* sprite.
 		de_dbg_indent(c, 1);
 		do_sprite(c, d, k, pos, sprite_size);
+		sprite_count++;
 		de_dbg_indent(c, -1);
+		if(sprite_size<40) goto done;
 		pos += sprite_size;
 	}
 
+done:
+	if(sprite_count < d->num_images) {
+		de_warn(c, "Expected %"I64_FMT" images, only found %"I64_FMT,
+			d->num_images, sprite_count);
+	}
 	de_free(c, d);
 }
 

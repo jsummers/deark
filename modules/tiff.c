@@ -1811,6 +1811,19 @@ static void handler_extrasamples(deark *c, lctx *d, const struct taginfo *tg, co
 	}
 }
 
+static void handler_matteing(deark *c, lctx *d, const struct taginfo *tg,
+	const struct tagnuminfo *tni)
+{
+	i64 val;
+
+	if(tg->valcount<1) return;
+	read_tag_value_as_int64(c, d, tg, 0, &val);
+	if(val==1) {
+		tg->pg->extrasamples_count = 1;
+		tg->pg->extrasample_type[0] = 1; // = Assoc. alpha
+	}
+}
+
 static void handler_sampleformat(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
 	i64 val;
@@ -2092,7 +2105,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 32954, 0x0000, "RegionXformTackPoint", NULL, NULL },
 	{ 32955, 0x0000, "RegionWarpCorners", NULL, NULL },
 	{ 32956, 0x0000, "RegionAffine", NULL, NULL },
-	{ 32995, 0x00, "Matteing(SGI)", NULL, NULL },
+	{ 32995, 0x00, "Matteing(SGI)", handler_matteing, NULL },
 	{ 32996, 0x00, "DataType(SGI)", NULL, NULL },
 	{ 32997, 0x00, "ImageDepth(SGI)", NULL, NULL },
 	{ 32998, 0x00, "TileDepth(SGI)", NULL, NULL },
@@ -3578,7 +3591,9 @@ static void do_process_ifd_image(deark *c, lctx *d, struct page_ctx *pg)
 	}
 	else if(pg->photometric==2) { // RGB
 		dctx->base_samples_per_pixel = 3;
-		if(pg->bits_per_sample==8 || pg->bits_per_sample==16) {
+		if(pg->bits_per_sample==1 || pg->bits_per_sample==2 || pg->bits_per_sample==4 ||
+			pg->bits_per_sample==8 || pg->bits_per_sample==16)
+		{
 			ok_bps = 1;
 		}
 	}
