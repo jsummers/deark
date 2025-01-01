@@ -2889,6 +2889,7 @@ static void do_tc_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *
 		goto done;
 	}
 
+	// Presumably not a NUL-terminated string, but the flag won't hurt.
 	dbuf_read_to_ucstring(c->infile, pos, 8, md->filename, DE_CONVFLAG_STOP_AT_NUL,
 		d->input_encoding);
 	pos += 8;
@@ -3009,6 +3010,7 @@ static int de_identify_tc_trs80(deark *c)
 	if(b!=0 && b!=255) return 0;
 
 	n = (de_getu32be(14) & 0xffffff) + 19; // offset of member #2
+	if(n+19 > c->infile->len) return 0;
 	b = de_getbyte(n); // seq num #2
 	if(b!=0 && b!=2) return 0;
 
