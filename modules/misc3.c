@@ -3010,9 +3010,12 @@ static int de_identify_tc_trs80(deark *c)
 	if(b!=0 && b!=255) return 0;
 
 	n = (de_getu32be(14) & 0xffffff) + 19; // offset of member #2
-	if(n+19 > c->infile->len) return 0;
+	if(n >= c->infile->len) return 0;
 	b = de_getbyte(n); // seq num #2
 	if(b!=0 && b!=2) return 0;
+	if(b!=0) {
+		if(n+1+18+1 > c->infile->len) return 0;
+	}
 
 	if(de_input_file_has_ext(c, "arc")) has_ext = 1;
 	else if(de_input_file_has_ext(c, "tc")) has_ext = 1;
