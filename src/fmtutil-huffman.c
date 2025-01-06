@@ -321,6 +321,11 @@ void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_decoder *ht)
 	de_dbg_indent(c, -1);
 }
 
+i64 fmtutil_huffman_hcb_get_num_codes(struct fmtutil_huffman_code_builder *builder)
+{
+	return builder->lengths_arr_numused;
+}
+
 // This is only used with fmtutil_huffman_make_canonical_tree().
 // Call this first, once per item.
 // The order that you supply the items matters, at least within the set of items

@@ -702,6 +702,7 @@ i64 fmtutil_huffman_get_num_codes(struct fmtutil_huffman_codebook *bk);
 void fmtutil_huffman_dump(deark *c, struct fmtutil_huffman_decoder *ht);
 int fmtutil_huffman_record_a_code_length(deark *c, struct fmtutil_huffman_code_builder *builder,
 	fmtutil_huffman_valtype val, UI len);
+i64 fmtutil_huffman_hcb_get_num_codes(struct fmtutil_huffman_code_builder *builder);
 #define FMTUTIL_MCTFLAG_LEFT_ALIGN_LEAVES     0x0 // default
 #define FMTUTIL_MCTFLAG_LEFT_ALIGN_BRANCHES   0x1
 #define FMTUTIL_MCTFLAG_LAST_CODE_FIRST       0x2 // Pretend codes were added in the reverse order
