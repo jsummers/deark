@@ -710,6 +710,8 @@ Deark -- Information about supported formats
   Most FNT files have an extra "absolute space" character, which Deark
   arbitrarily places at code point 256, or U+2002 (EN SPACE).
 
+* Font Mania COM format (module="fontmania")
+
 * GEM bitmap font (module="gemfont") (experimental)
   - Autodetection may not always work. May need "-m gemfont".
 

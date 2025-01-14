@@ -20,6 +20,7 @@ DE_DECLARE_MODULE(de_module_deflate);
 DE_DECLARE_MODULE(de_module_zlib);
 DE_DECLARE_MODULE(de_module_mrw);
 DE_DECLARE_MODULE(de_module_vgafont);
+DE_DECLARE_MODULE(de_module_fontmania);
 DE_DECLARE_MODULE(de_module_pcrfont);
 DE_DECLARE_MODULE(de_module_zbr);
 DE_DECLARE_MODULE(de_module_compress);
@@ -811,81 +812,106 @@ void de_module_mrw(deark *c, struct deark_module_info *mi)
 // 8xN "VGA" font (intended for development/debugging use)
 // **************************************************************************
 
-static void do_vgafont_internal(deark *c, dbuf *inf)
-{
-	u8 *fontdata = NULL;
-	struct de_bitmap_font *font = NULL;
-	i64 i;
-	i64 height;
-	de_encoding encoding_req;
-	de_encoding encoding_to_use;
-	struct de_encconv_state es;
-
 #define VGAFONT_MINH 3
 #define VGAFONT_MAXH 20
-	height = inf->len / 256;
-	if((inf->len % 256) || height<VGAFONT_MINH || height>VGAFONT_MAXH) {
+
+struct vgafont_ctx {
+	de_encoding encoding_req;
+	de_encoding encoding_to_use;
+	struct de_bitmap_font *font;
+	i64 height;
+	i64 font_data_pos;
+	i64 font_data_size;
+	u8 *fontdata;
+	u8 need_errmsg;
+};
+
+static void vgafont_main(deark *c, struct vgafont_ctx *d)
+{
+	i64 i;
+	struct de_encconv_state es;
+
+	de_encconv_init(&es, d->encoding_to_use);
+
+	for(i=0; i<d->font->num_chars; i++) {
+		d->font->char_array[i].codepoint_nonunicode = (i32)i;
+		if(d->font->has_unicode_codepoints) {
+			d->font->char_array[i].codepoint_unicode = de_char_to_unicode_ex((i32)i, &es);
+		}
+		d->font->char_array[i].width = d->font->nominal_width;
+		d->font->char_array[i].height = d->font->nominal_height;
+		d->font->char_array[i].rowspan = 1;
+		d->font->char_array[i].bitmap = &d->fontdata[i*d->font->nominal_height];
+	}
+
+	de_font_bitmap_font_to_image(c, d->font, NULL, 0);
+}
+
+static void vgafont_common_config(deark *c, struct vgafont_ctx *d)
+{
+	d->encoding_req = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
+	if(d->encoding_req!=DE_ENCODING_UNKNOWN)
+		d->encoding_to_use = d->encoding_req;
+	else
+		d->encoding_to_use = DE_ENCODING_CP437;
+
+	d->font = de_create_bitmap_font(c);
+	d->font->num_chars = 256;
+	d->font->has_nonunicode_codepoints = 1;
+	d->font->has_unicode_codepoints = 1;
+	d->font->prefer_unicode = (d->encoding_req!=DE_ENCODING_UNKNOWN);
+	d->font->nominal_width = 8;
+	d->font->nominal_height = (int)d->height;
+	d->font->char_array = de_mallocarray(c, d->font->num_chars,
+		sizeof(struct de_bitmap_font_char));
+}
+
+static void destroy_vgafont_ctx(deark *c, struct vgafont_ctx *d)
+{
+	if(!d) return;
+	if(d->font) {
+		de_free(c, d->font->char_array);
+		de_destroy_bitmap_font(c, d->font);
+	}
+	de_free(c, d->fontdata);
+}
+
+static void de_run_vgafont(deark *c, de_module_params *mparams)
+{
+	struct vgafont_ctx *d = NULL;
+
+	d = de_malloc(c, sizeof(struct vgafont_ctx));
+	d->height = c->infile->len / 256;
+	if((c->infile->len % 256) || d->height<VGAFONT_MINH || d->height>VGAFONT_MAXH) {
 		de_err(c, "Bad file size");
 		goto done;
 	}
 
-	fontdata = de_malloc(c, height*256);
-	dbuf_read(inf, fontdata, 0, height*256);
+	d->font_data_pos = 0;
+	d->font_data_size = d->height*256;
+	d->fontdata = de_malloc(c, d->font_data_size);
+	dbuf_read(c->infile, d->fontdata, d->font_data_pos, d->font_data_size);
 
 	if(de_get_ext_option(c, "vgafont:c")) {
+		i64 i;
 		dbuf *ff;
+
 		ff = dbuf_create_output_file(c, "h", NULL, 0);
-		for(i=0; i<(height*256); i++) {
-			if(i%height==0) dbuf_puts(ff, "\t");
-			dbuf_printf(ff, "%d", (int)fontdata[i]);
-			if(i!=(height*256-1)) dbuf_puts(ff, ",");
-			if(i%height==(height-1)) dbuf_puts(ff, "\n");
+		for(i=0; i<(d->font_data_size); i++) {
+			if(i%d->height==0) dbuf_puts(ff, "\t");
+			dbuf_printf(ff, "%d", (int)d->fontdata[i]);
+			if(i!=(d->font_data_size-1)) dbuf_puts(ff, ",");
+			if(i%d->height==(d->height-1)) dbuf_puts(ff, "\n");
 		}
 		dbuf_close(ff);
 		goto done;
 	}
 
-	encoding_req = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
-	if(encoding_req!=DE_ENCODING_UNKNOWN)
-		encoding_to_use = encoding_req;
-	else
-		encoding_to_use = DE_ENCODING_CP437;
-
-	font = de_create_bitmap_font(c);
-	font->num_chars = 256;
-	font->has_nonunicode_codepoints = 1;
-	font->has_unicode_codepoints = 1;
-	font->prefer_unicode = (encoding_req!=DE_ENCODING_UNKNOWN);
-	font->nominal_width = 8;
-	font->nominal_height = (int)height;
-	font->char_array = de_mallocarray(c, font->num_chars, sizeof(struct de_bitmap_font_char));
-
-	de_encconv_init(&es, encoding_to_use);
-
-	for(i=0; i<font->num_chars; i++) {
-		font->char_array[i].codepoint_nonunicode = (i32)i;
-		if(font->has_unicode_codepoints) {
-			font->char_array[i].codepoint_unicode = de_char_to_unicode_ex((i32)i, &es);
-		}
-		font->char_array[i].width = font->nominal_width;
-		font->char_array[i].height = font->nominal_height;
-		font->char_array[i].rowspan = 1;
-		font->char_array[i].bitmap = &fontdata[i*font->nominal_height];
-	}
-
-	de_font_bitmap_font_to_image(c, font, NULL, 0);
+	vgafont_common_config(c, d);
+	vgafont_main(c, d);
 
 done:
-	if(font) {
-		de_free(c, font->char_array);
-		de_destroy_bitmap_font(c, font);
-	}
-	de_free(c, fontdata);
-}
-
-static void de_run_vgafont(deark *c, de_module_params *mparams)
-{
-	do_vgafont_internal(c, c->infile);
+	destroy_vgafont_ctx(c, d);
 }
 
 static void de_help_vgafont(deark *c)
@@ -902,37 +928,101 @@ void de_module_vgafont(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
-// PCR font (OPTICKS)
+// Font Mania (REXXCOM) COM format
+// **************************************************************************
+
+static void de_run_fontmania(deark *c, de_module_params *mparams)
+{
+	struct vgafont_ctx *d = NULL;
+
+	d = de_malloc(c, sizeof(struct vgafont_ctx));
+	d->font_data_pos = de_getu16le(2);
+	de_dbg(c, "data pos: %"I64_FMT, d->font_data_pos);
+	d->height = (i64)de_getbyte(5);
+	de_dbg(c, "char size: 8"DE_CHAR_TIMES"%d", (int)d->height);
+	d->font_data_size = d->height*256;
+
+	if(d->height<VGAFONT_MINH || d->height>VGAFONT_MAXH ||
+		(d->font_data_pos + d->font_data_size > c->infile->len))
+	{
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	d->fontdata = de_malloc(c, d->font_data_size);
+	de_read(d->fontdata, d->font_data_pos, d->font_data_size);
+
+	vgafont_common_config(c, d);
+	vgafont_main(c, d);
+
+done:
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported Font Mania font");
+		}
+		destroy_vgafont_ctx(c, d);
+	}
+}
+
+static int de_identify_fontmania(deark *c)
+{
+	if(de_getbyte(0) != 0xeb) return 0;
+	if(dbuf_memcmp(c->infile, 8, (const u8*)"FONT MANIA, V", 13)) {
+		return 0;
+	}
+	return 100;
+}
+
+void de_module_fontmania(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "fontmania";
+	mi->desc = "Font Mania .COM format";
+	mi->run_fn = de_run_fontmania;
+	mi->identify_fn = de_identify_fontmania;
+}
+
+// **************************************************************************
+// PCR font (OPTIKS)
 // **************************************************************************
 
 static void de_run_pcrfont(deark *c, de_module_params *mparams)
 {
 	u8 hdr[11];
-	i64 h;
-	int need_errmsg = 0;
-	dbuf *inf = NULL;
+	struct vgafont_ctx *d = NULL;
+
+	d = de_malloc(c, sizeof(struct vgafont_ctx));
 
 	de_read(hdr, 0, 11);
 	// I assume either hdr[7] or hdr[10] is the high byte of the font data size,
 	// but I don't know which.
 	if(hdr[6]!=0x1 || hdr[7]!=hdr[10] || hdr[8]!=0 || hdr[9]!=0) {
-		need_errmsg = 1;
+		d->need_errmsg = 1;
 		goto done;
 	}
-	h = (i64)hdr[7];
-	de_dbg(c, "height: %d", (int)h);
-	if(h<VGAFONT_MINH || h>VGAFONT_MAXH || c->infile->len < 11+h*256) {
-		need_errmsg = 1;
+	d->height = (i64)hdr[7];
+	de_dbg(c, "char size: 8"DE_CHAR_TIMES"%d", (int)d->height);
+
+	d->font_data_pos = 11;
+	d->font_data_size = d->height*256;
+	if(d->height<VGAFONT_MINH || d->height>VGAFONT_MAXH ||
+		(d->font_data_pos + d->font_data_size > c->infile->len))
+	{
+		d->need_errmsg = 1;
 		goto done;
 	}
 
-	inf = dbuf_open_input_subfile(c->infile, 11, h*256);
-	do_vgafont_internal(c, inf);
+	d->fontdata = de_malloc(c, d->font_data_size);
+	dbuf_read(c->infile, d->fontdata, d->font_data_pos, d->font_data_size);
+
+	vgafont_common_config(c, d);
+	vgafont_main(c, d);
 
 done:
-	dbuf_close(inf);
-	if(need_errmsg) {
-		de_err(c, "Unsupported type of PCR font");
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Unsupported type of PCR font");
+		}
+		destroy_vgafont_ctx(c, d);
 	}
 }
 
