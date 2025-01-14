@@ -1873,7 +1873,7 @@ static void de_run_car_lha(deark *c, de_module_params *mparams)
 	}
 
 	d->crco_cksum = de_crcobj_create(c, DE_CRCOBJ_SUM_BYTES);
-	d->lha_outf = dbuf_create_output_file(c, "lha", NULL, 0);
+	d->lha_outf = dbuf_create_output_file(c, "lzh", NULL, 0);
 	d->hdr_tmp = dbuf_create_membuf(c, 0, 0);
 
 	md = de_malloc(c, sizeof(struct car_member_data));
@@ -2091,7 +2091,7 @@ static void de_run_arx(deark *c, de_module_params *mparams)
 
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 	d->crco_cksum = de_crcobj_create(c, DE_CRCOBJ_SUM_BYTES);
-	d->lha_outf = dbuf_create_output_file(c, "lha", NULL, 0);
+	d->lha_outf = dbuf_create_output_file(c, "lzh", NULL, 0);
 	d->hdr_tmp = dbuf_create_membuf(c, 0, 0);
 
 	md = de_malloc(c, sizeof(struct arx_member_data));
@@ -2442,9 +2442,13 @@ static void de_run_lharc_sfx_com(deark *c, de_module_params *mparams)
 
 	de_dbg(c, "payload found at: %"I64_FMT, d->payload_offs);
 
+	// Note: Our practice is to use the .lzh extension if we think the file
+	// is for the DOS platform, as it was near universal there.
+	// If we were to support certain other platforms, e.g. Amiga, we might
+	// use .lha instead.
 	dbuf_create_file_from_slice(c->infile, d->payload_offs,
 		c->infile->len-d->payload_offs,
-		(d->sfx_container_is_larc ? "lzs" : "lha"), NULL, 0);
+		(d->sfx_container_is_larc ? "lzs" : "lzh"), NULL, 0);
 
 done:
 	if(d->errflag && d->need_errmsg) {
