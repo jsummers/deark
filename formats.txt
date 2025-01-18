@@ -712,6 +712,11 @@ Deark -- Information about supported formats
 
 * Font Mania COM format (module="fontmania")
 
+* FONTEDIT font (module="fontedit")
+  An old DOS .COM-based format.
+  Options
+   -opt fontedit:template - Also extract the template font, if different.
+
 * GEM bitmap font (module="gemfont") (experimental)
   - Autodetection may not always work. May need "-m gemfont".
 
