@@ -221,6 +221,8 @@ static int do_read_header(deark *c, lctx *d)
 	i64 dfMaxWidth;
 	int retval = 0;
 	int saved_indent_level;
+	u8 need_errmsg = 0;
+	de_ucstring *s = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -233,6 +235,10 @@ static int do_read_header(deark *c, lctx *d)
 		de_err(c, "This version of FNT (0x%04x) is not supported", d->fnt_version);
 		goto done;
 	}
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, 6, 60, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	de_dbg(c, "copyright: \"%s\"", ucstring_getpsz_d(s));
 
 	d->dfType = (unsigned int)de_getu16le(66);
 	d->is_vector = (d->dfType&0x1)?1:0;
@@ -272,6 +278,10 @@ static int do_read_header(deark *c, lctx *d)
 	de_dbg(c, "first char: %d", (int)d->first_char);
 	d->last_char = de_getbyte(96);
 	de_dbg(c, "last char: %d", (int)d->last_char);
+	if(d->last_char < d->first_char) {
+		need_errmsg = 1;
+		goto done;
+	}
 
 	// 97 = dfDefaultChar
 	// 98 = dfBreakChar
@@ -293,6 +303,10 @@ static int do_read_header(deark *c, lctx *d)
 
 	retval = 1;
 done:
+	if(need_errmsg) {
+		de_err(c, "Invalid or unsupported FNT file");
+	}
+	ucstring_destroy(s);
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
