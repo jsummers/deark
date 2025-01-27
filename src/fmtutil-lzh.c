@@ -819,6 +819,7 @@ static int deflate_block_type2_read_trees(deark *c, struct lzh_ctx *cctx)
 	UI cll[19]; // sorted code length lengths
 	UI prev_code = 0;
 	UI num_rle_codes_left = 0;
+	u8 stop_code_defined = 0;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -856,6 +857,14 @@ static int deflate_block_type2_read_trees(deark *c, struct lzh_ctx *cctx)
 				(fmtutil_huffman_valtype)i, cll[i]);
 		}
 	}
+	if(fmtutil_huffman_hcb_get_num_codes(cctx->meta_tree.ht->builder) < 1) {
+		// There must be at least 1, if only because it will ultimately be
+		// needed to define the mandatory "stop" code.
+		// (Actually, I think there must be at least two, for complicated reasons.)
+		de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
+			"Bad \"code length codes\" table");
+		goto done;
+	}
 
 	if(!fmtutil_huffman_make_canonical_code(c, cctx->meta_tree.ht->bk,
 		cctx->meta_tree.ht->builder, 0, "derived codelengths codebook"))
@@ -889,6 +898,7 @@ static int deflate_block_type2_read_trees(deark *c, struct lzh_ctx *cctx)
 		}
 		else {
 			x = read_next_code_using_tree(cctx, &cctx->meta_tree);
+			if(cctx->err_flag) goto done;
 
 			if(x<=15) {
 				prev_code = x;
@@ -919,9 +929,17 @@ static int deflate_block_type2_read_trees(deark *c, struct lzh_ctx *cctx)
 			}
 		}
 
-		if(i<num_literal_codes) {
+		if(x==0) {
+			ret = 1;
+		}
+		else if(i<num_literal_codes) {
 			ret = fmtutil_huffman_record_a_code_length(c, cctx->literals_tree.ht->builder,
 				(fmtutil_huffman_valtype)i, x);
+			if(ret) {
+				if(i==256) {
+					stop_code_defined = 1;
+				}
+			}
 		}
 		else {
 			ret = fmtutil_huffman_record_a_code_length(c, cctx->offsets_tree.ht->builder,
@@ -930,6 +948,13 @@ static int deflate_block_type2_read_trees(deark *c, struct lzh_ctx *cctx)
 		if(!ret) goto done;
 
 	}
+
+	if(!stop_code_defined) {
+		de_dfilter_set_errorf(cctx->c, cctx->dres, cctx->modname,
+			"No \"end of block\" code definition found");
+		goto done;
+	}
+
 	de_dbg_indent(c, -1);
 
 	if(!fmtutil_huffman_make_canonical_code(c, cctx->literals_tree.ht->bk,

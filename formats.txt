@@ -710,6 +710,13 @@ Deark -- Information about supported formats
   Most FNT files have an extra "absolute space" character, which Deark
   arbitrarily places at code point 256, or U+2002 (EN SPACE).
 
+* Font Mania COM format (module="fontmania")
+
+* FONTEDIT font (module="fontedit")
+  An old DOS .COM-based format.
+  Options
+   -opt fontedit:template - Also extract the template font, if different.
+
 * GEM bitmap font (module="gemfont") (experimental)
   - Autodetection may not always work. May need "-m gemfont".
 
@@ -805,6 +812,9 @@ Deark -- Information about supported formats
   An old installer archive format used by Lotus.
 
 * compress (legacy Unix .Z format) (module="compress")
+
+* Compressor, The (module="tc_trs80")
+  TRS-80 software by John Lauro.
 
 * cpio (module="cpio")
 

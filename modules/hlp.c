@@ -29,7 +29,7 @@ enum hlp_filetype {
 };
 
 struct bptree {
-	unsigned int flags;
+	UI flags;
 	i64 pagesize;
 	i64 root_page;
 	i64 num_levels;
@@ -44,8 +44,8 @@ struct phrase_item {
 	u32 len;
 };
 
-typedef struct localctx_struct {
-	int input_encoding;
+typedef struct localctx_hlp {
+	de_encoding input_encoding;
 	int output_is_utf8;
 	int extract_text;
 	u8 extract_raw_streams;
@@ -78,7 +78,7 @@ typedef struct localctx_struct {
 	i64 PhrImageUncSize;
 	i64 PhrImageCmprSize;
 	dbuf *phrases_data;
-	unsigned int num_phrases;
+	UI num_phrases;
 	struct phrase_item *phrase_info; // array [num_phrases]
 	de_ucstring *tmpucstring1;
 	de_ucstring *help_file_title;
@@ -90,35 +90,34 @@ static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt, int
 	struct de_stringreaderdata *fn);
 
 struct systemrec_info {
-	unsigned int rectype;
+	UI rectype;
 
 	// low 8 bits = version info
 	// 0x0010 = STRINGZ type
-	unsigned int flags;
+	UI flags;
 
 	const char *name;
-	void *reserved;
 };
 static const struct systemrec_info systemrec_info_arr[] = {
-	{ 1,  0x0010, "Title", NULL },
-	{ 2,  0x0010, "Copyright", NULL },
-	{ 3,  0x0000, "Contents", NULL },
-	{ 4,  0x0010, "Macro", NULL },
-	{ 5,  0x0000, "Icon", NULL },
-	{ 6,  0x0000, "Window", NULL },
-	{ 8,  0x0010, "Citation", NULL },
-	{ 9,  0x0000, "Language ID", NULL },
-	{ 10, 0x0010, "CNT file name", NULL },
-	{ 11, 0x0000, "Charset", NULL },
-	{ 12, 0x0000, "Default dialog font", NULL },
-	{ 13, 0x0010, "Defined GROUPs", NULL },
-	{ 14, 0x0011, "IndexSeparators", NULL },
-	{ 14, 0x0002, "Multimedia Help Files", NULL },
-	{ 18, 0x0010, "Defined language", NULL },
-	{ 19, 0x0000, "Defined DLLMAPS", NULL }
+	{ 1,  0x0010, "Title" },
+	{ 2,  0x0010, "Copyright" },
+	{ 3,  0x0000, "Contents" },
+	{ 4,  0x0010, "Macro" },
+	{ 5,  0x0000, "Icon" },
+	{ 6,  0x0000, "Window" },
+	{ 8,  0x0010, "Citation" },
+	{ 9,  0x0000, "Language ID" },
+	{ 10, 0x0010, "CNT file name" },
+	{ 11, 0x0000, "Charset" },
+	{ 12, 0x0000, "Default dialog font" },
+	{ 13, 0x0010, "Defined GROUPs" },
+	{ 14, 0x0011, "IndexSeparators" },
+	{ 14, 0x0002, "Multimedia Help Files" },
+	{ 18, 0x0010, "Defined language" },
+	{ 19, 0x0000, "Defined DLLMAPS" }
 };
 static const struct systemrec_info systemrec_info_default =
-	{ 0, 0x0000, "?", NULL };
+	{ 0, 0x0000, "?" };
 
 static void format_topiclink(deark *c, lctx *d, u32 n, char *buf, size_t buf_len)
 {
@@ -172,19 +171,19 @@ static void do_display_and_store_STRINGZ(deark *c, lctx *d, i64 pos1, i64 len,
 	if(s_tmp) ucstring_destroy(s_tmp);
 }
 
-static void do_SYSTEMREC_STRINGZ(deark *c, lctx *d, unsigned int recordtype,
+static void do_SYSTEMREC_STRINGZ(deark *c, lctx *d, UI recordtype,
 	i64 pos1, i64 len, const struct systemrec_info *sti, de_ucstring *s)
 {
 	do_display_and_store_STRINGZ(c, d, pos1, len, sti->name, s);
 }
 
-static void do_SYSTEMREC_uint32_hex(deark *c, lctx *d, unsigned int recordtype,
+static void do_SYSTEMREC_uint32_hex(deark *c, lctx *d, UI recordtype,
 	i64 pos1, i64 len)
 {
-	unsigned int n;
+	UI n;
 
 	if(len!=4) return;
-	n = (unsigned int)de_getu32le(pos1);
+	n = (UI)de_getu32le(pos1);
 	de_dbg(c, "value: 0x%08x", n);
 }
 
@@ -198,7 +197,7 @@ static void extract_system_icon(deark *c, lctx *d, i64 pos, i64 len)
 	de_finfo_destroy(c, fi);
 }
 
-static void do_SYSTEMREC(deark *c, lctx *d, unsigned int recordtype,
+static void do_SYSTEMREC(deark *c, lctx *d, UI recordtype,
 	i64 pos1, i64 len, const struct systemrec_info *sti)
 {
 	if(recordtype==1) { // title
@@ -230,7 +229,7 @@ static void do_SYSTEMREC(deark *c, lctx *d, unsigned int recordtype,
 	}
 }
 
-static const struct systemrec_info *find_sysrec_info(deark *c, lctx *d, unsigned int t)
+static const struct systemrec_info *find_sysrec_info(deark *c, lctx *d, UI t)
 {
 	size_t i;
 
@@ -251,17 +250,17 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, i64 pos1)
 	i64 pos = pos1;
 	i64 magic;
 	i64 gen_date;
-	unsigned int flags;
+	UI flags;
 	char timestamp_buf[64];
 	int retval = 0;
 
 	magic = de_getu16le_p(&pos);
 	if(magic!=0x036c) {
-		de_err(c, "Expected SYSTEM data at %d not found", (int)pos1);
+		de_err(c, "Expected SYSTEM data at %"I64_FMT" not found", pos1);
 		goto done;
 	}
 
-	de_dbg(c, "SYSTEM file data at %d", (int)pos1);
+	de_dbg(c, "SYSTEM file data at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
 	d->ver_minor = (int)de_getu16le_p(&pos);
@@ -278,7 +277,7 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, i64 pos1)
 	de_timestamp_to_string(&d->gendate, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "GenDate: %d (%s)", (int)gen_date, timestamp_buf);
 
-	flags = (unsigned int)de_getu16le_p(&pos);
+	flags = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "system flags: 0x%04x", flags);
 
 	if(d->ver_minor>16) {
@@ -300,7 +299,7 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, i64 pos1)
 		d->topic_block_size = 2048;
 	}
 	de_dbg(c, "lz77 compression: %d", d->is_lz77_compressed);
-	de_dbg(c, "topic block size: %d", (int)d->topic_block_size);
+	de_dbg(c, "topic block size: %"I64_FMT, d->topic_block_size);
 
 	retval = 1;
 done:
@@ -313,20 +312,20 @@ static void do_file_SYSTEM_SYSTEMRECS(deark *c, lctx *d, i64 pos1, i64 len,
 	i64 pos = pos1;
 
 	while((pos1+len)-pos >=4) {
-		unsigned int recordtype;
+		UI recordtype;
 		i64 datasize;
 		i64 systemrec_startpos;
 		const struct systemrec_info *sti;
 
 		systemrec_startpos = pos;
 
-		recordtype = (unsigned int)de_getu16le_p(&pos);
+		recordtype = (UI)de_getu16le_p(&pos);
 		datasize = de_getu16le_p(&pos);
 
 		sti = find_sysrec_info(c, d, recordtype);
-		de_dbg(c, "SYSTEMREC type %u (%s) at %d, dpos=%d, dlen=%d",
+		de_dbg(c, "SYSTEMREC type %u (%s) at %"I64_FMT", dpos=%"I64_FMT", dlen=%"I64_FMT"",
 			recordtype, sti->name,
-			(int)systemrec_startpos, (int)pos, (int)datasize);
+			systemrec_startpos, pos, datasize);
 
 		if(pos+datasize > pos1+len) break; // bad data
 		de_dbg_indent(c, 1);
@@ -381,7 +380,7 @@ static void do_file_SHG(deark *c, lctx *d, i64 pos1, i64 used_space)
 
 	// Reportedly, 0x506c = SHG = 1 image, and 0x706c = MRB = >1 image.
 	// But I'm not convinced that's correct.
-	// I'm to sure what to do, as far as selecting a file extension, and potentially
+	// I'm not sure what to do, as far as selecting a file extension, and potentially
 	// correcting the signature. Current behavior is to leave the signature the same,
 	// and derive the file extension from the number of images.
 	oldsig = de_getu16le(pos1);
@@ -504,7 +503,7 @@ static void emit_slice(deark *c, lctx *d, dbuf *inf, i64 pos, i64 len)
 	ucstring_write_as_utf8(c, d->tmpucstring1, d->outf_text, 0);
 }
 
-static void emit_phrase(deark *c, lctx *d, dbuf *outf, unsigned int phrasenum)
+static void emit_phrase(deark *c, lctx *d, dbuf *outf, UI phrasenum)
 {
 	if(phrasenum < d->num_phrases) {
 		dbuf_copy(d->phrases_data, (i64)d->phrase_info[phrasenum].pos,
@@ -530,11 +529,11 @@ static void do_phrase_decompression(deark *c, lctx *d, dbuf *inf, i64 pos1, i64 
 		}
 		else {
 			u8 b2;
-			unsigned int n;
+			UI n;
 
 			if(pos >= endpos) break;
 			b2 = dbuf_getbyte_p(inf, &pos);
-			n = ((unsigned int)(b-1)<<8) | b2;
+			n = ((UI)(b-1)<<8) | b2;
 			emit_phrase(c, d, outf, n>>1);
 			if(n & 0x1) {
 				dbuf_writebyte(outf, ' ');
@@ -549,7 +548,7 @@ static void do_hall_decompression(deark *c, lctx *d, dbuf *inf, i64 pos1, i64 le
 	static const u8 action[16] = {0,1,0,2,0,1,0,3,0,1,0,2,0,1,0,4};
 	i64 pos = pos1;
 	i64 endpos = pos1+len;
-	unsigned int n;
+	UI n;
 	i64 outf_expected_endpos;
 
 	outf_expected_endpos = outf->len + unc_len_expected;
@@ -566,7 +565,7 @@ static void do_hall_decompression(deark *c, lctx *d, dbuf *inf, i64 pos1, i64 le
 			break;
 		case 1:
 			if(pos >= endpos) goto unc_done;
-			n = (((unsigned int)b & 0xfc) << 6) | 0x80;
+			n = (((UI)b & 0xfc) << 6) | 0x80;
 			n += dbuf_getbyte_p(inf, &pos);
 			emit_phrase(c, d, outf, n);
 			break;
@@ -595,8 +594,8 @@ static int do_topiclink_rectype_32_linkdata1(deark *c, lctx *d,
 	dbuf *inf = tctx->unc_topicdata;
 	i64 topicsize;
 	i64 topiclength;
-	unsigned int id;
-	unsigned int bits;
+	UI id;
+	UI bits;
 	int retval = 0;
 
 	// TODO: type 33 (table)
@@ -612,9 +611,9 @@ static int do_topiclink_rectype_32_linkdata1(deark *c, lctx *d,
 
 	pos++; // unknownUnsignedChar
 	pos++; // unknownBiasedChar
-	id = (unsigned int)dbuf_getu16le_p(inf, &pos);
+	id = (UI)dbuf_getu16le_p(inf, &pos);
 	de_dbg(c, "id: %u", id);
-	bits = (unsigned int)dbuf_getu16le_p(inf, &pos);
+	bits = (UI)dbuf_getu16le_p(inf, &pos);
 	de_dbg(c, "bits: 0x%04x", bits);
 
 	if(bits & 0x0001) { // Unknown
@@ -761,13 +760,13 @@ static int do_topiclink(deark *c, lctx *d, struct topic_ctx *tctx, i64 pos1, u32
 	tld = de_malloc(c, sizeof(struct topiclink_data));
 
 	tld->blocksize = dbuf_geti32le_p(inf, &pos);
-	de_dbg(c, "blocksize: %d", (int)tld->blocksize);
+	de_dbg(c, "blocksize: %"I64_FMT, tld->blocksize);
 	if((tld->blocksize<21) || (pos1 + tld->blocksize > inf->len)) {
 		de_dbg(c, "bad topiclink blocksize");
 		goto done;
 	}
 	tld->datalen2 = dbuf_geti32le_p(inf, &pos);
-	de_dbg(c, "datalen2 (after any decompression): %d", (int)tld->datalen2);
+	de_dbg(c, "datalen2 (after any decompression): %"I64_FMT, tld->datalen2);
 
 	tld->prevblock = (u32)dbuf_getu32le_p(inf, &pos);
 	format_topiclink(c, d, tld->prevblock, tmpbuf, sizeof(tmpbuf));
@@ -780,7 +779,7 @@ static int do_topiclink(deark *c, lctx *d, struct topic_ctx *tctx, i64 pos1, u32
 	retval = 1;
 
 	tld->datalen1 = dbuf_geti32le_p(inf, &pos);
-	de_dbg(c, "datalen1: %d", (int)tld->datalen1);
+	de_dbg(c, "datalen1: %"I64_FMT, tld->datalen1);
 	tld->recordtype = dbuf_getbyte_p(inf, &pos);
 	de_dbg(c, "record type: %d", (int)tld->recordtype);
 
@@ -1046,8 +1045,8 @@ static void do_file_TOPIC(deark *c, lctx *d, i64 pos1, i64 len)
 		blk_dpos = pos+TOPICBLOCKHDRSIZE;
 		blk_dlen = blklen-TOPICBLOCKHDRSIZE;
 
-		de_dbg(c, "TOPIC block #%d at %d, dpos=%d, dlen=%d", (int)blknum, (int)pos,
-			(int)blk_dpos, (int)blk_dlen);
+		de_dbg(c, "TOPIC block #%d at %"I64_FMT", dpos=%"I64_FMT", dlen=%"I64_FMT,
+			(int)blknum, pos, blk_dpos, blk_dlen);
 		de_dbg_indent(c, 1);
 		lastlink = (u32)de_getu32le(pos);
 		firstlink = (u32)de_getu32le(pos+4);
@@ -1167,7 +1166,7 @@ static void do_leaf_page(deark *c, lctx *d, i64 pos1, i64 *pnext_page)
 		de_dbg_indent(c, 1);
 
 		if(!dbuf_search_byte(c->infile, 0x00, pos, 260, &foundpos)) {
-			de_err(c, "Malformed leaf page at %d", (int)pos1);
+			de_err(c, "Malformed leaf page at %"I64_FMT, pos1);
 			goto done;
 		}
 
@@ -1179,7 +1178,7 @@ static void do_leaf_page(deark *c, lctx *d, i64 pos1, i64 *pnext_page)
 		pos = foundpos + 1;
 
 		file_offset = de_geti32le_p(&pos);
-		de_dbg(c, "FileOffset: %d", (int)file_offset);
+		de_dbg(c, "FileOffset: %"I64_FMT, file_offset);
 
 		file_type = filename_to_filetype(c, d, fn_srd->sz);
 
@@ -1273,7 +1272,7 @@ done:
 
 static void sanitize_phrase_info(deark *c, lctx *d)
 {
-	unsigned int k;
+	UI k;
 
 	if(!d->phrases_data) {
 		d->num_phrases = 0;
@@ -1347,14 +1346,14 @@ static void do_bplustree(deark *c, lctx *d, i64 pos1, i64 len,
 
 	n = de_getu16le_p(&pos);
 	if(n != 0x293b) {
-		de_err(c, "Expected B+ tree structure at %d not found", (int)pos1);
+		de_err(c, "Expected B+ tree structure at %"I64_FMT" not found", pos1);
 		goto done;
 	}
 
-	//de_dbg(c, "B+ tree at %d", (int)pos1);
+	//de_dbg(c, "B+ tree at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
-	d->bpt.flags = (unsigned int)de_getu16le_p(&pos);
+	d->bpt.flags = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "Btree flags: 0x%04x", d->bpt.flags);
 
 	d->bpt.pagesize = de_getu16le_p(&pos);
@@ -1387,9 +1386,9 @@ static void do_bplustree(deark *c, lctx *d, i64 pos1, i64 len,
 	de_dbg(c, "TotalBtreeEntries: %d", (int)d->bpt.num_entries);
 
 	d->bpt.pagesdata_pos = pos;
-	de_dbg(c, "num pages: %d, %d bytes each, at %d (total size=%d)",
-		(int)d->bpt.num_pages, (int)d->bpt.pagesize, (int)d->bpt.pagesdata_pos,
-		(int)(d->bpt.num_pages * d->bpt.pagesize));
+	de_dbg(c, "num pages: %d, %d bytes each, at %"I64_FMT" (total size=%"I64_FMT")",
+		(int)d->bpt.num_pages, (int)d->bpt.pagesize, d->bpt.pagesdata_pos,
+		(i64)(d->bpt.num_pages * d->bpt.pagesize));
 
 	if(!find_first_leaf_page(c, d)) goto done;
 
@@ -1420,7 +1419,7 @@ static void do_bplustree(deark *c, lctx *d, i64 pos1, i64 len,
 
 			page_pos = d->bpt.pagesdata_pos + curr_page*d->bpt.pagesize;
 
-			de_dbg(c, "page[%d] at %d (leaf page)", (int)curr_page, (int)page_pos);
+			de_dbg(c, "page[%d] at %"I64_FMT" (leaf page)", (int)curr_page, page_pos);
 
 			next_page = -1;
 			de_dbg_indent(c, 1);
@@ -1448,13 +1447,13 @@ done:
 
 static void do_file_INTERNALDIR(deark *c, lctx *d, i64 pos1, i64 len)
 {
-	de_dbg(c, "internal dir data at %d", (int)pos1);
+	de_dbg(c, "internal dir data at %"I64_FMT, pos1);
 	do_bplustree(c, d, pos1, len, 1);
 }
 
 static void dump_phrase_offset_table(deark *c, lctx *d)
 {
-	unsigned int k;
+	UI k;
 
 	for(k=0; k<d->num_phrases; k++) {
 		de_dbg2(c, "phrase[%u]: offs=%u, len=%u", k, d->phrase_info[k].pos,
@@ -1490,7 +1489,7 @@ static void do_file_Phrases(deark *c, lctx *d, i64 pos1, i64 len)
 	i64 phrase_data_uncmpr_len = 0;
 	i64 phrase_offset_table_pos;
 	i64 phrase_offset_table_len;
-	unsigned int k;
+	UI k;
 	int is_MVB_format = 0;
 	int is_compressed = 0;
 	int saved_indent_level;
@@ -1522,7 +1521,7 @@ static void do_file_Phrases(deark *c, lctx *d, i64 pos1, i64 len)
 		goto done;
 	}
 
-	d->num_phrases = (unsigned int)s0;
+	d->num_phrases = (UI)s0;
 	de_dbg(c, "num phrases: %u", d->num_phrases);
 	pos = pos1+4;
 
@@ -1582,10 +1581,10 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void phrdecompress(deark *c, lctx *d, i64 pos1, i64 len, unsigned int BitCount)
+static void phrdecompress(deark *c, lctx *d, i64 pos1, i64 len, UI BitCount)
 {
-	unsigned int n;
-	unsigned int i;
+	UI n;
+	UI i;
 	struct de_bitreader bitrd;
 
 	de_zeromem(&bitrd, sizeof(struct de_bitreader));
@@ -1597,7 +1596,7 @@ static void phrdecompress(deark *c, lctx *d, i64 pos1, i64 len, unsigned int Bit
 	d->phrase_info[0].pos = 0;
 
 	for(i=0; i<d->num_phrases; i++) {
-		unsigned int num1bits = 0;
+		UI num1bits = 0;
 
 		while(de_bitreader_getbits(&bitrd, 1)) {
 			if(bitrd.eof_flag) goto done;
@@ -1624,15 +1623,15 @@ static void do_file_PhrIndex(deark *c, lctx *d, i64 pos1, i64 len)
 	i64 pos = pos1;
 	i64 cmprsize;
 	i64 n;
-	unsigned int bits;
-	unsigned int bitcount;
+	UI bits;
+	UI bitcount;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	if(len<30) goto done;
 	n = de_getu32le_p(&pos);
 	if(n!=1) goto done;
-	d->num_phrases = (unsigned int)de_getu32le_p(&pos);
+	d->num_phrases = (UI)de_getu32le_p(&pos);
 	de_dbg(c, "num phrases: %u", d->num_phrases);
 	d->phrase_info = de_mallocarray(c, (i64)d->num_phrases, sizeof(struct phrase_item));
 
@@ -1643,7 +1642,7 @@ static void do_file_PhrIndex(deark *c, lctx *d, i64 pos1, i64 len)
 	d->PhrImageCmprSize = de_getu32le_p(&pos);
 	de_dbg(c, "PhrImage cmpr size: %"I64_FMT, d->PhrImageCmprSize);
 	pos += 4;
-	bits = (unsigned int)de_getu16le_p(&pos);
+	bits = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "bits: 0x%04x", bits);
 	de_dbg_indent(c, 1);
 	bitcount = bits & 0xf;
@@ -1651,7 +1650,7 @@ static void do_file_PhrIndex(deark *c, lctx *d, i64 pos1, i64 len)
 	de_dbg_indent(c, -1);
 	pos += 2;
 
-	de_dbg(c, "avail size: %d", (int)(pos1+len-pos));
+	de_dbg(c, "avail size: %"I64_FMT, (i64)(pos1+len-pos));
 	phrdecompress(c, d, pos, pos1+len-pos, bitcount);
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -1697,23 +1696,25 @@ static void do_file(deark *c, lctx *d, i64 pos1, enum hlp_filetype file_fmt, int
 	i64 reserved_space;
 	i64 used_space;
 	i64 pos = pos1;
-	unsigned int fileflags;
+	UI fileflags;
 
-	de_dbg(c, "file at %d, type=%s", (int)pos1, file_type_to_type_name(file_fmt));
+	de_dbg(c, "file at %"I64_FMT", type=%s", pos1, file_type_to_type_name(file_fmt));
 	de_dbg_indent(c, 1);
 
 	// FILEHEADER
 	reserved_space = de_getu32le_p(&pos);
-	de_dbg(c, "ReservedSpace: %d", (int)reserved_space);
+	de_dbg(c, "ReservedSpace: %"I64_FMT, reserved_space);
 
 	used_space = de_getu32le_p(&pos);
-	de_dbg(c, "UsedSpace: %d", (int)used_space);
+	de_dbg(c, "UsedSpace: %"I64_FMT, used_space);
 
-	fileflags = (unsigned int)de_getbyte_p(&pos);
+	fileflags = (UI)de_getbyte_p(&pos);
 	de_dbg(c, "FileFlags: 0x%02x", fileflags);
 
+	if(used_space==0) goto done;
 	if(pos+used_space > c->infile->len) {
-		de_err(c, "Bad file size");
+		de_err(c, "Object at %"I64_FMT" (len %"I64_FMT") goes beyond end of file",
+			pos, used_space);
 		goto done;
 	}
 
@@ -1759,17 +1760,17 @@ static void do_header(deark *c, lctx *d, i64 pos)
 {
 	i64 n;
 
-	de_dbg(c, "header at %d", (int)pos);
+	de_dbg(c, "header at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	d->internal_dir_FILEHEADER_offs = de_geti32le(4);
-	de_dbg(c, "internal dir FILEHEADER pos: %d", (int)d->internal_dir_FILEHEADER_offs);
+	de_dbg(c, "internal dir FILEHEADER pos: %"I64_FMT, d->internal_dir_FILEHEADER_offs);
 
 	n = de_geti32le(8);
-	de_dbg(c, "FREEHEADER pos: %d", (int)n);
+	de_dbg(c, "FREEHEADER pos: %"I64_FMT, n);
 
 	n = de_geti32le(12);
-	de_dbg(c, "reported file size: %d", (int)n);
+	de_dbg(c, "reported file size: %"I64_FMT, n);
 
 	de_dbg_indent(c, -1);
 }

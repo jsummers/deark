@@ -723,7 +723,7 @@ static void detect_exesfx_lha(deark *c,
 
 	edd->detected_fmt = DE_SPECIALEXEFMT_SFX;
 	edd->payload_valid = 1;
-	edd->payload_file_ext = "lha";
+	edd->payload_file_ext = "lzh";
 
 done:
 	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
