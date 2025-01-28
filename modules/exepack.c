@@ -18,14 +18,15 @@ struct ohdr_struct {
 	i64 skip_len;
 };
 
-typedef struct localctx_struct {
+typedef struct localctx_EXEPACK {
 	int errflag;
 	int errmsg_handled;
 	struct fmtutil_exe_info *ei; // For the original, compressed, file
 
-	u8 detected_subfmt;
 	i64 hdrpos; // Start of exepack header (i.e. the IP field)
 	i64 decoder_len;
+	i64 epilog_pos;
+	u32 decoder_fingerprint;
 
 	dbuf *o_reloc_table;
 	dbuf *o_dcmpr_code;
@@ -127,6 +128,9 @@ done:
 	de_free(c, buf);
 }
 
+// The "decoder length" is the distance from the end of the "RB" signature,
+// to the start of the compressed relocation table (which normally starts
+// right after the 22-byte error message).
 static void find_decoder_len(deark *c, lctx *d)
 {
 	int ret;
@@ -134,40 +138,51 @@ static void find_decoder_len(deark *c, lctx *d)
 	i64 foundpos = 0;
 	i64 haystack_pos;
 	i64 haystack_len;
+	i64 n;
 
-	haystack_pos = d->ei->entry_point+220;
+	// Something to consider: We could simply have a lookup table of
+	// known decoder_fingerprints to decoder lengths.
+	// It is safe (barring CRC collisions), because the fingerprinted bytes
+	// include the pointer to the compressed relocation table.
+	// But hardcoding CRC values is a maintenance hassle, and the other
+	// methods will always work for all known EXEPACK variants.
+
+	// Look for the pattern that usually follows the pointer to the compressed
+	// relocation table.
+	// Known offsets range from ep+135 to ep+148
+	haystack_pos = d->ei->entry_point+100;
 	haystack_len = 100;
-
-	// Look for the error message.
-	ret = dbuf_search(c->infile, (const u8*)"Packed file is corrupt", 22,
+	ret = dbuf_search(c->infile, (const u8*)"\x0e\x1f\x8b\x1e\x04\x00\xfc\x33", 8,
 		haystack_pos, haystack_len, &foundpos);
 	if(ret) {
-		d->decoder_len = foundpos+22 - d->ei->entry_point;
+		n = de_getu16le(foundpos-2);
+		d->decoder_len = n - d->ei->regIP;
 		method = 1;
 		goto done;
 	}
 
-	// If that fails, look for the byte pattern that immediately precedes the
-	// error message.
-	ret = dbuf_search(c->infile, (const u8*)"\xcd\x21\xb8\xff\x4c\xcd\x21", 7,
-		haystack_pos, haystack_len, &foundpos);
-	if(ret) {
-		d->decoder_len = foundpos+7+22 - d->ei->entry_point;
-		method = 2;
-		goto done;
-	}
-
-	// Last resort: Guess the length.
-	switch(d->detected_subfmt) {
-	case 1: d->decoder_len = 258; break;
-	case 2: d->decoder_len = 279; break;
-	case 3: d->decoder_len = 277; break;
-	case 4: case 10: d->decoder_len = 283; break;
-	case 5: case 6: d->decoder_len = 290; break;
-	}
-	method = 3;
+	// If that failed (which it will for some unusual or patched variants),
+	// use the error-message-pointer that we believe is always right before
+	// the "epilog". We assume the "Packed file is corrupt" error message
+	// size is always 22 bytes, and that the compressed relocation table
+	// follows. (The error message size does appear in the file, but not at
+	// a consistent location. And if it's less than 22 bytes, it wouldn't
+	// help us anyway.)
+	// I know of no files for which this method fails, but it's possible
+	// that some exist. Let's hope the first method works in such cases.
+	n = de_getu16le(d->epilog_pos - 2);
+	d->decoder_len = n + 22 - d->ei->regIP;
+	method = 2;
 
 done:
+	if(d->decoder_len) {
+		// Check that decoder_len is sane.
+		// Known decoder lengths are from 256 to 291.
+		if(d->decoder_len<180 || d->decoder_len>400) {
+			d->decoder_len = 0;
+		}
+	}
+
 	if(d->decoder_len) {
 		de_dbg(c, "decoder len: %"I64_FMT" (found by method %d)", d->decoder_len, method);
 	}
@@ -339,23 +354,39 @@ static void do_write_dcmpr(deark *c, lctx *d)
 	}
 }
 
-static const char *get_variant_name(u8 v)
+static void calc_decoder_fingerprint(deark *c, lctx *d)
 {
-	const char *name = NULL;
+	i64 fp_start, fp_len;
+	struct de_crcobj *crco = NULL;
 
-	switch(v) {
-	case 1: name="EXEPACK 3.00/4.00/etc."; break;
-	case 2: name="EXEPACK 4.03"; break;
-	case 3: name="LINK 3.60/etc."; break;
-	case 4: name="EXEPACK 4.05/4.06"; break;
-	case 5: name="LINK 5.60/etc. var. 1"; break;
-	case 6: name="LINK 5.60/etc. var. 2"; break;
-	case 7: name="WordPerfect variant"; break;
-	case 10: name="exepack_DF"; break;
-	case 11: name="EXPAKFIX-patched"; break;
-	case 12: name="EXEPATCK-patched"; break;
+	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	fp_start = d->ei->entry_point;
+	// The point of "- 15" is to exclude the error handler, particularly the
+	// length of the error message. The error handler is not exactly 15 bytes
+	// in all variants, but that should be okay, and this is the best logic
+	// that I can figure out.
+	fp_len = d->epilog_pos - 15 - fp_start;
+	de_crcobj_addslice(crco, c->infile, fp_start, fp_len);
+	d->decoder_fingerprint = de_crcobj_getval(crco);
+	de_crcobj_destroy(crco);
+}
+
+static void report_exepack_version(deark *c, lctx *d)
+{
+	const char *name = "?";
+
+	// Not intended to be a complete list.
+	// I know of some more variants, but they're rare.
+	switch(d->decoder_fingerprint) {
+	case 0x77dc4e4aU: name = "common258 (EXEPACK 3.00/4.00/etc.)"; break;
+	case 0x7b0bb610U: name = "common277 (LINK 3.60/etc.)"; break;
+	case 0xae58e006U: name = "common279 (EXEPACK 4.03)"; break;
+	case 0xa6a446acU: name = "common283 (EXEPACK 4.05/4.06)"; break;
+	case 0x1797940cU: name = "common290 (LINK 5.60/etc.)"; break;
 	}
-	return name?name:"?";
+
+	de_dbg(c, "decoder fingerprint: 0x%08x", (UI)d->decoder_fingerprint);
+	de_dbg(c, "variant: %s", name);
 }
 
 static void de_run_exepack(deark *c, de_module_params *mparams)
@@ -378,13 +409,17 @@ static void de_run_exepack(deark *c, de_module_params *mparams)
 	}
 	de_declare_fmt(c, "EXEPACK-compressed EXE");
 
-	d->detected_subfmt = edd.detected_subfmt;
-	de_dbg(c, "variant id: %u (%s)", (UI)d->detected_subfmt, get_variant_name(d->detected_subfmt));
+	d->epilog_pos = edd.special_pos_1;
+	de_dbg(c, "epilog pos: %"I64_FMT, d->epilog_pos);
+
+	calc_decoder_fingerprint(c, d);
 
 	do_read_header(c, d);
 	if(d->errflag) goto done;
 	find_decoder_len(c, d);
 	if(d->errflag) goto done;
+
+	report_exepack_version(c, d);
 
 	do_read_reloc_tbl(c, d);
 	if(d->errflag) goto done;

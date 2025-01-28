@@ -767,8 +767,11 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei);
 	u8 payload_valid;
 	u8 zip_eocd_looked_for;
 	u8 zip_eocd_found;
+	UI flags_in; // 0x1 = set when called by main exe module
+	UI flags_out; // format-specific
 	i64 payload_pos;
 	i64 payload_len;
+	i64 special_pos_1; // format-specific
 	i64 zip_eocd_pos;
 	i64 regCS_2; // For some patched files, the original CS/IP
 	i64 regIP_2;
