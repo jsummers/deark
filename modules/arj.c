@@ -47,6 +47,7 @@ struct member_data {
 	u8 flags;
 	u8 method;
 	u8 file_type; // ARJ_FILETYPE_*
+	u8 reserved1;
 
 	u8 supports_ANSIPAGE_flag;
 	u8 supports_chapters;
@@ -770,7 +771,8 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		// (try to continue)
 	}
 
-	pos++; // reserved
+	md->reserved1 = de_getbyte_p(&pos);
+	de_dbg(c, "reserved: 0x%02x", (UI)md->reserved1);
 
 	if(md->objtype==ARJ_OBJTYPE_MAINHDR) {
 		read_arj_datetime(c, d, md, pos, &md->tmstamp[DE_TIMESTAMPIDX_CREATE], "archive creation");
