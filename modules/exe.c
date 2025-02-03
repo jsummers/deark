@@ -1693,7 +1693,7 @@ static void do_exesfx(deark *c, lctx *d)
 
 	if(!d->ei) return;
 	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
-
+	edd.flags_in |= 0x1;
 	fmtutil_detect_exesfx(c, d->ei, &edd);
 
 	if(edd.zip_eocd_found && !edd.detected_fmt) {
@@ -1735,7 +1735,7 @@ static void do_specialexe(deark *c, lctx *d)
 
 	if(!d->ei) return;
 	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
-
+	edd.flags_in |= 0x1;
 	fmtutil_detect_specialexe(c, d->ei, &edd);
 	if(!edd.detected_fmt) goto done;
 
@@ -1784,6 +1784,7 @@ static void do_execomp(deark *c, lctx *d)
 	}
 
 	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
+	edd.flags_in |= 0x1;
 	fmtutil_detect_execomp(c, d->ei, &edd);
 	if(!edd.detected_fmt) return;
 	de_dbg(c, "detected executable compression: %s", edd.detected_fmt_name);

@@ -197,12 +197,16 @@ static void detect_execomp_lzexe(deark *c,
 	}
 }
 
+// If found, always set edd->special_pos_1 to the position of the
+// cd 21 b8... "epilog".
+// Does not set edd->detected_subfmt.
 static void detect_execomp_exepack(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
-	u8 x, x2;
-	UI n;
+	u8 known_crc = 0;
 	int has_RB = 0;
+	int ret;
+	i64 foundpos;
 
 	if(ei->num_relocs!=0) goto done;
 	if(ei->regIP!=16 && ei->regIP!=18) goto done;
@@ -211,69 +215,37 @@ static void detect_execomp_exepack(deark *c,
 		has_RB = 1;
 	}
 
-	if(ei->entrypoint_crcs==0xa6ea214e6c16ee72LLU) {
-		edd->detected_subfmt = 5;
-		goto done;
-	}
-	else if(ei->entrypoint_crcs==0xb11baad36c16ee72LLU) {
-		edd->detected_subfmt = 6;
-		goto done;
-	}
-	else if(ei->entrypoint_crcs==0x4e04abaac5d3b465LLU) {
-		n = (UI)dbuf_getu32be(ei->f, ei->entry_point+72);
-		if(n==0xe80500e8U) {
-			edd->detected_subfmt = 12; // EXEPATCK-patched
-			goto done;
-		}
-
-		edd->detected_subfmt = 4;
-		goto done;
-	}
-	else if(ei->entrypoint_crcs==0x088371f84681f575LLU) {
-		edd->detected_subfmt = 7; // WordPerfect variant of (?) 4
-		goto done;
-	}
-	else if(ei->entrypoint_crcs==0x1f449ca73852e197LLU) {
-		n = (UI)dbuf_getu32be(ei->f, ei->entry_point+66);
-		if(n==0xe80500e8U) {
-			edd->detected_subfmt = 12; // EXEPATCK-patched
-			goto done;
-		}
-
-		x = dbuf_getbyte(ei->f, ei->entry_point+73);
-		x2 = dbuf_getbyte(ei->f, ei->entry_point+137);
-		if(x==0x0a && x2==0x27) {
-			edd->detected_subfmt = 2;
-			goto done;
-		}
-		else if(x==0x0a) {
-			edd->detected_subfmt = 1;
-			goto done;
-		}
-		else if(x==0x09) {
-			edd->detected_subfmt = 3;
-			goto done;
-		}
-	}
-	else if(ei->entrypoint_crcs==0x1da67457b559a299LLU) {
-		edd->detected_subfmt = 10; // David Fifield's exepack v1.3.0
-	}
-	else if(ei->entrypoint_crcs==0x629aca0c6520250aLLU) {
-		// EXPAKFIX-patched file. Original variant undetermined (TODO?).
-		edd->detected_subfmt = 11;
+	// If the first 64 bytes are recognized, we'll be less strict about
+	// other things.
+	switch(ei->entrypoint_crcs) {
+	case 0xa6ea214e6c16ee72LLU: // common290
+	case 0x4e04abaac5d3b465LLU: // common283
+	case 0x1f449ca73852e197LLU: // common258,279,277
+		known_crc = 1;
 	}
 
-	// TODO: Is SP always 128?
-	if(ei->regSP==128 && has_RB) {
-		edd->detected_fmt = DE_SPECIALEXEFMT_EXEPACK;
+	if(known_crc) {
+		;
+	}
+	else if(ei->regSP==128 && has_RB) {
+		;
+	}
+	else {
 		goto done;
 	}
+
+	// OK so far, now look for the "epilog"
+
+	// Known starting offsets are from ep+219 (EXPAKFIX) to ep+262(unknown291).
+	ret = dbuf_search(ei->f, (const u8*)"\xcd\x21\xb8\xff\x4c\xcd\x21", 7,
+		ei->entry_point+200, 100,
+		&foundpos);
+	if(!ret) goto done;
+	edd->special_pos_1 = foundpos;
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_EXEPACK;
 
 done:
-	if(edd->detected_subfmt!=0) {
-		edd->detected_fmt = DE_SPECIALEXEFMT_EXEPACK;
-	}
-
 	if(edd->detected_fmt==DE_SPECIALEXEFMT_EXEPACK) {
 #ifdef DE_EXECOMP_DEVMODE
 		de_dbg(c, "epvar: %u", (UI)edd->detected_subfmt);

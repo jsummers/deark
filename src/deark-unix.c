@@ -238,25 +238,19 @@ static void update_file_time(struct upd_attr_ctx *uactx, dbuf *f)
 		uactx->tried_stat = 1;
 	}
 
-	// I know that this code is not Y2038-compliant, if sizeof(time_t)==4.
-	// But it's not likely to be a serious problem, and I'd rather not replace
-	// it with code that's less portable.
-
 	de_zeromem(&times, sizeof(times));
 	// times[0] = access time
 	// times[1] = mod time
-	times[1].tv_sec = (long)de_timestamp_to_unix_time(ts);
+	times[1].tv_sec = (time_t)de_timestamp_to_unix_time(ts);
 	if(ts->precision>DE_TSPREC_1SEC) {
-		times[1].tv_usec = (long)(de_timestamp_get_subsec(ts)/10);
+		times[1].tv_usec = (suseconds_t)(de_timestamp_get_subsec(ts)/10);
 	}
 
 	// We don't want to set the access time, but unfortunately the utimes()
 	// function forces us to.
 	if(uactx->tried_stat && (uactx->stat_ret==0)) {
 		// If we have the file's current access time recorded, use that.
-		// (Though this may lose precision. Which could be fixed at the cost of
-		// portability.)
-		times[0].tv_sec = (long)uactx->stbuf.st_atime;
+		times[0].tv_sec = uactx->stbuf.st_atime;
 		times[0].tv_usec = 0;
 	}
 	else {
