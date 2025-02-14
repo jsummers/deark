@@ -336,6 +336,9 @@ Deark -- Information about supported formats
 * JPEG XR (HD Photo) (part of module "tiff")
   - Minimal support.
 
+* Laughing Dog COM file (module="ldog_com")
+  Executable character graphics format made by Laughing Dog Screen Maker.
+
 * Lotus Manuscript graphics (.bit, .rle) (module="lotus_mscr") (experimental)
   - Not always autodetected. You may have to use "-m lotus_mscr".
 

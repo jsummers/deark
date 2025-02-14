@@ -17,6 +17,7 @@ DE_DECLARE_MODULE(de_module_artworx_adf);
 DE_DECLARE_MODULE(de_module_icedraw);
 DE_DECLARE_MODULE(de_module_thedraw_com);
 DE_DECLARE_MODULE(de_module_aciddraw_com);
+DE_DECLARE_MODULE(de_module_ldog_com);
 DE_DECLARE_MODULE(de_module_grabber);
 
 typedef struct localctx_struct_bintext {
@@ -1178,6 +1179,79 @@ void de_module_aciddraw_com(deark *c, struct deark_module_info *mi)
 	mi->desc = "ACiDDraw COM file";
 	mi->run_fn = de_run_aciddraw_com;
 	mi->identify_fn = de_identify_aciddraw_com;
+}
+
+////////////////////// LDOG COM //////////////////////
+// (Laughing Dog Screen Maker)
+
+static void de_run_ldog_com(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	struct de_char_context *charctx = NULL;
+	u8 b;
+
+	d = de_malloc(c, sizeof(lctx));
+	d->csctx.input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+
+	charctx = de_create_charctx(c, 0);
+
+	b = de_getbyte(22);
+	if(b != 0xbe) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	b = de_getbyte(65);
+	if(b != 0xb6) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	d->csctx.inf_pos = de_getu16le(23);
+	d->csctx.inf_pos -= 0x100;
+	de_dbg(c, "data pos: %"I64_FMT, d->csctx.inf_pos);
+
+	d->csctx.height_in_chars = (i64)de_getbyte(66);
+	d->csctx.width_in_chars = (i64)de_getbyte(68);
+	de_dbg_dimensions(c, d->csctx.width_in_chars, d->csctx.height_in_chars);
+	d->csctx.inf_len = d->csctx.width_in_chars * d->csctx.height_in_chars * 2;
+	if(d->csctx.inf_pos+d->csctx.inf_len > c->infile->len) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	d->csctx.use_default_pal = 1;
+	d->csctx.inf = c->infile;
+	fmtutil_char_simple_run(c, &d->csctx, charctx);
+
+done:
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Unsupported LDOG COM format");
+		}
+		free_lctx(c, d);
+	}
+	de_free_charctx(c, charctx);
+}
+
+static int de_identify_ldog_com(deark *c)
+{
+	if(c->infile->len>65280) return 0;
+	if(de_getbyte(0) != 0x06) return 0;
+
+	if(dbuf_memcmp(c->infile, 1,
+		(const void*)"\xb4\x0f\xcd\x10\x3c\x07\x74\x06\xb8\x00\xb8\xeb\x04\x90\xb8", 15))
+	{
+		return 0;
+	}
+	return 100;
+}
+
+void de_module_ldog_com(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "ldog_com";
+	mi->desc = "Laughing Dog COM file";
+	mi->run_fn = de_run_ldog_com;
+	mi->identify_fn = de_identify_ldog_com;
 }
 
 ////////////////////// GRABBER //////////////////////
