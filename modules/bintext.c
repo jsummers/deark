@@ -837,6 +837,7 @@ static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 	tdc->d = de_malloc(c, sizeof(lctx));
 	tdc->d->csctx.input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 	tdc->charctx = de_create_charctx(c, 0);
+	tdc->charctx->screen_image_flag = 1;
 	tdc->d->csctx.use_default_pal = 1;
 
 	tdc->fmt_subtype = de_getbyte(6);
@@ -923,6 +924,9 @@ static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 	if(!tdc->unc_data || tdc->d->csctx.width_in_chars<1 || tdc->d->csctx.height_in_chars<1) {
 		tdc->d->need_errmsg = 1;
 		goto done;
+	}
+	if(tdc->d->csctx.width_in_chars>80 || tdc->d->csctx.height_in_chars>25) {
+		tdc->charctx->no_density = 1;
 	}
 
 	if(tdc->d->errflag) goto done;
@@ -1194,6 +1198,7 @@ static void de_run_ldog_com(deark *c, de_module_params *mparams)
 	d->csctx.input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 
 	charctx = de_create_charctx(c, 0);
+	charctx->screen_image_flag = 1;
 
 	b = de_getbyte(22);
 	if(b != 0xbe) {
@@ -1217,6 +1222,10 @@ static void de_run_ldog_com(deark *c, de_module_params *mparams)
 	if(d->csctx.inf_pos+d->csctx.inf_len > c->infile->len) {
 		d->need_errmsg = 1;
 		goto done;
+	}
+
+	if(d->csctx.width_in_chars>80 || d->csctx.height_in_chars>25) {
+		charctx->no_density = 1;
 	}
 
 	d->csctx.use_default_pal = 1;
@@ -1380,6 +1389,7 @@ static void de_run_grabber(deark *c, de_module_params *mparams)
 	decode_grabber_com(c, d, gctx);
 	if(d->errflag) goto done;
 
+	gctx->charctx->screen_image_flag = 1;
 	d->csctx.height_in_chars = de_pad_to_n(gctx->data_len, d->csctx.width_in_chars*2) /
 		(d->csctx.width_in_chars*2);
 	de_dbg(c, "screen size: %"I64_FMT DE_CHAR_TIMES "%"I64_FMT, d->csctx.width_in_chars,
@@ -1387,6 +1397,10 @@ static void de_run_grabber(deark *c, de_module_params *mparams)
 	if(gctx->data_pos+gctx->data_len > c->infile->len) {
 		d->need_errmsg = 1;
 		goto done;
+	}
+
+	if(d->csctx.width_in_chars>80 || d->csctx.height_in_chars>25) {
+		gctx->charctx->no_density = 1;
 	}
 
 	d->csctx.use_default_pal = 1;

@@ -263,6 +263,7 @@ static void decode_text(deark *c, lctx *d)
 	width_in_chars = d->npwidth / 2;
 
 	charctx = de_malloc(c, sizeof(struct de_char_context));
+	charctx->screen_image_flag = 1;
 	charctx->no_density = 1;
 	charctx->nscreens = 1;
 	charctx->screens = de_mallocarray(c, charctx->nscreens, sizeof(struct de_char_screen*));
