@@ -864,6 +864,9 @@ Deark -- Information about supported formats
 * EXEPACK (module="exepack")
   Decompress an EXEPACK-compressed DOS EXE file.
   - Not automatic; must use "-m exepack" or "-opt execomp".
+  Options
+   -opt execomp:align=<16|512> - Preferred code image segment alignment
+     (ignored if it can be determined from the source file).
 
 * FAT (module="fat") (experimental/incomplete)
   - Limited support, mainly for floppy disk images.
@@ -919,8 +922,8 @@ Deark -- Information about supported formats
   - Not automatic; must use "-m lzexe" or "-opt execomp".
   Options
    -opt lzexe:raw - Instead of an EXE file, write raw decompressed data.
-   -opt execomp:align=<16|512> - Preferred code segment alignment. This may
-     help make the decompressed file more similar to the original.
+   -opt execomp:align=<16|512> - Preferred code image segment alignment. This
+     may help make the decompressed file more similar to the original.
 
 * LZHUF (module="lzhuf")
   Compression software by Haruyasu Yoshizaki. A bare-bones container for
@@ -1030,6 +1033,8 @@ Deark -- Information about supported formats
   - For EXE format, you must use "-m pklite" or "-opt execomp".
   Options
    -opt pklite:raw - Instead of an EXE file, write raw decompressed data
+   -opt execomp:align=<16|512> - Preferred code image segment alignment
+     (ignored if it can be determined from the source file).
 
 * RAR (module="rar")
   - Files can be parsed, but there is usually nothing that can be extracted

@@ -27,7 +27,7 @@ struct ohdr_struct {
 	i64 field8;
 };
 
-typedef struct localctx_struct {
+typedef struct localctx_lzexe {
 	int ver; // 1=0.90, 2=0.91, 3=0.91e
 	int errflag;
 	int errmsg_handled;
@@ -507,7 +507,7 @@ done:
 static void de_help_lzexe(deark *c)
 {
 	de_msg(c, "-opt lzexe:raw : Instead of an EXE file, write raw decompressed data");
-	de_msg(c, "-opt execomp:align=<16|512> : Alignment of code segment "
+	de_msg(c, "-opt execomp:align=<16|512> : Alignment of code image "
 		"(in output file)");
 }
 
