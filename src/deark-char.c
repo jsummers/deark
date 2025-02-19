@@ -648,6 +648,10 @@ static void set_density(deark *c, struct de_char_context *charctx,
 
 	if(charctx->no_density) return;
 
+	// TODO: Maybe behave more intelligently if charctx->screen_image_flag is
+	// set, depending on the screen size.
+	// (And maybe use an 8x8 font sometimes, but that will take some work.)
+
 	if(ectx->char_height_in_pixels==16 && ectx->char_width_in_pixels==8) {
 		// Assume the intended display is 640x400.
 		fi->density.code = DE_DENSITY_UNK_UNITS;

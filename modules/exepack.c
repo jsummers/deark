@@ -21,6 +21,7 @@ struct ohdr_struct {
 typedef struct localctx_EXEPACK {
 	int errflag;
 	int errmsg_handled;
+	int o_code_alignment;
 	struct fmtutil_exe_info *ei; // For the original, compressed, file
 
 	i64 hdrpos; // Start of exepack header (i.e. the IP field)
@@ -279,7 +280,8 @@ static void do_write_dcmpr(deark *c, lctx *d)
 			o_reloc_pos = 28;
 		}
 		o_reloc_pos_field = o_reloc_pos;
-		o_start_of_code = de_pad_to_n(o_reloc_pos + d->o_reloc_table->len, 16);
+		o_start_of_code = de_pad_to_n(o_reloc_pos + d->o_reloc_table->len,
+			(i64)d->o_code_alignment);
 
 		elided_bytes_pos = o_reloc_pos;
 		elided_bytes_len = d->ei->start_of_dos_code - elided_bytes_pos;
@@ -392,9 +394,19 @@ static void report_exepack_version(deark *c, lctx *d)
 static void de_run_exepack(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	const char *s;
 	struct fmtutil_specialexe_detection_data edd;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	s = de_get_ext_option(c, "execomp:align");
+	if(s) {
+		d->o_code_alignment = de_atoi(s);
+	}
+	if(d->o_code_alignment != 512) {
+		d->o_code_alignment = 16;
+	}
+
 	d->o_reloc_table = dbuf_create_membuf(c, 0, 0);
 	d->o_dcmpr_code = dbuf_create_membuf(c, 0, 0);
 	d->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
@@ -441,9 +453,15 @@ done:
 	}
 }
 
+static void de_help_exepack(deark *c)
+{
+	de_msg(c, "-opt execomp:align=<16|512> : Alignment of code image (hint)");
+}
+
 void de_module_exepack(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "exepack";
 	mi->desc = "EXEPACK-compressed EXE";
 	mi->run_fn = de_run_exepack;
+	mi->help_fn = de_help_exepack;
 }

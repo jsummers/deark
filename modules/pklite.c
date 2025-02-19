@@ -47,7 +47,7 @@ struct footer_struct {
 	i64 regIP;
 };
 
-typedef struct localctx_struct {
+typedef struct localctx_pklite {
 	u8 errflag;
 	u8 errmsg_handled;
 	u8 dcmpr_ok;
@@ -59,6 +59,7 @@ typedef struct localctx_struct {
 	u8 load_high;
 	u8 has_psp_sig;
 	u8 psp_sig_type;
+	int o_code_alignment;
 	struct decompr_params_struct dparams;
 
 	struct fmtutil_exe_info *ei; // For the PKLITE file
@@ -1666,7 +1667,8 @@ static void reconstruct_header(deark *c, lctx *d)
 	if(maxmem<minmem) maxmem = minmem;
 
 	num_relocs = d->o_reloc_table->len / 4;
-	start_of_dos_code = de_pad_to_n(reloc_table_start + num_relocs*4, 16);
+	start_of_dos_code = de_pad_to_n(reloc_table_start + num_relocs*4,
+		(i64)d->o_code_alignment);
 	end_of_dos_code = start_of_dos_code + d->o_dcmpr_code->len;
 	dbuf_writeu16le(d->o_orig_header, end_of_dos_code%512);
 	dbuf_writeu16le(d->o_orig_header, (end_of_dos_code+511)/512);
@@ -1707,7 +1709,17 @@ done:
 
 static void do_pklite_exe(deark *c, lctx *d)
 {
+	const char *s;
+
 	d->raw_mode = (u8)de_get_ext_option_bool(c, "pklite:raw", 0xff);
+
+	s = de_get_ext_option(c, "execomp:align");
+	if(s) {
+		d->o_code_alignment = de_atoi(s);
+	}
+	if(d->o_code_alignment != 512) {
+		d->o_code_alignment = 16;
+	}
 
 	fmtutil_collect_exe_info(c, c->infile, d->ei);
 
@@ -2105,6 +2117,7 @@ static int de_identify_pklite(deark *c)
 static void de_help_pklite(deark *c)
 {
 	de_msg(c, "-opt pklite:raw : Instead of an EXE file, write raw decompressed data");
+	de_msg(c, "-opt execomp:align=<16|512> : Alignment of code image (hint)");
 }
 
 void de_module_pklite(deark *c, struct deark_module_info *mi)

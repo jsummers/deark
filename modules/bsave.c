@@ -457,6 +457,10 @@ static void do_char(deark *c, lctx *d)
 	de_dbg(c, "pages: %d", (int)numpages);
 
 	charctx = de_malloc(c, sizeof(struct de_char_context));
+	charctx->screen_image_flag = 1;
+	if(width>80 || height>25) {
+		charctx->no_density = 1;
+	}
 	charctx->nscreens = numpages;
 	charctx->screens = de_mallocarray(c, numpages, sizeof(struct de_char_screen*));
 

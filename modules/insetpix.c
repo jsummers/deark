@@ -512,9 +512,14 @@ static void do_char_graphics(deark *c, lctx *d)
 	unc_pixels = dbuf_create_membuf(c, 4096, 0);
 	csctx = de_malloc(c, sizeof(struct fmtutil_char_simplectx));
 	charctx = de_create_charctx(c, 0);
+	charctx->screen_image_flag = 1;
 
 	csctx->width_in_chars = d->page_cols;
 	csctx->height_in_chars = d->page_rows;
+
+	if(csctx->width_in_chars>80 || csctx->height_in_chars>25) {
+		charctx->no_density = 1;
+	}
 
 	// Unless I'm missing something, this format is just wacky.
 	// Assume the screen is 80x25. The original data is then 80x25 bytes of

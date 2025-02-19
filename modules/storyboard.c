@@ -174,6 +174,10 @@ static void do_oldfmt_text(deark *c, struct storyboard_ctx *d, i64 pos)
 	}
 
 	charctx = de_create_charctx(c, 0);
+	charctx->screen_image_flag = 1;
+	if(d->width_in_chars>80 || d->height_in_chars>25) {
+		charctx->no_density = 1;
+	}
 	de_char_decide_output_format(c, charctx);
 	de_copy_std_palette(DE_PALID_PC16, 0, 0, charctx->pal, 16, 0);
 	do_oldfmt_text_main(c, d, unc_data, charctx);

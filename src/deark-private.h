@@ -1262,6 +1262,7 @@ struct de_char_screen {
 struct de_char_context {
 	u8 prefer_image_output;
 	u8 prefer_9col_mode;
+	u8 screen_image_flag; // Hint: non-scrolling format
 	u8 no_density;
 	u8 suppress_custom_font_warning;
 	u8 outfmt_known;
