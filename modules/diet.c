@@ -37,6 +37,7 @@ struct diet_identify_data {
 	u8 dlz_pos_known;
 	u8 crc_pos_known;
 	u8 cmpr_pos_known;
+	u8 com2exe_flag;
 	u8 maybe_lglz;
 	i64 dlz_pos;
 	i64 crc_pos;
@@ -63,9 +64,25 @@ typedef struct localctx_struct_diet {
 	struct de_bitbuf_lowlevel bbll;
 } lctx;
 
+static void check_for_com2exe(deark *c, struct diet_identify_data *idd,
+	struct fmtutil_exe_info *ei)
+{
+	UI n;
+
+	if(!ei) return;
+	// This seems to work, but I'm sure there's a better way to detect that
+	// the original file was in COM format.
+	n = (UI)de_getu16be(ei->end_of_dos_code - 13);
+	if(n==0xed55) {
+		idd->com2exe_flag = 1;
+	}
+}
+
 // idmode==1: We're in the 'identify' phase -- Do just enough to
 //   detect COM & data formats.
-static void identify_diet_fmt(deark *c, struct diet_identify_data *idd, u8 idmode)
+// ei can be NULL.
+static void identify_diet_fmt(deark *c, struct diet_identify_data *idd, u8 idmode,
+	struct fmtutil_exe_info *ei)
 {
 	static const u8 *sig_9d89 = (const u8*)"\x9d\x89";
 	static const u8 *sig_dlz = (const u8*)"dlz";
@@ -187,6 +204,7 @@ static void identify_diet_fmt(deark *c, struct diet_identify_data *idd, u8 idmod
 			idd->fmt = FMT_EXE_145F;
 			idd->dlz_pos_known = 1;
 			idd->dlz_pos = codestart-32+108;
+			check_for_com2exe(c, idd, ei);
 			goto done;
 		}
 
@@ -195,6 +213,7 @@ static void identify_diet_fmt(deark *c, struct diet_identify_data *idd, u8 idmod
 			idd->fmt = FMT_EXE_144;
 			idd->dlz_pos_known = 1;
 			idd->dlz_pos = codestart-32+107;
+			check_for_com2exe(c, idd, ei);
 			goto done;
 		}
 
@@ -473,7 +492,7 @@ static void write_data_or_com_file(deark *c, lctx *d)
 	dbuf *outf = NULL;
 	const char *ext;
 
-	if(d->idd.ftype==FTYPE_COM) ext = "com";
+	if(d->idd.ftype==FTYPE_COM || d->idd.com2exe_flag) ext = "com";
 	else ext = "bin";
 
 	outf = dbuf_create_output_file(c, ext, NULL, 0);
@@ -777,8 +796,6 @@ static void write_exe_file(deark *c, lctx *d)
 
 	de_dbg(c, "[writing EXE]");
 	de_dbg_indent(c, 1);
-	fmtutil_collect_exe_info(c, c->infile, d->ei);
-
 	o_orig_header = dbuf_create_membuf(c, 28, 0);
 	find_exe_params(c, d, ectx, o_orig_header);
 	if(d->errflag) goto done;
@@ -947,7 +964,9 @@ static void de_run_diet(deark *c, de_module_params *mparams)
 	d->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
 	d->raw_mode = (u8)de_get_ext_option_bool(c, "diet:raw", 0xff);
 
-	identify_diet_fmt(c, &d->idd, 0);
+	fmtutil_collect_exe_info(c, c->infile, d->ei);
+
+	identify_diet_fmt(c, &d->idd, 0, d->ei);
 	switch(d->idd.fmt) {
 	case FMT_DATA_100:
 		fmtn = "file (v1.00)";
@@ -974,10 +993,16 @@ static void de_run_diet(deark *c, de_module_params *mparams)
 		fmtn = "EXE (v1.02-1.20)";
 		break;
 	case FMT_EXE_144:
-		fmtn = "EXE (v1.44)";
+		if(d->idd.com2exe_flag)
+			fmtn = "EXE-from-COM (v1.44)";
+		else
+			fmtn = "EXE (v1.44)";
 		break;
 	case FMT_EXE_145F:
-		fmtn = "EXE (v1.45)";
+		if(d->idd.com2exe_flag)
+			fmtn = "EXE-from-COM (v1.45)";
+		else
+			fmtn = "EXE (v1.45)";
 		break;
 	default:
 		break;
@@ -1013,6 +1038,7 @@ static void de_run_diet(deark *c, de_module_params *mparams)
 	do_decompress_code(c, d);
 	if(d->errflag) goto done;
 	if(d->idd.ftype==FTYPE_DATA || d->idd.ftype==FTYPE_COM ||
+		d->idd.com2exe_flag ||
 		(d->idd.ftype==FTYPE_EXE && d->raw_mode==1))
 	{
 		write_data_or_com_file(c, d);
@@ -1037,7 +1063,7 @@ static int de_identify_diet(deark *c)
 	struct diet_identify_data idd;
 
 	de_zeromem(&idd, sizeof(struct diet_identify_data));
-	identify_diet_fmt(c, &idd, 1);
+	identify_diet_fmt(c, &idd, 1, NULL);
 	if(idd.ftype!=FTYPE_UNKNOWN) return 90;
 	return 0;
 }
