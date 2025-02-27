@@ -1142,6 +1142,11 @@ Deark -- Information about supported formats
   - Supports files that use compression.
   - Does not attempt to translate to UTF-8.
 
+* ASCOM (moule="ascom")
+  An executable text (.COM) format.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
+
 * ASF multimedia (module="asf")
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.

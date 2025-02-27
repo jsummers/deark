@@ -14,6 +14,7 @@ DE_DECLARE_MODULE(de_module_doc2com_dkn);
 DE_DECLARE_MODULE(de_module_gtxt);
 DE_DECLARE_MODULE(de_module_readmake);
 DE_DECLARE_MODULE(de_module_texe);
+DE_DECLARE_MODULE(de_module_ascom);
 
 typedef struct localctx_exectext {
 	de_encoding input_encoding;
@@ -1325,4 +1326,98 @@ void de_module_texe(deark *c, struct deark_module_info *mi)
 	mi->desc = "TEXE executable text";
 	mi->run_fn = de_run_texe;
 	mi->help_fn = de_help_texe;
+}
+
+///////////////////////////////////////////////////
+// ASCOM (Kevin Tseng)
+// Probably only v1.0f is supported.
+
+static void ascom_decrypt(deark *c, lctx *d, dbuf *tmpdbuf)
+{
+	i64 i;
+
+	for(i=0; i<d->tlen; i++) {
+		u8 b;
+
+		b = de_getbyte(d->tpos + i);
+		b = b ^ 0x01;
+		dbuf_writebyte(tmpdbuf, b);
+	}
+	dbuf_flush(tmpdbuf);
+}
+
+static void de_run_ascom(deark *c, de_module_params *mparams)
+{
+	i64 n;
+	lctx *d = NULL;
+	dbuf *tmpdbuf = NULL;
+
+	d = create_lctx(c);
+	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
+	de_declare_fmt(c, "ASCOM (executable text)");
+	d->chartypes[10] = 1;
+	d->chartypes[13] = 1;
+
+	// Some arbitrary tests, to try to make sure we have the right version
+	if(dbuf_memcmp(c->infile, 50, (const u8*)"\x72\x41\xc2\xfe\xd1\x7f\xca\xfe", 8) ||
+		dbuf_memcmp(c->infile, 2048, (const u8*)"\xee\x40\x20\xf2\x47\xae\xfe\x43", 8))
+	{
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	d->is_encrypted = 1;
+	// TODO?: Figure out how to read this offset from the file.
+	d->tpos = 3132;
+	de_dbg(c, "tpos: %"I64_FMT, d->tpos);
+	n = de_getu16le(48);
+	d->tlen = 0xf400 - n;
+	de_dbg(c, "tlen: %"I64_FMT, d->tlen);
+	exectext_check_tpos(c, d);
+	if(d->errflag) goto done;
+
+	// Note: The heading is around offset 3040, XORed with 0xfe.
+
+	tmpdbuf = dbuf_create_membuf(c, d->tlen, 0);
+	dbuf_enable_wbuffer(tmpdbuf);
+	ascom_decrypt(c, d, tmpdbuf);
+	d->inf = tmpdbuf;
+	d->tpos = 0;
+
+	exectext_extract_default(c, d);
+
+done:
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Not an ASCOM file, or unsupported version");
+		}
+		destroy_lctx(c, d);
+	}
+	dbuf_close(tmpdbuf);
+}
+
+static int de_identify_ascom(deark *c)
+{
+	if(c->infile->len>65280) return 0;
+	if(de_getbyte(0) != 0xe9) return 0;
+	if(dbuf_memcmp(c->infile, 1,
+		(const u8*)"\x00\x00\xe8\x00\x00\x8b\xfc\x36\x8b\x2d\x83\xc4\x02\x81\xed", 15))
+	{
+		return 0;
+	}
+	return 100;
+}
+
+static void de_help_ascom(deark *c)
+{
+	print_encconv_option(c);
+}
+
+void de_module_ascom(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "ascom";
+	mi->desc = "ASCOM";
+	mi->run_fn = de_run_ascom;
+	mi->identify_fn = de_identify_ascom;
+	mi->help_fn = de_help_ascom;
 }
