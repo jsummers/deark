@@ -749,6 +749,9 @@ Deark -- Information about supported formats
 
 * ADF (Amiga disk image) (module="amiga_adf") (experimental)
 
+* Aldus LZW and PKZP (module="aldus_inst") (experimental, incomplete)
+  An installer compressed file format.
+
 * AmBs (AMOS "Banks" aggregate format) (module="abk")
   - Extract AmSp, AmIc, AmBk files.
 
