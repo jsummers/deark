@@ -1140,10 +1140,13 @@ Deark -- Information about supported formats
 
 * Asc2Com (moule="asc2com")
   Executable text (.COM) files made by MorganSoft's Asc2Com utility.
-  - Extracts the filtered source text. May include special codes intended to
-    change colors, etc.
   - Supports files that use compression.
-  - Does not attempt to translate to UTF-8.
+  - Some files contain special codes to change colors, etc. Some of these
+    codes can be different in every file. If encoding translation is enabled,
+    such codes will be identified, and converted to... something.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation, and other
+    processing.
 
 * ASCOM (moule="ascom")
   An executable text (.COM) format.

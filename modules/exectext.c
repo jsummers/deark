@@ -17,6 +17,7 @@ DE_DECLARE_MODULE(de_module_texe);
 DE_DECLARE_MODULE(de_module_ascom);
 
 typedef struct localctx_exectext {
+	void *userdata;
 	de_encoding input_encoding;
 	UI fmtcode;
 	u8 opt_fmtconv;
@@ -29,12 +30,12 @@ typedef struct localctx_exectext {
 	dbuf *inf; // This is a copy; do not free.
 	i64 tpos;
 	i64 tlen;
-	u8 chartypes[32]; // 1=printable, 2=control
+	u8 chartypes[32]; // 0=graphics, 1=control
 } lctx;
 
 static void exectext_set_common_enc_opts(deark *c, lctx *d, de_encoding dflt_enc)
 {
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->input_encoding = de_get_input_encoding(c, NULL, dflt_enc);
 	d->opt_encconv = (u8)de_get_ext_option_bool(c, "text:encconv", 1);
 	if(d->input_encoding==DE_ENCODING_ASCII) {
 		d->opt_encconv = 0;
@@ -403,6 +404,13 @@ void de_module_show_gmr(deark *c, struct deark_module_info *mi)
 ///////////////////////////////////////////////////
 // Asc2Com (MorganSoft)
 
+struct asc2com_ctx {
+	UI version;
+	UI lister;
+	// 0=graphics, 1=control, 2=special code, 3=special TAB expansion
+	u8 chartypes[256];
+};
+
 struct asc2com_detection_data {
 	u8 found;
 	u8 is_compressed;
@@ -512,16 +520,60 @@ static void asc2com_identify(deark *c, struct asc2com_detection_data *idd, UI id
 	}
 }
 
-static void asc2com_filter(deark *c, lctx *d, dbuf *tmpf,
-	i64 ipos1, i64 endpos, dbuf *outf)
+static void asc2com_encconv_line(deark *c, lctx *d,
+	dbuf *inf, i64 pos1, i64 len, dbuf *outf, struct de_encconv_state *esp)
+{
+	i64 i;
+	struct asc2com_ctx *a2cc = (struct asc2com_ctx*)d->userdata;
+
+	for(i=0; i<len; i++) {
+		u8 x;
+
+		x = dbuf_getbyte(inf, pos1+i);
+
+		if(x==9 && a2cc->chartypes[x]==3) {
+			dbuf_write_run(outf, 0x20, 8);
+		}
+		else if(a2cc->chartypes[x]==2) {
+			// TODO: Arguably, there are better things we could do than always
+			// using the replacement character.
+			dbuf_write_uchar_as_utf8(outf, 0xfffd);
+		}
+		else if(a2cc->chartypes[x]==1) {
+			dbuf_writebyte(outf, x);
+		}
+		else {
+			de_rune u;
+
+			u = de_char_to_unicode_ex((i32)x, esp);
+			dbuf_write_uchar_as_utf8(outf, u);
+		}
+	}
+}
+
+// Lines stored in the file are prefixed with a byte giving their length.
+// This function converts to plain text.
+static void asc2com_filter(deark *c, lctx *d,
+	dbuf *tmpf, i64 ipos1, i64 endpos, dbuf *outf)
 {
 	i64 ipos;
 	u8 n;
+	struct de_encconv_state es;
+
+	de_encconv_init(&es, DE_EXTENC_MAKE(d->input_encoding, DE_ENCSUBTYPE_PRINTABLE));
+	if(d->opt_encconv && c->write_bom) {
+		dbuf_write_uchar_as_utf8(outf, 0xfeff);
+	}
 
 	ipos = ipos1;
 	while(ipos < endpos) {
 		n = dbuf_getbyte_p(tmpf, &ipos);
-		dbuf_copy(tmpf, ipos, (i64)n, outf);
+		if(d->opt_encconv) {
+			asc2com_encconv_line(c, d, tmpf, ipos, (i64)n, outf, &es);
+		}
+		else {
+			dbuf_copy(tmpf, ipos, (i64)n, outf);
+		}
 		dbuf_write(outf, (const u8*)"\x0d\x0a", 2);
 		ipos += (i64)n;
 	}
@@ -576,10 +628,93 @@ static void asc2com_extract_uncompressed(deark *c, lctx *d)
 	dbuf_close(outf);
 }
 
+static void asc2com_find_special_chars(deark *c, lctx *d,
+	struct asc2com_detection_data *idd)
+{
+	u8 sctype = 0;
+	i64 pos;
+	u8 b;
+	struct asc2com_ctx *a2cc = (struct asc2com_ctx*)d->userdata;
+	de_ucstring *tmpstr = NULL;
+
+	if(a2cc->lister==4) {
+		// The 'print' lister doesn't do special chars.
+		// TODO: Investigate how tabs and other control chars are handled.
+		a2cc->chartypes[9] = 1;
+		goto done;
+	}
+
+	if(a2cc->version<0x165) goto done;
+
+	// Tabs. (Sigh.)
+	// Before v1.75, they're just graphics characters.
+	// v1.75-1.76 attempts to rewrite files so that tabs in the COM file must
+	// be printed as a full 8 spaces. (The rewrite step is buggy, but that's
+	// not our problem.)
+	// v2.00-2.05 just seems to always interpret tabs as 8 spaces.
+	if(a2cc->version>=0x175) {
+		a2cc->chartypes[9] = 3;
+	}
+
+	if(a2cc->version>=0x165 && a2cc->version<=0x166) {
+		sctype = 1;
+	}
+	else if(a2cc->version>=0x175 && a2cc->version<=0x176) {
+		sctype = 2;
+	}
+	else if(a2cc->version>=0x200 && a2cc->version<=0x205) {
+		sctype = 3;
+	}
+
+	if(sctype==0) goto done;
+
+	tmpstr = ucstring_create(c);
+
+	// "TagLine" feature.
+	// In v1.75+, these codes are quasi-configurable, but for our purposes
+	// they're not. They always get changed to 0x00 and 0xff in the document
+	// itself.
+	a2cc->chartypes[0x00] = 2;
+	a2cc->chartypes[0xff] = 2;
+	ucstring_append_sz(tmpstr, " 00 ff", DE_ENCODING_LATIN1);
+
+	if(sctype==2) {
+		// Three codes are configurable, and are stored in the COM file outside
+		// the document.
+		for(pos=8; pos<=12; pos+=2) {
+			b = de_getbyte(pos);
+			a2cc->chartypes[(UI)b] = 2;
+			ucstring_printf(tmpstr, DE_ENCODING_LATIN1, " %02x", (UI)b);
+		}
+	}
+	else if(sctype==3) {
+		// (The original TagLine codes are stored in the file, at offset 78-79.
+		// We don't use them for anything. I guess that, if we're not translating
+		// to UTF-8, they could be used to help construct something a little
+		// closer to the original source document.)
+
+		// Four configurable codes:
+		for(pos=80; pos<=83; pos++) {
+			b = de_getbyte(pos);
+			a2cc->chartypes[(UI)b] = 2;
+			ucstring_printf(tmpstr, DE_ENCODING_LATIN1, " %02x", (UI)b);
+		}
+	}
+
+done:
+	if(ucstring_isnonempty(tmpstr)) {
+		de_dbg(c, "special chars:%s", ucstring_getpsz(tmpstr));
+	}
+	ucstring_destroy(tmpstr);
+}
+
 static void de_run_asc2com(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	struct asc2com_ctx *a2cc = NULL;
 	struct asc2com_detection_data idd;
+
+	a2cc = de_malloc(c, sizeof(struct asc2com_ctx));
 
 	de_zeromem(&idd, sizeof(struct asc2com_detection_data));
 	asc2com_identify(c, &idd, 0);
@@ -589,11 +724,20 @@ static void de_run_asc2com(deark *c, de_module_params *mparams)
 	}
 	de_dbg(c, "format code: 0x%08x", idd.fmtcode);
 	de_dbg(c, "compressed: %u", (UI)idd.is_compressed);
+	a2cc->version = (idd.fmtcode >> 20) & 0xfff;
+	a2cc->lister = idd.fmtcode & 0xf;
 
 	d = create_lctx(c);
+	d->userdata = (void*)a2cc;
+
+	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
+
+	asc2com_find_special_chars(c, d, &idd);
+
 	d->tpos = idd.tpos;
 	de_dbg(c, "tpos: %"I64_FMT, d->tpos);
 	d->tlen = c->infile->len - d->tlen;
+
 	// TODO: Can we read and use the original filename?
 	if(idd.is_compressed) {
 		asc2com_extract_compressed(c, d);
@@ -604,6 +748,7 @@ static void de_run_asc2com(deark *c, de_module_params *mparams)
 
 done:
 	destroy_lctx(c, d);
+	de_free(c, a2cc);
 }
 
 static int de_identify_asc2com(deark *c)
