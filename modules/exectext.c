@@ -421,6 +421,7 @@ struct asc2com_detection_data {
 struct asc2com_idinfo {
 	const u8 sig1[3];
 	// flags&0x03: sig2 type  1=\x49\xe3..., 2="ASC2COM"
+	// flags&0x40: need to validate txtpos pointer
 	// flags&0x80: compressed
 	u8 flags;
 	u16 sig2pos;
@@ -445,7 +446,8 @@ static const struct asc2com_idinfo asc2com_idinfo_arr[] = {
 	{ {0xe8,0x06,0x01}, 0x01, 1337,  1854, 0x13010001 }, // 1.30 page
 	{ {0xe9,0xc4,0x04}, 0x01, 2725,  3638, 0x16510101 }, // 1.65 page (?)
 	{ {0xe9,0xc4,0x04}, 0x01, 2732,  3638, 0x16610001 }, // 1.66 page
-	{ {0xe9,0xc9,0x04}, 0x01, 2814,  3955, 0x17510001 }, // 1.75-1.76 page
+	{ {0xe9,0xc9,0x04}, 0x41, 2814,  3938, 0x17510001 }, // 1.75 page
+	{ {0xe9,0xc9,0x04}, 0x41, 2814,  3955, 0x17610001 }, // 1.76 page
 	{ {0xe9,0x12,0x06}, 0x01, 3185,  4485, 0x20010001 }, // 2.00 page
 	{ {0xe9,0x21,0x06}, 0x01, 3213,  4517, 0x20060001 }, // 2.00f-2.05 page
 
@@ -493,7 +495,17 @@ static void asc2com_identify(deark *c, struct asc2com_detection_data *idd, UI id
 				if(!dbuf_memcmp(c->infile, (i64)t->sig2pos,
 					(const void*)"\x49\xe3\x0e\x33\xd2\x8a\x14\xfe\xc2\x03\xf2\x49", 12))
 				{
-					found_item = t;
+					if(t->flags & 0x40) {
+						i64 tmptxtpos;
+
+						tmptxtpos = de_getu16le((i64)t->sig2pos-2) - 0x100;
+						if(tmptxtpos == t->txtpos) {
+							found_item = t;
+						}
+					}
+					else {
+						found_item = t;
+					}
 				}
 			}
 			else if(sig_type==2) {
