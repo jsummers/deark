@@ -30,7 +30,11 @@ typedef struct localctx_exectext {
 	dbuf *inf; // This is a copy; do not free.
 	i64 tpos;
 	i64 tlen;
-	u8 chartypes[32]; // 0=graphics, 1=control
+#define ETCT_PRINTABLE   0
+#define ETCT_CONTROL     1
+#define ETCT_SPECIAL     2 // untranslatable code
+#define ETCT_ASC2COMTAB  100
+	u8 chartypes[256];
 } lctx;
 
 static void exectext_set_common_enc_opts(deark *c, lctx *d, de_encoding dflt_enc)
@@ -84,44 +88,36 @@ done:
 }
 #endif
 
-// For byte values 0-31, leaves them or converts them, depending on the flags
-// in d->chartypes[].
-// Note for TXT2COM:
-// - dbuf_copy_slice_convert_to_utf8() in HYBRID mode doesn't quite do what
-//   we want, mainly because it treats 0x00 and 0x09 as controls, while
-//   TXT2COM treats them as graphics.
-// - Early versions of TXT2COM stop when they see 0x1a, but later versions don't.
-//   We behave like later versions.
-// - We might not handle an unpaired LF or CR byte exactly like TXT2COM does.
-static void exectext_convert_and_write(deark *c, lctx *d, dbuf *outf)
+// Processing of a byte depends on the flags in d->chartypes[].
+static void exectext_convert_and_write_slice(deark *c, lctx *d,
+	i64 pos1, i64 len,
+	struct de_encconv_state *es, dbuf *outf)
 {
-	struct de_encconv_state es;
-	i64 endpos = d->tpos + d->tlen;
-	i64 pos;
+	i64 pos = pos1;
+	i64 endpos = pos1 + len;
 
-	de_encconv_init(&es, DE_EXTENC_MAKE(d->input_encoding, DE_ENCSUBTYPE_PRINTABLE));
-	if(c->write_bom) {
-		dbuf_write_uchar_as_utf8(outf, 0xfeff);
-	}
-
-	pos = d->tpos;
 	while(pos < endpos) {
 		u8 x;
+		de_rune u;
 
 		x = dbuf_getbyte_p(d->inf, &pos);
-		if(x<32 && d->chartypes[x]!=0) {
-			dbuf_writebyte(outf, x);
-		}
-		else {
-			de_rune u;
+		switch(d->chartypes[x]) {
 
-			u = de_char_to_unicode_ex((i32)x, &es);
+		case ETCT_CONTROL:
+			dbuf_writebyte(outf, x);
+			break;
+		case ETCT_SPECIAL:
+			dbuf_write_uchar_as_utf8(outf, 0xfffd);
+			break;
+		default:
+			u = de_char_to_unicode_ex((i32)x, es);
 			dbuf_write_uchar_as_utf8(outf, u);
 		}
 	}
 }
 
 // Extract or convert in the typical way.
+// - Uses d->inf, d->tpos, d->tlen.
 // - Validates the source position
 // - Respects d->input_encoding if relevant
 // - Respects d->opt_encconv and d->chartypes[]
@@ -136,7 +132,15 @@ static void exectext_extract_default(deark *c, lctx *d)
 	outf = dbuf_create_output_file(c, "txt", NULL, 0);
 	if(d->opt_encconv) {
 		dbuf_enable_wbuffer(outf);
-		exectext_convert_and_write(c, d, outf);
+		struct de_encconv_state es;
+
+		de_encconv_init(&es, DE_EXTENC_MAKE(d->input_encoding,
+			DE_ENCSUBTYPE_PRINTABLE));
+		if(c->write_bom) {
+			dbuf_write_uchar_as_utf8(outf, 0xfeff);
+		}
+
+		exectext_convert_and_write_slice(c, d, d->tpos, d->tlen, &es, outf);
 	}
 	else {
 		dbuf_copy(d->inf, d->tpos, d->tlen, outf);
@@ -223,8 +227,8 @@ static void de_run_txt2com(deark *c, de_module_params *mparams)
 
 	d = create_lctx(c);
 	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
-	d->chartypes[10] = 1;
-	d->chartypes[13] = 1;
+	d->chartypes[10] = ETCT_CONTROL;
+	d->chartypes[13] = ETCT_CONTROL;
 	de_declare_fmt(c, "TXT2COM");
 
 	txt2com_search1(c, d);
@@ -342,8 +346,8 @@ static void de_run_show_gmr(deark *c, de_module_params *mparams)
 	d = create_lctx(c);
 	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 	de_declare_fmt(c, "SHOW (executable text)");
-	d->chartypes[10] = 1;
-	d->chartypes[13] = 1;
+	d->chartypes[10] = ETCT_CONTROL;
+	d->chartypes[13] = ETCT_CONTROL;
 
 	showgmr_search(c, d);
 	if(!d->found_text) {
@@ -407,8 +411,6 @@ void de_module_show_gmr(deark *c, struct deark_module_info *mi)
 struct asc2com_ctx {
 	UI version;
 	UI lister;
-	// 0=graphics, 1=control, 2=special code, 3=special TAB expansion
-	u8 chartypes[256];
 };
 
 struct asc2com_detection_data {
@@ -536,22 +538,21 @@ static void asc2com_encconv_line(deark *c, lctx *d,
 	dbuf *inf, i64 pos1, i64 len, dbuf *outf, struct de_encconv_state *esp)
 {
 	i64 i;
-	struct asc2com_ctx *a2cc = (struct asc2com_ctx*)d->userdata;
 
 	for(i=0; i<len; i++) {
 		u8 x;
 
 		x = dbuf_getbyte(inf, pos1+i);
 
-		if(x==9 && a2cc->chartypes[x]==3) {
+		if(x==9 && d->chartypes[x]==ETCT_ASC2COMTAB) {
 			dbuf_write_run(outf, 0x20, 8);
 		}
-		else if(a2cc->chartypes[x]==2) {
+		else if(d->chartypes[x]==ETCT_SPECIAL) {
 			// TODO: Arguably, there are better things we could do than always
 			// using the replacement character.
 			dbuf_write_uchar_as_utf8(outf, 0xfffd);
 		}
-		else if(a2cc->chartypes[x]==1) {
+		else if(d->chartypes[x]==ETCT_CONTROL) {
 			dbuf_writebyte(outf, x);
 		}
 		else {
@@ -652,7 +653,7 @@ static void asc2com_find_special_chars(deark *c, lctx *d,
 	if(a2cc->lister==4) {
 		// The 'print' lister doesn't do special chars.
 		// TODO: Investigate how tabs and other control chars are handled.
-		a2cc->chartypes[9] = 1;
+		d->chartypes[9] = ETCT_CONTROL;
 		goto done;
 	}
 
@@ -665,7 +666,7 @@ static void asc2com_find_special_chars(deark *c, lctx *d,
 	// not our problem.)
 	// v2.00-2.05 just seems to always interpret tabs as 8 spaces.
 	if(a2cc->version>=0x175) {
-		a2cc->chartypes[9] = 3;
+		d->chartypes[9] = ETCT_ASC2COMTAB;
 	}
 
 	if(a2cc->version>=0x165 && a2cc->version<=0x166) {
@@ -686,8 +687,8 @@ static void asc2com_find_special_chars(deark *c, lctx *d,
 	// In v1.75+, these codes are quasi-configurable, but for our purposes
 	// they're not. They always get changed to 0x00 and 0xff in the document
 	// itself.
-	a2cc->chartypes[0x00] = 2;
-	a2cc->chartypes[0xff] = 2;
+	d->chartypes[0x00] = ETCT_SPECIAL;
+	d->chartypes[0xff] = ETCT_SPECIAL;
 	ucstring_append_sz(tmpstr, " 00 ff", DE_ENCODING_LATIN1);
 
 	if(sctype==2) {
@@ -695,7 +696,7 @@ static void asc2com_find_special_chars(deark *c, lctx *d,
 		// the document.
 		for(pos=8; pos<=12; pos+=2) {
 			b = de_getbyte(pos);
-			a2cc->chartypes[(UI)b] = 2;
+			d->chartypes[(UI)b] = ETCT_SPECIAL;
 			ucstring_printf(tmpstr, DE_ENCODING_LATIN1, " %02x", (UI)b);
 		}
 	}
@@ -708,7 +709,7 @@ static void asc2com_find_special_chars(deark *c, lctx *d,
 		// Four configurable codes:
 		for(pos=80; pos<=83; pos++) {
 			b = de_getbyte(pos);
-			a2cc->chartypes[(UI)b] = 2;
+			d->chartypes[(UI)b] = ETCT_SPECIAL;
 			ucstring_printf(tmpstr, DE_ENCODING_LATIN1, " %02x", (UI)b);
 		}
 	}
@@ -971,10 +972,10 @@ static void de_run_doc2com(deark *c, de_module_params *mparams)
 	doc2com_analyze(c, d);
 
 	d->allow_tlen_0 = 1;
-	d->chartypes[9] = 1;
-	d->chartypes[10] = 1;
-	d->chartypes[12] = 1;
-	d->chartypes[13] = 1;
+	d->chartypes[9] = ETCT_CONTROL;
+	d->chartypes[10] = ETCT_CONTROL;
+	d->chartypes[12] = ETCT_CONTROL;
+	d->chartypes[13] = ETCT_CONTROL;
 
 	if(d->errflag) goto done;
 	doc2com_output(c, d);
@@ -1030,12 +1031,12 @@ static void de_run_doc2com_dkn(deark *c, de_module_params *mparams)
 
 	d = create_lctx(c);
 	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
-	d->chartypes[7] = 1;
-	d->chartypes[8] = 1;
-	d->chartypes[9] = 1;
-	d->chartypes[10] = 1;
-	d->chartypes[13] = 1;
-	d->chartypes[27] = 1;
+	d->chartypes[7] = ETCT_CONTROL;
+	d->chartypes[8] = ETCT_CONTROL;
+	d->chartypes[9] = ETCT_CONTROL;
+	d->chartypes[10] = ETCT_CONTROL;
+	d->chartypes[13] = ETCT_CONTROL;
+	d->chartypes[27] = ETCT_CONTROL;
 
 	n = (UI)de_getu16le(1);
 	if(n==0x0093) {
@@ -1159,7 +1160,7 @@ static void gtxt_convert_to_text(deark *c, lctx *d, dbuf *outf, u8 to_utf8)
 			if(x_raw=='~') {
 				u = 0x240c; // Page break -> SYMBOL FOR FORM FEED, I guess.
 			}
-			else if(x_mod<32 && d->chartypes[(UI)x_mod]!=0) {
+			else if(d->chartypes[(UI)x_mod]==ETCT_CONTROL) {
 				u = (de_rune)x_mod;
 			}
 			else {
@@ -1192,12 +1193,12 @@ static void de_run_gtxt(deark *c, de_module_params *mparams)
 	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 	d->opt_fmtconv = (u8)de_get_ext_option_bool(c, "text:fmtconv", 1);
 
-	d->chartypes[7] = 1;
-	d->chartypes[8] = 1;
-	d->chartypes[9] = 1;
-	d->chartypes[10] = 1;
-	d->chartypes[13] = 1;
-	d->chartypes[27] = 1;
+	d->chartypes[7] = ETCT_CONTROL;
+	d->chartypes[8] = ETCT_CONTROL;
+	d->chartypes[9] = ETCT_CONTROL;
+	d->chartypes[10] = ETCT_CONTROL;
+	d->chartypes[13] = ETCT_CONTROL;
+	d->chartypes[27] = ETCT_CONTROL;
 
 	d->tpos = 188;
 	de_dbg(c, "tpos: %"I64_FMT, d->tpos);
@@ -1328,10 +1329,10 @@ static void de_run_readmake(deark *c, de_module_params *mparams)
 	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 
 	d->allow_tlen_0 = 1;
-	d->chartypes[8] = 1;
-	d->chartypes[9] = 1;
-	d->chartypes[10] = 1;
-	d->chartypes[13] = 1;
+	d->chartypes[8] = ETCT_CONTROL;
+	d->chartypes[9] = ETCT_CONTROL;
+	d->chartypes[10] = ETCT_CONTROL;
+	d->chartypes[13] = ETCT_CONTROL;
 
 	fmtutil_collect_exe_info(c, c->infile, rmctx->ei);
 
@@ -1420,8 +1421,8 @@ static void de_run_texe(deark *c, de_module_params *mparams)
 
 	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 
-	d->chartypes[10] = 1;
-	d->chartypes[13] = 1;
+	d->chartypes[10] = ETCT_CONTROL;
+	d->chartypes[13] = ETCT_CONTROL;
 
 	fmtutil_collect_exe_info(c, c->infile, tctx->ei);
 
@@ -1512,8 +1513,8 @@ static void de_run_ascom(deark *c, de_module_params *mparams)
 	d = create_lctx(c);
 	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 	de_declare_fmt(c, "ASCOM (executable text)");
-	d->chartypes[10] = 1;
-	d->chartypes[13] = 1;
+	d->chartypes[10] = ETCT_CONTROL;
+	d->chartypes[13] = ETCT_CONTROL;
 
 	// Some arbitrary tests, to try to make sure we have the right version
 	if(dbuf_memcmp(c->infile, 50, (const u8*)"\x72\x41\xc2\xfe\xd1\x7f\xca\xfe", 8) ||
