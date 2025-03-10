@@ -109,6 +109,9 @@ static void exectext_convert_and_write_slice(deark *c, lctx *d,
 		case ETCT_SPECIAL:
 			dbuf_write_uchar_as_utf8(outf, 0xfffd);
 			break;
+		case ETCT_ASC2COMTAB:
+			dbuf_write_run(outf, 0x20, 8);
+			break;
 		default:
 			u = de_char_to_unicode_ex((i32)x, es);
 			dbuf_write_uchar_as_utf8(outf, u);
@@ -534,40 +537,11 @@ static void asc2com_identify(deark *c, struct asc2com_detection_data *idd, UI id
 	}
 }
 
-static void asc2com_encconv_line(deark *c, lctx *d,
-	dbuf *inf, i64 pos1, i64 len, dbuf *outf, struct de_encconv_state *esp)
-{
-	i64 i;
-
-	for(i=0; i<len; i++) {
-		u8 x;
-
-		x = dbuf_getbyte(inf, pos1+i);
-
-		if(x==9 && d->chartypes[x]==ETCT_ASC2COMTAB) {
-			dbuf_write_run(outf, 0x20, 8);
-		}
-		else if(d->chartypes[x]==ETCT_SPECIAL) {
-			// TODO: Arguably, there are better things we could do than always
-			// using the replacement character.
-			dbuf_write_uchar_as_utf8(outf, 0xfffd);
-		}
-		else if(d->chartypes[x]==ETCT_CONTROL) {
-			dbuf_writebyte(outf, x);
-		}
-		else {
-			de_rune u;
-
-			u = de_char_to_unicode_ex((i32)x, esp);
-			dbuf_write_uchar_as_utf8(outf, u);
-		}
-	}
-}
-
 // Lines stored in the file are prefixed with a byte giving their length.
-// This function converts to plain text.
-static void asc2com_filter(deark *c, lctx *d,
-	dbuf *tmpf, i64 ipos1, i64 endpos, dbuf *outf)
+// This function converts to plain text and writes to outf.
+// Reads from d->inf.
+static void asc2com_filter_and_write(deark *c, lctx *d,
+	i64 ipos1, i64 endpos, dbuf *outf)
 {
 	i64 ipos;
 	u8 n;
@@ -580,12 +554,12 @@ static void asc2com_filter(deark *c, lctx *d,
 
 	ipos = ipos1;
 	while(ipos < endpos) {
-		n = dbuf_getbyte_p(tmpf, &ipos);
+		n = dbuf_getbyte_p(d->inf, &ipos);
 		if(d->opt_encconv) {
-			asc2com_encconv_line(c, d, tmpf, ipos, (i64)n, outf, &es);
+			exectext_convert_and_write_slice(c, d, ipos, (i64)n, &es, outf);
 		}
 		else {
-			dbuf_copy(tmpf, ipos, (i64)n, outf);
+			dbuf_copy(d->inf, ipos, (i64)n, outf);
 		}
 		dbuf_write(outf, (const u8*)"\x0d\x0a", 2);
 		ipos += (i64)n;
@@ -618,7 +592,8 @@ static void asc2com_extract_compressed(deark *c, lctx *d)
 	if(tmpf->len>0) {
 		outf = dbuf_create_output_file(c, "txt", NULL, 0);
 		dbuf_enable_wbuffer(outf);
-		asc2com_filter(c, d, tmpf, 0, tmpf->len, outf);
+		d->inf = tmpf;
+		asc2com_filter_and_write(c, d, 0, tmpf->len, outf);
 	}
 
 	if(dres.errcode) {
@@ -637,7 +612,7 @@ static void asc2com_extract_uncompressed(deark *c, lctx *d)
 
 	outf = dbuf_create_output_file(c, "txt", NULL, 0);
 	dbuf_enable_wbuffer(outf);
-	asc2com_filter(c, d, c->infile, d->tpos, d->tlen, outf);
+	asc2com_filter_and_write(c, d, d->tpos, d->tpos+d->tlen, outf);
 	dbuf_close(outf);
 }
 
@@ -749,7 +724,7 @@ static void de_run_asc2com(deark *c, de_module_params *mparams)
 
 	d->tpos = idd.tpos;
 	de_dbg(c, "tpos: %"I64_FMT, d->tpos);
-	d->tlen = c->infile->len - d->tlen;
+	d->tlen = c->infile->len - d->tpos;
 
 	// TODO: Can we read and use the original filename?
 	if(idd.is_compressed) {
