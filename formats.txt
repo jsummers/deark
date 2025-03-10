@@ -1190,10 +1190,11 @@ Deark -- Information about supported formats
 * DOC2COM (moule="doc2com")
   Executable text (.COM) files made by G. DePyper's DOC2COM utility.
   - Supports files that use encryption.
-  - Extracts the source text. Does not necessarily render the document (e.g.
-    colors) like running the COM file would.
+  - Partially processes the source text, at least to identify special codes
+    that change the colors.
   Options
-   -opt text:encconv=0 - Suppress character encoding translation.
+   -opt text:encconv=0 - Suppress character encoding translation, and other
+    processing.
 
 * DOC2COM (moule="doc2com_dkn")
   Executable text (.COM) files made by D. Nelson's DOC2COM utility.

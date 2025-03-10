@@ -34,6 +34,7 @@ typedef struct localctx_exectext {
 #define ETCT_CONTROL     1
 #define ETCT_SPECIAL     2 // untranslatable code
 #define ETCT_ASC2COMTAB  100
+#define ETCT_DOC2COMSPECIAL 101
 	u8 chartypes[256];
 } lctx;
 
@@ -98,6 +99,8 @@ static void exectext_convert_and_write_slice(deark *c, lctx *d,
 
 	while(pos < endpos) {
 		u8 x;
+		u8 tmpbyte;
+		u8 next_byte_is_same;
 		de_rune u;
 
 		x = dbuf_getbyte_p(d->inf, &pos);
@@ -111,6 +114,25 @@ static void exectext_convert_and_write_slice(deark *c, lctx *d,
 			break;
 		case ETCT_ASC2COMTAB:
 			dbuf_write_run(outf, 0x20, 8);
+			break;
+		case ETCT_DOC2COMSPECIAL:
+			next_byte_is_same = 0;
+			// Escaping is done by doubling the special character.
+			// Peek ahead at the next byte:
+			if(pos < endpos-1) {
+				tmpbyte = dbuf_getbyte(d->inf, pos);
+				if(tmpbyte==x) {
+					next_byte_is_same = 1;
+				}
+			}
+			if(next_byte_is_same) {
+				u = de_char_to_unicode_ex((i32)x, es);
+				dbuf_write_uchar_as_utf8(outf, u);
+				pos++; // Skip the extra byte we read
+			}
+			else {
+				dbuf_write_uchar_as_utf8(outf, 0xfffd);
+			}
 			break;
 		default:
 			u = de_char_to_unicode_ex((i32)x, es);
@@ -916,16 +938,47 @@ static void doc2com_output(deark *c, lctx *d)
 	//
 	// - V1.3+ has the ability to define arbitrary characters to be special
 	// codes that change the colors. A color-change code is just a single
-	// character like "^", nothing that would complicate conversion to UTF-8.
-	// While we could read these definitions from the COM file, and use them
-	// to translate the document differently, it's not really clear *what* to
-	// do. So, we just recover the source document. Special characters will
-	// lose their special meaning.
+	// character like "^". Doubling a code (e.g. "^^") escapes it. If we're
+	// translating to UTF-8, we replace these codes with the Unicode
+	// replacement char.
 
 	exectext_extract_default(c, d);
 
 done:
 	dbuf_close(tmpdbuf);
+}
+
+static void doc2com_find_special_codes(deark *c, lctx *d)
+{
+	i64 foundpos;
+	int ret;
+	i64 count;
+	i64 i;
+	i64 pos;
+	de_ucstring *tmpstr = NULL;
+
+	ret = dbuf_search(c->infile, (const u8*)"\x74\xda\xeb\xf3", 4,
+		633, 5, &foundpos);
+	if(!ret) goto done;
+	pos = foundpos+4;
+	de_dbg(c, "pos of special chars: %"I64_FMT, pos);
+
+	count = (i64)de_getbyte_p(&pos);
+	de_dbg(c, "num special chars: %"I64_FMT, count);
+	if(count<1 || count>16) goto done;
+	tmpstr = ucstring_create(c);
+	for(i=0; i<count; i++) {
+		i64 b;
+		b = de_getbyte_p(&pos);
+		d->chartypes[(UI)b] = ETCT_DOC2COMSPECIAL;
+		ucstring_printf(tmpstr, DE_ENCODING_LATIN1, " %02x", (UI)b);
+	}
+
+done:
+	if(ucstring_isnonempty(tmpstr)) {
+		de_dbg(c, "special chars:%s", ucstring_getpsz(tmpstr));
+	}
+	ucstring_destroy(tmpstr);
 }
 
 static void de_run_doc2com(deark *c, de_module_params *mparams)
@@ -951,6 +1004,8 @@ static void de_run_doc2com(deark *c, de_module_params *mparams)
 	d->chartypes[10] = ETCT_CONTROL;
 	d->chartypes[12] = ETCT_CONTROL;
 	d->chartypes[13] = ETCT_CONTROL;
+
+	doc2com_find_special_codes(c, d);
 
 	if(d->errflag) goto done;
 	doc2com_output(c, d);
