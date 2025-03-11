@@ -16,6 +16,22 @@ DE_DECLARE_MODULE(de_module_readmake);
 DE_DECLARE_MODULE(de_module_texe);
 DE_DECLARE_MODULE(de_module_ascom);
 
+// TODO: For some formats containing special codes (doc2com, asc2com),
+// it might be useful to have a mode that converts the format (somehow),
+// without translating the character encoding. Current, it's both or
+// neither. (Well, gtxt already has such a mode.)
+
+// Note: An option to convert to HTML would be cool, but seems like more
+// trouble than it's worth.
+
+struct ecnv_ctx {
+	de_ucstring *tmpstr;
+	dbuf *outf;
+	deark *c;
+	int ext_enc;
+	struct de_encconv_state es;
+};
+
 typedef struct localctx_exectext {
 	void *userdata;
 	de_encoding input_encoding;
@@ -73,6 +89,72 @@ static void destroy_lctx(deark *c, lctx *d)
 	de_free(c, d);
 }
 
+static struct ecnv_ctx *ecnv_create(deark *c, int ext_enc,
+	dbuf *outf)
+{
+	struct ecnv_ctx *ecnv;
+
+	ecnv = (struct ecnv_ctx*)de_malloc(c, sizeof(struct ecnv_ctx));
+	ecnv->c = c;
+	ecnv->tmpstr = ucstring_create(c);
+	ecnv->outf = outf;
+	ecnv->ext_enc = ext_enc;
+	de_encconv_init(&ecnv->es, ext_enc);
+	return ecnv;
+}
+
+static void ecnv_destroy(deark *c, struct ecnv_ctx *ecnv)
+{
+	if(!ecnv) return;
+	ucstring_destroy(ecnv->tmpstr);
+	de_free(c, ecnv);
+}
+
+// Write everything we have to outf, but don't process or discard
+// partially-decoded characters.
+static void ecnv_soft_flush(struct ecnv_ctx *ecnv)
+{
+	if(ucstring_isnonempty(ecnv->tmpstr)) {
+		ucstring_write_as_utf8(ecnv->c, ecnv->tmpstr, ecnv->outf, 0);
+		ucstring_empty(ecnv->tmpstr);
+	}
+}
+
+// Process any partially-decoded character, to reset the converter state.
+static void ecnv_barrier( struct ecnv_ctx *ecnv)
+{
+	// TODO: This is inefficient. We ought to have a quick way to tell
+	// if it's needed.
+	ucstring_append_bytes_ex(ecnv->tmpstr, (const u8*)"", 0, 0, &ecnv->es);
+}
+
+static void ecnv_flush_if_needed(struct ecnv_ctx *ecnv)
+{
+	if(ecnv->tmpstr->len > 1000) {
+		ecnv_soft_flush(ecnv);
+	}
+}
+
+static void ecnv_add_byte(struct ecnv_ctx *ecnv, u8 b)
+{
+	ucstring_append_bytes_ex(ecnv->tmpstr, &b, 1, DE_CONVFLAG_PARTIAL_DATA, &ecnv->es);
+	ecnv_flush_if_needed( ecnv);
+}
+
+static void ecnv_add_rune(struct ecnv_ctx *ecnv, de_rune n)
+{
+	ecnv_barrier(ecnv);
+	ucstring_append_char(ecnv->tmpstr, n);
+	ecnv_flush_if_needed(ecnv);
+}
+
+// Call at the end of data, or before writing to ecnv->outf in some other way.
+static void ecnv_hard_flush(deark *c, struct ecnv_ctx *ecnv)
+{
+	ecnv_barrier(ecnv);
+	ecnv_soft_flush(ecnv);
+}
+
 #if 0
 static void exectext_extract_verbatim(deark *c, lctx *d)
 {
@@ -91,8 +173,7 @@ done:
 
 // Processing of a byte depends on the flags in d->chartypes[].
 static void exectext_convert_and_write_slice(deark *c, lctx *d,
-	i64 pos1, i64 len,
-	struct de_encconv_state *es, dbuf *outf)
+	i64 pos1, i64 len, struct ecnv_ctx *ecnv)
 {
 	i64 pos = pos1;
 	i64 endpos = pos1 + len;
@@ -101,19 +182,21 @@ static void exectext_convert_and_write_slice(deark *c, lctx *d,
 		u8 x;
 		u8 tmpbyte;
 		u8 next_byte_is_same;
-		de_rune u;
+		int k;
 
 		x = dbuf_getbyte_p(d->inf, &pos);
 		switch(d->chartypes[x]) {
 
 		case ETCT_CONTROL:
-			dbuf_writebyte(outf, x);
+			ecnv_add_rune(ecnv, (de_rune)x);
 			break;
 		case ETCT_SPECIAL:
-			dbuf_write_uchar_as_utf8(outf, 0xfffd);
+			ecnv_add_rune(ecnv, 0xfffd);
 			break;
 		case ETCT_ASC2COMTAB:
-			dbuf_write_run(outf, 0x20, 8);
+			for(k=0; k<8; k++) {
+				ecnv_add_byte(ecnv, 0x20);
+			}
 			break;
 		case ETCT_DOC2COMSPECIAL:
 			next_byte_is_same = 0;
@@ -126,17 +209,15 @@ static void exectext_convert_and_write_slice(deark *c, lctx *d,
 				}
 			}
 			if(next_byte_is_same) {
-				u = de_char_to_unicode_ex((i32)x, es);
-				dbuf_write_uchar_as_utf8(outf, u);
+				ecnv_add_byte(ecnv, x);
 				pos++; // Skip the extra byte we read
 			}
 			else {
-				dbuf_write_uchar_as_utf8(outf, 0xfffd);
+				ecnv_add_rune(ecnv, 0xfffd);
 			}
 			break;
 		default:
-			u = de_char_to_unicode_ex((i32)x, es);
-			dbuf_write_uchar_as_utf8(outf, u);
+			ecnv_add_byte(ecnv, x);
 		}
 	}
 }
@@ -149,6 +230,7 @@ static void exectext_convert_and_write_slice(deark *c, lctx *d,
 static void exectext_extract_default(deark *c, lctx *d)
 {
 	dbuf *outf = NULL;
+	static struct ecnv_ctx *ecnv = NULL;
 
 	if(d->errflag) goto done;
 	exectext_check_tpos(c, d);
@@ -157,21 +239,24 @@ static void exectext_extract_default(deark *c, lctx *d)
 	outf = dbuf_create_output_file(c, "txt", NULL, 0);
 	if(d->opt_encconv) {
 		dbuf_enable_wbuffer(outf);
-		struct de_encconv_state es;
 
-		de_encconv_init(&es, DE_EXTENC_MAKE(d->input_encoding,
-			DE_ENCSUBTYPE_PRINTABLE));
+		ecnv = ecnv_create(c, DE_EXTENC_MAKE(d->input_encoding,
+			DE_ENCSUBTYPE_PRINTABLE), outf);
 		if(c->write_bom) {
 			dbuf_write_uchar_as_utf8(outf, 0xfeff);
 		}
 
-		exectext_convert_and_write_slice(c, d, d->tpos, d->tlen, &es, outf);
+		exectext_convert_and_write_slice(c, d, d->tpos, d->tlen, ecnv);
 	}
 	else {
 		dbuf_copy(d->inf, d->tpos, d->tlen, outf);
 	}
 
 done:
+	if(ecnv) {
+		ecnv_hard_flush(c, ecnv);
+		ecnv_destroy(c, ecnv);
+	}
 	dbuf_close(outf);
 }
 
@@ -567,9 +652,11 @@ static void asc2com_filter_and_write(deark *c, lctx *d,
 {
 	i64 ipos;
 	u8 n;
-	struct de_encconv_state es;
+	static struct ecnv_ctx *ecnv = NULL;
 
-	de_encconv_init(&es, DE_EXTENC_MAKE(d->input_encoding, DE_ENCSUBTYPE_PRINTABLE));
+	ecnv = ecnv_create(c, DE_EXTENC_MAKE(d->input_encoding,
+		DE_ENCSUBTYPE_PRINTABLE), outf);
+
 	if(d->opt_encconv && c->write_bom) {
 		dbuf_write_uchar_as_utf8(outf, 0xfeff);
 	}
@@ -578,13 +665,20 @@ static void asc2com_filter_and_write(deark *c, lctx *d,
 	while(ipos < endpos) {
 		n = dbuf_getbyte_p(d->inf, &ipos);
 		if(d->opt_encconv) {
-			exectext_convert_and_write_slice(c, d, ipos, (i64)n, &es, outf);
+			exectext_convert_and_write_slice(c, d, ipos, (i64)n, ecnv);
+			ecnv_add_rune(ecnv, 13);
+			ecnv_add_rune(ecnv, 10);
 		}
 		else {
 			dbuf_copy(d->inf, ipos, (i64)n, outf);
+			dbuf_write(outf, (const u8*)"\x0d\x0a", 2);
 		}
-		dbuf_write(outf, (const u8*)"\x0d\x0a", 2);
 		ipos += (i64)n;
+	}
+
+	if(ecnv) {
+		ecnv_hard_flush(c, ecnv);
+		ecnv_destroy(c, ecnv);
 	}
 }
 
