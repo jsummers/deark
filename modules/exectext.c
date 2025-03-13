@@ -14,6 +14,7 @@ DE_DECLARE_MODULE(de_module_doc2com_dkn);
 DE_DECLARE_MODULE(de_module_gtxt);
 DE_DECLARE_MODULE(de_module_readmake);
 DE_DECLARE_MODULE(de_module_texe);
+DE_DECLARE_MODULE(de_module_readamatic);
 DE_DECLARE_MODULE(de_module_ascom);
 
 // TODO: For some formats containing special codes (doc2com, asc2com),
@@ -1608,6 +1609,103 @@ void de_module_texe(deark *c, struct deark_module_info *mi)
 	mi->desc = "TEXE executable text";
 	mi->run_fn = de_run_texe;
 	mi->help_fn = de_help_texe;
+}
+
+///////////////////////////////////////////////////
+// Read-A-Matic
+
+struct readamatic_ctx {
+	const char *msgpfx;
+	struct fmtutil_exe_info *ei;
+	struct fmtutil_specialexe_detection_data edd;
+};
+
+static void readamatic_find_text(deark *c, struct readamatic_ctx *tctx, lctx *d)
+{
+	i64 foundpos;
+	i64 pos;
+	int ret;
+
+	// 10 byte header
+	pos = tctx->ei->end_of_dos_code + 10;
+
+	// Then a variable-length title we need to skip over.
+	ret = dbuf_search_byte(c->infile, 0x0a, pos, 256, &foundpos);
+	if(!ret) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	d->tpos = foundpos+1;
+	d->tlen = c->infile->len - d->tpos;
+
+done:
+	;
+}
+
+static void de_run_readamatic(deark *c, de_module_params *mparams)
+{
+	struct readamatic_ctx *tctx = NULL;
+	lctx *d = NULL;
+	dbuf *tmpdbuf = NULL;
+
+	d = create_lctx(c);
+
+	tctx = de_malloc(c, sizeof(struct readamatic_ctx));
+	tctx->msgpfx = "[Read-A-Matic] ";
+	tctx->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
+
+	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
+	d->chartypes[10] = ETCT_CONTROL;
+	d->chartypes[13] = ETCT_CONTROL;
+
+	fmtutil_collect_exe_info(c, c->infile, tctx->ei);
+
+	tctx->edd.restrict_to_fmt = DE_SPECIALEXEFMT_READAMATIC;
+	fmtutil_detect_specialexe(c, tctx->ei, &tctx->edd);
+	if(tctx->edd.detected_fmt!=DE_SPECIALEXEFMT_READAMATIC) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	if(tctx->ei->overlay_len<2 || tctx->ei->overlay_len > 640*1024) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	readamatic_find_text(c, tctx, d);
+	if(d->errflag) goto done;
+
+	exectext_extract_default(c, d);
+
+done:
+	if(d) {
+		if(d->need_errmsg && tctx) {
+			de_err(c, "%sBad or unsupported Read-A-Matic file", tctx->msgpfx);
+		}
+		de_free(c, d);
+		d = NULL;
+	}
+	if(tctx) {
+		de_free(c, tctx->ei);
+		de_free(c, tctx);
+		tctx = NULL;
+	}
+	dbuf_close(tmpdbuf);
+}
+
+static void de_help_readamatic(deark *c)
+{
+	print_encconv_option(c);
+}
+
+void de_module_readamatic(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "readamatic";
+	mi->desc = "Read-A-Matic executable text";
+	mi->run_fn = de_run_readamatic;
+	mi->help_fn = de_help_readamatic;
 }
 
 ///////////////////////////////////////////////////

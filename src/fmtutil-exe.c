@@ -583,6 +583,26 @@ done:
 	;
 }
 
+static void detect_specialexe_readamatic(deark *c,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	if(ei->overlay_len < 12) goto done;
+	if(ei->regCS!=(-16)) goto done;
+	if(ei->num_relocs!=1) goto done;
+
+	if(dbuf_memcmp(ei->f, ei->start_of_dos_code+(594-128),
+		(const void*)"blTVNEW3 ", 9))
+	{
+		goto done;
+	}
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_READAMATIC;
+	de_strlcpy(edd->detected_fmt_name, "Read-A-Matic", sizeof(edd->detected_fmt_name));
+	edd->modname = "readamatic";
+done:
+	;
+}
+
 // Caller supplies ei -- must call fmtutil_collect_exe_info() first.
 // Caller initializes edd, to receive the results.
 // If success, sets edd->detected_fmt to nonzero.
@@ -606,6 +626,11 @@ void fmtutil_detect_specialexe(deark *c, struct fmtutil_exe_info *ei,
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_READMAKE) {
 		detect_specialexe_readmake(c, ei, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
+
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_READAMATIC) {
+		detect_specialexe_readamatic(c, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
