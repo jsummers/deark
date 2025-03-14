@@ -171,6 +171,7 @@
     <ClCompile Include="..\..\modules\abk.c" />
     <ClCompile Include="..\..\modules\adex.c" />
     <ClCompile Include="..\..\modules\afcp.c" />
+    <ClCompile Include="..\..\modules\aldus.c" />
     <ClCompile Include="..\..\modules\alphabmp.c" />
     <ClCompile Include="..\..\modules\amiga-dsk.c" />
     <ClCompile Include="..\..\modules\amigaicon.c" />

@@ -749,6 +749,9 @@ Deark -- Information about supported formats
 
 * ADF (Amiga disk image) (module="amiga_adf") (experimental)
 
+* Aldus LZW and PKZP (module="aldus_inst") (experimental, incomplete)
+  An installer compressed file format.
+
 * AmBs (AMOS "Banks" aggregate format) (module="abk")
   - Extract AmSp, AmIc, AmBk files.
 
@@ -1137,10 +1140,18 @@ Deark -- Information about supported formats
 
 * Asc2Com (moule="asc2com")
   Executable text (.COM) files made by MorganSoft's Asc2Com utility.
-  - Extracts the filtered source text. May include special codes intended to
-    change colors, etc.
   - Supports files that use compression.
-  - Does not attempt to translate to UTF-8.
+  - Some files contain special codes to change colors, etc. Some of these
+    codes can be different in every file. If encoding translation is enabled,
+    such codes will be identified, and converted to... something.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation, and other
+    processing.
+
+* ASCOM (moule="ascom")
+  An executable text (.COM) format.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
 
 * ASF multimedia (module="asf")
   - Files can be parsed, but there is usually nothing that can be extracted
@@ -1179,10 +1190,11 @@ Deark -- Information about supported formats
 * DOC2COM (moule="doc2com")
   Executable text (.COM) files made by G. DePyper's DOC2COM utility.
   - Supports files that use encryption.
-  - Extracts the source text. Does not necessarily render the document (e.g.
-    colors) like running the COM file would.
+  - Partially processes the source text, at least to identify special codes
+    that change the colors.
   Options
-   -opt text:encconv=0 - Suppress character encoding translation.
+   -opt text:encconv=0 - Suppress character encoding translation, and other
+    processing.
 
 * DOC2COM (moule="doc2com_dkn")
   Executable text (.COM) files made by D. Nelson's DOC2COM utility.

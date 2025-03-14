@@ -4,6 +4,8 @@ $(OBJDIR)/modules/adex.o: modules/adex.c src/deark-private.h src/deark.h \
  src/deark-config.h
 $(OBJDIR)/modules/afcp.o: modules/afcp.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/aldus.o: modules/aldus.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/alphabmp.o: modules/alphabmp.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/amiga-dsk.o: modules/amiga-dsk.c src/deark-private.h \

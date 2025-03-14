@@ -14,8 +14,26 @@ DE_DECLARE_MODULE(de_module_doc2com_dkn);
 DE_DECLARE_MODULE(de_module_gtxt);
 DE_DECLARE_MODULE(de_module_readmake);
 DE_DECLARE_MODULE(de_module_texe);
+DE_DECLARE_MODULE(de_module_ascom);
+
+// TODO: For some formats containing special codes (doc2com, asc2com),
+// it might be useful to have a mode that converts the format (somehow),
+// without translating the character encoding. Current, it's both or
+// neither. (Well, gtxt already has such a mode.)
+
+// Note: An option to convert to HTML would be cool, but seems like more
+// trouble than it's worth.
+
+struct ecnv_ctx {
+	de_ucstring *tmpstr;
+	dbuf *outf;
+	deark *c;
+	int ext_enc;
+	struct de_encconv_state es;
+};
 
 typedef struct localctx_exectext {
+	void *userdata;
 	de_encoding input_encoding;
 	UI fmtcode;
 	u8 opt_fmtconv;
@@ -28,12 +46,17 @@ typedef struct localctx_exectext {
 	dbuf *inf; // This is a copy; do not free.
 	i64 tpos;
 	i64 tlen;
-	u8 chartypes[32]; // 1=printable, 2=control
+#define ETCT_PRINTABLE   0
+#define ETCT_CONTROL     1
+#define ETCT_SPECIAL     2 // untranslatable code
+#define ETCT_ASC2COMTAB  100
+#define ETCT_DOC2COMSPECIAL 101
+	u8 chartypes[256];
 } lctx;
 
 static void exectext_set_common_enc_opts(deark *c, lctx *d, de_encoding dflt_enc)
 {
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->input_encoding = de_get_input_encoding(c, NULL, dflt_enc);
 	d->opt_encconv = (u8)de_get_ext_option_bool(c, "text:encconv", 1);
 	if(d->input_encoding==DE_ENCODING_ASCII) {
 		d->opt_encconv = 0;
@@ -66,6 +89,72 @@ static void destroy_lctx(deark *c, lctx *d)
 	de_free(c, d);
 }
 
+static struct ecnv_ctx *ecnv_create(deark *c, int ext_enc,
+	dbuf *outf)
+{
+	struct ecnv_ctx *ecnv;
+
+	ecnv = (struct ecnv_ctx*)de_malloc(c, sizeof(struct ecnv_ctx));
+	ecnv->c = c;
+	ecnv->tmpstr = ucstring_create(c);
+	ecnv->outf = outf;
+	ecnv->ext_enc = ext_enc;
+	de_encconv_init(&ecnv->es, ext_enc);
+	return ecnv;
+}
+
+static void ecnv_destroy(deark *c, struct ecnv_ctx *ecnv)
+{
+	if(!ecnv) return;
+	ucstring_destroy(ecnv->tmpstr);
+	de_free(c, ecnv);
+}
+
+// Write everything we have to outf, but don't process or discard
+// partially-decoded characters.
+static void ecnv_soft_flush(struct ecnv_ctx *ecnv)
+{
+	if(ucstring_isnonempty(ecnv->tmpstr)) {
+		ucstring_write_as_utf8(ecnv->c, ecnv->tmpstr, ecnv->outf, 0);
+		ucstring_empty(ecnv->tmpstr);
+	}
+}
+
+// Process any partially-decoded character, to reset the converter state.
+static void ecnv_barrier( struct ecnv_ctx *ecnv)
+{
+	// TODO: This is inefficient. We ought to have a quick way to tell
+	// if it's needed.
+	ucstring_append_bytes_ex(ecnv->tmpstr, (const u8*)"", 0, 0, &ecnv->es);
+}
+
+static void ecnv_flush_if_needed(struct ecnv_ctx *ecnv)
+{
+	if(ecnv->tmpstr->len > 1000) {
+		ecnv_soft_flush(ecnv);
+	}
+}
+
+static void ecnv_add_byte(struct ecnv_ctx *ecnv, u8 b)
+{
+	ucstring_append_bytes_ex(ecnv->tmpstr, &b, 1, DE_CONVFLAG_PARTIAL_DATA, &ecnv->es);
+	ecnv_flush_if_needed( ecnv);
+}
+
+static void ecnv_add_rune(struct ecnv_ctx *ecnv, de_rune n)
+{
+	ecnv_barrier(ecnv);
+	ucstring_append_char(ecnv->tmpstr, n);
+	ecnv_flush_if_needed(ecnv);
+}
+
+// Call at the end of data, or before writing to ecnv->outf in some other way.
+static void ecnv_hard_flush(deark *c, struct ecnv_ctx *ecnv)
+{
+	ecnv_barrier(ecnv);
+	ecnv_soft_flush(ecnv);
+}
+
 #if 0
 static void exectext_extract_verbatim(deark *c, lctx *d)
 {
@@ -82,50 +171,66 @@ done:
 }
 #endif
 
-// For byte values 0-31, leaves them or converts them, depending on the flags
-// in d->chartypes[].
-// Note for TXT2COM:
-// - dbuf_copy_slice_convert_to_utf8() in HYBRID mode doesn't quite do what
-//   we want, mainly because it treats 0x00 and 0x09 as controls, while
-//   TXT2COM treats them as graphics.
-// - Early versions of TXT2COM stop when they see 0x1a, but later versions don't.
-//   We behave like later versions.
-// - We might not handle an unpaired LF or CR byte exactly like TXT2COM does.
-static void exectext_convert_and_write(deark *c, lctx *d, dbuf *outf)
+// Processing of a byte depends on the flags in d->chartypes[].
+static void exectext_convert_and_write_slice(deark *c, lctx *d,
+	i64 pos1, i64 len, struct ecnv_ctx *ecnv)
 {
-	struct de_encconv_state es;
-	i64 endpos = d->tpos + d->tlen;
-	i64 pos;
+	i64 pos = pos1;
+	i64 endpos = pos1 + len;
 
-	de_encconv_init(&es, DE_EXTENC_MAKE(d->input_encoding, DE_ENCSUBTYPE_PRINTABLE));
-	if(c->write_bom) {
-		dbuf_write_uchar_as_utf8(outf, 0xfeff);
-	}
-
-	pos = d->tpos;
 	while(pos < endpos) {
 		u8 x;
+		u8 tmpbyte;
+		u8 next_byte_is_same;
+		int k;
 
 		x = dbuf_getbyte_p(d->inf, &pos);
-		if(x<32 && d->chartypes[x]!=0) {
-			dbuf_writebyte(outf, x);
-		}
-		else {
-			de_rune u;
+		switch(d->chartypes[x]) {
 
-			u = de_char_to_unicode_ex((i32)x, &es);
-			dbuf_write_uchar_as_utf8(outf, u);
+		case ETCT_CONTROL:
+			ecnv_add_rune(ecnv, (de_rune)x);
+			break;
+		case ETCT_SPECIAL:
+			ecnv_add_rune(ecnv, 0xfffd);
+			break;
+		case ETCT_ASC2COMTAB:
+			for(k=0; k<8; k++) {
+				ecnv_add_byte(ecnv, 0x20);
+			}
+			break;
+		case ETCT_DOC2COMSPECIAL:
+			next_byte_is_same = 0;
+			// Escaping is done by doubling the special character.
+			// Peek ahead at the next byte:
+			if(pos < endpos-1) {
+				tmpbyte = dbuf_getbyte(d->inf, pos);
+				if(tmpbyte==x) {
+					next_byte_is_same = 1;
+				}
+			}
+			if(next_byte_is_same) {
+				ecnv_add_byte(ecnv, x);
+				pos++; // Skip the extra byte we read
+			}
+			else {
+				ecnv_add_rune(ecnv, 0xfffd);
+			}
+			break;
+		default:
+			ecnv_add_byte(ecnv, x);
 		}
 	}
 }
 
 // Extract or convert in the typical way.
+// - Uses d->inf, d->tpos, d->tlen.
 // - Validates the source position
 // - Respects d->input_encoding if relevant
 // - Respects d->opt_encconv and d->chartypes[]
 static void exectext_extract_default(deark *c, lctx *d)
 {
 	dbuf *outf = NULL;
+	static struct ecnv_ctx *ecnv = NULL;
 
 	if(d->errflag) goto done;
 	exectext_check_tpos(c, d);
@@ -134,13 +239,24 @@ static void exectext_extract_default(deark *c, lctx *d)
 	outf = dbuf_create_output_file(c, "txt", NULL, 0);
 	if(d->opt_encconv) {
 		dbuf_enable_wbuffer(outf);
-		exectext_convert_and_write(c, d, outf);
+
+		ecnv = ecnv_create(c, DE_EXTENC_MAKE(d->input_encoding,
+			DE_ENCSUBTYPE_PRINTABLE), outf);
+		if(c->write_bom) {
+			dbuf_write_uchar_as_utf8(outf, 0xfeff);
+		}
+
+		exectext_convert_and_write_slice(c, d, d->tpos, d->tlen, ecnv);
 	}
 	else {
 		dbuf_copy(d->inf, d->tpos, d->tlen, outf);
 	}
 
 done:
+	if(ecnv) {
+		ecnv_hard_flush(c, ecnv);
+		ecnv_destroy(c, ecnv);
+	}
 	dbuf_close(outf);
 }
 
@@ -221,8 +337,8 @@ static void de_run_txt2com(deark *c, de_module_params *mparams)
 
 	d = create_lctx(c);
 	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
-	d->chartypes[10] = 1;
-	d->chartypes[13] = 1;
+	d->chartypes[10] = ETCT_CONTROL;
+	d->chartypes[13] = ETCT_CONTROL;
 	de_declare_fmt(c, "TXT2COM");
 
 	txt2com_search1(c, d);
@@ -340,8 +456,8 @@ static void de_run_show_gmr(deark *c, de_module_params *mparams)
 	d = create_lctx(c);
 	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 	de_declare_fmt(c, "SHOW (executable text)");
-	d->chartypes[10] = 1;
-	d->chartypes[13] = 1;
+	d->chartypes[10] = ETCT_CONTROL;
+	d->chartypes[13] = ETCT_CONTROL;
 
 	showgmr_search(c, d);
 	if(!d->found_text) {
@@ -402,6 +518,11 @@ void de_module_show_gmr(deark *c, struct deark_module_info *mi)
 ///////////////////////////////////////////////////
 // Asc2Com (MorganSoft)
 
+struct asc2com_ctx {
+	UI version;
+	UI lister;
+};
+
 struct asc2com_detection_data {
 	u8 found;
 	u8 is_compressed;
@@ -412,6 +533,7 @@ struct asc2com_detection_data {
 struct asc2com_idinfo {
 	const u8 sig1[3];
 	// flags&0x03: sig2 type  1=\x49\xe3..., 2="ASC2COM"
+	// flags&0x40: need to validate txtpos pointer
 	// flags&0x80: compressed
 	u8 flags;
 	u16 sig2pos;
@@ -436,7 +558,8 @@ static const struct asc2com_idinfo asc2com_idinfo_arr[] = {
 	{ {0xe8,0x06,0x01}, 0x01, 1337,  1854, 0x13010001 }, // 1.30 page
 	{ {0xe9,0xc4,0x04}, 0x01, 2725,  3638, 0x16510101 }, // 1.65 page (?)
 	{ {0xe9,0xc4,0x04}, 0x01, 2732,  3638, 0x16610001 }, // 1.66 page
-	{ {0xe9,0xc9,0x04}, 0x01, 2814,  3955, 0x17510001 }, // 1.75-1.76 page
+	{ {0xe9,0xc9,0x04}, 0x41, 2814,  3938, 0x17510001 }, // 1.75 page
+	{ {0xe9,0xc9,0x04}, 0x41, 2814,  3955, 0x17610001 }, // 1.76 page
 	{ {0xe9,0x12,0x06}, 0x01, 3185,  4485, 0x20010001 }, // 2.00 page
 	{ {0xe9,0x21,0x06}, 0x01, 3213,  4517, 0x20060001 }, // 2.00f-2.05 page
 
@@ -484,7 +607,17 @@ static void asc2com_identify(deark *c, struct asc2com_detection_data *idd, UI id
 				if(!dbuf_memcmp(c->infile, (i64)t->sig2pos,
 					(const void*)"\x49\xe3\x0e\x33\xd2\x8a\x14\xfe\xc2\x03\xf2\x49", 12))
 				{
-					found_item = t;
+					if(t->flags & 0x40) {
+						i64 tmptxtpos;
+
+						tmptxtpos = de_getu16le((i64)t->sig2pos-2) - 0x100;
+						if(tmptxtpos == t->txtpos) {
+							found_item = t;
+						}
+					}
+					else {
+						found_item = t;
+					}
 				}
 			}
 			else if(sig_type==2) {
@@ -511,18 +644,41 @@ static void asc2com_identify(deark *c, struct asc2com_detection_data *idd, UI id
 	}
 }
 
-static void asc2com_filter(deark *c, lctx *d, dbuf *tmpf,
+// Lines stored in the file are prefixed with a byte giving their length.
+// This function converts to plain text and writes to outf.
+// Reads from d->inf.
+static void asc2com_filter_and_write(deark *c, lctx *d,
 	i64 ipos1, i64 endpos, dbuf *outf)
 {
 	i64 ipos;
 	u8 n;
+	static struct ecnv_ctx *ecnv = NULL;
+
+	ecnv = ecnv_create(c, DE_EXTENC_MAKE(d->input_encoding,
+		DE_ENCSUBTYPE_PRINTABLE), outf);
+
+	if(d->opt_encconv && c->write_bom) {
+		dbuf_write_uchar_as_utf8(outf, 0xfeff);
+	}
 
 	ipos = ipos1;
 	while(ipos < endpos) {
-		n = dbuf_getbyte_p(tmpf, &ipos);
-		dbuf_copy(tmpf, ipos, (i64)n, outf);
-		dbuf_write(outf, (const u8*)"\x0d\x0a", 2);
+		n = dbuf_getbyte_p(d->inf, &ipos);
+		if(d->opt_encconv) {
+			exectext_convert_and_write_slice(c, d, ipos, (i64)n, ecnv);
+			ecnv_add_rune(ecnv, 13);
+			ecnv_add_rune(ecnv, 10);
+		}
+		else {
+			dbuf_copy(d->inf, ipos, (i64)n, outf);
+			dbuf_write(outf, (const u8*)"\x0d\x0a", 2);
+		}
 		ipos += (i64)n;
+	}
+
+	if(ecnv) {
+		ecnv_hard_flush(c, ecnv);
+		ecnv_destroy(c, ecnv);
 	}
 }
 
@@ -552,7 +708,8 @@ static void asc2com_extract_compressed(deark *c, lctx *d)
 	if(tmpf->len>0) {
 		outf = dbuf_create_output_file(c, "txt", NULL, 0);
 		dbuf_enable_wbuffer(outf);
-		asc2com_filter(c, d, tmpf, 0, tmpf->len, outf);
+		d->inf = tmpf;
+		asc2com_filter_and_write(c, d, 0, tmpf->len, outf);
 	}
 
 	if(dres.errcode) {
@@ -571,14 +728,97 @@ static void asc2com_extract_uncompressed(deark *c, lctx *d)
 
 	outf = dbuf_create_output_file(c, "txt", NULL, 0);
 	dbuf_enable_wbuffer(outf);
-	asc2com_filter(c, d, c->infile, d->tpos, d->tlen, outf);
+	asc2com_filter_and_write(c, d, d->tpos, d->tpos+d->tlen, outf);
 	dbuf_close(outf);
+}
+
+static void asc2com_find_special_chars(deark *c, lctx *d,
+	struct asc2com_detection_data *idd)
+{
+	u8 sctype = 0;
+	i64 pos;
+	u8 b;
+	struct asc2com_ctx *a2cc = (struct asc2com_ctx*)d->userdata;
+	de_ucstring *tmpstr = NULL;
+
+	if(a2cc->lister==4) {
+		// The 'print' lister doesn't do special chars.
+		// TODO: Investigate how tabs and other control chars are handled.
+		d->chartypes[9] = ETCT_CONTROL;
+		goto done;
+	}
+
+	if(a2cc->version<0x165) goto done;
+
+	// Tabs. (Sigh.)
+	// Before v1.75, they're just graphics characters.
+	// v1.75-1.76 attempts to rewrite files so that tabs in the COM file must
+	// be printed as a full 8 spaces. (The rewrite step is buggy, but that's
+	// not our problem.)
+	// v2.00-2.05 just seems to always interpret tabs as 8 spaces.
+	if(a2cc->version>=0x175) {
+		d->chartypes[9] = ETCT_ASC2COMTAB;
+	}
+
+	if(a2cc->version>=0x165 && a2cc->version<=0x166) {
+		sctype = 1;
+	}
+	else if(a2cc->version>=0x175 && a2cc->version<=0x176) {
+		sctype = 2;
+	}
+	else if(a2cc->version>=0x200 && a2cc->version<=0x205) {
+		sctype = 3;
+	}
+
+	if(sctype==0) goto done;
+
+	tmpstr = ucstring_create(c);
+
+	// "TagLine" feature.
+	// In v1.75+, these codes are quasi-configurable, but for our purposes
+	// they're not. They always get changed to 0x00 and 0xff in the document
+	// itself.
+	d->chartypes[0x00] = ETCT_SPECIAL;
+	d->chartypes[0xff] = ETCT_SPECIAL;
+	ucstring_append_sz(tmpstr, " 00 ff", DE_ENCODING_LATIN1);
+
+	if(sctype==2) {
+		// Three codes are configurable, and are stored in the COM file outside
+		// the document.
+		for(pos=8; pos<=12; pos+=2) {
+			b = de_getbyte(pos);
+			d->chartypes[(UI)b] = ETCT_SPECIAL;
+			ucstring_printf(tmpstr, DE_ENCODING_LATIN1, " %02x", (UI)b);
+		}
+	}
+	else if(sctype==3) {
+		// (The original TagLine codes are stored in the file, at offset 78-79.
+		// We don't use them for anything. I guess that, if we're not translating
+		// to UTF-8, they could be used to help construct something a little
+		// closer to the original source document.)
+
+		// Four configurable codes:
+		for(pos=80; pos<=83; pos++) {
+			b = de_getbyte(pos);
+			d->chartypes[(UI)b] = ETCT_SPECIAL;
+			ucstring_printf(tmpstr, DE_ENCODING_LATIN1, " %02x", (UI)b);
+		}
+	}
+
+done:
+	if(ucstring_isnonempty(tmpstr)) {
+		de_dbg(c, "special chars:%s", ucstring_getpsz(tmpstr));
+	}
+	ucstring_destroy(tmpstr);
 }
 
 static void de_run_asc2com(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	struct asc2com_ctx *a2cc = NULL;
 	struct asc2com_detection_data idd;
+
+	a2cc = de_malloc(c, sizeof(struct asc2com_ctx));
 
 	de_zeromem(&idd, sizeof(struct asc2com_detection_data));
 	asc2com_identify(c, &idd, 0);
@@ -588,11 +828,20 @@ static void de_run_asc2com(deark *c, de_module_params *mparams)
 	}
 	de_dbg(c, "format code: 0x%08x", idd.fmtcode);
 	de_dbg(c, "compressed: %u", (UI)idd.is_compressed);
+	a2cc->version = (idd.fmtcode >> 20) & 0xfff;
+	a2cc->lister = idd.fmtcode & 0xf;
 
 	d = create_lctx(c);
+	d->userdata = (void*)a2cc;
+
+	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
+
+	asc2com_find_special_chars(c, d, &idd);
+
 	d->tpos = idd.tpos;
 	de_dbg(c, "tpos: %"I64_FMT, d->tpos);
-	d->tlen = c->infile->len - d->tlen;
+	d->tlen = c->infile->len - d->tpos;
+
 	// TODO: Can we read and use the original filename?
 	if(idd.is_compressed) {
 		asc2com_extract_compressed(c, d);
@@ -603,6 +852,7 @@ static void de_run_asc2com(deark *c, de_module_params *mparams)
 
 done:
 	destroy_lctx(c, d);
+	de_free(c, a2cc);
 }
 
 static int de_identify_asc2com(deark *c)
@@ -782,16 +1032,47 @@ static void doc2com_output(deark *c, lctx *d)
 	//
 	// - V1.3+ has the ability to define arbitrary characters to be special
 	// codes that change the colors. A color-change code is just a single
-	// character like "^", nothing that would complicate conversion to UTF-8.
-	// While we could read these definitions from the COM file, and use them
-	// to translate the document differently, it's not really clear *what* to
-	// do. So, we just recover the source document. Special characters will
-	// lose their special meaning.
+	// character like "^". Doubling a code (e.g. "^^") escapes it. If we're
+	// translating to UTF-8, we replace these codes with the Unicode
+	// replacement char.
 
 	exectext_extract_default(c, d);
 
 done:
 	dbuf_close(tmpdbuf);
+}
+
+static void doc2com_find_special_codes(deark *c, lctx *d)
+{
+	i64 foundpos;
+	int ret;
+	i64 count;
+	i64 i;
+	i64 pos;
+	de_ucstring *tmpstr = NULL;
+
+	ret = dbuf_search(c->infile, (const u8*)"\x74\xda\xeb\xf3", 4,
+		633, 5, &foundpos);
+	if(!ret) goto done;
+	pos = foundpos+4;
+	de_dbg(c, "pos of special chars: %"I64_FMT, pos);
+
+	count = (i64)de_getbyte_p(&pos);
+	de_dbg(c, "num special chars: %"I64_FMT, count);
+	if(count<1 || count>16) goto done;
+	tmpstr = ucstring_create(c);
+	for(i=0; i<count; i++) {
+		i64 b;
+		b = de_getbyte_p(&pos);
+		d->chartypes[(UI)b] = ETCT_DOC2COMSPECIAL;
+		ucstring_printf(tmpstr, DE_ENCODING_LATIN1, " %02x", (UI)b);
+	}
+
+done:
+	if(ucstring_isnonempty(tmpstr)) {
+		de_dbg(c, "special chars:%s", ucstring_getpsz(tmpstr));
+	}
+	ucstring_destroy(tmpstr);
 }
 
 static void de_run_doc2com(deark *c, de_module_params *mparams)
@@ -813,10 +1094,12 @@ static void de_run_doc2com(deark *c, de_module_params *mparams)
 	doc2com_analyze(c, d);
 
 	d->allow_tlen_0 = 1;
-	d->chartypes[9] = 1;
-	d->chartypes[10] = 1;
-	d->chartypes[12] = 1;
-	d->chartypes[13] = 1;
+	d->chartypes[9] = ETCT_CONTROL;
+	d->chartypes[10] = ETCT_CONTROL;
+	d->chartypes[12] = ETCT_CONTROL;
+	d->chartypes[13] = ETCT_CONTROL;
+
+	doc2com_find_special_codes(c, d);
 
 	if(d->errflag) goto done;
 	doc2com_output(c, d);
@@ -872,12 +1155,12 @@ static void de_run_doc2com_dkn(deark *c, de_module_params *mparams)
 
 	d = create_lctx(c);
 	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
-	d->chartypes[7] = 1;
-	d->chartypes[8] = 1;
-	d->chartypes[9] = 1;
-	d->chartypes[10] = 1;
-	d->chartypes[13] = 1;
-	d->chartypes[27] = 1;
+	d->chartypes[7] = ETCT_CONTROL;
+	d->chartypes[8] = ETCT_CONTROL;
+	d->chartypes[9] = ETCT_CONTROL;
+	d->chartypes[10] = ETCT_CONTROL;
+	d->chartypes[13] = ETCT_CONTROL;
+	d->chartypes[27] = ETCT_CONTROL;
 
 	n = (UI)de_getu16le(1);
 	if(n==0x0093) {
@@ -1001,7 +1284,7 @@ static void gtxt_convert_to_text(deark *c, lctx *d, dbuf *outf, u8 to_utf8)
 			if(x_raw=='~') {
 				u = 0x240c; // Page break -> SYMBOL FOR FORM FEED, I guess.
 			}
-			else if(x_mod<32 && d->chartypes[(UI)x_mod]!=0) {
+			else if(d->chartypes[(UI)x_mod]==ETCT_CONTROL) {
 				u = (de_rune)x_mod;
 			}
 			else {
@@ -1034,12 +1317,12 @@ static void de_run_gtxt(deark *c, de_module_params *mparams)
 	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 	d->opt_fmtconv = (u8)de_get_ext_option_bool(c, "text:fmtconv", 1);
 
-	d->chartypes[7] = 1;
-	d->chartypes[8] = 1;
-	d->chartypes[9] = 1;
-	d->chartypes[10] = 1;
-	d->chartypes[13] = 1;
-	d->chartypes[27] = 1;
+	d->chartypes[7] = ETCT_CONTROL;
+	d->chartypes[8] = ETCT_CONTROL;
+	d->chartypes[9] = ETCT_CONTROL;
+	d->chartypes[10] = ETCT_CONTROL;
+	d->chartypes[13] = ETCT_CONTROL;
+	d->chartypes[27] = ETCT_CONTROL;
 
 	d->tpos = 188;
 	de_dbg(c, "tpos: %"I64_FMT, d->tpos);
@@ -1170,10 +1453,10 @@ static void de_run_readmake(deark *c, de_module_params *mparams)
 	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 
 	d->allow_tlen_0 = 1;
-	d->chartypes[8] = 1;
-	d->chartypes[9] = 1;
-	d->chartypes[10] = 1;
-	d->chartypes[13] = 1;
+	d->chartypes[8] = ETCT_CONTROL;
+	d->chartypes[9] = ETCT_CONTROL;
+	d->chartypes[10] = ETCT_CONTROL;
+	d->chartypes[13] = ETCT_CONTROL;
 
 	fmtutil_collect_exe_info(c, c->infile, rmctx->ei);
 
@@ -1262,8 +1545,8 @@ static void de_run_texe(deark *c, de_module_params *mparams)
 
 	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 
-	d->chartypes[10] = 1;
-	d->chartypes[13] = 1;
+	d->chartypes[10] = ETCT_CONTROL;
+	d->chartypes[13] = ETCT_CONTROL;
 
 	fmtutil_collect_exe_info(c, c->infile, tctx->ei);
 
@@ -1325,4 +1608,98 @@ void de_module_texe(deark *c, struct deark_module_info *mi)
 	mi->desc = "TEXE executable text";
 	mi->run_fn = de_run_texe;
 	mi->help_fn = de_help_texe;
+}
+
+///////////////////////////////////////////////////
+// ASCOM (Kevin Tseng)
+// Probably only v1.0f is supported.
+
+static void ascom_decrypt(deark *c, lctx *d, dbuf *tmpdbuf)
+{
+	i64 i;
+
+	for(i=0; i<d->tlen; i++) {
+		u8 b;
+
+		b = de_getbyte(d->tpos + i);
+		b = b ^ 0x01;
+		dbuf_writebyte(tmpdbuf, b);
+	}
+	dbuf_flush(tmpdbuf);
+}
+
+static void de_run_ascom(deark *c, de_module_params *mparams)
+{
+	i64 n;
+	lctx *d = NULL;
+	dbuf *tmpdbuf = NULL;
+
+	d = create_lctx(c);
+	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
+	de_declare_fmt(c, "ASCOM (executable text)");
+	d->chartypes[10] = ETCT_CONTROL;
+	d->chartypes[13] = ETCT_CONTROL;
+
+	// Some arbitrary tests, to try to make sure we have the right version
+	if(dbuf_memcmp(c->infile, 50, (const u8*)"\x72\x41\xc2\xfe\xd1\x7f\xca\xfe", 8) ||
+		dbuf_memcmp(c->infile, 2048, (const u8*)"\xee\x40\x20\xf2\x47\xae\xfe\x43", 8))
+	{
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	d->is_encrypted = 1;
+	// TODO?: Figure out how to read this offset from the file.
+	d->tpos = 3132;
+	de_dbg(c, "tpos: %"I64_FMT, d->tpos);
+	n = de_getu16le(48);
+	d->tlen = 0xf400 - n;
+	de_dbg(c, "tlen: %"I64_FMT, d->tlen);
+	exectext_check_tpos(c, d);
+	if(d->errflag) goto done;
+
+	// Note: The heading is around offset 3040, XORed with 0xfe.
+
+	tmpdbuf = dbuf_create_membuf(c, d->tlen, 0);
+	dbuf_enable_wbuffer(tmpdbuf);
+	ascom_decrypt(c, d, tmpdbuf);
+	d->inf = tmpdbuf;
+	d->tpos = 0;
+
+	exectext_extract_default(c, d);
+
+done:
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Not an ASCOM file, or unsupported version");
+		}
+		destroy_lctx(c, d);
+	}
+	dbuf_close(tmpdbuf);
+}
+
+static int de_identify_ascom(deark *c)
+{
+	if(c->infile->len>65280) return 0;
+	if(de_getbyte(0) != 0xe9) return 0;
+	if(dbuf_memcmp(c->infile, 1,
+		(const u8*)"\x00\x00\xe8\x00\x00\x8b\xfc\x36\x8b\x2d\x83\xc4\x02\x81\xed", 15))
+	{
+		return 0;
+	}
+	return 100;
+}
+
+static void de_help_ascom(deark *c)
+{
+	print_encconv_option(c);
+}
+
+void de_module_ascom(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "ascom";
+	mi->desc = "ASCOM";
+	mi->run_fn = de_run_ascom;
+	mi->identify_fn = de_identify_ascom;
+	mi->help_fn = de_help_ascom;
 }
