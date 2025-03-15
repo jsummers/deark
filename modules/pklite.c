@@ -1135,6 +1135,7 @@ static void do_decompress(deark *c, lctx *d)
 	struct decompr_internal_state *dctx = NULL;
 	struct de_lz77buffer *ringbuf = NULL;
 	u8 b;
+	u8 allow_prehistory = 0;
 	UI value_of_long_ml_code;
 	UI value_of_ml2_0_code;
 	UI value_of_ml2_1_code = 0xffff;
@@ -1148,6 +1149,13 @@ static void do_decompress(deark *c, lctx *d)
 	dctx->d = d;
 	dctx->inf = c->infile;
 	dctx->dparams = &d->dparams;
+
+	if(d->ver_reported.ver_num == 0x100) {
+		// Need this for v1.00beta/1990-07-17. It makes use of an implied
+		// 0-valued byte before the actual data (or it has a bug that does
+		// that).
+		allow_prehistory = 1;
+	}
 
 	if(d->dparams.large_cmpr) {
 		if(d->dparams.v120_cmpr) {
@@ -1295,10 +1303,7 @@ static void do_decompress(deark *c, lctx *d)
 		// PKLITE confirmed to use distances 1 to 8191. Have not observed matchpos=0.
 		// Have not observed it to use distances larger than the number of bytes
 		// decompressed so far [with one small exception].
-		if(matchpos==1 && dctx->o_dcmpr_code_nbytes_written==0) {
-			// There's a 1.00 beta dated 1990-07-17 that will make use of an
-			// implied 0-valued byte before the actual data. So we whitelist
-			// that situation.
+		if(allow_prehistory && (matchpos == dctx->o_dcmpr_code_nbytes_written+1)) {
 			;
 		}
 		else if(matchpos==0 || (i64)matchpos>dctx->o_dcmpr_code_nbytes_written) {
