@@ -1294,8 +1294,14 @@ static void do_decompress(deark *c, lctx *d)
 
 		// PKLITE confirmed to use distances 1 to 8191. Have not observed matchpos=0.
 		// Have not observed it to use distances larger than the number of bytes
-		// decompressed so far.
-		if(matchpos==0 || (i64)matchpos>dctx->o_dcmpr_code_nbytes_written) {
+		// decompressed so far [with one small exception].
+		if(matchpos==1 && dctx->o_dcmpr_code_nbytes_written==0) {
+			// There's a 1.00 beta dated 1990-07-17 that will make use of an
+			// implied 0-valued byte before the actual data. So we whitelist
+			// that situation.
+			;
+		}
+		else if(matchpos==0 || (i64)matchpos>dctx->o_dcmpr_code_nbytes_written) {
 			de_err(c, "Bad or unsupported compressed data (dist=%u, expected 1 to %"I64_FMT")",
 				matchpos, dctx->o_dcmpr_code_nbytes_written);
 			d->errflag = 1;
