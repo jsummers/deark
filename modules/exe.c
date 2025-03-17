@@ -691,7 +691,8 @@ done:
 static int do_mz_fileheader(deark *c, lctx *d)
 {
 	i64 n;
-	i64 lfb, nblocks_1, nblocks;
+	i64 lfb_1, lfb;
+	i64 nblocks_1, nblocks;
 	i64 pos1 = 0;
 	i64 pos = pos1;
 	i64 regCS, regIP;
@@ -712,11 +713,13 @@ static int do_mz_fileheader(deark *c, lctx *d)
 	pos += 2;
 	retval = 1;
 
-	lfb = de_getu16le_p(&pos);
-	de_dbg(c, "length of final block: %u%s", (UI)lfb, ((lfb==0)?" (=512)":""));
-	if(lfb>=512) {
-		de_warn(c, "Bad 'length of final block' field (%u)", (UI)lfb);
+	lfb_1 = de_getu16le_p(&pos);
+	lfb = lfb_1 & 511;
+	if(lfb_1>=512) {
+		de_warn(c, "Bad 'length of final block' field (0x%x, truncating to 0x%x)",
+			(UI)lfb_1, (UI)lfb);
 	}
+	de_dbg(c, "length of final block: %u%s", (UI)lfb, ((lfb==0)?" (=512)":""));
 
 	nblocks_1 = de_getu16le_p(&pos);
 	nblocks = nblocks_1;
@@ -730,8 +733,12 @@ static int do_mz_fileheader(deark *c, lctx *d)
 	de_dbg(c, "num blocks: %u", (UI)nblocks);
 
 	d->end_of_dos_code = nblocks*512;
-	if(lfb>=1 && lfb<=511) {
+	if(lfb) {
 		d->end_of_dos_code = d->end_of_dos_code - 512 + lfb;
+	}
+	if(d->end_of_dos_code > c->infile->len) {
+		de_warn(c, "Reported file size (%"I64_FMT") is larger than actual "
+			"size (%"I64_FMT")", d->end_of_dos_code, c->infile->len);
 	}
 
 	d->num_relocs = de_getu16le_p(&pos);
@@ -1432,7 +1439,8 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 	de_dbg(c, "rscAlignShift: %u", d->ne_rcalign_shift);
 	pos += 2;
 	if(d->ne_rcalign_shift>24) {
-		de_err(c, "Unreasonable rscAlignShift setting");
+		de_dbg(c, "[Unknown resource format or bad rscAlignShift; "
+			"can't decode this resource table]");
 		goto done;
 	}
 
