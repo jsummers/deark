@@ -1557,7 +1557,16 @@ static void do_write_dcmpr(deark *c, lctx *d)
 
 	// "Overlay" segment
 	if(d->ei->overlay_len>0) {
-		dbuf_copy(c->infile, d->ei->end_of_dos_code, d->ei->overlay_len, outf);
+		if(outf->len == d->o_ei->end_of_dos_code) {
+			dbuf_copy(c->infile, d->ei->end_of_dos_code, d->ei->overlay_len, outf);
+		}
+		else {
+			// We don't want to write the overlay to the wrong offset, but it's
+			// not clear what to do here. This should not happen with pristine
+			// files, but could happen if an overlay was added later.
+			de_warn(c, "Overlay not copied to new file, due to inconsistent file "
+				"structure");
+		}
 	}
 
 	dbuf_close(outf);
@@ -1629,8 +1638,25 @@ static int read_orig_header(deark *c, lctx *d)
 	dcmpr_bytes_expected = d->o_ei->end_of_dos_code - d->o_ei->start_of_dos_code;
 
 	if(d->o_dcmpr_code->len != dcmpr_bytes_expected) {
-		de_warn(c, "Expected %"I64_FMT" decompressed bytes, got %"I64_FMT, dcmpr_bytes_expected,
-			d->o_dcmpr_code->len);
+		const char *note2;
+
+		if(d->o_dcmpr_code->len < dcmpr_bytes_expected) {
+			// If the original file's reported file size is larger than its
+			// actual size, PKLITE can still correctly compress it (with a
+			// misleading warning that it "may contain overlays"), and can
+			// decompress it as well. There is unfortunately no way for us
+			// to distinguish this not-really-an-error situation from some
+			// sort of decompression failure that really ought to be
+			// reported.
+			note2 = ". (This could mean the original file was slightly "
+				"malformed, before PKLITE compressed it.)";
+		}
+		else {
+			note2 = "";
+		}
+
+		de_warn(c, "Expected %"I64_FMT" decompressed bytes, got %"I64_FMT"%s",
+			dcmpr_bytes_expected, d->o_dcmpr_code->len, note2);
 	}
 
 	ohdisp = OHDISP_PRESENT;
