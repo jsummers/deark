@@ -881,6 +881,7 @@ static void extract_main_threads(deark *c, struct nufx_ctx *d,
 
 	ucstring_append_ucstring(advf->filename, rec->filename);
 	advf->original_filename_flag = 1;
+	advf->snflags |= DE_SNFLAG_FULLPATH;
 	//de_advfile_set_orig_filename(rec->advf, ...); // TODO?
 
 	if(t_d) {
@@ -953,6 +954,27 @@ done:
 	ucstring_destroy(s);
 }
 
+static void fixup_filename(deark *c, struct nufx_record *rec)
+{
+	i64 i;
+	de_rune pathsep;
+
+	pathsep = (de_rune)(rec->filesys_info & 0xff);
+	if(pathsep=='/') return;
+
+	for(i=0; i<rec->filename->len; i++) {
+		de_rune x;
+
+		x = rec->filename->str[i];
+		if(x==pathsep) {
+			rec->filename->str[i] = '/';
+		}
+		else if(x=='/') {
+			rec->filename->str[i] = '_';
+		}
+	}
+}
+
 static void extract_from_record(deark *c,
 	struct nufx_ctx *d, struct nufx_record *rec)
 {
@@ -974,6 +996,8 @@ static void extract_from_record(deark *c,
 	if(ucstring_isempty(rec->filename) && ucstring_isnonempty(rec->filename_old)) {
 		ucstring_append_ucstring(rec->filename, rec->filename_old);
 	}
+
+	fixup_filename(c, rec);
 
 	de_dbg(c, "[extracting files]");
 	de_dbg_indent(c, 1);

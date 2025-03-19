@@ -1342,6 +1342,11 @@ Deark -- Information about supported formats
   - Extract Psion PIC icons.
   - Extract other contents (use -a).
 
+* Read-A-Matic (moule="readamatic")
+  Executable text (.EXE) files made by Read-A-Matic, by M. L. Wester.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
+
 * READMAKE (module="readmake")
   Executable text (.EXE) files made by READMAKE, by Wayne Software.
   Options

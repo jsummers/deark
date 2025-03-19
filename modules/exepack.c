@@ -21,16 +21,16 @@ struct ohdr_struct {
 typedef struct localctx_EXEPACK {
 	int errflag;
 	int errmsg_handled;
-	int o_code_alignment;
-	struct fmtutil_exe_info *ei; // For the original, compressed, file
+	int default_code_alignment;
+	struct fmtutil_exe_info *host_ei; // For the original, compressed, file
 
 	i64 hdrpos; // Start of exepack header (i.e. the IP field)
 	i64 decoder_len;
 	i64 epilog_pos;
 	u32 decoder_fingerprint;
 
-	dbuf *o_reloc_table;
-	dbuf *o_dcmpr_code;
+	dbuf *guest_reloc_table;
+	dbuf *dcmpr_code;
 
 	// Fields from EXEPACK header. Some will be written to the reconstructed
 	// decompressed file.
@@ -42,10 +42,10 @@ static void do_read_reloc_tbl(deark *c, lctx *d)
 	i64 reloc_pos;
 	i64 reloc_endpos;
 
-	reloc_pos = d->ei->entry_point + d->decoder_len;
+	reloc_pos = d->host_ei->entry_point + d->decoder_len;
 	reloc_endpos = d->hdrpos + d->ohdr.exepack_size;
 
-	if(!fmtutil_decompress_exepack_reloc_tbl(c, reloc_pos, reloc_endpos, d->o_reloc_table)) {
+	if(!fmtutil_decompress_exepack_reloc_tbl(c, reloc_pos, reloc_endpos, d->guest_reloc_table)) {
 		d->errflag = 1;
 	}
 }
@@ -58,14 +58,14 @@ static void do_decompress_code(deark *c, lctx *d)
 	i64 buf_alloc;
 	i64 src, dst;
 
-	compressed_len = 16*(d->ei->regCS - d->ohdr.skip_len + 1);
+	compressed_len = 16*(d->host_ei->regCS - d->ohdr.skip_len + 1);
 	uncompressed_len = 16*(d->ohdr.dest_len - d->ohdr.skip_len + 1);
 	de_dbg(c, "compressed data: pos=%"I64_FMT", len=%"I64_FMT", end=%"I64_FMT,
-		d->ei->start_of_dos_code, compressed_len,
-		d->ei->start_of_dos_code + compressed_len);
+		d->host_ei->start_of_dos_code, compressed_len,
+		d->host_ei->start_of_dos_code + compressed_len);
 	de_dbg(c, "uncompressed len: %"I64_FMT, uncompressed_len);
 	if(compressed_len<0 || uncompressed_len<0 ||
-		(d->ei->start_of_dos_code+compressed_len > c->infile->len))
+		(d->host_ei->start_of_dos_code+compressed_len > c->infile->len))
 	{
 		d->errflag = 1; goto done;
 	};
@@ -75,7 +75,7 @@ static void do_decompress_code(deark *c, lctx *d)
 	buf_alloc = de_max_int(compressed_len, uncompressed_len);
 	// Though the size is untrusted, it's impossible for it to be more than about 1MB.
 	buf = de_malloc(c, buf_alloc);
-	de_read(buf, d->ei->start_of_dos_code, compressed_len);
+	de_read(buf, d->host_ei->start_of_dos_code, compressed_len);
 
 	src = compressed_len;
 	dst = uncompressed_len;
@@ -124,7 +124,7 @@ static void do_decompress_code(deark *c, lctx *d)
 		}
 	}
 
-	dbuf_write(d->o_dcmpr_code, buf, uncompressed_len);
+	dbuf_write(d->dcmpr_code, buf, uncompressed_len);
 done:
 	de_free(c, buf);
 }
@@ -151,13 +151,13 @@ static void find_decoder_len(deark *c, lctx *d)
 	// Look for the pattern that usually follows the pointer to the compressed
 	// relocation table.
 	// Known offsets range from ep+135 to ep+148
-	haystack_pos = d->ei->entry_point+100;
+	haystack_pos = d->host_ei->entry_point+100;
 	haystack_len = 100;
 	ret = dbuf_search(c->infile, (const u8*)"\x0e\x1f\x8b\x1e\x04\x00\xfc\x33", 8,
 		haystack_pos, haystack_len, &foundpos);
 	if(ret) {
 		n = de_getu16le(foundpos-2);
-		d->decoder_len = n - d->ei->regIP;
+		d->decoder_len = n - d->host_ei->regIP;
 		method = 1;
 		goto done;
 	}
@@ -172,7 +172,7 @@ static void find_decoder_len(deark *c, lctx *d)
 	// I know of no files for which this method fails, but it's possible
 	// that some exist. Let's hope the first method works in such cases.
 	n = de_getu16le(d->epilog_pos - 2);
-	d->decoder_len = n + 22 - d->ei->regIP;
+	d->decoder_len = n + 22 - d->host_ei->regIP;
 	method = 2;
 
 done:
@@ -201,8 +201,8 @@ static void do_read_header(deark *c, lctx *d)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	d->hdrpos = d->ei->start_of_dos_code + d->ei->regCS * 16;
-	hdrsize = d->ei->regIP;
+	d->hdrpos = d->host_ei->start_of_dos_code + d->host_ei->regCS * 16;
+	hdrsize = d->host_ei->regIP;
 	de_dbg(c, "exepack header at %"I64_FMT", len=%d", d->hdrpos, (int)hdrsize);
 	if(hdrsize!=16 && hdrsize!=18) {
 		d->errflag = 1;
@@ -235,121 +235,174 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+struct exepack_output_structure {
+	i64 cdata2_pos_in_host;
+	i64 cdata2_len_nopadding;
+	i64 final_start_of_code;
+	i64 final_reloc_pos; // Where we actually write the reloc table
+	i64 final_reloc_pos_field; // What we write to the header
+	i64 final_file_size; // not including overlay
+};
+
+static void decide_output_structure(deark *c, lctx *d, struct exepack_output_structure *ostr)
+{
+	i64 cdata2_len_withpadding = 0;
+	u8 have_valid_host_formatting;
+	u8 cdata2_has_nonzero_bytes;
+	i64 min_padding_added;
+	i64 cdata2_max_len;
+	i64 alignment = (i64)d->default_code_alignment;
+
+	if(d->guest_reloc_table->len==0) {
+		have_valid_host_formatting = (d->host_ei->reloc_table_pos <=
+			d->host_ei->start_of_dos_code);
+	}
+	else {
+		have_valid_host_formatting = (d->host_ei->reloc_table_pos >= 28 &&
+			(d->host_ei->reloc_table_pos <= d->host_ei->start_of_dos_code));
+	}
+
+	if(!have_valid_host_formatting) {
+		ostr->final_reloc_pos = 28;
+		ostr->final_reloc_pos_field = ostr->final_reloc_pos;
+		ostr->cdata2_pos_in_host = ostr->final_reloc_pos;
+		goto done;
+	}
+
+	// If an empty reloc table is at offset < 28, pretend it's
+	// at offset 28 (but we'll copy the actual position to the new file).
+	ostr->final_reloc_pos_field = d->host_ei->reloc_table_pos;
+	ostr->final_reloc_pos = d->host_ei->reloc_table_pos;
+	if(ostr->final_reloc_pos < 28) {
+		ostr->final_reloc_pos = 28;
+	}
+
+	// Notes:
+	// * EXEPACK (at least ~4.05) seems to essentially delete the original
+	// relocation table, and move the custom data after it ("cdata2") to
+	// fill the gap. But, in most cases, it also replaces cdata2 with all
+	// zero bytes. But, sometimes it leaves it intact, possibly if the
+	// reloc table was at exactly offset 28.
+	// * In a compressed file, the start_of_dos_code is always bumped up to
+	// be at least 512. But if it needs to be larger than that, it seems to
+	// only be padded to the next multiple of 16 bytes.
+
+	// cdata2_pos_in_host always equals final_reloc_pos, but it's a separate
+	// variable for clarity.
+	ostr->cdata2_pos_in_host = ostr->final_reloc_pos;
+
+	// When EXEPACK deleted the relocation table, it likely had to add some
+	// padding to get back to a multiple of 16 bytes.
+	// (It may add more than this, but we can't always tell how much.)
+	cdata2_len_withpadding = d->host_ei->start_of_dos_code - ostr->cdata2_pos_in_host;
+	min_padding_added = d->guest_reloc_table->len % 16;
+
+	cdata2_max_len = cdata2_len_withpadding - min_padding_added;
+	if(cdata2_max_len<0) cdata2_max_len = 0;
+
+	cdata2_has_nonzero_bytes = !dbuf_is_all_zeroes(c->infile, ostr->cdata2_pos_in_host,
+		cdata2_max_len);
+
+	// If start_of_dos_code>512, we think we can figure out the exact layout
+	// of the original file.
+	// But if cdata2 is all 0-valued (EXEPACK may erase it like this), we deem
+	// it to be better to *not* to write it all to the decompressed file.
+	if(d->host_ei->start_of_dos_code > 512 && cdata2_has_nonzero_bytes) {
+		ostr->cdata2_len_nopadding = cdata2_max_len;
+		alignment = 16;
+		goto done;
+	}
+
+	if(cdata2_has_nonzero_bytes) {
+		ostr->cdata2_len_nopadding = cdata2_max_len;
+	}
+	else {
+		ostr->cdata2_len_nopadding = 0;
+	}
+
+	if(d->host_ei->start_of_dos_code > 512) {
+		// TODO? There may be applicable cases where the original alignment
+		// could have been 512, and so we should respect the user's setting,
+		// instead of forcing it to 16. But that's not common.
+		alignment = 16;
+	}
+
+done:
+	ostr->final_start_of_code = de_pad_to_n(ostr->final_reloc_pos + d->guest_reloc_table->len +
+		ostr->cdata2_len_nopadding, alignment);
+	ostr->final_file_size = ostr->final_start_of_code + d->dcmpr_code->len;
+}
+
 static void do_write_dcmpr(deark *c, lctx *d)
 {
 	dbuf *outf = NULL;
 	i64 ihdr_minmem, ihdr_maxmem;
-	i64 o_minmem;
-	i64 o_start_of_code; // o_ means output
-	i64 o_reloc_pos; // Where we actually write the reloc table
-	i64 o_reloc_pos_field; // What we write to the header
-	i64 o_file_size; // not including overlay
+	i64 final_minmem;
 	i64 cmprprog_mem_tot; // total memory consumed+reserved by the exepacked program
-	u8 have_reloc_pos;
-	i64 elided_bytes_pos = 28;
-	i64 elided_bytes_len = 0;
+	struct exepack_output_structure ostr;
+
+	de_zeromem(&ostr, sizeof(struct exepack_output_structure));
+
+	decide_output_structure(c, d, &ostr);
 
 	outf = dbuf_create_output_file(c, "exe", NULL, 0);
-
-	if(d->ei->reloc_table_pos<28 || d->ei->reloc_table_pos>d->ei->start_of_dos_code) {
-		have_reloc_pos = 0;
-	}
-	else if (d->o_reloc_table->len==0) {
-		// EXEPACK behaves differently if an empty reloc table has an offset <=28,
-		// versus >28.
-		// That's why this is ">28", when it seems like it should be ">=28".
-		// (TODO: Test different EXEPACK versions.)
-		have_reloc_pos = (d->ei->reloc_table_pos>28);
-	}
-	else {
-		have_reloc_pos = 1;
-	}
-
-	if(d->o_reloc_table->len==0 && !have_reloc_pos) {
-		// In this case, EXEPACK retains everything up to start_of_code,
-		// so we ought to keep it.
-		o_reloc_pos_field = d->ei->reloc_table_pos;
-		o_reloc_pos = d->ei->start_of_dos_code;
-		o_start_of_code = d->ei->start_of_dos_code;
-	}
-	else {
-		if(have_reloc_pos) {
-			o_reloc_pos = d->ei->reloc_table_pos;
-		}
-		else {
-			o_reloc_pos = 28;
-		}
-		o_reloc_pos_field = o_reloc_pos;
-		o_start_of_code = de_pad_to_n(o_reloc_pos + d->o_reloc_table->len,
-			(i64)d->o_code_alignment);
-
-		elided_bytes_pos = o_reloc_pos;
-		elided_bytes_len = d->ei->start_of_dos_code - elided_bytes_pos;
-	}
-
-	o_file_size = o_start_of_code + d->o_dcmpr_code->len;
 
 	ihdr_minmem = de_getu16le(10);
 	ihdr_maxmem = de_getu16le(12);
 
-	cmprprog_mem_tot = (d->ei->end_of_dos_code - d->ei->start_of_dos_code) + ihdr_minmem*16;
+	cmprprog_mem_tot = (d->host_ei->end_of_dos_code - d->host_ei->start_of_dos_code) + ihdr_minmem*16;
 	cmprprog_mem_tot = de_pad_to_n(cmprprog_mem_tot, 16);
 
 	// Try to set minmem so that the total memory is the same, or at least does
 	// not decrease.
-	if(cmprprog_mem_tot >= d->o_dcmpr_code->len) {
+	if(cmprprog_mem_tot >= d->dcmpr_code->len) {
 		// This could be an overestimate, for small programs.
-		o_minmem = de_pad_to_n(cmprprog_mem_tot - d->o_dcmpr_code->len, 16)/16;
+		final_minmem = de_pad_to_n(cmprprog_mem_tot - d->dcmpr_code->len, 16)/16;
 	}
 	else {
-		o_minmem = 0;
+		final_minmem = 0;
 	}
 
 	// Generate 28-byte header
 	dbuf_writeu16le(outf, 0x5a4d); // 0  signature
-	dbuf_writeu16le(outf, o_file_size%512); // 2  # of bytes in last page
-	dbuf_writeu16le(outf, (o_file_size+511)/512); // 4  # of pages
-	dbuf_writeu16le(outf, d->o_reloc_table->len/4); // 6  # of reloc tbl entries
-	dbuf_writeu16le(outf, o_start_of_code / 16); // 8  hdrsize/16
-	dbuf_writeu16le(outf, o_minmem);
+	dbuf_writeu16le(outf, ostr.final_file_size%512); // 2  # of bytes in last page
+	dbuf_writeu16le(outf, (ostr.final_file_size+511)/512); // 4  # of pages
+	dbuf_writeu16le(outf, d->guest_reloc_table->len/4); // 6  # of reloc tbl entries
+	dbuf_writeu16le(outf, ostr.final_start_of_code / 16); // 8  hdrsize/16
+	dbuf_writeu16le(outf, final_minmem);
 	dbuf_writeu16le(outf, ihdr_maxmem);
 	dbuf_writei16le(outf, d->ohdr.regSS); // 14  ss
 	dbuf_writeu16le(outf, d->ohdr.regSP); // 16  sp
 	dbuf_writeu16le(outf, 0); // 18  checksum
 	dbuf_writeu16le(outf, d->ohdr.regIP); // 20  ip
 	dbuf_writei16le(outf, d->ohdr.regCS); // 22  cs
-	dbuf_writeu16le(outf, o_reloc_pos_field); // 24  reloc_tbl_pos
+	dbuf_writeu16le(outf, ostr.final_reloc_pos_field); // 24  reloc_tbl_pos
 	dbuf_writeu16le(outf, 0); // 26  overlay indicator
 
 	// Copy extra data between header and reloc table
-	dbuf_copy(c->infile, 28, o_reloc_pos-28, outf);
+	dbuf_copy(c->infile, 28, ostr.final_reloc_pos-28, outf);
 
 	// Write the relocation table
-	dbuf_truncate(outf, o_reloc_pos);
-	dbuf_copy(d->o_reloc_table, 0, d->o_reloc_table->len, outf);
+	dbuf_truncate(outf, ostr.final_reloc_pos);
+	dbuf_copy(d->guest_reloc_table, 0, d->guest_reloc_table->len, outf);
+
+	// Write cdata2
+	if(ostr.cdata2_len_nopadding>0) {
+		dbuf_copy(c->infile, ostr.cdata2_pos_in_host, ostr.cdata2_len_nopadding, outf);
+	}
 
 	// Write the decompressed code
-	dbuf_truncate(outf, o_start_of_code);
-	dbuf_copy(d->o_dcmpr_code, 0, d->o_dcmpr_code->len, outf);
+	dbuf_truncate(outf, ostr.final_start_of_code);
+	dbuf_copy(d->dcmpr_code, 0, d->dcmpr_code->len, outf);
 
 	// Copy overlay data
-	if(d->ei->overlay_len>0) {
-		de_dbg(c, "overlay data at %"I64_FMT", len=%"I64_FMT, d->ei->end_of_dos_code,
-			d->ei->overlay_len);
-		dbuf_copy(c->infile, d->ei->end_of_dos_code, d->ei->overlay_len, outf);
+	if(d->host_ei->overlay_len>0) {
+		de_dbg(c, "overlay data at %"I64_FMT", len=%"I64_FMT, d->host_ei->end_of_dos_code,
+			d->host_ei->overlay_len);
+		dbuf_copy(c->infile, d->host_ei->end_of_dos_code, d->host_ei->overlay_len, outf);
 	}
 
 	dbuf_close(outf);
-
-	if(elided_bytes_len>0) {
-		// Microsoft has created (hacked?) files like this, that have data where
-		// they shouldn't.
-		if(!dbuf_is_all_zeroes(c->infile, elided_bytes_pos, elided_bytes_len)) {
-			de_warn(c, "Some unexpected data (%"I64_FMT" bytes at %"I64_FMT") was not "
-				"preserved. This file might not run properly.",
-				elided_bytes_len, elided_bytes_pos);
-		}
-	}
 
 	if(!d->errflag) {
 		de_stdwarn_execomp(c);
@@ -362,7 +415,7 @@ static void calc_decoder_fingerprint(deark *c, lctx *d)
 	struct de_crcobj *crco = NULL;
 
 	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-	fp_start = d->ei->entry_point;
+	fp_start = d->host_ei->entry_point;
 	// The point of "- 15" is to exclude the error handler, particularly the
 	// length of the error message. The error handler is not exactly 15 bytes
 	// in all variants, but that should be okay, and this is the best logic
@@ -401,20 +454,20 @@ static void de_run_exepack(deark *c, de_module_params *mparams)
 
 	s = de_get_ext_option(c, "execomp:align");
 	if(s) {
-		d->o_code_alignment = de_atoi(s);
+		d->default_code_alignment = de_atoi(s);
 	}
-	if(d->o_code_alignment != 512) {
-		d->o_code_alignment = 16;
+	if(d->default_code_alignment != 512) {
+		d->default_code_alignment = 16;
 	}
 
-	d->o_reloc_table = dbuf_create_membuf(c, 0, 0);
-	d->o_dcmpr_code = dbuf_create_membuf(c, 0, 0);
-	d->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
-	fmtutil_collect_exe_info(c, c->infile, d->ei);
+	d->guest_reloc_table = dbuf_create_membuf(c, 0, 0);
+	d->dcmpr_code = dbuf_create_membuf(c, 0, 0);
+	d->host_ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
+	fmtutil_collect_exe_info(c, c->infile, d->host_ei);
 
 	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
 	edd.restrict_to_fmt = DE_SPECIALEXEFMT_EXEPACK;
-	fmtutil_detect_execomp(c, d->ei, &edd);
+	fmtutil_detect_execomp(c, d->host_ei, &edd);
 	if(edd.detected_fmt != DE_SPECIALEXEFMT_EXEPACK) {
 		de_err(c, "Not an EXEPACK-compressed file");
 		goto done;
@@ -446,9 +499,9 @@ done:
 		if(d->errflag && !d->errmsg_handled) {
 			de_err(c, "EXEPACK decompression failed");
 		}
-		dbuf_close(d->o_reloc_table);
-		dbuf_close(d->o_dcmpr_code);
-		de_free(c, d->ei);
+		dbuf_close(d->guest_reloc_table);
+		dbuf_close(d->dcmpr_code);
+		de_free(c, d->host_ei);
 		de_free(c, d);
 	}
 }
