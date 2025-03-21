@@ -889,6 +889,7 @@ Deark -- Information about supported formats
   This is usually a file named "_inst32i.ex_" or "_inst16.ex_".
 
 * InstallShield Z archive (module="is_z")
+  - Mult-volume archives aren't supported.
 
 * ISO 9660 or High Sierra CD-ROM image (module="iso9660")
   Options

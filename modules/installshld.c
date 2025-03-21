@@ -37,6 +37,7 @@ struct isz_ctx {
 	i64 directory_pos;
 	i64 filelist_pos;
 	i64 num_dirs;
+	u8 is_multivol;
 
 	struct isz_dir_array_item *dir_array; // array[num_dirs]
 };
@@ -195,7 +196,10 @@ static void de_run_is_z(deark *c, de_module_params *mparams)
 	struct isz_ctx *d = NULL;
 	int saved_indent_level;
 	struct de_timestamp tmp_timestamp;
-	i64 tmp_pos;
+	UI multivol_flag;
+	u8 volume_count = 0;
+	u8 volume_number = 0;
+	i64 pos;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	d = de_malloc(c, sizeof(struct isz_ctx));
@@ -208,10 +212,14 @@ static void de_run_is_z(deark *c, de_module_params *mparams)
 	// 0   13 5D 65 8C   = signature
 	// 4   3A 01 02 00   = ?
 	// 8... ?
+	// 10  ui16  multivolume flag
 	// 12  ui16  number of files
 	// 14  ui16  date
 	// 16  ui16  time
 	// 18... ?
+	// 30  u8    volume count (sometimes)
+	// 31  u8    volume
+	// 32... ?
 	// 41  ui32  offset of directory sequence
 	// 45... ?
 	// 49  ui16  number of dirs
@@ -225,13 +233,31 @@ static void de_run_is_z(deark *c, de_module_params *mparams)
 	de_dbg(c, "main header");
 	de_dbg_indent(c, 1);
 
-	d->da->num_members = de_getu16le(12);
+	pos = 10;
+	multivol_flag = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "is multivolume: %u", multivol_flag);
+
+	d->da->num_members = de_getu16le_p(&pos);
 	de_dbg(c, "total number of files: %"I64_FMT, d->da->num_members);
 	if(d->da->num_members>ISZ_MAX_FILES) goto done;
 
-	tmp_pos = 14;
+	pos = 14;
 	de_arch_read_field_dttm_p(d->da, &tmp_timestamp, "archive",
-		DE_ARCH_TSTYPE_DOS_DT, &tmp_pos);
+		DE_ARCH_TSTYPE_DOS_DT, &pos);
+
+	if(multivol_flag) {
+		pos = 30;
+		volume_count = de_getbyte_p(&pos);
+		if(volume_count) {
+			de_dbg(c, "num volumes: %u", (UI)volume_count);
+		}
+		volume_number = de_getbyte_p(&pos);
+		de_dbg(c, "volume number: %u", (UI)volume_number);
+
+		if(volume_count!=1 || volume_number>1) {
+			d->is_multivol = 1;
+		}
+	}
 
 	d->directory_pos = de_getu32le(41);
 	de_dbg(c, "start of dir entries: %"I64_FMT, d->directory_pos);
@@ -244,6 +270,13 @@ static void de_run_is_z(deark *c, de_module_params *mparams)
 	de_dbg(c, "start of file entries: %"I64_FMT, d->filelist_pos);
 
 	de_dbg_indent(c, -1);
+
+	if(d->is_multivol) {
+		// TODO: We ought to at least support the files that are entirely
+		// in this volume.
+		de_err(c, "Multivolume archives aren't supported");
+		goto done;
+	}
 
 	d->dir_array = de_mallocarray(c, d->num_dirs, sizeof(struct isz_dir_array_item));
 
