@@ -412,7 +412,7 @@ static void binscii_read_line_to_linebuf(deark *c, struct binscii_ctx *d)
 	if(num_leading_junk_bytes==0) return;
 	new_linebuf_used = d->linebuf_used - (i64)num_leading_junk_bytes;
 	de_memmove((void*)&d->linebuf[0], (const void*)&d->linebuf[num_leading_junk_bytes],
-		new_linebuf_used);
+		(size_t)new_linebuf_used);
 	d->linebuf_used = new_linebuf_used;
 }
 
