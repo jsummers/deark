@@ -1705,8 +1705,10 @@ static void do_exesfx(deark *c, lctx *d)
 	fmtutil_detect_exesfx(c, d->ei, &edd);
 
 	if(edd.zip_eocd_found && !edd.detected_fmt) {
-		// Possibly a ZIP SFX that we don't know how to handle
-		de_info(c, "Note: This might be a self-extracting ZIP file (try \"-m zip\").");
+		// Probably a ZIP SFX, but maybe not, or maybe one we can't handle.
+		// TODO?: Maybe we should just try to extract it anyway.
+		de_info(c, "Note: This might be a self-extracting ZIP file "
+			"(try \"-m zip -opt zip:reloc\").");
 		goto done;
 	}
 
