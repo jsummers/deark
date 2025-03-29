@@ -9,7 +9,8 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_macbinary);
 
-typedef struct localctx_struct {
+typedef struct localctx_macbinary {
+	de_encoding input_encoding;
 	u8 extract_files;
 	u8 oldver;
 	u8 extver;
@@ -77,7 +78,7 @@ static void do_header(deark *c, lctx *d, struct de_advfile *advf)
 		// Original spec has no written requirements.
 		// Not supposed to be NUL terminated, but such files exist.
 		d->filename_srd = dbuf_read_string(c->infile, pos, namelen, namelen,
-			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_MACROMAN);
+			DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
 		de_dbg(c, "filename: \"%s\"", ucstring_getpsz(d->filename_srd->str));
 	}
 	else {
@@ -308,6 +309,13 @@ static void de_run_macbinary(deark *c, de_module_params *mparams)
 	if(de_havemodcode(c, mparams, 'D')) {
 		d->extract_files = 0;
 	}
+
+	// TODO: Since this module can be used as a submodule, we really should
+	// coordinate the 'encoding' setting with the parent module
+	// (using mparams->in_params.input_encoding).
+	// But as long as the only possible parent is macpaint, it's not needed,
+	// and maybe more trouble than it's worth.
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_MACROMAN);
 
 	run_macbinary_internal(c, d);
 
