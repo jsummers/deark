@@ -475,7 +475,8 @@ Deark -- Information about supported formats
 * PI9 (Atari Falcon 320x200) (module="fpaint_pi9")
 
 * PICT (Macintosh image) (module="pict")
-  - Extract bitmap images, etc.
+  - Extracts embedded bitmap images, etc. Does not properly convert PICT to
+    another format, though it may often seem like that's what it does.
   Options
    -opt pict:decodeqt - Try to decode embedded "QuickTime" images directly,
     instead of always extracting to .qtif format.
