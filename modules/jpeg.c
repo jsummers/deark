@@ -11,6 +11,7 @@
 DE_DECLARE_MODULE(de_module_jpeg);
 DE_DECLARE_MODULE(de_module_jpegscan);
 DE_DECLARE_MODULE(de_module_syberia_syj);
+DE_DECLARE_MODULE(de_module_esm_pix);
 
 struct fpxr_entity_struct {
 	size_t index;
@@ -2303,4 +2304,37 @@ void de_module_syberia_syj(deark *c, struct deark_module_info *mi)
 	mi->desc = "Syberia texture";
 	mi->run_fn = de_run_syberia_syj;
 	mi->identify_fn = de_identify_syberia_syj;
+}
+
+// **************************************************************************
+// ESM Software .pix
+// **************************************************************************
+
+static void de_run_esm_pix(deark *c, de_module_params *mparams)
+{
+	dbuf *outf = NULL;
+
+	outf = dbuf_create_output_file(c, "jpg", NULL, 0);
+	dbuf_copy(c->infile, 21, c->infile->len - 21, outf);
+	dbuf_close(outf);
+}
+
+static int de_identify_esm_pix(deark *c)
+{
+	if(dbuf_memcmp(c->infile, 0, (const void*)"Esm ", 4)) {
+		return 0;
+	}
+	if(dbuf_memcmp(c->infile, 13, (const void*)"PIX ", 4)) {
+		return 0;
+	}
+	if((UI)de_getu16be(21) != 0xffd8) return 0;
+	return 100;
+}
+
+void de_module_esm_pix(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "esm_pix";
+	mi->desc = "Esm Software PIX";
+	mi->run_fn = de_run_esm_pix;
+	mi->identify_fn = de_identify_esm_pix;
 }

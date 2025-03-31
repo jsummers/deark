@@ -199,6 +199,9 @@ Deark -- Information about supported formats
   - Extract EPS, TIFF, and WMF from "EPS DOS Binary" format.
   - Supports preview images in EPSI format (1-, 2-, 4-, 8-bit grayscale)
 
+* Esm Software PIX (module="esm_pix")
+  - Extract embedded JPEG file.
+
 * Falcon True Color (module="ftc")
 
 * farbfeld (module="farbfeld")
