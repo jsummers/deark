@@ -25,10 +25,18 @@ DE_DECLARE_MODULE(de_module_ascom);
 // Note: An option to convert to HTML would be cool, but seems like more
 // trouble than it's worth.
 
+enum et_proctype {
+	ET_PROCTYPE_INVALID=0,
+	ET_PROCTYPE_RAW,
+	ET_PROCTYPE_FMTCONV_ONLY,
+	ET_PROCTYPE_FMTCONV_AND_ENCCONV
+};
+
 struct ecnv_ctx {
 	de_ucstring *tmpstr;
 	dbuf *outf;
 	deark *c;
+	enum et_proctype proctype;
 	int ext_enc;
 	struct de_encconv_state es;
 };
@@ -37,13 +45,15 @@ typedef struct localctx_exectext {
 	void *userdata;
 	de_encoding input_encoding;
 	UI fmtcode;
-	u8 opt_fmtconv;
-	u8 opt_encconv;
+	u8 opt_fmtconv; // Use proctype instead of this.
+	u8 opt_encconv; // Use proctype instead of this.
 	u8 errflag;
 	u8 need_errmsg;
 	u8 found_text;
 	u8 is_encrypted;
 	u8 allow_tlen_0;
+	u8 supports_fmtconv; // Set if PROCTYPE_FMTCONV_ONLY is different from RAW
+	enum et_proctype proctype;
 	dbuf *inf; // This is a copy; do not free.
 	i64 tpos;
 	i64 tlen;
@@ -58,9 +68,27 @@ typedef struct localctx_exectext {
 static void exectext_set_common_enc_opts(deark *c, lctx *d, de_encoding dflt_enc)
 {
 	d->input_encoding = de_get_input_encoding(c, NULL, dflt_enc);
+	d->opt_fmtconv = (u8)de_get_ext_option_bool(c, "text:fmtconv", 1);
 	d->opt_encconv = (u8)de_get_ext_option_bool(c, "text:encconv", 1);
 	if(d->input_encoding==DE_ENCODING_ASCII) {
 		d->opt_encconv = 0;
+	}
+	if(d->opt_fmtconv) {
+		if(d->opt_encconv) {
+			d->proctype = ET_PROCTYPE_FMTCONV_AND_ENCCONV;
+		}
+		else {
+			d->proctype = ET_PROCTYPE_FMTCONV_ONLY;
+		}
+	}
+	else {
+		d->proctype = ET_PROCTYPE_RAW;
+	}
+
+	if(!d->supports_fmtconv) {
+		if(d->proctype==ET_PROCTYPE_FMTCONV_ONLY) {
+			d->proctype = ET_PROCTYPE_RAW;
+		}
 	}
 }
 
@@ -90,8 +118,8 @@ static void destroy_lctx(deark *c, lctx *d)
 	de_free(c, d);
 }
 
-static struct ecnv_ctx *ecnv_create(deark *c, int ext_enc,
-	dbuf *outf)
+static struct ecnv_ctx *ecnv_create(deark *c, enum et_proctype proctype,
+	int ext_enc, dbuf *outf)
 {
 	struct ecnv_ctx *ecnv;
 
@@ -99,6 +127,7 @@ static struct ecnv_ctx *ecnv_create(deark *c, int ext_enc,
 	ecnv->c = c;
 	ecnv->tmpstr = ucstring_create(c);
 	ecnv->outf = outf;
+	ecnv->proctype = proctype;
 	ecnv->ext_enc = ext_enc;
 	de_encconv_init(&ecnv->es, ext_enc);
 	return ecnv;
@@ -122,7 +151,7 @@ static void ecnv_soft_flush(struct ecnv_ctx *ecnv)
 }
 
 // Process any partially-decoded character, to reset the converter state.
-static void ecnv_barrier( struct ecnv_ctx *ecnv)
+static void ecnv_barrier(struct ecnv_ctx *ecnv)
 {
 	// TODO: This is inefficient. We ought to have a quick way to tell
 	// if it's needed.
@@ -138,12 +167,18 @@ static void ecnv_flush_if_needed(struct ecnv_ctx *ecnv)
 
 static void ecnv_add_byte(struct ecnv_ctx *ecnv, u8 b)
 {
-	ucstring_append_bytes_ex(ecnv->tmpstr, &b, 1, DE_CONVFLAG_PARTIAL_DATA, &ecnv->es);
-	ecnv_flush_if_needed( ecnv);
+	if(ecnv->proctype==ET_PROCTYPE_FMTCONV_AND_ENCCONV) {
+		ucstring_append_bytes_ex(ecnv->tmpstr, &b, 1, DE_CONVFLAG_PARTIAL_DATA, &ecnv->es);
+		ecnv_flush_if_needed(ecnv);
+	}
+	else {
+		dbuf_writebyte(ecnv->outf, b);
+	}
 }
 
 static void ecnv_add_rune(struct ecnv_ctx *ecnv, de_rune n)
 {
+	if(ecnv->proctype!=ET_PROCTYPE_FMTCONV_AND_ENCCONV) return;
 	ecnv_barrier(ecnv);
 	ucstring_append_char(ecnv->tmpstr, n);
 	ecnv_flush_if_needed(ecnv);
@@ -152,6 +187,7 @@ static void ecnv_add_rune(struct ecnv_ctx *ecnv, de_rune n)
 // Call at the end of data, or before writing to ecnv->outf in some other way.
 static void ecnv_hard_flush(deark *c, struct ecnv_ctx *ecnv)
 {
+	if(ecnv->proctype!=ET_PROCTYPE_FMTCONV_AND_ENCCONV) return;
 	ecnv_barrier(ecnv);
 	ecnv_soft_flush(ecnv);
 }
@@ -189,10 +225,17 @@ static void exectext_convert_and_write_slice(deark *c, lctx *d,
 		switch(d->chartypes[x]) {
 
 		case ETCT_CONTROL:
-			ecnv_add_rune(ecnv, (de_rune)x);
+			if(ecnv->proctype==ET_PROCTYPE_FMTCONV_AND_ENCCONV) {
+				ecnv_add_rune(ecnv, (de_rune)x);
+			}
+			else {
+				ecnv_add_byte(ecnv, x);
+			}
 			break;
 		case ETCT_SPECIAL:
-			ecnv_add_rune(ecnv, 0xfffd);
+			if(ecnv->proctype==ET_PROCTYPE_FMTCONV_AND_ENCCONV) {
+				ecnv_add_rune(ecnv, 0xfffd);
+			}
 			break;
 		case ETCT_ASC2COMTAB:
 			for(k=0; k<8; k++) {
@@ -214,7 +257,9 @@ static void exectext_convert_and_write_slice(deark *c, lctx *d,
 				pos++; // Skip the extra byte we read
 			}
 			else {
-				ecnv_add_rune(ecnv, 0xfffd);
+				if(ecnv->proctype==ET_PROCTYPE_FMTCONV_AND_ENCCONV) {
+					ecnv_add_rune(ecnv, 0xfffd);
+				}
 			}
 			break;
 		default:
@@ -227,7 +272,7 @@ static void exectext_convert_and_write_slice(deark *c, lctx *d,
 // - Uses d->inf, d->tpos, d->tlen.
 // - Validates the source position
 // - Respects d->input_encoding if relevant
-// - Respects d->opt_encconv and d->chartypes[]
+// - Respects d->proctype and d->chartypes[]
 static void exectext_extract_default(deark *c, lctx *d)
 {
 	dbuf *outf = NULL;
@@ -238,13 +283,18 @@ static void exectext_extract_default(deark *c, lctx *d)
 	if(d->errflag) goto done;
 
 	outf = dbuf_create_output_file(c, "txt", NULL, 0);
-	if(d->opt_encconv) {
+	if(d->proctype!=ET_PROCTYPE_RAW) {
 		dbuf_enable_wbuffer(outf);
 
-		ecnv = ecnv_create(c, DE_EXTENC_MAKE(d->input_encoding,
-			DE_ENCSUBTYPE_PRINTABLE), outf);
-		if(c->write_bom) {
-			dbuf_write_uchar_as_utf8(outf, 0xfeff);
+		if(d->proctype==ET_PROCTYPE_FMTCONV_AND_ENCCONV) {
+			ecnv = ecnv_create(c, d->proctype, DE_EXTENC_MAKE(d->input_encoding,
+				DE_ENCSUBTYPE_PRINTABLE), outf);
+			if(c->write_bom) {
+				dbuf_write_uchar_as_utf8(outf, 0xfeff);
+			}
+		}
+		if(!ecnv) {
+			ecnv = ecnv_create(c, d->proctype, DE_ENCODING_UNKNOWN, outf);
 		}
 
 		exectext_convert_and_write_slice(c, d, d->tpos, d->tlen, ecnv);
@@ -388,14 +438,21 @@ static int de_identify_txt2com(deark *c)
 	return flag ? 92 : 0;
 }
 
-static void print_encconv_option(deark *c)
+static void print_conv_options_simple(deark *c)
 {
+	de_msg(c, "-opt text:fmtconv=0 : Do minimal processing, and don't convert to UTF-8");
+	de_msg(c, "-opt text:encconv=0 : Same as text:fmtconv=0");
+}
+
+static void print_conv_options_adv(deark *c)
+{
+	de_msg(c, "-opt text:fmtconv=0 : Do minimal processing");
 	de_msg(c, "-opt text:encconv=0 : Don't convert to UTF-8");
 }
 
 static void de_help_txt2com(deark *c)
 {
-	print_encconv_option(c);
+	print_conv_options_simple(c);
 }
 
 void de_module_txt2com(deark *c, struct deark_module_info *mi)
@@ -504,7 +561,7 @@ static int de_identify_show_gmr(deark *c)
 
 static void de_help_show_gmr(deark *c)
 {
-	print_encconv_option(c);
+	print_conv_options_simple(c);
 }
 
 void de_module_show_gmr(deark *c, struct deark_module_info *mi)
@@ -655,22 +712,34 @@ static void asc2com_filter_and_write(deark *c, lctx *d,
 	u8 n;
 	static struct ecnv_ctx *ecnv = NULL;
 
-	ecnv = ecnv_create(c, DE_EXTENC_MAKE(d->input_encoding,
-		DE_ENCSUBTYPE_PRINTABLE), outf);
+	if(d->proctype==ET_PROCTYPE_FMTCONV_AND_ENCCONV) {
+		ecnv = ecnv_create(c, d->proctype, DE_EXTENC_MAKE(d->input_encoding,
+			DE_ENCSUBTYPE_PRINTABLE), outf);
 
-	if(d->opt_encconv && c->write_bom) {
-		dbuf_write_uchar_as_utf8(outf, 0xfeff);
+		if(c->write_bom) {
+			dbuf_write_uchar_as_utf8(outf, 0xfeff);
+		}
+	}
+
+	if(!ecnv) {
+		// This object won't necessarily be used, but that's ok.
+		ecnv = ecnv_create(c, d->proctype, DE_ENCODING_UNKNOWN, outf);
 	}
 
 	ipos = ipos1;
 	while(ipos < endpos) {
 		n = dbuf_getbyte_p(d->inf, &ipos);
-		if(d->opt_encconv) {
+		if(d->proctype==ET_PROCTYPE_FMTCONV_AND_ENCCONV) {
 			exectext_convert_and_write_slice(c, d, ipos, (i64)n, ecnv);
 			ecnv_add_rune(ecnv, 13);
 			ecnv_add_rune(ecnv, 10);
 		}
-		else {
+		else if(d->proctype==ET_PROCTYPE_FMTCONV_ONLY) {
+			exectext_convert_and_write_slice(c, d, ipos, (i64)n, ecnv);
+			ecnv_add_byte(ecnv, 13);
+			ecnv_add_byte(ecnv, 10);
+		}
+		else { // ET_PROCTYPE_RAW
 			dbuf_copy(d->inf, ipos, (i64)n, outf);
 			dbuf_write(outf, (const u8*)"\x0d\x0a", 2);
 		}
@@ -835,6 +904,7 @@ static void de_run_asc2com(deark *c, de_module_params *mparams)
 	d = create_lctx(c);
 	d->userdata = (void*)a2cc;
 
+	d->supports_fmtconv = 1;
 	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 
 	asc2com_find_special_chars(c, d, &idd);
@@ -867,12 +937,18 @@ static int de_identify_asc2com(deark *c)
 	return 0;
 }
 
+static void de_help_asc2com(deark *c)
+{
+	print_conv_options_adv(c);
+}
+
 void de_module_asc2com(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "asc2com";
 	mi->desc = "Asc2Com executable text";
 	mi->run_fn = de_run_asc2com;
 	mi->identify_fn = de_identify_asc2com;
+	mi->help_fn = de_help_asc2com;
 }
 
 ///////////////////////////////////////////////////
@@ -1082,6 +1158,7 @@ static void de_run_doc2com(deark *c, de_module_params *mparams)
 	struct doc2com_detection_data idd;
 
 	d = create_lctx(c);
+	d->supports_fmtconv = 1;
 	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
 
 	de_zeromem(&idd, sizeof(struct doc2com_detection_data));
@@ -1131,7 +1208,7 @@ static int de_identify_doc2com(deark *c)
 
 static void de_help_doc2com(deark *c)
 {
-	print_encconv_option(c);
+	print_conv_options_adv(c);
 }
 
 void de_module_doc2com(deark *c, struct deark_module_info *mi)
@@ -1224,7 +1301,7 @@ static int de_identify_doc2com_dkn(deark *c)
 
 static void de_help_doc2com_dkn(deark *c)
 {
-	print_encconv_option(c);
+	print_conv_options_simple(c);
 }
 
 void de_module_doc2com_dkn(deark *c, struct deark_module_info *mi)
@@ -1315,8 +1392,8 @@ static void de_run_gtxt(deark *c, de_module_params *mparams)
 	dbuf *outf = NULL;
 
 	d = create_lctx(c);
+	d->supports_fmtconv = 1;
 	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
-	d->opt_fmtconv = (u8)de_get_ext_option_bool(c, "text:fmtconv", 1);
 
 	d->chartypes[7] = ETCT_CONTROL;
 	d->chartypes[8] = ETCT_CONTROL;
@@ -1347,13 +1424,13 @@ static void de_run_gtxt(deark *c, de_module_params *mparams)
 	outf = dbuf_create_output_file(c, "txt", NULL, 0);
 	dbuf_enable_wbuffer(outf);
 
-	if(d->opt_fmtconv==0) {
+	if(d->proctype==ET_PROCTYPE_RAW) {
 		dbuf_copy(c->infile, d->tpos, d->tlen, outf);
 	}
-	else if(d->opt_fmtconv && d->opt_encconv==0) {
+	else if(d->proctype==ET_PROCTYPE_FMTCONV_ONLY) {
 		gtxt_convert_to_text(c, d, outf, 0);
 	}
-	else { // fmtconv==1 & encconv==1
+	else { // ET_PROCTYPE_FMTCONV_AND_ENCCONV
 		gtxt_convert_to_text(c, d, outf, 1);
 	}
 
@@ -1383,8 +1460,7 @@ static int de_identify_gtxt(deark *c)
 
 static void de_help_gtxt(deark *c)
 {
-	de_msg(c, "-opt text:fmtconv=0 : Extract source code");
-	print_encconv_option(c);
+	print_conv_options_adv(c);
 }
 
 void de_module_gtxt(deark *c, struct deark_module_info *mi)
@@ -1490,7 +1566,7 @@ done:
 
 static void de_help_readmake(deark *c)
 {
-	print_encconv_option(c);
+	print_conv_options_simple(c);
 }
 
 void de_module_readmake(deark *c, struct deark_module_info *mi)
@@ -1600,7 +1676,7 @@ done:
 
 static void de_help_texe(deark *c)
 {
-	print_encconv_option(c);
+	print_conv_options_simple(c);
 }
 
 void de_module_texe(deark *c, struct deark_module_info *mi)
@@ -1697,7 +1773,7 @@ done:
 
 static void de_help_readamatic(deark *c)
 {
-	print_encconv_option(c);
+	print_conv_options_simple(c);
 }
 
 void de_module_readamatic(deark *c, struct deark_module_info *mi)
@@ -1790,7 +1866,7 @@ static int de_identify_ascom(deark *c)
 
 static void de_help_ascom(deark *c)
 {
-	print_encconv_option(c);
+	print_conv_options_simple(c);
 }
 
 void de_module_ascom(deark *c, struct deark_module_info *mi)

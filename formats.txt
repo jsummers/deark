@@ -1150,8 +1150,9 @@ Deark -- Information about supported formats
     codes can be different in every file. If encoding translation is enabled,
     such codes will be identified, and converted to... something.
   Options
-   -opt text:encconv=0 - Suppress character encoding translation, and other
-    processing.
+   -opt text:fmtconv=0 - Minimal processing. Keep special codes.
+   -opt text:encconv=0 - Suppress character encoding translation. Special
+    codes may be deleted.
 
 * ASCOM (moule="ascom")
   An executable text (.COM) format.
@@ -1198,8 +1199,9 @@ Deark -- Information about supported formats
   - Partially processes the source text, at least to identify special codes
     that change the colors.
   Options
-   -opt text:encconv=0 - Suppress character encoding translation, and other
-    processing.
+   -opt text:fmtconv=0 - Minimal processing. Keep special codes.
+   -opt text:encconv=0 - Suppress character encoding translation. Special
+    codes may be deleted.
 
 * DOC2COM (moule="doc2com_dkn")
   Executable text (.COM) files made by D. Nelson's DOC2COM utility.
