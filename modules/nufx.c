@@ -255,6 +255,10 @@ static void read_thread_header(deark *c,
 		t->num_blocks = (i64)rec->extra_type;
 		de_dbg(c, "num blocks: %"I64_FMT, t->num_blocks);
 		t->block_size = (i64)rec->storage_type;
+		if(t->block_size < 128) {
+			de_dbg(c, "[missing block size, assuming 512]");
+			t->block_size = 512;
+		}
 		de_dbg(c, "block size: %"I64_FMT, t->block_size);
 		t->orig_len = t->num_blocks * t->block_size;
 		de_dbg(c, "disk size (calculated): %"I64_FMT, t->orig_len);
