@@ -305,10 +305,8 @@ static de_rune de_appleii_to_unicode(struct de_encconv_state *es, i32 a)
 {
 	de_rune n;
 
-	// This suffices to support some text files I've seen, but I really don't know
-	// what all is needed for Apple II text.
+	// TODO: This probably needs more research.
 	n = (de_rune)(a & 0x7f);
-	if(n==0x0d) n = 0x0a;
 	return n;
 }
 

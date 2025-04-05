@@ -62,6 +62,8 @@ struct nufx_ctx {
 	u8 fatalerrflag;
 	u8 need_errmsg;
 	u8 extract_comments;
+	u8 using_default_encoding;
+	de_encoding input_encoding_req;
 	de_encoding input_encoding;
 	UI master_ver;
 	u32 master_crc_reported;
@@ -293,6 +295,45 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+static void nufx_filename_to_ucstring(deark *c, struct nufx_ctx *d,
+	struct nufx_record *rec, dbuf *inf, i64 pos1, i64 fnlen1,
+	de_ucstring *s)
+{
+	i64 fnlen;
+	u8 strip_high_bit = 0;
+	dbuf *tmpdbuf = NULL;
+
+	fnlen = de_min_int(fnlen1, 255);
+	if(fnlen<1) return;
+
+	// Documentation says only 7 bits are significant in ProDOS pathnames.
+	// This is probably not the best we could do. I suspect filesys_id is not
+	// always set correctly.
+	if(d->using_default_encoding && rec->filesys_id==0x0001) { // 0x0001 = ProDOS
+		strip_high_bit = 1;
+	}
+
+	if(strip_high_bit) {
+		i64 i;
+		i64 pos = pos1;
+
+		tmpdbuf = dbuf_create_membuf(c, fnlen, 0);
+		for(i=0; i<fnlen; i++) {
+			u8 b;
+
+			b = dbuf_getbyte_p(inf, &pos);
+			b &= 0x7f;
+			dbuf_writebyte(tmpdbuf, b);
+		}
+		dbuf_read_to_ucstring(tmpdbuf, 0, fnlen, s, 0, d->input_encoding);
+	}
+	else {
+		dbuf_read_to_ucstring(inf, pos1, fnlen, s, 0, d->input_encoding);
+	}
+
+	dbuf_close(tmpdbuf);
+}
+
 // Read the record header, including the thread headers
 static void do_nufx_record_header(deark *c,
 	struct nufx_ctx *d, struct nufx_record *rec)
@@ -368,8 +409,7 @@ read_fnlen:
 	fnlen = de_getu16le_p(&pos);
 	if(fnlen>0 && !rec->filename_old) {
 		rec->filename_old = ucstring_create(c);
-		dbuf_read_to_ucstring_n(c->infile, pos, fnlen, 255, rec->filename_old,
-			0, d->input_encoding);
+		nufx_filename_to_ucstring(c, d, rec, c->infile, pos, fnlen, rec->filename_old);
 		de_dbg(c, "filename (old style): \"%s\"",
 			ucstring_getpsz_d(rec->filename_old));
 	}
@@ -989,8 +1029,8 @@ static void extract_from_record(deark *c,
 		if(!ret || filename_dbuf->len<1) {
 			goto done;
 		}
-		dbuf_read_to_ucstring_n(filename_dbuf, 0, filename_dbuf->len, 255,
-			rec->filename, 0, d->input_encoding);
+		nufx_filename_to_ucstring(c, d, rec, filename_dbuf, 0, filename_dbuf->len,
+			rec->filename);
 		de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(rec->filename));
 	}
 	if(ucstring_isempty(rec->filename) && ucstring_isnonempty(rec->filename_old)) {
@@ -1082,7 +1122,15 @@ static void de_run_nufx(deark *c, de_module_params *mparams)
 	i64 rec_idx = 0;
 
 	d = de_malloc(c, sizeof(struct nufx_ctx));
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
+	// TODO: More work on filename encodings.
+	d->input_encoding_req = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
+	if(d->input_encoding_req==DE_ENCODING_UNKNOWN) {
+		d->input_encoding = DE_ENCODING_ASCII;
+		d->using_default_encoding = 1;
+	}
+	else {
+		d->input_encoding = d->input_encoding_req;
+	}
 	d->extract_comments = (c->extract_level>=2);
 	d->crco_misc = de_crcobj_create(c, DE_CRCOBJ_CRC16_XMODEM);
 	d->crco_for_lzw_codec = de_crcobj_create(c, DE_CRCOBJ_CRC16_XMODEM);
