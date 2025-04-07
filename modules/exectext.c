@@ -1316,71 +1316,87 @@ void de_module_doc2com_dkn(deark *c, struct deark_module_info *mi)
 ///////////////////////////////////////////////////
 // GTXT / MakeScroll (Eric Gans)
 
-// This format can reasonably be converted to plain text.
-static void gtxt_convert_to_text(deark *c, lctx *d, dbuf *outf, u8 to_utf8)
+// TODO? Consider integrating this into exectext_convert_and_write_slice.
+// But it's different enough that it might not be worth it.
+static void gtxt_convert_to_text(deark *c, lctx *d, dbuf *outf)
 {
-	struct de_encconv_state es;
+	struct ecnv_ctx *ecnv = NULL;
 	u8 esc_mode = 0;
-	u8 esc_mask = 0;
+	u8 cur_mask;
 	i64 endpos = d->tpos + d->tlen;
 	i64 pos;
 
-	de_encconv_init(&es, DE_EXTENC_MAKE(d->input_encoding, DE_ENCSUBTYPE_PRINTABLE));
-	if(to_utf8 && c->write_bom) {
-		dbuf_write_uchar_as_utf8(outf, 0xfeff);
+	if((d->proctype==ET_PROCTYPE_FMTCONV_AND_ENCCONV)) {
+		ecnv = ecnv_create(c, d->proctype, DE_EXTENC_MAKE(d->input_encoding,
+			DE_ENCSUBTYPE_PRINTABLE), outf);
+		if(c->write_bom) {
+			dbuf_write_uchar_as_utf8(outf, 0xfeff);
+		}
+	}
+	if(!ecnv) {
+		ecnv = ecnv_create(c, d->proctype, DE_ENCODING_UNKNOWN, outf);
 	}
 
 	pos = d->tpos;
+	cur_mask = 0x7f;
+
 	while(pos < endpos) {
 		u8 x_raw, x_mod;
+		u8 was_escaped = 0;
+		de_rune u;
 
 		x_raw = de_getbyte_p(&pos);
-		x_mod = x_raw;
+		if(x_raw==0x00) goto done;
 
-		if(esc_mode) {
-			x_mod = x_raw & esc_mask;
-			esc_mode = 0;
-		}
-		else if(x_raw=='%') {
+		x_mod = x_raw & cur_mask;
+		cur_mask = 0x7f; // We used the mask, now reset it to the default
+
+		was_escaped = esc_mode;
+		esc_mode = 0; // Reset to default
+
+		// GTXT applies the mask *before* special characters are checked for.
+		if(!was_escaped && (x_mod=='%')) {
 			esc_mode = 1;
-			esc_mask = 0xff;
-			continue;
+			cur_mask = 0xff;
 		}
-		else if(x_raw=='^') {
+		else if(!was_escaped && (x_mod=='^')) {
 			esc_mode = 1;
-			esc_mask = 0x3f;
-			continue;
+			cur_mask = 0x3f;
 		}
-		else {
-			// GTXT ignores the high bit, except in '%' escapes.
-			x_mod &= 0x7f;
-		}
-
-		if(to_utf8) {
-			de_rune u;
-
-			if(x_raw=='~') {
+		else if(!was_escaped && (x_mod=='~')) {
+			if(d->proctype==ET_PROCTYPE_FMTCONV_AND_ENCCONV) {
 				u = 0x240c; // Page break -> SYMBOL FOR FORM FEED, I guess.
-			}
-			else if(d->chartypes[(UI)x_mod]==ETCT_CONTROL) {
-				u = (de_rune)x_mod;
+				ecnv_add_rune(ecnv, 0x0d);
+				ecnv_add_rune(ecnv, 0x0a);
+				ecnv_add_rune(ecnv, u);
 			}
 			else {
-				u = de_char_to_unicode_ex((i32)x_mod, &es);
+				ecnv_add_byte(ecnv, 0x0d);
+				ecnv_add_byte(ecnv, 0x0a);
+				ecnv_add_byte(ecnv, 0x0c); // Page break -> form feed, I guess.
 			}
-			dbuf_write_uchar_as_utf8(outf, u);
 		}
 		else {
-			u8 b;
-
-			if(x_raw=='~') {
-				b = 0x0c; // Page break -> form feed, I guess.
+			// Process literal byte x_mod
+			if(d->proctype==ET_PROCTYPE_FMTCONV_AND_ENCCONV) {
+				if(d->chartypes[(UI)x_mod]==ETCT_CONTROL) {
+					u = (de_rune)x_mod;
+					ecnv_add_rune(ecnv, u);
+				}
+				else {
+					ecnv_add_byte(ecnv, x_mod);
+				}
 			}
 			else {
-				b = x_mod;
+				ecnv_add_byte(ecnv, x_mod);
 			}
-			dbuf_writebyte(outf, b);
 		}
+	}
+
+done:
+	if(ecnv) {
+		ecnv_hard_flush(c, ecnv);
+		ecnv_destroy(c, ecnv);
 	}
 }
 
@@ -1427,11 +1443,8 @@ static void de_run_gtxt(deark *c, de_module_params *mparams)
 	if(d->proctype==ET_PROCTYPE_RAW) {
 		dbuf_copy(c->infile, d->tpos, d->tlen, outf);
 	}
-	else if(d->proctype==ET_PROCTYPE_FMTCONV_ONLY) {
-		gtxt_convert_to_text(c, d, outf, 0);
-	}
-	else { // ET_PROCTYPE_FMTCONV_AND_ENCCONV
-		gtxt_convert_to_text(c, d, outf, 1);
+	else {
+		gtxt_convert_to_text(c, d, outf);
 	}
 
 done:
