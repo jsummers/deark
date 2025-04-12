@@ -14,7 +14,7 @@ struct color32desc_type {
 	const char *name;
 };
 
-typedef struct localctx_struct {
+typedef struct localctx_sunras {
 	i64 npwidth, height;
 	i64 pdwidth;
 	i64 depth;
@@ -72,6 +72,25 @@ static void do_read_palette(deark *c, lctx *d, i64 pos)
 	}
 }
 
+static void decode_image_16(deark *c, lctx *d, dbuf *unc_pixels, de_bitmap *img)
+{
+	i64 i, j;
+
+	for(j=0; j<d->height; j++) {
+		for(i=0; i<d->pdwidth; i++) {
+			u32 x;
+			de_color clr;
+
+			// The 16-bit files I have all come from a Windows game named
+			// Sub Culture, and this works for those files. But it's almost
+			// certainly not standard.
+			x = (u32)dbuf_getu16le(unc_pixels, d->rowspan*j+i*d->src_bypp);
+			clr = de_rgb565_to_888(x);
+			de_bitmap_setpixel_rgba(img, i, j, clr);
+		}
+	}
+}
+
 static void decode_image_24_32(deark *c, lctx *d, dbuf *unc_pixels, de_bitmap *img)
 {
 	u32 clr;
@@ -100,11 +119,17 @@ static void decode_image_24_32(deark *c, lctx *d, dbuf *unc_pixels, de_bitmap *i
 static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 {
 	de_bitmap *img = NULL;
+	u8 nonport_warn_flag = 0;
 	i64 dst_bypp;
 
-	if(d->depth!=1 && d->depth!=4 && d->depth!=8 && d->depth!=24 && d->depth!=32) {
+	if(d->depth!=1 && d->depth!=4 && d->depth!=8 && d->depth!=16 &&
+		d->depth!=24 && d->depth!=32)
+	{
 		de_err(c, "Bit depth %d not supported", (int)d->depth);
 		goto done;
+	}
+	if(d->depth==16) {
+		nonport_warn_flag = 1;
 	}
 	if(d->depth==32 && !d->user_set_fmt32) {
 		// Some apps think the extra channel comes first (e.g. xBGR); others
@@ -132,6 +157,9 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 		}
 
 		d->color32desc.has_alpha = 2;
+	}
+	if(nonport_warn_flag) {
+		de_warn(c, "This image type might not be portable");
 	}
 
 	if(!de_good_image_dimensions(c, d->npwidth, d->height)) goto done;
@@ -165,7 +193,10 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 
 	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, (int)dst_bypp);
 
-	if(d->is_paletted || d->is_grayscale) {
+	if(d->depth==16) {
+		decode_image_16(c, d, unc_pixels, img);
+	}
+	else if(d->is_paletted || d->is_grayscale) {
 		de_convert_image_paletted(unc_pixels, 0, d->depth, d->rowspan, d->pal, img, 0);
 	}
 	else {
