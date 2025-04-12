@@ -10,14 +10,14 @@ DE_DECLARE_MODULE(de_module_sunras);
 
 struct color32desc_type {
 	u8 channel_shift[4];
-	u8 has_alpha; // 0=no, 1=yes, 2=autodetect
+	u8 alpha_code; // 0=no, 1=yes, 2=autodetect
 	const char *name;
 };
 
 typedef struct localctx_sunras {
 	i64 npwidth, height;
 	i64 pdwidth;
-	i64 depth;
+	UI depth;
 
 #define RT_OLD          0
 #define RT_STANDARD     1
@@ -25,10 +25,10 @@ typedef struct localctx_sunras {
 #define RT_FORMAT_RGB   3
 #define RT_FORMAT_TIFF  4
 #define RT_FORMAT_IFF   5
-	i64 imgtype;
-	int is_compressed;
-	int is_rgb_order;
-	int user_set_fmt32;
+	UI imgtype;
+	u8 is_compressed;
+	u8 is_rgb_order;
+	u8 user_set_fmt32;
 
 	struct color32desc_type color32desc;
 
@@ -37,19 +37,19 @@ typedef struct localctx_sunras {
 #define RMT_NONE        0
 #define RMT_EQUAL_RGB   1
 #define RMT_RAW         2
-	i64 maptype;
+	UI maptype;
 
 	i64 maplen;
 
 	i64 rowspan;
 	i64 unc_pixels_size;
-	int is_paletted;
-	int is_grayscale;
+	u8 is_paletted;
+	u8 is_grayscale;
 
-	u32 pal[256];
+	de_color pal[256];
 
 	i64 src_bypp;
-	unsigned int getrgbflags;
+	UI getrgbflags;
 } lctx;
 
 static void do_read_palette(deark *c, lctx *d, i64 pos)
@@ -93,7 +93,7 @@ static void decode_image_16(deark *c, lctx *d, dbuf *unc_pixels, de_bitmap *img)
 
 static void decode_image_24_32(deark *c, lctx *d, dbuf *unc_pixels, de_bitmap *img)
 {
-	u32 clr;
+	de_color clr;
 	i64 i, j;
 
 	for(j=0; j<d->height; j++) {
@@ -106,10 +106,10 @@ static void decode_image_24_32(deark *c, lctx *d, dbuf *unc_pixels, de_bitmap *i
 				u8 pixbuf[4];
 				dbuf_read(unc_pixels, pixbuf, d->rowspan*j+i*d->src_bypp, 4);
 				clr =
-					((unsigned int)pixbuf[0] << d->color32desc.channel_shift[0]) |
-					((unsigned int)pixbuf[1] << d->color32desc.channel_shift[1]) |
-					((unsigned int)pixbuf[2] << d->color32desc.channel_shift[2]) |
-					((unsigned int)pixbuf[3] << d->color32desc.channel_shift[3]);
+					((UI)pixbuf[0] << d->color32desc.channel_shift[0]) |
+					((UI)pixbuf[1] << d->color32desc.channel_shift[1]) |
+					((UI)pixbuf[2] << d->color32desc.channel_shift[2]) |
+					((UI)pixbuf[3] << d->color32desc.channel_shift[3]);
 				de_bitmap_setpixel_rgba(img, i, j, clr);
 			}
 		}
@@ -125,7 +125,7 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 	if(d->depth!=1 && d->depth!=4 && d->depth!=8 && d->depth!=16 &&
 		d->depth!=24 && d->depth!=32)
 	{
-		de_err(c, "Bit depth %d not supported", (int)d->depth);
+		de_err(c, "Bit depth %u not supported", d->depth);
 		goto done;
 	}
 	if(d->depth==16) {
@@ -156,7 +156,7 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 			d->color32desc.channel_shift[3] = 16; // R
 		}
 
-		d->color32desc.has_alpha = 2;
+		d->color32desc.alpha_code = 2;
 	}
 	if(nonport_warn_flag) {
 		de_warn(c, "This image type might not be portable");
@@ -164,7 +164,7 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 
 	if(!de_good_image_dimensions(c, d->npwidth, d->height)) goto done;
 
-	d->src_bypp = d->depth/8;
+	d->src_bypp = (i64)d->depth/8;
 
 	if(d->is_paletted) {
 		dst_bypp = 3;
@@ -173,7 +173,7 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 		dst_bypp = 1;
 	}
 	else if(d->depth==32) {
-		if(d->color32desc.has_alpha==0) {
+		if(d->color32desc.alpha_code==0) {
 			dst_bypp = 3;
 		}
 		else {
@@ -203,7 +203,7 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 		decode_image_24_32(c, d, unc_pixels, img);
 	}
 
-	if(d->depth==32 && d->color32desc.has_alpha==2) { // autodetect alpha
+	if(d->depth==32 && d->color32desc.alpha_code==2) { // autodetect alpha
 		de_bitmap_optimize_alpha(img, 0x1);
 	}
 
@@ -213,7 +213,7 @@ done:
 	de_bitmap_destroy(img);
 }
 
-static const char *get_image_type_name(i64 t)
+static const char *get_image_type_name(UI t)
 {
 	const char *name;
 
@@ -230,7 +230,7 @@ static const char *get_image_type_name(i64 t)
 	return name;
 }
 
-static const char *get_map_type_name(i64 t)
+static const char *get_map_type_name(UI t)
 {
 	const char *name;
 
@@ -245,20 +245,20 @@ static const char *get_map_type_name(i64 t)
 
 static void read_header(deark *c, lctx *d, i64 pos)
 {
-	de_dbg(c, "header at %d", (int)pos);
+	de_dbg(c, "header at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	d->npwidth = de_getu32be(pos+4);
 	d->height = de_getu32be(pos+8);
 	de_dbg_dimensions(c, d->npwidth, d->height);
 
-	d->depth = de_getu32be(pos+12);
-	de_dbg(c, "depth: %d", (int)d->depth);
+	d->depth = (UI)de_getu32be(pos+12);
+	de_dbg(c, "depth: %u", d->depth);
 
 	d->imglen = de_getu32be(pos+16);
-	d->imgtype = de_getu32be(pos+20);
-	de_dbg(c, "image type=%d (%s), len=%d", (int)d->imgtype,
-		get_image_type_name(d->imgtype), (int)d->imglen);
+	d->imgtype = (UI)de_getu32be(pos+20);
+	de_dbg(c, "image type=%u (%s), len=%"I64_FMT, d->imgtype,
+		get_image_type_name(d->imgtype), d->imglen);
 	if(d->imgtype==RT_BYTE_ENCODED) {
 		d->is_compressed = 1;
 	}
@@ -266,15 +266,15 @@ static void read_header(deark *c, lctx *d, i64 pos)
 		d->is_rgb_order = 1;
 	}
 
-	d->maptype = de_getu32be(pos+24);
+	d->maptype = (UI)de_getu32be(pos+24);
 	d->maplen = de_getu32be(pos+28);
-	de_dbg(c, "map type=%d (%s), len=%d", (int)d->maptype,
-		get_map_type_name(d->maptype), (int)d->maplen);
+	de_dbg(c, "map type=%u (%s), len=%"I64_FMT, d->maptype,
+		get_map_type_name(d->maptype), d->maplen);
 
 	de_dbg_indent(c, -1);
 }
 
-static void do_uncompress_image(deark *c, lctx *d, i64 pos1, i64 len, dbuf *unc_pixels)
+static void do_decompress_image(deark *c, lctx *d, i64 pos1, i64 len, dbuf *unc_pixels)
 {
 	i64 pos = pos1;
 
@@ -348,7 +348,7 @@ static void de_run_sunras(deark *c, de_module_params *mparams)
 	if(pos >= c->infile->len) goto done;
 
 	if(d->maplen > 0)
-		de_dbg(c, "colormap at %d", (int)pos);
+		de_dbg(c, "colormap at %"I64_FMT, pos);
 
 	de_dbg_indent(c, 1);
 
@@ -370,35 +370,35 @@ static void de_run_sunras(deark *c, de_module_params *mparams)
 	}
 	else {
 		// TODO: Support RMT_RAW
-		de_err(c, "Colormap type (%d) is not supported", (int)d->maptype);
+		de_err(c, "Colormap type (%u) is not supported", d->maptype);
 		goto done;
 	}
 	pos += d->maplen;
 	de_dbg_indent(c, -1);
 
 	if(pos >= c->infile->len) goto done;
-	de_dbg(c, "image data at %d", (int)pos);
+	de_dbg(c, "image data at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
-	bits_per_row = de_pad_to_n(d->npwidth * d->depth, 16);
+	bits_per_row = de_pad_to_n(d->npwidth * (i64)d->depth, 16);
 	d->rowspan = bits_per_row / 8;
-	d->pdwidth = bits_per_row / d->depth;
+	d->pdwidth = bits_per_row / (i64)d->depth;
 	d->unc_pixels_size = d->rowspan * d->height;
 
 	if(d->imgtype>5) {
-		de_err(c, "This type of image (%d) is not supported", (int)d->imgtype);
+		de_err(c, "This type of image (%u) is not supported", d->imgtype);
 		goto done;
 	}
 
 	if((d->imgtype==RT_STANDARD || d->imgtype==RT_FORMAT_RGB) && d->imglen!=d->unc_pixels_size) {
-		de_warn(c, "Inconsistent image length: reported=%d, calculated=%d",
-			(int)d->imglen, (int)d->unc_pixels_size);
+		de_warn(c, "Inconsistent image length: reported=%"I64_FMT", calculated=%"I64_FMT,
+			d->imglen, d->unc_pixels_size);
 	}
 
 	if(d->is_compressed) {
 		unc_pixels = dbuf_create_membuf(c, d->unc_pixels_size, 0x1);
 		dbuf_enable_wbuffer(unc_pixels);
-		do_uncompress_image(c, d, pos, c->infile->len - pos, unc_pixels);
+		do_decompress_image(c, d, pos, c->infile->len - pos, unc_pixels);
 		dbuf_flush(unc_pixels);
 	}
 	else {
