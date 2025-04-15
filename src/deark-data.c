@@ -59,6 +59,17 @@ static const u16 cp437table[256] = {
 	0x2261,0x00b1,0x2265,0x2264,0x2320,0x2321,0x00f7,0x2248,0x00b0,0x2219,0x00b7,0x221a,0x207f,0x00b2,0x25a0,0x00a0
 };
 
+static const u16 cp850table[128] = {
+	0x00c7,0x00fc,0x00e9,0x00e2,0x00e4,0x00e0,0x00e5,0x00e7,0x00ea,0x00eb,0x00e8,0x00ef,0x00ee,0x00ec,0x00c4,0x00c5,
+	0x00c9,0x00e6,0x00c6,0x00f4,0x00f6,0x00f2,0x00fb,0x00f9,0x00ff,0x00d6,0x00dc,0x00f8,0x00a3,0x00d8,0x00d7,0x0192,
+	0x00e1,0x00ed,0x00f3,0x00fa,0x00f1,0x00d1,0x00aa,0x00ba,0x00bf,0x00ae,0x00ac,0x00bd,0x00bc,0x00a1,0x00ab,0x00bb,
+	0x2591,0x2592,0x2593,0x2502,0x2524,0x00c1,0x00c2,0x00c0,0x00a9,0x2563,0x2551,0x2557,0x255d,0x00a2,0x00a5,0x2510,
+	0x2514,0x2534,0x252c,0x251c,0x2500,0x253c,0x00e3,0x00c3,0x255a,0x2554,0x2569,0x2566,0x2560,0x2550,0x256c,0x00a4,
+	0x00f0,0x00d0,0x00ca,0x00cb,0x00c8,0x0131,0x00cd,0x00ce,0x00cf,0x2518,0x250c,0x2588,0x2584,0x00a6,0x00cc,0x2580,
+	0x00d3,0x00df,0x00d4,0x00d2,0x00f5,0x00d5,0x00b5,0x00fe,0x00de,0x00da,0x00db,0x00d9,0x00fd,0x00dd,0x00af,0x00b4,
+	0x00ad,0x00b1,0x2017,0x00be,0x00b6,0x00a7,0x00f7,0x00b8,0x00b0,0x00a8,0x00b7,0x00b9,0x00b3,0x00b2,0x25a0,0x00a0
+};
+
 static const u16 latin2table[32] = { // 0xa0 to 0xbf
 	0x00a0,0x0104,0x02d8,0x0141,0x00a4,0x013d,0x015a,0x00a7,0x00a8,0x0160,0x015e,0x0164,0x0179,0x00ad,0x017d,0x017b,
 	0x00b0,0x0105,0x02db,0x0142,0x00b4,0x013e,0x015b,0x02c7,0x00b8,0x0161,0x015f,0x0165,0x017a,0x02dd,0x017e,0x017c
@@ -183,7 +194,9 @@ static const u16 decspecialgraphicstable[32] = {
 };
 
 // Code page 437, with screen code graphics characters.
-static de_rune de_cp437g_to_unicode(struct de_encconv_state *es, i32 a)
+// Assumes a>=0. (This is only supposed to be called via
+//   de_char_to_unicode_ex(), which verifies that.)
+static de_rune de_cp437g_to_unicode(struct de_encconv_state *es_unused, i32 a)
 {
 	de_rune n;
 	if(a<=0xff) n = (de_rune)cp437table[a];
@@ -203,13 +216,38 @@ static de_rune de_cp437c_to_unicode(struct de_encconv_state *es, i32 a)
 	return n;
 }
 
+static int is_hybrid_codepoint(i32 a)
+{
+	return (a==0 || a==9 || a==10 || a==13);
+}
+
 // Code page 437, with only selected control characters.
 static de_rune de_cp437h_to_unicode(struct de_encconv_state *es, i32 a)
 {
 	de_rune n;
 
-	if(a==0 || a==9 || a==10 || a==13) n = a;
+	if(a<32 && is_hybrid_codepoint(a)) n = a;
 	else n = de_cp437g_to_unicode(NULL, a);
+	return n;
+}
+
+static de_rune de_cp850_to_unicode(struct de_encconv_state *es, i32 a)
+{
+	de_rune n;
+
+	if(a>0xff) n = DE_CODEPOINT_INVALID;
+	else if(a>=0x20 && a<=0x7e) n = a;
+	else if(a>=0x80 && a<=0xff) n = (de_rune)cp850table[a-0x80];
+	else {
+		if(es->enc_subtype==DE_ENCSUBTYPE_CONTROLS ||
+			(es->enc_subtype==DE_ENCSUBTYPE_HYBRID && is_hybrid_codepoint(a)))
+		{
+			n = a;
+		}
+		else {
+			return de_cp437g_to_unicode(es, a);
+		}
+	}
 	return n;
 }
 
@@ -249,9 +287,7 @@ static de_rune de_atarist_to_unicode(struct de_encconv_state *es, i32 a)
 	de_rune n;
 
 	if(a<=0x1f || a==0x7f) {
-		int st = DE_EXTENC_GET_SUBTYPE(es->ee);
-
-		if (st==DE_ENCSUBTYPE_HYBRID || st==DE_ENCSUBTYPE_CONTROLS) {
+		if (es->enc_subtype==DE_ENCSUBTYPE_HYBRID || es->enc_subtype==DE_ENCSUBTYPE_CONTROLS) {
 			return a;
 		}
 	}
@@ -294,7 +330,7 @@ static de_rune de_petscii_to_unicode(struct de_encconv_state *es, i32 a)
 	if(a==0x0a) {
 		// This is a hack to make "-m plaintext -inenc petscii" work with the
 		// output from the basic_c64 module.
-		if(DE_EXTENC_GET_SUBTYPE(es->ee)==DE_ENCSUBTYPE_HYBRID) {
+		if(es->enc_subtype==DE_ENCSUBTYPE_HYBRID) {
 			n = 0x0a;
 		}
 	}
@@ -356,7 +392,8 @@ void de_encconv_init(struct de_encconv_state *es, de_ext_encoding ee)
 	de_encoding enc = DE_EXTENC_GET_BASE(ee);
 
 	de_zeromem(es, sizeof(struct de_encconv_state));
-	es->ee = ee;
+	es->enc =  DE_EXTENC_GET_BASE(ee);
+	es->enc_subtype = DE_EXTENC_GET_SUBTYPE(ee);
 
 	if(enc==DE_ENCODING_LATIN1 || enc==DE_ENCODING_UTF8 ||
 		enc==DE_ENCODING_ASCII)
@@ -369,7 +406,7 @@ void de_encconv_init(struct de_encconv_state *es, de_ext_encoding ee)
 		es->fn = de_latin2_to_unicode;
 		break;
 	case DE_ENCODING_CP437:
-		switch(DE_EXTENC_GET_SUBTYPE(es->ee)) {
+		switch(es->enc_subtype) {
 		case DE_ENCSUBTYPE_CONTROLS:
 			es->fn = de_cp437c_to_unicode;
 			break;
@@ -379,6 +416,9 @@ void de_encconv_init(struct de_encconv_state *es, de_ext_encoding ee)
 		default:
 			es->fn = de_cp437g_to_unicode;
 		}
+		break;
+	case DE_ENCODING_CP850:
+		es->fn = de_cp850_to_unicode;
 		break;
 	case DE_ENCODING_PETSCII:
 		es->fn = de_petscii_to_unicode;
@@ -439,9 +479,9 @@ de_rune de_char_to_unicode_ex(i32 a, struct de_encconv_state *es)
 		return es->fn(es, a);
 	}
 
-	switch(DE_EXTENC_GET_BASE(es->ee)) {
+	switch(es->enc) {
 	case DE_ENCODING_ASCII:
-		if(DE_EXTENC_GET_SUBTYPE(es->ee)==DE_ENCSUBTYPE_PRINTABLE) {
+		if(es->enc_subtype==DE_ENCSUBTYPE_PRINTABLE) {
 			return (a>=32 && a<=126)?a:DE_CODEPOINT_INVALID;
 		}
 		return (a<128)?a:DE_CODEPOINT_INVALID;
@@ -1383,6 +1423,7 @@ static const struct de_encmap_item de_encmap_arr[] = {
 	{ 0x01, DE_ENCODING_LATIN1, "latin1" },
 	{ 0x01, DE_ENCODING_LATIN2, "latin2" },
 	{ 0x01, DE_ENCODING_CP437, "cp437" },
+	{ 0x01, DE_ENCODING_CP850, "cp850" },
 	{ 0x01, DE_ENCODING_CP932, "cp932" },
 	{ 0x01, DE_ENCODING_CP932, "shiftjis" },
 	{ 0x01, DE_ENCODING_WINDOWS1250, "windows1250" },

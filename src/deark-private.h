@@ -35,6 +35,7 @@ enum de_encoding_enum {
 	DE_ENCODING_WINDOWS1254,
 	DE_ENCODING_WINDOWS874,
 	DE_ENCODING_CP437,
+	DE_ENCODING_CP850,
 	DE_ENCODING_CP932,
 	DE_ENCODING_MACROMAN,
 	DE_ENCODING_ATARIST,
@@ -111,7 +112,8 @@ typedef void (*de_module_getinfo_fn)(deark *c, struct deark_module_info *mi);
 struct de_encconv_state;
 typedef de_rune (*de_encconv_fn)(struct de_encconv_state *es, i32 a);
 struct de_encconv_state {
-	de_ext_encoding ee;
+	de_encoding enc;
+	int enc_subtype;
 	de_encconv_fn fn;
 	const void *fn_pvt_data;
 	u8 buf[8];

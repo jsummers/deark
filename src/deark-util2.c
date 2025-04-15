@@ -96,6 +96,8 @@ int de_cp932_lookup(deark *c, u16 n, UI flags, de_rune *pr1, de_rune *pr2)
 			}
 		}
 		if(n<=0x7f) {
+			// TODO: Figure out what DOS does with codes below 0x20. Should we
+			// treat them as graphics characters sometimes?
 			*pr1 = (de_rune)n;
 			return 1;
 		}

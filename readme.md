@@ -294,6 +294,7 @@ Command-line options:
      latin1 (Western European)
      latin2 (Central/Eastern European)
      cp437 (English, etc., DOS formats)
+     cp850 (some Western European DOS formats)
      cp932 (Japanese; Shift-JIS family of encodings)
      windows874 (Thai)
      windows1250 (Eastern European)
