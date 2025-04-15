@@ -199,6 +199,9 @@ Deark -- Information about supported formats
   - Extract EPS, TIFF, and WMF from "EPS DOS Binary" format.
   - Supports preview images in EPSI format (1-, 2-, 4-, 8-bit grayscale)
 
+* Esm Software PIX (module="esm_pix")
+  - Extract embedded JPEG file.
+
 * Falcon True Color (module="ftc")
 
 * farbfeld (module="farbfeld")
@@ -475,7 +478,8 @@ Deark -- Information about supported formats
 * PI9 (Atari Falcon 320x200) (module="fpaint_pi9")
 
 * PICT (Macintosh image) (module="pict")
-  - Extract bitmap images, etc.
+  - Extracts embedded bitmap images, etc. Does not properly convert PICT to
+    another format, though it may often seem like that's what it does.
   Options
    -opt pict:decodeqt - Try to decode embedded "QuickTime" images directly,
     instead of always extracting to .qtif format.
@@ -889,6 +893,7 @@ Deark -- Information about supported formats
   This is usually a file named "_inst32i.ex_" or "_inst16.ex_".
 
 * InstallShield Z archive (module="is_z")
+  - Mult-volume archives aren't supported.
 
 * ISO 9660 or High Sierra CD-ROM image (module="iso9660")
   Options
@@ -1145,8 +1150,9 @@ Deark -- Information about supported formats
     codes can be different in every file. If encoding translation is enabled,
     such codes will be identified, and converted to... something.
   Options
-   -opt text:encconv=0 - Suppress character encoding translation, and other
-    processing.
+   -opt text:fmtconv=0 - Minimal processing. Keep special codes.
+   -opt text:encconv=0 - Suppress character encoding translation. Special
+    codes may be deleted.
 
 * ASCOM (moule="ascom")
   An executable text (.COM) format.
@@ -1193,8 +1199,9 @@ Deark -- Information about supported formats
   - Partially processes the source text, at least to identify special codes
     that change the colors.
   Options
-   -opt text:encconv=0 - Suppress character encoding translation, and other
-    processing.
+   -opt text:fmtconv=0 - Minimal processing. Keep special codes.
+   -opt text:encconv=0 - Suppress character encoding translation. Special
+    codes may be deleted.
 
 * DOC2COM (moule="doc2com_dkn")
   Executable text (.COM) files made by D. Nelson's DOC2COM utility.

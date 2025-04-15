@@ -287,15 +287,29 @@ Command-line options:
    [Windows only] Never change the console OEM code page (to UTF-8).
    For technical reasons, Deark sometimes changes the code page of the Windows
    console it is running in, when its output is going to a pipe or file.
--inenc &lt;ascii|utf8|latin1|latin2|cp437|cp932|windows874|windows1250|
-     windows1251|windows1252|windows1253|windows1254|macroman|palm|riscos|
-     atarist>
+-inenc &lt;encoding>
+   Known encodings:
+     ascii
+     utf8
+     latin1 (Western European)
+     latin2 (Central/Eastern European)
+     cp437 (English, etc., DOS formats)
+     cp932 (Japanese; Shift-JIS family of encodings)
+     windows874 (Thai)
+     windows1250 (Eastern European)
+     windows1251 (Cyrillic)
+     windows1252 (English, etc., Windows formats)
+     windows1253 (Greek)
+     windows1254 (Turkish)
+     macroman (English, etc., Mac formats)
+     palm
+     riscos
+     atarist
+     (Other encodings may exist, but should rarely need to be specified.)
    Supply a hint as to the encoding of the text contained in the input file.
    This option is not supported by all formats, and may be ignored if the
    encoding can be reliably determined by other means. Admittedly, it would be
    nice if Deark knew more encodings than this.
-   The "cp932" (including Shift-JIS) encoding is experimental. There are many
-   variants of the encodings in this family, but only one is supported.
 -intz &lt;offset>
    Supply a hint as to the time zone used by timestamps contained in the input
    file.

@@ -20,7 +20,7 @@ enum resmode_type {
 	RESMODE_SCREENDIMENSIONS
 };
 
-typedef struct localctx_struct {
+typedef struct localctx_PCX {
 	u8 version;
 	u8 encoding;
 	enum resmode_type resmode;
@@ -259,6 +259,10 @@ static int do_read_header(deark *c, lctx *d)
 	else if(d->planes==1 && d->bits==2) {
 		imgtypename = "4-color";
 		d->ncolors = 4;
+	}
+	else if(d->planes==1 && d->bits==4) {
+		imgtypename = "16-color nonplanar";
+		d->ncolors = 16;
 	}
 	else if(d->planes==3 && d->bits==1) {
 		imgtypename = "8-color";
