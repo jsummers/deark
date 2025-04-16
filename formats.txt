@@ -1181,6 +1181,11 @@ Deark -- Information about supported formats
   - "Extract" the entire file. Use with -start and -size to extract part of
     the file.
 
+* Join (module="join")
+  - Concatenate multiple input files.
+  - You must use "-m join" to select this module, and "-mp" to allow multiple
+    input files.
+
 * CP437 (module="cp437")
   Convert DOS Code Page 437 text to UTF-8.
   - Not autodetected. Use "-m cp437".

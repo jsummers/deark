@@ -44,7 +44,7 @@ void de_set_std_option_int(deark *c, enum de_stdoptions_enum o, int x);
 #define DE_INPUTSTYLE_STDIN   1
 void de_set_input_style(deark *c, int x);
 
-void de_set_input_filename(deark *c, const char *fn);
+void de_set_input_filename(deark *c, const char *fn, UI flags);
 int de_set_input_encoding(deark *c, const char *encname, int reserved);
 void de_set_input_timezone(deark *c, i64 tzoffs_seconds);
 void de_set_input_file_slice_start(deark *c, i64 n);

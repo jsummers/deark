@@ -18,6 +18,7 @@ For additional information, see the [technical.md](technical.md) file.
 ## Usage ##
 
     deark [options] [-file] <input-file> [options]
+    deark [options] -mp <input-file1> <input-file2>...
     deark <-h|-version|-modules>
 
 Command-line options:
@@ -112,6 +113,9 @@ Command-line options:
    number of DOS formats, such as some self-extracting archives.
 -size &lt;n>
    Pretend that the input file contains only (up to) &lt;n> bytes.
+-mp
+   Allow multiple input files. Only certain modules support this feature. This
+   option must appear before the second input filename.
 -firstfile &lt;n>
    Don't extract the first &lt;n> files found.
 -maxfiles &lt;n>

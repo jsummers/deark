@@ -61,6 +61,7 @@ struct cmdctx {
 	int to_ascii;
 	int to_oem;
 	int no_chcp;
+	u8 mp_mode;
 	enum color_method_enum color_method_req;
 	enum color_method_enum color_method;
 	char msgbuf[1000];
@@ -391,6 +392,7 @@ static void set_encoding_option(deark *c, struct cmdctx *cc, const char *s)
 
 enum opt_id_enum {
  DE_OPT_NULL=0, DE_OPT_D, DE_OPT_D2, DE_OPT_D3, DE_OPT_D4, DE_OPT_L,
+ DE_OPT_MP,
  DE_OPT_NOINFO, DE_OPT_NOWARN,
  DE_OPT_NOBOM, DE_OPT_NODENS, DE_OPT_ASCIIHTML, DE_OPT_NONAMES,
  DE_OPT_PADPIX,
@@ -415,12 +417,13 @@ struct opt_struct {
 	int extra_args;
 };
 
-struct opt_struct option_array[] = {
+static const struct opt_struct option_array[] = {
 	{ "d",            DE_OPT_D,            0 },
 	{ "d2",           DE_OPT_D2,           0 },
 	{ "d3",           DE_OPT_D3,           0 },
 	{ "d4",           DE_OPT_D4,           0 },
 	{ "l",            DE_OPT_L,            0 },
+	{ "mp",           DE_OPT_MP,           0 },
 	{ "noinfo",       DE_OPT_NOINFO,       0 },
 	{ "nowarn",       DE_OPT_NOWARN,       0 },
 	{ "nobom",        DE_OPT_NOBOM,        0 },
@@ -488,7 +491,7 @@ struct opt_struct option_array[] = {
 	{ NULL,           DE_OPT_NULL,         0 }
 };
 
-static struct opt_struct *opt_string_to_opt_struct(const char *s)
+static const struct opt_struct *opt_string_to_opt_struct(const char *s)
 {
 	int k;
 
@@ -619,6 +622,23 @@ static void handle_special_1st_filename(struct cmdctx *cc)
 	}
 }
 
+static void handle_an_input_filename(struct cmdctx *cc, char *fn)
+{
+	if(!cc->input_filename) {
+		cc->input_filename = fn;
+		de_set_input_filename(cc->c, cc->input_filename, 0);
+		return;
+	}
+
+	if(cc->mp_mode) {
+		de_set_input_filename(cc->c, fn, 0x1);
+		return;
+	}
+
+	cc->error_flag = 1;
+	cc->show_usage_message = 1;
+}
+
 static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 {
 	int i;
@@ -668,6 +688,9 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_L:
 				de_set_std_option_int(c, DE_STDOPT_LISTMODE, 1);
+				break;
+			case DE_OPT_MP:
+				cc->mp_mode = 1;
 				break;
 			case DE_OPT_NOINFO:
 				de_set_std_option_int(c, DE_STDOPT_INFOMESSAGES, 0);
@@ -785,8 +808,8 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				set_ext_option(c, cc, argv[i+1]);
 				break;
 			case DE_OPT_FILE:
-				cc->input_filename = argv[i+1];
-				de_set_input_filename(c, cc->input_filename);
+				handle_an_input_filename(cc, argv[i+1]);
+				if(cc->error_flag) return;
 				break;
 			case DE_OPT_FILE2:
 				de_set_ext_option(c, "file2", argv[i+1]);
@@ -885,13 +908,8 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 			i += opt->extra_args;
 		}
 		else {
-			if(cc->input_filename) {
-				cc->error_flag = 1;
-				cc->show_usage_message = 1;
-				return;
-			}
-			cc->input_filename = argv[i];
-			de_set_input_filename(c, cc->input_filename);
+			handle_an_input_filename(cc, argv[i]);
+			if(cc->error_flag) return;
 		}
 	}
 

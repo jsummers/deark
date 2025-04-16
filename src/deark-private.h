@@ -101,6 +101,7 @@ struct deark_module_info {
 #define DE_MODFLAG_SECURITYWARNING 0x08
 #define DE_MODFLAG_SHAREDDETECTION 0x10 // Module modifies deark::detection_data
 #define DE_MODFLAG_WARNPARSEONLY   0x20 // Do not list; print warning if autodetected
+#define DE_MODFLAG_MULTIPART       0x40 // Supports multiple input files
 #define DE_MODFLAG_DISABLEDETECT 0x100 // Ignore results of autodetection
 	u32 flags;
 	u32 unique_id; // or 0. Rarely used.
@@ -338,6 +339,17 @@ enum de_moddisp_enum {
 	DE_MODDISP_INTERNAL     // Another module is using this module
 };
 
+struct de_mp_item {
+	const char *fn;
+	dbuf *f;
+};
+
+struct de_mp_data {
+	int count;
+	int alloc;
+	struct de_mp_item *item; // array[alloc]
+};
+
 struct deark_struct {
 	int debug_level;
 	void *userdata;
@@ -363,6 +375,8 @@ struct deark_struct {
 
 	// Always valid during identify(); can be NULL during run().
 	struct de_detection_data_struct *detection_data;
+
+	struct de_mp_data *mp_data;
 	////////////////////////////////////////////////////
 
 	int file_count; // The number of extractable files encountered so far.

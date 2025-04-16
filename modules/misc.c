@@ -8,6 +8,7 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_copy);
 DE_DECLARE_MODULE(de_module_null);
+DE_DECLARE_MODULE(de_module_join);
 DE_DECLARE_MODULE(de_module_split);
 DE_DECLARE_MODULE(de_module_xor);
 DE_DECLARE_MODULE(de_module_plaintext);
@@ -70,6 +71,47 @@ void de_module_null(deark *c, struct deark_module_info *mi)
 	mi->desc = "Do nothing";
 	mi->run_fn = de_run_null;
 	mi->flags |= DE_MODFLAG_NOEXTRACT;
+}
+
+// **************************************************************************
+// "join"
+//
+// This is basically a multi-part example module.
+// **************************************************************************
+
+static void join_internal(deark *c, dbuf *inf, dbuf *outf)
+{
+	dbuf_copy(inf, 0, inf->len, outf);
+}
+
+static void de_run_join(deark *c, de_module_params *mparams)
+{
+	int k;
+	dbuf *outf = NULL;
+
+	outf = dbuf_create_output_file(c, "bin", NULL, 0);
+	join_internal(c, c->infile, outf);
+
+	if(!c->mp_data) goto done;
+	for(k=0; k<c->mp_data->count; k++) {
+		de_dbg(c, "[mp file %d: %s]", k, c->mp_data->item[k].fn);
+		c->mp_data->item[k].f = dbuf_open_input_file(c, c->mp_data->item[k].fn);
+		if(!c->mp_data->item[k].f) goto done;
+		join_internal(c, c->mp_data->item[k].f, outf);
+		dbuf_close(c->mp_data->item[k].f);
+		c->mp_data->item[k].f = NULL;
+	}
+
+done:
+	dbuf_close(outf);
+}
+
+void de_module_join(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "join";
+	mi->desc = "Concatenate files";
+	mi->run_fn = de_run_join;
+	mi->flags |= DE_MODFLAG_MULTIPART;
 }
 
 // **************************************************************************

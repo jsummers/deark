@@ -864,6 +864,7 @@ int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mpar
 {
 	enum de_moddisp_enum old_moddisp;
 	struct de_detection_data_struct *old_detection_data;
+	struct de_mp_data *old_mp_data;
 
 	if(!mi) return 0;
 	if(!mi->run_fn) {
@@ -884,10 +885,14 @@ int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mpar
 
 	old_moddisp = c->module_disposition;
 	c->module_disposition = moddisp;
-
 	old_detection_data = c->detection_data;
 	if(c->module_nesting_level > 0) {
 		c->detection_data = NULL;
+	}
+
+	old_mp_data = c->mp_data;
+	if(c->module_nesting_level > 0) {
+		c->mp_data = NULL;
 	}
 
 	if(c->module_nesting_level>0 && c->debug_level>=3) {
@@ -898,6 +903,7 @@ int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mpar
 	c->module_nesting_level--;
 	c->module_disposition = old_moddisp;
 	c->detection_data = old_detection_data;
+	c->mp_data = old_mp_data;
 	return 1;
 }
 
