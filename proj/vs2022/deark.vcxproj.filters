@@ -613,6 +613,9 @@
     <ClCompile Include="..\..\modules\aldus.c">
       <Filter>Modules</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\modules\divgs.c">
+      <Filter>Modules</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\deark-config.h">
