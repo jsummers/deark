@@ -978,6 +978,7 @@ Deark -- Information about supported formats
   - Supports "SZDD" variant, mode "A".
   - Supports "KWAJ" variant, all known compression methods.
   - Supports "SZ" variant.
+  - "SZ" format supports multi-part archives (use -mp).
 
 * MOOF (module="moof") (incomplete)
   Macintosh floppy disk image format.
