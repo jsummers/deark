@@ -154,6 +154,7 @@ Deark -- Information about supported formats
   - Adds a BMP file header to a raw Windows DIB file.
 
 * DIV Games Studio .fpg (module="div_fpg") (experimental)
+  - Supports "fpg" and "f16" formats.
 
 * DIV Games Studio .map (module="div_map") (experimental)
 
