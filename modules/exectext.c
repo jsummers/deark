@@ -1326,7 +1326,7 @@ static void gtxt_convert_to_text(deark *c, lctx *d, dbuf *outf)
 	i64 endpos = d->tpos + d->tlen;
 	i64 pos;
 
-	if((d->proctype==ET_PROCTYPE_FMTCONV_AND_ENCCONV)) {
+	if(d->proctype==ET_PROCTYPE_FMTCONV_AND_ENCCONV) {
 		ecnv = ecnv_create(c, d->proctype, DE_EXTENC_MAKE(d->input_encoding,
 			DE_ENCSUBTYPE_PRINTABLE), outf);
 		if(c->write_bom) {
