@@ -22,9 +22,10 @@ DE_DECLARE_MODULE(de_module_mrnz);
 #define CMPR_MSZIP   4
 #define CMPR_LZSS16  65536 // Used by SZDD
 
-typedef struct localctx_struct {
+typedef struct localctx_mscompress {
 	int fmt;
 	int input_encoding;
+	u8 errflag;
 	UI cmpr_meth;
 	i64 cmpr_data_pos;
 	i64 cmpr_data_len;
@@ -32,6 +33,8 @@ typedef struct localctx_struct {
 	i64 uncmpr_len;
 	de_ucstring *filename;
 	de_finfo *fi_override; // Do not free; this is a copy.
+	dbuf *inf; // Input file to use (this is a copy)
+	dbuf *combined_inf;
 } lctx;
 
 static int cmpr_meth_is_supported(lctx *d, UI n)
@@ -74,11 +77,11 @@ static int do_header_SZDD(deark *c, lctx *d, i64 pos1)
 	de_dbg_indent(c, 1);
 
 	d->cmpr_data_pos = 14;
-	d->cmpr_data_len = c->infile->len - d->cmpr_data_pos;
+	d->cmpr_data_len = d->inf->len - d->cmpr_data_pos;
 
 	pos += 8; // signature
 
-	cmpr_mode = de_getbyte(pos++);
+	cmpr_mode = dbuf_getbyte_p(d->inf, &pos);
 	de_dbg(c, "compression mode: 0x%02x ('%c')", (unsigned int)cmpr_mode,
 		de_byte_to_printable_char(cmpr_mode));
 	if(cmpr_mode != 0x41) {
@@ -87,7 +90,7 @@ static int do_header_SZDD(deark *c, lctx *d, i64 pos1)
 	}
 	d->cmpr_meth = CMPR_LZSS16;
 
-	fnchar = de_getbyte(pos++);
+	fnchar = dbuf_getbyte_p(d->inf, &pos);
 	if(fnchar>=32 && fnchar<=126) {
 		de_snprintf(tmps, sizeof(tmps), " ('%c')", fnchar);
 	}
@@ -99,10 +102,9 @@ static int do_header_SZDD(deark *c, lctx *d, i64 pos1)
 	}
 	de_dbg(c, "missing filename char: 0x%02x%s", (unsigned int)fnchar, tmps);
 
-	d->uncmpr_len = de_getu32le(pos);
+	d->uncmpr_len = dbuf_getu32le_p(d->inf, &pos);
 	d->uncmpr_len_known = 1;
 	de_dbg(c, "uncompressed len: %"I64_FMT, d->uncmpr_len);
-	//pos += 4;
 
 	retval = 1;
 done:
@@ -120,18 +122,18 @@ static int do_header_SZ(deark *c, lctx *d, i64 pos1)
 	de_dbg_indent(c, 1);
 
 	pos += 7; // signature
-	fragment_id = de_getbyte_p(&pos);
+	fragment_id = dbuf_getbyte_p(d->inf, &pos);
 	if(fragment_id!=0xd1) {
-		de_err(c, "Fragmented files are not supported");
+		de_err(c, "First file is not volume 1");
 		goto done;
 	}
 
 	d->cmpr_meth = CMPR_LZSS18;
-	d->uncmpr_len = de_getu32le_p(&pos);
+	d->uncmpr_len = dbuf_getu32le_p(d->inf, &pos);
 	d->uncmpr_len_known = 1;
 	de_dbg(c, "uncompressed len: %"I64_FMT, d->uncmpr_len);
 	d->cmpr_data_pos = pos;
-	d->cmpr_data_len = c->infile->len - d->cmpr_data_pos;
+	d->cmpr_data_len = d->inf->len - d->cmpr_data_pos;
 
 	retval = 1;
 done:
@@ -153,18 +155,18 @@ static int do_header_KWAJ(deark *c, lctx *d, i64 pos1)
 
 	pos += 8; // signature
 
-	d->cmpr_meth = (UI)de_getu16le_p(&pos);
+	d->cmpr_meth = (UI)dbuf_getu16le_p(d->inf, &pos);
 	de_dbg(c, "compression method: %u (%s)", d->cmpr_meth, get_cmpr_meth_name(d->cmpr_meth));
 
-	d->cmpr_data_pos = de_getu16le_p(&pos);
+	d->cmpr_data_pos = dbuf_getu16le_p(d->inf, &pos);
 	de_dbg(c, "compressed data offset: %"I64_FMT, d->cmpr_data_pos);
-	d->cmpr_data_len = c->infile->len - d->cmpr_data_pos;
+	d->cmpr_data_len = d->inf->len - d->cmpr_data_pos;
 
-	flags = (UI)de_getu16le_p(&pos);
+	flags = (UI)dbuf_getu16le_p(d->inf, &pos);
 	de_dbg(c, "header extension flags: 0x%04x", flags);
 
 	if(flags & 0x0001) { // bit 0
-		d->uncmpr_len = de_getu32le_p(&pos);
+		d->uncmpr_len = dbuf_getu32le_p(d->inf, &pos);
 		d->uncmpr_len_known = 1;
 		de_dbg(c, "uncompressed len: %"I64_FMT, d->uncmpr_len);
 	}
@@ -172,24 +174,24 @@ static int do_header_KWAJ(deark *c, lctx *d, i64 pos1)
 		pos += 2;
 	}
 	if(flags & 0x0004) { // bit 2
-		n = de_getu16le_p(&pos);
+		n = dbuf_getu16le_p(d->inf, &pos);
 		pos += n;
 	}
 	if(flags & 0x0008) { // bit 3, base part of filename
 		foundpos = 0;
-		ret = dbuf_search_byte(c->infile, 0x00, pos, 9, &foundpos);
+		ret = dbuf_search_byte(d->inf, 0x00, pos, 9, &foundpos);
 		if(!ret) goto header_extensions_done;
 		d->filename = ucstring_create(c);
-		dbuf_read_to_ucstring(c->infile, pos, foundpos-pos, d->filename, 0, d->input_encoding);
+		dbuf_read_to_ucstring(d->inf, pos, foundpos-pos, d->filename, 0, d->input_encoding);
 		pos = foundpos+1;
 	}
 	if(flags & 0x0010) { // bit 4, filename extension
 		foundpos = 0;
-		ret = dbuf_search_byte(c->infile, 0x00, pos, 4, &foundpos);
+		ret = dbuf_search_byte(d->inf, 0x00, pos, 4, &foundpos);
 		if(!ret) goto header_extensions_done;
 		if(d->filename && (foundpos-pos > 0)) {
 			ucstring_append_char(d->filename, '.');
-			dbuf_read_to_ucstring(c->infile, pos, foundpos-pos, d->filename, 0, d->input_encoding);
+			dbuf_read_to_ucstring(d->inf, pos, foundpos-pos, d->filename, 0, d->input_encoding);
 		}
 		pos = foundpos+1;
 	}
@@ -661,7 +663,7 @@ static void do_decompress(deark *c, lctx *d, dbuf *outf)
 	struct de_dfilter_results dres;
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
-	dcmpri.f = c->infile;
+	dcmpri.f = d->inf;
 	dcmpri.pos = d->cmpr_data_pos;
 	dcmpri.len = d->cmpr_data_len;
 
@@ -756,6 +758,46 @@ static int detect_fmt_internal(deark *c)
 	return 0;
 }
 
+static void mscompress_handle_multipart(deark *c, lctx *d)
+{
+	int k;
+
+	if(!c->mp_data) goto done;
+
+	if(d->fmt!=FMT_SZ) {
+		de_err(c, "Multi-part archives not supported for this format");
+		d->errflag = 1;
+		goto done;
+	}
+
+	d->combined_inf = dbuf_create_membuf(c, c->infile->len, 0);
+	d->inf = d->combined_inf;
+	dbuf_copy(c->infile, 0, c->infile->len, d->inf);
+	for(k=0; k<c->mp_data->count; k++) {
+		u8 v;
+
+		c->mp_data->item[k].f = dbuf_open_input_file(c, c->mp_data->item[k].fn);
+		if(!c->mp_data->item[k].f) {
+			d->errflag = 1;
+			goto done;
+		}
+
+		v = dbuf_getbyte(c->mp_data->item[k].f, 7);
+		if((int)v != k+2) {
+			de_err(c, "(part %d) Bad file or wrong order", k+2);
+			d->errflag = 1;
+			goto done;
+		}
+
+		dbuf_copy(c->mp_data->item[k].f, 8, c->mp_data->item[k].f->len-8, d->inf);
+		dbuf_close(c->mp_data->item[k].f);
+		c->mp_data->item[k].f = NULL;
+	}
+
+done:
+	;
+}
+
 static void de_run_mscompress(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -784,6 +826,10 @@ static void de_run_mscompress(deark *c, de_module_params *mparams)
 		d->fi_override = mparams->in_params.fi;
 	}
 
+	d->inf = c->infile;
+	mscompress_handle_multipart(c, d);
+	if(d->errflag) goto done;
+
 	if(d->fmt==FMT_KWAJ) {
 		if(!do_header_KWAJ(c, d, 0)) goto done;
 	}
@@ -799,6 +845,7 @@ static void de_run_mscompress(deark *c, de_module_params *mparams)
 done:
 	if(d) {
 		ucstring_destroy(d->filename);
+		dbuf_close(d->combined_inf);
 		de_free(c, d);
 	}
 }
@@ -817,6 +864,7 @@ void de_module_mscompress(deark *c, struct deark_module_info *mi)
 	mi->desc = "MS-DOS Installation Compression";
 	mi->run_fn = de_run_mscompress;
 	mi->identify_fn = de_identify_mscompress;
+	mi->flags |= DE_MODFLAG_MULTIPART;
 }
 
 // **************************************************************************

@@ -153,6 +153,11 @@ Deark -- Information about supported formats
 * DIB (module="dib")
   - Adds a BMP file header to a raw Windows DIB file.
 
+* DIV Games Studio .fpg (module="div_fpg") (experimental)
+  - Supports "fpg" and "f16" formats.
+
+* DIV Games Studio .map (module="div_map") (experimental)
+
 * DCX (module="dcx")
   Multi-image PCX format.
   - Extracts individual PCX files.
@@ -974,6 +979,7 @@ Deark -- Information about supported formats
   - Supports "SZDD" variant, mode "A".
   - Supports "KWAJ" variant, all known compression methods.
   - Supports "SZ" variant.
+  - "SZ" format supports multi-part archives (use -mp).
 
 * MOOF (module="moof") (incomplete)
   Macintosh floppy disk image format.
@@ -1270,6 +1276,11 @@ Deark -- Information about supported formats
   Options
    -opt bmff:maxentries=<n> - Maximum number of sample table entries to print
      when using -d. This applies to several boxes, such as 'stsz'.
+
+* Join (module="join")
+  - Concatenate multiple input files.
+  - You must use "-m join" to select this module, and "-mp" to allow multiple
+    input files.
 
 * JPEG scan (module="jpegscan")
   - This module tries to find and extract embedded JPEG and JPEG-LS files from

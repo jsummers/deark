@@ -69,7 +69,7 @@ OFILES_MODS_AB:=$(addprefix $(OBJDIR)/modules/,abk.o alphabmp.o amigaicon.o \
  arj.o bpg.o bsave.o aldus.o adex.o)
 OFILES_MODS_CH:=$(addprefix $(OBJDIR)/modules/,cab.o cardfile.o cfb.o \
  cpio.o d64.o drhalo.o ebml.o emf.o epocimage.o eps.o exe.o \
- exepack.o dms.o colorix.o diet.o \
+ exepack.o dms.o colorix.o diet.o divgs.o \
  flif.o fnt.o gemfont.o gemmeta.o gemras.o gif.o grasp.o grob.o gzip.o \
  corel.o hfs.o hlp.o dsstore.o fli.o fat.o flac.o dlmaker.o crush.o \
  cdiimage.o clp.o comicchat.o exectext.o gws.o)

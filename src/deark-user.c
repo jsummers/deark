@@ -17,6 +17,7 @@
 #define DE_DEFAULT_MAX_IMAGE_DIMENSION 10000
 #define DE_DEFAULT_MAX_OUTPUT_FILES 1000 // Limit for direct output (not ZIP)
 #define DE_MAX_OUTPUT_FILES_HARD_LIMIT 250000
+#define DE_MAX_MP_FILES 2047
 
 // Returns the best module to use, by looking at the file contents, etc.
 static struct deark_module_info *detect_module_for_file(deark *c, int *errflag)
@@ -150,6 +151,11 @@ static void do_modhelp_internal(deark *c, struct deark_module_info *module_to_us
 		de_msg(c, "Other notes: %s", module_to_use->desc2);
 	}
 
+	if(module_to_use->flags&DE_MODFLAG_MULTIPART) {
+		de_msg(c, "This module supports multiple input files; "
+			"use the \"-mp\" option.");
+	}
+
 	if(!module_to_use->help_fn) {
 		de_msg(c, "No help available for module \"%s\"", module_to_use->id);
 		goto done;
@@ -263,6 +269,8 @@ int de_run(deark *c)
 	int tmp_opt;
 	de_module_params *mparams = NULL;
 	de_ucstring *friendly_infn = NULL;
+
+	if(c->serious_error_flag) goto done;
 
 	if(c->modhelp_req && c->input_format_req) {
 		do_modhelp(c);
@@ -379,6 +387,15 @@ int de_run(deark *c)
 	}
 
 	de_info(c, "Module: %s", module_to_use->id);
+
+	if(c->mp_data && c->mp_data->count &&
+		!(module_to_use->flags&DE_MODFLAG_MULTIPART))
+	{
+		de_err(c, "The %s module does not support multiple input files",
+			module_to_use->id);
+		c->serious_error_flag = 1;
+		goto done;
+	}
 
 	if(module_was_autodetected && (module_to_use->flags&DE_MODFLAG_SECURITYWARNING)) {
 		de_err(c, "The %s module has not been audited for security. There is a "
@@ -527,6 +544,7 @@ done:
 	ucstring_destroy(friendly_infn);
 	if(subfile) dbuf_close(subfile);
 	if(orig_ifile) dbuf_close(orig_ifile);
+	c->infile = NULL;
 	de_free(c, mparams);
 	return c->serious_error_flag ? 0 : 1;
 }
@@ -572,6 +590,14 @@ void de_destroy(deark *c)
 	if(c->output_archive_filename) { de_free(c, c->output_archive_filename); }
 	if(c->extrlist_filename) { de_free(c, c->extrlist_filename); }
 	if(c->detection_data) { de_free(c, c->detection_data); }
+	if(c->mp_data) {
+		for(i=0; i<c->mp_data->count; i++) {
+			dbuf_close(c->mp_data->item[i].f);
+			// (The .fn field is owned by the caller (deark-cmd.c)).
+		}
+		de_free(c, c->mp_data->item);
+		de_free(c, c->mp_data);
+	}
 	for(i=0; i<DE_NUM_PERSISTENT_MEM_ITEMS; i++) {
 		if(c->persistent_item[i]) {
 			de_free(c, c->persistent_item[i]);
@@ -910,9 +936,60 @@ void de_set_input_style(deark *c, int x)
 	c->input_style = x;
 }
 
-void de_set_input_filename(deark *c, const char *fn)
+// Notes on the multipart input file feature:
+// The module tests c->mp_data != NULL to see if there are additional
+// input files after the first.
+// The extra files are not opened automatically. The module must do that.
+// The module should use dbuf_open_input_file() to open files as needed.
+// dbuf_open_input_file() may fail, report an error, and return NULL, in
+// which case the module should probably stop immediately.
+// The module can use mp_data->item[].f, but is not required to. If the
+// module leaves it set, it will be closed automatically.
+// The first file is still c->infile, the same as for any other module.
+// (It's unfortunate that the first file is such a special case, but that's
+// the way it is for now.)
+// Commmand-line options -start and -size apply only to the first file.
+static void de_add_input_filename_mp(deark *c, const char *fn)
 {
-	c->input_filename = fn;
+	int prev_count, new_count;
+	int new_idx;
+
+	if(!c->mp_data) {
+		c->mp_data = de_malloc(c, sizeof(struct de_mp_data));
+	}
+	prev_count = c->mp_data->count;
+	if(prev_count >= DE_MAX_MP_FILES) {
+		de_err(c, "Too many input files");
+		c->serious_error_flag = 1;
+		return;
+	}
+
+	new_count = prev_count+1;
+	if(new_count > c->mp_data->alloc) {
+		int new_alloc;
+
+		new_alloc = new_count+15;
+		c->mp_data->item = de_reallocarray(c, c->mp_data->item,
+			(i64)c->mp_data->count, sizeof(struct de_mp_item), (i64)new_alloc);
+
+		c->mp_data->alloc = new_alloc;
+	}
+
+	new_idx = prev_count;
+	c->mp_data->item[new_idx].fn = fn;
+	c->mp_data->count = new_count;
+}
+
+// flags&0x1: Allow multiple input files. If this is the first time
+//   this function has been called, this flag doesn't matter.
+void de_set_input_filename(deark *c, const char *fn, UI flags)
+{
+	if(c->input_filename && (flags&0x1)) {
+		de_add_input_filename_mp(c, fn);
+	}
+	else {
+		c->input_filename = fn;
+	}
 }
 
 int de_set_input_encoding(deark *c, const char *encname, int reserved)

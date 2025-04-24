@@ -35,6 +35,7 @@ enum de_encoding_enum {
 	DE_ENCODING_WINDOWS1254,
 	DE_ENCODING_WINDOWS874,
 	DE_ENCODING_CP437,
+	DE_ENCODING_CP850,
 	DE_ENCODING_CP932,
 	DE_ENCODING_MACROMAN,
 	DE_ENCODING_ATARIST,
@@ -100,6 +101,7 @@ struct deark_module_info {
 #define DE_MODFLAG_SECURITYWARNING 0x08
 #define DE_MODFLAG_SHAREDDETECTION 0x10 // Module modifies deark::detection_data
 #define DE_MODFLAG_WARNPARSEONLY   0x20 // Do not list; print warning if autodetected
+#define DE_MODFLAG_MULTIPART       0x40 // Supports multiple input files
 #define DE_MODFLAG_DISABLEDETECT 0x100 // Ignore results of autodetection
 	u32 flags;
 	u32 unique_id; // or 0. Rarely used.
@@ -111,7 +113,8 @@ typedef void (*de_module_getinfo_fn)(deark *c, struct deark_module_info *mi);
 struct de_encconv_state;
 typedef de_rune (*de_encconv_fn)(struct de_encconv_state *es, i32 a);
 struct de_encconv_state {
-	de_ext_encoding ee;
+	de_encoding enc;
+	int enc_subtype;
 	de_encconv_fn fn;
 	const void *fn_pvt_data;
 	u8 buf[8];
@@ -336,6 +339,17 @@ enum de_moddisp_enum {
 	DE_MODDISP_INTERNAL     // Another module is using this module
 };
 
+struct de_mp_item {
+	const char *fn;
+	dbuf *f;
+};
+
+struct de_mp_data {
+	int count;
+	int alloc;
+	struct de_mp_item *item; // array[alloc]
+};
+
 struct deark_struct {
 	int debug_level;
 	void *userdata;
@@ -361,6 +375,8 @@ struct deark_struct {
 
 	// Always valid during identify(); can be NULL during run().
 	struct de_detection_data_struct *detection_data;
+
+	struct de_mp_data *mp_data;
 	////////////////////////////////////////////////////
 
 	int file_count; // The number of extractable files encountered so far.

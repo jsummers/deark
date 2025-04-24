@@ -423,7 +423,7 @@ static void append_bytes_cp932(deark *c, de_ucstring *s,
 void ucstring_append_bytes_ex(de_ucstring *s, const u8 *buf, i64 buflen,
 	unsigned int conv_flags, struct de_encconv_state *es)
 {
-	de_encoding encoding = DE_EXTENC_GET_BASE(es->ee);
+	de_encoding encoding = es->enc;
 
 	// Adjust buflen if necessary.
 	if(conv_flags & DE_CONVFLAG_STOP_AT_NUL) {
