@@ -12,6 +12,7 @@ typedef struct localctx_comicchat {
 	de_encoding input_encoding;
 	u8 stopflag;
 	u8 opt_applymasks;
+	u8 prefer_bmp_output;
 	UI fmt_code;
 	UI major_ver;
 	struct de_inthashtable *images_seen;
@@ -36,6 +37,7 @@ struct image_lowlevel_ctx {
 struct image_highlevel_ctx {
 	u8 special_2bpp_transparency;
 	u8 is_icon;
+	u8 is_bkgd;
 	// [0] is the foreground image.
 	// [1] and [2] are optional transparency masks.
 	// Sometimes the fg image has transparency, in which case we wouldn't expect
@@ -72,6 +74,30 @@ static void fixup_2bpp_transparency(deark *c, lctx *d, struct image_highlevel_ct
 
 	de_bitmap_destroy(ih->llimg[0].img);
 	ih->llimg[0].img = newimg;
+}
+
+static void extract_whole_bmp(deark *c, lctx *d, dbuf *inf, i64 pos1,
+	struct image_highlevel_ctx *ih)
+{
+	i64 bmplen;
+	dbuf *outf = NULL;
+	const char *ext;
+
+	bmplen = dbuf_getu32le(inf, pos1+2);
+	if(pos1+bmplen > inf->len) goto done;
+	if(bmplen < 54) goto done;
+
+	if(ih->is_icon) {
+		ext = "icon.bmp";
+	}
+	else {
+		ext = "bmp";
+	}
+	outf = dbuf_create_output_file(c, ext, NULL, 0);
+	dbuf_copy(inf, pos1, bmplen, outf);
+
+done:
+	dbuf_close(outf);
 }
 
 static void read_bmp_to_img(deark *c, lctx *d, dbuf *inf, i64 pos1,
@@ -137,7 +163,8 @@ static void write_palette(deark *c, lctx *d, dbuf *outf,
 }
 
 static void reconstruct_bmp_and_cvt_to_img(deark *c, lctx *d,
-	struct image_extract_ctx *ic, struct image_highlevel_ctx *ih, int itype)
+	struct image_extract_ctx *ic, struct image_highlevel_ctx *ih, int itype,
+	u8 direct_to_bmp)
 {
 	dbuf *tmpbmp = NULL;
 
@@ -147,12 +174,17 @@ static void reconstruct_bmp_and_cvt_to_img(deark *c, lctx *d,
 	write_palette(c, d, tmpbmp, ic->pal, ic->bi.pal_entries);
 	dbuf_copy(ic->unc_pixels, 0, ic->unc_pixels->len, tmpbmp);
 	dbuf_flush(tmpbmp);
-	read_bmp_to_img(c, d, tmpbmp, 0, ih, itype);
+	if(direct_to_bmp) {
+		extract_whole_bmp(c, d, tmpbmp, 0, ih);
+	}
+	else {
+		read_bmp_to_img(c, d, tmpbmp, 0, ih, itype);
+	}
 	dbuf_close(tmpbmp);
 }
 
 static void read_dib_to_img(deark *c, lctx *d, i64 pos1, UI magic,
-	struct image_highlevel_ctx *ih, int itype)
+	struct image_highlevel_ctx *ih, int itype, u8 direct_to_bmp)
 {
 	int ret;
 	i64 pos;
@@ -263,7 +295,7 @@ static void read_dib_to_img(deark *c, lctx *d, i64 pos1, UI magic,
 	// This will ultimately result in the BMP header & palette being read
 	// again (by the bmp module this time), dbg info printed again, etc.
 	// It's messy, but it will do.
-	reconstruct_bmp_and_cvt_to_img(c, d, ic, ih, itype);
+	reconstruct_bmp_and_cvt_to_img(c, d, ic, ih, itype, direct_to_bmp);
 
 done:
 	if(ic) {
@@ -276,7 +308,7 @@ done:
 // Read an image component, decode it in whatever way required,
 // and store it at ih->llimg[itype].
 static void read_image_lowlevel(deark *c, lctx *d, i64 pos1,
-	struct image_highlevel_ctx *ih, int itype)
+	struct image_highlevel_ctx *ih, int itype, u8 direct_to_bmp)
 {
 	UI magic;
 	int saved_indent_level;
@@ -295,10 +327,15 @@ static void read_image_lowlevel(deark *c, lctx *d, i64 pos1,
 	}
 
 	if(magic==0x424d) {
-		read_bmp_to_img(c, d, c->infile, pos1, ih, itype);
+		if(direct_to_bmp) {
+			extract_whole_bmp(c, d, c->infile, pos1, ih);
+		}
+		else {
+			read_bmp_to_img(c, d, c->infile, pos1, ih, itype);
+		}
 	}
 	else {
-		read_dib_to_img(c, d, pos1, magic, ih, itype);
+		read_dib_to_img(c, d, pos1, magic, ih, itype, direct_to_bmp);
 	}
 
 done:
@@ -381,21 +418,34 @@ static int should_apply_masks(deark *c, lctx *d, struct image_highlevel_ctx *ih)
 }
 
 static void extract_image_highlevel(deark *c, lctx *d, i64 imgpos, i64 m1pos, i64 m2pos,
-	u8 is_icon)
+	u8 is_icon, u8 is_bkgd)
 {
 	struct image_highlevel_ctx *ih = NULL;
 	size_t k;
+	u8 direct_to_bmp = 0;
 
 	ih = de_malloc(c, sizeof(struct image_highlevel_ctx));
+	ih->is_icon = is_icon;
+	ih->is_bkgd = is_bkgd;
 
 	de_dbg(c, "[extracting image at %"I64_FMT" : %"I64_FMT" : %"I64_FMT"]",
 		imgpos, m1pos, m2pos);
 	de_dbg_indent(c, 1);
-	read_image_lowlevel(c, d, imgpos, ih, 0);
-	read_image_lowlevel(c, d, m1pos, ih, 1);
-	read_image_lowlevel(c, d, m2pos, ih, 2);
 
-	ih->is_icon = is_icon;
+	if(d->prefer_bmp_output) {
+		// The direct_to_bmp flag is a bit of a hack, but I don't see any
+		// elegant way to do it.
+		if((ih->is_icon || ih->is_bkgd) && m1pos==0 && m2pos==0) {
+			direct_to_bmp = 1;
+		}
+	}
+
+	read_image_lowlevel(c, d, imgpos, ih, 0, direct_to_bmp);
+	if(direct_to_bmp) goto done;
+
+	read_image_lowlevel(c, d, m1pos, ih, 1, 0);
+	read_image_lowlevel(c, d, m2pos, ih, 2, 0);
+
 	for(k=0; k<3; k++) {
 		if(!ih->llimg[k].fi) {
 			ih->llimg[k].fi = de_finfo_create(c);
@@ -409,8 +459,8 @@ static void extract_image_highlevel(deark *c, lctx *d, i64 imgpos, i64 m1pos, i6
 	else {
 		emit_images_highlevel_separate(c, d, ih);
 	}
-	de_dbg_indent(c, -1);
 
+done:
 	if(ih) {
 		for(k=0; k<3; k++) {
 			de_bitmap_destroy(ih->llimg[k].img);
@@ -418,6 +468,7 @@ static void extract_image_highlevel(deark *c, lctx *d, i64 imgpos, i64 m1pos, i6
 		}
 		de_free(c, ih);
 	}
+	de_dbg_indent(c, -1);
 }
 
 static int found_image(deark *c, lctx *d, struct chunk_ctx *cctx,
@@ -426,6 +477,7 @@ static int found_image(deark *c, lctx *d, struct chunk_ctx *cctx,
 	int retval = 0;
 	int ret;
 	u8 is_icon;
+	u8 is_bkgd;
 
 	if(imgpos) imgpos += d->img_ptr_bias;
 	if(m1pos) m1pos += d->img_ptr_bias;
@@ -447,7 +499,8 @@ static int found_image(deark *c, lctx *d, struct chunk_ctx *cctx,
 	}
 
 	is_icon = (cctx->ck_type==0x0003 || cctx->ck_type==0x0100);
-	extract_image_highlevel(c, d, imgpos, m1pos, m2pos, is_icon);
+	is_bkgd = (cctx->ck_type==0x0102);
+	extract_image_highlevel(c, d, imgpos, m1pos, m2pos, is_icon, is_bkgd);
 
 done:
 	return retval;
@@ -611,6 +664,7 @@ static void de_run_comicchat(deark *c, de_module_params *mparams)
 	d->tmpstr = ucstring_create(c);
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 	d->opt_applymasks = de_get_ext_option_bool(c, "comicchat:applymasks", 1);
+	d->prefer_bmp_output = (u8)de_get_ext_option_bool(c, "comicchat:tobmp", 0);
 
 	de_dbg(c, "header at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
@@ -671,6 +725,7 @@ static int de_identify_comicchat(deark *c)
 
 static void de_help_comicchat(deark *c)
 {
+	de_msg(c, "-opt comicchat:tobmp : Write icons and backgrounds to BMP format");
 	de_msg(c, "-opt comicchat:applymasks=0 : Write masks to separate files");
 }
 
