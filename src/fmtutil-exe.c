@@ -421,6 +421,35 @@ done:
 	;
 }
 
+// May set ei->maybe_extended.
+// This assumes ei->f is the entire file. If it's just the header, then
+// ei->maybe_extended won't be meaningful.
+// Note: This logic is essentially duplicated in exe:do_identify_exe_format().
+static void check_for_ext_fmt(deark *c, struct fmtutil_exe_info *ei,
+	i64 ext_header_offset)
+{
+	i64 reloc_tbl_endpos;
+
+	if(ext_header_offset<64 || ext_header_offset>=ei->f->len) {
+		goto done;
+	}
+	if(ei->start_of_dos_code<=60 && ei->end_of_dos_code>60) {
+		goto done;
+	}
+	if(ei->reloc_table_pos>=61 && ei->reloc_table_pos<=63) {
+		goto done;
+	}
+	reloc_tbl_endpos = ei->reloc_table_pos + 4*ei->num_relocs;
+	if(ei->num_relocs>0 && ei->reloc_table_pos<64 && reloc_tbl_endpos>60) {
+		goto done;
+	}
+
+	// TODO: Maybe check that the ext. signature looks like a signature.
+	ei->maybe_extended = 1;
+done:
+	;
+}
+
 // Caller initializes ei (to zeroes).
 // Records some basic information about an EXE file, to be used by routines that
 // detect special EXE formats.
@@ -430,6 +459,7 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei)
 {
 	i64 hdrsize; // in 16-byte units
 	i64 lfb, nblocks;
+	i64 ext_header_offset;
 
 	ei->f = f;
 	lfb = dbuf_getu16le(f, 2);
@@ -444,6 +474,7 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei)
 	ei->regCS = dbuf_geti16le(f, 22);
 	ei->reloc_table_pos = dbuf_getu16le(f, 24);
 	ei->entry_point = (hdrsize + ei->regCS)*16 + ei->regIP;
+	ext_header_offset = dbuf_getu32le(f, 60);
 
 	ei->end_of_dos_code = nblocks*512;
 	if(lfb>=1 && lfb<=511) {
@@ -451,6 +482,8 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei)
 	}
 	ei->overlay_len = f->len - ei->end_of_dos_code;
 	if(ei->overlay_len<0) ei->overlay_len = 0;
+
+	check_for_ext_fmt(c, ei, ext_header_offset);
 }
 
 // Caller supplies ei -- must call fmtutil_collect_exe_info() first.

@@ -738,6 +738,7 @@ struct de_lz77buffer {
 	i64 entry_point;
 	i64 end_of_dos_code;
 	i64 overlay_len;
+	u8 maybe_extended;
 	u8 have_epcrcs;
 	u8 have_testbytes; // Are ep/ovl fields populated?
 	u64 entrypoint_crcs;
