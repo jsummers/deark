@@ -64,6 +64,8 @@ Deark -- Information about supported formats
 * Apple volume label image (module="applevol")
 
 * ART - PFS: 1st Publisher clip art (module="fp_art")
+  - Supports the common format, and the compressed hi-res format.
+  - In some cases, you may have to use "-m fp_art".
 
 * ArtWorx Data Format (ADF) (module="artworx_adf")
 

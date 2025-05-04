@@ -696,32 +696,191 @@ void de_module_vbm(deark *c, struct deark_module_info *mi)
 // PFS: 1st Publisher clip art (.ART)
 // **************************************************************************
 
+// The minimum needed to ID std. res. files
+struct fp_art_stdhdr_data {
+	u8 ok;
+	i64 w, h;
+	i64 rowspan;
+};
+
+struct fp_art_ctx {
+	struct fp_art_stdhdr_data hd;
+	u8 hi_res;
+	u8 need_errmsg;
+};
+
+static void fp_art_read_hdr_std(deark *c, struct fp_art_stdhdr_data *hd,
+	UI fld1)
+{
+	i64 pos = 2;
+	i64 b_left, b_right, b_top, b_bottom;
+
+	b_left = (i64)fld1;
+	b_right = de_getu16le_p(&pos);
+	b_top = de_getu16le_p(&pos);
+	b_bottom = de_getu16le_p(&pos);
+	hd->w = b_right - b_left;
+	hd->h = b_bottom - b_top;
+	if(hd->w<1 || hd->h<1) return;
+	hd->rowspan = ((hd->w+15)/16)*2;
+	hd->ok = 1;
+}
+
+static void do_fp_art_stdres(deark *c, struct fp_art_ctx *d, UI fld1)
+{
+	struct fp_art_stdhdr_data *hd = &d->hd;
+
+	fp_art_read_hdr_std(c, hd, fld1);
+	if(!hd->ok) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	de_dbg_dimensions(c, hd->w, hd->h);
+	if(!de_good_image_dimensions(c,hd->w, hd->h)) goto done;
+	de_convert_and_write_image_bilevel2(c->infile, 8, hd->w, hd->h,
+		hd->rowspan, 0, NULL, 0);
+
+done:
+	;
+}
+
+static void do_fp_art_hires(deark *c, struct fp_art_ctx *d)
+{
+	struct fp_art_stdhdr_data *hd = &d->hd;
+	i64 pos = 2;
+	UI unk1;
+	dbuf *unc_pixels = NULL;
+	de_finfo *fi = NULL;
+	i64 xdpi, ydpi;
+	i64 min_rowspan, max_rowspan;
+	i64 cmpr_size;
+	i64 cmpr_pos;
+	i64 max_unc_size;
+
+	de_declare_fmt(c, "PFS: 1st Publisher Art, high res.");
+	fi = de_finfo_create(c);
+	xdpi = de_getu16le_p(&pos);
+	ydpi = de_getu16le_p(&pos);
+	fi->density.code = DE_DENSITY_DPI;
+	fi->density.xdens = (double)xdpi;
+	fi->density.ydens = (double)ydpi;
+	hd->w = de_getu16le_p(&pos);
+	hd->h = de_getu16le_p(&pos);
+	de_dbg_dimensions(c, hd->w, hd->h);
+	unk1 = (UI)de_getu16le_p(&pos);
+	if(unk1!=1) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	cmpr_pos = pos;
+	if(!de_good_image_dimensions(c, hd->w, hd->h)) goto done;
+
+	// We don't know the bytes/row yet, but it should be in this range.
+	min_rowspan = ((hd->w+7)/8);
+	max_rowspan = min_rowspan+2;
+	max_unc_size = hd->h * max_rowspan +1;
+	unc_pixels = dbuf_create_membuf(c, max_unc_size, 0x1);
+	dbuf_enable_wbuffer(unc_pixels);
+	cmpr_size = c->infile->len - cmpr_pos;
+	fmtutil_decompress_packbits(c->infile, cmpr_pos, cmpr_size, unc_pixels, NULL);
+	dbuf_flush(unc_pixels);
+	de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT, cmpr_size, unc_pixels->len);
+
+	// I don't know if there's any other way to figure out the bytes/row.
+	// It's weird.
+	if((unc_pixels->len % hd->h) != 0) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	hd->rowspan = unc_pixels->len / hd->h;
+	if(hd->rowspan<min_rowspan || hd->rowspan>max_rowspan) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	de_dbg(c, "bytes/row: %"I64_FMT, hd->rowspan);
+
+	de_convert_and_write_image_bilevel2(unc_pixels, 0, hd->w, hd->h, hd->rowspan,
+		0, fi, 0);
+
+done:
+	dbuf_close(unc_pixels);
+	de_finfo_destroy(c, fi);
+}
+
 static void de_run_fp_art(deark *c, de_module_params *mparams)
 {
-	i64 width, height;
-	i64 rowspan;
+	struct fp_art_ctx *d = NULL;
+	UI fld1;
 
-	width = de_getu16le(2);
-	height = de_getu16le(6);
-	rowspan = ((width+15)/16)*2;
-	de_convert_and_write_image_bilevel2(c->infile, 8, width, height, rowspan, 0, NULL, 0);
+	d = de_malloc(c, sizeof(struct fp_art_ctx));
+	fld1 = (UI)de_getu16le(0);
+	if(fld1==0xffff) {
+		d->hi_res = 1;
+	}
+	de_declare_fmtf(c, "PFS: 1st Publisher Art, %s res.",
+		(d->hi_res?"high":"standard"));
+
+	if(d->hi_res) {
+		do_fp_art_hires(c, d);
+	}
+	else {
+		do_fp_art_stdres(c, d, fld1);
+	}
+
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported ART file");
+		}
+		de_free(c, d);
+	}
+}
+
+static int fp_art_id_stdres(deark *c, UI fld1)
+{
+	struct fp_art_stdhdr_data hd;
+
+	de_zeromem(&hd, sizeof(struct fp_art_stdhdr_data));
+	fp_art_read_hdr_std(c, &hd, fld1);
+	if(!hd.ok) return 0;
+	if(8 + hd.rowspan*hd.h == c->infile->len) {
+		return 74;
+	}
+	if(8 + hd.rowspan*(hd.h+1) == c->infile->len) {
+		// e.g. BANNER.ART from v3.0
+		return 24;
+	}
+	return 0;
+}
+
+static int fp_art_id_hires(deark *c)
+{
+	UI n;
+	i64 pos = 2;
+
+	n = (UI)de_getu16le_p(&pos); // xres?
+	if(n!=300) return 0;
+	n = (UI)de_getu16le_p(&pos); // yres?
+	if(n!=300) return 0;
+	n = (UI)de_getu16le_p(&pos); // width
+	if(n<1 || n>8192) return 0;
+	n = (UI)de_getu16le_p(&pos); // height
+	if(n<1 || n>8192) return 0;
+	n = (UI)de_getu16le_p(&pos); // ?
+	if(n!=1) return 0;
+	return 59;
 }
 
 static int de_identify_fp_art(deark *c)
 {
-	i64 width, height;
-	i64 rowspan;
+	UI fld1;
 
 	if(!de_input_file_has_ext(c, "art")) return 0;
-
-	width = de_getu16le(2);
-	height = de_getu16le(6);
-	rowspan = ((width+15)/16)*2;
-	if(8 + rowspan*height == c->infile->len) {
-		return 100;
+	fld1 = (UI)de_getu16le(0);
+	if(fld1==0xffff) {
+		return fp_art_id_hires(c);
 	}
-
-	return 0;
+	return fp_art_id_stdres(c, fld1);
 }
 
 void de_module_fp_art(deark *c, struct deark_module_info *mi)
