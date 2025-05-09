@@ -758,7 +758,6 @@ static void do_fp_art_hires(deark *c, struct fp_art_ctx *d)
 	i64 cmpr_pos;
 	i64 max_unc_size;
 
-	de_declare_fmt(c, "PFS: 1st Publisher Art, high res.");
 	fi = de_finfo_create(c);
 	xdpi = de_getu16le_p(&pos);
 	ydpi = de_getu16le_p(&pos);
@@ -778,7 +777,7 @@ static void do_fp_art_hires(deark *c, struct fp_art_ctx *d)
 
 	// We don't know the bytes/row yet, but it should be in this range.
 	min_rowspan = ((hd->w+7)/8);
-	max_rowspan = min_rowspan+2;
+	max_rowspan = min_rowspan+3; // (+2 may be sufficient)
 	max_unc_size = hd->h * max_rowspan +1;
 	unc_pixels = dbuf_create_membuf(c, max_unc_size, 0x1);
 	dbuf_enable_wbuffer(unc_pixels);
@@ -787,7 +786,7 @@ static void do_fp_art_hires(deark *c, struct fp_art_ctx *d)
 	dbuf_flush(unc_pixels);
 	de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT, cmpr_size, unc_pixels->len);
 
-	// I don't know if there's any other way to figure out the bytes/row.
+	// I don't know if there's any better way to figure out the bytes/row.
 	// It's weird.
 	if((unc_pixels->len % hd->h) != 0) {
 		d->need_errmsg = 1;
@@ -799,6 +798,7 @@ static void do_fp_art_hires(deark *c, struct fp_art_ctx *d)
 		goto done;
 	}
 	de_dbg(c, "bytes/row: %"I64_FMT, hd->rowspan);
+	de_dbg2(c, "padding bytes/row: %d", (int)(hd->rowspan-min_rowspan));
 
 	de_convert_and_write_image_bilevel2(unc_pixels, 0, hd->w, hd->h, hd->rowspan,
 		0, fi, 0);
