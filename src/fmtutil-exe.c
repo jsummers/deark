@@ -636,6 +636,37 @@ done:
 	;
 }
 
+static void detect_specialexe_textlife(deark *c,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	int ret;
+	i64 foundpos;
+
+	if(ei->regSP!=65520) goto done;
+	if(ei->regIP<7000 || ei->regIP>12000) goto done;
+	if(ei->num_relocs<230 || ei->num_relocs>310) goto done;
+
+	if(dbuf_memcmp(ei->f, ei->start_of_dos_code,
+		(const void*)"\x55\x89\xe5\x83\xec\x02\x9a", 7))
+	{
+		goto done;
+	}
+
+	// Earliest known sig = Code+14596 for Breeze 3.2
+	// Latest known sig = Code+17034 for TextLife 2.7variant3
+	// We'll set the "haystack" to 14000 to 18000.
+	ret = dbuf_search(ei->f, (const u8*)"\x05ZZZZZ", 6,
+		ei->start_of_dos_code+14000, 4000, &foundpos);
+	if(!ret) goto done;
+	edd->special_pos_1 = foundpos;
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_TEXTLIFE;
+	de_strlcpy(edd->detected_fmt_name, "TextLife", sizeof(edd->detected_fmt_name));
+	edd->modname = "textlife";
+done:
+	;
+}
+
 // Caller supplies ei -- must call fmtutil_collect_exe_info() first.
 // Caller initializes edd, to receive the results.
 // If success, sets edd->detected_fmt to nonzero.
@@ -664,6 +695,11 @@ void fmtutil_detect_specialexe(deark *c, struct fmtutil_exe_info *ei,
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_READAMATIC) {
 		detect_specialexe_readamatic(c, ei, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
+
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_TEXTLIFE) {
+		detect_specialexe_textlife(c, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 

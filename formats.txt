@@ -1399,6 +1399,15 @@ Deark -- Information about supported formats
   Options
    -opt text:encconv=0 - Suppress character encoding translation.
 
+* TextLife (module="textlife")
+  Executable text (.EXE) files made by TextLife or Breeze, by K. Solway.
+  - Some files contain control character sequences used for things like italics
+    or key definitions. They will be left as-is.
+  - The first character of the file may be a special code ("f", "p", or "#").
+    It will be left as-is.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
+
 * TXT2COM (module="txt2com")
   Executable text (.COM) files made by Graham's TXT2COM utility.
   - Extracts the source text. Does not necessarily render the document (e.g.
