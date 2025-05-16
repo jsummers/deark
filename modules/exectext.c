@@ -1916,10 +1916,8 @@ static void de_run_textlife(deark *c, de_module_params *mparams)
 {
 	struct textlife_ctx *tctx = NULL;
 	lctx *d = NULL;
-	dbuf *outf = NULL;
 
 	d = create_lctx(c);
-
 	tctx = de_malloc(c, sizeof(struct textlife_ctx));
 	tctx->msgpfx = "[TextLife] ";
 	tctx->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
@@ -1976,9 +1974,7 @@ done:
 	if(tctx) {
 		de_free(c, tctx->ei);
 		de_free(c, tctx);
-		tctx = NULL;
 	}
-	dbuf_close(outf);
 }
 
 static void de_help_textlife(deark *c)
