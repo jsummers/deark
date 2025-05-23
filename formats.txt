@@ -384,6 +384,10 @@ Deark -- Information about supported formats
 * MMM (MacroMind Movie) (module="mmm") (experimental)
   - Can extract images, but cannot always get the colors right.
   - Audio conversion to WAV is attempted.
+  Options
+   -file2 <file.mmm> - File to read the palette from
+   -opt mmm:palid=<id> - Use this palette
+   -opt mmm:allowbad - Keep going after certain errors
 
 * MRW (Minolta RAW) (module="mrw")
   - Process Exif data (or extract it: use -a)
@@ -1150,6 +1154,7 @@ here are most "character graphics" formats, which are in the "Image" section.)
   - Not autodetected. Use "-m cp437".
   - Note that code points below 0x20 are ambiguous. Deark tries to guess which
     ones are control characters.
+  - See also the "plaintext" module.
 
 * DOC2COM (moule="doc2com")
   Executable text (.COM) files made by G. DePyper's DOC2COM utility.
@@ -1394,36 +1399,39 @@ here are most "character graphics" formats, which are in the "Image" section.)
 
 * Byte frequency analysis (module="bytefreq")
   Print a table showing how many times each byte value occurs.
-  - You must use "-m bytefreq".
+  - Use "-m bytefreq".
 
 * Copy (module="copy")
-  - "Extract" the entire file. Use with -start and -size to extract part of
-    the file.
+  "Extract" the entire file. Use with -start and -size to extract part of the
+  file.
+  - Use "-m copy".
 
 * CRC (module="crc")
   Print various CRC hashes and checksums of the file, including IEEE CRC-32.
-  - You must use "-m crc".
+  - Use "-m crc".
   Options
    -a, -opt crc:all - Also compute uncommon CRCs and checksums.
 
 * Hex dump (module="hexdump")
   Print a hex dump of the file.
-  - You must use "-m hexdump".
+  - Use "-m hexdump".
 
 * Join (module="join")
-  - Concatenate multiple input files.
+  Concatenate multiple input files.
   - You must use "-m join" to select this module, and "-mp" to allow multiple
     input files.
 
 * JPEG scan (module="jpegscan")
-  - This module tries to find and extract embedded JPEG and JPEG-LS files from
+  This module tries to find and extract embedded JPEG and JPEG-LS files from
     otherwise-unsupported formats. Use "-m jpegscan".
 
 * NULL (module="null")
-  - Do nothing.
+  Do nothing.
+  - Use "-m null".
 
 * Split (module="split")
   Split the file into equal-sized chunks.
+  - Use "-m split".
   Options
    -opt split:size=<n> - The size of each chunk, in bytes.
    -opt split:stride=<n> - The distance between the start of one chunk and the
@@ -1431,6 +1439,7 @@ here are most "character graphics" formats, which are in the "Image" section.)
 
 * XOR (module="xor")
   Apply an XOR key to the file. By default, invert all the bits.
+  - Use "-m xor".
   Options
    -opt xor:key=<aabbcc...> - The key, expressed as one or more hex bytes.
 
