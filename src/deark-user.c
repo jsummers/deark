@@ -908,6 +908,12 @@ void de_set_std_option_int(deark *c, enum de_stdoptions_enum o, int x)
 	case DE_STDOPT_INFOMESSAGES:
 		c->show_infomessages = x;
 		break;
+	case DE_STDOPT_MP_OPT_USED:
+		// We track this mainly so that modules can use it to construct better
+		// error messages, and not tell the user to use "-mp" when they
+		// already did.
+		c->mp_opt_used = 1;
+		break;
 	case DE_STDOPT_WRITE_BOM:
 		c->write_bom = (u8)x;
 		break;

@@ -803,6 +803,8 @@ Deark -- Information about supported formats
   Variant of ARC.
 
 * ARJ (module="arj")
+  - Multi-volumes archives are supported; use "-mp" (experimental). All volumes
+    must be listed on the command line, in the correct order.
   Options
    -opt arj:entrypoint=<n> : Specify the offset of ARJ data.
    -opt arj:scan=0 : Disable scanning for the ARJ data.

@@ -22,6 +22,7 @@ enum de_stdoptions_enum {
 	DE_STDOPT_ID_MODE,
 	DE_STDOPT_WARNINGS,
 	DE_STDOPT_INFOMESSAGES,
+	DE_STDOPT_MP_OPT_USED,
 	DE_STDOPT_WRITE_BOM, // When we write a UTF-8 text file, should we start it with a BOM?
 	DE_STDOPT_WRITE_DENSITY,
 	DE_STDOPT_ASCII_HTML, // Use only ASCII in HTML documents.

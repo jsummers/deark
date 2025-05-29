@@ -397,6 +397,7 @@ struct deark_struct {
 	u8 slice_start_req_special;
 	u8 slice_size_req_valid;
 	u8 suppress_detection_by_filename;
+	u8 mp_opt_used;
 
 	int output_style; // DE_OUTPUTSTYLE_*
 	int archive_fmt; // If output_style==DE_OUTPUTSTYLE_ARCHIVE
