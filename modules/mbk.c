@@ -906,6 +906,8 @@ static int is_stos_packedscreen(deark *c, UI *res)
 	u8 buf[24];
 	u8 is_mbk = 0;
 	UI id = 0;
+	UI field14;
+	UI field18;
 	i64 bpos = 0;
 
 	*res = 0;
@@ -921,6 +923,15 @@ static int is_stos_packedscreen(deark *c, UI *res)
 	id = (UI)de_getu32be_direct(&buf[bpos]);
 	if(id!=BANKID_PKSCREEN) return 0;
 	*res = (UI)de_getu16be_direct(&buf[bpos+4]);
+	if(*res > 2) return 0;
+
+	field14 = (UI)de_getu16be_direct(&buf[bpos+14]);
+	if(field14>=1 && field14<=6) {
+		// It's likely that this is the AMOS format, not the STOS format.
+		field18 = (UI)de_getu16be_direct(&buf[bpos+18]);
+		// Expecting STOS flags to be small
+		if(field18>=8) return 0;
+	}
 	return 1;
 }
 
@@ -938,7 +949,13 @@ static int de_identify_mbk(deark *c)
 		return 100;
 	}
 	else if(id==BANKID_PKSCREEN) {
-		return 99;
+		int is_pkscr;
+		UI res;
+
+		is_pkscr = is_stos_packedscreen(c, &res);
+		if(is_pkscr) {
+			return 99;
+		}
 	}
 	return 0;
 }
