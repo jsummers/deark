@@ -646,8 +646,11 @@ static int identify_fmt(deark *c, i64 pos)
 
 	if(buf[1]=='7' && buf[2]==0x0a)
 		return FMT_PAM;
-	if(buf[1]>='1' && buf[1]<='6')
-		return buf[1] - '0';
+	if(buf[1]>='1' && buf[1]<='6') {
+		if(buf[2]==9 || buf[2]==10 || buf[2]==13 || buf[2]==32) {
+			return (int)buf[1] - '0';
+		}
+	}
 	return 0;
 }
 
