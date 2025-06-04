@@ -22,6 +22,8 @@ Deark -- Information about supported formats
   - GlowIcons / OS3.5: Fully supported.
 
 * AMOS Picture Bank (module="abk")
+  Options
+   -opt abk:allownopal - Try to decode images lacking a palette
 
 * AMOS Sprite Bank (AmSp) / AMOS Icon Bank (AmIc) (module="abk")
 

@@ -2,7 +2,7 @@
 // Copyright (C) 2016 Jason Summers
 // See the file COPYING for terms of use.
 
-// AMOS sprite/icon bank
+// AMOS sprite/icon bank, etc.
 
 #include <deark-private.h>
 #include <deark-fmtutil.h>
@@ -13,10 +13,13 @@ DE_DECLARE_MODULE(de_module_amos_source);
 #define CODE_AmBs 0x416d4273U
 #define CODE_AmIc 0x416d4963U
 #define CODE_AmSp 0x416d5370U
+#define AMOS_SCR_HDR_ID  0x12031990
+#define AMOS_PIC_HDR_ID  0x06071963
 
 // Data related to the whole file.
-typedef struct localctx_struct {
+typedef struct localctx_AMOS {
 	u32 fmt;
+	int opt_allownopal;
 } lctx;
 
 // Data related to a "bank". Most files consist of one bank, but some have
@@ -45,6 +48,13 @@ struct amosbank {
 	i64 picdata_expected_unc_bytes;
 	u32 amiga_mode;
 };
+
+static void destroy_amosbank(deark *c, struct amosbank *bk)
+{
+	if(!bk) return;
+	dbuf_close(bk->f);
+	de_free(c, bk);
+}
 
 static void do_read_sprite_image(deark *c, lctx *d, struct amosbank *bk, i64 pos)
 {
@@ -417,7 +427,6 @@ static void picture_bank_make_palette(deark *c, lctx *d, struct amosbank *bk)
 	i64 k;
 	u8 v;
 
-	de_warn(c, "No palette found. Using grayscale palette.");
 	for(k=0; k<32; k++) {
 		v = (u8)(0.5+ ((double)k)*(255.0/31.0));
 		bk->pal[k] = DE_MAKE_GRAY(v);
@@ -425,22 +434,22 @@ static void picture_bank_make_palette(deark *c, lctx *d, struct amosbank *bk)
 	}
 }
 
-static void do_picture_bank(deark *c, lctx *d, struct amosbank *bk)
+static void do_picture_bank(deark *c, lctx *d, struct amosbank *bk, i64 pos1)
 {
-	i64 pos = 0;
+	i64 pos = pos1;
 	u32 segtype;
 	int found_screen_header = 0;
 
 	de_dbg(c, "picture bank");
-
-	pos += 20; // Advance past AmBk header
+	de_dbg_indent(c, 1);
 
 	segtype = (u32)de_getu32be(pos);
-	if(segtype==0x12031990) {
+	if(segtype==AMOS_SCR_HDR_ID) {
 		found_screen_header = 1;
 		picture_bank_screen_header(c, d, bk, pos);
 		pos += 90;
 
+		// TODO: Support HAM
 		if(bk->amiga_mode & 0x0800) {
 			de_err(c, "HAM Picture Bank images are not supported.");
 			goto done;
@@ -449,19 +458,37 @@ static void do_picture_bank(deark *c, lctx *d, struct amosbank *bk)
 		segtype = (u32)de_getu32be(pos);
 	}
 
-	if(segtype!=0x06071963) {
+	if(segtype!=AMOS_PIC_HDR_ID) {
 		de_err(c, "Missing Picture Header");
 		goto done;
 	}
 
 	if(!found_screen_header) {
+		if(d->opt_allownopal<1) {
+			de_warn(c, "No palette found. Can't decode this image.%s",
+				(d->opt_allownopal<0 ?
+					" (Use \"-opt abk:allownopal\" to try anyway.)" : ""));
+			goto done;
+		}
+		de_warn(c, "No palette found. Using grayscale palette.");
 		picture_bank_make_palette(c, d, bk);
 	}
 
 	picture_bank_read_picture(c, d, bk, pos);
 
 done:
-	;
+	de_dbg_indent(c, -1);
+}
+
+static void do_amos_picture_file(deark *c, lctx *d)
+{
+	struct amosbank *bk = NULL;
+
+	bk = de_malloc(c, sizeof(struct amosbank));
+	bk->f = dbuf_open_input_subfile(c->infile, 0, c->infile->len);
+	// I don't think we need to set anything like bk->bank_len.
+	do_picture_bank(c, d, bk, 0);
+	destroy_amosbank(c, bk);
 }
 
 static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)
@@ -513,7 +540,7 @@ static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)
 
 	switch(membanktype) {
 	case MEMBANKTYPE_PICTURE:
-		do_picture_bank(c, d, bk);
+		do_picture_bank(c, d, bk, 20); // 20 to advance past AmBk header
 		retval = 1;
 		goto done;
 	}
@@ -562,10 +589,7 @@ static int do_read_bank(deark *c, lctx *d, i64 pos, i64 *bytesused)
 		de_err(c, "Unsupported bank type: '%s'", bk->banktype4cc.id_sanitized_sz);
 	}
 
-	if(bk) {
-		dbuf_close(bk->f);
-		de_free(c, bk);
-	}
+	destroy_amosbank(c, bk);
 	return retval;
 }
 
@@ -599,6 +623,7 @@ static void de_run_abk(deark *c, de_module_params *mparams)
 	i64 bytesused = 0;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->opt_allownopal = de_get_ext_option_bool(c, "abk:allownopal", -1);
 
 	d->fmt = (u32)de_getu32be(0);
 
@@ -614,6 +639,12 @@ static void de_run_abk(deark *c, de_module_params *mparams)
 	else if(d->fmt==CODE_AmBs) {
 		de_declare_fmt(c, "AMOS AmBs format");
 	}
+	else if(d->fmt==AMOS_SCR_HDR_ID) {
+		de_declare_fmt(c, "AMOS picture, with screen header");
+	}
+	else if(d->fmt==AMOS_PIC_HDR_ID) {
+		de_declare_fmt(c, "AMOS picture, no screen header");
+	}
 	else {
 		de_err(c, "Unsupported format");
 		goto done;
@@ -625,28 +656,68 @@ static void de_run_abk(deark *c, de_module_params *mparams)
 	else if(d->fmt==CODE_AmBs) {
 		do_read_AmBs(c, d);
 	}
+	else if(d->fmt==AMOS_SCR_HDR_ID || d->fmt==AMOS_PIC_HDR_ID) {
+		do_amos_picture_file(c, d);
+	}
 
 done:
 	de_free(c, d);
 }
 
+static int is_amos_picture_file(deark *c, UI sig)
+{
+	UI x;
+	i64 picpos;
+
+	if(sig==AMOS_SCR_HDR_ID) {
+		picpos = 90;
+	}
+	else if(sig==AMOS_PIC_HDR_ID) {
+		// Need to be careful here, because some STOS formats also
+		// start this way.
+		picpos = 0;
+	}
+	else {
+		return 0;
+	}
+
+	x = (UI)de_getu32be(picpos);
+	if(x!=AMOS_PIC_HDR_ID) return 0;
+	x = (UI)de_getu16be(picpos+14); // # bitplanes
+	if(x>=1 && x<=6) {
+		return 1;
+	}
+	return 0;
+}
+
 static int de_identify_abk(deark *c)
 {
-	u8 b[4];
 	int ext_bonus = 0;
+	UI sig;
 
 	if(de_input_file_has_ext(c, "abk")) ext_bonus=40;
 
-	de_read(b, 0, 4);
-	if(!de_memcmp(b, "AmBk", 4))
+	sig = (UI)de_getu32be(0);
+	if(sig==CODE_AmBk)
 		return 60+ext_bonus;
-	if(!de_memcmp(b, "AmSp", 4))
+	if(sig==CODE_AmSp)
 		return 60+ext_bonus;
-	if(!de_memcmp(b, "AmIc", 4))
+	if(sig==CODE_AmIc)
 		return 60+ext_bonus;
-	if(!de_memcmp(b, "AmBs", 4))
+	if(sig==CODE_AmBs)
 		return 60+ext_bonus;
+	if(sig==AMOS_SCR_HDR_ID || sig==AMOS_PIC_HDR_ID) {
+		if(is_amos_picture_file(c, sig)) {
+			return 60+ext_bonus;
+		}
+	}
+
 	return 0;
+}
+
+static void de_help_abk(deark *c)
+{
+	de_msg(c, "-opt abk:allownopal : Try to decode images lacking a palette");
 }
 
 void de_module_abk(deark *c, struct deark_module_info *mi)
@@ -655,6 +726,7 @@ void de_module_abk(deark *c, struct deark_module_info *mi)
 	mi->desc = "AMOS resource (AmBk, sprite, icon, AmBs)";
 	mi->run_fn = de_run_abk;
 	mi->identify_fn = de_identify_abk;
+	mi->help_fn = de_help_abk;
 }
 
 static void de_run_amos_source(deark *c, de_module_params *mparams)
