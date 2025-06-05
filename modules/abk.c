@@ -20,7 +20,7 @@ DE_DECLARE_MODULE(de_module_amos_source);
 
 // Data related to the whole file.
 typedef struct localctx_AMOS {
-	u32 sig1;
+	UI sig1;
 	int opt_allownopal;
 } lctx;
 
@@ -32,6 +32,10 @@ struct amosbank {
 	u8 need_errmsg;
 	i64 bank_len;
 	i64 bank_data_len;
+	// Offset of 'f' subfile dbuf within c->infile. This isn't necessarily
+	// needed, because it's only nonzero for AmBs format, and for AmBs, dbg
+	// code that prints offsets generally not executed.
+	i64 f_offs;
 	dbuf *f;
 	const char *file_ext;
 
@@ -50,7 +54,7 @@ struct amosbank {
 	i64 pic_points_offset;
 	i64 pic_picdata_offset;
 	i64 picdata_expected_unc_bytes;
-	u32 amiga_mode;
+	UI amiga_mode;
 	u8 ham_flag;
 	u8 ehb_flag;
 	u8 is_ham6;
@@ -98,7 +102,7 @@ static int do_sprite_object(deark *c, lctx *d, struct amosbank *bk, i64 obj_idx,
 {
 
 	if(pass==2) {
-		de_dbg(c, "object #%d at %d", (int)obj_idx, (int)pos);
+		de_dbg(c, "object #%d at %"I64_FMT, (int)obj_idx, pos);
 	}
 	de_dbg_indent(c, 1);
 
@@ -146,15 +150,15 @@ static void do_read_sprite_objects(deark *c, lctx *d, struct amosbank *bk, i64 p
 	if(pass==1) {
 		bk->pal_pos = pos;
 		bk->bank_len = bk->pal_pos + 64;
-		de_dbg(c, "palette offset: %d", (int)bk->pal_pos);
-		de_dbg(c, "bank len: %d", (int)bk->bank_len);
+		de_dbg(c, "palette offset: %"I64_FMT, bk->pal_pos);
+		de_dbg(c, "bank len: %"I64_FMT, bk->bank_len);
 	}
 }
 
 static void do_read_sprite_or_pic_palette(deark *c, lctx *d, struct amosbank *bk)
 {
 	i64 k;
-	unsigned int n;
+	UI n;
 	u8 cr, cg, cb;
 	u8 cr1, cg1, cb1;
 	i64 pos;
@@ -162,13 +166,13 @@ static void do_read_sprite_or_pic_palette(deark *c, lctx *d, struct amosbank *bk
 	char tmps[64];
 
 	pos = bk->pal_pos;
-	de_dbg(c, "palette at %d", (int)pos);
+	de_dbg(c, "palette at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	colors_used = de_pow2(bk->max_planes);
 
 	for(k=0; k<32; k++) {
-		n = (unsigned int)dbuf_getu16be(bk->f, pos+k*2);
+		n = (UI)dbuf_getu16be(bk->f, pos+k*2);
 		cr1 = (u8)((n>>8)&0xf);
 		cg1 = (u8)((n>>4)&0xf);
 		cb1 = (u8)(n&0xf);
@@ -243,14 +247,14 @@ static void picture_bank_screen_header(deark *c, lctx *d, struct amosbank *bk, i
 	i64 ncolors;
 	i64 nplanes;
 
-	de_dbg(c, "screen header at %d", (int)pos);
+	de_dbg(c, "screen header at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	screen_width = dbuf_getu16be(bk->f, pos+4);
 	screen_height = dbuf_getu16be(bk->f, pos+6);
 	de_dbg(c, "screen dimensions: %d"DE_CHAR_TIMES"%d", (int)screen_width, (int)screen_height);
 
-	bk->amiga_mode = (u32)dbuf_getu16be(bk->f, pos+20);
+	bk->amiga_mode = (UI)dbuf_getu16be(bk->f, pos+20);
 	bk->ham_flag = (bk->amiga_mode & 0x0800)!=0;
 	// Haven't found any EHB files
 	bk->ehb_flag = (bk->amiga_mode & 0x0080)!=0;
@@ -452,7 +456,7 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, i6
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "picture header at %d", (int)pos);
+	de_dbg(c, "picture header at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	// 24-byte "Picture header"
@@ -473,13 +477,13 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, i6
 	de_dbg(c, "number of bitplanes: %d", (int)bk->nplanes);
 
 	bk->pic_rledata_offset = dbuf_getu32be(bk->f, pos+16);
-	de_dbg(c, "rledata offset: %d (file offset: %d)", (int)bk->pic_rledata_offset,
-		(int)(pos+bk->pic_rledata_offset));
+	de_dbg(c, "rledata offset: %"I64_FMT" (file offset: %"I64_FMT")",
+		bk->pic_rledata_offset, (pos+bk->pic_rledata_offset));
 	bk->pic_rledata_offset += pos; // Convert to absolute offset
 
 	bk->pic_points_offset = dbuf_getu32be(bk->f, pos+20);
-	de_dbg(c, "points offset: %d (file offset: %d)", (int)bk->pic_points_offset,
-		(int)(pos+bk->pic_points_offset));
+	de_dbg(c, "points offset: %"I64_FMT" (file offset: %"I64_FMT")",
+		bk->pic_points_offset, (pos+bk->pic_points_offset));
 	bk->pic_points_offset += pos; // Convert to absolute offset
 
 	if(!de_good_image_dimensions(c, width, height)) goto done;
@@ -491,7 +495,7 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, i6
 	de_dbg_indent(c, -1);
 
 	bk->pic_picdata_offset = pos + 24;
-	de_dbg(c, "picdata at %d", (int)bk->pic_picdata_offset);
+	de_dbg(c, "picdata at %"I64_FMT, bk->pic_picdata_offset);
 
 	bk->picdata_expected_unc_bytes = bytes_per_row_per_plane * bk->nplanes * height;
 	unc_pixels = dbuf_create_membuf(c, bk->picdata_expected_unc_bytes, 0);
@@ -541,19 +545,19 @@ static int is_scr_hdr_id(UI x)
 static void do_picture_bank(deark *c, lctx *d, struct amosbank *bk, i64 pos1)
 {
 	i64 pos = pos1;
-	u32 segtype;
+	UI segtype;
 	int found_screen_header = 0;
 
 	de_dbg(c, "picture bank");
 	de_dbg_indent(c, 1);
 
-	segtype = (u32)de_getu32be(pos);
+	segtype = (UI)de_getu32be(pos);
 	if(is_scr_hdr_id(segtype)) {
 		found_screen_header = 1;
 		picture_bank_screen_header(c, d, bk, pos);
 		if(bk->errflag) goto done;
 		pos += 90;
-		segtype = (u32)de_getu32be(pos);
+		segtype = (UI)de_getu32be(pos);
 	}
 
 	if(segtype!=AMOS_PIC_HDR_ID) {
@@ -587,7 +591,8 @@ static void do_amos_picture_file(deark *c, lctx *d)
 	struct amosbank *bk = NULL;
 
 	bk = de_malloc(c, sizeof(struct amosbank));
-	bk->f = dbuf_open_input_subfile(c->infile, 0, c->infile->len);
+	bk->f_offs = 0;
+	bk->f = dbuf_open_input_subfile(c->infile, bk->f_offs, c->infile->len);
 	// I don't think we need to set anything like bk->bank_len.
 	do_picture_bank(c, d, bk, 0);
 	destroy_amosbank(c, bk);
@@ -613,8 +618,8 @@ static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)
 	bank_len_raw = bank_len_code & 0x0fffffff;
 	bk->bank_len = bank_len_raw+12;
 	bk->bank_data_len = bank_len_raw-8;
-	de_dbg(c, "bank length: %d (dlen=%d, tlen=%d)", (int)bank_len_raw,
-		(int)bk->bank_data_len, (int)bk->bank_len);
+	de_dbg(c, "bank length: %"I64_FMT" (dlen=%"I64_FMT", tlen=%"I64_FMT")",
+		bank_len_raw, bk->bank_data_len, bk->bank_len);
 
 	srd = dbuf_read_string(bk->f, 12, 8, 8, 0, DE_ENCODING_ASCII);
 	de_dbg(c, "bank name: \"%s\"", ucstring_getpsz(srd->str));
@@ -665,7 +670,8 @@ static int do_read_bank(deark *c, lctx *d, i64 pos, i64 *bytesused)
 	int retval = 0;
 
 	bk = de_malloc(c, sizeof(struct amosbank));
-	bk->f = dbuf_open_input_subfile(c->infile, pos, c->infile->len - pos);
+	bk->f_offs = pos;
+	bk->f = dbuf_open_input_subfile(c->infile, bk->f_offs, c->infile->len - bk->f_offs);
 
 	dbuf_read_fourcc(bk->f, 0, &bk->banktype4cc, 4, 0x0);
 	de_dbg(c, "bank type '%s'", bk->banktype4cc.id_dbgstr);
@@ -709,7 +715,7 @@ static void do_read_AmBs(deark *c, lctx *d)
 	pos = 6;
 	for(i=0; i<nbanks; i++) {
 		if(pos >= c->infile->len) break;
-		de_dbg(c, "bank #%d at %d", (int)i, (int)pos);
+		de_dbg(c, "bank #%d at %"I64_FMT, (int)i, pos);
 		bytesused = 0;
 		de_dbg_indent(c, 1);
 		ret = do_read_bank(c, d, pos, &bytesused);
@@ -728,7 +734,7 @@ static void de_run_abk(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 	d->opt_allownopal = de_get_ext_option_bool(c, "abk:allownopal", -1);
 
-	d->sig1 = (u32)de_getu32be(0);
+	d->sig1 = (UI)de_getu32be(0);
 
 	if(d->sig1==CODE_AmBk) {
 		de_declare_fmt(c, "AMOS Memory Bank");
@@ -846,15 +852,15 @@ static void de_run_amos_source(deark *c, de_module_params *mparams)
 	pos = 16;
 	basic_len = de_getu32be(pos);
 	pos += 4;
-	de_dbg(c, "BASIC code at %d, len=%d", (int)pos, (int)basic_len);
+	de_dbg(c, "BASIC code at %"I64_FMT", len=%"I64_FMT, pos, basic_len);
 	pos += basic_len;
 	if(pos >= c->infile->len) goto done;
 	if(dbuf_memcmp(c->infile, pos, "AmBs", 4)) {
-		de_err(c, "AmBs segment not found, expected at offset %d", (int)pos);
+		de_err(c, "AmBs segment not found, expected at offset %"I64_FMT, pos);
 		goto done;
 	}
 
-	de_dbg(c, "AmBs segment at %d", (int)pos);
+	de_dbg(c, "AmBs segment at %"I64_FMT, pos);
 	nbanks = de_getu16be(pos+4);
 	de_dbg_indent(c, 1);
 	de_dbg(c, "number of banks: %d", (int)nbanks);
