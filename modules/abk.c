@@ -14,11 +14,13 @@ DE_DECLARE_MODULE(de_module_amos_source);
 #define CODE_AmIc 0x416d4963U
 #define CODE_AmSp 0x416d5370U
 #define AMOS_SCR_HDR_ID  0x12031990
+#define AMOS_SCR_HDR_ID2 0x00031990
+#define AMOS_SCR_HDR_ID3 0x12030090
 #define AMOS_PIC_HDR_ID  0x06071963
 
 // Data related to the whole file.
 typedef struct localctx_AMOS {
-	u32 fmt;
+	u32 sig1;
 	int opt_allownopal;
 } lctx;
 
@@ -193,7 +195,7 @@ static int do_read_sprite(deark *c, lctx *d, struct amosbank *bk)
 
 	do_read_sprite_objects(c, d, bk, 6, 1);
 
-	if(d->fmt==CODE_AmBs) {
+	if(d->sig1==CODE_AmBs) {
 		dbuf_create_file_from_slice(bk->f, 0, bk->bank_len, bk->file_ext, NULL, 0);
 	}
 	else {
@@ -434,6 +436,11 @@ static void picture_bank_make_palette(deark *c, lctx *d, struct amosbank *bk)
 	}
 }
 
+static int is_scr_hdr_id(UI x)
+{
+	return (x==AMOS_SCR_HDR_ID || x==AMOS_SCR_HDR_ID2 || x==AMOS_SCR_HDR_ID3);
+}
+
 static void do_picture_bank(deark *c, lctx *d, struct amosbank *bk, i64 pos1)
 {
 	i64 pos = pos1;
@@ -444,7 +451,7 @@ static void do_picture_bank(deark *c, lctx *d, struct amosbank *bk, i64 pos1)
 	de_dbg_indent(c, 1);
 
 	segtype = (u32)de_getu32be(pos);
-	if(segtype==AMOS_SCR_HDR_ID) {
+	if(is_scr_hdr_id(segtype)) {
 		found_screen_header = 1;
 		picture_bank_screen_header(c, d, bk, pos);
 		pos += 90;
@@ -531,7 +538,7 @@ static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)
 		bk->file_ext = mbi->file_ext;
 	}
 
-	if(d->fmt==CODE_AmBs) {
+	if(d->sig1==CODE_AmBs) {
 		// If original file is in AmBs format, just extract the AmBk file.
 		dbuf_create_file_from_slice(bk->f, 0, bk->bank_len, bk->file_ext, NULL, 0);
 		retval = 1;
@@ -621,28 +628,31 @@ static void de_run_abk(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	i64 bytesused = 0;
+	u8 is_raw_picture = 0;
 
 	d = de_malloc(c, sizeof(lctx));
 	d->opt_allownopal = de_get_ext_option_bool(c, "abk:allownopal", -1);
 
-	d->fmt = (u32)de_getu32be(0);
+	d->sig1 = (u32)de_getu32be(0);
 
-	if(d->fmt==CODE_AmBk) {
+	if(d->sig1==CODE_AmBk) {
 		de_declare_fmt(c, "AMOS Memory Bank");
 	}
-	else if(d->fmt==CODE_AmSp) {
+	else if(d->sig1==CODE_AmSp) {
 		de_declare_fmt(c, "AMOS Sprite Bank");
 	}
-	else if(d->fmt==CODE_AmIc) {
+	else if(d->sig1==CODE_AmIc) {
 		de_declare_fmt(c, "AMOS Icon Bank");
 	}
-	else if(d->fmt==CODE_AmBs) {
+	else if(d->sig1==CODE_AmBs) {
 		de_declare_fmt(c, "AMOS AmBs format");
 	}
-	else if(d->fmt==AMOS_SCR_HDR_ID) {
+	else if(is_scr_hdr_id(d->sig1)) {
+		is_raw_picture = 1;
 		de_declare_fmt(c, "AMOS picture, with screen header");
 	}
-	else if(d->fmt==AMOS_PIC_HDR_ID) {
+	else if(d->sig1==AMOS_PIC_HDR_ID) {
+		is_raw_picture = 1;
 		de_declare_fmt(c, "AMOS picture, no screen header");
 	}
 	else {
@@ -650,14 +660,14 @@ static void de_run_abk(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	if(d->fmt==CODE_AmBk ||d->fmt==CODE_AmSp || d->fmt==CODE_AmIc) {
+	if(is_raw_picture) {
+		do_amos_picture_file(c, d);
+	}
+	else if(d->sig1==CODE_AmBk ||d->sig1==CODE_AmSp || d->sig1==CODE_AmIc) {
 		do_read_bank(c, d, 0, &bytesused);
 	}
-	else if(d->fmt==CODE_AmBs) {
+	else if(d->sig1==CODE_AmBs) {
 		do_read_AmBs(c, d);
-	}
-	else if(d->fmt==AMOS_SCR_HDR_ID || d->fmt==AMOS_PIC_HDR_ID) {
-		do_amos_picture_file(c, d);
 	}
 
 done:
@@ -669,7 +679,7 @@ static int is_amos_picture_file(deark *c, UI sig)
 	UI x;
 	i64 picpos;
 
-	if(sig==AMOS_SCR_HDR_ID) {
+	if(is_scr_hdr_id(sig)) {
 		picpos = 90;
 	}
 	else if(sig==AMOS_PIC_HDR_ID) {
@@ -706,7 +716,7 @@ static int de_identify_abk(deark *c)
 		return 60+ext_bonus;
 	if(sig==CODE_AmBs)
 		return 60+ext_bonus;
-	if(sig==AMOS_SCR_HDR_ID || sig==AMOS_PIC_HDR_ID) {
+	if(sig==AMOS_PIC_HDR_ID || is_scr_hdr_id(sig)) {
 		if(is_amos_picture_file(c, sig)) {
 			return 60+ext_bonus;
 		}
