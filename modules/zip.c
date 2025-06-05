@@ -2160,9 +2160,13 @@ void de_module_zip(deark *c, struct deark_module_info *mi)
 struct zipreloc_ctx {
 	u8 errflag;
 	u8 need_errmsg;
+	u8 disk_id_mismatch_flag;
 	u8 quiet;
 	i64 relocpos;
+	i64 disk_num; // Expecting all disk numbers to be 0, or at least the same
 	i64 end_of_central_dir_pos;
+	i64 eocd_this_disk_num;
+	i64 eocd_disk_num_with_cdir_start;
 	i64 central_dir_num_entries_this_disk;
 	i64 central_dir_byte_size;
 	i64 central_dir_offset_reported;
@@ -2302,14 +2306,25 @@ static void zip_relocator_main(deark *c, struct zipreloc_ctx *d)
 static void walk_central_dir_cb1(deark *c, struct zipreloc_ctx *d, i64 pos1, i64 len)
 {
 	u32 sig;
+	i64 ldir_disk_num;
 	i64 ldir_offset;
 
 	de_dbg2(c, "central dir entry at %"I64_FMT, pos1);
 
+	ldir_disk_num = de_getu16le(pos1+34);
 	ldir_offset = de_getu32le(pos1+42) + d->offset_correction;
 	de_dbg_indent(c, 1);
-	de_dbg2(c, "local dir offset: %"I64_FMT, ldir_offset);
+	de_dbg2(c, "local dir offset: %"I64_FMT", disk %"I64_FMT, ldir_offset,
+		ldir_disk_num);
 	de_dbg_indent(c, -1);
+
+	if(ldir_disk_num != d->disk_num) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		d->disk_id_mismatch_flag = 1;
+		goto done;
+	}
+
 	sig = (u32)de_getu32be(ldir_offset);
 	if(sig != CODE_PK34) {
 		d->errflag = 1;
@@ -2381,16 +2396,28 @@ static void do_run_zip_relocator(deark *c, de_module_params *mparams,
 	}
 
 	pos = d->end_of_central_dir_pos;
+	d->eocd_this_disk_num = de_getu16le(pos+4);
+	d->disk_num = d->eocd_this_disk_num;
+	d->eocd_disk_num_with_cdir_start = de_getu16le(pos+6);
 	d->central_dir_num_entries_this_disk = de_getu16le(pos+8);
 	d->central_dir_byte_size = de_getu32le(pos+12);
 	d->central_dir_offset_reported = de_getu32le(pos+16);
 	d->archive_comment_len = de_getu16le(pos+20);
 
 	de_dbg_indent(c, 1);
+	de_dbg(c, "this disk num: %"I64_FMT, d->eocd_this_disk_num);
 	de_dbg(c, "central dir num entries: %"I64_FMT, d->central_dir_num_entries_this_disk);
 	de_dbg(c, "central dir size: %"I64_FMT, d->central_dir_byte_size);
-	de_dbg(c, "central dir offset: %"I64_FMT, d->central_dir_offset_reported);
+	de_dbg(c, "central dir offset: %"I64_FMT", disk %"I64_FMT, d->central_dir_offset_reported,
+		d->eocd_disk_num_with_cdir_start);
 	de_dbg_indent(c, -1);
+
+	if(d->eocd_disk_num_with_cdir_start != d->disk_num) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		d->disk_id_mismatch_flag = 1;
+		goto done;
+	}
 
 	sig = (u32)de_getu32be(d->central_dir_offset_reported);
 	if(sig==CODE_PK12) {
@@ -2450,7 +2477,8 @@ static void do_run_zip_relocator(deark *c, de_module_params *mparams,
 done:
 	if(d) {
 		if(d->errflag && d->need_errmsg) {
-			zipreloc_err(c, d, "Cannot optimize/relocate this ZIP file");
+			zipreloc_err(c, d, "Cannot optimize/relocate this ZIP file%s",
+				(d->disk_id_mismatch_flag?" (disk spanning issue)":""));
 		}
 		de_free(c, d);
 	}
