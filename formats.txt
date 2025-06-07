@@ -910,6 +910,11 @@ Deark -- Information about supported formats
 * InstallShield installer archive (module="is_instarch")
   This is usually a file named "_inst32i.ex_" or "_inst16.ex_".
 
+* InstallShield SFX EXE-NE (via module="exe") (experimental/incomplete)
+  InstallShield self-extracting installers for Windows 3.x.
+  - You must use "-opt exe:sfx".
+  - Extracted files will have placeholder names like "ishield000.dat".
+
 * InstallShield Z archive (module="is_z")
   - Mult-volume archives aren't supported.
 
@@ -1292,6 +1297,8 @@ here are most "character graphics" formats, which are in the "Image" section.)
   - In some cases, extract the archive from a self-extracting archive.
   Options
    -opt execomp - Decompress supported executable compression formats.
+   -opt exe:sfx - A hint to decode as a self-extracting archive, and not
+    extract the usual icons, etc.
    -opt exe:checksum - Report the correct checksum in the debug info.
 
 * FLAC audio (module="flac")

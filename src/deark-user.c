@@ -156,6 +156,10 @@ static void do_modhelp_internal(deark *c, struct deark_module_info *module_to_us
 			"use the \"-mp\" option.");
 	}
 
+	if(module_to_use->flags&DE_MODFLAG_INTERNALONLY) {
+		de_msg(c, "This module is intended for internal use only.");
+	}
+
 	if(!module_to_use->help_fn) {
 		de_msg(c, "No help available for module \"%s\"", module_to_use->id);
 		goto done;
