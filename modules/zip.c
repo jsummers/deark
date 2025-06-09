@@ -2177,11 +2177,11 @@ struct zipreloc_ctx {
 	u8 disk_id_mismatch_flag;
 	u8 quiet;
 	i64 relocpos;
-	i64 disk_num; // Expecting all disk numbers to be 0, or at least the same
+	i64 this_disk_num; // (eocd field)
 	i64 end_of_central_dir_pos;
-	i64 eocd_this_disk_num;
 	i64 eocd_disk_num_with_cdir_start;
 	i64 central_dir_num_entries_this_disk;
+	i64 central_dir_num_entries_total;
 	i64 central_dir_byte_size;
 	i64 central_dir_offset_reported;
 	i64 central_dir_offset_actual;
@@ -2255,13 +2255,26 @@ static void walk_central_dir_cb2(deark *c, struct zipreloc_ctx *d, i64 pos1, i64
 	i64 cpstart, cplen;
 	i64 ldir_offset;
 
+	// Copy the first 34 bytes of the central dir entry
+	// (signature thru comment len).
 	cpstart = pos1;
-	cplen = 42;
+	cplen = 34;
 	dbuf_copy(c->infile, cpstart, cplen, d->outf);
 
+	// Disk number, that we force to 0 (offset 34 len 2)
+	dbuf_write_zeroes(d->outf, 2);
+
+	// Copy the next 6 bytes (offset 36)
+	// (internal attribs, thru external attribs)
+	cpstart = pos1+36;
+	cplen = 6;
+	dbuf_copy(c->infile, cpstart, cplen, d->outf);
+
+	// Edit the offset-of-local-hdr field (offset 42 len 4)
 	ldir_offset = de_getu32le(pos1+42) + d->offset_correction;
 	dbuf_writeu32le(d->outf, ldir_offset + d->offset_diff);
 
+	// Copy the rest of the entry (offset 46+).
 	cpstart = pos1+46;
 	cplen = len - 46;
 	dbuf_copy(c->infile, cpstart, cplen, d->outf);
@@ -2299,9 +2312,17 @@ static void zip_relocator_main(deark *c, struct zipreloc_ctx *d)
 
 	// Copy/convert the EOCD record & archive comment
 
-	// First 16 bytes
+	// First 4 bytes
 	cpstart = d->end_of_central_dir_pos;
-	cplen = 16;
+	cplen = 4;
+	dbuf_copy(c->infile, cpstart, cplen, d->outf);
+
+	// Next 4 bytes are disk ID numbers, that we force to zero.
+	dbuf_write_zeroes(d->outf, 4);
+
+	// Next 8 bytes (num entries cdir this disk, thru cdir size)
+	cpstart = d->end_of_central_dir_pos+8;
+	cplen = 8;
 	dbuf_copy(c->infile, cpstart, cplen, d->outf);
 
 	// Adjusted central dir offset
@@ -2339,7 +2360,7 @@ static void walk_central_dir_cb1(deark *c, struct zipreloc_ctx *d, i64 pos1, i64
 		goto done;
 	}
 
-	if(ldir_disk_num != d->disk_num) {
+	if(ldir_disk_num != d->this_disk_num) {
 		u32 crc_from_cdir;
 		u32 crc_from_ldir;
 
@@ -2420,23 +2441,32 @@ static void do_run_zip_relocator(deark *c, de_module_params *mparams,
 	}
 
 	pos = d->end_of_central_dir_pos;
-	d->eocd_this_disk_num = de_getu16le(pos+4);
-	d->disk_num = d->eocd_this_disk_num;
+	d->this_disk_num = de_getu16le(pos+4);
 	d->eocd_disk_num_with_cdir_start = de_getu16le(pos+6);
 	d->central_dir_num_entries_this_disk = de_getu16le(pos+8);
+	d->central_dir_num_entries_total = de_getu16le(pos+10);
 	d->central_dir_byte_size = de_getu32le(pos+12);
 	d->central_dir_offset_reported = de_getu32le(pos+16);
 	d->archive_comment_len = de_getu16le(pos+20);
 
 	de_dbg_indent(c, 1);
-	de_dbg(c, "this disk num: %"I64_FMT, d->eocd_this_disk_num);
-	de_dbg(c, "central dir num entries: %"I64_FMT, d->central_dir_num_entries_this_disk);
+	de_dbg(c, "this disk num: %"I64_FMT, d->this_disk_num);
+	de_dbg(c, "central dir num entries on this disk: %"I64_FMT,
+		d->central_dir_num_entries_this_disk);
+	de_dbg(c, "central dir num entries: %"I64_FMT, d->central_dir_num_entries_total);
 	de_dbg(c, "central dir size: %"I64_FMT, d->central_dir_byte_size);
 	de_dbg(c, "central dir offset: %"I64_FMT", disk %"I64_FMT, d->central_dir_offset_reported,
 		d->eocd_disk_num_with_cdir_start);
 	de_dbg_indent(c, -1);
 
-	if(d->eocd_disk_num_with_cdir_start != d->disk_num) {
+	if(d->central_dir_num_entries_this_disk != d->central_dir_num_entries_total) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		d->disk_id_mismatch_flag = 1;
+		goto done;
+	}
+
+	if(d->eocd_disk_num_with_cdir_start != d->this_disk_num) {
 		d->errflag = 1;
 		d->need_errmsg = 1;
 		d->disk_id_mismatch_flag = 1;
