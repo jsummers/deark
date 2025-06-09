@@ -114,6 +114,7 @@ struct localctx_struct {
 	int used_offset_correction;
 	u8 is_zip64;
 	u8 is_resof;
+	u8 disk_id_mismatch_warned;
 	int using_scanmode;
 	struct de_crcobj *crco;
 };
@@ -1366,9 +1367,22 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	else {
 		dd = &md->local_dir_entry_data;
 		fixed_header_size = 30;
-		if(md->disk_number_start!=d->this_disk_num) {
-			de_err(c, "Member file not in this ZIP file");
-			return 0;
+		if((md->disk_number_start!=d->this_disk_num) && !d->using_scanmode) {
+			u32 peek_crc;
+
+			// This is a hack -- we could compare more fields -- but I think
+			// it's good enough.
+			peek_crc = (u32)de_getu32le(pos1+14);
+			if(peek_crc != md->central_dir_entry_data.crc_reported) {
+				de_err(c, "Member file not in this ZIP file");
+				return 0;
+			}
+			if(!d->disk_id_mismatch_warned) {
+				de_warn(c, "Disk ID mismatch (found file on disk %"I64_FMT" that "
+					"should be on disk %"I64_FMT"). Trying to continue.",
+					d->this_disk_num, md->disk_number_start);
+				d->disk_id_mismatch_warned = 1;
+			}
 		}
 		de_dbg(c, "local file header at %"I64_FMT, pos);
 	}
@@ -2318,18 +2332,28 @@ static void walk_central_dir_cb1(deark *c, struct zipreloc_ctx *d, i64 pos1, i64
 		ldir_disk_num);
 	de_dbg_indent(c, -1);
 
-	if(ldir_disk_num != d->disk_num) {
-		d->errflag = 1;
-		d->need_errmsg = 1;
-		d->disk_id_mismatch_flag = 1;
-		goto done;
-	}
-
 	sig = (u32)de_getu32be(ldir_offset);
 	if(sig != CODE_PK34) {
 		d->errflag = 1;
 		d->need_errmsg = 1;
 		goto done;
+	}
+
+	if(ldir_disk_num != d->disk_num) {
+		u32 crc_from_cdir;
+		u32 crc_from_ldir;
+
+		crc_from_cdir = (u32)de_getu32le(pos1+16);
+		crc_from_ldir = (u32)de_getu32le(ldir_offset+14);
+		if(crc_from_cdir == crc_from_ldir) {
+			de_dbg(c, "[tolerating mismatched disk id]");
+		}
+		else {
+			d->errflag = 1;
+			d->need_errmsg = 1;
+			d->disk_id_mismatch_flag = 1;
+			goto done;
+		}
 	}
 
 	if(ldir_offset < d->min_ldir_offset) {
