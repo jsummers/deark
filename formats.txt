@@ -507,6 +507,9 @@ Deark -- Information about supported formats
 
 * PKM (GrafX2 image) (module="pkm")
 
+* PM image (module="pm_xv") (experimental)
+  Obscure image format supported by XV viewer.
+
 * PNG / MNG / JNG (module="png")
   - Extract XMP data.
   - Extract ICC profiles.
@@ -1102,6 +1105,8 @@ Deark -- Information about supported formats
 * StuffIt (.sit) (module="stuffit")
   - Limited support. Old format only.
 
+* T64 (Commodore 64 tape format) (module="t64")
+
 * tar (module="tar")
   - Rare files may need "-m tar", as tar is difficult to autodetect.
 
@@ -1278,6 +1283,11 @@ here are most "character graphics" formats, which are in the "Image" section.)
 
 * DS_Store (module="dsstore") (experimental)
   Metadata format associated with MacOS Finder.
+
+* EA datafile (module="ea_data")
+  The hidden "EA DATA. SF" attributes file on some floppy disks used by OS/2.
+  This module is mainly for internal use by the "fat" module. It can be used
+  directly, though possibly with reduced functionality.
 
 * EBML/Matroska/MKV/WebM (module="ebml")
   Options
@@ -1469,7 +1479,6 @@ cas - Atari CAS tape image
 datetime - Interpret bytes as various date/time formats.
 ddb - Windows DDB bitmap, for internal use.
 dwc - DWC compressed archive.
-ea_data - OS/2 "EA DATA. SF" attributes.
 fastgraph_ppr - Fastgraph Pixel Run Format.
 fastgraph_spr - Fastgraph Packed Pixel Run Format.
 flif - FLIF image.
@@ -1482,12 +1491,10 @@ officeart - Microsoft Office Art, etc., for internal use.
 ole1 - Windows OLE1, for internal use.
 olepropset - OLE Property Sets.
 os2pack2 - OS/2 PACK2 ("FTCOMP") compressed archive.
-pm_xv - "PM" image format supported by XV viewer.
 red - Knowledge Dynamics installer-archive.
 rgfx - RGFX Amiga image.
 rm - RealMedia.
 sauce - SAUCE metadata, for internal use.
 swg - SWAG packet, LHA-like archive.
-t64 - C64 tape image.
 tome - Tome, Macintosh installer-archive.
 xpk - XPK compressed file.
