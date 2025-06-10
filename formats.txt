@@ -197,7 +197,7 @@ Deark -- Information about supported formats
 
 * EggPaint (*.trp) (module="eggpaint")
 
-* Enhanced Windows Metafile (module=emf)
+* Enhanced Windows Metafile (module="emf")
   - Extract BMP and other images from some records.
 
 * EPOC MBM/Sketch/AIF (module="epocimage")
@@ -277,7 +277,7 @@ Deark -- Information about supported formats
 
 * HSI Raw (module="hsiraw")
 
-* ICA (Icon Manager Archive) (module=iconmgr_ica) (experimental)
+* ICA (Icon Manager Archive) (module="iconmgr_ica") (experimental)
   Related to Icon Manager by Impact Software and L. Gray.
 
 * icns (Apple Icon) (module="icns")
@@ -315,7 +315,7 @@ Deark -- Information about supported formats
 
 * InShape IIM (module="iim")
 
-* Jigsaw (.jig) (module=jigsaw_wk)
+* Jigsaw (.jig) (module="jigsaw_wk")
   A Windows 3.x program by Walter A. Kuhn.
   - Extract the main image.
 
@@ -689,16 +689,16 @@ Deark -- Information about supported formats
 
 * Windows 1.0 ICO/CUR (module="win1ico")
 
-* Windows Metafile (module=wmf)
+* Windows Metafile (module="wmf")
   - Extract BMP images from some records.
   - Extract embedded EMF documents.
 
-* Winzle (module=winzle)
+* Winzle (module="winzle")
   - Convert Winzle obfuscated BMP (.wzl) to BMP.
 
 * Wiz Solitaire deck (module="wizsolitaire")
 
-* WordPerfect Graphics (module=wpg)
+* WordPerfect Graphics (module="wpg")
   - Extract bitmaps
 
 * X11 puzzle (module="xpuzzle")
@@ -829,7 +829,7 @@ Deark -- Information about supported formats
   Variant of LHA by MylesHi! Software. Deark tries to convert it to LHA.
   - File extension must be ".car" (or use "-m car").
 
-* CAZIP (module="cashrink") (experimental)
+* CAZIP (module="cazip") (experimental)
   A compressed file format for software installation.
 
 * CD/raw (module="cd_raw")
@@ -941,7 +941,7 @@ Deark -- Information about supported formats
 
 * LIF (Knowledge Dynamics) (module="lif_kdc") (incomplete)
 
-* LoadDskF/SaveDskF (module=loaddskf)
+* LoadDskF/SaveDskF (module="loaddskf")
   An OS/2 floppy disk image format.
   - By default, non-compressed files are interpreted (as with FAT).
   - Compressed files are decompressed.
@@ -1454,3 +1454,40 @@ here are most "character graphics" formats, which are in the "Image" section.)
   Options
    -opt xor:key=<aabbcc...> - The key, expressed as one or more hex bytes.
 
+=== "Undocumented" modules ===
+
+(In the interest of disclosure, listed here are modules that haven't been fully
+documented, for one reason or another. They may not work well enough, or at
+all, or may be for internal use only; though some may just need to be reviewed
+and documented.)
+
+afcp - AFCP metadata.
+ain - AIN compressed archive.
+apetag - APE tag metadata.
+arcv - Eschalon Setup / EDI Install installer-archive.
+cas - Atari CAS tape image
+datetime - Interpret bytes as various date/time formats.
+ddb - Windows DDB bitmap, for internal use.
+dwc - DWC compressed archive.
+ea_data - OS/2 "EA DATA. SF" attributes.
+fastgraph_ppr - Fastgraph Pixel Run Format.
+fastgraph_spr - Fastgraph Packed Pixel Run Format.
+flif - FLIF image.
+grabber - GRABBER image, self-displaying COM.
+hit - HIT compressed archive.
+icedraw - iCEDraw IDF. Not implemented; helps to ID related formats.
+id3 - ID3 metadata.
+is_sfx - Helper module for InstallShield SFX EXE.
+officeart - Microsoft Office Art, etc., for internal use.
+ole1 - Windows OLE1, for internal use.
+olepropset - OLE Property Sets.
+os2pack2 - OS/2 PACK2 ("FTCOMP") compressed archive.
+pm_xv - "PM" image format supported by XV viewer.
+red - Knowledge Dynamics installer-archive.
+rgfx - RGFX Amiga image.
+rm - RealMedia.
+sauce - SAUCE metadata, for internal use.
+swg - SWAG packet, LHA-like archive.
+t64 - C64 tape image.
+tome - Tome, Macintosh installer-archive.
+xpk - XPK compressed file.
