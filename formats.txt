@@ -1491,6 +1491,7 @@ officeart - Microsoft Office Art, etc., for internal use.
 ole1 - Windows OLE1, for internal use.
 olepropset - OLE Property Sets.
 os2pack2 - OS/2 PACK2 ("FTCOMP") compressed archive.
+pegasus_pic2 - Pegasus PIC2/ePIC image.
 red - Knowledge Dynamics installer-archive.
 rgfx - RGFX Amiga image.
 rm - RealMedia.
