@@ -421,16 +421,37 @@ done:
 	;
 }
 
+static void check_for_ne_dll(deark *c, struct fmtutil_exe_info *ei)
+{
+	u8 b;
+
+	b = dbuf_getbyte(ei->f, ei->ext_hdr_pos+13);
+	if(b&0x80) {
+		ei->is_dll = 1;
+	}
+}
+
+static void check_for_pe_dll(deark *c, struct fmtutil_exe_info *ei)
+{
+	u8 b;
+
+	b = dbuf_getbyte(ei->f, ei->ext_hdr_pos+23);
+	if(b&0x20) {
+		ei->is_dll = 1;
+	}
+}
+
 // May set ei->maybe_extended.
 // This assumes ei->f is the entire file. If it's just the header, then
 // ei->maybe_extended won't be meaningful.
 // Note: This logic is essentially duplicated in exe:do_identify_exe_format().
 static void check_for_ext_fmt(deark *c, struct fmtutil_exe_info *ei,
-	i64 ext_header_offset)
+	i64 maybe_ext_hdr_pos)
 {
 	i64 reloc_tbl_endpos;
+	i64 n;
 
-	if(ext_header_offset<64 || ext_header_offset>=ei->f->len) {
+	if(maybe_ext_hdr_pos<64 || maybe_ext_hdr_pos>=ei->f->len) {
 		goto done;
 	}
 	if(ei->start_of_dos_code<=60 && ei->end_of_dos_code>60) {
@@ -444,8 +465,32 @@ static void check_for_ext_fmt(deark *c, struct fmtutil_exe_info *ei,
 		goto done;
 	}
 
-	// TODO: Maybe check that the ext. signature looks like a signature.
-	ei->maybe_extended = 1;
+	n = dbuf_getu32be(ei->f, maybe_ext_hdr_pos);
+	if(n==0x50450000U) {
+		ei->is_extended = 1;
+		ei->is_pe = 1;
+	}
+	else if((n&0xffff0000)==0x4e450000) {
+		ei->is_extended = 1;
+		ei->is_ne = 1;
+	}
+	else if((n&0xffff0000)==0x4c580000 || // LX
+		(n&0xffff0000)==0x4c450000) // LE
+	{
+		ei->is_extended = 1;
+	}
+
+	if(ei->is_extended) {
+		ei->ext_hdr_pos = maybe_ext_hdr_pos;
+
+		if(ei->is_pe) {
+			check_for_pe_dll(c, ei);
+		}
+		else if(ei->is_ne) {
+			check_for_ne_dll(c, ei);
+		}
+	}
+
 done:
 	;
 }
@@ -459,7 +504,7 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei)
 {
 	i64 hdrsize; // in 16-byte units
 	i64 lfb, nblocks;
-	i64 ext_header_offset;
+	i64 maybe_ext_hdr_pos;
 
 	ei->f = f;
 	lfb = dbuf_getu16le(f, 2);
@@ -474,7 +519,7 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei)
 	ei->regCS = dbuf_geti16le(f, 22);
 	ei->reloc_table_pos = dbuf_getu16le(f, 24);
 	ei->entry_point = (hdrsize + ei->regCS)*16 + ei->regIP;
-	ext_header_offset = dbuf_getu32le(f, 60);
+	maybe_ext_hdr_pos = dbuf_getu32le(f, 60);
 
 	ei->end_of_dos_code = nblocks*512;
 	if(lfb>=1 && lfb<=511) {
@@ -483,7 +528,7 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei)
 	ei->overlay_len = f->len - ei->end_of_dos_code;
 	if(ei->overlay_len<0) ei->overlay_len = 0;
 
-	check_for_ext_fmt(c, ei, ext_header_offset);
+	check_for_ext_fmt(c, ei, maybe_ext_hdr_pos);
 }
 
 // Caller supplies ei -- must call fmtutil_collect_exe_info() first.

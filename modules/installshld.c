@@ -557,6 +557,167 @@ void de_module_tscomp(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
+
+struct fmtutil_fmtid_ctx {
+#define FMTUTIL_FMTIDMODE_IS_SFX 10
+	u8 mode;
+	u8 have_bof64bytes;
+	const char *default_ext;
+	dbuf *inf; // Can be NULL if have_bof64bytes is set, but may reduce quality.
+	i64 inf_pos;
+	i64 inf_len;
+	u8 bof64bytes[64];
+
+#define FMTUTIL_FMTID_OTHER   1 // Used when we only need the extension.
+#define FMTUTIL_FMTID_JPEG    10
+#define FMTUTIL_FMTID_BMP     11
+#define FMTUTIL_FMTID_PNG     12
+#define FMTUTIL_FMTID_GIF     13
+#define FMTUTIL_FMTID_CDR     17
+#define FMTUTIL_FMTID_WAVE    40
+#define FMTUTIL_FMTID_ZIP     60
+	UI fmtid; // 0 = unknown
+	char ext_sz[8];
+};
+
+static int fmtid_is_dll(deark *c, struct fmtutil_fmtid_ctx *idctx)
+{
+	int retval = 0;
+	dbuf *tmpf = NULL;
+	struct fmtutil_exe_info *ei = NULL;
+
+	if(!idctx->inf) goto done;
+	if(de_getu32le_direct(&idctx->bof64bytes[60]) == 0) goto done;
+
+	tmpf = dbuf_open_input_subfile(idctx->inf, idctx->inf_pos, idctx->inf_len);
+	ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
+	fmtutil_collect_exe_info(c, tmpf, ei);
+	if(ei->is_dll) {
+		retval = 1;
+	}
+
+done:
+	de_free(c, ei);
+	dbuf_close(tmpf);
+	return retval;
+}
+
+// Caller allocs idctx, and sets some fields.
+// [Do not use the same idctx more than once, without clearing it.]
+// Return value is ->fmtid and ->ext_sz.
+// TODO: Make this a library function.
+static void fmtutil_fmtid(deark *c, struct fmtutil_fmtid_ctx *idctx)
+{
+	const char *ext = NULL;
+	UI m0;
+
+	if(!idctx->have_bof64bytes) {
+		if(idctx->inf) {
+			dbuf_read(idctx->inf, idctx->bof64bytes, idctx->inf_pos,
+				de_min_int(64, idctx->inf_len));
+			idctx->have_bof64bytes = 1;
+		}
+	}
+
+	if(!idctx->have_bof64bytes) {
+		goto done;
+	}
+
+	m0 = (UI)de_getu32be_direct(&idctx->bof64bytes[0]);
+
+#define MAGIC_PK34     0x504b0304U
+#define MAGIC_JPEG     0xffd8ff00U
+#define MAGIC_PNG      0x89504e47U
+#define MAGIC_BMP      0x424d0000U
+#define MAGIC_GIF      0x47494638U
+#define MAGIC_MZ       0x4d5a0000U
+#define MAGIC_IS_Z     0x135d658cU
+#define MAGIC_IS_IA    0x2aab79d8U
+#define MAGIC_IS_INS1  0xffff0c00U
+#define MAGIC_IS_INS2  0xb8c90c00U
+#define MAGIC_IS_INI1  0x5b537461U
+#define MAGIC_IS_PKG   0x4aa30000U
+
+	if((m0&0xffffff00)==MAGIC_JPEG) {
+		idctx->fmtid = FMTUTIL_FMTID_JPEG;
+		ext = "jpg";
+		goto done;
+	}
+
+	if(m0==MAGIC_PNG) {
+		idctx->fmtid = FMTUTIL_FMTID_PNG;
+		ext = "png";
+		goto done;
+	}
+
+	if(m0==MAGIC_GIF) {
+		idctx->fmtid = FMTUTIL_FMTID_GIF;
+		ext = "gif";
+		goto done;
+	}
+
+	if(m0==MAGIC_PK34) {
+		idctx->fmtid = FMTUTIL_FMTID_ZIP;
+		ext = "zip";
+		goto done;
+	}
+
+	if((m0&0xffff0000U)==MAGIC_BMP && idctx->bof64bytes[15]==0) {
+		idctx->fmtid = FMTUTIL_FMTID_BMP;
+		ext = "bmp";
+		goto done;
+	}
+
+	if((m0&0xffff0000U)==MAGIC_MZ) {
+		if(fmtid_is_dll(c, idctx)) {
+			ext = "dll";
+		}
+		else {
+			ext = "exe";
+		}
+		goto done;
+	}
+
+	if(m0==MAGIC_IS_Z) {
+		ext = "z";
+		goto done;
+	}
+
+	if(m0==MAGIC_IS_IA) {
+		ext = "ex_";
+		goto done;
+	}
+
+	if(idctx->mode==FMTUTIL_FMTIDMODE_IS_SFX) {
+		if(m0==MAGIC_IS_INS1 || m0==MAGIC_IS_INS2) {
+			ext = "ins";
+			goto done;
+		}
+		if((m0&0xffff0000)==MAGIC_IS_PKG) {
+			ext = "pkg";
+			goto done;
+		}
+		if(m0==MAGIC_IS_INI1) {
+			ext = "ini";
+			goto done;
+		}
+	}
+
+done:
+	if(ext && (idctx->fmtid==0)) {
+		idctx->fmtid = FMTUTIL_FMTID_OTHER;
+	}
+
+	if(!ext) {
+		ext = idctx->default_ext;
+	}
+	if(!ext) {
+		ext = "bin";
+	}
+	de_strlcpy(idctx->ext_sz, ext, sizeof(idctx->ext_sz));
+}
+
+// **************************************************************************
 // InstallShield SFX EXE
 // **************************************************************************
 
@@ -569,10 +730,31 @@ struct ishieldsfxdata {
 	i64 num_member_files;
 };
 
+static void is_sfx_acquire_filename(deark *c, struct ishieldsfxdata *d,
+	i64 idx, i64 member_dpos, i64 member_dlen, de_finfo *fi)
+{
+	de_ucstring *fn = NULL;
+	struct fmtutil_fmtid_ctx *idctx = NULL;
+
+	idctx = de_malloc(c, sizeof(struct fmtutil_fmtid_ctx));
+	idctx->inf = c->infile;
+	idctx->inf_pos = member_dpos;
+	idctx->inf_len = member_dlen;
+	idctx->default_ext = "dat";
+	idctx->mode = FMTUTIL_FMTIDMODE_IS_SFX;
+	fmtutil_fmtid(c, idctx);
+
+	fn = ucstring_create(c);
+	ucstring_printf(fn, DE_ENCODING_LATIN1, "ishield%03u.%s", (UI)idx, idctx->ext_sz);
+	de_finfo_set_name_from_ucstring(c, fi, fn, 0);
+
+	ucstring_destroy(fn);
+	de_free(c, idctx);
+}
+
 static void is_sfx_main(deark *c, struct ishieldsfxdata *d)
 {
 	de_finfo *fi = NULL;
-	de_ucstring *fn = NULL;
 	i64 i;
 	i64 pos;
 	int saved_indent_level;
@@ -597,7 +779,6 @@ static void is_sfx_main(deark *c, struct ishieldsfxdata *d)
 
 	fi = de_finfo_create(c);
 	fi->original_filename_flag = 1;
-	fn = ucstring_create(c);
 	pos = d->data_pos;
 
 	for(i=0; i<d->num_member_files; i++) {
@@ -629,15 +810,13 @@ static void is_sfx_main(deark *c, struct ishieldsfxdata *d)
 		de_dbg(c, "member dpos: %"I64_FMT, member_dpos);
 		de_dbg(c, "member dlen: %"I64_FMT, member_dlen);
 
-		ucstring_empty(fn);
-		ucstring_printf(fn, DE_ENCODING_LATIN1, "ishield%03u.dat", (UI)i);
-		de_finfo_set_name_from_ucstring(c, fi, fn, 0);
-
 		pos = member_dpos + member_dlen;
 		if(pos > d->data_endpos) {
 			d->need_errmsg = 1;
 			goto done;
 		}
+
+		is_sfx_acquire_filename(c, d, i, member_dpos, member_dlen, fi);
 
 		dbuf_create_file_from_slice(c->infile, member_dpos, member_dlen, NULL, fi, 0);
 		de_dbg_indent(c, -1);
@@ -645,7 +824,6 @@ static void is_sfx_main(deark *c, struct ishieldsfxdata *d)
 
 done:
 	de_finfo_destroy(c, fi);
-	ucstring_destroy(fn);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
