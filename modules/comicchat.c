@@ -546,6 +546,30 @@ static void handle_chunk_string(deark *c, lctx *d, i64 pos, i64 len,
 	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz_d(s));
 }
 
+static const char *get_chunk_type_name(UI t)
+{
+	const char *name = NULL;
+
+	switch(t) {
+	case 0x1: name = "char name"; break;
+		// 0x2 = ?
+	case 0x3: case 0x100: name = "icon ref"; break;
+	case 0x4: case 0x5: case 0x9: case 0xa: case 0xb: case 0xc:
+		name = "image refs";
+		break;
+	case 0x6: name = "start of img data"; break;
+		// 0x7 = end of img data (but we won't find it)
+		// 0x8 = ?
+	case 0x102: name = "bkgd img ref"; break;
+	case 0x103: name = "copyright/author"; break;
+	case 0x104: name = "url1"; break; // URL for what?
+	case 0x105: name = "url2"; break; // URL for what?
+	case 0x106: name = "dl prot data"; break;
+	case 0x107: name = "img ptr bias"; break;
+	}
+	return name?name:"?";
+}
+
 // sets d->last_chunklen (=total size)
 // may set d->stopflag, ...
 static void comicchat_read_chunk(deark *c, lctx *d, i64 pos1)
@@ -562,7 +586,8 @@ static void comicchat_read_chunk(deark *c, lctx *d, i64 pos1)
 	d->last_chunklen = 0;
 	if(cctx->ck_pos+2 > c->infile->len) goto done;
 	cctx->ck_type = (UI)de_getu16le(cctx->ck_pos);
-	de_dbg(c, "chunk at %"I64_FMT", type=0x%04x", cctx->ck_pos, (UI)cctx->ck_type);
+	de_dbg(c, "chunk at %"I64_FMT", type=0x%04x (%s)", cctx->ck_pos, (UI)cctx->ck_type,
+		get_chunk_type_name(cctx->ck_type));
 	de_dbg_indent(c, 1);
 
 	if(cctx->ck_type==0x0001) {
