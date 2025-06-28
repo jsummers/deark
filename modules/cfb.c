@@ -635,13 +635,13 @@ static void do_extract_stream_to_file_thumbsdb(deark *c, lctx *d, struct dir_ent
 {
 	i64 hdrsize;
 	i64 catalog_idx;
-	const char *ext;
 	dbuf *outf = NULL;
 	i64 ver;
 	i64 reported_size;
 	i64 startpos;
 	i64 final_streamsize;
 	int is_msrgba = 0;
+	struct fmtutil_fmtid_ctx *idctx = NULL;
 
 	if(dei->is_thumbsdb_catalog) {
 		// We've already read the catalog.
@@ -675,8 +675,7 @@ static void do_extract_stream_to_file_thumbsdb(deark *c, lctx *d, struct dir_ent
 	// 0x18 = "Windows 7 format"
 
 	if((hdrsize==0x0c || hdrsize==0x18) && dei->stream_size>hdrsize) {
-		u8 sig1[4];
-		u8 sig2[4];
+		const char *ext;
 
 		reported_size = dbuf_getu32le(firstpart, 8);
 		de_dbg(c, "reported size: %d", (int)reported_size);
@@ -702,19 +701,22 @@ static void do_extract_stream_to_file_thumbsdb(deark *c, lctx *d, struct dir_ent
 			}
 		}
 
-		dbuf_read(firstpart, sig1, hdrsize, 4);
-		dbuf_read(firstpart, sig2, hdrsize+16, 4);
+		idctx = de_malloc(c, sizeof(struct fmtutil_fmtid_ctx));
+		dbuf_read(firstpart, idctx->bof64bytes, hdrsize, sizeof(idctx->bof64bytes));
+		idctx->have_bof64bytes = 1;
+		// Expecting JPEG, PNG, or special MS-JPEG.
+		idctx->mode = FMTUTIL_FMTIDMODE_ALL_IMG;
+		fmtutil_fmtid(c, idctx);
+		ext = idctx->ext_sz;
 
-		if(sig1[0]==0xff && sig1[1]==0xd8) ext = "jpg";
-		else if(sig1[0]==0x89 && sig1[1]==0x50) ext = "png";
-		else if(sig1[0]==0x01 && sig1[1]==0x00 &&
-			sig2[0]==0xff && sig2[1]==0xd8)
+		if(idctx->fmtid==0 &&
+			idctx->bof64bytes[0]==0x01 && idctx->bof64bytes[1]==0x00 &&
+			idctx->bof64bytes[16]==0xff && idctx->bof64bytes[17]==0xd8)
 		{
 			// Looks like a nonstandard Microsoft RGBA JPEG.
 			ext = "msrgbajpg";
 			is_msrgba = 1;
 		}
-		else ext = "bin";
 
 		ucstring_printf(tmpfn, DE_ENCODING_LATIN1, ".thumb.%s", ext);
 	}
@@ -747,6 +749,7 @@ static void do_extract_stream_to_file_thumbsdb(deark *c, lctx *d, struct dir_ent
 
 done:
 	dbuf_close(outf);
+	de_free(c, idctx);
 }
 
 static void do_OfficeArtStream(deark *c, lctx *d, struct dir_entry_info *dei)
