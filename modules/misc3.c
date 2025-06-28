@@ -2332,20 +2332,6 @@ void de_module_ain(deark *c, struct deark_module_info *mi)
 // Hemera thumbnails file (.hta)
 // **************************************************************************
 
-static const char *hta_get_ext(struct de_arch_member_data *md)
-{
-	u8 sig[2];
-	const char *ext = "bin";
-
-	if(md->orig_len<8) goto done;
-	dbuf_read(md->d->inf, sig, md->cmpr_pos, sizeof(sig));
-	if(sig[0]==0x89 && sig[1]==0x50) ext="png";
-	else if(sig[0]=='G' && sig[1]=='I') ext="gif";
-	else if(sig[0]==0xff && sig[1]==0xd8) ext="jpg"; // Not observed, but just in case
-done:
-	return ext;
-}
-
 static void de_run_hta(deark *c, de_module_params *mparams)
 {
 	struct de_arch_member_data *md = NULL;
@@ -2356,11 +2342,13 @@ static void de_run_hta(deark *c, de_module_params *mparams)
 	de_arch_lctx *d = NULL;
 	int saved_indent_level;
 	i64 tracking_dpos = 0;
+	struct fmtutil_fmtid_ctx *idctx = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
 	d = de_arch_create_lctx(c);
 	d->is_le = 1;
+	idctx = de_malloc(c, sizeof(struct fmtutil_fmtid_ctx));
 
 	pos = 8;
 	fmtver = (UI)de_getu32le_p(&pos);
@@ -2372,7 +2360,6 @@ static void de_run_hta(deark *c, de_module_params *mparams)
 
 	for(idx=0; idx<num_members; idx++) {
 		i64 endpos;
-		const char *ext;
 
 		if(md) {
 			de_arch_destroy_md(c, md);
@@ -2392,8 +2379,14 @@ static void de_run_hta(deark *c, de_module_params *mparams)
 		if(endpos > c->infile->len) { d->need_errmsg = 1; goto done; }
 		tracking_dpos = endpos;
 
-		ext = hta_get_ext(md);
-		de_finfo_set_name_from_sz(c, md->fi, ext, 0, DE_ENCODING_LATIN1);
+		de_zeromem(idctx, sizeof(struct fmtutil_fmtid_ctx));
+		idctx->inf = c->infile;
+		idctx->inf_pos = md->cmpr_pos;
+		idctx->inf_len = md->cmpr_len;
+		idctx->mode = FMTUTIL_FMTIDMODE_ALL_IMG;
+		fmtutil_fmtid(c, idctx);
+
+		de_finfo_set_name_from_sz(c, md->fi, idctx->ext_sz, 0, DE_ENCODING_LATIN1);
 		md->dfn = noncompressed_decompressor_fn;
 		de_arch_extract_member_file(md);
 
@@ -2401,7 +2394,6 @@ static void de_run_hta(deark *c, de_module_params *mparams)
 	}
 
 done:
-	de_dbg_indent_restore(c, saved_indent_level);
 	if(md) {
 		de_arch_destroy_md(c, md);
 		md = NULL;
@@ -2412,6 +2404,8 @@ done:
 		}
 		de_arch_destroy_lctx(c, d);
 	}
+	de_free(c, idctx);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static int de_identify_hta(deark *c)

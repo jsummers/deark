@@ -1774,3 +1774,146 @@ void fmtutil_char_simple_run(deark *c, struct fmtutil_char_simplectx *csctx,
 
 	de_char_output_to_file(c, charctx);
 }
+
+// **************************************************************************
+
+static int fmtid_is_dll(deark *c, struct fmtutil_fmtid_ctx *idctx)
+{
+	int retval = 0;
+	dbuf *tmpf = NULL;
+	struct fmtutil_exe_info *ei = NULL;
+
+	if(!idctx->inf) goto done;
+	if(de_getu32le_direct(&idctx->bof64bytes[60]) == 0) goto done;
+
+	tmpf = dbuf_open_input_subfile(idctx->inf, idctx->inf_pos, idctx->inf_len);
+	ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
+	fmtutil_collect_exe_info(c, tmpf, ei);
+	if(ei->is_dll) {
+		retval = 1;
+	}
+
+done:
+	de_free(c, ei);
+	dbuf_close(tmpf);
+	return retval;
+}
+
+// Caller allocs idctx, and sets some fields.
+// [Do not use the same idctx more than once, without clearing it.]
+// Return value is ->fmtid and ->ext_sz.
+void fmtutil_fmtid(deark *c, struct fmtutil_fmtid_ctx *idctx)
+{
+	const char *ext = NULL;
+	UI m0;
+	u8 img_only = 0;
+
+	if(!idctx->have_bof64bytes) {
+		if(idctx->inf) {
+			dbuf_read(idctx->inf, idctx->bof64bytes, idctx->inf_pos,
+				de_min_int(64, idctx->inf_len));
+			idctx->have_bof64bytes = 1;
+		}
+	}
+
+	if(!idctx->have_bof64bytes) {
+		goto done;
+	}
+
+	if(idctx->mode==FMTUTIL_FMTIDMODE_ALL_IMG) {
+		img_only = 1;
+	}
+
+	m0 = (UI)de_getu32be_direct(&idctx->bof64bytes[0]);
+
+#define MAGIC_PK34     0x504b0304U
+#define MAGIC_JPEG     0xffd8ff00U
+#define MAGIC_PNG      0x89504e47U
+#define MAGIC_BMP      0x424d0000U
+#define MAGIC_GIF      0x47494638U
+#define MAGIC_MZ       0x4d5a0000U
+#define MAGIC_ISH_Z    0x135d658cU
+#define MAGIC_ISH_IA   0x2aab79d8U
+#define MAGIC_ISH_INS1 0xffff0c00U
+#define MAGIC_ISH_INS2 0xb8c90c00U
+#define MAGIC_ISH_INI1 0x5b537461U
+#define MAGIC_ISH_PKG  0x4aa30000U
+
+	if((m0&0xffffff00)==MAGIC_JPEG) {
+		idctx->fmtid = FMTUTIL_FMTID_JPEG;
+		ext = "jpg";
+		goto done;
+	}
+
+	if(m0==MAGIC_PNG) {
+		idctx->fmtid = FMTUTIL_FMTID_PNG;
+		ext = "png";
+		goto done;
+	}
+
+	if(m0==MAGIC_GIF) {
+		idctx->fmtid = FMTUTIL_FMTID_GIF;
+		ext = "gif";
+		goto done;
+	}
+
+	if(!img_only && m0==MAGIC_PK34) {
+		idctx->fmtid = FMTUTIL_FMTID_ZIP;
+		ext = "zip";
+		goto done;
+	}
+
+	if((m0&0xffff0000U)==MAGIC_BMP && idctx->bof64bytes[15]==0) {
+		idctx->fmtid = FMTUTIL_FMTID_BMP;
+		ext = "bmp";
+		goto done;
+	}
+
+	if(!img_only && (m0&0xffff0000U)==MAGIC_MZ) {
+		if(fmtid_is_dll(c, idctx)) {
+			ext = "dll";
+		}
+		else {
+			ext = "exe";
+		}
+		goto done;
+	}
+
+	if(!img_only && m0==MAGIC_ISH_Z) {
+		ext = "z";
+		goto done;
+	}
+
+	if(!img_only && m0==MAGIC_ISH_IA) {
+		ext = "ex_";
+		goto done;
+	}
+
+	if(idctx->mode==FMTUTIL_FMTIDMODE_ISH_SFX) {
+		if(m0==MAGIC_ISH_INS1 || m0==MAGIC_ISH_INS2) {
+			ext = "ins";
+			goto done;
+		}
+		if((m0&0xffff0000)==MAGIC_ISH_PKG) {
+			ext = "pkg";
+			goto done;
+		}
+		if(m0==MAGIC_ISH_INI1) {
+			ext = "ini";
+			goto done;
+		}
+	}
+
+done:
+	if(ext && (idctx->fmtid==0)) {
+		idctx->fmtid = FMTUTIL_FMTID_OTHER;
+	}
+
+	if(!ext) {
+		ext = idctx->default_ext;
+	}
+	if(!ext) {
+		ext = "bin";
+	}
+	de_strlcpy(idctx->ext_sz, ext, sizeof(idctx->ext_sz));
+}
