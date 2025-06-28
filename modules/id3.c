@@ -4,8 +4,8 @@
 
 // ID3 metadata
 
-#include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_id3);
 
 // **************************************************************************
@@ -479,15 +479,16 @@ static const struct apic_type_info *get_apic_type_info(u8 t)
 static void extract_pic_apic(deark *c, id3v2ctx *d, dbuf *f,
 	 i64 pos, i64 len, const struct apic_type_info *ptinfo)
 {
-	const char *ext;
 	char fullext[32];
-	u8 sig[2];
 	const char *token = NULL;
+	struct fmtutil_fmtid_ctx *idctx = NULL;
 
-	dbuf_read(f, sig, pos, 2);
-	if(sig[0]==0x89 && sig[1]==0x50) ext="png";
-	else if(sig[0]==0xff && sig[1]==0xd8) ext="jpg";
-	else ext="bin";
+	idctx = de_malloc(c, sizeof(struct fmtutil_fmtid_ctx));
+	idctx->inf = f;
+	idctx->inf_pos = pos;
+	idctx->inf_len = len;
+	idctx->mode = FMTUTIL_FMTIDMODE_ALL_IMG; // expecting PNG or JPEG
+	fmtutil_fmtid(c, idctx);
 
 	if(ptinfo && ptinfo->token) token = ptinfo->token;
 	if(!token) {
@@ -495,9 +496,11 @@ static void extract_pic_apic(deark *c, id3v2ctx *d, dbuf *f,
 	}
 	if(!token) token = "id3pic";
 
-	de_snprintf(fullext, sizeof(fullext), "%s.%s", token, ext);
+	de_snprintf(fullext, sizeof(fullext), "%s.%s", token, idctx->ext_sz);
 
 	dbuf_create_file_from_slice(f, pos, len, fullext, NULL, DE_CREATEFLAG_IS_AUX);
+
+	de_free(c, idctx);
 }
 
 // Similar to decode_id3v2_frame_pic_apic()
