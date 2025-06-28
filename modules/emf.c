@@ -123,13 +123,12 @@ done:
 static void do_identify_and_extract_compressed_bitmap(deark *c, lctx *d,
 	i64 pos, i64 len)
 {
-	const char *ext = NULL;
-	u8 buf[4];
 	i64 nbytes_to_extract;
 	i64 foundpos;
+	struct fmtutil_fmtid_ctx *idctx = NULL;
 
-	if(len<=0) return;
-	if(pos+len > c->infile->len) return;
+	if(len<=0) goto done;
+	if(pos+len > c->infile->len) goto done;
 	nbytes_to_extract = len; // default
 
 	// Having dived six layers of abstraction deep into EMF+ format,
@@ -139,33 +138,33 @@ static void do_identify_and_extract_compressed_bitmap(deark *c, lctx *d,
 
 	de_dbg(c, "bitmap at %d, padded_len=%d", (int)pos, (int)len);
 
-	de_read(buf, pos, 4);
-	if(buf[0]==0x89 && buf[1]==0x50) {
-		ext = "png";
+	idctx = de_malloc(c, sizeof(struct fmtutil_fmtid_ctx));
+	idctx->inf = c->infile;
+	idctx->inf_pos = pos;
+	idctx->inf_len = len;
+	idctx->mode = FMTUTIL_FMTIDMODE_ALL_IMG;
+	fmtutil_fmtid(c, idctx);
+
+	// Expecting PNG, JPEG, GIF, TIFF
+	if(!idctx->fmtid) {
+		de_warn(c, "Unidentified bitmap format at %"I64_FMT, pos);
+		goto done;
+	}
+
+	if(idctx->fmtid==FMTUTIL_FMTID_PNG) {
 		// The 'len' field includes 0 to 3 padding bytes, which we want to
 		// remove. All PNG files end with ae 42 60 82.
 		if(dbuf_search_byte(c->infile, '\x82', pos+len-4, 4, &foundpos)) {
 			nbytes_to_extract = foundpos + 1 - pos;
 		}
 	}
-	else if(buf[0]==0xff && buf[1]==0xd8) {
-		// TODO: Try to detect the true end of file.
-		ext = "jpg";
-	}
-	else if(buf[0]=='G' && buf[1]=='I') {
-		// TODO: Try to detect the true end of file.
-		ext = "gif";
-	}
-	else if((buf[0]=='I' && buf[1]=='I') || (buf[0]=='M' && buf[1]=='M')) {
-		ext = "tif";
-	}
-	else {
-		de_warn(c, "Unidentified bitmap format at %d", (int)pos);
-		return;
-	}
+	// TODO: For JPEG and GIF, try to detect the true end of file.
 
 	if(nbytes_to_extract<=0) return;
-	dbuf_create_file_from_slice(c->infile, pos, nbytes_to_extract, ext, NULL, 0);
+	dbuf_create_file_from_slice(c->infile, pos, nbytes_to_extract, idctx->ext_sz, NULL, 0);
+
+done:
+	de_free(c, idctx);
 }
 
 // EmfPlusBitmap

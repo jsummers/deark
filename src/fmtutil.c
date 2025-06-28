@@ -1838,6 +1838,8 @@ void fmtutil_fmtid(deark *c, struct fmtutil_fmtid_ctx *idctx)
 #define MAGIC_ISH_INS2 0xb8c90c00U
 #define MAGIC_ISH_INI1 0x5b537461U
 #define MAGIC_ISH_PKG  0x4aa30000U
+#define MAGIC_TIFF1    0x49492a00U
+#define MAGIC_TIFF2    0x4d4d002aU
 
 	if((m0&0xffffff00)==MAGIC_JPEG) {
 		idctx->fmtid = FMTUTIL_FMTID_JPEG;
@@ -1854,6 +1856,12 @@ void fmtutil_fmtid(deark *c, struct fmtutil_fmtid_ctx *idctx)
 	if(m0==MAGIC_GIF) {
 		idctx->fmtid = FMTUTIL_FMTID_GIF;
 		ext = "gif";
+		goto done;
+	}
+
+	if(m0==MAGIC_TIFF1 || m0==MAGIC_TIFF2) {
+		idctx->fmtid = FMTUTIL_FMTID_TIFF;
+		ext = "tif";
 		goto done;
 	}
 
