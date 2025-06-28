@@ -1840,6 +1840,8 @@ void fmtutil_fmtid(deark *c, struct fmtutil_fmtid_ctx *idctx)
 #define MAGIC_ISH_PKG  0x4aa30000U
 #define MAGIC_TIFF1    0x49492a00U
 #define MAGIC_TIFF2    0x4d4d002aU
+#define MAGIC_8BPS     0x38425053U
+#define MAGIC_PDF      0x25504446U
 
 	if((m0&0xffffff00)==MAGIC_JPEG) {
 		idctx->fmtid = FMTUTIL_FMTID_JPEG;
@@ -1865,9 +1867,25 @@ void fmtutil_fmtid(deark *c, struct fmtutil_fmtid_ctx *idctx)
 		goto done;
 	}
 
+	if(m0==MAGIC_8BPS) {
+		if(idctx->bof64bytes[5]==0x01) {
+			ext = "psd";
+			goto done;
+		}
+		if(idctx->bof64bytes[5]==0x02) {
+			ext = "psb";
+			goto done;
+		}
+	}
+
 	if(!img_only && m0==MAGIC_PK34) {
 		idctx->fmtid = FMTUTIL_FMTID_ZIP;
 		ext = "zip";
+		goto done;
+	}
+
+	if(!img_only && m0==MAGIC_PDF) {
+		ext = "pdf";
 		goto done;
 	}
 

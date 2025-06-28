@@ -2226,34 +2226,28 @@ static void do_Layr_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 
 static void extract_linked_layer_blob(deark *c, lctx *d, i64 pos, i64 len)
 {
-	const char *ext = "layer.bin";
-	u8 buf[8];
+	struct fmtutil_fmtid_ctx *idctx = NULL;
+	char ext[16];
 
-	if(len<1) return;
+	if(len<1) goto done;
 
 	// Sniff the file type.
 	// (The "File Type" FourCC is not reliable.)
-	de_read(buf, pos, sizeof(buf));
-	if(!de_memcmp(buf, "8BPS\x00\x01", 6)) {
-		ext = "layer.psd";
-	}
-	else if(!de_memcmp(buf, "8BPS\x00\x02", 6)) {
-		ext = "layer.psb";
-	}
-	else if(!de_memcmp(buf, "\x89\x50\x4e\x47", 4)) {
-		ext = "layer.png";
-	}
-	else if(!de_memcmp(buf, "\xff\xd8\xff", 3)) {
-		ext = "layer.jpg";
-	}
-	else if(!de_memcmp(buf, "%PDF", 4)) {
-		ext = "layer.pdf";
-	}
+	idctx = de_malloc(c, sizeof(struct fmtutil_fmtid_ctx));
+	idctx->inf = c->infile;
+	idctx->inf_pos = pos;
+	idctx->inf_len = len;
+	fmtutil_fmtid(c, idctx);
+	// Expecting psd, psb, png, jpg, pdf, maybe others.
+	de_snprintf(ext, sizeof(ext), "layer.%s", idctx->ext_sz);
 
 	// TODO: Maybe we should try to use the "original filename" field, somehow,
 	// to construct our filename.
 	dbuf_create_file_from_slice(c->infile, pos, len, ext,
 		NULL, DE_CREATEFLAG_IS_AUX);
+
+done:
+	de_free(c, idctx);
 }
 
 static int do_one_linked_layer(deark *c, lctx *d, zztype *zz, const struct de_fourcc *blk4cc)
