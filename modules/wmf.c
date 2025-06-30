@@ -9,7 +9,7 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_wmf);
 
-typedef struct localctx_struct {
+typedef struct localctx_WMF {
 	int has_aldus_header;
 	int input_encoding;
 	i64 wmf_file_type;
@@ -841,23 +841,26 @@ done:
 
 static int de_identify_wmf(deark *c)
 {
-	u8 buf[4];
+	UI w0, w1, ver;
+	i64 sz;
+	int has_ext;
 
-	de_read(buf, 0, 4);
-
-	if(!de_memcmp(buf, "\xd7\xcd\xc6\x9a", 4))
+	w0 = (UI)de_getu16le(0);
+	w1 = (UI)de_getu16le(2);
+	if(w0==0xcdd7 && w1==0x9ac6) {
 		return 100;
-
-	if(de_input_file_has_ext(c, "wmf")) {
-		i64 ftype, hsize;
-		ftype = de_getu16le_direct(&buf[0]);
-		hsize = de_getu16le_direct(&buf[2]);
-		if(hsize==9 && (ftype==1 || ftype==2)) {
-			return 80;
-		}
 	}
+	if(w1!=0x09) return 0;
+	if(w0!=0x01 && w0!=0x02) return 0;
+	ver = (UI)de_getu16le(4);
+	if(ver!=0x0100 && ver!=0x0300) return 0;
 
-	return 0;
+	has_ext = de_input_file_has_ext(c, "wmf");
+	if(has_ext) return 95;
+	sz = de_getu32le(6) * 2;
+	if(sz > c->infile->len || sz < 20) return 0;
+	if(sz >= c->infile->len-8) return 70;
+	return 14;
 }
 
 void de_module_wmf(deark *c, struct deark_module_info *mi)
