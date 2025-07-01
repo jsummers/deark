@@ -12,7 +12,7 @@ DE_DECLARE_MODULE(de_module_emf);
 #define CODE_EMFPLUS   0x2b464d45U
 #define CODE_GDIC      0x43494447U
 
-typedef struct localctx_struct {
+typedef struct localctx_EMF {
 	int input_encoding;
 	int is_emfplus;
 	int emf_found_header;
@@ -60,7 +60,7 @@ static void do_dbg_colorref(deark *c, lctx *d, u32 colorref)
 
 	clr = colorref_to_color(colorref);
 	de_get_colorsample_code(c, clr, csamp, sizeof(csamp));
-	de_dbg(c, "colorref: 0x%08x%s", (unsigned int)colorref, csamp);
+	de_dbg(c, "colorref: 0x%08x%s", (UI)colorref, csamp);
 }
 
 static void ucstring_strip_trailing_NULs(de_ucstring *s)
@@ -86,23 +86,24 @@ static int emf_handler_01(deark *c, lctx *d, struct decoder_params *dp)
 	d->emf_found_header = 1;
 
 	if(dp->recsize_bytes<88) {
-		de_err(c, "Invalid EMF header size (is %d, must be at least 88)", (int)dp->recsize_bytes);
+		de_err(c, "Invalid EMF header size (is %"I64_FMT", must be at least 88)",
+			dp->recsize_bytes);
 		goto done;
 	}
 
 	// 2.2.9 Header Object
 	pos = dp->recpos + 8;
 	d->emf_version = de_getu32le(pos+36);
-	de_dbg(c, "version: 0x%08x", (unsigned int)d->emf_version);
+	de_dbg(c, "version: 0x%08x", (UI)d->emf_version);
 	file_size = de_getu32le(pos+40);
-	de_dbg(c, "reported file size: %d", (int)file_size);
+	de_dbg(c, "reported file size: %"I64_FMT, file_size);
 	d->emf_num_records = de_getu32le(pos+44);
 	de_dbg(c, "number of records in file: %d", (int)d->emf_num_records);
 	handles = de_getu16le(pos+48);
 	de_dbg(c, "handles: %d", (int)handles);
 	desc_len = de_getu32le(pos+52);
 	desc_offs = de_getu32le(pos+56);
-	de_dbg(c, "description offset=%d, len=%d", (int)desc_offs, (int)desc_len);
+	de_dbg(c, "description offset=%"I64_FMT", len=%"I64_FMT, desc_offs, desc_len);
 	num_pal_entries = de_getu32le(pos+60);
 	de_dbg(c, "num pal entries: %d", (int)num_pal_entries);
 
@@ -136,7 +137,7 @@ static void do_identify_and_extract_compressed_bitmap(deark *c, lctx *d,
 	// And we *still* don't know what format it's in! We apparently have to
 	// sniff the data and make a guess.
 
-	de_dbg(c, "bitmap at %d, padded_len=%d", (int)pos, (int)len);
+	de_dbg(c, "bitmap at %"I64_FMT", padded_len=%"I64_FMT, pos, len);
 
 	idctx = de_malloc(c, sizeof(struct fmtutil_fmtid_ctx));
 	idctx->inf = c->infile;
@@ -219,7 +220,7 @@ static void do_emfplus_object_image_metafile(deark *c, lctx *d, i64 pos, i64 len
 	de_dbg(c, "type: %d (%s)", (int)ty, name);
 
 	dlen = de_getu32le(pos+4);
-	de_dbg(c, "metafile data size: %d", (int)dlen);
+	de_dbg(c, "metafile data size: %"I64_FMT, dlen);
 
 	if(dlen<1 || dlen>len-8) return;
 
@@ -248,7 +249,7 @@ static void do_emfplus_object_image(deark *c, lctx *d, i64 pos1, i64 len)
 	default: name="?"; break;
 	}
 
-	de_dbg(c, "Image osver=0x%08x, type=%d (%s)", (unsigned int)ver,
+	de_dbg(c, "Image osver=0x%08x, type=%d (%s)", (UI)ver,
 		(int)datatype, name);
 
 	if(datatype==1) {
@@ -297,7 +298,7 @@ static int emfplus_handler_4003(deark *c, lctx *d, i64 rectype, i64 pos, i64 len
 		de_dbg_hexdump(c, c->infile, pos, len, 256, "comment", 0x1);
 	}
 	else {
-		de_dbg(c, "[%d comment bytes at %d]", (int)len, (int)pos);
+		de_dbg(c, "[%"I64_FMT" comment bytes at %"I64_FMT"]", len, pos);
 	}
 	return 1;
 }
@@ -421,11 +422,11 @@ static void do_one_emfplus_record(deark *c, lctx *d, i64 pos, i64 len,
 		}
 	}
 
-	de_dbg(c, "rectype 0x%04x (%s) at %d, flags=0x%04x, dpos=%d, dlen=%d",
-		(unsigned int)rectype, epinfo ? epinfo->name : "?",
-		(int)pos,
-		(unsigned int)flags,
-		(int)payload_pos, (int)datasize);
+	de_dbg(c, "rectype 0x%04x (%s) at %"I64_FMT", flags=0x%04x, dpos=%"I64_FMT", dlen=%"I64_FMT,
+		(UI)rectype, epinfo ? epinfo->name : "?",
+		pos,
+		(UI)flags,
+		payload_pos, datasize);
 
 	// If this record or the previous record had the continuation flag set,
 	// give up.
@@ -458,7 +459,7 @@ static void do_comment_emfplus(deark *c, lctx *d, i64 pos1, i64 len)
 	i64 bytes_consumed;
 	int continuation_flag = 0;
 
-	de_dbg(c, "EMF+ data at %d, len=%d", (int)pos1, (int)len);
+	de_dbg(c, "EMF+ data at %"I64_FMT", len=%"I64_FMT, pos1, len);
 	de_dbg_indent(c, 1);
 
 	while(1) {
@@ -485,7 +486,7 @@ static void do_comment_public(deark *c, lctx *d, i64 pos1, i64 len)
 	case 0x00000080U: name = "UNICODE_END"; break;
 	default: name = "?";
 	}
-	de_dbg(c, "public comment record type: 0x%08x (%s)", (unsigned int)ty, name);
+	de_dbg(c, "public comment record type: 0x%08x (%s)", (UI)ty, name);
 }
 
 // Comment record
@@ -533,7 +534,7 @@ static int emf_handler_46(deark *c, lctx *d, struct decoder_params *dp)
 			name = "EMR_COMMENT_PUBLIC";
 		}
 
-		de_dbg(c, "type: 0x%08x '%s' (%s)", (unsigned int)id4cc.id,
+		de_dbg(c, "type: 0x%08x '%s' (%s)", (UI)id4cc.id,
 			id4cc.id_dbgstr, name);
 	}
 
@@ -631,7 +632,7 @@ done:
 	dbuf_close(outf);
 }
 
-static const char *get_stock_obj_name(unsigned int n)
+static const char *get_stock_obj_name(UI n)
 {
 	const char *names[20] = { "WHITE_BRUSH", "LTGRAY_BRUSH", "GRAY_BRUSH",
 		"DKGRAY_BRUSH", "BLACK_BRUSH", "NULL_BRUSH", "WHITE_PEN", "BLACK_PEN",
@@ -641,7 +642,7 @@ static const char *get_stock_obj_name(unsigned int n)
 	const char *name = NULL;
 
 	if(n & 0x80000000U) {
-		unsigned int idx;
+		UI idx;
 		idx = n & 0x7fffffff;
 		if(idx<20) name = names[idx];
 	}
@@ -650,8 +651,8 @@ static const char *get_stock_obj_name(unsigned int n)
 
 static void read_object_index_p(deark *c, lctx *d, i64 *ppos)
 {
-	unsigned int n;
-	n = (unsigned int)de_getu32le_p(ppos);
+	UI n;
+	n = (UI)de_getu32le_p(ppos);
 	if(n & 0x80000000U) {
 		// A stock object
 		de_dbg(c, "object index: 0x%08x (%s)", n, get_stock_obj_name(n));
@@ -663,11 +664,11 @@ static void read_object_index_p(deark *c, lctx *d, i64 *ppos)
 
 static void read_LogPen(deark *c, lctx *d, i64 pos)
 {
-	unsigned int style;
+	UI style;
 	i64 n;
 	u32 colorref;
 
-	style = (unsigned int)de_getu32le_p(&pos);
+	style = (UI)de_getu32le_p(&pos);
 	de_dbg(c, "style: 0x%08x", style);
 
 	n = de_geti32le_p(&pos); // <PointL>.x = pen width
@@ -691,10 +692,10 @@ static int handler_CREATEPEN(deark *c, lctx *d, struct decoder_params *dp)
 
 static void read_LogBrushEx(deark *c, lctx *d, i64 pos)
 {
-	unsigned int style;
+	UI style;
 	u32 colorref;
 
-	style = (unsigned int)de_getu32le_p(&pos);
+	style = (UI)de_getu32le_p(&pos);
 	de_dbg(c, "style: 0x%08x", style);
 
 	colorref = (u32)de_getu32le_p(&pos);
@@ -743,14 +744,14 @@ static int emf_handler_4c(deark *c, lctx *d, struct decoder_params *dp)
 	if(dp->recsize_bytes<100) return 1;
 
 	rop = de_getu32le(dp->recpos+40);
-	de_dbg(c, "raster operation: 0x%08x", (unsigned int)rop);
+	de_dbg(c, "raster operation: 0x%08x", (UI)rop);
 
 	bmi_offs = de_getu32le(dp->recpos+84);
 	bmi_len = de_getu32le(dp->recpos+88);
-	de_dbg(c, "bmi offset=%d, len=%d", (int)bmi_offs, (int)bmi_len);
+	de_dbg(c, "bmi offset=%"I64_FMT", len=%"I64_FMT, bmi_offs, bmi_len);
 	bits_offs = de_getu32le(dp->recpos+92);
 	bits_len = de_getu32le(dp->recpos+96);
-	de_dbg(c, "bits offset=%d, len=%d", (int)bits_offs, (int)bits_len);
+	de_dbg(c, "bits offset=%"I64_FMT", len=%"I64_FMT, bits_offs, bits_len);
 
 	if(bmi_len<12) return 1;
 	if(bmi_offs<100) return 1;
@@ -783,19 +784,19 @@ static int emf_handler_50_51(deark *c, lctx *d, struct decoder_params *dp)
 
 	bmi_offs = de_getu32le(dp->recpos+48);
 	bmi_len = de_getu32le(dp->recpos+52);
-	de_dbg(c, "bmi offset=%d, len=%d", (int)bmi_offs, (int)bmi_len);
+	de_dbg(c, "bmi offset=%"I64_FMT", len=%"I64_FMT, bmi_offs, bmi_len);
 	bits_offs = de_getu32le(dp->recpos+56);
 	bits_len = de_getu32le(dp->recpos+60);
-	de_dbg(c, "bits offset=%d, len=%d", (int)bits_offs, (int)bits_len);
+	de_dbg(c, "bits offset=%"I64_FMT", len=%"I64_FMT, bits_offs, bits_len);
 
 	if(dp->rectype==0x51) {
 		rop = de_getu32le(dp->recpos+68);
-		de_dbg(c, "raster operation: 0x%08x", (unsigned int)rop);
+		de_dbg(c, "raster operation: 0x%08x", (UI)rop);
 	}
 
 	if(dp->rectype==0x50) {
 		num_scans = de_getu32le(dp->recpos+72);
-		de_dbg(c, "number of scanlines: %d", (int)num_scans);
+		de_dbg(c, "number of scanlines: %u", (UI)num_scans);
 	}
 
 	if(bmi_len<12) return 1;
@@ -880,7 +881,7 @@ static void do_LogFont(deark *c, lctx *d, struct decoder_params *dp, i64 pos1, i
 	de_dbg(c, "height,width: %d,%d", (int)n, (int)n2);
 	pos += 15;
 	b = de_getbyte_p(&pos);
-	de_dbg(c, "charset: 0x%02x (%s)", (unsigned int)b,
+	de_dbg(c, "charset: 0x%02x (%s)", (UI)b,
 		fmtutil_get_windows_charset_name(b));
 
 	pos += 4;
@@ -1080,8 +1081,8 @@ static int do_emf_record(deark *c, lctx *d, i64 recnum, i64 recpos,
 
 	fnci = find_emf_func_info(dp.rectype);
 
-	de_dbg(c, "record #%d at %d, type=0x%02x (%s), dpos=%"I64_FMT", dlen=%"I64_FMT,
-		(int)recnum, (int)recpos, (unsigned int)dp.rectype,
+	de_dbg(c, "record #%d at %"I64_FMT", type=0x%02x (%s), dpos=%"I64_FMT", dlen=%"I64_FMT,
+		(int)recnum, recpos, (UI)dp.rectype,
 		fnci ? fnci->name : "?", dp.dpos, dp.dlen);
 
 	if(fnci && fnci->fn) {
@@ -1118,7 +1119,7 @@ static void do_emf_record_list(deark *c, lctx *d)
 			goto done;
 		}
 		if(recsize_bytes<8) {
-			de_err(c, "Bad record size (%d) at %d", (int)recsize_bytes, (int)recpos);
+			de_err(c, "Bad record size (%"I64_FMT") at %"I64_FMT, recsize_bytes, recpos);
 			goto done;
 		}
 
