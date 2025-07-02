@@ -1006,6 +1006,14 @@ Deark -- Information about supported formats
   Macintosh floppy disk image format.
   - Some metadata is parsed, but the disk contents are not extracted or listed.
 
+* MS-DOS v3.3-5.x BACKUP (module="dosbackup33") (experimental)
+  This is a multi-file format that uses CONTROL.* and BACKUP.* files.
+  - This module is very picky, partly because it doesn't rely on the input
+    filenames.
+  - You must use the "-mp" option, and list all the CONTROL files in the
+    correct order, and all the BACKUP files in the correct order. Preferably,
+    list all the CONTROL files before any BACKUP files.
+
 * MRNZ (module="mrnz")
   Installer format used by PC DOS.
 
