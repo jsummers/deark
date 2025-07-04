@@ -9,7 +9,6 @@
 #include <deark-fmtutil-arch.h>
 DE_DECLARE_MODULE(de_module_dosbackup33);
 
-// TODO: Other versions with a similar structure apparently exist.
 #define DOSBK_VER_DOS33   3  // MS-DOS 3.3-5.x
 
 #define DOSBK_MAX_VOLS 255
@@ -28,7 +27,7 @@ struct logical_member_ctx {
 };
 
 struct fragment_ctx {
-	u8 fragment_code;
+	u8 fragment_flags;
 	int fragment_num;
 	i64 pos_in_datafile;
 	i64 len_in_datafile;
@@ -184,7 +183,6 @@ static void scan_one_input_file(deark *c, lctx *d, dbuf *inf, int xidx)
 			d->fmtver = fmtver;
 		}
 
-		// Suspect this is actually two bytes.
 		ii->control_file_seq = (int)dbuf_getbyte(inf, 9);
 		de_dbg(c, "seq num: %d", ii->control_file_seq);
 
@@ -285,6 +283,16 @@ static void fixup_filename(de_ucstring *s)
 	}
 }
 
+static void dbg_attribs(deark *c, UI x)
+{
+	de_ucstring *descr;
+
+	descr = ucstring_create(c);
+	de_describe_dos_attribs(c, x, descr, 0);
+	de_dbg(c, "attribs: 0x%02x (%s)", x, ucstring_getpsz_d(descr));
+	ucstring_destroy(descr);
+}
+
 static void do_one_volume33(deark *c, lctx *d, int vol,
 	dbuf *ctrl_inf, dbuf *data_inf)
 {
@@ -309,6 +317,9 @@ static void do_one_volume33(deark *c, lctx *d, int vol,
 		item_len = dbuf_getbyte_p(ctrl_inf, &ctrl_pos);
 		de_dbg(c, "item len: %"I64_FMT, item_len);
 
+		// TODO?: This is not really the right way to determine the item
+		// type. It's something like, the first item is always a DIR, and
+		// each DIR contains a pointer to the next DIR.
 		if(item_len==0) {
 			itemtype = ITEMTYPE_EOF;
 		}
@@ -338,8 +349,9 @@ static void do_one_volume33(deark *c, lctx *d, int vol,
 			de_dbg(c, "file name: \"%s\"", ucstring_getpsz_d(fr->filename_srd->str));
 			fixup_filename(fr->filename_srd->str);
 
-			fr->fragment_code = dbuf_getbyte_p(ctrl_inf, &ctrl_pos);
-			de_dbg(c, "frg code: 0x%02x", (UI)fr->fragment_code);
+			fr->fragment_flags = dbuf_getbyte_p(ctrl_inf, &ctrl_pos);
+			// 0x01=last frg; 0x02=backed up OK; 0x04=has ext. attr.
+			de_dbg(c, "frg flags: 0x%02x", (UI)fr->fragment_flags);
 			fr->orig_size = dbuf_getu32le_p(ctrl_inf, &ctrl_pos);
 			de_dbg(c, "total file size: %"I64_FMT, fr->orig_size);
 			fr->fragment_num = (int)dbuf_getu16le_p(ctrl_inf, &ctrl_pos);
@@ -348,9 +360,8 @@ static void do_one_volume33(deark *c, lctx *d, int vol,
 			de_dbg(c, "pos in data file: %"I64_FMT, fr->pos_in_datafile);
 			fr->len_in_datafile = dbuf_getu32le_p(ctrl_inf, &ctrl_pos);
 			de_dbg(c, "len in data file: %"I64_FMT, fr->len_in_datafile);
-			fr->attribs = (UI)dbuf_getbyte_p(ctrl_inf, &ctrl_pos);
-			de_dbg(c, "attribs: 0x%02x", fr->attribs);
-			ctrl_pos++; // ?
+			fr->attribs = (UI)dbuf_getu16le_p(ctrl_inf, &ctrl_pos);
+			dbg_attribs(c, fr->attribs);
 
 			fr->dostm = dbuf_getu16le_p(ctrl_inf, &ctrl_pos);
 			fr->dosdt = dbuf_getu16le_p(ctrl_inf, &ctrl_pos);
