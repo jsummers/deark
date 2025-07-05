@@ -303,46 +303,84 @@ static void do_one_volume33(deark *c, lctx *d, int vol,
 	i64 ctrl_pos;
 	int saved_indent_level;
 	struct fragment_ctx *fr = NULL;
+	int num_file_items_remaining = 0;
+	u8 expecting_another_dir_item = 1;
+	char tmps[20];
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	ctrl_pos = 0x8b;
+	ctrl_pos = (i64)dbuf_getbyte(ctrl_inf, 0); // Expecting 139 (0x8b)
+
 	while(1) {
 		i64 item_pos;
 		i64 item_len;
-#define ITEMTYPE_DIR   1
-#define ITEMTYPE_FILE  2
-#define ITEMTYPE_EOF   3
-		u8 itemtype = 0;
+		u8 item_is_dir;
+
+		if(num_file_items_remaining>0) {
+			item_is_dir = 0;
+		}
+		else if(expecting_another_dir_item) {
+			item_is_dir = 1;
+		}
+		else {
+			goto done;
+		}
 
 		item_pos = ctrl_pos;
-		if(item_pos >= ctrl_inf->len) goto done;
-		de_dbg(c, "ctrl item at %"I64_FMT, item_pos);
+		if(item_pos >= ctrl_inf->len) {
+			d->errflag = 1;
+			d->need_errmsg = 1;
+			goto done;
+		}
+
+		if(item_is_dir) {
+			de_dbg(c, "dir item at %"I64_FMT, item_pos);
+		}
+		else {
+			de_dbg(c, "file item at %"I64_FMT, item_pos);
+		}
+
 		de_dbg_indent(c, 1);
+
 		item_len = dbuf_getbyte_p(ctrl_inf, &ctrl_pos);
 		de_dbg(c, "item len: %"I64_FMT, item_len);
 
-		// TODO?: This is not really the right way to determine the item
-		// type. It's something like, the first item is always a DIR, and
-		// each DIR contains a pointer to the next DIR.
-		if(item_len==0) {
-			itemtype = ITEMTYPE_EOF;
-		}
-		else if(item_len==0x46) {
-			itemtype = ITEMTYPE_DIR;
-		}
-		else if(item_len==0x22) {
-			itemtype = ITEMTYPE_FILE;
-		}
+		if(item_is_dir) {
+			i64 next_dir_pos;
 
-		if(itemtype==ITEMTYPE_DIR) {
+			if(item_len!=70) {
+				d->errflag = 1;
+				d->need_errmsg = 1;
+				goto done;
+			}
+
 			ucstring_empty(d->v33_cur_dir_name);
 			dbuf_read_to_ucstring(ctrl_inf, ctrl_pos, 63, d->v33_cur_dir_name,
 				DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
 			ctrl_pos += 63;
 			de_dbg(c, "dir name: \"%s\"", ucstring_getpsz_d(d->v33_cur_dir_name));
 			de_arch_fixup_path(d->v33_cur_dir_name, 0x1);
+
+			num_file_items_remaining = (int)dbuf_getu16le_p(ctrl_inf, &ctrl_pos);
+			de_dbg(c, "num entries: %d", num_file_items_remaining);
+
+			next_dir_pos = dbuf_getu32le_p(ctrl_inf, &ctrl_pos);
+			if(next_dir_pos==0xffffffffLL) {
+				de_strlcpy(tmps, "(none)", sizeof(tmps));
+				expecting_another_dir_item = 0;
+			}
+			else {
+				de_snprintf(tmps, sizeof(tmps), "%"I64_FMT, next_dir_pos);
+				expecting_another_dir_item = 1;
+			}
+			de_dbg(c, "next dir pos: %s", tmps);
 		}
-		else if(itemtype==ITEMTYPE_FILE) {
+		else { // "file" item
+			if(item_len!=34) {
+				d->errflag = 1;
+				d->need_errmsg = 1;
+				goto done;
+			}
+
 			if(fr) {
 				destroy_fragment_ctx(c, fr);
 			}
@@ -374,15 +412,10 @@ static void do_one_volume33(deark *c, lctx *d, int vol,
 			dbg_timestamp(c, &fr->mod_time);
 
 			v33_extract_fragment(c, d, fr, data_inf);
+
+			num_file_items_remaining--;
 		}
-		else if(itemtype==ITEMTYPE_EOF) {
-			goto done;
-		}
-		else {
-			d->errflag = 1;
-			d->need_errmsg = 1;
-			goto done;
-		}
+
 		ctrl_pos = item_pos + item_len;
 		de_dbg_indent(c, -1);
 	}
