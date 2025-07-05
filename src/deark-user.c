@@ -131,6 +131,8 @@ void de_print_module_list(deark *c)
 static void do_modhelp_internal(deark *c, struct deark_module_info *module_to_use)
 {
 	int k;
+	u8 printed_something = 0;
+	u8 suppress_nohelpmsg = 0;
 
 	if(!module_to_use) goto done;
 	de_msg(c, "Module: %s", module_to_use->id);
@@ -149,19 +151,25 @@ static void do_modhelp_internal(deark *c, struct deark_module_info *module_to_us
 	}
 	if(module_to_use->desc2) {
 		de_msg(c, "Other notes: %s", module_to_use->desc2);
+		printed_something = 1;
 	}
 
 	if(module_to_use->flags&DE_MODFLAG_MULTIPART) {
 		de_msg(c, "This module supports multiple input files; "
 			"use the \"-mp\" option.");
+		printed_something = 1;
 	}
 
 	if(module_to_use->flags&DE_MODFLAG_INTERNALONLY) {
 		de_msg(c, "This module is intended for internal use only.");
+		suppress_nohelpmsg = 1;
 	}
 
 	if(!module_to_use->help_fn) {
-		de_msg(c, "No help available for module \"%s\"", module_to_use->id);
+		if(!suppress_nohelpmsg) {
+			de_msg(c, "No%s help available for module \"%s\".",
+				(printed_something?" other":""), module_to_use->id);
+		}
 		goto done;
 	}
 
