@@ -22,6 +22,8 @@ typedef struct localctx_struct {
 	struct plane_struct pl[4];
 	i64 max_bytes_per_plane;
 	u8 uses_lzss;
+	u8 fatal_errflag;
+	u8 need_dcmpr_errmsg;
 
 	// Contains all planes, at intervals of ->max_bytes_per_plane
 	dbuf *unc_pixels;
@@ -161,11 +163,11 @@ after_dcmpr:
 	de_free(c, ectx);
 }
 
-static int do_decompress_plane(deark *c, lctx *d, int pn)
+static void do_decompress_plane(deark *c, lctx *d, int pn)
 {
 	struct plane_struct *pli;
-	int retval = 0;
 	i64 orig_len;
+	i64 num_unused_bytes;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
@@ -189,18 +191,39 @@ static int do_decompress_plane(deark *c, lctx *d, int pn)
 	decompress_exepack2(c, d, &dcmpri, &dcmpro, &dres);
 
 	if(dres.errcode) {
-		de_err(c, "Decompression failed (plane %d): %s",
+		de_dbg(c, "Decompression failed (plane %d): %s",
 			pn, de_dfilter_get_errmsg(c, &dres));
+		d->fatal_errflag = 1;
+		d->need_dcmpr_errmsg = 1;
 		goto done;
 	}
 
 	pli->dcmpr_nbytes = d->unc_pixels->len - orig_len;
-	de_dbg(c, "decompressed to %"I64_FMT" bytes", pli->dcmpr_nbytes);
+	de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes",
+		dres.bytes_consumed, pli->dcmpr_nbytes);
 
-	retval = 1;
+	// There are third-party utilities that create bootlogo files, so
+	// we don't want to be *too* strict.
+	// But there are apparently some non-bootlogo formats that are hard
+	// to distinguish from bootlogo. So we don't want it to be just
+	// "anything goes".
+	num_unused_bytes = pli->len - dres.bytes_consumed;
+	if(num_unused_bytes) {
+		de_dbg(c, "[unused bytes: %"I64_FMT"]", num_unused_bytes);
+		if(num_unused_bytes>1024) {
+			d->fatal_errflag = 1;
+			d->need_dcmpr_errmsg = 1;
+			goto done;
+		}
+	}
+	if(pli->dcmpr_nbytes < 10000) {
+		d->fatal_errflag = 1;
+		d->need_dcmpr_errmsg = 1;
+		goto done;
+	}
+
 done:
 	de_dbg_indent(c, -1);
-	return retval;
 }
 
 static void do_write_image(deark *c, lctx *d)
@@ -261,7 +284,8 @@ static void de_run_os2bootlogo(deark *c, de_module_params *mparams)
 	d->unc_pixels = dbuf_create_membuf(c, d->max_bytes_per_plane*NUM_PLANES, 0x1);
 	dbuf_enable_wbuffer(d->unc_pixels);
 	for(k=0; k<NUM_PLANES; k++) {
-		if(!do_decompress_plane(c, d, k)) goto done;
+		do_decompress_plane(c, d, k);
+		if(d->fatal_errflag) goto done;
 	}
 
 	// There's a program that makes files that only use RLE compression.
@@ -272,6 +296,10 @@ static void de_run_os2bootlogo(deark *c, de_module_params *mparams)
 
 done:
 	if(d) {
+		if(d->need_dcmpr_errmsg) {
+			de_err(c, "Decompression failed. This is probably not "
+				"an OS/2 Boot Logo.");
+		}
 		dbuf_close(d->unc_pixels);
 		de_free(c, d);
 	}
