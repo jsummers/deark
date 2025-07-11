@@ -1216,6 +1216,45 @@ done:
 	}
 }
 
+// Tagged overlay structure used by some installers for software from
+// Canyon State Systems (CompuShow: CSHOWA.EXE, CompuShow 2000: 2SHOWA.EXE,
+// CompuLog: CMPLGA.EXE). (In which case it's expected to contain a
+// self-extracting LHA archive.)
+// Possibly a standard Borland format, but I don't know.
+static void detect_exesfx_fbex(deark *c,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	i64 pos;
+	i64 n;
+
+	read_exe_testbytes(ei);
+	if(de_memcmp(ei->ovl64b, "FBIN", 4)) goto done;
+	n = de_getu32le_direct(&ei->ovl64b[4]);
+
+	pos = ei->end_of_dos_code + 8 + n;
+	if(pos+40 > ei->f->len) goto done;
+	if(dbuf_memcmp(ei->f, pos, "FBEX", 4)) goto done;
+	pos += 4;
+	edd->payload_len = dbuf_getu32le_p(ei->f, &pos);
+	edd->payload_pos = pos;
+	if(edd->payload_len<32) goto done;
+	if(edd->payload_pos+edd->payload_len > ei->f->len) goto done;
+	// If there's other stuff after this item, fail completely instead
+	// of partially.
+	if(edd->payload_pos+edd->payload_len+32 < ei->f->len) goto done;
+	if(dbuf_memcmp(ei->f, edd->payload_pos, "MZ", 2)) goto done;
+
+	edd->payload_valid = 1;
+	edd->detected_fmt = DE_SPECIALEXEFMT_SFX;
+	edd->payload_file_ext = "exe";
+
+done:
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
+		de_strlcpy(edd->detected_fmt_name, "FBEX overlay",
+			sizeof(edd->detected_fmt_name));
+	}
+}
+
 typedef void (*exesfx_detector_fn)(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd);
 
@@ -1235,7 +1274,8 @@ static const struct exesfx_detector_item exesfx_detector_arr[] = {
 	{ 0, 29, detect_exesfx_pak_nogate },
 	{ 0, 28, detect_exesfx_rar },
 	{ 0, 128, detect_exesfx_zoo },
-	{ 0, ARJ_MIN_FILE_SIZE, detect_exesfx_arj }
+	{ 0, ARJ_MIN_FILE_SIZE, detect_exesfx_arj },
+	{ 0, 48, detect_exesfx_fbex },
 };
 
 void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,
