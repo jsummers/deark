@@ -284,8 +284,8 @@ static void convert_image_planar_HAM(dbuf *f, i64 fpos, i64 nplanes,
 
 				if(nplanes==6) {
 					cr2 = (cr<<4) | cr;
-					cg2 = (cr<<4) | cr;
-					cb2 = (cr<<4) | cr;
+					cg2 = (cg<<4) | cg;
+					cb2 = (cb<<4) | cb;
 				}
 				else {
 					cr2 = (cr<<2) | (cr>>4);

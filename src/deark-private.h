@@ -102,6 +102,7 @@ struct deark_module_info {
 #define DE_MODFLAG_SHAREDDETECTION 0x10 // Module modifies deark::detection_data
 #define DE_MODFLAG_WARNPARSEONLY   0x20 // Do not list; print warning if autodetected
 #define DE_MODFLAG_MULTIPART       0x40 // Supports multiple input files
+#define DE_MODFLAG_INTERNALONLY    0x80
 #define DE_MODFLAG_DISABLEDETECT 0x100 // Ignore results of autodetection
 	u32 flags;
 	u32 unique_id; // or 0. Rarely used.
@@ -299,6 +300,7 @@ struct de_module_in_params {
 	u32 flags;
 	de_encoding input_encoding;
 	u32 uint1;
+	u32 uint2;
 	i64 offset_in_parent;
 	dbuf *parent_dbuf;
 	de_finfo *fi;
@@ -397,6 +399,7 @@ struct deark_struct {
 	u8 slice_start_req_special;
 	u8 slice_size_req_valid;
 	u8 suppress_detection_by_filename;
+	u8 mp_opt_used;
 
 	int output_style; // DE_OUTPUTSTYLE_*
 	int archive_fmt; // If output_style==DE_OUTPUTSTYLE_ARCHIVE

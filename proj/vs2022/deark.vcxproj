@@ -212,6 +212,7 @@
     <ClCompile Include="..\..\modules\divgs.c" />
     <ClCompile Include="..\..\modules\dlmaker.c" />
     <ClCompile Include="..\..\modules\dms.c" />
+    <ClCompile Include="..\..\modules\dosbackup.c" />
     <ClCompile Include="..\..\modules\drhalo.c" />
     <ClCompile Include="..\..\modules\dsstore.c" />
     <ClCompile Include="..\..\modules\ebml.c" />

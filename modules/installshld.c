@@ -12,6 +12,7 @@
 DE_DECLARE_MODULE(de_module_is_z);
 DE_DECLARE_MODULE(de_module_is_instarch);
 DE_DECLARE_MODULE(de_module_tscomp);
+DE_DECLARE_MODULE(de_module_is_sfx);
 
 #define ISZ_MAX_DIRS          1000 // arbitrary
 #define ISZ_MAX_FILES         5000 // arbitrary
@@ -553,4 +554,148 @@ void de_module_tscomp(deark *c, struct deark_module_info *mi)
 	mi->desc = "The Stirling Compressor";
 	mi->run_fn = de_run_tscomp;
 	mi->identify_fn = de_identify_tscomp;
+}
+
+// **************************************************************************
+// InstallShield SFX EXE
+// **************************************************************************
+
+struct ishieldsfxdata {
+	u8 need_errmsg;
+	i64 rsrc_pos;
+	i64 rsrc_len;
+	i64 data_pos;
+	i64 data_endpos;
+	i64 num_member_files;
+};
+
+static void is_sfx_acquire_filename(deark *c, struct ishieldsfxdata *d,
+	i64 idx, i64 member_dpos, i64 member_dlen, de_finfo *fi)
+{
+	de_ucstring *fn = NULL;
+	struct fmtutil_fmtid_ctx *idctx = NULL;
+
+	idctx = de_malloc(c, sizeof(struct fmtutil_fmtid_ctx));
+	idctx->inf = c->infile;
+	idctx->inf_pos = member_dpos;
+	idctx->inf_len = member_dlen;
+	idctx->default_ext = "dat";
+	idctx->mode = FMTUTIL_FMTIDMODE_ISH_SFX;
+	fmtutil_fmtid(c, idctx);
+
+	fn = ucstring_create(c);
+	ucstring_printf(fn, DE_ENCODING_LATIN1, "ishield%03u.%s", (UI)idx, idctx->ext_sz);
+	de_finfo_set_name_from_ucstring(c, fi, fn, 0);
+
+	ucstring_destroy(fn);
+	de_free(c, idctx);
+}
+
+static void is_sfx_main(deark *c, struct ishieldsfxdata *d)
+{
+	de_finfo *fi = NULL;
+	i64 i;
+	i64 pos;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "rsrc pos: %"I64_FMT", len=%"I64_FMT, d->rsrc_pos, d->rsrc_len);
+	if(d->rsrc_len<16) goto done;
+	de_dbg_indent(c, 1);
+	d->data_pos = de_getu32le(d->rsrc_pos+8);
+	de_dbg(c, "data seg pos: %"I64_FMT, d->data_pos);
+	d->num_member_files = de_getu32le(d->rsrc_pos+12);
+	de_dbg(c, "num members: %"I64_FMT, d->num_member_files);
+
+	// Sometimes @+16 is file size (or more likely, the data segment end pos).
+	// But not always.
+	d->data_endpos = c->infile->len;
+	if(d->data_endpos > c->infile->len) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	de_dbg_indent(c, -1);
+
+	fi = de_finfo_create(c);
+	fi->original_filename_flag = 1;
+	pos = d->data_pos;
+
+	for(i=0; i<d->num_member_files; i++) {
+		i64 hdr1_dlen;
+		i64 member_dlen;
+		i64 member_dpos;
+
+		de_dbg(c, "member %u at %"I64_FMT, (UI)i, pos);
+		de_dbg_indent(c, 1);
+
+		if(pos+12 > d->data_endpos) {
+			d->need_errmsg = 1;
+			goto done;
+		}
+
+		hdr1_dlen = de_getu32le_p(&pos);
+		de_dbg(c, "hdr1 dlen: %"I64_FMT, hdr1_dlen);
+		// If this is large, assume we've gone off the rails.
+		// Have observed values from 9 to 77.
+		if(hdr1_dlen > 1024) {
+			d->need_errmsg = 1;
+			goto done;
+		}
+
+		pos += hdr1_dlen;
+		pos += 4; // unknown
+		member_dlen = de_getu32le_p(&pos);
+		member_dpos = pos;
+		de_dbg(c, "member dpos: %"I64_FMT, member_dpos);
+		de_dbg(c, "member dlen: %"I64_FMT, member_dlen);
+
+		pos = member_dpos + member_dlen;
+		if(pos > d->data_endpos) {
+			d->need_errmsg = 1;
+			goto done;
+		}
+
+		is_sfx_acquire_filename(c, d, i, member_dpos, member_dlen, fi);
+
+		dbuf_create_file_from_slice(c->infile, member_dpos, member_dlen, NULL, fi, 0);
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	de_finfo_destroy(c, fi);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void de_run_is_sfx(deark *c, de_module_params *mparams)
+{
+	struct ishieldsfxdata *d = NULL;
+
+	d = de_malloc(c, sizeof(struct ishieldsfxdata));
+
+	// This module isn't smart enough to decode NE format to find the
+	// pointers it needs. It can only be used via the exe module.
+	if(c->module_disposition!=DE_MODDISP_INTERNAL) {
+		goto done;
+	}
+
+	d->rsrc_pos = (i64)mparams->in_params.uint1;
+	d->rsrc_len = (i64)mparams->in_params.uint2;
+
+	is_sfx_main(c, d);
+
+done:
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Failed to extract InstallShield SFX data");
+		}
+		de_free(c, d);
+	}
+}
+
+void de_module_is_sfx(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "is_sfx";
+	mi->desc = "InstallShield SFX EXE";
+	mi->run_fn = de_run_is_sfx;
+	mi->flags |= DE_MODFLAG_HIDDEN | DE_MODFLAG_INTERNALONLY;
 }

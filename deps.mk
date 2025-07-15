@@ -87,6 +87,9 @@ $(OBJDIR)/modules/dlmaker.o: modules/dlmaker.c src/deark-private.h \
  src/deark.h src/deark-config.h
 $(OBJDIR)/modules/dms.o: modules/dms.c src/deark-private.h src/deark.h \
  src/deark-config.h src/deark-fmtutil.h
+$(OBJDIR)/modules/dosbackup.o: modules/dosbackup.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil-arch.h \
+ src/deark-fmtutil.h
 $(OBJDIR)/modules/drhalo.o: modules/drhalo.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/dsstore.o: modules/dsstore.c src/deark-config.h \
@@ -141,8 +144,8 @@ $(OBJDIR)/modules/icns.o: modules/icns.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/ico.o: modules/ico.c src/deark-private.h src/deark.h \
  src/deark-config.h src/deark-fmtutil.h
-$(OBJDIR)/modules/id3.o: modules/id3.c src/deark-config.h \
- src/deark-private.h src/deark.h
+$(OBJDIR)/modules/id3.o: modules/id3.c src/deark-private.h src/deark.h \
+ src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/iff.o: modules/iff.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/ilbm.o: modules/ilbm.c src/deark-config.h \

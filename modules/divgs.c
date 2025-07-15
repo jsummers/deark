@@ -136,8 +136,15 @@ static void de_run_div_map(deark *c, de_module_params *mparams)
 	struct div_image_ctx *md = NULL;
 	i64 pos;
 
-	de_declare_fmt(c, "DIV MAP");
 	d = de_malloc(c, sizeof(struct div_ctx));
+	d->fmt = identify_div_fmt(c);
+	if(d->fmt==DIVFMT_MAP) {
+		de_declare_fmt(c, "DIV MAP");
+	}
+	else {
+		d->need_errmsg = 1;
+		goto done;
+	}
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP850);
 
 	md = de_malloc(c, sizeof(struct div_image_ctx));
@@ -176,9 +183,10 @@ done:
 
 static int de_identify_div_map(deark *c)
 {
-	if(!dbuf_memcmp(c->infile, 0, (const void*)"map\x1a\x0d\x0a\0", 7)) {
-		return 100;
-	}
+	u8 x;
+
+	x = identify_div_fmt(c);
+	if(x==DIVFMT_MAP) return 100;
 	return 0;
 }
 

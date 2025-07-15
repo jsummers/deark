@@ -421,6 +421,80 @@ done:
 	;
 }
 
+static void check_for_ne_dll(deark *c, struct fmtutil_exe_info *ei)
+{
+	u8 b;
+
+	b = dbuf_getbyte(ei->f, ei->ext_hdr_pos+13);
+	if(b&0x80) {
+		ei->is_dll = 1;
+	}
+}
+
+static void check_for_pe_dll(deark *c, struct fmtutil_exe_info *ei)
+{
+	u8 b;
+
+	b = dbuf_getbyte(ei->f, ei->ext_hdr_pos+23);
+	if(b&0x20) {
+		ei->is_dll = 1;
+	}
+}
+
+// May set ei->maybe_extended.
+// This assumes ei->f is the entire file. If it's just the header, then
+// ei->maybe_extended won't be meaningful.
+// Note: This logic is essentially duplicated in exe:do_identify_exe_format().
+static void check_for_ext_fmt(deark *c, struct fmtutil_exe_info *ei,
+	i64 maybe_ext_hdr_pos)
+{
+	i64 reloc_tbl_endpos;
+	i64 n;
+
+	if(maybe_ext_hdr_pos<64 || maybe_ext_hdr_pos>=ei->f->len) {
+		goto done;
+	}
+	if(ei->start_of_dos_code<=60 && ei->end_of_dos_code>60) {
+		goto done;
+	}
+	if(ei->reloc_table_pos>=61 && ei->reloc_table_pos<=63) {
+		goto done;
+	}
+	reloc_tbl_endpos = ei->reloc_table_pos + 4*ei->num_relocs;
+	if(ei->num_relocs>0 && ei->reloc_table_pos<64 && reloc_tbl_endpos>60) {
+		goto done;
+	}
+
+	n = dbuf_getu32be(ei->f, maybe_ext_hdr_pos);
+	if(n==0x50450000U) {
+		ei->is_extended = 1;
+		ei->is_pe = 1;
+	}
+	else if((n&0xffff0000)==0x4e450000) {
+		ei->is_extended = 1;
+		ei->is_ne = 1;
+	}
+	else if((n&0xffff0000)==0x4c580000 || // LX
+		(n&0xffff0000)==0x4c450000) // LE
+	{
+		ei->is_extended = 1;
+	}
+
+	if(ei->is_extended) {
+		ei->ext_hdr_pos = maybe_ext_hdr_pos;
+
+		if(ei->is_pe) {
+			check_for_pe_dll(c, ei);
+		}
+		else if(ei->is_ne) {
+			check_for_ne_dll(c, ei);
+		}
+	}
+
+done:
+	;
+}
+
 // Caller initializes ei (to zeroes).
 // Records some basic information about an EXE file, to be used by routines that
 // detect special EXE formats.
@@ -430,6 +504,7 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei)
 {
 	i64 hdrsize; // in 16-byte units
 	i64 lfb, nblocks;
+	i64 maybe_ext_hdr_pos;
 
 	ei->f = f;
 	lfb = dbuf_getu16le(f, 2);
@@ -444,6 +519,7 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei)
 	ei->regCS = dbuf_geti16le(f, 22);
 	ei->reloc_table_pos = dbuf_getu16le(f, 24);
 	ei->entry_point = (hdrsize + ei->regCS)*16 + ei->regIP;
+	maybe_ext_hdr_pos = dbuf_getu32le(f, 60);
 
 	ei->end_of_dos_code = nblocks*512;
 	if(lfb>=1 && lfb<=511) {
@@ -451,6 +527,8 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei)
 	}
 	ei->overlay_len = f->len - ei->end_of_dos_code;
 	if(ei->overlay_len<0) ei->overlay_len = 0;
+
+	check_for_ext_fmt(c, ei, maybe_ext_hdr_pos);
 }
 
 // Caller supplies ei -- must call fmtutil_collect_exe_info() first.
@@ -603,6 +681,37 @@ done:
 	;
 }
 
+static void detect_specialexe_textlife(deark *c,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	int ret;
+	i64 foundpos;
+
+	if(ei->regSP!=65520) goto done;
+	if(ei->regIP<7000 || ei->regIP>12000) goto done;
+	if(ei->num_relocs<230 || ei->num_relocs>310) goto done;
+
+	if(dbuf_memcmp(ei->f, ei->start_of_dos_code,
+		(const void*)"\x55\x89\xe5\x83\xec\x02\x9a", 7))
+	{
+		goto done;
+	}
+
+	// Earliest known sig = Code+14596 for Breeze 3.2
+	// Latest known sig = Code+17034 for TextLife 2.7variant3
+	// We'll set the "haystack" to 14000 to 18000.
+	ret = dbuf_search(ei->f, (const u8*)"\x05ZZZZZ", 6,
+		ei->start_of_dos_code+14000, 4000, &foundpos);
+	if(!ret) goto done;
+	edd->special_pos_1 = foundpos;
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_TEXTLIFE;
+	de_strlcpy(edd->detected_fmt_name, "TextLife", sizeof(edd->detected_fmt_name));
+	edd->modname = "textlife";
+done:
+	;
+}
+
 // Caller supplies ei -- must call fmtutil_collect_exe_info() first.
 // Caller initializes edd, to receive the results.
 // If success, sets edd->detected_fmt to nonzero.
@@ -631,6 +740,11 @@ void fmtutil_detect_specialexe(deark *c, struct fmtutil_exe_info *ei,
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_READAMATIC) {
 		detect_specialexe_readamatic(c, ei, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
+
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_TEXTLIFE) {
+		detect_specialexe_textlife(c, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
@@ -1102,6 +1216,45 @@ done:
 	}
 }
 
+// Tagged overlay structure used by some installers for software from
+// Canyon State Systems (CompuShow: CSHOWA.EXE, CompuShow 2000: 2SHOWA.EXE,
+// CompuLog: CMPLGA.EXE). (In which case it's expected to contain a
+// self-extracting LHA archive.)
+// Possibly a standard Borland format, but I don't know.
+static void detect_exesfx_fbex(deark *c,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	i64 pos;
+	i64 n;
+
+	read_exe_testbytes(ei);
+	if(de_memcmp(ei->ovl64b, "FBIN", 4)) goto done;
+	n = de_getu32le_direct(&ei->ovl64b[4]);
+
+	pos = ei->end_of_dos_code + 8 + n;
+	if(pos+40 > ei->f->len) goto done;
+	if(dbuf_memcmp(ei->f, pos, "FBEX", 4)) goto done;
+	pos += 4;
+	edd->payload_len = dbuf_getu32le_p(ei->f, &pos);
+	edd->payload_pos = pos;
+	if(edd->payload_len<32) goto done;
+	if(edd->payload_pos+edd->payload_len > ei->f->len) goto done;
+	// If there's other stuff after this item, fail completely instead
+	// of partially.
+	if(edd->payload_pos+edd->payload_len+32 < ei->f->len) goto done;
+	if(dbuf_memcmp(ei->f, edd->payload_pos, "MZ", 2)) goto done;
+
+	edd->payload_valid = 1;
+	edd->detected_fmt = DE_SPECIALEXEFMT_SFX;
+	edd->payload_file_ext = "exe";
+
+done:
+	if(edd->detected_fmt==DE_SPECIALEXEFMT_SFX) {
+		de_strlcpy(edd->detected_fmt_name, "FBEX overlay",
+			sizeof(edd->detected_fmt_name));
+	}
+}
+
 typedef void (*exesfx_detector_fn)(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd);
 
@@ -1121,7 +1274,8 @@ static const struct exesfx_detector_item exesfx_detector_arr[] = {
 	{ 0, 29, detect_exesfx_pak_nogate },
 	{ 0, 28, detect_exesfx_rar },
 	{ 0, 128, detect_exesfx_zoo },
-	{ 0, ARJ_MIN_FILE_SIZE, detect_exesfx_arj }
+	{ 0, ARJ_MIN_FILE_SIZE, detect_exesfx_arj },
+	{ 0, 48, detect_exesfx_fbex },
 };
 
 void fmtutil_detect_exesfx(deark *c, struct fmtutil_exe_info *ei,

@@ -35,6 +35,8 @@ typedef struct localctx_struct {
 	u8 fmt;
 	u8 subfmt;
 	u8 execomp_mode; // 0 or 1; 0xff=unspecified
+	u8 sfx_only_mode;
+	u8 extract_std_resources;
 	u8 check_checksum;
 	u8 rsrc_errflag;
 	struct fmtutil_exe_info *ei;
@@ -56,6 +58,9 @@ typedef struct localctx_struct {
 	int ne_have_type;
 	u32 ne_rsrc_type_id;
 	const struct rsrc_type_info_struct *ne_rsrc_type_info;
+	u8 might_be_ishield_sfx_ne;
+	i64 ishield_sfx_ne_rsrc_pos;
+	i64 ishield_sfx_ne_rsrc_len;
 
 	i64 lx_page_offset_shift;
 	i64 lx_object_tbl_offset;
@@ -113,7 +118,7 @@ static void do_certificate(deark *c, lctx *d, i64 pos1, i64 len)
 	certtype = de_getu16le(pos1+6);
 	de_dbg(c, "cert type: %d", (int)certtype);
 	if(dlen<=8 || dlen > len) goto done;
-	if(c->extract_level>=2) {
+	if(d->extract_std_resources && c->extract_level>=2) {
 		const char *ext;
 		if(certtype==2) ext="p7b";
 		else ext="crt";
@@ -1054,6 +1059,7 @@ static void do_ne_pe_extract_resource(deark *c, lctx *d,
 	u32 type_id, const struct rsrc_type_info_struct *rsrci,
 	i64 pos, i64 len, de_finfo *fi)
 {
+	if(!d->extract_std_resources) return;
 	if(len<1 || len>DE_MAX_SANE_OBJECT_SIZE) return;
 
 	if(rsrci && rsrci->decoder_fn) {
@@ -1306,6 +1312,7 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, i64 npos)
 	i64 rnID;
 	i64 rnNameOffset;
 	i64 x;
+	u8 looks_like_ishield_sfx_ne = 0;
 	de_finfo *fi = NULL;
 	int saved_indent_level;
 
@@ -1346,15 +1353,27 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, i64 npos)
 		// Names are prefixed with a single-byte length.
 		x = (i64)de_getbyte(rnNameOffset);
 		if(x>0) {
-			de_ucstring *rname = NULL;
+			struct de_stringreaderdata *rname_srd = NULL;
 
-			rname = ucstring_create(c);
-			dbuf_read_to_ucstring(c->infile, rnNameOffset+1, x, rname, 0, DE_ENCODING_ASCII);
-			de_dbg(c, "resource name: \"%s\"", ucstring_getpsz(rname));
+			rname_srd = dbuf_read_string(c->infile, rnNameOffset+1, x, x, 0, DE_ENCODING_ASCII);
+			de_dbg(c, "resource name: \"%s\"", ucstring_getpsz(rname_srd->str));
 			if(c->filenames_from_file)
-				de_finfo_set_name_from_ucstring(c, fi, rname, 0);
-			ucstring_destroy(rname);
+				de_finfo_set_name_from_ucstring(c, fi, rname_srd->str, 0);
+
+			if(d->ne_rsrc_type_id==1024 && rsrc_size>=20 &&
+				!de_strcmp(rname_srd->sz, "MYRESOURCE"))
+			{
+				looks_like_ishield_sfx_ne = 1;
+			}
+
+			de_destroy_stringreaderdata(c, rname_srd);
 		}
+	}
+
+	if(looks_like_ishield_sfx_ne) {
+		d->might_be_ishield_sfx_ne = 1;
+		d->ishield_sfx_ne_rsrc_pos = rsrc_offset;
+		d->ishield_sfx_ne_rsrc_len = rsrc_size;
 	}
 
 	if(rsrc_size>0) {
@@ -1365,9 +1384,12 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, i64 npos)
 		else
 			rsrcname = "?";
 
-		de_dbg(c, "resource at %"I64_FMT", len=%"I64_FMT", type_id=%d (%s)", rsrc_offset,
-			rsrc_size, (int)d->ne_rsrc_type_id, rsrcname);
+		de_dbg(c, "resource at %"I64_FMT", len=%"I64_FMT", type_id=%u (%s)", rsrc_offset,
+			rsrc_size, (UI)d->ne_rsrc_type_id, rsrcname);
 		de_dbg_indent(c, 1);
+		if(looks_like_ishield_sfx_ne) {
+			de_dbg(c, "[InstallShield SFX data]");
+		}
 		do_ne_pe_extract_resource(c, d, d->ne_rsrc_type_id, d->ne_rsrc_type_info,
 			rsrc_offset, rsrc_size, fi);
 		de_dbg_indent(c, -1);
@@ -1589,7 +1611,10 @@ static void do_lx_rsrc(deark *c, lctx *d,
 
 		// Unlike in NE and PE format, it seems that image resources in LX files
 		// include the BITMAPFILEHEADER. That makes it easy.
-		dbuf_create_file_from_slice(c->infile, rsrc_offset_real, rsrc_size, ext, NULL, 0);
+		if(d->extract_std_resources) {
+			dbuf_create_file_from_slice(c->infile, rsrc_offset_real, rsrc_size,
+				ext, NULL, 0);
+		}
 		break;
 	}
 }
@@ -1695,14 +1720,40 @@ static void extract_pak16_from_sfx(deark *c, lctx *d,
 	de_dbg_indent(c, -1);
 }
 
+static void extract_ishieldsfx_ne(deark *c, lctx *d,
+	struct fmtutil_specialexe_detection_data *edd)
+{
+	de_module_params *mparams = NULL;
+
+	de_dbg(c, "[extracting InstallShield SFX NE]");
+
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->in_params.uint1 = (UI)d->ishield_sfx_ne_rsrc_pos;
+	mparams->in_params.uint2 = (UI)d->ishield_sfx_ne_rsrc_len;
+
+	de_dbg_indent(c, 1);
+	de_run_module_by_id(c, "is_sfx", mparams);
+	de_dbg_indent(c, -1);
+
+	de_free(c, mparams);
+}
+
 static void do_exesfx(deark *c, lctx *d)
 {
+	u8 suggest_opt_sfx = 0;
 	struct fmtutil_specialexe_detection_data edd;
 
 	if(!d->ei) return;
 	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
 	edd.flags_in |= 0x1;
-	fmtutil_detect_exesfx(c, d->ei, &edd);
+	if(d->might_be_ishield_sfx_ne) {
+		edd.detected_fmt = DE_SPECIALEXEFMT_ISHIELDNE;
+		de_strlcpy(edd.detected_fmt_name, "InstallShield (NE)",
+			sizeof(edd.detected_fmt_name));
+	}
+	else {
+		fmtutil_detect_exesfx(c, d->ei, &edd);
+	}
 
 	if(edd.zip_eocd_found && !edd.detected_fmt) {
 		// Probably a ZIP SFX, but maybe not, or maybe one we can't handle.
@@ -1726,6 +1777,14 @@ static void do_exesfx(deark *c, lctx *d)
 	else if(edd.detected_fmt==DE_SPECIALEXEFMT_PAK16SFX) {
 		extract_pak16_from_sfx(c, d, &edd);
 	}
+	else if(edd.detected_fmt==DE_SPECIALEXEFMT_ISHIELDNE) {
+		if(d->sfx_only_mode) {
+			extract_ishieldsfx_ne(c, d, &edd);
+		}
+		else {
+			suggest_opt_sfx = 1;
+		}
+	}
 	else if(edd.payload_valid) {
 		dbuf_create_file_from_slice(d->ei->f, edd.payload_pos, edd.payload_len,
 			edd.payload_file_ext, NULL, 0);
@@ -1733,6 +1792,11 @@ static void do_exesfx(deark *c, lctx *d)
 	else {
 		de_info(c, "Note: This might be a self-extracting %s archive, but it's "
 			"not a supported format or version.", edd.detected_fmt_name);
+	}
+
+	if(suggest_opt_sfx) {
+		de_info(c, "Note: This looks like a self-extracting %s archive. Use "
+			"\"-opt exe:sfx\" to attempt extraction.", edd.detected_fmt_name);
 	}
 
 done:
@@ -1785,6 +1849,7 @@ static void do_execomp(deark *c, lctx *d)
 	struct fmtutil_specialexe_detection_data edd;
 
 	if(d->execomp_mode!=1) {
+		if(d->sfx_only_mode) return;
 		if((!c->show_infomessages) && (c->debug_level<1)) return;
 	}
 
@@ -1823,7 +1888,12 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 			d->check_checksum = (c->debug_level>=2);
 		}
 	}
+	d->extract_std_resources = 1;
 	d->execomp_mode = (u8)de_get_ext_option_bool(c, "execomp", 0xff);
+	d->sfx_only_mode = (u8)de_get_ext_option_bool(c, "exe:sfx", 0);
+	if(d->sfx_only_mode) {
+		d->extract_std_resources = 0;
+	}
 
 	if(!do_all_headers(c, d)) goto done;
 
@@ -1890,6 +1960,7 @@ static int de_identify_exe(deark *c)
 static void de_help_exe(deark *c)
 {
 	de_msg(c, "-opt exe:checksum : Calculate the correct checksum");
+	de_msg(c, "-opt exe:sfx : Hint: Decode self-extracting archive");
 	de_msg(c, "-opt execomp : Try to decompress compressed files");
 }
 

@@ -40,6 +40,7 @@ struct member_data {
 	de_encoding input_encoding;
 	UI hdr_id;
 	enum objtype_enum objtype; // Artificial field; tells how to parse and process this item
+	u8 errflag;
 	u8 archiver_ver_num;
 	u8 min_ver_to_extract;
 	u8 os;
@@ -54,12 +55,15 @@ struct member_data {
 	u8 has_encrver_field;
 	u8 has_flags2_field;
 	u8 has_arch_mtime_field;
+	u8 cont_on_next_vol;
+	u8 cont_from_prev_vol;
 
 	u8 is_dir;
 	u8 is_executable;
 	u8 is_nonexecutable;
 	UI file_mode;
 	u32 crc_reported;
+	i64 extfile_pos; // 0 if field not present (or is present and 0)
 	i64 cmpr_len;
 	i64 orig_len;
 	i64 cmpr_pos;
@@ -67,19 +71,70 @@ struct member_data {
 	struct de_stringreaderdata *name_srd;
 };
 
-typedef struct localctx_struct {
-	de_encoding input_encoding; // if DE_ENCODING_UNKNOWN, autodetect for each member
+struct arj_logical_member {
+	// Data that may span multiple volumes
+	dbuf *outf;
+	de_ucstring *filename;
+	u8 warned_incomplete;
+	int fragment_count;
+	i64 total_orig_len; // total so far
+	i64 total_cmpr_len; // total so far
+};
+
+struct arjvol_struct {
+	dbuf *inf; // Expected to be a copy; do not free.
+	int volnum;
+	i64 archive_start;
 	u8 ansipage_flag;
 	u8 is_secured;
 	u8 is_old_secured;
 	u8 arjprot_flag;
 	u8 encryption_ver;
-	i64 archive_start;
 	i64 security_envelope_pos;
 	i64 security_envelope_len;
 	i64 arjprot_pos;
+};
+
+typedef struct localctx_arj {
+	dbuf *inf; // current input file; a copy of cv->inf
+	struct arjvol_struct *cv; // current volume
+	de_encoding input_encoding; // if DE_ENCODING_UNKNOWN, autodetect for each member
+	u8 mp_opt_used;
+	i64 firstvol_archive_start;
 	struct de_crcobj *crco;
+	struct arj_logical_member *clm; // "current logical member"
 } lctx;
+
+// errflag: If clm exists, report it as an error.
+static void arj_logical_member_finish_and_free(deark *c, lctx *d, u8 errflag)
+{
+	if(!d->clm) return;
+
+	if(errflag) {
+		if(d->mp_opt_used) {
+			de_err(c, "%s: Incomplete file; not all fragments were found",
+				ucstring_getpsz_d(d->clm->filename));
+		}
+		else {
+			if(!d->clm->warned_incomplete) {
+				de_warn(c, "%s: Incomplete file; use \"-mp\" for multi-volume support",
+					ucstring_getpsz_d(d->clm->filename));
+				d->clm->warned_incomplete = 1;
+			}
+		}
+	}
+	dbuf_close(d->clm->outf);
+	ucstring_destroy(d->clm->filename);
+	de_free(c, d->clm);
+	d->clm = NULL;
+}
+
+static void arj_logical_member_create(deark *c, lctx *d)
+{
+	arj_logical_member_finish_and_free(c, d, 1);
+	d->clm = de_malloc(c, sizeof(struct arj_logical_member));
+	d->clm->filename = ucstring_create(c);
+}
 
 static void read_arj_datetime(deark *c, lctx *d, struct member_data *md,
 	i64 pos, struct de_timestamp *ts1, const char *name)
@@ -87,8 +142,8 @@ static void read_arj_datetime(deark *c, lctx *d, struct member_data *md,
 	i64 dosdt, dostm;
 	char timestamp_buf[64];
 
-	dostm = de_getu16le(pos);
-	dosdt = de_getu16le(pos+2);
+	dostm = dbuf_getu16le(d->inf, pos);
+	dosdt = dbuf_getu16le(d->inf, pos+2);
 	if(dostm==0 && dosdt==0) {
 		de_snprintf(timestamp_buf, sizeof(timestamp_buf), "[not set]");
 	}
@@ -118,8 +173,8 @@ static void handle_comment(deark *c, lctx *d, struct member_data *md, i64 pos,
 	if(nbytes_avail<2) goto done;
 	s = ucstring_create(c);
 	// The header containing the comment is limited to about 2.5KB, so we don't have
-	// check sizes here.
-	dbuf_read_to_ucstring(c->infile, pos, nbytes_avail, s, DE_CONVFLAG_STOP_AT_NUL,
+	// to check sizes here.
+	dbuf_read_to_ucstring(d->inf, pos, nbytes_avail, s, DE_CONVFLAG_STOP_AT_NUL,
 		DE_EXTENC_MAKE(md->input_encoding, DE_ENCSUBTYPE_HYBRID));
 	if(s->len<1) goto done;
 	de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(s));
@@ -388,10 +443,63 @@ static void decompress_method_1(deark *c, lctx *d, struct member_data *md,
 	}
 }
 
+// Manages d->clm.
+// Sets md->errflag if we should give up on this physical member.
+static void acquire_logical_member(deark *c, lctx *d, struct member_data *md)
+{
+	u8 need_incomplete_wflag = 0;
+
+	if(d->clm) {
+		u8 use_current_item = 1;
+
+		// We already have a logical member. Try to figure out if it's
+		// the right one.
+		// TODO?: We're not doing much validation of this, but the format
+		// doesn't offer a nice way to do it. Maybe we should do more,
+		// such as checking the filename.
+
+		if(!md->cont_from_prev_vol) {
+			use_current_item = 0;
+		}
+
+		if(use_current_item) {
+			if(md->extfile_pos != d->clm->total_orig_len) {
+				use_current_item = 0;
+			}
+		}
+
+		if(!use_current_item) {
+			arj_logical_member_finish_and_free(c, d, 1);
+		}
+	}
+	else {
+		if(md->cont_from_prev_vol) {
+			// Non-initial fragment, but no previous fragment
+			if(d->mp_opt_used) {
+				de_err(c, "%s: Missing initial part of fragmented file",
+					ucstring_getpsz_d(md->name_srd->str));
+				md->errflag = 1;
+			}
+			else {
+				de_warn(c, "%s: Incomplete file; use \"-mp\" for multi-volume support",
+					ucstring_getpsz_d(md->name_srd->str));
+				need_incomplete_wflag = 1;
+			}
+		}
+	}
+
+	if(!d->clm) {
+		arj_logical_member_create(c, d);
+		ucstring_append_ucstring(d->clm->filename, md->name_srd->str);
+	}
+	if(need_incomplete_wflag) {
+		d->clm->warned_incomplete = 1;
+	}
+}
+
 static void extract_member_file(deark *c, lctx *d, struct member_data *md)
 {
 	de_finfo *fi = NULL;
-	dbuf *outf = NULL;
 	size_t k;
 	int need_to_decompress;
 	u32 crc_calc;
@@ -416,7 +524,7 @@ static void extract_member_file(deark *c, lctx *d, struct member_data *md)
 	if((md->flags & 0x01) && need_to_decompress) {
 		de_err(c, "%s: %sed files are not supported",
 			ucstring_getpsz_d(md->name_srd->str),
-			(d->encryption_ver>=2 ? "Encrypt":"Garbl"));
+			(d->cv->encryption_ver>=2 ? "Encrypt":"Garbl"));
 		goto done;
 	}
 
@@ -426,10 +534,11 @@ static void extract_member_file(deark *c, lctx *d, struct member_data *md)
 		goto done;
 	}
 
-	if((md->flags & 0x0c)!=0) { // Test for VOLUME(0x4) and/or EXTFILE(0x08) flag
-		de_warn(c, "%s: Incomplete file; multi-volume archives are not supported",
-			ucstring_getpsz_d(md->name_srd->str));
-	}
+	acquire_logical_member(c, d, md);
+	if(md->errflag) goto done;
+	d->clm->total_cmpr_len += md->cmpr_len;
+	d->clm->total_orig_len += md->orig_len;
+	d->clm->fragment_count++;
 
 	fi = de_finfo_create(c);
 
@@ -451,21 +560,24 @@ static void extract_member_file(deark *c, lctx *d, struct member_data *md)
 		fi->timestamp[k] = md->tmstamp[k];
 	}
 
-	outf = dbuf_create_output_file(c, NULL, fi, 0);
-	dbuf_enable_wbuffer(outf);
+	if(!d->clm->outf) {
+		d->clm->outf = dbuf_create_output_file(c, NULL, fi, 0);
+		dbuf_enable_wbuffer(d->clm->outf);
+	}
 
 	if(md->is_dir) goto done;
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
-	dcmpri.f = c->infile;
+	dcmpri.f = d->inf;
 	dcmpri.pos = md->cmpr_pos;
 	dcmpri.len = md->cmpr_len;
-	dcmpro.f = outf;
+	dcmpro.f = d->clm->outf;
 	dcmpro.len_known = 1;
 	dcmpro.expected_len = md->orig_len;
 
 	de_crcobj_reset(d->crco);
-	dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)d->crco);
+	dbuf_set_writelistener(d->clm->outf, de_writelistener_for_crc,
+		(void*)d->crco);
 
 	if(md->orig_len==0) {
 		;
@@ -495,7 +607,22 @@ static void extract_member_file(deark *c, lctx *d, struct member_data *md)
 	}
 
 done:
-	dbuf_close(outf);
+	if(md->errflag) {
+		// Error message has already been issued, presumably
+		arj_logical_member_finish_and_free(c, d, 0);
+	}
+	else if(d->clm && !md->cont_on_next_vol) {
+		if(d->clm->fragment_count>1) {
+			// FIXME? The totals will be indented as if they were associated with
+			// the last fragment's compressed data, which seems wrong, but fixing
+			// it would be a hack.
+			de_dbg(c, "num fragments: %d", d->clm->fragment_count);
+			de_dbg(c, "total cmpr size: %"I64_FMT, d->clm->total_cmpr_len);
+			de_dbg(c, "total orig size: %"I64_FMT, d->clm->total_orig_len);
+		}
+		arj_logical_member_finish_and_free(c, d, 0);
+	}
+
 	if(fi) de_finfo_destroy(c, fi);
 }
 
@@ -566,7 +693,7 @@ static int do_extended_headers(deark *c, lctx *d, struct member_data *md,
 		i64 ext_hdr_startpos = pos;
 		i64 dpos;
 
-		ext_hdr_size = de_getu16le_p(&pos);
+		ext_hdr_size = dbuf_getu16le_p(d->inf, &pos);
 
 		if(ext_hdr_size==0) {
 			de_dbg(c, "end of ext hdrs at %"I64_FMT, pos);
@@ -577,22 +704,22 @@ static int do_extended_headers(deark *c, lctx *d, struct member_data *md,
 			ext_hdr_size);
 		de_dbg_indent(c, 1);
 
-		if(pos+ext_hdr_size+4 > c->infile->len) goto done;
+		if(pos+ext_hdr_size+4 > d->inf->len) goto done;
 
 		dpos = pos;
 
 		de_crcobj_reset(d->crco);
-		de_crcobj_addslice(d->crco, c->infile, dpos, ext_hdr_size);
+		de_crcobj_addslice(d->crco, d->inf, dpos, ext_hdr_size);
 		crc_calc = de_crcobj_getval(d->crco);
 
 		pos = dpos + ext_hdr_size;
-		crc_reported = (u32)de_getu32le_p(&pos);
+		crc_reported = (u32)dbuf_getu32le_p(d->inf, &pos);
 
 		de_dbg(c, "ext hdr crc (reported): 0x%08x", (UI)crc_reported);
 		de_dbg(c, "ext hdr crc (calculated): 0x%08x", (UI)crc_calc);
 		if(crc_calc != crc_reported) goto done; // Assume we've gone off the rails
 
-		de_dbg_hexdump(c, c->infile, dpos, ext_hdr_size, 256, NULL, 0x1);
+		de_dbg_hexdump(c, d->inf, dpos, ext_hdr_size, 256, NULL, 0x1);
 
 		idx++;
 		de_dbg_indent(c, -1);
@@ -631,7 +758,7 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	de_dbg_indent_save(c, &saved_indent_level);
 	md = de_malloc(c, sizeof(struct member_data));
 
-	md->hdr_id = (UI)de_getu16le_p(&pos);
+	md->hdr_id = (UI)dbuf_getu16le_p(d->inf, &pos);
 	if(md->hdr_id!=0xea60) {
 		de_err(c, "ARJ data not found at %"I64_FMT, pos1);
 		goto done;
@@ -640,7 +767,7 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	de_dbg(c, "block at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
-	basic_hdr_size = de_getu16le_p(&pos);
+	basic_hdr_size = dbuf_getu16le_p(d->inf, &pos);
 	de_dbg(c, "basic header size: %"I64_FMT, basic_hdr_size);
 	if(basic_hdr_size==0) {
 		md->objtype = ARJ_OBJTYPE_EOA;
@@ -648,8 +775,8 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	else {
 		// Skip ahead to read some fields that can affect fields that appear
 		// before them.
-		md->archiver_ver_num = de_getbyte(pos1+5);
-		md->file_type = de_getbyte(pos1+10);
+		md->archiver_ver_num = dbuf_getbyte(d->inf, pos1+5);
+		md->file_type = dbuf_getbyte(d->inf, pos1+10);
 
 		if(md->file_type==ARJ_FILETYPE_MAINHDR) {
 			md->objtype = ARJ_OBJTYPE_MAINHDR;
@@ -687,7 +814,7 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	de_dbg_indent(c, 1);
 
 	basic_hdr_endpos = pos1 + 4 + basic_hdr_size;
-	first_hdr_size = (i64)de_getbyte_p(&pos);
+	first_hdr_size = (i64)dbuf_getbyte_p(d->inf, &pos);
 	de_dbg(c, "first header size: %"I64_FMT, first_hdr_size);
 	first_hdr_endpos = pos1 + 4 + first_hdr_size;
 	pos++; // md->archiver_ver_num, already read
@@ -706,10 +833,10 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		md->archiver_ver_num>=102);
 	md->has_arch_mtime_field = (u8)(md->archiver_ver_num>=6);
 
-	md->min_ver_to_extract = de_getbyte_p(&pos);
+	md->min_ver_to_extract = dbuf_getbyte_p(d->inf, &pos);
 	de_dbg(c, "min ver to extract: %u", (UI)md->min_ver_to_extract);
 
-	md->os = de_getbyte_p(&pos);
+	md->os = dbuf_getbyte_p(d->inf, &pos);
 	de_dbg(c, "host OS: %u (%s)", (UI)md->os, get_host_os_name(md->os));
 
 	if((md->os==ARJ_OS_UNIX || md->os==ARJ_OS_NEXT) &&
@@ -719,29 +846,41 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		md->unix_timestamp_format = 1;
 	}
 
-	md->flags = de_getbyte_p(&pos);
+	md->flags = dbuf_getbyte_p(d->inf, &pos);
 	flags_descr = ucstring_create(c);
 	get_flags_descr(md, md->flags, flags_descr);
 	de_dbg(c, "flags: 0x%02x (%s)", (UI)md->flags, ucstring_getpsz_d(flags_descr));
 	if(md->objtype==ARJ_OBJTYPE_MAINHDR) {
 		if(md->supports_ANSIPAGE_flag && (md->flags & 0x02)) {
-			d->ansipage_flag = 1;
+			d->cv->ansipage_flag = 1;
 		}
 		if(md->flags & 0x40) {
-			d->is_secured = 1;
+			d->cv->is_secured = 1;
 		}
 		else if((!md->supports_ANSIPAGE_flag) && (md->flags & 0x02)) {
-			d->is_old_secured = 1;
+			d->cv->is_old_secured = 1;
 		}
 		if(md->flags & 0x08) {
-			d->arjprot_flag = 1;
+			d->cv->arjprot_flag = 1;
+		}
+	}
+	else if(md->objtype==ARJ_OBJTYPE_MEMBERFILE) {
+		if(md->flags & 0x04) { // "VOLUME"
+			md->cont_on_next_vol = 1;
+		}
+		if(md->flags & 0x08) { // "EXTFILE"
+			// Note: ARJ's -jx option can be used to create files that use this flag,
+			// but aren't actually part of a multi-volume archive. But -jx is mainly
+			// intended to be used in conjuction with constructing/repairing multi-
+			// volume archives.
+			md->cont_from_prev_vol = 1;
 		}
 	}
 
 	// Now we have enough information to choose a character encoding.
 	md->input_encoding = d->input_encoding;
 	if(md->input_encoding==DE_ENCODING_UNKNOWN) {
-		if(d->ansipage_flag) {
+		if(d->cv->ansipage_flag) {
 			md->input_encoding = DE_ENCODING_WINDOWS1252;
 		}
 		else {
@@ -750,13 +889,13 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	}
 
 	if(md->objtype==ARJ_OBJTYPE_MAINHDR) {
-		b = de_getbyte_p(&pos);
-		if(d->is_secured) {
+		b = dbuf_getbyte_p(d->inf, &pos);
+		if(d->cv->is_secured) {
 			de_dbg(c, "security version: %u", (UI)b);
 		}
 	}
 	else {
-		md->method = de_getbyte_p(&pos);
+		md->method = dbuf_getbyte_p(d->inf, &pos);
 		de_dbg(c, "cmpr method: %u", (UI)md->method);
 	}
 
@@ -771,7 +910,7 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		// (try to continue)
 	}
 
-	md->reserved1 = de_getbyte_p(&pos);
+	md->reserved1 = dbuf_getbyte_p(d->inf, &pos);
 	de_dbg(c, "reserved: 0x%02x", (UI)md->reserved1);
 
 	if(md->objtype==ARJ_OBJTYPE_MAINHDR) {
@@ -789,8 +928,8 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 
 	if(md->objtype==ARJ_OBJTYPE_MAINHDR) {
 		md->cmpr_len = 0;
-		if(d->is_old_secured) {
-			n = de_getu32le_p(&pos);
+		if(d->cv->is_old_secured) {
+			n = dbuf_getu32le_p(d->inf, &pos);
 			de_dbg(c, "archive size: %"I64_FMT, n); // This is a guess
 		}
 		else if(md->has_arch_mtime_field) {
@@ -804,26 +943,26 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	else {
 		// Assume this field always exists, except for the main header and EOA.
 		// We need it just to parse the file.
-		md->cmpr_len = de_getu32le_p(&pos);
+		md->cmpr_len = dbuf_getu32le_p(d->inf, &pos);
 		de_dbg(c, "compressed size: %"I64_FMT, md->cmpr_len);
 	}
 
-	if(md->objtype==ARJ_OBJTYPE_MAINHDR && d->is_old_secured) {
+	if(md->objtype==ARJ_OBJTYPE_MAINHDR && d->cv->is_old_secured) {
 		// This is a guess
 		de_dbg(c, "security data: %s",
-			de_render_hexbytes_from_dbuf(c->infile, pos, 12, tmpbuf, sizeof(tmpbuf)));
+			de_render_hexbytes_from_dbuf(d->inf, pos, 12, tmpbuf, sizeof(tmpbuf)));
 		pos += 12;
 		goto at_offset_32;
 	}
 
 	if(md->objtype==ARJ_OBJTYPE_MAINHDR) {
-		n = de_getu32le_p(&pos);
-		if(d->is_secured) {
+		n = dbuf_getu32le_p(d->inf, &pos);
+		if(d->cv->is_secured) {
 			de_dbg(c, "archive size: %"I64_FMT, n);
 		}
 	}
 	else if(md->objtype==ARJ_OBJTYPE_MEMBERFILE) {
-		md->orig_len = de_getu32le_p(&pos);
+		md->orig_len = dbuf_getu32le_p(d->inf, &pos);
 		de_dbg(c, "original size: %"I64_FMT, md->orig_len);
 	}
 	else {
@@ -831,35 +970,35 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 	}
 
 	if(md->objtype==ARJ_OBJTYPE_MAINHDR) {
-		n = de_getu32le_p(&pos);
-		if(d->is_secured) {
-			d->security_envelope_pos = n;
-			de_dbg(c, "security envelope pos: %"I64_FMT, d->security_envelope_pos);
+		n = dbuf_getu32le_p(d->inf, &pos);
+		if(d->cv->is_secured) {
+			d->cv->security_envelope_pos = n;
+			de_dbg(c, "security envelope pos: %"I64_FMT, d->cv->security_envelope_pos);
 		}
-		else if(d->arjprot_flag) {
-			d->arjprot_pos = n; // This is a guess
-			de_dbg(c, "ARJPROT data pos: %"I64_FMT, d->arjprot_pos);
+		else if(d->cv->arjprot_flag) {
+			d->cv->arjprot_pos = n; // This is a guess
+			de_dbg(c, "ARJPROT data pos: %"I64_FMT, d->cv->arjprot_pos);
 		}
 	}
 	else {
-		md->crc_reported = (u32)de_getu32le_p(&pos);
+		md->crc_reported = (u32)dbuf_getu32le_p(d->inf, &pos);
 		de_dbg(c, "crc (reported): 0x%08x", (UI)md->crc_reported);
 	}
 
-	n = de_getu16le_p(&pos);
+	n = dbuf_getu16le_p(d->inf, &pos);
 	de_dbg(c, "filespec pos in filename: %d", (int)n);
 
 	if(md->objtype==ARJ_OBJTYPE_MAINHDR) {
-		n = de_getu16le_p(&pos);
-		if(d->is_secured) {
-			d->security_envelope_len = n;
-			de_dbg(c, "security envelope len: %"I64_FMT, d->security_envelope_len);
+		n = dbuf_getu16le_p(d->inf, &pos);
+		if(d->cv->is_secured) {
+			d->cv->security_envelope_len = n;
+			de_dbg(c, "security envelope len: %"I64_FMT, d->cv->security_envelope_len);
 		}
 	}
 	else {
 		de_ucstring *mode_descr;
 
-		md->file_mode = (UI)de_getu16le_p(&pos);
+		md->file_mode = (UI)dbuf_getu16le_p(d->inf, &pos);
 		mode_descr = ucstring_create(c);
 		if(md->os==ARJ_OS_DOS || md->os==ARJ_OS_OS2 || md->os==ARJ_OS_WIN95 || md->os==ARJ_OS_WIN32) {
 			de_describe_dos_attribs(c, md->file_mode, mode_descr, 0);
@@ -883,13 +1022,13 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 
 at_offset_32:
 
-	b = de_getbyte_p(&pos); // first chapter / encryption ver / host data (byte1) / unused
+	b = dbuf_getbyte_p(d->inf, &pos); // first chapter / encryption ver / host data (byte1) / unused
 	if(md->objtype==ARJ_OBJTYPE_MAINHDR) {
 		if(md->has_encrver_field) {
 			de_dbg(c, "encryption ver: %u", (UI)b);
 			// We expect the GARBLED flag to be set in the main header when this field
 			// is meaningful, but I don't think ARJ requires that.
-			d->encryption_ver = b;
+			d->cv->encryption_ver = b;
 		}
 	}
 	else {
@@ -898,7 +1037,7 @@ at_offset_32:
 		}
 	}
 
-	b = de_getbyte_p(&pos); // last chapter / host data (byte2) / unused
+	b = dbuf_getbyte_p(d->inf, &pos); // last chapter / host data (byte2) / unused
 	if(md->supports_chapters) {
 		de_dbg(c, "last chapter: %u", (UI)b);
 	}
@@ -910,13 +1049,13 @@ at_offset_32:
 
 		if(md->objtype==ARJ_OBJTYPE_MAINHDR) {
 			if(extra_data_len>=1) {
-				b = de_getbyte_p(&pos);
+				b = dbuf_getbyte_p(d->inf, &pos);
 				if(md->flags & 0x08) {
 					de_dbg(c, "protection factor: %u", (UI)b);
 				}
 			}
 			if(extra_data_len>=2) {
-				b = de_getbyte_p(&pos);
+				b = dbuf_getbyte_p(d->inf, &pos);
 				if(md->has_flags2_field) {
 					de_dbg(c, "flags (2nd set): 0x%02x", (UI)b);
 				}
@@ -924,8 +1063,8 @@ at_offset_32:
 		}
 		else if(md->objtype==ARJ_OBJTYPE_MEMBERFILE) {
 			if(extra_data_len>=4) {
-				n = de_getu32le_p(&pos);
-				de_dbg(c, "ext. file pos: %"I64_FMT, n);
+				md->extfile_pos = dbuf_getu32le_p(d->inf, &pos);
+				de_dbg(c, "ext. file pos: %"I64_FMT, md->extfile_pos);
 			}
 			if(extra_data_len>=12) {
 				read_arj_datetime(c, d, md, pos, &md->tmstamp[DE_TIMESTAMPIDX_ACCESS], "access");
@@ -934,7 +1073,7 @@ at_offset_32:
 				pos += 4;
 			}
 			if(extra_data_len>=16) {
-				n = de_getu32le_p(&pos);
+				n = dbuf_getu32le_p(d->inf, &pos);
 				de_dbg(c, "ext. orig size: %"I64_FMT, n);
 			}
 		}
@@ -947,7 +1086,7 @@ at_offset_32:
 	nbytes_avail = basic_hdr_endpos - pos;
 	de_dbg(c, "filename/comment area at %"I64_FMT", len=%"I64_FMT, pos, nbytes_avail);
 	de_dbg_indent(c, 1);
-	md->name_srd = dbuf_read_string(c->infile, pos, nbytes_avail, 256, DE_CONVFLAG_STOP_AT_NUL,
+	md->name_srd = dbuf_read_string(d->inf, pos, nbytes_avail, 256, DE_CONVFLAG_STOP_AT_NUL,
 		md->input_encoding);
 	if(!(md->flags & 0x10)) {
 		// "PATHSYM" flag missing, need to convert '\' to '/'
@@ -964,11 +1103,11 @@ at_offset_32:
 
 	de_dbg_indent(c, -1);
 	pos = basic_hdr_endpos; // Now at the offset just after the 'comment' field
-	basic_hdr_crc_reported = (u32)de_getu32le_p(&pos);
+	basic_hdr_crc_reported = (u32)dbuf_getu32le_p(d->inf, &pos);
 	de_dbg(c, "basic hdr crc (reported): 0x%08x", (UI)basic_hdr_crc_reported);
 
 	de_crcobj_reset(d->crco);
-	de_crcobj_addslice(d->crco, c->infile, pos1+4, basic_hdr_size);
+	de_crcobj_addslice(d->crco, d->inf, pos1+4, basic_hdr_size);
 	basic_hdr_crc_calc = de_crcobj_getval(d->crco);
 	de_dbg(c, "basic hdr crc (calculated): 0x%08x", (UI)basic_hdr_crc_calc);
 	if(basic_hdr_crc_calc != basic_hdr_crc_reported) {
@@ -1010,16 +1149,16 @@ static void report_extra_bytes(deark *c, lctx *d, i64 main_endpos)
 	i64 num_extra_bytes;
 	i64 max_pos;
 
-	if(d->arjprot_flag) {
+	if(d->cv->arjprot_flag) {
 		return; // This check is not implemented in this situation.
 	}
 
 	max_pos = main_endpos;
-	if(d->security_envelope_len>0) {
-		max_pos = de_max_int(max_pos, d->security_envelope_pos+d->security_envelope_len);
+	if(d->cv->security_envelope_len>0) {
+		max_pos = de_max_int(max_pos, d->cv->security_envelope_pos+d->cv->security_envelope_len);
 	}
 
-	num_extra_bytes = c->infile->len - max_pos;
+	num_extra_bytes = d->inf->len - max_pos;
 	if(num_extra_bytes>1) {
 		de_dbg(c, "[%"I64_FMT" extra bytes at EOF, starting at %"I64_FMT"]", num_extra_bytes, max_pos);
 	}
@@ -1033,7 +1172,7 @@ static void do_member_sequence(deark *c, lctx *d, i64 pos1)
 		int ret;
 		i64 bytes_consumed = 0;
 
-		if(pos+2 > c->infile->len) goto done;
+		if(pos+2 > d->inf->len) goto done;
 
 		ret = do_header_or_member(c, d, pos, 0, &bytes_consumed);
 		if(ret==0 || bytes_consumed<2) goto done;
@@ -1051,11 +1190,11 @@ done:
 
 static void do_security_envelope(deark *c, lctx *d)
 {
-	if(d->security_envelope_len==0) return;
-	de_dbg(c, "security envelope at %"I64_FMT", len=%"I64_FMT, d->security_envelope_pos,
-		d->security_envelope_len);
+	if(d->cv->security_envelope_len==0) return;
+	de_dbg(c, "security envelope at %"I64_FMT", len=%"I64_FMT, d->cv->security_envelope_pos,
+		d->cv->security_envelope_len);
 	de_dbg_indent(c, 1);
-	de_dbg_hexdump(c, c->infile, d->security_envelope_pos, d->security_envelope_len,
+	de_dbg_hexdump(c, d->inf, d->cv->security_envelope_pos, d->cv->security_envelope_len,
 		256, NULL, 0x0);
 	de_dbg_indent(c, -1);
 }
@@ -1117,13 +1256,35 @@ static i64 get_exe_overlay_pos(deark *c)
 	return overlay_pos;
 }
 
+// Caller allocs/frees v, and sets:
+//   v->inf
+//   v->volnum
+//   v->archive_start
+static void do_arj_volume(deark *c, lctx *d, struct arjvol_struct *v)
+{
+	i64 pos;
+	i64 bytes_consumed = 0;
+
+	d->cv = v;
+	d->inf = v->inf;
+	pos = v->archive_start;
+	if(do_header_or_member(c, d, pos, 1, &bytes_consumed) != 1) goto done;
+	pos += bytes_consumed;
+	if(d->cv->is_secured) {
+		do_security_envelope(c, d);
+	}
+
+	do_member_sequence(c, d, pos);
+
+done:
+	;
+}
+
 static void do_run_arj_relocator(deark *c, struct options_struct *arj_opts);
 
 static void de_run_arj(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	i64 pos;
-	i64 bytes_consumed = 0;
 	u8 archive_start_req_flag = 0;
 	u8 used_scan = 0;
 	i64 archive_start_req = 0;
@@ -1132,6 +1293,8 @@ static void de_run_arj(deark *c, de_module_params *mparams)
 	u8 scan_opt; // 0 or 1, 0xff for unset
 	int modcode_R = 0;
 	struct options_struct *arj_opts = NULL;
+	struct arjvol_struct *firstvol = NULL;
+	struct arjvol_struct *mpvol = NULL;
 
 	arj_opts = de_malloc(c, sizeof(struct options_struct));
 	arj_opts->mparams = mparams;
@@ -1249,26 +1412,54 @@ after_archive_start_known:
 
 	d = de_malloc(c, sizeof(lctx));
 
-	d->archive_start = arj_opts->archive_start;
-
 	de_declare_fmt(c, "ARJ");
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
-
-	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-	pos = d->archive_start;
-	if(do_header_or_member(c, d, pos, 1, &bytes_consumed) != 1) goto done;
-	pos += bytes_consumed;
-	if(d->is_secured) {
-		do_security_envelope(c, d);
+	if(c->mp_opt_used) {
+		if(c->module_disposition!=DE_MODDISP_INTERNAL) {
+			// Did the user use "-mp"?
+			d->mp_opt_used = 1;
+		}
 	}
 
-	do_member_sequence(c, d, pos);
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+
+	firstvol = de_malloc(c, sizeof(struct arjvol_struct));
+	firstvol->volnum = 0;
+	firstvol->inf = c->infile;
+	firstvol->archive_start = arj_opts->archive_start;
+
+	do_arj_volume(c, d, firstvol);
+
+	if(c->mp_data) {
+		int k;
+
+		for(k=0; k<c->mp_data->count; k++) {
+
+			de_dbg(c, "[mp file %d: %s]", k, c->mp_data->item[k].fn);
+			if(mpvol) {
+				de_free(c, mpvol);
+			}
+			mpvol = de_malloc(c, sizeof(struct arjvol_struct));
+			mpvol->volnum = k+1;
+			mpvol->archive_start = 0;
+
+			c->mp_data->item[k].f = dbuf_open_input_file(c, c->mp_data->item[k].fn);
+			if(!c->mp_data->item[k].f) goto done;  // todo: error?
+			mpvol->inf = c->mp_data->item[k].f;
+			do_arj_volume(c, d, mpvol);
+			dbuf_close(c->mp_data->item[k].f);
+			c->mp_data->item[k].f = NULL;
+		}
+	}
 
 done:
 	if(d) {
+		arj_logical_member_finish_and_free(c, d, 1);
 		de_crcobj_destroy(d->crco);
 		de_free(c, d);
 	}
+	de_free(c, firstvol);
+	de_free(c, mpvol);
 	de_free(c, arj_opts);
 }
 
@@ -1297,6 +1488,7 @@ void de_module_arj(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_arj;
 	mi->identify_fn = de_identify_arj;
 	mi->help_fn = de_help_arj;
+	mi->flags |= DE_MODFLAG_MULTIPART;
 }
 
 /////////////////////// ARJ relocator utility

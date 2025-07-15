@@ -404,6 +404,14 @@ static void do_write_dcmpr(deark *c, lctx *d)
 
 	dbuf_close(outf);
 
+	if(d->host_ei->is_extended) {
+		// I've seen rare NE and LX files in which the DOS stub is EXEPACK-compressed.
+		// TODO? It might be possible to try to make them work, but I don't think
+		// it's worth the trouble.
+		de_warn(c, "This might be an extended EXE format. "
+			"Only the DOS part will work after decompression.");
+	}
+
 	if(!d->errflag) {
 		de_stdwarn_execomp(c);
 	}

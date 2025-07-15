@@ -22,6 +22,8 @@ Deark -- Information about supported formats
   - GlowIcons / OS3.5: Fully supported.
 
 * AMOS Picture Bank (module="abk")
+  Options
+   -opt abk:allownopal - Try to decode images lacking a palette
 
 * AMOS Sprite Bank (AmSp) / AMOS Icon Bank (AmIc) (module="abk")
 
@@ -64,6 +66,8 @@ Deark -- Information about supported formats
 * Apple volume label image (module="applevol")
 
 * ART - PFS: 1st Publisher clip art (module="fp_art")
+  - Supports the common format, and the compressed hi-res format.
+  - In some cases, you may have to use "-m fp_art".
 
 * ArtWorx Data Format (ADF) (module="artworx_adf")
 
@@ -193,7 +197,7 @@ Deark -- Information about supported formats
 
 * EggPaint (*.trp) (module="eggpaint")
 
-* Enhanced Windows Metafile (module=emf)
+* Enhanced Windows Metafile (module="emf")
   - Extract BMP and other images from some records.
 
 * EPOC MBM/Sketch/AIF (module="epocimage")
@@ -273,7 +277,7 @@ Deark -- Information about supported formats
 
 * HSI Raw (module="hsiraw")
 
-* ICA (Icon Manager Archive) (module=iconmgr_ica) (experimental)
+* ICA (Icon Manager Archive) (module="iconmgr_ica") (experimental)
   Related to Icon Manager by Impact Software and L. Gray.
 
 * icns (Apple Icon) (module="icns")
@@ -311,7 +315,7 @@ Deark -- Information about supported formats
 
 * InShape IIM (module="iim")
 
-* Jigsaw (.jig) (module=jigsaw_wk)
+* Jigsaw (.jig) (module="jigsaw_wk")
   A Windows 3.x program by Walter A. Kuhn.
   - Extract the main image.
 
@@ -382,6 +386,10 @@ Deark -- Information about supported formats
 * MMM (MacroMind Movie) (module="mmm") (experimental)
   - Can extract images, but cannot always get the colors right.
   - Audio conversion to WAV is attempted.
+  Options
+   -file2 <file.mmm> - File to read the palette from
+   -opt mmm:palid=<id> - Use this palette
+   -opt mmm:allowbad - Keep going after certain errors
 
 * MRW (Minolta RAW) (module="mrw")
   - Process Exif data (or extract it: use -a)
@@ -498,6 +506,9 @@ Deark -- Information about supported formats
    -opt pixfolio:undelete - Also extract deleted images.
 
 * PKM (GrafX2 image) (module="pkm")
+
+* PM image (module="pm_xv") (experimental)
+  Obscure image format supported by XV viewer.
 
 * PNG / MNG / JNG (module="png")
   - Extract XMP data.
@@ -681,16 +692,16 @@ Deark -- Information about supported formats
 
 * Windows 1.0 ICO/CUR (module="win1ico")
 
-* Windows Metafile (module=wmf)
+* Windows Metafile (module="wmf")
   - Extract BMP images from some records.
   - Extract embedded EMF documents.
 
-* Winzle (module=winzle)
+* Winzle (module="winzle")
   - Convert Winzle obfuscated BMP (.wzl) to BMP.
 
 * Wiz Solitaire deck (module="wizsolitaire")
 
-* WordPerfect Graphics (module=wpg)
+* WordPerfect Graphics (module="wpg")
   - Extract bitmaps
 
 * X11 puzzle (module="xpuzzle")
@@ -797,6 +808,8 @@ Deark -- Information about supported formats
   Variant of ARC.
 
 * ARJ (module="arj")
+  - Multi-volumes archives are supported; use "-mp" (experimental). All volumes
+    must be listed on the command line, in the correct order.
   Options
    -opt arj:entrypoint=<n> : Specify the offset of ARJ data.
    -opt arj:scan=0 : Disable scanning for the ARJ data.
@@ -819,7 +832,7 @@ Deark -- Information about supported formats
   Variant of LHA by MylesHi! Software. Deark tries to convert it to LHA.
   - File extension must be ".car" (or use "-m car").
 
-* CAZIP (module="cashrink") (experimental)
+* CAZIP (module="cazip") (experimental)
   A compressed file format for software installation.
 
 * CD/raw (module="cd_raw")
@@ -900,6 +913,11 @@ Deark -- Information about supported formats
 * InstallShield installer archive (module="is_instarch")
   This is usually a file named "_inst32i.ex_" or "_inst16.ex_".
 
+* InstallShield SFX EXE-NE (via module="exe") (experimental/incomplete)
+  InstallShield self-extracting installers for Windows 3.x.
+  - You must use "-opt exe:sfx".
+  - Extracted files will have placeholder names like "ishield000.dat".
+
 * InstallShield Z archive (module="is_z")
   - Mult-volume archives aren't supported.
 
@@ -926,7 +944,7 @@ Deark -- Information about supported formats
 
 * LIF (Knowledge Dynamics) (module="lif_kdc") (incomplete)
 
-* LoadDskF/SaveDskF (module=loaddskf)
+* LoadDskF/SaveDskF (module="loaddskf")
   An OS/2 floppy disk image format.
   - By default, non-compressed files are interpreted (as with FAT).
   - Compressed files are decompressed.
@@ -990,6 +1008,18 @@ Deark -- Information about supported formats
 
 * MRNZ (module="mrnz")
   Installer format used by PC DOS.
+
+* MS-DOS v2.0-3.2 BACKUP (module="dosbackup20") (experimental)
+  - If the file was split onto multiple volumes, you must use the "-mp" option,
+    and list all the file fragments (in any order).
+
+* MS-DOS v3.3-5.x BACKUP (module="dosbackup33") (experimental)
+  This is a multi-file format that uses CONTROL.* and BACKUP.* files.
+  - This module is very picky, partly because it doesn't rely on the input
+    filenames.
+  - You must use the "-mp" option, and list all the CONTROL files in the
+    correct order, and all the BACKUP files in the correct order. Preferably,
+    list all the CONTROL files before any BACKUP files.
 
 * MSA (Magic Shadow Archiver) (module="msa") (experimental)
   - Atari ST disk image format.
@@ -1087,6 +1117,8 @@ Deark -- Information about supported formats
 * StuffIt (.sit) (module="stuffit")
   - Limited support. Old format only.
 
+* T64 (Commodore 64 tape format) (module="t64")
+
 * tar (module="tar")
   - Rare files may need "-m tar", as tar is difficult to autodetect.
 
@@ -1122,7 +1154,102 @@ Deark -- Information about supported formats
 * ZSQ (module="zsq")
   Compressed file format related to LZWCOM.
 
-== Transfer encoding modules ==
+=== Text modules ===
+
+(Formats whose main content is plain text, or something similar. Not listed
+here are most "character graphics" formats, which are in the "Image" section.)
+
+* Asc2Com (moule="asc2com")
+  Executable text (.COM) files made by MorganSoft's Asc2Com utility.
+  - Supports files that use compression.
+  - Some files contain special codes to change colors, etc. Some of these
+    codes can be different in every file. If encoding translation is enabled,
+    such codes will be identified, and converted to... something.
+  Options
+   -opt text:fmtconv=0 - Minimal processing. Keep special codes.
+   -opt text:encconv=0 - Suppress character encoding translation. Special
+    codes may be deleted.
+
+* ASCOM (moule="ascom")
+  An executable text (.COM) format.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
+
+* CP437 (module="cp437")
+  Convert DOS Code Page 437 text to UTF-8.
+  - Not autodetected. Use "-m cp437".
+  - Note that code points below 0x20 are ambiguous. Deark tries to guess which
+    ones are control characters.
+  - See also the "plaintext" module.
+
+* DOC2COM (moule="doc2com")
+  Executable text (.COM) files made by G. DePyper's DOC2COM utility.
+  - Supports files that use encryption.
+  - Partially processes the source text, at least to identify special codes
+    that change the colors.
+  Options
+   -opt text:fmtconv=0 - Minimal processing. Keep special codes.
+   -opt text:encconv=0 - Suppress character encoding translation. Special
+    codes may be deleted.
+
+* DOC2COM (moule="doc2com_dkn")
+  Executable text (.COM) files made by D. Nelson's DOC2COM utility.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
+
+* GTXT (module="gtxt")
+  Executable text (.COM) files made by E. Gans' GTXT utility (also called
+  MakeScroll). DOS version only.
+  Options
+   -opt text:fmtconv=0 - Extract the raw source code, instead of interpreting
+    special characters.
+   -opt text:encconv=0 - Suppress character encoding translation.
+
+* Plain text (module="plaintext")
+  Read a plain text file, and write it as UTF-8.
+  - Not autodetected. Use "-m plaintext".
+  - See also the "cp437" module, which works better on some files.
+
+* Read-A-Matic (moule="readamatic")
+  Executable text (.EXE) files made by Read-A-Matic, by M. L. Wester.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
+
+* READMAKE (module="readmake")
+  Executable text (.EXE) files made by READMAKE, by Wayne Software.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
+
+* SHOW (module="show_gmr")
+  Executable text (.COM) files made by Gary M. Raymond's SHOW utility.
+  - Extracts the source text.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
+
+* TEXE (module="texe")
+  Executable text (.EXE) files made by TEXE, by R. Payette.
+  - The first byte of the original file is usually unrecoverable, due to an
+    apparent bug in TEXE.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
+
+* TextLife (module="textlife")
+  Executable text (.EXE) files made by TextLife or Breeze, by K. Solway.
+  - Some files contain control character sequences used for things like italics
+    or key definitions. They will be left as-is.
+  - The first character of the file may be a special code ("f", "p", or "#").
+    It will be left as-is.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
+
+* TXT2COM (module="txt2com")
+  Executable text (.COM) files made by Graham's TXT2COM utility.
+  - Extracts the source text. Does not necessarily render the document (e.g.
+    colors) like running the COM file would.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
+
+=== Transfer encoding modules ===
 
 * Ascii85 (module="ascii85") (incomplete)
   - Supports old and new btoa formats
@@ -1152,29 +1279,9 @@ Deark -- Information about supported formats
 * AMOS source code (module="amos_source")
   - Extract AmBs resource file.
 
-* Asc2Com (moule="asc2com")
-  Executable text (.COM) files made by MorganSoft's Asc2Com utility.
-  - Supports files that use compression.
-  - Some files contain special codes to change colors, etc. Some of these
-    codes can be different in every file. If encoding translation is enabled,
-    such codes will be identified, and converted to... something.
-  Options
-   -opt text:fmtconv=0 - Minimal processing. Keep special codes.
-   -opt text:encconv=0 - Suppress character encoding translation. Special
-    codes may be deleted.
-
-* ASCOM (moule="ascom")
-  An executable text (.COM) format.
-  Options
-   -opt text:encconv=0 - Suppress character encoding translation.
-
 * ASF multimedia (module="asf")
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
-
-* Byte frequency analysis (module="bytefreq")
-  Print a table showing how many times each byte value occurs.
-  - You must use "-m bytefreq".
 
 * C64 BASIC (module="basic_c64") (experimental)
   Detokenize C64 BASIC programs.
@@ -1186,39 +1293,13 @@ Deark -- Information about supported formats
    -opt clp:extractall - Extract all data items
    -opt oemenc=<...> - The encoding for OEM Text items. Same options as -inenc.
 
-* Copy (module="copy")
-  - "Extract" the entire file. Use with -start and -size to extract part of
-    the file.
-
-* CP437 (module="cp437")
-  Convert DOS Code Page 437 text to UTF-8.
-  - Not autodetected. Use "-m cp437".
-  - Note that code points below 0x20 are ambiguous. Deark tries to guess which
-    ones are control characters.
-
-* CRC (module="crc")
-  Print various CRC hashes and checksums of the file, including IEEE CRC-32.
-  - You must use "-m crc".
-  Options
-   -a, -opt crc:all - Also compute uncommon CRCs and checksums.
-
-* DOC2COM (moule="doc2com")
-  Executable text (.COM) files made by G. DePyper's DOC2COM utility.
-  - Supports files that use encryption.
-  - Partially processes the source text, at least to identify special codes
-    that change the colors.
-  Options
-   -opt text:fmtconv=0 - Minimal processing. Keep special codes.
-   -opt text:encconv=0 - Suppress character encoding translation. Special
-    codes may be deleted.
-
-* DOC2COM (moule="doc2com_dkn")
-  Executable text (.COM) files made by D. Nelson's DOC2COM utility.
-  Options
-   -opt text:encconv=0 - Suppress character encoding translation.
-
 * DS_Store (module="dsstore") (experimental)
   Metadata format associated with MacOS Finder.
+
+* EA datafile (module="ea_data")
+  The hidden "EA DATA. SF" attributes file on some floppy disks used by OS/2.
+  This module is mainly for internal use by the "fat" module. It can be used
+  directly, though possibly with reduced functionality.
 
 * EBML/Matroska/MKV/WebM (module="ebml")
   Options
@@ -1238,21 +1319,11 @@ Deark -- Information about supported formats
   - In some cases, extract the archive from a self-extracting archive.
   Options
    -opt execomp - Decompress supported executable compression formats.
+   -opt exe:sfx - A hint to decode as a self-extracting archive, and not
+    extract the usual icons, etc.
    -opt exe:checksum - Report the correct checksum in the debug info.
 
 * FLAC audio (module="flac")
-
-* GTXT (module="gtxt")
-  Executable text (.COM) files made by E. Gans' GTXT utility (also called
-  MakeScroll). DOS version only.
-  Options
-   -opt text:fmtconv=0 - Extract the raw source code, instead of interpreting
-    special characters.
-   -opt text:encconv=0 - Suppress character encoding translation.
-
-* Hex dump (module="hexdump")
-  Print a hex dump of the file.
-  - You must use "-m hexdump".
 
 * HLP (Windows Help) (module="hlp")
   Options
@@ -1280,15 +1351,6 @@ Deark -- Information about supported formats
    -opt bmff:maxentries=<n> - Maximum number of sample table entries to print
      when using -d. This applies to several boxes, such as 'stsz'.
 
-* Join (module="join")
-  - Concatenate multiple input files.
-  - You must use "-m join" to select this module, and "-mp" to allow multiple
-    input files.
-
-* JPEG scan (module="jpegscan")
-  - This module tries to find and extract embedded JPEG and JPEG-LS files from
-    otherwise-unsupported formats. Use "-m jpegscan".
-
 * Macintosh Resource Manager (module="macrsrc") (experimental/incomplete)
   This is the format generally used by Mac resource forks.
   Options
@@ -1305,9 +1367,6 @@ Deark -- Information about supported formats
 * MP3 / MPEG audio (module="mpegaudio" or "mp3")
   - Not all files can be autodetected.
   - Mainly for ID3 and APE metadata. The audio data is not converted.
-
-* NULL (module="null")
-  - Do nothing.
 
 * Ogg (Vorbis, Theora, etc.) (module="ogg")
   - Files can be parsed, but there is usually nothing that can be extracted
@@ -1349,11 +1408,6 @@ Deark -- Information about supported formats
 * PIF/DESQview (module="desqview_dvp") (incomplete)
   - Similar to PIF (Windows).
 
-* Plain text (module="plaintext")
-  Read a plain text file, and write it as UTF-8.
-  - Not autodetected. Use "-m plaintext".
-  - See also the "cp437" module, which works better on some files.
-
 * .plist Property List (module="plist")
   - Supports binary .plist format only
   - Files can be parsed, but there is usually nothing that can be extracted
@@ -1363,46 +1417,9 @@ Deark -- Information about supported formats
   - Extract Psion PIC icons.
   - Extract other contents (use -a).
 
-* Read-A-Matic (moule="readamatic")
-  Executable text (.EXE) files made by Read-A-Matic, by M. L. Wester.
-  Options
-   -opt text:encconv=0 - Suppress character encoding translation.
-
-* READMAKE (module="readmake")
-  Executable text (.EXE) files made by READMAKE, by Wayne Software.
-  Options
-   -opt text:encconv=0 - Suppress character encoding translation.
-
 * RIFF (module="riff")
   Metaformat used by WAV, AVI, WebP, etc.
   - RIFF can be parsed, but in many cases nothing can be extracted from it.
-
-* SHOW (module="show_gmr")
-  Executable text (.COM) files made by Gary M. Raymond's SHOW utility.
-  - Extracts the source text.
-  Options
-   -opt text:encconv=0 - Suppress character encoding translation.
-
-* Split (module="split")
-  Split the file into equal-sized chunks.
-  Options
-   -opt split:size=<n> - The size of each chunk, in bytes.
-   -opt split:stride=<n> - The distance between the start of one chunk and the
-    start of the next chunk, in bytes.
-
-* TEXE (module="texe")
-  Executable text (.EXE) files made by TEXE, by R. Payette.
-  - The first byte of the original file is usually unrecoverable, due to an
-    apparent bug in TEXE.
-  Options
-   -opt text:encconv=0 - Suppress character encoding translation.
-
-* TXT2COM (module="txt2com")
-  Executable text (.COM) files made by Graham's TXT2COM utility.
-  - Extracts the source text. Does not necessarily render the document (e.g.
-    colors) like running the COM file would.
-  Options
-   -opt text:encconv=0 - Suppress character encoding translation.
 
 * WRI - Microsoft Write (module="wri") (incomplete)
   - Extract raw text to an HTML file. Very little formatting, etc.
@@ -1411,8 +1428,86 @@ Deark -- Information about supported formats
    -opt wri:extracttext=0 - Do not extract text
    -opt ole1:extractall - Extract unidentified OLE objects
 
+=== Special modules ===
+
+* Byte frequency analysis (module="bytefreq")
+  Print a table showing how many times each byte value occurs.
+  - Use "-m bytefreq".
+
+* Copy (module="copy")
+  "Extract" the entire file. Use with -start and -size to extract part of the
+  file.
+  - Use "-m copy".
+
+* CRC (module="crc")
+  Print various CRC hashes and checksums of the file, including IEEE CRC-32.
+  - Use "-m crc".
+  Options
+   -a, -opt crc:all - Also compute uncommon CRCs and checksums.
+
+* Hex dump (module="hexdump")
+  Print a hex dump of the file.
+  - Use "-m hexdump".
+
+* Join (module="join")
+  Concatenate multiple input files.
+  - You must use "-m join" to select this module, and "-mp" to allow multiple
+    input files.
+
+* JPEG scan (module="jpegscan")
+  This module tries to find and extract embedded JPEG and JPEG-LS files from
+    otherwise-unsupported formats. Use "-m jpegscan".
+
+* NULL (module="null")
+  Do nothing.
+  - Use "-m null".
+
+* Split (module="split")
+  Split the file into equal-sized chunks.
+  - Use "-m split".
+  Options
+   -opt split:size=<n> - The size of each chunk, in bytes.
+   -opt split:stride=<n> - The distance between the start of one chunk and the
+    start of the next chunk, in bytes.
+
 * XOR (module="xor")
   Apply an XOR key to the file. By default, invert all the bits.
+  - Use "-m xor".
   Options
    -opt xor:key=<aabbcc...> - The key, expressed as one or more hex bytes.
 
+=== "Undocumented" modules ===
+
+(In the interest of disclosure, listed here are modules that haven't been fully
+documented, for one reason or another. They may not work well enough, or at
+all, or may be for internal use only; though some may just need to be reviewed
+and documented.)
+
+afcp - AFCP metadata.
+ain - AIN compressed archive.
+apetag - APE tag metadata.
+arcv - Eschalon Setup / EDI Install installer-archive.
+cas - Atari CAS tape image
+datetime - Interpret bytes as various date/time formats.
+ddb - Windows DDB bitmap, for internal use.
+dwc - DWC compressed archive.
+fastgraph_ppr - Fastgraph Pixel Run Format.
+fastgraph_spr - Fastgraph Packed Pixel Run Format.
+flif - FLIF image.
+grabber - GRABBER image, self-displaying COM.
+hit - HIT compressed archive.
+icedraw - iCEDraw IDF. Not implemented; helps to ID related formats.
+id3 - ID3 metadata.
+is_sfx - Helper module for InstallShield SFX EXE.
+officeart - Microsoft Office Art, etc., for internal use.
+ole1 - Windows OLE1, for internal use.
+olepropset - OLE Property Sets.
+os2pack2 - OS/2 PACK2 ("FTCOMP") compressed archive.
+pegasus_pic2 - Pegasus PIC2/ePIC image.
+red - Knowledge Dynamics installer-archive.
+rgfx - RGFX Amiga image.
+rm - RealMedia.
+sauce - SAUCE metadata, for internal use.
+swg - SWAG packet, LHA-like archive.
+tome - Tome, Macintosh installer-archive.
+xpk - XPK compressed file.

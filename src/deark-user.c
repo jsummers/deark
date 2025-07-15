@@ -131,6 +131,8 @@ void de_print_module_list(deark *c)
 static void do_modhelp_internal(deark *c, struct deark_module_info *module_to_use)
 {
 	int k;
+	u8 printed_something = 0;
+	u8 suppress_nohelpmsg = 0;
 
 	if(!module_to_use) goto done;
 	de_msg(c, "Module: %s", module_to_use->id);
@@ -149,15 +151,25 @@ static void do_modhelp_internal(deark *c, struct deark_module_info *module_to_us
 	}
 	if(module_to_use->desc2) {
 		de_msg(c, "Other notes: %s", module_to_use->desc2);
+		printed_something = 1;
 	}
 
 	if(module_to_use->flags&DE_MODFLAG_MULTIPART) {
 		de_msg(c, "This module supports multiple input files; "
 			"use the \"-mp\" option.");
+		printed_something = 1;
+	}
+
+	if(module_to_use->flags&DE_MODFLAG_INTERNALONLY) {
+		de_msg(c, "This module is intended for internal use only.");
+		suppress_nohelpmsg = 1;
 	}
 
 	if(!module_to_use->help_fn) {
-		de_msg(c, "No help available for module \"%s\"", module_to_use->id);
+		if(!suppress_nohelpmsg) {
+			de_msg(c, "No%s help available for module \"%s\".",
+				(printed_something?" other":""), module_to_use->id);
+		}
 		goto done;
 	}
 
@@ -907,6 +919,12 @@ void de_set_std_option_int(deark *c, enum de_stdoptions_enum o, int x)
 		break;
 	case DE_STDOPT_INFOMESSAGES:
 		c->show_infomessages = x;
+		break;
+	case DE_STDOPT_MP_OPT_USED:
+		// We track this mainly so that modules can use it to construct better
+		// error messages, and not tell the user to use "-mp" when they
+		// already did.
+		c->mp_opt_used = 1;
 		break;
 	case DE_STDOPT_WRITE_BOM:
 		c->write_bom = (u8)x;

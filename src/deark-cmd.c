@@ -691,6 +691,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_MP:
 				cc->mp_mode = 1;
+				de_set_std_option_int(c, DE_STDOPT_MP_OPT_USED, 1);
 				break;
 			case DE_OPT_NOINFO:
 				de_set_std_option_int(c, DE_STDOPT_INFOMESSAGES, 0);

@@ -12,6 +12,7 @@ DE_DECLARE_MODULE(de_module_jpeg);
 DE_DECLARE_MODULE(de_module_jpegscan);
 DE_DECLARE_MODULE(de_module_syberia_syj);
 DE_DECLARE_MODULE(de_module_esm_pix);
+DE_DECLARE_MODULE(de_module_pegasus_pic2);
 
 struct fpxr_entity_struct {
 	size_t index;
@@ -27,8 +28,9 @@ struct fpxr_data_struct {
 	struct fpxr_entity_struct *entities;
 };
 
-typedef struct localctx_struct {
+typedef struct localctx_JPEG {
 	u8 is_jpegls;
+	u8 is_pegasus_pic2;
 
 	u8 has_jfif_seg, has_jfif_thumb, has_jfxx_seg;
 	u8 has_exif_seg, has_exif_gps, has_spiff_seg, has_mpf_seg, has_afcp;
@@ -75,6 +77,7 @@ typedef void (*handler_fn_type)(deark *c, lctx *d,
 
 #define FLAG_JPEG_COMPAT   0x0001
 #define FLAG_JPEGLS_COMPAT 0x0002
+#define FLAG_PIC2_ONLY     0x0004
 #define FLAG_NO_DATA       0x0100
 #define FLAG_IS_SOF        0x0200
 
@@ -927,6 +930,7 @@ static void normalize_app_id(const char *app_id_orig, char *app_id_normalized,
 #define APPSEGTYPE_AROT           27
 #define APPSEGTYPE_MSRGBA         100
 #define APPSEGTYPE_RBSWAP         101
+#define APPSEGTYPE_PEGASUSPIC     110
 
 struct app_id_info_struct {
 	int app_id_found;
@@ -1136,6 +1140,10 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 	else if(seg_type==0xe1 && !de_strcmp(ad.app_id_orig, "Deark_RB_swap")) {
 		app_id_info->appsegtype = APPSEGTYPE_RBSWAP;
 		app_id_info->app_type_name = "Flag for swapped red/blue";
+	}
+	else if(seg_type==0xe1 && d->is_pegasus_pic2 && !de_strcmp(ad.app_id_orig, "PIC")) {
+		app_id_info->appsegtype = APPSEGTYPE_PEGASUSPIC;
+		app_id_info->app_type_name = "Pegasus PIC params";
 	}
 
 done:
@@ -1672,6 +1680,7 @@ done:
 
 static const struct marker_info1 marker_info1_arr[] = {
 	{0x01, 0x0101, "TEM", NULL, NULL},
+	{0xb9, 0x0205, "SOFPIC2", NULL, NULL},
 	{0xc4, 0x0001, "DHT", "Define Huffman table", handler_dht},
 	{0xc8, 0x0201, "JPG", NULL, handler_sof},
 	{0xcc, 0x0001, "DAC", "Define arithmetic coding conditioning", handler_dac},
@@ -1704,6 +1713,7 @@ static int get_marker_info(deark *c, lctx *d, u8 seg_type,
 
 		if(!d->is_jpegls && !(mi1->flags&FLAG_JPEG_COMPAT)) continue;
 		if(d->is_jpegls && !(mi1->flags&FLAG_JPEGLS_COMPAT)) continue;
+		if(!d->is_pegasus_pic2 && (mi1->flags&FLAG_PIC2_ONLY)) continue;
 
 		if(mi1->seg_type == seg_type) {
 			mi->flags = mi1->flags;
@@ -1843,6 +1853,7 @@ static void print_summary(deark *c, lctx *d)
 	de_ucstring *summary = NULL;
 
 	if(d->is_jpegls) goto done;
+	if(d->is_pegasus_pic2) goto done;
 	if(!d->found_sof) goto done;
 	if(!d->found_soi) goto done;
 
@@ -2075,6 +2086,8 @@ static void de_run_jpeg(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->is_pegasus_pic2 = (u8)de_havemodcode(c, mparams, '2');
+
 	pos = 0;
 	bytes_consumed = 0;
 	retval_stream = do_jpeg_stream(c, d, pos, &bytes_consumed);
@@ -2337,4 +2350,115 @@ void de_module_esm_pix(deark *c, struct deark_module_info *mi)
 	mi->desc = "Esm Software PIX";
 	mi->run_fn = de_run_esm_pix;
 	mi->identify_fn = de_identify_esm_pix;
+}
+
+// **************************************************************************
+// Pegasus PIC2
+// **************************************************************************
+
+struct pic2_ctx {
+	u8 is_jpg;
+};
+
+static void pic2_image_segment(deark *c, struct pic2_ctx *d, i64 pos, i64 len)
+{
+	if(!d->is_jpg) goto done;
+	de_dbg(c, "JPEG-like data at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice2(c, "jpeg", "2", c->infile, pos, len);
+	de_dbg_indent(c, -1);
+done:
+	;
+}
+
+static const char *get_pic2_segname(u8 t)
+{
+	const char *name = NULL;
+
+	switch(t) {
+	case 0: name = "eof"; break;
+	case 5: name = "cmpr type?"; break;
+	case 6: name = "image data"; break;
+	case 22: name = "comment?"; break;
+	}
+	return name?name:"?";
+}
+
+static void pic2_main(deark *c, struct pic2_ctx *d)
+{
+	i64 pos = 4;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	while(1) {
+		i64 segpos;
+		i64 segdlen;
+		i64 segdpos;
+		u8 segtype;
+
+		if(pos >= c->infile->len-4) goto done;
+		segpos = pos;
+		de_dbg(c, "segment at %"I64_FMT, segpos);
+		de_dbg_indent(c, 1);
+		segtype = de_getbyte_p(&pos);
+		de_dbg(c, "type: %u (%s)", (UI)segtype, get_pic2_segname(segtype));
+		if(segtype==0) goto done;
+		segdlen = de_getu32le_p(&pos);
+		segdpos = pos;
+		de_dbg(c, "dlen: %"I64_FMT, segdlen);
+		if(segdpos+segdlen>c->infile->len) goto done;
+
+		if(segtype==5) {
+			// Wild guess. If this segment starts with "JPG", we'll assume the
+			// compressed data is in a JPEG-like format.
+			if(!dbuf_memcmp(c->infile, segdpos, (const void*)"JPG", 3)) {
+				d->is_jpg = 1;
+			}
+		}
+
+		if(segtype==6) {
+			pic2_image_segment(c, d, segdpos, segdlen);
+		}
+		else {
+			de_dbg_hexdump(c, c->infile, segdpos, segdlen, 256, NULL, 0x1);
+		}
+		pos += segdlen;
+		de_dbg_indent(c, -1);
+	}
+done:
+	;
+}
+
+static void de_run_pegasus_pic2(deark *c, de_module_params *mparams)
+{
+	struct pic2_ctx *d = NULL;
+
+	d = de_malloc(c, sizeof(struct pic2_ctx));
+	de_declare_fmt(c, "Pegasus PIC2");
+	pic2_main(c, d);
+	de_free(c, d);
+}
+
+static int de_identify_pegasus_pic2(deark *c)
+{
+	UI n;
+	u8 b;
+
+	n = (UI)de_getu32be(0);
+#define CODE_PIC2 0x50494332U
+	if(n!=CODE_PIC2) return 0;
+	b = de_getbyte(4); // segment type, expecting 1
+	if(b!=1) return 0;
+	n = (UI)de_getu32le(5); // segment len, expecting 8
+	if(n<4 || n>32) return 0;
+	return 87;
+}
+
+void de_module_pegasus_pic2(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "pegasus_pic2";
+	mi->desc = "Pegasus PIC2";
+	mi->run_fn = de_run_pegasus_pic2;
+	mi->identify_fn = de_identify_pegasus_pic2;
 }

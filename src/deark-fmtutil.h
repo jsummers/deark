@@ -738,6 +738,11 @@ struct de_lz77buffer {
 	i64 entry_point;
 	i64 end_of_dos_code;
 	i64 overlay_len;
+	i64 ext_hdr_pos;
+	u8 is_extended;
+	u8 is_ne;
+	u8 is_pe;
+	u8 is_dll;
 	u8 have_epcrcs;
 	u8 have_testbytes; // Are ep/ovl fields populated?
 	u64 entrypoint_crcs;
@@ -756,10 +761,12 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei);
 #define DE_SPECIALEXEFMT_ZIPSFX    101
 #define DE_SPECIALEXEFMT_ARJSFX    102
 #define DE_SPECIALEXEFMT_PAK16SFX  103
+#define DE_SPECIALEXEFMT_ISHIELDNE 110
 #define DE_SPECIALEXEFMT_GWS_EXEPIC 201 // Graphic Workshop
 #define DE_SPECIALEXEFMT_READMAKE   202
 #define DE_SPECIALEXEFMT_TEXE       203
 #define DE_SPECIALEXEFMT_READAMATIC 204
+#define DE_SPECIALEXEFMT_TEXTLIFE   205
 
  struct fmtutil_specialexe_detection_data {
 	u8 restrict_to_fmt; // DE_SPECIALEXEFMT_*; 0 = any
@@ -804,3 +811,30 @@ struct fmtutil_char_simplectx {
 };
 void fmtutil_char_simple_run(deark *c, struct fmtutil_char_simplectx *csctx,
 	struct de_char_context *charctx);
+
+struct fmtutil_fmtid_ctx {
+	// default mode 0 = Detect all fmts that are reasonably portable.
+#define FMTUTIL_FMTIDMODE_ALL_IMG     1
+#define FMTUTIL_FMTIDMODE_ISH_SFX     10
+	u8 mode;
+	u8 have_bof64bytes;
+	const char *default_ext;
+	dbuf *inf; // Can be NULL if have_bof64bytes is set, but may reduce quality.
+	i64 inf_pos;
+	i64 inf_len;
+	u8 bof64bytes[64];
+
+#define FMTUTIL_FMTID_OTHER   1 // Used when we only need the extension.
+#define FMTUTIL_FMTID_JPEG    10
+#define FMTUTIL_FMTID_BMP     11
+#define FMTUTIL_FMTID_PNG     12
+#define FMTUTIL_FMTID_GIF     13
+#define FMTUTIL_FMTID_TIFF    14
+#define FMTUTIL_FMTID_CDR     17
+#define FMTUTIL_FMTID_WAVE    40
+#define FMTUTIL_FMTID_ZIP     60
+	UI fmtid; // 0 = unknown
+	char ext_sz[8];
+};
+
+void fmtutil_fmtid(deark *c, struct fmtutil_fmtid_ctx *idctx);

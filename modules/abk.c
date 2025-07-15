@@ -2,7 +2,7 @@
 // Copyright (C) 2016 Jason Summers
 // See the file COPYING for terms of use.
 
-// AMOS sprite/icon bank
+// AMOS sprite/icon bank, etc.
 
 #include <deark-private.h>
 #include <deark-fmtutil.h>
@@ -13,24 +13,35 @@ DE_DECLARE_MODULE(de_module_amos_source);
 #define CODE_AmBs 0x416d4273U
 #define CODE_AmIc 0x416d4963U
 #define CODE_AmSp 0x416d5370U
+#define AMOS_SCR_HDR_ID  0x12031990
+#define AMOS_SCR_HDR_ID2 0x00031990
+#define AMOS_SCR_HDR_ID3 0x12030090
+#define AMOS_PIC_HDR_ID  0x06071963
 
 // Data related to the whole file.
-typedef struct localctx_struct {
-	u32 fmt;
+typedef struct localctx_AMOS {
+	UI sig1;
+	int opt_allownopal;
 } lctx;
 
 // Data related to a "bank". Most files consist of one bank, but some have
 // multiple banks.
 struct amosbank {
 	struct de_fourcc banktype4cc;
+	u8 errflag;
+	u8 need_errmsg;
 	i64 bank_len;
 	i64 bank_data_len;
+	// Offset of 'f' subfile dbuf within c->infile. This isn't necessarily
+	// needed, because it's only nonzero for AmBs format, and for AmBs, dbg
+	// code that prints offsets generally not executed.
+	i64 f_offs;
 	dbuf *f;
 	const char *file_ext;
 
 	i64 num_objects;
 	i64 pal_pos;
-	u32 pal[256];
+	de_color pal[256];
 
 	// per-image settings
 	i64 xsize; // 16-bit words per row per plane
@@ -43,8 +54,18 @@ struct amosbank {
 	i64 pic_points_offset;
 	i64 pic_picdata_offset;
 	i64 picdata_expected_unc_bytes;
-	u32 amiga_mode;
+	UI amiga_mode;
+	u8 ham_flag;
+	u8 ehb_flag;
+	u8 is_ham6;
 };
+
+static void destroy_amosbank(deark *c, struct amosbank *bk)
+{
+	if(!bk) return;
+	dbuf_close(bk->f);
+	de_free(c, bk);
+}
 
 static void do_read_sprite_image(deark *c, lctx *d, struct amosbank *bk, i64 pos)
 {
@@ -70,7 +91,7 @@ static void do_read_sprite_image(deark *c, lctx *d, struct amosbank *bk, i64 pos
 	de_convert_image_paletted_planar(bk->f, pos, bk->nplanes,
 		rowspan, planespan, bk->pal, img, 0x2);
 
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
 
 done:
 	de_bitmap_destroy(img);
@@ -81,7 +102,7 @@ static int do_sprite_object(deark *c, lctx *d, struct amosbank *bk, i64 obj_idx,
 {
 
 	if(pass==2) {
-		de_dbg(c, "object #%d at %d", (int)obj_idx, (int)pos);
+		de_dbg(c, "object #%d at %"I64_FMT, (int)obj_idx, pos);
 	}
 	de_dbg_indent(c, 1);
 
@@ -129,15 +150,15 @@ static void do_read_sprite_objects(deark *c, lctx *d, struct amosbank *bk, i64 p
 	if(pass==1) {
 		bk->pal_pos = pos;
 		bk->bank_len = bk->pal_pos + 64;
-		de_dbg(c, "palette offset: %d", (int)bk->pal_pos);
-		de_dbg(c, "bank len: %d", (int)bk->bank_len);
+		de_dbg(c, "palette offset: %"I64_FMT, bk->pal_pos);
+		de_dbg(c, "bank len: %"I64_FMT, bk->bank_len);
 	}
 }
 
-static void do_read_sprite_palette(deark *c, lctx *d, struct amosbank *bk)
+static void do_read_sprite_or_pic_palette(deark *c, lctx *d, struct amosbank *bk)
 {
 	i64 k;
-	unsigned int n;
+	UI n;
 	u8 cr, cg, cb;
 	u8 cr1, cg1, cb1;
 	i64 pos;
@@ -145,13 +166,13 @@ static void do_read_sprite_palette(deark *c, lctx *d, struct amosbank *bk)
 	char tmps[64];
 
 	pos = bk->pal_pos;
-	de_dbg(c, "palette at %d", (int)pos);
+	de_dbg(c, "palette at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	colors_used = de_pow2(bk->max_planes);
 
 	for(k=0; k<32; k++) {
-		n = (unsigned int)dbuf_getu16be(bk->f, pos+k*2);
+		n = (UI)dbuf_getu16be(bk->f, pos+k*2);
 		cr1 = (u8)((n>>8)&0xf);
 		cg1 = (u8)((n>>4)&0xf);
 		cb1 = (u8)(n&0xf);
@@ -183,11 +204,11 @@ static int do_read_sprite(deark *c, lctx *d, struct amosbank *bk)
 
 	do_read_sprite_objects(c, d, bk, 6, 1);
 
-	if(d->fmt==CODE_AmBs) {
+	if(d->sig1==CODE_AmBs) {
 		dbuf_create_file_from_slice(bk->f, 0, bk->bank_len, bk->file_ext, NULL, 0);
 	}
 	else {
-		do_read_sprite_palette(c, d, bk);
+		do_read_sprite_or_pic_palette(c, d, bk);
 
 		do_read_sprite_objects(c, d, bk, 6, 2);
 	}
@@ -226,35 +247,58 @@ static void picture_bank_screen_header(deark *c, lctx *d, struct amosbank *bk, i
 	i64 ncolors;
 	i64 nplanes;
 
-	de_dbg(c, "screen header at %d", (int)pos);
+	de_dbg(c, "screen header at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	screen_width = dbuf_getu16be(bk->f, pos+4);
 	screen_height = dbuf_getu16be(bk->f, pos+6);
 	de_dbg(c, "screen dimensions: %d"DE_CHAR_TIMES"%d", (int)screen_width, (int)screen_height);
 
-	bk->amiga_mode = (u32)dbuf_getu16be(bk->f, pos+20);
-	ncolors = dbuf_getu16be(bk->f, pos+22);
-	nplanes = dbuf_getu16be(bk->f, pos+24);
+	bk->amiga_mode = (UI)dbuf_getu16be(bk->f, pos+20);
+	bk->ham_flag = (bk->amiga_mode & 0x0800)!=0;
+	// Haven't found any EHB files
+	bk->ehb_flag = (bk->amiga_mode & 0x0080)!=0;
+	de_dbg(c, "screen mode: 0x%04x", (UI)bk->amiga_mode);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "HAM: %u", (UI)bk->ham_flag);
+	de_dbg_indent(c, -1);
 
-	de_dbg(c, "screen mode: 0x%04x, colors: %d, planes: %d",
-		(unsigned int)bk->amiga_mode, (int)ncolors, (int)nplanes);
+	ncolors = dbuf_getu16be(bk->f, pos+22);
+	de_dbg(c, "colors: %u", (UI)ncolors);
+	nplanes = dbuf_getu16be(bk->f, pos+24);
+	de_dbg(c, "planes: %u", (UI)nplanes);
+
+	if(bk->ham_flag) {
+		if(nplanes==6) {
+			bk->is_ham6 = 1;
+		}
+		else {
+			bk->errflag = 1;
+			bk->need_errmsg = 1;
+			goto done;
+		}
+	}
 
 	bk->pal_pos = pos + 26;
 
-	// Set bk->max_planes, so that do_read_sprite_palette doesn't print
+	// Set bk->max_planes, so that do_read_sprite_or_pic_palette doesn't print
 	// "[unused]".
 	// TODO: We could look ahead at the picture header to figure out how many
 	// palette entries are used. Or we could just guess that it's the same as
 	// 'nplanes' in the screen header.
 	bk->max_planes = 5;
-	do_read_sprite_palette(c, d, bk);
+	do_read_sprite_or_pic_palette(c, d, bk);
 	bk->max_planes = 0;
 
+done:
+	if(bk->need_errmsg) {
+		de_err(c, "Unsupported image format");
+		bk->need_errmsg = 0;
+	}
 	de_dbg_indent(c, -1);
 }
 
-struct pictbank_params {
+struct amos_pictbank_params {
 	u8 ok;
 	UI num_planes;
 	UI bits_per_pixel;
@@ -263,14 +307,14 @@ struct pictbank_params {
 	i64 lines_per_lump;
 	i64 pseudoheight;
 	dbuf *unc_pixels;
-	de_bitmap *img;
-	de_color *pal;
 };
 
-// TODO: Consolidate this with the similar function in mbk.c.
-// (Deferred for now. Should probably at least investigate HAM picture banks,
-// first.)
-static void render_stos_pictbank(deark *c, struct pictbank_params *pb)
+// TODO?: Consolidate this with the similar function in mbk.c.
+// (Note that this one writes pixel values to a temp buffer, not directly to
+// an image. Otherwise, the data order would make it too difficult to support
+// HAM.)
+static void process_pictbank_to_membuf(deark *c, struct amos_pictbank_params *pb,
+	dbuf *out_pixdata, i64 out_width)
 {
 	i64 planesize;
 	i64 lump;
@@ -319,7 +363,7 @@ static void render_stos_pictbank(deark *c, struct pictbank_params *pb)
 					}
 
 					xpos = col_idx*8 + i;
-					de_bitmap_setpixel_rgb(pb->img, xpos, ypos, pb->pal[palent]);
+					dbuf_writebyte_at(out_pixdata, out_width*ypos+xpos, palent);
 				}
 			}
 		}
@@ -331,6 +375,75 @@ done:
 	;
 }
 
+// TODO?: Deark has too many HAM decoders. Would be nice to consolidate them,
+// but it's not so easy.
+static void render_to_bitmap_ham6(dbuf *f, const de_color *pal, de_bitmap *img)
+{
+	i64 ypos;
+	i64 xpos;
+	const UI pixshift1 = 4;
+	i64 ipos = 0;
+
+	for(ypos=0; ypos<img->height; ypos++) {
+		u8 cr, cg, cb;
+
+		cr = DE_COLOR_R(pal[0]) >> pixshift1;
+		cg = DE_COLOR_G(pal[0]) >> pixshift1;
+		cb = DE_COLOR_B(pal[0]) >> pixshift1;
+
+		for(xpos=0; xpos<img->width; xpos++) {
+			u8 pixval;
+			u8 pixval_code;
+			u8 pixval_color;
+			u8 cr2, cg2, cb2;
+			de_color clr;
+
+			pixval = dbuf_getbyte_p(f, &ipos);
+			pixval_code = pixval >> 4;
+			pixval_color = pixval & 0x0f;
+
+			switch(pixval_code) {
+			case 0x1: // Modify blue value
+				cb = pixval_color;
+				break;
+			case 0x2: // Modify red value
+				cr = pixval_color;
+				break;
+			case 0x3: // Modify green value
+				cg = pixval_color;
+				break;
+			default: // 0: Use colormap value
+				clr = pal[(UI)pixval_color];
+				cr = DE_COLOR_R(clr) >> pixshift1;
+				cg = DE_COLOR_G(clr) >> pixshift1;
+				cb = DE_COLOR_B(clr) >> pixshift1;
+				break;
+			}
+
+			cr2 = (cr<<4) | cr;
+			cg2 = (cg<<4) | cg;
+			cb2 = (cb<<4) | cb;
+			de_bitmap_setpixel_rgba(img, xpos, ypos, DE_MAKE_RGB(cr2, cg2, cb2));
+		}
+	}
+}
+
+static void render_pictbank_to_bitmap(deark *c, lctx *d, struct amosbank *bk,
+	struct amos_pictbank_params *pb, de_bitmap *img)
+{
+	dbuf *out_pixdata = NULL;
+
+	out_pixdata = dbuf_create_membuf(c, img->width*img->height, 0x1);
+	process_pictbank_to_membuf(c, pb, out_pixdata, img->width);
+	if(bk->is_ham6) {
+		render_to_bitmap_ham6(out_pixdata, bk->pal, img);
+	}
+	else {
+		de_convert_image_paletted(out_pixdata, 0, 8, img->width, bk->pal, img, 0);
+	}
+	dbuf_close(out_pixdata);
+}
+
 static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, i64 pos)
 {
 	i64 bytes_per_row_per_plane;
@@ -339,11 +452,11 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, i6
 	i64 width, height;
 	de_bitmap *img = NULL;
 	dbuf *unc_pixels = NULL;
-	struct pictbank_params *pb = NULL;
+	struct amos_pictbank_params *pb = NULL;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "picture header at %d", (int)pos);
+	de_dbg(c, "picture header at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	// 24-byte "Picture header"
@@ -364,13 +477,13 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, i6
 	de_dbg(c, "number of bitplanes: %d", (int)bk->nplanes);
 
 	bk->pic_rledata_offset = dbuf_getu32be(bk->f, pos+16);
-	de_dbg(c, "rledata offset: %d (file offset: %d)", (int)bk->pic_rledata_offset,
-		(int)(pos+bk->pic_rledata_offset));
+	de_dbg(c, "rledata offset: %"I64_FMT" (file offset: %"I64_FMT")",
+		bk->pic_rledata_offset, (pos+bk->pic_rledata_offset));
 	bk->pic_rledata_offset += pos; // Convert to absolute offset
 
 	bk->pic_points_offset = dbuf_getu32be(bk->f, pos+20);
-	de_dbg(c, "points offset: %d (file offset: %d)", (int)bk->pic_points_offset,
-		(int)(pos+bk->pic_points_offset));
+	de_dbg(c, "points offset: %"I64_FMT" (file offset: %"I64_FMT")",
+		bk->pic_points_offset, (pos+bk->pic_points_offset));
 	bk->pic_points_offset += pos; // Convert to absolute offset
 
 	if(!de_good_image_dimensions(c, width, height)) goto done;
@@ -382,7 +495,7 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, i6
 	de_dbg_indent(c, -1);
 
 	bk->pic_picdata_offset = pos + 24;
-	de_dbg(c, "picdata at %d", (int)bk->pic_picdata_offset);
+	de_dbg(c, "picdata at %"I64_FMT, bk->pic_picdata_offset);
 
 	bk->picdata_expected_unc_bytes = bytes_per_row_per_plane * bk->nplanes * height;
 	unc_pixels = dbuf_create_membuf(c, bk->picdata_expected_unc_bytes, 0);
@@ -391,7 +504,7 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, i6
 		unc_pixels, bk->picdata_expected_unc_bytes);
 	img = de_bitmap_create(c, width, height, 3);
 
-	pb = de_malloc(c, sizeof(struct pictbank_params));
+	pb = de_malloc(c, sizeof(struct amos_pictbank_params));
 	pb->num_planes = (UI)bk->nplanes;
 	pb->bits_per_pixel = pb->num_planes;
 	pb->width_in_bytes = bytes_per_row_per_plane;
@@ -399,12 +512,10 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, i6
 	pb->lines_per_lump = lines_per_lump;
 	pb->pseudoheight = height;
 	pb->unc_pixels = unc_pixels;
-	pb->img = img;
-	pb->pal = bk->pal;
 
-	render_stos_pictbank(c, pb);
+	render_pictbank_to_bitmap(c, d, bk, pb, img);
 
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
 done:
 	dbuf_close(unc_pixels);
 	de_bitmap_destroy(img);
@@ -412,56 +523,79 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void picture_bank_make_palette(deark *c, lctx *d, struct amosbank *bk)
+static void picture_bank_make_ehb_pal(struct amosbank *bk)
 {
-	i64 k;
-	u8 v;
+	UI k;
 
-	de_warn(c, "No palette found. Using grayscale palette.");
 	for(k=0; k<32; k++) {
-		v = (u8)(0.5+ ((double)k)*(255.0/31.0));
-		bk->pal[k] = DE_MAKE_GRAY(v);
-		bk->pal[k+32] = DE_MAKE_GRAY(v/2);
+		u8 cr, cg, cb;
+
+		cr = DE_COLOR_R(bk->pal[k]);
+		cg = DE_COLOR_G(bk->pal[k]);
+		cb = DE_COLOR_B(bk->pal[k]);
+		bk->pal[k+32] = DE_MAKE_RGB(cr/2, cg/2, cb/2);
 	}
 }
 
-static void do_picture_bank(deark *c, lctx *d, struct amosbank *bk)
+static int is_scr_hdr_id(UI x)
 {
-	i64 pos = 0;
-	u32 segtype;
+	return (x==AMOS_SCR_HDR_ID || x==AMOS_SCR_HDR_ID2 || x==AMOS_SCR_HDR_ID3);
+}
+
+static void do_picture_bank(deark *c, lctx *d, struct amosbank *bk, i64 pos1)
+{
+	i64 pos = pos1;
+	UI segtype;
 	int found_screen_header = 0;
 
 	de_dbg(c, "picture bank");
+	de_dbg_indent(c, 1);
 
-	pos += 20; // Advance past AmBk header
-
-	segtype = (u32)de_getu32be(pos);
-	if(segtype==0x12031990) {
+	segtype = (UI)de_getu32be(pos);
+	if(is_scr_hdr_id(segtype)) {
 		found_screen_header = 1;
 		picture_bank_screen_header(c, d, bk, pos);
+		if(bk->errflag) goto done;
 		pos += 90;
-
-		if(bk->amiga_mode & 0x0800) {
-			de_err(c, "HAM Picture Bank images are not supported.");
-			goto done;
-		}
-
-		segtype = (u32)de_getu32be(pos);
+		segtype = (UI)de_getu32be(pos);
 	}
 
-	if(segtype!=0x06071963) {
+	if(segtype!=AMOS_PIC_HDR_ID) {
 		de_err(c, "Missing Picture Header");
 		goto done;
 	}
 
 	if(!found_screen_header) {
-		picture_bank_make_palette(c, d, bk);
+		if(d->opt_allownopal<1) {
+			de_warn(c, "No palette found. Can't decode this image.%s",
+				(d->opt_allownopal<0 ?
+					" (Use \"-opt abk:allownopal\" to try anyway.)" : ""));
+			goto done;
+		}
+		de_warn(c, "No palette found. Using grayscale palette.");
+		de_make_grayscale_palette(bk->pal, 32, 0);
 	}
+
+	// There's only room for 32 palette entries in the file, so it does no harm
+	// to set the next 32 as if this were EHB format.
+	picture_bank_make_ehb_pal(bk);
 
 	picture_bank_read_picture(c, d, bk, pos);
 
 done:
-	;
+	de_dbg_indent(c, -1);
+}
+
+static void do_amos_picture_file(deark *c, lctx *d)
+{
+	struct amosbank *bk = NULL;
+
+	bk = de_malloc(c, sizeof(struct amosbank));
+	bk->f_offs = 0;
+	bk->f = dbuf_open_input_subfile(c->infile, bk->f_offs, c->infile->len);
+	// I don't think we need to set anything like bk->bank_len.
+	do_picture_bank(c, d, bk, 0);
+	destroy_amosbank(c, bk);
 }
 
 static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)
@@ -484,8 +618,8 @@ static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)
 	bank_len_raw = bank_len_code & 0x0fffffff;
 	bk->bank_len = bank_len_raw+12;
 	bk->bank_data_len = bank_len_raw-8;
-	de_dbg(c, "bank length: %d (dlen=%d, tlen=%d)", (int)bank_len_raw,
-		(int)bk->bank_data_len, (int)bk->bank_len);
+	de_dbg(c, "bank length: %"I64_FMT" (dlen=%"I64_FMT", tlen=%"I64_FMT")",
+		bank_len_raw, bk->bank_data_len, bk->bank_len);
 
 	srd = dbuf_read_string(bk->f, 12, 8, 8, 0, DE_ENCODING_ASCII);
 	de_dbg(c, "bank name: \"%s\"", ucstring_getpsz(srd->str));
@@ -504,7 +638,7 @@ static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)
 		bk->file_ext = mbi->file_ext;
 	}
 
-	if(d->fmt==CODE_AmBs) {
+	if(d->sig1==CODE_AmBs) {
 		// If original file is in AmBs format, just extract the AmBk file.
 		dbuf_create_file_from_slice(bk->f, 0, bk->bank_len, bk->file_ext, NULL, 0);
 		retval = 1;
@@ -513,7 +647,7 @@ static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)
 
 	switch(membanktype) {
 	case MEMBANKTYPE_PICTURE:
-		do_picture_bank(c, d, bk);
+		do_picture_bank(c, d, bk, 20); // 20 to advance past AmBk header
 		retval = 1;
 		goto done;
 	}
@@ -536,7 +670,8 @@ static int do_read_bank(deark *c, lctx *d, i64 pos, i64 *bytesused)
 	int retval = 0;
 
 	bk = de_malloc(c, sizeof(struct amosbank));
-	bk->f = dbuf_open_input_subfile(c->infile, pos, c->infile->len - pos);
+	bk->f_offs = pos;
+	bk->f = dbuf_open_input_subfile(c->infile, bk->f_offs, c->infile->len - bk->f_offs);
 
 	dbuf_read_fourcc(bk->f, 0, &bk->banktype4cc, 4, 0x0);
 	de_dbg(c, "bank type '%s'", bk->banktype4cc.id_dbgstr);
@@ -562,10 +697,7 @@ static int do_read_bank(deark *c, lctx *d, i64 pos, i64 *bytesused)
 		de_err(c, "Unsupported bank type: '%s'", bk->banktype4cc.id_sanitized_sz);
 	}
 
-	if(bk) {
-		dbuf_close(bk->f);
-		de_free(c, bk);
-	}
+	destroy_amosbank(c, bk);
 	return retval;
 }
 
@@ -583,7 +715,7 @@ static void do_read_AmBs(deark *c, lctx *d)
 	pos = 6;
 	for(i=0; i<nbanks; i++) {
 		if(pos >= c->infile->len) break;
-		de_dbg(c, "bank #%d at %d", (int)i, (int)pos);
+		de_dbg(c, "bank #%d at %"I64_FMT, (int)i, pos);
 		bytesused = 0;
 		de_dbg_indent(c, 1);
 		ret = do_read_bank(c, d, pos, &bytesused);
@@ -597,32 +729,45 @@ static void de_run_abk(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	i64 bytesused = 0;
+	u8 is_raw_picture = 0;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->opt_allownopal = de_get_ext_option_bool(c, "abk:allownopal", -1);
 
-	d->fmt = (u32)de_getu32be(0);
+	d->sig1 = (UI)de_getu32be(0);
 
-	if(d->fmt==CODE_AmBk) {
+	if(d->sig1==CODE_AmBk) {
 		de_declare_fmt(c, "AMOS Memory Bank");
 	}
-	else if(d->fmt==CODE_AmSp) {
+	else if(d->sig1==CODE_AmSp) {
 		de_declare_fmt(c, "AMOS Sprite Bank");
 	}
-	else if(d->fmt==CODE_AmIc) {
+	else if(d->sig1==CODE_AmIc) {
 		de_declare_fmt(c, "AMOS Icon Bank");
 	}
-	else if(d->fmt==CODE_AmBs) {
+	else if(d->sig1==CODE_AmBs) {
 		de_declare_fmt(c, "AMOS AmBs format");
+	}
+	else if(is_scr_hdr_id(d->sig1)) {
+		is_raw_picture = 1;
+		de_declare_fmt(c, "AMOS picture, with screen header");
+	}
+	else if(d->sig1==AMOS_PIC_HDR_ID) {
+		is_raw_picture = 1;
+		de_declare_fmt(c, "AMOS picture, no screen header");
 	}
 	else {
 		de_err(c, "Unsupported format");
 		goto done;
 	}
 
-	if(d->fmt==CODE_AmBk ||d->fmt==CODE_AmSp || d->fmt==CODE_AmIc) {
+	if(is_raw_picture) {
+		do_amos_picture_file(c, d);
+	}
+	else if(d->sig1==CODE_AmBk ||d->sig1==CODE_AmSp || d->sig1==CODE_AmIc) {
 		do_read_bank(c, d, 0, &bytesused);
 	}
-	else if(d->fmt==CODE_AmBs) {
+	else if(d->sig1==CODE_AmBs) {
 		do_read_AmBs(c, d);
 	}
 
@@ -630,23 +775,60 @@ done:
 	de_free(c, d);
 }
 
+static int is_amos_picture_file(deark *c, UI sig)
+{
+	UI x;
+	i64 picpos;
+
+	if(is_scr_hdr_id(sig)) {
+		picpos = 90;
+	}
+	else if(sig==AMOS_PIC_HDR_ID) {
+		// Need to be careful here, because some STOS formats also
+		// start this way.
+		picpos = 0;
+	}
+	else {
+		return 0;
+	}
+
+	x = (UI)de_getu32be(picpos);
+	if(x!=AMOS_PIC_HDR_ID) return 0;
+	x = (UI)de_getu16be(picpos+14); // # bitplanes
+	if(x>=1 && x<=6) {
+		return 1;
+	}
+	return 0;
+}
+
 static int de_identify_abk(deark *c)
 {
-	u8 b[4];
 	int ext_bonus = 0;
+	UI sig;
 
 	if(de_input_file_has_ext(c, "abk")) ext_bonus=40;
 
-	de_read(b, 0, 4);
-	if(!de_memcmp(b, "AmBk", 4))
+	sig = (UI)de_getu32be(0);
+	if(sig==CODE_AmBk)
 		return 60+ext_bonus;
-	if(!de_memcmp(b, "AmSp", 4))
+	if(sig==CODE_AmSp)
 		return 60+ext_bonus;
-	if(!de_memcmp(b, "AmIc", 4))
+	if(sig==CODE_AmIc)
 		return 60+ext_bonus;
-	if(!de_memcmp(b, "AmBs", 4))
+	if(sig==CODE_AmBs)
 		return 60+ext_bonus;
+	if(sig==AMOS_PIC_HDR_ID || is_scr_hdr_id(sig)) {
+		if(is_amos_picture_file(c, sig)) {
+			return 60+ext_bonus;
+		}
+	}
+
 	return 0;
+}
+
+static void de_help_abk(deark *c)
+{
+	de_msg(c, "-opt abk:allownopal : Try to decode images lacking a palette");
 }
 
 void de_module_abk(deark *c, struct deark_module_info *mi)
@@ -655,6 +837,7 @@ void de_module_abk(deark *c, struct deark_module_info *mi)
 	mi->desc = "AMOS resource (AmBk, sprite, icon, AmBs)";
 	mi->run_fn = de_run_abk;
 	mi->identify_fn = de_identify_abk;
+	mi->help_fn = de_help_abk;
 }
 
 static void de_run_amos_source(deark *c, de_module_params *mparams)
@@ -669,15 +852,15 @@ static void de_run_amos_source(deark *c, de_module_params *mparams)
 	pos = 16;
 	basic_len = de_getu32be(pos);
 	pos += 4;
-	de_dbg(c, "BASIC code at %d, len=%d", (int)pos, (int)basic_len);
+	de_dbg(c, "BASIC code at %"I64_FMT", len=%"I64_FMT, pos, basic_len);
 	pos += basic_len;
 	if(pos >= c->infile->len) goto done;
 	if(dbuf_memcmp(c->infile, pos, "AmBs", 4)) {
-		de_err(c, "AmBs segment not found, expected at offset %d", (int)pos);
+		de_err(c, "AmBs segment not found, expected at offset %"I64_FMT, pos);
 		goto done;
 	}
 
-	de_dbg(c, "AmBs segment at %d", (int)pos);
+	de_dbg(c, "AmBs segment at %"I64_FMT, pos);
 	nbanks = de_getu16be(pos+4);
 	de_dbg_indent(c, 1);
 	de_dbg(c, "number of banks: %d", (int)nbanks);

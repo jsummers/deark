@@ -16,6 +16,7 @@ DE_DECLARE_MODULE(de_module_readmake);
 DE_DECLARE_MODULE(de_module_texe);
 DE_DECLARE_MODULE(de_module_readamatic);
 DE_DECLARE_MODULE(de_module_ascom);
+DE_DECLARE_MODULE(de_module_textlife);
 
 // TODO: For some formats containing special codes (doc2com, asc2com),
 // it might be useful to have a mode that converts the format (somehow),
@@ -60,8 +61,9 @@ typedef struct localctx_exectext {
 #define ETCT_PRINTABLE   0
 #define ETCT_CONTROL     1
 #define ETCT_SPECIAL     2 // untranslatable code
-#define ETCT_ASC2COMTAB  100
+#define ETCT_8SPACES     100
 #define ETCT_DOC2COMSPECIAL 101
+#define ETCT_CRLF        102
 	u8 chartypes[256];
 } lctx;
 
@@ -237,9 +239,19 @@ static void exectext_convert_and_write_slice(deark *c, lctx *d,
 				ecnv_add_rune(ecnv, 0xfffd);
 			}
 			break;
-		case ETCT_ASC2COMTAB:
+		case ETCT_8SPACES:
 			for(k=0; k<8; k++) {
 				ecnv_add_byte(ecnv, 0x20);
+			}
+			break;
+		case ETCT_CRLF:
+			if(d->proctype==ET_PROCTYPE_FMTCONV_AND_ENCCONV) {
+				ecnv_add_rune(ecnv, 0x0d);
+				ecnv_add_rune(ecnv, 0x0a);
+			}
+			else {
+				ecnv_add_byte(ecnv, 0x0d);
+				ecnv_add_byte(ecnv, 0x0a);
 			}
 			break;
 		case ETCT_DOC2COMSPECIAL:
@@ -827,7 +839,7 @@ static void asc2com_find_special_chars(deark *c, lctx *d,
 	// not our problem.)
 	// v2.00-2.05 just seems to always interpret tabs as 8 spaces.
 	if(a2cc->version>=0x175) {
-		d->chartypes[9] = ETCT_ASC2COMTAB;
+		d->chartypes[9] = ETCT_8SPACES;
 	}
 
 	if(a2cc->version>=0x165 && a2cc->version<=0x166) {
@@ -1889,4 +1901,91 @@ void de_module_ascom(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_ascom;
 	mi->identify_fn = de_identify_ascom;
 	mi->help_fn = de_help_ascom;
+}
+
+///////////////////////////////////////////////////
+// TextLife, and Breeze Text-to-EXE
+
+struct textlife_ctx {
+	const char *msgpfx;
+	struct fmtutil_exe_info *ei;
+	struct fmtutil_specialexe_detection_data edd;
+};
+
+static void de_run_textlife(deark *c, de_module_params *mparams)
+{
+	struct textlife_ctx *tctx = NULL;
+	lctx *d = NULL;
+
+	d = create_lctx(c);
+	tctx = de_malloc(c, sizeof(struct textlife_ctx));
+	tctx->msgpfx = "[TextLife] ";
+	tctx->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
+
+	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
+
+	// TextLife filters/optimizes the data before storing it. Known filters:
+	// * Convert CR+LF to CR.
+	// * Replace runs of 8 spaces with TAB.
+	// I don't think extracting the raw bytes from the file is a useful thing
+	// to do. So we always at least undo the filtering.
+	// Files can contain C0 control characters used for special purposes (e.g.
+	// italics), but I don't think they will cause serious problems with
+	// encoding translation. So we just leave them as-is.
+	if(d->proctype==ET_PROCTYPE_RAW) {
+		d->proctype = ET_PROCTYPE_FMTCONV_ONLY;
+	}
+
+	d->chartypes[3] = ETCT_CONTROL;
+	d->chartypes[4] = ETCT_CONTROL;
+	d->chartypes[5] = ETCT_CONTROL;
+	d->chartypes[6] = ETCT_CONTROL;
+	d->chartypes[9] = ETCT_8SPACES;
+	d->chartypes[0x0d] = ETCT_CRLF;
+	d->chartypes[0x0f] = ETCT_CONTROL;
+	d->chartypes[0x10] = ETCT_CONTROL;
+	d->chartypes[0x11] = ETCT_CONTROL;
+
+	fmtutil_collect_exe_info(c, c->infile, tctx->ei);
+
+	tctx->edd.restrict_to_fmt = DE_SPECIALEXEFMT_TEXTLIFE;
+	fmtutil_detect_specialexe(c, tctx->ei, &tctx->edd);
+	if(tctx->edd.detected_fmt!=DE_SPECIALEXEFMT_TEXTLIFE) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	de_dbg(c, "text marker pos: %"I64_FMT, tctx->edd.special_pos_1);
+	d->tpos = tctx->edd.special_pos_1+6;
+	de_dbg(c, "tpos: %"I64_FMT, d->tpos);
+	d->tlen = de_getu16le(tctx->edd.special_pos_1 - 2) - 1;
+	de_dbg(c, "tlen: %"I64_FMT, d->tlen);
+
+	exectext_extract_default(c, d);
+
+done:
+	if(d) {
+		if(d->need_errmsg && tctx) {
+			de_err(c, "%sBad or unsupported TextLife file", tctx->msgpfx);
+		}
+		de_free(c, d);
+		d = NULL;
+	}
+	if(tctx) {
+		de_free(c, tctx->ei);
+		de_free(c, tctx);
+	}
+}
+
+static void de_help_textlife(deark *c)
+{
+	print_conv_options_simple(c);
+}
+
+void de_module_textlife(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "textlife";
+	mi->desc = "TextLife or Breeze executable text";
+	mi->run_fn = de_run_textlife;
+	mi->help_fn = de_help_textlife;
 }
