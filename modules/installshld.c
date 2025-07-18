@@ -24,6 +24,11 @@ static void dclimplode_decompressor_fn(struct de_arch_member_data *md)
 	fmtutil_dclimplode_codectype1(md->c, md->dcmpri, md->dcmpro, md->dres, NULL);
 }
 
+static void noncompressed_decompressor_fn(struct de_arch_member_data *md)
+{
+	fmtutil_decompress_uncompressed(md->c, md->dcmpri, md->dcmpro, md->dres, 0);
+}
+
 struct isz_dir_array_item {
 	de_ucstring *dname;
 };
@@ -31,6 +36,10 @@ struct isz_dir_array_item {
 // We don't need this struct; it's just here for future expansion
 struct isz_member_data {
 	UI dir_id;
+	UI start_vol;
+	UI end_vol;
+	UI attribs;
+	u8 is_split;
 };
 
 struct isz_ctx {
@@ -39,6 +48,9 @@ struct isz_ctx {
 	i64 filelist_pos;
 	i64 num_dirs;
 	u8 is_multivol;
+	i64 tot_orig_size;
+	i64 tot_cmpr_size;
+	UI volume_number;
 
 	struct isz_dir_array_item *dir_array; // array[num_dirs]
 };
@@ -62,7 +74,8 @@ static int isz_do_one_file(deark *c, struct isz_ctx *d, i64 pos1, i64 *pbytes_co
 	de_dbg(c, "file entry at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
-	pos += 1; // ?
+	mdi->end_vol = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "ending volume: %u", (UI)mdi->end_vol);
 
 	mdi->dir_id = (UI)de_getu16le_p(&pos); // 1
 	de_dbg(c, "dir id: %u", mdi->dir_id);
@@ -73,9 +86,12 @@ static int isz_do_one_file(deark *c, struct isz_ctx *d, i64 pos1, i64 *pbytes_co
 	di = &d->dir_array[mdi->dir_id];
 
 	de_arch_read_field_orig_len_p(md, &pos); // 3
+	d->tot_orig_size += md->orig_len;
 	de_arch_read_field_cmpr_len_p(md, &pos); // 7
+	d->tot_cmpr_size += md->cmpr_len;
 	md->cmpr_pos = de_getu32le_p(&pos); // 11
-	de_dbg(c, "cmpr data pos: %"I64_FMT, md->cmpr_pos);
+	// printing cmpr_pos is deferred until we read the volume
+
 	de_arch_read_field_dttm_p(d->da, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
 		DE_ARCH_TSTYPE_DOS_DT, &pos);
 
@@ -85,7 +101,17 @@ static int isz_do_one_file(deark *c, struct isz_ctx *d, i64 pos1, i64 *pbytes_co
 	de_dbg(c, "segment size: %"I64_FMT, segment_size);
 	if(segment_size<30) goto done;
 
-	pos += 4; // ?
+	mdi->attribs = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "attribs: 0x%02x", (UI)mdi->attribs);
+
+	mdi->is_split = de_getbyte_p(&pos);
+	de_dbg(c, "is split: %u", (UI)mdi->is_split);
+
+	pos += 1; // ?
+
+	mdi->start_vol = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "cmpr data pos: %"I64_FMT", volume=%u",
+		md->cmpr_pos, (UI)mdi->start_vol);
 
 	name_len = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "name len: %"I64_FMT, name_len);
@@ -103,8 +129,24 @@ static int isz_do_one_file(deark *c, struct isz_ctx *d, i64 pos1, i64 *pbytes_co
 	*pbytes_consumed = segment_size;
 	retval = 1;
 
+	if(mdi->is_split) {
+		de_err(c, "%s: Fragmented files aren't supported",
+			ucstring_getpsz_d(md->filename));
+		goto done;
+	}
+	if(mdi->start_vol != d->volume_number) {
+		de_err(c, "%s: File not on this volume",
+			ucstring_getpsz_d(md->filename));
+		goto done;
+	}
+
 	md->set_name_flags |= DE_SNFLAG_FULLPATH;
-	md->dfn = dclimplode_decompressor_fn;
+	if(mdi->attribs & 0x10) {
+		md->dfn = noncompressed_decompressor_fn;
+	}
+	else {
+		md->dfn = dclimplode_decompressor_fn;
+	}
 	de_arch_extract_member_file(md);
 
 done:
@@ -198,8 +240,8 @@ static void de_run_is_z(deark *c, de_module_params *mparams)
 	int saved_indent_level;
 	struct de_timestamp tmp_timestamp;
 	UI multivol_flag;
-	u8 volume_count = 0;
-	u8 volume_number = 0;
+	UI volume_count = 0;
+	i64 n;
 	i64 pos;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -218,9 +260,13 @@ static void de_run_is_z(deark *c, de_module_params *mparams)
 	// 14  ui16  date
 	// 16  ui16  time
 	// 18... ?
+	// 18  ui32 ? approx sum of cmpr sizes or volume sizes
+	// 22  ui32 sum of orig sizes
 	// 30  u8    volume count (sometimes)
 	// 31  u8    volume
 	// 32... ?
+	// 33  ui32  split begin addr (sometimes)
+	// 37  ui32  split end addr
 	// 41  ui32  offset of directory sequence
 	// 45... ?
 	// 49  ui16  number of dirs
@@ -246,19 +292,35 @@ static void de_run_is_z(deark *c, de_module_params *mparams)
 	de_arch_read_field_dttm_p(d->da, &tmp_timestamp, "archive",
 		DE_ARCH_TSTYPE_DOS_DT, &pos);
 
+	n = de_getu32le_p(&pos);
+	de_dbg2(c, "archive cmpr size (approx total?): %"I64_FMT, n);
+	n = de_getu32le_p(&pos);
+	de_dbg(c, "archive orig size (sum total): %"I64_FMT, n);
+
 	if(multivol_flag) {
 		pos = 30;
-		volume_count = de_getbyte_p(&pos);
+		volume_count = (UI)de_getbyte_p(&pos);
 		if(volume_count) {
 			de_dbg(c, "num volumes: %u", (UI)volume_count);
 		}
-		volume_number = de_getbyte_p(&pos);
-		de_dbg(c, "volume number: %u", (UI)volume_number);
+		d->volume_number = (UI)de_getbyte_p(&pos);
+		de_dbg(c, "volume number: %u", (UI)d->volume_number);
 
-		if(volume_count!=1 || volume_number>1) {
+		if(volume_count!=1 || d->volume_number>1) {
 			d->is_multivol = 1;
 		}
 	}
+
+	pos = 33;
+	n = de_getu32le_p(&pos);
+	// Not sure what all this field does.
+	// = 255 (start of data segment) on vol 1 if no split file.
+	// = 0 on last volume of a multivolume set.
+	de_dbg(c, "offset of start of split file (cont'd to next vol), "
+		"if applicable: %"I64_FMT, n);
+
+	n = de_getu32le_p(&pos);
+	de_dbg(c, "offset of end of split file (cont'd from prev vol): %"I64_FMT, n);
 
 	d->directory_pos = de_getu32le(41);
 	de_dbg(c, "start of dir entries: %"I64_FMT, d->directory_pos);
@@ -272,13 +334,6 @@ static void de_run_is_z(deark *c, de_module_params *mparams)
 
 	de_dbg_indent(c, -1);
 
-	if(d->is_multivol) {
-		// TODO: We ought to at least support the files that are entirely
-		// in this volume.
-		de_err(c, "Multivolume archives aren't supported");
-		goto done;
-	}
-
 	d->dir_array = de_mallocarray(c, d->num_dirs, sizeof(struct isz_dir_array_item));
 
 	isz_do_dirlist(c, d);
@@ -286,6 +341,11 @@ static void de_run_is_z(deark *c, de_module_params *mparams)
 
 done:
 	if(d) {
+		if(d->da && !d->da->fatalerrflag) {
+			de_dbg2(c, "total cmpr size: %"I64_FMT, d->tot_cmpr_size);
+			de_dbg2(c, "total orig size: %"I64_FMT, d->tot_orig_size);
+		}
+
 		if(d->dir_array) {
 			i64 i;
 
