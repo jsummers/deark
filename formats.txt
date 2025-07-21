@@ -1208,6 +1208,8 @@ here are most "character graphics" formats, which are in the "Image" section.)
 * Plain text (module="plaintext")
   Read a plain text file, and write it as UTF-8.
   - Not autodetected. Use "-m plaintext".
+  - It is almost always necessary to use the "-inenc" option, to specify the
+    input encoding.
   - See also the "cp437" module, which works better on some files.
 
 * Read-A-Matic (moule="readamatic")
