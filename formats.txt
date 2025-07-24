@@ -1122,6 +1122,9 @@ Deark -- Information about supported formats
 * tar (module="tar")
   - Rare files may need "-m tar", as tar is difficult to autodetect.
 
+* TPK (module="tpk") (experimental)
+  An obscure LHA-like archive format.
+
 * WOZ (module="woz") (incomplete)
   Apple II disk image format.
   - Some metadata is parsed, but the disk contents are not extracted or listed.

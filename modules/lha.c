@@ -9,6 +9,7 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_lha);
 DE_DECLARE_MODULE(de_module_swg);
+DE_DECLARE_MODULE(de_module_tpk);
 DE_DECLARE_MODULE(de_module_pakleo);
 DE_DECLARE_MODULE(de_module_car_lha);
 DE_DECLARE_MODULE(de_module_arx);
@@ -19,6 +20,8 @@ DE_DECLARE_MODULE(de_module_lharc_sfx_com);
 
 #define CODE_S_LH0 0x204c4830 // SAR
 #define CODE_S_LH5 0x204c4835 // SAR
+#define CODE_TK0 0x2d544b30U // TPK
+#define CODE_TK1 0x2d544b31U // TPK
 #define CODE_ah0 0x2d616830U // MAR
 #define CODE_ari 0x2d617269U // MAR
 #define CODE_hf0 0x2d686630U // MAR
@@ -60,6 +63,7 @@ DE_DECLARE_MODULE(de_module_lharc_sfx_com);
 enum lha_basefmt_enum {
 	BASEFMT_LHA = 0,  // LHarc/LHA and other formats that are parsed the same
 	BASEFMT_SWG,
+	BASEFMT_TPK,
 	BASEFMT_PAKLEO
 };
 
@@ -89,6 +93,7 @@ struct member_data {
 	u32 hdr_crc_calc;
 	i64 hdr_crc_field_pos;
 
+	u8 have_crc_reported;
 	u32 crc_reported;
 	u8 os_id;
 	i64 compressed_data_pos; // relative to beginning of file
@@ -324,6 +329,51 @@ static void read_filename_hlev1_or_exthdr(deark *c, lctx *d, struct member_data 
 	}
 }
 
+// Convert backslashes to slashes, remove trailing backslash.
+static void fixup_tpk_path(de_ucstring *s)
+{
+	i64 i;
+
+	for(i=0; i<s->len; i++) {
+		if(s->str[i]=='\\') {
+			s->str[i] = '/';
+		}
+	}
+
+	if(s->len>0 && s->str[s->len-1]=='/') {
+		ucstring_truncate(s, s->len-1);
+	}
+}
+
+static void read_filename_tpk(deark *c, lctx *d, struct member_data *md,
+	i64 pos1, i64 len1)
+{
+	i64 pos = pos1;
+	i64 len = len1;
+	struct de_stringreaderdata *fn_srd = NULL;
+
+	if(!md->filename) {
+		md->filename = ucstring_create(c);
+	}
+	if(!md->dirname) {
+		md->dirname = ucstring_create(c);
+	}
+
+	fn_srd = dbuf_read_string(c->infile, pos, len, 256, DE_CONVFLAG_STOP_AT_NUL,
+		md->encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(fn_srd->str));
+	ucstring_append_ucstring(md->filename, fn_srd->str);
+	pos += fn_srd->bytes_consumed;
+	len -= fn_srd->bytes_consumed;
+
+	dbuf_read_to_ucstring(c->infile, pos, len, md->dirname, DE_CONVFLAG_STOP_AT_NUL,
+		md->encoding);
+	de_dbg(c, "dir name: \"%s\"", ucstring_getpsz_d(md->dirname));
+	fixup_tpk_path(md->dirname);
+
+	de_destroy_stringreaderdata(c, fn_srd);
+}
+
 static void exthdr_common(deark *c, lctx *d, struct member_data *md,
 	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
@@ -508,6 +558,15 @@ static const struct exthdr_type_info_struct exthdr_type_info_arr[] = {
 	{ 0x7f, 0, "level 3 new attribs type-1", NULL }, // (OS/2 only)
 	{ 0xff, 0, "level 3 new attribs type-2", exthdr_lev3newattribs2 }
 };
+
+static struct member_data *create_member_data(deark *c)
+{
+	struct member_data *md;
+
+	md = de_malloc(c, sizeof(struct member_data));
+	md->have_crc_reported = 1; // default
+	return md;
+}
 
 static void destroy_member_data(deark *c, struct member_data *md)
 {
@@ -695,7 +754,7 @@ static void make_fullfilename(deark *c, lctx *d, struct member_data *md)
 	}
 	md->fullfilename = ucstring_create(c);
 
-	if(md->hlev==0) {
+	if(md->hlev==0 && d->basefmt!=BASEFMT_TPK) {
 		ucstring_append_ucstring(md->fullfilename, md->filename);
 	}
 	else {
@@ -729,6 +788,36 @@ static void decompress_lh1(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_results *dres)
 {
 	fmtutil_lh1_codectype1(c, dcmpri, dcmpro, dres, NULL);
+}
+
+static void decompress_tk1(deark *c, lctx *d, struct member_data *md,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	u8 need_errmsg = 0;
+	i64 lzhuf_orig_len;
+
+	if(dcmpri->len < 4) {
+		need_errmsg = 1;
+		goto done;
+	}
+
+
+	lzhuf_orig_len = dbuf_getu32le(dcmpri->f, dcmpri->pos);
+	if(lzhuf_orig_len != md->orig_size) {
+		need_errmsg = 1;
+		goto done;
+	}
+
+	dcmpri->len -= 4;
+	dcmpri->pos += 4;
+
+	fmtutil_lh1_codectype1(c, dcmpri, dcmpro, dres, NULL);
+
+done:
+	if(need_errmsg) {
+		de_dfilter_set_generic_error(c, dres, NULL);
+	}
 }
 
 // Caller supplies fmt (DE_LH5X_FMT_*).
@@ -935,6 +1024,8 @@ static const struct cmpr_meth_array_item cmpr_meth_arr[] = {
 	{ BASEFMT_LHA, 0x00, CODE_S_LH5, "SAR LH5", decompress_lh5 },
 	{ BASEFMT_SWG, 0x00, CODE_sw0, "uncompressed", decompress_uncompressed },
 	{ BASEFMT_SWG, 0x00, CODE_sw1, NULL, NULL },
+	{ BASEFMT_TPK, 0x00, CODE_TK0, "uncompressed", decompress_uncompressed },
+	{ BASEFMT_TPK, 0x00, CODE_TK1, "LZHUF", decompress_tk1 },
 	{ BASEFMT_PAKLEO, 0x00, CODE_ll0, "uncompressed", decompress_uncompressed },
 	{ BASEFMT_PAKLEO, 0x00, CODE_ll1, "LZW", decompress_pakleo }
 };
@@ -1000,7 +1091,6 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 {
 	de_finfo *fi = NULL;
 	dbuf *outf = NULL;
-	u32 crc_calc;
 	int tsidx;
 	u8 dcmpr_disabled = 0;
 	u8 dcmpr_attempted = 0;
@@ -1077,16 +1167,20 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		goto done;
 	}
 
-	crc_calc = de_crcobj_getval(d->crco);
-	if(d->basefmt==BASEFMT_PAKLEO) {
-		de_dbg(c, "crc (calculated): 0x%08x", (UI)crc_calc);
-	}
-	else {
-		de_dbg(c, "crc (calculated): 0x%04x", (UI)crc_calc);
-	}
-	if(crc_calc != md->crc_reported) {
-		de_err(c, "%s: CRC check failed", ucstring_getpsz_d(md->fullfilename));
-		goto done;
+	if(md->have_crc_reported) {
+		u32 crc_calc;
+
+		crc_calc = de_crcobj_getval(d->crco);
+		if(d->basefmt==BASEFMT_PAKLEO) {
+			de_dbg(c, "crc (calculated): 0x%08x", (UI)crc_calc);
+		}
+		else {
+			de_dbg(c, "crc (calculated): 0x%04x", (UI)crc_calc);
+		}
+		if(crc_calc != md->crc_reported) {
+			de_err(c, "%s: CRC check failed", ucstring_getpsz_d(md->fullfilename));
+			goto done;
+		}
 	}
 
 	dcmpr_ok = 1;
@@ -1214,7 +1308,7 @@ static void do_special_swg_fields(deark *c, lctx *d, struct member_data *md, i64
 
 // This single function parses all the different header formats, using lots of
 // "if" statements. It is messy, but it's a no-win situation.
-// The alternative of four separate functions would be have a lot of redundant
+// The alternative of many separate functions would be have a lot of redundant
 // code, and be harder to maintain.
 //
 // Caller allocates and initializes md.
@@ -1277,6 +1371,9 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 	else if(d->basefmt==BASEFMT_PAKLEO) {
 		md->hlev = 0; // hlev field is present, but we only support one format
 	}
+	else if(d->basefmt==BASEFMT_TPK) {
+		md->hlev = 0;
+	}
 	else {
 		md->hlev = de_getbyte(pos1+20);
 	}
@@ -1293,8 +1390,18 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 		pos += 2; // What is this field?
 	}
 	else if(md->hlev==0) {
-		lev0_header_size = (i64)de_getbyte_p(&pos);
-		de_dbg(c, "header size: (2+)%d", (int)lev0_header_size);
+		if(d->basefmt==BASEFMT_TPK) {
+			lev0_header_size = (i64)de_getbyte_p(&pos);
+			de_dbg(c, "header size: %d", (int)lev0_header_size);
+			lev0_header_size -= 2; // hack
+		}
+		else {
+			lev0_header_size = (i64)de_getbyte_p(&pos);
+			de_dbg(c, "header size: (2+)%d", (int)lev0_header_size);
+		}
+
+		if(lev0_header_size<0) goto done;
+
 		hdr_checksum_reported = (UI)de_getbyte_p(&pos);
 		has_hdr_checksum = 1;
 		md->hdr_checksum_calc = lha_calc_checksum(c->infile, pos, lev0_header_size,
@@ -1409,7 +1516,11 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 		de_dbg(c, "crc32 (reported): 0x%08x", (UI)md->crc_reported);
 	}
 
-	if(md->hlev<=1) {
+	if(d->basefmt==BASEFMT_TPK) {
+		read_filename_tpk(c, d, md, pos,
+			(md->member_pos + 2 + lev0_header_size) - pos);
+	}
+	else if(md->hlev<=1) {
 		fnlen = de_getbyte(pos++);
 		de_dbg(c, "filename len: %d", (int)fnlen);
 		if(md->hlev==0) {
@@ -1421,7 +1532,11 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 		pos += fnlen;
 	}
 
-	if(d->basefmt!=BASEFMT_PAKLEO) {
+	if(d->basefmt==BASEFMT_TPK) {
+		md->have_crc_reported = 0;
+	}
+
+	if(d->basefmt!=BASEFMT_PAKLEO && d->basefmt!=BASEFMT_TPK) {
 		md->crc_reported = (u32)de_getu16le_p(&pos);
 		de_dbg(c, "crc16 (reported): 0x%04x", (UI)md->crc_reported);
 	}
@@ -1440,6 +1555,9 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md)
 	if(d->basefmt==BASEFMT_PAKLEO) {
 		md->compressed_data_pos = pos;
 		md->total_size = md->compressed_data_pos + md->compressed_data_len - md->member_pos;
+	}
+	else if(d->basefmt==BASEFMT_TPK) {
+		md->compressed_data_pos = md->member_pos + 2 + lev0_header_size;
 	}
 	else if(md->hlev==0) {
 		i64 ext_headers_size = (2+lev0_header_size) - (pos-pos1);
@@ -1585,6 +1703,7 @@ static void do_run_lha_internal(deark *c, lctx *d, de_module_params *mparams)
 {
 	i64 pos;
 	struct member_data *md = NULL;
+	de_encoding guessed_encoding;
 
 	if(!d->basefmt_name) {
 		d->basefmt_name = "LHA";
@@ -1594,7 +1713,16 @@ static void do_run_lha_internal(deark *c, lctx *d, de_module_params *mparams)
 
 	// It's not really safe to guess CP437, because Japanese-encoded (CP932?)
 	// filenames are common.
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_ASCII);
+	if(d->basefmt==BASEFMT_SWG || d->basefmt==BASEFMT_PAKLEO) {
+		guessed_encoding = DE_ENCODING_CP437;
+	}
+	else if(d->basefmt==BASEFMT_TPK) {
+		guessed_encoding = DE_ENCODING_WINDOWS1252;
+	}
+	else {
+		guessed_encoding = DE_ENCODING_ASCII;
+	}
+	d->input_encoding = de_get_input_encoding(c, NULL, guessed_encoding);
 
 	d->hlev_of_first_member = 0xff;
 	if(d->basefmt==BASEFMT_PAKLEO) {
@@ -1611,7 +1739,7 @@ static void do_run_lha_internal(deark *c, lctx *d, de_module_params *mparams)
 	while(1) {
 		if(pos >= c->infile->len) break;
 
-		md = de_malloc(c, sizeof(struct member_data));
+		md = create_member_data(c);
 		md->encoding = d->input_encoding;
 		md->member_pos = pos;
 		if(!do_read_member(c, d, md)) goto done;
@@ -1642,6 +1770,12 @@ static void de_run_lha(deark *c, de_module_params *mparams)
 static int is_swg_sig(const u8 *b)
 {
 	return b[0]=='-' && b[1]=='s' && b[2]=='w' &&
+		(b[3]=='0' || b[3]=='1') && b[4]=='-';
+}
+
+static int is_tpk_sig(const u8 *b)
+{
+	return b[0]=='-' && b[1]=='T' && b[2]=='K' &&
 		(b[3]=='0' || b[3]=='1') && b[4]=='-';
 }
 
@@ -1740,6 +1874,40 @@ void de_module_swg(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_swg;
 	mi->identify_fn = de_identify_swg;
 	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
+}
+
+/////////////////////// TPK (by Thomas Haukap?)
+
+static void de_run_tpk(deark *c, de_module_params *mparams)
+{
+	lctx *d;
+
+	d = lha_create_lctx(c);
+	d->basefmt = BASEFMT_TPK;
+	d->basefmt_name = "TPK";
+	de_declare_fmt(c, "TPK");
+	do_run_lha_internal(c, d, mparams);
+	lha_destroy_lctx(c, d);
+}
+
+static int de_identify_tpk(deark *c)
+{
+	u8 b[5];
+
+	de_read(b, 2, sizeof(b));
+	if(is_tpk_sig(b)) {
+		if(de_input_file_has_ext(c, "tpk")) return 100;
+		return 75;
+	}
+	return 0;
+}
+
+void de_module_tpk(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "tpk";
+	mi->desc = "TPK archive";
+	mi->run_fn = de_run_tpk;
+	mi->identify_fn = de_identify_tpk;
 }
 
 /////////////////////// PAKLEO
@@ -2271,7 +2439,7 @@ static void de_run_ar001(deark *c, de_module_params *mparams)
 	while(1) {
 		if(pos >= c->infile->len) break;
 
-		md = de_malloc(c, sizeof(struct member_data));
+		md = create_member_data(c);
 		md->encoding = d->input_encoding;
 		md->member_pos = pos;
 		if(!do_read_ar001_member(c, d, md)) goto done;
