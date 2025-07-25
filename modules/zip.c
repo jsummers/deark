@@ -18,6 +18,7 @@ typedef struct localctx_struct lctx;
 #define CODE_PK34 0x504b0304U
 #define CODE_PK36 0x504b0306U
 #define CODE_PK78 0x504b0708U
+#define CODE_PK00 0x504b3030U
 static const u8 g_zipsig34[4] = {'P', 'K', 0x03, 0x04};
 static const u8 g_zipsig66[4] = {'P', 'K', 0x06, 0x06};
 static const u8 g_zipsig67[4] = {'P', 'K', 0x06, 0x07};
@@ -95,21 +96,27 @@ struct extra_item_info_struct {
 	int is_central;
 };
 
+// This struct can be used with both the original EOCD, and Zip64 EOCD.
+struct eocd_struct {
+	i64 this_disk_num;
+	i64 cdir_starting_disk_num;
+	i64 cdir_num_entries_this_disk;
+	i64 cdir_num_entries_total;
+	i64 cdir_byte_size;
+	i64 cdir_offset;
+	i64 archive_comment_len;
+};
+
 struct localctx_struct {
 	de_encoding default_enc_for_filenames;
 	de_encoding default_enc_for_comments;
-	i64 end_of_central_dir_pos;
-	i64 central_dir_num_entries;
-	i64 central_dir_byte_size;
-	i64 central_dir_offset;
-	i64 this_disk_num;
+	// eocd = the effective EOCD: The original, later potentially updated by
+	// the Zip64 EOCD.
+	struct eocd_struct eocd;
+	struct eocd_struct eocd64;
+	i64 eocd_pos;
 	i64 zip64_eocd_pos;
-	i64 zip64_cd_pos;
-	i64 zip64_num_centr_dir_entries_this_disk;
-	i64 zip64_num_centr_dir_entries_total;
-	i64 zip64_centr_dir_byte_size;
-	UI zip64_eocd_disknum;
-	UI zip64_cd_disknum;
+	i64 zip64_eocd_disknum;
 	i64 offset_correction;
 	int used_offset_correction;
 	u8 is_zip64;
@@ -1367,7 +1374,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	else {
 		dd = &md->local_dir_entry_data;
 		fixed_header_size = 30;
-		if((md->disk_number_start!=d->this_disk_num) && !d->using_scanmode) {
+		if((md->disk_number_start!=d->eocd.this_disk_num) && !d->using_scanmode) {
 			u32 peek_crc;
 
 			// This is a hack -- we could compare more fields -- but I think
@@ -1380,7 +1387,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 			if(!d->disk_id_mismatch_warned) {
 				de_warn(c, "Disk ID mismatch (found file on disk %"I64_FMT" that "
 					"should be on disk %"I64_FMT"). Trying to continue.",
-					d->this_disk_num, md->disk_number_start);
+					d->eocd.this_disk_num, md->disk_number_start);
 				d->disk_id_mismatch_warned = 1;
 			}
 		}
@@ -1646,7 +1653,7 @@ static int do_member_from_central_dir_entry(deark *c, lctx *d,
 
 	*entry_size = 0;
 
-	if(pos >= d->central_dir_offset+d->central_dir_byte_size) {
+	if(pos >= d->eocd.cdir_offset+d->eocd.cdir_byte_size) {
 		goto done;
 	}
 
@@ -1743,11 +1750,11 @@ static int do_central_dir(deark *c, lctx *d)
 	i64 entry_size;
 	int retval = 0;
 
-	pos = d->central_dir_offset;
+	pos = d->eocd.cdir_offset;
 	de_dbg(c, "central dir at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
-	for(i=0; i<d->central_dir_num_entries; i++) {
+	for(i=0; i<d->eocd.cdir_num_entries_total; i++) {
 		if(!do_central_dir_entry(c, d, i, pos, &entry_size)) {
 			// TODO: Decide exactly what to do if something fails.
 			goto done;
@@ -1808,20 +1815,20 @@ static int do_zip64_eocd(deark *c, lctx *d)
 	n = de_getu32le_p(&pos);
 	de_dbg(c, "this disk num: %"I64_FMT, n);
 
-	d->zip64_cd_disknum = (UI)de_getu32le_p(&pos);
-	d->zip64_num_centr_dir_entries_this_disk = de_geti64le(pos); pos += 8;
-	de_dbg(c, "central dir num entries on this disk: %"I64_FMT, d->zip64_num_centr_dir_entries_this_disk);
-	de_sanitize_count(&d->zip64_num_centr_dir_entries_this_disk);
-	d->zip64_num_centr_dir_entries_total = de_geti64le(pos); pos += 8;
-	de_dbg(c, "central dir num entries: %"I64_FMT, d->zip64_num_centr_dir_entries_total);
-	de_sanitize_count(&d->zip64_num_centr_dir_entries_this_disk);
-	d->zip64_centr_dir_byte_size = de_geti64le(pos); pos += 8;
-	de_dbg(c, "central dir size: %"I64_FMT, d->zip64_centr_dir_byte_size);
-	de_sanitize_length(&d->zip64_centr_dir_byte_size);
-	d->zip64_cd_pos = de_geti64le(pos); pos += 8;
+	d->eocd64.cdir_starting_disk_num = de_getu32le_p(&pos);
+	d->eocd64.cdir_num_entries_this_disk = de_geti64le(pos); pos += 8;
+	de_dbg(c, "central dir num entries on this disk: %"I64_FMT, d->eocd64.cdir_num_entries_this_disk);
+	de_sanitize_count(&d->eocd64.cdir_num_entries_this_disk);
+	d->eocd64.cdir_num_entries_total = de_geti64le(pos); pos += 8;
+	de_dbg(c, "central dir num entries: %"I64_FMT, d->eocd64.cdir_num_entries_total);
+	de_sanitize_count(&d->eocd64.cdir_num_entries_this_disk);
+	d->eocd64.cdir_byte_size = de_geti64le(pos); pos += 8;
+	de_dbg(c, "central dir size: %"I64_FMT, d->eocd64.cdir_byte_size);
+	de_sanitize_length(&d->eocd64.cdir_byte_size);
+	d->eocd64.cdir_offset = de_geti64le(pos); pos += 8;
 	de_dbg(c, "central dir offset: %"I64_FMT", disk: %u",
-		d->zip64_cd_pos, d->zip64_cd_disknum);
-	de_sanitize_offset(&d->zip64_cd_pos);
+		d->eocd64.cdir_offset, (UI)d->eocd64.cdir_starting_disk_num);
+	de_sanitize_offset(&d->eocd64.cdir_offset);
 
 	retval = 1;
 done:
@@ -1832,7 +1839,7 @@ done:
 static void do_zip64_eocd_locator(deark *c, lctx *d)
 {
 	i64 n;
-	i64 pos = d->end_of_central_dir_pos - 20;
+	i64 pos = d->eocd_pos - 20;
 
 	if(dbuf_memcmp(c->infile, pos, g_zipsig67, 4)) {
 		return;
@@ -1841,10 +1848,10 @@ static void do_zip64_eocd_locator(deark *c, lctx *d)
 	pos += 4;
 	d->is_zip64 = 1;
 	de_dbg_indent(c, 1);
-	d->zip64_eocd_disknum = (UI)de_getu32le_p(&pos);
+	d->zip64_eocd_disknum = de_getu32le_p(&pos);
 	d->zip64_eocd_pos = de_geti64le(pos); pos += 8;
 	de_dbg(c, "offset of zip64 eocd: %"I64_FMT", disk: %u",
-		d->zip64_eocd_pos, d->zip64_eocd_disknum);
+		d->zip64_eocd_pos, (UI)d->zip64_eocd_disknum);
 	de_sanitize_offset(&d->zip64_eocd_pos);
 	n = de_getu32le_p(&pos);
 	de_dbg(c, "total number of disks: %u", (UI)n);
@@ -1854,63 +1861,60 @@ static void do_zip64_eocd_locator(deark *c, lctx *d)
 static int do_end_of_central_dir(deark *c, lctx *d)
 {
 	i64 pos;
-	i64 num_entries_this_disk;
-	i64 disk_num_with_central_dir_start;
-	i64 archive_comment_len;
-	i64 alt_central_dir_offset;
-	u8 have_alt_central_dir_offset = 0;
+	i64 alt_cdir_offset;
+	u8 have_alt_cdir_offset = 0;
 	int retval = 0;
 	char tmpsz[64];
 
-	pos = d->end_of_central_dir_pos;
+	pos = d->eocd_pos;
 	de_dbg(c, "end-of-central-dir record at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
-	d->this_disk_num = de_getu16le(pos+4);
-	de_dbg(c, "this disk num: %"I64_FMT, d->this_disk_num);
-	disk_num_with_central_dir_start = de_getu16le(pos+6);
+	d->eocd.this_disk_num = de_getu16le(pos+4);
+	de_dbg(c, "this disk num: %"I64_FMT, d->eocd.this_disk_num);
+	d->eocd.cdir_starting_disk_num = de_getu16le(pos+6);
 	de_dbg(c, "disk num with central dir start: %"I64_FMT,
-		disk_num_with_central_dir_start);
+		d->eocd.cdir_starting_disk_num);
 
-	num_entries_this_disk = de_getu16le(pos+8);
+	d->eocd.cdir_num_entries_this_disk = de_getu16le(pos+8);
 	de_dbg(c, "central dir num entries on this disk: %s",
-		format_u16_with_zip64_override(d, num_entries_this_disk, tmpsz, sizeof(tmpsz)));
-	if(d->is_zip64 && (num_entries_this_disk==0xffff)) {
-		num_entries_this_disk = d->zip64_num_centr_dir_entries_this_disk;
+		format_u16_with_zip64_override(d, d->eocd.cdir_num_entries_this_disk, tmpsz, sizeof(tmpsz)));
+	if(d->is_zip64 && (d->eocd.cdir_num_entries_this_disk==0xffff)) {
+		d->eocd.cdir_num_entries_this_disk = d->eocd64.cdir_num_entries_this_disk;
 	}
 
-	d->central_dir_num_entries = de_getu16le(pos+10);
+	d->eocd.cdir_num_entries_total = de_getu16le(pos+10);
 	if(d->is_resof) {
-		d->central_dir_byte_size = - de_geti32le(pos+12);
+		d->eocd.cdir_byte_size = - de_geti32le(pos+12);
 	}
 	else {
-		d->central_dir_byte_size = de_getu32le(pos+12);
+		d->eocd.cdir_byte_size = de_getu32le(pos+12);
 	}
 
-	d->central_dir_offset = de_getu32le(pos+16);
+	d->eocd.cdir_offset = de_getu32le(pos+16);
 	de_dbg(c, "central dir num entries: %s",
-		format_u16_with_zip64_override(d, d->central_dir_num_entries, tmpsz, sizeof(tmpsz)));
-	if(d->is_zip64 && (d->central_dir_num_entries==0xffff)) {
-		d->central_dir_num_entries = d->zip64_num_centr_dir_entries_total;
+		format_u16_with_zip64_override(d, d->eocd.cdir_num_entries_total, tmpsz, sizeof(tmpsz)));
+	if(d->is_zip64 && (d->eocd.cdir_num_entries_total==0xffff)) {
+		d->eocd.cdir_num_entries_total = d->eocd64.cdir_num_entries_total;
 	}
 
-	de_dbg(c, "central dir size: %"I64_FMT, d->central_dir_byte_size);
-	if(d->is_zip64 && (d->central_dir_byte_size==0xffffffffLL)) {
-		d->central_dir_byte_size = d->zip64_centr_dir_byte_size;
+	de_dbg(c, "central dir size: %"I64_FMT, d->eocd.cdir_byte_size);
+	if(d->is_zip64 && (d->eocd.cdir_byte_size==0xffffffffLL)) {
+		d->eocd.cdir_byte_size = d->eocd64.cdir_byte_size;
 	}
 
 	de_dbg(c, "central dir offset: %s, disk: %"I64_FMT,
-		format_u32_with_zip64_override(d, d->central_dir_offset, tmpsz, sizeof(tmpsz)),
-		disk_num_with_central_dir_start);
-	if(d->is_zip64 && (d->central_dir_offset==0xffffffffLL)) {
-		d->central_dir_offset = d->zip64_cd_pos;
+		format_u32_with_zip64_override(d, d->eocd.cdir_offset, tmpsz, sizeof(tmpsz)),
+		d->eocd.cdir_starting_disk_num);
+	if(d->is_zip64 && (d->eocd.cdir_offset==0xffffffffLL)) {
+		d->eocd.cdir_offset = d->eocd64.cdir_offset;
 	}
 
-	archive_comment_len = de_getu16le(pos+20);
-	de_dbg(c, "comment length: %d", (int)archive_comment_len);
+	d->eocd.archive_comment_len = de_getu16le(pos+20);
+	de_dbg(c, "comment length: %d", (int)d->eocd.archive_comment_len);
 
 
-	if(d->central_dir_offset + d->central_dir_byte_size > d->end_of_central_dir_pos) {
+	if(d->eocd.cdir_offset + d->eocd.cdir_byte_size > d->eocd_pos) {
 		// If the central dir pos is wrong, we expect it to be too small, not
 		// too large. This is probably not a ZIP file (EOCD sig. false positive).
 		// TODO?: Maybe the signature-search function should be more discriminating.
@@ -1918,51 +1922,51 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 		goto done;
 	}
 
-	if(archive_comment_len>0) {
+	if(d->eocd.archive_comment_len>0) {
 		// The comment for the whole .ZIP file presumably has to use
 		// cp437 encoding. There's no flag that could indicate otherwise.
-		do_comment(c, d, pos+22, archive_comment_len, 0,
+		do_comment(c, d, pos+22, d->eocd.archive_comment_len, 0,
 			"ZIP file comment", "comment.txt");
 	}
 
 	// TODO: Figure out exactly how to detect disk spanning.
-	if(disk_num_with_central_dir_start!=d->this_disk_num ||
-		(d->is_zip64 && d->zip64_eocd_disknum!=d->this_disk_num))
+	if(d->eocd.cdir_starting_disk_num!=d->eocd.this_disk_num ||
+		(d->is_zip64 && d->zip64_eocd_disknum!=d->eocd.this_disk_num))
 	{
 		de_err(c, "Disk spanning not supported");
 		goto done;
 	}
 
-	if(d->this_disk_num!=0) {
+	if(d->eocd.this_disk_num!=0) {
 		de_warn(c, "This ZIP file might be part of a multi-part archive, and "
 			"might not be supported correctly");
 	}
 
-	if(num_entries_this_disk!=d->central_dir_num_entries) {
+	if(d->eocd.cdir_num_entries_this_disk!=d->eocd.cdir_num_entries_total) {
 		de_warn(c, "This ZIP file might not be supported correctly "
 			"(number-of-entries-this-disk=%d, number-of-entries-total=%d)",
-			(int)num_entries_this_disk, (int)d->central_dir_num_entries);
+			(int)d->eocd.cdir_num_entries_this_disk, (int)d->eocd.cdir_num_entries_total);
 	}
 
-	alt_central_dir_offset =
-		(d->is_zip64 ? d->zip64_eocd_pos : d->end_of_central_dir_pos) -
-		d->central_dir_byte_size;
-	if(alt_central_dir_offset>=0 && alt_central_dir_offset!=d->central_dir_offset) {
-		have_alt_central_dir_offset = 1;
+	alt_cdir_offset =
+		(d->is_zip64 ? d->zip64_eocd_pos : d->eocd_pos) -
+		d->eocd.cdir_byte_size;
+	if(alt_cdir_offset>=0 && alt_cdir_offset!=d->eocd.cdir_offset) {
+		have_alt_cdir_offset = 1;
 	}
 
-	if(have_alt_central_dir_offset) {
+	if(have_alt_cdir_offset) {
 		u32 sig;
 
 		de_warn(c, "Inconsistent central directory offset. Reported to be %"I64_FMT", "
 			"but based on its reported size, it should be %"I64_FMT".",
-			d->central_dir_offset, alt_central_dir_offset);
+			d->eocd.cdir_offset, alt_cdir_offset);
 
-		sig = (u32)de_getu32be(alt_central_dir_offset);
+		sig = (u32)de_getu32be(alt_cdir_offset);
 		if(sig==CODE_PK12) {
-			d->offset_correction = alt_central_dir_offset - d->central_dir_offset;
-			de_dbg(c, "likely central dir found at %"I64_FMT, alt_central_dir_offset);
-			d->central_dir_offset = alt_central_dir_offset;
+			d->offset_correction = alt_cdir_offset - d->eocd.cdir_offset;
+			de_dbg(c, "likely central dir found at %"I64_FMT, alt_cdir_offset);
+			d->eocd.cdir_offset = alt_cdir_offset;
 		}
 	}
 
@@ -1977,10 +1981,10 @@ static void check_for_resof_fmt(deark *c, lctx *d)
 {
 	if(d->is_zip64) return;
 	if(c->module_disposition==DE_MODDISP_INTERNAL) return;
-	if(d->end_of_central_dir_pos != c->infile->len-22) return;
+	if(d->eocd_pos != c->infile->len-22) return;
 	// Test the high byte of the central-dir-size field. For RESOF, the sign bit
 	// should be set.
-	if(de_getbyte(d->end_of_central_dir_pos+15) < 0x80) return;
+	if(de_getbyte(d->eocd_pos+15) < 0x80) return;
 	if(de_getu32be(0) != CODE_PK36) return;
 	d->is_resof = 1;
 }
@@ -1991,10 +1995,10 @@ static void de_run_zip_normally(deark *c, lctx *d)
 
 	if(c->detection_data && c->detection_data->zip_eocd_looked_for) {
 		eocd_found = (int)c->detection_data->zip_eocd_found;
-		d->end_of_central_dir_pos = c->detection_data->zip_eocd_pos;
+		d->eocd_pos = c->detection_data->zip_eocd_pos;
 	}
 	else {
-		eocd_found = fmtutil_find_zip_eocd(c, c->infile, 0, &d->end_of_central_dir_pos);
+		eocd_found = fmtutil_find_zip_eocd(c, c->infile, 0, &d->eocd_pos);
 	}
 	if(!eocd_found) {
 		if(c->module_disposition==DE_MODDISP_AUTODETECT ||
@@ -2019,7 +2023,7 @@ static void de_run_zip_normally(deark *c, lctx *d)
 	}
 
 	de_dbg(c, "end-of-central-dir record found at %"I64_FMT,
-		d->end_of_central_dir_pos);
+		d->eocd_pos);
 
 	do_zip64_eocd_locator(c, d);
 
@@ -2102,7 +2106,7 @@ static int de_identify_zip(deark *c)
 	// Fast tests:
 
 	bof_sig = (u32)de_getu32be(0);
-	if(bof_sig==CODE_PK34) {
+	if(bof_sig==CODE_PK34 || bof_sig==CODE_PK00) {
 		return has_zip_ext ? 100 : 90;
 	}
 	if((bof_sig>>16)==0x4d5a || (bof_sig>>16)==0x5a4d) {
@@ -2177,15 +2181,10 @@ struct zipreloc_ctx {
 	u8 disk_id_mismatch_flag;
 	u8 quiet;
 	i64 relocpos;
-	i64 this_disk_num; // (eocd field)
-	i64 end_of_central_dir_pos;
-	i64 eocd_disk_num_with_cdir_start;
-	i64 central_dir_num_entries_this_disk;
-	i64 central_dir_num_entries_total;
-	i64 central_dir_byte_size;
-	i64 central_dir_offset_reported;
-	i64 central_dir_offset_actual;
-	i64 archive_comment_len;
+	struct eocd_struct eocd;
+	i64 eocd_pos;
+	i64 cdir_offset_reported;
+	i64 cdir_offset_actual;
 	i64 min_ldir_offset;
 	i64 offset_correction; // Amount to add to the reported offsets to get the real offsets
 	i64 offset_diff; // Amount to add to the real offsets to get the offsets in the new file
@@ -2215,10 +2214,10 @@ static void walk_central_dir(deark *c, struct zipreloc_ctx *d,
 	walk_central_dir_callback cbfn)
 {
 	i64 i;
-	i64 pos = d->central_dir_offset_actual;
-	i64 endpos = d->central_dir_offset_actual + d->central_dir_byte_size;
+	i64 pos = d->cdir_offset_actual;
+	i64 endpos = d->cdir_offset_actual + d->eocd.cdir_byte_size;
 
-	for(i=0; i<d->central_dir_num_entries_this_disk; i++) {
+	for(i=0; i<d->eocd.cdir_num_entries_this_disk; i++) {
 		u32 sig;
 		i64 fn_len, extra_len, comment_len;
 		i64 len;
@@ -2295,25 +2294,25 @@ static void zip_relocator_main(deark *c, struct zipreloc_ctx *d)
 
 	// Copy the main part of the ZIP file
 	cpstart = d->min_ldir_offset;
-	cplen = d->central_dir_offset_actual - cpstart;
+	cplen = d->cdir_offset_actual - cpstart;
 	dbuf_copy(c->infile, cpstart, cplen, d->outf);
 
 	// Copy/convert the central directory
 	walk_central_dir(c, d, walk_central_dir_cb2);
 	// Copy any unused bytes at the end of the central dir
-	cpstart = d->central_dir_offset_actual + d->central_dir_nbytes_converted;
-	cplen =  d->central_dir_byte_size - d->central_dir_nbytes_converted;
+	cpstart = d->cdir_offset_actual + d->central_dir_nbytes_converted;
+	cplen =  d->eocd.cdir_byte_size - d->central_dir_nbytes_converted;
 	dbuf_copy(c->infile, cpstart, cplen, d->outf);
 
 	// Copy anything between the central dir and the EOCD record
-	cpstart = d->central_dir_offset_actual+d->central_dir_byte_size;
-	cplen = d->end_of_central_dir_pos - cpstart;
+	cpstart = d->cdir_offset_actual+d->eocd.cdir_byte_size;
+	cplen = d->eocd_pos - cpstart;
 	dbuf_copy(c->infile, cpstart, cplen, d->outf);
 
 	// Copy/convert the EOCD record & archive comment
 
 	// First 4 bytes
-	cpstart = d->end_of_central_dir_pos;
+	cpstart = d->eocd_pos;
 	cplen = 4;
 	dbuf_copy(c->infile, cpstart, cplen, d->outf);
 
@@ -2321,16 +2320,16 @@ static void zip_relocator_main(deark *c, struct zipreloc_ctx *d)
 	dbuf_write_zeroes(d->outf, 4);
 
 	// Next 8 bytes (num entries cdir this disk, thru cdir size)
-	cpstart = d->end_of_central_dir_pos+8;
+	cpstart = d->eocd_pos+8;
 	cplen = 8;
 	dbuf_copy(c->infile, cpstart, cplen, d->outf);
 
 	// Adjusted central dir offset
-	dbuf_writeu32le(d->outf, d->central_dir_offset_actual + d->offset_diff);
+	dbuf_writeu32le(d->outf, d->cdir_offset_actual + d->offset_diff);
 
 	// Last 2 bytes of EOCD record, plus archive comment
-	cpstart = d->end_of_central_dir_pos + 20;
-	cplen = 2 + d->archive_comment_len;
+	cpstart = d->eocd_pos + 20;
+	cplen = 2 + d->eocd.archive_comment_len;
 	dbuf_copy(c->infile, cpstart, cplen, d->outf);
 
 	dbuf_close(d->outf);
@@ -2360,7 +2359,7 @@ static void walk_central_dir_cb1(deark *c, struct zipreloc_ctx *d, i64 pos1, i64
 		goto done;
 	}
 
-	if(ldir_disk_num != d->this_disk_num) {
+	if(ldir_disk_num != d->eocd.this_disk_num) {
 		u32 crc_from_cdir;
 		u32 crc_from_ldir;
 
@@ -2385,12 +2384,36 @@ done:
 	;
 }
 
+static void simple_read_eocd(deark *c, dbuf *f, i64 pos1,
+	struct eocd_struct *eocd)
+{
+	i64 pos = pos1+4;
+
+	eocd->this_disk_num = dbuf_getu16le_p(f, &pos);
+	eocd->cdir_starting_disk_num = dbuf_getu16le_p(f, &pos);
+	eocd->cdir_num_entries_this_disk = dbuf_getu16le_p(f, &pos);
+	eocd->cdir_num_entries_total = dbuf_getu16le_p(f, &pos);
+	eocd->cdir_byte_size = dbuf_getu32le_p(f, &pos);
+	eocd->cdir_offset = dbuf_getu32le_p(f, &pos);
+	eocd->archive_comment_len = dbuf_getu16le_p(f, &pos);
+}
+
+static void simple_dbg_eocd(deark *c, struct eocd_struct *eocd)
+{
+	de_dbg(c, "this disk num: %"I64_FMT, eocd->this_disk_num);
+	de_dbg(c, "central dir num entries on this disk: %"I64_FMT,
+		eocd->cdir_num_entries_this_disk);
+	de_dbg(c, "central dir num entries: %"I64_FMT, eocd->cdir_num_entries_total);
+	de_dbg(c, "central dir size: %"I64_FMT, eocd->cdir_byte_size);
+	de_dbg(c, "central dir offset: %"I64_FMT", disk %"I64_FMT, eocd->cdir_offset,
+		eocd->cdir_starting_disk_num);
+}
+
 static void do_run_zip_relocator(deark *c, de_module_params *mparams,
 	int internalmode, const char *reloc_opt)
 {
 	struct zipreloc_ctx *d = NULL;
 	struct fmtutil_specialexe_detection_data *edd_from_parent = NULL;
-	i64 pos;
 	u32 sig;
 	int found_cdir = 0;
 	int eocd_found;
@@ -2416,96 +2439,84 @@ static void do_run_zip_relocator(deark *c, de_module_params *mparams,
 	if(edd_from_parent && edd_from_parent->zip_eocd_looked_for) {
 		eocd_found = edd_from_parent->zip_eocd_found;
 		if(eocd_found) {
-			d->end_of_central_dir_pos = edd_from_parent->zip_eocd_pos;
+			d->eocd_pos = edd_from_parent->zip_eocd_pos;
 		}
 	}
 	else if(c->detection_data && c->detection_data->zip_eocd_looked_for) {
 		eocd_found = (int)c->detection_data->zip_eocd_found;
 		if(eocd_found) {
-			d->end_of_central_dir_pos = c->detection_data->zip_eocd_pos;
+			d->eocd_pos = c->detection_data->zip_eocd_pos;
 		}
 	}
 	else {
-		eocd_found = fmtutil_find_zip_eocd(c, c->infile, 0, &d->end_of_central_dir_pos);
+		eocd_found = fmtutil_find_zip_eocd(c, c->infile, 0, &d->eocd_pos);
 	}
 	if(!eocd_found) {
 		zipreloc_err(c, d, "Not a ZIP file, or central directory not found.");
 		goto done;
 	}
 	de_dbg(c, "end-of-central-dir record found at %"I64_FMT,
-		d->end_of_central_dir_pos);
+		d->eocd_pos);
 
-	if(!dbuf_memcmp(c->infile, d->end_of_central_dir_pos-20, g_zipsig67, 4)) {
+	if(!dbuf_memcmp(c->infile, d->eocd_pos-20, g_zipsig67, 4)) {
 		zipreloc_err(c, d, "Relocating Zip64 is not supported");
 		goto done;
 	}
 
-	pos = d->end_of_central_dir_pos;
-	d->this_disk_num = de_getu16le(pos+4);
-	d->eocd_disk_num_with_cdir_start = de_getu16le(pos+6);
-	d->central_dir_num_entries_this_disk = de_getu16le(pos+8);
-	d->central_dir_num_entries_total = de_getu16le(pos+10);
-	d->central_dir_byte_size = de_getu32le(pos+12);
-	d->central_dir_offset_reported = de_getu32le(pos+16);
-	d->archive_comment_len = de_getu16le(pos+20);
+	simple_read_eocd(c, c->infile, d->eocd_pos, &d->eocd);
+	d->cdir_offset_reported = d->eocd.cdir_offset;
 
 	de_dbg_indent(c, 1);
-	de_dbg(c, "this disk num: %"I64_FMT, d->this_disk_num);
-	de_dbg(c, "central dir num entries on this disk: %"I64_FMT,
-		d->central_dir_num_entries_this_disk);
-	de_dbg(c, "central dir num entries: %"I64_FMT, d->central_dir_num_entries_total);
-	de_dbg(c, "central dir size: %"I64_FMT, d->central_dir_byte_size);
-	de_dbg(c, "central dir offset: %"I64_FMT", disk %"I64_FMT, d->central_dir_offset_reported,
-		d->eocd_disk_num_with_cdir_start);
+	simple_dbg_eocd(c, &d->eocd);
 	de_dbg_indent(c, -1);
 
-	if(d->central_dir_num_entries_this_disk != d->central_dir_num_entries_total) {
+	if(d->eocd.cdir_num_entries_this_disk != d->eocd.cdir_num_entries_total) {
 		d->errflag = 1;
 		d->need_errmsg = 1;
 		d->disk_id_mismatch_flag = 1;
 		goto done;
 	}
 
-	if(d->eocd_disk_num_with_cdir_start != d->this_disk_num) {
+	if(d->eocd.cdir_starting_disk_num != d->eocd.this_disk_num) {
 		d->errflag = 1;
 		d->need_errmsg = 1;
 		d->disk_id_mismatch_flag = 1;
 		goto done;
 	}
 
-	sig = (u32)de_getu32be(d->central_dir_offset_reported);
+	sig = (u32)de_getu32be(d->cdir_offset_reported);
 	if(sig==CODE_PK12) {
 		found_cdir = 1;
-		d->central_dir_offset_actual = d->central_dir_offset_reported;
+		d->cdir_offset_actual = d->cdir_offset_reported;
 	}
 
 	if(!found_cdir) {
 		i64 pos2;
 
-		pos2 = d->end_of_central_dir_pos - d->central_dir_byte_size;
+		pos2 = d->eocd_pos - d->eocd.cdir_byte_size;
 		sig = (u32)de_getu32be(pos2);
 		if(sig==CODE_PK12) {
 			de_dbg(c, "central dir found at %"I64_FMT, pos2);
-			d->central_dir_offset_actual = pos2;
-			d->offset_correction = d->central_dir_offset_actual - d->central_dir_offset_reported;
+			d->cdir_offset_actual = pos2;
+			d->offset_correction = d->cdir_offset_actual - d->cdir_offset_reported;
 			found_cdir = 1;
 		}
 	}
 
 	if(!found_cdir) {
 		zipreloc_err(c, d, "Central directory not found (expected at %"I64_FMT")",
-			d->central_dir_offset_reported);
+			d->cdir_offset_reported);
 		goto done;
 	}
 
-	if(d->central_dir_offset_actual + d->central_dir_byte_size > d->end_of_central_dir_pos) {
+	if(d->cdir_offset_actual + d->eocd.cdir_byte_size > d->eocd_pos) {
 		// We require the EOCD record to appear after the central dir.
 		d->errflag = 1;
 		d->need_errmsg = 1;
 		goto done;
 	}
 
-	if(d->end_of_central_dir_pos+22+d->archive_comment_len > c->infile->len) {
+	if(d->eocd_pos+22+d->eocd.archive_comment_len > c->infile->len) {
 		d->errflag = 1;
 		d->need_errmsg = 1;
 		goto done;
@@ -2513,7 +2524,7 @@ static void do_run_zip_relocator(deark *c, de_module_params *mparams,
 
 	// Pre-scan the central dir to find the offset of the local directory that
 	// appears first in the file.
-	d->min_ldir_offset = d->central_dir_offset_actual; // initialize to max possible value
+	d->min_ldir_offset = d->cdir_offset_actual; // initialize to max possible value
 	de_dbg(c, "[scanning central dir]");
 	de_dbg_indent(c, 1);
 	walk_central_dir(c, d, walk_central_dir_cb1);
