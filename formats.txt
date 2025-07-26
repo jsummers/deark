@@ -951,6 +951,8 @@ Deark -- Information about supported formats
   Options
    -opt loaddskf:toraw - Convert to raw FAT/IMA format.
 
+* Logitech Compress v2.0 (module="lgcompress")
+
 * LZEXE (module="lzexe")
   Decompress an LZEXE-compressed DOS EXE file.
   - Not automatic; must use "-m lzexe" or "-opt execomp".

@@ -28,6 +28,7 @@ DE_DECLARE_MODULE(de_module_zbr);
 DE_DECLARE_MODULE(de_module_compress);
 DE_DECLARE_MODULE(de_module_hpi);
 DE_DECLARE_MODULE(de_module_dclimplode);
+DE_DECLARE_MODULE(de_module_lgcompress);
 DE_DECLARE_MODULE(de_module_lzss_oku);
 DE_DECLARE_MODULE(de_module_lzhuf);
 DE_DECLARE_MODULE(de_module_compress_lzh);
@@ -1350,7 +1351,8 @@ void de_module_hpi(deark *c, struct deark_module_info *mi)
 // PKWARE DCL Implode compressed file
 // **************************************************************************
 
-static void de_run_dclimplode(deark *c, de_module_params *mparams)
+static void dclimplode_main(deark *c, i64 cmpr_pos, i64 cmpr_len,
+	u8 orig_len_known, i64 orig_len)
 {
 	dbuf *outf = NULL;
 	struct de_dfilter_in_params dcmpri;
@@ -1361,9 +1363,13 @@ static void de_run_dclimplode(deark *c, de_module_params *mparams)
 	dbuf_enable_wbuffer(outf);
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
-	dcmpri.pos = 0;
-	dcmpri.len = c->infile->len;
+	dcmpri.pos = cmpr_pos;
+	dcmpri.len = cmpr_len;
 	dcmpro.f = outf;
+	if(orig_len_known) {
+		dcmpro.len_known = 1;
+		dcmpro.expected_len = orig_len;
+	}
 
 	fmtutil_dclimplode_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
 	dbuf_flush(outf);
@@ -1372,6 +1378,11 @@ static void de_run_dclimplode(deark *c, de_module_params *mparams)
 	}
 
 	dbuf_close(outf);
+}
+
+static void de_run_dclimplode(deark *c, de_module_params *mparams)
+{
+	dclimplode_main(c, 0, c->infile->len, 0, 0);
 }
 
 static int de_identify_dclimplode(deark *c)
@@ -1407,6 +1418,41 @@ void de_module_dclimplode(deark *c, struct deark_module_info *mi)
 	mi->desc = "PKWARE DCL Implode compressed file";
 	mi->run_fn = de_run_dclimplode;
 	mi->identify_fn = de_identify_dclimplode;
+}
+
+// **************************************************************************
+// Logitech Compress / LGEXPAND (v2)
+// **************************************************************************
+
+static void de_run_lgcompress(deark *c, de_module_params *mparams)
+{
+	u8 mfnc;
+	i64 orig_len;
+
+	mfnc = de_getbyte(2);
+	if(mfnc>=0x33 && mfnc<=126) {
+		de_dbg(c, "missing filename char: '%c'", (int)mfnc);
+	}
+	orig_len = de_getu32le(4);
+	de_dbg(c, "orig len: %"I64_FMT, orig_len);
+
+	dclimplode_main(c, 8, c->infile->len-8, 1, orig_len);
+}
+
+static int de_identify_lgcompress(deark *c)
+{
+	if(de_getu16be(0) != 0xdafa) return 0;
+	if(de_getu16be(8) != 0x0006) return 0;
+	// TODO?: We could do more checks, especially at EOF.
+	return 80;
+}
+
+void de_module_lgcompress(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "lgcompress";
+	mi->desc = "Logitech Compress";
+	mi->run_fn = de_run_lgcompress;
+	mi->identify_fn = de_identify_lgcompress;
 }
 
 // **************************************************************************
