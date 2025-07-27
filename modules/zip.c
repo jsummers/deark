@@ -1913,8 +1913,9 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	d->eocd.archive_comment_len = de_getu16le(pos+20);
 	de_dbg(c, "comment length: %d", (int)d->eocd.archive_comment_len);
 
-
-	if(d->eocd.cdir_offset + d->eocd.cdir_byte_size > d->eocd_pos) {
+	if((d->eocd.cdir_starting_disk_num==d->eocd.this_disk_num) &&
+		(d->eocd.cdir_offset + d->eocd.cdir_byte_size > d->eocd_pos))
+	{
 		// If the central dir pos is wrong, we expect it to be too small, not
 		// too large. This is probably not a ZIP file (EOCD sig. false positive).
 		// TODO?: Maybe the signature-search function should be more discriminating.
