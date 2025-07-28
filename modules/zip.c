@@ -105,6 +105,7 @@ struct eocd_struct {
 	i64 cdir_byte_size;
 	i64 cdir_offset;
 	i64 archive_comment_len;
+	u8 is_likely_zip64;
 };
 
 struct localctx_struct {
@@ -165,6 +166,101 @@ static int timestamps_are_valid_and_equal(const struct de_timestamp *ts1,
 	if(!ts1->is_valid || !ts2->is_valid) return 0;
 	return (ts1->ts_FILETIME == ts2->ts_FILETIME);
 }
+
+static void print_multipart_note(deark *c, lctx *d)
+{
+	if(d->is_zip64) return;
+	de_info(c, "Note: Try \"-mp -opt zip:combine\" to convert to a "
+		"single-part ZIP file.");
+}
+
+// ----------
+// Generic "walk central dir" function.
+
+struct zip_wcd_ctx;
+
+typedef void (*zip_wcd_callback)(deark *c, struct zip_wcd_ctx *wcdctx);
+
+struct zip_wcd_ctx {
+	zip_wcd_callback cbfn;
+	void *userdata;
+	int userdata_disk_id;
+	u8 errflag;
+	u8 multipart_mode;
+	dbuf *inf;
+	i64 inf_start_pos;
+	i64 max_entries;
+	i64 num_entries_completed;
+	i64 inf_end_of_last_completed_entry;
+
+	// Data passed to the callback
+	i64 entry_pos;
+	i64 entry_size;
+	i64 fn_len, extra_len, comment_len;
+};
+
+// TODO: Decide how to report error messages.
+// TODO: Refactor, to use this "walk central dir" function for everything.
+static void zip_wcd_run(deark *c, struct zip_wcd_ctx *wcdctx)
+{
+	i64 pos;
+
+	pos = wcdctx->inf_start_pos;
+	wcdctx->inf_end_of_last_completed_entry = pos;
+
+	while(1) {
+		u32 sig;
+		i64 len_avail;
+
+		if(wcdctx->errflag) goto done;
+		if(wcdctx->num_entries_completed >= wcdctx->max_entries) goto done;
+
+		wcdctx->entry_pos = pos;
+		len_avail = wcdctx->inf->len - wcdctx->entry_pos;
+		if(len_avail < 46) {
+			// Not enough space even for the invariant part of the entry
+			if(!wcdctx->multipart_mode) {
+				wcdctx->errflag = 1;
+			}
+			goto done;
+		}
+		sig=(u32)dbuf_getu32be(wcdctx->inf, pos);
+		if(sig==0 && wcdctx->multipart_mode) {
+			// I haven't seen this, but I think it makes sense to tolerate
+			// zero-padding.
+			goto done;
+		}
+		if(sig!=CODE_PK12) {
+			wcdctx->errflag = 1;
+			goto done;
+		}
+		wcdctx->fn_len = dbuf_getu16le(wcdctx->inf, pos+28);
+		wcdctx->extra_len = dbuf_getu16le(wcdctx->inf, pos+30);
+		wcdctx->comment_len = dbuf_getu16le(wcdctx->inf, pos+32);
+		wcdctx->entry_size = 46 + wcdctx->fn_len + wcdctx->extra_len +
+			wcdctx->comment_len;
+		if(wcdctx->entry_size > len_avail) {
+			if(!wcdctx->multipart_mode) {
+				wcdctx->errflag = 1;
+			}
+			goto done;
+		}
+		if(wcdctx->cbfn) {
+			wcdctx->cbfn(c, wcdctx);
+			if(wcdctx->errflag) goto done;
+		}
+
+		pos += wcdctx->entry_size;
+		wcdctx->num_entries_completed++;
+		wcdctx->inf_end_of_last_completed_entry = pos;
+	}
+
+done:
+	wcdctx->entry_pos = 0;
+	wcdctx->entry_size = 0;
+}
+
+// ----------
 
 static int is_compression_method_supported(lctx *d, const struct cmpr_meth_info *cmi)
 {
@@ -1934,13 +2030,14 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	if(d->eocd.cdir_starting_disk_num!=d->eocd.this_disk_num ||
 		(d->is_zip64 && d->zip64_eocd_disknum!=d->eocd.this_disk_num))
 	{
-		de_err(c, "Disk spanning not supported");
+		de_err(c, "This looks like part of a multi-part ZIP archive.");
+		print_multipart_note(c, d);
 		goto done;
 	}
 
 	if(d->eocd.this_disk_num!=0) {
-		de_warn(c, "This ZIP file might be part of a multi-part archive, and "
-			"might not be supported correctly");
+		de_warn(c, "This file might be part of a multi-part ZIP archive.");
+		print_multipart_note(c, d);
 	}
 
 	if(d->eocd.cdir_num_entries_this_disk!=d->eocd.cdir_num_entries_total) {
@@ -2009,8 +2106,8 @@ static void de_run_zip_normally(deark *c, lctx *d)
 
 			bof_sig = (u32)de_getu32be(0);
 			if(bof_sig==CODE_PK78) {
-				de_err(c, "This is the first part of a multi-part ZIP archive, "
-					"which is not a supported format.");
+				de_err(c, "This looks like the first part of a multi-part ZIP archive.");
+				print_multipart_note(c, d);
 				goto done;
 			}
 			if(bof_sig==CODE_PK34) {
@@ -2056,22 +2153,36 @@ done:
 static void do_run_zip_relocator(deark *c, de_module_params *mparams,
 	int internalmode, const char *reloc_opt);
 
+static void do_run_zip_combiner(deark *c, de_module_params *mparams);
+
 static void de_run_zip(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	const char *s;
+	u8 combine_mode = 0;
 	de_encoding enc;
+
+	combine_mode = (u8)de_get_ext_option_bool(c, "zip:combine", 0);
+	if(combine_mode) {
+		do_run_zip_combiner(c, mparams);
+		return;
+	}
+	else {
+		if(c->mp_data && c->mp_data->count>0) {
+			de_err(c, "Multi-part archives are only supported with \"-opt zip:combine\"");
+			goto done;
+		}
+	}
 
 	if(de_havemodcode(c, mparams, 'R')) {
 		do_run_zip_relocator(c, mparams, 1, NULL);
 		return;
 	}
-	else {
-		const char *s;
-		s = de_get_ext_option(c, "zip:reloc");
-		if(s) {
-			do_run_zip_relocator(c, mparams, 0, s);
-			return;
-		}
+
+	s = de_get_ext_option(c, "zip:reloc");
+	if(s) {
+		do_run_zip_relocator(c, mparams, 0, s);
+		return;
 	}
 
 	d = de_malloc(c, sizeof(lctx));
@@ -2089,6 +2200,7 @@ static void de_run_zip(deark *c, de_module_params *mparams)
 		de_run_zip_normally(c, d);
 	}
 
+done:
 	if(d) {
 		de_crcobj_destroy(d->crco);
 		de_free(c, d);
@@ -2158,6 +2270,8 @@ static void de_help_zip(deark *c)
 	de_msg(c, "-opt zip:implodebug : Behave like PKZIP 1.01/1.02");
 	de_msg(c, "-opt zip:reloc[=<new_offset>] : Instead of decoding, "
 		"copy/optimize the file");
+	de_msg(c, "-mp -opt zip:combine : Instead of decoding, "
+		"combine a multi-part archive into one file");
 }
 
 void de_module_zip(deark *c, struct deark_module_info *mi)
@@ -2167,6 +2281,7 @@ void de_module_zip(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_zip;
 	mi->identify_fn = de_identify_zip;
 	mi->help_fn = de_help_zip;
+	mi->flags |= DE_MODFLAG_MULTIPART;
 }
 
 /////////////////////// ZIP relocator utility
@@ -2206,13 +2321,11 @@ static void zipreloc_err(deark *c, struct zipreloc_ctx *d, const char *fmt, ...)
 	va_end(ap);
 }
 
-typedef void (*walk_central_dir_callback)(deark *c, struct zipreloc_ctx *d,
+typedef void (*zipreloc_wcd_callback)(deark *c, struct zipreloc_ctx *d,
 	i64 pos1, i64 len);
 
-// TODO: Maybe this function, at least, should be shared with the main part of
-// the ZIP module.
-static void walk_central_dir(deark *c, struct zipreloc_ctx *d,
-	walk_central_dir_callback cbfn)
+static void zipreloc_walk_central_dir(deark *c, struct zipreloc_ctx *d,
+	zipreloc_wcd_callback cbfn)
 {
 	i64 i;
 	i64 pos = d->cdir_offset_actual;
@@ -2250,7 +2363,7 @@ done:
 }
 
 // Convert a central dir entry
-static void walk_central_dir_cb2(deark *c, struct zipreloc_ctx *d, i64 pos1, i64 len)
+static void zipreloc_wcd_cb2(deark *c, struct zipreloc_ctx *d, i64 pos1, i64 len)
 {
 	i64 cpstart, cplen;
 	i64 ldir_offset;
@@ -2299,7 +2412,7 @@ static void zip_relocator_main(deark *c, struct zipreloc_ctx *d)
 	dbuf_copy(c->infile, cpstart, cplen, d->outf);
 
 	// Copy/convert the central directory
-	walk_central_dir(c, d, walk_central_dir_cb2);
+	zipreloc_walk_central_dir(c, d, zipreloc_wcd_cb2);
 	// Copy any unused bytes at the end of the central dir
 	cpstart = d->cdir_offset_actual + d->central_dir_nbytes_converted;
 	cplen =  d->eocd.cdir_byte_size - d->central_dir_nbytes_converted;
@@ -2338,7 +2451,7 @@ static void zip_relocator_main(deark *c, struct zipreloc_ctx *d)
 }
 
 // Pre-scan a central dir entry
-static void walk_central_dir_cb1(deark *c, struct zipreloc_ctx *d, i64 pos1, i64 len)
+static void zipreloc_wcd_cb1(deark *c, struct zipreloc_ctx *d, i64 pos1, i64 len)
 {
 	u32 sig;
 	i64 ldir_disk_num;
@@ -2397,6 +2510,10 @@ static void simple_read_eocd(deark *c, dbuf *f, i64 pos1,
 	eocd->cdir_byte_size = dbuf_getu32le_p(f, &pos);
 	eocd->cdir_offset = dbuf_getu32le_p(f, &pos);
 	eocd->archive_comment_len = dbuf_getu16le_p(f, &pos);
+
+	if(!dbuf_memcmp(f, pos1-20, g_zipsig67, 4)) {
+		eocd->is_likely_zip64 = 1;
+	}
 }
 
 static void simple_dbg_eocd(deark *c, struct eocd_struct *eocd)
@@ -2459,17 +2576,17 @@ static void do_run_zip_relocator(deark *c, de_module_params *mparams,
 	de_dbg(c, "end-of-central-dir record found at %"I64_FMT,
 		d->eocd_pos);
 
-	if(!dbuf_memcmp(c->infile, d->eocd_pos-20, g_zipsig67, 4)) {
-		zipreloc_err(c, d, "Relocating Zip64 is not supported");
-		goto done;
-	}
-
 	simple_read_eocd(c, c->infile, d->eocd_pos, &d->eocd);
 	d->cdir_offset_reported = d->eocd.cdir_offset;
 
 	de_dbg_indent(c, 1);
 	simple_dbg_eocd(c, &d->eocd);
 	de_dbg_indent(c, -1);
+
+	if(d->eocd.is_likely_zip64) {
+		zipreloc_err(c, d, "Relocating Zip64 is not supported");
+		goto done;
+	}
 
 	if(d->eocd.cdir_num_entries_this_disk != d->eocd.cdir_num_entries_total) {
 		d->errflag = 1;
@@ -2528,7 +2645,7 @@ static void do_run_zip_relocator(deark *c, de_module_params *mparams,
 	d->min_ldir_offset = d->cdir_offset_actual; // initialize to max possible value
 	de_dbg(c, "[scanning central dir]");
 	de_dbg_indent(c, 1);
-	walk_central_dir(c, d, walk_central_dir_cb1);
+	zipreloc_walk_central_dir(c, d, zipreloc_wcd_cb1);
 	de_dbg_indent(c, -1);
 	if(d->errflag) goto done;
 
@@ -2546,6 +2663,380 @@ done:
 			zipreloc_err(c, d, "Cannot optimize/relocate this ZIP file%s",
 				(d->disk_id_mismatch_flag?" (disk spanning issue)":""));
 		}
+		de_free(c, d);
+	}
+}
+
+/////////////////////// ZIP combiner utility
+// This routine converts the fragments of a multi-part ZIP archive into
+// a single ZIP file.
+
+#define ZC_MAX_COMBINED_SIZE   200000000
+
+struct zc_volume {
+	i64 file_size;
+	i64 starting_offset;
+};
+
+struct zc_advpos {
+	int rel_disk_id;
+	i64 rel_pos;
+	i64 abs_pos;
+};
+
+struct zipcombine_ctx {
+	u8 errflag;
+	u8 need_errmsg;
+	int num_volumes;
+	struct eocd_struct eocd;
+	struct zc_advpos eocd_pos;
+	struct zc_advpos cdir_pos;
+	dbuf *f; // Combined parts, edited in place
+
+	// array[num_volumes]:
+	//  [0] = c->infile
+	//  [1..num_volumes-1] = c->mp_data[0..]
+	struct zc_volume *volumes;
+	char tmpsz[80];
+};
+
+// Return a dbuf for the input file referred to by xidx, opening
+// the file if it isn't already open.
+// dbk_release_dbuf() should be called when finished with it, though this
+// is not critical -- the file will still be closed eventually.
+static dbuf *zc_acquire_dbuf(deark *c, struct zipcombine_ctx *d, int xidx)
+{
+	int mpidx;
+
+	if(xidx==0) return c->infile;
+	mpidx = xidx-1;
+	if(mpidx<0 || mpidx>=c->mp_data->count) return NULL;
+	if(!c->mp_data->item[mpidx].f) {
+		c->mp_data->item[mpidx].f = dbuf_open_input_file(c, c->mp_data->item[mpidx].fn);
+		if(!c->mp_data->item[mpidx].f) {
+			d->errflag = 1;
+		}
+	}
+	return c->mp_data->item[mpidx].f;
+}
+
+static void zc_release_dbuf(deark *c, int xidx)
+{
+	int mpidx;
+
+	if(xidx==0) return;
+	mpidx = xidx-1;
+	if(mpidx<0 || mpidx>=c->mp_data->count) return;
+	if(c->mp_data->item[mpidx].f) {
+		dbuf_close(c->mp_data->item[mpidx].f);
+		c->mp_data->item[mpidx].f = NULL;
+	}
+}
+
+// Writes to d->tmpsz.
+static void zc_format_advpos(struct zipcombine_ctx *d, struct zc_advpos *advpos)
+{
+	de_snprintf(d->tmpsz, sizeof(d->tmpsz), "[disk %d, + %"I64_FMT" = %"I64_FMT"]",
+		advpos->rel_disk_id, advpos->rel_pos, advpos->abs_pos);
+}
+
+// zc_read_to_membuf() must be run, before calling this function.
+// Caller sets advpos->rel_*.
+// This function sets advpos->abs_pos, and may set d->errflag;
+static void zc_relpos_to_abspos(struct zipcombine_ctx *d, struct zc_advpos *advpos)
+{
+	if(advpos->rel_disk_id<0 || advpos->rel_disk_id>=d->num_volumes) {
+		d->errflag = 1;
+		advpos->abs_pos = d->f->len;
+		return;
+	}
+	advpos->abs_pos = d->volumes[advpos->rel_disk_id].starting_offset + advpos->rel_pos;
+}
+
+static void wcd_callback_for_cdpadding(deark *c, struct zip_wcd_ctx *wcdctx)
+{
+	if(c->debug_level<2) return;
+	de_dbg2(c, "peek at cdir entry #%u: disk %d, pos %"I64_FMT", len %"I64_FMT,
+		(UI)wcdctx->num_entries_completed,
+		wcdctx->userdata_disk_id, wcdctx->entry_pos, wcdctx->entry_size);
+}
+
+// A central dir record is not allowed to be split across multiple segments.
+// Unfortunately, some ZIP programs (e.g. PKZIP 2.04g) will write a partial
+// entry at the end of a segment, and then at the start of the next segment,
+// start over and write the same entry in its entirety.
+// This is a problem when converting a multi-segment archive to a single file.
+// We can't just concatenate all the segments together, and then fix up the
+// pointers. We must identify and ignore these junk/partial central dir
+// entries, which pretty much means we have to walk through the central dir
+// entries on every segment but the last one. That's what we do.
+// That still leaves pathological edge cases that I haven't investigated. I
+// suspect this doesn't work 100% of the time.
+static i64 zc_get_real_vol_size(deark *c, struct zipcombine_ctx *d,
+	struct zip_wcd_ctx *wcdctx, dbuf *inf, int disk_id)
+{
+	i64 rvs = inf->len; // Default: keep everything.
+
+	// Haven't reached the cdir yet, so no problem.
+	if(disk_id < d->eocd.cdir_starting_disk_num) goto done;
+
+	// The last volume isn't a problem.
+	if(disk_id >= d->eocd.this_disk_num) goto done;
+
+	// There are (probably) some cdir entries on this volume. Figure out where
+	// the last one ends, and return that info to the caller.
+	wcdctx->inf = inf;
+	wcdctx->userdata_disk_id = disk_id;
+
+	if(disk_id==d->eocd.cdir_starting_disk_num) {
+		wcdctx->inf_start_pos = d->eocd.cdir_offset;
+	}
+	else {
+		// Not common, and probably untested. It means there was a full segment
+		// consisting entirely of cdir entries.
+		wcdctx->inf_start_pos = 0;
+	}
+
+	zip_wcd_run(c, wcdctx);
+	if(wcdctx->errflag) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	rvs = wcdctx->inf_end_of_last_completed_entry;
+
+done:
+	return rvs;
+}
+
+static void zc_scan_and_read_to_membuf(deark *c, struct zipcombine_ctx *d)
+{
+	int v;
+	struct zip_wcd_ctx *wcdctx = NULL;
+
+	de_dbg(c, "[reading and scanning files]");
+	de_dbg_indent(c, 1);
+
+	wcdctx = de_malloc(c, sizeof(struct zip_wcd_ctx));
+	wcdctx->userdata = (void*)d;
+	wcdctx->multipart_mode = 1;
+	wcdctx->cbfn = wcd_callback_for_cdpadding;
+	wcdctx->max_entries = d->eocd.cdir_num_entries_total;
+
+	// TODO?: For convenience, we read all the parts into memory.
+	// It wouldn't be too hard to avoid doing that, and only read the
+	// central dir. (The most inconvenient issue might be where we
+	// validate that the local dir signatures are present.)
+
+	d->f = dbuf_create_membuf(c, 1048576, 0);
+
+	for(v=0; v<d->num_volumes; v++) {
+		dbuf *tmpf;
+		i64 newsize;
+
+		tmpf = zc_acquire_dbuf(c, d, v);
+		if(!tmpf) goto done;
+
+		d->volumes[v].file_size = zc_get_real_vol_size(c, d, wcdctx, tmpf, v);
+		if(d->errflag) goto done;
+
+		d->volumes[v].starting_offset = d->f->len;
+		de_dbg(c, "part %d: [at %"I64_FMT"] size=%"I64_FMT, v,
+			d->volumes[v].starting_offset, d->volumes[v].file_size);
+
+		newsize = tmpf->len + d->volumes[v].file_size;
+		if((newsize > ZC_MAX_COMBINED_SIZE || newsize > DE_MAX_MALLOC)) {
+			d->errflag = 1;
+			d->need_errmsg = 1;
+			goto done;
+		}
+		dbuf_copy(tmpf, 0, d->volumes[v].file_size, d->f);
+		zc_release_dbuf(c, v);
+		tmpf = NULL;
+	}
+
+done:
+	de_free(c, wcdctx);
+	de_dbg_indent(c, -1);
+}
+
+static void zc_writeu32le_at(struct zipcombine_ctx *d, i64 pos, i64 n)
+{
+	u8 buf[4];
+
+	de_writeu32le_direct(buf, n);
+	dbuf_write_at(d->f, pos, buf, 4);
+}
+
+static void zc_writeu16le_at(struct zipcombine_ctx *d, i64 pos, i64 n)
+{
+	u8 buf[2];
+
+	de_writeu16le_direct(buf, n);
+	dbuf_write_at(d->f, pos, buf, 2);
+}
+
+static void zc_modify_eocd(deark *c, struct zipcombine_ctx *d)
+{
+	de_dbg(c, "[adjusting eocd]");
+
+	// this disk id -> 0
+	zc_writeu16le_at(d, d->eocd_pos.abs_pos + 4, 0);
+
+	// cdir disk num -> 0
+	zc_writeu16le_at(d, d->eocd_pos.abs_pos + 6, 0);
+
+	// cdir num entries this disk
+	zc_writeu16le_at(d, d->eocd_pos.abs_pos + 8, d->eocd.cdir_num_entries_total);
+
+	// cdir offset
+	zc_writeu32le_at(d, d->eocd_pos.abs_pos + 16, d->cdir_pos.abs_pos);
+}
+
+static void wcd_callback_for_fixcdir(deark *c, struct zip_wcd_ctx *wcdctx)
+{
+	struct zipcombine_ctx *d = (struct zipcombine_ctx*)wcdctx->userdata;
+	struct zc_advpos ldir_pos;
+	u32 sig;
+
+	de_dbg(c, "adjusting cdir entry #%u: pos %"I64_FMT", len %"I64_FMT,
+		(UI)wcdctx->num_entries_completed,
+		wcdctx->entry_pos, wcdctx->entry_size);
+
+	de_zeromem(&ldir_pos, sizeof(struct zc_advpos));
+	ldir_pos.rel_disk_id = (int)dbuf_getu16le(d->f, wcdctx->entry_pos+34);
+	ldir_pos.rel_pos = dbuf_getu32le(d->f, wcdctx->entry_pos+42);
+
+	zc_relpos_to_abspos(d, &ldir_pos);
+
+	zc_format_advpos(d, &ldir_pos);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "ldir pos: %s", d->tmpsz);
+	de_dbg_indent(c, -1);
+
+	// If this is the right place, there should be a signature there.
+	sig = (u32)dbuf_getu32be(d->f, ldir_pos.abs_pos);
+	if(sig != CODE_PK34) {
+		wcdctx->errflag = 1;
+		goto done;
+	}
+
+	// disk number -> 0
+	zc_writeu16le_at(d, wcdctx->entry_pos+34, 0);
+	// old offset -> new offset
+	zc_writeu32le_at(d, wcdctx->entry_pos+42, ldir_pos.abs_pos);
+
+done:
+	;
+}
+
+static void zc_modify_cdir(deark *c, struct zipcombine_ctx *d)
+{
+	struct zip_wcd_ctx *wcdctx = NULL;
+
+	de_dbg(c, "[adjusting cdir entries]");
+	de_dbg_indent(c, 1);
+	wcdctx = de_malloc(c, sizeof(struct zip_wcd_ctx));
+	wcdctx->userdata = (void*)d;
+	wcdctx->cbfn = wcd_callback_for_fixcdir;
+	wcdctx->inf = d->f;
+	wcdctx->max_entries = d->eocd.cdir_num_entries_total;
+	wcdctx->inf_start_pos = d->cdir_pos.abs_pos;
+	zip_wcd_run(c, wcdctx);
+	if(wcdctx->errflag) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+done:
+	de_free(c, wcdctx);
+	de_dbg_indent(c, -1);
+}
+
+static void do_run_zip_combiner(deark *c, de_module_params *mparams)
+{
+	struct zipcombine_ctx *d = NULL;
+	dbuf *inf_last_part;
+	int eocd_found;
+	int last_vol_xidx;
+	dbuf *outf = NULL;
+
+	d = de_malloc(c, sizeof(struct zipcombine_ctx));
+
+	d->num_volumes = 1;
+	if(c->mp_data) {
+		d->num_volumes += c->mp_data->count;
+	}
+	de_dbg(c, "num parts: %d", d->num_volumes);
+	d->volumes = de_mallocarray(c, d->num_volumes, sizeof(struct zc_volume));
+
+	last_vol_xidx = d->num_volumes-1;
+	inf_last_part = zc_acquire_dbuf(c, d, last_vol_xidx);
+	if(!inf_last_part) {
+		goto done;
+	}
+	eocd_found = fmtutil_find_zip_eocd(c, inf_last_part, 0x1, &d->eocd_pos.rel_pos);
+	if(!eocd_found) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	d->eocd_pos.rel_disk_id = last_vol_xidx;
+	de_dbg(c, "end-of-central-dir record found at %"I64_FMT", disk %d",
+		d->eocd_pos.rel_pos, d->eocd_pos.rel_disk_id);
+	simple_read_eocd(c, inf_last_part, d->eocd_pos.rel_pos, &d->eocd);
+
+	de_dbg_indent(c, 1);
+	simple_dbg_eocd(c, &d->eocd);
+	de_dbg_indent(c, -1);
+
+	zc_release_dbuf(c, last_vol_xidx);
+	inf_last_part = NULL;
+
+	if(d->eocd.is_likely_zip64) {
+		de_err(c, "Combining Zip64 is not supported");
+		goto done;
+	}
+
+	if(d->eocd.this_disk_num != last_vol_xidx) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	zc_scan_and_read_to_membuf(c, d);
+	if(d->errflag) goto done;
+
+	zc_relpos_to_abspos(d, &d->eocd_pos);
+	zc_format_advpos(d, &d->eocd_pos);
+	de_dbg(c, "end-of-central-dir at %s", d->tmpsz);
+
+	d->cdir_pos.rel_disk_id = (int)d->eocd.cdir_starting_disk_num;
+	d->cdir_pos.rel_pos = d->eocd.cdir_offset;
+	zc_relpos_to_abspos(d, &d->cdir_pos);
+	if(d->errflag) goto done;
+	zc_format_advpos(d, &d->cdir_pos);
+	de_dbg(c, "central dir at %s", d->tmpsz);
+	if(d->errflag) goto done;
+
+	zc_modify_eocd(c, d);
+	if(d->errflag) goto done;
+	zc_modify_cdir(c, d);
+	if(d->errflag) goto done;
+
+	// Write the combined-and-modified file
+	outf = dbuf_create_output_file(c, "zip", NULL, 0);
+	dbuf_copy(d->f, 0, d->f->len, outf);
+
+done:
+	dbuf_close(outf);
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Failed to process multi-part ZIP archive");
+		}
+		dbuf_close(d->f);
+		de_free(c, d->volumes);
 		de_free(c, d);
 	}
 }
