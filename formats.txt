@@ -1135,14 +1135,14 @@ Deark -- Information about supported formats
   - Supports most compression methods.
   - Extract main ZIP file comment (use -a).
   - Extract comments for individual files (use -a).
-  - Only the special "combine" mode supports multi-part archives.
+  - Only the special "combine" mode supports multi-segment archives.
   Options
    -opt zip:scanmode - Attempt to read the file without using the ZIP "central
      directory". Not recommended, but allows some damaged ZIP files to be read.
    -opt zip:reloc[=<new_offset>] - Instead of decoding, move the ZIP data to
      the start of the file (or to new_offset).
-   -opt zip:combine - Instead of decoding, combine the fragments of a multi-
-     part archive into a single ZIP file. Use with "-mp". (experimental)
+   -opt zip:combine - Instead of decoding, combine the files of a multi-segment
+     archive into a single ZIP file. Use with "-mp". (experimental)
 
 * zlib (module="zlib")
   - Raw zlib files are uncompressed.
