@@ -2432,3 +2432,46 @@ int de_sanitize_count(i64 *pn)
 	}
 	return 1;
 }
+
+// Return a dbuf for the input file referred to by xidx, opening
+// the file if it isn't already open.
+// This may report an error and return NULL.
+// Note that the index is off by 1 from the index of c->mp_data[].
+// If xidx is 0, returns a copy of c->infile.
+// If xidx is >0, it refers to c->mp_data[xidx-1].
+// dbk_release_dbuf() should be called when finished with it, though this
+// is not critical -- the file will still be closed eventually.
+dbuf *de_mp_acquire_dbuf(deark *c, int xidx)
+{
+	int mpidx;
+
+	if(xidx==0) return c->infile;
+	mpidx = xidx-1;
+	if(mpidx<0 || mpidx>=c->mp_data->count) return NULL;
+	if(!c->mp_data->item[mpidx].f) {
+		c->mp_data->item[mpidx].f = dbuf_open_input_file(c, c->mp_data->item[mpidx].fn);
+	}
+	return c->mp_data->item[mpidx].f;
+}
+
+// Caution: After release(), the dbuf returned by acquire() is no longer valid.
+// As a convenience(?), you can pass a pointer to the old dbuf* in p_oldf, and
+// it will be set to NULL.
+// [p_oldf can be NULL if you don't want to do this.]
+void de_mp_release_dbuf(deark *c, int xidx, dbuf **p_oldf)
+{
+	int mpidx;
+
+	if(p_oldf) {
+		*p_oldf = NULL;
+	}
+	if(xidx==0) goto done;
+	mpidx = xidx-1;
+	if(mpidx<0 || mpidx>=c->mp_data->count) goto done;
+	if(c->mp_data->item[mpidx].f) {
+		dbuf_close(c->mp_data->item[mpidx].f);
+		c->mp_data->item[mpidx].f = NULL;
+	}
+done:
+	;
+}

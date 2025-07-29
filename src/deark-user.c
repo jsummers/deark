@@ -329,6 +329,10 @@ int de_run(deark *c)
 	else if(c->slice_start_req) {
 		ucstring_printf(friendly_infn, DE_ENCODING_LATIN1, "[%"I64_FMT"]", c->slice_start_req);
 	}
+	if(c->mp_data && c->mp_data->count>0) {
+		ucstring_printf(friendly_infn, DE_ENCODING_LATIN1, " (+%d more file%s)",
+			c->mp_data->count, (c->mp_data->count==1 ? "" : "s"));
+	}
 	de_dbg(c, "Input file: %s", ucstring_getpsz_d(friendly_infn));
 
 	if(c->input_style==DE_INPUTSTYLE_STDIN) {
@@ -963,6 +967,7 @@ void de_set_input_style(deark *c, int x)
 // which case the module should probably stop immediately.
 // The module can use mp_data->item[].f, but is not required to. If the
 // module leaves it set, it will be closed automatically.
+// (Use de_mp_acquire/release_dbuf() to make this easier.)
 // The first file is still c->infile, the same as for any other module.
 // (It's unfortunate that the first file is such a special case, but that's
 // the way it is for now.)

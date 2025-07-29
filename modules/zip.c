@@ -2710,39 +2710,6 @@ struct zipcombine_ctx {
 	char tmpsz[80];
 };
 
-// Return a dbuf for the input file referred to by xidx, opening
-// the file if it isn't already open.
-// dbk_release_dbuf() should be called when finished with it, though this
-// is not critical -- the file will still be closed eventually.
-static dbuf *zc_acquire_dbuf(deark *c, struct zipcombine_ctx *d, int xidx)
-{
-	int mpidx;
-
-	if(xidx==0) return c->infile;
-	mpidx = xidx-1;
-	if(mpidx<0 || mpidx>=c->mp_data->count) return NULL;
-	if(!c->mp_data->item[mpidx].f) {
-		c->mp_data->item[mpidx].f = dbuf_open_input_file(c, c->mp_data->item[mpidx].fn);
-		if(!c->mp_data->item[mpidx].f) {
-			d->errflag = 1;
-		}
-	}
-	return c->mp_data->item[mpidx].f;
-}
-
-static void zc_release_dbuf(deark *c, int xidx)
-{
-	int mpidx;
-
-	if(xidx==0) return;
-	mpidx = xidx-1;
-	if(mpidx<0 || mpidx>=c->mp_data->count) return;
-	if(c->mp_data->item[mpidx].f) {
-		dbuf_close(c->mp_data->item[mpidx].f);
-		c->mp_data->item[mpidx].f = NULL;
-	}
-}
-
 // Writes to d->tmpsz.
 static void zc_format_advpos(struct zipcombine_ctx *d, struct zc_advpos *advpos)
 {
@@ -2845,8 +2812,11 @@ static void zc_scan_and_read_to_membuf(deark *c, struct zipcombine_ctx *d)
 		dbuf *tmpf;
 		i64 newsize;
 
-		tmpf = zc_acquire_dbuf(c, d, v);
-		if(!tmpf) goto done;
+		tmpf = de_mp_acquire_dbuf(c, v);
+		if(!tmpf) {
+			d->errflag = 1;
+			goto done;
+		}
 
 		d->segments[v].file_size = zc_get_real_seg_size(c, d, wcdctx, tmpf, v);
 		if(d->errflag) goto done;
@@ -2862,8 +2832,7 @@ static void zc_scan_and_read_to_membuf(deark *c, struct zipcombine_ctx *d)
 			goto done;
 		}
 		dbuf_copy(tmpf, 0, d->segments[v].file_size, d->f);
-		zc_release_dbuf(c, v);
-		tmpf = NULL;
+		de_mp_release_dbuf(c, v, &tmpf);
 	}
 
 done:
@@ -2983,8 +2952,9 @@ static void do_run_zip_combiner(deark *c, de_module_params *mparams)
 	d->segments = de_mallocarray(c, d->num_segments, sizeof(struct zc_segment));
 
 	last_seg_xidx = d->num_segments-1;
-	inf_last_segment = zc_acquire_dbuf(c, d, last_seg_xidx);
+	inf_last_segment = de_mp_acquire_dbuf(c, last_seg_xidx);
 	if(!inf_last_segment) {
+		d->errflag = 1;
 		goto done;
 	}
 	eocd_found = fmtutil_find_zip_eocd(c, inf_last_segment, 0x1, &d->eocd_pos.rel_pos);
@@ -3002,8 +2972,7 @@ static void do_run_zip_combiner(deark *c, de_module_params *mparams)
 	simple_dbg_eocd(c, &d->eocd);
 	de_dbg_indent(c, -1);
 
-	zc_release_dbuf(c, last_seg_xidx);
-	inf_last_segment = NULL;
+	de_mp_release_dbuf(c, last_seg_xidx, &inf_last_segment);
 
 	if(d->eocd.is_likely_zip64) {
 		de_err(c, "Combining Zip64 is not supported");

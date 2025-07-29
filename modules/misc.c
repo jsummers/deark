@@ -80,27 +80,32 @@ void de_module_null(deark *c, struct deark_module_info *mi)
 // This is basically a multi-part example module.
 // **************************************************************************
 
-static void join_internal(deark *c, dbuf *inf, dbuf *outf)
-{
-	dbuf_copy(inf, 0, inf->len, outf);
-}
-
 static void de_run_join(deark *c, de_module_params *mparams)
 {
 	int k;
+	int num_parts = 1;
 	dbuf *outf = NULL;
 
-	outf = dbuf_create_output_file(c, "bin", NULL, 0);
-	join_internal(c, c->infile, outf);
+	if(c->mp_data) {
+		num_parts += c->mp_data->count;
+	}
 
-	if(!c->mp_data) goto done;
-	for(k=0; k<c->mp_data->count; k++) {
-		de_dbg(c, "[mp file %d: %s]", k, c->mp_data->item[k].fn);
-		c->mp_data->item[k].f = dbuf_open_input_file(c, c->mp_data->item[k].fn);
-		if(!c->mp_data->item[k].f) goto done;
-		join_internal(c, c->mp_data->item[k].f, outf);
-		dbuf_close(c->mp_data->item[k].f);
-		c->mp_data->item[k].f = NULL;
+	outf = dbuf_create_output_file(c, "bin", NULL, 0);
+
+	for(k=0; k<num_parts; k++) {
+		dbuf *inf;
+
+		if(k>0 && c->mp_data) {
+			de_dbg(c, "[mp file %d: %s]", k-1, c->mp_data->item[k-1].fn);
+		}
+		inf = de_mp_acquire_dbuf(c, k);
+		if(!inf) {
+			goto done;
+		}
+
+		dbuf_copy(inf, 0, inf->len, outf);
+
+		de_mp_release_dbuf(c, k, &inf);
 	}
 
 done:

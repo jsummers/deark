@@ -775,23 +775,23 @@ static void mscompress_handle_multipart(deark *c, lctx *d)
 	dbuf_copy(c->infile, 0, c->infile->len, d->inf);
 	for(k=0; k<c->mp_data->count; k++) {
 		u8 v;
+		dbuf *inf_part;
 
-		c->mp_data->item[k].f = dbuf_open_input_file(c, c->mp_data->item[k].fn);
-		if(!c->mp_data->item[k].f) {
+		inf_part = de_mp_acquire_dbuf(c, k+1);
+		if(!inf_part) {
 			d->errflag = 1;
 			goto done;
 		}
 
-		v = dbuf_getbyte(c->mp_data->item[k].f, 7);
+		v = dbuf_getbyte(inf_part, 7);
 		if((int)v != k+2) {
 			de_err(c, "(part %d) Bad file or wrong order", k+2);
 			d->errflag = 1;
 			goto done;
 		}
 
-		dbuf_copy(c->mp_data->item[k].f, 8, c->mp_data->item[k].f->len-8, d->inf);
-		dbuf_close(c->mp_data->item[k].f);
-		c->mp_data->item[k].f = NULL;
+		dbuf_copy(inf_part, 8, inf_part->len-8, d->inf);
+		de_mp_release_dbuf(c, k+1, &inf_part);
 	}
 
 done:

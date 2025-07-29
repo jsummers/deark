@@ -994,6 +994,9 @@ i64 de_log2_rounded_up(i64 n);
 
 char *de_print_base2_fixed(char *buf, size_t buf_len, u64 n, UI bitcount);
 
+dbuf *de_mp_acquire_dbuf(deark *c, int xidx);
+void de_mp_release_dbuf(deark *c, int xidx, dbuf **p_oldf);
+
 // Test if the image dimensions are valid and supported.
 int de_good_image_dimensions_noerr(deark *c, i64 w, i64 h);
 
