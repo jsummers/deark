@@ -28,11 +28,11 @@ typedef struct localctx_struct lctx;
 #define CODE_PK14 0x504b0104U
 #define CODE_PK34 0x504b0304U
 #define CODE_PK36 0x504b0306U
+#define CODE_PK66 0x504b0606U
+#define CODE_PK67 0x504b0607U
 #define CODE_PK78 0x504b0708U
 #define CODE_PK00 0x504b3030U
 static const u8 g_zipsig34[4] = {'P', 'K', 0x03, 0x04};
-static const u8 g_zipsig66[4] = {'P', 'K', 0x06, 0x06};
-static const u8 g_zipsig67[4] = {'P', 'K', 0x06, 0x07};
 
 struct compression_params {
 	// ZIP-specific params (not in de_dfilter_*_params) that may be needed to
@@ -1893,7 +1893,7 @@ static int do_zip64_eocd(deark *c, lctx *d)
 	}
 
 	pos = d->zip64_eocd_pos;
-	if(dbuf_memcmp(c->infile, pos, g_zipsig66, 4)) {
+	if((UI)de_getu32be(pos) != CODE_PK66) {
 		de_warn(c, "Expected Zip64 end-of-central-directory record not found at %"I64_FMT, pos);
 		retval = 1; // Maybe the eocd locator sig was a false positive?
 		d->is_zip64 = 0;
@@ -1948,7 +1948,7 @@ static void do_zip64_eocd_locator(deark *c, lctx *d)
 	i64 n;
 	i64 pos = d->eocd_pos - 20;
 
-	if(dbuf_memcmp(c->infile, pos, g_zipsig67, 4)) {
+	if((UI)de_getu32be(pos) != CODE_PK67) {
 		return;
 	}
 	de_dbg(c, "zip64 eocd locator found at %"I64_FMT, pos);
@@ -2521,7 +2521,7 @@ static void simple_read_eocd(deark *c, dbuf *f, i64 pos1,
 	eocd->cdir_offset = dbuf_getu32le_p(f, &pos);
 	eocd->archive_comment_len = dbuf_getu16le_p(f, &pos);
 
-	if(!dbuf_memcmp(f, pos1-20, g_zipsig67, 4)) {
+	if((UI)dbuf_getu32be(f, pos1-20) == CODE_PK67) {
 		eocd->is_likely_zip64 = 1;
 	}
 }
