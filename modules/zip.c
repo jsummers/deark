@@ -63,6 +63,9 @@ struct dir_entry_data {
 	i64 main_fname_pos;
 	i64 main_fname_len;
 	de_ucstring *fname;
+	u8 have_read_sig_and_hdrsize;
+	i64 fn_len, extra_len, comment_len;
+	i64 hdrsize;
 };
 
 struct timestamp_data {
@@ -197,7 +200,9 @@ struct zip_wcd_ctx {
 	zip_wcd_callback cbfn;
 	void *userdata;
 	int userdata_seg_id;
+	u8 report_errors;
 	u8 multisegment_mode;
+	u8 is_resof;
 	dbuf *inf;
 	i64 inf_startpos;
 	i64 inf_endpos; // Normally, this can be inf->len
@@ -220,13 +225,15 @@ struct zip_wcd_ctx {
 // Create one wcdctx object per walk per central directory.
 // But if the central directory is segmented, zip_wcd_run() may be called
 // multiple times with the same wcdctx -- it will pick up where it left off.
-// TODO?: Maybe the main do_central_dir() should also use this.
 static void zip_wcd_run(deark *c, struct zip_wcd_ctx *wcdctx)
 {
 	i64 pos;
+	u32 expected_sig;
+	u8 unexpected_eof_flag = 0;
 
 	pos = wcdctx->inf_startpos;
 	wcdctx->endpos_of_last_completed_entry = pos;
+	expected_sig = wcdctx->is_resof?CODE_PK14:CODE_PK12;
 
 	while(1) {
 		u32 sig;
@@ -242,6 +249,7 @@ static void zip_wcd_run(deark *c, struct zip_wcd_ctx *wcdctx)
 			if(!wcdctx->multisegment_mode) {
 				wcdctx->errflag = 1;
 				wcdctx->need_errmsg = 1;
+				unexpected_eof_flag = 1;
 			}
 			goto done;
 		}
@@ -251,9 +259,15 @@ static void zip_wcd_run(deark *c, struct zip_wcd_ctx *wcdctx)
 			// zero-padding.
 			goto done;
 		}
-		if(sig!=CODE_PK12) {
+		if(sig!=expected_sig) {
 			wcdctx->errflag = 1;
-			wcdctx->need_errmsg = 1;
+			if(wcdctx->report_errors) {
+				de_err(c, "Central dir file header not found at %"I64_FMT,
+					wcdctx->entry_pos);
+			}
+			else {
+				wcdctx->need_errmsg = 1;
+			}
 			goto done;
 		}
 		wcdctx->fn_len = dbuf_getu16le(wcdctx->inf, pos+28);
@@ -265,6 +279,7 @@ static void zip_wcd_run(deark *c, struct zip_wcd_ctx *wcdctx)
 			if(!wcdctx->multisegment_mode) {
 				wcdctx->errflag = 1;
 				wcdctx->need_errmsg = 1;
+				unexpected_eof_flag = 1;
 			}
 			goto done;
 		}
@@ -281,6 +296,10 @@ static void zip_wcd_run(deark *c, struct zip_wcd_ctx *wcdctx)
 	}
 
 done:
+	if(unexpected_eof_flag && wcdctx->report_errors) {
+		de_err(c, "Central dir file header exceeds its bounds");
+		wcdctx->need_errmsg = 0;
+	}
 	wcdctx->entry_pos = 0;
 	wcdctx->entry_size = 0;
 }
@@ -1474,8 +1493,6 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	int is_central, i64 pos1, i64 *p_entry_size)
 {
 	i64 pos;
-	u32 sig;
-	i64 fn_len, extra_len, comment_len;
 	int utf8_flag;
 	int retval = 0;
 	i64 fixed_header_size;
@@ -1491,6 +1508,9 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 		dd = &md->central_dir_entry_data;
 		fixed_header_size = 46;
 		de_dbg(c, "central dir entry at %"I64_FMT, pos);
+		if(!dd->have_read_sig_and_hdrsize) {
+			goto done; // internal error
+		}
 	}
 	else {
 		dd = &md->local_dir_entry_data;
@@ -1516,14 +1536,17 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	}
 	de_dbg_indent(c, 1);
 
-	sig = (u32)de_getu32be_p(&pos);
-	if(is_central && sig!=(d->is_resof?CODE_PK14:CODE_PK12)) {
-		de_err(c, "Central dir file header not found at %"I64_FMT, pos1);
-		goto done;
+	if(dd->have_read_sig_and_hdrsize) { // Currently always true for central dir entries
+		pos += 4;
 	}
-	else if(!is_central && sig!=(d->is_resof?CODE_PK36:CODE_PK34)) {
-		de_err(c, "Local file header not found at %"I64_FMT, pos1);
-		goto done;
+	else {
+		u32 sig;
+
+		sig = (u32)de_getu32be_p(&pos);
+		if(!is_central && sig!=(d->is_resof?CODE_PK36:CODE_PK34)) {
+			de_err(c, "Local file header not found at %"I64_FMT, pos1);
+			goto done;
+		}
 	}
 
 	if(is_central) {
@@ -1572,17 +1595,23 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	de_dbg(c, "uncmpr size: %s", format_u32_with_zip64_override(d, dd->uncmpr_size,
 		tmpsz, sizeof(tmpsz)));
 
-	fn_len = de_getu16le_p(&pos);
-	extra_len = de_getu16le_p(&pos);
-	if(is_central) {
-		comment_len = de_getu16le_p(&pos);
+	if(dd->have_read_sig_and_hdrsize) {
+		pos += 4;
+		if(is_central) pos += 2;
 	}
 	else {
-		comment_len = 0;
+		dd->fn_len = de_getu16le_p(&pos);
+		dd->extra_len = de_getu16le_p(&pos);
+		if(is_central) {
+			dd->comment_len = de_getu16le_p(&pos);
+		}
+		else {
+			dd->comment_len = 0;
+		}
 	}
 
 	if(!is_central) {
-		md->file_data_pos = pos + fn_len + extra_len;
+		md->file_data_pos = pos + dd->fn_len + dd->extra_len;
 	}
 
 	if(is_central) {
@@ -1629,24 +1658,24 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 			(int)md->seg_number_start);
 	}
 
-	de_dbg(c, "filename len: %d", (int)fn_len);
-	de_dbg(c, "extra len: %d", (int)extra_len);
+	de_dbg(c, "filename len: %d", (int)dd->fn_len);
+	de_dbg(c, "extra len: %d", (int)dd->extra_len);
 	if(is_central) {
-		de_dbg(c, "comment len: %d", (int)comment_len);
+		de_dbg(c, "comment len: %d", (int)dd->comment_len);
 	}
 
-	*p_entry_size = fixed_header_size + fn_len + extra_len + comment_len;
+	*p_entry_size = fixed_header_size + dd->fn_len + dd->extra_len + dd->comment_len;
 
 	dd->main_fname_pos = pos1+fixed_header_size;
-	dd->main_fname_len = fn_len;
-	do_read_filename(c, d, md, dd, pos1+fixed_header_size, fn_len, utf8_flag);
+	dd->main_fname_len = dd->fn_len;
+	do_read_filename(c, d, md, dd, pos1+fixed_header_size, dd->fn_len, utf8_flag);
 
-	if(extra_len>0) {
-		do_extra_data(c, d, md, dd, pos1+fixed_header_size+fn_len, extra_len, is_central);
+	if(dd->extra_len>0) {
+		do_extra_data(c, d, md, dd, pos1+fixed_header_size+dd->fn_len, dd->extra_len, is_central);
 	}
 
-	if(comment_len>0) {
-		do_comment(c, d, pos1+fixed_header_size+fn_len+extra_len, comment_len, utf8_flag,
+	if(dd->comment_len>0) {
+		do_comment(c, d, pos1+fixed_header_size+dd->fn_len+dd->extra_len, dd->comment_len, utf8_flag,
 			"member file comment", "fcomment.txt");
 	}
 
@@ -1774,10 +1803,6 @@ static int do_member_from_central_dir_entry(deark *c, lctx *d,
 
 	*entry_size = 0;
 
-	if(pos >= d->eocd.cdir_offset+d->eocd.cdir_byte_size) {
-		goto done;
-	}
-
 	de_dbg(c, "central dir entry #%d", (int)central_index);
 	de_dbg_indent(c, 1);
 
@@ -1800,18 +1825,6 @@ static int do_member_from_central_dir_entry(deark *c, lctx *d,
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
-}
-
-static int do_central_dir_entry(deark *c, lctx *d,
-	i64 central_index, i64 pos, i64 *entry_size)
-{
-	struct member_data *md = NULL;
-	int ret;
-
-	md = create_member_data(c, d);
-	ret = do_member_from_central_dir_entry(c, d, md, central_index, pos, entry_size);
-	destroy_member_data(c, md);
-	return ret;
 }
 
 static int do_local_dir_only(deark *c, lctx *d, i64 pos1, i64 *pmember_size)
@@ -1864,28 +1877,62 @@ static void de_run_zip_scanmode(deark *c, lctx *d)
 	}
 }
 
+static void main_walk_cdir_cb(deark *c, struct zip_wcd_ctx *wcdctx)
+{
+	lctx *d = (lctx*)wcdctx->userdata;
+	struct member_data *md = NULL;
+	i64 entry_size = 0;
+	int ret = 0;
+
+	md = create_member_data(c, d);
+	md->central_dir_entry_data.have_read_sig_and_hdrsize = 1;
+	md->central_dir_entry_data.fn_len = wcdctx->fn_len;
+	md->central_dir_entry_data.extra_len = wcdctx->extra_len;
+	md->central_dir_entry_data.comment_len = wcdctx->comment_len;
+
+	ret = do_member_from_central_dir_entry(c, d, md, wcdctx->num_entries_completed,
+		wcdctx->entry_pos, &entry_size);
+
+	// TODO: Decide exactly what to do if something fails.
+	if(!ret) {
+		wcdctx->errflag = 1;
+	}
+
+	destroy_member_data(c, md);
+}
+
 static int do_central_dir(deark *c, lctx *d)
 {
-	i64 i;
 	i64 pos;
-	i64 entry_size;
+	struct zip_wcd_ctx *wcdctx = NULL;
 	int retval = 0;
 
 	pos = d->eocd.cdir_offset;
 	de_dbg(c, "central dir at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
-	for(i=0; i<d->eocd.cdir_num_entries_total; i++) {
-		if(!do_central_dir_entry(c, d, i, pos, &entry_size)) {
-			// TODO: Decide exactly what to do if something fails.
-			goto done;
-		}
-		pos += entry_size;
+	wcdctx = de_malloc(c, sizeof(struct zip_wcd_ctx));
+	wcdctx->userdata = (void*)d;
+	wcdctx->cbfn = main_walk_cdir_cb;
+	wcdctx->max_entries = d->eocd.cdir_num_entries_total;
+	wcdctx->inf = c->infile;
+	wcdctx->inf_startpos = pos;
+	// Note that this endpos would sometimes be wrong for multi-segment archives,
+	// but we won't get here in that case.
+	wcdctx->inf_endpos = pos + d->eocd.cdir_byte_size;
+	wcdctx->report_errors = 1;
+	wcdctx->is_resof = d->is_resof;
+
+	zip_wcd_run(c, wcdctx);
+	if(wcdctx->errflag) {
+		goto done;
 	}
+
 	retval = 1;
 
 done:
 	de_dbg_indent(c, -1);
+	de_free(c, wcdctx);
 	return retval;
 }
 
