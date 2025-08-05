@@ -193,45 +193,55 @@ struct zip_wcd_ctx;
 typedef void (*zip_wcd_callback)(deark *c, struct zip_wcd_ctx *wcdctx);
 
 struct zip_wcd_ctx {
+	// Configuration:
 	zip_wcd_callback cbfn;
 	void *userdata;
 	int userdata_seg_id;
-	u8 errflag;
 	u8 multisegment_mode;
 	dbuf *inf;
-	i64 inf_start_pos;
-	i64 max_entries;
-	i64 num_entries_completed;
-	i64 inf_end_of_last_completed_entry;
+	i64 inf_startpos;
+	i64 inf_endpos; // Normally, this can be inf->len
+	i64 max_entries; // Total, not just this segment
 
-	// Data passed to the callback
+	// Other:
+	u8 stop_flag; // Callback fn can set, to stop processing w/o error
+	u8 errflag; // Set internally or by callback
+	u8 need_errmsg; // Set internally or by callback
+	i64 num_entries_completed; // Total, not just this segment
+	i64 endpos_of_last_completed_entry; // Pos in inf
+
+	// Additional data passed to the callback fn:
 	i64 entry_pos;
 	i64 entry_size;
 	i64 fn_len, extra_len, comment_len;
 };
 
-// TODO: Decide how to report error messages.
-// TODO: Refactor, to use this "walk central dir" function for everything.
+// Caller creates/destroys wcdctx.
+// Create one wcdctx object per walk per central directory.
+// But if the central directory is segmented, zip_wcd_run() may be called
+// multiple times with the same wcdctx -- it will pick up where it left off.
+// TODO?: Maybe the main do_central_dir() should also use this.
 static void zip_wcd_run(deark *c, struct zip_wcd_ctx *wcdctx)
 {
 	i64 pos;
 
-	pos = wcdctx->inf_start_pos;
-	wcdctx->inf_end_of_last_completed_entry = pos;
+	pos = wcdctx->inf_startpos;
+	wcdctx->endpos_of_last_completed_entry = pos;
 
 	while(1) {
 		u32 sig;
 		i64 len_avail;
 
-		if(wcdctx->errflag) goto done;
+		if(wcdctx->stop_flag || wcdctx->errflag) goto done;
 		if(wcdctx->num_entries_completed >= wcdctx->max_entries) goto done;
 
 		wcdctx->entry_pos = pos;
-		len_avail = wcdctx->inf->len - wcdctx->entry_pos;
+		len_avail = wcdctx->inf_endpos - wcdctx->entry_pos;
 		if(len_avail < 46) {
 			// Not enough space even for the invariant part of the entry
 			if(!wcdctx->multisegment_mode) {
 				wcdctx->errflag = 1;
+				wcdctx->need_errmsg = 1;
 			}
 			goto done;
 		}
@@ -243,6 +253,7 @@ static void zip_wcd_run(deark *c, struct zip_wcd_ctx *wcdctx)
 		}
 		if(sig!=CODE_PK12) {
 			wcdctx->errflag = 1;
+			wcdctx->need_errmsg = 1;
 			goto done;
 		}
 		wcdctx->fn_len = dbuf_getu16le(wcdctx->inf, pos+28);
@@ -253,17 +264,20 @@ static void zip_wcd_run(deark *c, struct zip_wcd_ctx *wcdctx)
 		if(wcdctx->entry_size > len_avail) {
 			if(!wcdctx->multisegment_mode) {
 				wcdctx->errflag = 1;
+				wcdctx->need_errmsg = 1;
 			}
 			goto done;
 		}
 		if(wcdctx->cbfn) {
 			wcdctx->cbfn(c, wcdctx);
-			if(wcdctx->errflag) goto done;
+			// If callback set stop_flag, we assume it did *not* process
+			// this item.
+			if(wcdctx->stop_flag || wcdctx->errflag) goto done;
 		}
 
 		pos += wcdctx->entry_size;
 		wcdctx->num_entries_completed++;
-		wcdctx->inf_end_of_last_completed_entry = pos;
+		wcdctx->endpos_of_last_completed_entry = pos;
 	}
 
 done:
@@ -2331,50 +2345,12 @@ static void zipreloc_err(deark *c, struct zipreloc_ctx *d, const char *fmt, ...)
 	va_end(ap);
 }
 
-typedef void (*zipreloc_wcd_callback)(deark *c, struct zipreloc_ctx *d,
-	i64 pos1, i64 len);
-
-static void zipreloc_walk_central_dir(deark *c, struct zipreloc_ctx *d,
-	zipreloc_wcd_callback cbfn)
-{
-	i64 i;
-	i64 pos = d->cdir_offset_actual;
-	i64 endpos = d->cdir_offset_actual + d->eocd.cdir_byte_size;
-
-	for(i=0; i<d->eocd.cdir_num_entries_this_seg; i++) {
-		u32 sig;
-		i64 fn_len, extra_len, comment_len;
-		i64 len;
-
-		if(d->errflag) goto done;
-		sig = (u32)de_getu32be(pos);
-		if(sig!=CODE_PK12) {
-			d->errflag = 1;
-			d->need_errmsg = 1;
-			goto done;
-		}
-
-		fn_len = de_getu16le(pos+28);
-		extra_len = de_getu16le(pos+30);
-		comment_len = de_getu16le(pos+32);
-		len = 46 + fn_len + extra_len + comment_len;
-		if(pos+len > endpos) {
-			d->errflag = 1;
-			d->need_errmsg = 1;
-			goto done;
-		}
-
-		cbfn(c, d, pos, len);
-		pos += len;
-	}
-
-done:
-	;
-}
-
 // Convert a central dir entry
-static void zipreloc_wcd_cb2(deark *c, struct zipreloc_ctx *d, i64 pos1, i64 len)
+static void zipreloc_wcd_convert(deark *c, struct zip_wcd_ctx *wcdctx)
 {
+	struct zipreloc_ctx *d = (struct zipreloc_ctx*)wcdctx->userdata;
+	i64 pos1 = wcdctx->entry_pos;
+	i64 len = wcdctx->entry_size;
 	i64 cpstart, cplen;
 	i64 ldir_offset;
 
@@ -2382,7 +2358,7 @@ static void zipreloc_wcd_cb2(deark *c, struct zipreloc_ctx *d, i64 pos1, i64 len
 	// (signature thru comment len).
 	cpstart = pos1;
 	cplen = 34;
-	dbuf_copy(c->infile, cpstart, cplen, d->outf);
+	dbuf_copy(wcdctx->inf, cpstart, cplen, d->outf);
 
 	// Segment number, that we force to 0 (offset 34 len 2)
 	dbuf_write_zeroes(d->outf, 2);
@@ -2391,7 +2367,7 @@ static void zipreloc_wcd_cb2(deark *c, struct zipreloc_ctx *d, i64 pos1, i64 len
 	// (internal attribs, thru external attribs)
 	cpstart = pos1+36;
 	cplen = 6;
-	dbuf_copy(c->infile, cpstart, cplen, d->outf);
+	dbuf_copy(wcdctx->inf, cpstart, cplen, d->outf);
 
 	// Edit the offset-of-local-hdr field (offset 42 len 4)
 	ldir_offset = de_getu32le(pos1+42) + d->offset_correction;
@@ -2400,13 +2376,14 @@ static void zipreloc_wcd_cb2(deark *c, struct zipreloc_ctx *d, i64 pos1, i64 len
 	// Copy the rest of the entry (offset 46+).
 	cpstart = pos1+46;
 	cplen = len - 46;
-	dbuf_copy(c->infile, cpstart, cplen, d->outf);
+	dbuf_copy(wcdctx->inf, cpstart, cplen, d->outf);
 	d->central_dir_nbytes_converted += len;
 }
 
 static void zip_relocator_main(deark *c, struct zipreloc_ctx *d)
 {
 	i64 cpstart, cplen;
+	struct zip_wcd_ctx *wcdctx = NULL;
 
 	d->offset_diff = d->relocpos - d->min_ldir_offset;
 
@@ -2421,8 +2398,25 @@ static void zip_relocator_main(deark *c, struct zipreloc_ctx *d)
 	cplen = d->cdir_offset_actual - cpstart;
 	dbuf_copy(c->infile, cpstart, cplen, d->outf);
 
+	wcdctx = de_malloc(c, sizeof(struct zip_wcd_ctx));
+	wcdctx->userdata = (void*)d;
+	wcdctx->cbfn = zipreloc_wcd_convert;
+	wcdctx->max_entries = d->eocd.cdir_num_entries_this_seg;
+	wcdctx->inf = c->infile;
+	wcdctx->inf_startpos = d->cdir_offset_actual;
+	wcdctx->inf_endpos = c->infile->len;
+
 	// Copy/convert the central directory
-	zipreloc_walk_central_dir(c, d, zipreloc_wcd_cb2);
+	zip_wcd_run(c, wcdctx);
+	if(wcdctx->errflag) {
+		d->errflag = 1;
+		d->need_errmsg = wcdctx->need_errmsg;
+	}
+
+	if(d->errflag) {
+		goto done;
+	}
+
 	// Copy any unused bytes at the end of the central dir
 	cpstart = d->cdir_offset_actual + d->central_dir_nbytes_converted;
 	cplen =  d->eocd.cdir_byte_size - d->central_dir_nbytes_converted;
@@ -2456,30 +2450,34 @@ static void zip_relocator_main(deark *c, struct zipreloc_ctx *d)
 	cplen = 2 + d->eocd.archive_comment_len;
 	dbuf_copy(c->infile, cpstart, cplen, d->outf);
 
+done:
 	dbuf_close(d->outf);
 	d->outf = NULL;
+	de_free(c, wcdctx);
 }
 
-// Pre-scan a central dir entry
-static void zipreloc_wcd_cb1(deark *c, struct zipreloc_ctx *d, i64 pos1, i64 len)
+static void zipreloc_wcd_prescan(deark *c, struct zip_wcd_ctx *wcdctx)
 {
+	struct zipreloc_ctx *d = (struct zipreloc_ctx*)wcdctx->userdata;
+	i64 pos1 = wcdctx->entry_pos;
+	dbuf *inf = wcdctx->inf;
 	u32 sig;
 	i64 ldir_seg_num;
 	i64 ldir_offset;
 
 	de_dbg2(c, "central dir entry at %"I64_FMT, pos1);
 
-	ldir_seg_num = de_getu16le(pos1+34);
-	ldir_offset = de_getu32le(pos1+42) + d->offset_correction;
+	ldir_seg_num = dbuf_getu16le(inf, pos1+34);
+	ldir_offset = dbuf_getu32le(inf, pos1+42) + d->offset_correction;
 	de_dbg_indent(c, 1);
 	de_dbg2(c, "local dir offset: %"I64_FMT", segment %"I64_FMT, ldir_offset,
 		ldir_seg_num);
 	de_dbg_indent(c, -1);
 
-	sig = (u32)de_getu32be(ldir_offset);
+	sig = (u32)dbuf_getu32be(inf, ldir_offset);
 	if(sig != CODE_PK34) {
-		d->errflag = 1;
-		d->need_errmsg = 1;
+		wcdctx->errflag = 1;
+		wcdctx->need_errmsg = 1;
 		goto done;
 	}
 
@@ -2487,14 +2485,14 @@ static void zipreloc_wcd_cb1(deark *c, struct zipreloc_ctx *d, i64 pos1, i64 len
 		u32 crc_from_cdir;
 		u32 crc_from_ldir;
 
-		crc_from_cdir = (u32)de_getu32le(pos1+16);
-		crc_from_ldir = (u32)de_getu32le(ldir_offset+14);
+		crc_from_cdir = (u32)dbuf_getu32le(inf, pos1+16);
+		crc_from_ldir = (u32)dbuf_getu32le(inf, ldir_offset+14);
 		if(crc_from_cdir == crc_from_ldir) {
 			de_dbg(c, "[tolerating mismatched segment id]");
 		}
 		else {
-			d->errflag = 1;
-			d->need_errmsg = 1;
+			wcdctx->errflag = 1;
+			wcdctx->need_errmsg = 1;
 			d->seg_id_mismatch_flag = 1;
 			goto done;
 		}
@@ -2542,6 +2540,7 @@ static void do_run_zip_relocator(deark *c, de_module_params *mparams,
 {
 	struct zipreloc_ctx *d = NULL;
 	struct fmtutil_specialexe_detection_data *edd_from_parent = NULL;
+	struct zip_wcd_ctx *wcdctx_prescan = NULL;
 	u32 sig;
 	int found_cdir = 0;
 	int eocd_found;
@@ -2655,8 +2654,21 @@ static void do_run_zip_relocator(deark *c, de_module_params *mparams,
 	d->min_ldir_offset = d->cdir_offset_actual; // initialize to max possible value
 	de_dbg(c, "[scanning central dir]");
 	de_dbg_indent(c, 1);
-	zipreloc_walk_central_dir(c, d, zipreloc_wcd_cb1);
+
+	wcdctx_prescan = de_malloc(c, sizeof(struct zip_wcd_ctx));
+	wcdctx_prescan->userdata = (void*)d;
+	wcdctx_prescan->cbfn = zipreloc_wcd_prescan;
+	wcdctx_prescan->max_entries = d->eocd.cdir_num_entries_this_seg;
+	wcdctx_prescan->inf = c->infile;
+	wcdctx_prescan->inf_startpos = d->cdir_offset_actual;
+	wcdctx_prescan->inf_endpos = c->infile->len;
+
+	zip_wcd_run(c, wcdctx_prescan);
+	d->errflag = wcdctx_prescan->errflag;
+	d->need_errmsg = wcdctx_prescan->need_errmsg;
+
 	de_dbg_indent(c, -1);
+
 	if(d->errflag) goto done;
 
 	de_dbg(c, "min ldir offs: %"I64_FMT, d->min_ldir_offset);
@@ -2668,6 +2680,7 @@ static void do_run_zip_relocator(deark *c, de_module_params *mparams,
 	}
 
 done:
+	de_free(c, wcdctx_prescan);
 	if(d) {
 		if(d->errflag && d->need_errmsg) {
 			zipreloc_err(c, d, "Cannot optimize/relocate this ZIP file%s",
@@ -2766,22 +2779,24 @@ static i64 zc_get_real_seg_size(deark *c, struct zipcombine_ctx *d,
 	wcdctx->userdata_seg_id = seg_id;
 
 	if(seg_id==d->eocd.cdir_starting_seg_num) {
-		wcdctx->inf_start_pos = d->eocd.cdir_offset;
+		wcdctx->inf_startpos = d->eocd.cdir_offset;
 	}
 	else {
 		// Not common, and probably untested. It means there was a full segment
 		// consisting entirely of cdir entries.
-		wcdctx->inf_start_pos = 0;
+		wcdctx->inf_startpos = 0;
 	}
 
+	wcdctx->inf_endpos = inf->len;
+
 	zip_wcd_run(c, wcdctx);
-	if(wcdctx->errflag) {
-		d->errflag = 1;
-		d->need_errmsg = 1;
+	d->errflag = wcdctx->errflag;
+	d->need_errmsg = wcdctx->need_errmsg;
+	if(d->errflag) {
 		goto done;
 	}
 
-	rvs = wcdctx->inf_end_of_last_completed_entry;
+	rvs = wcdctx->endpos_of_last_completed_entry;
 
 done:
 	return rvs;
@@ -2898,6 +2913,7 @@ static void wcd_callback_for_fixcdir(deark *c, struct zip_wcd_ctx *wcdctx)
 	sig = (u32)dbuf_getu32be(d->f, ldir_pos.abs_pos);
 	if(sig != CODE_PK34) {
 		wcdctx->errflag = 1;
+		wcdctx->need_errmsg = 1;
 		goto done;
 	}
 
@@ -2921,11 +2937,12 @@ static void zc_modify_cdir(deark *c, struct zipcombine_ctx *d)
 	wcdctx->cbfn = wcd_callback_for_fixcdir;
 	wcdctx->inf = d->f;
 	wcdctx->max_entries = d->eocd.cdir_num_entries_total;
-	wcdctx->inf_start_pos = d->cdir_pos.abs_pos;
+	wcdctx->inf_startpos = d->cdir_pos.abs_pos;
+	wcdctx->inf_endpos = d->f->len;
 	zip_wcd_run(c, wcdctx);
-	if(wcdctx->errflag) {
-		d->errflag = 1;
-		d->need_errmsg = 1;
+	d->errflag = wcdctx->errflag;
+	d->need_errmsg = wcdctx->need_errmsg;
+	if(d->errflag) {
 		goto done;
 	}
 
