@@ -732,6 +732,8 @@ Deark -- Information about supported formats
 
 === Font formats ===
 
+* EVAfont COM format (module="evafont")
+
 * FNT (Windows font) (module="fnt")
   Most FNT files have an extra "absolute space" character, which Deark
   arbitrarily places at code point 256, or U+2002 (EN SPACE).

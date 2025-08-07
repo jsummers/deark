@@ -24,6 +24,7 @@ DE_DECLARE_MODULE(de_module_vgafont);
 DE_DECLARE_MODULE(de_module_fontmania);
 DE_DECLARE_MODULE(de_module_pcrfont);
 DE_DECLARE_MODULE(de_module_fontedit);
+DE_DECLARE_MODULE(de_module_evafont);
 DE_DECLARE_MODULE(de_module_zbr);
 DE_DECLARE_MODULE(de_module_compress);
 DE_DECLARE_MODULE(de_module_hpi);
@@ -1213,6 +1214,107 @@ void de_module_fontedit(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_fontedit;
 	mi->identify_fn = de_identify_fontedit;
 	mi->help_fn = de_help_fontedit;
+}
+
+// **************************************************************************
+// EVAfont driver (COM format)
+// **************************************************************************
+
+static void de_run_evafont(deark *c, de_module_params *mparams)
+{
+	struct vgafont_ctx *d = NULL;
+	u8 *mem = NULL;
+	i64 foundpos;
+	i64 font_data_endpos;
+	int ret;
+
+	d = de_malloc(c, sizeof(struct vgafont_ctx));
+
+	// Tracing through the file seems difficult. Instead we search for the byte
+	// pattern that appears just before the font data. It's nice that it also
+	// contains a pointer to the end of the font data.
+
+	// The pattern can appear as early as 310 (v2.01 VGA), and as late as 612
+	// (v3.05 EGA).
+#define EVAFONT_BUF_POS1 280
+#define EVAFONT_BUF_LEN1 380
+	mem = de_malloc(c, EVAFONT_BUF_LEN1);
+	de_read(mem, EVAFONT_BUF_POS1, EVAFONT_BUF_LEN1);
+	ret = de_memsearch_match(mem, EVAFONT_BUF_LEN1,
+		(const u8*)"\xba??\xb1\x04\xd3\xea\x42\xb8\x00\x31\xcd\x21", 13,
+		'?', &foundpos);
+	if(!ret) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	foundpos += EVAFONT_BUF_POS1;
+	de_dbg(c, "[found sig at %"I64_FMT"]", foundpos);
+
+	d->font_data_pos = foundpos + 13;
+	de_dbg(c, "data pos: %"I64_FMT, d->font_data_pos);
+
+	font_data_endpos = de_getu16le(foundpos+1);
+	font_data_endpos -= 256;
+	de_dbg(c, "data endpos: %"I64_FMT, font_data_endpos);
+	if(font_data_endpos > c->infile->len) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	d->font_data_size = font_data_endpos - d->font_data_pos;
+	de_dbg(c, "data size: %"I64_FMT, d->font_data_size);
+
+	if(d->font_data_size % 256) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	d->height = d->font_data_size / 256;
+
+	de_dbg(c, "char size: 8"DE_CHAR_TIMES"%d", (int)d->height);
+
+	if(d->height!=8 && d->height!=14 && d->height!=16) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	d->fontdata = de_malloc(c, d->font_data_size);
+	de_read(d->fontdata, d->font_data_pos, d->font_data_size);
+
+	vgafont_common_config1(c, d);
+	vgafont_common_config2(c, d);
+	vgafont_main(c, d, NULL, 0);
+
+done:
+	de_free(c, mem);
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported EVAfont font");
+		}
+		destroy_vgafont_ctx(c, d);
+	}
+}
+
+static int de_identify_evafont(deark *c)
+{
+	if(c->infile->len>65280) return 0;
+	if(de_getbyte(0) != 0xe9) return 0;
+
+	if(!dbuf_memcmp(c->infile, 7, (const u8*)" font driver v", 14)) {
+		return 100; // v2.01:
+	}
+	if(!dbuf_memcmp(c->infile, 11, (const u8*)" font loader v", 14)) {
+		return 100; // v3.05:
+	}
+	return 100;
+}
+
+void de_module_evafont(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "evafont";
+	mi->desc = "EVAfont .COM format";
+	mi->run_fn = de_run_evafont;
+	mi->identify_fn = de_identify_evafont;
 }
 
 // **************************************************************************
