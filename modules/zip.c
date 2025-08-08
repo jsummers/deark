@@ -619,30 +619,62 @@ static void ef_zip64extinfo(deark *c, lctx *d, struct extra_item_info_struct *ei
 {
 	i64 n;
 	i64 pos = eii->dpos;
+	u8 has_uncmpr_size = 0;
+	u8 has_cmpr_size = 0;
+	u8 has_ldir_offset = 0;
+	u8 has_segment_num = 0;
 
-	if(pos+8 > eii->dpos+eii->dlen) goto done;
-	n = de_geti64le(pos); pos += 8;
-	de_dbg(c, "orig uncmpr file size: %"I64_FMT, n);
-	if(eii->dd->uncmpr_size==0xffffffffLL) {
-		de_sanitize_length(&n);
-		eii->dd->uncmpr_size = n;
+	// IMO, the documentation isn't very clear about when a field is present,
+	// and when it isn't. This is my best guess. It shouldn't really matter,
+	// provided the encoder was sane.
+	if(!eii->is_central || eii->dd->uncmpr_size==0xffffffffLL) {
+		has_uncmpr_size = 1;
+	}
+	if(!eii->is_central || eii->dd->cmpr_size==0xffffffffLL) {
+		has_cmpr_size = 1;
+	}
+	if(eii->is_central && eii->md->offset_of_local_header==0xffffffffLL) {
+		has_ldir_offset = 1;
+	}
+	if(eii->is_central && eii->md->seg_number_start==0xffff) {
+		has_segment_num = 1;
 	}
 
-	if(pos+8 > eii->dpos+eii->dlen) goto done;
-	n = de_geti64le(pos); pos += 8;
-	de_dbg(c, "cmpr data size: %"I64_FMT, n);
-	if(eii->dd->cmpr_size==0xffffffffLL) {
-		de_sanitize_length(&n);
-		eii->dd->cmpr_size = n;
+	if(has_uncmpr_size) {
+		if(pos+8 > eii->dpos+eii->dlen) goto done;
+		n = de_geti64le(pos); pos += 8;
+		de_dbg(c, "orig uncmpr file size: %"I64_FMT, n);
+		if(eii->dd->uncmpr_size==0xffffffffLL) {
+			de_sanitize_length(&n);
+			eii->dd->uncmpr_size = n;
+		}
 	}
 
-	if(pos+8 > eii->dpos+eii->dlen) goto done;
-	n = de_geti64le(pos); pos += 8;
-	de_dbg(c, "offset of local header: %"I64_FMT, n);
+	if(has_cmpr_size) {
+		if(pos+8 > eii->dpos+eii->dlen) goto done;
+		n = de_geti64le(pos); pos += 8;
+		de_dbg(c, "cmpr data size: %"I64_FMT, n);
+		if(eii->dd->cmpr_size==0xffffffffLL) {
+			de_sanitize_length(&n);
+			eii->dd->cmpr_size = n;
+		}
+	}
 
-	if(pos+4 > eii->dpos+eii->dlen) goto done;
-	n = de_getu32le_p(&pos);
-	de_dbg(c, "segment start number: %"I64_FMT, n);
+	if(has_ldir_offset) {
+		if(pos+8 > eii->dpos+eii->dlen) goto done;
+		n = de_geti64le(pos); pos += 8;
+		de_dbg(c, "offset of local header: %"I64_FMT, n);
+		de_sanitize_offset(&n);
+		eii->md->offset_of_local_header = n;
+	}
+
+	if(has_segment_num) {
+		if(pos+4 > eii->dpos+eii->dlen) goto done;
+		n = de_getu32le_p(&pos);
+		de_dbg(c, "segment start number: %"I64_FMT, n);
+		eii->md->seg_number_start = n;
+	}
+
 done:
 	;
 }
