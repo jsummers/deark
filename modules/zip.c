@@ -2795,6 +2795,8 @@ struct zipcombine_ctx {
 	struct zc_advpos cdir_pos;
 	dbuf *f; // Combined segments, edited in place
 
+	i64 seg0_prefix_len; // Num bytes deleted at start of segment 0
+
 	// array[num_segments]:
 	//  [0] = c->infile
 	//  [1..num_segments-1] = c->mp_data[0..]
@@ -2820,6 +2822,9 @@ static void zc_relpos_to_abspos(struct zipcombine_ctx *d, struct zc_advpos *advp
 		return;
 	}
 	advpos->abs_pos = d->segments[advpos->rel_seg_id].starting_offset + advpos->rel_pos;
+	if(advpos->rel_seg_id==0) {
+		advpos->abs_pos -= d->seg0_prefix_len;
+	}
 }
 
 static void wcd_callback_for_cdpadding(deark *c, struct zip_wcd_ctx *wcdctx)
@@ -2905,6 +2910,7 @@ static void zc_scan_and_read_to_membuf(deark *c, struct zipcombine_ctx *d)
 	for(v=0; v<d->num_segments; v++) {
 		dbuf *tmpf;
 		i64 newsize;
+		i64 pfx_len = 0;
 
 		tmpf = de_mp_acquire_dbuf(c, v);
 		if(!tmpf) {
@@ -2914,6 +2920,17 @@ static void zc_scan_and_read_to_membuf(deark *c, struct zipcombine_ctx *d)
 
 		d->segments[v].file_size = zc_get_real_seg_size(c, d, wcdctx, tmpf, v);
 		if(d->errflag) goto done;
+
+		if(v==0) {
+			// The first segment usually starts with a PK\7\8 signature, which
+			// we'll delete. We don't *have* to do this, but it makes our
+			// output file a little more compatible with other software.
+			if((UI)dbuf_getu32be(tmpf, 0) == CODE_PK78) {
+				pfx_len = 4;
+				d->segments[v].file_size -= pfx_len;
+				d->seg0_prefix_len = pfx_len;
+			}
+		}
 
 		d->segments[v].starting_offset = d->f->len;
 		de_dbg(c, "segment %d: [at %"I64_FMT"] size=%"I64_FMT, v,
@@ -2925,7 +2942,7 @@ static void zc_scan_and_read_to_membuf(deark *c, struct zipcombine_ctx *d)
 			d->need_errmsg = 1;
 			goto done;
 		}
-		dbuf_copy(tmpf, 0, d->segments[v].file_size, d->f);
+		dbuf_copy(tmpf, pfx_len, d->segments[v].file_size, d->f);
 		de_mp_release_dbuf(c, v, &tmpf);
 	}
 
