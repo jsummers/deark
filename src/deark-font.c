@@ -428,8 +428,8 @@ static void checkerboard_bkgd(de_bitmap *img, i64 xpos, i64 ypos, i64 w, i64 h)
 	}
 }
 
-void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_finfo *fi,
-	unsigned int createflags)
+static void bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_finfo *fi,
+	UI createflags)
 {
 	struct font_render_ctx *fctx = NULL;
 	i64 i, j, k;
@@ -670,4 +670,98 @@ int de_font_is_standard_vga_font(deark *c, u32 crc)
 		return 1;
 	}
 	return 0;
+}
+
+static void bitmap_font_to_psf(deark *c, struct de_bitmap_font *font1, de_finfo *fi,
+	UI createflags)
+{
+	u8 need_errmsg = 0;
+	i64 k;
+	dbuf *outf = NULL;
+	i64 bytes_per_char;
+
+	// TODO: Support other widths, if that would be useful.
+	if(font1->nominal_width!=8 ||
+		font1->nominal_height<1 || font1->nominal_height>32)
+	{
+		need_errmsg = 1;
+		goto done;
+	}
+
+	bytes_per_char = font1->nominal_height;
+
+	outf = dbuf_create_output_file(c, "psf", fi, createflags);
+	dbuf_enable_wbuffer(outf);
+
+	dbuf_writeu32be(outf, 0x72b54a86U); // PSFv2 signature
+	dbuf_writeu32le(outf, 0); // PSFVv2 sub-version
+	dbuf_writeu32le(outf, 32); // header size
+	dbuf_writeu32le(outf, 0); // flags
+	dbuf_writeu32le(outf, font1->num_chars);
+	dbuf_writeu32le(outf, bytes_per_char);
+	dbuf_writeu32le(outf, font1->nominal_height);
+	dbuf_writeu32le(outf, font1->nominal_width);
+
+	for(k=0; k<font1->num_chars; k++) {
+		struct de_bitmap_font_char *ch;
+
+		ch = &font1->char_array[k];
+		if(!ch->bitmap ||
+			ch->width!=font1->nominal_width ||
+			ch->height!=font1->nominal_height ||
+			ch->rowspan!=1)
+		{
+			need_errmsg = 1;
+			goto done;
+		}
+		dbuf_write(outf, ch->bitmap, bytes_per_char);
+	}
+
+	// TODO: Do something about Unicode mappings.
+
+done:
+	dbuf_close(outf);
+	if(need_errmsg) {
+		de_err(c, "Failed to convert to PSF");
+	}
+}
+
+void de_font_bitmap_font_write(deark *c, struct de_bitmap_font *font, de_finfo *fi,
+	UI createflags)
+{
+	u8 to_psf = 0;
+
+	// The font struct isn't really the right place for this flag, but for now,
+	// it will do.
+	if(font->force_fontfile_output) {
+		to_psf = 1;
+	}
+
+	if(to_psf) {
+		// PSF is adequate for fixed-width PC screen fonts, but even there, I'm
+		// not necessarily that fond of it. This is all subject to change.
+		bitmap_font_to_psf(c, font, fi, createflags);
+	}
+	else {
+		bitmap_font_to_image(c, font, fi, createflags);
+	}
+}
+
+// Interprets the "-opt font:output" option.
+// Ensures c->font_fmt_req is valid.
+void de_font_decide_output_fmt(deark *c)
+{
+	const char *s;
+
+	if(c->font_fmt_req) return;
+	c->font_fmt_req = DE_FONTFMT_AUTO;
+	s = de_get_ext_option(c, "font:output");
+	if(s) {
+		if(!de_strcmp(s, "font")) {
+			c->font_fmt_req = DE_FONTFMT_FONT;
+		}
+		else if(!de_strcmp(s, "image")) {
+			c->font_fmt_req = DE_FONTFMT_IMAGE;
+		}
+	}
 }

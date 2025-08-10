@@ -250,8 +250,9 @@ By design, Deark does not look at any files that don't explicitly appear on the
 command line. In the future, there might be an option to change this behavior,
 and automatically try to find related files.
 
-Bitmap fonts are converted to images. Someday, there might be an option to
-convert them to some portable font format, but that is difficult to do well.
+Most bitmap fonts are converted to images. The goal is that, eventually,
+almost all of them will be converted to a more-portable font file format. But
+that is difficult to do well.
 
 ## How to build ##
 

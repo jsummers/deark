@@ -176,6 +176,10 @@ Command-line options:
    Module-specific and feature-specific options. See formats.txt.
    Caution: Unrecognized or misspelled options will be silently ignored.
    Options not specific to one format:
+    -opt font:output=&lt;font|image>
+       Requested output format class. "image" creates a PNG image of the
+       characters. "font", when available, converts/extracts the font to a
+       font file format such as PSF.
     -opt font:charsperrow=&lt;n>
        The number of characters per row, when rendering a font to a bitmap
     -opt font:tounicode=&lt;0|1>

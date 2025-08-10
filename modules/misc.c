@@ -914,9 +914,32 @@ static void vgafont_common_config2(deark *c, struct vgafont_ctx *d)
 	}
 }
 
+// This is only for fixed-size 8xX fonts.
 static void vgafont_main(deark *c, struct vgafont_ctx *d, de_finfo *fi, UI createflags)
 {
-	de_font_bitmap_font_to_image(c, d->font, fi, createflags);
+	u8 to_fontfmt = 0;
+
+	de_font_decide_output_fmt(c);
+
+	if(c->font_fmt_req!=DE_FONTFMT_IMAGE) {
+		if(d->font->nominal_width==8 &&
+			(d->font->nominal_height>=1 && d->font->nominal_height<=32))
+		{
+			to_fontfmt = 1;
+		}
+	}
+
+	if(to_fontfmt) {
+		// TODO? Most of the relevant formats are very similar to the PSF format
+		// that this function will create. It's not ideal to go to all the trouble
+		// to convert them to our internal format, only to convert them right
+		// back to their original format.
+		// (But since we want the option to convert them to an image, this is
+		// maybe the easiest way.)
+		d->font->force_fontfile_output = 1;
+	}
+
+	de_font_bitmap_font_write(c, d->font, fi, createflags);
 }
 
 static void destroy_vgafont_ctx(deark *c, struct vgafont_ctx *d)
