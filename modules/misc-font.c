@@ -482,7 +482,7 @@ static int de_identify_evafont(deark *c)
 	if(!dbuf_memcmp(c->infile, 11, (const u8*)" font loader v", 14)) {
 		return 100; // v3.05:
 	}
-	return 100;
+	return 0;
 }
 
 void de_module_evafont(deark *c, struct deark_module_info *mi)
