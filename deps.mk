@@ -187,6 +187,8 @@ $(OBJDIR)/modules/mbk.o: modules/mbk.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/megapaint.o: modules/megapaint.c src/deark-config.h \
  src/deark-private.h src/deark.h
+$(OBJDIR)/modules/misc-font.o: modules/misc-font.c src/deark-private.h \
+ src/deark.h src/deark-config.h
 $(OBJDIR)/modules/misc.o: modules/misc.c src/deark-private.h src/deark.h \
  src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/misc2.o: modules/misc2.c src/deark-private.h \

@@ -74,7 +74,7 @@ OFILES_MODS_CH:=$(addprefix $(OBJDIR)/modules/,cab.o cardfile.o cfb.o \
  corel.o hfs.o hlp.o dsstore.o fli.o fat.o flac.o dlmaker.o crush.o \
  cdiimage.o clp.o comicchat.o exectext.o gws.o)
 OFILES_MODS_IO:=$(addprefix $(OBJDIR)/modules/,misc.o misc2.o misc3.o \
- iccprofile.o icns.o \
+ misc-font.o iccprofile.o icns.o \
  id3.o ico.o iff.o ilbm.o insetpix.o iptc.o jbf.o jovianvi.o jpeg.o lha.o \
  j2c.o ogg.o olepropset.o iso9660.o macbinary.o macrsrc.o lzexe.o nufx.o \
  macpaint.o makichan.o mbk.o mmm.o mp3.o mscompress.o mac-arch.o \
