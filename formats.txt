@@ -736,6 +736,8 @@ Deark -- Information about supported formats
 converted to a standard font file format. Refer to the "-opt font:..." options
 in the readme file.)
 
+* CPI (DOS Code Page font) (module="cpi") (experimental)
+
 * EVAfont COM format (module="evafont")
 
 * FNT (Windows font) (module="fnt")

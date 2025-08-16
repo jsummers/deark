@@ -10,6 +10,7 @@ DE_DECLARE_MODULE(de_module_fontmania);
 DE_DECLARE_MODULE(de_module_pcrfont);
 DE_DECLARE_MODULE(de_module_fontedit);
 DE_DECLARE_MODULE(de_module_evafont);
+DE_DECLARE_MODULE(de_module_cpi);
 
 // **************************************************************************
 // 8xN "VGA" font (intended for development/debugging use)
@@ -29,7 +30,7 @@ struct vgafont_ctx {
 	u8 need_errmsg;
 };
 
-static void vgafont_common_config1(deark *c, struct vgafont_ctx *d)
+static void vgafont_common_config1_nc(deark *c, struct vgafont_ctx *d, i64 num_chars)
 {
 	d->encoding_req = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
 	if(d->encoding_req!=DE_ENCODING_UNKNOWN)
@@ -38,7 +39,7 @@ static void vgafont_common_config1(deark *c, struct vgafont_ctx *d)
 		d->encoding_to_use = DE_ENCODING_CP437;
 
 	d->font = de_create_bitmap_font(c);
-	d->font->num_chars = 256;
+	d->font->num_chars = num_chars;
 	d->font->has_nonunicode_codepoints = 1;
 	d->font->has_unicode_codepoints = 1;
 	d->font->prefer_unicode = (d->encoding_req!=DE_ENCODING_UNKNOWN);
@@ -46,6 +47,11 @@ static void vgafont_common_config1(deark *c, struct vgafont_ctx *d)
 	d->font->nominal_height = (int)d->height;
 	d->font->char_array = de_mallocarray(c, d->font->num_chars,
 		sizeof(struct de_bitmap_font_char));
+}
+
+static void vgafont_common_config1(deark *c, struct vgafont_ctx *d)
+{
+	vgafont_common_config1_nc(c, d, 256);
 }
 
 static void vgafont_common_config2(deark *c, struct vgafont_ctx *d)
@@ -491,4 +497,644 @@ void de_module_evafont(deark *c, struct deark_module_info *mi)
 	mi->desc = "EVAfont .COM format";
 	mi->run_fn = de_run_evafont;
 	mi->identify_fn = de_identify_evafont;
+}
+
+// **************************************************************************
+// CPI (DOS code page info)
+// **************************************************************************
+
+// Note: This format is kind of a "wild west". So, we go to more effort than
+// usual to detect and report errors, and to try to work around problems.
+
+// Notes on CPI format:
+// [This is mainly for files containing "display" fonts. "Printer" fonts also
+// exist, and have some differences.]
+// Roughly speaking, a CPI file contains a linked list of "code page entries"
+// (c.p.e.).
+// The first item has an extra 2-byte header giving the number of items in
+// the list. Each item contains a pointer to the next one.
+// (Theoretically, a file could have more than one such list, but we don't
+// support that.)
+// Each c.p.e. has a pointer (cpih_offset) to a contiguous blob of data
+// containing one or more low-level fonts. It has a 6-byte header, then
+// a sequence of "low level" fonts, each with its own 6-byte header.
+
+
+// Some of the variable names were taken from John Elliott's documentation
+// of CPI format.
+struct cpi_codepageentry_ctx {
+	u8 errflag; // = there was an error that might be local to this c.p.e.
+	UI idx;
+	i64 hdr_pos;
+
+	i64 cpeh_size; // Size of c.p.e. hdr in bytes, usually 28.
+	i64 next_cpeh_offset;
+	UI devtype;
+	struct de_stringreaderdata *devname_srd;
+	UI codepage;
+	i64 cpih_offset;
+
+	UI cpedata_version;
+	UI num_fonts;
+	i64 cpedata_total_size; // (the "size" field after num_fonts)
+
+	i64 font_data_startpos;
+	i64 cpedata_max_endpos;
+	i64 last_font_len;
+	i64 last_font_endpos;
+	de_ucstring *tmpname;
+	char msgpfx[24];
+};
+
+struct cpi_ctx {
+	u8 fatalerrflag;
+	u8 is_ntfmt;
+	u8 ptrs_are_segmented;
+	UI num_printer_fonts_found;
+
+	i64 pnum; // number of pointers
+	u8 ptyp; // the "type" of the pointers
+	i64 fih_offset; // "fih" = FontInfoHeader
+
+	UI num_codepages;
+};
+
+static i64 cpi_getpos_segmented_p(dbuf *f, i64 *ppos)
+{
+	i64 n;
+	i64 n1, n2;
+
+	n1 = dbuf_getu16le_p(f, ppos);
+	n2 = dbuf_getu16le_p(f, ppos);
+	n = (n2<<4) + n1;
+	return n;
+}
+
+// Helps detect certain printer fonts known to be mislabeled as
+// display fonts.
+static int cpi_is_problematic_devname(deark *c, struct cpi_ctx *d,
+	struct cpi_codepageentry_ctx *cpectx)
+{
+	static const char *names[] = {
+		"1050    ", "4201    ", "4208    ", "5202    " };
+	size_t k;
+
+	if(!cpectx->devname_srd) return 0;
+	for(k=0; k<DE_ARRAYCOUNT(names); k++) {
+		if(!de_strcmp(cpectx->devname_srd->sz, names[k])) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static void cpi_destroy_codepageentry_ctx(deark *c,
+	struct cpi_codepageentry_ctx *cpectx)
+{
+	if(!cpectx) return;
+	de_destroy_stringreaderdata(c, cpectx->devname_srd);
+	ucstring_destroy(cpectx->tmpname);
+}
+
+enum cpi_cpecheck_result {
+	CPI_CPE_OK,
+	CPI_CPE_EOF_MARKER,
+	CPI_CPE_BEYOND_EOF,
+	CPI_CPE_INVALID_OR_COMMENT,
+	CPI_CPE_INVALID
+};
+
+static enum cpi_cpecheck_result cpi_check_for_cpe(deark *c, struct cpi_ctx *d,
+	i64 pos1, u8 strictmode)
+{
+	u8 buf[8];
+	UI cpeh_size;
+	UI dev_type;
+
+	if(pos1==0 || pos1==0xffffffffLL) {
+		return CPI_CPE_EOF_MARKER;
+	}
+	if(pos1+18 > c->infile->len) {
+		return CPI_CPE_BEYOND_EOF;
+	}
+
+	de_read(buf, pos1, sizeof(buf));
+
+	// If we're near eof, this might be a comment
+	if(pos1+2000 >= c->infile->len) {
+		u8 looks_like_text = 1;
+		UI i;
+
+		for(i=0; i<(UI)sizeof(buf); i++) {
+			if(buf[i]<0x0a) {
+				looks_like_text = 0;
+				break;
+			}
+		}
+
+		if(looks_like_text) {
+			return CPI_CPE_INVALID_OR_COMMENT;
+		}
+	}
+
+	cpeh_size = (UI)de_getu16le_direct(&buf[0]);
+	dev_type = (UI)de_getu16le_direct(&buf[6]);
+
+	if(dev_type<1 || dev_type>2 || cpeh_size<18 || cpeh_size>200) {
+		return CPI_CPE_INVALID;
+	}
+	if(strictmode && cpeh_size!=26 && cpeh_size!=28) {
+		return CPI_CPE_INVALID;
+	}
+	return CPI_CPE_OK;
+}
+
+static int cpi_check_for_fonthdr(deark *c, struct cpi_ctx *d,
+	i64 pos1, u8 strictmode)
+{
+	UI rectype;
+	u8 w, h;
+	UI num_chars;
+	i64 pos = pos1;
+
+	if(pos1==0) return 0;
+	rectype = (UI)de_getu16le_p(&pos);
+	if(rectype==1) {
+		pos += 4;
+		h = de_getbyte_p(&pos);
+		w = de_getbyte_p(&pos);
+		pos += 2;
+		num_chars = (UI)de_getu16le_p(&pos);
+		if(w!=8) return 0;
+		if(num_chars!=256 && num_chars!=512) return 0;
+		if(h<4 || h>32) return 0;
+		if(strictmode && (h<8 || h>24)) return 0;
+		return 1;
+	}
+	else if(rectype==2) {
+		if(strictmode) return 0;
+		return 1; // TODO?: Do more checks.
+	}
+	return 0;
+}
+
+struct cpi_ptr_struct {
+	i64 pos_if_normal;
+	i64 pos_if_segmented;
+};
+
+static void cpi_read_ptr(dbuf *f, i64 pos, struct cpi_ptr_struct *px)
+{
+	UI word1, word2;
+
+	word1 = (UI)dbuf_getu16le(f, pos);
+	word2 = (UI)dbuf_getu16le(f, pos+2);
+	px->pos_if_normal = (((i64)word2)<<16) + (i64)word1;
+	px->pos_if_segmented = (((i64)word2)<<4) + (i64)word1;
+}
+
+static void cpi_do_lowlevel_font(deark *c, struct cpi_ctx *d,
+	struct cpi_codepageentry_ctx *cpectx, UI fntidx, i64 pos1)
+{
+	i64 bitmap_dlen;
+	i64 pos = pos1;
+	UI ch_height, ch_width;
+	UI num_chars;
+	u8 eof_errflag = 0;
+	u8 looks_valid;
+	de_finfo *fi = NULL;
+	struct vgafont_ctx *d2 = NULL;
+	char msgpfx[24];
+
+	de_snprintf(msgpfx, sizeof(msgpfx), "[cpe#%u,font#%u] ", cpectx->idx, fntidx);
+	de_dbg(c, "low-level font #%u at %"I64_FMT, fntidx, pos1);
+	de_dbg_indent(c, 1);
+
+	if(pos1 >= cpectx->cpedata_max_endpos) {
+		eof_errflag = 1;
+		goto done;
+	}
+
+	d2 = de_malloc(c, sizeof(struct vgafont_ctx));
+	ch_height = (UI)de_getbyte_p(&pos);
+	ch_width = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "char size: %u"DE_CHAR_TIMES"%u", ch_width, ch_height);
+	pos += 2; // aspect ratio
+	num_chars = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "num chars: %u", num_chars);
+
+	// TODO: Maybe we should allow numbers other than 256/512.
+	looks_valid = (ch_width==8 && ch_height>=1 && ch_height<=32 &&
+		(num_chars==256 || num_chars==512));
+
+	if(!looks_valid) {
+		if(cpi_is_problematic_devname(c, d, cpectx)) {
+			de_warn(c, "%sLikely mislabeled printer font", msgpfx);
+			d->num_printer_fonts_found++;
+			cpectx->errflag = 1;
+			goto done;
+		}
+	}
+
+	if(!looks_valid) {
+		de_err(c, "%sBad font header", msgpfx);
+		cpectx->errflag = 1;
+		goto done;
+	}
+
+	bitmap_dlen = num_chars * ch_height;
+	de_dbg(c, "font bitmap data at %"I64_FMT", len=%"I64_FMT, pos, bitmap_dlen);
+	cpectx->last_font_len = 6 + bitmap_dlen;
+	cpectx->last_font_endpos = pos1+cpectx->last_font_len;
+
+	if(cpectx->last_font_endpos > cpectx->cpedata_max_endpos) {
+		eof_errflag = 1;
+		goto done;
+	}
+
+	if(!cpectx->tmpname) {
+		cpectx->tmpname = ucstring_create(c);
+	}
+	ucstring_empty(cpectx->tmpname);
+
+	ucstring_printf(cpectx->tmpname, DE_ENCODING_LATIN1, "cp%u-%ux%u",
+		cpectx->codepage, ch_width, ch_height);
+
+	if(ucstring_isnonempty(cpectx->devname_srd->str)) {
+		ucstring_append_char(cpectx->tmpname, '-');
+		ucstring_append_ucstring(cpectx->tmpname, cpectx->devname_srd->str);
+	}
+
+	fi = de_finfo_create(c);
+	if(c->filenames_from_file) {
+		de_finfo_set_name_from_ucstring(c, fi, cpectx->tmpname, 0);
+	}
+
+	d2->height = ch_height;
+	d2->font_data_size = bitmap_dlen;
+	d2->font_data_pos = pos;
+	d2->fontdata = de_malloc(c, d2->font_data_size);
+	de_read(d2->fontdata, d2->font_data_pos, d2->font_data_size);
+
+	vgafont_common_config1_nc(c, d2, (i64)num_chars);
+	vgafont_common_config2(c, d2);
+	vgafont_main(c, d2, fi, 0);
+
+done:
+	if(eof_errflag) {
+		de_err(c, "%sMalformed font or truncated file", msgpfx);
+		cpectx->errflag = 1;
+	}
+
+	de_finfo_destroy(c, fi);
+
+	if(d2) {
+		destroy_vgafont_ctx(c, d2);
+	}
+
+	de_dbg_indent(c, -1);
+}
+
+static void cpi_do_cpedata(deark *c, struct cpi_ctx *d,
+	struct cpi_codepageentry_ctx *cpectx)
+{
+	int saved_indent_level;
+	i64 pos1 = cpectx->cpih_offset;
+	i64 pos = cpectx->cpih_offset;
+	UI i;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "c.p.e. data at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	if(pos1>=c->infile->len) {
+		de_err(c, "%sBad or truncated file", cpectx->msgpfx);
+		cpectx->errflag = 1;
+		d->fatalerrflag = 1;
+		goto done;
+	}
+
+	cpectx->cpedata_version = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "cpedata version: %u", cpectx->cpedata_version);
+	cpectx->num_fonts = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "num fonts: %u", cpectx->num_fonts);
+	cpectx->cpedata_total_size = de_getu16le_p(&pos);
+	de_dbg(c, "cpedata total size: %"I64_FMT, cpectx->cpedata_total_size);
+
+	if(cpectx->devtype!=1 || cpectx->cpedata_version!=1) {
+		// TODO?: Is there anything we can do with printer fonts?
+		// TODO?: Support DRFONT format
+		de_dbg(c, "[device or version not supported]");
+		goto done;
+	}
+
+	cpectx->font_data_startpos = pos;
+	// cpedata_max_endpos will mark the amount of data that this cpe is allowed
+	// to use.
+	// We'd rather calculate it using cpedata_total_size, but apparently that
+	// field is sometimes wrong.
+	// This limit could be improved, though. We could look at the next cpe
+	// item when available, and use some intelligence.
+	//cpectx->cpedata_max_endpos = cpectx->font_data_startpos + cpedata_total_size;
+	cpectx->cpedata_max_endpos = c->infile->len;
+
+	for(i=0; i<cpectx->num_fonts; i++) {
+		cpectx->last_font_len = 0;
+		cpi_do_lowlevel_font(c, d, cpectx, i, pos);
+		if(cpectx->errflag || (cpectx->last_font_len<1)) {
+			goto done;
+		}
+		pos += cpectx->last_font_len;
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+// Caller allocs cpectx, and sets ->hdr_pos, etc.
+static void cpi_do_codepage_entry(deark *c, struct cpi_ctx *d,
+	struct cpi_codepageentry_ctx *cpectx)
+{
+	i64 pos;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "code page entry #%u", cpectx->idx);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "c.p.e. header at %"I64_FMT", len=%"I64_FMT, cpectx->hdr_pos, cpectx->cpeh_size);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "next c.p.e. header: %"I64_FMT, cpectx->next_cpeh_offset);
+	pos = cpectx->hdr_pos+6; // skip fields already read
+	cpectx->devtype = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "device type: %u", cpectx->devtype);
+	if(cpectx->devtype!=1 && cpectx->devtype!=2) {
+		de_warn(c, "%sUnknown device type: %u", cpectx->msgpfx, cpectx->devtype);
+		goto done;
+	}
+
+	cpectx->devname_srd = dbuf_read_string(c->infile, pos, 8, 8, 0, DE_ENCODING_CP437);
+	ucstring_strip_trailing_spaces(cpectx->devname_srd->str);
+	de_dbg(c, "device name: \"%s\"", ucstring_getpsz_d(cpectx->devname_srd->str));
+	pos += 8;
+
+	cpectx->codepage = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "code page: %u", cpectx->codepage);
+	pos += 6;
+
+	if(d->ptrs_are_segmented) {
+		cpectx->cpih_offset = cpi_getpos_segmented_p(c->infile, &pos);
+	}
+	else {
+		cpectx->cpih_offset = de_getu32le_p(&pos);
+		if(cpectx->cpeh_size==26) {
+			cpectx->cpih_offset &= 0xffff;
+		}
+	}
+	if(d->is_ntfmt) {
+		// In NT format, this field is relative.
+		cpectx->cpih_offset += cpectx->hdr_pos;
+	}
+	de_dbg(c, "c.p.e. data pos: %"I64_FMT, cpectx->cpih_offset);
+	if(cpectx->cpih_offset < cpectx->hdr_pos+26) {
+		de_err(c, "%sBad font data pointer", cpectx->msgpfx);
+		goto done;
+	}
+
+	de_dbg_indent(c, -1);
+
+	if(cpectx->devtype==2) {
+		de_dbg(c, "[printer font]");
+		d->num_printer_fonts_found++;
+		goto done;
+	}
+
+	cpi_do_cpedata(c, d, cpectx);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+// In a few files, the next_cpeh_offset and cpih_offset fields are stored
+// in "segment:offset" form. Really bizarre.
+static void cpi_determine_ptr_fmt(deark *c, struct cpi_ctx *d,
+	i64 first_cpeh_offset)
+{
+	enum cpi_cpecheck_result cperet;
+	enum cpi_cpecheck_result cperet1_ifnormal, cperet1_ifsegmented;
+	int ret2_ifnormal, ret2_ifsegmented;
+	struct cpi_ptr_struct nextptr;
+	struct cpi_ptr_struct cpihptr;
+	i64 pos = first_cpeh_offset;
+	UI cpeh_size;
+
+	if(d->is_ntfmt) goto done;
+
+	cperet = cpi_check_for_cpe(c, d, pos, 0);
+	if(cperet!=CPI_CPE_OK) {
+		// There was a problem reading the first c.p.e., so we can't
+		// even read what we need to detect the format.
+		// (This error will be rediscovered later, and handled.)
+		goto done;
+	}
+
+	cpeh_size =  (UI)de_getu16le(pos);
+	if(cpeh_size!=28) goto done;
+	cpi_read_ptr(c->infile, pos+2, &nextptr);
+	cpi_read_ptr(c->infile, pos+24, &cpihptr);
+
+	if(d->num_codepages<2 || nextptr.pos_if_normal==0) {
+		// No info in this case; have to rely on cpihptr.
+		cperet1_ifnormal = CPI_CPE_EOF_MARKER;
+		cperet1_ifsegmented = CPI_CPE_EOF_MARKER;
+	}
+	else {
+		cperet1_ifnormal = cpi_check_for_cpe(c, d, nextptr.pos_if_normal, 0);
+		cperet1_ifsegmented = cpi_check_for_cpe(c, d, nextptr.pos_if_segmented, 1);
+	}
+
+	if(cperet1_ifnormal==CPI_CPE_OK) goto done;
+	if(cperet1_ifsegmented!=CPI_CPE_OK && cperet1_ifsegmented!=CPI_CPE_EOF_MARKER) {
+		goto done;
+	}
+
+	ret2_ifnormal = cpi_check_for_fonthdr(c, d, cpihptr.pos_if_normal, 0);
+	ret2_ifsegmented = cpi_check_for_fonthdr(c, d, cpihptr.pos_if_segmented, 1);
+
+	if(ret2_ifnormal) goto done;
+	if(!ret2_ifsegmented) goto done;
+
+	de_dbg(c, "[pointers seem to be segmented]");
+	d->ptrs_are_segmented = 1;
+
+done:
+	;
+}
+
+// Process a list of "code page entries", where
+// d->fih_offset is the offset of the header of the list
+// (the offset of the "num_codepages" field).
+static void cpi_do_cpelist(deark *c, struct cpi_ctx *d)
+{
+	int saved_indent_level;
+	i64 prev_entry_hdr_pos = 0;
+	UI i;
+	i64 pos;
+	struct cpi_codepageentry_ctx *cpectx = NULL;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "font info header at %"I64_FMT, d->fih_offset);
+	de_dbg_indent(c, 1);
+
+	pos = d->fih_offset;
+	d->num_codepages = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "num code page entries: %u", d->num_codepages);
+
+	de_dbg_indent(c, -1);
+
+	cpi_determine_ptr_fmt(c, d, pos);
+
+	for(i=0; i<d->num_codepages; i++) {
+		static enum cpi_cpecheck_result cperet;
+
+		if(d->fatalerrflag) goto done;
+
+		// Peek at what should be the c.p.e. header, to see what's there.
+		cperet = cpi_check_for_cpe(c, d, pos, 0);
+
+		if(cperet==CPI_CPE_EOF_MARKER) {
+			de_warn(c, "Expected %u code page entries, only found %u",
+				d->num_codepages, i);
+			goto done;
+		}
+
+		if(cperet==CPI_CPE_BEYOND_EOF) {
+			de_err(c, "Bad or truncated file");
+			goto done;
+		}
+
+		if(i>0 && cperet==CPI_CPE_INVALID_OR_COMMENT) {
+			de_warn(c, "Found likely comment at %"I64_FMT", instead of "
+				"expected c.p.e.", pos);
+			goto done;
+		}
+
+		if(cperet!=CPI_CPE_OK) {
+			de_err(c, "Expected c.p.e. not found at %"I64_FMT, pos);
+			goto done;
+		}
+
+		if(cpectx) {
+			cpi_destroy_codepageentry_ctx(c, cpectx);
+		}
+		cpectx = de_malloc(c, sizeof(struct cpi_codepageentry_ctx));
+		de_snprintf(cpectx->msgpfx, sizeof(cpectx->msgpfx), "[cpe#%u] ", i);
+		cpectx->idx = i;
+		cpectx->hdr_pos = pos;
+
+		if(cpectx->hdr_pos>=c->infile->len) {
+			de_err(c, "%sBad or truncated file", cpectx->msgpfx);
+			goto done;
+		}
+		if(cpectx->hdr_pos <= prev_entry_hdr_pos) {
+			// Backward pointers might be legal, but would take some extra work
+			// to handle safely. We won't allow them unless we have to.
+			de_err(c, "%sMalformed file", cpectx->msgpfx);
+			goto done;
+		}
+		prev_entry_hdr_pos = cpectx->hdr_pos;
+
+		cpectx->cpeh_size = de_getu16le_p(&pos);
+
+		if(d->ptrs_are_segmented) {
+			cpectx->next_cpeh_offset = cpi_getpos_segmented_p(c->infile, &pos);
+		}
+		else {
+			cpectx->next_cpeh_offset = de_getu32le_p(&pos);
+		}
+
+		if(d->is_ntfmt) {
+			// In NT format, this field is relative.
+			cpectx->next_cpeh_offset += cpectx->hdr_pos;
+		}
+
+		cpi_do_codepage_entry(c, d, cpectx);
+
+		pos = cpectx->next_cpeh_offset;
+	}
+
+done:
+	cpi_destroy_codepageentry_ctx(c, cpectx);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void de_run_cpi(deark *c, de_module_params *mparams)
+{
+	struct cpi_ctx *d = NULL;
+	i64 pos;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	d = de_malloc(c, sizeof(struct cpi_ctx));
+
+	de_dbg(c, "font file header");
+	de_dbg_indent(c, 1);
+	d->is_ntfmt = (de_getbyte(7)=='T');
+	de_dbg(c, "is NT: %u", (UI)d->is_ntfmt);
+
+	pos = 16;
+	d->pnum = de_getu16le_p(&pos);
+	de_dbg(c, "num ptrs: %d", (int)d->pnum);
+	if(d->pnum>1) {
+		de_warn(c, "This file has multiple \"pointers\", and is not "
+			"fully supported");
+	}
+
+	d->ptyp = de_getbyte_p(&pos);
+	de_dbg(c, "ptrs type: %u", (UI)d->ptyp);
+	if(d->ptyp != 1) {
+		de_err(c, "Bad \"pointers type\"");
+		goto done;
+	}
+
+	if(d->pnum==0) goto done;
+
+	d->fih_offset = de_getu32le_p(&pos);
+	de_dbg(c, "fih pos: %"I64_FMT, d->fih_offset);
+
+	de_dbg_indent(c, -1);
+
+	cpi_do_cpelist(c, d);
+
+	// TODO: Try to extract the comment, if present.
+
+done:
+	if(d) {
+		if(d->num_printer_fonts_found) {
+			de_warn(c, "This file contains printer fonts, which are not "
+				"supported");
+		}
+		de_free(c, d);
+	}
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static int de_identify_cpi(deark *c)
+{
+	UI n0, n1;
+
+	n0 = (UI)de_getu32be(0);
+	if(n0==0xff464f4eU) {
+		n1 = (UI)de_getu32be(4);
+		if(n1==0x54202020U || n1==0x542e4e54U) {
+			return 100;
+		}
+	}
+	return 0;
+}
+
+void de_module_cpi(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "cpi";
+	mi->desc = "CPI code page font";
+	mi->run_fn = de_run_cpi;
+	mi->identify_fn = de_identify_cpi;
 }
