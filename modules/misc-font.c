@@ -20,6 +20,7 @@ DE_DECLARE_MODULE(de_module_cpi);
 #define VGAFONT_MAXH 20
 
 struct vgafont_ctx {
+	u8 support_unicode;
 	de_encoding encoding_req;
 	de_encoding encoding_to_use;
 	struct de_bitmap_font *font;
@@ -32,17 +33,29 @@ struct vgafont_ctx {
 
 static void vgafont_common_config1_nc(deark *c, struct vgafont_ctx *d, i64 num_chars)
 {
-	d->encoding_req = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
-	if(d->encoding_req!=DE_ENCODING_UNKNOWN)
-		d->encoding_to_use = d->encoding_req;
-	else
-		d->encoding_to_use = DE_ENCODING_CP437;
+	if(d->support_unicode) {
+		d->encoding_req = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
+		if(d->encoding_req!=DE_ENCODING_UNKNOWN)
+			d->encoding_to_use = d->encoding_req;
+		else
+			d->encoding_to_use = DE_ENCODING_CP437;
+	}
+	else {
+		d->encoding_req = DE_ENCODING_UNKNOWN;
+		d->encoding_to_use = DE_ENCODING_LATIN1;
+	}
 
 	d->font = de_create_bitmap_font(c);
 	d->font->num_chars = num_chars;
 	d->font->has_nonunicode_codepoints = 1;
-	d->font->has_unicode_codepoints = 1;
-	d->font->prefer_unicode = (d->encoding_req!=DE_ENCODING_UNKNOWN);
+	if(d->support_unicode) {
+		d->font->has_unicode_codepoints = 1;
+		d->font->prefer_unicode = (d->encoding_req!=DE_ENCODING_UNKNOWN);
+	}
+	else {
+		d->font->has_unicode_codepoints = 0;
+		d->font->prefer_unicode = 0;
+	}
 	d->font->nominal_width = 8;
 	d->font->nominal_height = (int)d->height;
 	d->font->char_array = de_mallocarray(c, d->font->num_chars,
@@ -101,6 +114,15 @@ static void vgafont_main(deark *c, struct vgafont_ctx *d, de_finfo *fi, UI creat
 	de_font_bitmap_font_write(c, d->font, fi, createflags);
 }
 
+static struct vgafont_ctx *create_vgafont_ctx(deark *c)
+{
+	struct vgafont_ctx *d;
+
+	d = de_malloc(c, sizeof(struct vgafont_ctx));
+	d->support_unicode = 1;
+	return d;
+}
+
 static void destroy_vgafont_ctx(deark *c, struct vgafont_ctx *d)
 {
 	if(!d) return;
@@ -115,7 +137,7 @@ static void de_run_vgafont(deark *c, de_module_params *mparams)
 {
 	struct vgafont_ctx *d = NULL;
 
-	d = de_malloc(c, sizeof(struct vgafont_ctx));
+	d = create_vgafont_ctx(c);
 	d->height = c->infile->len / 256;
 	if((c->infile->len % 256) || d->height<VGAFONT_MINH || d->height>VGAFONT_MAXH) {
 		de_err(c, "Bad file size");
@@ -171,7 +193,7 @@ static void de_run_fontmania(deark *c, de_module_params *mparams)
 {
 	struct vgafont_ctx *d = NULL;
 
-	d = de_malloc(c, sizeof(struct vgafont_ctx));
+	d = create_vgafont_ctx(c);
 	d->font_data_pos = de_getu16le(2);
 	de_dbg(c, "data pos: %"I64_FMT, d->font_data_pos);
 	d->height = (i64)de_getbyte(5);
@@ -228,7 +250,7 @@ static void de_run_pcrfont(deark *c, de_module_params *mparams)
 	u8 hdr[11];
 	struct vgafont_ctx *d = NULL;
 
-	d = de_malloc(c, sizeof(struct vgafont_ctx));
+	d = create_vgafont_ctx(c);
 
 	de_read(hdr, 0, 11);
 	// I assume either hdr[7] or hdr[10] is the high byte of the font data size,
@@ -298,7 +320,7 @@ static void de_run_fontedit(deark *c, de_module_params *mparams)
 	de_finfo *fi_tmpl = NULL;
 	struct de_crcobj *crco = NULL;
 
-	d = de_malloc(c, sizeof(struct vgafont_ctx));
+	d = create_vgafont_ctx(c);
 	opt_extract_template = (u8)de_get_ext_option_bool(c, "fontedit:template",
 		(c->extract_level>=2 ? 1 : 0));
 
@@ -410,7 +432,7 @@ static void de_run_evafont(deark *c, de_module_params *mparams)
 	i64 font_data_endpos;
 	int ret;
 
-	d = de_malloc(c, sizeof(struct vgafont_ctx));
+	d = create_vgafont_ctx(c);
 
 	// Tracing through the file seems difficult. Instead we search for the byte
 	// pattern that appears just before the font data. It's nice that it also
@@ -507,8 +529,9 @@ void de_module_evafont(deark *c, struct deark_module_info *mi)
 // usual to detect and report errors, and to try to work around problems.
 
 // Notes on CPI format:
-// [This is mainly for files containing "display" fonts. "Printer" fonts also
-// exist, and have some differences.]
+// [This is mainly for files containing "screen" fonts. "Printer" fonts also
+// exist, and have some differences. It also doesn't fully account for DRFONT
+// format.]
 // Roughly speaking, a CPI file contains a linked list of "code page entries"
 // (c.p.e.).
 // The first item has an extra 2-byte header giving the number of items in
@@ -519,6 +542,10 @@ void de_module_evafont(deark *c, struct deark_module_info *mi)
 // containing one or more low-level fonts. It has a 6-byte header, then
 // a sequence of "low level" fonts, each with its own 6-byte header.
 
+#define CPI_MIN_HEIGHT  3
+#define CPI_MAX_HEIGHT  32
+#define CPI_MAX_BYTES_PER_GLYPH    32
+#define DRFONT_MAX_NUM_FONT_SIZES  20
 
 // Some of the variable names were taken from John Elliott's documentation
 // of CPI format.
@@ -544,12 +571,16 @@ struct cpi_codepageentry_ctx {
 	i64 last_font_endpos;
 	de_ucstring *tmpname;
 	char msgpfx[24];
+	i64 dr_charmap_pos;
+	u16 dr_charmap[256];
 };
 
 struct cpi_ctx {
 	u8 fatalerrflag;
 	u8 is_ntfmt;
+	u8 is_drfont;
 	u8 ptrs_are_segmented;
+	u8 need_errmsg;
 	UI num_printer_fonts_found;
 
 	i64 pnum; // number of pointers
@@ -557,6 +588,10 @@ struct cpi_ctx {
 	i64 fih_offset; // "fih" = FontInfoHeader
 
 	UI num_codepages;
+
+	UI dr_num_font_sizes;
+	u8 *dr_cellsizes; // array[dr_num_font_sizes]
+	u32 *dr_dfdoffsets; // array[dr_num_font_sizes]
 };
 
 static i64 cpi_getpos_segmented_p(dbuf *f, i64 *ppos)
@@ -667,7 +702,7 @@ static int cpi_check_for_fonthdr(deark *c, struct cpi_ctx *d,
 		num_chars = (UI)de_getu16le_p(&pos);
 		if(w!=8) return 0;
 		if(num_chars!=256 && num_chars!=512) return 0;
-		if(h<4 || h>32) return 0;
+		if(h<CPI_MIN_HEIGHT || h>CPI_MAX_HEIGHT) return 0;
 		if(strictmode && (h<8 || h>24)) return 0;
 		return 1;
 	}
@@ -696,10 +731,13 @@ static void cpi_read_ptr(dbuf *f, i64 pos, struct cpi_ptr_struct *px)
 static void cpi_do_lowlevel_font(deark *c, struct cpi_ctx *d,
 	struct cpi_codepageentry_ctx *cpectx, UI fntidx, i64 pos1)
 {
-	i64 bitmap_dlen;
 	i64 pos = pos1;
 	UI ch_height, ch_width;
 	UI num_chars;
+	i64 bitmap_dpos = 0;
+	i64 bitmap_dlen = 0;
+	UI dr_nbytes_per_glyph = 0;
+	i64 dr_glyph_data_pos = 0;
 	u8 eof_errflag = 0;
 	u8 looks_valid;
 	de_finfo *fi = NULL;
@@ -715,7 +753,16 @@ static void cpi_do_lowlevel_font(deark *c, struct cpi_ctx *d,
 		goto done;
 	}
 
-	d2 = de_malloc(c, sizeof(struct vgafont_ctx));
+	if(d->is_drfont && (fntidx>=d->dr_num_font_sizes)) {
+		// Shouldn't be possible.
+		goto done;
+	}
+
+	d2 = create_vgafont_ctx(c);
+	// TODO:? Some sort of Unicode support. Would like to simply record the
+	// code page in the output file, but PSF doesn't seem to support that.
+	d2->support_unicode = 0;
+
 	ch_height = (UI)de_getbyte_p(&pos);
 	ch_width = (UI)de_getbyte_p(&pos);
 	de_dbg(c, "char size: %u"DE_CHAR_TIMES"%u", ch_width, ch_height);
@@ -723,16 +770,33 @@ static void cpi_do_lowlevel_font(deark *c, struct cpi_ctx *d,
 	num_chars = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "num chars: %u", num_chars);
 
-	// TODO: Maybe we should allow numbers other than 256/512.
-	looks_valid = (ch_width==8 && ch_height>=1 && ch_height<=32 &&
-		(num_chars==256 || num_chars==512));
+	looks_valid = (ch_width==8 && ch_height>=CPI_MIN_HEIGHT &&
+		ch_height<=CPI_MAX_HEIGHT);
 
-	if(!looks_valid) {
+	// TODO: Maybe we should allow numbers other than 256/512.
+	if(looks_valid) {
+		if(d->is_drfont && num_chars!=256) {
+			looks_valid = 0;
+		}
+		else if(num_chars!=256 && num_chars!=512) {
+			looks_valid = 0;
+		}
+	}
+
+	if(!looks_valid && !d->is_drfont) {
 		if(cpi_is_problematic_devname(c, d, cpectx)) {
 			de_warn(c, "%sLikely mislabeled printer font", msgpfx);
 			d->num_printer_fonts_found++;
 			cpectx->errflag = 1;
 			goto done;
+		}
+	}
+
+	if(d->is_drfont) {
+		dr_nbytes_per_glyph = d->dr_cellsizes[fntidx];
+		dr_glyph_data_pos = d->dr_dfdoffsets[fntidx];
+		if(dr_nbytes_per_glyph != ch_height) {
+			looks_valid = 0;
 		}
 	}
 
@@ -742,10 +806,21 @@ static void cpi_do_lowlevel_font(deark *c, struct cpi_ctx *d,
 		goto done;
 	}
 
-	bitmap_dlen = num_chars * ch_height;
-	de_dbg(c, "font bitmap data at %"I64_FMT", len=%"I64_FMT, pos, bitmap_dlen);
-	cpectx->last_font_len = 6 + bitmap_dlen;
-	cpectx->last_font_endpos = pos1+cpectx->last_font_len;
+	if(d->is_drfont) {
+		de_dbg(c, "using glyph data at %"I64_FMT, dr_glyph_data_pos);
+	}
+	if(d->is_drfont) {
+		cpectx->last_font_len = 6;
+		cpectx->last_font_endpos = pos;
+	}
+
+	if(!d->is_drfont) {
+		bitmap_dpos = pos;
+		bitmap_dlen = num_chars * ch_height;
+		de_dbg(c, "font bitmap data at %"I64_FMT", len=%"I64_FMT, bitmap_dpos, bitmap_dlen);
+		cpectx->last_font_endpos = bitmap_dpos + bitmap_dlen;
+		cpectx->last_font_len = cpectx->last_font_endpos - pos1;
+	}
 
 	if(cpectx->last_font_endpos > cpectx->cpedata_max_endpos) {
 		eof_errflag = 1;
@@ -771,10 +846,31 @@ static void cpi_do_lowlevel_font(deark *c, struct cpi_ctx *d,
 	}
 
 	d2->height = ch_height;
-	d2->font_data_size = bitmap_dlen;
-	d2->font_data_pos = pos;
+	if(d->is_drfont) {
+		d2->font_data_size = (i64)num_chars*(i64)dr_nbytes_per_glyph;
+		d2->font_data_pos = 0; // unused
+	}
+	else {
+		d2->font_data_size = bitmap_dlen;
+		d2->font_data_pos = bitmap_dpos;
+	}
 	d2->fontdata = de_malloc(c, d2->font_data_size);
-	de_read(d2->fontdata, d2->font_data_pos, d2->font_data_size);
+
+	if(d->is_drfont) {
+		UI i;
+
+		// For DRFONT, we need to use the char. map.
+		for(i=0; i<num_chars; i++) {
+			// This isn't very efficient. Lots of seeking around. But it
+			// should be good enough.
+			de_read(&d2->fontdata[i*dr_nbytes_per_glyph],
+				dr_glyph_data_pos + (i64)cpectx->dr_charmap[i] * dr_nbytes_per_glyph,
+				dr_nbytes_per_glyph);
+		}
+	}
+	else {
+		de_read(d2->fontdata, d2->font_data_pos, d2->font_data_size);
+	}
 
 	vgafont_common_config1_nc(c, d2, (i64)num_chars);
 	vgafont_common_config2(c, d2);
@@ -793,6 +889,15 @@ done:
 	}
 
 	de_dbg_indent(c, -1);
+}
+
+static const char *cpi_get_cpedata_ver_name(struct cpi_ctx *d, UI v)
+{
+	const char *name = NULL;
+
+	if(v==1) name = "standard";
+	else if(v==2 && d->is_drfont) name = "DRFONT";
+	return name?name:"?";
 }
 
 static void cpi_do_cpedata(deark *c, struct cpi_ctx *d,
@@ -814,17 +919,31 @@ static void cpi_do_cpedata(deark *c, struct cpi_ctx *d,
 	}
 
 	cpectx->cpedata_version = (UI)de_getu16le_p(&pos);
-	de_dbg(c, "cpedata version: %u", cpectx->cpedata_version);
+	de_dbg(c, "cpedata version: %u (%s)", cpectx->cpedata_version,
+		cpi_get_cpedata_ver_name(d, cpectx->cpedata_version));
 	cpectx->num_fonts = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "num fonts: %u", cpectx->num_fonts);
 	cpectx->cpedata_total_size = de_getu16le_p(&pos);
 	de_dbg(c, "cpedata total size: %"I64_FMT, cpectx->cpedata_total_size);
 
-	if(cpectx->devtype!=1 || cpectx->cpedata_version!=1) {
+	if(cpectx->devtype==1 && !d->is_drfont && cpectx->cpedata_version==1) {
+		;
+	}
+	else if(cpectx->devtype==1 && d->is_drfont && cpectx->cpedata_version==2) {
+		;
+	}
+	else {
 		// TODO?: Is there anything we can do with printer fonts?
-		// TODO?: Support DRFONT format
 		de_dbg(c, "[device or version not supported]");
 		goto done;
+	}
+
+	if(d->is_drfont) {
+		if(cpectx->num_fonts > d->dr_num_font_sizes) {
+			d->need_errmsg = 1;
+			cpectx->errflag = 1;
+			goto done;
+		}
 	}
 
 	cpectx->font_data_startpos = pos;
@@ -837,10 +956,26 @@ static void cpi_do_cpedata(deark *c, struct cpi_ctx *d,
 	//cpectx->cpedata_max_endpos = cpectx->font_data_startpos + cpedata_total_size;
 	cpectx->cpedata_max_endpos = c->infile->len;
 
+	if(d->is_drfont) {
+		cpectx->dr_charmap_pos = cpectx->font_data_startpos +
+			cpectx->cpedata_total_size;
+
+		pos = cpectx->dr_charmap_pos;
+		de_dbg(c, "char map at %"I64_FMT, pos);
+		de_dbg_indent(c, 1);
+		for(i=0; i<256; i++) {
+
+			cpectx->dr_charmap[i] = (UI)de_getu16le_p(&pos);
+			de_dbg2(c, "map[%u] = %u", i, (UI)cpectx->dr_charmap[i]);
+		}
+		de_dbg_indent(c, -1);
+	}
+
+	pos = cpectx->font_data_startpos;
 	for(i=0; i<cpectx->num_fonts; i++) {
 		cpectx->last_font_len = 0;
 		cpi_do_lowlevel_font(c, d, cpectx, i, pos);
-		if(cpectx->errflag || (cpectx->last_font_len<1)) {
+		if(cpectx->errflag || d->fatalerrflag || (cpectx->last_font_len<1)) {
 			goto done;
 		}
 		pos += cpectx->last_font_len;
@@ -848,6 +983,15 @@ static void cpi_do_cpedata(deark *c, struct cpi_ctx *d,
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static const char *cpi_get_devtype_name(struct cpi_ctx *d, UI t)
+{
+	const char *name = NULL;
+
+	if(t==1) name = "screen";
+	else if(t==2) name = "printer";
+	return name?name:"?";
 }
 
 // Caller allocs cpectx, and sets ->hdr_pos, etc.
@@ -860,12 +1004,14 @@ static void cpi_do_codepage_entry(deark *c, struct cpi_ctx *d,
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "code page entry #%u", cpectx->idx);
 	de_dbg_indent(c, 1);
-	de_dbg(c, "c.p.e. header at %"I64_FMT", len=%"I64_FMT, cpectx->hdr_pos, cpectx->cpeh_size);
+	de_dbg(c, "c.p.e. header at %"I64_FMT", len=%"I64_FMT, cpectx->hdr_pos,
+		cpectx->cpeh_size);
 	de_dbg_indent(c, 1);
 	de_dbg(c, "next c.p.e. header: %"I64_FMT, cpectx->next_cpeh_offset);
 	pos = cpectx->hdr_pos+6; // skip fields already read
 	cpectx->devtype = (UI)de_getu16le_p(&pos);
-	de_dbg(c, "device type: %u", cpectx->devtype);
+	de_dbg(c, "device type: %u (%s)", cpectx->devtype,
+		cpi_get_devtype_name(d,  cpectx->devtype));
 	if(cpectx->devtype!=1 && cpectx->devtype!=2) {
 		de_warn(c, "%sUnknown device type: %u", cpectx->msgpfx, cpectx->devtype);
 		goto done;
@@ -893,6 +1039,7 @@ static void cpi_do_codepage_entry(deark *c, struct cpi_ctx *d,
 		// In NT format, this field is relative.
 		cpectx->cpih_offset += cpectx->hdr_pos;
 	}
+
 	de_dbg(c, "c.p.e. data pos: %"I64_FMT, cpectx->cpih_offset);
 	if(cpectx->cpih_offset < cpectx->hdr_pos+26) {
 		de_err(c, "%sBad font data pointer", cpectx->msgpfx);
@@ -926,7 +1073,7 @@ static void cpi_determine_ptr_fmt(deark *c, struct cpi_ctx *d,
 	i64 pos = first_cpeh_offset;
 	UI cpeh_size;
 
-	if(d->is_ntfmt) goto done;
+	if(d->is_ntfmt || d->is_drfont) goto done;
 
 	cperet = cpi_check_for_cpe(c, d, pos, 0);
 	if(cperet!=CPI_CPE_OK) {
@@ -1077,8 +1224,24 @@ static void de_run_cpi(deark *c, de_module_params *mparams)
 
 	de_dbg(c, "font file header");
 	de_dbg_indent(c, 1);
-	d->is_ntfmt = (de_getbyte(7)=='T');
+	if(de_getbyte(0)==0x7f) {
+		d->is_drfont = 1;
+	}
+	else if(de_getbyte(7)=='T') {
+		d->is_ntfmt = 1;
+	}
 	de_dbg(c, "is NT: %u", (UI)d->is_ntfmt);
+	de_dbg(c, "is DRFONT: %u", (UI)d->is_drfont);
+
+	if(d->is_drfont) {
+		de_declare_fmt(c, "CPI font (DRFONT variant)");
+	}
+	else if(d->is_ntfmt) {
+		de_declare_fmt(c, "CPI font (NT version)");
+	}
+	else {
+		de_declare_fmt(c, "CPI font");
+	}
 
 	pos = 16;
 	d->pnum = de_getu16le_p(&pos);
@@ -1100,6 +1263,31 @@ static void de_run_cpi(deark *c, de_module_params *mparams)
 	d->fih_offset = de_getu32le_p(&pos);
 	de_dbg(c, "fih pos: %"I64_FMT, d->fih_offset);
 
+	if(d->is_drfont) { // (at offset 23)
+		UI k;
+
+		d->dr_num_font_sizes = de_getbyte_p(&pos);
+		de_dbg(c, "num font sizes: %u", d->dr_num_font_sizes);
+		if(d->dr_num_font_sizes>DRFONT_MAX_NUM_FONT_SIZES) {
+			d->need_errmsg = 1;
+			goto done;
+		}
+		d->dr_cellsizes = de_mallocarray(c, d->dr_num_font_sizes, 1);
+		for(k=0; k<d->dr_num_font_sizes; k++) {
+			d->dr_cellsizes[k] = de_getbyte_p(&pos);
+		}
+		d->dr_dfdoffsets = de_mallocarray(c, d->dr_num_font_sizes, sizeof(u32));
+		for(k=0; k<d->dr_num_font_sizes; k++) {
+			d->dr_dfdoffsets[k] = (u32)de_getu32le_p(&pos);
+			de_dbg(c, "font size[%u]: bytes/char=%u, dpos=%u", k,
+				(UI)d->dr_cellsizes[k], (UI)d->dr_dfdoffsets[k]);
+			if(d->dr_cellsizes[k]>CPI_MAX_BYTES_PER_GLYPH) {
+				d->need_errmsg = 1;
+				goto done;
+			}
+		}
+	}
+
 	de_dbg_indent(c, -1);
 
 	cpi_do_cpelist(c, d);
@@ -1108,10 +1296,15 @@ static void de_run_cpi(deark *c, de_module_params *mparams)
 
 done:
 	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Failed to process this font file");
+		}
 		if(d->num_printer_fonts_found) {
 			de_warn(c, "This file contains printer fonts, which are not "
 				"supported");
 		}
+		de_free(c, d->dr_cellsizes);
+		de_free(c, d->dr_dfdoffsets);
 		de_free(c, d);
 	}
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -1125,6 +1318,13 @@ static int de_identify_cpi(deark *c)
 	if(n0==0xff464f4eU) {
 		n1 = (UI)de_getu32be(4);
 		if(n1==0x54202020U || n1==0x542e4e54U) {
+			return 100;
+		}
+	}
+	// TODO: Should DRFONT be a separate module?
+	if(n0==0x7f445246U) { // DRFONT
+		n1 = (UI)de_getu32be(4);
+		if(n1==0x4f4e5420U) {
 			return 100;
 		}
 	}
