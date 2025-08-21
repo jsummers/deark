@@ -957,6 +957,50 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+// "printer type"
+static const char *cpi_get_pt_name(UI t)
+{
+	const char *name = NULL;
+
+	if(t==1) name = "downloadable";
+	else if(t==2) name = "selectable";
+	return name?name:"?";
+}
+
+static void cpi_do_cpedata_printerfont(deark *c, struct cpi_ctx *d,
+	struct cpi_codepageentry_ctx *cpectx)
+{
+	i64 pos;
+	i64 remaining_dlen;
+	int saved_indent_level;
+	UI pt, el;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	d->num_printer_fonts_found++;
+	if(d->is_drfont) goto done;
+
+	// Note that we ignore cpectx->num_fonts; there should only be one
+	// printer font per c.p.e.
+
+	pos = cpectx->font_data_startpos;
+
+	pt = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "printer type: %u (%s)", pt, cpi_get_pt_name(pt));
+	el = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "escape len: %u", el);
+
+	remaining_dlen = cpectx->font_data_startpos + cpectx->cpedata_total_size - pos;
+	de_dbg(c, "printer data at %"I64_FMT", len=%"I64_FMT, pos, remaining_dlen);
+	if(c->debug_level>=2) {
+		de_dbg_indent(c, 1);
+		de_dbg_hexdump(c, c->infile, pos, remaining_dlen, 256, NULL, 0x1);
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static void cpi_do_cpedata(deark *c, struct cpi_ctx *d,
 	struct cpi_codepageentry_ctx *cpectx)
 {
@@ -982,16 +1026,12 @@ static void cpi_do_cpedata(deark *c, struct cpi_ctx *d,
 	cpectx->cpedata_total_size = de_getu16le_p(&pos);
 	de_dbg(c, "cpedata total size: %"I64_FMT, cpectx->cpedata_total_size);
 
-	if(cpectx->is_printer_cpe) {
-		de_dbg(c, "[printer font]");
-		d->num_printer_fonts_found++;
-		goto done;
-	}
-
-	if(!cpectx->is_printer_cpe && !d->is_drfont && cpectx->cpedata_version==1) {
+	if(!d->is_drfont && cpectx->cpedata_version==1) {
 		;
 	}
-	else if(!cpectx->is_printer_cpe && d->is_drfont && cpectx->cpedata_version==2) {
+	else if(d->is_drfont && cpectx->cpedata_version==2 &&
+		!cpectx->is_printer_cpe)
+	{
 		;
 	}
 	else {
@@ -1018,7 +1058,12 @@ static void cpi_do_cpedata(deark *c, struct cpi_ctx *d,
 	//cpectx->cpedata_max_endpos = cpectx->font_data_startpos + cpedata_total_size;
 	cpectx->cpedata_max_endpos = c->infile->len;
 
-	cpi_do_cpedata_screenfonts(c, d, cpectx);
+	if(cpectx->is_printer_cpe) {
+		cpi_do_cpedata_printerfont(c, d, cpectx);
+	}
+	else {
+		cpi_do_cpedata_screenfonts(c, d, cpectx);
+	}
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
