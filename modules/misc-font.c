@@ -556,7 +556,8 @@ struct cpi_codepageentry_ctx {
 
 	i64 cpeh_size; // Size of c.p.e. hdr in bytes, usually 28.
 	i64 next_cpeh_offset;
-	UI devtype;
+	UI devtype_raw;
+	u8 is_printer_cpe;
 	struct de_stringreaderdata *devname_srd;
 	UI codepage;
 	i64 cpih_offset;
@@ -621,6 +622,33 @@ static int cpi_is_problematic_devname(deark *c, struct cpi_ctx *d,
 		}
 	}
 	return 0;
+}
+
+// This may modify cpectx->is_printer_cpe.
+// Assumes cpectx->cpih_offset is set.
+static void cpi_detect_mislabeled_printer_font(deark *c, struct cpi_ctx *d,
+	struct cpi_codepageentry_ctx *cpectx)
+{
+	UI testval;
+
+	if(d->is_ntfmt || d->is_drfont) goto done;
+	if(cpectx->devtype_raw != 1) goto done;
+
+	// for printer, bytes at cpectx->cpih_offset+6 should be
+	//   01 00 xx xx  (or)  02 00 xx xx
+	// for screen, should be (hh = font height)
+	//   hh 08 00 00
+
+	testval = (UI)de_getu16le(cpectx->cpih_offset+6);
+	if(testval!=1 && testval!=2) goto done;
+
+	if(cpi_is_problematic_devname(c, d, cpectx)) {
+		de_warn(c, "%sLikely mislabeled printer font", cpectx->msgpfx);
+		cpectx->is_printer_cpe = 1;
+	}
+
+done:
+	;
 }
 
 static void cpi_destroy_codepageentry_ctx(deark *c,
@@ -783,15 +811,6 @@ static void cpi_do_lowlevel_font(deark *c, struct cpi_ctx *d,
 		}
 	}
 
-	if(!looks_valid && !d->is_drfont) {
-		if(cpi_is_problematic_devname(c, d, cpectx)) {
-			de_warn(c, "%sLikely mislabeled printer font", msgpfx);
-			d->num_printer_fonts_found++;
-			cpectx->errflag = 1;
-			goto done;
-		}
-	}
-
 	if(d->is_drfont) {
 		dr_nbytes_per_glyph = d->dr_cellsizes[fntidx];
 		dr_glyph_data_pos = d->dr_dfdoffsets[fntidx];
@@ -900,61 +919,14 @@ static const char *cpi_get_cpedata_ver_name(struct cpi_ctx *d, UI v)
 	return name?name:"?";
 }
 
-static void cpi_do_cpedata(deark *c, struct cpi_ctx *d,
+static void cpi_do_cpedata_screenfonts(deark *c, struct cpi_ctx *d,
 	struct cpi_codepageentry_ctx *cpectx)
 {
-	int saved_indent_level;
-	i64 pos1 = cpectx->cpih_offset;
-	i64 pos = cpectx->cpih_offset;
+	i64 pos;
 	UI i;
+	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "c.p.e. data at %"I64_FMT, pos1);
-	de_dbg_indent(c, 1);
-	if(pos1>=c->infile->len) {
-		de_err(c, "%sBad or truncated file", cpectx->msgpfx);
-		cpectx->errflag = 1;
-		d->fatalerrflag = 1;
-		goto done;
-	}
-
-	cpectx->cpedata_version = (UI)de_getu16le_p(&pos);
-	de_dbg(c, "cpedata version: %u (%s)", cpectx->cpedata_version,
-		cpi_get_cpedata_ver_name(d, cpectx->cpedata_version));
-	cpectx->num_fonts = (UI)de_getu16le_p(&pos);
-	de_dbg(c, "num fonts: %u", cpectx->num_fonts);
-	cpectx->cpedata_total_size = de_getu16le_p(&pos);
-	de_dbg(c, "cpedata total size: %"I64_FMT, cpectx->cpedata_total_size);
-
-	if(cpectx->devtype==1 && !d->is_drfont && cpectx->cpedata_version==1) {
-		;
-	}
-	else if(cpectx->devtype==1 && d->is_drfont && cpectx->cpedata_version==2) {
-		;
-	}
-	else {
-		// TODO?: Is there anything we can do with printer fonts?
-		de_dbg(c, "[device or version not supported]");
-		goto done;
-	}
-
-	if(d->is_drfont) {
-		if(cpectx->num_fonts > d->dr_num_font_sizes) {
-			d->need_errmsg = 1;
-			cpectx->errflag = 1;
-			goto done;
-		}
-	}
-
-	cpectx->font_data_startpos = pos;
-	// cpedata_max_endpos will mark the amount of data that this cpe is allowed
-	// to use.
-	// We'd rather calculate it using cpedata_total_size, but apparently that
-	// field is sometimes wrong.
-	// This limit could be improved, though. We could look at the next cpe
-	// item when available, and use some intelligence.
-	//cpectx->cpedata_max_endpos = cpectx->font_data_startpos + cpedata_total_size;
-	cpectx->cpedata_max_endpos = c->infile->len;
 
 	if(d->is_drfont) {
 		cpectx->dr_charmap_pos = cpectx->font_data_startpos +
@@ -985,6 +957,73 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+static void cpi_do_cpedata(deark *c, struct cpi_ctx *d,
+	struct cpi_codepageentry_ctx *cpectx)
+{
+	int saved_indent_level;
+	i64 pos1 = cpectx->cpih_offset;
+	i64 pos = cpectx->cpih_offset;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "c.p.e. data at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	if(pos1>=c->infile->len) {
+		de_err(c, "%sBad or truncated file", cpectx->msgpfx);
+		cpectx->errflag = 1;
+		d->fatalerrflag = 1;
+		goto done;
+	}
+
+	cpectx->cpedata_version = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "cpedata version: %u (%s)", cpectx->cpedata_version,
+		cpi_get_cpedata_ver_name(d, cpectx->cpedata_version));
+	cpectx->num_fonts = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "num fonts: %u", cpectx->num_fonts);
+	cpectx->cpedata_total_size = de_getu16le_p(&pos);
+	de_dbg(c, "cpedata total size: %"I64_FMT, cpectx->cpedata_total_size);
+
+	if(cpectx->is_printer_cpe) {
+		de_dbg(c, "[printer font]");
+		d->num_printer_fonts_found++;
+		goto done;
+	}
+
+	if(!cpectx->is_printer_cpe && !d->is_drfont && cpectx->cpedata_version==1) {
+		;
+	}
+	else if(!cpectx->is_printer_cpe && d->is_drfont && cpectx->cpedata_version==2) {
+		;
+	}
+	else {
+		// TODO?: Is there anything we can do with printer fonts?
+		de_dbg(c, "[device or version not supported]");
+		goto done;
+	}
+
+	if(d->is_drfont) {
+		if(cpectx->num_fonts > d->dr_num_font_sizes) {
+			d->need_errmsg = 1;
+			cpectx->errflag = 1;
+			goto done;
+		}
+	}
+
+	cpectx->font_data_startpos = pos;
+	// cpedata_max_endpos will mark the amount of data that this cpe is allowed
+	// to use.
+	// We'd rather calculate it using cpedata_total_size, but apparently that
+	// field is sometimes wrong.
+	// This limit could be improved, though. We could look at the next cpe
+	// item when available, and use some intelligence.
+	//cpectx->cpedata_max_endpos = cpectx->font_data_startpos + cpedata_total_size;
+	cpectx->cpedata_max_endpos = c->infile->len;
+
+	cpi_do_cpedata_screenfonts(c, d, cpectx);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static const char *cpi_get_devtype_name(struct cpi_ctx *d, UI t)
 {
 	const char *name = NULL;
@@ -1009,13 +1048,14 @@ static void cpi_do_codepage_entry(deark *c, struct cpi_ctx *d,
 	de_dbg_indent(c, 1);
 	de_dbg(c, "next c.p.e. header: %"I64_FMT, cpectx->next_cpeh_offset);
 	pos = cpectx->hdr_pos+6; // skip fields already read
-	cpectx->devtype = (UI)de_getu16le_p(&pos);
-	de_dbg(c, "device type: %u (%s)", cpectx->devtype,
-		cpi_get_devtype_name(d,  cpectx->devtype));
-	if(cpectx->devtype!=1 && cpectx->devtype!=2) {
-		de_warn(c, "%sUnknown device type: %u", cpectx->msgpfx, cpectx->devtype);
+	cpectx->devtype_raw = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "device type: %u (%s)", cpectx->devtype_raw,
+		cpi_get_devtype_name(d,  cpectx->devtype_raw));
+	if(cpectx->devtype_raw!=1 && cpectx->devtype_raw!=2) {
+		de_warn(c, "%sUnknown device type: %u", cpectx->msgpfx, cpectx->devtype_raw);
 		goto done;
 	}
+	cpectx->is_printer_cpe = (cpectx->devtype_raw==2);
 
 	cpectx->devname_srd = dbuf_read_string(c->infile, pos, 8, 8, 0, DE_ENCODING_CP437);
 	ucstring_strip_trailing_spaces(cpectx->devname_srd->str);
@@ -1046,13 +1086,9 @@ static void cpi_do_codepage_entry(deark *c, struct cpi_ctx *d,
 		goto done;
 	}
 
-	de_dbg_indent(c, -1);
+	cpi_detect_mislabeled_printer_font(c, d, cpectx);
 
-	if(cpectx->devtype==2) {
-		de_dbg(c, "[printer font]");
-		d->num_printer_fonts_found++;
-		goto done;
-	}
+	de_dbg_indent(c, -1);
 
 	cpi_do_cpedata(c, d, cpectx);
 
