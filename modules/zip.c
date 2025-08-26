@@ -34,6 +34,9 @@ typedef struct localctx_struct lctx;
 #define CODE_PK00 0x504b3030U
 static const u8 g_zipsig34[4] = {'P', 'K', 0x03, 0x04};
 
+#define ZIP_LDIR_FIXED_SIZE 30
+#define ZIP_CDIR_FIXED_SIZE 46
+
 struct compression_params {
 	// ZIP-specific params (not in de_dfilter_*_params) that may be needed to
 	// to decompress something.
@@ -179,6 +182,24 @@ static int timestamps_are_valid_and_equal(const struct de_timestamp *ts1,
 {
 	if(!ts1->is_valid || !ts2->is_valid) return 0;
 	return (ts1->ts_FILETIME == ts2->ts_FILETIME);
+}
+
+static int is_matching_ldir_at(deark *c, lctx *d, struct member_data *md,
+	i64 pos1)
+{
+	u32 sig1;
+	u32 crc;
+
+	if(pos1+ZIP_LDIR_FIXED_SIZE > c->infile->len) return 0;
+	sig1 = (u32)de_getu32be(pos1);
+	if(sig1!=CODE_PK34) return 0;
+
+	// TODO: We should compare more fields, at least the filename.
+	crc = (u32)de_getu32le(pos1+14);
+	if(crc != md->central_dir_entry_data.crc_reported) {
+		return 0;
+	}
+	return 1;
 }
 
 static void print_multisegment_note(deark *c, lctx *d)
@@ -1548,12 +1569,12 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 		dd = &md->local_dir_entry_data;
 		fixed_header_size = 30;
 		if((md->seg_number_start!=d->eocd.this_seg_num) && !d->using_scanmode) {
-			u32 peek_crc;
+			int found_ldir;
 
-			// This is a hack -- we could compare more fields -- but I think
-			// it's good enough.
-			peek_crc = (u32)de_getu32le(pos1+14);
-			if(peek_crc != md->central_dir_entry_data.crc_reported) {
+			// We want to read an ldir, but it *shouldn't* be on this segment.
+			// We'll check anyway.
+			found_ldir = is_matching_ldir_at(c, d, md, pos1);
+			if(!found_ldir) {
 				de_err(c, "Member file not in this ZIP file");
 				return 0;
 			}
