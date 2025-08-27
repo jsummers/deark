@@ -184,6 +184,18 @@ static int timestamps_are_valid_and_equal(const struct de_timestamp *ts1,
 	return (ts1->ts_FILETIME == ts2->ts_FILETIME);
 }
 
+static int looks_like_cdir_record(deark *c, dbuf *inf, i64 pos)
+{
+	u32 sig;
+	UI cmpr_meth;
+
+	sig = (u32)dbuf_getu32be(inf, pos);
+	if(sig!=CODE_PK12) return 0;
+	cmpr_meth = (UI)dbuf_getu16le(inf, pos+10);
+	if(cmpr_meth>99) return 0;
+	return 1;
+}
+
 static int is_matching_ldir_at(deark *c, lctx *d, struct member_data *md,
 	i64 pos1)
 {
@@ -265,7 +277,7 @@ static void zip_wcd_run(deark *c, struct zip_wcd_ctx *wcdctx)
 
 		wcdctx->entry_pos = pos;
 		len_avail = wcdctx->inf_endpos - wcdctx->entry_pos;
-		if(len_avail < 46) {
+		if(len_avail < ZIP_CDIR_FIXED_SIZE) {
 			// Not enough space even for the invariant part of the entry
 			if(!wcdctx->multisegment_mode) {
 				wcdctx->errflag = 1;
@@ -2797,8 +2809,8 @@ done:
 #define ZC_MAX_COMBINED_SIZE   200000000
 
 struct zc_segment {
-	i64 file_size;
-	i64 starting_offset;
+	i64 starting_offset; // offset in the output file
+	i64 cdir_possible_padding_nbytes;
 };
 
 struct zc_advpos {
@@ -2814,7 +2826,7 @@ struct zipcombine_ctx {
 	struct eocd_struct eocd;
 	struct zc_advpos eocd_pos;
 	struct zc_advpos cdir_pos;
-	dbuf *f; // Combined segments, edited in place
+	dbuf *combinedf; // Combined segments: membuf, edited in place
 
 	i64 seg0_prefix_len; // Num bytes deleted at start of segment 0
 
@@ -2828,6 +2840,7 @@ struct zipcombine_ctx {
 // Writes to d->tmpsz.
 static void zc_format_advpos(struct zipcombine_ctx *d, struct zc_advpos *advpos)
 {
+	// TODO: When d->seg0_prefix_len is relevant, this output is confusing.
 	de_snprintf(d->tmpsz, sizeof(d->tmpsz), "[segment %d, + %"I64_FMT" = %"I64_FMT"]",
 		advpos->rel_seg_id, advpos->rel_pos, advpos->abs_pos);
 }
@@ -2839,7 +2852,7 @@ static void zc_relpos_to_abspos(struct zipcombine_ctx *d, struct zc_advpos *advp
 {
 	if(advpos->rel_seg_id<0 || advpos->rel_seg_id>=d->num_segments) {
 		d->errflag = 1;
-		advpos->abs_pos = d->f->len;
+		advpos->abs_pos = d->combinedf->len;
 		return;
 	}
 	advpos->abs_pos = d->segments[advpos->rel_seg_id].starting_offset + advpos->rel_pos;
@@ -2856,21 +2869,17 @@ static void wcd_callback_for_cdpadding(deark *c, struct zip_wcd_ctx *wcdctx)
 		wcdctx->userdata_seg_id, wcdctx->entry_pos, wcdctx->entry_size);
 }
 
-// A central dir record is not allowed to be split across multiple segments.
-// Unfortunately, some ZIP programs (e.g. PKZIP 2.04g) will write a partial
-// entry at the end of a segment, and then at the start of the next segment,
-// start over and write the same entry in its entirety.
-// This is a problem when converting a multi-segment archive to a single file.
-// We can't just concatenate all the segments together, and then fix up the
-// pointers. We must identify and ignore these junk/partial central dir
-// entries, which pretty much means we have to walk through the central dir
-// entries on every segment but the last one. That's what we do.
-// That still leaves pathological edge cases that I haven't investigated. I
-// suspect this doesn't work 100% of the time.
-static i64 zc_get_real_seg_size(deark *c, struct zipcombine_ctx *d,
+// A central dir record is not supposed to be split across multiple segments,
+// but some versions of PKZIP do it anyway. Other write a partial entry,
+// and then at the start of the next segment, start over and write the same
+// entry in its entirety.
+// This function figures out the size of a partial cdir record at the end
+// of a segment. (It doesn't try to figure out if it's real or not. That's
+// done elsewhere.)
+static i64 zc_find_cdir_possible_padding(deark *c, struct zipcombine_ctx *d,
 	struct zip_wcd_ctx *wcdctx, dbuf *inf, int seg_id)
 {
-	i64 rvs = inf->len; // Default: keep everything.
+	i64 rvs = 0; // Default
 
 	// Haven't reached the cdir yet, so no problem.
 	if(seg_id < d->eocd.cdir_starting_seg_num) goto done;
@@ -2901,7 +2910,7 @@ static i64 zc_get_real_seg_size(deark *c, struct zipcombine_ctx *d,
 		goto done;
 	}
 
-	rvs = wcdctx->endpos_of_last_completed_entry;
+	rvs = inf->len - wcdctx->endpos_of_last_completed_entry;
 
 done:
 	return rvs;
@@ -2911,7 +2920,9 @@ static void zc_scan_and_read_to_membuf(deark *c, struct zipcombine_ctx *d)
 {
 	int v;
 	struct zip_wcd_ctx *wcdctx = NULL;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "[reading and scanning files]");
 	de_dbg_indent(c, 1);
 
@@ -2926,50 +2937,85 @@ static void zc_scan_and_read_to_membuf(deark *c, struct zipcombine_ctx *d)
 	// central dir. (The most inconvenient issue might be where we
 	// validate that the local dir signatures are present.)
 
-	d->f = dbuf_create_membuf(c, 1048576, 0);
+	d->combinedf = dbuf_create_membuf(c, 1048576, 0);
 
 	for(v=0; v<d->num_segments; v++) {
-		dbuf *tmpf;
+		dbuf *tmpsegf;
 		i64 newsize;
 		i64 pfx_len = 0;
+		i64 nbytes_to_copy;
 
-		tmpf = de_mp_acquire_dbuf(c, v);
-		if(!tmpf) {
+		tmpsegf = de_mp_acquire_dbuf(c, v);
+		if(!tmpsegf) {
 			d->errflag = 1;
 			goto done;
 		}
 
-		d->segments[v].file_size = zc_get_real_seg_size(c, d, wcdctx, tmpf, v);
+		d->segments[v].cdir_possible_padding_nbytes =
+			zc_find_cdir_possible_padding(c, d, wcdctx, tmpsegf, v);
+
+		nbytes_to_copy = tmpsegf->len; // tentative
 		if(d->errflag) goto done;
 
 		if(v==0) {
+			u32 sig;
+
 			// The first segment usually starts with a PK\7\8 signature, which
 			// we'll delete. We don't *have* to do this, but it makes our
 			// output file a little more compatible with other software.
-			if((UI)dbuf_getu32be(tmpf, 0) == CODE_PK78) {
+			// And we may as well also delete the PK00 "temporary spanning
+			// marker" placeholder.
+			sig = (u32)dbuf_getu32be(tmpsegf, 0);
+			if(sig==CODE_PK78 || sig==CODE_PK00) {
 				pfx_len = 4;
-				d->segments[v].file_size -= pfx_len;
+				nbytes_to_copy -= pfx_len;
 				d->seg0_prefix_len = pfx_len;
 			}
 		}
 
-		d->segments[v].starting_offset = d->f->len;
-		de_dbg(c, "segment %d: [at %"I64_FMT"] size=%"I64_FMT, v,
-			d->segments[v].starting_offset, d->segments[v].file_size);
+		de_dbg(c, "segment %d", v);
+		de_dbg_indent(c, 1);
 
-		newsize = tmpf->len + d->segments[v].file_size;
-		if((newsize > ZC_MAX_COMBINED_SIZE || newsize > DE_MAX_MALLOC)) {
+		if(v>0 && d->segments[v-1].cdir_possible_padding_nbytes>0) {
+			// If this segment seems to start with a cdir record, any partial cdir
+			// record from the previous segment was presumably just padding, that
+			// we need to delete.
+			if(looks_like_cdir_record(c, tmpsegf, 0)) {
+				// E.g., PKZIP 2.04g does this.
+				de_dbg(c, "[deleting %"I64_FMT" padding bytes from prev seg]",
+					d->segments[v-1].cdir_possible_padding_nbytes);
+				dbuf_truncate(d->combinedf, d->combinedf->len -
+					d->segments[v-1].cdir_possible_padding_nbytes);
+			}
+			else {
+				// E.g., PKZIP 2.60.03 for Windows 3.x does this.
+				de_dbg(c, "[assuming real cdir record is split]");
+			}
+		}
+
+		d->segments[v].starting_offset = d->combinedf->len;
+		de_dbg(c, "starting offset: %"I64_FMT", size=%"I64_FMT,
+			d->segments[v].starting_offset, nbytes_to_copy);
+
+		if(d->segments[v].cdir_possible_padding_nbytes) {
+			de_dbg(c, "cdir padding?: %"I64_FMT, d->segments[v].cdir_possible_padding_nbytes);
+		}
+
+		newsize = d->combinedf->len + nbytes_to_copy;
+		if(newsize>ZC_MAX_COMBINED_SIZE || newsize>DE_MAX_MALLOC) {
 			d->errflag = 1;
 			d->need_errmsg = 1;
 			goto done;
 		}
-		dbuf_copy(tmpf, pfx_len, d->segments[v].file_size, d->f);
-		de_mp_release_dbuf(c, v, &tmpf);
+		dbuf_copy(tmpsegf, pfx_len, nbytes_to_copy, d->combinedf);
+		de_mp_release_dbuf(c, v, &tmpsegf);
+		de_dbg_indent(c, -1);
 	}
 
 done:
 	de_free(c, wcdctx);
-	de_dbg_indent(c, -1);
+	de_dbg_indent_restore(c, saved_indent_level);
+
 }
 
 static void zc_writeu32le_at(struct zipcombine_ctx *d, i64 pos, i64 n)
@@ -2977,7 +3023,7 @@ static void zc_writeu32le_at(struct zipcombine_ctx *d, i64 pos, i64 n)
 	u8 buf[4];
 
 	de_writeu32le_direct(buf, n);
-	dbuf_write_at(d->f, pos, buf, 4);
+	dbuf_write_at(d->combinedf, pos, buf, 4);
 }
 
 static void zc_writeu16le_at(struct zipcombine_ctx *d, i64 pos, i64 n)
@@ -2985,7 +3031,7 @@ static void zc_writeu16le_at(struct zipcombine_ctx *d, i64 pos, i64 n)
 	u8 buf[2];
 
 	de_writeu16le_direct(buf, n);
-	dbuf_write_at(d->f, pos, buf, 2);
+	dbuf_write_at(d->combinedf, pos, buf, 2);
 }
 
 static void zc_modify_eocd(deark *c, struct zipcombine_ctx *d)
@@ -3016,8 +3062,8 @@ static void wcd_callback_for_fixcdir(deark *c, struct zip_wcd_ctx *wcdctx)
 		wcdctx->entry_pos, wcdctx->entry_size);
 
 	de_zeromem(&ldir_pos, sizeof(struct zc_advpos));
-	ldir_pos.rel_seg_id = (int)dbuf_getu16le(d->f, wcdctx->entry_pos+34);
-	ldir_pos.rel_pos = dbuf_getu32le(d->f, wcdctx->entry_pos+42);
+	ldir_pos.rel_seg_id = (int)dbuf_getu16le(d->combinedf, wcdctx->entry_pos+34);
+	ldir_pos.rel_pos = dbuf_getu32le(d->combinedf, wcdctx->entry_pos+42);
 
 	zc_relpos_to_abspos(d, &ldir_pos);
 
@@ -3027,7 +3073,7 @@ static void wcd_callback_for_fixcdir(deark *c, struct zip_wcd_ctx *wcdctx)
 	de_dbg_indent(c, -1);
 
 	// If this is the right place, there should be a signature there.
-	sig = (u32)dbuf_getu32be(d->f, ldir_pos.abs_pos);
+	sig = (u32)dbuf_getu32be(d->combinedf, ldir_pos.abs_pos);
 	if(sig != CODE_PK34) {
 		wcdctx->errflag = 1;
 		wcdctx->need_errmsg = 1;
@@ -3052,10 +3098,10 @@ static void zc_modify_cdir(deark *c, struct zipcombine_ctx *d)
 	wcdctx = de_malloc(c, sizeof(struct zip_wcd_ctx));
 	wcdctx->userdata = (void*)d;
 	wcdctx->cbfn = wcd_callback_for_fixcdir;
-	wcdctx->inf = d->f;
+	wcdctx->inf = d->combinedf;
 	wcdctx->max_entries = d->eocd.cdir_num_entries_total;
 	wcdctx->inf_startpos = d->cdir_pos.abs_pos;
-	wcdctx->inf_endpos = d->f->len;
+	wcdctx->inf_endpos = d->combinedf->len;
 	zip_wcd_run(c, wcdctx);
 	d->errflag = wcdctx->errflag;
 	d->need_errmsg = wcdctx->need_errmsg;
@@ -3140,7 +3186,7 @@ static void do_run_zip_combiner(deark *c, de_module_params *mparams)
 
 	// Write the combined-and-modified file
 	outf = dbuf_create_output_file(c, "zip", NULL, 0);
-	dbuf_copy(d->f, 0, d->f->len, outf);
+	dbuf_copy(d->combinedf, 0, d->combinedf->len, outf);
 
 done:
 	dbuf_close(outf);
@@ -3148,7 +3194,7 @@ done:
 		if(d->need_errmsg) {
 			de_err(c, "Failed to process multi-segment ZIP archive");
 		}
-		dbuf_close(d->f);
+		dbuf_close(d->combinedf);
 		de_free(c, d->segments);
 		de_free(c, d);
 	}
