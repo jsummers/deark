@@ -894,6 +894,9 @@ in the readme file.)
 * Doom WAD (module="wad")
   - The extracted files are usually in specialized formats.
 
+* EA/PEA archive (module="ea_arch") (experimental)
+  An installer format used by Electronic Arts.
+
 * EDI Pack (module="edi_pack")
   Compressed file, used by EDI Install [Pro] from Eschalon Development.
   - Supports "LZSS1" and "LZSS2" formats, and the LZSSLib format.
