@@ -265,6 +265,7 @@
     <ClCompile Include="..\..\modules\misc.c" />
     <ClCompile Include="..\..\modules\misc2.c" />
     <ClCompile Include="..\..\modules\misc3.c" />
+    <ClCompile Include="..\..\modules\mmfw.c" />
     <ClCompile Include="..\..\modules\mmm.c" />
     <ClCompile Include="..\..\modules\mp3.c" />
     <ClCompile Include="..\..\modules\mscompress.c" />

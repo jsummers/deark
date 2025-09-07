@@ -196,6 +196,8 @@ $(OBJDIR)/modules/misc2.o: modules/misc2.c src/deark-private.h \
 $(OBJDIR)/modules/misc3.o: modules/misc3.c src/deark-private.h \
  src/deark.h src/deark-config.h src/deark-fmtutil.h \
  src/deark-fmtutil-arch.h
+$(OBJDIR)/modules/mmfw.o: modules/mmfw.c src/deark-private.h src/deark.h \
+ src/deark-config.h
 $(OBJDIR)/modules/mmm.o: modules/mmm.c src/deark-private.h src/deark.h \
  src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/mp3.o: modules/mp3.c src/deark-config.h \
