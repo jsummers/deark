@@ -13,8 +13,10 @@ DE_DECLARE_MODULE(de_module_mmfw);
 #define MMFW_TYPE_SOUNDS    4
 #define MMFW_TYPE_MOVIES    5
 #define MMFW_TYPE_FILMS     6
-#define MMFW_TYPE_SCRIPTS   7
-#define MMFW_TYPE_LAST      7
+#define MMFW_TYPE_SCRIPT    7
+#define MMFW_TYPE_SCRIPTS   8
+#define MMFW_TYPE_3SCRIPT   9
+#define MMFW_TYPE_LAST      9
 
 // Wish we could set a sane limit, but files with over 15000 images exist.
 #define MMFW_MAX_RESOURCES 65535
@@ -76,6 +78,7 @@ typedef struct localctxMMFW {
 	u8 extract_all_raw;
 	UI fmtver;
 	u8 mmfw_type;
+	u8 is_a_script_type;
 	const char *mmfw_type_name;
 	u8 need_errmsg;
 	u8 fatal_errflag;
@@ -124,10 +127,10 @@ static i64 mmfw_getu32_p(lctx *d, i64 *ppos)
 
 static const char *g_mmfw_tnames[] = {
 	"Blobs", "Pictures", "Sounds", "Movies",
-	"Films", "Scripts"
+	"Films", "Script", "Scripts", "3 Script"
 };
 
-static const u8 *get_mmfw_type_name_in_file(u8 t)
+static const u8 *mmfw_type_to_signature(u8 t)
 {
 	if(t>=MMFW_TYPE_FIRST && t<=MMFW_TYPE_LAST) {
 		return (const u8*)g_mmfw_tnames[t-MMFW_TYPE_FIRST];
@@ -137,6 +140,11 @@ static const u8 *get_mmfw_type_name_in_file(u8 t)
 
 static const char *get_mmfw_type_readable_name(u8 t)
 {
+	if(t==MMFW_TYPE_SCRIPT || t==MMFW_TYPE_SCRIPTS ||
+		t==MMFW_TYPE_3SCRIPT)
+	{
+		return g_mmfw_tnames[MMFW_TYPE_SCRIPTS-MMFW_TYPE_FIRST];
+	}
 	if(t>=MMFW_TYPE_FIRST && t<=MMFW_TYPE_LAST) {
 		return g_mmfw_tnames[t-MMFW_TYPE_FIRST];
 	}
@@ -650,11 +658,10 @@ static void mmfw_dbg_file_structure(deark *c, lctx *d)
 {
 	struct mmfw_file_structure_etc *ly = &d->fs;
 
-	de_dbg(c, "num resources: %"I64_FMT, d->num_resources);
 	de_dbg(c, "pos of rsrc count: %"I64_FMT, ly->pos_of_rsrc_count);
+	de_dbg(c, "num resources: %"I64_FMT, d->num_resources);
 	de_dbg(c, "offsets table pos: %"I64_FMT, ly->pos_of_rsrc_offsets_table);
 	de_dbg(c, "names table pos: %"I64_FMT, ly->pos_of_rsrc_names_table);
-	//de_dbg2(c, "names table endpos: %"I64_FMT, ly->names_table_endpos);
 	if(d->fs.can_decode) {
 		de_dbg(c, "dimensions table at %"I64_FMT, ly->pos_of_dimensions_table);
 		if(ly->pos_of_flags1_table) {
@@ -706,6 +713,8 @@ static int mmfw_try_format(deark *c, lctx *d, i64 startpos,
 		d->rsrc_offsets = NULL;
 	}
 	d->num_resources = 0;
+
+	if(startpos==0) goto done;
 
 	p = &dscrp[0];
 	while(*p) {
@@ -796,11 +805,12 @@ static void do_mmfw_part1(deark *c, lctx *d)
 	const char *dscrp_v0_pic = "codhna4a4qP.";
 	const char *dscrp_v1_pic = "cob2na4b2fgda4pP.";
 	const char *dscrp_v2_26_pic = "cona4hda4qP.";
+	const char *dscrp_v2_26_script = "cb2o";
 	const char *dscrp_v3_26_pic = "cona4fda4pP.";
 	const char *dscrp_v1_default = "cob2n";
 	const char *dscrp_26_default = "con";
 	const char *dscrp_nonames = "co";
-	i64 rcpos;
+	i64 rcpos = 0;
 
 	if(d->fmtver==0) {
 		rcpos = 102;
@@ -813,7 +823,7 @@ static void do_mmfw_part1(deark *c, lctx *d)
 
 		// I don't know how to tell whether this field is at offset 26,
 		// or 34. Testing the byte at offset 21 works for the files I've
-		// tested.
+		// tested (at least the big-endian ones?).
 		b = de_getbyte(21);
 		if(b==0) {
 			rcpos = 26;
@@ -843,12 +853,34 @@ static void do_mmfw_part1(deark *c, lctx *d)
 			ret = mmfw_try_format(c, d, rcpos, dscrp_v1_pic);
 		}
 	}
-	else if(d->mmfw_type==MMFW_TYPE_SCRIPTS) {
-		if(d->fmtver==3 && rcpos==34) {
+	else if(d->mmfw_type==MMFW_TYPE_SCRIPT) {
+		if(d->fmtver==1 && !d->is_le) {
+			ret = mmfw_try_format(c, d, rcpos, dscrp_nonames);
+		}
+		else if(d->fmtver==1 && d->is_le) {
+			rcpos = 26;
+			ret = mmfw_try_format(c, d, rcpos, dscrp_v2_26_script);
+		}
+		else if(d->fmtver==2 && rcpos==26) {
+			ret = mmfw_try_format(c, d, rcpos, dscrp_v2_26_script);
+		}
+	}
+	else if(d->mmfw_type==MMFW_TYPE_3SCRIPT) {
+		if(d->fmtver==2 && d->is_le) {
+			rcpos = 34;
 			ret = mmfw_try_format(c, d, rcpos, dscrp_nonames);
 		}
 	}
-	else if(d->fmtver>=1) {
+	else if(d->mmfw_type==MMFW_TYPE_SCRIPTS) {
+		if(d->fmtver==3 && d->is_le) {
+			rcpos = 34;
+			ret = mmfw_try_format(c, d, rcpos, dscrp_nonames);
+		}
+		else if(d->fmtver==3 && rcpos==34) {
+			ret = mmfw_try_format(c, d, rcpos, dscrp_nonames);
+		}
+	}
+	else if(d->fmtver>=1 && !d->is_a_script_type) {
 		if(rcpos==26) {
 			ret = mmfw_try_format(c, d, rcpos, dscrp_26_default);
 		}
@@ -873,11 +905,13 @@ static u8 mmfw_detect_type(deark *c)
 {
 	u8 buf[11];
 	u8 t;
+	UI en;
 
 	if(dbuf_memcmp(c->infile, 0, (const void*)"MMFW ", 5)) {
 		return 0;
 	}
-	if(dbuf_memcmp(c->infile, 16, (const void*)"MM", 2)) {
+	en = (UI)de_getu16be(16);
+	if(en!=0x4d4d && en!=0x4949) {
 		return 0;
 	}
 
@@ -886,7 +920,13 @@ static u8 mmfw_detect_type(deark *c)
 	for(t=MMFW_TYPE_FIRST; t<=MMFW_TYPE_LAST; t++) {
 		const u8 *sig;
 
-		sig = get_mmfw_type_name_in_file(t);
+		// The only little-endian files I've seen are script files.
+		if(en==0x4949 && (t!=MMFW_TYPE_SCRIPT && t!=MMFW_TYPE_SCRIPTS &&
+			t!=MMFW_TYPE_3SCRIPT))
+		{
+			continue;
+		}
+		sig = mmfw_type_to_signature(t);
 		if(!de_memcmp(sig, buf, (size_t)(1+de_strlen((const char*)sig)))) {
 			return t;
 		}
@@ -915,8 +955,16 @@ static void de_run_mmfw(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
+	if(d->mmfw_type==MMFW_TYPE_SCRIPT || d->mmfw_type==MMFW_TYPE_SCRIPTS ||
+		d->mmfw_type==MMFW_TYPE_3SCRIPT)
+	{
+		d->is_a_script_type = 1;
+	}
 	d->mmfw_type_name = get_mmfw_type_readable_name(d->mmfw_type);
 	de_declare_fmtf(c, "MMFW resource file (%s)", d->mmfw_type_name);
+
+	d->is_le = (de_getbyte(16)=='I');
+	de_dbg(c, "endian: %s", (d->is_le ? "le" : "be"));
 
 	d->fmtver = (UI)mmfw_getu16(d, 18);
 	de_dbg(c, "fmt ver: %u", d->fmtver);
