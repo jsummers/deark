@@ -25,6 +25,7 @@ DE_DECLARE_MODULE(de_module_hta);
 DE_DECLARE_MODULE(de_module_hit);
 DE_DECLARE_MODULE(de_module_binary_ii);
 DE_DECLARE_MODULE(de_module_tc_trs80);
+DE_DECLARE_MODULE(de_module_ea_arch);
 
 static int dclimplode_header_at(deark *c, i64 pos)
 {
@@ -3023,4 +3024,161 @@ void de_module_tc_trs80(deark *c, struct deark_module_info *mi)
 	mi->desc = "The Compressor (TRS-80 archive)";
 	mi->run_fn = de_run_tc_trs80;
 	mi->identify_fn = de_identify_tc_trs80;
+}
+
+// **************************************************************************
+// .EA/.PEA installer-archive
+// **************************************************************************
+
+#define EA_MINHEADERLEN 30
+
+static int ea_sig_at(deark *c, i64 pos)
+{
+	return !dbuf_memcmp(c->infile, pos, (const void*)"\x1a" "EA", 3);
+}
+
+static void ea_decompressor_fn(struct de_arch_member_data *md)
+{
+	deark *c = md->c;
+
+	if(md->cmpr_meth==1) {
+		struct de_lzw_params delzwp;
+
+		de_zeromem(&delzwp, sizeof(struct de_lzw_params));
+		delzwp.fmt = DE_LZWFMT_TIFFOLD;
+		fmtutil_decompress_lzw(c, md->dcmpri, md->dcmpro, md->dres, &delzwp);
+	}
+	else if(md->cmpr_meth==0) {
+		fmtutil_decompress_uncompressed(c, md->dcmpri, md->dcmpro, md->dres, 0);
+	}
+	else {
+		de_dfilter_set_generic_error(c, md->dres, NULL);
+	}
+}
+
+static int do_ea_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *md)
+{
+	i64 pos;
+	int saved_indent_level;
+	int retval = 0;
+	u8 unk1;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	pos = md->member_hdr_pos;
+	if(!ea_sig_at(c, pos)) {
+		if(md->member_hdr_pos==0) {
+			de_err(c, "Not an EA file");
+		}
+		else {
+			d->need_errmsg = 1;
+		}
+		goto done;
+	}
+	pos += 3;
+
+	de_dbg(c, "member at %"I64_FMT, md->member_hdr_pos);
+	de_dbg_indent(c, 1);
+
+	dbuf_read_to_ucstring(c->infile, pos, 12, md->filename, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+	pos += 13;
+
+	// at 16
+	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		DE_ARCH_TSTYPE_DOS_DT, &pos);
+	md->cmpr_meth = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "cmpr. method: %u", md->cmpr_meth);
+	de_arch_read_field_orig_len_p(md, &pos);
+	de_arch_read_field_cmpr_len_p(md, &pos);
+	// at 29
+	md->member_hdr_size = (i64)de_getbyte_p(&pos);
+	unk1 = de_getbyte_p(&pos);
+	if(md->member_hdr_size!=48 || unk1!=1) {
+		// We're strict about this, because this format has no checksum/CRC.
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	md->cmpr_pos = md->member_hdr_pos + md->member_hdr_size;
+	if(!de_arch_good_cmpr_data_pos(md)) {
+		goto done;
+	}
+	md->member_total_size = md->member_hdr_size + md->cmpr_len;
+	retval = 1;
+
+	de_dbg(c, "compressed data at %"I64_FMT", len=%"I64_FMT, md->cmpr_pos, md->cmpr_len);
+
+	if(md->cmpr_meth>1) {
+		de_err(c, "Unsupported compression: %u", (UI)md->cmpr_meth);
+		goto done;
+	}
+
+	md->dfn = ea_decompressor_fn;
+	de_arch_extract_member_file(md);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static void de_run_ea_arch(deark *c, de_module_params *mparams)
+{
+	de_arch_lctx *d = NULL;
+	i64 pos = 0;
+	struct de_arch_member_data *md = NULL;
+
+	d = de_arch_create_lctx(c);
+	d->is_le = 1;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+
+	while(1) {
+		if(pos+EA_MINHEADERLEN >= c->infile->len) goto done;
+
+		if(md) {
+			de_arch_destroy_md(c, md);
+			md = NULL;
+		}
+		md = de_arch_create_md(c, d);
+		md->member_hdr_pos = pos;
+		if(!do_ea_member(c, d, md)) goto done;
+		if(md->member_total_size<=0) goto done;
+		pos += md->member_total_size;
+	}
+
+done:
+	if(md) {
+		de_arch_destroy_md(c, md);
+	}
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported EA file");
+		}
+		de_arch_destroy_lctx(c, d);
+	}
+}
+
+static int de_identify_ea_arch(deark *c)
+{
+	u8 b, hdrsize;
+
+	if(de_getbyte(0)!=0x1a) return 0;
+	if(!ea_sig_at(c, 0)) return 0;
+	b = de_getbyte(15); // last byte of filename field
+	if(b!=0) return 0;
+	b = de_getbyte(20); // cmpr meth
+	if(b>1) return 0;
+	hdrsize = de_getbyte(29);
+	if(hdrsize<EA_MINHEADERLEN) return 0;
+	if(hdrsize==48) return 100;
+	return 45;
+}
+
+void de_module_ea_arch(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "ea_arch";
+	mi->desc = "EA/PEA archive";
+	mi->run_fn = de_run_ea_arch;
+	mi->identify_fn = de_identify_ea_arch;
 }

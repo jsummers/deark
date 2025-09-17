@@ -10,7 +10,7 @@ DE_DECLARE_MODULE(de_module_colorix);
 
 #define RIX_MIN_FILE_SIZE 36
 #define RIX_UNC_SCR_FILE_SIZE 112016
-#define RIX_MIN_OLD_SEGMENT_DLEN 100
+#define RIX_MIN_OLD_SEGMENT_DLEN 28
 
 struct colorix_ctx {
 #define RIXFMT_OLD_U 1

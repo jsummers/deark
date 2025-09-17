@@ -176,6 +176,10 @@ Command-line options:
    Module-specific and feature-specific options. See formats.txt.
    Caution: Unrecognized or misspelled options will be silently ignored.
    Options not specific to one format:
+    -opt font:output=&lt;font|image>
+       Requested output format class. "image" creates a PNG image of the
+       characters. "font", when available, converts/extracts the font to a
+       font file format such as PSF.
     -opt font:charsperrow=&lt;n>
        The number of characters per row, when rendering a font to a bitmap
     -opt font:tounicode=&lt;0|1>
@@ -299,10 +303,11 @@ Command-line options:
      latin2 (Central/Eastern European)
      cp437 (English, etc., DOS formats)
      cp850 (some Western European DOS formats)
+     cp866 (Cyrillic, DOS)
      cp932 (Japanese; Shift-JIS family of encodings)
      windows874 (Thai)
      windows1250 (Eastern European)
-     windows1251 (Cyrillic)
+     windows1251 (Cyrillic, Windows)
      windows1252 (English, etc., Windows formats)
      windows1253 (Greek)
      windows1254 (Turkish)

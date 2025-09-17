@@ -1,8 +1,19 @@
 // This file is part of Deark.
-// Copyright (C) 2016 Jason Summers
+// Copyright (C) 2016-2025 Jason Summers
 // See the file COPYING for terms of use.
 
 // ZIP format
+
+// Terminology note: For multi-file archives (disk spanning, etc.), we'll
+// try to consistently use the word "segment".
+// Many other terms could be used: "part", "volume", "fragment", "disk",
+// "span", "split", "multi-file".
+// (The ZIP documentation generally uses "segment" or "disk"; also "span"
+// and "split" in certain cases.)
+// There is an ambiguity regarding disk numbers. In the PKZIP user interface
+// and volume labels, the first segment is number 1, whereas in the file,
+// it is (usually?) number 0. We pretty much exclusively use the number in
+// the file.
 
 #include <deark-config.h>
 #include <deark-private.h>
@@ -17,10 +28,14 @@ typedef struct localctx_struct lctx;
 #define CODE_PK14 0x504b0104U
 #define CODE_PK34 0x504b0304U
 #define CODE_PK36 0x504b0306U
+#define CODE_PK66 0x504b0606U
+#define CODE_PK67 0x504b0607U
 #define CODE_PK78 0x504b0708U
+#define CODE_PK00 0x504b3030U
 static const u8 g_zipsig34[4] = {'P', 'K', 0x03, 0x04};
-static const u8 g_zipsig66[4] = {'P', 'K', 0x06, 0x06};
-static const u8 g_zipsig67[4] = {'P', 'K', 0x06, 0x07};
+
+#define ZIP_LDIR_FIXED_SIZE 30
+#define ZIP_CDIR_FIXED_SIZE 46
 
 struct compression_params {
 	// ZIP-specific params (not in de_dfilter_*_params) that may be needed to
@@ -51,6 +66,9 @@ struct dir_entry_data {
 	i64 main_fname_pos;
 	i64 main_fname_len;
 	de_ucstring *fname;
+	u8 have_read_sig_and_hdrsize;
+	i64 fn_len, extra_len, comment_len;
+	i64 hdrsize;
 };
 
 struct timestamp_data {
@@ -63,7 +81,7 @@ struct member_data {
 	UI ver_made_by_hi, ver_made_by_lo;
 	UI attr_i, attr_e;
 	i64 offset_of_local_header;
-	i64 disk_number_start;
+	i64 seg_number_start;
 	i64 file_data_pos;
 	int is_nonexecutable;
 	int is_executable;
@@ -95,26 +113,33 @@ struct extra_item_info_struct {
 	int is_central;
 };
 
+// This struct can be used with both the original EOCD, and Zip64 EOCD.
+struct eocd_struct {
+	i64 this_seg_num;
+	i64 cdir_starting_seg_num;
+	i64 cdir_num_entries_this_seg;
+	i64 cdir_num_entries_total;
+	i64 cdir_byte_size;
+	i64 cdir_offset;
+	i64 archive_comment_len;
+	u8 is_likely_zip64;
+};
+
 struct localctx_struct {
 	de_encoding default_enc_for_filenames;
 	de_encoding default_enc_for_comments;
-	i64 end_of_central_dir_pos;
-	i64 central_dir_num_entries;
-	i64 central_dir_byte_size;
-	i64 central_dir_offset;
-	i64 this_disk_num;
+	// eocd = the effective EOCD: The original, later potentially updated by
+	// the Zip64 EOCD.
+	struct eocd_struct eocd;
+	struct eocd_struct eocd64;
+	i64 eocd_pos;
 	i64 zip64_eocd_pos;
-	i64 zip64_cd_pos;
-	i64 zip64_num_centr_dir_entries_this_disk;
-	i64 zip64_num_centr_dir_entries_total;
-	i64 zip64_centr_dir_byte_size;
-	UI zip64_eocd_disknum;
-	UI zip64_cd_disknum;
+	i64 zip64_eocd_segnum;
 	i64 offset_correction;
 	int used_offset_correction;
 	u8 is_zip64;
 	u8 is_resof;
-	u8 disk_id_mismatch_warned;
+	u8 seg_id_mismatch_warned;
 	int using_scanmode;
 	struct de_crcobj *crco;
 };
@@ -158,6 +183,161 @@ static int timestamps_are_valid_and_equal(const struct de_timestamp *ts1,
 	if(!ts1->is_valid || !ts2->is_valid) return 0;
 	return (ts1->ts_FILETIME == ts2->ts_FILETIME);
 }
+
+static int looks_like_cdir_record(deark *c, dbuf *inf, i64 pos)
+{
+	u32 sig;
+	UI cmpr_meth;
+
+	sig = (u32)dbuf_getu32be(inf, pos);
+	if(sig!=CODE_PK12) return 0;
+	cmpr_meth = (UI)dbuf_getu16le(inf, pos+10);
+	if(cmpr_meth>99) return 0;
+	return 1;
+}
+
+static int is_matching_ldir_at(deark *c, lctx *d, struct member_data *md,
+	i64 pos1)
+{
+	u32 sig1;
+	u32 crc;
+
+	if(pos1+ZIP_LDIR_FIXED_SIZE > c->infile->len) return 0;
+	sig1 = (u32)de_getu32be(pos1);
+	if(sig1!=CODE_PK34) return 0;
+
+	// TODO: We should compare more fields, at least the filename.
+	crc = (u32)de_getu32le(pos1+14);
+	if(crc != md->central_dir_entry_data.crc_reported) {
+		return 0;
+	}
+	return 1;
+}
+
+static void print_multisegment_note(deark *c, lctx *d)
+{
+	if(d->is_zip64) return;
+	de_info(c, "Note: Try \"-mp -opt zip:combine\" to convert to a "
+		"single-segment ZIP file.");
+}
+
+// ----------
+// Generic "walk central dir" function.
+
+struct zip_wcd_ctx;
+
+typedef void (*zip_wcd_callback)(deark *c, struct zip_wcd_ctx *wcdctx);
+
+struct zip_wcd_ctx {
+	// Configuration:
+	zip_wcd_callback cbfn;
+	void *userdata;
+	int userdata_seg_id;
+	u8 report_errors;
+	u8 multisegment_mode;
+	u8 is_resof;
+	dbuf *inf;
+	i64 inf_startpos;
+	i64 inf_endpos; // Normally, this can be inf->len
+	i64 max_entries; // Total, not just this segment
+
+	// Other:
+	u8 stop_flag; // Callback fn can set, to stop processing w/o error
+	u8 errflag; // Set internally or by callback
+	u8 need_errmsg; // Set internally or by callback
+	i64 num_entries_completed; // Total, not just this segment
+	i64 endpos_of_last_completed_entry; // Pos in inf
+
+	// Additional data passed to the callback fn:
+	i64 entry_pos;
+	i64 entry_size;
+	i64 fn_len, extra_len, comment_len;
+};
+
+// Caller creates/destroys wcdctx.
+// Create one wcdctx object per walk per central directory.
+// But if the central directory is segmented, zip_wcd_run() may be called
+// multiple times with the same wcdctx -- it will pick up where it left off.
+static void zip_wcd_run(deark *c, struct zip_wcd_ctx *wcdctx)
+{
+	i64 pos;
+	u32 expected_sig;
+	u8 unexpected_eof_flag = 0;
+
+	pos = wcdctx->inf_startpos;
+	wcdctx->endpos_of_last_completed_entry = pos;
+	expected_sig = wcdctx->is_resof?CODE_PK14:CODE_PK12;
+
+	while(1) {
+		u32 sig;
+		i64 len_avail;
+
+		if(wcdctx->stop_flag || wcdctx->errflag) goto done;
+		if(wcdctx->num_entries_completed >= wcdctx->max_entries) goto done;
+
+		wcdctx->entry_pos = pos;
+		len_avail = wcdctx->inf_endpos - wcdctx->entry_pos;
+		if(len_avail < ZIP_CDIR_FIXED_SIZE) {
+			// Not enough space even for the invariant part of the entry
+			if(!wcdctx->multisegment_mode) {
+				wcdctx->errflag = 1;
+				wcdctx->need_errmsg = 1;
+				unexpected_eof_flag = 1;
+			}
+			goto done;
+		}
+		sig=(u32)dbuf_getu32be(wcdctx->inf, pos);
+		if(sig==0 && wcdctx->multisegment_mode) {
+			// I haven't seen this, but I think it makes sense to tolerate
+			// zero-padding.
+			goto done;
+		}
+		if(sig!=expected_sig) {
+			wcdctx->errflag = 1;
+			if(wcdctx->report_errors) {
+				de_err(c, "Central dir file header not found at %"I64_FMT,
+					wcdctx->entry_pos);
+			}
+			else {
+				wcdctx->need_errmsg = 1;
+			}
+			goto done;
+		}
+		wcdctx->fn_len = dbuf_getu16le(wcdctx->inf, pos+28);
+		wcdctx->extra_len = dbuf_getu16le(wcdctx->inf, pos+30);
+		wcdctx->comment_len = dbuf_getu16le(wcdctx->inf, pos+32);
+		wcdctx->entry_size = 46 + wcdctx->fn_len + wcdctx->extra_len +
+			wcdctx->comment_len;
+		if(wcdctx->entry_size > len_avail) {
+			if(!wcdctx->multisegment_mode) {
+				wcdctx->errflag = 1;
+				wcdctx->need_errmsg = 1;
+				unexpected_eof_flag = 1;
+			}
+			goto done;
+		}
+		if(wcdctx->cbfn) {
+			wcdctx->cbfn(c, wcdctx);
+			// If callback set stop_flag, we assume it did *not* process
+			// this item.
+			if(wcdctx->stop_flag || wcdctx->errflag) goto done;
+		}
+
+		pos += wcdctx->entry_size;
+		wcdctx->num_entries_completed++;
+		wcdctx->endpos_of_last_completed_entry = pos;
+	}
+
+done:
+	if(unexpected_eof_flag && wcdctx->report_errors) {
+		de_err(c, "Central dir file header exceeds its bounds");
+		wcdctx->need_errmsg = 0;
+	}
+	wcdctx->entry_pos = 0;
+	wcdctx->entry_size = 0;
+}
+
+// ----------
 
 static int is_compression_method_supported(lctx *d, const struct cmpr_meth_info *cmi)
 {
@@ -472,30 +652,62 @@ static void ef_zip64extinfo(deark *c, lctx *d, struct extra_item_info_struct *ei
 {
 	i64 n;
 	i64 pos = eii->dpos;
+	u8 has_uncmpr_size = 0;
+	u8 has_cmpr_size = 0;
+	u8 has_ldir_offset = 0;
+	u8 has_segment_num = 0;
 
-	if(pos+8 > eii->dpos+eii->dlen) goto done;
-	n = de_geti64le(pos); pos += 8;
-	de_dbg(c, "orig uncmpr file size: %"I64_FMT, n);
-	if(eii->dd->uncmpr_size==0xffffffffLL) {
-		de_sanitize_length(&n);
-		eii->dd->uncmpr_size = n;
+	// IMO, the documentation isn't very clear about when a field is present,
+	// and when it isn't. This is my best guess. It shouldn't really matter,
+	// provided the encoder was sane.
+	if(!eii->is_central || eii->dd->uncmpr_size==0xffffffffLL) {
+		has_uncmpr_size = 1;
+	}
+	if(!eii->is_central || eii->dd->cmpr_size==0xffffffffLL) {
+		has_cmpr_size = 1;
+	}
+	if(eii->is_central && eii->md->offset_of_local_header==0xffffffffLL) {
+		has_ldir_offset = 1;
+	}
+	if(eii->is_central && eii->md->seg_number_start==0xffff) {
+		has_segment_num = 1;
 	}
 
-	if(pos+8 > eii->dpos+eii->dlen) goto done;
-	n = de_geti64le(pos); pos += 8;
-	de_dbg(c, "cmpr data size: %"I64_FMT, n);
-	if(eii->dd->cmpr_size==0xffffffffLL) {
-		de_sanitize_length(&n);
-		eii->dd->cmpr_size = n;
+	if(has_uncmpr_size) {
+		if(pos+8 > eii->dpos+eii->dlen) goto done;
+		n = de_geti64le(pos); pos += 8;
+		de_dbg(c, "orig uncmpr file size: %"I64_FMT, n);
+		if(eii->dd->uncmpr_size==0xffffffffLL) {
+			de_sanitize_length(&n);
+			eii->dd->uncmpr_size = n;
+		}
 	}
 
-	if(pos+8 > eii->dpos+eii->dlen) goto done;
-	n = de_geti64le(pos); pos += 8;
-	de_dbg(c, "offset of local header: %"I64_FMT, n);
+	if(has_cmpr_size) {
+		if(pos+8 > eii->dpos+eii->dlen) goto done;
+		n = de_geti64le(pos); pos += 8;
+		de_dbg(c, "cmpr data size: %"I64_FMT, n);
+		if(eii->dd->cmpr_size==0xffffffffLL) {
+			de_sanitize_length(&n);
+			eii->dd->cmpr_size = n;
+		}
+	}
 
-	if(pos+4 > eii->dpos+eii->dlen) goto done;
-	n = de_getu32le_p(&pos);
-	de_dbg(c, "disk start number: %"I64_FMT, n);
+	if(has_ldir_offset) {
+		if(pos+8 > eii->dpos+eii->dlen) goto done;
+		n = de_geti64le(pos); pos += 8;
+		de_dbg(c, "offset of local header: %"I64_FMT, n);
+		de_sanitize_offset(&n);
+		eii->md->offset_of_local_header = n;
+	}
+
+	if(has_segment_num) {
+		if(pos+4 > eii->dpos+eii->dlen) goto done;
+		n = de_getu32le_p(&pos);
+		de_dbg(c, "segment start number: %"I64_FMT, n);
+		eii->md->seg_number_start = n;
+	}
+
 done:
 	;
 }
@@ -1346,8 +1558,6 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	int is_central, i64 pos1, i64 *p_entry_size)
 {
 	i64 pos;
-	u32 sig;
-	i64 fn_len, extra_len, comment_len;
 	int utf8_flag;
 	int retval = 0;
 	i64 fixed_header_size;
@@ -1363,39 +1573,45 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 		dd = &md->central_dir_entry_data;
 		fixed_header_size = 46;
 		de_dbg(c, "central dir entry at %"I64_FMT, pos);
+		if(!dd->have_read_sig_and_hdrsize) {
+			goto done; // internal error
+		}
 	}
 	else {
 		dd = &md->local_dir_entry_data;
 		fixed_header_size = 30;
-		if((md->disk_number_start!=d->this_disk_num) && !d->using_scanmode) {
-			u32 peek_crc;
+		if((md->seg_number_start!=d->eocd.this_seg_num) && !d->using_scanmode) {
+			int found_ldir;
 
-			// This is a hack -- we could compare more fields -- but I think
-			// it's good enough.
-			peek_crc = (u32)de_getu32le(pos1+14);
-			if(peek_crc != md->central_dir_entry_data.crc_reported) {
+			// We want to read an ldir, but it *shouldn't* be on this segment.
+			// We'll check anyway.
+			found_ldir = is_matching_ldir_at(c, d, md, pos1);
+			if(!found_ldir) {
 				de_err(c, "Member file not in this ZIP file");
 				return 0;
 			}
-			if(!d->disk_id_mismatch_warned) {
-				de_warn(c, "Disk ID mismatch (found file on disk %"I64_FMT" that "
-					"should be on disk %"I64_FMT"). Trying to continue.",
-					d->this_disk_num, md->disk_number_start);
-				d->disk_id_mismatch_warned = 1;
+			if(!d->seg_id_mismatch_warned) {
+				de_warn(c, "Segment ID mismatch (found file on segment %"I64_FMT" that "
+					"should be on segment %"I64_FMT"). Trying to continue.",
+					d->eocd.this_seg_num, md->seg_number_start);
+				d->seg_id_mismatch_warned = 1;
 			}
 		}
 		de_dbg(c, "local file header at %"I64_FMT, pos);
 	}
 	de_dbg_indent(c, 1);
 
-	sig = (u32)de_getu32be_p(&pos);
-	if(is_central && sig!=(d->is_resof?CODE_PK14:CODE_PK12)) {
-		de_err(c, "Central dir file header not found at %"I64_FMT, pos1);
-		goto done;
+	if(dd->have_read_sig_and_hdrsize) { // Currently always true for central dir entries
+		pos += 4;
 	}
-	else if(!is_central && sig!=(d->is_resof?CODE_PK36:CODE_PK34)) {
-		de_err(c, "Local file header not found at %"I64_FMT, pos1);
-		goto done;
+	else {
+		u32 sig;
+
+		sig = (u32)de_getu32be_p(&pos);
+		if(!is_central && sig!=(d->is_resof?CODE_PK36:CODE_PK34)) {
+			de_err(c, "Local file header not found at %"I64_FMT, pos1);
+			goto done;
+		}
 	}
 
 	if(is_central) {
@@ -1444,21 +1660,27 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	de_dbg(c, "uncmpr size: %s", format_u32_with_zip64_override(d, dd->uncmpr_size,
 		tmpsz, sizeof(tmpsz)));
 
-	fn_len = de_getu16le_p(&pos);
-	extra_len = de_getu16le_p(&pos);
-	if(is_central) {
-		comment_len = de_getu16le_p(&pos);
+	if(dd->have_read_sig_and_hdrsize) {
+		pos += 4;
+		if(is_central) pos += 2;
 	}
 	else {
-		comment_len = 0;
+		dd->fn_len = de_getu16le_p(&pos);
+		dd->extra_len = de_getu16le_p(&pos);
+		if(is_central) {
+			dd->comment_len = de_getu16le_p(&pos);
+		}
+		else {
+			dd->comment_len = 0;
+		}
 	}
 
 	if(!is_central) {
-		md->file_data_pos = pos + fn_len + extra_len;
+		md->file_data_pos = pos + dd->fn_len + dd->extra_len;
 	}
 
 	if(is_central) {
-		md->disk_number_start = de_getu16le_p(&pos);
+		md->seg_number_start = de_getu16le_p(&pos);
 
 		md->attr_i = (UI)de_getu16le_p(&pos);
 		ucstring_empty(descr);
@@ -1496,29 +1718,29 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 		de_dbg_indent(c, -1);
 
 		md->offset_of_local_header = de_getu32le_p(&pos);
-		de_dbg(c, "offset of local header: %s, disk: %d",
+		de_dbg(c, "offset of local header: %s, segment: %d",
 			format_u32_with_zip64_override(d, md->offset_of_local_header, tmpsz, sizeof(tmpsz)),
-			(int)md->disk_number_start);
+			(int)md->seg_number_start);
 	}
 
-	de_dbg(c, "filename len: %d", (int)fn_len);
-	de_dbg(c, "extra len: %d", (int)extra_len);
+	de_dbg(c, "filename len: %d", (int)dd->fn_len);
+	de_dbg(c, "extra len: %d", (int)dd->extra_len);
 	if(is_central) {
-		de_dbg(c, "comment len: %d", (int)comment_len);
+		de_dbg(c, "comment len: %d", (int)dd->comment_len);
 	}
 
-	*p_entry_size = fixed_header_size + fn_len + extra_len + comment_len;
+	*p_entry_size = fixed_header_size + dd->fn_len + dd->extra_len + dd->comment_len;
 
 	dd->main_fname_pos = pos1+fixed_header_size;
-	dd->main_fname_len = fn_len;
-	do_read_filename(c, d, md, dd, pos1+fixed_header_size, fn_len, utf8_flag);
+	dd->main_fname_len = dd->fn_len;
+	do_read_filename(c, d, md, dd, pos1+fixed_header_size, dd->fn_len, utf8_flag);
 
-	if(extra_len>0) {
-		do_extra_data(c, d, md, dd, pos1+fixed_header_size+fn_len, extra_len, is_central);
+	if(dd->extra_len>0) {
+		do_extra_data(c, d, md, dd, pos1+fixed_header_size+dd->fn_len, dd->extra_len, is_central);
 	}
 
-	if(comment_len>0) {
-		do_comment(c, d, pos1+fixed_header_size+fn_len+extra_len, comment_len, utf8_flag,
+	if(dd->comment_len>0) {
+		do_comment(c, d, pos1+fixed_header_size+dd->fn_len+dd->extra_len, dd->comment_len, utf8_flag,
 			"member file comment", "fcomment.txt");
 	}
 
@@ -1646,10 +1868,6 @@ static int do_member_from_central_dir_entry(deark *c, lctx *d,
 
 	*entry_size = 0;
 
-	if(pos >= d->central_dir_offset+d->central_dir_byte_size) {
-		goto done;
-	}
-
 	de_dbg(c, "central dir entry #%d", (int)central_index);
 	de_dbg_indent(c, 1);
 
@@ -1672,18 +1890,6 @@ static int do_member_from_central_dir_entry(deark *c, lctx *d,
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
-}
-
-static int do_central_dir_entry(deark *c, lctx *d,
-	i64 central_index, i64 pos, i64 *entry_size)
-{
-	struct member_data *md = NULL;
-	int ret;
-
-	md = create_member_data(c, d);
-	ret = do_member_from_central_dir_entry(c, d, md, central_index, pos, entry_size);
-	destroy_member_data(c, md);
-	return ret;
 }
 
 static int do_local_dir_only(deark *c, lctx *d, i64 pos1, i64 *pmember_size)
@@ -1736,28 +1942,62 @@ static void de_run_zip_scanmode(deark *c, lctx *d)
 	}
 }
 
+static void main_walk_cdir_cb(deark *c, struct zip_wcd_ctx *wcdctx)
+{
+	lctx *d = (lctx*)wcdctx->userdata;
+	struct member_data *md = NULL;
+	i64 entry_size = 0;
+	int ret = 0;
+
+	md = create_member_data(c, d);
+	md->central_dir_entry_data.have_read_sig_and_hdrsize = 1;
+	md->central_dir_entry_data.fn_len = wcdctx->fn_len;
+	md->central_dir_entry_data.extra_len = wcdctx->extra_len;
+	md->central_dir_entry_data.comment_len = wcdctx->comment_len;
+
+	ret = do_member_from_central_dir_entry(c, d, md, wcdctx->num_entries_completed,
+		wcdctx->entry_pos, &entry_size);
+
+	// TODO: Decide exactly what to do if something fails.
+	if(!ret) {
+		wcdctx->errflag = 1;
+	}
+
+	destroy_member_data(c, md);
+}
+
 static int do_central_dir(deark *c, lctx *d)
 {
-	i64 i;
 	i64 pos;
-	i64 entry_size;
+	struct zip_wcd_ctx *wcdctx = NULL;
 	int retval = 0;
 
-	pos = d->central_dir_offset;
+	pos = d->eocd.cdir_offset;
 	de_dbg(c, "central dir at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
-	for(i=0; i<d->central_dir_num_entries; i++) {
-		if(!do_central_dir_entry(c, d, i, pos, &entry_size)) {
-			// TODO: Decide exactly what to do if something fails.
-			goto done;
-		}
-		pos += entry_size;
+	wcdctx = de_malloc(c, sizeof(struct zip_wcd_ctx));
+	wcdctx->userdata = (void*)d;
+	wcdctx->cbfn = main_walk_cdir_cb;
+	wcdctx->max_entries = d->eocd.cdir_num_entries_total;
+	wcdctx->inf = c->infile;
+	wcdctx->inf_startpos = pos;
+	// Note that this endpos would sometimes be wrong for multi-segment archives,
+	// but we won't get here in that case.
+	wcdctx->inf_endpos = pos + d->eocd.cdir_byte_size;
+	wcdctx->report_errors = 1;
+	wcdctx->is_resof = d->is_resof;
+
+	zip_wcd_run(c, wcdctx);
+	if(wcdctx->errflag) {
+		goto done;
 	}
+
 	retval = 1;
 
 done:
 	de_dbg_indent(c, -1);
+	de_free(c, wcdctx);
 	return retval;
 }
 
@@ -1771,15 +2011,15 @@ static int do_zip64_eocd(deark *c, lctx *d)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	if(d->zip64_eocd_disknum!=0) {
-		de_warn(c, "This might be a multi-disk Zip64 archive, which is not supported");
+	if(d->zip64_eocd_segnum!=0) {
+		de_warn(c, "This might be a multi-segment Zip64 archive, which is not supported");
 		retval = 1;
 		d->is_zip64 = 0;
 		goto done;
 	}
 
 	pos = d->zip64_eocd_pos;
-	if(dbuf_memcmp(c->infile, pos, g_zipsig66, 4)) {
+	if((UI)de_getu32be(pos) != CODE_PK66) {
 		de_warn(c, "Expected Zip64 end-of-central-directory record not found at %"I64_FMT, pos);
 		retval = 1; // Maybe the eocd locator sig was a false positive?
 		d->is_zip64 = 0;
@@ -1806,22 +2046,22 @@ static int do_zip64_eocd(deark *c, lctx *d)
 		ver_hi, get_platform_name(ver_hi), (UI)(ver_lo/10), (UI)(ver_lo%10));
 
 	n = de_getu32le_p(&pos);
-	de_dbg(c, "this disk num: %"I64_FMT, n);
+	de_dbg(c, "this segment num: %"I64_FMT, n);
 
-	d->zip64_cd_disknum = (UI)de_getu32le_p(&pos);
-	d->zip64_num_centr_dir_entries_this_disk = de_geti64le(pos); pos += 8;
-	de_dbg(c, "central dir num entries on this disk: %"I64_FMT, d->zip64_num_centr_dir_entries_this_disk);
-	de_sanitize_count(&d->zip64_num_centr_dir_entries_this_disk);
-	d->zip64_num_centr_dir_entries_total = de_geti64le(pos); pos += 8;
-	de_dbg(c, "central dir num entries: %"I64_FMT, d->zip64_num_centr_dir_entries_total);
-	de_sanitize_count(&d->zip64_num_centr_dir_entries_this_disk);
-	d->zip64_centr_dir_byte_size = de_geti64le(pos); pos += 8;
-	de_dbg(c, "central dir size: %"I64_FMT, d->zip64_centr_dir_byte_size);
-	de_sanitize_length(&d->zip64_centr_dir_byte_size);
-	d->zip64_cd_pos = de_geti64le(pos); pos += 8;
-	de_dbg(c, "central dir offset: %"I64_FMT", disk: %u",
-		d->zip64_cd_pos, d->zip64_cd_disknum);
-	de_sanitize_offset(&d->zip64_cd_pos);
+	d->eocd64.cdir_starting_seg_num = de_getu32le_p(&pos);
+	d->eocd64.cdir_num_entries_this_seg = de_geti64le(pos); pos += 8;
+	de_dbg(c, "central dir num entries on this segment: %"I64_FMT, d->eocd64.cdir_num_entries_this_seg);
+	de_sanitize_count(&d->eocd64.cdir_num_entries_this_seg);
+	d->eocd64.cdir_num_entries_total = de_geti64le(pos); pos += 8;
+	de_dbg(c, "central dir num entries: %"I64_FMT, d->eocd64.cdir_num_entries_total);
+	de_sanitize_count(&d->eocd64.cdir_num_entries_this_seg);
+	d->eocd64.cdir_byte_size = de_geti64le(pos); pos += 8;
+	de_dbg(c, "central dir size: %"I64_FMT, d->eocd64.cdir_byte_size);
+	de_sanitize_length(&d->eocd64.cdir_byte_size);
+	d->eocd64.cdir_offset = de_geti64le(pos); pos += 8;
+	de_dbg(c, "central dir offset: %"I64_FMT", segment: %u",
+		d->eocd64.cdir_offset, (UI)d->eocd64.cdir_starting_seg_num);
+	de_sanitize_offset(&d->eocd64.cdir_offset);
 
 	retval = 1;
 done:
@@ -1832,85 +2072,83 @@ done:
 static void do_zip64_eocd_locator(deark *c, lctx *d)
 {
 	i64 n;
-	i64 pos = d->end_of_central_dir_pos - 20;
+	i64 pos = d->eocd_pos - 20;
 
-	if(dbuf_memcmp(c->infile, pos, g_zipsig67, 4)) {
+	if((UI)de_getu32be(pos) != CODE_PK67) {
 		return;
 	}
 	de_dbg(c, "zip64 eocd locator found at %"I64_FMT, pos);
 	pos += 4;
 	d->is_zip64 = 1;
 	de_dbg_indent(c, 1);
-	d->zip64_eocd_disknum = (UI)de_getu32le_p(&pos);
+	d->zip64_eocd_segnum = de_getu32le_p(&pos);
 	d->zip64_eocd_pos = de_geti64le(pos); pos += 8;
-	de_dbg(c, "offset of zip64 eocd: %"I64_FMT", disk: %u",
-		d->zip64_eocd_pos, d->zip64_eocd_disknum);
+	de_dbg(c, "offset of zip64 eocd: %"I64_FMT", segment: %u",
+		d->zip64_eocd_pos, (UI)d->zip64_eocd_segnum);
 	de_sanitize_offset(&d->zip64_eocd_pos);
 	n = de_getu32le_p(&pos);
-	de_dbg(c, "total number of disks: %u", (UI)n);
+	de_dbg(c, "total number of segments: %u", (UI)n);
 	de_dbg_indent(c, -1);
 }
 
 static int do_end_of_central_dir(deark *c, lctx *d)
 {
 	i64 pos;
-	i64 num_entries_this_disk;
-	i64 disk_num_with_central_dir_start;
-	i64 archive_comment_len;
-	i64 alt_central_dir_offset;
-	u8 have_alt_central_dir_offset = 0;
+	i64 alt_cdir_offset;
+	u8 have_alt_cdir_offset = 0;
 	int retval = 0;
 	char tmpsz[64];
 
-	pos = d->end_of_central_dir_pos;
+	pos = d->eocd_pos;
 	de_dbg(c, "end-of-central-dir record at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
-	d->this_disk_num = de_getu16le(pos+4);
-	de_dbg(c, "this disk num: %"I64_FMT, d->this_disk_num);
-	disk_num_with_central_dir_start = de_getu16le(pos+6);
-	de_dbg(c, "disk num with central dir start: %"I64_FMT,
-		disk_num_with_central_dir_start);
+	d->eocd.this_seg_num = de_getu16le(pos+4);
+	de_dbg(c, "this segment num: %"I64_FMT, d->eocd.this_seg_num);
+	d->eocd.cdir_starting_seg_num = de_getu16le(pos+6);
+	de_dbg(c, "segment num with central dir start: %"I64_FMT,
+		d->eocd.cdir_starting_seg_num);
 
-	num_entries_this_disk = de_getu16le(pos+8);
-	de_dbg(c, "central dir num entries on this disk: %s",
-		format_u16_with_zip64_override(d, num_entries_this_disk, tmpsz, sizeof(tmpsz)));
-	if(d->is_zip64 && (num_entries_this_disk==0xffff)) {
-		num_entries_this_disk = d->zip64_num_centr_dir_entries_this_disk;
+	d->eocd.cdir_num_entries_this_seg = de_getu16le(pos+8);
+	de_dbg(c, "central dir num entries on this segment: %s",
+		format_u16_with_zip64_override(d, d->eocd.cdir_num_entries_this_seg, tmpsz, sizeof(tmpsz)));
+	if(d->is_zip64 && (d->eocd.cdir_num_entries_this_seg==0xffff)) {
+		d->eocd.cdir_num_entries_this_seg = d->eocd64.cdir_num_entries_this_seg;
 	}
 
-	d->central_dir_num_entries = de_getu16le(pos+10);
+	d->eocd.cdir_num_entries_total = de_getu16le(pos+10);
 	if(d->is_resof) {
-		d->central_dir_byte_size = - de_geti32le(pos+12);
+		d->eocd.cdir_byte_size = - de_geti32le(pos+12);
 	}
 	else {
-		d->central_dir_byte_size = de_getu32le(pos+12);
+		d->eocd.cdir_byte_size = de_getu32le(pos+12);
 	}
 
-	d->central_dir_offset = de_getu32le(pos+16);
+	d->eocd.cdir_offset = de_getu32le(pos+16);
 	de_dbg(c, "central dir num entries: %s",
-		format_u16_with_zip64_override(d, d->central_dir_num_entries, tmpsz, sizeof(tmpsz)));
-	if(d->is_zip64 && (d->central_dir_num_entries==0xffff)) {
-		d->central_dir_num_entries = d->zip64_num_centr_dir_entries_total;
+		format_u16_with_zip64_override(d, d->eocd.cdir_num_entries_total, tmpsz, sizeof(tmpsz)));
+	if(d->is_zip64 && (d->eocd.cdir_num_entries_total==0xffff)) {
+		d->eocd.cdir_num_entries_total = d->eocd64.cdir_num_entries_total;
 	}
 
-	de_dbg(c, "central dir size: %"I64_FMT, d->central_dir_byte_size);
-	if(d->is_zip64 && (d->central_dir_byte_size==0xffffffffLL)) {
-		d->central_dir_byte_size = d->zip64_centr_dir_byte_size;
+	de_dbg(c, "central dir size: %"I64_FMT, d->eocd.cdir_byte_size);
+	if(d->is_zip64 && (d->eocd.cdir_byte_size==0xffffffffLL)) {
+		d->eocd.cdir_byte_size = d->eocd64.cdir_byte_size;
 	}
 
-	de_dbg(c, "central dir offset: %s, disk: %"I64_FMT,
-		format_u32_with_zip64_override(d, d->central_dir_offset, tmpsz, sizeof(tmpsz)),
-		disk_num_with_central_dir_start);
-	if(d->is_zip64 && (d->central_dir_offset==0xffffffffLL)) {
-		d->central_dir_offset = d->zip64_cd_pos;
+	de_dbg(c, "central dir offset: %s, segment: %"I64_FMT,
+		format_u32_with_zip64_override(d, d->eocd.cdir_offset, tmpsz, sizeof(tmpsz)),
+		d->eocd.cdir_starting_seg_num);
+	if(d->is_zip64 && (d->eocd.cdir_offset==0xffffffffLL)) {
+		d->eocd.cdir_offset = d->eocd64.cdir_offset;
 	}
 
-	archive_comment_len = de_getu16le(pos+20);
-	de_dbg(c, "comment length: %d", (int)archive_comment_len);
+	d->eocd.archive_comment_len = de_getu16le(pos+20);
+	de_dbg(c, "comment length: %d", (int)d->eocd.archive_comment_len);
 
-
-	if(d->central_dir_offset + d->central_dir_byte_size > d->end_of_central_dir_pos) {
+	if((d->eocd.cdir_starting_seg_num==d->eocd.this_seg_num) &&
+		(d->eocd.cdir_offset + d->eocd.cdir_byte_size > d->eocd_pos))
+	{
 		// If the central dir pos is wrong, we expect it to be too small, not
 		// too large. This is probably not a ZIP file (EOCD sig. false positive).
 		// TODO?: Maybe the signature-search function should be more discriminating.
@@ -1918,51 +2156,51 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 		goto done;
 	}
 
-	if(archive_comment_len>0) {
+	if(d->eocd.archive_comment_len>0) {
 		// The comment for the whole .ZIP file presumably has to use
 		// cp437 encoding. There's no flag that could indicate otherwise.
-		do_comment(c, d, pos+22, archive_comment_len, 0,
+		do_comment(c, d, pos+22, d->eocd.archive_comment_len, 0,
 			"ZIP file comment", "comment.txt");
 	}
 
-	// TODO: Figure out exactly how to detect disk spanning.
-	if(disk_num_with_central_dir_start!=d->this_disk_num ||
-		(d->is_zip64 && d->zip64_eocd_disknum!=d->this_disk_num))
+	if(d->eocd.cdir_starting_seg_num!=d->eocd.this_seg_num ||
+		(d->is_zip64 && d->zip64_eocd_segnum!=d->eocd.this_seg_num))
 	{
-		de_err(c, "Disk spanning not supported");
+		de_err(c, "This looks like part of a multi-segment ZIP archive.");
+		print_multisegment_note(c, d);
 		goto done;
 	}
 
-	if(d->this_disk_num!=0) {
-		de_warn(c, "This ZIP file might be part of a multi-part archive, and "
-			"might not be supported correctly");
+	if(d->eocd.this_seg_num!=0) {
+		de_warn(c, "This file might be part of a multi-segment ZIP archive.");
+		print_multisegment_note(c, d);
 	}
 
-	if(num_entries_this_disk!=d->central_dir_num_entries) {
+	if(d->eocd.cdir_num_entries_this_seg!=d->eocd.cdir_num_entries_total) {
 		de_warn(c, "This ZIP file might not be supported correctly "
-			"(number-of-entries-this-disk=%d, number-of-entries-total=%d)",
-			(int)num_entries_this_disk, (int)d->central_dir_num_entries);
+			"(number-of-entries-this-seg=%d, number-of-entries-total=%d)",
+			(int)d->eocd.cdir_num_entries_this_seg, (int)d->eocd.cdir_num_entries_total);
 	}
 
-	alt_central_dir_offset =
-		(d->is_zip64 ? d->zip64_eocd_pos : d->end_of_central_dir_pos) -
-		d->central_dir_byte_size;
-	if(alt_central_dir_offset>=0 && alt_central_dir_offset!=d->central_dir_offset) {
-		have_alt_central_dir_offset = 1;
+	alt_cdir_offset =
+		(d->is_zip64 ? d->zip64_eocd_pos : d->eocd_pos) -
+		d->eocd.cdir_byte_size;
+	if(alt_cdir_offset>=0 && alt_cdir_offset!=d->eocd.cdir_offset) {
+		have_alt_cdir_offset = 1;
 	}
 
-	if(have_alt_central_dir_offset) {
+	if(have_alt_cdir_offset) {
 		u32 sig;
 
 		de_warn(c, "Inconsistent central directory offset. Reported to be %"I64_FMT", "
 			"but based on its reported size, it should be %"I64_FMT".",
-			d->central_dir_offset, alt_central_dir_offset);
+			d->eocd.cdir_offset, alt_cdir_offset);
 
-		sig = (u32)de_getu32be(alt_central_dir_offset);
+		sig = (u32)de_getu32be(alt_cdir_offset);
 		if(sig==CODE_PK12) {
-			d->offset_correction = alt_central_dir_offset - d->central_dir_offset;
-			de_dbg(c, "likely central dir found at %"I64_FMT, alt_central_dir_offset);
-			d->central_dir_offset = alt_central_dir_offset;
+			d->offset_correction = alt_cdir_offset - d->eocd.cdir_offset;
+			de_dbg(c, "likely central dir found at %"I64_FMT, alt_cdir_offset);
+			d->eocd.cdir_offset = alt_cdir_offset;
 		}
 	}
 
@@ -1977,10 +2215,10 @@ static void check_for_resof_fmt(deark *c, lctx *d)
 {
 	if(d->is_zip64) return;
 	if(c->module_disposition==DE_MODDISP_INTERNAL) return;
-	if(d->end_of_central_dir_pos != c->infile->len-22) return;
+	if(d->eocd_pos != c->infile->len-22) return;
 	// Test the high byte of the central-dir-size field. For RESOF, the sign bit
 	// should be set.
-	if(de_getbyte(d->end_of_central_dir_pos+15) < 0x80) return;
+	if(de_getbyte(d->eocd_pos+15) < 0x80) return;
 	if(de_getu32be(0) != CODE_PK36) return;
 	d->is_resof = 1;
 }
@@ -1991,10 +2229,10 @@ static void de_run_zip_normally(deark *c, lctx *d)
 
 	if(c->detection_data && c->detection_data->zip_eocd_looked_for) {
 		eocd_found = (int)c->detection_data->zip_eocd_found;
-		d->end_of_central_dir_pos = c->detection_data->zip_eocd_pos;
+		d->eocd_pos = c->detection_data->zip_eocd_pos;
 	}
 	else {
-		eocd_found = fmtutil_find_zip_eocd(c, c->infile, 0, &d->end_of_central_dir_pos);
+		eocd_found = fmtutil_find_zip_eocd(c, c->infile, 0, &d->eocd_pos);
 	}
 	if(!eocd_found) {
 		if(c->module_disposition==DE_MODDISP_AUTODETECT ||
@@ -2004,8 +2242,8 @@ static void de_run_zip_normally(deark *c, lctx *d)
 
 			bof_sig = (u32)de_getu32be(0);
 			if(bof_sig==CODE_PK78) {
-				de_err(c, "This is the first part of a multi-part ZIP archive, "
-					"which is not a supported format.");
+				de_err(c, "This looks like the first segment of a multi-segment ZIP archive.");
+				print_multisegment_note(c, d);
 				goto done;
 			}
 			if(bof_sig==CODE_PK34) {
@@ -2019,7 +2257,7 @@ static void de_run_zip_normally(deark *c, lctx *d)
 	}
 
 	de_dbg(c, "end-of-central-dir record found at %"I64_FMT,
-		d->end_of_central_dir_pos);
+		d->eocd_pos);
 
 	do_zip64_eocd_locator(c, d);
 
@@ -2051,22 +2289,36 @@ done:
 static void do_run_zip_relocator(deark *c, de_module_params *mparams,
 	int internalmode, const char *reloc_opt);
 
+static void do_run_zip_combiner(deark *c, de_module_params *mparams);
+
 static void de_run_zip(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	const char *s;
+	u8 combine_mode = 0;
 	de_encoding enc;
+
+	combine_mode = (u8)de_get_ext_option_bool(c, "zip:combine", 0);
+	if(combine_mode) {
+		do_run_zip_combiner(c, mparams);
+		return;
+	}
+	else {
+		if(c->mp_data && c->mp_data->count>0) {
+			de_err(c, "Multi-segment archives are only supported with \"-opt zip:combine\"");
+			goto done;
+		}
+	}
 
 	if(de_havemodcode(c, mparams, 'R')) {
 		do_run_zip_relocator(c, mparams, 1, NULL);
 		return;
 	}
-	else {
-		const char *s;
-		s = de_get_ext_option(c, "zip:reloc");
-		if(s) {
-			do_run_zip_relocator(c, mparams, 0, s);
-			return;
-		}
+
+	s = de_get_ext_option(c, "zip:reloc");
+	if(s) {
+		do_run_zip_relocator(c, mparams, 0, s);
+		return;
 	}
 
 	d = de_malloc(c, sizeof(lctx));
@@ -2084,6 +2336,7 @@ static void de_run_zip(deark *c, de_module_params *mparams)
 		de_run_zip_normally(c, d);
 	}
 
+done:
 	if(d) {
 		de_crcobj_destroy(d->crco);
 		de_free(c, d);
@@ -2102,7 +2355,7 @@ static int de_identify_zip(deark *c)
 	// Fast tests:
 
 	bof_sig = (u32)de_getu32be(0);
-	if(bof_sig==CODE_PK34) {
+	if(bof_sig==CODE_PK34 || bof_sig==CODE_PK00) {
 		return has_zip_ext ? 100 : 90;
 	}
 	if((bof_sig>>16)==0x4d5a || (bof_sig>>16)==0x5a4d) {
@@ -2141,7 +2394,7 @@ static int de_identify_zip(deark *c)
 	}
 
 	if(has_zip_ext && bof_sig==CODE_PK78) {
-		return 10; // First part of a mult-part archive
+		return 10; // First segment of a mult-segment archive
 	}
 
 	return 0;
@@ -2153,6 +2406,8 @@ static void de_help_zip(deark *c)
 	de_msg(c, "-opt zip:implodebug : Behave like PKZIP 1.01/1.02");
 	de_msg(c, "-opt zip:reloc[=<new_offset>] : Instead of decoding, "
 		"copy/optimize the file");
+	de_msg(c, "-mp -opt zip:combine : Instead of decoding, "
+		"combine a multi-segment archive into one file");
 }
 
 void de_module_zip(deark *c, struct deark_module_info *mi)
@@ -2162,6 +2417,7 @@ void de_module_zip(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_zip;
 	mi->identify_fn = de_identify_zip;
 	mi->help_fn = de_help_zip;
+	mi->flags |= DE_MODFLAG_MULTIPART;
 }
 
 /////////////////////// ZIP relocator utility
@@ -2174,18 +2430,13 @@ void de_module_zip(deark *c, struct deark_module_info *mi)
 struct zipreloc_ctx {
 	u8 errflag;
 	u8 need_errmsg;
-	u8 disk_id_mismatch_flag;
+	u8 seg_id_mismatch_flag;
 	u8 quiet;
 	i64 relocpos;
-	i64 this_disk_num; // (eocd field)
-	i64 end_of_central_dir_pos;
-	i64 eocd_disk_num_with_cdir_start;
-	i64 central_dir_num_entries_this_disk;
-	i64 central_dir_num_entries_total;
-	i64 central_dir_byte_size;
-	i64 central_dir_offset_reported;
-	i64 central_dir_offset_actual;
-	i64 archive_comment_len;
+	struct eocd_struct eocd;
+	i64 eocd_pos;
+	i64 cdir_offset_reported;
+	i64 cdir_offset_actual;
 	i64 min_ldir_offset;
 	i64 offset_correction; // Amount to add to the reported offsets to get the real offsets
 	i64 offset_diff; // Amount to add to the real offsets to get the offsets in the new file
@@ -2206,52 +2457,12 @@ static void zipreloc_err(deark *c, struct zipreloc_ctx *d, const char *fmt, ...)
 	va_end(ap);
 }
 
-typedef void (*walk_central_dir_callback)(deark *c, struct zipreloc_ctx *d,
-	i64 pos1, i64 len);
-
-// TODO: Maybe this function, at least, should be shared with the main part of
-// the ZIP module.
-static void walk_central_dir(deark *c, struct zipreloc_ctx *d,
-	walk_central_dir_callback cbfn)
-{
-	i64 i;
-	i64 pos = d->central_dir_offset_actual;
-	i64 endpos = d->central_dir_offset_actual + d->central_dir_byte_size;
-
-	for(i=0; i<d->central_dir_num_entries_this_disk; i++) {
-		u32 sig;
-		i64 fn_len, extra_len, comment_len;
-		i64 len;
-
-		if(d->errflag) goto done;
-		sig = (u32)de_getu32be(pos);
-		if(sig!=CODE_PK12) {
-			d->errflag = 1;
-			d->need_errmsg = 1;
-			goto done;
-		}
-
-		fn_len = de_getu16le(pos+28);
-		extra_len = de_getu16le(pos+30);
-		comment_len = de_getu16le(pos+32);
-		len = 46 + fn_len + extra_len + comment_len;
-		if(pos+len > endpos) {
-			d->errflag = 1;
-			d->need_errmsg = 1;
-			goto done;
-		}
-
-		cbfn(c, d, pos, len);
-		pos += len;
-	}
-
-done:
-	;
-}
-
 // Convert a central dir entry
-static void walk_central_dir_cb2(deark *c, struct zipreloc_ctx *d, i64 pos1, i64 len)
+static void zipreloc_wcd_convert(deark *c, struct zip_wcd_ctx *wcdctx)
 {
+	struct zipreloc_ctx *d = (struct zipreloc_ctx*)wcdctx->userdata;
+	i64 pos1 = wcdctx->entry_pos;
+	i64 len = wcdctx->entry_size;
 	i64 cpstart, cplen;
 	i64 ldir_offset;
 
@@ -2259,16 +2470,16 @@ static void walk_central_dir_cb2(deark *c, struct zipreloc_ctx *d, i64 pos1, i64
 	// (signature thru comment len).
 	cpstart = pos1;
 	cplen = 34;
-	dbuf_copy(c->infile, cpstart, cplen, d->outf);
+	dbuf_copy(wcdctx->inf, cpstart, cplen, d->outf);
 
-	// Disk number, that we force to 0 (offset 34 len 2)
+	// Segment number, that we force to 0 (offset 34 len 2)
 	dbuf_write_zeroes(d->outf, 2);
 
 	// Copy the next 6 bytes (offset 36)
 	// (internal attribs, thru external attribs)
 	cpstart = pos1+36;
 	cplen = 6;
-	dbuf_copy(c->infile, cpstart, cplen, d->outf);
+	dbuf_copy(wcdctx->inf, cpstart, cplen, d->outf);
 
 	// Edit the offset-of-local-hdr field (offset 42 len 4)
 	ldir_offset = de_getu32le(pos1+42) + d->offset_correction;
@@ -2277,13 +2488,14 @@ static void walk_central_dir_cb2(deark *c, struct zipreloc_ctx *d, i64 pos1, i64
 	// Copy the rest of the entry (offset 46+).
 	cpstart = pos1+46;
 	cplen = len - 46;
-	dbuf_copy(c->infile, cpstart, cplen, d->outf);
+	dbuf_copy(wcdctx->inf, cpstart, cplen, d->outf);
 	d->central_dir_nbytes_converted += len;
 }
 
 static void zip_relocator_main(deark *c, struct zipreloc_ctx *d)
 {
 	i64 cpstart, cplen;
+	struct zip_wcd_ctx *wcdctx = NULL;
 
 	d->offset_diff = d->relocpos - d->min_ldir_offset;
 
@@ -2295,84 +2507,105 @@ static void zip_relocator_main(deark *c, struct zipreloc_ctx *d)
 
 	// Copy the main part of the ZIP file
 	cpstart = d->min_ldir_offset;
-	cplen = d->central_dir_offset_actual - cpstart;
+	cplen = d->cdir_offset_actual - cpstart;
 	dbuf_copy(c->infile, cpstart, cplen, d->outf);
 
+	wcdctx = de_malloc(c, sizeof(struct zip_wcd_ctx));
+	wcdctx->userdata = (void*)d;
+	wcdctx->cbfn = zipreloc_wcd_convert;
+	wcdctx->max_entries = d->eocd.cdir_num_entries_this_seg;
+	wcdctx->inf = c->infile;
+	wcdctx->inf_startpos = d->cdir_offset_actual;
+	wcdctx->inf_endpos = c->infile->len;
+
 	// Copy/convert the central directory
-	walk_central_dir(c, d, walk_central_dir_cb2);
+	zip_wcd_run(c, wcdctx);
+	if(wcdctx->errflag) {
+		d->errflag = 1;
+		d->need_errmsg = wcdctx->need_errmsg;
+	}
+
+	if(d->errflag) {
+		goto done;
+	}
+
 	// Copy any unused bytes at the end of the central dir
-	cpstart = d->central_dir_offset_actual + d->central_dir_nbytes_converted;
-	cplen =  d->central_dir_byte_size - d->central_dir_nbytes_converted;
+	cpstart = d->cdir_offset_actual + d->central_dir_nbytes_converted;
+	cplen =  d->eocd.cdir_byte_size - d->central_dir_nbytes_converted;
 	dbuf_copy(c->infile, cpstart, cplen, d->outf);
 
 	// Copy anything between the central dir and the EOCD record
-	cpstart = d->central_dir_offset_actual+d->central_dir_byte_size;
-	cplen = d->end_of_central_dir_pos - cpstart;
+	cpstart = d->cdir_offset_actual+d->eocd.cdir_byte_size;
+	cplen = d->eocd_pos - cpstart;
 	dbuf_copy(c->infile, cpstart, cplen, d->outf);
 
 	// Copy/convert the EOCD record & archive comment
 
 	// First 4 bytes
-	cpstart = d->end_of_central_dir_pos;
+	cpstart = d->eocd_pos;
 	cplen = 4;
 	dbuf_copy(c->infile, cpstart, cplen, d->outf);
 
-	// Next 4 bytes are disk ID numbers, that we force to zero.
+	// Next 4 bytes are segment ID numbers, that we force to zero.
 	dbuf_write_zeroes(d->outf, 4);
 
-	// Next 8 bytes (num entries cdir this disk, thru cdir size)
-	cpstart = d->end_of_central_dir_pos+8;
+	// Next 8 bytes (num entries cdir this segment, thru cdir size)
+	cpstart = d->eocd_pos+8;
 	cplen = 8;
 	dbuf_copy(c->infile, cpstart, cplen, d->outf);
 
 	// Adjusted central dir offset
-	dbuf_writeu32le(d->outf, d->central_dir_offset_actual + d->offset_diff);
+	dbuf_writeu32le(d->outf, d->cdir_offset_actual + d->offset_diff);
 
 	// Last 2 bytes of EOCD record, plus archive comment
-	cpstart = d->end_of_central_dir_pos + 20;
-	cplen = 2 + d->archive_comment_len;
+	cpstart = d->eocd_pos + 20;
+	cplen = 2 + d->eocd.archive_comment_len;
 	dbuf_copy(c->infile, cpstart, cplen, d->outf);
 
+done:
 	dbuf_close(d->outf);
 	d->outf = NULL;
+	de_free(c, wcdctx);
 }
 
-// Pre-scan a central dir entry
-static void walk_central_dir_cb1(deark *c, struct zipreloc_ctx *d, i64 pos1, i64 len)
+static void zipreloc_wcd_prescan(deark *c, struct zip_wcd_ctx *wcdctx)
 {
+	struct zipreloc_ctx *d = (struct zipreloc_ctx*)wcdctx->userdata;
+	i64 pos1 = wcdctx->entry_pos;
+	dbuf *inf = wcdctx->inf;
 	u32 sig;
-	i64 ldir_disk_num;
+	i64 ldir_seg_num;
 	i64 ldir_offset;
 
 	de_dbg2(c, "central dir entry at %"I64_FMT, pos1);
 
-	ldir_disk_num = de_getu16le(pos1+34);
-	ldir_offset = de_getu32le(pos1+42) + d->offset_correction;
+	ldir_seg_num = dbuf_getu16le(inf, pos1+34);
+	ldir_offset = dbuf_getu32le(inf, pos1+42) + d->offset_correction;
 	de_dbg_indent(c, 1);
-	de_dbg2(c, "local dir offset: %"I64_FMT", disk %"I64_FMT, ldir_offset,
-		ldir_disk_num);
+	de_dbg2(c, "local dir offset: %"I64_FMT", segment %"I64_FMT, ldir_offset,
+		ldir_seg_num);
 	de_dbg_indent(c, -1);
 
-	sig = (u32)de_getu32be(ldir_offset);
+	sig = (u32)dbuf_getu32be(inf, ldir_offset);
 	if(sig != CODE_PK34) {
-		d->errflag = 1;
-		d->need_errmsg = 1;
+		wcdctx->errflag = 1;
+		wcdctx->need_errmsg = 1;
 		goto done;
 	}
 
-	if(ldir_disk_num != d->this_disk_num) {
+	if(ldir_seg_num != d->eocd.this_seg_num) {
 		u32 crc_from_cdir;
 		u32 crc_from_ldir;
 
-		crc_from_cdir = (u32)de_getu32le(pos1+16);
-		crc_from_ldir = (u32)de_getu32le(ldir_offset+14);
+		crc_from_cdir = (u32)dbuf_getu32le(inf, pos1+16);
+		crc_from_ldir = (u32)dbuf_getu32le(inf, ldir_offset+14);
 		if(crc_from_cdir == crc_from_ldir) {
-			de_dbg(c, "[tolerating mismatched disk id]");
+			de_dbg(c, "[tolerating mismatched segment id]");
 		}
 		else {
-			d->errflag = 1;
-			d->need_errmsg = 1;
-			d->disk_id_mismatch_flag = 1;
+			wcdctx->errflag = 1;
+			wcdctx->need_errmsg = 1;
+			d->seg_id_mismatch_flag = 1;
 			goto done;
 		}
 	}
@@ -2385,12 +2618,41 @@ done:
 	;
 }
 
+static void simple_read_eocd(deark *c, dbuf *f, i64 pos1,
+	struct eocd_struct *eocd)
+{
+	i64 pos = pos1+4;
+
+	eocd->this_seg_num = dbuf_getu16le_p(f, &pos);
+	eocd->cdir_starting_seg_num = dbuf_getu16le_p(f, &pos);
+	eocd->cdir_num_entries_this_seg = dbuf_getu16le_p(f, &pos);
+	eocd->cdir_num_entries_total = dbuf_getu16le_p(f, &pos);
+	eocd->cdir_byte_size = dbuf_getu32le_p(f, &pos);
+	eocd->cdir_offset = dbuf_getu32le_p(f, &pos);
+	eocd->archive_comment_len = dbuf_getu16le_p(f, &pos);
+
+	if((UI)dbuf_getu32be(f, pos1-20) == CODE_PK67) {
+		eocd->is_likely_zip64 = 1;
+	}
+}
+
+static void simple_dbg_eocd(deark *c, struct eocd_struct *eocd)
+{
+	de_dbg(c, "this segment num: %"I64_FMT, eocd->this_seg_num);
+	de_dbg(c, "central dir num entries on this segment: %"I64_FMT,
+		eocd->cdir_num_entries_this_seg);
+	de_dbg(c, "central dir num entries: %"I64_FMT, eocd->cdir_num_entries_total);
+	de_dbg(c, "central dir size: %"I64_FMT, eocd->cdir_byte_size);
+	de_dbg(c, "central dir offset: %"I64_FMT", segment %"I64_FMT, eocd->cdir_offset,
+		eocd->cdir_starting_seg_num);
+}
+
 static void do_run_zip_relocator(deark *c, de_module_params *mparams,
 	int internalmode, const char *reloc_opt)
 {
 	struct zipreloc_ctx *d = NULL;
 	struct fmtutil_specialexe_detection_data *edd_from_parent = NULL;
-	i64 pos;
+	struct zip_wcd_ctx *wcdctx_prescan = NULL;
 	u32 sig;
 	int found_cdir = 0;
 	int eocd_found;
@@ -2416,96 +2678,84 @@ static void do_run_zip_relocator(deark *c, de_module_params *mparams,
 	if(edd_from_parent && edd_from_parent->zip_eocd_looked_for) {
 		eocd_found = edd_from_parent->zip_eocd_found;
 		if(eocd_found) {
-			d->end_of_central_dir_pos = edd_from_parent->zip_eocd_pos;
+			d->eocd_pos = edd_from_parent->zip_eocd_pos;
 		}
 	}
 	else if(c->detection_data && c->detection_data->zip_eocd_looked_for) {
 		eocd_found = (int)c->detection_data->zip_eocd_found;
 		if(eocd_found) {
-			d->end_of_central_dir_pos = c->detection_data->zip_eocd_pos;
+			d->eocd_pos = c->detection_data->zip_eocd_pos;
 		}
 	}
 	else {
-		eocd_found = fmtutil_find_zip_eocd(c, c->infile, 0, &d->end_of_central_dir_pos);
+		eocd_found = fmtutil_find_zip_eocd(c, c->infile, 0, &d->eocd_pos);
 	}
 	if(!eocd_found) {
 		zipreloc_err(c, d, "Not a ZIP file, or central directory not found.");
 		goto done;
 	}
 	de_dbg(c, "end-of-central-dir record found at %"I64_FMT,
-		d->end_of_central_dir_pos);
+		d->eocd_pos);
 
-	if(!dbuf_memcmp(c->infile, d->end_of_central_dir_pos-20, g_zipsig67, 4)) {
+	simple_read_eocd(c, c->infile, d->eocd_pos, &d->eocd);
+	d->cdir_offset_reported = d->eocd.cdir_offset;
+
+	de_dbg_indent(c, 1);
+	simple_dbg_eocd(c, &d->eocd);
+	de_dbg_indent(c, -1);
+
+	if(d->eocd.is_likely_zip64) {
 		zipreloc_err(c, d, "Relocating Zip64 is not supported");
 		goto done;
 	}
 
-	pos = d->end_of_central_dir_pos;
-	d->this_disk_num = de_getu16le(pos+4);
-	d->eocd_disk_num_with_cdir_start = de_getu16le(pos+6);
-	d->central_dir_num_entries_this_disk = de_getu16le(pos+8);
-	d->central_dir_num_entries_total = de_getu16le(pos+10);
-	d->central_dir_byte_size = de_getu32le(pos+12);
-	d->central_dir_offset_reported = de_getu32le(pos+16);
-	d->archive_comment_len = de_getu16le(pos+20);
-
-	de_dbg_indent(c, 1);
-	de_dbg(c, "this disk num: %"I64_FMT, d->this_disk_num);
-	de_dbg(c, "central dir num entries on this disk: %"I64_FMT,
-		d->central_dir_num_entries_this_disk);
-	de_dbg(c, "central dir num entries: %"I64_FMT, d->central_dir_num_entries_total);
-	de_dbg(c, "central dir size: %"I64_FMT, d->central_dir_byte_size);
-	de_dbg(c, "central dir offset: %"I64_FMT", disk %"I64_FMT, d->central_dir_offset_reported,
-		d->eocd_disk_num_with_cdir_start);
-	de_dbg_indent(c, -1);
-
-	if(d->central_dir_num_entries_this_disk != d->central_dir_num_entries_total) {
+	if(d->eocd.cdir_num_entries_this_seg != d->eocd.cdir_num_entries_total) {
 		d->errflag = 1;
 		d->need_errmsg = 1;
-		d->disk_id_mismatch_flag = 1;
+		d->seg_id_mismatch_flag = 1;
 		goto done;
 	}
 
-	if(d->eocd_disk_num_with_cdir_start != d->this_disk_num) {
+	if(d->eocd.cdir_starting_seg_num != d->eocd.this_seg_num) {
 		d->errflag = 1;
 		d->need_errmsg = 1;
-		d->disk_id_mismatch_flag = 1;
+		d->seg_id_mismatch_flag = 1;
 		goto done;
 	}
 
-	sig = (u32)de_getu32be(d->central_dir_offset_reported);
+	sig = (u32)de_getu32be(d->cdir_offset_reported);
 	if(sig==CODE_PK12) {
 		found_cdir = 1;
-		d->central_dir_offset_actual = d->central_dir_offset_reported;
+		d->cdir_offset_actual = d->cdir_offset_reported;
 	}
 
 	if(!found_cdir) {
 		i64 pos2;
 
-		pos2 = d->end_of_central_dir_pos - d->central_dir_byte_size;
+		pos2 = d->eocd_pos - d->eocd.cdir_byte_size;
 		sig = (u32)de_getu32be(pos2);
 		if(sig==CODE_PK12) {
 			de_dbg(c, "central dir found at %"I64_FMT, pos2);
-			d->central_dir_offset_actual = pos2;
-			d->offset_correction = d->central_dir_offset_actual - d->central_dir_offset_reported;
+			d->cdir_offset_actual = pos2;
+			d->offset_correction = d->cdir_offset_actual - d->cdir_offset_reported;
 			found_cdir = 1;
 		}
 	}
 
 	if(!found_cdir) {
 		zipreloc_err(c, d, "Central directory not found (expected at %"I64_FMT")",
-			d->central_dir_offset_reported);
+			d->cdir_offset_reported);
 		goto done;
 	}
 
-	if(d->central_dir_offset_actual + d->central_dir_byte_size > d->end_of_central_dir_pos) {
+	if(d->cdir_offset_actual + d->eocd.cdir_byte_size > d->eocd_pos) {
 		// We require the EOCD record to appear after the central dir.
 		d->errflag = 1;
 		d->need_errmsg = 1;
 		goto done;
 	}
 
-	if(d->end_of_central_dir_pos+22+d->archive_comment_len > c->infile->len) {
+	if(d->eocd_pos+22+d->eocd.archive_comment_len > c->infile->len) {
 		d->errflag = 1;
 		d->need_errmsg = 1;
 		goto done;
@@ -2513,11 +2763,24 @@ static void do_run_zip_relocator(deark *c, de_module_params *mparams,
 
 	// Pre-scan the central dir to find the offset of the local directory that
 	// appears first in the file.
-	d->min_ldir_offset = d->central_dir_offset_actual; // initialize to max possible value
+	d->min_ldir_offset = d->cdir_offset_actual; // initialize to max possible value
 	de_dbg(c, "[scanning central dir]");
 	de_dbg_indent(c, 1);
-	walk_central_dir(c, d, walk_central_dir_cb1);
+
+	wcdctx_prescan = de_malloc(c, sizeof(struct zip_wcd_ctx));
+	wcdctx_prescan->userdata = (void*)d;
+	wcdctx_prescan->cbfn = zipreloc_wcd_prescan;
+	wcdctx_prescan->max_entries = d->eocd.cdir_num_entries_this_seg;
+	wcdctx_prescan->inf = c->infile;
+	wcdctx_prescan->inf_startpos = d->cdir_offset_actual;
+	wcdctx_prescan->inf_endpos = c->infile->len;
+
+	zip_wcd_run(c, wcdctx_prescan);
+	d->errflag = wcdctx_prescan->errflag;
+	d->need_errmsg = wcdctx_prescan->need_errmsg;
+
 	de_dbg_indent(c, -1);
+
 	if(d->errflag) goto done;
 
 	de_dbg(c, "min ldir offs: %"I64_FMT, d->min_ldir_offset);
@@ -2529,11 +2792,410 @@ static void do_run_zip_relocator(deark *c, de_module_params *mparams,
 	}
 
 done:
+	de_free(c, wcdctx_prescan);
 	if(d) {
 		if(d->errflag && d->need_errmsg) {
 			zipreloc_err(c, d, "Cannot optimize/relocate this ZIP file%s",
-				(d->disk_id_mismatch_flag?" (disk spanning issue)":""));
+				(d->seg_id_mismatch_flag?" (disk spanning issue)":""));
 		}
+		de_free(c, d);
+	}
+}
+
+/////////////////////// ZIP combiner utility
+// This routine converts the segments of a multi-segment ZIP archive into
+// a single ZIP file.
+
+#define ZC_MAX_COMBINED_SIZE   200000000
+
+struct zc_segment {
+	i64 starting_offset; // offset in the output file
+	i64 cdir_possible_padding_nbytes;
+};
+
+struct zc_advpos {
+	int rel_seg_id;
+	i64 rel_pos;
+	i64 abs_pos;
+};
+
+struct zipcombine_ctx {
+	u8 errflag;
+	u8 need_errmsg;
+	int num_segments;
+	struct eocd_struct eocd;
+	struct zc_advpos eocd_pos;
+	struct zc_advpos cdir_pos;
+	dbuf *combinedf; // Combined segments: membuf, edited in place
+
+	i64 seg0_prefix_len; // Num bytes deleted at start of segment 0
+
+	// array[num_segments]:
+	//  [0] = c->infile
+	//  [1..num_segments-1] = c->mp_data[0..]
+	struct zc_segment *segments;
+	char tmpsz[80];
+};
+
+// Writes to d->tmpsz.
+static void zc_format_advpos(struct zipcombine_ctx *d, struct zc_advpos *advpos)
+{
+	// TODO: When d->seg0_prefix_len is relevant, this output is confusing.
+	de_snprintf(d->tmpsz, sizeof(d->tmpsz), "[segment %d, + %"I64_FMT" = %"I64_FMT"]",
+		advpos->rel_seg_id, advpos->rel_pos, advpos->abs_pos);
+}
+
+// zc_read_to_membuf() must be run, before calling this function.
+// Caller sets advpos->rel_*.
+// This function sets advpos->abs_pos, and may set d->errflag;
+static void zc_relpos_to_abspos(struct zipcombine_ctx *d, struct zc_advpos *advpos)
+{
+	if(advpos->rel_seg_id<0 || advpos->rel_seg_id>=d->num_segments) {
+		d->errflag = 1;
+		advpos->abs_pos = d->combinedf->len;
+		return;
+	}
+	advpos->abs_pos = d->segments[advpos->rel_seg_id].starting_offset + advpos->rel_pos;
+	if(advpos->rel_seg_id==0) {
+		advpos->abs_pos -= d->seg0_prefix_len;
+	}
+}
+
+static void wcd_callback_for_cdpadding(deark *c, struct zip_wcd_ctx *wcdctx)
+{
+	if(c->debug_level<2) return;
+	de_dbg2(c, "peek at cdir entry #%u: segment %d, pos %"I64_FMT", len %"I64_FMT,
+		(UI)wcdctx->num_entries_completed,
+		wcdctx->userdata_seg_id, wcdctx->entry_pos, wcdctx->entry_size);
+}
+
+// A central dir record is not supposed to be split across multiple segments,
+// but some versions of PKZIP do it anyway. Other write a partial entry,
+// and then at the start of the next segment, start over and write the same
+// entry in its entirety.
+// This function figures out the size of a partial cdir record at the end
+// of a segment. (It doesn't try to figure out if it's real or not. That's
+// done elsewhere.)
+static i64 zc_find_cdir_possible_padding(deark *c, struct zipcombine_ctx *d,
+	struct zip_wcd_ctx *wcdctx, dbuf *inf, int seg_id)
+{
+	i64 rvs = 0; // Default
+
+	// Haven't reached the cdir yet, so no problem.
+	if(seg_id < d->eocd.cdir_starting_seg_num) goto done;
+
+	// The last segment isn't a problem.
+	if(seg_id >= d->eocd.this_seg_num) goto done;
+
+	// There are (probably) some cdir entries on this segment. Figure out where
+	// the last one ends, and return that info to the caller.
+	wcdctx->inf = inf;
+	wcdctx->userdata_seg_id = seg_id;
+
+	if(seg_id==d->eocd.cdir_starting_seg_num) {
+		wcdctx->inf_startpos = d->eocd.cdir_offset;
+	}
+	else {
+		// Not common, and probably untested. It means there was a full segment
+		// consisting entirely of cdir entries.
+		wcdctx->inf_startpos = 0;
+	}
+
+	wcdctx->inf_endpos = inf->len;
+
+	zip_wcd_run(c, wcdctx);
+	d->errflag = wcdctx->errflag;
+	d->need_errmsg = wcdctx->need_errmsg;
+	if(d->errflag) {
+		goto done;
+	}
+
+	rvs = inf->len - wcdctx->endpos_of_last_completed_entry;
+
+done:
+	return rvs;
+}
+
+static void zc_scan_and_read_to_membuf(deark *c, struct zipcombine_ctx *d)
+{
+	int v;
+	struct zip_wcd_ctx *wcdctx = NULL;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "[reading and scanning files]");
+	de_dbg_indent(c, 1);
+
+	wcdctx = de_malloc(c, sizeof(struct zip_wcd_ctx));
+	wcdctx->userdata = (void*)d;
+	wcdctx->multisegment_mode = 1;
+	wcdctx->cbfn = wcd_callback_for_cdpadding;
+	wcdctx->max_entries = d->eocd.cdir_num_entries_total;
+
+	// TODO?: For convenience, we read all the segments into memory.
+	// It wouldn't be too hard to avoid doing that, and only read the
+	// central dir. (The most inconvenient issue might be where we
+	// validate that the local dir signatures are present.)
+
+	d->combinedf = dbuf_create_membuf(c, 1048576, 0);
+
+	for(v=0; v<d->num_segments; v++) {
+		dbuf *tmpsegf;
+		i64 newsize;
+		i64 pfx_len = 0;
+		i64 nbytes_to_copy;
+
+		tmpsegf = de_mp_acquire_dbuf(c, v);
+		if(!tmpsegf) {
+			d->errflag = 1;
+			goto done;
+		}
+
+		d->segments[v].cdir_possible_padding_nbytes =
+			zc_find_cdir_possible_padding(c, d, wcdctx, tmpsegf, v);
+
+		nbytes_to_copy = tmpsegf->len; // tentative
+		if(d->errflag) goto done;
+
+		if(v==0) {
+			u32 sig;
+
+			// The first segment usually starts with a PK\7\8 signature, which
+			// we'll delete. We don't *have* to do this, but it makes our
+			// output file a little more compatible with other software.
+			// And we may as well also delete the PK00 "temporary spanning
+			// marker" placeholder.
+			sig = (u32)dbuf_getu32be(tmpsegf, 0);
+			if(sig==CODE_PK78 || sig==CODE_PK00) {
+				pfx_len = 4;
+				nbytes_to_copy -= pfx_len;
+				d->seg0_prefix_len = pfx_len;
+			}
+		}
+
+		de_dbg(c, "segment %d", v);
+		de_dbg_indent(c, 1);
+
+		if(v>0 && d->segments[v-1].cdir_possible_padding_nbytes>0) {
+			// If this segment seems to start with a cdir record, any partial cdir
+			// record from the previous segment was presumably just padding, that
+			// we need to delete.
+			if(looks_like_cdir_record(c, tmpsegf, 0)) {
+				// E.g., PKZIP 2.04g does this.
+				de_dbg(c, "[deleting %"I64_FMT" padding bytes from prev seg]",
+					d->segments[v-1].cdir_possible_padding_nbytes);
+				dbuf_truncate(d->combinedf, d->combinedf->len -
+					d->segments[v-1].cdir_possible_padding_nbytes);
+			}
+			else {
+				// E.g., PKZIP 2.60.03 for Windows 3.x does this.
+				de_dbg(c, "[assuming real cdir record is split]");
+			}
+		}
+
+		d->segments[v].starting_offset = d->combinedf->len;
+		de_dbg(c, "starting offset: %"I64_FMT", size=%"I64_FMT,
+			d->segments[v].starting_offset, nbytes_to_copy);
+
+		if(d->segments[v].cdir_possible_padding_nbytes) {
+			de_dbg(c, "cdir padding?: %"I64_FMT, d->segments[v].cdir_possible_padding_nbytes);
+		}
+
+		newsize = d->combinedf->len + nbytes_to_copy;
+		if(newsize>ZC_MAX_COMBINED_SIZE || newsize>DE_MAX_MALLOC) {
+			d->errflag = 1;
+			d->need_errmsg = 1;
+			goto done;
+		}
+		dbuf_copy(tmpsegf, pfx_len, nbytes_to_copy, d->combinedf);
+		de_mp_release_dbuf(c, v, &tmpsegf);
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	de_free(c, wcdctx);
+	de_dbg_indent_restore(c, saved_indent_level);
+
+}
+
+static void zc_writeu32le_at(struct zipcombine_ctx *d, i64 pos, i64 n)
+{
+	u8 buf[4];
+
+	de_writeu32le_direct(buf, n);
+	dbuf_write_at(d->combinedf, pos, buf, 4);
+}
+
+static void zc_writeu16le_at(struct zipcombine_ctx *d, i64 pos, i64 n)
+{
+	u8 buf[2];
+
+	de_writeu16le_direct(buf, n);
+	dbuf_write_at(d->combinedf, pos, buf, 2);
+}
+
+static void zc_modify_eocd(deark *c, struct zipcombine_ctx *d)
+{
+	de_dbg(c, "[adjusting eocd]");
+
+	// this segment id -> 0
+	zc_writeu16le_at(d, d->eocd_pos.abs_pos + 4, 0);
+
+	// cdir segment num -> 0
+	zc_writeu16le_at(d, d->eocd_pos.abs_pos + 6, 0);
+
+	// cdir num entries this segment
+	zc_writeu16le_at(d, d->eocd_pos.abs_pos + 8, d->eocd.cdir_num_entries_total);
+
+	// cdir offset
+	zc_writeu32le_at(d, d->eocd_pos.abs_pos + 16, d->cdir_pos.abs_pos);
+}
+
+static void wcd_callback_for_fixcdir(deark *c, struct zip_wcd_ctx *wcdctx)
+{
+	struct zipcombine_ctx *d = (struct zipcombine_ctx*)wcdctx->userdata;
+	struct zc_advpos ldir_pos;
+	u32 sig;
+
+	de_dbg(c, "adjusting cdir entry #%u: pos %"I64_FMT", len %"I64_FMT,
+		(UI)wcdctx->num_entries_completed,
+		wcdctx->entry_pos, wcdctx->entry_size);
+
+	de_zeromem(&ldir_pos, sizeof(struct zc_advpos));
+	ldir_pos.rel_seg_id = (int)dbuf_getu16le(d->combinedf, wcdctx->entry_pos+34);
+	ldir_pos.rel_pos = dbuf_getu32le(d->combinedf, wcdctx->entry_pos+42);
+
+	zc_relpos_to_abspos(d, &ldir_pos);
+
+	zc_format_advpos(d, &ldir_pos);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "ldir pos: %s", d->tmpsz);
+	de_dbg_indent(c, -1);
+
+	// If this is the right place, there should be a signature there.
+	sig = (u32)dbuf_getu32be(d->combinedf, ldir_pos.abs_pos);
+	if(sig != CODE_PK34) {
+		wcdctx->errflag = 1;
+		wcdctx->need_errmsg = 1;
+		goto done;
+	}
+
+	// segment number -> 0
+	zc_writeu16le_at(d, wcdctx->entry_pos+34, 0);
+	// old offset -> new offset
+	zc_writeu32le_at(d, wcdctx->entry_pos+42, ldir_pos.abs_pos);
+
+done:
+	;
+}
+
+static void zc_modify_cdir(deark *c, struct zipcombine_ctx *d)
+{
+	struct zip_wcd_ctx *wcdctx = NULL;
+
+	de_dbg(c, "[adjusting cdir entries]");
+	de_dbg_indent(c, 1);
+	wcdctx = de_malloc(c, sizeof(struct zip_wcd_ctx));
+	wcdctx->userdata = (void*)d;
+	wcdctx->cbfn = wcd_callback_for_fixcdir;
+	wcdctx->inf = d->combinedf;
+	wcdctx->max_entries = d->eocd.cdir_num_entries_total;
+	wcdctx->inf_startpos = d->cdir_pos.abs_pos;
+	wcdctx->inf_endpos = d->combinedf->len;
+	zip_wcd_run(c, wcdctx);
+	d->errflag = wcdctx->errflag;
+	d->need_errmsg = wcdctx->need_errmsg;
+	if(d->errflag) {
+		goto done;
+	}
+
+done:
+	de_free(c, wcdctx);
+	de_dbg_indent(c, -1);
+}
+
+static void do_run_zip_combiner(deark *c, de_module_params *mparams)
+{
+	struct zipcombine_ctx *d = NULL;
+	dbuf *inf_last_segment;
+	int eocd_found;
+	int last_seg_xidx;
+	dbuf *outf = NULL;
+
+	d = de_malloc(c, sizeof(struct zipcombine_ctx));
+
+	d->num_segments = 1;
+	if(c->mp_data) {
+		d->num_segments += c->mp_data->count;
+	}
+	de_dbg(c, "num segments: %d", d->num_segments);
+	d->segments = de_mallocarray(c, d->num_segments, sizeof(struct zc_segment));
+
+	last_seg_xidx = d->num_segments-1;
+	inf_last_segment = de_mp_acquire_dbuf(c, last_seg_xidx);
+	if(!inf_last_segment) {
+		d->errflag = 1;
+		goto done;
+	}
+	eocd_found = fmtutil_find_zip_eocd(c, inf_last_segment, 0x1, &d->eocd_pos.rel_pos);
+	if(!eocd_found) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	d->eocd_pos.rel_seg_id = last_seg_xidx;
+	de_dbg(c, "end-of-central-dir record found at %"I64_FMT", segment %d",
+		d->eocd_pos.rel_pos, d->eocd_pos.rel_seg_id);
+	simple_read_eocd(c, inf_last_segment, d->eocd_pos.rel_pos, &d->eocd);
+
+	de_dbg_indent(c, 1);
+	simple_dbg_eocd(c, &d->eocd);
+	de_dbg_indent(c, -1);
+
+	de_mp_release_dbuf(c, last_seg_xidx, &inf_last_segment);
+
+	if(d->eocd.is_likely_zip64) {
+		de_err(c, "Combining Zip64 is not supported");
+		goto done;
+	}
+
+	if(d->eocd.this_seg_num != last_seg_xidx) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	zc_scan_and_read_to_membuf(c, d);
+	if(d->errflag) goto done;
+
+	zc_relpos_to_abspos(d, &d->eocd_pos);
+	zc_format_advpos(d, &d->eocd_pos);
+	de_dbg(c, "end-of-central-dir at %s", d->tmpsz);
+
+	d->cdir_pos.rel_seg_id = (int)d->eocd.cdir_starting_seg_num;
+	d->cdir_pos.rel_pos = d->eocd.cdir_offset;
+	zc_relpos_to_abspos(d, &d->cdir_pos);
+	if(d->errflag) goto done;
+	zc_format_advpos(d, &d->cdir_pos);
+	de_dbg(c, "central dir at %s", d->tmpsz);
+	if(d->errflag) goto done;
+
+	zc_modify_eocd(c, d);
+	if(d->errflag) goto done;
+	zc_modify_cdir(c, d);
+	if(d->errflag) goto done;
+
+	// Write the combined-and-modified file
+	outf = dbuf_create_output_file(c, "zip", NULL, 0);
+	dbuf_copy(d->combinedf, 0, d->combinedf->len, outf);
+
+done:
+	dbuf_close(outf);
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Failed to process multi-segment ZIP archive");
+		}
+		dbuf_close(d->combinedf);
+		de_free(c, d->segments);
 		de_free(c, d);
 	}
 }

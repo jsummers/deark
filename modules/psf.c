@@ -208,6 +208,7 @@ static void do_glyphs(deark *c, lctx *d)
 	font->char_array = de_mallocarray(c, d->num_chars_alloc, sizeof(struct de_bitmap_font_char));
 
 	font_data = de_malloc(c, d->font_data_size);
+	de_dbg(c, "font data at %"I64_FMT", len=%"I64_FMT, d->headersize, d->font_data_size);
 	de_read(font_data, d->headersize, d->font_data_size);
 
 	for(i=0; i<d->num_chars_alloc; i++) {

@@ -20,14 +20,11 @@ DE_DECLARE_MODULE(de_module_bytefreq);
 DE_DECLARE_MODULE(de_module_deflate);
 DE_DECLARE_MODULE(de_module_zlib);
 DE_DECLARE_MODULE(de_module_mrw);
-DE_DECLARE_MODULE(de_module_vgafont);
-DE_DECLARE_MODULE(de_module_fontmania);
-DE_DECLARE_MODULE(de_module_pcrfont);
-DE_DECLARE_MODULE(de_module_fontedit);
 DE_DECLARE_MODULE(de_module_zbr);
 DE_DECLARE_MODULE(de_module_compress);
 DE_DECLARE_MODULE(de_module_hpi);
 DE_DECLARE_MODULE(de_module_dclimplode);
+DE_DECLARE_MODULE(de_module_lgcompress);
 DE_DECLARE_MODULE(de_module_lzss_oku);
 DE_DECLARE_MODULE(de_module_lzhuf);
 DE_DECLARE_MODULE(de_module_compress_lzh);
@@ -79,27 +76,32 @@ void de_module_null(deark *c, struct deark_module_info *mi)
 // This is basically a multi-part example module.
 // **************************************************************************
 
-static void join_internal(deark *c, dbuf *inf, dbuf *outf)
-{
-	dbuf_copy(inf, 0, inf->len, outf);
-}
-
 static void de_run_join(deark *c, de_module_params *mparams)
 {
 	int k;
+	int num_parts = 1;
 	dbuf *outf = NULL;
 
-	outf = dbuf_create_output_file(c, "bin", NULL, 0);
-	join_internal(c, c->infile, outf);
+	if(c->mp_data) {
+		num_parts += c->mp_data->count;
+	}
 
-	if(!c->mp_data) goto done;
-	for(k=0; k<c->mp_data->count; k++) {
-		de_dbg(c, "[mp file %d: %s]", k, c->mp_data->item[k].fn);
-		c->mp_data->item[k].f = dbuf_open_input_file(c, c->mp_data->item[k].fn);
-		if(!c->mp_data->item[k].f) goto done;
-		join_internal(c, c->mp_data->item[k].f, outf);
-		dbuf_close(c->mp_data->item[k].f);
-		c->mp_data->item[k].f = NULL;
+	outf = dbuf_create_output_file(c, "bin", NULL, 0);
+
+	for(k=0; k<num_parts; k++) {
+		dbuf *inf;
+
+		if(k>0 && c->mp_data) {
+			de_dbg(c, "[mp file %d: %s]", k-1, c->mp_data->item[k-1].fn);
+		}
+		inf = de_mp_acquire_dbuf(c, k);
+		if(!inf) {
+			goto done;
+		}
+
+		dbuf_copy(inf, 0, inf->len, outf);
+
+		de_mp_release_dbuf(c, k, &inf);
 	}
 
 done:
@@ -852,364 +854,6 @@ void de_module_mrw(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
-// 8xN "VGA" font (intended for development/debugging use)
-// **************************************************************************
-
-#define VGAFONT_MINH 3
-#define VGAFONT_MAXH 20
-
-struct vgafont_ctx {
-	de_encoding encoding_req;
-	de_encoding encoding_to_use;
-	struct de_bitmap_font *font;
-	i64 height;
-	i64 font_data_pos;
-	i64 font_data_size;
-	u8 *fontdata;
-	u8 need_errmsg;
-};
-
-static void vgafont_common_config1(deark *c, struct vgafont_ctx *d)
-{
-	d->encoding_req = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
-	if(d->encoding_req!=DE_ENCODING_UNKNOWN)
-		d->encoding_to_use = d->encoding_req;
-	else
-		d->encoding_to_use = DE_ENCODING_CP437;
-
-	d->font = de_create_bitmap_font(c);
-	d->font->num_chars = 256;
-	d->font->has_nonunicode_codepoints = 1;
-	d->font->has_unicode_codepoints = 1;
-	d->font->prefer_unicode = (d->encoding_req!=DE_ENCODING_UNKNOWN);
-	d->font->nominal_width = 8;
-	d->font->nominal_height = (int)d->height;
-	d->font->char_array = de_mallocarray(c, d->font->num_chars,
-		sizeof(struct de_bitmap_font_char));
-}
-
-static void vgafont_common_config2(deark *c, struct vgafont_ctx *d)
-{
-	i64 i;
-	struct de_encconv_state es;
-
-	de_encconv_init(&es, d->encoding_to_use);
-
-	for(i=0; i<d->font->num_chars; i++) {
-		d->font->char_array[i].codepoint_nonunicode = (i32)i;
-		if(d->font->has_unicode_codepoints) {
-			d->font->char_array[i].codepoint_unicode = de_char_to_unicode_ex((i32)i, &es);
-		}
-		d->font->char_array[i].width = d->font->nominal_width;
-		d->font->char_array[i].height = d->font->nominal_height;
-		d->font->char_array[i].rowspan = 1;
-		d->font->char_array[i].bitmap = &d->fontdata[i*d->font->nominal_height];
-	}
-}
-
-static void vgafont_main(deark *c, struct vgafont_ctx *d, de_finfo *fi, UI createflags)
-{
-	de_font_bitmap_font_to_image(c, d->font, fi, createflags);
-}
-
-static void destroy_vgafont_ctx(deark *c, struct vgafont_ctx *d)
-{
-	if(!d) return;
-	if(d->font) {
-		de_free(c, d->font->char_array);
-		de_destroy_bitmap_font(c, d->font);
-	}
-	de_free(c, d->fontdata);
-}
-
-static void de_run_vgafont(deark *c, de_module_params *mparams)
-{
-	struct vgafont_ctx *d = NULL;
-
-	d = de_malloc(c, sizeof(struct vgafont_ctx));
-	d->height = c->infile->len / 256;
-	if((c->infile->len % 256) || d->height<VGAFONT_MINH || d->height>VGAFONT_MAXH) {
-		de_err(c, "Bad file size");
-		goto done;
-	}
-
-	d->font_data_pos = 0;
-	d->font_data_size = d->height*256;
-	d->fontdata = de_malloc(c, d->font_data_size);
-	dbuf_read(c->infile, d->fontdata, d->font_data_pos, d->font_data_size);
-
-	if(de_get_ext_option(c, "vgafont:c")) {
-		i64 i;
-		dbuf *ff;
-
-		ff = dbuf_create_output_file(c, "h", NULL, 0);
-		for(i=0; i<(d->font_data_size); i++) {
-			if(i%d->height==0) dbuf_puts(ff, "\t");
-			dbuf_printf(ff, "%d", (int)d->fontdata[i]);
-			if(i!=(d->font_data_size-1)) dbuf_puts(ff, ",");
-			if(i%d->height==(d->height-1)) dbuf_puts(ff, "\n");
-		}
-		dbuf_close(ff);
-		goto done;
-	}
-
-	vgafont_common_config1(c, d);
-	vgafont_common_config2(c, d);
-	vgafont_main(c, d, NULL, 0);
-
-done:
-	destroy_vgafont_ctx(c, d);
-}
-
-static void de_help_vgafont(deark *c)
-{
-	de_msg(c, "-opt vgafont:c : Emit C code");
-}
-
-void de_module_vgafont(deark *c, struct deark_module_info *mi)
-{
-	mi->id = "vgafont";
-	mi->desc = "Raw 8xN bitmap font";
-	mi->run_fn = de_run_vgafont;
-	mi->help_fn = de_help_vgafont;
-}
-
-// **************************************************************************
-// Font Mania (REXXCOM) COM format
-// **************************************************************************
-
-static void de_run_fontmania(deark *c, de_module_params *mparams)
-{
-	struct vgafont_ctx *d = NULL;
-
-	d = de_malloc(c, sizeof(struct vgafont_ctx));
-	d->font_data_pos = de_getu16le(2);
-	de_dbg(c, "data pos: %"I64_FMT, d->font_data_pos);
-	d->height = (i64)de_getbyte(5);
-	de_dbg(c, "char size: 8"DE_CHAR_TIMES"%d", (int)d->height);
-	d->font_data_size = d->height*256;
-
-	if(d->height<VGAFONT_MINH || d->height>VGAFONT_MAXH ||
-		(d->font_data_pos + d->font_data_size > c->infile->len))
-	{
-		d->need_errmsg = 1;
-		goto done;
-	}
-
-	d->fontdata = de_malloc(c, d->font_data_size);
-	de_read(d->fontdata, d->font_data_pos, d->font_data_size);
-
-	vgafont_common_config1(c, d);
-	vgafont_common_config2(c, d);
-	vgafont_main(c, d, NULL, 0);
-
-done:
-	if(d) {
-		if(d->need_errmsg) {
-			de_err(c, "Bad or unsupported Font Mania font");
-		}
-		destroy_vgafont_ctx(c, d);
-	}
-}
-
-static int de_identify_fontmania(deark *c)
-{
-	if(c->infile->len>65280) return 0;
-	if(de_getbyte(0) != 0xeb) return 0;
-	if(dbuf_memcmp(c->infile, 8, (const u8*)"FONT MANIA, V", 13)) {
-		return 0;
-	}
-	return 100;
-}
-
-void de_module_fontmania(deark *c, struct deark_module_info *mi)
-{
-	mi->id = "fontmania";
-	mi->desc = "Font Mania .COM format";
-	mi->run_fn = de_run_fontmania;
-	mi->identify_fn = de_identify_fontmania;
-}
-
-// **************************************************************************
-// PCR font (OPTIKS)
-// **************************************************************************
-
-static void de_run_pcrfont(deark *c, de_module_params *mparams)
-{
-	u8 hdr[11];
-	struct vgafont_ctx *d = NULL;
-
-	d = de_malloc(c, sizeof(struct vgafont_ctx));
-
-	de_read(hdr, 0, 11);
-	// I assume either hdr[7] or hdr[10] is the high byte of the font data size,
-	// but I don't know which.
-	if(hdr[6]!=0x1 || hdr[7]!=hdr[10] || hdr[8]!=0 || hdr[9]!=0) {
-		d->need_errmsg = 1;
-		goto done;
-	}
-	d->height = (i64)hdr[7];
-	de_dbg(c, "char size: 8"DE_CHAR_TIMES"%d", (int)d->height);
-
-	d->font_data_pos = 11;
-	d->font_data_size = d->height*256;
-	if(d->height<VGAFONT_MINH || d->height>VGAFONT_MAXH ||
-		(d->font_data_pos + d->font_data_size > c->infile->len))
-	{
-		d->need_errmsg = 1;
-		goto done;
-	}
-
-	d->fontdata = de_malloc(c, d->font_data_size);
-	dbuf_read(c->infile, d->fontdata, d->font_data_pos, d->font_data_size);
-
-	vgafont_common_config1(c, d);
-	vgafont_common_config2(c, d);
-	vgafont_main(c, d, NULL, 0);
-
-done:
-	if(d) {
-		if(d->need_errmsg) {
-			de_err(c, "Unsupported type of PCR font");
-		}
-		destroy_vgafont_ctx(c, d);
-	}
-}
-
-static int de_identify_pcrfont(deark *c)
-{
-	u8 h;
-
-	if(dbuf_memcmp(c->infile, 0, "KPG", 3)) return 0;
-	if(de_getbyte(5)!=0x20) return 0;
-	h = de_getbyte(7);
-	if(h<6 || h>16) return 0;
-	if(de_getbyte(10)!=h) return 0;
-	return 80;
-}
-
-void de_module_pcrfont(deark *c, struct deark_module_info *mi)
-{
-	mi->id = "pcrfont";
-	mi->desc = "PCR font";
-	mi->run_fn = de_run_pcrfont;
-	mi->identify_fn = de_identify_pcrfont;
-}
-
-// **************************************************************************
-// FONTEDIT
-// (Michael J. Mefford, PC Magazine)
-// **************************************************************************
-
-static void de_run_fontedit(deark *c, de_module_params *mparams)
-{
-	struct vgafont_ctx *d = NULL;
-	i64 jmp1;
-	u8 opt_extract_template;
-	de_finfo *fi_tmpl = NULL;
-	struct de_crcobj *crco = NULL;
-
-	d = de_malloc(c, sizeof(struct vgafont_ctx));
-	opt_extract_template = (u8)de_get_ext_option_bool(c, "fontedit:template",
-		(c->extract_level>=2 ? 1 : 0));
-
-	jmp1 = de_getbyte(1) + 2;
-	d->height = (i64)de_getbyte(jmp1-3);
-	de_dbg(c, "char size: 8"DE_CHAR_TIMES"%d", (int)d->height);
-	d->font_data_pos = de_getu16le(jmp1+25) - 0x100;
-	de_dbg(c, "data pos: %"I64_FMT, d->font_data_pos);
-	d->font_data_size = d->height*256;
-
-	if(d->height<VGAFONT_MINH || d->height>VGAFONT_MAXH ||
-		(d->font_data_pos + d->font_data_size > c->infile->len))
-	{
-		d->need_errmsg = 1;
-		goto done;
-	}
-
-	d->fontdata = de_malloc(c, d->font_data_size);
-	de_read(d->fontdata, d->font_data_pos, d->font_data_size);
-
-	vgafont_common_config1(c, d);
-	vgafont_common_config2(c, d);
-	vgafont_main(c, d, NULL, 0);
-
-	if(opt_extract_template) {
-		u32 crc1, crc2;
-
-		crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-		de_crcobj_addbuf(crco, d->fontdata, d->font_data_size);
-		crc1 = de_crcobj_getval(crco);
-
-		d->font_data_pos += 4096;
-		if(d->font_data_pos + d->font_data_size > c->infile->len) {
-			de_dbg(c, "[template not present]");
-			goto done;
-		}
-		de_dbg(c, "template pos: %"I64_FMT, d->font_data_pos);
-
-		// This is a bit hacky, but we can just change the font data out
-		// from under the pointers created by vgafont_common_config2().
-		de_read(d->fontdata, d->font_data_pos, d->font_data_size);
-		de_crcobj_reset(crco);
-		de_crcobj_addbuf(crco, d->fontdata, d->font_data_size);
-		crc2 = de_crcobj_getval(crco);
-
-		if(crc2==crc1) {
-			de_dbg(c, "[template is same as main font]");
-			goto done;
-		}
-
-		fi_tmpl = de_finfo_create(c);
-		de_finfo_set_name_from_sz(c, fi_tmpl, "template", 0, DE_ENCODING_LATIN1);
-		vgafont_main(c, d, fi_tmpl, DE_CREATEFLAG_IS_AUX);
-	}
-
-done:
-	if(d) {
-		if(d->need_errmsg) {
-			de_err(c, "Bad or unsupported FONTEDIT font");
-		}
-		destroy_vgafont_ctx(c, d);
-	}
-	de_finfo_destroy(c, fi_tmpl);
-	de_crcobj_destroy(crco);
-}
-
-static int de_identify_fontedit(deark *c)
-{
-	u8 b1;
-	i64 jmp1;
-
-	if(c->infile->len>0x2200 || c->infile->len<(54+3*256)) return 0;
-	if(de_getbyte(0) != 0xeb) return 0;
-	b1 = de_getbyte(1);
-	if(b1<0x32 || b1>0x33) return 0;
-	jmp1 = (i64)b1 + 2;
-	// Code for "INT 10/AX=1110h": the system call that sets the custom font
-	if(dbuf_memcmp(c->infile, jmp1+39,
-		(const void*)"\xb8\x10\x11\xcd\x10", 5))
-	{
-		return 0;
-	}
-	return 90;
-}
-
-static void de_help_fontedit(deark *c)
-{
-	de_msg(c, "-opt fontedit:template : Also extract the template font, if different");
-}
-
-void de_module_fontedit(deark *c, struct deark_module_info *mi)
-{
-	mi->id = "fontedit";
-	mi->desc = "FONTEDIT font";
-	mi->run_fn = de_run_fontedit;
-	mi->identify_fn = de_identify_fontedit;
-	mi->help_fn = de_help_fontedit;
-}
-
-// **************************************************************************
 // ZBR (Zoner Zebra Metafile)
 // **************************************************************************
 
@@ -1350,7 +994,8 @@ void de_module_hpi(deark *c, struct deark_module_info *mi)
 // PKWARE DCL Implode compressed file
 // **************************************************************************
 
-static void de_run_dclimplode(deark *c, de_module_params *mparams)
+static void dclimplode_main(deark *c, i64 cmpr_pos, i64 cmpr_len,
+	u8 orig_len_known, i64 orig_len)
 {
 	dbuf *outf = NULL;
 	struct de_dfilter_in_params dcmpri;
@@ -1361,9 +1006,13 @@ static void de_run_dclimplode(deark *c, de_module_params *mparams)
 	dbuf_enable_wbuffer(outf);
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
-	dcmpri.pos = 0;
-	dcmpri.len = c->infile->len;
+	dcmpri.pos = cmpr_pos;
+	dcmpri.len = cmpr_len;
 	dcmpro.f = outf;
+	if(orig_len_known) {
+		dcmpro.len_known = 1;
+		dcmpro.expected_len = orig_len;
+	}
 
 	fmtutil_dclimplode_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
 	dbuf_flush(outf);
@@ -1372,6 +1021,11 @@ static void de_run_dclimplode(deark *c, de_module_params *mparams)
 	}
 
 	dbuf_close(outf);
+}
+
+static void de_run_dclimplode(deark *c, de_module_params *mparams)
+{
+	dclimplode_main(c, 0, c->infile->len, 0, 0);
 }
 
 static int de_identify_dclimplode(deark *c)
@@ -1407,6 +1061,41 @@ void de_module_dclimplode(deark *c, struct deark_module_info *mi)
 	mi->desc = "PKWARE DCL Implode compressed file";
 	mi->run_fn = de_run_dclimplode;
 	mi->identify_fn = de_identify_dclimplode;
+}
+
+// **************************************************************************
+// Logitech Compress / LGEXPAND (v2)
+// **************************************************************************
+
+static void de_run_lgcompress(deark *c, de_module_params *mparams)
+{
+	u8 mfnc;
+	i64 orig_len;
+
+	mfnc = de_getbyte(2);
+	if(mfnc>=0x33 && mfnc<=126) {
+		de_dbg(c, "missing filename char: '%c'", (int)mfnc);
+	}
+	orig_len = de_getu32le(4);
+	de_dbg(c, "orig len: %"I64_FMT, orig_len);
+
+	dclimplode_main(c, 8, c->infile->len-8, 1, orig_len);
+}
+
+static int de_identify_lgcompress(deark *c)
+{
+	if(de_getu16be(0) != 0xdafa) return 0;
+	if(de_getu16be(8) != 0x0006) return 0;
+	// TODO?: We could do more checks, especially at EOF.
+	return 80;
+}
+
+void de_module_lgcompress(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "lgcompress";
+	mi->desc = "Logitech Compress";
+	mi->run_fn = de_run_lgcompress;
+	mi->identify_fn = de_identify_lgcompress;
 }
 
 // **************************************************************************

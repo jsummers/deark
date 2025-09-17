@@ -188,6 +188,8 @@ static void do_read_font_data(deark *c, lctx *d, i64 pos)
 	de_dbg(c, "font crc: 0x%08x (%s)", (UI)crc,
 		d->is_standard_font?"known CP437 font":"unrecognized");
 
+	// TODO: This feature should probably be moved to the PSF module, or
+	// removed.
 	if(de_get_ext_option(c, "font:dumpvgafont")) {
 		dbuf *df;
 		df = dbuf_create_output_file(c, "font.dat", NULL, DE_CREATEFLAG_IS_AUX);
@@ -318,7 +320,11 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 
 		if(!do_generate_font(c, d)) goto done;
 
-		if(c->extract_level>=2) {
+		if(c->extract_level>=2 && d->font) {
+			de_font_decide_output_fmt(c);
+			if(c->font_fmt_req!=DE_FONTFMT_IMAGE) {
+				d->font->force_fontfile_output = 1;
+			}
 			do_extract_font(c, d);
 		}
 
@@ -571,7 +577,11 @@ static void de_run_artworx_adf(deark *c, de_module_params *mparams)
 
 		if(!do_generate_font(c, d)) goto done;
 
-		if(c->extract_level>=2) {
+		if(c->extract_level>=2 && d->font) {
+			de_font_decide_output_fmt(c);
+			if(c->font_fmt_req!=DE_FONTFMT_IMAGE) {
+				d->font->force_fontfile_output = 1;
+			}
 			do_extract_font(c, d);
 		}
 

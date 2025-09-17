@@ -1434,6 +1434,7 @@ after_archive_start_known:
 		int k;
 
 		for(k=0; k<c->mp_data->count; k++) {
+			dbuf *inf_part;
 
 			de_dbg(c, "[mp file %d: %s]", k, c->mp_data->item[k].fn);
 			if(mpvol) {
@@ -1443,12 +1444,11 @@ after_archive_start_known:
 			mpvol->volnum = k+1;
 			mpvol->archive_start = 0;
 
-			c->mp_data->item[k].f = dbuf_open_input_file(c, c->mp_data->item[k].fn);
-			if(!c->mp_data->item[k].f) goto done;  // todo: error?
-			mpvol->inf = c->mp_data->item[k].f;
+			inf_part = de_mp_acquire_dbuf(c, k+1);
+			if(!inf_part) goto done;  // todo: error?
+			mpvol->inf = inf_part;
 			do_arj_volume(c, d, mpvol);
-			dbuf_close(c->mp_data->item[k].f);
-			c->mp_data->item[k].f = NULL;
+			de_mp_release_dbuf(c, k+1, &inf_part);
 		}
 	}
 

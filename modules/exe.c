@@ -489,14 +489,19 @@ static void do_ne_ext_header(deark *c, lctx *d, i64 pos1)
 static void do_lx_or_le_ext_header(deark *c, lctx *d, i64 pos)
 {
 	i64 x1, x2;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "%s header at %"I64_FMT, d->fmt==EXE_FMT_LE?"LE":"LX", pos);
+	de_dbg_indent(c, 1);
 	x1 = (u8)de_getbyte(pos+2);
 	x2 = (u8)de_getbyte(pos+3);
-	de_dbg(c, "byte order, word order: %d, %d", (int)x1, (int)x2);
+	de_dbg(c, "byte order: %d", (int)x1);
+	de_dbg(c, "word order: %d", (int)x2);
+
 	if(x1!=0 || x2!=0) {
 		de_err(c, "Unsupported byte order.");
-		return;
+		goto done;
 	}
 
 	if(d->fmt==EXE_FMT_LE) {
@@ -511,21 +516,24 @@ static void do_lx_or_le_ext_header(deark *c, lctx *d, i64 pos)
 	x1 = de_getu32le(pos+0x40);
 	d->lx_object_tbl_offset = pos + x1;
 	d->lx_object_tbl_entries = de_getu32le(pos+0x44);
-	de_dbg(c, "object table offset=%"I64_FMT", entries=%d", d->lx_object_tbl_offset,
+	de_dbg(c, "object table offset: %"I64_FMT", entries=%d", d->lx_object_tbl_offset,
 		(int)d->lx_object_tbl_entries);
 
 	x1 = de_getu32le(pos+0x48);
 	d->lx_object_page_tbl_offset = pos + x1;
-	de_dbg(c, "object page table offset=%"I64_FMT, d->lx_object_page_tbl_offset);
+	de_dbg(c, "object page table offset: %"I64_FMT, d->lx_object_page_tbl_offset);
 
 	x1 = de_getu32le(pos+0x50);
 	d->lx_rsrc_tbl_offset = pos + x1;
 	d->lx_rsrc_tbl_entries = de_getu32le(pos+0x54);
-	de_dbg(c, "resource table offset=%"I64_FMT" entries=%d", d->lx_rsrc_tbl_offset,
+	de_dbg(c, "resource table offset: %"I64_FMT", entries=%d", d->lx_rsrc_tbl_offset,
 		(int)d->lx_rsrc_tbl_entries);
 
 	d->lx_data_pages_offset = de_getu32le(pos+0x80);
-	de_dbg(c, "data pages offset=%"I64_FMT, d->lx_data_pages_offset);
+	de_dbg(c, "data pages offset: %"I64_FMT, d->lx_data_pages_offset);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void identify_as_dos(deark *c, lctx *d)
@@ -1563,15 +1571,18 @@ static void do_lx_rsrc(deark *c, lctx *d,
 	i64 pg_data_offset_raw;
 	const char *ext;
 	//i64 data_size;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	if(obj_num<1 || obj_num>d->lx_object_tbl_entries) {
 		de_err(c, "Invalid object number (%d).", (int)obj_num);
-		return;
+		goto done;
 	}
 
 	// Read the Object Table
 	lpos = d->lx_object_tbl_offset + 24*(obj_num-1);
 	de_dbg(c, "LX object table entry at %"I64_FMT, lpos);
+	de_dbg_indent(c, 1);
 
 	vsize = de_getu32le(lpos);
 	reloc_base_addr = de_getu32le(lpos+4);
@@ -1583,11 +1594,13 @@ static void do_lx_rsrc(deark *c, lctx *d,
 		vsize, reloc_base_addr, (UI)flags, (int)page_table_index,
 		(int)page_table_entries);
 
-	if(page_table_index<1) return;
+	if(page_table_index<1) goto done;
+	de_dbg_indent(c, -1);
 
 	// Now read the Object Page table
 	lpos = d->lx_object_page_tbl_offset + 8*(page_table_index-1);
 	de_dbg(c, "LX page table entry at %"I64_FMT, lpos);
+	de_dbg_indent(c, 1);
 
 	pg_data_offset_raw = de_getu32le(lpos);
 	//data_size = de_getu16le(lpos+4);
@@ -1599,6 +1612,7 @@ static void do_lx_rsrc(deark *c, lctx *d,
 	rsrc_offset_real += d->lx_data_pages_offset;
 	rsrc_offset_real += rsrc_offset;
 	de_dbg(c, "resource offset: %"I64_FMT, rsrc_offset_real);
+	de_dbg_indent(c, -1);
 
 	switch(rsrc_type) {
 		// TODO: Support other types of resources.
@@ -1617,6 +1631,9 @@ static void do_lx_rsrc(deark *c, lctx *d,
 		}
 		break;
 	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void do_lx_or_le_rsrc_tbl(deark *c, lctx *d)
@@ -1628,11 +1645,14 @@ static void do_lx_or_le_rsrc_tbl(deark *c, lctx *d)
 	i64 rsrc_size;
 	i64 rsrc_object;
 	i64 rsrc_offset;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "%s resource table at %"I64_FMT, d->fmt==EXE_FMT_LE?"LE":"LX", d->lx_rsrc_tbl_offset);
+	de_dbg_indent(c, 1);
 	if(d->lx_rsrc_tbl_entries>MAX_RESOURCES) {
 		de_err(c, "Too many resources.");
-		return;
+		goto done;
 	}
 
 	for(i=0; i<d->lx_rsrc_tbl_entries; i++) {
@@ -1651,6 +1671,9 @@ static void do_lx_or_le_rsrc_tbl(deark *c, lctx *d)
 		do_lx_rsrc(c, d, rsrc_object, rsrc_offset, rsrc_size, type_id);
 		de_dbg_indent(c, -1);
 	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void extract_zip_from_sfx(deark *c, lctx *d,

@@ -91,39 +91,6 @@ static int v33_looks_like_control_file(dbuf *f)
 	return 1;
 }
 
-// Return a dbuf for the input file referred to by xidx, opening
-// the file if it isn't already open.
-// dbk_release_dbuf() should be called when finished with it, though this
-// is not critical -- the file will still be closed eventually.
-static dbuf *dbk_acquire_dbuf(deark *c, lctx *d, int xidx)
-{
-	int mpidx;
-
-	if(xidx==0) return c->infile;
-	mpidx = xidx-1;
-	if(mpidx<0 || mpidx>=c->mp_data->count) return NULL;
-	if(!c->mp_data->item[mpidx].f) {
-		c->mp_data->item[mpidx].f = dbuf_open_input_file(c, c->mp_data->item[mpidx].fn);
-		if(!c->mp_data->item[mpidx].f) {
-			d->errflag = 1;
-		}
-	}
-	return c->mp_data->item[mpidx].f;
-}
-
-static void dbk_release_dbuf(deark *c, lctx *d, int xidx)
-{
-	int mpidx;
-
-	if(xidx==0) return;
-	mpidx = xidx-1;
-	if(mpidx<0 || mpidx>=c->mp_data->count) return;
-	if(c->mp_data->item[mpidx].f) {
-		dbuf_close(c->mp_data->item[mpidx].f);
-		c->mp_data->item[mpidx].f = NULL;
-	}
-}
-
 static void logical_member_finish_and_free(deark *c, lctx *d)
 {
 	if(!d->clm) return;
@@ -235,13 +202,15 @@ static void scan_input_files33(deark *c, lctx *d)
 
 	for(xidx=0; xidx<d->num_input_files_tot; xidx++) {
 		if(d->errflag) goto done;
-		inf = dbk_acquire_dbuf(c, d, xidx);
-		if(!inf) goto done;
+		inf = de_mp_acquire_dbuf(c, xidx);
+		if(!inf) {
+			d->errflag = 1;
+			goto done;
+		}
 
 		v33_scan_one_input_file(c, d, inf, xidx);
 
-		dbk_release_dbuf(c, d, xidx);
-		inf = NULL;
+		de_mp_release_dbuf(c, xidx, &inf);
 	}
 
 done:
@@ -440,17 +409,21 @@ static void dosbackup33_main(deark *c, lctx *d)
 		de_dbg(c, "[volume %03d]", v+1);
 		de_dbg_indent(c, 1);
 
-		ctrl_inf = dbk_acquire_dbuf(c, d, d->v33_control_file_xidxs[v]);
-		if(!ctrl_inf) goto done;
-		data_inf = dbk_acquire_dbuf(c, d, d->data_file_xidxs[v]);
-		if(!data_inf) goto done;
+		ctrl_inf = de_mp_acquire_dbuf(c, d->v33_control_file_xidxs[v]);
+		if(!ctrl_inf) {
+			d->errflag = 1;
+			goto done;
+		}
+		data_inf = de_mp_acquire_dbuf(c, d->data_file_xidxs[v]);
+		if(!data_inf) {
+			d->errflag = 1;
+			goto done;
+		}
 
 		do_one_volume33(c, d, v, ctrl_inf, data_inf);
 
-		dbk_release_dbuf(c, d, d->v33_control_file_xidxs[v]);
-		dbk_release_dbuf(c, d, d->data_file_xidxs[v]);
-		ctrl_inf = NULL;
-		data_inf = NULL;
+		de_mp_release_dbuf(c, d->v33_control_file_xidxs[v], &ctrl_inf);
+		de_mp_release_dbuf(c, d->data_file_xidxs[v], &data_inf);
 		de_dbg_indent(c, -1);
 	}
 
@@ -613,13 +586,15 @@ static void scan_input_files20(deark *c, lctx *d)
 
 	for(xidx=0; xidx<d->num_input_files_tot; xidx++) {
 		if(d->errflag) goto done;
-		inf = dbk_acquire_dbuf(c, d, xidx);
-		if(!inf) goto done;
+		inf = de_mp_acquire_dbuf(c, xidx);
+		if(!inf) {
+			d->errflag = 1;
+			goto done;
+		}
 
 		dbk20_scan_one_input_file(c, d, inf, xidx);
 
-		dbk_release_dbuf(c, d, xidx);
-		inf = NULL;
+		de_mp_release_dbuf(c, xidx, &inf);
 	}
 
 done:
@@ -668,8 +643,11 @@ static void dosbackup20_main(deark *c, lctx *d)
 
 		de_dbg(c, "[fragment %d - input file #%d]", v+1, d->data_file_xidxs[v]);
 		de_dbg_indent(c, 1);
-		inf = dbk_acquire_dbuf(c, d, d->data_file_xidxs[v]);
-		if(!inf) goto done;
+		inf = de_mp_acquire_dbuf(c, d->data_file_xidxs[v]);
+		if(!inf) {
+			d->errflag = 1;
+			goto done;
+		}
 		if(fr) {
 			destroy_fragment_ctx(c, fr);
 		}
@@ -702,7 +680,7 @@ static void dosbackup20_main(deark *c, lctx *d)
 		dbuf_copy(inf, fr->pos_in_datafile, fr->len_in_datafile, d->clm->outf);
 		d->clm->nbytes_written += fr->len_in_datafile;
 
-		dbk_release_dbuf(c, d, d->data_file_xidxs[v]);
+		de_mp_release_dbuf(c, d->data_file_xidxs[v], &inf);
 		de_dbg_indent(c, -1);
 	}
 

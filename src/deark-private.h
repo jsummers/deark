@@ -36,6 +36,7 @@ enum de_encoding_enum {
 	DE_ENCODING_WINDOWS874,
 	DE_ENCODING_CP437,
 	DE_ENCODING_CP850,
+	DE_ENCODING_CP866,
 	DE_ENCODING_CP932,
 	DE_ENCODING_MACROMAN,
 	DE_ENCODING_ATARIST,
@@ -352,6 +353,10 @@ struct de_mp_data {
 	struct de_mp_item *item; // array[alloc]
 };
 
+#define DE_FONTFMT_AUTO 1
+#define DE_FONTFMT_FONT 2
+#define DE_FONTFMT_IMAGE 3
+
 struct deark_struct {
 	int debug_level;
 	void *userdata;
@@ -430,6 +435,7 @@ struct deark_struct {
 	u8 macformat;
 	u8 macmetaflag;
 	u8 append_riscos_type;
+	u8 font_fmt_req; // DE_FONTFMT_*
 	u8 padpix;
 	int overwrite_mode;
 	u8 preserve_file_times;
@@ -993,6 +999,9 @@ i64 de_log2_rounded_up(i64 n);
 
 char *de_print_base2_fixed(char *buf, size_t buf_len, u64 n, UI bitcount);
 
+dbuf *de_mp_acquire_dbuf(deark *c, int xidx);
+void de_mp_release_dbuf(deark *c, int xidx, dbuf **p_oldf);
+
 // Test if the image dimensions are valid and supported.
 int de_good_image_dimensions_noerr(deark *c, i64 w, i64 h);
 
@@ -1230,6 +1239,7 @@ struct de_bitmap_font {
 	// to prefer when displaying the font.
 	u8 prefer_unicode;
 
+	u8 force_fontfile_output;
 	i64 num_chars;
 	struct de_bitmap_font_char *char_array;
 };
@@ -1250,8 +1260,11 @@ void de_font_paint_character_cp(deark *c, de_bitmap *img,
 	struct de_bitmap_font *font, i32 codepoint,
 	i64 xpos, i64 ypos, de_color fgcol, de_color bgcol, unsigned int flags);
 
-void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finfo *fi, unsigned int createflags);
+void de_font_bitmap_font_write(deark *c, struct de_bitmap_font *font, de_finfo *fi,
+	UI createflags);
+#define de_font_bitmap_font_to_image de_font_bitmap_font_write
 int de_font_is_standard_vga_font(deark *c, u32 crc);
+void de_font_decide_output_fmt(deark *c);
 
 ///////////////////////////////////////////
 

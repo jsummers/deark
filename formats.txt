@@ -383,6 +383,13 @@ Deark -- Information about supported formats
    -opt comicchat:tobmp - Write icons and backgrounds to BMP format
    -opt comicchat:applymasks=0 - Write masks to separate files
 
+* MMFW Pictures (part of module="mmfw") (experimental/incomplete)
+  See also the section on "MMFW resource file".
+  Some picture formats are supported; others are not.
+  Caution: These files can contain a huge number of images, and Deark's
+  decoder is not well optimized. Expect it to be slow. You may have to use
+  an option like "-maxfiles" or "-zip" to get everything.
+
 * MMM (MacroMind Movie) (module="mmm") (experimental)
   - Can extract images, but cannot always get the colors right.
   - Audio conversion to WAV is attempted.
@@ -732,6 +739,15 @@ Deark -- Information about supported formats
 
 === Font formats ===
 
+(Some fonts are converted to a PNG file displaying the characters. Others are
+converted to a standard font file format. Refer to the "-opt font:..." options
+in the readme file.)
+
+* CPI (DOS Code Page font) (module="cpi") (experimental)
+  - Also supports the DRFONT variant.
+
+* EVAfont COM format (module="evafont")
+
 * FNT (Windows font) (module="fnt")
   Most FNT files have an extra "absolute space" character, which Deark
   arbitrarily places at code point 256, or U+2002 (EN SPACE).
@@ -885,6 +901,9 @@ Deark -- Information about supported formats
 * Doom WAD (module="wad")
   - The extracted files are usually in specialized formats.
 
+* EA/PEA archive (module="ea_arch") (experimental)
+  An installer format used by Electronic Arts.
+
 * EDI Pack (module="edi_pack")
   Compressed file, used by EDI Install [Pro] from Eschalon Development.
   - Supports "LZSS1" and "LZSS2" formats, and the LZSSLib format.
@@ -951,6 +970,8 @@ Deark -- Information about supported formats
   Options
    -opt loaddskf:toraw - Convert to raw FAT/IMA format.
 
+* Logitech Compress v2.0 (module="lgcompress")
+
 * LZEXE (module="lzexe")
   Decompress an LZEXE-compressed DOS EXE file.
   - Not automatic; must use "-m lzexe" or "-opt execomp".
@@ -1001,6 +1022,12 @@ Deark -- Information about supported formats
   - Supports "KWAJ" variant, all known compression methods.
   - Supports "SZ" variant.
   - "SZ" format supports multi-part archives (use -mp).
+
+* MMFW resource file (module="mmfw") (experimental)
+  See also the section on "MMFW Pictures".
+  Options
+   -opt mmfw:extractall - Also extract undecoded resources, in raw form.
+   -opt mmfw:extractallraw - Extract all resources in raw form.
 
 * MOOF (module="moof") (incomplete)
   Macintosh floppy disk image format.
@@ -1122,6 +1149,9 @@ Deark -- Information about supported formats
 * tar (module="tar")
   - Rare files may need "-m tar", as tar is difficult to autodetect.
 
+* TPK (module="tpk") (experimental)
+  An obscure LHA-like archive format.
+
 * WOZ (module="woz") (incomplete)
   Apple II disk image format.
   - Some metadata is parsed, but the disk contents are not extracted or listed.
@@ -1130,11 +1160,14 @@ Deark -- Information about supported formats
   - Supports most compression methods.
   - Extract main ZIP file comment (use -a).
   - Extract comments for individual files (use -a).
+  - Only the special "combine" mode supports multi-segment archives.
   Options
    -opt zip:scanmode - Attempt to read the file without using the ZIP "central
      directory". Not recommended, but allows some damaged ZIP files to be read.
    -opt zip:reloc[=<new_offset>] - Instead of decoding, move the ZIP data to
      the start of the file (or to new_offset).
+   -opt zip:combine - Instead of decoding, combine the files of a multi-segment
+     archive into a single ZIP file. Use with "-mp". (experimental)
 
 * zlib (module="zlib")
   - Raw zlib files are uncompressed.
@@ -1208,6 +1241,8 @@ here are most "character graphics" formats, which are in the "Image" section.)
 * Plain text (module="plaintext")
   Read a plain text file, and write it as UTF-8.
   - Not autodetected. Use "-m plaintext".
+  - It is almost always necessary to use the "-inenc" option, to specify the
+    input encoding.
   - See also the "cp437" module, which works better on some files.
 
 * Read-A-Matic (moule="readamatic")
