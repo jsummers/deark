@@ -512,6 +512,10 @@ Deark -- Information about supported formats
   Options
    -opt pixfolio:undelete - Also extract deleted images.
 
+* PIXIT/pix320 (module="pixit")
+  A simple executable graphics format, in a DOS COM file.
+  - The intermediate .PIX format is also supported.
+
 * PKM (GrafX2 image) (module="pkm")
 
 * PM image (module="pm_xv") (experimental)
