@@ -572,6 +572,11 @@ Deark -- Information about supported formats
    -opt psionpic:bw - Do not try to detect grayscale images. Write each bitmap
      as a separate image.
 
+* Puma Street Soccer PPM (module="pss_ppm")
+  An encrypted variant of PPM, with signature "PX" instead of "P6".
+  - Also supports the vertically flipped "P6" files that may be included with
+    the game (must use "-m pss_ppm").
+
 * QDV (Giffer) (module="qdv")
 
 * QTIF (QuickTime image) (module="qtif")

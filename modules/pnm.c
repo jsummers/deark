@@ -5,10 +5,12 @@
 // Netpbm formats
 // PNM (PBM, PGM, PPM)
 // PAM
+// "PX" variant used by Puma Street Soccer ("pss")
 
 #include <deark-config.h>
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_pnm);
+DE_DECLARE_MODULE(de_module_pss_ppm);
 
 // Numbers 1-6 are assumed to match the "Px" number in the file signature.
 #define FMT_PBM_ASCII    1
@@ -18,6 +20,7 @@ DE_DECLARE_MODULE(de_module_pnm);
 #define FMT_PGM_BINARY   5
 #define FMT_PPM_BINARY   6
 #define FMT_PAM          7
+#define FMT_PSS_PX       256
 
 struct page_ctx {
 	int fmt;
@@ -36,6 +39,8 @@ struct page_ctx {
 };
 
 typedef struct localctx_struct {
+#define PNM_MODE_PSS  1
+	u8 mode;
 	int last_fmt;
 	i64 last_bytesused;
 } lctx;
@@ -47,7 +52,7 @@ static int fmt_is_pbm(int fmt)
 
 static int fmt_is_ppm(int fmt)
 {
-	return (fmt==FMT_PPM_ASCII || fmt==FMT_PPM_BINARY);
+	return (fmt==FMT_PPM_ASCII || fmt==FMT_PPM_BINARY || fmt==FMT_PSS_PX);
 }
 
 static int fmt_is_binary(int fmt)
@@ -493,6 +498,8 @@ static int do_image_pgm_ppm_pam_binary(deark *c, lctx *d, struct page_ctx *pg,
 	u8 samp_adj_lo[4];
 	u32 clr;
 	int retval = 0;
+	u8 px_key = 0xb5;
+	UI createflags;
 
 	de_zeromem(samp_adj_lo, sizeof(samp_adj_lo));
 
@@ -540,6 +547,17 @@ static int do_image_pgm_ppm_pam_binary(deark *c, lctx *d, struct page_ctx *pg,
 			for(k=0; k<nsamples_per_pixel; k++) {
 				if(nbytes_per_sample==1) {
 					samp_ori[k] = dbuf_getbyte_p(inf, &pos);
+
+					if(pg->fmt==FMT_PSS_PX) {
+						samp_ori[k] ^= px_key;
+						if((px_key & 0x01)==0) { // if even
+							px_key >>= 1;
+						}
+						else { // if odd
+							px_key >>= 1;
+							px_key ^= 0xb8;
+						}
+					}
 				}
 				else {
 					samp_ori[k] = (UI)dbuf_getu16be_p(inf, &pos);
@@ -587,7 +605,15 @@ static int do_image_pgm_ppm_pam_binary(deark *c, lctx *d, struct page_ctx *pg,
 		}
 	}
 
-	de_bitmap16_write_to_file_finfo(img, imglo, NULL, DE_CREATEFLAG_OPT_IMAGE);
+	createflags = DE_CREATEFLAG_OPT_IMAGE;
+	if(d->mode==PNM_MODE_PSS) {
+		// PSS includes a few unencrypted P6 format files, which are standard,
+		// except that they are vertically flipped. When processed by the pss_ppm
+		// module (-m pss_ppm), we flip them, by design. That's why the FLIP flag
+		// here doesn't check for PX format.
+		createflags |= DE_CREATEFLAG_FLIP_IMAGE;
+	}
+	de_bitmap16_write_to_file_finfo(img, imglo, NULL, createflags);
 	retval = 1;
 
 done:
@@ -623,6 +649,7 @@ static int do_image(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 	case FMT_PGM_BINARY:
 	case FMT_PPM_BINARY:
 	case FMT_PAM:
+	case FMT_PSS_PX:
 		if(!do_image_pgm_ppm_pam_binary(c, d, pg, c->infile, pos1)) goto done;
 		break;
 	default:
@@ -637,13 +664,14 @@ done:
 	return retval;
 }
 
-static int identify_fmt(deark *c, i64 pos)
+static int identify_fmt(deark *c, i64 pos, u8 mode)
 {
 	u8 buf[3];
 
 	de_read(buf, pos, 3);
 	if(buf[0]!='P') return 0;
-
+	if(mode==PNM_MODE_PSS && buf[1]=='X' && buf[2]==0x0a)
+		return FMT_PSS_PX;
 	if(buf[1]=='7' && buf[2]==0x0a)
 		return FMT_PAM;
 	if(buf[1]>='1' && buf[1]<='6') {
@@ -665,6 +693,7 @@ static const char *get_fmt_name(int fmt)
 	case FMT_PGM_BINARY: name="PGM"; break;
 	case FMT_PPM_BINARY: name="PPM"; break;
 	case FMT_PAM: name="PAM"; break;
+	case FMT_PSS_PX: name="PSS PX"; break;
 	}
 	return name;
 }
@@ -679,7 +708,7 @@ static int do_page(deark *c, lctx *d, int pagenum, i64 pos1)
 
 	pg = de_malloc(c, sizeof(struct page_ctx));
 
-	pg->fmt = identify_fmt(c, pos1);
+	pg->fmt = identify_fmt(c, pos1, d->mode);
 	d->last_fmt = pg->fmt;
 	pg->fmt_name = get_fmt_name(pg->fmt);
 	if(pg->fmt==0) {
@@ -711,7 +740,7 @@ done:
 	return retval;
 }
 
-static void de_run_pnm(deark *c, de_module_params *mparams)
+static void de_run_pnm_internal(deark *c, de_module_params *mparams, u8 mode)
 {
 	lctx *d = NULL;
 	i64 pos;
@@ -719,6 +748,7 @@ static void de_run_pnm(deark *c, de_module_params *mparams)
 	int pagenum = 0;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->mode = mode;
 
 	pos = 0;
 	while(1) {
@@ -741,11 +771,16 @@ static void de_run_pnm(deark *c, de_module_params *mparams)
 	de_free(c, d);
 }
 
+static void de_run_pnm(deark *c, de_module_params *mparams)
+{
+	de_run_pnm_internal(c, mparams, 0);
+}
+
 static int de_identify_pnm(deark *c)
 {
 	int fmt;
 
-	fmt = identify_fmt(c, 0);
+	fmt = identify_fmt(c, 0, 0);
 	if(fmt!=0) return 40;
 	return 0;
 }
@@ -756,4 +791,29 @@ void de_module_pnm(deark *c, struct deark_module_info *mi)
 	mi->desc = "Netpbm formats (PNM, PBM, PGM, PPM, PAM)";
 	mi->run_fn = de_run_pnm;
 	mi->identify_fn = de_identify_pnm;
+}
+
+// **************************************************************************
+// Puma Street Soccer "PX" .ppm
+// **************************************************************************
+
+static void de_run_pss_ppm(deark *c, de_module_params *mparams)
+{
+	de_run_pnm_internal(c, mparams, PNM_MODE_PSS);
+}
+
+static int de_identify_pss_ppm(deark *c)
+{
+	if(dbuf_memcmp(c->infile, 0, (const void*)"PX\x0a\x23 ", 5)) {
+		return 0;
+	}
+	return 39;
+}
+
+void de_module_pss_ppm(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "pss_ppm";
+	mi->desc = "Puma Street Soccer PPM";
+	mi->run_fn = de_run_pss_ppm;
+	mi->identify_fn = de_identify_pss_ppm;
 }
