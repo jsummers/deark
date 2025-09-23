@@ -5,6 +5,7 @@
 // "MMFW" resource file (mainly the Picture formats)
 
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_mmfw);
 
 #define MMFW_TYPE_FIRST     2
@@ -49,6 +50,11 @@ struct mmfw_item {
 	de_ucstring *name;
 	de_finfo *fi;
 	char msgpfx[32];
+
+	// inf_to_use points to c->infile or d->intermedf.
+	dbuf *inf_to_use; // This is a copy; do not free.
+	i64 inf_dpos;
+	i64 inf_dlen;
 };
 
 // Collect some fields together, for convenience. We might want
@@ -90,39 +96,58 @@ typedef struct localctxMMFW {
 
 	dbuf *item_rowbuf;
 	dbuf *item_unc_image;
+	dbuf *intermedf;
 	u8 have_pal;
 	UI pal_id;
 	de_color pal[256];
 } lctx;
 
-// We don't support little-endian files yet, but maybe someday.
-// So we allow for that possibility.
+static i64 mmfw_dbuf_getu16(lctx *d, dbuf *f, i64 pos)
+{
+	return dbuf_getu16x(f, pos, d->is_le);
+}
+
+static i64 mmfw_dbuf_getu16_p(lctx *d, dbuf *f, i64 *ppos)
+{
+	i64 n;
+
+	n = mmfw_dbuf_getu16(d, f, *ppos);
+	*ppos += 2;
+	return n;
+}
+
 static i64 mmfw_getu16(lctx *d, i64 pos)
 {
-	return dbuf_getu16x(d->c->infile, pos, d->is_le);
+	return mmfw_dbuf_getu16(d, d->c->infile, pos);
 }
 
 static i64 mmfw_getu16_p(lctx *d, i64 *ppos)
 {
+	return mmfw_dbuf_getu16_p(d, d->c->infile, ppos);
+}
+
+static i64 mmfw_dbuf_getu32(lctx *d, dbuf *f, i64 pos)
+{
+	return dbuf_getu32x(f, pos, d->is_le);
+}
+
+static i64 mmfw_dbuf_getu32_p(lctx *d, dbuf *f, i64 *ppos)
+{
 	i64 n;
 
-	n = mmfw_getu16(d, *ppos);
-	*ppos += 2;
+	n = mmfw_dbuf_getu32(d, f, *ppos);
+	*ppos += 4;
 	return n;
 }
 
 static i64 mmfw_getu32(lctx *d, i64 pos)
 {
-	return dbuf_getu32x(d->c->infile, pos, d->is_le);
+	return mmfw_dbuf_getu32(d, d->c->infile, pos);
 }
 
 static i64 mmfw_getu32_p(lctx *d, i64 *ppos)
 {
-	i64 n;
-
-	n = mmfw_getu32(d, *ppos);
-	*ppos += 4;
-	return n;
+	return mmfw_dbuf_getu32_p(d, d->c->infile, ppos);
 }
 
 static const char *g_mmfw_tnames[] = {
@@ -151,9 +176,43 @@ static const char *get_mmfw_type_readable_name(u8 t)
 	return "data";
 }
 
+// Decompresses to md->intermedf
+static int try_decompress_lzss(deark *c, lctx *d, struct mmfw_item *md)
+{
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	int retval = 0;
+
+	if(!d->intermedf) {
+		d->intermedf = dbuf_create_membuf(c, 0, 0);
+		dbuf_set_length_limit(d->intermedf, 10*1048576);
+		dbuf_enable_wbuffer(d->intermedf);
+	}
+	dbuf_empty(d->intermedf);
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+
+	dcmpri.f = c->infile;
+	dcmpri.pos = md->dpos;
+	dcmpri.len = md->dlen;
+	dcmpro.f = d->intermedf;
+	dcmpro.len_known = 0;
+	fmtutil_lzssmmfw_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
+	dbuf_flush(d->intermedf);
+	if(!dres.errcode) {
+		de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", md->dlen,
+			d->intermedf->len);
+		retval = 1;
+	}
+
+	return retval;
+}
+
 // Returns 0 on failure
-static int cmpr1_decompress_bytes(deark *c, lctx *d, i64 ipos1,
-	i64 ilen, i64 max_olen, dbuf *outf)
+static int cmpr1_decompress_bytes(deark *c, lctx *d,
+	dbuf *inf, i64 ipos1, i64 ilen,
+	i64 max_olen, dbuf *outf)
 {
 	i64 ipos = ipos1;
 	i64 iendpos = ipos1+ilen;
@@ -168,16 +227,16 @@ static int cmpr1_decompress_bytes(deark *c, lctx *d, i64 ipos1,
 		if(nbytes_written > max_olen) goto done;
 		if(ipos >= iendpos) goto done;
 
-		b0 = de_getbyte_p(&ipos);
+		b0 = dbuf_getbyte_p(inf, &ipos);
 		if(b0<=0x7f) {
-			b1 = de_getbyte_p(&ipos);
+			b1 = dbuf_getbyte_p(inf, &ipos);
 			count = (i64)b0 + 1;
 			dbuf_write_run(outf, b1, count);
 			nbytes_written += count;
 		}
 		else if(b0>=0x80 && b0<=0xfe) {
 			count = (i64)b0 - 126;
-			dbuf_copy(c->infile, ipos, count, outf);
+			dbuf_copy(inf, ipos, count, outf);
 			ipos += count;
 			nbytes_written += count;
 		}
@@ -203,9 +262,9 @@ static void create_item_fi(deark *c, lctx *d, struct mmfw_item *md)
 	}
 }
 
-static void mmfw_load_local_palette(deark *c, lctx *d, i64 pos1)
+static void mmfw_load_local_palette(deark *c, lctx *d, dbuf *inf, i64 pos1)
 {
-	de_read_simple_palette(c, c->infile, pos1+1, 256, 4,
+	de_read_simple_palette(c, inf, pos1+1, 256, 4,
 		d->pal, 256, DE_RDPALTYPE_24BIT, 0);
 	d->have_pal = 0;
 	d->pal_id = 0;
@@ -250,7 +309,7 @@ static void decode_pic_raw_unc_pal8(deark *c, lctx *d, struct mmfw_item *md,
 
 	if(picfmt==PICFMT_UNC_PAL8_LOCAL_PAL) {
 		local_pal_len = 1024;
-		mmfw_load_local_palette(c, d, md->dpos);
+		mmfw_load_local_palette(c, d, md->inf_to_use, md->inf_dpos);
 	}
 	else if(picfmt==PICFMT_UNC_8BIT_NO_PAL) {
 		// This is likely wrong, but I haven't found any images that
@@ -263,7 +322,7 @@ static void decode_pic_raw_unc_pal8(deark *c, lctx *d, struct mmfw_item *md,
 	}
 
 	img = de_bitmap_create(c, w, h, 3);
-	de_convert_image_paletted(c->infile, md->dpos+local_pal_len, 8, rowspan,
+	de_convert_image_paletted(md->inf_to_use, md->inf_dpos+local_pal_len, 8, rowspan,
 		d->pal, img, 0);
 
 	de_bitmap_write_to_file_finfo(img, md->fi, DE_CREATEFLAG_OPT_IMAGE);
@@ -286,13 +345,13 @@ static void decode_pic_raw_unc_rgb32(deark *c, lctx *d, struct mmfw_item *md)
 	create_item_fi(c, d, md);
 
 	rowspan = w*4;
-	if(rowspan*h != md->dlen) {
+	if(rowspan*h != md->inf_dlen) {
 		de_err(c, "%sFailed to decode picture", md->msgpfx);
 		goto done;
 	}
 
 	img = de_bitmap_create(c, w, h, 3);
-	de_convert_image_rgb(c->infile, md->dpos+1, rowspan, 4, img, 0);
+	de_convert_image_rgb(md->inf_to_use, md->inf_dpos+1, rowspan, 4, img, 0);
 
 	de_bitmap_write_to_file_finfo(img, md->fi, DE_CREATEFLAG_OPT_IMAGE);
 	md->handled = 1;
@@ -311,9 +370,9 @@ static void decode_pic_cmpr1_pal(deark *c, lctx *d, struct mmfw_item *md)
 	i64 pos;
 	i64 j;
 
-	pos = md->dpos;
-	w1 = mmfw_getu16_p(d, &pos);
-	h1 = mmfw_getu16_p(d, &pos);
+	pos = md->inf_dpos;
+	w1 = mmfw_dbuf_getu16_p(d, md->inf_to_use, &pos);
+	h1 = mmfw_dbuf_getu16_p(d, md->inf_to_use, &pos);
 	de_dbg(c, "dimensions (internal): %"I64_FMT DE_CHAR_TIMES "%"I64_FMT, w1, h1);
 	w = w1;
 	h = h1;
@@ -327,9 +386,9 @@ static void decode_pic_cmpr1_pal(deark *c, lctx *d, struct mmfw_item *md)
 	rowoffsets = de_mallocarray(c, h, sizeof(i64));
 	rowlengths = de_mallocarray(c, h, sizeof(i64));
 
-	pos = md->dpos + 8;
+	pos = md->inf_dpos + 8;
 	for(j=0; j<h; j++) {
-		rowoffsets[j] = mmfw_getu32_p(d, &pos);
+		rowoffsets[j] = mmfw_dbuf_getu32_p(d, md->inf_to_use, &pos);
 	}
 	de_dbg(c, "after row table: %"I64_FMT, pos);
 
@@ -345,7 +404,7 @@ static void decode_pic_cmpr1_pal(deark *c, lctx *d, struct mmfw_item *md)
 	if(c->debug_level>=3) {
 		for(j=0; j<h; j++) {
 			de_dbg(c, "offs[%d]: %"I64_FMT" (%"I64_FMT") len=%"I64_FMT,
-				(int)j, rowoffsets[j], (i64)(md->dpos+rowoffsets[j]),
+				(int)j, rowoffsets[j], (i64)(md->inf_dpos+rowoffsets[j]),
 				rowlengths[j]);
 		}
 	}
@@ -362,11 +421,11 @@ static void decode_pic_cmpr1_pal(deark *c, lctx *d, struct mmfw_item *md)
 	for(j=0; j<h; j++) {
 		int ret;
 
-		pos = md->dpos+rowoffsets[j];
+		pos = md->inf_dpos+rowoffsets[j];
 
 		// Decompress one row
 		dbuf_empty(d->item_rowbuf);
-		ret = cmpr1_decompress_bytes(c, d, pos, rowlengths[j], w, d->item_rowbuf);
+		ret = cmpr1_decompress_bytes(c, d, md->inf_to_use, pos, rowlengths[j], w, d->item_rowbuf);
 		if(!ret) {
 			de_err(c, "%sDecompression failed", md->msgpfx);
 			de_dbg(c, "row %d, %d bytes", (int)j, (int)d->item_rowbuf->len);
@@ -390,7 +449,8 @@ done:
 
 // A very crude picture-type detector routine.
 // (I think there's a right way to do it, but I haven't figured it out.)
-static UI detect_picfmt(deark *c, lctx *d, struct mmfw_item *md)
+static UI detect_picfmt(deark *c, lctx *d, struct mmfw_item *md,
+	dbuf *inf, i64 dpos, i64 dlen)
 {
 	i64 w1, h1;
 	i64 n;
@@ -400,46 +460,45 @@ static UI detect_picfmt(deark *c, lctx *d, struct mmfw_item *md)
 
 	imgsize_if_pal8 = de_pad_to_4(md->width0) * md->height0;
 
-	if(md->dlen == 1024+imgsize_if_pal8) {
+	if(dlen == 1024+imgsize_if_pal8) {
 		if(md->pal_id >= d->fs.num_palettes) {
 			return PICFMT_UNC_PAL8_LOCAL_PAL;
 		}
 	}
 
 	// These maybe-dimensions fields help us guess the format.
-	w1 = mmfw_getu16(d, md->dpos);
-	h1 = mmfw_getu16(d, md->dpos+2);
+	w1 = mmfw_dbuf_getu16(d, inf, dpos);
+	h1 = mmfw_dbuf_getu16(d, inf, dpos+2);
 
 	if(w1==md->width0 && h1==md->height0) {
 		// Test the first row pointer. We expect it to equal the header
 		// size (8) + the size of the row pointer table (4 bytes for each
 		// row).
-		n = mmfw_getu32(d, md->dpos+8);
+		n = mmfw_dbuf_getu32(d, inf, dpos+8);
 		if(n == 8 + 4*md->height0) {
 			return PICFMT_CMPR1_PAL8;
 		}
 	}
 
-	if(md->dlen == imgsize_if_pal8) {
+	if(dlen == imgsize_if_pal8) {
 		if(md->pal_id < d->fs.num_palettes) {
 			return PICFMT_UNC_PAL8;
 		}
-
-		if(md->pal_id==0xff) {
+		else {
 			return PICFMT_UNC_8BIT_NO_PAL;
 		}
 	}
 
-	if(md->dlen == md->width0*md->height0*4) {
+	if(dlen == md->width0*md->height0*4) {
 		return PICFMT_RGB;
 	}
 
-	n = mmfw_getu16(d, md->dpos);
+	n = mmfw_dbuf_getu16(d, inf, dpos);
 	if(n == 4*md->height0 + 2) {
 		return PICFMT_CMPR2;
 	}
 
-	n = mmfw_getu16(d, md->dpos+1024);
+	n = mmfw_dbuf_getu16(d, inf, dpos+1024);
 	if(n == 4*md->height0 + 2) {
 		return PICFMT_CMPR2_LOCAL_PAL;
 	}
@@ -451,6 +510,7 @@ static UI detect_picfmt(deark *c, lctx *d, struct mmfw_item *md)
 static void do_pic_internal(deark *c, lctx *d, struct mmfw_item *md)
 {
 	UI picfmt = 0;
+	u8 lzss_layer = 0;
 
 	if(!d->fs.can_decode) {
 		goto done;
@@ -483,8 +543,37 @@ static void do_pic_internal(deark *c, lctx *d, struct mmfw_item *md)
 	}
 	de_dbg(c, "pal id: %u", (UI)md->pal_id);
 
-	picfmt = detect_picfmt(c, d, md);
-	de_dbg(c, "detected pic format: %s", g_picfmt_names[picfmt]);
+	md->inf_to_use = c->infile;
+	md->inf_dpos = md->dpos;
+	md->inf_dlen = md->dlen;
+	picfmt = detect_picfmt(c, d, md, c->infile, md->dpos, md->dlen);
+	if(picfmt==0) {
+		int ret;
+
+		de_dbg(c, "[picfmt not detected, trying lzss decompression]");
+		// TODO: This is an expensive test. We should try to screen out more files
+		// before doing this.
+		ret = try_decompress_lzss(c, d, md);
+		if(ret && d->intermedf) {
+			if(c->debug_level>=2) {
+				i64 hlen;
+
+				hlen = de_min_int(d->intermedf->len, 48);
+				de_dbg_hexdump(c, d->intermedf, 0, hlen, hlen, "udata", 0x0);
+			}
+			de_dbg(c, "[redetecting picfmt]");
+			picfmt = detect_picfmt(c, d, md, d->intermedf, 0, d->intermedf->len);
+			if(picfmt) {
+				lzss_layer = 1;
+				md->inf_to_use = d->intermedf;
+				md->inf_dpos = 0;
+				md->inf_dlen = d->intermedf->len;
+			}
+		}
+	}
+
+	de_dbg(c, "detected pic format: %s%s", (lzss_layer?"LZSS + ":""), g_picfmt_names[picfmt]);
+
 	switch(picfmt) {
 	case PICFMT_UNC_PAL8:
 	case PICFMT_UNC_PAL8_LOCAL_PAL:
@@ -499,13 +588,12 @@ static void do_pic_internal(deark *c, lctx *d, struct mmfw_item *md)
 		break;
 	default:
 		// TODO: Other picture/compression formats exist.
-		// - There's a compressed format that might be an LZSS variant, with
-		//   flag bits stored one byte at a time like Okumura's LZSS (but it's
-		//   not that).
 		// - There's a compressed format that starts with a table of
 		//   {height*2+1} 2-byte row(?) pointers. (Guess it could be a
 		//   foreground image, then an alpha channel.)
 		// - Same as above, but with a local palette.
+		// - There's a compressed format that usually (not always) starts
+		//   with 15 ff 00 00 00.
 		// - ...
 		if(d->extract_all) {
 			de_warn(c, "%sUunsupported picture format", md->msgpfx);
@@ -569,10 +657,10 @@ static void do_one_resource(deark *c, lctx *d, i64 idx)
 	}
 
 	if(c->debug_level>=2) {
-		const i64 hlen = 48;
+		i64 hlen;
 
-		de_dbg_hexdump(c, c->infile, md->dpos, ((md->dlen<hlen)?md->dlen:hlen), hlen,
-			NULL, 0x0);
+		hlen = de_min_int(md->dlen, 48);
+		de_dbg_hexdump(c, c->infile, md->dpos, hlen, hlen, NULL, 0x0);
 	}
 
 	if(md->dlen<1) {
@@ -989,6 +1077,7 @@ done:
 		de_free(c, d->rsrc_offsets);
 		dbuf_close(d->item_rowbuf);
 		dbuf_close(d->item_unc_image);
+		dbuf_close(d->intermedf);
 		de_free(c, d);
 	}
 }
