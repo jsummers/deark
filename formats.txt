@@ -1193,6 +1193,8 @@ in the readme file.)
   Format created by "zoo xz <foo.zoo> [...]". Not all Zoo programs support it.
   - Will be translated to Zoo format.
 
+* zpk2 (ZSoft installer archive) (module="zpk2") (experimental)
+
 * ZSQ (module="zsq")
   Compressed file format related to LZWCOM.
 
