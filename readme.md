@@ -8,6 +8,10 @@ either:
 
 The files it writes are usually named "output.*".
 
+When processing "archive" formats that contain other files, it's usually best
+to use Deark only to convert to ZIP format, so that the filenames and paths can
+be retained. Suggest options "-zip -ka".
+
 Features are subject to change without notice, as new versions are released.
 
 Windows binaries are available at the
@@ -44,7 +48,7 @@ Command-line options:
    specific options in technical.md.
    In a few contexts, -a has some other type of "do more" function.
 -o &lt;name>
-   Output filenames begin with this string. This can include a directory
+   Make output filenames start with this string. This can include a directory
    path. Default is "output", except in some cases when using -zip/-tar.
 -t &lt;name>
    Use exactly this filename for the first (and presumably only) output file.
@@ -66,9 +70,10 @@ Command-line options:
    This is an alternate syntax for specifying the primary input file. It works
    even if the filename begins with "-".
 -file2 &lt;file>
-   Some formats are composed of more than one file. In some cases, you can
-   use the -file2 option to specify the secondary file. Refer to the
-   formats.txt file for details.
+   For certain formats that involve more than one input file, you can use
+   -file2 to specify the secondary file. Refer to the formats.txt file for
+   details. Note that certain "segmented" formats require the -mp option
+   instead.
 -zip
    Write output files to a .zip file, instead of to individual files.
    If the input format is an "archive" format (e.g. "ar" or "zoo"), then
@@ -151,8 +156,8 @@ Command-line options:
    alignment, and are not normally made visible.
    This option is not implemented for all formats.
 -nobom
-   Do not add a BOM to UTF-8 output files generated or converted by Deark. Note
-   that if a BOM already exists in the source data, it will not necessarily be
+   Do not add a BOM to UTF-8 output files generated or converted by Deark. If a
+   BOM already exists in the source data, however, it will not necessarily be
    removed.
 -nodens
    Do not try to record the original aspect ratio and pixel density in output
@@ -244,8 +249,8 @@ Command-line options:
        For RISC OS formats, append the file type to the output filename.
     -opt deflatecodec=native
        Use Deark's native "Deflate" decompressor when possible, instead of
-       miniz. It is experimental and much slower, but could be useful for
-       debugging and educational purposes.
+       miniz. It is much slower, but could be useful for debugging and
+       educational purposes.
 -id
    Stop after the format identification phase. This can be used to show what
    module Deark will run, without actually running it.
@@ -259,7 +264,7 @@ Command-line options:
 -modules
    Print the names of the available modules.
    With -a, list all modules, including internal modules, and modules that
-   don't work.
+   are not fully implemented.
 -noinfo
    Suppress informational messages.
 -nowarn
@@ -278,7 +283,7 @@ Command-line options:
    none: No color (default).
    ansi: Use ANSI codes, but not the less-standard ones for 24-bit color.
    ansi24: Use ANSI codes, including codes for 24-bit color. Works on most
-     Linux terminals, and on sufficiently new versions of Windows 10.
+     Linux terminals, and on sufficiently new versions of Windows 10+.
    winconsole: Use Windows console commands. Works on all versions of Windows,
      but does not support 24-bit color.
    auto: Request color. Let Deark decide how to do it.
@@ -318,8 +323,7 @@ Command-line options:
      (Other encodings may exist, but should rarely need to be specified.)
    Supply a hint as to the encoding of the text contained in the input file.
    This option is not supported by all formats, and may be ignored if the
-   encoding can be reliably determined by other means. Admittedly, it would be
-   nice if Deark knew more encodings than this.
+   encoding can be reliably determined by other means.
 -intz &lt;offset>
    Supply a hint as to the time zone used by timestamps contained in the input
    file.
@@ -389,15 +393,9 @@ guarantee that no one else will attempt to do so.
 Deark contains VGA and CGA bitmapped fonts, which have no known copyright
 claims.
 
-Be particularly wary of relying on Deark to decode archive and compression
-formats (tar, ar, gzip, cpio, ...). For example, to decode tar format, you
-really should use a battle-hardened application like GNU Tar, not Deark.
-Deark's support for such formats is often incomplete, and it does not always
-do integrity checking.
-
 ## Feedback and contributions ##
 
-(As of 2020-09.) Suggestions and bug reports are welcome. This can be done by
+(As of 2025-09.) Suggestions and bug reports are welcome. This can be done by
 opening a GitHub issue, or by email. If you prefer to do it in the form of a
 GitHub "pull request", that's fine too, but as a general rule, such requests
 won't be merged directly.
