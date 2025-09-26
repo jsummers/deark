@@ -308,6 +308,7 @@ Command-line options:
      latin2 (Central/Eastern European)
      cp437 (English, etc., DOS formats)
      cp850 (some Western European DOS formats)
+     cp862 (Hebrew, DOS)
      cp866 (Cyrillic, DOS)
      cp932 (Japanese; Shift-JIS family of encodings)
      windows874 (Thai)
