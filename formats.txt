@@ -988,6 +988,9 @@ in the readme file.)
    -opt lzexe:raw - Instead of an EXE file, write raw decompressed data.
    -opt execomp:align=<16|512> - Preferred code image segment alignment. This
      may help make the decompressed file more similar to the original.
+   -opt lzexe:toexe - There's an LZEXE derivative named CEBE that can compress
+     COM files directly to LZEXE format. Deark detects such files, and
+     decompresses them to COM. This option disables that feature.
 
 * LZHUF (module="lzhuf")
   Compression software by Haruyasu Yoshizaki. A bare-bones container for
