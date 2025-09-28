@@ -771,6 +771,9 @@ static void do_pic_internal(deark *c, lctx *d, struct mmfw_item *md)
 		// - PICFMT_CMPR2_NO_PAL
 		// - There's a compressed format that usually (not always) starts
 		//   with 15 ff 00 00 00.
+		// - There's possibly another outer-layer compression scheme. Some
+		//   unidentified pictures have uint16 at offset 1, 2, or 3 with value
+		//   height*4+2; usually the data starts with 1 or 2 0x00 bytes.
 		// - ...
 		if(d->extract_all) {
 			de_warn(c, "%sUunsupported picture format", md->msgpfx);
