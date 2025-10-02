@@ -114,7 +114,7 @@ static int do_file_ofs_data_block(deark *c, lctx *d, struct member_data *md,
 	if(dbg) de_dbg(c, "block type: %d", blocktype);
 	if(blocktype!=ADF_T_DATA) {
 		de_err(c, "%s: Bad block type in data block %d (%d, expected %d)",
-			ucstring_getpsz_d(md->fn), (int)seq_num_expected,
+			ucstring_getpsz_d(md->fn), (int)blknum,
 			blocktype, (int)ADF_T_DATA);
 		goto done;
 	}
@@ -272,7 +272,7 @@ static int read_file_segment_from_extension_block(deark *c, lctx *d, struct memb
 	de_dbg_indent_save(c, &saved_indent_level);
 
 	pos1 = blocknum_to_offset(d, blknum);
-	de_dbg(c, "file ext. block #%"I64_FMT, blknum);
+	de_dbg(c, "file ext. block #%"I64_FMT" (%"I64_FMT")" , blknum, pos1);
 	de_dbg_indent(c, 1);
 
 	if(!claim_block(c, d, blknum)) {
@@ -282,8 +282,8 @@ static int read_file_segment_from_extension_block(deark *c, lctx *d, struct memb
 	blocktype = (int)de_geti32be(pos1);
 	de_dbg(c, "block type: %d", blocktype);
 	if(blocktype!=ADF_T_LIST) {
-		de_err(c, "%s: Bad extension block type in (%d, expected %d)",
-			ucstring_getpsz_d(md->fn), blocktype, (int)ADF_T_LIST);
+		de_err(c, "%s: Bad extension block type, blk#%d (%d, expected %d)",
+			ucstring_getpsz_d(md->fn), (int)blknum, blocktype, (int)ADF_T_LIST);
 		goto done;
 	}
 
@@ -379,7 +379,7 @@ static void do_file(deark *c, lctx *d, struct member_data *md)
 
 	if(md->sec_type!=ADF_ST_FILE) goto done;
 	pos1 = md->header_pos;
-	de_dbg(c, "file, header at blk#%"I64_FMT" (%"I64_FMT")", md->header_blknum, pos1);
+	de_dbg(c, "file (header at blk#%"I64_FMT")", md->header_blknum);
 	de_dbg_indent(c, 1);
 
 	pos = pos1 + 4;
@@ -530,7 +530,7 @@ static void do_directory(deark *c, lctx *d, struct member_data *md)
 
 	md->is_dir = 1;
 	pos1 = md->header_pos;
-	de_dbg(c, "directory header block: #%"I64_FMT" (%"I64_FMT")", md->header_blknum, pos1);
+	de_dbg(c, "directory header (blk#%"I64_FMT")", md->header_blknum);
 	de_dbg_indent(c, 1);
 	if(md->sec_type!=ADF_ST_ROOT && md->sec_type!=ADF_ST_USERDIR) {
 		goto done;
