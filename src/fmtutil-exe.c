@@ -623,6 +623,30 @@ done:
 	;
 }
 
+static void detect_specialexe_grabber(deark *c,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	u8 flag = 0;
+
+	if(ei->start_of_dos_code != 48) goto done;
+	if(ei->regCS != 0x0008) goto done;
+
+	read_exe_testbytes(ei);
+
+	if(!dbuf_memcmp(ei->f, ei->start_of_dos_code+1, (const void*)"Created by GRAB", 15)) {
+		flag = 1;
+	}
+	else if(!dbuf_memcmp(ei->f, ei->start_of_dos_code+37, (const void*)"G. A. Monr", 10)) {
+		flag = 1;
+	}
+
+	if(!flag) goto done;
+	edd->detected_fmt = DE_SPECIALEXEFMT_GRABBER;
+	de_strlcpy(edd->detected_fmt_name, "GRABBER screen cap", sizeof(edd->detected_fmt_name));
+done:
+	;
+}
+
 static void detect_specialexe_readmake(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
@@ -730,6 +754,11 @@ void fmtutil_detect_specialexe(deark *c, struct fmtutil_exe_info *ei,
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_GWS_EXEPIC) {
 		detect_specialexe_gws_exepic(c, ei, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
+
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_GRABBER) {
+		detect_specialexe_grabber(c, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 

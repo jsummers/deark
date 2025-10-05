@@ -231,6 +231,7 @@
     <ClCompile Include="..\..\modules\gemmeta.c" />
     <ClCompile Include="..\..\modules\gemras.c" />
     <ClCompile Include="..\..\modules\gif.c" />
+    <ClCompile Include="..\..\modules\grabber.c" />
     <ClCompile Include="..\..\modules\grasp.c" />
     <ClCompile Include="..\..\modules\grob.c" />
     <ClCompile Include="..\..\modules\gws.c" />

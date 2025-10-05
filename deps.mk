@@ -126,6 +126,8 @@ $(OBJDIR)/modules/gemras.o: modules/gemras.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/gif.o: modules/gif.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/grabber.o: modules/grabber.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/grasp.o: modules/grasp.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/grob.o: modules/grob.c src/deark-config.h \
