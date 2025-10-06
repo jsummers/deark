@@ -26,6 +26,7 @@ DE_DECLARE_MODULE(de_module_hit);
 DE_DECLARE_MODULE(de_module_binary_ii);
 DE_DECLARE_MODULE(de_module_tc_trs80);
 DE_DECLARE_MODULE(de_module_ea_arch);
+DE_DECLARE_MODULE(de_module_zpk2);
 
 static int dclimplode_header_at(deark *c, i64 pos)
 {
@@ -3181,4 +3182,112 @@ void de_module_ea_arch(deark *c, struct deark_module_info *mi)
 	mi->desc = "EA/PEA archive";
 	mi->run_fn = de_run_ea_arch;
 	mi->identify_fn = de_identify_ea_arch;
+}
+
+// **************************************************************************
+// ZSoft zpk2
+// **************************************************************************
+
+// Caller creates/destroys md, and sets a few fields.
+static void zpk2_do_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *md)
+{
+	i64 pos = md->member_hdr_pos;
+	UI crc_reported;
+
+	int saved_indent_level;
+	de_dbg_indent_save(c, &saved_indent_level);
+	md->cmpr_pos = d->cmpr_data_curpos;
+
+	de_dbg(c, "member #%u hdr at %"I64_FMT, (UI)md->member_idx, md->member_hdr_pos);
+	de_dbg_indent(c, 1);
+
+	dbuf_read_to_ucstring(c->infile, pos, 13, md->filename, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	pos += 13;
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+
+	md->cmpr_pos = de_getu32le_p(&pos);
+	de_dbg(c, "cmpr. data pos: %"I64_FMT, md->cmpr_pos);
+
+	de_arch_read_field_cmpr_len_p(md, &pos);
+
+	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		DE_ARCH_TSTYPE_DOS_DT, &pos);
+
+	crc_reported = (u32)de_getu32le_p(&pos);
+	de_dbg(c, "unk. field: 0x%08x", (UI)crc_reported);
+
+	de_arch_read_field_orig_len_p(md, &pos);
+
+	if(!de_arch_good_cmpr_data_pos(md)) {
+		d->fatalerrflag = 1;
+		goto done;
+	}
+
+	md->dfn = dclimplode_decompressor_fn;
+	de_arch_extract_member_file(md);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void de_run_zpk2(deark *c, de_module_params *mparams)
+{
+	de_arch_lctx *d = NULL;
+	i64 pos;
+	i64 i;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	d = de_arch_create_lctx(c);
+	d->is_le = 1;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+
+	pos = 0;
+	de_dbg(c, "archive header at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
+	pos += 4;
+	d->num_members = de_getu16le_p(&pos);
+	de_dbg(c, "number of members: %"I64_FMT, d->num_members);
+	de_dbg_indent(c, -1);
+
+	for(i=0; i<d->num_members; i++) {
+		struct de_arch_member_data *md;
+
+		if(pos+33 > c->infile->len) goto done;
+		md = de_arch_create_md(c, d);
+		md->member_idx = i;
+		md->member_hdr_pos = pos;
+		pos += 33;
+
+		zpk2_do_member(c, d, md);
+		de_arch_destroy_md(c, md);
+		if(d->fatalerrflag) goto done;
+	}
+
+done:
+	de_arch_destroy_lctx(c, d);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static int de_identify_zpk2(deark *c)
+{
+	i64 n;
+
+	if(dbuf_memcmp(c->infile, 0, (const void*)"zpk2", 4)) {
+		return 0;
+	}
+	// Mainly to screen out text files: The 4-byte int at offset 19 is
+	// the data offset of the 1st member.
+	n = de_getu32le(19);
+	if(n<(6 + 33) || n>(6 + 33*65535)) return 0;
+	return 100;
+}
+
+void de_module_zpk2(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "zpk2";
+	mi->desc = "zpk2 archive (ZSoft)";
+	mi->run_fn = de_run_zpk2;
+	mi->identify_fn = de_identify_zpk2;
 }

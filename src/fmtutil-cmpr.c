@@ -669,6 +669,76 @@ void fmtutil_decompress_lzss1(deark *c, struct de_dfilter_in_params *dcmpri,
 	fmtutil_lzss1_codectype1(c, dcmpri, dcmpro, dres, &params);
 }
 
+// ==============================================
+// LZSS variant used in MMFW resources
+// TODO?: Consolidate this and fmtutil_lzss1_codectype1
+
+void fmtutil_lzssmmfw_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params)
+{
+#define LZSSMMFW_BUFSIZE 1024
+		struct lzss_ctx *sctx = NULL;
+
+		sctx = de_malloc(c, sizeof(struct lzss_ctx));
+		sctx->dcmpri = dcmpri;
+		sctx->dcmpro = dcmpro;
+		sctx->cur_ipos = dcmpri->pos;
+		sctx->endpos = dcmpri->pos + dcmpri->len;
+		sctx->ringbuf = de_lz77buffer_create(c, LZSSMMFW_BUFSIZE);
+		sctx->ringbuf->writebyte_cb = lzss_lz77buf_writebytecb;
+		sctx->ringbuf->userdata = (void*)sctx;
+		de_lz77buffer_set_curpos(sctx->ringbuf, LZSSMMFW_BUFSIZE-66);
+		sctx->bbll.is_lsb = 1;
+		de_bitbuf_lowlevel_empty(&sctx->bbll);
+
+		while(1) {
+			u8 bit;
+
+			if(sctx->bbll.nbits_in_bitbuf==0) {
+				lzss_fill_bitbuf(c, sctx);
+				if(sctx->stop_flag) goto unc_done;
+			}
+
+			bit = (u8)de_bitbuf_lowlevel_get_bits(&sctx->bbll, 1);
+			if(bit) { // literal
+				u8 b;
+
+				if(sctx->cur_ipos+1 > sctx->endpos) goto unc_done;
+				b = dbuf_getbyte_p(dcmpri->f, &sctx->cur_ipos);
+				if(c->debug_level>=4) {
+					de_dbg(c, "bpos=%u lit %02x", sctx->ringbuf->curpos, (UI)b);
+				}
+				de_lz77buffer_add_literal_byte(sctx->ringbuf, b);
+				if(sctx->stop_flag) goto unc_done;
+			}
+			else { // match
+				UI x0, x1;
+				UI matchpos;
+				UI matchlen;
+
+				if(sctx->cur_ipos+2 > sctx->endpos) goto unc_done;
+				x0 = (UI)dbuf_getbyte_p(dcmpri->f, &sctx->cur_ipos);
+				x1 = (UI)dbuf_getbyte_p(dcmpri->f, &sctx->cur_ipos);
+				matchpos = ((x0 & 0x03)<<8) | x1;
+				matchlen = ((x0 & 0xfc)>>2) + 3;
+				if(c->debug_level>=4) {
+					de_dbg(c, "bpos=%u match mpos=%u(%u) len=%u", sctx->ringbuf->curpos,
+						matchpos, (UI)((LZSSMMFW_BUFSIZE-1)&(sctx->ringbuf->curpos-matchpos)),
+						matchlen);
+				}
+				de_lz77buffer_copy_from_hist(sctx->ringbuf, matchpos, matchlen);
+				if(sctx->stop_flag) goto unc_done;
+			}
+		}
+
+	unc_done:
+		dres->bytes_consumed_valid = 1;
+		dres->bytes_consumed = sctx->cur_ipos - dcmpri->pos;
+		de_lz77buffer_destroy(c, sctx->ringbuf);
+		de_free(c, sctx);
+}
+
 //======================= hlp_lz77 =======================
 
 // Very similar to fmtutil_lzss1_codectype1(). They could be consolidated,

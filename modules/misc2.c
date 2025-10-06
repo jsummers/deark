@@ -42,6 +42,7 @@ DE_DECLARE_MODULE(de_module_fmtowns_icn);
 DE_DECLARE_MODULE(de_module_fmtowns_hel);
 DE_DECLARE_MODULE(de_module_pixfolio);
 DE_DECLARE_MODULE(de_module_apple2icons);
+DE_DECLARE_MODULE(de_module_pixit);
 
 static void datetime_dbgmsg(deark *c, struct de_timestamp *ts, const char *name)
 {
@@ -3732,4 +3733,116 @@ void de_module_apple2icons(deark *c, struct deark_module_info *mi)
 	mi->desc = "Apple II icons archive";
 	mi->run_fn = de_run_apple2icons;
 	mi->identify_fn = NULL;
+}
+
+// **************************************************************************
+// PIXIT executable graphics
+// **************************************************************************
+
+static int is_px_sig_at(deark *c, i64 pos)
+{
+	return !dbuf_memcmp(c->infile, pos, (const void*)"PX", 2);
+}
+
+struct pixit_ctx {
+	u8 need_errmsg;
+	u8 is_raw_px_fmt;
+	i64 pxpos;
+	i64 w, h;
+	de_color pal[256];
+};
+
+static void de_run_pixit(deark *c, de_module_params *mparams)
+{
+	struct pixit_ctx *d = NULL;
+	i64 n;
+	i64 palpos;
+	i64 pixelspos;
+	de_bitmap *img = NULL;
+
+	d = de_malloc(c, sizeof(struct pixit_ctx));
+
+	if(is_px_sig_at(c, 0)) {
+		d->is_raw_px_fmt = 1;
+		d->pxpos = 0;
+	}
+
+	if(!d->is_raw_px_fmt) {
+		if(de_getbyte(17)!=0xba) {
+			d->need_errmsg = 1;
+			goto done;
+		}
+
+		n = de_getu16le(18);
+		d->pxpos = n-272;
+
+		if(!is_px_sig_at(c, n-272)) {
+			d->need_errmsg = 1;
+			goto done;
+		}
+	}
+
+	de_dbg(c, "image pos: %"I64_FMT, d->pxpos);
+
+	d->w = de_getu16le(d->pxpos+2);
+	d->h = de_getu16le(d->pxpos+4);
+	de_dbg_dimensions(c, d->w, d->h);
+	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
+
+	palpos = d->pxpos+16;
+	de_read_simple_palette(c, c->infile, palpos, 256, 3, d->pal, 256,
+		DE_RDPALTYPE_VGA18BIT, 0);
+
+	img = de_bitmap_create(c, d->w, d->h, 3);
+	pixelspos = palpos + 768;
+	de_dbg(c, "pixels pos: %"I64_FMT, pixelspos);
+	de_convert_image_paletted(c->infile, pixelspos, 8, d->w, d->pal, img, 0);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
+
+done:
+	de_bitmap_destroy(img);
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Failed to decode PIXIT file");
+		}
+		de_free(c, d);
+	}
+}
+
+static int de_identify_pixit(deark *c)
+{
+	i64 n;
+	u8 b0;
+
+	b0 = de_getbyte(0);
+	if(b0=='P') {
+		// Raw PX (.PIX) intermediate format. Identified only if it is exactly
+		// 320x200 pixels. It's possible to create files with other dimensions,
+		// but they don't work correctly, at least not with the original PIXIT.
+		if(c->infile->len != (16+768+320*200)) return 0;
+		if(dbuf_memcmp(c->infile, 1, (const void*)"\x58\x40\x01\xc8\x00", 5)) {
+			return 0;
+		}
+		return 90;
+	}
+	else if(b0==0xbc) {
+		// A COM-based executable image.
+		if(c->infile->len<800 || c->infile->len>65280) return 0;
+		if(dbuf_memcmp(c->infile, 1, (const void*)"\x00\x01\xb8\x13\x00\xcd\x10", 7)) {
+			return 0;
+		}
+		if(de_getbyte(17)!=0xba) return 0;
+		n = de_getu16le(18);
+		if(!is_px_sig_at(c, n-272)) return 0;
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_pixit(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "pixit";
+	mi->desc = "PIXIT/pix320 executable image";
+	mi->run_fn = de_run_pixit;
+	mi->identify_fn = de_identify_pixit;
 }

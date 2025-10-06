@@ -33,8 +33,10 @@ typedef struct localctx_lzexe {
 	int errmsg_handled;
 	int final_code_alignment;
 	u8 raw_mode; // 0xff = not set
+	u8 opt_toexe;
 	u8 can_decompress_to_exe;
 	u8 can_decompress_to_raw;
+	u8 is_CEBE_com;
 	struct fmtutil_exe_info *host_ei;
 
 	UI host_minmem;
@@ -301,6 +303,43 @@ static void do_write_data_only(deark *c, lctx *d)
 	dbuf_create_file_from_slice(d->dcmpr_code, 0, d->dcmpr_code->len, "bin", NULL, 0);
 }
 
+static void do_write_CEBE_com(deark *c, lctx *d)
+{
+	dbuf_create_file_from_slice(d->dcmpr_code, 0, d->dcmpr_code->len-8, "com", NULL, 0);
+}
+
+static void check_for_CEBE_com(deark *c, lctx *d)
+{
+	i64 guest_ep_rel;
+
+	if(d->raw_mode==1 || d->opt_toexe) return;
+	if(d->host_ei->overlay_len!=0) return;
+	if(d->guest_reloc_table->len!=0) return;
+	if(d->dcmpr_code->len<=8) return;
+	if(d->dcmpr_code->len>65280+8) return;
+	guest_ep_rel = d->ephdr.regCS*16 + d->ephdr.regIP;
+	if(guest_ep_rel != d->dcmpr_code->len-8) return;
+	if(dbuf_memcmp(d->host_ei->f, d->host_ei->entry_point+233,
+		(const void*)"*CEP*", 5))
+	{
+		return;
+	}
+	// CEBE appends these 8 bytes to the code when it converts COM->EXE.
+	if(dbuf_memcmp(d->dcmpr_code, guest_ep_rel,
+		(const void*)"\x33\xdb\x53\xbb\x00\x01\x53\xc3", 8))
+	{
+		return;
+	}
+	de_dbg(c, "[CEBE-compressed COM]");
+	d->is_CEBE_com = 1;
+}
+
+// Things to do after we've decompressed the code and reloc. table.
+static void examine_dcmpr_code(deark *c, lctx *d)
+{
+	check_for_CEBE_com(c, d);
+}
+
 // Generate the decompressed file
 static void do_write_dcmpr(deark *c, lctx *d)
 {
@@ -417,6 +456,7 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 	d->host_ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
 
 	d->raw_mode = (u8)de_get_ext_option_bool(c, "lzexe:raw", 0xff);
+	d->opt_toexe = (u8)de_get_ext_option_bool(c, "lzexe:toexe", 0);
 
 	s = de_get_ext_option(c, "execomp:align");
 	if(s) {
@@ -487,7 +527,12 @@ static void de_run_lzexe(deark *c, de_module_params *mparams)
 	dbuf_flush(d->dcmpr_code);
 	if(d->errflag) goto done;
 
-	if(d->raw_mode==1) {
+	examine_dcmpr_code(c, d);
+
+	if(d->is_CEBE_com) {
+		do_write_CEBE_com(c, d);
+	}
+	else if(d->raw_mode==1) {
 		do_write_data_only(c, d);
 	}
 	else {
@@ -513,6 +558,8 @@ static void de_help_lzexe(deark *c)
 	de_msg(c, "-opt lzexe:raw : Instead of an EXE file, write raw decompressed data");
 	de_msg(c, "-opt execomp:align=<16|512> : Alignment of code image "
 		"(in output file)");
+	de_msg(c, "-opt lzexe:toexe : Decompress to EXE even if the original "
+		"format was COM");
 }
 
 void de_module_lzexe(deark *c, struct deark_module_info *mi)

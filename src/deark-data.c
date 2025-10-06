@@ -269,6 +269,14 @@ static de_rune de_cp850_to_unicode(struct de_encconv_state *es, i32 a)
 	return de_cp437like_to_unicode(es, a, cp850table);
 }
 
+static de_rune de_cp862_to_unicode(struct de_encconv_state *es, i32 a)
+{
+	if(a>=0x80 && a<=0x9a) {
+		return (de_rune)(0x05d0+(a-0x80));
+	}
+	return de_cp437like_to_unicode(es, a, &cp437table[0x80]);
+}
+
 static de_rune de_cp866_to_unicode(struct de_encconv_state *es, i32 a)
 {
 	return de_cp437like_to_unicode(es, a, cp866table);
@@ -442,6 +450,9 @@ void de_encconv_init(struct de_encconv_state *es, de_ext_encoding ee)
 		break;
 	case DE_ENCODING_CP850:
 		es->fn = de_cp850_to_unicode;
+		break;
+	case DE_ENCODING_CP862:
+		es->fn = de_cp862_to_unicode;
 		break;
 	case DE_ENCODING_CP866:
 		es->fn = de_cp866_to_unicode;
@@ -1450,6 +1461,7 @@ static const struct de_encmap_item de_encmap_arr[] = {
 	{ 0x01, DE_ENCODING_LATIN2, "latin2" },
 	{ 0x01, DE_ENCODING_CP437, "cp437" },
 	{ 0x01, DE_ENCODING_CP850, "cp850" },
+	{ 0x01, DE_ENCODING_CP862, "cp862" },
 	{ 0x01, DE_ENCODING_CP866, "cp866" },
 	{ 0x01, DE_ENCODING_CP932, "cp932" },
 	{ 0x01, DE_ENCODING_CP932, "shiftjis" },
