@@ -31,6 +31,9 @@ typedef struct localctx_grabber {
 	struct fmtutil_char_simplectx csctx;
 	struct grabber_id_data gi;
 	de_color pal[256];
+
+	struct fmtutil_exe_info ei;
+	struct fmtutil_specialexe_detection_data edd;
 } lctx;
 
 static void free_lctx(deark *c, lctx *d)
@@ -86,6 +89,9 @@ static void decode_grabber_com(deark *c, lctx *d)
 	i64 foundpos = 0;
 	i64 pos_of_data_ptr;
 	i64 pos_of_mode;
+	u8 maybe_ch = 0;
+	u8 maybe_cw = 0;
+	u8 adj_mode = 0xff;
 	int ret;
 	u8 *mem = NULL;
 
@@ -118,6 +124,12 @@ static void decode_grabber_com(deark *c, lctx *d)
 		pos_of_mode = d->data_pos - 17;
 	}
 
+	if(d->gi.fmt_class>=3201 && d->gi.fmt_class<3500) {
+		maybe_ch = de_getbyte(pos_of_mode-2);
+		maybe_cw = de_getbyte(pos_of_mode-1);
+		de_dbg(c, "dimensions in chars: %u"DE_CHAR_TIMES"%u", maybe_cw, maybe_ch);
+	}
+
 	d->screen_mode = de_getbyte(pos_of_mode);
 	de_dbg(c, "mode: 0x%02x", (UI)d->screen_mode);
 
@@ -129,13 +141,33 @@ static void decode_grabber_com(deark *c, lctx *d)
 	d->data_len = de_getu16le(pos_of_mode+2);
 	de_dbg(c, "data len: %"I64_FMT, d->data_len);
 
+	// Some files, including the DEMO*.COM files from v3.3, have mode=2.
+	// I don't know where this comes from (TODO).
+	// I think mode 2 should be some b/w text mode, but it seems to work the
+	// same as mode 3.
+	// AFAICT, the mode field definitely *is* related to the screen mode, and
+	// it *is* used by the viewer. But it seems to be more like a hint as to
+	// which viewer routine to call, than the literal screen mode.
+	if(d->screen_mode==2 && d->data_len==4000) {
+		adj_mode = 3;
+	}
+	if(adj_mode!=0xff && adj_mode!=d->screen_mode) {
+		de_dbg(c, "[adjusting mode to %u]", (UI)adj_mode);
+		d->screen_mode = adj_mode;
+	}
+
 done:
 	de_free(c, mem);
 }
 
 static void do_grabber_textmode(deark *c, lctx *d)
 {
-	d->csctx.width_in_chars = 80;
+	if(d->screen_mode==1) {
+		d->csctx.width_in_chars = 40;
+	}
+	else {
+		d->csctx.width_in_chars = 80;
+	}
 	d->charctx->screen_image_flag = 1;
 	d->csctx.height_in_chars = de_pad_to_n(d->data_len, d->csctx.width_in_chars*2) /
 		(d->csctx.width_in_chars*2);
@@ -146,7 +178,8 @@ static void do_grabber_textmode(deark *c, lctx *d)
 		goto done;
 	}
 
-	if(d->csctx.width_in_chars>80 || d->csctx.height_in_chars>25) {
+	// TODO: Set the density sensibly for 40x25 mode.
+	if(d->csctx.width_in_chars!=80 || d->csctx.height_in_chars>25) {
 		d->charctx->no_density = 1;
 	}
 
@@ -195,7 +228,7 @@ static void do_grabber_cga(deark *c, lctx *d, dbuf *inf, i64 pos1, i64 len)
 		d->fi->density.ydens = 200.0;
 
 		// Intended to reflect how the file actually displays itself (on a
-		// system with CGA-only graphics).
+		// system with CGA-only graphics, in case it made a difference).
 		// I.e., not necessarily the image that should have been captured.
 		// GRABBER seems buggy, but I guess we'll copy the bugs.
 		if(d->gi.fmt_class<=3200) { // v2.10-3.20
@@ -250,7 +283,7 @@ static void do_grabber_com(deark *c, lctx *d, de_module_params *mparams, u8 b0)
 	if(d->errflag) goto done;
 
 
-	if(d->screen_mode==3) {
+	if(d->screen_mode==1 || d->screen_mode==3) {
 		do_grabber_textmode(c, d);
 	}
 	else if(d->screen_mode==4 || d->screen_mode==6) {
@@ -268,7 +301,16 @@ done:
 
 static void do_grabber_exe(deark *c, lctx *d, de_module_params *mparams)
 {
-	d->need_errmsg = 1;
+	fmtutil_collect_exe_info(c, c->infile, &d->ei);
+	d->edd.restrict_to_fmt = DE_SPECIALEXEFMT_GRABBER;
+	fmtutil_detect_specialexe(c, &d->ei, &d->edd);
+	if(d->edd.detected_fmt!=DE_SPECIALEXEFMT_GRABBER) {
+		de_err(c, "Not a known GRABBER format");
+		goto done;
+	}
+	de_err(c, "GRABBER EXE format isn't supported");
+done:
+	;
 }
 
 static void de_run_grabber(deark *c, de_module_params *mparams)

@@ -246,6 +246,10 @@ Deark -- Information about supported formats
 
 * GodPaint (Atari Falcon) (module="godpaint")
 
+* GRABBER (module="grabber")
+  Self-displaying DOS screen capture in the form of a COM file, created by
+  GRABBER up to v3.35. The EXE format from later versions is not supported.
+
 * Graphic Workshop self-displaying picture (module="gws_exepic")
   - Supports the DOS EXE-based format.
 
@@ -1543,7 +1547,6 @@ dwc - DWC compressed archive.
 fastgraph_ppr - Fastgraph Pixel Run Format.
 fastgraph_spr - Fastgraph Packed Pixel Run Format.
 flif - FLIF image.
-grabber - GRABBER image, self-displaying COM.
 hit - HIT compressed archive.
 icedraw - iCEDraw IDF. Not implemented; helps to ID related formats.
 id3 - ID3 metadata.
