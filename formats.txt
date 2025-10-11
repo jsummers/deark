@@ -837,7 +837,7 @@ in the readme file.)
   Variant of ARC.
 
 * ARJ (module="arj")
-  - Multi-volumes archives are supported; use "-mp" (experimental). All volumes
+  - Multi-volume archives are supported; use "-mp" (experimental). All volumes
     must be listed on the command line, in the correct order.
   Options
    -opt arj:entrypoint=<n> : Specify the offset of ARJ data.
@@ -961,7 +961,7 @@ in the readme file.)
      typical use is to set n=16 to ignore Joliet extensions.
 
 * LBR (module="lbr")
-  LRB is an uncompressed CP/M archive format.
+  LBR is an uncompressed CP/M archive format.
   - These often contain files in compressed formats known as Squeeze, Crunch,
   and CrLZH. Deark doesn't necessarily support all of those formats.
 
