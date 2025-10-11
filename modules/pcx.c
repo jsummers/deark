@@ -10,6 +10,7 @@ DE_DECLARE_MODULE(de_module_pcx);
 DE_DECLARE_MODULE(de_module_mswordscr);
 DE_DECLARE_MODULE(de_module_dcx);
 DE_DECLARE_MODULE(de_module_pcx2com);
+DE_DECLARE_MODULE(de_module_berts_bmg);
 
 #define PCX_HDRSIZE 128
 
@@ -877,4 +878,337 @@ void de_module_pcx2com(deark *c, struct deark_module_info *mi)
 	mi->desc = "PCX2COM self-displaying image";
 	mi->run_fn = de_run_pcx2com;
 	mi->identify_fn = de_identify_pcx2com;
+}
+
+// **************************************************************************
+// BMG - Bert's Coloring Programs:
+// - Bert's African Animals
+// - Bert's Christmas
+// - Bert's Dinosaurs
+// - Bert's Prehistoric Animals
+// - Bert's Whales and Dolphins
+// - Rachel's Fashion Dolls
+// **************************************************************************
+
+// This is an unorthodox Deark module: It recognizes specific known files,
+// which is not ideal.
+
+// The problem with these files is that they are valid PCX files, but they
+// usually contain the wrong palette.
+
+// There are three known "legit" palettes, and each program is hardcoded to use
+// one of the three when it displays images.
+
+// A BMG file contains one of three known possible palettes. Two of these
+// palettes are among the "legit" possibilities, but it is not always the
+// correct palette for that file.
+
+// A few files do contain the correct palette, but we don't do anything special
+// in such cases. It is never possible to be sure what the correct palette is,
+// short of actually examining the image pixels.
+
+#define BERTSPAL_UNK   0
+#define BERTSPAL_1     1 // [0]/[5] = gray/purple
+#define BERTSPAL_2     2 // black/gray
+#define BERTSPAL_3     3 // gray/green
+#define BERTSPAL_GRAY  4
+#define BERTSPAL_BLACK 5 // all black
+
+struct berts_ctx {
+	u32 pal_crc;
+	u32 image_crc;
+	struct de_crcobj *crco;
+	de_color pal[16];
+};
+
+// Used with palettes found in files, and palettes that
+// we may write.
+static const char *bmg_pal_id_to_name(u8 x)
+{
+	const char *name = NULL;
+
+	switch(x) {
+	case BERTSPAL_BLACK: name = "none"; break;
+	case BERTSPAL_1: name = "1"; break;
+	case BERTSPAL_2: name = "2"; break;
+	case BERTSPAL_3: name = "3"; break;
+	case BERTSPAL_GRAY: name = "gray"; break;
+	}
+	return name?name:"unrecognized";
+}
+
+// Used with palettes found in files
+static u8 bmg_pal_crc_to_pal_id(u32 v)
+{
+	u8 x = BERTSPAL_UNK;
+
+	switch(v) {
+	case 0xf288b395U: x = BERTSPAL_BLACK; break;  // all black
+	case 0xc6599c5cU: x = BERTSPAL_1; break; // gray/purple
+	case 0xbf0acb94U: x = BERTSPAL_2; break; // black/gray
+	}
+	return x;
+}
+
+static int is_crc_of_bmg_palette(u32 v)
+{
+	return (bmg_pal_crc_to_pal_id(v) != BERTSPAL_UNK);
+}
+
+static void write_palette_to_rgb24(de_color *pal, size_t ncolors, dbuf *outf)
+{
+	size_t k;
+
+	for(k=0; k<ncolors; k++) {
+		dbuf_writebyte(outf, DE_COLOR_R(pal[k]));
+		dbuf_writebyte(outf, DE_COLOR_G(pal[k]));
+		dbuf_writebyte(outf, DE_COLOR_B(pal[k]));
+	}
+}
+
+static void berts_main(deark *c, struct berts_ctx *d)
+{
+	dbuf *outf = NULL;
+	outf = dbuf_create_output_file(c, "pcx", NULL, 0);
+
+	dbuf_enable_wbuffer(outf);
+
+	// Initial 16-byte header:
+	dbuf_copy(c->infile, 0, 16, outf);
+
+	// 48-byte palette:
+	write_palette_to_rgb24(d->pal, 16, outf);
+
+	// 64 bytes after the palette (first 10 are used, others are reserved):
+	// [...
+	dbuf_copy(c->infile, 64, 47, outf);
+
+	// An arbitrary mark, to distinguish our repaired files from original BMG.
+	// We don't really have to do this, because the palettes we write are
+	// always a little different (in the low bits) from the ones found in
+	// original BMG files. But this way is easy and robust.
+	dbuf_writebyte(outf, 'P');
+
+	dbuf_copy(c->infile, 112, 16, outf);
+	// ...]
+
+	// The image data:
+	dbuf_copy(c->infile, 128, c->infile->len-128, outf);
+
+	dbuf_close(outf);
+}
+
+static int is_usable_bmg_file(deark *c, struct berts_ctx *d)
+{
+	u8 b;
+	UI bits, planes;
+
+	b = de_getbyte(0);
+	if(b!=0x0a) return 0;
+
+	// Make sure image has 16 colors.
+	bits = (UI)de_getbyte(3);
+	planes = (UI)de_getbyte(65);
+	if(bits*planes != 4) return 0;
+
+	b = de_getbyte(111);
+	if(b!=0) return 0; // Probably already repaired
+
+	return 1;
+}
+
+static const u8 bmg_palraw_1[48] = {
+	0x82,0x82,0x82, 0x00,0x00,0x00, 0x00,0x00,0xff, 0x00,0x00,0xc3,
+	0x00,0xa2,0xc3, 0xb2,0x00,0xcb, 0x00,0xc3,0x51, 0x00,0xa2,0x00,
+	0x00,0x71,0x00, 0xc3,0x71,0x00, 0xa2,0x51,0x00, 0x82,0x00,0x00,
+	0xff,0x00,0x00, 0xd3,0x00,0x00, 0xef,0xef,0x3c, 0xff,0xff,0xff
+};
+
+static const u8 bmg_palraw_3[48] = {
+	0xaa,0xaa,0xaa,	0x00,0x00,0x00,	0x82,0x00,0x82,	0xff,0x00,0x00,
+	0x41,0x82,0x82,	0x00,0xc3,0x00,	0x00,0x00,0xff,	0x55,0x55,0x55,
+	0xff,0xc3,0xa2,	0xff,0xff,0x00,	0xff,0x00,0xff,	0xff,0x61,0x82,
+	0x00,0xff,0xff,	0xa2,0x61,0x41,	0xa2,0xe3,0xff,	0xff,0xff,0xff
+};
+
+static void de_run_berts_bmg(deark *c, de_module_params *mparams)
+{
+	struct berts_ctx *d = NULL;
+	u8 pal_id_in_file = BERTSPAL_UNK;
+	u8 pal_to_use = BERTSPAL_UNK;
+	const char *s;
+
+	d = de_malloc(c, sizeof(struct berts_ctx));
+
+	s = de_get_ext_option(c, "berts_bmg:defpal");
+	if(s) {
+		if(!de_strcmp(s, "1")) {
+			pal_to_use = BERTSPAL_1;
+		}
+		else if(!de_strcmp(s, "2")) {
+			pal_to_use = BERTSPAL_2;
+		}
+		else if(!de_strcmp(s, "3")) {
+			pal_to_use = BERTSPAL_3;
+		}
+		else if(!de_strcmp(s, "gray")) {
+			pal_to_use = BERTSPAL_GRAY;
+		}
+		else if(!de_strcmp(s, "fail")) {
+			;
+		}
+		else {
+			de_err(c, "Unknown palette \"%s\"", s);
+			goto done;
+		}
+	}
+
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+
+	de_crcobj_addslice(d->crco, c->infile, 16, 48);
+	d->pal_crc = de_crcobj_getval(d->crco);
+	pal_id_in_file = bmg_pal_crc_to_pal_id(d->pal_crc);
+	de_dbg(c, "palette in file: %s", bmg_pal_id_to_name(pal_id_in_file));
+
+	de_crcobj_reset(d->crco);
+	de_crcobj_addslice(d->crco, c->infile, 128, c->infile->len-128);
+	d->image_crc = de_crcobj_getval(d->crco);
+	de_dbg(c, "img crc: 0x%08x", (UI)d->image_crc);
+
+	if(!is_usable_bmg_file(c, d)) {
+		de_err(c, "Not a BMG-compatible file");
+		goto done;
+	}
+
+	// Note: Normally, the objects associated with CRCs like this will be
+	// recorded in the "deark-extras" companion project. But I doubt I will
+	// do that in this case, due to size and copyright considerations.
+	// None of these source files is *too* difficult to find, I think.
+
+	// Note: Rare (modified or corrupt) variants of some of these files
+	// exist. I'm not planning to list them here, unless they've been widely
+	// distributed.
+
+	switch(d->image_crc) {
+	case 0x3d3e4eb5U: // BD30 BD.IBG
+	case 0xb1e9886aU: // BD30 DINO.BMG
+	case 0x7120efdbU: // BAF30 BAF.IBG
+	case 0x29177435U: // BAF30 AFRICA.BMG
+	case 0x9bf4a2adU: // BPA30 BPA.IBG
+	case 0xc85eda3fU: // BPA30 MAMMOTH.BMG
+	case 0x3dbfb6ccU: // BCH32 BCH.IBG
+	case 0xf7993b50U: // BCH32 BCH.BMG
+		pal_to_use = BERTSPAL_1;
+		break;
+	case 0xe91706d6U: // BWD30 BWD.IBG
+	case 0xb9bc1f08U: // BWD30 HUMPBACK.BMG
+	case 0x7183a578U: // BAF32 BAF.IBG
+	case 0xd76f8557U: // BAF32 ZEBRA.BMG
+		pal_to_use = BERTSPAL_2;
+		break;
+	case 0xe5cc7840U: // DOLL10,26 DOLL.IBG
+	case 0xf605e72eU: // DOLL10 RACHEL.BMG
+	case 0x89f60611U: // DOLL26 RACHEL.BMG
+	case 0x0b9eee2cU: // BD46 BD.IBG
+	case 0xd273cc18U: // BD46 DINO.BMG
+	case 0xa999e621U: // BWD46 BWD.IBG
+	case 0x62021fa5U: // BWD46 BWD.BMG
+	case 0xc018769dU: // BAF46 BAF.IBG
+	case 0x3c5a5143U: // BAF46 BUFFALO.BMG
+	case 0x07b4e115U: // BCH46 BCH.IBG
+	case 0x49648857U: // BCH46 BCH.BMG
+	case 0x3c28f954U: // BPA46 BPA.IBG
+	case 0x332b2b9eU: // BPA46 BPA.BMG
+		pal_to_use = BERTSPAL_3;
+		break;
+	}
+
+	if(pal_to_use==BERTSPAL_UNK) {
+		de_err(c, "Don't know what palette to use");
+		goto done;
+	}
+
+	de_dbg(c, "using palette: %s", bmg_pal_id_to_name(pal_to_use));
+
+	if(pal_to_use==BERTSPAL_1) {
+		de_copy_palette_from_rgb24(bmg_palraw_1, d->pal, 16);
+	}
+	else if(pal_to_use==BERTSPAL_2) {
+		de_copy_palette_from_rgb24(bmg_palraw_1, d->pal, 16);
+		// pal[0] should be 0, but since pal[1] is also 0, in the interest
+		// of not losing information, I don't want them to be the same.
+		d->pal[0] = DE_MAKE_GRAY(0x01);
+		d->pal[5] = DE_MAKE_GRAY(0x82);
+	}
+	else if(pal_to_use==BERTSPAL_3) {
+		de_copy_palette_from_rgb24(bmg_palraw_3, d->pal, 16);
+	}
+	else {
+		de_make_grayscale_palette(d->pal, 16, 0);
+	}
+
+	berts_main(c, d);
+
+done:
+	if(d) {
+		de_crcobj_destroy(d->crco);
+		de_free(c, d);
+	}
+}
+
+static int has_bmg_palette(deark *c)
+{
+	struct de_crcobj *crco;
+	u32 v;
+
+	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	de_crcobj_addslice(crco, c->infile, 16, 48);
+	v = de_crcobj_getval(crco);
+	de_crcobj_destroy(crco);
+	return is_crc_of_bmg_palette(v);
+}
+
+static int de_identify_berts_bmg(deark *c)
+{
+	int has_ext;
+
+	if(dbuf_memcmp(c->infile, 0,
+		(const void*)"\x0a\x05\x01\x01\x50\x00\x00\x00\x7f\x02\xdf\x01\x80\x02\xe0\x01", 16))
+	{
+		return 0;
+	}
+
+	has_ext = de_input_file_has_ext(c, "bmg") || de_input_file_has_ext(c, "ibg");
+	if(!has_ext) return 0;
+
+	if(dbuf_memcmp(c->infile, 64,
+		(const void*)"\x00\x04\x46\x00\x01\x00\x80\x02\xe0\x01", 10))
+	{
+		return 0;
+	}
+
+	// Test that the reserved bytes are all 0. This will screen out our
+	// repaired files.
+	if(!dbuf_is_all_zeroes(c->infile, 74, 54)) {
+		return 0;
+	}
+
+	if(!has_bmg_palette(c)) return 0;
+
+	return 100;
+}
+
+static void de_help_berts_bmg(deark *c)
+{
+	de_msg(c, "-opt berts_bmg:defpal=<name> : Default palette "
+		"(options: 1, 2, 3, gray, fail)");
+}
+
+void de_module_berts_bmg(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "berts_bmg";
+	mi->desc = "Bert's Coloring Programs BMG";
+	mi->run_fn = de_run_berts_bmg;
+	mi->identify_fn = de_identify_berts_bmg;
+	mi->help_fn = de_help_berts_bmg;
 }
