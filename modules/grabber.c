@@ -358,5 +358,4 @@ void de_module_grabber(deark *c, struct deark_module_info *mi)
 	mi->desc = "GRABBER";
 	mi->run_fn = de_run_grabber;
 	mi->identify_fn = de_identify_grabber;
-	mi->flags |= DE_MODFLAG_HIDDEN;
 }
