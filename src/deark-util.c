@@ -703,7 +703,7 @@ void de_fatalerror(deark *c)
 	if(c && c->fatalerrorfn) {
 		c->fatalerrorfn(c);
 	}
-	de_exitprocess(1);
+	de_exitprocess(EXIT_FAILURE);
 }
 
 void de_internal_err_fatal(deark *c, const char *fmt, ...)
