@@ -349,7 +349,7 @@ static void our_msgfn(deark *c, unsigned int flags, const char *s1)
 static void our_fatalerrorfn(deark *c)
 {
 	de_puts(c, DE_MSGTYPE_MESSAGE, "Exiting\n");
-	de_exitprocess(1);
+	de_exitprocess(EXIT_FAILURE);
 }
 
 static void set_ext_option(deark *c, struct cmdctx *cc, const char *optionstring)
@@ -954,7 +954,7 @@ static int main2(int argc, char **argv)
 	deark *c = NULL;
 	struct cmdctx *cc = NULL;
 	int ret;
-	int exit_status = 0;
+	int exit_status = EXIT_SUCCESS;
 
 	cc = de_malloc(NULL, sizeof(struct cmdctx));
 	c = de_create();
@@ -1011,14 +1011,14 @@ static int main2(int argc, char **argv)
 
 	ret = de_run(c);
 	if(!ret) {
-		exit_status = 1;
+		exit_status = EXIT_FAILURE;
 	}
 
 done:
 	de_destroy(c);
 	de_platformdata_destroy(cc->plctx);
 	cc->plctx = NULL;
-	if(cc->error_flag) exit_status = 1;
+	if(cc->error_flag) exit_status = EXIT_FAILURE;
 	de_free(NULL, cc);
 	return exit_status;
 }
