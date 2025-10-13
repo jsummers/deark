@@ -88,6 +88,19 @@ Deark -- Information about supported formats
 
 * BLD (MegaPaint BLD) (module="bld")
 
+* BMG - Bert's Coloring Programs (module="berts_bmg")
+  A format that looks like PCX, but in most cases it must be interpreted in a
+  special way.
+  - Files are converted to PCX.
+  - File must have extension ".bmg" or ".ibg" (or use "-m berts_bmg").
+  - Only the distribution files are handled automatically. Otherwise, you must
+    use the "defpal" option.
+  Options
+   -opt berts_bmg:defpal=<name> - The predefined palette to use, if it can't be
+     determined.
+     Options are "1", "2", "3" for standard palettes, or "gray" for grayscale,
+     or "fail" (default) to give up and not write a file.
+
 * BMI (Zoner bitmap) (module="bmi") (experimental)
 
 * BMP (Windows bitmap) (module="bmp")
@@ -837,7 +850,7 @@ in the readme file.)
   Variant of ARC.
 
 * ARJ (module="arj")
-  - Multi-volumes archives are supported; use "-mp" (experimental). All volumes
+  - Multi-volume archives are supported; use "-mp" (experimental). All volumes
     must be listed on the command line, in the correct order.
   Options
    -opt arj:entrypoint=<n> : Specify the offset of ARJ data.
@@ -961,7 +974,7 @@ in the readme file.)
      typical use is to set n=16 to ignore Joliet extensions.
 
 * LBR (module="lbr")
-  LRB is an uncompressed CP/M archive format.
+  LBR is an uncompressed CP/M archive format.
   - These often contain files in compressed formats known as Squeeze, Crunch,
   and CrLZH. Deark doesn't necessarily support all of those formats.
 
