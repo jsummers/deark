@@ -2,7 +2,7 @@
 // Copyright (C) 2024 Jason Summers
 // See the file COPYING for terms of use.
 
-// XWD - X-Windows screen dump
+// XWD - screen capture format used on the X Window System
 
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_xwd);
@@ -664,7 +664,7 @@ static int de_identify_xwd(deark *c)
 void de_module_xwd(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "xwd";
-	mi->desc = "X-Windows screen dump";
+	mi->desc = "XWD screen capture";
 	mi->run_fn = de_run_xwd;
 	mi->identify_fn = de_identify_xwd;
 }
