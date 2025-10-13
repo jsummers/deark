@@ -1124,7 +1124,7 @@ static void de_run_berts_bmg(deark *c, de_module_params *mparams)
 	}
 
 	if(pal_to_use==BERTSPAL_UNK) {
-		de_err(c, "Don't know what palette to use");
+		de_err(c, "Don't know what palette to use (try \"-opt berts_bmg:defpal=...\")");
 		goto done;
 	}
 
@@ -1144,7 +1144,23 @@ static void de_run_berts_bmg(deark *c, de_module_params *mparams)
 		de_copy_palette_from_rgb24(bmg_palraw_3, d->pal, 16);
 	}
 	else {
-		de_make_grayscale_palette(d->pal, 16, 0);
+		size_t idx;
+		u8 gv;
+
+		// [1] is always black, used for the line drawing.
+		// For the other colors, we'll use light grays.
+		idx = 15;
+		gv = 255;
+		while(1) {
+			if(idx==1) {
+				d->pal[1] = DE_STOCKCOLOR_BLACK;
+				idx = 0;
+			}
+			d->pal[idx] = DE_MAKE_GRAY(gv);
+			if(idx==0) break;
+			idx--;
+			gv -= 8;
+		}
 	}
 
 	berts_main(c, d);
