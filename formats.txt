@@ -1468,8 +1468,9 @@ here are most "character graphics" formats, which are in the "Image" section.)
     from them.
 
 * PIF (Windows Program Information File) (module="pif") (incomplete)
-  - Files can be parsed, but there is usually nothing that can be extracted
-    from them.
+  - Some files contain a config file or an icon that can be extracted, but in
+    most cases, there is nothing that can be extracted.
+  - Some older files must have extension ".pif" (or use "-m pif").
   Options
    -opt oemenc=<...> - The encoding for OEM Text items. Same options as -inenc.
 

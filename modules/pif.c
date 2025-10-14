@@ -30,6 +30,22 @@ static int pif_validate_pos(deark *c, struct pif_ctx *d, i64 pos)
 	return 0;
 }
 
+static void read_W_and_A_items_p(deark *c, struct pif_ctx *d, i64 *ppos, i64 len_in_chars,
+	const char *name)
+{
+	ucstring_empty(d->tmpstr);
+	dbuf_read_to_ucstring(c->infile, *ppos, len_in_chars*2, d->tmpstr, 0, DE_ENCODING_UTF16LE);
+	ucstring_truncate_at_NUL(d->tmpstr);
+	de_dbg(c, "%s (Unicode): \"%s\"", name, ucstring_getpsz_d(d->tmpstr));
+	*ppos += len_in_chars*2;
+	ucstring_empty(d->tmpstr);
+
+	dbuf_read_to_ucstring(c->infile, *ppos, len_in_chars, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding_ansi);
+	de_dbg(c, "%s (ANSI): \"%s\"", name, ucstring_getpsz_d(d->tmpstr));
+	*ppos += len_in_chars;
+}
+
 static void do_pif_section_extract(deark *c, struct pif_ctx *d, i64 pos1, i64 len, const char *name)
 {
 	dbuf_create_file_from_slice(c->infile, pos1, len, name, NULL, 0);
@@ -206,6 +222,79 @@ static void do_pif_section_winnt31(deark *c, struct pif_ctx *d, i64 pos1, i64 le
 	de_dbg(c, "alt autoexec.bat: \"%s\"", ucstring_getpsz_d(d->tmpstr));
 }
 
+static void do_pif_section_winnt40(deark *c, struct pif_ctx *d, i64 pos1, i64 len)
+{
+	i64 pos;
+
+	if(len<1676) return;
+	pos = pos1+4;
+	read_W_and_A_items_p(c, d, &pos, 128, "command line");
+	pos += 240;
+	read_W_and_A_items_p(c, d, &pos, 80, "PIF filename");
+	read_W_and_A_items_p(c, d, &pos, 30, "title");
+	read_W_and_A_items_p(c, d, &pos, 80, "icon file");
+	read_W_and_A_items_p(c, d, &pos, 64, "work dir");
+}
+
+// PIF files containing an icon are rare.
+// Returns 1 or 0, depending on whether we support this icon.
+static u8 do_pif_section_ico(deark *c, struct pif_ctx *d, i64 pos1, i64 len)
+{
+	de_bitmap *img_mask = NULL;
+	de_bitmap *img_fg = NULL;
+	de_color *pal = NULL;
+	i64 bmWidth, bmHeight;
+	i64 bmWidthBytes;
+	i64 bmPlanes;
+	i64 bmBitsPixel;
+	i64 pos;
+	i64 mask_pos, fg_pos;
+	i64 mask_size, fg_size;
+	int retval = 0;
+
+	// This is kind of like a DDB, but I'm not sure exactly what it is.
+	pos = pos1+4;
+	bmWidth = de_getu16le_p(&pos);
+	bmHeight = de_getu16le_p(&pos);
+	de_dbg_dimensions(c, bmWidth, bmHeight);
+
+	bmWidthBytes = de_getu16le_p(&pos);
+	bmPlanes = (i64)de_getbyte_p(&pos);
+	bmBitsPixel = (i64)de_getbyte_p(&pos);
+
+	if(bmPlanes!=4 || bmBitsPixel!=1 ||
+		bmWidth>1024 || bmHeight>1024)
+	{
+		goto done;
+	}
+
+	mask_pos = pos;
+	mask_size = bmWidthBytes*bmHeight;
+	fg_pos = mask_pos + mask_size;
+	fg_size = bmWidthBytes*bmPlanes*bmHeight;
+	if(fg_pos+fg_size > pos1+len) goto done;
+
+	img_mask = de_bitmap_create(c, bmWidth, bmHeight, 1);
+	de_convert_image_bilevel(c->infile, mask_pos, bmWidthBytes, img_mask, 0);
+
+	pal = de_mallocarray(c, 16, sizeof(de_color));
+	de_copy_std_palette(DE_PALID_WIN16, 0, 0, pal, 16, 0);
+
+	img_fg = de_bitmap_create(c, bmWidth, bmHeight, 4);
+	de_convert_image_paletted_planar(c->infile, fg_pos, bmPlanes,
+		bmWidthBytes*bmPlanes, bmWidthBytes, pal, img_fg, 0x02);
+	de_bitmap_apply_mask(img_fg, img_mask, DE_BITMAPFLAG_WHITEISTRNS);
+
+	de_bitmap_write_to_file(img_fg, "icon", DE_CREATEFLAG_OPT_IMAGE);
+	retval = 1;
+
+done:
+	de_bitmap_destroy(img_mask);
+	de_bitmap_destroy(img_fg);
+	de_free(c, pal);
+	return retval;
+}
+
 // Returns nonzero if we should look for more sections after this.
 // Sets d->next_section_heading_pos.
 static int do_pif_section(deark *c, struct pif_ctx *d, i64 pos1)
@@ -216,6 +305,7 @@ static int do_pif_section(deark *c, struct pif_ctx *d, i64 pos1)
 	i64 dpos;
 	i64 dlen;
 	struct de_stringreaderdata *secname = NULL;
+	u8 handled;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "section at %"I64_FMT, pos1);
@@ -242,6 +332,8 @@ static int do_pif_section(deark *c, struct pif_ctx *d, i64 pos1)
 
 	de_dbg(c, "section data at %"I64_FMT", len=%"I64_FMT, dpos, dlen);
 	de_dbg_indent(c, 1);
+
+	handled = 1;
 	if(!de_strcmp(secname->sz, "MICROSOFT PIFEX")) {
 		do_pif_section_basic(c, d, dpos, dlen);
 	}
@@ -257,20 +349,28 @@ static int do_pif_section(deark *c, struct pif_ctx *d, i64 pos1)
 	else if(!de_strcmp(secname->sz, "WINDOWS NT  3.1")) {
 		do_pif_section_winnt31(c, d, pos, dlen);
 	}
+	else if(!de_strcmp(secname->sz, "WINDOWS NT  4.0")) {
+		do_pif_section_winnt40(c, d, pos, dlen);
+	}
 	else if(!de_strcmp(secname->sz, "AUTOEXECBAT 4.0")) {
 		do_pif_section_extract(c, d, dpos, dlen, "autoexec.bat");
 	}
 	else if(!de_strcmp(secname->sz, "CONFIG  SYS 4.0")) {
 		do_pif_section_extract(c, d, dpos, dlen, "config.sys");
 	}
+	else if(!de_strcmp(secname->sz, "WINDOWS ICO.001")) {
+		handled = do_pif_section_ico(c, d, dpos, dlen);
+	}
 	else {
+		handled = 0;
+	}
+
+	if(!handled) {
 		do_pif_section_default(c, d, dpos, dlen);
 	}
 	// TODO:
-	//  WINDOWS NT  4.0
 	//  WINDOWS PIF.402
 	//  WINDOWS PIF.403
-	//  WINDOWS ICO.001
 
 done:
 	de_destroy_stringreaderdata(c, secname);
