@@ -30,6 +30,18 @@ static int pif_validate_pos(deark *c, struct pif_ctx *d, i64 pos)
 	return 0;
 }
 
+static void read_string_item_p(deark *c, struct pif_ctx *d, i64 *ppos, i64 len,
+	const char *name, de_encoding enc, UI flags)
+{
+	ucstring_empty(d->tmpstr);
+	dbuf_read_to_ucstring(c->infile, *ppos, len, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL, enc);
+	if(flags & 0x1) {
+		ucstring_strip_trailing_spaces(d->tmpstr);
+	}
+	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz_d(d->tmpstr));
+	*ppos += len;
+}
+
 static void read_W_and_A_items_p(deark *c, struct pif_ctx *d, i64 *ppos, i64 len_in_chars,
 	const char *name)
 {
@@ -38,8 +50,8 @@ static void read_W_and_A_items_p(deark *c, struct pif_ctx *d, i64 *ppos, i64 len
 	ucstring_truncate_at_NUL(d->tmpstr);
 	de_dbg(c, "%s (Unicode): \"%s\"", name, ucstring_getpsz_d(d->tmpstr));
 	*ppos += len_in_chars*2;
-	ucstring_empty(d->tmpstr);
 
+	ucstring_empty(d->tmpstr);
 	dbuf_read_to_ucstring(c->infile, *ppos, len_in_chars, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
 		d->input_encoding_ansi);
 	de_dbg(c, "%s (ANSI): \"%s\"", name, ucstring_getpsz_d(d->tmpstr));
@@ -73,42 +85,21 @@ static void do_pif_section_basic(deark *c, struct pif_ctx *d, i64 pos1, i64 len)
 	// but other wrong values are common.
 	de_dbg(c, "checksum (calculated): 0x%02x", d->checksum_calc);
 
-	ucstring_empty(d->tmpstr);
-	dbuf_read_to_ucstring(c->infile, pos, 30, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
-		d->input_encoding_oem);
-	ucstring_strip_trailing_spaces(d->tmpstr);
-	de_dbg(c, "title: \"%s\"", ucstring_getpsz_d(d->tmpstr));
-	pos += 30;
+	read_string_item_p(c, d, &pos, 30, "title", d->input_encoding_oem, 0x1);
 
 	n = de_getu16le_p(&pos);
 	de_dbg(c, "max conventional mem: %"I64_FMT" kb", n);
 	n = de_getu16le_p(&pos);
 	de_dbg(c, "min conventional mem: %"I64_FMT" kb", n);
 
-	ucstring_empty(d->tmpstr);
-	dbuf_read_to_ucstring(c->infile, pos, 63, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
-		d->input_encoding_oem);
-	ucstring_strip_trailing_spaces(d->tmpstr);
-	de_dbg(c, "target filename: \"%s\"", ucstring_getpsz_d(d->tmpstr));
-	pos += 63;
+	read_string_item_p(c, d, &pos, 63, "target filename", d->input_encoding_oem, 0x1);
 
 	// TODO: There's disagreement about what the next 2 bytes are.
 	n = de_getu16le_p(&pos);
 	de_dbg(c, "flags1: 0x%04x", (UI)n);
 
-	ucstring_empty(d->tmpstr);
-	dbuf_read_to_ucstring(c->infile, pos, 64, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
-		d->input_encoding_oem);
-	ucstring_strip_trailing_spaces(d->tmpstr);
-	de_dbg(c, "work dir: \"%s\"", ucstring_getpsz_d(d->tmpstr));
-	pos += 64;
-
-	ucstring_empty(d->tmpstr);
-	dbuf_read_to_ucstring(c->infile, pos, 64, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
-		d->input_encoding_oem);
-	ucstring_strip_trailing_spaces(d->tmpstr);
-	de_dbg(c, "params: \"%s\"", ucstring_getpsz_d(d->tmpstr));
-	pos += 64;
+	read_string_item_p(c, d, &pos, 64, "work dir", d->input_encoding_oem, 0x1);
+	read_string_item_p(c, d, &pos, 64, "params", d->input_encoding_oem, 0x1);
 
 	// TODO: More fields
 }
@@ -157,12 +148,8 @@ static void do_pif_section_win386(deark *c, struct pif_ctx *d, i64 pos1, i64 len
 	// TODO: More fields
 
 	pos = pos1 + 40;
-	ucstring_empty(d->tmpstr);
 	// TODO: There are questions about whether this is OEM or ANSI
-	dbuf_read_to_ucstring(c->infile, pos, 64, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
-		d->input_encoding_oem);
-	ucstring_strip_trailing_spaces(d->tmpstr);
-	de_dbg(c, "params: \"%s\"", ucstring_getpsz_d(d->tmpstr));
+	read_string_item_p(c, d, &pos, 64, "params", d->input_encoding_oem, 0x1);
 }
 
 static void do_pif_section_winvmm(deark *c, struct pif_ctx *d, i64 pos1, i64 len)
@@ -173,32 +160,16 @@ static void do_pif_section_winvmm(deark *c, struct pif_ctx *d, i64 pos1, i64 len
 	if(len<428) return;
 	pos += 88;
 
-	ucstring_empty(d->tmpstr);
-	dbuf_read_to_ucstring(c->infile, pos, 80, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
-		d->input_encoding_ansi);
-	de_dbg(c, "icon file: \"%s\"", ucstring_getpsz_d(d->tmpstr));
-	pos += 80;
+	read_string_item_p(c, d, &pos, 80, "icon file", d->input_encoding_ansi, 0);
 
 	n = de_getu16le_p(&pos);
 	de_dbg(c, "icon #: %"I64_FMT, n);
 
 	pos = pos1 + 234;
-	ucstring_empty(d->tmpstr);
-	dbuf_read_to_ucstring(c->infile, pos, 32, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
-		d->input_encoding_ansi);
-	de_dbg(c, "raster font: \"%s\"", ucstring_getpsz_d(d->tmpstr));
-	pos += 32;
-
-	ucstring_empty(d->tmpstr);
-	dbuf_read_to_ucstring(c->infile, pos, 32, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
-		d->input_encoding_ansi);
-	de_dbg(c, "TrueType font: \"%s\"", ucstring_getpsz_d(d->tmpstr));
-
+	read_string_item_p(c, d, &pos, 32, "raster font", d->input_encoding_ansi, 0);
+	read_string_item_p(c, d, &pos, 32, "TrueType font", d->input_encoding_ansi, 0);
 	pos = pos1 + 342;
-	ucstring_empty(d->tmpstr);
-	dbuf_read_to_ucstring(c->infile, pos, 80, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
-		d->input_encoding_oem);
-	de_dbg(c, "BAT file: \"%s\"", ucstring_getpsz_d(d->tmpstr));
+	read_string_item_p(c, d, &pos, 80, "BAT file", d->input_encoding_oem, 0);
 
 	// TODO: More fields
 }
@@ -209,17 +180,8 @@ static void do_pif_section_winnt31(deark *c, struct pif_ctx *d, i64 pos1, i64 le
 
 	if(len<140) return;
 	pos += 12;
-
-	ucstring_empty(d->tmpstr);
-	dbuf_read_to_ucstring(c->infile, pos, 64, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
-		d->input_encoding_ansi);
-	de_dbg(c, "alt config.sys: \"%s\"", ucstring_getpsz_d(d->tmpstr));
-	pos += 64;
-
-	ucstring_empty(d->tmpstr);
-	dbuf_read_to_ucstring(c->infile, pos, 64, d->tmpstr, DE_CONVFLAG_STOP_AT_NUL,
-		d->input_encoding_ansi);
-	de_dbg(c, "alt autoexec.bat: \"%s\"", ucstring_getpsz_d(d->tmpstr));
+	read_string_item_p(c, d, &pos, 64, "alt config.sys", d->input_encoding_ansi, 0);
+	read_string_item_p(c, d, &pos, 64, "alt autoexec.bat", d->input_encoding_ansi, 0);
 }
 
 static void do_pif_section_winnt40(deark *c, struct pif_ctx *d, i64 pos1, i64 len)
