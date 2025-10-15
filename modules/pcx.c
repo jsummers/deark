@@ -974,7 +974,14 @@ static void berts_main(deark *c, struct berts_ctx *d)
 	dbuf_enable_wbuffer(outf);
 
 	// Initial 16-byte header:
-	dbuf_copy(c->infile, 0, 16, outf);
+	// [...
+	dbuf_copy(c->infile, 0, 12, outf);
+	// In BMG, the "resolution" fields are normally 640x480, which is wrong
+	// -- the images target a screen with square pixels, and unknown density.
+	// So we "correct" it to be 0x0. A density of 0x0 is common enough in PCX
+	// files that it should not cause problems.
+	dbuf_write_zeroes(outf, 4);
+	// ...]
 
 	// 48-byte palette:
 	write_palette_to_rgb24(d->pal, 16, outf);
@@ -986,7 +993,8 @@ static void berts_main(deark *c, struct berts_ctx *d)
 	// An arbitrary mark, to distinguish our repaired files from original BMG.
 	// We don't really have to do this, because the palettes we write are
 	// always a little different (in the low bits) from the ones found in
-	// original BMG files. But this way is easy and robust.
+	// original BMG files. And we may change the DPI fields.
+	// But this way is easy and robust.
 	dbuf_writebyte(outf, 'P');
 
 	dbuf_copy(c->infile, 112, 16, outf);
