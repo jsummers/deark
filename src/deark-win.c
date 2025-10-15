@@ -476,7 +476,7 @@ void de_current_time_to_timestamp(struct de_timestamp *ts)
 
 void de_exitprocess(int s)
 {
-	exit(s);
+	exit(s?EXIT_FAILURE:EXIT_SUCCESS);
 }
 
 #endif // DE_WINDOWS
