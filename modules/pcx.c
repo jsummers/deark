@@ -974,7 +974,14 @@ static void berts_main(deark *c, struct berts_ctx *d)
 	dbuf_enable_wbuffer(outf);
 
 	// Initial 16-byte header:
-	dbuf_copy(c->infile, 0, 16, outf);
+	// [...
+	dbuf_copy(c->infile, 0, 12, outf);
+	// In BMG, the "resolution" fields are normally 640x480, which is wrong
+	// -- the images target a screen with square pixels, and unknown density.
+	// So we "correct" it to be 0x0. A density of 0x0 is common enough in PCX
+	// files that it should not cause problems.
+	dbuf_write_zeroes(outf, 4);
+	// ...]
 
 	// 48-byte palette:
 	write_palette_to_rgb24(d->pal, 16, outf);
@@ -986,7 +993,8 @@ static void berts_main(deark *c, struct berts_ctx *d)
 	// An arbitrary mark, to distinguish our repaired files from original BMG.
 	// We don't really have to do this, because the palettes we write are
 	// always a little different (in the low bits) from the ones found in
-	// original BMG files. But this way is easy and robust.
+	// original BMG files. And we may change the DPI fields.
+	// But this way is easy and robust.
 	dbuf_writebyte(outf, 'P');
 
 	dbuf_copy(c->infile, 112, 16, outf);
@@ -1124,7 +1132,7 @@ static void de_run_berts_bmg(deark *c, de_module_params *mparams)
 	}
 
 	if(pal_to_use==BERTSPAL_UNK) {
-		de_err(c, "Don't know what palette to use");
+		de_err(c, "Don't know what palette to use (try \"-opt berts_bmg:defpal=...\")");
 		goto done;
 	}
 
@@ -1144,7 +1152,23 @@ static void de_run_berts_bmg(deark *c, de_module_params *mparams)
 		de_copy_palette_from_rgb24(bmg_palraw_3, d->pal, 16);
 	}
 	else {
-		de_make_grayscale_palette(d->pal, 16, 0);
+		size_t idx;
+		u8 gv;
+
+		// [1] is always black, used for the line drawing.
+		// For the other colors, we'll use light grays.
+		idx = 15;
+		gv = 255;
+		while(1) {
+			if(idx==1) {
+				d->pal[1] = DE_STOCKCOLOR_BLACK;
+				idx = 0;
+			}
+			d->pal[idx] = DE_MAKE_GRAY(gv);
+			if(idx==0) break;
+			idx--;
+			gv -= 8;
+		}
 	}
 
 	berts_main(c, d);

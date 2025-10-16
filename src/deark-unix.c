@@ -291,7 +291,7 @@ void de_current_time_to_timestamp(struct de_timestamp *ts)
 
 void de_exitprocess(int s)
 {
-	exit(s);
+	exit(s?EXIT_FAILURE:EXIT_SUCCESS);
 }
 
 struct de_platform_data *de_platformdata_create(void)

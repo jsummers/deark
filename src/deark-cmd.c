@@ -1036,14 +1036,17 @@ int wmain(int argc, wchar_t **argvW)
 	argv = de_convert_args_to_utf8(argc, argvW);
 	exit_status = main2(argc, argv);
 	de_free_utf8_args(argc, argv);
-	return exit_status;
+	return (exit_status?EXIT_FAILURE:EXIT_SUCCESS);
 }
 
 #else
 
 int main(int argc, char **argv)
 {
-	return main2(argc, argv);
+	int exit_status;
+
+	exit_status = main2(argc, argv);
+	return (exit_status?EXIT_FAILURE:EXIT_SUCCESS);
 }
 
 #endif
