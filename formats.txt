@@ -260,8 +260,10 @@ Deark -- Information about supported formats
 * GodPaint (Atari Falcon) (module="godpaint")
 
 * GRABBER (module="grabber")
-  Self-displaying DOS screen capture in the form of a COM file, created by
-  GRABBER up to v3.35. The EXE format from later versions is not supported.
+  Self-displaying DOS screen capture.
+  - Most COM-based formats are supported (made by GRABBER up to v3.35).
+  - Support for EXE-based formats is very limited. Most text-mode formats made
+    by v3.70-3.98 (and some v6.30-6.60) are supported.
 
 * Graphic Workshop self-displaying picture (module="gws_exepic")
   - Supports the DOS EXE-based format.

@@ -643,6 +643,7 @@ static void detect_specialexe_grabber(deark *c,
 	if(!flag) goto done;
 	edd->detected_fmt = DE_SPECIALEXEFMT_GRABBER;
 	de_strlcpy(edd->detected_fmt_name, "GRABBER screen cap", sizeof(edd->detected_fmt_name));
+	edd->modname = "grabber";
 done:
 	;
 }
