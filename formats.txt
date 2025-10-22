@@ -388,6 +388,9 @@ Deark -- Information about supported formats
    -opt mdesk_icn:pal=<1|2|3|4> - 1=Use ToyBox palette, 2=Use Magic Desk
      palette, 3=Prefer ToyBox palette, 4=Prefer Magic Desk palette (default)
 
+* Mah Jongg tile set (.TIL) (module="mahj_na_til")
+  Graphics used with Nels Anderson's Mah Jongg solitaire game.
+
 * MAKIchan graphics (module="makichan")
   - Supports most 16- and 256-color .MAG images
   - Supports most 16-color .MKI images

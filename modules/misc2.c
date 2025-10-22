@@ -43,6 +43,7 @@ DE_DECLARE_MODULE(de_module_fmtowns_hel);
 DE_DECLARE_MODULE(de_module_pixfolio);
 DE_DECLARE_MODULE(de_module_apple2icons);
 DE_DECLARE_MODULE(de_module_pixit);
+DE_DECLARE_MODULE(de_module_mahj_na_til);
 
 static void datetime_dbgmsg(deark *c, struct de_timestamp *ts, const char *name)
 {
@@ -3844,4 +3845,243 @@ void de_module_pixit(deark *c, struct deark_module_info *mi)
 	mi->desc = "PIXIT/pix320 executable image";
 	mi->run_fn = de_run_pixit;
 	mi->identify_fn = de_identify_pixit;
+}
+
+// **************************************************************************
+// Mah Jongg tile set
+// From Nels Anderson's Mah Jongg, an EGA-centric DOS game
+// **************************************************************************
+
+struct mahj_ctx {
+	de_encoding input_encoding;
+	u8 has_name;
+	de_bitmap *curtile;
+	de_bitmap *canvas;
+	de_ucstring *name;
+	de_finfo *fi;
+	de_color pal[16];
+};
+
+#define MAHJ_MAX_TILES      42
+#define MAHJ_MAX_TILES_PER_ROW  10
+#define MAHJ_TILE_WIDTH     40
+#define MAHJ_TILE_HEIGHT    40
+#define MAHJ_BORDER         2
+
+// This is slightly different from the standard PC palette.
+static const u8 mahj_pal16[16*3] = {
+	0x00,0x00,0x00, 0x00,0x00,0xaa, 0x00,0x55,0x00, 0x00,0xaa,0xaa,
+	0xaa,0x00,0x00, 0xaa,0x00,0xaa, 0xaa,0x55,0x00, 0xaa,0xaa,0xaa,
+	0x55,0x55,0x55, 0x55,0x55,0xff, 0x00,0xaa,0x00, 0x00,0xff,0xff,
+	0xff,0x00,0x00, 0xff,0x00,0xff, 0xff,0xff,0x00, 0xff,0xff,0xff
+};
+
+static void de_run_mahj_na_til(deark *c, de_module_params *mparams)
+{
+	struct mahj_ctx *d = NULL;
+	i64 num_tiles;
+	i64 canvas_num_cols;
+	i64 canvas_num_rows;
+	i64 tile_rowspan;
+	i64 bytes_per_tile;
+	i64 canvas_w, canvas_h;
+	i64 n;
+
+	d = de_malloc(c, sizeof(struct mahj_ctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+
+	tile_rowspan = de_pad_to_2(MAHJ_TILE_WIDTH)/2;
+	bytes_per_tile = tile_rowspan*MAHJ_TILE_HEIGHT;
+
+	num_tiles = (c->infile->len+bytes_per_tile/2) / bytes_per_tile;
+	if(num_tiles<1) num_tiles = 1;
+	if(num_tiles>MAHJ_MAX_TILES) num_tiles = MAHJ_MAX_TILES;
+	de_dbg(c, "num tiles: %d", (int)num_tiles);
+
+	d->name = ucstring_create(c);
+	d->has_name = (de_getbyte(0) != 0);
+	if(d->has_name) {
+		dbuf_read_to_ucstring(c->infile, 0, 21, d->name,
+			DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+		// Supposed to be the tile set author's name. Sometimes used
+		// for something else, such as the tile set title.
+		de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(d->name));
+	}
+
+	de_copy_palette_from_rgb24(mahj_pal16, d->pal, 16);
+
+	if(num_tiles < MAHJ_MAX_TILES_PER_ROW) {
+		canvas_num_cols = num_tiles;
+	}
+	else {
+		canvas_num_cols = MAHJ_MAX_TILES_PER_ROW;
+	}
+	canvas_num_rows = de_pad_to_n(num_tiles, canvas_num_cols) / canvas_num_cols;
+
+	canvas_w = canvas_num_cols*(MAHJ_TILE_WIDTH+MAHJ_BORDER) - MAHJ_BORDER;
+	canvas_h = canvas_num_rows*(MAHJ_TILE_HEIGHT+MAHJ_BORDER) - MAHJ_BORDER;
+	d->canvas = de_bitmap_create(c, canvas_w, canvas_h, 4);
+	d->curtile = de_bitmap_create(c, MAHJ_TILE_WIDTH, MAHJ_TILE_HEIGHT, 4);
+
+	for(n=0; n<num_tiles; n++) {
+		i64 colnum, rownum;
+		i64 cnvpixpos_x, cnvpixpos_y;
+		i64 i, j;
+
+		colnum = n % canvas_num_cols;
+		rownum = n / canvas_num_cols;
+		cnvpixpos_x = colnum * (MAHJ_TILE_WIDTH+MAHJ_BORDER);
+		cnvpixpos_y = rownum * (MAHJ_TILE_HEIGHT+MAHJ_BORDER);
+
+		// Read a tile to a temp bitmap
+		de_bitmap_rect(d->curtile, 0, 0, MAHJ_TILE_WIDTH, MAHJ_TILE_HEIGHT,
+			DE_STOCKCOLOR_TRANSPARENT, 0);
+		de_convert_image_paletted(c->infile, bytes_per_tile*n, 4, tile_rowspan,
+			d->pal, d->curtile, 0);
+
+		// Fix up some things
+		for(j=0; j<MAHJ_TILE_HEIGHT; j++) {
+			for(i=0; i<MAHJ_TILE_WIDTH; i++) {
+				// First 21 bytes are sometimes used for a name.
+				// If so, corresponding visible pixels are always black.
+				if(d->has_name && n==0 && (j==0 || (j==1 && i<4))) {
+					de_bitmap_setpixel_rgba(d->curtile, i, j, d->pal[0]);
+				}
+
+				// Pixels near top-left and bottom-right corners are transparent.
+				if(!c->padpix &&
+					((i+j <= 3) || (i+j >= MAHJ_TILE_WIDTH+MAHJ_TILE_HEIGHT-5)))
+				{
+					de_bitmap_setsample(d->curtile, i, j, 3, 0);
+				}
+			}
+		}
+
+		// Paint the tile to the canvas
+		de_bitmap_copy_rect(d->curtile, d->canvas, 0, 0,
+			MAHJ_TILE_WIDTH, MAHJ_TILE_HEIGHT,
+			cnvpixpos_x, cnvpixpos_y, 0);
+	}
+
+	d->fi = de_finfo_create(c);
+	d->fi->density.code = DE_DENSITY_UNK_UNITS;
+	d->fi->density.xdens = 480.0;
+	d->fi->density.ydens = 350.0;
+	de_bitmap_write_to_file_finfo(d->canvas, d->fi, 0);
+
+	if(d) {
+		ucstring_destroy(d->name);
+		de_bitmap_destroy(d->curtile);
+		de_bitmap_destroy(d->canvas);
+		de_finfo_destroy(c, d->fi);
+		de_free(c, d);
+	}
+}
+
+static int is_byte_run(dbuf *f, i64 pos1, i64 len, u8 x)
+{
+	i64 pos = pos1;
+	i64 endpos = pos1+len;
+
+	while(pos<endpos) {
+		u8 b;
+
+		b = dbuf_getbyte_p(f, &pos);
+		if(b!=x) return 0;
+	}
+	return 1;
+}
+
+static int mahj_look_like_a_tile(dbuf *f, i64 pos1)
+{
+	i64 i;
+	UI expected_val = 0;
+
+	// Sample the bytes at the start of some rows, to see if they have
+	// the usual colors. Some numbers here are arbitrary.
+	for(i=0; i<10; i++) {
+		UI v;
+
+		v = (UI)dbuf_getu16be(f, pos1+(i+8)*20);
+		if(i==0) {
+			// Normally 0x0888, but it could be a different color like
+			// 0x0222 or 0x0333.
+			expected_val = (v&0x000f) * 0x0111;
+		}
+		if(v!=expected_val) return 0;
+	}
+	return 1;
+}
+
+static int de_identify_mahj_na_til(deark *c)
+{
+	u8 have_typical_first_tile = 0;
+	u8 have_typical_last_tile = 0;
+	int conf = 0;
+
+	// The most difficult part of this format: identifying it.
+
+	// Files should be exactly 33600 bytes, or 800 for the single-tile
+	// format. But files that have added padding are common enough that
+	// we don't want to reject them.
+	// Files that are slightly too short also exist, but nearly all of
+	// them seem to be corrupted, so we won't bother with them.
+
+	if(c->infile->len==800 || c->infile->len==33600 ||
+		c->infile->len==33601 || c->infile->len==33664)
+	{
+		;
+	}
+	else {
+		return 0;
+	}
+
+	if(!de_input_file_has_ext(c, "til")) return 0;
+
+	have_typical_first_tile = mahj_look_like_a_tile(c->infile, 0);
+	if(c->infile->len==800) {
+		conf = 25;
+		goto done;
+	}
+
+	have_typical_last_tile = mahj_look_like_a_tile(c->infile, 41*800);
+
+	if(c->infile->len==33601) {
+		if(de_getbyte(33600) != 0x1a) goto done;
+	}
+
+	if(c->infile->len==33600 || c->infile->len==33601) {
+		conf = 15;
+		if(have_typical_first_tile && have_typical_last_tile) {
+			conf += 70;
+		}
+		else if(have_typical_first_tile || have_typical_last_tile) {
+			conf += 20;
+		}
+		goto done;
+	}
+
+	// We're left with len=33664, which is 33600 rounded up to the next
+	// multiple of 128. We'll be pretty strict here.
+	if(!have_typical_first_tile || !have_typical_last_tile) goto done;
+	if(is_byte_run(c->infile, 33600, 64, 0x1a)) {
+		conf = 60;
+		goto done;
+	}
+	if(dbuf_is_all_zeroes(c->infile, 33600, 64)) {
+		conf = 25;
+		goto done;
+	}
+	conf = 10;
+
+done:
+	return conf;
+}
+
+void de_module_mahj_na_til(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "mahj_na_til";
+	mi->desc = "Mah Jongg tile set";
+	mi->run_fn = de_run_mahj_na_til;
+	mi->identify_fn = de_identify_mahj_na_til;
 }
