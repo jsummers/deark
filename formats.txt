@@ -390,6 +390,13 @@ Deark -- Information about supported formats
 
 * Mah Jongg tile set (.TIL) (module="mahj_na_til")
   Graphics used with Nels Anderson's Mah Jongg solitaire game.
+  - Format is difficult to autodetect. In some cases, you must use
+    "-m mahj_na_til". If the file extension is not ".til", you always need the
+    -m option.
+  Options
+   -opt mahj_na_til:name=0 - Assume the file does not start with a "name"
+     field, even if it looks like it does.
+   -padpix - Reveal the top-left and bottom-right corner pixels.
 
 * MAKIchan graphics (module="makichan")
   - Supports most 16- and 256-color .MAG images

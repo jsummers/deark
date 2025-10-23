@@ -3854,6 +3854,8 @@ void de_module_pixit(deark *c, struct deark_module_info *mi)
 
 struct mahj_ctx {
 	de_encoding input_encoding;
+	u8 opt_name;
+	u8 need_errmsg;
 	u8 has_name;
 	de_bitmap *curtile;
 	de_bitmap *canvas;
@@ -3862,7 +3864,7 @@ struct mahj_ctx {
 	de_color pal[16];
 };
 
-#define MAHJ_MAX_TILES      42
+#define MAHJ_MAX_TILES      200
 #define MAHJ_MAX_TILES_PER_ROW  10
 #define MAHJ_TILE_WIDTH     40
 #define MAHJ_TILE_HEIGHT    40
@@ -3888,18 +3890,26 @@ static void de_run_mahj_na_til(deark *c, de_module_params *mparams)
 	i64 n;
 
 	d = de_malloc(c, sizeof(struct mahj_ctx));
+	d->opt_name = (u8)de_get_ext_option_bool(c, "mahj_na_til:name", 0xff);
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 
 	tile_rowspan = de_pad_to_2(MAHJ_TILE_WIDTH)/2;
 	bytes_per_tile = tile_rowspan*MAHJ_TILE_HEIGHT;
 
 	num_tiles = (c->infile->len+bytes_per_tile/2) / bytes_per_tile;
-	if(num_tiles<1) num_tiles = 1;
-	if(num_tiles>MAHJ_MAX_TILES) num_tiles = MAHJ_MAX_TILES;
+	if(num_tiles<1 || num_tiles>MAHJ_MAX_TILES) {
+		d->need_errmsg = 1;
+		goto done;
+	}
 	de_dbg(c, "num tiles: %d", (int)num_tiles);
 
 	d->name = ucstring_create(c);
-	d->has_name = (de_getbyte(0) != 0);
+	if(d->opt_name==0) {
+		d->has_name = 0;
+	}
+	else {
+		d->has_name = (de_getbyte(0) != 0);
+	}
 	if(d->has_name) {
 		dbuf_read_to_ucstring(c->infile, 0, 21, d->name,
 			DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
@@ -3969,7 +3979,11 @@ static void de_run_mahj_na_til(deark *c, de_module_params *mparams)
 	d->fi->density.ydens = 350.0;
 	de_bitmap_write_to_file_finfo(d->canvas, d->fi, 0);
 
+done:
 	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported TIL file");
+		}
 		ucstring_destroy(d->name);
 		de_bitmap_destroy(d->curtile);
 		de_bitmap_destroy(d->canvas);
@@ -4007,6 +4021,7 @@ static int mahj_look_like_a_tile(dbuf *f, i64 pos1)
 			// Normally 0x0888, but it could be a different color like
 			// 0x0222 or 0x0333.
 			expected_val = (v&0x000f) * 0x0111;
+			if(expected_val==0) return 0;
 		}
 		if(v!=expected_val) return 0;
 	}
@@ -4015,42 +4030,77 @@ static int mahj_look_like_a_tile(dbuf *f, i64 pos1)
 
 static int de_identify_mahj_na_til(deark *c)
 {
+	i64 num_tiles;
+	i64 mod800;
+	i64 mod128;
+	i64 last_tile_idx;
+	u8 is_pad1 = 0;
+	u8 is_pad128 = 0;
 	u8 have_typical_first_tile = 0;
 	u8 have_typical_last_tile = 0;
 	int conf = 0;
 
 	// The most difficult part of this format: identifying it.
-
-	// Files should be exactly 33600 bytes, or 800 for the single-tile
-	// format. But files that have added padding are common enough that
-	// we don't want to reject them.
-	// Files that are slightly too short also exist, but nearly all of
-	// them seem to be corrupted, so we won't bother with them.
-
-	if(c->infile->len==800 || c->infile->len==33600 ||
-		c->infile->len==33601 || c->infile->len==33664)
-	{
-		;
-	}
-	else {
-		return 0;
-	}
-
 	if(!de_input_file_has_ext(c, "til")) return 0;
 
+	// Files *should* be exactly 33600 bytes (42 tiles), or 800 for the
+	// single-tile format. But...
+	// - Another product by the same author, Tile Match, includes a file
+	//   with just 10 tiles.
+	// - Some files have a 0x1a byte appended.
+	// - Some files are padded to the next multiple of 128 bytes.
+	// - Some files have extra tiles at the end, that are just blank or
+	//   garbage or duplicates.
+	// - Some files have extra tiles at the end that have a purpose, such
+	//   as comments. The most I've seen is 60 (roadsgn2.til).
+	// - Files that are slightly too short also exist, but nearly all of
+	//   them seem to be corrupted, so we won't bother with them.
+
+	// (TODO: This still needs work.)
+
+	num_tiles = c->infile->len / 800;
+	if(num_tiles<1 || num_tiles>72) goto done;
+	mod800 = c->infile->len % 800;
+	mod128 = c->infile->len % 128;
+	if(mod800==1) {
+		is_pad1 = 1;
+	}
+	else if(mod800>1 && mod800<128 && mod128==0) {
+		is_pad128 = 1;
+	}
+	if(mod800!=0 && !is_pad1 && !is_pad128) return 0;
+	if(is_pad128 && num_tiles<42) return 0;
+
+	if(is_pad1) {
+		if(de_getbyte(c->infile->len-1) != 0x1a) return 0;
+	}
+	if(is_pad128 && num_tiles!=42) {
+		goto done;
+	}
+	if(is_pad128) {
+		if(is_byte_run(c->infile, 33600, 64, 0x1a)) {
+			;
+		}
+		else if(dbuf_is_all_zeroes(c->infile, 33600, 64)) {
+			;
+		}
+		else {
+			goto done;
+		}
+	}
+
 	have_typical_first_tile = mahj_look_like_a_tile(c->infile, 0);
-	if(c->infile->len==800) {
-		conf = 25;
+	if(num_tiles==1) {
+		if(have_typical_first_tile) {
+			conf = 25;
+		}
 		goto done;
 	}
 
-	have_typical_last_tile = mahj_look_like_a_tile(c->infile, 41*800);
+	last_tile_idx = (num_tiles>=42)?41:(num_tiles-1);
+	have_typical_last_tile = mahj_look_like_a_tile(c->infile, last_tile_idx*800);
 
-	if(c->infile->len==33601) {
-		if(de_getbyte(33600) != 0x1a) goto done;
-	}
-
-	if(c->infile->len==33600 || c->infile->len==33601) {
+	if(num_tiles==42) {
 		conf = 15;
 		if(have_typical_first_tile && have_typical_last_tile) {
 			conf += 70;
@@ -4061,18 +4111,18 @@ static int de_identify_mahj_na_til(deark *c)
 		goto done;
 	}
 
-	// We're left with len=33664, which is 33600 rounded up to the next
-	// multiple of 128. We'll be pretty strict here.
-	if(!have_typical_first_tile || !have_typical_last_tile) goto done;
-	if(is_byte_run(c->infile, 33600, 64, 0x1a)) {
-		conf = 60;
+	// At this point:
+	// - Number of tiles is not 42 or 1 or too large.
+	// - No padding, except maybe a single 0x1a.
+
+	if(have_typical_first_tile && have_typical_last_tile) {
+		conf = 19;
 		goto done;
 	}
-	if(dbuf_is_all_zeroes(c->infile, 33600, 64)) {
-		conf = 25;
+	if(have_typical_first_tile || have_typical_last_tile) {
+		conf = 10;
 		goto done;
 	}
-	conf = 10;
 
 done:
 	return conf;
