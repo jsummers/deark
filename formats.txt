@@ -398,6 +398,15 @@ Deark -- Information about supported formats
      field, even if it looks like it does.
    -padpix - Reveal the top-left and bottom-right corner pixels.
 
+* Mah Jongg -V-G-A- tile set (.tis) (module="mjvga")
+  Graphics used with Mah Jongg -V-G-A- and Mah Jongg for Windows, by Ron
+  Balewski.
+  - Also supports the single-tile format with extension .icn or .til. This
+    format uses a separate palette file usually named pal.cfg.
+  Options
+   -file2 <pal.cfg> - Read the palette from this file. Not expected to be used
+    with TIS format, but allowed.
+
 * MAKIchan graphics (module="makichan")
   - Supports most 16- and 256-color .MAG images
   - Supports most 16-color .MKI images

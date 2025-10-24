@@ -44,6 +44,7 @@ DE_DECLARE_MODULE(de_module_pixfolio);
 DE_DECLARE_MODULE(de_module_apple2icons);
 DE_DECLARE_MODULE(de_module_pixit);
 DE_DECLARE_MODULE(de_module_mahj_na_til);
+DE_DECLARE_MODULE(de_module_mjvga);
 
 static void datetime_dbgmsg(deark *c, struct de_timestamp *ts, const char *name)
 {
@@ -3857,17 +3858,18 @@ struct mahj_ctx {
 	u8 opt_name;
 	u8 need_errmsg;
 	u8 has_name;
+	i64 tile_w, tile_h;
 	de_bitmap *curtile;
 	de_bitmap *canvas;
 	de_ucstring *name;
 	de_finfo *fi;
 	de_color pal[16];
+
+	u8 mjvga_tis_fmt;
 };
 
 #define MAHJ_MAX_TILES      200
 #define MAHJ_MAX_TILES_PER_ROW  10
-#define MAHJ_TILE_WIDTH     40
-#define MAHJ_TILE_HEIGHT    40
 #define MAHJ_BORDER         2
 
 // This is slightly different from the standard PC palette.
@@ -3877,6 +3879,16 @@ static const u8 mahj_pal16[16*3] = {
 	0x55,0x55,0x55, 0x55,0x55,0xff, 0x00,0xaa,0x00, 0x00,0xff,0xff,
 	0xff,0x00,0x00, 0xff,0x00,0xff, 0xff,0xff,0x00, 0xff,0xff,0xff
 };
+
+static void mahj_destroy_ctx(deark *c, struct mahj_ctx *d)
+{
+	if(!d) return;
+	ucstring_destroy(d->name);
+	de_bitmap_destroy(d->curtile);
+	de_bitmap_destroy(d->canvas);
+	de_finfo_destroy(c, d->fi);
+	de_free(c, d);
+}
 
 static void de_run_mahj_na_til(deark *c, de_module_params *mparams)
 {
@@ -3893,8 +3905,10 @@ static void de_run_mahj_na_til(deark *c, de_module_params *mparams)
 	d->opt_name = (u8)de_get_ext_option_bool(c, "mahj_na_til:name", 0xff);
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 
-	tile_rowspan = de_pad_to_2(MAHJ_TILE_WIDTH)/2;
-	bytes_per_tile = tile_rowspan*MAHJ_TILE_HEIGHT;
+	d->tile_w = 40;
+	d->tile_h = 40;
+	tile_rowspan = de_pad_to_2(d->tile_w)/2;
+	bytes_per_tile = tile_rowspan*d->tile_h;
 
 	num_tiles = (c->infile->len+bytes_per_tile/2) / bytes_per_tile;
 	if(num_tiles<1 || num_tiles>MAHJ_MAX_TILES) {
@@ -3928,10 +3942,10 @@ static void de_run_mahj_na_til(deark *c, de_module_params *mparams)
 	}
 	canvas_num_rows = de_pad_to_n(num_tiles, canvas_num_cols) / canvas_num_cols;
 
-	canvas_w = canvas_num_cols*(MAHJ_TILE_WIDTH+MAHJ_BORDER) - MAHJ_BORDER;
-	canvas_h = canvas_num_rows*(MAHJ_TILE_HEIGHT+MAHJ_BORDER) - MAHJ_BORDER;
+	canvas_w = canvas_num_cols*(d->tile_w+MAHJ_BORDER) - MAHJ_BORDER;
+	canvas_h = canvas_num_rows*(d->tile_h+MAHJ_BORDER) - MAHJ_BORDER;
 	d->canvas = de_bitmap_create(c, canvas_w, canvas_h, 4);
-	d->curtile = de_bitmap_create(c, MAHJ_TILE_WIDTH, MAHJ_TILE_HEIGHT, 4);
+	d->curtile = de_bitmap_create(c, d->tile_w, d->tile_h, 4);
 
 	for(n=0; n<num_tiles; n++) {
 		i64 colnum, rownum;
@@ -3940,18 +3954,18 @@ static void de_run_mahj_na_til(deark *c, de_module_params *mparams)
 
 		colnum = n % canvas_num_cols;
 		rownum = n / canvas_num_cols;
-		cnvpixpos_x = colnum * (MAHJ_TILE_WIDTH+MAHJ_BORDER);
-		cnvpixpos_y = rownum * (MAHJ_TILE_HEIGHT+MAHJ_BORDER);
+		cnvpixpos_x = colnum * (d->tile_w+MAHJ_BORDER);
+		cnvpixpos_y = rownum * (d->tile_h+MAHJ_BORDER);
 
 		// Read a tile to a temp bitmap
-		de_bitmap_rect(d->curtile, 0, 0, MAHJ_TILE_WIDTH, MAHJ_TILE_HEIGHT,
+		de_bitmap_rect(d->curtile, 0, 0, d->tile_w, d->tile_h,
 			DE_STOCKCOLOR_TRANSPARENT, 0);
 		de_convert_image_paletted(c->infile, bytes_per_tile*n, 4, tile_rowspan,
 			d->pal, d->curtile, 0);
 
 		// Fix up some things
-		for(j=0; j<MAHJ_TILE_HEIGHT; j++) {
-			for(i=0; i<MAHJ_TILE_WIDTH; i++) {
+		for(j=0; j<d->tile_h; j++) {
+			for(i=0; i<d->tile_w; i++) {
 				// First 21 bytes are sometimes used for a name.
 				// If so, corresponding visible pixels are always black.
 				if(d->has_name && n==0 && (j==0 || (j==1 && i<4))) {
@@ -3960,7 +3974,7 @@ static void de_run_mahj_na_til(deark *c, de_module_params *mparams)
 
 				// Pixels near top-left and bottom-right corners are transparent.
 				if(!c->padpix &&
-					((i+j <= 3) || (i+j >= MAHJ_TILE_WIDTH+MAHJ_TILE_HEIGHT-5)))
+					((i+j <= 3) || (i+j >= d->tile_w+d->tile_h-5)))
 				{
 					de_bitmap_setsample(d->curtile, i, j, 3, 0);
 				}
@@ -3969,7 +3983,7 @@ static void de_run_mahj_na_til(deark *c, de_module_params *mparams)
 
 		// Paint the tile to the canvas
 		de_bitmap_copy_rect(d->curtile, d->canvas, 0, 0,
-			MAHJ_TILE_WIDTH, MAHJ_TILE_HEIGHT,
+			d->tile_w, d->tile_h,
 			cnvpixpos_x, cnvpixpos_y, 0);
 	}
 
@@ -3977,18 +3991,14 @@ static void de_run_mahj_na_til(deark *c, de_module_params *mparams)
 	d->fi->density.code = DE_DENSITY_UNK_UNITS;
 	d->fi->density.xdens = 480.0;
 	d->fi->density.ydens = 350.0;
-	de_bitmap_write_to_file_finfo(d->canvas, d->fi, 0);
+	de_bitmap_write_to_file_finfo(d->canvas, d->fi, DE_CREATEFLAG_OPT_IMAGE);
 
 done:
 	if(d) {
 		if(d->need_errmsg) {
 			de_err(c, "Bad or unsupported TIL file");
 		}
-		ucstring_destroy(d->name);
-		de_bitmap_destroy(d->curtile);
-		de_bitmap_destroy(d->canvas);
-		de_finfo_destroy(c, d->fi);
-		de_free(c, d);
+		mahj_destroy_ctx(c, d);
 	}
 }
 
@@ -4134,4 +4144,264 @@ void de_module_mahj_na_til(deark *c, struct deark_module_info *mi)
 	mi->desc = "Mah Jongg tile set";
 	mi->run_fn = de_run_mahj_na_til;
 	mi->identify_fn = de_identify_mahj_na_til;
+}
+
+// **************************************************************************
+// Mah Jongg -V-G-A- tile or tile set
+// By Ron Balewski
+// **************************************************************************
+
+#define MJVGA_MAX_TILES      200
+#define MJVGA_MAX_TILES_PER_ROW  9
+#define MJVGA_BORDER         2
+#define MJVGA_TILE_HEADER_SIZE   6
+#define MJVGA_TILE_TRAILER_SIZE  2
+
+// Copied from v1.1-2.0 PAL.CFG
+static const u8 mjvga_default_pal16[16*3] = {
+	27, 0,23, 52,46,37,  0,44,23, 21, 0,63,
+	30, 0,11, 63, 5, 5, 63,32,63, 32,32,32,
+	30,62,63, 50,40,60, 11,63, 0, 21, 5, 0,
+	53,51,45, 63,63, 0, 63,35,10, 63,63,63 };
+
+static void copy_palette_from_rgb18(const u8 *src, de_color *dst, size_t ncolors)
+{
+	size_t i;
+
+	for(i=0; i<ncolors; i++) {
+		u8 clr[3];
+		size_t k;
+
+		for(k=0; k<3; k++) {
+			clr[k] = de_scale_63_to_255(src[i*3+k]);
+
+		}
+		dst[i] = DE_MAKE_RGB(clr[0], clr[1], clr[2]);
+	}
+}
+
+static int check_mjvga_sig(deark *c, i64 pos)
+{
+	return !dbuf_memcmp(c->infile, pos, (const void*)"\xa6\x05\x2b\x00\x3b", 5);
+}
+
+static int mjvga_read_palette(deark *c, struct mahj_ctx *d, dbuf *palfile, i64 pos1)
+{
+	size_t i;
+	i64 pos = pos1;
+	i64 count = 0;
+
+	for(i=0; i<16; i++) {
+		int ret;
+		i64 content_len;
+		i64 total_len;
+		char linebuf[32];
+		int s1[3] = {0, 0, 0};
+		u8 s2[3];
+		size_t k;
+
+		ret = dbuf_find_line(palfile, pos, &content_len, &total_len);
+		if(!ret || content_len<5) goto done;
+		if(content_len > (i64)sizeof(linebuf)-1) goto done;
+		dbuf_read(palfile, (u8*)linebuf, pos, content_len);
+		linebuf[content_len] = '\0';
+		ret = de_sscanf(linebuf, "%d %d %d", &s1[0], &s1[1], &s1[2]);
+		if(ret!=3) goto done;
+		for(k=0; k<3; k++) {
+			s2[k] = de_scale_63_to_255((u8)s1[k]);
+		}
+		d->pal[i] = DE_MAKE_RGB(s2[0], s2[1], s2[2]);
+		de_dbg_pal_entry(c, (i64)i, d->pal[i]);
+		count++;
+		pos += total_len;
+	}
+done:
+	return (count>=16);
+}
+
+static int mjvga_read_palette_file(deark *c, struct mahj_ctx *d,
+	const char *palfn)
+{
+	dbuf *palfile = NULL;
+	int retval = 0;
+	int ret;
+
+	palfile = dbuf_open_input_file(c, palfn);
+	if(!palfile) goto done;
+	ret = mjvga_read_palette(c, d, palfile, 0);
+	if(!ret) {
+		de_err(c, "Bad palette file");
+		goto done;
+	}
+	retval = 1;
+done:
+	dbuf_close(palfile);
+	return retval;
+}
+
+static void de_run_mjvga(deark *c, de_module_params *mparams)
+{
+	struct mahj_ctx *d = NULL;
+	i64 num_tiles;
+	i64 canvas_num_cols;
+	i64 canvas_num_rows;
+	i64 tile_rowspan;
+	i64 tiles_startpos;
+	i64 palpos = 0;
+	i64 n;
+	i64 total_bytes_per_tile;
+	i64 canvas_w, canvas_h;
+	i64 tile_bprpp;
+	const char *palfn = NULL;
+	int ret;
+
+	d = de_malloc(c, sizeof(struct mahj_ctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	palfn = de_get_ext_option(c, "file2");
+
+	if((c->infile->len<=1536) && check_mjvga_sig(c, 0)) {
+		;
+	}
+	else if(check_mjvga_sig(c, 96)) {
+		d->mjvga_tis_fmt = 1;
+	}
+	else {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	de_declare_fmtf(c, "Mah Jongg -V-G-A- tile%s", (d->mjvga_tis_fmt?" set":""));
+
+	d->tile_w = (c->padpix ? 48 : 44);
+	d->tile_h = 60;
+	tile_bprpp = de_pad_to_n(d->tile_w, 8)/8;
+	tile_rowspan = tile_bprpp * 4;
+	total_bytes_per_tile = MJVGA_TILE_HEADER_SIZE + tile_rowspan*d->tile_h +
+		MJVGA_TILE_TRAILER_SIZE;
+
+	if(d->mjvga_tis_fmt) {
+		num_tiles = 44;
+		tiles_startpos = 96;
+		palpos = tiles_startpos + num_tiles*total_bytes_per_tile;
+
+		if(c->infile->len < palpos-MJVGA_TILE_TRAILER_SIZE) {
+			d->need_errmsg = 1;
+			goto done;
+		}
+	}
+	else {
+		num_tiles = 1;
+		tiles_startpos = 0;
+	}
+	de_dbg(c, "num tiles: %d", (int)num_tiles);
+
+	d->name = ucstring_create(c);
+	if(d->mjvga_tis_fmt) {
+		dbuf_read_to_ucstring(c->infile, 0, 40, d->name,
+			DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+		de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(d->name));
+	}
+
+	// Start with a default palette
+	copy_palette_from_rgb18(mjvga_default_pal16, d->pal, 16);
+
+	if(palfn) {
+		de_dbg(c, "palette from cfg file");
+		de_dbg_indent(c, 1);
+		ret = mjvga_read_palette_file(c, d, palfn);
+		de_dbg_indent(c, -1);
+		if(!ret) goto done;
+	}
+	else if(d->mjvga_tis_fmt) {
+		de_dbg(c, "palette at %"I64_FMT, palpos);
+		de_dbg_indent(c, 1);
+		ret = mjvga_read_palette(c, d, c->infile, palpos);
+		de_dbg_indent(c, -1);
+		if(!ret) {
+			de_warn(c, "Bad palette");
+		}
+	}
+	else {
+		de_warn(c, "Using a default palette");
+	}
+
+	if(num_tiles < MJVGA_MAX_TILES_PER_ROW) {
+		canvas_num_cols = num_tiles;
+	}
+	else {
+		canvas_num_cols = MJVGA_MAX_TILES_PER_ROW;
+	}
+	canvas_num_rows = de_pad_to_n(num_tiles, canvas_num_cols) / canvas_num_cols;
+
+	canvas_w = canvas_num_cols*(d->tile_w+MJVGA_BORDER) - MJVGA_BORDER;
+	canvas_h = canvas_num_rows*(d->tile_h+MJVGA_BORDER) - MJVGA_BORDER;
+	d->canvas = de_bitmap_create(c, canvas_w, canvas_h, 4);
+	d->curtile = de_bitmap_create(c, d->tile_w, d->tile_h, 4);
+
+	if(d->mjvga_tis_fmt) {
+		de_dbg(c, "tiles at %"I64_FMT, tiles_startpos);
+	}
+
+	for(n=0; n<num_tiles; n++) {
+		i64 colnum, rownum;
+		i64 cnvpixpos_x, cnvpixpos_y;
+		i64 pos;
+
+		pos = tiles_startpos + n*total_bytes_per_tile;
+		pos += MJVGA_TILE_HEADER_SIZE;
+		colnum = n % canvas_num_cols;
+		rownum = n / canvas_num_cols;
+		cnvpixpos_x = colnum * (d->tile_w+MJVGA_BORDER);
+		cnvpixpos_y = rownum * (d->tile_h+MJVGA_BORDER);
+
+		// Read a tile to a temp bitmap
+		de_bitmap_rect(d->curtile, 0, 0, d->tile_w, d->tile_h,
+			DE_STOCKCOLOR_TRANSPARENT, 0);
+		de_convert_image_paletted_planar(c->infile, pos,
+			4, tile_rowspan, tile_bprpp, d->pal, d->curtile, 0x0);
+
+		// Paint the tile to the canvas
+		de_bitmap_copy_rect(d->curtile, d->canvas, 0, 0,
+			d->tile_w, d->tile_h,
+			cnvpixpos_x, cnvpixpos_y, 0);
+	}
+
+	de_bitmap_write_to_file(d->canvas, NULL, DE_CREATEFLAG_OPT_IMAGE);
+
+done:
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported TIS or TIL file");
+		}
+		mahj_destroy_ctx(c, d);
+	}
+}
+
+static int de_identify_mjvga(deark *c)
+{
+	// TIL/ICN: Expecting len exactly 1448, but we allow some tolerance.
+	if(c->infile->len>=1446 && c->infile->len<=1536) {
+		if(check_mjvga_sig(c, 0)) return 91;
+	}
+
+	// TIS: Expecting len 63808, plus 16 palette entries, each 7 to 10 bytes.
+	// So, 63920 to 63968 bytes.
+	if((c->infile->len >= 63808+6*16) && (c->infile->len <= 64000)) {
+		if(check_mjvga_sig(c, 96)) return 90;
+	}
+
+	return 0;
+}
+
+static void de_help_mjvga(deark *c)
+{
+	de_msg(c, "-file2 <pal.cfg> : The palette file");
+}
+
+void de_module_mjvga(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "mjvga";
+	mi->desc = "Mah Jongg -V-G-A- tile or tile set";
+	mi->run_fn = de_run_mjvga;
+	mi->identify_fn = de_identify_mjvga;
+	mi->help_fn = de_help_mjvga;
 }
