@@ -907,7 +907,7 @@ void de_module_pcx2com(deark *c, struct deark_module_info *mi)
 // in such cases. It is never possible to be sure what the correct palette is,
 // short of actually examining the image pixels.
 
-#define BERTSPAL_UNK   0
+#define BERTSPAL_UNK   0 // Must be 0
 #define BERTSPAL_1     1 // [0]/[5] = gray/purple
 #define BERTSPAL_2     2 // black/gray
 #define BERTSPAL_3     3 // gray/green
@@ -917,6 +917,10 @@ void de_module_pcx2com(deark *c, struct deark_module_info *mi)
 struct berts_ctx {
 	u32 pal_crc;
 	u32 image_crc;
+	u8 forced_pal;
+	u8 default_pal;
+	u8 auto_pal;
+	u8 pal_to_use;
 	struct de_crcobj *crco;
 	de_color pal[16];
 };
@@ -935,6 +939,26 @@ static const char *bmg_pal_id_to_name(u8 x)
 	case BERTSPAL_GRAY: name = "gray"; break;
 	}
 	return name?name:"unrecognized";
+}
+
+// If name is unrecognized, reports an error and returns _UNKNOWN.
+static u8 bmg_name_to_pal_id(deark *c, const char *name)
+{
+	if(!de_strcmp(name, "1")) {
+		return BERTSPAL_1;
+	}
+	if(!de_strcmp(name, "2")) {
+		return BERTSPAL_2;
+	}
+	if(!de_strcmp(name, "3")) {
+		return BERTSPAL_3;
+	}
+	if(!de_strcmp(name, "gray")) {
+		return BERTSPAL_GRAY;
+	}
+
+	de_err(c, "Unknown palette \"%s\"", name);
+	return BERTSPAL_UNK;
 }
 
 // Used with palettes found in files
@@ -1020,73 +1044,18 @@ static int is_usable_bmg_file(deark *c, struct berts_ctx *d)
 	if(bits*planes != 4) return 0;
 
 	b = de_getbyte(111);
-	if(b!=0) return 0; // Probably already repaired
+	if(b=='P') {
+		de_dbg(c, "[file already processed]");
+	}
 
 	return 1;
 }
 
-static const u8 bmg_palraw_1[48] = {
-	0x82,0x82,0x82, 0x00,0x00,0x00, 0x00,0x00,0xff, 0x00,0x00,0xc3,
-	0x00,0xa2,0xc3, 0xb2,0x00,0xcb, 0x00,0xc3,0x51, 0x00,0xa2,0x00,
-	0x00,0x71,0x00, 0xc3,0x71,0x00, 0xa2,0x51,0x00, 0x82,0x00,0x00,
-	0xff,0x00,0x00, 0xd3,0x00,0x00, 0xef,0xef,0x3c, 0xff,0xff,0xff
-};
-
-static const u8 bmg_palraw_3[48] = {
-	0xaa,0xaa,0xaa,	0x00,0x00,0x00,	0x82,0x00,0x82,	0xff,0x00,0x00,
-	0x41,0x82,0x82,	0x00,0xc3,0x00,	0x00,0x00,0xff,	0x55,0x55,0x55,
-	0xff,0xc3,0xa2,	0xff,0xff,0x00,	0xff,0x00,0xff,	0xff,0x61,0x82,
-	0x00,0xff,0xff,	0xa2,0x61,0x41,	0xa2,0xe3,0xff,	0xff,0xff,0xff
-};
-
-static void de_run_berts_bmg(deark *c, de_module_params *mparams)
+// Uses d->image_crc.
+// Returns palette BERTSPAL_1, _2, _3, or _UNK.
+static u8 bmg_detect_pal_from_image_crc(struct berts_ctx *d)
 {
-	struct berts_ctx *d = NULL;
-	u8 pal_id_in_file = BERTSPAL_UNK;
-	u8 pal_to_use = BERTSPAL_UNK;
-	const char *s;
-
-	d = de_malloc(c, sizeof(struct berts_ctx));
-
-	s = de_get_ext_option(c, "berts_bmg:defpal");
-	if(s) {
-		if(!de_strcmp(s, "1")) {
-			pal_to_use = BERTSPAL_1;
-		}
-		else if(!de_strcmp(s, "2")) {
-			pal_to_use = BERTSPAL_2;
-		}
-		else if(!de_strcmp(s, "3")) {
-			pal_to_use = BERTSPAL_3;
-		}
-		else if(!de_strcmp(s, "gray")) {
-			pal_to_use = BERTSPAL_GRAY;
-		}
-		else if(!de_strcmp(s, "fail")) {
-			;
-		}
-		else {
-			de_err(c, "Unknown palette \"%s\"", s);
-			goto done;
-		}
-	}
-
-	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-
-	de_crcobj_addslice(d->crco, c->infile, 16, 48);
-	d->pal_crc = de_crcobj_getval(d->crco);
-	pal_id_in_file = bmg_pal_crc_to_pal_id(d->pal_crc);
-	de_dbg(c, "palette in file: %s", bmg_pal_id_to_name(pal_id_in_file));
-
-	de_crcobj_reset(d->crco);
-	de_crcobj_addslice(d->crco, c->infile, 128, c->infile->len-128);
-	d->image_crc = de_crcobj_getval(d->crco);
-	de_dbg(c, "img crc: 0x%08x", (UI)d->image_crc);
-
-	if(!is_usable_bmg_file(c, d)) {
-		de_err(c, "Not a BMG-compatible file");
-		goto done;
-	}
+	u8 x = BERTSPAL_UNK;
 
 	// Note: Normally, the objects associated with CRCs like this will be
 	// recorded in the "deark-extras" companion project. But I doubt I will
@@ -1106,13 +1075,13 @@ static void de_run_berts_bmg(deark *c, de_module_params *mparams)
 	case 0xc85eda3fU: // BPA30 MAMMOTH.BMG
 	case 0x3dbfb6ccU: // BCH32 BCH.IBG
 	case 0xf7993b50U: // BCH32 BCH.BMG
-		pal_to_use = BERTSPAL_1;
+		x = BERTSPAL_1;
 		break;
 	case 0xe91706d6U: // BWD30 BWD.IBG
 	case 0xb9bc1f08U: // BWD30 HUMPBACK.BMG
 	case 0x7183a578U: // BAF32 BAF.IBG
 	case 0xd76f8557U: // BAF32 ZEBRA.BMG
-		pal_to_use = BERTSPAL_2;
+		x = BERTSPAL_2;
 		break;
 	case 0xe5cc7840U: // DOLL10,26 DOLL.IBG
 	case 0xf605e72eU: // DOLL10 RACHEL.BMG
@@ -1127,31 +1096,43 @@ static void de_run_berts_bmg(deark *c, de_module_params *mparams)
 	case 0x49648857U: // BCH46 BCH.BMG
 	case 0x3c28f954U: // BPA46 BPA.IBG
 	case 0x332b2b9eU: // BPA46 BPA.BMG
-		pal_to_use = BERTSPAL_3;
+		x = BERTSPAL_3;
 		break;
 	}
 
-	if(pal_to_use==BERTSPAL_UNK) {
-		de_err(c, "Don't know what palette to use (try \"-opt berts_bmg:defpal=...\")");
-		goto done;
-	}
+	return x;
+}
 
-	de_dbg(c, "using palette: %s", bmg_pal_id_to_name(pal_to_use));
+static void bmg_acquire_palette(deark *c, struct berts_ctx *d)
+{
+	static const u8 bmg_palraw_1[48] = {
+		0x82,0x82,0x82, 0x00,0x00,0x00, 0x00,0x00,0xff, 0x00,0x00,0xc3,
+		0x00,0xa2,0xc3, 0xb2,0x00,0xcb, 0x00,0xc3,0x51, 0x00,0xa2,0x00,
+		0x00,0x71,0x00, 0xc3,0x71,0x00, 0xa2,0x51,0x00, 0x82,0x00,0x00,
+		0xff,0x00,0x00, 0xd3,0x00,0x00, 0xef,0xef,0x3c, 0xff,0xff,0xff
+	};
 
-	if(pal_to_use==BERTSPAL_1) {
+	static const u8 bmg_palraw_3[48] = {
+		0xaa,0xaa,0xaa,	0x00,0x00,0x00,	0x82,0x00,0x82,	0xff,0x00,0x00,
+		0x41,0x82,0x82,	0x00,0xc3,0x00,	0x00,0x00,0xff,	0x55,0x55,0x55,
+		0xff,0xc3,0xa2,	0xff,0xff,0x00,	0xff,0x00,0xff,	0xff,0x61,0x82,
+		0x00,0xff,0xff,	0xa2,0x61,0x41,	0xa2,0xe3,0xff,	0xff,0xff,0xff
+	};
+
+	if(d->pal_to_use==BERTSPAL_1) {
 		de_copy_palette_from_rgb24(bmg_palraw_1, d->pal, 16);
 	}
-	else if(pal_to_use==BERTSPAL_2) {
+	else if(d->pal_to_use==BERTSPAL_2) {
 		de_copy_palette_from_rgb24(bmg_palraw_1, d->pal, 16);
 		// pal[0] should be 0, but since pal[1] is also 0, in the interest
 		// of not losing information, I don't want them to be the same.
 		d->pal[0] = DE_MAKE_GRAY(0x01);
 		d->pal[5] = DE_MAKE_GRAY(0x82);
 	}
-	else if(pal_to_use==BERTSPAL_3) {
+	else if(d->pal_to_use==BERTSPAL_3) {
 		de_copy_palette_from_rgb24(bmg_palraw_3, d->pal, 16);
 	}
-	else {
+	else { // grayscale
 		size_t idx;
 		u8 gv;
 
@@ -1170,6 +1151,79 @@ static void de_run_berts_bmg(deark *c, de_module_params *mparams)
 			gv -= 8;
 		}
 	}
+}
+
+static void de_run_berts_bmg(deark *c, de_module_params *mparams)
+{
+	struct berts_ctx *d = NULL;
+	u8 pal_id_in_file = BERTSPAL_UNK;
+	u8 x;
+	const char *s;
+
+	d = de_malloc(c, sizeof(struct berts_ctx));
+
+	s = de_get_ext_option(c, "berts_bmg:forcepal");
+	if(s) {
+		x = bmg_name_to_pal_id(c, s);
+		if(x==BERTSPAL_UNK) {
+			goto done;
+		}
+		d->forced_pal = x;
+	}
+	if(d->forced_pal==BERTSPAL_UNK) {
+		s = de_get_ext_option(c, "berts_bmg:defpal");
+		if(s) {
+			if(!de_strcmp(s, "fail")) {
+				;
+			}
+			else {
+				x = bmg_name_to_pal_id(c, s);
+				if(x==BERTSPAL_UNK) {
+					goto done;
+				}
+				d->default_pal = x;
+			}
+		}
+	}
+
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+
+	de_crcobj_addslice(d->crco, c->infile, 16, 48);
+	d->pal_crc = de_crcobj_getval(d->crco);
+	pal_id_in_file = bmg_pal_crc_to_pal_id(d->pal_crc);
+	de_dbg(c, "palette in file: %s", bmg_pal_id_to_name(pal_id_in_file));
+
+	de_crcobj_reset(d->crco);
+	de_crcobj_addslice(d->crco, c->infile, 128, c->infile->len-128);
+	d->image_crc = de_crcobj_getval(d->crco);
+
+	d->auto_pal = bmg_detect_pal_from_image_crc(d);
+
+	de_dbg(c, "img crc: 0x%08x (%sknown)", (UI)d->image_crc,
+		(d->auto_pal?"":"un"));
+
+	if(!is_usable_bmg_file(c, d)) {
+		de_err(c, "Not a BMG-compatible file");
+		goto done;
+	}
+
+	if(d->forced_pal!=BERTSPAL_UNK) {
+		d->pal_to_use = d->forced_pal;
+	}
+	else if(d->auto_pal!=BERTSPAL_UNK) {
+		d->pal_to_use = d->auto_pal;
+	}
+	else if(d->default_pal!=BERTSPAL_UNK) {
+		d->pal_to_use = d->default_pal;
+	}
+
+	if(d->pal_to_use==BERTSPAL_UNK) {
+		de_err(c, "Don't know what palette to use (try \"-opt berts_bmg:defpal=...\")");
+		goto done;
+	}
+
+	de_dbg(c, "using palette: %s", bmg_pal_id_to_name(d->pal_to_use));
+	bmg_acquire_palette(c, d);
 
 	berts_main(c, d);
 
@@ -1226,6 +1280,8 @@ static void de_help_berts_bmg(deark *c)
 {
 	de_msg(c, "-opt berts_bmg:defpal=<name> : Default palette "
 		"(options: 1, 2, 3, gray, fail)");
+	de_msg(c, "-opt berts_bmg:forcepal=<name> : Use this palette "
+		"unconditionally");
 }
 
 void de_module_berts_bmg(deark *c, struct deark_module_info *mi)

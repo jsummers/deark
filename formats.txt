@@ -89,9 +89,9 @@ Deark -- Information about supported formats
 * BLD (MegaPaint BLD) (module="bld")
 
 * BMG - Bert's Coloring Programs (module="berts_bmg")
-  A format that looks like PCX, but in most cases it must be interpreted in a
+  This format looks like PCX, but in most cases it must be interpreted in a
   special way.
-  - Files are converted to PCX.
+  - Files are converted to standard PCX.
   - File must have extension ".bmg" or ".ibg" (or use "-m berts_bmg").
   - Only the distribution files are handled automatically. Otherwise, you must
     use the "defpal" option.
@@ -100,6 +100,8 @@ Deark -- Information about supported formats
      determined.
      Options are "1", "2", "3" for standard palettes, or "gray" for grayscale,
      or "fail" (default) to give up and not write a file.
+   -opt berts_bmg:forcepal=<name> - The palette to use, even if the correct
+     palette is known.
 
 * BMI (Zoner bitmap) (module="bmi") (experimental)
 
