@@ -3855,7 +3855,7 @@ void de_module_pixit(deark *c, struct deark_module_info *mi)
 
 struct mahj_ctx {
 	de_encoding input_encoding;
-	u8 opt_name;
+	u8 opt_namefield;
 	u8 need_errmsg;
 	u8 has_name;
 	i64 tile_w, tile_h;
@@ -3868,6 +3868,7 @@ struct mahj_ctx {
 	u8 mjvga_tis_fmt;
 };
 
+#define MAHJ_TILE_BYTESIZE  800
 #define MAHJ_MAX_TILES      200
 #define MAHJ_MAX_TILES_PER_ROW  10
 #define MAHJ_BORDER         2
@@ -3890,6 +3891,50 @@ static void mahj_destroy_ctx(deark *c, struct mahj_ctx *d)
 	de_free(c, d);
 }
 
+static int mahj_has_name_field(deark *c, struct mahj_ctx *d)
+{
+	UI i;
+	u8 buf[21];
+	u8 found_NUL;
+
+	// If the first byte is not 0, the file might start with a "name" field.
+	// If the name field is present, the bytes covered up by it are rendered as
+	// if they were 0 (black or transparent).
+	// The Mah Jongg v4.2 game thinks the field is 22 bytes long, with the last
+	// byte ignored.
+	// The tile editor, and the game Tile Match, think the field is 21 bytes
+	// long.
+	// Files exist in which the first byte is not 0, but which do not have a
+	// name field. Ideally, we should try to figure this out, or at least have
+	// an option to interpret those bytes as graphics, and/or to be biased in
+	// one direction or the other.
+	// A sometimes-related issue is that tiles exist in which the top-left and
+	// bottom-right corners should not be considered to be transparent.
+	// Perhaps files with fewer than 42 tiles should have different heuristics.
+	// The name field is a silly little quirk, but it's frustratingly difficult
+	// to deal with in a comprehensive way.
+	// The "mahj_na_til:nf" option is left open for future expansion.
+
+	if(d->opt_namefield==0) return 0;
+	de_read(buf, 0, 21);
+	if(buf[0]==0) return 0;
+	found_NUL = 0;
+
+	for(i=0; i<21; i++) {
+		if(found_NUL) {
+			// The name is NUL padded, so if there's a non-NUL after a NUL,
+			// this can't be a name.
+			if(buf[i]!=0) return 0;
+		}
+		else {
+			if(buf[i]==0) {
+				found_NUL = 1;
+			}
+		}
+	}
+	return 1;
+}
+
 static void de_run_mahj_na_til(deark *c, de_module_params *mparams)
 {
 	struct mahj_ctx *d = NULL;
@@ -3902,7 +3947,7 @@ static void de_run_mahj_na_til(deark *c, de_module_params *mparams)
 	i64 n;
 
 	d = de_malloc(c, sizeof(struct mahj_ctx));
-	d->opt_name = (u8)de_get_ext_option_bool(c, "mahj_na_til:name", 0xff);
+	d->opt_namefield = (u8)de_get_ext_option_bool(c, "mahj_na_til:nf", 0xff);
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 
 	d->tile_w = 40;
@@ -3918,12 +3963,7 @@ static void de_run_mahj_na_til(deark *c, de_module_params *mparams)
 	de_dbg(c, "num tiles: %d", (int)num_tiles);
 
 	d->name = ucstring_create(c);
-	if(d->opt_name==0) {
-		d->has_name = 0;
-	}
-	else {
-		d->has_name = (de_getbyte(0) != 0);
-	}
+	d->has_name = mahj_has_name_field(c, d);
 	if(d->has_name) {
 		dbuf_read_to_ucstring(c->infile, 0, 21, d->name,
 			DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
@@ -3966,13 +4006,13 @@ static void de_run_mahj_na_til(deark *c, de_module_params *mparams)
 		// Fix up some things
 		for(j=0; j<d->tile_h; j++) {
 			for(i=0; i<d->tile_w; i++) {
-				// First 21 bytes are sometimes used for a name.
-				// If so, corresponding visible pixels are always black.
+				// Refer to the comments in mahj_has_name_field().
 				if(d->has_name && n==0 && (j==0 || (j==1 && i<4))) {
 					de_bitmap_setpixel_rgba(d->curtile, i, j, d->pal[0]);
 				}
 
-				// Pixels near top-left and bottom-right corners are transparent.
+				// Make pixels near top-left and bottom-right corners
+				// transparent.
 				if(!c->padpix &&
 					((i+j <= 3) || (i+j >= d->tile_w+d->tile_h-5)))
 				{
@@ -4018,22 +4058,38 @@ static int is_byte_run(dbuf *f, i64 pos1, i64 len, u8 x)
 
 static int mahj_look_like_a_tile(dbuf *f, i64 pos1)
 {
+#define MAHJ_NUM_ROWS_TO_TEST  10
 	i64 i;
-	UI expected_val = 0;
+	u8 e1col = 0;
+	u8 e2col = 0;
+	u8 buf[20];
 
 	// Sample the bytes at the start of some rows, to see if they have
 	// the usual colors. Some numbers here are arbitrary.
-	for(i=0; i<10; i++) {
-		UI v;
+	for(i=0; i<MAHJ_NUM_ROWS_TO_TEST; i++) {
+		u8 v;
 
-		v = (UI)dbuf_getu16be(f, pos1+(i+8)*20);
+		dbuf_read(f, buf, pos1+(i+8)*20, 20);
+
+		// Tile "edges" are 5 pixels on the left side, 1 on the right.
+		// We expect edges to be the same for all rows that aren't too
+		// close to the top or bottom.
+		// (One would also expect all tiles to have the same edges, but there
+		// are sets where that's not the case. So it's intentional that we
+		// don't test that.)
+
 		if(i==0) {
-			// Normally 0x0888, but it could be a different color like
-			// 0x0222 or 0x0333.
-			expected_val = (v&0x000f) * 0x0111;
-			if(expected_val==0) return 0;
+			e1col = buf[0]&0x0f; // the face of the tile edges
+			e2col = buf[2]>>4; // the outline color, usually 0
+			if(e1col == e2col) return 0;
 		}
-		if(v!=expected_val) return 0;
+
+		v = buf[0]>>4;    if(v!=e1col && v!=e2col) return 0;
+		v = buf[0]&0x0f;  if(v!=e1col) return 0;
+		v = buf[1]>>4;    if(v!=e1col) return 0;
+		v = buf[1]&0x0f;  if(v!=e1col) return 0;
+		v = buf[2]>>4;    if(v!=e2col) return 0;
+		v = buf[19]&0x0f; if(v!=e2col) return 0;
 	}
 	return 1;
 }
@@ -4043,10 +4099,11 @@ static int de_identify_mahj_na_til(deark *c)
 	i64 num_tiles;
 	i64 mod800;
 	i64 mod128;
+	i64 early_tile_idx;
 	i64 last_tile_idx;
 	u8 is_pad1 = 0;
 	u8 is_pad128 = 0;
-	u8 have_typical_first_tile = 0;
+	u8 have_typical_early_tile = 0;
 	u8 have_typical_last_tile = 0;
 	int conf = 0;
 
@@ -4066,11 +4123,9 @@ static int de_identify_mahj_na_til(deark *c)
 	// - Files that are slightly too short also exist, but nearly all of
 	//   them seem to be corrupted, so we won't bother with them.
 
-	// (TODO: This still needs work.)
-
-	num_tiles = c->infile->len / 800;
-	if(num_tiles<1 || num_tiles>72) goto done;
-	mod800 = c->infile->len % 800;
+	num_tiles = c->infile->len / MAHJ_TILE_BYTESIZE;
+	if(num_tiles<1 || num_tiles>64) goto done;
+	mod800 = c->infile->len % MAHJ_TILE_BYTESIZE;
 	mod128 = c->infile->len % 128;
 	if(mod800==1) {
 		is_pad1 = 1;
@@ -4079,19 +4134,17 @@ static int de_identify_mahj_na_til(deark *c)
 		is_pad128 = 1;
 	}
 	if(mod800!=0 && !is_pad1 && !is_pad128) return 0;
-	if(is_pad128 && num_tiles<42) return 0;
 
 	if(is_pad1) {
 		if(de_getbyte(c->infile->len-1) != 0x1a) return 0;
 	}
-	if(is_pad128 && num_tiles!=42) {
-		goto done;
-	}
-	if(is_pad128) {
-		if(is_byte_run(c->infile, 33600, 64, 0x1a)) {
+
+	if(is_pad128 && num_tiles<42) return 0;
+	if(is_pad128 && num_tiles>42) {
+		if(is_byte_run(c->infile, 33600, mod128, 0x1a)) {
 			;
 		}
-		else if(dbuf_is_all_zeroes(c->infile, 33600, 64)) {
+		else if(dbuf_is_all_zeroes(c->infile, 33600, mod128)) {
 			;
 		}
 		else {
@@ -4099,37 +4152,46 @@ static int de_identify_mahj_na_til(deark *c)
 		}
 	}
 
-	have_typical_first_tile = mahj_look_like_a_tile(c->infile, 0);
+	if(num_tiles<5) {
+		early_tile_idx = 0;
+	}
+	else {
+		early_tile_idx = 2;
+	}
+
+	have_typical_early_tile = mahj_look_like_a_tile(c->infile,
+		early_tile_idx*MAHJ_TILE_BYTESIZE);
 	if(num_tiles==1) {
-		if(have_typical_first_tile) {
+		if(have_typical_early_tile) {
 			conf = 25;
 		}
 		goto done;
 	}
 
 	last_tile_idx = (num_tiles>=42)?41:(num_tiles-1);
-	have_typical_last_tile = mahj_look_like_a_tile(c->infile, last_tile_idx*800);
+	have_typical_last_tile = mahj_look_like_a_tile(c->infile,
+		last_tile_idx*MAHJ_TILE_BYTESIZE);
 
 	if(num_tiles==42) {
 		conf = 15;
-		if(have_typical_first_tile && have_typical_last_tile) {
+		if(have_typical_early_tile && have_typical_last_tile) {
 			conf += 70;
 		}
-		else if(have_typical_first_tile || have_typical_last_tile) {
+		else if(have_typical_early_tile || have_typical_last_tile) {
 			conf += 20;
 		}
 		goto done;
 	}
 
 	// At this point:
-	// - Number of tiles is not 42 or 1 or too large.
+	// - Number of tiles is not 42, nor 1, nor too large.
 	// - No padding, except maybe a single 0x1a.
 
-	if(have_typical_first_tile && have_typical_last_tile) {
+	if(have_typical_early_tile && have_typical_last_tile) {
 		conf = 19;
 		goto done;
 	}
-	if(have_typical_first_tile || have_typical_last_tile) {
+	if(have_typical_early_tile || have_typical_last_tile) {
 		conf = 10;
 		goto done;
 	}
@@ -4138,12 +4200,19 @@ done:
 	return conf;
 }
 
+static void de_help_mahj_na_til(deark *c)
+{
+	de_msg(c, "-opt mahj_na_til:nf=<0|1> : Info about whether the file starts "
+		"with an author-name field");
+}
+
 void de_module_mahj_na_til(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "mahj_na_til";
 	mi->desc = "Mah Jongg tile set";
 	mi->run_fn = de_run_mahj_na_til;
 	mi->identify_fn = de_identify_mahj_na_til;
+	mi->help_fn = de_help_mahj_na_til;
 }
 
 // **************************************************************************

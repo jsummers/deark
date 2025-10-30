@@ -396,8 +396,9 @@ Deark -- Information about supported formats
     "-m mahj_na_til". If the file extension is not ".til", you always need the
     -m option.
   Options
-   -opt mahj_na_til:name=0 - Assume the file does not start with a "name"
-     field, even if it looks like it does.
+   -opt mahj_na_til:nf=<0|1> - A hint as to whether the file starts with a
+     "name" field, and what to do about that. 0 means the name field is not
+     present.
    -padpix - Reveal the top-left and bottom-right corner pixels.
 
 * Mah Jongg -V-G-A- tile set (.tis) (module="mjvga")
