@@ -830,6 +830,8 @@ int dbuf_search(dbuf *f, const u8 *needle, i64 needle_len, i64 startpos,
 int dbuf_get_utf16_NULterm_len(dbuf *f, i64 pos1, i64 bytes_avail,
 	i64 *bytes_consumed);
 int dbuf_find_line(dbuf *f, i64 pos1, i64 *pcontent_len, i64 *ptotal_len);
+int de_memsearch(const u8 *mem, i64 mem_len,
+	const u8 *pattern, i64 pattern_len, i64 *pfoundpos, UI flags);
 int de_memmatch(const u8 *mem, const u8 *pattern, size_t pattern_len,
 	u8 wildcard, UI flags);
 int de_memsearch_match(const u8 *mem, i64 mem_len,

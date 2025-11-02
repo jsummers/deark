@@ -2367,6 +2367,41 @@ int de_archive_initialize(deark *c)
 	return 0;
 }
 
+// A crude memory search function.
+// [I'm aware that good algorithms like Boyer-Moore exist.
+// And that some C libraries have a memmem() function. But I don't want to
+// rely on it.]
+// Basically the same behavior as de_memsearch_match().
+// flags: Reserved for possible reverse-search option.
+int de_memsearch(const u8 *mem, i64 mem_len,
+	const u8 *pattern, i64 pattern_len, i64 *pfoundpos, UI flags)
+{
+	i64 num_start_positions_to_search;
+	i64 i;
+	i64 last_byte_offset = pattern_len-1;
+
+	*pfoundpos = 0;
+	if(pattern_len<1 || pattern_len>mem_len) return 0;
+	num_start_positions_to_search = mem_len-pattern_len+1;
+
+	for(i=0; i<num_start_positions_to_search; i++) {
+		int ret;
+
+		if(pattern[0]!=mem[i] ||
+			pattern[last_byte_offset]!=mem[i+last_byte_offset])
+		{
+			continue;
+		}
+		ret = !de_memcmp(&mem[i], pattern, (size_t)pattern_len);
+		if(ret) {
+			*pfoundpos = i;
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 int de_memmatch(const u8 *mem, const u8 *pattern, size_t pattern_len,
 	u8 wildcard, UI flags)
 {

@@ -23,6 +23,7 @@ typedef struct localctx_grabber {
 	u8 need_errmsg;
 
 	u8 screen_mode;
+	u8 screen_mode2;
 	u8 pal_info;
 	i64 data_ori_pos, data_ori_len;
 	dbuf *data_f;
@@ -30,7 +31,7 @@ typedef struct localctx_grabber {
 	de_finfo *fi;
 
 	u8 fmt_known;
-	i64 pos_of_mode;
+	i64 pos_of_mode; // May be for COM only
 	i64 reported_w_in_chars, reported_h_in_chars;
 
 	struct de_char_context *charctx;
@@ -386,123 +387,80 @@ done:
 }
 
 struct grabber_exe_id_item {
+	const u8* marker;
+	u16 marker_len;
 	u16 approx_ver;
-	u16 sig_pos;
-	u16 data_pos_from_mode; // 0 if not supported
-	u8 mode_pos_from_sig; // 0 if not supported
-	u8 sig_id;
 };
 static const struct grabber_exe_id_item grabber_exe_id_arr[] = {
-	{3700, 4208,  117, 11, 1},
-	{3701, 4206,  117, 11, 1}, // 3.70 DEMO
-	{6320, 4308,  117, 11, 1},
-	{3740, 4221,  117, 11, 1}, // ?
-	{5510, 4358,  117, 11, 1},
-
-	{3730, 4250,  117,  7, 3},
-	{3770, 4250,  117,  7, 3},
-
-	{3800, 4261,  116,  7, 2},
-	{3810, 4338,  116,  7, 2},
-	{3840, 4363,  116,  7, 2}, // 3.84, 3.85, 3.87
-
-	{3900, 4363,  116,  7, 4},
-	{3910, 4421,  116,  7, 0},
-	{3911, 4469,  116,  7, 0}, // 3.91b
-	{3920, 4688,  116,  7, 0}, // 3.92-3.93
-	{3940, 4718,  116,  7, 0},
-
-	{3960, 6052, 5005,  7, 0},
-	{3970, 7496, 5005,  7, 0},
-	{3980, 7660, 5005,  7, 0},
-
-	{6321, 4187, 5006, 11, 1}, // 2 different 6.32 formats?
-	{6500, 5552, 5006, 11, 1},
-	{6600, 5592, 5006, 11, 1},
-
-	{3600, 2227,    0,  8, 5},
-	{5600, 5554,    0, 11, 1},
-	{5601, 3991,    0,  0, 1},
-	{6120, 2706,    0,  8, 5},
-	{6200, 2625,    0,  0, 1},
-	{6400, 5971,    0,  0, 1}
+	{ (const u8*)"GR72464630", 10, 3700 },
+	{ (const u8*)"G5\x8b\xf1\x53\x85\xc7\x13\x04\xb5\xf1", 11, 3910 },
+	{ (const u8*)"G5\x8b\xf1\x53\x85\xc7\x13\x04\xd4\xd6", 11, 3900 },
+	{ (const u8*)"G5\x8b\xf1\x53\x90\xbc\x13\x04\xd4\xd6", 11, 3800 },
+	{ (const u8*)"G5\x27\xf1\x53\x90\xbc\x13\x04\xd4", 10, 3770 }
 };
 
 static void analyze_grabber_exe(deark *c, lctx *d)
 {
-	int found = 0;
-	size_t found_itemnum = 0;
+	u8 *mem = NULL;
+	d->fmt_known = 0;
 	size_t i;
-	const struct grabber_exe_id_item *ii;
+	u8 found_flag = 0;
+	size_t found_idx = 0;
+	i64 foundpos = 0;
+	i64 hdrpos;
+	i64 size_x, size_y;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+#define GRABBER_HLEN   16384
+	mem = de_malloc(c, GRABBER_HLEN);
+	dbuf_read(c->infile, mem, 0, GRABBER_HLEN);
 
 	for(i=0; i<DE_ARRAYCOUNT(grabber_exe_id_arr); i++) {
-		const u8 *sig_bytes = NULL;
+		int ret;
 
-		ii = &grabber_exe_id_arr[i];
-
-		switch(ii->sig_id) {
-		case 1:
-			sig_bytes = (const u8*)"GR7246";
-			break;
-		case 2:
-			sig_bytes = (const u8*)"\x90\xbc\x13\x04\xd4\xd6";
-			break;
-		case 3:
-			sig_bytes = (const u8*)"\x53\x90\xbc\x13\x04\xd4";
-			break;
-		case 4:
-			sig_bytes = (const u8*)"\x85\xc7\x13\x04\xd4\xd6";
-			break;
-		case 5:
-			sig_bytes = (const u8*)"\xaa\xeb\xee\x07\x1f\xc3";
-			break;
-		default:
-			sig_bytes = (const u8*)"\x85\xc7\x13\x04\xb5\xf1";
-		}
-		found = !dbuf_memcmp(c->infile, (i64)ii->sig_pos, sig_bytes, 6);
-		if(found) {
-			found_itemnum = i;
+		ret = de_memsearch(mem, GRABBER_HLEN, grabber_exe_id_arr[i].marker,
+			grabber_exe_id_arr[i].marker_len, &foundpos, 0);
+		if(ret) {
+			found_flag = 1;
+			found_idx = i;
 			break;
 		}
 	}
 
-	if(!found) {
+	if(!found_flag) {
+		de_dbg(c, "[no marker found]");
 		goto done;
 	}
 
-	ii = &grabber_exe_id_arr[found_itemnum];
-	de_dbg(c, "approx. ver: %u.%03u", (UI)ii->approx_ver/1000, (UI)ii->approx_ver%1000);
+	de_dbg(c, "found marker type %u at %"I64_FMT,
+		(UI)grabber_exe_id_arr[found_idx].approx_ver,
+		foundpos);
+	hdrpos = foundpos + grabber_exe_id_arr[found_idx].marker_len;
+	de_dbg(c, "header at %"I64_FMT, hdrpos);
+	de_dbg_indent(c, 1);
+	d->screen_mode2 = de_getbyte(hdrpos);
+	d->screen_mode = de_getbyte(hdrpos+1);
+	de_dbg(c, "mode: %02x:%02x", (UI)d->screen_mode2, (UI)d->screen_mode);
 
-	if(ii->mode_pos_from_sig==0) {
-		goto done;
-	}
-	d->pos_of_mode = ii->sig_pos + (i64)ii->mode_pos_from_sig;
-	d->screen_mode = de_getbyte(d->pos_of_mode);
-	de_dbg(c, "mode: 0x%02x", (UI)d->screen_mode);
+	size_x = de_getu16le(hdrpos+19);
+	size_y = de_getu16le(hdrpos+21);
+	de_dbg(c, "size: %"I64_FMT DE_CHAR_TIMES "%"I64_FMT, size_x, size_y);
 
-	if(ii->data_pos_from_mode==0) {
-		goto done;
-	}
-	d->data_ori_pos = d->pos_of_mode + (i64)ii->data_pos_from_mode;
+	d->data_ori_pos = de_getu16le(hdrpos+36);
+	de_dbg(c, "image pos: %"I64_FMT, d->data_ori_pos);
 	d->data_ori_len = c->infile->len - d->data_ori_pos;
 
-	if(d->screen_mode!=1 && d->screen_mode!=3) {
-		goto done;
-	}
+	if(d->screen_mode2!=0x33) goto done;
+	if(d->screen_mode!=3 && d->screen_mode!=0) goto done;
 
-	d->reported_w_in_chars = de_getu16le(d->pos_of_mode+18);
-	d->reported_h_in_chars = de_getu16le(d->pos_of_mode+20);
-
-	if(d->reported_w_in_chars<40 || d->reported_w_in_chars>132 ||
-		d->reported_h_in_chars<16 || d->reported_h_in_chars>100)
-	{
-		goto done;
-	}
-
+	d->reported_w_in_chars = size_x;
+	d->reported_h_in_chars = size_y;
 	d->fmt_known = 1;
 
 done:
-	;
+	de_free(c, mem);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void do_grabber_exe(deark *c, lctx *d, de_module_params *mparams)
