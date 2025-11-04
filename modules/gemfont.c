@@ -192,7 +192,7 @@ static void de_run_gemfont(deark *c, de_module_params *mparams)
 
 	if(!do_characters(c, d)) goto done;
 
-	de_font_bitmap_font_to_image(c, d->font, d->fi, 0);
+	de_font_bitmap_font_write(c, d->font, d->fi, 0);
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);

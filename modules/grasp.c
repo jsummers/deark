@@ -242,7 +242,7 @@ static void de_run_graspfont_oldfmt(deark *c)
 		font->char_array[i].bitmap = &font_data[i*bytes_per_glyph];
 	}
 
-	de_font_bitmap_font_to_image(c, font, NULL, 0);
+	de_font_bitmap_font_write(c, font, NULL, 0);
 
 done:
 	if(font) {
@@ -327,7 +327,7 @@ static void de_run_graspfont_newfmt(deark *c)
 	de_dbg(c, "calculated maximum width: %d", (int)ch_max_width);
 	font->nominal_width = ch_max_width;
 
-	de_font_bitmap_font_to_image(c, font, NULL, 0);
+	de_font_bitmap_font_write(c, font, NULL, 0);
 
 	if(font) {
 		if(font->char_array) {

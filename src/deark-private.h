@@ -1265,7 +1265,6 @@ void de_font_paint_character_cp(deark *c, de_bitmap *img,
 
 void de_font_bitmap_font_write(deark *c, struct de_bitmap_font *font, de_finfo *fi,
 	UI createflags);
-#define de_font_bitmap_font_to_image de_font_bitmap_font_write
 int de_font_is_standard_vga_font(deark *c, u32 crc);
 void de_font_decide_output_fmt(deark *c);
 

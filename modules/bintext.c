@@ -163,7 +163,7 @@ static void do_extract_font(deark *c, lctx *d)
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_sz(c, fi, "font", 0, DE_ENCODING_ASCII);
 
-	de_font_bitmap_font_to_image(c, d->font, fi, DE_CREATEFLAG_IS_AUX);
+	de_font_bitmap_font_write(c, d->font, fi, DE_CREATEFLAG_IS_AUX);
 
 	de_finfo_destroy(c, fi);
 }

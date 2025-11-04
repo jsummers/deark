@@ -135,7 +135,7 @@ static void de_run_unifont_hex(deark *c, de_module_params *mparams)
 	if(font->num_chars<1) goto done;
 	if(font->nominal_width<1) goto done;
 
-	de_font_bitmap_font_to_image(c, font, NULL, 0);
+	de_font_bitmap_font_write(c, font, NULL, 0);
 	ok = 1;
 
 done:

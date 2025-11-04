@@ -107,7 +107,7 @@ static void do_code_chix(deark *c, lctx *d, const struct pff2_sectiontype_info *
 		de_dbg_indent(c, -1);
 	}
 
-	de_font_bitmap_font_to_image(c, d->font, NULL, 0);
+	de_font_bitmap_font_write(c, d->font, NULL, 0);
 
 done: ;
 }

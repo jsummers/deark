@@ -644,7 +644,7 @@ static void do_make_font_image(deark *c, lctx *d)
 		}
 	}
 
-	de_font_bitmap_font_to_image(c, font, NULL, 0);
+	de_font_bitmap_font_write(c, font, NULL, 0);
 
 done:
 	if(font) {
