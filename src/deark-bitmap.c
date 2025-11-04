@@ -312,10 +312,24 @@ static int bitmap16_low_bits_important(de_bitmap *imghi, de_bitmap *imglo)
 	return 0;
 }
 
+static UI bitmap_createflags_old2new(UI oldcreateflags)
+{
+	UI newcreateflags;
+
+	if(oldcreateflags & DE_CREATEFLAG_OPT_IMAGE) {
+		newcreateflags = oldcreateflags - DE_CREATEFLAG_OPT_IMAGE;
+	}
+	else {
+		newcreateflags = oldcreateflags | DE_CREATEFLAG_NOOPT_IMAGE;
+	}
+	return newcreateflags;
+}
+
 // When calling this function, the "name" data associated with fi, if set, should
 // be set to something like a filename, but *without* a final ".png" extension.
 // Image-specific createflags:
-//  - DE_CREATEFLAG_OPT_IMAGE
+//  - DE_CREATEFLAG_NOOPT_IMAGE
+//  - DE_CREATEFLAG_OPT_IMAGE [ignored: default]
 //  - DE_CREATEFLAG_IS_BWIMG - Declares that image is bi-level B&W.
 //  - DE_CREATEFLAG_FLIP_IMAGE
 //     Write the rows in reverse order ("bottom-up"). This affects only the pixels,
@@ -325,7 +339,7 @@ static int bitmap16_low_bits_important(de_bitmap *imghi, de_bitmap *imglo)
 //     output image will potentially be written. (This is obviously a hack, but
 //     it's not worth doing anything more for such a rarely used feature.)
 void de_bitmap16_write_to_file_finfo(de_bitmap *img, de_bitmap *imglo,
-	de_finfo *fi, unsigned int createflags)
+	de_finfo *fi, UI createflags)
 {
 	deark *c;
 	struct image_scan_opt_data optctx;
@@ -345,7 +359,7 @@ void de_bitmap16_write_to_file_finfo(de_bitmap *img, de_bitmap *imglo,
 	de_zeromem(&wp, sizeof(struct de_write_image_params));
 	wp.createflags = createflags;
 
-	if(imglo && (createflags & DE_CREATEFLAG_OPT_IMAGE)) {
+	if(imglo && !(createflags & DE_CREATEFLAG_NOOPT_IMAGE)) {
 		// If the high and low bytes are the same in every sample, we don't need
 		// the low byte.
 		if(!bitmap16_low_bits_important(img, imglo)) {
@@ -362,9 +376,9 @@ void de_bitmap16_write_to_file_finfo(de_bitmap *img, de_bitmap *imglo,
 		// 1 bit/pixel image type.
 		wp.flags2 |= 0x1;
 	}
-	else if(createflags & DE_CREATEFLAG_OPT_IMAGE) {
-		// This should probably be the default, but our optimization routine
-		// isn't very efficient, and wouldn't change anything in most cases.
+	else if(!(createflags & DE_CREATEFLAG_NOOPT_IMAGE)) {
+		// This is the default, but our optimization routine
+		// isn't very efficient, so it can be disabled.
 		get_optimized_image(img, &optctx);
 		if(optctx.optimg) {
 			de_dbg3(c, "reducing image depth (%d->%d)", img->bytes_per_pixel,
@@ -395,7 +409,7 @@ void de_bitmap16_write_to_file_finfo(de_bitmap *img, de_bitmap *imglo,
 }
 
 void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi,
-	unsigned int createflags)
+	UI createflags)
 {
 	de_bitmap16_write_to_file_finfo(img, NULL, fi, createflags);
 }
@@ -403,7 +417,7 @@ void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi,
 // "token" - A (UTF-8) filename component, like "output.000.<token>.png".
 //   It can be NULL.
 void de_bitmap_write_to_file(de_bitmap *img, const char *token,
-	unsigned int createflags)
+	UI createflags)
 {
 	deark *c = img->c;
 
@@ -416,6 +430,24 @@ void de_bitmap_write_to_file(de_bitmap *img, const char *token,
 	else {
 		de_bitmap_write_to_file_finfo(img, NULL, createflags);
 	}
+}
+
+void de_bitmap16_write_to_file_finfoOLD(de_bitmap *img, de_bitmap *imglo,
+	de_finfo *fi, UI oldcreateflags)
+{
+	de_bitmap16_write_to_file_finfo(img, imglo, fi, bitmap_createflags_old2new(oldcreateflags));
+}
+
+void de_bitmap_write_to_file_finfoOLD(de_bitmap *img, de_finfo *fi,
+	UI oldcreateflags)
+{
+	de_bitmap16_write_to_file_finfo(img, NULL, fi, bitmap_createflags_old2new(oldcreateflags));
+}
+
+void de_bitmap_write_to_fileOLD(de_bitmap *img, const char *token,
+	UI oldcreateflags)
+{
+	de_bitmap_write_to_file(img, token, bitmap_createflags_old2new(oldcreateflags));
 }
 
 // samplenum 0=Red, 1=Green, 2=Blue, 3=Alpha

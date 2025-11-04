@@ -597,7 +597,7 @@ static void do_bitmap_24bpp(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file_finfo(img, d->fi, 0);
+	de_bitmap_write_to_file_finfoOLD(img, d->fi, 0);
 	de_bitmap_destroy(img);
 }
 

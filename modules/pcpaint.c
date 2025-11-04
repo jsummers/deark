@@ -331,7 +331,7 @@ static void decode_egavga16(deark *c, lctx *d)
 
 	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, 3);
 	de_convert_image_paletted(d->unc_pixels, 0, 4, src_rowspan, d->pal, img, 0);
-	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
+	de_bitmap_write_to_file_finfoOLD(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
 	de_bitmap_destroy(img);
 }
 
@@ -350,7 +350,7 @@ static void decode_egavga16_planar(deark *c, lctx *d)
 	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, 3);
 	de_convert_image_paletted_planar(d->unc_pixels, 0, 4, src_rowspan,
 		src_planespan, d->pal, img, 0x2);
-	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
+	de_bitmap_write_to_file_finfoOLD(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
 	de_bitmap_destroy(img);
 }
 
@@ -365,7 +365,7 @@ static void decode_vga256(deark *c, lctx *d)
 	de_convert_image_paletted(d->unc_pixels, 0,
 		8, img->width, d->pal, img, 0);
 
-	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
+	de_bitmap_write_to_file_finfoOLD(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
 
 	de_bitmap_destroy(img);
 }
@@ -419,7 +419,7 @@ static void decode_cga4(deark *c, lctx *d)
 	de_convert_image_paletted(d->unc_pixels, 0,
 		2, src_rowspan, d->pal, img, 0);
 
-	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
+	de_bitmap_write_to_file_finfoOLD(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
 
 done:
 	de_bitmap_destroy(img);
@@ -440,7 +440,7 @@ static void decode_4color_planar(deark *c, lctx *d)
 	img = de_bitmap_create2(c, d->npwidth, d->pdwidth, d->height, 3);
 	de_convert_image_paletted_planar(d->unc_pixels, 0, 2, src_rowspan, src_planespan,
 		d->pal, img, 0x02);
-	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
+	de_bitmap_write_to_file_finfoOLD(img, d->fi, DE_CREATEFLAG_FLIP_IMAGE);
 }
 
 // decompress one block

@@ -265,7 +265,7 @@ static void do_crsr_CURS_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 
 	de_bitmap_apply_mask(img_bw, img_mask, 0);
 	set_resource_filename(c, d, fi, rti, rii, (is_crsr?"crsr_bw":NULL));
-	de_bitmap_write_to_file_finfo(img_bw, fi, 0);
+	de_bitmap_write_to_file_finfoOLD(img_bw, fi, 0);
 	if(!is_crsr) goto done;
 
 	bi = de_malloc(c, sizeof(struct fmtutil_macbitmap_info));
@@ -372,7 +372,7 @@ static void do_SICN_resource_gallery(deark *c, lctx *d, struct rsrctypeinfo *rti
 		de_bitmap_destroy(img);
 	}
 
-	de_bitmap_write_to_file_finfo(cnv, fi, 0);
+	de_bitmap_write_to_file_finfoOLD(cnv, fi, 0);
 
 	de_bitmap_destroy(cnv);
 	de_finfo_destroy(c, fi);

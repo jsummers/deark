@@ -114,7 +114,7 @@ static void do_sprite_param_block(deark *c, lctx *d, i64 res,
 	de_bitmap_apply_mask(adata_fg->img, adata_mask->img, 0);
 	fi = de_finfo_create(c);
 	fmtutil_atari_set_standard_density(c, adata_fg, fi);
-	de_bitmap_write_to_file_finfo(adata_fg->img, fi, 0);
+	de_bitmap_write_to_file_finfoOLD(adata_fg->img, fi, 0);
 
 done:
 	if(adata_fg) {

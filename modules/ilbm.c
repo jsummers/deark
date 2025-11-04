@@ -2433,7 +2433,7 @@ after_render:
 		createflags |= DE_CREATEFLAG_OPT_IMAGE;
 	}
 
-	de_bitmap_write_to_file_finfo(img, fi, createflags);
+	de_bitmap_write_to_file_finfoOLD(img, fi, createflags);
 
 done:
 	de_bitmap_destroy(img);

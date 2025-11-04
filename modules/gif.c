@@ -1143,7 +1143,7 @@ static int do_image(deark *c, lctx *d, i64 pos1, i64 *bytesused)
 		}
 	}
 	else {
-		de_bitmap_write_to_file_finfo(gi->img, d->fi, 0);
+		de_bitmap_write_to_file_finfoOLD(gi->img, d->fi, 0);
 	}
 
 done:
