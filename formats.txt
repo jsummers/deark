@@ -264,8 +264,8 @@ Deark -- Information about supported formats
 * GRABBER (module="grabber")
   Self-displaying DOS screen capture.
   - Most COM-based formats are supported (made by GRABBER up to v3.35).
-  - Support for EXE-based formats is very limited. Most text-mode formats made
-    by v3.70-3.98 (and some v6.30-6.60) are supported.
+  - Support for EXE-based formats is very limited. Most text-mode and CGA
+    formats made by v3.70-3.98 (and v6.30-6.60) are supported.
 
 * Graphic Workshop self-displaying picture (module="gws_exepic")
   - Supports the DOS EXE-based format.
