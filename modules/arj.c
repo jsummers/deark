@@ -871,7 +871,7 @@ static int do_header_or_member(deark *c, lctx *d, i64 pos1, int expecting_archiv
 		if(md->flags & 0x08) { // "EXTFILE"
 			// Note: ARJ's -jx option can be used to create files that use this flag,
 			// but aren't actually part of a multi-volume archive. But -jx is mainly
-			// intended to be used in conjuction with constructing/repairing multi-
+			// intended to be used in conjunction with constructing/repairing multi-
 			// volume archives.
 			md->cont_from_prev_vol = 1;
 		}
