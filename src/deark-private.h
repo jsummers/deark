@@ -726,12 +726,12 @@ void dbuf_read_to_ucstring_n(dbuf *f, i64 pos, i64 len, i64 max_len,
 	de_ucstring *s, unsigned int conv_flags, de_ext_encoding encoding);
 
 // At least one of 'ext' or 'fi' should be non-NULL.
-#define DE_CREATEFLAG_IS_AUX   0x1
-#define DE_CREATEFLAG_NOOPT_IMAGE 0x2
-#define DE_CREATEFLAG_FLIP_IMAGE 0x4
-#define DE_CREATEFLAG_IS_BWIMG   0x8
-#define DE_CREATEFLAG_OPT_IMAGE  0x80 // Used with "OLD" functions
-#define DE_CREATEFLAG_NO_WBUFFER 0x200
+#define DE_CREATEFLAG_IS_AUX        0x1
+#define DE_CREATEFLAG_FLIP_IMAGE    0x4
+#define DE_CREATEFLAG_IS_BWIMG      0x8
+#define DE_CREATEFLAG_NOOPT_IMAGE  0x10
+#define DE_CREATEFLAG_OPT_IMAGE    0x20 // Rarely useful
+#define DE_CREATEFLAG_NO_WBUFFER  0x200
 dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi, unsigned int createflags);
 
 dbuf *dbuf_create_unmanaged_file(deark *c, const char *fname, int overwrite_mode, unsigned int flags);
@@ -903,8 +903,6 @@ void de_bitmap16_write_to_file_finfo(de_bitmap *img, de_bitmap *imglo,
 	de_finfo *fi, UI createflags);
 void de_bitmap_write_to_fileOLD(de_bitmap *img, const char *token, UI createflags);
 void de_bitmap_write_to_file_finfoOLD(de_bitmap *img, de_finfo *fi, UI createflags);
-void de_bitmap16_write_to_file_finfoOLD(de_bitmap *img, de_bitmap *imglo,
-	de_finfo *fi, UI createflags);
 
 void de_bitmap_setsample(de_bitmap *img, i64 x, i64 y,
 	i64 samplenum, de_colorsample v);

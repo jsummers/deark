@@ -329,7 +329,7 @@ static UI bitmap_createflags_old2new(UI oldcreateflags)
 // be set to something like a filename, but *without* a final ".png" extension.
 // Image-specific createflags:
 //  - DE_CREATEFLAG_NOOPT_IMAGE
-//  - DE_CREATEFLAG_OPT_IMAGE [ignored: default]
+//  - DE_CREATEFLAG_OPT_IMAGE (Usually ignored, but overrides NOOPT)
 //  - DE_CREATEFLAG_IS_BWIMG - Declares that image is bi-level B&W.
 //  - DE_CREATEFLAG_FLIP_IMAGE
 //     Write the rows in reverse order ("bottom-up"). This affects only the pixels,
@@ -350,6 +350,10 @@ void de_bitmap16_write_to_file_finfo(de_bitmap *img, de_bitmap *imglo,
 	if(img->invalid_image_flag) return;
 	de_zeromem(&optctx, sizeof(struct image_scan_opt_data));
 
+	if(!(createflags&DE_CREATEFLAG_NOOPT_IMAGE)) {
+		createflags |= DE_CREATEFLAG_OPT_IMAGE;
+	}
+
 	if(!img->bitmap) de_bitmap_alloc_pixels(img);
 	if(imglo) {
 		if(!imglo->bitmap) de_bitmap_alloc_pixels(imglo);
@@ -359,7 +363,7 @@ void de_bitmap16_write_to_file_finfo(de_bitmap *img, de_bitmap *imglo,
 	de_zeromem(&wp, sizeof(struct de_write_image_params));
 	wp.createflags = createflags;
 
-	if(imglo && !(createflags & DE_CREATEFLAG_NOOPT_IMAGE)) {
+	if(imglo && (createflags & DE_CREATEFLAG_OPT_IMAGE)) {
 		// If the high and low bytes are the same in every sample, we don't need
 		// the low byte.
 		if(!bitmap16_low_bits_important(img, imglo)) {
@@ -376,7 +380,7 @@ void de_bitmap16_write_to_file_finfo(de_bitmap *img, de_bitmap *imglo,
 		// 1 bit/pixel image type.
 		wp.flags2 |= 0x1;
 	}
-	else if(!(createflags & DE_CREATEFLAG_NOOPT_IMAGE)) {
+	else if(createflags & DE_CREATEFLAG_OPT_IMAGE) {
 		// This is the default, but our optimization routine
 		// isn't very efficient, so it can be disabled.
 		get_optimized_image(img, &optctx);
@@ -430,12 +434,6 @@ void de_bitmap_write_to_file(de_bitmap *img, const char *token,
 	else {
 		de_bitmap_write_to_file_finfo(img, NULL, createflags);
 	}
-}
-
-void de_bitmap16_write_to_file_finfoOLD(de_bitmap *img, de_bitmap *imglo,
-	de_finfo *fi, UI oldcreateflags)
-{
-	de_bitmap16_write_to_file_finfo(img, imglo, fi, bitmap_createflags_old2new(oldcreateflags));
 }
 
 void de_bitmap_write_to_file_finfoOLD(de_bitmap *img, de_finfo *fi,

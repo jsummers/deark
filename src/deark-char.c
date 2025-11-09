@@ -720,7 +720,7 @@ static void de_char_output_screen_to_image_file(deark *c, struct de_char_context
 		}
 	}
 
-	de_bitmap_write_to_file_finfoOLD(img, fi, 0);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 done:
 	de_bitmap_destroy(img);
 	de_finfo_destroy(c, fi);

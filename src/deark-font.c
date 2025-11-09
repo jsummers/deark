@@ -639,7 +639,7 @@ static void bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_finf
 			DE_STOCKCOLOR_BLACK, DE_STOCKCOLOR_WHITE, 0);
 	}
 
-	de_bitmap_write_to_file_finfoOLD(img, fi, createflags);
+	de_bitmap_write_to_file_finfo(img, fi, createflags|DE_CREATEFLAG_NOOPT_IMAGE);
 
 done:
 	if(dfont) {
