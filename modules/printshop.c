@@ -141,16 +141,15 @@ static void de_run_printshop(deark *c, de_module_params *mparams)
 
 static int de_identify_printshop(deark *c)
 {
-	// TODO: Check to see if the base filename begins with "gr".
-	// TODO: Check to see if the last [len mod 572] bytes of the file are either
-	// 0x00 or 0x1a.
+	const char *bn;
 
-	if(de_input_file_has_ext(c, "dat")) {
-		if((c->infile->len % 572)==0) {
-			return 10;
-		}
-	}
-	return 0;
+	// Best we can do is to validate the file size, and that the
+	// name is of the form "gr*.dat".
+	if((c->infile->len % 572)!=0) return 0;
+	bn = de_get_input_file_basename(c);
+	if(!de_sz_has_ext(bn, "dat")) return 0;
+	if(de_strncasecmp(bn, "gr", 2)) return 0;
+	return 10;
 }
 
 void de_module_printshop(deark *c, struct deark_module_info *mi)
@@ -257,7 +256,7 @@ static void de_run_printshop_gs(deark *c, de_module_params *mparams)
 	fi->density.xdens = 88.0;
 	fi->density.ydens = 52.0;
 	de_convert_image_paletted_planar(c->infile, 0, 3, 11, 11*52, pal, img, 0x2);
-	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 	de_bitmap_destroy(img);
 	de_finfo_destroy(c, fi);
 }

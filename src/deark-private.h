@@ -593,6 +593,7 @@ int de_get_ext_option_bool(deark *c, const char *name, int defaultval);
 
 const char *de_get_sz_ext(const char *sz);
 int de_sz_has_ext(const char *sz, const char *ext);
+const char *de_get_input_file_basename(deark *c);
 const char *de_get_input_file_ext(deark *c);
 int de_input_file_has_ext(deark *c, const char *ext);
 int de_havemodcode(deark *c, de_module_params *mparams, int code);

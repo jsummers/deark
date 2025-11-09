@@ -1091,6 +1091,30 @@ done:
 
 static const char g_empty_string[] = "";
 
+const char *de_get_input_file_basename(deark *c)
+{
+	int len;
+	int pos;
+	const char *sz;
+
+	if(c->suppress_detection_by_filename) return g_empty_string;
+	if(!c->input_filename) return g_empty_string;
+	if(c->slice_start_req) return g_empty_string;
+
+	sz = c->input_filename;
+	len = (int)de_strlen(sz);
+	if(len<1) return g_empty_string;
+
+	pos = len-1;
+	while(pos>=0) {
+		if(sz[pos]=='/' || sz[pos]=='\\') {
+			return &sz[pos+1];
+		}
+		pos--;
+	}
+	return sz;
+}
+
 const char *de_get_sz_ext(const char *sz)
 {
 	int len;
