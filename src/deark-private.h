@@ -239,7 +239,7 @@ struct de_finfo_struct {
 
 #define DE_MODEFLAG_NONEXE 0x01 // Make the output file non-executable.
 #define DE_MODEFLAG_EXE    0x02 // Make the output file executable.
-	unsigned int mode_flags;
+	UI mode_flags;
 
 #define DE_TIMESTAMPIDX_MODIFY      0 // External timestamps...
 #define DE_TIMESTAMPIDX_CREATE      1
@@ -462,7 +462,7 @@ struct deark_struct {
 	u8 enable_wbuffer_test;
 	u8 disable_wbuffer;
 	u8 pngcprlevel_valid;
-	unsigned int pngcmprlevel;
+	UI pngcmprlevel;
 	void *zip_data;
 	void *tar_data;
 	dbuf *extrlist_dbuf;
@@ -552,10 +552,10 @@ void de_err(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
 
 FILE* de_fopen_for_read(deark *c, const char *fn, i64 *len,
-	char *errmsg, size_t errmsg_len, unsigned int *returned_flags);
+	char *errmsg, size_t errmsg_len, UI *returned_flags);
 FILE* de_fopen_for_write(deark *c, const char *fn,
 	char *errmsg, size_t errmsg_len, int overwrite_mode,
-	unsigned int flags);
+	UI flags);
 int de_fseek(FILE *fp, i64 offs, int whence);
 i64 de_ftell(FILE *fp);
 int de_fclose(FILE *fp);
@@ -575,9 +575,9 @@ char *de_render_hexbytes_from_mem(const u8 *inbytes, i64 ilen,
 char *de_render_hexbytes_from_dbuf(dbuf *inf, i64 pos, i64 ilen,
 	char *outbuf, size_t outbuf_len);
 void de_dbg_hexdump(deark *c, dbuf *f, i64 pos1, i64 nbytes_avail,
-	i64 max_nbytes_to_dump, const char *prefix, unsigned int flags);
+	i64 max_nbytes_to_dump, const char *prefix, UI flags);
 void de_hexdump2(deark *c, dbuf *f, i64 pos1, i64 nbytes_avail,
-	i64 max_nbytes_to_dump, unsigned int flags);
+	i64 max_nbytes_to_dump, UI flags);
 void de_dbg_dimensions(deark *c, i64 w, i64 h);
 void de_stdwarn_execomp(deark *c);
 void de_dbg_pal_entry(deark *c, i64 idx, de_color clr);
@@ -662,7 +662,7 @@ u64 dbuf_getu64be(dbuf *f, i64 pos);
 u64 dbuf_getu64le(dbuf *f, i64 pos);
 u64 dbuf_getu64x(dbuf *f, i64 pos, int is_le);
 
-i64 dbuf_getint_ext(dbuf *f, i64 pos, unsigned int nbytes,
+i64 dbuf_getint_ext(dbuf *f, i64 pos, UI nbytes,
 	int is_le, int is_signed);
 
 // The _p functions update a caller-supplied position.
@@ -713,17 +713,17 @@ int dbuf_read_ascii_number(dbuf *f, i64 pos, i64 fieldsize,
 	int base, i64 *value);
 
 #define DE_GETRGBFLAG_BGR 0x1 // Assume BGR order instead of RGB
-de_color dbuf_getRGB(dbuf *f, i64 pos, unsigned int flags);
+de_color dbuf_getRGB(dbuf *f, i64 pos, UI flags);
 
 // Convert and append encoded bytes from a dbuf to a ucstring.
 // (see also ucstring_append_*)
 void dbuf_read_to_ucstring_ex(dbuf *f, i64 pos, i64 len,
-	de_ucstring *s, unsigned int conv_flags, struct de_encconv_state *es);
+	de_ucstring *s, UI conv_flags, struct de_encconv_state *es);
 void dbuf_read_to_ucstring(dbuf *f, i64 pos, i64 len,
-	de_ucstring *s, unsigned int conv_flags, de_ext_encoding encoding);
+	de_ucstring *s, UI conv_flags, de_ext_encoding encoding);
 // The _n version has an extra max_len field, for convenience.
 void dbuf_read_to_ucstring_n(dbuf *f, i64 pos, i64 len, i64 max_len,
-	de_ucstring *s, unsigned int conv_flags, de_ext_encoding encoding);
+	de_ucstring *s, UI conv_flags, de_ext_encoding encoding);
 
 // At least one of 'ext' or 'fi' should be non-NULL.
 #define DE_CREATEFLAG_IS_AUX        0x1
@@ -732,18 +732,18 @@ void dbuf_read_to_ucstring_n(dbuf *f, i64 pos, i64 len, i64 max_len,
 #define DE_CREATEFLAG_NOOPT_IMAGE  0x10
 #define DE_CREATEFLAG_OPT_IMAGE    0x20 // Rarely useful
 #define DE_CREATEFLAG_NO_WBUFFER  0x200
-dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi, unsigned int createflags);
+dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi, UI createflags);
 
-dbuf *dbuf_create_unmanaged_file(deark *c, const char *fname, int overwrite_mode, unsigned int flags);
+dbuf *dbuf_create_unmanaged_file(deark *c, const char *fname, int overwrite_mode, UI flags);
 dbuf *dbuf_create_unmanaged_file_stdout(deark *c, const char *name);
 dbuf *dbuf_open_input_file(deark *c, const char *fn);
 dbuf *dbuf_open_input_stdin(deark *c);
 dbuf *dbuf_open_input_subfile(dbuf *parent, i64 offset, i64 size);
-dbuf *dbuf_create_custom_dbuf(deark *c, i64 apparent_size, unsigned int flags);
+dbuf *dbuf_create_custom_dbuf(deark *c, i64 apparent_size, UI flags);
 
 // Flag:
 //  0x1: Set the maximum size to the 'initialsize'
-dbuf *dbuf_create_membuf(deark *c, i64 initialsize, unsigned int flags);
+dbuf *dbuf_create_membuf(deark *c, i64 initialsize, UI flags);
 
 // If f is NULL, this is a no-op.
 void dbuf_close(dbuf *f);
@@ -802,7 +802,7 @@ struct de_stringreaderdata {
 
 struct de_stringreaderdata *dbuf_read_string(dbuf *f, i64 pos,
 	i64 max_bytes_to_scan,	i64 max_bytes_to_keep,
-	unsigned int flags, de_ext_encoding ee);
+	UI flags, de_ext_encoding ee);
 void de_destroy_stringreaderdata(deark *c, struct de_stringreaderdata *srd);
 
 // Compare bytes in a dbuf to s.
@@ -812,7 +812,7 @@ int dbuf_memcmp(dbuf *f, i64 pos, const void *s, size_t n);
 // Read a slice of a dbuf, and create a new file containing only that.
 // At least one of 'ext' or 'fi' should be non-NULL.
 int dbuf_create_file_from_slice(dbuf *inf, i64 pos, i64 data_size,
-	const char *ext, de_finfo *fi, unsigned int createflags);
+	const char *ext, de_finfo *fi, UI createflags);
 
 int dbuf_has_utf8_bom(dbuf *f, i64 pos);
 
@@ -851,7 +851,7 @@ struct de_fourcc {
 };
 #define DE_4CCFLAG_REVERSED 0x1
 void dbuf_read_fourcc(dbuf *f, i64 pos, struct de_fourcc *fcc, int nbytes,
-	unsigned int flags);
+	UI flags);
 
 #define DE_BUFFERED_READ_MIN_BLKSIZE 1024
 struct de_bufferedreadctx {
@@ -1104,8 +1104,8 @@ void de_finfo_destroy(deark *c, de_finfo *fi);
 
 #define DE_SNFLAG_FULLPATH 0x01
 #define DE_SNFLAG_STRIPTRAILINGSLASH 0x2
-void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s, unsigned int flags);
-void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1, unsigned int flags,
+void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s, UI flags);
+void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1, UI flags,
 	de_ext_encoding ee);
 
 de_ucstring *ucstring_create(deark *c);
@@ -1334,9 +1334,9 @@ struct de_struct_tm {
 	int tm_subsec; // in ten-millionths of a second
 };
 
-void de_unix_time_to_timestamp(i64 ut, struct de_timestamp *ts, unsigned int flags);
+void de_unix_time_to_timestamp(i64 ut, struct de_timestamp *ts, UI flags);
 void de_mac_time_to_timestamp(i64 mt, struct de_timestamp *ts);
-void de_FILETIME_to_timestamp(i64 ft, struct de_timestamp *ts, unsigned int flags);
+void de_FILETIME_to_timestamp(i64 ft, struct de_timestamp *ts, UI flags);
 void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
    i64 ddate, i64 dtime);
 void de_describe_dos_attribs(deark *c, UI attr, de_ucstring *s, UI flags);
@@ -1352,9 +1352,9 @@ void de_make_timestamp(struct de_timestamp *ts,
 	i64 hr, i64 mi, i64 se);
 void de_timestamp_cvt_to_utc(struct de_timestamp *ts, i64 offset_seconds);
 char *de_timestamp_to_string(const struct de_timestamp *ts,
-	char *buf, size_t buf_len, unsigned int flags);
+	char *buf, size_t buf_len, UI flags);
 char *de_dbg_timestamp_to_string(deark *c, const struct de_timestamp *ts,
-	char *buf, size_t buf_len, unsigned int flags);
+	char *buf, size_t buf_len, UI flags);
 void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2);
 void de_current_time_to_timestamp(struct de_timestamp *ts);
 void de_cached_current_time_to_timestamp(deark *c, struct de_timestamp *ts);

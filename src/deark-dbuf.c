@@ -267,9 +267,9 @@ u8 dbuf_getbyte_p(dbuf *f, i64 *ppos)
 	return b;
 }
 
-static i64 dbuf_getuint_ext_be_direct(const u8 *m, unsigned int nbytes)
+static i64 dbuf_getuint_ext_be_direct(const u8 *m, UI nbytes)
 {
-	unsigned int k;
+	UI k;
 	u64 val = 0;
 
 	for(k=0; k<nbytes; k++) {
@@ -279,9 +279,9 @@ static i64 dbuf_getuint_ext_be_direct(const u8 *m, unsigned int nbytes)
 	return (i64)val;
 }
 
-static i64 dbuf_getint_ext_be_direct(const u8 *m, unsigned int nbytes)
+static i64 dbuf_getint_ext_be_direct(const u8 *m, UI nbytes)
 {
-	unsigned int k;
+	UI k;
 	u64 val = 0;
 
 	// We can handle up to 8 arbitrary bytes. Any more have to be 0xff.
@@ -306,9 +306,9 @@ static i64 dbuf_getint_ext_be_direct(const u8 *m, unsigned int nbytes)
 	return (i64)val;
 }
 
-static i64 dbuf_getuint_ext_le_direct(const u8 *m, unsigned int nbytes)
+static i64 dbuf_getuint_ext_le_direct(const u8 *m, UI nbytes)
 {
-	unsigned int k;
+	UI k;
 	u64 val = 0;
 
 	for(k=0; k<nbytes; k++) {
@@ -320,12 +320,12 @@ static i64 dbuf_getuint_ext_le_direct(const u8 *m, unsigned int nbytes)
 	return (i64)val;
 }
 
-static i64 dbuf_getuint_ext_x(dbuf *f, i64 pos, unsigned int nbytes,
+static i64 dbuf_getuint_ext_x(dbuf *f, i64 pos, UI nbytes,
 	int is_le)
 {
 	u8 m[24];
 
-	if(nbytes>(unsigned int)sizeof(m)) return 0;
+	if(nbytes>(UI)sizeof(m)) return 0;
 	dbuf_read(f, m, pos, (i64)nbytes);
 	if(is_le) {
 		return dbuf_getuint_ext_le_direct(m, nbytes);
@@ -333,11 +333,11 @@ static i64 dbuf_getuint_ext_x(dbuf *f, i64 pos, unsigned int nbytes,
 	return dbuf_getuint_ext_be_direct(m, nbytes);
 }
 
-static i64 dbuf_getint_ext_x(dbuf *f, i64 pos, unsigned int nbytes, int is_le)
+static i64 dbuf_getint_ext_x(dbuf *f, i64 pos, UI nbytes, int is_le)
 {
 	u8 m[24];
 
-	if(nbytes>(unsigned int)sizeof(m)) return 0;
+	if(nbytes>(UI)sizeof(m)) return 0;
 	dbuf_read(f, m, pos, (i64)nbytes);
 	if(is_le) {
 		return 0; // TODO
@@ -491,7 +491,7 @@ i64 dbuf_geti32le_p(dbuf *f, i64 *ppos)
 
 u64 de_getu64be_direct(const u8 *m)
 {
-	unsigned int i;
+	UI i;
 	u64 val = 0;
 
 	for(i=0; i<8; i++) {
@@ -514,7 +514,7 @@ i64 dbuf_geti64be(dbuf *f, i64 pos)
 
 u64 de_getu64le_direct(const u8 *m)
 {
-	unsigned int i;
+	UI i;
 	u64 val = 0;
 
 	for(i=0; i<8; i++) {
@@ -585,7 +585,7 @@ u64 dbuf_getu64x(dbuf *f, i64 pos, int is_le)
 	return dbuf_getu64be(f, pos);
 }
 
-i64 dbuf_getint_ext(dbuf *f, i64 pos, unsigned int nbytes,
+i64 dbuf_getint_ext(dbuf *f, i64 pos, UI nbytes,
 	int is_le, int is_signed)
 {
 	if(is_signed) {
@@ -614,7 +614,7 @@ i64 dbuf_getint_ext(dbuf *f, i64 pos, unsigned int nbytes,
 
 static void init_fltpt_decoder(deark *c)
 {
-	unsigned int x = 1;
+	UI x = 1;
 	char b = 0;
 
 	c->can_decode_fltpt = 0;
@@ -711,7 +711,7 @@ int dbuf_read_ascii_number(dbuf *f, i64 pos, i64 fieldsize,
 	return 1;
 }
 
-de_color dbuf_getRGB(dbuf *f, i64 pos, unsigned int flags)
+de_color dbuf_getRGB(dbuf *f, i64 pos, UI flags)
 {
 	u8 buf[3];
 	dbuf_read(f, buf, pos, 3);
@@ -813,7 +813,7 @@ void dbuf_copy_at(dbuf *inf, i64 input_offset, i64 input_len,
 struct de_stringreaderdata *dbuf_read_string(dbuf *f, i64 pos,
 	i64 max_bytes_to_scan,
 	i64 max_bytes_to_keep,
-	unsigned int flags, de_ext_encoding ee)
+	UI flags, de_ext_encoding ee)
 {
 	deark *c = f->c;
 	struct de_stringreaderdata *srd;
@@ -908,7 +908,7 @@ void de_destroy_stringreaderdata(deark *c, struct de_stringreaderdata *srd)
 }
 
 void dbuf_read_to_ucstring_ex(dbuf *f, i64 pos1, i64 len,
-	de_ucstring *s, unsigned int conv_flags, struct de_encconv_state *es)
+	de_ucstring *s, UI conv_flags, struct de_encconv_state *es)
 {
 	i64 nbytes_remaining;
 	i64 pos = pos1;
@@ -928,7 +928,7 @@ void dbuf_read_to_ucstring_ex(dbuf *f, i64 pos1, i64 len,
 	do {
 		i64 nbytes_to_read;
 		i64 nbytes_in_buf;
-		unsigned int conv_flags_to_use_this_time;
+		UI conv_flags_to_use_this_time;
 
 		// Lack of DE_CONVFLAG_PARTIAL_DATA flag signals end of data, which
 		// isn't necessarily a no-op even with len=0.
@@ -966,7 +966,7 @@ void dbuf_read_to_ucstring_ex(dbuf *f, i64 pos1, i64 len,
 // Read (up to) len bytes from f, translate them to characters, and append
 // them to s.
 void dbuf_read_to_ucstring(dbuf *f, i64 pos, i64 len,
-	de_ucstring *s, unsigned int conv_flags, de_ext_encoding ee)
+	de_ucstring *s, UI conv_flags, de_ext_encoding ee)
 {
 	struct de_encconv_state es;
 
@@ -975,7 +975,7 @@ void dbuf_read_to_ucstring(dbuf *f, i64 pos, i64 len,
 }
 
 void dbuf_read_to_ucstring_n(dbuf *f, i64 pos, i64 len, i64 max_len,
-	de_ucstring *s, unsigned int conv_flags, de_ext_encoding ee)
+	de_ucstring *s, UI conv_flags, de_ext_encoding ee)
 {
 	struct de_encconv_state es;
 
@@ -1016,7 +1016,7 @@ int dbuf_memcmp(dbuf *f, i64 pos, const void *s, size_t n)
 }
 
 int dbuf_create_file_from_slice(dbuf *inf, i64 pos, i64 data_size,
-	const char *ext, de_finfo *fi, unsigned int createflags)
+	const char *ext, de_finfo *fi, UI createflags)
 {
 	dbuf *f;
 	f = dbuf_create_output_file(inf->c, ext, fi, createflags);
@@ -1065,7 +1065,7 @@ static dbuf *create_dbuf_lowlevel(deark *c)
 //
 // On failure, prints an error message, and sets f->btype to DBUF_TYPE_NULL.
 dbuf *dbuf_create_unmanaged_file(deark *c, const char *fname, int overwrite_mode,
-	unsigned int flags)
+	UI flags)
 {
 	dbuf *f;
 	char msgbuf[200];
@@ -1145,7 +1145,7 @@ void dbuf_disable_wbuffer(dbuf *f)
 }
 
 dbuf *dbuf_create_output_file(deark *c, const char *ext1, de_finfo *fi,
-	unsigned int createflags)
+	UI createflags)
 {
 	char nbuf[500];
 	char msgbuf[200];
@@ -1391,7 +1391,7 @@ static void do_on_dbuf_size_exceeded(dbuf *f)
 	de_fatalerror(f->c);
 }
 
-dbuf *dbuf_create_membuf(deark *c, i64 initialsize, unsigned int flags)
+dbuf *dbuf_create_membuf(deark *c, i64 initialsize, UI flags)
 {
 	dbuf *f;
 
@@ -1797,7 +1797,7 @@ void dbuf_flush_lowlevel(dbuf *f)
 dbuf *dbuf_open_input_file(deark *c, const char *fn)
 {
 	dbuf *f;
-	unsigned int returned_flags = 0;
+	UI returned_flags = 0;
 	char msgbuf[200];
 
 	if(!fn) {
@@ -1860,7 +1860,7 @@ dbuf *dbuf_open_input_subfile(dbuf *parent, i64 offset, i64 size)
 	return f;
 }
 
-dbuf *dbuf_create_custom_dbuf(deark *c, i64 apparent_size, unsigned int flags)
+dbuf *dbuf_create_custom_dbuf(deark *c, i64 apparent_size, UI flags)
 {
 	dbuf *f;
 
@@ -2230,7 +2230,7 @@ static void reverse_fourcc(u8 *buf, int nbytes)
 
 // Though we call it a "fourcc", we support 'nbytes' from 1 to 4.
 void dbuf_read_fourcc(dbuf *f, i64 pos, struct de_fourcc *fcc,
-	int nbytes, unsigned int flags)
+	int nbytes, UI flags)
 {
 	if(nbytes<1 || nbytes>4) return;
 
@@ -2242,7 +2242,7 @@ void dbuf_read_fourcc(dbuf *f, i64 pos, struct de_fourcc *fcc,
 
 	fcc->id = (u32)de_getu32be_direct(fcc->bytes);
 	if(nbytes<4) {
-		fcc->id >>= (4-(unsigned int)nbytes)*8;
+		fcc->id >>= (4-(UI)nbytes)*8;
 	}
 
 	de_bytes_to_printable_sz(fcc->bytes, (i64)nbytes,

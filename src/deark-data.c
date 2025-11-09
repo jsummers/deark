@@ -636,7 +636,7 @@ int de_utf8_to_uchar(const u8 *utf8buf, i64 buflen,
 
 // Copy a string, converting from UTF-8 to ASCII.
 // Non-ASCII characters will be replaced, one way or another.
-void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int flags)
+void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, UI flags)
 {
 	size_t srcpos = 0;
 	size_t dstpos = 0;

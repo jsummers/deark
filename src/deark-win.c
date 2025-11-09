@@ -163,7 +163,7 @@ static FILE* de_fopenW(deark *c, const WCHAR *fnW, const WCHAR *modeW,
 }
 
 static int de_examine_file_by_fd(deark *c, int fd, i64 *len,
-	char *errmsg, size_t errmsg_len, unsigned int *returned_flags)
+	char *errmsg, size_t errmsg_len, UI *returned_flags)
 {
 	struct __stat64 stbuf;
 	int retval = 0;
@@ -191,7 +191,7 @@ done:
 }
 
 FILE* de_fopen_for_read(deark *c, const char *fn, i64 *len,
-	char *errmsg, size_t errmsg_len, unsigned int *returned_flags)
+	char *errmsg, size_t errmsg_len, UI *returned_flags)
 {
 	int ret;
 	FILE *f;
@@ -220,7 +220,7 @@ FILE* de_fopen_for_read(deark *c, const char *fn, i64 *len,
 // flags: 0x1 = append instead of overwriting
 FILE* de_fopen_for_write(deark *c, const char *fn,
 	char *errmsg, size_t errmsg_len, int overwrite_mode,
-	unsigned int flags)
+	UI flags)
 {
 	const WCHAR *modeW;
 	WCHAR *fnW = NULL;

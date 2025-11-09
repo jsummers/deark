@@ -94,7 +94,7 @@ static void print_version(deark *c, int verbose)
 #endif
 		);
 	de_printf(c, DE_MSGTYPE_MESSAGE, "platform bits: %u\n",
-		(unsigned int)(8*sizeof(void*)));
+		(UI)(8*sizeof(void*)));
 #ifdef _DEBUG
 	de_printf(c, DE_MSGTYPE_MESSAGE, "build type: debug\n");
 #endif
@@ -261,7 +261,7 @@ static void initialize_output_stream(struct cmdctx *cc)
 	cc->have_initialized_output_stream = 1;
 }
 
-static void our_specialmsgfn(deark *c, unsigned int flags, unsigned int code,
+static void our_specialmsgfn(deark *c, UI flags, UI code,
 	u32 param1)
 {
 	struct cmdctx *cc;
@@ -291,9 +291,9 @@ static void our_specialmsgfn(deark *c, unsigned int flags, unsigned int code,
 #endif
 
 	// TODO: Maybe move the DE_COLOR_* macros to deark.h.
-#define X_DE_COLOR_R(x)  (unsigned int)(((x)>>16)&0xff)
-#define X_DE_COLOR_G(x)  (unsigned int)(((x)>>8)&0xff)
-#define X_DE_COLOR_B(x)  (unsigned int)((x)&0xff)
+#define X_DE_COLOR_R(x)  (UI)(((x)>>16)&0xff)
+#define X_DE_COLOR_G(x)  (UI)(((x)>>8)&0xff)
+#define X_DE_COLOR_B(x)  (UI)((x)&0xff)
 	if(code==DE_MSGCODE_HL) {
 		emit_sz(cc, "\x1b[7m");
 	}
@@ -309,7 +309,7 @@ static void our_specialmsgfn(deark *c, unsigned int flags, unsigned int code,
 	}
 }
 
-static void our_msgfn(deark *c, unsigned int flags, const char *s1)
+static void our_msgfn(deark *c, UI flags, const char *s1)
 {
 	struct cmdctx *cc;
 	const char *s;
@@ -541,7 +541,7 @@ static void set_output_basename(struct cmdctx *cc)
 {
 	const char *outputbasefn = cc->base_output_filename; // default, could be NULL
 	const char *outdirname;
-	unsigned int flags = 0;
+	UI flags = 0;
 
 	if(cc->option_k_level && cc->input_filename) {
 		if(cc->option_k_level==1) {
@@ -579,7 +579,7 @@ static void set_output_basename(struct cmdctx *cc)
 static void set_output_archive_name(struct cmdctx *cc)
 {
 	const char *arcfn = cc->archive_filename; // default, could be NULL
-	unsigned int flags = 0;
+	UI flags = 0;
 
 	if(!cc->to_zip && !cc->to_tar) return;
 	if(cc->to_stdout) return;

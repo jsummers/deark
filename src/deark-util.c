@@ -29,7 +29,7 @@ char *de_get_version_string(char *buf, size_t bufsize)
 	return buf;
 }
 
-unsigned int de_get_version_int(void)
+UI de_get_version_int(void)
 {
 	return DE_VERSION_NUMBER;
 }
@@ -92,14 +92,14 @@ void de_snprintf(char *buf, size_t buflen, const char *fmt, ...)
 	va_end(ap);
 }
 
-static void de_puts_advanced(deark *c, unsigned int flags, const char *s)
+static void de_puts_advanced(deark *c, UI flags, const char *s)
 {
 	size_t s_len;
 	size_t s_pos = 0;
 	char *tmps = NULL;
 	size_t tmps_pos = 0;
 	int hlmode = 0;
-	unsigned int special_code;
+	UI special_code;
 	u32 param1 = 0;
 
 	s_len = de_strlen(s);
@@ -168,7 +168,7 @@ static void de_puts_advanced(deark *c, unsigned int flags, const char *s)
 	de_free(c, tmps);
 }
 
-void de_puts(deark *c, unsigned int flags, const char *s)
+void de_puts(deark *c, UI flags, const char *s)
 {
 	size_t k;
 
@@ -207,7 +207,7 @@ void de_puts(deark *c, unsigned int flags, const char *s)
 	c->msgfn(c, flags, s);
 }
 
-static void de_vprintf(deark *c, unsigned int flags, const char *fmt, va_list ap)
+static void de_vprintf(deark *c, UI flags, const char *fmt, va_list ap)
 {
 	char buf[1024];
 
@@ -215,7 +215,7 @@ static void de_vprintf(deark *c, unsigned int flags, const char *fmt, va_list ap
 	de_puts(c, flags, buf);
 }
 
-void de_printf(deark *c, unsigned int flags, const char *fmt, ...)
+void de_printf(deark *c, UI flags, const char *fmt, ...)
 {
 	va_list ap;
 
@@ -379,7 +379,7 @@ struct hexdump_ctx {
 	// same for each row:
 	const char *prefix;
 	const char *prefix_sep; // ":"
-	unsigned int flags;
+	UI flags;
 	hexdump_printline_fn printlinefn;
 	char offset_fmtstr[32];
 
@@ -526,7 +526,7 @@ static void hexdump_printline_dbg(deark *c, struct hexdump_ctx *hctx)
 // Note: For a single-line dump, consider de_render_hexbytes_from_*() instead.
 void de_dbg_hexdump(deark *c, dbuf *f, i64 pos1,
 	i64 nbytes_avail, i64 max_nbytes_to_dump,
-	const char *prefix1, unsigned int flags)
+	const char *prefix1, UI flags)
 {
 	struct hexdump_ctx hctx;
 
@@ -544,7 +544,7 @@ static void hexdump_printline_ext(deark *c, struct hexdump_ctx *hctx)
 
 // Print a hexdump in the style of the "hexdump" module.
 void de_hexdump2(deark *c, dbuf *f, i64 pos1, i64 nbytes_avail,
-	i64 max_nbytes_to_dump, unsigned int flags)
+	i64 max_nbytes_to_dump, UI flags)
 {
 	struct hexdump_ctx hctx;
 
@@ -573,16 +573,16 @@ void de_stdwarn_execomp(deark *c)
 char *de_get_colorsample_code(deark *c, de_color clr, char *csamp,
 	size_t csamplen)
 {
-	unsigned int r, g, b;
+	UI r, g, b;
 
 	if(csamplen<8) {
 		csamp[0]='\0';
 		return csamp;
 	}
 
-	r = (unsigned int)DE_COLOR_R(clr);
-	g = (unsigned int)DE_COLOR_G(clr);
-	b = (unsigned int)DE_COLOR_B(clr);
+	r = (UI)DE_COLOR_R(clr);
+	g = (UI)DE_COLOR_G(clr);
+	b = (UI)DE_COLOR_B(clr);
 
 	// Only the low 4 bits are significant. We add 16 so that the bits can't
 	// all be 0; since we can't have NUL bytes in this NUL-terminated string.
@@ -1047,7 +1047,7 @@ i64 de_pad_to_4(i64 x)
 i64 de_pow2(i64 x)
 {
 	if(x<0 || x>62) return 1;
-	return (i64)1 << (unsigned int)x;
+	return (i64)1 << (UI)x;
 }
 
 i64 de_pad_to_n(i64 x, i64 n)
@@ -1299,7 +1299,7 @@ static void maybe_delete_leading_slash(de_ucstring *s)
 //   DE_SNFLAG_FULLPATH = "/" characters in the name are path separators.
 //   DE_SNFLAG_STRIPTRAILINGSLASH
 static void de_finfo_set_name_internal(deark *c, de_finfo *fi, de_ucstring *s,
-	unsigned int flags)
+	UI flags)
 {
 	i64 i;
 	int allow_slashes;
@@ -1359,7 +1359,7 @@ static void de_finfo_set_name_internal(deark *c, de_finfo *fi, de_ucstring *s,
 }
 
 void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s,
-	unsigned int flags)
+	UI flags)
 {
 	de_ucstring *s_copy;
 
@@ -1368,7 +1368,7 @@ void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s,
 }
 
 void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1,
-	unsigned int flags, de_ext_encoding ee)
+	UI flags, de_ext_encoding ee)
 {
 	de_ucstring *fname;
 
@@ -1383,7 +1383,7 @@ void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1,
 
 // Sets the precision field to UNKNOWN.
 // flags: Same as de_FILETIME_to_timestamp()
-void de_unix_time_to_timestamp(i64 ut, struct de_timestamp *ts, unsigned int flags)
+void de_unix_time_to_timestamp(i64 ut, struct de_timestamp *ts, UI flags)
 {
 	de_FILETIME_to_timestamp(
 		(ut + ((i64)86400)*(369*365 + 89)) * 10000000,
@@ -1429,7 +1429,7 @@ void de_mac_time_to_timestamp(i64 mt, struct de_timestamp *ts)
 // Convert a Windows FILETIME to a Deark timestamp.
 // Always sets the precision field to HIGH.
 // flags: 0x1 = set the UTC flag
-void de_FILETIME_to_timestamp(i64 ft, struct de_timestamp *ts, unsigned int flags)
+void de_FILETIME_to_timestamp(i64 ft, struct de_timestamp *ts, UI flags)
 {
 	de_zeromem(ts, sizeof(struct de_timestamp));
 	if(ft<=0) return;
@@ -1463,7 +1463,7 @@ void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
 //  0x1 = support VFAT long filename attribs
 void de_describe_dos_attribs(deark *c, UI attr, de_ucstring *s, UI flags)
 {
-	unsigned int bf = attr;
+	UI bf = attr;
 
 	if((flags & 0x1) && (bf & 0x3f)==0x0f) {
 		ucstring_append_flags_item(s, "long filename");
@@ -1525,7 +1525,7 @@ void de_riscos_loadexec_to_timestamp(u32 load_addr,
 	u32 exec_addr, struct de_timestamp *ts)
 {
 	i64 t;
-	unsigned int centiseconds;
+	UI centiseconds;
 
 	de_zeromem(ts, sizeof(struct de_timestamp));
 	if((load_addr&0xfff00000U)!=0xfff00000U) return;
@@ -1534,7 +1534,7 @@ void de_riscos_loadexec_to_timestamp(u32 load_addr,
 	// t now = number of centiseconds since the beginning of 1900
 
 	// Remember centiseconds.
-	centiseconds = (unsigned int)(t%100);
+	centiseconds = (UI)(t%100);
 	// Convert t to seconds.
 	t = t/100;
 
@@ -1723,7 +1723,7 @@ void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2)
 // Caller supplies buf (suggest it be at least size 64).
 // Returns an extra pointer to buf.
 char *de_timestamp_to_string(const struct de_timestamp *ts,
-	char *buf, size_t buf_len, unsigned int flags)
+	char *buf, size_t buf_len, UI flags)
 {
 	const char *tzlabel;
 	char subsec[16];
@@ -1742,8 +1742,8 @@ char *de_timestamp_to_string(const struct de_timestamp *ts,
 	}
 
 	if(ts->precision>DE_TSPREC_1SEC) {
-		unsigned int ms;
-		ms = (unsigned int)(tm2.tm_subsec/10000);
+		UI ms;
+		ms = (UI)(tm2.tm_subsec/10000);
 		if(ms>=1000) ms=999;
 		de_snprintf(subsec, sizeof(subsec), ".%03u", ms);
 	}
@@ -1769,7 +1769,7 @@ done:
 // If it is not, it just returns an empty string, to avoid the relatively
 // slow date processing.
 char *de_dbg_timestamp_to_string(deark *c, const struct de_timestamp *ts,
-	char *buf, size_t buf_len, unsigned int flags)
+	char *buf, size_t buf_len, UI flags)
 {
 	if(c->debug_level<1) {
 		buf[0] = '\0';

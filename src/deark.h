@@ -84,7 +84,7 @@ struct deark_struct;
 typedef struct deark_struct deark;
 
 char *de_get_version_string(char *buf, size_t bufsize);
-unsigned int de_get_version_int(void);
+UI de_get_version_int(void);
 void de_exitprocess(int s);
 
 void *de_malloc(deark *c, i64 n);
@@ -118,12 +118,12 @@ void de_snprintf(char *buf, size_t buflen, const char *fmt, ...)
 #define DE_MSGTYPE_ERROR   2U
 #define DE_MSGTYPE_DEBUG   3U
 // The low bits of 'flags' are the message type.
-typedef void (*de_msgfn_type)(deark *c, unsigned int flags, const char *s);
+typedef void (*de_msgfn_type)(deark *c, UI flags, const char *s);
 
 #define DE_MSGCODE_HL      0x1000U
 #define DE_MSGCODE_UNHL    0x1100U
 #define DE_MSGCODE_RGBSAMPLE 0x2000U
-typedef void (*de_specialmsgfn_type)(deark *c, unsigned int flags, unsigned int code,
+typedef void (*de_specialmsgfn_type)(deark *c, UI flags, UI code,
 	u32 param1);
 
 typedef void (*de_fatalerrorfn_type)(deark *c);
@@ -135,8 +135,8 @@ typedef void (*de_fatalerrorfn_type)(deark *c);
 #define DE_ARCHIVEFMT_ZIP     1
 #define DE_ARCHIVEFMT_TAR     2
 
-void de_puts(deark *c, unsigned int flags, const char *s);
-void de_printf(deark *c, unsigned int flags, const char *fmt, ...)
+void de_puts(deark *c, UI flags, const char *s);
+void de_printf(deark *c, UI flags, const char *fmt, ...)
 	de_gnuc_attribute ((format (printf, 3, 4)));
 
-void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int flags);
+void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, UI flags);
