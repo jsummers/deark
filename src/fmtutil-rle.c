@@ -9,6 +9,9 @@
 #include "deark-private.h"
 #include "deark-fmtutil.h"
 
+///////////////////////////////////
+// PackBits
+
 enum packbits_state_enum {
 	PACKBITS_STATE_NEUTRAL = 0,
 	PACKBITS_STATE_COPYING_LITERAL,
@@ -199,6 +202,9 @@ int fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
 	return 1;
 }
 
+///////////////////////////////////
+// RLE90
+
 void fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	unsigned int flags)
@@ -301,6 +307,9 @@ void dfilter_rle90_codec(struct de_dfilter_ctx *dfctx, void *codec_private_param
 	dfctx->codec_destroy_fn = my_rle90_codec_destroy;
 }
 
+///////////////////////////////////
+// STOS picture bank compression
+
 void fmtutil_decompress_stos_pictbank(deark *c, dbuf *inf,
 	i64 picdatapos1, i64 rledatapos1, i64 pointspos1,
 	dbuf *unc_pixels, i64 unc_image_size)
@@ -370,4 +379,135 @@ void fmtutil_decompress_stos_pictbank(deark *c, dbuf *inf,
 	de_free(c, bbll_r);
 	de_free(c, bitrd_p);
 	de_dbg_indent(c, -1);
+}
+
+///////////////////////////////////
+// PCPaint PIC compression
+
+struct pcpaintrle_blk_ctx {
+	UI block_idx;
+	i64 block_pos;
+	i64 end_of_this_block;
+	i64 packed_block_size;
+	i64 unpacked_block_size;
+	i64 nbytes_decompressed_this_block;
+	u8 run_marker;
+};
+
+// codec_private_params = de_pcpaint_rle_params (can't be NULL).
+void fmtutil_pcpaintrle_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params)
+{
+	struct de_pcpaint_rle_params *pcpp = (struct de_pcpaint_rle_params*)codec_private_params;
+	i64 inf_pos = dcmpri->pos;
+	i64 inf_endpos = dcmpri->pos + dcmpri->len;
+	i64 nbytes_decompressed = 0;
+	UI nblocks_started = 0;
+	struct pcpaintrle_blk_ctx blk;
+
+	de_zeromem(&blk, sizeof(struct pcpaintrle_blk_ctx));
+
+	if(pcpp->one_block_mode) {
+		// TODO? One-block mode is handled in a way that's kind of a hack.
+		// Maybe it should be redesigned, but maybe not worth it.
+		blk.block_idx = 0;
+		blk.block_pos = inf_pos;
+		blk.end_of_this_block = inf_endpos;
+		blk.run_marker = pcpp->obm_run_marker;
+	}
+	else {
+		blk.end_of_this_block = inf_pos;
+	}
+
+	while(1) {
+		u8 x;
+		i64 count;
+
+		if(inf_pos >= inf_endpos) goto done;
+		if(dcmpro->len_known && nbytes_decompressed>=dcmpro->expected_len) goto done;
+
+		if(inf_pos>blk.end_of_this_block) {
+			de_dfilter_set_generic_error(c, dres, NULL);
+			goto done;
+		}
+
+		// Things to do at the start of a block
+		if(inf_pos==blk.end_of_this_block) {
+			// Next block should begin here
+
+			// Validate the previous block
+			if(nblocks_started>0 && blk.nbytes_decompressed_this_block!=blk.unpacked_block_size) {
+				de_dfilter_set_generic_error(c, dres, NULL);
+				goto done;
+			}
+
+			if(pcpp->one_block_mode) {
+				goto done;
+			}
+			if(pcpp->num_blocks_known && nblocks_started>=pcpp->num_blocks) {
+				goto done;
+			}
+			de_zeromem(&blk, sizeof(struct pcpaintrle_blk_ctx));
+			blk.block_idx = nblocks_started;
+			nblocks_started++;
+			blk.block_pos = inf_pos;
+
+			de_dbg3(c, "block #%u at %"I64_FMT, blk.block_idx, blk.block_pos);
+			if(blk.block_pos+5 > inf_endpos) {
+				de_dfilter_set_generic_error(c, dres, NULL);
+				goto done;
+			}
+
+			blk.nbytes_decompressed_this_block = 0;
+			blk.packed_block_size = dbuf_getu16le_p(dcmpri->f, &inf_pos);
+			blk.unpacked_block_size = dbuf_getu16le_p(dcmpri->f, &inf_pos);
+			blk.run_marker = dbuf_getbyte_p(dcmpri->f, &inf_pos);
+			blk.end_of_this_block = blk.block_pos + blk.packed_block_size;
+			de_dbg_indent(c, 1);
+			de_dbg3(c, "packed size: %"I64_FMT, blk.packed_block_size);
+			de_dbg3(c, "unpacked size: %"I64_FMT, blk.unpacked_block_size);
+			de_dbg3(c, "run marker: 0x%02x", (UI)blk.run_marker);
+			if(blk.packed_block_size<5) {
+				de_dfilter_set_generic_error(c, dres, NULL);
+				goto done;
+			}
+			de_dbg_indent(c, -1);
+		}
+
+		x = dbuf_getbyte_p(dcmpri->f, &inf_pos);
+		if(x==blk.run_marker) { // A compressed run.
+			x = dbuf_getbyte_p(dcmpri->f, &inf_pos);
+			if(x!=0) {
+				// If nonzero, this byte is the run length.
+				count = (i64)x;
+			}
+			else {
+				// If zero, it is followed by a 16-bit run length
+				count = dbuf_getu16le_p(dcmpri->f, &inf_pos);
+			}
+
+			x = dbuf_getbyte_p(dcmpri->f, &inf_pos);
+			dbuf_write_run(dcmpro->f, x, count);
+			blk.nbytes_decompressed_this_block += count;
+			nbytes_decompressed += count;
+		}
+		else { // A non-compressed part of the image
+			dbuf_writebyte(dcmpro->f, x);
+			blk.nbytes_decompressed_this_block ++;
+			nbytes_decompressed++;
+		}
+
+		if(!pcpp->one_block_mode &&
+			(blk.nbytes_decompressed_this_block > blk.unpacked_block_size))
+		{
+			de_dfilter_set_generic_error(c, dres, NULL);
+			goto done;
+		}
+	}
+
+done:
+	dbuf_flush(dcmpro->f);
+	dres->bytes_consumed_valid = 1;
+	dres->bytes_consumed = inf_pos - dcmpri->pos;
 }

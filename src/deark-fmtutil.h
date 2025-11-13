@@ -102,6 +102,31 @@ typedef void (*de_codectype1_type)(deark *c, struct de_dfilter_in_params *dcmpri
 void fmtutil_decompress_uncompressed(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, UI flags);
 
+struct de_packbits_params {
+	UI nbytes_per_unit; // 0=default (1)
+};
+void fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	struct de_packbits_params *pbparams);
+int fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
+	dbuf *unc_pixels, i64 *cmpr_bytes_consumed);
+void fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	unsigned int flags);
+void fmtutil_decompress_stos_pictbank(deark *c, dbuf *inf,
+	i64 picdatapos, i64 rledatapos, i64 pointspos,
+	dbuf *unc_pixels, i64 unc_image_size);
+
+struct de_pcpaint_rle_params {
+	u8 one_block_mode;
+	u8 obm_run_marker; // if one_block_mode
+	u8 num_blocks_known; // if !one_block_mode
+	i64 num_blocks; // if num_blocks_known
+};
+void fmtutil_pcpaintrle_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params);
+
 #define DE_DEFLATEFLAG_ISZLIB 0x1
 #define DE_DEFLATEFLAG_USEMAXUNCMPRSIZE 0x2 // only used with fmtutil_decompress_deflate()
 #define DE_DEFLATEFLAG_DEFLATE64 0x4
@@ -120,18 +145,6 @@ void fmtutil_deflate_codectype1_miniz(deark *c, struct de_dfilter_in_params *dcm
 void fmtutil_deflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params);
-
-struct de_packbits_params {
-	UI nbytes_per_unit; // 0=default (1)
-};
-void fmtutil_decompress_packbits_ex(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	struct de_packbits_params *pbparams);
-int fmtutil_decompress_packbits(dbuf *f, i64 pos1, i64 len,
-	dbuf *unc_pixels, i64 *cmpr_bytes_consumed);
-void fmtutil_decompress_rle90_ex(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	unsigned int flags);
 
 struct de_lzss1_params {
 	UI flags;
@@ -168,10 +181,6 @@ void fmtutil_xpkMASH_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 void fmtutil_ic1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params);
-
-void fmtutil_decompress_stos_pictbank(deark *c, dbuf *inf,
-	i64 picdatapos, i64 rledatapos, i64 pointspos,
-	dbuf *unc_pixels, i64 unc_image_size);
 
 struct de_dfilter_ctx;
 typedef void (*dfilter_codec_type)(struct de_dfilter_ctx *dfctx, void *codec_private_params);

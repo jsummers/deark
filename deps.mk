@@ -243,8 +243,8 @@ $(OBJDIR)/modules/palmpdb.o: modules/palmpdb.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/pcf.o: modules/pcf.c src/deark-config.h \
  src/deark-private.h src/deark.h
-$(OBJDIR)/modules/pcpaint.o: modules/pcpaint.c src/deark-config.h \
- src/deark-private.h src/deark.h
+$(OBJDIR)/modules/pcpaint.o: modules/pcpaint.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/pcx.o: modules/pcx.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/pff2.o: modules/pff2.c src/deark-config.h \

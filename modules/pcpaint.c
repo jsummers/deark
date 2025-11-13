@@ -4,8 +4,8 @@
 
 // PCPaint PIC and CLP format
 
-#include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_pcpaint);
 DE_DECLARE_MODULE(de_module_bsave_cmpr);
 
@@ -15,8 +15,8 @@ struct pal_info {
 	u8 *data;
 };
 
-struct localctx_struct;
-typedef struct localctx_struct lctx;
+struct localctx_pcpaint;
+typedef struct localctx_pcpaint lctx;
 
 enum screen_mode_type_enum {
 	SCREENMODETYPE_UNKNOWN = 0,
@@ -26,7 +26,7 @@ enum screen_mode_type_enum {
 
 typedef void (*decoder_fn_type)(deark *c, lctx *d);
 
-struct localctx_struct {
+struct localctx_pcpaint {
 #define FMT_PIC 1
 #define FMT_CLP 2
 #define FMT_CMPR_BSAVE 3
@@ -47,6 +47,7 @@ struct localctx_struct {
 	struct pal_info *pal_info_to_use; // Points to _mainfile or _palfile
 	i64 num_rle_blocks;
 	dbuf *unc_pixels;
+	i64 dcmpr_nbytes_consumed;
 	decoder_fn_type decoder_fn;
 	enum screen_mode_type_enum screen_mode_type;
 	de_color pal[256]; // Final palette to use
@@ -447,83 +448,67 @@ static void decode_4color_planar(deark *c, lctx *d)
 // Writes decompressed bytes to d->unc_pixels.
 // packed_data_size does not include header size.
 // Returns 0 on error.
+
 static int decompress_block(deark *c, lctx *d,
 	i64 pos1, i64 packed_data_size, u8 run_marker)
 {
-	i64 pos = pos1;
-	i64 end_of_this_block;
-	u8 x;
-	i64 run_length;
+	struct de_pcpaint_rle_params *pcpp = NULL;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	int retval = 0;
 
-	end_of_this_block = pos1 + packed_data_size;
-	if(end_of_this_block > c->infile->len) {
-		end_of_this_block = c->infile->len;
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = pos1;
+	dcmpri.len = packed_data_size;
+	dcmpro.f = d->unc_pixels;
+
+	pcpp = de_malloc(c, sizeof(struct de_pcpaint_rle_params));
+	pcpp->one_block_mode = 1;
+	pcpp->obm_run_marker = run_marker;
+
+	fmtutil_pcpaintrle_codectype1(c, &dcmpri, &dcmpro, &dres, (void*)pcpp);
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
+	}
+	else {
+		d->dcmpr_nbytes_consumed = dres.bytes_consumed;
+		retval = 1;
 	}
 
-	while(pos<end_of_this_block) {
-		x = de_getbyte_p(&pos);
-		if(x!=run_marker) {
-			// An non-compressed part of the image
-			dbuf_writebyte(d->unc_pixels, x);
-			continue;
-		}
-
-		// A compressed run.
-		x = de_getbyte_p(&pos);
-		if(x!=0) {
-			// If nonzero, this byte is the run length.
-			run_length = (i64)x;
-		}
-		else {
-			// If zero, it is followed by a 16-bit run length
-			run_length = de_getu16le_p(&pos);
-		}
-
-		// Read the byte value to repeat (run_length) times.
-		x = de_getbyte_p(&pos);
-		dbuf_write_run(d->unc_pixels, x, run_length);
-	}
-
-	return 1;
+	de_free(c, pcpp);
+	return retval;
 }
 
 // Uses d->num_rle_blocks
 static int decompress_blocks(deark *c, lctx *d, i64 pos1)
 {
-	i64 i;
-	i64 packed_block_size;
-	i64 unpacked_block_size;
-	i64 end_of_this_block;
-	i64 pos = pos1;
-	u8 run_marker;
+	struct de_pcpaint_rle_params *pcpp = NULL;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
 	int retval = 0;
 
-	for(i=0; i<d->num_rle_blocks; i++) {
-		de_dbg3(c, "block #%d at %"I64_FMT, (int)i, pos);
-		de_dbg_indent(c, 1);
-		// start_of_this_block = pos;
-		packed_block_size = de_getu16le(pos);
-		// block size includes the 5-byte header, so it can't be < 5.
-		if(packed_block_size<5) packed_block_size=5;
-		end_of_this_block = pos + packed_block_size; // Remember where this block ends
-		if(end_of_this_block > c->infile->len) goto done;
-		unpacked_block_size = de_getu16le(pos+2);
-		run_marker = de_getbyte(pos+4);
-		pos+=5;
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = pos1;
+	dcmpri.len = c->infile->len - pos1;
+	dcmpro.f = d->unc_pixels;
 
-		de_dbg3(c, "packed size: %"I64_FMT, packed_block_size);
-		de_dbg3(c, "unpacked size: %"I64_FMT, unpacked_block_size);
-		de_dbg3(c, "run marker: 0x%02x", (UI)run_marker);
-
-		if(!decompress_block(c, d, pos, packed_block_size-5, run_marker)) {
-			goto done;
-		}
-		de_dbg_indent(c, -1);
-
-		pos = end_of_this_block;
+	pcpp = de_malloc(c, sizeof(struct de_pcpaint_rle_params));
+	pcpp->num_blocks_known = 1;
+	pcpp->num_blocks = d->num_rle_blocks;
+	fmtutil_pcpaintrle_codectype1(c, &dcmpri, &dcmpro, &dres, (void*)pcpp);
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
 	}
-	retval = 1;
-done:
+	else {
+		d->dcmpr_nbytes_consumed = dres.bytes_consumed;
+		retval = 1;
+	}
+
+	de_free(c, pcpp);
 	return retval;
 }
 
@@ -532,18 +517,18 @@ done:
 static int decompress_pic_pixels(deark *c, lctx *d)
 {
 	i64 pos;
-	int retval = 1;
+	int retval = 0;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	if(d->num_rle_blocks<1) {
 		// Not compressed
-		retval = 1;
 		goto done;
 	}
 
 	d->unc_pixels = dbuf_create_membuf(c, 16384, 0);
 	dbuf_set_length_limit(d->unc_pixels, (d->pdwidth+7) * d->height);
+	dbuf_enable_wbuffer(d->unc_pixels);
 
 	de_dbg(c, "decompressing image");
 	de_dbg_indent(c, 1);
@@ -552,7 +537,8 @@ static int decompress_pic_pixels(deark *c, lctx *d)
 	if(!decompress_blocks(c, d, pos)) goto done;
 
 	de_dbg_indent(c, -1);
-	de_dbg(c, "decompressed to %"I64_FMT" bytes", d->unc_pixels->len);
+	de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes",
+		d->dcmpr_nbytes_consumed, d->unc_pixels->len);
 	retval = 1;
 
 done:
@@ -760,7 +746,7 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 
 	if(d->num_rle_blocks>0) {
 		// Image is compressed.
-		decompress_pic_pixels(c, d);
+		if(!decompress_pic_pixels(c, d)) goto done;
 	}
 	else {
 		// Image is not compressed.
@@ -842,18 +828,20 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 		de_dbg_indent(c, 1);
 		d->unc_pixels = dbuf_create_membuf(c, 16384, 0);
 		dbuf_set_length_limit(d->unc_pixels, (d->pdwidth+7) * d->height);
+		dbuf_enable_wbuffer(d->unc_pixels);
 
 		if(!decompress_block(c, d, d->header_size,
-			c->infile->len - d->header_size, run_marker))
+			file_size - d->header_size, run_marker))
 		{
 			goto done;
 		}
 		de_dbg_indent(c, -1);
-		de_dbg(c, "decompressed to %"I64_FMT" bytes", d->unc_pixels->len);
+		de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes",
+			d->dcmpr_nbytes_consumed, d->unc_pixels->len);
 	}
 	else {
 		d->unc_pixels = dbuf_open_input_subfile(c->infile,
-			d->header_size, c->infile->len-d->header_size);
+			d->header_size, file_size-d->header_size);
 	}
 
 	d->decoder_fn(c, d);
@@ -999,6 +987,7 @@ static void de_run_bsave_cmpr(deark *c, de_module_params *mparams)
 
 	udata_size = de_getu16le(7);
 	d->unc_pixels = dbuf_create_membuf(c, BSAVE_HDRSIZE+udata_size, 0x1);
+	dbuf_enable_wbuffer(d->unc_pixels);
 
 	// Construct the 7-byte BSAVE header
 	dbuf_copy(c->infile, 0, 5, d->unc_pixels);

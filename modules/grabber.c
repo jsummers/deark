@@ -94,100 +94,6 @@ done:
 	dres->bytes_consumed = inf_pos - dcmpri->pos;
 }
 
-struct pcpaintrle_blk_ctx {
-	i64 block_pos;
-	i64 end_of_this_block;
-	i64 packed_block_size;
-	i64 unpacked_block_size;
-	i64 nbytes_decompressed_this_block;
-	u8 run_marker;
-};
-
-// TODO: Make this a library function.
-static void fmtutil_pcpaintrle_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	void *codec_private_params)
-{
-	i64 inf_pos = dcmpri->pos;
-	i64 inf_endpos = dcmpri->pos + dcmpri->len;
-	i64 nbytes_decompressed = 0;
-	UI block_count = 0; // number of blocks started
-	struct pcpaintrle_blk_ctx blk;
-
-	de_zeromem(&blk, sizeof(struct pcpaintrle_blk_ctx));
-	blk.end_of_this_block = inf_pos;
-
-	while(1) {
-		u8 x;
-		i64 count;
-
-		if(inf_pos >= inf_endpos) goto done;
-		if(dcmpro->len_known && nbytes_decompressed>=dcmpro->expected_len) goto done;
-
-		if(inf_pos>blk.end_of_this_block) {
-			de_dfilter_set_generic_error(c, dres, NULL);
-			goto done;
-		}
-
-		// Things to do at the start of a block
-		if(inf_pos==blk.end_of_this_block) {
-			// Next block should begin here
-
-			// Validate the previous block
-			if(block_count>0 && blk.nbytes_decompressed_this_block!=blk.unpacked_block_size) {
-				de_dfilter_set_generic_error(c, dres, NULL);
-				goto done;
-			}
-
-			blk.block_pos = inf_pos;
-			if(blk.block_pos+5 > inf_endpos) {
-				de_dfilter_set_generic_error(c, dres, NULL);
-				goto done;
-			}
-
-			block_count++;
-			blk.nbytes_decompressed_this_block = 0;
-			blk.packed_block_size = dbuf_getu16le_p(dcmpri->f, &inf_pos);
-			blk.unpacked_block_size = dbuf_getu16le_p(dcmpri->f, &inf_pos);
-			blk.run_marker = dbuf_getbyte_p(dcmpri->f, &inf_pos);
-			blk.end_of_this_block = blk.block_pos + blk.packed_block_size;
-		}
-
-		x = dbuf_getbyte_p(dcmpri->f, &inf_pos);
-		if(x==blk.run_marker) { // A compressed run.
-			x = dbuf_getbyte_p(dcmpri->f, &inf_pos);
-			if(x!=0) {
-				// If nonzero, this byte is the run length.
-				count = (i64)x;
-			}
-			else {
-				// If zero, it is followed by a 16-bit run length
-				count = dbuf_getu16le_p(dcmpri->f, &inf_pos);
-			}
-
-			x = dbuf_getbyte_p(dcmpri->f, &inf_pos);
-			dbuf_write_run(dcmpro->f, x, count);
-			blk.nbytes_decompressed_this_block += count;
-			nbytes_decompressed += count;
-		}
-		else { // A non-compressed part of the image
-			dbuf_writebyte(dcmpro->f, x);
-			blk.nbytes_decompressed_this_block ++;
-			nbytes_decompressed++;
-		}
-
-		if(blk.nbytes_decompressed_this_block > blk.unpacked_block_size) {
-			de_dfilter_set_generic_error(c, dres, NULL);
-			goto done;
-		}
-	}
-
-done:
-	dbuf_flush(dcmpro->f);
-	dres->bytes_consumed_valid = 1;
-	dres->bytes_consumed = inf_pos - dcmpri->pos;
-}
-
 static void gr_decompress_any(deark *c, lctx *d,
 	UI cmpr_meth,
 	i64 cmpr_pos, i64 cmpr_len, dbuf *unc_data,
@@ -196,7 +102,9 @@ static void gr_decompress_any(deark *c, lctx *d,
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
 	dcmpri.pos = cmpr_pos;
@@ -205,8 +113,14 @@ static void gr_decompress_any(deark *c, lctx *d,
 	dcmpro.len_known = 1;
 	dcmpro.expected_len = num_dcmpr_bytes_expected;
 
+	de_dbg(c, "[decompressing]");
+	de_dbg_indent(c, 1);
 	if(cmpr_meth==GR_CMPR_PCPAINT) {
-		fmtutil_pcpaintrle_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
+		struct de_pcpaint_rle_params *pcpp;
+
+		pcpp = de_malloc(c, sizeof(struct de_pcpaint_rle_params));
+		fmtutil_pcpaintrle_codectype1(c, &dcmpri, &dcmpro, &dres, (void*)pcpp);
+		de_free(c, pcpp);
 	}
 	else {
 		fmtutil_pcxrle_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
@@ -219,7 +133,7 @@ static void gr_decompress_any(deark *c, lctx *d,
 	de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes",
 		dres.bytes_consumed, unc_data->len);
 done:
-	;
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void read_grabber_palette(deark *c, lctx *d, i64 pos1, i64 num_entries,
