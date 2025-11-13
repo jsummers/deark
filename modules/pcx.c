@@ -4,8 +4,8 @@
 
 // PCX (PC Paintbrush) and related formats
 
-#include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_pcx);
 DE_DECLARE_MODULE(de_module_mswordscr);
 DE_DECLARE_MODULE(de_module_dcx);
@@ -500,13 +500,21 @@ static void do_palette_stuff(deark *c, lctx *d)
 	de_dbg_indent(c, -1);
 }
 
-static int do_uncompress(deark *c, lctx *d)
+static int do_decompress(deark *c, lctx *d)
 {
 	i64 pos;
-	u8 b, b2;
-	i64 count;
+	//u8 b, b2;
+	//i64 count;
 	i64 expected_bytes;
 	i64 endpos;
+	int retval = 0;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 
 	pos = PCX_HDRSIZE;
 	de_dbg(c, "compressed bitmap at %"I64_FMT, pos);
@@ -522,32 +530,26 @@ static int do_uncompress(deark *c, lctx *d)
 		endpos -= 769;
 	}
 
-	while(1) {
-		if(pos>=endpos) {
-			break; // Reached the end of source data
-		}
-		if(d->unc_pixels->len >= expected_bytes) {
-			break; // Reached the end of the image
-		}
-		b = de_getbyte(pos++);
+	dcmpri.f = c->infile;
+	dcmpri.pos = pos;
+	dcmpri.len = endpos - pos;
+	dcmpro.f = d->unc_pixels;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = expected_bytes;
 
-		if(b>=0xc0) {
-			count = (i64)(b&0x3f);
-			b2 = de_getbyte(pos++);
-			dbuf_write_run(d->unc_pixels, b2, count);
-		}
-		else {
-			dbuf_writebyte(d->unc_pixels, b);
-		}
+	fmtutil_pcxrle_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
+		goto done;
 	}
-
-	dbuf_flush(d->unc_pixels);
+	retval = 1;
 	if(d->unc_pixels->len < expected_bytes) {
-		de_warn(c, "Expected %d bytes of image data, only found %d",
-			(int)expected_bytes, (int)d->unc_pixels->len);
+		de_warn(c, "Expected %"I64_FMT" bytes of image data, only found %"I64_FMT,
+			expected_bytes, d->unc_pixels->len);
 	}
 
-	return 1;
+done:
+	return retval;
 }
 
 static void do_bitmap_1bpp(deark *c, lctx *d)
@@ -660,7 +662,7 @@ static void de_run_pcx_internal(deark *c, lctx *d, de_module_params *mparams)
 			PCX_HDRSIZE, c->infile->len-PCX_HDRSIZE);
 	}
 	else {
-		if(!do_uncompress(c, d)) {
+		if(!do_decompress(c, d)) {
 			goto done;
 		}
 	}

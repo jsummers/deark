@@ -59,41 +59,6 @@ static void free_lctx(deark *c, lctx *d)
 	de_free(c, d);
 }
 
-// TODO: Make this a library function.
-static void fmtutil_pcxrle_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	void *codec_private_params)
-{
-	i64 inf_pos = dcmpri->pos;
-	i64 inf_endpos = dcmpri->pos + dcmpri->len;
-	i64 nbytes_decompressed = 0;
-
-	while(1) {
-		i64 count;
-		u8 b0, b1;
-
-		if(inf_pos >= inf_endpos) goto done;
-		if(dcmpro->len_known && nbytes_decompressed>=dcmpro->expected_len) goto done;
-
-		b0 = dbuf_getbyte_p(dcmpri->f, &inf_pos);
-		if(b0 >= 0xc0) {
-			count = (i64)b0 - 0xc0;
-			b1 = dbuf_getbyte_p(dcmpri->f, &inf_pos);
-			dbuf_write_run(dcmpro->f, b1, count);
-			nbytes_decompressed += count;
-		}
-		else {
-			dbuf_writebyte(dcmpro->f, b0);
-			nbytes_decompressed++;
-		}
-	}
-
-done:
-	dbuf_flush(dcmpro->f);
-	dres->bytes_consumed_valid = 1;
-	dres->bytes_consumed = inf_pos - dcmpri->pos;
-}
-
 static void gr_decompress_any(deark *c, lctx *d,
 	UI cmpr_meth,
 	i64 cmpr_pos, i64 cmpr_len, dbuf *unc_data,
