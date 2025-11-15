@@ -259,6 +259,7 @@
     <ClCompile Include="..\..\modules\macbinary.c" />
     <ClCompile Include="..\..\modules\macpaint.c" />
     <ClCompile Include="..\..\modules\macrsrc.c" />
+    <ClCompile Include="..\..\modules\mahjong.c" />
     <ClCompile Include="..\..\modules\makichan.c" />
     <ClCompile Include="..\..\modules\mbk.c" />
     <ClCompile Include="..\..\modules\megapaint.c" />
