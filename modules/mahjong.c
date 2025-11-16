@@ -5,8 +5,10 @@
 // Some miscellaneous Mahjong graphics formats
 
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_mahj_na_til);
 DE_DECLARE_MODULE(de_module_mjvga);
+DE_DECLARE_MODULE(de_module_mindjongg);
 
 // **************************************************************************
 // Mah Jongg tile set
@@ -633,4 +635,278 @@ void de_module_mjvga(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_mjvga;
 	mi->identify_fn = de_identify_mjvga;
 	mi->help_fn = de_help_mjvga;
+}
+
+// **************************************************************************
+// Mindjongg .ipg
+// **************************************************************************
+
+struct mindjongg_ctx {
+	u8 fmtver;
+	u8 need_errmsg;
+	i64 fixed_hdr_pos;
+	i64 index_seg_pos;
+	i64 index_seg_len;
+	i64 image_seg_pos;
+	i64 num_items;
+	i64 img_count;
+	de_finfo *fi;
+};
+
+static void mindjongg_extract(deark *c, struct mindjongg_ctx *d,
+	i64 img_pos, i64 img_len, UI img_type,
+	const char *token)
+{
+	const char *ext = NULL;
+	struct fmtutil_fmtid_ctx *idctx = NULL;
+
+	if(img_pos==0 || img_len==0 || img_type==0xffffffffU) goto done;
+
+	// Known image type codes: 0=BMP, 1=GIF, 2=JPG, 3=TGA.
+	// (I suspect PNG might also be supported, but I've never seen it.)
+	// Except for TGA, which is hard to detect, we'll just autodetect the
+	// format.
+	if(img_type==3) {
+		ext = "tga";
+	}
+
+	if(!ext) {
+		idctx = de_malloc(c, sizeof(struct fmtutil_fmtid_ctx));
+		idctx->inf = c->infile;
+		idctx->inf_pos = img_pos;
+		idctx->inf_len = img_len;
+		idctx->mode = FMTUTIL_FMTIDMODE_ALL_IMG;
+		fmtutil_fmtid(c, idctx);
+		if(idctx->fmtid) {
+			ext = idctx->ext_sz;
+		}
+	}
+
+	if(ext) {
+		de_finfo_set_name_from_sz(c, d->fi, token, 0, DE_ENCODING_LATIN1);
+		dbuf_create_file_from_slice(c->infile, img_pos, img_len, ext, d->fi, 0);
+	}
+	else {
+		de_err(c, "Unidentified image type (%u)", img_type);
+	}
+done:
+	de_free(c, idctx);
+}
+
+static void do_mindjongg_v1(deark *c, struct mindjongg_ctx *d)
+{
+	i64 n;
+	i64 pos;
+	i64 i;
+	i64 first_imgpos;
+	UI k;
+	char tmps[24];
+
+	pos = 10;
+	// Skip two length-prefixed strings
+	for(k=0; k<2; k++) {
+		n = (i64)de_getbyte_p(&pos);
+		pos += n;
+	}
+
+	d->fixed_hdr_pos = pos;
+	d->index_seg_pos = d->fixed_hdr_pos+72;
+	de_dbg(c, "index pos: %"I64_FMT, d->index_seg_pos);
+
+	// I don't know how to figure out how many items there are.
+	// (An "item" is a slot. It may be empty, or contain an image.)
+	// The first item is for something like an icon. We'll hope
+	// it's always present, and always starts right after the item
+	// array. With those assumptions, we can figure out how many
+	// items there are.
+
+	first_imgpos = de_getu32le(d->index_seg_pos);
+	d->index_seg_len = first_imgpos - d->index_seg_pos;
+	de_dbg(c, "apparent index size: %"I64_FMT, d->index_seg_len);
+
+	// Smallest seen is 108 (9*12), though 72 (6*12) might be possible.
+	// Largest seen is 180 (15*12).
+	if(d->index_seg_len<72 || d->index_seg_len>288 ||
+		(d->index_seg_len%36 != 0))
+	{
+		d->need_errmsg = 1;
+		goto done;
+	}
+	d->num_items = d->index_seg_len / 12;
+	de_dbg(c, "num items: %"I64_FMT, d->num_items);
+
+	d->img_count = 0;
+	pos = d->index_seg_pos;
+	for(i=0; i<d->num_items; i++) {
+		i64 img_pos;
+		i64 img_len;
+		UI img_type;
+
+		img_pos = de_getu32le_p(&pos);
+		img_len = de_getu32le_p(&pos);
+		img_type = (UI)de_getu32le_p(&pos);
+
+		if(img_pos==0 || img_len==0 || img_type==0xffffffffU) {
+			de_dbg(c, "item[%d]: (empty)", (int)i);
+			continue;
+		}
+
+		de_dbg(c, "item[%d]: pos=%"I64_FMT", len=%"I64_FMT", type=%u",
+			(int)i, img_pos, img_len, img_type);
+		if(img_pos + img_len > c->infile->len) {
+			d->need_errmsg = 1;
+			goto done;
+		}
+
+		d->img_count++;
+
+		if(i==0) {
+			de_strlcpy(tmps, "icon", sizeof(tmps));
+		}
+		else if(i>=3 && i%3==0) {
+			de_snprintf(tmps, sizeof(tmps), "size%dtiles", (int)(i/3));
+		}
+		else if(i>=3 && i%3==1) {
+			de_snprintf(tmps, sizeof(tmps), "size%dmask", (int)(i/3));
+		}
+		else if(i>=3 && i%3==2) {
+			de_snprintf(tmps, sizeof(tmps), "size%dedges", (int)(i/3));
+		}
+		else {
+			de_strlcpy(tmps, "", sizeof(tmps));
+		}
+
+		mindjongg_extract(c, d, img_pos, img_len, img_type, tmps);
+	}
+
+	de_dbg2(c, "images found: %"I64_FMT, d->img_count);
+
+done:
+	;
+}
+
+static void do_mindjongg_v3_image(deark *c, struct mindjongg_ctx *d,
+	i64 pos1, int img_idx)
+{
+	i64 img_pos;
+	i64 img_len;
+	UI img_type;
+	i64 pos = pos1;
+	const char *token = NULL;
+
+	img_pos = de_getu32le_p(&pos);
+	img_type = (UI)de_getu32le_p(&pos);
+	img_len = de_getu32le_p(&pos);
+
+	if(img_pos==0 || img_len==0 || img_type==0xffffffffU) {
+		de_dbg(c, "item[%d]: (empty)", img_idx);
+		goto done;
+	}
+
+	de_dbg(c, "item[%d]: pos=%"I64_FMT", len=%"I64_FMT", type=%u",
+		img_idx, img_pos, img_len, img_type);
+
+	if(img_pos<(d->fixed_hdr_pos+140) || img_pos+img_len > c->infile->len) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	switch(img_idx) {
+	case 0: token = "tiles"; break;
+	case 1: token = "mask"; break;
+	case 2: token = "misc"; break;
+	}
+
+	mindjongg_extract(c, d, img_pos, img_len, img_type, token);
+done:
+	;
+}
+
+static void do_mindjongg_v3(deark *c, struct mindjongg_ctx *d)
+{
+	i64 n;
+	i64 pos;
+	UI k;
+
+	pos = 30;
+	// Skip four length-prefixed strings
+	for(k=0; k<4; k++) {
+		n = de_getu32le_p(&pos);
+		pos += n*2;
+	}
+
+	if(pos>=c->infile->len) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	// We expect to be at a 140-byte structure, preceding the images.
+	d->fixed_hdr_pos = pos;
+	do_mindjongg_v3_image(c, d, d->fixed_hdr_pos+40, 0);
+	do_mindjongg_v3_image(c, d, d->fixed_hdr_pos+68, 1);
+	do_mindjongg_v3_image(c, d, d->fixed_hdr_pos+80, 2);
+
+done:
+	;
+}
+
+static void de_run_mindjongg(deark *c, de_module_params *mparams)
+{
+	struct mindjongg_ctx *d = NULL;
+
+	d = de_malloc(c, sizeof(struct mindjongg_ctx));
+	d->fi = de_finfo_create(c);
+
+	if(de_getbyte(1) == 'I') {
+		d->fmtver = 1;
+	}
+	else if(de_getbyte(4) == 'I') {
+		d->fmtver = 3;
+	}
+
+	if(d->fmtver==0) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	de_declare_fmtf(c, "Mindjongg tileset (%s)",
+		(d->fmtver==3?"new":"old"));
+
+	if(d->fmtver==3) {
+		do_mindjongg_v3(c, d);
+	}
+	else {
+		do_mindjongg_v1(c, d);
+	}
+
+done:
+	if(d) {
+		de_finfo_destroy(c, d->fi);
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported Mindjongg IPG file");
+		}
+		de_free(c, d);
+	}
+}
+
+static int de_identify_mindjongg(deark *c)
+{
+	if(de_getbyte(0) != 0x05) return 0;
+	if(!dbuf_memcmp(c->infile, 1,
+		"\x49\x50\x4b\x30\x31\x01\0\0\0", 9)) {
+		return 100;
+	}
+	if(!dbuf_memcmp(c->infile, 1,
+		"\0\0\0\x49\0\x50\0\x4b\0\x30\0\x33\0\x03\0\0\0", 17)) {
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_mindjongg(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "mindjongg";
+	mi->desc = "Mindjongg tileset";
+	mi->run_fn = de_run_mindjongg;
+	mi->identify_fn = de_identify_mindjongg;
 }

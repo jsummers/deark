@@ -184,7 +184,7 @@ $(OBJDIR)/modules/macpaint.o: modules/macpaint.c src/deark-config.h \
 $(OBJDIR)/modules/macrsrc.o: modules/macrsrc.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/mahjong.o: modules/mahjong.c src/deark-private.h \
- src/deark.h src/deark-config.h
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/makichan.o: modules/makichan.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/mbk.o: modules/mbk.c src/deark-config.h \

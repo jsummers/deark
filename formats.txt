@@ -410,6 +410,9 @@ Deark -- Information about supported formats
    -file2 <pal.cfg> - Read the palette from this file. Not expected to be used
     with TIS format, but allowed.
 
+* Mindjongg tileset (.ipg) (module="mindjongg")
+  - Extracts the embedded image files.
+
 * MAKIchan graphics (module="makichan")
   - Supports most 16- and 256-color .MAG images
   - Supports most 16-color .MKI images
