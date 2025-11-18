@@ -98,8 +98,9 @@ Deark -- Information about supported formats
   Options
    -opt berts_bmg:defpal=<name> - The predefined palette to use, if it can't be
      determined.
-     Options are "1", "2", "3" for standard palettes, or "gray" for grayscale,
-     or "fail" (default) to give up and not write a file.
+     Options are "1", "2", "3" for standard palettes, "outline" to remove the
+     coloring, "gray" for grayscale, "fail" (default) to give up and not write
+     a file.
    -opt berts_bmg:forcepal=<name> - The palette to use, even if the correct
      palette is known.
 

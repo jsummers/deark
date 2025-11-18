@@ -913,8 +913,9 @@ void de_module_pcx2com(deark *c, struct deark_module_info *mi)
 #define BERTSPAL_1     1 // [0]/[5] = gray/purple
 #define BERTSPAL_2     2 // black/gray
 #define BERTSPAL_3     3 // gray/green
-#define BERTSPAL_GRAY  4
-#define BERTSPAL_BLACK 5 // all black
+#define BERTSPAL_OUTLINE  4
+#define BERTSPAL_GRAY  5
+#define BERTSPAL_BLACK 6 // all black
 
 struct berts_ctx {
 	u32 pal_crc;
@@ -938,6 +939,7 @@ static const char *bmg_pal_id_to_name(u8 x)
 	case BERTSPAL_1: name = "1"; break;
 	case BERTSPAL_2: name = "2"; break;
 	case BERTSPAL_3: name = "3"; break;
+	case BERTSPAL_OUTLINE: name = "outline"; break;
 	case BERTSPAL_GRAY: name = "gray"; break;
 	}
 	return name?name:"unrecognized";
@@ -954,6 +956,9 @@ static u8 bmg_name_to_pal_id(deark *c, const char *name)
 	}
 	if(!de_strcmp(name, "3")) {
 		return BERTSPAL_3;
+	}
+	if(!de_strcmp(name, "outline")) {
+		return BERTSPAL_OUTLINE;
 	}
 	if(!de_strcmp(name, "gray")) {
 		return BERTSPAL_GRAY;
@@ -1120,6 +1125,8 @@ static void bmg_acquire_palette(deark *c, struct berts_ctx *d)
 		0xff,0xc3,0xa2,	0xff,0xff,0x00,	0xff,0x00,0xff,	0xff,0x61,0x82,
 		0x00,0xff,0xff,	0xa2,0x61,0x41,	0xa2,0xe3,0xff,	0xff,0xff,0xff
 	};
+	size_t idx;
+	u8 gv;
 
 	if(d->pal_to_use==BERTSPAL_1) {
 		de_copy_palette_from_rgb24(bmg_palraw_1, d->pal, 16);
@@ -1134,10 +1141,7 @@ static void bmg_acquire_palette(deark *c, struct berts_ctx *d)
 	else if(d->pal_to_use==BERTSPAL_3) {
 		de_copy_palette_from_rgb24(bmg_palraw_3, d->pal, 16);
 	}
-	else { // grayscale
-		size_t idx;
-		u8 gv;
-
+	else if(d->pal_to_use==BERTSPAL_GRAY) {
 		// [1] is always black, used for the line drawing.
 		// For the other colors, we'll use light grays.
 		idx = 15;
@@ -1151,6 +1155,12 @@ static void bmg_acquire_palette(deark *c, struct berts_ctx *d)
 			if(idx==0) break;
 			idx--;
 			gv -= 8;
+		}
+	}
+	else { // outline
+		for(idx=0; idx<16; idx++) {
+			gv = (idx==1) ? 0 : 255;
+			d->pal[idx] = DE_MAKE_GRAY(gv);
 		}
 	}
 }
@@ -1281,7 +1291,7 @@ static int de_identify_berts_bmg(deark *c)
 static void de_help_berts_bmg(deark *c)
 {
 	de_msg(c, "-opt berts_bmg:defpal=<name> : Default palette "
-		"(options: 1, 2, 3, gray, fail)");
+		"(options: 1, 2, 3, outline, gray, fail)");
 	de_msg(c, "-opt berts_bmg:forcepal=<name> : Use this palette "
 		"unconditionally");
 }
