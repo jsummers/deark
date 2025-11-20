@@ -956,7 +956,7 @@ static u8 pklite_getbit(deark *c, struct decompr_internal_state *dctx)
 	return v;
 }
 
-static void my_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
+static void pklite_lz77buf_writebytecb(struct de_lz77buffer *rb, u8 n)
 {
 	struct decompr_internal_state *dctx = (struct decompr_internal_state *)rb->userdata;
 
@@ -1097,28 +1097,48 @@ done:
 static void do_uncompressed_area(deark *c, struct decompr_internal_state *dctx,
 	struct de_lz77buffer *ringbuf)
 {
-	i64 len;
-	i64 i;
+	UI len;
+	UI i;
+	u8 b;
+	const u8 *uasig = (const u8*)"PKLITE\x26\xa3";
 
 	dctx->has_uncompressed_area = 1;
-	len = (i64)dbuf_getbyte_p(dctx->inf, &dctx->dcmpr_cur_ipos);
-	de_dbg3(c, "uncompressed area at %"I64_FMT", len=%"I64_FMT, dctx->dcmpr_cur_ipos, len);
+	len = (UI)dbuf_getbyte_p(dctx->inf, &dctx->dcmpr_cur_ipos);
+	de_dbg3(c, "uncompressed area at %"I64_FMT", len=%u", dctx->dcmpr_cur_ipos, len);
 
-	// TODO: The only files with this feature that I have are registered copies of
-	// PKZIP.EXE. When decompressed with, e.g., UNP, 9 additional seemingly-random
-	// bytes of data appear out of nowhere before the uncompressed area. I don't
-	// know what these bytes are for. They appear in the original file, but not in a
-	// place that makes any sense.
-	// I don't know whether this also happens in files made by the consumer versions
-	// of PKLITE.
-	// For now, we'll just write 9 dummy bytes here.
-	for(i=0; i<9; i++) {
-		de_lz77buffer_add_literal_byte(ringbuf, 0x00);
+	// The only files that I have, that use an uncompressed area, are
+	// registered versions of PKZIP.EXE. When they decompress themselves
+	// (e.g., use UNP) 9 bytes of what looks like garbage appear before the
+	// uncompressed bytes. Probably, whatever happened to be in memory is
+	// just left there by the decompressor.
+	// Based on the PKLITE 2.01 documentation, in the original file, an
+	// uncompressed area is marked by an 8-byte signature, which is followed
+	// by a length byte. So, the numbers add up. Instead of trying to do
+	// exactly what the decompressor does, we'll do our best to reproduce the
+	// original file.
+	//
+	// (Granted, files made at PKWARE, like PKZIP.EXE, might well have used a
+	// different signature. But there's no way for me to know that.)
+	//
+	// It doesn't really matter what we write here, anyway. After an
+	// uncompressed area, the "match" codes never seem to refer to any of the
+	// bytes in the uncompressed area, or before it. In effect, the history
+	// buffer gets cleared.
+	//
+	// To emphasize this, we won't even add these bytes to the history buffer,
+	// and we'll clear the history buffer before continuing.
+
+	for(i=0; i<8; i++) {
+		ringbuf->writebyte_cb(ringbuf, uasig[i]);
 	}
+	ringbuf->writebyte_cb(ringbuf, (u8)len);
 
 	for(i=0; i<len; i++) {
-		de_lz77buffer_add_literal_byte(ringbuf, dbuf_getbyte_p(dctx->inf, &dctx->dcmpr_cur_ipos));
+		b = dbuf_getbyte_p(dctx->inf, &dctx->dcmpr_cur_ipos);
+		ringbuf->writebyte_cb(ringbuf, b);
 	}
+
+	de_lz77buffer_clear(ringbuf, 0);
 }
 
 // Decompress the main part of the file.
@@ -1199,7 +1219,7 @@ static void do_decompress(deark *c, lctx *d)
 
 	ringbuf = de_lz77buffer_create(c, 8192);
 	ringbuf->userdata = (void*)dctx;
-	ringbuf->writebyte_cb = my_lz77buf_writebytecb;
+	ringbuf->writebyte_cb = pklite_lz77buf_writebytecb;
 
 	dctx->dcmpr_cur_ipos = d->dparams.cmpr_data_pos;
 	dctx->bbll.is_lsb = 1;
@@ -1328,8 +1348,7 @@ after_dcmpr:
 			d->cmpr_data_endpos-d->dparams.cmpr_data_pos, d->dcmpr_code->len);
 
 		if(dctx->has_uncompressed_area) {
-			de_warn(c, "This file has an \"uncompressed area\", and might not be "
-				"decompressed correctly.");
+			de_dbg(c, "[has an uncompressed area]");
 		}
 	}
 
