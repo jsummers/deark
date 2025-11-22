@@ -211,6 +211,10 @@ Deark -- Information about supported formats
   Options
    -file2 <file.pal> - Read the palette from this file.
 
+* DXP image (module="dxp_image")
+  An image format possibly associated with software named Dexter, by Paul
+  Burkey.
+
 * EggPaint (*.trp) (module="eggpaint")
 
 * Enhanced Windows Metafile (module="emf")

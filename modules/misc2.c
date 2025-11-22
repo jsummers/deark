@@ -43,6 +43,7 @@ DE_DECLARE_MODULE(de_module_fmtowns_hel);
 DE_DECLARE_MODULE(de_module_pixfolio);
 DE_DECLARE_MODULE(de_module_apple2icons);
 DE_DECLARE_MODULE(de_module_pixit);
+DE_DECLARE_MODULE(de_module_dxp_image);
 
 static void datetime_dbgmsg(deark *c, struct de_timestamp *ts, const char *name)
 {
@@ -3844,4 +3845,153 @@ void de_module_pixit(deark *c, struct deark_module_info *mi)
 	mi->desc = "PIXIT/pix320 executable image";
 	mi->run_fn = de_run_pixit;
 	mi->identify_fn = de_identify_pixit;
+}
+
+// **************************************************************************
+// DXP image
+// Signature "DXP1".
+// Most likely related to a framework named Dexter, by Paul Burkey and
+// Shoecake Games.
+// **************************************************************************
+
+struct dxp_ctx {
+	i64 w, h;
+	i64 cmpr_pos;
+	i64 cmpr_size;
+	i64 rowspan;
+	UI bpp;
+	UI bypp;
+	UI cmpr_meth;
+	u8 errflag;
+	u8 need_errmsg;
+	dbuf *unc_pixels;
+};
+
+static void dxp_decompress(deark *c, struct dxp_ctx *d)
+{
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	struct de_deflate_params inflparams;
+	i64 unc_len;
+
+	if(d->unc_pixels) goto done;
+	de_zeromem(&inflparams, sizeof(struct de_deflate_params));
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+
+	dcmpri.f = c->infile;
+	dcmpri.pos = d->cmpr_pos;
+	dcmpri.len = d->cmpr_size;
+	unc_len = d->rowspan*d->h;
+	d->unc_pixels = dbuf_create_membuf(c, unc_len, 0x1);
+	dcmpro.f = d->unc_pixels;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = unc_len;
+	inflparams.flags = DE_DEFLATEFLAG_ISZLIB;
+	fmtutil_decompress_deflate_ex(c, &dcmpri, &dcmpro, &dres, &inflparams);
+	if(dres.errcode) {
+		de_err(c, "%s", de_dfilter_get_errmsg(c, &dres));
+		d->errflag = 1;
+		goto done;
+	}
+
+done:
+	;
+}
+
+static void dxp_convert_image16(deark *c, struct dxp_ctx *d, de_bitmap *img)
+{
+	i64 i, j;
+	i64 pos = 0;
+
+	for(j=0; j<d->h; j++) {
+		for(i=0; i<d->w; i++) {
+			u32 x;
+			de_color clr;
+
+			// Strange that this is little-endian.
+			x = (u32)dbuf_getu16le_p(d->unc_pixels, &pos);
+			clr = de_rgb565_to_888(x);
+			de_bitmap_setpixel_rgb(img, i, j, clr);
+		}
+	}
+}
+
+static void de_run_dxp_image(deark *c, de_module_params *mparams)
+{
+	de_bitmap *img = NULL;
+	struct dxp_ctx *d = NULL;
+	i64 pos;
+
+	d = de_malloc(c, sizeof(struct dxp_ctx));
+	pos = 6;
+	d->w = de_getu16be_p(&pos);
+	d->h = de_getu16be_p(&pos);
+	de_dbg_dimensions(c, d->w, d->h);
+	d->bpp = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "bits/pixel: %u", d->bpp);
+	d->bypp = (d->bpp+7)/8;
+	d->rowspan = d->w*(i64)d->bypp;
+	d->cmpr_meth = (UI)de_getbyte_p(&pos);
+	de_dbg(c, "cmpr meth: %u", d->cmpr_meth);
+	d->cmpr_size = de_getu32be_p(&pos);
+	de_dbg(c, "cmpr size: %"I64_FMT, d->cmpr_size);
+	d->cmpr_pos = 16;
+
+	if(d->cmpr_pos + d->cmpr_size > c->infile->len) {
+		de_err(c, "Invalid or truncated file");
+		goto done;
+	}
+	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
+
+	if((d->cmpr_meth!=0 && d->cmpr_meth!=1) ||
+		(d->bpp!=16 && d->bpp!=24))
+	{
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	if(d->cmpr_meth==1) {
+		dxp_decompress(c, d);
+		if(d->errflag) goto done;
+	}
+
+	if(!d->unc_pixels) {
+		d->unc_pixels = dbuf_open_input_subfile(c->infile, d->cmpr_pos, d->cmpr_size);
+	}
+
+	img = de_bitmap_create(c, d->w, d->h, 3);
+	if(d->bpp==16) {
+		dxp_convert_image16(c, d, img);
+	}
+	else {
+		de_convert_image_rgb(d->unc_pixels, 0, d->rowspan, (i64)d->bypp, img, 0);
+	}
+	de_bitmap_write_to_file(img, NULL, 0);
+
+done:
+	de_bitmap_destroy(img);
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Unsupported DXP image");
+		}
+		dbuf_close(d->unc_pixels);
+		de_free(c, d);
+	}
+}
+
+static int de_identify_dxp_image(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, (const void*)"DXP1\x01", 5)) {
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_dxp_image(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "dxp_image";
+	mi->desc = "DXP image (Dexter)";
+	mi->run_fn = de_run_dxp_image;
+	mi->identify_fn = de_identify_dxp_image;
 }
