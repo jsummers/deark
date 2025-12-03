@@ -636,13 +636,16 @@ static void detect_specialexe_grabber(deark *c,
 	if(!dbuf_memcmp(ei->f, ei->start_of_dos_code+1, (const void*)"Created by GRAB", 15)) {
 		flag = 1;
 	}
+	else if(!dbuf_memcmp(ei->f, ei->start_of_dos_code+32, (const void*)"G. A. Monr", 10)) {
+		flag = 1; // (v6.01-VGA)
+	}
 	else if(!dbuf_memcmp(ei->f, ei->start_of_dos_code+37, (const void*)"G. A. Monr", 10)) {
 		flag = 1;
 	}
 
 	if(!flag) goto done;
 	edd->detected_fmt = DE_SPECIALEXEFMT_GRABBER;
-	de_strlcpy(edd->detected_fmt_name, "GRABBER screen cap", sizeof(edd->detected_fmt_name));
+	de_strlcpy(edd->detected_fmt_name, "GRABBER screen capture", sizeof(edd->detected_fmt_name));
 	edd->modname = "grabber";
 done:
 	;
