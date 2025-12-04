@@ -352,14 +352,14 @@ static void emit_images_highlevel_separate(deark *c, lctx *d,
 			de_finfo_set_name_from_sz(c, ih->llimg[0].fi,
 				"icon", 0, DE_ENCODING_LATIN1);
 		}
-		de_bitmap_write_to_file_finfoOLD(ih->llimg[0].img, ih->llimg[0].fi,
+		de_bitmap_write_to_file_finfo(ih->llimg[0].img, ih->llimg[0].fi,
 			ih->llimg[0].createflags);
 	}
 	for(k=1; k<=2; k++) {
 		if(ih->llimg[k].img) {
 			de_finfo_set_name_from_sz(c, ih->llimg[k].fi,
 				(k==1?"sm_mask":"lg_mask"), 0, DE_ENCODING_LATIN1);
-			de_bitmap_write_to_file_finfoOLD(ih->llimg[k].img, ih->llimg[k].fi,
+			de_bitmap_write_to_file_finfo(ih->llimg[k].img, ih->llimg[k].fi,
 				(ih->llimg[k].createflags | DE_CREATEFLAG_IS_AUX));
 		}
 	}
@@ -389,7 +389,7 @@ static void emit_images_highlevel_applymasks(deark *c, lctx *d,
 		tmpimg = de_bitmap_create(c, w, h, 4);
 		de_bitmap_copy_rect(ih->llimg[0].img, tmpimg, 0, 0, w, h, 0, 0, 0);
 		de_bitmap_apply_mask(tmpimg, ih->llimg[k].img, DE_BITMAPFLAG_WHITEISTRNS);
-		de_bitmap_write_to_file_finfoOLD(tmpimg, ih->llimg[0].fi,
+		de_bitmap_write_to_file_finfo(tmpimg, ih->llimg[0].fi,
 			ih->llimg[0].createflags);
 	}
 

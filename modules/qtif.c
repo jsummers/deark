@@ -107,7 +107,7 @@ static void do_decode_raw(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file_finfoOLD(img, fi, 0);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 	d->decoded_ok = 1;
 
 done:

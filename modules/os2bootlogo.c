@@ -250,7 +250,7 @@ static void do_write_image(deark *c, lctx *d)
 	de_convert_image_paletted_planar(d->unc_pixels, 0, NUM_PLANES, rowspan,
 		d->max_bytes_per_plane, pal, img, 0x02);
 
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 	de_bitmap_destroy(img);
 }
 

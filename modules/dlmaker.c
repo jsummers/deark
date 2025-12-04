@@ -63,7 +63,7 @@ static void do_v12screen(deark *c, lctx *d, i64 pos)
 	}
 	de_convert_image_paletted(c->infile, pos, 8, V12_SCREEN_WIDTH, d->pal, d->v12.screen_img, 0);
 	if(single_image) {
-		de_bitmap_write_to_file_finfoOLD(d->v12.screen_img, d->fi, 0);
+		de_bitmap_write_to_file_finfo(d->v12.screen_img, d->fi, 0);
 	}
 	else {
 		i64 i;
@@ -77,7 +77,7 @@ static void do_v12screen(deark *c, lctx *d, i64 pos)
 		for(i=0; i<d->v12.imgs_per_screen; i++) {
 			de_bitmap_copy_rect(d->v12.screen_img, d->v12.img, xpos, ypos, d->v12.img_xsize, d->v12.img_ysize,
 				0, 0, 0);
-			de_bitmap_write_to_file_finfoOLD(d->v12.img, d->fi, 0);
+			de_bitmap_write_to_file_finfo(d->v12.img, d->fi, 0);
 
 			xpos += d->v12.img_xsize;
 			if(xpos >= V12_SCREEN_WIDTH) {
@@ -96,7 +96,7 @@ static void do_extract_v3_image(deark *c, lctx *d, i64 pos, i64 xsize, i64 ysize
 
 	img = de_bitmap_create(c, xsize, ysize, 3);
 	de_convert_image_paletted(c->infile, pos, 8, xsize, d->pal, img, 0);
-	de_bitmap_write_to_file_finfoOLD(img, d->fi, 0);
+	de_bitmap_write_to_file_finfo(img, d->fi, 0);
 
 done:
 	de_bitmap_destroy(img);

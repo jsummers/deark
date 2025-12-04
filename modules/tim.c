@@ -92,7 +92,7 @@ static void do_pal8(deark *c, lctx *d)
 	de_convert_image_paletted(c->infile, pos,
 		8, rowspan, d->pal, img, 0);
 
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
 	de_bitmap_destroy(img);

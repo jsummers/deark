@@ -207,7 +207,7 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 		de_bitmap_optimize_alpha(img, 0x1);
 	}
 
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);

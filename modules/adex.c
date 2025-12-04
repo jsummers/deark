@@ -157,7 +157,7 @@ static void de_run_adex(deark *c, de_module_params *mparams)
 		de_convert_image_paletted(unc_pixels, 0, d->bpp, d->rowspan, d->pal, img, 0);
 	}
 
-	de_bitmap_write_to_fileOLD(img, NULL, DE_CREATEFLAG_FLIP_IMAGE);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_FLIP_IMAGE);
 done:
 	de_bitmap_destroy(img);
 	dbuf_close(unc_pixels);

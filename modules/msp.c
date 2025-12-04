@@ -97,7 +97,7 @@ static void do_ver2(deark *c, lctx *d)
 		do_decompress_scanline(c, d, img, j, rowoffset[j], rowsize[j]);
 	}
 
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 	de_free(c, rowsize);
 	de_free(c, rowoffset);

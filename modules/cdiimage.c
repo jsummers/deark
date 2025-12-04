@@ -280,7 +280,7 @@ static void do_cdi_imag_IDAT(deark *c, struct cdi_imag_ctx *d, struct de_iffctx 
 	}
 
 	if(ret) {
-		de_bitmap_write_to_fileOLD(img, NULL, 0);
+		de_bitmap_write_to_file(img, NULL, 0);
 	}
 
 done:

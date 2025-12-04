@@ -185,7 +185,7 @@ static void de_run_pkm(deark *c, de_module_params *mparams)
 	}
 	img = de_bitmap_create(c, d->w, d->h, bypp);
 	de_convert_image_paletted(d->unc_pixels, 0, 8, d->w, d->pal, img, 0);
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);

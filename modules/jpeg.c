@@ -239,7 +239,7 @@ static void extract_unc_jfif_thumbnail(deark *c, lctx *d,
 		}
 	}
 
-	de_bitmap_write_to_fileOLD(img, token, DE_CREATEFLAG_IS_AUX);
+	de_bitmap_write_to_file(img, token, DE_CREATEFLAG_IS_AUX);
 
 	de_bitmap_destroy(img);
 }

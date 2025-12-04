@@ -197,7 +197,7 @@ static void do_decode_newicons(deark *c, lctx *d,
 	img = de_bitmap_create(c, width, height, 4);
 	de_convert_image_paletted(decoded, bitmap_start_pos,
 		8, width, d->tmppal, img, 0);
-	de_bitmap_write_to_fileOLD(img, c->filenames_from_file?"n":NULL,
+	de_bitmap_write_to_file(img, c->filenames_from_file?"n":NULL,
 		d->has_glowicons?DE_CREATEFLAG_IS_AUX:0);
 
 done:
@@ -289,7 +289,7 @@ static int do_read_main_icon(deark *c, lctx *d,
 	pos += 20;
 	de_convert_image_paletted_planar(c->infile, pos, depth, src_rowspan, src_planespan,
 		pal, img, 0);
-	de_bitmap_write_to_fileOLD(img, NULL, (d->has_newicons||d->has_glowicons)?DE_CREATEFLAG_IS_AUX:0);
+	de_bitmap_write_to_file(img, NULL, (d->has_newicons||d->has_glowicons)?DE_CREATEFLAG_IS_AUX:0);
 
 	retval = 1;
 
@@ -547,7 +547,7 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 	de_convert_image_paletted(tmpbuf, 0,
 		8, d->glowicons_width, d->glowicons_palette, img, 0);
 
-	de_bitmap_write_to_fileOLD(img, c->filenames_from_file?"g":NULL, 0);
+	de_bitmap_write_to_file(img, c->filenames_from_file?"g":NULL, 0);
 
 done:
 	if(tmpbuf) dbuf_close(tmpbuf);

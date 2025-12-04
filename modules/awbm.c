@@ -84,7 +84,7 @@ static int do_v1_image(deark *c, lctx *d, i64 pos,
 		de_bitmap_rect(img, 0, 0, 8, EPA_CH, DE_STOCKCOLOR_TRANSPARENT, 0);
 	}
 
-	de_bitmap_write_to_fileOLD(img, NULL, createflags);
+	de_bitmap_write_to_file(img, NULL, createflags);
 	retval = 1;
 done:
 	de_bitmap_destroy(img);
@@ -184,7 +184,7 @@ static void do_v2(deark *c, lctx *d)
 			img, 0);
 	}
 
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 done:
 	de_bitmap_destroy(img);
 }

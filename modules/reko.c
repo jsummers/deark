@@ -592,7 +592,7 @@ static void reko_main(deark *c, lctx *d)
 		}
 		else {
 			set_reko_card_filename(c, d->idx_of_first_main_card, cardidx, fi);
-			de_bitmap_write_to_file_finfoOLD(cardimg, fi, 0);
+			de_bitmap_write_to_file_finfo(cardimg, fi, 0);
 		}
 
 		if(!d->fatalerrflag && (thiscardpos+full_cardsize > c->infile->len)) {
@@ -607,7 +607,7 @@ static void reko_main(deark *c, lctx *d)
 	}
 
 	if(canvas) {
-		de_bitmap_write_to_fileOLD(canvas, NULL, 0);
+		de_bitmap_write_to_file(canvas, NULL, 0);
 	}
 
 done:

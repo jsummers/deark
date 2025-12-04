@@ -203,7 +203,7 @@ static void de_run_jovianvi(deark *c, de_module_params *mparams)
 	else {
 		do_convert_rgb(c, d, img);
 	}
-	de_bitmap_write_to_fileOLD(img, NULL, createflags);
+	de_bitmap_write_to_file(img, NULL, createflags);
 
 done:
 	de_bitmap_destroy(img);
