@@ -180,7 +180,7 @@ static void gr_decompress_any(deark *c, lctx *d,
 	}
 
 	if(dres.errcode) {
-		de_err(c, "Decompression failed: %s", dres.errmsg);
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
 		d->errflag = 1;
 		goto done;
 	}

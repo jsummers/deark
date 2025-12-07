@@ -1501,7 +1501,7 @@ static int decompress_ilbm_packbits(deark *c, dbuf *inf, i64 pos, i64 len,
 	fmtutil_decompress_packbits_ex(c, &dcmpri, &dcmpro, &dres, &pbparams);
 	dbuf_flush(dcmpro.f);
 	if(dres.errcode) {
-		de_err(c, "Decompression failed: %s", dres.errmsg);
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
 		goto done;
 	}
 	de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", len, unc_pixels->len);

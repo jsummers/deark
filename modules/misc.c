@@ -1368,7 +1368,7 @@ static void xpkf_internal(deark *c)
 	}
 
 	if(dres.errcode) {
-		de_err(c, "Decompression failed: %s", dres.errmsg);
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
 		goto done;
 	}
 

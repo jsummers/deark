@@ -385,7 +385,7 @@ static void do_decompress(deark *c, lctx *d)
 	fmtutil_decompress_deflate_ex(c, &dcmpri, &dcmpro, &dres, &inflparams);
 
 	if(dres.errcode) {
-		de_err(c, "%s", dres.errmsg);
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
 		goto done;
 	}
 	if(unc_data->len < unc_len) {
