@@ -161,7 +161,7 @@ static void de_run_xpuzzle(deark *c, de_module_params *mparams)
 	// Read the bitmap
 	de_convert_image_paletted(c->infile, p, 8, hdr.w, pal, img, 0);
 
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);
@@ -216,7 +216,7 @@ static void de_run_bob(deark *c, de_module_params *mparams)
 	// Read the bitmap
 	de_convert_image_paletted(c->infile, p, 8, w, pal, img, 0);
 
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);
@@ -299,7 +299,7 @@ static void de_run_alias_pix(deark *c, de_module_params *mparams)
 		}
 	}
 
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 done:
 	de_bitmap_destroy(img);
 }
@@ -389,7 +389,7 @@ static void de_run_applevol(deark *c, de_module_params *mparams)
 		}
 	}
 
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);
@@ -632,7 +632,7 @@ static void de_run_lss16(deark *c, de_module_params *mparams)
 		}
 	}
 
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 done:
 	de_bitmap_destroy(img);
 	de_free(c, d);
@@ -927,7 +927,7 @@ static void de_run_ybm(deark *c, de_module_params *mparams)
 				DE_CVTF_WHITEISZERO|DE_CVTF_LSBFIRST|DE_CVTF_ONLYWHITE);
 		}
 	}
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_IS_BWIMG);
 
 done:
 	de_bitmap_destroy(img);
@@ -985,7 +985,7 @@ static void de_run_olpc565(deark *c, de_module_params *mparams)
 			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
 	}
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);
@@ -1040,7 +1040,7 @@ static void de_run_iim(deark *c, de_module_params *mparams)
 			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
 	}
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);
@@ -1135,7 +1135,7 @@ static void de_run_pm_xv(deark *c, de_module_params *mparams)
 			}
 		}
 	}
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);
@@ -1362,7 +1362,7 @@ static void de_run_hsiraw(deark *c, de_module_params *mparams)
 		de_convert_image_paletted(c->infile, pos, 8, w, pal, img, 0);
 	}
 
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);
@@ -1413,7 +1413,7 @@ static void de_run_qdv(deark *c, de_module_params *mparams)
 
 	img = de_bitmap_create(c, w, h, 3);
 	de_convert_image_paletted(c->infile, pos, 8, w, pal, img, 0);
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);
@@ -1515,7 +1515,7 @@ static void de_run_vitec(deark *c, de_module_params *mparams)
 		}
 	}
 
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);
@@ -1624,7 +1624,7 @@ static void de_run_lumena_cel(deark *c, de_module_params *mparams)
 	}
 
 	de_bitmap_optimize_alpha(img, 0x3);
-	de_bitmap_write_to_fileOLD(img, NULL, DE_CREATEFLAG_FLIP_IMAGE);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_FLIP_IMAGE);
 
 done:
 	de_bitmap_destroy(img);
@@ -1703,7 +1703,7 @@ static void de_run_deskmate_pnt(deark *c, de_module_params *mparams)
 
 	img = de_bitmap_create(c, w, h, 3);
 	de_convert_image_paletted(unc_pixels, 0, 4, rowspan, pal, img, 0);
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 	dbuf_close(unc_pixels);
 	de_bitmap_destroy(img);
@@ -1777,7 +1777,7 @@ static void de_run_mdesk_icn(deark *c, de_module_params *mparams)
 	img = de_bitmap_create(c, 32, 32, 3);
 	de_convert_image_paletted(c->infile, 3, 4, 16, pal, img, 0);
 	de_bitmap_transpose(img);
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 	de_bitmap_destroy(img);
 }
 
@@ -1847,7 +1847,7 @@ static void de_run_animator_pic(deark *c, de_module_params *mparams)
 	fi->density.ydens = 200.0;
 	img = de_bitmap_create(c, w, h, 3);
 	de_convert_image_paletted(c->infile, pos, 8, w, pal, img, 0);;
-	de_bitmap_write_to_file_finfoOLD(img, fi, 0);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 
 done:
 	de_bitmap_destroy(img);
@@ -1918,7 +1918,7 @@ static void de_run_dgi(deark *c, de_module_params *mparams)
 	fi->density.xdens = 240;
 	fi->density.ydens = 200;
 
-	de_bitmap_write_to_file_finfoOLD(img, fi, 0);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 
 	dbuf_close(imgbuf);
 	de_bitmap_destroy(img);
@@ -2117,7 +2117,7 @@ static void do_lotus_mscr_rle(deark *c, struct lotus_mscr_ctx *d)
 	pal[0] = DE_STOCKCOLOR_WHITE;
 	pal[1] = DE_STOCKCOLOR_BLACK;
 	de_convert_image_paletted(unc_pixels, 0, 8, d->w, pal, img, 0);
-	de_bitmap_write_to_file_finfoOLD(img, d->fi, 0);
+	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_IS_BWIMG);
 
 	dbuf_close(unc_pixels);
 	de_bitmap_destroy(img);
