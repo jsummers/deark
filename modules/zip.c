@@ -1304,6 +1304,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	dbuf *outf = NULL;
 	de_finfo *fi = NULL;
 	struct dir_entry_data *ldd = &md->local_dir_entry_data;
+	struct dir_entry_data *cdd = &md->central_dir_entry_data;
 	int tsidx;
 	int saved_indent_level;
 
@@ -1312,7 +1313,9 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		md->cmpr_size);
 	de_dbg_indent(c, 1);
 
-	if(ldd->bit_flags & 0x1) {
+	// Found an encrypted file where the encryption flag is only set in the
+	// central dir.
+	if((ldd->bit_flags & 0x1) || (cdd->bit_flags & 0x1)) {
 		de_err(c, "%s: Encryption is not supported", ucstring_getpsz_d(ldd->fname));
 		goto done;
 	}
