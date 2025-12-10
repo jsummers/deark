@@ -1232,6 +1232,8 @@ in the readme file.)
      the start of the file (or to new_offset).
    -opt zip:combine - Instead of decoding, combine the files of a multi-segment
      archive into a single ZIP file. Use with "-mp". (experimental)
+   -opt zip:implodebug[=0] - Enable/disable workaround of the Implode "MML" bug
+     present in early versions of PKZIP. Default is to autodetect.
 
 * zlib (module="zlib")
   - Raw zlib files are uncompressed.

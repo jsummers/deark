@@ -42,6 +42,7 @@ struct compression_params {
 	// to decompress something.
 	int cmpr_meth;
 	UI bit_flags;
+	u8 implode_mml_bug;
 };
 
 typedef void (*decompressor_fn)(deark *c, lctx *d, struct compression_params *cparams,
@@ -140,6 +141,8 @@ struct localctx_struct {
 	u8 is_zip64;
 	u8 is_resof;
 	u8 seg_id_mismatch_warned;
+	u8 opt_mml_bug_flag; // "implodebug" opt has been checked for.
+	u8 mml_bug_policy; // 0=no bug, 1=bug, 0xff=undetermined
 	int using_scanmode;
 	struct de_crcobj *crco;
 };
@@ -363,6 +366,12 @@ static void do_decompress_reduce(deark *c, lctx *d, struct compression_params *c
 	fmtutil_decompress_zip_reduce(c, dcmpri, dcmpro, dres, &params);
 }
 
+static int could_have_mml_bug(UI bit_flags)
+{
+	return ((bit_flags & 0x6)==2 ||
+		(bit_flags & 0x6)==4);
+}
+
 static void do_decompress_implode(deark *c, lctx *d, struct compression_params *cparams,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
@@ -371,7 +380,7 @@ static void do_decompress_implode(deark *c, lctx *d, struct compression_params *
 
 	de_zeromem(&params, sizeof(struct de_zipimplode_params));
 	params.bit_flags = cparams->bit_flags;
-	params.mml_bug = (u8)de_get_ext_option_bool(c, "zip:implodebug", 0);
+	params.mml_bug = cparams->implode_mml_bug;
 	fmtutil_decompress_zip_implode(c, dcmpri, dcmpro, dres, &params);
 }
 
@@ -443,21 +452,97 @@ static const struct cmpr_meth_info *get_cmpr_meth_info(int cmpr_meth)
 // On failure, dres->errcode will be set.
 static void do_decompress_lowlevel(deark *c, lctx *d, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	int cmpr_meth, const struct cmpr_meth_info *cmi, UI bit_flags)
+	struct compression_params *cparams, const struct cmpr_meth_info *cmi)
 {
-	struct compression_params cparams;
-
-	de_zeromem(&cparams, sizeof(struct compression_params));
-	cparams.cmpr_meth = cmpr_meth;
-	cparams.bit_flags = bit_flags;
-
 	if(cmi && cmi->decompressor) {
-		cmi->decompressor(c, d, &cparams, dcmpri, dcmpro, dres);
+		cmi->decompressor(c, d, cparams, dcmpri, dcmpro, dres);
 		dbuf_flush(dcmpro->f);
 	}
 	else {
-		de_internal_err_nonfatal(c, "Unsupported compression method (%d)", cmpr_meth);
+		de_internal_err_nonfatal(c, "Unsupported compression method (%d)",
+			cparams->cmpr_meth);
 		de_dfilter_set_generic_error(c, dres, NULL);
+	}
+}
+
+// Returns 1 if decompression was apparently successful.
+// (This function could easily be generalized, if we ever need it for
+// compression methods other than implode.)
+static int implode_dry_run(deark *c, lctx *d, struct member_data *md,
+	struct compression_params *cparams, struct de_dfilter_in_params *dcmpri)
+{
+	dbuf *outf = NULL;
+	struct de_crcobj *crco = NULL;
+	u32 crc_calc;
+	int old_debug_level;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	int retval = 0;
+
+	// Make a "dummy" dbuf to write to, which doesn't store the data, but
+	// tracks the size and CRC.
+	outf = dbuf_create_custom_dbuf(c, 0, 0);
+	dbuf_enable_wbuffer(outf);
+	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	dbuf_set_writelistener(outf, de_writelistener_for_crc, crco);
+
+	de_dfilter_init_objects(c, NULL, &dcmpro, &dres);
+	dcmpro.f = outf;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = md->local_dir_entry_data.uncmpr_size;
+
+	old_debug_level = c->debug_level;
+	c->debug_level = 0; // hack
+	do_decompress_implode(c, d, cparams, dcmpri, &dcmpro, &dres);
+	c->debug_level = old_debug_level;
+	dbuf_flush(outf);
+
+	if(dres.errcode) goto done;
+	if(outf->len != md->local_dir_entry_data.uncmpr_size) goto done;
+	crc_calc = de_crcobj_getval(crco);
+	if(crc_calc != md->crc_reported) goto done;
+	retval = 1;
+
+done:
+	dbuf_close(outf);
+	de_crcobj_destroy(crco);
+	return retval;
+}
+
+// May modify d->mml_bug_policy
+static void detect_implode_mml_bug(deark *c, lctx *d, struct member_data *md,
+	struct compression_params *cparams1, struct de_dfilter_in_params *dcmpri)
+{
+	int ret_withbug, ret_withoutbug;
+	struct compression_params cparams2;
+
+	if(d->mml_bug_policy!=0xff) goto done;
+
+	de_dbg(c, "[checking for MML bug]");
+	d->mml_bug_policy = 0; // default
+	cparams2 = *cparams1; // struct copy
+
+	cparams2.implode_mml_bug = 1;
+	ret_withbug = implode_dry_run(c, d, md, &cparams2, dcmpri);
+	if(!ret_withbug) {
+		// Decompressing with the bug failed; assume file is ok.
+		goto done;
+	}
+
+	cparams2.implode_mml_bug = 0;
+	ret_withoutbug = implode_dry_run(c, d, md, &cparams2, dcmpri);
+
+	if(ret_withoutbug) {
+		// Compressing succeeded both ways(!). Assume there's no bug.
+		goto done;
+	}
+
+	// With-bug succeeded, without-bug failed -> file is buggy.
+	d->mml_bug_policy = 1;
+
+done:
+	if(d->mml_bug_policy!=0xff) {
+		de_dbg(c, "MML bug detection: %u", d->mml_bug_policy);
 	}
 }
 
@@ -470,16 +555,38 @@ static void do_decompress_lowlevel(deark *c, lctx *d, struct de_dfilter_in_param
 static int do_decompress_member(deark *c, lctx *d, struct member_data *md, dbuf *outf)
 {
 	struct dir_entry_data *ldd = &md->local_dir_entry_data;
+	struct compression_params cparams;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
 	u32 crc_calculated;
 	int retval = 0;
 
+	de_zeromem(&cparams, sizeof(struct compression_params));
+	cparams.cmpr_meth = ldd->cmpr_meth;
+	cparams.bit_flags = ldd->bit_flags;
+
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
 	dcmpri.pos = md->file_data_pos;
 	dcmpri.len = md->cmpr_size;
+
+	if(ldd->cmpr_meth==6 && could_have_mml_bug(ldd->bit_flags)) {
+		// Very few files have the "MML bug". I only know of PKZ101.EXE.
+		if(!d->opt_mml_bug_flag) {
+			d->mml_bug_policy = (u8)de_get_ext_option_bool(c, "zip:implodebug", 0xff);
+			d->opt_mml_bug_flag = 1;
+		}
+
+		if(d->mml_bug_policy==0xff) {
+			detect_implode_mml_bug(c, d, md, &cparams, &dcmpri);
+		}
+
+		if(d->mml_bug_policy==1) {
+			cparams.implode_mml_bug = 1;
+		}
+	}
+
 	dcmpro.f = outf;
 	dcmpro.expected_len = md->uncmpr_size;
 	dcmpro.len_known = 1;
@@ -487,8 +594,8 @@ static int do_decompress_member(deark *c, lctx *d, struct member_data *md, dbuf 
 	dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)d->crco);
 	de_crcobj_reset(d->crco);
 
-	do_decompress_lowlevel(c, d, &dcmpri, &dcmpro, &dres, ldd->cmpr_meth,
-		ldd->cmi, ldd->bit_flags);
+	do_decompress_lowlevel(c, d, &dcmpri, &dcmpro, &dres, &cparams,
+		ldd->cmi);
 
 	if(dres.errcode) {
 		de_err(c, "%s: %s", ucstring_getpsz_d(ldd->fname),
@@ -525,12 +632,14 @@ static int do_decompress_attrib_data(deark *c, lctx *d,
 	i64 dpos, i64 dlen, dbuf *outf, i64 uncmprsize, u32 crc_reported,
 	int cmpr_meth, const struct cmpr_meth_info *cmi, UI flags, const char *name)
 {
+	struct compression_params cparams;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
 	u32 crc_calculated;
 	int retval = 0;
 
+	de_zeromem(&cparams, sizeof(struct compression_params));
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
 	dcmpri.pos = dpos;
@@ -539,7 +648,9 @@ static int do_decompress_attrib_data(deark *c, lctx *d,
 	dcmpro.expected_len = uncmprsize;
 	dcmpro.len_known = 1;
 
-	do_decompress_lowlevel(c, d, &dcmpri, &dcmpro, &dres, cmpr_meth, cmi, 0);
+	cparams.cmpr_meth = cmpr_meth;
+
+	do_decompress_lowlevel(c, d, &dcmpri, &dcmpro, &dres, &cparams, cmi);
 	if(dres.errcode) {
 		goto done; // Could report the error, but this isn't critical data
 	}
