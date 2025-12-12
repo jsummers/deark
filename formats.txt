@@ -11,7 +11,8 @@ Deark -- Information about supported formats
 * ADEX .IMG (module="adex") (experimental)
 
 * Alias PIX, a.k.a. Vivid ray tracer bitmap (module="alias_pix")
-  - Truecolor only. Grayscale not supported.
+  - Not all files can be autodetected. You may need "-m alias_pix".
+  - Grayscale/matte images are not autodetected. Support is experimental.
 
 * Alpha Microsystems BMP (module="alphabmp") (experimental)
 
