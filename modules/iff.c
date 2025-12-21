@@ -15,6 +15,7 @@
 DE_DECLARE_MODULE(de_module_iff);
 DE_DECLARE_MODULE(de_module_midi);
 DE_DECLARE_MODULE(de_module_rgfx);
+DE_DECLARE_MODULE(de_module_pic_cat_sp);
 
 #define FMT_FORM   1
 #define FMT_FOR4   4
@@ -469,7 +470,9 @@ void de_module_midi(deark *c, struct deark_module_info *mi)
 	mi->identify_fn = de_identify_midi;
 }
 
-///// RGFX (Amiga graphics format)
+// **************************************************************************
+// RGFX (Amiga graphics format)
+// **************************************************************************
 // TODO: RGFX should probably be moved to another file.
 
 #define CODE_RBOD 0x52424f44U
@@ -730,4 +733,177 @@ void de_module_rgfx(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_rgfx;
 	mi->identify_fn = de_identify_rgfx;
 	mi->flags |= DE_MODFLAG_HIDDEN;
+}
+
+// **************************************************************************
+// Spinnaker Picture Catalog (.CAT)
+// **************************************************************************
+
+#define CODE_CLIP 0x434c4950U
+#define CODE_DIB  0x44494220U
+#define CODE_PATH 0x50415448U
+#define CODE_XXXX 0x58585858U
+
+struct spcat_ctx {
+	//u8 errflag;
+	//u8 need_errmsg;
+	de_ucstring *tmpstr;
+	de_ucstring *fname;
+};
+
+static void do_spcat_INFO(deark *c, struct spcat_ctx *d, struct de_iffctx *ictx)
+{
+	if(ictx->chunkctx->dlen<21) goto done;
+	ucstring_empty(d->fname);
+	dbuf_read_to_ucstring(ictx->f, ictx->chunkctx->dpos, 12, d->fname,
+		DE_CONVFLAG_STOP_AT_NUL, ictx->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(d->fname));
+done:
+	;
+}
+
+static void do_spcat_PATH(deark *c, struct spcat_ctx *d, struct de_iffctx *ictx)
+{
+	struct de_iffchunkctx *cctx = ictx->chunkctx;
+
+	if(cctx->dlen<1 || cctx->dlen>260) goto done;
+	ucstring_empty(d->tmpstr);
+	dbuf_read_to_ucstring(ictx->f, ictx->chunkctx->dpos, cctx->dlen, d->tmpstr,
+		DE_CONVFLAG_STOP_AT_NUL, ictx->input_encoding);
+	de_dbg(c, "path: \"%s\"", ucstring_getpsz_d(d->tmpstr));
+done:
+	;
+}
+
+static void do_spcat_DIB(deark *c, struct spcat_ctx *d, struct de_iffctx *ictx)
+{
+	de_finfo *fi = NULL;
+	UI bmihlen;
+	de_module_params *mparams = NULL;
+	struct de_iffchunkctx *cctx = ictx->chunkctx;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(cctx->dlen<=40) goto done;
+	bmihlen = (UI)dbuf_getu32le(ictx->f, cctx->dpos);
+	if(bmihlen!=40) goto done;
+	fi = de_finfo_create(c);
+
+	if(!c->filenames_from_file) {
+		ucstring_empty(d->fname);
+	}
+
+	if(ictx->curr_container_contentstype4cc.id == CODE_XXXX) {
+		// Possibly the "XXXX" chunks mark deleted items, but until I have
+		// some good evidence of that, I'll just put "xxxx" in the name.
+		if(ucstring_isnonempty(d->fname)) {
+			ucstring_append_char(d->fname, '.');
+		}
+		ucstring_append_sz(d->fname, "xxxx", DE_ENCODING_LATIN1);
+	}
+
+	if(ucstring_isnonempty(d->fname)) {
+		de_finfo_set_name_from_ucstring(c, fi, d->fname, 0);
+	}
+
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->in_params.flags = 0x1;
+	mparams->in_params.fi = fi;
+	de_run_module_by_id_on_slice(c, "dib", mparams, ictx->f,
+		cctx->dpos, cctx->dlen);
+done:
+	de_free(c, mparams);
+	de_finfo_destroy(c, fi);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static int spcat_std_container_start_fn(struct de_iffctx *ictx)
+{
+	struct spcat_ctx *d = (struct spcat_ctx*)ictx->userdata;
+
+	ucstring_empty(d->fname);
+	return 1;
+}
+
+static int spcat_chunk_handler(struct de_iffctx *ictx)
+{
+	deark *c = ictx->c;
+	struct spcat_ctx *d = (struct spcat_ctx*)ictx->userdata;
+
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_CAT:
+		ictx->is_std_container = 1;
+		goto done;
+	case CODE_FORM:
+		ictx->is_std_container = 1;
+		goto done;
+	}
+
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_INFO:
+		do_spcat_INFO(c, d, ictx);
+		ictx->handled = 1;
+		break;
+	case CODE_PATH:
+		do_spcat_PATH(c, d, ictx);
+		ictx->handled = 1;
+		break;
+	case CODE_DIB:
+		do_spcat_DIB(c, d, ictx);
+		ictx->handled = 1;
+		break;
+	}
+
+done:
+	return 1;
+}
+
+static void de_run_pic_cat_sp(deark *c, de_module_params *mparams)
+{
+	struct spcat_ctx *d = NULL;
+	struct de_iffctx *ictx = NULL;
+
+	de_declare_fmt(c, "spcat");
+	d = de_malloc(c, sizeof(struct spcat_ctx));
+
+	ictx = fmtutil_create_iff_decoder(c);
+	ictx->alignment = 2;
+	ictx->is_le = 1;
+	ictx->userdata = (void*)d;
+	ictx->input_encoding = de_get_input_encoding(c, NULL,
+		DE_ENCODING_WINDOWS1252);
+	ictx->handle_chunk_fn = spcat_chunk_handler;
+	ictx->on_std_container_start_fn = spcat_std_container_start_fn;
+	ictx->f = c->infile;
+	d->tmpstr = ucstring_create(c);
+	d->fname = ucstring_create(c);
+
+	fmtutil_read_iff_format(ictx, 0, c->infile->len);
+
+	fmtutil_destroy_iff_decoder(ictx);
+	if(d) {
+		ucstring_destroy(d->tmpstr);
+		ucstring_destroy(d->fname);
+		de_free(c, d);
+	}
+}
+
+static int de_identify_pic_cat_sp(deark *c)
+{
+	UI n;
+
+	if((u32)de_getu32be(8)!=CODE_CLIP) return 0;
+	if((u32)de_getu32be(0)!=CODE_CAT) return 0;
+	n = (UI)de_getu32le(4);
+	if(n > c->infile->len) return 0;
+	if((u32)de_getu32be(12)!=CODE_FORM) return 0;
+	return 80;
+}
+
+void de_module_pic_cat_sp(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "pic_cat_sp";
+	mi->desc = "Picture Catalog (Spinnaker)";
+	mi->run_fn = de_run_pic_cat_sp;
+	mi->identify_fn = de_identify_pic_cat_sp;
 }

@@ -563,6 +563,9 @@ Deark -- Information about supported formats
   Options
    -opt pixfolio:undelete - Also extract deleted images.
 
+* Picture Catalog (Spinnaker) (module="pic_cat_sp")
+  An obscure IFF-like format used by some Spinnaker Windows apps.
+
 * PIXIT/pix320 (module="pixit")
   A simple executable graphics format, in a DOS COM file.
   - The intermediate .PIX format is also supported.
