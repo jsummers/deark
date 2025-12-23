@@ -16,6 +16,7 @@ DE_DECLARE_MODULE(de_module_iff);
 DE_DECLARE_MODULE(de_module_midi);
 DE_DECLARE_MODULE(de_module_rgfx);
 DE_DECLARE_MODULE(de_module_pic_cat_sp);
+DE_DECLARE_MODULE(de_module_tplt_cat_sp);
 
 #define FMT_FORM   1
 #define FMT_FOR4   4
@@ -741,10 +742,13 @@ void de_module_rgfx(deark *c, struct deark_module_info *mi)
 
 #define CODE_CLIP 0x434c4950U
 #define CODE_DIB  0x44494220U
+#define CODE_FNAM 0x464e414dU
 #define CODE_PATH 0x50415448U
+#define CODE_TPLT 0x54504c54U
 #define CODE_XXXX 0x58585858U
 
 struct spcat_ctx {
+	u8 fmtcode;
 	de_ucstring *tmpstr;
 	de_ucstring *fname;
 };
@@ -758,6 +762,19 @@ static void do_spcat_INFO(deark *c, struct spcat_ctx *d, struct de_iffctx *ictx)
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(d->fname));
 	// TODO: There's more data in this chunk. Possibly there's a timestamp,
 	// but if so, I wasn't able to decode it.
+done:
+	;
+}
+
+static void do_spcat_FNAM(deark *c, struct spcat_ctx *d, struct de_iffctx *ictx)
+{
+	if(ictx->chunkctx->dlen<1 || ictx->chunkctx->dlen>32) goto done;
+	ucstring_empty(d->fname);
+	dbuf_read_to_ucstring(ictx->f, ictx->chunkctx->dpos,
+		ictx->chunkctx->dlen, d->fname,
+		DE_CONVFLAG_STOP_AT_NUL, ictx->input_encoding);
+	ucstring_strip_trailing_spaces(d->fname);
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(d->fname));
 done:
 	;
 }
@@ -848,6 +865,10 @@ static int spcat_chunk_handler(struct de_iffctx *ictx)
 		do_spcat_PATH(c, d, ictx);
 		ictx->handled = 1;
 		break;
+	case CODE_FNAM:
+		do_spcat_FNAM(c, d, ictx);
+		ictx->handled = 1;
+		break;
 	case CODE_DIB:
 		do_spcat_DIB(c, d, ictx);
 		ictx->handled = 1;
@@ -858,13 +879,13 @@ done:
 	return 1;
 }
 
-static void de_run_pic_cat_sp(deark *c, de_module_params *mparams)
+static void run_pic_cat_sp(deark *c, de_module_params *mparams, u8 fmtcode)
 {
 	struct spcat_ctx *d = NULL;
 	struct de_iffctx *ictx = NULL;
 
-	de_declare_fmt(c, "Spinnaker Picture Catalog");
 	d = de_malloc(c, sizeof(struct spcat_ctx));
+	d->fmtcode = fmtcode;
 
 	ictx = fmtutil_create_iff_decoder(c);
 	ictx->alignment = 2;
@@ -888,6 +909,12 @@ static void de_run_pic_cat_sp(deark *c, de_module_params *mparams)
 	}
 }
 
+static void de_run_pic_cat_sp(deark *c, de_module_params *mparams)
+{
+	de_declare_fmt(c, "Spinnaker Picture Catalog");
+	run_pic_cat_sp(c, mparams, 0);
+}
+
 static int de_identify_pic_cat_sp(deark *c)
 {
 	UI n;
@@ -906,4 +933,34 @@ void de_module_pic_cat_sp(deark *c, struct deark_module_info *mi)
 	mi->desc = "Picture Catalog (Spinnaker)";
 	mi->run_fn = de_run_pic_cat_sp;
 	mi->identify_fn = de_identify_pic_cat_sp;
+}
+
+// **************************************************************************
+// Spinnaker Template Catalog (.CAT)
+// **************************************************************************
+
+static void de_run_tplt_cat_sp(deark *c, de_module_params *mparams)
+{
+	de_declare_fmt(c, "Spinnaker Template Catalog");
+	run_pic_cat_sp(c, mparams, 1);
+}
+
+static int de_identify_tplt_cat_sp(deark *c)
+{
+	UI n;
+
+	if((u32)de_getu32be(8)!=CODE_TPLT) return 0;
+	if((u32)de_getu32be(0)!=CODE_CAT) return 0;
+	n = (UI)de_getu32le(4);
+	if(n > c->infile->len) return 0;
+	if((u32)de_getu32be(12)!=CODE_FORM) return 0;
+	return 80;
+}
+
+void de_module_tplt_cat_sp(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "tplt_cat_sp";
+	mi->desc = "Template Catalog (Spinnaker)";
+	mi->run_fn = de_run_tplt_cat_sp;
+	mi->identify_fn = de_identify_tplt_cat_sp;
 }

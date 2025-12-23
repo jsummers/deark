@@ -704,6 +704,9 @@ Deark -- Information about supported formats
 * Syberia texture (.syj) (module="syberia_syj")
   - Convert abbreviated JPEG file to JPEG.
 
+* Template Catalog (.tct) (Spinnaker) (module="tplt_cat_sp")
+  Similar format to Spinnaker Picture Catalog.
+
 * TGA (Targa) (module="tga")
   Options
    -opt tga:trans=<0|1|2|auto> - 0 = Ignore any potential transparency.
