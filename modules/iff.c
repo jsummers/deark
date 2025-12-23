@@ -745,8 +745,6 @@ void de_module_rgfx(deark *c, struct deark_module_info *mi)
 #define CODE_XXXX 0x58585858U
 
 struct spcat_ctx {
-	//u8 errflag;
-	//u8 need_errmsg;
 	de_ucstring *tmpstr;
 	de_ucstring *fname;
 };
@@ -758,6 +756,8 @@ static void do_spcat_INFO(deark *c, struct spcat_ctx *d, struct de_iffctx *ictx)
 	dbuf_read_to_ucstring(ictx->f, ictx->chunkctx->dpos, 12, d->fname,
 		DE_CONVFLAG_STOP_AT_NUL, ictx->input_encoding);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(d->fname));
+	// TODO: There's more data in this chunk. Possibly there's a timestamp,
+	// but if so, I wasn't able to decode it.
 done:
 	;
 }
@@ -794,7 +794,7 @@ static void do_spcat_DIB(deark *c, struct spcat_ctx *d, struct de_iffctx *ictx)
 	}
 
 	if(ictx->curr_container_contentstype4cc.id == CODE_XXXX) {
-		// Possibly the "XXXX" chunks mark deleted items, but until I have
+		// Possibly the "XXXX" codes mark deleted items, but until I have
 		// some good evidence of that, I'll just put "xxxx" in the name.
 		if(ucstring_isnonempty(d->fname)) {
 			ucstring_append_char(d->fname, '.');
@@ -863,7 +863,7 @@ static void de_run_pic_cat_sp(deark *c, de_module_params *mparams)
 	struct spcat_ctx *d = NULL;
 	struct de_iffctx *ictx = NULL;
 
-	de_declare_fmt(c, "spcat");
+	de_declare_fmt(c, "Spinnaker Picture Catalog");
 	d = de_malloc(c, sizeof(struct spcat_ctx));
 
 	ictx = fmtutil_create_iff_decoder(c);
