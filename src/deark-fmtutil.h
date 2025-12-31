@@ -783,6 +783,7 @@ void fmtutil_collect_exe_info(deark *c, dbuf *f, struct fmtutil_exe_info *ei);
 #define DE_SPECIALEXEFMT_READAMATIC 204
 #define DE_SPECIALEXEFMT_TEXTLIFE   205
 #define DE_SPECIALEXEFMT_GRABBER    206
+#define DE_SPECIALEXEFMT_DSKEXP     207
 
  struct fmtutil_specialexe_detection_data {
 	u8 restrict_to_fmt; // DE_SPECIALEXEFMT_*; 0 = any

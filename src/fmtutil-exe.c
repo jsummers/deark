@@ -740,6 +740,41 @@ done:
 	;
 }
 
+static void detect_specialexe_dskexp(deark *c,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	UI sig;
+	u8 major_ver, minor_ver, rel;
+	u8 cmpr_meth;
+	i64 pos;
+
+	if(ei->is_extended && !ei->is_ne) goto done;
+
+	// [A lot of this is duplicated in de_identify_dskexp().]
+	pos = ei->end_of_dos_code + 4;
+	sig = (UI)dbuf_getu16be_p(ei->f, &pos);
+	if(sig != 0x4153) goto done;
+	major_ver = dbuf_getbyte_p(ei->f, &pos);
+	if(major_ver!=1 && major_ver!=2) goto done;
+	minor_ver = dbuf_getbyte_p(ei->f, &pos);
+	rel = dbuf_getbyte(ei->f, ei->end_of_dos_code+4+4);
+	if(rel!=0x20 && rel!='A' && rel!='a') goto done;
+	cmpr_meth = dbuf_getbyte(ei->f, ei->end_of_dos_code+4+10);
+	if(cmpr_meth!=0 && cmpr_meth!=major_ver) goto done;
+	if(major_ver==1) {
+		if(minor_ver!=1 && minor_ver!=4) goto done;
+	}
+	else if(major_ver==2) {
+		if(minor_ver!=0 && minor_ver!=30) goto done;
+	}
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_DSKEXP;
+	de_strlcpy(edd->detected_fmt_name, "Disk Express", sizeof(edd->detected_fmt_name));
+	edd->modname = "dskexp";
+done:
+	;
+}
+
 // Caller supplies ei -- must call fmtutil_collect_exe_info() first.
 // Caller initializes edd, to receive the results.
 // If success, sets edd->detected_fmt to nonzero.
@@ -778,6 +813,11 @@ void fmtutil_detect_specialexe(deark *c, struct fmtutil_exe_info *ei,
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_TEXTLIFE) {
 		detect_specialexe_textlife(c, ei, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
+
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_DSKEXP) {
+		detect_specialexe_dskexp(c, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 

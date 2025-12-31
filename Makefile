@@ -72,7 +72,7 @@ OFILES_MODS_CH:=$(addprefix $(OBJDIR)/modules/,cab.o cardfile.o cfb.o \
  exepack.o dms.o colorix.o diet.o divgs.o dosbackup.o \
  flif.o fnt.o gemfont.o gemmeta.o gemras.o gif.o grasp.o grob.o gzip.o \
  corel.o hfs.o hlp.o dsstore.o fli.o fat.o flac.o dlmaker.o crush.o \
- cdiimage.o clp.o comicchat.o exectext.o grabber.o gws.o)
+ cdiimage.o clp.o comicchat.o dskexp.o exectext.o grabber.o gws.o)
 OFILES_MODS_IO:=$(addprefix $(OBJDIR)/modules/,misc.o misc2.o misc3.o \
  misc-font.o iccprofile.o icns.o \
  id3.o ico.o iff.o ilbm.o insetpix.o iptc.o jbf.o jovianvi.o jpeg.o lha.o \

@@ -92,6 +92,8 @@ $(OBJDIR)/modules/dosbackup.o: modules/dosbackup.c src/deark-private.h \
  src/deark-fmtutil.h
 $(OBJDIR)/modules/drhalo.o: modules/drhalo.c src/deark-config.h \
  src/deark-private.h src/deark.h
+$(OBJDIR)/modules/dskexp.o: modules/dskexp.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/dsstore.o: modules/dsstore.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/ebml.o: modules/ebml.c src/deark-config.h \

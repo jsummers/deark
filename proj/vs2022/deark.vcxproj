@@ -214,6 +214,7 @@
     <ClCompile Include="..\..\modules\dms.c" />
     <ClCompile Include="..\..\modules\dosbackup.c" />
     <ClCompile Include="..\..\modules\drhalo.c" />
+    <ClCompile Include="..\..\modules\dskexp.c" />
     <ClCompile Include="..\..\modules\dsstore.c" />
     <ClCompile Include="..\..\modules\ebml.c" />
     <ClCompile Include="..\..\modules\emf.c" />

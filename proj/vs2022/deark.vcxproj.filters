@@ -634,6 +634,9 @@
     <ClCompile Include="..\..\modules\mahjong.c">
       <Filter>Modules</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\modules\dskexp.c">
+      <Filter>Modules</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\deark-config.h">

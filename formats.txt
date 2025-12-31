@@ -963,6 +963,11 @@ in the readme file.)
   Options
    -opt diet:raw - For EXE, write raw decompressed data.
 
+* Disk Express (module="dskexp")
+  Floppy disk image format.
+  - Supports self-extracting EXE format, and non-executable (.DXP) format.
+  - Extracts to raw IMA (FAT) format.
+
 * DMS (Amiga disk image) (module="amiga_dms") (experimental)
   - Decompresses to ADF format.
 
