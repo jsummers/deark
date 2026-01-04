@@ -844,7 +844,14 @@ done:
 	dbuf_close(guest_reloc_table);
 	if(outf) {
 		dbuf_close(outf);
-		de_stdwarn_execomp(c);
+		if(!d->errflag) {
+			if(d->host_ei->is_extended) {
+				// Disk Express creates hybrid DOS(w/DIET) / OS/2 files.
+				de_warn(c, "This might be an extended EXE format. "
+					"Only the DOS part will work after decompression.");
+			}
+			de_stdwarn_execomp(c);
+		}
 	}
 	dbuf_close(hdr_for_dcmpr_file);
 	if(ectx) {
