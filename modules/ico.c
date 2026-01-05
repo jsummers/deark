@@ -235,14 +235,14 @@ static void do_image_data(deark *c, lctx *d, struct page_ctx *pg)
 		fi->hotspot_y = pg->hotspot_y;
 	}
 
-	de_bitmap_write_to_file_finfoOLD(pg->img, fi, DE_CREATEFLAG_FLIP_IMAGE);
+	de_bitmap_write_to_file_finfo(pg->img, fi, DE_CREATEFLAG_FLIP_IMAGE);
 
 	if(d->extract_unused_masks && (!pg->use_mask || (c->padpix && pg->mask_pdwidth>pg->bi.width))) {
 		char maskname_token[32];
 
 		de_snprintf(maskname_token, sizeof(maskname_token), "%dx%dx%dmask",
 			(int)pg->bi.width, (int)pg->bi.height, (int)pg->bi.bitcount);
-		de_bitmap_write_to_fileOLD(pg->mask_img, maskname_token, DE_CREATEFLAG_IS_AUX | DE_CREATEFLAG_FLIP_IMAGE);
+		de_bitmap_write_to_file(pg->mask_img, maskname_token, DE_CREATEFLAG_IS_AUX | DE_CREATEFLAG_FLIP_IMAGE);
 	}
 
 done:
@@ -464,7 +464,7 @@ static int decode_win1_icon(deark *c, win1ctx *d, i64 pos1)
 		fi->hotspot_y = hotspot_y;
 	}
 
-	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 	d->bytes_consumed = pos - pos1;
 	retval = 1;
 

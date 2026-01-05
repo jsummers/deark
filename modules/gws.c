@@ -344,7 +344,7 @@ static void de_run_gws_thn(deark *c, de_module_params *mparams)
 
 	img = de_bitmap_create(c, w, h, 3);
 	de_convert_image_paletted(c->infile, pos, 8, w, d->pal, img, 0);
-	de_bitmap_write_to_fileOLD(img, NULL, DE_CREATEFLAG_FLIP_IMAGE);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_FLIP_IMAGE);
 
 	de_bitmap_destroy(img);
 	ucstring_destroy(s);
@@ -432,7 +432,7 @@ static void gwsexe_decode_decompressed_image(deark *c, struct gws_exepic_ctx *d,
 		de_convert_image_paletted(inf, inf_pos, d->depth_adj, d->byprpp, d->pal,
 			img, 0);
 	}
-	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
+	de_bitmap_write_to_file(img, NULL, 0);
 	de_bitmap_destroy(img);
 }
 

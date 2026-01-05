@@ -630,7 +630,7 @@ static void do_plaintext_extension(deark *c, lctx *d, i64 pos1)
 	if(!ctx->header_ok) goto done;
 
 	if(d->compose) {
-		de_bitmap_write_to_file_finfo(d->screen_img, d->fi, DE_CREATEFLAG_OPT_IMAGE);
+		de_bitmap_write_to_file_finfo(d->screen_img, d->fi, 0);
 
 		// TODO: Too much code is duplicated with do_image().
 		if(ctx->disposal_method==DISPOSE_BKGD) {
@@ -1130,7 +1130,7 @@ static int do_image(deark *c, lctx *d, i64 pos1, i64 *bytesused)
 			0, 0, d->screen_img->width, d->screen_img->height,
 			gi->xpos, gi->ypos, DE_BITMAPFLAG_MERGE);
 
-		de_bitmap_write_to_file_finfo(d->screen_img, d->fi, DE_CREATEFLAG_OPT_IMAGE);
+		de_bitmap_write_to_file_finfo(d->screen_img, d->fi, 0);
 
 		if(disposal_method == DISPOSE_BKGD) {
 			de_bitmap_rect(d->screen_img, gi->xpos, gi->ypos, gi->width, gi->height,
@@ -1143,7 +1143,7 @@ static int do_image(deark *c, lctx *d, i64 pos1, i64 *bytesused)
 		}
 	}
 	else {
-		de_bitmap_write_to_file_finfoOLD(gi->img, d->fi, 0);
+		de_bitmap_write_to_file_finfo(gi->img, d->fi, 0);
 	}
 
 done:
@@ -1279,7 +1279,7 @@ done:
 		if(d->screen_img) {
 			if(d->dump_screen) {
 				de_finfo_set_name_from_sz(c, d->fi, "screen", 0, DE_ENCODING_LATIN1);
-				de_bitmap_write_to_file_finfo(d->screen_img, d->fi, DE_CREATEFLAG_OPT_IMAGE);
+				de_bitmap_write_to_file_finfo(d->screen_img, d->fi, 0);
 				de_finfo_set_name_from_sz(c, d->fi, NULL, 0, DE_ENCODING_LATIN1);
 			}
 			de_bitmap_destroy(d->screen_img);

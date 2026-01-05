@@ -429,7 +429,7 @@ static void do_create_image(deark *c, lctx *d)
 	de_convert_image_paletted(d->unc_pixels, 0,
 		d->bits_per_pixel, d->rowspan, d->pal, img, 0);
 
-	de_bitmap_write_to_file_finfoOLD(img, fi, 0);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 	de_bitmap_destroy(img);
 	de_finfo_destroy(c, fi);
 }

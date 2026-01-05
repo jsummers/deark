@@ -232,7 +232,7 @@ static void do_oldfmt_image(deark *c, struct storyboard_ctx *d, i64 pos)
 
 	img = de_bitmap_create(c, d->width, d->height, ((d->bpp==1)?1:3));
 	de_convert_image_paletted(unc_data, 0, d->bpp, d->rowspan, d->pal, img, 0);
-	de_bitmap_write_to_file_finfoOLD(img, fi, 0);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 
 	dbuf_close(unc_data);
 	de_bitmap_destroy(img);
@@ -568,7 +568,7 @@ static void do_newfmt_main(deark *c, struct storyboard_ctx *d)
 		fi->density.ydens = (double)d->sm_height;
 	}
 
-	de_bitmap_write_to_file_finfoOLD(img, fi, 0);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 
 done:
 	dbuf_close(unc_data);

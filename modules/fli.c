@@ -565,7 +565,7 @@ static void do_chunk_frame(deark *c, lctx *d, struct chunk_info_type *ci)
 			fi = de_finfo_create(c);
 			fi->density = ci->ictx->density;
 			fi->internal_mod_time = d->mod_timestamp;
-			de_bitmap_write_to_file_finfoOLD(ci->ictx->img, fi, 0);
+			de_bitmap_write_to_file_finfo(ci->ictx->img, fi, 0);
 		}
 	}
 
@@ -605,7 +605,7 @@ static void do_chunk_thumbnail(deark *c, lctx *d, struct chunk_info_type *ci)
 	de_finfo_set_name_from_sz(c, fi, "thumb", 0, DE_ENCODING_LATIN1);
 
 	if(ictx->use_count>0 && !ictx->error_flag) {
-		de_bitmap_write_to_file_finfoOLD(ictx->img, fi, DE_CREATEFLAG_IS_AUX);
+		de_bitmap_write_to_file_finfo(ictx->img, fi, DE_CREATEFLAG_IS_AUX);
 	}
 
 done:

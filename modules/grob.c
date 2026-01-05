@@ -51,7 +51,7 @@ static void grob_read_binary_bitmap(deark *c, lctx *d, dbuf *inf, i64 pos)
 	de_convert_image_paletted_planar(inf, pos, d->num_planes,
 		rowspan, h_logical*rowspan, pal, img, 0x1 | (d->grayscale_lsb?0x02:0));
 
-	de_bitmap_write_to_file_finfoOLD(img, NULL, 0);
+	de_bitmap_write_to_file_finfo(img, NULL, 0);
 done:
 	de_bitmap_destroy(img);
 }
