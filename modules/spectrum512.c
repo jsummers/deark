@@ -37,7 +37,7 @@ static void do_spu_internal(deark *c, dbuf *inf, int is_enhanced)
 	fi = de_finfo_create(c);
 	fmtutil_atari_set_standard_density(c, adata, fi);
 	fmtutil_atari_decode_image(c, adata);
-	de_bitmap_write_to_file_finfoOLD(adata->img, fi, 0);
+	de_bitmap_write_to_file_finfo(adata->img, fi, 0);
 
 	if(adata) {
 		de_bitmap_destroy(adata->img);

@@ -585,7 +585,7 @@ static void do_RGFX_RBOD(deark *c, struct rgfx_ctx *d, struct de_iffctx *ictx)
 		goto done;
 	}
 
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);

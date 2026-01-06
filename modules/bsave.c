@@ -156,7 +156,7 @@ static void do_cga16(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 done:
 	de_bitmap_destroy(img);
 }
@@ -226,7 +226,7 @@ static void do_4color(deark *c, lctx *d)
 		de_convert_image_paletted(c->infile, pos, 2, src_rowspan, palette, img, 0);
 	}
 
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 done:
 	de_bitmap_destroy(img);
 }
@@ -277,7 +277,7 @@ static void do_2color(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 done:
 	de_bitmap_destroy(img);
 }
@@ -309,7 +309,7 @@ static void do_256color(deark *c, lctx *d)
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 	img = de_bitmap_create(c, w, h, 3);
 	de_convert_image_paletted(c->infile, pos, 8, w, d->pal, img, 0);
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 done:
 	de_bitmap_destroy(img);
 }
@@ -338,7 +338,7 @@ static void do_wh16(deark *c, lctx *d)
 	de_copy_std_palette(DE_PALID_PC16, 0, 0, d->pal, 16, 0);
 	de_convert_image_paletted_planar(c->infile, pos, 4, src_rowspan, src_planespan,
 		d->pal, img, 0x2);
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);
@@ -375,7 +375,7 @@ static void do_b265(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);

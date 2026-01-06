@@ -119,7 +119,7 @@ static int do_bitmap_8ca(deark *c, lctx *d, i64 pos)
 
 	}
 
-	de_bitmap_write_to_fileOLD(img, NULL, DE_CREATEFLAG_FLIP_IMAGE);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_FLIP_IMAGE);
 	retval = 1;
 done:
 	de_bitmap_destroy(img);
@@ -161,7 +161,7 @@ static int do_bitmap_8ci(deark *c, lctx *d, i64 pos)
 
 	}
 
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 	retval = 1;
 done:
 	de_bitmap_destroy(img);

@@ -114,7 +114,7 @@ static void do_sprite_param_block(deark *c, lctx *d, i64 res,
 	de_bitmap_apply_mask(adata_fg->img, adata_mask->img, 0);
 	fi = de_finfo_create(c);
 	fmtutil_atari_set_standard_density(c, adata_fg, fi);
-	de_bitmap_write_to_file_finfoOLD(adata_fg->img, fi, 0);
+	de_bitmap_write_to_file_finfo(adata_fg->img, fi, 0);
 
 done:
 	if(adata_fg) {
@@ -234,7 +234,7 @@ static void do_icon(deark *c, lctx *d, i64 idx, i64 pos)
 	de_convert_image_bilevel(c->infile, bitsstart+2, rowspan, fgimg, cvtflags);
 	de_bitmap_apply_mask(fgimg, maskimg, 0);
 
-	de_bitmap_write_to_file(fgimg, NULL, DE_CREATEFLAG_OPT_IMAGE);
+	de_bitmap_write_to_file(fgimg, NULL, 0);
 	de_bitmap_destroy(fgimg);
 	de_bitmap_destroy(maskimg);
 	de_dbg_indent(c, -1);
@@ -726,7 +726,7 @@ static void do_pkscreen_bank(deark *c, lctx *d, i64 pos1)
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
 	adata->bpp = (i64)bits_per_pixel;
 	fmtutil_atari_set_standard_density(c, adata, fi);
-	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 
 done:
 	de_bitmap_destroy(img);
