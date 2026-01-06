@@ -128,7 +128,7 @@ static void de_run_megapaint_pat(deark *c, de_module_params *mparams)
 		de_bitmap_destroy(img);
 	}
 
-	de_bitmap_write_to_fileOLD(mainimg, NULL, 0);
+	de_bitmap_write_to_file(mainimg, NULL, 0);
 	de_bitmap_destroy(mainimg);
 }
 

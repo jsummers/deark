@@ -335,7 +335,7 @@ static void do_generate_img_from_unc_pixels(deark *c, lctx *d, dbuf *unc_pixels,
 	de_make_grayscale_palette(pal, 1ULL<<igi->bitsperpixel, 0x1);
 	de_convert_image_paletted(unc_pixels, 0, igi->bitsperpixel, igi->rowbytes,
 		pal, img, 0);
-	de_bitmap_write_to_file_finfoOLD(img, igi->fi, igi->createflags);
+	de_bitmap_write_to_file_finfo(img, igi->fi, igi->createflags);
 
 done:
 	de_bitmap_destroy(img);

@@ -794,7 +794,7 @@ static void do_Corel_simple_image(deark *c, lctx *d, struct dir_entry_info *dei,
 		}
 	}
 
-	de_bitmap_write_to_fileOLD(img, NULL, DE_CREATEFLAG_FLIP_IMAGE);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_FLIP_IMAGE);
 
 done:
 	de_bitmap_destroy(img);
@@ -899,7 +899,7 @@ static void do_Corel_UIformat(deark *c, lctx *d, struct dir_entry_info *dei,
 		de_convert_image_rgb(f, pos, rowspan, 3, img, DE_GETRGBFLAG_BGR);
 	}
 
-	de_bitmap_write_to_fileOLD(img, is_thumb?"thumb":NULL, DE_CREATEFLAG_FLIP_IMAGE);
+	de_bitmap_write_to_file(img, is_thumb?"thumb":NULL, DE_CREATEFLAG_FLIP_IMAGE);
 
 	ok = 1;
 

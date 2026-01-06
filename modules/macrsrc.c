@@ -265,7 +265,7 @@ static void do_crsr_CURS_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 
 	de_bitmap_apply_mask(img_bw, img_mask, 0);
 	set_resource_filename(c, d, fi, rti, rii, (is_crsr?"crsr_bw":NULL));
-	de_bitmap_write_to_file_finfoOLD(img_bw, fi, 0);
+	de_bitmap_write_to_file_finfo(img_bw, fi, 0);
 	if(!is_crsr) goto done;
 
 	bi = de_malloc(c, sizeof(struct fmtutil_macbitmap_info));
@@ -308,7 +308,7 @@ static void do_crsr_CURS_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 		fi->density.xdens = bi->hdpi;
 		fi->density.ydens = bi->vdpi;
 	}
-	de_bitmap_write_to_file_finfo(img_color, fi, DE_CREATEFLAG_OPT_IMAGE);
+	de_bitmap_write_to_file_finfo(img_color, fi, 0);
 
 done:
 	de_free(c, bi);
@@ -372,7 +372,7 @@ static void do_SICN_resource_gallery(deark *c, lctx *d, struct rsrctypeinfo *rti
 		de_bitmap_destroy(img);
 	}
 
-	de_bitmap_write_to_file_finfoOLD(cnv, fi, 0);
+	de_bitmap_write_to_file_finfo(cnv, fi, 0);
 
 	de_bitmap_destroy(cnv);
 	de_finfo_destroy(c, fi);
@@ -495,7 +495,7 @@ static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 			DE_CVTF_WHITEISZERO);
 		de_bitmap_apply_mask(img_bw, img_mask, 0);
 		set_resource_filename(c, d, fi, rti, rii, "cicn_bw");
-		de_bitmap_write_to_file_finfo(img_bw, fi, DE_CREATEFLAG_OPT_IMAGE);
+		de_bitmap_write_to_file_finfo(img_bw, fi, 0);
 		pos += bw_bitssize;
 	}
 	else {
@@ -521,7 +521,7 @@ static void do_cicn_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 		fi->density.ydens = bi_fgcolor->vdpi;
 	}
 	set_resource_filename(c, d, fi, rti, rii, NULL);
-	de_bitmap_write_to_file_finfo(img_fgcolor, fi, DE_CREATEFLAG_OPT_IMAGE);
+	de_bitmap_write_to_file_finfo(img_fgcolor, fi, 0);
 	//pos += fgcolor_bitssize;
 	ok = 1;
 

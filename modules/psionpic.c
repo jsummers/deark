@@ -89,7 +89,7 @@ static void do_bitmap_2planes(deark *c, lctx *d, i64 pn1, i64 pn2)
 	planespan = d->plane_info[1].image_pos - d->plane_info[0].image_pos;
 	de_convert_image_paletted_planar(c->infile, d->plane_info[0].image_pos, 2,
 		d->plane_info[0].rowspan, planespan, pal, img, 0x1);
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 	de_bitmap_destroy(img);
 }

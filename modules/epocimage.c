@@ -393,7 +393,7 @@ static void do_read_and_write_paint_data_section(deark *c, lctx *d, i64 pos1)
 	pi->is_mask = 0;
 	do_read_paint_data_section(c, d, pi, pos1);
 	if(pi->img) {
-		de_bitmap_write_to_fileOLD(pi->img, NULL, 0);
+		de_bitmap_write_to_file(pi->img, NULL, 0);
 	}
 	d->last_paint_data_section_size = pi->paint_data_section_size;
 	destroy_phys_image(c, pi);
@@ -409,7 +409,7 @@ static void do_combine_and_write_images(deark *c, lctx *d,
 
 	if(!pi_fg || !pi_fg->img) goto done;
 	if(!pi_mask || !pi_mask->img) {
-		de_bitmap_write_to_fileOLD(pi_fg->img, NULL, 0);
+		de_bitmap_write_to_file(pi_fg->img, NULL, 0);
 		goto done;
 	}
 
@@ -455,7 +455,7 @@ static void do_combine_and_write_images(deark *c, lctx *d,
 			de_bitmap_setpixel_rgba(img, i, j, DE_SET_ALPHA(clr, 255-a));
 		}
 	}
-	de_bitmap_write_to_fileOLD(img, NULL, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);

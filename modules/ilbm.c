@@ -1923,7 +1923,7 @@ static void do_xs24(deark *c, dbuf *f, i64 pos1, i64 len)
 
 	img = de_bitmap_create(c, w, h, 3);
 	de_convert_image_rgb(f, pos, rowspan, 3, img, 0);
-	de_bitmap_write_to_file(img, "thumb", DE_CREATEFLAG_IS_AUX|DE_CREATEFLAG_OPT_IMAGE);
+	de_bitmap_write_to_file(img, "thumb", DE_CREATEFLAG_IS_AUX);
 done:
 	de_bitmap_destroy(img);
 }
@@ -2428,12 +2428,8 @@ after_render:
 	if(ibi->is_thumb) {
 		createflags |= DE_CREATEFLAG_IS_AUX;
 	}
-	if(!d->is_anim) {
-		// TODO: Enable this for ANIM?
-		createflags |= DE_CREATEFLAG_OPT_IMAGE;
-	}
 
-	de_bitmap_write_to_file_finfoOLD(img, fi, createflags);
+	de_bitmap_write_to_file_finfo(img, fi, createflags);
 
 done:
 	de_bitmap_destroy(img);
@@ -3194,7 +3190,7 @@ after_image:
 	else if(d->trans_setting==TRANS_REMOVE) {
 		de_bitmap_remove_alpha(img);
 	}
-	de_bitmap_write_to_file_finfo(img, fi, DE_CREATEFLAG_OPT_IMAGE);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 
 	de_bitmap_destroy(img);
 	de_finfo_destroy(c, fi);
@@ -3374,7 +3370,7 @@ static void do_deep_mpic(deark *c, struct deep_ctx *d, dbuf *f, i64 pos1, i64 le
 		de_bitmap_optimize_alpha(img, 0x1);
 	}
 
-	de_bitmap_write_to_file(img, "thumb", DE_CREATEFLAG_IS_AUX|DE_CREATEFLAG_OPT_IMAGE);
+	de_bitmap_write_to_file(img, "thumb", DE_CREATEFLAG_IS_AUX);
 	ok = 1;
 
 done:
