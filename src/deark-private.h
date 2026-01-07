@@ -901,8 +901,6 @@ void de_bitmap_write_to_file(de_bitmap *img, const char *token, UI createflags);
 void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi, UI createflags);
 void de_bitmap16_write_to_file_finfo(de_bitmap *img, de_bitmap *imglo,
 	de_finfo *fi, UI createflags);
-void de_bitmap_write_to_fileOLD(de_bitmap *img, const char *token, UI createflags);
-void de_bitmap_write_to_file_finfoOLD(de_bitmap *img, de_finfo *fi, UI createflags);
 
 void de_bitmap_setsample(de_bitmap *img, i64 x, i64 y,
 	i64 samplenum, de_colorsample v);

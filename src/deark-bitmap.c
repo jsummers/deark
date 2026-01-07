@@ -312,19 +312,6 @@ static int bitmap16_low_bits_important(de_bitmap *imghi, de_bitmap *imglo)
 	return 0;
 }
 
-static UI bitmap_createflags_old2new(UI oldcreateflags)
-{
-	UI newcreateflags;
-
-	if(oldcreateflags & DE_CREATEFLAG_OPT_IMAGE) {
-		newcreateflags = oldcreateflags - DE_CREATEFLAG_OPT_IMAGE;
-	}
-	else {
-		newcreateflags = oldcreateflags | DE_CREATEFLAG_NOOPT_IMAGE;
-	}
-	return newcreateflags;
-}
-
 // When calling this function, the "name" data associated with fi, if set, should
 // be set to something like a filename, but *without* a final ".png" extension.
 // Image-specific createflags:
@@ -434,18 +421,6 @@ void de_bitmap_write_to_file(de_bitmap *img, const char *token,
 	else {
 		de_bitmap_write_to_file_finfo(img, NULL, createflags);
 	}
-}
-
-void de_bitmap_write_to_file_finfoOLD(de_bitmap *img, de_finfo *fi,
-	UI oldcreateflags)
-{
-	de_bitmap16_write_to_file_finfo(img, NULL, fi, bitmap_createflags_old2new(oldcreateflags));
-}
-
-void de_bitmap_write_to_fileOLD(de_bitmap *img, const char *token,
-	UI oldcreateflags)
-{
-	de_bitmap_write_to_file(img, token, bitmap_createflags_old2new(oldcreateflags));
 }
 
 // samplenum 0=Red, 1=Green, 2=Blue, 3=Alpha
