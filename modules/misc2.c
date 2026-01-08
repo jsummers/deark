@@ -2012,24 +2012,45 @@ void de_module_dgi(deark *c, struct deark_module_info *mi)
 // CompuServe RLE
 // **************************************************************************
 
-static int get_cserve_rle_fmt(deark *c, u8 idmode)
+static u8 get_cserve_rle_fmt(deark *c, u8 strictmode)
 {
-	u8 buf[3];
+	u8 buf[64];
+	u8 fmt = 0;
+	UI k;
 
 	de_read(buf, 0, 3);
-	if(buf[0]!=0x1b || buf[1]!=0x47) return 0;
-	if(buf[2]==0x4d) return 1;
-	if(buf[2]==0x48) return 2;
-	if(!idmode && buf[2]=='C') {
+	if(buf[0]!=0x1b || buf[1]!='G') return 0;
+	if(buf[2]=='M') fmt = 1;
+	else if(buf[2]=='H') fmt = 2;
+	else if(buf[2]=='C') {
 		// Ref: http://cd.textfiles.com/gigabytesw/010a/crle.zip
-		return 3;
+		fmt = 3;
 	}
-	return 0;
+	if(!fmt) return 0;
+	if(!strictmode) return fmt;
+	de_read(buf, 3, 64);
+	for(k=0; k<64; k++) {
+		if(buf[k]<0x20 || buf[k]>0x7f) return 0;
+		if(fmt==3) {
+			if((k%2) && buf[k]>0x23) {
+				// Invalid color
+				return 0;
+			}
+		}
+		else {
+			if(k>0 && buf[k]==0x20 && buf[k-1]==0x20) {
+				// Shouldn't have two 0-length runs in a row
+				return 0;
+			}
+		}
+	}
+	return fmt;
 }
 
 static void de_run_cserve_rle(deark *c, de_module_params *mparams)
 {
-	int fmt;
+	u8 fmt;
+	const char *name;
 	i64 w, expected_h, actual_h;
 	i64 max_npixels;
 	i64 npixels_expected;
@@ -2055,6 +2076,11 @@ static void de_run_cserve_rle(deark *c, de_module_params *mparams)
 		de_err(c, "Not a CompuServe RLE file");
 		goto done;
 	}
+
+	if(fmt==1) name = "med. res.";
+	else if(fmt==3) name = "color";
+	else name = "high res.";
+	de_declare_fmtf(c, "CompuServe RLE, %s", name);
 
 	de_dbg(c, "width: %"I64_FMT, w);
 	npixels_expected = w*expected_h;
@@ -2135,11 +2161,16 @@ done:
 
 static int de_identify_cserve_rle(deark *c)
 {
-	int x;
+	u8 has_ext;
+	u8 fmt;
 
-	x = get_cserve_rle_fmt(c, 1);
-	if(x==0) return 0;
-	return 85;
+	fmt = get_cserve_rle_fmt(c, 1);
+	if(fmt==0) return 0;
+	has_ext = de_input_file_has_ext(c, "rle");
+	if(fmt==3) {
+		return has_ext?60:0;
+	}
+	return has_ext?92:32;
 }
 
 void de_module_cserve_rle(deark *c, struct deark_module_info *mi)
