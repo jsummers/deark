@@ -1260,12 +1260,14 @@ struct de_scan_jpeg_data_ctx {
 	u8 found_dqt;
 	u8 found_sof;
 	u8 found_jfif;
+	u8 found_exif;
 	u8 found_pic;
 	u8 found_8bim;
 	i64 soi_pos;
 	i64 sos_pos;
 	i64 sof_pos;
 	i64 jfif_pos;
+	i64 jfif_len;
 	i64 pic_pos;
 	i64 pic_len;
 	i64 _8bim_pos;
@@ -1327,6 +1329,7 @@ static void de_scan_jpeg_data(deark *c, dbuf *f, i64 pos1, i64 len,
 				if(!dbuf_memcmp(f, seg_startpos+4, "JFIF\0", 5)) {
 					sd->found_jfif = 1;
 					sd->jfif_pos = seg_startpos;
+					sd->jfif_len = seg_len;
 				}
 			}
 			break;
@@ -1336,6 +1339,12 @@ static void de_scan_jpeg_data(deark *c, dbuf *f, i64 pos1, i64 len,
 					sd->found_pic = 1;
 					sd->pic_pos = seg_startpos;
 					sd->pic_len = seg_len;
+				}
+			}
+			if(seg_len>=10 && !sd->found_exif) {
+				// We don't expect an Exif segment, but just in case.
+				if(!dbuf_memcmp(f, seg_startpos+4, "Exif\0\0", 6)) {
+					sd->found_exif = 1;
 				}
 			}
 			break;
@@ -1381,12 +1390,43 @@ static void picjpeg_scale_qtable(u8 tbl[64], UI setting)
 	}
 }
 
+static u8 picjpeg_orient_to_exif_orient(u8 o1)
+{
+	static const u8 omap[8] = { 4,1,5,6,2,3,7,8 };
+
+	return omap[o1 % 8];
+}
+
+static void picjpeg_write_exif_if_needed(deark *c, dbuf *outf, u8 orient_setting)
+{
+#define PICJPEG_EXIF_LEN   66
+	u8 exifdata[PICJPEG_EXIF_LEN] = {
+		0xff,0xe1,0x00,(PICJPEG_EXIF_LEN-2),
+		0x45,0x78,0x69,0x66,0x00,0x00,
+		0x4d,0x4d,0x00,0x2a,0x00,0x00,0x00,0x08,
+		0x00,0x02,
+		0x01,0x12,0x00,0x03,0x00,0x00,0x00,0x01,0x00,0x01,0x00,0x00,
+		//                         Orientation: ^^^^^^^^^
+		0x87,0x69,0x00,0x04,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x26,
+		0x00,0x00,0x00,0x00,
+		0x00,0x01,
+		0x90,0x00,0x00,0x07,0x00,0x00,0x00,0x04,0x30,0x32,0x33,0x30,
+		0x00,0x00,0x00,0x00};
+	u8 o2;
+
+	o2 = picjpeg_orient_to_exif_orient(orient_setting);
+	if(o2==1) return;
+	exifdata[29] = o2;
+	dbuf_write(outf, exifdata, PICJPEG_EXIF_LEN);
+}
+
 static void de_run_picjpeg(deark *c, de_module_params *mparams)
 {
 	i64 bits_offset;
 	i64 jpeg_data_len;
 	UI lum_setting;
 	UI chr_setting;
+	u8 orient_setting = 1;
 	int need_errmsg = 0;
 	i64 srcpos;
 	dbuf *outf = NULL;
@@ -1444,6 +1484,10 @@ static void de_run_picjpeg(deark *c, de_module_params *mparams)
 	chr_setting = (UI)de_getbyte(sd.pic_pos+10);
 	de_dbg(c, "luminance: %u", lum_setting);
 	de_dbg(c, "chrominance: %u", chr_setting);
+	if(sd.pic_len>=12) {
+		orient_setting = de_getbyte(sd.pic_pos+11);
+		de_dbg(c, "orientation: %u", (UI)orient_setting);
+	}
 
 	de_dbg(c, "has DHT: %u", (UI)sd.found_dht);
 
@@ -1453,13 +1497,21 @@ static void de_run_picjpeg(deark *c, de_module_params *mparams)
 	dbuf_copy(c->infile, srcpos, 2, outf);
 	srcpos += 2;
 
+	// Copy (& update) the JFIF segment
 	if(sd.found_jfif && sd.jfif_pos==srcpos) {
 		// Copy everything before the JFIF version number
 		dbuf_copy(c->infile, srcpos, 9, outf);
 		// Sometimes the JFIF version number is wrong, so we correct it.
 		dbuf_writebyte(outf, 1);
 		dbuf_writebyte(outf, 2);
-		srcpos += 11;
+		// Copy the rest of the JFIF segment
+		dbuf_copy(c->infile, sd.jfif_pos+11, sd.jfif_len-11, outf);
+		srcpos = sd.jfif_pos + sd.jfif_len;
+	}
+
+	// Create an Exif segment to label nonstandard orientation.
+	if(!sd.found_exif) {
+		picjpeg_write_exif_if_needed(c, outf, orient_setting);
 	}
 
 	// Copy everything up to the PIC segment
