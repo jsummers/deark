@@ -273,6 +273,14 @@ static void lzss_init_window_lz5(struct de_lz77buffer *ringbuf)
 	//wpos += 110;
 }
 
+// The original LZSS software, when decompressing, behaves as if
+// the window were initialized like this.
+static void lzss_init_window_authentic(struct de_lz77buffer *ringbuf)
+{
+	de_memset(&ringbuf->buf[0], 32, 4096-18);
+	de_zeromem(&ringbuf->buf[4096-18], 18);
+}
+
 // Used by lzss1 & hlp_lz77
 static void lzss_fill_bitbuf(deark *c, struct lzss_ctx *sctx)
 {
@@ -288,11 +296,13 @@ static void lzss_fill_bitbuf(deark *c, struct lzss_ctx *sctx)
 
 // Decompress Okumura LZSS and similar formats.
 // codec_private_params = de_lzss1_params
+// TODO: Clean up these messy flags.
 // params->flags:
 //   0x01: 0 = starting position=4096-18 [like Okumura LZSS]
 //         1 = starting position=4096-16 [like MS SZDD]
 //   0x02: 0 = init to all spaces
 //         1 = LArc lz5 mode
+//   0x04: 1 = init as the original LZSS does
 void fmtutil_lzss1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params)
@@ -310,7 +320,10 @@ void fmtutil_lzss1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	sctx->ringbuf->writebyte_cb = lzss_lz77buf_writebytecb;
 	sctx->ringbuf->userdata = (void*)sctx;
 
-	if(params->flags & 0x2) {
+	if(params->flags & 0x4) {
+		lzss_init_window_authentic(sctx->ringbuf);
+	}
+	else if(params->flags & 0x2) {
 		lzss_init_window_lz5(sctx->ringbuf);
 	}
 	else {

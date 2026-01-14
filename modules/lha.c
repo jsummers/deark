@@ -9,6 +9,7 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_lha);
 DE_DECLARE_MODULE(de_module_swg);
+DE_DECLARE_MODULE(de_module_atari_afx);
 DE_DECLARE_MODULE(de_module_tpk);
 DE_DECLARE_MODULE(de_module_pakleo);
 DE_DECLARE_MODULE(de_module_car_lha);
@@ -22,6 +23,7 @@ DE_DECLARE_MODULE(de_module_lharc_sfx_com);
 #define CODE_S_LH5 0x204c4835 // SAR
 #define CODE_TK0 0x2d544b30U // TPK
 #define CODE_TK1 0x2d544b31U // TPK
+#define CODE_afx 0x2d616678U
 #define CODE_ah0 0x2d616830U // MAR
 #define CODE_ari 0x2d617269U // MAR
 #define CODE_hf0 0x2d686630U // MAR
@@ -62,6 +64,7 @@ DE_DECLARE_MODULE(de_module_lharc_sfx_com);
 
 enum lha_basefmt_enum {
 	BASEFMT_LHA = 0,  // LHarc/LHA and other formats that are parsed the same
+	BASEFMT_AFX,
 	BASEFMT_SWG,
 	BASEFMT_TPK,
 	BASEFMT_PAKLEO
@@ -651,8 +654,17 @@ static void do_lev0_ext_area(deark *c, lctx *d, struct member_data *md,
 {
 	if(len<1) return;
 	md->os_id = de_getbyte(pos1);
-	de_dbg(c, "OS id: %d ('%c') (%s)", (int)md->os_id,
-		de_byte_to_printable_char(md->os_id), get_os_name(md->os_id));
+	if(d->basefmt==BASEFMT_AFX) {
+		// AFX apparently uses 'A' to mean Atari, instead of Amiga.
+		// (LHarc 2.01d-e just uses a space.)
+		// We won't try to decode it.
+		de_dbg(c, "OS id: %d ('%c')", (int)md->os_id,
+			de_byte_to_printable_char(md->os_id));
+	}
+	else {
+		de_dbg(c, "OS id: %d ('%c') (%s)", (int)md->os_id,
+			de_byte_to_printable_char(md->os_id), get_os_name(md->os_id));
+	}
 
 	// TODO: Finish this
 	if(md->os_id=='U') {
@@ -994,6 +1006,13 @@ static void decompress_pakleo(deark *c, lctx *d, struct member_data *md,
 	fmtutil_decompress_lzw(c, dcmpri, dcmpro, dres, &delzwp);
 }
 
+static void decompress_afx(deark *c, lctx *d, struct member_data *md,
+	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
+	struct de_dfilter_results *dres)
+{
+	fmtutil_decompress_lzss1(c, dcmpri, dcmpro, dres, 0x4);
+}
+
 struct cmpr_meth_array_item {
 	enum lha_basefmt_enum basefmt;
 	u8 flags;
@@ -1024,6 +1043,7 @@ static const struct cmpr_meth_array_item cmpr_meth_arr[] = {
 	{ BASEFMT_LHA, 0x00, CODE_S_LH5, "SAR LH5", decompress_lh5 },
 	{ BASEFMT_SWG, 0x00, CODE_sw0, "uncompressed", decompress_uncompressed },
 	{ BASEFMT_SWG, 0x00, CODE_sw1, NULL, NULL },
+	{ BASEFMT_AFX, 0x00, CODE_afx, "Atari AFX", decompress_afx },
 	{ BASEFMT_TPK, 0x00, CODE_TK0, "uncompressed", decompress_uncompressed },
 	{ BASEFMT_TPK, 0x00, CODE_TK1, "LZHUF", decompress_tk1 },
 	{ BASEFMT_PAKLEO, 0x00, CODE_ll0, "uncompressed", decompress_uncompressed },
@@ -1137,8 +1157,13 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		fi->mode_flags |= DE_MODEFLAG_NONEXE;
 	}
 
-	de_finfo_set_name_from_ucstring(c, fi, md->fullfilename, DE_SNFLAG_FULLPATH);
-	fi->original_filename_flag = 1;
+	// For AFX, we allow filename preservation to be turned off.
+	// Compression/decompression is in-place, so using the filename in
+	// the file might not be ideal.
+	if(!(d->basefmt==BASEFMT_AFX && !c->filenames_from_file)) {
+		de_finfo_set_name_from_ucstring(c, fi, md->fullfilename, DE_SNFLAG_FULLPATH);
+		fi->original_filename_flag = 1;
+	}
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
 	dbuf_enable_wbuffer(outf);
@@ -1161,6 +1186,14 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	}
 	dbuf_flush(dcmpro.f);
 
+	if(!dres.errcode) {
+		if(outf->len!=md->orig_size ||
+			(d->basefmt==BASEFMT_AFX && dres.bytes_consumed<md->compressed_data_len-2))
+		{
+			de_dfilter_set_generic_error(c, &dres, NULL);
+		}
+	}
+
 	if(dres.errcode) {
 		de_err(c, "%s: Decompression failed: %s", ucstring_getpsz_d(md->fullfilename),
 			de_dfilter_get_errmsg(c, &dres));
@@ -1178,8 +1211,15 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 			de_dbg(c, "crc (calculated): 0x%04x", (UI)crc_calc);
 		}
 		if(crc_calc != md->crc_reported) {
-			de_err(c, "%s: CRC check failed", ucstring_getpsz_d(md->fullfilename));
-			goto done;
+			if(d->basefmt==BASEFMT_AFX) {
+				// Some AFX files have the wrong reported CRC, but the right data,
+				// so this is only a warning.
+				de_warn(c, "CRC check failed");
+			}
+			else {
+				de_err(c, "%s: CRC check failed", ucstring_getpsz_d(md->fullfilename));
+				goto done;
+			}
 		}
 	}
 
@@ -1667,6 +1707,7 @@ static void do_lha_footer(deark *c, lctx *d)
 {
 	i64 extra_bytes_pos, extra_bytes_len;
 
+	if(d->basefmt==BASEFMT_AFX) goto done;
 	if(!d->trailer_found) goto done;
 	extra_bytes_pos = d->trailer_pos+1;
 	extra_bytes_len = c->infile->len - extra_bytes_pos;
@@ -1716,6 +1757,9 @@ static void do_run_lha_internal(deark *c, lctx *d, de_module_params *mparams)
 	if(d->basefmt==BASEFMT_SWG || d->basefmt==BASEFMT_PAKLEO) {
 		guessed_encoding = DE_ENCODING_CP437;
 	}
+	else if(d->basefmt==BASEFMT_AFX) {
+		guessed_encoding = DE_ENCODING_ATARIST;
+	}
 	else if(d->basefmt==BASEFMT_TPK) {
 		guessed_encoding = DE_ENCODING_WINDOWS1252;
 	}
@@ -1750,6 +1794,8 @@ static void do_run_lha_internal(deark *c, lctx *d, de_module_params *mparams)
 
 		destroy_member_data(c, md);
 		md = NULL;
+		// AFX should only have a single file, and no trailer.
+		if(d->basefmt==BASEFMT_AFX) goto done;
 	}
 
 done:
@@ -1874,6 +1920,37 @@ void de_module_swg(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_swg;
 	mi->identify_fn = de_identify_swg;
 	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
+}
+
+/////////////////////// Atari AFX
+
+static void de_run_atari_afx(deark *c, de_module_params *mparams)
+{
+	lctx *d;
+
+	d = lha_create_lctx(c);
+	d->basefmt = BASEFMT_AFX;
+	d->basefmt_name = "AFX";
+	de_declare_fmt(c, "Atari AFX");
+	do_run_lha_internal(c, d, mparams);
+	lha_destroy_lctx(c, d);
+}
+
+static int de_identify_atari_afx(deark *c)
+{
+	if(dbuf_memcmp(c->infile, 2, (const void*)"-afx-", 5)) {
+		return 0;
+	}
+	if(de_getbyte(20)!=0) return 0;
+	return 87;
+}
+
+void de_module_atari_afx(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "atari_afx";
+	mi->desc = "Atari AFX compressed file";
+	mi->run_fn = de_run_atari_afx;
+	mi->identify_fn = de_identify_atari_afx;
 }
 
 /////////////////////// TPK (by Thomas Haukap?)

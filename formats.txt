@@ -858,6 +858,13 @@ in the readme file.)
 
 * ADF (Amiga disk image) (module="amiga_adf") (experimental)
 
+* AFX (Atari compressed file) (module="atari_afx")
+  Single-file variant of LHarc format, for Atari ST. Used by a transparent
+  compression utility by T. Quester, and supported by Quester's versions of
+  LHarc v2.01x.
+  - For unknown reasons, some files in the wild have the wrong CRC stored in
+    the file. They might still decompress correctly, despite the CRC warning.
+
 * Aldus LZW and PKZP (module="aldus_inst") (experimental, incomplete)
   An installer compressed file format.
 
