@@ -149,12 +149,14 @@ void fmtutil_deflate_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params);
 
+#define DE_LSZZINIT_SPACES 1
+#define DE_LSZZINIT_ZEROES 2
+#define DE_LSZZINIT_LZ5    3
 struct de_lzss1_params {
-	UI flags;
+	u8 basefmt; // 0=Like original LZSS, 1=MS Compress SZDD
+	u8 hst_init1; // DE_LSZZINIT_*, 0=Default for basefmt
+	u8 hst_init2; // DE_LSZZINIT_*, 0=Default for basefmt/init1
 };
-void fmtutil_decompress_lzss1(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
-	UI flags);
 void fmtutil_lzss1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params);

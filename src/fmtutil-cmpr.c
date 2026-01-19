@@ -251,12 +251,14 @@ static void lzss_lz77buf_writebytecb(struct de_lz77buffer *rb, const u8 n)
 	sctx->nbytes_written++;
 }
 
+#define LZSS_BUFSIZE 4096
+
 static void lzss_init_window_lz5(struct de_lz77buffer *ringbuf)
 {
 	size_t wpos;
 	int i;
 
-	de_zeromem(ringbuf->buf, 4096);
+	de_zeromem(ringbuf->buf, LZSS_BUFSIZE);
 	wpos = 13;
 	for(i=1; i<256; i++) {
 		de_memset(&ringbuf->buf[wpos], i, 13);
@@ -271,14 +273,6 @@ static void lzss_init_window_lz5(struct de_lz77buffer *ringbuf)
 	wpos += 128;
 	de_memset(&ringbuf->buf[wpos], 0x20, 110);
 	//wpos += 110;
-}
-
-// The original LZSS software, when decompressing, behaves as if
-// the window were initialized like this.
-static void lzss_init_window_authentic(struct de_lz77buffer *ringbuf)
-{
-	de_memset(&ringbuf->buf[0], 32, 4096-18);
-	de_zeromem(&ringbuf->buf[4096-18], 18);
 }
 
 // Used by lzss1 & hlp_lz77
@@ -296,20 +290,13 @@ static void lzss_fill_bitbuf(deark *c, struct lzss_ctx *sctx)
 
 // Decompress Okumura LZSS and similar formats.
 // codec_private_params = de_lzss1_params
-// TODO: Clean up these messy flags.
-// params->flags:
-//   0x01: 0 = starting position=4096-18 [like Okumura LZSS]
-//         1 = starting position=4096-16 [like MS SZDD]
-//   0x02: 0 = init to all spaces
-//         1 = LArc lz5 mode
-//   0x04: 1 = init as the original LZSS does
 void fmtutil_lzss1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params)
 {
-#define LZSS_BUFSIZE 4096
 	struct de_lzss1_params *params = (struct de_lzss1_params*)codec_private_params;
 	struct lzss_ctx *sctx = NULL;
+	UI hst_startpos_from_end;
 
 	sctx = de_malloc(c, sizeof(struct lzss_ctx));
 	sctx->dcmpri = dcmpri;
@@ -320,16 +307,28 @@ void fmtutil_lzss1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	sctx->ringbuf->writebyte_cb = lzss_lz77buf_writebytecb;
 	sctx->ringbuf->userdata = (void*)sctx;
 
-	if(params->flags & 0x4) {
-		lzss_init_window_authentic(sctx->ringbuf);
-	}
-	else if(params->flags & 0x2) {
-		lzss_init_window_lz5(sctx->ringbuf);
-	}
-	else {
+	hst_startpos_from_end = (params->basefmt==1) ? 16 : 18;
+
+	// Currently we always default to all spaces
+	if(params->hst_init1==DE_LSZZINIT_SPACES || params->hst_init1==0) {
 		de_lz77buffer_clear(sctx->ringbuf, 0x20);
 	}
-	sctx->ringbuf->curpos = (params->flags & 0x1) ? (LZSS_BUFSIZE-16) : (LZSS_BUFSIZE-18);
+	else if(params->hst_init1==DE_LSZZINIT_LZ5) {
+		lzss_init_window_lz5(sctx->ringbuf);
+	}
+	// For any other init1: Leave at zeroes.
+
+	if(params->hst_init2==DE_LSZZINIT_SPACES) {
+		de_memset(&sctx->ringbuf->buf[LZSS_BUFSIZE-hst_startpos_from_end],
+			32, hst_startpos_from_end);
+	}
+	else if(params->hst_init2==DE_LSZZINIT_ZEROES) {
+		de_zeromem(&sctx->ringbuf->buf[LZSS_BUFSIZE-hst_startpos_from_end],
+			hst_startpos_from_end);
+	}
+	// For any other init2: Leave it at whatever the init1 scheme did.
+
+	sctx->ringbuf->curpos = LZSS_BUFSIZE-hst_startpos_from_end;
 
 	sctx->bbll.is_lsb = 1;
 	de_bitbuf_lowlevel_empty(&sctx->bbll);
@@ -365,8 +364,12 @@ void fmtutil_lzss1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 			matchpos = ((x1 & 0xf0) << 4) | x0;
 			matchlen = (x1 & 0x0f) + 3;
 			if(c->debug_level>=4) {
+				UI mpos_rel; // # bytes back from curpos
+
+				mpos_rel = (UI)((sctx->ringbuf->curpos-matchpos)&(LZSS_BUFSIZE-1));
+				if(mpos_rel==0) mpos_rel = LZSS_BUFSIZE;
 				de_dbg(c, "bpos=%u match mpos=%u(%u) len=%u", sctx->ringbuf->curpos,
-					matchpos, (UI)((LZSS_BUFSIZE-1)&(sctx->ringbuf->curpos-matchpos)), matchlen);
+					matchpos, mpos_rel, matchlen);
 			}
 			de_lz77buffer_copy_from_hist(sctx->ringbuf, matchpos, matchlen);
 			if(sctx->stop_flag) goto unc_done;
@@ -378,16 +381,6 @@ unc_done:
 	dres->bytes_consumed = sctx->cur_ipos - dcmpri->pos;
 	de_lz77buffer_destroy(c, sctx->ringbuf);
 	de_free(c, sctx);
-}
-
-void fmtutil_decompress_lzss1(deark *c, struct de_dfilter_in_params *dcmpri,
-	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres, UI flags)
-{
-	struct de_lzss1_params params;
-
-	de_zeromem(&params, sizeof(struct de_lzss1_params));
-	params.flags = flags;
-	fmtutil_lzss1_codectype1(c, dcmpri, dcmpro, dres, &params);
 }
 
 // ==============================================

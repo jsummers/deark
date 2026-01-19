@@ -495,7 +495,15 @@ static const u8 *g_edilzss_sig = (const u8*)"EDILZSS";
 
 static void edi_pack_decompressor_fn(struct de_arch_member_data *md)
 {
-	fmtutil_decompress_lzss1(md->c, md->dcmpri, md->dcmpro, md->dres, 0x0);
+	struct de_lzss1_params params;
+
+	de_zeromem(&params, sizeof(struct de_lzss1_params));
+	// (Haven't tried to figure out what the init params should be, if
+	// it matters.)
+	params.hst_init1 = DE_LSZZINIT_SPACES;
+	params.hst_init2 = DE_LSZZINIT_SPACES;
+	fmtutil_lzss1_codectype1(md->c, md->dcmpri, md->dcmpro, md->dres,
+		(void*)&params);
 }
 
 // This basically checks for a valid DOS filename.
