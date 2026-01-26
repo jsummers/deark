@@ -27,6 +27,7 @@ DE_DECLARE_MODULE(de_module_binary_ii);
 DE_DECLARE_MODULE(de_module_tc_trs80);
 DE_DECLARE_MODULE(de_module_ea_arch);
 DE_DECLARE_MODULE(de_module_zpk2);
+DE_DECLARE_MODULE(de_module_iconheaven);
 
 static int dclimplode_header_at(deark *c, i64 pos)
 {
@@ -3298,4 +3299,144 @@ void de_module_zpk2(deark *c, struct deark_module_info *mi)
 	mi->desc = "zpk2 archive (ZSoft)";
 	mi->run_fn = de_run_zpk2;
 	mi->identify_fn = de_identify_zpk2;
+}
+
+// **************************************************************************
+// Icon Heaven
+// **************************************************************************
+
+static void iconheaven_decompressor_fn(struct de_arch_member_data *md)
+{
+	deark *c = md->c;
+	struct de_lzw_params delzwp;
+
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
+	delzwp.fmt = DE_LZWFMT_ICONHEAVEN;
+	fmtutil_decompress_lzw(c, md->dcmpri, md->dcmpro, md->dres, &delzwp);
+}
+
+// Caller creates/destroys md, and sets a few fields.
+static void iconheaven_do_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *md)
+{
+	i64 pos = md->member_hdr_pos;
+	i64 namelen;
+	UI sig;
+	UI unk1;
+	UI peek_1st_code;
+	u8 need_errmsg = 0;
+
+	int saved_indent_level;
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	de_dbg(c, "member #%u hdr at %"I64_FMT, (UI)md->member_idx, md->member_hdr_pos);
+	de_dbg_indent(c, 1);
+
+	sig = (UI)de_getu16be_p(&pos);
+	if(sig != 0x6369) {
+		de_err(c, "Icon not found at %"I64_FMT, md->member_hdr_pos);
+		d->fatalerrflag = 1;
+		goto done;
+	}
+
+	md->cmpr_len = de_getu16le_p(&pos);
+	de_dbg(md->c, "cmpr size: %"I64_FMT, md->cmpr_len);
+
+	md->orig_len = de_getu16le_p(&pos);
+	md->orig_len_known = 1;
+	de_dbg(md->c, "orig size: %"I64_FMT, md->orig_len);
+
+	unk1 = (UI)de_getu16le_p(&pos);
+
+	namelen = de_getu16le_p(&pos);
+	if(namelen>260) {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+	dbuf_read_to_ucstring(c->infile, pos, namelen, md->filename, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(md->filename));
+	ucstring_strip_trailing_spaces(md->filename);
+	ucstring_append_sz(md->filename, ".ico", DE_ENCODING_LATIN1);
+	pos += namelen;
+
+	md->cmpr_pos = pos;
+	de_dbg(md->c, "cmpr pos: %"I64_FMT, md->cmpr_pos);
+	md->member_total_size = md->cmpr_pos + md->cmpr_len - md->member_hdr_pos;
+
+	if(unk1!=1) {
+		need_errmsg = 1;
+		goto done;
+	}
+
+	peek_1st_code = (UI)de_getu16be(md->cmpr_pos) >> 7;
+	de_dbg(c, "1st code: %u", peek_1st_code);
+
+	md->dfn = iconheaven_decompressor_fn;
+	de_arch_extract_member_file(md);
+
+done:
+	if(need_errmsg) {
+		de_err(c, "[icon #%d] Unsupported icon", (int)md->member_idx);
+	}
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void de_run_iconheaven(deark *c, de_module_params *mparams)
+{
+	de_arch_lctx *d = NULL;
+	i64 pos;
+	i64 i;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	d = de_arch_create_lctx(c);
+	d->is_le = 1;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+
+	pos = 0;
+	de_dbg(c, "header at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
+	pos += 8;
+	d->num_members = de_getu16le_p(&pos);
+	de_dbg(c, "number of icons: %"I64_FMT, d->num_members);
+	de_dbg_indent(c, -1);
+
+	pos = 140;
+	for(i=0; i<d->num_members; i++) {
+		struct de_arch_member_data *md;
+
+		if(pos >= c->infile->len) goto done;
+		md = de_arch_create_md(c, d);
+		md->member_idx = i;
+		md->member_hdr_pos = pos;
+
+		iconheaven_do_member(c, d, md);
+		if(d->fatalerrflag) goto done;
+		pos += md->member_total_size;
+		de_arch_destroy_md(c, md);
+	}
+
+done:
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported FIM file");
+		}
+		de_arch_destroy_lctx(c, d);
+	}
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static int de_identify_iconheaven(deark *c)
+{
+	if(dbuf_memcmp(c->infile, 0, "LI\0\x01\0\0\0\0 ", 8)) return 0;
+	return 100;
+}
+
+void de_module_iconheaven(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "iconheaven";
+	mi->desc = "Icon Heaven library (.fim)";
+	mi->run_fn = de_run_iconheaven;
+	mi->identify_fn = de_identify_iconheaven;
 }

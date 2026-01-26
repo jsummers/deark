@@ -321,6 +321,9 @@ Deark -- Information about supported formats
   - PNG-formatted icons will be extracted as-is, not decoded.
   - Extract images of the (otherwise unused) masks for 32-bit images (use -a).
 
+* Icon Heaven library (.fim) (module="iconheaven") (experimental)
+  - Extracted files will be in an OS/2 icon format.
+
 * ILBM and related IFF-based images (module="ilbm")
   - Supports ILBM, ACBM, PBM, RGBN, RGB8
   - Supports 1-8 bit paletted, 24-bit truecolor

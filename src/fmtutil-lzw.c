@@ -94,6 +94,7 @@ struct delzwctx_struct {
 	i64 ncodes_in_this_bitgroup;
 	i64 nbytes_left_to_skip;
 	i64 code_counter;
+	i64 dcodes_since_clear;
 
 	UI curr_codesize;
 
@@ -228,6 +229,39 @@ static void delzw_process_arc_1byteheader(delzwctx *dc)
 	dc->header_unixcompress_max_codesize = (dc->header_buf[0] & 0x1f);
 	dc->max_codesize = (UI)dc->header_unixcompress_max_codesize;
 	delzw_debugmsg(dc, 2, "max code size: %u", dc->max_codesize);
+}
+
+static void iconheaven_special_code(delzwctx *dc, DELZW_CODE code)
+{
+	// Examples of sources for these bytes:
+	//   http://cd.textfiles.com/pier04/035/neonicon.zip
+	// 510: PCBEDIT.ICO, QCONFIG.ICO, ...
+	// 511: AMI.ICO, APPOINT.ICO, ...
+	static const u8 iconhvn_special510[88] = {
+		0x42,0x41,0x28,0x00,0x00,0x00,0x78,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x43,0x49,
+		0x1a,0x00,0x00,0x00,0x10,0x00,0x10,0x00,0xda,0x01,0x00,0x00,0x0c,0x00,0x00,0x00,
+		0x20,0x00,0x40,0x00,0x01,0x00,0x01,0x00,0x00,0x00,0x00,0xff,0xff,0xff,0x43,0x49,
+		0x1a,0x00,0x00,0x00,0x10,0x00,0x10,0x00,0xda,0x02,0x00,0x00,0x0c,0x00,0x00,0x00,
+		0x20,0x00,0x20,0x00,0x01,0x00,0x04,0x00,0x00,0x00,0x00,0x3f,0x3f,0x3f,0x80,0x80,
+		0x80,0xc0,0xc0,0xc0,0xff,0xff,0xff,0x00
+	};
+	static const u8 iconhvn_special511[75] = {
+		0x42,0x41,0x28,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x43,0x49,
+		0x1a,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x78,0x00,0x00,0x00,0x0c,0x00,0x00,0x00,
+		0x20,0x00,0x40,0x00,0x01,0x00,0x01,0x00,0x00,0x00,0x00,0xff,0xff,0xff,0x43,0x49,
+		0x1a,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x78,0x01,0x00,0x00,0x0c,0x00,0x00,0x00,
+		0x20,0x00,0x20,0x00,0x01,0x00,0x04,0x00,0x00,0x00,0x00
+	};
+
+	if(code==510) {
+		delzw_write(dc, iconhvn_special510, 88);
+	}
+	else if(code==511) {
+		delzw_write(dc, iconhvn_special511, 75);
+	}
+	else {
+		delzw_set_error(dc, DELZW_ERRCODE_BAD_CDATA, NULL);
+	}
 }
 
 // Is this a valid code with a value (a static, or in-use dynamic code)?
@@ -515,6 +549,8 @@ static void delzw_add_to_dict(delzwctx *dc, DELZW_CODE parent, u8 value)
 
 static void delzw_process_data_code(delzwctx *dc, DELZW_CODE code)
 {
+	dc->dcodes_since_clear++;
+
 	if(code >= dc->ct_capacity) {
 		return;
 	}
@@ -574,6 +610,7 @@ static void delzw_clear(delzwctx *dc)
 	DELZW_CODE i;
 
 	delzw_debugmsg(dc, 2, "clear code");
+	dc->dcodes_since_clear = 0;
 
 	if(dc->fmt==DE_LZWFMT_UNIXCOMPRESS) {
 		delzw_unixcompress_end_bitgroup(dc);
@@ -666,6 +703,16 @@ static void delzw_process_code(delzwctx *dc, DELZW_CODE code)
 	case DELZW_CODETYPE_STATIC:
 	case DELZW_CODETYPE_DYN_UNUSED:
 	case DELZW_CODETYPE_DYN_USED:
+		if(dc->fmt==DE_LZWFMT_ICONHEAVEN) {
+			// (500 is arbitrary. Only 510 and 511 are known to exist.)
+			if(dc->code_counter==0 && code>=500) {
+				iconheaven_special_code(dc, code);
+				break;
+			}
+			if(dc->dcodes_since_clear>=256) {
+				delzw_clear(dc);
+			}
+		}
 		delzw_process_data_code(dc, code);
 		break;
 	case DELZW_CODETYPE_CLEAR:
@@ -712,7 +759,8 @@ static void delzw_on_decompression_start(delzwctx *dc)
 		dc->fmt!=DE_LZWFMT_SHRINKIT1 &&
 		dc->fmt!=DE_LZWFMT_SHRINKIT2 &&
 		dc->fmt!=DE_LZWFMT_PAKLEO &&
-		dc->fmt!=DE_LZWFMT_ASC2COM)
+		dc->fmt!=DE_LZWFMT_ASC2COM &&
+		dc->fmt!=DE_LZWFMT_ICONHEAVEN)
 	{
 		delzw_set_error(dc, DELZW_ERRCODE_UNSUPPORTED_OPTION, "Unsupported LZW format");
 		goto done;
@@ -854,6 +902,9 @@ static void delzw_on_codes_start(delzwctx *dc)
 		dc->is_lsb = 1;
 		default_max_codesize = 10;
 	}
+	else if(dc->fmt==DE_LZWFMT_ICONHEAVEN) {
+		default_max_codesize = 9;
+	}
 
 	if(dc->min_codesize==0) {
 		// 9 is the usual minimum codesize for general purpose LZW compression schemes
@@ -953,6 +1004,10 @@ static void delzw_on_codes_start(delzwctx *dc)
 		dc->ct[257].codetype = DELZW_CODETYPE_INC_CDSZ;
 		dc->ct[258].codetype = DELZW_CODETYPE_STOP;
 		dc->first_dynamic_code = 259;
+	}
+	else if(dc->fmt==DE_LZWFMT_ICONHEAVEN) {
+		set_std_static_codes(dc);
+		dc->first_dynamic_code = 256;
 	}
 
 	if(dc->is_hashed) {
