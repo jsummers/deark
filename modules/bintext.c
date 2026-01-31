@@ -685,7 +685,7 @@ struct thedrawcom_ctx {
 	struct de_crcobj *crco;
 	i64 screen_pos_raw;
 	i64 data_pos;
-	u8 fmt_subtype;
+	UI fmt_subtype;
 	i64 cmpr_len;
 	i64 viewer_start;
 	i64 viewer_len;
@@ -730,13 +730,6 @@ static void thedrawcom_decrunch(deark *c, struct thedrawcom_ctx *tdc, u8 prescan
 		tdc->d->errflag = 1;
 		tdc->d->need_errmsg = 1;
 		goto done;
-	}
-
-	if(!tdc->unc_data) {
-		tdc->unc_data = dbuf_create_membuf(c, 80*2*25, 0);
-		dbuf_set_length_limit(tdc->unc_data,
-			THEDRAWCOM_MAX_WIDTH*2*THEDRAWCOM_MAX_HEIGHT);
-		dbuf_enable_wbuffer(tdc->unc_data);
 	}
 
 	while(1) {
@@ -835,10 +828,58 @@ done:
 	}
 }
 
+static void pscreencom_decrunch(deark *c, struct thedrawcom_ctx *tdc)
+{
+	i64 pos = tdc->data_pos;
+	i64 endpos = tdc->data_pos + tdc->cmpr_len;
+
+	while(1) {
+		u8 fg, attr, b2;
+		i64 count;
+		i64 k;
+
+		if(tdc->d->errflag) goto done;
+		if(pos >= endpos) break;
+
+		fg = de_getbyte_p(&pos);
+		attr = de_getbyte_p(&pos);
+		if(fg==0x1a && attr==0) {
+			count = (i64)de_getbyte_p(&pos);
+			b2 = de_getbyte_p(&pos);
+			if(b2!=0) {
+				// This might be the high byte of the count, but the decoder
+				// seems to go haywire if a run crosses a row boundary. So if
+				// it is the high byte, it can only be 0.
+				tdc->d->need_errmsg = 1;
+				goto done;
+			}
+			fg = de_getbyte_p(&pos);
+			attr = de_getbyte_p(&pos);
+		}
+		else {
+			count = 1;
+		}
+		for(k=0; k<count; k++) {
+			dbuf_writebyte(tdc->unc_data, fg);
+			dbuf_writebyte(tdc->unc_data, attr);
+		}
+	}
+
+done:
+	dbuf_flush(tdc->unc_data);
+
+	if(tdc->d->need_errmsg) {
+		de_err(c, "Decompression failed");
+		tdc->d->need_errmsg = 0;
+		tdc->d->errflag = 1;
+	}
+}
+
 static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 {
 	struct thedrawcom_ctx *tdc = NULL;
 	u32 cv;
+	u8 is_compressed = 0;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -849,8 +890,18 @@ static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 	tdc->charctx->screen_image_flag = 1;
 	tdc->d->csctx.use_default_pal = 1;
 
-	tdc->fmt_subtype = de_getbyte(6);
-	de_dbg(c, "format subtype: %u", (UI)tdc->fmt_subtype);
+	tdc->fmt_subtype = (UI)de_getbyte(6);
+	if(tdc->fmt_subtype == 0) {
+		u8 b;
+
+		b = de_getbyte(0x3f+76);
+		if(b==0x3d) {
+			tdc->fmt_subtype = 256;
+		}
+	}
+	if(tdc->fmt_subtype<256) {
+		de_dbg(c, "format subtype: %u", tdc->fmt_subtype);
+	}
 
 	tdc->viewer_start = 2 + (i64)de_getbyte(1);
 	de_dbg2(c, "viewer pos: %"I64_FMT, tdc->viewer_start);
@@ -869,10 +920,24 @@ static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 		tdc->viewer_len = 177;
 		tdc->viewer_expected_crc = 0x492a698d;
 		tdc->data_pos = 240;
+		is_compressed = 1;
+	}
+	else if(tdc->fmt_subtype==256) {
+		tdc->viewer_len = 166;
+		tdc->viewer_expected_crc = 0xb75f1ef9U;
+		tdc->data_pos = 229;
+		is_compressed = 1;
 	}
 	else {
 		de_err(c, "Unsupported format subtype: %u", (UI)tdc->fmt_subtype);
 		goto done;
+	}
+
+	if(tdc->fmt_subtype==256) {
+		de_declare_fmt(c, "P-Screen COM file");
+	}
+	else {
+		de_declare_fmtf(c, "TheDraw COM file (type %u)", tdc->fmt_subtype);
 	}
 
 	tdc->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
@@ -885,7 +950,7 @@ static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 			"decoded correctly.");
 	}
 
-	if(tdc->fmt_subtype==0) {
+	if(tdc->fmt_subtype==0 || tdc->fmt_subtype==256) {
 		tdc->d->csctx.height_in_chars = (i64)de_getbyte(4);
 		tdc->d->csctx.width_in_chars = (i64)de_getbyte(5);
 		de_dbg_dimensions(c, tdc->d->csctx.width_in_chars, tdc->d->csctx.height_in_chars);
@@ -906,6 +971,10 @@ static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 		de_dbg(c, "cmpr len: %"I64_FMT, tdc->cmpr_len);
 	}
 
+	if(tdc->fmt_subtype==256) {
+		tdc->cmpr_len = c->infile->len - tdc->data_pos;
+	}
+
 	tdc->screen_pos_raw = de_geti16le(7);
 	de_dbg(c, "screen pos: %"I64_FMT, tdc->screen_pos_raw);
 	// TODO? The screen pos is relevant if just a block, instead of a whole
@@ -915,14 +984,26 @@ static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 
 	de_dbg(c, "data pos: %"I64_FMT, tdc->data_pos);
 
-	if(tdc->fmt_subtype==2) {
+	if(is_compressed) {
+		tdc->unc_data = dbuf_create_membuf(c, 80*2*25, 0);
+		dbuf_set_length_limit(tdc->unc_data,
+			THEDRAWCOM_MAX_WIDTH*2*THEDRAWCOM_MAX_HEIGHT);
+		dbuf_enable_wbuffer(tdc->unc_data);
 		de_dbg(c, "decompressing");
 		de_dbg_indent(c, 1);
-		// The first decompression is to figure out the dimensions.
-		thedrawcom_decrunch(c, tdc, 1);
-		if(tdc->d->errflag) goto done;
-		thedrawcom_decrunch(c, tdc, 0);
-		if(tdc->d->errflag) goto done;
+
+		if(tdc->fmt_subtype==256) {
+			pscreencom_decrunch(c, tdc);
+			if(tdc->d->errflag) goto done;
+		}
+		else { // type 2
+			// The first decompression is to figure out the dimensions.
+			thedrawcom_decrunch(c, tdc, 1);
+			if(tdc->d->errflag) goto done;
+			thedrawcom_decrunch(c, tdc, 0);
+			if(tdc->d->errflag) goto done;
+		}
+
 		de_dbg_indent(c, -1);
 	}
 	else {
@@ -963,7 +1044,7 @@ done:
 
 static int de_identify_thedraw_com(deark *c)
 {
-	u8 n1, n2;
+	u8 n1, n2, n3;
 
 	if(c->infile->len>65280) return 0;
 	n1 = de_getbyte(0);
@@ -990,10 +1071,14 @@ static int de_identify_thedraw_com(deark *c)
 		if(!dbuf_memcmp(c->infile, 0x3f,
 			(const void*)"\xb4\x0f\xcd\x10\x8c\xcb\x8e\xdb\xbb\x00", 10))
 		{
-			// An extra check to defend against lookalike formats, particularly
-			// P-Screen (search for pscrn_55.zip).
-			if(de_getbyte(0x3f+76)==0xad) {
-				return 40;
+			n3 = de_getbyte(0x3f+76);
+			if(n3==0xad) {
+				return 70;
+			}
+			else if(n3==0x3d) {
+				// P-Screen format.
+				// (Arguably, this should be a separate module.)
+				return 70;
 			}
 		}
 	}
@@ -1001,14 +1086,14 @@ static int de_identify_thedraw_com(deark *c)
 		if(!dbuf_memcmp(c->infile, 0x1a,
 			(const void*)"\xb4\x0f\xcd\x10\x8b\x3e\x07\x01\xbe\x5e", 10))
 		{
-			return 40;
+			return 70;
 		}
 	}
 	else if(n2==2) {
 		if(!dbuf_memcmp(c->infile, 0x3f,
 			(const void*)"\xb4\x0f\xcd\x10\xbb\x00\xb8\x3c\x02\x74", 10))
 		{
-			return 40;
+			return 70;
 		}
 	}
 

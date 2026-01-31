@@ -720,6 +720,7 @@ Deark -- Information about supported formats
 
 * TheDraw COM (module="thedraw_com")
   Executable character graphics format made by TheDraw.
+  - Also supports the P-Screen variant.
 
 * Thumbs.db (Windows thumbnail) (part of module "cfb")
   - Extract thumbnail files (embedded JPEG or PNG files)
