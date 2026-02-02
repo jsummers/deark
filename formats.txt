@@ -1285,7 +1285,7 @@ in the readme file.)
 (Formats whose main content is plain text, or something similar. Not listed
 here are most "character graphics" formats, which are in the "Image" section.)
 
-* Asc2Com (moule="asc2com")
+* Asc2Com (module="asc2com")
   Executable text (.COM) files made by MorganSoft's Asc2Com utility.
   - Supports files that use compression.
   - Some files contain special codes to change colors, etc. Some of these
@@ -1296,7 +1296,7 @@ here are most "character graphics" formats, which are in the "Image" section.)
    -opt text:encconv=0 - Suppress character encoding translation. Special
     codes may be deleted.
 
-* ASCOM (moule="ascom")
+* ASCOM (module="ascom")
   An executable text (.COM) format.
   Options
    -opt text:encconv=0 - Suppress character encoding translation.
@@ -1308,7 +1308,7 @@ here are most "character graphics" formats, which are in the "Image" section.)
     ones are control characters.
   - See also the "plaintext" module.
 
-* DOC2COM (moule="doc2com")
+* DOC2COM (module="doc2com")
   Executable text (.COM) files made by G. DePyper's DOC2COM utility.
   - Supports files that use encryption.
   - Partially processes the source text, at least to identify special codes
@@ -1318,17 +1318,17 @@ here are most "character graphics" formats, which are in the "Image" section.)
    -opt text:encconv=0 - Suppress character encoding translation. Special
     codes may be deleted.
 
-* DOC2COM (moule="doc2com_dkn")
-  Executable text (.COM) files made by D. Nelson's DOC2COM utility.
-  Options
-   -opt text:encconv=0 - Suppress character encoding translation.
-
 * GTXT (module="gtxt")
-  Executable text (.COM) files made by E. Gans' GTXT utility (also called
+  Executable text (.COM) files made by E. Gans's GTXT utility (also called
   MakeScroll). DOS version only.
   Options
    -opt text:fmtconv=0 - Extract the raw source code, instead of interpreting
     special characters.
+   -opt text:encconv=0 - Suppress character encoding translation.
+
+* MAKEREAD (module="makeread")
+  Executable text (.COM) files made by R. Gans's MAKEREAD utility.
+  Options
    -opt text:encconv=0 - Suppress character encoding translation.
 
 * Plain text (module="plaintext")
@@ -1338,7 +1338,7 @@ here are most "character graphics" formats, which are in the "Image" section.)
     input encoding.
   - See also the "cp437" module, which works better on some files.
 
-* Read-A-Matic (moule="readamatic")
+* Read-A-Matic (module="readamatic")
   Executable text (.EXE) files made by Read-A-Matic, by M. L. Wester.
   Options
    -opt text:encconv=0 - Suppress character encoding translation.
