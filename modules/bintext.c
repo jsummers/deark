@@ -24,10 +24,13 @@ typedef struct localctx_struct_bintext {
 	u8 need_errmsg;
 	u8 has_palette, has_font, compression, has_512chars;
 
+	// _req is used only when .csctx.input_encoding is not sufficient.
+	de_encoding input_encoding_req;
+
 	i64 font_height;
 	i64 font_data_len;
 	u8 *font_data;
-	int is_standard_font;
+	de_encoding font_data_detected_enc;
 	struct de_bitmap_font *font;
 	struct fmtutil_char_simplectx csctx;
 } lctx;
@@ -183,9 +186,15 @@ static void do_read_font_data(deark *c, lctx *d, i64 pos)
 	crc = de_crcobj_getval(crco);
 	de_crcobj_destroy(crco);
 
-	d->is_standard_font = de_font_is_standard_vga_font(c, crc);
+	if(de_font_is_standard_vga_font(c, crc)) {
+		d->font_data_detected_enc = DE_ENCODING_CP437;
+	}
+	else {
+		d->font_data_detected_enc = DE_ENCODING_UNKNOWN;
+	}
 	de_dbg(c, "font crc: 0x%08x (%s)", (UI)crc,
-		d->is_standard_font?"known CP437 font":"unrecognized");
+		(d->font_data_detected_enc==DE_ENCODING_CP437 ?
+			"known CP437 font":"unrecognized"));
 
 	// TODO: This feature should probably be moved to the PSF module, or
 	// removed.
@@ -199,7 +208,7 @@ static void do_read_font_data(deark *c, lctx *d, i64 pos)
 }
 
 // Finish populating the d->font struct.
-static int do_generate_font(deark *c, lctx *d)
+static int do_generate_font(deark *c, lctx *d, de_encoding enc)
 {
 	i64 i;
 	struct de_encconv_state es;
@@ -216,7 +225,7 @@ static int do_generate_font(deark *c, lctx *d)
 	d->font->nominal_width = 8;
 	d->font->nominal_height = (int)d->font_height;
 	d->font->char_array = de_mallocarray(c, d->font->num_chars, sizeof(struct de_bitmap_font_char));
-	de_encconv_init(&es, DE_ENCODING_CP437_G);
+	de_encconv_init(&es, DE_EXTENC_MAKE(enc, DE_ENCSUBTYPE_PRINTABLE));
 
 	for(i=0; i<d->font->num_chars; i++) {
 		d->font->char_array[i].codepoint_nonunicode = (i32)i;
@@ -241,6 +250,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	dbuf *unc_data = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->input_encoding_req = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
 
 	charctx = de_create_charctx(c, 0);
 	charctx->prefer_image_output = 1;
@@ -313,11 +323,19 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 		do_read_font_data(c, d, pos);
 		pos += d->font_data_len;
 
-		if(d->is_standard_font) {
+		if(d->font_data_detected_enc!=DE_ENCODING_UNKNOWN) {
 			charctx->suppress_custom_font_warning = 1;
 		}
 
-		if(!do_generate_font(c, d)) goto done;
+		d->csctx.input_encoding = d->font_data_detected_enc;
+		if(d->csctx.input_encoding==DE_ENCODING_UNKNOWN) {
+			d->csctx.input_encoding = d->input_encoding_req;
+		}
+		if(d->csctx.input_encoding==DE_ENCODING_UNKNOWN) {
+			d->csctx.input_encoding = DE_ENCODING_CP437;
+		}
+
+		if(!do_generate_font(c, d, d->csctx.input_encoding)) goto done;
 
 		if(c->extract_level>=2 && d->font) {
 			de_font_decide_output_fmt(c);
@@ -331,6 +349,11 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	}
 	else {
 		// Use default font
+
+		d->csctx.input_encoding = d->input_encoding_req;
+		if(d->csctx.input_encoding==DE_ENCODING_UNKNOWN) {
+			d->csctx.input_encoding = DE_ENCODING_CP437;
+		}
 
 		if(d->has_512chars) {
 			de_err(c, "This type of XBIN file is not supported.");
@@ -531,6 +554,7 @@ static void de_run_artworx_adf(deark *c, de_module_params *mparams)
 	i64 data_len;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->input_encoding_req = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
 
 	// TODO: ADF files can probably have SAUCE records, so we should read
 	// the SAUCE data if present. But there does not seem to be a defined
@@ -570,11 +594,19 @@ static void de_run_artworx_adf(deark *c, de_module_params *mparams)
 
 		do_read_font_data(c, d, 1+192);
 
-		if(d->is_standard_font) {
+		if(d->font_data_detected_enc!=DE_ENCODING_UNKNOWN) {
 			charctx->suppress_custom_font_warning = 1;
 		}
 
-		if(!do_generate_font(c, d)) goto done;
+		d->csctx.input_encoding = d->font_data_detected_enc;
+		if(d->csctx.input_encoding==DE_ENCODING_UNKNOWN) {
+			d->csctx.input_encoding = d->input_encoding_req;
+		}
+		if(d->csctx.input_encoding==DE_ENCODING_UNKNOWN) {
+			d->csctx.input_encoding = DE_ENCODING_CP437;
+		}
+
+		if(!do_generate_font(c, d, d->csctx.input_encoding)) goto done;
 
 		if(c->extract_level>=2 && d->font) {
 			de_font_decide_output_fmt(c);
