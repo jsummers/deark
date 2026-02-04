@@ -907,6 +907,42 @@ done:
 	}
 }
 
+static u8 id_thedrawcom_internal(deark *c, UI *psubtype)
+{
+	u8 b;
+
+	b = de_getbyte(1);
+	if(b==0x3d) {
+		if(!dbuf_memcmp(c->infile, 117,
+			(const void*)"\x8d\x36\xb0\x01\xfc\x57\x8b\x0e\x05\x01\x80\x3e", 12))
+		{
+			*psubtype = 0;
+			return 1;
+		}
+		if(!dbuf_memcmp(c->infile, 117,
+			(const void*)"\xbe\xe5\x01\xfc\x57\x8b\x0e\x05\x01\x80\x3e\x03", 12))
+		{
+			*psubtype = 256;
+			return 1;
+		}
+		if(!dbuf_memcmp(c->infile, 104,
+			(const void*)"\xbe\xf0\x01\xba\xda\x03\xb3\x09\x8b\x0e\x04\x01", 12))
+		{
+			*psubtype = 2;
+			return 1;
+		}
+	}
+	else if(b==0x18) {
+		if(!dbuf_memcmp(c->infile, 34,
+			(const void*)"\xbe\x5e\x01\x8b\x0e\x04\x01\xfc\xbb\x00\xb0\x3c", 12))
+		{
+			*psubtype = 1;
+			return 1;
+		}
+	}
+	return 0;
+}
+
 static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 {
 	struct thedrawcom_ctx *tdc = NULL;
@@ -922,15 +958,11 @@ static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 	tdc->charctx->screen_image_flag = 1;
 	tdc->d->csctx.use_default_pal = 1;
 
-	tdc->fmt_subtype = (UI)de_getbyte(6);
-	if(tdc->fmt_subtype == 0) {
-		u8 b;
-
-		b = de_getbyte(0x3f+76);
-		if(b==0x3d) {
-			tdc->fmt_subtype = 256;
-		}
+	if(!id_thedrawcom_internal(c, &tdc->fmt_subtype)) {
+		tdc->d->need_errmsg = 1;
+		goto done;
 	}
+
 	if(tdc->fmt_subtype<256) {
 		de_dbg(c, "format subtype: %u", tdc->fmt_subtype);
 	}
@@ -961,7 +993,7 @@ static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 		is_compressed = 1;
 	}
 	else {
-		de_err(c, "Unsupported format subtype: %u", (UI)tdc->fmt_subtype);
+		tdc->d->need_errmsg = 1;
 		goto done;
 	}
 
@@ -1076,60 +1108,14 @@ done:
 
 static int de_identify_thedraw_com(deark *c)
 {
-	u8 n1, n2, n3;
+	UI subtype;
 
 	if(c->infile->len>65280) return 0;
-	n1 = de_getbyte(0);
-	if(n1!=0xeb) return 0;
-
-	n1 = de_getbyte(1);
-	n2 = de_getbyte(6);
-	// Check format subtype & viewer start position.
-	if((n2==0 && n1==0x3d) ||
-		(n2==1 && n1==0x18) ||
-		(n2==2 && n1==0x3d))
-	{
-		;
-	}
-	else {
+	if(de_getbyte(0) != 0xeb) return 0;
+	if(!id_thedrawcom_internal(c, &subtype)) {
 		return 0;
 	}
-
-	if(!dbuf_memcmp(c->infile, 9, (const void*)"TheDraw COM file", 16)) {
-		return 100;
-	}
-
-	if(n2==0) {
-		if(!dbuf_memcmp(c->infile, 0x3f,
-			(const void*)"\xb4\x0f\xcd\x10\x8c\xcb\x8e\xdb\xbb\x00", 10))
-		{
-			n3 = de_getbyte(0x3f+76);
-			if(n3==0xad) {
-				return 70;
-			}
-			else if(n3==0x3d) {
-				// P-Screen format.
-				// (Arguably, this should be a separate module.)
-				return 70;
-			}
-		}
-	}
-	else if(n2==1) {
-		if(!dbuf_memcmp(c->infile, 0x1a,
-			(const void*)"\xb4\x0f\xcd\x10\x8b\x3e\x07\x01\xbe\x5e", 10))
-		{
-			return 70;
-		}
-	}
-	else if(n2==2) {
-		if(!dbuf_memcmp(c->infile, 0x3f,
-			(const void*)"\xb4\x0f\xcd\x10\xbb\x00\xb8\x3c\x02\x74", 10))
-		{
-			return 70;
-		}
-	}
-
-	return 0;
+	return 100;
 }
 
 void de_module_thedraw_com(deark *c, struct deark_module_info *mi)
