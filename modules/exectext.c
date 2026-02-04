@@ -10,7 +10,7 @@ DE_DECLARE_MODULE(de_module_txt2com);
 DE_DECLARE_MODULE(de_module_show_gmr);
 DE_DECLARE_MODULE(de_module_asc2com);
 DE_DECLARE_MODULE(de_module_doc2com);
-DE_DECLARE_MODULE(de_module_doc2com_dkn);
+DE_DECLARE_MODULE(de_module_makeread);
 DE_DECLARE_MODULE(de_module_gtxt);
 DE_DECLARE_MODULE(de_module_readmake);
 DE_DECLARE_MODULE(de_module_texe);
@@ -1233,9 +1233,9 @@ void de_module_doc2com(deark *c, struct deark_module_info *mi)
 }
 
 ///////////////////////////////////////////////////
-// DOC2COM (Dan K. Nelson)
+// MAKEREAD (R. Gans)
 
-static void de_run_doc2com_dkn(deark *c, de_module_params *mparams)
+static void de_run_makeread(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	i64 pos_of_tpos = 0;
@@ -1254,14 +1254,19 @@ static void de_run_doc2com_dkn(deark *c, de_module_params *mparams)
 
 	n = (UI)de_getu16le(1);
 	if(n==0x0093) {
-		d->fmtcode = 1;
+		d->fmtcode = 1; // v1.4-1.5
 		pos_of_tpos = 171;
 		pos_of_tlen = 178;
 	}
 	else if(n==0x0107) {
-		d->fmtcode = 2;
+		d->fmtcode = 2; // v1.8
 		pos_of_tpos = 293;
 		pos_of_tlen = 300;
+	}
+	else if(n==0x10c) {
+		d->fmtcode = 3; // v1.8a
+		pos_of_tpos = 298;
+		pos_of_tlen = 305;
 	}
 
 	if(d->fmtcode==0) goto done;
@@ -1269,7 +1274,7 @@ static void de_run_doc2com_dkn(deark *c, de_module_params *mparams)
 	de_dbg(c, "fmt code: %u", d->fmtcode);
 	d->tpos = de_getu16le(pos_of_tpos);
 	d->tpos -= 0x100;
-	if(d->fmtcode==2) d->tpos--;
+	if(d->fmtcode==2 || d->fmtcode==3) d->tpos--;
 	de_dbg(c, "tpos: %"I64_FMT, d->tpos);
 
 	b1 = de_getbyte(pos_of_tlen);
@@ -1282,13 +1287,13 @@ static void de_run_doc2com_dkn(deark *c, de_module_params *mparams)
 done:
 	if(d) {
 		if(d->need_errmsg) {
-			de_err(c, "Not a DOC2COM file, or unsupported version");
+			de_err(c, "Not a MAKEREAD file, or unsupported version");
 		}
 		destroy_lctx(c, d);
 	}
 }
 
-static int de_identify_doc2com_dkn(deark *c)
+static int de_identify_makeread(deark *c)
 {
 	UI n;
 	i64 pos;
@@ -1301,6 +1306,12 @@ static int de_identify_doc2com_dkn(deark *c)
 	else if(n==0xe9070100U) {
 		pos = 19;
 	}
+	else if(n==0xe90c0100U) {
+		if(!dbuf_memcmp(c->infile, 19, (const void*)"< H=Home", 8)) {
+			return 89;
+		}
+		return 0;
+	}
 	else {
 		return 0;
 	}
@@ -1308,21 +1319,22 @@ static int de_identify_doc2com_dkn(deark *c)
 	if(dbuf_memcmp(c->infile, pos, (const void*)"Press  Home  P", 14)) {
 		return 0;
 	}
-	return 79;
+	return 89;
 }
 
-static void de_help_doc2com_dkn(deark *c)
+static void de_help_makeread(deark *c)
 {
 	print_conv_options_simple(c);
 }
 
-void de_module_doc2com_dkn(deark *c, struct deark_module_info *mi)
+void de_module_makeread(deark *c, struct deark_module_info *mi)
 {
-	mi->id = "doc2com_dkn";
-	mi->desc = "DOC2COM executable text (D. Nelson)";
-	mi->run_fn = de_run_doc2com_dkn;
-	mi->identify_fn = de_identify_doc2com_dkn;
-	mi->help_fn = de_help_doc2com_dkn;
+	mi->id = "makeread";
+	mi->id_alias[0] = "doc2com_dkn";
+	mi->desc = "MAKEREAD executable text (R. Gans)";
+	mi->run_fn = de_run_makeread;
+	mi->identify_fn = de_identify_makeread;
+	mi->help_fn = de_help_makeread;
 }
 
 ///////////////////////////////////////////////////

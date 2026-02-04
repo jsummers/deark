@@ -1108,6 +1108,7 @@ static void de_run_lzss_oku(deark *c, de_module_params *mparams)
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
+	struct de_lzss1_params params;
 
 	outf = dbuf_create_output_file(c, "unc", NULL, 0);
 	dbuf_enable_wbuffer(outf);
@@ -1117,12 +1118,21 @@ static void de_run_lzss_oku(deark *c, de_module_params *mparams)
 	dcmpri.len = c->infile->len;
 	dcmpro.f = outf;
 
-	fmtutil_decompress_lzss1(c, &dcmpri, &dcmpro, &dres, 0x0);
+	de_zeromem(&params, sizeof(struct de_lzss1_params));
+	params.hst_init1 = DE_LSZZINIT_SPACES; // first 4078 bytes
+	params.hst_init2 = DE_LSZZINIT_ZEROES; // last 18 bytes
+	fmtutil_lzss1_codectype1(c, &dcmpri, &dcmpro, &dres, (void*)&params);
 	dbuf_flush(outf);
 	if(dres.errcode) {
 		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
+	if(dres.bytes_consumed_valid) {
+		de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes",
+			dres.bytes_consumed, outf->len);
 	}
 
+done:
 	dbuf_close(outf);
 }
 

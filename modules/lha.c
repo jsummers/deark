@@ -992,7 +992,14 @@ static void decompress_lz5(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	fmtutil_decompress_lzss1(c, dcmpri, dcmpro, dres, 0x2);
+	struct de_lzss1_params params;
+
+	de_zeromem(&params, sizeof(struct de_lzss1_params));
+	params.hst_init1 = DE_LSZZINIT_LZ5;
+	// To behave like LHarc: init2 = ZEROES
+	// To behave like LArc: init2 = SPACES
+	params.hst_init2 = DE_LSZZINIT_ZEROES;
+	fmtutil_lzss1_codectype1(c, dcmpri, dcmpro, dres, (void*)&params);
 }
 
 static void decompress_pakleo(deark *c, lctx *d, struct member_data *md,
@@ -1010,7 +1017,12 @@ static void decompress_afx(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
 	struct de_dfilter_results *dres)
 {
-	fmtutil_decompress_lzss1(c, dcmpri, dcmpro, dres, 0x4);
+	struct de_lzss1_params params;
+
+	de_zeromem(&params, sizeof(struct de_lzss1_params));
+	params.hst_init1 = DE_LSZZINIT_SPACES;
+	params.hst_init2 = DE_LSZZINIT_ZEROES;
+	fmtutil_lzss1_codectype1(c, dcmpri, dcmpro, dres, (void*)&params);
 }
 
 struct cmpr_meth_array_item {

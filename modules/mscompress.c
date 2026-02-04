@@ -661,6 +661,7 @@ static void do_decompress(deark *c, lctx *d, dbuf *outf)
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
+	struct de_lzss1_params lzssparams;
 
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = d->inf;
@@ -671,6 +672,10 @@ static void do_decompress(deark *c, lctx *d, dbuf *outf)
 	dcmpro.len_known = d->uncmpr_len_known;
 	dcmpro.expected_len =  d->uncmpr_len;
 
+	de_zeromem(&lzssparams, sizeof(struct de_lzss1_params));
+	lzssparams.hst_init1 = DE_LSZZINIT_SPACES;
+	lzssparams.hst_init2 = DE_LSZZINIT_SPACES;
+
 	switch(d->cmpr_meth) {
 	case CMPR_NONE:
 		fmtutil_decompress_uncompressed(c, &dcmpri, &dcmpro, &dres, 0);
@@ -679,10 +684,12 @@ static void do_decompress(deark *c, lctx *d, dbuf *outf)
 		do_decompress_XOR(c, &dcmpri, &dcmpro, &dres);
 		break;
 	case CMPR_LZSS18:
-		fmtutil_decompress_lzss1(c, &dcmpri, &dcmpro, &dres, 0x0);
+		lzssparams.basefmt = 0;
+		fmtutil_lzss1_codectype1(c, &dcmpri, &dcmpro, &dres, &lzssparams);
 		break;
 	case CMPR_LZSS16:
-		fmtutil_decompress_lzss1(c, &dcmpri, &dcmpro, &dres, 0x1);
+		lzssparams.basefmt = 1;
+		fmtutil_lzss1_codectype1(c, &dcmpri, &dcmpro, &dres, &lzssparams);
 		break;
 	case CMPR_LZHUFF:
 		do_decompress_LZHUFF(c, &dcmpri, &dcmpro, &dres);
