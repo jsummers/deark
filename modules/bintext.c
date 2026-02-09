@@ -24,10 +24,13 @@ typedef struct localctx_struct_bintext {
 	u8 need_errmsg;
 	u8 has_palette, has_font, compression, has_512chars;
 
+	// _req is used only when .csctx.input_encoding is not sufficient.
+	de_encoding input_encoding_req;
+
 	i64 font_height;
 	i64 font_data_len;
 	u8 *font_data;
-	int is_standard_font;
+	de_encoding font_data_detected_enc;
 	struct de_bitmap_font *font;
 	struct fmtutil_char_simplectx csctx;
 } lctx;
@@ -183,9 +186,15 @@ static void do_read_font_data(deark *c, lctx *d, i64 pos)
 	crc = de_crcobj_getval(crco);
 	de_crcobj_destroy(crco);
 
-	d->is_standard_font = de_font_is_standard_vga_font(c, crc);
+	if(de_font_is_standard_vga_font(c, crc)) {
+		d->font_data_detected_enc = DE_ENCODING_CP437;
+	}
+	else {
+		d->font_data_detected_enc = DE_ENCODING_UNKNOWN;
+	}
 	de_dbg(c, "font crc: 0x%08x (%s)", (UI)crc,
-		d->is_standard_font?"known CP437 font":"unrecognized");
+		(d->font_data_detected_enc==DE_ENCODING_CP437 ?
+			"known CP437 font":"unrecognized"));
 
 	// TODO: This feature should probably be moved to the PSF module, or
 	// removed.
@@ -199,7 +208,7 @@ static void do_read_font_data(deark *c, lctx *d, i64 pos)
 }
 
 // Finish populating the d->font struct.
-static int do_generate_font(deark *c, lctx *d)
+static int do_generate_font(deark *c, lctx *d, de_encoding enc)
 {
 	i64 i;
 	struct de_encconv_state es;
@@ -216,7 +225,7 @@ static int do_generate_font(deark *c, lctx *d)
 	d->font->nominal_width = 8;
 	d->font->nominal_height = (int)d->font_height;
 	d->font->char_array = de_mallocarray(c, d->font->num_chars, sizeof(struct de_bitmap_font_char));
-	de_encconv_init(&es, DE_ENCODING_CP437_G);
+	de_encconv_init(&es, DE_EXTENC_MAKE(enc, DE_ENCSUBTYPE_PRINTABLE));
 
 	for(i=0; i<d->font->num_chars; i++) {
 		d->font->char_array[i].codepoint_nonunicode = (i32)i;
@@ -241,6 +250,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	dbuf *unc_data = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->input_encoding_req = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
 
 	charctx = de_create_charctx(c, 0);
 	charctx->prefer_image_output = 1;
@@ -313,11 +323,19 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 		do_read_font_data(c, d, pos);
 		pos += d->font_data_len;
 
-		if(d->is_standard_font) {
+		if(d->font_data_detected_enc!=DE_ENCODING_UNKNOWN) {
 			charctx->suppress_custom_font_warning = 1;
 		}
 
-		if(!do_generate_font(c, d)) goto done;
+		d->csctx.input_encoding = d->font_data_detected_enc;
+		if(d->csctx.input_encoding==DE_ENCODING_UNKNOWN) {
+			d->csctx.input_encoding = d->input_encoding_req;
+		}
+		if(d->csctx.input_encoding==DE_ENCODING_UNKNOWN) {
+			d->csctx.input_encoding = DE_ENCODING_CP437;
+		}
+
+		if(!do_generate_font(c, d, d->csctx.input_encoding)) goto done;
 
 		if(c->extract_level>=2 && d->font) {
 			de_font_decide_output_fmt(c);
@@ -331,6 +349,11 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	}
 	else {
 		// Use default font
+
+		d->csctx.input_encoding = d->input_encoding_req;
+		if(d->csctx.input_encoding==DE_ENCODING_UNKNOWN) {
+			d->csctx.input_encoding = DE_ENCODING_CP437;
+		}
 
 		if(d->has_512chars) {
 			de_err(c, "This type of XBIN file is not supported.");
@@ -531,6 +554,7 @@ static void de_run_artworx_adf(deark *c, de_module_params *mparams)
 	i64 data_len;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->input_encoding_req = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
 
 	// TODO: ADF files can probably have SAUCE records, so we should read
 	// the SAUCE data if present. But there does not seem to be a defined
@@ -570,11 +594,19 @@ static void de_run_artworx_adf(deark *c, de_module_params *mparams)
 
 		do_read_font_data(c, d, 1+192);
 
-		if(d->is_standard_font) {
+		if(d->font_data_detected_enc!=DE_ENCODING_UNKNOWN) {
 			charctx->suppress_custom_font_warning = 1;
 		}
 
-		if(!do_generate_font(c, d)) goto done;
+		d->csctx.input_encoding = d->font_data_detected_enc;
+		if(d->csctx.input_encoding==DE_ENCODING_UNKNOWN) {
+			d->csctx.input_encoding = d->input_encoding_req;
+		}
+		if(d->csctx.input_encoding==DE_ENCODING_UNKNOWN) {
+			d->csctx.input_encoding = DE_ENCODING_CP437;
+		}
+
+		if(!do_generate_font(c, d, d->csctx.input_encoding)) goto done;
 
 		if(c->extract_level>=2 && d->font) {
 			de_font_decide_output_fmt(c);
@@ -875,6 +907,42 @@ done:
 	}
 }
 
+static u8 id_thedrawcom_internal(deark *c, UI *psubtype)
+{
+	u8 b;
+
+	b = de_getbyte(1);
+	if(b==0x3d) {
+		if(!dbuf_memcmp(c->infile, 117,
+			(const void*)"\x8d\x36\xb0\x01\xfc\x57\x8b\x0e\x05\x01\x80\x3e", 12))
+		{
+			*psubtype = 0;
+			return 1;
+		}
+		if(!dbuf_memcmp(c->infile, 117,
+			(const void*)"\xbe\xe5\x01\xfc\x57\x8b\x0e\x05\x01\x80\x3e\x03", 12))
+		{
+			*psubtype = 256;
+			return 1;
+		}
+		if(!dbuf_memcmp(c->infile, 104,
+			(const void*)"\xbe\xf0\x01\xba\xda\x03\xb3\x09\x8b\x0e\x04\x01", 12))
+		{
+			*psubtype = 2;
+			return 1;
+		}
+	}
+	else if(b==0x18) {
+		if(!dbuf_memcmp(c->infile, 34,
+			(const void*)"\xbe\x5e\x01\x8b\x0e\x04\x01\xfc\xbb\x00\xb0\x3c", 12))
+		{
+			*psubtype = 1;
+			return 1;
+		}
+	}
+	return 0;
+}
+
 static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 {
 	struct thedrawcom_ctx *tdc = NULL;
@@ -890,15 +958,11 @@ static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 	tdc->charctx->screen_image_flag = 1;
 	tdc->d->csctx.use_default_pal = 1;
 
-	tdc->fmt_subtype = (UI)de_getbyte(6);
-	if(tdc->fmt_subtype == 0) {
-		u8 b;
-
-		b = de_getbyte(0x3f+76);
-		if(b==0x3d) {
-			tdc->fmt_subtype = 256;
-		}
+	if(!id_thedrawcom_internal(c, &tdc->fmt_subtype)) {
+		tdc->d->need_errmsg = 1;
+		goto done;
 	}
+
 	if(tdc->fmt_subtype<256) {
 		de_dbg(c, "format subtype: %u", tdc->fmt_subtype);
 	}
@@ -929,7 +993,7 @@ static void de_run_thedraw_com(deark *c, de_module_params *mparams)
 		is_compressed = 1;
 	}
 	else {
-		de_err(c, "Unsupported format subtype: %u", (UI)tdc->fmt_subtype);
+		tdc->d->need_errmsg = 1;
 		goto done;
 	}
 
@@ -1044,60 +1108,14 @@ done:
 
 static int de_identify_thedraw_com(deark *c)
 {
-	u8 n1, n2, n3;
+	UI subtype;
 
 	if(c->infile->len>65280) return 0;
-	n1 = de_getbyte(0);
-	if(n1!=0xeb) return 0;
-
-	n1 = de_getbyte(1);
-	n2 = de_getbyte(6);
-	// Check format subtype & viewer start position.
-	if((n2==0 && n1==0x3d) ||
-		(n2==1 && n1==0x18) ||
-		(n2==2 && n1==0x3d))
-	{
-		;
-	}
-	else {
+	if(de_getbyte(0) != 0xeb) return 0;
+	if(!id_thedrawcom_internal(c, &subtype)) {
 		return 0;
 	}
-
-	if(!dbuf_memcmp(c->infile, 9, (const void*)"TheDraw COM file", 16)) {
-		return 100;
-	}
-
-	if(n2==0) {
-		if(!dbuf_memcmp(c->infile, 0x3f,
-			(const void*)"\xb4\x0f\xcd\x10\x8c\xcb\x8e\xdb\xbb\x00", 10))
-		{
-			n3 = de_getbyte(0x3f+76);
-			if(n3==0xad) {
-				return 70;
-			}
-			else if(n3==0x3d) {
-				// P-Screen format.
-				// (Arguably, this should be a separate module.)
-				return 70;
-			}
-		}
-	}
-	else if(n2==1) {
-		if(!dbuf_memcmp(c->infile, 0x1a,
-			(const void*)"\xb4\x0f\xcd\x10\x8b\x3e\x07\x01\xbe\x5e", 10))
-		{
-			return 70;
-		}
-	}
-	else if(n2==2) {
-		if(!dbuf_memcmp(c->infile, 0x3f,
-			(const void*)"\xb4\x0f\xcd\x10\xbb\x00\xb8\x3c\x02\x74", 10))
-		{
-			return 70;
-		}
-	}
-
-	return 0;
+	return 100;
 }
 
 void de_module_thedraw_com(deark *c, struct deark_module_info *mi)

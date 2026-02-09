@@ -10,8 +10,8 @@ DE_DECLARE_MODULE(de_module_bsave);
 
 #define BSAVE_HDRSIZE 7
 
-struct localctx_struct;
-typedef struct localctx_struct lctx;
+struct localctx_BSAVE;
+typedef struct localctx_BSAVE lctx;
 
 typedef void (*decoder_fn_type)(deark *c, lctx *d);
 
@@ -41,7 +41,8 @@ struct metrics_struct {
 	int eof_marker_quality; // might be unused
 };
 
-struct localctx_struct {
+struct localctx_BSAVE {
+	de_encoding input_encoding;
 	u32 load_segment;
 	u32 load_offset;
 	u32 load_addr;
@@ -394,7 +395,7 @@ static void do_char_1screen(deark *c, lctx *d, struct de_char_screen *screen, i6
 	screen->width = width;
 	screen->height = height;
 	screen->cell_rows = de_mallocarray(c, height, sizeof(struct de_char_cell*));
-	de_encconv_init(&es, DE_ENCODING_CP437_G);
+	de_encconv_init(&es, d->input_encoding);
 
 	for(j=0; j<height; j++) {
 		screen->cell_rows[j] = de_mallocarray(c, width, sizeof(struct de_char_cell));
@@ -976,6 +977,7 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 	struct bsave_id_info idi;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 	d->fmt_id = FMT_UNKNOWN;
 	identify_bsave_internal(c, &idi);
 	if(!idi.might_be_bsave) {

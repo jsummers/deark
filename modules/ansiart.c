@@ -34,6 +34,7 @@ struct row_data_struct {
 };
 
 typedef struct localctx_struct {
+	de_encoding input_encoding;
 	int opt_disable_24bitcolor;
 	int opt_disable_blink;
 
@@ -968,6 +969,7 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	i64 width_req = 0;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 
 	if(de_get_ext_option(c, "ansiart:no24bitcolor")) {
 		d->opt_disable_24bitcolor = 1;
@@ -983,7 +985,8 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 		width_req = de_atoi(s);
 	}
 
-	de_encconv_init(&d->es_main, DE_ENCODING_CP437_G);
+	de_encconv_init(&d->es_main,
+		DE_EXTENC_MAKE(d->input_encoding, DE_ENCSUBTYPE_PRINTABLE));
 	de_encconv_init(&d->es_dec_special_gr, DE_ENCODING_DEC_SPECIAL_GRAPHICS);
 
 	d->effective_file_size = c->infile->len;

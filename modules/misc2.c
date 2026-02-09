@@ -1646,19 +1646,22 @@ static void de_run_lumena_cel(deark *c, de_module_params *mparams)
 	i64 i, j;
 	u32 clr;
 	u8 a;
-	int is_16bit = 0;
-	int is_32bit = 0;
+	u8 is_16bit = 0;
+	u8 is_32bit = 0;
 	de_bitmap *img = NULL;
 	const i64 headersize = 4;
 	i64 bypp;
 
 	width = de_getu16le(0);
 	height = de_getu16le(2);
-	if(!de_good_image_dimensions_noerr(c, width, height)) goto done;
+	de_dbg_dimensions(c, width, height);
+	if(!de_good_image_dimensions(c, width, height)) goto done;
 
 	// TODO: Support multi-image files
-	is_16bit = (c->infile->len == headersize + width*height*2);
 	is_32bit = (c->infile->len == headersize + width*height*4);
+	if(!is_32bit) {
+		is_16bit = (c->infile->len == headersize + width*height*2);
+	}
 	if(!is_16bit && !is_32bit) {
 		de_warn(c, "Cannot detect bits/pixel, assuming 32");
 		is_32bit = 1;
@@ -1696,18 +1699,16 @@ done:
 static int de_identify_lumena_cel(deark *c)
 {
 	i64 width, height;
-	int is_16bit = 0;
-	int is_32bit = 0;
+	u8 is_16bit = 0;
+	u8 is_32bit = 0;
 
 	if(!de_input_file_has_ext(c, "cel")) return 0;
 	width = de_getu16le(0);
 	height = de_getu16le(2);
-
 	is_16bit = (c->infile->len == 4 + width*height*2);
 	is_32bit = (c->infile->len == 4 + width*height*4);
-
 	if(is_16bit || is_32bit)
-		return 60;
+		return 25;
 
 	return 0;
 }

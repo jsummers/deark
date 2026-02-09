@@ -7,6 +7,8 @@ Deark -- Information about supported formats
 
 * ACiDDraw COM file (module="aciddraw_com")
   Executable character graphics format made by ACiDDraw v1.2+.
+  Options
+   -opt char:... - See main documentation.
 
 * ADEX .IMG (module="adex") (experimental)
 
@@ -53,7 +55,7 @@ Deark -- Information about supported formats
   - Some features depend on the output format. "Blink" is not supported with
      image output, for example.
   Options
-   -opt char:output=image - Output to a bitmap instead of HTML
+   -opt char:output=image - Output to PNG instead of HTML
    -opt char:width=<n> - Number of characters per row
    -opt ansiart:no24bitcolor - Disable support for 24-bit color definitions
    -opt ansiart:noblink - Disable blinking characters, enabling high-intensity
@@ -71,6 +73,8 @@ Deark -- Information about supported formats
   - In some cases, you may have to use "-m fp_art".
 
 * ArtWorx Data Format (ADF) (module="artworx_adf")
+  Options
+   -opt char:... - See main documentation.
 
 * AutoCAD Slide Library (.slb) (module="autocad_slb")
   - Extracts the component AutoCAD Slide (.sld) files.
@@ -85,6 +89,7 @@ Deark -- Information about supported formats
 * Binary Text (.BIN character graphics format) (module="bintext")
   - Must use "-m bintext", unless the file has a SAUCE record.
   Options
+   -opt char:... - See main documentation.
    -opt char:width=<n> - Number of characters per row
 
 * BLD (MegaPaint BLD) (module="bld")
@@ -133,6 +138,7 @@ Deark -- Information about supported formats
    -opt bsave:fmt=b265  - Special
    -opt bsave:fmt=2col  - 2-color noninterlaced (experimental)
    -opt bsave:fmt=4col  - 4-color noninterlaced (experimental)
+   -opt char:... - See main documentation. Applicable to text modes.
 
 * Calamus Raster Graphic (module="crg") (experimental)
 
@@ -275,6 +281,8 @@ Deark -- Information about supported formats
   - Most EXE-based formats are supported, except some early ones. Supported
     versions are 3.70-3.98, 5.50-5.60, 6.30-6.60. Some modes are also supported
     for v3.60, 6.01-6.20.
+  Options
+   -opt char:... - See main documentation. Applicable to text modes.
 
 * Graphic Workshop self-displaying picture (module="gws_exepic")
   - Supports the DOS EXE-based format.
@@ -345,6 +353,8 @@ Deark -- Information about supported formats
 
 * Inset PIX (module="insetpix") (experimental)
   - In rare cases, format detection may fail (need "-m insetpix").
+  Options
+   -opt char:... - See main documentation. Applicable to text modes.
 
 * InShape IIM (module="iim")
 
@@ -383,6 +393,8 @@ Deark -- Information about supported formats
 
 * Laughing Dog COM file (module="ldog_com")
   Executable character graphics format made by Laughing Dog Screen Maker.
+  Options
+   -opt char:... - See main documentation.
 
 * Lotus Manuscript graphics (.bit, .rle) (module="lotus_mscr") (experimental)
   - Not always autodetected. You may have to use "-m lotus_mscr".
@@ -521,6 +533,7 @@ Deark -- Information about supported formats
    -opt pcpaint:fmt=clp
    -file2 <file.pic> - PIC file to read the palette from
    -opt palfile=<file.pic> - PIC file to read the palette from
+   -opt char:... - See main documentation. Applicable to text modes.
 
 * PCPaint compressed BSAVE (module="bsave_cmpr") (experimental)
   - Decompresses to BSAVE format.
@@ -687,6 +700,8 @@ Deark -- Information about supported formats
 
 * Storyboard PIC/CAP (module="storyboard") (experimental)
   - Old ("EP_CAP") and new formats are mostly supported.
+  Options
+   -opt char:... - See main documentation. Applicable to text modes.
 
 * STOS Memory Bank and related formats (.mbk) (module="stos", ...)
   Includes support for "Picture Packer" format. Helper modules such as
@@ -721,6 +736,8 @@ Deark -- Information about supported formats
 * TheDraw COM (module="thedraw_com")
   Executable character graphics format made by TheDraw.
   - Also supports the P-Screen variant.
+  Options
+   -opt char:... - See main documentation.
 
 * Thumbs.db (Windows thumbnail) (part of module "cfb")
   - Extract thumbnail files (embedded JPEG or PNG files)
@@ -792,7 +809,7 @@ Deark -- Information about supported formats
   Renders XBIN character graphics to a bitmap (default) or HTML.
   - Extract embedded fonts (use -a).
   Options
-   -opt char:output=html - Use HTML output format
+   -opt char:output=html - Output to HTML instead of PNG
 
 * X-Face (icon/avatar format) (module="xface")
   - You may have to use "-m xface".
