@@ -546,78 +546,118 @@ void de_module_bintext(deark *c, struct deark_module_info *mi)
 
 ////////////////////// ArtWorx Data Format (ADF) //////////////////////
 
+#define ADF_FONT_POS (1+192)
+#define ADF_HDR_SIZE (1+192+4096)
+
+static void artworx_read_font(deark *c, lctx *d, struct de_char_context *charctx)
+{
+	// TODO: This duplicates a lot of the xbin code.
+
+	d->font = de_create_bitmap_font(c);
+	d->font->has_nonunicode_codepoints = 1;
+	d->font->has_unicode_codepoints = 1;
+	d->font->prefer_unicode = 0;
+	d->font->num_chars = 256;
+	d->font_height = 16;
+	d->font_data_len = d->font->num_chars * d->font_height;
+
+	do_read_font_data(c, d, ADF_FONT_POS);
+
+	if(d->font_data_detected_enc!=DE_ENCODING_UNKNOWN) {
+		charctx->suppress_custom_font_warning = 1;
+	}
+
+	d->csctx.input_encoding = d->font_data_detected_enc;
+	if(d->csctx.input_encoding==DE_ENCODING_UNKNOWN) {
+		d->csctx.input_encoding = d->input_encoding_req;
+	}
+	if(d->csctx.input_encoding==DE_ENCODING_UNKNOWN) {
+		d->csctx.input_encoding = DE_ENCODING_CP437;
+	}
+
+	if(!do_generate_font(c, d, d->csctx.input_encoding)) {
+		d->errflag = 1;
+		goto done;
+	}
+
+	if(c->extract_level>=2 && d->font) {
+		de_font_decide_output_fmt(c);
+		if(c->font_fmt_req!=DE_FONTFMT_IMAGE) {
+			d->font->force_fontfile_output = 1;
+		}
+		do_extract_font(c, d);
+	}
+
+	charctx->font = d->font;
+done:
+	;
+}
+
 static void de_run_artworx_adf(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	struct de_char_context *charctx = NULL;
 	i64 data_start;
+	i64 data_end;
 	i64 data_len;
+	u8 adf_ver;
+	struct de_SAUCE_detection_data sdd;
+	struct de_SAUCE_info *si = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
 	d->input_encoding_req = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
 
-	// TODO: ADF files can probably have SAUCE records, so we should read
-	// the SAUCE data if present. But there does not seem to be a defined
-	// SAUCE file type for ADF.
+	adf_ver = de_getbyte(0);
+	if(adf_ver != 1) {
+		d->need_errmsg = 1;
+		goto done;
+	}
 
+	de_declare_fmt(c, "ArtWorx ADF");
 	charctx = de_create_charctx(c, 0);
 	charctx->prefer_image_output = 1;
 
-	data_start = 1+192+4096;
-	data_len = c->infile->len - data_start;
+	fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
+	if(sdd.has_SAUCE) {
+		si = fmtutil_create_SAUCE(c);
+
+		de_dbg_indent(c, 1);
+		fmtutil_handle_SAUCE(c, c->infile, si);
+		de_dbg_indent(c, -1);
+
+		charctx->title = si->title;
+		charctx->artist = si->artist;
+		charctx->organization = si->organization;
+		charctx->creation_date = si->creation_date;
+		charctx->comment = si->comment;
+	}
+
+	data_start = ADF_HDR_SIZE;
+	if(sdd.has_SAUCE) {
+		data_end = si->original_file_size;
+	}
+	else {
+		data_end = c->infile->len;
+	}
+	data_len = data_end - data_start;
 	if(data_len<0) goto done;
 
+	// ADF seems to only support width=80.
 	d->csctx.width_in_chars = 80;
 	d->csctx.height_in_chars = data_len / (d->csctx.width_in_chars*2);
 
-	de_dbg(c, "guessed width: %d chars", (int)d->csctx.width_in_chars);
 	de_dbg(c, "calculated height: %d chars", (int)d->csctx.height_in_chars);
-	if(d->csctx.height_in_chars<1) goto done;
-	d->has_palette = 0;
+	if(d->csctx.height_in_chars<1) {
+		d->need_errmsg = 1;
+		goto done;
+	}
 	d->has_font = 1;
-	d->compression = 0;
-	d->has_512chars = 0;
 	d->csctx.nonblink = 1;
 
 	do_read_palette(c, d, charctx, 1, 1);
 
-	{
-		// TODO: This duplicates a lot of the xbin code.
-
-		d->font = de_create_bitmap_font(c);
-		d->font->has_nonunicode_codepoints = 1;
-		d->font->has_unicode_codepoints = 1;
-		d->font->prefer_unicode = 0;
-		d->font->num_chars = 256;
-		d->font_height = 16;
-		d->font_data_len = d->font->num_chars * d->font_height;
-
-		do_read_font_data(c, d, 1+192);
-
-		if(d->font_data_detected_enc!=DE_ENCODING_UNKNOWN) {
-			charctx->suppress_custom_font_warning = 1;
-		}
-
-		d->csctx.input_encoding = d->font_data_detected_enc;
-		if(d->csctx.input_encoding==DE_ENCODING_UNKNOWN) {
-			d->csctx.input_encoding = d->input_encoding_req;
-		}
-		if(d->csctx.input_encoding==DE_ENCODING_UNKNOWN) {
-			d->csctx.input_encoding = DE_ENCODING_CP437;
-		}
-
-		if(!do_generate_font(c, d, d->csctx.input_encoding)) goto done;
-
-		if(c->extract_level>=2 && d->font) {
-			de_font_decide_output_fmt(c);
-			if(c->font_fmt_req!=DE_FONTFMT_IMAGE) {
-				d->font->force_fontfile_output = 1;
-			}
-			do_extract_font(c, d);
-		}
-
-		charctx->font = d->font;
-	}
+	artworx_read_font(c, d, charctx);
+	if(d->errflag) goto done;
 
 	d->csctx.inf = c->infile;
 	d->csctx.inf_pos = data_start;
@@ -626,34 +666,88 @@ static void de_run_artworx_adf(deark *c, de_module_params *mparams)
 
 done:
 	de_free_charctx(c, charctx);
-	free_lctx(c, d);
+	fmtutil_free_SAUCE(c, si);
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported ArtWorx file");
+		}
+		free_lctx(c, d);
+	}
 }
 
 static int de_identify_artworx_adf(deark *c)
 {
-	u8 ver;
+	u8 b;
+	u8 flag;
+	u8 has_sauce = 0;
+	u8 good_size = 0;
+	u8 font_check1, font_check2;
+	i64 data_end;
+	i64 k;
 
-	// TODO: This detection algorithm will fail if there is a SAUCE record.
-
-	if(c->infile->len < 1+192+4096+160) {
+	if(!c->detection_data->SAUCE_detection_attempted) {
 		return 0;
 	}
-	if((c->infile->len - (1+192+4096))%160 != 0) {
-		return 0;
-	}
+
+	// I think only version 1 exists.
+	if(de_getbyte(0) != 1) return 0;
 	if(!de_input_file_has_ext(c, "adf")) return 0;
-	ver = de_getbyte(0);
-	// I don't know what version numbers are allowed, but I'll assume the
-	// version number should be small.
-	if(ver>4) return 0;
-	return 75;
+
+	// Palette should only have byte values 0 to 0x3f (and not all 0).
+	flag = 0;
+	for(k=1; k<=192; k++) {
+		b = de_getbyte(k);
+		if(b > 0x3f) return 0;
+		if(b != 0) flag = 1;
+	}
+	if(flag==0) return 0;
+
+	has_sauce = c->detection_data->sauce.has_SAUCE;
+	if(has_sauce) {
+		// There's no standard data/file type for ADF. Known files have
+		// (0,0) or (1,0) or (1,1).
+		if(c->detection_data->sauce.data_type==0) { // Unspecified
+			;
+		}
+		else if(c->detection_data->sauce.data_type==1) {
+			if(c->detection_data->sauce.file_type>=2 &&
+				c->detection_data->sauce.file_type<=8)
+			{
+				return 0; // Some other known type
+			}
+		}
+		else {
+			return 0;
+		}
+		data_end = de_getu32le(c->infile->len - 128 + 90);
+	}
+	else {
+		data_end = c->infile->len;
+	}
+
+	if(data_end < ADF_HDR_SIZE+160 || data_end > c->infile->len) {
+		return 0;
+	}
+	if((data_end - ADF_HDR_SIZE)%160 == 0) {
+		good_size = 1;
+	}
+
+	// The space character: usually all zeroes.
+	font_check1 = dbuf_is_all_zeroes(c->infile, ADF_FONT_POS+16*32, 16);
+	// The 'A' character: usually not all zeroes.
+	font_check2 = !dbuf_is_all_zeroes(c->infile, ADF_FONT_POS+16*65, 16);
+
+	if(good_size && has_sauce) return 85;
+	if(good_size && font_check1 && font_check2) return 70;
+	if(good_size) return 28;
+	if(font_check1 && font_check2) return 18;
+	return 0;
 }
 
 static void de_help_artworx_adf(deark *c)
 {
 	de_msg(c, "-opt char:output=html : Write HTML instead of an image file");
 	de_msg(c, "-opt char:charwidth=<8|9> : Width of a character cell");
-	de_msg(c, "-opt char:width=<n> : Number of characters per row");
 }
 
 void de_module_artworx_adf(deark *c, struct deark_module_info *mi)

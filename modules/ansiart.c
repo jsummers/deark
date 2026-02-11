@@ -1095,6 +1095,12 @@ static int de_identify_ansiart(deark *c)
 
 	de_read(buf, 0, 4);
 
+	if(buf[0]==0x01) {
+		if(de_input_file_has_ext(c, "adf")) {
+			return 0; // Most likely ArtWorx ADF, not ANSI Art.
+		}
+	}
+
 	if(!de_memcmp(buf, "\x04\x31\x2e\x34", 4)) {
 		// Looks like iCEDraw format, which may use the same SAUCE identifiers
 		// as ANSI Art, even though it is incompatible.

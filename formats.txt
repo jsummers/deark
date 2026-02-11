@@ -73,6 +73,8 @@ Deark -- Information about supported formats
   - In some cases, you may have to use "-m fp_art".
 
 * ArtWorx Data Format (ADF) (module="artworx_adf")
+  - In rare cases, or if the file extension is not ".adf", you may have to use
+    "-m artworx_adf".
   Options
    -opt char:... - See main documentation.
 
