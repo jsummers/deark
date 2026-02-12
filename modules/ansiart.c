@@ -1089,7 +1089,12 @@ static int de_identify_ansiart(deark *c)
 	int has_ans_ext;
 
 	if(!c->detection_data->SAUCE_detection_attempted) {
-		de_err(c, "ansiart detection requires sauce module");
+		// We require the sauce module to be enabled, and to appear before
+		// ansiart in the module list.
+		// TODO?: We *could* do without it when it's not available, but that
+		// would create extra complications.
+		// TODO?: Somehow make it a critical error if the modules are in the
+		// wrong order.
 		return 0;
 	}
 
