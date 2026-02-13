@@ -17,6 +17,7 @@ DE_DECLARE_MODULE(de_module_texe);
 DE_DECLARE_MODULE(de_module_readamatic);
 DE_DECLARE_MODULE(de_module_ascom);
 DE_DECLARE_MODULE(de_module_textlife);
+DE_DECLARE_MODULE(de_module_turbotxt);
 
 // TODO: For some formats containing special codes (doc2com, asc2com),
 // it might be useful to have a mode that converts the format (somehow),
@@ -1269,8 +1270,14 @@ static void de_run_makeread(deark *c, de_module_params *mparams)
 		pos_of_tlen = 305;
 	}
 
-	if(d->fmtcode==0) goto done;
-	if(de_getbyte(pos_of_tpos-1)!=0xbf) goto done;
+	if(d->fmtcode==0) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	if(de_getbyte(pos_of_tpos-1)!=0xbf) {
+		d->need_errmsg = 1;
+		goto done;
+	}
 	de_dbg(c, "fmt code: %u", d->fmtcode);
 	d->tpos = de_getu16le(pos_of_tpos);
 	d->tpos -= 0x100;
@@ -2000,4 +2007,166 @@ void de_module_textlife(deark *c, struct deark_module_info *mi)
 	mi->desc = "TextLife or Breeze executable text";
 	mi->run_fn = de_run_textlife;
 	mi->help_fn = de_help_textlife;
+}
+
+///////////////////////////////////////////////////
+// TurboTXT
+
+struct turbotxt_com_verinfo_item {
+	u16 ver; // times 100
+	u16 jmp1; // u16 at offset 1
+	u16 statuslinepos;
+	u16 pos_of_tpos_from_jmp1;
+	u16 tpos_raw_expected;
+};
+
+static const struct turbotxt_com_verinfo_item turbotxt_com_verinfo_arr[] = {
+	{ 100, 0x03f3, 460, 33, 0x053d },
+	{ 110, 0x044b, 469, 38, 0x059a },
+	{ 111, 0x044f, 473, 38, 0x059e }
+};
+
+static const struct turbotxt_com_verinfo_item *turbotxt_com_id_internal(deark *c)
+{
+	UI k;
+	u16 jmp1;
+
+	jmp1 = (u16)de_getu16le(1);
+	for(k=0; k<DE_ARRAYCOUNT(turbotxt_com_verinfo_arr); k++) {
+		const struct turbotxt_com_verinfo_item *ii;
+		u16 tpos_raw;
+		i64 jmp2;
+
+		ii = &turbotxt_com_verinfo_arr[k];
+		if(ii->jmp1 != jmp1) continue;
+		jmp2 = (i64)jmp1 + 3;
+		tpos_raw = (u16)de_getu16le(jmp2 + (i64)ii->pos_of_tpos_from_jmp1);
+		if(tpos_raw != ii->tpos_raw_expected) continue;
+		if(dbuf_memcmp(c->infile, (i64)ii->statuslinepos,
+			(const void*)"PgUp  Pg", 8))
+		{
+			continue;
+		}
+		return ii;
+	}
+	return NULL;
+}
+
+static void turbotxt_parse_com(deark *c, lctx *d)
+{
+	const struct turbotxt_com_verinfo_item *ii;
+
+	ii = turbotxt_com_id_internal(c);
+	if(!ii) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+	de_dbg(c, "version: %u.%02u", (UI)(ii->ver/100), (UI)(ii->ver%100));
+
+	// Rounding up to a multiple of 16 bytes is what the actual software
+	// does, AFAICT.
+	d->tpos = de_pad_to_n((i64)ii->tpos_raw_expected - 256, 16);
+	d->tlen = de_getu16le(3);
+done:
+	;
+}
+
+static void turbotxt_parse_exe(deark *c, lctx *d)
+{
+	struct fmtutil_exe_info *ei;
+	struct fmtutil_specialexe_detection_data *edd;
+
+	ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
+	edd = de_malloc(c, sizeof(struct fmtutil_specialexe_detection_data));
+	fmtutil_collect_exe_info(c, c->infile, ei);
+	edd->restrict_to_fmt = DE_SPECIALEXEFMT_TURBOTXT;
+	fmtutil_detect_specialexe(c, ei, edd);
+	if(edd->detected_fmt!=DE_SPECIALEXEFMT_TURBOTXT) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	d->tpos = ei->end_of_dos_code+8;
+	d->tlen = de_getu32le(ei->end_of_dos_code+4);
+
+done:
+	de_free(c, edd);
+	de_free(c, ei);
+}
+
+static void de_run_turbotxt(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	UI sig;
+
+	d = create_lctx(c);
+	exectext_set_common_enc_opts(c, d, DE_ENCODING_CP437);
+
+	if(d->proctype==ET_PROCTYPE_RAW) {
+		// RAW isn't workable, because we need the NUL->CRLF conversion.
+		// FIXME?: This is kind of a hack. Seems like we should have a better
+		// way to do this.
+		d->proctype = ET_PROCTYPE_FMTCONV_ONLY;
+	}
+
+	sig = (UI)de_getu16le(0);
+	if(sig==0x5a4d || sig==0x4d5a) {
+		d->fmtcode = 2; // EXE
+	}
+	else if ((sig&0xff)==0xe9) {
+		d->fmtcode = 1; // COM
+	}
+	else {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	d->chartypes[0] = ETCT_CRLF;
+
+	if(d->fmtcode==2) {
+		turbotxt_parse_exe(c, d);
+	}
+	else {
+		turbotxt_parse_com(c, d);
+	}
+	if(d->errflag) goto done;
+	de_dbg(c, "tpos: %"I64_FMT, d->tpos);
+	de_dbg(c, "tlen: %"I64_FMT, d->tlen);
+
+	exectext_extract_default(c, d);
+
+done:
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Not a TurboTXT file, or unsupported version");
+		}
+		destroy_lctx(c, d);
+	}
+}
+
+static int de_identify_turbotxt(deark *c)
+{
+	const struct turbotxt_com_verinfo_item *ii;
+
+	if(c->infile->len>65280) return 0;
+	if(de_getbyte(0) != 0xe9) return 0;
+	ii = turbotxt_com_id_internal(c);
+	if(ii) return 100;
+	return 0;
+}
+
+static void de_help_turbotxt(deark *c)
+{
+	print_conv_options_simple(c);
+}
+
+void de_module_turbotxt(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "turbotxt";
+	mi->desc = "TurboTXT executable text";
+	mi->run_fn = de_run_turbotxt;
+	mi->identify_fn = de_identify_turbotxt;
+	mi->help_fn = de_help_turbotxt;
 }

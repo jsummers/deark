@@ -1389,6 +1389,13 @@ here are most "character graphics" formats, which are in the "Image" section.)
   Options
    -opt text:encconv=0 - Suppress character encoding translation.
 
+* TurboTXT (module="turbotxt")
+  Executable text files made by TurboTXT (by Foley Hi-Tech Systems or
+  HyperWare).
+  - Supports both COM and EXE-based formats.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
+
 * TXT2COM (module="txt2com")
   Executable text (.COM) files made by Graham's TXT2COM utility.
   - Extracts the source text. Does not necessarily render the document (e.g.

@@ -740,6 +740,37 @@ done:
 	;
 }
 
+static void detect_specialexe_turbotxt(deark *c,
+	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
+{
+	i64 codesize;
+	i64 statuslinepos;
+
+	if(ei->overlay_len<8) goto done;
+	codesize = ei->end_of_dos_code - ei->start_of_dos_code;
+	if(codesize==23184) {
+		statuslinepos = 1857; // v4.00
+	}
+	else if(codesize==23520 || codesize==23536) {
+		statuslinepos = 2006; // v5.00 "06/22/95" and v5.00 "11/01/95"
+	}
+	else {
+		goto done;
+	}
+
+	if(dbuf_memcmp(ei->f, ei->start_of_dos_code+statuslinepos,
+		(const void*)"PgUp  Pg", 8))
+	{
+		goto done;
+	}
+
+	edd->detected_fmt = DE_SPECIALEXEFMT_TURBOTXT;
+	de_strlcpy(edd->detected_fmt_name, "TurboTXT", sizeof(edd->detected_fmt_name));
+	edd->modname = "turbotxt";
+done:
+	;
+}
+
 static void detect_specialexe_dskexp(deark *c,
 	struct fmtutil_exe_info *ei, struct fmtutil_specialexe_detection_data *edd)
 {
@@ -813,6 +844,11 @@ void fmtutil_detect_specialexe(deark *c, struct fmtutil_exe_info *ei,
 
 	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_TEXTLIFE) {
 		detect_specialexe_textlife(c, ei, edd);
+		if(edd->detected_fmt!=0) goto done;
+	}
+
+	if(edd->restrict_to_fmt==0 || edd->restrict_to_fmt==DE_SPECIALEXEFMT_TURBOTXT) {
+		detect_specialexe_turbotxt(c, ei, edd);
 		if(edd->detected_fmt!=0) goto done;
 	}
 
