@@ -136,6 +136,7 @@ static void do_read_palette(deark *c, lctx *d,struct de_char_context *charctx,
 	char tmps[64];
 
 	de_dbg(c, "palette at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
 
 	for(k=0; k<16; k++) {
 		i64 idx = k;
@@ -156,6 +157,8 @@ static void do_read_palette(deark *c, lctx *d,struct de_char_context *charctx,
 			(int)cr1, (int)cg1, (int)cb1);
 		de_dbg_pal_entry2(c, k, charctx->pal[k], tmps, NULL, NULL);
 	}
+
+	de_dbg_indent(c, -1);
 }
 
 static void do_extract_font(deark *c, lctx *d)
@@ -605,12 +608,6 @@ static void de_run_artworx_adf(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 	d->input_encoding_req = de_get_input_encoding(c, NULL, DE_ENCODING_UNKNOWN);
 
-	adf_ver = de_getbyte(0);
-	if(adf_ver != 1) {
-		d->need_errmsg = 1;
-		goto done;
-	}
-
 	de_declare_fmt(c, "ArtWorx ADF");
 	charctx = de_create_charctx(c, 0);
 	charctx->prefer_image_output = 1;
@@ -630,6 +627,14 @@ static void de_run_artworx_adf(deark *c, de_module_params *mparams)
 		charctx->comment = si->comment;
 	}
 
+	adf_ver = de_getbyte(0);
+	de_dbg(c, "version: %u", (UI)adf_ver);
+	if(adf_ver!=1) {
+		// The official encoder always writes version 1.
+		//  The decoder ignores the field.
+		de_warn(c, "Unrecognized version: %u", (UI)adf_ver);
+	}
+
 	data_start = ADF_HDR_SIZE;
 	if(sdd.has_SAUCE) {
 		data_end = si->original_file_size;
@@ -640,6 +645,15 @@ static void de_run_artworx_adf(deark *c, de_module_params *mparams)
 	data_len = data_end - data_start;
 	if(data_len<0) goto done;
 
+	d->has_font = 1;
+	d->csctx.nonblink = 1;
+
+	do_read_palette(c, d, charctx, 1, 1);
+
+	artworx_read_font(c, d, charctx);
+	if(d->errflag) goto done;
+
+	de_dbg(c, "image data at %"I64_FMT, data_start);
 	// ADF seems to only support width=80.
 	d->csctx.width_in_chars = 80;
 	d->csctx.height_in_chars = data_len / (d->csctx.width_in_chars*2);
@@ -649,13 +663,6 @@ static void de_run_artworx_adf(deark *c, de_module_params *mparams)
 		d->need_errmsg = 1;
 		goto done;
 	}
-	d->has_font = 1;
-	d->csctx.nonblink = 1;
-
-	do_read_palette(c, d, charctx, 1, 1);
-
-	artworx_read_font(c, d, charctx);
-	if(d->errflag) goto done;
 
 	d->csctx.inf = c->infile;
 	d->csctx.inf_pos = data_start;
