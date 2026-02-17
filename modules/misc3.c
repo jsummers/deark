@@ -1941,22 +1941,179 @@ void de_module_arcv(deark *c, struct deark_module_info *mi)
 // Knowledge Dynamics .RED (including newer .LIF files)
 // **************************************************************************
 
+struct red_ctx {
+	dbuf *tmpinf;
+};
+
+// The raw compressed data is split into 4094-byte segments (the last
+// is usually smaller). A 2-byte CRC-of-compressed data is inserted
+// after every segment. Here we delete the CRCs, so that we can use our
+// standard LHA decompressor.
+// TODO? We could validate the CRCs, but meh.
+static void red_desegment(deark *c, de_arch_lctx *d, struct red_ctx *rctx,
+	struct de_arch_member_data *md)
+{
+	i64 in_nbytes_processed = 0;
+
+	while(in_nbytes_processed < md->cmpr_len) {
+		i64 nbytes_left_to_process;
+
+		nbytes_left_to_process = md->cmpr_len - in_nbytes_processed;
+		if(nbytes_left_to_process >= 4096) {
+			dbuf_copy(c->infile, md->cmpr_pos + in_nbytes_processed,
+				4094, rctx->tmpinf);
+			in_nbytes_processed += 4096;
+		}
+		else {
+			// TODO?: We should also delete the last two bytes of the
+			// compressed data, but they do no harm.
+			dbuf_copy(c->infile, md->cmpr_pos + in_nbytes_processed,
+				nbytes_left_to_process, rctx->tmpinf);
+			in_nbytes_processed += nbytes_left_to_process;
+		}
+	}
+}
+
+static void red_decompressor_fn(struct de_arch_member_data *md)
+{
+	struct de_lh5x_params lzhparams;
+
+	if(md->cmpr_meth==11) {
+		de_zeromem(&lzhparams, sizeof(struct de_lh5x_params));
+		lzhparams.fmt = DE_LH5X_FMT_LH5;
+		lzhparams.history_fill_val = 0x20;
+		lzhparams.zero_codes_block_behavior = DE_LH5X_ZCB_ERROR;
+		fmtutil_lh5x_codectype1(md->c, md->dcmpri, md->dcmpro, md->dres, &lzhparams);
+	}
+	else {
+		fmtutil_decompress_uncompressed(md->c, md->dcmpri, md->dcmpro, md->dres, 0);
+	}
+}
+
+// Caller creates/destroys md, and sets a few fields.
+static void red_do_member(deark *c, de_arch_lctx *d, struct red_ctx *rctx,
+	struct de_arch_member_data *md)
+{
+	int saved_indent_level;
+	i64 pos = md->member_hdr_pos;
+	i64 real_cmpr_pos = 0; // in c->infile
+	i64 real_cmpr_len = 0;
+	UI id;
+	UI seg_num, is_last_seg;
+	u32 hdr_crc_reported, hdr_crc_calc;
+	u8 b;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "member at %"I64_FMT, md->member_hdr_pos);
+	de_dbg_indent(c, 1);
+
+	id = (UI)de_getu16be_p(&pos);
+	b = de_getbyte_p(&pos); // Format version? Always 1.
+	md->member_hdr_size = (i64)de_getbyte_p(&pos); // Always 41?
+	if(id!=0x5252U || b!=0x01 || md->member_hdr_size<39) {
+		de_err(c, "Member not found at %"I64_FMT, md->member_hdr_pos);
+		d->fatalerrflag = 1;
+		goto done;
+	}
+
+	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		DE_ARCH_TSTYPE_DOS_TD, &pos);
+	de_arch_read_field_cmpr_len_p(md, &pos);
+	de_arch_read_field_orig_len_p(md, &pos);
+	md->member_total_size = md->member_hdr_size + md->cmpr_len;
+
+	pos += 2; // (probably crc of cmpr data, or 0xffff if unused)
+	md->crc_reported = (u32)de_getu16le_p(&pos);
+	de_dbg(c, "crc (reported): 0x%04x", (UI)md->crc_reported);
+
+	//pos += 4 ; // ?
+	seg_num = (UI)de_getu16le_p(&pos);
+	if(seg_num!=0) {
+		de_dbg(c, "segment: %u", seg_num);
+	}
+	is_last_seg = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "last segment flag: %u", is_last_seg);
+
+	md->cmpr_meth = (UI)de_getu16le_p(&pos);
+	de_dbg(c, "cmpr. method: %u", md->cmpr_meth);
+
+	pos = md->member_hdr_pos + 26;
+	dbuf_read_to_ucstring(c->infile, pos, 12, md->filename, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+	pos += 13;
+
+	md->cmpr_pos = md->member_hdr_pos + md->member_hdr_size;
+
+	// Guessing that the header CRC is always the last field
+	hdr_crc_reported = (u32)de_getu16be(md->cmpr_pos-2);
+	de_dbg(c, "header crc (reported): 0x%02x", (UI)hdr_crc_reported);
+	de_crcobj_reset(d->crco);
+	de_crcobj_addslice(d->crco, c->infile, md->member_hdr_pos+2,
+		md->member_hdr_size-4);
+	hdr_crc_calc = de_crcobj_getval(d->crco);
+	de_dbg(c, "header crc (calculated): 0x%02x", (UI)hdr_crc_calc);
+	if(hdr_crc_calc != hdr_crc_reported) {
+		de_err(c, "Wrong header CRC: reported=0x%02x, calculated=0x%02x",
+			(UI)hdr_crc_reported, (UI)hdr_crc_calc);
+	}
+
+	if(seg_num>1 || is_last_seg==0) {
+		de_err(c, "Split files are not supported");
+		goto done;
+	}
+
+	de_dbg(c, "compressed data at %"I64_FMT", len=%"I64_FMT, md->cmpr_pos, md->cmpr_len);
+	if(!de_arch_good_cmpr_data_pos(md)) {
+		d->fatalerrflag = 1;
+		goto done;
+	}
+
+	if(md->cmpr_meth!=1 && md->cmpr_meth!=11) {
+		de_err(c, "Unsupported compression: %u", (UI)md->cmpr_meth);
+		goto done;
+	}
+
+	dbuf_empty(rctx->tmpinf);
+	real_cmpr_pos = md->cmpr_pos;
+	real_cmpr_len = md->cmpr_len;
+
+	if(md->cmpr_meth==11) {
+		red_desegment(c, d, rctx, md);
+		d->inf = rctx->tmpinf;
+		md->cmpr_pos = 0;
+		md->cmpr_len = rctx->tmpinf->len;
+	}
+
+	md->dfn = red_decompressor_fn;
+	de_arch_extract_member_file(md);
+
+done:
+	d->inf = c->infile;
+	md->cmpr_pos = real_cmpr_pos;
+	md->cmpr_len = real_cmpr_len;
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static void de_run_red(deark *c, de_module_params *mparams)
 {
 	de_arch_lctx *d = NULL;
 	i64 pos = 0;
-	UI id;
+	struct red_ctx *rctx = NULL;
 	struct de_arch_member_data *md = NULL;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
+	rctx = de_malloc(c, sizeof(struct red_ctx));
+
 	d = de_arch_create_lctx(c);
+	d->userdata = (void*)rctx;
 	d->is_le = 1;
 	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_IBM3740);
+	rctx->tmpinf = dbuf_create_membuf(c, 0, 0);
 
 	while(1) {
-		u8 b;
-
 		if(pos >= c->infile->len) goto done;
 		if(md) {
 			de_arch_destroy_md(c, md);
@@ -1964,35 +2121,12 @@ static void de_run_red(deark *c, de_module_params *mparams)
 		}
 		md = de_arch_create_md(c, d);
 		md->member_hdr_pos = pos;
+		md->validate_crc = 1;
 
-		id = (UI)de_getu16be_p(&pos);
-		b = de_getbyte_p(&pos); // Format version? Always 1.
-		md->member_hdr_size = (i64)de_getbyte_p(&pos); // Always 41?
-		if(id!=0x5252U || b!=0x01 || md->member_hdr_size<39) {
-			de_err(c, "Member not found at %"I64_FMT, md->member_hdr_pos);
-			goto done;
-		}
+		red_do_member(c, d, rctx, md);
+		if(d->stop_flag || d->fatalerrflag || md->member_total_size==0) goto done;
 
-		de_dbg(c, "member at %"I64_FMT, md->member_hdr_pos);
-		de_dbg_indent(c, 1);
-
-		de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
-			DE_ARCH_TSTYPE_DOS_TD, &pos);
-		de_arch_read_field_cmpr_len_p(md, &pos);
-		de_arch_read_field_orig_len_p(md, &pos);
-
-		pos = md->member_hdr_pos + 26;
-		dbuf_read_to_ucstring(c->infile, pos, 12, md->filename, DE_CONVFLAG_STOP_AT_NUL,
-			d->input_encoding);
-		de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
-		// Filename field is 13 bytes.
-		// Then a 2-byte field unidentified field.
-
-		md->cmpr_pos = md->member_hdr_pos + md->member_hdr_size;
-		de_dbg(c, "compressed data at %"I64_FMT", len=%"I64_FMT, md->cmpr_pos, md->cmpr_len);
-
-		de_dbg_indent(c, -1);
-		pos = md->cmpr_pos + md->cmpr_len;
+		pos += md->member_total_size;
 	}
 
 done:
@@ -2006,6 +2140,9 @@ done:
 			de_err(c, "Bad or unsupported RED file");
 		}
 		de_arch_destroy_lctx(c, d);
+	}
+	if(rctx) {
+		dbuf_close(rctx->tmpinf);
 	}
 }
 
@@ -2021,7 +2158,6 @@ void de_module_red(deark *c, struct deark_module_info *mi)
 	mi->desc = "RED installer archive (Knowledge Dynamics Corp)";
 	mi->run_fn = de_run_red;
 	mi->identify_fn = de_identify_red;
-	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
 }
 
 // **************************************************************************

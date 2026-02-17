@@ -1223,6 +1223,9 @@ in the readme file.)
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
 
+* RED (Knowledge Dynamics) (module="red")
+  An installer-archive format, successor to LIF.
+
 * RPM (package manager) (module="rpm")
   - Extract compressed cpio file.
 
@@ -1659,7 +1662,6 @@ ole1 - Windows OLE1, for internal use.
 olepropset - OLE Property Sets.
 os2pack2 - OS/2 PACK2 ("FTCOMP") compressed archive.
 pegasus_pic2 - Pegasus PIC2/ePIC image.
-red - Knowledge Dynamics installer-archive.
 rgfx - RGFX Amiga image.
 rm - RealMedia.
 sauce - SAUCE metadata, for internal use.
