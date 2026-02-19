@@ -1225,6 +1225,9 @@ in the readme file.)
 
 * RED (Knowledge Dynamics) (module="red")
   An installer-archive format, successor to LIF.
+  Options
+   -opt red:combine - Instead of decoding, combine the files of a multi-segment
+     archive into a single RED file. Use with "-mp".
 
 * RPM (package manager) (module="rpm")
   - Extract compressed cpio file.

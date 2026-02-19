@@ -18,36 +18,33 @@ static void noncompressed_decompressor_fn(struct de_arch_member_data *md)
 // Knowledge Dynamics .RED (including newer .LIF files)
 // **************************************************************************
 
+#define RED_STD_HDR_SIZE 41
+
 struct red_ctx {
 	dbuf *tmpinf;
+	u8 split_file_found;
 };
 
 // The raw compressed data is split into 4094-byte segments (the last
 // is usually smaller). A 2-byte CRC-of-compressed data is inserted
-// after every segment. Here we delete the CRCs, so that we can use our
-// standard LHA decompressor.
+// after every segment. Here we delete the CRCs, normally so that we
+// can use our standard LHA decompressor.
+// (For 'combine' mode, we need to move/recompute some of the CRCs, so
+// we start by deleting the old ones.)
 // TODO? We could validate the CRCs, but meh.
-static void red_desegment(deark *c, de_arch_lctx *d, struct red_ctx *rctx,
-	struct de_arch_member_data *md)
+static void red_desegment_and_copy(deark *c,
+	dbuf *inf, i64 inf_pos1, i64 inf_len, dbuf *outf)
 {
-	i64 in_nbytes_processed = 0;
+	i64 n = 0; // num input bytes processed
 
-	while(in_nbytes_processed < md->cmpr_len) {
-		i64 nbytes_left_to_process;
+	while(n < inf_len) {
+		i64 blksize;
 
-		nbytes_left_to_process = md->cmpr_len - in_nbytes_processed;
-		if(nbytes_left_to_process >= 4096) {
-			dbuf_copy(c->infile, md->cmpr_pos + in_nbytes_processed,
-				4094, rctx->tmpinf);
-			in_nbytes_processed += 4096;
+		blksize = de_min_int(inf_len - n, 4096);
+		if(blksize>=2) { // Should always be true
+			dbuf_copy(inf, inf_pos1 + n, blksize-2, outf);
 		}
-		else {
-			// TODO?: We should also delete the last two bytes of the
-			// compressed data, but they do no harm.
-			dbuf_copy(c->infile, md->cmpr_pos + in_nbytes_processed,
-				nbytes_left_to_process, rctx->tmpinf);
-			in_nbytes_processed += nbytes_left_to_process;
-		}
+		n += blksize;
 	}
 }
 
@@ -78,6 +75,7 @@ static void red_do_member(deark *c, de_arch_lctx *d, struct red_ctx *rctx,
 	UI id;
 	UI seg_num, is_last_seg;
 	u32 hdr_crc_reported, hdr_crc_calc;
+	u32 crc1_reported;
 	u8 b;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -99,17 +97,17 @@ static void red_do_member(deark *c, de_arch_lctx *d, struct red_ctx *rctx,
 	de_arch_read_field_orig_len_p(md, &pos);
 	md->member_total_size = md->member_hdr_size + md->cmpr_len;
 
-	pos += 2; // (probably crc of cmpr data, or 0xffff if unused)
+	crc1_reported = (u32)de_getu16le_p(&pos);
+	de_dbg(c, "crc1 (reported): 0x%04x", (UI)crc1_reported);
 	md->crc_reported = (u32)de_getu16le_p(&pos);
-	de_dbg(c, "crc (reported): 0x%04x", (UI)md->crc_reported);
+	de_dbg(c, "crc2 (reported): 0x%04x", (UI)md->crc_reported);
 
-	//pos += 4 ; // ?
 	seg_num = (UI)de_getu16le_p(&pos);
 	if(seg_num!=0) {
-		de_dbg(c, "segment: %u", seg_num);
+		de_dbg(c, "fragment: %u", seg_num);
 	}
 	is_last_seg = (UI)de_getu16le_p(&pos);
-	de_dbg(c, "last segment flag: %u", is_last_seg);
+	de_dbg(c, "last fragment flag: %u", is_last_seg);
 
 	md->cmpr_meth = (UI)de_getu16le_p(&pos);
 	de_dbg(c, "cmpr. method: %u", md->cmpr_meth);
@@ -131,12 +129,13 @@ static void red_do_member(deark *c, de_arch_lctx *d, struct red_ctx *rctx,
 	hdr_crc_calc = de_crcobj_getval(d->crco);
 	de_dbg(c, "header crc (calculated): 0x%02x", (UI)hdr_crc_calc);
 	if(hdr_crc_calc != hdr_crc_reported) {
-		de_err(c, "Wrong header CRC: reported=0x%02x, calculated=0x%02x",
+		de_warn(c, "Wrong header CRC: reported=0x%02x, calculated=0x%02x",
 			(UI)hdr_crc_reported, (UI)hdr_crc_calc);
 	}
 
 	if(seg_num>1 || is_last_seg==0) {
 		de_err(c, "Split files are not supported");
+		rctx->split_file_found = 1;
 		goto done;
 	}
 
@@ -156,7 +155,7 @@ static void red_do_member(deark *c, de_arch_lctx *d, struct red_ctx *rctx,
 	real_cmpr_len = md->cmpr_len;
 
 	if(md->cmpr_meth==11) {
-		red_desegment(c, d, rctx, md);
+		red_desegment_and_copy(c, c->infile, md->cmpr_pos, md->cmpr_len, rctx->tmpinf);
 		d->inf = rctx->tmpinf;
 		md->cmpr_pos = 0;
 		md->cmpr_len = rctx->tmpinf->len;
@@ -172,11 +171,11 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void de_run_red(deark *c, de_module_params *mparams)
+static void run_red_normally(deark *c, de_module_params *mparams)
 {
+	struct red_ctx *rctx = NULL;
 	de_arch_lctx *d = NULL;
 	i64 pos = 0;
-	struct red_ctx *rctx = NULL;
 	struct de_arch_member_data *md = NULL;
 	int saved_indent_level;
 
@@ -219,8 +218,350 @@ done:
 		de_arch_destroy_lctx(c, d);
 	}
 	if(rctx) {
+		if(rctx->split_file_found) {
+			de_info(c, "Note: Try \"-mp -opt red:combine\" to convert to a "
+				"single-volume RED file.");
+		}
 		dbuf_close(rctx->tmpinf);
+		de_free(c, rctx);
 	}
+}
+
+struct redcmb_ctx {
+	u8 errflag;
+	u8 need_errmsg;
+	int num_volumes;
+	i64 prev_member_total_size;
+	int cur_vol;
+	dbuf *cur_volf; // A copy. Do not close directly.
+	dbuf *outf;
+	struct de_crcobj *crco; // Various use
+	UI frag_count;
+	UI frag1_cmpr_meth;
+	dbuf *frag1_hdr;
+	dbuf *combined_hdr;
+	dbuf *combined_cmpr_data;
+	u8 frag1_filename[13];
+};
+
+// 'f' is modified in-place.
+static void red_resegment(deark *c, struct redcmb_ctx *rcctx, dbuf *f)
+{
+	dbuf *tmpf = NULL;
+	i64 srcpos;
+
+	// TODO: Do this without a temporary copy.
+	tmpf = dbuf_create_membuf(c, f->len, 0);
+	dbuf_copy(f, 0, f->len, tmpf);
+	dbuf_empty(f);
+
+	srcpos = 0;
+	while(srcpos < tmpf->len) {
+		i64 nbytes_to_copy;
+
+		if(tmpf->len - srcpos >= 4094) {
+			nbytes_to_copy = 4094;
+		}
+		else {
+			nbytes_to_copy = tmpf->len - srcpos;
+		}
+
+		dbuf_copy(tmpf, srcpos, nbytes_to_copy, f);
+
+		de_crcobj_reset(rcctx->crco);
+		de_crcobj_addslice(rcctx->crco, tmpf, srcpos, nbytes_to_copy);
+		dbuf_writeu16be(f, de_crcobj_getval(rcctx->crco));
+
+		srcpos += nbytes_to_copy;
+	}
+
+	dbuf_close(tmpf);
+}
+
+static void red_combiner_reset_frag_data(deark *c, struct redcmb_ctx *rcctx)
+{
+	dbuf_empty(rcctx->frag1_hdr);
+	dbuf_empty(rcctx->combined_hdr);
+	dbuf_empty(rcctx->combined_cmpr_data);
+	rcctx->frag_count = 0;
+	rcctx->frag1_cmpr_meth = 0;
+	de_zeromem(rcctx->frag1_filename, 13);
+}
+
+static void red_combiner_open_outf(deark *c, struct redcmb_ctx *rcctx)
+{
+	if(rcctx->outf) return;
+	rcctx->outf = dbuf_create_output_file(c, "red", NULL, 0);
+}
+
+// Sets rcctx->prev_member_total_size
+static void red_combiner_do_memberfragment(deark *c, struct redcmb_ctx *rcctx,
+	i64 member_pos)
+{
+	UI id;
+	i64 member_hdr_size;
+	i64 cmpr_size;
+	UI frag_num;
+	u8 is_split;
+	u8 is_first_frag = 0;
+	UI is_last_frag;
+	dbuf *inf = rcctx->cur_volf;
+
+	id = (UI)dbuf_getu16be(inf, member_pos);
+	member_hdr_size = (i64)dbuf_getbyte(inf, member_pos+3);
+
+	if(id!=0x5252U || member_hdr_size!=RED_STD_HDR_SIZE) {
+		rcctx->errflag = 1;
+		rcctx->need_errmsg = 1;
+		goto done;
+	}
+
+	cmpr_size = dbuf_getu32le(inf, member_pos+8);
+	if(member_pos+member_hdr_size+cmpr_size > inf->len) {
+		rcctx->errflag = 1;
+		rcctx->need_errmsg = 1;
+		goto done;
+	}
+
+	frag_num = (UI)dbuf_getu16le(inf, member_pos+20);
+	is_last_frag = (UI)dbuf_getu16le(inf, member_pos+22);
+	rcctx->prev_member_total_size = member_hdr_size + cmpr_size;
+
+	is_split = (frag_num>1) || (!is_last_frag);
+	if(is_split) {
+		if(frag_num<2 && !is_last_frag) {
+			is_first_frag = 1;
+		}
+	}
+
+	// FIXME: This code could be cleaned up.
+
+	if(rcctx->frag_count==0) {
+		if(is_split && !is_first_frag) {
+			rcctx->errflag = 1;
+			rcctx->need_errmsg = 1;
+			goto done;
+		}
+	}
+	else { // frag_count>0
+		if(!is_split) {
+			rcctx->errflag = 1;
+			rcctx->need_errmsg = 1;
+			goto done;
+		}
+		if(frag_num != rcctx->frag_count+1) {
+			rcctx->errflag = 1;
+			rcctx->need_errmsg = 1;
+			goto done;
+		}
+		if(dbuf_memcmp(inf, member_pos+26, rcctx->frag1_filename, 13)) {
+			rcctx->errflag = 1;
+			rcctx->need_errmsg = 1;
+			goto done;
+		}
+	}
+
+	if(is_split && is_first_frag) {
+		red_combiner_reset_frag_data(c, rcctx);
+		dbuf_copy(inf, member_pos, member_hdr_size, rcctx->frag1_hdr);
+		rcctx->frag1_cmpr_meth = (UI)dbuf_getu16le(rcctx->frag1_hdr, 24);
+		dbuf_read(rcctx->frag1_hdr, rcctx->frag1_filename, 26, 13);
+	}
+
+	if(is_split) {
+		UI frag_cmpr_meth;
+
+		frag_cmpr_meth = (UI)dbuf_getu16le(inf, member_pos+24);
+		if(frag_cmpr_meth!=1 && frag_cmpr_meth!=11) {
+			rcctx->errflag = 1;
+			rcctx->need_errmsg = 1;
+			goto done;
+		}
+
+		if(!is_first_frag && frag_cmpr_meth!=rcctx->frag1_cmpr_meth) {
+			rcctx->errflag = 1;
+			rcctx->need_errmsg = 1;
+			goto done;
+		}
+	}
+
+	if(is_split) {
+		rcctx->frag_count++;
+		if(frag_num != rcctx->frag_count) {
+			rcctx->errflag = 1;
+			rcctx->need_errmsg = 1;
+			goto done;
+		}
+
+		de_dbg(c, "[storing fragment %u]", rcctx->frag_count);
+		if(rcctx->frag1_cmpr_meth==11) {
+			red_desegment_and_copy(c, inf, member_pos+member_hdr_size,
+				cmpr_size, rcctx->combined_cmpr_data);
+		}
+		else {
+			dbuf_copy(inf, member_pos+member_hdr_size, cmpr_size,
+				rcctx->combined_cmpr_data);
+		}
+
+		if(is_last_frag) {
+			red_combiner_open_outf(c, rcctx);
+
+			de_dbg(c, "[writing combined member file]");
+
+			if(rcctx->frag1_cmpr_meth==11) {
+				red_resegment(c, rcctx, rcctx->combined_cmpr_data);
+			}
+
+			// Copy/modify hdr
+			dbuf_empty(rcctx->combined_hdr);
+			dbuf_copy(rcctx->frag1_hdr, 0, 8, rcctx->combined_hdr);
+			dbuf_writeu32le(rcctx->combined_hdr, rcctx->combined_cmpr_data->len);
+			dbuf_copy(rcctx->frag1_hdr, 12, 4, rcctx->combined_hdr); // orig size
+
+			// CRC fields
+			if(rcctx->frag1_cmpr_meth==1) {
+				u32 newcrc;
+
+				// For method 1, unfortunately, we have to recompute the whole-
+				// file CRC, making it useless for error detection.
+				// TODO: We could validate the CRC of each fragment, though
+				// that's of limited value.
+				de_crcobj_reset(rcctx->crco);
+				de_crcobj_addslice(rcctx->crco, rcctx->combined_cmpr_data, 0,
+					rcctx->combined_cmpr_data->len);
+				newcrc = de_crcobj_getval(rcctx->crco);
+				dbuf_writeu16le(rcctx->combined_hdr, (i64)newcrc);
+				dbuf_writeu16le(rcctx->combined_hdr, (i64)newcrc);
+			}
+			else {
+				dbuf_copy(rcctx->frag1_hdr, 16, 4, rcctx->combined_hdr);
+			}
+
+			dbuf_writeu16le(rcctx->combined_hdr, 0); // frag. num
+			dbuf_writeu16le(rcctx->combined_hdr, 1); // is-last-frag
+			dbuf_copy(rcctx->frag1_hdr, 24, RED_STD_HDR_SIZE-26, rcctx->combined_hdr);
+
+			// header checksum
+			de_crcobj_reset(rcctx->crco);
+			de_crcobj_addslice(rcctx->crco, rcctx->combined_hdr, 2, RED_STD_HDR_SIZE-4);
+			dbuf_writeu16be(rcctx->combined_hdr, de_crcobj_getval(rcctx->crco));
+
+			dbuf_copy(rcctx->combined_hdr, 0, RED_STD_HDR_SIZE, rcctx->outf);
+
+			dbuf_copy(rcctx->combined_cmpr_data, 0,
+				rcctx->combined_cmpr_data->len, rcctx->outf);
+
+			red_combiner_reset_frag_data(c, rcctx);
+		}
+	}
+
+	if(!is_split) {
+		red_combiner_open_outf(c, rcctx);
+		// Copy header
+		dbuf_copy(inf, member_pos, member_hdr_size, rcctx->outf);
+		// Copy cmpr data
+		dbuf_copy(inf, member_pos+member_hdr_size, cmpr_size, rcctx->outf);
+	}
+
+done:
+	;
+}
+
+static void red_combine_1vol(deark *c, struct redcmb_ctx *rcctx)
+{
+	i64 member_pos = 0;
+
+	while(1) {
+		if(member_pos >= rcctx->cur_volf->len) goto done;
+
+		de_dbg(c, "member at %"I64_FMT, member_pos);
+
+		rcctx->prev_member_total_size = 0;
+
+		red_combiner_do_memberfragment(c, rcctx, member_pos);
+		if(rcctx->prev_member_total_size==0) {
+			rcctx->errflag = 1;
+		}
+		if(rcctx->errflag) goto done;
+
+		member_pos += rcctx->prev_member_total_size;
+	}
+
+done:
+	;
+}
+
+static void run_red_combiner(deark *c, de_module_params *mparams)
+{
+	struct redcmb_ctx *rcctx = NULL;
+
+	rcctx = de_malloc(c, sizeof(struct redcmb_ctx));
+	rcctx->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_IBM3740);
+	rcctx->num_volumes = 1;
+	if(c->mp_data) {
+		rcctx->num_volumes += c->mp_data->count;
+	}
+	de_dbg(c, "num volumes: %d", rcctx->num_volumes);
+
+	rcctx->frag1_hdr = dbuf_create_membuf(c, 0, 0);
+	rcctx->combined_hdr = dbuf_create_membuf(c, 0, 0);
+	rcctx->combined_cmpr_data = dbuf_create_membuf(c, 0, 0);
+	red_combiner_reset_frag_data(c, rcctx);
+
+	for(rcctx->cur_vol=0; rcctx->cur_vol<rcctx->num_volumes; rcctx->cur_vol++) {
+		de_dbg(c, "[volume %d]", (rcctx->cur_vol+1));
+		rcctx->cur_volf = de_mp_acquire_dbuf(c, rcctx->cur_vol);
+		if(!rcctx->cur_volf) {
+			rcctx->errflag = 1;
+			goto done;
+		}
+		de_dbg_indent(c, 1);
+		red_combine_1vol(c, rcctx);
+		de_dbg_indent(c, -1);
+		de_mp_release_dbuf(c, rcctx->cur_vol, &rcctx->cur_volf);
+		if(rcctx->errflag) goto done;
+	}
+
+done:
+	if(rcctx) {
+		if(!rcctx->errflag) {
+			// If there's an unfinished fragment, error.
+			if(rcctx->frag_count>0) {
+				rcctx->need_errmsg = 1;
+			}
+		}
+		dbuf_close(rcctx->outf);
+		dbuf_close(rcctx->frag1_hdr);
+		dbuf_close(rcctx->combined_hdr);
+		dbuf_close(rcctx->combined_cmpr_data);
+		de_crcobj_destroy(rcctx->crco);
+		if(rcctx->need_errmsg) {
+			de_err(c, "Failed to process multi-volume RED archive");
+		}
+		de_free(c, rcctx);
+	}
+}
+
+static void de_run_red(deark *c, de_module_params *mparams)
+{
+	u8 combine_mode = 0;
+
+	combine_mode = (u8)de_get_ext_option_bool(c, "red:combine", 0);
+
+	if(combine_mode) {
+		run_red_combiner(c, mparams);
+	}
+	else {
+		if(c->mp_data && c->mp_data->count>0) {
+			de_err(c, "Multi-volume archives are only supported "
+				"with \"-opt red:combine\"");
+			goto done;
+		}
+		run_red_normally(c, mparams);
+	}
+
+done:
+	;
 }
 
 static int de_identify_red(deark *c)
@@ -229,12 +570,20 @@ static int de_identify_red(deark *c)
 	return 100;
 }
 
+static void de_help_red(deark *c)
+{
+	de_msg(c, "-mp -opt red:combine : Instead of decoding, "
+		"combine a multi-volume archive into one file");
+}
+
 void de_module_red(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "red";
 	mi->desc = "RED installer archive (Knowledge Dynamics Corp)";
 	mi->run_fn = de_run_red;
 	mi->identify_fn = de_identify_red;
+	mi->help_fn = de_help_red;
+	mi->flags |= DE_MODFLAG_MULTIPART;
 }
 
 // **************************************************************************
