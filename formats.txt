@@ -504,6 +504,8 @@ Deark -- Information about supported formats
 
 * OLPC .565 firmware icon (module="olpc565")
 
+* OPTIKS COM (module="optiks_com")
+
 * OS/2 boot logo (module="os2bootlogo")
   - You may have to use "-m os2bootlogo" in some cases.
 
