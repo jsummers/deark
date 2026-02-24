@@ -322,6 +322,7 @@
     <ClCompile Include="..\..\modules\sgiimage.c" />
     <ClCompile Include="..\..\modules\shg.c" />
     <ClCompile Include="..\..\modules\sis.c" />
+    <ClCompile Include="..\..\modules\spacemaker.c" />
     <ClCompile Include="..\..\modules\spectrum512.c" />
     <ClCompile Include="..\..\modules\storyboard.c" />
     <ClCompile Include="..\..\modules\stuffit.c" />

@@ -640,6 +640,9 @@
     <ClCompile Include="..\..\modules\kdc.c">
       <Filter>Modules</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\modules\spacemaker.c">
+      <Filter>Modules</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\deark-config.h">
