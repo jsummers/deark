@@ -18,6 +18,7 @@ typedef struct localctx_spacemaker {
 	i64 part1_pos, part1_len; // first 25 bytes
 	i64 part2_pos, part2_endpos, part2_len; // rest of file
 	i64 part3_pos, part3_len; // reloc. table(?)
+	i64 decoder_pos1, decoder_pos2;
 	dbuf *dcmpr_code;
 } lctx;
 
@@ -126,30 +127,36 @@ done:
 
 static void spacemaker_main(deark *c, lctx *d)
 {
-	UI x;
-	i64 n;
-	i64 seg;
 	i64 jmppos;
-	i64 raw_field1, raw_field2;
+	i64 tmp_seg, tmp_offs;
+	UI x;
 	UI ver;
 	const char *ext;
 	dbuf *outf = NULL;
+	i64 code_pos = 0;
 
-	seg = de_getu16le(10);
-	n = de_getu16le(14);
-	jmppos = 16*seg + n;
-	de_dbg(c, "jmp pos: %"I64_FMT, jmppos);
+	tmp_seg = de_getu16le(code_pos+10);
+	tmp_offs = de_getu16le(code_pos+14);
+	jmppos = 16*tmp_seg + tmp_offs;
+	de_dbg(c, "jmp pos: c+%"I64_FMT, jmppos);
 
-	x = (UI)de_getu16be(jmppos);
+	x = (UI)de_getu16be(code_pos+jmppos);
 	if(x!=0x5751) {
 		de_err(c, "Bad file or unknown version");
 		d->errflag = 1;
 		goto done;
 	}
+	d->decoder_pos1 = jmppos;
 
-	x = (UI)de_getu16be(jmppos+13);
-	if(x==0xd78c) ver = 103;
-	else if(x==0x8ec5) ver = 106;
+	x = (UI)de_getu16be(code_pos+jmppos+13);
+	if(x==0xd78c) {
+		ver = 103;
+		d->decoder_pos2 = d->decoder_pos1+7+44;
+	}
+	else if(x==0x8ec5) {
+		ver = 106;
+		d->decoder_pos2 = d->decoder_pos1+7;
+	}
 	else {
 		de_err(c, "Unknown version");
 		d->errflag = 1;
@@ -158,37 +165,33 @@ static void spacemaker_main(deark *c, lctx *d)
 	de_dbg(c, "version: %u.%02u", ver/100, ver%100);
 
 	// apparently part2 endpos, minus 1
-	if(ver==106) n = 126;
-	else n = 170;
-	raw_field1 = de_getu16le(jmppos+n);
+	tmp_seg = de_getu16le(code_pos+d->decoder_pos2+114);
+	tmp_offs = de_getu16le(code_pos+d->decoder_pos2+119);
+	d->part2_endpos = tmp_seg*16 + tmp_offs + 1;
+	de_dbg(c, "part2 endpos: c+%"I64_FMT, d->part2_endpos);
 
 	// apparently original size, minus 1
-	if(ver==106) n = 135;
-	else n = 179;
-	raw_field2 = de_getu16le(jmppos+n);
-
-	d->orig_len = raw_field2 + 1;
+	tmp_seg = de_getu16le(code_pos+d->decoder_pos2+123);
+	tmp_offs = de_getu16le(code_pos+d->decoder_pos2+128);
+	d->orig_len = tmp_seg*16 + tmp_offs + 1;
 	de_dbg(c, "orig len: %"I64_FMT, d->orig_len);
 
-	d->part2_endpos = raw_field1 + 1;
 	d->part1_pos = d->part2_endpos;
 	d->part2_pos = SM_PREAMBLE_SIZE;
 	d->part3_pos = d->part1_pos + SM_PREAMBLE_SIZE;
-	d->part3_len = jmppos - d->part3_pos;
+	d->part3_len = d->decoder_pos1 - d->part3_pos;
 	d->part1_len = de_min_int(d->orig_len, SM_PREAMBLE_SIZE);
 	d->part2_len = d->part2_endpos - d->part2_pos;
 
-	de_dbg(c, "part1 at %"I64_FMT", len=%"I64_FMT, d->part1_pos, d->part1_len);
-	de_dbg(c, "part2 at %"I64_FMT", len=%"I64_FMT, d->part2_pos, d->part2_len);
-	de_dbg(c, "part3 at %"I64_FMT", len=%"I64_FMT, d->part3_pos, d->part3_len);
+	de_dbg(c, "part1 at c+%"I64_FMT", len=%"I64_FMT, d->part1_pos, d->part1_len);
+	de_dbg(c, "part2 at c+%"I64_FMT", len=%"I64_FMT, d->part2_pos, d->part2_len);
+	de_dbg(c, "part3 at c+%"I64_FMT", len=%"I64_FMT, d->part3_pos, d->part3_len);
 
 	if(d->part3_len!=0) {
 		d->original_was_exe = 1;
 	}
 
-	if(ver==106) n = 33;
-	else n = 77;
-	x = (UI)de_getu32be(jmppos+n);
+	x = (UI)de_getu32be(code_pos+d->decoder_pos2+26);
 	if(x==0x8bc4050aU) {
 		;
 	}
@@ -248,6 +251,9 @@ static void de_run_spacemaker(deark *c, de_module_params *mparams)
 static int de_identify_spacemaker(deark *c)
 {
 	u8 x;
+
+	// Note that we tolerate oversized COM files. Spacemaker will create
+	// them, and we can decompress them.
 
 	if(dbuf_memcmp(c->infile, 0,
 		(const void*)"\x9c\x55\x56\x8c\xcd\x83\xc5\x10\x8d\xb6", 10))
