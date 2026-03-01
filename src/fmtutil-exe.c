@@ -417,6 +417,7 @@ static void detect_execomp_spacemaker(deark *c,
 
 	edd->detected_fmt = DE_SPECIALEXEFMT_EXECOMP;
 	de_strlcpy(edd->detected_fmt_name, "Spacemaker", sizeof(edd->detected_fmt_name));
+	edd->modname = "spacemaker";
 done:
 	;
 }

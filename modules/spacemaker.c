@@ -5,6 +5,7 @@
 // Realia Spacemaker executable compression
 
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_spacemaker);
 
 #define SM_PREAMBLE_SIZE 25
@@ -14,17 +15,21 @@ typedef struct localctx_spacemaker {
 	u8 need_errmsg;
 	u8 raw_mode; // 0xff = not set
 	u8 original_was_exe;
+	u8 host_is_exe;
+	i64 code_pos;
 	i64 orig_len;
 	i64 part1_pos, part1_len; // first 25 bytes
 	i64 part2_pos, part2_endpos, part2_len; // rest of file
 	i64 part3_pos, part3_len; // reloc. table(?)
 	i64 decoder_pos1, decoder_pos2;
 	dbuf *dcmpr_code;
+	struct fmtutil_exe_info *host_ei;
 } lctx;
 
 static void sm_decompress(deark *c, lctx *d)
 {
 	i64 ipos; // in c->infile
+	i64 istartpos;
 	i64 opos; // in d->dcmpr_code
 	u8 b[2];
 	int saved_indent_level;
@@ -37,14 +42,16 @@ static void sm_decompress(deark *c, lctx *d)
 	dbuf_truncate(d->dcmpr_code, d->orig_len);
 
 	opos = d->orig_len;
-	ipos = d->part2_endpos;
+	ipos = d->code_pos+d->part2_endpos;
+	istartpos = d->code_pos+SM_PREAMBLE_SIZE;
+
 	while(1) {
 		i64 count;
 #define CT_U 1 // An uncompressed segment
 #define CT_R 2 // A run of 0-valued bytes
 		u8 code_type;
 
-		if(ipos<=SM_PREAMBLE_SIZE) goto done;
+		if(ipos<=istartpos) goto done;
 
 		code_type = 0;
 		count = 0;
@@ -81,7 +88,7 @@ static void sm_decompress(deark *c, lctx *d)
 
 		if(count==0 && code_type==CT_U) {
 			// All remaining data is uncompressed.
-			count = ipos - d->part2_pos;
+			count = ipos - istartpos;
 		}
 
 		if(code_type==CT_R) {
@@ -102,7 +109,7 @@ static void sm_decompress(deark *c, lctx *d)
 
 		if(code_type==CT_U) {
 			ipos -= count;
-			if(ipos<SM_PREAMBLE_SIZE) {
+			if(ipos<istartpos) {
 				d->errflag = 1;
 				d->need_errmsg = 1;
 				goto done;
@@ -113,7 +120,7 @@ static void sm_decompress(deark *c, lctx *d)
 
 done:
 	if(!d->errflag) {
-		if(ipos!=SM_PREAMBLE_SIZE || opos!=SM_PREAMBLE_SIZE) {
+		if(ipos!=istartpos || opos!=SM_PREAMBLE_SIZE) {
 			d->errflag = 1;
 			d->need_errmsg = 1;
 		}
@@ -133,7 +140,9 @@ static void spacemaker_main(deark *c, lctx *d)
 	UI ver;
 	const char *ext;
 	dbuf *outf = NULL;
-	i64 code_pos = 0;
+	i64 code_pos = d->code_pos;
+
+	de_dbg(c, "host fmt: %s", (d->host_is_exe?"EXE":"COM"));
 
 	tmp_seg = de_getu16le(code_pos+10);
 	tmp_offs = de_getu16le(code_pos+14);
@@ -187,6 +196,11 @@ static void spacemaker_main(deark *c, lctx *d)
 	de_dbg(c, "part2 at c+%"I64_FMT", len=%"I64_FMT, d->part2_pos, d->part2_len);
 	de_dbg(c, "part3 at c+%"I64_FMT", len=%"I64_FMT, d->part3_pos, d->part3_len);
 
+	if(d->host_is_exe) {
+		// SM doesn't allow COM->EXE, so this must be EXE->EXE.
+		d->original_was_exe = 1;
+	}
+
 	if(d->part3_len!=0) {
 		d->original_was_exe = 1;
 	}
@@ -233,18 +247,45 @@ done:
 	}
 }
 
+static void spacemaker_exe_main(deark *c, lctx *d)
+{
+	de_dbg(c, "exe"); // fixme
+	fmtutil_collect_exe_info(c, c->infile, d->host_ei);
+	d->host_is_exe = 1;
+	d->code_pos = d->host_ei->start_of_dos_code;
+	de_dbg(c, "code pos: %"I64_FMT, d->code_pos);
+	spacemaker_main(c, d);
+}
+
+static void spacemaker_com_main(deark *c, lctx *d)
+{
+	d->host_is_exe = 0;
+	d->code_pos = 0;
+	spacemaker_main(c, d);
+}
+
 static void de_run_spacemaker(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	UI sig;
 
 	// TODO: Support EXE->COM and EXE->EXE compression.
 	d = de_malloc(c, sizeof(lctx));
+	d->host_ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
 	d->raw_mode = (u8)de_get_ext_option_bool(c, "spacemaker:raw", 0xff);
-	spacemaker_main(c, d);
+	sig = (UI)de_getu16be(0);
+	if(sig==0x4d5a || sig==0x5a4d) {
+		spacemaker_exe_main(c, d);
+	}
+	else {
+		spacemaker_com_main(c, d);
+	}
+
 	dbuf_close(d->dcmpr_code);
 	if(d->need_errmsg) {
 		de_err(c, "Bad or unsupported Spacemaker file");
 	}
+	de_free(c, d->host_ei);
 	de_free(c, d);
 }
 
