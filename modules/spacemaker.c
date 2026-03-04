@@ -227,7 +227,7 @@ static void spacemaker_main(deark *c, lctx *d)
 	}
 
 	d->dcmpr_code = dbuf_create_membuf(c, d->orig_len, 0x1);
-	dbuf_copy(c->infile, d->part1_pos, d->part1_len, d->dcmpr_code);
+	dbuf_copy(c->infile, d->code_pos+d->part1_pos, d->part1_len, d->dcmpr_code);
 
 	if(d->orig_len > SM_PREAMBLE_SIZE) {
 		sm_decompress(c, d);
