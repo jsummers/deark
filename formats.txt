@@ -1245,9 +1245,8 @@ in the readme file.)
 
 * SOF/RESOF (part of module "zip")
 
-* Spacemaker (module="spacemaker") (very incomplete)
+* Spacemaker (module="spacemaker") (experimental)
   Realia Spacemaker executable compression.
-  - Only really supports COM->COM compression, which is rare.
   Options
    -opt spacemaker:raw - If original file was EXE, write raw decompressed data.
 
