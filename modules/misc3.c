@@ -26,6 +26,7 @@ DE_DECLARE_MODULE(de_module_tc_trs80);
 DE_DECLARE_MODULE(de_module_ea_arch);
 DE_DECLARE_MODULE(de_module_zpk2);
 DE_DECLARE_MODULE(de_module_iconheaven);
+DE_DECLARE_MODULE(de_module_cork);
 
 static int dclimplode_header_at(deark *c, i64 pos)
 {
@@ -3150,4 +3151,141 @@ void de_module_iconheaven(deark *c, struct deark_module_info *mi)
 	mi->desc = "Icon Heaven library (.fim)";
 	mi->run_fn = de_run_iconheaven;
 	mi->identify_fn = de_identify_iconheaven;
+}
+
+// **************************************************************************
+// CORK - Installer format by Omega Logic
+// **************************************************************************
+
+// This is the same as ARC method #8.
+static void cork_decompressor_fn(struct de_arch_member_data *md)
+{
+	struct de_dcmpr_two_layer_params tlp;
+	struct de_lzw_params delzwp;
+
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
+	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
+	delzwp.flags |= DE_LZWFLAG_HAS1BYTEHEADER;
+	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
+	tlp.codec1_pushable = dfilter_lzw_codec;
+	tlp.codec1_private_params = (void*)&delzwp;
+	tlp.codec2 = dfilter_rle90_codec;
+	tlp.dcmpri = md->dcmpri;
+	tlp.dcmpro = md->dcmpro;
+	tlp.dres = md->dres;
+	de_dfilter_decompress_two_layer(md->c, &tlp);
+}
+
+// Ugh. Some files seem to use DOS timestamp format, others Unix.
+// Returns 1=Unix, 2=DOS, 0=unknown.
+static u8 cork_guess_timestamp_format(deark *c, i64 pos)
+{
+	UI v;
+	i64 yr;
+	u8 could_be_dos;
+	u8 could_be_unix;
+	struct de_timestamp ts;
+
+	v = (UI)de_getu32le(pos);
+	de_dbg(c, "dtval: %u", v);
+
+	// Unix dates seen: 1991-1993
+	if(v>=631152000U && //  1 Jan 1990
+		v<852076800) // 1 Jan 1997
+	{
+		could_be_unix = 1;
+	}
+	else {
+		could_be_unix = 0;
+	}
+
+	could_be_dos = 1;
+	// DOS dates seen: 1993 to 1995
+	yr = 1980+((v&0xfe00)>>9);
+	if(yr<1990 || yr>1999) {
+		could_be_dos = 0;
+	}
+	if(could_be_dos) {
+		de_dos_datetime_to_timestamp(&ts, (i64)(v&0xffff), (i64)(v>>16));
+		if(!ts.is_valid) {
+			could_be_dos = 0;
+		}
+	}
+
+	if(could_be_unix && !could_be_dos) return 1;
+	if(could_be_dos && !could_be_unix) return 2;
+	return 0;
+}
+
+static void de_run_cork(deark *c, de_module_params *mparams)
+{
+	de_arch_lctx *d = NULL;
+	struct de_arch_member_data *md = NULL;
+	i64 pos;
+	UI tsfmt;
+
+	d = de_arch_create_lctx(c);
+	d->is_le = 1;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
+	md = de_arch_create_md(c, d);
+	pos = 6;
+
+	dbuf_read_to_ucstring(c->infile, pos, 12, md->filename, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+	pos += 13;
+
+	md->crc_reported = (u32)de_getu16le_p(&pos);
+	de_dbg(c, "crc (reported): 0x%04x", (UI)md->crc_reported);
+	md->validate_crc = 1;
+
+	tsfmt = cork_guess_timestamp_format(c, pos);
+	if(tsfmt==1) {
+		de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY],
+			"mod", DE_ARCH_TSTYPE_UNIX, &pos);
+	}
+	else if(tsfmt==2) {
+		de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY],
+			"mod", DE_ARCH_TSTYPE_DOS_DT, &pos);
+	}
+	else {
+		de_dbg(c, "[can't detect timestamp format]");
+		pos += 4;
+	}
+
+	de_arch_read_field_orig_len_p(md, &pos);
+	de_arch_read_field_cmpr_len_p(md, &pos);
+	md->cmpr_pos = pos;
+
+	md->dfn = cork_decompressor_fn;
+	de_arch_extract_member_file(md);
+
+	if(md) {
+		de_arch_destroy_md(c, md);
+		md = NULL;
+	}
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported CORK file");
+		}
+		de_arch_destroy_lctx(c, d);
+	}
+}
+
+static int de_identify_cork(deark *c)
+{
+	if(dbuf_memcmp(c->infile, 0, (const void*)"CORK\1\0", 6)) {
+		return 0;
+	}
+
+	return 100;
+}
+
+void de_module_cork(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "cork";
+	mi->desc = "CORK compressed file";
+	mi->run_fn = de_run_cork;
+	mi->identify_fn = de_identify_cork;
 }

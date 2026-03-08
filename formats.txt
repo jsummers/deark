@@ -966,6 +966,10 @@ in the readme file.)
 * Compressor, The (module="tc_trs80")
   TRS-80 software by John Lauro.
 
+* CORK (module="cork")
+  Compressed file format used for installation. Associated with the company
+  Omega Logic.
+
 * cpio (module="cpio")
 
 * CP Shrink (.cpz) (module="cpshrink")
