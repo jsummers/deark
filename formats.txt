@@ -1488,12 +1488,14 @@ here are most "character graphics" formats, which are in the "Image" section.)
     actual BMP file(s).
   - Extract icons and cursors from LX files. Note that these will use OS/2
     format. Reprocess them with Deark to convert to PNG.
-  - In some cases, extract the archive from a self-extracting archive.
+  - In some cases, extract or decode the payload of an "envelope" file, such
+    as a self-extracting archive, or executable image or text document.
   Options
    -opt execomp - Decompress supported executable compression formats.
    -opt exe:sfx - A hint to decode as a self-extracting archive, and not
     extract the usual icons, etc.
    -opt exe:checksum - Report the correct checksum in the debug info.
+   -opt exe:recurse=0 - Don't extract or decode envelope format payloads.
 
 * FLAC audio (module="flac")
 

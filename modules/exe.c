@@ -38,6 +38,7 @@ typedef struct localctx_struct {
 	u8 sfx_only_mode;
 	u8 extract_std_resources;
 	u8 check_checksum;
+	u8 opt_recurse;
 	u8 rsrc_errflag;
 	struct fmtutil_exe_info *ei;
 
@@ -1775,7 +1776,7 @@ static void do_exesfx(deark *c, lctx *d)
 	u8 suggest_opt_sfx = 0;
 	struct fmtutil_specialexe_detection_data edd;
 
-	if(!d->ei) return;
+	if(!d->ei) goto done;
 	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
 	edd.flags_in |= 0x1;
 	if(d->might_be_ishield_sfx_ne) {
@@ -1839,7 +1840,7 @@ static void do_specialexe(deark *c, lctx *d)
 {
 	struct fmtutil_specialexe_detection_data edd;
 
-	if(!d->ei) return;
+	if(!d->ei) goto done;
 	de_zeromem(&edd, sizeof(struct fmtutil_specialexe_detection_data));
 	edd.flags_in |= 0x1;
 	fmtutil_detect_specialexe(c, d->ei, &edd);
@@ -1911,6 +1912,7 @@ static void do_execomp(deark *c, lctx *d)
 static void de_run_exe(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	const char *s;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -1921,6 +1923,25 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 		}
 	}
 	d->extract_std_resources = 1;
+
+	// TODO: Really need to rethink how to control what to extract.
+	// Especially problematic are envelope formats that we can decode, and
+	// which also may have some standard extractable objects such as resource
+	// icons.
+	// For now, we support only recurse=0. Everthing else is an error.
+	// (One thought is that opt_recurse=1 will mean "report supported formats,
+	// but don't do anything with them".)
+	d->opt_recurse = 2;
+	s = de_get_ext_option(c, "exe:recurse");
+	if(s) {
+		if(s[0]==0) d->opt_recurse = 0xff;
+		else d->opt_recurse = (u8)de_atoi(s);
+		if(d->opt_recurse!=0) {
+			de_err(c, "Invalid option");
+			goto done;
+		}
+	}
+
 	d->execomp_mode = (u8)de_get_ext_option_bool(c, "execomp", 0xff);
 	d->sfx_only_mode = (u8)de_get_ext_option_bool(c, "exe:sfx", 0);
 	if(d->sfx_only_mode) {
@@ -1951,6 +1972,7 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 		}
 	}
 
+	if(d->opt_recurse==0) goto done;
 	if(!d->ei) {
 		d->ei = de_malloc(c, sizeof(struct fmtutil_exe_info));
 		fmtutil_collect_exe_info(c, c->infile, d->ei);
@@ -1992,7 +2014,8 @@ static int de_identify_exe(deark *c)
 static void de_help_exe(deark *c)
 {
 	de_msg(c, "-opt exe:checksum : Calculate the correct checksum");
-	de_msg(c, "-opt exe:sfx : Hint: Decode self-extracting archive");
+	de_msg(c, "-opt exe:recurse=0 : Don't decode envelope format payloads");
+	de_msg(c, "-opt exe:sfx : Hint: Decode certain self-extracting archives");
 	de_msg(c, "-opt execomp : Try to decompress compressed files");
 }
 
