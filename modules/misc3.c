@@ -3187,11 +3187,11 @@ static u8 cork_guess_timestamp_format(deark *c, i64 pos)
 	struct de_timestamp ts;
 
 	v = (UI)de_getu32le(pos);
-	de_dbg(c, "dtval: %u", v);
+	de_dbg2(c, "raw timestamp: 0x%08x", v);
 
 	// Unix dates seen: 1991-1993
 	if(v>=631152000U && //  1 Jan 1990
-		v<852076800) // 1 Jan 1997
+		v<852076800U) // 1 Jan 1997
 	{
 		could_be_unix = 1;
 	}
@@ -3200,7 +3200,7 @@ static u8 cork_guess_timestamp_format(deark *c, i64 pos)
 	}
 
 	could_be_dos = 1;
-	// DOS dates seen: 1993 to 1995
+	// DOS dates seen: 1993-1995
 	yr = 1980+((v&0xfe00)>>9);
 	if(yr<1990 || yr>1999) {
 		could_be_dos = 0;
