@@ -646,17 +646,26 @@ static void do_reloc_table(deark *c, lctx *d)
 	if(c->debug_level>=2) {
 		i64 i;
 		i64 pos = d->reloc_tbl_offset;
-		i64 num_to_dbg = d->num_relocs;
+		i64 num_to_dbg;
 
-		if(num_to_dbg > 5000) num_to_dbg = 5000;
+#define MAX_DBG_RELOCS 5000
+		num_to_dbg = de_min_int(d->num_relocs, MAX_DBG_RELOCS);
 
 		for(i=0; i<num_to_dbg; i++) {
-			i64 offs, para;
+			i64 offs, seg, segoffs;
+			i64 vpos;
+			UI val;
 
 			offs = de_getu16le_p(&pos);
-			para = de_getu16le_p(&pos);
-			de_dbg(c, "reloc[%u]: %04x:%04x (0x%05x)", (UI)i, (UI)para, (UI)offs,
-				(UI)(para*16+offs));
+			seg = de_getu16le_p(&pos);
+			segoffs = seg*16+offs;
+			vpos = d->file_hdr_size+segoffs;
+			val = (UI)de_getu16le(vpos);
+			de_dbg(c, "reloc[%u]: %04x:%04x (0x%05x) [@%"I64_FMT":%04x]",
+				(UI)i, (UI)seg, (UI)offs, (UI)segoffs, vpos, val);
+		}
+		if(num_to_dbg < d->num_relocs) {
+			de_dbg(c, "...");
 		}
 	}
 
