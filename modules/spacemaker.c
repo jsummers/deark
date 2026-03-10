@@ -63,11 +63,9 @@ static void sm_decompress(deark *c, lctx *d)
 	de_dbg(c, "[decompressing]");
 	de_dbg_indent(c, 1);
 
-	// Start by initializing all the decompressed relocs to be the same as
-	// the compressed relocs. This is to ensure we don't miss any in the
-	// initial noncompressed part of the data.
-	// FIXME: This is kind of hacky.
+	// Relocs in the noncompressed "preamble" can be copied unchanged.
 	for(i=0; i<d->gst.num_relocs; i++) {
+		if(d->gst.relocs[i].cmpr_pos >= SM_PREAMBLE_SIZE) break;
 		d->gst.relocs[i].dcmpr_pos = d->gst.relocs[i].cmpr_pos;
 	}
 
@@ -430,7 +428,12 @@ static void sm_write_exe(deark *c, lctx *d)
 	dbuf_writeu16le(outf, (d->gst.final_file_size+511)/512); // 4  # of pages
 	dbuf_writeu16le(outf, d->gst.num_relocs); // 6  # of reloc tbl entries
 	dbuf_writeu16le(outf, d->gst.final_start_of_code / 16); // 8  hdrsize/16
-	dbuf_copy(c->infile, 10, 2, outf); // 10 minmem: TODO: improve this
+	if(d->host_is_exe) {
+		dbuf_copy(c->infile, 10, 2, outf); // 10 minmem: TODO: improve this
+	}
+	else {
+		dbuf_writeu16le(outf, 0x1000); // TODO: Can this be improved?
+	}
 	dbuf_writeu16le(outf, 0xffff); // 12 maxmem
 	dbuf_writeu16le(outf, d->gst.regSS); // 14  ss
 	dbuf_writeu16le(outf, d->gst.regSP); // 16  sp
@@ -458,7 +461,7 @@ static void sm_write_exe(deark *c, lctx *d)
 	// Spacemaker doesn't do overlays, but it does add its own, in the form of
 	// some 0-valued bytes appended to the EXE file. We won't copy the overlay
 	// unless it seems to have been modified.
-	if(d->host_ei->overlay_len>0) {
+	if(d->host_is_exe && d->host_ei->overlay_len>0) {
 		if(!dbuf_is_all_zeroes(c->infile, d->host_ei->end_of_dos_code,
 			d->host_ei->overlay_len))
 		{
