@@ -21,6 +21,7 @@ struct sm_exe_output_info {
 	UI regSP;
 	UI regCS;
 	UI regIP;
+	i64 minalloc;
 	i64 code_pos;
 	i64 num_relocs;
 	i64 relocs_capacity;
@@ -409,6 +410,34 @@ static void sm_write_com_or_raw(deark *c, lctx *d)
 	}
 }
 
+// Sets d->gst.minalloc
+static void sm_calc_gst_minalloc(deark *c, lctx *d)
+{
+	i64 host_minalloc_para;
+	i64 host_codesize_bytes;
+	i64 guest_codesize_bytes;
+
+	if(!d->host_is_exe) {
+		d->gst.minalloc = 0x1000; // TODO: Can this be improved?
+		goto done;
+	}
+
+	host_minalloc_para = de_getu16le(10);
+	host_codesize_bytes = d->host_ei->end_of_dos_code - d->host_ei->start_of_dos_code;
+	guest_codesize_bytes = d->orig_len;
+
+	if(host_codesize_bytes >= guest_codesize_bytes) {
+		d->gst.minalloc = host_minalloc_para;
+		goto done;
+	}
+
+	d->gst.minalloc = host_minalloc_para;
+	d->gst.minalloc -= de_pad_to_n(guest_codesize_bytes-host_codesize_bytes, 16)/16;
+	if(d->gst.minalloc<0) d->gst.minalloc = 0;
+done:
+	;
+}
+
 static void sm_write_exe(deark *c, lctx *d)
 {
 	dbuf *outf = NULL;
@@ -428,13 +457,13 @@ static void sm_write_exe(deark *c, lctx *d)
 	dbuf_writeu16le(outf, (d->gst.final_file_size+511)/512); // 4  # of pages
 	dbuf_writeu16le(outf, d->gst.num_relocs); // 6  # of reloc tbl entries
 	dbuf_writeu16le(outf, d->gst.final_start_of_code / 16); // 8  hdrsize/16
-	if(d->host_is_exe) {
-		dbuf_copy(c->infile, 10, 2, outf); // 10 minmem: TODO: improve this
-	}
-	else {
-		dbuf_writeu16le(outf, 0x1000); // TODO: Can this be improved?
-	}
+
+	sm_calc_gst_minalloc(c, d);
+	dbuf_writeu16le(outf, d->gst.minalloc);
+
+	// SM only compresses files with maxmem=0xffff, so...
 	dbuf_writeu16le(outf, 0xffff); // 12 maxmem
+
 	dbuf_writeu16le(outf, d->gst.regSS); // 14  ss
 	dbuf_writeu16le(outf, d->gst.regSP); // 16  sp
 	dbuf_writeu16le(outf, 0); // 18  checksum
