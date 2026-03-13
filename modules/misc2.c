@@ -43,6 +43,7 @@ DE_DECLARE_MODULE(de_module_fmtowns_hel);
 DE_DECLARE_MODULE(de_module_pixfolio);
 DE_DECLARE_MODULE(de_module_apple2icons);
 DE_DECLARE_MODULE(de_module_pixit);
+DE_DECLARE_MODULE(de_module_optiks_com);
 DE_DECLARE_MODULE(de_module_dxp_image);
 
 static void datetime_dbgmsg(deark *c, struct de_timestamp *ts, const char *name)
@@ -3965,6 +3966,79 @@ void de_module_pixit(deark *c, struct deark_module_info *mi)
 	mi->desc = "PIXIT/pix320 executable image";
 	mi->run_fn = de_run_pixit;
 	mi->identify_fn = de_identify_pixit;
+}
+
+// **************************************************************************
+// OPTIKS COM executable graphics
+// **************************************************************************
+
+static void de_run_optiks_com(deark *c, de_module_params *mparams)
+{
+	u64 payload_pos = 0;
+	i64 w, h;
+	u8 ver = 0;
+	UI x;
+	i64 pos;
+	i64 rowspan;
+	de_bitmap *img = NULL;
+	dbuf *unc_pixels = NULL;
+
+	x = (UI)de_getu32be(316);
+	if(x==0xbb0010b4U) {
+		ver = 1; // v2.11-2.15
+		payload_pos = 5680;
+	}
+	else if(x==0x8d1e7017U) {
+		ver = 2; // v2.16-3.01
+		payload_pos = 5744;
+	}
+
+	if(ver) {
+		x = (UI)de_getu32be(payload_pos-13);
+		if(x!=0xe844fdc3U) {
+			ver = 0;
+		}
+	}
+
+	if(ver==0) {
+		de_err(c, "Unknown version");
+		goto done;
+	}
+
+	pos = payload_pos;
+	rowspan = de_getu16le_p(&pos);
+	w = rowspan*8;
+	h = de_getu16le_p(&pos);
+	de_dbg_dimensions(c, w, h);
+	if(!de_good_image_dimensions(c, w, h)) goto done;
+
+	unc_pixels = dbuf_create_membuf(c, rowspan*h, 0x1);
+	fmtutil_decompress_packbits(c->infile, pos, c->infile->len-pos,
+		unc_pixels, NULL);
+	img = de_bitmap_create(c, w, h, 1);
+	de_convert_image_bilevel(unc_pixels, 0, rowspan, img, 0);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_IS_BWIMG);
+done:
+	de_bitmap_destroy(img);
+	dbuf_close(unc_pixels);
+}
+
+static int de_identify_optiks_com(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0,
+		(const void*)"\xe9\x39\x01\x0d\x0a\x4f\x50\x54", 8))
+	{
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_optiks_com(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "optiks_com";
+	mi->desc = "OPTIKS COM executable image";
+	mi->run_fn = de_run_optiks_com;
+	mi->identify_fn = de_identify_optiks_com;
 }
 
 // **************************************************************************

@@ -1089,11 +1089,22 @@ static int de_identify_ansiart(deark *c)
 	int has_ans_ext;
 
 	if(!c->detection_data->SAUCE_detection_attempted) {
-		de_err(c, "ansiart detection requires sauce module");
+		// We require the sauce module to be enabled, and to appear before
+		// ansiart in the module list.
+		// TODO?: We *could* do without it when it's not available, but that
+		// would create extra complications.
+		// TODO?: Somehow make it a critical error if the modules are in the
+		// wrong order.
 		return 0;
 	}
 
 	de_read(buf, 0, 4);
+
+	if(buf[0]==0x01) {
+		if(de_input_file_has_ext(c, "adf")) {
+			return 0; // Most likely ArtWorx ADF, not ANSI Art.
+		}
+	}
 
 	if(!de_memcmp(buf, "\x04\x31\x2e\x34", 4)) {
 		// Looks like iCEDraw format, which may use the same SAUCE identifiers

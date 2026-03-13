@@ -679,7 +679,6 @@ static int de_identify_ogg(deark *c)
 	i64 pos = 0;
 
 	if(!c->detection_data->id3.detection_attempted) {
-		de_err(c, "ogg detection requires id3 module");
 		return 0;
 	}
 

@@ -77,7 +77,7 @@ OFILES_MODS_IO:=$(addprefix $(OBJDIR)/modules/,misc.o misc2.o misc3.o \
  misc-font.o iccprofile.o icns.o \
  id3.o ico.o iff.o ilbm.o insetpix.o iptc.o jbf.o jovianvi.o jpeg.o lha.o \
  j2c.o ogg.o olepropset.o iso9660.o macbinary.o macrsrc.o lzexe.o nufx.o \
- macpaint.o makichan.o mbk.o mmm.o mp3.o mscompress.o mac-arch.o \
+ kdc.o macpaint.o makichan.o mbk.o mmm.o mp3.o mscompress.o mac-arch.o \
  mahjong.o msp.o mmfw.o nokia.o os2bmp.o ole1.o os2pack.o \
  officeart.o lbr.o megapaint.o nie.o installshld.o os2ea.o os2bootlogo.o)
 OFILES_MODS_PQ:=$(addprefix $(OBJDIR)/modules/,psd.o palmbitmap.o palmpdb.o \
@@ -88,7 +88,7 @@ OFILES_MODS_RZ:=$(addprefix $(OBJDIR)/modules/,riff.o rosprite.o rpm.o \
  rsc.o shg.o spectrum512.o sunras.o t64.o tar.o tga.o tiff.o tim.o \
  tivariable.o unsupported.o vort.o wad.o wmf.o wpg.o wri.o xface.o \
  stuffit.o sis.o sauce.o xfer.o zip.o zoo.o rar.o rodraw.o unifont.o rm.o \
- reko.o sgiimage.o storyboard.o xwd.o)
+ reko.o sgiimage.o spacemaker.o storyboard.o xwd.o)
 OFILES_MODS:=$(OFILES_MODS_AB) $(OFILES_MODS_CH) $(OFILES_MODS_IO) \
  $(OFILES_MODS_PQ) $(OFILES_MODS_RZ)
 

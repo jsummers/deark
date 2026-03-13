@@ -18,8 +18,6 @@ DE_DECLARE_MODULE(de_module_cazip);
 DE_DECLARE_MODULE(de_module_cmz);
 DE_DECLARE_MODULE(de_module_pcshrink);
 DE_DECLARE_MODULE(de_module_arcv);
-DE_DECLARE_MODULE(de_module_red);
-DE_DECLARE_MODULE(de_module_lif_kdc);
 DE_DECLARE_MODULE(de_module_ain);
 DE_DECLARE_MODULE(de_module_hta);
 DE_DECLARE_MODULE(de_module_hit);
@@ -28,6 +26,7 @@ DE_DECLARE_MODULE(de_module_tc_trs80);
 DE_DECLARE_MODULE(de_module_ea_arch);
 DE_DECLARE_MODULE(de_module_zpk2);
 DE_DECLARE_MODULE(de_module_iconheaven);
+DE_DECLARE_MODULE(de_module_cork);
 
 static int dclimplode_header_at(deark *c, i64 pos)
 {
@@ -1938,293 +1937,6 @@ void de_module_arcv(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
-// Knowledge Dynamics .RED (including newer .LIF files)
-// **************************************************************************
-
-static void de_run_red(deark *c, de_module_params *mparams)
-{
-	de_arch_lctx *d = NULL;
-	i64 pos = 0;
-	UI id;
-	struct de_arch_member_data *md = NULL;
-	int saved_indent_level;
-
-	de_dbg_indent_save(c, &saved_indent_level);
-	d = de_arch_create_lctx(c);
-	d->is_le = 1;
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
-
-	while(1) {
-		u8 b;
-
-		if(pos >= c->infile->len) goto done;
-		if(md) {
-			de_arch_destroy_md(c, md);
-			md = NULL;
-		}
-		md = de_arch_create_md(c, d);
-		md->member_hdr_pos = pos;
-
-		id = (UI)de_getu16be_p(&pos);
-		b = de_getbyte_p(&pos); // Format version? Always 1.
-		md->member_hdr_size = (i64)de_getbyte_p(&pos); // Always 41?
-		if(id!=0x5252U || b!=0x01 || md->member_hdr_size<39) {
-			de_err(c, "Member not found at %"I64_FMT, md->member_hdr_pos);
-			goto done;
-		}
-
-		de_dbg(c, "member at %"I64_FMT, md->member_hdr_pos);
-		de_dbg_indent(c, 1);
-
-		de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
-			DE_ARCH_TSTYPE_DOS_TD, &pos);
-		de_arch_read_field_cmpr_len_p(md, &pos);
-		de_arch_read_field_orig_len_p(md, &pos);
-
-		pos = md->member_hdr_pos + 26;
-		dbuf_read_to_ucstring(c->infile, pos, 12, md->filename, DE_CONVFLAG_STOP_AT_NUL,
-			d->input_encoding);
-		de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
-		// Filename field is 13 bytes.
-		// Then a 2-byte field unidentified field.
-
-		md->cmpr_pos = md->member_hdr_pos + md->member_hdr_size;
-		de_dbg(c, "compressed data at %"I64_FMT", len=%"I64_FMT, md->cmpr_pos, md->cmpr_len);
-
-		de_dbg_indent(c, -1);
-		pos = md->cmpr_pos + md->cmpr_len;
-	}
-
-done:
-	de_dbg_indent_restore(c, saved_indent_level);
-	if(md) {
-		de_arch_destroy_md(c, md);
-		md = NULL;
-	}
-	if(d) {
-		if(d->need_errmsg) {
-			de_err(c, "Bad or unsupported RED file");
-		}
-		de_arch_destroy_lctx(c, d);
-	}
-}
-
-static int de_identify_red(deark *c)
-{
-	if((UI)de_getu32be(0) != 0x52520129U) return 0;
-	return 100;
-}
-
-void de_module_red(deark *c, struct deark_module_info *mi)
-{
-	mi->id = "red";
-	mi->desc = "RED installer archive (Knowledge Dynamics Corp)";
-	mi->run_fn = de_run_red;
-	mi->identify_fn = de_identify_red;
-	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
-}
-
-// **************************************************************************
-// Knowledge Dynamics .LIF (old format)
-// **************************************************************************
-
-// It's ugly to have two different ways of reading these ASCII-encoded-hex-
-// digits fields. But the needs of the 'identify' phase, and the 'run' phase,
-// are different enough that it's how I've chosen to do it.
-
-static i64 lif_read_field(dbuf *f, i64 pos1, i64 len, int *perrflag)
-{
-	i64 val = 0;
-	i64 i;
-	i64 pos = pos1;
-
-	for(i=0; i<len; i++) {
-		u8 b;
-		i64 nv;
-
-		b = dbuf_getbyte_p(f, &pos);
-		if(b>='0' && b<='9') {
-			nv = b - 48;
-		}
-		else if(b>='a' && b<='f') {
-			nv = b - 87;
-		}
-		else {
-			*perrflag = 1;
-			return 0;
-		}
-
-		val = (val<<4) | nv;
-	}
-	return val;
-}
-
-static int lif_kdc_convert_hdr(deark *c, i64 pos1, dbuf *f2)
-{
-	i64 pos = pos1;
-	int i;
-	int errorflag = 0;
-
-	for(i=0; i<17; i++) {
-		u8 b0, b1;
-		u8 x0, x1;
-
-		b0 = de_getbyte_p(&pos);
-		b1 = de_getbyte_p(&pos);
-		x0 = de_decode_hex_digit(b0, &errorflag);
-		if(errorflag) return 0;
-		x1 = de_decode_hex_digit(b1, &errorflag);
-		if(errorflag) return 0;
-		dbuf_writebyte(f2, (u8)((x0<<4)|x1));
-	}
-	return 1;
-}
-
-static void lif_method2_decompressor_fn(struct de_arch_member_data *md)
-{
-	deark *c = md->c;
-	struct de_lzw_params delzwp;
-
-	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
-	delzwp.fmt = DE_LZWFMT_ZOOLZD;
-	fmtutil_decompress_lzw(c, md->dcmpri, md->dcmpro, md->dres, &delzwp);
-}
-
-static void de_run_lif_kdc(deark *c, de_module_params *mparams)
-{
-	de_arch_lctx *d = NULL;
-	i64 pos = 0;
-	struct de_arch_member_data *md = NULL;
-	dbuf *f2 = NULL;
-	int saved_indent_level;
-
-	de_dbg_indent_save(c, &saved_indent_level);
-	d = de_arch_create_lctx(c);
-	d->is_le = 0;
-	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
-	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_IBM3740);
-	f2 = dbuf_create_membuf(c, 17, 0);
-
-	while(1) {
-		i64 f2_pos;
-		u32 crc1_reported;
-
-		if(pos >= c->infile->len) goto done;
-		if(md) {
-			de_arch_destroy_md(c, md);
-			md = NULL;
-		}
-
-		dbuf_empty(f2);
-		// Decode the hex-encoded part of the header, so that we can read it
-		// more easily.
-		if(!lif_kdc_convert_hdr(c, pos, f2)) {
-			d->need_errmsg = 1;
-			goto done;
-		}
-
-		md = de_arch_create_md(c, d);
-		md->member_hdr_pos = pos;
-		md->member_hdr_size = 54;
-
-		de_dbg(c, "member at %"I64_FMT, md->member_hdr_pos);
-		de_dbg_indent(c, 1);
-
-		d->inf = f2;
-		f2_pos = 0;
-
-		de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
-			DE_ARCH_TSTYPE_DOS_DT, &f2_pos);
-		de_arch_read_field_cmpr_len_p(md, &f2_pos);
-		de_arch_read_field_orig_len_p(md, &f2_pos);
-
-		crc1_reported = (u32)dbuf_getu16be_p(f2, &f2_pos);
-		de_dbg(c, "crc of cmpr. data (reported): 0x%04x", (UI)crc1_reported);
-		md->crc_reported = (u32)dbuf_getu16be_p(f2, &f2_pos);
-		de_dbg(c, "crc of orig. data (reported): 0x%04x", (UI)md->crc_reported);
-
-		md->cmpr_meth = (UI)dbuf_getbyte_p(f2, &f2_pos);
-		de_dbg(c, "cmpr. method: %u", md->cmpr_meth);
-		d->inf = c->infile;
-
-		pos = md->member_hdr_pos + 34;
-		// TODO: How long is the filename field?
-		dbuf_read_to_ucstring(c->infile, pos, 12, md->filename, DE_CONVFLAG_STOP_AT_NUL,
-			d->input_encoding);
-		de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
-
-		md->cmpr_pos = md->member_hdr_pos + md->member_hdr_size;
-		de_dbg(c, "compressed data at %"I64_FMT", len=%"I64_FMT, md->cmpr_pos, md->cmpr_len);
-
-		md->validate_crc = 1;
-		if(md->cmpr_meth==1) {
-			md->dfn = noncompressed_decompressor_fn;
-			de_arch_extract_member_file(md);
-		}
-		else if(md->cmpr_meth==2) {
-			md->dfn = lif_method2_decompressor_fn;
-			de_arch_extract_member_file(md);
-		}
-		else {
-			de_err(c, "Unsupported compression: %u", (UI)md->cmpr_meth);
-		}
-
-		de_dbg_indent(c, -1);
-		pos = md->cmpr_pos + md->cmpr_len;
-	}
-
-done:
-	de_dbg_indent_restore(c, saved_indent_level);
-	if(md) {
-		de_arch_destroy_md(c, md);
-		md = NULL;
-	}
-	if(d) {
-		if(d->need_errmsg) {
-			de_err(c, "Bad or unsupported LIF file");
-		}
-		de_arch_destroy_lctx(c, d);
-	}
-	dbuf_close(f2);
-}
-
-static int de_identify_lif_kdc(deark *c)
-{
-	i64 cmprmeth;
-	int errflag = 0;
-	int has_ext;
-	u8 b;
-	i64 i;
-	i64 n[4];
-
-	cmprmeth = lif_read_field(c->infile, 32, 2, &errflag);
-	if(errflag) return 0;
-	if(cmprmeth<1 || cmprmeth>3) return 0;
-
-	b = de_getbyte(34); // 1st char of filename
-	if(b<32) return 0;
-	b = de_getbyte(53); // last char of NUL-padded filename field??
-	if(b!=0) return 0;
-
-	for(i=0; i<4; i++) {
-		n[i] = lif_read_field(c->infile, 8*i, 8, &errflag);
-		if(errflag) return 0;
-	}
-	if(54+n[1] > c->infile->len) return 0; // File too short
-
-	has_ext = de_input_file_has_ext(c, "lif");
-	return has_ext ? 45 : 15;
-}
-
-void de_module_lif_kdc(deark *c, struct deark_module_info *mi)
-{
-	mi->id = "lif_kdc";
-	mi->desc = "LIF installer archive (Knowledge Dynamics Corp)";
-	mi->run_fn = de_run_lif_kdc;
-	mi->identify_fn = de_identify_lif_kdc;
-}
-
-// **************************************************************************
 // AIN archive (Transas Marine Ltd)
 // **************************************************************************
 
@@ -3439,4 +3151,141 @@ void de_module_iconheaven(deark *c, struct deark_module_info *mi)
 	mi->desc = "Icon Heaven library (.fim)";
 	mi->run_fn = de_run_iconheaven;
 	mi->identify_fn = de_identify_iconheaven;
+}
+
+// **************************************************************************
+// CORK - Installer format by Omega Logic
+// **************************************************************************
+
+// This is the same as ARC method #8.
+static void cork_decompressor_fn(struct de_arch_member_data *md)
+{
+	struct de_dcmpr_two_layer_params tlp;
+	struct de_lzw_params delzwp;
+
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
+	delzwp.fmt = DE_LZWFMT_UNIXCOMPRESS;
+	delzwp.flags |= DE_LZWFLAG_HAS1BYTEHEADER;
+	de_zeromem(&tlp, sizeof(struct de_dcmpr_two_layer_params));
+	tlp.codec1_pushable = dfilter_lzw_codec;
+	tlp.codec1_private_params = (void*)&delzwp;
+	tlp.codec2 = dfilter_rle90_codec;
+	tlp.dcmpri = md->dcmpri;
+	tlp.dcmpro = md->dcmpro;
+	tlp.dres = md->dres;
+	de_dfilter_decompress_two_layer(md->c, &tlp);
+}
+
+// Ugh. Some files seem to use DOS timestamp format, others Unix.
+// Returns 1=Unix, 2=DOS, 0=unknown.
+static u8 cork_guess_timestamp_format(deark *c, i64 pos)
+{
+	UI v;
+	i64 yr;
+	u8 could_be_dos;
+	u8 could_be_unix;
+	struct de_timestamp ts;
+
+	v = (UI)de_getu32le(pos);
+	de_dbg2(c, "raw timestamp: 0x%08x", v);
+
+	// Unix dates seen: 1991-1993
+	if(v>=631152000U && //  1 Jan 1990
+		v<852076800U) // 1 Jan 1997
+	{
+		could_be_unix = 1;
+	}
+	else {
+		could_be_unix = 0;
+	}
+
+	could_be_dos = 1;
+	// DOS dates seen: 1993-1995
+	yr = 1980+((v&0xfe00)>>9);
+	if(yr<1990 || yr>1999) {
+		could_be_dos = 0;
+	}
+	if(could_be_dos) {
+		de_dos_datetime_to_timestamp(&ts, (i64)(v&0xffff), (i64)(v>>16));
+		if(!ts.is_valid) {
+			could_be_dos = 0;
+		}
+	}
+
+	if(could_be_unix && !could_be_dos) return 1;
+	if(could_be_dos && !could_be_unix) return 2;
+	return 0;
+}
+
+static void de_run_cork(deark *c, de_module_params *mparams)
+{
+	de_arch_lctx *d = NULL;
+	struct de_arch_member_data *md = NULL;
+	i64 pos;
+	UI tsfmt;
+
+	d = de_arch_create_lctx(c);
+	d->is_le = 1;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
+	md = de_arch_create_md(c, d);
+	pos = 6;
+
+	dbuf_read_to_ucstring(c->infile, pos, 12, md->filename, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+	pos += 13;
+
+	md->crc_reported = (u32)de_getu16le_p(&pos);
+	de_dbg(c, "crc (reported): 0x%04x", (UI)md->crc_reported);
+	md->validate_crc = 1;
+
+	tsfmt = cork_guess_timestamp_format(c, pos);
+	if(tsfmt==1) {
+		de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY],
+			"mod", DE_ARCH_TSTYPE_UNIX, &pos);
+	}
+	else if(tsfmt==2) {
+		de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY],
+			"mod", DE_ARCH_TSTYPE_DOS_DT, &pos);
+	}
+	else {
+		de_dbg(c, "[can't detect timestamp format]");
+		pos += 4;
+	}
+
+	de_arch_read_field_orig_len_p(md, &pos);
+	de_arch_read_field_cmpr_len_p(md, &pos);
+	md->cmpr_pos = pos;
+
+	md->dfn = cork_decompressor_fn;
+	de_arch_extract_member_file(md);
+
+	if(md) {
+		de_arch_destroy_md(c, md);
+		md = NULL;
+	}
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported CORK file");
+		}
+		de_arch_destroy_lctx(c, d);
+	}
+}
+
+static int de_identify_cork(deark *c)
+{
+	if(dbuf_memcmp(c->infile, 0, (const void*)"CORK\1\0", 6)) {
+		return 0;
+	}
+
+	return 100;
+}
+
+void de_module_cork(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "cork";
+	mi->desc = "CORK compressed file";
+	mi->run_fn = de_run_cork;
+	mi->identify_fn = de_identify_cork;
 }

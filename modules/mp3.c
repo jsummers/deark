@@ -609,7 +609,6 @@ static int de_identify_mpegaudio(deark *c)
 	i64 pos;
 
 	if(!c->detection_data->id3.detection_attempted) {
-		de_err(c, "mpegaudio detection requires id3 module");
 		return 0;
 	}
 

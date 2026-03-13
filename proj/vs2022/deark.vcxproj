@@ -253,6 +253,7 @@
     <ClCompile Include="..\..\modules\jbf.c" />
     <ClCompile Include="..\..\modules\jovianvi.c" />
     <ClCompile Include="..\..\modules\jpeg.c" />
+    <ClCompile Include="..\..\modules\kdc.c" />
     <ClCompile Include="..\..\modules\lbr.c" />
     <ClCompile Include="..\..\modules\lha.c" />
     <ClCompile Include="..\..\modules\lzexe.c" />
@@ -321,6 +322,7 @@
     <ClCompile Include="..\..\modules\sgiimage.c" />
     <ClCompile Include="..\..\modules\shg.c" />
     <ClCompile Include="..\..\modules\sis.c" />
+    <ClCompile Include="..\..\modules\spacemaker.c" />
     <ClCompile Include="..\..\modules\spectrum512.c" />
     <ClCompile Include="..\..\modules\storyboard.c" />
     <ClCompile Include="..\..\modules\stuffit.c" />

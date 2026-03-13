@@ -73,8 +73,11 @@ Deark -- Information about supported formats
   - In some cases, you may have to use "-m fp_art".
 
 * ArtWorx Data Format (ADF) (module="artworx_adf")
+  - In rare cases, or if the file extension is not ".adf", you may have to use
+    "-m artworx_adf".
   Options
    -opt char:... - See main documentation.
+   -a - Also extract the embedded font.
 
 * AutoCAD Slide Library (.slb) (module="autocad_slb")
   - Extracts the component AutoCAD Slide (.sld) files.
@@ -501,6 +504,8 @@ Deark -- Information about supported formats
 
 * OLPC .565 firmware icon (module="olpc565")
 
+* OPTIKS COM (module="optiks_com")
+
 * OS/2 boot logo (module="os2bootlogo")
   - You may have to use "-m os2bootlogo" in some cases.
 
@@ -807,9 +812,9 @@ Deark -- Information about supported formats
 
 * XBIN (module="xbin")
   Renders XBIN character graphics to a bitmap (default) or HTML.
-  - Extract embedded fonts (use -a).
   Options
    -opt char:output=html - Output to HTML instead of PNG
+   -a - Also extract the embedded font, if present.
 
 * X-Face (icon/avatar format) (module="xface")
   - You may have to use "-m xface".
@@ -960,6 +965,10 @@ in the readme file.)
 
 * Compressor, The (module="tc_trs80")
   TRS-80 software by John Lauro.
+
+* CORK (module="cork")
+  Compressed file format used for installation. Associated with the company
+  Omega Logic.
 
 * cpio (module="cpio")
 
@@ -1220,6 +1229,12 @@ in the readme file.)
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
 
+* RED (Knowledge Dynamics) (module="red")
+  An installer-archive format, successor to LIF.
+  Options
+   -opt red:combine - Instead of decoding, combine the files of a multi-segment
+     archive into a single RED file. Use with "-mp".
+
 * RPM (package manager) (module="rpm")
   - Extract compressed cpio file.
 
@@ -1233,6 +1248,11 @@ in the readme file.)
   - EPOC release 3/4/5/6
 
 * SOF/RESOF (part of module "zip")
+
+* Spacemaker (module="spacemaker") (experimental)
+  Realia Spacemaker executable compression.
+  Options
+   -opt spacemaker:raw - If original file was EXE, write raw decompressed data.
 
 * Spark archive (module="spark")
   Options
@@ -1387,6 +1407,13 @@ here are most "character graphics" formats, which are in the "Image" section.)
   Options
    -opt text:encconv=0 - Suppress character encoding translation.
 
+* TurboTXT (module="turbotxt")
+  Executable text files made by TurboTXT (by Foley Hi-Tech Systems or
+  HyperWare).
+  - Supports both COM and EXE-based formats.
+  Options
+   -opt text:encconv=0 - Suppress character encoding translation.
+
 * TXT2COM (module="txt2com")
   Executable text (.COM) files made by Graham's TXT2COM utility.
   - Extracts the source text. Does not necessarily render the document (e.g.
@@ -1461,12 +1488,14 @@ here are most "character graphics" formats, which are in the "Image" section.)
     actual BMP file(s).
   - Extract icons and cursors from LX files. Note that these will use OS/2
     format. Reprocess them with Deark to convert to PNG.
-  - In some cases, extract the archive from a self-extracting archive.
+  - In some cases, extract or decode the payload of an "envelope" file, such
+    as a self-extracting archive, or executable image or text document.
   Options
    -opt execomp - Decompress supported executable compression formats.
    -opt exe:sfx - A hint to decode as a self-extracting archive, and not
     extract the usual icons, etc.
    -opt exe:checksum - Report the correct checksum in the debug info.
+   -opt exe:recurse=0 - Don't extract or decode envelope format payloads.
 
 * FLAC audio (module="flac")
 
@@ -1649,7 +1678,6 @@ ole1 - Windows OLE1, for internal use.
 olepropset - OLE Property Sets.
 os2pack2 - OS/2 PACK2 ("FTCOMP") compressed archive.
 pegasus_pic2 - Pegasus PIC2/ePIC image.
-red - Knowledge Dynamics installer-archive.
 rgfx - RGFX Amiga image.
 rm - RealMedia.
 sauce - SAUCE metadata, for internal use.

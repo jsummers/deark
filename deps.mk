@@ -171,6 +171,8 @@ $(OBJDIR)/modules/jovianvi.o: modules/jovianvi.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/jpeg.o: modules/jpeg.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/kdc.o: modules/kdc.c src/deark-private.h src/deark.h \
+ src/deark-config.h src/deark-fmtutil-arch.h src/deark-fmtutil.h
 $(OBJDIR)/modules/lbr.o: modules/lbr.c src/deark-private.h src/deark.h \
  src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/lha.o: modules/lha.c src/deark-config.h \
@@ -309,6 +311,8 @@ $(OBJDIR)/modules/shg.o: modules/shg.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/sis.o: modules/sis.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/spacemaker.o: modules/spacemaker.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/spectrum512.o: modules/spectrum512.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/storyboard.o: modules/storyboard.c src/deark-private.h \
