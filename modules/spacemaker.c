@@ -58,11 +58,14 @@ static void sm_decompress(deark *c, lctx *d)
 	i64 i;
 	i64 nrelocs_left;
 	u8 b[2];
+	u8 use_part2;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "[decompressing]");
 	de_dbg_indent(c, 1);
+
+	use_part2 = (d->orig_len > SM_PREAMBLE_SIZE);
 
 	// Relocs in the noncompressed "preamble" can be copied unchanged.
 	for(i=0; i<d->gst.num_relocs; i++) {
@@ -80,7 +83,7 @@ static void sm_decompress(deark *c, lctx *d)
 	ipos = d->cmpr_len;
 	istartpos = SM_PREAMBLE_SIZE;
 
-	if(d->orig_len <= SM_PREAMBLE_SIZE) {
+	if(!use_part2) {
 		goto done;
 	}
 
@@ -172,13 +175,13 @@ static void sm_decompress(deark *c, lctx *d)
 	}
 
 done:
-	if(!d->errflag) {
+	if(use_part2 && !d->errflag) {
 		if(ipos!=istartpos || opos!=SM_PREAMBLE_SIZE) {
 			d->errflag = 1;
 			d->need_errmsg = 1;
 		}
 	}
-	if(!d->errflag) {
+	if(use_part2 && !d->errflag) {
 		de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT, d->part2_len,
 			(i64)(d->dcmpr_code->len-SM_PREAMBLE_SIZE));
 	}
@@ -574,9 +577,12 @@ static void spacemaker_main(deark *c, lctx *d)
 	d->part2_len = d->part2_endpos - d->part2_pos;
 	d->cmpr_len = d->part1_len + d->part2_len;
 
-	de_dbg(c, "part1 at c+%"I64_FMT", len=%"I64_FMT, d->part1_pos, d->part1_len);
-	de_dbg(c, "part2 at c+%"I64_FMT", len=%"I64_FMT, d->part2_pos, d->part2_len);
-	de_dbg(c, "part3 at c+%"I64_FMT", len=%"I64_FMT, d->part3_pos, d->part3_len);
+	de_dbg(c, "part1 at %"I64_FMT"+%"I64_FMT", len=%"I64_FMT,
+		code_pos, d->part1_pos, d->part1_len);
+	de_dbg(c, "part2 at %"I64_FMT"+%"I64_FMT", len=%"I64_FMT,
+		code_pos, d->part2_pos, d->part2_len);
+	de_dbg(c, "part3 at %"I64_FMT"+%"I64_FMT", len=%"I64_FMT,
+		code_pos, d->part3_pos, d->part3_len);
 
 	if(d->host_is_exe) {
 		// SM doesn't allow COM->EXE, so this must be EXE->EXE.
