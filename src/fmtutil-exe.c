@@ -408,9 +408,8 @@ static void detect_execomp_spacemaker(deark *c,
 
 	read_exe_testbytes(ei);
 
-	if(!de_memmatch(ei->ep64b,
-		(const u8*)"\x9c\x55\x56\x8c\xcd\x83\xc5\x10\x8d\xb6??\x56\xbe??\x56\xcb",
-		18, '?', 0))
+	if(de_memcmp(ei->ep64b,
+		(const u8*)"\x9c\x55\x56\x8c\xcd\x83\xc5\x10\x8d\xb6", 10))
 	{
 		goto done;
 	}
