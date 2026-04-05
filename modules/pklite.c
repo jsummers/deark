@@ -125,9 +125,12 @@ typedef struct localctx_pklite {
 
 	i64 cmpr_data_endpos; // = reloc_tbl_pos
 	i64 reloc_tbl_endpos;
+	i64 cmpr_reloc_tbl_len;
 	i64 cmpr_data_area_endpos; // where the footer ends
 	i64 footer_pos; // 0 if unknown
 	struct footer_struct footer;
+	UI ax_val;
+	u8 using_copy_of_exe_header;
 
 	dbuf *hdr_for_dcmpr_file; // copied or constructed header for the decompressed file
 	dbuf *guest_reloc_table;
@@ -238,9 +241,11 @@ static void analyze_intro(deark *c, lctx *d)
 
 	// Initial DX register is sometimes used as a key.
 	if(pkl_memmatch(&d->epbytes[0], (const u8*)"\xb8??\xba", 4, '?', 0)) {
+		d->ax_val = (UI)de_getu16le_direct(&d->epbytes[1]);
 		d->initial_key = (UI)de_getu16le_direct(&d->epbytes[4]);
 	}
 	else if(pkl_memmatch(&d->epbytes[0], (const u8*)"\x50\xb8??\xba", 5, '?', 0)) {
+		d->ax_val = (UI)de_getu16le_direct(&d->epbytes[2]);
 		d->initial_key = (UI)de_getu16le_direct(&d->epbytes[5]);
 	}
 
@@ -1416,8 +1421,9 @@ static void do_read_reloc_table_short(deark *c, lctx *d, i64 pos1, i64 len)
 	}
 
 	d->reloc_tbl_endpos = pos;
-	de_dbg(c, "cmpr reloc table ends at %"I64_FMT", entries=%d", d->reloc_tbl_endpos,
-		(int)reloc_count);
+	d->cmpr_reloc_tbl_len = d->reloc_tbl_endpos - pos1;
+	de_dbg(c, "cmpr reloc table ends at %"I64_FMT", entries=%d, len=%"I64_FMT,
+		d->reloc_tbl_endpos, (int)reloc_count, d->cmpr_reloc_tbl_len);
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -1485,8 +1491,9 @@ static void do_read_reloc_table_long(deark *c, lctx *d, i64 pos1, i64 len)
 	}
 
 	d->reloc_tbl_endpos = pos;
-	de_dbg(c, "cmpr reloc table ends at %"I64_FMT", entries=%d", d->reloc_tbl_endpos,
-		(int)reloc_count);
+	d->cmpr_reloc_tbl_len = d->reloc_tbl_endpos - pos1;
+	de_dbg(c, "cmpr reloc table ends at %"I64_FMT", entries=%d, len=%"I64_FMT,
+		d->reloc_tbl_endpos, (int)reloc_count, d->cmpr_reloc_tbl_len);
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -1759,6 +1766,9 @@ static void acquire_new_exe_header(deark *c, lctx *d)
 	dbuf_writeu16le(d->hdr_for_dcmpr_file, 0x5a4d); // "MZ"
 
 	ret = read_orig_header(c, d);
+	if(ret) {
+		d->using_copy_of_exe_header = 1;
+	}
 	if(ret) goto done; // If success, we're done. Otherwise try other method.
 
 	dbuf_truncate(d->hdr_for_dcmpr_file, 2);
