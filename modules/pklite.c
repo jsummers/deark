@@ -55,6 +55,7 @@ typedef struct localctx_pklite {
 	u8 raw_mode;
 
 	u8 is_com;
+	u8 is_may90_beta;
 	u8 data_before_decoder;
 	u8 load_high;
 	u8 has_psp_sig;
@@ -125,9 +126,12 @@ typedef struct localctx_pklite {
 
 	i64 cmpr_data_endpos; // = reloc_tbl_pos
 	i64 reloc_tbl_endpos;
+	i64 cmpr_reloc_tbl_len;
 	i64 cmpr_data_area_endpos; // where the footer ends
 	i64 footer_pos; // 0 if unknown
 	struct footer_struct footer;
+	UI ax_val;
+	u8 using_copy_of_exe_header;
 
 	dbuf *hdr_for_dcmpr_file; // copied or constructed header for the decompressed file
 	dbuf *guest_reloc_table;
@@ -238,17 +242,21 @@ static void analyze_intro(deark *c, lctx *d)
 
 	// Initial DX register is sometimes used as a key.
 	if(pkl_memmatch(&d->epbytes[0], (const u8*)"\xb8??\xba", 4, '?', 0)) {
+		d->ax_val = (UI)de_getu16le_direct(&d->epbytes[1]);
 		d->initial_key = (UI)de_getu16le_direct(&d->epbytes[4]);
 	}
 	else if(pkl_memmatch(&d->epbytes[0], (const u8*)"\x50\xb8??\xba", 5, '?', 0)) {
+		d->ax_val = (UI)de_getu16le_direct(&d->epbytes[2]);
 		d->initial_key = (UI)de_getu16le_direct(&d->epbytes[5]);
 	}
 
 	if(d->intro_class_fmtutil==90) {
+		d->is_may90_beta = 1;
 		d->intro_class = INTRO_CLASS_BETA;
 		d->data_before_decoder = 1;
 	}
 	else if(d->intro_class_fmtutil==91) {
+		d->is_may90_beta = 1;
 		d->intro_class = INTRO_CLASS_BETA_LH;
 		d->data_before_decoder = 1;
 		d->load_high = 1;
@@ -1416,8 +1424,9 @@ static void do_read_reloc_table_short(deark *c, lctx *d, i64 pos1, i64 len)
 	}
 
 	d->reloc_tbl_endpos = pos;
-	de_dbg(c, "cmpr reloc table ends at %"I64_FMT", entries=%d", d->reloc_tbl_endpos,
-		(int)reloc_count);
+	d->cmpr_reloc_tbl_len = d->reloc_tbl_endpos - pos1;
+	de_dbg(c, "cmpr reloc table ends at %"I64_FMT", entries=%d, len=%"I64_FMT,
+		d->reloc_tbl_endpos, (int)reloc_count, d->cmpr_reloc_tbl_len);
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -1485,8 +1494,9 @@ static void do_read_reloc_table_long(deark *c, lctx *d, i64 pos1, i64 len)
 	}
 
 	d->reloc_tbl_endpos = pos;
-	de_dbg(c, "cmpr reloc table ends at %"I64_FMT", entries=%d", d->reloc_tbl_endpos,
-		(int)reloc_count);
+	d->cmpr_reloc_tbl_len = d->reloc_tbl_endpos - pos1;
+	de_dbg(c, "cmpr reloc table ends at %"I64_FMT", entries=%d, len=%"I64_FMT,
+		d->reloc_tbl_endpos, (int)reloc_count, d->cmpr_reloc_tbl_len);
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -1550,6 +1560,8 @@ static void do_write_dcmpr(deark *c, lctx *d)
 {
 	dbuf *outf = NULL;
 	i64 amt_to_copy;
+	u8 possible_beta_filesize_bug = 0;
+	u8 copy_overlay = 0;
 
 	if(d->errflag || !d->guest_ei || !d->hdr_for_dcmpr_file || !d->dcmpr_code ||
 		!d->guest_reloc_table)
@@ -1561,6 +1573,20 @@ static void do_write_dcmpr(deark *c, lctx *d)
 
 	outf = dbuf_create_output_file(c, "exe", NULL, 0);
 	d->wrote_exe = 1;
+
+	// The "5-29-90" beta has a bug when the file size is an exact multiple of
+	// 512 bytes. Such a buggy file is probably very rare, as there's a good
+	// chance it won't run properly. But in most cases, it can be decompressed
+	// successfully... *provided* we don't mess it up by trying to be helpful
+	// by detecting and dealing with the inconsistency.
+	if(d->is_may90_beta) {
+		UI lenfinal;
+
+		lenfinal = (UI)dbuf_getu16le(d->hdr_for_dcmpr_file, 2);
+		if(lenfinal==0) {
+			possible_beta_filesize_bug = 1;
+		}
+	}
 
 	// Write the original header, up to the relocation table
 	amt_to_copy = de_min_int(d->hdr_for_dcmpr_file->len, d->guest_ei->reloc_table_pos);
@@ -1580,8 +1606,11 @@ static void do_write_dcmpr(deark *c, lctx *d)
 
 	// "Overlay" segment
 	if(d->host_ei->overlay_len>0) {
-		if(outf->len == d->guest_ei->end_of_dos_code) {
-			dbuf_copy(c->infile, d->host_ei->end_of_dos_code, d->host_ei->overlay_len, outf);
+		if(possible_beta_filesize_bug) {
+			copy_overlay = 1;
+		}
+		else if(outf->len == d->guest_ei->end_of_dos_code) {
+			copy_overlay = 1;
 		}
 		else {
 			// We don't want to write the overlay to the wrong offset, but it's
@@ -1590,6 +1619,9 @@ static void do_write_dcmpr(deark *c, lctx *d)
 			de_warn(c, "Overlay not copied to new file, due to inconsistent file "
 				"structure");
 		}
+	}
+	if(copy_overlay) {
+		dbuf_copy(c->infile, d->host_ei->end_of_dos_code, d->host_ei->overlay_len, outf);
 	}
 
 	dbuf_close(outf);
@@ -1759,6 +1791,9 @@ static void acquire_new_exe_header(deark *c, lctx *d)
 	dbuf_writeu16le(d->hdr_for_dcmpr_file, 0x5a4d); // "MZ"
 
 	ret = read_orig_header(c, d);
+	if(ret) {
+		d->using_copy_of_exe_header = 1;
+	}
 	if(ret) goto done; // If success, we're done. Otherwise try other method.
 
 	dbuf_truncate(d->hdr_for_dcmpr_file, 2);
