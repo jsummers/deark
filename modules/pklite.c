@@ -26,6 +26,8 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_pklite);
 
+#define PKL_DBG_MINMAXALLOC 0
+
 // Things we need to figure out, to decompress the main compressed data.
 struct decompr_params_struct {
 	i64 cmpr_data_pos;
@@ -1779,6 +1781,230 @@ static void reconstruct_header(deark *c, lctx *d)
 	fmtutil_collect_exe_info(c, d->hdr_for_dcmpr_file, d->guest_ei);
 }
 
+#if PKL_DBG_MINMAXALLOC
+// This code is part of a project to figure out how best to reconstruct the
+// min-alloc and max-alloc fields in a decompressed EXE file, when the
+// compressed file lacks a copy of them. It doesn't necessarily belong in
+// Deark, but I don't have a better place for it.
+// This is the first step: figure out the relevant formulas that PKLITE uses
+// when it compresses a file. Ultimately, we'll need to invert the formulas
+// as best we can.
+// Most files made by the shareware versions contain a copy of the correct
+// values, so we use that as an "answer key", to test our predictions. The
+// Pro versions that I can test use the same formulas, and I'm hoping that's
+// true for all versions.
+static void temp_minmaxalloc(deark *c, lctx *d)
+{
+	i64 guest_ucodesize;
+	i64 guest_MINALLOC;
+	i64 guest_MAXALLOC;
+	i64 guest_unumblocks;
+	i64 host_ucodesize;
+	i64 host_numblocks;
+	i64 host_MINALLOC;
+	i64 host_MAXALLOC;
+	i64 pred_MINALLOC_nrm;
+	i64 pred_MINALLOC_min;
+	i64 pred_MINALLOC;
+	i64 pred_AX_nrm;
+	i64 pred_AX_min;
+	i64 pred_AX;
+	u8 calc_AX80 = 0;
+	i64 pred_AX80 = 0;
+	i64 intermed_cdszdiff;
+	i64 intermed_cmprreloc;
+	int xdiff;
+	const char *mmalgstr;
+	const char *axalgstr;
+	const char *verdict;
+	UI ver;
+	//UI subver = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	// TODO: Need a more trustworthy version number.
+	ver = d->ver_reported.ver_num;
+
+	if(!d->using_copy_of_exe_header) goto done;
+	if(!d->ax_val) goto done;
+	if(ver==0x0100 || ver==0x0103 || ver==0x0105 ||
+		ver==0x010b || (ver>=0x010c && ver<=0x0201))
+	{
+		;
+	}
+	else {
+		goto done;
+	}
+
+	de_dbg(c, "[MIN/MAX alloc analysis]");
+	de_dbg_indent(c, 1);
+
+	guest_ucodesize = d->guest_ei->end_of_dos_code - d->guest_ei->start_of_dos_code;
+	host_ucodesize = d->host_ei->end_of_dos_code - d->host_ei->start_of_dos_code;
+
+	guest_unumblocks = dbuf_getu16le(d->hdr_for_dcmpr_file, 4);
+	guest_MINALLOC = dbuf_getu16le(d->hdr_for_dcmpr_file, 10);
+	guest_MAXALLOC = dbuf_getu16le(d->hdr_for_dcmpr_file, 12);
+
+	host_numblocks = de_getu16le(4);
+	host_MINALLOC = de_getu16le(10);
+	host_MAXALLOC = de_getu16le(12);
+
+	de_dbg(c, "guest u.codesize    : 0x%x = %"I64_FMT, (UI)guest_ucodesize,
+		guest_ucodesize);
+	de_dbg(c, "guest SS:SP         : 0x%04x:%04x",
+		(UI)d->footer.regSS, (UI)d->footer.regSP);
+	de_dbg(c, "cmpr reloc tbl len  : %"I64_FMT, d->cmpr_reloc_tbl_len);
+
+	de_dbg(c, "guest MINALLOC      : 0x%04x", (UI)guest_MINALLOC);
+	de_dbg(c, "host MINALLOC       : 0x%04x", (UI)host_MINALLOC);
+	// We don't deal with MAXALLOC yet. MINALLOC is more fundamental.
+	de_dbg(c, "guest MAXALLOC      : 0x%04x", (UI)guest_MAXALLOC);
+	de_dbg(c, "host MAXALLOC       : 0x%04x", (UI)host_MAXALLOC);
+
+	intermed_cdszdiff = (guest_unumblocks*32 - d->guest_ei->start_of_dos_code/16)
+		- (host_numblocks*32 - d->host_ei->start_of_dos_code/16);
+
+	intermed_cmprreloc = (d->cmpr_reloc_tbl_len + 8)/16;
+
+	if(ver==0x0100) {
+		pred_MINALLOC_nrm = guest_MINALLOC
+			+ (guest_ucodesize)/16
+			- (host_ucodesize)/16;
+	}
+	else if(ver==0x0103 || ver==0x0105) {
+		pred_MINALLOC_nrm = guest_MINALLOC
+			+ (guest_ucodesize + 15)/16
+			- (host_ucodesize + 15)/16;
+	}
+	else {
+		pred_MINALLOC_nrm = guest_MINALLOC
+			+ intermed_cdszdiff;
+	}
+	de_dbg(c, "pred. h.MINALLOC-nrm: 0x%04x", (UI)pred_MINALLOC_nrm);
+
+	if(ver==0x0100) {
+		pred_MINALLOC_min = 0;
+	}
+	else if(ver==0x0103 || ver==0x0105) {
+		pred_MINALLOC_min =
+			(guest_ucodesize + 15)/16
+			- (host_ucodesize + 15)/16
+			+ intermed_cmprreloc
+			+ 256;
+	}
+	else if(ver==0x010b) {
+		pred_MINALLOC_min = 0x101;
+	}
+	else {
+		pred_MINALLOC_min = intermed_cdszdiff + intermed_cmprreloc + 0x140;
+	}
+
+	de_dbg(c, "pred. h.MINALLOC-min: 0x%04x", (UI)pred_MINALLOC_min);
+
+	mmalgstr = "?";
+	if(pred_MINALLOC_min==pred_MINALLOC_nrm) {
+		pred_MINALLOC = pred_MINALLOC_nrm;
+		mmalgstr = "nrm=min";
+	}
+	else if(pred_MINALLOC_min>pred_MINALLOC_nrm) {
+		pred_MINALLOC = pred_MINALLOC_min;
+		mmalgstr = "min";
+	}
+	else {
+		pred_MINALLOC = pred_MINALLOC_nrm;
+		mmalgstr = "nrm";
+	}
+
+	if(pred_MINALLOC >= 0x8000) {
+		pred_MINALLOC = 0;
+		mmalgstr = "toobig";
+	}
+
+	de_dbg(c, "pred. h.MINALLOC    : 0x%04x [%s,%s] (v%x)", (UI)pred_MINALLOC,
+		((pred_MINALLOC==host_MINALLOC)?"CORRECT":"WRONG"), mmalgstr, ver);
+
+	de_dbg(c, "AX                  : 0x%04x", (UI)d->ax_val);
+
+	if(ver==0x0100) {
+		pred_AX_nrm = 0;
+	}
+	else if(ver==0x0103 || ver==0x0105) {
+		// for v1.03 & v1.05.
+		pred_AX_nrm = guest_MINALLOC + ((guest_ucodesize + 0x0f)>>4);
+	}
+	else if(ver==0x010b) {
+		// Most v1.11 files use the v1.03 algorithm, but I found
+		// a few that use the v1.12 algorithm.
+		pred_AX_nrm = guest_MINALLOC + ((guest_ucodesize + 0x0f)>>4);
+	}
+	else  { // v1.12+
+		pred_AX_nrm = guest_MINALLOC - 0x10 + ((guest_ucodesize + 0x0f)>>4);
+	}
+
+	de_dbg(c, "pred. AX-nrm        : 0x%04x", (UI)pred_AX_nrm);
+
+	if(ver==0x0100) {
+		pred_AX_min = ((d->guest_ei->end_of_dos_code+15)>>4) + 0x110;
+	}
+	else if(ver==0x0103 || ver==0x0105 || ver==0x010b) {
+		pred_AX_min = ((guest_ucodesize+15)>>4)
+			+ intermed_cmprreloc + 0x100;
+	}
+	else { // v1.12+
+		// Works for 1.12-1.13.
+		// Sometimes ok for v1.14+, but sometimes low by 80.
+		// (TODO: Figure out when to add 80. The guest SS:SP settings are
+		// relevant.)
+		pred_AX_min = ((guest_ucodesize+15)>>4)
+			+ intermed_cmprreloc + 0x130;
+
+		if(ver>=0x10e && ver<0x201) {
+			calc_AX80 = 1;
+		}
+	}
+
+	de_dbg(c, "pred. AX-min        : 0x%04x", (UI)pred_AX_min);
+	xdiff = (int)(pred_AX_nrm - pred_AX_min);
+	if(calc_AX80) {
+		de_dbg(c, "AX nrm/min diff     : %+d", xdiff);
+	}
+
+	axalgstr = "?";
+	if(pred_AX_min == pred_AX_nrm) {
+		pred_AX = pred_AX_nrm;
+		axalgstr = "nrm=min";
+	}
+	else if(pred_AX_min > pred_AX_nrm) {
+		pred_AX = pred_AX_min;
+		axalgstr = "min";
+	}
+	else {
+		pred_AX = pred_AX_nrm;
+		axalgstr = "nrm";
+	}
+
+	if(calc_AX80) {
+		pred_AX80 = pred_AX + 80;
+		if(pred_AX80==d->ax_val) verdict = "CORRECT80";
+		else if(pred_AX==d->ax_val) verdict = "CORRECT0";
+		else verdict = "WRONG";
+
+		de_dbg(c, "pred. AX            : 0x%04x or 0x%04x [%s,%s] (v%x)",
+			(UI)pred_AX, (UI)pred_AX80, verdict, axalgstr, (UI)ver);
+	}
+	else {
+		verdict = (pred_AX==d->ax_val ? "CORRECT":"WRONG");
+		de_dbg(c, "pred. AX            : 0x%04x [%s,%s] (v%x)",
+			(UI)pred_AX, verdict, axalgstr, (UI)ver);
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+#endif
+
 // Either copy the original header, or if we can't do that,
 // construct a new EXE header from other information.
 // Creates and populates d->hdr_for_dcmpr_file, d->o_ei
@@ -1887,6 +2113,9 @@ static void do_pklite_exe(deark *c, lctx *d)
 
 	acquire_new_exe_header(c, d);
 	if(d->errflag) goto done;
+#if PKL_DBG_MINMAXALLOC
+	temp_minmaxalloc(c, d);
+#endif
 
 	do_write_dcmpr(c, d);
 	if(d->errflag) goto done;
