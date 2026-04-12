@@ -27,6 +27,7 @@ DE_DECLARE_MODULE(de_module_dclimplode);
 DE_DECLARE_MODULE(de_module_lgcompress);
 DE_DECLARE_MODULE(de_module_lzss_oku);
 DE_DECLARE_MODULE(de_module_lzhuf);
+DE_DECLARE_MODULE(de_module_jfx1);
 DE_DECLARE_MODULE(de_module_compress_lzh);
 DE_DECLARE_MODULE(de_module_lzstac);
 DE_DECLARE_MODULE(de_module_npack);
@@ -1147,32 +1148,24 @@ void de_module_lzss_oku(deark *c, struct deark_module_info *mi)
 // LZHUF (Haruyasu Yoshizaki) compressed file
 // **************************************************************************
 
-static void de_run_lzhuf(deark *c, de_module_params *mparams)
+// Used by lzhuf and jfx1.
+static void lzhuf_main(deark *c, i64 pos1, i64 orig_len, i64 cmpr_len)
 {
-	i64 unc_filesize;
 	dbuf *outf = NULL;
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
 
-	// We're assuming the size field is 4 bytes, little-endian. (But it could
-	// be platform-specific.)
-#define LZHUF_HDRSIZE 4
-#define LZHUF_IS_LE   1
-
-	if(c->infile->len<LZHUF_HDRSIZE) goto done;
-	unc_filesize = dbuf_getint_ext(c->infile, 0, LZHUF_HDRSIZE, LZHUF_IS_LE, 0);
-	de_dbg(c, "orig filesize: %"I64_FMT, unc_filesize);
-
+	if(pos1>c->infile->len) goto done;
 	outf = dbuf_create_output_file(c, "unc", NULL, 0);
 	dbuf_enable_wbuffer(outf);
 	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
 	dcmpri.f = c->infile;
-	dcmpri.pos = LZHUF_HDRSIZE;
-	dcmpri.len = c->infile->len-LZHUF_HDRSIZE;
+	dcmpri.pos = pos1;
+	dcmpri.len = cmpr_len;
 	dcmpro.f = outf;
 	dcmpro.len_known = 1;
-	dcmpro.expected_len = unc_filesize;
+	dcmpro.expected_len = orig_len;
 
 	fmtutil_lh1_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
 	dbuf_flush(outf);
@@ -1183,11 +1176,82 @@ done:
 	dbuf_close(outf);
 }
 
+static void de_run_lzhuf(deark *c, de_module_params *mparams)
+{
+	i64 orig_len;
+
+	// We're assuming the size field is 4 bytes, little-endian. (But it could
+	// be platform-specific.)
+#define LZHUF_HDRSIZE 4
+#define LZHUF_IS_LE   1
+	orig_len = dbuf_getint_ext(c->infile, 0, LZHUF_HDRSIZE, LZHUF_IS_LE, 0);
+	de_dbg(c, "orig len: %"I64_FMT, orig_len);
+	lzhuf_main(c, LZHUF_HDRSIZE, orig_len, c->infile->len-LZHUF_HDRSIZE);
+}
+
 void de_module_lzhuf(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "lzhuf";
 	mi->desc = "LZHUF compressed file";
 	mi->run_fn = de_run_lzhuf;
+}
+
+// **************************************************************************
+// JFX1
+// (GMM Entertainment, Blood & Lace)
+// **************************************************************************
+
+static void de_run_jfx1(deark *c, de_module_params *mparams)
+{
+	i64 orig_len, cmpr_len;
+
+	orig_len = de_getu32le(4);
+	de_dbg(c, "orig len: %"I64_FMT, orig_len);
+	cmpr_len = de_getu32le(8);
+	de_dbg(c, "cmpr len: %"I64_FMT, cmpr_len);
+	lzhuf_main(c, 12, orig_len, cmpr_len);
+}
+
+static int de_identify_jfx1(deark *c)
+{
+	i64 orig_len, cmpr_len;
+	i64 endpos;
+	UI id;
+
+#define CODE_JFX1 0x4a465831U
+#define CODE_JPK1 0x4a504b31U
+	id = (UI)de_getu32be(0);
+	if(id!=CODE_JFX1) return 0;
+
+	orig_len = de_getu32le(4);
+	if(orig_len>50000000) return 0;
+	cmpr_len = de_getu32le(8);
+	endpos = 12+cmpr_len;
+	if(endpos > c->infile->len) return 0;
+
+	if(endpos <= c->infile->len-12-40-12) {
+		// There's a .JPK aggregate format that starts with an item in JFX1
+		// format, and we don't want to mis-identify it as JFX1.
+		// TODO? At least partial support for .JPK format wouldn't be too
+		// difficult, but it's so rare I'm not sure it's worth the trouble.
+		id = (UI)de_getu32be(c->infile->len-12);
+		if(id==CODE_JPK1) {
+			return 0;
+		}
+	}
+
+	if(endpos==c->infile->len) {
+		return 100;
+	}
+	return 50;
+}
+
+void de_module_jfx1(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "jfx1";
+	mi->desc = "JFX1 (GMM Entertainment)";
+	mi->run_fn = de_run_jfx1;
+	mi->identify_fn = de_identify_jfx1;
 }
 
 // **************************************************************************

@@ -1059,6 +1059,10 @@ in the readme file.)
    -opt iso9660:voldesc=<n> - Use the volume descriptor at sector <n>. A
      typical use is to set n=16 to ignore Joliet extensions.
 
+* JFX1 (module="jfx1")
+  Compressed file format similar to LZHUF. Used in software by GMM
+  Entertainment, including Blood & Lace.
+
 * LBR (module="lbr")
   LBR is an uncompressed CP/M archive format.
   - These often contain files in compressed formats known as Squeeze, Crunch,
