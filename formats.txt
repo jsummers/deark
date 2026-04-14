@@ -365,6 +365,9 @@ Deark -- Information about supported formats
   A Windows 3.x program by Walter A. Kuhn.
   - Extract the main image.
 
+* JGF5 image (module="jgf5")
+  Format used by GMM Entertainment software, mainly Blood & Lace.
+
 * Jovian Logic VI bitmap (module="jovianvi") (experimental)
 
 * JPEG and JPEG-LS (module="jpeg")
