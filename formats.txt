@@ -1147,9 +1147,13 @@ in the readme file.)
 
 * MMFW resource file (module="mmfw") (experimental)
   See also the section on "MMFW Pictures".
+  - Audio conversion to WAV is attempted in some cases, but extracted files may
+    play at the wrong speed, or have other problems.
   Options
    -opt mmfw:extractall - Also extract undecoded resources, in raw form.
    -opt mmfw:extractallraw - Extract all resources in raw form.
+   -opt mmfw:channels - Default number of channels for audio extraction.
+   -opt mmfw:samplerate - Default sample rate for audio extraction.
 
 * MOOF (module="moof") (incomplete)
   Macintosh floppy disk image format.

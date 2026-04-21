@@ -81,6 +81,8 @@ typedef struct localctxMMFW {
 	deark *c;
 	int is_le;
 	de_encoding input_encoding;
+	UI opt_channels; // 0=default
+	UI opt_sample_rate; // 0=default
 	u8 extract_all;
 	u8 extract_all_raw;
 	UI fmtver;
@@ -300,15 +302,34 @@ done:
 	;
 }
 
-static void create_item_fi(deark *c, lctx *d, struct mmfw_item *md)
+static void create_item_fi(deark *c, lctx *d, struct mmfw_item *md,
+	u8 orig_fn_flag, const char *forced_ext)
 {
+	de_ucstring *name2 = NULL;
+
 	if(!md->fi) {
 		md->fi = de_finfo_create(c);
 	}
 
 	if(c->filenames_from_file && ucstring_isnonempty(md->name)) {
-		de_finfo_set_name_from_ucstring(c, md->fi, md->name, 0);
+		if(orig_fn_flag) {
+			md->fi->original_filename_flag = 1;
+		}
+		if(forced_ext) {
+			name2 = ucstring_clone(md->name);
+			ucstring_append_char(name2, '.');
+			ucstring_append_sz(name2, forced_ext, DE_ENCODING_LATIN1);
+			de_finfo_set_name_from_ucstring(c, md->fi, name2, 0);
+		}
+		else {
+			de_finfo_set_name_from_ucstring(c, md->fi, md->name, 0);
+		}
 	}
+	else if(forced_ext) {
+		de_finfo_set_name_from_sz(c, md->fi, forced_ext, 0, DE_ENCODING_LATIN1);
+	}
+
+	ucstring_destroy(name2);
 }
 
 static void mmfw_load_local_palette(deark *c, lctx *d, dbuf *inf, i64 pos1)
@@ -358,7 +379,7 @@ static void decode_pic_raw_unc_pal8(deark *c, lctx *d, struct mmfw_item *md,
 	h = md->height0;
 
 	if(!de_good_image_dimensions(c, w, h)) goto done;
-	create_item_fi(c, d, md);
+	create_item_fi(c, d, md, 1, NULL);
 
 	rowspan = de_pad_to_4(w);
 
@@ -398,7 +419,7 @@ static void decode_pic_raw_unc_rgb32(deark *c, lctx *d, struct mmfw_item *md)
 	h = md->height0;
 
 	if(!de_good_image_dimensions(c, w, h)) goto done;
-	create_item_fi(c, d, md);
+	create_item_fi(c, d, md, 1, NULL);
 
 	rowspan = w*4;
 	if(rowspan*h != md->inf_dlen) {
@@ -435,7 +456,7 @@ static void decode_pic_cmpr1_pal(deark *c, lctx *d, struct mmfw_item *md)
 
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 
-	create_item_fi(c, d, md);
+	create_item_fi(c, d, md, 1, NULL);
 
 	if(!mmfw_load_palette(c, d, md)) goto done;
 
@@ -522,7 +543,7 @@ static void decode_pic_cmpr2(deark *c, lctx *d, struct mmfw_item *md, UI picfmt)
 	h = md->height0;
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 
-	create_item_fi(c, d, md);
+	create_item_fi(c, d, md, 1, NULL);
 
 	if(picfmt==PICFMT_CMPR2_LOCAL_PAL) {
 		local_pal_len = 1024;
@@ -793,12 +814,57 @@ static void extract_raw_resource(deark *c, lctx *d, struct mmfw_item *md)
 {
 	dbuf *outf = NULL;
 
-	create_item_fi(c, d, md);
-	md->fi->original_filename_flag = 1;
+	create_item_fi(c, d, md, 1, NULL);
 	outf = dbuf_create_output_file(c, NULL, md->fi, 0);
 	md->handled = 1;
 	dbuf_copy(c->infile, md->dpos, md->dlen, outf);
 	dbuf_close(outf);
+}
+
+static void do_sound_internal(deark *c, lctx *d, struct mmfw_item *md)
+{
+	struct fmtutil_write_wav_ctx *wctx = NULL;
+	dbuf *outf = NULL;
+
+	if(!d->fs.can_decode) {
+		goto done;
+	}
+	wctx = de_malloc(c, sizeof(struct fmtutil_write_wav_ctx));
+	create_item_fi(c, d, md, 1, "wav");
+
+	wctx->num_channels = 1; // default
+	wctx->sample_rate = 22050; // default
+	// TODO: Can we detect the correct settings?
+
+	if(d->fs.pos_of_flags1_table) {
+		md->pic_flags1 = de_getbyte(d->fs.pos_of_flags1_table+md->idx);
+		de_dbg(c, "snd flags1: 0x%02x", (UI)md->pic_flags1);
+#if 0
+		if(md->pic_flags1 & 0x10) {
+			wctx->num_channels = 2;
+		}
+#endif
+	}
+
+	if(d->opt_channels==1 || d->opt_channels==2) {
+		wctx->num_channels = d->opt_channels;
+	}
+	if(d->opt_sample_rate) {
+		wctx->sample_rate = d->opt_sample_rate;
+	}
+
+	outf = dbuf_create_output_file(c, NULL, md->fi, 0);
+	md->handled = 1;
+
+	wctx->outf = outf;
+	wctx->inf = c->infile;
+	wctx->inf_pos = md->dpos;
+	wctx->inf_len = md->dlen;
+	fmtutil_write_wav(c, wctx);
+
+done:
+	dbuf_close(outf);
+	de_free(c, wctx);
 }
 
 static void do_one_resource(deark *c, lctx *d, i64 idx)
@@ -844,14 +910,14 @@ static void do_one_resource(deark *c, lctx *d, i64 idx)
 		de_dbg_hexdump(c, c->infile, md->dpos, hlen, hlen, NULL, 0x0);
 	}
 
-	if(md->dlen<1) {
-		;
-	}
-	else if(d->extract_all_raw) {
+	if(d->extract_all_raw) {
 		extract_raw_resource(c, d, md);
 	}
 	if(!md->handled && d->fs.can_decode && d->mmfw_type==MMFW_TYPE_PICTURES) {
 		do_pic_internal(c, d, md);
+	}
+	if(!md->handled && d->fs.can_decode && d->mmfw_type==MMFW_TYPE_SOUNDS) {
+		do_sound_internal(c, d, md);
 	}
 	if(!md->handled && d->extract_all) {
 		extract_raw_resource(c, d, md);
@@ -932,7 +998,9 @@ static void mmfw_dbg_file_structure(deark *c, lctx *d)
 	de_dbg(c, "offsets table pos: %"I64_FMT, ly->pos_of_rsrc_offsets_table);
 	de_dbg(c, "names table pos: %"I64_FMT, ly->pos_of_rsrc_names_table);
 	if(d->fs.can_decode) {
-		de_dbg(c, "dimensions table at %"I64_FMT, ly->pos_of_dimensions_table);
+		if(ly->pos_of_dimensions_table) {
+			de_dbg(c, "dimensions table at %"I64_FMT, ly->pos_of_dimensions_table);
+		}
 		if(ly->pos_of_flags1_table) {
 			de_dbg(c, "flags1 table at %"I64_FMT, ly->pos_of_flags1_table);
 		}
@@ -942,11 +1010,13 @@ static void mmfw_dbg_file_structure(deark *c, lctx *d)
 		if(ly->pos_of_flags3_table) {
 			de_dbg(c, "flags3 table at %"I64_FMT, ly->pos_of_flags3_table);
 		}
-		de_dbg(c, "pal IDs table at %"I64_FMT,
-			(ly->pos_of_pal_ids16_table ? ly->pos_of_pal_ids16_table :
-			d->fs.pos_of_pal_ids_table));
-		de_dbg(c, "palettes segment at %"I64_FMT, d->fs.pos_of_palette_seg);
-		de_dbg(c, "num palettes: %u", d->fs.num_palettes);
+		if(d->fs.pos_of_palette_seg) {
+			de_dbg(c, "pal IDs table at %"I64_FMT,
+				(ly->pos_of_pal_ids16_table ? ly->pos_of_pal_ids16_table :
+				d->fs.pos_of_pal_ids_table));
+			de_dbg(c, "palettes segment at %"I64_FMT, d->fs.pos_of_palette_seg);
+			de_dbg(c, "num palettes: %u", d->fs.num_palettes);
+		}
 	}
 }
 
@@ -1078,6 +1148,9 @@ static void do_mmfw_part1(deark *c, lctx *d)
 	const char *dscrp_v3_26_pic = "cona4fda4pP.";
 	const char *dscrp_v1_default = "cob2n";
 	const char *dscrp_26_default = "con";
+	const char *dscrp_v1_sounds = "cob2na4b2f.";
+	const char *dscrp_v2_sounds = "cona4h.";
+	const char *dscrp_v3_26_sounds = "cona4f.";
 	const char *dscrp_nonames = "co";
 	i64 rcpos = 0;
 
@@ -1122,6 +1195,17 @@ static void do_mmfw_part1(deark *c, lctx *d)
 			ret = mmfw_try_format(c, d, rcpos, dscrp_v1_pic);
 		}
 	}
+	else if(d->mmfw_type==MMFW_TYPE_SOUNDS) {
+		if(d->fmtver==1) {
+			ret = mmfw_try_format(c, d, rcpos, dscrp_v1_sounds);
+		}
+		else if(d->fmtver==2) {
+			ret = mmfw_try_format(c, d, rcpos, dscrp_v2_sounds);
+		}
+		else if(d->fmtver==3) {
+			ret = mmfw_try_format(c, d, rcpos, dscrp_v3_26_sounds);
+		}
+	}
 	else if(d->mmfw_type==MMFW_TYPE_SCRIPT) {
 		if(d->fmtver==1 && !d->is_le) {
 			ret = mmfw_try_format(c, d, rcpos, dscrp_nonames);
@@ -1149,7 +1233,8 @@ static void do_mmfw_part1(deark *c, lctx *d)
 			ret = mmfw_try_format(c, d, rcpos, dscrp_nonames);
 		}
 	}
-	else if(d->fmtver>=1 && !d->is_a_script_type) {
+
+	if(!ret && d->fmtver>=1 && !d->is_a_script_type) {
 		if(rcpos==26) {
 			ret = mmfw_try_format(c, d, rcpos, dscrp_26_default);
 		}
@@ -1206,6 +1291,7 @@ static u8 mmfw_detect_type(deark *c)
 static void de_run_mmfw(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	const char *s;
 	i64 i;
 
 	d = de_malloc(c, sizeof(lctx));
@@ -1222,6 +1308,17 @@ static void de_run_mmfw(deark *c, de_module_params *mparams)
 	if(!d->mmfw_type) {
 		d->need_errmsg = 1;
 		goto done;
+	}
+
+	if(d->mmfw_type==MMFW_TYPE_SOUNDS) {
+		s = de_get_ext_option(c, "mmfw:samplerate");
+		if(s) {
+			d->opt_sample_rate = (UI)de_atoi64(s);
+		}
+		s = de_get_ext_option(c, "mmfw:channels");
+		if(s) {
+			d->opt_channels = (UI)de_atoi64(s);
+		}
 	}
 
 	if(d->mmfw_type==MMFW_TYPE_SCRIPT || d->mmfw_type==MMFW_TYPE_SCRIPTS ||
@@ -1277,6 +1374,8 @@ static void de_help_mmfw(deark *c)
 {
 	de_msg(c, "-opt mmfw:extractall : Also extract undecoded resources, in raw form");
 	de_msg(c, "-opt mmfw:extractallraw : Extract all resources in raw form");
+	de_msg(c, "-opt mmfw:channels : Num. channels for extracted audio");
+	de_msg(c, "-opt mmfw:samplerate : Sample rate for extracted audio");
 }
 
 void de_module_mmfw(deark *c, struct deark_module_info *mi)
