@@ -859,3 +859,15 @@ struct fmtutil_fmtid_ctx {
 };
 
 void fmtutil_fmtid(deark *c, struct fmtutil_fmtid_ctx *idctx);
+
+struct fmtutil_write_wav_ctx {
+	dbuf *inf;
+	i64 inf_pos;
+	i64 inf_len;
+	dbuf *outf;
+	UI num_channels;
+	UI bits_per_sample;
+	UI sample_rate;
+};
+
+void fmtutil_write_wav(deark *c, struct fmtutil_write_wav_ctx *wctx);

@@ -365,6 +365,9 @@ Deark -- Information about supported formats
   A Windows 3.x program by Walter A. Kuhn.
   - Extract the main image.
 
+* JGF5 image (module="jgf5")
+  Format used by GMM Entertainment software, mainly Blood & Lace.
+
 * Jovian Logic VI bitmap (module="jovianvi") (experimental)
 
 * JPEG and JPEG-LS (module="jpeg")
@@ -1059,6 +1062,10 @@ in the readme file.)
    -opt iso9660:voldesc=<n> - Use the volume descriptor at sector <n>. A
      typical use is to set n=16 to ignore Joliet extensions.
 
+* JFX1 (module="jfx1")
+  Compressed file format similar to LZHUF. Used in software by GMM
+  Entertainment, including Blood & Lace.
+
 * LBR (module="lbr")
   LBR is an uncompressed CP/M archive format.
   - These often contain files in compressed formats known as Squeeze, Crunch,
@@ -1140,9 +1147,13 @@ in the readme file.)
 
 * MMFW resource file (module="mmfw") (experimental)
   See also the section on "MMFW Pictures".
+  - Audio conversion to WAV is attempted in some cases, but extracted files may
+    play at the wrong speed, or have other problems.
   Options
    -opt mmfw:extractall - Also extract undecoded resources, in raw form.
    -opt mmfw:extractallraw - Extract all resources in raw form.
+   -opt mmfw:channels - Default number of channels for audio extraction.
+   -opt mmfw:samplerate - Default sample rate for audio extraction.
 
 * MOOF (module="moof") (incomplete)
   Macintosh floppy disk image format.

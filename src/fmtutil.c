@@ -1943,3 +1943,35 @@ done:
 	}
 	de_strlcpy(idctx->ext_sz, ext, sizeof(idctx->ext_sz));
 }
+
+#define CODE_RIFF  0x52494646U
+
+void fmtutil_write_wav(deark *c, struct fmtutil_write_wav_ctx *wctx)
+{
+	i64 pad = 0;
+	UI bits_per_sample;
+	UI num_channels;
+	UI bytes_per_sample;
+	UI bytes_per_unit;
+
+	bits_per_sample = wctx->bits_per_sample;
+	if(bits_per_sample==0) bits_per_sample = 8;
+	num_channels = wctx->num_channels;
+	if(num_channels==0) num_channels = 1;
+	bytes_per_sample = (bits_per_sample+7)/8;
+	bytes_per_unit = bytes_per_sample * num_channels;
+
+	dbuf_writeu32be(wctx->outf, CODE_RIFF);
+	pad = wctx->inf_len%2;
+	dbuf_writeu32le(wctx->outf, wctx->inf_len+36+pad);
+	dbuf_write(wctx->outf, (const u8*)"WAVEfmt \x10\0\0\0\x01\0", 14);
+	dbuf_writeu16le(wctx->outf, num_channels);
+	dbuf_writeu32le(wctx->outf, wctx->sample_rate);
+	dbuf_writeu32le(wctx->outf, wctx->sample_rate * bytes_per_unit);
+	dbuf_writeu16le(wctx->outf, bytes_per_unit);
+	dbuf_writeu16le(wctx->outf, bits_per_sample);
+	dbuf_write(wctx->outf, (const u8*)"data", 4);
+	dbuf_writeu32le(wctx->outf, wctx->inf_len);
+	dbuf_copy(wctx->inf, wctx->inf_pos, wctx->inf_len, wctx->outf);
+	dbuf_write_zeroes(wctx->outf, pad);
+}

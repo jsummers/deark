@@ -45,6 +45,7 @@ DE_DECLARE_MODULE(de_module_apple2icons);
 DE_DECLARE_MODULE(de_module_pixit);
 DE_DECLARE_MODULE(de_module_optiks_com);
 DE_DECLARE_MODULE(de_module_dxp_image);
+DE_DECLARE_MODULE(de_module_jgf5);
 
 static void datetime_dbgmsg(deark *c, struct de_timestamp *ts, const char *name)
 {
@@ -4188,4 +4189,142 @@ void de_module_dxp_image(deark *c, struct deark_module_info *mi)
 	mi->desc = "DXP image (Dexter)";
 	mi->run_fn = de_run_dxp_image;
 	mi->identify_fn = de_identify_dxp_image;
+}
+
+// **************************************************************************
+// JGF5 image
+// (GMM Entertainment, Blood & Lace)
+// **************************************************************************
+
+struct jgf5_ctx {
+	i64 w, h;
+	i64 unc_len;
+	i64 cmpr_pos;
+	i64 cmpr_len;
+	i64 rowspan;
+	u8 premult_alpha;
+	u8 errflag;
+	u8 need_errmsg;
+	dbuf *unc_pixels;
+};
+
+static void jgf5_decompress(deark *c, struct jgf5_ctx *d)
+{
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	struct de_lh1_params lh1p;
+
+	de_zeromem(&lh1p, sizeof(struct de_lh1_params));
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = d->cmpr_pos;
+	dcmpri.len = d->cmpr_len;
+	dcmpro.f = d->unc_pixels;
+	dcmpro.expected_len = d->unc_len;
+	dcmpro.len_known = 1;
+	fmtutil_lh1_codectype1(c, &dcmpri, &dcmpro, &dres, (void*)&lh1p);
+	dbuf_flush(d->unc_pixels);
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
+		d->errflag = 1;
+		goto done;
+	}
+
+done:
+	;
+}
+
+static void jgf5_decode_image(deark *c, struct jgf5_ctx *d, de_bitmap *img)
+{
+	i64 i, j;
+	i64 pos;
+	u8 samp[4] = {0};
+
+	for(j=0; j<d->h; j++) {
+		de_color clr;
+
+		pos = j*d->rowspan;
+		for(i=0; i<d->w; i++) {
+			dbuf_read(d->unc_pixels, samp, pos, 4);
+			pos += 4;
+			clr = DE_MAKE_RGBA(samp[2], samp[1], samp[0], samp[3]);
+			if(samp[3]!=0xff && d->premult_alpha) {
+				clr = de_unpremultiply_alpha_clr(clr);
+			}
+			de_bitmap_setpixel_rgba(img, i, j, clr);
+		}
+	}
+}
+
+static void de_run_jgf5(deark *c, de_module_params *mparams)
+{
+	de_bitmap *img = NULL;
+	struct jgf5_ctx *d = NULL;
+	i64 pos;
+
+	d = de_malloc(c, sizeof(struct jgf5_ctx));
+	pos = 12;
+	d->w = de_getu32le_p(&pos);
+	d->h = de_getu32le_p(&pos);
+	de_dbg_dimensions(c, d->w, d->h);
+	d->unc_len = de_getu32le_p(&pos);
+	de_dbg(c, "unc len: %"I64_FMT, d->unc_len);
+	d->cmpr_len = de_getu32le_p(&pos);
+	de_dbg(c, "cmpr len: %"I64_FMT, d->cmpr_len);
+	d->cmpr_pos = pos;
+
+	if(d->cmpr_pos + d->cmpr_len > c->infile->len) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
+
+	d->rowspan = d->w * 4;
+	if(d->unc_len != d->rowspan*d->h) {
+		de_err(c, "Unidentified image type");
+		goto done;
+	}
+
+	d->unc_pixels = dbuf_create_membuf(c, d->unc_len, 0x1);
+	dbuf_enable_wbuffer(d->unc_pixels);
+	jgf5_decompress(c, d);
+	if(d->errflag) goto done;
+
+	// It *looks* like premultiplied alpha. But then, some images have a few
+	// pixels that are not quite valid (alpha sample is slightly smaller than
+	// some color samples). So I don't know.
+	d->premult_alpha = 1;
+
+	img = de_bitmap_create(c, d->w, d->h, 4);
+	jgf5_decode_image(c, d, img);
+	if(d->errflag) goto done;
+
+	de_bitmap_write_to_file(img, NULL, 0);
+
+done:
+	de_bitmap_destroy(img);
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported JGF5 image");
+		}
+		dbuf_close(d->unc_pixels);
+		de_free(c, d);
+	}
+}
+
+static int de_identify_jgf5(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, (const void*)"JGF5\0\0\0\0\x03\0\0\0", 12)) {
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_jgf5(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "jgf5";
+	mi->desc = "JGF5 image";
+	mi->run_fn = de_run_jgf5;
+	mi->identify_fn = de_identify_jgf5;
 }

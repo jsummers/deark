@@ -422,13 +422,14 @@ static void do_mmm_snd(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx, i64 
 	i64 apos, alen;
 	dbuf *outf = NULL;
 	de_finfo *fi = NULL;
-	i64 pad = 0;
 	i64 sample_rate;
 	UI sr_code;
 	UI n;
 	u8 x;
 	u8 ok = 0;
+	struct fmtutil_write_wav_ctx *wctx = NULL;
 
+	wctx = de_malloc(c, sizeof(struct fmtutil_write_wav_ctx));
 	fi = de_finfo_create(c);
 	mmm_read_rsrcid_p(c, d, ictx, &pos, NULL);
 
@@ -464,16 +465,14 @@ static void do_mmm_snd(deark *c, struct mmm_ctx *d, struct de_iffctx *ictx, i64 
 	if(alen<=0) goto done;
 
 	outf = dbuf_create_output_file(c, "wav", fi, 0);
-	dbuf_writeu32be(outf, CODE_RIFF);
-	pad = alen%2;
-	dbuf_writeu32le(outf, alen+36+pad);
-	dbuf_write(outf, (const u8*)"WAVEfmt \x10\0\0\0\x01\0\x01\0", 16);
-	dbuf_writeu32le(outf, sample_rate);
-	dbuf_writeu32le(outf, sample_rate);
-	dbuf_write(outf, (const u8*)"\x01\0\x08\0" "data", 8);
-	dbuf_writeu32le(outf, alen);
-	dbuf_copy(ictx->f, apos, alen, outf);
-	dbuf_write_zeroes(outf, pad);
+	wctx->inf = ictx->f;
+	wctx->inf_pos = apos;
+	wctx->inf_len = alen;
+	wctx->outf = outf;
+	wctx->bits_per_sample = 8;
+	wctx->num_channels = 1;
+	wctx->sample_rate = (UI)sample_rate;
+	fmtutil_write_wav(c, wctx);
 	ok = 1;
 
 done:
@@ -482,6 +481,7 @@ done:
 	}
 	dbuf_close(outf);
 	de_finfo_destroy(c, fi);
+	de_free(c, wctx);
 }
 
 static int my_mmm_chunk_handler(struct de_iffctx *ictx)
