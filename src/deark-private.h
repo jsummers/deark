@@ -187,6 +187,7 @@ struct dbuf_struct {
 
 	u8 write_memfile_to_zip_archive;
 	u8 writing_to_tar_archive;
+	u8 is_output_archive;
 	int file_id; // if managed
 	char *name; // used for DBUF_TYPE_OFILE (utf-8)
 
@@ -439,9 +440,11 @@ struct deark_struct {
 	u8 font_fmt_req; // DE_FONTFMT_*
 	u8 padpix;
 	int overwrite_mode;
-	u8 preserve_file_times;
-	u8 preserve_file_times_archives;
-	u8 preserve_file_times_internal;
+	u8 preserve_file_times_normally; // 0 to disable
+	u8 respect_input_file_tstamp; // For input file external tstamps
+	u8 respect_input_file_tstamp_for_archives; // Use with -zip
+	u8 respect_extra_extrn_tstamps; // 'create' and 'access' tstamps
+	u8 preserve_file_times_internal; // reserved
 	u8 reproducible_output;
 	struct de_timestamp reproducible_timestamp;
 	int can_decode_fltpt;
@@ -490,6 +493,10 @@ struct deark_struct {
 
 #define DE_NUM_PERSISTENT_MEM_ITEMS 6
 	void *persistent_item[DE_NUM_PERSISTENT_MEM_ITEMS];
+
+	struct de_timestamp orig_modtime;
+	struct de_timestamp orig_createtime;
+	struct de_timestamp orig_acctime;
 };
 
 void de_fatalerror(deark *c);
@@ -551,15 +558,27 @@ void de_verr(deark *c, const char *fmt, va_list ap);
 void de_err(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
 
-FILE* de_fopen_for_read(deark *c, const char *fn, i64 *len,
-	char *errmsg, size_t errmsg_len, UI *returned_flags);
+struct de_fopen_params {
+	deark *c;
+	const char *fn;
+	i64 len;
+	FILE *f;
+	u8 in_flags;
+	u8 out_flags;
+	struct de_timestamp orig_modtime;
+	struct de_timestamp orig_createtime;
+	struct de_timestamp orig_acctime;
+	char errmsg[200];
+};
+void de_fopen_for_read(struct de_fopen_params *fop);
 FILE* de_fopen_for_write(deark *c, const char *fn,
 	char *errmsg, size_t errmsg_len, int overwrite_mode,
 	UI flags);
 int de_fseek(FILE *fp, i64 offs, int whence);
 i64 de_ftell(FILE *fp);
 int de_fclose(FILE *fp);
-void de_update_file_attribs(dbuf *f, u8 preserve_file_times);
+void de_update_file_attribs1(dbuf *f);
+void de_update_file_attribs2(dbuf *f);
 
 void de_declare_fmt(deark *c, const char *fmtname);
 void de_declare_fmtf(deark *c, const char *fmt, ...)
@@ -735,6 +754,7 @@ void dbuf_read_to_ucstring_n(dbuf *f, i64 pos, i64 len, i64 max_len,
 dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi, UI createflags);
 
 dbuf *dbuf_create_unmanaged_file(deark *c, const char *fname, int overwrite_mode, UI flags);
+dbuf *dbuf_open_input_file_ex(deark *c, const char *fn, UI flags);
 dbuf *dbuf_create_unmanaged_file_stdout(deark *c, const char *name);
 dbuf *dbuf_open_input_file(deark *c, const char *fn);
 dbuf *dbuf_open_input_stdin(deark *c);

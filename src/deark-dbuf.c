@@ -1796,10 +1796,16 @@ void dbuf_flush_lowlevel(dbuf *f)
 
 dbuf *dbuf_open_input_file(deark *c, const char *fn)
 {
-	dbuf *f;
-	UI returned_flags = 0;
-	char msgbuf[200];
+	return dbuf_open_input_file_ex(c, fn, 0);
+}
 
+// flags: 0x1 = This is the main physical input file
+dbuf *dbuf_open_input_file_ex(deark *c, const char *fn, UI flags)
+{
+	dbuf *f;
+	struct de_fopen_params fop;
+
+	de_zeromem(&fop, sizeof(struct de_fopen_params));
 	if(!fn) {
 		c->serious_error_flag = 1;
 		return NULL;
@@ -1808,16 +1814,39 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 	f->btype = DBUF_TYPE_IFILE;
 	f->rcache_policy = DE_RCACHE_POLICY_ENABLED;
 
-	f->fp = de_fopen_for_read(c, fn, &f->len, msgbuf, sizeof(msgbuf), &returned_flags);
-
+	fop.c = c;
+	fop.fn = fn;
+	if((flags&0x1) && (c->respect_input_file_tstamp ||
+		c->respect_input_file_tstamp_for_archives))
+	{
+		fop.in_flags |= 0x1; // = We want the file's timestamps returned
+	}
+	de_fopen_for_read(&fop);
+	f->fp = fop.f;
 	if(!f->fp) {
-		de_err(c, "Can't read %s: %s", fn, msgbuf);
+		de_err(c, "Can't read %s: %s", fn, fop.errmsg);
 		de_free(c, f);
 		c->serious_error_flag = 1;
 		return NULL;
 	}
 
-	if(returned_flags & 0x1) {
+	f->len = fop.len;
+	if(fop.in_flags & 0x1) {
+		// If we asked for timestamps to be returned, save them for later.
+		//
+		// It is by design that we associate them with the global 'c' object
+		// (i.e. the top-level input file), as opposed to the *current*
+		// c->infile. We want all output files to potentially use these
+		// timestamps, even those written by submodules, and those closed
+		// after the input file is closed.
+		c->orig_modtime = fop.orig_modtime;
+		if(c->respect_extra_extrn_tstamps) {
+			c->orig_acctime = fop.orig_acctime;
+			c->orig_createtime = fop.orig_createtime;
+		}
+	}
+
+	if(fop.out_flags & 0x1) {
 		// This "file" is actually a pipe.
 		f->btype = DBUF_TYPE_FIFO;
 		f->rcache_policy = DE_RCACHE_POLICY_NONE;
@@ -1887,9 +1916,92 @@ void de_writelistener_for_crc(dbuf *f, void *userdata, const u8 *buf, i64 buf_le
 	de_crcobj_addbuf(crco, buf, buf_len);
 }
 
+static void invalidate_all_tstamps(de_finfo *fi)
+{
+	size_t i;
+
+	if(!fi) return;
+	for(i=0; i<DE_TIMESTAMPIDX_COUNT; i++) {
+		fi->timestamp[i].is_valid = 0;
+	}
+}
+
+// When we close a file, set/modify/delete the timestamps in f->fi_copy as
+// appropriate for the situation.
+// TODO: Make this function easier to understand.
+static void handle_timestamp_preservation(deark *c, dbuf *f)
+{
+	u8 writing_to_archive;
+	u8 have_a_good_tstamp = 0;
+	u8 have_an_extrn_tstamp = 0;
+	u8 respect_input_file_tstamp;
+
+	writing_to_archive = (f->is_managed && c->output_style==DE_OUTPUTSTYLE_ARCHIVE);
+
+	// Copy the relevant setting
+	if(f->is_output_archive) {
+		respect_input_file_tstamp = c->respect_input_file_tstamp_for_archives;
+	}
+	else {
+		respect_input_file_tstamp = c->respect_input_file_tstamp;
+	}
+
+	if(respect_input_file_tstamp) {
+		if(c->orig_modtime.is_valid ||
+			c->orig_createtime.is_valid ||
+			c->orig_acctime.is_valid)
+		{
+			have_an_extrn_tstamp = 1;
+		}
+	}
+
+	// User told us to ignore timestamps inside the input file.
+	if(!c->preserve_file_times_normally) {
+		invalidate_all_tstamps(f->fi_copy);
+	}
+
+	// Set this flag before we potentially delete the ACCESS/CREATE times,
+	// because we don't want weirdly different behavior with -zip.
+	// (Could check ACCESS too, but I don't think it's useful enough.)
+	if(f->fi_copy) {
+		if(f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY].is_valid ||
+			f->fi_copy->timestamp[DE_TIMESTAMPIDX_CREATE].is_valid)
+		{
+			have_a_good_tstamp = 1;
+		}
+	}
+
+	// Normally, we write only the MOD time to external files, even if we
+	// have other timestamps.
+	if(!writing_to_archive && !c->respect_extra_extrn_tstamps && f->fi_copy) {
+		f->fi_copy->timestamp[DE_TIMESTAMPIDX_ACCESS].is_valid = 0;
+		f->fi_copy->timestamp[DE_TIMESTAMPIDX_CREATE].is_valid = 0;
+	}
+
+	if(!have_a_good_tstamp && !have_an_extrn_tstamp) {
+		goto done;
+	}
+
+	if(!f->fi_copy) {
+		f->fi_copy = de_finfo_create(c);
+	}
+
+	if(have_an_extrn_tstamp && !have_a_good_tstamp) {
+		invalidate_all_tstamps(f->fi_copy);
+		f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY] = c->orig_modtime;
+		f->fi_copy->timestamp[DE_TIMESTAMPIDX_CREATE] = c->orig_createtime;
+		f->fi_copy->timestamp[DE_TIMESTAMPIDX_ACCESS] = c->orig_acctime;
+	}
+
+done:
+	;
+}
+
 void dbuf_close(dbuf *f)
 {
 	deark *c;
+	u8 need_update_attribs;
+
 	if(!f) return;
 	c = f->c;
 
@@ -1909,6 +2021,13 @@ void dbuf_close(dbuf *f)
 		c->total_output_size += f->len;
 	}
 
+	need_update_attribs = (f->is_managed ||
+		(f->is_output_archive && c->respect_input_file_tstamp_for_archives));
+
+	if(need_update_attribs) {
+		handle_timestamp_preservation(c, f);
+	}
+
 	if(f->btype==DBUF_TYPE_MEMBUF && f->write_memfile_to_zip_archive) {
 		de_zip_add_file_to_archive(c, f);
 		if(f->name) {
@@ -1922,14 +2041,18 @@ void dbuf_close(dbuf *f)
 	switch(f->btype) {
 	case DBUF_TYPE_IFILE:
 	case DBUF_TYPE_OFILE:
+		if(f->btype==DBUF_TYPE_OFILE && need_update_attribs) {
+			de_update_file_attribs1(f);
+		}
+
 		if(f->name) {
 			de_dbg3(c, "closing file %s", f->name);
 		}
 		de_fclose(f->fp);
 		f->fp = NULL;
 
-		if(f->btype==DBUF_TYPE_OFILE && f->is_managed) {
-			de_update_file_attribs(f, c->preserve_file_times);
+		if(f->btype==DBUF_TYPE_OFILE && need_update_attribs) {
+			de_update_file_attribs2(f);
 		}
 		break;
 	case DBUF_TYPE_FIFO:

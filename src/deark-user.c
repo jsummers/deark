@@ -339,7 +339,7 @@ int de_run(deark *c)
 		orig_ifile = dbuf_open_input_stdin(c);
 	}
 	else {
-		orig_ifile = dbuf_open_input_file(c, c->input_filename);
+		orig_ifile = dbuf_open_input_file_ex(c, c->input_filename, 0x1);
 
 		if(orig_ifile && orig_ifile->btype==DBUF_TYPE_FIFO) {
 			// Only now do we know that the input "file" is a named pipe.
@@ -575,8 +575,7 @@ deark *de_create_internal(void)
 	c->write_density = 1;
 	c->filenames_from_file = 1;
 	c->append_riscos_type = 0xff;
-	c->preserve_file_times = 1;
-	c->preserve_file_times_archives = 1;
+	c->preserve_file_times_normally = 1;
 	c->preserve_file_times_internal = 1;
 	c->max_output_files = DE_MAX_OUTPUT_FILES_HARD_LIMIT;
 	c->max_image_dimension = DE_DEFAULT_MAX_IMAGE_DIMENSION;
@@ -1109,16 +1108,10 @@ void de_set_max_image_dimension(deark *c, i64 n)
 
 void de_set_preserve_file_times(deark *c, int setting, int x)
 {
+	u8 x_bool = x?1:0;
+
 	if(setting==0) {
-		// For files written directly to the filesystem.
-		c->preserve_file_times = x?1:0;
-	}
-	else if(setting==1) {
-		// For member files written to .zip/.tar files.
-		// I can't think of a good reason why a user would want to disable
-		// this, but it's allowed for consistency, and it doesn't hurt
-		// anything.
-		c->preserve_file_times_archives = x?1:0;
+		c->preserve_file_times_normally = x_bool;
 	}
 	else if(setting==2) {
 		// For the tIME chunk in PNG files we generate, and other internal timestamps.
@@ -1129,7 +1122,20 @@ void de_set_preserve_file_times(deark *c, int setting, int x)
 		// consistent to rename it, and use it for all "converted" formats,
 		// including e.g. the "Date" header item in ANSI Art files converted
 		// to HTML.
-		c->preserve_file_times_internal = x?1:0;
+		c->preserve_file_times_internal = x_bool;
+	}
+	else if(setting==3) {
+		// When writing an output file directly, set all available timestamps
+		// (e.g. also set creation time), not must mod time.
+		c->respect_extra_extrn_tstamps = x_bool;
+	}
+	else if(setting==4) {
+		// Promiscuously copy the timestamp(s) of the input file to the output
+		// file(s), when a suitable mod time is otherwise not available.
+		c->respect_input_file_tstamp =  x_bool;
+	}
+	else if(setting==5) {
+		c->respect_input_file_tstamp_for_archives = x_bool;
 	}
 }
 

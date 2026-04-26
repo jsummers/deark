@@ -53,54 +53,60 @@ static FILE* de_fopen(deark *c, const char *fn, const char *mode,
 	return f;
 }
 
-// Test if the file seems suitable for reading, and return its size.
-// returned flags: 0x1 = file is a FIFO (named pipe)
-static int de_examine_file_by_fd(deark *c, int fd, i64 *len,
-	char *errmsg, size_t errmsg_len, UI *returned_flags)
+// fop->out_flags: 0x1 = file is a FIFO (named pipe)
+static int de_examine_file_by_fd(struct de_fopen_params *fop, int fd)
 {
 	struct stat stbuf;
 
-	*returned_flags = 0;
 	de_zeromem(&stbuf, sizeof(struct stat));
 
 	if(0 != fstat(fd, &stbuf)) {
-		de_strlcpy(errmsg, strerror(errno), errmsg_len);
+		de_strlcpy(fop->errmsg, strerror(errno), sizeof(fop->errmsg));
 		return 0;
 	}
 
 	if(S_ISFIFO(stbuf.st_mode)) {
-		*returned_flags |= 0x1;
-		*len = 0;
+		fop->out_flags |= 0x1;
+		fop->len = 0;
 		return 1;
 	}
 	else if(!S_ISREG(stbuf.st_mode)) {
-		de_strlcpy(errmsg, "Not a regular file", errmsg_len);
+		de_strlcpy(fop->errmsg, "Not a regular file", sizeof(fop->errmsg));
 		return 0;
 	}
 
-	*len = (i64)stbuf.st_size;
+	fop->len = (i64)stbuf.st_size;
+
+#if _POSIX_C_SOURCE >= 200809L
+	de_unix_time_to_timestamp(stbuf.st_mtim.tv_sec, &fop->orig_modtime, 0);
+	de_timestamp_set_subsec(&fop->orig_modtime,
+		(double)stbuf.st_mtim.tv_nsec/1000000000.0);
+	de_unix_time_to_timestamp(stbuf.st_atim.tv_sec, &fop->orig_acctime, 0);
+	de_timestamp_set_subsec(&fop->orig_acctime,
+		(double)stbuf.st_atim.tv_nsec/1000000000.0);
+#else
+	de_unix_time_to_timestamp(stbuf.st_mtime, &fop->orig_modtime, 0);
+	de_unix_time_to_timestamp(stbuf.st_atime, &fop->orig_acctime, 0);
+#endif
+
 	return 1;
 }
 
-FILE* de_fopen_for_read(deark *c, const char *fn, i64 *len,
-	char *errmsg, size_t errmsg_len, UI *returned_flags)
+void de_fopen_for_read(struct de_fopen_params *fop)
 {
 	int ret;
-	FILE *f;
 
-	f = de_fopen(c, fn, "rb", errmsg, errmsg_len);
-	if(!f) {
-		return NULL;
+	fop->f = de_fopen(fop->c, fop->fn, "rb", fop->errmsg, sizeof(fop->errmsg));
+	if(!fop->f) {
+		return;
 	}
 
-	ret = de_examine_file_by_fd(c, fileno(f), len, errmsg, errmsg_len,
-		returned_flags);
+	ret = de_examine_file_by_fd(fop, fileno(fop->f));
 	if(!ret) {
-		de_fclose(f);
-		return NULL;
+		de_fclose(fop->f);
+		fop->f = NULL;
+		return;
 	}
-
-	return f;
 }
 
 // flags: 0x1 = append instead of overwriting
@@ -224,13 +230,14 @@ static void update_file_perms(struct upd_attr_ctx *uactx, dbuf *f)
 
 static void update_file_time(struct upd_attr_ctx *uactx, dbuf *f)
 {
-	const struct de_timestamp *ts;
+	const struct de_timestamp *ts[2];
 	struct timeval times[2];
 
 	if(f->btype!=DBUF_TYPE_OFILE) return;
 	if(!f->fi_copy) return;
-	ts = &f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY];
-	if(!ts->is_valid) return;
+	ts[0] = &f->fi_copy->timestamp[DE_TIMESTAMPIDX_ACCESS];
+	ts[1] = &f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY];
+	if(!ts[1]->is_valid) return;
 	if(!f->name) return;
 
 	if(!uactx->tried_stat) {
@@ -241,14 +248,20 @@ static void update_file_time(struct upd_attr_ctx *uactx, dbuf *f)
 	de_zeromem(&times, sizeof(times));
 	// times[0] = access time
 	// times[1] = mod time
-	times[1].tv_sec = (time_t)de_timestamp_to_unix_time(ts);
-	if(ts->precision>DE_TSPREC_1SEC) {
-		times[1].tv_usec = (suseconds_t)(de_timestamp_get_subsec(ts)/10);
+	times[1].tv_sec = (time_t)de_timestamp_to_unix_time(ts[1]);
+	if(ts[1]->precision>DE_TSPREC_1SEC) {
+		times[1].tv_usec = (suseconds_t)(de_timestamp_get_subsec(ts[1])/10);
 	}
 
-	// We don't want to set the access time, but unfortunately the utimes()
+	// We don't always want to set the access time, but unfortunately the utimes()
 	// function forces us to.
-	if(uactx->tried_stat && (uactx->stat_ret==0)) {
+	if(ts[0]->is_valid) {
+		times[0].tv_sec = (time_t)de_timestamp_to_unix_time(ts[0]);
+		if(ts[0]->precision>DE_TSPREC_1SEC) {
+			times[0].tv_usec = (suseconds_t)(de_timestamp_get_subsec(ts[0])/10);
+		}
+	}
+	else if(uactx->tried_stat && (uactx->stat_ret==0)) {
 		// If we have the file's current access time recorded, use that.
 		times[0].tv_sec = uactx->stbuf.st_atime;
 		times[0].tv_usec = 0;
@@ -260,12 +273,20 @@ static void update_file_time(struct upd_attr_ctx *uactx, dbuf *f)
 	utimes(f->name, times);
 }
 
-void de_update_file_attribs(dbuf *f, u8 preserve_file_times)
+void de_update_file_attribs1(dbuf *f)
+{
+	return;
+}
+
+void de_update_file_attribs2(dbuf *f)
 {
 	struct upd_attr_ctx uactx;
+	u8 preserve_file_times;
 
 	de_zeromem(&uactx, sizeof(struct upd_attr_ctx));
 
+	preserve_file_times = (f->fi_copy &&
+		f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY].is_valid);
 	update_file_perms(&uactx, f);
 	if(preserve_file_times) {
 		update_file_time(&uactx, f);

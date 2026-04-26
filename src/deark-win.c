@@ -14,6 +14,7 @@
 
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <io.h>
 
 // This file is overloaded, in that it contains functions intended to only
 // be used internally, as well as functions intended only for the
@@ -159,62 +160,94 @@ static FILE* de_fopenW(deark *c, const WCHAR *fnW, const WCHAR *modeW,
 		strerror_s(errmsg, (size_t)errmsg_len, (int)errcode);
 		f=NULL;
 	}
+
 	return f;
 }
 
-static int de_examine_file_by_fd(deark *c, int fd, i64 *len,
-	char *errmsg, size_t errmsg_len, UI *returned_flags)
+static i64 ftstruct_to_i64(const FILETIME *ft)
+{
+	return (i64)((((u64)ft->dwHighDateTime)<<32)|ft->dwLowDateTime);
+}
+
+static int de_examine_file_by_name(struct de_fopen_params *fop, const WCHAR *fnW)
+{
+	HANDLE h;
+	FILETIME ftcr = {0};
+	FILETIME ftac = {0};
+	FILETIME ftwr = {0};
+
+	// Apparently, on Windws, merely opening a file with READ access causes
+	// the ACCESS time to be updated immediately (subject to the filesystem's
+	// settings for maintaining ACCESS times). So, here we open the file with
+	// NO access.
+	// I suppose there is a way to do all this whilst opening the file only
+	// once, but I don't know what it is.
+	h = CreateFileW(fnW, 0, FILE_SHARE_READ, NULL, OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL, NULL);
+	if(h==INVALID_HANDLE_VALUE) {
+		return 0;
+	}
+
+	if(GetFileTime(h, &ftcr, &ftac, &ftwr)) {
+		de_FILETIME_to_timestamp(ftstruct_to_i64(&ftwr), &fop->orig_modtime, 0);
+		de_FILETIME_to_timestamp(ftstruct_to_i64(&ftcr), &fop->orig_createtime, 0);
+		de_FILETIME_to_timestamp(ftstruct_to_i64(&ftac), &fop->orig_acctime, 0);
+	}
+
+	CloseHandle(h);
+	return 1;
+}
+
+// On success, returns 1 and sets some fields in fop.
+// On failure, returns 0 and sets fop->errmsg.
+static int de_examine_file_by_fd(struct de_fopen_params *fop, int fd)
 {
 	struct __stat64 stbuf;
 	int retval = 0;
 
-	*returned_flags = 0;
-
 	de_zeromem(&stbuf, sizeof(struct __stat64));
 
 	if(0 != _fstat64(fd, &stbuf)) {
-		strerror_s(errmsg, (size_t)errmsg_len, errno);
+		strerror_s(fop->errmsg, sizeof(fop->errmsg), errno);
 		goto done;
 	}
 
 	if(!(stbuf.st_mode & _S_IFREG)) {
-		de_strlcpy(errmsg, "Not a regular file", errmsg_len);
+		de_strlcpy(fop->errmsg, "Not a regular file", sizeof(fop->errmsg));
 		return 0;
 	}
 
-	*len = (i64)stbuf.st_size;
-
+	fop->len = (i64)stbuf.st_size;
 	retval = 1;
 
 done:
 	return retval;
 }
 
-FILE* de_fopen_for_read(deark *c, const char *fn, i64 *len,
-	char *errmsg, size_t errmsg_len, UI *returned_flags)
+void de_fopen_for_read(struct de_fopen_params *fop)
 {
 	int ret;
-	FILE *f;
 	WCHAR *fnW;
 
-	fnW = de_utf8_to_utf16_strdup(c, fn);
+	fnW = de_utf8_to_utf16_strdup(fop->c, fop->fn);
 
-	f = de_fopenW(c, fnW, L"rb", errmsg, errmsg_len);
+	if(fop->in_flags & 0x1) {
+		(void)de_examine_file_by_name(fop, fnW);
+	}
+	fop->f = de_fopenW(fop->c, fnW, L"rb", fop->errmsg, sizeof(fop->errmsg));
 
-	de_free(c, fnW);
+	de_free(fop->c, fnW);
 
-	if(!f) {
-		return NULL;
+	if(!fop->f) {
+		return;
 	}
 
-	ret = de_examine_file_by_fd(c, _fileno(f), len, errmsg, errmsg_len,
-		returned_flags);
+	ret = de_examine_file_by_fd(fop, _fileno(fop->f));
 	if(!ret) {
-		de_fclose(f);
-		return NULL;
+		de_fclose(fop->f);
+		fop->f = NULL;
+		return;
 	}
-
-	return f;
 }
 
 // flags: 0x1 = append instead of overwriting
@@ -269,45 +302,81 @@ int de_fclose(FILE *fp)
 	return fclose(fp);
 }
 
+struct uft_item {
+	u8 tstype;
+	u8 is_valid;
+	FILETIME ft;
+	FILETIME *ft_ptr;
+};
+
 static void update_file_time(dbuf *f)
 {
-	WCHAR *fnW = NULL;
-	HANDLE fh = INVALID_HANDLE_VALUE;
-	i64 ft;
-	FILETIME wrtime;
-	deark *c;
+	HANDLE fh;
+	i64 tmpft;
+	size_t i;
+	u8 any_valid = 0;
+	struct uft_item uft[3];
 
-	if(f->btype!=DBUF_TYPE_OFILE) return;
-	if(!f->fi_copy) return;
-	if(!f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY].is_valid) return;
-	if(!f->name) return;
-	c = f->c;
+	if(f->btype!=DBUF_TYPE_OFILE) goto done;
+	if(!f->fi_copy) goto done;
+	if(!f->fp) goto done;
 
-	ft = de_timestamp_to_FILETIME(&f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY]);
-	if(ft==0) goto done;
-	fnW = de_utf8_to_utf16_strdup(c, f->name);
-	fh = CreateFileW(fnW, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ, NULL,
-		OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	de_zeromem(&uft, 3*sizeof(struct uft_item));
+	uft[0].tstype = DE_TIMESTAMPIDX_MODIFY;
+	uft[1].tstype = DE_TIMESTAMPIDX_CREATE;
+	uft[2].tstype = DE_TIMESTAMPIDX_ACCESS;
+
+	for(i=0; i<3; i++) {
+		uft[i].is_valid = f->fi_copy->timestamp[uft[i].tstype].is_valid;
+		if(uft[i].is_valid) any_valid = 1;
+	}
+	if(!any_valid) goto done;
+
+	for(i=0; i<3; i++) {
+		if(uft[i].is_valid) {
+			tmpft = de_timestamp_to_FILETIME(&f->fi_copy->timestamp[uft[i].tstype]);
+			uft[i].ft.dwHighDateTime = (DWORD)(((u64)tmpft)>>32);
+			uft[i].ft.dwLowDateTime = (DWORD)(((u64)tmpft)&0xffffffffULL);
+			uft[i].ft_ptr = &uft[i].ft;
+		}
+		else {
+			uft[i].ft_ptr = NULL;
+		}
+	}
+
+	// TODO: I'm not sure SetFileTime() is expected to work when used
+	// like this. Seems like the subsequent fclose() could potentially
+	// overwrite its changes. But it seems to work for me.
+
+	fflush(f->fp);
+	fh = (HANDLE)_get_osfhandle(_fileno(f->fp));
 	if(fh==INVALID_HANDLE_VALUE) goto done;
 
-	wrtime.dwHighDateTime = (DWORD)(((u64)ft)>>32);
-	wrtime.dwLowDateTime = (DWORD)(((u64)ft)&0xffffffffULL);
-	SetFileTime(fh, NULL, NULL, &wrtime);
+	// Order: create, access, modify.
+	SetFileTime(fh, uft[1].ft_ptr, uft[2].ft_ptr, uft[0].ft_ptr);
 
 done:
-	if(fh != INVALID_HANDLE_VALUE) {
-		CloseHandle(fh);
-	}
-	de_free(c, fnW);
+	;
 }
 
-void de_update_file_attribs(dbuf *f, u8 preserve_file_times)
+// Things to do just before fclose.
+void de_update_file_attribs1(dbuf *f)
 {
-	// [Updating file permissions not implemented on Windows.]
+	u8 preserve_file_times;
 
+	// (If all we have is ACCESS time, we don't consider it worthwhile.)
+	preserve_file_times = (f->fi_copy &&
+		(f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY].is_valid ||
+		f->fi_copy->timestamp[DE_TIMESTAMPIDX_CREATE].is_valid));
 	if(preserve_file_times) {
 		update_file_time(f);
 	}
+}
+
+// Things to do after fclose.
+void de_update_file_attribs2(dbuf *f)
+{
+	return;
 }
 
 char **de_convert_args_to_utf8(int argc, wchar_t **argvW)
