@@ -8,6 +8,8 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_mmfw);
 
+#define MMFW_DEBUG 0
+
 #define MMFW_TYPE_FIRST     2
 #define MMFW_TYPE_BLOBS     2
 #define MMFW_TYPE_PICTURES  3
@@ -56,6 +58,9 @@ struct mmfw_item {
 	dbuf *inf_to_use; // This is a copy; do not free.
 	i64 inf_dpos;
 	i64 inf_dlen;
+
+	u8 snd_detected_fmt;
+	u8 snd_detected_nchannels;
 };
 
 // Collect some fields together, for convenience. We might want
@@ -423,7 +428,7 @@ static void decode_pic_raw_unc_rgb32(deark *c, lctx *d, struct mmfw_item *md)
 
 	rowspan = w*4;
 	if(rowspan*h != md->inf_dlen) {
-		de_err(c, "%sFailed to decode picture", md->msgpfx);
+		de_err(c, "%sFailed to decode image", md->msgpfx);
 		goto done;
 	}
 
@@ -821,6 +826,81 @@ static void extract_raw_resource(deark *c, lctx *d, struct mmfw_item *md)
 	dbuf_close(outf);
 }
 
+static void detect_sound_format(deark *c, lctx *d, struct mmfw_item *md)
+{
+	i64 i;
+	i64 nbytes_to_read;
+	// For arrays, [0]=even bytes, [1]=odd, [2]=all
+	i64 tot_val[3] = {0};
+	i64 tot_diff[3] = {0};
+	i64 avg_val[3];
+	i64 avg_diff[3];
+	u8 prev_byte[3] = { 0x80, 0x80, 0x80 };
+
+	nbytes_to_read = md->dlen;
+	if(nbytes_to_read<50) goto done;
+	if(nbytes_to_read>1000000) nbytes_to_read = 1000000;
+
+	for(i=0; i<nbytes_to_read; i++) {
+		u8 b;
+		UI m;
+
+		b = de_getbyte(md->dpos+i);
+
+		m = (UI)(i%2);
+		tot_val[m] += (i64)b;
+		if(b>=prev_byte[m]) {
+			tot_diff[m] += (i64)(b - prev_byte[m]);
+		}
+		else {
+			tot_diff[m] += (i64)(prev_byte[m] - b);
+		}
+		prev_byte[m] = b;
+
+		if(b>=prev_byte[2]) {
+			tot_diff[2] += (i64)(b - prev_byte[2]);
+		}
+		else {
+			tot_diff[2] += (i64)(prev_byte[2] - b);
+		}
+		prev_byte[2] = b;
+	}
+
+	tot_val[2] = tot_val[0] + tot_val[1];
+	avg_val[2] = tot_val[2] / nbytes_to_read;
+	avg_val[0] = (tot_val[0]*2) / nbytes_to_read;
+	avg_val[1] = (tot_val[1]*2) / nbytes_to_read;
+	avg_diff[2] = tot_diff[2] / nbytes_to_read;
+	avg_diff[0] = (tot_diff[0]*2) / nbytes_to_read;
+	avg_diff[1] = (tot_diff[1]*2) / nbytes_to_read;
+#if MMFW_DEBUG
+	de_dbg(c, "tot val      : %"I64_FMT, tot_val[2]);
+	de_dbg(c, "tot val even : %"I64_FMT, tot_val[0]);
+	de_dbg(c, "tot val odd  : %"I64_FMT, tot_val[1]);
+	de_dbg(c, "avg val      : %"I64_FMT, avg_val[2]);
+	de_dbg(c, "avg val even : %"I64_FMT, avg_val[0]);
+	de_dbg(c, "avg val odd  : %"I64_FMT, avg_val[1]);
+	de_dbg(c, "tot diff     : %"I64_FMT, tot_diff[2]);
+	de_dbg(c, "tot diff even: %"I64_FMT, tot_diff[0]);
+	de_dbg(c, "tot diff odd : %"I64_FMT, tot_diff[1]);
+	de_dbg(c, "avg diff     : %"I64_FMT, avg_diff[2]);
+	de_dbg(c, "avg diff even: %"I64_FMT, avg_diff[0]);
+	de_dbg(c, "avg diff odd : %"I64_FMT, avg_diff[1]);
+#endif
+
+	// My theory is that we could use the even/odd-bytes-only values to
+	// detect 2-channel 8-bit audio. More work needed here.
+
+	if(avg_val[2]>=116 && avg_val[2]<=140 &&
+		(avg_diff[2]<=50))
+	{
+		md->snd_detected_fmt = 1;
+		md->snd_detected_nchannels = 1;
+	}
+done:
+	;
+}
+
 static void do_sound_internal(deark *c, lctx *d, struct mmfw_item *md)
 {
 	struct fmtutil_write_wav_ctx *wctx = NULL;
@@ -834,7 +914,7 @@ static void do_sound_internal(deark *c, lctx *d, struct mmfw_item *md)
 
 	wctx->num_channels = 1; // default
 	wctx->sample_rate = 22050; // default
-	// TODO: Can we detect the correct settings?
+	// TODO: Can we do more to detect the correct settings?
 
 	if(d->fs.pos_of_flags1_table) {
 		md->pic_flags1 = de_getbyte(d->fs.pos_of_flags1_table+md->idx);
@@ -844,6 +924,15 @@ static void do_sound_internal(deark *c, lctx *d, struct mmfw_item *md)
 			wctx->num_channels = 2;
 		}
 #endif
+	}
+
+	if(d->opt_channels==0) {
+		detect_sound_format(c, d, md);
+		if(md->snd_detected_fmt==0) {
+			de_warn(c, "%sCan't determine sound format", md->msgpfx);
+			goto done;
+		}
+		wctx->num_channels = md->snd_detected_nchannels;
 	}
 
 	if(d->opt_channels==1 || d->opt_channels==2) {
@@ -1318,6 +1407,7 @@ static void de_run_mmfw(deark *c, de_module_params *mparams)
 		s = de_get_ext_option(c, "mmfw:channels");
 		if(s) {
 			d->opt_channels = (UI)de_atoi64(s);
+			if(d->opt_channels!=1 && d->opt_channels!=2) d->opt_channels = 0;
 		}
 	}
 
