@@ -408,7 +408,7 @@ enum opt_id_enum {
  DE_OPT_MAXFILESIZE, DE_OPT_MAXTOTALSIZE, DE_OPT_MAXIMGDIM,
  DE_OPT_PRINTMODULES, DE_OPT_DPREFIX, DE_OPT_EXTRLIST,
  DE_OPT_ONLYMODS, DE_OPT_DISABLEMODS, DE_OPT_ONLYDETECT, DE_OPT_NODETECT,
- DE_OPT_COLORMODE
+ DE_OPT_COLORMODE, DE_OPT_TSOPTS
 };
 
 struct opt_struct {
@@ -488,6 +488,7 @@ static const struct opt_struct option_array[] = {
 	{ "onlydetect",   DE_OPT_ONLYDETECT,   1 },
 	{ "nodetect",     DE_OPT_NODETECT,     1 },
 	{ "colormode",    DE_OPT_COLORMODE,    1 },
+	{ "tsopts",       DE_OPT_TSOPTS,       1 },
 	{ NULL,           DE_OPT_NULL,         0 }
 };
 
@@ -535,6 +536,34 @@ static void colormode_opt(struct cmdctx *cc, const char *modestr)
 		cc->error_flag = 1;
 		return;
 	}
+}
+
+static void handle_tsopts(struct cmdctx *cc, const char *codes)
+{
+	deark *c = cc->c;
+	size_t i;
+
+	for(i=0; codes[i]; i++) {
+		if(codes[i]=='n') {
+			de_set_preserve_file_times(c, 0, 0);
+		}
+		else if(codes[i]=='a') {
+			de_set_preserve_file_times(c, 3, 1);
+		}
+		else if(codes[i]=='p') {
+			de_set_preserve_file_times(c, 4, 1);
+		}
+		else if(codes[i]=='z') {
+			de_set_preserve_file_times(c, 5, 1);
+		}
+		else {
+			de_printf(cc->c, DE_MSGTYPE_MESSAGE, "Invalid tsopt: '%c'\n", codes[i]);
+			cc->error_flag = 1;
+			goto done;
+		}
+	}
+done:
+	;
 }
 
 static void set_output_basename(struct cmdctx *cc)
@@ -719,11 +748,9 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_MODTIME:
 				de_set_preserve_file_times(c, 0, 1);
-				de_set_preserve_file_times(c, 1, 1);
 				break;
 			case DE_OPT_NOMODTIME:
 				de_set_preserve_file_times(c, 0, 0);
-				de_set_preserve_file_times(c, 1, 0);
 				break;
 			case DE_OPT_Q:
 				de_set_std_option_int(c, DE_STDOPT_INFOMESSAGES, 0);
@@ -897,6 +924,10 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_COLORMODE:
 				colormode_opt(cc, argv[i+1]);
+				if(cc->error_flag) return;
+				break;
+			case DE_OPT_TSOPTS:
+				handle_tsopts(cc, argv[i+1]);
 				if(cc->error_flag) return;
 				break;
 			default:

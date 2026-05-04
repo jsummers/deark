@@ -11,6 +11,7 @@
 DE_DECLARE_MODULE(de_module_ilbm);
 DE_DECLARE_MODULE(de_module_anim);
 DE_DECLARE_MODULE(de_module_deep);
+DE_DECLARE_MODULE(de_module_wv_brs);
 
 #define ANIM_MAX_FRAMES 10000
 
@@ -36,6 +37,7 @@ DE_DECLARE_MODULE(de_module_deep);
 #define CODE_FORM 0x464f524dU
 #define CODE_GRAB 0x47524142U
 #define CODE_ILBM 0x494c424dU
+#define CODE_JUNK 0x4a554e4bU
 #define CODE_PBM  0x50424d20U
 #define CODE_PCHG 0x50434847U
 #define CODE_RGB8 0x52474238U
@@ -3502,4 +3504,131 @@ void de_module_deep(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_deep;
 	mi->identify_fn = de_identify_deep;
 	mi->help_fn = de_help_deep;
+}
+
+// **************************************************************************
+// Whale's Voyage .BRS modified ILBM file
+// **************************************************************************
+
+struct wv_brs_ctx {
+	u8 need_errmsg;
+	u8 disable_CRNG;
+	dbuf *outf;
+};
+
+#define CODE_NEO_  0x4e454f21U // NEO!
+#define CODE_NEOA  0x4e454f41U
+#define CODE_NEOB  0x4e454f42U
+#define CODE_NEOC  0x4e454f43U
+#define CODE_NEOD  0x4e454f44U
+#define CODE_NEOP  0x4e454f50U
+
+static int my_wv_chunk_handler(struct de_iffctx *ictx)
+{
+	struct wv_brs_ctx *d = (struct wv_brs_ctx*)ictx->userdata;
+	u32 newcode;
+	i64 ipos, ilen;
+
+	newcode = ictx->chunkctx->chunk4cc.id; // default = no change
+
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_NEO_:
+		if(ictx->level!=0) {
+			d->need_errmsg = 1;
+			return 0;
+		}
+		ictx->is_std_container = 1;
+		newcode = CODE_FORM;
+		break;
+	case CODE_NEOA:
+		newcode = CODE_CAMG;
+		break;
+	case CODE_NEOB:
+		newcode = CODE_BMHD;
+		break;
+	case CODE_NEOC:
+		newcode = CODE_CMAP;
+		break;
+	case CODE_NEOD:
+		newcode = CODE_BODY;
+		break;
+	case CODE_CRNG:
+		// I don't think this format ever does color cycling, so I think
+		// it's safest to get rid of these chunks.
+		if(d->disable_CRNG) {
+			newcode = CODE_JUNK;
+		}
+		break;
+	case 0xdbdbdbdbU:
+		// In some files, apparently the GRAB and CRNG chunks are "erased"
+		// like this. We could delete them, or try to revive them, but let's
+		// just change it to something more readable.
+		// I have seen 'JUNK' before, but I don't know if it's in any standard.
+		newcode = CODE_JUNK;
+		break;
+	}
+
+	dbuf_writeu32be(d->outf, newcode);
+	ipos = ictx->chunkctx->pos+4;
+	if(ictx->is_std_container) {
+		dbuf_copy(ictx->f, ipos, 4, d->outf);
+		dbuf_writeu32be(d->outf, CODE_ILBM);
+	}
+	else {
+		ilen = ictx->chunkctx->len-4;
+		if(ipos+ilen > ictx->f->len) {
+			d->need_errmsg = 1;
+			return 0;
+		}
+		dbuf_copy(ictx->f, ipos, ilen, d->outf);
+	}
+
+	ictx->handled = 1; // We're just scanning the file, so suppress default chunk handling
+	return 1;
+}
+
+static void de_run_wv_brs(deark *c, de_module_params *mparams)
+{
+	struct wv_brs_ctx *d = NULL;
+	struct de_iffctx *ictx = NULL;
+
+	d = de_malloc(c, sizeof(struct wv_brs_ctx));
+	d->disable_CRNG = 1;
+
+	ictx = fmtutil_create_iff_decoder(c);
+	ictx->userdata = (void*)d;
+	ictx->handle_chunk_fn = my_wv_chunk_handler;
+	ictx->f = c->infile;
+
+	d->outf = dbuf_create_output_file(c, "iff", NULL, 0);
+	dbuf_enable_wbuffer(d->outf);
+
+	fmtutil_read_iff_format(ictx, 0, c->infile->len);
+
+	fmtutil_destroy_iff_decoder(ictx);
+	if(d) {
+		dbuf_close(d->outf);
+		if(d->need_errmsg) {
+			de_err(c, "Failed to convert BRS file");
+		}
+		de_free(c, d);
+	}
+}
+
+static int de_identify_wv_brs(deark *c)
+{
+	if((de_getu32be(0)==CODE_NEO_) &&
+		(de_getu32be(8)==CODE_NEOP))
+	{
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_wv_brs(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "wv_brs";
+	mi->desc = "Whale's Voyage image";
+	mi->run_fn = de_run_wv_brs;
+	mi->identify_fn = de_identify_wv_brs;
 }

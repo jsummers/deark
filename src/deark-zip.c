@@ -104,6 +104,7 @@ int de_zip_create_file(deark *c)
 	else {
 		de_info(c, "Creating %s", zzz->pFilename);
 		zzz->outf = dbuf_create_unmanaged_file(c, zzz->pFilename, c->overwrite_mode, 0);
+		zzz->outf->is_output_archive = 1;
 	}
 
 	zzz->cdir = dbuf_create_membuf(c, 1024, 0);
@@ -449,7 +450,7 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 		}
 	}
 
-	if(c->preserve_file_times_archives && f->fi_copy && f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY].is_valid) {
+	if(f->fi_copy && f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY].is_valid) {
 		md->modtime = f->fi_copy->timestamp[DE_TIMESTAMPIDX_MODIFY];
 		if(md->modtime.precision>DE_TSPREC_1SEC) {
 			write_ntfs_times = 1;
@@ -470,7 +471,7 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 
 	// Note: Timestamps other than the modification time are a low priority.
 	// We'll write them in some cases, when it is easy to do so.
-	if(c->preserve_file_times_archives && f->fi_copy) {
+	if(f->fi_copy) {
 		md->actime = f->fi_copy->timestamp[DE_TIMESTAMPIDX_ACCESS];
 		md->crtime = f->fi_copy->timestamp[DE_TIMESTAMPIDX_CREATE];
 	}

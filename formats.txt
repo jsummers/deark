@@ -794,6 +794,9 @@ Deark -- Information about supported formats
 
 * VORT ray tracer .pix image (module="vort") (experimental/incomplete)
 
+* Whale's Voyage .BRS (module="wv_brs")
+  - Convert to ILBM.
+
 * Windows 1.0 ICO/CUR (module="win1ico")
 
 * Windows Metafile (module="wmf")

@@ -244,7 +244,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx,
 
 	// Set ictx fields, prior to calling the handler
 	chunkctx.pos = pos;
-	chunkctx.len = bytes_avail;
+	chunkctx.len = hdrsize+chunk_dlen_padded;
 	ictx->handled = 0;
 	ictx->is_std_container = 0;
 	ictx->is_raw_container = 0;

@@ -74,6 +74,7 @@ int de_tar_create_file(deark *c)
 		goto done;
 	}
 
+	tctx->outf->is_output_archive = 1;
 	retval = 1;
 
 done:
@@ -162,7 +163,7 @@ void de_tar_start_member_file(deark *c, dbuf *f)
 
 	md->headers_pos = tctx->outf->len;
 
-	if(c->preserve_file_times_archives && f->fi_copy) {
+	if(f->fi_copy) {
 		for(tsidx=0; tsidx<DE_TIMESTAMPIDX_COUNT; tsidx++) {
 			//if(tsidx != DE_TIMESTAMPIDX_MODIFY) continue;
 

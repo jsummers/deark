@@ -170,6 +170,20 @@ Command-line options:
    Make Deark less likely to try to improve output filenames by using names
    from the contents of the input file. The output filenames will be more
    predictable, but less informative.
+-tsopts &lt;codes>
+   A string of single-character codes that affect preservation of timestamps.
+   Codes:
+     a: When writing an output file directly (i.e., not to a ZIP file),
+        normally only the last-modified timestamp is set. With this option,
+        also try to set the 'creation' and 'access' times. The extent to which
+        this will work depends on the platform and the filesystem.
+     n: Same as -nomodtime. Ignore most timestamps contained in the input file.
+     p: Use the external timestamps of the input file as the timestamps of the
+        output file(s). Not recommended in general, but it makes sense for a
+        few formats. Overridden by internal timestamps if present, unless you
+        also use the 'n' option to ignore them.
+     z: Used with -zip/-tar. Use the external timestmamp of the input file as
+        the external timestamp of the archive file.
 -nomodtime
    In some cases, mainly when reading archive formats, a last-modified
    timestamp contained in an input file will be used to set the timestamp of an
