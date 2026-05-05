@@ -182,7 +182,7 @@ Command-line options:
         output file(s). Not recommended in general, but it makes sense for a
         few formats. Overridden by internal timestamps if present, unless you
         also use the 'n' option to ignore them.
-     z: Used with -zip/-tar. Use the external timestmamp of the input file as
+     z: Used with -zip/-tar. Use the external timestamp of the input file as
         the external timestamp of the archive file.
 -nomodtime
    In some cases, mainly when reading archive formats, a last-modified
