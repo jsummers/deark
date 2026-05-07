@@ -411,6 +411,7 @@ Deark -- Information about supported formats
   - Single-image files only
 
 * MacPaint (module="macpaint")
+  - Not all files can be autodetected. You may need "-m macpaint".
   - Can also decode brush patterns (use -a)
   Options
    -opt macpaint:macbinary=<0|1>
