@@ -848,6 +848,8 @@ in the readme file.)
 
 * CPI (DOS Code Page font) (module="cpi") (experimental)
   - Also supports the DRFONT variant.
+  Options
+   -a - Also extract the file comment.
 
 * EVAfont COM format (module="evafont")
 
