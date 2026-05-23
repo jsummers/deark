@@ -33,6 +33,7 @@ DE_DECLARE_MODULE(de_module_lzstac);
 DE_DECLARE_MODULE(de_module_npack);
 DE_DECLARE_MODULE(de_module_lzs221);
 DE_DECLARE_MODULE(de_module_xpk);
+DE_DECLARE_MODULE(de_module_deflate123);
 
 // **************************************************************************
 // "copy" module
@@ -1469,4 +1470,97 @@ void de_module_xpk(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_xpk;
 	mi->identify_fn = de_identify_xpk;
 	mi->flags |= DE_MODFLAG_HIDDEN;
+}
+
+// **************************************************************************
+// DEFLATE, "the 1-2-3 file compression program"
+// **************************************************************************
+
+static void de_run_deflate123(deark *c, de_module_params *mparams)
+{
+	dbuf *outf = NULL;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+	struct de_lzw_params delzwp;
+	u8 fnchar;
+
+	fnchar = de_getbyte(0);
+	de_dbg(c, "missing filename char: '%c'", de_byte_to_printable_char(fnchar));
+
+	outf = dbuf_create_output_file(c, "unc", NULL, 0);
+	dbuf_enable_wbuffer(outf);
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = 1;
+	dcmpri.len = c->infile->len - 1;
+	dcmpro.f = outf;
+
+	de_zeromem(&delzwp, sizeof(struct de_lzw_params));
+	delzwp.fmt = DE_LZWFMT_ZOOLZD;
+	delzwp.max_code_size = 12;
+	fmtutil_decompress_lzw(c, &dcmpri, &dcmpro, &dres, &delzwp);
+	dbuf_flush(outf);
+	if(dres.errcode) {
+		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
+	}
+	dbuf_close(outf);
+}
+
+static int deflate123_good_fnchar(u8 x)
+{
+	if(x>='A' && x<='Z') return 1;
+	if(x>='0' && x<='9') return 1; // (not observed)
+	// Other values are possible, but unlikely.
+	return 0;
+}
+
+static int de_identify_deflate123(deark *c)
+{
+	u8 buf[4];
+	u32 n;
+	UI i;
+	const char *ext;
+	static const u32 masks[11] = {
+		0x0080ff,0x00c0ff,0x00e0ff,0x00f0ff,0x00f8ff,0x00fcff,
+		0x00feff,0x00ffff,0x80ffff,0xc0ffff,0xe0ffff
+	};
+	static const u32 vals[11] = {
+		0x008080,0x004040,0x002020,0x001010,0x000808,0x000404,
+		0x000202,0x000101,0x808000,0x404000,0x202000
+	};
+
+	// This format is hard to identify.
+	// We utilize the filename extension (2nd char is '!'),
+	// the first few bytes of the file, and the last few bytes of the file.
+
+	de_read(buf, 0, 4);
+
+	if(buf[1]!=0 || !deflate123_good_fnchar(buf[0]) ||
+		(buf[2]&0x01)!=0x01 || (buf[3]&0x02)!=0)
+	{
+		return 0;
+	}
+
+	ext = de_get_input_file_ext(c);
+	if(ext[0]==0 || ext[1]!='!') {
+		return 0;
+	}
+
+	// TODO?: Could consolidate this with the LZD part of
+	// de_identify_zoo_filter().
+	n = (u32)de_getu32be(c->infile->len-4);
+	for(i=0; i<11; i++) {
+		if((n&masks[i]) == vals[i]) return 35;
+	}
+
+	return 0;
+}
+
+void de_module_deflate123(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "deflate123";
+	mi->desc = "DEFLATE 1-2-3 compressed file";
+	mi->run_fn = de_run_deflate123;
+	mi->identify_fn = de_identify_deflate123;
 }

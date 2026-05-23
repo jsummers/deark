@@ -1006,6 +1006,11 @@ in the readme file.)
   Options
    -opt deflate:deflate64 - Decode as Deflate64 format.
 
+* DEFLATE 1-2-3 (module="deflate123")
+  A compressed file format used for installation by some Lotus products.
+  - Not always autodetected; you may need "-m deflate123". If the second
+    character of the file extension is not "!", you always need -m.
+
 * DIET (module="diet") (experimental/incomplete)
   Decompress a DIET-compressed DOS EXE or COM or data file.
   Options
