@@ -713,8 +713,8 @@ Deark -- Information about supported formats
    -opt char:... - See main documentation. Applicable to text modes.
 
 * STOS Memory Bank and related formats (.mbk) (module="stos", ...)
-  Includes support for "Picture Packer" format. Helper modules such as
-  "stos_pp1" may exist.
+  Includes support for "Picture Packer" format. Helper modules "stos_pp1",
+  "stos_pp2", "stos_pp3", and "stos_daj" exist.
   - Decode "sprite bank" images
   - Decode "icon bank" images
   - Decode "packed screen" images
