@@ -1343,16 +1343,32 @@ done:
 
 static int de_identify_loaddskf(deark *c)
 {
-	UI sig;
+	UI sig, mtype, secsize, ncyl, nheads;
+	u8 nfat;
 
 	sig = (UI)de_getu16be(0);
-	if(sig==0xaa58 || sig==0xaa59 || sig==0xaa5a) {
-		if((UI)de_getu16be(2)==0xf000) {
-			return 100;
-		}
-		return 9;
+	if(sig!=0xaa58 && sig!=0xaa59 && sig!=0xaa5a) {
+		return 0;
 	}
-	return 0;
+
+	mtype = (UI)de_getu16le(2);
+	if(mtype<0x00e0 || mtype>0x00ff) return 0;
+
+	secsize = (UI)de_getu16le(4);
+	if(secsize!=512) return 0;
+
+	nfat = de_getbyte(10);
+	if(nfat>2) return 0;
+
+	ncyl = (UI)de_getu16le(24);
+	if(ncyl<40 || ncyl>85) return 0;
+
+	nheads = (UI)de_getu16le(26);
+	if(nheads<1 || nheads>2) return 0;
+
+	if(ncyl==80) return 100;
+	if(ncyl==40) return 60;
+	return 14;
 }
 
 static void de_help_loaddskf(deark *c)
