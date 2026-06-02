@@ -1099,6 +1099,7 @@ in the readme file.)
   - Compressed files are decompressed.
   Options
    -opt loaddskf:toraw - Convert to raw FAT/IMA format.
+   -a - Also extract the comment.
 
 * Logitech Compress v2.0 (module="lgcompress")
 
