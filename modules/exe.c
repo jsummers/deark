@@ -1928,7 +1928,7 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 	// Especially problematic are envelope formats that we can decode, and
 	// which also may have some standard extractable objects such as resource
 	// icons.
-	// For now, we support only recurse=0. Everthing else is an error.
+	// For now, we support only recurse=0. Everything else is an error.
 	// (One thought is that opt_recurse=1 will mean "report supported formats,
 	// but don't do anything with them".)
 	d->opt_recurse = 2;
