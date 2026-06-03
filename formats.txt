@@ -1161,6 +1161,7 @@ in the readme file.)
   See also the section on "MMFW Pictures".
   - Audio conversion to WAV is attempted in some cases, but extracted files may
     play at the wrong speed, or have other problems.
+  - Extracting videos to MOV format is attempted.
   Options
    -opt mmfw:extractall - Also extract undecoded resources, in raw form.
    -opt mmfw:extractallraw - Extract all resources in raw form.
