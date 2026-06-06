@@ -1871,8 +1871,16 @@ static void print_summary(deark *c, lctx *d)
 		// cover all the possible cases.
 		ucstring_append_sz(summary, " subsampling=", DE_ENCODING_LATIN1);
 		ucstring_append_ucstring(summary, d->sampling_code);
+		if(d->exif_cosited && d->ncomp>1) {
+			ucstring_append_sz(summary, ",co-sited", DE_ENCODING_LATIN1);
+		}
 	}
 	ucstring_printf(summary, DE_ENCODING_LATIN1, " bits=%d", (int)d->precision);
+
+	if(d->exif_orientation>1) {
+		ucstring_printf(summary, DE_ENCODING_LATIN1, " orient=%s",
+			fmtutil_tiff_orientation_name(d->exif_orientation));
+	}
 
 	if(d->has_restart_markers) ucstring_append_sz(summary, " rst", DE_ENCODING_LATIN1);
 	if(d->has_jfif_seg) {
@@ -1918,26 +1926,10 @@ done:
 
 static void do_post_sof_stuff(deark *c, lctx *d)
 {
-	if(d->is_jpegls) return;
-
-	if(d->has_jfif_seg && d->has_exif_seg && !d->exif_before_jfif &&
-		(d->jfif_ver_h==1 && (d->jfif_ver_l==1 || d->jfif_ver_l==2)))
-	{
-		if(d->exif_orientation>1) {
-			de_dbg(c, "Note: Image has an ambiguous orientation: JFIF says "
-				"%s; Exif says %s",
-				fmtutil_tiff_orientation_name(1),
-				fmtutil_tiff_orientation_name((i64)d->exif_orientation));
-		}
-
-		if(d->exif_cosited && d->is_subsampled && d->ncomp>1) {
-			de_dbg(c, "Note: Image has an ambiguous subsampling position: JFIF says "
-				"centered; Exif says cosited");
-		}
-
-		// TODO: Another thing we could check for is a significant conflict in
-		// the JFIF and Exif density settings.
-	}
+	// This function is currently just a placeholder.
+	// It was used to print warnings about conflicts between Exif and JFIF
+	// settings (orientation, subsampling position), but I think it's become
+	// well established in practice that Exif can override JFIF.
 }
 
 // Tasks to do at the end of normal JPEG data (after we've found the EOI marker,
