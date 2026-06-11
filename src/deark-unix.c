@@ -77,7 +77,16 @@ static int de_examine_file_by_fd(struct de_fopen_params *fop, int fd)
 
 	fop->len = (i64)stbuf.st_size;
 
-#if _POSIX_C_SOURCE >= 200809L
+#if defined(__APPLE__)
+	// On macOS, struct stat has no st_mtim/st_atim (nor st_mtimespec when
+	// _POSIX_C_SOURCE is defined); use st_mtime + st_mtimensec instead.
+	de_unix_time_to_timestamp(stbuf.st_mtime, &fop->orig_modtime, 0);
+	de_timestamp_set_subsec(&fop->orig_modtime,
+		(double)stbuf.st_mtimensec/1000000000.0);
+	de_unix_time_to_timestamp(stbuf.st_atime, &fop->orig_acctime, 0);
+	de_timestamp_set_subsec(&fop->orig_acctime,
+		(double)stbuf.st_atimensec/1000000000.0);
+#elif _POSIX_C_SOURCE >= 200809L
 	de_unix_time_to_timestamp(stbuf.st_mtim.tv_sec, &fop->orig_modtime, 0);
 	de_timestamp_set_subsec(&fop->orig_modtime,
 		(double)stbuf.st_mtim.tv_nsec/1000000000.0);
