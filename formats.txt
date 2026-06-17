@@ -713,8 +713,8 @@ Deark -- Information about supported formats
    -opt char:... - See main documentation. Applicable to text modes.
 
 * STOS Memory Bank and related formats (.mbk) (module="stos", ...)
-  Includes support for "Picture Packer" format. Helper modules such as
-  "stos_pp1" may exist.
+  Includes support for "Picture Packer" format. Helper modules "stos_pp1",
+  "stos_pp2", "stos_pp3", and "stos_daj" exist.
   - Decode "sprite bank" images
   - Decode "icon bank" images
   - Decode "packed screen" images
@@ -848,6 +848,8 @@ in the readme file.)
 
 * CPI (DOS Code Page font) (module="cpi") (experimental)
   - Also supports the DRFONT variant.
+  Options
+   -a - Also extract the file comment.
 
 * EVAfont COM format (module="evafont")
 
@@ -1004,6 +1006,11 @@ in the readme file.)
   Options
    -opt deflate:deflate64 - Decode as Deflate64 format.
 
+* DEFLATE 1-2-3 (module="deflate123")
+  A compressed file format used for installation by some Lotus products.
+  - Not always autodetected; you may need "-m deflate123". If the second
+    character of the file extension is not "!", you always need -m.
+
 * DIET (module="diet") (experimental/incomplete)
   Decompress a DIET-compressed DOS EXE or COM or data file.
   Options
@@ -1092,6 +1099,7 @@ in the readme file.)
   - Compressed files are decompressed.
   Options
    -opt loaddskf:toraw - Convert to raw FAT/IMA format.
+   -a - Also extract the comment.
 
 * Logitech Compress v2.0 (module="lgcompress")
 
@@ -1153,6 +1161,7 @@ in the readme file.)
   See also the section on "MMFW Pictures".
   - Audio conversion to WAV is attempted in some cases, but extracted files may
     play at the wrong speed, or have other problems.
+  - Extracting videos to MOV format is attempted.
   Options
    -opt mmfw:extractall - Also extract undecoded resources, in raw form.
    -opt mmfw:extractallraw - Extract all resources in raw form.

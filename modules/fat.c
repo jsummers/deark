@@ -1105,12 +1105,15 @@ void de_module_fat(deark *c, struct deark_module_info *mi)
 ///////////////////////// LoadDskF/SaveDskF format (OS/2-centric)
 
 struct skf_ctx {
+	de_encoding encoding_for_comment;
+	u8 extract_comment;
 	int to_raw;
 	int new_fmt;
 	int is_compressed;
 	u32 checksum_reported;
 	u32 checksum_calc;
 	i64 hdr_size;
+	i64 comment_pos;
 	i64 expected_dcmpr_size; // 0 if unknown
 	i64 padded_size; // 0 if unknown
 	struct de_crcobj *crco;
@@ -1231,6 +1234,47 @@ done:
 	dbuf_close(outf);
 }
 
+static void loaddskf_do_comment(deark *c, struct skf_ctx *d)
+{
+	i64 cmt_len_avail;
+	i64 cmt_len;
+	i64 endpos;
+	u8 cmt_found = 0;
+	int ret;
+	de_ucstring *s = NULL;
+	dbuf *outf = NULL;
+
+	if(d->comment_pos<40) goto done;
+	cmt_len_avail = d->hdr_size - d->comment_pos;
+	if(cmt_len_avail<2) goto done;
+
+	ret = dbuf_search_byte(c->infile, 0, d->comment_pos, cmt_len_avail, &endpos);
+	if(!ret) goto done;
+	cmt_len = endpos - d->comment_pos;
+	if(cmt_len<1) goto done;
+	if(cmt_len>8192) goto done;
+
+	cmt_found = 1;
+	if(d->extract_comment) {
+		outf = dbuf_create_output_file(c, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
+		dbuf_copy_slice_convert_to_utf8(c->infile, d->comment_pos, cmt_len,
+			DE_EXTENC_MAKE(d->encoding_for_comment, DE_ENCSUBTYPE_CONTROLS), outf, 0x2|0x4);
+	}
+	else {
+		s = ucstring_create(c);
+		dbuf_read_to_ucstring_n(c->infile, d->comment_pos, cmt_len, DE_DBG_MAX_STRLEN, s,
+			0, DE_EXTENC_MAKE(d->encoding_for_comment, DE_ENCSUBTYPE_CONTROLS));
+		de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(s));
+	}
+
+done:
+	if(!cmt_found) {
+		de_dbg(c, "[no comment found]");
+	}
+	dbuf_close(outf);
+	ucstring_destroy(s);
+}
+
 static int loaddskf_read_header(deark *c, struct skf_ctx *d)
 {
 	i64 bytes_per_sector;
@@ -1245,7 +1289,7 @@ static int loaddskf_read_header(deark *c, struct skf_ctx *d)
 
 	bytes_per_sector = de_getu16le(4);
 	de_dbg(c, "bytes per sector: %u", (UI)bytes_per_sector);
-	d->checksum_reported = (u32)de_getu32le(20); // TODO: What is this?
+	d->checksum_reported = (u32)de_getu32le(20);
 	de_dbg(c, "checksum (reported): 0x%08x", (UI)d->checksum_reported);
 	num_cylinders = de_getu16le(24);
 	de_dbg(c, "cylinders: %u", (UI)num_cylinders);
@@ -1255,6 +1299,8 @@ static int loaddskf_read_header(deark *c, struct skf_ctx *d)
 	de_dbg(c, "sectors per track: %u", (UI)num_sectors_per_track);
 	num_sectors_in_image = de_getu16le(34);
 	de_dbg(c, "num sectors in image: %u", (UI)num_sectors_in_image);
+	d->comment_pos = de_getu16le(36);
+	de_dbg(c, "comment pos: %u", (UI)d->comment_pos);
 
 	d->hdr_size = de_getu16le(38);
 	if(d->hdr_size==0) d->hdr_size = 512;
@@ -1264,6 +1310,8 @@ static int loaddskf_read_header(deark *c, struct skf_ctx *d)
 	}
 
 	retval = 1;
+
+	loaddskf_do_comment(c, d);
 
 	if(num_cylinders<20 || num_cylinders>200 ||
 		num_heads<1 || num_heads>2 ||
@@ -1296,7 +1344,9 @@ static void de_run_loaddskf(deark *c, de_module_params *mparams)
 	UI sig;
 
 	d = de_malloc(c, sizeof(struct skf_ctx));
+	d->encoding_for_comment = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 	d->to_raw = de_get_ext_option_bool(c, "loaddskf:toraw", 0);
+	d->extract_comment = (c->extract_level>=2);
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_SUM_U16LE);
 
 	sig = (UI)de_getu16be(0);
@@ -1343,16 +1393,32 @@ done:
 
 static int de_identify_loaddskf(deark *c)
 {
-	UI sig;
+	UI sig, mtype, secsize, ncyl, nheads;
+	u8 nfat;
 
 	sig = (UI)de_getu16be(0);
-	if(sig==0xaa58 || sig==0xaa59 || sig==0xaa5a) {
-		if((UI)de_getu16be(2)==0xf000) {
-			return 100;
-		}
-		return 9;
+	if(sig!=0xaa58 && sig!=0xaa59 && sig!=0xaa5a) {
+		return 0;
 	}
-	return 0;
+
+	mtype = (UI)de_getu16le(2);
+	if(mtype<0x00e0 || mtype>0x00ff) return 0;
+
+	secsize = (UI)de_getu16le(4);
+	if(secsize!=512) return 0;
+
+	nfat = de_getbyte(10);
+	if(nfat>2) return 0;
+
+	ncyl = (UI)de_getu16le(24);
+	if(ncyl<40 || ncyl>85) return 0;
+
+	nheads = (UI)de_getu16le(26);
+	if(nheads<1 || nheads>2) return 0;
+
+	if(ncyl==80) return 100;
+	if(ncyl==40) return 60;
+	return 14;
 }
 
 static void de_help_loaddskf(deark *c)

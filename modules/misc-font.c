@@ -546,6 +546,9 @@ void de_module_evafont(deark *c, struct deark_module_info *mi)
 #define CPI_MAX_HEIGHT  32
 #define CPI_MAX_BYTES_PER_GLYPH    32
 #define DRFONT_MAX_NUM_FONT_SIZES  20
+// Observed comment lengths range from roughly 35 to 289.
+#define CPI_MIN_COMMENT_LEN  12
+#define CPI_MAX_COMMENT_LEN  1000
 
 // Some of the variable names were taken from John Elliott's documentation
 // of CPI format.
@@ -567,7 +570,7 @@ struct cpi_codepageentry_ctx {
 	i64 cpedata_total_size; // (the "size" field after num_fonts)
 
 	i64 font_data_startpos;
-	i64 cpedata_max_endpos;
+	i64 cpedata_max_endpos; // Not really used
 	i64 last_font_len;
 	i64 last_font_endpos;
 	de_ucstring *tmpname;
@@ -582,11 +585,15 @@ struct cpi_ctx {
 	u8 is_drfont;
 	u8 ptrs_are_segmented;
 	u8 need_errmsg;
+	u8 extract_comment;
+	de_encoding encoding_for_comment;
 	UI num_printer_fonts_found;
 
 	i64 pnum; // number of pointers
 	u8 ptyp; // the "type" of the pointers
 	i64 fih_offset; // "fih" = FontInfoHeader
+	i64 max_font_endpos; // Tracked to help find the comment
+	i64 possible_comment_pos; // 0 = none
 
 	UI num_codepages;
 
@@ -667,6 +674,112 @@ enum cpi_cpecheck_result {
 	CPI_CPE_INVALID
 };
 
+static int cpi_quick_test_for_comment(deark *c, struct cpi_ctx *d,
+	const u8 *buf, size_t buf_len)
+{
+	size_t i;
+
+	for(i=0; i<buf_len; i++) {
+		if(buf[i]>0x7e) return 0;
+		if(buf[i]<0x20 && buf[i]!=0x09 && buf[i]!=0x0a &&
+			buf[i]!=0x0d && buf[i]!=0x1a)
+		{
+			return 0;
+		}
+	}
+	return 1;
+}
+
+static void cpi_handle_comment_if_present(deark *c, struct cpi_ctx *d)
+{
+	i64 pos1;
+	i64 bytes_avail;
+	i64 comment_pos;
+	i64 comment_len;
+	i64 i;
+	i64 pos_of_last_real_char = 0;
+	u8 looks_like_text = 1;
+	u8 starts_with_1a = 0;
+	de_ucstring *s = NULL;
+	dbuf *outf = NULL;
+	int saved_indent_level;
+
+	// Most CPI files end with a comment, but there's not a lot of consistency
+	// as to how you would find it, how it is formatted, etc.
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(d->is_drfont) goto done;
+	if(d->possible_comment_pos<1) goto done;
+
+	de_dbg(c, "[looking for comment near %"I64_FMT"]", d->possible_comment_pos);
+	de_dbg_indent(c, 1);
+
+	pos1 = d->possible_comment_pos;
+
+	// Crude hack for some files named "4208.CPI", which seem to contain an
+	// extra copy of the last "c.p.e. data".
+	if(!dbuf_memcmp(c->infile, pos1,
+		(const void*)"\x01\x00\x01\x00\x10\x00\x02\x00\x0c\x00", 10))
+	{
+		pos1 += 22;
+	}
+
+	bytes_avail = c->infile->len - pos1;
+	if(bytes_avail<CPI_MIN_COMMENT_LEN || bytes_avail>CPI_MAX_COMMENT_LEN) goto done;
+
+	for(i=0; i<bytes_avail; i++) {
+		u8 ch;
+
+		ch = de_getbyte(pos1+i);
+		if(ch==0x1a && i==0) {
+			starts_with_1a = 1;
+			continue;
+		}
+
+		if(ch==0) {
+			break;
+		}
+
+		// We could do more heuristics, such as for bytes over 0x80, but
+		// this seems good enough.
+		if(ch<32 && ch!=0x09 && ch!=0x0a && ch!=0x0d && ch!=0x1a) {
+			looks_like_text = 0;
+			break;
+		}
+
+		if(ch!=0x1a) {
+			// We'll delete a trailing 0x1a, but some files seem to use it as
+			// a separator (?), so we don't stop when we see 0x1a.
+			pos_of_last_real_char = pos1+i;
+		}
+	}
+
+	if(!pos_of_last_real_char) goto done;
+	if(!looks_like_text) goto done;
+	comment_pos = pos1;
+	if(starts_with_1a) comment_pos++;
+	comment_len = pos_of_last_real_char+1 - comment_pos;
+	if(comment_len<CPI_MIN_COMMENT_LEN) goto done;
+
+	de_dbg(c, "[found likely comment at %"I64_FMT" len %"I64_FMT"]", comment_pos, comment_len);
+	if(d->extract_comment) {
+		outf = dbuf_create_output_file(c, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
+		dbuf_copy_slice_convert_to_utf8(c->infile, comment_pos, comment_len,
+			DE_EXTENC_MAKE(d->encoding_for_comment, DE_ENCSUBTYPE_CONTROLS), outf, 0x2|0x4);
+	}
+	else {
+		s = ucstring_create(c);
+		dbuf_read_to_ucstring_n(c->infile, comment_pos, comment_len, DE_DBG_MAX_STRLEN, s,
+			0, DE_EXTENC_MAKE(d->encoding_for_comment, DE_ENCSUBTYPE_CONTROLS));
+		de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(s));
+	}
+
+done:
+	dbuf_close(outf);
+	ucstring_destroy(s);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static enum cpi_cpecheck_result cpi_check_for_cpe(deark *c, struct cpi_ctx *d,
 	i64 pos1, u8 strictmode)
 {
@@ -683,27 +796,21 @@ static enum cpi_cpecheck_result cpi_check_for_cpe(deark *c, struct cpi_ctx *d,
 
 	de_read(buf, pos1, sizeof(buf));
 
-	// If we're near eof, this might be a comment
-	if(pos1+2000 >= c->infile->len) {
-		u8 looks_like_text = 1;
-		UI i;
-
-		for(i=0; i<(UI)sizeof(buf); i++) {
-			if(buf[i]<0x0a) {
-				looks_like_text = 0;
-				break;
-			}
-		}
-
-		if(looks_like_text) {
-			return CPI_CPE_INVALID_OR_COMMENT;
-		}
-	}
-
 	cpeh_size = (UI)de_getu16le_direct(&buf[0]);
 	dev_type = (UI)de_getu16le_direct(&buf[6]);
 
-	if(dev_type<1 || dev_type>2 || cpeh_size<18 || cpeh_size>200) {
+	if(dev_type<1 || dev_type>2) {
+		// If we're near eof, this might be a comment
+		if(pos1+CPI_MAX_COMMENT_LEN > c->infile->len) {
+			if(cpi_quick_test_for_comment(c, d, buf, sizeof(buf))) {
+				return CPI_CPE_INVALID_OR_COMMENT;
+			}
+		}
+
+		return CPI_CPE_INVALID;
+	}
+
+	if(cpeh_size<18 || cpeh_size>200) {
 		return CPI_CPE_INVALID;
 	}
 	if(strictmode && cpeh_size!=26 && cpeh_size!=28) {
@@ -996,6 +1103,7 @@ static void cpi_do_cpedata_printerfont(deark *c, struct cpi_ctx *d,
 		de_dbg_hexdump(c, c->infile, pos, remaining_dlen, 256, NULL, 0x1);
 		de_dbg_indent(c, -1);
 	}
+	cpectx->last_font_endpos = cpectx->font_data_startpos + cpectx->cpedata_total_size;
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -1176,7 +1284,13 @@ static void cpi_determine_ptr_fmt(deark *c, struct cpi_ctx *d,
 	}
 	else {
 		cperet1_ifnormal = cpi_check_for_cpe(c, d, nextptr.pos_if_normal, 0);
-		cperet1_ifsegmented = cpi_check_for_cpe(c, d, nextptr.pos_if_segmented, 1);
+		if(nextptr.pos_if_segmented==nextptr.pos_if_normal) {
+			// This is not the case for any of the segmented files I've seen.
+			cperet1_ifsegmented = CPI_CPE_INVALID;
+		}
+		else {
+			cperet1_ifsegmented = cpi_check_for_cpe(c, d, nextptr.pos_if_segmented, 1);
+		}
 	}
 
 	if(cperet1_ifnormal==CPI_CPE_OK) goto done;
@@ -1242,6 +1356,9 @@ static void cpi_do_cpelist(deark *c, struct cpi_ctx *d)
 		if(i>0 && cperet==CPI_CPE_INVALID_OR_COMMENT) {
 			de_warn(c, "Found likely comment at %"I64_FMT", instead of "
 				"expected c.p.e.", pos);
+			if(i==d->num_codepages-1) {
+				d->possible_comment_pos = pos;
+			}
 			goto done;
 		}
 
@@ -1286,7 +1403,19 @@ static void cpi_do_cpelist(deark *c, struct cpi_ctx *d)
 
 		cpi_do_codepage_entry(c, d, cpectx);
 
+		if(!d->is_drfont) {
+			if(cpectx->last_font_endpos > d->max_font_endpos) {
+				d->max_font_endpos = cpectx->last_font_endpos;
+			}
+		}
 		pos = cpectx->next_cpeh_offset;
+
+		// The last real c.p.e. might point to a comment.
+		if(d->possible_comment_pos==0 && i==d->num_codepages-1 &&
+			pos!=0 && pos<c->infile->len)
+		{
+			d->possible_comment_pos = pos;
+		}
 	}
 
 done:
@@ -1302,6 +1431,10 @@ static void de_run_cpi(deark *c, de_module_params *mparams)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	d = de_malloc(c, sizeof(struct cpi_ctx));
+	if(c->extract_level>=2) {
+		d->extract_comment = 1;
+	}
+	d->encoding_for_comment = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 
 	de_dbg(c, "font file header");
 	de_dbg_indent(c, 1);
@@ -1373,7 +1506,10 @@ static void de_run_cpi(deark *c, de_module_params *mparams)
 
 	cpi_do_cpelist(c, d);
 
-	// TODO: Try to extract the comment, if present.
+	if(!d->possible_comment_pos) {
+		d->possible_comment_pos = d->max_font_endpos;
+	}
+	cpi_handle_comment_if_present(c, d);
 
 done:
 	if(d) {

@@ -956,6 +956,186 @@ done:
 	de_free(c, wctx);
 }
 
+#define BOX_mdia 0x6d646961U
+#define BOX_minf 0x6d696e66U
+#define BOX_moov 0x6d6f6f76U
+#define BOX_stbl 0x7374626cU
+#define BOX_stco 0x7374636fU
+#define BOX_trak 0x7472616bU
+
+struct mmfw_writemovie_ctx {
+	deark *c;
+	int nesting_level;
+	u8 errflag;
+	u8 found_stco;
+	dbuf *outf;
+	i64 rsrc_dpos;
+	i64 rsrc_endpos;
+	i64 curpos;
+	i64 nbytes_written;
+	struct de_fourcc tmp4cc;
+};
+
+static void wm_copy_thru_curpos(struct mmfw_writemovie_ctx *wmctx)
+{
+	i64 copy_pos, copy_len;
+
+	if(wmctx->curpos > wmctx->rsrc_endpos) {
+		wmctx->errflag = 1;
+	}
+	if(wmctx->errflag) goto done;
+
+	copy_pos = wmctx->rsrc_dpos + wmctx->nbytes_written;
+	copy_len = wmctx->curpos - copy_pos;
+	if(copy_len<0) {
+		wmctx->errflag = 1;
+		goto done;
+	}
+	dbuf_copy(wmctx->c->infile, copy_pos, copy_len, wmctx->outf);
+	wmctx->nbytes_written += copy_len;
+done:
+	;
+}
+
+static void wm_process_stco(struct mmfw_writemovie_ctx *wmctx, i64 bpos, i64 endpos)
+{
+	i64 num_items;
+	i64 pos;
+	i64 i;
+
+	wmctx->found_stco = 1;
+	num_items = dbuf_getu32be(wmctx->c->infile, bpos+12);
+	de_dbg2(wmctx->c, "num items: %"I64_FMT, num_items);
+	wmctx->curpos = bpos+16;
+	wm_copy_thru_curpos(wmctx);
+	pos = bpos + 16;
+	if(pos+num_items*4 > endpos) {
+		wmctx->errflag = 1;
+		goto done;
+	}
+
+	for(i=0; i<num_items; i++) {
+		i64 val1, val2;
+
+		val1 = dbuf_getu32be_p(wmctx->c->infile, &pos);
+		val2 = val1 - wmctx->rsrc_dpos;
+		de_dbg3(wmctx->c, "item %"I64_FMT" offs %"I64_FMT DE_CHAR_RIGHTARROW
+			"%"I64_FMT, i, val1, val2);
+		if(val2<8) {
+			wmctx->errflag = 1;
+			goto done;
+		}
+
+		dbuf_writeu32be(wmctx->outf, val2);
+		wmctx->nbytes_written += 4;
+	}
+done:
+	;
+}
+
+static int wm_is_container(u32 n)
+{
+	// There are lots of other container chunks, but we don't care about them.
+	switch(n) {
+	case BOX_moov: case BOX_trak: case BOX_mdia: case BOX_minf:
+	case BOX_stbl:
+		return 1;
+	}
+	return 0;
+}
+
+static void wm_process_sequence_of_boxes(struct mmfw_writemovie_ctx *wmctx, i64 end_offset)
+{
+	if(wmctx->nesting_level>8) {
+		wmctx->errflag = 1;
+		goto done;
+	}
+
+	while(1) {
+		i64 bpos;
+		i64 blen;
+		int is_container;
+
+		if(wmctx->errflag) goto done;
+		if(wmctx->curpos+8 > end_offset) goto done;
+
+		bpos = wmctx->curpos;
+		blen = dbuf_getu32be(wmctx->c->infile, wmctx->curpos);
+		if(blen<8) {
+			wmctx->errflag = 1;
+			goto done;
+		}
+		dbuf_read_fourcc(wmctx->c->infile, wmctx->curpos+4, &wmctx->tmp4cc, 4, 0x0);
+		is_container = wm_is_container(wmctx->tmp4cc.id);
+		de_dbg2(wmctx->c, "box at %"I64_FMT" len=%"I64_FMT" '%s'", bpos,
+			blen, wmctx->tmp4cc.id_dbgstr);
+
+		de_dbg_indent(wmctx->c, 1);
+		if(is_container) {
+			wmctx->nesting_level++;
+			wmctx->curpos = bpos + 8;
+			wm_process_sequence_of_boxes(wmctx, bpos+blen);
+			wmctx->nesting_level--;
+		}
+		else if(wmctx->tmp4cc.id==BOX_stco) {
+			wm_process_stco(wmctx, bpos, bpos+blen);
+		}
+		de_dbg_indent(wmctx->c, -1);
+
+		wmctx->curpos = bpos + blen;
+	}
+
+done:
+	;
+}
+
+static void do_movie_internal(deark *c, lctx *d, struct mmfw_item *md)
+{
+	struct mmfw_writemovie_ctx *wmctx = NULL;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	if(!d->fs.can_decode) {
+		goto done;
+	}
+	de_dbg(c, "extracting movie at %"I64_FMT, md->dpos);
+	de_dbg_indent(c, 1);
+
+	// Standard Quicktime-like data, but the 'stco' chunks contain absolute
+	// pointers that need to be adjusted.
+	wmctx = de_malloc(c, sizeof(struct mmfw_writemovie_ctx));
+	wmctx->c = c;
+	create_item_fi(c, d, md, 1, "mov");
+
+	wmctx->outf = dbuf_create_output_file(c, NULL, md->fi, 0);
+	dbuf_enable_wbuffer(wmctx->outf);
+	md->handled = 1;
+
+	wmctx->rsrc_dpos = md->dpos;
+	wmctx->rsrc_endpos = md->dpos + md->dlen;
+	wmctx->curpos = wmctx->rsrc_dpos;
+	wm_process_sequence_of_boxes(wmctx, wmctx->rsrc_endpos);
+
+	if(!wmctx->found_stco) {
+		wmctx->errflag = 1;
+	}
+
+	if(wmctx->errflag) {
+		de_err(c, "%sFailed to extract movie", md->msgpfx);
+		goto done;
+	}
+	wmctx->curpos = wmctx->rsrc_endpos;
+	wm_copy_thru_curpos(wmctx);
+
+done:
+	if(wmctx) {
+		dbuf_close(wmctx->outf);
+		de_free(c, wmctx);
+	}
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static void do_one_resource(deark *c, lctx *d, i64 idx)
 {
 	struct mmfw_item *md = NULL;
@@ -1007,6 +1187,9 @@ static void do_one_resource(deark *c, lctx *d, i64 idx)
 	}
 	if(!md->handled && d->fs.can_decode && d->mmfw_type==MMFW_TYPE_SOUNDS) {
 		do_sound_internal(c, d, md);
+	}
+	if(!md->handled && d->fs.can_decode && d->mmfw_type==MMFW_TYPE_MOVIES) {
+		do_movie_internal(c, d, md);
 	}
 	if(!md->handled && d->extract_all) {
 		extract_raw_resource(c, d, md);
@@ -1222,6 +1405,13 @@ static int mmfw_try_format(deark *c, lctx *d, i64 startpos,
 	}
 
 	retval = 1;
+
+	if(d->mmfw_type==MMFW_TYPE_MOVIES) {
+		// We don't think we need any metadata to decode movies.
+		// TODO: But it would still be good to decode the whole file, if only
+		// to help detect if we've gone off the rails.
+		d->fs.can_decode = 1;
+	}
 
 done:
 	return retval;

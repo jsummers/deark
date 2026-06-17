@@ -7,7 +7,7 @@
 #include <deark-config.h>
 #include <deark-private.h>
 #include <deark-fmtutil.h>
-DE_DECLARE_MODULE(de_module_mbk);
+DE_DECLARE_MODULE(de_module_stos);
 DE_DECLARE_MODULE(de_module_stos_pp1);
 DE_DECLARE_MODULE(de_module_stos_pp2);
 DE_DECLARE_MODULE(de_module_stos_pp3);
@@ -894,7 +894,7 @@ static void run_mbk_mbs_internal(deark *c, de_module_params *mparams, UI mode)
 	de_free(c, d);
 }
 
-static void de_run_mbk_mbs(deark *c, de_module_params *mparams)
+static void de_run_stos(deark *c, de_module_params *mparams)
 {
 	run_mbk_mbs_internal(c, mparams, 0);
 }
@@ -936,7 +936,7 @@ static int is_stos_packedscreen(deark *c, UI *res)
 }
 
 // Note: Returned values must be kept consistent with other stos modules.
-static int de_identify_mbk(deark *c)
+static int de_identify_stos(deark *c)
 {
 	u8 buf[10];
 	UI id;
@@ -960,20 +960,20 @@ static int de_identify_mbk(deark *c)
 	return 0;
 }
 
-static void de_help_mbk(deark *c)
+static void de_help_stos(deark *c)
 {
 	fmtutil_atari_help_palbits(c);
 	de_msg(c, "-opt stos:res0=<l|m> : Assume res 0 pics are low/med res");
 	de_msg(c, "-opt stos:res1=<l|m|h> : Assume res 1 pics are low/med/high res");
 }
 
-void de_module_mbk(deark *c, struct deark_module_info *mi)
+void de_module_stos(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "stos";
 	mi->desc = "STOS Memory Bank (.MBK)";
-	mi->run_fn = de_run_mbk_mbs;
-	mi->identify_fn = de_identify_mbk;
-	mi->help_fn = de_help_mbk;
+	mi->run_fn = de_run_stos;
+	mi->identify_fn = de_identify_stos;
+	mi->help_fn = de_help_stos;
 	mi->id_alias[0] = "mbk";
 }
 
@@ -1002,7 +1002,7 @@ void de_module_stos_pp1(deark *c, struct deark_module_info *mi)
 	mi->desc = "Picture Packer low res";
 	mi->run_fn = de_run_stos_pp1;
 	mi->identify_fn = de_identify_stos_pp1;
-	mi->help_fn = de_help_mbk;
+	mi->help_fn = de_help_stos;
 }
 
 static void de_run_stos_pp2(deark *c, de_module_params *mparams)
@@ -1030,7 +1030,7 @@ void de_module_stos_pp2(deark *c, struct deark_module_info *mi)
 	mi->desc = "Picture Packer med res";
 	mi->run_fn = de_run_stos_pp2;
 	mi->identify_fn = de_identify_stos_pp2;
-	mi->help_fn = de_help_mbk;
+	mi->help_fn = de_help_stos;
 }
 
 static void de_run_stos_pp3(deark *c, de_module_params *mparams)
@@ -1058,7 +1058,7 @@ void de_module_stos_pp3(deark *c, struct deark_module_info *mi)
 	mi->desc = "Picture Packer high res";
 	mi->run_fn = de_run_stos_pp3;
 	mi->identify_fn = de_identify_stos_pp3;
-	mi->help_fn = de_help_mbk;
+	mi->help_fn = de_help_stos;
 }
 
 static void de_run_stos_daj(deark *c, de_module_params *mparams)
@@ -1088,5 +1088,5 @@ void de_module_stos_daj(deark *c, struct deark_module_info *mi)
 	mi->desc = "Picture Packer DAJ";
 	mi->run_fn = de_run_stos_daj;
 	mi->identify_fn = de_identify_stos_daj;
-	mi->help_fn = de_help_mbk;
+	mi->help_fn = de_help_stos;
 }

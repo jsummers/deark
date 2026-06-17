@@ -54,6 +54,22 @@
 #define _TIME_BITS 64
 #endif
 
+#ifndef DE_USE_MTIMENSEC
+#if defined(__APPLE__)
+#define DE_USE_MTIMENSEC 1
+#else
+#define DE_USE_MTIMENSEC 0
+#endif
+#endif
+
+#ifndef DE_USE_MTIM
+#if (_POSIX_C_SOURCE >= 200809L) && (!DE_USE_MTIMENSEC)
+#define DE_USE_MTIM 1
+#else
+#define DE_USE_MTIM 0
+#endif
+#endif
+
 #ifndef DE_USE_FSEEKO
 #define DE_USE_FSEEKO 1
 #endif
