@@ -16,6 +16,7 @@ DE_DECLARE_MODULE(de_module_car_lha);
 DE_DECLARE_MODULE(de_module_arx);
 DE_DECLARE_MODULE(de_module_ar001);
 DE_DECLARE_MODULE(de_module_lharc_sfx_com);
+DE_DECLARE_MODULE(de_module_pmsfx);
 
 #define MAX_SUBDIR_LEVEL 32
 
@@ -1047,7 +1048,7 @@ static const struct cmpr_meth_array_item cmpr_meth_arr[] = {
 	{ BASEFMT_LHA, 0x00, CODE_lh8, NULL, decompress_lh5x_auto },
 	{ BASEFMT_LHA, 0x00, CODE_lz4, "uncompressed (LArc)", decompress_uncompressed },
 	{ BASEFMT_LHA, 0x00, CODE_lz5, "LZSS-4K (LArc)", decompress_lz5 },
-	{ BASEFMT_LHA, 0x00, CODE_pm0, "uncompressed (PMArc)", decompress_uncompressed },
+	{ BASEFMT_LHA, 0x00, CODE_pm0, "uncompressed (PMarc)", decompress_uncompressed },
 	{ BASEFMT_LHA, 0x00, CODE_lZ0, "uncompressed (MicroFox PUT)", decompress_uncompressed },
 	{ BASEFMT_LHA, 0x00, CODE_lZ1, "MicroFox PUT lZ1", decompress_lh1 },
 	{ BASEFMT_LHA, 0x00, CODE_lZ5, "MicroFox PUT lZ5", decompress_lh5 },
@@ -2731,4 +2732,117 @@ void de_module_lharc_sfx_com(deark *c, struct deark_module_info *mi)
 	mi->desc = "LHarc/LArc self-extracting archive (COM)";
 	mi->run_fn = de_run_lharc_sfx_com;
 	mi->identify_fn = de_identify_lharc_sfx_com;
+}
+
+// **************************************************************************
+// PMsfx - CP/M (+sometimes DOS) self-extracting PMarc.
+// **************************************************************************
+
+struct pmsfx_context {
+	u8 errflag;
+	u8 need_errmsg;
+	UI first2;
+	i64 payload_offs;
+};
+
+// On success, sets d->payload_offs.
+static void pmsfx_try_payload_ptr(deark *c, struct pmsfx_context *d, i64 ptrpos)
+{
+	i64 payloadpos;
+
+	if(d->payload_offs) return; // Already found.
+	if(de_getbyte(ptrpos-1) != 0x21) return;
+	if(de_getbyte(ptrpos+2) != 0x22) return;
+	payloadpos = de_getu16le(ptrpos) - 0x100;
+	if(dbuf_memcmp(c->infile, payloadpos+2, (const void*)"-pm", 3)) {
+		return;
+
+	}
+	d->payload_offs = payloadpos;
+}
+
+// On success, sets d->payload_offs.
+static void pmsfx_find_payload(deark *c, struct pmsfx_context *d)
+{
+	if(d->first2==0x180a) {
+		pmsfx_try_payload_ptr(c, d, 75); // v1.12
+		pmsfx_try_payload_ptr(c, d, 87); // v1.14
+	}
+	else if(d->first2==0x1879) {
+		pmsfx_try_payload_ptr(c, d, 198); // v2.00
+	}
+	else if(d->first2==0xeb18) {
+		pmsfx_try_payload_ptr(c, d, 2663); // v2.10
+		pmsfx_try_payload_ptr(c, d, 2626); // v2.11
+	}
+}
+
+static void pmsfx_extract(deark *c, struct pmsfx_context *d)
+{
+	dbuf *outf = NULL;
+	i64 endpos;
+
+	// TODO: It'd be nice to strip off the padding at EOF.
+	endpos = c->infile->len;
+
+	outf = dbuf_create_output_file(c, "pma", NULL, 0);
+	dbuf_copy(c->infile, d->payload_offs, endpos-d->payload_offs, outf);
+
+	dbuf_close(outf);
+}
+
+static void de_run_pmsfx(deark *c, de_module_params *mparams)
+{
+	struct pmsfx_context *d = NULL;
+
+	d = de_malloc(c, sizeof(struct pmsfx_context));
+	d->first2 = (UI)de_getu16be(0);
+	switch(d->first2) {
+	case 0x180a:
+	case 0x1879:
+	case 0xeb18:
+		break;
+	default:
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	pmsfx_find_payload(c, d);
+	if(d->payload_offs==0) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	de_dbg(c, "payload pos: %"I64_FMT, d->payload_offs);
+
+	pmsfx_extract(c, d);
+
+done:
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported PMsfx file");
+		}
+		de_free(c, d);
+	}
+}
+
+static int de_identify_pmsfx(deark *c)
+{
+	UI first2;
+
+	if(dbuf_memcmp(c->infile, 2, (const void*)"-pms-", 5)) {
+		return 0;
+	}
+	first2 = (UI)de_getu16be(0);
+	if(first2==0x180a || first2==0x1879 || first2==0xeb18) {
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_pmsfx(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "pmsfx";
+	mi->desc = "PMsfx self-extracting PMA";
+	mi->run_fn = de_run_pmsfx;
+	mi->identify_fn = de_identify_pmsfx;
 }
