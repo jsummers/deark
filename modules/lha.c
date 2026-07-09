@@ -112,6 +112,7 @@ typedef struct localctx_struct {
 	de_encoding input_encoding;
 	int lhark_policy; // -1=detect, 0=no, 1=yes
 	int lhark_req;
+	u8 is_PUT, is_SAR;
 	enum lha_basefmt_enum basefmt;
 	const char *basefmt_name;
 	u8 hlev_of_first_member;
@@ -123,6 +124,12 @@ typedef struct localctx_struct {
 	struct de_crcobj *crco;
 	struct de_crcobj *crco_cksum;
 } lctx;
+
+#define EDTMODE_PUT   1
+#define EDTMODE_SAR   2
+#define EDTMODE_ARX   3
+#define EDTMODE_CAR   4
+static void run_lha_editor(deark *c, u8 edtmode, UI flags);
 
 typedef void (*decompressor_fn)(deark *c, lctx *d, struct member_data *md,
 	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
@@ -1776,6 +1783,9 @@ static void do_run_lha_internal(deark *c, lctx *d, de_module_params *mparams)
 	else if(d->basefmt==BASEFMT_TPK) {
 		guessed_encoding = DE_ENCODING_WINDOWS1252;
 	}
+	else if(d->is_PUT || d->is_SAR) {
+		guessed_encoding = DE_ENCODING_CP437;
+	}
 	else {
 		guessed_encoding = DE_ENCODING_ASCII;
 	}
@@ -1818,11 +1828,41 @@ done:
 
 static void de_run_lha(deark *c, de_module_params *mparams)
 {
-	lctx *d;
+	lctx *d = NULL;
+	u8 opt_tolha;
+	u32 cmpr_of_first_member;
+
 
 	d = lha_create_lctx(c);
 	d->basefmt = BASEFMT_LHA;
+
+	cmpr_of_first_member = (u32)de_getu32be(2);
+	if(cmpr_of_first_member==CODE_lZ0 || cmpr_of_first_member==CODE_lZ1 ||
+		cmpr_of_first_member==CODE_lZ5)
+	{
+		d->is_PUT = 1;
+	}
+	else if(cmpr_of_first_member==CODE_S_LH0 || cmpr_of_first_member==CODE_S_LH5)
+	{
+		d->is_SAR = 1;
+	}
+
+	opt_tolha = (u8)de_get_ext_option_bool(c, "lha:tolha", 0);
+	if(opt_tolha) {
+		if(d->is_PUT) {
+			run_lha_editor(c, EDTMODE_PUT, 0);
+		}
+		else if(d->is_SAR) {
+			run_lha_editor(c, EDTMODE_SAR, 0);
+		}
+		else {
+			de_err(c, "Can't convert this format");
+		}
+		goto done;
+	}
+
 	do_run_lha_internal(c, d, mparams);
+done:
 	lha_destroy_lctx(c, d);
 }
 
@@ -1885,13 +1925,14 @@ static int de_identify_lha(deark *c)
 
 static void de_help_lha(deark *c)
 {
+	de_msg(c, "-opt lha:tolha : Convert to standard LHA instead of decompressing");
 	de_msg(c, "-opt lha:lhark=<0|1> : LHARK mode (for 'lh7' compression)");
 }
 
 void de_module_lha(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "lha";
-	mi->desc = "LHA/LZH/PMA archive";
+	mi->desc = "LHA/LZH/etc. archive";
 	mi->run_fn = de_run_lha;
 	mi->identify_fn = de_identify_lha;
 	mi->help_fn = de_help_lha;
@@ -2031,6 +2072,8 @@ void de_module_pakleo(deark *c, struct deark_module_info *mi)
 
 /////////////////////// CAR (MylesHi!)
 
+// TODO: Use run_lha_editor() to convert this format.
+
 struct car_member_data {
 	i64 member_pos;
 	i64 total_size;
@@ -2061,6 +2104,8 @@ static int do_car_member(deark *c, struct car_ctx *d, struct car_member_data *md
 	i64 fnlen;
 	i64 hdr_endpos;
 	i64 compressed_data_len;
+	u32 old_hdr_checksum_reported;
+	u32 old_hdr_checksum_calc;
 	i64 pos1 = md->member_pos;
 	int retval = 0;
 	int saved_indent_level;
@@ -2076,6 +2121,12 @@ static int do_car_member(deark *c, struct car_ctx *d, struct car_member_data *md
 	fnlen = lev1_base_header_size - 25;
 	de_dbg(c, "implied filename len: %d", (int)fnlen);
 	if(fnlen<0) goto done;
+
+	old_hdr_checksum_reported = (u32)de_getbyte(pos1+1);
+	de_dbg(c, "header checksum (reported): 0x%02x", old_hdr_checksum_reported);
+	old_hdr_checksum_calc = lha_calc_checksum(c->infile, pos1+2, lev1_base_header_size,
+		d->crco_cksum);
+	de_dbg(c, "header checksum (calculated): 0x%02x", (UI)old_hdr_checksum_calc);
 
 	compressed_data_len = de_getu32le(pos1 + 7);
 	de_dbg(c, "compressed size: %"I64_FMT, compressed_data_len);
@@ -2100,7 +2151,7 @@ static int do_car_member(deark *c, struct car_ctx *d, struct car_member_data *md
 
 	// Recalculate checksum
 	md->hdr_checksum_calc = lha_calc_checksum(d->hdr_tmp, 2, lev1_base_header_size, d->crco_cksum);
-	de_dbg(c, "header checksum (calculated): 0x%02x", (UI)md->hdr_checksum_calc);
+	de_dbg(c, "new header checksum: 0x%02x", (UI)md->hdr_checksum_calc);
 	dbuf_writebyte_at(d->hdr_tmp, 1, (u8)md->hdr_checksum_calc);
 	dbuf_truncate(d->hdr_tmp, 2+lev1_base_header_size);
 
@@ -2185,6 +2236,8 @@ void de_module_car_lha(deark *c, struct deark_module_info *mi)
 
 /////////////////////// ARX
 
+// TODO: Use run_lha_editor() to convert this format.
+
 struct arx_member_data {
 	i64 member_pos;
 	i64 total_size;
@@ -2253,6 +2306,8 @@ static int do_arx_member(deark *c, struct arx_ctx *d, struct arx_member_data *md
 {
 	i64 lev0_header_size;
 	i64 pos1 = md->member_pos;
+	u32 old_hdr_checksum_reported;
+	u32 old_hdr_checksum_calc;
 	u8 extra_crc_byte;
 	int retval = 0;
 	int saved_indent_level;
@@ -2265,6 +2320,12 @@ static int do_arx_member(deark *c, struct arx_ctx *d, struct arx_member_data *md
 	de_dbg(c, "header size: %d", (int)lev0_header_size);
 	if(lev0_header_size<22) goto done;
 	md->hdr_endpos = pos1 + 2 + lev0_header_size;
+
+	old_hdr_checksum_reported = (u32)de_getbyte(pos1+1);
+	de_dbg(c, "header checksum (reported): 0x%02x", old_hdr_checksum_reported);
+	old_hdr_checksum_calc = lha_calc_checksum(c->infile, pos1+2, lev0_header_size,
+		d->crco_cksum);
+	de_dbg(c, "header checksum (calculated): 0x%02x", (UI)old_hdr_checksum_calc);
 
 	md->compressed_data_len = de_getu32le(pos1+8);
 	de_dbg(c, "compressed size: %"I64_FMT, md->compressed_data_len);
@@ -2317,7 +2378,7 @@ static int do_arx_member(deark *c, struct arx_ctx *d, struct arx_member_data *md
 	// Recalculate header checksum
 	md->hdr_checksum_calc = lha_calc_checksum(d->hdr_tmp, 2, lev0_header_size,
 		d->crco_cksum);
-	de_dbg(c, "header checksum (calculated): 0x%02x", (UI)md->hdr_checksum_calc);
+	de_dbg(c, "new header checksum: 0x%02x", (UI)md->hdr_checksum_calc);
 	dbuf_writebyte_at(d->hdr_tmp, 1, (u8)md->hdr_checksum_calc);
 	dbuf_truncate(d->hdr_tmp, 2+lev0_header_size);
 
@@ -2845,4 +2906,183 @@ void de_module_pmsfx(deark *c, struct deark_module_info *mi)
 	mi->desc = "PMsfx self-extracting PMA";
 	mi->run_fn = de_run_pmsfx;
 	mi->identify_fn = de_identify_pmsfx;
+}
+
+/////////////////////// LHA editor/converter (various uses)
+
+struct editor_member_data {
+	i64 member_pos;
+	i64 total_size;
+	u8 hlev;
+	u32 hdr_checksum_calc;
+	i64 base_header_size;
+};
+
+struct editor_ctx {
+	u8 edtmode;
+	u8 errflag;
+	u8 need_errmsg;
+	u8 lha_compatible;
+	i64 min_member_size;
+	dbuf *hdr_tmp;
+	dbuf *lha_outf;
+	struct de_crcobj *crco_cksum;
+};
+
+// Sets md->total_size
+static void do_edit_member(deark *c, struct editor_ctx *d,
+	struct editor_member_data *md)
+{
+	i64 field7;
+	u32 cmpr_uniq_id;
+	u32 old_hdr_checksum_reported;
+	u32 old_hdr_checksum_calc;
+	u8 idbuf[5];
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "member at %"I64_FMT, md->member_pos);
+	de_dbg_indent(c, 1);
+
+	if(!d->lha_compatible) {
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+	md->hlev = de_getbyte(md->member_pos+20);
+	if(md->hlev!=0 && md->hlev!=1) goto done;
+
+	md->base_header_size = (i64)de_getbyte(md->member_pos);
+
+	old_hdr_checksum_reported = (u32)de_getbyte(md->member_pos+1);
+	de_dbg(c, "header checksum (reported): 0x%02x", old_hdr_checksum_reported);
+	old_hdr_checksum_calc = lha_calc_checksum(c->infile, md->member_pos+2, md->base_header_size,
+		d->crco_cksum);
+	de_dbg(c, "header checksum (calculated): 0x%02x", (UI)old_hdr_checksum_calc);
+
+	field7 = de_getu32le(md->member_pos+7);
+	md->total_size = 2 + md->base_header_size + field7;
+
+	// Make a copy of the base header
+	dbuf_empty(d->hdr_tmp);
+	dbuf_copy(c->infile, md->member_pos, 2+md->base_header_size, d->hdr_tmp);
+
+	dbuf_read(d->hdr_tmp, idbuf, 2, 5);
+	cmpr_uniq_id = (u32)de_getu32be_direct(idbuf);
+
+	// Modify the compression method
+	if(d->lha_compatible) {
+		if(cmpr_uniq_id==CODE_lZ0 || cmpr_uniq_id==CODE_lZ1 ||
+			cmpr_uniq_id==CODE_lZ5)
+		{
+			idbuf[2] = 'h';
+		}
+		else if(cmpr_uniq_id==CODE_S_LH0 || cmpr_uniq_id==CODE_S_LH5) {
+			idbuf[0] = '-';
+			idbuf[1] = 'l';
+			idbuf[2] = 'h';
+			idbuf[4] = '-';
+		}
+	}
+	dbuf_write_at(d->hdr_tmp, 2, idbuf, 5);
+
+	// Recalculate header checksum
+	md->hdr_checksum_calc = lha_calc_checksum(d->hdr_tmp, 2, md->base_header_size, d->crco_cksum);
+	de_dbg(c, "new header checksum: 0x%02x", (UI)md->hdr_checksum_calc);
+	dbuf_writebyte_at(d->hdr_tmp, 1, (u8)md->hdr_checksum_calc);
+
+	// Write the modified base header
+	dbuf_copy(d->hdr_tmp, 0, 2+md->base_header_size, d->lha_outf);
+
+	// Copy everything after the base header
+	dbuf_copy(c->infile, md->member_pos + d->hdr_tmp->len,
+		md->total_size - d->hdr_tmp->len, d->lha_outf);
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static u8 edt_looks_like_member(deark *c, struct editor_ctx *d, i64 pos)
+{
+	u8 b[21];
+	u8 ok = 0;
+
+	de_read(b, pos, sizeof(b));
+	if(d->lha_compatible) {
+		if(b[20]!=0 && b[20]!=1) return 0;
+	}
+	if(d->edtmode==EDTMODE_SAR) {
+		if(b[2]==' ' && b[3]=='L' && b[6]==' ') ok = 1;
+	}
+	if(b[2]=='-' && b[3]=='l' && b[6]=='-') ok = 1;
+	return ok;
+}
+
+static void run_lha_editor(deark *c, u8 edtmode, UI flags)
+{
+	struct editor_ctx *d = NULL;
+	struct editor_member_data *md = NULL;
+	i64 pos;
+
+	d = de_malloc(c, sizeof(struct editor_ctx));
+	d->edtmode = edtmode;
+	de_dbg(c, "[converting lha-like file]");
+
+	if(d->edtmode==EDTMODE_PUT || d->edtmode==EDTMODE_SAR) {
+		d->lha_compatible = 1;
+	}
+	d->min_member_size = 21;
+
+	d->crco_cksum = de_crcobj_create(c, DE_CRCOBJ_SUM_BYTES);
+	d->lha_outf = dbuf_create_output_file(c, "lzh", NULL, 0);
+	d->hdr_tmp = dbuf_create_membuf(c, 0, 0);
+
+	pos = 0;
+	while(1) {
+		if(d->errflag) goto done;
+
+		if(de_getbyte(pos)==0) {
+			de_dbg(c, "trailer at %"I64_FMT, pos);
+			goto after_members;
+		}
+		if(pos+d->min_member_size > c->infile->len) goto after_members;
+		if(!edt_looks_like_member(c, d, pos)) {
+			d->errflag = 1;
+			d->need_errmsg = 1;
+			goto done;
+		}
+
+		if(md) {
+			de_free(c, md);
+			md = NULL;
+		}
+		md = de_malloc(c, sizeof(struct editor_member_data));
+
+		md->member_pos = pos;
+		do_edit_member(c, d, md);
+		if(d->errflag) goto done;
+		if(md->total_size<=0) {
+			d->errflag = 1;
+			d->need_errmsg = 1;
+			goto done;
+		}
+		pos += md->total_size;
+	}
+after_members:
+	// Write trailer
+	dbuf_writebyte(d->lha_outf, 0);
+
+done:
+	de_free(c, md);
+	if(d) {
+		if(d->lha_outf) {
+			dbuf_close(d->lha_outf);
+			d->lha_outf = NULL;
+		}
+		if(d->need_errmsg) {
+			de_err(c, "Conversion to LHA format failed");
+		}
+		dbuf_close(d->hdr_tmp);
+		de_crcobj_destroy(d->crco_cksum);
+		de_free(c, d);
+	}
 }

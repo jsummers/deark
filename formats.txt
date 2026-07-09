@@ -1085,6 +1085,8 @@ in the readme file.)
 * LHA/LHarc/LZH/etc. (module="lha")
   - All common compression methods are supported.
   Options
+   -opt lha:tolha - For some variant formats (PUT, SAR), convert to standard
+     LHA instead of decompressing.
    -opt lha:lhark=<0|1> - Specify whether "lh7" compression should be assumed
      to be standard lh7 format, or LHARK format. The default is to autodetect,
      which can be slow for large files.
