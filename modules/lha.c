@@ -2236,214 +2236,10 @@ void de_module_car_lha(deark *c, struct deark_module_info *mi)
 
 /////////////////////// ARX
 
-// TODO: Use run_lha_editor() to convert this format.
-
-struct arx_member_data {
-	i64 member_pos;
-	i64 total_size;
-	i64 hdr_endpos;
-	i64 compressed_data_len;
-	i64 unc_data_len;
-	int is_uncompressed;
-	u32 crc_calc;
-	u32 hdr_checksum_calc;
-};
-
-struct arx_ctx {
-	dbuf *hdr_tmp;
-	dbuf *lha_outf;
-	struct de_crcobj *crco;
-	struct de_crcobj *crco_cksum;
-};
-
-static int looks_like_arx_member(deark *c, i64 pos)
-{
-	u8 b[22];
-
-	de_read(b, pos, sizeof(b));
-	if(b[2]!='-' || b[3]!='l'|| b[4]!='h' || b[6]!='-') return 0;
-	if(b[21]!=0) return 0;
-	return 1;
-}
-
-// Decompress the file, discarding the output, just to figure out the CRC.
-static void arx_recalc_lh1(deark *c, struct arx_ctx *d, struct arx_member_data *md)
-{
-	dbuf *outf = NULL;
-	struct de_dfilter_in_params dcmpri;
-	struct de_dfilter_out_params dcmpro;
-	struct de_dfilter_results dres;
-
-	outf = dbuf_create_custom_dbuf(c, md->unc_data_len, 0);
-	dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)d->crco);
-
-	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
-	dcmpri.f = c->infile;
-	dcmpri.pos = md->hdr_endpos;
-	dcmpri.len = md->compressed_data_len;
-	dcmpro.f = outf;
-	dcmpro.expected_len = md->unc_data_len;
-	dcmpro.len_known = 1;
-
-	fmtutil_lh1_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
-
-	dbuf_close(outf);
-}
-
-static void arx_recalc_crc(deark *c, struct arx_ctx *d, struct arx_member_data *md)
-{
-	de_crcobj_reset(d->crco);
-	if(md->is_uncompressed) {
-		de_crcobj_addslice(d->crco, c->infile, md->hdr_endpos, md->compressed_data_len);
-	}
-	else {
-		arx_recalc_lh1(c, d, md);
-	}
-	md->crc_calc = de_crcobj_getval(d->crco);
-}
-
-static int do_arx_member(deark *c, struct arx_ctx *d, struct arx_member_data *md)
-{
-	i64 lev0_header_size;
-	i64 pos1 = md->member_pos;
-	u32 old_hdr_checksum_reported;
-	u32 old_hdr_checksum_calc;
-	u8 extra_crc_byte;
-	int retval = 0;
-	int saved_indent_level;
-
-	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "member at %"I64_FMT, pos1);
-	de_dbg_indent(c, 1);
-
-	lev0_header_size = (i64)de_getbyte(pos1);
-	de_dbg(c, "header size: %d", (int)lev0_header_size);
-	if(lev0_header_size<22) goto done;
-	md->hdr_endpos = pos1 + 2 + lev0_header_size;
-
-	old_hdr_checksum_reported = (u32)de_getbyte(pos1+1);
-	de_dbg(c, "header checksum (reported): 0x%02x", old_hdr_checksum_reported);
-	old_hdr_checksum_calc = lha_calc_checksum(c->infile, pos1+2, lev0_header_size,
-		d->crco_cksum);
-	de_dbg(c, "header checksum (calculated): 0x%02x", (UI)old_hdr_checksum_calc);
-
-	md->compressed_data_len = de_getu32le(pos1+8);
-	de_dbg(c, "compressed size: %"I64_FMT, md->compressed_data_len);
-
-	md->unc_data_len = de_getu32le(pos1+12);
-	de_dbg(c, "uncmpr. size: %"I64_FMT, md->unc_data_len);
-
-	if(md->compressed_data_len==0) {
-		md->is_uncompressed = 1;
-		md->compressed_data_len = md->unc_data_len;
-	}
-
-	if(md->hdr_endpos + md->compressed_data_len > c->infile->len) goto done;
-
-	// Just the first byte of the CRC is present, and apparently not even
-	// that for non-compressed files.
-	extra_crc_byte = de_getbyte(md->hdr_endpos-1);
-	de_dbg(c, "crc (reported): 0x??%02x", (UI)extra_crc_byte);
-
-	// Find the correct CRC of the file data.
-	arx_recalc_crc(c, d, md);
-	de_dbg(c, "crc (calculated): 0x%04x", (UI)md->crc_calc);
-	if(!md->is_uncompressed) {
-		if((u8)(md->crc_calc & 0xff) != extra_crc_byte) {
-			de_warn(c, "CRC mismatch. Conversion to LHA may have failed.");
-		}
-	}
-
-	// Convert to an LHA header
-	dbuf_empty(d->hdr_tmp);
-
-	// Fields through cmpr meth. (We'll patch the checksum, and
-	// compression method if necessary, later.)
-	dbuf_copy(c->infile, pos1, 7, d->hdr_tmp);
-
-	dbuf_writeu32le(d->hdr_tmp, md->compressed_data_len);
-	dbuf_writeu32le(d->hdr_tmp, md->unc_data_len);
-
-	/// This part of the header can be copied as-is.
-	dbuf_copy(c->infile, pos1+8+8, lev0_header_size-1-6-8, d->hdr_tmp);
-
-	// CRC
-	dbuf_writebyte(d->hdr_tmp, (u8)(md->crc_calc & 0xff));
-	dbuf_writebyte(d->hdr_tmp, (u8)((md->crc_calc & 0xff00)>>8));
-
-	if(md->is_uncompressed) {
-		dbuf_writebyte_at(d->hdr_tmp, 5, '0'); // lh1 -> lh0
-	}
-
-	// Recalculate header checksum
-	md->hdr_checksum_calc = lha_calc_checksum(d->hdr_tmp, 2, lev0_header_size,
-		d->crco_cksum);
-	de_dbg(c, "new header checksum: 0x%02x", (UI)md->hdr_checksum_calc);
-	dbuf_writebyte_at(d->hdr_tmp, 1, (u8)md->hdr_checksum_calc);
-	dbuf_truncate(d->hdr_tmp, 2+lev0_header_size);
-
-	// Write everything out
-	dbuf_copy(d->hdr_tmp, 0, d->hdr_tmp->len, d->lha_outf);
-	de_dbg(c, "member data at %"I64_FMT", len=%"I64_FMT, md->hdr_endpos, md->compressed_data_len);
-	dbuf_copy(c->infile, md->hdr_endpos, md->compressed_data_len, d->lha_outf);
-	md->total_size = 2 + lev0_header_size + md->compressed_data_len;
-	retval = 1;
-
-done:
-	de_dbg_indent_restore(c, saved_indent_level);
-	return retval;
-}
-
 static void de_run_arx(deark *c, de_module_params *mparams)
 {
-	struct arx_ctx *d = NULL;
-	struct arx_member_data *md = NULL;
-	int ok = 0;
-	i64 pos = 0;
+	run_lha_editor(c, EDTMODE_ARX, 0);
 
-	d = de_malloc(c, sizeof(struct arx_ctx));
-
-	if(!looks_like_arx_member(c, 0)) {
-		de_err(c, "Not an ARX file");
-		goto done;
-	}
-
-	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
-	d->crco_cksum = de_crcobj_create(c, DE_CRCOBJ_SUM_BYTES);
-	d->lha_outf = dbuf_create_output_file(c, "lzh", NULL, 0);
-	d->hdr_tmp = dbuf_create_membuf(c, 0, 0);
-
-	md = de_malloc(c, sizeof(struct arx_member_data));
-	while(1) {
-		if(de_getbyte(pos)==0) {
-			de_dbg(c, "trailer at %"I64_FMT, pos);
-			dbuf_writebyte(d->lha_outf, 0);
-			ok = 1;
-			break;
-		}
-		if(pos+27 > c->infile->len) goto done;
-		if(!looks_like_arx_member(c, pos)) goto done;
-
-		de_zeromem(md, sizeof(struct arx_member_data));
-		md->member_pos = pos;
-		if(!do_arx_member(c, d, md)) goto done;
-		pos += md->total_size;
-	}
-
-done:
-	de_free(c, md);
-	if(d) {
-		if(d->lha_outf) {
-			dbuf_close(d->lha_outf);
-			if(!ok) {
-				de_err(c, "Conversion to LHA format failed");
-			}
-		}
-		dbuf_close(d->hdr_tmp);
-		de_crcobj_destroy(d->crco);
-		de_crcobj_destroy(d->crco_cksum);
-		de_free(c, d);
-	}
 }
 
 static int de_identify_arx(deark *c)
@@ -2461,7 +2257,6 @@ void de_module_arx(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_arx;
 	mi->identify_fn = de_identify_arx;
 }
-
 
 /////////////////////// ar (Haruhiko Okumura) version "ar001"
 
@@ -2911,11 +2706,20 @@ void de_module_pmsfx(deark *c, struct deark_module_info *mi)
 /////////////////////// LHA editor/converter (various uses)
 
 struct editor_member_data {
+	// Some of these fields are not always used.
 	i64 member_pos;
-	i64 total_size;
-	u8 hlev;
-	u32 hdr_checksum_calc;
-	i64 base_header_size;
+	i64 old_total_size;
+	u32 new_hdr_checksum_calc;
+	i64 old_base_header_size;
+	i64 new_base_header_size;
+	u32 old_cmpr_uniq_id;
+	u8 cmpr_id_tmp[6];
+	u8 is_uncompressed;
+	i64 old_hdr_endpos;
+	i64 old_cmpr_pos;
+	i64 old_cmpr_len;
+	i64 unc_data_len;
+	u32 crc_calc;
 };
 
 struct editor_ctx {
@@ -2927,76 +2731,236 @@ struct editor_ctx {
 	dbuf *hdr_tmp;
 	dbuf *lha_outf;
 	struct de_crcobj *crco_cksum;
+	struct de_crcobj *crco;
 };
+
+static void edt_writeu16le_at(dbuf *f, i64 pos, i64 n)
+{
+	u8 buf[2];
+
+	de_writeu16le_direct(buf, n);
+	dbuf_write_at(f, pos, buf, 2);
+}
+
+static void edt_writeu32le_at(dbuf *f, i64 pos, i64 n)
+{
+	u8 buf[4];
+
+	de_writeu32le_direct(buf, n);
+	dbuf_write_at(f, pos, buf, 4);
+}
+
+// Decompress the file, discarding the output, just to figure out the CRC.
+static void arx_recalc_lh1(deark *c, struct editor_ctx *d,
+	struct editor_member_data *md)
+{
+	dbuf *outf = NULL;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
+	outf = dbuf_create_custom_dbuf(c, md->unc_data_len, 0);
+	dbuf_set_writelistener(outf, de_writelistener_for_crc, (void*)d->crco);
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = md->old_hdr_endpos;
+	dcmpri.len = md->old_cmpr_len;
+	dcmpro.f = outf;
+	dcmpro.expected_len = md->unc_data_len;
+	dcmpro.len_known = 1;
+
+	fmtutil_lh1_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
+
+	dbuf_close(outf);
+}
+
+static void arx_recalc_crc(deark *c, struct editor_ctx *d,
+	struct editor_member_data *md)
+{
+	if(!d->crco) {
+		d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
+	}
+
+	de_crcobj_reset(d->crco);
+	if(md->is_uncompressed) {
+		de_crcobj_addslice(d->crco, c->infile, md->old_hdr_endpos, md->old_cmpr_len);
+	}
+	else {
+		arx_recalc_lh1(c, d, md);
+	}
+	md->crc_calc = de_crcobj_getval(d->crco);
+}
+
+static void edt_arx_member(deark *c, struct editor_ctx *d,
+	struct editor_member_data *md)
+{
+	i64 old_cmpr_len_reported;
+	u8 extra_crc_byte;
+
+	if(md->old_cmpr_uniq_id!=CODE_lh1) {
+		goto done;
+	}
+
+	// Copy the first 7 bytes, discard the next byte, copy the rest of the
+	// header, and append 1 dummy byte. This gives us an approximation of
+	// the final header.
+	dbuf_copy(c->infile, md->member_pos, 7, d->hdr_tmp);
+	dbuf_copy(c->infile, md->member_pos+8, 2+md->old_base_header_size-8, d->hdr_tmp);
+	dbuf_writebyte(d->hdr_tmp, 0); // Will be overwritten by the CRC
+
+	old_cmpr_len_reported = dbuf_getu32le(d->hdr_tmp, 7);
+	md->old_cmpr_len = old_cmpr_len_reported; // tentative
+	md->unc_data_len = dbuf_getu32le(d->hdr_tmp, 11);
+	md->old_hdr_endpos = md->member_pos + 2 + md->old_base_header_size;
+	md->old_cmpr_pos = md->old_hdr_endpos;
+	if(old_cmpr_len_reported==0) {
+		md->is_uncompressed = 1;
+		md->old_cmpr_len = md->unc_data_len;
+	}
+
+	if(md->is_uncompressed) {
+		// Correct the cmpr medthod, "-lh1-" -> "-lh0-"
+		md->cmpr_id_tmp[3] = '0';
+		dbuf_write_at(d->hdr_tmp, 2, md->cmpr_id_tmp, 5);
+
+		// Correct the cmpr_len field
+		edt_writeu32le_at(d->hdr_tmp, 7, md->old_cmpr_len);
+	}
+
+	md->old_total_size = 2 + md->old_base_header_size + md->old_cmpr_len;
+
+	// Just the first byte of the CRC is present, and apparently not even
+	// that for non-compressed files.
+	extra_crc_byte = de_getbyte(md->old_hdr_endpos-1);
+	de_dbg(c, "crc (reported): 0x??%02x", (UI)extra_crc_byte);
+
+	// Find the correct CRC of the file data.
+	arx_recalc_crc(c, d, md);
+
+	// Patch the CRC
+	edt_writeu16le_at(d->hdr_tmp, md->old_base_header_size /* +2-2 */,
+		(i64)md->crc_calc);
+
+	de_dbg(c, "crc (calculated): 0x%04x", (UI)md->crc_calc);
+	if(!md->is_uncompressed) {
+		if((u8)(md->crc_calc & 0xff) != extra_crc_byte) {
+			de_warn(c, "CRC mismatch. Conversion to LHA may have failed.");
+		}
+	}
+
+done:
+	;
+}
+
+static void edt_lhacompat_member(deark *c, struct editor_ctx *d,
+	struct editor_member_data *md)
+{
+	i64 field7;
+	u8 hlev;
+
+	// Copy the base header
+	dbuf_copy(c->infile, md->member_pos, 2+md->old_base_header_size, d->hdr_tmp);
+
+	hlev = de_getbyte(md->member_pos+20);
+	if(hlev>1) goto done;
+
+	if(md->old_cmpr_uniq_id==CODE_lZ0 || md->old_cmpr_uniq_id==CODE_lZ1 ||
+		md->old_cmpr_uniq_id==CODE_lZ5)
+	{
+		md->cmpr_id_tmp[2] = 'h';
+	}
+	else if(md->old_cmpr_uniq_id==CODE_S_LH0 || md->old_cmpr_uniq_id==CODE_S_LH5) {
+		md->cmpr_id_tmp[0] = '-';
+		md->cmpr_id_tmp[1] = 'l';
+		md->cmpr_id_tmp[2] = 'h';
+		md->cmpr_id_tmp[4] = '-';
+	}
+	else {
+		goto done;
+	}
+
+	// Modify the compression method
+	dbuf_write_at(d->hdr_tmp, 2, md->cmpr_id_tmp, 5);
+
+	// Calculate total_size
+	field7 = de_getu32le(md->member_pos+7);
+	md->old_total_size = 2 + md->old_base_header_size + field7;
+
+done:
+	;
+}
 
 // Sets md->total_size
 static void do_edit_member(deark *c, struct editor_ctx *d,
 	struct editor_member_data *md)
 {
-	i64 field7;
-	u32 cmpr_uniq_id;
 	u32 old_hdr_checksum_reported;
 	u32 old_hdr_checksum_calc;
-	u8 idbuf[5];
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "member at %"I64_FMT, md->member_pos);
 	de_dbg_indent(c, 1);
 
-	if(!d->lha_compatible) {
+	// For convenience, read some fields that are common to all
+	// supported formats.
+
+	md->old_base_header_size = (i64)de_getbyte(md->member_pos);
+	old_hdr_checksum_reported = (u32)de_getbyte(md->member_pos+1);
+	de_dbg(c, "header checksum (reported): 0x%02x", old_hdr_checksum_reported);
+	old_hdr_checksum_calc = lha_calc_checksum(c->infile, md->member_pos+2,
+		md->old_base_header_size, d->crco_cksum);
+	de_dbg(c, "header checksum (calculated): 0x%02x", (UI)old_hdr_checksum_calc);
+
+	de_read(md->cmpr_id_tmp, md->member_pos+2, 5);
+	md->old_cmpr_uniq_id = (u32)de_getu32be_direct(md->cmpr_id_tmp);
+
+	dbuf_empty(d->hdr_tmp);
+
+	// The format-specific shall (on success):
+	// - Write the new base header to d->hdr_tmp
+	// - Set md->old_total_size
+	// It can:
+	// - Modify cmpr_id_tmp for its own use
+	// It does NOT need to:
+	// - Correctly set the header checksum byte
+	// One way to handle a fatal error is to not set md->old_total_size.
+	if(d->edtmode==EDTMODE_PUT || d->edtmode==EDTMODE_SAR) {
+		edt_lhacompat_member(c, d, md);
+	}
+	else if(d->edtmode==EDTMODE_ARX) {
+		edt_arx_member(c, d, md);
+	}
+	else {
 		d->errflag = 1;
 		d->need_errmsg = 1;
 		goto done;
 	}
-	md->hlev = de_getbyte(md->member_pos+20);
-	if(md->hlev!=0 && md->hlev!=1) goto done;
 
-	md->base_header_size = (i64)de_getbyte(md->member_pos);
-
-	old_hdr_checksum_reported = (u32)de_getbyte(md->member_pos+1);
-	de_dbg(c, "header checksum (reported): 0x%02x", old_hdr_checksum_reported);
-	old_hdr_checksum_calc = lha_calc_checksum(c->infile, md->member_pos+2, md->base_header_size,
-		d->crco_cksum);
-	de_dbg(c, "header checksum (calculated): 0x%02x", (UI)old_hdr_checksum_calc);
-
-	field7 = de_getu32le(md->member_pos+7);
-	md->total_size = 2 + md->base_header_size + field7;
-
-	// Make a copy of the base header
-	dbuf_empty(d->hdr_tmp);
-	dbuf_copy(c->infile, md->member_pos, 2+md->base_header_size, d->hdr_tmp);
-
-	dbuf_read(d->hdr_tmp, idbuf, 2, 5);
-	cmpr_uniq_id = (u32)de_getu32be_direct(idbuf);
-
-	// Modify the compression method
-	if(d->lha_compatible) {
-		if(cmpr_uniq_id==CODE_lZ0 || cmpr_uniq_id==CODE_lZ1 ||
-			cmpr_uniq_id==CODE_lZ5)
-		{
-			idbuf[2] = 'h';
-		}
-		else if(cmpr_uniq_id==CODE_S_LH0 || cmpr_uniq_id==CODE_S_LH5) {
-			idbuf[0] = '-';
-			idbuf[1] = 'l';
-			idbuf[2] = 'h';
-			idbuf[4] = '-';
-		}
+	if(d->errflag) goto done;
+	md->new_base_header_size = (i64)dbuf_getbyte(d->hdr_tmp, 0);
+	if((md->new_base_header_size<21) ||
+		(d->hdr_tmp->len != 2+md->new_base_header_size) ||
+		(md->old_total_size < 2+md->old_base_header_size))
+	{
+		d->errflag = 1;
+		d->need_errmsg = 1;
+		goto done;
 	}
-	dbuf_write_at(d->hdr_tmp, 2, idbuf, 5);
 
 	// Recalculate header checksum
-	md->hdr_checksum_calc = lha_calc_checksum(d->hdr_tmp, 2, md->base_header_size, d->crco_cksum);
-	de_dbg(c, "new header checksum: 0x%02x", (UI)md->hdr_checksum_calc);
-	dbuf_writebyte_at(d->hdr_tmp, 1, (u8)md->hdr_checksum_calc);
+	md->new_hdr_checksum_calc = lha_calc_checksum(d->hdr_tmp, 2,
+		md->new_base_header_size, d->crco_cksum);
+	de_dbg(c, "new header checksum: 0x%02x", (UI)md->new_hdr_checksum_calc);
+	dbuf_writebyte_at(d->hdr_tmp, 1, (u8)md->new_hdr_checksum_calc);
 
 	// Write the modified base header
-	dbuf_copy(d->hdr_tmp, 0, 2+md->base_header_size, d->lha_outf);
+	dbuf_copy(d->hdr_tmp, 0, 2+md->new_base_header_size, d->lha_outf);
 
-	// Copy everything after the base header
-	dbuf_copy(c->infile, md->member_pos + d->hdr_tmp->len,
-		md->total_size - d->hdr_tmp->len, d->lha_outf);
+	// Copy everything after the (old) base header
+	dbuf_copy(c->infile, md->member_pos + 2 + md->old_base_header_size,
+		md->old_total_size - (2 + md->old_base_header_size), d->lha_outf);
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
@@ -3060,12 +3024,12 @@ static void run_lha_editor(deark *c, u8 edtmode, UI flags)
 		md->member_pos = pos;
 		do_edit_member(c, d, md);
 		if(d->errflag) goto done;
-		if(md->total_size<=0) {
+		if(md->old_total_size<=0) {
 			d->errflag = 1;
 			d->need_errmsg = 1;
 			goto done;
 		}
-		pos += md->total_size;
+		pos += md->old_total_size;
 	}
 after_members:
 	// Write trailer
@@ -3083,6 +3047,7 @@ done:
 		}
 		dbuf_close(d->hdr_tmp);
 		de_crcobj_destroy(d->crco_cksum);
+		de_crcobj_destroy(d->crco);
 		de_free(c, d);
 	}
 }
