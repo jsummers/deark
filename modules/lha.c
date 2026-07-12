@@ -2072,20 +2072,6 @@ void de_module_pakleo(deark *c, struct deark_module_info *mi)
 
 /////////////////////// CAR (MylesHi!)
 
-// TODO: Use run_lha_editor() to convert this format.
-
-struct car_member_data {
-	i64 member_pos;
-	i64 total_size;
-	u32 hdr_checksum_calc;
-};
-
-struct car_ctx {
-	dbuf *hdr_tmp;
-	dbuf *lha_outf;
-	struct de_crcobj *crco_cksum;
-};
-
 static int looks_like_car_member(deark *c, i64 pos)
 {
 	u8 b[16];
@@ -2098,123 +2084,9 @@ static int looks_like_car_member(deark *c, i64 pos)
 	return 1;
 }
 
-static int do_car_member(deark *c, struct car_ctx *d, struct car_member_data *md)
-{
-	i64 lev1_base_header_size;
-	i64 fnlen;
-	i64 hdr_endpos;
-	i64 compressed_data_len;
-	u32 old_hdr_checksum_reported;
-	u32 old_hdr_checksum_calc;
-	i64 pos1 = md->member_pos;
-	int retval = 0;
-	int saved_indent_level;
-
-	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "member at %"I64_FMT, pos1);
-	de_dbg_indent(c, 1);
-
-	// Figure out where everything is...
-	lev1_base_header_size = (i64)de_getbyte(pos1);
-	de_dbg(c, "base header size: %d", (int)lev1_base_header_size);
-	hdr_endpos = pos1 + 2 + lev1_base_header_size;
-	fnlen = lev1_base_header_size - 25;
-	de_dbg(c, "implied filename len: %d", (int)fnlen);
-	if(fnlen<0) goto done;
-
-	old_hdr_checksum_reported = (u32)de_getbyte(pos1+1);
-	de_dbg(c, "header checksum (reported): 0x%02x", old_hdr_checksum_reported);
-	old_hdr_checksum_calc = lha_calc_checksum(c->infile, pos1+2, lev1_base_header_size,
-		d->crco_cksum);
-	de_dbg(c, "header checksum (calculated): 0x%02x", (UI)old_hdr_checksum_calc);
-
-	compressed_data_len = de_getu32le(pos1 + 7);
-	de_dbg(c, "compressed size: %"I64_FMT, compressed_data_len);
-	if(hdr_endpos + compressed_data_len > c->infile->len) goto done;
-
-	// Convert to an LHA level-1 header
-	dbuf_empty(d->hdr_tmp);
-
-	// Fields through uncmpr_size are the same (we'll patch the checksum later)
-	dbuf_copy(c->infile, pos1, 15, d->hdr_tmp);
-
-	dbuf_copy(c->infile, hdr_endpos-7, 4, d->hdr_tmp); // timestamp
-
-	// attribute (low byte)
-	dbuf_copy(c->infile, hdr_endpos-9, 1, d->hdr_tmp);
-	dbuf_writebyte(d->hdr_tmp, 0x01); // level identifier
-
-	// Fields starting with filename length, through crc
-	dbuf_copy(c->infile, pos1+15, 1+fnlen+2, d->hdr_tmp);
-
-	dbuf_writebyte(d->hdr_tmp, 77); // OS ID = 'M' = MS-DOS
-
-	// Recalculate checksum
-	md->hdr_checksum_calc = lha_calc_checksum(d->hdr_tmp, 2, lev1_base_header_size, d->crco_cksum);
-	de_dbg(c, "new header checksum: 0x%02x", (UI)md->hdr_checksum_calc);
-	dbuf_writebyte_at(d->hdr_tmp, 1, (u8)md->hdr_checksum_calc);
-	dbuf_truncate(d->hdr_tmp, 2+lev1_base_header_size);
-
-	// Write everything out
-	dbuf_copy(d->hdr_tmp, 0, d->hdr_tmp->len, d->lha_outf);
-	de_dbg(c, "member data at %"I64_FMT", len=%"I64_FMT, hdr_endpos, compressed_data_len);
-	dbuf_copy(c->infile, hdr_endpos, compressed_data_len, d->lha_outf);
-	md->total_size = (hdr_endpos-md->member_pos) + compressed_data_len;
-	retval = 1;
-
-done:
-	de_dbg_indent_restore(c, saved_indent_level);
-	return retval;
-}
-
 static void de_run_car_lha(deark *c, de_module_params *mparams)
 {
-	struct car_ctx *d = NULL;
-	struct car_member_data *md = NULL;
-	int ok = 0;
-	i64 pos = 0;
-
-	d = de_malloc(c, sizeof(struct car_ctx));
-
-	if(!looks_like_car_member(c, 0)) {
-		de_err(c, "Not a CAR file");
-		goto done;
-	}
-
-	d->crco_cksum = de_crcobj_create(c, DE_CRCOBJ_SUM_BYTES);
-	d->lha_outf = dbuf_create_output_file(c, "lzh", NULL, 0);
-	d->hdr_tmp = dbuf_create_membuf(c, 0, 0);
-
-	md = de_malloc(c, sizeof(struct car_member_data));
-	while(1) {
-		if(de_getbyte(pos)==0) {
-			de_dbg(c, "trailer at %"I64_FMT, pos);
-			dbuf_writebyte(d->lha_outf, 0);
-			ok = 1;
-			break;
-		}
-		if(pos+27 > c->infile->len) goto done;
-		if(!looks_like_car_member(c, pos)) goto done;
-
-		de_zeromem(md, sizeof(struct car_member_data));
-		md->member_pos = pos;
-		if(!do_car_member(c, d, md)) goto done;
-		pos += md->total_size;
-	}
-
-done:
-	de_free(c, md);
-	if(d) {
-		if(d->lha_outf) {
-			de_crcobj_destroy(d->crco_cksum);
-			dbuf_close(d->lha_outf);
-			if(!ok) {
-				de_err(c, "Conversion to LHA format failed");
-			}
-		}
-		dbuf_close(d->hdr_tmp);
-		de_free(c, d);
-	}
+	run_lha_editor(c, EDTMODE_CAR, 0);
 }
 
 static int de_identify_car_lha(deark *c)
@@ -2853,6 +2725,39 @@ done:
 	;
 }
 
+static void edt_car_member(deark *c, struct editor_ctx *d,
+	struct editor_member_data *md)
+{
+	i64 field7;
+	i64 fnlen;
+
+	// CAR format has similarities both to header level 0 and 1.
+	// We convert to level 0 mainly because it's possible to get CAR
+	// to use level-0-style directory paths, which would take some
+	// work to translate to level 1 format.
+
+	field7 = de_getu32le(md->member_pos+7);
+	fnlen = de_getbyte(md->member_pos+15);
+	md->new_base_header_size = md->old_base_header_size-3;
+
+	// Adjust the base header size
+	dbuf_writebyte(d->hdr_tmp, (u8)md->new_base_header_size);
+	// Copy the next 14 bytes
+	dbuf_copy(c->infile, md->member_pos+1, 14, d->hdr_tmp);
+	// Timestamp
+	dbuf_copy(c->infile, md->member_pos+20+fnlen, 4, d->hdr_tmp);
+	// Attribute (low byte)
+	dbuf_copy(c->infile, md->member_pos+18+fnlen, 1, d->hdr_tmp);
+	// Header level (or attribute high byte, forced to 0)
+	dbuf_writebyte(d->hdr_tmp, 0);
+	// Length-prefixed filename
+	dbuf_copy(c->infile, md->member_pos+15, fnlen+1, d->hdr_tmp);
+	// CRC
+	dbuf_copy(c->infile, md->member_pos+16+fnlen, 2, d->hdr_tmp);
+
+	md->old_total_size = 2 + md->old_base_header_size + field7;
+}
+
 static void edt_lhacompat_member(deark *c, struct editor_ctx *d,
 	struct editor_member_data *md)
 {
@@ -2931,6 +2836,9 @@ static void do_edit_member(deark *c, struct editor_ctx *d,
 	}
 	else if(d->edtmode==EDTMODE_ARX) {
 		edt_arx_member(c, d, md);
+	}
+	else if(d->edtmode==EDTMODE_CAR) {
+		edt_car_member(c, d, md);
 	}
 	else {
 		d->errflag = 1;
