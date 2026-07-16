@@ -552,20 +552,20 @@ static const char *get_chunk_type_name(UI t)
 
 	switch(t) {
 	case 0x1: name = "char name"; break;
-		// 0x2 = ?
+	case 0x2: name = "flags"; break;
 	case 0x3: case 0x100: name = "icon ref"; break;
 	case 0x4: case 0x5: case 0x9: case 0xa: case 0xb: case 0xc:
 		name = "image refs";
 		break;
 	case 0x6: name = "start of img data"; break;
 		// 0x7 = end of img data (but we won't find it)
-		// 0x8 = ?
+	case 0x8: name = "style"; break;
 	case 0x102: name = "bkgd img ref"; break;
 	case 0x103: name = "copyright/author"; break;
-	case 0x104: name = "url1"; break; // URL for what?
-	case 0x105: name = "url2"; break; // URL for what?
-	case 0x106: name = "dl prot data"; break;
-	case 0x107: name = "img ptr bias"; break;
+	case 0x104: name = "original url"; break;
+	case 0x105: name = "override url"; break;
+	case 0x106: name = "usage flags"; break;
+	case 0x107: name = "image pointer bias"; break;
 	}
 	return name?name:"?";
 }
@@ -575,6 +575,7 @@ static const char *get_chunk_type_name(UI t)
 static void comicchat_read_chunk(deark *c, lctx *d, i64 pos1)
 {
 	struct chunk_ctx *cctx = NULL;
+	const char *ctname;
 	int ret;
 	i64 foundpos = 0;
 	i64 n;
@@ -586,8 +587,9 @@ static void comicchat_read_chunk(deark *c, lctx *d, i64 pos1)
 	d->last_chunklen = 0;
 	if(cctx->ck_pos+2 > c->infile->len) goto done;
 	cctx->ck_type = (UI)de_getu16le(cctx->ck_pos);
+	ctname = get_chunk_type_name(cctx->ck_type);
 	de_dbg(c, "chunk at %"I64_FMT", type=0x%04x (%s)", cctx->ck_pos, (UI)cctx->ck_type,
-		get_chunk_type_name(cctx->ck_type));
+		ctname);
 	de_dbg_indent(c, 1);
 
 	if(cctx->ck_type==0x0001) {
@@ -595,7 +597,7 @@ static void comicchat_read_chunk(deark *c, lctx *d, i64 pos1)
 		if(ret) {
 			cctx->ck_len = foundpos + 1 - cctx->ck_pos;
 			handle_chunk_string(c, d, cctx->ck_pos+2, cctx->ck_len-2,
-				d->char_name, "char name");
+				d->char_name, ctname);
 		}
 	}
 	else if(cctx->ck_type==0x0002) {
@@ -643,20 +645,19 @@ static void comicchat_read_chunk(deark *c, lctx *d, i64 pos1)
 			handle_chunk_1imageptr(c, d, cctx, 4);
 		}
 		else if(cctx->ck_type==0x0103) {
-			handle_chunk_string(c, d, cctx->ck_pos+4, cctx->ck_len-4, d->tmpstr,
-				"copyright/author");
+			handle_chunk_string(c, d, cctx->ck_pos+4, cctx->ck_len-4, d->tmpstr, ctname);
 		}
 		else if(cctx->ck_type==0x0104) {
-			handle_chunk_string(c, d, cctx->ck_pos+4, cctx->ck_len-4, d->tmpstr, "url1");
+			handle_chunk_string(c, d, cctx->ck_pos+4, cctx->ck_len-4, d->tmpstr, ctname);
 		}
 		else if(cctx->ck_type==0x0105) {
-			handle_chunk_string(c, d, cctx->ck_pos+4, cctx->ck_len-4, d->tmpstr, "url2");
+			handle_chunk_string(c, d, cctx->ck_pos+4, cctx->ck_len-4, d->tmpstr, ctname);
 		}
 		else if(cctx->ck_type==0x0107) {
 			n = de_getu32le(cctx->ck_pos+4);
 			d->img_ptr_bias += n;
 			de_sanitize_offset(&d->img_ptr_bias);
-			de_dbg(c, "image pointer bias: %"I64_FMT, n);
+			de_dbg(c, "%s: %"I64_FMT, ctname, n);
 		}
 	}
 
