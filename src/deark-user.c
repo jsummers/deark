@@ -970,7 +970,7 @@ void de_set_input_style(deark *c, int x)
 // The first file is still c->infile, the same as for any other module.
 // (It's unfortunate that the first file is such a special case, but that's
 // the way it is for now.)
-// Commmand-line options -start and -size apply only to the first file.
+// Command-line options -start and -size apply only to the first file.
 static void de_add_input_filename_mp(deark *c, const char *fn)
 {
 	int prev_count, new_count;
