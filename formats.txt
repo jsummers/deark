@@ -1082,9 +1082,11 @@ in the readme file.)
   - These often contain files in compressed formats known as Squeeze, Crunch,
   and CrLZH. Deark doesn't necessarily support all of those formats.
 
-* LHA/LHarc/LZH/PMA (module="lha")
+* LHA/LHarc/LZH/etc. (module="lha")
   - All common compression methods are supported.
   Options
+   -opt lha:tolha - For some variant formats (PUT, SAR), convert to standard
+     LHA instead of decompressing.
    -opt lha:lhark=<0|1> - Specify whether "lh7" compression should be assumed
      to be standard lh7 format, or LHARK format. The default is to autodetect,
      which can be slow for large files.
@@ -1248,6 +1250,11 @@ in the readme file.)
    -opt pklite:raw - Instead of an EXE file, write raw decompressed data
    -opt execomp:align=<16|512> - Preferred code image segment alignment
      (ignored if it can be determined from the source file).
+
+* PMsfx (module="pmsfx")
+  A self-extracting PMA/PMarc archive, usually for CP/M.
+  - Converts to non-executable PMarc/PMA format.
+  - Note: Deark won't be able to decompress the .pma output file.
 
 * RAR (module="rar")
   - Files can be parsed, but there is usually nothing that can be extracted
