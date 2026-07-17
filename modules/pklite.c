@@ -1808,12 +1808,10 @@ static void temp_minmaxalloc(deark *c, lctx *d)
 	i64 pred_MINALLOC;
 	i64 pred_AX_nrm;
 	i64 pred_AX_min;
-	i64 pred_AX;
+	i64 pred_AX1, pred_AX;
 	u8 calc_AX80 = 0;
-	i64 pred_AX80 = 0;
 	i64 intermed_cdszdiff;
 	i64 intermed_cmprreloc;
-	int xdiff;
 	const char *mmalgstr;
 	const char *axalgstr;
 	const char *verdict;
@@ -1855,6 +1853,7 @@ static void temp_minmaxalloc(deark *c, lctx *d)
 		guest_ucodesize);
 	de_dbg(c, "guest SS:SP         : 0x%04x:%04x",
 		(UI)d->footer.regSS, (UI)d->footer.regSP);
+
 	de_dbg(c, "cmpr reloc tbl len  : %"I64_FMT, d->cmpr_reloc_tbl_len);
 
 	de_dbg(c, "guest MINALLOC      : 0x%04x", (UI)guest_MINALLOC);
@@ -1953,52 +1952,53 @@ static void temp_minmaxalloc(deark *c, lctx *d)
 			+ intermed_cmprreloc + 0x100;
 	}
 	else { // v1.12+
-		// Works for 1.12-1.13.
-		// Sometimes ok for v1.14+, but sometimes low by 80.
-		// (TODO: Figure out when to add 80. The guest SS:SP settings are
-		// relevant.)
 		pred_AX_min = ((guest_ucodesize+15)>>4)
 			+ intermed_cmprreloc + 0x130;
 
-		if(ver>=0x10e && ver<0x201) {
+		if(ver>=0x10e && ver<=0x201) {
 			calc_AX80 = 1;
 		}
 	}
 
 	de_dbg(c, "pred. AX-min        : 0x%04x", (UI)pred_AX_min);
-	xdiff = (int)(pred_AX_nrm - pred_AX_min);
-	if(calc_AX80) {
-		de_dbg(c, "AX nrm/min diff     : %+d", xdiff);
-	}
 
 	axalgstr = "?";
 	if(pred_AX_min == pred_AX_nrm) {
-		pred_AX = pred_AX_nrm;
+		pred_AX1 = pred_AX_nrm;
 		axalgstr = "nrm=min";
 	}
 	else if(pred_AX_min > pred_AX_nrm) {
-		pred_AX = pred_AX_min;
+		pred_AX1 = pred_AX_min;
 		axalgstr = "min";
 	}
 	else {
-		pred_AX = pred_AX_nrm;
+		pred_AX1 = pred_AX_nrm;
 		axalgstr = "nrm";
 	}
 
-	if(calc_AX80) {
-		pred_AX80 = pred_AX + 80;
-		if(pred_AX80==d->ax_val) verdict = "CORRECT80";
-		else if(pred_AX==d->ax_val) verdict = "CORRECT0";
-		else verdict = "WRONG";
+	pred_AX = pred_AX1; // Tentative
 
-		de_dbg(c, "pred. AX            : 0x%04x or 0x%04x [%s,%s] (v%x)",
-			(UI)pred_AX, (UI)pred_AX80, verdict, axalgstr, (UI)ver);
+	if(calc_AX80) {
+		i64 stack_top;
+		i64 axdiff;
+		i64 ax_adj = 0;
+
+		stack_top = d->footer.regSS*16 + d->footer.regSP;
+		axdiff = pred_AX1*16-stack_top;
+
+		de_dbg(c, "pred. AX1           : 0x%04x", (UI)pred_AX1);
+		de_dbg(c, "AX1/stack diff:     : %+"I64_FMT, axdiff);
+
+		if(axdiff>=1 && axdiff<=1264) {
+			ax_adj = 80;
+		}
+
+		de_dbg(c, "AX1 adjustment:     : %+"I64_FMT, ax_adj);
+		pred_AX = pred_AX1 + ax_adj;
 	}
-	else {
-		verdict = (pred_AX==d->ax_val ? "CORRECT":"WRONG");
-		de_dbg(c, "pred. AX            : 0x%04x [%s,%s] (v%x)",
-			(UI)pred_AX, verdict, axalgstr, (UI)ver);
-	}
+	verdict = (pred_AX==d->ax_val ? "CORRECT":"WRONG");
+	de_dbg(c, "pred. AX            : 0x%04x [%s,%s] (v%x)",
+		(UI)pred_AX, verdict, axalgstr, (UI)ver);
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
