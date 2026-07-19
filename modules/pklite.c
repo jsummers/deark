@@ -1810,12 +1810,16 @@ static void temp_minmaxalloc(deark *c, lctx *d)
 	i64 pred_AX_min;
 	i64 pred_AX1, pred_AX;
 	u8 calc_AX80 = 0;
+	u8 minmem_toobig_flag = 0;
 	i64 intermed_cdszdiff;
 	i64 intermed_cmprreloc;
+	i64 pred_MAXALLOC = 0;
+	const char *maxmemalgstr = "?";
 	const char *mmalgstr;
 	const char *axalgstr;
 	const char *verdict;
 	UI ver;
+	i64 ax_adj = 0;
 	//UI subver = 0;
 	int saved_indent_level;
 
@@ -1858,9 +1862,10 @@ static void temp_minmaxalloc(deark *c, lctx *d)
 
 	de_dbg(c, "guest MINALLOC      : 0x%04x", (UI)guest_MINALLOC);
 	de_dbg(c, "host MINALLOC       : 0x%04x", (UI)host_MINALLOC);
-	// We don't deal with MAXALLOC yet. MINALLOC is more fundamental.
 	de_dbg(c, "guest MAXALLOC      : 0x%04x", (UI)guest_MAXALLOC);
-	de_dbg(c, "host MAXALLOC       : 0x%04x", (UI)host_MAXALLOC);
+
+	de_dbg(c, "host MAXALLOC       : 0x%04x%s", (UI)host_MAXALLOC,
+		(host_MAXALLOC<host_MINALLOC ? " (!?)":""));
 
 	intermed_cdszdiff = (guest_unumblocks*32 - d->guest_ei->start_of_dos_code/16)
 		- (host_numblocks*32 - d->host_ei->start_of_dos_code/16);
@@ -1919,10 +1924,13 @@ static void temp_minmaxalloc(deark *c, lctx *d)
 	if(pred_MINALLOC >= 0x8000) {
 		pred_MINALLOC = 0;
 		mmalgstr = "toobig";
+		minmem_toobig_flag = 1;
 	}
 
 	de_dbg(c, "pred. h.MINALLOC    : 0x%04x [%s,%s] (v%x)", (UI)pred_MINALLOC,
 		((pred_MINALLOC==host_MINALLOC)?"CORRECT":"WRONG"), mmalgstr, ver);
+
+	// ------------------------ AX
 
 	de_dbg(c, "AX                  : 0x%04x", (UI)d->ax_val);
 
@@ -1981,7 +1989,6 @@ static void temp_minmaxalloc(deark *c, lctx *d)
 	if(calc_AX80) {
 		i64 stack_top;
 		i64 axdiff;
-		i64 ax_adj = 0;
 
 		stack_top = d->footer.regSS*16 + d->footer.regSP;
 		axdiff = pred_AX1*16-stack_top;
@@ -1996,9 +2003,75 @@ static void temp_minmaxalloc(deark *c, lctx *d)
 		de_dbg(c, "AX1 adjustment:     : %+"I64_FMT, ax_adj);
 		pred_AX = pred_AX1 + ax_adj;
 	}
+
+	if(pred_AX > 0xffff) {
+		pred_AX = 0xffff;
+	}
+
 	verdict = (pred_AX==d->ax_val ? "CORRECT":"WRONG");
 	de_dbg(c, "pred. AX            : 0x%04x [%s,%s] (v%x)",
 		(UI)pred_AX, verdict, axalgstr, (UI)ver);
+
+	// ------------------------ MAXALLOC
+
+	if(ver>=0x010b) {
+		i64 tmp;
+
+		if(minmem_toobig_flag) {
+			maxmemalgstr = "minmemtoobig";
+			pred_MAXALLOC = 0xffff;
+			goto maxalloc_done;
+		}
+
+		if(guest_MAXALLOC==0xffff) {
+			maxmemalgstr = "copied";
+			pred_MAXALLOC = 0xffff;
+			goto maxalloc_done;
+		}
+
+		tmp = guest_MAXALLOC + (pred_MINALLOC - guest_MINALLOC);
+		if(tmp<0) tmp = 0;
+		// There is a bug in PKLITE v1.12+. If guest_MAXALLOC < 0xffff,
+		// and the calculated host MAXALLOC is > 0xffff, it will wrap around to a
+		// way-too-small number.
+		// Easily reproduced by setting guest MAXALLOC to, say, 0xfffe.
+		tmp = tmp % 65536;
+
+		if(tmp>=0x8000) {
+			maxmemalgstr = "max";
+			pred_MAXALLOC = 0xffff;
+			goto maxalloc_done;
+		}
+
+		if(ax_adj>0) {
+			// The >=0x8000 test happens before this. Therefore, the final
+			// MAXMEM can be up to 0x804f.
+			maxmemalgstr = "nrm80";
+			tmp = tmp + 80;
+		}
+		else {
+			maxmemalgstr = "nrm";
+		}
+
+		pred_MAXALLOC = tmp;
+	}
+	else {
+		if(guest_MAXALLOC < pred_MINALLOC) {
+			maxmemalgstr = "min";
+			pred_MAXALLOC = pred_MINALLOC;
+		}
+		else {
+			maxmemalgstr = "copied";
+			pred_MAXALLOC = guest_MAXALLOC;
+		}
+	}
+
+maxalloc_done:
+	verdict = (pred_MAXALLOC==host_MAXALLOC)?"CORRECT":"WRONG";
+
+	de_dbg(c, "pred. h.MAXALLOC    : 0x%04x [%s,%s]", (UI)pred_MAXALLOC,
+		verdict, maxmemalgstr);
+
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
