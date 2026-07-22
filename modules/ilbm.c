@@ -12,6 +12,7 @@ DE_DECLARE_MODULE(de_module_ilbm);
 DE_DECLARE_MODULE(de_module_anim);
 DE_DECLARE_MODULE(de_module_deep);
 DE_DECLARE_MODULE(de_module_wv_brs);
+DE_DECLARE_MODULE(de_module_cs_ilbm);
 
 #define ANIM_MAX_FRAMES 10000
 
@@ -38,6 +39,8 @@ DE_DECLARE_MODULE(de_module_wv_brs);
 #define CODE_GRAB 0x47524142U
 #define CODE_ILBM 0x494c424dU
 #define CODE_JUNK 0x4a554e4bU
+#define CODE_MBLI 0x4d424c49U
+#define CODE_MROF 0x4d524f46U
 #define CODE_PBM  0x50424d20U
 #define CODE_PCHG 0x50434847U
 #define CODE_RGB8 0x52474238U
@@ -47,6 +50,7 @@ DE_DECLARE_MODULE(de_module_wv_brs);
 #define CODE_TINY 0x54494e59U
 #define CODE_VDAT 0x56444154U
 #define CODE_XS24 0x58533234U
+
 
 #define ANIM_OP_XOR 1
 
@@ -3631,4 +3635,145 @@ void de_module_wv_brs(deark *c, struct deark_module_info *mi)
 	mi->desc = "Whale's Voyage image";
 	mi->run_fn = de_run_wv_brs;
 	mi->identify_fn = de_identify_wv_brs;
+}
+
+// **************************************************************************
+// Command Simulations little-endian ILBM file
+// **************************************************************************
+
+struct csilbm_ctx {
+	u8 need_errmsg;
+	dbuf *outf;
+};
+
+static void csilbm_rewrite_chunk(struct csilbm_ctx *d, struct de_iffctx *ictx,
+	i64 ipos1, const char *fmtcode)
+{
+	size_t cpos = 0;
+	u8 cd;
+	i64 ipos = ipos1;
+	u8 tmpb;
+	i64 tmpi;
+
+	while(1) {
+		cd = fmtcode[cpos];
+		cpos++;
+		if(cd==0) break;
+		if(cd=='1') {
+			tmpb = dbuf_getbyte_p(ictx->f, &ipos);
+			dbuf_writebyte(d->outf, tmpb);
+		}
+		else if(cd=='2') {
+			tmpi = dbuf_getu16le_p(ictx->f, &ipos);
+			dbuf_writeu16be(d->outf, tmpi);
+		}
+	}
+}
+
+static int my_csilbm_chunk_handler(struct de_iffctx *ictx)
+{
+	struct csilbm_ctx *d = (struct csilbm_ctx*)ictx->userdata;
+	u32 newcode;
+	i64 ipos, ilen;
+	i64 expected_len = 0;
+	const char *fmtcode = NULL;
+
+	newcode = ictx->chunkctx->chunk4cc.id; // default
+
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_FORM:
+		if(ictx->level!=0) {
+			d->need_errmsg = 1;
+			return 0;
+		}
+		ictx->is_std_container = 1;
+		break;
+	case CODE_BODY:
+	case CODE_CMAP:
+		break;
+	case CODE_BMHD:
+		fmtcode =  "2222111121122";
+		expected_len = 20;
+		break;
+		// TODO: Other chunks seen: CAMG, GRAB, CRNG, DPPV.
+		// But some of them seem to be big-endian, or nonstandard,
+		// so discarding them might be for the best.
+	default:
+		newcode = CODE_JUNK;
+		break;
+	}
+
+	dbuf_writeu32be(d->outf, newcode);
+	dbuf_writeu32be(d->outf, ictx->chunkctx->dlen);
+	ipos = ictx->chunkctx->pos+8;
+	ilen = ictx->chunkctx->len-8;
+
+	if(fmtcode) {
+		if(ilen!=expected_len) {
+			d->need_errmsg = 1;
+			return 0;
+		}
+	}
+	if(ipos+ilen > ictx->f->len+10) {
+		d->need_errmsg = 1;
+		return 0;
+	}
+
+	if(ictx->is_std_container) {
+		dbuf_writeu32be(d->outf, CODE_ILBM);
+	}
+	else if(fmtcode) {
+		csilbm_rewrite_chunk(d, ictx, ipos, fmtcode);
+	}
+	else {
+		dbuf_copy(ictx->f, ipos, ilen, d->outf);
+	}
+
+	ictx->handled = 1; // We're just scanning the file, so suppress default chunk handling
+	return 1;
+}
+
+static void de_run_cs_ilbm(deark *c, de_module_params *mparams)
+{
+	struct csilbm_ctx *d = NULL;
+	struct de_iffctx *ictx = NULL;
+
+	d = de_malloc(c, sizeof(struct csilbm_ctx));
+
+	ictx = fmtutil_create_iff_decoder(c);
+	ictx->userdata = (void*)d;
+	ictx->is_le = 1;
+	ictx->reversed_4cc = 1;
+	ictx->handle_chunk_fn = my_csilbm_chunk_handler;
+	ictx->f = c->infile;
+
+	d->outf = dbuf_create_output_file(c, "iff", NULL, 0);
+	dbuf_enable_wbuffer(d->outf);
+
+	fmtutil_read_iff_format(ictx, 0, c->infile->len);
+
+	fmtutil_destroy_iff_decoder(ictx);
+	if(d) {
+		dbuf_close(d->outf);
+		if(d->need_errmsg) {
+			de_err(c, "Failed to convert CS-ILBM file");
+		}
+		de_free(c, d);
+	}
+}
+
+static int de_identify_cs_ilbm(deark *c)
+{
+	if((UI)de_getu32be(0)!=CODE_MROF) return 0;
+	if(de_getbyte(7) >= 0x20) return 0;
+	if((UI)de_getu32be(8)!=CODE_MBLI) return 0;
+	return 100;
+}
+
+void de_module_cs_ilbm(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "cs_ilbm";
+	mi->desc = "Command Simulations ILBM";
+	mi->run_fn = de_run_cs_ilbm;
+	mi->identify_fn = de_identify_cs_ilbm;
 }
