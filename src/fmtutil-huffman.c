@@ -484,6 +484,7 @@ int fmtutil_huffman_make_canonical_code(deark *c, struct fmtutil_huffman_codeboo
 	de_dbg3(c, "%s:", (title?title:"derived huffman codebook"));
 	de_dbg_indent(c, 1);
 
+	de_dbg3(c, "number of codes: %d", (int)builder->lengths_arr_numused);
 	if(!builder->lengths_arr) {
 		retval = 1;
 		goto done;
@@ -515,6 +516,7 @@ int fmtutil_huffman_make_canonical_code(deark *c, struct fmtutil_huffman_codeboo
 	}
 
 done:
+	de_dbg3(c, "[end of codebook]");
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
