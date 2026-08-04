@@ -58,6 +58,8 @@ typedef struct localctx_pklite {
 
 	u8 is_com;
 	u8 is_may90_beta;
+	u8 possible_beta_filesize_bug;
+	u8 is_jul90_beta;
 	u8 data_before_decoder;
 	u8 load_high;
 	u8 has_psp_sig;
@@ -546,6 +548,9 @@ static void analyze_copier(deark *c, lctx *d)
 	{
 		if(d->epbytes[foundpos+12]==0xcb) {
 			d->copier_class = COPIER_CLASS_COMMON;
+			if(d->epbytes[foundpos+7]==0x4c) {
+				d->is_jul90_beta = 1;
+			}
 		}
 		else if(d->epbytes[foundpos+12]==0xca) {
 			d->copier_class = COPIER_CLASS_150SCR;
@@ -1551,6 +1556,23 @@ static void find_min_mem_needed(deark *c, lctx *d, i64 *pminmem)
 	}
 }
 
+// Must be called after acquire_new_exe_header().
+static void detect_beta_filesize_bug(deark *c, lctx *d) {
+	// The "5-29-90" beta has a bug when the file size is an exact multiple of
+	// 512 bytes. Such a buggy file is probably very rare, as there's a good
+	// chance it won't run properly. But in most cases, it can be decompressed
+	// successfully... *provided* we don't mess it up by trying to be helpful
+	// by detecting and dealing with the inconsistency.
+	if(d->is_may90_beta) {
+		UI lenfinal;
+
+		lenfinal = (UI)dbuf_getu16le(d->hdr_for_dcmpr_file, 2);
+		if(lenfinal==0) {
+			d->possible_beta_filesize_bug = 1;
+		}
+	}
+}
+
 static void do_write_data_only(deark *c, lctx *d)
 {
 	if(!d->dcmpr_code) return;
@@ -1562,7 +1584,6 @@ static void do_write_dcmpr(deark *c, lctx *d)
 {
 	dbuf *outf = NULL;
 	i64 amt_to_copy;
-	u8 possible_beta_filesize_bug = 0;
 	u8 copy_overlay = 0;
 
 	if(d->errflag || !d->guest_ei || !d->hdr_for_dcmpr_file || !d->dcmpr_code ||
@@ -1575,20 +1596,6 @@ static void do_write_dcmpr(deark *c, lctx *d)
 
 	outf = dbuf_create_output_file(c, "exe", NULL, 0);
 	d->wrote_exe = 1;
-
-	// The "5-29-90" beta has a bug when the file size is an exact multiple of
-	// 512 bytes. Such a buggy file is probably very rare, as there's a good
-	// chance it won't run properly. But in most cases, it can be decompressed
-	// successfully... *provided* we don't mess it up by trying to be helpful
-	// by detecting and dealing with the inconsistency.
-	if(d->is_may90_beta) {
-		UI lenfinal;
-
-		lenfinal = (UI)dbuf_getu16le(d->hdr_for_dcmpr_file, 2);
-		if(lenfinal==0) {
-			possible_beta_filesize_bug = 1;
-		}
-	}
 
 	// Write the original header, up to the relocation table
 	amt_to_copy = de_min_int(d->hdr_for_dcmpr_file->len, d->guest_ei->reloc_table_pos);
@@ -1608,7 +1615,7 @@ static void do_write_dcmpr(deark *c, lctx *d)
 
 	// "Overlay" segment
 	if(d->host_ei->overlay_len>0) {
-		if(possible_beta_filesize_bug) {
+		if(d->possible_beta_filesize_bug) {
 			copy_overlay = 1;
 		}
 		else if(outf->len == d->guest_ei->end_of_dos_code) {
@@ -1795,6 +1802,7 @@ static void reconstruct_header(deark *c, lctx *d)
 // true for all versions.
 static void temp_minmaxalloc(deark *c, lctx *d)
 {
+	i64 guest_filesize;
 	i64 guest_ucodesize;
 	i64 guest_MINALLOC;
 	i64 guest_MAXALLOC;
@@ -1811,6 +1819,7 @@ static void temp_minmaxalloc(deark *c, lctx *d)
 	i64 pred_AX1, pred_AX;
 	u8 calc_AX80 = 0;
 	u8 minmem_toobig_flag = 0;
+	u8 flag1;
 	i64 intermed_cdszdiff;
 	i64 intermed_cmprreloc;
 	i64 pred_MAXALLOC = 0;
@@ -1829,7 +1838,6 @@ static void temp_minmaxalloc(deark *c, lctx *d)
 	ver = d->ver_reported.ver_num;
 
 	if(!d->using_copy_of_exe_header) goto done;
-	if(!d->ax_val) goto done;
 	if(ver==0x0100 || ver==0x0103 || ver==0x0105 ||
 		ver==0x010b || (ver>=0x010c && ver<=0x0201))
 	{
@@ -1842,8 +1850,15 @@ static void temp_minmaxalloc(deark *c, lctx *d)
 	de_dbg(c, "[MIN/MAX alloc analysis]");
 	de_dbg_indent(c, 1);
 
+	de_dbg(c, "is may beta         : %u", (UI)d->is_may90_beta);
+	if(d->is_may90_beta) {
+		de_dbg(c, "load high           : %u", (UI)d->load_high);
+		de_dbg(c, "beta filesize bug   : %u", (UI)d->possible_beta_filesize_bug);
+	}
+
 	guest_ucodesize = d->guest_ei->end_of_dos_code - d->guest_ei->start_of_dos_code;
 	host_ucodesize = d->host_ei->end_of_dos_code - d->host_ei->start_of_dos_code;
+	guest_filesize = d->guest_ei->end_of_dos_code + d->host_ei->overlay_len;
 
 	guest_unumblocks = dbuf_getu16le(d->hdr_for_dcmpr_file, 4);
 	guest_MINALLOC = dbuf_getu16le(d->hdr_for_dcmpr_file, 10);
@@ -1853,10 +1868,14 @@ static void temp_minmaxalloc(deark *c, lctx *d)
 	host_MINALLOC = de_getu16le(10);
 	host_MAXALLOC = de_getu16le(12);
 
+	de_dbg(c, "host overlay        : %"I64_FMT, d->host_ei->overlay_len);
 	de_dbg(c, "guest u.codesize    : 0x%x = %"I64_FMT, (UI)guest_ucodesize,
 		guest_ucodesize);
+	de_dbg(c, "host u.codesize     : 0x%x = %"I64_FMT, (UI)host_ucodesize,
+		host_ucodesize);
 	de_dbg(c, "guest SS:SP         : 0x%04x:%04x",
 		(UI)d->footer.regSS, (UI)d->footer.regSP);
+	de_dbg(c, "est. guest filesize : %"I64_FMT, guest_filesize);
 
 	de_dbg(c, "cmpr reloc tbl len  : %"I64_FMT, d->cmpr_reloc_tbl_len);
 
@@ -1864,15 +1883,42 @@ static void temp_minmaxalloc(deark *c, lctx *d)
 	de_dbg(c, "host MINALLOC       : 0x%04x", (UI)host_MINALLOC);
 	de_dbg(c, "guest MAXALLOC      : 0x%04x", (UI)guest_MAXALLOC);
 
+	flag1 = 0;
+	if(host_MAXALLOC<host_MINALLOC && !d->load_high) {
+		flag1 = 1;
+	}
 	de_dbg(c, "host MAXALLOC       : 0x%04x%s", (UI)host_MAXALLOC,
-		(host_MAXALLOC<host_MINALLOC ? " (!?)":""));
+		(flag1 ? " (!?)":""));
 
 	intermed_cdszdiff = (guest_unumblocks*32 - d->guest_ei->start_of_dos_code/16)
 		- (host_numblocks*32 - d->host_ei->start_of_dos_code/16);
 
 	intermed_cmprreloc = (d->cmpr_reloc_tbl_len + 8)/16;
 
-	if(ver==0x0100) {
+	if(d->is_may90_beta) {
+		i64 npad;
+
+		// This formula looks dubious, or at least it looks like it should be
+		// possible to simplify it. But I haven't found any exceptions to it,
+		// and haven't managed to simplify it.
+
+		// Because the decompressor is 16-byte aligned, and ends at
+		// end_of_dos_code, I expect npad to only have a few possible values:
+		//  12 for small-cmpr
+		//  8  for large-cmpr
+		//  13 for small-cmpr load-high
+		//  15 for large-cmpr load-high
+		npad = 16 - (d->host_ei->end_of_dos_code % 16);
+
+		pred_MINALLOC_nrm = guest_MINALLOC
+			+ (guest_filesize+npad)/16
+			- ((d->host_ei->end_of_dos_code)/16);
+
+		if(d->possible_beta_filesize_bug) {
+			pred_MINALLOC_nrm -= 0x20;
+		}
+	}
+	else if(ver==0x0100) {
 		pred_MINALLOC_nrm = guest_MINALLOC
 			+ (guest_ucodesize)/16
 			- (host_ucodesize)/16;
@@ -1888,7 +1934,10 @@ static void temp_minmaxalloc(deark *c, lctx *d)
 	}
 	de_dbg(c, "pred. h.MINALLOC-nrm: 0x%04x", (UI)pred_MINALLOC_nrm);
 
-	if(ver==0x0100) {
+	if(d->is_may90_beta) {
+		pred_MINALLOC_min = 0x200;
+	}
+	else if(ver==0x0100) {
 		pred_MINALLOC_min = 0;
 	}
 	else if(ver==0x0103 || ver==0x0105) {
@@ -1931,6 +1980,7 @@ static void temp_minmaxalloc(deark *c, lctx *d)
 		((pred_MINALLOC==host_MINALLOC)?"CORRECT":"WRONG"), mmalgstr, ver);
 
 	// ------------------------ AX
+	if(!d->ax_val) goto after_ax;
 
 	de_dbg(c, "AX                  : 0x%04x", (UI)d->ax_val);
 
@@ -2012,9 +2062,20 @@ static void temp_minmaxalloc(deark *c, lctx *d)
 	de_dbg(c, "pred. AX            : 0x%04x [%s,%s] (v%x)",
 		(UI)pred_AX, verdict, axalgstr, (UI)ver);
 
+after_ax:
 	// ------------------------ MAXALLOC
 
-	if(ver>=0x010b) {
+	if(d->load_high) {
+		maxmemalgstr = "loadhigh";
+		pred_MAXALLOC = 0;
+		goto maxalloc_done;
+	}
+	else if(d->is_may90_beta || d->is_jul90_beta) {
+		maxmemalgstr = "fixed";
+		pred_MAXALLOC = 0xffff;
+		goto maxalloc_done;
+	}
+	else if(ver>=0x010b) {
 		i64 tmp;
 
 		if(minmem_toobig_flag) {
@@ -2074,6 +2135,83 @@ maxalloc_done:
 
 
 done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+// Predict guest settings from host settings
+static void temp_minmaxalloc2(deark *c, lctx *d)
+{
+	i64 host_numblocks;
+	i64 host_hdrsize_para;
+	i64 host_MINALLOC;
+	i64 guest_MINALLOC_1;
+	i64 guest_ucodesize;
+	i64 guest_ucodesize_para;
+	i64 lenfinal_para_min, lenfinal_para_max;
+	i64 guest_expr1_min, guest_expr1_max;
+	i64 guest_MINALLOC_min;
+	i64 guest_MINALLOC_max;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "[MIN/MAX alloc prediction]");
+	de_dbg_indent(c, 1);
+
+	host_numblocks = de_getu16le(4);
+	host_hdrsize_para = de_getu16le(8);
+	host_MINALLOC = de_getu16le(10);
+
+	////////// MINALLOC-nrm
+	guest_ucodesize = d->guest_ei->end_of_dos_code - d->guest_ei->start_of_dos_code;
+	guest_ucodesize_para = (guest_ucodesize+15)/16;
+
+	guest_MINALLOC_1 = host_MINALLOC + (host_numblocks*32 - host_hdrsize_para);
+	lenfinal_para_min = 1;
+	lenfinal_para_max = 32;
+	// guest_expr1 = (ORIG_NUM_BLOCKS*32 - ORIG_HDR_SIZE)
+	guest_expr1_max = guest_ucodesize_para + 32 - lenfinal_para_min;
+	guest_expr1_min = guest_ucodesize_para + 32 - lenfinal_para_max;
+	guest_MINALLOC_min = guest_MINALLOC_1 - guest_expr1_max;
+	// FIXME: guest_MINALLOC_min can be < 0
+	guest_MINALLOC_max = guest_MINALLOC_1 - guest_expr1_min;
+	de_dbg(c, "pred g.MINALLOC nrm : 0x%04x to 0x%04x",
+		(UI)guest_MINALLOC_min, (UI)guest_MINALLOC_max);
+
+	////////// MINALLOC-min
+
+	//HOST_MINALLOC_MIN_112() :=
+	//  ( ORIG_NUM_BLOCKS*32 - ORIG_HDR_SIZE )
+	//  - ( HOST_NUM_BLOCKS*32 - HOST_HDR_SIZE )
+	//  + (CMPR_RELOC_TBL_SIZE+8)/16 + 320
+
+	// Calculate the min and max that MINALLOC could be if the "min" formula was used.
+	i64 intermed_cdszdiff_min, intermed_cdszdiff_max;
+	i64 intermed_cmprreloc;
+	i64 pred_MINALLOCmin_min, pred_MINALLOCmin_max;
+	u8 min_formula_possible = 0;
+
+	intermed_cdszdiff_min = guest_expr1_min - (host_numblocks*32 - host_hdrsize_para);
+	intermed_cdszdiff_max = guest_expr1_max - (host_numblocks*32 - host_hdrsize_para);
+
+	intermed_cmprreloc = (d->cmpr_reloc_tbl_len + 8)/16;
+
+	pred_MINALLOCmin_min = intermed_cdszdiff_min + intermed_cmprreloc + 320;
+	pred_MINALLOCmin_max = intermed_cdszdiff_max + intermed_cmprreloc + 320;
+	if(host_MINALLOC>=pred_MINALLOCmin_min && host_MINALLOC<pred_MINALLOCmin_max) {
+		min_formula_possible = 1;
+	}
+	de_dbg(c, "minallocmin range   : 0x%04x to 0x%04x %s",
+		(UI)pred_MINALLOCmin_min, (UI)pred_MINALLOCmin_max,
+		(min_formula_possible?"***":""));
+
+	if(min_formula_possible) {
+		// If min was used, lots of things cancel, and we know that
+		// ORIG_MINALLOC < (CMPR_RELOC_TBL_SIZE+8)/16 + 320
+
+		de_dbg(c, "if minmin, then guest MINALLOC < 0x%04x",
+			(UI)(intermed_cmprreloc + 320));
+	}
+
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 #endif
@@ -2186,8 +2324,10 @@ static void do_pklite_exe(deark *c, lctx *d)
 
 	acquire_new_exe_header(c, d);
 	if(d->errflag) goto done;
+	detect_beta_filesize_bug(c, d);
 #if PKL_DBG_MINMAXALLOC
 	temp_minmaxalloc(c, d);
+	temp_minmaxalloc2(c, d);
 #endif
 
 	do_write_dcmpr(c, d);
