@@ -8,6 +8,7 @@
 #include "deark-private.h"
 #include "deark-fmtutil.h"
 
+#define CODE_fill  0x20202020U
 #define CODE__c_   0x28632920U // "(c) "
 #define CODE_ANNO  0x414e4e4fU
 #define CODE_AUTH  0x41555448U
@@ -77,6 +78,7 @@ static void fmtutil_default_iff_chunk_identify(struct de_iffctx *ictx)
 	const char *name = NULL;
 
 	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_fill: name="filler"; break;
 	case CODE__c_ : name="copyright"; break;
 	case CODE_ANNO: name="annotation"; break;
 	case CODE_AUTH: name="author"; break;

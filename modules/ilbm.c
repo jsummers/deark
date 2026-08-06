@@ -16,6 +16,7 @@ DE_DECLARE_MODULE(de_module_cs_ilbm);
 
 #define ANIM_MAX_FRAMES 10000
 
+#define CODE_fill 0x20202020U
 #define CODE_8SVX 0x38535658U
 #define CODE_ABIT 0x41424954U
 #define CODE_ACBM 0x4143424dU
@@ -38,7 +39,6 @@ DE_DECLARE_MODULE(de_module_cs_ilbm);
 #define CODE_FORM 0x464f524dU
 #define CODE_GRAB 0x47524142U
 #define CODE_ILBM 0x494c424dU
-#define CODE_JUNK 0x4a554e4bU
 #define CODE_MBLI 0x4d424c49U
 #define CODE_MROF 0x4d524f46U
 #define CODE_PBM  0x50424d20U
@@ -3560,15 +3560,14 @@ static int my_wv_chunk_handler(struct de_iffctx *ictx)
 		// I don't think this format ever does color cycling, so I think
 		// it's safest to get rid of these chunks.
 		if(d->disable_CRNG) {
-			newcode = CODE_JUNK;
+			newcode = CODE_fill;
 		}
 		break;
 	case 0xdbdbdbdbU:
 		// In some files, apparently the GRAB and CRNG chunks are "erased"
 		// like this. We could delete them, or try to revive them, but let's
 		// just change it to something more readable.
-		// I have seen 'JUNK' before, but I don't know if it's in any standard.
-		newcode = CODE_JUNK;
+		newcode = CODE_fill;
 		break;
 	}
 
@@ -3699,7 +3698,7 @@ static int my_csilbm_chunk_handler(struct de_iffctx *ictx)
 		// But some of them seem to be big-endian, or nonstandard,
 		// so discarding them might be for the best.
 	default:
-		newcode = CODE_JUNK;
+		newcode = CODE_fill;
 		break;
 	}
 
