@@ -20,7 +20,7 @@ endif
 ifdef DEARK_ARFLAGS
 ARFLAGS:=$(DEARK_ARFLAGS)
 else
-ARFLAGS:=urcs
+ARFLAGS:=rcs
 endif
 
 INCLUDES:=-Isrc
