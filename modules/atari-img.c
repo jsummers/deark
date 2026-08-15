@@ -22,6 +22,7 @@ DE_DECLARE_MODULE(de_module_falcon_xga);
 DE_DECLARE_MODULE(de_module_coke);
 DE_DECLARE_MODULE(de_module_animatic);
 DE_DECLARE_MODULE(de_module_videomaster);
+DE_DECLARE_MODULE(de_module_eza);
 
 static void fix_dark_pal(deark *c, struct atari_img_decode_data *adata);
 
@@ -1580,4 +1581,78 @@ void de_module_videomaster(deark *c, struct deark_module_info *mi)
 	mi->desc = "Video Master (.flm/.vid/.vsq)";
 	mi->run_fn = de_run_videomaster;
 	mi->identify_fn = de_identify_videomaster;
+}
+
+// **************************************************************************
+// EZ-Art Professional, by Floppyshop
+// **************************************************************************
+
+static void de_run_eza(deark *c, de_module_params *mparams)
+{
+	struct atari_img_decode_data *adata = NULL;
+	de_finfo *fi = NULL;
+	u32 pal[16];
+
+	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
+	adata->w = 320;
+	adata->h = de_getu16be(2);
+	de_dbg_dimensions(c, adata->w, adata->h);
+	if(!de_good_image_dimensions(c, adata->w, adata->h)) goto done;
+
+	adata->bpp = 4;
+	adata->ncolors = 16;
+	adata->pal = pal;
+	fmtutil_read_atari_palette(c, c->infile, 4, adata->pal, 16, adata->ncolors, 0);
+
+	// There are 8 unknown bytes at offset 36, some of which appear to
+	// be meaningful flags or something, but I can't figure them out.
+
+	adata->was_compressed = 1;
+	adata->unc_pixels = dbuf_create_membuf(c, adata->h*160, 0x1);
+	dbuf_enable_wbuffer(adata->unc_pixels);
+	fmtutil_decompress_packbits(c->infile, 44, c->infile->len - 44,
+		adata->unc_pixels, NULL);
+	dbuf_flush(adata->unc_pixels);
+	de_dbg(c, "decompressed to %"I64_FMT" bytes", adata->unc_pixels->len);
+
+	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
+	fi = de_finfo_create(c);
+	fmtutil_atari_set_standard_density(c, adata, fi);
+	fmtutil_atari_decode_image(c, adata);
+	de_bitmap_write_to_file_finfo(adata->img, fi, 0);
+
+done:
+	if(adata) {
+		dbuf_close(adata->unc_pixels);
+		de_bitmap_destroy(adata->img);
+		de_free(c, adata);
+	}
+	de_finfo_destroy(c, fi);
+}
+
+static int de_identify_eza(deark *c)
+{
+	UI h;
+
+	if((UI)de_getu16be(0) != 0x455a) return 0;
+	h = (UI)de_getu16be(2);
+	// The demo allows heights that are even numbers from 200 to 640.
+	// But odd heights are common in files in the wild.
+	if(h<200 || h>640) return 0;
+	// TODO?: It's hard to decide if we have enough signals to identify EZA
+	// without using the extension.
+	// We could also check that the palette colors are all < 4096, and
+	// maybe look at the unknown fields at offset 36.
+	if(!de_input_file_has_ext(c, "eza")) {
+		return 0;
+	}
+	return (h==200)?81:71;
+}
+
+void de_module_eza(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "eza";
+	mi->desc = "EZ-Art Professional";
+	mi->run_fn = de_run_eza;
+	mi->identify_fn = de_identify_eza;
 }

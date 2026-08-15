@@ -246,6 +246,10 @@ Deark -- Information about supported formats
 * Esm Software PIX (module="esm_pix")
   - Extract embedded JPEG file.
 
+* EZ-Art Professional .EZA (module="eza")
+  A paint program for Atari ST, by Floppyshop.
+  - File extension must be ".eza" (or use "-m eza").
+
 * Falcon True Color (module="ftc")
 
 * farbfeld (module="farbfeld")
