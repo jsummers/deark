@@ -42,6 +42,27 @@ struct ver_info_struct {
 	char pklver_str[40];
 };
 
+
+#define PKL_DVER_UNKNOWN  0
+#define PKL_DVER_MAYBETA  10005
+#define PKL_DVER_JULBETA  10007
+#define PKL_DVER_100      10050
+#define PKL_DVER_103      10350
+#define PKL_DVER_105      10550
+#define PKL_DVER_111      11150
+#define PKL_DVER_112      11250
+#define PKL_DVER_113      11350
+#define PKL_DVER_114      11450
+#define PKL_DVER_115      11550
+#define PKL_DVER_150      15050
+#define PKL_DVER_201      20150
+struct verdetect_struct {
+	u8 isset;
+	u8 special_version;
+	UI ver_min;
+	UI ver_max;
+};
+
 struct footer_struct {
 	i64 regSS;
 	i64 regSP;
@@ -128,6 +149,10 @@ typedef struct localctx_pklite {
 #define DECOMPR_CLASS_COM_100       241
 	u8 decompr_class;
 
+	u8 copier_byte17;
+	u8 copier_byte23;
+	u8 decompr_byte9;
+
 	i64 cmpr_data_endpos; // = reloc_tbl_pos
 	i64 reloc_tbl_endpos;
 	i64 cmpr_reloc_tbl_len;
@@ -142,6 +167,7 @@ typedef struct localctx_pklite {
 	dbuf *dcmpr_code;
 
 	struct ver_info_struct ver_reported;
+	struct verdetect_struct verdetect;
 
 	// A copy of the bytes at the EXE entry point, generally up to but not
 	// including the compressed data. The most we expect to need is about 800,
@@ -161,6 +187,50 @@ struct decompr_internal_state {
 	struct fmtutil_huffman_decoder *lengths_tree;
 	struct fmtutil_huffman_decoder *offsets_tree;
 };
+
+// flags: 0x1 = "weak" mode: If out of range, disregard.
+static void pkl_set_detver_range(lctx *d, UI minv, UI maxv, UI flags)
+{
+	if(d->verdetect.special_version) goto done;
+	if(minv>maxv) {
+		if(flags&0x1) goto done;
+		d->verdetect.isset = 1;
+		d->verdetect.special_version = 1;
+		goto done;
+	}
+
+	if(!d->verdetect.isset) {
+		d->verdetect.isset = 1;
+		d->verdetect.ver_min = minv;
+		d->verdetect.ver_max = maxv;
+	}
+
+	if((minv>d->verdetect.ver_max) || (maxv<d->verdetect.ver_min)) {
+		if(flags&0x1) goto done;
+		d->verdetect.special_version = 1;
+		goto done;
+	}
+
+	if(minv>d->verdetect.ver_min) {
+		d->verdetect.ver_min = minv;
+	}
+	if(maxv<d->verdetect.ver_max) {
+		d->verdetect.ver_max = maxv;
+	}
+done:
+	;
+}
+
+static void pkl_set_detver(lctx *d, UI v, UI flags)
+{
+	pkl_set_detver_range(d, v, v, flags);
+}
+
+static void pkl_set_detver_special(lctx *d)
+{
+	d->verdetect.isset = 1;
+	d->verdetect.special_version = 1;
+}
 
 #define pkl_memmatch de_memmatch
 
@@ -542,15 +612,15 @@ static void analyze_copier(deark *c, lctx *d)
 	de_dbg(c, "copier at ep+%u", (UI)pos);
 	de_dbg_indent(c, 1);
 
+	d->copier_byte17 = d->epbytes[pos+17];
+	d->copier_byte23 = d->epbytes[pos+23];
+
 	if(pkl_search_match(d->epbytes, EPBYTES_LEN,
 		pos, pos+75,
 		(const u8*)"\xb9??\x33\xff\x57\xbe??\xfc\xf3\xa5", 12, '?', 0, &foundpos))
 	{
 		if(d->epbytes[foundpos+12]==0xcb) {
 			d->copier_class = COPIER_CLASS_COMMON;
-			if(d->epbytes[foundpos+7]==0x4c) {
-				d->is_jul90_beta = 1;
-			}
 		}
 		else if(d->epbytes[foundpos+12]==0xca) {
 			d->copier_class = COPIER_CLASS_150SCR;
@@ -650,6 +720,8 @@ static void analyze_decompressor(deark *c, lctx *d)
 
 	de_dbg(c, "decompressor at ep+%u", (UI)pos);
 	de_dbg_indent(c, 1);
+
+	d->decompr_byte9 = d->epbytes[pos+9];
 
 	if(pkl_memmatch(&d->epbytes[pos],
 		(const u8*)"\xfd\x8c\xdb\x53\x83\xc3", 6, '?', 0))
@@ -2342,6 +2414,116 @@ done:
 	;
 }
 
+// Do some messy fingerprinting to figure out the version (or a range of
+// possible versions) of PKLITE that made the file.
+// This doesn't do everything it could do; it's focused on the things that
+// might be useful to know.
+static void do_detect_version(deark *c, lctx *d)
+{
+	static const char *hs = "detected version: ";
+
+	if(d->dparams.v120_cmpr) {
+		pkl_set_detver_special(d);
+		goto done;
+	}
+
+	if(d->is_may90_beta) {
+		pkl_set_detver(d, PKL_DVER_MAYBETA, 0);
+		goto done;
+	}
+
+	if(d->intro_class==INTRO_CLASS_100) {
+		pkl_set_detver_range(d, PKL_DVER_JULBETA, PKL_DVER_105, 0);
+		if(d->decompr_class==DECOMPR_CLASS_COMMON) {
+			if(d->decompr_byte9==0xbe) {
+				pkl_set_detver_range(d, PKL_DVER_JULBETA, PKL_DVER_103, 0);
+				if(d->dparams.large_cmpr && !d->dparams.extra_cmpr) {
+					if(d->copier_byte17==0x21) {
+						pkl_set_detver(d, PKL_DVER_JULBETA, 0);
+						goto done;
+					}
+					else if(d->copier_byte17==0x22) {
+						pkl_set_detver(d, PKL_DVER_100, 0);
+						goto done;
+					}
+					else if(d->copier_byte17==0x23) {
+						pkl_set_detver(d, PKL_DVER_103, 0);
+						goto done;
+					}
+				}
+				if(!d->dparams.large_cmpr && !d->dparams.extra_cmpr) {
+					if(d->copier_byte17==0xc2) {
+						pkl_set_detver(d, PKL_DVER_JULBETA, 0);
+						goto done;
+					}
+					else {
+						pkl_set_detver_range(d, PKL_DVER_100, PKL_DVER_103, 0);
+					}
+				}
+				if(!d->dparams.large_cmpr && d->dparams.extra_cmpr) {
+					if(d->copier_byte17==0xc6 && d->copier_byte23==0x4c) {
+						pkl_set_detver(d, PKL_DVER_JULBETA, 0);
+						goto done;
+					}
+					else {
+						pkl_set_detver_range(d, PKL_DVER_100, PKL_DVER_103, 0);
+					}
+				}
+			}
+			else if(d->decompr_byte9==0x8c) {
+				pkl_set_detver(d, PKL_DVER_105, 0);
+				goto done;
+			}
+		}
+	}
+	else if(d->intro_class==INTRO_CLASS_112) {
+		pkl_set_detver_range(d, PKL_DVER_111, PKL_DVER_113, 0);
+	}
+	else if(d->intro_class==INTRO_CLASS_114) {
+		pkl_set_detver_range(d, PKL_DVER_114, PKL_DVER_115, 0);
+	}
+	else if(d->intro_class==INTRO_CLASS_150) {
+		pkl_set_detver_range(d, PKL_DVER_150, PKL_DVER_201, 0);
+	}
+
+	switch(d->ver_reported.ver_num) {
+	case 0x100:
+		pkl_set_detver_range(d, PKL_DVER_MAYBETA, PKL_DVER_100, 1);
+		break;
+	case 0x103:
+		pkl_set_detver(d, PKL_DVER_103, 1);
+		break;
+	case 0x10b:
+		pkl_set_detver(d, PKL_DVER_111, 1);
+		break;
+	case 0x10c:
+	case 0x10d:
+		pkl_set_detver_range(d, PKL_DVER_112, PKL_DVER_113, 1);
+		break;
+	}
+
+done:
+	if(d->verdetect.isset && d->verdetect.ver_min==PKL_DVER_JULBETA &&
+		d->verdetect.ver_max==PKL_DVER_JULBETA)
+	{
+		d->is_jul90_beta = 1;
+	}
+	if(d->verdetect.isset) {
+		if(d->verdetect.special_version) {
+			de_dbg(c, "%sspecial", hs);
+		}
+		else if(d->verdetect.ver_min==d->verdetect.ver_max) {
+			de_dbg(c, "%s%u", hs, d->verdetect.ver_min);
+		}
+		else {
+			de_dbg(c, "%s%u to %u", hs, d->verdetect.ver_min, d->verdetect.ver_max);
+		}
+	}
+	else {
+		de_dbg(c, "%sunknown", hs);
+	}
+}
+
 static void do_pklite_exe(deark *c, lctx *d)
 {
 	const char *s;
@@ -2424,6 +2606,8 @@ static void do_pklite_exe(deark *c, lctx *d)
 		d->errflag = 1;
 		goto done;
 	}
+
+	do_detect_version(c, d);
 
 	acquire_new_exe_header(c, d);
 	if(d->errflag) goto done;
