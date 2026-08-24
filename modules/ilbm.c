@@ -40,6 +40,7 @@ DE_DECLARE_MODULE(de_module_cs_ilbm);
 #define CODE_GRAB 0x47524142U
 #define CODE_ILBM 0x494c424dU
 #define CODE_MBLI 0x4d424c49U
+#define CODE_MLDF 0x4d4c4446U
 #define CODE_MROF 0x4d524f46U
 #define CODE_PBM  0x50424d20U
 #define CODE_PCHG 0x50434847U
@@ -114,6 +115,7 @@ typedef struct localctx_ilbm {
 	u8 opt_allowsham;
 	u8 opt_allowdctv;
 	u8 opt_allowhame;
+	u8 opt_allowmldfnopal;
 	u8 opt_anim_includedups;
 	u8 found_bmhd;
 	u8 found_cmap;
@@ -200,7 +202,7 @@ static const char *get_cmprtype_name(lctx *d, u8 n)
 {
 	const char *name = NULL;
 
-	if(d->formtype==CODE_ACBM) return "n/a";
+	if(d->formtype==CODE_ACBM || d->formtype==CODE_MLDF) return "n/a";
 
 	switch(n) {
 	case 0: name = "uncompressed"; break;
@@ -289,10 +291,18 @@ static int do_bmhd(deark *c, lctx *d, i64 pos1, i64 len)
 	d->planes_raw = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "planes: %d", (int)d->planes_raw);
 	d->masking_code = de_getbyte_p(&pos);
+	if(d->formtype==CODE_MLDF) d->masking_code = 0;
 	masking_name = get_maskingtype_name(d->masking_code);
 
 	d->compression = de_getbyte_p(&pos);
+	if(d->formtype==CODE_MLDF && d->compression!=255) {
+		de_err(c, "Unsupported format");
+		goto done;
+	}
 	de_dbg(c, "compression: %d (%s)", (int)d->compression, get_cmprtype_name(d, d->compression));
+	if(d->formtype==CODE_MLDF) {
+		d->compression = 0;
+	}
 
 	pos++;
 	d->transparent_color = (UI)de_getu16be_p(&pos);
@@ -1185,7 +1195,7 @@ static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is
 	// Unlike ACBM, it would be messy and slow to convert PBM to the standard ILBM
 	// frame buffer format (and back). So we support a special frame buffer format
 	// just for PBM.
-	ibi->is_pbm = (d->formtype==CODE_PBM);
+	ibi->is_pbm = (d->formtype==CODE_PBM) || (d->formtype==CODE_MLDF);
 	// We also have a special nonplanar RGB24 format (is_rgb24).
 
 	if(d->formtype==CODE_RGBN || d->formtype==CODE_RGB8) {
@@ -1203,6 +1213,13 @@ static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is
 		}
 	}
 
+	if(d->formtype==CODE_MLDF && !d->found_cmap && !d->opt_allowmldfnopal) {
+		de_err(c, "Paletted image with no palette "
+			"(\"-opt ilbm:allowspecial\" to decode anyway)");
+		// TODO: Allow an external .CMA palette file to be supplied.
+		goto done;
+	}
+
 	if(is_thumb) {
 		ibi->width = d->thumb_width;
 		ibi->height = d->thumb_height;
@@ -1218,6 +1235,13 @@ static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is
 		!d->ham_flag)
 	{
 		ibi->width = de_pad_to_n(ibi->width, 16);
+	}
+
+	if(d->formtype==CODE_MLDF) {
+		if(d->planes_raw!=8) {
+			de_err(c, "Unsupported format");
+			goto done;
+		}
 	}
 
 	ibi->compression = d->compression;
@@ -2646,7 +2670,8 @@ static int my_on_std_container_start_fn(struct de_iffctx *ictx)
 			(ictx->curr_container_contentstype4cc.id == CODE_PBM) ||
 			(ictx->curr_container_contentstype4cc.id == CODE_ACBM) ||
 			(ictx->curr_container_contentstype4cc.id == CODE_RGBN) ||
-			(ictx->curr_container_contentstype4cc.id == CODE_RGB8))
+			(ictx->curr_container_contentstype4cc.id == CODE_RGB8) ||
+			(ictx->curr_container_contentstype4cc.id == CODE_MLDF))
 		{
 			on_frame_begin(c, d, ictx->curr_container_contentstype4cc.id);
 		}
@@ -2802,6 +2827,7 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 		d->opt_allowsham = 1;
 		d->opt_allowdctv = 1;
 		d->opt_allowhame = 1;
+		d->opt_allowmldfnopal = 1;
 	}
 	// allowsham is deprecated
 	opt = de_get_ext_option_bool(c, "ilbm:allowsham", -1);
@@ -2831,6 +2857,7 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 	case CODE_PBM:
 	case CODE_RGBN:
 	case CODE_RGB8:
+	case CODE_MLDF:
 		break;
 	default:
 		de_err(c, "Not a supported ILBM-like format (%s)", d->formtype_sanitized_sz);
@@ -2936,6 +2963,7 @@ static int de_identify_ilbm(deark *c)
 	case CODE_ACBM:
 	case CODE_RGBN:
 	case CODE_RGB8:
+	case CODE_MLDF:
 		return 100;
 	}
 	return 0;
