@@ -1308,26 +1308,37 @@ static void de_run_cazip(deark *c, de_module_params *mparams)
 	struct de_arch_member_data *md = NULL;
 	i64 pos;
 	UI verfield, field10, field12, field18;
+	u8 mjver, mnver;
 
 	d = de_arch_create_lctx(c);
 	d->is_le = 1;
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
 
 	md = de_arch_create_md(c, d);
-	//d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
 
 	pos = 8;
+	// Only known versions are "10" and "33".
 	verfield = (UI)de_getu16be_p(&pos);
-	field10 = (UI)de_getu16le_p(&pos);
-	field12 = (UI)de_getu16le_p(&pos);
+	mjver = verfield>>8;
+	mnver = verfield&0xff;
+	de_dbg(c, "version: %c.%c", (int)de_byte_to_printable_char(mjver),
+		(int)de_byte_to_printable_char(mnver));
 
-	md->crc_reported = (u32)de_getu32le_p(&pos);
-	de_dbg(c, "crc (reported): 0x%08x", (UI)md->crc_reported);
+	if(mjver>=0x32) {
+		field10 = (UI)de_getu16le_p(&pos);
+		field12 = (UI)de_getu16le_p(&pos);
+		md->crc_reported = (u32)de_getu32le_p(&pos);
+		de_dbg(c, "crc (reported): 0x%08x", (UI)md->crc_reported);
+		field18 = (UI)de_getu16le_p(&pos);
+	}
+	else {
+		field10 = 1;
+		field12 = 1;
+		field18 = 0;
+	}
 
-	field18 = (UI)de_getu16le_p(&pos);
-
-	if(verfield!=0x3333 || field10!=1 || field12!=1 || field18!=0) {
-		de_warn(c, "This version of CAZIP file might not be handled correctly");
+	if((verfield!=0x3130 && verfield!=0x3333) || field10!=1 || field12!=1 || field18!=0) {
+		de_warn(c, "This version of CAZIP might not be handled correctly");
 	}
 
 	md->cmpr_pos = pos;
@@ -1337,7 +1348,9 @@ static void de_run_cazip(deark *c, de_module_params *mparams)
 	}
 
 	md->dfn = dclimplode_decompressor_fn;
-	md->validate_crc = 1;
+	if(mjver>=0x32) {
+		md->validate_crc = 1;
+	}
 	de_arch_extract_member_file(md);
 
 done:
@@ -1349,7 +1362,6 @@ done:
 		de_arch_destroy_lctx(c, d);
 	}
 }
-
 
 static int de_identify_cazip(deark *c)
 {
