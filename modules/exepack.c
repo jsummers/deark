@@ -204,7 +204,8 @@ static void do_read_header(deark *c, lctx *d)
 	d->hdrpos = d->host_ei->start_of_dos_code + d->host_ei->regCS * 16;
 	hdrsize = d->host_ei->regIP;
 	de_dbg(c, "exepack header at %"I64_FMT", len=%d", d->hdrpos, (int)hdrsize);
-	if(hdrsize!=16 && hdrsize!=18) {
+	// 20-byte header seen in 65539-byte LINK.EXE
+	if(hdrsize!=16 && hdrsize!=18 && hdrsize!=20) {
 		d->errflag = 1;
 		goto done;
 	}
@@ -217,6 +218,7 @@ static void do_read_header(deark *c, lctx *d)
 	pos += 2; // "mem_start", just a placeholder
 	d->ohdr.exepack_size = de_getu16le_p(&pos);
 	de_dbg(c, "exepack size: %u", (UI)d->ohdr.exepack_size);
+	if(hdrsize==20) pos += 2;
 	d->ohdr.regSP = de_getu16le_p(&pos);
 	de_dbg(c, "sp: %u", (UI)d->ohdr.regSP);
 	d->ohdr.regSS = de_geti16le_p(&pos);

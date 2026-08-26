@@ -209,7 +209,7 @@ static void detect_execomp_exepack(deark *c,
 	i64 foundpos;
 
 	if(ei->num_relocs!=0) goto done;
-	if(ei->regIP!=16 && ei->regIP!=18) goto done;
+	if(ei->regIP!=16 && ei->regIP!=18 && ei->regIP!=20) goto done;
 
 	if(dbuf_getu16be(ei->f, ei->entry_point-2) == 0x5242) {
 		has_RB = 1;
