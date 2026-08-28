@@ -1219,6 +1219,11 @@ in the readme file.)
   - Supports the versions with signatures 0xa5961400, 0xa596140a, 0xa596ffff,
     0xa596feff.
 
+* OS/2 PACK2 archive (module="os2pack2") (experimental)
+  Also known as FTCOMP (signature 0xa596fdff). A different compression
+  format from PACK. Supports both of its known variants ("fT19" and "fT21").
+  Extended attribute data, when present, is also decompressed.
+
 * Pack (module="pack")
   Old Unix compressed file format (.z).
 
@@ -1715,7 +1720,6 @@ is_sfx - Helper module for InstallShield SFX EXE.
 officeart - Microsoft Office Art, etc., for internal use.
 ole1 - Windows OLE1, for internal use.
 olepropset - OLE Property Sets.
-os2pack2 - OS/2 PACK2 ("FTCOMP") compressed archive.
 pegasus_pic2 - Pegasus PIC2/ePIC image.
 rgfx - RGFX Amiga image.
 rm - RealMedia.

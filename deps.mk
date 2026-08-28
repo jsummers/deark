@@ -402,6 +402,8 @@ $(OBJDIR)/src/fmtutil-fax.o: src/fmtutil-fax.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/src/fmtutil-huffman.o: src/fmtutil-huffman.c \
  src/deark-private.h src/deark.h src/deark-config.h src/deark-fmtutil.h
+$(OBJDIR)/src/fmtutil-ibmftcomp.o: src/fmtutil-ibmftcomp.c src/deark-private.h \
+ src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/src/fmtutil-iff.o: src/fmtutil-iff.c src/deark-private.h \
  src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/src/fmtutil-lzah.o: src/fmtutil-lzah.c src/deark-private.h \

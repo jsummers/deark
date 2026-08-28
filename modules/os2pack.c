@@ -44,13 +44,21 @@ static void os2pack_decompressor_fn(struct de_arch_member_data *md)
 	fmtutil_ibmlzw_codectype1(md->c, md->dcmpri, md->dcmpro, md->dres, NULL);
 }
 
-static void os2pack2_read_cmpr_method(deark *c, i64 pos, i64 len)
+static void os2pack2_decompressor_fn(struct de_arch_member_data *md)
+{
+	fmtutil_ibmftcomp_codectype1(md->c, md->dcmpri, md->dcmpro, md->dres, NULL);
+}
+
+static void os2pack2_read_cmpr_method(deark *c, i64 pos, i64 len, int declare_fmt)
 {
 	struct de_fourcc cmpr4cc;
 
 	if(len<8) return;
 	dbuf_read_fourcc(c->infile, pos+4, &cmpr4cc, 4, 0x0);
 	de_dbg(c, "cmpr meth: '%s'", cmpr4cc.id_dbgstr); // Usually "fT19"
+	if(declare_fmt) {
+		de_declare_fmtf(c, "OS/2 PACK2 archive (%s)", cmpr4cc.id_dbgstr);
+	}
 }
 
 static void do_os2pack1_ea(deark *c, de_arch_lctx *d, struct de_arch_member_data *md,
@@ -96,6 +104,54 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+// Like do_os2pack1_ea, but for PACK2 (FTCOMP-compressed ext. attr. data).
+// ea_orig_len is the EA data's decompressed size (read from the member
+// header), needed as fmtutil_ibmftcomp_codectype1's expected_len.
+static void do_os2pack2_ea(deark *c, de_arch_lctx *d, struct de_arch_member_data *md,
+	i64 ea_pos, i64 ea_len, i64 ea_orig_len)
+{
+	int saved_indent_level;
+	dbuf *attr_data = NULL;
+	de_module_params *mparams = NULL;
+	struct de_dfilter_in_params dcmpri;
+	struct de_dfilter_out_params dcmpro;
+	struct de_dfilter_results dres;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "ext. attr. at %"I64_FMT, ea_pos);
+	de_dbg_indent(c, 1);
+	attr_data = dbuf_create_membuf(c, 0, 0);
+	dbuf_set_length_limit(attr_data, 1024*1024);
+
+	de_dfilter_init_objects(c, &dcmpri, &dcmpro, &dres);
+	dcmpri.f = c->infile;
+	dcmpri.pos = ea_pos;
+	dcmpri.len = ea_len;
+	dcmpro.f = attr_data;
+	dcmpro.len_known = 1;
+	dcmpro.expected_len = ea_orig_len;
+	fmtutil_ibmftcomp_codectype1(c, &dcmpri, &dcmpro, &dres, NULL);
+	dbuf_flush(attr_data);
+	if(dres.errcode) {
+		de_warn(c, "Failed to decompress ext. attr. data");
+		goto done;
+	}
+	de_dbg(c, "decompressed len: %"I64_FMT, attr_data->len);
+
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->in_params.codes = "R";
+	if(ucstring_isnonempty(md->filename)) {
+		mparams->in_params.str1 = md->filename;
+		mparams->in_params.flags |= 0x8;
+	}
+	de_run_module_by_id_on_slice(c, "ea_data", mparams, attr_data, 0, attr_data->len);
+
+done:
+	dbuf_close(attr_data);
+	de_free(c, mparams);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member_data *md)
 {
 	i64 pos;
@@ -103,7 +159,8 @@ static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member
 	i64 ea_pos = 0;
 	i64 ea_len = 0;
 	i64 member_endpos;
-	i64 unk2, unk3, unk4;
+	i64 unk2, unk3;
+	i64 ea_orig_len = 0;
 	UI attribs;
 	u8 flag_unsupp = 0;
 	int saved_indent_level;
@@ -156,8 +213,8 @@ static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member
 		unk3 = de_getu16le_p(&pos);
 		de_dbg(c, "unk3: %u", (UI)unk3);
 
-		unk4 = de_getu32le_p(&pos);
-		de_dbg(c, "unk4: %"I64_FMT, unk4);
+		ea_orig_len = de_getu32le_p(&pos);
+		de_dbg(c, "ext. attr. decompressed len: %"I64_FMT, ea_orig_len);
 	}
 
 	if(d->fmtcode==0x1400 || d->fmtcode==0x0a14) {
@@ -222,7 +279,7 @@ static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member
 		de_dbg(c, "cmpr ext. attr. at %"I64_FMT", len=%"I64_FMT, ea_pos, ea_len);
 		de_dbg_indent(c, 1);
 		if(d->fmtcode==0xfffd) {
-			os2pack2_read_cmpr_method(c, ea_pos, ea_len);
+			os2pack2_read_cmpr_method(c, ea_pos, ea_len, 0);
 		}
 		de_dbg_indent(c, -1);
 	}
@@ -234,7 +291,7 @@ static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member
 		// Most likely, the compressed data is considered to start after the
 		// filename field.
 		// It seems to have a compression header that we can peek at.
-		os2pack2_read_cmpr_method(c, md->cmpr_pos, md->cmpr_len);
+		os2pack2_read_cmpr_method(c, md->cmpr_pos, md->cmpr_len, (md->member_hdr_pos==0));
 	}
 
 	if(d->fmtcode==0x1400 || d->fmtcode==0x0a14 || d->fmtcode==0xffff ||
@@ -244,6 +301,13 @@ static void do_os2pack12_member(deark *c, de_arch_lctx *d, struct de_arch_member
 		de_arch_extract_member_file(md);
 		if(ea_pos>0 && ea_len>0) {
 			do_os2pack1_ea(c, d, md, ea_pos, ea_len);
+		}
+	}
+	else if(d->fmtcode==0xfffd) {
+		md->dfn = os2pack2_decompressor_fn;
+		de_arch_extract_member_file(md);
+		if(ea_pos>0 && ea_len>0) {
+			do_os2pack2_ea(c, d, md, ea_pos, ea_len, ea_orig_len);
 		}
 	}
 
@@ -284,10 +348,11 @@ static void do_run_os2pack12(deark *c, de_module_params *mparams, UI ver)
 
 	if(d->fmtcode==0xfffd) {
 		pname = "PACK2";
-		de_declare_fmt(c, "OS/2 PACK2 archive");
+		// Format is declared later, once the first member's fT19/fT21 tag
+		// has been read (see os2pack2_read_cmpr_method).
 	}
 	else {
-		de_declare_fmtf(c, "OS/2 PACK archive (type 0x%04x)", d->fmtcode);
+		de_declare_fmtf(c, "OS/2 PACK archive (type 0x%04x, LZW)", d->fmtcode);
 	}
 
 	// TODO: What encoding to use?
@@ -370,6 +435,5 @@ void de_module_os2pack2(deark *c, struct deark_module_info *mi)
 	mi->id = "os2pack2";
 	mi->desc = "OS/2 PACK2 archive";
 	mi->run_fn = de_run_os2pack2;
-	mi->flags |= DE_MODFLAG_WARNPARSEONLY;
 	mi->identify_fn = de_identify_os2pack2;
 }

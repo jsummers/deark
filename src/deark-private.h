@@ -1197,6 +1197,8 @@ void de_copy_bits(const u8 *src, i64 srcbitnum,
 
 void de_decode_base16(deark *c, dbuf *inf, i64 pos1, i64 len,
 	dbuf *outf, unsigned int flags);
+void de_decode_base64(deark *c, dbuf *inf, i64 pos1, i64 len,
+	dbuf *outf, unsigned int flags);
 
 struct de_inthashtable;
 struct de_inthashtable *de_inthashtable_create(deark *c);
