@@ -722,21 +722,113 @@ void de_module_lss16(deark *c, struct deark_module_info *mi)
 // VBM (VDC BitMap)
 // **************************************************************************
 
+struct vbm_ctx {
+	u8 ver;
+	i64 w, h;
+	i64 rowspan;
+	i64 total_size;
+	UI cvtflags;
+	u8 is_rle;
+	u8 rc[5]; // RLE code definitions
+};
+
+static void vbm_decompress(deark *c, struct vbm_ctx *d,
+	i64 pos1, i64 len, dbuf *unc_pixels)
+{
+	i64 endpos = pos1 + len;
+	i64 pos = pos1;
+	i64 nbytes_decompressed = 0;
+
+	while(1) {
+		i64 count;
+		u8 val;
+		u8 b;
+
+		if(pos >= endpos) goto done;
+		if(nbytes_decompressed >= d->total_size) goto done;
+		b = de_getbyte_p(&pos);
+		if(b==d->rc[0]) {
+			val = de_getbyte_p(&pos);
+			count = (i64)de_getbyte_p(&pos);
+		}
+		else if(b==d->rc[1]) {
+			val = 0x00;
+			count = (i64)de_getbyte_p(&pos);
+		}
+		else if(b==d->rc[2]) {
+			val = 0xff;
+			count = (i64)de_getbyte_p(&pos);
+		}
+		else if(b==d->rc[3]) {
+			val = 0x00;
+			count = 2;
+		}
+		else if(b==d->rc[4]) {
+			val = 0xff;
+			count = 2;
+		}
+		else {
+			val = b;
+			count = 1;
+		}
+		dbuf_write_run(unc_pixels, val, count);
+		nbytes_decompressed += count;
+	}
+done:
+	dbuf_flush(unc_pixels);
+	de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT, (pos-pos1),
+		nbytes_decompressed);
+}
+
 static void de_run_vbm(deark *c, de_module_params *mparams)
 {
-	i64 width, height;
-	u8 ver;
+	struct vbm_ctx *d = (struct vbm_ctx*)de_malloc(c, sizeof(struct vbm_ctx));
+	i64 pos;
+	i64 cmtlen;
+	dbuf *unc_pixels = NULL;
 
-	ver = de_getbyte(3);
-	if(ver!=2) {
-		// TODO: Support VBM v3.
-		de_err(c, "Unsupported VBM version (%d)", (int)ver);
-		return;
+	pos = 3;
+	d->ver = de_getbyte_p(&pos);
+	if(d->ver!=2 && d->ver!=3) {
+		de_err(c, "Unsupported VBM version (%u)", (UI)d->ver);
+		goto done;
 	}
-	width = de_getu16be(4);
-	height = de_getu16be(6);
-	de_convert_and_write_image_bilevel2(c->infile, 8, width, height, (width+7)/8,
-		DE_CVTF_WHITEISZERO, NULL, 0);
+	d->w = de_getu16be_p(&pos);
+	d->h = de_getu16be_p(&pos);
+	de_dbg_dimensions(c, d->w, d->h);
+	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
+	d->rowspan = (d->w+7)/8;
+	d->total_size = d->rowspan * d->h;
+	if(d->ver==2) {
+		d->cvtflags |= DE_CVTF_WHITEISZERO;
+	}
+	if(d->ver==3) {
+		d->is_rle = de_getbyte_p(&pos);
+		de_dbg(c, "is RLE: %u", (UI)d->is_rle);
+		de_read(d->rc, pos, 5);
+		pos += 7;
+		cmtlen = de_getu16le_p(&pos);
+		pos += cmtlen;
+	}
+
+	de_dbg(c, "image data at %"I64_FMT, pos);
+	if(d->is_rle) {
+		unc_pixels = dbuf_create_membuf(c, d->total_size, 0x1);
+		dbuf_enable_wbuffer(unc_pixels);
+		de_dbg_indent(c, 1);
+		vbm_decompress(c, d, pos, c->infile->len-pos, unc_pixels);
+		de_dbg_indent(c, -1);
+		de_convert_and_write_image_bilevel2(unc_pixels, 0, d->w, d->h, d->rowspan,
+			d->cvtflags, NULL, 0);
+	}
+	else {
+		de_convert_and_write_image_bilevel2(c->infile, pos, d->w, d->h, d->rowspan,
+			d->cvtflags, NULL, 0);
+	}
+
+done:
+	dbuf_close(unc_pixels);
+	de_free(c, d);
 }
 
 // Note that this function must work together with de_identify_bmp().

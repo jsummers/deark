@@ -794,7 +794,6 @@ Deark -- Information about supported formats
    -opt atari:respectpal - Don't ignore a seemingly bad 2-color palette
 
 * VBM (VDC BitMap) (module="vbm")
-  - Version 2 only
 
 * Video Master (.flm/.vid/.vsq) (module="videomaster") (experimental)
   - Minimal support. Extracts the video frames.
