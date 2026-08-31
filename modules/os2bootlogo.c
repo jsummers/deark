@@ -29,140 +29,6 @@ typedef struct localctx_struct {
 	dbuf *unc_pixels;
 } lctx;
 
-struct exepack2_ctx {
-	struct de_dfilter_in_params *dcmpri;
-	struct de_dfilter_out_params *dcmpro;
-	struct de_lz77buffer *ringbuf;
-	i64 cur_ipos;
-	i64 endpos;
-	i64 nbytes_written;
-};
-
-static void exepack2_lz77buf_writebytecb(struct de_lz77buffer *rb, const u8 n)
-{
-	struct exepack2_ctx *ectx = (struct  exepack2_ctx*)rb->userdata;
-
-	dbuf_writebyte(ectx->dcmpro->f, n);
-	ectx->nbytes_written++;
-}
-
-static void decompress_exepack2(deark *c, lctx *d,
-	struct de_dfilter_in_params *dcmpri, struct de_dfilter_out_params *dcmpro,
-	struct de_dfilter_results *dres)
-{
-	struct exepack2_ctx *ectx = NULL;
-
-	ectx = de_malloc(c, sizeof(struct exepack2_ctx));
-	ectx->dcmpri = dcmpri;
-	ectx->dcmpro = dcmpro;
-	ectx->cur_ipos = dcmpri->pos;
-	ectx->endpos = dcmpri->pos + dcmpri->len;
-
-	ectx->ringbuf = de_lz77buffer_create(c, 4096);
-	ectx->ringbuf->writebyte_cb = exepack2_lz77buf_writebytecb;
-	ectx->ringbuf->userdata = (void*)ectx;
-
-	while(1) {
-		i64 code_startpos;
-		UI i;
-		UI matchpos;
-		UI matchlen;
-		UI unc_count;
-		u8 b0, b1, b2;
-		u8 opcode0;
-		const char *optype = "";
-
-		if(ectx->cur_ipos >= ectx->endpos) goto after_dcmpr;
-		if(ectx->nbytes_written >= dcmpro->expected_len) goto after_dcmpr;
-		code_startpos = ectx->cur_ipos;
-		b0 = dbuf_getbyte_p(dcmpri->f, &ectx->cur_ipos);
-
-		if(b0==0x00) { // stop code or RLE compressed data
-			b1 = dbuf_getbyte_p(dcmpri->f, &ectx->cur_ipos);
-			if(b1==0) {
-				de_dbg2(c, "stop code at %"I64_FMT, code_startpos);
-				goto after_dcmpr;
-			}
-			else {
-				UI run_len;
-
-				run_len = (UI)b1;
-				b2 = dbuf_getbyte_p(dcmpri->f, &ectx->cur_ipos);
-				if(c->debug_level>=4) {
-					de_dbg(c, "op=R val=%u count=%u", (UI)b2, run_len);
-				}
-				for(i=0; i<run_len; i++) {
-					de_lz77buffer_add_literal_byte(ectx->ringbuf, b2);
-				}
-			}
-			continue;
-		}
-
-		opcode0 = b0 & 0x3;
-		if(opcode0!=0) d->uses_lzss = 1;
-
-		switch(opcode0) {
-		case 0: // nRoots token (uncompressed bytes only)
-			optype = "U";
-			unc_count = (UI)(b0>>2);
-			matchlen = 0;
-			matchpos = 0;
-			break;
-		case 1: // Short String token
-			optype = "S";
-			b1 = dbuf_getbyte_p(dcmpri->f, &ectx->cur_ipos);
-			unc_count = (UI)((b0>>2)&0x3);
-			matchlen = 3+(UI)((b0>>4)&0x7);
-			matchpos = ((UI)b1<<1) | (b0>>7);
-			break;
-		case 2: // Mid String token
-			optype = "M";
-			b1 = dbuf_getbyte_p(dcmpri->f, &ectx->cur_ipos);
-			unc_count = 0;
-			matchlen = 3+(UI)((b0>>2)&0x3);
-			matchpos = ((UI)b1<<4) | (b0>>4);
-			break;
-		default: // (3) Long String token
-			optype = "L";
-			b1 = dbuf_getbyte_p(dcmpri->f, &ectx->cur_ipos);
-			b2 = dbuf_getbyte_p(dcmpri->f, &ectx->cur_ipos);
-			unc_count = (UI)((b0>>2)&0xf);
-			matchlen = ((UI)(b1&0xf)<<2) | (b0>>6);
-			matchpos = ((UI)b2<<4) | (b1>>4);
-			break;
-		}
-
-		if(c->debug_level>=4) {
-			de_dbg(c, "op=%s u=%u d=%u l=%u", optype, unc_count, matchpos, matchlen);
-			de_dbg_indent(c, 1);
-		}
-
-		for(i=0; i<unc_count; i++) {
-			b2 = dbuf_getbyte_p(dcmpri->f, &ectx->cur_ipos);
-			if(c->debug_level>=4) {
-				de_dbg(c, "lit %u", (UI)b2);
-			}
-			de_lz77buffer_add_literal_byte(ectx->ringbuf, b2);
-		}
-
-		if(c->debug_level>=4) {
-			de_dbg_indent(c, -1);
-		}
-
-		if(matchlen!=0) {
-			de_lz77buffer_copy_from_hist(ectx->ringbuf,
-				(UI)(ectx->ringbuf->curpos-matchpos), matchlen);
-		}
-	}
-
-after_dcmpr:
-	dbuf_flush(dcmpro->f);
-	dres->bytes_consumed_valid = 1;
-	dres->bytes_consumed = ectx->cur_ipos - dcmpri->pos;
-	de_lz77buffer_destroy(c, ectx->ringbuf);
-	de_free(c, ectx);
-}
-
 static void do_decompress_plane(deark *c, lctx *d, int pn)
 {
 	struct plane_struct *pli;
@@ -171,6 +37,7 @@ static void do_decompress_plane(deark *c, lctx *d, int pn)
 	struct de_dfilter_in_params dcmpri;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
+	struct fmtutil_os2exepack2_params ep2params;
 
 	pli = &d->pl[pn];
 	de_dbg(c, "decompressing plane %d at %"I64_FMT, pn, pli->offset);
@@ -188,7 +55,9 @@ static void do_decompress_plane(deark *c, lctx *d, int pn)
 	dcmpro.len_known = 1;
 
 	orig_len = d->unc_pixels->len;
-	decompress_exepack2(c, d, &dcmpri, &dcmpro, &dres);
+	de_zeromem(&ep2params, sizeof(struct fmtutil_os2exepack2_params));
+	fmtutil_os2exepack2_codectype1(c, &dcmpri, &dcmpro, &dres, &ep2params);
+	if(ep2params.used_lzss) d->uses_lzss = 1;
 
 	if(dres.errcode) {
 		de_dbg(c, "Decompression failed (plane %d): %s",

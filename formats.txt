@@ -1526,6 +1526,10 @@ here are most "character graphics" formats, which are in the "Image" section.)
     actual BMP file(s).
   - Extract icons and cursors from LX files. Note that these will use OS/2
     format. Reprocess them with Deark to convert to PNG.
+  - LX resources stored in compressed pages ("EXEPACK:1" and "EXEPACK:2" page
+    compression -- optional output of the standard OS/2 LINK386 linker, also
+    used/reapplied by third-party tools such as lxLite) are transparently
+    decompressed before extraction.
   - In some cases, extract or decode the payload of an "envelope" file, such
     as a self-extracting archive, or executable image or text document.
   Options
