@@ -33,6 +33,7 @@ DE_DECLARE_MODULE(de_module_exe);
 // different numbering than the Windows RT_* scheme (DE_RT_*) above).
 #define LX_RT_POINTER       1 // Icon or cursor
 #define LX_RT_BITMAP        2
+#define LX_RT_FONT          7 // OS/2 PM font
 
 struct rsrc_type_info_struct;
 
@@ -1580,6 +1581,50 @@ static const char *identify_lx_rsrc(deark *c, dbuf *f, i64 pos, i64 len)
 	return NULL;
 }
 
+// FONTSIGNATURE.ulIdentity; the FONTMETRICS block follows the 20-byte
+// FONTSIGNATURE at pos+20.
+#define OS2_FONT_SIGNATURE 0xfffffffeU
+
+// OS/2 analogue of get_font_facename() (for Windows FNT resources).
+static void get_lx_os2font_facename(deark *c, lctx *d, dbuf *objimg, i64 pos, i64 len,
+	de_finfo *fi)
+{
+	UI points;
+	de_ucstring *s = NULL;
+
+	if(!fi) goto done;
+	if(len<144) goto done; // Need through usNominalPointSize (block+122)
+	if(dbuf_getu32le(objimg, pos) != (i64)OS2_FONT_SIGNATURE) goto done;
+	if(dbuf_memcmp(objimg, pos+8, "OS/2 FONT", 9)) goto done;
+
+	points = (UI)dbuf_getu16le(objimg, pos+20+122); // usNominalPointSize, in decipoints
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(objimg, pos+20+40, 32, len-(20+40), s,
+		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	if(s->len<1) goto done;
+	ucstring_printf(s, DE_ENCODING_LATIN1, "-%u", points/10);
+	de_finfo_set_name_from_ucstring(c, fi, s, 0);
+
+done:
+	ucstring_destroy(s);
+}
+
+// OS/2 analogue of do_extract_FONT() (for Windows FNT resources).
+// No glyph rendering -- just naming + raw extraction.
+static void do_lx_extract_font(deark *c, lctx *d, dbuf *objimg, i64 pos, i64 len)
+{
+	de_finfo *fi = NULL;
+
+	if(len<20) return;
+
+	fi = de_finfo_create(c);
+	get_lx_os2font_facename(c, d, objimg, pos, len, fi);
+	if(d->extract_std_resources) {
+		dbuf_create_file_from_slice(objimg, pos, len, "os2.fnt", fi, 0);
+	}
+	de_finfo_destroy(c, fi);
+}
+
 // LX/LE Object Page Table entry "flags" field (offset +6 in each 8-byte entry).
 #define LX_PGFLAG_VALID      0 // Stored verbatim
 #define LX_PGFLAG_ITERDATA   1 // "EXEPACK:1" -- iterated (RLE-of-blocks) page
@@ -1744,6 +1789,9 @@ have_objimg:
 			dbuf_create_file_from_slice(objimg, rsrc_offset, rsrc_size,
 				ext, NULL, 0);
 		}
+		break;
+	case LX_RT_FONT:
+		do_lx_extract_font(c, d, objimg, rsrc_offset, rsrc_size);
 		break;
 	}
 
