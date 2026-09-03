@@ -877,6 +877,10 @@ in the readme file.)
 * GRASP font (module="graspfont") (experimental)
   .set/.fnt; may be found inside GRASP .gl files.
 
+* OS/2 PM bitmap font (module="os2font")
+  Standalone .fnt files, or RT_FONT resources extracted from an LX
+  executable by the "exe" module. Outline (vector) fonts are not supported.
+
 * PCF font (module="pcf") (experimental/incomplete)
 
 * PCR font (module="pcrfont") (experimental)
@@ -1526,6 +1530,12 @@ here are most "character graphics" formats, which are in the "Image" section.)
     actual BMP file(s).
   - Extract icons and cursors from LX files. Note that these will use OS/2
     format. Reprocess them with Deark to convert to PNG.
+  - Extract fonts (RT_FONT resources) from LX files. Reprocess them with
+    Deark ("os2font" module) to convert to PNG.
+  - LX resources stored in compressed pages ("EXEPACK:1" and "EXEPACK:2" page
+    compression -- optional output of the standard OS/2 LINK386 linker, also
+    used/reapplied by third-party tools such as lxLite) are transparently
+    decompressed before extraction.
   - In some cases, extract or decode the payload of an "envelope" file, such
     as a self-extracting archive, or executable image or text document.
   Options
