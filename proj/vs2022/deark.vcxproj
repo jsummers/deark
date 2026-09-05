@@ -358,6 +358,7 @@
     <ClCompile Include="..\..\src\fmtutil-cmpr.c" />
     <ClCompile Include="..\..\src\fmtutil-exe.c" />
     <ClCompile Include="..\..\src\fmtutil-fax.c" />
+    <ClCompile Include="..\..\src\fmtutil-ftcomp.c" />
     <ClCompile Include="..\..\src\fmtutil-huffman.c" />
     <ClCompile Include="..\..\src\fmtutil-iff.c" />
     <ClCompile Include="..\..\src\fmtutil-lzah.c" />
@@ -384,6 +385,7 @@
   <ItemGroup>
     <ClInclude Include="..\..\foreign\cp932data.h" />
     <ClInclude Include="..\..\foreign\dskdcmps.h" />
+    <ClInclude Include="..\..\foreign\ftcompdata.h" />
     <ClInclude Include="..\..\foreign\lzhuf.h" />
     <ClInclude Include="..\..\foreign\miniz-c.h" />
     <ClInclude Include="..\..\foreign\miniz.h" />

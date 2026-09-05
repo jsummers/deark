@@ -96,6 +96,7 @@ OFILES_DEARK1:=$(addprefix $(OBJDIR)/src/,fmtutil-miniz.o deark-util.o \
  deark-util2.o deark-data.o deark-zip.o deark-tar.o deark-png.o \
  deark-dbuf.o deark-bitmap.o deark-char.o deark-font.o deark-ucstring.o \
  fmtutil.o fmtutil-cmpr.o fmtutil-advfile.o fmtutil-arch.o fmtutil-zip.o \
+ fmtutil-ftcomp.o \
  fmtutil-fax.o fmtutil-lzh.o fmtutil-lzw.o fmtutil-huffman.o \
  fmtutil-exe.o fmtutil-lzah.o fmtutil-rle.o fmtutil-iff.o \
  deark-user.o deark-unix.o deark-win.o)

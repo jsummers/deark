@@ -2028,13 +2028,11 @@ struct de_crcobj {
 };
 
 // Persistent items will be freed automatically when the 'deark' object
-// is destroyed. This feature is not used enough to make it worth doing
-// anything to coordinate the use of them.
+// is destroyed.
 #define DE_PERSISTENT_ITEM_CRC32_TBL 0
 #define DE_PERSISTENT_ITEM_CRC16ARC_TBL 1
 #define DE_PERSISTENT_ITEM_CRC16XMODEM_TBL 2
 #define DE_PERSISTENT_ITEM_CRC16SDLC_TBL 3
-#define DE_PERSISTENT_ITEM_CP932_TBL 4
 
 static const u32 *get_crc32_table(deark *c)
 {

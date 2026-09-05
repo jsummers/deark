@@ -10,11 +10,11 @@
 #include "deark-fmtutil.h"
 
 // This is mainly intended for internal data.
-int de_decompress_zlib_mem2mem(deark *c,
-	const u8 *src, i64 src_len, u8 *dst, i64 dst_len)
+// Uses miniz unconditionally.
+int de_decompress_zlib_mem2dbuf(deark *c, const u8 *src, i64 src_len,
+	dbuf *outf, i64 dst_len)
 {
 	int retval = 0;
-	dbuf *outf = NULL;
 	struct de_dfilter_out_params dcmpro;
 	struct de_dfilter_results dres;
 	struct de_deflate_params inflparams;
@@ -24,10 +24,6 @@ int de_decompress_zlib_mem2mem(deark *c,
 	inflparams.flags = DE_DEFLATEFLAG_ISZLIB;
 
 	de_dfilter_init_objects(c, NULL, &dcmpro, &dres);
-
-	outf = dbuf_create_membuf(c, dst_len, 0x1);
-	dbuf_enable_wbuffer(outf);
-
 	dcmpro.f = outf;
 	dcmpro.expected_len = dst_len;
 	dcmpro.len_known = 1;
@@ -41,11 +37,25 @@ int de_decompress_zlib_mem2mem(deark *c,
 	if(dres.errcode==0) {
 		retval = 1;
 	}
+
+	de_dfilter_destroy(dfctx);
+	return retval;
+}
+
+// This is mainly intended for internal data.
+// Uses miniz unconditionally.
+int de_decompress_zlib_mem2mem(deark *c, const u8 *src, i64 src_len,
+	u8 *dst, i64 dst_len)
+{
+	int retval = 0;
+	dbuf *outf = NULL;
+
+	outf = dbuf_create_membuf(c, dst_len, 0x1);
+	dbuf_enable_wbuffer(outf);
+	retval = de_decompress_zlib_mem2dbuf(c, src, src_len, outf, dst_len);
 	// TODO: There's too much copying. Could use a custom dbuf to
 	// reduce the # of copies by 1.
 	dbuf_read(outf, dst, 0, dst_len);
-
-	de_dfilter_destroy(dfctx);
 	dbuf_close(outf);
 	return retval;
 }

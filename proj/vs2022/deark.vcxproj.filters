@@ -643,6 +643,9 @@
     <ClCompile Include="..\..\modules\spacemaker.c">
       <Filter>Modules</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\fmtutil-ftcomp.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\deark-config.h">
@@ -691,6 +694,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\foreign\cp932data.h">
+      <Filter>Foreign Code</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\foreign\ftcompdata.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>
   </ItemGroup>

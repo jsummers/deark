@@ -613,11 +613,20 @@ void de_destroy(deark *c)
 		de_free(c, c->mp_data->item);
 		de_free(c, c->mp_data);
 	}
+
+	// Each of these items is reserved for a single use:
+	//#define DE_PERSISTENT_ITEM_CRC32_TBL 0
+	//#define DE_PERSISTENT_ITEM_CRC16ARC_TBL 1
+	//#define DE_PERSISTENT_ITEM_CRC16XMODEM_TBL 2
+	//#define DE_PERSISTENT_ITEM_CRC16SDLC_TBL 3
+	//#define DE_PERSISTENT_ITEM_CP932_TBL 4
+	//#define DE_PERSISTENT_ITEM_FTCOMP_DATA 5
 	for(i=0; i<DE_NUM_PERSISTENT_MEM_ITEMS; i++) {
 		if(c->persistent_item[i]) {
 			de_free(c, c->persistent_item[i]);
 		}
 	}
+
 	de_free(c, c->module_info);
 	de_free(NULL,c);
 }

@@ -491,7 +491,8 @@ struct deark_struct {
 	int num_ext_options;
 	struct deark_ext_option ext_option[DE_MAX_EXT_OPTIONS];
 
-#define DE_NUM_PERSISTENT_MEM_ITEMS 6
+	// See deark-user.c for definitions.
+#define DE_NUM_PERSISTENT_MEM_ITEMS 8
 	void *persistent_item[DE_NUM_PERSISTENT_MEM_ITEMS];
 
 	struct de_timestamp orig_modtime;
@@ -859,6 +860,8 @@ int de_memmatch(const u8 *mem, const u8 *pattern, size_t pattern_len,
 int de_memsearch_match(const u8 *mem, i64 mem_len,
 	const u8 *pattern, i64 pattern_len, u8 wildcard, i64 *pfoundpos);
 
+int de_decompress_zlib_mem2dbuf(deark *c, const u8 *src, i64 src_len,
+	dbuf *outf, i64 dst_len);
 int de_decompress_zlib_mem2mem(deark *c, const u8 *src, i64 src_len,
 	u8 *dst, i64 dst_len);
 int de_cp932_lookup(deark *c, u16 n, UI flags, de_rune *pr1, de_rune *pr2);
