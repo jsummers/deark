@@ -174,6 +174,16 @@ void fmtutil_huff_packit_codectype1(deark *c, struct de_dfilter_in_params *dcmpr
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
 	void *codec_private_params);
 int fmtutil_decompress_exepack_reloc_tbl(deark *c, i64 pos1, i64 endpos, dbuf *outf);
+void fmtutil_os2exepack1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params);
+// Optional codec_private_params for fmtutil_os2exepack2_codectype1.
+struct fmtutil_os2exepack2_params {
+	u8 used_lzss; // out: set if any LZ (non-RLE) match token was emitted
+};
+void fmtutil_os2exepack2_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params);
 
 void fmtutil_xpk_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,

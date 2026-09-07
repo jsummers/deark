@@ -1055,6 +1055,209 @@ done:
 }
 
 ///////////////////////////////////
+// OS/2 "EXEPACK:1" and "EXEPACK:2" compression schemes. (Named after the
+// OS/2 Toolkit's own names for these LX/LE Object Page Table flag values;
+// unrelated to the classic DOS EXEPACK format above, despite the shared
+// name.) EXEPACK:2 is also used, independently of any LX/LE executable, to
+// compress the bitmap planes of OS/2 boot-logo images.
+
+// "EXEPACK:1" (Object Page Table flag == 1, "iterated" page).
+// Token stream: [num_iterations:u16][blocklen:u16][blocklen bytes of data], repeated;
+// the data block is emitted num_iterations times; the stream ends when
+// num_iterations==0.
+void fmtutil_os2exepack1_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params)
+{
+	i64 pos = dcmpri->pos;
+	i64 endpos = dcmpri->pos + dcmpri->len;
+	i64 nbytes_decompressed = 0;
+
+	while(1) {
+		i64 num_iter, blk_len, k;
+
+		if(pos+1 > endpos) goto done; // Clean end of stream (no more tokens)
+		if(dcmpro->len_known && nbytes_decompressed>=dcmpro->expected_len) goto done;
+
+		if(pos+2 > endpos) {
+			de_dfilter_set_errorf(c, dres, "os2exepack1", "Truncated repeat-count field");
+			goto done;
+		}
+		num_iter = dbuf_getu16le_p(dcmpri->f, &pos);
+		if(num_iter==0) goto done; // Normal terminator token
+
+		if(pos+2 > endpos) {
+			de_dfilter_set_errorf(c, dres, "os2exepack1", "Truncated block-length field");
+			goto done;
+		}
+		blk_len = dbuf_getu16le_p(dcmpri->f, &pos);
+		if(pos+blk_len > endpos) {
+			de_dfilter_set_errorf(c, dres, "os2exepack1", "Truncated block data");
+			goto done;
+		}
+		if(dcmpro->len_known && nbytes_decompressed + blk_len*num_iter > dcmpro->expected_len) {
+			de_dfilter_set_errorf(c, dres, "os2exepack1", "Output size exceeds expected page size");
+			goto done;
+		}
+
+		for(k=0; k<num_iter; k++) {
+			dbuf_copy(dcmpri->f, pos, blk_len, dcmpro->f);
+		}
+		nbytes_decompressed += blk_len*num_iter;
+		pos += blk_len;
+	}
+
+done:
+	if(dcmpro->len_known && nbytes_decompressed < dcmpro->expected_len) {
+		dbuf_write_zeroes(dcmpro->f, dcmpro->expected_len - nbytes_decompressed);
+	}
+	dbuf_flush(dcmpro->f);
+	dres->bytes_consumed_valid = 1;
+	dres->bytes_consumed = pos - dcmpri->pos;
+}
+
+// "EXEPACK:2" (LX/LE Object Page Table flag == 5, "iterated data page, type
+// II"; also used, independently, for OS/2 boot-logo bitmap planes). A
+// byte-oriented LZ77 scheme, using a 4096-byte sliding window.
+struct os2exepack2_ctx {
+	struct de_dfilter_in_params *dcmpri;
+	struct de_dfilter_out_params *dcmpro;
+	struct de_lz77buffer *ringbuf;
+	i64 cur_ipos;
+	i64 endpos;
+	i64 nbytes_written;
+};
+
+static void os2exepack2_lz77buf_writebytecb(struct de_lz77buffer *rb, const u8 n)
+{
+	struct os2exepack2_ctx *ectx = (struct os2exepack2_ctx*)rb->userdata;
+
+	dbuf_writebyte(ectx->dcmpro->f, n);
+	ectx->nbytes_written++;
+}
+
+void fmtutil_os2exepack2_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
+	struct de_dfilter_out_params *dcmpro, struct de_dfilter_results *dres,
+	void *codec_private_params)
+{
+	struct fmtutil_os2exepack2_params *params = (struct fmtutil_os2exepack2_params*)codec_private_params;
+	struct os2exepack2_ctx *ectx = NULL;
+
+	ectx = de_malloc(c, sizeof(struct os2exepack2_ctx));
+	ectx->dcmpri = dcmpri;
+	ectx->dcmpro = dcmpro;
+	ectx->cur_ipos = dcmpri->pos;
+	ectx->endpos = dcmpri->pos + dcmpri->len;
+
+	ectx->ringbuf = de_lz77buffer_create(c, 4096);
+	ectx->ringbuf->writebyte_cb = os2exepack2_lz77buf_writebytecb;
+	ectx->ringbuf->userdata = (void*)ectx;
+
+	while(1) {
+		i64 code_startpos;
+		UI i;
+		UI matchpos;
+		UI matchlen;
+		UI unc_count;
+		u8 b0, b1, b2;
+		u8 opcode0;
+		const char *optype = "";
+
+		if(ectx->cur_ipos >= ectx->endpos) goto after_dcmpr;
+		if(dcmpro->len_known && ectx->nbytes_written >= dcmpro->expected_len) goto after_dcmpr;
+		code_startpos = ectx->cur_ipos;
+		b0 = dbuf_getbyte_p(dcmpri->f, &ectx->cur_ipos);
+
+		if(b0==0x00) { // stop code or RLE compressed data
+			b1 = dbuf_getbyte_p(dcmpri->f, &ectx->cur_ipos);
+			if(b1==0) {
+				de_dbg2(c, "stop code at %"I64_FMT, code_startpos);
+				goto after_dcmpr;
+			}
+			else {
+				UI run_len;
+
+				run_len = (UI)b1;
+				b2 = dbuf_getbyte_p(dcmpri->f, &ectx->cur_ipos);
+				if(c->debug_level>=4) {
+					de_dbg(c, "op=R val=%u count=%u", (UI)b2, run_len);
+				}
+				for(i=0; i<run_len; i++) {
+					de_lz77buffer_add_literal_byte(ectx->ringbuf, b2);
+				}
+			}
+			continue;
+		}
+
+		opcode0 = b0 & 0x3;
+		if(opcode0!=0 && params) params->used_lzss = 1;
+
+		switch(opcode0) {
+		case 0: // nRoots token (uncompressed bytes only)
+			optype = "U";
+			unc_count = (UI)(b0>>2);
+			matchlen = 0;
+			matchpos = 0;
+			break;
+		case 1: // Short String token
+			optype = "S";
+			b1 = dbuf_getbyte_p(dcmpri->f, &ectx->cur_ipos);
+			unc_count = (UI)((b0>>2)&0x3);
+			matchlen = 3+(UI)((b0>>4)&0x7);
+			matchpos = ((UI)b1<<1) | (b0>>7);
+			break;
+		case 2: // Mid String token
+			optype = "M";
+			b1 = dbuf_getbyte_p(dcmpri->f, &ectx->cur_ipos);
+			unc_count = 0;
+			matchlen = 3+(UI)((b0>>2)&0x3);
+			matchpos = ((UI)b1<<4) | (b0>>4);
+			break;
+		default: // (3) Long String token
+			optype = "L";
+			b1 = dbuf_getbyte_p(dcmpri->f, &ectx->cur_ipos);
+			b2 = dbuf_getbyte_p(dcmpri->f, &ectx->cur_ipos);
+			unc_count = (UI)((b0>>2)&0xf);
+			matchlen = ((UI)(b1&0xf)<<2) | (b0>>6);
+			matchpos = ((UI)b2<<4) | (b1>>4);
+			break;
+		}
+
+		if(c->debug_level>=4) {
+			de_dbg(c, "op=%s u=%u d=%u l=%u", optype, unc_count, matchpos, matchlen);
+			de_dbg_indent(c, 1);
+		}
+
+		for(i=0; i<unc_count; i++) {
+			b2 = dbuf_getbyte_p(dcmpri->f, &ectx->cur_ipos);
+			if(c->debug_level>=4) {
+				de_dbg(c, "lit %u", (UI)b2);
+			}
+			de_lz77buffer_add_literal_byte(ectx->ringbuf, b2);
+		}
+
+		if(c->debug_level>=4) {
+			de_dbg_indent(c, -1);
+		}
+
+		if(matchlen!=0) {
+			de_lz77buffer_copy_from_hist(ectx->ringbuf,
+				(UI)(ectx->ringbuf->curpos-matchpos), matchlen);
+		}
+	}
+
+after_dcmpr:
+	if(dcmpro->len_known && ectx->nbytes_written < dcmpro->expected_len) {
+		dbuf_write_zeroes(dcmpro->f, dcmpro->expected_len - ectx->nbytes_written);
+	}
+	dbuf_flush(dcmpro->f);
+	dres->bytes_consumed_valid = 1;
+	dres->bytes_consumed = ectx->cur_ipos - dcmpri->pos;
+	de_lz77buffer_destroy(c, ectx->ringbuf);
+	de_free(c, ectx);
+}
+
+///////////////////////////////////
 // XPK (Amiga compression system)
 // Only a very small selection of compression methods are expected to be
 // supported by Deark.
