@@ -71,7 +71,6 @@ static void decompress_main(deark *c, struct macp_interp_ctx *ic)
 	u8 prev_item_type = 0; // 0=none, 1=lit, 2=run
 	u8 prev_run_val = 0;
 	u8 run_val = 0;
-	i64 nbytes_written = 0;
 	i64 nrows_to_decode;
 
 	endpos = ic->pixels_pos + ic->pixels_len;
@@ -141,7 +140,6 @@ static void decompress_main(deark *c, struct macp_interp_ctx *ic)
 #endif
 
 		xpos_b += count;
-		nbytes_written += count;
 
 		if(xpos_b > MACPAINT_WIDTH_BYTES) {
 			if(this_item_type==1) {
