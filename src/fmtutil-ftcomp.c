@@ -73,6 +73,19 @@
 
 #define FTC_PRESET_DICT_LEN  ((i64)4986)
 
+#define FTC_MODE_FT19  1
+#define FTC_MODE_FT21  2
+
+#define CODE_fT19 0x66543139U
+#define CODE_fT21 0x66543231U
+
+// Marks a non-literal chunk in the Stage-1 output / Stage-2 LZ77 stream (see ftc_lz_expand).
+#define FTC_LZESCAPE_BYTE  0x9e
+
+// Size of the Stage-2 LZ history ring. Must be a power of 2, and >=65536 so
+// any 16-bit match distance is always resolvable.
+#define FTC_LZWINDOW_LEN  65536
+
 // Static bootstrap Huffman weight tables + PRESET_DICT, extracted from the
 // packer/transfer-tool binaries (TKXFER.EXE/PACK2.EXE).
 //
@@ -88,6 +101,8 @@
 
 #define DE_PERSISTENT_ITEM_FTCOMP_DATA 5
 
+struct ftc_ctx;
+
 struct ftc_tbls_type {
 	u16 ftc_descriptor_weights[FTC_DESCRIPTORTABLE_LEN];
 	u16 ftc_digitchain_weights[FTC_DESCRIPTORTABLE_LEN];
@@ -97,8 +112,75 @@ struct ftc_tbls_type {
 	int ftc_tables_ready;
 };
 
-struct ftc_tbls_wrapper {
+#define FTC_MRURING_SIZE  32
+#define FTC_MRURING_MASK  (FTC_MRURING_SIZE-1)
+
+// Circular buffer of recently-seen values (stage1-output byte positions, or
+// instant-match distances): peek an entry, push a new one, or promote an
+// existing entry to the front while overwriting it.
+struct ftc_mruring {
+	u16 buf[FTC_MRURING_SIZE];
+	unsigned int idx;
+};
+
+struct ftc_histbuf {
+	i64 total_len; // running per-member total emitted so far, for the cap_limit gate below
+	i64 cap_limit;
+	int failed;
+	struct de_lz77buffer *ring; // persists across the whole member
+};
+
+// Per-member decoder state: rings/decoders/stream_pos persist across a
+// member's blocks; raw_weights/model are per-block scratch; dec_digitchain
+// (and the mode patch to the shared ftc_type_table/ftc_extrastep_table
+// globals) is owned by ftc_ensure_digitchain_decoder.
+struct ftc_decstate {
+	deark *c; // needed to create/destroy fmtutil_huffman decoders
 	struct ftc_tbls_type *tbls;
+
+	u16 raw_weights[FTC_DESCRIPTORTABLE_LEN];
+	struct ftc_mruring ring_lenpos;
+	struct ftc_mruring ring_matchdist;
+
+	// Huffman tree build workspace. parentbit is the node table. sort_scratch
+	// is the merge-queue array (also its own recursion stack, and later
+	// reused by ftc_rle21's byte-histogram sort); qweight mirrors it, one
+	// weight per queue slot -- except the recursion-stack tail, which has no
+	// qweight entry. leaf_weight is the real id-indexed weight table, always
+	// repopulated before ftc_build_tree runs.
+	u16 parentbit[FTC_NODETABLE_LEN];
+	u16 leaf_weight[FTC_DESCRIPTORTABLE_LEN];
+	u16 sort_scratch[512];
+	u16 qweight[512];
+	int emit_failed; // sticky, set by ftc_emit_codes on any add_code failure
+
+	struct fmtutil_huffman_decoder *dec_a; // "backup"/Table A -- rebuilt every block
+	struct fmtutil_huffman_decoder *dec_b_real; // Table B if needed
+	struct fmtutil_huffman_decoder *dec_b; // Pointer to dec_a or dec_b_real. Do not free.
+	struct fmtutil_huffman_decoder *dec_descriptor; // built once, cold init
+	struct fmtutil_huffman_decoder *dec_digitchain; // per-mode digit-chain decoder; rebuilt only on a mode change (see last_mode)
+
+	unsigned int mode;
+	unsigned int last_mode; // 0 initially; mode is always 1 or 2, so the first ftc_ensure_digitchain_decoder call always misses this cache.
+
+	u32 stream_pos; // exact per-member decompressed length so far; see comment above FTC_STREAM_POS_THRESH1
+
+	u16 model_m0, model_m1, model_m2, model_m3;
+};
+
+struct ftc_ctx {
+	deark *c;
+	struct de_dfilter_out_params *dcmpro;
+	struct de_dfilter_results *dres;
+	const char *modname;
+	int failed;
+
+	dbuf *inf;
+	i64 inf_pos1;
+	i64 inf_len;
+
+	struct ftc_decstate dec;
+	struct ftc_histbuf hb;
 };
 
 static void initialize_ftctables(deark *c, struct ftc_tbls_type *tbls)
@@ -145,41 +227,17 @@ done:
 
 // Unpack (if not already done), and return a pointer to, the plain weight
 // tables + LZ77 preset dictionary.
-static void acquire_ftctables(deark *c, struct ftc_tbls_wrapper *tblsw)
+static void acquire_ftctables(deark *c, struct ftc_decstate *dec)
 {
 	if(!c->persistent_item[DE_PERSISTENT_ITEM_FTCOMP_DATA]) {
 		c->persistent_item[DE_PERSISTENT_ITEM_FTCOMP_DATA] = de_malloc(c, sizeof(struct ftc_tbls_type));
 	}
 
-	tblsw->tbls = (struct ftc_tbls_type*)c->persistent_item[DE_PERSISTENT_ITEM_FTCOMP_DATA];
-	if(!tblsw->tbls->ftc_tables_ready) {
-		initialize_ftctables(c, tblsw->tbls);
+	dec->tbls = (struct ftc_tbls_type*)c->persistent_item[DE_PERSISTENT_ITEM_FTCOMP_DATA];
+	if(!dec->tbls->ftc_tables_ready) {
+		initialize_ftctables(c, dec->tbls);
 	}
 }
-
-#define FTC_MRURING_SIZE  32
-#define FTC_MRURING_MASK  (FTC_MRURING_SIZE-1)
-
-#define FTC_MODE_FT19  1
-#define FTC_MODE_FT21  2
-
-#define CODE_fT19 0x66543139U
-#define CODE_fT21 0x66543231U
-
-// Marks a non-literal chunk in the Stage-1 output / Stage-2 LZ77 stream (see ftc_lz_expand).
-#define FTC_LZESCAPE_BYTE  0x9e
-
-// Size of the Stage-2 LZ history ring. Must be a power of 2, and >=65536 so
-// any 16-bit match distance is always resolvable.
-#define FTC_LZWINDOW_LEN  65536
-
-// Circular buffer of recently-seen values (stage1-output byte positions, or
-// instant-match distances): peek an entry, push a new one, or promote an
-// existing entry to the front while overwriting it.
-struct ftc_mruring {
-	u16 buf[FTC_MRURING_SIZE];
-	unsigned int idx;
-};
 
 static u16 ftc_mruring_peek(struct ftc_mruring *r, unsigned int nwords)
 {
@@ -246,43 +304,6 @@ static u16 ftc_mrurank_unrank(struct ftc_mrurank *mr, u16 dv, unsigned int mode)
 	mr->mru = out;
 	return out;
 }
-
-// Per-member decoder state: rings/decoders/stream_pos persist across a
-// member's blocks; raw_weights/model are per-block scratch; dec_digitchain
-// (and the mode patch to the shared ftc_type_table/ftc_extrastep_table
-// globals) is owned by ftc_ensure_digitchain_decoder.
-struct ftc_decstate {
-	deark *c; // needed to create/destroy fmtutil_huffman decoders
-	struct ftc_tbls_type *tbls;
-
-	u16 raw_weights[FTC_DESCRIPTORTABLE_LEN];
-	struct ftc_mruring ring_lenpos;
-	struct ftc_mruring ring_matchdist;
-
-	// Huffman tree build workspace. parentbit is the node table. sort_scratch
-	// is the merge-queue array (also its own recursion stack, and later
-	// reused by ftc_rle21's byte-histogram sort); qweight mirrors it, one
-	// weight per queue slot -- except the recursion-stack tail, which has no
-	// qweight entry. leaf_weight is the real id-indexed weight table, always
-	// repopulated before ftc_build_tree runs.
-	u16 parentbit[FTC_NODETABLE_LEN];
-	u16 leaf_weight[FTC_DESCRIPTORTABLE_LEN];
-	u16 sort_scratch[512];
-	u16 qweight[512];
-	int emit_failed; // sticky, set by ftc_emit_codes on any add_code failure
-
-	struct fmtutil_huffman_decoder *dec_a; // "backup"/Table A -- rebuilt every block
-	struct fmtutil_huffman_decoder *dec_b; // "live"/Table B -- aliases dec_a when B isn't rebuilt this block
-	struct fmtutil_huffman_decoder *dec_descriptor; // built once, cold init
-	struct fmtutil_huffman_decoder *dec_digitchain; // per-mode digit-chain decoder; rebuilt only on a mode change (see last_mode)
-
-	unsigned int mode;
-	unsigned int last_mode; // 0 initially; mode is always 1 or 2, so the first ftc_ensure_digitchain_decoder call always misses this cache.
-
-	u32 stream_pos; // exact per-member decompressed length so far; see comment above FTC_STREAM_POS_THRESH1
-
-	u16 model_m0, model_m1, model_m2, model_m3;
-};
 
 // Bit reader: shared struct de_bitreader (MSB-first: bbll.is_lsb left at its
 // zeroed default), constructed with endpos set far beyond any reachable
@@ -630,16 +651,6 @@ static int ftc_build_decoder(struct ftc_decstate *ds, struct fmtutil_huffman_dec
 	return 1;
 }
 
-// Destroys dec_b if it owns a distinct allocation (not just aliasing dec_a),
-// then clears it. Shared by ftc_scale_frequencies and final teardown.
-static void ftc_dec_b_release(struct ftc_decstate *ds)
-{
-	if(ds->dec_b && ds->dec_b != ds->dec_a) {
-		fmtutil_huffman_destroy_decoder(ds->c, ds->dec_b);
-	}
-	ds->dec_b = NULL;
-}
-
 // Scales raw_weights[] by one of the block's 4 "model bytes" (per-symbol via
 // ftc_type_table), normalizes so the max scaled weight fits under 0x10000, and
 // builds a tree. ftc_scale_frequencies (below) always uses this for Table A;
@@ -683,7 +694,7 @@ static int ftc_compute_scaled_freq(struct ftc_decstate *ds, unsigned int mult0, 
 static int ftc_scale_frequencies(struct ftc_decstate *ds)
 {
 	// dec_a is about to be rebuilt, invalidating any alias to it.
-	ftc_dec_b_release(ds);
+	ds->dec_b = NULL;
 
 	if(!ftc_compute_scaled_freq(ds, ds->model_m0, ds->model_m1)) return 0;
 	if(!ftc_build_decoder(ds, &ds->dec_a)) return 0;
@@ -692,9 +703,8 @@ static int ftc_scale_frequencies(struct ftc_decstate *ds)
 	if(ds->model_m2 != ds->model_m1 || ds->model_m0 != ds->model_m3) {
 		if(ds->model_m2!=0 || ds->model_m3!=0) {
 			if(!ftc_compute_scaled_freq(ds, ds->model_m3, ds->model_m2)) return 0;
-			// dec_a still owns the aliased allocation; just clear the pointer.
-			ds->dec_b = NULL;
-			if(!ftc_build_decoder(ds, &ds->dec_b)) return 0;
+			if(!ftc_build_decoder(ds, &ds->dec_b_real)) return 0;
+			ds->dec_b = ds->dec_b_real;
 		}
 		// else: mult (0,0) would zero every weight, so this branch is
 		// skipped -- rebuilding would just reproduce Table A's tree exactly
@@ -1154,13 +1164,6 @@ static dbuf *ftc_decode_stage1(deark *c, struct ftc_decstate *ds, dbuf *f, i64 b
 // cleanly (sticky `failed`) instead of wrapping curpos and corrupting
 // earlier blocks' output.
 // ===========================================================================
-struct ftc_histbuf {
-	i64 total_len; // running per-member total emitted so far, for the cap_limit gate below
-	i64 cap_limit;
-	int failed;
-	struct de_lz77buffer *ring; // persists across the whole member
-};
-
 // hb->ring's writebyte_cb: tracks the running per-member total and sets
 // sticky `failed` once it would exceed cap_limit (see the struct comment above).
 static void ftc_hist_append_cb(struct de_lz77buffer *rb, u8 val)
@@ -1282,25 +1285,11 @@ static void ftc_decode_stage2(struct ftc_histbuf *hb, dbuf *stage1_out, unsigned
 // FRAMING (container walk, ties STAGE 1/STAGE 2/POST-PASS together).
 // ===========================================================================
 
-struct ftc_ctx {
-	deark *c;
-	struct de_dfilter_out_params *dcmpro;
-	struct de_dfilter_results *dres;
-	int failed;
-
-	dbuf *f;
-	i64 body_base;
-	i64 body_len;
-
-	struct ftc_decstate dec;
-	struct ftc_histbuf hb;
-};
-
 static void ftc_fail(struct ftc_ctx *ctx, const char *msg)
 {
 	if(ctx->failed) return;
 	ctx->failed = 1;
-	de_dfilter_set_errorf(ctx->c, ctx->dres, "ftcomp", "%s", msg);
+	de_dfilter_set_errorf(ctx->c, ctx->dres, ctx->modname, "%s", msg);
 }
 
 // fT21-only RLE/MTF post-pass over one block's raw Stage-2 output (`buf`,
@@ -1418,7 +1407,7 @@ static void ftc_decode_block(struct ftc_ctx *ctx, i64 *pos, unsigned int mode)
 	if(ctx->failed) return;
 	if(!ftc_ensure_digitchain_decoder(&ctx->dec, mode)) { ftc_fail(ctx, "internal Huffman tree build failure"); return; }
 
-	stage1_out = ftc_decode_stage1(ctx->c, &ctx->dec, ctx->f, ctx->body_base, ctx->body_len, *pos, &new_pos);
+	stage1_out = ftc_decode_stage1(ctx->c, &ctx->dec, ctx->inf, ctx->inf_pos1, ctx->inf_len, *pos, &new_pos);
 	if(!stage1_out) { ftc_fail(ctx, "Stage-1 decode failed (corrupt data)"); return; }
 
 	block_start_pos = (i64)ctx->hb.ring->curpos;
@@ -1454,11 +1443,11 @@ static void ftc_decode_member(struct ftc_ctx *ctx)
 	i64 pos = 4;
 	i64 iter = 0;
 
-	while(pos+4 <= ctx->body_len) {
+	while(pos+4 <= ctx->inf_len) {
 		unsigned int mode;
 		struct de_fourcc tag4cc;
 
-		dbuf_read_fourcc(ctx->f, ctx->body_base+pos, &tag4cc, 4, 0x0);
+		dbuf_read_fourcc(ctx->inf, ctx->inf_pos1+pos, &tag4cc, 4, 0x0);
 		if(tag4cc.id==CODE_fT21) mode = FTC_MODE_FT21;
 		else if(tag4cc.id==CODE_fT19) mode = FTC_MODE_FT19;
 		else break;
@@ -1474,8 +1463,8 @@ static void ftc_decode_member(struct ftc_ctx *ctx)
 		// No tag matched at all. If the leftover bytes are exactly the
 		// expected output size, it's a "stored" member -- marker + raw
 		// bytes, no fT19/fT21 tag (used when compressing wouldn't help).
-		if((ctx->body_len-pos)==ctx->dcmpro->expected_len) {
-			dbuf_copy(ctx->f, ctx->body_base+pos, ctx->body_len-pos, ctx->dcmpro->f);
+		if((ctx->inf_len-pos)==ctx->dcmpro->expected_len) {
+			dbuf_copy(ctx->inf, ctx->inf_pos1+pos, ctx->inf_len-pos, ctx->dcmpro->f);
 		}
 		else {
 			ftc_fail(ctx, "Missing fT19/fT21 tag");
@@ -1493,29 +1482,30 @@ void fmtutil_ftcomp_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	struct ftc_ctx *ctx = NULL;
 	i64 ring_bufsize;
 	unsigned int i;
-	struct ftc_tbls_wrapper tblsw;
-
-	de_zeromem(&tblsw, sizeof(struct ftc_tbls_wrapper));
-
-	if(dcmpri->len < 4) {
-		de_dfilter_set_errorf(c, dres, "ftcomp", "Compressed data too short");
-		goto done;
-	}
 
 	ctx = de_malloc(c, sizeof(struct ftc_ctx));
 	ctx->c = c;
+	ctx->modname = "ftcomp";
 	ctx->dcmpro = dcmpro;
 	ctx->dres = dres;
-	ctx->f = dcmpri->f;
-	ctx->body_base = dcmpri->pos;
-	ctx->body_len = dcmpri->len;
+
+	if(dcmpri->len < 4) {
+		de_dfilter_set_errorf(c, dres, ctx->modname, "Compressed data too short");
+		goto done;
+	}
+
+	ctx->inf = dcmpri->f;
+	ctx->inf_pos1 = dcmpri->pos;
+	ctx->inf_len = dcmpri->len;
 	// Sanity ceiling for ctx->hb growth, so a lying orig_len header can't
 	// exhaust memory: expected size plus a small margin. The DE_MAX_MALLOC
 	// clamp keeps the ring_bufsize doubling loop below from an unbounded header value.
 	ctx->hb.cap_limit = dcmpro->expected_len + 1024;
 	if(ctx->hb.cap_limit > DE_MAX_MALLOC) ctx->hb.cap_limit = DE_MAX_MALLOC;
 
-	acquire_ftctables(c, &tblsw);
+	ctx->dec.c = c;
+
+	acquire_ftctables(c, &ctx->dec);
 
 	// ring_bufsize: a power of 2 (for the ring's mask-based addressing) big
 	// enough to hold a whole member's decompressed output without wrapping.
@@ -1533,17 +1523,12 @@ void fmtutil_ftcomp_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	// ring_bufsize-65536 -- real position 0, or the zero-filled gap below
 	// the dict when ring_bufsize is larger -- never past position 0.
 	de_lz77buffer_clear(ctx->hb.ring, 0x00);
-	de_memcpy(&ctx->hb.ring->buf[ring_bufsize - FTC_PRESET_DICT_LEN], tblsw.tbls->ftc_preset_dict,
+	de_memcpy(&ctx->hb.ring->buf[ring_bufsize - FTC_PRESET_DICT_LEN], ctx->dec.tbls->ftc_preset_dict,
 		(size_t)FTC_PRESET_DICT_LEN);
 
 	// One-time init: builds the descriptor tree from ftc_descriptor_weights,
 	// and (via ftc_ensure_digitchain_decoder) the fT19 digit-chain tree.
-	de_zeromem(&ctx->dec, sizeof(struct ftc_decstate));
-	ctx->dec.c = c;
-	ctx->dec.tbls = tblsw.tbls;
-
-	de_zeromem(ctx->dec.parentbit, sizeof(ctx->dec.parentbit));
-	for(i=0; i<FTC_DESCRIPTORTABLE_LEN; i++) ftc_leaf_weight_set(&ctx->dec, i*4, tblsw.tbls->ftc_descriptor_weights[i]);
+	for(i=0; i<FTC_DESCRIPTORTABLE_LEN; i++) ftc_leaf_weight_set(&ctx->dec, i*4, ctx->dec.tbls->ftc_descriptor_weights[i]);
 	if(!ftc_build_tree(&ctx->dec) || !ftc_build_decoder(&ctx->dec, &ctx->dec.dec_descriptor)) {
 		ftc_fail(ctx, "Internal Huffman tree build failure");
 		goto done;
@@ -1560,11 +1545,11 @@ void fmtutil_ftcomp_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 done:
 	dbuf_flush(dcmpro->f);
 	if(ctx) {
-		// Destroy every fmtutil_huffman decoder owned by ctx->dec.
-		ftc_dec_b_release(&ctx->dec);
-		if(ctx->dec.dec_a) fmtutil_huffman_destroy_decoder(c, ctx->dec.dec_a);
-		if(ctx->dec.dec_descriptor) fmtutil_huffman_destroy_decoder(c, ctx->dec.dec_descriptor);
-		if(ctx->dec.dec_digitchain) fmtutil_huffman_destroy_decoder(c, ctx->dec.dec_digitchain);
+		ctx->dec.dec_b = NULL;
+		fmtutil_huffman_destroy_decoder(c, ctx->dec.dec_a);
+		fmtutil_huffman_destroy_decoder(c, ctx->dec.dec_b_real);
+		fmtutil_huffman_destroy_decoder(c, ctx->dec.dec_descriptor);
+		fmtutil_huffman_destroy_decoder(c, ctx->dec.dec_digitchain);
 		de_lz77buffer_destroy(c, ctx->hb.ring);
 		de_free(c, ctx);
 	}
