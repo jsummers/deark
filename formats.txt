@@ -156,6 +156,9 @@ Deark -- Information about supported formats
 * CD-I IFF-IMAG (module="cdi_imag") (experimental/incomplete)
   A format used on some CD-i discs.
 
+* CDView encrypted image (module="cdview_enc")
+  - Decrypt to the original format, usually JPEG.
+
 * COKE (Atari Falcon) (*.tg1) (module="coke")
 
 * ColoRIX (*.sc?, etc.) (module="colorix")

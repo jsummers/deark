@@ -13,6 +13,7 @@ DE_DECLARE_MODULE(de_module_jpegscan);
 DE_DECLARE_MODULE(de_module_syberia_syj);
 DE_DECLARE_MODULE(de_module_esm_pix);
 DE_DECLARE_MODULE(de_module_pegasus_pic2);
+DE_DECLARE_MODULE(de_module_cdview_enc);
 
 struct fpxr_entity_struct {
 	size_t index;
@@ -2453,4 +2454,123 @@ void de_module_pegasus_pic2(deark *c, struct deark_module_info *mi)
 	mi->desc = "Pegasus PIC2";
 	mi->run_fn = de_run_pegasus_pic2;
 	mi->identify_fn = de_identify_pegasus_pic2;
+}
+
+// **************************************************************************
+// CDView encrypted image
+// **************************************************************************
+
+static void de_run_cdview_enc(deark *c, de_module_params *mparams)
+{
+	u8 fmt; // 1=jpg, 2=gif
+	u8 x;
+	u8 lastbyte;
+	u8 has_bug = 0;
+	dbuf *outf = NULL;
+	const char *ext;
+	const char *fmtname;
+	i64 pos;
+	i64 enc_endpos;
+
+	x = de_getbyte(0);
+	if(x==0x5a) {
+		fmt = 1;
+		ext = "jpg";
+		fmtname = "JPEG";
+	}
+	else if(x==0xe2)
+	{
+		fmt = 2;
+		ext = "gif";
+		fmtname = "GIF";
+	}
+	else {
+		de_err(c, "Not a CDView image");
+		goto done;
+	}
+
+	de_declare_fmtf(c, "CDView encrypted image (%s)", fmtname);
+
+	// Try to work around an apparent bug where the last byte isn't always
+	// encrypted.
+	// This is harder than it should be, because a fair number of these files
+	// seem to be truncated, or have trailing junk, or corruption near EOF.
+	// (Maybe some were encrypted, decrypted imperfectly, then re-encrypted?)
+	// We also don't want to assume that all versions of the software are buggy.
+	// It would help to walk through the file to find its true end, but it's
+	// not worth the trouble.
+	lastbyte = de_getbyte(c->infile->len-1);
+	if((c->infile->len % 4)==3) {
+
+		if((fmt==1 && lastbyte==0xd9) || (fmt==2 && lastbyte==0x3b)) {
+			has_bug = 1;
+		}
+	}
+
+	if(!has_bug) {
+		if((fmt==1 && lastbyte!=0x7c) || (fmt==2 && lastbyte!=0x9e)) {
+			de_warn(c, "File might be truncated or padded");
+		}
+	}
+
+	enc_endpos = c->infile->len;
+	if(has_bug) {
+		enc_endpos--;
+	}
+
+	outf = dbuf_create_output_file(c, ext, NULL, 0);
+	dbuf_enable_wbuffer(outf);
+	pos = 0;
+	while(pos<enc_endpos) { // Decrypt
+		x = de_getbyte_p(&pos);
+		x ^= 0xa5;
+		dbuf_writebyte(outf, x);
+	}
+	while(pos<c->infile->len) { // Copy any unencrypted byte(s)
+		x = de_getbyte_p(&pos);
+		dbuf_writebyte(outf, x);
+	}
+
+done:
+	dbuf_close(outf);
+}
+
+static int de_identify_cdview_enc(deark *c)
+{
+	u8 b[8];
+	size_t k;
+
+	b[0] = de_getbyte(0);
+	if(b[0]!=0x5a && b[0]!=0xe2) return 0;
+	de_read(&b[1], 1, sizeof(b)-1);
+	for(k=0; k<sizeof(b); k++) {
+		b[k] ^= 0xa5;
+	}
+
+	if(b[0]=='G' && b[1]=='I' && b[2]=='F' && b[3]=='8' &&
+		(b[4]=='7' || b[4]=='9'))
+	{
+		return 100;
+	}
+	if(b[0]==0xff && b[1]==0xd8 && b[2]==0xff) {
+		i64 seglen;
+		u8 x;
+
+		if(b[3]<0xc0 || b[3]>0xfe) return 0;
+		// We'd like to be stricter, but the first segment could be any of
+		// a number of types. So look for the second segment's 0xff byte.
+		seglen = de_getu16be_direct(&b[4]);
+		x = de_getbyte(4+seglen);
+		if(x!=0x5a) return 0;
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_cdview_enc(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "cdview_enc";
+	mi->desc = "CDView encrypted image";
+	mi->run_fn = de_run_cdview_enc;
+	mi->identify_fn = de_identify_cdview_enc;
 }
