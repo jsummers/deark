@@ -27,6 +27,7 @@ DE_DECLARE_MODULE(de_module_ea_arch);
 DE_DECLARE_MODULE(de_module_zpk2);
 DE_DECLARE_MODULE(de_module_iconheaven);
 DE_DECLARE_MODULE(de_module_cork);
+DE_DECLARE_MODULE(de_module_artipack);
 
 static int dclimplode_header_at(deark *c, i64 pos)
 {
@@ -3300,4 +3301,195 @@ void de_module_cork(deark *c, struct deark_module_info *mi)
 	mi->desc = "CORK compressed file";
 	mi->run_fn = de_run_cork;
 	mi->identify_fn = de_identify_cork;
+}
+
+// **************************************************************************
+// ARTIPACK (Artisoft INSTALL.PAK)
+// **************************************************************************
+
+#define ARTIPACK_MHDR_LEN 34
+
+struct artipack_ctx {
+	u8 ts_could_be_dos;
+	u8 ts_could_be_unix;
+	enum de_arch_tstype_enum tstype;
+};
+
+// Another format that sometimes uses DOS timestamp format, sometimes Unix,
+// seemingly at random.
+// And in some archives, all files have the DOS date 1993-03-01 05:00:00.
+// Or maybe it's the Unix date 1991-04-08 07:23:13. Both are plausible.
+// (DOS is more common, so it's the default.)
+static void artipack_guess_timestamp_format(deark *c, struct artipack_ctx *apctx,
+	i64 pos)
+{
+	UI v;
+	i64 yr;
+	struct de_timestamp ts;
+
+	v = (UI)de_getu32le(pos);
+
+	// Unix dates seen: 1989-1991
+	if(v<567993600U || //  1 Jan 1988
+		v>=820454400U) // 1 Jan 1996
+	{
+		apctx->ts_could_be_unix = 0;
+	}
+
+	// DOS dates seen: 1989-1993
+	yr = 1980+((v&0xfe00)>>9);
+	if(yr<1988 || yr>1999) {
+		apctx->ts_could_be_dos = 0;
+	}
+	if(apctx->ts_could_be_dos) {
+		de_dos_datetime_to_timestamp(&ts, (i64)(v&0xffff), (i64)(v>>16));
+		if(!ts.is_valid) {
+			apctx->ts_could_be_dos = 0;
+		}
+	}
+}
+
+static void artipack_decompressor_fn(struct de_arch_member_data *md)
+{
+	// Skip past the redundant original-size field.
+	md->dcmpri->len -= 4;
+	md->dcmpri->pos += 4;
+
+	fmtutil_lh1_codectype1(md->c, md->dcmpri, md->dcmpro, md->dres, NULL);
+}
+
+// Caller creates/destroys md, and sets a few fields.
+static void artipack_do_member(deark *c, de_arch_lctx *d,
+	struct de_arch_member_data *md)
+{
+	struct artipack_ctx *apctx = (struct artipack_ctx*)d->userdata;
+	i64 pos = md->member_hdr_pos;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	md->cmpr_pos = d->cmpr_data_curpos;
+
+	de_dbg(c, "member #%u hdr at %"I64_FMT, (UI)md->member_idx, md->member_hdr_pos);
+	de_dbg_indent(c, 1);
+
+	dbuf_read_to_ucstring(c->infile, pos, 13, md->filename, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	pos += 13;
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+
+	pos += 1; // ?
+	md->cmpr_pos = de_getu32le_p(&pos);
+	de_dbg(c, "cmpr. data pos: %"I64_FMT, md->cmpr_pos);
+
+	de_arch_read_field_orig_len_p(md, &pos);
+	de_arch_read_field_cmpr_len_p(md, &pos);
+
+	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		apctx->tstype, &pos);
+
+	// Unknown 4-byte field here, maybe a CRC?
+
+	if(!de_arch_good_cmpr_data_pos(md)) {
+		goto done;
+	}
+	if(md->cmpr_len<4) {
+		d->need_errmsg = 1;
+		d->fatalerrflag = 1;
+		goto done;
+	}
+
+	md->dfn = artipack_decompressor_fn;
+	de_arch_extract_member_file(md);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void de_run_artipack(deark *c, de_module_params *mparams)
+{
+	de_arch_lctx *d = NULL;
+	struct artipack_ctx *apctx = NULL;
+	i64 pos;
+	i64 dir_pos;
+	i64 i;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	apctx = de_malloc(c, sizeof(struct artipack_ctx));
+	d = de_arch_create_lctx(c);
+	d->userdata = (void*)apctx;
+	d->is_le = 1;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_CP437);
+
+	pos = 0;
+	de_dbg(c, "archive header at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
+	pos += 10;
+	d->num_members = de_getu16le_p(&pos);
+	de_dbg(c, "number of members: %"I64_FMT, d->num_members);
+	dir_pos = de_getu32le_p(&pos);
+	de_dbg(c, "directory pos: %"I64_FMT, dir_pos);
+	de_dbg_indent(c, -1);
+
+	if(dir_pos + d->num_members*ARTIPACK_MHDR_LEN > c->infile->len) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+	// Pre-scan to detect the timestamp format.
+	apctx->ts_could_be_dos = 1;
+	apctx->ts_could_be_unix = 1;
+	for(i=0; i<d->num_members; i++) {
+		artipack_guess_timestamp_format(c, apctx, dir_pos + i*ARTIPACK_MHDR_LEN + 26);
+	}
+	if(apctx->ts_could_be_unix && !apctx->ts_could_be_dos) {
+		apctx->tstype = DE_ARCH_TSTYPE_UNIX;
+	}
+	else {
+		apctx->tstype = DE_ARCH_TSTYPE_DOS_DT;
+	}
+	de_dbg(c, "detected unix timestamps: %u", (UI)(apctx->tstype==DE_ARCH_TSTYPE_UNIX));
+
+	for(i=0; i<d->num_members; i++) {
+		struct de_arch_member_data *md;
+
+		pos = dir_pos + i*ARTIPACK_MHDR_LEN;
+		md = de_arch_create_md(c, d);
+		md->member_idx = i;
+		md->member_hdr_pos = pos;
+
+		artipack_do_member(c, d, md);
+		de_arch_destroy_md(c, md);
+		if(d->fatalerrflag) goto done;
+	}
+
+done:
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported ARTIPACK file");
+		}
+		de_arch_destroy_lctx(c, d);
+	}
+	de_free(c, apctx);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static int de_identify_artipack(deark *c)
+{
+	UI n;
+
+	if(dbuf_memcmp(c->infile, 0, (const void*)"ARTIPACK", 8)) {
+		return 0;
+	}
+	n = (UI)de_getu16le(8);
+	if(n != 0x0100) return 0;
+	return 100;
+}
+
+void de_module_artipack(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "artipack";
+	mi->desc = "ARTIPACK archive (Artisoft)";
+	mi->run_fn = de_run_artipack;
+	mi->identify_fn = de_identify_artipack;
 }

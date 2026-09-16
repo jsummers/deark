@@ -955,6 +955,9 @@ in the readme file.)
      security/protection. Use with "-m arj" to convert most any self-extracting
      ARJ archive to plain ARJ.
 
+* ARTIPACK (module="artipack") (experimental)
+  Artisoft "INSTALL.PAK" format.
+
 * ARX (module="arx")
   Variant of LHA. Deark tries to convert it to LHA.
 
