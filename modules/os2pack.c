@@ -294,19 +294,25 @@ static void do_run_os2pack12(deark *c, de_module_params *mparams, UI ver)
 	struct os2pack_md_ctx *mdextra = NULL;
 	i64 pos;
 	const char *pname = "PACK";
-	u8 enable_pack2 = 0;
+	const u8 enable_pack2_by_default = 1;
+	u8 enable_pack2;
 
 	d = de_arch_create_lctx(c);
 	d->is_le = 1;
 
+	enable_pack2 = 0;
 	if(ver==2) {
-		// TODO: Review some things, then enable this unconditionally.
+		// TODO: Eventually, delete the option to disable PACK2.
 		enable_pack2 = de_get_ext_option_bool(c, "os2pack2:decode", 0xff);
 		if(enable_pack2==0xff) {
-			enable_pack2 = (c->module_disposition==DE_MODDISP_EXPLICIT) ? 1 : 0;
+			if(enable_pack2_by_default) {
+				enable_pack2 = 1;
+			}
+			else {
+				enable_pack2 = (c->module_disposition==DE_MODDISP_EXPLICIT) ? 1 : 0;
+			}
 		}
 	}
-	enable_pack2 = 1;
 
 	if(ver==2) {
 		d->fmtcode = 0xfffd;
