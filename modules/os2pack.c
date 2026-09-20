@@ -306,6 +306,7 @@ static void do_run_os2pack12(deark *c, de_module_params *mparams, UI ver)
 			enable_pack2 = (c->module_disposition==DE_MODDISP_EXPLICIT) ? 1 : 0;
 		}
 	}
+	enable_pack2 = 1;
 
 	if(ver==2) {
 		d->fmtcode = 0xfffd;

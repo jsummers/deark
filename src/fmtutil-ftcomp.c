@@ -124,14 +124,14 @@ struct ftc_mruring {
 };
 
 struct ftc_histbuf {
-	i64 total_len; // running per-member total emitted so far, for the cap_limit gate below
+	i64 total_len; // running total emitted so far, for the cap_limit gate below
 	i64 cap_limit;
 	int failed;
-	struct de_lz77buffer *ring; // persists across the whole member
+	struct de_lz77buffer *ring; // persists across the whole item
 };
 
-// Per-member decoder state: rings/decoders/stream_pos persist across a
-// member's blocks; raw_weights/model are per-block scratch; dec_digitchain
+// decoder state: rings/decoders/stream_pos persist across an
+// item's blocks; raw_weights/model are per-block scratch; dec_digitchain
 // (and the mode patch to the shared ftc_type_table/ftc_extrastep_table
 // globals) is owned by ftc_ensure_digitchain_decoder.
 struct ftc_decstate {
@@ -163,7 +163,7 @@ struct ftc_decstate {
 	unsigned int mode;
 	unsigned int last_mode; // 0 initially; mode is always 1 or 2, so the first ftc_ensure_digitchain_decoder call always misses this cache.
 
-	u32 stream_pos; // exact per-member decompressed length so far; see comment above FTC_STREAM_POS_THRESH1
+	u32 stream_pos; // exact decompressed length so far; see comment above FTC_STREAM_POS_THRESH1
 
 	u16 model_m0, model_m1, model_m2, model_m3;
 };
@@ -311,7 +311,7 @@ static u16 ftc_mrurank_unrank(struct ftc_mrurank *mr, u16 dv, unsigned int mode)
 // truncated/corrupt bitstream must keep reading (dbuf-OOB-safe) zero bits
 // forever rather than stop cold, matching this codec's own truncation
 // tolerance. `f`'s addressing covers the whole file, not just this
-// block/member: a block's bitstream may legitimately read a little past its
+// block/item: a block's bitstream may legitimately read a little past its
 // own boundary.
 
 // Decodes one symbol via the given fmtutil_huffman decoder, one bit at a
@@ -716,11 +716,11 @@ static int ftc_scale_frequencies(struct ftc_decstate *ds)
 
 // On a mode change, patches the shared ftc_type_table[320]/
 // ftc_extrastep_table[64] globals and (re)builds dec_digitchain. A
-// single-slot cache, not one per mode: real files never toggle mode within a
-// member, so a toggle just costs a rebuild (still correct, just not free).
+// single-slot cache, not one per mode: real files never toggle mode within an
+// item, so a toggle just costs a rebuild (still correct, just not free).
 // The globals are safe to patch in place: fmtutil_ftcomp_codectype1
 // re-unpacks them fresh at the top of every call, and calls are never nested
-// or concurrent, so there's no cross-call or cross-member leakage.
+// or concurrent, so there's no cross-call or cross-item leakage.
 static int ftc_ensure_digitchain_decoder(struct ftc_decstate *ds, unsigned int mode)
 {
 	unsigned int i;
@@ -771,8 +771,8 @@ static int ftc_ensure_digitchain_decoder(struct ftc_decstate *ds, unsigned int m
 #define FTC_CS_CHAIN_TERMINAL 6
 
 // --- Stream-position tracking for the digit-chain width gate ---------------
-// ds->stream_pos is the exact count of decompressed bytes produced by the
-// member so far, seeded from FTC_PRESET_DICT_LEN and advanced by each
+// ds->stream_pos is the exact count of decompressed bytes produced
+// so far, seeded from FTC_PRESET_DICT_LEN and advanced by each
 // block's real (stage-2-measured) length in ftc_decode_block -- never by
 // the per-symbol estimate below.
 // st->stream_pos_est is a working copy taken from ds->stream_pos at the
@@ -1151,9 +1151,9 @@ static dbuf *ftc_decode_stage1(deark *c, struct ftc_decstate *ds, dbuf *f, i64 b
 }
 
 // ===========================================================================
-// STAGE 2 (chunks -> raw bytes). `ring` is the real, member-wide LZ history:
+// STAGE 2 (chunks -> raw bytes). `ring` is the real, item-wide LZ history:
 // a de_lz77buffer seeded from ftc_preset_dict and never reset between
-// blocks, sized (see fmtutil_ftcomp_codectype1) to fit the whole member's
+// blocks, sized (see fmtutil_ftcomp_codectype1) to fit the whole item's
 // output, so curpos advances monotonically and never wraps -- each block's
 // output is one contiguous `ring->buf` slice, and cross-block back-references
 // resolve through the same buffer.
@@ -1164,7 +1164,7 @@ static dbuf *ftc_decode_stage1(deark *c, struct ftc_decstate *ds, dbuf *f, i64 b
 // cleanly (sticky `failed`) instead of wrapping curpos and corrupting
 // earlier blocks' output.
 // ===========================================================================
-// hb->ring's writebyte_cb: tracks the running per-member total and sets
+// hb->ring's writebyte_cb: tracks the running total and sets
 // sticky `failed` once it would exceed cap_limit (see the struct comment above).
 static void ftc_hist_append_cb(struct de_lz77buffer *rb, u8 val)
 {
@@ -1178,7 +1178,7 @@ static void ftc_hist_append_cb(struct de_lz77buffer *rb, u8 val)
 
 // ===========================================================================
 // Stage-2 LZ77 expander over one 0x9E-escape-coded chunk body, appending
-// into `hb`'s history ring at its current position (matches are member-wide,
+// into `hb`'s history ring at its current position (matches are item-wide,
 // not chunk-local -- the ring is never re-seeded between blocks). A non-0x9E
 // byte is a literal; 0x9E starts an escape sequence, whose next byte (`flag`)
 // selects one of 4 forms:
@@ -1289,7 +1289,17 @@ static void ftc_fail(struct ftc_ctx *ctx, const char *msg)
 {
 	if(ctx->failed) return;
 	ctx->failed = 1;
-	de_dfilter_set_errorf(ctx->c, ctx->dres, ctx->modname, "%s", msg);
+	if(msg) {
+		de_dfilter_set_errorf(ctx->c, ctx->dres, ctx->modname, "%s", msg);
+	}
+	else {
+		de_dfilter_set_generic_error(ctx->c, ctx->dres, ctx->modname);
+	}
+}
+
+static void ftc_fail_internal(struct ftc_ctx *ctx)
+{
+	ftc_fail(ctx, "Internal error");
 }
 
 // fT21-only RLE/MTF post-pass over one block's raw Stage-2 output (`buf`,
@@ -1308,30 +1318,24 @@ static void ftc_fail(struct ftc_ctx *ctx, const char *msg)
 // `marker` occurrences: the next control byte is looked up; rank 0xff means
 // "not a real run" (marker emitted literally), otherwise the following byte
 // is repeated rank+4 times. Streams its result directly to ctx->dcmpro->f.
-static void ftc_rle21(struct ftc_ctx *ctx, const u8 *buf, i64 total)
+static void ftc_rle21(struct ftc_ctx *ctx, dbuf *input, i64 total)
 {
-	dbuf *input;
 	u8 marker;
 	i64 cnt, tail_start;
 	i64 p, src_pos, tail_pos;
 
-	if(ctx->failed) return;
-
-	input = dbuf_create_membuf(ctx->c, total, 0);
-	dbuf_write(input, buf, total);
+	if(ctx->failed) goto done;
 
 	marker = dbuf_getbyte(input, 0);
 	if(marker==0xff) {
 		if(total>1) dbuf_copy(input, 1, total-1, ctx->dcmpro->f);
-		dbuf_close(input);
-		return;
+		goto done;
 	}
 
 	cnt = dbuf_getu16le(input, 1);
 	if(cnt > total) {
-		ftc_fail(ctx, "RLE21: control region count out of bounds");
-		dbuf_close(input);
-		return;
+		ftc_fail(ctx, NULL); // "RLE21: control region count out of bounds"
+		goto done;
 	}
 	tail_start = (total - cnt) & 0xffff;
 
@@ -1388,15 +1392,15 @@ static void ftc_rle21(struct ftc_ctx *ctx, const u8 *buf, i64 total)
 		}
 		src_pos++;
 	}
-	dbuf_close(input);
+done:;
 }
 
 // Decodes one framed fT19/fT21 block starting at *pos (right after its tag),
 // emits its output, and advances *pos. ctx->dec is intentionally NOT reset
-// between blocks -- the adaptive Huffman state / MRU rings persist across a
-// member; only the transmitted descriptor is rebuilt fresh each block.
+// between blocks -- the adaptive Huffman state / MRU rings persist across an
+// item; only the transmitted descriptor is rebuilt fresh each block.
 // Cross-block LZ back-references resolve through ctx->hb.ring, a persistent
-// window spanning the whole member.
+// window spanning the whole item.
 static void ftc_decode_block(struct ftc_ctx *ctx, i64 *pos, unsigned int mode)
 {
 	dbuf *stage1_out;
@@ -1405,18 +1409,32 @@ static void ftc_decode_block(struct ftc_ctx *ctx, i64 *pos, unsigned int mode)
 	i64 block_len;
 
 	if(ctx->failed) return;
-	if(!ftc_ensure_digitchain_decoder(&ctx->dec, mode)) { ftc_fail(ctx, "internal Huffman tree build failure"); return; }
+	de_dbg2(ctx->c, "block at %"I64_FMT" mode=%u", *pos, mode);
+
+	if(!ftc_ensure_digitchain_decoder(&ctx->dec, mode)) {
+		ftc_fail_internal(ctx); // "internal Huffman tree build failure"
+		return;
+	}
 
 	stage1_out = ftc_decode_stage1(ctx->c, &ctx->dec, ctx->inf, ctx->inf_pos1, ctx->inf_len, *pos, &new_pos);
-	if(!stage1_out) { ftc_fail(ctx, "Stage-1 decode failed (corrupt data)"); return; }
+	if(!stage1_out) {
+		ftc_fail(ctx, NULL); // "Stage-1 decode failed (corrupt data)"
+		return;
+	}
 
+	// FIXME: I don't think abusing the ring buffer to hold *all* of the stage2
+	// output is justified. Suggest making both a ring buffer (64K?), and a
+	// dbuf for all of the output.
 	block_start_pos = (i64)ctx->hb.ring->curpos;
 	ftc_decode_stage2(&ctx->hb, stage1_out, mode);
 	dbuf_close(stage1_out);
 
-	if(ctx->hb.failed) { ftc_fail(ctx, "Stage-2 expansion failed (corrupt data, or output too large)"); return; }
+	if(ctx->hb.failed) {
+		ftc_fail(ctx, NULL); // "Stage-2 expansion failed (corrupt data, or output too large)"
+		return;
+	}
 
-	// ring never wraps over a member's lifetime (see fmtutil_ftcomp_codectype1),
+	// ring never wraps over an item's lifetime (see fmtutil_ftcomp_codectype1),
 	// so this block's bytes are exactly ring->buf[block_start_pos, curpos).
 	block_len = (i64)ctx->hb.ring->curpos - block_start_pos;
 
@@ -1427,18 +1445,23 @@ static void ftc_decode_block(struct ftc_ctx *ctx, i64 *pos, unsigned int mode)
 	*pos = new_pos;
 
 	if(mode>=FTC_MODE_FT21) {
-		ftc_rle21(ctx, &ctx->hb.ring->buf[block_start_pos], block_len);
+		dbuf *input;
+
+		input = dbuf_create_membuf(ctx->c, block_len, 0);
+		dbuf_write(input, &ctx->hb.ring->buf[block_start_pos], block_len);
+		ftc_rle21(ctx, input, block_len);
+		dbuf_close(input);
 	}
 	else {
 		dbuf_write(ctx->dcmpro->f, &ctx->hb.ring->buf[block_start_pos], block_len);
 	}
 }
 
-// Top-level per-member pipeline: loops over ftc_decode_block until the tag
+// Top-level pipeline: loops over ftc_decode_block until the tag
 // stops matching -- there's no outer length field. Skips the leading 4-byte
 // stream-marker; the first tag after it MUST be fT19/fT21, but every later
 // non-match just means "no more blocks".
-static void ftc_decode_member(struct ftc_ctx *ctx)
+static void ftc_decode_item_main(struct ftc_ctx *ctx)
 {
 	i64 pos = 4;
 	i64 iter = 0;
@@ -1454,22 +1477,24 @@ static void ftc_decode_member(struct ftc_ctx *ctx)
 		pos += 4;
 
 		ftc_decode_block(ctx, &pos, mode);
-		if(ctx->failed) return;
+		if(ctx->failed) goto done;
 
 		iter++;
 	}
 
 	if(iter==0) {
 		// No tag matched at all. If the leftover bytes are exactly the
-		// expected output size, it's a "stored" member -- marker + raw
+		// expected output size, it's a "stored" item -- marker + raw
 		// bytes, no fT19/fT21 tag (used when compressing wouldn't help).
 		if((ctx->inf_len-pos)==ctx->dcmpro->expected_len) {
+			de_dbg(ctx->c, "[compression=stored]");
 			dbuf_copy(ctx->inf, ctx->inf_pos1+pos, ctx->inf_len-pos, ctx->dcmpro->f);
 		}
 		else {
 			ftc_fail(ctx, "Missing fT19/fT21 tag");
 		}
 	}
+done:;
 }
 
 // ===========================================================================
@@ -1508,7 +1533,7 @@ void fmtutil_ftcomp_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	acquire_ftctables(c, &ctx->dec);
 
 	// ring_bufsize: a power of 2 (for the ring's mask-based addressing) big
-	// enough to hold a whole member's decompressed output without wrapping.
+	// enough to hold a whole item's decompressed output without wrapping.
 	ring_bufsize = FTC_LZWINDOW_LEN;
 	while(ring_bufsize < ctx->hb.cap_limit) ring_bufsize *= 2;
 	ctx->hb.ring = de_lz77buffer_create(c, (UI)ring_bufsize);
@@ -1517,7 +1542,7 @@ void fmtutil_ftcomp_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 
 	// Zero-fill the ring, then overlay ftc_preset_dict at its tail end
 	// (behind curpos 0). Via the ring's own mod-bufsize wraparound, a match
-	// distance reaching before the member's first byte resolves into the
+	// distance reaching before the item's first byte resolves into the
 	// dict (nearest byte first); reaching further back resolves to 0. Since
 	// dist<=65535, the deepest reach (d=0, dist=65535) lands at
 	// ring_bufsize-65536 -- real position 0, or the zero-filled gap below
@@ -1530,17 +1555,17 @@ void fmtutil_ftcomp_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	// and (via ftc_ensure_digitchain_decoder) the fT19 digit-chain tree.
 	for(i=0; i<FTC_DESCRIPTORTABLE_LEN; i++) ftc_leaf_weight_set(&ctx->dec, i*4, ctx->dec.tbls->ftc_descriptor_weights[i]);
 	if(!ftc_build_tree(&ctx->dec) || !ftc_build_decoder(&ctx->dec, &ctx->dec.dec_descriptor)) {
-		ftc_fail(ctx, "Internal Huffman tree build failure");
+		ftc_fail_internal(ctx); // "Internal Huffman tree build failure"
 		goto done;
 	}
 
 	ctx->dec.stream_pos = (u32)FTC_PRESET_DICT_LEN;
 	if(!ftc_ensure_digitchain_decoder(&ctx->dec, FTC_MODE_FT19)) {
-		ftc_fail(ctx, "Internal Huffman tree build failure");
+		ftc_fail_internal(ctx); // "Internal Huffman tree build failure"
 		goto done;
 	}
 
-	ftc_decode_member(ctx);
+	ftc_decode_item_main(ctx);
 
 done:
 	dbuf_flush(dcmpro->f);
