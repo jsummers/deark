@@ -1167,7 +1167,7 @@ in the readme file.)
    -opt cfb:fmt=thumbsdb - Treat the file as a Thumbs.db file.
 
 * Microsoft Installation Compression (module="mscompress")
-  - Supports "SZDD" variant, mode "A".
+  - Supports "SZDD" variant, all known compression methods.
   - Supports "KWAJ" variant, all known compression methods.
   - Supports "SZ" variant.
   - "SZ" format supports multi-part archives (use -mp).

@@ -84,11 +84,16 @@ static int do_header_SZDD(deark *c, lctx *d, i64 pos1)
 	cmpr_mode = dbuf_getbyte_p(d->inf, &pos);
 	de_dbg(c, "compression mode: 0x%02x ('%c')", (unsigned int)cmpr_mode,
 		de_byte_to_printable_char(cmpr_mode));
-	if(cmpr_mode != 0x41) {
+	if(cmpr_mode==0x41) {
+		d->cmpr_meth = CMPR_LZSS16;
+	}
+	else if(cmpr_mode==0x42) {
+		d->cmpr_meth = CMPR_LZSS18;
+	}
+	else {
 		de_err(c, "Unsupported compression mode");
 		goto done;
 	}
-	d->cmpr_meth = CMPR_LZSS16;
 
 	fnchar = dbuf_getbyte_p(d->inf, &pos);
 	if(fnchar>=32 && fnchar<=126) {
