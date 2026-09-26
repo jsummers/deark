@@ -123,11 +123,12 @@ struct ftc_mruring {
 	unsigned int idx;
 };
 
-struct ftc_histbuf {
+struct ftc_stage2state {
 	i64 total_len; // running total emitted so far, for the cap_limit gate below
 	i64 cap_limit;
 	int failed;
 	struct de_lz77buffer *ring; // persists across the whole item
+	dbuf *outf;
 };
 
 // decoder state: rings/decoders/stream_pos persist across an
@@ -180,7 +181,7 @@ struct ftc_ctx {
 	i64 inf_len;
 
 	struct ftc_decstate dec;
-	struct ftc_histbuf hb;
+	struct ftc_stage2state hb;
 };
 
 static void initialize_ftctables(deark *c, struct ftc_tbls_type *tbls)
@@ -1151,29 +1152,20 @@ static dbuf *ftc_decode_stage1(deark *c, struct ftc_decstate *ds, dbuf *f, i64 b
 }
 
 // ===========================================================================
-// STAGE 2 (chunks -> raw bytes). `ring` is the real, item-wide LZ history:
-// a de_lz77buffer seeded from ftc_preset_dict and never reset between
-// blocks, sized (see fmtutil_ftcomp_codectype1) to fit the whole item's
-// output, so curpos advances monotonically and never wraps -- each block's
-// output is one contiguous `ring->buf` slice, and cross-block back-references
-// resolve through the same buffer.
-//
-// `cap_limit` hardens against a lying orig_len header exhausting memory:
-// ring is pre-sized at least that large, so it's normally never hit; it
-// exists so a corrupt/adversarial stream that tries to write past it fails
-// cleanly (sticky `failed`) instead of wrapping curpos and corrupting
-// earlier blocks' output.
+// STAGE 2 (chunks -> raw bytes).
 // ===========================================================================
-// hb->ring's writebyte_cb: tracks the running total and sets
-// sticky `failed` once it would exceed cap_limit (see the struct comment above).
 static void ftc_hist_append_cb(struct de_lz77buffer *rb, u8 val)
 {
-	struct ftc_histbuf *hb = (struct ftc_histbuf*)rb->userdata;
+	struct ftc_stage2state *hb = (struct ftc_stage2state*)rb->userdata;
 
-	(void)val;
 	if(hb->failed) return;
 	hb->total_len++;
-	if(hb->total_len > hb->cap_limit) hb->failed = 1;
+	if(hb->total_len > hb->cap_limit) {
+		hb->failed = 1;
+	}
+	else {
+		dbuf_writebyte(hb->outf, val);
+	}
 }
 
 // ===========================================================================
@@ -1193,12 +1185,11 @@ static void ftc_hist_append_cb(struct de_lz77buffer *rb, u8 val)
 // clamp only against stage1_out's overall length, not src_len -- a real but
 // wrong-chunk byte on a truncated chunk, never an OOB access.
 // ===========================================================================
-static i64 ftc_lz_expand(struct ftc_histbuf *hb, i64 dest_off, dbuf *stage1_out, i64 src_pos, i64 src_len,
-	unsigned int mode)
+static void ftc_lz_expand(struct ftc_stage2state *hb, dbuf *stage1_out,
+	i64 src_pos, i64 src_len, unsigned int mode)
 {
 	u8 lit_esc_byte = (mode>=FTC_MODE_FT21) ? 0xff : 0x40;
 	i64 s = 0;
-	i64 d = dest_off;
 
 	while(!hb->failed && s<src_len) {
 		u8 cur_byte = dbuf_getbyte(stage1_out, src_pos+s);
@@ -1207,7 +1198,7 @@ static i64 ftc_lz_expand(struct ftc_histbuf *hb, i64 dest_off, dbuf *stage1_out,
 
 		if(cur_byte != FTC_LZESCAPE_BYTE) {
 			de_lz77buffer_add_literal_byte(hb->ring, cur_byte);
-			d++; s++;
+			s++;
 			continue;
 		}
 
@@ -1215,7 +1206,6 @@ static i64 ftc_lz_expand(struct ftc_histbuf *hb, i64 dest_off, dbuf *stage1_out,
 
 		if(flag==lit_esc_byte) {
 			de_lz77buffer_add_literal_byte(hb->ring, FTC_LZESCAPE_BYTE);
-			d++;
 			s += 2;
 		}
 		else if(flag==0x80) {
@@ -1223,8 +1213,7 @@ static i64 ftc_lz_expand(struct ftc_histbuf *hb, i64 dest_off, dbuf *stage1_out,
 
 			len = (i64)len_byte + 0x43;
 			dist = dbuf_getu16le(stage1_out, src_pos+s+3);
-			de_lz77buffer_copy_from_hist(hb->ring, (UI)(d-1-dist), (UI)len);
-			d += len;
+			de_lz77buffer_copy_from_hist(hb->ring, (UI)(hb->ring->curpos-1-dist), (UI)len);
 			s += 5;
 		}
 		else if((flag & 0x40)==0) {
@@ -1232,26 +1221,23 @@ static i64 ftc_lz_expand(struct ftc_histbuf *hb, i64 dest_off, dbuf *stage1_out,
 
 			len = (i64)flag + 3;
 			dist = (i64)dist_byte;
-			de_lz77buffer_copy_from_hist(hb->ring, (UI)(d-1-dist), (UI)len);
-			d += len;
+			de_lz77buffer_copy_from_hist(hb->ring, (UI)(hb->ring->curpos-1-dist), (UI)len);
 			s += 3;
 		}
 		else {
 			len = ((i64)flag & 0x3f) + 3;
 			dist = dbuf_getu16le(stage1_out, src_pos+s+2);
-			de_lz77buffer_copy_from_hist(hb->ring, (UI)(d-1-dist), (UI)len);
-			d += len;
+			de_lz77buffer_copy_from_hist(hb->ring, (UI)(hb->ring->curpos-1-dist), (UI)len);
 			s += 4;
 		}
 	}
-	return d - dest_off;
 }
 
 // Walks Stage-1 output as u16-length-prefixed chunks (length includes the
 // chunk's own flag byte). Flag byte 0 means already-literal; otherwise
 // chunk[1..] is escape-coded, expanded via ftc_lz_expand. Both paths append
 // into `hb`'s ring so back-references reach across chunk/block boundaries.
-static void ftc_decode_stage2(struct ftc_histbuf *hb, dbuf *stage1_out, unsigned int mode)
+static void ftc_decode_stage2(struct ftc_stage2state *hb, dbuf *stage1_out, unsigned int mode)
 {
 	i64 stage1_len = dbuf_get_length(stage1_out);
 	i64 p = 0;
@@ -1276,7 +1262,7 @@ static void ftc_decode_stage2(struct ftc_histbuf *hb, dbuf *stage1_out, unsigned
 			}
 		}
 		else {
-			ftc_lz_expand(hb, (i64)hb->ring->curpos, stage1_out, chunk_body_pos+1, body_len, mode);
+			ftc_lz_expand(hb, stage1_out, chunk_body_pos+1, body_len, mode);
 		}
 	}
 }
@@ -1399,13 +1385,11 @@ done:;
 // emits its output, and advances *pos. ctx->dec is intentionally NOT reset
 // between blocks -- the adaptive Huffman state / MRU rings persist across an
 // item; only the transmitted descriptor is rebuilt fresh each block.
-// Cross-block LZ back-references resolve through ctx->hb.ring, a persistent
-// window spanning the whole item.
+// Cross-block LZ back-references resolve through ctx->hb.ring.
 static void ftc_decode_block(struct ftc_ctx *ctx, i64 *pos, unsigned int mode)
 {
 	dbuf *stage1_out;
 	i64 new_pos = 0;
-	i64 block_start_pos;
 	i64 block_len;
 
 	if(ctx->failed) return;
@@ -1422,21 +1406,22 @@ static void ftc_decode_block(struct ftc_ctx *ctx, i64 *pos, unsigned int mode)
 		return;
 	}
 
-	// FIXME: I don't think abusing the ring buffer to hold *all* of the stage2
-	// output is justified. Suggest making both a ring buffer (64K?), and a
-	// dbuf for all of the output.
-	block_start_pos = (i64)ctx->hb.ring->curpos;
+	if(!ctx->hb.outf) {
+		ctx->hb.outf = dbuf_create_membuf(ctx->c, 0, 0);
+		dbuf_enable_wbuffer(ctx->hb.outf);
+	}
+	dbuf_empty(ctx->hb.outf);
+
 	ftc_decode_stage2(&ctx->hb, stage1_out, mode);
 	dbuf_close(stage1_out);
+	dbuf_flush(ctx->hb.outf);
 
 	if(ctx->hb.failed) {
 		ftc_fail(ctx, NULL); // "Stage-2 expansion failed (corrupt data, or output too large)"
 		return;
 	}
 
-	// ring never wraps over an item's lifetime (see fmtutil_ftcomp_codectype1),
-	// so this block's bytes are exactly ring->buf[block_start_pos, curpos).
-	block_len = (i64)ctx->hb.ring->curpos - block_start_pos;
+	block_len = ctx->hb.outf->len;
 
 	// Folds this block's measured output length into stream_pos, which seeds
 	// the NEXT block's digit-chain bit-field-width gate (fT19 never uses it).
@@ -1445,15 +1430,10 @@ static void ftc_decode_block(struct ftc_ctx *ctx, i64 *pos, unsigned int mode)
 	*pos = new_pos;
 
 	if(mode>=FTC_MODE_FT21) {
-		dbuf *input;
-
-		input = dbuf_create_membuf(ctx->c, block_len, 0);
-		dbuf_write(input, &ctx->hb.ring->buf[block_start_pos], block_len);
-		ftc_rle21(ctx, input, block_len);
-		dbuf_close(input);
+		ftc_rle21(ctx, ctx->hb.outf, ctx->hb.outf->len);
 	}
 	else {
-		dbuf_write(ctx->dcmpro->f, &ctx->hb.ring->buf[block_start_pos], block_len);
+		dbuf_copy(ctx->hb.outf, 0, ctx->hb.outf->len, ctx->dcmpro->f);
 	}
 }
 
@@ -1505,7 +1485,6 @@ void fmtutil_ftcomp_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	void *codec_private_params)
 {
 	struct ftc_ctx *ctx = NULL;
-	i64 ring_bufsize;
 	unsigned int i;
 
 	ctx = de_malloc(c, sizeof(struct ftc_ctx));
@@ -1522,34 +1501,20 @@ void fmtutil_ftcomp_codectype1(deark *c, struct de_dfilter_in_params *dcmpri,
 	ctx->inf = dcmpri->f;
 	ctx->inf_pos1 = dcmpri->pos;
 	ctx->inf_len = dcmpri->len;
-	// Sanity ceiling for ctx->hb growth, so a lying orig_len header can't
-	// exhaust memory: expected size plus a small margin. The DE_MAX_MALLOC
-	// clamp keeps the ring_bufsize doubling loop below from an unbounded header value.
 	ctx->hb.cap_limit = dcmpro->expected_len + 1024;
-	if(ctx->hb.cap_limit > DE_MAX_MALLOC) ctx->hb.cap_limit = DE_MAX_MALLOC;
 
 	ctx->dec.c = c;
 
 	acquire_ftctables(c, &ctx->dec);
 
-	// ring_bufsize: a power of 2 (for the ring's mask-based addressing) big
-	// enough to hold a whole item's decompressed output without wrapping.
-	ring_bufsize = FTC_LZWINDOW_LEN;
-	while(ring_bufsize < ctx->hb.cap_limit) ring_bufsize *= 2;
-	ctx->hb.ring = de_lz77buffer_create(c, (UI)ring_bufsize);
+	ctx->hb.ring = de_lz77buffer_create(c, FTC_LZWINDOW_LEN);
 	ctx->hb.ring->writebyte_cb = ftc_hist_append_cb;
 	ctx->hb.ring->userdata = (void*)&ctx->hb;
 
-	// Zero-fill the ring, then overlay ftc_preset_dict at its tail end
-	// (behind curpos 0). Via the ring's own mod-bufsize wraparound, a match
-	// distance reaching before the item's first byte resolves into the
-	// dict (nearest byte first); reaching further back resolves to 0. Since
-	// dist<=65535, the deepest reach (d=0, dist=65535) lands at
-	// ring_bufsize-65536 -- real position 0, or the zero-filled gap below
-	// the dict when ring_bufsize is larger -- never past position 0.
-	de_lz77buffer_clear(ctx->hb.ring, 0x00);
-	de_memcpy(&ctx->hb.ring->buf[ring_bufsize - FTC_PRESET_DICT_LEN], ctx->dec.tbls->ftc_preset_dict,
+	// Initialize the ring buffer with ftc_preset_dict.
+	de_memcpy(&ctx->hb.ring->buf[0], ctx->dec.tbls->ftc_preset_dict,
 		(size_t)FTC_PRESET_DICT_LEN);
+	de_lz77buffer_set_curpos(ctx->hb.ring, FTC_PRESET_DICT_LEN);
 
 	// One-time init: builds the descriptor tree from ftc_descriptor_weights,
 	// and (via ftc_ensure_digitchain_decoder) the fT19 digit-chain tree.
@@ -1576,6 +1541,7 @@ done:
 		fmtutil_huffman_destroy_decoder(c, ctx->dec.dec_descriptor);
 		fmtutil_huffman_destroy_decoder(c, ctx->dec.dec_digitchain);
 		de_lz77buffer_destroy(c, ctx->hb.ring);
+		dbuf_close(ctx->hb.outf);
 		de_free(c, ctx);
 	}
 	dres->bytes_consumed_valid = 1;
