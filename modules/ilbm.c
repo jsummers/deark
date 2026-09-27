@@ -159,8 +159,9 @@ typedef struct localctx_ilbm {
 	struct frame_ctx *oldfrctx[2];
 	i64 pal_ncolors; // Number of colors we read from the file
 	int pal_is_grayscale;
-	u32 pal_raw[256]; // Palette as read from the file
-	u32 pal[256]; // Palette that we will use
+	de_color pal_raw[256]; // Palette as read from the file
+	de_color pal[256]; // Palette that we will use
+	de_color pal_alt[256];
 	u8 delta_ops_used[256];
 } lctx;
 
@@ -2180,7 +2181,7 @@ static void render_pixel_row_ham6(deark *c, lctx *d, i64 rownum, const u32 *rowb
 	cb = DE_COLOR_B(d->pal[0]);
 
 	for(i=0; i<rowbuf_size; i++) {
-		u32 clr;
+		de_color clr;
 		u8 val = rowbuf[i] & 0xff;
 
 		switch((val>>4)&0x3) {
@@ -2218,7 +2219,7 @@ static void render_pixel_row_ham8(deark *c, lctx *d, i64 rownum, const u32 *rowb
 	cb = DE_COLOR_B(d->pal[0]);
 
 	for(i=0; i<rowbuf_size; i++) {
-		u32 clr;
+		de_color clr;
 		u8 val = rowbuf[i] & 0xff;
 
 		switch((val>>6)&0x3) {
@@ -2432,7 +2433,7 @@ static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct fram
 			i64 i;
 
 			for(i=0; i<rowbuf_size; i++) {
-				u32 clr;
+				de_color clr;
 
 				if(rowbuf_trns[i]==0) {
 					clr = de_bitmap_getpixel(img, i, j);
