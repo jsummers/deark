@@ -17,10 +17,10 @@ DE_DECLARE_MODULE(de_module_mrnz);
 
 #define CMPR_NONE    0
 #define CMPR_XOR     1
-#define CMPR_LZSS18  2 // Used by KWAJ:2 and SZ
+#define CMPR_LZSS18  2 // Used by KWAJ:2, SZDD:B and SZ
 #define CMPR_LZHUFF  3
 #define CMPR_MSZIP   4
-#define CMPR_LZSS16  65536 // Used by SZDD
+#define CMPR_LZSS16  65536 // Used by SZDD:A
 
 typedef struct localctx_mscompress {
 	int fmt;
