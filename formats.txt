@@ -347,7 +347,7 @@ Deark -- Information about supported formats
 
 * ILBM and related IFF-based images (module="ilbm")
   - Supports ILBM, ACBM, PBM, RGBN, RGB8
-  - Supports MLDF (Mean Streets), if a palette is present
+  - Supports MLDF (Mean Streets). Some files need a separate palette file.
   - Supports 1-8 bit paletted, 24-bit truecolor
   - Supports HAM6, HAM8, Halfbrite
   - Supports color-keyed and bitmask transparency
@@ -359,6 +359,8 @@ Deark -- Information about supported formats
    -opt ilbm:fixpal=<0|1> - Don't/Do try to correct palettes that seem to have
      fewer than 8 bits of precision.
    -opt ilbm:allowspecial - Don't stop after certain errors.
+   -opt palfile=<file.cma> - [MLDF only] File to read the palette from. Ignored
+     if the main file has a palette.
 
 * Image Gallery GAL (module="imggal_alch")
   Image catalog file from Image Gallery by Alchemy Mindworks.

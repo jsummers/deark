@@ -118,7 +118,7 @@ typedef struct localctx_ilbm {
 	u8 opt_allowmldfnopal;
 	u8 opt_anim_includedups;
 	u8 found_bmhd;
-	u8 found_cmap;
+	u8 found_cmap; // = a colormap was found in the main file
 	u8 cmap_changed_flag;
 	u8 bmhd_changed_flag;
 	u8 camg_changed_flag;
@@ -159,6 +159,7 @@ typedef struct localctx_ilbm {
 	struct frame_ctx *oldfrctx[2];
 	i64 pal_ncolors; // Number of colors we read from the file
 	int pal_is_grayscale;
+	u8 have_pal_alt;
 	de_color pal_raw[256]; // Palette as read from the file
 	de_color pal[256]; // Palette that we will use
 	de_color pal_alt[256];
@@ -1132,6 +1133,23 @@ static void fixup_palette(deark *c, lctx *d)
 // Called when we encounter a BODY or DLTA or TINY chunk
 static void do_before_image_chunk(deark *c, lctx *d)
 {
+	u8 have_cmap;
+
+	have_cmap = d->found_cmap;
+
+	if(d->formtype==CODE_MLDF && d->planes_raw<=8 &&
+		!d->found_cmap && d->have_pal_alt)
+	{
+		i64 k;
+
+		de_dbg(c, "[using external palette]");
+		for(k=0; k<256; k++) {
+			d->pal[k] = d->pal_alt[k];
+		}
+		d->cmap_changed_flag = 1;
+		have_cmap = 1;
+	}
+
 	if(d->bmhd_changed_flag || d->camg_changed_flag) {
 		if(d->ham_flag) {
 			if(d->planes_raw==6 || d->planes_raw==5) {
@@ -1145,7 +1163,7 @@ static void do_before_image_chunk(deark *c, lctx *d)
 			}
 		}
 
-		if(!d->found_cmap && d->planes_raw<=8) {
+		if(!have_cmap && d->planes_raw<=8) {
 			de_make_grayscale_palette(d->pal, (i64)1<<(UI)d->planes_raw, 0);
 		}
 
@@ -1214,10 +1232,11 @@ static int init_imgbody_info(deark *c, lctx *d, struct imgbody_info *ibi, int is
 		}
 	}
 
-	if(d->formtype==CODE_MLDF && !d->found_cmap && !d->opt_allowmldfnopal) {
+	if(d->formtype==CODE_MLDF && d->planes_raw<=8 && !d->found_cmap &&
+		!d->have_pal_alt && !d->opt_allowmldfnopal)
+	{
 		de_err(c, "Paletted image with no palette "
-			"(\"-opt ilbm:allowspecial\" to decode anyway)");
-		// TODO: Allow an external .CMA palette file to be supplied.
+			"(try \"-opt palfile\" or \"-opt ilbm:allowspecial\")");
 		goto done;
 	}
 
@@ -2802,6 +2821,61 @@ static void strip_trailing_space_sz(char *sz)
 	}
 }
 
+// TODO: Consolidate this with the main CMAP chunk handler function.
+// Returns 0 on fatal error.
+static int read_alt_palfile_if_needed(deark *c, lctx *d)
+{
+	const char *palfn;
+	dbuf *palfile = NULL;
+	int retval = 0;
+	int saved_indent_level;
+	i64 dlen;
+	i64 ncolors;
+	u8 need_errmsg = 0;
+	u32 id;
+	i64 pos = 0;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	palfn = de_get_ext_option(c, "palfile");
+	if(!palfn) palfn = de_get_ext_option(c, "file2");
+	if(!palfn) {
+		retval = 1;
+		goto done;
+	}
+
+	de_dbg(c, "[reading palette from alternate file]");
+	de_dbg_indent(c, 1);
+
+	palfile = dbuf_open_input_file(c, palfn);
+	if(!palfile) {
+		goto done;
+	}
+
+	id = (u32)dbuf_getu32be_p(palfile, &pos);
+	if(id!=CODE_CMAP) {
+		need_errmsg = 1;
+		goto done;
+	}
+
+	dlen = dbuf_getu32be_p(palfile, &pos);
+
+	ncolors = dlen/3;
+	if(ncolors>256) ncolors=256;
+
+	de_read_palette_rgb(palfile, pos, ncolors, 3, d->pal_alt, ncolors, 0);
+	d->have_pal_alt = 1;
+	retval = 1;
+
+done:
+	dbuf_close(palfile);
+	if(need_errmsg) {
+		de_err(c, "Bad palette file");
+	}
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
 static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 {
 	u32 id;
@@ -2912,6 +2986,10 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 		d->trans_setting = TRANS_REMOVE;
 	}
 
+	if(d->formtype==CODE_MLDF) {
+		if(!read_alt_palfile_if_needed(c, d)) goto done;
+	}
+
 	d->FORM_level = d->is_anim ? 1 : 0;
 
 	ictx = fmtutil_create_iff_decoder(c);
@@ -2988,6 +3066,7 @@ static void do_help_ilbm_anim(deark *c, int is_anim)
 	de_msg(c, "-opt ilbm:fixpal=<0|1> : Don't/Do try to fix palettes that are "
 		"slightly too dark");
 	de_msg(c, "-opt ilbm:allowspecial : Suppress an error on some images");
+	de_msg(c, "-opt palfile : (MLDF only)");
 	if(is_anim) {
 		de_msg(c, "-opt anim:includedups : Do not suppress duplicate frames");
 	}
