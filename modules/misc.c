@@ -1150,7 +1150,7 @@ void de_module_lzss_oku(deark *c, struct deark_module_info *mi)
 // **************************************************************************
 
 // Used by lzhuf and jfx1.
-static void lzhuf_main(deark *c, i64 pos1, i64 orig_len, i64 cmpr_len)
+static void lzhuf_main(deark *c, i64 pos1, i64 cmpr_len, i64 orig_len)
 {
 	dbuf *outf = NULL;
 	struct de_dfilter_in_params dcmpri;
@@ -1172,6 +1172,11 @@ static void lzhuf_main(deark *c, i64 pos1, i64 orig_len, i64 cmpr_len)
 	dbuf_flush(outf);
 	if(dres.errcode) {
 		de_err(c, "Decompression failed: %s", de_dfilter_get_errmsg(c, &dres));
+		goto done;
+	}
+	if(dres.bytes_consumed_valid) {
+		de_dbg(c, "Decompressed %"I64_FMT" bytes to %"I64_FMT,
+			dres.bytes_consumed, outf->len);
 	}
 done:
 	dbuf_close(outf);
@@ -1179,15 +1184,35 @@ done:
 
 static void de_run_lzhuf(deark *c, de_module_params *mparams)
 {
-	i64 orig_len;
+	i64 orig_len = 0;
+	i64 dpos;
+	i64 dlen;
+	u8 custom_fmt = 0;
+	const char *s;
 
-	// We're assuming the size field is 4 bytes, little-endian. (But it could
-	// be platform-specific.)
+	s = de_get_ext_option(c, "lzhuf:olen");
+	if(s) {
+		orig_len = de_atoi64(s);
+		custom_fmt = 1;
+	}
+
+	dpos = 0;
+	dlen = c->infile->len;
+
+	if(custom_fmt) {
+		;
+	}
+	else {
+		// We're assuming the size field is 4 bytes, little-endian. (But it could
+		// be platform-specific.)
 #define LZHUF_HDRSIZE 4
 #define LZHUF_IS_LE   1
-	orig_len = dbuf_getint_ext(c->infile, 0, LZHUF_HDRSIZE, LZHUF_IS_LE, 0);
-	de_dbg(c, "orig len: %"I64_FMT, orig_len);
-	lzhuf_main(c, LZHUF_HDRSIZE, orig_len, c->infile->len-LZHUF_HDRSIZE);
+		orig_len = dbuf_getint_ext(c->infile, 0, LZHUF_HDRSIZE, LZHUF_IS_LE, 0);
+		dpos += LZHUF_HDRSIZE;
+		dlen -= LZHUF_HDRSIZE;
+		de_dbg(c, "orig len: %"I64_FMT, orig_len);
+	}
+	lzhuf_main(c, dpos, dlen, orig_len);
 }
 
 void de_module_lzhuf(deark *c, struct deark_module_info *mi)
@@ -1210,7 +1235,7 @@ static void de_run_jfx1(deark *c, de_module_params *mparams)
 	de_dbg(c, "orig len: %"I64_FMT, orig_len);
 	cmpr_len = de_getu32le(8);
 	de_dbg(c, "cmpr len: %"I64_FMT, cmpr_len);
-	lzhuf_main(c, 12, orig_len, cmpr_len);
+	lzhuf_main(c, 12, cmpr_len, orig_len);
 }
 
 static int de_identify_jfx1(deark *c)

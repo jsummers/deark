@@ -408,6 +408,12 @@ static void lzhuf_Decode_init(struct lzahuf_ctx *cctx)
 		cctx->dpparam_mask = 0xff;
 	}
 
+	if(cctx->num_special_codes==0 && !cctx->dcmpro->len_known) {
+		// Probably an internal error. No "stop condition".
+		cctx->errflag = 1;
+		goto done;
+	}
+
 	cctx->lzhuf_N_CHAR = 256 + cctx->num_special_codes + cctx->num_length_codes;
 	if(cctx->lzhuf_N_CHAR > LZHUF_MAX_N_CHAR) {
 		cctx->errflag = 1;
