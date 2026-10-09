@@ -28,6 +28,7 @@ DE_DECLARE_MODULE(de_module_zpk2);
 DE_DECLARE_MODULE(de_module_iconheaven);
 DE_DECLARE_MODULE(de_module_cork);
 DE_DECLARE_MODULE(de_module_artipack);
+DE_DECLARE_MODULE(de_module_tlzrw1_lzh);
 
 static int dclimplode_header_at(deark *c, i64 pos)
 {
@@ -3492,4 +3493,295 @@ void de_module_artipack(deark *c, struct deark_module_info *mi)
 	mi->desc = "ARTIPACK archive (Artisoft)";
 	mi->run_fn = de_run_artipack;
 	mi->identify_fn = de_identify_artipack;
+}
+
+// **************************************************************************
+// TLzrw1 LZH format,
+// and possibly other formats with the same "!HZL" signature.
+// **************************************************************************
+
+#define HZL_MINMEMBERLEN 12
+#define HZL_MAX_ORIG_SIZE 10000000
+
+struct hzl_ctx {
+	u8 tmp_bytes_consumed_valid;
+	i64 tmp_bytes_consumed;
+};
+
+// TODO: Make this a library function?
+static void ucstring_tolower(de_ucstring *s)
+{
+	i64 i;
+
+	if(!s) return;
+	for(i=0; i<s->len; i++) {
+		if(s->str[i]>='A' && s->str[i]<='Z') {
+			s->str[i] += 32;
+		}
+	}
+}
+
+static void hzl_decompressor_fn(struct de_arch_member_data *md)
+{
+	struct hzl_ctx *hctx = (struct hzl_ctx*)md->d->userdata;
+
+	fmtutil_lh1_codectype1(md->c, md->dcmpri, md->dcmpro, md->dres, NULL);
+	hctx->tmp_bytes_consumed_valid = md->dres->bytes_consumed_valid;
+	hctx->tmp_bytes_consumed = md->dres->bytes_consumed;
+}
+
+// Caller creates/destroys md, and sets a few fields.
+static void hzl_do_member(deark *c, de_arch_lctx *d,
+	struct de_arch_member_data *md)
+{
+	struct hzl_ctx *hctx = (struct hzl_ctx*)d->userdata;
+	i64 pos = md->member_hdr_pos;
+	i64 fnlen;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	md->cmpr_pos = d->cmpr_data_curpos;
+
+	de_dbg(c, "member #%u at %"I64_FMT, (UI)md->member_idx, md->member_hdr_pos);
+	de_dbg_indent(c, 1);
+
+	fnlen = (i64)de_getbyte_p(&pos);
+	if(fnlen<1 || fnlen>12) {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+	dbuf_read_to_ucstring(c->infile, pos, fnlen, md->filename, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	pos += fnlen;
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+
+	pos += 2; // attribs, probably
+	de_arch_read_field_dttm_p(d, &md->fi->timestamp[DE_TIMESTAMPIDX_MODIFY], "mod",
+		DE_ARCH_TSTYPE_DOS_TD, &pos);
+	de_arch_read_field_orig_len_p(md, &pos);
+	if(md->orig_len > HZL_MAX_ORIG_SIZE) {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+		goto done;
+	}
+	md->cmpr_pos = pos;
+	md->cmpr_len = c->infile->len - md->cmpr_pos; // cmpr_len is unknown until we decompress
+	if(!de_arch_good_cmpr_data_pos(md)) {
+		goto done;
+	}
+
+	md->dfn = hzl_decompressor_fn;
+
+	hctx->tmp_bytes_consumed_valid = 0;
+	hctx->tmp_bytes_consumed = 0;
+
+	de_arch_extract_member_file(md);
+
+	if(!md->extracted_ok) goto done;
+	if(hctx->tmp_bytes_consumed_valid) {
+		pos += hctx->tmp_bytes_consumed;
+		md->member_total_size = pos - md->member_hdr_pos;
+	}
+	else {
+		d->fatalerrflag = 1;
+		d->need_errmsg = 1;
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+// .ARK format maybe only used by one program,
+// K-Chess Elite (Rob McDonell, ARK ANGLES).
+static void do_hzl_fmt3(deark *c, de_arch_lctx *d)
+{
+	i64 pos;
+	i64 idx;
+	struct de_arch_member_data *md = NULL;
+
+	idx = 0;
+	pos = 4;
+	while(1) {
+		if(pos+HZL_MINMEMBERLEN > c->infile->len) goto done;
+		if(md) {
+			de_arch_destroy_md(c, md);
+		}
+		md = de_arch_create_md(c, d);
+		md->member_idx = idx++;
+		md->member_hdr_pos = pos;
+
+		hzl_do_member(c, d, md);
+
+		if(d->fatalerrflag || !md->extracted_ok ||
+			md->member_total_size<HZL_MINMEMBERLEN)
+		{
+			goto done;
+		}
+		pos += md->member_total_size;
+	}
+
+done:
+	de_arch_destroy_md(c, md);
+}
+
+static void do_hzl_fmt12(deark *c, de_arch_lctx *d)
+{
+	struct de_arch_member_data *md = NULL;
+	de_ucstring *tmpext = NULL;
+	i64 pos;
+
+	md = de_arch_create_md(c, d);
+	pos = 4;
+
+	de_arch_read_field_orig_len_p(md, &pos);
+	if(md->orig_len > HZL_MAX_ORIG_SIZE) {
+		d->need_errmsg = 1;
+		goto done;
+	}
+	if(d->fmtcode==2) {
+		tmpext = ucstring_create(c);
+		dbuf_read_to_ucstring(c->infile, 9, 3, tmpext, DE_CONVFLAG_STOP_AT_NUL,
+			d->input_encoding);
+		ucstring_tolower(tmpext);
+		if(ucstring_isnonempty(tmpext)) {
+			de_finfo_set_name_from_ucstring(c, md->fi, tmpext, 0);
+		}
+		pos += 4;
+	}
+	md->cmpr_pos = pos;
+	md->cmpr_len = c->infile->len - md->cmpr_pos;
+
+	md->dfn = hzl_decompressor_fn;
+
+	de_arch_extract_member_file(md);
+
+done:
+	de_arch_destroy_md(c, md);
+	ucstring_destroy(tmpext);
+}
+
+static int hzl_valid_ext_char(u8 ch)
+{
+	if((ch>='A' && ch<='Z') || (ch>='0' && ch<='9')) return 1;
+	return 0;
+}
+
+static int hzl_could_be_var3(deark *c, de_arch_lctx *d)
+{
+	i64 pos = 4;
+	i64 fnlen;
+	i64 n;
+	u8 b;
+
+	fnlen = (i64)de_getbyte_p(&pos);
+	// Min fnlen in files known to exist is 9.
+	if(fnlen<8 || fnlen>12) return 0;
+	// TODO?: Could sanity-check the filename.
+	pos += fnlen;
+	b = de_getbyte(pos-4);
+	if(b != '.') return 0;
+	n = de_getu16le_p(&pos);
+	if(n!=0x20 && n!=0) return 0;
+	pos += 4;
+	n = de_getu32le_p(&pos);
+	if(n>HZL_MAX_ORIG_SIZE) return 0;
+	return 1;
+}
+
+static int hzl_could_be_var2(deark *c, de_arch_lctx *d)
+{
+	u8 buf[4];
+	i64 orig_len;
+	size_t i;
+
+	de_read(buf, 8, 4);
+	if(buf[0]!='.') return 0;
+
+	orig_len = de_getu32le(4);
+	if(orig_len>HZL_MAX_ORIG_SIZE) return 0;
+
+	for(i=1; i<4; i++) {
+		if(buf[i]==0) return 1;
+		if(!hzl_valid_ext_char(buf[1])) return 0;
+	}
+	return 1;
+}
+
+// Sets d->fmtcode.
+static void hzl_detect_fmt(deark *c, de_arch_lctx *d)
+{
+	if(hzl_could_be_var3(c, d)) {
+		d->fmtcode = 3;
+	}
+	else if(hzl_could_be_var2(c, d)) {
+		d->fmtcode = 2;
+	}
+	else {
+		d->fmtcode = 1;
+	}
+}
+
+static void de_run_tlzrw1_lzh(deark *c, de_module_params *mparams)
+{
+	de_arch_lctx *d = NULL;
+	struct hzl_ctx *hctx = NULL;
+	const char *s;
+
+	hctx = de_malloc(c, sizeof(struct hzl_ctx));
+	d = de_arch_create_lctx(c);
+	d->userdata = (void*)hctx;
+	d->is_le = 1;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
+
+	s = de_get_ext_option(c, "tlzrw1_lzh:fmt");
+	if(s) {
+		d->fmtcode = de_atoi(s);
+	}
+	if(d->fmtcode==0) {
+		hzl_detect_fmt(c, d);
+	}
+	de_dbg(c, "format variant: %u", d->fmtcode);
+
+	if(d->fmtcode==3) {
+		do_hzl_fmt3(c, d);
+	}
+	else if(d->fmtcode==1 || d->fmtcode==2) {
+		do_hzl_fmt12(c, d);
+	}
+	else {
+		d->need_errmsg = 1;
+		goto done;
+	}
+
+done:
+	if(d) {
+		if(d->need_errmsg) {
+			de_err(c, "Bad or unsupported TLzrw1/HZL file");
+		}
+		de_arch_destroy_lctx(c, d);
+	}
+	de_free(c, hctx);
+}
+
+static int de_identify_tlzrw1_lzh(deark *c)
+{
+	if(dbuf_memcmp(c->infile, 0, (const void*)"!HZL", 4)) {
+		return 0;
+	}
+	return 92;
+}
+
+static void de_help_tlzrw1_lzh(deark *c)
+{
+	de_msg(c, "-opt tlzrw1_lzh:fmt=<1|2|3> : Specify the format variant");
+}
+
+void de_module_tlzrw1_lzh(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "tlzrw1_lzh";
+	mi->desc = "TLzrw1 LZH compressed file";
+	mi->run_fn = de_run_tlzrw1_lzh;
+	mi->identify_fn = de_identify_tlzrw1_lzh;
+	mi->help_fn = de_help_tlzrw1_lzh;
 }

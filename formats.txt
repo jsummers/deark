@@ -1325,6 +1325,12 @@ in the readme file.)
 * tar (module="tar")
   - Rare files may need "-m tar", as tar is difficult to autodetect.
 
+* TLzrw1 LZH (module="tlzrw1_lzh") (experimental)
+  A format associated with a Delphi compression library.
+  - Several different variants are supported.
+  Options
+   -opt tlzrw1_lzh:fmt=<1|2|3> : Specify the format variant.
+
 * TPK (module="tpk") (experimental)
   An obscure LHA-like archive format.
 
