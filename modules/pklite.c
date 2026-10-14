@@ -183,6 +183,7 @@ struct decompr_internal_state {
 	u8 has_uncompressed_area;
 	i64 dcmpr_code_nbytes_written;
 	i64 dcmpr_cur_ipos;
+	i64 unc_area_wpos; // # of bytes written as of the end of the last unc. area
 	struct de_bitbuf_lowlevel bbll;
 	struct fmtutil_huffman_decoder *lengths_tree;
 	struct fmtutil_huffman_decoder *offsets_tree;
@@ -1196,7 +1197,7 @@ static void do_uncompressed_area(deark *c, struct decompr_internal_state *dctx,
 	// The only files that I have, that use an uncompressed area, are
 	// registered versions of PKZIP.EXE. When they decompress themselves
 	// (e.g., use UNP) 9 bytes of what looks like garbage appear before the
-	// uncompressed bytes. Probably, whatever happened to be in memory is
+	// uncompressed bytes. Possibly, whatever happened to be in memory is
 	// just left there by the decompressor.
 	// Based on the PKLITE 2.01 documentation, in the original file, an
 	// uncompressed area is marked by an 8-byte signature, which is followed
@@ -1207,25 +1208,56 @@ static void do_uncompressed_area(deark *c, struct decompr_internal_state *dctx,
 	// (Granted, files made at PKWARE, like PKZIP.EXE, might well have used a
 	// different signature. But there's no way for me to know that.)
 	//
-	// It doesn't really matter what we write here, anyway. After an
-	// uncompressed area, the "match" codes never seem to refer to any of the
-	// bytes in the uncompressed area, or before it. In effect, the history
-	// buffer gets cleared.
+	// ---
 	//
-	// To emphasize this, we won't even add these bytes to the history buffer,
-	// and we'll clear the history buffer before continuing.
+	// For PKZIP 2.04g+, after an uncompressed area, nothing in history at
+	// that time is ever used again. So it doesn't matter what we write to
+	// history.
+	//
+	// Unfortunately, that's not the case for PKZIP 2.04c and 2.04e. They are
+	// compressed with a prototype (read: buggy) version of PKLITE that
+	// handles uncompressed areas differently.
+	//
+	// We need to know *exactly* what state the history buffer is left in
+	// after an uncompressed reason. I've tried to figure it out, but so far
+	// without success (help wanted).
+	//
+	// If we don't get it right, the rest of the file will be corrupted.
+	// Instead of producing garbage, if we see a reference to unknown history,
+	// we fail completely.
+	//
+	// ---
+	//
+	// Research notes:
+	//
+	// These are the files I have with an uncompressed area:
+	//  PKZIP.EXE 2.04c, 41772 bytes in size
+	//  PKZIP.EXE 2.04e, 42861
+	//  PKZIP.EXE 2.04g, 42552
+	//  PKZIP.EXE 2.04g Shareware Marketing edition, 42632
+	//  PKZIP.EXE 2.04(g) French, 44020
+	//  PKZIP.EXE 2.06 (IBM), 49527
+	//  PKZIP.EXE 2.50, 51308
+	//
+	// v2.04c seems to get away with this carelessness, maybe just by luck.
+	//
+	// But v2.04e seems buggy. Decompress it with, say, UNP.
+	// In a hex editor, search for the signature "PKt0". Everything more than
+	// 64 bytes after the start of the siguature should be the same in every
+	// file, even those modified by PUTAV. But the two bytes 326 bytes after
+	// the start of the signature decompress differently in modified files.
 
 	for(i=0; i<8; i++) {
-		ringbuf->writebyte_cb(ringbuf, uasig[i]);
+		de_lz77buffer_add_literal_byte(ringbuf, uasig[i]);
 	}
-	ringbuf->writebyte_cb(ringbuf, (u8)len);
+	de_lz77buffer_add_literal_byte(ringbuf, (u8)len);
 
 	for(i=0; i<len; i++) {
 		b = dbuf_getbyte_p(dctx->inf, &dctx->dcmpr_cur_ipos);
-		ringbuf->writebyte_cb(ringbuf, b);
+		de_lz77buffer_add_literal_byte(ringbuf, b);
 	}
 
-	de_lz77buffer_clear(ringbuf, 0);
+	dctx->unc_area_wpos = dctx->dcmpr_code_nbytes_written;
 }
 
 // Decompress the main part of the file.
@@ -1405,6 +1437,15 @@ static void do_decompress(deark *c, lctx *d)
 
 		if(c->debug_level>=3) {
 			de_dbg3(c, "match pos=%u len=%u", matchpos, matchlen);
+		}
+
+		if(dctx->has_uncompressed_area &&
+			matchpos>(dctx->dcmpr_code_nbytes_written - dctx->unc_area_wpos))
+		{
+			de_err(c, "Don't know how to decompress this file (problem with uncompressed area)");
+			d->errflag = 1;
+			d->errmsg_handled = 1;
+			goto after_dcmpr;
 		}
 
 		// PKLITE confirmed to use distances 1 to 8191. Have not observed matchpos=0.
