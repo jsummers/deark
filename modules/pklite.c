@@ -1210,16 +1210,16 @@ static void do_uncompressed_area(deark *c, struct decompr_internal_state *dctx,
 	//
 	// ---
 	//
-	// For PKZIP 2.04g+, after an uncompressed area, nothing in history at
-	// that time is ever used again. So it doesn't matter what we write to
-	// history.
+	// For PKZIP 2.04g+, after an uncompressed area, no copy-from-history
+	// instructions ever refer to that area, or anything before it. So, it
+	// doesn't matter what we write to history.
 	//
 	// Unfortunately, that's not the case for PKZIP 2.04c and 2.04e. They are
-	// compressed with a prototype (read: buggy) version of PKLITE that
-	// handles uncompressed areas differently.
+	// compressed with an internal version of PKLITE for which this feature
+	// was new, and worked differently, and was apparently buggy.
 	//
-	// We need to know *exactly* what state the history buffer is left in
-	// after an uncompressed reason. I've tried to figure it out, but so far
+	// We need to know *exactly* what state our history buffer should be in
+	// after an uncompressed area. I've tried to figure it out, but so far
 	// without success (help wanted).
 	//
 	// If we don't get it right, the rest of the file will be corrupted.
