@@ -1022,15 +1022,20 @@ static int detect_lhark_sfx(deark *c, struct fmtutil_exe_info *ei,
 	int found;
 	i64 foundpos = 0;
 	i64 cs, ip;
+	i64 n;
 
 	if(ei->num_relocs != 0) return 0;
 	if(ei->regSP != 128) return 0;
 	if(ei->start_of_dos_code != 32) return 0;
+	n = ei->end_of_dos_code - ei->entry_point;
+	// v0.3e: 22
+	// v0.3o - 0.4d: 19
+	if(n!=19 && n!=22) return 0;
 
 	// LHARK SFX uses a modified LZEXE 0.91 decompressor.
 	// Try to find the original entry point, and record it in regCS_2/regIP_2.
-	ip = dbuf_getu16le(ei->f, ei->entry_point+0x0f);
-	cs = dbuf_getu16le(ei->f, ei->entry_point+0x11);
+	ip = dbuf_getu16le(ei->f, ei->end_of_dos_code-4);
+	cs = dbuf_getu16le(ei->f, ei->end_of_dos_code-2);
 	if(!is_lzexe091_entry_point(ei, cs, ip)) {
 		return 0;
 	}
