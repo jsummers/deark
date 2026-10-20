@@ -640,6 +640,15 @@ void de_lz77buffer_set_curpos(struct de_lz77buffer *rb, UI newpos)
 	rb->curpos = newpos & rb->mask;
 }
 
+// Add a byte only to history, without emitting it to the output file.
+// (If you also want to write a different byte to the output file, consider
+// calling rb->writebyte_cb() directly.)
+void de_lz77buffer_add_history_byte(struct de_lz77buffer *rb, u8 b)
+{
+	rb->buf[rb->curpos] = b;
+	rb->curpos = (rb->curpos+1) & rb->mask;
+}
+
 void de_lz77buffer_add_literal_byte(struct de_lz77buffer *rb, u8 b)
 {
 	rb->writebyte_cb(rb, b);

@@ -42,7 +42,6 @@ struct ver_info_struct {
 	char pklver_str[40];
 };
 
-
 #define PKL_DVER_UNKNOWN  0
 #define PKL_DVER_MAYBETA  10005
 #define PKL_DVER_JULBETA  10007
@@ -181,6 +180,7 @@ struct decompr_internal_state {
 	dbuf *inf;
 	const struct decompr_params_struct *dparams;
 	u8 has_uncompressed_area;
+	u8 allow_unc_area_in_history;
 	i64 dcmpr_code_nbytes_written;
 	i64 dcmpr_cur_ipos;
 	i64 unc_area_wpos; // # of bytes written as of the end of the last unc. area
@@ -1188,7 +1188,18 @@ static void do_uncompressed_area(deark *c, struct decompr_internal_state *dctx,
 	UI len;
 	UI i;
 	u8 b;
-	const u8 *uasig = (const u8*)"PKLITE\x26\xa3";
+	static const u8 uasig[9] = {'P', 'K', 'L', 'I', 'T', 'E', 0x26, 0xa3 };
+	struct pklhisthack_item {
+		u32 pos; // Relative to start_of_dos_code (most likely 96)
+		u8 bytes[9];
+	};
+	static const struct pklhisthack_item pklhisthack_arr[] = {
+		{ 19652, { 0xb8, 0x1d, 0xf9, 0x7f, 0x17, 0x14, 0xd3, 0xb5, 0xbe } }, // PKZIP 2.04c-reg
+		{ 20084, { 0xaa, 0x8a, 0x07, 0xa4, 0x89, 0xc9, 0x97, 0x21, 0x58 } } // PKZIP 2.04e-reg
+	};
+	u8 use_histhack = 0;
+	UI histhack_item_to_use = 0;
+	UI k;
 
 	dctx->has_uncompressed_area = 1;
 	len = (UI)dbuf_getbyte_p(dctx->inf, &dctx->dcmpr_cur_ipos);
@@ -1212,32 +1223,26 @@ static void do_uncompressed_area(deark *c, struct decompr_internal_state *dctx,
 	//
 	// For PKZIP 2.04g+, after an uncompressed area, no copy-from-history
 	// instructions ever refer to that area, or anything before it. So, it
-	// doesn't matter what we write to history.
+	// doesn't matter what we write to history. (We'll just write zeroes.)
 	//
 	// Unfortunately, that's not the case for PKZIP 2.04c and 2.04e. They are
 	// compressed with an internal version of PKLITE for which this feature
 	// was new, and worked differently, and was apparently buggy.
-	//
-	// We need to know *exactly* what state our history buffer should be in
-	// after an uncompressed area. I've tried to figure it out, but so far
-	// without success (help wanted).
-	//
-	// If we don't get it right, the rest of the file will be corrupted.
-	// Instead of producing garbage, if we see a reference to unknown history,
-	// we fail completely.
+	// The 9 mystery bytes do participate in the compression of the rest of
+	// the file, so we have to figure out what they are.
+	// They appear in the compressed data, but I haven't figured out the
+	// logic for where they appear.
+	// For now, we'll just do an ugly hack to support the two known files,
+	// PKZIP.EXE 2.04{c,e}-reg.
 	//
 	// ---
 	//
 	// Research notes:
 	//
-	// These are the files I have with an uncompressed area:
-	//  PKZIP.EXE 2.04c, 41772 bytes in size
-	//  PKZIP.EXE 2.04e, 42861
-	//  PKZIP.EXE 2.04g, 42552
-	//  PKZIP.EXE 2.04g Shareware Marketing edition, 42632
-	//  PKZIP.EXE 2.04(g) French, 44020
-	//  PKZIP.EXE 2.06 (IBM), 49527
-	//  PKZIP.EXE 2.50, 51308
+	// Examples of files with an uncompressed area:
+	//  PKZIP.EXE 2.04c-reg, 41772 bytes in size
+	//  PKZIP.EXE 2.04e-reg, 42861
+	//  PKZIP.EXE 2.04g-reg, 42552
 	//
 	// v2.04c seems to get away with this carelessness, maybe just by luck.
 	//
@@ -1245,16 +1250,57 @@ static void do_uncompressed_area(deark *c, struct decompr_internal_state *dctx,
 	// In a hex editor, search for the signature "PKt0". Everything more than
 	// 64 bytes after the start of the siguature should be the same in every
 	// file, even those modified by PUTAV. But the two bytes 326 bytes after
-	// the start of the signature decompress differently in modified files.
+	// the start of the signature decompress differently in modified files,
+	// because they are copied from bytes modified by PUTAV.
 
-	for(i=0; i<8; i++) {
-		de_lz77buffer_add_literal_byte(ringbuf, uasig[i]);
+	// Test if the mystery bytes appear in one of the known places.
+	// If so, enable hackery.
+	for(k=0; k<DE_ARRAYCOUNT(pklhisthack_arr); k++) {
+		if(!dbuf_memcmp(dctx->inf,
+			dctx->d->host_ei->start_of_dos_code+(i64)pklhisthack_arr[k].pos,
+			pklhisthack_arr[k].bytes, 9))
+		{
+			use_histhack = 1;
+			histhack_item_to_use = k;
+			break;
+		}
 	}
-	de_lz77buffer_add_literal_byte(ringbuf, (u8)len);
 
+	dctx->allow_unc_area_in_history = use_histhack;
+
+	// The 9 bytes to write to history
+	for(i=0; i<9; i++) {
+		if(use_histhack) {
+			de_lz77buffer_add_history_byte(ringbuf,
+				pklhisthack_arr[histhack_item_to_use].bytes[i]);
+		}
+		else {
+			de_lz77buffer_add_history_byte(ringbuf, 0);
+		}
+	}
+
+	// The 9 bytes to write to the output file
+	for(i=0; i<8; i++) {
+		ringbuf->writebyte_cb(ringbuf, uasig[i]);
+	}
+	ringbuf->writebyte_cb(ringbuf, (u8)len);
+
+	// The uncompressed payload
 	for(i=0; i<len; i++) {
 		b = dbuf_getbyte_p(dctx->inf, &dctx->dcmpr_cur_ipos);
-		de_lz77buffer_add_literal_byte(ringbuf, b);
+		if(use_histhack) {
+			// Writing these bytes to history can't really be the "correct" thing
+			// to do, not if these bytes can be modified after compression.
+			// But it is what these actual compressed files do.
+			// If we know what the bytes were when the file was compressed (and
+			// we probably do), we *could* "fix" it by writing the original bytes
+			// to history instead of the current ones.
+			de_lz77buffer_add_history_byte(ringbuf, b);
+		}
+		else {
+			de_lz77buffer_add_history_byte(ringbuf, 0);
+		}
+		ringbuf->writebyte_cb(ringbuf, b);
 	}
 
 	dctx->unc_area_wpos = dctx->dcmpr_code_nbytes_written;
@@ -1439,7 +1485,7 @@ static void do_decompress(deark *c, lctx *d)
 			de_dbg3(c, "match pos=%u len=%u", matchpos, matchlen);
 		}
 
-		if(dctx->has_uncompressed_area &&
+		if(dctx->has_uncompressed_area && !dctx->allow_unc_area_in_history &&
 			matchpos>(dctx->dcmpr_code_nbytes_written - dctx->unc_area_wpos))
 		{
 			de_err(c, "Don't know how to decompress this file (problem with uncompressed area)");
