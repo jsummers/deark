@@ -84,6 +84,7 @@ typedef struct localctx_pklite {
 	u8 load_high;
 	u8 has_psp_sig;
 	u8 psp_sig_type;
+	u8 has_startup_patch;
 	int default_code_alignment;
 	struct decompr_params_struct dparams;
 
@@ -157,6 +158,11 @@ typedef struct localctx_pklite {
 	i64 cmpr_reloc_tbl_len;
 	i64 cmpr_data_area_endpos; // where the footer ends
 	i64 footer_pos; // 0 if unknown
+
+	i64 startup_patch_pos; // valid if has_startup_patch
+	i64 adjusted_host_entry_point;
+	i64 saved_orig_host_entry_point;
+
 	struct footer_struct footer;
 	UI ax_val;
 	u8 using_copy_of_exe_header;
@@ -990,12 +996,22 @@ static void do_analyze_pklite_exe(deark *c, lctx *d)
 	}
 
 	if(d->data_before_decoder) {
-		d->approx_end_of_decompressor = d->host_ei->end_of_dos_code - d->host_ei->entry_point;
+		if(d->has_startup_patch) {
+			d->approx_end_of_decompressor = d->startup_patch_pos - d->host_ei->entry_point;
+		}
+		else {
+			d->approx_end_of_decompressor = d->host_ei->end_of_dos_code - d->host_ei->entry_point;
+		}
 		d->cmpr_data_area_endpos = d->host_ei->entry_point;
 	}
 	else {
 		d->approx_end_of_decompressor = d->dparams.cmpr_data_pos - d->host_ei->entry_point;
-		d->cmpr_data_area_endpos = d->host_ei->end_of_dos_code;
+		if(d->has_startup_patch) {
+			d->cmpr_data_area_endpos = d->saved_orig_host_entry_point;
+		}
+		else {
+			d->cmpr_data_area_endpos = d->host_ei->end_of_dos_code;
+		}
 	}
 	de_dbg(c, "approx end of decompressor: ep+%"I64_FMT, d->approx_end_of_decompressor);
 
@@ -2611,6 +2627,38 @@ done:
 	}
 }
 
+static void pkl_detect_pklaxfix(deark *c, lctx *d)
+{
+	i64 regCS_2;
+	i64 regIP_2;
+	i64 pos1 = d->host_ei->end_of_dos_code-17;
+
+	if(d->host_ei->entry_point != pos1) return;
+	if(de_getbyte(pos1+8)!=0x05 ||
+		de_getbyte(pos1+12)!=0xb8)
+	{
+		return;
+	}
+	regCS_2 = de_geti16le(pos1+9);
+	regIP_2 = de_getu16le(pos1+13);
+	d->has_startup_patch = 1;
+	d->startup_patch_pos = pos1;
+	d->adjusted_host_entry_point = d->host_ei->start_of_dos_code + regCS_2*16 + regIP_2;
+}
+
+// This is an experiment in supporting lightly-patched PKLITE files, for which
+// it's okay to throw away the patch.
+// TODO: As of this writing, these files are not detected by the "exe" module,
+// so they don't work automatically. Need to figure out how to do that, without
+// duplicating too much code, or making an ugly mess. And it probably should
+// work consistently with how the LHARK-SFX and PCX2EXE patched LZEXE files work.
+//
+// If a patch is found, sets d->has_startup_patch, and related things.
+static void pkl_detect_startup_patch(deark *c, lctx *d)
+{
+	pkl_detect_pklaxfix(c, d);
+}
+
 static void do_pklite_exe(deark *c, lctx *d)
 {
 	const char *s;
@@ -2626,6 +2674,14 @@ static void do_pklite_exe(deark *c, lctx *d)
 	}
 
 	fmtutil_collect_exe_info(c, c->infile, d->host_ei);
+
+	pkl_detect_startup_patch(c, d);
+	if(d->has_startup_patch) {
+		de_dbg(c, "[startup patch detected]");
+		d->saved_orig_host_entry_point = d->host_ei->entry_point;
+		// Changing host_ei->entry_point is a hack, but it makes it easier.
+		d->host_ei->entry_point = d->adjusted_host_entry_point;
+	}
 
 	de_read(d->epbytes, d->host_ei->entry_point, EPBYTES_LEN);
 	d->intro_class_fmtutil = fmtutil_detect_pklite_by_exe_ep(c, d->epbytes, EPBYTES_LEN, 0xff);
