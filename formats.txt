@@ -942,6 +942,11 @@ in the readme file.)
   - Essentially all compression methods are supported, except for the PAK
     (NoGate) extensions.
 
+* ARC self-extracting archive - COM format (module="arc_sfx_com")
+  Currently, this module only supports some PKARC distribution files.
+  Some other ARC-SFX-COM files are handled by the "arc" module.
+  Some ARC-SFX-EXE files are hanled by the "exe" module.
+
 * ArcFS (module="arcfs")
 
 * ArcMac (module="arcmac") (experimental)

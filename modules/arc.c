@@ -12,6 +12,7 @@
 DE_DECLARE_MODULE(de_module_arc);
 DE_DECLARE_MODULE(de_module_spark);
 DE_DECLARE_MODULE(de_module_arcmac);
+DE_DECLARE_MODULE(de_module_arc_sfx_com);
 
 #define FMT_ARC 1
 #define FMT_SPARK 2
@@ -1741,4 +1742,112 @@ void de_module_arcmac(deark *c, struct deark_module_info *mi)
 	mi->desc = "ArcMac compressed archive";
 	mi->run_fn = de_run_arcmac;
 	mi->identify_fn = de_identify_arcmac;
+}
+
+// **************************************************************************
+// Misc. ARC SFX COM formats
+// **************************************************************************
+
+// Note that some EXE SFX formats are handled by the exe module.
+
+// TODO?: Some SEA-ARC SFX files are handed as ARC files by the "arc" module.
+// Maybe they should be handled here instead, and converted to ARC.
+
+// This is really just for a few specific known files -- distributions of PKARC
+// and PKFIND.
+//
+// If there are any more files of this type, they must be pretty rare, or hard
+// to spot. But there *should* at least be one for PKXARC 3.2 and/or PKARC 1.1.
+
+struct arcsfx_id_item {
+	u16 fmt_id; // arbitrary
+	u16 payload_pos;
+	u16 payload_len;
+	u16 sig1pos;
+	// I'd like sig1 to contain a pointer to the payload start or end or
+	// size, but I don't know how to do that for all files.
+	u8 sig1[8];
+};
+static const struct arcsfx_id_item arcsfx_id_arr[] = {
+	{ 100, 4564, 21086, 1513, {0xc7,0x06,0x4f,0xc6,0x0a,0x00,0xb8,0x01} }, // PKARC10.COM
+	{ 101, 5012, 47756,  922, {0xe8,0x02,0x00,0x5d,0xc3,0x55,0x83,0xec} }, // PKX33A12.COM
+	{ 102,  912, 52097,  879, {0x61,0x04,0xb8,0x11,0xd0,0x2b,0xc6,0x3d} }, // PKX34A20.COM var1
+	{ 103,  910, 52095,  879, {0x04,0xb8,0x0d,0xd0,0x2b,0xc6,0x3d,0x00} }, // PKX34A20.COM var2
+	{ 110,  910, 10249,  879, {0x04,0xb8,0x98,0x2c,0x2b,0xc6,0x3d,0x00} }  // PKFIND10.COM
+};
+
+// On success, returns nonzero and sets *pindex to an item in arcsfx_id_arr.
+static int identify_arcsfx_main(deark *c, UI *pindex)
+{
+	UI k;
+
+	*pindex = 0;
+	for(k=0; k<DE_ARRAYCOUNT(arcsfx_id_arr); k++) {
+		const struct arcsfx_id_item *item;
+
+		item = &arcsfx_id_arr[k];
+		if(dbuf_memcmp(c->infile, item->sig1pos, item->sig1, 8)) {
+			continue;
+		}
+
+		// Verify that we have what looks like ARC data.
+		if(de_getbyte(item->payload_pos) != 0x1a) {
+			continue;
+		}
+		if((UI)de_getu16be(item->payload_pos+item->payload_len-2) != 0x1a00) {
+			continue;
+		}
+
+		*pindex = k;
+		return 1;
+	}
+	return 0;
+}
+
+static void de_run_arc_sfx_com(deark *c, de_module_params *mparams)
+{
+	UI index;
+	int ret;
+	const struct arcsfx_id_item *item;
+
+	ret = identify_arcsfx_main(c, &index);
+	if(!ret) {
+		de_err(c, "Unknown ARC SFX format");
+		goto done;
+	}
+	item = &arcsfx_id_arr[index];
+	de_dbg2(c, "fmtid: %u", item->fmt_id);
+	de_dbg(c, "payload pos: %u, len=%u", (UI)item->payload_pos,
+		(UI)item->payload_len);
+	dbuf_create_file_from_slice(c->infile, item->payload_pos, item->payload_len,
+		"arc", NULL, 0);
+done:
+	;
+}
+
+static int de_identify_arc_sfx_com(deark *c)
+{
+	UI n;
+
+	if(c->infile->len>65280) return 0;
+	n = (UI)de_getu16be(0);
+	if(n!=0xfab8) return 0;
+	n = (UI)de_getu32be(4);
+	if(n!=0x051000b1U) return 0;
+	n = (UI)de_getu32be(867);
+	if(n!=0x3400ff36U && n!=0x558bec8bU && n!=0xc07414a1U) {
+		return 0;
+	}
+	if(identify_arcsfx_main(c, &n)) {
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_arc_sfx_com(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "arc_sfx_com";
+	mi->desc = "ARC self-extracting archive (COM)";
+	mi->run_fn = de_run_arc_sfx_com;
+	mi->identify_fn = de_identify_arc_sfx_com;
 }
