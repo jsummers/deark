@@ -15,6 +15,7 @@ struct color32desc_type {
 };
 
 typedef struct localctx_sunras {
+	u8 errflag;
 	i64 npwidth, height;
 	i64 pdwidth;
 	UI depth;
@@ -122,12 +123,6 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 	u8 nonport_warn_flag = 0;
 	i64 dst_bypp;
 
-	if(d->depth!=1 && d->depth!=4 && d->depth!=8 && d->depth!=16 &&
-		d->depth!=24 && d->depth!=32)
-	{
-		de_err(c, "Bit depth %u not supported", d->depth);
-		goto done;
-	}
 	if(d->depth==16) {
 		nonport_warn_flag = 1;
 	}
@@ -161,8 +156,6 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 	if(nonport_warn_flag) {
 		de_warn(c, "This image type might not be portable");
 	}
-
-	if(!de_good_image_dimensions(c, d->npwidth, d->height)) goto done;
 
 	d->src_bypp = (i64)d->depth/8;
 
@@ -209,7 +202,6 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 
 	de_bitmap_write_to_file(img, NULL, 0);
 
-done:
 	de_bitmap_destroy(img);
 }
 
@@ -271,6 +263,20 @@ static void read_header(deark *c, lctx *d, i64 pos)
 	de_dbg(c, "map type=%u (%s), len=%"I64_FMT, d->maptype,
 		get_map_type_name(d->maptype), d->maplen);
 
+	if(d->depth!=1 && d->depth!=4 && d->depth!=8 && d->depth!=16 &&
+		d->depth!=24 && d->depth!=32)
+	{
+		de_err(c, "Bit depth %u not supported", d->depth);
+		d->errflag = 1;
+		goto done;
+	}
+
+	if(!de_good_image_dimensions(c, d->npwidth, d->height)) {
+		d->errflag = 1;
+		goto done;
+	}
+
+done:
 	de_dbg_indent(c, -1);
 }
 
@@ -343,6 +349,7 @@ static void de_run_sunras(deark *c, de_module_params *mparams)
 
 	pos = 0;
 	read_header(c, d, pos);
+	if(d->errflag) goto done;
 	pos += 32;
 
 	if(pos >= c->infile->len) goto done;
