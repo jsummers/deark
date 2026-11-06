@@ -699,6 +699,9 @@
     <ClInclude Include="..\..\foreign\ftcompdata.h">
       <Filter>Foreign Code</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\foreign\rcl.h">
+      <Filter>Foreign Code</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\..\src\deark.rc">

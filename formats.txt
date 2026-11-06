@@ -350,6 +350,7 @@ Deark -- Information about supported formats
   - Supports MLDF (Mean Streets). Some files need a separate palette file.
   - Supports 1-8 bit paletted, 24-bit truecolor
   - Supports HAM6, HAM8, Halfbrite
+  - Supports DCTV images (experimental)
   - Supports color-keyed and bitmask transparency
   - Extract thumbnails from TINY chunks
   - Extract text from ANNO chunks (use -a)

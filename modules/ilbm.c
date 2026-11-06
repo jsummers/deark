@@ -8,6 +8,9 @@
 #include <deark-config.h>
 #include <deark-private.h>
 #include <deark-fmtutil.h>
+
+#include "../foreign/rcl.h"
+
 DE_DECLARE_MODULE(de_module_ilbm);
 DE_DECLARE_MODULE(de_module_anim);
 DE_DECLARE_MODULE(de_module_deep);
@@ -113,10 +116,10 @@ typedef struct localctx_ilbm {
 	u8 trans_setting;
 	u8 fixpal_setting;
 	u8 opt_allowsham;
-	u8 opt_allowdctv;
 	u8 opt_allowhame;
 	u8 opt_allowmldfnopal;
 	u8 opt_anim_includedups;
+	u8 enable_dctv;
 	u8 found_bmhd;
 	u8 found_cmap; // = a colormap was found in the main file
 	u8 cmap_changed_flag;
@@ -1108,6 +1111,12 @@ static void fixup_palette(deark *c, lctx *d)
 
 	if(d->pal_ncolors<1) return;
 	if(d->formtype==CODE_RGBN || d->formtype==CODE_RGB8) return;
+	// TODO?: It's not clear what we should do about DCTV images, where the
+	// palette has a special function.
+	// But we don't yet know whether the image is DCTV, so that's a problem.
+	// Currently, the DCTV decoder does *not* use the fixed-up palette (it
+	// uses pal_raw); but we may print a misleading dbg message about
+	// "Rescaling palette".
 
 	if(d->is_ham8) {
 		pal_fixup6(c, d);
@@ -1354,6 +1363,7 @@ done:
 }
 
 static void write_frame(deark *c, lctx *d, struct imgbody_info *ibi, struct frame_ctx *frctx);
+static void write_frame_dctv(deark *c, lctx *d, struct imgbody_info *ibi, struct frame_ctx *frctx);
 
 static void do_dlta(deark *c, lctx *d, i64 pos1, i64 len)
 {
@@ -1792,7 +1802,6 @@ static int is_dctv_sig_at(dbuf *f, i64 pos)
 	return 1;
 }
 
-// Detect and warn about DCTV, which we don't support.
 static void detect_dctv(deark *c, lctx *d, struct imgbody_info *ibi,
 	struct frame_ctx *frctx)
 {
@@ -1829,16 +1838,11 @@ static void detect_dctv(deark *c, lctx *d, struct imgbody_info *ibi,
 
 	if(!result) return;
 
-	if(d->opt_allowdctv) {
+	d->is_dctv = 1;
+	de_dbg(c, "[DCTV detected]");
+	if(!d->enable_dctv) {
 		de_warn(c, "This is probably a DCTV image, which is not supported correctly.");
 	}
-	else {
-		de_err(c, "DCTV images are not supported. "
-			"(\"-opt ilbm:allowspecial\" to decode anyway)");
-		d->errflag = 1;
-	}
-
-	d->is_dctv = 1;
 }
 
 // BODY/ABIT/TINY
@@ -1910,7 +1914,12 @@ static int do_image_chunk_internal(deark *c, lctx *d, struct frame_ctx *frctx, i
 	detect_dctv(c, d, ibi, frctx);
 	detect_hame(c, d, ibi, frctx);
 
-	write_frame(c, d, ibi, frctx);
+	if(d->is_dctv && d->enable_dctv) {
+		write_frame_dctv(c, d, ibi, frctx);
+	}
+	else {
+		write_frame(c, d, ibi, frctx);
+	}
 
 	retval = 1;
 
@@ -2488,6 +2497,98 @@ done:
 	de_free(c, rowbuf_trns);
 }
 
+// TODO?: Integrate the DCTV decoder cleanly into the write_frame() function,
+// or do something else to make this be less of a hack.
+static void write_frame_dctv(deark *c, lctx *d, struct imgbody_info *ibi, struct frame_ctx *frctx)
+{
+	RECOIL *rcl = NULL;
+	RECOILResolution res;
+	u8 *content = NULL;
+	i64 bytesPerLine;
+	i64 unpacked_len;
+	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
+	UI createflags = 0;
+	i64 i, j;
+	i64 ncolumns;
+	u8 dctv_errflag = 0;
+
+	if(ibi->planes_total != ibi->planes_fg) {
+		dctv_errflag = 1;
+		goto done;
+	}
+	if((ibi->bytes_per_row_per_plane & 1)!=0) {
+		dctv_errflag = 1;
+		goto done;
+	}
+
+	// FIXME: This is pretty bad. RECOIL keeps its raw image data in a
+	// different order than we do. We should probably edit the RECOIL_Get*Pixel
+	// functions to use Deark's style of image data. But the easiest way to get
+	// this to work was to make a copy of the image data, translated to
+	// RECOIL's order.
+	bytesPerLine = ((ibi->width + 15) >> 4 << 1) * ibi->planes_total;
+	unpacked_len = bytesPerLine * ibi->height;
+	content = de_malloc(c, unpacked_len);
+	ncolumns = ibi->bytes_per_row_per_plane / 2;
+	for(j=0; j<ibi->height; j++) {
+		i64 pl;
+		i64 k;
+
+		for(k=0; k<ncolumns; k++) {
+			for(pl=0; pl<ibi->planes_total; pl++) {
+				dbuf_read(frctx->frame_buffer,
+					&content[ibi->frame_buffer_rowspan * j + ibi->planes_total*2*k + 2*pl],
+					ibi->frame_buffer_rowspan * j + ibi->bytes_per_row_per_plane*pl + 2*k, 2);
+			}
+		}
+	}
+
+	rcl = RECOIL_New(c);
+
+	res = RECOILResolution_AMIGA1X1;
+	res = RECOIL_GetAmigaAspectRatio((int)d->x_aspect, (int)d->y_aspect, res);
+
+	img = de_bitmap_create(c, ibi->width, ibi->height, 3);
+	rcl->de_img = img;
+
+	for(i=0; i<d->pal_ncolors; i++) {
+		rcl->contentPalette[i] = (int)(d->pal_raw[i] & 0x00ffffff);
+	}
+
+	RECOIL_DecodeDctv(rcl, content, (int)ibi->width, (int)ibi->height, res, (int)ibi->planes_total);
+
+	de_dbg(c, "adjusted dimensions: %d" DE_CHAR_TIMES "%d", rcl->width, rcl->height);
+	// TODO: As it is, images will have 1 or 2 lines of black pixels at the
+	// bottom. We should probably crop them off, or make them transparent.
+
+	fi = de_finfo_create(c);
+	set_finfo_data(c, d, ibi, fi);
+	if(ibi->is_thumb) {
+		createflags |= DE_CREATEFLAG_IS_AUX;
+	}
+
+	// I have at least one image whose density seems bad, or it's intended
+	// to refer to something other than the dimensions in the BMHD chunk.
+	if(res==RECOILResolution_AMIGA2X1 && fi->density.code!=DE_DENSITY_UNKNOWN &&
+		fi->density.ydens>fi->density.xdens)
+	{
+		fi->density.code = DE_DENSITY_UNKNOWN;
+	}
+
+	de_bitmap_write_to_file_finfo(img, fi, createflags);
+
+done:
+	RECOIL_Delete(rcl);
+	de_free(c, content);
+	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
+	if(dctv_errflag) {
+		de_err(c, "Unsupported type of DCTV image");
+		d->errflag = 1;
+	}
+}
+
 static void on_frame_begin(deark *c, lctx *d, u32 formtype)
 {
 	if(d->frctx) return;
@@ -2900,10 +3001,11 @@ static void de_run_ilbm_or_anim(deark *c, de_module_params *mparams)
 
 	if(de_get_ext_option_bool(c, "ilbm:allowspecial", 0)) {
 		d->opt_allowsham = 1;
-		d->opt_allowdctv = 1;
 		d->opt_allowhame = 1;
 		d->opt_allowmldfnopal = 1;
 	}
+	d->enable_dctv = 1;
+
 	// allowsham is deprecated
 	opt = de_get_ext_option_bool(c, "ilbm:allowsham", -1);
 	if(opt==0) d->opt_allowsham = 0;

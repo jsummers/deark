@@ -153,7 +153,8 @@ $(OBJDIR)/modules/id3.o: modules/id3.c src/deark-private.h src/deark.h \
 $(OBJDIR)/modules/iff.o: modules/iff.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/ilbm.o: modules/ilbm.c src/deark-config.h \
- src/deark-private.h src/deark.h src/deark-fmtutil.h
+ src/deark-private.h src/deark.h src/deark-fmtutil.h \
+ modules/../foreign/rcl.h
 $(OBJDIR)/modules/insetpix.o: modules/insetpix.c src/deark-private.h \
  src/deark.h src/deark-config.h src/deark-fmtutil.h
 $(OBJDIR)/modules/installshld.o: modules/installshld.c \
