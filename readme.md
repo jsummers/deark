@@ -19,6 +19,9 @@ Windows binaries are available at the
 
 For additional information, see the [technical.md](technical.md) file.
 
+Additional security-related information may be available at the
+[website](https://entropymine.com/deark/security-info.html).
+
 ## Usage ##
 
     deark [options] [-file] <input-file> [options]
@@ -420,11 +423,11 @@ contributions of more than a few lines of code are unlikely to be accepted.
 It's okay to offer them, but please don't do a lot of work with the
 expectation that it will be accepted.
 
-Any code copyrighted by someone other than the main Deark developer(s) is only
-allowed in the "foreign" section of the project. Pointers to existing open
-source format decoders, that might be useful in Deark, are welcome. However,
-most such code will be rejected for one reason or another (incompatible
-license, too large, too trivial, etc.).
+Any code copyrighted by someone other than the main Deark developer(s) is
+generally only allowed in the "foreign" section of the project, though small
+exceptions may be made. Pointers to existing open source format decoders, that
+might be useful in Deark, are welcome. However, most such code will be rejected
+for one reason or another (incompatible license, too large, too trivial, etc.).
 
 ## How to build ##
 
@@ -444,7 +447,8 @@ Thanks to Haruyasu Yoshizaki and Haruhiko Okumura for the lzhuf.c decompressor.
 Thanks to Dimitriy Ryazantcev for the OS/2 PACK2 decompressor, and other OS/2
 code.
 
-Thanks to countless others who have documented the supported file formats.
+This list is not complete. Thanks to others as well, including those who have
+documented the supported file formats.
 
 ## Authors ##
 

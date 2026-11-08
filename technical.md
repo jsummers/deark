@@ -30,6 +30,9 @@ formats.
 
 ## Security ##
 
+See the [website](https://entropymine.com/deark/security-info.html) for
+additional notes about security.
+
 Deark is intended to be safe to use with untrusted input files, but there are
 no promises. It is written in C, and vulnerabilities very likely exist.
 
