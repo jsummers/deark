@@ -29,6 +29,8 @@ typedef struct localctx_struct {
 static int do_read_header(deark *c, lctx *d, i64 pos1)
 {
 	i64 pos = pos1;
+	UI encr_key;
+	int retval = 0;
 
 	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -46,8 +48,22 @@ static int do_read_header(deark *c, lctx *d, i64 pos1)
 	d->ver_minor = de_getbyte(pos++);
 	de_dbg(c, "version: %d.%d", (int)d->ver_major, (int)d->ver_minor);
 
+	if(d->ver_major!=1) {
+		// TODO: Support v2.
+		de_err(c, "Unsupported WPG version: %u", (UI)d->ver_major);
+		goto done;
+	}
+
+	encr_key = (UI)de_getu16le_p(&pos);
+	if(encr_key!=0) {
+		de_err(c, "Encryption not supported");
+		goto done;
+	}
+
+	retval = 1;
+done:
 	de_dbg_indent(c, -1);
-	return 1;
+	return retval;
 }
 
 typedef void (*record_handler_fn)(deark *c, lctx *d, u8 rectype, i64 dpos,

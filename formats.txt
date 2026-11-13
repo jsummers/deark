@@ -823,6 +823,7 @@ Deark -- Information about supported formats
 * Wiz Solitaire deck (module="wizsolitaire")
 
 * WordPerfect Graphics (module="wpg")
+  - Version 1 only
   - Extract bitmaps
 
 * X11 puzzle (module="xpuzzle")
